@@ -406,6 +406,15 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     cwd = input_data.get("cwd", "")
     source = input_data.get("source", "startup")
 
+    # V5 P0: log rotation — prevent runaway log bloat (114GB guardian-crash incident, 2026-05)
+    try:
+        from wg_core import rotate_log_if_oversized
+        rotate_log_if_oversized(WORKFLOW_DIR / "guardian-crash.log", max_mb=10)
+        rotate_log_if_oversized(WORKFLOW_DIR / "extract-worker.log", max_mb=10)
+        rotate_log_if_oversized(CLAUDE_DIR / "Logs" / "codex-companion.log", max_mb=10)
+    except Exception:
+        pass  # fail-open: rotation must never block SessionStart
+
     # ── V3/1.5A: SessionStart 去重 — 同 cwd 60s 內有活躍 state 則複用 ──
     sibling = None
     if source != "compact":

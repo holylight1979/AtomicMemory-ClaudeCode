@@ -117,6 +117,44 @@ def _estimate_tokens(text: str) -> int:
     return int(cjk * 1.5 + ascii_part * 0.25)
 
 
+def rotate_log_if_oversized(log_path: Path, max_mb: int = 10, keep: int = 3) -> bool:
+    """V5 P0: size-based log rotation. Fail-open.
+
+    Rotates `log_path` to `log_path.1` (.1->.2, .2->.3) when > max_mb.
+    Keeps last `keep` rotated copies. Returns True if rotated.
+    Handles Windows-locked / corrupt files gracefully (returns False).
+    """
+    try:
+        if not log_path.exists():
+            return False
+        size_mb = log_path.stat().st_size / (1024 * 1024)
+        if size_mb < max_mb:
+            return False
+        # Shift: .log.(keep-1) drops off, .log.N -> .log.(N+1)
+        for i in range(keep - 1, 0, -1):
+            src = log_path.with_suffix(log_path.suffix + f".{i}")
+            dst = log_path.with_suffix(log_path.suffix + f".{i+1}")
+            if src.exists():
+                try:
+                    if dst.exists():
+                        dst.unlink()
+                    src.rename(dst)
+                except OSError:
+                    pass
+        # current -> .log.1
+        rotated = log_path.with_suffix(log_path.suffix + ".1")
+        try:
+            if rotated.exists():
+                rotated.unlink()
+            log_path.rename(rotated)
+            log_path.touch()
+            return True
+        except OSError:
+            return False
+    except Exception:
+        return False
+
+
 # ─── State File I/O ──────────────────────────────────────────────────────────
 
 
