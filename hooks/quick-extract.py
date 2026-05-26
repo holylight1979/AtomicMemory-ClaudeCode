@@ -29,7 +29,7 @@ sys.path.insert(0, str(_CLAUDE_DIR / "tools"))
 
 # ─── imports ────────────────────────────────────────────────────────────────────
 
-from wg_hot_cache import write_hot_cache
+from wg_extraction import write_hot_cache
 
 # ─── constants ──────────────────────────────────────────────────────────────────
 

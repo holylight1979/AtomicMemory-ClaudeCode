@@ -1,0 +1,109 @@
+{
+  "schema_version": "1",
+  "_doc": "single source of truth for 反退避契約 forbidden phrases. Read by hooks/wg_evasion.py (regex assembly) and surfaced in IDENTITY.md (human-readable list).",
+  "categories": [
+    {
+      "id": "scope-evasion",
+      "label": "範圍推諉",
+      "patterns": [
+        "不在本[^，。\\s]{0,6}範圍",
+        "範圍外",
+        "非本次",
+        "非本次改動"
+      ],
+      "human": ["不在本範圍", "非本次改動", "範圍外"],
+      "exception": null
+    },
+    {
+      "id": "time-deferral",
+      "label": "時間性延後",
+      "patterns": [
+        "留給[^，。\\s]{0,4}未來",
+        "(?:下次|下回|下一次|之後|晚點|稍後|有空|有時間)\\s*再\\s*(?:處理|修|補|做|看|弄)?",
+        "未來[^，。\\s]{0,3}處理",
+        "待後續",
+        "另行處理",
+        "另外處理",
+        "先跳過",
+        "留給使用者"
+      ],
+      "human": ["留給未來 session", "下次/晚點/稍後再處理", "先跳過"],
+      "exception": null
+    },
+    {
+      "id": "precedent-drift",
+      "label": "前已存在搪塞",
+      "patterns": [
+        "既有[^，。\\s]{0,6}drift",
+        "既有[^，。\\s]{0,6}問題",
+        "pre-?existing"
+      ],
+      "human": ["既有 drift", "pre-existing"],
+      "exception": "除非附「檢測時點 + 不修的實際風險」"
+    },
+    {
+      "id": "capability-evasion",
+      "label": "能力推諉",
+      "patterns": [
+        "超出[^，。\\s]{0,4}能力"
+      ],
+      "human": ["超出能力範圍"],
+      "exception": "除非附「具體為什麼超出」"
+    },
+    {
+      "id": "scope-impact-dismiss",
+      "label": "影響輕忽",
+      "patterns": [
+        "不影響[^，。\\s]{0,4}主線"
+      ],
+      "human": ["不影響主線"],
+      "exception": null
+    }
+  ],
+  "dismiss_keywords": {
+    "_doc": "user 近 3 則 prompt 含這些 → 視為使用者放行，不標記 evasion（escape hatch）",
+    "patterns": [
+      "先這樣",
+      "留著",
+      "不用管",
+      "不要管",
+      "跳過",
+      "先跳過",
+      "known\\s+regression",
+      "confirmed\\s+regression"
+    ]
+  },
+  "scan_report_markers": {
+    "_doc": "合規完成報告必須出現下列其一（has_scan_report / detect_missing_scan_report 用）",
+    "patterns": [
+      "順手修補",
+      "順手修",
+      "附帶修補",
+      "發現[^，。\\n]{0,6}drift",
+      "本次[^，。\\n]{0,3}(?:無|沒有)[^，。\\n]{0,6}drift",
+      "無發現\\s*drift",
+      "無\\s*drift",
+      "no\\s+drift",
+      "掃描報告",
+      "drift\\s+(?:check|report)",
+      "需另開\\s*session",
+      "列入\\s*handoff"
+    ]
+  },
+  "completion_claim": {
+    "_doc": "完成宣告詞（claims_completion 用，案件結尾語）",
+    "patterns": [
+      "完成",
+      "已解決",
+      "全部做完",
+      "總結",
+      "收尾",
+      "done",
+      "finished",
+      "all\\s+set",
+      "wrapped\\s+up",
+      "大功告成",
+      "搞定"
+    ]
+  }
+}

@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlparse
 # Add parent dir to path for imports
 SERVICE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SERVICE_DIR))
-# V2.20: import wg_paths for centralized path resolution
+# V2.20: import wg_core for centralized path resolution
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 
 from config import load_config, VECTORDB_DIR
@@ -292,7 +292,7 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
 
         # Enrich each result with summary + triggers from the atom file
         # V2.20: use wg_paths for path resolution
-        from wg_paths import MEMORY_DIR as _mem_dir, discover_all_project_memory_dirs
+        from wg_core import MEMORY_DIR as _mem_dir, discover_all_project_memory_dirs
         _proj_dir_map = {s: d for s, d in discover_all_project_memory_dirs()}
         for r in results:
             file_path = r.get("file_path", "")

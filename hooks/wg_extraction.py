@@ -1,19 +1,27 @@
 """
-wg_extraction.py — Per-turn 萃取管線、Worker 管理、Failure 偵測
+wg_extraction.py — Per-turn 萃取管線 / Worker / Failure / User Signal /
+                   Hot Cache / Plan classify / Atom injection log（V5）
 
-Transcript 讀取、per-turn 增量萃取、failure keyword 偵測、
-extract-worker subprocess 管理。
+統合：
+- Transcript 讀取、per-turn 增量萃取、failure keyword 偵測、worker spawn（原 wg_extraction）
+- L0 User Decision Detector（前 wg_user_extract.detect_signal）
+- Hot Cache 讀寫（前 wg_hot_cache）
+- 內容分類 plan vs knowledge（前 wg_content_classify）
+- log_injection（前 wg_atom_observation — flag-gated 觀察日誌）
 """
 
 import json
 import os
+import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
-from wg_paths import CLAUDE_DIR, cwd_to_project_slug, get_transcript_path
 from wg_core import (
+    CLAUDE_DIR, WORKFLOW_DIR,
+    cwd_to_project_slug, get_transcript_path,
     _now_iso, _atom_debug_log, _atom_debug_error,
     write_state,
 )
@@ -24,7 +32,6 @@ from wg_atoms import _kw_match
 
 
 def _is_pid_alive(pid: int) -> bool:
-    """Check if a process is still running."""
     if not pid:
         return False
     if sys.platform == "win32":
@@ -47,40 +54,31 @@ def _is_pid_alive(pid: int) -> bool:
 
 # ─── Lease-based Concurrency ────────────────────────────────────────────────
 
-_DEFAULT_LEASE_TTL = 300  # 5 minutes
+_DEFAULT_LEASE_TTL = 300
 
 
 def _is_lease_valid(state: dict, key: str) -> bool:
-    """Check if a worker lease is still valid (not expired AND PID alive).
-
-    Lease format in state: {key}: {"pid": int, "expires_at": float}
-    Handles legacy format where {key} is a bare PID int.
-    """
-    import time as _time
+    """Check if a worker lease is still valid (not expired AND PID alive)."""
     lease = state.get(key)
     if not lease:
         return False
-    # Legacy: bare PID int → treat as expired (force migration)
     if isinstance(lease, int):
         return _is_pid_alive(lease)
     pid = lease.get("pid", 0)
     expires_at = lease.get("expires_at", 0)
-    if _time.time() > expires_at:
+    if time.time() > expires_at:
         return False
     return _is_pid_alive(pid)
 
 
 def _set_lease(state: dict, key: str, pid: int, ttl: int = _DEFAULT_LEASE_TTL) -> None:
-    """Write a lease entry into state."""
-    import time as _time
-    state[key] = {"pid": pid, "expires_at": _time.time() + ttl}
+    state[key] = {"pid": pid, "expires_at": time.time() + ttl}
 
 
 # ─── Transcript Helpers ──────────────────────────────────────────────────────
 
 
 def _find_transcript(session_id: str, cwd: str):
-    """Find session transcript JSONL file."""
     return get_transcript_path(session_id, cwd)
 
 
@@ -128,7 +126,6 @@ def _spawn_extract_worker(ctx_dict: dict) -> int:
             kwargs["start_new_session"] = True
         worker_log = CLAUDE_DIR / "workflow" / "extract-worker.log"
         worker_log_fh = open(worker_log, "a", encoding="utf-8")
-        # Force UTF-8 encoding in worker subprocess (prevents cp950 errors on CJK Windows)
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         try:
@@ -146,8 +143,6 @@ def _spawn_extract_worker(ctx_dict: dict) -> int:
             raise
         proc.stdin.write(json_ctx.encode("utf-8"))
         proc.stdin.close()
-        # Close our copy of the log fd — child process has its own fd via inheritance.
-        # Without this, this process holds the fd open until exit.
         worker_log_fh.close()
         return proc.pid
     except Exception as e:
@@ -167,7 +162,6 @@ def _maybe_spawn_per_turn_extraction(
     if not pt.get("enabled", False):
         return
 
-    # Cooldown check
     last_at = state.get("last_per_turn_extraction_at", "")
     if last_at:
         cooldown = pt.get("cooldown_seconds", 120)
@@ -178,11 +172,9 @@ def _maybe_spawn_per_turn_extraction(
         except (ValueError, TypeError):
             pass
 
-    # Concurrency guard (lease-based)
     if _is_lease_valid(state, "extract_worker_pid"):
         return
 
-    # Check new content since last extraction
     cwd = state.get("session", {}).get("cwd", "")
     transcript = _find_transcript(session_id, cwd)
     if not transcript:
@@ -198,12 +190,10 @@ def _maybe_spawn_per_turn_extraction(
     if new_chars < min_chars:
         return
 
-    # Resolve intent
     tracker = state.get("topic_tracker", {})
     dist = tracker.get("intent_distribution", {})
     intent = max(dist, key=dist.get, default="build") if dist else "build"
 
-    # Spawn worker
     worker_ctx = {
         "session_id": session_id,
         "cwd": cwd,
@@ -266,7 +256,6 @@ def _maybe_spawn_failure_extraction(
         except (ValueError, TypeError):
             pass
 
-    # Concurrency guard (lease-based)
     if _is_lease_valid(state, "failure_worker_pid"):
         return
 
@@ -293,3 +282,315 @@ def _maybe_spawn_failure_extraction(
             f"Spawned failure extraction (pid={pid}), prompt: {clean_prompt[:100]}",
             config,
         )
+
+
+# ─── L0 User Decision Detector (was wg_user_extract.detect_signal) ──────────
+
+_STRONG: List[Tuple[str, float]] = [
+    ("記住", 1.0), ("永遠", 1.0), ("從此", 1.0), ("以後都要", 1.0),
+    ("禁止", 1.0), ("一律", 1.0), ("統一", 1.0), ("決定", 1.0),
+    ("規定", 1.0), ("約定", 1.0),
+    ("remember", 1.0), ("always", 1.0), ("never", 1.0),
+    ("from now on", 1.0), ("must", 1.0),
+]
+_MEDIUM: List[Tuple[str, float]] = [
+    ("改用", 0.6), ("不要再", 0.6), ("下次", 0.6), ("固定", 0.6),
+    ("偏好", 0.6), ("我要", 0.6), ("我不要", 0.6),
+    ("prefer", 0.6), ("switch to", 0.6), ("stop using", 0.6),
+]
+_NEGATIVE: List[Tuple[str, float]] = [
+    ("也許", -0.8), ("可能", -0.8), ("試試", -0.8), ("好不好", -0.8),
+    ("maybe", -0.8), ("perhaps", -0.8), ("might", -0.8),
+]
+_ALL_KEYWORDS: List[Tuple[str, float]] = _STRONG + _MEDIUM + _NEGATIVE
+
+_SYNTAX_MODAL = re.compile(
+    r"[我我們](?:以後|之後|未來)?"
+    r"(?:要|會|得|該|必須|應該|都要|一定要|不要|不再|別再)"
+    r".{2,30}",
+)
+_SYNTAX_UNIFORM = re.compile(
+    r"(?:都|一律|固定|統一|全部)"
+    r"(?:用|改|換|採用|寫|設|跑|走|使用|改成)"
+    r".{1,30}",
+)
+_SYNTAX_NEGATE = re.compile(
+    r"(?:不要|不準|不可以|禁止|別|勿|停止|不用|不再)"
+    r"(?:用|寫|加|改|跑|裝|使用|建立|產生)"
+    r".{1,30}",
+)
+_SYNTAX_PATTERNS: List[Tuple[re.Pattern, str, float]] = [
+    (_SYNTAX_MODAL, "syntax:modal", 0.5),
+    (_SYNTAX_UNIFORM, "syntax:uniform", 0.5),
+    (_SYNTAX_NEGATE, "syntax:negate", 0.5),
+]
+
+_QUESTION_END = re.compile(r"[?？]$|嗎\s*$|呢\s*$")
+_CODE_FENCE = re.compile(r"^```", re.MULTILINE)
+_CODE_INDENT = re.compile(r"^    \S", re.MULTILINE)
+
+
+def _is_mostly_code(text: str) -> bool:
+    lines = text.split("\n")
+    if not lines:
+        return False
+    fence_count = len(_CODE_FENCE.findall(text))
+    if fence_count >= 2:
+        in_fence = False
+        code_lines = 0
+        for line in lines:
+            if _CODE_FENCE.match(line):
+                in_fence = not in_fence
+                code_lines += 1
+            elif in_fence:
+                code_lines += 1
+        if code_lines / len(lines) > 0.8:
+            return True
+    indent_lines = len(_CODE_INDENT.findall(text))
+    if indent_lines / len(lines) > 0.8:
+        return True
+    return False
+
+
+def _should_skip(prompt: str) -> bool:
+    stripped = prompt.strip()
+    if len(stripped) < 8 or len(stripped) > 500:
+        return True
+    if _QUESTION_END.search(stripped):
+        return True
+    if _is_mostly_code(stripped):
+        return True
+    return False
+
+
+_SIGNAL_THRESHOLD = 0.4
+
+
+def detect_signal(prompt: str) -> Dict:
+    """Detect user decision/preference signals in prompt text.
+
+    Returns {"signal": bool, "score": float, "matched": ["keyword1", "pattern2"]}
+    """
+    if _should_skip(prompt):
+        return {"signal": False, "score": 0.0, "matched": []}
+
+    prompt_lower = prompt.lower()
+    score = 0.0
+    matched: List[str] = []
+
+    for keyword, weight in _ALL_KEYWORDS:
+        if keyword in prompt_lower:
+            score += weight
+            matched.append(keyword)
+
+    for pattern, name, weight in _SYNTAX_PATTERNS:
+        if pattern.search(prompt):
+            score += weight
+            matched.append(name)
+
+    signal = score >= _SIGNAL_THRESHOLD
+    return {"signal": signal, "score": round(score, 2), "matched": matched}
+
+
+# ─── Hot Cache (was wg_hot_cache) ───────────────────────────────────────────
+
+HOT_CACHE_PATH = WORKFLOW_DIR / "hot_cache.json"
+LOCK_PATH = HOT_CACHE_PATH.with_suffix(".lock")
+
+
+def _acquire_lock(lock_path: Path):
+    """Acquire advisory lock. Returns (lock_fh, msvcrt_module) or (None, None)."""
+    if sys.platform == "win32":
+        try:
+            import msvcrt
+            fh = open(lock_path, "ab")
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            return fh, msvcrt
+        except OSError:
+            try:
+                fh.close()
+            except Exception:
+                pass
+            return None, None
+    else:
+        try:
+            import fcntl
+            fh = open(lock_path, "ab")
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fh, fcntl
+        except OSError:
+            try:
+                fh.close()
+            except Exception:
+                pass
+            return None, None
+
+
+def _release_lock(lock_fh, lock_module, lock_path: Path):
+    if lock_fh is None:
+        return
+    try:
+        if sys.platform == "win32":
+            lock_module.locking(lock_fh.fileno(), lock_module.LK_UNLCK, 1)
+        else:
+            lock_module.flock(lock_fh.fileno(), lock_module.LOCK_UN)
+    except OSError:
+        pass
+    lock_fh.close()
+    try:
+        lock_path.unlink()
+    except OSError:
+        pass
+
+
+def write_hot_cache(data: dict) -> None:
+    """Atomic write hot cache with advisory lock."""
+    WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = HOT_CACHE_PATH.with_suffix(".tmp")
+    lock_fh, lock_mod = _acquire_lock(LOCK_PATH)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(str(tmp_path), str(HOT_CACHE_PATH))
+    except OSError:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+    finally:
+        _release_lock(lock_fh, lock_mod, LOCK_PATH)
+
+
+def read_hot_cache(session_id: str) -> Optional[dict]:
+    """Read hot cache. Returns None if missing, wrong session, or already injected."""
+    if not HOT_CACHE_PATH.exists():
+        return None
+    lock_fh, lock_mod = _acquire_lock(LOCK_PATH)
+    try:
+        with open(HOT_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    finally:
+        _release_lock(lock_fh, lock_mod, LOCK_PATH)
+
+    if data.get("session_id") != session_id:
+        return None
+    if data.get("injected", True):
+        return None
+    return data
+
+
+def format_injection_line(data: dict, context: str = "") -> str:
+    """Format hot cache for UPS/PostToolUse injection. AUTO-DRAFT tag enforced."""
+    source = data.get("source", "?")
+    summary = data.get("summary", "")
+    tag = f"[HotCache:{source}"
+    if context:
+        tag += f"·{context}"
+    tag += " ⚠AUTO-DRAFT·[臨]]"
+    rule = " | 規則：auto-extract 僅供參考，未經 4+ session 驗證，禁止引用為事實、禁止以 [固]/[觀] 存入"
+    return f"{tag} {summary}{rule}"
+
+
+def mark_injected(session_id: str) -> bool:
+    """Atomically mark hot cache as injected. Returns True on success."""
+    lock_fh, lock_mod = _acquire_lock(LOCK_PATH)
+    try:
+        if not HOT_CACHE_PATH.exists():
+            return False
+        with open(HOT_CACHE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("session_id") != session_id:
+            return False
+        if data.get("injected", True):
+            return False
+        data["injected"] = True
+        tmp_path = HOT_CACHE_PATH.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(str(tmp_path), str(HOT_CACHE_PATH))
+        return True
+    except (OSError, json.JSONDecodeError):
+        return False
+    finally:
+        _release_lock(lock_fh, lock_mod, LOCK_PATH)
+
+
+# ─── Content Classify: plan vs knowledge (was wg_content_classify) ──────────
+
+PLAN_CONTENT_RE = re.compile(
+    r"(?i)"
+    r"(plan|todo|roadmap|draft|wip|scratch|調查|規劃|暫存)"
+    r"|phase[- _]?\d"
+    r"|設計方案|待辦|草稿|下一步|next[- _]?step|action[- _]?item"
+)
+
+PLAN_FACT_RE = re.compile(
+    r"(?i)"
+    r"(預計|計畫|規劃|打算|下一步|將要|準備|TODO|TBD|待確認|待實作|待處理)"
+    r"|(Phase\s*\d+\s*.{0,5}(預計|計畫|目標|排程))"
+    r"|(下個\s*(session|階段|sprint))"
+    r"|(尚未|還沒|未來|之後再)"
+)
+
+
+def is_plan_filename(filename: str) -> bool:
+    return bool(PLAN_CONTENT_RE.search(filename))
+
+
+def is_plan_content(text: str) -> bool:
+    if not text or len(text) < 10:
+        return False
+    return bool(PLAN_FACT_RE.search(text))
+
+
+def classify_extracted_item(item: dict) -> str:
+    content = item.get("content", "")
+    if is_plan_content(content):
+        return "plan"
+    return "knowledge"
+
+
+# ─── Atom Injection Observation Log (was wg_atom_observation.log_injection) ──
+
+_FLAG_PATH = CLAUDE_DIR / "memory" / "_staging" / "reg-005-observation-start.flag"
+_OBS_LOG_DIR = CLAUDE_DIR / "Logs"
+
+
+def _obs_flag_active() -> bool:
+    try:
+        return _FLAG_PATH.exists()
+    except OSError:
+        return False
+
+
+def log_injection(
+    session_id: str,
+    name: str,
+    classification: str,
+    source: str,
+) -> None:
+    """Append injection record to atom-injection-injections-YYYY-MM-DD.log.
+
+    Flag-gated（讀 reg-005-observation-start.flag）。flag 不存在 → 立即 return。
+    fail-open — 任何 OSError / encode error 不 raise，沉默吞掉。
+    """
+    if not _obs_flag_active():
+        return
+    try:
+        rec = {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "session_id": session_id,
+            "name": name,
+            "classification": classification,
+            "source": source,
+            "event": "atom_injected",
+        }
+        _OBS_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = _OBS_LOG_DIR / f"atom-injection-injections-{datetime.now().strftime('%Y-%m-%d')}.log"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except (OSError, TypeError, ValueError):
+        pass

@@ -14,7 +14,7 @@ import pytest
 # Ensure hooks/ is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 
-from wg_user_extract import detect_signal
+from wg_extraction import detect_signal
 
 # ─── Positive examples (should signal=True) ─────────────────────────────────
 

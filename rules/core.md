@@ -11,7 +11,7 @@
 
 ## 同步
 完成修改後主動提出：_AIDocs→_CHANGELOG | 新知識→atom | .git→commit+push | .svn→commit
-全部完成後呼叫 workflow_signal: sync_completed
+（git/svn clean 後 guardian Stop gate 會自動標 sync_completed，不需手動 IPC）
 
 ## 對話
 - 「用識流…」→ /consciousness-stream

@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 HOOKS_DIR = Path.home() / ".claude" / "hooks"
 sys.path.insert(0, str(HOOKS_DIR))
-from wg_paths import find_project_root, CLAUDE_DIR, MEMORY_DIR  # noqa: E402
+from wg_core import find_project_root, CLAUDE_DIR, MEMORY_DIR  # noqa: E402
 from wg_roles import get_current_user  # noqa: E402
 
 # S3.1: route undo/reject writes through atom_io funnel

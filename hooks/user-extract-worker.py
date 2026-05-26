@@ -32,7 +32,7 @@ _HOOKS_DIR = str(Path.home() / ".claude" / "hooks")
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from wg_paths import (
+from wg_core import (
     CLAUDE_DIR, WORKFLOW_DIR,
     cwd_to_project_slug, get_transcript_path, find_project_root,
 )
@@ -49,7 +49,7 @@ from lib.ollama_extract_core import (
     SessionBudgetTracker,
 )
 from lib.atom_io import write_atom
-from wg_session_evaluator import evaluate_session
+from wg_evasion import evaluate_session
 
 sys.path.insert(0, str(CLAUDE_DIR / "tools"))
 from ollama_client import get_client

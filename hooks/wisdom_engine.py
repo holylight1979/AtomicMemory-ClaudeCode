@@ -274,7 +274,7 @@ def _is_plan_iteration_path(norm_path: str) -> bool:
     if "/plans/" in norm_path or "/_staging/" in norm_path:
         return True
     try:
-        from wg_content_classify import is_plan_filename
+        from wg_extraction import is_plan_filename
     except ImportError:
         return False
     fname = norm_path.rsplit("/", 1)[-1] if "/" in norm_path else norm_path

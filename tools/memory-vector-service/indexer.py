@@ -20,10 +20,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-# V2.20: import wg_paths for centralized path logic
+# V2.20: import wg_core for centralized path logic
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 from ollama_client import get_client
-from wg_paths import CLAUDE_DIR, MEMORY_DIR, discover_memory_layers
+from wg_core import CLAUDE_DIR, MEMORY_DIR, discover_memory_layers
 COLLECTION_NAME = "atom_memory"
 
 # Atom 檔案排除清單
@@ -51,7 +51,7 @@ def discover_layers(
     global + shared:{slug} / role:{slug}:{r} / personal:{slug}:{u} 子層。
     kind ∈ {"recursive","flat-legacy","extra"}：indexer 用來決定是否遞迴。
     """
-    from wg_paths import discover_all_project_memory_dirs, discover_v4_sublayers
+    from wg_core import discover_all_project_memory_dirs, discover_v4_sublayers
 
     layers: List[Tuple[str, Path, str]] = []
 

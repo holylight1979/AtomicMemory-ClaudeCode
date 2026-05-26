@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional
 
 HOOKS_DIR = Path.home() / ".claude" / "hooks"
 sys.path.insert(0, str(HOOKS_DIR))
-from wg_paths import find_project_root  # noqa: E402
+from wg_core import find_project_root  # noqa: E402
 from wg_roles import (  # noqa: E402
     bootstrap_personal_dir,
     get_current_user,

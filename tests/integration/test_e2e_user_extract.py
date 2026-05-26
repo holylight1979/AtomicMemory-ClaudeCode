@@ -27,7 +27,7 @@ sys.path.insert(0, str(_CLAUDE_DIR / "hooks"))
 sys.path.insert(0, str(_CLAUDE_DIR / "tools"))
 sys.path.insert(0, str(_CLAUDE_DIR))
 
-from wg_user_extract import detect_signal
+from wg_extraction import detect_signal
 from lib.ollama_extract_core import SessionBudgetTracker, _estimate_tokens
 
 

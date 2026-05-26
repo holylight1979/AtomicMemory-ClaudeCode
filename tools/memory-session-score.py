@@ -17,7 +17,7 @@ from typing import List, Optional
 
 HOOKS_DIR = Path.home() / ".claude" / "hooks"
 sys.path.insert(0, str(HOOKS_DIR))
-from wg_paths import MEMORY_DIR  # noqa: E402
+from wg_core import MEMORY_DIR  # noqa: E402
 
 REFLECTION_METRICS_PATH = MEMORY_DIR / "wisdom" / "reflection_metrics.json"
 

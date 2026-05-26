@@ -303,81 +303,16 @@ function handleMessage(msg) {
 
 // ─── Tool Definitions ───────────────────────────────────────────────────────
 
+// V5 P2 (2026-05-26): 4 internal IPC tools removed from MCP surface
+// (workflow_status / workflow_signal / memory_queue_add / memory_queue_flush).
+// Reason: these are hook-internal state ops that should not appear in Claude's
+// tool menu. Replacements:
+//   - workflow_status     → 由 SessionStart hook 自動注入 state 摘要
+//   - workflow_signal     → Stop gate 自動偵測 git/svn clean 標 sync_completed
+//   - memory_queue_*      → 由 wg_extraction extract-worker 全自動處理
+// The toolXxx() handler functions below are kept temporarily as dead code
+// (until P6 Wave 5 cleanup) so the file structure stays stable.
 const TOOL_DEFINITIONS = [
-  {
-    name: "workflow_status",
-    description:
-      "Query the current workflow guardian state. " +
-      "Shows modified files, knowledge queue, sync status, and phase. " +
-      "Omit session_id to list all active sessions.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        session_id: {
-          type: "string",
-          description: "Session ID to query. Omit for all sessions.",
-        },
-      },
-    },
-  },
-  {
-    name: "workflow_signal",
-    description:
-      "Send a workflow signal to update session state. " +
-      "Use sync_started when beginning sync, sync_completed when done, " +
-      "reset to clear a stuck state.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        session_id: { type: "string", description: "Target session ID" },
-        signal: {
-          type: "string",
-          enum: ["sync_started", "sync_completed", "reset", "mute"],
-          description: "Signal to send. Use 'mute' to silence Guardian reminders for this session.",
-        },
-      },
-      required: ["session_id", "signal"],
-    },
-  },
-  {
-    name: "memory_queue_add",
-    description:
-      "Add a knowledge item to the session's pending memory queue. " +
-      "Items will be written to atom files during end-of-session sync.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        session_id: { type: "string" },
-        content: {
-          type: "string",
-          description: "The knowledge to remember",
-        },
-        classification: {
-          type: "string",
-          enum: ["[固]", "[觀]", "[臨]"],
-          description: "Memory classification level",
-        },
-        trigger_context: {
-          type: "string",
-          description: "What triggered this knowledge discovery",
-        },
-      },
-      required: ["session_id", "content", "classification"],
-    },
-  },
-  {
-    name: "memory_queue_flush",
-    description:
-      "Mark all pending knowledge queue items as flushed (written to atoms). " +
-      "Call this after successfully writing atom files.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        session_id: { type: "string" },
-      },
-      required: ["session_id"],
-    },
-  },
   {
     name: "atom_write",
     description:
@@ -502,14 +437,8 @@ const TOOL_DEFINITIONS = [
 
 function handleToolCall(id, toolName, args) {
   switch (toolName) {
-    case "workflow_status":
-      return toolWorkflowStatus(id, args);
-    case "workflow_signal":
-      return toolWorkflowSignal(id, args);
-    case "memory_queue_add":
-      return toolMemoryQueueAdd(id, args);
-    case "memory_queue_flush":
-      return toolMemoryQueueFlush(id, args);
+    // V5 P2: workflow_status / workflow_signal / memory_queue_add / memory_queue_flush
+    // no longer exposed in TOOL_DEFINITIONS — they fall through to default error.
     case "atom_write":
       return toolAtomWrite(id, args).catch(e => sendToolResult(id, `atom_write error: ${e.message}`, true));
     case "atom_promote":

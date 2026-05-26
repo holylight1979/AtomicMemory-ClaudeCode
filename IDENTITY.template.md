@@ -21,10 +21,8 @@
 ## 反退避契約（`wg_evasion.py` Hook 程式化攔截）
 
 ### 禁語清單（出現即違約）
-- 「不在本範圍」「非本次改動」「範圍外」
-- 「留給未來 session」「下次/晚點/稍後再處理」「先跳過」
-- 「既有 drift」「pre-existing」（除非附「檢測時點 + 不修的實際風險」）
-- 「超出能力範圍」（除非附「具體為什麼超出」）
+規則統一在 `memory/_meta/forbidden-phrases.json`（wg_evasion.py 與本檔 single source）。
+四類：範圍推諉 / 時間性延後 / 前已存在搪塞 / 能力推諉。完整 pattern + 例外條件見 JSON。
 
 ### 發現即處理門檻
 - ≤5 行 / 不動架構 → 當場修

@@ -21,19 +21,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-# ─── Import centralized paths from wg_paths ─────────────────────────────────
+# ─── Import centralized paths from wg_core (V5: wg_paths merged into wg_core) ─
 _HOOKS_DIR = str(Path.home() / ".claude" / "hooks")
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from wg_paths import (
+from wg_core import (
     cwd_to_project_slug,
     get_transcript_path,
     resolve_failures_dir,
     CLAUDE_DIR,
     MEMORY_DIR,
 )
-from wg_content_classify import classify_extracted_item
+from wg_extraction import classify_extracted_item
 
 # S3.0: route failure atom writes through atom_io funnel
 _LIB_PARENT = str(Path.home() / ".claude")
@@ -478,7 +478,7 @@ def _per_turn_writeback(ctx: dict, result: dict) -> None:
 
     # ── V3: deep extract → hot cache writeback ──
     try:
-        from wg_hot_cache import write_hot_cache
+        from wg_extraction import write_hot_cache
         if items:
             summary = "; ".join(
                 it.get("content", "")[:60] for it in items[:3]

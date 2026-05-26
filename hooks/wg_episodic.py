@@ -16,13 +16,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_paths import (
+from wg_core import (
     CLAUDE_DIR, MEMORY_DIR, EPISODIC_DIR, MEMORY_INDEX, ATOM_INDEX, WORKFLOW_DIR,
     cwd_to_project_slug, get_project_memory_dir,
     resolve_episodic_dir, get_transcript_path,
+    _now_iso, _atom_debug_log, _atom_debug_error,
 )
-from wg_core import _now_iso, _atom_debug_log, _atom_debug_error
-from wg_content_classify import is_plan_content
+from wg_extraction import is_plan_content
 
 sys.path.insert(0, str(Path.home() / ".claude" / "tools"))
 from ollama_client import get_client

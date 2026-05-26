@@ -144,6 +144,8 @@
     "enabled": true,
     "path_mappings": {
       "hooks/wg_*.py": ["Architecture.md"],
+      "hooks/dispatcher.py": ["Architecture.md"],
+      "hooks/handlers/*.py": ["Architecture.md"],
       "hooks/workflow-guardian.py": ["Architecture.md"],
       "hooks/extract-worker.py": ["Architecture.md"],
       "hooks/quick-extract.py": ["Architecture.md"],

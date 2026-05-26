@@ -1,41 +1,41 @@
 """
-wg_core.py — Workflow Guardian 共用基礎模組
+wg_core.py — Workflow Guardian 共用基礎模組（V5）
 
-常數、設定載入、State I/O、Output helpers、Debug logging。
-所有 wg_*.py 模組共用此檔。
-
-V2.20: 路徑相關常數/函式已移至 wg_paths.py。
-本模組 re-export 以維持向後相容（下一版移除）。
+統合：
+- 常數 / 設定載入 / State I/O / Output helpers / Debug logging
+- 路徑集中管理（前 wg_paths）
+- PreToolUse 路徑/指令防呆（前 wg_pretool_guards）
+- MCP server 健檢（前 wg_intent._check_mcp_servers）
+- Log rotation（V5 P0）
+- Promotion audit log
 """
 
 import json
-import os
-import sys
-import re
-import time
 import math
-from datetime import datetime, timezone
+import os
+import re
+import shutil
+import socket
+import sys
+import time
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# ─── Path constants & functions (V2.20: delegated to wg_paths) ───────────────
-# Re-export for backward compatibility. Direct import from wg_paths preferred.
-from wg_paths import (  # noqa: F401
-    CLAUDE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR, CONFIG_PATH,
-    MEMORY_INDEX,
-    cwd_to_project_slug, get_project_memory_dir, find_project_root,
-    get_project_claude_dir, get_transcript_path,
-    resolve_episodic_dir, resolve_failures_dir, resolve_staging_dir,
-    resolve_access_json, get_slug_pointer_path,
-    discover_all_project_memory_dirs, discover_memory_layers,
-    state_file_path,
-)
+# ─── 全域路徑常數 ────────────────────────────────────────────────────────────
 
-# ─── Constants (non-path) ────────────────────────────────────────────────────
+CLAUDE_DIR = Path.home() / ".claude"
+MEMORY_DIR = CLAUDE_DIR / "memory"
+EPISODIC_DIR = MEMORY_DIR / "episodic"
+WORKFLOW_DIR = CLAUDE_DIR / "workflow"
+CONFIG_PATH = WORKFLOW_DIR / "config.json"
+MEMORY_INDEX = "MEMORY.md"
+ATOM_INDEX = "_ATOM_INDEX.md"
+REGISTRY_PATH = MEMORY_DIR / "project-registry.json"
 
-CONTEXT_BUDGET_DEFAULT = 3000  # V2.11: default token cap
+CONTEXT_BUDGET_DEFAULT = 3000
 
-# Defaults (overridable via config.json)
+# Defaults（可被 config.json 覆寫）
 DEFAULTS = {
     "enabled": True,
     "stop_gate_max_blocks": 2,
@@ -45,7 +45,6 @@ DEFAULTS = {
     "stale_threshold_hours": 24,
     "sync_keywords": ["同步", "sync", "commit", "提交", "結束", "收工"],
     "completion_indicators": ["已同步", "同步完成", "已更新", "已提交", "committed"],
-    # v2.2 Sprint 2: Session context injection
     "session_context": {
         "enabled": True,
         "max_episodic": 3,
@@ -53,20 +52,15 @@ DEFAULTS = {
         "min_score": 0.35,
         "search_timeout_ms": 1500,
     },
-    # v2.10: _AIDocs Bridge
     "aidocs": {
         "enabled": True,
         "max_session_start_entries": 15,
         "max_prompt_matches": 3,
     },
-    # 2026-05-04: Sync reminder soft block — Stop 階段任何 modified_files>0
-    # 但仍未 commit 時提一次軟阻，避免單檔修改溜過 min_files_to_block 硬閘。
-    # 與 stop_gate_max_blocks 互不影響；本 gate 用 sync_reminder_count 自行限速。
     "sync_reminder": {
         "enabled": True,
         "max_reminders": 1,
     },
-    # v3.3: DocDrift detection
     "docdrift": {
         "enabled": True,
         "path_mappings": {},
@@ -77,7 +71,6 @@ DEFAULTS = {
         "keyword_match_threshold": 2,
         "max_pending_display": 5,
     },
-    # v2.2 Sprint 2: Proactive classification
     "proactive": {
         "pattern_threshold": 2,
         "migration_hint_threshold": 3,
@@ -85,7 +78,7 @@ DEFAULTS = {
 }
 
 
-# ─── Config ──────────────────────────────────────────────────────────────────
+# ─── Config 載入 ─────────────────────────────────────────────────────────────
 
 
 def load_config() -> Dict[str, Any]:
@@ -112,7 +105,7 @@ def _estimate_tokens(text: str) -> int:
     """CJK-aware token estimation. Chinese ~1.5 tok/char, ASCII ~0.25 tok/word."""
     if not text:
         return 0
-    cjk = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u303f')
+    cjk = sum(1 for c in text if '一' <= c <= '鿿' or '　' <= c <= '〿')
     ascii_part = len(text) - cjk
     return int(cjk * 1.5 + ascii_part * 0.25)
 
@@ -130,7 +123,6 @@ def rotate_log_if_oversized(log_path: Path, max_mb: int = 10, keep: int = 3) -> 
         size_mb = log_path.stat().st_size / (1024 * 1024)
         if size_mb < max_mb:
             return False
-        # Shift: .log.(keep-1) drops off, .log.N -> .log.(N+1)
         for i in range(keep - 1, 0, -1):
             src = log_path.with_suffix(log_path.suffix + f".{i}")
             dst = log_path.with_suffix(log_path.suffix + f".{i+1}")
@@ -141,7 +133,6 @@ def rotate_log_if_oversized(log_path: Path, max_mb: int = 10, keep: int = 3) -> 
                     src.rename(dst)
                 except OSError:
                     pass
-        # current -> .log.1
         rotated = log_path.with_suffix(log_path.suffix + ".1")
         try:
             if rotated.exists():
@@ -155,16 +146,338 @@ def rotate_log_if_oversized(log_path: Path, max_mb: int = 10, keep: int = 3) -> 
         return False
 
 
+# ─── Path Helpers (was wg_paths.py) ──────────────────────────────────────────
+
+
+def cwd_to_project_slug(cwd: str) -> str:
+    """Convert CWD to Claude Code project slug. All-lowercase to avoid C: vs c: slug split."""
+    slug = cwd.replace(":", "-").replace("\\", "-").replace("/", "-").replace(".", "-")
+    return slug.lower()
+
+
+def find_project_root(cwd: str) -> Optional[Path]:
+    """Walk up from CWD to find project root via .claude/memory/MEMORY.md / _AIDocs / .git / .svn."""
+    if not cwd:
+        return None
+    p = Path(cwd)
+    for _ in range(4):
+        if (p / ".claude" / "memory" / MEMORY_INDEX).exists():
+            return p
+        if (p / "_AIDocs").is_dir():
+            return p
+        if (p / ".git").exists() or (p / ".svn").exists():
+            return p
+        parent = p.parent
+        if parent == p:
+            break
+        p = parent
+    return Path(cwd)
+
+
+def get_project_memory_dir(cwd: str) -> Optional[Path]:
+    """Get project-level memory dir. New path ({project_root}/.claude/memory/) preferred."""
+    if not cwd:
+        return None
+    root = find_project_root(cwd)
+    if root:
+        try:
+            if root.resolve() == CLAUDE_DIR.resolve():
+                return MEMORY_DIR
+        except OSError:
+            pass
+        new_mem = root / ".claude" / "memory"
+        if new_mem.is_dir():
+            if (new_mem / MEMORY_INDEX).exists():
+                return new_mem
+            if any((new_mem / d).is_dir() for d in ("shared", "roles", "personal")):
+                return new_mem
+    slug = cwd_to_project_slug(cwd)
+    old_mem = CLAUDE_DIR / "projects" / slug / "memory"
+    if old_mem.exists():
+        return old_mem
+    return None
+
+
+def get_scope_dir(
+    scope: str,
+    cwd: str,
+    user: Optional[str] = None,
+    role: Optional[str] = None,
+) -> Optional[Path]:
+    """V4: 回傳指定 scope 的目錄，必要時自動建立。"""
+    if scope == "global":
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        return MEMORY_DIR
+
+    if scope == "role" and not role:
+        return None
+    if scope == "personal" and not user:
+        return None
+    if scope not in ("shared", "role", "personal"):
+        return None
+
+    root = find_project_root(cwd)
+    if not root:
+        return None
+    try:
+        if root.resolve() == CLAUDE_DIR.resolve():
+            return None
+    except OSError:
+        pass
+    has_marker = (
+        (root / ".claude" / "memory" / MEMORY_INDEX).exists()
+        or (root / "_AIDocs").is_dir()
+        or (root / ".git").exists()
+        or (root / ".svn").exists()
+    )
+    if not has_marker:
+        return None
+
+    base = root / ".claude" / "memory"
+    if scope == "shared":
+        target = base / "shared"
+    elif scope == "role":
+        target = base / "roles" / role
+    else:
+        target = base / "personal" / user
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def get_project_claude_dir(cwd: str) -> Optional[Path]:
+    root = find_project_root(cwd)
+    if root:
+        d = root / ".claude"
+        if d.is_dir() and (d / "memory" / MEMORY_INDEX).exists():
+            return d
+    return None
+
+
+def get_transcript_path(session_id: str, cwd: str) -> Optional[Path]:
+    """Locate session transcript JSONL. Claude Code-managed path."""
+    if not session_id or not cwd:
+        return None
+    slug = cwd_to_project_slug(cwd)
+    candidate = CLAUDE_DIR / "projects" / slug / f"{session_id}.jsonl"
+    return candidate if candidate.exists() else None
+
+
+def resolve_episodic_dir(cwd: str) -> Tuple[Path, str]:
+    mem = get_project_memory_dir(cwd)
+    if mem:
+        return mem / "episodic", f"project:{cwd_to_project_slug(cwd)}"
+    return EPISODIC_DIR, "global"
+
+
+def resolve_failures_dir(cwd: str) -> Path:
+    mem = get_project_memory_dir(cwd)
+    if mem:
+        d = mem / "failures"
+        d.mkdir(exist_ok=True)
+        return d
+    return MEMORY_DIR / "failures"
+
+
+def resolve_staging_dir(cwd: str) -> Path:
+    mem = get_project_memory_dir(cwd)
+    if mem:
+        d = mem / "_staging"
+        d.mkdir(exist_ok=True)
+        return d
+    return MEMORY_DIR / "_staging"
+
+
+def resolve_access_json(atom_name: str, atom_path: Path) -> Path:
+    return atom_path.parent / f"{atom_name}.access.json"
+
+
+# ─── Project Registry ────────────────────────────────────────────────────────
+
+
+def _today() -> str:
+    return date.today().isoformat()
+
+
+def _load_registry() -> Dict[str, Any]:
+    if REGISTRY_PATH.exists():
+        try:
+            return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"projects": {}}
+
+
+def _save_registry(reg: Dict[str, Any]) -> None:
+    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = REGISTRY_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(REGISTRY_PATH)
+
+
+def register_project(cwd: str) -> None:
+    root = find_project_root(cwd)
+    if not root:
+        return
+    has_marker = (
+        (root / ".claude" / "memory" / MEMORY_INDEX).exists()
+        or (root / "_AIDocs").is_dir()
+        or (root / ".git").exists()
+        or (root / ".svn").exists()
+    )
+    if not has_marker:
+        return
+    slug = cwd_to_project_slug(str(root))
+    reg = _load_registry()
+    entry = reg.setdefault("projects", {}).setdefault(slug, {})
+    entry["root"] = str(root)
+    entry["last_seen"] = _today()
+    _save_registry(reg)
+
+
+def get_slug_pointer_path(cwd: str) -> Path:
+    slug = cwd_to_project_slug(cwd)
+    return CLAUDE_DIR / "projects" / slug / "memory" / MEMORY_INDEX
+
+
+def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
+    """Discover all project memory directories. Registry-first + old-path fallback."""
+    seen_slugs: set = set()
+    results: List[Tuple[str, Path]] = []
+    reg = _load_registry()
+    for slug, info in reg.get("projects", {}).items():
+        root = Path(info.get("root", ""))
+        if not root.is_dir():
+            continue
+        new_mem = root / ".claude" / "memory"
+        if new_mem.is_dir() and (new_mem / MEMORY_INDEX).exists():
+            results.append((slug, new_mem))
+            seen_slugs.add(slug)
+            continue
+        old_mem = CLAUDE_DIR / "projects" / slug / "memory"
+        if old_mem.is_dir():
+            results.append((slug, old_mem))
+            seen_slugs.add(slug)
+    projects_dir = CLAUDE_DIR / "projects"
+    if projects_dir.is_dir():
+        for proj_dir in sorted(projects_dir.iterdir()):
+            if not proj_dir.is_dir():
+                continue
+            slug = proj_dir.name
+            if slug in seen_slugs:
+                continue
+            mem = proj_dir / "memory"
+            if mem.is_dir():
+                results.append((slug, mem))
+    return results
+
+
+def discover_v4_sublayers(slug: str, mem_dir: Path) -> List[Tuple[str, Path, str]]:
+    """V4: enumerate sub scope layers under a project memory dir."""
+    out: List[Tuple[str, Path, str]] = []
+    shared_label = f"shared:{slug}"
+
+    def _is_legacy_atom(p: Path) -> bool:
+        if not (p.is_file() and p.suffix == ".md"):
+            return False
+        if p.name in (MEMORY_INDEX, ATOM_INDEX):
+            return False
+        if p.name.startswith("_") or p.name.startswith("SPEC_"):
+            return False
+        return True
+    has_flat_legacy = any(_is_legacy_atom(p) for p in mem_dir.iterdir()) if mem_dir.is_dir() else False
+    if has_flat_legacy:
+        out.append((shared_label, mem_dir, "flat-legacy"))
+
+    shared_dir = mem_dir / "shared"
+    if shared_dir.is_dir():
+        out.append((shared_label, shared_dir, "recursive"))
+
+    roles_root = mem_dir / "roles"
+    if roles_root.is_dir():
+        for rd in sorted(roles_root.iterdir()):
+            if rd.is_dir() and not rd.name.startswith("_"):
+                out.append((f"role:{slug}:{rd.name}", rd, "recursive"))
+
+    personal_root = mem_dir / "personal"
+    if personal_root.is_dir():
+        for pd in sorted(personal_root.iterdir()):
+            if pd.is_dir() and not pd.name.startswith("_"):
+                out.append((f"personal:{slug}:{pd.name}", pd, "recursive"))
+
+    return out
+
+
+def discover_memory_layers(
+    layer_filter: Optional[str] = None,
+    user: Optional[str] = None,
+    role: Optional[str] = None,
+) -> List[Tuple[str, Path]]:
+    """Discover memory layers with optional role filter (SPEC §8.1)."""
+    layers: List[Tuple[str, Path]] = []
+
+    def _accept(label: str) -> bool:
+        if not layer_filter or layer_filter == "all":
+            return True
+        if layer_filter == label:
+            return True
+        if layer_filter == "global":
+            return label == "global"
+        if layer_filter == "shared":
+            return label.startswith("shared:")
+        if layer_filter == "role":
+            return label.startswith("role:")
+        if layer_filter.startswith("role:") and ":" not in layer_filter[5:]:
+            r = layer_filter.split(":", 1)[1]
+            return label.startswith("role:") and label.endswith(f":{r}")
+        if layer_filter == "personal":
+            return label.startswith("personal:")
+        if layer_filter.startswith("personal:") and ":" not in layer_filter[9:]:
+            u = layer_filter.split(":", 1)[1]
+            return label.startswith("personal:") and label.endswith(f":{u}")
+        return False
+
+    if _accept("global"):
+        layers.append(("global", MEMORY_DIR))
+
+    role_set = set()
+    if role:
+        role_set = {r.strip() for r in role.split(",") if r.strip()}
+
+    user_aware = bool(user or role)
+
+    for slug, mem_dir in discover_all_project_memory_dirs():
+        for label, path, _kind in discover_v4_sublayers(slug, mem_dir):
+            if user_aware:
+                if label.startswith("shared:"):
+                    pass
+                elif label.startswith("role:"):
+                    r = label.rsplit(":", 1)[1]
+                    if r not in role_set:
+                        continue
+                elif label.startswith("personal:"):
+                    u = label.rsplit(":", 1)[1]
+                    if u != user:
+                        continue
+            if not _accept(label):
+                continue
+            layers.append((label, path))
+
+    return layers
+
+
+def state_file_path(session_id: str) -> Path:
+    return WORKFLOW_DIR / f"state-{session_id}.json"
+
+
 # ─── State File I/O ──────────────────────────────────────────────────────────
 
 
 def state_path(session_id: str) -> Path:
-    """Alias for wg_paths.state_file_path (backward compat)."""
+    """Alias kept for backward compat with callers."""
     return state_file_path(session_id)
 
 
 def read_state(session_id: str) -> Optional[Dict[str, Any]]:
-    """Read state file. Returns None if not found or corrupt."""
     path = state_path(session_id)
     if not path.exists():
         return None
@@ -176,16 +489,9 @@ def read_state(session_id: str) -> Optional[Dict[str, Any]]:
 
 
 def write_state(session_id: str, state: Dict[str, Any]) -> None:
-    """Atomic write with advisory lock to prevent concurrent R-M-W races (C6).
-
-    Uses msvcrt.locking on Windows for advisory file locking (best-effort):
-    if lock acquisition fails, proceeds without lock — tmp+replace still
-    provides crash safety.
-    """
+    """Atomic write with advisory lock to prevent concurrent R-M-W races."""
     WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
 
-    # V2.22: Use canonical session ID from state object — when _ensure_state
-    # returns a sibling's state, writes go to the sibling's file, not the ghost's.
     canonical_id = state.get("session", {}).get("id")
     if canonical_id and canonical_id != session_id:
         session_id = canonical_id
@@ -195,7 +501,6 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
     tmp_path = path.with_suffix(".tmp")
     lock_path = path.with_suffix(".lock")
 
-    # Advisory lock (Windows only, best-effort)
     lock_fh = None
     if sys.platform == "win32":
         try:
@@ -205,7 +510,7 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
         except OSError:
             if lock_fh:
                 lock_fh.close()
-            lock_fh = None  # Failed to acquire — proceed without lock
+            lock_fh = None
 
     try:
         with open(tmp_path, "w", encoding="utf-8") as f:
@@ -232,7 +537,6 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
 
 
 def new_state(session_id: str, cwd: str, source: str) -> Dict[str, Any]:
-    """Create a fresh state object."""
     return {
         "schema_version": "1.1",
         "session": {
@@ -264,11 +568,7 @@ def new_state(session_id: str, cwd: str, source: str) -> Dict[str, Any]:
 def _find_active_sibling_state(
     cwd: str, current_session_id: str, window_seconds: int = 60
 ) -> Optional[Dict[str, Any]]:
-    """掃描 WORKFLOW_DIR/state-*.json，找同 cwd + 近期活躍的兄弟 state。
-
-    用於 SessionStart 去重：若同 workspace 已有活躍 state，回傳之。
-    多個匹配時回傳 mtime 最新的。任何異常安全降級回 None。
-    """
+    """SessionStart 去重：同 cwd + 近期活躍的兄弟 state。"""
     try:
         norm_cwd = cwd.lower().replace("\\", "/")
         best: Optional[Dict[str, Any]] = None
@@ -276,7 +576,6 @@ def _find_active_sibling_state(
         now = datetime.now(timezone.utc).astimezone()
 
         for fp in WORKFLOW_DIR.glob("state-*.json"):
-            # 跳過自己
             if current_session_id in fp.name:
                 continue
             try:
@@ -285,18 +584,15 @@ def _find_active_sibling_state(
             except (json.JSONDecodeError, OSError):
                 continue
 
-            # 比對 cwd
             candidate_cwd = candidate.get("session", {}).get("cwd", "")
             if candidate_cwd.lower().replace("\\", "/") != norm_cwd:
                 continue
 
-            # 必須是 working 且未合併
             if candidate.get("phase") != "working":
                 continue
             if candidate.get("merged_into"):
                 continue
 
-            # 檢查 started_at 是否在 window 內
             started_at_str = candidate.get("session", {}).get("started_at", "")
             if not started_at_str:
                 continue
@@ -308,7 +604,6 @@ def _find_active_sibling_state(
             except (ValueError, TypeError):
                 continue
 
-            # 多匹配取 mtime 最新
             mtime = fp.stat().st_mtime
             if mtime > best_mtime:
                 best = candidate
@@ -330,9 +625,6 @@ def _ensure_state(
             target = read_state(merged_into)
             if target:
                 return target
-            # Self-heal: merge target 已被 cleanup 或從未建立 → 當前 session 升為活躍，
-            # 避免寫入落到 phase=merged 的死水 state（會導致 V4.1 pending_user_extract
-            # 等後續 hook 寫入被 worker 忽略）
             state.pop("merged_into", None)
             state["phase"] = "working"
             write_state(session_id, state)
@@ -346,9 +638,6 @@ def _ensure_state(
 
     cwd = input_data.get("cwd", "")
 
-    # V2.22: Before creating fallback, check if same cwd already has a working
-    # session. If found, return it directly — write_state's canonical ID redirect
-    # ensures all writes go to the real session's file (no ghost file created).
     sibling = _find_active_sibling_state(cwd, session_id, window_seconds=86400)
     if sibling:
         real_id = sibling.get("session", {}).get("id", "")
@@ -374,33 +663,23 @@ def _ensure_state(
 
 
 def output_json(data: Dict[str, Any]) -> None:
-    """Print JSON to stdout and exit 0."""
     print(json.dumps(data, ensure_ascii=False))
     sys.exit(0)
 
 
 def output_nothing() -> None:
-    """Exit 0 with no output (fast path)."""
     sys.exit(0)
 
 
 def output_block(reason: str) -> None:
-    """Output a block decision (for Stop hook)."""
     output_json({"decision": "block", "reason": reason})
 
 
 # ─── Promotion Audit Log ─────────────────────────────────────────────────────
 
-def log_promotion_audit(action: str, atom: str, **fields: Any) -> None:
-    """Append one JSONL entry to memory/_promotion_audit.jsonl.
 
-    action ∈ {"hint", "auto_observe", "manual_promote"}
-      - hint: UserPromptSubmit 晉升提示注入
-      - auto_observe: wg_iteration [臨]→[觀] 自動晉升（內部條目或 header）
-      - manual_promote: atom_promote MCP 執行
-    fields 依 action 帶不同欄位（from/to/confirmations/session_id 等）。
-    失敗不 raise — audit 不該影響主流程。
-    """
+def log_promotion_audit(action: str, atom: str, **fields: Any) -> None:
+    """Append one JSONL entry to memory/_promotion_audit.jsonl."""
     try:
         entry = {"ts": datetime.now().isoformat(timespec="seconds"),
                  "action": action, "atom": atom}
@@ -416,9 +695,7 @@ def log_promotion_audit(action: str, atom: str, **fields: Any) -> None:
 
 
 def _atom_debug_log(tag: str, content: str, config: Dict[str, Any] = None) -> None:
-    """Write to atom-debug.log when atom_debug flag is on.
-    For ERROR tag, always write regardless of flag.
-    Skips empty/NONE entries to reduce noise."""
+    """Write to atom-debug.log when atom_debug flag is on. ERROR always writes."""
     if tag != "ERROR" and not (config or {}).get("atom_debug", False):
         return
     if not content or not content.strip():
@@ -444,3 +721,148 @@ def _atom_debug_error(source: str, exc: Exception) -> None:
         if "NoneType" in msg:
             msg = f"{type(exc).__name__}: {exc}"
     _atom_debug_log("ERROR", f"[{source}] {msg}", {"atom_debug": True})
+
+
+# ─── PreToolUse Path / Command Guards (was wg_pretool_guards.py) ─────────────
+
+_PROJECT_MEMORY_PATH_RE = re.compile(
+    r"[/\\]\.claude[/\\]projects[/\\](?!_)[^/\\]+[/\\]memory[/\\]",
+    re.IGNORECASE,
+)
+_NESTED_PROJECTS_RE = re.compile(
+    r"[/\\]\.claude[/\\]projects[/\\][^/\\]+[/\\]projects[/\\][^/\\]+[/\\]memory[/\\]",
+    re.IGNORECASE,
+)
+_DOUBLE_CLAUDE_RE = re.compile(
+    r"[/\\]\.claude[/\\]\.claude[/\\]memory[/\\]",
+    re.IGNORECASE,
+)
+_SVN_COMMIT_RE = re.compile(r"\bsvn\s+(?:ci|commit)\b", re.IGNORECASE)
+_TEST_PATH_RE = re.compile(
+    r"(?:^|[/\\\s])(?:tests?|__tests__)(?:[/\\\s]|$)"
+    r"|[/\\][^/\\\s]*Test\.(?:cs|py|js|ts|tsx|jsx|go|java)\b",
+    re.IGNORECASE,
+)
+
+_WHITELIST_BASENAMES = frozenset({
+    "MEMORY.md", "_ATOM_INDEX.md", "_CHANGELOG.md", "_CHANGELOG_ARCHIVE.md",
+    "_roles.md", "hot_cache.json", "atom_io_audit.jsonl",
+    "_promotion_audit.jsonl", "project-registry.json", "session_score.json",
+    "DESIGN.md", "role.md",
+})
+_WHITELIST_DIR_SEGMENTS = frozenset({
+    "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
+    "_vectordb", "_rejected", "templates", "episodic", "wisdom",
+    "personal",
+})
+
+
+def _path_under_memory_dir(fp: Path) -> bool:
+    parts = [p.lower() for p in fp.parts]
+    for i in range(len(parts) - 1):
+        if parts[i] == ".claude" and parts[i + 1] == "memory":
+            return True
+    return False
+
+
+def _atom_path_whitelisted(fp: Path) -> bool:
+    if fp.name in _WHITELIST_BASENAMES:
+        return True
+    if fp.name.startswith("_") or fp.name.startswith("SPEC_"):
+        return True
+    parts_lower = {p.lower() for p in fp.parts}
+    if parts_lower & _WHITELIST_DIR_SEGMENTS:
+        return True
+    return False
+
+
+def check_memory_path_block(
+    tool_name: str, tool_input: Dict[str, Any]
+) -> Optional[str]:
+    """阻擋三類 memory 違規寫入：projects/{slug}/memory（P1）/ 雙層 .claude（P6）/ atom 直 Write（S3.3）。"""
+    if tool_name not in ("Write", "Edit"):
+        return None
+    fp_str = tool_input.get("file_path", "") or ""
+    if not fp_str:
+        return None
+
+    if _PROJECT_MEMORY_PATH_RE.search(fp_str) or _NESTED_PROJECTS_RE.search(fp_str):
+        return (
+            "[Guardian:MemoryPathBlock] 禁止寫入 `~/.claude/projects/{slug}/memory/`。"
+            "原子記憶專案自治層已覆寫此路徑。\n"
+            "正確做法：(1) 全域記憶 → 用 MCP `atom_write` (scope=global) 寫到 "
+            "~/.claude/memory/；(2) 專案記憶 → 用 MCP `atom_write` "
+            "(scope=shared/role/personal) 寫到 {project_root}/.claude/memory/。\n"
+            "詳見 memory/feedback/feedback-memory-structure.md。"
+        )
+
+    if _DOUBLE_CLAUDE_RE.search(fp_str):
+        return (
+            "[Guardian:DoubleClaudeBlock] 禁止寫入 `~/.claude/.claude/memory/` 雙層路徑。"
+            "這是 P1 雙層 bug 的殘骸 — 應寫到 `~/.claude/memory/`。"
+        )
+
+    if os.environ.get("WG_DISABLE_ATOM_GUARD") == "1":
+        return None
+    fp = Path(fp_str)
+    if not _path_under_memory_dir(fp):
+        return None
+    if fp.suffix != ".md":
+        return None
+    if _atom_path_whitelisted(fp):
+        return None
+    return (
+        "[Guardian:AtomFunnelBlock] 直接 Write/Edit atom .md 不走 funnel 被禁止。\n"
+        f"路徑：{fp_str}\n"
+        "正確做法：\n"
+        "  (1) 用 MCP `atom_write` / `atom_promote` / `atom_move` 工具\n"
+        "  (2) 程式碼端：知識內容寫 lib.atom_io.write_atom() / write_raw()；\n"
+        "      計數欄位（read_hits / last_used / confirmations）寫 lib.atom_access\n"
+        "緊急 bypass：set 環境變數 `WG_DISABLE_ATOM_GUARD=1` 後重試。"
+    )
+
+
+def check_svn_test_block(
+    tool_name: str, tool_input: Dict[str, Any]
+) -> Optional[str]:
+    """阻擋 svn commit 含 test/tests/__tests__ 路徑或 *Test.<ext> 檔。"""
+    if tool_name != "Bash":
+        return None
+    cmd = tool_input.get("command", "") or ""
+    if not _SVN_COMMIT_RE.search(cmd):
+        return None
+    if not _TEST_PATH_RE.search(cmd):
+        return None
+    return (
+        "[Guardian:SvnTestBlock] svn commit 命令含 test/tests/__tests__ 路徑或 "
+        "*Test.<ext> 檔案。測試/練習/新手作業檔不可上 SVN（r10854 教訓）。\n"
+        "若確實要上，請 (1) 將指定檔案逐一列入命令、不用 glob；或 "
+        "(2) 由使用者明確指示後再執行。"
+    )
+
+
+# ─── MCP Server Health Check (was wg_intent._check_mcp_servers) ──────────────
+
+
+def _check_mcp_servers() -> List[str]:
+    """Verify .mcp.json server entries: command + script must exist on disk."""
+    issues: List[str] = []
+    mcp_path = CLAUDE_DIR / ".mcp.json"
+    if not mcp_path.exists():
+        return []
+    try:
+        with open(mcp_path, "r", encoding="utf-8") as f:
+            mcp_cfg = json.loads(f.read())
+        servers = mcp_cfg.get("mcpServers", {})
+        for name, srv in servers.items():
+            cmd = srv.get("command", "")
+            args = srv.get("args", [])
+            if cmd and not Path(cmd).exists() and not shutil.which(cmd):
+                issues.append(f"{name}: command not found ({cmd})")
+            if args:
+                script = args[0]
+                if not Path(script).exists():
+                    issues.append(f"{name}: script not found ({script})")
+    except Exception as e:
+        issues.append(f"parse error: {e}")
+    return issues

@@ -4,7 +4,7 @@ test_v41_disabled.py — Verify V4.1 flag=false means zero overhead (V4.1 P1)
 
 Tests:
 1. flag=false → UserPromptSubmit handler never calls detect_signal
-2. import wg_user_extract has no side effects
+2. import wg_extraction has no side effects
 3. detect_signal is a pure function (no I/O, no global mutation)
 """
 
@@ -51,7 +51,7 @@ class TestImportNoSideEffects:
 
     def test_no_module_level_io(self):
         """Module has no open(), no Path.read_text(), no network at import time."""
-        import wg_user_extract
+        import wg_extraction
         import inspect
 
         source = inspect.getsource(wg_user_extract)
@@ -81,7 +81,7 @@ class TestDetectSignalPure:
 
     def test_no_file_io(self):
         """detect_signal does not read/write files."""
-        from wg_user_extract import detect_signal
+        from wg_extraction import detect_signal
 
         with patch("builtins.open", side_effect=AssertionError("unexpected file I/O")):
             result = detect_signal("記住，一律用 UTF-8 編碼")
@@ -91,7 +91,7 @@ class TestDetectSignalPure:
 
     def test_deterministic(self):
         """Same input produces same output."""
-        from wg_user_extract import detect_signal
+        from wg_extraction import detect_signal
 
         prompt = "從此所有 API 都用 REST 風格"
         r1 = detect_signal(prompt)
@@ -100,7 +100,7 @@ class TestDetectSignalPure:
 
     def test_no_global_mutation(self):
         """Calling detect_signal does not mutate module-level state."""
-        import wg_user_extract
+        import wg_extraction
 
         # Snapshot module-level dicts/lists
         before_strong = list(wg_user_extract._STRONG)
