@@ -1,7 +1,8 @@
 # 原子記憶系統 — 全檔案索引
 
-> 由 `/read-project` 產出，最近同步：2026-04-15（V4 Phase 6 收尾）。
+> 最近同步：2026-05-27（V5 Wave 4 P6 收尾）。
 > 目標：讓 Claude Code AI 能了解自己，以利後續升級、迭代、進化。
+> V5 概覽：[`SPEC_ATOM_V5.md`](SPEC_ATOM_V5.md) — 4-Wave 重構摘要與機制變更總表。
 
 ---
 
@@ -80,34 +81,33 @@ Session Ready
 
 合計：~5308 行
 
-## 5. Skills（commands/，20 個）
+## 5. Skills（V5：skills/，19 個全域 + 5 內建/個人優先）
 
-| 指令 | 用途 | 依賴 |
-|------|------|------|
-| /atom-debug | Debug log 開關 | 無 |
-| /codex-companion | Codex Companion 開關（service 啟停 + config toggle） | codex CLI |
-| /changelog-roll | 手動滾動 _CHANGELOG.md（PostToolUse 自動掛，通常不用手跑）`--keep N\|--dry-run` | 無 |
-| /conflict | 記憶衝突偵測（向量比對 + LLM 判定） | Vector Service + Ollama |
-| /conflict-review | V4 管理職裁決 Pending Queue（雙向認證） | wg_roles + Vector Service |
-| /consciousness-stream | 高風險跨系統（唯識八識） | 無 |
-| /continue | 讀 _staging/next-phase.md 續接 | 無 |
-| /extract | 手動知識萃取（不等 SessionEnd） | Ollama |
-| /fix-escalation | 精確修正升級（6 Agent 會議） | 無 |
-| /handoff | 跨 Session Handoff Prompt Builder（6 區塊強制模板） | 無 |
-| /harvest | Playwright 網頁收割→Markdown | Playwright |
-| /init-project | 專案 _AIDocs + 自治層初始化 | 無 |
-| /init-roles | V4 多職務模式啟用引導（建 personal/role.md + shared/_roles.md + 可選裝 post-merge hook + V4.1 隱私體檢 [F21]） | wg_roles + 可選 git |
-| /memory-health | 記憶品質診斷（audit + health-check） | 無 |
-| /memory-peek | V4.1 列最近 24h 自動萃取 atom + pending + trigger 原因 [F7] | 無 |
-| /memory-review | 自我迭代檢閱（衰減/晉升/震盪/覆轍） | 無 |
-| /memory-session-score | V4.1 P4 Session 5 維度加權評分（density/precision/novelty/cost/trust）`--last\|--since\|--top-n` | 無 |
-| /memory-undo | V4.1 撤銷自動萃取（_rejected/ + reason 分類 + reflection_metrics）[F20][F23] | 無 |
-| /read-project | 系統性閱讀→doc-index atom | 無 |
-| /resume | 續接 prompt + 自動開新 session | MCPControl |
-| /svn-update | SVN 更新 + 衝突處理 | TortoiseSVN |
-| /unity-yaml | Unity YAML 解析/生成 | unity-yaml-tool.py |
-| /upgrade | 環境升級（diff+merge+rebuild） | 無 |
-| /vector | 向量服務管理（啟停/索引/搜尋） | Vector Service |
+V5 Wave 3 把 commands/*.md 遷到 skills/{name}/SKILL.md（對齊 Anthropic 官方「commands merged into skills」）。SKILL.md 即 docdrift 主來源（`workflow/config.json` docdrift path_mappings 已更新）。Legacy `commands/` 22 個 .md 保留至 2026-06-03 緩衝期滿後刪除。
+
+| 指令 | 檔案 | 用途 | 依賴 |
+|------|------|------|------|
+| /atom-debug | skills/atom-debug/SKILL.md | Debug log 開關 | 無 |
+| /codex-companion | skills/codex-companion/SKILL.md | Codex Companion 開關（**V5 subprocess 模型**，只 toggle config flag） | codex CLI |
+| /changelog-debug | skills/changelog-debug/SKILL.md | 手動滾動 _CHANGELOG.md（PostToolUse 自動掛，僅 debug 用）| 無 |
+| /conflict | skills/conflict/SKILL.md | 記憶衝突偵測（向量比對 + LLM 判定） | Vector Service + Ollama |
+| /conflict-review | skills/conflict-review/SKILL.md | V4 管理職裁決 Pending Queue（雙向認證） | wg_roles + Vector Service |
+| /consciousness-stream | skills/consciousness-stream/SKILL.md | 高風險跨系統（唯識八識） | 無 |
+| /continue | skills/continue/SKILL.md | 讀 _staging/next-phase.md 續接 | 無 |
+| /extract | skills/extract/SKILL.md | 手動知識萃取（不等 SessionEnd） | Ollama |
+| /fix-escalation | skills/fix-escalation/SKILL.md | 精確修正升級（6 Agent 會議） | 無 |
+| /generate-episodic | skills/generate-episodic/SKILL.md | 手動生成 episodic atom | 無 |
+| /handoff | skills/handoff/SKILL.md | 跨 Session Handoff Prompt Builder（6 區塊強制模板） | 無 |
+| /harvest | skills/harvest/SKILL.md | Playwright 網頁收割→Markdown | Playwright |
+| /init-roles | skills/init-roles/SKILL.md | V4 多職務模式啟用引導 | wg_roles + 可選 git |
+| /memory | skills/memory/SKILL.md | **5 合 1**：health / peek / undo / review / session-score（subcmd 分派） | 無 |
+| /read-project | skills/read-project/SKILL.md | 系統性閱讀→doc-index atom | 無 |
+| /upgrade | skills/upgrade/SKILL.md | 環境升級（diff+merge+rebuild） | 無 |
+| /vector | skills/vector/SKILL.md | 向量服務管理（啟停/索引/搜尋） | Vector Service |
+| /journal | skills/journal/SKILL.md | 工作日誌產出 | 無 |
+| /browse-sprites | skills/browse-sprites/SKILL.md | 批次圖片預覽 | 無 |
+
+**已刪除（與內建衝突）**：`/resume`（內建 --resume）、`/init-project`（內建 /init）、`/svn-update` / `/unity-yaml`（下沉到專案層）、`/changelog-roll`（改名 changelog-debug）。
 
 ## 6. 工具鏈（tools/）
 
@@ -166,8 +166,9 @@ Session Ready
 - eval-ranked-search.py — 50 query benchmark
 - cleanup-old-files.py — 環境清理
 
-### Codex Companion（port 3850）
-- service.py — HTTP daemon。`/event` 內建 checkpoint 偵測（Phase 0.5：response 帶回 `should_trigger_checkpoint` 給 hook，避免 hook 再讀 state file）；`stop` 事件 +turn_index 並寫 `last_assistant_tail`；Sprint 3：`_run_assessment` 把 `turn_index` + state 內 `last_assistant_tail` 注入 extra_context 給 assessor，避免 daemon thread 重複 IO；Sprint 4：`_run_assessment` 完成後依 `category=system+summary 含 sandbox` → `sandbox_failures++`、`notify_next_turn=True` → `empty_returns++`，log 行加 `attempts=N`
+### Codex Companion（V5：subprocess，無 daemon）
+- **audit.py（V5 新增）** — one-shot subprocess。stdin 收 JSON `{session_id, turn_index, assessment_type, cwd, context}`；呼叫 `assessor.run_assessment` 並透過 `state.write_assessment` 落盤。由 `hooks/codex_companion.py` 在 checkpoint / score gate 通過後 spawn detached。取代 V4 的 thread worker pattern。
+- ~~service.py — HTTP daemon（V4，2026-05-27 P5b 刪除）~~ HTTP layer 不再需要；checkpoint 偵測搬到 `hooks/codex_companion.py:_detect_checkpoint`
 - assessor.py — 組 prompt → `codex exec` → parse JSON 結果（model 為空時不傳 `-m`，由 `~/.codex/config.toml` 決定；**不傳 `-s`** 沿用 user config 預設沙盒，避免 Windows `CreateProcessWithLogonW` 1385 失敗）；Sprint 3：`_extract_verification_evidence` 從 trace 抽 verify cmd 摘要（含 `[FAILED]` 標記）+ `_parse_assessment` 對新 schema 欄位（delivery / confidence / evidence / applies_until / turn_index）補預設值並相容舊 `recommended_action`；Sprint 4 Phase 5.1：`_run_codex` 改回 `(stdout, stderr)` 把 stderr 帶上來；新增 `_run_codex_with_retry` 在空字串/非 JSON 時 sleep 0.4s 重試 1 次；新增 `_classify_failure` 用 `_SANDBOX_FAILURE_RE = CreateProcessWithLogon|sandbox`（i 旗標）識別 R2-5 級錯誤，命中→`category: system, summary: "Codex sandbox 失敗，請檢查 -s 設定"`，否則→`status: warning, summary: "退回 heuristics-only", delivery: inject, notify_next_turn: True`；result 加 `_attempts` metadata
 - prompts.py — plan review / turn audit / architecture review 模板，含 `SANDBOX_CONSTRAINT` 紅線（禁 git/edit/write/rm；只允許讀取）；Sprint 3 OUTPUT_SCHEMA v2 砍 `recommended_action`、改 `delivery: ignore\|inject` + `confidence` + `evidence` + `applies_until` + `turn_index`；TURN_AUDIT 模板新增 Last Assistant Reply Tail / Verification Evidence Found / Heuristic Triggered (Reference Only) 三段；codex 徹底失去 BLOCK 權（advisory only）
 - state.py — per-session 狀態 + per-turn assessment cache（Phase 1.6/1.7：schema 加 `turn_index`、`last_assistant_tail`；assessment 改 `companion-assessment-{sid}-t{N}-{type}.json`），**module-level `threading.Lock`** 包覆所有 read-modify-write，防 service main thread 與 assessment worker thread 並發 race；Sprint 4：新增 `companion-metrics-{sid}.json` 獨立檔 + `increment_metric` / `read_metrics` API（白名單）；Sprint 5.5：metric 白名單擴 6 鍵（加 `audits_total_attempted` — Phase 6 §四 C3 ratio 分母；hook handle_stop 在 score gate 通過、所有 dedup/cap 也過、即將送 `/trigger` 前 +1，語意為「實際送出 codex audit 次數」）

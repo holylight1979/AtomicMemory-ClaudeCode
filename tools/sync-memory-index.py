@@ -1,10 +1,13 @@
 """
-sync-memory-index.py — 從 _ATOM_INDEX.md 自動生成 memory/MEMORY.md
+sync-memory-index.py — 從 _atom_index.json 自動生成 memory/MEMORY.md（V5 P6c）
 
-設計依據：_AIDocs/DevHistory/atom-trigger-source-of-truth.md（選項 A §六 Step 2）
+設計依據：V5 Wave 3 P3b — `_atom_index.json` 為 SoT
+
+V4→V5 變更：parse_atom_index 改讀 `_atom_index.json`（先前讀 `_ATOM_INDEX.md`，
+該檔現為自動生成 mirror，drift 風險可避）。
 
 行為：
-- 讀 _ATOM_INDEX.md 取得所有 atom（按 scope 分組、計數）
+- 讀 `_atom_index.json` 取得所有 atom（按 name 排序、計數）
 - 從每 atom 檔的 H1 第一行抽取「說明」欄
 - 重組「Atom Index」區，feedback-* 自動歸納並計數
 - 保留現有「知識庫查閱」段落（自動偵測 `> **知識庫查閱**：` 標記後內容）
@@ -17,50 +20,28 @@ sync-memory-index.py — 從 _ATOM_INDEX.md 自動生成 memory/MEMORY.md
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
-# S2.2: 走 funnel write_index_full（整檔覆寫 + audit log）。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_io import write_index_full  # noqa: E402
+from lib.atom_index_json import load_atom_index_json  # noqa: E402
 
 MEMORY_DIR = Path.home() / ".claude" / "memory"
-ATOM_INDEX_NAME = "_ATOM_INDEX.md"
 MEMORY_INDEX_NAME = "MEMORY.md"
 
-# atom 顯示說明的覆寫表（針對 feedback-* 群組整體說明用）
-GROUP_DESCRIPTIONS = {
-    "feedback": "行為校正",
-}
 
-
-def parse_atom_index(index_path: Path) -> List[Tuple[str, str, str]]:
-    """Return list of (atom_name, rel_path, scope)."""
+def parse_atom_index(memory_dir: Path) -> List[Tuple[str, str, str]]:
+    """V5: 讀 _atom_index.json，回傳 (atom_name, rel_path, scope) list."""
+    data = load_atom_index_json(memory_dir)
     rows: List[Tuple[str, str, str]] = []
-    if not index_path.exists():
-        return rows
-    text = index_path.read_text(encoding="utf-8-sig")
-    in_table = False
-    for line in text.splitlines():
-        s = line.strip()
-        if not in_table:
-            if s.startswith("| Atom") or s.startswith("|Atom"):
-                in_table = True
-            continue
-        if s.startswith("|---") or s.startswith("| ---"):
-            continue
-        if not s.startswith("|"):
-            in_table = False
-            continue
-        cells = [c.strip() for c in s.split("|") if c.strip()]
-        if len(cells) < 3:
-            continue
-        name = cells[0]
-        path = cells[1]
-        scope = cells[3] if len(cells) >= 4 else "global"
-        rows.append((name, path, scope))
+    for a in data.get("atoms", []):
+        rows.append((
+            a.get("name", ""),
+            a.get("path", ""),
+            a.get("scope", "global"),
+        ))
     return rows
 
 
@@ -95,7 +76,7 @@ def render_atom_section(rows: List[Tuple[str, str, str]],
     lines = [
         "# Atom Index — Global",
         "",
-        "> Hook 自動匹配 trigger 注入相關 atom（完整觸發表見 `_ATOM_INDEX.md`）。",
+        "> Hook 自動匹配 trigger 注入相關 atom（完整觸發表見 `_atom_index.json` / `_ATOM_INDEX.md` mirror）。",
         "",
         "| Atom | 說明 |",
         "|------|------|",
@@ -123,7 +104,6 @@ def split_existing(memory_path: Path) -> Tuple[str, str]:
     idx = text.find(KNOWLEDGE_BLOCK_MARKER)
     if idx < 0:
         return text, ""
-    # 從 marker 往前找最近一個空白行作為分隔
     head = text[:idx].rstrip() + "\n"
     tail = text[idx:]
     return head, tail
@@ -138,12 +118,11 @@ def main() -> int:
 
     memory_dir: Path = args.memory_dir
     claude_root = memory_dir.parent
-    index_path = memory_dir / ATOM_INDEX_NAME
     memory_path = memory_dir / MEMORY_INDEX_NAME
 
-    rows = parse_atom_index(index_path)
+    rows = parse_atom_index(memory_dir)
     if not rows:
-        print("[sync-memory-index] _ATOM_INDEX.md empty or missing", file=sys.stderr)
+        print("[sync-memory-index] _atom_index.json empty or missing", file=sys.stderr)
         return 1
 
     new_atom_section = render_atom_section(rows, claude_root)

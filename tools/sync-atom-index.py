@@ -1,15 +1,19 @@
 """
-sync-atom-index.py — Atom frontmatter Trigger ↔ _ATOM_INDEX.md 同步工具
+sync-atom-index.py — Atom frontmatter Trigger ↔ _atom_index.json 同步工具（V5 P6c）
 
-設計依據：_AIDocs/DevHistory/atom-trigger-source-of-truth.md（選項 A）
-- _ATOM_INDEX.md 為機器真相源（hook 唯一讀取點 wg_atoms.py:36）
-- frontmatter Trigger 為註記，drift 時以 _ATOM_INDEX 為主對齊
-- 配對 key 為 rel_path，避免 _ATOM_INDEX 短名 alias 與 atom 檔名不符的偽陽性
+設計依據：V5 Wave 3 P3b（_AIDocs/V5-upgrade-plan.md）
+- `_atom_index.json` 為機器真相源（schema v1.0；lib.atom_index_json）
+- `_ATOM_INDEX.md` 為自動生成 mirror（lib.atom_index_json.regenerate_atom_index_md）
+- frontmatter Trigger 為註記，drift 時以 JSON 為主對齊
+- 配對 key 為 rel_path，避免短名 alias 與 atom 檔名不符的偽陽性
+
+V4→V5 變更：原 parse_atom_index 讀 `_ATOM_INDEX.md` table；
+V5 改讀 `_atom_index.json`，append 走 `lib.atom_index_json.upsert_atom`。
 
 模式：
   (default)              dry-run，輸出 drift JSON 報告，drift 則 exit 1
-  --fix                  以 _ATOM_INDEX 內容覆蓋 atom 檔 frontmatter Trigger
-  --add-from-frontmatter 把 frontmatter 有 Trigger 但 _ATOM_INDEX 缺的 atom 補進索引
+  --fix                  以 _atom_index.json 內容覆蓋 atom 檔 frontmatter Trigger
+  --add-from-frontmatter 把 frontmatter 有 Trigger 但 _atom_index.json 缺的 atom 補進索引
   --check                同 default，僅報 exit code（PreCommit 用，輸出最小化）
 
 範圍判定（哪些檔算 atom）：
@@ -28,16 +32,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# S2.2: 走 funnel 入口（lib/atom_io.write_index_full）。
-# 註：使用 write_index_full（整檔覆寫）而非 write_index（row append），因為
-# _ATOM_INDEX.md 是 4 欄 schema（Atom/Path/Trigger/Scope），funnel write_index
-# 對拍 server.js byte-identical 是 3 欄，row-by-row 替換會破壞 Scope 欄。
-# 保留本檔原有 4 欄 splice 邏輯，最後一次性走 funnel 落檔 + audit。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lib.atom_io import write_index_full  # noqa: E402
+from lib.atom_index_json import (  # noqa: E402
+    load_atom_index_json,
+    upsert_atom,
+)
 
 MEMORY_DIR = Path.home() / ".claude" / "memory"
-ATOM_INDEX_NAME = "_ATOM_INDEX.md"
 
 EXCLUDED_DIR_PARTS = {"_reference", "_archived", "_pending_review", "_staging",
                       "templates", "wisdom", "_drafts", "episodic"}
@@ -66,10 +67,10 @@ class AtomFile:
 
 @dataclass
 class DriftReport:
-    missing_in_index: List[Dict] = field(default_factory=list)  # atom not pointed to by any index row
-    missing_frontmatter: List[str] = field(default_factory=list)  # index row's file has no frontmatter Trigger
+    missing_in_index: List[Dict] = field(default_factory=list)
+    missing_frontmatter: List[str] = field(default_factory=list)
     trigger_drift: List[Dict] = field(default_factory=list)
-    orphan_index: List[str] = field(default_factory=list)  # index row file doesn't exist
+    orphan_index: List[str] = field(default_factory=list)
     scope_drift: List[Dict] = field(default_factory=list)
 
     def has_drift(self) -> bool:
@@ -130,34 +131,18 @@ def scan_atom_files(memory_dir: Path, claude_root: Path) -> Dict[str, AtomFile]:
     return out
 
 
-def parse_atom_index(index_path: Path) -> Tuple[List[IndexRow], List[str]]:
+def load_index_rows(memory_dir: Path) -> List[IndexRow]:
+    """V5: 讀 _atom_index.json，回傳 IndexRow list（取代舊 _ATOM_INDEX.md table parser）."""
+    data = load_atom_index_json(memory_dir)
     rows: List[IndexRow] = []
-    if not index_path.exists():
-        return rows, []
-    text = index_path.read_text(encoding="utf-8-sig")
-    lines = text.splitlines()
-    in_table = False
-    for line in lines:
-        s = line.strip()
-        if not in_table:
-            if s.startswith("| Atom") or s.startswith("|Atom"):
-                in_table = True
-            continue
-        if s.startswith("|---") or s.startswith("| ---"):
-            continue
-        if not s.startswith("|"):
-            in_table = False
-            continue
-        cells = [c.strip() for c in s.split("|")]
-        cells = [c for c in cells if c != ""]
-        if len(cells) < 3:
-            continue
-        name = cells[0]
-        path = cells[1].replace("\\", "/")
-        triggers = [t.strip() for t in cells[2].split(",") if t.strip()]
-        scope = cells[3] if len(cells) >= 4 else "global"
-        rows.append(IndexRow(name=name, path=path, triggers=triggers, scope=scope))
-    return rows, lines
+    for a in data.get("atoms", []):
+        rows.append(IndexRow(
+            name=a.get("name", ""),
+            path=a.get("path", "").replace("\\", "/"),
+            triggers=[t.strip() for t in a.get("triggers", []) if t.strip()],
+            scope=a.get("scope", "global"),
+        ))
+    return rows
 
 
 def detect_drift(atoms_by_path: Dict[str, AtomFile],
@@ -166,7 +151,6 @@ def detect_drift(atoms_by_path: Dict[str, AtomFile],
     rep = DriftReport()
     index_paths = {r.path for r in index_rows}
 
-    # 1. atoms with frontmatter Trigger but path not referenced by any index row
     for rel_path, atom in atoms_by_path.items():
         if rel_path not in index_paths:
             rep.missing_in_index.append({
@@ -176,7 +160,6 @@ def detect_drift(atoms_by_path: Dict[str, AtomFile],
                 "scope": atom.scope,
             })
 
-    # 2 & 3 & 5. iterate index rows
     for row in index_rows:
         target = (claude_root / row.path) if row.path else None
         if not target or not target.exists():
@@ -184,7 +167,6 @@ def detect_drift(atoms_by_path: Dict[str, AtomFile],
             continue
         atom = atoms_by_path.get(row.path)
         if atom is None:
-            # file exists but in excluded dir (e.g., wisdom/) or no frontmatter Trigger
             rep.missing_frontmatter.append(row.name)
             continue
         if atom.triggers != row.triggers:
@@ -226,62 +208,31 @@ def fix_frontmatter_from_index(atoms_by_path: Dict[str, AtomFile],
 
 def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
                                   index_rows: List[IndexRow],
-                                  index_lines: List[str],
-                                  index_path: Path) -> List[str]:
-    """S2.2: 整檔覆寫走 funnel write_index_full（產生 audit log）。
-
-    保留本檔 4 欄 schema 的 splice 邏輯（不能直接套 funnel write_index 的
-    3 欄 row append — 會破壞 Scope 欄）。最終落檔走 funnel，audit log
-    source=tool:sync-atom-index。
-    """
+                                  memory_dir: Path) -> List[str]:
+    """V5: 走 upsert_atom（JSON SoT，自動回寫 MD mirror）."""
     indexed = {r.path for r in index_rows}
-    to_add = [a for p, a in atoms_by_path.items() if p not in indexed]
-    if not to_add:
-        return []
-
-    sep_idx = -1
-    for i, line in enumerate(index_lines):
-        if line.strip().startswith("|---"):
-            sep_idx = i
-            break
-    if sep_idx < 0:
-        return []
-
-    last_row_idx = sep_idx
-    for i in range(sep_idx + 1, len(index_lines)):
-        s = index_lines[i].strip()
-        if s.startswith("|"):
-            last_row_idx = i
-        elif s == "":
-            continue
-        else:
-            break
-
-    new_rows = []
     added: List[str] = []
-    for atom in to_add:
-        triggers_str = ", ".join(atom.triggers)
-        new_rows.append(f"| {atom.name} | {atom.rel_path} | {triggers_str} | {atom.scope} |")
-        added.append(atom.name)
-
-    new_lines = index_lines[:last_row_idx + 1] + new_rows + index_lines[last_row_idx + 1:]
-    out = "\n".join(new_lines)
-    if not out.endswith("\n"):
-        out += "\n"
-    result = write_index_full(index_path, out, source="tool:sync-atom-index")
-    if not result.ok:
-        print(f"[sync-atom-index] write_index_full failed: {result.error}",
-              file=sys.stderr)
-        return []
+    for rel_path, atom in atoms_by_path.items():
+        if rel_path in indexed:
+            continue
+        ok = upsert_atom(
+            memory_dir,
+            name=atom.name,
+            path=rel_path,
+            triggers=atom.triggers,
+            scope=atom.scope,
+        )
+        if ok:
+            added.append(atom.name)
     return added
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    parser = argparse.ArgumentParser(description="V5 atom index sync (JSON SoT).")
     parser.add_argument("--fix", action="store_true",
-                        help="overwrite frontmatter Trigger from _ATOM_INDEX")
+                        help="overwrite frontmatter Trigger from _atom_index.json")
     parser.add_argument("--add-from-frontmatter", action="store_true",
-                        help="append atoms with frontmatter Trigger but missing from _ATOM_INDEX")
+                        help="append atoms with frontmatter Trigger but missing from _atom_index.json")
     parser.add_argument("--check", action="store_true",
                         help="quiet drift check (exit 1 if drift, for PreCommit)")
     parser.add_argument("--memory-dir", type=Path, default=MEMORY_DIR)
@@ -289,18 +240,17 @@ def main() -> int:
 
     memory_dir: Path = args.memory_dir
     claude_root = memory_dir.parent
-    index_path = memory_dir / ATOM_INDEX_NAME
 
     atoms_by_path = scan_atom_files(memory_dir, claude_root)
-    index_rows, index_lines = parse_atom_index(index_path)
+    index_rows = load_index_rows(memory_dir)
 
     actions_taken: List[str] = []
 
     if args.add_from_frontmatter:
-        added = add_to_index_from_frontmatter(atoms_by_path, index_rows, index_lines, index_path)
+        added = add_to_index_from_frontmatter(atoms_by_path, index_rows, memory_dir)
         if added:
-            actions_taken.append(f"added to _ATOM_INDEX: {added}")
-            index_rows, index_lines = parse_atom_index(index_path)
+            actions_taken.append(f"added to _atom_index.json: {added}")
+            index_rows = load_index_rows(memory_dir)
 
     if args.fix:
         changed = fix_frontmatter_from_index(atoms_by_path, index_rows)

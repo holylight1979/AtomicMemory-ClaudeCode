@@ -7,6 +7,8 @@ description: 切換 Codex Companion 監督系統開關（GPT 第二意見審計�
 
 > 切換 Codex Companion 監督系統。啟用後，Codex (GPT) 會在計畫審閱與 turn 審計時提供第二意見。
 > 全域 Skill，適用任何專案。
+>
+> **V5 (2026-05-27)**：daemon @ port 3850 已淘汰，改 in-process state + spawn `tools/codex-companion/audit.py` 短命子程序。本 skill 不再管理 service 生命週期，只切換 config flag。
 
 ---
 
@@ -37,20 +39,11 @@ description: 切換 Codex Companion 監督系統開關（GPT 第二意見審計�
 
 用 Edit tool 修改 `config.json` 中的 `codex_companion.enabled` 值。
 
-## Step 3: Service 管理
-
-- **開啟時**：檢查 companion service 是否在跑（`curl http://127.0.0.1:3850/health`）。若沒跑，用 Bash 背景啟動：
-  ```
-  python ~/.claude/tools/codex-companion/service.py &
-  ```
-- **關閉時**：送 shutdown 信號：
-  ```
-  curl -X POST http://127.0.0.1:3850/shutdown
-  ```
-
-## Step 4: 回報
+## Step 3: 回報
 
 回覆切換結果：
 
-- **開啟**：「Codex Companion 已開啟。計畫審閱與 turn 審計將由 Codex 提供第二意見。」
+- **開啟**：「Codex Companion 已開啟。計畫審閱與 turn 審計會 spawn `audit.py` 短命子程序由 Codex 提供第二意見。」
 - **關閉**：「Codex Companion 已關閉。」
+
+無需額外清理 — 下次 hook 觸發即生效，沒有常駐 daemon。

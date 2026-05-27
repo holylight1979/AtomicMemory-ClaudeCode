@@ -1,14 +1,16 @@
-"""codex_companion.py — Thin hook for Codex Companion integration.
+"""codex_companion.py — Codex Companion hook (V5 subprocess model).
 
-Dispatches Claude Code hook events to the companion HTTP service.
-Fast path: config disabled → exit(0) immediately (< 1ms).
+V5 P5b 重構：HTTP daemon @ port 3850 廢止；改 in-process state + spawn
+`tools/codex-companion/audit.py` 短命子程序執行 codex assessment。
 
 Events handled:
-  SessionStart    → ensure service, POST /event
-  UserPromptSubmit → read assessment file → inject additionalContext
-  PostToolUse     → POST /event, checkpoint detection
-  Stop            → POST /event, heuristic soft gate, trigger turn audit
-  SessionEnd      → POST /event
+  SessionStart    → companion_state.ensure_state
+  UserPromptSubmit → drain companion-assessment-*.json → additionalContext
+  PostToolUse     → state.append_event + checkpoint detect → spawn audit
+  Stop            → state ops + heuristic soft gate + score gate → spawn audit
+  SessionEnd      → flush metrics to reflection_metrics.json
+
+Fast path: config disabled / codex CLI missing → exit(0) immediately.
 """
 
 from __future__ import annotations
@@ -16,10 +18,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
-import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -27,8 +27,9 @@ CLAUDE_DIR = Path.home() / ".claude"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
 COMPANION_DIR = CLAUDE_DIR / "tools" / "codex-companion"
+AUDIT_SCRIPT = COMPANION_DIR / "audit.py"
 
-# Add companion dir to path for heuristics import
+# Add companion dir to path for heuristics/state import
 sys.path.insert(0, str(COMPANION_DIR))
 sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
 
@@ -42,92 +43,6 @@ def _load_config() -> Dict[str, Any]:
         return full.get("codex_companion", {})
     except (json.JSONDecodeError, OSError):
         return {}
-
-
-# ─── HTTP helpers ────────────────────────────────────────────────────────────
-
-
-def _http_post(port: int, path: str, data: Dict[str, Any], timeout: float = 0.5) -> Optional[Dict]:
-    """POST JSON to companion service. Returns parsed response or None on failure."""
-    try:
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{port}{path}",
-            data=body,
-            method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read())
-    except Exception:
-        return None
-
-
-def _http_get(port: int, path: str, timeout: float = 0.5) -> Optional[Dict]:
-    """GET from companion service. Returns parsed response or None on failure."""
-    try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read())
-    except Exception:
-        return None
-
-
-# ─── Service lifecycle ───────────────────────────────────────────────────────
-
-
-def _is_service_running(port: int) -> bool:
-    """Quick check: is something listening on the companion port?"""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        return sock.connect_ex(("127.0.0.1", port)) == 0
-    finally:
-        sock.close()
-
-
-def _ensure_service(config: Dict[str, Any]) -> None:
-    """Start companion service if not running."""
-    port = config.get("service_port", 3850)
-
-    # Health check first
-    try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/health", method="GET")
-        with urllib.request.urlopen(req, timeout=1):
-            return  # Already running
-    except Exception:
-        pass
-
-    # Port guard
-    if _is_service_running(port):
-        return  # Port occupied, likely starting up
-
-    service_path = COMPANION_DIR / "service.py"
-    if not service_path.exists():
-        return
-
-    try:
-        CREATE_NO_WINDOW = 0x08000000
-        DETACHED_PROCESS = 0x00000008
-        CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-
-        log_path = CLAUDE_DIR / "Logs" / "codex-companion.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_fh = open(str(log_path), "a")
-
-        try:
-            kwargs = {
-                "stdout": subprocess.DEVNULL,
-                "stderr": log_fh,
-            }
-            if sys.platform == "win32":
-                kwargs["creationflags"] = CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
-
-            subprocess.Popen([sys.executable, str(service_path)], **kwargs)
-        except Exception:
-            log_fh.close()
-            raise
-    except Exception:
-        pass  # Fail silently — companion is optional
 
 
 # ─── Output helpers (same protocol as workflow-guardian) ──────────────────────
@@ -162,6 +77,84 @@ def _output_nothing() -> None:
     sys.exit(0)
 
 
+# ─── Checkpoint detection (V5: moved from service.py) ────────────────────────
+
+_PLAN_TOOLS = {"ExitPlanMode", "EnterPlanMode"}
+_WRITE_TOOLS = {"Edit", "Write"}
+
+
+def _detect_checkpoint(
+    tool_name: str, file_path: str, config: Dict[str, Any]
+) -> Optional[str]:
+    """Determine if this tool use triggers a checkpoint.
+
+    (1) ExitPlanMode/EnterPlanMode → plan_review
+    (2) 結構性檔案 Edit/Write + soft_gate.architecture_review=true → architecture_review
+    """
+    if tool_name in _PLAN_TOOLS:
+        return "plan_review"
+    if (tool_name in _WRITE_TOOLS and file_path
+            and config.get("soft_gate", {}).get("architecture_review", False)):
+        try:
+            import heuristics as _heur
+            if _heur._ARCH_FILE_RE.search(file_path):
+                return "architecture_review"
+        except ImportError:
+            pass
+    return None
+
+
+# ─── Audit subprocess spawn (V5: replaces /trigger HTTP) ─────────────────────
+
+
+def _spawn_audit_subprocess(turn_data: Dict[str, Any]) -> None:
+    """Fire-and-forget subprocess: python audit.py <stdin: turn_data JSON>.
+
+    Detached so the hook returns immediately. audit.py reads stdin, runs
+    assessor.run_assessment, writes via state.write_assessment.
+    """
+    if not AUDIT_SCRIPT.exists():
+        return
+
+    log_path = CLAUDE_DIR / "Logs" / "codex-audit.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        log_fh = open(str(log_path), "a", encoding="utf-8")
+    except OSError:
+        log_fh = subprocess.DEVNULL
+
+    try:
+        kwargs: Dict[str, Any] = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.DEVNULL,
+            "stderr": log_fh,
+        }
+        if sys.platform == "win32":
+            CREATE_NO_WINDOW = 0x08000000
+            DETACHED_PROCESS = 0x00000008
+            CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+            kwargs["creationflags"] = (
+                CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
+            )
+        else:
+            kwargs["start_new_session"] = True
+
+        proc = subprocess.Popen([sys.executable, str(AUDIT_SCRIPT)], **kwargs)
+        try:
+            proc.stdin.write(
+                json.dumps(turn_data, ensure_ascii=False).encode("utf-8")
+            )
+        finally:
+            proc.stdin.close()
+    except Exception:
+        # Fail silently — companion is optional
+        if hasattr(log_fh, "close"):
+            try:
+                log_fh.close()
+            except Exception:
+                pass
+
+
 # ─── Stop-text helpers (三層 fallback) ───────────────────────────────────────
 
 
@@ -171,14 +164,12 @@ def _get_last_assistant_tail(input_data: Dict[str, Any]) -> str:
     2. 自寫 transcript jsonl tail parser（不過長度過濾，不放掉「已完成。」「Done.」短句）
     3. wg_evasion.get_last_assistant_text()（>30 字過濾）作兜底
     """
-    # Layer 1
     direct = input_data.get("last_assistant_message", "")
     if isinstance(direct, str) and direct.strip():
         return direct.strip()[:2000]
 
     transcript_path = input_data.get("transcript_path", "")
     if transcript_path:
-        # Layer 2: own jsonl tail parser, no length filter
         try:
             last = ""
             with open(transcript_path, "r", encoding="utf-8") as f:
@@ -202,7 +193,6 @@ def _get_last_assistant_tail(input_data: Dict[str, Any]) -> str:
         except (OSError, UnicodeDecodeError):
             pass
 
-        # Layer 3: wg_evasion fallback (filters short text)
         try:
             import wg_evasion
             tail = wg_evasion.get_last_assistant_text(Path(transcript_path))
@@ -270,17 +260,13 @@ def _build_verification_signals(input_data: Dict[str, Any], tool_response: Any) 
 
 
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]):
-    port = config.get("service_port", 3850)
+    import state as companion_state
+
     session_id = input_data.get("session_id", "")
+    cwd = input_data.get("cwd", "")
 
-    _ensure_service(config)
-
-    # Give service a moment to start, then post event
-    _http_post(port, "/event", {
-        "session_id": session_id,
-        "type": "session_start",
-        "cwd": input_data.get("cwd", ""),
-    }, timeout=1.0)
+    if session_id:
+        companion_state.ensure_state(session_id, cwd)
 
     _output_nothing()
 
@@ -446,21 +432,30 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
     _output_context("UserPromptSubmit", context_text)
 
 
-def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
-    """Accumulate events + delegate checkpoint detection to service.
+def _within_audit_cap(session_id: str, max_audits: int) -> bool:
+    """V5 P5b: in-process counter via state.assessments_requested。
 
-    Phase 0.4：不再 hook 端讀 state，信任 service /event response 的
-    should_trigger_checkpoint 旗標。
-    Phase 1.1+1.2：tool_response 抽 stdout/stderr + 失敗訊號偵測。
+    State 由 record_checkpoint 在 spawn audit 之前 +1。subprocess 失敗不會
+    decrement → 保守路徑（under-runs not over-runs）。
     """
-    port = config.get("service_port", 3850)
+    import state as companion_state
+    st = companion_state.read_state(session_id) or {}
+    return int(st.get("assessments_requested", 0)) < max_audits
+
+
+def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
+    """Accumulate events + spawn audit subprocess on checkpoint.
+
+    V5 P5b：直接寫 state（無 HTTP）；checkpoint 命中 → spawn audit.py。
+    """
+    import state as companion_state
+
     session_id = input_data.get("session_id", "")
     tool_name = input_data.get("tool_name", "")
 
     if not session_id:
         _output_nothing()
 
-    # Extract tool info
     tool_input = input_data.get("tool_input", "")
     if isinstance(tool_input, dict):
         file_path = tool_input.get("file_path", "")
@@ -475,23 +470,26 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
     tool_response = input_data.get("tool_response", "")
     output_summary, failed = _summarize_tool_response(tool_response)
 
-    event_data = {
-        "session_id": session_id,
+    companion_state.append_event(session_id, {
         "type": "tool_use",
-        "tool_name": tool_name,
-        "tool_input_summary": input_summary,
-        "tool_output_summary": output_summary,
-        "file_path": file_path,
-    }
-    result = _http_post(port, "/event", event_data)
+        "tool": tool_name,
+        "input": input_summary,
+        "output_summary": output_summary,
+        "path": file_path,
+    })
 
-    if result:
-        checkpoint = result.get("should_trigger_checkpoint")
-        if checkpoint:
+    checkpoint = _detect_checkpoint(tool_name, file_path, config)
+    if checkpoint:
+        max_audits = int(config.get("max_audits_per_session", 30))
+        if _within_audit_cap(session_id, max_audits):
+            companion_state.record_checkpoint(session_id, checkpoint)
+            st = companion_state.read_state(session_id) or {}
             verification = _build_verification_signals(input_data, tool_response)
-            _http_post(port, "/trigger", {
+            _spawn_audit_subprocess({
                 "session_id": session_id,
-                "type": checkpoint,
+                "turn_index": int(st.get("turn_index", 0)),
+                "assessment_type": checkpoint,
+                "cwd": st.get("cwd", ""),
                 "context": {
                     "trigger_tool": tool_name,
                     "trigger_file": file_path,
@@ -504,30 +502,24 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
 
 
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
-    """Run heuristic soft gate + score-gated async turn audit.
+    """Run heuristic soft gate + score-gated turn audit (V5 subprocess).
 
     Phase 1.3：last_assistant_tail 三層 fallback。
-    Phase 1.4：tail 當 stop_text 傳入 triggered_results。
-    Phase 1.5：trigger context 帶 user_goal_hint / last_assistant_tail。
-    Sprint 3 Phase 3.2：
-      (a) 算 score < score_threshold → 跳過 codex turn_audit
-      (b) 同 turn_index + turn_audit 已落盤 assessment → dedup skip
-      (c) max_audits_per_session 上限保護
+    Sprint 3 Phase 3.2：score gate + dedup + max_audits cap。
+    V5 P5b：state ops in-process；audit 以 subprocess 啟動。
     """
-    port = config.get("service_port", 3850)
-    session_id = input_data.get("session_id", "")
+    import state as companion_state
 
+    session_id = input_data.get("session_id", "")
     if not session_id:
         _output_nothing()
 
     last_assistant_tail = _get_last_assistant_tail(input_data)
 
-    # POST stop event with tail (service 端會 increment turn_index 並更新 state)
-    _http_post(port, "/event", {
-        "session_id": session_id,
-        "type": "stop",
-        "last_assistant_tail": last_assistant_tail,
-    })
+    # State：persist tail + increment turn_index（取代舊 /event POST）
+    if last_assistant_tail:
+        companion_state.update_last_assistant_tail(session_id, last_assistant_tail)
+    companion_state.increment_turn(session_id)
 
     # ── 共用：讀 guardian + companion state，組 merged_state ─────────────
     guardian_state_path = WORKFLOW_DIR / f"state-{session_id}.json"
@@ -536,12 +528,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
     except (json.JSONDecodeError, OSError):
         guardian_state = {}
 
-    comp_state_path = WORKFLOW_DIR / f"companion-state-{session_id}.json"
-    try:
-        comp_state = json.loads(comp_state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        comp_state = {}
-
+    comp_state = companion_state.read_state(session_id) or {}
     merged_state = {
         "modified_files": guardian_state.get("modified_files", []),
         "accessed_files": guardian_state.get("accessed_files", []),
@@ -551,8 +538,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
     turn_index_post = int(comp_state.get("turn_index", 0))
 
     # ── Sprint 2：heuristic soft gate（BLOCK 權只屬 confident_completion）─
-    # 2026-04-28 改：新增 silent_advisory 旗標。開啟時 heuristic 結果只計數 +
-    # 落盤觀測，不 BLOCK，不打擾對話。BLOCK 路徑保留給未來「明確失敗訊號」用。
+    # 2026-04-28：silent_advisory 開啟時 heuristic 結果只計數 + 落盤觀測，
+    # 不 BLOCK，不打擾對話。BLOCK 路徑保留給未來「明確失敗訊號」用。
     soft_gate_config = config.get("soft_gate", {})
     silent_advisory = bool(config.get("silent_advisory", False))
     if soft_gate_config.get("completion_evidence", True):
@@ -563,9 +550,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
                 threshold = soft_gate_config.get("block_severity_threshold", "high")
                 if heuristics.severity_at_or_above(results, threshold):
                     if silent_advisory:
-                        # 靜默路徑：只增量 metric，不 BLOCK，不顯示給使用者
                         try:
-                            import state as companion_state
                             companion_state.increment_metric(
                                 session_id, "silent_advisory_suppressed"
                             )
@@ -597,9 +582,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
         score = 99  # 算分失敗安全預設：不抑制觸發，避免漏審查
 
     if score < score_threshold:
-        # Phase 5 觀測
         try:
-            import state as companion_state
             companion_state.increment_metric(session_id, "audits_skipped_by_score")
         except Exception:
             pass
@@ -610,27 +593,26 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
     if dedup_path.exists():
         _output_nothing()
 
-    # max_audits_per_session cap：已落盤的 *.json 數量達上限 → skip
-    existing = list(WORKFLOW_DIR.glob(f"companion-assessment-{session_id}-t*.json"))
-    if len(existing) >= max_audits:
+    # max_audits cap via state counter
+    if not _within_audit_cap(session_id, max_audits):
         _output_nothing()
 
-    # ── trigger turn_audit ───────────────────────────────────────────────
+    # ── trigger turn_audit via audit.py subprocess ───────────────────────
     user_goal_hint = (guardian_state.get("user_goal_hint")
                       or guardian_state.get("user_intent") or "")[:500]
 
-    # Sprint 5.5 B1：score gate 通過、所有 dedup/cap 也過、即將送 /trigger 前 +1
-    # 此鍵作為 Phase 6 §四 C3「audits_skipped_by_score / audits_total_attempted > 0.7」
-    # 的分母。語意：實際送出去的 codex audit 次數
+    # Sprint 5.5 B1：實際送出 audit 前 +1（Phase 6 §四 C3 ratio 分母）
     try:
-        import state as companion_state
         companion_state.increment_metric(session_id, "audits_total_attempted")
     except Exception:
         pass
 
-    _http_post(port, "/trigger", {
+    companion_state.record_checkpoint(session_id, "turn_audit")
+    _spawn_audit_subprocess({
         "session_id": session_id,
-        "type": "turn_audit",
+        "turn_index": turn_index_post,
+        "assessment_type": "turn_audit",
+        "cwd": comp_state.get("cwd", ""),
         "context": {
             "user_goal_hint": user_goal_hint,
             "last_assistant_tail": last_assistant_tail,
@@ -686,17 +668,9 @@ def _flush_metrics_to_reflection(session_id: str) -> None:
 
 
 def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]):
-    port = config.get("service_port", 3850)
     session_id = input_data.get("session_id", "")
-
-    _http_post(port, "/event", {
-        "session_id": session_id,
-        "type": "session_end",
-    })
-
     if session_id:
         _flush_metrics_to_reflection(session_id)
-
     _output_nothing()
 
 

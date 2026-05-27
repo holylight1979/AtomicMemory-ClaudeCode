@@ -6,7 +6,6 @@ wg_atoms.py — Atom 索引解析 / Trigger / Intent / Vector search / Activatio
 - Intent classification、Topic Tracker、Session Context、Proactive（前 wg_intent）
 - Semantic search / vector observation log / incremental index（前 wg_intent）
 - _self_iterate_atoms（前 wg_iteration — atom 晉升非自評）
-- Vector service ensure（dead code，保留至 P6 清理）
 """
 
 import json
@@ -14,7 +13,6 @@ import logging
 import logging.handlers
 import math
 import re
-import socket
 import sys
 import time
 import urllib.error
@@ -1122,53 +1120,6 @@ def _proactive_classify(
             )
 
     return lines
-
-
-def _ensure_vector_service(config: Dict[str, Any]) -> None:
-    """DEAD CODE (V5 P2): superseded by SessionStart inline bg subprocess.
-    Kept to satisfy any external caller; remove in P6 Wave 5 cleanup.
-    """
-    vs_config = config.get("vector_search", {})
-    port = vs_config.get("service_port", 3849)
-    try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/health", method="GET")
-        with urllib.request.urlopen(req, timeout=1):
-            return
-    except Exception as e:
-        _atom_debug_error("注入:_ensure_vector_service:health", e)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        if sock.connect_ex(("127.0.0.1", port)) == 0:
-            return
-    finally:
-        sock.close()
-    service_path = CLAUDE_DIR / "tools" / "memory-vector-service" / "service.py"
-    if not service_path.exists():
-        return
-    try:
-        import subprocess
-        CREATE_NO_WINDOW = 0x08000000
-        DETACHED_PROCESS = 0x00000008
-        CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-        log_path = CLAUDE_DIR / "memory" / "_vectordb" / "service.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_fh = open(str(log_path), "a")
-        try:
-            kwargs = {
-                "stdout": subprocess.DEVNULL,
-                "stderr": log_fh,
-            }
-            if sys.platform == "win32":
-                kwargs["creationflags"] = CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
-            subprocess.Popen(
-                [sys.executable, str(service_path)],
-                **kwargs,
-            )
-        except Exception:
-            log_fh.close()
-            raise
-    except Exception as e:
-        _atom_debug_error("注入:_ensure_vector_service:start", e)
 
 
 def _semantic_search(

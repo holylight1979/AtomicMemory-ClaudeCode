@@ -15,3 +15,4 @@
 | 4 | unity-prefab-component-guids.md | SGI Client UI Component Script GUIDs 對照表 | prefab GUID, component GUID, m_Script, ILUIWnd GUID, UIButtonCustom GUID, EnhancedScroller GUID, UI component registry |
 | 5 | unity-wndform-yaml-template.md | WndForm Prefab YAML 模板（RefDb, AutoGenUICode, Scroller stack） | WndForm template, prefab YAML, RefDb, AutoGenUICode, Scroller stack, Canvas template, prefab 建立 |
 | 6 | unity-prefab-workflow.md | Prefab 程式化建立 SOP（generate-ui-prefab 流程） | prefab SOP, 程式化建立 prefab, generate-ui-prefab, WndForm 建立, 元件 stack, Console 警告 |
+| 7 | bm25-global-layer.md | V5 全域 atom BM25 檢索層（取代 Vector daemon 殺雞用牛刀） | BM25, 全域檢索, atom 注入, char-bigram, k1, b, vector global_layer, V5 P5a |

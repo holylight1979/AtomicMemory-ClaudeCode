@@ -128,10 +128,10 @@
   },
   "codex_companion": {
     "enabled": true,
-    "service_port": 3850,
     "codex_binary": "C:/Users/holylight/AppData/Roaming/npm/codex.cmd",
     "model": "",
     "assessment_timeout": 60,
+    "subprocess_timeout": 90,
     "score_threshold": 7,
     "max_audits_per_session": 30,
     "silent_advisory": true,
