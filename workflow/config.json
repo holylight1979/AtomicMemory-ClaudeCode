@@ -153,7 +153,6 @@
       "hooks/extract-worker.py": ["Architecture.md"],
       "hooks/quick-extract.py": ["Architecture.md"],
       "hooks/wisdom_engine.py": ["Architecture.md"],
-      "commands/*.md": ["DocIndex-System.md"],
       "skills/*/SKILL.md": ["DocIndex-System.md"],
       "rules/*.md": ["DocIndex-System.md"],
       "tools/*.py": ["DocIndex-System.md"]

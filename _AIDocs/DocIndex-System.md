@@ -83,7 +83,7 @@ Session Ready
 
 ## 5. Skills（V5：skills/，19 個全域 + 5 內建/個人優先）
 
-V5 Wave 3 把 commands/*.md 遷到 skills/{name}/SKILL.md（對齊 Anthropic 官方「commands merged into skills」）。SKILL.md 即 docdrift 主來源（`workflow/config.json` docdrift path_mappings 已更新）。Legacy `commands/` 22 個 .md 保留至 2026-06-03 緩衝期滿後刪除。
+V5 Wave 3 把 commands/*.md 遷到 skills/{name}/SKILL.md（對齊 Anthropic 官方「commands merged into skills」）。SKILL.md 即 docdrift 主來源（`workflow/config.json` docdrift path_mappings 已更新）。Legacy `commands/` 22 個 .md **2026-05-27 已刪除**（Wave 4 收尾，對拍 100% identical 驗證後提前廢止 7 天緩衝期）。
 
 | 指令 | 檔案 | 用途 | 依賴 |
 |------|------|------|------|

@@ -130,7 +130,7 @@ paths: "memory/**/*.md"           # glob 命中才 auto-load
 - `svn-update` / `unity-yaml`（下沉到專案層）
 - `changelog-roll`（改名 changelog-debug）
 
-`commands/` 殘留 22 個 legacy `.md` 保留至 **2026-06-03 緩衝期滿**後刪除（官方 skill > command 優先級保證不衝突）。
+`commands/` 22 個 legacy `.md` **已於 2026-05-27 Wave 4 收尾刪除**。原訂 7 天緩衝（到 2026-06-03）經對拍腳本驗證後提前廢止：13 直遷 commands vs skills 字元數 100% identical（純 frontmatter 包裝差異）、3 全域保留 identical、5 memory 子命令全部在統一 skill 內提及、唯一差異的 codex-companion 是 commands/ 為過時版本（保留反為 noise）。緩衝期當保險而非工程必要的設計被推翻。
 
 ---
 
@@ -274,7 +274,7 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。
 | `.git/hooks/pre-commit` | ✓ Wave 3 重啟（JSON schema check） | 取代脆性的 _ATOM_INDEX.md table parser |
 | Vector Service @ 3849 | ✓ 保留 | 專案層仍用 vector；全域層改 BM25 |
 | Codex Companion daemon @ 3850 | ✗ Wave 4 P5b 廢止 | 改 subprocess（本 SPEC §7） |
-| legacy commands/ 22 檔 | 緩衝至 2026-06-03 | 確認無人手敲 `/<old-name>` 後刪除 |
+| legacy commands/ 22 檔 | ✓ 2026-05-27 已刪除（Wave 4 收尾） | 對拍 100% 通過後提前廢止緩衝期 |
 
 ---
 

@@ -61,7 +61,7 @@
 
 ## Skills（V5 全域 19 個，2026-05-27）
 
-V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 保留至 **2026-06-03 緩衝期滿**後刪除。
+V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` **2026-05-27 已刪除**（原 7 天緩衝經對拍 100% identical 驗證後提前廢止）。
 
 | Skill | 檔案 | 用途 |
 |-------|------|------|
