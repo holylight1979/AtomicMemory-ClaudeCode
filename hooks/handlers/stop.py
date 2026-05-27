@@ -151,11 +151,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             state["scan_report_warned"] = True
             write_state(session_id, state)
             reason = (
-                "[Guardian:ScanReport] 宣告完成但未提交掃描報告，違反 IDENTITY「反退避契約」。\n"
-                "依格式強制，報告尾端必須包含下列之一：\n"
-                "  (a) 順手修補清單：- 檔:行 — 改了什麼\n"
-                "      （若確實無則明寫「本次無發現 drift」）\n"
-                "  (b) 需另開 session：項目 X — 超出原因：Y\n"
+                "[Guardian:ScanReport] 宣告完成但未提交收尾檢核，違反 IDENTITY「反退避契約」。\n"
+                "依格式強制，報告尾端**全項檢視**（非擇一）：\n"
+                "  (a) 缺失發現與修補清單：`- 檔:行 — 改了什麼`；無則明寫「無」。**必寫**\n"
+                "  (b) AI 逃避通報：本次有/沒有 忽略 / 偷埋的現象。**僅在發生時寫**\n"
+                "  (c) Token 累積警示：本 session token 已巨量、可能處理失真時，附新 session 接續 prompt。**僅在發生時寫**\n"
+                "  (d) 衍生暫存清單：本次衍生暫存檔/資料夾，預設直接刪。**必寫**，無則明寫「無」\n"
                 "請補上後再宣告完成；不得用「不在範圍 / 留給未來」籠統帶過。"
             )
             output_block(reason)

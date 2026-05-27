@@ -53,6 +53,11 @@ _FALLBACK_DISMISS_PATTERNS = [
     r"known\s+regression", r"confirmed\s+regression",
 ]
 _FALLBACK_SCAN_REPORT_PATTERNS = [
+    # V5 4 項收尾檢核 markers
+    r"缺失發現", r"缺失發現與修補清單", r"修補清單",
+    r"衍生暫存清單", r"衍生暫存",
+    r"AI\s*逃避通報", r"Token\s*累積警示", r"收尾檢核",
+    # 向下相容（V4 舊格式）
     r"順手修補", r"順手修", r"附帶修補",
     r"發現[^，。\n]{0,6}drift",
     r"本次[^，。\n]{0,3}(?:無|沒有)[^，。\n]{0,6}drift",

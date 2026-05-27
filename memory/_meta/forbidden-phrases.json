@@ -74,8 +74,15 @@
     ]
   },
   "scan_report_markers": {
-    "_doc": "合規完成報告必須出現下列其一（has_scan_report / detect_missing_scan_report 用）",
+    "_doc": "合規收尾檢核必須出現下列其一（has_scan_report / detect_missing_scan_report 用）。4 項全項檢視：(a) 缺失發現與修補清單 / (b) AI 逃避通報 / (c) Token 累積警示 / (d) 衍生暫存清單。舊「順手修補」「無 drift」等保留為向下相容偵測。",
     "patterns": [
+      "缺失發現",
+      "缺失發現與修補清單",
+      "修補清單",
+      "衍生暫存清單",
+      "衍生暫存",
+      "AI\\s*逃避通報",
+      "Token\\s*累積警示",
       "順手修補",
       "順手修",
       "附帶修補",
@@ -85,6 +92,7 @@
       "無\\s*drift",
       "no\\s+drift",
       "掃描報告",
+      "收尾檢核",
       "drift\\s+(?:check|report)",
       "需另開\\s*session",
       "列入\\s*handoff"
