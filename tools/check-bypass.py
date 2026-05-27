@@ -26,10 +26,8 @@ WHITELIST = {
     "lib/atom_io.py",
     "lib/atom_io_cli.py",
     "tools/check-bypass.py",
-    # 非 atom 的 audit log / metadata / 測試腳本：
+    # 非 atom 的 audit log / metadata：
     "hooks/wg_core.py",            # _promotion_audit.jsonl append（非 atom）
-    "tools/snapshot-v4-atoms.py",  # 寫到 tests/fixtures/，非 atom
-    "tools/test-memory-v21.py",    # 測試腳本本身（位置在 tools/ 而非 tests/）
     # tests/ 全部白名單（測試會直寫 fixture）
 }
 WHITELIST_DIR_PREFIXES = ("tests/", "_archive/", "projects/_archive/")
