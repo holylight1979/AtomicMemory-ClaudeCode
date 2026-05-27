@@ -74,6 +74,7 @@
       "triggers": [
         "完成宣告",
         "收尾",
+        "收尾檢核",
         "pytest",
         "smoke test",
         "研究先行",
@@ -84,7 +85,10 @@
         "測試上傳",
         "上 SVN",
         "known regression",
-        "xfail"
+        "xfail",
+        "衍生暫存",
+        "暫存檔",
+        "清暫存"
       ],
       "scope": "global"
     },
@@ -205,27 +209,6 @@
         "cp950",
         "PowerShell截圖",
         "向量服務"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "v5-overhaul-audit-2026-05",
-      "path": "memory/v5-overhaul-audit-2026-05.md",
-      "triggers": [
-        "V5",
-        "升級",
-        "overhaul",
-        "原子記憶升版",
-        "audit 2026-05",
-        "全面檢修",
-        "commands skill 遷移",
-        "skill plugin 結構",
-        "重構計畫",
-        "Wave 1",
-        "Wave 3",
-        "next-phase",
-        "BM25",
-        "_atom_index.json"
       ],
       "scope": "global"
     },

@@ -75,6 +75,7 @@ memory/episodic/
 memory/_distant/
 
 # ─── User-specific config (per-user, auto-generated) ──────
+# IDENTITY.md / USER.md 為個人實例（從 IDENTITY.template / USER.template 拷出）；模板 tracked, 實例 ignored
 USER.md
 USER-*.md
 !prompts/user-decision-*.md

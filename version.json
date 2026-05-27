@@ -1,4 +1,6 @@
 {
-  "guardian": "2.2.0",
-  "atom_memory": "4.1"
+  "guardian": "5.0.0",
+  "atom_memory": "5.0",
+  "ga_date": "2026-05-27",
+  "codename": "對齊原生 + JSON SoT + BM25 + Subprocess"
 }

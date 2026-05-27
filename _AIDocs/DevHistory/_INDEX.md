@@ -22,5 +22,6 @@
 | 15 | vector-threshold-calibration-2026-04.md | Wave 3b probe-burst 數據驅動的 ranked-sections min_score 校準（90 query x 6 threshold 矩陣 + 決策） | vector, threshold, calibration, ranked-sections, min_score, probe-burst, 議題 #6, REG-005 |
 | 16 | atom-injection-refactor-2026-04.md | REG-005 atom 注入機制重構收尾（A+B+C+D 4 層 + 觀察期 KEEP 判定 + 設計歸檔） | REG-005, atom, injection, summary-first, budget, hot-cold, related, 4-layer, KEEP, 觀察期 |
 | 17 | v4-archive/ | Wave 4 hooks/_v4_archive 19 檔對照證物（V4 hook 模組退役前最後一版） | v4-archive, hooks, 證物, V4 退役 |
+| 18 | v5-overhaul-2026-05/ | V5 升版完整紀錄（起因 + 4-Wave + Wave 5 全面汰舊 + GA Checklist 驗收）— 取代原 audit atom | V5, GA, 升版, overhaul, Wave, 全面汰舊, BM25, JSON SoT, Codex subprocess, 114GB |
 
 > 2026-05-27 Wave 5 Session 2 已歸檔（移至 `memory/_distant/2026_05_v5_overhaul/`，git 不再追蹤）：`session-logs/` / `memory-cleanup-2026-04/` / `atomic-memory-evolution/` / `ab-test-gemma4/` / `atom-v4/` / `atom-v4-phases/` / `changelog-roll/` / `v41-handoffs/` / `v41-p4-simulation/` / `wg-docdrift/`
