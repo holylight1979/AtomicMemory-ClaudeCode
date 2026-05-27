@@ -1,4 +1,104 @@
 {
   "env": {},
-  "effortLevel": "xhigh"
+  "effortLevel": "xhigh",
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebSearch",
+      "WebFetch(*)",
+      "mcp__workflow-guardian__atom_write",
+      "mcp__workflow-guardian__atom_move",
+      "mcp__workflow-guardian__atom_promote",
+      "mcp__MCPControl__computer",
+      "mcp__MCPControl__get_screen_size",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_tabs",
+      "mcp__playwright__browser_hover",
+      "mcp__playwright__browser_select_option",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_evaluate"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"$HOME/.claude/hooks/user-init.sh\"", "timeout": 3 },
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 },
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/ensure-mcp.py'),run_name='__main__')\"", "timeout": 5 },
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"", "timeout": 5 }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 8 },
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"", "timeout": 3 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          { "type": "command", "command": "bash \"$HOME/.claude/hooks/webfetch-guard.sh\"", "timeout": 20 }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Read|Bash",
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|Bash|ExitPlanMode|EnterPlanMode",
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"", "timeout": 3 }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 },
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/quick-extract.py'),run_name='__main__')\"", "timeout": 30, "async": true },
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 30 },
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"", "timeout": 5 },
+          { "type": "command", "command": "python -c \"import subprocess,pathlib,sys;log=pathlib.Path.home()/'.claude/Logs/audit-reconcile.log';log.parent.mkdir(parents=True,exist_ok=True);out=open(log,'a',encoding='utf-8');subprocess.run([sys.executable,str(pathlib.Path.home()/'.claude/tools/audit-reconcile.py'),'--since','1d','--json'],stdout=out,stderr=subprocess.STDOUT,timeout=20)\"", "timeout": 30, "async": true }
+        ]
+      }
+    ]
+  }
 }

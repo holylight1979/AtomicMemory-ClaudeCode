@@ -2,7 +2,7 @@
 
 > 來源：https://claude-code-harness-blog.vercel.app/（14 章完整收錄）
 > 用途：開發 hooks、skills、tools、MCP 伺服器時的架構參考
-> 最近更新：2026-04-01
+> 最近更新：2026-05-27（V5 GA 簽收同步；本資料夾為 CC 主程式架構參考，與我們 V5 升版無直接耦合）
 
 ---
 

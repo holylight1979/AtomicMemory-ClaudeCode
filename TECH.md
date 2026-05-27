@@ -28,7 +28,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 ```
 ~/.claude/
 ├── CLAUDE.md / IDENTITY.md / USER.md              ← 啟動三件套
-├── settings.json                                   ← user-level config（當前 42 bytes 空殼；hook 註冊實際位置待釐清，可能透過 ~/.claude.json / plugin marketplace / superpowers hooks.json 動態載入）
+├── settings.json                                   ← user-level config + 8 hook events 註冊（CC 官方 hook 配置主檔；前 session 為推 V5 暫時關閉 hooks，Wave 5 Session 5 重建對齊 V5 結構）
 ├── version.json                                    ← V5 GA 版本標識（atom_memory 5.0 / guardian 5.0.0）
 ├── mcp-servers.template.json                       ← MCP server 清單（Install-forAI 用）
 ├── README.md / TECH.md / Install-forAI.md          ← 使用者文件
