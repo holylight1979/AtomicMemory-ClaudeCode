@@ -194,9 +194,9 @@ Codex 透過 cat/head/grep/wc 讀檔（**不要用 PowerShell**，sandbox 易出
 | 來源 | 判定 | 目標 |
 |------|------|------|
 | `multi_agent_protocol.md` | **歸檔** — 多 agent 協作協議是可重複使用的方法論 | `_AIDocs/DevHistory/multi-agent-cleanup-protocol.md`（重命名為通用名） |
-| `synthesis_and_plan_v2.md`（最終版） | **歸檔** — 完整決策史 + 矛盾仲裁 + Codex/CC 5 大師 + 3 稽核 + 2 預測席意見 | `_AIDocs/DevHistory/memory-cleanup-2026-04/synthesis.md` |
-| `follow_up_issues.md` | **歸檔** — vector 失效根因 + 精密化議題 + atom 注入重構 + hook 萃取重複，全是後續 session 起點 | `_AIDocs/DevHistory/memory-cleanup-2026-04/follow-up-issues.md`（同步加入 `_AIDocs/known-regressions.md` 索引） |
-| `outputs/cc-architect.md` `outputs/cc-archaeologist.md` `outputs/codex-auditor-*.md` | **濃縮歸檔** — 8 份報告壓縮成 1 份「大師意見摘要」（每位 200-300 字精華） | `_AIDocs/DevHistory/memory-cleanup-2026-04/master-review-digest.md` |
+| `synthesis_and_plan_v2.md`（最終版） | **歸檔** — 完整決策史 + 矛盾仲裁 + Codex/CC 5 大師 + 3 稽核 + 2 預測席意見 | `memory/_distant/2026_05_v5_overhaul/memory-cleanup-2026-04/synthesis.md` |
+| `follow_up_issues.md` | **歸檔** — vector 失效根因 + 精密化議題 + atom 注入重構 + hook 萃取重複，全是後續 session 起點 | `memory/_distant/2026_05_v5_overhaul/memory-cleanup-2026-04/follow-up-issues.md`（同步加入 `_AIDocs/known-regressions.md` 索引） |
+| `outputs/cc-architect.md` `outputs/cc-archaeologist.md` `outputs/codex-auditor-*.md` | **濃縮歸檔** — 8 份報告壓縮成 1 份「大師意見摘要」（每位 200-300 字精華） | `memory/_distant/2026_05_v5_overhaul/memory-cleanup-2026-04/master-review-digest.md` |
 | `codex_briefing.md` | **不歸檔** — briefing 對未來無價值（任務已完成） | 刪除 |
 | `synthesis_and_plan_draft.md`（v1） | **不歸檔** — 已被 v2.1 完全取代 | 刪除 |
 | `outputs/codex-minimalist/conservative/radical.md`（sandbox 故障的 5 大師） | **不歸檔** — 因 sandbox 故障無實證，立場主張已被 audit 階段重做覆蓋 | 刪除 |
@@ -235,7 +235,7 @@ rm -rf ~/.claude/plans/memory-cleanup-2026-04-27/
 最終加入 `_AIDocs/_CHANGELOG.md` 一行：
 
 ```
-2026-04-XX: memory cleanup — _vectordb 修活/淘汰、Project_File_Tree 索引化、22 hook 鏈確認、_reference 搬遷、token per-session 節省 ~20K。詳見 _AIDocs/DevHistory/memory-cleanup-2026-04/。
+2026-04-XX: memory cleanup — _vectordb 修活/淘汰、Project_File_Tree 索引化、22 hook 鏈確認、_reference 搬遷、token per-session 節省 ~20K。詳見 memory/_distant/2026_05_v5_overhaul/memory-cleanup-2026-04/。
 ```
 
 由 `tools/changelog-roll.py` PostToolUse 自動 archive 機制處理。
@@ -245,7 +245,7 @@ rm -rf ~/.claude/plans/memory-cleanup-2026-04-27/
 - [ ] 所有 Stage A0-H 完成且 smoke test 通過
 - [ ] 4 天 / 10 天觀察期已過或被 user 顯式跳過
 - [ ] git commit 含明確 message + push 完成
-- [ ] 知識資產已搬 `_AIDocs/DevHistory/memory-cleanup-2026-04/`
+- [ ] 知識資產已搬 `memory/_distant/2026_05_v5_overhaul/memory-cleanup-2026-04/`
 - [ ] 失敗教訓已寫 `_AIDocs/Failures/` + 加 _INDEX
 - [ ] 規則 atom 已寫入 `memory/feedback/`
 - [ ] `_CHANGELOG.md` 加一行

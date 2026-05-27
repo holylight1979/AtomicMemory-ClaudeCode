@@ -33,6 +33,16 @@ workflow/extract-worker.log
 workflow/hot_cache.json
 workflow/vector_ready.flag
 workflow/.backend_long_die.json
+workflow/_merge_history.log
+workflow/last_review_marker.json
+workflow/mcp-version-cache.json
+
+# ─── Per-user / per-machine state (Wave 5 untracked) ─────
+memory/project-registry.json
+memory/wisdom/reflection_metrics.json
+memory/wisdom/causal_graph.json
+memory/_meta/atom_io_audit.jsonl
+policy-limits.json
 
 # ─── Codex Companion runtime state ────────────────────────
 workflow/companion-state-*.json

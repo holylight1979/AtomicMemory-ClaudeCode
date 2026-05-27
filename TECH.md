@@ -95,7 +95,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │
 ├── _AIDocs/                                         ← 知識庫
 │   ├── _INDEX.md / _CHANGELOG.md / Architecture.md
-│   ├── SPEC_ATOM_V4.md / V4.1-design-roundtable.md
+│   ├── SPEC_ATOM_V5.md / SPEC_ATOM_V4.md（對照證物）
 │   ├── ClaudeCodeInternals/ / Tools/ / Failures/ / DevHistory/
 │
 └── {project_root}/.claude/                          ← 專案自治層（每專案獨立）
@@ -625,8 +625,8 @@ flowchart TD
 ## 15. 深度參考
 
 技術細節深入閱讀：
-- [_AIDocs/SPEC_ATOM_V4.md](_AIDocs/SPEC_ATOM_V4.md) — V4 scope 與管理職雙向認證正式規格
-- [_AIDocs/V4.1-design-roundtable.md](_AIDocs/V4.1-design-roundtable.md) — V4.1 使用者決策萃取設計圓桌紀錄
+- [_AIDocs/SPEC_ATOM_V5.md](_AIDocs/SPEC_ATOM_V5.md) — V5 scope/skills/MCP 規格（V5 GA 候選）
+- [_AIDocs/SPEC_ATOM_V4.md](_AIDocs/SPEC_ATOM_V4.md) — V4 scope 與管理職雙向認證（V5 詳情依靠的對照證物）
 - [_AIDocs/DevHistory/v41-journey.md](_AIDocs/DevHistory/v41-journey.md) — V4.1 開發歷程與 GA 後 bug 修補
 - [_AIDocs/Architecture.md](_AIDocs/Architecture.md) — 系統架構總覽
 - [_AIDocs/DevHistory/ab-test-gemma4.md](_AIDocs/DevHistory/ab-test-gemma4.md) — V3.4 萃取引擎 A/B 測試報告
