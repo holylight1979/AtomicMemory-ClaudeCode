@@ -1,0 +1,290 @@
+{
+  "version": "1.0",
+  "atoms": [
+    {
+      "name": "decisions-architecture",
+      "path": "memory/decisions-architecture.md",
+      "triggers": [
+        "架構",
+        "hooks",
+        "pipeline",
+        "guardian",
+        "SessionStart",
+        "hot cache",
+        "extract-worker",
+        "vector service"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "decisions",
+      "path": "memory/decisions.md",
+      "triggers": [
+        "決策",
+        "記憶系統",
+        "原子記憶",
+        "架構細節",
+        "context budget"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "electron-uia-automation",
+      "path": "memory/electron-uia-automation.md",
+      "triggers": [
+        "Electron 自動化",
+        "VS Code 自動點擊",
+        "UIA Invoke",
+        "EVENT_E_NO_SUBSCRIBERS",
+        "PostMessage Chromium 失效",
+        "SendInput 偷塞字",
+        "AttachThreadInput",
+        "SetForegroundWindow 失敗",
+        "focus swap",
+        "ghost button",
+        "Claude Code 彈窗",
+        "GUI 工具"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-workflow-discipline",
+      "path": "memory/feedback-workflow-discipline.md",
+      "triggers": [
+        "handoff",
+        "續接",
+        "下 session",
+        "next-phase",
+        "順手修補",
+        "drift 修補",
+        "重複失敗",
+        "fix-escalation",
+        "裁決",
+        "決策推薦",
+        "plan 路徑",
+        "SessionStart hook",
+        "commit message",
+        "上 GIT"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-completion-gates",
+      "path": "memory/feedback-completion-gates.md",
+      "triggers": [
+        "完成宣告",
+        "收尾",
+        "pytest",
+        "smoke test",
+        "研究先行",
+        "trial-and-error",
+        "清理",
+        "先清後建",
+        "基線",
+        "測試上傳",
+        "上 SVN",
+        "known regression",
+        "xfail"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-tooling-reliability",
+      "path": "memory/feedback-tooling-reliability.md",
+      "triggers": [
+        "codex",
+        "codex companion",
+        "codex CLI",
+        "gpt-5",
+        "bg subprocess",
+        "DEVNULL",
+        "ready flag",
+        "subprocess Popen",
+        "MCP",
+        "安裝 MCP",
+        "安裝 skill",
+        "silent failure",
+        "probe burst",
+        "規則唯一來源"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-memory-structure",
+      "path": "memory/feedback-memory-structure.md",
+      "triggers": [
+        "寫入記憶",
+        "atom 設計",
+        "atom 顆粒",
+        "指標型",
+        "scope 敏感",
+        "GUID硬編碼",
+        "環境相依",
+        "gitignore",
+        "git rm",
+        "memory path",
+        "_staging"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-rigor-standards",
+      "path": "memory/feedback-rigor-standards.md",
+      "triggers": [
+        "縝密",
+        "漏掉",
+        "沒看到",
+        "max thinking",
+        "high thinking",
+        "外包思考",
+        "規範",
+        "rigor",
+        "前例",
+        "precedent",
+        "既有 drift"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "gdoc-harvester",
+      "path": "memory/gdoc-harvester.md",
+      "triggers": [
+        "harvester",
+        "Google Docs",
+        "Sheets",
+        "收割",
+        "Playwright",
+        "cookie",
+        "export"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "preferences",
+      "path": "memory/preferences.md",
+      "triggers": [
+        "偏好",
+        "風格",
+        "習慣",
+        "語言",
+        "回應",
+        "執P",
+        "執驗上P",
+        "上GIT"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "toolchain-ollama",
+      "path": "memory/toolchain-ollama.md",
+      "triggers": [
+        "ollama",
+        "dual-backend",
+        "rdchat",
+        "qwen3",
+        "embedding",
+        "萃取品質",
+        "thinking",
+        "Open WebUI"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "toolchain",
+      "path": "memory/toolchain.md",
+      "triggers": [
+        "工具鏈",
+        "環境設定",
+        "MCPControl",
+        "MCP新增",
+        "npm全域",
+        "螢幕截圖",
+        "Excel MCP",
+        "LanceDB",
+        "MSYS2",
+        "cp950",
+        "PowerShell截圖",
+        "向量服務"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "v5-overhaul-audit-2026-05",
+      "path": "memory/v5-overhaul-audit-2026-05.md",
+      "triggers": [
+        "V5",
+        "升級",
+        "overhaul",
+        "原子記憶升版",
+        "audit 2026-05",
+        "全面檢修",
+        "commands skill 遷移",
+        "skill plugin 結構",
+        "重構計畫",
+        "Wave 1",
+        "Wave 3",
+        "next-phase",
+        "BM25",
+        "_atom_index.json"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "workflow-icld",
+      "path": "memory/workflow-icld.md",
+      "triggers": [
+        "ICLD",
+        "閉環",
+        "Sprint",
+        "功能拆解",
+        "開發計畫",
+        "大型新功能",
+        "新系統規劃",
+        "規格書"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "workflow-rules",
+      "path": "memory/workflow-rules.md",
+      "triggers": [
+        "工作流程",
+        "大型任務",
+        "分階段",
+        "SOP",
+        "任務拆分",
+        "上版",
+        "GIT",
+        "Phase"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "workflow-svn",
+      "path": "memory/workflow-svn.md",
+      "triggers": [
+        "svn",
+        "svn-update",
+        "TortoiseSVN",
+        "衝突",
+        "conflict"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "記憶機制靜默失效confirmations-零增-episodic-停擺",
+      "path": "memory/記憶機制靜默失效confirmations-零增-episodic-停擺.md",
+      "triggers": [
+        "memory-review",
+        "memory-health",
+        "confirmations",
+        "episodic",
+        "晉升",
+        "自我迭代",
+        "衰減掃描",
+        "覆轍偵測"
+      ],
+      "scope": "global"
+    }
+  ]
+}

@@ -208,17 +208,40 @@ def write_index(
     triggers: Iterable[str],
     source: str,
 ) -> WriteResult:
-    """更新或追加 atom 條目到 MEMORY.md / _ATOM_INDEX.md 表格。
+    """更新或追加 atom 條目到 _atom_index.json (V5 P3b SoT)，並回寫 _ATOM_INDEX.md mirror。
 
-    對拍 server.js:953 appendToIndex byte-identical。
+    對拍 server.js:953 appendToIndex；V5 P3b 起 JSON 為唯一機器源。
     """
     if source not in VALID_SOURCES:
         return WriteResult(ok=False, error=f"invalid source: {source}",
                            audit_id=_gen_audit_id())
 
     audit_id = _gen_audit_id()
+    triggers_list = list(triggers)
+
+    # V5 P3b: write JSON via lib/atom_index_json (auto-regen MD mirror)
+    try:
+        from .atom_index_json import upsert_atom
+        upsert_atom(
+            mem_dir=base_dir,
+            name=slug,
+            path=rel_path,
+            triggers=triggers_list,
+            scope="global",
+        )
+        index_path = base_dir / "_atom_index.json"
+        _audit_log({
+            "audit_id": audit_id,
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "op": "index", "source": source,
+            "path": str(index_path), "slug": slug,
+        })
+        return WriteResult(ok=True, path=index_path, audit_id=audit_id)
+    except ImportError:
+        pass  # fall through to legacy MD write
+
     index_path = _resolve_index_path(base_dir)
-    trigger_str = ", ".join(triggers)
+    trigger_str = ", ".join(triggers_list)
     new_row = f"| {slug} | {rel_path} | {trigger_str} |"
 
     try:

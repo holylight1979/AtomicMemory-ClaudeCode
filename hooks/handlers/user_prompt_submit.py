@@ -50,6 +50,7 @@ from wg_atoms import (
     _TURN_BUDGET_LIMIT,
     _search_episodic_context, _build_session_context,
     _proactive_classify, _semantic_search,
+    bm25_match,
 )
 from wg_extraction import (
     detect_signal,
@@ -346,17 +347,42 @@ def handle_user_prompt_submit(
     intent = classify_intent(prompt)
 
     kw_matched_names = {e[0][0] for e in matched_with_dir}
+
+    # V5 P5a: BM25 over global layer (replaces vector round-trip for global atoms).
+    # Only run if no/few trigger hits (≤2). Project layer still uses vector below.
+    vs_cfg = config.get("vector_search", {})
+    if vs_cfg.get("global_layer", "bm25") == "bm25" and len(matched_with_dir) <= 2:
+        global_atoms = [e for e in all_atoms if e[1] == MEMORY_DIR.parent]
+        if global_atoms:
+            global_entries = [e[0] for e in global_atoms]
+            bm25_hits = bm25_match(
+                prompt, global_entries,
+                min_score=vs_cfg.get("bm25_min_score", 1.0),
+                top_k=vs_cfg.get("bm25_top_k", 3),
+            )
+            for entry in bm25_hits:
+                name = entry[0]
+                if name in kw_matched_names or name in already_injected:
+                    continue
+                for tup in global_atoms:
+                    if tup[0][0] == name:
+                        matched_with_dir.append(tup)
+                        atom_source.setdefault(name, "bm25")
+                        kw_matched_names.add(name)
+                        break
+
     _v4_id = state.get("user_identity", {})
     _v4_user = _v4_id.get("user") or None
     _v4_roles = _v4_id.get("roles") or None
     if _v4_id.get("management"):
         _v4_user = None
         _v4_roles = None
+    # Vector fallback: only when BM25/trigger gave 0 hits, OR for project layer enrichment.
     sem_atoms = _semantic_search(
         prompt, config, intent=intent,
         user=_v4_user, roles=_v4_roles,
         session_id=session_id,
-    )
+    ) if (len(matched_with_dir) == 0 or vs_cfg.get("global_layer") != "bm25") else []
     section_hints: Dict[str, List[Dict]] = {}
     for sem_entry in sem_atoms:
         sem_name, sem_path = sem_entry[0], sem_entry[1]

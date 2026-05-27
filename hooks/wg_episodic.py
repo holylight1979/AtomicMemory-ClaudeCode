@@ -565,8 +565,25 @@ def _generate_triggers(state: Dict[str, Any], work_areas: list) -> list:
 
 
 def _update_memory_index(memory_dir: Path, atom_name: str, triggers: list) -> None:
-    """Append a row to _ATOM_INDEX.md (V3.2) or MEMORY.md atom index table."""
-    # V3.2: prefer _ATOM_INDEX.md
+    """V5 P3b: Upsert atom entry to _atom_index.json (JSON is single source of truth).
+
+    Auto-regenerates _ATOM_INDEX.md mirror via lib/atom_index_json.upsert_atom.
+    Legacy fallback: if JSON helper missing, write to _ATOM_INDEX.md directly.
+    """
+    try:
+        from lib.atom_index_json import upsert_atom
+        upsert_atom(
+            mem_dir=memory_dir,
+            name=atom_name,
+            path=f"memory/{atom_name}.md",
+            triggers=list(triggers),
+            scope="global",
+        )
+        return
+    except ImportError:
+        _atom_debug_log("update_index_md_fallback", atom=atom_name)
+
+    # Legacy fallback path (kept for safety; should never run in V5)
     atom_idx = memory_dir / ATOM_INDEX
     index_path = atom_idx if atom_idx.exists() else memory_dir / MEMORY_INDEX
     if not index_path.exists():

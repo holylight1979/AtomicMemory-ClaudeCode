@@ -38,6 +38,7 @@ def main() -> int:
         if action == "write_atom":
             result = write_atom(**payload)
         elif action == "write_index":
+            payload["base_dir"] = Path(payload["base_dir"])
             result = write_index(**payload)
         elif action == "write_index_full":
             # JSON 不能傳 Path，caller 用 str；轉成 Path

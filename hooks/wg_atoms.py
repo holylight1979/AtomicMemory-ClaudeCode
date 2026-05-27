@@ -34,6 +34,15 @@ from wg_core import (
     _atom_debug_log, _atom_debug_error,
 )
 
+# V5 P3b: prefer _atom_index.json (machine source of truth)
+sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+try:
+    from atom_index_json import load_atom_index_json, to_atom_entries, ATOM_INDEX_JSON
+except ImportError:
+    load_atom_index_json = None
+    to_atom_entries = None
+    ATOM_INDEX_JSON = "_atom_index.json"
+
 
 # ─── Memory Index Parsing ────────────────────────────────────────────────────
 
@@ -45,8 +54,17 @@ AtomEntry = Tuple[str, str, List[str]]
 
 def parse_memory_index(memory_dir: Path) -> List[AtomEntry]:
     """Parse atom index, return list of (name, path, triggers).
-    V3.2: 優先讀 _ATOM_INDEX.md，fallback MEMORY.md。
+    V5 P3b: 優先 _atom_index.json，fallback _ATOM_INDEX.md → MEMORY.md。
     """
+    # V5 P3b: prefer JSON
+    if load_atom_index_json is not None:
+        json_path = memory_dir / ATOM_INDEX_JSON
+        if json_path.exists():
+            data = load_atom_index_json(memory_dir)
+            entries = to_atom_entries(data)
+            if entries:
+                return entries
+
     atom_index_path = memory_dir / ATOM_INDEX
     if atom_index_path.exists():
         try:
@@ -206,6 +224,98 @@ def match_triggers(prompt: str, atoms: List[AtomEntry]) -> List[AtomEntry]:
         if any(_kw_match(kw, prompt_lower) for kw in triggers):
             matched.append((name, rel_path, triggers))
     return matched
+
+
+# ─── BM25 Match (V5 P5a) ─────────────────────────────────────────────────────
+# Hand-rolled BM25 over atom trigger lists. ~30 lines, no external dep.
+# Use case: global layer (~17 atoms) — replaces vector service round-trip
+# (200-500ms) with in-memory <10ms scoring.
+
+_BM25_K1 = 1.2
+_BM25_B = 0.75
+
+
+def _bm25_tokenize(text: str) -> List[str]:
+    """Tokenize: ASCII words + Chinese char-bigrams."""
+    text = text.lower()
+    tokens: List[str] = re.findall(r"[a-z0-9]+", text)
+    # Chinese char bigrams (CJK Unified)
+    cjk = re.findall(r"[一-鿿]+", text)
+    for run in cjk:
+        if len(run) == 1:
+            tokens.append(run)
+        else:
+            for i in range(len(run) - 1):
+                tokens.append(run[i:i + 2])
+    return tokens
+
+
+def _bm25_score(prompt: str, atoms: List[AtomEntry]) -> List[Tuple[str, float]]:
+    """Score each atom by BM25 over its trigger list + atom name. Returns sorted (name, score)."""
+    if not atoms:
+        return []
+    # Each atom = one "document" = triggers + name
+    docs: List[List[str]] = []
+    for name, _rel, triggers in atoms:
+        doc_text = " ".join(triggers) + " " + name.replace("-", " ")
+        docs.append(_bm25_tokenize(doc_text))
+
+    avgdl = sum(len(d) for d in docs) / max(len(docs), 1)
+    N = len(docs)
+
+    # Document frequency
+    df: Dict[str, int] = {}
+    for d in docs:
+        for t in set(d):
+            df[t] = df.get(t, 0) + 1
+
+    query_tokens = _bm25_tokenize(prompt)
+    if not query_tokens:
+        return []
+
+    scored: List[Tuple[str, float]] = []
+    for (name, _rel, _triggers), doc in zip(atoms, docs):
+        if not doc:
+            continue
+        dl = len(doc)
+        # Term frequency in doc
+        tf_doc: Dict[str, int] = {}
+        for t in doc:
+            tf_doc[t] = tf_doc.get(t, 0) + 1
+        score = 0.0
+        for q in set(query_tokens):
+            if q not in tf_doc:
+                continue
+            f = tf_doc[q]
+            n_q = df.get(q, 0)
+            idf = math.log(1 + (N - n_q + 0.5) / (n_q + 0.5))
+            denom = f + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl)
+            score += idf * (f * (_BM25_K1 + 1)) / max(denom, 1e-9)
+        if score > 0:
+            scored.append((name, score))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored
+
+
+def bm25_match(
+    prompt: str,
+    atoms: List[AtomEntry],
+    min_score: float = 1.0,
+    top_k: int = 3,
+) -> List[AtomEntry]:
+    """Return top-k atoms whose BM25 score exceeds min_score."""
+    scored = _bm25_score(prompt, atoms)
+    if not scored:
+        return []
+    by_name = {a[0]: a for a in atoms}
+    result: List[AtomEntry] = []
+    for name, score in scored[:top_k]:
+        if score < min_score:
+            break
+        if name in by_name:
+            result.append(by_name[name])
+    return result
 
 
 # ─── Token Budget & Atom Loading ─────────────────────────────────────────────

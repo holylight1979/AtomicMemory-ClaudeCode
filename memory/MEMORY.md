@@ -1,6 +1,6 @@
 # Atom Index — Global
 
-> Hook 依 `_ATOM_INDEX.md` 自動匹配 trigger 注入；本檔僅供 AI 一覽。
+> Hook 依 `_atom_index.json` 自動匹配 trigger 注入（V5 P3b 起 JSON 為唯一機器源；`_ATOM_INDEX.md` 為自動生成的 deprecated mirror）；本檔僅供 AI 一覽。
 
 ## 核心
 - decisions-architecture / decisions — 架構與全域決策

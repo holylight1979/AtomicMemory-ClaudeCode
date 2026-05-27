@@ -1,11 +1,12 @@
 # Atom Trigger Index — Global
 
-> Machine-parsed by workflow-guardian hooks. Not @imported into context.
+> **Deprecated mirror.** Machine source: `_atom_index.json` (V5 P3b).
+> 本檔由 lib/atom_index_json.py 自動生成；勿手改。
 
 | Atom | Path | Trigger | Scope |
 |------|------|---------|-------|
 | decisions-architecture | memory/decisions-architecture.md | 架構, hooks, pipeline, guardian, SessionStart, hot cache, extract-worker, vector service | global |
-| decisions | memory/decisions.md | 決策, 記憶系統, 原子記憶, guardian, hooks, MCP, 架構細節, vector service, context budget | global |
+| decisions | memory/decisions.md | 決策, 記憶系統, 原子記憶, 架構細節, context budget | global |
 | electron-uia-automation | memory/electron-uia-automation.md | Electron 自動化, VS Code 自動點擊, UIA Invoke, EVENT_E_NO_SUBSCRIBERS, PostMessage Chromium 失效, SendInput 偷塞字, AttachThreadInput, SetForegroundWindow 失敗, focus swap, ghost button, Claude Code 彈窗, GUI 工具 | global |
 | feedback-workflow-discipline | memory/feedback-workflow-discipline.md | handoff, 續接, 下 session, next-phase, 順手修補, drift 修補, 重複失敗, fix-escalation, 裁決, 決策推薦, plan 路徑, SessionStart hook, commit message, 上 GIT | global |
 | feedback-completion-gates | memory/feedback-completion-gates.md | 完成宣告, 收尾, pytest, smoke test, 研究先行, trial-and-error, 清理, 先清後建, 基線, 測試上傳, 上 SVN, known regression, xfail | global |
@@ -16,7 +17,7 @@
 | preferences | memory/preferences.md | 偏好, 風格, 習慣, 語言, 回應, 執P, 執驗上P, 上GIT | global |
 | toolchain-ollama | memory/toolchain-ollama.md | ollama, dual-backend, rdchat, qwen3, embedding, 萃取品質, thinking, Open WebUI | global |
 | toolchain | memory/toolchain.md | 工具鏈, 環境設定, MCPControl, MCP新增, npm全域, 螢幕截圖, Excel MCP, LanceDB, MSYS2, cp950, PowerShell截圖, 向量服務 | global |
-| v5-overhaul-audit-2026-05 | memory/v5-overhaul-audit-2026-05.md | V5, 升級, overhaul, 原子記憶升版, audit 2026-05, 全面檢修, commands skill 遷移, workflow 114GB, guardian-crash.log, skill plugin 結構, 重構計畫, Wave 1, next-phase | global |
+| v5-overhaul-audit-2026-05 | memory/v5-overhaul-audit-2026-05.md | V5, 升級, overhaul, 原子記憶升版, audit 2026-05, 全面檢修, commands skill 遷移, skill plugin 結構, 重構計畫, Wave 1, Wave 3, next-phase, BM25, _atom_index.json | global |
 | workflow-icld | memory/workflow-icld.md | ICLD, 閉環, Sprint, 功能拆解, 開發計畫, 大型新功能, 新系統規劃, 規格書 | global |
 | workflow-rules | memory/workflow-rules.md | 工作流程, 大型任務, 分階段, SOP, 任務拆分, 上版, GIT, Phase | global |
 | workflow-svn | memory/workflow-svn.md | svn, svn-update, TortoiseSVN, 衝突, conflict | global |

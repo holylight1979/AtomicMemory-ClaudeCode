@@ -916,69 +916,11 @@ function execWriteGate(content, classification) {
   });
 }
 
-/** Append or update an atom entry in MEMORY.md index table */
+/** V5 P3b: Upsert atom entry to _atom_index.json (SoT) via funnel.
+ *  Auto-regenerates _ATOM_INDEX.md mirror via lib/atom_index_json.upsert_atom. */
 async function appendToIndex(memDir, atomName, relPath, triggers) {
-  const indexPath = resolveMemoryIndex(memDir);
-  const triggerStr = triggers.join(", ");
-  const newRow = `| ${atomName} | ${relPath} | ${triggerStr} |`;
-
-  let content = "";
-  try {
-    content = fs.readFileSync(indexPath, "utf-8");
-  } catch {
-    // Create new MEMORY.md with table header
-    content = [
-      "# Atom Index",
-      "",
-      "> Session 啟動時先讀此索引。比對 Trigger → Read 對應 atom。",
-      "| Atom | Path | Trigger |",
-      "|------|------|---------|",
-      "",
-    ].join("\n");
-  }
-
-  // Check if atom already exists in the table
-  const escapedName = atomName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const existingRe = new RegExp(`^\\|\\s*${escapedName}\\s*\\|.*$`, "m");
-  if (existingRe.test(content)) {
-    // Update existing row
-    content = content.replace(existingRe, newRow);
-  } else {
-    // Insert before the first empty line after the table header separator
-    const sepIdx = content.indexOf("|------|");
-    if (sepIdx >= 0) {
-      const afterSep = content.indexOf("\n", sepIdx);
-      if (afterSep >= 0) {
-        // Find the end of the table (first line that doesn't start with |)
-        const lines = content.split("\n");
-        let insertIdx = -1;
-        let foundSep = false;
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].startsWith("|------")) { foundSep = true; continue; }
-          if (foundSep && !lines[i].startsWith("|")) {
-            insertIdx = i;
-            break;
-          }
-        }
-        if (insertIdx >= 0) {
-          lines.splice(insertIdx, 0, newRow);
-          content = lines.join("\n");
-        } else {
-          // Table runs to end of file
-          content = content.trimEnd() + "\n" + newRow + "\n";
-        }
-      }
-    } else {
-      // No table found, append
-      content += "\n" + newRow + "\n";
-    }
-  }
-
-  // S3.2: 走 lib.atom_io.write_index_full funnel（atomic write + audit log）
-  // appendToIndex 改 async + caller await，避免 syncMemoryIndex 在 index 寫入
-  // 完成前讀到舊版 _ATOM_INDEX 而漏新行。
-  const r = await funnelWriteIndexFull(indexPath, content, "mcp");
-  if (!r.ok) crashLog("appendToIndex funnel", r.error);
+  const r = await funnelWriteIndex(memDir, atomName, relPath, triggers, "mcp");
+  if (!r.ok) crashLog("appendToIndex funnel (json)", r.error);
 }
 
 /** Trigger vector service re-index (fire and forget) */
@@ -1126,6 +1068,14 @@ function funnelWriteRaw(filePath, content, source, op) {
 function funnelWriteIndexFull(indexPath, content, source) {
   return spawnAtomCli("write_index_full", {
     index_path: indexPath, content, source,
+  });
+}
+
+/** V5 P3b: Single-atom upsert via lib.atom_io.write_index → _atom_index.json. */
+function funnelWriteIndex(baseDir, slug, relPath, triggers, source) {
+  return spawnAtomCli("write_index", {
+    base_dir: baseDir, slug, rel_path: relPath,
+    triggers, source,
   });
 }
 

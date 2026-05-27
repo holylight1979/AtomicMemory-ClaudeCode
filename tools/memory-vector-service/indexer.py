@@ -656,6 +656,67 @@ def build_index(
     return stats
 
 
+def cleanup_stale_chunks(
+    config: Dict[str, Any],
+    verbose: bool = False,
+) -> Dict[str, Any]:
+    """V5 P5a: Delete chunks for atoms that no longer exist on disk.
+
+    Iterates DB rows, builds set of orphan (layer, atom_name) tuples
+    by comparing against current discover_atoms() result. Deletes those rows.
+    """
+    additional_dirs = config.get("additional_atom_dirs", [])
+    layers = discover_layers(
+        layer_filter=None,
+        include_distant=config.get("index_distant", False),
+        additional_dirs=additional_dirs,
+    )
+    current = discover_atoms(
+        layers,
+        include_distant=config.get("index_distant", False),
+        additional_dirs=additional_dirs,
+    )
+    current_keys = {f"{ln}:{fp.stem}" for ln, fp, _rp in current}
+
+    try:
+        db = _get_db()
+        table = db.open_table(TABLE_NAME)
+        total = table.count_rows()
+        rows = table.search().select(["layer", "atom_name"]).limit(total).to_list()
+    except Exception as e:
+        return {"error": str(e), "deleted_atoms": 0, "deleted_chunks": 0}
+
+    db_keys: Dict[str, int] = {}
+    for r in rows:
+        k = f"{r.get('layer', '')}:{r.get('atom_name', '')}"
+        db_keys[k] = db_keys.get(k, 0) + 1
+
+    stale = [k for k in db_keys if k not in current_keys]
+    deleted_chunks = 0
+    for k in stale:
+        layer_val, atom_val = k.split(":", 1)
+        layer_val = layer_val.replace("'", "''")
+        atom_val = atom_val.replace("'", "''")
+        try:
+            table.delete(f"layer = '{layer_val}' AND atom_name = '{atom_val}'")
+            deleted_chunks += db_keys[k]
+            if verbose:
+                print(f"  cleanup: removed {k} ({db_keys[k]} chunks)")
+        except Exception as e:
+            if verbose:
+                print(f"  cleanup: failed {k}: {e}")
+
+    stats = {
+        "current_atoms": len(current_keys),
+        "db_atoms_before": len(db_keys),
+        "deleted_atoms": len(stale),
+        "deleted_chunks": deleted_chunks,
+    }
+    if verbose:
+        print(f"[cleanup] stale={len(stale)} atoms, {deleted_chunks} chunks removed")
+    return stats
+
+
 def get_index_status(config: Dict[str, Any]) -> Dict[str, Any]:
     """Get current index status."""
     try:
@@ -721,7 +782,19 @@ def search_vectors(
 
 
 if __name__ == "__main__":
+    import argparse
     from config import load_config
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--incremental", action="store_true")
+    ap.add_argument("--cleanup-stale", action="store_true",
+                    help="V5 P5a: delete chunks for atoms no longer on disk")
+    ap.add_argument("--verbose", action="store_true", default=True)
+    args = ap.parse_args()
+
     cfg = load_config()
-    stats = build_index(cfg, incremental=False, verbose=True)
+    if args.cleanup_stale:
+        stats = cleanup_stale_chunks(cfg, verbose=args.verbose)
+    else:
+        stats = build_index(cfg, incremental=args.incremental, verbose=args.verbose)
     print(json.dumps(stats, indent=2, ensure_ascii=False))
