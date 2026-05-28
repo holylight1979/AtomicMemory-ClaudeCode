@@ -122,6 +122,12 @@
     "mode": "production",
     "tokenBudget": 240
   },
+  "parallel_agents": {
+    "enabled": true,
+    "min_score": 2,
+    "cooldown_turns": 3,
+    "min_prompt_chars": 15
+  },
   "changelog_auto_roll": {
     "enabled": true,
     "threshold": 8

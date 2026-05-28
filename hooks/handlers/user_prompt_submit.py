@@ -238,6 +238,15 @@ def handle_user_prompt_submit(
         except Exception as e:
             print(f"[v2.8] Wisdom prompt error: {e}", file=sys.stderr)
 
+    # ─── Parallel Agent Suggestion ─────────────────
+    try:
+        from wg_parallel import detect_parallel_opportunity
+        parallel_line = detect_parallel_opportunity(clean_prompt, state, config)
+        if parallel_line:
+            lines.append(parallel_line)
+    except Exception as e:
+        _atom_debug_error("ParallelSuggest", e)
+
     # ─── _AIDocs keyword matching ──────────────────
     aidocs_state = state.get("aidocs", {})
     aidocs_kw_map = aidocs_state.get("keywords", {})

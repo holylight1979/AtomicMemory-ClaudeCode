@@ -22,3 +22,5 @@
 | workflow-svn | memory/workflow-svn.md | svn, svn-update, TortoiseSVN, 衝突, conflict | global |
 | memory-pipeline-silent-failure-2026-05 | _AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md | memory-review, memory-health, confirmations, episodic, 晉升, 自我迭代, 衰減掃描, 覆轍偵測 | global |
 | cognitive-patterns | _AIDocs/Failures/cognitive-patterns.md | 過度工程, 代理指標, proxy metric, AI看不懂, AI在打轉, 品質回饋, 自我合理化, 編造規則, 籠統話術, 訂規保留, 設計慣例 | global |
+| feedback-atom-write-initial-confidence | _AIDocs/Failures/feedback-atom-write-initial-confidence.md | atom_write, 初次寫, 信心度, [固], [臨], [觀], confidence, knowledge 行, 隨手寫 [固] | global |
+| workflow-parallel-agents | memory/workflow-parallel-agents.md | 多 agent, 平行 agent, sub-agent, 並行, 並行加速, 拆 agent, 多開 agent, 分頭, 多檔調查, 批量重構, 全面審視, 跨檔比較, parallel agents | global |

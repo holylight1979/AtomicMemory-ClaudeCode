@@ -18,4 +18,4 @@
 - 獨立子任務可新開對話；拆分前確保知識已存入
 - 段落完成即存；Token 快上限時優先存檔；/resume → /continue
 - Context 壓縮/任務告段落 → 提醒開新 session
-- 不衝突的執行階段可開多 agents 分頭進行
+- **多 agent 並行（主動評估）**：開工前先掃 prompt 含幾個獨立切面（調查/實作/重構/比較/批量）；≥2 個不衝突 → 同 message 一次 dispatch ≥2 個 Agent（Explore/Plan/general-purpose 視任務挑）。細節見 [[workflow-parallel-agents]]

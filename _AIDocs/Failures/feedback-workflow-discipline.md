@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: handoff, 續接, 下 session, next-phase, 順手修補, drift 修補, 重複失敗, fix-escalation, 裁決, 決策推薦, plan 路徑, SessionStart hook, commit message, 上 GIT
 - Created-at: 2026-05-26
-- Related: feedback-completion-gates, feedback-tooling-reliability, v5-overhaul-audit-2026-05, feedback-rigor-standards
+- Related: feedback-completion-gates, feedback-tooling-reliability, v5-overhaul-audit-2026-05, feedback-rigor-standards, workflow-parallel-agents
 
 ## 知識
 
