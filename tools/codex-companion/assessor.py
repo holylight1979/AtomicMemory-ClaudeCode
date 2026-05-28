@@ -25,6 +25,11 @@ sys.path.insert(0, str(SERVICE_DIR))
 
 import prompts
 
+# Windows: detached 父進程（codex_companion hook spawn audit.py 帶 DETACHED_PROCESS）
+# 沒 console 時呼叫 codex.cmd batch wrapper → Windows 會新開 cmd.exe 視窗。
+# CREATE_NO_WINDOW (0x08000000) 防此踩坑。POSIX 不需要。
+_CODEX_FLAGS = 0x08000000 if sys.platform == "win32" else 0
+
 
 def _log(msg: str):
     ts = time.strftime("%H:%M:%S")
@@ -161,6 +166,7 @@ def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str,
                 timeout=timeout,
                 cwd=cwd if cwd and os.path.isdir(cwd) else None,
                 env={**os.environ, "NO_COLOR": "1"},
+                creationflags=_CODEX_FLAGS,
             )
 
         _log(f"codex exec exit code: {result.returncode}")
