@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 # Make hooks/ importable
-HOOKS_DIR = Path(__file__).resolve().parent.parent / "hooks"
+HOOKS_DIR = Path(__file__).resolve().parent.parent  # hooks/verify/ → hooks/
 sys.path.insert(0, str(HOOKS_DIR))
 
 from wg_evasion import (  # noqa: E402

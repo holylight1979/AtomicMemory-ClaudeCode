@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
+CLAUDE_DIR = Path(__file__).resolve().parent.parent.parent  # tools/verify/ → ~/.claude/
 SPEC = importlib.util.spec_from_file_location(
     "check_bypass", CLAUDE_DIR / "tools" / "check-bypass.py"
 )

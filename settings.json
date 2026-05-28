@@ -95,8 +95,7 @@
       {
         "hooks": [
           { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 30 },
-          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"", "timeout": 5 },
-          { "type": "command", "command": "python -c \"import subprocess,pathlib,sys;log=pathlib.Path.home()/'.claude/Logs/audit-reconcile.log';log.parent.mkdir(parents=True,exist_ok=True);out=open(log,'a',encoding='utf-8');subprocess.run([sys.executable,str(pathlib.Path.home()/'.claude/tools/audit-reconcile.py'),'--since','1d','--json'],stdout=out,stderr=subprocess.STDOUT,timeout=20)\"", "timeout": 30, "async": true }
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"", "timeout": 5 }
         ]
       }
     ]

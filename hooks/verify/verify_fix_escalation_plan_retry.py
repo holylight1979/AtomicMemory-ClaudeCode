@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-HOOKS_DIR = Path(__file__).resolve().parent.parent / "hooks"
+HOOKS_DIR = Path(__file__).resolve().parent.parent  # hooks/verify/ → hooks/
 sys.path.insert(0, str(HOOKS_DIR))
 
 from wisdom_engine import track_retry  # noqa: E402

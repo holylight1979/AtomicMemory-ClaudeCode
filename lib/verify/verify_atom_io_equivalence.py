@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-LIB_PARENT = Path(__file__).resolve().parent.parent
+LIB_PARENT = Path(__file__).resolve().parent.parent.parent  # lib/verify/ → ~/.claude/
 if str(LIB_PARENT) not in sys.path:
     sys.path.insert(0, str(LIB_PARENT))
 

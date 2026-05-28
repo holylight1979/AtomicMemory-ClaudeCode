@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 # Ensure hooks/ is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # hooks/verify/ → hooks/
 
 from wg_extraction import detect_signal
 

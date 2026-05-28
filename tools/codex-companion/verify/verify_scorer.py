@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-COMP_DIR = Path(__file__).resolve().parent.parent / "tools" / "codex-companion"
+COMP_DIR = Path(__file__).resolve().parent.parent  # codex-companion/verify/ → codex-companion/
 sys.path.insert(0, str(COMP_DIR))
 
 import scorer  # noqa: E402
