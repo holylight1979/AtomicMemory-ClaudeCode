@@ -92,9 +92,8 @@ def render_atom_section(rows: List[Tuple[str, str, str]],
     for name, cap, _ in individual:
         lines.append(f"| {name} | {cap} |")
     if feedback_names:
-        sample = ", ".join(n.replace("feedback-", "") for n in feedback_names[:5])
         lines.append(
-            f"| feedback-* | 行為校正（{len(feedback_names)} 個含 {sample} 等）"
+            f"| feedback-* | 行為校正（{len(feedback_names)} atoms）"
             f" → [`{FAILURES_REL}/`](../{FAILURES_REL}/) |"
         )
     for name, cap, rel_path in failures_other:
