@@ -3,6 +3,11 @@
 > 來源：https://claude-code-harness-blog.vercel.app/（14 章完整收錄）
 > 用途：開發 hooks、skills、tools、MCP 伺服器時的架構參考
 > 最近更新：2026-05-27（V5 GA 簽收同步；本資料夾為 CC 主程式架構參考，與我們 V5 升版無直接耦合）
+>
+> ⚠️ **來源與時效說明**（user 補註，2026-05-28）：本資料夾為 2026 年 4 月初**從錯放出來的 CC sources（claude-code 主程式源碼）產生的研究紀錄**。Claude Code 自此後仍在快速演進，且 CC 內部結構未公開穩定 API。**本資料夾僅有「部分參考價值」**：
+> - 適合：理解 CC harness 大方向（query loop、tool system、hook lifecycle、permission funnel 等概念架構）
+> - 不適合：當作精確規格直接套用（行數、欄位名、private API、feature flag 等具體實作很可能已過時）
+> - 開發 hook/skill/MCP 時：以 CC 官方文件 + 實測 hook event 行為為主，本資料夾為輔助理解。
 
 ---
 
