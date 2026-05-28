@@ -1107,6 +1107,26 @@ function funnelWriteIndex(baseDir, slug, relPath, triggers, source) {
 }
 
 
+// Flat-legacy write fallback: atoms created under V3 layout sit at
+// <baseDir>/{slug}.md instead of <baseDir>/shared/{slug}.md. Read path
+// (hooks/wg_core.py:386-396 _is_legacy_atom) already supports both layers
+// for injection; write path mirrors that compat for append/replace so users
+// aren't blocked while a project's V3→V5 layout migration is still pending.
+// Only triggers for scope=shared, only when V5 path is absent AND legacy path exists.
+function flatLegacyFallback(scope, baseDir, slug, expectedPath) {
+  if (scope !== "shared") return null;
+  if (fs.existsSync(expectedPath)) return null;
+  const candidate = path.join(baseDir, slug + ".md");
+  if (!fs.existsSync(candidate)) return null;
+  try {
+    process.stderr.write(
+      `[atom_write] flat-legacy fallback: writing to ${candidate} ` +
+      `(V5 expects ${expectedPath} — project pending migration)\n`
+    );
+  } catch {}
+  return candidate;
+}
+
 // ─── Atom Write Handler ────────────────────────────────────────────────────
 
 async function toolAtomWrite(id, args) {
@@ -1261,6 +1281,11 @@ async function toolAtomWrite(id, args) {
 
   // ── Mode: append ──
   if (mode === "append") {
+    const legacyPath = flatLegacyFallback(scope, baseDir, slug, filePath);
+    if (legacyPath) {
+      filePath = legacyPath;
+      relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
+    }
     if (!fs.existsSync(filePath)) {
       return sendToolResult(id, `Atom not found: ${slug}.md — use mode=create first`, true);
     }
@@ -1304,6 +1329,11 @@ async function toolAtomWrite(id, args) {
 
   // ── Mode: replace ──
   if (mode === "replace") {
+    const legacyPath = flatLegacyFallback(scope, baseDir, slug, filePath);
+    if (legacyPath) {
+      filePath = legacyPath;
+      relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
+    }
     // Wave 2: Confirmations / ReadHits 在 access.json，replace 不需保留（檔本就分離）
     // 仍保留 Author / Created-at（屬知識性 metadata）
     let prevAuthor = author;
