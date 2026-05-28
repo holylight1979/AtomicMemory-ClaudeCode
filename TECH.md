@@ -122,9 +122,9 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── ClaudeCodeInternals/ / Tools/ / Failures/ / DevHistory/
 │   ├── DocIndex-System.md / known-regressions.md / Project_File_Tree.md
 │
-├── tests/                                          ← V5 真實 pytest 套件（414 passed）
-│   ├── integration/ / fixtures/
-│   └── test_*.py（32 檔）
+├── hooks/verify/ tools/verify/ lib/verify/         ← 14 個 verify_*.py（H-test-prune 後 verify 化）
+│   tools/codex-companion/verify/                   ← 跑 `python run_verify.py`（283 passed baseline）
+├── skills/{name}/verify/                           ← 17 個空結構（候選見 _staging/next-phase-skills-verify.md）
 │
 └── {project_root}/.claude/                         ← 專案自治層（每專案獨立）
     ├── memory/MEMORY.md / atoms / failures / episodic / _staging

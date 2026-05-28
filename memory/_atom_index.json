@@ -74,8 +74,9 @@
       "triggers": [
         "完成宣告",
         "收尾",
-        "收尾檢核",
         "pytest",
+        "run_verify",
+        "verify",
         "smoke test",
         "研究先行",
         "trial-and-error",
@@ -88,7 +89,8 @@
         "xfail",
         "衍生暫存",
         "暫存檔",
-        "清暫存"
+        "清暫存",
+        "收尾檢核"
       ],
       "scope": "global"
     },

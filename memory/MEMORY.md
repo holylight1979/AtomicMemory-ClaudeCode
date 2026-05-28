@@ -1,24 +1,18 @@
 # Atom Index — Global
 
-> Hook 依 `_atom_index.json` 自動匹配 trigger 注入（V5 P3b 起 JSON 為唯一機器源；`_ATOM_INDEX.md` 為自動生成的 deprecated mirror）；本檔僅供 AI 一覽。
+> Hook 自動匹配 trigger 注入相關 atom（完整觸發表見 `_atom_index.json` / `_ATOM_INDEX.md` mirror）。
 
-## 核心
-- decisions-architecture / decisions — 架構與全域決策
-- preferences — 使用者偏好（縮寫指令、回應風格）
-- workflow-rules / workflow-icld / workflow-svn — 工作流規則
-- toolchain / toolchain-ollama — 工具鏈實戰
-
-## 行為校正（V5 整併 24 → 5）
-- feedback-workflow-discipline — handoff 自足 / drift 修補門檻 / 裁決推薦 / commit 中文
-- feedback-completion-gates — pytest 必跑 / smoke / 收尾 4 項檢核 / 衍生暫存清單
-- feedback-tooling-reliability — codex brief / bg subprocess / MCP 全域 / silent failure
-- feedback-memory-structure — atom 指標型 / scope 敏感 / gitignore vs git
-- feedback-rigor-standards — high thinking 紀律 / 規範先讀 / 技術我決
-
-## 特定領域
-- electron-uia-automation — Electron app UI 自動化三層障礙
-- gdoc-harvester — Web Harvester 收割工具經驗
-- 記憶機制靜默失效confirmations-零增-episodic-停擺 — 記憶系統覆轍
-
-> V5 GA 升版歷程已歸檔為 [`_AIDocs/DevHistory/v5-overhaul-2026-05/`](../_AIDocs/DevHistory/v5-overhaul-2026-05/README.md)（取代原 audit atom）。
-> **知識庫**：`_AIDocs/{ClaudeCodeInternals,Tools,Failures,DevHistory}/_INDEX.md`
+| Atom | 說明 |
+|------|------|
+| decisions-architecture | 架構決策 |
+| decisions | 全域決策 |
+| electron-uia-automation | Electron app UI 自動化三層障礙 |
+| gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
+| preferences | 使用者偏好（補充） |
+| toolchain-ollama | Ollama Dual-Backend 實戰記憶 |
+| toolchain | 工具鏈實戰記憶 |
+| workflow-icld | 增量式閉環開發（ICLD） |
+| workflow-rules | 工作流規則（全域） |
+| workflow-svn | SVN 工作流規則 |
+| 記憶機制靜默失效confirmations-零增-episodic-停擺 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
+| feedback-* | 行為校正（5 個含 workflow-discipline, completion-gates, tooling-reliability, memory-structure, rigor-standards 等） |

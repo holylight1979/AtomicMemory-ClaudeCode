@@ -185,12 +185,11 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 - `tools/check-bypass.py` — 靜態掃 hooks/tools/lib/plugins 內所有 `write_text`/`open(..., w)`/`fs.writeFileSync` 出現在 memory 路徑附近的點，white-list 之外 → 印警告（CI exit 1）
 - `tools/audit-reconcile.py` — 動態對拍：列近期 mtime atom × audit log entries（`--since 30s/2h/1d`，也接 `2h ago`）。S4 強化分類：每筆 unmatched 走 `git diff` 判定 `counter_only`（diff 只動 Last-used / Confirmations / ReadHits / Related 欄位 + [臨]/[觀]/[固] 信心 tag promotion，hook:read-counter 設計直寫）/ `knowledge`（動到知識內容 → 真實 bypass）/ `unknown`（無 git / 未追蹤）。預設只在 knowledge 有 unmatched 時 exit 1；`--strict` 則 unknown 也視為 bypass
 
-**測試：**
+**驗證腳本（H-test-prune 後 verify 化）：**
 
-- `tests/test_atom_io_equivalence.py` — 11 cases 對拍 server.js byte-identical
-- `tests/test_guardian_atom_write_gate.py` — 9 cases 含 S3.3 強制門禁攔截場景
-- `tests/test_audit_reconcile.py` — 7 cases 驗 `--since` parser（含 `2h ago`）+ classifier（counter-only / knowledge / unknown）
-- `tests/test_check_bypass.py` — 5 cases 驗 white-list 比對 + violation 偵測
+- `lib/verify/verify_atom_io_equivalence.py` — 11 cases 對拍 server.js byte-identical
+- `tools/verify/verify_check_bypass.py` — 5 cases 驗 white-list 比對 + violation 偵測
+- （`test_guardian_atom_write_gate.py` 與 `test_audit_reconcile.py` 已歸檔到 `_AIDocs/DevHistory/v5-overhaul-2026-05/tests-archive/`）
 
 **S4 收尾（2026-05-04）：**
 
@@ -233,3 +232,36 @@ V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `me
 偵測「記住/存起來/寫 atom/存成 [固]」關鍵字 → 注入硬規則（新 atom 一律 [臨]、晉升走 `atom_promote`、更新既有走 `mode=append`），降低 Claude 建議錯誤的 retry 成本。
 
 詳見 [SPEC_ATOM_V5.md](SPEC_ATOM_V5.md)（V4 留作對照證物：[SPEC_ATOM_V4.md](SPEC_ATOM_V4.md)）。
+
+---
+
+## Testing & Verify
+
+V5 GA 後 tests/ 已 verify 化重組（H-test-prune，2026-05-28）。
+
+**四原則**（決定砍/留）：
+
+1. 預設砍，留下要有強理由
+2. 「必須觸發」≠「每輪觸發」：拔了系統會壞才留；不會壞 → 連 source 一起拔
+3. 越容易飄移、模糊的越該刪
+4. 強雙向高頻連動的驗證腳本 → verify 化搬 source 同層
+
+**目錄結構**：
+
+```
+hooks/verify/                                ← 9 個（atom/evasion/extract/wisdom 等 hook 守衛）
+tools/verify/                                ← 1 個（check_bypass）
+tools/codex-companion/verify/                ← 3 個（assessor_retry / scorer / heuristics）
+lib/verify/                                  ← 1 個（atom_io_equivalence S1.3 contract）
+skills/{name}/verify/                        ← 17 個空結構（內容由 next-phase-skills-verify.md 衍生任務補）
+```
+
+**命名與 pytest 規則**：
+
+- 檔名：`verify_*.py`（拿掉 `test_` 改前綴；pytest.ini 設 `python_files = test_*.py verify_*.py`）
+- 函數名：保留 `test_*()`（pytest 預設認）
+- import：`sys.path.insert(0, str(Path(__file__).resolve().parent.parent))` → source 同層；不深度 package 化（V5 dispatcher 仍用 `from handlers import` 裸名 + sys.path）
+
+**統一入口**：
+
+`python run_verify.py` — 跨平台 entrypoint，動態掃 `{src}/verify/` + `skills/{name}/verify/`，跑 `pytest -v --tb=short`。完成宣告前必跑（取代 `pytest tests/`）。
