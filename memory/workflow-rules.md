@@ -6,7 +6,7 @@
 - Trigger: 工作流程, 大型任務, 分階段, SOP, 任務拆分, 上版, GIT, Phase
 - Created: 2026-03-06
 - Tags: workflow, vcs
-- Related: decisions, workflow-svn, workflow-icld, feedback-handoff-self-sufficient, feedback-git-log-chinese, feedback-fix-on-discovery
+- Related: decisions, workflow-svn, workflow-icld, feedback-handoff-self-sufficient, feedback-git-log-chinese, feedback-fix-on-discovery, 記憶機制靜默失效confirmations-零增-episodic-停擺
 
 ## 知識
 

@@ -167,8 +167,8 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 `workflow-guardian.py` dispatcher 整併為
 
 - `dispatcher.py`（~75 行）— 純路由，無業務邏輯
 - `handlers/_shared.py` — handler 共用 helper
-- `handlers/{session_start,user_prompt_submit,pre_tool_use,post_tool_use,stop,session_end,pre_compact,notification}.py` — 8 個 event handler 各一檔
-- `workflow-guardian.py` — 1 行 shim 轉發到 `dispatcher.main()`
+- `handlers/{session_start,user_prompt_submit,pre_tool_use,post_tool_use,stop,session_end,pre_compact}.py` — 7 個 event handler 各一檔
+- `workflow-guardian.py` — 20 行薄 shim（5 行可執行 code）轉發到 `dispatcher.main()`
 
 詳細演化過程：[DevHistory/v4-archive/README.md](DevHistory/v4-archive/README.md)。
 

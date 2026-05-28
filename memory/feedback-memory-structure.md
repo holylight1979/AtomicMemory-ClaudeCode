@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 寫入記憶, atom 設計, atom 顆粒, 指標型, scope 敏感, GUID硬編碼, 環境相依, gitignore, git rm, memory path, _staging
 - Created-at: 2026-05-26
-- Related: feedback-tooling-reliability, v5-overhaul-audit-2026-05
+- Related: feedback-tooling-reliability, v5-overhaul-audit-2026-05, feedback-rigor-standards
 
 ## 知識
 

@@ -88,7 +88,7 @@ Wave 1-4 完成（4 個 session）後實況：
 
 | Phase | 交付 |
 |-------|------|
-| **P0** | `wg_core.py` 加 `LOG_ROTATE_THRESHOLD_BYTES`（預設 100 MB）；guardian-crash.log / extract-worker.log 自動輪轉為 `.1` / `.2` / `.3`，最多 3 份 |
+| **P0** | `wg_core.py` 加 `rotate_log_if_oversized(log_path, max_mb=10, keep=3)`；guardian-crash.log / extract-worker.log / codex-companion.log 自動輪轉為 `.1` / `.2` / `.3`，最多 3 份 |
 | **P3a** | 24 個 `feedback-*.md` 整併為 5 個主題 atom：`feedback-workflow-discipline` / `feedback-completion-gates` / `feedback-tooling-reliability` / `feedback-memory-structure` / `feedback-rigor-standards`。原 24 個歸 `_distant/2026_05_consolidation/feedback/` |
 | **P4a** | `IDENTITY.md` 禁語清單抽出（為 P4b 鋪路）；`MEMORY.md` 索引壓縮為 ≤30 行 |
 
@@ -98,7 +98,7 @@ handoff: commit `fa86ba1`。
 
 | Phase | 交付 |
 |-------|------|
-| **P2** | 16 `wg_*.py` → 6 主模組（core/atoms/extraction/episodic/evasion/docdrift）+ 2 shim（roles/atom_observation）；dispatcher 2651 → ~75 行；handlers/ 拆 8 個 event 各一檔；`workflow-guardian.py` 1 行 shim |
+| **P2** | 16 `wg_*.py` → 6 主模組（core/atoms/extraction/episodic/evasion/docdrift）+ 2 shim（roles/atom_observation）；dispatcher 2651 → ~75 行；handlers/ 拆 7 個 event 各一檔；`workflow-guardian.py` 20 行薄 shim |
 | **P2** | MCP 7 tool → 3 tool（`atom_write` / `atom_move` / `atom_promote`）；砍 4 內部 IPC（改 Stop gate 內化） |
 | **P4b** | `memory/_meta/forbidden-phrases.json` 為禁語 single source；IDENTITY.md + wg_evasion.py 都讀 JSON |
 

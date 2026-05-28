@@ -23,7 +23,7 @@
 
 | 模組 | 職責 |
 |------|------|
-| `workflow-guardian.py` | 1 行 shim 轉發 `dispatcher.main()`（保留 V4.1 entry path 相容） |
+| `workflow-guardian.py` | 20 行薄 shim 轉發 `dispatcher.main()`（保留 V4.1 entry path 相容） |
 | `dispatcher.py` | ~75 行純路由：讀 stdin event → 找 handler → 呼叫 |
 | `handlers/_shared.py` | 跨 handler 共用常數/helper（MEMORY_MD 標頭、project hook caller、cleanup_old_states 等） |
 | `handlers/session_start.py` | SessionStart：init state + 去重 + V4 role bootstrap + AIDocs bridge + Wisdom + MCP health + log rotation + Vector service bg subprocess |

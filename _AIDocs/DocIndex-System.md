@@ -69,7 +69,7 @@ Session Ready
 
 | 檔案 | 行數 | 職責 |
 |------|------|------|
-| workflow-guardian.py | 1 | 1 行 shim 轉發 `dispatcher.main()` |
+| workflow-guardian.py | 20 | 薄 shim（5 行可執行 code）轉發 `dispatcher.main()` |
 | dispatcher.py | ~75 | 純路由：讀 stdin event → 找 handler → 呼叫 |
 | handlers/_shared.py | — | 跨 handler 共用 helper |
 | handlers/session_start.py | — | init state + 去重 + bootstrap + Vector bg subprocess |

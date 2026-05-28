@@ -20,8 +20,8 @@
 * **輕量極簡**：偏好直接、低抽象的解法，不用不需要的框架
 * **高可讀性**：一個檔案看完相關邏輯，減少跨檔跳轉
 * **不自動產生文件**：不主動建立 README / 文件，除非明確要求
-* **Prompt 輸出**：給使用者複製貼上的 prompt 一律包 code block
-* **縮寫指令** 定義在 atom [[preferences]]（上GIT / 執P / 執驗上P 等）
+* **Prompt 輸出**：給使用者複製貼上的 prompt，一律包在 code block 裡
+* **縮寫指令**：「上GIT」「執P」等定義見 `memory/preferences.md`
 
 ## 使用者的決策偏好
 
