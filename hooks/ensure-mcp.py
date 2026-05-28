@@ -27,6 +27,9 @@ VERSION_CACHE = CLAUDE_DIR / "workflow" / "mcp-version-cache.json"
 FLAG_NEEDS_NODE = CLAUDE_DIR / "workflow" / "mcp-needs-node.flag"
 TTL_SECONDS = 7 * 86400  # 7 days
 
+# Windows: 避免 npm.cmd 在 detached 父進程下另開 cmd 視窗
+_NPM_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 def _find_node():
@@ -42,7 +45,8 @@ def _find_node():
     # Fallback: where/which
     cmd = ["where", "node"] if sys.platform == "win32" else ["which", "node"]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3,
+                           creationflags=_NPM_FLAGS)
         if r.returncode == 0:
             return r.stdout.strip().splitlines()[0]
     except Exception:
@@ -59,7 +63,8 @@ def _npm_global_prefix():
             return str(p)
     try:
         r = subprocess.run(["npm", "prefix", "-g"],
-                           capture_output=True, text=True, timeout=5)
+                           capture_output=True, text=True, timeout=5,
+                           creationflags=_NPM_FLAGS)
         if r.returncode == 0:
             return r.stdout.strip()
     except Exception:
@@ -212,6 +217,7 @@ def slow_install(packages_csv):
             timeout=180,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            creationflags=_NPM_FLAGS,
         )
     except Exception:
         pass
@@ -226,6 +232,7 @@ def slow_update(packages_csv):
         r = subprocess.run(
             ["npm", "outdated", "-g", "--json"],
             capture_output=True, text=True, timeout=30,
+            creationflags=_NPM_FLAGS,
         )
         if r.stdout.strip():
             outdated = set(json.loads(r.stdout).keys())
@@ -236,6 +243,7 @@ def slow_update(packages_csv):
                     timeout=180,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    creationflags=_NPM_FLAGS,
                 )
     except Exception:
         pass
