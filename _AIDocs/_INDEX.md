@@ -1,7 +1,7 @@
 # MyClaudeCode (.claude) — AI 分析文件索引
 
 > 本資料夾記錄 `~/.claude` 自訂擴充系統的架構與演進。
-> 最近更新：2026-05-27（**V5 GA 簽收**；Wave 5 Session 4 chkdsk + GA Checklist 全綠）
+> 最近更新：2026-05-28（**V5 GA + Session α/β**：feedback-* atoms 遷移至 `Failures/` + `lib/atom_locations.py` 抽象 + sync-atom-index/indexer 多根掃描 + SPEC_V5 §2.1 章節）
 
 ---
 
@@ -18,7 +18,7 @@
 | 6 | DocIndex-System.md | 全檔系統索引（啟動鏈 + Hook 模組 + 19 Skills + Tools + Memory 16 atoms） | 啟動鏈, lifecycle, 全檔索引, 檔案清單, 系統索引 |
 | 7 | ClaudeCodeInternals/_INDEX.md | Claude Code 原生架構深度分析（14 章：Harness Engineering 全書） | claude code 架構, harness engineering, tool system, hook system, agent, permission, prompt, MCP, skill, plugin, feature flag, query loop, context, state |
 | 8 | Tools/_INDEX.md | 工具與領域知識（Excel 操作、Unity YAML/Prefab、記憶系統檔案索引、BM25 全域檢索層） | Excel, xlsx, openpyxl, Unity YAML, fileID, GUID, prefab, WndForm, 記憶系統架構, BM25 |
-| 9 | Failures/_INDEX.md | 踩坑記錄與失敗模式（環境陷阱、假設錯誤、靜默失敗、認知偏差、誤診） | 環境陷阱, Windows, MSYS2, npx, Ollama, 假設錯誤, 靜默, 過度工程, 誤診, 驗證優先 |
+| 9 | Failures/_INDEX.md | 踩坑記錄與失敗模式（環境陷阱、假設錯誤、靜默失敗、認知偏差、誤診）+ V5+ Session α 起為 5 個 feedback-* atoms + cognitive-patterns + memory-pipeline-silent-failure-2026-05 的物理位置（索引仍在 memory/_atom_index.json 單一來源） | 環境陷阱, Windows, MSYS2, npx, Ollama, 假設錯誤, 靜默, 過度工程, 誤診, 驗證優先, feedback atoms, cognitive-patterns |
 | 10 | DevHistory/_INDEX.md | 開發紀錄（版本演進、遷移紀錄、A/B 實測數據、atom 演化日誌；含 V5 升版完整紀錄 [DevHistory/v5-overhaul-2026-05/](DevHistory/v5-overhaul-2026-05/README.md)） | 演化, 版本, changelog, 遷移, migration, V2.18, V2.20, V2.21, V5 升版, A/B, 實測, benchmark |
 | 11 | SPEC_ATOM_V5.md | 原子記憶 V5 GA 規格 — skills 取代 commands / hook 6+2 模組 / BM25 全域層 / Codex subprocess / MCP 砍 4 內部 tool / 禁語 JSON 單一來源 | V5, GA, skills, BM25, Codex subprocess, MCP, 禁語, 全面汰舊, hook 整併 |
 | 12 | SPEC_ATOM_V4.md | 原子記憶 V4 規格（V5 詳情依靠的對照證物）— 多職務團隊共享（personal / shared / role 三層 scope、衝突三時段偵測、管理職雙向認證、JIT 角色 filter） | V4, scope 三層, role-shared, personal-in-project, 多職務, 團隊協作, 衝突偵測, 管理職, audience, 角色 filter |
@@ -27,4 +27,4 @@
 
 ## 架構一句話摘要
 
-基於 Claude Code hooks 事件驅動的工作流監督系統，搭配雙 LLM（Claude + Ollama gemma4:e4b / qwen3:1.7b）原子記憶管理跨 session 知識。**V5 GA**：三層即時管線 + Hot Cache + 全域 BM25 / 專案層 Vector + `_atom_index.json` JSON SoT + Codex Companion subprocess（無 daemon @ 3850）+ Hook 6 主模組 + 1 shim + 7 event handler + 19 Skills + MCP 3 tool。
+基於 Claude Code hooks 事件驅動的工作流監督系統，搭配雙 LLM（Claude + Ollama gemma4:e4b / qwen3:1.7b）原子記憶管理跨 session 知識。**V5 GA + Session α/β**：三層即時管線 + Hot Cache + 全域 BM25 / 專案層 Vector + `_atom_index.json` JSON SoT（17 atoms，含 5 feedback-* + cognitive-patterns + memory-pipeline-* 物理在 `_AIDocs/Failures/`）+ Codex Companion subprocess（無 daemon @ 3850）+ Hook 6 主模組 + 2 shim + 8 event handler + 19 Skills + MCP 3 tool + `lib/atom_locations.py` atom 位置單一規則來源。

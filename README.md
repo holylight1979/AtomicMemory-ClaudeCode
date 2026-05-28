@@ -1,4 +1,4 @@
-# 原子記憶系統 Atomic Memory V4.1
+# 原子記憶系統 Atomic Memory V5 GA
 
 原子記憶系統為 Claude Code 補上 INDEX 型長期記憶層，透過 hooks 自動注入歷史知識，讓 AI 具備按需接續 session 工作、且避免反覆犯同樣的錯。
 
@@ -45,7 +45,7 @@ AI 會自己走完檔案合併 + npm 套件 + MCP 設定 + Ollama 模型 + Vecto
 ### 1. 在專案裡使用 — 3 步到底
 
 - **STEP A**：在專案根目錄開啟 VS Code（或 Claude Code CLI 在專案目錄啟動）
-- **STEP B**：首次執行 `/init-project` 建立原子記憶庫根；完成後上傳 GIT / SVN 讓團隊共享
+- **STEP B**：首次進入專案時請 AI「初始化原子記憶庫」— 會自動建立 `{project}/.claude/memory/MEMORY.md` 與 atom 結構；完成後上傳 GIT / SVN 讓團隊共享。多人團隊另跑 `/init-roles` 啟用 shared/role/personal 分層。
 - **STEP C**：其實到這就完成了，照你原本 Claude Code 的方式繼續使用就好 — 系統在背景自動運作
 
 ### 2. 更順手的補充

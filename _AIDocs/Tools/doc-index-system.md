@@ -11,6 +11,15 @@
 - Tags: doc-index, system-overview
 - Related: decisions, decisions-architecture, toolchain, feedback-memory-path
 
+> ⚠️ **V5 GA 後本檔內容大幅過時**（停在 V2.21 / 2026-03-27）— 25 atoms / wg_paths / wg_intent / wg_iteration / commands/`/init-project`,`/resume`,`/svn-update`,`/unity-yaml` 等引用皆已不存在或變更。**新讀者請改讀**：
+>
+> - 系統架構樹：[TECH.md §2](../../TECH.md#2-系統架構目錄樹2026-05-28-v5-ga--session-αβ-現況) — 對應 V5 GA + Session α/β 現況
+> - V5 規格主檔：[SPEC_ATOM_V5.md](../SPEC_ATOM_V5.md) — JSON SoT / BM25 / Codex subprocess / commands→skills / atom 路由
+> - V5 升版完整紀錄：[DevHistory/v5-overhaul-2026-05/](../DevHistory/v5-overhaul-2026-05/README.md)
+> - 人類入門：[README.md](../../README.md)
+>
+> 本檔保留作為 V2.21 歷史對照證物；V5 全檔索引未獨立成檔（TECH.md §2 + 各子目錄 _INDEX.md 已足夠）。
+
 ## 知識
 
 ### 啟動鏈

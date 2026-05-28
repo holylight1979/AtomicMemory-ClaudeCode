@@ -1,6 +1,6 @@
 # Atomic Memory V5 — 技術深度文件
 
-> 本文件對應系統**當前代碼實況**（2026-05-27，V5 GA）。範例、數字、公式皆從 [hooks/](hooks/)、[tools/](tools/)、[lib/](lib/)、[workflow/config.json](workflow/config.json) 實讀取得。讀者若在代碼中看到與本文件不符的值，以代碼為準並回報修正。
+> 本文件對應系統**當前代碼實況**（2026-05-28，V5 GA + Session α/β feedback-aidocs 遷移 + `lib/atom_locations.py` 抽象）。範例、數字、公式皆從 [hooks/](hooks/)、[tools/](tools/)、[lib/](lib/)、[workflow/config.json](workflow/config.json) 實讀取得。讀者若在代碼中看到與本文件不符的值，以代碼為準並回報修正。
 >
 > V5 設計規格主檔：[_AIDocs/SPEC_ATOM_V5.md](_AIDocs/SPEC_ATOM_V5.md)（含 V4→V5 delta + 變更紀錄）。本檔重點在「現況代碼與流程」。
 
@@ -23,7 +23,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 
 ---
 
-## 2. 系統架構目錄樹（2026-05-27 V5 GA 現況）
+## 2. 系統架構目錄樹（2026-05-28 V5 GA + Session α/β 現況）
 
 ```
 ~/.claude/
@@ -63,7 +63,10 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 ├── lib/
 │   ├── ollama_extract_core.py                      ← 共享萃取核心 + SessionBudgetTracker
 │   ├── atom_index_json.py                          ← V5 JSON SoT API（load/save/upsert/migrate）
-│   └── atom_io.py                                  ← atom 讀寫統一入口
+│   ├── atom_io.py                                  ← atom 讀寫統一入口（write funnel）
+│   ├── atom_spec.py                                ← atom 合法性規範（slugify / is_atom_file / REQUIRED_METADATA）
+│   ├── atom_access.py                              ← .access.json 計數 funnel（ReadHits / Confirmations / last_used）
+│   └── atom_locations.py                           ← V5+ atom 物理位置 + 路由規則單一來源（FAILURES_DIR / iter_atom_files_multi / failures_write_target，commit 89ccb2d）
 │
 ├── tools/                                          ← Python 工具集
 │   ├── ollama_client.py                            ← Dual-Backend
@@ -94,18 +97,18 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │
 ├── memory/                                         ← 全域記憶層
 │   ├── MEMORY.md                                   ← AI 一覽索引（人類可讀）
-│   ├── _atom_index.json                            ← V5 JSON SoT（17 atoms）
+│   ├── _atom_index.json                            ← V5 JSON SoT（17 atoms：10 一般 + 5 feedback + cognitive-patterns + memory-pipeline-silent-failure-2026-05）
 │   ├── _ATOM_INDEX.md                              ← deprecated mirror（自動生成）
 │   ├── _meta/forbidden-phrases.json                ← V5 禁語單一真相
 │   ├── preferences.md / decisions*.md / workflow-*.md / toolchain*.md
-│   ├── feedback-*.md（5 個，V5 P3a 24→5 整併）
-│   ├── failures/                                   ← 踩坑子 atoms
 │   ├── personal/{user}/                            ← V4 個人層
 │   ├── shared/ / role/                             ← V4 分層（/init-roles 後啟用）
 │   ├── wisdom/ / episodic/ / _staging/
 │   ├── _distant/ / _reference/                     ← 封存與參考
 │   ├── _vectordb/                                  ← LanceDB 索引 + audit.log（專案層用）
 │   └── _promotion_audit.jsonl                      ← 晉升審計
+│                                                   （V5+ Session α 起：feedback-* + cognitive-patterns + memory-pipeline-* 物理在 `_AIDocs/Failures/`，
+│                                                    索引仍登記在此 _atom_index.json 單一來源；規則見 `lib/atom_locations.py` 與 SPEC_ATOM_V5 §2.1）
 │
 ├── workflow/                                       ← runtime state（gitignored 多）
 │   ├── config.json                                 ← 統一設定（tracked）
@@ -116,10 +119,13 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── mcp-version-cache.json
 │   ├── state-{session-id}.json                    ← session ephemeral
 │
-├── _AIDocs/                                        ← 長期知識庫
-│   ├── _INDEX.md / _CHANGELOG.md / Architecture.md
-│   ├── SPEC_ATOM_V5.md（V5 GA 規格主檔）/ SPEC_ATOM_V4.md（對照證物）
-│   ├── ClaudeCodeInternals/ / Tools/ / Failures/ / DevHistory/
+├── _AIDocs/                                        ← 長期知識庫（人類可讀）
+│   ├── _INDEX.md / _CHANGELOG.md / _CHANGELOG_ARCHIVE.md / Architecture.md
+│   ├── SPEC_ATOM_V5.md（V5 GA 規格主檔，§2.1 含 feedback-* 路由）/ SPEC_ATOM_V4.md（對照證物）
+│   ├── ClaudeCodeInternals/                       ← CC 原生架構研究筆記
+│   ├── Tools/                                     ← 工具與領域知識
+│   ├── Failures/                                  ← 失敗模式 + feedback-* atoms 物理位置（V5+ Session α 起）
+│   ├── DevHistory/                                ← 版本演進 + V5 升版完整紀錄（v5-overhaul-2026-05/）
 │   ├── DocIndex-System.md / known-regressions.md / Project_File_Tree.md
 │
 ├── hooks/verify/ tools/verify/ lib/verify/         ← 14 個 verify_*.py（H-test-prune 後 verify 化）
@@ -365,25 +371,64 @@ sequenceDiagram
 
     U->>G: 輸入 prompt
     rect rgba(100,200,100,0.1)
-        note over G,F: UserPromptSubmit (handlers/user_prompt_submit.py)
-        G->>G: [A0] Hot Cache 快速路徑（injected=false → 注入）
-        G->>V: [A] Episodic context search (首次 prompt)
-        G->>G: [B] Keyword trigger ~10ms
+        note over G,F: UserPromptSubmit (handlers/user_prompt_submit.py — 完整流程 ~680 行)
+        G->>G: [前置] recent_user_prompts 追蹤 + failing_tests dismiss check
+        G->>G: [L0] V4.1 使用者決策 detector — detect_signal score ≥0.4 append pending_user_extract
+        G->>G: [V4.1] Confirmed extractions / veto 處理
+        G->>G: [Dual-Backend] long_die 使用者回覆（停用/保持 backend）
+        G->>G: [A0] Hot Cache 快速路徑（injected=false → 注入 + mark）
+        G->>G: [Atom-Write Guard] 偵測「記住/存atom」→ 注入晉升規則提醒
+        G->>V: [A] Phase 0 Episodic context search (首次 prompt) + proactive classify
+        G->>G: [Wisdom] situation classify → approach inject + 升級記錄
+        G->>F: [AIDocs] _AIDocs/_INDEX.md keyword 比對 → 注入 doc pointer
+        G->>G: [JIT] 記憶系統開發場景 → 注入 internal-pipeline.md (≤250 tok)
+        G->>G: [B] Keyword trigger ~10ms（all_atoms × kw_match）
+        G->>G: [Cross-Project] alias + ≥2 trigger 命中 → 注入 cross-project atom
         G->>G: [C] Intent 分類 rule-based ~1ms
-        G->>G: [D] BM25 全域層（≤2 trigger 命中時觸發；min_score=1.0；top_k=3）
-        G->>V: [E] Vector fallback（BM25+trigger 雙 0 / 專案層）
+        G->>G: [D] BM25 全域層（trigger ≤2 命中 AND global_layer=="bm25"；min_score=1.0；top_k=3）
+        G->>V: [E] Vector fallback（matched==0 OR global_layer!="bm25"；專案層 enrichment）
         V->>O: embed
-        G->>G: [F] Supersedes + Project-Aliases 過濾
+        G->>G: [F] Supersedes 過濾
         G->>G: [G] ACT-R Activation Sort
-        G->>F: [H] Section-Level 注入（token budget 內）
+        G->>F: [H] Section-Level + Hot/Cold + budget decide（_TURN_BUDGET_LIMIT）
         G->>G: [I] Related-Edge Spreading (depth=1)
-        G->>G: [J] Blind-Spot Reporter
+        G->>F: [ReadHits++] lib.atom_access funnel + 達 20/50 → 晉升輔助提示
+        G->>G: [J] Blind-Spot Reporter（無命中時記 atom-debug）
         G->>G: [K] retry_count≥2 → FixEscalation 信號
-        G->>G: [L0] 使用者決策 detector（規則 ≤5ms）
-        G->>C: additionalContext atoms + reminders
-        G->>G: [P] 失敗關鍵字 → spawn failure extract-worker
+        G->>G: [Evasion] 上輪命中 → 注入舉證要求 (a)/(b)
+        G->>G: [Handoff] intent=="handoff" → 注入 6 區塊提醒
+        G->>G: [P] 失敗關鍵字 → _maybe_spawn_failure_extraction (detached worker)
+        G->>G: [Topic] _update_topic_tracker
+        G->>G: [Sync] mod_count/kq_count + sync_keywords reminders
+        G->>C: additionalContext (atoms + guard messages + reminders)
     end
 ```
+
+> Mermaid 流程序對應 [`hooks/handlers/user_prompt_submit.py`](hooks/handlers/user_prompt_submit.py) 實際呼叫順序（680 行 handler）。V4 寫法把 [L0] 排在最後是早期文件殘留；V5 把 V4.1 detector 提至 handler 開頭以最小延遲攔截使用者決策語句。
+
+### 8.1.1 實際運作範例
+
+本 session 「上GIT」prompt 觸發的 UserPromptSubmit 注入（系統實際輸出，節錄）：
+
+```
+[QuickExtract] 5 items cached            ← Hot Cache 快速路徑（quick-extract.py 寫入）
+[HotCache:deep_extract ⚠AUTO-DRAFT·[臨]] ...    ← deep extract 覆寫的 hot cache（source=deep_extract）
+[Atom:preferences]                        ← Trigger 命中「上GIT」關鍵字
+- Confidence: [固]
+- Trigger: 偏好, 風格, 習慣, 語言, 回應, 執P, 執驗上P, 上GIT
+...
+[Guardian:Evasion] 你上輪用了退避語『pre-existing』。     ← Evasion 上輪命中舉證要求
+[Guardian] Reminder: 9 files modified, 11 knowledge items pending. ← Sync reminders
+```
+
+對應 [`user_prompt_submit.py`](hooks/handlers/user_prompt_submit.py) code path：
+- `[QuickExtract] ... cached`：來自 hot_cache.json `source=quick_extract`（L178-187 `read_hot_cache` → `format_injection_line` → `mark_injected`）
+- `[HotCache:deep_extract ⚠AUTO-DRAFT]`：來自 hot_cache.json `source=deep_extract`（同樣 fast-path，但 source 標籤不同）
+- `[Atom:preferences]`：Trigger 命中「上GIT」（preferences.md frontmatter `Trigger: ..., 上GIT`），走 `_kw_match` (L343) → 進 matched_with_dir → ACT-R 排序 → Section-Level + budget decide → 注入完整 atom
+- `[Guardian:Evasion]`：state["evasion_flag"] 由 PostToolUse 偵測本輪 assistant 輸出含禁語時設置，下一輪 UserPromptSubmit (L644-654) 注入 → 清 flag
+- `[Guardian] Reminder`：mod_count/kq_count > 0 且 remind_count >= remind_after（預設 3） → 注入提醒（L686-700）
+
+
 
 ### 8.2 Tool 執行 + Stop + SessionEnd
 

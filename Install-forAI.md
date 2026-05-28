@@ -95,7 +95,7 @@ cp "$SRC/version.json" "$DST/version.json"
 
 # 核心模組（整資料夾覆蓋；不含個人 atom 與 runtime state）
 rsync -a --delete "$SRC/hooks/" "$DST/hooks/"      # dispatcher + handlers/ + wg_*.py + 獨立 hook
-rsync -a --delete "$SRC/lib/" "$DST/lib/"          # atom_io / atom_spec / atom_index_json / atom_access / ollama_extract_core
+rsync -a --delete "$SRC/lib/" "$DST/lib/"          # atom_io / atom_spec / atom_locations / atom_index_json / atom_access / ollama_extract_core
 rsync -a --delete "$SRC/skills/" "$DST/skills/"    # 19 個 skill
 rsync -a --delete "$SRC/rules/" "$DST/rules/"
 
