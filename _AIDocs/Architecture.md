@@ -5,13 +5,13 @@
 
 ## Hooks 系統（V5 架構，2026-05-27）
 
-8 個 hook 事件（含 async Stop），定義在 `settings.json`。**V5 Wave 2** 把 V4.1 的 2651 行 `workflow-guardian.py` 拆成 `dispatcher.py`（75 行純路由）+ `handlers/{event}.py` 模組；16 個 `wg_*.py` 整併為 6 主模組 + 2 shim。V4 終態的 19 個檔案歸檔在 [`DevHistory/v4-archive/`](DevHistory/v4-archive/)。
+8 個 hook 事件（含 async Stop），定義在 `settings.json`。**V5 Wave 2** 把 V4.1 的 2651 行 `workflow-guardian.py` 拆成 `dispatcher.py`（75 行純路由）+ `handlers/{event}.py` 模組；16 個 `wg_*.py` 整併為 6 主模組 + 1 shim（Wave 5 Session 6 砍 `wg_atom_observation.py`）。V4 終態的 19 個檔案歸檔在 [`DevHistory/v4-archive/`](DevHistory/v4-archive/)。
 
 | Hook | 觸發時機 | 用途 |
 |------|---------|------|
 | `UserPromptSubmit` | 使用者送出訊息 | RECALL 記憶檢索 + intent 分類（含 handoff）+ Context Budget 監控 + Wisdom 情境分類 + Failures 偵測 + Evasion 注入 |
-| `PreToolUse` (Write/Edit) | Write/Edit 工具呼叫前 | (1) Atom Format Gate：阻擋 `/.claude/memory/*.md` 不符原子格式的寫入；(2) Atom Confidence Gate（2026-04-27）：新建 atom 的 frontmatter `Confidence:` 與內文 `- [固]/- [觀]` 標籤必須全為 `[臨]`，鏡射 MCP `atom_write` mode=create 規則（[server.js:1109-1117](../tools/workflow-guardian-mcp/server.js)）封堵 Write tool 繞過路徑；(3) **Memory Path Block（2026-04-28）**：阻擋寫入 `~/.claude/projects/{slug}/memory/`（原子記憶專案自治層覆寫此路徑），對應 atom `feedback-memory-path` |
-| `PreToolUse` (Bash) | Bash 工具呼叫前 | **SVN Test Block（2026-04-28）**：阻擋 `svn commit/ci` 含 `tests?/` `__tests__/` 路徑或 `*Test.<ext>` 檔案（r10854 教訓），對應 atom `feedback-no-test-to-svn` |
+| `PreToolUse` (Write/Edit) | Write/Edit 工具呼叫前 | (1) Atom Format Gate：阻擋 `/.claude/memory/*.md` 不符原子格式的寫入；(2) Atom Confidence Gate：新建 atom 的 frontmatter `Confidence:` 與內文 `- [固]/- [觀]` 標籤必須全為 `[臨]`，鏡射 MCP `atom_write` mode=create 規則（[server.js:1109-1117](../tools/workflow-guardian-mcp/server.js)）封堵 Write tool 繞過路徑；(3) **Memory Path Block**：阻擋寫入 `~/.claude/projects/{slug}/memory/`（原子記憶專案自治層覆寫此路徑），對應 atom `feedback-memory-path` |
+| `PreToolUse` (Bash) | Bash 工具呼叫前 | **SVN Test Block**：阻擋 `svn commit/ci` 含 `tests?/` `__tests__/` 路徑或 `*Test.<ext>` 檔案（r10854 教訓），對應 atom `feedback-no-test-to-svn` |
 | `PostToolUse` (Edit/Write/Bash) | 工具呼叫後 | 追蹤修改檔案 + 增量索引 + Read Tracking + Test-Fail 偵測（Bash）+ _CHANGELOG auto-roll |
 | `PreCompact` | Context 壓縮前 | 快照 state |
 | `Stop` | 對話結束前 | Sync 閘門 + Fix Escalation + TestFailGate（阻擋完成宣告）+ Evasion Detection |
@@ -33,7 +33,7 @@
 | `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection |
 | `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + docdrift advisory |
 | `handlers/pre_compact.py` | PreCompact：state snapshot |
-| **主模組 6 + shim 2**（V5 §5）| |
+| **主模組 6 + shim 1**（V5 §5）| |
 | `wg_core.py` | 路徑唯一真相 + config/state IO + log rotation + PreToolUse guards（合 wg_paths + wg_pretool_guards） |
 | `wg_atoms.py` | atom index 解析 + trigger 匹配 + **BM25 全域層** + ACT-R + vector search + atom 晉升（合 wg_intent + wg_iteration atom 晉升部分） |
 | `wg_extraction.py` | per-turn 萃取 + worker + failure + hot cache + user-extract + content classify（合 wg_user_extract + wg_hot_cache + wg_content_classify） |
@@ -41,7 +41,6 @@
 | `wg_evasion.py` | Evasion Guard + Test-Fail + ScanReport + 4 套自評整合（合 wg_session_evaluator + wg_iteration 自評部分） |
 | `wg_docdrift.py` | src → _AIDocs 映射 drift 偵測 |
 | `wg_roles.py` | V4 sub-layer 探勘 shim（V4 角色機制） |
-| `wg_atom_observation.py` | REG-005 觀察採樣 shim（flag-gated，任務已結束） |
 | **獨立保留** | |
 | `wisdom_engine.py` | 反思引擎 + Fix Escalation |
 | `codex_companion.py` | **V5 P5b 重寫**：HTTP daemon → subprocess（in-process state + spawn `tools/codex-companion/audit.py`） |

@@ -149,12 +149,13 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 `workflow-guardian.py` dispatcher 整併為
 | `wg_evasion.py` | Evasion Guard + Test-Fail Gate + 4 套自評整合（含舊 wg_session_evaluator / wg_iteration 自評） |
 | `wg_docdrift.py` | src → _AIDocs 映射 drift 偵測 |
 
-### 5.2 Shim（2）
+### 5.2 Shim（1）
 
 | 模組 | 用途 |
 |------|------|
 | `wg_roles.py` | V4 sub-layer 探勘的 thin wrapper（保留） |
-| `wg_atom_observation.py` | REG-005 觀察採樣（任務已結束，flag-gated，零開銷） |
+
+> Wave 5 Session 6 砍 `wg_atom_observation.py`（REG-005 觀察任務 2026-04 結束 + 零活躍引用）。
 
 ### 5.3 獨立保留
 

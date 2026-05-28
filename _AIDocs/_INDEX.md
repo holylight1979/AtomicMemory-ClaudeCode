@@ -27,4 +27,4 @@
 
 ## 架構一句話摘要
 
-基於 Claude Code hooks 事件驅動的工作流監督系統，搭配雙 LLM（Claude + Ollama gemma4:e4b / qwen3:1.7b）原子記憶管理跨 session 知識。**V5 GA**：三層即時管線 + Hot Cache + 全域 BM25 / 專案層 Vector + `_atom_index.json` JSON SoT + Codex Companion subprocess（無 daemon @ 3850）+ Hook 6 主模組 + 2 shim + 8 event handler + 19 Skills + MCP 3 tool。
+基於 Claude Code hooks 事件驅動的工作流監督系統，搭配雙 LLM（Claude + Ollama gemma4:e4b / qwen3:1.7b）原子記憶管理跨 session 知識。**V5 GA**：三層即時管線 + Hot Cache + 全域 BM25 / 專案層 Vector + `_atom_index.json` JSON SoT + Codex Companion subprocess（無 daemon @ 3850）+ Hook 6 主模組 + 1 shim + 7 event handler + 19 Skills + MCP 3 tool。

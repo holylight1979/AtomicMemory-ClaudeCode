@@ -65,7 +65,7 @@ Session Ready
 |------|------|
 | core.md | 知識庫維護 + 原子記憶分類 + 同步工作流 + 對話續航（合併單檔） |
 
-## 4. Hook 系統（dispatcher + handlers + 8 wg_*）
+## 4. Hook 系統（dispatcher + handlers + 7 wg_*）
 
 | 檔案 | 行數 | 職責 |
 |------|------|------|
@@ -87,7 +87,6 @@ Session Ready
 | wg_evasion.py | — | Evasion Guard + Test-Fail + ScanReport + 自評整合 |
 | wg_docdrift.py | — | src → _AIDocs 映射 drift 偵測 |
 | wg_roles.py | — | V4 sub-layer 探勘 shim |
-| wg_atom_observation.py | — | REG-005 觀察採樣 shim（flag-gated, 任務已結束） |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |
 | extract-worker.py | — | SessionEnd 萃取子程序 |
 | user-extract-worker.py | — | L1/L2 使用者決策萃取 |
