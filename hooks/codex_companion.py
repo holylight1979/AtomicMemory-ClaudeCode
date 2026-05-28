@@ -244,6 +244,60 @@ def _summarize_tool_response(tool_response: Any) -> tuple[str, bool]:
     return summary, failed
 
 
+def _summarize_files_examined(
+    tool_trace: list, max_items: int = 30, max_chars: int = 1500
+) -> str:
+    """從 tool_trace 萃取「代理人已接觸的檔案」摘要供 codex prompt 用。
+
+    含 Read/Glob/Grep（直接讀檔/搜檔）+ Edit/Write/NotebookEdit（修改即接觸）+
+    Agent（sub-agent 代理活動：input=description / output_summary 含 sub-agent 讀的檔）。
+    Cap max_items 條 / max_chars 字，避免 prompt token 膨脹。
+    """
+    if not tool_trace:
+        return "(none)"
+
+    read_tools = {"Read", "Glob", "Grep"}
+    write_tools = {"Edit", "Write", "NotebookEdit"}
+
+    lines: list[str] = []
+    seen_paths: set[str] = set()
+
+    for t in tool_trace:
+        tool = t.get("tool", "")
+        path = (t.get("path") or "").strip()
+        inp = (t.get("input") or "").strip()
+        out = (t.get("output_summary") or "").strip()
+
+        if tool in read_tools:
+            label = path or inp
+            if label and label not in seen_paths:
+                lines.append(f"- [{tool}] {label[:160]}")
+                seen_paths.add(label)
+        elif tool in write_tools:
+            if path and path not in seen_paths:
+                lines.append(f"- [{tool}] {path[:160]}")
+                seen_paths.add(path)
+        elif tool == "Agent":
+            # sub-agent 活動：description + output 尾巴
+            desc = inp[:120] if inp else "(no desc)"
+            out_snip = out[:240] if out else ""
+            entry = f"- [Agent] {desc}"
+            if out_snip:
+                entry += f"\n    → result: {out_snip}"
+            lines.append(entry)
+
+        if len(lines) >= max_items:
+            break
+
+    if not lines:
+        return "(none)"
+
+    text = "\n".join(lines)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n…(truncated)"
+    return text
+
+
 def _build_verification_signals(input_data: Dict[str, Any], tool_response: Any) -> Dict[str, Any]:
     """Phase 1.5：給 codex 的最小化 verification_signals 包。"""
     sig: Dict[str, Any] = {
@@ -485,6 +539,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
             companion_state.record_checkpoint(session_id, checkpoint)
             st = companion_state.read_state(session_id) or {}
             verification = _build_verification_signals(input_data, tool_response)
+            files_examined = _summarize_files_examined(st.get("tool_trace", []))
             _spawn_audit_subprocess({
                 "session_id": session_id,
                 "turn_index": int(st.get("turn_index", 0)),
@@ -495,6 +550,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
                     "trigger_file": file_path,
                     "tool_failed": failed,
                     "verification_signals": verification,
+                    "files_examined": files_examined,
                 },
             })
 
@@ -608,6 +664,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
         pass
 
     companion_state.record_checkpoint(session_id, "turn_audit")
+    files_examined = _summarize_files_examined(comp_state.get("tool_trace", []))
     _spawn_audit_subprocess({
         "session_id": session_id,
         "turn_index": turn_index_post,
@@ -617,6 +674,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
             "user_goal_hint": user_goal_hint,
             "last_assistant_tail": last_assistant_tail,
             "turn_score": score,
+            "files_examined": files_examined,
             "verification_signals": {
                 "stop_text_len": len(last_assistant_tail),
                 "stop_text_source": "fallback_layered",

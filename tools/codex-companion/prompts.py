@@ -60,11 +60,12 @@ turn_index = {turn_index}
 {heuristic_flags}
 
 ## Instructions
-- Focus on what is MISSING, not what is present
+- Focus on what is MISSING (concrete missing steps / verification / edge cases), NOT on demanding more 「out of scope / 不在範圍」elaboration. The agent already follows an anti-evasion contract that lists「不動 / 不在範圍」sections by itself — do not push it to elaborate further unless concrete scope creep risk is observed.
 - Check: are there steps that depend on untested assumptions?
 - Check: is there a verification/testing step after implementation?
 - Check: are edge cases or failure modes considered?
-- Check: is the scope appropriate, or is it too broad/narrow?
+- Check: is the scope appropriate (concrete creep risk only — do not flag "too narrow" unless a critical dependency is genuinely missing)?
+- Files Examined includes both direct Read/Glob/Grep and `[Agent]` entries (sub-agent investigations) — count both as the agent's file knowledge when evaluating coverage.
 - Be concise and specific. Do not praise or encourage. Only point out problems or confirm "ok".
 
 {output_schema}
@@ -90,6 +91,9 @@ turn_index = {turn_index}
 ## Modified Files
 {modified_files}
 
+## Files Examined by the Agent
+{files_examined}
+
 ## Last Assistant Reply (Tail)
 {last_assistant_tail}
 
@@ -102,10 +106,11 @@ turn_index = {turn_index}
 ## Instructions
 - Evaluate: did the agent actually DO what it said it would do? (check tool trace for evidence)
 - Evaluate: were there verification steps (tests, builds, manual checks)? Cross-check Last Assistant Reply against Tool Trace — if reply claims "tests passed" but trace has no test command AND Verification Evidence Found is empty, that is a real gap.
-- Evaluate: did the agent read necessary files before modifying them?
+- Evaluate: did the agent read necessary files before modifying them? (Files Examined includes both direct Read/Glob/Grep and `[Agent]` entries representing sub-agent investigations — both count as agent's file knowledge.)
 - Evaluate: any signs of shortcuts (skipped steps, assumed success without checking)?
 - Do NOT penalize if the turn was genuinely simple and complete — set delivery=ignore.
 - Heuristic Triggered is reference only; do NOT echo it back. Form your own opinion based on the actual artifacts above.
+- 不要因為代理人省略「不動 / 不在範圍」聲明就 flag — anti-evasion contract 是代理人端自管的紀律，本 audit 只在「真實偷埋 / 跳步」可見於 tool trace 時才標。
 - Be concise. Only flag real issues. Use evidence field to cite the concrete observation (file path / trace step #).
 
 {output_schema}
@@ -168,10 +173,13 @@ def build_turn_audit_prompt(
     last_assistant_tail: str = "",
     verification_evidence: str = "",
     heuristic_summary: str = "",
+    files_examined: str = "",
 ) -> str:
-    """Sprint 3 Phase 4.2/4.3：
+    """Sprint 3 Phase 4.2/4.3 + 2026-05-28 fix：
 
-    新增三段：
+    新增段：
+      * Files Examined by the Agent — Read/Glob/Grep/Edit/Write/Agent 統一摘要
+        （含 sub-agent 代理活動，修了 codex 看不到 sub-agent file 接觸的盲點）
       * Last Assistant Reply (Tail)  — 取自 state.last_assistant_tail
       * Verification Evidence Found  — assessor 抽自 trace 的 verify cmd 摘要
       * Heuristic Triggered (Reference Only) — heuristics.format_for_context 結果
@@ -186,6 +194,7 @@ def build_turn_audit_prompt(
         cwd=cwd or "(unknown)",
         tool_trace=tool_trace or "(no trace)",
         modified_files=modified_files or "(none)",
+        files_examined=files_examined or "(none)",
         last_assistant_tail=last_assistant_tail or "(empty — agent may have exited silently)",
         verification_evidence=verification_evidence or "(none found)",
         heuristic_summary=heuristic_summary or heuristic_flags or "None",

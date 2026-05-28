@@ -423,6 +423,7 @@ def run_assessment(
             last_assistant_tail=last_assistant_tail,
             verification_evidence=verification_evidence,
             heuristic_summary=heuristic_summary,
+            files_examined=extra_context.get("files_examined", ""),
         )
 
     _log(f"Prompt built for {assessment_type} (t{turn_index}): {len(prompt)} chars")
