@@ -196,7 +196,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - **MEMORY.md**（always loaded）— 16 atoms 一覽（人類可讀）
 - **_atom_index.json**（JSON SoT）— 機器源真相，16 atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
-- **全域 Atoms**（16 個 .md）— core 8（decisions / decisions-architecture / preferences / workflow-rules / workflow-icld / workflow-svn / toolchain / toolchain-ollama）+ feedback 5（V5 整併 24→5）+ 特定領域 3（electron-uia-automation / gdoc-harvester / 記憶機制靜默失效confirmations-零增-episodic-停擺）
+- **全域 Atoms**（16 個 .md）— core 8（decisions / decisions-architecture / preferences / workflow-rules / workflow-icld / workflow-svn / toolchain / toolchain-ollama）+ feedback 5（V5 整併 24→5）+ 特定領域 3（electron-uia-automation / gdoc-harvester / memory-pipeline-silent-failure-2026-05）
 - **failures/**（atom 子族） — 跨專案踩坑記錄
 - **templates/** — icld-sprint-template 等
 - **_reference/**（手動讀取）— SPEC 等深度規格

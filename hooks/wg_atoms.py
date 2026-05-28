@@ -1241,18 +1241,35 @@ def _self_iterate_atoms(
     today = datetime.now()
 
     scan_dirs = [MEMORY_DIR]
-    failure_dir = MEMORY_DIR / "failures"
-    if failure_dir.exists():
-        scan_dirs.append(failure_dir)
-    feedback_dir = MEMORY_DIR / "feedback"
-    if feedback_dir.exists():
-        scan_dirs.append(feedback_dir)
+    # V5+: feedback-* atoms 已物理搬至 _AIDocs/Failures/（atom 體系仍管轄）
+    aidocs_failures = Path.home() / ".claude" / "_AIDocs" / "Failures"
+    if aidocs_failures.exists():
+        scan_dirs.append(aidocs_failures)
+
+    # V5+: 從 _atom_index.json 抽 _AIDocs/Failures/ 已登記 atom 名單
+    failures_atom_names = set()
+    if aidocs_failures.exists():
+        try:
+            import json
+            idx_path = MEMORY_DIR / "_atom_index.json"
+            if idx_path.exists():
+                idx_data = json.loads(idx_path.read_text(encoding="utf-8"))
+                failures_atom_names = {
+                    (a.get("path") or "").rsplit("/", 1)[-1].removesuffix(".md")
+                    for a in idx_data.get("atoms", [])
+                    if (a.get("path") or "").startswith("_AIDocs/Failures/")
+                }
+        except (OSError, ValueError):
+            pass
 
     for atom_dir in scan_dirs:
+        is_failures = atom_dir == aidocs_failures
         for md_file in atom_dir.glob("*.md"):
             if md_file.name in ("MEMORY.md", "SPEC_Atomic_Memory_System.md"):
                 continue
             if md_file.name.startswith("_"):
+                continue
+            if is_failures and md_file.stem not in failures_atom_names:
                 continue
 
             try:

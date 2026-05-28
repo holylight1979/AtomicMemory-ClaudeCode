@@ -754,6 +754,7 @@ _WHITELIST_DIR_SEGMENTS = frozenset({
     "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
     "_vectordb", "_rejected", "templates", "episodic", "wisdom",
     "personal",
+    "Failures",  # V5+: feedback-* atoms 物理居 _AIDocs/Failures/，但仍受 atom funnel 管轄
 })
 
 

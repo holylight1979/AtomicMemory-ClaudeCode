@@ -14,5 +14,6 @@
 | workflow-icld | 增量式閉環開發（ICLD） |
 | workflow-rules | 工作流規則（全域） |
 | workflow-svn | SVN 工作流規則 |
-| 記憶機制靜默失效confirmations-零增-episodic-停擺 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
-| feedback-* | 行為校正（5 個含 workflow-discipline, completion-gates, tooling-reliability, memory-structure, rigor-standards 等） |
+| feedback-* | 行為校正（5 個含 workflow-discipline, completion-gates, tooling-reliability, memory-structure, rigor-standards 等） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
+| memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
+| cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |

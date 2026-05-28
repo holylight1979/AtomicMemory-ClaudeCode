@@ -129,6 +129,16 @@ def _find_project_root(cwd: Optional[str]) -> Optional[Path]:
     return None
 
 
+FAILURES_DIR = CLAUDE_DIR / "_AIDocs" / "Failures"
+
+
+def _is_failures_routed_title(title: Optional[str]) -> bool:
+    """V5+: title 前綴 feedback- 視為 failures-routed（_AIDocs/Failures/）。"""
+    if not title:
+        return False
+    return slugify(title).startswith("feedback-")
+
+
 def _resolve_target(
     scope: str,
     project_cwd: Optional[str],
@@ -136,18 +146,35 @@ def _resolve_target(
     user: Optional[str],
     audience: Optional[List[str]],
     force_global: bool,
+    title: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """回傳 {dir, base, scope_label, error, routed_to_pending}。
+    """回傳 {dir, base, index_dir, index_root, scope_label, routed_to_*, error}。
 
     對拍 server.js:777 resolveMemDir + 1095-1101 sensitive audience routing。
+    V5+ 擴展：global scope + title 前綴 feedback- → 物理路由到 _AIDocs/Failures/，
+    索引仍在 memory/_atom_index.json（單一來源）。
     """
     if force_global:
         scope = "global"
 
     if scope == "global":
+        if _is_failures_routed_title(title):
+            FAILURES_DIR.mkdir(parents=True, exist_ok=True)
+            return {
+                "dir": FAILURES_DIR, "base": FAILURES_DIR,
+                "index_dir": GLOBAL_MEMORY_DIR, "index_root": CLAUDE_DIR,
+                "scope_label": "global",
+                "routed_to_failures": True, "routed_to_pending": False,
+                "error": None,
+            }
         GLOBAL_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        return {"dir": GLOBAL_MEMORY_DIR, "base": GLOBAL_MEMORY_DIR,
-                "scope_label": "global", "routed_to_pending": False, "error": None}
+        return {
+            "dir": GLOBAL_MEMORY_DIR, "base": GLOBAL_MEMORY_DIR,
+            "index_dir": GLOBAL_MEMORY_DIR, "index_root": CLAUDE_DIR,
+            "scope_label": "global",
+            "routed_to_failures": False, "routed_to_pending": False,
+            "error": None,
+        }
 
     if scope not in ("shared", "role", "personal"):
         return {"error": f"Unknown scope: {scope}"}
@@ -186,8 +213,13 @@ def _resolve_target(
         routed_to_pending = True
 
     target_dir.mkdir(parents=True, exist_ok=True)
-    return {"dir": target_dir, "base": base, "scope_label": scope_label,
-            "routed_to_pending": routed_to_pending, "error": None}
+    return {
+        "dir": target_dir, "base": base,
+        "index_dir": base, "index_root": base.parent,
+        "scope_label": scope_label,
+        "routed_to_failures": False, "routed_to_pending": routed_to_pending,
+        "error": None,
+    }
 
 
 # ─── Index update（對拍 server.js:953 appendToIndex） ─────────────────────────
@@ -410,11 +442,10 @@ def write_atom(
                            error=f"Unknown scope: {scope}")
 
     # ── Resolve target dir ──
-    resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global)
+    resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global, title=title)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
     mem_dir = resolved["dir"]
-    base_dir = resolved["base"]
     scope_label = resolved["scope_label"]
     routed_to_pending = resolved["routed_to_pending"]
 
@@ -422,8 +453,8 @@ def write_atom(
 
     slug = slugify(title)
     file_path = mem_dir / f"{slug}.md"
-    rel_from_base = file_path.relative_to(base_dir).as_posix()
-    rel_path = f"memory/{rel_from_base}"
+    index_root = resolved["index_root"]
+    rel_path = file_path.relative_to(index_root).as_posix()
 
     # ── Build content ──
     if mode == "create":
@@ -511,7 +542,7 @@ def write_atom(
 
     # ── Update index ──
     if mode in ("create", "replace"):
-        write_index(base_dir, slug, rel_path, triggers, source)
+        write_index(resolved["index_dir"], slug, rel_path, triggers, source)
 
     # ── Audit log ──
     _audit_log({

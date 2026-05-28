@@ -1110,7 +1110,26 @@ async function toolAtomWrite(id, args) {
     return sendToolResult(id, `atom_write: ${resolved.error}`, true);
   }
   let memDir = resolved.dir;
-  const baseDir = resolved.base;
+  let baseDir = resolved.base;
+  // V5+: indexDir = where _atom_index.json lives; indexRoot = rel_path 基準
+  // 預設沿用既有語意（global→CLAUDE_DIR，project→projRoot/.claude）
+  let indexDir = baseDir;
+  let indexRoot = path.dirname(baseDir);
+
+  const slug = slugify(title);
+
+  // V5+ feedback-* routing：global scope + title 前綴 feedback- → _AIDocs/Failures/
+  // 索引仍在 memory/_atom_index.json（單一來源）
+  let routedToFailures = false;
+  if (scope === "global" && slug.startsWith("feedback-")) {
+    const failuresDir = path.join(CLAUDE_DIR, "_AIDocs", "Failures");
+    fs.mkdirSync(failuresDir, { recursive: true });
+    memDir = failuresDir;
+    baseDir = failuresDir;
+    indexDir = MEMORY_DIR;
+    indexRoot = CLAUDE_DIR;
+    routedToFailures = true;
+  }
 
   // SPEC 7.4: sensitive audience on shared → auto-pending
   let pendingReviewBy = pending_review_by || null;
@@ -1125,11 +1144,9 @@ async function toolAtomWrite(id, args) {
   if (scope === "role") scopeLabel = `role:${role}`;
   else if (scope === "personal") scopeLabel = `personal:${user}`;
 
-  const slug = slugify(title);
   // V4 Phase 5: filePath/relPath may be recomputed after conflict-detector reroute
   let filePath = path.join(memDir, slug + ".md");
-  let relFromBase = path.relative(baseDir, filePath).replace(/\\/g, "/");
-  let relPath = "memory/" + relFromBase;
+  let relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
 
   const author = getCurrentUser();
   const today = new Date().toISOString().slice(0, 10);
@@ -1191,8 +1208,7 @@ async function toolAtomWrite(id, args) {
         fs.mkdirSync(memDir, { recursive: true });
         if (!pendingReviewBy) pendingReviewBy = "management";
         filePath = path.join(memDir, slug + ".md");
-        relFromBase = path.relative(baseDir, filePath).replace(/\\/g, "/");
-        relPath = "memory/" + relFromBase;
+        relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
         appendMergeHistory(baseDir, "pending-create", slug, scopeLabel, author,
           `extend_overlap vs ${(cr.matches[0] || {}).atom_name || "?"} sim=${((cr.matches[0] || {}).similarity || 0).toFixed(3)}`);
       }
@@ -1219,7 +1235,7 @@ async function toolAtomWrite(id, args) {
     await spawnAtomAccess("set", [filePath, "--field", "last_used",
                                   "--value", today, "--source", "mcp"]);
 
-    await appendToIndex(baseDir, slug, relPath, triggers);
+    await appendToIndex(indexDir, slug, relPath, triggers);
     triggerVectorReindex();
     if (scopeLabel === "global") syncMemoryIndex();
 
@@ -1312,7 +1328,7 @@ async function toolAtomWrite(id, args) {
     await spawnAtomAccess("set", [filePath, "--field", "last_used",
                                   "--value", today, "--source", "mcp"]);
 
-    await appendToIndex(baseDir, slug, relPath, triggers);
+    await appendToIndex(indexDir, slug, relPath, triggers);
     triggerVectorReindex();
     if (scopeLabel === "global") syncMemoryIndex();
 

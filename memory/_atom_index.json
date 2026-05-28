@@ -49,7 +49,7 @@
     },
     {
       "name": "feedback-workflow-discipline",
-      "path": "memory/feedback-workflow-discipline.md",
+      "path": "_AIDocs/Failures/feedback-workflow-discipline.md",
       "triggers": [
         "handoff",
         "續接",
@@ -70,7 +70,7 @@
     },
     {
       "name": "feedback-completion-gates",
-      "path": "memory/feedback-completion-gates.md",
+      "path": "_AIDocs/Failures/feedback-completion-gates.md",
       "triggers": [
         "完成宣告",
         "收尾",
@@ -96,7 +96,7 @@
     },
     {
       "name": "feedback-tooling-reliability",
-      "path": "memory/feedback-tooling-reliability.md",
+      "path": "_AIDocs/Failures/feedback-tooling-reliability.md",
       "triggers": [
         "codex",
         "codex companion",
@@ -117,7 +117,7 @@
     },
     {
       "name": "feedback-memory-structure",
-      "path": "memory/feedback-memory-structure.md",
+      "path": "_AIDocs/Failures/feedback-memory-structure.md",
       "triggers": [
         "寫入記憶",
         "atom 設計",
@@ -135,7 +135,7 @@
     },
     {
       "name": "feedback-rigor-standards",
-      "path": "memory/feedback-rigor-standards.md",
+      "path": "_AIDocs/Failures/feedback-rigor-standards.md",
       "triggers": [
         "縝密",
         "漏掉",
@@ -257,8 +257,8 @@
       "scope": "global"
     },
     {
-      "name": "記憶機制靜默失效confirmations-零增-episodic-停擺",
-      "path": "memory/記憶機制靜默失效confirmations-零增-episodic-停擺.md",
+      "name": "memory-pipeline-silent-failure-2026-05",
+      "path": "_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md",
       "triggers": [
         "memory-review",
         "memory-health",
@@ -268,6 +268,24 @@
         "自我迭代",
         "衰減掃描",
         "覆轍偵測"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "cognitive-patterns",
+      "path": "_AIDocs/Failures/cognitive-patterns.md",
+      "triggers": [
+        "過度工程",
+        "代理指標",
+        "proxy metric",
+        "AI看不懂",
+        "AI在打轉",
+        "品質回饋",
+        "自我合理化",
+        "編造規則",
+        "籠統話術",
+        "訂規保留",
+        "設計慣例"
       ],
       "scope": "global"
     }

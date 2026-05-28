@@ -66,24 +66,61 @@ VALID_TYPES = {"semantic", "episodic", "procedural"}
 VALID_PRIVACY = {"public", "internal", "sensitive"}
 
 
+def _load_failures_atom_names() -> set:
+    """V5+ helper: 從 _atom_index.json 抽出居 _AIDocs/Failures/ 的 atom name 集合。
+
+    用於區分 _AIDocs/Failures/ 內「atom」vs「參考文件」— atom 已登記於索引（含 feedback-* /
+    cognitive-patterns / memory-pipeline-silent-failure-* 等），其他 .md 為參考。
+    """
+    try:
+        import json
+        idx = Path.home() / ".claude" / "memory" / "_atom_index.json"
+        if not idx.exists():
+            return set()
+        data = json.loads(idx.read_text(encoding="utf-8"))
+        return {
+            (a.get("path") or "").rsplit("/", 1)[-1].removesuffix(".md")
+            for a in data.get("atoms", [])
+            if (a.get("path") or "").startswith("_AIDocs/Failures/")
+        }
+    except (OSError, ValueError, json.JSONDecodeError):
+        return set()
+
+
 def iter_atom_files(mem_dir: Path):
     """Recursive scan for atom .md files, skipping non-atom subdirs and SKIP_PREFIXES files.
 
     Replaces `mem_dir.glob("*.md")` to include atoms in `feedback/` / `wisdom/` etc.
+    V5+: 若 mem_dir 為全域 memory（~/.claude/memory），自動延伸掃 _AIDocs/Failures/；
+    Failures 內僅依 _atom_index.json 登記者計入 atom（其他為失敗模式參考文件）。
     """
-    for md in sorted(mem_dir.rglob("*.md")):
-        if md.name == MEMORY_INDEX:
-            continue
-        if any(md.name.startswith(p) for p in SKIP_PREFIXES):
-            continue
-        try:
-            rel_parts = md.relative_to(mem_dir).parts
-        except ValueError:
-            continue
-        # rel_parts: directory parts + filename. Check intermediate dirs only.
-        if any(part in SKIP_DIRS for part in rel_parts[:-1]):
-            continue
-        yield md
+    roots = [(mem_dir, False)]  # (root, is_failures)
+    failures_names = set()
+    try:
+        global_memory = Path.home() / ".claude" / "memory"
+        if mem_dir.resolve() == global_memory.resolve():
+            failures = Path.home() / ".claude" / "_AIDocs" / "Failures"
+            if failures.is_dir():
+                roots.append((failures, True))
+                failures_names = _load_failures_atom_names()
+    except OSError:
+        pass
+
+    for root, is_failures in roots:
+        for md in sorted(root.rglob("*.md")):
+            if md.name == MEMORY_INDEX:
+                continue
+            if any(md.name.startswith(p) for p in SKIP_PREFIXES):
+                continue
+            if is_failures and md.stem not in failures_names:
+                continue
+            try:
+                rel_parts = md.relative_to(root).parts
+            except ValueError:
+                continue
+            if any(part in SKIP_DIRS for part in rel_parts[:-1]):
+                continue
+            yield md
 
 
 # ─── Data Classes ────────────────────────────────────────────────────────────
@@ -499,6 +536,18 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
         if f.is_file() and f.suffix == ".md" and f.name != MEMORY_INDEX:
             if not any(f.name.startswith(p) for p in SKIP_PREFIXES):
                 actual_files.add(f.name)
+    # V5+: 索引 wildcard 也納入 _AIDocs/Failures/ 已登記 atom（feedback-* 等）
+    try:
+        global_memory = Path.home() / ".claude" / "memory"
+        if memory_dir.resolve() == global_memory.resolve():
+            failures = Path.home() / ".claude" / "_AIDocs" / "Failures"
+            failures_names = _load_failures_atom_names()
+            for stem in failures_names:
+                fp = failures / f"{stem}.md"
+                if fp.exists():
+                    actual_files.add(fp.name)
+    except OSError:
+        pass
 
     # Check index → file
     indexed_files: Set[str] = set()
@@ -527,7 +576,11 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
         if not full_path.exists():
             # Try relative to parent of memory_dir
             alt_path = memory_dir.parent / entry.path
-            if not alt_path.exists():
+            # V5+: feedback-* / cognitive-patterns 居 _AIDocs/Failures/
+            failures_path = (
+                Path.home() / ".claude" / "_AIDocs" / "Failures" / file_name
+            )
+            if not alt_path.exists() and not failures_path.exists():
                 issues.append(
                     Issue(rel_index, "error", "index", f"索引指向不存在的檔案: {entry.path}")
                 )

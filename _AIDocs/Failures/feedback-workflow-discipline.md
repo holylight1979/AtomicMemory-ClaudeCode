@@ -1,24 +1,13 @@
 # feedback-workflow-discipline
 
-
-
 - Scope: global
-
 - Author: holylight
-
 - Confidence: [臨]
-
 - Trigger: handoff, 續接, 下 session, next-phase, 順手修補, drift 修補, 重複失敗, fix-escalation, 裁決, 決策推薦, plan 路徑, SessionStart hook, commit message, 上 GIT
-
 - Created-at: 2026-05-26
-
 - Related: feedback-completion-gates, feedback-tooling-reliability, v5-overhaul-audit-2026-05, feedback-rigor-standards
 
-
-
 ## 知識
-
-
 
 - [臨] handoff prompt 含六區塊自足性：現狀/改動清單/驗證/下一步/危險/規則連結，不靠模型記憶
 
@@ -37,8 +26,6 @@
 
 ## 行動
 
-
-
 - handoff 寫足六區塊
 
 - drift 按門檻當場修
@@ -48,4 +35,3 @@
 - 裁決先推薦 + 理由
 
 - Wave 1 保育期過後手動晉升 [觀] 或 [固]
-

@@ -5,6 +5,7 @@ handlers/pre_tool_use.py — PreToolUse hook handler
 """
 
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -93,9 +94,43 @@ def _check_memory_atom_format(
     return None
 
 
+def _check_feedback_routing_advisory(
+    tool_name: str, tool_input: Dict[str, Any]
+) -> Optional[str]:
+    """V5+: 偵測 memory/feedback-*.md Write/Edit → 回 advisory（不阻擋）。
+
+    feedback-* atoms 已遷移至 _AIDocs/Failures/；走 atom_write MCP 會自動正確路由。
+    """
+    if tool_name not in ("Write", "Edit"):
+        return None
+    fp_raw = tool_input.get("file_path", "") or ""
+    fp = fp_raw.replace("\\", "/")
+    if "/.claude/memory/" not in fp or not fp.endswith(".md"):
+        return None
+    fname = fp.rsplit("/", 1)[-1]
+    if not fname.startswith("feedback-"):
+        return None
+    return (
+        "[Guardian:RoutingAdvice] 偵測 memory/feedback-* 寫入。\n"
+        f"路徑：{fp_raw}\n"
+        "feedback-* atoms 已遷移至 _AIDocs/Failures/。請改用：\n"
+        "  mcp__workflow-guardian__atom_write(scope=\"global\", title=\"feedback-...\", ...)\n"
+        "MCP 會自動路由到 _AIDocs/Failures/（含索引同步 + access.json）。\n"
+        "詳見 _AIDocs/SPEC_ATOM_V5.md「Atom 存放擴展」段。"
+    )
+
+
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
+
+    # Advisory：feedback-* 寫入舊位址提示（不擋）
+    advisory = _check_feedback_routing_advisory(tool_name, tool_input)
+    if advisory:
+        try:
+            sys.stderr.write(advisory + "\n")
+        except OSError:
+            pass
 
     deny_reason = _check_memory_atom_format(tool_name, tool_input)
     if deny_reason:

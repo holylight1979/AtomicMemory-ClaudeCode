@@ -72,11 +72,38 @@ def find_atoms(root: Path) -> dict[str, Path]:
 
     判定委派給 lib.atom_spec.is_atom_file（單一規則來源）— SKIP_DIRS 含
     personal/wisdom/_pending_review/episodic 等非 atom 子目錄。
+    V5+: 若 root 為全域 memory，自動延伸掃 _AIDocs/Failures/（feedback-* atoms 物理居此）。
     """
     atoms = {}
-    for md in root.rglob("*.md"):
-        if is_atom_file(md, root):
-            atoms[md.stem] = md
+    roots = [(root, False)]  # (root, is_failures)
+    failures_names = set()
+    try:
+        global_memory = Path.home() / ".claude" / "memory"
+        if root.resolve() == global_memory.resolve():
+            failures = Path.home() / ".claude" / "_AIDocs" / "Failures"
+            if failures.is_dir():
+                roots.append((failures, True))
+                # V5+: 依 _atom_index.json 登記者區分 atom vs 參考文件
+                try:
+                    import json
+                    idx = global_memory / "_atom_index.json"
+                    if idx.exists():
+                        data = json.loads(idx.read_text(encoding="utf-8"))
+                        failures_names = {
+                            (a.get("path") or "").rsplit("/", 1)[-1].removesuffix(".md")
+                            for a in data.get("atoms", [])
+                            if (a.get("path") or "").startswith("_AIDocs/Failures/")
+                        }
+                except (OSError, ValueError):
+                    pass
+    except OSError:
+        pass
+    for r, is_failures in roots:
+        for md in r.rglob("*.md"):
+            if is_failures and md.stem not in failures_names:
+                continue
+            if is_atom_file(md, r):
+                atoms[md.stem] = md
     return atoms
 
 
@@ -456,9 +483,14 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
     for name, path in sorted(atoms.items()):
         fm = parse_frontmatter(path)
         related = parse_related(fm)
+        # V5+: atoms 可居 _AIDocs/Failures/，相對於 ~/.claude 計算
+        try:
+            file_rel = str(path.relative_to(MEMORY_ROOT))
+        except ValueError:
+            file_rel = str(path.relative_to(Path.home() / ".claude"))
         entry = {
             "name": name,
-            "file": str(path.relative_to(MEMORY_ROOT)),
+            "file": file_rel,
             "format": fm.get("_format", "unknown"),
             "confidence": fm.get("Confidence", "—"),
             "last_used": fm.get("Last-used", "—"),

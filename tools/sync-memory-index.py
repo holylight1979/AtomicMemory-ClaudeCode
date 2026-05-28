@@ -61,17 +61,23 @@ def extract_atom_caption(atom_path: Path) -> str:
 def render_atom_section(rows: List[Tuple[str, str, str]],
                         claude_root: Path) -> str:
     """Render the atom index table.
-    Group feedback-* into one row '| feedback-* | 行為校正（N 個含 ...）|'.
-    Other atoms render individually with their H1 as caption.
+    原樣簡單版：feedback-* 聚合一行；其他 atoms 各自一行用 H1 caption。
+    V5+ 小修：feedback-* 聚合行加 `→ _AIDocs/Failures/` 指標；
+    其他 _AIDocs/Failures/ 內 atoms（cognitive-patterns / 後續加入者）獨立一行
+    + 行尾加 `→` 指標（不在 memory/ 根目錄者顯式標位置）。
     """
-    individual: List[Tuple[str, str]] = []  # (name, caption)
+    individual: List[Tuple[str, str, str]] = []  # (name, caption, rel_path)
     feedback_names: List[str] = []
+    failures_other: List[Tuple[str, str, str]] = []  # _AIDocs/Failures/ 內非 feedback-*
     for name, rel_path, _scope in rows:
-        if name.startswith("feedback") or name == "fix-escalation":
+        if name.startswith("feedback") and rel_path.startswith("_AIDocs/Failures/"):
             feedback_names.append(name)
+        elif rel_path.startswith("_AIDocs/Failures/"):
+            cap = extract_atom_caption(claude_root / rel_path) if rel_path else ""
+            failures_other.append((name, cap, rel_path))
         else:
             cap = extract_atom_caption(claude_root / rel_path) if rel_path else ""
-            individual.append((name, cap))
+            individual.append((name, cap, rel_path))
 
     lines = [
         "# Atom Index — Global",
@@ -81,13 +87,16 @@ def render_atom_section(rows: List[Tuple[str, str, str]],
         "| Atom | 說明 |",
         "|------|------|",
     ]
-    for name, cap in individual:
+    for name, cap, _ in individual:
         lines.append(f"| {name} | {cap} |")
     if feedback_names:
         sample = ", ".join(n.replace("feedback-", "") for n in feedback_names[:5])
         lines.append(
-            f"| feedback-* | 行為校正（{len(feedback_names)} 個含 {sample} 等） |"
+            f"| feedback-* | 行為校正（{len(feedback_names)} 個含 {sample} 等）"
+            f" → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |"
         )
+    for name, cap, rel_path in failures_other:
+        lines.append(f"| {name} | {cap} → [`{rel_path}`](../{rel_path}) |")
     return "\n".join(lines)
 
 
