@@ -32,12 +32,14 @@ from .atom_spec import (
     SKIP_DIRS, MEMORY_INDEX, ATOM_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
     build_atom_content, slugify, validate_atom_content,
 )
+from .atom_locations import (
+    CLAUDE_DIR, GLOBAL_MEMORY_DIR, FAILURES_DIR,
+    is_failures_routed_title, failures_write_target,
+)
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-CLAUDE_DIR = Path.home() / ".claude"
-GLOBAL_MEMORY_DIR = CLAUDE_DIR / "memory"
 AUDIT_LOG = GLOBAL_MEMORY_DIR / "_meta" / "atom_io_audit.jsonl"
 
 # 接受的 source（供 audit 反查；未列舉值會 raise ValueError）
@@ -129,16 +131,6 @@ def _find_project_root(cwd: Optional[str]) -> Optional[Path]:
     return None
 
 
-FAILURES_DIR = CLAUDE_DIR / "_AIDocs" / "Failures"
-
-
-def _is_failures_routed_title(title: Optional[str]) -> bool:
-    """V5+: title 前綴 feedback- 視為 failures-routed（_AIDocs/Failures/）。"""
-    if not title:
-        return False
-    return slugify(title).startswith("feedback-")
-
-
 def _resolve_target(
     scope: str,
     project_cwd: Optional[str],
@@ -158,11 +150,9 @@ def _resolve_target(
         scope = "global"
 
     if scope == "global":
-        if _is_failures_routed_title(title):
-            FAILURES_DIR.mkdir(parents=True, exist_ok=True)
+        if is_failures_routed_title(title):
             return {
-                "dir": FAILURES_DIR, "base": FAILURES_DIR,
-                "index_dir": GLOBAL_MEMORY_DIR, "index_root": CLAUDE_DIR,
+                **failures_write_target(),
                 "scope_label": "global",
                 "routed_to_failures": True, "routed_to_pending": False,
                 "error": None,

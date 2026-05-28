@@ -27,6 +27,7 @@ from typing import List, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_io import write_index_full  # noqa: E402
 from lib.atom_index_json import load_atom_index_json  # noqa: E402
+from lib.atom_locations import FAILURES_REL, atom_index_row_kind  # noqa: E402
 
 MEMORY_DIR = Path.home() / ".claude" / "memory"
 MEMORY_INDEX_NAME = "MEMORY.md"
@@ -68,14 +69,15 @@ def render_atom_section(rows: List[Tuple[str, str, str]],
     """
     individual: List[Tuple[str, str, str]] = []  # (name, caption, rel_path)
     feedback_names: List[str] = []
-    failures_other: List[Tuple[str, str, str]] = []  # _AIDocs/Failures/ 內非 feedback-*
+    failures_other: List[Tuple[str, str, str]] = []  # Failures 內非 feedback-*
     for name, rel_path, _scope in rows:
-        if name.startswith("feedback") and rel_path.startswith("_AIDocs/Failures/"):
+        kind = atom_index_row_kind(rel_path, name)
+        if kind == "feedback_aggregate":
             feedback_names.append(name)
-        elif rel_path.startswith("_AIDocs/Failures/"):
+        elif kind == "failures_other":
             cap = extract_atom_caption(claude_root / rel_path) if rel_path else ""
             failures_other.append((name, cap, rel_path))
-        else:
+        else:  # individual
             cap = extract_atom_caption(claude_root / rel_path) if rel_path else ""
             individual.append((name, cap, rel_path))
 
@@ -93,7 +95,7 @@ def render_atom_section(rows: List[Tuple[str, str, str]],
         sample = ", ".join(n.replace("feedback-", "") for n in feedback_names[:5])
         lines.append(
             f"| feedback-* | 行為校正（{len(feedback_names)} 個含 {sample} 等）"
-            f" → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |"
+            f" → [`{FAILURES_REL}/`](../{FAILURES_REL}/) |"
         )
     for name, cap, rel_path in failures_other:
         lines.append(f"| {name} | {cap} → [`{rel_path}`](../{rel_path}) |")

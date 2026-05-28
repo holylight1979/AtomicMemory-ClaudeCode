@@ -41,6 +41,11 @@ except ImportError:
     to_atom_entries = None
     ATOM_INDEX_JSON = "_atom_index.json"
 
+try:
+    from atom_locations import iter_atom_files_multi
+except ImportError:
+    iter_atom_files_multi = None
+
 
 # ─── Memory Index Parsing ────────────────────────────────────────────────────
 
@@ -1240,120 +1245,98 @@ def _self_iterate_atoms(
     results = {"promoted": [], "archive_candidates": [], "scanned": 0}
     today = datetime.now()
 
-    scan_dirs = [MEMORY_DIR]
-    # V5+: feedback-* atoms 已物理搬至 _AIDocs/Failures/（atom 體系仍管轄）
-    aidocs_failures = Path.home() / ".claude" / "_AIDocs" / "Failures"
-    if aidocs_failures.exists():
-        scan_dirs.append(aidocs_failures)
+    # V5+: 全域 atom 搜尋（memory + _AIDocs/Failures/）統一委派 lib.atom_locations。
+    # 判定走 is_atom_file（同 MEMORY.md/_*/SPEC_* skip）+ failures stems 過濾參考文件。
+    if iter_atom_files_multi is not None:
+        md_files_iter = iter_atom_files_multi()
+    else:
+        md_files_iter = (m for m in MEMORY_DIR.glob("*.md")
+                         if m.name not in ("MEMORY.md", "SPEC_Atomic_Memory_System.md")
+                         and not m.name.startswith("_"))
 
-    # V5+: 從 _atom_index.json 抽 _AIDocs/Failures/ 已登記 atom 名單
-    failures_atom_names = set()
-    if aidocs_failures.exists():
+    for md_file in md_files_iter:
         try:
-            import json
-            idx_path = MEMORY_DIR / "_atom_index.json"
-            if idx_path.exists():
-                idx_data = json.loads(idx_path.read_text(encoding="utf-8"))
-                failures_atom_names = {
-                    (a.get("path") or "").rsplit("/", 1)[-1].removesuffix(".md")
-                    for a in idx_data.get("atoms", [])
-                    if (a.get("path") or "").startswith("_AIDocs/Failures/")
-                }
-        except (OSError, ValueError):
-            pass
+            text = md_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
 
-    for atom_dir in scan_dirs:
-        is_failures = atom_dir == aidocs_failures
-        for md_file in atom_dir.glob("*.md"):
-            if md_file.name in ("MEMORY.md", "SPEC_Atomic_Memory_System.md"):
-                continue
-            if md_file.name.startswith("_"):
-                continue
-            if is_failures and md_file.stem not in failures_atom_names:
-                continue
+        results["scanned"] += 1
 
-            try:
-                text = md_file.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
+        try:
+            from lib.atom_access import read_access
+            acc = read_access(md_file)
+        except (ImportError, OSError):
+            acc = {}
+        last_used_raw = acc.get("last_used")
+        confirmations = int(acc.get("confirmations") or 0)
+        readhits = int(acc.get("read_hits") or 0)
 
-            results["scanned"] += 1
+        if not last_used_raw or (confirmations == 0 and readhits == 0):
+            continue
+        try:
+            last_used = datetime.strptime(last_used_raw, "%Y-%m-%d")
+        except ValueError:
+            continue
 
-            try:
-                from lib.atom_access import read_access
-                acc = read_access(md_file)
-            except (ImportError, OSError):
-                acc = {}
-            last_used_raw = acc.get("last_used")
-            confirmations = int(acc.get("confirmations") or 0)
-            readhits = int(acc.get("read_hits") or 0)
+        days_since = (today - last_used).days
+        recency = math.exp(-math.log(2) * max(days_since, 0) / decay_half_life)
+        usage = min(1.0, math.log10(max(confirmations, readhits) + 1) / 2)
+        score = 0.5 * recency + 0.5 * usage
 
-            if not last_used_raw or (confirmations == 0 and readhits == 0):
-                continue
-            try:
-                last_used = datetime.strptime(last_used_raw, "%Y-%m-%d")
-            except ValueError:
-                continue
+        if score < archive_threshold:
+            results["archive_candidates"].append({
+                "atom": md_file.stem,
+                "score": round(score, 3),
+                "last_used": last_used_raw,
+                "confirmations": confirmations,
+            })
 
-            days_since = (today - last_used).days
-            recency = math.exp(-math.log(2) * max(days_since, 0) / decay_half_life)
-            usage = min(1.0, math.log10(max(confirmations, readhits) + 1) / 2)
-            score = 0.5 * recency + 0.5 * usage
+        if confirmations >= promote_conf_threshold or readhits >= promote_min_conf:
+            lines = text.split("\n")
+            promoted_in_file = []
+            changed = False
+            for i, line in enumerate(lines):
+                if re.match(r"^- \[臨\]", line):
+                    lines[i] = line.replace("- [臨]", "- [觀]", 1)
+                    desc = line.split("[臨]", 1)[-1].strip()[:60]
+                    promoted_in_file.append(desc)
+                    changed = True
 
-            if score < archive_threshold:
-                results["archive_candidates"].append({
+            if changed:
+                prefixes = set()
+                for L in lines:
+                    pm = re.match(r"^- \[([臨觀固])\]", L)
+                    if pm:
+                        prefixes.add(pm.group(1))
+                header_promoted = False
+                if prefixes == {"觀"}:
+                    for i, line in enumerate(lines):
+                        hm = re.match(r"^(- Confidence:\s*)\[臨\]\s*$", line)
+                        if hm:
+                            lines[i] = f"{hm.group(1)}[觀]"
+                            header_promoted = True
+                            break
+
+                tmp = md_file.with_suffix(".tmp")
+                try:
+                    tmp.write_text("\n".join(lines), encoding="utf-8")
+                    tmp.replace(md_file)
+                except OSError:
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+                results["promoted"].append({
                     "atom": md_file.stem,
-                    "score": round(score, 3),
-                    "last_used": last_used_raw,
+                    "items": promoted_in_file,
                     "confirmations": confirmations,
                 })
-
-            if confirmations >= promote_conf_threshold or readhits >= promote_min_conf:
-                lines = text.split("\n")
-                promoted_in_file = []
-                changed = False
-                for i, line in enumerate(lines):
-                    if re.match(r"^- \[臨\]", line):
-                        lines[i] = line.replace("- [臨]", "- [觀]", 1)
-                        desc = line.split("[臨]", 1)[-1].strip()[:60]
-                        promoted_in_file.append(desc)
-                        changed = True
-
-                if changed:
-                    prefixes = set()
-                    for L in lines:
-                        pm = re.match(r"^- \[([臨觀固])\]", L)
-                        if pm:
-                            prefixes.add(pm.group(1))
-                    header_promoted = False
-                    if prefixes == {"觀"}:
-                        for i, line in enumerate(lines):
-                            hm = re.match(r"^(- Confidence:\s*)\[臨\]\s*$", line)
-                            if hm:
-                                lines[i] = f"{hm.group(1)}[觀]"
-                                header_promoted = True
-                                break
-
-                    tmp = md_file.with_suffix(".tmp")
-                    try:
-                        tmp.write_text("\n".join(lines), encoding="utf-8")
-                        tmp.replace(md_file)
-                    except OSError:
-                        try:
-                            tmp.unlink()
-                        except OSError:
-                            pass
-                    results["promoted"].append({
-                        "atom": md_file.stem,
-                        "items": promoted_in_file,
-                        "confirmations": confirmations,
-                    })
-                    log_promotion_audit(
-                        "auto_observe", md_file.stem,
-                        items=len(promoted_in_file),
-                        confirmations=confirmations,
-                        header_promoted=header_promoted,
-                    )
+                log_promotion_audit(
+                    "auto_observe", md_file.stem,
+                    items=len(promoted_in_file),
+                    confirmations=confirmations,
+                    header_promoted=header_promoted,
+                )
 
     if results["archive_candidates"]:
         cwd = state.get("session", {}).get("cwd", "")

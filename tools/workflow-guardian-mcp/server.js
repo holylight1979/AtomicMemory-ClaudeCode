@@ -43,6 +43,10 @@ process.on("SIGINT", () => {
   crashLog("SIGINT", "Process received SIGINT");
 });
 const MEMORY_DIR = path.join(CLAUDE_DIR, "memory");
+// V5+ feedback-* 路由常數（MIRROR: lib/atom_locations.py — keep in sync）
+const FAILURES_DIR = path.join(CLAUDE_DIR, "_AIDocs", "Failures");
+const FAILURES_REL = "_AIDocs/Failures";
+const FEEDBACK_TITLE_PREFIX = "feedback-";
 const TOOLS_DIR = path.join(CLAUDE_DIR, "tools");
 const CONFIG_PATH = path.join(WORKFLOW_DIR, "config.json");
 const REGISTRY_PATH = path.join(MEMORY_DIR, "project-registry.json");
@@ -790,6 +794,29 @@ function resolveMemDir(scope, projectCwd, opts = {}) {
   return { dir, base };
 }
 
+/** V5+ feedback-* 路由疊加。將 resolveMemDir 結果改寫為 _AIDocs/Failures/ 目的地。
+ *  索引仍在 memory/_atom_index.json（單一索引來源）。
+ *  MIRROR: lib/atom_locations.py:failures_write_target — keep in sync.
+ *  Returns: { memDir, baseDir, indexDir, indexRoot, routedToFailures }.
+ */
+function applyFeedbackRouting(resolved, slug, scope) {
+  // 預設沿用既有語意：indexDir = baseDir, indexRoot = baseDir 的父目錄
+  let memDir = resolved.dir;
+  let baseDir = resolved.base;
+  let indexDir = baseDir;
+  let indexRoot = path.dirname(baseDir);
+  let routedToFailures = false;
+  if (scope === "global" && slug.startsWith(FEEDBACK_TITLE_PREFIX)) {
+    fs.mkdirSync(FAILURES_DIR, { recursive: true });
+    memDir = FAILURES_DIR;
+    baseDir = FAILURES_DIR;
+    indexDir = MEMORY_DIR;
+    indexRoot = CLAUDE_DIR;
+    routedToFailures = true;
+  }
+  return { memDir, baseDir, indexDir, indexRoot, routedToFailures };
+}
+
 /** Find atom index path for a given scope (V3.2: prefer _ATOM_INDEX.md) */
 function resolveMemoryIndex(memDir) {
   const atomIdx = path.join(memDir, "_ATOM_INDEX.md");
@@ -1109,27 +1136,10 @@ async function toolAtomWrite(id, args) {
   if (resolved.error) {
     return sendToolResult(id, `atom_write: ${resolved.error}`, true);
   }
-  let memDir = resolved.dir;
-  let baseDir = resolved.base;
-  // V5+: indexDir = where _atom_index.json lives; indexRoot = rel_path 基準
-  // 預設沿用既有語意（global→CLAUDE_DIR，project→projRoot/.claude）
-  let indexDir = baseDir;
-  let indexRoot = path.dirname(baseDir);
-
   const slug = slugify(title);
-
-  // V5+ feedback-* routing：global scope + title 前綴 feedback- → _AIDocs/Failures/
-  // 索引仍在 memory/_atom_index.json（單一來源）
-  let routedToFailures = false;
-  if (scope === "global" && slug.startsWith("feedback-")) {
-    const failuresDir = path.join(CLAUDE_DIR, "_AIDocs", "Failures");
-    fs.mkdirSync(failuresDir, { recursive: true });
-    memDir = failuresDir;
-    baseDir = failuresDir;
-    indexDir = MEMORY_DIR;
-    indexRoot = CLAUDE_DIR;
-    routedToFailures = true;
-  }
+  // V5+ feedback-* routing 集中到 applyFeedbackRouting（對拍 lib/atom_locations.py）
+  let { memDir, baseDir, indexDir, indexRoot, routedToFailures } =
+    applyFeedbackRouting(resolved, slug, scope);
 
   // SPEC 7.4: sensitive audience on shared → auto-pending
   let pendingReviewBy = pending_review_by || null;
@@ -1383,7 +1393,11 @@ async function toolAtomPromote(id, args) {
 
   if (!fs.existsSync(filePath)) {
     // Fallback: recursive lookup (atom may live in feedback/ or other subdir)
-    const found = findAtomFileRecursive(memDir, atom_name);
+    let found = findAtomFileRecursive(memDir, atom_name);
+    // V5+: feedback-* atoms 居 _AIDocs/Failures/，不在 memDir 樹下，需額外掃
+    if (!found && scope === "global" && atom_name.startsWith(FEEDBACK_TITLE_PREFIX)) {
+      found = findAtomFileRecursive(FAILURES_DIR, atom_name);
+    }
     if (!found) {
       return sendToolResult(id, `Atom not found: ${atom_name}.md in ${scope} scope`, true);
     }

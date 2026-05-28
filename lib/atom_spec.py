@@ -249,30 +249,8 @@ def iter_atom_files(memory_root: Path):
             yield md
 
 
-# ─── Multi-root atom search (V5+: feedback-* atoms 居 _AIDocs/Failures/) ─────
-
-
-def default_atom_search_roots() -> List[Path]:
-    """回傳全域 atom 搜尋根目錄清單。
-
-    V5+ 擴展：feedback-* atom 物理存於 `_AIDocs/Failures/` 但仍為 atom（受 atom
-    funnel / index / recall 管轄）。caller 用 iter_atom_files_multi() 統一遍歷。
-    """
-    claude_dir = Path.home() / ".claude"
-    return [claude_dir / "memory", claude_dir / "_AIDocs" / "Failures"]
-
-
-def iter_atom_files_multi(roots: Iterable[Path]):
-    """yield 多個 root 下的合法 atom .md。
-
-    每個 root 用自身為 base 判定 is_atom_file（rel_parts 不會跨 root 計算）。
-    """
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for md in sorted(root.rglob("*.md")):
-            if is_atom_file(md, root):
-                yield md
+# V5+ 多 root atom 搜尋與物理位置規則已搬到 lib/atom_locations.py
+# （atom_spec 只負責「什麼是合法 atom」；路徑/路由屬 atom_locations 範疇）
 
 
 def required_metadata_missing(fm: Dict[str, Any]) -> List[str]:

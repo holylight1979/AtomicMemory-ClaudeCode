@@ -50,6 +50,10 @@ from lib.atom_spec import (
     INDEX_MAX_LINES, ATOM_MAX_LINES, TRIGGER_MIN, TRIGGER_MAX,
     MEMORY_INDEX,
 )
+from lib.atom_locations import (
+    GLOBAL_MEMORY_DIR, FAILURES_DIR,
+    failures_atom_stems, iter_atom_files_multi,
+)
 
 # ─── Audit-specific constants（atom_spec 不需共享的） ────────────────────────
 
@@ -66,61 +70,20 @@ VALID_TYPES = {"semantic", "episodic", "procedural"}
 VALID_PRIVACY = {"public", "internal", "sensitive"}
 
 
-def _load_failures_atom_names() -> set:
-    """V5+ helper: 從 _atom_index.json 抽出居 _AIDocs/Failures/ 的 atom name 集合。
-
-    用於區分 _AIDocs/Failures/ 內「atom」vs「參考文件」— atom 已登記於索引（含 feedback-* /
-    cognitive-patterns / memory-pipeline-silent-failure-* 等），其他 .md 為參考。
-    """
-    try:
-        import json
-        idx = Path.home() / ".claude" / "memory" / "_atom_index.json"
-        if not idx.exists():
-            return set()
-        data = json.loads(idx.read_text(encoding="utf-8"))
-        return {
-            (a.get("path") or "").rsplit("/", 1)[-1].removesuffix(".md")
-            for a in data.get("atoms", [])
-            if (a.get("path") or "").startswith("_AIDocs/Failures/")
-        }
-    except (OSError, ValueError, json.JSONDecodeError):
-        return set()
-
-
 def iter_atom_files(mem_dir: Path):
-    """Recursive scan for atom .md files, skipping non-atom subdirs and SKIP_PREFIXES files.
+    """yield 合法 atom .md（V5+: 若 mem_dir == 全域 memory，自動含 _AIDocs/Failures/）。
 
-    Replaces `mem_dir.glob("*.md")` to include atoms in `feedback/` / `wisdom/` etc.
-    V5+: 若 mem_dir 為全域 memory（~/.claude/memory），自動延伸掃 _AIDocs/Failures/；
-    Failures 內僅依 _atom_index.json 登記者計入 atom（其他為失敗模式參考文件）。
+    判定統一委派 lib.atom_locations.iter_atom_files_multi（內部用 lib.atom_spec.is_atom_file
+    + failures_atom_stems 過濾參考文件）。非全域 mem_dir 只掃單根。
     """
-    roots = [(mem_dir, False)]  # (root, is_failures)
-    failures_names = set()
     try:
-        global_memory = Path.home() / ".claude" / "memory"
-        if mem_dir.resolve() == global_memory.resolve():
-            failures = Path.home() / ".claude" / "_AIDocs" / "Failures"
-            if failures.is_dir():
-                roots.append((failures, True))
-                failures_names = _load_failures_atom_names()
+        is_global = mem_dir.resolve() == GLOBAL_MEMORY_DIR.resolve()
     except OSError:
-        pass
-
-    for root, is_failures in roots:
-        for md in sorted(root.rglob("*.md")):
-            if md.name == MEMORY_INDEX:
-                continue
-            if any(md.name.startswith(p) for p in SKIP_PREFIXES):
-                continue
-            if is_failures and md.stem not in failures_names:
-                continue
-            try:
-                rel_parts = md.relative_to(root).parts
-            except ValueError:
-                continue
-            if any(part in SKIP_DIRS for part in rel_parts[:-1]):
-                continue
-            yield md
+        is_global = False
+    if is_global:
+        yield from iter_atom_files_multi()
+    else:
+        yield from iter_atom_files_multi([mem_dir])
 
 
 # ─── Data Classes ────────────────────────────────────────────────────────────
@@ -538,12 +501,9 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
                 actual_files.add(f.name)
     # V5+: 索引 wildcard 也納入 _AIDocs/Failures/ 已登記 atom（feedback-* 等）
     try:
-        global_memory = Path.home() / ".claude" / "memory"
-        if memory_dir.resolve() == global_memory.resolve():
-            failures = Path.home() / ".claude" / "_AIDocs" / "Failures"
-            failures_names = _load_failures_atom_names()
-            for stem in failures_names:
-                fp = failures / f"{stem}.md"
+        if memory_dir.resolve() == GLOBAL_MEMORY_DIR.resolve():
+            for stem in failures_atom_stems():
+                fp = FAILURES_DIR / f"{stem}.md"
                 if fp.exists():
                     actual_files.add(fp.name)
     except OSError:

@@ -33,6 +33,13 @@ MEMORY_INDEX = "MEMORY.md"
 ATOM_INDEX = "_ATOM_INDEX.md"
 REGISTRY_PATH = MEMORY_DIR / "project-registry.json"
 
+# atom 物理位置 / 白名單規則來源（單一來源 lib.atom_locations）
+sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+try:
+    from atom_locations import atom_writable_dir_segments
+except ImportError:
+    atom_writable_dir_segments = None
+
 CONTEXT_BUDGET_DEFAULT = 3000
 
 # Defaults（可被 config.json 覆寫）
@@ -750,12 +757,15 @@ _WHITELIST_BASENAMES = frozenset({
     "_promotion_audit.jsonl", "project-registry.json", "session_score.json",
     "DESIGN.md", "role.md",
 })
-_WHITELIST_DIR_SEGMENTS = frozenset({
-    "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
-    "_vectordb", "_rejected", "templates", "episodic", "wisdom",
-    "personal",
-    "Failures",  # V5+: feedback-* atoms 物理居 _AIDocs/Failures/，但仍受 atom funnel 管轄
-})
+if atom_writable_dir_segments is not None:
+    _WHITELIST_DIR_SEGMENTS = atom_writable_dir_segments()
+else:
+    # Fallback（lib import 失敗的極端情況；與 atom_locations 保持一致）
+    _WHITELIST_DIR_SEGMENTS = frozenset({
+        "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
+        "_vectordb", "_rejected", "templates", "episodic", "wisdom", "personal",
+        "Failures",
+    })
 
 
 def _path_under_memory_dir(fp: Path) -> bool:
