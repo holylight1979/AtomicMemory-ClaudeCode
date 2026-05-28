@@ -24,7 +24,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 from ollama_client import get_client
 from wg_core import CLAUDE_DIR, MEMORY_DIR, discover_memory_layers
+# V5+ Session β: Failures layer 注入 + stems filter（對拍 lib/atom_locations）
+from lib.atom_locations import FAILURES_DIR, failures_atom_stems  # noqa: E402
+
 COLLECTION_NAME = "atom_memory"
+
+# Layer label 用於 Failures filter 觸發判斷
+FAILURES_LAYER_LABEL = "extra:failures"
 
 # Atom 檔案排除清單
 SKIP_FILENAMES = {"MEMORY.md", "_CHANGELOG.md", "_CHANGELOG_ARCHIVE.md"}
@@ -72,6 +78,9 @@ def discover_layers(
 
     if _accept("global"):
         layers.append(("global", MEMORY_DIR, "recursive"))
+        # V5+: feedback-* atoms 居 _AIDocs/Failures/，需獨立 layer 索引
+        if FAILURES_DIR.is_dir():
+            layers.append((FAILURES_LAYER_LABEL, FAILURES_DIR, "recursive"))
 
     for slug, mem_dir in discover_all_project_memory_dirs():
         for label, path, kind in discover_v4_sublayers(slug, mem_dir):
@@ -118,9 +127,15 @@ def discover_atoms(
         else:
             norm_layers.append(item)
 
+    # V5+: Failures layer 用 _atom_index.json stems 過濾參考文件
+    failures_stems_cache: Optional[set] = None
+
     for layer_name, mem_dir, kind in norm_layers:
         layer_skip_files = extra_skip.get(layer_name, set())
         is_extra = layer_name.startswith("extra:")
+        is_failures = (layer_name == FAILURES_LAYER_LABEL)
+        if is_failures and failures_stems_cache is None:
+            failures_stems_cache = failures_atom_stems()
 
         if kind == "flat-legacy":
             # 只掃直下 .md，避免重複索引 shared/roles/personal 子目錄
@@ -150,6 +165,9 @@ def discover_atoms(
             if any(md_file.name.startswith(p) for p in SKIP_PREFIXES):
                 continue
             if md_file.stem in layer_skip_files:
+                continue
+            # V5+ Failures: 僅索引 _atom_index.json 認可的 atom stems
+            if is_failures and md_file.stem not in (failures_stems_cache or set()):
                 continue
             rel = str(md_file.relative_to(mem_dir))
             atoms.append((layer_name, md_file, rel))

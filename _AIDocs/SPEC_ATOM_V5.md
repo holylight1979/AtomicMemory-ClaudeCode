@@ -40,6 +40,29 @@ V4 的三層 scope 機制不變：
 
 詳細 schema / 衝突偵測 / JIT 注入規則：見 [SPEC_ATOM_V4.md §2–§10](SPEC_ATOM_V4.md)。本 SPEC 只記 V5 增量。
 
+### 2.1 Atom 存放擴展（feedback / 失敗模式類，V5+ Session α/β，2026-05-28）
+
+`global` scope 的 atom 物理位置從單根 `memory/` 擴為**多根**：
+
+| 物理位置 | 收錄對象 | 索引 |
+|---|---|---|
+| `~/.claude/memory/` | 一般全域 atom（decisions / workflow-rules / toolchain ...） | `memory/_atom_index.json` |
+| `~/.claude/_AIDocs/Failures/` | title 以 `feedback-` 開頭的 atom + 失敗模式類（如 `cognitive-patterns`） | 同上（單一索引，path 欄記 `_AIDocs/Failures/...`） |
+
+**路由規則**：title slugify 後若 startswith `feedback-` → 自動寫入 `_AIDocs/Failures/`；其他 `_AIDocs/Failures/` 內 atom 需手動建立但走相同索引。
+
+**規則來源（single source of truth）**：
+- Python：[`lib/atom_locations.py`](../lib/atom_locations.py) — `FAILURES_DIR` / `FAILURES_REL` / `FEEDBACK_TITLE_PREFIX` / `is_failures_routed_title` / `atom_search_roots` / `iter_atom_files_multi` / `failures_write_target` / `failures_atom_stems`
+- JS mirror：[`tools/workflow-guardian-mcp/server.js`](../tools/workflow-guardian-mcp/server.js) — `FAILURES_DIR` / `FAILURES_REL` / `applyFeedbackRouting` / `findAtomFileRecursive` Failures fallback
+
+**多 root 掃描的 caller（V5+ Session β 收尾）**：
+- `hooks/wg_atoms.py:parse_memory_index` — 讀 `_atom_index.json` SoT，path 已含 Failures（α）
+- `tools/sync-atom-index.py:scan_atom_files` — 預設走 `iter_atom_files_multi()`（β）
+- `tools/memory-vector-service/indexer.py:discover_layers` — 注入 `extra:failures` layer + stems filter（β）
+- `tools/atom-health-check.py` / `tools/memory-audit.py` — 已於 α 走多根
+
+**Failures 內參考文件過濾**：`_AIDocs/Failures/` 容納非 atom 文件（如 `_INDEX.md` / `README.md`）。caller 用 `failures_atom_stems()` 從 `_atom_index.json` 抽出真正的 atom stems 過濾，避免把參考文件當 atom 索引。
+
 ---
 
 ## 3. Atom Index — JSON SoT（V5 P3b，2026-05-27）

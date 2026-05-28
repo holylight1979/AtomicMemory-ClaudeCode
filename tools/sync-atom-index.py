@@ -37,8 +37,13 @@ from lib.atom_index_json import (  # noqa: E402
     load_atom_index_json,
     upsert_atom,
 )
+from lib.atom_locations import (  # noqa: E402  V5+ 多根掃描 + Failures filter
+    atom_search_roots,
+    iter_atom_files_multi,
+)
 
 MEMORY_DIR = Path.home() / ".claude" / "memory"
+CLAUDE_ROOT = MEMORY_DIR.parent
 
 EXCLUDED_DIR_PARTS = {"_reference", "_archived", "_pending_review", "_staging",
                       "templates", "wisdom", "_drafts", "episodic"}
@@ -111,11 +116,25 @@ def parse_frontmatter_scope(text: str) -> str:
 
 
 def scan_atom_files(memory_dir: Path, claude_root: Path) -> Dict[str, AtomFile]:
-    """Return dict keyed by rel_path (forward-slash)."""
+    """Return dict keyed by rel_path (forward-slash).
+
+    V5+: 走 lib.atom_locations.iter_atom_files_multi() 含 memory/ + _AIDocs/Failures/，
+    Failures 內套 failures_atom_stems() 過濾參考文件。
+    """
     out: Dict[str, AtomFile] = {}
-    for md in memory_dir.rglob("*.md"):
-        if is_excluded(md, memory_dir):
-            continue
+    # 若 caller 指定非預設 memory_dir（例如測試），仍走單根；否則走多根 default
+    if memory_dir.resolve() == MEMORY_DIR.resolve():
+        files_iter = iter_atom_files_multi()
+    else:
+        files_iter = memory_dir.rglob("*.md")
+    for md in files_iter:
+        # memory 樹下仍用既有 excluded dir/file 過濾；Failures root iter_atom_files_multi 已過濾
+        try:
+            md.relative_to(memory_dir)
+            if is_excluded(md, memory_dir):
+                continue
+        except ValueError:
+            pass  # 不在 memory_dir 樹下（Failures atom）— 已由 iter_atom_files_multi filter
         try:
             text = md.read_text(encoding="utf-8-sig")
         except (OSError, UnicodeDecodeError):
