@@ -96,7 +96,7 @@ Session Ready
 | user-init.sh | — | 多人 USER.md 初始化 |
 | webfetch-guard.sh | — | WebFetch 安全護欄 |
 
-## 5. Skills（19 個全域）
+## 5. Skills（20 個全域）
 
 V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 全刪除。
 
@@ -121,6 +121,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /vector | skills/vector/SKILL.md | 向量服務管理 | Vector Service |
 | /journal | skills/journal/SKILL.md | 工作日誌產出 | 無 |
 | /browse-sprites | skills/browse-sprites/SKILL.md | 批次圖片預覽 | 無 |
+| /skill-creator | skills/skill-creator/SKILL.md | **新增 meta-skill**：寫/改/審 skill（三層架構 + 5 設計模式 + audit/new-skill/cost-measure） | 無 |
 
 > 已刪除（與內建衝突）：`/resume`（內建 --resume）/ `/init-project`（內建 /init）/ `/svn-update` / `/unity-yaml`（下沉專案層）/ `/changelog-roll`（改名 changelog-debug）
 

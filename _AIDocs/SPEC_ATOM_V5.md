@@ -137,14 +137,15 @@ paths: "memory/**/*.md"           # glob 命中才 auto-load
 ---
 ```
 
-### 4.2 V5 全域 19 個 skills
+### 4.2 V5 全域 20 個 skills
 
-| 處理方式 | skills（共 19）|
+| 處理方式 | skills（共 20）|
 |---------|-------|
 | **直接遷移**（13） | atom-debug, browse-sprites, conflict, conflict-review, consciousness-stream, extract, fix-escalation, generate-episodic, harvest, journal, read-project, upgrade, vector |
 | **全域保留**（4） | codex-companion, continue, handoff, init-roles |
 | **合 1 個 /memory**（5→1） | memory-health / memory-peek / memory-undo / memory-review / memory-session-score → `skills/memory/SKILL.md` 用 `$0` 取 subcmd |
 | **改名為 debug 工具**（1） | changelog-roll → `changelog-debug`（避免與 PostToolUse hook 自動觸發混淆） |
+| **後續新增（非遷移）**（1） | skill-creator（meta-skill：寫/改/審 skill；2026-05-29 經 MR !3 合入） |
 
 ### 4.3 已刪除（與內建衝突）
 

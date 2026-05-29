@@ -58,7 +58,7 @@
 | `ensure-mcp.py` | MCP server 可用性確認 |
 | `webfetch-guard.sh` | WebFetch 安全護欄 |
 
-## Skills（V5 全域 19 個，2026-05-27）
+## Skills（V5 全域 20 個，2026-05-27 起；skill-creator 2026-05-29 經 MR !3 加入）
 
 V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` **2026-05-27 已刪除**（原 7 天緩衝經對拍 100% identical 驗證後提前廢止）。
 
@@ -83,6 +83,7 @@ V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（�
 | `/changelog-debug` | `skills/changelog-debug/SKILL.md` | 手動滾動 _CHANGELOG（hook 已自動，僅 debug） |
 | `/browse-sprites` | `skills/browse-sprites/SKILL.md` | 批次圖片預覽 |
 | `/codex-companion` | `skills/codex-companion/SKILL.md` | Codex Companion 開關（V5 subprocess 模型） |
+| `/skill-creator` | `skills/skill-creator/SKILL.md` | **新增 meta-skill**：寫/改/審 skill（Progressive Disclosure 三層 + 5 設計模式 + audit/new-skill/cost-measure 工具） |
 
 > V5 已刪除（與內建衝突）：`/resume`（內建 --resume）、`/init-project`（內建 /init）、`/svn-update` / `/unity-yaml`（下沉專案層）、`/changelog-roll`（改名 changelog-debug）。
 
