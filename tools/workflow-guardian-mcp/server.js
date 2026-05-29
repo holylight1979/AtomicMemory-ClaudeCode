@@ -361,7 +361,7 @@ const TOOL_DEFINITIONS = [
         },
         knowledge: {
           type: "array", items: { type: "string" },
-          description: "Knowledge lines (each prefixed with [固]/[觀]/[臨])",
+          description: "Knowledge lines (normally prefixed with [固]/[觀]/[臨]). A single element starting with | (markdown table) or ``` (code fence) is emitted verbatim as a block, no bullet — pass tables/code as their own element.",
         },
         actions: {
           type: "array", items: { type: "string" },
@@ -600,6 +600,28 @@ function slugify(title) {
  *  V4: scopeLabel may be plain "shared"/"global" or composite "role:art"/"personal:alice".
  *  Optional metadata (audience/author/pending_review_by/merge_strategy/created_at)
  *  written only when present, in SPEC §4 order. */
+function isBlockKnowledge(item) {
+  // 表格列（| 開頭）或程式碼 fence（三反引號開頭）→ 原樣輸出 block。對拍 atom_spec.py
+  const s = item.replace(/^\s+/, "");
+  return s.startsWith("|") || s.startsWith("```");
+}
+
+function renderKnowledgeLines(knowledge) {
+  // block-aware 渲染 ## 知識 區行清單。對拍 lib/atom_spec.py:render_knowledge_lines（須 byte-identical）
+  const out = [];
+  for (const k of knowledge) {
+    if (isBlockKnowledge(k)) {
+      if (out.length && out[out.length - 1] !== "") out.push("");
+      out.push(...k.split("\n"));
+      out.push("");
+    } else {
+      out.push(k.startsWith("- ") ? k : `- ${k}`);
+    }
+  }
+  while (out.length && out[out.length - 1] === "") out.pop();
+  return out;
+}
+
 function buildAtomContent({
   title,
   scope,
@@ -613,8 +635,9 @@ function buildAtomContent({
   pendingReviewBy,
   mergeStrategy,
   createdAt,
+  today,
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const _today = today || new Date().toISOString().slice(0, 10);
   const lines = [`# ${title}`, ""];
   lines.push(`- Scope: ${scope}`);
   if (audience && audience.length > 0) {
@@ -632,13 +655,13 @@ function buildAtomContent({
   if (mergeStrategy && mergeStrategy !== "ai-assist") {
     lines.push(`- Merge-strategy: ${mergeStrategy}`);
   }
-  lines.push(`- Created-at: ${createdAt || today}`);
+  lines.push(`- Created-at: ${createdAt || _today}`);
   if (related && related.length > 0) {
     lines.push(`- Related: ${related.join(", ")}`);
   }
   lines.push("", "## 知識", "");
-  for (const k of knowledge) {
-    lines.push(k.startsWith("- ") ? k : `- ${k}`);
+  for (const line of renderKnowledgeLines(knowledge)) {
+    lines.push(line);
   }
   lines.push("", "## 行動", "");
   if (actions && actions.length > 0) {
@@ -1298,7 +1321,10 @@ async function toolAtomWrite(id, args) {
       return sendToolResult(id, `Atom ${slug}.md has no ## 行動 section — cannot append`, true);
     }
 
-    const newLines = knowledge.map(k => k.startsWith("- ") ? k : `- ${k}`).join("\n");
+    // block-aware（對拍 atom_io.py）：表格/fence 開頭補一空行隔開既有知識
+    const _rendered = renderKnowledgeLines(knowledge).join("\n");
+    const _bh = _rendered.replace(/^\s+/, "");
+    const newLines = (_bh.startsWith("|") || _bh.startsWith("```")) ? `\n${_rendered}` : _rendered;
     const before = existing.slice(0, actionIdx).trimEnd();
     const after = existing.slice(actionIdx);
     // Wave 2: Last-used 不在 .md，append 後改寫 access.json
@@ -3643,3 +3669,8 @@ setImmediate(() => {
 
 // Keep MCP alive
 process.stdin.resume();
+
+// Test/tooling surface: pure content builders (no side effects). Safe to require
+// for parity tests; production boots via `node server.js` (require.main === module)
+// and is unaffected. See lib/verify/verify_atom_io_equivalence.py:test_13.
+module.exports = { buildAtomContent, renderKnowledgeLines, isBlockKnowledge };

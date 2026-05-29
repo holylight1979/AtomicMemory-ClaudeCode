@@ -303,10 +303,22 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。
 
 ---
 
-## 11. 變更紀錄
+## 11. 知識區 block 渲染（表格 / 程式碼 fence，2026-05-29）
+
+`## 知識` 區預設逐條加 `- ` bullet。V5+ 起 `atom_write` 的 `knowledge` 陣列中，**單一元素去左空白後以 `|`（markdown 表格）或三反引號（程式碼 fence）開頭者，整段原樣輸出、不加 bullet、前後自動補空行**（GFM 渲染需要）；其餘元素（含多行巢狀 bullet）維持「首行加 `- `」原行為。
+
+- **用法**：表格/程式碼當「獨立 knowledge 元素」傳入；引言句放前一個元素。
+- **雙路徑單一邏輯**：`lib/atom_spec.py:render_knowledge_lines`（hooks/tools 經 `atom_io`）與 `tools/workflow-guardian-mcp/server.js:renderKnowledgeLines`（MCP 經 `buildAtomContent` / append）須 byte-identical。
+- **create + append 皆 block-aware**；append 對表格/fence 開頭自動補一空行隔開既有知識。
+- **守門**：`lib/verify/verify_atom_io_equivalence.py` test_11/12（py funnel）+ test_13（py↔js byte-parity，spawn node 經 `module.exports` 對拍）。
+- **下游零衝擊**：conflict-detector 只抽 `- ` 行（表格列被忽略，非誤判）、注入剝離整段保留、write-gate 不檢行格式、逐行 `[固]` parse 不匹配表格列。
+- **注意**：server.js 改動需重啟 MCP server 進程才生效；Python funnel（hooks/tools）下次呼叫即生效。
+
+## 12. 變更紀錄
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-05-29 | V5+ | 知識區 block 渲染（表格/fence 原樣輸出）；py/js create+append block-aware + py↔js 對拍測試 + server.js module.exports |
 | 2026-05-27 | V5 GA candidate | Wave 4 完成：P5b / P6 / SPEC_ATOM_V5.md 定稿 |
 | 2026-05-27 | V5 Wave 3 | P3b _atom_index.json SoT + P1 commands→skills + P5a BM25 |
 | 2026-05-26 | V5 Wave 2 | P2 hook/MCP 重整 + P4b 禁語 JSON |

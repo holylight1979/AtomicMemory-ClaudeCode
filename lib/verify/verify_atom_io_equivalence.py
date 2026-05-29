@@ -336,3 +336,86 @@ def test_audit_log_appends_jsonl(isolated_claude):
     assert "index" in ops
     sources = {e["source"] for e in entries}
     assert sources == {"test"}
+
+
+# ─── 11. table / fence block knowledge (block-aware render) ───────────────────
+
+
+def test_11_table_and_fence_blocks(isolated_claude):
+    kn = ["[固] 門檻：", "| 軌 | 值 |\n|---|---|\n| P | 4 |", "```py\nx = 1\n```", "tail"]
+    result = write_atom(
+        title="Block Atom", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=kn,
+        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+    )
+    assert result.ok, result.error
+    content = result.path.read_text(encoding="utf-8")
+    # 表格列原樣輸出，不被加 bullet
+    assert "\n| 軌 | 值 |\n" in content
+    assert "- | 軌" not in content
+    # intro bullet 與表格間補空行（GFM 渲染需要）
+    assert "- [固] 門檻：\n\n| 軌 | 值 |" in content
+    # 程式碼 fence 原樣
+    assert "```py\nx = 1\n```" in content
+    # 一般文字仍加 bullet 前綴
+    assert "\n- tail\n" in content
+
+
+def test_12_append_table_block(isolated_claude):
+    write_atom(
+        title="Appendable Table", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=["original-fact"],
+        mode="create", source="test", skip_gate=True, today="2026-05-01",
+    )
+    result = write_atom(
+        title="Appendable Table", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=["| x | y |\n|---|---|\n| 1 | 2 |"],
+        mode="append", source="test", skip_gate=True, today=FIXED_TODAY,
+    )
+    assert result.ok, result.error
+    after = result.path.read_text(encoding="utf-8")
+    assert "- original-fact" in after
+    # 表格與既有知識間隔一空行、原樣輸出
+    assert "- original-fact\n\n| x | y |" in after
+    assert "- | x" not in after
+    assert after.index("| 1 | 2 |") < after.index("## 行動")
+
+
+# ─── 13. py↔js byte-parity for buildAtomContent (fulfils file docstring) ───────
+
+
+def test_13_py_js_byte_parity_table(tmp_path):
+    """build_atom_content (py) must be byte-identical to server.js buildAtomContent (js)
+    for a table + fence + bullet mix. Skips if node unavailable."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    if not server_js.exists():
+        pytest.skip("server.js not found")
+
+    kn = ["[固] 門檻：", "| 軌 | 值 |\n|---|---|\n| P | 4 |", "```py\nx = 1\n```", "tail"]
+    py_out = build_atom_content(
+        title="Parity", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=kn, actions=["act1"], today=FIXED_TODAY,
+    )
+    out_file = tmp_path / "js_out.txt"
+    js_script = (
+        "const fs=require('fs');"
+        "const {buildAtomContent}=require(process.argv[1]);"
+        "const kn=JSON.parse(process.argv[2]);"
+        "fs.writeFileSync(process.argv[3], buildAtomContent({"
+        "title:'Parity',scope:'global',confidence:'[臨]',"
+        "triggers:['a','b','c'],knowledge:kn,actions:['act1'],today:'" + FIXED_TODAY + "'"
+        "}));process.exit(0);"
+    )
+    proc = subprocess.run(
+        [node, "-e", js_script, str(server_js), json.dumps(kn), str(out_file)],
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
+    )
+    assert proc.returncode == 0, f"node failed: {proc.stderr}"
+    js_out = out_file.read_text(encoding="utf-8")
+    assert js_out == py_out, f"DRIFT\nPY:\n{py_out!r}\nJS:\n{js_out!r}"

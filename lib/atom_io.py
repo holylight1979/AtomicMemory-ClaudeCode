@@ -30,7 +30,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from .atom_spec import (
     SKIP_DIRS, MEMORY_INDEX, ATOM_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
-    build_atom_content, slugify, validate_atom_content,
+    build_atom_content, slugify, validate_atom_content, render_knowledge_lines,
 )
 from .atom_locations import (
     CLAUDE_DIR, GLOBAL_MEMORY_DIR, FAILURES_DIR,
@@ -466,11 +466,13 @@ def write_atom(
         if action_idx < 0:
             return WriteResult(ok=False, audit_id=audit_id,
                                error=f"Atom {slug}.md has no ## 行動 section")
-        new_lines = "\n".join(k if k.startswith("- ") else f"- {k}" for k in knowledge)
+        rendered = "\n".join(render_knowledge_lines(knowledge))
         before = existing[:action_idx].rstrip()
         after = existing[action_idx:]
+        # 表格/fence 開頭需與既有知識間隔一空行才正確渲染（block-aware append）
+        gap = "\n\n" if rendered.lstrip().startswith(("|", "```")) else "\n"
         # Wave 2: Last-used 不再寫 .md；append 後由下方 atom_access.write_access_field 刷
-        content = before + "\n" + new_lines + "\n\n" + after
+        content = before + gap + rendered + "\n\n" + after
     elif mode == "replace":
         # Wave 2: Confirmations/ReadHits 在 access.json，replace 不需保留（檔本就分離）
         # Author/Created-at 仍從舊 atom .md 抽（屬知識性 metadata）
