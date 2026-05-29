@@ -130,6 +130,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 ### MCP Server（3 tool）
 - `workflow-guardian-mcp/server.js` — stdio MCP + dashboard port 3848
   - `atom_write` / `atom_move` / `atom_promote`（3 個業務 tool）
+  - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
   - 內部 IPC 4 個（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`）已內化為 Stop gate hook 自動偵測
 
 ### Vector Service（port 3849；專案層 + episodic + cross-session dedup 用）

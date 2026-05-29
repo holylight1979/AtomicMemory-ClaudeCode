@@ -324,6 +324,22 @@
         "parallel agents"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom-table-support",
+      "path": "memory/atom-table-support.md",
+      "triggers": [
+        "atom_write",
+        "表格",
+        "table",
+        "markdown 表格",
+        "code fence",
+        "程式碼 fence",
+        "knowledge block",
+        "block 渲染",
+        "dogfood"
+      ],
+      "scope": "global"
     }
   ]
 }
