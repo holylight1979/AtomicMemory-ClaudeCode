@@ -1,0 +1,26 @@
+{
+  "_comment": "skill-creator 的觸發評估查詢：10 應觸發 + 10 不應觸發。用於驗證 description / triggers 精準度，避免 undertrigger / overtrigger。",
+  "skill_name": "skill-creator",
+  "queries": [
+    {"query": "幫我寫一個分析 PDF 的 skill", "should_trigger": true, "note": "明確要建立新 skill"},
+    {"query": "這個 skill 怎麼這麼肥，幫我看看哪裡可以瘦", "should_trigger": true, "note": "改造既有 skill"},
+    {"query": "我想要客製化一個自動 review code 的工具，要怎麼開始", "should_trigger": true, "note": "建立 skill，未明確說 skill 但隱含"},
+    {"query": "audit 一下 skills/foo 看哪裡不對", "should_trigger": true, "note": "稽核既有 skill"},
+    {"query": "我這個 skill 一直觸發不到，幫我看 description 怎麼改", "should_trigger": true, "note": "描述最佳化"},
+    {"query": "重構 ~/.claude/skills/foo 讓它 token 效率高一點", "should_trigger": true, "note": "skill 改造"},
+    {"query": "Anthropic 的 progressive disclosure 我們有套嗎", "should_trigger": true, "note": "skill 結構評估"},
+    {"query": "怎麼讓 skill 不每次都重新腦補相同流程", "should_trigger": true, "note": "skill 設計問題"},
+    {"query": "5 大設計模式我該套哪個", "should_trigger": true, "note": "patterns.md 諮詢"},
+    {"query": "我覺得 skill 該改成 Pipeline 模式", "should_trigger": true, "note": "模式重構"},
+    {"query": "幫我寫一個 Python function 計算費氏數列", "should_trigger": false, "note": "純 coding 任務，不該觸發"},
+    {"query": "這段程式碼有 bug 嗎", "should_trigger": false, "note": "code review，走 /code-review 不走 skill-creator"},
+    {"query": "設計一個資料庫 schema 給訂單系統", "should_trigger": false, "note": "DB 設計，與 skill 無關"},
+    {"query": "規劃一個遊戲關卡", "should_trigger": false, "note": "遊戲設計，與 skill 無關"},
+    {"query": "翻譯這段成英文", "should_trigger": false, "note": "翻譯任務"},
+    {"query": "幫我畫一張架構圖", "should_trigger": false, "note": "視覺化任務"},
+    {"query": "我想設計一個問卷", "should_trigger": false, "note": "問卷設計（共享「設計」關鍵字但不該觸發）"},
+    {"query": "skill 是什麼意思", "should_trigger": false, "note": "純名詞解釋，未觸及建立/改造"},
+    {"query": "atom 記憶系統怎麼用", "should_trigger": false, "note": "屬於 /memory skill 範疇"},
+    {"query": "幫我裝個 MCP server", "should_trigger": false, "note": "MCP 設定，非 skill 議題"}
+  ]
+}
