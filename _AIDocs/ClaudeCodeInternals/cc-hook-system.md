@@ -2,7 +2,7 @@
 
 - Scope: global
 - Confidence: [固]
-- Trigger: hook system, hooks.json, pre_tool_use, post_tool_use, session_start, session_end, hook event, hook 事件, lifecycle hook, 生命週期, hook 開發, permission_request, PromptRequest, hook timeout, updatedInput
+- Trigger: hook system, hooks.json, pre_tool_use, post_tool_use, session_start, session_end, hook event, hook 事件, lifecycle hook, 生命週期, hook 開發, permission_request, PromptRequest, hook timeout, updatedInput, sub-agent injection, Agent tool, tool_response, hot reload
 - Last-used: 2026-04-01
 - Confirmations: 1
 - Related: cc-harness-overview, cc-tool-system, cc-permission-system, cc-skills-plugins
@@ -36,6 +36,9 @@
 ### Hook 修改工具輸入（updatedInput）
 - [固] Hook 可回傳 updatedInput 改寫工具輸入（如 `--force` → `--force-with-lease`）
 - [固] 透明度代價：Claude 不知道實際執行與其意圖的差異
+- [固] **欄位名是 `updatedInput`（非 `modifiedInput`）**，置於 `hookSpecificOutput`（與 `permissionDecision` 同層）；值為**完整 tool_input 物件**（取代原 input，須保留所有原鍵、只改目標欄）。2026-06-01 對 **Agent/Task 工具實測採納**：PreToolUse prepend 記憶 blob 到 sub-agent 的 `prompt`，sub-agent 實際收到（以 PostToolUse `tool_response.prompt` 為 ground truth 驗證，非靠 sub-agent 自評——LLM 對自身完整 prompt 內省不可靠）。
+- [固] settings.json hooks 設定**檔案變更即熱重載**：同一 session 內新增/改 matcher 即生效，無需重啟 CC（與「Memoized Hook Loading：檔案變更驅動快取失效」一致）。
+- [固] Agent/Task 的 PostToolUse `tool_response` 含 `agentId` / `agentType` / `content`(list[{type,text}]) / `prompt`(**注入後的完整 prompt**) / `status` / `totalTokens` / `usage`；頂層另有 `tool_use_id` / `transcript_path` / `cwd` → 可**無狀態**回推 PreToolUse 注入內容並做歸因（避開 Pre→Post 跨進程關聯與 parallel agent race）。
 
 ### PromptRequest 協議（Hook 向使用者提問）
 - [固] Hook 輸出 PromptRequest JSON → Claude Code 呈現選項 → 使用者選擇 → PromptResponse 寫回 stdin
