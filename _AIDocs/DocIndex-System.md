@@ -40,7 +40,9 @@ Session Ready
 [PostToolUse] → file tracking + 增量索引 + read tracking + test-fail 偵測 + _CHANGELOG auto-roll
 [Stop] → sync 閘門 + TestFailGate + Evasion Detection
 [Stop async] → quick-extract.py (qwen3:1.7b 5s → hot_cache.json)
-[PreCompact] → state snapshot
+[PreCompact] → state snapshot + injected_atoms 快照
+[PostCompact] → stash 壓縮前 atom 緊湊內文 + pending_reinjection flag（不注入）
+[PostToolBatch] → 見 flag 一次性重注入壓縮前 atom 內文（閉 mid-turn auto-compact 缺口；選配 #4）
 [SessionEnd] → episodic 生成 + LLM 萃取 + 跨 session 鞏固 + Wisdom 反思 + audit-reconcile
 ```
 
@@ -78,7 +80,9 @@ Session Ready
 | handlers/post_tool_use.py | — | file tracking + 增量索引 + read tracking + test-fail + changelog auto-roll |
 | handlers/stop.py | — | sync 閘門 + Fix Escalation + TestFailGate + Evasion |
 | handlers/session_end.py | — | Episodic + 萃取 + 衝突偵測 + Wisdom 反思 |
-| handlers/pre_compact.py | — | state snapshot |
+| handlers/pre_compact.py | — | state snapshot + injected_atoms 快照 |
+| handlers/post_compact.py | — | 壓縮後 stash 壓縮前 atom 緊湊內文 + pending flag（不注入；選配 #4） |
+| handlers/post_tool_batch.py | — | idle early-exit；見 flag 一次性 additionalContext 重注入 + 清 flag（選配 #4） |
 | handlers/notification.py | — | 通知處理 |
 | wg_core.py | — | 路徑唯一真相 + state IO + log rotation + PreToolUse guards |
 | wg_atoms.py | — | trigger + BM25 + ACT-R + vector search + atom 晉升 |

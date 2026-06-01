@@ -5,7 +5,7 @@
 
 ## Hooks 系統（V5 架構，2026-05-27）
 
-8 個 hook 事件（含 async Stop），定義在 `settings.json`。**V5 Wave 2** 把 V4.1 的 2651 行 `workflow-guardian.py` 拆成 `dispatcher.py`（75 行純路由）+ `handlers/{event}.py` 模組；16 個 `wg_*.py` 整併為 6 主模組 + 1 shim（Wave 5 Session 6 砍 `wg_atom_observation.py`）。V4 終態的 19 個檔案歸檔在 [`DevHistory/v4-archive/`](DevHistory/v4-archive/)。
+10 個 hook 事件（含 async Stop；2026-06-01 選配 #4 加 `PostCompact`+`PostToolBatch`），定義在 `settings.json`。**V5 Wave 2** 把 V4.1 的 2651 行 `workflow-guardian.py` 拆成 `dispatcher.py`（純路由）+ `handlers/{event}.py` 模組；16 個 `wg_*.py` 整併為 6 主模組 + 1 shim（Wave 5 Session 6 砍 `wg_atom_observation.py`）。V4 終態的 19 個檔案歸檔在 [`DevHistory/v4-archive/`](DevHistory/v4-archive/)。
 
 | Hook | 觸發時機 | 用途 |
 |------|---------|------|
@@ -13,7 +13,9 @@
 | `PreToolUse` (Write/Edit) | Write/Edit 工具呼叫前 | (1) Atom Format Gate：阻擋 `/.claude/memory/*.md` 不符原子格式的寫入；(2) Atom Confidence Gate：新建 atom 的 frontmatter `Confidence:` 與內文 `- [固]/- [觀]` 標籤必須全為 `[臨]`，鏡射 MCP `atom_write` mode=create 規則（[server.js:1109-1117](../tools/workflow-guardian-mcp/server.js)）封堵 Write tool 繞過路徑；(3) **Memory Path Block**：阻擋寫入 `~/.claude/projects/{slug}/memory/`（原子記憶專案自治層覆寫此路徑），對應 atom `feedback-memory-path` |
 | `PreToolUse` (Bash) | Bash 工具呼叫前 | **SVN Test Block**：阻擋 `svn commit/ci` 含 `tests?/` `__tests__/` 路徑或 `*Test.<ext>` 檔案（r10854 教訓），對應 atom `feedback-no-test-to-svn` |
 | `PostToolUse` (Edit/Write/Bash) | 工具呼叫後 | 追蹤修改檔案 + 增量索引 + Read Tracking + Test-Fail 偵測（Bash）+ _CHANGELOG auto-roll |
-| `PreCompact` | Context 壓縮前 | 快照 state |
+| `PreCompact` | Context 壓縮前 | 快照 state + 快照 `injected_atoms`（`pre_compact_injected_atoms`，供壓縮後內文復原，不受 SessionStart(compact) 清空順序影響） |
+| `PostCompact` | Context 壓縮後 | 依 PreCompact 快照 stash 已注入 atom 的緊湊內文 + 設 `pending_reinjection` flag（**本身不注入**，PostCompact 不支援 additionalContext） |
+| `PostToolBatch` | 一批（含並行）工具全解析後，每批一次 | idle 時極輕 early-exit；見 flag 時一次性 `additionalContext` 重注入壓縮前 atom 內文 + 清 flag + 名單 merge 回 `injected_atoms`（閉 mid-turn auto-compact 失憶缺口，選配 #4） |
 | `Stop` | 對話結束前 | Sync 閘門 + Fix Escalation + TestFailGate（阻擋完成宣告）+ Evasion Detection |
 | `Stop (async)` | 對話結束後 | V3 quick-extract：qwen3:1.7b 5s 快篩 → hot_cache.json |
 | `SessionStart` | Session 開始 | 初始化 state + 去重 + Wisdom 盲點 + 定期檢閱 + 專案自治層 delegate |
@@ -32,7 +34,9 @@
 | `handlers/post_tool_use.py` | PostToolUse：file tracking + 增量索引 + read tracking + test-fail 偵測 + changelog auto-roll |
 | `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection |
 | `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + docdrift advisory |
-| `handlers/pre_compact.py` | PreCompact：state snapshot |
+| `handlers/pre_compact.py` | PreCompact：state snapshot + `injected_atoms` 快照 |
+| `handlers/post_compact.py` | PostCompact：依快照複用 `wg_atoms.load_atoms_within_budget` stash 壓縮前 atom 緊湊內文 + `pending_reinjection` flag（不注入；選配 #4） |
+| `handlers/post_tool_batch.py` | PostToolBatch：idle early-exit；見 flag 一次性 `additionalContext` 重注入 + 清 flag + 名單 merge 回 `injected_atoms`（選配 #4） |
 | **主模組 6 + shim 1**（V5 §5）| |
 | `wg_core.py` | 路徑唯一真相 + config/state IO + log rotation + PreToolUse guards（合 wg_paths + wg_pretool_guards） |
 | `wg_atoms.py` | atom index 解析 + trigger 匹配 + **BM25 全域層** + ACT-R + vector search + atom 晉升（合 wg_intent + wg_iteration atom 晉升部分） |
