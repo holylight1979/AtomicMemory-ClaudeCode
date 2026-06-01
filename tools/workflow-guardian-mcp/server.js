@@ -1110,6 +1110,26 @@ function usefulnessStats(access, z) {
   };
 }
 
+// world.html「戰力星級」資料源（v2）：把 <atom>.access.json 的遙測併進 /api/atoms 的
+// atom 物件。access.json 為 Wave-2 權威來源（counts/last_used 不在 .md），故覆寫同名 .md 欄位。
+const POWER_WILSON_Z = 1.96;
+function enrichAtomWithAccess(atom, filePath) {
+  const acc = readAtomAccess(filePath);
+  if (acc.confirmations != null) atom.confirmations = acc.confirmations;
+  if (acc.readhits != null) atom.read_hits = acc.readhits;
+  if (acc.lastUsed) atom.last_used = acc.lastUsed;      // Wave-2 權威，覆寫 .md
+  atom.useful_hits = acc.usefulHits != null ? acc.usefulHits : 1;  // α (Laplace prior 1)
+  atom.used_fail = acc.usedFail != null ? acc.usedFail : 1;        // β
+  const stats = usefulnessStats(acc, POWER_WILSON_Z);
+  atom.power = Math.round(stats.lowerBound * 1000) / 1000;  // 戰力 = Wilson 下界 0..1
+  atom.power_mean = Math.round(stats.mean * 1000) / 1000;
+  atom.power_n = stats.n;                                   // 樣本數（succ+fail）
+  if (atom.last_used) {
+    const lu = new Date(atom.last_used);
+    if (!isNaN(lu.getTime())) atom.days_since_used = Math.floor((Date.now() - lu.getTime()) / 86400000);
+  }
+}
+
 /** Wave 2: spawn `python -m lib.atom_access <subcommand>` 對 access 旁路檔做寫入。 */
 function spawnAtomAccess(subcommand, args) {
   return new Promise((resolve) => {
@@ -2225,6 +2245,7 @@ function apiAtoms(req, res) {
         // Full content for detail view
         atom.content = content;
 
+        enrichAtomWithAccess(atom, filePath);  // v2: 戰力/遙測
         atoms.push(atom);
       } catch {}
     }
@@ -2262,6 +2283,7 @@ function apiAtoms(req, res) {
         }
       }
       atom.line_count = content.split("\n").length;
+      enrichAtomWithAccess(atom, filePath);  // v2: 戰力/遙測
       atoms.push(atom);
     } catch {}
   }

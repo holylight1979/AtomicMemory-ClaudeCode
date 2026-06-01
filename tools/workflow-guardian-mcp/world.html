@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>原子記憶 · 腦內世界</title>
+<style>
+  :root{
+    --bg:#06080f; --panel:#0d1117; --fg:#e6edf3; --muted:#8b949e; --line:#222b36;
+    --core:#58a6ff; --sick:#3fb950; --gold:#e3b341; --silver:#c9d1d9; --evolve:#d2a8ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0; min-height:100%; background:var(--bg); color:var(--fg);
+    font-family:"Segoe UI",system-ui,"Microsoft JhengHei",sans-serif; overflow-x:hidden;}
+  body{overflow-y:auto;}
+
+  /* Layer 0 背景 */
+  #bg{position:fixed; inset:0; z-index:0; display:block;}
+
+  /* Layer 1 場景（房間 + 生物 同一座標空間）*/
+  #scene{position:relative; z-index:1; width:100%;}
+
+  /* ── 房間（專案）─────────────────────────────── */
+  .room{position:absolute; border-radius:16px;
+    background:linear-gradient(180deg, rgba(255,255,255,.015), rgba(0,0,0,.18));
+    border:1px solid var(--line); overflow:hidden;}
+  .room.active{box-shadow:0 0 0 1px rgba(88,166,255,.35), 0 0 30px rgba(88,166,255,.10) inset;}
+  .room .sign{position:absolute; top:8px; left:12px; font-size:12px; font-weight:700; color:var(--fg);
+    text-shadow:0 1px 3px #000; pointer-events:none; white-space:nowrap;}
+  .room .sign .meta{color:var(--muted); font-weight:400; margin-left:6px;}
+  .room .floor{position:absolute; left:0; right:0; bottom:0; height:34%;
+    background:linear-gradient(180deg, transparent, rgba(88,166,255,.05) 30%, rgba(88,166,255,.10));
+    border-top:1px solid rgba(88,166,255,.10);}
+  .room.core{border-color:rgba(88,166,255,.4);}
+  .room.core .floor{background:linear-gradient(180deg, transparent, rgba(88,166,255,.08) 30%, rgba(88,166,255,.16));}
+
+  /* ── 生物（記憶 atom）───────────────────────────── */
+  .cr{position:absolute; left:0; top:0; width:var(--s); height:var(--s);
+    will-change:transform; cursor:grab; touch-action:none;}
+  .cr.drag{cursor:grabbing; z-index:50;}
+  .cr .body{width:100%; height:100%; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; position:relative;
+    background:radial-gradient(circle at 35% 28%, hsla(var(--h),80%,72%,.95), hsla(var(--h),65%,42%,.92));
+    box-shadow:0 3px 8px rgba(0,0,0,.45);}
+  .cr .face{font-size:calc(var(--s)*.56); line-height:1; filter:drop-shadow(0 1px 1px #000);}
+  .cr .tag{position:absolute; top:calc(100% + 1px); left:50%; transform:translateX(-50%);
+    font-size:10px; color:var(--muted); white-space:nowrap; max-width:110px; overflow:hidden;
+    text-overflow:ellipsis; text-shadow:0 1px 2px #000; pointer-events:none; opacity:.0; transition:opacity .2s;}
+  .cr:hover .tag, .cr.named .tag{opacity:.95;}
+  .cr:hover{z-index:40; filter:brightness(1.2);}
+
+  /* 進化階段環 */
+  .cr.c-fixed   .body{box-shadow:0 0 0 2px var(--gold),0 0 14px rgba(227,179,65,.5),0 3px 8px rgba(0,0,0,.45);}
+  .cr.c-observe .body{box-shadow:0 0 0 2px var(--silver),0 0 10px rgba(201,209,201,.35),0 3px 8px rgba(0,0,0,.45);}
+
+  /* 角標 */
+  .cr .badge{position:absolute; font-size:calc(var(--s)*.42); line-height:1; filter:drop-shadow(0 0 3px #000); pointer-events:none; display:none;}
+  .cr .b-zzz{top:-6px; right:-2px; animation:zzz 3s ease-in-out infinite;}
+  .cr .b-evolve{top:-8px; left:-4px; animation:evolvePulse 1.4s ease-in-out infinite;}
+  .cr .b-crown{top:-10px; left:50%; transform:translateX(-50%);}
+  .cr .b-tool{bottom:-4px; right:-6px; animation:work 1s ease-in-out infinite;}
+  @keyframes zzz{0%,100%{opacity:.3} 50%{opacity:1}}
+  @keyframes evolvePulse{0%,100%{transform:scale(1)} 50%{transform:scale(1.3)}}
+  @keyframes work{0%,100%{transform:rotate(-15deg)} 50%{transform:rotate(20deg)}}
+
+  /* 生病：綠煙 + 抖 */
+  .cr.sick .body{filter:hue-rotate(35deg) saturate(.7) brightness(.85);}
+  .cr.sick .smoke{position:absolute; inset:-10px; border-radius:50%; pointer-events:none;
+    background:radial-gradient(circle,rgba(63,185,80,.5),transparent 62%); animation:smoke 2.1s ease-in-out infinite;}
+  @keyframes smoke{0%,100%{opacity:.25;transform:scale(.85)} 50%{opacity:.65;transform:scale(1.2)}}
+
+  /* 沉睡：躺下 */
+  .cr.sleep .body{transform:rotate(78deg); opacity:.62;}
+
+  /* 進化中發光 */
+  .cr.evolving .body{box-shadow:0 0 0 2px var(--evolve),0 0 18px rgba(210,168,255,.6),0 3px 8px rgba(0,0,0,.45);}
+
+  /* 對話泡泡 */
+  .bubble{position:absolute; z-index:60; transform:translate(-50%,-100%);
+    background:#fff; color:#111; font-size:12px; padding:5px 9px; border-radius:10px;
+    box-shadow:0 4px 14px rgba(0,0,0,.5); white-space:nowrap; pointer-events:none;
+    animation:pop .2s ease-out;}
+  .bubble::after{content:""; position:absolute; bottom:-5px; left:50%; transform:translateX(-50%);
+    border:5px solid transparent; border-top-color:#fff;}
+  @keyframes pop{from{transform:translate(-50%,-90%) scale(.7); opacity:0} to{transform:translate(-50%,-100%) scale(1); opacity:1}}
+
+  /* 治癒星星 */
+  .heal{position:absolute; z-index:60; font-size:22px; pointer-events:none; animation:healUp 1s ease-out forwards;}
+  @keyframes healUp{from{opacity:1; transform:translate(-50%,-50%) scale(.6)} to{opacity:0; transform:translate(-50%,-180%) scale(1.4)}}
+
+  /* ── UI ─────────────────────────────────────── */
+  #topbar{position:fixed; z-index:5; top:0; left:0; right:0; padding:8px 14px;
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    background:linear-gradient(180deg,rgba(6,8,15,.95),rgba(6,8,15,0));}
+  #topbar h1{font-size:15px; margin:0; font-weight:800;}
+  #topbar .s{font-size:12px; color:var(--muted);} #topbar .s b{color:var(--fg);}
+  #topbar .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;}
+  .dot.ok{background:#3fb950} .dot.bad{background:#f85149}
+  #help{position:fixed; z-index:5; top:38px; left:14px; right:14px; font-size:12px; color:var(--muted);
+    text-shadow:0 1px 2px #000; pointer-events:none;}
+
+  #clinic{position:fixed; z-index:6; right:18px; bottom:18px; width:120px; height:96px;
+    border:1px dashed rgba(63,185,80,.5); border-radius:14px; background:rgba(63,185,80,.06);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    color:var(--sick); font-size:12px; text-align:center;}
+  #clinic.hot{background:rgba(63,185,80,.2); box-shadow:0 0 24px rgba(63,185,80,.4);}
+  #clinic .ic{font-size:34px;}
+
+  #legend{position:fixed; z-index:5; left:14px; bottom:14px; font-size:11px; color:var(--muted);
+    background:rgba(13,17,23,.82); border:1px solid var(--line); border-radius:10px; padding:8px 12px; pointer-events:none;}
+  #legend b{color:var(--fg)} #legend .r{margin:2px 0}
+
+  #detail{position:fixed; z-index:7; top:64px; right:16px; width:330px; max-height:calc(100vh - 120px);
+    overflow:auto; display:none; background:rgba(13,17,23,.97); border:1px solid var(--line);
+    border-radius:14px; padding:16px; box-shadow:0 10px 50px rgba(0,0,0,.6);}
+  #detail.show{display:block}
+  #detail .x{float:right; cursor:pointer; color:var(--muted); font-size:18px}
+  #detail h2{font-size:16px; margin:0 0 6px; word-break:break-all}
+  #detail .say{font-size:13px; line-height:1.7; color:var(--fg); margin:8px 0}
+  #detail .st{font-size:13px; margin:6px 0; padding:6px 10px; border-radius:8px}
+  #detail .st.ok{background:rgba(63,185,80,.12); color:#56d364}
+  #detail .st.sick{background:rgba(248,81,73,.12); color:#ff7b72}
+  #detail .st.sleep{background:rgba(139,148,158,.12); color:#adbac7}
+  #detail .st.evolve{background:rgba(210,168,255,.12); color:var(--evolve)}
+  #detail .chip{display:inline-block; font-size:11px; padding:2px 7px; margin:2px 3px 2px 0;
+    border:1px solid var(--line); border-radius:10px; color:var(--muted)}
+  #detail details{margin-top:10px} #detail summary{cursor:pointer; color:var(--muted); font-size:12px}
+  #detail pre{margin-top:8px; padding:8px; background:#010409; border:1px solid var(--line); border-radius:8px;
+    font-size:11px; line-height:1.5; white-space:pre-wrap; color:#adbac7; max-height:220px; overflow:auto}
+</style>
+</head>
+<body>
+  <canvas id="bg"></canvas>
+  <div id="scene"></div>
+
+  <div id="topbar">
+    <h1>🧠 原子記憶 · 腦內世界</h1>
+    <span class="s"><span id="conn" class="dot bad"></span><span id="connTxt">連線中…</span></span>
+    <span class="s">專案房間 <b id="sRooms">0</b></span>
+    <span class="s">記憶 <b id="sOrbs">0</b></span>
+    <span class="s">🤢生病 <b id="sSick">0</b></span>
+    <span class="s">💤沉睡 <b id="sSleep">0</b></span>
+    <span class="s">🆙進化中 <b id="sEvo">0</b></span>
+    <span class="s">👻回憶 <b id="sGhost">0</b></span>
+  </div>
+  <div id="help">每個<b style="color:#e6edf3">房間=一個專案</b>，裡面的小生物=記憶原子。越大越資深；外圈金=[固]成熟、銀=[觀]成長。🤢冒綠煙=格式有問題，💤躺著=很久沒被喚醒，🆙=快升級了，👑=被引用最多的長老。把兩隻拖在一起會聊天，把生病的拖去右下角 🏥。</div>
+
+  <div id="clinic"><div class="ic">🏥</div>診所<br><span style="font-size:10px;opacity:.7">拖生病的來這</span></div>
+
+  <div id="legend">
+    <div class="r"><b>體型</b> 🥚→🐣→👾→👹→🐲（越大越資深/怪物）</div>
+    <div class="r"><b>狀態</b> 🤢生病　💤沉睡　🌱/🔨工作中　🆙進化中　👑長老</div>
+    <div class="r"><b>進化環</b> 金=[固] 銀=[觀]　｜　點生物看白話身份卡</div>
+  </div>
+
+  <div id="detail">
+    <span class="x" onclick="hideDetail()">✕</span>
+    <h2 id="dName"></h2>
+    <div class="say" id="dSay"></div>
+    <div id="dStatus"></div>
+    <div id="dChips"></div>
+    <details><summary>看原始內容</summary><pre id="dContent"></pre></details>
+  </div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   原子記憶 · 腦內世界  —  看懂為主的氛圍儀表（零 server.js 改動）
+   靠 dashboard 既有 CORS(*) 直接 fetch /api/*
+   ════════════════════════════════════════════════════════════════════ */
+const API_BASE = "http://127.0.0.1:3848";
+const POLL_MS  = 5000;
+const $ = (id) => document.getElementById(id);
+const scene = $("scene");
+
+/* 持久狀態 */
+const crEls = new Map();     // name -> element
+const roomEls = new Map();   // key  -> {box, sign, floor}
+const ghostEls = new Map();  // filename -> element
+const healed = new Set();     // 假裝治好的（cosmetic，本 session）
+const dragged = new Set();    // 被拖過、位置不再自動重排的
+let model = null, rooms = [], creatures = [], ghosts = [];
+
+/* ── 工具 ─────────────────────────────────────────────────────────── */
+const basename = (p) => (p || "").split(/[\\/]/).pop().replace(/\.md$/i, "");
+function countKnowledge(content) {
+  if (!content) return 0;
+  let inK = false, c = 0;
+  for (const ln of content.split("\n")) {
+    if (/^##\s*知識/.test(ln)) { inK = true; continue; }
+    if (/^##\s/.test(ln) && inK) break;
+    if (inK && /^[-*]\s*\[/.test(ln)) c++;
+  }
+  return c;
+}
+function norm(s){ return (s||"").toLowerCase().replace(/[^a-z0-9一-鿿]+/g,"-").replace(/^-|-$/g,""); }
+
+/* ── 資料層 ───────────────────────────────────────────────────────── */
+async function fetchJSON(p){ const r = await fetch(API_BASE + p, {cache:"no-store"}); if(!r.ok) throw new Error(p+" "+r.status); return r.json(); }
+
+async function refresh(){
+  try{
+    const [projects, atoms, health, sessions, episodic] = await Promise.all([
+      fetchJSON("/api/projects"), fetchJSON("/api/atoms"), fetchJSON("/api/health"),
+      fetchJSON("/api/sessions"), fetchJSON("/api/episodic"),
+    ]);
+    model = buildModel({projects, atoms, health, sessions, episodic});
+    layout();
+    render();
+    setConn(true);
+  }catch(e){ console.error("[world] refresh failed:", e); setConn(false); }
+}
+
+function buildModel({projects, atoms, health, sessions, episodic}){
+  health = health || {}; atoms = atoms || []; projects = projects || []; sessions = sessions || []; episodic = episodic || [];
+
+  /* 生病：issues 裡 level=error（格式畸形）→ name→[reasons] */
+  const sickReason = new Map();
+  (health.issues||[]).forEach(i=>{
+    if(i.level==="error"){ const n = basename(i.file); if(!sickReason.has(n)) sickReason.set(n,[]); sickReason.get(n).push(i.message||"格式問題"); }
+  });
+  /* 斷線（孤單）：missing_reverse_refs */
+  const lonely = new Set();
+  (health.missing_reverse_refs||[]).forEach(m=>{ if(m && m.atom_a) lonely.add(m.atom_a); });
+  (health.broken_refs||[]).forEach(b=>{ const n = typeof b==="string"?basename(b):(b&&b.atom_a); if(n) sickReason.set(n,(sickReason.get(n)||[]).concat("參照斷裂")); });
+  /* 進化中：promotions */
+  const promoting = new Map();
+  (health.promotions||[]).forEach(p=> promoting.set(basename(p.file), {from:p.current, to:p.suggested, reason:p.reason}));
+
+  /* episodic 近用度：用「引用 atoms」推每顆 atom 最近多久被喚醒（TTL 24d）*/
+  const epi = episodic.map(e=>({ age: Math.max(0, 24 - (e.days_until_expiry||0)),
+    text: (e.full_content||"") + "\n" + (e.knowledge_lines||[]).join("\n") }));
+  function lastSeenAge(name){
+    let best = Infinity;
+    for(const e of epi){ if(e.text.includes(name) && e.age < best) best = e.age; }
+    return best;
+  }
+
+  /* 工作中房間：working session 的 project 路徑模糊比對 */
+  const workingProjNorms = sessions.filter(s=>s.phase==="working").map(s=>norm(s.project));
+  function roomWorking(key, slug){
+    const sn = key==="core" ? "claude" : norm(slug);
+    return workingProjNorms.some(pn => sn.length>3 && (pn.includes(sn) || sn.includes(pn)));
+  }
+
+  /* regions：核心 + 各專案 */
+  const regions = new Map();
+  regions.set("core", {key:"core", label:".claude 核心", core:true, list:[]});
+  projects.forEach(p=> regions.set("project:"+p.slug, {key:"project:"+p.slug, label:p.slug, slug:p.slug, last_seen:p.last_seen, list:[]}));
+
+  /* 入度（誰被引用最多 → 長老）*/
+  const indeg = new Map();
+  atoms.forEach(a => (a.related||[]).forEach(r => indeg.set(r,(indeg.get(r)||0)+1)));
+  const maxIndeg = Math.max(1, ...indeg.values());
+
+  /* 建立生物 */
+  const crs = [];
+  atoms.forEach(a=>{
+    const sc = a.scope || a.layer || "global";
+    const rk = sc.startsWith("project:") ? "project:"+sc.split(":")[1] : "core";
+    if(!regions.has(rk)) regions.set(rk,{key:rk,label:rk.replace("project:",""),slug:rk.split(":")[1],list:[]});
+    const reg = regions.get(rk);
+    const know = a.knowledge_count || countKnowledge(a.content);
+    const mass = Math.max(know, Math.round((a.line_count||0)/10));
+    const age = lastSeenAge(a.name);
+    const sick = sickReason.has(a.name) && !healed.has(a.name);
+    const active = !sick && age <= 3;               // 近 3 天在 episodic 被提到 → 活躍走動
+    const cr = {
+      uid:rk+"|"+a.name, name:a.name, region:rk, scope:sc, confidence:a.confidence||"",
+      type:a.type||"", know, mass, lines:a.line_count||0,
+      related:a.related||[], triggers:a.triggers||[], content:a.content||"",
+      sick, sickReason:(sickReason.get(a.name)||[]), lonely:lonely.has(a.name),
+      sleeping:false, active, age,
+      promoting:promoting.get(a.name)||null,
+      indeg:indeg.get(a.name)||0,
+      elder:(indeg.get(a.name)||0) >= Math.max(3, maxIndeg*0.6),
+    };
+    reg.list.push(cr); crs.push(cr);
+  });
+
+  // 沉睡：per-atom last_used 無法從 API 取得；用「episodic 近用度最低的 N 顆」逼近，
+  // N = health.distant_count（真實久未喚醒總數），避免把「沒被 episodic 提到」誤判成全員沉睡。
+  const distantN = Math.min(crs.length, health.distant_count||0);
+  crs.filter(c=>!c.sick).sort((a,b)=> b.age-a.age || a.name.localeCompare(b.name))
+     .slice(0, distantN).forEach(c=>{ c.sleeping=true; c.active=false; });
+
+  regions.forEach(r=>{ r.working = roomWorking(r.key, r.slug); r.active = r.core || r.working || daysOf(r.last_seen)<=7; });
+
+  /* episodic 幽靈 */
+  const gs = episodic.map((e,i)=>({ key:(e.filename||"ep")+"#"+i, filename:e.filename||("ep"+i), title:e.title||e.filename,
+    ttl:e.days_until_expiry, kn:(e.knowledge_lines||[]).length, dying:(e.days_until_expiry||99)<=5 }));
+
+  return { regions, creatures:crs, ghosts:gs,
+    stats:{ distant:health.distant_count||0, conf:health.confidence_counts||{} } };
+}
+function daysOf(iso){ if(!iso) return 999; const t=new Date(iso).getTime(); return isNaN(t)?999:(Date.now()-t)/86400000; }
+
+/* ── 佈局：房間 shelf-packing，生物站房間地板 ─────────────────────── */
+function layout(){
+  const W = innerWidth;
+  rooms = [...model.regions.values()].filter(r=>r.core || r.list.length>0);
+  rooms.sort((a,b)=> (b.core?1e9:b.list.length) - (a.core?1e9:a.list.length));
+
+  // 房間尺寸：依生物數
+  rooms.forEach(r=>{
+    const n = Math.max(1, r.list.length);
+    r.cols = Math.max(2, Math.min(r.core?10:6, Math.ceil(Math.sqrt(n*1.4))));
+    r.rows = Math.ceil(n / r.cols);
+    r.w = Math.max(190, r.cols*68 + 24);
+    r.h = Math.max(140, 44 + r.rows*64 + 30);
+  });
+
+  // shelf pack
+  const padX=14, padY=64, gap=16; let x=padX, y=padY, rowH=0;
+  rooms.forEach(r=>{
+    if(x + r.w > W - padX){ x=padX; y += rowH + gap; rowH=0; }
+    r.x=x; r.y=y; x += r.w + gap; rowH=Math.max(rowH, r.h);
+  });
+  const totalH = y + rowH + 120;
+  scene.style.height = Math.max(innerHeight, totalH) + "px";
+
+  // 生物站位（房間內 grid，貼地板）
+  rooms.forEach(r=>{
+    const floorTop = r.y + r.h*0.66;
+    const usableW = r.w - 24, usableH = r.h - 50;
+    r.list.forEach((c,i)=>{
+      const col = i % r.cols, row = Math.floor(i / r.cols);
+      c.slotX = r.x + 12 + (col + .5) * (usableW / r.cols);
+      c.slotY = r.y + 40 + (row + .8) * (usableH / r.rows);
+      c.s = Math.round(Math.max(30, Math.min(78, 30 + c.mass*3.4)));
+      c.phase = (c.name.charCodeAt(0)||0) % 100 / 100 * Math.PI*2;
+      c.span = c.active ? Math.min(usableW/r.cols*0.7, 26) : 6;  // 活躍走動幅度
+    });
+  });
+
+  // 幽靈：頂部回憶天空帶飄移（位置存在元素上，見 render/tick）
+  ghosts = model.ghosts;
+}
+
+/* ── 視覺對應 ─────────────────────────────────────────────────────── */
+function faceOf(c){
+  if(c.type==="episodic") return "👻";
+  if(c.sick) return "🤢";
+  if(c.sleeping) return "😴";
+  const m=c.mass;
+  if(m>=16) return "🐲"; if(m>=10) return "👹"; if(m>=6) return "👾"; if(m>=3) return "🐣"; return "🥚";
+}
+function confClass(c){ if(c.includes("固")) return "c-fixed"; if(c.includes("觀")) return "c-observe"; return ""; }
+function hueOf(key){ if(key==="core") return 205; let h=0; for(const ch of key) h=(h*31+ch.charCodeAt(0))%360; return h; }
+
+/* ── 渲染（reconcile）─────────────────────────────────────────────── */
+function render(){
+  // 房間
+  const liveR=new Set();
+  rooms.forEach(r=>{
+    liveR.add(r.key);
+    let el = roomEls.get(r.key);
+    if(!el){
+      const box=document.createElement("div"); box.className="room";
+      const sign=document.createElement("div"); sign.className="sign";
+      const floor=document.createElement("div"); floor.className="floor";
+      box.appendChild(sign); box.appendChild(floor); scene.appendChild(box);
+      el={box,sign,floor}; roomEls.set(r.key,el);
+    }
+    const hue=hueOf(r.key);
+    el.box.className = "room"+(r.core?" core":"")+(r.active?" active":"");
+    el.box.style.left=r.x+"px"; el.box.style.top=r.y+"px"; el.box.style.width=r.w+"px"; el.box.style.height=r.h+"px";
+    el.box.style.borderColor=`hsla(${hue},65%,55%,${r.active?.45:.2})`;
+    const sickN=r.list.filter(c=>c.sick).length, sleepN=r.list.filter(c=>c.sleeping).length;
+    el.sign.innerHTML=`${r.label}<span class="meta">· ${r.list.length} 記憶`+
+      (r.working?` · 🔨工作中`:"")+(sickN?` · 🤢${sickN}`:"")+(sleepN?` · 💤${sleepN}`:"")+`</span>`;
+  });
+  roomEls.forEach((el,k)=>{ if(!liveR.has(k)){ el.box.remove(); roomEls.delete(k);} });
+
+  // 生物
+  creatures = model.creatures;
+  const liveC=new Set();
+  creatures.forEach(c=>{
+    liveC.add(c.uid);
+    let el=crEls.get(c.uid);
+    if(!el){
+      el=document.createElement("div"); el.className="cr";
+      el.innerHTML=`<div class="body"><span class="face"></span><div class="smoke"></div></div>`+
+        `<div class="badge b-zzz">💤</div><div class="badge b-evolve">🆙</div>`+
+        `<div class="badge b-crown">👑</div><div class="badge b-tool">🌱</div>`+
+        `<span class="tag"></span>`;
+      bindDrag(el, c); scene.appendChild(el); crEls.set(c.uid, el);
+    }
+    el._c = c;
+    if(el._x===undefined){ el._x=c.slotX; el._y=c.slotY; }
+    el.style.setProperty("--s", c.s+"px");
+    el.style.setProperty("--h", hueOf(c.region));
+    el.className = "cr "+confClass(c.confidence)+(c.sick?" sick":"")+(c.sleeping?" sleep":"")+
+      (c.promoting?" evolving":"")+(c.elder?" named":"");
+    el.querySelector(".face").textContent = faceOf(c);
+    el.querySelector(".tag").textContent = c.name;
+    el.querySelector(".b-zzz").style.display = c.sleeping?"block":"none";
+    el.querySelector(".b-evolve").style.display = c.promoting?"block":"none";
+    el.querySelector(".b-crown").style.display = c.elder?"block":"none";
+    const working = model.regions.get(c.region)?.working && !c.sick && !c.sleeping;
+    const tool = el.querySelector(".b-tool"); tool.style.display = working?"block":"none";
+    if(working) tool.textContent = (c.name.charCodeAt(1)||0)%2 ? "🔨":"🌱";
+    el.querySelector(".face").parentElement.querySelector(".smoke").style.display = c.sick?"block":"none";
+  });
+  crEls.forEach((el,n)=>{ if(!liveC.has(n)){ el.remove(); crEls.delete(n);} });
+
+  // 幽靈
+  const liveG=new Set();
+  ghosts.forEach(g=>{
+    liveG.add(g.key);
+    let el=ghostEls.get(g.key);
+    if(!el){ el=document.createElement("div"); el.className="cr"; el.style.cursor="default";
+      el.innerHTML=`<div class="body" style="background:radial-gradient(circle at 35% 30%,rgba(220,225,255,.55),rgba(140,150,200,.25));"><span class="face">👻</span></div><span class="tag"></span>`;
+      el.title=g.title; scene.appendChild(el); ghostEls.set(g.key,el);
+      let hh=0; for(const ch of g.key) hh=(hh*31+ch.charCodeAt(0))%100000;
+      el._gx=(hh%Math.max(1,innerWidth-40))+20; el._gy=70+(hh%120); el._gvx=(((hh%5)-2)*0.12)+0.05;
+    }
+    el.style.setProperty("--s","26px");
+    el.style.opacity = g.dying ? .3 : .6;
+    el.querySelector(".tag").textContent = "TTL "+g.ttl+"d";
+  });
+  ghostEls.forEach((el,k)=>{ if(!liveG.has(k)){ el.remove(); ghostEls.delete(k);} });
+
+  // 統計
+  $("sRooms").textContent=rooms.length;
+  $("sOrbs").textContent=creatures.length;
+  $("sSick").textContent=creatures.filter(c=>c.sick).length;
+  $("sSleep").textContent=creatures.filter(c=>c.sleeping).length;
+  $("sEvo").textContent=creatures.filter(c=>c.promoting).length;
+  $("sGhost").textContent=ghosts.length;
+}
+
+/* ── 動畫迴圈（wander / sleep / work / sick / 幽靈飄）──────────────── */
+function tick(ts){
+  const t = ts/1000;
+  crEls.forEach((el)=>{
+    const c = el._c; if(!c) return;
+    if(el._dragging || el._pinned){ el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`; return; }
+    let ox=0, oy=0;
+    if(c.sleeping){ oy=4; }
+    else if(c.sick){ ox=Math.sin(t*22+c.phase)*1.6; }
+    else { ox=Math.sin(t*(c.active?1.4:0.7)+c.phase)*c.span; oy=Math.sin(t*1.8+c.phase)*3; }
+    el._x = c.slotX + ox; el._y = c.slotY + oy;
+    el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
+  });
+  ghostEls.forEach((el)=>{
+    if(el._gx===undefined) return;
+    el._gx += el._gvx; if(el._gx<10||el._gx>innerWidth-30) el._gvx*=-1;
+    el._gy += Math.sin(t*0.6 + el._gx*0.01)*0.15;
+    el.style.transform=`translate(${el._gx}px,${el._gy}px)`;
+  });
+  checkDialogue(t);
+  requestAnimationFrame(tick);
+}
+
+/* ── 對話：兩隻靠近 ───────────────────────────────────────────────── */
+let lastBubble = 0;
+function checkDialogue(t){
+  if(t - lastBubble < 1.6) return;
+  const movers=[]; crEls.forEach((el)=>{ if(el._dragging || el._justDropped) movers.push(el); });
+  for(const ae of movers){
+    const a=ae._c; if(!a) continue;
+    let best=null, bd=1e9;
+    crEls.forEach((be)=>{ if(be===ae) return; const b=be._c; if(!b) return;
+      const dx=ae._x-be._x, dy=ae._y-be._y, d=dx*dx+dy*dy;
+      if(d < (a.s+b.s)*(a.s+b.s)*0.55 && d<bd){ bd=d; best=be; } });
+    if(best){ sayPair(a, best._c, ae); lastBubble=t; return; }
+  }
+}
+function sayPair(a,b,ae){
+  const related = a.related.includes(b.name)||b.related.includes(a.name);
+  let lines;
+  if(a.sick||b.sick) lines=["你還好嗎？臉色好差…","一起去診所吧🏥","撐著點！"];
+  else if(related) lines=["欸，我們是夥伴！","你也在這啊～","關聯起來力量加倍！"];
+  else if(a.elder||b.elder) lines=["前輩好！","後生可畏啊。","多多指教～"];
+  else if(a.type&&a.type===b.type) lines=["原來你也是同類","臭味相投耶","握個手🤝"];
+  else lines=["嗨！","今天也在運作中","你都記得什麼？","別把我忘了喔"];
+  bubbleAtEl(ae, lines[Math.floor(t1()*lines.length)]);
+}
+function t1(){ return (performance.now()%1000)/1000; }
+function bubbleAtEl(el, text){
+  const c=el._c;
+  const b=document.createElement("div"); b.className="bubble"; b.textContent=text;
+  b.style.left=el._x+"px"; b.style.top=(el._y-c.s-4)+"px"; scene.appendChild(b);
+  setTimeout(()=>b.remove(), 1800);
+}
+
+/* ── 拖曳 ─────────────────────────────────────────────────────────── */
+function bindDrag(el, c0){
+  let sx,sy,ox,oy,moved;
+  el.addEventListener("pointerdown",(e)=>{
+    const c=el._c||c0; if(c.type==="episodic") return;
+    try{ el.setPointerCapture(e.pointerId); }catch{} el._dragging=true; el.classList.add("drag");
+    const p=toScene(e); sx=p.x; sy=p.y; ox=el._x; oy=el._y; moved=false;
+    e.preventDefault();
+  });
+  el.addEventListener("pointermove",(e)=>{
+    if(!el._dragging) return;
+    const c=el._c||c0; const p=toScene(e); el._x=ox+(p.x-sx); el._y=oy+(p.y-sy);
+    if(Math.abs(p.x-sx)+Math.abs(p.y-sy)>4) moved=true;
+    el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
+    $("clinic").classList.toggle("hot", overClinic(e));
+  });
+  el.addEventListener("pointerup",(e)=>{
+    if(!el._dragging) return;
+    el._dragging=false; el.classList.remove("drag"); $("clinic").classList.remove("hot");
+    const c=el._c||c0;
+    if(!moved){ showDetail(c); return; }               // 純點擊 → 詳情
+    el._pinned=true; el._justDropped=true; setTimeout(()=>el._justDropped=false, 1800);
+    if(overClinic(e)) heal(c);
+  });
+}
+function toScene(e){ const r=scene.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+function overClinic(e){ const r=$("clinic").getBoundingClientRect(); return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom; }
+function heal(c){
+  const el=crEls.get(c.uid); if(!el) return;
+  if(!c.sick){ bubbleAtEl(el,"我沒生病啦～"); return; }
+  healed.add(c.name); c.sick=false;
+  el.classList.remove("sick"); el.querySelector(".smoke").style.display="none"; el.querySelector(".face").textContent=faceOf(c);
+  for(let i=0;i<5;i++){ const s=document.createElement("div"); s.className="heal"; s.textContent="✨";
+    s.style.left=(el._x+(i-2)*10)+"px"; s.style.top=el._y+"px"; scene.appendChild(s); setTimeout(()=>s.remove(),1000); }
+  bubbleAtEl(el,"舒服多了，謝謝醫生！");
+}
+
+/* ── 白話身份卡 ───────────────────────────────────────────────────── */
+function stageWord(c){ if(c.confidence.includes("固")) return "成熟可靠"; if(c.confidence.includes("觀")) return "成長中"; return "剛冒出來(暫定)"; }
+function showDetail(c){
+  $("dName").textContent = faceOf(c)+" "+c.name;
+  const typeWord = c.type==="episodic"?"情境回憶":"知識原子";
+  const room = c.region==="core"?".claude 核心":c.region.replace("project:","");
+  let say = `我是一顆<b>${stageWord(c)}</b>的${typeWord}，住在「<b>${room}</b>」腦區。我記得 <b>${c.know}</b> 條知識（共 ${c.lines} 行）。`;
+  if(c.related.length) say += `我和 <b>${c.related.join("、")}</b> 互相關聯。`;
+  if(c.elder) say += ` 我被很多記憶引用（${c.indeg} 次），算是這裡的長老👑。`;
+  if(c.triggers.length) say += ` 當你聊到「${c.triggers.slice(0,6).join("、")}」時我會跳出來幫忙。`;
+  $("dSay").innerHTML = say;
+
+  let st="";
+  if(c.sick) st=`<div class="st sick">🤢 我生病了：${c.sickReason.join("；")}</div>`;
+  else if(c.sleeping) st=`<div class="st sleep">😴 我很久沒被喚醒了（近期 episodic 沒提到我），在睡覺。</div>`;
+  else if(c.promoting) st=`<div class="st evolve">🆙 我表現不錯，快要從 ${c.promoting.from} 進化成 ${c.promoting.to}！（${c.promoting.reason||""}）</div>`;
+  else st=`<div class="st ok">😀 我很健康，最近還有在運作。</div>`;
+  if(c.lonely && !c.sick) st+=`<div class="st sleep">💔 有記憶單戀我（缺反向關聯）。</div>`;
+  $("dStatus").innerHTML = st;
+
+  const chips=$("dChips"); chips.innerHTML="";
+  c.triggers.slice(0,12).forEach(tr=>{ const e=document.createElement("span"); e.className="chip"; e.textContent="#"+tr; chips.appendChild(e); });
+  c.related.forEach(r=>{ const e=document.createElement("span"); e.className="chip"; e.style.borderColor="var(--core)"; e.textContent="↔ "+r; chips.appendChild(e); });
+  $("dContent").textContent=(c.content||"").split("\n").slice(0,50).join("\n");
+  $("detail").classList.add("show");
+}
+function hideDetail(){ $("detail").classList.remove("show"); }
+function setConn(ok){ $("conn").className="dot "+(ok?"ok":"bad"); $("connTxt").textContent=ok?"已連線 :3848":"無法連線 :3848"; }
+
+/* ── 背景：腦內電路（節點 + 突觸 + 脈衝）────────────────────────────── */
+const bg=$("bg"), bx=bg.getContext("2d"); let nodes=[];
+function resize(){
+  bg.width=innerWidth; bg.height=innerHeight;
+  if(nodes.length===0) for(let i=0;i<46;i++) nodes.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,vx:(Math.random()-.5)*.12,vy:(Math.random()-.5)*.12});
+  if(model){ layout(); render(); }
+}
+function drawBg(ts){
+  const g=bx.createRadialGradient(bg.width/2,bg.height*0.4,80,bg.width/2,bg.height*0.4,Math.max(bg.width,bg.height)*0.75);
+  g.addColorStop(0,"#0a1120"); g.addColorStop(1,"#06080f");
+  bx.fillStyle=g; bx.fillRect(0,0,bg.width,bg.height);
+  nodes.forEach(n=>{ n.x+=n.vx; n.y+=n.vy; if(n.x<0||n.x>bg.width)n.vx*=-1; if(n.y<0||n.y>bg.height)n.vy*=-1; });
+  // 突觸連線
+  for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+    const a=nodes[i],b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy);
+    if(d<170){ bx.strokeStyle=`rgba(88,166,255,${(1-d/170)*0.12})`; bx.lineWidth=1; bx.beginPath(); bx.moveTo(a.x,a.y); bx.lineTo(b.x,b.y); bx.stroke();
+      // 脈衝
+      const ph=((ts/1400 + i*0.13)%1); const px=a.x+(b.x-a.x)*ph, py=a.y+(b.y-a.y)*ph;
+      bx.fillStyle=`rgba(120,190,255,${(1-d/170)*0.5})`; bx.beginPath(); bx.arc(px,py,1.3,0,7); bx.fill();
+    }
+  }
+  nodes.forEach(n=>{ bx.fillStyle="rgba(88,166,255,.5)"; bx.beginPath(); bx.arc(n.x,n.y,1.6,0,7); bx.fill(); });
+  requestAnimationFrame(drawBg);
+}
+
+/* ── 啟動 ─────────────────────────────────────────────────────────── */
+addEventListener("resize", resize);
+resize(); requestAnimationFrame(drawBg); requestAnimationFrame(tick);
+refresh(); setInterval(refresh, POLL_MS);
+</script>
+</body>
+</html>

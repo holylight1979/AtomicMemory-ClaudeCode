@@ -105,6 +105,7 @@ memory/_vectordb/eval-results-*.json
 
 # ─── Dashboard screenshots (local artifacts) ────────────
 dashboard-*.png
+world-*.png
 
 # ─── Python cache ────────────────────────────────────────
 __pycache__/
