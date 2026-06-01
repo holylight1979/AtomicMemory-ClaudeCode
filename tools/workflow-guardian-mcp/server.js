@@ -596,6 +596,23 @@ function slugify(title) {
     || "untitled";
 }
 
+/** Detect an existing atom file in memDir whose name normalizes to the SAME slug
+ *  but differs literally — e.g. a legacy underscore atom "client_il.md" when the
+ *  incoming slug is "client-il" (slugify maps _→-). Without this guard, mode=create
+ *  silently FORKS a near-duplicate atom that no append/replace path can ever reach.
+ *  Returns the colliding filename (e.g. "client_il.md") or null. */
+function findSeparatorVariant(memDir, slug) {
+  let entries;
+  try { entries = fs.readdirSync(memDir); } catch { return null; }
+  for (const name of entries) {
+    if (!name.endsWith(".md")) continue;
+    const base = name.slice(0, -3);
+    if (base === slug) continue;             // exact name handled by existsSync
+    if (slugify(base) === slug) return name; // separator-variant collision
+  }
+  return null;
+}
+
 /** Build atom file content from structured parameters.
  *  V4: scopeLabel may be plain "shared"/"global" or composite "role:art"/"personal:alice".
  *  Optional metadata (audience/author/pending_review_by/merge_strategy/created_at)
@@ -1209,6 +1226,16 @@ async function toolAtomWrite(id, args) {
     if (fs.existsSync(filePath)) {
       return sendToolResult(id, `Atom already exists: ${slug}.md — use mode=append or mode=replace`, true);
     }
+    // Guard: slug collides with a separator-variant of an existing atom (e.g. legacy
+    // underscore "client_il.md" vs slug "client-il"). Creating would fork a near-dup.
+    const variant = findSeparatorVariant(memDir, slug);
+    if (variant) {
+      return sendToolResult(id,
+        `Slug collision: "${variant}" already exists and normalizes to the same slug "${slug}".\n` +
+        `Creating "${slug}.md" would fork a near-duplicate atom.\n` +
+        `→ Use mode=append/replace on the existing atom, or rename "${variant}" to the hyphen convention first.`,
+        true);
+    }
 
     // 原子記憶語意契約：新 atom 必須 [臨]
     if (confidence !== "[臨]") {
@@ -1359,6 +1386,18 @@ async function toolAtomWrite(id, args) {
     if (legacyPath) {
       filePath = legacyPath;
       relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
+    }
+    // Guard: replace = overwrite an EXISTING atom. If the target is absent, this was a
+    // silent upsert that birthed a brand-new atom bypassing the create [臨] gate. Refuse.
+    if (!fs.existsSync(filePath)) {
+      const variant = findSeparatorVariant(memDir, slug);
+      return sendToolResult(id,
+        `Atom not found: ${slug}.md — mode=replace requires an existing atom.\n` +
+        (variant
+          ? `(A separator-variant "${variant}" exists — rename it to "${slug}.md" first, or append to it.)\n`
+          : "") +
+        `To add a NEW atom use mode=create (new atoms must start at [臨]).`,
+        true);
     }
     // Wave 2: Confirmations / ReadHits 在 access.json，replace 不需保留（檔本就分離）
     // 仍保留 Author / Created-at（屬知識性 metadata）

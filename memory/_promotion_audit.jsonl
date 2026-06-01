@@ -25,3 +25,4 @@
 {"ts": "2026-04-30T19:17:17", "action": "auto_observe", "atom": "feedback-humanist-decision-framing", "items": 4, "confirmations": 0, "header_promoted": true}
 {"ts": "2026-05-04T15:27:49", "action": "hint", "atom": "decisions-architecture", "from": "[臨]", "to": "[觀]", "readhits": 21, "session_id": "5b29eb1f-d770-40cc-8a85-6b1987141d30"}
 {"ts": "2026-06-01T10:11:53", "action": "hint", "atom": "decisions-architecture", "from": "[觀]", "to": "[固]", "readhits": 50, "session_id": "e0d360f5-efb0-4140-b432-274c103ed295"}
+{"ts": "2026-06-01T14:04:09", "action": "hint", "atom": "feedback-workflow-discipline", "from": "[臨]", "to": "[觀]", "readhits": 20, "session_id": "3f4c36fa-0b0c-43ef-bfcf-7834468fd6ef"}
