@@ -19,6 +19,7 @@
 | memory-index-caption-regen | MEMORY.md 描述欄 regen 機制 + 保留人工策展（atom_write 沖描述覆轍根治） |
 | atom-usefulness-loop | 注入→使用→結果 閉環效用 (α,β)：use 偵測 + Wilson 晉升 + 慢衰減（Phase 2，#2） |
 | cc-能力查證反編譯實跑-binary | CC 能力查證：反編譯實跑 binary |
+| codex-log-bloat-analytics | codex-log-bloat-analytics |
 | feedback-* | 行為校正（7 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
