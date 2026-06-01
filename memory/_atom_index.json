@@ -340,6 +340,23 @@
         "dogfood"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-memory-system-doc-sync",
+      "path": "_AIDocs/Failures/feedback-memory-system-doc-sync.md",
+      "triggers": [
+        "原子記憶系統",
+        "記憶系統修正",
+        "記憶系統修改",
+        "記憶系統開發",
+        "改 hook",
+        "改 wg_",
+        "改 server.js",
+        "memory system",
+        "文件同步",
+        "doc sync"
+      ],
+      "scope": "global"
     }
   ]
 }
