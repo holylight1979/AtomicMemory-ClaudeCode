@@ -374,6 +374,25 @@
         "MEMORY.md 描述"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom-usefulness-loop",
+      "path": "memory/atom-usefulness-loop.md",
+      "triggers": [
+        "效用閉環",
+        "usefulness",
+        "record_usefulness",
+        "atom 晉升",
+        "use 偵測",
+        "Wilson 下界",
+        "慢衰減",
+        "Beta-Bernoulli",
+        "注入使用結果",
+        "useful_hits",
+        "used_fail",
+        "原子記憶開發"
+      ],
+      "scope": "global"
     }
   ]
 }

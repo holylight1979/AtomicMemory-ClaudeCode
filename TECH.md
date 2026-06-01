@@ -65,7 +65,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── atom_index_json.py                          ← V5 JSON SoT API（load/save/upsert/migrate）
 │   ├── atom_io.py                                  ← atom 讀寫統一入口（write funnel）
 │   ├── atom_spec.py                                ← atom 合法性規範（slugify / is_atom_file / REQUIRED_METADATA）
-│   ├── atom_access.py                              ← .access.json 計數 funnel（ReadHits / Confirmations / last_used）
+│   ├── atom_access.py                              ← .access.json 計數 funnel（ReadHits 純曝光 / Confirmations / 效用 α,β / Wilson 下界，→SPEC §12）
 │   └── atom_locations.py                           ← V5+ atom 物理位置 + 路由規則單一來源（FAILURES_DIR / iter_atom_files_multi / failures_write_target，commit 89ccb2d）
 │
 ├── tools/                                          ← Python 工具集
@@ -638,7 +638,7 @@ flowchart TD
 | Response Capture | [hooks/extract-worker.py](hooks/extract-worker.py) + [hooks/quick-extract.py](hooks/quick-extract.py) | SessionEnd 全量 + Stop 逐輪 |
 | Episodic Memory | [hooks/wg_episodic.py](hooks/wg_episodic.py) | Session 結束生成摘要（TTL 24d） |
 | Cross-Session | `handle_session_end` | 2+ sessions Confirm++、4+ 建議晉升 |
-| Self-Iteration | （V5 已整合進 wg_evasion）| 3 條核心 + 自動晉升 [臨]→[觀] ≥20 |
+| Self-Iteration | （V5 已整合進 wg_evasion）| 3 條核心 + 自動晉升 [臨]→[觀]：Confirmations≥4 OR 效用 Wilson 下界≥0.6(n≥3)；ReadHits 降純曝光（Phase 2，→SPEC §12）|
 | Wisdom Engine | [hooks/wisdom_engine.py](hooks/wisdom_engine.py) + `memory/wisdom/` | 情境分類 + 反思（3 指標 Bayesian 校準）|
 | Fix Escalation | [skills/fix-escalation/](skills/fix-escalation/) + wisdom_engine | retry≥2 → 6 Agent 精確修正會議 |
 | Failures 自動化 | wg_extraction `_check_failure_patterns` | 失敗關鍵字 → detached worker → 三維路由 |

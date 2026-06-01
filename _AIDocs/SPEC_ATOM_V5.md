@@ -314,10 +314,32 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。
 - **下游零衝擊**：conflict-detector 只抽 `- ` 行（表格列被忽略，非誤判）、注入剝離整段保留、write-gate 不檢行格式、逐行 `[固]` parse 不匹配表格列。
 - **注意**：server.js 改動需重啟 MCP server 進程才生效；Python funnel（hooks/tools）下次呼叫即生效。
 
-## 12. 變更紀錄
+## 12. 注入→使用→結果 閉環效用歸因（Phase 1+2，#1/#2，2026-06-01）
+
+讓記憶觸及 sub-agent，並用「真實效用」而非「曝光次數」校準信心。設計細節 SoT = 程式碼；本節為導覽。
+
+### 12.1 Sub-agent 記憶注入（Phase 1，#1）
+- sub-agent（`Agent`/`Task`）開全新 context、不觸發 `UserPromptSubmit`。唯一 parent→child 通道是工具 prompt 字串。
+- `PreToolUse` 對 Agent/Task 回 **`updatedInput`**（非 plan 草稿誤記的 `modifiedInput`；CC 版本相依，已 probe 實證採納）prepend 緊湊注入 blob（`wg_atoms.build_injection_blob`，top-k≤3，marker `[WG:SubagentMemory] ... atoms=a,b,c`）。
+- `PostToolUse` 從注入後 `tool_response.prompt` 無狀態回推注入清單 + 擷取輸出摘要 → `state["subagent_injections"]`（`post_tool_use._record_subagent_injection`）。
+
+### 12.2 效用閉環 (α,β)（Phase 2，#2）
+- **遙測 schema v3**（`<atom>.access.json`，`lib/atom_access.py` funnel）：加 `useful_hits`(α)/`used_fail`(β)，Laplace prior 1，v2→v3 冪等 migration。α/β 只存兩個 scalar、**不寫進 .md**（零索引膨脹，守 token 紅線）。
+- **注入記錄**：`state["turn_injected"]`（per-turn 覆寫，補 session 累積 `injected_atoms` 的 per-turn delta 遺失）+ Phase 1 `subagent_injections`。
+- **use 偵測（零成本詞彙重疊）**：`wg_atoms.detect_atom_use` 取 atom 稀有 token（識別碼/路徑/API + CJK bigram，去停用詞）與本 turn assistant 活動（`wg_evasion.get_current_turn_text`）求 containment/Jaccard；共享≥`rare_token_min` 或 containment≥`lexical_overlap_min` → used。不確定（差一）時才用 Ollama embedding cosine tiebreak（fail-safe、偶發）。
+- **success 偵測（3 值）**：`stop._detect_turn_outcome` 複用 `failing_tests`/`claims_completion`/`evasion_flag`/`wisdom_retry_count`。+1=完成宣告且乾淨；0=error/糾正/retry/evasion；**其餘 unknown=no-op（防雜訊污染關鍵守則）**。
+- **更新規則**：`stop._attribute_usefulness` 對 used 且 outcome 決定性者 → `record_usefulness`（success α++/fail β++，走 funnel）；per-turn 一次性（`turn_seq` 守門）。
+- **慢衰減**：`_self_iterate_atoms`（SessionEnd）α←1+λ(α−1); β←1+λ(β−1)，λ=0.97，重啟冷啟動。
+- **晉升閘改寫**：晉升 = 真實 Confirmations 主軌 **OR 效用 Wilson 下界**（升≥`promote_lb`=0.6 且 n≥`min_n`=3，z=1.96）；**ReadHits 退出晉升、降為純曝光計數**（取代 Phase 0 過渡）。降級候選（Wilson 下界≤`demote_lb`=0.35,n≥3）列 staging 報告供裁決、不自動降。
+- **py↔js 鏡像**：`wilson_lower_bound`/`usefulness_*`（`lib/atom_access.py`）↔ `wilsonLowerBound`/`usefulnessStats`（`server.js toolAtomPromote`），`SYNC:` 註解 + `memory/decisions.md` 對齊。**改 server.js 後須重啟 MCP server**。
+- **旋鈕**：`workflow/config.json` `usefulness.{lexical_overlap_min,rare_token_min,wilson_z,promote_lb,demote_lb,min_n,decay_lambda,embedding_tiebreak}`。
+- **守門**：`lib/verify/verify_usefulness_access_phase2.py`（18）+ `hooks/verify/verify_usefulness_loop_phase2.py`（21）+ `verify_promotion_gate_phase0.py`（效用驅動）+ `verify_subagent_injection_phase1.py`（21）。
+
+## 13. 變更紀錄
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-06-01 | V5+ #1/#2 | Sub-agent 記憶注入（Phase 1）+ 注入→使用→結果 (α,β) 閉環效用歸因（Phase 2）；晉升改 Confirmations OR 效用 Wilson 下界、ReadHits 降純曝光 |
 | 2026-05-29 | V5+ | 知識區 block 渲染（表格/fence 原樣輸出）；py/js create+append block-aware + py↔js 對拍測試 + server.js module.exports |
 | 2026-05-27 | V5 GA candidate | Wave 4 完成：P5b / P6 / SPEC_ATOM_V5.md 定稿 |
 | 2026-05-27 | V5 Wave 3 | P3b _atom_index.json SoT + P1 commands→skills + P5a BM25 |
