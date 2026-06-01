@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: atom_write, 表格, table, markdown 表格, code fence, 程式碼 fence, knowledge block, block 渲染, dogfood
 - Created-at: 2026-05-29
-- Related: workflow-rules, feedback-tooling-reliability, feedback-memory-system-doc-sync
+- Related: workflow-rules, feedback-tooling-reliability, feedback-memory-system-doc-sync, memory-index-caption-regen, atom-usefulness-loop
 
 ## 知識
 

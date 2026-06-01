@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 原子記憶系統, 記憶系統修正, 記憶系統修改, 記憶系統開發, 改 hook, 改 wg_, 改 server.js, memory system, 文件同步, doc sync
 - Created-at: 2026-06-01
-- Related: workflow-rules, feedback-workflow-discipline, atom-table-support
+- Related: workflow-rules, feedback-workflow-discipline, atom-table-support, memory-index-caption-regen, atom-usefulness-loop
 
 ## 知識
 
