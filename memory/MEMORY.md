@@ -14,8 +14,9 @@
 | workflow-icld | 增量式閉環開發（ICLD） |
 | workflow-rules | 工作流規則（全域） |
 | workflow-svn | SVN 工作流規則 |
-| workflow-parallel-agents | workflow-parallel-agents |
+| workflow-parallel-agents | 多 agent 並行：拆 ≥2 sub-agent 同 message dispatch 的評估準則 |
 | atom-table-support | atom_write 知識區表格/程式碼 fence block 渲染用法（dogfood） |
+| memory-index-caption-regen | MEMORY.md 描述欄 regen 機制 + 保留人工策展（atom_write 沖描述覆轍根治） |
 | feedback-* | 行為校正（7 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |

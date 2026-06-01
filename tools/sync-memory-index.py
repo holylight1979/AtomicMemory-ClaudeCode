@@ -9,6 +9,9 @@ V4→V5 變更：parse_atom_index 改讀 `_atom_index.json`（先前讀 `_ATOM_I
 行為：
 - 讀 `_atom_index.json` 取得所有 atom（按 name 排序、計數）
 - 從每 atom 檔的 H1 第一行抽取「說明」欄
+- **保留人工策展描述**：funnel 建立的 atom H1=裸 kebab-name，H1 caption 會退化成裸名；
+  此時沿用現有 MEMORY.md 較豐富的描述，regen 永不把人寫的描述降級成裸名
+  （精準度：描述性 H1 > 現有人工描述 > 裸名）。僅作用於一般 atom 列。
 - 重組「Atom Index」區，feedback-* 自動歸納並計數
 - 保留現有「知識庫查閱」段落（自動偵測 `> **知識庫查閱**：` 標記後內容）
 
@@ -59,14 +62,45 @@ def extract_atom_caption(atom_path: Path) -> str:
     return ""
 
 
+def parse_existing_captions(memory_path: Path) -> dict:
+    """解析現有 MEMORY.md atom 表 → {name: caption}。
+
+    用於 regen 時保留人工策展的描述：funnel 建立的 atom H1=裸 kebab-name，
+    extract_atom_caption 會退化成裸名；此處讓 regen 沿用現有較豐富的描述。
+    （feedback-* 聚合列 / failures_other 列也會被收進來，但 render 只對一般 atom 查詢，無副作用。）
+    """
+    caps: dict = {}
+    if not memory_path.exists():
+        return caps
+    try:
+        text = memory_path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return caps
+    for line in text.splitlines():
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        if len(cells) != 2:
+            continue
+        name, cap = cells
+        if not name or name == "Atom" or set(name) <= {"-"}:
+            continue  # 跳過表頭 / 分隔列
+        caps[name] = cap
+    return caps
+
+
 def render_atom_section(rows: List[Tuple[str, str, str]],
-                        claude_root: Path) -> str:
+                        claude_root: Path,
+                        existing_caps: dict | None = None) -> str:
     """Render the atom index table.
     原樣簡單版：feedback-* 聚合一行；其他 atoms 各自一行用 H1 caption。
     V5+ 小修：feedback-* 聚合行加 `→ _AIDocs/Failures/` 指標；
     其他 _AIDocs/Failures/ 內 atoms（cognitive-patterns / 後續加入者）獨立一行
     + 行尾加 `→` 指標（不在 memory/ 根目錄者顯式標位置）。
+    保留策展：一般 atom 的 H1 caption 退化成裸名/空時，沿用 existing_caps 中較豐富的描述。
     """
+    existing_caps = existing_caps or {}
     individual: List[Tuple[str, str, str]] = []  # (name, caption, rel_path)
     feedback_names: List[str] = []
     failures_other: List[Tuple[str, str, str]] = []  # Failures 內非 feedback-*
@@ -79,6 +113,10 @@ def render_atom_section(rows: List[Tuple[str, str, str]],
             failures_other.append((name, cap, rel_path))
         else:  # individual
             cap = extract_atom_caption(claude_root / rel_path) if rel_path else ""
+            if not cap or cap == name:  # H1 退化成裸名 → 沿用現有人工描述
+                prev = existing_caps.get(name, "")
+                if prev and prev != name:
+                    cap = prev
             individual.append((name, cap, rel_path))
 
     lines = [
@@ -135,7 +173,8 @@ def main() -> int:
         print("[sync-memory-index] _atom_index.json empty or missing", file=sys.stderr)
         return 1
 
-    new_atom_section = render_atom_section(rows, claude_root)
+    existing_caps = parse_existing_captions(memory_path)
+    new_atom_section = render_atom_section(rows, claude_root, existing_caps)
     _old_head, knowledge_tail = split_existing(memory_path)
     new_full = new_atom_section + "\n\n" + knowledge_tail if knowledge_tail else new_atom_section + "\n"
 
