@@ -19,6 +19,9 @@ def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         return
 
     state["pre_compact_snapshot"] = _now_iso()
+    # #4：快照壓縮前已注入 atom 名單，供 PostCompact 復原內文（免受 SessionStart(compact)
+    # 清空 injected_atoms 的順序影響）。見 handlers/post_compact.py。
+    state["pre_compact_injected_atoms"] = list(dict.fromkeys(state.get("injected_atoms", []) or []))
 
     if not state.get("episodic_checkpoint_done"):
         ep_cfg = config.get("episodic", {})

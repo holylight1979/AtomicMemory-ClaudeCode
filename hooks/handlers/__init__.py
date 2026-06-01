@@ -10,6 +10,8 @@ from handlers.user_prompt_submit import handle_user_prompt_submit
 from handlers.pre_tool_use import handle_pre_tool_use
 from handlers.post_tool_use import handle_post_tool_use
 from handlers.pre_compact import handle_pre_compact
+from handlers.post_compact import handle_post_compact
+from handlers.post_tool_batch import handle_post_tool_batch
 from handlers.stop import handle_stop
 from handlers.session_end import handle_session_end
 
@@ -19,6 +21,8 @@ __all__ = [
     "handle_pre_tool_use",
     "handle_post_tool_use",
     "handle_pre_compact",
+    "handle_post_compact",
+    "handle_post_tool_batch",
     "handle_stop",
     "handle_session_end",
 ]

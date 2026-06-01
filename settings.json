@@ -82,6 +82,20 @@
         ]
       }
     ],
+    "PostCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

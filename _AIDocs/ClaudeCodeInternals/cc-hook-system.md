@@ -16,6 +16,10 @@
 - [固] permission_denied, stop_failure
 - [固] subagent_start, subagent_stop
 - [固] task_created, task_completed
+- [固] **2026-06-01 實測補正（反編譯實跑 binary 字串表 + Zod schema，非上游 dated source）**：真實事件名為 **camelCase**（非上列 snake_case）。實跑 v2.1.159 roster：`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/**`PostToolBatch`**/`UserPromptSubmit`/`UserPromptExpansion`/`SessionStart`/`SessionEnd`/`Setup`/`PreCompact`/**`PostCompact`**/`Notification`/`MessageDisplay`/`SubagentStart`/`SubagentStop`/`TaskCreated`/`TaskCompleted`/`Stop`/`StopFailure`/`InstructionsLoaded`/`ConfigChange`/`CwdChanged`/`FileChanged`/`WorktreeCreate`/`WorktreeRemove`/`Elicitation` 等。
+- [固] **版本分裂陷阱**：`PostCompact`/`PostToolBatch` 等較新事件**僅存在於新版**——實測 VSCode 擴充套件 `claude.exe` **v2.1.159 有**；終端 native install **v2.1.37 grep 0 次（不存在）**。未知事件的 hook 設定會被**靜默忽略**（不報錯）。為新事件設 hook 前先確認執行環境版本。
+- [固] `PostToolBatch`：一批（含並行）工具全解析後觸發**一次**（`PostToolUse` 為 per-tool），於下個 model request 前；payload `tool_calls[]`，**支援 additionalContext 注入且可 block**，無 matcher。
+- [固] `SessionStart.source` enum = `startup|resume|clear|`**`compact`**；`PreCompact`/`PostCompact` matcher = `trigger`(`manual`/`auto`)；`PostCompact` payload = `trigger`+`compact_summary`；`InstructionsLoaded.load_reason` 含 `compact`（→ 壓縮時 CLAUDE.md/@import 重載，atom 索引不丟）。壓縮完成路徑（`compact_end`）實測觸發 **PostCompact**（`bPH`）。
 
 ### Hook 定義格式（.claude/hooks.json）
 - [固] 條件觸發：`if: { tool: "BashTool", input_contains: "npm publish" }`
@@ -58,6 +62,9 @@
 - [固] PostToolUse 的 additionalContext 是**即時生效**的（同一 turn 內 Claude 可見，不需等下一輪）
 - [固] Async hook 完成後 systemMessage 自動注入下一輪（additionalContext 同理，但 Stop 不適用）
 - [固] Stop hook 不支援 additionalContext，只有 block + reason + systemMessage
+- [固] **2026-06-01 實測：支援 `hookSpecificOutput.additionalContext` 注入的事件**（Zod schema 實證）：`UserPromptSubmit`(required) / `PostToolUse` / **`PostToolBatch`** / `SessionStart` / `SubagentStart` / `PostToolUseFailure` / `UserPromptExpansion` / `Notification` / `Setup`。
+- [固] **⚠ `PostCompact` 不支援 additionalContext（無法注入）**——只收 `trigger`+`compact_summary`。故「壓縮後重注入記憶」**不能靠 PostCompact**，須改用 `SessionStart(compact)` 或 **`PostToolBatch`**。本核心選配 #4 採「PostCompact stash → 下個 PostToolBatch 一次性注入」閉合 mid-turn auto-compact 失憶缺口（`plans/deep-wobbling-bentley.md`、`hooks/handlers/post_compact.py`+`post_tool_batch.py`）。
+- [觀] 待實測（Phase-0 `/compact` 探針 `Logs/compact-probe.log`）：2.1.159 auto-compact 是否**也**觸發 `SessionStart(source=compact)` → 判定 `session_start.py` 既有 compact 分支是否已成死碼。
 
 ## 行動
 
