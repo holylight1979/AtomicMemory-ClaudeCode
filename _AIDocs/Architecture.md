@@ -141,7 +141,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 
 - `lib/atom_spec.py` — atom 格式規則純函式（slugify / build_atom_content / validate / SKIP_DIRS / VALID_SCOPES），audit/health/atom_io 共用 import 避免規則漂移
 - `lib/atom_io.py` — knowledge funnel 入口：`write_atom()` (build+validate+atomic write+index+audit log) / `write_raw()` (escape hatch for failures/episodic 子族) / `write_index_full()` (整檔重組 sync 用)。Wave 2（2026-05-05）：`update_atom_field()` 已移除，計數類欄位（read_hits / last_used / confirmations）改走 `lib/atom_access.py`
-- `lib/atom_access.py` — telemetry funnel 入口（Wave 2）：`<atom>.access.json` 旁路檔讀寫單一通道；`init_access` / `increment_read_hits` / `increment_confirmation` / `record_promotion` / `read_access` / `bulk_read`；CLI 入口 `python -m lib.atom_access` 給 MCP server.js spawn 用
+- `lib/atom_access.py` — telemetry funnel 入口（Wave 2）：`<atom>.access.json` 旁路檔讀寫單一通道；`init_access` / `increment_read_hits` / `increment_confirmation` / `record_promotion` / `read_access` / `write_access_field` / `bulk_read`；**Phase 2 (#2) 效用閉環**：`record_usefulness`(α/β) / `decay_usefulness` / `wilson_lower_bound` / `usefulness_stats` / `usefulness_promote_eligible` / `usefulness_demote_candidate` / `usefulness_hint_tier`（注入提示分級）；CLI 入口 `python -m lib.atom_access` 給 MCP server.js spawn 用
 - `lib/atom_io_cli.py` — stdin JSON → write_* → stdout JSON，供 MCP server.js spawn
 
 **Caller 接線（contract: source 必填，記入 `_meta/atom_io_audit.jsonl`）：**
@@ -163,7 +163,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 **Atom 知識／遙測切分（Wave 2 落地）：**
 
 - atom `.md` 檔頭只放知識性 metadata：`Scope` / `Confidence` / `Trigger` / `Type` / `Author` / `Tags` / `Related` / `Created` / `description` / `name`
-- `<atom>.access.json` 旁路檔（schema `atom-access-v2`）放運行期遙測：`read_hits` / `last_used` / `confirmations` / `last_promoted_at` / `first_seen` / `timestamps`（最多 50 筆）/ `confirmation_events`
+- `<atom>.access.json` 旁路檔（schema `atom-access-v3`）放運行期遙測：`read_hits`（純曝光） / `last_used` / `confirmations` / `useful_hits`(α) / `used_fail`(β)（Phase 2 效用，Laplace prior 1，v2→v3 冪等 migration） / `last_promoted_at` / `first_seen` / `timestamps`（最多 50 筆）/ `confirmation_events`
 - 1:1 對應 atom；刪 atom 自然連帶刪遙測；無集中檔競態風險
 - 任何 atom .md 出現在 `git status` modified 都必然是知識內容變更（語意改動），便於 review
 
@@ -221,10 +221,10 @@ V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `me
 
 ### atom_promote
 
-雙軌門檻（v3 dual-field）：
+晉升門檻（Phase 2 #2，py↔js 鏡像，SYNC: `lib/atom_access` ↔ `server.js`）—— **Confirmations 主軌 OR 效用 Wilson 下界**：
 - **Primary**: Confirmations（跨 session 萃取命中）[臨]→[觀] ≥4, [觀]→[固] ≥10
-- **Auxiliary**: ReadHits（注入讀取）[臨]→[觀] ≥20, [觀]→[固] ≥50
-- 7 天豁免期（migration 起算）：Confirmations 未達標時 ReadHits/5 ≥ 門檻可 fallback
+- **Usefulness**: 效用 Wilson 下界 lb≥`promote_lb`(0.6) 且 n≥`min_n`(3)（注入→使用→結果 α/β 校準，遲滯帶降候選 ≤0.35）
+- **ReadHits 已退出晉升、降為純曝光計數**（取代舊 Auxiliary ≥20/≥50 + 7 天 fallback；依 Xiong 2505.16067 純檢索/注入頻率晉升會劣化品質）。注入時僅 `usefulness_hint_tier` 判定接近/已達升門才提示主動確認
 
 `merge_to_preferences=true`（global only，[觀]→[固] 時）把「## 知識」合併到 `preferences.md` 並搬原 atom 到 `memory/_archived/`。
 

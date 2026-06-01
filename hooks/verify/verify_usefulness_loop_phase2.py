@@ -260,3 +260,42 @@ def test_attr_subagent_error_forces_fail(tmp_path, atom_md, monkeypatch):
     _attribute_usefulness(state, CONFIG, "sess", tr, "已完成")  # 即使宣告完成，agent error → fail
     acc = A.read_access(atom_md)
     assert acc["used_fail"] == 2 and acc["useful_hits"] == 1
+
+
+# ─── 5. usefulness_hint_tier（UPS 注入晉升提示分級）──────────────────────────
+
+
+def test_hint_tier_eligible():
+    # 6 連勝 lb≈0.61 ≥ promote_lb(0.6) → eligible
+    assert A.usefulness_hint_tier({"useful_hits": 7, "used_fail": 1}) == "eligible"
+
+
+def test_hint_tier_near():
+    # 4 連勝 lb≈0.51 ∈ [0.5, 0.6) → near（接近升門）
+    assert A.usefulness_hint_tier({"useful_hits": 5, "used_fail": 1}) == "near"
+
+
+def test_hint_tier_none_low_lb():
+    # 多次失敗 lb≈0（離升門遠）→ None
+    assert A.usefulness_hint_tier({"useful_hits": 1, "used_fail": 5}) is None
+
+
+def test_hint_tier_none_insufficient_n():
+    # n=2 < min_n=3 → None（樣本不足不提示）
+    assert A.usefulness_hint_tier({"useful_hits": 3, "used_fail": 1}) is None
+
+
+def test_hint_tier_pure_exposure_none():
+    # 純 prior(α=β=1，無任何使用證據) → None，杜絕純曝光（ReadHits）雜訊
+    assert A.usefulness_hint_tier({"useful_hits": 1, "used_fail": 1}) is None
+
+
+# ─── 6. UPS 注入晉升提示：效用導向，ReadHits 退場 ─────────────────────────────
+
+
+def test_ups_hint_is_usefulness_driven():
+    """UPS 注入提示改由效用 Wilson 下界驅動；stale ReadHits 晉升提示須完全退場。"""
+    src = (CLAUDE / "hooks" / "handlers" / "user_prompt_submit.py").read_text(encoding="utf-8")
+    assert "usefulness_hint_tier" in src, "UPS 未接 usefulness_hint_tier"
+    assert "READHIT_THRESHOLDS" not in src, "UPS 應移除 ReadHits 晉升提示門檻字典"
+    assert "ReadHits 已達" not in src, "UPS 應移除 stale ReadHits 晉升提示語"

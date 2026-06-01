@@ -499,6 +499,38 @@ def usefulness_demote_candidate(
     return st["n"] >= min_n and st["lower_bound"] <= demote_lb
 
 
+# 升門下方此寬度內視為「接近」，給注入時的主動晉升提示提早觸發。
+USEFULNESS_HINT_NEAR_BAND = 0.1
+
+
+def usefulness_hint_tier(
+    access: Dict[str, Any], *,
+    promote_lb: float = PROMOTE_LB_DEFAULT,
+    min_n: int = USEFULNESS_MIN_N_DEFAULT,
+    near_band: float = USEFULNESS_HINT_NEAR_BAND,
+    z: float = WILSON_Z_DEFAULT,
+) -> Optional[str]:
+    """注入時的晉升提示分級（非晉升判定本身，純提醒人/AI 主動確認）。
+
+    回傳：
+      - 'eligible'：Wilson 下界 ≥ promote_lb（已具備效用晉升資格）
+      - 'near'    ：promote_lb − near_band ≤ lb < promote_lb（接近升門）
+      - None      ：lb 離升門尚遠 **或** n < min_n（無樣本不提示，防純曝光雜訊）
+
+    Phase 2 (#2)：ReadHits 降為純曝光、退出晉升路徑後，UPS 注入提示改由本函式驅動。
+    SYNC: usefulness_promote_eligible（'eligible' 與其同義）、server.js usefulnessStats。
+    """
+    st = usefulness_stats(access, z=z)
+    if st["n"] < min_n:
+        return None
+    lb = st["lower_bound"]
+    if lb >= promote_lb:
+        return "eligible"
+    if lb >= promote_lb - near_band:
+        return "near"
+    return None
+
+
 def bulk_read(memory_root: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
     """掃描 memory 樹下所有 *.access.json，回傳 {atom_id: access_dict}。
 

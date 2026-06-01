@@ -581,15 +581,27 @@ def handle_user_prompt_submit(
             lines.extend(atom_lines)
             state["injected_atoms"] = already_injected + newly_injected
 
-            # ReadHits++ via lib.atom_access (Wave 2 funnel discipline)
+            # ReadHits++ via lib.atom_access (Wave 2 funnel discipline)。
+            # Phase 2 (#2)：ReadHits 降為純曝光計數、退出晉升路徑；晉升提示改由
+            # 效用 Wilson 下界接近/已達升門時觸發（純曝光不再提示，杜絕雜訊）。
+            # SYNC: lib/atom_access.usefulness_hint_tier、server.js usefulnessStats、
+            #       wg_atoms._self_iterate_atoms 晉升閘。
             try:
-                from lib.atom_access import increment_read_hits, read_access
+                from lib.atom_access import (
+                    increment_read_hits, read_access, usefulness_stats,
+                    usefulness_hint_tier,
+                )
             except ImportError:
                 increment_read_hits = None
                 read_access = None
+                usefulness_stats = None
+                usefulness_hint_tier = None
             confidence_re = re.compile(r"^- Confidence:\s*(\[(?:臨|觀|固)\])", re.MULTILINE)
-            READHIT_THRESHOLDS = {"[臨]": 20, "[觀]": 50}
             PROMOTION_TARGETS = {"[臨]": "[觀]", "[觀]": "[固]"}
+            u_cfg = config.get("usefulness", {})
+            promote_lb = float(u_cfg.get("promote_lb", 0.6))
+            min_n = int(u_cfg.get("min_n", 3))
+            wilson_z = float(u_cfg.get("wilson_z", 1.96))
             for inj_name in newly_injected:
                 for (name, rel_path, triggers), base_dir in matched_with_dir:
                     if name != inj_name:
@@ -597,34 +609,46 @@ def handle_user_prompt_submit(
                     apath = (base_dir / rel_path) if rel_path else (base_dir / "memory" / f"{name}.md")
                     if not apath.exists():
                         break
-                    new_count = None
                     if increment_read_hits is not None:
                         try:
-                            new_count = increment_read_hits(apath, source="hook:atom-inject")
+                            increment_read_hits(apath, source="hook:atom-inject")
                         except (OSError, ValueError):
-                            new_count = None
-                    if new_count is not None:
-                        try:
-                            text = apath.read_text(encoding="utf-8-sig")
-                        except (OSError, UnicodeDecodeError):
-                            text = ""
-                        conf_m = confidence_re.search(text)
-                        if conf_m:
-                            cur = conf_m.group(1)
-                            rh_threshold = READHIT_THRESHOLDS.get(cur)
-                            if rh_threshold and new_count >= rh_threshold:
-                                target = PROMOTION_TARGETS[cur]
-                                lines.append(
-                                    f"⚡ [{inj_name}] ReadHits={new_count}, "
-                                    f"目前{cur}, ReadHits 已達{target}輔助門檻，"
-                                    f"觸及相關行為時請主動確認是否晉升"
-                                )
-                                log_promotion_audit(
-                                    "hint", inj_name,
-                                    **{"from": cur, "to": target,
-                                       "readhits": new_count,
-                                       "session_id": session_id}
-                                )
+                            pass
+                    # 效用導向晉升提示：Wilson 下界接近/已達升門才提示
+                    if usefulness_hint_tier is None or read_access is None:
+                        break
+                    try:
+                        text = apath.read_text(encoding="utf-8-sig")
+                        acc = read_access(apath)
+                    except (OSError, ValueError, UnicodeDecodeError):
+                        break
+                    conf_m = confidence_re.search(text)
+                    if not conf_m:
+                        break
+                    cur = conf_m.group(1)
+                    target = PROMOTION_TARGETS.get(cur)
+                    if target is None:  # [固] 已達頂，無可晉升
+                        break
+                    tier = usefulness_hint_tier(
+                        acc, promote_lb=promote_lb, min_n=min_n, z=wilson_z
+                    )
+                    if tier is None:
+                        break
+                    st = usefulness_stats(acc, z=wilson_z)
+                    lb, n = st["lower_bound"], int(st["n"])
+                    status = "已達效用升門" if tier == "eligible" else "效用接近升門"
+                    lines.append(
+                        f"⚡ [{inj_name}] 效用 lb={lb:.2f} (n={n})，目前{cur}→{target}："
+                        f"{status}（need lb≥{promote_lb} & n≥{min_n}），"
+                        f"觸及相關行為時請主動確認是否晉升"
+                    )
+                    log_promotion_audit(
+                        "hint", inj_name,
+                        **{"from": cur, "to": target,
+                           "method": "usefulness", "tier": tier,
+                           "lower_bound": round(lb, 3), "n": n,
+                           "session_id": session_id}
+                    )
                     break
 
     # Blind-Spot Reporter
