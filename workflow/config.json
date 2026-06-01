@@ -88,6 +88,19 @@
     "oscillation_threshold": 2,
     "review_interval": 6
   },
+  "usefulness": {
+    "_doc": "Phase 2 (#2) 注入→使用→結果 閉環效用：Beta-Bernoulli (α,β) + Wilson 下界 + 慢衰減。py↔js 鏡像門檻 (promote_lb/min_n/wilson_z) 與 lib/atom_access.py、server.js SYNC。",
+    "enabled": true,
+    "lexical_overlap_min": 0.18,
+    "rare_token_min": 2,
+    "wilson_z": 1.96,
+    "promote_lb": 0.6,
+    "demote_lb": 0.35,
+    "min_n": 3,
+    "decay_lambda": 0.97,
+    "embedding_tiebreak": true,
+    "embed_timeout_s": 1.5
+  },
   "hot_cache": {
     "enabled": true,
     "quick_extract_timeout": 15,

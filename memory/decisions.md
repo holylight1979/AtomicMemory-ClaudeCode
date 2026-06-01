@@ -9,10 +9,12 @@
 
 > 架構細節（核心架構 / V3 管線 / SessionStart 風暴修復）已移至 `decisions-architecture.md`
 
-### 跨 Session 鞏固（v3 雙欄位）
-- [固] 晉升門檻（雙軌）：
+### 跨 Session 鞏固（v3 雙軌 → Phase 2 效用驅動）
+- [固] 晉升門檻（SYNC: server.js toolAtomPromote / wg_atoms._self_iterate_atoms / lib.atom_access）：
   - Primary: Confirmations（跨 session 萃取命中）[臨]→[觀] ≥4, [觀]→[固] ≥10
-  - Auxiliary: ReadHits（注入讀取）[臨]→[觀] ≥20, [觀]→[固] ≥50 — 但需 Confirmations ≥1，純注入次數不單獨晉升（Phase 0；Xiong 2505.16067）
+  - Effort: 效用 Wilson 下界（Beta-Bernoulli α=useful_hits/β=used_fail；succ=α−1,fail=β−1,n=succ+fail）≥ promote_lb(0.6) 且 n ≥ min_n(3)，z=1.96；降級候選 ≤ demote_lb(0.35) 且 n≥3（不自動降，列裁決）；慢衰減 λ=0.97（SessionEnd）
+  - ReadHits（注入讀取）：Phase 2 起降為純曝光計數、不再參與晉升（取代 Phase 0 readhits 輔助門；防純注入頻率晉升劣化品質，Xiong 2505.16067）
+  - 旋鈕：workflow/config.json usefulness.{promote_lb,demote_lb,min_n,wilson_z,decay_lambda,rare_token_min,lexical_overlap_min}
 
 ### 品質機制
 - [固] 自我迭代精簡為 3 條：品質函數（Hook）、證據門檻（Claude）、震盪偵測（Hook）

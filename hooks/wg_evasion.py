@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Pattern
+from typing import Any, Dict, List, Optional, Pattern
 
 
 _TEST_CMD_RE = re.compile(
@@ -225,6 +225,99 @@ def get_last_assistant_text(transcript_path: Optional[Path]) -> str:
         return last
     except (OSError, UnicodeDecodeError):
         return ""
+
+
+def _is_real_user_prompt(content: Any) -> bool:
+    """判斷一則 user 訊息是「真實 prompt」還是「tool_result 延續」。
+
+    含 tool_result block → 視為延續（非新 turn 起點）；str 或含 text block → 真實 prompt。
+    """
+    if isinstance(content, str):
+        return bool(content.strip())
+    if isinstance(content, list):
+        has_text = False
+        for b in content:
+            if isinstance(b, dict):
+                if b.get("type") == "tool_result":
+                    return False
+                if b.get("type") == "text":
+                    has_text = True
+            elif isinstance(b, str):
+                has_text = True
+        return has_text
+    return False
+
+
+def _flatten_tool_input(inp: Any, cap: int = 2000) -> str:
+    """攤平 tool_use input 的所有字串值（file_path/command/content/old/new/pattern…）。"""
+    out: List[str] = []
+
+    def _walk(v: Any) -> None:
+        if isinstance(v, str):
+            out.append(v)
+        elif isinstance(v, dict):
+            for vv in v.values():
+                _walk(vv)
+        elif isinstance(v, list):
+            for vv in v:
+                _walk(vv)
+
+    _walk(inp)
+    return " ".join(out)[:cap]
+
+
+def get_current_turn_text(transcript_path: Optional[Path], *, max_chars: int = 8000) -> str:
+    """擷取「本 turn」assistant 活動文字（assistant text + tool_use input args）。
+
+    turn 邊界 = 最後一則真實 user prompt（非 tool_result 延續）之後的所有 assistant 訊息。
+    供 Phase 2 (#2) use 偵測比對 atom 稀有 token。fail-open 回 ""。
+    """
+    if not transcript_path:
+        return ""
+    try:
+        records: List[Dict[str, Any]] = []
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            for raw in f:
+                try:
+                    obj = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                if isinstance(obj, dict):
+                    records.append(obj)
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+    last_user_idx = -1
+    for i, obj in enumerate(records):
+        if obj.get("type") != "user":
+            continue
+        if _is_real_user_prompt(obj.get("message", {}).get("content")):
+            last_user_idx = i
+
+    parts: List[str] = []
+    total = 0
+    for obj in records[last_user_idx + 1:]:
+        if obj.get("type") != "assistant":
+            continue
+        content = obj.get("message", {}).get("content", [])
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            bt = block.get("type")
+            if bt == "text":
+                s = block.get("text", "") or ""
+            elif bt == "tool_use":
+                s = (block.get("name", "") or "") + " " + _flatten_tool_input(block.get("input", {}))
+            else:
+                continue
+            if s:
+                parts.append(s)
+                total += len(s)
+        if total >= max_chars:
+            break
+    return "\n".join(parts)[:max_chars]
 
 
 # ─── V5: Session Evaluator (was wg_session_evaluator) ────────────────────────

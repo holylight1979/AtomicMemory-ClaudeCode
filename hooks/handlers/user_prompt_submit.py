@@ -708,6 +708,17 @@ def handle_user_prompt_submit(
                 state["remind_count"] = 0
                 state["total_reminds"] = total_reminds + 1
 
+    # Phase 2 (#2): per-turn 注入記錄（每 turn 覆寫）。
+    # injected_atoms 是 session 累積（line 582 合併後 per-turn delta 遺失），
+    # 無法精準歸因；turn_injected 只存「本 turn 注入」清單 + atom 檔路徑，
+    # 供 Stop 做注入→使用→結果 (α,β) 歸因。無注入 turn → 覆寫為 []（清上一 turn）。
+    state["turn_injected"] = [
+        {"name": nm, "path": str(atom_source_dirs[nm] / f"{nm}.md")}
+        for nm in newly_injected if nm in atom_source_dirs
+    ]
+    # 單調遞增 turn 序號 → Stop 端 per-turn 一次性歸因守門（防 blocked turn 重複計）。
+    state["turn_seq"] = int(state.get("turn_seq", 0)) + 1
+
     write_state(session_id, state)
 
     # atom-debug summary

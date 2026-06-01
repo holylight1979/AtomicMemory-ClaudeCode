@@ -6,25 +6,37 @@
   - 取代 hooks/workflow-guardian.py:1340-1375 的 raw write_text（funnel 違規修補）
   - 取代 lib/atom_io.py:update_atom_field 對 Confirmations 計數的呼叫
 
-Schema v2（<atom>.access.json）:
+Schema v3（<atom>.access.json）:
   {
-    "schema": "atom-access-v2",
-    "read_hits": int,
+    "schema": "atom-access-v3",
+    "read_hits": int,             # 純曝光計數（注入次數）— v3 後不再單獨晉升
     "last_used": "YYYY-MM-DD",
-    "confirmations": int,
+    "confirmations": int,         # 跨 session 萃取命中（真實確認，主軌）
+    "useful_hits": number,        # α — Beta-Bernoulli「被用且成功」累積（預設 1，Laplace prior）
+    "used_fail": number,          # β — Beta-Bernoulli「被用但失敗」累積（預設 1）
     "last_promoted_at": "YYYY-MM-DD" 或 None,
     "first_seen": "YYYY-MM-DD",
     "timestamps": [float epoch ...最多 50 筆],
     "confirmation_events": [{ts, ...} ...]
   }
 
-舊 schema 偵測：confirmations 是陣列 → migrate (陣列→confirmation_events)。
+效用閉環（Phase 2, #2）：注入→使用→結果以 (α,β) 校準信心，取代純曝光（read_hits）。
+  - record_usefulness：本 turn 某 atom 被判 used 且 outcome 決定性 → success α++ / fail β++；
+    unused 或 outcome=unknown 一律 no-op（防雜訊污染，關鍵守則）。
+  - Wilson 下界（wilson_lower_bound / usefulness_stats）：升 ≥0.6、降候選 ≤0.35，皆需 n≥3。
+  - decay_usefulness（SessionEnd 慢衰減）：α←1+λ(α−1); β←1+λ(β−1)，λ≈0.97，重啟冷啟動。
+  α/β 只存兩個 scalar（不寫進 .md），零索引膨脹；succ=α−1, fail=β−1, n=succ+fail（減去 prior）。
+
+舊 schema 偵測：confirmations 是陣列 → migrate (陣列→confirmation_events)；
+  v2→v3 冪等 migration：缺 useful_hits/used_fail → 補 1（可重入，不壞既有計數）。
 
 CLI 入口（給 tools/workflow-guardian-mcp/server.js 透過子程序呼叫）：
   python -m lib.atom_access read <path>
   python -m lib.atom_access init <path> --first-seen YYYY-MM-DD --source mcp
   python -m lib.atom_access increment-read-hits <path> --source hook:atom-inject
   python -m lib.atom_access increment-confirmation <path> --source hook:episodic-confirm [--event-json '{...}']
+  python -m lib.atom_access record-usefulness <path> --used true --success true|false|unknown --source hook:usefulness
+  python -m lib.atom_access decay-usefulness <path> --lambda 0.97 --source hook:atom-decay
   python -m lib.atom_access record-promotion <path> --target [固] --source mcp
   python -m lib.atom_access set <path> --field NAME --value VAL --source SRC
 """
@@ -32,6 +44,7 @@ CLI 入口（給 tools/workflow-guardian-mcp/server.js 透過子程序呼叫）�
 from __future__ import annotations
 
 import json
+import math
 import sys
 import time
 from datetime import datetime, timezone
@@ -50,6 +63,8 @@ ACCESS_VALID_SOURCES = frozenset({
     "hook:atom-inject",          # workflow-guardian.py atom 注入時 increment_read_hits
     "hook:episodic",             # episodic atom 建立時 init_access
     "hook:episodic-confirm",     # cross-session confirmation
+    "hook:usefulness",           # Phase 2: stop.py 注入→使用→結果 α/β 更新
+    "hook:atom-decay",           # Phase 2: SessionEnd _self_iterate_atoms 慢衰減
     "hook:user-extract",
     "hook:extract-worker",
     "tool:atom-move",
@@ -64,8 +79,17 @@ ACCESS_VALID_SOURCES = frozenset({
 })
 
 SCHEMA_KEY = "schema"
-SCHEMA_VERSION = "atom-access-v2"
+SCHEMA_VERSION = "atom-access-v3"
 TIMESTAMPS_MAX = 50
+
+# Beta-Bernoulli Laplace prior：useful_hits=α、used_fail=β 預設皆 1（succ=α−1, fail=β−1）。
+USEFULNESS_PRIOR = 1
+# Wilson 下界預設參數（py↔js 鏡像，SYNC: tools/workflow-guardian-mcp/server.js usefulnessStats）。
+WILSON_Z_DEFAULT = 1.96
+PROMOTE_LB_DEFAULT = 0.6
+DEMOTE_LB_DEFAULT = 0.35
+USEFULNESS_MIN_N_DEFAULT = 3
+DECAY_LAMBDA_DEFAULT = 0.97
 
 
 # ─── 路徑 / 基本 IO ──────────────────────────────────────────────────────────
@@ -103,11 +127,15 @@ def _validate_source(source: str) -> None:
 
 
 def _normalize(data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
-    """把舊 schema 的資料規整成 v2；回傳 (新 dict, 是否被改寫)。
+    """把舊 schema 的資料規整成 v3；回傳 (新 dict, 是否被改寫)。
 
     舊格式特徵：
       (a) {"timestamps":[], "confirmations":[]}（confirmations 是陣列）
       (b) 缺 schema key
+      (c) v2 → v3：缺 useful_hits/used_fail（Phase 2 效用欄位）
+
+    v2→v3 migration 冪等可重入：useful_hits/used_fail 僅在缺漏時補 prior（1），
+    既有 (α,β) 計數一律保留，不會被重複跑壞。
     """
     upgraded = False
 
@@ -118,12 +146,14 @@ def _normalize(data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
         data["confirmations"] = len(events)
         upgraded = True
 
-    # 預設值補齊
+    # 預設值補齊（含 v3 效用欄位 useful_hits=α / used_fail=β，預設 prior=1）
     defaults = {
         SCHEMA_KEY: SCHEMA_VERSION,
         "read_hits": 0,
         "last_used": None,
         "confirmations": 0,
+        "useful_hits": USEFULNESS_PRIOR,
+        "used_fail": USEFULNESS_PRIOR,
         "last_promoted_at": None,
         "first_seen": None,
         "timestamps": [],
@@ -132,7 +162,8 @@ def _normalize(data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
     for k, v in defaults.items():
         if k not in data:
             data[k] = v
-            if k == SCHEMA_KEY:
+            # 補入 schema / 效用欄位皆視為 migration（觸發寫回以落地 v3）
+            if k in (SCHEMA_KEY, "useful_hits", "used_fail"):
                 upgraded = True
 
     if data.get(SCHEMA_KEY) != SCHEMA_VERSION:
@@ -318,6 +349,156 @@ def write_access_field(
     return _audit("access_field", source, atom_path, field=field, value=str(value))
 
 
+# ─── 效用閉環 (α,β)：Phase 2 (#2) ────────────────────────────────────────────
+
+
+def record_usefulness(
+    atom_path: Path, *, used: bool, success: Optional[bool], source: str,
+) -> tuple[float, float]:
+    """記錄一次注入→使用→結果的歸因，更新 (useful_hits=α, used_fail=β)。
+
+    參數三值語意（防雜訊污染的關鍵守則）：
+      - used=False           → no-op（atom 未被本 turn 使用）
+      - used=True, success=None → no-op（outcome=unknown，無決定性訊號）
+      - used=True, success=True → α += 1（被用且成功）
+      - used=True, success=False → β += 1（被用但失敗）
+
+    回傳更新後 (α, β)。no-op 時回現值、不寫檔。走 _write_raw funnel + audit。
+    """
+    _validate_source(source)
+    access_path = _access_path(atom_path)
+    raw = _read_raw(access_path) or {}
+    raw, _ = _normalize(raw)
+    alpha = float(raw.get("useful_hits") or USEFULNESS_PRIOR)
+    beta = float(raw.get("used_fail") or USEFULNESS_PRIOR)
+
+    if not used or success is None:
+        # no-op：不動 (α,β)，僅留 audit 供觀測（不寫檔）
+        _audit("usefulness_noop", source, atom_path,
+               used=bool(used), success=("unknown" if success is None else bool(success)))
+        return alpha, beta
+
+    if success:
+        alpha += 1
+        field = "useful_hits"
+    else:
+        beta += 1
+        field = "used_fail"
+    raw["useful_hits"] = _coerce_num(alpha)
+    raw["used_fail"] = _coerce_num(beta)
+    raw["last_used"] = _today_str()
+    if not raw.get("first_seen"):
+        raw["first_seen"] = raw["last_used"]
+    if not _write_raw(access_path, raw):
+        _audit("usefulness_dropped", source, atom_path,
+               field=field, reason="write_contention")
+        return alpha - (1 if success else 0), beta - (0 if success else 1)
+    _audit("usefulness_update", source, atom_path,
+           field=field, alpha=raw["useful_hits"], beta=raw["used_fail"])
+    return float(raw["useful_hits"]), float(raw["used_fail"])
+
+
+def decay_usefulness(
+    atom_path: Path, *, lam: float = DECAY_LAMBDA_DEFAULT, source: str,
+) -> tuple[float, float]:
+    """慢衰減（SessionEnd）：α←1+λ(α−1); β←1+λ(β−1)，把證據往 prior(1,1) 拉。
+
+    λ≈0.97 → 單次衰減僅 3%，重啟冷啟動、防僵化。α/β 皆已在 prior 之上（≥1），
+    衰減後仍 ≥1。若 α≈β≈1（無證據）→ 不寫檔（避免無意義 churn）。
+    回傳衰減後 (α, β)。
+    """
+    _validate_source(source)
+    access_path = _access_path(atom_path)
+    raw = _read_raw(access_path)
+    if raw is None:
+        return float(USEFULNESS_PRIOR), float(USEFULNESS_PRIOR)
+    raw, _ = _normalize(raw)
+    alpha = float(raw.get("useful_hits") or USEFULNESS_PRIOR)
+    beta = float(raw.get("used_fail") or USEFULNESS_PRIOR)
+    prior = float(USEFULNESS_PRIOR)
+    # 無證據（在 prior 上幾乎不動）→ 不寫
+    if abs(alpha - prior) < 1e-9 and abs(beta - prior) < 1e-9:
+        return alpha, beta
+    new_alpha = prior + lam * (alpha - prior)
+    new_beta = prior + lam * (beta - prior)
+    raw["useful_hits"] = _coerce_num(new_alpha)
+    raw["used_fail"] = _coerce_num(new_beta)
+    if not _write_raw(access_path, raw):
+        _audit("usefulness_decay_dropped", source, atom_path, reason="write_contention")
+        return alpha, beta
+    _audit("usefulness_decay", source, atom_path,
+           lam=lam, alpha=raw["useful_hits"], beta=raw["used_fail"])
+    return float(raw["useful_hits"]), float(raw["used_fail"])
+
+
+def _coerce_num(x: float) -> Any:
+    """整數值存 int（零索引膨脹），非整數存 6 位小數 float。"""
+    r = round(float(x), 6)
+    if abs(r - round(r)) < 1e-9:
+        return int(round(r))
+    return r
+
+
+def wilson_lower_bound(successes: float, n: float, z: float = WILSON_Z_DEFAULT) -> float:
+    """二項比例 p̂=successes/n 的 Wilson score 下界（單一壞 turn 幾乎不動分數）。
+
+    SYNC: tools/workflow-guardian-mcp/server.js wilsonLowerBound（py↔js 鏡像）。
+    n≤0 → 回 0.0（無證據時保守）。
+    """
+    if n <= 0:
+        return 0.0
+    phat = successes / n
+    denom = 1.0 + (z * z) / n
+    centre = phat + (z * z) / (2.0 * n)
+    margin = z * math.sqrt((phat * (1.0 - phat) + (z * z) / (4.0 * n)) / n)
+    lb = (centre - margin) / denom
+    return max(0.0, min(1.0, lb))
+
+
+def usefulness_stats(
+    access: Dict[str, Any], *, z: float = WILSON_Z_DEFAULT,
+) -> Dict[str, float]:
+    """從 access dict 算 (α,β)→succ/fail/n/mean/lower_bound。
+
+    succ=α−1, fail=β−1（減去 Laplace prior）、n=succ+fail（有效樣本）。
+    SYNC: server.js usefulnessStats。
+    """
+    alpha = float(access.get("useful_hits") or USEFULNESS_PRIOR)
+    beta = float(access.get("used_fail") or USEFULNESS_PRIOR)
+    succ = max(0.0, alpha - USEFULNESS_PRIOR)
+    fail = max(0.0, beta - USEFULNESS_PRIOR)
+    n = succ + fail
+    mean = (succ / n) if n > 0 else 0.0
+    lb = wilson_lower_bound(succ, n, z)
+    return {
+        "alpha": alpha, "beta": beta,
+        "successes": succ, "failures": fail, "n": n,
+        "mean": mean, "lower_bound": lb,
+    }
+
+
+def usefulness_promote_eligible(
+    access: Dict[str, Any], *,
+    promote_lb: float = PROMOTE_LB_DEFAULT,
+    min_n: int = USEFULNESS_MIN_N_DEFAULT,
+    z: float = WILSON_Z_DEFAULT,
+) -> bool:
+    """效用晉升資格：Wilson 下界 ≥ promote_lb 且 n ≥ min_n（遲滯帶上緣）。"""
+    st = usefulness_stats(access, z=z)
+    return st["n"] >= min_n and st["lower_bound"] >= promote_lb
+
+
+def usefulness_demote_candidate(
+    access: Dict[str, Any], *,
+    demote_lb: float = DEMOTE_LB_DEFAULT,
+    min_n: int = USEFULNESS_MIN_N_DEFAULT,
+    z: float = WILSON_Z_DEFAULT,
+) -> bool:
+    """效用降級候選：Wilson 下界 ≤ demote_lb 且 n ≥ min_n（遲滯帶下緣）。"""
+    st = usefulness_stats(access, z=z)
+    return st["n"] >= min_n and st["lower_bound"] <= demote_lb
+
+
 def bulk_read(memory_root: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
     """掃描 memory 樹下所有 *.access.json，回傳 {atom_id: access_dict}。
 
@@ -362,6 +543,17 @@ def _cli() -> int:
     p_inc_cf.add_argument("--source", required=True)
     p_inc_cf.add_argument("--event-json", default="{}")
 
+    p_use = sub.add_parser("record-usefulness")
+    p_use.add_argument("path")
+    p_use.add_argument("--used", default="true")
+    p_use.add_argument("--success", default="unknown")  # true|false|unknown
+    p_use.add_argument("--source", required=True)
+
+    p_decay = sub.add_parser("decay-usefulness")
+    p_decay.add_argument("path")
+    p_decay.add_argument("--lambda", dest="lam", type=float, default=DECAY_LAMBDA_DEFAULT)
+    p_decay.add_argument("--source", required=True)
+
     p_promo = sub.add_parser("record-promotion")
     p_promo.add_argument("path")
     p_promo.add_argument("--target", required=True)
@@ -390,6 +582,23 @@ def _cli() -> int:
             event = json.loads(args.event_json) if args.event_json else {}
             n = increment_confirmation(atom_path, event=event, source=args.source)
             print(json.dumps({"ok": True, "confirmations": n}))
+        elif args.cmd == "record-usefulness":
+            used = str(args.used).strip().lower() in ("1", "true", "yes", "y")
+            sv = str(args.success).strip().lower()
+            success: Optional[bool]
+            if sv in ("true", "1", "yes", "y"):
+                success = True
+            elif sv in ("false", "0", "no", "n"):
+                success = False
+            else:
+                success = None  # unknown → no-op
+            a, b = record_usefulness(
+                atom_path, used=used, success=success, source=args.source,
+            )
+            print(json.dumps({"ok": True, "useful_hits": a, "used_fail": b}))
+        elif args.cmd == "decay-usefulness":
+            a, b = decay_usefulness(atom_path, lam=args.lam, source=args.source)
+            print(json.dumps({"ok": True, "useful_hits": a, "used_fail": b}))
         elif args.cmd == "record-promotion":
             record_promotion(
                 atom_path, target_confidence=args.target, source=args.source,

@@ -1046,12 +1046,41 @@ function readAtomAccess(atomPath) {
     return {
       confirmations: parseInt(confirmations, 10) || 0,
       readhits: parseInt(raw.read_hits, 10) || 0,
+      usefulHits: Number(raw.useful_hits != null ? raw.useful_hits : 1),  // α (v3, Laplace prior 1)
+      usedFail: Number(raw.used_fail != null ? raw.used_fail : 1),        // β
       lastUsed: raw.last_used || null,
       lastPromotedAt: raw.last_promoted_at || null,
     };
   } catch {
     return {};
   }
+}
+
+// ─── Phase 2 (#2): 效用 Wilson 下界（SYNC: lib/atom_access.py wilson_lower_bound /
+//     usefulness_stats / usefulness_promote_eligible —— py↔js 鏡像，改一邊要改另一邊）。
+function wilsonLowerBound(successes, n, z) {
+  if (n <= 0) return 0.0;
+  const phat = successes / n;
+  const denom = 1.0 + (z * z) / n;
+  const centre = phat + (z * z) / (2.0 * n);
+  const margin = z * Math.sqrt((phat * (1.0 - phat) + (z * z) / (4.0 * n)) / n);
+  const lb = (centre - margin) / denom;
+  return Math.max(0.0, Math.min(1.0, lb));
+}
+
+/** access(α,β) → succ/fail/n/mean/lowerBound（prior=1 → succ=α−1, fail=β−1）。 */
+function usefulnessStats(access, z) {
+  const PRIOR = 1;
+  const alpha = Number(access.usefulHits != null ? access.usefulHits : PRIOR);
+  const beta = Number(access.usedFail != null ? access.usedFail : PRIOR);
+  const succ = Math.max(0, alpha - PRIOR);
+  const fail = Math.max(0, beta - PRIOR);
+  const n = succ + fail;
+  return {
+    alpha, beta, successes: succ, failures: fail, n,
+    mean: n > 0 ? succ / n : 0.0,
+    lowerBound: wilsonLowerBound(succ, n, z),
+  };
 }
 
 /** Wave 2: spawn `python -m lib.atom_access <subcommand>` 對 access 旁路檔做寫入。 */
@@ -1528,29 +1557,36 @@ async function toolAtomPromote(id, args) {
   const confirmations = access.confirmations || 0;
   const readhits = access.readhits || 0;
 
-  // Primary gate: Confirmations (cross-session behavior hits)
+  // Phase 2 (#2): 晉升 = 真實 Confirmations 主軌 OR 效用 Wilson 下界。
+  // ReadHits 降為純曝光計數，不再參與晉升（取代 Phase 0 readhits 輔助門）。
+  // SYNC: lib/atom_access.py usefulness_promote_eligible + wg_atoms.py:_self_iterate_atoms。
+  const uconf = (loadConfig().usefulness) || {};
+  const promoteLb = Number(uconf.promote_lb != null ? uconf.promote_lb : 0.6);
+  const minN = Number(uconf.min_n != null ? uconf.min_n : 3);
+  const wilsonZ = Number(uconf.wilson_z != null ? uconf.wilson_z : 1.96);
+  const ustat = usefulnessStats(access, wilsonZ);
+  const utilEligible = ustat.n >= minN && ustat.lowerBound >= promoteLb;
+
   let eligible = confirmations >= reqConf;
   let method = "confirmations";
-
-  // Auxiliary gate: ReadHits (injection hits) — Phase 0: ReadHits 不再單獨晉升，
-  // 需至少 1 次真實 Confirmation（防純注入次數頻率晉升劣化品質，Xiong 2505.16067）。
-  // py↔js 鏡像：wg_atoms.py:_self_iterate_atoms。
-  if (!eligible && readhits >= reqRH && confirmations > 0) {
+  if (!eligible && utilEligible) {
     eligible = true;
-    method = "readhits_auxiliary";
+    method = "usefulness";
   }
 
-  // Wave 2: 移除 7-day migration.json fallback
-  // （dual-field-v1 遷移於 2026-04-24 完成、超過 7 天；access-stats-v2 不需此條款）
+  const utilLine =
+    `  Usefulness: lb=${ustat.lowerBound.toFixed(3)} (α=${ustat.alpha}, β=${ustat.beta}, n=${ustat.n})` +
+    ` — need lb≥${promoteLb} & n≥${minN}\n`;
 
   if (!eligible) {
     return sendToolResult(id,
       `## Dry-run: ${atom_name}\n` +
       `Current: ${meta.confidence}\n` +
       `  Confirmations: ${confirmations}/${reqConf}\n` +
-      `  ReadHits: ${readhits}/${reqRH} (auxiliary)\n` +
-      `Required: Confirmations ≥ ${reqConf} OR (ReadHits ≥ ${reqRH} AND Confirmations ≥ 1)\n` +
-      `Deficit: ${Math.max(0, reqConf - confirmations)} conf / ${Math.max(0, reqRH - readhits)} rh`
+      utilLine +
+      `  ReadHits: ${readhits} (純曝光，不參與晉升)\n` +
+      `Required: Confirmations ≥ ${reqConf} OR (Usefulness lb ≥ ${promoteLb} AND n ≥ ${minN})\n` +
+      `Deficit: ${Math.max(0, reqConf - confirmations)} conf / lb ${Math.max(0, promoteLb - ustat.lowerBound).toFixed(3)}`
     );
   }
 
@@ -1560,7 +1596,7 @@ async function toolAtomPromote(id, args) {
       `## Dry-run: ${atom_name}\n` +
       `Current: ${meta.confidence}\n` +
       `  Confirmations: ${confirmations}/${reqConf}\n` +
-      `  ReadHits: ${readhits}/${reqRH}\n` +
+      utilLine +
       `Eligible via: ${method} → ${next}\n` +
       `Set execute=true to apply.`
     );

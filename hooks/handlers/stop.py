@@ -21,6 +21,7 @@ from wg_core import (
 from wg_evasion import (
     detect_test_failure, is_test_command, claims_completion, detect_evasion,
     is_dismiss_prompt, get_last_assistant_text, detect_missing_scan_report,
+    get_current_turn_text,
 )
 from wg_episodic import _find_session_transcript
 from wg_extraction import _maybe_spawn_per_turn_extraction
@@ -93,6 +94,117 @@ def _detect_uncommitted_files(
     if not detected_any_vcs:
         return None
     return uncommitted
+
+
+# ─── Phase 2 (#2): 注入→使用→結果 閉環歸因 ───────────────────────────────────
+
+
+def _detect_turn_outcome(state: Dict[str, Any], last_text: str) -> Optional[bool]:
+    """3 值 success 偵測（複用既有訊號）。回 True(+1)/False(0)/None(unknown=no-op)。
+
+      - 0（fail）：failing_tests 非空 / 本 turn evasion_flag / wisdom_retry_count≥2
+        （error / 糾正 / retry / evasion 任一）。
+      - +1（success）：宣告完成（claims_completion）且無上述 fail 訊號（硬正向）。
+      - None（unknown）：既無完成宣告也無 fail 訊號 → 不動 (α,β)，防雜訊污染。
+    """
+    failing = state.get("failing_tests") or []
+    evasion = bool(state.get("evasion_flag"))
+    retry = int(state.get("wisdom_retry_count", 0) or 0)
+    if failing or evasion or retry >= 2:
+        return False
+    if last_text and claims_completion(last_text):
+        return True
+    return None
+
+
+def _attribute_usefulness(
+    state: Dict[str, Any], config: Dict[str, Any], session_id: str,
+    transcript, last_text: str,
+) -> None:
+    """per-turn 注入→使用→結果歸因：對 turn_injected + 本 turn sub-agent 注入中
+    「被判 used 且 outcome 決定性」者 → record_usefulness(α/β，走 funnel)。
+
+    once-per-turn：以 turn_seq 守門（blocked turn 多次 Stop 不重複計）。fail-open。
+    """
+    try:
+        uconf = (config or {}).get("usefulness", {}) or {}
+        if not uconf.get("enabled", True):
+            return
+        turn_seq = int(state.get("turn_seq", 0))
+        if turn_seq and state.get("usefulness_attributed_seq") == turn_seq:
+            return  # 本 turn 已歸因
+
+        from lib.atom_access import record_usefulness
+        from wg_atoms import detect_atom_use, resolve_atom_path, make_embed_tiebreak_fn
+
+        rare_min = int(uconf.get("rare_token_min", 2))
+        overlap_min = float(uconf.get("lexical_overlap_min", 0.18))
+        embed_fn = make_embed_tiebreak_fn(config)
+
+        turn_text = get_current_turn_text(transcript) if transcript else ""
+        outcome = _detect_turn_outcome(state, last_text)
+
+        def _read(path_str: str) -> str:
+            try:
+                return Path(path_str).read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeDecodeError, ValueError):
+                return ""
+
+        def _record(path_str: str, content: str, match_text: str, decided: Optional[bool]) -> Optional[bool]:
+            if decided is None or not content or not match_text:
+                return None
+            det = detect_atom_use(
+                content, match_text,
+                rare_token_min=rare_min, overlap_min=overlap_min, embed_fn=embed_fn,
+            )
+            if not det.get("used"):
+                return None
+            record_usefulness(Path(path_str), used=True, success=decided, source="hook:usefulness")
+            return decided
+
+        attributed = []  # (atom, success) for telemetry
+
+        # 1) UPS per-turn 注入（turn_injected）— 比對本 turn assistant 活動文字
+        for entry in (state.get("turn_injected") or []):
+            name = entry.get("name", "")
+            path_str = entry.get("path", "")
+            if not name or not path_str:
+                continue
+            res = _record(path_str, _read(path_str), turn_text, outcome)
+            if res is not None:
+                attributed.append((name, res))
+
+        # 2) 本 turn sub-agent 注入（Phase 1 state["subagent_injections"]）
+        #    use 偵測比對該 agent 的 output_summary（其實際產物）；outcome 疊 agent 狀態。
+        for rec in (state.get("subagent_injections") or []):
+            if rec.get("attributed"):
+                continue
+            status = str(rec.get("status", "") or "").lower()
+            sub_outcome = outcome
+            if any(k in status for k in ("error", "fail", "abort", "cancel")):
+                sub_outcome = False  # agent 出錯 → fail（覆寫 turn outcome）
+            match_text = (rec.get("output_summary", "") or "") + "\n" + turn_text
+            for aname in (rec.get("atoms") or []):
+                p = resolve_atom_path(aname)
+                if p is None:
+                    continue
+                res = _record(str(p), _read(str(p)), match_text, sub_outcome)
+                if res is not None:
+                    attributed.append((aname, res))
+            rec["attributed"] = True  # 本 turn 已處理（含 no-op，避免下 turn 重算）
+
+        if turn_seq:
+            state["usefulness_attributed_seq"] = turn_seq
+        if attributed:
+            state.setdefault("usefulness_log", []).append({
+                "turn_seq": turn_seq,
+                "outcome": ("+1" if outcome is True else "0" if outcome is False else "unknown"),
+                "atoms": [{"atom": a, "success": s} for a, s in attributed],
+                "at": _now_iso(),
+            })
+            state["usefulness_log"] = state["usefulness_log"][-50:]
+    except Exception as e:
+        print(f"[phase2] usefulness attribution error: {e}", file=sys.stderr)
 
 
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -197,6 +309,15 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             )
             output_block(reason)
             return
+
+    # ── Phase 2: 注入→使用→結果 閉環歸因（correctness gates 通過後、per-turn 一次性）──
+    # 走到這裡代表本 Stop 未被 test-fail/scan-report 等 correctness gate 攔下 →
+    # 該 turn 的對錯訊號已落定。turn_seq 守門一次性；write_state 立即固化標記
+    # （防後續 phase=done / muted 等不寫 state 的終止路徑導致重複計 α/β）。
+    if not last_text:
+        last_text = get_last_assistant_text(transcript)
+    _attribute_usefulness(state, config, session_id, transcript, last_text)
+    write_state(session_id, state)
 
     # ── Anti-loop guard ─────────────────────────────────────────
     if stop_count >= max_blocks:

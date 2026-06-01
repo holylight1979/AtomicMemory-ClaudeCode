@@ -663,6 +663,196 @@ def build_injection_blob(
     return blob, injected
 
 
+# ─── Use 偵測：詞彙重疊 (Phase 2, #2) ────────────────────────────────────────
+# 注入≠使用：某 atom 被注入後是否真的被「用上」，以零成本詞彙重疊判定 —
+#   取 atom 的稀有/識別性 token（程式碼識別碼/路徑/API + CJK 雙字 bigram，
+#   去停用詞、可選 IDF 過濾高頻 token），與本 turn assistant 訊息＋tool-call args
+#   求交集；共享 ≥ rare_token_min 或 containment ≥ overlap_min → 判 used。
+#   不確定（差一個）時才用 embedding cosine tiebreak（偶發、fail-safe）。
+
+_USE_CODE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_./:\-]*[A-Za-z0-9_]")
+_USE_CJK_RE = re.compile(r"[一-鿿]{2,}")
+_USE_EXT_RE = re.compile(r"\.(py|js|json|md|txt|java|ts|tsx|jsx|cjs|mjs|sh|ya?ml)$")
+
+# 去停用詞：英文功能詞 + 域內過泛詞（每個 atom 都會出現 → 無鑑別力）。
+_USE_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "that", "this", "from", "have", "into", "when",
+    "then", "not", "but", "are", "was", "were", "will", "your", "you", "use",
+    "used", "using", "uses", "via", "per", "all", "any", "one", "two", "out",
+    "get", "set", "add", "new", "old", "see", "may", "can", "其中", "以下",
+    # 域內過泛（atom 記憶系統語境）
+    "atom", "atoms", "memory", "hook", "hooks", "code", "file", "files", "test",
+    "tests", "line", "lines", "state", "config", "data", "true", "false", "none",
+    "記憶", "注入", "系統", "原子", "如果", "因為", "所以", "可以", "需要", "問題",
+    "功能", "這個", "那個", "沒有", "規則", "處理",
+})
+
+
+def _use_pieces(span: str) -> List[str]:
+    """把一段 code-ish span 正規化成可比對 piece（path 段 + _/. 子詞），雙側一致。"""
+    out: List[str] = []
+    for raw in re.split(r"[/\s:,;()\[\]<>\"'`、，。]+", span.strip().lower()):
+        p = raw.strip("._-")
+        if not p:
+            continue
+        p = _USE_EXT_RE.sub("", p)
+        if not p:
+            continue
+        out.append(p)
+        for sub in re.split(r"[._]+", p):
+            if len(sub) >= 5:
+                out.append(sub)
+    return out
+
+
+def extract_distinctive_tokens(text: str) -> set:
+    """抽 text 的稀有/識別性 token 集合（雙側同一函式 → 比對一致）。
+
+    - code-ish：含 `_./-`/數字 或 長度≥7 的識別碼/路徑/API（含 path 段與 _ 子詞）
+    - CJK：雙字 bigram（去過泛雙字）
+    去停用詞、長度<4 丟棄。
+    """
+    if not text:
+        return set()
+    toks: set = set()
+    for span in _USE_CODE_RE.findall(text):
+        for p in _use_pieces(span):
+            if len(p) < 4 or p in _USE_STOPWORDS:
+                continue
+            code_like = bool(re.search(r"[_.\d/\-]", p))
+            if code_like or len(p) >= 7 or (5 <= len(p) <= 6):
+                toks.add(p)
+    for run in _USE_CJK_RE.findall(text):
+        for i in range(len(run) - 1):
+            bg = run[i:i + 2]
+            if bg not in _USE_STOPWORDS:
+                toks.add(bg)
+    return toks
+
+
+def build_atom_df(atom_texts: List[str]) -> Tuple[Counter, int]:
+    """跨 atom 語料的 document frequency（近似 IDF）：token→出現於幾顆 atom。
+
+    回傳 (df_counter, n_docs)。供 detect_atom_use 過濾「出現在過多 atom」的低鑑別 token。
+    """
+    df: Counter = Counter()
+    n = 0
+    for t in atom_texts:
+        n += 1
+        for tok in extract_distinctive_tokens(t):
+            df[tok] += 1
+    return df, n
+
+
+def resolve_atom_path(name: str) -> Optional[Path]:
+    """atom name → .md Path（全域層，含 _AIDocs/Failures feedback-*）。找不到回 None。
+
+    僅迭代檔路徑（不讀內容），供 Stop 端解析 sub-agent 注入清單的 atom 名 → 路徑。
+    """
+    target = f"{name}.md"
+    if iter_atom_files_multi is not None:
+        try:
+            for p in iter_atom_files_multi():
+                if p.name == target:
+                    return p
+        except Exception:
+            pass
+    cand = MEMORY_DIR / target
+    return cand if cand.exists() else None
+
+
+def detect_atom_use(
+    atom_content: str,
+    turn_text: str,
+    *,
+    rare_token_min: int = 2,
+    overlap_min: float = 0.18,
+    df_map: Optional[Counter] = None,
+    n_docs: int = 0,
+    max_df_ratio: float = 0.5,
+    embed_fn=None,
+    embed_min: float = 0.62,
+) -> Dict[str, Any]:
+    """判定 atom 是否在本 turn 被使用。回 {used, shared, containment, method}。
+
+    主判：稀有 token 交集 |shared| ≥ rare_token_min 或 containment ≥ overlap_min。
+    IDF 過濾：df_map/n_docs 提供時，丟棄 df/n_docs > max_df_ratio 的過泛 token。
+    Tiebreak：差一個（|shared| == rare_token_min-1 且 ≥1）時，若 embed_fn 提供 →
+      cosine ≥ embed_min 判 used（method=embed）。embed_fn 失敗回 None → 不影響主判。
+    """
+    rare = extract_distinctive_tokens(atom_content)
+    if df_map is not None and n_docs > 0 and max_df_ratio < 1.0:
+        cutoff = max_df_ratio * n_docs
+        rare = {t for t in rare if df_map.get(t, 0) <= cutoff}
+    if not rare:
+        return {"used": False, "shared": 0, "containment": 0.0, "method": "no_rare"}
+
+    turn_tokens = extract_distinctive_tokens(turn_text)
+    shared = rare & turn_tokens
+    n_shared = len(shared)
+    containment = n_shared / len(rare)
+
+    if n_shared >= rare_token_min or containment >= overlap_min:
+        return {"used": True, "shared": n_shared, "containment": round(containment, 3),
+                "method": "lexical"}
+
+    # tiebreak：差一個才動 embedding（偶發）
+    if embed_fn is not None and n_shared == max(0, rare_token_min - 1) and n_shared >= 1:
+        try:
+            cos = embed_fn(atom_content, turn_text)
+        except Exception:
+            cos = None
+        if cos is not None and cos >= embed_min:
+            return {"used": True, "shared": n_shared, "containment": round(containment, 3),
+                    "method": "embed", "cosine": round(float(cos), 3)}
+
+    return {"used": False, "shared": n_shared, "containment": round(containment, 3),
+            "method": "lexical"}
+
+
+def make_embed_tiebreak_fn(config: Dict[str, Any]):
+    """構造 fail-safe 的 embedding cosine tiebreak callable（或 None）。
+
+    僅當 config.usefulness.embedding_tiebreak 為真才回 callable；任何失敗（服務未起、
+    逾時、格式異常）回 None → detect_atom_use 視同無 tiebreak，不污染主判。
+    走既有 Ollama /api/embeddings（短逾時、截斷輸入），屬偶發呼叫（僅邊界 case）。
+    """
+    uconf = (config or {}).get("usefulness", {}) or {}
+    if not uconf.get("embedding_tiebreak", False):
+        return None
+    vs = (config or {}).get("vector_search", {}) or {}
+    base = vs.get("ollama_base_url", "http://127.0.0.1:11434")
+    model = vs.get("embedding_model", "qwen3-embedding")
+    timeout_s = float(uconf.get("embed_timeout_s", 1.5))
+
+    def _embed_one(text: str) -> Optional[List[float]]:
+        payload = json.dumps({"model": model, "prompt": text[:1500]}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{base.rstrip('/')}/api/embeddings", data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            obj = json.loads(resp.read().decode("utf-8"))
+        vec = obj.get("embedding")
+        return vec if isinstance(vec, list) and vec else None
+
+    def _cosine(a: str, b: str) -> Optional[float]:
+        try:
+            va, vb = _embed_one(a), _embed_one(b)
+            if not va or not vb or len(va) != len(vb):
+                return None
+            dot = sum(x * y for x, y in zip(va, vb))
+            na = math.sqrt(sum(x * x for x in va))
+            nb = math.sqrt(sum(y * y for y in vb))
+            if na == 0 or nb == 0:
+                return None
+            return dot / (na * nb)
+        except Exception:
+            return None
+
+    return _cosine
+
+
 def _truncate_context_by_activation(
     lines: List[str], limit: int = CONTEXT_BUDGET_DEFAULT,
     source_dirs: Optional[Dict[str, Path]] = None,
@@ -1305,18 +1495,31 @@ def _trigger_incremental_index(config: Dict[str, Any]) -> None:
 def _self_iterate_atoms(
     state: Dict[str, Any], config: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """V2.16: Automated atom decay scoring + [臨]→[觀] auto-promotion.
+    """V2.16/Phase 2: Atom decay scoring + 效用驅動 [臨]→[觀] auto-promotion.
 
     Runs at SessionEnd. Scans all atom files, calculates health scores,
-    auto-promotes [臨] items in mature atoms, reports archive candidates.
+    auto-promotes [臨] items in mature atoms, reports archive/demote candidates.
+
+    Phase 2 (#2)：
+      - 慢衰減：每顆 atom α←1+λ(α−1); β←1+λ(β−1)（λ≈0.97），把效用證據往 prior 拉。
+      - 晉升閘改由「真實 Confirmations 主軌 + 效用 Wilson 下界」驅動；
+        ReadHits 降為純曝光計數，不再單獨觸發晉升（取代 Phase 0 過渡）。
+      - Wilson 下界 ≤ demote_lb 且 n≥min_n → 列降級候選（不自動降，留裁決）。
     """
     si_config = config.get("self_iteration", {})
+    u_config = config.get("usefulness", {}) or {}
     decay_half_life = si_config.get("decay_half_life_days", 30)
     promote_conf_threshold = si_config.get("promote_confirmations_threshold", 4)
-    promote_min_conf = si_config.get("promote_min_confirmations", 20)
     archive_threshold = si_config.get("archive_score_threshold", 0.3)
+    # Phase 2 效用旋鈕（py↔js 鏡像：server.js）
+    decay_lambda = float(u_config.get("decay_lambda", 0.97))
+    promote_lb = float(u_config.get("promote_lb", 0.6))
+    demote_lb = float(u_config.get("demote_lb", 0.35))
+    min_n = int(u_config.get("min_n", 3))
+    wilson_z = float(u_config.get("wilson_z", 1.96))
 
-    results = {"promoted": [], "archive_candidates": [], "scanned": 0}
+    results = {"promoted": [], "archive_candidates": [],
+               "demote_candidates": [], "scanned": 0}
     today = datetime.now()
 
     # V5+: 全域 atom 搜尋（memory + _AIDocs/Failures/）統一委派 lib.atom_locations。
@@ -1337,15 +1540,34 @@ def _self_iterate_atoms(
         results["scanned"] += 1
 
         try:
-            from lib.atom_access import read_access
+            from lib.atom_access import (
+                read_access, decay_usefulness,
+                usefulness_stats, usefulness_promote_eligible,
+                usefulness_demote_candidate,
+            )
             acc = read_access(md_file)
+            # Step 6 慢衰減（SessionEnd）：把 (α,β) 往 prior 拉，回填衰減後值供晉升判定
+            try:
+                na, nb = decay_usefulness(
+                    md_file, lam=decay_lambda, source="hook:atom-decay")
+                acc["useful_hits"], acc["used_fail"] = na, nb
+            except (OSError, ValueError):
+                pass
         except (ImportError, OSError):
             acc = {}
+            usefulness_stats = None  # type: ignore
+            usefulness_promote_eligible = None  # type: ignore
+            usefulness_demote_candidate = None  # type: ignore
         last_used_raw = acc.get("last_used")
         confirmations = int(acc.get("confirmations") or 0)
         readhits = int(acc.get("read_hits") or 0)
+        u_stats = usefulness_stats(acc, z=wilson_z) if usefulness_stats else {"n": 0}
+        has_use_evidence = u_stats.get("n", 0) > 0
 
-        if not last_used_raw or (confirmations == 0 and readhits == 0):
+        # 無任何活動訊號（注入/確認/效用）→ 跳過
+        if not last_used_raw or (
+            confirmations == 0 and readhits == 0 and not has_use_evidence
+        ):
             continue
         try:
             last_used = datetime.strptime(last_used_raw, "%Y-%m-%d")
@@ -1365,11 +1587,16 @@ def _self_iterate_atoms(
                 "confirmations": confirmations,
             })
 
-        # Phase 0: ReadHits（純注入次數）不再單獨晉升，需至少 1 次真實 Confirmation
-        # （防頻率晉升劣化品質，Xiong 2505.16067）。py↔js 鏡像：server.js auxiliary gate。
-        if confirmations >= promote_conf_threshold or (
-            readhits >= promote_min_conf and confirmations > 0
-        ):
+        # Phase 2: 晉升 = 真實 Confirmations 主軌 OR 效用 Wilson 下界（升≥promote_lb 且 n≥min_n）。
+        # ReadHits 降為純曝光，不再參與晉升（取代 Phase 0 readhits 輔助門）。
+        # py↔js 鏡像：server.js toolAtomPromote usefulness gate。
+        util_eligible = bool(
+            usefulness_promote_eligible
+            and usefulness_promote_eligible(
+                acc, promote_lb=promote_lb, min_n=min_n, z=wilson_z)
+        )
+        promote_method = "confirmations" if confirmations >= promote_conf_threshold else "usefulness"
+        if confirmations >= promote_conf_threshold or util_eligible:
             lines = text.split("\n")
             promoted_in_file = []
             changed = False
@@ -1408,27 +1635,54 @@ def _self_iterate_atoms(
                     "atom": md_file.stem,
                     "items": promoted_in_file,
                     "confirmations": confirmations,
+                    "method": promote_method,
+                    "lower_bound": round(u_stats.get("lower_bound", 0.0), 3),
                 })
                 log_promotion_audit(
                     "auto_observe", md_file.stem,
                     items=len(promoted_in_file),
                     confirmations=confirmations,
                     header_promoted=header_promoted,
+                    method=promote_method,
+                    lower_bound=round(u_stats.get("lower_bound", 0.0), 3),
                 )
 
-    if results["archive_candidates"]:
+        # Phase 2: 效用 Wilson 下界 ≤ demote_lb 且 n≥min_n、且仍有非[臨]條目 → 降級候選
+        # （不自動降，屬敏感裁決；列入 staging 報告供管理職審視）。
+        if (usefulness_demote_candidate
+                and usefulness_demote_candidate(
+                    acc, demote_lb=demote_lb, min_n=min_n, z=wilson_z)
+                and re.search(r"^- \[(觀|固)\]", text, re.MULTILINE)):
+            results["demote_candidates"].append({
+                "atom": md_file.stem,
+                "lower_bound": round(u_stats.get("lower_bound", 0.0), 3),
+                "alpha": u_stats.get("alpha"),
+                "beta": u_stats.get("beta"),
+                "n": u_stats.get("n"),
+            })
+
+    if results["archive_candidates"] or results["demote_candidates"]:
         cwd = state.get("session", {}).get("cwd", "")
         staging = resolve_staging_dir(cwd)
         staging.mkdir(exist_ok=True)
         out_lines = [
-            f"# Archive Candidates ({today.strftime('%Y-%m-%d')})\n",
-            f"Score < {archive_threshold} — 考慮封存或刪除：\n",
+            f"# Archive / Demote Candidates ({today.strftime('%Y-%m-%d')})\n",
         ]
-        for c in results["archive_candidates"]:
+        if results["archive_candidates"]:
+            out_lines.append(f"## 封存候選（score < {archive_threshold}）\n")
+            for c in results["archive_candidates"]:
+                out_lines.append(
+                    f"- **{c['atom']}** — score={c['score']}, "
+                    f"last_used={c['last_used']}, confirmations={c['confirmations']}"
+                )
+        if results["demote_candidates"]:
             out_lines.append(
-                f"- **{c['atom']}** — score={c['score']}, "
-                f"last_used={c['last_used']}, confirmations={c['confirmations']}"
-            )
+                f"\n## 降級候選（效用 Wilson 下界 ≤ {demote_lb}，n≥{min_n}；需裁決）\n")
+            for c in results["demote_candidates"]:
+                out_lines.append(
+                    f"- **{c['atom']}** — lower_bound={c['lower_bound']}, "
+                    f"α={c['alpha']}, β={c['beta']}, n={c['n']}"
+                )
         (staging / "archive-candidates.md").write_text(
             "\n".join(out_lines), encoding="utf-8"
         )
