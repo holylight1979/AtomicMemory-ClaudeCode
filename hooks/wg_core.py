@@ -373,7 +373,11 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
             if slug in seen_slugs:
                 continue
             mem = proj_dir / "memory"
-            if mem.is_dir():
+            # Phase 0: 要求 atom 索引 marker（MEMORY.md / _atom_index.json）才納入，
+            # 避免 CC 原生 auto-memory dir（projects/<proj>/memory/）污染 cross-project 掃描。
+            if mem.is_dir() and (
+                (mem / MEMORY_INDEX).exists() or (mem / "_atom_index.json").exists()
+            ):
                 results.append((slug, mem))
     return results
 

@@ -1493,8 +1493,10 @@ async function toolAtomPromote(id, args) {
   let eligible = confirmations >= reqConf;
   let method = "confirmations";
 
-  // Auxiliary gate: ReadHits (injection hits)
-  if (!eligible && readhits >= reqRH) {
+  // Auxiliary gate: ReadHits (injection hits) — Phase 0: ReadHits 不再單獨晉升，
+  // 需至少 1 次真實 Confirmation（防純注入次數頻率晉升劣化品質，Xiong 2505.16067）。
+  // py↔js 鏡像：wg_atoms.py:_self_iterate_atoms。
+  if (!eligible && readhits >= reqRH && confirmations > 0) {
     eligible = true;
     method = "readhits_auxiliary";
   }
@@ -1508,7 +1510,7 @@ async function toolAtomPromote(id, args) {
       `Current: ${meta.confidence}\n` +
       `  Confirmations: ${confirmations}/${reqConf}\n` +
       `  ReadHits: ${readhits}/${reqRH} (auxiliary)\n` +
-      `Required: Confirmations ≥ ${reqConf} OR ReadHits ≥ ${reqRH}\n` +
+      `Required: Confirmations ≥ ${reqConf} OR (ReadHits ≥ ${reqRH} AND Confirmations ≥ 1)\n` +
       `Deficit: ${Math.max(0, reqConf - confirmations)} conf / ${Math.max(0, reqRH - readhits)} rh`
     );
   }

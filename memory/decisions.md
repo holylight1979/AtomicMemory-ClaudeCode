@@ -12,8 +12,7 @@
 ### 跨 Session 鞏固（v3 雙欄位）
 - [固] 晉升門檻（雙軌）：
   - Primary: Confirmations（跨 session 萃取命中）[臨]→[觀] ≥4, [觀]→[固] ≥10
-  - Auxiliary: ReadHits（注入讀取）[臨]→[觀] ≥20, [觀]→[固] ≥50
-  - 7 天豁免：migration 後 Confirmations 未達標時，ReadHits/5 ≥ 門檻可 fallback
+  - Auxiliary: ReadHits（注入讀取）[臨]→[觀] ≥20, [觀]→[固] ≥50 — 但需 Confirmations ≥1，純注入次數不單獨晉升（Phase 0；Xiong 2505.16067）
 
 ### 品質機制
 - [固] 自我迭代精簡為 3 條：品質函數（Hook）、證據門檻（Claude）、震盪偵測（Hook）

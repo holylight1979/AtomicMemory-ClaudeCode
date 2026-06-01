@@ -1291,7 +1291,11 @@ def _self_iterate_atoms(
                 "confirmations": confirmations,
             })
 
-        if confirmations >= promote_conf_threshold or readhits >= promote_min_conf:
+        # Phase 0: ReadHits（純注入次數）不再單獨晉升，需至少 1 次真實 Confirmation
+        # （防頻率晉升劣化品質，Xiong 2505.16067）。py↔js 鏡像：server.js auxiliary gate。
+        if confirmations >= promote_conf_threshold or (
+            readhits >= promote_min_conf and confirmations > 0
+        ):
             lines = text.split("\n")
             promoted_in_file = []
             changed = False

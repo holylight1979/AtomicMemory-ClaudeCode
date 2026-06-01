@@ -81,6 +81,7 @@
   },
   "self_iteration": {
     "decay_half_life_days": 30,
+    "promote_confirmations_threshold": 4,
     "promote_min_confirmations": 20,
     "archive_score_threshold": 0.3,
     "oscillation_window": 3,
