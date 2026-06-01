@@ -23,6 +23,7 @@ Schema:
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -31,6 +32,28 @@ from typing import Any, Dict, List, Optional
 ATOM_INDEX_JSON = "_atom_index.json"
 ATOM_INDEX_MD = "_ATOM_INDEX.md"
 SCHEMA_VERSION = "1.0"
+
+
+def _write_text_preserving_eol(path: Path, content: str) -> None:
+    """tmp + rename 落檔，byte-stable EOL（對拍 atom_io._atomic_write）。
+
+    索引檔（_atom_index.json / _ATOM_INDEX.md）每次 upsert 都整檔 regen；若用
+    Path.write_text 預設 newline=None，Windows 會把 \\n 全翻成 os.linesep，使既有
+    CRLF 索引每次都整檔翻行尾（reformat blast 同源）。偵測既有檔行尾原樣套回，
+    newline="" 關平台轉譯——既有行 byte-stable、僅真正變動的列進 diff。
+    """
+    try:
+        raw = path.read_bytes()
+        eol = "\r\n" if b"\r\n" in raw else ("\n" if b"\n" in raw else os.linesep)
+    except OSError:
+        eol = os.linesep
+    body = content.replace("\r\n", "\n").replace("\r", "\n")
+    if eol != "\n":
+        body = body.replace("\n", eol)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(body)
+    tmp.replace(path)
 
 
 def _empty_index() -> Dict[str, Any]:
@@ -54,12 +77,9 @@ def load_atom_index_json(mem_dir: Path) -> Dict[str, Any]:
 def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:
     p = mem_dir / ATOM_INDEX_JSON
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False),
-        encoding="utf-8",
+    _write_text_preserving_eol(
+        p, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
     )
-    tmp.replace(p)
 
 
 def upsert_atom(
@@ -131,9 +151,7 @@ def regenerate_atom_index_md(mem_dir: Path) -> None:
     lines.append("")
 
     md = mem_dir / ATOM_INDEX_MD
-    tmp = md.with_suffix(".md.tmp")
-    tmp.write_text("\n".join(lines), encoding="utf-8")
-    tmp.replace(md)
+    _write_text_preserving_eol(md, "\n".join(lines))
 
 
 # ─── Migration: parse legacy _ATOM_INDEX.md → JSON ──────────────────────────

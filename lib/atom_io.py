@@ -104,11 +104,40 @@ def _audit_log(entry: Dict[str, Any]) -> None:
         pass
 
 
+def _detect_eol(path: Path) -> str:
+    """偵測既有檔的主要行尾，供 byte-stable 覆寫。
+
+    讀不到 / 新檔 → os.linesep（維持現行 Windows=CRLF 慣例，避免新 atom 行尾翻轉）。
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return os.linesep
+    if b"\r\n" in raw:
+        return "\r\n"
+    if b"\n" in raw:
+        return "\n"
+    return os.linesep
+
+
 def _atomic_write(path: Path, content: str) -> None:
-    """tmp + rename 落檔，與 server.js 行為等價。"""
+    """tmp + rename 落檔，與 server.js 行為等價。
+
+    EOL byte-stable（reformat blast radius 根治）：先把 content 正規化成純 LF，
+    再套用「既有檔的行尾慣例」，並以 newline="" 寫入關閉平台轉譯。
+    否則 Windows 預設 newline=None 會把每個 \\n 翻成 os.linesep——caller 混寫的
+    既有 CRLF（如 server.js append 用 Node 原樣讀 \\r\\n 再拼 \\n）會被二次翻成
+    CR CR LF，整檔行尾全變 → git 視為全行更動（append 2 行卻 48 行 diff 的根因）。
+    既有 CRLF 檔偵測為 CRLF→原樣保留，僅真正新增的行進 diff。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    eol = _detect_eol(path)
+    body = content.replace("\r\n", "\n").replace("\r", "\n")
+    if eol != "\n":
+        body = body.replace("\n", eol)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(body)
     os.replace(str(tmp), str(path))
 
 
