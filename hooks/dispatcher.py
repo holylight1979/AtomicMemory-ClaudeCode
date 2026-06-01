@@ -15,8 +15,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from wg_core import (
-    WORKFLOW_DIR, CLAUDE_DIR, load_config,
-    _atom_debug_error, _now_iso,
+    WORKFLOW_DIR, load_config,
+    _atom_debug_error,
 )
 from handlers import (
     handle_session_start,
@@ -44,29 +44,6 @@ HANDLERS = {
 }
 
 
-def _phase0_compact_probe(event: str, input_data: dict) -> None:
-    """Phase-0 實測閘（暫時，收尾移除）：記錄壓縮相關事件的真實觸發行為。
-
-    確認 CC 2.1.159 壓縮後實際觸發 PostCompact / 是否也觸發 SessionStart(source=compact) /
-    PreCompact 順序 → 坐實 session_start.py compact 分支是否死碼。
-    僅記錄壓縮關聯事件，低噪音（SessionStart 只在 source==compact 時記）。
-    plans/deep-wobbling-bentley.md Phase 0。
-    """
-    try:
-        src = input_data.get("source") or ""
-        trig = input_data.get("trigger") or ""
-        if event == "SessionStart" and src != "compact":
-            return
-        if event not in ("PreCompact", "PostCompact", "SessionStart"):
-            return
-        log = CLAUDE_DIR / "Logs" / "compact-probe.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with open(log, "a", encoding="utf-8") as f:
-            f.write(f"{_now_iso()} event={event} source={src!r} trigger={trig!r}\n")
-    except Exception:
-        pass
-
-
 def main():
     # Force UTF-8 output on Windows
     if sys.platform == "win32":
@@ -86,7 +63,6 @@ def main():
         sys.exit(0)
 
     event = input_data.get("hook_event_name", "")
-    _phase0_compact_probe(event, input_data)  # Phase-0 暫時 probe；收尾移除
     handler = HANDLERS.get(event)
     if handler:
         try:

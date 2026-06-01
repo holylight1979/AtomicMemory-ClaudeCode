@@ -64,7 +64,8 @@
 - [固] Stop hook 不支援 additionalContext，只有 block + reason + systemMessage
 - [固] **2026-06-01 實測：支援 `hookSpecificOutput.additionalContext` 注入的事件**（Zod schema 實證）：`UserPromptSubmit`(required) / `PostToolUse` / **`PostToolBatch`** / `SessionStart` / `SubagentStart` / `PostToolUseFailure` / `UserPromptExpansion` / `Notification` / `Setup`。
 - [固] **⚠ `PostCompact` 不支援 additionalContext（無法注入）**——只收 `trigger`+`compact_summary`。故「壓縮後重注入記憶」**不能靠 PostCompact**，須改用 `SessionStart(compact)` 或 **`PostToolBatch`**。本核心選配 #4 採「PostCompact stash → 下個 PostToolBatch 一次性注入」閉合 mid-turn auto-compact 失憶缺口（`plans/deep-wobbling-bentley.md`、`hooks/handlers/post_compact.py`+`post_tool_batch.py`）。
-- [觀] 待實測（Phase-0 `/compact` 探針 `Logs/compact-probe.log`）：2.1.159 auto-compact 是否**也**觸發 `SessionStart(source=compact)` → 判定 `session_start.py` 既有 compact 分支是否已成死碼。
+- [固] **2026-06-01 Phase-0 實測結論（`/compact` 探針，事後已移除）**：full 手動 `/compact` 觸發序 = `PreCompact` →（壓縮約 2 min）→ **`SessionStart(source=compact)`** → `PostCompact`，即 `SessionStart(compact)` **確實觸發**（早於 PostCompact），故 [session_start.py:230-249](../../hooks/handlers/session_start.py#L230-L249) 的 compact 分支**非死碼，保留**。⚠ 但 `SessionStart(compact)` **不保證觸發**：另觀察到一次近瞬時（1 s）manual compact 僅 `PreCompact`+`PostCompact`、無 SessionStart（疑 no-op / auto-compact 路徑），故壓縮後**內文**復原**不可依賴 SessionStart(compact)**。
+- [固] **兩路復原互補不重複**：`SessionStart(compact)` 分支僅「列出壓縮前 atom 名稱」（資訊性 ~30 tok）並清空 `injected_atoms`；完整 atom **內文**的壓縮後復原由 `PostCompact`（讀 PreCompact 快照 `pre_compact_injected_atoms` → stash blob）→ `PostToolBatch`（下一批工具後一次性 `additionalContext` 注入 → 清 flag → 名單 merge 回 `injected_atoms`）負責（選配 #4）。**E2E 實證**：full `/compact` 後 PostToolBatch 成功復原 5 atom 內文（workflow-rules / feedback-completion-gates / preferences / feedback-tooling-reliability / decisions）。snapshot 設計正是為了抵禦 SessionStart(compact) 早於 PostCompact 清空 `injected_atoms` 的順序。
 
 ## 行動
 

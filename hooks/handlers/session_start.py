@@ -244,6 +244,12 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if kq_count > 0:
             items = [q["content"][:40] for q in state["knowledge_queue"][:3]]
             lines.append(f"Pending knowledge: {'; '.join(items)}")
+        # 注（2026-06-01 Phase-0 probe）：full `/compact` 實測會觸發 SessionStart(source=compact)
+        # （序：PreCompact → SessionStart(compact) → PostCompact），故本分支非死碼、保留。
+        # 但此處僅「列出壓縮前 atom 名稱」（資訊性 ~30 tok）；完整內文的壓縮後復原由
+        # PostCompact(snapshot stash)→PostToolBatch(一次性注入) 負責（選配 #4），兩者互補不重複。
+        # 且 SessionStart(compact) 不保證觸發（no-op / auto-compact 僅 PreCompact+PostCompact），
+        # 故內文復原不可依賴本分支。詳見 _AIDocs/ClaudeCodeInternals/cc-hook-system.md。
         if prev_atoms:
             atom_names = ", ".join(prev_atoms)
             lines.append(f"[Atom Recovery] 壓縮前已載入: {atom_names}")
