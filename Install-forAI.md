@@ -139,6 +139,8 @@ rsync -a "$SRC/_AIDocs/" "$DST/_AIDocs/"
     "PreToolUse": [{"matcher":"Edit|Write|Bash", "hooks":[{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":3}]}],
     "PostToolUse": [{"matcher":"Edit|Write|Read|Bash", "hooks":[{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":3}]}],
     "PreCompact": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5}]}],
+    "PostCompact": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5}]}],
+    "PostToolBatch": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5}]}],
     "Stop": [{"hooks":[
         {"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5},
         {"type":"command", "command":"python \"$HOME/.claude/hooks/quick-extract.py\"", "async":true, "timeout":30}
@@ -269,7 +271,7 @@ cd ~/.claude && git pull
 補確認（V4.1 / V4 → V5）：
 
 - [ ] `version.json` 為 `atom_memory: "5.0"` / `guardian: "5.0.0"`
-- [ ] `hooks/dispatcher.py` 存在 + `hooks/handlers/` 8 個 event handler 各一檔
+- [ ] `hooks/dispatcher.py` 存在 + `hooks/handlers/` 10 個 event handler 各一檔（含選配 #4 的 post_compact / post_tool_batch）
 - [ ] `hooks/wg_*.py` 為 6 主模組（core/atoms/extraction/episodic/evasion/docdrift）+ 2 shim（roles/atom_observation）
 - [ ] `commands/` **已刪除**（22 檔合 19 skill）
 - [ ] `skills/` 含 20 個 skill（19 遷移 + skill-creator 新增）；`/memory` 統一 5 subcmd（health/peek/undo/review/session-score）

@@ -41,12 +41,13 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 ├── hooks/                                          ← V5 重整：6 主模組 + 2 shim + handlers/
 │   ├── workflow-guardian.py                        ← 1 行 shim → dispatcher.main()
 │   ├── dispatcher.py                               ← 純路由（~75 行）
-│   ├── handlers/                                   ← 8 event handler 各一檔
+│   ├── handlers/                                   ← 10 event handler 各一檔
 │   │   ├── _shared.py
 │   │   ├── session_start.py / session_end.py
 │   │   ├── user_prompt_submit.py / pre_compact.py
 │   │   ├── pre_tool_use.py / post_tool_use.py
 │   │   ├── stop.py / notification.py
+│   │   ├── post_compact.py / post_tool_batch.py    ← 選配 #4：壓縮後 atom 內文重注入
 │   ├── wg_core.py                                  ← 路徑唯一真相 + state IO + log rotation
 │   ├── wg_atoms.py                                 ← trigger + BM25 + ACT-R + vector + 晉升
 │   ├── wg_extraction.py                            ← per-turn 萃取 + worker + hot cache + user-extract
@@ -295,7 +296,7 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 dispatcher → V5：
 - **主模組（6）**：wg_core / wg_atoms / wg_extraction / wg_episodic / wg_evasion / wg_docdrift
 - **Shim（2）**：wg_roles / wg_atom_observation
 - **獨立保留**：wisdom_engine / codex_companion / extract-worker / quick-extract / user-extract-worker
-- **Dispatcher**：`dispatcher.py`（~75 行純路由）+ `handlers/` 8 個 event handler 各一檔
+- **Dispatcher**：`dispatcher.py`（~75 行純路由）+ `handlers/` 10 個 event handler 各一檔（含選配 #4 的 post_compact / post_tool_batch）
 - **`workflow-guardian.py`**：1 行 shim 轉發到 `dispatcher.main()`
 
 四套自評（原 wg_evasion / wg_session_evaluator / wg_iteration / codex_companion soft_gate）整合進 `wg_evasion`。
@@ -631,7 +632,7 @@ flowchart TD
 | 子系統 | 切入點 | 說明 |
 |--------|--------|------|
 | Workflow Guardian | [hooks/workflow-guardian.py](hooks/workflow-guardian.py) → [hooks/dispatcher.py](hooks/dispatcher.py) | Stop 閘門 — 有未同步修改阻止結束，最多 2 次強制放行 |
-| Event Handlers | [hooks/handlers/](hooks/handlers/) | 8 個 event 各一檔（session_start/end、UPS、pre/post_tool_use、stop、pre_compact、notification） |
+| Event Handlers | [hooks/handlers/](hooks/handlers/) | 10 個 event 各一檔（session_start/end、UPS、pre/post_tool_use、stop、pre_compact、post_compact、post_tool_batch、notification） |
 | Atom Index SoT (V5) | [lib/atom_index_json.py](lib/atom_index_json.py) + `memory/_atom_index.json` | JSON 唯一機器源；MD 自動生成 mirror |
 | Hybrid RECALL | [hooks/wg_atoms.py](hooks/wg_atoms.py) | trigger + **BM25**（V5）+ Vector + ACT-R + Related-Edge + Section-Level |
 | Hot Cache | [hooks/wg_extraction.py](hooks/wg_extraction.py) + `workflow/hot_cache.json` | quick-extract 寫 → PostToolUse/UPS 注入 → deep extract 覆寫 |
