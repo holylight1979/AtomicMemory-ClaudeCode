@@ -29,6 +29,63 @@ from handlers._shared import (
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
 
+# Phase 1: 從 sub-agent prompt 的注入 header 回推 atom 清單。
+#   header 形如：[WG:SubagentMemory] …… atoms=a,b,c
+_SUBAGENT_ATOMS_RE = re.compile(r"\[WG:SubagentMemory\][^\n]*?atoms=([^\n]+)")
+_SUBAGENT_INJ_CAP = 50          # state 中保留最近 N 筆 spawn 記錄
+_SUBAGENT_SUMMARY_CAP = 400     # agent 輸出摘要字元上限
+
+
+def _extract_agent_output_summary(tool_response: Dict[str, Any], cap: int = _SUBAGENT_SUMMARY_CAP) -> str:
+    """從 Agent tool_response.content 擷取文字摘要。content 為 [{type,text}, ...]。"""
+    content = tool_response.get("content", "")
+    text = ""
+    if isinstance(content, list):
+        parts = []
+        for blk in content:
+            if isinstance(blk, dict) and blk.get("type") == "text":
+                parts.append(str(blk.get("text", "")))
+            elif isinstance(blk, str):
+                parts.append(blk)
+        text = "\n".join(parts)
+    elif isinstance(content, str):
+        text = content
+    text = text.strip().replace("\r", " ")
+    return text[:cap]
+
+
+def _record_subagent_injection(state: Dict[str, Any], input_data: Dict[str, Any]) -> bool:
+    """記錄某次 sub-agent spawn 注入了哪些 atom + 輸出摘要。回 True 表示有寫入。
+
+    無狀態回推：注入清單來自 tool_response.prompt（注入後完整 prompt）的 blob marker；
+    無 marker（本次未注入）→ 不記錄、回 False。
+    """
+    tr = input_data.get("tool_response", {})
+    if not isinstance(tr, dict):
+        return False
+    prompt = tr.get("prompt", "") or input_data.get("tool_input", {}).get("prompt", "") or ""
+    m = _SUBAGENT_ATOMS_RE.search(prompt)
+    if not m:
+        return False
+    atoms = [a.strip() for a in m.group(1).split(",") if a.strip()]
+    if not atoms:
+        return False
+
+    rec = {
+        "agent_id": tr.get("agentId", "") or "",
+        "agent_type": tr.get("agentType", "") or "",
+        "atoms": atoms,
+        "status": tr.get("status", "") or "",
+        "output_summary": _extract_agent_output_summary(tr),
+        "tool_use_id": input_data.get("tool_use_id", "") or "",
+        "at": _now_iso(),
+    }
+    injections = state.setdefault("subagent_injections", [])
+    injections.append(rec)
+    if len(injections) > _SUBAGENT_INJ_CAP:
+        state["subagent_injections"] = injections[-_SUBAGENT_INJ_CAP:]
+    return True
+
 
 def _maybe_auto_roll_changelog(file_path: str, config: Dict[str, Any]) -> None:
     """Detached roll when _CHANGELOG.md rows exceed threshold. Fail-open."""
@@ -83,6 +140,17 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
     file_path = tool_input.get("file_path", "")
+
+    # ─── Phase 1 (#1): sub-agent 注入歸因記錄 ───────────────────────────────
+    # PostToolUse 對 Agent/Task 自足：tool_response 含 agentId / content / prompt
+    # （注入後的完整 prompt）。從 blob marker 回推注入清單 + 擷取輸出摘要，
+    # keyed by agentId 寫入 state，供 Phase 2 (注入→使用→結果) 歸因。
+    if tool_name in ("Agent", "Task"):
+        try:
+            if _record_subagent_injection(state, input_data):
+                write_state(session_id, state)
+        except Exception as e:
+            print(f"[phase1] sub-agent inject record error: {e}", file=sys.stderr)
 
     if tool_name in ("Edit", "Write") and file_path:
         _maybe_auto_roll_changelog(file_path, config)

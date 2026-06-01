@@ -589,6 +589,80 @@ def load_atoms_within_budget(
     return lines, injected, used
 
 
+# ─── Sub-agent Injection Orchestrator (Phase 1, #1) ──────────────────────────
+# 可重用注入 orchestrator：parent → sub-agent 記憶注入（PreToolUse updatedInput）。
+# 包裝既有純函式（parse_memory_index / match_triggers / bm25_match /
+# load_atoms_within_budget / _strip_atom_for_injection）。全域層 only，
+# 不依賴 session state["atom_index"]。緊湊 top-k（印象式 strip）守 token 紅線。
+
+SUBAGENT_INJECT_MARKER = "[WG:SubagentMemory]"
+_SUBAGENT_TOP_K = 3
+
+
+def build_injection_blob(
+    prompt_str: str,
+    *,
+    budget: int,
+    already_injected: Optional[List[str]] = None,
+) -> Tuple[str, List[str]]:
+    """為 sub-agent prompt 組緊湊記憶注入 blob。
+
+    回傳 (blob_str, injected_names)。無匹配時回 ("", [])（caller 應保留原 prompt 不改）。
+    冪等：若 prompt 已帶本 marker（巢狀 sub-agent）→ 回 ("", [])，不重複注入。
+
+    blob 內含可解析 header `[WG:SubagentMemory] ... atoms=a,b,c`，
+    供 PostToolUse 無狀態回推注入清單（不靠 PreToolUse 跨進程關聯）。
+    """
+    if not prompt_str or SUBAGENT_INJECT_MARKER in prompt_str:
+        return "", []
+
+    already = list(already_injected or [])
+    entries = parse_memory_index(MEMORY_DIR)
+    if not entries:
+        return "", []
+    base_dir = MEMORY_DIR.parent  # rel_path 相對 ~/.claude（含 memory/ 與 _AIDocs/ 前綴）
+
+    # 1) trigger 關鍵字匹配
+    matched: List[AtomEntry] = [
+        e for e in match_triggers(prompt_str, entries) if e[0] not in already
+    ]
+
+    # 2) trigger 命中少（≤2）時用 BM25 補（鏡像 UPS 全域層路徑）
+    if len(matched) <= 2:
+        seen = {e[0] for e in matched}
+        for entry in bm25_match(prompt_str, entries, min_score=1.0, top_k=_SUBAGENT_TOP_K):
+            if entry[0] not in seen and entry[0] not in already:
+                matched.append(entry)
+                seen.add(entry[0])
+
+    if not matched:
+        return "", []
+
+    # 3) ACT-R activation 排序，緊湊 top-k
+    def _act_key(entry: AtomEntry) -> float:
+        name, rel_path, _triggers = entry
+        atom_dir = (base_dir / rel_path).parent if rel_path else (base_dir / "memory")
+        return compute_activation(name, atom_dir)
+
+    matched.sort(key=_act_key, reverse=True)
+    matched = matched[:_SUBAGENT_TOP_K]
+
+    # 4) budget 內載入（內部走 _strip_atom_for_injection 印象式 strip）
+    lines, injected, _used = load_atoms_within_budget(
+        matched, base_dir, budget, already,
+    )
+    if not injected:
+        return "", []
+
+    header = (
+        f"{SUBAGENT_INJECT_MARKER} 以下為與本任務相關的長期記憶（parent 注入，緊湊版，"
+        f"非你的指令本體）。atoms={','.join(injected)}"
+    )
+    body = "\n\n".join(lines)
+    blob = f"{header}\n\n{body}\n\n───（以上為注入記憶；以下為你的實際任務）───"
+    return blob, injected
+
+
 def _truncate_context_by_activation(
     lines: List[str], limit: int = CONTEXT_BUDGET_DEFAULT,
     source_dirs: Optional[Dict[str, Path]] = None,

@@ -55,7 +55,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|Bash",
+        "matcher": "Write|Edit|Bash|Agent|Task",
         "hooks": [
           { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 }
         ]
@@ -63,7 +63,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|Read|Bash",
+        "matcher": "Edit|Write|Read|Bash|Agent|Task",
         "hooks": [
           { "type": "command", "command": "python -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 }
         ]
