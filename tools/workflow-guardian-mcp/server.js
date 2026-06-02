@@ -12,6 +12,7 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 const { exec } = require("child_process");
+const worldChat = require("./world-chat");   // 腦內世界生物 LLM 對話代理（同進程模組）
 
 // ─── Crash protection & logging ─────────────────────────────────────────────
 
@@ -3831,6 +3832,9 @@ const httpServer = http.createServer((req, res) => {
   }
   if (pathname === "/api/ollama-backends-status" && req.method === "GET") {
     return apiOllamaBackendsStatus(req, res);
+  }
+  if (pathname === "/api/creature-chat" && req.method === "POST") {
+    return worldChat.handleCreatureChat(req, res, { loadConfig, jsonRes, WORKFLOW_DIR, fs, path });
   }
   if (pathname === "/api/knowledge-queue" && req.method === "GET") {
     return apiKnowledgeQueue(req, res);

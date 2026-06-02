@@ -244,6 +244,8 @@
    ════════════════════════════════════════════════════════════════════ */
 const API_BASE = "http://127.0.0.1:3848";
 const POLL_MS  = 5000;
+const CHAT_MODEL = "hf.co/edwardwallst/Gemma-4-31B-JANG_4M-CRACK-GGUF:Q4_K_M";  // 生物對話 LLM（跑在 rdchat-direct 3090，經 :3848 /api/creature-chat 代理）
+let chatBusy = false;   // in-flight 鎖：同時只一個 LLM 對話，避免灌爆 3090
 const $ = (id) => document.getElementById(id);
 const scene = $("scene");
 
@@ -629,20 +631,76 @@ function checkDialogue(t){
 }
 function sayPair(a,b,ae){
   const related = a.related.includes(b.name)||b.related.includes(a.name);
+  // 罐頭 fallback（LLM 忙線/逾時/失敗時用）
   let lines;
   if(a.sick||b.sick) lines=["你還好嗎？臉色好差…","一起去診所吧🏥","撐著點！"];
   else if(related) lines=["欸，我們是夥伴！","你也在這啊～","關聯起來力量加倍！"];
   else if(a.elder||b.elder) lines=["前輩好！","後生可畏啊。","多多指教～"];
   else if(a.type&&a.type===b.type) lines=["原來你也是同類","臭味相投耶","握個手🤝"];
   else lines=["嗨！","今天也在運作中","你都記得什麼？","別把我忘了喔"];
-  bubbleAtEl(ae, lines[Math.floor(t1()*lines.length)]);
+  const canned = lines[Math.floor(t1()*lines.length)];
+
+  // 忙線中（已有一個 LLM 請求在飛）→ 直接罐頭，不排隊不灌爆
+  if(chatBusy){ bubbleAtEl(ae, canned, 2000); return; }
+  // 否則：先冒「💭…」泡泡（不自動消），async 問 LLM，回來替換；失敗 → 罐頭
+  chatBusy = true;
+  const bub = bubbleAtEl(ae, "💭…", 0);
+  creatureChat(a, b, related)
+    .then(line => updateBubble(bub, ae, line || canned, 3800))
+    .catch(()  => updateBubble(bub, ae, canned, 2200))
+    .finally(() => { chatBusy = false; });
 }
 function t1(){ return (performance.now()%1000)/1000; }
-function bubbleAtEl(el, text){
+function bubbleAtEl(el, text, ttl=1800){
   const c=el._c;
   const b=document.createElement("div"); b.className="bubble"; b.textContent=text;
   b.style.left=el._x+"px"; b.style.top=(el._y-c.s-4)+"px"; scene.appendChild(b);
-  setTimeout(()=>b.remove(), 1800);
+  if(ttl>0) b._timer=setTimeout(()=>b.remove(), ttl);   // ttl=0 → 持久（等 LLM 回應再 updateBubble）
+  return b;
+}
+function updateBubble(b, el, text, ttl){
+  if(!b || !b.isConnected){ bubbleAtEl(el, text, ttl); return; }
+  const c=el._c;
+  b.textContent=text; b.style.left=el._x+"px"; b.style.top=(el._y-c.s-4)+"px";  // 重定位（生物可能已移動）
+  if(b._timer) clearTimeout(b._timer);
+  b._timer=setTimeout(()=>b.remove(), ttl);
+}
+
+/* ── 生物 LLM 對話（rdchat-direct 31B，經 :3848 代理；async + fallback）──────── */
+function descOf(c){
+  const stage = c.confidence.includes("固")?"成熟[固]":c.confidence.includes("觀")?"成長[觀]":"新生[臨]";
+  const kind  = c.type==="episodic"?"情境回憶":"知識原子";
+  const room  = c.region==="core"?".claude 核心":c.region.replace("project:","");
+  return `${kind}，${stage}，住在「${room}」腦區`;
+}
+async function creatureChat(a, b, related){
+  const sys = "你是『腦內世界』裡的一隻記憶生物，個性鮮明。用繁體中文講『一句』口語、自然、有情緒的短台詞（不超過25字），像在跟旁邊的夥伴搭話。只輸出台詞本身，不要旁白、不要思考過程、不要引號。";
+  const rel = related ? "你們互為關聯夥伴（彼此 related）" : "你們沒什麼關聯";
+  const usr = `我是記憶生物「${a.name}」（${descOf(a)}）。旁邊靠過來的是「${b.name}」（${descOf(b)}）。${rel}。對牠說一句話。`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), 9000);   // 9s 逾時 → fallback 罐頭
+  try{
+    const r = await fetch(API_BASE + "/api/creature-chat", {
+      method:"POST", headers:{"Content-Type":"application/json"}, signal:ctrl.signal,
+      body: JSON.stringify({ model:CHAT_MODEL, think:false, options:{num_predict:64, temperature:0.9},
+        messages:[{role:"system",content:sys},{role:"user",content:usr}] })
+    });
+    if(!r.ok) return null;
+    const j = await r.json();
+    return cleanLine(j.content);
+  } finally { clearTimeout(timer); }
+}
+/* crack 模型會洩漏 <|channel>thought<channel|> 類控制 token → 剝除，只留台詞 */
+function cleanLine(s){
+  if(!s) return "";
+  s = String(s).replace(/<\|?[^>]*\|?>/g, " ");        // 去 <|channel|> 類 tag
+  for(let i=0;i<4;i++){                                  // 去開頭洩漏的思考/通道標記（連清幾個）
+    const t = s.replace(/^[\s:>|]*(thought|analysis|channel|final|assistant|思考|分析)\b[\s:>|]*/i, "");
+    if(t===s) break; s=t;
+  }
+  s = s.replace(/[\r\n]+/g," ").replace(/\s{2,}/g," ").trim().replace(/^["「『]+|["」』]+$/g,"").trim();
+  if(s.length>40) s = s.slice(0,40)+"…";                 // 防超長
+  return s;
 }
 
 /* ── 拖曳 ─────────────────────────────────────────────────────────── */
