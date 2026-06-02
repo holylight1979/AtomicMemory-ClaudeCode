@@ -2081,44 +2081,134 @@ function apiHealth(req, res, forceRefresh) {
 
 // --- E2E Test Runner (async jobs) ---
 
-const testJobs = new Map();
-
-function apiTestRunStart(req, res) {
-  // Only one running test at a time
-  for (const [, j] of testJobs) {
-    if (j.status === "running") return jsonRes(res, 409, { error: "test already running", job_id: j.id });
+// ── 泛用非同步 Job Runner（test / heal / 其他共用，避免重複貼上 Map+鎖+輪詢+清除）──
+//    maxConcurrent=1 即原 testJobs 的單例語意；heal 可配置 N（雲端後端並行）
+function makeJobRunner({ maxConcurrent = 1, ttlMs = 300000 } = {}) {
+  const jobs = new Map();
+  const running = () => { let n = 0; for (const j of jobs.values()) if (j.status === "running") n++; return n; };
+  function start(taskFn, meta = {}) {
+    if (running() >= maxConcurrent) return { ok: false, reason: "busy", running: running() };
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const job = { id, status: "running", result: null, startedAt: Date.now(), finishedAt: null, ...meta };
+    jobs.set(id, job);
+    Promise.resolve().then(() => taskFn(job))
+      .then((result) => { if (jobs.has(id)) { job.result = result; job.status = "completed"; } })
+      .catch((e) => { if (jobs.has(id)) { job.result = { error: String((e && e.message) || e) }; job.status = "error"; } })
+      .finally(() => { if (jobs.has(id)) { job.finishedAt = Date.now(); setTimeout(() => jobs.delete(id), ttlMs); } });
+    return { ok: true, id, job };
   }
-  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const job = { id: jobId, status: "running", result: null, startedAt: Date.now(), finishedAt: null };
-  testJobs.set(jobId, job);
-
-  const scriptPath = path.join(TOOLS_DIR, "test-memory-v21.py");
-  exec(pyCmd(scriptPath, "--json"), { timeout: 120000 }, (err, stdout, stderr) => {
-    if (!testJobs.has(jobId)) return;
-    // Script exits non-zero when tests fail — still parse stdout
-    if (stdout) {
-      try { job.result = JSON.parse(stdout); job.status = "completed"; }
-      catch { /* fall through to error handling */ }
-    }
-    if (!job.result) {
-      if (err) { job.status = "error"; job.result = { error: err.message, stderr: (stderr || "").slice(0, 1000) }; }
-      else { job.status = "error"; job.result = { error: "empty output" }; }
-    }
-    job.finishedAt = Date.now();
-    setTimeout(() => testJobs.delete(jobId), 300000);
-  });
-
-  jsonRes(res, 202, { job_id: jobId, status: "running" });
+  function statusRes(res, id) {
+    const job = jobs.get(id);
+    if (!job) return jsonRes(res, 404, { error: "job not found" });
+    jsonRes(res, 200, { job_id: id, status: job.status, elapsed_ms: (job.finishedAt || Date.now()) - job.startedAt, result: job.result });
+  }
+  return { jobs, start, statusRes, running };
 }
 
-function apiTestRunStatus(req, res, jobId) {
-  const job = testJobs.get(jobId);
-  if (!job) return jsonRes(res, 404, { error: "job not found" });
-  jsonRes(res, 200, {
-    job_id: jobId, status: job.status,
-    elapsed_ms: (job.finishedAt || Date.now()) - job.startedAt,
-    result: job.result,
+// 把子程序 exec 包成 Promise：stdout 能 JSON.parse → resolve；否則 reject（job 標 error）
+// 註：腳本測試失敗仍輸出合法 JSON → 視為 completed（保留原 testJobs「非零退出仍解析」語意）
+function execJson(cmd, opts = {}) {
+  return new Promise((resolve, reject) => {
+    exec(cmd, opts, (err, stdout, stderr) => {
+      if (stdout) { try { return resolve(JSON.parse(stdout)); } catch { /* fall through */ } }
+      if (err) return reject(new Error(err.message + (stderr ? " | " + String(stderr).slice(0, 500) : "")));
+      reject(new Error("empty output" + (stderr ? " | " + String(stderr).slice(0, 500) : "")));
+    });
   });
+}
+
+const testRunner = makeJobRunner({ maxConcurrent: 1, ttlMs: 300000 });
+function apiTestRunStart(req, res) {
+  const scriptPath = path.join(TOOLS_DIR, "test-memory-v21.py");
+  const r = testRunner.start(() => execJson(pyCmd(scriptPath, "--json"), { timeout: 120000 }));
+  if (!r.ok) return jsonRes(res, 409, { error: "test already running" });
+  jsonRes(res, 202, { job_id: r.id, status: "running" });
+}
+function apiTestRunStatus(req, res, jobId) { return testRunner.statusRes(res, jobId); }
+
+// ── World Command Bus：Claude/使用者下指令 → 前端輪詢執行 → 回報；snapshot 供讀取世界狀態 ──
+function readJsonBody(req, cb) {
+  let body = "";
+  req.on("data", (ch) => (body += ch));
+  req.on("end", () => { try { cb(body ? JSON.parse(body) : {}); } catch { cb(null); } });
+}
+const worldCommands = [];        // {id, cmd, args, at, status, result}
+let worldCmdSeq = 0;
+let worldSnapshot = { at: 0, creatures: [] };   // 前端 POST 回填、Claude GET 讀
+function apiWorldCommandPost(req, res) {
+  readJsonBody(req, (body) => {
+    if (!body || !body.cmd) return jsonRes(res, 400, { error: "missing cmd" });
+    const id = ++worldCmdSeq;
+    worldCommands.push({ id, cmd: body.cmd, args: body.args || {}, at: Date.now(), status: "pending", result: null });
+    if (worldCommands.length > 200) worldCommands.splice(0, worldCommands.length - 200);
+    jsonRes(res, 200, { id, queued: true });
+  });
+}
+function apiWorldCommandsGet(req, res, sinceStr) {
+  const since = parseInt(sinceStr || "0", 10) || 0;
+  jsonRes(res, 200, { commands: worldCommands.filter((c) => c.id > since && c.status === "pending"), last_id: worldCmdSeq });
+}
+function apiWorldResultPost(req, res) {
+  readJsonBody(req, (body) => {
+    const c = body && worldCommands.find((x) => x.id === body.id);
+    if (c) { c.status = body.ok ? "done" : "failed"; c.result = body.observation != null ? body.observation : null; }
+    jsonRes(res, 200, { ok: !!c });
+  });
+}
+function apiWorldSnapshot(req, res) {
+  if (req.method === "POST") {
+    return readJsonBody(req, (body) => {
+      if (body && Array.isArray(body.creatures)) worldSnapshot = { at: Date.now(), creatures: body.creatures };
+      jsonRes(res, 200, { ok: true });
+    });
+  }
+  const age = worldSnapshot.at ? Math.round((Date.now() - worldSnapshot.at) / 1000) : null;
+  jsonRes(res, 200, { ...worldSnapshot, age_seconds: age });
+}
+
+// ── 記憶自癒：spawn atom-heal.py（分級 L1 機械/L2 LLM判斷/L3 喚醒），皆走泛用 healRunner ──
+const healRunner = makeJobRunner({ maxConcurrent: (loadConfig().heal || {}).max_concurrent || 1, ttlMs: 300000 });
+const ATOM_NAME_RE = /^[\w一-鿿.-]+$/;   // 防 shell 注入：只允許字母數字底線連字號點與 CJK
+function healCfg() { return loadConfig().heal || {}; }
+function spawnHeal(atom, auto) {
+  const script = path.join(TOOLS_DIR, "atom-heal.py");
+  const args = `--atom "${atom}" --apply --backend ${healCfg().backend || "ollama"}${auto ? " --auto" : ""} --json`;
+  return healRunner.start(() => execJson(pyCmd(script, args), { timeout: healCfg().agent_timeout_ms || 180000 }), { atom });
+}
+function apiHealStart(req, res, atom, auto) {
+  if (healCfg().enabled === false) return jsonRes(res, 503, { error: "heal disabled" });
+  if (!ATOM_NAME_RE.test(atom)) return jsonRes(res, 400, { error: "bad atom name" });
+  const r = spawnHeal(atom, auto);
+  if (!r.ok) return jsonRes(res, 409, { error: "heal busy", running: r.running });
+  jsonRes(res, 202, { job_id: r.id, status: "running", atom, auto: !!auto });
+}
+function apiHealAll(req, res) {
+  if (healCfg().enabled === false) return jsonRes(res, 503, { error: "heal disabled" });
+  exec(pyCmd(path.join(TOOLS_DIR, "atom-health-check.py"), "--report --json"), { timeout: 30000 }, (err, stdout) => {
+    const names = new Set();
+    try {
+      const h = JSON.parse(stdout);
+      (h.broken_refs || []).forEach((b) => names.add(b.atom));
+      (h.missing_reverse_refs || []).forEach((r) => names.add(r.atom_a));
+    } catch { /* ignore */ }
+    const started = [];
+    for (const n of names) {
+      if (!ATOM_NAME_RE.test(n)) continue;
+      const r = spawnHeal(n, false);
+      if (r.ok) started.push({ atom: n, job_id: r.id }); else break;   // 並發滿 → 其餘留待下次
+    }
+    jsonRes(res, 202, { started, count: started.length, pending: Math.max(0, names.size - started.length) });
+  });
+}
+function apiHealReview(req, res) {
+  const dir = path.join(CLAUDE_DIR, "memory", "_heal_review");
+  const items = [];
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (f.endsWith(".json")) { try { items.push(JSON.parse(fs.readFileSync(path.join(dir, f), "utf-8"))); } catch { /* skip */ } }
+    }
+  } catch { /* dir absent = no pending */ }
+  jsonRes(res, 200, { items, count: items.length });
 }
 
 // --- Vector Status Proxy ---
@@ -3827,6 +3917,18 @@ const httpServer = http.createServer((req, res) => {
   if (testJobMatch && req.method === "GET") {
     return apiTestRunStatus(req, res, testJobMatch[1]);
   }
+  // ── World Command Bus 路由 ──
+  if (pathname === "/api/world-command" && req.method === "POST") return apiWorldCommandPost(req, res);
+  if (pathname === "/api/world-commands" && req.method === "GET") return apiWorldCommandsGet(req, res, url.searchParams.get("since"));
+  if (pathname === "/api/world-result" && req.method === "POST") return apiWorldResultPost(req, res);
+  if (pathname === "/api/world-snapshot") return apiWorldSnapshot(req, res);
+  // ── 記憶自癒路由（先比對固定路徑，再 heal/(.+) 否則被吃掉）──
+  if (pathname === "/api/heal-all" && req.method === "POST") return apiHealAll(req, res);
+  if (pathname === "/api/heal-review" && req.method === "GET") return apiHealReview(req, res);
+  const healJobMatch = pathname.match(/^\/api\/heal-job\/([^/]+)$/);
+  if (healJobMatch && req.method === "GET") return healRunner.statusRes(res, healJobMatch[1]);
+  const healMatch = pathname.match(/^\/api\/heal\/(.+)$/);
+  if (healMatch && req.method === "POST") return apiHealStart(req, res, decodeURIComponent(healMatch[1]), url.searchParams.get("auto") === "1");
   if (pathname === "/api/vector-status" && req.method === "GET") {
     return apiVectorStatus(req, res);
   }

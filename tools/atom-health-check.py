@@ -505,6 +505,37 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
     return report
 
 
+def single_atom_report(name: str, atoms: dict[str, Path],
+                       aliases: dict[str, str] | None = None) -> dict:
+    """Filter full-library health results down to a single atom NAME.
+
+    Runs the existing whole-library detectors (validate_refs / check_reverse_refs /
+    stale_check) unchanged, then filters their output to items involving NAME.
+    Output is --report --json compatible (same keys: broken_refs /
+    missing_reverse_refs / stale_atoms), so callers can reuse the same parser.
+    """
+    aliases = aliases or {}
+
+    # broken_refs: only refs whose SOURCE atom == NAME (NAME pointing at a missing ref)
+    broken = [b for b in validate_refs(atoms, aliases) if b["atom"] == name]
+
+    # missing_reverse_refs: any reverse-ref issue involving NAME on either side
+    reverse = [r for r in check_reverse_refs(atoms, aliases)
+               if r["atom_a"] == name or r["atom_b"] == name]
+
+    # stale_atoms: NAME if it is in the stale list, else empty
+    stale = [s for s in stale_check(atoms) if s["atom"] == name]
+
+    return {
+        "generated": datetime.now().isoformat(),
+        "atom": name,
+        "exists": name in atoms,
+        "broken_refs": broken,
+        "missing_reverse_refs": reverse,
+        "stale_atoms": stale,
+    }
+
+
 def print_text_report(report: dict):
     """Pretty-print the report."""
     print(f"=== Atom Health Report ({report['generated'][:10]}) ===")
@@ -588,6 +619,8 @@ def main():
     parser.add_argument("--shadow-dry-run", action="store_true",
                         help="Print full ratio distribution (≥0.3) instead of filtering by threshold")
     parser.add_argument("--report", action="store_true", help="Full health report")
+    parser.add_argument("--atom", type=str, default=None,
+                        help="Report health issues for a single atom only (broken_refs/missing_reverse_refs/stale_atoms filtered to NAME)")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--memory-root", type=str, default=None, help="Override memory root path")
     args = parser.parse_args()
@@ -615,8 +648,33 @@ def main():
     aliases = parse_memory_index(MEMORY_ROOT)
 
     if not any([args.validate_refs, args.fix_refs, args.auto_fix_broken,
-                args.stale_check, args.shadow_check, args.report]):
+                args.stale_check, args.shadow_check, args.report, args.atom]):
         parser.print_help()
+        sys.exit(0)
+
+    if args.atom:
+        report = single_atom_report(args.atom, atoms, aliases)
+        if args.json:
+            print(json.dumps(report, indent=2, ensure_ascii=False))
+        else:
+            if not report["exists"]:
+                print(f"⚠️ atom '{args.atom}' not found in {MEMORY_ROOT}")
+            print(f"=== Atom Health: {args.atom} ===")
+            if report["broken_refs"]:
+                for b in report["broken_refs"]:
+                    print(f"❌ {b['atom']} → {b['missing_ref']} (not found)")
+            else:
+                print("✅ No broken references.")
+            if report["missing_reverse_refs"]:
+                for r in report["missing_reverse_refs"]:
+                    print(f"⚠️ {r['direction']}")
+            else:
+                print("✅ No missing reverse references.")
+            if report["stale_atoms"]:
+                for s in report["stale_atoms"]:
+                    print(f"🕐 {s['atom']} — {s['last_used']} ({s['days_ago']}d ago)")
+            else:
+                print("✅ Not stale.")
         sys.exit(0)
 
     if args.fix_refs:

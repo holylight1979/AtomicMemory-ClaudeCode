@@ -21,6 +21,8 @@
 | cc-能力查證反編譯實跑-binary | CC 能力查證：反編譯實跑 binary |
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
 | atom-元資料編輯與晉升閘真相 | atom 元資料編輯與晉升閘真相 |
+| guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
+| 腦內世界-v3-自癒與-command-bus-架構 | 腦內世界 v3 自癒與 Command Bus 架構 |
 | feedback-* | 行為校正（7 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |

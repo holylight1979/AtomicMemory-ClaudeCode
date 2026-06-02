@@ -31,3 +31,5 @@
 | cc-能力查證反編譯實跑-binary | memory/cc-能力查證反編譯實跑-binary.md | CC 版本, hook event, 查證, 反編譯, claude binary, docs 幻覺, 版本分裂, WebFetch, capability, PostCompact, PostToolBatch | global |
 | codex-log-bloat-analytics | memory/codex-log-bloat-analytics.md | codex, logs_2.sqlite, 日誌暴量, analytics, OTEL, app-server, codex 崩潰, codex 卡頓, --analytics-default-enabled | global |
 | atom-元資料編輯與晉升閘真相 | memory/atom-元資料編輯與晉升閘真相.md | edit_metadata, atom 元資料編輯, atom_edit_meta, trigger 裁減, 改 trigger, atom 晉升, ReadHits, usefulness, 晉升閘, access.json, sidecar, 行尾損壞 | global |
+| guardian-dashboard-孤兒佔埠與新碼重啟 | memory/guardian-dashboard-孤兒佔埠與新碼重啟.md | guardian, server.js, 3848, dashboard, 重啟, 孤兒, EADDRINUSE, 新路由 404, creature-chat, world.html | global |
+| 腦內世界-v3-自癒與-command-bus-架構 | memory/腦內世界-v3-自癒與-command-bus-架構.md | 腦內世界, atom-heal, 記憶自癒, command bus, world.html, jobRunner, _heal_review, heal-review | global |

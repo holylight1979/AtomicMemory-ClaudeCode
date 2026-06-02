@@ -276,3 +276,31 @@ skills/{name}/verify/                        ← 17 個空結構（內容由 nex
 **統一入口**：
 
 `python run_verify.py` — 跨平台 entrypoint，動態掃 `{src}/verify/` + `skills/{name}/verify/`，跑 `pytest -v --tb=short`。完成宣告前必跑（取代 `pytest tests/`）。
+
+---
+
+## 腦內世界 v3（記憶可視化 + Command Bus + 真・自癒）
+
+`tools/workflow-guardian-mcp/world.html` 把每個 atom 畫成生物（房間=專案、體型=資深、★=戰力、🤢=壞掉）。v3 在純視覺上加三層，由 :3848 dashboard server 服務。
+
+**硬約束**：對話/本地判斷共用單張 3090（Gemma-4-31B 序列）。準則：行為分**免費層**（移動/罐頭/機械修，純前端或腳本）與**昂貴層**（LLM，節流/可配置並行）。
+
+### P1/P2 前端（world.html，純前端零後端成本）
+- **個性** `personaOf(c)`：類別(name/type)×年資(confidence)×狀態(sick/lonely/elder) → 注入 `creatureChat` 的 sys prompt，不增 LLM 呼叫數。
+- **自主行為** `wander()`/`sickWalk()`：房內漫步；生病生物自走 🏥 觸發自動 L1。`dialogueDirector()` 每 18–30s 在 `chatBusy` 空閒時挑一對聊一次 → LLM 速率封頂、與生物數無關。`autoOn` 總開關。
+- **Command Bus**：單一 `WORLD_COMMANDS` registry 衍生「選項式指令台」UI + executor + `/api/world-*` 輪詢。加指令＝改 registry 一處。Claude 用 `curl POST /api/world-command` + `GET /api/world-snapshot` 同套 API 驅動/觀測。
+
+### P3 記憶自癒（`tools/atom-heal.py`＝單一來源）
+腳本主導、判斷才呼 LLM、修完即驗證：
+- **L1** `missing_reverse_refs` → 機械補反向連結（`edit_metadata`，免 LLM）。
+- **L2** `broken_refs`/格式 → 呼 LLM 出結構化提案（repoint/remove/needs_human）→ 腳本經 funnel 套用 → 驗證。**禁盲刪**、repoint 只能指真實候選、LLM 失敗一律 needs_human。
+- **L3** `stale` → 喚醒（不修）。
+- 重用 `atom-health-check.py`（importlib：`single_atom_report` + `--atom` 過濾）/ `lib.atom_io.edit_metadata`(source=`tool:atom-heal`) / `lib.atom_spec.validate_atom_content` / `tools/ollama_client.get_client`。
+- **後端可插拔**：`config.json` `heal.backend` 預設 `ollama`（本地免費、序列 `max_concurrent=1`）；`cloud` 為選配（並行 cap=N，adapter 待接）。
+- **修不好 → `memory/_heal_review/<atom>.json` 診斷卡** + `_merge_history.log`；`/heal-review` skill（`tools/heal-review.py`）人工 resolve/dismiss（需 management）。
+
+### server.js
+- **`makeJobRunner` + `execJson`**：抽 testJobs 的「Map+鎖+輪詢+TTL 清除」共用，test 與 heal 共用（DRY）。
+- 路由：Command Bus（`/api/world-command|world-commands|world-result|world-snapshot`）+ 自癒（`/api/heal/:atom?auto=1`、`heal-job/:id`、`heal-all`、`heal-review`）。spawn `atom-heal.py` 前 `ATOM_NAME_RE` 擋 shell 注入。
+- **誠實痊癒**：前端只有 server 回 `fixed` 才移 `.sick`；修不好貼 🩹「轉診人工」不假裝。
+- ⚠️ **改 server.js 需走重啟 SOP**（殺舊碼孤兒讓新實例重綁 :3848；見 atom `guardian-dashboard-孤兒佔埠與新碼重啟`）。

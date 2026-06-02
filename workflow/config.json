@@ -184,5 +184,13 @@
     ],
     "keyword_match_threshold": 2,
     "max_pending_display": 5
+  },
+  "heal": {
+    "enabled": true,
+    "backend": "ollama",
+    "max_concurrent": 1,
+    "agent_timeout_ms": 180000,
+    "run_full_verify": false,
+    "_comment": "記憶自癒(腦內世界 P3)：backend=ollama 本地免費序列；改 cloud + max_concurrent>1 可雲端並行(需接 adapter)"
   }
 }

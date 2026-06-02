@@ -134,7 +134,7 @@
   #clinic.hot{background:rgba(63,185,80,.2); box-shadow:0 0 24px rgba(63,185,80,.4);}
   #clinic .ic{font-size:34px;}
 
-  #legend{position:fixed; z-index:5; left:14px; bottom:14px; font-size:11px; color:var(--muted);
+  #legend{position:fixed; z-index:5; left:14px; bottom:56px; font-size:11px; color:var(--muted);
     background:rgba(13,17,23,.82); border:1px solid var(--line); border-radius:10px; padding:8px 12px; pointer-events:none;}
   #legend b{color:var(--fg)} #legend .r{margin:2px 0}
 
@@ -155,6 +155,31 @@
   #detail details{margin-top:10px} #detail summary{cursor:pointer; color:var(--muted); font-size:12px}
   #detail pre{margin-top:8px; padding:8px; background:#010409; border:1px solid var(--line); border-radius:8px;
     font-size:11px; line-height:1.5; white-space:pre-wrap; color:#adbac7; max-height:220px; overflow:auto}
+
+  /* 指令台（command bus 選項式輸入框；可收合，body 向上展開、header 釘底）*/
+  #cmdbar{position:fixed; z-index:8; left:14px; bottom:14px; width:300px; background:rgba(13,17,23,.95);
+    border:1px solid var(--line); border-radius:12px; box-shadow:0 6px 24px rgba(0,0,0,.5); color:var(--fg);}
+  #cmdbar .cb-h{padding:8px 12px; cursor:pointer; font-weight:700; user-select:none; font-size:12px;
+    display:flex; justify-content:space-between; align-items:center}
+  #cmdbar .cb-sub{font-weight:400; font-size:10px; color:var(--muted)}
+  #cmdbar .cb-tog{transition:transform .2s; color:var(--muted)}
+  #cmdbar.open .cb-tog{transform:rotate(180deg)}
+  #cmdbar .cb-body{display:none; padding:0 12px 12px; font-size:12px}
+  #cmdbar.open .cb-body{display:block}
+  #cmdbar .cb-row{display:flex; gap:6px; margin-bottom:6px}
+  #cmdbar select,#cmdbar input{background:#0d1117; border:1px solid var(--line); color:var(--fg);
+    border-radius:6px; padding:4px 6px; font-size:12px; flex:1; min-width:0}
+  #cmdbar button{background:#238636; border:none; color:#fff; border-radius:6px; padding:4px 14px; cursor:pointer; font-size:12px}
+  #cmdbar button:hover{background:#2ea043}
+  #cmdbar .cb-desc{font-size:11px; color:var(--muted); margin:2px 0 8px; min-height:14px}
+  #cmdbar .cb-args{display:flex; flex-direction:column; gap:6px}
+  #cmdbar .cbarg{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted)}
+  #cmdbar .cbarg select,#cmdbar .cbarg input{flex:1; color:var(--fg)}
+  #cmdbar .cb-log{margin-top:8px; font-size:11px; color:#7ee787; min-height:14px; word-break:break-all}
+
+  /* 自癒視覺：治療中發光、轉診人工貼 OK 繃（誠實：只有 server 確認 fixed 才移 .sick）*/
+  #scene .cr.healing{ filter:brightness(1.25) drop-shadow(0 0 7px rgba(63,185,80,.8)); }
+  #scene .cr.bandaged::after{ content:"🩹"; position:absolute; top:-4px; right:-4px; font-size:15px; filter:none; }
 </style>
 </head>
 <body>
@@ -221,6 +246,19 @@
 
   <div id="clinic"><div class="ic">🏥</div>診所<br><span style="font-size:10px;opacity:.7">拖生病的來這</span></div>
 
+  <!-- 指令台：選項式 command bus（單一 WORLD_COMMANDS registry 衍生；Claude 走同一套 /api/world-* API）-->
+  <div id="cmdbar">
+    <div class="cb-body">
+      <div class="cb-row"><select id="cbCmd"></select><button onclick="runCmdBar()">執行</button></div>
+      <div id="cbDesc" class="cb-desc"></div>
+      <div id="cbArgs" class="cb-args"></div>
+      <div id="cbLog" class="cb-log"></div>
+    </div>
+    <div class="cb-h" onclick="document.getElementById('cmdbar').classList.toggle('open')">
+      <span>🎮 指令台 <span class="cb-sub">選指令→填參數→執行</span></span><span class="cb-tog">▴</span>
+    </div>
+  </div>
+
   <div id="legend">
     <div class="r"><b>體型</b> 🥚蛋→史萊姆→小怪→龍（越大越資深；龍滿級會威風呼吸）</div>
     <div class="r"><b>戰力</b> 腳下 ⭐×N（相對全場最強 power）　｜　🏆 topbar 顯示最強 TOP3</div>
@@ -246,6 +284,7 @@ const API_BASE = "http://127.0.0.1:3848";
 const POLL_MS  = 5000;
 const CHAT_MODEL = "hf.co/edwardwallst/Gemma-4-31B-JANG_4M-CRACK-GGUF:Q4_K_M";  // 生物對話 LLM（跑在 rdchat-direct 3090，經 :3848 /api/creature-chat 代理）
 let chatBusy = false;   // in-flight 鎖：同時只一個 LLM 對話，避免灌爆 3090
+let autoOn = true;      // 自主行為總開關（漫步 + 對話導演）；可由指令台 auto on/off 切換
 const $ = (id) => document.getElementById(id);
 const scene = $("scene");
 
@@ -283,6 +322,7 @@ async function refresh(){
     model = buildModel({projects, atoms, health, sessions, episodic});
     layout();
     render();
+    refreshCmdOptions();
     setConn(true);
   }catch(e){ console.error("[world] refresh failed:", e); setConn(false); }
 }
@@ -444,6 +484,9 @@ function layout(){
       c.slotY = floorY - rb*CH - CH*0.42;
       c.phase = (c.name.charCodeAt(0)||0) % 100 / 100 * Math.PI*2;
       c.span = c.active ? Math.min((CW-c.s)/2 - 2, 6) : 1.5;   // 走動幅度受 cell 餘裕限制 → 不重疊
+      // 自主漫步邊界：限制在房間框內（扣邊距與體型），讓 wander 不致跑出房
+      c.roomMinX = r.x + PADX + c.s/2;   c.roomMaxX = r.x + r.w - PADX - c.s/2;
+      c.roomMinY = r.y + HEAD + c.s/2;   c.roomMaxY = r.y + r.h - BOT - c.s/2;
     });
   });
 
@@ -592,16 +635,133 @@ function renderTop3(){
     : `<span class="t3muted">待戰力遙測…</span>`;
 }
 
+/* ════════ 對話導演：每隔一段時間，若 LLM 空閒就挑一對靠近/related 生物聊一次（節流，與生物數無關）════════ */
+let directorNext = 0;
+const DIRECTOR_MIN = 18, DIRECTOR_SPAN = 12;   // 18~30s 一次
+function dialogueDirector(t){
+  if(chatBusy || t < directorNext) return;
+  directorNext = t + DIRECTOR_MIN + Math.random()*DIRECTOR_SPAN;
+  const list = []; crEls.forEach(el=>{ if(el._c && !el._dragging) list.push(el); });
+  if(list.length < 2) return;
+  let pair=null, bd=1e9;
+  for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
+    const a=list[i]._c, b=list[j]._c;
+    const dx=list[i]._x-list[j]._x, dy=list[i]._y-list[j]._y, d=dx*dx+dy*dy;
+    const near = d < (a.s+b.s)*(a.s+b.s)*1.6;                      // 比拖曳觸發寬一點
+    const rel  = a.related.includes(b.name)||b.related.includes(a.name);
+    if((near||rel) && d<bd){ bd=d; pair=[list[i],list[j]]; }
+  }
+  if(pair) sayPair(pair[0]._c, pair[1]._c, pair[0]);
+}
+
+/* ════════ 指令台（Command Bus）：單一 WORLD_COMMANDS registry 驅動 UI + executor + 遠端輪詢 ════════ */
+function findCr(name){
+  if(!name) return null; const s=String(name);
+  return (creatures||[]).find(c=>c.name===s)
+      || (creatures||[]).find(c=>c.name.toLowerCase()===s.toLowerCase())
+      || (creatures||[]).find(c=>c.name.includes(s)) || null;
+}
+function elOf(c){ return c && crEls.get(c.uid); }
+function moveCreatureTo(c, to){
+  const el=elOf(c); if(!el) return "找不到生物"; if(!to) return "缺目的地";
+  const ss=scene.getBoundingClientRect(); let tx, ty;
+  if(/醫院|診所|clinic|hospital/i.test(to)){
+    const r=$("clinic").getBoundingClientRect(); tx=r.left-ss.left+r.width/2; ty=r.top-ss.top+r.height/2;
+  } else {
+    const rm=(rooms||[]).find(r=>r&&(r.key===to||r.label===to||r.slug===to||(r.label&&r.label.includes(to))||r.key.includes(to)));
+    if(!rm) return "找不到目標：「"+to+"」"; tx=rm.x+rm.w/2; ty=rm.y+rm.h/2;
+  }
+  el._pinned=true; el._x=tx; el._y=ty; el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
+  return `${c.name} → ${to}`;
+}
+/* registry：加新指令＝在此加一筆（UI 選單/說明/控件/executor 自動長出）*/
+const WORLD_COMMANDS = [
+  { cmd:"move", label:"移動", desc:"讓生物走到指定房間或診所",
+    args:[{name:"name",type:"creature",label:"生物"},{name:"to",type:"room",label:"目的地"}],
+    run:a=>moveCreatureTo(findCr(a.name), a.to) },
+  { cmd:"say", label:"說話", desc:"讓生物冒出一句指定台詞（免費、不呼 LLM）",
+    args:[{name:"name",type:"creature",label:"生物"},{name:"text",type:"text",label:"台詞"}],
+    run:a=>{ const c=findCr(a.name), el=elOf(c); if(!el) return "找不到生物"; bubbleAtEl(el, a.text||"…", 2600); return c.name+"："+a.text; } },
+  { cmd:"chat", label:"對話", desc:"讓兩隻生物對話一次（呼本地 LLM 約 1 次）",
+    args:[{name:"a",type:"creature",label:"生物A"},{name:"b",type:"creature",label:"生物B"}],
+    run:a=>{ const ca=findCr(a.a), cb=findCr(a.b), ea=elOf(ca); if(!ca||!cb||!ea) return "找不到生物"; if(chatBusy) return "忙線中，稍候"; sayPair(ca, cb, ea); return ca.name+" ↔ "+cb.name; } },
+  { cmd:"heal", label:"治療", desc:"把生物送診所觸發修復（生病才有效）",
+    args:[{name:"name",type:"creature",label:"生物"}],
+    run:a=>{ const c=findCr(a.name); if(!c) return "找不到生物"; heal(c); return "送診："+c.name; } },
+  { cmd:"auto", label:"自主行為", desc:"開關生物自主漫步與偶發對話",
+    args:[{name:"state",type:"enum",label:"狀態",options:["on","off"]}],
+    run:a=>{ autoOn=(a.state!=="off"); return "自主行為："+(autoOn?"開啟":"關閉"); } },
+  { cmd:"spotlight", label:"聚焦", desc:"打開該生物的白話身份卡",
+    args:[{name:"name",type:"creature",label:"生物"}],
+    run:a=>{ const c=findCr(a.name); if(!c) return "找不到生物"; showDetail(c); return "聚焦："+c.name; } },
+  { cmd:"snapshot", label:"快照", desc:"回傳目前所有生物狀態（給 Claude 讀）",
+    args:[],
+    run:()=>{ pushSnapshot(); return "已更新快照（"+crEls.size+" 生物）"; } },
+];
+function curCmdDef(){ return WORLD_COMMANDS.find(d=>d.cmd===$("cbCmd").value) || WORLD_COMMANDS[0]; }
+function buildCmdBar(){
+  $("cbCmd").innerHTML = WORLD_COMMANDS.map(d=>`<option value="${d.cmd}">${d.label}（${d.cmd}）</option>`).join("");
+  $("cbCmd").onchange = renderCmdArgs; renderCmdArgs();
+}
+function ctlFor(arg){
+  let ctl;
+  if(arg.type==="creature"){ ctl=document.createElement("select"); ctl.innerHTML=`<option value=""></option>`+(creatures||[]).map(c=>`<option>${c.name}</option>`).join(""); }
+  else if(arg.type==="room"){ ctl=document.createElement("select"); ctl.innerHTML=`<option value=""></option><option value="醫院">🏥 診所</option>`+(rooms||[]).map(r=>`<option value="${r.key}">${r.label}</option>`).join(""); }
+  else if(arg.type==="enum"){ ctl=document.createElement("select"); ctl.innerHTML=(arg.options||[]).map(o=>`<option>${o}</option>`).join(""); }
+  else { ctl=document.createElement("input"); ctl.type="text"; ctl.placeholder=arg.label||arg.name; }
+  ctl.dataset.arg=arg.name; ctl.className="cbctl"; return ctl;
+}
+function renderCmdArgs(){
+  const def=curCmdDef(); $("cbDesc").textContent=def.desc; const box=$("cbArgs"); box.innerHTML="";
+  (def.args||[]).forEach(arg=>{ const w=document.createElement("label"); w.className="cbarg"; w.textContent=(arg.label||arg.name)+"："; w.appendChild(ctlFor(arg)); box.appendChild(w); });
+}
+function refreshCmdOptions(){   // 模型更新後刷新生物/房間下拉（保留現選值）
+  $("cbArgs").querySelectorAll("select.cbctl").forEach(ctl=>{
+    const arg=(curCmdDef().args||[]).find(a=>a.name===ctl.dataset.arg); if(!arg||(arg.type!=="creature"&&arg.type!=="room")) return;
+    const cur=ctl.value; const fresh=ctlFor(arg); ctl.innerHTML=fresh.innerHTML;
+    if([...ctl.options].some(o=>o.value===cur)) ctl.value=cur;
+  });
+}
+function runCmdBar(){
+  const def=curCmdDef(), args={};
+  $("cbArgs").querySelectorAll(".cbctl").forEach(ctl=> args[ctl.dataset.arg]=ctl.value);
+  let obs; try{ obs=def.run(args); }catch(e){ obs="錯誤："+(e&&e.message||e); }
+  $("cbLog").textContent = obs!=null?String(obs):"(已執行)";
+}
+/* 遠端：Claude/外部 POST /api/world-command → 此處輪詢執行並回報；同時回填 snapshot */
+function runCommand(cmd, args){ const d=WORLD_COMMANDS.find(x=>x.cmd===cmd); if(!d) return "未知指令："+cmd; return d.run(args||{}); }
+function pushSnapshot(){
+  const arr=[]; crEls.forEach(el=>{ const c=el._c; if(!c) return;
+    arr.push({name:c.name, region:c.region, x:Math.round(el._x), y:Math.round(el._y), s:c.s,
+      sick:!!c.sick, sleeping:!!c.sleeping, elder:!!c.elder, lonely:!!c.lonely,
+      confidence:c.confidence, power:c.power, related:c.related}); });
+  fetch(API_BASE+"/api/world-snapshot",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({creatures:arr})}).catch(()=>{});
+}
+let cmdSince=0;
+async function pollCommands(){
+  try{
+    const r=await fetch(API_BASE+"/api/world-commands?since="+cmdSince,{cache:"no-store"});
+    if(r.ok){ const j=await r.json(); cmdSince=j.last_id||cmdSince;
+      for(const c of (j.commands||[])){ let ok=true, obs=null;
+        try{ obs=runCommand(c.cmd,c.args); }catch(e){ ok=false; obs=String(e&&e.message||e); }
+        fetch(API_BASE+"/api/world-result",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:c.id,ok,observation:obs})}).catch(()=>{});
+      }
+    }
+  }catch(e){}
+  pushSnapshot();
+}
+
 /* ── 動畫迴圈（wander / sleep / work / sick / 幽靈飄）──────────────── */
 function tick(ts){
   const t = ts/1000;
   crEls.forEach((el)=>{
     const c = el._c; if(!c) return;
     if(el._dragging || el._pinned){ el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`; return; }
+    if(c.sick && autoOn && !healing.has(c.name) && !autoHealTried.has(c.name)){ sickWalk(c,el,t); return; }   // 壞記憶自走診所
     let ox=0, oy=0;
     if(c.sleeping){ oy=4; }
     else if(c.sick){ ox=Math.sin(t*22+c.phase)*1.6; }
-    else { ox=Math.sin(t*(c.active?1.4:0.7)+c.phase)*c.span; oy=Math.sin(t*1.8+c.phase)*3; }
+    else { if(autoOn) wander(c,t); ox=(c._wox||0)+Math.sin(t*1.4+c.phase)*1.5; oy=(c._woy||0)+Math.sin(t*1.8+c.phase)*2; }
     el._x = c.slotX + ox; el._y = c.slotY + oy;
     el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
   });
@@ -612,7 +772,35 @@ function tick(ts){
     el.style.transform=`translate(${el._gx}px,${el._gy}px)`;
   });
   checkDialogue(t);
+  if(autoOn) dialogueDirector(t);
   requestAnimationFrame(tick);
+}
+
+/* ── 自主漫步：偶爾在房內挑新目標、緩步漂移（純前端、零 LLM 成本）─────────── */
+function wander(c,t){
+  if(c._wox===undefined){ c._wox=0; c._woy=0; c._wtx=0; c._wty=0; c._wnext=0; }
+  if(t > c._wnext){                                     // 到換目標時間 → 房內隨機挑新偏移
+    const RX = c.active ? 70 : 36, RY = 26;             // 活躍者漫步範圍較大
+    c._wtx = (Math.random()*2-1)*RX;
+    c._wty = (Math.random()*2-1)*RY;
+    if(c.roomMinX!=null){                               // 夾在房間框內（slot+偏移不出房）
+      c._wtx = Math.max(c.roomMinX-c.slotX, Math.min(c.roomMaxX-c.slotX, c._wtx));
+      c._wty = Math.max(c.roomMinY-c.slotY, Math.min(c.roomMaxY-c.slotY, c._wty));
+    }
+    c._wnext = t + 3 + Math.random()*5;                 // 3~8s 換一次目標
+  }
+  c._wox += (c._wtx - c._wox)*0.02;                     // 緩步 lerp 朝目標
+  c._woy += (c._wty - c._woy)*0.02;
+}
+
+/* 生病生物自主走向診所，到院觸發自動 L1（healReal 內有 healing 鎖 + autoHealTried 防重觸/騷擾）*/
+function sickWalk(c, el, t){
+  const ss=scene.getBoundingClientRect(), r=$("clinic").getBoundingClientRect();
+  const tx=r.left-ss.left+r.width/2, ty=r.top-ss.top+r.height/2;
+  el._x += (tx-el._x)*0.012 + Math.sin(t*20+c.phase)*1.0;   // 緩步趨近 + 病懨懨小抖
+  el._y += (ty-el._y)*0.012;
+  el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
+  if((tx-el._x)*(tx-el._x)+(ty-el._y)*(ty-el._y) < 1000) healReal(c, true);   // 到診所 → 自動 L1
 }
 
 /* ── 對話：兩隻靠近 ───────────────────────────────────────────────── */
@@ -673,8 +861,29 @@ function descOf(c){
   const room  = c.region==="core"?".claude 核心":c.region.replace("project:","");
   return `${kind}，${stage}，住在「${room}」腦區`;
 }
+/* 個性：依「核心負責的記憶」（類別×年資×當下狀態）給每隻生物鮮明人設，注入對話 sys */
+function personaOf(c){
+  const n = (c.name||"").toLowerCase();
+  let job;                                                  // 職業性格：依 atom 類別
+  if(c.type==="episodic")                       job="健忘的旅人，講話帶懷舊、易離題";
+  else if(/architecture/.test(n))               job="高瞻遠矚的架構師，講大局與結構";
+  else if(/^decisions/.test(n))                 job="沉穩的謀士，愛權衡、下結論";
+  else if(/^feedback/.test(n))                  job="龜毛的糾察隊，愛挑語病、提醒規矩";
+  else if(/^toolchain|^cc-|^codex|^electron|^gdoc/.test(n)) job="務實的工匠，只談工具與實戰、不囉嗦";
+  else if(/^workflow/.test(n))                  job="管流程的排程官，講順序與紀律";
+  else if(/^memory|^atom/.test(n))              job="碎念的檔案管理員，在意分類與索引";
+  else if(/^preferences|^user/.test(n))         job="貼心的管家，記得主人的喜好";
+  else                                          job="盡責的知識原子";
+  const age = c.confidence.includes("固") ? "老成篤定、見過世面" :
+              c.confidence.includes("觀") ? "漸有主見、還在成長" : "毛躁的新人、有點沒安全感";
+  let mood = "";                                            // 當下情緒：狀態旗標
+  if(c.sick)        mood = "你現在很虛弱、急著求救。";
+  else if(c.lonely) mood = "你有點寂寞、渴望被關注。";
+  else if(c.elder)  mood = "你德高望重、語氣自信。";
+  return `你的身分是「${job}」，性格${age}。${mood}`;
+}
 async function creatureChat(a, b, related){
-  const sys = "你是『腦內世界』裡的一隻記憶生物，個性鮮明。用繁體中文講『一句』口語、自然、有情緒的短台詞（不超過25字），像在跟旁邊的夥伴搭話。只輸出台詞本身，不要旁白、不要思考過程、不要引號。";
+  const sys = "你是『腦內世界』裡的一隻記憶生物。" + personaOf(a) + "用繁體中文講『一句』口語、自然、有情緒的短台詞（不超過25字），像在跟旁邊的夥伴搭話，要展現你的個性。只輸出台詞本身，不要旁白、不要思考過程、不要引號。";
   const rel = related ? "你們互為關聯夥伴（彼此 related）" : "你們沒什麼關聯";
   const usr = `我是記憶生物「${a.name}」（${descOf(a)}）。旁邊靠過來的是「${b.name}」（${descOf(b)}）。${rel}。對牠說一句話。`;
   const ctrl = new AbortController();
@@ -730,14 +939,47 @@ function bindDrag(el, c0){
 }
 function toScene(e){ const r=scene.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
 function overClinic(e){ const r=$("clinic").getBoundingClientRect(); return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom; }
-function heal(c){
+/* ── 真・自癒：POST /api/heal → 輪詢 job → 誠實呈現（只有 server 回 fixed 才移 .sick）──── */
+const healing = new Set();        // 治療中（防重複觸發）
+const autoHealTried = new Set();  // 自主已試過但需手動/修不好者 → 不再自走診所騷擾
+function heal(c){ healReal(c, false); }                 // 拖入診所 / 指令台 = 手動觸發（含 L2）
+function sparkle(el){ for(let i=0;i<5;i++){ const s=document.createElement("div"); s.className="heal"; s.textContent="✨";
+  s.style.left=(el._x+(i-2)*10)+"px"; s.style.top=el._y+"px"; scene.appendChild(s); setTimeout(()=>s.remove(),1000); } }
+function healReal(c, auto){
   const el=crEls.get(c.uid); if(!el) return;
-  if(!c.sick){ bubbleAtEl(el,"我沒生病啦～"); return; }
-  healed.add(c.name); c.sick=false;
-  el.classList.remove("sick");      // 表情/體色/綠煙皆由 .sick class 驅動，移除即復原
-  for(let i=0;i<5;i++){ const s=document.createElement("div"); s.className="heal"; s.textContent="✨";
-    s.style.left=(el._x+(i-2)*10)+"px"; s.style.top=el._y+"px"; scene.appendChild(s); setTimeout(()=>s.remove(),1000); }
-  bubbleAtEl(el,"舒服多了，謝謝醫生！");
+  if(!c.sick){ if(!auto) bubbleAtEl(el,"我沒生病啦～"); return; }
+  if(healing.has(c.name)) return;
+  healing.add(c.name); el.classList.add("healing");
+  bubbleAtEl(el, auto?"覺得不太舒服…去診所":"我去看醫生…", 2200);
+  fetch(API_BASE+"/api/heal/"+encodeURIComponent(c.name)+(auto?"?auto=1":""), {method:"POST"})
+    .then(r=>r.json())
+    .then(j=>{ if(j.job_id) pollHealJob(c, j.job_id, auto); else applyHealResult(c, j, auto); })
+    .catch(()=>{ finishHeal(c); bubbleAtEl(el,"診所沒開…(伺服器未連線)",2600); });
+}
+function finishHeal(c){ healing.delete(c.name); const el=crEls.get(c.uid); if(el) el.classList.remove("healing"); }
+function pollHealJob(c, jobId, auto){
+  let tries=0;
+  const iv=setInterval(()=>{
+    if(++tries>90){ clearInterval(iv); finishHeal(c); const el=crEls.get(c.uid); if(el) bubbleAtEl(el,"治療逾時…",2600); if(auto) autoHealTried.add(c.name); return; }
+    fetch(API_BASE+"/api/heal-job/"+jobId).then(r=>r.json()).then(j=>{
+      if(j.status==="running") return;
+      clearInterval(iv); applyHealResult(c, j.result||{}, auto);
+    }).catch(()=>{ clearInterval(iv); finishHeal(c); });
+  }, 2000);
+}
+function applyHealResult(c, res, auto){
+  const el=crEls.get(c.uid); finishHeal(c); if(!el) return;
+  const act=res.action, fixed=res.fixed, needsHuman=res.needs_human;
+  if(res.error){ bubbleAtEl(el,"治療失敗…",2600); if(auto) autoHealTried.add(c.name); return; }
+  if(fixed && (act==="reverse_ref_fix"||act==="broken_ref_fix")){   // 真痊癒（server 確認）→ 才移 .sick
+    healed.add(c.name); c.sick=false; el.classList.remove("sick","bandaged");
+    sparkle(el); bubbleAtEl(el,"舒服多了，謝謝醫生！");
+  } else if(act==="wake"){ bubbleAtEl(el,"啊…我醒了！",2600);
+  } else if(act==="needs_manual"){ bubbleAtEl(el,"這得醫生親自處理(手動修)…",3000); autoHealTried.add(c.name);
+  } else {   // needs_human / sent_review / missing → 誠實轉診人工，不假裝痊癒
+    el.classList.add("bandaged"); bubbleAtEl(el,"醫生治不好，已轉診人工 🏥➡️👨‍⚕️",3400);
+    if(auto) autoHealTried.add(c.name);
+  }
 }
 
 /* ── 白話身份卡 ───────────────────────────────────────────────────── */
@@ -808,6 +1050,7 @@ function drawBg(ts){
 addEventListener("resize", resize);
 resize(); requestAnimationFrame(drawBg); requestAnimationFrame(tick);
 refresh(); setInterval(refresh, POLL_MS);
+buildCmdBar(); setInterval(pollCommands, 2000);   // 指令台 + Command Bus 輪詢
 </script>
 </body>
 </html>

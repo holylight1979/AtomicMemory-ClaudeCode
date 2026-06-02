@@ -446,6 +446,38 @@
         "行尾損壞"
       ],
       "scope": "global"
+    },
+    {
+      "name": "guardian-dashboard-孤兒佔埠與新碼重啟",
+      "path": "memory/guardian-dashboard-孤兒佔埠與新碼重啟.md",
+      "triggers": [
+        "guardian",
+        "server.js",
+        "3848",
+        "dashboard",
+        "重啟",
+        "孤兒",
+        "EADDRINUSE",
+        "新路由 404",
+        "creature-chat",
+        "world.html"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "腦內世界-v3-自癒與-command-bus-架構",
+      "path": "memory/腦內世界-v3-自癒與-command-bus-架構.md",
+      "triggers": [
+        "腦內世界",
+        "atom-heal",
+        "記憶自癒",
+        "command bus",
+        "world.html",
+        "jobRunner",
+        "_heal_review",
+        "heal-review"
+      ],
+      "scope": "global"
     }
   ]
 }

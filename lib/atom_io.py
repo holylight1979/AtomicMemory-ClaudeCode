@@ -52,6 +52,7 @@ VALID_SOURCES = frozenset({
     "hook:extract-worker",
     "tool:atom-move",
     "tool:atom-health-audit",  # Wave 3: atom 體質審視工具
+    "tool:atom-heal",  # 記憶自癒（腦內世界 P3）：機械修反向連結 / LLM 提案修死連結
     "tool:changelog-roll",
     "tool:memory-audit",  # memory-audit demote/compact/log_evolution 修補
     "tool:memory-cleanup",  # 一次性根目錄整理（merge-orphan-access）
