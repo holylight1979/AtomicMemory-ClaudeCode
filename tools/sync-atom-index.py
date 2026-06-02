@@ -41,6 +41,7 @@ from lib.atom_locations import (  # noqa: E402  V5+ 多根掃描 + Failures filt
     atom_search_roots,
     iter_atom_files_multi,
 )
+from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 
 MEMORY_DIR = Path.home() / ".claude" / "memory"
 CLAUDE_ROOT = MEMORY_DIR.parent
@@ -220,7 +221,9 @@ def fix_frontmatter_from_index(atoms_by_path: Dict[str, AtomFile],
         text = atom.path.read_text(encoding="utf-8-sig")
         new_text, n = TRIGGER_LINE_RE.subn(new_line, text, count=1)
         if n == 1 and new_text != text:
-            atom.path.write_text(new_text, encoding="utf-8")
+            # 走 funnel：EOL-preserving _atomic_write + audit log
+            # （舊版裸 write_text 會在 Windows 翻整檔 EOL，且寫入不留 audit）
+            write_raw(atom.path, new_text, source="tool:sync-atom-index", op="trigger-align")
             changed.append(atom.rel_path)
     return changed
 

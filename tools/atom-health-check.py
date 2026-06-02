@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_spec import is_atom_file, REQUIRED_METADATA  # noqa: E402
 from lib.atom_locations import iter_atom_files_multi  # noqa: E402
+from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 
 MEMORY_ROOT = Path.home() / ".claude" / "memory"
 GLOBAL_MEMORY_ROOT = Path.home() / ".claude" / "memory"
@@ -294,7 +295,9 @@ def fix_reverse_refs(atoms: dict[str, Path], aliases: dict[str, str] | None = No
                 else:
                     text += f"\n- Related: {add_name}\n"
 
-        path_b.write_text(text, encoding="utf-8")
+        # 走 funnel：EOL-preserving _atomic_write + audit log
+        # （舊版裸 write_text 會在 Windows 翻整檔 EOL，且反向參照補全不留 audit）
+        write_raw(path_b, text, source="tool:atom-health-audit", op="reverse-ref-add")
         fixes.append({
             "target": atom_b,
             "added_ref": add_name,

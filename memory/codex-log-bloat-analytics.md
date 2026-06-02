@@ -18,6 +18,9 @@
 - [臨] 證據：C:\Projects\.codex\perf-samples\samples_foreground_*.csv 錄到 Codex 跨跨 server.js 持續 95% CPU。Python 端 10MB rotation 只在 Claude SessionStart 跑、Codex 不觸發 → 攛不住
 - [臨] 修法(server.js:22-67)：crashLog 加 5MB 硬上限(超限 truncate 非 append) + uncaughtException/unhandledRejection 改走 onFatal，同進程累計 20 次 fatal 就 process.exit(1) 斷自旋 + SIGTERM/SIGINT 改為真正 exit（原本只記 log 不死→遗留殺不掉的孤兒 node）
 - [臨] 通則：寫給外部 host(Codex) 啟動的 node 崩潰 handler 必須 (1)有檔大小上限 (2)崩潰後 exit 交給 supervisor，不可 log-and-continue；不能依賴 Claude-only 的 SessionStart rotation
+- [臨] ⚠隱藏地雷：config.toml 頂層 legacy `profile="x"` + `[profiles.*]` 區段在 Codex 0.134+ 會讓**整份 config 載入失敗**、fallback 預設→所有設定（含 model/sandbox/mcp_servers/[analytics]）全被忽略。後果：先前加的 analytics 關閉「看似有改」其實根本沒生效
+- [臨] 診斷：`codex doctor` 看 `✓ config loaded / parse ok`；`codex mcp list` / `features list` 若報 legacy profile 錯 = config 載不起來。修法：刪頂層 profile= + [profiles.*]，有用鍵併入頂層（VSCode app-server 不帶 -p，唯頂層生效）
+- [臨] Codex 變聰明的槍桿：model_reasoning_effort=xhigh + model_reasoning_summary=auto + AGENTS.md（非 CLAUDE.md）+ developer_instructions；安全姿態 sandbox_mode/approval_policy。遙測三關：[analytics] enabled=false + [feedback] enabled=false + [otel] exporter=none
 
 ## 行動
 

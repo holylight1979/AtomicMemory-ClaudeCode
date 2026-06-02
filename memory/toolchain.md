@@ -5,7 +5,7 @@
 - Trigger: 工具鏈, 環境設定, MCPControl, MCP新增, npm全域, 螢幕截圖, Excel MCP, LanceDB, MSYS2, cp950, PowerShell截圖, 向量服務
 - Type: procedural
 - Tags: toolchain, environment, commands
-- Related: toolchain-ollama, decisions, feedback-global-install
+- Related: toolchain-ollama, decisions, feedback-global-install, cc-能力查證反編譯實跑-binary, codex-log-bloat-analytics
 
 ## 知識
 
