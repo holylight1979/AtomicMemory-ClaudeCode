@@ -48,11 +48,15 @@
   .cr.sick  .eyes-open,.cr.sick  .m-smile{display:none;}
   .cr.sick  .eyes-sick,.cr.sick  .m-sick{display:inline;}
   .cr.ghost{color:rgba(214,220,250,.85); cursor:default;}
-  .cr .tag{position:absolute; top:calc(100% + 1px); left:50%; transform:translateX(-50%);
+  .cr .tag{position:absolute; top:calc(100% + 13px); left:50%; transform:translateX(-50%);
     font-size:10px; color:var(--muted); white-space:nowrap; max-width:110px; overflow:hidden;
     text-overflow:ellipsis; text-shadow:0 1px 2px #000; pointer-events:none; opacity:.0; transition:opacity .2s;}
   .cr:hover .tag, .cr.named .tag{opacity:.95;}
   .cr:hover{z-index:40; filter:brightness(1.2);}
+  /* 戰力星條：生物下方 ⭐×N（power 0..1→0..5 星）；power 缺則隱藏 */
+  .cr .stars{position:absolute; top:calc(100% + 1px); left:50%; transform:translateX(-50%);
+    font-size:9px; line-height:1; letter-spacing:-1px; white-space:nowrap; pointer-events:none;
+    filter:drop-shadow(0 1px 1px #000); display:none;}
 
   /* 進化階段環（drop-shadow 光暈貼合 SVG 輪廓，非方框）*/
   .cr.c-fixed   .cbody{filter:drop-shadow(0 0 3px var(--gold)) drop-shadow(0 0 6px rgba(227,179,65,.5)) drop-shadow(0 2px 2px rgba(0,0,0,.5));}
@@ -108,6 +112,16 @@
     background:linear-gradient(180deg,rgba(6,8,15,.95),rgba(6,8,15,0));}
   #topbar h1{font-size:15px; margin:0; font-weight:800;}
   #topbar .s{font-size:12px; color:var(--muted);} #topbar .s b{color:var(--fg);}
+  /* 最強記憶 TOP3 排行 */
+  #topbar .top3box{display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  #top3list{display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap;}
+  .t3{display:inline-flex; align-items:center; gap:3px; font-size:11px; color:var(--fg);
+    background:rgba(227,179,65,.10); border:1px solid rgba(227,179,65,.3); border-radius:9px; padding:1px 7px; max-width:170px;}
+  .t3 b{color:var(--gold); font-weight:800;}
+  .t3 span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .t3dot{flex:0 0 auto; width:7px; height:7px; border-radius:50%;}
+  .t3p{color:var(--gold); font-weight:700;}
+  .t3muted{font-size:11px; color:var(--muted);}
   #topbar .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;}
   .dot.ok{background:#3fb950} .dot.bad{background:#f85149}
   #help{position:fixed; z-index:5; top:38px; left:14px; right:14px; font-size:12px; color:var(--muted);
@@ -201,14 +215,16 @@
     <span class="s">💤沉睡 <b id="sSleep">0</b></span>
     <span class="s">🆙進化中 <b id="sEvo">0</b></span>
     <span class="s">👻回憶 <b id="sGhost">0</b></span>
+    <span class="s top3box">🏆 最強記憶 <span id="top3list"><span class="t3muted">待戰力遙測…</span></span></span>
   </div>
-  <div id="help">每個<b style="color:#e6edf3">房間=一個專案</b>，裡面的小生物=記憶原子。越大越資深；外圈金=[固]成熟、銀=[觀]成長。🤢冒綠煙=格式有問題，💤躺著=很久沒被喚醒，🆙=快升級了，👑=被引用最多的長老。把兩隻拖在一起會聊天，把生病的拖去右下角 🏥。</div>
+  <div id="help">每個<b style="color:#e6edf3">房間=一個專案</b>，裡面的小生物=記憶原子。越大越資深；外圈金=[固]成熟、銀=[觀]成長。腳下 ⭐ 越多=戰力(power)越高。🤢冒綠煙=格式有問題，💤躺著=超過 60 天沒被喚醒，🆙=快升級了，👑=最常被讀取/確認的人氣王。把兩隻拖在一起會聊天，把生病的拖去右下角 🏥。</div>
 
   <div id="clinic"><div class="ic">🏥</div>診所<br><span style="font-size:10px;opacity:.7">拖生病的來這</span></div>
 
   <div id="legend">
     <div class="r"><b>體型</b> 🥚蛋→史萊姆→小怪→龍（越大越資深；龍滿級會威風呼吸）</div>
-    <div class="r"><b>狀態</b> 🤢生病　💤沉睡　🌱/🔨工作中　🆙進化中　👑長老</div>
+    <div class="r"><b>戰力</b> 腳下 ⭐×N（power 0..5）　｜　🏆 topbar 顯示最強 TOP3</div>
+    <div class="r"><b>狀態</b> 🤢生病　💤沉睡(>60d)　🌱/🔨工作中　🆙進化中　👑人氣王</div>
     <div class="r"><b>進化環</b> 金=[固] 銀=[觀]　｜　點生物看白話身份卡</div>
   </div>
 
@@ -285,14 +301,17 @@ function buildModel({projects, atoms, health, sessions, episodic}){
   const promoting = new Map();
   (health.promotions||[]).forEach(p=> promoting.set(basename(p.file), {from:p.current, to:p.suggested, reason:p.reason}));
 
-  /* episodic 近用度：用「引用 atoms」推每顆 atom 最近多久被喚醒（TTL 24d）*/
-  const epi = episodic.map(e=>({ age: Math.max(0, 24 - (e.days_until_expiry||0)),
-    text: (e.full_content||"") + "\n" + (e.knowledge_lines||[]).join("\n") }));
-  function lastSeenAge(name){
-    let best = Infinity;
-    for(const e of epi){ if(e.text.includes(name) && e.age < best) best = e.age; }
-    return best;
+  /* Phase C：精準遙測（Phase A /api/atoms 新欄位；live 舊 daemon 無 power → null fallback）*/
+  const SLEEP_DAYS = 60;                                   // 真實 last_used 超過 → 沉睡（沿用 health.distant 門檻）
+  const powerOf = a => (typeof a.power === "number") ? a.power : null;
+  const popOf   = a => (Number(a.read_hits)||0) + (Number(a.confirmations)||0);  // 人氣＝讀取+確認
+  function parseDays(lu){                                   // 容忍髒格式 '2026-05-25 (尾註)'，抽前導日期
+    if(lu==null) return null;
+    const m = String(lu).match(/(\d{4})-(\d{2})-(\d{2})/); if(!m) return null;
+    const t = new Date(+m[1], +m[2]-1, +m[3]).getTime();
+    return isNaN(t) ? null : Math.floor((Date.now()-t)/86400000);
   }
+  const daysUsedOf = a => (typeof a.days_since_used === "number") ? a.days_since_used : parseDays(a.last_used);
 
   /* 工作中房間：working session 的 project 路徑模糊比對 */
   const workingProjNorms = sessions.filter(s=>s.phase==="working").map(s=>norm(s.project));
@@ -306,10 +325,20 @@ function buildModel({projects, atoms, health, sessions, episodic}){
   regions.set("core", {key:"core", label:".claude 核心", core:true, list:[]});
   projects.forEach(p=> regions.set("project:"+p.slug, {key:"project:"+p.slug, label:p.slug, slug:p.slug, last_seen:p.last_seen, list:[]}));
 
-  /* 入度（誰被引用最多 → 長老）*/
+  /* 入度（fallback 長老）*/
   const indeg = new Map();
   atoms.forEach(a => (a.related||[]).forEach(r => indeg.set(r,(indeg.get(r)||0)+1)));
-  const maxIndeg = Math.max(1, ...indeg.values());
+  const maxIndeg = Math.max(1, ...indeg.values(), 1);
+
+  /* 皇冠＝人氣（read_hits+confirmations）高者；全 0（如 live 舊 daemon）→ fallback 入度長老 */
+  const totalPop = atoms.reduce((s,a)=> s + popOf(a), 0);
+  const crownNames = new Set();
+  if(totalPop > 0){
+    atoms.slice().sort((a,b)=> popOf(b)-popOf(a)).filter(a=> popOf(a)>0)
+      .slice(0, Math.max(3, Math.ceil(atoms.length*0.05))).forEach(a=> crownNames.add(a.name));
+  } else {
+    atoms.forEach(a=>{ if((indeg.get(a.name)||0) >= Math.max(3, maxIndeg*0.6)) crownNames.add(a.name); });
+  }
 
   /* 建立生物 */
   const crs = [];
@@ -320,27 +349,29 @@ function buildModel({projects, atoms, health, sessions, episodic}){
     const reg = regions.get(rk);
     const know = a.knowledge_count || countKnowledge(a.content);
     const mass = Math.max(know, Math.round((a.line_count||0)/10));
-    const age = lastSeenAge(a.name);
+    const daysUsed = daysUsedOf(a);                          // 真實近用天數（Phase A days_since_used 優先，否則解析 last_used）
     const sick = sickReason.has(a.name) && !healed.has(a.name);
-    const active = !sick && age <= 3;               // 近 3 天在 episodic 被提到 → 活躍走動
+    const sleeping = !sick && daysUsed != null && daysUsed >= SLEEP_DAYS;   // 精準沉睡：>60d 才睡
+    const active = !sick && !sleeping && daysUsed != null && daysUsed <= 7; // 近 7 天用過 → 活躍走動
     const cr = {
       uid:rk+"|"+a.name, name:a.name, region:rk, scope:sc, confidence:a.confidence||"",
       type:a.type||"", know, mass, lines:a.line_count||0,
       related:a.related||[], triggers:a.triggers||[], content:a.content||"",
       sick, sickReason:(sickReason.get(a.name)||[]), lonely:lonely.has(a.name),
-      sleeping:false, active, age,
+      sleeping, active, daysUsed,
+      power:powerOf(a), powerN:(typeof a.power_n==="number"?a.power_n:null),
+      readHits:Number(a.read_hits)||0, confirmations:Number(a.confirmations)||0, pop:popOf(a),
       promoting:promoting.get(a.name)||null,
       indeg:indeg.get(a.name)||0,
-      elder:(indeg.get(a.name)||0) >= Math.max(3, maxIndeg*0.6),
+      elder:crownNames.has(a.name),                          // 皇冠＝人氣長老
     };
     reg.list.push(cr); crs.push(cr);
   });
 
-  // 沉睡：per-atom last_used 無法從 API 取得；用「episodic 近用度最低的 N 顆」逼近，
-  // N = health.distant_count（真實久未喚醒總數），避免把「沒被 episodic 提到」誤判成全員沉睡。
-  const distantN = Math.min(crs.length, health.distant_count||0);
-  crs.filter(c=>!c.sick).sort((a,b)=> b.age-a.age || a.name.localeCompare(b.name))
-     .slice(0, distantN).forEach(c=>{ c.sleeping=true; c.active=false; });
+  // TOP3 最強記憶（按 power 戰力排序；無 power 遙測時為空 → topbar 顯示待遙測）
+  const top3 = crs.filter(c=> c.power != null && c.power > 0)
+    .sort((a,b)=> b.power-a.power || (b.powerN||0)-(a.powerN||0))
+    .slice(0,3).map(c=>({ name:c.name, power:c.power, region:c.region }));
 
   regions.forEach(r=>{ r.working = roomWorking(r.key, r.slug); r.active = r.core || r.working || daysOf(r.last_seen)<=7; });
 
@@ -348,50 +379,71 @@ function buildModel({projects, atoms, health, sessions, episodic}){
   const gs = episodic.map((e,i)=>({ key:(e.filename||"ep")+"#"+i, filename:e.filename||("ep"+i), title:e.title||e.filename,
     ttl:e.days_until_expiry, kn:(e.knowledge_lines||[]).length, dying:(e.days_until_expiry||99)<=5 }));
 
-  return { regions, creatures:crs, ghosts:gs,
+  return { regions, creatures:crs, ghosts:gs, top3,
     stats:{ distant:health.distant_count||0, conf:health.confidence_counts||{} } };
 }
 function daysOf(iso){ if(!iso) return 999; const t=new Date(iso).getTime(); return isNaN(t)?999:(Date.now()-t)/86400000; }
 
-/* ── 佈局：房間 shelf-packing，生物站房間地板 ─────────────────────── */
+/* ── 佈局：核心房置中放大 + 其餘 shelf-pack（同列等高＝floor 對齊）+ cell 網格防重疊 ── */
 function layout(){
   const W = innerWidth;
-  rooms = [...model.regions.values()].filter(r=>r.core || r.list.length>0);
-  rooms.sort((a,b)=> (b.core?1e9:b.list.length) - (a.core?1e9:a.list.length));
+  const CW=76, CH=92, PADX=14, HEAD=42, BOT=16, GAP=18, TOP=64;
+  const all = [...model.regions.values()].filter(r=>r.core || r.list.length>0);
+  const core = all.find(r=>r.core);
+  const others = all.filter(r=>!r.core).sort((a,b)=> b.list.length - a.list.length);
 
-  // 房間尺寸：依生物數
-  rooms.forEach(r=>{
+  const sizeCreatures = r => r.list.forEach(c=>{ c.s = Math.round(Math.max(28, Math.min(62, 28 + c.mass*3.2))); });
+  function sizeRoom(r, maxCols){
     const n = Math.max(1, r.list.length);
-    r.cols = Math.max(2, Math.min(r.core?10:6, Math.ceil(Math.sqrt(n*1.4))));
-    r.rows = Math.ceil(n / r.cols);
-    r.w = Math.max(190, r.cols*68 + 24);
-    r.h = Math.max(140, 44 + r.rows*64 + 30);
-  });
+    let cols = Math.min(Math.max(1, Math.min(maxCols, Math.ceil(Math.sqrt(n*1.25)))), n);
+    r.cols = cols; r.rows = Math.ceil(n/cols);
+    r.w = Math.max(168, cols*CW + PADX*2);
+    r.h = HEAD + r.rows*CH + BOT;
+    sizeCreatures(r);
+  }
 
-  // shelf pack
-  const padX=14, padY=64, gap=16; let x=padX, y=padY, rowH=0;
-  rooms.forEach(r=>{
-    if(x + r.w > W - padX){ x=padX; y += rowH + gap; rowH=0; }
-    r.x=x; r.y=y; x += r.w + gap; rowH=Math.max(rowH, r.h);
-  });
-  const totalH = y + rowH + 120;
-  scene.style.height = Math.max(innerHeight, totalH) + "px";
+  let y = TOP;
+  // 核心房：放大、置中、置頂獨佔一列
+  if(core){
+    const targetW = Math.min(W-28, Math.max(560, Math.floor(W*0.6)));
+    core.cols = Math.max(4, Math.floor((targetW-PADX*2)/CW));
+    core.rows = Math.ceil(Math.max(1, core.list.length)/core.cols);
+    core.w = core.cols*CW + PADX*2;
+    core.h = HEAD + core.rows*CH + BOT;
+    sizeCreatures(core);
+    core.x = Math.max(14, (W-core.w)/2);
+    core.y = y;
+    y += core.h + GAP;
+  }
 
-  // 生物站位（房間內 grid，貼地板）
+  // 其餘房：shelf-pack；每列收尾統一列高 → 底邊（floor）對齊
+  let x = 14, rowH = 0, rowStart = 0;
+  const seq = [];
+  const flushRow = end => { for(let k=rowStart;k<end;k++) seq[k].h = rowH; rowStart = end; };
+  others.forEach(r=>{
+    sizeRoom(r, 6);
+    if(x>14 && x + r.w > W-14){ flushRow(seq.length); x=14; y += rowH+GAP; rowH=0; }
+    r.x=x; r.y=y; seq.push(r); x += r.w+GAP; rowH = Math.max(rowH, r.h);
+  });
+  flushRow(seq.length);
+  y += rowH;
+
+  rooms = [core, ...others].filter(Boolean);
+  scene.style.height = Math.max(innerHeight, y + 100) + "px";   // 超量自動捲動
+
+  // 生物站位：cell 寬>最大體型 → 防重疊；由房間底往上排（同列 floor 對齊）
   rooms.forEach(r=>{
-    const floorTop = r.y + r.h*0.66;
-    const usableW = r.w - 24, usableH = r.h - 50;
+    const x0 = r.x + (r.w - r.cols*CW)/2;     // 網格水平置中
+    const floorY = r.y + r.h - BOT;           // 房間底（地板線）
     r.list.forEach((c,i)=>{
-      const col = i % r.cols, row = Math.floor(i / r.cols);
-      c.slotX = r.x + 12 + (col + .5) * (usableW / r.cols);
-      c.slotY = r.y + 40 + (row + .8) * (usableH / r.rows);
-      c.s = Math.round(Math.max(30, Math.min(78, 30 + c.mass*3.4)));
+      const col = i % r.cols, rb = (r.rows-1) - Math.floor(i / r.cols);   // rb：由底往上，底列=0
+      c.slotX = x0 + (col + 0.5)*CW;
+      c.slotY = floorY - rb*CH - CH*0.42;
       c.phase = (c.name.charCodeAt(0)||0) % 100 / 100 * Math.PI*2;
-      c.span = c.active ? Math.min(usableW/r.cols*0.7, 26) : 6;  // 活躍走動幅度
+      c.span = c.active ? Math.min((CW-c.s)/2 - 2, 6) : 1.5;   // 走動幅度受 cell 餘裕限制 → 不重疊
     });
   });
 
-  // 幽靈：頂部回憶天空帶飄移（位置存在元素上，見 render/tick）
   ghosts = model.ghosts;
 }
 
@@ -405,6 +457,7 @@ function faceOf(c){
 }
 function confClass(c){ if(c.includes("固")) return "c-fixed"; if(c.includes("觀")) return "c-observe"; return ""; }
 function hueOf(key){ if(key==="core") return 205; let h=0; for(const ch of key) h=(h*31+ch.charCodeAt(0))%360; return h; }
+function powerStars(power){ return power==null ? 0 : Math.max(0, Math.min(5, Math.round(power*5))); }  // power 0..1 → 0..5 星
 
 /* 4 階體型：沿用 faceOf 的 mass 門檻 → SVG symbol id（≥16 另加 mega 威風呼吸）*/
 function tierOf(c){
@@ -466,7 +519,7 @@ function render(){
         `<div class="smoke"></div>`+
         `<div class="badge b-zzz">💤</div><div class="badge b-evolve">🆙</div>`+
         `<div class="badge b-crown">👑</div><div class="badge b-tool">🌱</div>`+
-        `<span class="tag"></span>`;
+        `<span class="stars"></span><span class="tag"></span>`;
       bindDrag(el, c); scene.appendChild(el); crEls.set(c.uid, el);
     }
     el._c = c;
@@ -483,6 +536,9 @@ function render(){
     el.className = "cr "+confClass(c.confidence)+(c.sick?" sick":"")+(c.sleeping?" sleep":"")+
       (c.promoting?" evolving":"")+(c.elder?" named":"")+(mega?" mega":"");
     el.querySelector(".tag").textContent = c.name;
+    const stEl = el.querySelector(".stars"); const ns = powerStars(c.power);   // 戰力星條（power 缺 → 隱藏）
+    if(c.power != null && ns > 0){ stEl.textContent = "⭐".repeat(ns); stEl.style.display="block"; }
+    else stEl.style.display = "none";
     el.querySelector(".b-zzz").style.display = c.sleeping?"block":"none";
     el.querySelector(".b-evolve").style.display = c.promoting?"block":"none";
     el.querySelector(".b-crown").style.display = c.elder?"block":"none";
@@ -518,6 +574,15 @@ function render(){
   $("sSleep").textContent=creatures.filter(c=>c.sleeping).length;
   $("sEvo").textContent=creatures.filter(c=>c.promoting).length;
   $("sGhost").textContent=ghosts.length;
+  renderTop3();
+}
+/* 最強記憶 TOP3 排行（按 power；無遙測 → 待遙測）*/
+function renderTop3(){
+  const box=$("top3list"); if(!box) return;
+  const t3 = (model && model.top3) || [];
+  box.innerHTML = t3.length
+    ? t3.map((e,i)=>`<span class="t3"><b>${i+1}</b><span class="t3dot" style="background:hsl(${hueOf(e.region)},66%,57%)"></span><span class="t3n">${e.name}</span><span class="t3p">${e.power.toFixed(2)}</span></span>`).join("")
+    : `<span class="t3muted">待戰力遙測…</span>`;
 }
 
 /* ── 動畫迴圈（wander / sleep / work / sick / 幽靈飄）──────────────── */
@@ -619,16 +684,26 @@ function showDetail(c){
   const typeWord = c.type==="episodic"?"情境回憶":"知識原子";
   const room = c.region==="core"?".claude 核心":c.region.replace("project:","");
   let say = `我是一顆<b>${stageWord(c)}</b>的${typeWord}，住在「<b>${room}</b>」腦區。我記得 <b>${c.know}</b> 條知識（共 ${c.lines} 行）。`;
+  if(c.power != null){
+    const n = powerStars(c.power);
+    say += ` 戰力 <b>${"★".repeat(n)}${"☆".repeat(5-n)}</b>（power ${c.power.toFixed(2)}／樣本數 ${c.powerN ?? 0}）。`;
+  }
   if(c.related.length) say += `我和 <b>${c.related.join("、")}</b> 互相關聯。`;
-  if(c.elder) say += ` 我被很多記憶引用（${c.indeg} 次），算是這裡的長老👑。`;
+  if(c.elder){
+    const bits=[];
+    if(c.readHits) bits.push(`被讀取 ${c.readHits} 次`);
+    if(c.confirmations) bits.push(`跨 session 確認 ${c.confirmations} 次`);
+    if(!bits.length) bits.push(`被引用 ${c.indeg} 次`);
+    say += ` 我很受歡迎（${bits.join("、")}），戴著皇冠👑。`;
+  }
   if(c.triggers.length) say += ` 當你聊到「${c.triggers.slice(0,6).join("、")}」時我會跳出來幫忙。`;
   $("dSay").innerHTML = say;
 
   let st="";
   if(c.sick) st=`<div class="st sick">🤢 我生病了：${c.sickReason.join("；")}</div>`;
-  else if(c.sleeping) st=`<div class="st sleep">😴 我很久沒被喚醒了（近期 episodic 沒提到我），在睡覺。</div>`;
+  else if(c.sleeping) st=`<div class="st sleep">😴 我已經 ${c.daysUsed} 天沒被喚醒了（last_used），在睡覺。</div>`;
   else if(c.promoting) st=`<div class="st evolve">🆙 我表現不錯，快要從 ${c.promoting.from} 進化成 ${c.promoting.to}！（${c.promoting.reason||""}）</div>`;
-  else st=`<div class="st ok">😀 我很健康，最近還有在運作。</div>`;
+  else st=`<div class="st ok">😀 我很健康${c.daysUsed!=null?`（last_used ${c.daysUsed} 天前）`:""}，最近還有在運作。</div>`;
   if(c.lonely && !c.sick) st+=`<div class="st sleep">💔 有記憶單戀我（缺反向關聯）。</div>`;
   $("dStatus").innerHTML = st;
 
