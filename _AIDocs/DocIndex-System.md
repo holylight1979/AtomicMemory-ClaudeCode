@@ -126,6 +126,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /journal | skills/journal/SKILL.md | 工作日誌產出 | 無 |
 | /browse-sprites | skills/browse-sprites/SKILL.md | 批次圖片預覽 | 無 |
 | /skill-creator | skills/skill-creator/SKILL.md | **新增 meta-skill**：寫/改/審 skill（三層架構 + 5 設計模式 + audit/new-skill/cost-measure） | 無 |
+| /heal-review | skills/heal-review/SKILL.md | 管理職裁決記憶自癒失敗佇列（`_heal_review/` resolve/dismiss；腦內世界 P3） | wg_roles + atom-health-check |
 
 > 已刪除（與內建衝突）：`/resume`（內建 --resume）/ `/init-project`（內建 /init）/ `/svn-update` / `/unity-yaml`（下沉專案層）/ `/changelog-roll`（改名 changelog-debug）
 
@@ -161,8 +162,10 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ### 記憶品質
 - memory-audit.py — 格式驗證 + staleness + 雙軌晉升建議（Conf≥4/10 or RH≥20/50）
-- atom-health-check.py — 參照完整性（含 `_` 前綴豁免 / project→global up-ref / `--shadow-check` 與 _AIDocs 子段相似度偵測）
+- atom-health-check.py — 參照完整性（含 `_` 前綴豁免 / project→global up-ref / `--shadow-check` 與 _AIDocs 子段相似度偵測 / `--atom <name>` 單顆健康過濾，供 atom-heal 重用）
 - atom-health-audit.py — atom 體質審視（七類分類：歸檔 / 晉升 / 冷凍 / 缺欄 / trigger 補強 / 保留）
+- atom-heal.py — 記憶自癒單一來源（腦內世界 P3）：L1 機械補反向連結(免 LLM) / L2 broken_refs 呼本地 Ollama 出結構化提案經 funnel 套用 / L3 stale 喚醒；後端可插拔（config `heal.backend`，預設 ollama 免費序列、cloud 選配並行）；修不好 → `_heal_review/<atom>.json` 退人工
+- heal-review.py — `/heal-review` skill 後端：列 `_heal_review/` 失敗診斷卡，management resolve(重掃確認健康)/dismiss
 - check-bypass.py — 靜態掃描 funnel 繞過（WHITELIST 外 `write_text` / `open(w)` / `fs.writeFileSync` 命中 memory 路徑 → CI exit 1）
 - audit-reconcile.py — 動態對拍（mtime × audit log entries），三分類（counter_only / knowledge / unknown）
 - memory-write-gate.py — 寫入閘門（6 規則 + 0.80 dedup）
