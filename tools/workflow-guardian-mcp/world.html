@@ -36,22 +36,27 @@
 
   /* ── 生物（記憶 atom）───────────────────────────── */
   .cr{position:absolute; left:0; top:0; width:var(--s); height:var(--s);
-    will-change:transform; cursor:grab; touch-action:none;}
+    will-change:transform; cursor:grab; touch-action:none;
+    color:hsl(var(--h,205),66%,57%);}            /* 體色＝腦區 hue；SVG fill=currentColor 取用 */
   .cr.drag{cursor:grabbing; z-index:50;}
-  .cr .body{width:100%; height:100%; border-radius:50%;
-    display:flex; align-items:center; justify-content:center; position:relative;
-    background:radial-gradient(circle at 35% 28%, hsla(var(--h),80%,72%,.95), hsla(var(--h),65%,42%,.92));
-    box-shadow:0 3px 8px rgba(0,0,0,.45);}
-  .cr .face{font-size:calc(var(--s)*.56); line-height:1; filter:drop-shadow(0 1px 1px #000);}
+  .cr .cbody{width:100%; height:100%; display:block; overflow:visible;
+    filter:drop-shadow(0 2px 2px rgba(0,0,0,.5)); transition:transform .25s;}
+  /* 表情：依狀態 class 切換眼/嘴（預設健康＝睜眼+微笑）*/
+  .cr .eyes-closed,.cr .eyes-sick,.cr .m-flat,.cr .m-sick{display:none;}
+  .cr.sleep .eyes-open,.cr.sleep .m-smile{display:none;}
+  .cr.sleep .eyes-closed,.cr.sleep .m-flat{display:inline;}
+  .cr.sick  .eyes-open,.cr.sick  .m-smile{display:none;}
+  .cr.sick  .eyes-sick,.cr.sick  .m-sick{display:inline;}
+  .cr.ghost{color:rgba(214,220,250,.85); cursor:default;}
   .cr .tag{position:absolute; top:calc(100% + 1px); left:50%; transform:translateX(-50%);
     font-size:10px; color:var(--muted); white-space:nowrap; max-width:110px; overflow:hidden;
     text-overflow:ellipsis; text-shadow:0 1px 2px #000; pointer-events:none; opacity:.0; transition:opacity .2s;}
   .cr:hover .tag, .cr.named .tag{opacity:.95;}
   .cr:hover{z-index:40; filter:brightness(1.2);}
 
-  /* 進化階段環 */
-  .cr.c-fixed   .body{box-shadow:0 0 0 2px var(--gold),0 0 14px rgba(227,179,65,.5),0 3px 8px rgba(0,0,0,.45);}
-  .cr.c-observe .body{box-shadow:0 0 0 2px var(--silver),0 0 10px rgba(201,209,201,.35),0 3px 8px rgba(0,0,0,.45);}
+  /* 進化階段環（drop-shadow 光暈貼合 SVG 輪廓，非方框）*/
+  .cr.c-fixed   .cbody{filter:drop-shadow(0 0 3px var(--gold)) drop-shadow(0 0 6px rgba(227,179,65,.5)) drop-shadow(0 2px 2px rgba(0,0,0,.5));}
+  .cr.c-observe .cbody{filter:drop-shadow(0 0 3px var(--silver)) drop-shadow(0 0 4px rgba(201,209,201,.4)) drop-shadow(0 2px 2px rgba(0,0,0,.5));}
 
   /* 角標 */
   .cr .badge{position:absolute; font-size:calc(var(--s)*.42); line-height:1; filter:drop-shadow(0 0 3px #000); pointer-events:none; display:none;}
@@ -63,17 +68,26 @@
   @keyframes evolvePulse{0%,100%{transform:scale(1)} 50%{transform:scale(1.3)}}
   @keyframes work{0%,100%{transform:rotate(-15deg)} 50%{transform:rotate(20deg)}}
 
-  /* 生病：綠煙 + 抖 */
-  .cr.sick .body{filter:hue-rotate(35deg) saturate(.7) brightness(.85);}
-  .cr.sick .smoke{position:absolute; inset:-10px; border-radius:50%; pointer-events:none;
-    background:radial-gradient(circle,rgba(63,185,80,.5),transparent 62%); animation:smoke 2.1s ease-in-out infinite;}
+  /* 生病：體色轉病綠（currentColor 覆寫，與 hue 無關）+ 綠煙 + 反胃表情 */
+  .cr.sick{color:#5cbf66;}
+  .cr.sick .cbody{filter:saturate(.85) brightness(.92) drop-shadow(0 2px 2px rgba(0,0,0,.5));}
+  .cr .smoke{display:none; position:absolute; inset:-10px; border-radius:50%; pointer-events:none;
+    background:radial-gradient(circle,rgba(63,185,80,.5),transparent 62%);}
+  .cr.sick .smoke{display:block; animation:smoke 2.1s ease-in-out infinite;}
   @keyframes smoke{0%,100%{opacity:.25;transform:scale(.85)} 50%{opacity:.65;transform:scale(1.2)}}
 
-  /* 沉睡：躺下 */
-  .cr.sleep .body{transform:rotate(78deg); opacity:.62;}
+  /* 沉睡：傾身打盹 + 變淡（閉眼由表情 class 處理）*/
+  .cr.sleep .cbody{transform:rotate(14deg); opacity:.6; transform-origin:50% 70%;}
 
-  /* 進化中發光 */
-  .cr.evolving .body{box-shadow:0 0 0 2px var(--evolve),0 0 18px rgba(210,168,255,.6),0 3px 8px rgba(0,0,0,.45);}
+  /* 進化中：紫光閃爍 */
+  .cr.evolving .cbody{animation:evoGlow 1.5s ease-in-out infinite;}
+  @keyframes evoGlow{
+    0%,100%{filter:drop-shadow(0 0 3px var(--evolve)) drop-shadow(0 2px 2px rgba(0,0,0,.5));}
+    50%{filter:drop-shadow(0 0 9px var(--evolve)) drop-shadow(0 0 16px rgba(210,168,255,.7)) drop-shadow(0 2px 2px rgba(0,0,0,.5));}}
+
+  /* 頂級龍（mass≥16）：威風呼吸 */
+  .cr.mega .cbody{animation:megaBreath 3s ease-in-out infinite; transform-origin:50% 62%;}
+  @keyframes megaBreath{0%,100%{transform:scale(1)} 50%{transform:scale(1.06)}}
 
   /* 對話泡泡 */
   .bubble{position:absolute; z-index:60; transform:translate(-50%,-100%);
@@ -130,6 +144,51 @@
 </style>
 </head>
 <body>
+  <!-- ── 體型 SVG <symbol> 定義（4 階生物 + 幽靈，<use> 復用、零素材）──────
+       主體 fill=currentColor（＝.cr 的 color＝腦區 hue）；明暗用白/黑 opacity 疊層，
+       與 hue 無關，故任何腦區色都有立體感。表情(眼/嘴)畫在各生物的 light-DOM svg 裡，
+       可被 document CSS class 切換（symbol 內無法被外層 class 選取）。-->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <symbol id="sym-egg" viewBox="0 0 100 100">
+      <ellipse cx="50" cy="80" rx="22" ry="5.5" fill="#000" opacity=".16"/>
+      <path d="M50 14 C30 18 22 46 24 62 C26 80 38 90 50 90 C62 90 74 80 76 62 C78 46 70 18 50 14 Z" fill="currentColor"/>
+      <path d="M50 14 C30 18 22 46 24 62 C26 80 38 90 50 90 C62 90 74 80 76 62 C78 46 70 18 50 14 Z" fill="none" stroke="#000" stroke-opacity=".16" stroke-width="2"/>
+      <ellipse cx="40" cy="40" rx="8" ry="12" fill="#fff" opacity=".22"/>
+      <path d="M36 30 l7 6 l-6 6 l8 5" fill="none" stroke="#000" stroke-opacity=".14" stroke-width="2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sym-slime" viewBox="0 0 100 100">
+      <ellipse cx="50" cy="86" rx="30" ry="5.5" fill="#000" opacity=".16"/>
+      <circle cx="30" cy="88" r="3" fill="currentColor"/><circle cx="68" cy="89" r="2.4" fill="currentColor"/>
+      <path d="M16 80 C14 44 28 26 50 26 C72 26 86 44 84 80 C84 84 80 86 75 84 C68 88 60 86 52 87 C44 88 34 88 27 84 C22 86 16 84 16 80 Z" fill="currentColor"/>
+      <path d="M16 80 C14 44 28 26 50 26 C72 26 86 44 84 80" fill="none" stroke="#000" stroke-opacity=".12" stroke-width="2"/>
+      <ellipse cx="38" cy="44" rx="8" ry="11" fill="#fff" opacity=".25"/>
+    </symbol>
+    <symbol id="sym-monster" viewBox="0 0 100 100">
+      <ellipse cx="50" cy="89" rx="27" ry="5" fill="#000" opacity=".16"/>
+      <path d="M30 34 L22 12 L42 28 Z" fill="currentColor"/><path d="M70 34 L78 12 L58 28 Z" fill="currentColor"/>
+      <ellipse cx="37" cy="84" rx="9" ry="6" fill="currentColor"/><ellipse cx="63" cy="84" rx="9" ry="6" fill="currentColor"/>
+      <ellipse cx="18" cy="58" rx="7" ry="10" fill="currentColor"/><ellipse cx="82" cy="58" rx="7" ry="10" fill="currentColor"/>
+      <ellipse cx="50" cy="56" rx="30" ry="29" fill="currentColor"/>
+      <ellipse cx="50" cy="62" rx="17" ry="15" fill="#fff" opacity=".13"/>
+      <ellipse cx="40" cy="44" rx="7" ry="9" fill="#fff" opacity=".2"/>
+    </symbol>
+    <symbol id="sym-dragon" viewBox="0 0 100 100">
+      <ellipse cx="50" cy="90" rx="26" ry="4.5" fill="#000" opacity=".16"/>
+      <path d="M30 52 C8 38 4 60 16 64 C6 70 20 76 28 68 C24 62 26 56 30 52 Z" fill="currentColor" opacity=".92"/>
+      <path d="M70 52 C92 38 96 60 84 64 C94 70 80 76 72 68 C76 62 74 56 70 52 Z" fill="currentColor" opacity=".92"/>
+      <path d="M58 80 C78 86 86 72 76 62 C74 70 66 72 60 70 Z" fill="currentColor"/>
+      <path d="M40 30 L35 14 L45 26 Z" fill="currentColor"/><path d="M60 30 L65 14 L55 26 Z" fill="currentColor"/>
+      <ellipse cx="40" cy="84" rx="7" ry="5.5" fill="currentColor"/><ellipse cx="60" cy="84" rx="7" ry="5.5" fill="currentColor"/>
+      <ellipse cx="50" cy="56" rx="25" ry="27" fill="currentColor"/>
+      <path d="M38 60 q12 12 24 0 q-2 16 -12 18 q-10 -2 -12 -18 Z" fill="#fff" opacity=".15"/>
+      <ellipse cx="40" cy="42" rx="6" ry="8" fill="#fff" opacity=".2"/>
+    </symbol>
+    <symbol id="sym-ghost" viewBox="0 0 100 100">
+      <path d="M24 56 C24 32 40 20 50 20 C60 20 76 32 76 56 L76 82 C76 86 72 86 70 82 C68 78 64 78 62 82 C60 86 56 86 54 82 C52 78 48 78 46 82 C44 86 40 86 38 82 C36 78 32 78 30 82 C28 86 24 86 24 82 Z" fill="currentColor"/>
+      <ellipse cx="40" cy="40" rx="6" ry="8" fill="#fff" opacity=".18"/>
+    </symbol>
+  </defs></svg>
+
   <canvas id="bg"></canvas>
   <div id="scene"></div>
 
@@ -148,7 +207,7 @@
   <div id="clinic"><div class="ic">🏥</div>診所<br><span style="font-size:10px;opacity:.7">拖生病的來這</span></div>
 
   <div id="legend">
-    <div class="r"><b>體型</b> 🥚→🐣→👾→👹→🐲（越大越資深/怪物）</div>
+    <div class="r"><b>體型</b> 🥚蛋→史萊姆→小怪→龍（越大越資深；龍滿級會威風呼吸）</div>
     <div class="r"><b>狀態</b> 🤢生病　💤沉睡　🌱/🔨工作中　🆙進化中　👑長老</div>
     <div class="r"><b>進化環</b> 金=[固] 銀=[觀]　｜　點生物看白話身份卡</div>
   </div>
@@ -347,6 +406,30 @@ function faceOf(c){
 function confClass(c){ if(c.includes("固")) return "c-fixed"; if(c.includes("觀")) return "c-observe"; return ""; }
 function hueOf(key){ if(key==="core") return 205; let h=0; for(const ch of key) h=(h*31+ch.charCodeAt(0))%360; return h; }
 
+/* 4 階體型：沿用 faceOf 的 mass 門檻 → SVG symbol id（≥16 另加 mega 威風呼吸）*/
+function tierOf(c){
+  const m = c.mass;
+  if(m>=10) return "dragon";   // 龍
+  if(m>=6)  return "monster";  // 小怪
+  if(m>=3)  return "slime";    // 史萊姆
+  return "egg";                // 🥚 蛋（幼體）
+}
+const FACE_Y = { egg:57, slime:51, monster:48, dragon:45, ghost:46 };  // 各體型臉部 y 位移
+/* 生物 SVG：<use> 復用體型 symbol（fill=currentColor＝腦區色）+ 可切換表情組 */
+function crSvg(){
+  return `<svg class="cbody" viewBox="0 0 100 100" width="100%" height="100%">`+
+    `<use class="shape" href="#sym-egg"></use>`+
+    `<g class="face" transform="translate(50,57)">`+
+      `<g class="eyes eyes-open"><circle cx="-9" cy="-2" r="3.4" fill="#15242e"/><circle cx="9" cy="-2" r="3.4" fill="#15242e"/><circle cx="-7.7" cy="-3.4" r="1.1" fill="#fff"/><circle cx="10.3" cy="-3.4" r="1.1" fill="#fff"/></g>`+
+      `<g class="eyes eyes-closed" stroke="#15242e" stroke-width="2" stroke-linecap="round" fill="none"><path d="M-13 -2 q4 4.5 8 0"/><path d="M5 -2 q4 4.5 8 0"/></g>`+
+      `<g class="eyes eyes-sick" stroke="#15242e" stroke-width="2" stroke-linecap="round" fill="none"><path d="M-12 -5 l6 6 M-6 -5 l-6 6"/><path d="M6 -5 l6 6 M12 -5 l-6 6"/></g>`+
+      `<path class="mouth m-smile" d="M-7 5 q7 6 14 0" stroke="#15242e" stroke-width="2" stroke-linecap="round" fill="none"/>`+
+      `<ellipse class="mouth m-flat" cx="0" cy="8" rx="2.6" ry="2" fill="#15242e"/>`+
+      `<path class="mouth m-sick" d="M-8 6 q2.7 -4 5.3 0 q2.6 4 5.3 0 q2.7 -4 2.7 0" stroke="#15242e" stroke-width="2" stroke-linecap="round" fill="none"/>`+
+    `</g>`+
+  `</svg>`;
+}
+
 /* ── 渲染（reconcile）─────────────────────────────────────────────── */
 function render(){
   // 房間
@@ -379,7 +462,8 @@ function render(){
     let el=crEls.get(c.uid);
     if(!el){
       el=document.createElement("div"); el.className="cr";
-      el.innerHTML=`<div class="body"><span class="face"></span><div class="smoke"></div></div>`+
+      el.innerHTML=crSvg()+
+        `<div class="smoke"></div>`+
         `<div class="badge b-zzz">💤</div><div class="badge b-evolve">🆙</div>`+
         `<div class="badge b-crown">👑</div><div class="badge b-tool">🌱</div>`+
         `<span class="tag"></span>`;
@@ -389,9 +473,15 @@ function render(){
     if(el._x===undefined){ el._x=c.slotX; el._y=c.slotY; }
     el.style.setProperty("--s", c.s+"px");
     el.style.setProperty("--h", hueOf(c.region));
+    const tier = tierOf(c);
+    if(el._tier !== tier){                              // 體型變了才換 symbol（reconcile 省工）
+      el._tier = tier;
+      el.querySelector(".shape").setAttribute("href", "#sym-"+tier);
+      el.querySelector(".face").setAttribute("transform","translate(50,"+FACE_Y[tier]+")");
+    }
+    const mega = tier==="dragon" && c.mass>=16 && !c.sick && !c.sleeping;
     el.className = "cr "+confClass(c.confidence)+(c.sick?" sick":"")+(c.sleeping?" sleep":"")+
-      (c.promoting?" evolving":"")+(c.elder?" named":"");
-    el.querySelector(".face").textContent = faceOf(c);
+      (c.promoting?" evolving":"")+(c.elder?" named":"")+(mega?" mega":"");
     el.querySelector(".tag").textContent = c.name;
     el.querySelector(".b-zzz").style.display = c.sleeping?"block":"none";
     el.querySelector(".b-evolve").style.display = c.promoting?"block":"none";
@@ -399,7 +489,6 @@ function render(){
     const working = model.regions.get(c.region)?.working && !c.sick && !c.sleeping;
     const tool = el.querySelector(".b-tool"); tool.style.display = working?"block":"none";
     if(working) tool.textContent = (c.name.charCodeAt(1)||0)%2 ? "🔨":"🌱";
-    el.querySelector(".face").parentElement.querySelector(".smoke").style.display = c.sick?"block":"none";
   });
   crEls.forEach((el,n)=>{ if(!liveC.has(n)){ el.remove(); crEls.delete(n);} });
 
@@ -408,8 +497,10 @@ function render(){
   ghosts.forEach(g=>{
     liveG.add(g.key);
     let el=ghostEls.get(g.key);
-    if(!el){ el=document.createElement("div"); el.className="cr"; el.style.cursor="default";
-      el.innerHTML=`<div class="body" style="background:radial-gradient(circle at 35% 30%,rgba(220,225,255,.55),rgba(140,150,200,.25));"><span class="face">👻</span></div><span class="tag"></span>`;
+    if(!el){ el=document.createElement("div"); el.className="cr ghost";
+      el.innerHTML=`<svg class="cbody" viewBox="0 0 100 100" width="100%" height="100%"><use class="shape" href="#sym-ghost"></use>`+
+        `<g class="face" transform="translate(50,46)"><g class="eyes eyes-open"><circle cx="-8" cy="-2" r="2.8" fill="#2a2f45"/><circle cx="8" cy="-2" r="2.8" fill="#2a2f45"/></g>`+
+        `<path class="mouth m-smile" d="M-5 6 q5 4 10 0" stroke="#2a2f45" stroke-width="1.6" stroke-linecap="round" fill="none"/></g></svg><span class="tag"></span>`;
       el.title=g.title; scene.appendChild(el); ghostEls.set(g.key,el);
       let hh=0; for(const ch of g.key) hh=(hh*31+ch.charCodeAt(0))%100000;
       el._gx=(hh%Math.max(1,innerWidth-40))+20; el._gy=70+(hh%120); el._gvx=(((hh%5)-2)*0.12)+0.05;
@@ -515,7 +606,7 @@ function heal(c){
   const el=crEls.get(c.uid); if(!el) return;
   if(!c.sick){ bubbleAtEl(el,"我沒生病啦～"); return; }
   healed.add(c.name); c.sick=false;
-  el.classList.remove("sick"); el.querySelector(".smoke").style.display="none"; el.querySelector(".face").textContent=faceOf(c);
+  el.classList.remove("sick");      // 表情/體色/綠煙皆由 .sick class 驅動，移除即復原
   for(let i=0;i<5;i++){ const s=document.createElement("div"); s.className="heal"; s.textContent="✨";
     s.style.left=(el._x+(i-2)*10)+"px"; s.style.top=el._y+"px"; scene.appendChild(s); setTimeout(()=>s.remove(),1000); }
   bubbleAtEl(el,"舒服多了，謝謝醫生！");
