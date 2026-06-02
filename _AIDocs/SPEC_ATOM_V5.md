@@ -115,6 +115,20 @@ V5 引入 `_atom_index.json` 為唯一機器源。
 - 讀取點：僅 fallback 用（JSON 缺失時的 backup parser）
 - 不再被 MCP / hooks 主路徑讀取
 
+### 3.4 元資料外科編輯 `edit_metadata`（2026-06-02）
+
+atom 已建立後要動 frontmatter 的 `Trigger`/`Related`/`Tags`，不重建知識區的合法入口。實作 [`lib/atom_io.py:edit_metadata`](../lib/atom_io.py)，MCP 經 `atom_edit_meta` 暴露（§9 註）。
+
+| 契約項 | 規範 |
+|---|---|
+| 可改欄位 | 僅 `triggers` / `related` / `tags`（None 表不動該欄；至少傳一個）。知識區、信心 tag、計數類欄位皆不在範圍 |
+| byte-stable | per-label regex 只就地替換目標那一行（`count=1`），其餘 byte 原樣保留（含既有 EOL / BOM）；找不到欄位行 → 不靜默 no-op，回 error |
+| SoT 順序 | triggers 變更時 **先寫 `_atom_index.json`（機器唯一源）**，成功才續寫 frontmatter（衍生）；index 領先失敗即中止、不寫 frontmatter，避免不可復原 drift。部分失敗由 `tools/sync-atom-index.py --fix` 冪等復原 |
+| 走既有 funnel | triggers 段複用 `write_index`、frontmatter 段複用 `write_raw(op="meta-edit")`，皆入 `_meta/atom_io_audit.jsonl` |
+| source 規範 | 須在 `VALID_SOURCES`（預設 `mcp`）|
+
+取代：被 PreToolUse guard 擋的「直 Edit/Write atom .md」、以及會重建整檔知識區的「`atom_write` mode=replace」。
+
 ---
 
 ## 4. Commands → Skills 遷移（V5 P1，2026-05-27）
@@ -288,7 +302,7 @@ V5 抽出為 `memory/_meta/forbidden-phrases.json` 為 single source；`IDENTITY
 ## 9. MCP server.js 砍 4 內部 tool（V5 P2，2026-05-26）
 
 V4 暴露 7 個 tool：3 個合理（atom_write / atom_move / atom_promote）+ 4 個內部 IPC（workflow_signal / workflow_status / memory_queue_add / memory_queue_flush）。
-V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。
+V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續（2026-06-02）加回 `atom_edit_meta`（元資料外科編輯，§3.4）→ 現役 4 個業務 tool。改全域 server.js 須重啟 MCP server 生效。
 
 ---
 
@@ -339,6 +353,7 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-06-02 | V5+ | `edit_metadata` 元資料外科編輯入口（§3.4）+ MCP `atom_edit_meta`；memory-audit 晉升建議改對齊線上 usefulness Wilson 閘；atom-health-check 計數改讀 `.access.json` sidecar；funnel 寫入紀律延伸（health-check / sync-atom-index 裸 write_text → write_raw） |
 | 2026-06-01 | V5+ #1/#2 | Sub-agent 記憶注入（Phase 1）+ 注入→使用→結果 (α,β) 閉環效用歸因（Phase 2）；晉升改 Confirmations OR 效用 Wilson 下界、ReadHits 降純曝光 |
 | 2026-05-29 | V5+ | 知識區 block 渲染（表格/fence 原樣輸出）；py/js create+append block-aware + py↔js 對拍測試 + server.js module.exports |
 | 2026-05-27 | V5 GA candidate | Wave 4 完成：P5b / P6 / SPEC_ATOM_V5.md 定稿 |

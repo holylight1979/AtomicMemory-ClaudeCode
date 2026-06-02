@@ -144,7 +144,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 **架構：**
 
 - `lib/atom_spec.py` — atom 格式規則純函式（slugify / build_atom_content / validate / SKIP_DIRS / VALID_SCOPES），audit/health/atom_io 共用 import 避免規則漂移
-- `lib/atom_io.py` — knowledge funnel 入口：`write_atom()` (build+validate+atomic write+index+audit log) / `write_raw()` (escape hatch for failures/episodic 子族) / `write_index_full()` (整檔重組 sync 用)。Wave 2（2026-05-05）：`update_atom_field()` 已移除，計數類欄位（read_hits / last_used / confirmations）改走 `lib/atom_access.py`
+- `lib/atom_io.py` — knowledge funnel 入口：`write_atom()` (build+validate+atomic write+index+audit log) / `write_raw()` (escape hatch for failures/episodic 子族) / `write_index_full()` (整檔重組 sync 用) / `edit_metadata()` (元資料外科編輯：Trigger/Related/Tags，只替換 frontmatter 對應行、byte-stable 不重建知識區；triggers 變更時 **先寫 `_atom_index.json`(SoT) 再寫 frontmatter**，內部複用 write_index + write_raw funnel；取代「直 Edit atom .md（被 guard 擋）」與「整檔 atom_write replace」。2026-06-02)。Wave 2（2026-05-05）：`update_atom_field()` 已移除，計數類欄位（read_hits / last_used / confirmations）改走 `lib/atom_access.py`
 - `lib/atom_access.py` — telemetry funnel 入口（Wave 2）：`<atom>.access.json` 旁路檔讀寫單一通道；`init_access` / `increment_read_hits` / `increment_confirmation` / `record_promotion` / `read_access` / `write_access_field` / `bulk_read`；**Phase 2 (#2) 效用閉環**：`record_usefulness`(α/β) / `decay_usefulness` / `wilson_lower_bound` / `usefulness_stats` / `usefulness_promote_eligible` / `usefulness_demote_candidate` / `usefulness_hint_tier`（注入提示分級）；CLI 入口 `python -m lib.atom_access` 給 MCP server.js spawn 用
 - `lib/atom_io_cli.py` — stdin JSON → write_* → stdout JSON，供 MCP server.js spawn
 
@@ -153,6 +153,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 | Caller | source 名稱 | 切入點 |
 |---|---|---|
 | MCP server.js (toolAtomWrite/Promote) | `mcp` | `funnelWriteRaw()` + `funnelWriteIndexFull()` + `spawnAtomAccess()` |
+| MCP server.js (toolAtomEditMeta) | `mcp` | spawn inline python → `lib.atom_io.edit_metadata`（改全域 server 需重啟生效） |
 | hooks/workflow-guardian.py (atom 注入計數) | `hook:atom-inject` | `atom_access.increment_read_hits` |
 | hooks/extract-worker.py (failure atom) | `hook:extract-worker` | `_failure_writeback` + `_create_failure_atom` |
 | hooks/wg_episodic.py (cross-session confirm) | `hook:episodic-confirm` | `atom_access.increment_confirmation` |
@@ -202,13 +203,13 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 - 殘骸清理：移除 `~/.claude/projects/c--users-holylight--claude/memory/` 空目錄（Layers 2→1）
 - audit-reconcile classifier：counter_only/knowledge/unknown 三分類，53 unmatched → 0 knowledge bypass
 
-## MCP Servers（V5：≤ 3 tool）
+## MCP Servers（V5：4 tool）
 
 V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`），改由 Stop gate hook 自動偵測。
 
 | Server | 傳輸 | 用途 | 暴露 tool |
 |--------|------|------|----------|
-| workflow-guardian | stdio (Node.js) | session 管理 + Dashboard (port 3848) | `atom_write` / `atom_move` / `atom_promote`（3 個業務 tool） |
+| workflow-guardian | stdio (Node.js) | session 管理 + Dashboard (port 3848) | `atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta`（4 個業務 tool） |
 
 ### atom_write 工具（V4 三層 scope，2026-04-15+）
 
@@ -231,6 +232,10 @@ V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `me
 - **ReadHits 已退出晉升、降為純曝光計數**（取代舊 Auxiliary ≥20/≥50 + 7 天 fallback；依 Xiong 2505.16067 純檢索/注入頻率晉升會劣化品質）。注入時僅 `usefulness_hint_tier` 判定接近/已達升門才提示主動確認
 
 `merge_to_preferences=true`（global only，[觀]→[固] 時）把「## 知識」合併到 `preferences.md` 並搬原 atom 到 `memory/_archived/`。
+
+### atom_edit_meta（元資料外科編輯，2026-06-02）
+
+暴露 `lib/atom_io.edit_metadata` 給 AI：只改 atom frontmatter 的 `Trigger`/`Related`/`Tags` 行、byte-stable，不重建知識區。triggers 變更走 SoT-first（先 `_atom_index.json` 後 frontmatter）。取代被 guard 擋的「直 Edit atom .md」與會重建整檔的「atom_write replace」。契約細節見 [SPEC_ATOM_V5.md §3.4](SPEC_ATOM_V5.md)、code [server.js:toolAtomEditMeta](../tools/workflow-guardian-mcp/server.js)。**改全域 server 需重啟生效。**
 
 ### UserPromptSubmit Atom-Write Guard
 

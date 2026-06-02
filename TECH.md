@@ -85,7 +85,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── gdoc-harvester/                             ← 網頁收割
 │   ├── memory-vector-service/                     ← HTTP Vector @ :3849（專案層仍用）
 │   ├── unity-desktop/
-│   └── workflow-guardian-mcp/server.js             ← MCP @ stdio，3 tool（atom_write/move/promote）
+│   └── workflow-guardian-mcp/server.js             ← MCP @ stdio，4 tool（atom_write/move/promote/edit_meta）
 │
 ├── skills/                                         ← V5：20 個 skill（19 遷移自 commands/ + skill-creator 新增）
 │   ├── atom-debug / browse-sprites / changelog-debug
@@ -142,7 +142,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 **背景服務**：
 - **Vector Service** `http://127.0.0.1:3849`（LanceDB + Ollama embedding）— **僅專案層 + episodic search 用**；全域層 V5 已改 BM25 in-memory
 - **Codex Companion** — V5 P5b 從 daemon @ 3850 改 subprocess（port 3850 無人聽）
-- **MCP Server** `tools/workflow-guardian-mcp/server.js`（stdio）— 暴露 3 tool（atom_write / atom_move / atom_promote）
+- **MCP Server** `tools/workflow-guardian-mcp/server.js`（stdio）— 暴露 4 tool（atom_write / atom_move / atom_promote / atom_edit_meta）
 - **Ollama** Dual-Backend（rdchat-direct / local，依 `config.json`）
 
 ---
@@ -652,7 +652,7 @@ flowchart TD
 | **V5 JSON SoT** | [lib/atom_index_json.py](lib/atom_index_json.py) | 取代 `_ATOM_INDEX.md` table parser |
 | **V5 Codex Subprocess** | [hooks/codex_companion.py](hooks/codex_companion.py) + `tools/codex-companion/audit.py` | daemon → subprocess（無 port 3850）|
 | **V5 Skill 體系** | [skills/](skills/) 20 個 + frontmatter | 19 遷移自 legacy commands/ + skill-creator 新增 |
-| **V5 MCP（3 tool）** | [tools/workflow-guardian-mcp/server.js](tools/workflow-guardian-mcp/server.js) | atom_write / atom_move / atom_promote（砍 4 內部 IPC）|
+| **V5 MCP（4 tool）** | [tools/workflow-guardian-mcp/server.js](tools/workflow-guardian-mcp/server.js) | atom_write / atom_move / atom_promote / atom_edit_meta（砍 4 內部 IPC）|
 | **V5 禁語 JSON** | `memory/_meta/forbidden-phrases.json` | IDENTITY.md + wg_evasion.py single source |
 | **V5 Log Rotation** | [hooks/wg_core.py](hooks/wg_core.py) | guardian-crash.log / extract-worker.log 自動輪轉 |
 | Staging Area | `memory/_staging/` | 續接 prompt、暫存草稿（gitignored）|

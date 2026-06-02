@@ -462,6 +462,37 @@ const TOOL_DEFINITIONS = [
       required: ["subcommand", "atom"],
     },
   },
+  {
+    name: "atom_edit_meta",
+    description:
+      "Surgically edit an atom's metadata (Trigger / Related / Tags) in place — " +
+      "no full-file rebuild. Locates <atom_name>.md via the same scope resolution as " +
+      "atom_promote (global memory, project layers, _AIDocs/Failures for feedback-*), then " +
+      "delegates to lib/atom_io.edit_metadata through the audit funnel. " +
+      "Pass any subset of triggers/related/tags; at least one is required. " +
+      "Each provided field fully replaces that field's existing value.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        atom_name: { type: "string", description: "Atom filename without .md extension" },
+        scope: { type: "string", enum: ["global", "project"], description: "Scope to search in" },
+        triggers: {
+          type: "array", items: { type: "string" },
+          description: "Replacement Trigger keywords (optional). Replaces the whole Trigger line.",
+        },
+        related: {
+          type: "array", items: { type: "string" },
+          description: "Replacement Related atom names (optional). Replaces the whole Related line.",
+        },
+        tags: {
+          type: "array", items: { type: "string" },
+          description: "Replacement Tags (optional). Replaces the whole Tags line.",
+        },
+        project_cwd: { type: "string", description: "Project root (required for project scope)" },
+      },
+      required: ["atom_name", "scope"],
+    },
+  },
 ];
 
 // ─── Tool Handlers ──────────────────────────────────────────────────────────
@@ -477,6 +508,8 @@ function handleToolCall(id, toolName, args) {
       return toolAtomPromote(id, args).catch(e => sendToolResult(id, `atom_promote error: ${e.message}`, true));
     case "atom_move":
       return toolAtomMove(id, args).catch(e => sendToolResult(id, `atom_move error: ${e.message}`, true));
+    case "atom_edit_meta":
+      return toolAtomEditMeta(id, args).catch(e => sendToolResult(id, `atom_edit_meta error: ${e.message}`, true));
     default:
       sendError(id, -32601, `Unknown tool: ${toolName}`);
   }
@@ -1744,6 +1777,108 @@ async function toolAtomPromote(id, args) {
     `Knowledge lines updated to ${next}.` +
     mergeReport +
     mergeHint
+  );
+}
+
+// ─── Atom Edit-Metadata Handler ────────────────────────────────────────────
+
+/** Spawn inline python that calls lib.atom_io.edit_metadata through the funnel.
+ *  list 參數 (triggers/related/tags) 以單一 JSON 字串走 argv 傳入，python 端
+ *  json.loads 後展開。沿用 spawnAtomCli/spawnAtomAccess 慣例：cwd=CLAUDE_DIR、
+ *  PYTHONIOENCODING=utf-8、windowsHide。回傳 Promise<WriteResult.to_dict()>。
+ */
+function spawnEditMetadata(filePath, fields) {
+  // fields: { triggers?: string[], related?: string[], tags?: string[] }
+  const payload = JSON.stringify({ file_path: filePath, ...fields });
+  const inline = [
+    "import sys, json",
+    "from lib.atom_io import edit_metadata",
+    "p = json.loads(sys.argv[1])",
+    "r = edit_metadata(",
+    "    p['file_path'],",
+    "    triggers=p.get('triggers'),",
+    "    related=p.get('related'),",
+    "    tags=p.get('tags'),",
+    "    source='mcp',",
+    ")",
+    "print(json.dumps(r.to_dict(), ensure_ascii=False))",
+  ].join("\n");
+  return new Promise((resolve) => {
+    let cp;
+    try {
+      cp = require("child_process").spawn(
+        "python", ["-c", inline, payload],
+        {
+          cwd: CLAUDE_DIR,
+          windowsHide: true,
+          env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+        }
+      );
+    } catch (e) {
+      return resolve({ ok: false, error: `spawn failed: ${e.message}` });
+    }
+    let out = "", err = "";
+    cp.stdout.on("data", (d) => { out += d.toString("utf-8"); });
+    cp.stderr.on("data", (d) => { err += d.toString("utf-8"); });
+    cp.on("close", () => {
+      try {
+        resolve(JSON.parse(out.trim()));
+      } catch (e) {
+        resolve({ ok: false, error: `cli parse fail: ${e.message} stderr=${err.slice(0, 300)}` });
+      }
+    });
+    cp.on("error", (e) => resolve({ ok: false, error: `spawn error: ${e.message}` }));
+  });
+}
+
+async function toolAtomEditMeta(id, args) {
+  const { atom_name, scope, project_cwd, role, user, triggers, related, tags } = args;
+
+  if (!atom_name || !scope) {
+    return sendToolResult(id, "atom_edit_meta: atom_name and scope are required", true);
+  }
+
+  // At least one metadata field must be provided.
+  const fields = {};
+  const changed = [];
+  if (Array.isArray(triggers)) { fields.triggers = triggers; changed.push("trigger"); }
+  if (Array.isArray(related))  { fields.related = related;   changed.push("related"); }
+  if (Array.isArray(tags))     { fields.tags = tags;         changed.push("tags"); }
+  if (changed.length === 0) {
+    return sendToolResult(id,
+      "atom_edit_meta: at least one of triggers / related / tags must be provided (array of string).",
+      true);
+  }
+
+  // Path resolution — mirror toolAtomPromote exactly (global/project + feedback-*).
+  const resolved = resolveMemDir(scope, project_cwd, { role, user });
+  if (resolved.error) {
+    return sendToolResult(id, `atom_edit_meta: ${resolved.error}`, true);
+  }
+  const memDir = resolved.dir;
+  let filePath = path.join(memDir, atom_name + ".md");
+
+  if (!fs.existsSync(filePath)) {
+    let found = findAtomFileRecursive(memDir, atom_name);
+    if (!found && scope === "global" && atom_name.startsWith(FEEDBACK_TITLE_PREFIX)) {
+      found = findAtomFileRecursive(FAILURES_DIR, atom_name);
+    }
+    if (!found) {
+      return sendToolResult(id, `Atom not found: ${atom_name}.md in ${scope} scope`, true);
+    }
+    filePath = found;
+  }
+
+  const result = await spawnEditMetadata(filePath, fields);
+  if (!result.ok) {
+    return sendToolResult(id, `atom_edit_meta failed: ${result.error || "(unknown error)"}`, true);
+  }
+
+  triggerVectorReindex();
+
+  return sendToolResult(id,
+    `Edited metadata for ${atom_name}.md (fields: ${changed.join(", ")})\n` +
+    `audit_id: ${result.audit_id || "(none)"}`
   );
 }
 

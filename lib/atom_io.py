@@ -65,6 +65,11 @@ VALID_SOURCES = frozenset({
 # SPEC §7.4 sensitive audience triggers auto-pending
 SENSITIVE_AUDIENCE = frozenset({"architecture", "decision"})
 
+# edit_metadata 參數欄名 → frontmatter 標籤（參數複數、frontmatter 單數）。
+# 行比對 regex 就地建於 edit_metadata 內（per-label），嚴禁 import tools/
+# （sync-atom-index.py 含 '-' 無法 import，且 lib 反依賴 tools 為架構倒掛）。
+_META_FIELD_LABEL = {"triggers": "Trigger", "related": "Related", "tags": "Tags"}
+
 
 # ─── Result type ──────────────────────────────────────────────────────────────
 
@@ -395,6 +400,83 @@ def write_raw(
         "op": op, "source": source, "path": str(file_path),
     })
     return WriteResult(ok=True, audit_id=audit_id, path=file_path)
+
+
+def edit_metadata(
+    file_path: Path,
+    *,
+    triggers: Optional[List[str]] = None,
+    related: Optional[List[str]] = None,
+    tags: Optional[List[str]] = None,
+    source: str = "mcp",
+) -> WriteResult:
+    """atom 元資料外科編輯 — 只替換 frontmatter 的 Trigger/Related/Tags 行。
+
+    取代直接 Write/Edit atom .md（會被 Guardian guard 擋）與整檔 atom_write replace
+    （重建知識區、風險高）。byte-stable：**只改目標那幾行**，其餘行原樣保留。
+
+    SoT 順序（triggers 變更時）：先寫 _atom_index.json（機器唯一源），成功才續寫
+    frontmatter（衍生），避免 frontmatter 領先 index 造成不可復原 drift。部分失敗
+    可由 `tools/sync-atom-index.py --fix` 冪等復原，故不建交易層。
+
+    Args:
+        file_path: atom .md 絕對路徑（global memory 或 _AIDocs/Failures/ 皆可）
+        triggers/related/tags: list[str]，None 表不動該欄位
+        source: audit source（須在 VALID_SOURCES；預設 "mcp"）
+    """
+    audit_id = _gen_audit_id()
+    if source not in VALID_SOURCES:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"invalid source: {source}")
+
+    # ── Read（utf-8-sig 容 BOM；但若原檔有 BOM 須原樣保留，避免非目標 byte 變更） ──
+    try:
+        raw = Path(file_path).read_bytes()
+    except OSError as e:
+        return WriteResult(ok=False, audit_id=audit_id, error=f"read failed: {e}")
+    had_bom = raw.startswith(b"\xef\xbb\xbf")
+    text = raw.decode("utf-8-sig")
+
+    # ── Surgical replace（每個非 None 欄位，只改那一行，count=1；找不到不靜默） ──
+    fields = {"triggers": triggers, "related": related, "tags": tags}
+    new_text = text
+    for field_name, values in fields.items():
+        if values is None:
+            continue
+        label = _META_FIELD_LABEL[field_name]
+        value_str = ", ".join(values)
+        replacement = f"- {label}: {value_str}"
+        # per-label regex 收斂到「該欄位那一行」（就地定義，不依賴 tools/）
+        line_re = re.compile(rf"^-\s*{label}:\s*.*$", re.MULTILINE)
+        new_text, n = line_re.subn(replacement, new_text, count=1)
+        if n == 0:
+            # 找不到該欄位行 → 不靜默 no-op（且 frontmatter 尚未寫，index 也未寫）
+            return WriteResult(
+                ok=False, audit_id=audit_id,
+                error=f"frontmatter field not found: {label}",
+            )
+
+    # ── SoT 先行：triggers 變更時先寫 _atom_index.json ──
+    if triggers is not None:
+        base_dir = GLOBAL_MEMORY_DIR  # global memory 與 Failures atoms 索引同居此
+        slug = Path(file_path).stem
+        try:
+            rel_path = Path(file_path).resolve().relative_to(
+                CLAUDE_DIR.resolve()).as_posix()
+        except ValueError:
+            return WriteResult(
+                ok=False, audit_id=audit_id,
+                error=f"file not under {CLAUDE_DIR}: {file_path}",
+            )
+        idx_res = write_index(base_dir, slug, rel_path, triggers, source)
+        if not idx_res.ok:
+            # index 領先失敗 → 不續寫 frontmatter（避免不可復原 drift）
+            return idx_res
+
+    # ── 寫 frontmatter（衍生，index 之後）；原檔有 BOM 則原樣補回 ──
+    if had_bom:
+        new_text = "﻿" + new_text
+    return write_raw(Path(file_path), new_text, source=source, op="meta-edit")
 
 
 # Wave 2 移除：update_atom_field

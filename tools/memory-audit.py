@@ -54,16 +54,20 @@ from lib.atom_locations import (
     GLOBAL_MEMORY_DIR, FAILURES_DIR,
     failures_atom_stems, iter_atom_files_multi,
 )
+# 晉升判定權威來源（server.js 的 py 鏡像）：confirmations 主軌 + usefulness Wilson 下界軌。
+# ReadHits 已退役（純曝光、不參與晉升）。
+from lib.atom_access import read_access, usefulness_promote_eligible
 
 # ─── Audit-specific constants（atom_spec 不需共享的） ────────────────────────
 
 STALENESS_THRESHOLDS: Dict[str, int] = {"[固]": 90, "[觀]": 60, "[臨]": 30}
 # v2.1 Sprint 3: Type-based decay multiplier (procedural ages slower, episodic faster)
 TYPE_DECAY_MULTIPLIER: Dict[str, float] = {"semantic": 1.0, "episodic": 0.8, "procedural": 1.5}
-# SYNC: memory/decisions.md — dual-track promotion thresholds (suggest only, not gate)
+# SYNC: server.js atom_promote — confirmations 主軌（suggest only, not gate）。
+# ReadHits 已退役（純曝光、不參與晉升）；usefulness 軌走 lib.atom_access（自帶 lb/min_n 預設）。
 PROMOTION_THRESHOLDS = {
-    "[臨]": {"confirmations": 4, "readhits": 20},
-    "[觀]": {"confirmations": 10, "readhits": 50},
+    "[臨]": {"confirmations": 4},
+    "[觀]": {"confirmations": 10},
 }
 DISTANT_DIR = "_distant"
 VALID_TYPES = {"semantic", "episodic", "procedural"}
@@ -108,6 +112,7 @@ class AtomMetadata:
     evolution_entries: int = 0
     raw_metadata: Dict[str, str] = field(default_factory=dict)
     is_claude_native: bool = False    # True if --- YAML frontmatter (Claude auto-memory)
+    had_bad_eol: bool = False         # Fix B: 原始檔含 \r\r\n（雙CR）損壞行尾 → emit warning
     # v2.1 fields (all optional, graceful fallback)
     atom_type: str = "semantic"       # semantic/episodic/procedural
     created: Optional[date] = None
@@ -183,9 +188,17 @@ def parse_atom_file(path: Path, layer_name: str) -> AtomMetadata:
     """
     atom = AtomMetadata(file_path=path, layer_name=layer_name)
     try:
-        text = path.read_text(encoding="utf-8-sig")  # handles BOM
+        # 讀 raw bytes 自行 decode（utf-8-sig 仍處理 BOM）：read_text 會做 universal-newline
+        # 翻譯，會在偵測前就把 \r\r\n 吃掉 → Fix B 的雙CR偵測必須看原始位元組。
+        text = path.read_bytes().decode("utf-8-sig")
     except (OSError, UnicodeDecodeError):
         return atom
+
+    # Fix B: 偵測並修復 \r\r\n（雙CR）損壞行尾。
+    # 不正規化的話 splitlines 會把雙CR拆成假空行 → metadata 迴圈遇假空行 break
+    # → 只讀到第一個欄位 → 後續必填欄誤判缺失。先記旗標（emit warning），再正規化。
+    atom.had_bad_eol = "\r\r\n" in text
+    text = text.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
 
     lines = text.splitlines()
     atom.line_count = len(lines)
@@ -392,6 +405,10 @@ def validate_format(atom: AtomMetadata) -> List[Issue]:
     if atom.is_claude_native:
         return issues
 
+    # Fix B: 行尾損壞（\r\r\n）— 修而不掩，emit warning 讓使用者知曉並修原始檔
+    if atom.had_bad_eol:
+        issues.append(Issue(rel, "warning", "format", "行尾損壞（\\r\\r\\n 雙CR）— 已容錯解析，建議修復原始檔行尾"))
+
     # Title
     if not atom.title:
         issues.append(Issue(rel, "error", "format", "缺少 # 標題"))
@@ -463,28 +480,30 @@ def check_staleness(atom: AtomMetadata, today: date) -> Optional[Suggestion]:
 
 
 def suggest_promotions(atom: AtomMetadata) -> Optional[Suggestion]:
-    """Suggest promotion based on dual-track thresholds (v3)."""
+    """Suggest promotion aligned with server.js atom_promote (authoritative).
+
+    真閘只有兩軌（ReadHits 純曝光、已退役、不參與）：
+      - confirmations 主軌：≥ 閾值（[臨]→[觀]=4、[觀]→[固]=10）
+      - usefulness 軌：Wilson 下界 lb≥0.6 且 n≥3（委派 lib.atom_access，不抄公式）
+    """
     thresholds = PROMOTION_THRESHOLDS.get(atom.confidence)
     if thresholds is None:
         return None
 
     conf_ok = atom.confirmations >= thresholds["confirmations"]
-    rh_ok = getattr(atom, "readhits", 0) >= thresholds["readhits"]
-    if not conf_ok and not rh_ok:
+    util_ok = usefulness_promote_eligible(read_access(atom.file_path))
+    if not conf_ok and not util_ok:
         return None
 
-    method = "Conf" if conf_ok else "ReadHits"
-    val = atom.confirmations if conf_ok else getattr(atom, "readhits", 0)
-    req = thresholds["confirmations"] if conf_ok else thresholds["readhits"]
+    if conf_ok:
+        reason = f"Conf={atom.confirmations}（閾值 {thresholds['confirmations']}）"
+    else:
+        reason = "Usefulness Wilson 下界達標（lb≥0.6, n≥3）"
     rel = _rel_path(atom.file_path)
     if atom.confidence == "[臨]":
-        return Suggestion(
-            rel, "[臨]", "[觀]", f"{method}={val}（閾值 {req}）"
-        )
+        return Suggestion(rel, "[臨]", "[觀]", reason)
     elif atom.confidence == "[觀]":
-        return Suggestion(
-            rel, "[觀]", "[固]", f"{method}={val}（閾值 {req}）"
-        )
+        return Suggestion(rel, "[觀]", "[固]", reason)
     return None
 
 

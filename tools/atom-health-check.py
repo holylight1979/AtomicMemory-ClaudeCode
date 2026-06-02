@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_spec import is_atom_file, REQUIRED_METADATA  # noqa: E402
 from lib.atom_locations import iter_atom_files_multi  # noqa: E402
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
+from lib.atom_access import read_access  # noqa: E402  Wave 2：計數欄已搬 sidecar <atom>.access.json
 
 MEMORY_ROOT = Path.home() / ".claude" / "memory"
 GLOBAL_MEMORY_ROOT = Path.home() / ".claude" / "memory"
@@ -312,8 +313,7 @@ def stale_check(atoms: dict[str, Path], days: int = 60) -> list[dict]:
     cutoff = datetime.now() - timedelta(days=days)
     stale = []
     for name, path in sorted(atoms.items()):
-        fm = parse_frontmatter(path)
-        last_used = fm.get("Last-used", "")
+        last_used = read_access(path).get("last_used") or ""
         if not last_used:
             continue
         try:
@@ -467,6 +467,7 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
 
     for name, path in sorted(atoms.items()):
         fm = parse_frontmatter(path)
+        acc = read_access(path)  # Wave 2：計數欄居 sidecar <atom>.access.json
         related = parse_related(fm)
         # V5+: atoms 可居 _AIDocs/Failures/，相對於 ~/.claude 計算
         try:
@@ -478,9 +479,9 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
             "file": file_rel,
             "format": fm.get("_format", "unknown"),
             "confidence": fm.get("Confidence", "—"),
-            "last_used": fm.get("Last-used", "—"),
-            "confirmations": fm.get("Confirmations", "—"),
-            "readhits": fm.get("ReadHits", "—"),
+            "last_used": acc.get("last_used") or "—",
+            "confirmations": acc.get("confirmations", "—"),
+            "readhits": acc.get("read_hits", "—"),
             "related": related,
             "issues": [],
         }
@@ -491,11 +492,11 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
             for k in REQUIRED_METADATA:
                 if not fm.get(k):
                     entry["issues"].append(f"missing {k}")
-            # Tracking fields (not in REQUIRED but expected for active atoms)
-            if not fm.get("Confirmations"):
-                entry["issues"].append("missing Confirmations")
-            if not fm.get("ReadHits"):
-                entry["issues"].append("missing ReadHits")
+            # Tracking fields now live in sidecar <atom>.access.json (Wave 2).
+            # confirmations=0 is normal for a tracked atom; only a missing
+            # sidecar (never tracked → first_seen is None) warrants a warning.
+            if acc.get("first_seen") is None:
+                entry["issues"].append("no access.json (never tracked)")
         elif fm.get("_format") == "claude-native":
             entry["issues"].append("claude-native format (no Last-used/Confirmations/Related)")
 
