@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: codex, codex companion, codex CLI, gpt-5, bg subprocess, DEVNULL, ready flag, subprocess Popen, MCP, 安裝 MCP, 安裝 skill, silent failure, probe burst, 規則唯一來源
 - Created-at: 2026-05-26
-- Related: feedback-completion-gates, feedback-memory-structure, feedback-workflow-discipline, atom-table-support, cc-能力查證反編譯實跑-binary, codex-log-bloat-analytics
+- Related: feedback-completion-gates, feedback-memory-structure, feedback-workflow-discipline, atom-table-support, cc-能力查證反編譯實跑-binary, codex-log-bloat-analytics, atom-元資料編輯與晉升閘真相
 
 ## 知識
 

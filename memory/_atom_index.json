@@ -427,6 +427,25 @@
         "--analytics-default-enabled"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom-元資料編輯與晉升閘真相",
+      "path": "memory/atom-元資料編輯與晉升閘真相.md",
+      "triggers": [
+        "edit_metadata",
+        "atom 元資料編輯",
+        "atom_edit_meta",
+        "trigger 裁減",
+        "改 trigger",
+        "atom 晉升",
+        "ReadHits",
+        "usefulness",
+        "晉升閘",
+        "access.json",
+        "sidecar",
+        "行尾損壞"
+      ],
+      "scope": "global"
     }
   ]
 }

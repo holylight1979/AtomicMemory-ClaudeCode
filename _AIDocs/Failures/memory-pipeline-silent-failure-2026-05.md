@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: memory-review, memory-health, confirmations, episodic, 晉升, 自我迭代, 衰減掃描, 覆轍偵測
 - Created-at: 2026-05-22
-- Related: decisions, decisions-architecture, workflow-rules, atom-usefulness-loop
+- Related: decisions, decisions-architecture, workflow-rules, atom-usefulness-loop, atom-元資料編輯與晉升閘真相
 
 ## 知識
 

@@ -30,3 +30,4 @@
 | atom-usefulness-loop | memory/atom-usefulness-loop.md | 效用閉環, usefulness, record_usefulness, atom 晉升, use 偵測, Wilson 下界, 慢衰減, Beta-Bernoulli, 注入使用結果, useful_hits, used_fail, 原子記憶開發 | global |
 | cc-能力查證反編譯實跑-binary | memory/cc-能力查證反編譯實跑-binary.md | CC 版本, hook event, 查證, 反編譯, claude binary, docs 幻覺, 版本分裂, WebFetch, capability, PostCompact, PostToolBatch | global |
 | codex-log-bloat-analytics | memory/codex-log-bloat-analytics.md | codex, logs_2.sqlite, 日誌暴量, analytics, OTEL, app-server, codex 崩潰, codex 卡頓, --analytics-default-enabled | global |
+| atom-元資料編輯與晉升閘真相 | memory/atom-元資料編輯與晉升閘真相.md | edit_metadata, atom 元資料編輯, atom_edit_meta, trigger 裁減, 改 trigger, atom 晉升, ReadHits, usefulness, 晉升閘, access.json, sidecar, 行尾損壞 | global |
