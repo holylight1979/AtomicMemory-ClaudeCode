@@ -761,7 +761,7 @@ function tick(ts){
     let ox=0, oy=0;
     if(c.sleeping){ oy=4; }
     else if(c.sick){ ox=Math.sin(t*22+c.phase)*1.6; }
-    else { if(autoOn) wander(c,t); ox=(c._wox||0)+Math.sin(t*1.4+c.phase)*1.5; oy=(c._woy||0)+Math.sin(t*1.8+c.phase)*2; }
+    else { if(autoOn) wander(c,el,t); ox=(el._wox||0)+Math.sin(t*1.4+c.phase)*1.5; oy=(el._woy||0)+Math.sin(t*1.8+c.phase)*2; }
     el._x = c.slotX + ox; el._y = c.slotY + oy;
     el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
   });
@@ -777,20 +777,21 @@ function tick(ts){
 }
 
 /* ── 自主漫步：偶爾在房內挑新目標、緩步漂移（純前端、零 LLM 成本）─────────── */
-function wander(c,t){
-  if(c._wox===undefined){ c._wox=0; c._woy=0; c._wtx=0; c._wty=0; c._wnext=0; }
-  if(t > c._wnext){                                     // 到換目標時間 → 房內隨機挑新偏移
+// 漫步狀態存在持久的 el（跨 refresh 存活），非 ephemeral 的 c（每 POLL_MS 重建）→ 不再每 5s 彈回原位
+function wander(c,el,t){
+  if(el._wox===undefined){ el._wox=0; el._woy=0; el._wtx=0; el._wty=0; el._wnext=0; }
+  if(t > el._wnext){                                    // 到換目標時間 → 房內隨機挑新偏移
     const RX = c.active ? 70 : 36, RY = 26;             // 活躍者漫步範圍較大
-    c._wtx = (Math.random()*2-1)*RX;
-    c._wty = (Math.random()*2-1)*RY;
+    el._wtx = (Math.random()*2-1)*RX;
+    el._wty = (Math.random()*2-1)*RY;
     if(c.roomMinX!=null){                               // 夾在房間框內（slot+偏移不出房）
-      c._wtx = Math.max(c.roomMinX-c.slotX, Math.min(c.roomMaxX-c.slotX, c._wtx));
-      c._wty = Math.max(c.roomMinY-c.slotY, Math.min(c.roomMaxY-c.slotY, c._wty));
+      el._wtx = Math.max(c.roomMinX-c.slotX, Math.min(c.roomMaxX-c.slotX, el._wtx));
+      el._wty = Math.max(c.roomMinY-c.slotY, Math.min(c.roomMaxY-c.slotY, el._wty));
     }
-    c._wnext = t + 3 + Math.random()*5;                 // 3~8s 換一次目標
+    el._wnext = t + 3 + Math.random()*5;                // 3~8s 換一次目標
   }
-  c._wox += (c._wtx - c._wox)*0.02;                     // 緩步 lerp 朝目標
-  c._woy += (c._wty - c._woy)*0.02;
+  el._wox += (el._wtx - el._wox)*0.02;                  // 緩步 lerp 朝目標
+  el._woy += (el._wty - el._woy)*0.02;
 }
 
 /* 生病生物自主走向診所，到院觸發自動 L1（healReal 內有 healing 鎖 + autoHealTried 防重觸/騷擾）*/

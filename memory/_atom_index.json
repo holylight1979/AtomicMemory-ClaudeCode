@@ -478,6 +478,28 @@
         "heal-review"
       ],
       "scope": "global"
+    },
+    {
+      "name": "reconcile-render-動畫狀態歸屬陷阱",
+      "path": "memory/reconcile-render-動畫狀態歸屬陷阱.md",
+      "triggers": [
+        "reconcile",
+        "render",
+        "world.html",
+        "每隔一段時間跳",
+        "彈回原位",
+        "snap back",
+        "動畫狀態",
+        "POLL_MS",
+        "wander",
+        "漫步",
+        "model 重建",
+        "requestAnimationFrame",
+        "_wox",
+        "el._x",
+        "畫面跳刷新"
+      ],
+      "scope": "global"
     }
   ]
 }

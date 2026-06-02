@@ -33,3 +33,4 @@
 | atom-元資料編輯與晉升閘真相 | memory/atom-元資料編輯與晉升閘真相.md | edit_metadata, atom 元資料編輯, atom_edit_meta, trigger 裁減, 改 trigger, atom 晉升, ReadHits, usefulness, 晉升閘, access.json, sidecar, 行尾損壞 | global |
 | guardian-dashboard-孤兒佔埠與新碼重啟 | memory/guardian-dashboard-孤兒佔埠與新碼重啟.md | guardian, server.js, 3848, dashboard, 重啟, 孤兒, EADDRINUSE, 新路由 404, creature-chat, world.html | global |
 | 腦內世界-v3-自癒與-command-bus-架構 | memory/腦內世界-v3-自癒與-command-bus-架構.md | 腦內世界, atom-heal, 記憶自癒, command bus, world.html, jobRunner, _heal_review, heal-review | global |
+| reconcile-render-動畫狀態歸屬陷阱 | memory/reconcile-render-動畫狀態歸屬陷阱.md | reconcile, render, world.html, 每隔一段時間跳, 彈回原位, snap back, 動畫狀態, POLL_MS, wander, 漫步, model 重建, requestAnimationFrame, _wox, el._x, 畫面跳刷新 | global |
