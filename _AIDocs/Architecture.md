@@ -174,11 +174,12 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 
 **強制門禁（PreToolUse）：**
 
-- `hooks/wg_pretool_guards.py:check_memory_path_block`
+- `hooks/wg_core.py:check_memory_path_block`
   - (a) `~/.claude/projects/{slug}/memory/` 殘骸 → deny [P1]
   - (b) `~/.claude/.claude/memory/` 雙層路徑 → deny [P6]
-  - (c) 任何 atom .md 直 Write/Edit 不走 funnel → deny [S3.3]
-- 白名單：`MEMORY.md` / `_ATOM_INDEX.md` / `_` 前綴檔 / `_meta`/`_staging`/`episodic`/`wisdom`/`personal` 子目錄
+  - (c) `.claude/memory/` 樹下 atom .md 直 Write/Edit 不走 funnel → deny [S3.3]
+  - (d) `_AIDocs/Failures/` 下「註冊 atom」(feedback-* / cognitive-patterns / memory-pipeline-* 等失敗 atom) 直 Write/Edit → deny（`_is_failures_atom_path` 以 `failures_atom_stems()` 比對 `_atom_index.json` 精準鎖定，不誤擋同目錄混居的 legacy 失敗筆記與 `_INDEX.md`）
+- 白名單：`MEMORY.md` / `_ATOM_INDEX.md` / `_` 前綴檔 / `_meta`/`_staging`/`episodic`/`wisdom`/`personal` 子目錄。**不含 `Failures`**——Failures atom 由 (d) 主動 gate，非白名單豁免（白名單若含 `Failures`，未來一旦把 caller intersect 改 case-insensitive 會豁免整個目錄、廢掉 (d)，覆蓋缺口復發）
 - 緊急 bypass：env `WG_DISABLE_ATOM_GUARD=1`
 
 **MCP cwd-scope 雙向防護（server.js:resolveMemDir）：**

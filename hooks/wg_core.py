@@ -36,9 +36,10 @@ REGISTRY_PATH = MEMORY_DIR / "project-registry.json"
 # atom 物理位置 / 白名單規則來源（單一來源 lib.atom_locations）
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 try:
-    from atom_locations import atom_writable_dir_segments
+    from atom_locations import atom_writable_dir_segments, failures_atom_stems
 except ImportError:
     atom_writable_dir_segments = None
+    failures_atom_stems = None
 
 CONTEXT_BUDGET_DEFAULT = 3000
 
@@ -764,11 +765,11 @@ _WHITELIST_BASENAMES = frozenset({
 if atom_writable_dir_segments is not None:
     _WHITELIST_DIR_SEGMENTS = atom_writable_dir_segments()
 else:
-    # Fallback（lib import 失敗的極端情況；與 atom_locations 保持一致）
+    # Fallback（lib import 失敗的極端情況；與 atom_locations 保持一致）。
+    # 不含 'Failures'：Failures atom 由 _is_failures_atom_path 主動 gate，非白名單豁免。
     _WHITELIST_DIR_SEGMENTS = frozenset({
         "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
         "_vectordb", "_rejected", "templates", "episodic", "wisdom", "personal",
-        "Failures",
     })
 
 
@@ -789,6 +790,33 @@ def _atom_path_whitelisted(fp: Path) -> bool:
     if parts_lower & _WHITELIST_DIR_SEGMENTS:
         return True
     return False
+
+
+def _is_failures_atom_path(fp: Path) -> bool:
+    """fp 是否為 `_AIDocs/Failures/` 下「已註冊的 atom」(.md)。
+
+    `_AIDocs/Failures/` 不在 `.claude/memory/` 樹下，故上游 _path_under_memory_dir
+    對其早 return None —— 這正是 funnel guard 的覆蓋缺口（feedback-* / cognitive-patterns
+    / memory-pipeline-* 等失敗 atom 物理居此，直接 Write/Edit 會繞過 funnel + audit）。
+
+    該目錄混居「註冊 atom」與「legacy 失敗筆記」（env-traps / silent-failures /
+    wrong-assumptions… 未進 index，屬一般參考文件，不可誤擋），故以 failures_atom_stems()
+    （index SoT）精準比對 stem。_INDEX.md（'_' 前綴）與 legacy 文件 stem 不在 index → 自然放行。
+
+    failures_atom_stems 在 lib import 失敗時為 None → 退化為「不攔」，與既有行為一致。
+    """
+    if failures_atom_stems is None or fp.suffix != ".md":
+        return False
+    parts_lower = [p.lower() for p in fp.parts]
+    for i in range(len(parts_lower) - 1):
+        if parts_lower[i] == "_aidocs" and parts_lower[i + 1] == "failures":
+            break
+    else:
+        return False
+    try:
+        return fp.stem in failures_atom_stems()
+    except Exception:
+        return False
 
 
 def check_memory_path_block(
@@ -820,7 +848,9 @@ def check_memory_path_block(
     if os.environ.get("WG_DISABLE_ATOM_GUARD") == "1":
         return None
     fp = Path(fp_str)
-    if not _path_under_memory_dir(fp):
+    # memory/ 樹下 atom，或 _AIDocs/Failures/ 下「註冊 atom」(feedback-* 等失敗 atom)
+    # 皆須走 funnel；後者不在 memory 樹下，需 _is_failures_atom_path 補攔（覆蓋缺口）。
+    if not _path_under_memory_dir(fp) and not _is_failures_atom_path(fp):
         return None
     if fp.suffix != ".md":
         return None
@@ -830,8 +860,9 @@ def check_memory_path_block(
         "[Guardian:AtomFunnelBlock] 直接 Write/Edit atom .md 不走 funnel 被禁止。\n"
         f"路徑：{fp_str}\n"
         "正確做法：\n"
-        "  (1) 用 MCP `atom_write` / `atom_promote` / `atom_move` 工具\n"
-        "  (2) 程式碼端：知識內容寫 lib.atom_io.write_atom() / write_raw()；\n"
+        "  (1) 用 MCP `atom_write` / `atom_promote` / `atom_move` 工具；\n"
+        "      只改 Trigger/Related/Tags 元資料 → `atom_edit_meta`（外科編輯，byte-stable）\n"
+        "  (2) 程式碼端：知識內容寫 lib.atom_io.write_atom() / write_raw() / edit_metadata()；\n"
         "      計數欄位（read_hits / last_used / confirmations）寫 lib.atom_access\n"
         "緊急 bypass：set 環境變數 `WG_DISABLE_ATOM_GUARD=1` 後重試。"
     )

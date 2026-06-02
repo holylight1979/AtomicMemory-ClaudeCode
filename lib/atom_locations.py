@@ -26,7 +26,6 @@ GLOBAL_MEMORY_DIR = CLAUDE_DIR / "memory"
 FAILURES_DIR = CLAUDE_DIR / "_AIDocs" / "Failures"
 FAILURES_REL = "_AIDocs/Failures"
 FEEDBACK_TITLE_PREFIX = "feedback-"
-FAILURES_DIR_NAME = "Failures"
 
 # wg_core 既有白名單 base（原 wg_core._WHITELIST_DIR_SEGMENTS 主體搬入）
 _BASE_WRITABLE_DIR_SEGMENTS = frozenset({
@@ -67,8 +66,15 @@ def failures_atom_stems(mem_dir: Path = GLOBAL_MEMORY_DIR) -> set:
 
     用於區分 Failures 目錄內「atom」vs「參考文件」（如 _INDEX.md / README.md）。
     例外吞掉回 set()（沿用既有三份 reimplementation 的 graceful fallback）。
+
+    Import dual-safe：本模組可被當 `lib.atom_locations`（相對 import 生效）或
+    被 hooks 以 `sys.path.insert(lib)` 後當頂層 `atom_locations` 載入（相對 import
+    會 ImportError）。後者是 wg_core guard 的載入方式，故 fallback 絕對 import。
     """
-    from .atom_index_json import load_atom_index_json
+    try:
+        from .atom_index_json import load_atom_index_json
+    except ImportError:  # 頂層模組載入（wg_core）：無 parent package，退絕對 import
+        from atom_index_json import load_atom_index_json
     try:
         data = load_atom_index_json(mem_dir)
         return {
@@ -142,17 +148,16 @@ def failures_write_target() -> Dict[str, Any]:
 
 
 def atom_writable_dir_segments() -> frozenset:
-    """wg_core._atom_path_whitelisted 用的 dir segments。
+    """wg_core._atom_path_whitelisted 用的 dir segments（funnel guard 的白名單豁免）。
 
-    NOTE: 含 'Failures' (capital)。實測**未生效（dormant）**：
-      - caller 用 parts_lower 做 set 交集 → 大小寫不 match
-      - 上游 _path_under_memory_dir 對 _AIDocs/Failures/ 路徑早 return None
-    刻意保留 dormant 狀態（規則來源集中即可，行為不變）。若未來啟用 atom funnel gate
-    for _AIDocs/Failures/，需同時：
-      (1) 改 caller intersect 邏輯為 case-insensitive，或本 set 全小寫
-      (2) 改 _path_under_memory_dir 擴及 _AIDocs/Failures/
+    **不得**含 'Failures'。`_AIDocs/Failures/` 下的 atom 現由 wg_core
+    `_is_failures_atom_path()`（以 failures_atom_stems() 精準比對 index）主動 funnel
+    gate 攔截 —— 若把 'Failures' 放進本白名單，未來一旦有人把 caller 的 intersect
+    改 case-insensitive，整個 Failures 目錄會被豁免、反而廢掉該 guard（覆蓋缺口復發）。
+    Failures 內的 _INDEX.md / legacy 參考文件由「stem 不在 index」與 '_' 前綴自然放行，
+    不靠本白名單。
     """
-    return _BASE_WRITABLE_DIR_SEGMENTS | {FAILURES_DIR_NAME}
+    return _BASE_WRITABLE_DIR_SEGMENTS
 
 
 # ─── Index rendering classifier ───────────────────────────────────────────────
