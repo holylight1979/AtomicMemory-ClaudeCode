@@ -15,6 +15,7 @@ JS mirror：tools/workflow-guardian-mcp/server.js:applyFeedbackRouting
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -27,7 +28,19 @@ FAILURES_DIR = CLAUDE_DIR / "_AIDocs" / "Failures"
 FAILURES_REL = "_AIDocs/Failures"
 FEEDBACK_TITLE_PREFIX = "feedback-"
 
+# V5+ local realm（範疇限定）：~/.claude 本地知識物理落 _AIDocs/_atoms/<domain>/，
+# 索引仍在 memory/_atom_index.json。realm **不存欄位**——由 index path 前綴推導
+# （is_local_realm_path）。注入閘門只在 cwd∈~/.claude 時才納入 local（見 session_start）。
+# JS mirror：server.js:applyLocalRouting / LOCAL_ATOMS_* 常數 — keep in sync。
+LOCAL_ATOMS_DIR = CLAUDE_DIR / "_AIDocs" / "_atoms"
+LOCAL_ATOMS_REL = "_AIDocs/_atoms"
+LOCAL_REALM_DOMAINS = frozenset({"World", "Tools", "MemDev"})
+LOCAL_REALM_DEFAULT_DOMAIN = "Misc"
+
 # wg_core 既有白名單 base（原 wg_core._WHITELIST_DIR_SEGMENTS 主體搬入）
+# 注意：含 V4 **按需建立** 目錄（_pending_review=敏感待審路由、personal/_archived/_rejected=
+# 專案層 scope 與生命週期）。部分目錄在某些 memory tree 下尚未實體存在，但**不得剪除**——
+# 它們在 atom_write 走到對應 scope/路由時才被建立。剪掉會弄壞 V4 專案層寫入與待審。
 _BASE_WRITABLE_DIR_SEGMENTS = frozenset({
     "_meta", "_staging", "_archived", "_distant", "_reference", "_pending_review",
     "_vectordb", "_rejected", "templates", "episodic", "wisdom", "personal",
@@ -50,14 +63,30 @@ def is_in_failures_path(rel_path: str) -> bool:
     return rel_path.startswith(FAILURES_REL + "/")
 
 
+def is_local_realm_path(rel_path: str) -> bool:
+    """rel_path（POSIX 風格）是否落在 _AIDocs/_atoms/ 之下 ⇒ local realm（範疇限定）。
+
+    realm 的單一判定來源：path 前綴。與 feedback-* 的 _AIDocs/Failures/ 是不同前綴、零衝突。
+    注入閘門（session_start）即用此前綴在外部專案濾掉 local。
+    """
+    return rel_path.startswith(LOCAL_ATOMS_REL + "/")
+
+
 # ─── Search / scan（從 atom_spec 搬入，本檔為唯一源） ─────────────────────────
 
 
-def atom_search_roots(include_failures: bool = True) -> List[Path]:
-    """全域 atom 搜尋根目錄（V5+: memory + _AIDocs/Failures/）。"""
+def atom_search_roots(include_failures: bool = True, include_local: bool = True) -> List[Path]:
+    """全域 atom 搜尋根目錄（V5+: memory + _AIDocs/Failures/ + _AIDocs/_atoms/）。
+
+    include_local 預設 True：local atom 必須被 self-iterate / audit / index-rebuild 掃到，
+    否則無 decay/promote/usefulness 歸屬而凍結。dir 不存在時由 caller（iter_atom_files_multi）
+    的 `is_dir()` 守門略過，故空目錄無副作用。
+    """
     roots = [GLOBAL_MEMORY_DIR]
     if include_failures:
         roots.append(FAILURES_DIR)
+    if include_local:
+        roots.append(LOCAL_ATOMS_DIR)
     return roots
 
 
@@ -139,6 +168,28 @@ def failures_write_target() -> Dict[str, Any]:
     return {
         "dir": FAILURES_DIR,
         "base": FAILURES_DIR,
+        "index_dir": GLOBAL_MEMORY_DIR,
+        "index_root": CLAUDE_DIR,
+    }
+
+
+def local_write_target(domain: Optional[str] = None) -> Dict[str, Any]:
+    """V5+ local-realm 路由：本地範疇 atom 物理落 _AIDocs/_atoms/<domain>/，
+    索引仍在 memory/_atom_index.json（index_root=CLAUDE_DIR → rel_path 以 _AIDocs/_atoms/ 開頭）。
+
+    domain 未知 → warn 不擋（避免白名單變摩擦）；空 → LOCAL_REALM_DEFAULT_DOMAIN。
+    回 {dir, base, index_dir, index_root} — caller 自行疊加 scope_label / routed_* 旗標。
+    MIRROR: server.js:applyLocalRouting — keep in sync。
+    """
+    dom = (domain or "").strip() or LOCAL_REALM_DEFAULT_DOMAIN
+    if dom not in LOCAL_REALM_DOMAINS:
+        print(f"[atom_locations] warn: unknown local domain {dom!r} "
+              f"(known: {sorted(LOCAL_REALM_DOMAINS)})", file=sys.stderr)
+    target = LOCAL_ATOMS_DIR / dom
+    target.mkdir(parents=True, exist_ok=True)
+    return {
+        "dir": target,
+        "base": target,
         "index_dir": GLOBAL_MEMORY_DIR,
         "index_root": CLAUDE_DIR,
     }

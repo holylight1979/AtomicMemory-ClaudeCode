@@ -419,3 +419,68 @@ def test_13_py_js_byte_parity_table(tmp_path):
     assert proc.returncode == 0, f"node failed: {proc.stderr}"
     js_out = out_file.read_text(encoding="utf-8")
     assert js_out == py_out, f"DRIFT\nPY:\n{py_out!r}\nJS:\n{js_out!r}"
+
+
+# ─── 14. py↔js path / realm routing constants parity (source-level guard) ──────
+
+
+def test_14_py_js_path_constants_parity():
+    """Path/realm routing constants must stay in sync py↔js.
+
+    lib/atom_locations.py is the single source of truth; server.js mirrors it by hand.
+    This is a source-level guard (no node exec): if someone edits one side's rel-path
+    constant or domain set without the other, this fails — catching the exact drift the
+    `// MIRROR: keep in sync` comment alone cannot enforce.
+    """
+    from lib.atom_locations import (
+        FAILURES_REL, LOCAL_ATOMS_REL, FEEDBACK_TITLE_PREFIX,
+        LOCAL_REALM_DOMAINS, LOCAL_REALM_DEFAULT_DOMAIN,
+    )
+
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    if not server_js.exists():
+        pytest.skip("server.js not found")
+    js = server_js.read_text(encoding="utf-8")
+
+    assert f'FAILURES_REL = "{FAILURES_REL}"' in js, "FAILURES_REL drift"
+    assert f'LOCAL_ATOMS_REL = "{LOCAL_ATOMS_REL}"' in js, "LOCAL_ATOMS_REL drift"
+    assert f'FEEDBACK_TITLE_PREFIX = "{FEEDBACK_TITLE_PREFIX}"' in js, "FEEDBACK_TITLE_PREFIX drift"
+    assert f'LOCAL_REALM_DEFAULT_DOMAIN = "{LOCAL_REALM_DEFAULT_DOMAIN}"' in js, "default domain drift"
+    for dom in LOCAL_REALM_DOMAINS:
+        assert f'"{dom}"' in js, f"local domain {dom!r} missing in server.js LOCAL_REALM_DOMAINS"
+
+
+# ─── 15. realm=local routing → _AIDocs/_atoms/<domain>/ (Scope stays global) ───
+
+
+def test_15_local_realm_routing(isolated_claude, monkeypatch):
+    """realm='local' routes physical file to _AIDocs/_atoms/<domain>/, index path encodes realm,
+    and the atom KEEPS Scope=global (realm is orthogonal to scope; derived from path, not stored)."""
+    from lib import atom_locations as aloc
+    fake_claude = isolated_claude["claude"]
+    # local_write_target() reads atom_locations module globals at call time → patch them too
+    monkeypatch.setattr(aloc, "CLAUDE_DIR", fake_claude)
+    monkeypatch.setattr(aloc, "GLOBAL_MEMORY_DIR", isolated_claude["memory"])
+    monkeypatch.setattr(aloc, "LOCAL_ATOMS_DIR", fake_claude / "_AIDocs" / "_atoms")
+
+    result = write_atom(
+        title="Brain World Note", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=["k"],
+        realm="local", domain="Tools",
+        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+    )
+    assert result.ok, result.error
+    expected = fake_claude / "_AIDocs" / "_atoms" / "Tools" / "brain-world-note.md"
+    assert result.path == expected, f"routed to {result.path}, want {expected}"
+    content = result.path.read_text(encoding="utf-8")
+    assert "- Scope: global" in content        # realm orthogonal: stays global
+    assert "Realm" not in content              # realm NOT stored as a field (path-derived)
+
+    # default core path unchanged when realm omitted
+    core = write_atom(
+        title="Plain Core", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=["k"],
+        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+    )
+    assert core.ok, core.error
+    assert core.path == isolated_claude["memory"] / "plain-core.md"

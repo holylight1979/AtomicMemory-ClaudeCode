@@ -34,7 +34,7 @@ from .atom_spec import (
 )
 from .atom_locations import (
     CLAUDE_DIR, GLOBAL_MEMORY_DIR, FAILURES_DIR,
-    is_failures_routed_title, failures_write_target,
+    is_failures_routed_title, failures_write_target, local_write_target,
 )
 
 
@@ -174,12 +174,17 @@ def _resolve_target(
     audience: Optional[List[str]],
     force_global: bool,
     title: Optional[str] = None,
+    realm: Optional[str] = None,
+    domain: Optional[str] = None,
 ) -> Dict[str, Any]:
     """回傳 {dir, base, index_dir, index_root, scope_label, routed_to_*, error}。
 
     對拍 server.js:777 resolveMemDir + 1095-1101 sensitive audience routing。
-    V5+ 擴展：global scope + title 前綴 feedback- → 物理路由到 _AIDocs/Failures/，
-    索引仍在 memory/_atom_index.json（單一來源）。
+    V5+ 擴展（皆 global scope 內疊加，與 scope 正交）：
+      - title 前綴 feedback- → 物理路由 _AIDocs/Failures/（routed_to_failures）
+      - realm=local → 物理路由 _AIDocs/_atoms/<domain>/（routed_to_local；realm 由 path 推導，不存欄位）
+    兩者索引皆仍在 memory/_atom_index.json（index_root=CLAUDE_DIR，單一來源）。
+    realm 只在 scope=global 生效（local atom 維持 scope=global，realm 與 scope 正交）。
     """
     if force_global:
         scope = "global"
@@ -190,6 +195,15 @@ def _resolve_target(
                 **failures_write_target(),
                 "scope_label": "global",
                 "routed_to_failures": True, "routed_to_pending": False,
+                "routed_to_local": False,
+                "error": None,
+            }
+        if realm == "local":
+            return {
+                **local_write_target(domain),
+                "scope_label": "global",
+                "routed_to_failures": False, "routed_to_pending": False,
+                "routed_to_local": True,
                 "error": None,
             }
         GLOBAL_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
@@ -198,6 +212,7 @@ def _resolve_target(
             "index_dir": GLOBAL_MEMORY_DIR, "index_root": CLAUDE_DIR,
             "scope_label": "global",
             "routed_to_failures": False, "routed_to_pending": False,
+            "routed_to_local": False,
             "error": None,
         }
 
@@ -243,6 +258,7 @@ def _resolve_target(
         "index_dir": base, "index_root": base.parent,
         "scope_label": scope_label,
         "routed_to_failures": False, "routed_to_pending": routed_to_pending,
+        "routed_to_local": False,
         "error": None,
     }
 
@@ -515,10 +531,14 @@ def write_atom(
     merge_strategy: Optional[str] = None,
     author: Optional[str] = None,
     today: Optional[str] = None,
+    realm: Optional[str] = None,
+    domain: Optional[str] = None,
 ) -> WriteResult:
     """寫入 atom 的唯一入口。對拍 server.js:1065 toolAtomWrite byte-identical。
 
     Required: title, scope, confidence, triggers, knowledge, mode, source
+    V5+ realm/domain（選填，僅 scope=global 生效）：realm="local" → 物理落
+    _AIDocs/_atoms/<domain>/，realm 由 path 推導不存欄位。預設 core（現狀）。
     """
     audit_id = _gen_audit_id()
 
@@ -544,7 +564,8 @@ def write_atom(
                            error=f"Unknown scope: {scope}")
 
     # ── Resolve target dir ──
-    resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global, title=title)
+    resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
+                               title=title, realm=realm, domain=domain)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
     mem_dir = resolved["dir"]

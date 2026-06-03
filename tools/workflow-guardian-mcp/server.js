@@ -75,6 +75,13 @@ const MEMORY_DIR = path.join(CLAUDE_DIR, "memory");
 const FAILURES_DIR = path.join(CLAUDE_DIR, "_AIDocs", "Failures");
 const FAILURES_REL = "_AIDocs/Failures";
 const FEEDBACK_TITLE_PREFIX = "feedback-";
+// V5+ local realm（範疇限定）：本地知識物理落 _AIDocs/_atoms/<domain>/，索引仍在 memory/_atom_index.json。
+// realm 由 index path 前綴推導（不存欄位）；注入閘門只在 cwd∈~/.claude 才納入。
+// MIRROR: lib/atom_locations.py:LOCAL_ATOMS_* / local_write_target — keep in sync.
+const LOCAL_ATOMS_DIR = path.join(CLAUDE_DIR, "_AIDocs", "_atoms");
+const LOCAL_ATOMS_REL = "_AIDocs/_atoms";
+const LOCAL_REALM_DOMAINS = new Set(["World", "Tools", "MemDev"]);
+const LOCAL_REALM_DEFAULT_DOMAIN = "Misc";
 const TOOLS_DIR = path.join(CLAUDE_DIR, "tools");
 const CONFIG_PATH = path.join(WORKFLOW_DIR, "config.json");
 const REGISTRY_PATH = path.join(MEMORY_DIR, "project-registry.json");
@@ -381,6 +388,14 @@ const TOOL_DEFINITIONS = [
         merge_strategy: {
           type: "string", enum: ["ai-assist", "git-only"],
           description: "Optional Merge-strategy metadata. Default ai-assist (omitted from file).",
+        },
+        realm: {
+          type: "string", enum: ["core", "local"],
+          description: "V5+ realm (orthogonal to scope; only effective when scope=global). 'core' (default) = cross-project knowledge in memory/, injected in every project. 'local' = ~/.claude-only knowledge routed to _AIDocs/_atoms/<domain>/, injected ONLY when the working dir is under ~/.claude (zero cost in external projects). Use 'local' for memory-system/tooling/brain-world knowledge that is irrelevant outside ~/.claude. The atom keeps scope=global; realm is derived from its path, not stored as a field.",
+        },
+        domain: {
+          type: "string",
+          description: "Sub-folder for realm=local atoms: World (brain-world) | Tools (external tools / env troubleshooting) | MemDev (memory-system / Guardian dev). Unknown values warn but are allowed; defaults to Misc.",
         },
         confidence: { type: "string", enum: ["[固]", "[觀]", "[臨]"], description: "Confidence level" },
         triggers: {
@@ -918,6 +933,22 @@ function applyFeedbackRouting(resolved, slug, scope) {
   return { memDir, baseDir, indexDir, indexRoot, routedToFailures };
 }
 
+/** V5+ local-realm 路由：本地範疇 atom 物理落 _AIDocs/_atoms/<domain>/。
+ *  realm 由 index path 前綴推導（不存欄位）。索引仍在 memory/_atom_index.json。
+ *  domain 未知 → warn 不擋；空 → LOCAL_REALM_DEFAULT_DOMAIN。
+ *  MIRROR: lib/atom_locations.py:local_write_target — keep in sync.
+ *  Returns: { memDir, baseDir, indexDir, indexRoot }.
+ */
+function applyLocalRouting(domain) {
+  const dom = (domain || "").trim() || LOCAL_REALM_DEFAULT_DOMAIN;
+  if (!LOCAL_REALM_DOMAINS.has(dom)) {
+    try { process.stderr.write(`[atom_write] warn: unknown local domain ${dom} (known: ${[...LOCAL_REALM_DOMAINS].join(", ")})\n`); } catch {}
+  }
+  const memDir = path.join(LOCAL_ATOMS_DIR, dom);
+  fs.mkdirSync(memDir, { recursive: true });
+  return { memDir, baseDir: memDir, indexDir: MEMORY_DIR, indexRoot: CLAUDE_DIR };
+}
+
 /** Find atom index path for a given scope (V3.2: prefer _ATOM_INDEX.md) */
 function resolveMemoryIndex(memDir) {
   const atomIdx = path.join(memDir, "_ATOM_INDEX.md");
@@ -1284,6 +1315,7 @@ async function toolAtomWrite(id, args) {
     title, scope, confidence, triggers, knowledge, actions, related, mode,
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
+    realm, domain,
   } = args;
 
   // Validate core required fields (scope now optional, defaults to shared)
@@ -1310,6 +1342,14 @@ async function toolAtomWrite(id, args) {
   // V5+ feedback-* routing 集中到 applyFeedbackRouting（對拍 lib/atom_locations.py）
   let { memDir, baseDir, indexDir, indexRoot, routedToFailures } =
     applyFeedbackRouting(resolved, slug, scope);
+
+  // V5+ local-realm routing（與 feedback 互斥；realm 與 scope 正交，只在 global 生效）
+  // 對拍 lib/atom_io._resolve_target 的 realm=="local" 分支。
+  let routedToLocal = false;
+  if (!routedToFailures && scope === "global" && realm === "local") {
+    ({ memDir, baseDir, indexDir, indexRoot } = applyLocalRouting(domain));
+    routedToLocal = true;
+  }
 
   // SPEC 7.4: sensitive audience on shared → auto-pending
   let pendingReviewBy = pending_review_by || null;
@@ -1603,6 +1643,10 @@ async function toolAtomPromote(id, args) {
     if (!found && scope === "global" && atom_name.startsWith(FEEDBACK_TITLE_PREFIX)) {
       found = findAtomFileRecursive(FAILURES_DIR, atom_name);
     }
+    // V5+: local-realm atoms 居 _AIDocs/_atoms/<domain>/（scope=global 但不在 memory/ 樹下）
+    if (!found && scope === "global") {
+      found = findAtomFileRecursive(LOCAL_ATOMS_DIR, atom_name);
+    }
     if (!found) {
       return sendToolResult(id, `Atom not found: ${atom_name}.md in ${scope} scope`, true);
     }
@@ -1863,6 +1907,10 @@ async function toolAtomEditMeta(id, args) {
     let found = findAtomFileRecursive(memDir, atom_name);
     if (!found && scope === "global" && atom_name.startsWith(FEEDBACK_TITLE_PREFIX)) {
       found = findAtomFileRecursive(FAILURES_DIR, atom_name);
+    }
+    // V5+: local-realm atoms 居 _AIDocs/_atoms/<domain>/（scope=global 但不在 memory/ 樹下）
+    if (!found && scope === "global") {
+      found = findAtomFileRecursive(LOCAL_ATOMS_DIR, atom_name);
     }
     if (!found) {
       return sendToolResult(id, `Atom not found: ${atom_name}.md in ${scope} scope`, true);
