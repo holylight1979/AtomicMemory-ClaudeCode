@@ -172,6 +172,13 @@
   #detail details{margin-top:10px} #detail summary{cursor:pointer; color:var(--muted); font-size:12px}
   #detail pre{margin-top:8px; padding:8px; background:#010409; border:1px solid var(--line); border-radius:8px;
     font-size:11px; line-height:1.5; white-space:pre-wrap; color:#adbac7; max-height:220px; overflow:auto}
+  /* 最近對話（每隻生物 el._chatLog 環形緩衝；看出剛才跟誰講了什麼）*/
+  #dChat{margin-top:12px}
+  #dChat .chatttl{font-size:12px; color:var(--muted); margin-bottom:5px}
+  #dChat .chatln{font-size:12px; line-height:1.6; color:var(--fg); padding:3px 8px; margin:3px 0;
+    background:rgba(88,166,255,.07); border-left:2px solid rgba(88,166,255,.4); border-radius:4px; word-break:break-word}
+  #dChat .cdir{color:var(--core); font-weight:700; margin-right:4px}
+  #dChat .cwho{color:var(--gold); margin-right:3px}
 
   /* 指令台（command bus 選項式輸入框；可收合，body 向上展開、header 釘底）*/
   #cmdbar{position:fixed; z-index:8; left:14px; bottom:14px; width:300px; background:rgba(13,17,23,.95);
@@ -351,6 +358,7 @@
     <div id="dStatus"></div>
     <div id="dChips"></div>
     <details><summary>看原始內容</summary><pre id="dContent"></pre></details>
+    <div id="dChat"></div>
   </div>
 
 <script>
@@ -1167,12 +1175,20 @@ function tick(ts){
   const t = ts/1000;
   crEls.forEach((el)=>{
     const c = el._c; if(!c) return;
-    if(el._dragging || el._pinned){ el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`; return; }
+    // 位移軸（互斥）：拖曳中 / 指令釘住 / 放開後 settle 3s → 凍在原地
+    if(el._dragging || el._pinned || t < (el._settleUntil||0)){
+      el._wasSettling = !el._dragging && !el._pinned;   // 標記「因 settle 而凍」→ 結束時平滑帶回家
+      el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`; return;
+    }
+    if(el._wasSettling){                                 // settle 剛結束：以放開位置為起點，讓 wander lerp 平滑回家（不瞬移）
+      el._wasSettling=false; el._wox=el._x-c.slotX; el._woy=el._y-c.slotY; el._wnext=0;
+    }
     if(c.sick && autoOn && !healing.has(c.name) && !autoHealTried.has(c.name)){ sickWalk(c,el,t); return; }   // 壞記憶自走診所
     let ox=0, oy=0;
+    const talking = t < (el._talkUntil||0);              // 活動軸（疊加）：對話中暫停 wander 前進，僅保留原地呼吸晃動
     if(c.sleeping){ oy=4; }
     else if(c.sick){ ox=Math.sin(t*22+c.phase)*1.6; }
-    else { if(autoOn) wander(c,el,t); ox=(el._wox||0)+Math.sin(t*1.4+c.phase)*1.5; oy=(el._woy||0)+Math.sin(t*1.8+c.phase)*2; }
+    else { if(autoOn && !talking) wander(c,el,t); ox=(el._wox||0)+Math.sin(t*1.4+c.phase)*1.5; oy=(el._woy||0)+Math.sin(t*1.8+c.phase)*2; }
     el._x = c.slotX + ox; el._y = c.slotY + oy;
     el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
   });
@@ -1229,6 +1245,12 @@ function checkDialogue(t){
     if(best){ sayPair(a, best._c, ae); lastBubble=t; return; }
   }
 }
+/* 每隻生物的對話記憶（環形緩衝，留最近 5 句；★存持久 el 不存 c）。dir：→ 我說的 / ← 對方說的 */
+function pushChat(el, dir, other, text){
+  if(!el || !text) return;
+  (el._chatLog || (el._chatLog=[])).push({dir, other, text});
+  if(el._chatLog.length>5) el._chatLog.shift();
+}
 function sayPair(a,b,ae){
   const related = a.related.includes(b.name)||b.related.includes(a.name);
   // 罐頭 fallback（LLM 忙線/逾時/失敗時用）
@@ -1240,14 +1262,18 @@ function sayPair(a,b,ae){
   else lines=["嗨！","今天也在運作中","你都記得什麼？","別把我忘了喔"];
   const canned = lines[Math.floor(t1()*lines.length)];
 
+  const be = crEls.get(b.uid);                                    // 對方 el：雙方都要暫停 wander + 記對話
+  const talkFor = (sec)=>{ const u=(performance.now()/1000)+sec; ae._talkUntil=u; if(be) be._talkUntil=u; };  // 活動軸：對話中暫停前進
+  const logBoth = (text)=>{ pushChat(ae, "→", b.name, text); pushChat(be, "←", a.name, text); };               // 雙方各記一筆 → 點任一隻都看得到剛才誰對話
+
   // 忙線中（已有一個 LLM 請求在飛）→ 直接罐頭，不排隊不灌爆
-  if(chatBusy){ bubbleAtEl(ae, canned, 2000); return; }
+  if(chatBusy){ talkFor(2.2); bubbleAtEl(ae, canned, 2000); logBoth(canned); return; }
   // 否則：先冒「💭…」泡泡（不自動消），async 問 LLM，回來替換；失敗 → 罐頭
-  chatBusy = true;
+  chatBusy = true; talkFor(4.5);                                  // 含思考期先給寬，回來再依實際 ttl 收斂
   const bub = bubbleAtEl(ae, "💭…", 0);
   creatureChat(a, b, related)
-    .then(line => updateBubble(bub, ae, line || canned, 3800))
-    .catch(()  => updateBubble(bub, ae, canned, 2200))
+    .then(line => { const L=line||canned; updateBubble(bub, ae, L, 3800); talkFor(3.8); logBoth(L); })
+    .catch(()  => { updateBubble(bub, ae, canned, 2200); talkFor(2.2); logBoth(canned); })
     .finally(() => { chatBusy = false; });
 }
 function t1(){ return (performance.now()%1000)/1000; }
@@ -1345,7 +1371,7 @@ function bindDrag(el, c0){
     el._dragging=false; el.classList.remove("drag"); $("clinic").classList.remove("hot");
     const c=el._c||c0;
     if(!moved){ showDetail(c); return; }               // 純點擊 → 詳情
-    el._pinned=true; el._justDropped=true; setTimeout(()=>el._justDropped=false, 1800);
+    el._settleUntil=(performance.now()/1000)+3; el._justDropped=true; setTimeout(()=>el._justDropped=false, 1800);  // 放開後 settle 3s 凍住，再平滑漫步回家（非永久釘住）
     if(overClinic(e)) heal(c);
   });
 }
@@ -1428,6 +1454,12 @@ function showDetail(c){
   c.triggers.slice(0,12).forEach(tr=>{ const e=document.createElement("span"); e.className="chip"; e.textContent="#"+tr; chips.appendChild(e); });
   c.related.forEach(r=>{ const e=document.createElement("span"); e.className="chip"; e.style.borderColor="var(--core)"; e.textContent="↔ "+r; chips.appendChild(e); });
   $("dContent").textContent=(c.content||"").split("\n").slice(0,50).join("\n");
+
+  const chatLog = (crEls.get(c.uid)||{})._chatLog || [];          // 最近對話（新→舊）：看出剛才跟誰講了什麼
+  $("dChat").innerHTML = chatLog.length
+    ? `<div class="chatttl">💬 最近對話（${chatLog.length}）</div>`+
+      chatLog.slice().reverse().map(m=>`<div class="chatln"><span class="cdir">${m.dir}</span><span class="cwho">${m.other}</span>「${m.text}」</div>`).join("")
+    : "";
   $("detail").classList.add("show");
 }
 function hideDetail(){ $("detail").classList.remove("show"); }
