@@ -21,13 +21,30 @@
   #scene{position:relative; z-index:1; width:100%;}
 
   /* ── 房間（專案）─────────────────────────────── */
-  .room{position:absolute; border-radius:16px;
+  .room{position:absolute; border-radius:16px; isolation:isolate;   /* isolate：把 sign/env-layer 的 z-index 鎖在房內，不外洩到 scene 蓋住生物 */
     background:linear-gradient(180deg, rgba(255,255,255,.015), rgba(0,0,0,.18));
     border:1px solid var(--line); overflow:hidden;}
   .room.active{box-shadow:0 0 0 1px rgba(88,166,255,.35), 0 0 30px rgba(88,166,255,.10) inset;}
-  .room .sign{position:absolute; top:8px; left:12px; font-size:12px; font-weight:700; color:var(--fg);
-    text-shadow:0 1px 3px #000; pointer-events:none; white-space:nowrap;}
+  .room .sign{position:absolute; top:8px; left:12px; right:12px; z-index:3; font-size:12px; font-weight:700; color:var(--fg);
+    text-shadow:0 1px 3px #000; pointer-events:none;}
+  .room .sign .sgn-main{white-space:nowrap;}
   .room .sign .meta{color:var(--muted); font-weight:400; margin-left:6px;}
+
+  /* ── 環境演化：招牌進度行 + 房內建築層（env-layer）─────────────────── */
+  .room .devline{margin-top:3px; display:flex; align-items:center; gap:5px; font-size:10px; font-weight:600;
+    color:var(--silver); white-space:nowrap; max-width:100%; overflow:hidden;}
+  .room .devline.incub{color:var(--muted); font-weight:400;}
+  .room .devfam{color:var(--fg);}
+  .room .devbar{flex:0 0 auto; width:54px; height:5px; border-radius:3px; background:rgba(255,255,255,.12); overflow:hidden;}
+  .room .devfill{display:block; height:100%; border-radius:3px; transition:width .4s;
+    background-image:linear-gradient(90deg,#3fb950,#d4e157 60%,#e3b341); background-size:54px 100%; background-repeat:no-repeat;}
+  .room .devpct{color:var(--gold); font-weight:700;}
+  .room .dev-done{filter:drop-shadow(0 0 4px rgba(63,185,80,.85));}
+  .room .devfam2{color:var(--muted); font-weight:400;}
+  svg.env-layer{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:1;}  /* 夾在 floor(0) 與生物(scene 上層) 之間 */
+  svg.env-layer text{filter:drop-shadow(0 1px 1px rgba(0,0,0,.6));}
+  svg.env-layer .env-glow{animation:envGlow 3.6s ease-in-out infinite;}
+  @keyframes envGlow{0%,100%{opacity:.82; filter:drop-shadow(0 0 2px rgba(227,179,65,.5))} 50%{opacity:1; filter:drop-shadow(0 0 7px rgba(227,179,65,.85))}}
   .room .floor{position:absolute; left:0; right:0; bottom:0; height:34%;
     background:linear-gradient(180deg, transparent, rgba(88,166,255,.05) 30%, rgba(88,166,255,.10));
     border-top:1px solid rgba(88,166,255,.10);}
@@ -228,6 +245,67 @@
     </symbol>
   </defs></svg>
 
+  <!-- ── 環境大地標 <symbol>（env-*；center 元素 svg_hint 命中者用 <use>，未定義者退放大 emoji）──
+       固定填色（與生物 hue 無關），在深色背景上可辨識；viewBox 100×100 等比放置。-->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <symbol id="env-keep" viewBox="0 0 100 100">
+      <rect x="32" y="38" width="36" height="50" fill="#8a8f98"/>
+      <rect x="32" y="38" width="36" height="50" fill="none" stroke="#5b6068" stroke-width="2"/>
+      <path d="M30 38 h6 v-6 h5 v6 h5 v-6 h5 v6 h5 v-6 h5 v6 h4 v6 H30 Z" fill="#9aa0aa"/>
+      <rect x="44" y="62" width="12" height="26" fill="#3a3f47"/>
+      <rect x="37" y="50" width="7" height="9" fill="#2a2f37"/><rect x="56" y="50" width="7" height="9" fill="#2a2f37"/>
+    </symbol>
+    <symbol id="env-castle" viewBox="0 0 100 100">
+      <rect x="20" y="50" width="60" height="40" fill="#8a8f98"/>
+      <rect x="14" y="40" width="16" height="50" fill="#9aa0aa"/><rect x="70" y="40" width="16" height="50" fill="#9aa0aa"/>
+      <rect x="42" y="28" width="16" height="62" fill="#a6acb6"/>
+      <path d="M14 40 h16 v-5 h-4 v3 h-4 v-3 h-4 v3 h-4 z" fill="#9aa0aa"/>
+      <path d="M70 40 h16 v-5 h-4 v3 h-4 v-3 h-4 v3 h-4 z" fill="#9aa0aa"/>
+      <path d="M42 28 h16 v-5 h-4 v3 h-4 v-3 h-4 v3 h-4 z" fill="#a6acb6"/>
+      <rect x="46" y="64" width="8" height="26" fill="#3a3f47"/>
+      <g fill="#2a2f37"><rect x="19" y="56" width="6" height="8"/><rect x="75" y="56" width="6" height="8"/></g>
+      <path d="M50 22 l11 4 l-11 4 z" fill="#e3b341"/>
+    </symbol>
+    <symbol id="env-ferris" viewBox="0 0 100 100">
+      <circle cx="50" cy="42" r="34" fill="none" stroke="#c9d1d9" stroke-width="3"/>
+      <g stroke="#8b949e" stroke-width="2"><path d="M50 42 V8"/><path d="M50 42 V76"/><path d="M50 42 H16"/><path d="M50 42 H84"/><path d="M50 42 L26 18"/><path d="M50 42 L74 18"/><path d="M50 42 L26 66"/><path d="M50 42 L74 66"/></g>
+      <g fill="#58a6ff"><circle cx="50" cy="8" r="4"/><circle cx="50" cy="76" r="4"/><circle cx="16" cy="42" r="4"/><circle cx="84" cy="42" r="4"/><circle cx="26" cy="18" r="4"/><circle cx="74" cy="18" r="4"/><circle cx="26" cy="66" r="4"/><circle cx="74" cy="66" r="4"/></g>
+      <circle cx="50" cy="42" r="5" fill="#e3b341"/>
+      <path d="M50 42 L40 90 H60 Z" fill="none" stroke="#8b949e" stroke-width="2"/>
+    </symbol>
+    <symbol id="env-lighthouse" viewBox="0 0 100 100">
+      <path d="M40 88 L44 34 H56 L60 88 Z" fill="#e6edf3"/>
+      <path d="M44 48 h12 M43 62 h14 M42 76 h16" stroke="#f85149" stroke-width="5"/>
+      <rect x="42" y="24" width="16" height="11" fill="#3a3f47"/>
+      <path d="M40 24 h20 l-4 -6 h-12 z" fill="#e3b341"/>
+      <circle cx="50" cy="30" r="3" fill="#fff3b0"/>
+      <path d="M58 30 l16 -6 M58 30 l16 6" stroke="#e3b341" stroke-width="2" opacity=".7"/>
+    </symbol>
+    <symbol id="env-pyramid" viewBox="0 0 100 100">
+      <path d="M50 18 L82 84 H18 Z" fill="#d8b36a"/>
+      <path d="M50 18 L66 84 H50 Z" fill="#bb9550"/>
+      <path d="M50 18 L82 84 H18 Z" fill="none" stroke="#8a6d35" stroke-width="2"/>
+    </symbol>
+    <symbol id="env-temple" viewBox="0 0 100 100">
+      <path d="M50 18 L86 40 H14 Z" fill="#cdd3da"/>
+      <rect x="14" y="40" width="72" height="6" fill="#aab1ba"/>
+      <g fill="#e6edf3"><rect x="20" y="46" width="7" height="36"/><rect x="34" y="46" width="7" height="36"/><rect x="48" y="46" width="7" height="36"/><rect x="62" y="46" width="7" height="36"/><rect x="76" y="46" width="7" height="36"/></g>
+      <rect x="14" y="82" width="72" height="8" fill="#aab1ba"/>
+    </symbol>
+    <symbol id="env-windmill" viewBox="0 0 100 100">
+      <path d="M40 90 L46 42 H54 L60 90 Z" fill="#c9b18a"/>
+      <rect x="38" y="86" width="24" height="6" fill="#8a6d35"/>
+      <g fill="#e6edf3" stroke="#8b949e" stroke-width="1.5"><path d="M50 42 L52 16 L48 16 Z"/><path d="M50 42 L76 44 L76 40 Z"/><path d="M50 42 L48 68 L52 68 Z"/><path d="M50 42 L24 40 L24 44 Z"/></g>
+      <circle cx="50" cy="42" r="4" fill="#3a3f47"/>
+    </symbol>
+    <symbol id="env-barn" viewBox="0 0 100 100">
+      <path d="M20 50 Q50 24 80 50 V88 H20 Z" fill="#b5503f"/>
+      <path d="M30 50 h40 v6 h-40 z" fill="#9a4334"/>
+      <rect x="42" y="60" width="16" height="28" fill="#e6d2a8"/>
+      <path d="M42 60 l16 28 M58 60 l-16 28" stroke="#7d3528" stroke-width="2"/>
+    </symbol>
+  </defs></svg>
+
   <canvas id="bg"></canvas>
   <div id="scene"></div>
 
@@ -315,10 +393,15 @@ async function fetchJSON(p){ const r = await fetch(API_BASE + p, {cache:"no-stor
 
 async function refresh(){
   try{
-    const [projects, atoms, health, sessions, episodic] = await Promise.all([
+    const [projects, atoms, health, sessions, episodic, worlddev] = await Promise.all([
       fetchJSON("/api/projects"), fetchJSON("/api/atoms"), fetchJSON("/api/health"),
-      fetchJSON("/api/sessions"), fetchJSON("/api/episodic"),
+      fetchJSON("/api/sessions"), fetchJSON("/api/episodic"), fetchJSON("/api/world-dev"),
     ]);
+    // 回填 regionDev（server=重開續長的存檔源）。★只 backfill 缺漏 key，不覆寫本地進行中狀態：
+    //   瀏覽器引擎(Phase 3)為各 region 真相源，POST 落盤；避免 GET 沖掉 in-flight 推進。
+    if(worlddev && worlddev.regions){
+      for(const [k,v] of Object.entries(worlddev.regions)){ if(!regionDev.has(k)) regionDev.set(k, v); }
+    }
     model = buildModel({projects, atoms, health, sessions, episodic});
     layout();
     render();
@@ -533,6 +616,142 @@ function crSvg(){
   `</svg>`;
 }
 
+/* ════════ 環境演化（區域自主發展）：靜態目錄 + 持久發展狀態 + deterministic 渲染 ════════
+   ★暫態原則：發展狀態存「模組級 regionDev / 持久 roomEl」，絕不存進每 POLL_MS 重建的 model.c
+   （見 atom reconcile-render 動畫狀態歸屬陷阱）。env 為靜態無 per-frame 動畫，sig 沒變不碰 DOM。*/
+let ENV_CATALOG = null;                 // environment-catalog.json（啟動 fetch 一次）
+const regionDev = new Map();            // region.key -> 發展狀態（鏡像 world-dev.json）
+const ENV_SYMBOLS = new Set(["keep","castle","ferris","lighthouse","pyramid","temple","windmill","barn"]); // 已定義 <defs> 大地標
+let _catIdx = null;                     // id -> element 索引（catalog 載入後重置）
+
+async function loadCatalog(){
+  try{ const r = await fetch("environment-catalog.json",{cache:"no-store"}); if(r.ok){ ENV_CATALOG = await r.json(); _catIdx = null; } }
+  catch(e){ console.warn("[world] env catalog load 失敗（相對路徑需經 :8899 靜態伺服器）:", e); }
+}
+function catalogIndex(){
+  if(_catIdx) return _catIdx;
+  const m = new Map();
+  if(ENV_CATALOG){
+    (ENV_CATALOG.seeds||[]).forEach(e=> m.set(e.id, e));
+    for(const fam of Object.values(ENV_CATALOG.families||{}))
+      for(const arr of Object.values(fam.tiers||{})) (arr||[]).forEach(e=> m.set(e.id, e));
+  }
+  return (_catIdx = m);
+}
+function famMeta(family){ return (ENV_CATALOG && ENV_CATALOG.families && ENV_CATALOG.families[family]) || null; }
+
+/* deterministic 亂數：FNV-1a hash32 → LCG（★禁 Math.random，確保 refresh 跨 5s 同位置不位移）*/
+function hash32(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+function mkRnd(seed){ let s=(seed>>>0)||1; return ()=>{ s=(Math.imul(s,1664525)+1013904223)>>>0; return s/4294967296; }; }
+
+/* 房內 deterministic 座標（room-local px，viewBox=0 0 r.w r.h）。pos→分區；scatter 碰生物 slot 黃金角偏移 */
+function placeEnv(r, element){
+  const rnd = mkRnd(hash32(r.key+"|"+element.id));
+  const W=r.w, H=r.h, M=16, innerW=Math.max(20, W-2*M);
+  let x, y, size;
+  switch(element.pos){
+    case "center":
+      size = Math.max(40, Math.min(92, Math.min(W,H)*0.34));
+      x = W/2 + (rnd()-0.5)*W*0.08; y = H*0.58; break;
+    case "ground-row":
+      size = 22; x = M + rnd()*innerW; y = H*0.80 + (rnd()-0.5)*H*0.05; break;
+    case "wall":
+      size = 22; x = M + rnd()*innerW; y = H*0.30 + (rnd()-0.5)*H*0.04; break;
+    case "corner": { size = 22; const k=Math.floor(rnd()*4);
+      x = (k%2) ? W-M-6 : M+6; y = (k<2) ? H*0.30 : H*0.86; break; }
+    case "edge": { size = 20; const per=2*(innerW + H*0.6), top=innerW, side=H*0.6; let d=rnd()*per;
+      if(d<top){ x=M+d; y=H*0.22; }
+      else if(d<top+side){ x=W-M; y=H*0.22+(d-top); }
+      else if(d<2*top+side){ x=W-M-(d-top-side); y=H*0.82; }
+      else { x=M; y=H*0.82-(d-2*top-side); } break; }
+    case "scatter": default: { size=20; x=M+rnd()*innerW; y=H*0.42+rnd()*H*0.46;
+      for(let t=0;t<5;t++){ let hit=false;                       // 碰生物 slot（scene 座標轉房內）→ 黃金角推開
+        for(const c of (r.list||[])){ const sx=c.slotX-r.x, sy=c.slotY-r.y;
+          if((x-sx)*(x-sx)+(y-sy)*(y-sy) < (c.s*0.7)*(c.s*0.7)){ hit=true; break; } }
+        if(!hit) break;
+        const ang=t*2.39996323+rnd()*0.5, rad=14+t*6;            // 137.5° 黃金角
+        x=Math.max(M, Math.min(W-M, x+Math.cos(ang)*rad));
+        y=Math.max(H*0.40, Math.min(H*0.92, y+Math.sin(ang)*rad)); }
+      break; }
+  }
+  return {x, y, size};
+}
+
+/* 發展狀態取用（rank1 主、rank2 次、最高票 proposal）*/
+function rank1Style(dev){ if(!dev||!dev.styles||!dev.styles.length) return null; return dev.styles.find(s=>s.rank===1) || dev.styles.slice().sort((a,b)=>(a.rank||9)-(b.rank||9))[0]; }
+function rank2Style(dev){ if(!dev||!dev.styles) return null; return dev.styles.find(s=>s.rank===2) || null; }
+function topProposal(dev){ if(!dev||!dev.proposals||!dev.proposals.length) return null; return dev.proposals.slice().sort((a,b)=>(b.consensus||0)-(a.consensus||0))[0]; }
+
+/* 髒檢查 sig：rank1/rank2 的 family|dev|unlocked + 房尺寸（resize 重排）+ 醞釀中 family */
+function envSig(r, dev){
+  const part = s => s ? `${s.family}:${Math.round(s.dev||0)}:${(s.unlocked||[]).map(u=>u.id).join(",")}` : "";
+  const prop = topProposal(dev);
+  return `${Math.round(r.w)}x${Math.round(r.h)}|${part(rank1Style(dev))}|${part(rank2Style(dev))}|${(!rank1Style(dev)&&prop)?("p:"+prop.family):""}`;
+}
+
+/* 蒐集要畫的 env 元素：unlocked → 元素定義；center 只留最高 tier（campfire→keep→castle 演化替換），其餘 pos 累加 */
+function collectEnvElements(dev){
+  const idx = catalogIndex(), out = [];
+  const pushStyle = (style)=>{
+    if(!style) return;
+    const els = (style.unlocked||[]).map(u=> idx.get(u.id)).filter(Boolean);
+    const centerEls = els.filter(e=>e.pos==="center");
+    const maxCt = centerEls.reduce((m,e)=> Math.max(m, e.tier||0), -1);
+    const keep = els.filter(e=> e.pos!=="center" || (e.tier||0)===maxCt);
+    keep.sort((a,b)=> String(a.id).localeCompare(String(b.id)));   // id 字典序穩定 DOM 順序
+    keep.forEach(e=> out.push(e));
+  };
+  pushStyle(rank1Style(dev));
+  pushStyle(rank2Style(dev));
+  if(!out.length && dev){                                          // 醞釀中/已追蹤但未鎖：放幾顆種子（未追蹤的房維持空）
+    ((ENV_CATALOG && ENV_CATALOG.seeds) || []).slice(0,3).forEach(e=> out.push(e));
+  }
+  return out;
+}
+function envElSvg(r, el){
+  const p = placeEnv(r, el);
+  const glow = el.night_glow ? ' class="env-glow"' : "";
+  if(el.pos==="center" && el.svg_hint && ENV_SYMBOLS.has(el.svg_hint)){
+    const s=p.size;
+    return `<g${glow} transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})">`+
+      `<use href="#env-${el.svg_hint}" x="${(-s/2).toFixed(1)}" y="${(-s/2).toFixed(1)}" width="${s.toFixed(1)}" height="${s.toFixed(1)}"></use></g>`;
+  }
+  return `<text${glow} x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" font-size="${p.size.toFixed(1)}" text-anchor="middle" dominant-baseline="central">${el.emoji||"·"}</text>`;
+}
+/* 房內建築層：sig 沒變不碰 DOM；變了才一次性重建 env-layer（靜態無動畫狀態，重建無副作用）*/
+function renderEnv(r, roomEl, dev){
+  if(!ENV_CATALOG) return;
+  const sig = envSig(r, dev);
+  if(roomEl._envSig === sig) return;
+  roomEl._envSig = sig;
+  let layer = roomEl.env;
+  if(!layer){
+    layer = document.createElementNS("http://www.w3.org/2000/svg","svg");
+    layer.setAttribute("class","env-layer"); layer.setAttribute("preserveAspectRatio","none");
+    roomEl.box.appendChild(layer); roomEl.env = layer;
+  }
+  layer.setAttribute("viewBox", `0 0 ${r.w} ${r.h}`);
+  layer.innerHTML = collectEnvElements(dev).map(el=> envElSvg(r, el)).join("");
+}
+/* 招牌第二行：風格 emoji+中文名+dev% + mini 進度條；未鎖顯醞釀中；dev≥80 加✅；rank2 加 +次風格 */
+function devLineHtml(dev){
+  if(!dev || !ENV_CATALOG) return "";
+  const s1 = rank1Style(dev);
+  if(s1){
+    const f = famMeta(s1.family); if(!f) return "";
+    const d = Math.round(s1.dev||0), done = d>=80;
+    const s2 = rank2Style(dev), f2 = s2 && famMeta(s2.family);
+    let html = `<div class="devline"><span class="devfam">${f.emoji} ${f.name_zh}</span>`+
+      `<span class="devbar"><span class="devfill" style="width:${Math.max(0,Math.min(100,d))}%"></span></span>`+
+      `<span class="devpct">${d}%</span>${done?' <span class="dev-done">✅</span>':''}`;
+    if(f2 && s2) html += `<span class="devfam2">+ ${f2.emoji}${f2.name_zh} ${Math.round(s2.dev||0)}%</span>`;
+    return html + `</div>`;
+  }
+  const p = topProposal(dev);
+  if(p){ const f=famMeta(p.family); return `<div class="devline incub">🌱 ${f?f.emoji+f.name_zh:p.family} 醞釀中…</div>`; }
+  return "";
+}
+
 /* ── 渲染（reconcile）─────────────────────────────────────────────── */
 function render(){
   // 房間
@@ -552,8 +771,11 @@ function render(){
     el.box.style.left=r.x+"px"; el.box.style.top=r.y+"px"; el.box.style.width=r.w+"px"; el.box.style.height=r.h+"px";
     el.box.style.borderColor=`hsla(${hue},65%,55%,${r.active?.45:.2})`;
     const sickN=r.list.filter(c=>c.sick).length, sleepN=r.list.filter(c=>c.sleeping).length;
-    el.sign.innerHTML=`${r.label}<span class="meta">· ${r.list.length} 記憶`+
-      (r.working?` · 🔨工作中`:"")+(sickN?` · 🤢${sickN}`:"")+(sleepN?` · 💤${sleepN}`:"")+`</span>`;
+    const dev = regionDev.get(r.key);
+    el.sign.innerHTML=`<div class="sgn-main">${r.label}<span class="meta">· ${r.list.length} 記憶`+
+      (r.working?` · 🔨工作中`:"")+(sickN?` · 🤢${sickN}`:"")+(sleepN?` · 💤${sleepN}`:"")+`</span></div>`+
+      devLineHtml(dev);
+    renderEnv(r, el, dev);                                  // 房內建築層（deterministic、sig 髒檢查）
   });
   roomEls.forEach((el,k)=>{ if(!liveR.has(k)){ el.box.remove(); roomEls.delete(k);} });
 
@@ -1050,7 +1272,7 @@ function drawBg(ts){
 /* ── 啟動 ─────────────────────────────────────────────────────────── */
 addEventListener("resize", resize);
 resize(); requestAnimationFrame(drawBg); requestAnimationFrame(tick);
-refresh(); setInterval(refresh, POLL_MS);
+loadCatalog().then(refresh); setInterval(refresh, POLL_MS);   // 先載風格目錄再首刷，確保 render 時 ENV_CATALOG 就緒
 buildCmdBar(); setInterval(pollCommands, 2000);   // 指令台 + Command Bus 輪詢
 </script>
 </body>
