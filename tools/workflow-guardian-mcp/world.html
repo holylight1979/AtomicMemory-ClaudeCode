@@ -402,6 +402,7 @@ async function refresh(){
     if(worlddev && worlddev.regions){
       for(const [k,v] of Object.entries(worlddev.regions)){ if(!regionDev.has(k)) regionDev.set(k, v); }
     }
+    if(worlddev && worlddev.mode) _serverMode = worlddev.mode;     // server 持久 mode（_modeOverride 優先）
     model = buildModel({projects, atoms, health, sessions, episodic});
     layout();
     render();
@@ -752,6 +753,191 @@ function devLineHtml(dev){
   return "";
 }
 
+/* ════════ 環境演化引擎（Phase 3：免LLM 推進）════════════════════════════════════════════════
+   ★暫態鐵律：所有進行中狀態存 regionDev(模組級) / el._carry(持久 DOM)，絕不存每 POLL_MS 重建的 model.c
+     （見 atom reconcile-render 動畫狀態歸屬陷阱）。單調收斂：dev 只增不減（diminishing return 趨緩 + Math.min(100) 夾頂），無震盪。
+   雙軌時間：mode=slow|fast（fast 只加快此免LLM 路徑；經 world-dev.json 持久 / ?fast=1 / worlddev 指令覆寫）。
+   零影響原子記憶：只讀生物特性（type/name/triggers/scope），只寫 regionDev→world-dev.json。
+   種子/定案 Phase 3 用前端 fallback（family 投票 + 罐頭主題），LLM 留 Phase 4。 */
+const ENGINE = {
+  TICK_MS: 1000,
+  DIRECTION_GATE: 35,            // proposal dev≥ → 可定案
+  CONS_MIN: 3,                   // proposal consensus≥（小區自動下修至生物數）→ 可定案
+  STYLE2_GATE: [60, 80],         // rank1 dev∈此 → 准開第二風格
+  DONE_AT: 80,                   // rank1 dev≥ → 該區完工
+  THRESHOLDS: [0, 20, 40, 60, 80, 100],
+  CARRY_DECAY: 0.7,              // el._carry 想法強度每 tick 衰減
+  POST_THROTTLE_MS: 4000,        // dev 連續累加節流落盤
+  PROPOSAL_TTL_SLOW: 1000*60*30, // 醞釀逾時未達共識 → 枯死
+  PROPOSAL_TTL_FAST: 60000,
+  modes: {                       // 雙軌倍率（config.json world_dev 為宣告鏡像，前端為運行時源；純前端免重啟）
+    slow: { env_chance: 0.01, pair_chance: 0.05, dev_step: 1.2 },
+    fast: { env_chance: 0.55, pair_chance: 0.75, dev_step: 6.0 },
+  },
+};
+let _modeOverride = null;        // ?fast=1 / worlddev 指令（覆寫 server mode）
+let _serverMode = "slow";        // 由 GET /api/world-dev 回填
+function curMode(){ return _modeOverride || _serverMode || "slow"; }
+function isFast(){ return curMode() === "fast"; }
+function tn(){ return ENGINE.modes[curMode()] || ENGINE.modes.slow; }
+
+/* 落盤狀態（先宣告，供下方各 mutation 引用）*/
+let _engineDirty = false;        // 本 tick 有變動 → 觸發 render
+const _devDirty = new Set();     // 待落盤 region keys
+let _lastPost = 0;
+function markDirty(key){ _devDirty.add(key); }
+function postMilestone(key){ _devDirty.add(key); _postDev(true); }   // 里程碑即時 POST
+function _postDev(immediate){
+  if(!_devDirty.size) return;
+  if(!immediate && Date.now()-_lastPost < ENGINE.POST_THROTTLE_MS) return;
+  const regions={}; for(const k of _devDirty){ const d=regionDev.get(k); if(d) regions[k]=d; }
+  _devDirty.clear(); _lastPost=Date.now();
+  fetch(API_BASE+"/api/world-dev",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:curMode(),regions})}).catch(()=>{});
+}
+
+/* 發展狀態骨架 + 取用 */
+function freshDev(){ return { proposals:[], styles:[], next_style_eligible:false, completed:false, completed_at:null, llm_calls:0, last_activity_at:0, dormant:false }; }
+function ensureDev(key){ let d=regionDev.get(key); if(!d){ d=freshDev(); regionDev.set(key,d); } return d; }
+
+/* 區域個性 → family 投票（Phase 3 fallback；LLM Phase 4）：生物 type/name/triggers/scope 命中 fits_personality 計分；exclude=已用家族 */
+function regionFamilyVote(r, exclude){
+  exclude = exclude || new Set();
+  const fams = Object.keys(ENV_CATALOG.families).sort().filter(f=>!exclude.has(f));
+  if(!fams.length) return null;
+  const tally={}; fams.forEach(f=>tally[f]=0);
+  for(const c of (r.list||[])){ const sig=[String(c.type||""),norm(c.name),norm(c.scope||""),...(c.triggers||[]).map(norm)].join(" ");
+    for(const f of fams){ for(const kw of (ENV_CATALOG.families[f].fits_personality||[])){ if(kw && sig.includes(kw)) tally[f]++; } } }
+  let best=fams[0], bestN=-1; for(const f of fams){ if(tally[f]>bestN){ bestN=tally[f]; best=f; } }
+  if(bestN<=0) best = fams[hash32(r.key)%fams.length];        // 無訊號 → 依區 key deterministic 選（穩定）
+  return best;
+}
+function regionTheme(family){ const f=famMeta(family); return f? (f.mood||f.name_zh) : family; }
+
+/* diminishing return：趨頂趨緩、恆正 → 單調收斂不震盪 */
+function devStep(dev){ return Math.max(0.3, tn().dev_step * (1 - dev/140)); }
+function consMin(r){ return Math.min(ENGINE.CONS_MIN, Math.max(2, (r.list||[]).length)); }
+function pickContributor(r, have){ const s=new Set(have||[]); const pool=(r.list||[]).filter(c=>!s.has(c.name)); return pool.length? pool[Math.floor(Math.random()*pool.length)] : null; }
+
+/* ① 種子 proposal（IDLE，需 list≥2；同 family 去重）*/
+function canSeed(r, dev){
+  if((r.list||[]).length < 2) return false;
+  if(!dev) return true;
+  const liveProp = (dev.proposals||[]).some(p=>!p.direction_locked);
+  if(!rank1Style(dev)) return !liveProp;                        // 首風格未鎖：無進行中提案才種
+  return dev.next_style_eligible && !rank2Style(dev) && !liveProp;   // 已鎖首：達閘且無次風格才種第二
+}
+function seedProposal(r, dev){
+  const used = new Set([...(dev.styles||[]).map(s=>s.family), ...(dev.proposals||[]).map(p=>p.family)]);
+  const family = regionFamilyVote(r, used); if(!family) return;
+  const first = (r.list||[])[hash32(r.key+family)%r.list.length];
+  dev.proposals.push({ pid:"p_"+family, family, theme:regionTheme(family), consensus:1,
+    contributors: first?[first.name]:[], dev: tn().dev_step, created_by: first?first.name:"", created_at: Date.now(), direction_locked:false });
+  if(first){ const el=elOf(first); if(el) el._carry={family, theme:regionTheme(family), pid:"p_"+family, strength:1}; }
+  _engineDirty = true;
+}
+
+/* ② 配對擴散：成長已鎖風格（含 rank2 並行）+ 醞釀 top proposal；consensus 綁不重複貢獻者 → 收斂封頂 */
+function diffuse(r, dev){
+  let acted=false;
+  for(const s of (dev.styles||[]).filter(s=>(s.dev||0)<100)){ growStyle(r, dev, s, devStep(s.dev)); acted=true; }
+  const p = (dev.proposals||[]).filter(x=>!x.direction_locked).sort((a,b)=>(b.consensus||0)-(a.consensus||0))[0];
+  if(p){ p.dev=Math.min(100,(p.dev||0)+devStep(p.dev));
+    const c=pickContributor(r, p.contributors);
+    if(c){ p.contributors.push(c.name); p.consensus=p.contributors.length; const el=elOf(c); if(el) el._carry={family:p.family,theme:p.theme,pid:p.pid,strength:1}; }
+    acted=true; }
+  if(acted){ dev.last_activity_at=Date.now(); _engineDirty=true; }
+}
+function growStyle(r, dev, s, step){
+  const before=s.dev||0; s.dev=Math.min(100, before+step);
+  const c=pickContributor(r, s.contributors); if(c){ s.contributors.push(c.name); s.consensus=s.contributors.length; }
+  unlockTiers(r, dev, s, before, s.dev);
+}
+
+/* ④ tier 解鎖（跨 0/20/40/60/80/100 門檻 → 去重加元素；里程碑即時落盤；center unique 由 collectEnvElements 篩最高 tier）*/
+function unlockTiers(r, dev, s, before, after){
+  const fam=famMeta(s.family); if(!fam) return;
+  s.crossed=s.crossed||[]; s.unlocked=s.unlocked||[];
+  const have=new Set(s.unlocked.map(u=>u.id));
+  for(const th of ENGINE.THRESHOLDS){
+    if(th>before && th<=after && !s.crossed.includes(th)){
+      s.crossed.push(th);
+      for(const el of ((fam.tiers&&fam.tiers[String(th)])||[])){ if(!have.has(el.id)){ s.unlocked.push({id:el.id, threshold:th}); have.add(el.id); } }
+      postMilestone(r.key);
+    }
+  }
+}
+
+/* ③ 定案：proposal 達門檻 → 晉升 styles[rank N]（Phase 3 罐頭定案；LLM Phase 4）*/
+function promoteProposals(r, dev){
+  for(const p of (dev.proposals||[]).slice()){
+    if(p.direction_locked) continue;
+    if((p.dev||0)>=ENGINE.DIRECTION_GATE && (p.consensus||0)>=consMin(r)) promoteToStyle(r, dev, p);
+  }
+}
+function promoteToStyle(r, dev, p){
+  if((dev.styles||[]).some(s=>s.family===p.family)){ p.direction_locked=true; dev.proposals=dev.proposals.filter(x=>x!==p); return; }
+  const rank=(dev.styles||[]).length + 1;
+  if(rank>=2 && !dev.next_style_eligible) return;               // 未達多風格閘不准開第二
+  const s={ family:p.family, rank, dev:p.dev, consensus:p.consensus, contributors:(p.contributors||[]).slice(),
+    unlocked:[], crossed:[], theme:p.theme, locked_at:Date.now() };
+  dev.styles.push(s);
+  unlockTiers(r, dev, s, -1, s.dev);                            // 含 threshold 0 起始元素
+  p.direction_locked=true; dev.proposals=dev.proposals.filter(x=>x!==p);
+  postMilestone(r.key); _engineDirty=true;
+}
+
+/* ⑤ 多風格閘 + ⑥ 完工（rank1 為準；次風格續長不影響完工判定）*/
+function checkGates(r, dev){
+  const s1=rank1Style(dev); if(!s1) return; const d1=s1.dev||0;
+  if(d1>=ENGINE.STYLE2_GATE[0] && d1<ENGINE.STYLE2_GATE[1] && !dev.next_style_eligible){ dev.next_style_eligible=true; postMilestone(r.key); _engineDirty=true; }
+  if(d1>=ENGINE.DONE_AT && !dev.completed){ dev.completed=true; dev.completed_at=Date.now(); postMilestone(r.key); _engineDirty=true; }
+}
+
+/* 邊界：proposal 枯死（區<2 / 逾時未達共識 / 已晉升殘留）*/
+function pruneProposals(r, dev){
+  const now=Date.now(), ttl=isFast()?ENGINE.PROPOSAL_TTL_FAST:ENGINE.PROPOSAL_TTL_SLOW, n=(r.list||[]).length;
+  const before=dev.proposals.length;
+  dev.proposals=dev.proposals.filter(p=> !p.direction_locked && n>=2 && !((now-(p.created_at||now))>ttl && (p.consensus||0)<consMin(r)) );
+  if(dev.proposals.length!==before) _engineDirty=true;
+}
+
+/* el._carry 想法衰減（存 el，跨 refresh 存活；Phase 4 跨區串門子載體）*/
+function decayCarries(){ crEls.forEach(el=>{ if(el._carry){ el._carry.strength*=ENGINE.CARRY_DECAY; if(el._carry.strength<0.05) el._carry=null; } }); }
+
+/* 引擎主迴圈（低頻 TICK_MS；只動 regionDev/el，render 反映進度；單調、零影響原子記憶）*/
+function engineTick(){
+  if(!ENV_CATALOG || !model || !rooms.length) return;
+  const t=tn();
+  for(const r of rooms){
+    let dev=regionDev.get(r.key);
+    if((r.list||[]).length===0){ if(dev) dev.dormant=true; continue; }   // 空區休眠（保留既有 styles 凍結）
+    if(dev) dev.dormant=false;
+    if(canSeed(r, dev) && Math.random()<t.env_chance){ dev=ensureDev(r.key); seedProposal(r, dev); markDirty(r.key); }
+    if(!dev) continue;
+    if(Math.random()<t.pair_chance){ diffuse(r, dev); markDirty(r.key); }
+    promoteProposals(r, dev);
+    pruneProposals(r, dev);
+    checkGates(r, dev);
+  }
+  decayCarries();
+  if(_engineDirty){ if(model) render(); _engineDirty=false; }    // 變動才重繪（env-layer 仍 sig 髒檢查）
+  _postDev(false);                                               // dev 累加節流落盤
+}
+
+/* 雙軌時間控制（指令台 worlddev + ?fast=1）*/
+function setMode(m){ if(m==="fast"||m==="slow") _modeOverride=m;
+  fetch(API_BASE+"/api/world-dev",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:curMode()})}).catch(()=>{}); }
+function worldDevCmd(action){
+  if(action==="fast"||action==="slow"){ setMode(action); return "環境演化："+(action==="fast"?"加速模式 ⏩":"慢速放置 🐢"); }
+  if(action==="reset"){ regionDev.clear(); _devDirty.clear();
+    fetch(API_BASE+"/api/world-dev",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reset:true})}).catch(()=>{});
+    if(model) render(); return "已重置所有區域發展狀態（僅 world-dev.json）"; }
+  let done=0, tracked=0; const lines=[];
+  regionDev.forEach((d,k)=>{ tracked++; if(d.completed) done++; const s=rank1Style(d);
+    lines.push("· "+k+"："+(s?(s.family+" "+Math.round(s.dev||0)+"%"+(d.completed?" ✅":"")):((d.proposals&&d.proposals[0]&&"🌱"+d.proposals[0].family+" 醞釀中")||"idle"))); });
+  return `模式=${curMode()}　追蹤=${tracked}　完工=${done}`+(lines.length?("\n"+lines.join("\n")):"（尚無區域進入發展）");
+}
+
 /* ── 渲染（reconcile）─────────────────────────────────────────────── */
 function render(){
   // 房間
@@ -919,6 +1105,9 @@ const WORLD_COMMANDS = [
   { cmd:"snapshot", label:"快照", desc:"回傳目前所有生物狀態（給 Claude 讀）",
     args:[],
     run:()=>{ pushSnapshot(); return "已更新快照（"+crEls.size+" 生物）"; } },
+  { cmd:"worlddev", label:"環境演化", desc:"控制區域環境演化引擎（加速/慢速/重置/狀態）",
+    args:[{name:"action",type:"enum",label:"動作",options:["status","fast","slow","reset"]}],
+    run:a=>worldDevCmd(a.action) },
 ];
 function curCmdDef(){ return WORLD_COMMANDS.find(d=>d.cmd===$("cbCmd").value) || WORLD_COMMANDS[0]; }
 function buildCmdBar(){
@@ -1274,6 +1463,8 @@ addEventListener("resize", resize);
 resize(); requestAnimationFrame(drawBg); requestAnimationFrame(tick);
 loadCatalog().then(refresh); setInterval(refresh, POLL_MS);   // 先載風格目錄再首刷，確保 render 時 ENV_CATALOG 就緒
 buildCmdBar(); setInterval(pollCommands, 2000);   // 指令台 + Command Bus 輪詢
+if(new URLSearchParams(location.search).get("fast")==="1"){ _modeOverride="fast"; setMode("fast"); }   // ?fast=1 加速模式
+setInterval(engineTick, ENGINE.TICK_MS);          // 環境演化引擎（免LLM 推進；guard 內等 ENV_CATALOG/model 就緒）
 </script>
 </body>
 </html>

@@ -192,5 +192,17 @@
     "agent_timeout_ms": 180000,
     "run_full_verify": false,
     "_comment": "記憶自癒(腦內世界 P3)：backend=ollama 本地免費序列；改 cloud + max_concurrent>1 可雲端並行(需接 adapter)"
+  },
+  "world_dev": {
+    "_doc": "腦內世界環境演化引擎旋鈕（宣告鏡像）。引擎在前端 world.html(ENGINE 常數)為運行時源，純前端免重啟；mode 經 world-dev.json 持久、?fast=1 / 指令台 worlddev 覆寫。改此處需同步 world.html ENGINE。",
+    "mode": "slow",
+    "direction_gate": 35,
+    "consensus_min": 3,
+    "style2_unlock": 60,
+    "done_at": 80,
+    "modes": {
+      "slow": { "env_chance": 0.01, "pair_chance": 0.05, "dev_step": 1.2 },
+      "fast": { "env_chance": 0.55, "pair_chance": 0.75, "dev_step": 6.0 }
+    }
   }
 }
