@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 腦內世界, atom-heal, 記憶自癒, command bus, world.html, jobRunner, _heal_review, heal-review
 - Created-at: 2026-06-02
-- Related: guardian-dashboard-孤兒佔埠與新碼重啟, decisions-architecture, toolchain-ollama, reconcile-render-動畫狀態歸屬陷阱
+- Related: guardian-dashboard-孤兒佔埠與新碼重啟, decisions-architecture, toolchain-ollama, reconcile-render-動畫狀態歸屬陷阱, 腦內世界-環境演化-放置式架構
 
 ## 知識
 
