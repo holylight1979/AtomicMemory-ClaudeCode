@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: realm, 範疇分區, 核心非核心, local atom, _AIDocs/_atoms, 注入閘門, atom 物理位置, promote fallback, wg_core bootstrap, 記憶系統
 - Created-at: 2026-06-03
-- Related: decisions-architecture, feedback-workflow-discipline, 腦內世界-環境演化-放置式架構
+- Related: decisions-architecture, memory-index-caption-regen, feedback-workflow-discipline, 腦內世界-環境演化-放置式架構
 
 ## 知識
 
@@ -16,6 +16,9 @@
 - [臨] 坑：wg_core 的 `CLAUDE_DIR` 必須**本地定義**（它用來 `sys.path.insert` 定位 lib/atom_locations 本身），不可改成 `from atom_locations import CLAUDE_DIR`（雞與蛋）。MEMORY_DIR 同源同值、改 import 只增 fallback 脆弱性、零實益。
 - [臨] 坑：搬遷工具 atom-set-realm（Phase 3）必須連 `.access.json` sidecar 一起原子性搬，否則 confirmations/usefulness 計數歸零、[固] 可能掉回 [臨]。
 - [臨] 分類器硬規則：核心保護清單（decisions*/workflow-*/toolchain*/preferences/feedback-*/atom-*）強制 core；**絕不靠 `_AIDocs/` 路徑前綴判 local**（feedback-* 就在 _AIDocs 卻是 core）。py↔js 常數對拍見 lib/verify test_14。
+- [臨] Phase 4 文件同步完工（S3）：rules/core.md「記憶」加 Realm 小節（核心判定三問：可重用≥2 專案？／系統規則 vs 特定 app·工具·環境範疇？／月級 vs 週級？）+ SPEC_ATOM_V5 §2.2 Realm 章 + Architecture「記憶系統」Realm 子節 + decisions-architecture 印象 bullet。寫入引導：server.js atom_write schema 的 realm/domain description（S1 已備）+ extract/SKILL 萃取時判 realm 提示。
+- [臨] MEMORY.md「本地範疇（~/.claude）」段（防護 R4 印象層斷點）：sync-memory-index render 把 path 落 `_AIDocs/_atoms/` 的 atom 抽出主表、依 domain（MemDev/Tools/World）分組進尾段；lib.atom_locations `atom_index_row_kind` 加 `local_realm` 種類 + `local_realm_domain()` 抽 domain。round-trip 穩定（`--write` 後 `--check` exit 0、idempotent）；caption preserve 沿用一般規則（H1 裸名→用現有人工描述）。與 [[memory-index-caption-regen]] 共用同一 render 函式。
+- [臨] 本顆自身判定＝core（不歸 local）：記憶系統「機制」屬系統規則、非特定 app·工具範疇實例，與 decisions-architecture / memory-index-caption-regen / atom-usefulness-loop 同類核心；分類器安全預設 core 守之——`test_16` 鎖 `realm-範疇分區機制-v5` → realm=core, protected=False（詞庫無命中、非保護清單但安全預設）。
 
 ## 行動
 

@@ -202,12 +202,13 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ## 7. 記憶層
 
-- **MEMORY.md**（always loaded）— 16 atoms 一覽（人類可讀）
-- **_atom_index.json**（JSON SoT）— 機器源真相，16 atoms 完整索引
+- **MEMORY.md**（always loaded）— 31 atoms 一覽（人類可讀；core 主表 + 「本地範疇」獨立段）
+- **_atom_index.json**（JSON SoT）— 機器源真相，31 atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
-- **全域 Atoms**（16 個 .md）— core 8（decisions / decisions-architecture / preferences / workflow-rules / workflow-icld / workflow-svn / toolchain / toolchain-ollama）+ feedback 5（V5 整併 24→5）+ 特定領域 3（electron-uia-automation / gdoc-harvester / memory-pipeline-silent-failure-2026-05）
-- **failures/**（atom 子族） — 跨專案踩坑記錄
-- **templates/** — icld-sprint-template 等
+- **全域 Atoms（31）** = **core 14**（住 `memory/`：decisions / decisions-architecture / preferences / workflow-rules·icld·svn·parallel-agents / toolchain·-ollama / atom-table-support / memory-index-caption-regen / atom-usefulness-loop / atom-元資料編輯與晉升閘真相 / realm-範疇分區機制-v5）+ **feedback 7 + 失敗模式 2**（cognitive-patterns / memory-pipeline-silent-failure-2026-05，物理在 `_AIDocs/Failures/`）+ **local 8**（realm=local，住 `_AIDocs/_atoms/<domain>/`，只在 cwd∈~/.claude 注入；World 3 / Tools 4 / MemDev 1）
+- **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（World/Tools/MemDev）；scope 仍 global、外部專案不注入。見 SPEC_ATOM_V5 §2.2
+- **_AIDocs/Failures/**（atom 子族） — feedback-* + 失敗模式 atom（跨專案踩坑記錄，屬 core）
+- **templates/** — icld-sprint-template 等（仍由 workflow-icld atom 引用）
 - **_reference/**（手動讀取）— SPEC 等深度規格
 - **wisdom/**（live state）— DESIGN.md + reflection_metrics.json + causal_graph.json
 - **_meta/forbidden-phrases.json**（V5 single source）— 禁語清單

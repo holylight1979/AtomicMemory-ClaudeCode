@@ -204,6 +204,20 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 - 殘骸清理：移除 `~/.claude/projects/c--users-holylight--claude/memory/` 空目錄（Layers 2→1）
 - audit-reconcile classifier：counter_only/knowledge/unknown 三分類，53 unmatched → 0 knowledge bypass
 
+### Realm 範疇分區（核心 vs 非核心，2026-06-03）
+
+> 全貌見 [`SPEC_ATOM_V5.md` §2.2](SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
+
+非核心（local）記憶（腦內世界 / 特定外部工具踩坑 / Guardian 特定實例開發）**只在 ~/.claude 內才有用**，跨專案時佔 token 又是雜訊。補上 realm 維度後外部專案零負擔。
+
+- **realm 由 index `path` 前綴推導**（不存欄位、與 scope 正交）：path 落 `_AIDocs/_atoms/<domain>/`（World/Tools/MemDev）⇒ local（**仍 `Scope=global`**）；否則 core。沿用 feedback-* 同一招（物理在 `_AIDocs/` 下、靠 index path 注入），零新管線。
+- **注入閘門**：`hooks/handlers/session_start.py` 建候選快取處依 `wg_core._is_under_claude_dir(cwd)` 濾掉 local 候選；外部專案完全略過、core（含 `_AIDocs/Failures/*`）不誤殺。
+- **分類器 `classify_realm`**（lib + server.js mirror）：安全預設 core、核心保護清單硬擋、詞庫只用實例專屬名（不用記憶系統通用詞）、只掃 name+triggers。
+- **搬遷工具 `tools/atom-set-realm.py`**：`_AIDocs/_atoms/` path 唯一寫者，連 `.access.json` sidecar 原子搬、Scope 保 global、`--to-core` 可逆；**不**走 `atom-move`。
+- **印象層**：`sync-memory-index` 把 local atom 收進 MEMORY.md「本地範疇」獨立段（依 domain 分組），人在 ~/.claude 仍找得到。
+- **find-fallback**：server.js promote/edit_meta/find 對物理在 memory/ 外的 atom 加 `findAtomFileRecursive(LOCAL_ATOMS_DIR)`（鏡像 feedback fallback），否則 scope=global 的 local atom 會 `Atom not found`。
+- **守門**：`verify_atom_io_equivalence.py` test_14–17（常數/routing/分類器零誤判/py↔js parity）+ `verify_realm_injection_gate.py`。
+
 ## MCP Servers（V5：4 tool）
 
 V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`），改由 Stop gate hook 自動偵測。

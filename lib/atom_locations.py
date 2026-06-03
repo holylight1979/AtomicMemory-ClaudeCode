@@ -292,14 +292,31 @@ def atom_writable_dir_segments() -> frozenset:
 
 
 def atom_index_row_kind(rel_path: str, name: str) -> str:
-    """sync-memory-index 分類器。回 'feedback_aggregate' | 'failures_other' | 'individual'。
+    """sync-memory-index 分類器。回 'feedback_aggregate' | 'failures_other' | 'local_realm' | 'individual'。
 
     保留 sync-memory-index 原語意：name 以 'feedback' 開頭（含可能的 feedbacky-x）
     且 path 在 Failures 下 → 聚合行；其他 Failures 內 atom → 獨立行；
-    其餘 → 一般行。
+    V5+ realm：path 落 _AIDocs/_atoms/ → 'local_realm'（本地範疇，render 收進獨立段，
+    保留 R4 印象層指標、避免人在 ~/.claude 找不到被歸走的 atom）；其餘 → 一般行。
+    Failures 與 _atoms 是不同前綴、互斥，分支順序不影響結果。
     """
     if name.startswith("feedback") and is_in_failures_path(rel_path):
         return "feedback_aggregate"
     if is_in_failures_path(rel_path):
         return "failures_other"
+    if is_local_realm_path(rel_path):
+        return "local_realm"
     return "individual"
+
+
+def local_realm_domain(rel_path: str) -> str:
+    """從 _AIDocs/_atoms/<domain>/<slug>.md 抽出 <domain>；非 local 路徑回 ''。
+
+    缺 domain 段（理論上不應發生，路由一律帶 domain 子夾）→ LOCAL_REALM_DEFAULT_DOMAIN。
+    供 sync-memory-index 把 local atom 依範疇分組渲染用。
+    """
+    if not is_local_realm_path(rel_path):
+        return ""
+    rest = rel_path[len(LOCAL_ATOMS_REL) + 1:]
+    head, _, tail = rest.partition("/")
+    return head if (head and tail) else LOCAL_REALM_DEFAULT_DOMAIN

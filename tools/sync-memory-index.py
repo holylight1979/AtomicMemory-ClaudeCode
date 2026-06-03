@@ -30,7 +30,12 @@ from typing import List, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_io import write_index_full  # noqa: E402
 from lib.atom_index_json import load_atom_index_json  # noqa: E402
-from lib.atom_locations import FAILURES_REL, atom_index_row_kind  # noqa: E402
+from lib.atom_locations import (  # noqa: E402
+    FAILURES_REL,
+    LOCAL_REALM_DEFAULT_DOMAIN,
+    atom_index_row_kind,
+    local_realm_domain,
+)
 
 MEMORY_DIR = Path.home() / ".claude" / "memory"
 MEMORY_INDEX_NAME = "MEMORY.md"
@@ -98,26 +103,36 @@ def render_atom_section(rows: List[Tuple[str, str, str]],
     V5+ 小修：feedback-* 聚合行加 `→ _AIDocs/Failures/` 指標；
     其他 _AIDocs/Failures/ 內 atoms（cognitive-patterns / 後續加入者）獨立一行
     + 行尾加 `→` 指標（不在 memory/ 根目錄者顯式標位置）。
-    保留策展：一般 atom 的 H1 caption 退化成裸名/空時，沿用 existing_caps 中較豐富的描述。
+    V5+ realm：local atom（path 落 _AIDocs/_atoms/）抽出主表、依 domain 收進尾段
+    「## 本地範疇」（R4 印象層指標：人在 ~/.claude 仍找得到，外部專案不注入）。
+    保留策展：一般/local atom 的 H1 caption 退化成裸名/空時，沿用 existing_caps 中較豐富的描述。
     """
     existing_caps = existing_caps or {}
+
+    def _cap(name: str, rel_path: str) -> str:
+        """H1 caption；退化成裸名/空 → 沿用 existing_caps 中較豐富的人工描述。"""
+        cap = extract_atom_caption(claude_root / rel_path) if rel_path else ""
+        if not cap or cap == name:
+            prev = existing_caps.get(name, "")
+            if prev and prev != name:
+                cap = prev
+        return cap
+
     individual: List[Tuple[str, str, str]] = []  # (name, caption, rel_path)
     feedback_names: List[str] = []
     failures_other: List[Tuple[str, str, str]] = []  # Failures 內非 feedback-*
+    local_by_domain: dict = {}  # domain -> [(name, caption, rel_path)]（保索引序）
     for name, rel_path, _scope in rows:
         kind = atom_index_row_kind(rel_path, name)
         if kind == "feedback_aggregate":
             feedback_names.append(name)
         elif kind == "failures_other":
-            cap = extract_atom_caption(claude_root / rel_path) if rel_path else ""
-            failures_other.append((name, cap, rel_path))
+            failures_other.append((name, extract_atom_caption(claude_root / rel_path) if rel_path else "", rel_path))
+        elif kind == "local_realm":
+            dom = local_realm_domain(rel_path) or LOCAL_REALM_DEFAULT_DOMAIN
+            local_by_domain.setdefault(dom, []).append((name, _cap(name, rel_path), rel_path))
         else:  # individual
-            cap = extract_atom_caption(claude_root / rel_path) if rel_path else ""
-            if not cap or cap == name:  # H1 退化成裸名 → 沿用現有人工描述
-                prev = existing_caps.get(name, "")
-                if prev and prev != name:
-                    cap = prev
-            individual.append((name, cap, rel_path))
+            individual.append((name, _cap(name, rel_path), rel_path))
 
     lines = [
         "# Atom Index — Global",
@@ -136,6 +151,20 @@ def render_atom_section(rows: List[Tuple[str, str, str]],
         )
     for name, cap, rel_path in failures_other:
         lines.append(f"| {name} | {cap} → [`{rel_path}`](../{rel_path}) |")
+
+    # V5+ 本地範疇段（local realm）：只在核心環境注入，主表抽出、依 domain 分組保留可見性
+    if local_by_domain:
+        lines += [
+            "",
+            "## 本地範疇（~/.claude，僅核心環境注入）",
+            "",
+            "> 物理居 `_AIDocs/_atoms/<domain>/`，索引仍在 `_atom_index.json`（scope=global）；"
+            "**只在 cwd∈~/.claude 時注入**，外部專案零負擔。機制見 [[realm-範疇分區機制-v5]]。",
+        ]
+        for dom in sorted(local_by_domain):
+            lines += ["", f"### {dom}", "", "| Atom | 說明 |", "|------|------|"]
+            for name, cap, _ in local_by_domain[dom]:
+                lines.append(f"| {name} | {cap} |")
     return "\n".join(lines)
 
 

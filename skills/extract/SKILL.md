@@ -64,6 +64,14 @@ echo '{"mode":"per_turn","max_chars":8000,"max_items":5}' | python ~/.claude/hoo
 - **pitfall**：踩到的坑、容易出錯的地方
 - **decision**：做出的決策及理由
 
+### 範疇判定（Realm，每項萃取都評估）
+
+決定知識該歸**核心**還是**非核心（local）**——三問：① 可重用 ≥2 專案？② 系統規則 vs 單一 app/工具/環境的特定範疇？③ 月級穩定 vs 週級易變？
+
+- **核心**（預設）：跨專案通用（偏好/決策/工作流/工具鏈/記憶系統機制）→ atom_write 不帶 realm（預設 core，住 `memory/`，全專案注入）。
+- **非核心（local）**：只在 ~/.claude 內才有用（記憶系統/Guardian「特定實例」開發、腦內世界 world.html、特定外部工具踩坑如 gdoc/codex/electron-uia）→ atom_write 帶 `realm=local` + `domain`（World/Tools/MemDev）；**仍 scope=global**，自動歸 `_AIDocs/_atoms/<domain>/`、只在 cwd∈~/.claude 注入、外部專案零負擔。
+- ⚠️ 拿不準 → 預設 core（安全側；server.js 分類器同樣安全預設 core、核心保護清單硬擋）。機制見 atom `realm-範疇分區機制-v5`。
+
 ## Step 4: 展示結果
 
 列出萃取到的知識項目，格式：
@@ -86,5 +94,6 @@ echo '{"mode":"per_turn","max_chars":8000,"max_items":5}' | python ~/.claude/hoo
 - 哪些要寫入 atom？（逐項確認或全部接受）
 - 要寫入哪個 atom？（建議 + 使用者決定）
 - 信心等級是否調整？（預設 [臨]，使用者可升為 [觀] 或 [固]）
+- 範疇（若判 local）：確認 `realm=local` + `domain`，或維持 core（拿不準維持 core）
 
 確認後執行寫入。

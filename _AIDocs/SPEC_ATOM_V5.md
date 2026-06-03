@@ -63,6 +63,30 @@ V4 的三層 scope 機制不變：
 
 **Failures 內參考文件過濾**：`_AIDocs/Failures/` 容納非 atom 文件（如 `_INDEX.md` / `README.md`）。caller 用 `failures_atom_stems()` 從 `_atom_index.json` 抽出真正的 atom stems 過濾，避免把參考文件當 atom 索引。
 
+### 2.2 Realm 範疇分區（核心 vs 非核心，V5+ S3，2026-06-03）
+
+`~/.claude/memory/` 的全域 atom 在**每個專案**都被掃描注入。腦內世界 / codex / guardian-dashboard 這類**只在 ~/.claude 內才有用**的記憶，跨到外部專案工作時仍佔 context token——故補上「範疇（realm）」維度。
+
+**realm 與 scope 正交，由 index `path` 前綴推導（不存欄位、不寫 frontmatter、免 heal）：**
+
+| Realm | 判定（index `path`） | 物理位置 | 注入行為 |
+|---|---|---|---|
+| `core`（預設） | **不**以 `_AIDocs/_atoms/` 開頭 | `memory/{slug}.md`（feedback-* 在 `_AIDocs/Failures/`，屬 core） | 全專案注入（現狀不變） |
+| `local` | 以 `_AIDocs/_atoms/` 開頭 | `_AIDocs/_atoms/<domain>/{slug}.md` | **只在 cwd∈~/.claude 注入**；外部專案完全略過 |
+
+- **local atom 仍 `Scope=global`**——realm 與 scope 正交；沿用 feedback-* 同一招（物理在 `_AIDocs/` 下、靠 index `path` 被 `base_dir=CLAUDE_DIR` join 讀出注入），零新管線。`_AIDocs/_atoms/` 與 feedback 的 `_AIDocs/Failures/` 是不同前綴、零衝突。
+- **Domain**：`World`（腦內世界）/ `Tools`（外部工具與環境踩坑）/ `MemDev`（記憶系統/Guardian「特定實例」開發踩坑）；未知 domain warn 不擋。
+- **注入閘門**：`hooks/handlers/session_start.py` 在**建候選快取處**（非注入迴圈）依 `_is_under_claude_dir(cwd)` 過濾掉 path 落 `_AIDocs/_atoms/` 的候選；外部專案零負擔。compact/resume 複用舊 state 為已知低頻限制。
+- **分類器**（`classify_realm`，新 atom + drift sweep 共用）：**安全預設 core，僅高信心判 local**。核心保護清單（`decisions*`/`workflow-*`/`toolchain*`/`feedback-*`/`memory-pipeline-*`/`atom-*`/`preferences`/`cognitive-patterns`）**硬擋**永不 local；詞庫**只用實例專屬名**（腦內世界/world.html/reconcile/gdoc/codex/electron-uia/guardian-dashboard…），**絕不用記憶系統通用詞**（會誤殺核心 atom）；只掃 name+triggers，**絕不靠 `_AIDocs/` 路徑前綴判 local**（feedback-* 就在 _AIDocs 卻是 core）。
+- **搬遷工具 `tools/atom-set-realm.py`**：`set <slug> --domain D` / `--to-core`（undo）。為 `_AIDocs/_atoms/` path 的**唯一寫者**（防 reconcile 誤重算翻轉 realm）；**連 `.access.json` sidecar 原子性搬移**（否則 confirmations/usefulness 歸零、晉升飄移）；Scope 保持 global。**不**走 `atom-move`（它會把新根誤判 project 層、改錯 Scope）。
+- **MEMORY.md「本地範疇」段**：`sync-memory-index` 把 local atom 抽出主表、依 domain 收進尾段（R4 印象層指標，人在 ~/.claude 仍找得到）。
+
+**規則來源（single source of truth）**：
+- Python：[`lib/atom_locations.py`](../lib/atom_locations.py) — `LOCAL_ATOMS_DIR` / `LOCAL_ATOMS_REL` / `LOCAL_REALM_DOMAINS` / `is_local_realm_path` / `classify_realm` / `local_write_target` / `local_realm_domain` / `atom_index_row_kind`
+- JS mirror：[`tools/workflow-guardian-mcp/server.js`](../tools/workflow-guardian-mcp/server.js) — `LOCAL_ATOMS_*` 常數 / `classifyRealm` / `applyLocalRouting` / `findAtomFileRecursive(LOCAL_ATOMS_DIR)` find-fallback
+
+**守門**：`lib/verify/verify_atom_io_equivalence.py` test_14（路徑/realm 常數 py↔js parity）+ test_15（local routing，Scope 仍 global）+ test_16（分類器零誤判：核心保護清單全 core）+ test_17（classifier py↔js parity）；`lib/verify/verify_realm_injection_gate.py`（3 gate 單測）；`tools/verify/verify_memory_index_caption_preserve.py`（本地範疇段 render + caption preserve）。詳見 atom `realm-範疇分區機制-v5`。
+
 ---
 
 ## 3. Atom Index — JSON SoT（V5 P3b，2026-05-27）
@@ -353,6 +377,7 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續�
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-06-03 | V5+ S1–S3 | **Realm 範疇分區（§2.2）**：core vs local 由 index path 前綴推導（不存欄位）；local 住 `_AIDocs/_atoms/<domain>/`、scope 仍 global、只在 cwd∈~/.claude 注入。注入閘門（session_start）+ 分類器（`classify_realm` 安全預設 core+核心保護硬擋）+ 搬遷工具 `atom-set-realm.py`（sidecar 原子搬、`_atoms/` path 唯一寫者）+ 8 顆既有 local atom 遷移 + MEMORY.md「本地範疇」段 + py↔js parity（test_14–17）+ `verify_realm_injection_gate.py` |
 | 2026-06-02 | V5+ | `edit_metadata` 元資料外科編輯入口（§3.4）+ MCP `atom_edit_meta`；memory-audit 晉升建議改對齊線上 usefulness Wilson 閘；atom-health-check 計數改讀 `.access.json` sidecar；funnel 寫入紀律延伸（health-check / sync-atom-index 裸 write_text → write_raw） |
 | 2026-06-01 | V5+ #1/#2 | Sub-agent 記憶注入（Phase 1）+ 注入→使用→結果 (α,β) 閉環效用歸因（Phase 2）；晉升改 Confirmations OR 效用 Wilson 下界、ReadHits 降純曝光 |
 | 2026-05-29 | V5+ | 知識區 block 渲染（表格/fence 原樣輸出）；py/js create+append block-aware + py↔js 對拍測試 + server.js module.exports |

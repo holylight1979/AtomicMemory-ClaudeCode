@@ -8,6 +8,9 @@
 ## 記憶
 - 分類：「記住」→[固]、反覆模式→[觀]、做取捨→[臨]；不寫臨時嘗試/未確認猜測
 - 寫入用 atom_write MCP（自動驗證去重索引晉升）；已記錄事實直接引用
+- **範疇（Realm，與 scope 正交）**：判定「核心 vs 非核心」三問——① 可重用 ≥2 專案？② 系統規則 vs 單一 app/工具/環境的特定範疇？③ 月級穩定 vs 週級易變？
+  - **核心**（預設）：跨專案通用知識（preferences / decisions / workflow / toolchain）→ `scope=global` 住 `memory/`，全專案注入。
+  - **非核心（local）**：只在 ~/.claude 內才有用的知識（記憶系統/Guardian 開發、腦內世界、特定外部工具踩坑）→ **仍 `scope=global`**，但自動歸 `_AIDocs/_atoms/<domain>/`（World/Tools/MemDev），**只在 cwd∈~/.claude 注入**、外部專案零負擔。realm 由 index path 前綴推導（不存欄位），分類器安全預設 core、核心保護清單硬擋。機制全貌見 atom [[realm-範疇分區機制-v5]]。
 
 ## 同步
 完成修改後主動提出：_AIDocs→_CHANGELOG | 新知識→atom | .git→commit+push | .svn→commit
