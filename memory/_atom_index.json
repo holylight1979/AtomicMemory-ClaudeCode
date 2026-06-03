@@ -500,6 +500,21 @@
         "畫面跳刷新"
       ],
       "scope": "global"
+    },
+    {
+      "name": "腦內世界-環境演化-放置式架構",
+      "path": "memory/腦內世界-環境演化-放置式架構.md",
+      "triggers": [
+        "腦內世界",
+        "環境演化",
+        "world-dev",
+        "world.html",
+        "放置",
+        "env-layer",
+        "風格演化",
+        "零影響隔離"
+      ],
+      "scope": "global"
     }
   ]
 }

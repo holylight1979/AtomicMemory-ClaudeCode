@@ -304,3 +304,46 @@ skills/{name}/verify/                        ← 17 個空結構（內容由 nex
 - 路由：Command Bus（`/api/world-command|world-commands|world-result|world-snapshot`）+ 自癒（`/api/heal/:atom?auto=1`、`heal-job/:id`、`heal-all`、`heal-review`）。spawn `atom-heal.py` 前 `ATOM_NAME_RE` 擋 shell 注入。
 - **誠實痊癒**：前端只有 server 回 `fixed` 才移 `.sick`；修不好貼 🩹「轉診人工」不假裝。
 - ⚠️ **改 server.js 需走重啟 SOP**（殺舊碼孤兒讓新實例重綁 :3848；見 atom `guardian-dashboard-孤兒佔埠與新碼重啟`）。
+
+---
+
+## 腦內世界 · 區域環境演化（放置式，Phase 1-5）
+
+每個房間（=專案/記憶 scope）的生物（=atom）依現有對話頻率自主討論，依生物個性自決環境風格（城堡/花園/聚落/遊樂場/農場/港口/主題樂園/奇觀），想法擴散→鎖定→隨發展度逐步「長出」建築。**引擎＝瀏覽器驅動**（world.html 開著就跑、關了暫停、狀態存 server 故重開續長）。
+
+**★硬約束＝零影響原子記憶**：只**讀**生物個性，發展狀態只**寫**獨立 `workflow/world-dev.json`（gitignore），**絕不**碰 `memory/` 樹、`_atom_index.json`、`*.access.json`、funnel/atom_write。驗收用 `git status` 證 memory 跑前後零 diff（結構性隔離：獨立 API + 獨立檔，server.js 既有碰記憶的路徑一律不呼）。
+
+### 資料流
+```
+world.html(唯一推進引擎)
+  ├─ ENV_CATALOG ← fetch environment-catalog.json(8 風格家族 × 6 tier 累加目錄；相對路徑→須 :8899 同層伺服)
+  ├─ regionDev:Map(模組級持久，鏡像 world-dev.json；★絕不存進每5s重建的 model.c)
+  ├─ engineTick()(TICK_MS=1000)：免LLM(擴散/共識/dev累加/tier解鎖/鎖定/多風格閘/完工) + LLM 2點(種子/定案)
+  └─ reconcileDev/renderEnv/placeEnv → POST /api/world-dev(節流落盤)
+server.js：GET /api/world-dev(讀檔/空骨架) · POST(深合併+debounce+原子 .tmp→rename)
+workflow/world-dev.json：唯一存檔(與 memory/ 不同目錄＝隔離)
+```
+
+### 演化狀態機（每 region 獨立）
+`IDLE ─種子→ PROPOSAL ─配對擴散(免LLM,consensus+1/dev+=step×diminish)→ 定案(dev≥35&cons≥3)→ STYLE(rank N) ─dev累加/跨0·20·40·60·80·100門檻解鎖該tier元素→ dev∈[60,80]准開第二風格(回IDLE並行) → dev≥80 COMPLETED`
+- `devStep(dev)=max(0.3, dev_step×(1−dev/140))`＝diminishing 收斂不震盪、單調夾頂 100。
+- 完工門檻：**rank1.dev≥80**（次風格續長不影響）。/loop 停止＝全部活躍區（list≥2）皆完工。
+
+### LLM 僅 2 點 + fallback 鐵則
+- 種子(`envBrainstorm`#1) + 定案(`envDirection`#2)，複用 `/api/creature-chat`(world-chat.js 不改)，共用 `chatBusy` 序列鎖 + 硬閘 `ENV_LLM_MIN_GAP`≈4s。其餘全免 LLM（fast 只加速免LLM 路徑，LLM 不加速）。
+- prompt：sys 帶「區生物個性(聚合 fits_personality) + 8 家族白名單」→ 要 `{family_id,theme,seed_element,line}`；`cleanLine` 剝 crack 模型洩漏 token → `JSON.parse`（失敗抓 `/\{[\s\S]*\}/` 重試）；family 須∈白名單。
+- **fallback 鐵則**：LLM 斷網/逾時/解析失敗 → 純前端依個性投票選 family + 目錄種子 + 罐頭台詞，**仍建 proposal/仍鎖定**（永不阻塞）。每區到 80% 約 2 次 LLM；fallback 命中可 0 次。
+
+### 跨區串門子（`_visiting`）
+tick 低頻挑「攜帶想法」生物 lerp 走向他區中心（**只動 el._x/_y、不改 c.region**，掛 tick 位移軸＝守 reconcile-render 動畫狀態歸屬鐵律）；作客配對→該區同 family 共識+1、dev+=step×CROSS_FACTOR（免LLM），無同 family 則以 carry 為種子建提案；到期歸位。
+
+### 渲染層
+- **env-layer**：房間建一次性 append `<svg preserveAspectRatio="none">`，z 夾 floor 與 `.cr` 間。
+- **`placeEnv` deterministic**：seeded LCG(`hash32(key+"|"+id)`，**禁 Math.random**)→ 同 (region,element) 每 render 必同位；同 pos 類用 element.id 字典序（插入舊元素不位移）。emoji `<text>` 點綴／center 大地標 `<use href="#env-{svg_hint}">`／fallback 永有 emoji。
+- **reconcile 友善**：`el._envSig=style|dev|style2|dev2|unlocked` 髒檢查，sig 沒變不碰 DOM。招牌第二行「風格 emoji+中文名+dev%」+ `.devbar` 進度條，dev≥80 加 ✅。
+
+### 雙軌時間
+config `world_dev.modes`：slow(env_chance .01/pair .05/dev_step 1.2) · fast(.55/.75/6.0)；經 world-dev.json 持久 / `?fast=1` / 指令台 `worlddev slow|fast|status|reset` 覆寫。
+
+### 關鍵檔
+`world.html`(引擎主體) · `server.js`(world-dev 原子讀寫 + GET/POST 路由) · `environment-catalog.json`(風格目錄) · `workflow/world-dev.json`(唯一存檔,gitignore) · `workflow/config.json`(`world_dev` 旋鈕) · `world-chat.js`(不改,LLM 通道沿用)。
