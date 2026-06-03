@@ -16,7 +16,9 @@ from wg_core import (
     _atom_debug_error,
     discover_all_project_memory_dirs, get_project_memory_dir, resolve_staging_dir,
 )
-from wg_atoms import _self_iterate_atoms, _trigger_incremental_index
+from wg_atoms import (
+    _self_iterate_atoms, _trigger_incremental_index, _sweep_realm_auto_migrate,
+)
 from wg_extraction import _spawn_extract_worker
 from wg_episodic import _detect_atom_conflicts, _generate_episodic_atom
 from wg_evasion import (
@@ -129,6 +131,19 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
             )
     except Exception as e:
         print(f"[v2.16] Self-iteration error: {e}", file=sys.stderr)
+
+    # V5+ Realm 維度：自動歸類 sweep（高信心 core→local；永不靜默，下個 SessionStart 提示）
+    try:
+        realm_moved = _sweep_realm_auto_migrate(config)
+        if realm_moved:
+            for m in realm_moved:
+                print(
+                    f"[realm] auto-migrated {m['slug']} → local/{m['domain']} "
+                    f"({m['from']} → {m['to']})",
+                    file=sys.stderr,
+                )
+    except Exception as e:
+        print(f"[realm] auto-migrate sweep error: {e}", file=sys.stderr)
 
     if WISDOM_AVAILABLE:
         try:

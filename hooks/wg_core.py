@@ -29,6 +29,8 @@ MEMORY_DIR = CLAUDE_DIR / "memory"
 EPISODIC_DIR = MEMORY_DIR / "episodic"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
+# V5+ Realm 維度：SessionEnd 自動搬移的待提示 marker（永不靜默；session_start 讀+清）
+REALM_AUTOMOVE_MARKER = WORKFLOW_DIR / "realm_automove_pending.json"
 MEMORY_INDEX = "MEMORY.md"
 ATOM_INDEX = "_ATOM_INDEX.md"
 REGISTRY_PATH = MEMORY_DIR / "project-registry.json"
@@ -36,10 +38,13 @@ REGISTRY_PATH = MEMORY_DIR / "project-registry.json"
 # atom 物理位置 / 白名單規則來源（單一來源 lib.atom_locations）
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 try:
-    from atom_locations import atom_writable_dir_segments, failures_atom_stems
+    from atom_locations import (
+        atom_writable_dir_segments, failures_atom_stems, is_local_realm_path,
+    )
 except ImportError:
     atom_writable_dir_segments = None
     failures_atom_stems = None
+    is_local_realm_path = None
 
 CONTEXT_BUDGET_DEFAULT = 3000
 
@@ -180,6 +185,24 @@ def find_project_root(cwd: str) -> Optional[Path]:
             break
         p = parent
     return Path(cwd)
+
+
+def _is_under_claude_dir(cwd: str) -> bool:
+    """cwd 是否在 ~/.claude（含本身）之下 — V5+ local-realm 注入閘門用。
+
+    用 resolved parents 比對（非 startswith），避免 `~/.claude-foo` 之類旁系路徑
+    被誤判為內部。對拍 server.js:resolveMemDir 的 isUnderClaudeDir（語意一致；
+    JS 端以 startswith+sep 達同效）。resolve 失敗 → False（保守：當外部專案，
+    寧可少注入 local 也不誤注入到外部）。
+    """
+    if not cwd:
+        return False
+    try:
+        c = Path(cwd).resolve()
+        cd = CLAUDE_DIR.resolve()
+    except (OSError, ValueError):
+        return False
+    return c == cd or cd in c.parents
 
 
 def get_project_memory_dir(cwd: str) -> Optional[Path]:

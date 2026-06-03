@@ -51,6 +51,7 @@ VALID_SOURCES = frozenset({
     "hook:user-extract",
     "hook:extract-worker",
     "tool:atom-move",
+    "tool:atom-set-realm",  # V5+ Realm 維度：core⇄local 範疇搬移（_AIDocs/_atoms/ path 唯一寫者）
     "tool:atom-health-audit",  # Wave 3: atom 體質審視工具
     "tool:atom-heal",  # 記憶自癒（腦內世界 P3）：機械修反向連結 / LLM 提案修死連結
     "tool:changelog-roll",

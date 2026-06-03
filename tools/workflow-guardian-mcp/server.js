@@ -82,6 +82,56 @@ const LOCAL_ATOMS_DIR = path.join(CLAUDE_DIR, "_AIDocs", "_atoms");
 const LOCAL_ATOMS_REL = "_AIDocs/_atoms";
 const LOCAL_REALM_DOMAINS = new Set(["World", "Tools", "MemDev"]);
 const LOCAL_REALM_DEFAULT_DOMAIN = "Misc";
+// V5+ realm 分類器（MIRROR: lib/atom_locations.py:classify_realm / CORE_PROTECTED_* /
+// LOCAL_REALM_LEXICON — keep in sync；parity test_17 守漂移）。設計守則見 py 端註解：
+// 核心保護硬擋 → 實例詞庫 → 安全預設 core；只掃 name + triggers，絕不用記憶系統通用詞。
+const LOCAL_REALM_CORE_PROTECTED_PREFIXES = [
+  "decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-",
+];
+const LOCAL_REALM_CORE_PROTECTED_EXACT = new Set(["preferences", "cognitive-patterns"]);
+const LOCAL_REALM_LEXICON = {
+  "腦內世界": "World", "world.html": "World", "reconcile-render": "World",
+  "環境演化": "World", "env-layer": "World",
+  "gdoc": "Tools", "harvester": "Tools", "electron-uia": "Tools",
+  "electron 自動化": "Tools", "codex": "Tools", "logs_2.sqlite": "Tools", "反編譯": "Tools",
+  "guardian-dashboard": "MemDev", "孤兒佔埠": "MemDev", "eaddrinuse": "MemDev",
+};
+const LOCAL_REALM_NAME_WEIGHT = 10;
+const LOCAL_REALM_TRIGGER_WEIGHT = 1;
+
+/** Realm 分類器（安全預設 core，僅高信心判 local）。回 {realm, domain, matched, protected}。
+ *  只掃 name + triggers。MIRROR: lib/atom_locations.py:classify_realm — keep in sync. */
+function classifyRealm(name, triggers) {
+  const nm = (name || "").trim().toLowerCase();
+  // 1) 核心保護硬擋（先於詞庫）
+  if (LOCAL_REALM_CORE_PROTECTED_EXACT.has(nm) ||
+      LOCAL_REALM_CORE_PROTECTED_PREFIXES.some(p => nm.startsWith(p))) {
+    return { realm: "core", domain: null, matched: [], protected: true };
+  }
+  // 2) 實例詞庫掃描（name 權重 > trigger 權重，domain 消歧）
+  const trigBlob = (triggers || []).map(t => (t || "").toLowerCase()).join(" ");
+  const scores = {};
+  const matched = [];
+  for (const [term, dom] of Object.entries(LOCAL_REALM_LEXICON)) {
+    let hit = 0;
+    if (nm.includes(term)) hit += LOCAL_REALM_NAME_WEIGHT;
+    if (trigBlob.includes(term)) hit += LOCAL_REALM_TRIGGER_WEIGHT;
+    if (hit) { scores[dom] = (scores[dom] || 0) + hit; matched.push(term); }
+  }
+  if (Object.keys(scores).length === 0) {
+    return { realm: "core", domain: null, matched: [], protected: false };
+  }
+  // 平手 → 依 sorted(LOCAL_REALM_DOMAINS) 固定序首位（對拍 py max(sorted, key)）
+  const domsSorted = [...LOCAL_REALM_DOMAINS].sort();
+  let bestDom = domsSorted[0];
+  for (const d of domsSorted) {
+    if ((scores[d] || 0) > (scores[bestDom] || 0)) bestDom = d;
+  }
+  return {
+    realm: "local", domain: bestDom,
+    matched: [...new Set(matched)].sort(), protected: false,
+  };
+}
 const TOOLS_DIR = path.join(CLAUDE_DIR, "tools");
 const CONFIG_PATH = path.join(WORKFLOW_DIR, "config.json");
 const REGISTRY_PATH = path.join(MEMORY_DIR, "project-registry.json");
@@ -1342,6 +1392,20 @@ async function toolAtomWrite(id, args) {
   // V5+ feedback-* routing 集中到 applyFeedbackRouting（對拍 lib/atom_locations.py）
   let { memDir, baseDir, indexDir, indexRoot, routedToFailures } =
     applyFeedbackRouting(resolved, slug, scope);
+
+  // V5+ realm 自動分類（無顯式 realm 時跑分類器；計畫 Phase3「掛兩處」之 server.js 側）。
+  // 顯式 realm（含 "core"）優先、不覆寫；核心保護硬擋、安全預設 core。跑於所有 global
+  // 非-feedback 寫入（非只 create）——因 8 顆 allowlist 的 slug 皆含 lexicon 詞（name 權重），
+  // append/replace 任意 triggers 都穩定判 local → 找得到已遷移的 local 檔（防 append 回歸）。
+  if (realm === undefined && !routedToFailures && scope === "global") {
+    const rc = classifyRealm(slug, triggers);
+    if (rc.realm === "local") {
+      realm = "local";
+      if (!domain) domain = rc.domain;
+      try { process.stderr.write(
+        `[atom_write] auto-realm: ${slug} → local/${domain} (matched: ${rc.matched.join(",")})\n`); } catch {}
+    }
+  }
 
   // V5+ local-realm routing（與 feedback 互斥；realm 與 scope 正交，只在 global 生效）
   // 對拍 lib/atom_io._resolve_target 的 realm=="local" 分支。

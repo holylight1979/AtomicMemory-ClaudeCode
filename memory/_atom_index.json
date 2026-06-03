@@ -30,7 +30,7 @@
     },
     {
       "name": "electron-uia-automation",
-      "path": "memory/electron-uia-automation.md",
+      "path": "_AIDocs/_atoms/Tools/electron-uia-automation.md",
       "triggers": [
         "Electron 自動化",
         "VS Code 自動點擊",
@@ -153,7 +153,7 @@
     },
     {
       "name": "gdoc-harvester",
-      "path": "memory/gdoc-harvester.md",
+      "path": "_AIDocs/_atoms/Tools/gdoc-harvester.md",
       "triggers": [
         "harvester",
         "Google Docs",
@@ -396,7 +396,7 @@
     },
     {
       "name": "cc-能力查證反編譯實跑-binary",
-      "path": "memory/cc-能力查證反編譯實跑-binary.md",
+      "path": "_AIDocs/_atoms/Tools/cc-能力查證反編譯實跑-binary.md",
       "triggers": [
         "CC 版本",
         "hook event",
@@ -414,7 +414,7 @@
     },
     {
       "name": "codex-log-bloat-analytics",
-      "path": "memory/codex-log-bloat-analytics.md",
+      "path": "_AIDocs/_atoms/Tools/codex-log-bloat-analytics.md",
       "triggers": [
         "codex",
         "logs_2.sqlite",
@@ -449,7 +449,7 @@
     },
     {
       "name": "guardian-dashboard-孤兒佔埠與新碼重啟",
-      "path": "memory/guardian-dashboard-孤兒佔埠與新碼重啟.md",
+      "path": "_AIDocs/_atoms/MemDev/guardian-dashboard-孤兒佔埠與新碼重啟.md",
       "triggers": [
         "guardian",
         "server.js",
@@ -466,7 +466,7 @@
     },
     {
       "name": "腦內世界-v3-自癒與-command-bus-架構",
-      "path": "memory/腦內世界-v3-自癒與-command-bus-架構.md",
+      "path": "_AIDocs/_atoms/World/腦內世界-v3-自癒與-command-bus-架構.md",
       "triggers": [
         "腦內世界",
         "atom-heal",
@@ -481,7 +481,7 @@
     },
     {
       "name": "reconcile-render-動畫狀態歸屬陷阱",
-      "path": "memory/reconcile-render-動畫狀態歸屬陷阱.md",
+      "path": "_AIDocs/_atoms/World/reconcile-render-動畫狀態歸屬陷阱.md",
       "triggers": [
         "reconcile",
         "render",
@@ -503,7 +503,7 @@
     },
     {
       "name": "腦內世界-環境演化-放置式架構",
-      "path": "memory/腦內世界-環境演化-放置式架構.md",
+      "path": "_AIDocs/_atoms/World/腦內世界-環境演化-放置式架構.md",
       "triggers": [
         "腦內世界",
         "環境演化",

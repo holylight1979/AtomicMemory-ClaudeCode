@@ -26,6 +26,7 @@ from wg_core import (
     register_project,
     read_state, write_state, new_state, _find_active_sibling_state,
     _check_mcp_servers,
+    _is_under_claude_dir, is_local_realm_path, REALM_AUTOMOVE_MARKER,
 )
 from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
@@ -228,6 +229,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     existing = read_state(session_id)
     if existing and source in ("compact", "resume"):
+        # V5+ realm 閘門已知限制：compact/resume 複用舊 state 的 atom_index 快取，
+        # 不重建候選。故若 session 於 ~/.claude 啟動（local 在快取）後跨環境 resume
+        # 到外部專案 cwd，殘留的 local 候選不會被重濾（極低頻：同一 session id 跨
+        # 機器/跨根 resume）。重啟（source=startup/新 session）即走上方重建分支正確過濾。
         state = existing
         prev_atoms = state.get("injected_atoms", [])
         state["injected_atoms"] = []
@@ -259,6 +264,17 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             state["_skip_vector_init"] = True
 
         global_atoms = parse_memory_index(MEMORY_DIR)
+        # ── V5+ realm 注入閘門（範疇限定）──────────────────────────────────────
+        # 此處為「新 session 候選快取建立處」——user_prompt_submit 只讀此快取做
+        # trigger 比對注入，故閘門落點在此、非注入迴圈。外部專案（cwd∉~/.claude）
+        # 濾掉 local-realm atom（index path 前綴 _AIDocs/_atoms/）；core（含 feedback-*
+        # 所在的 _AIDocs/Failures/）不受影響。直接用既有 3-tuple 的 path 過濾，不查
+        # realm map、不改 tuple 形狀。is_local_realm_path 為 None（lib import 失敗）→
+        # 不過濾（fail-open 回退至 pre-S2 全注入，安全）。
+        if is_local_realm_path is not None and not _is_under_claude_dir(cwd):
+            global_atoms = [
+                (n, p, t) for (n, p, t) in global_atoms if not is_local_realm_path(p)
+            ]
         project_mem_dir = get_project_memory_dir(cwd)
         project_atoms = parse_memory_index(project_mem_dir) if project_mem_dir else []
         project_root = find_project_root(cwd)
@@ -368,6 +384,27 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                             lines.append(extra_line)
             except Exception as e:
                 _atom_debug_error("project_hook:session_start", e)
+
+    # V5+ Realm 維度：上個 session 自動歸類搬移的不靜默提示（永不靜默；讀後清 marker）
+    try:
+        if REALM_AUTOMOVE_MARKER.exists():
+            try:
+                _rm = json.loads(REALM_AUTOMOVE_MARKER.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                _rm = []
+            if isinstance(_rm, list) and _rm:
+                _names = ", ".join(m.get("slug", "?") for m in _rm[:6])
+                _more = f" 等 {len(_rm)} 顆" if len(_rm) > 6 else f"（{len(_rm)} 顆）"
+                lines.append(
+                    f"[Realm] 已自動歸 local：{_names}{_more}。"
+                    f"外部專案不再注入；如需還原：python tools/atom-set-realm.py set <slug> --to-core"
+                )
+            try:
+                REALM_AUTOMOVE_MARKER.unlink()
+            except OSError:
+                pass
+    except Exception as e:
+        print(f"[realm] automove notice error: {e}", file=sys.stderr)
 
     try:
         review_reminder = _check_periodic_review_due(config)

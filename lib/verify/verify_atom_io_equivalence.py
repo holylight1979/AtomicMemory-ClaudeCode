@@ -484,3 +484,113 @@ def test_15_local_realm_routing(isolated_claude, monkeypatch):
     )
     assert core.ok, core.error
     assert core.path == isolated_claude["memory"] / "plain-core.md"
+
+
+# ─── 16. realm classifier: zero false positives + correct local detection ──────
+
+
+def test_16_classify_realm_zero_false_positive():
+    """classify_realm 絕不把核心保護清單 / feedback / pipeline 判 local（必驗 #1），
+    且實例專屬 atom 須判 local + 正確 domain。對拍驗收 B dry-run 的零誤判硬門檻。"""
+    from lib.atom_locations import classify_realm
+
+    # 核心保護：強制 core（protected=True，先於詞庫；含帶 'codex' 的 feedback atom）
+    core_protected = [
+        ("decisions-architecture", ["guardian", "SessionStart", "hooks"]),
+        ("decisions", ["決策", "記憶系統"]),
+        ("workflow-rules", ["GIT", "Phase"]),
+        ("workflow-parallel-agents", ["多 agent", "並行"]),
+        ("toolchain", ["工具鏈", "LanceDB"]),
+        ("toolchain-ollama", ["ollama", "embedding"]),
+        ("preferences", ["偏好", "上GIT"]),
+        ("feedback-tooling-reliability", ["codex", "codex companion", "MCP"]),
+        ("feedback-workflow-discipline", ["handoff", "上 GIT"]),
+        ("cognitive-patterns", ["過度工程", "proxy metric"]),
+        ("memory-pipeline-silent-failure-2026-05", ["episodic", "晉升"]),
+        ("atom-usefulness-loop", ["usefulness", "Wilson 下界"]),
+        ("atom-table-support", ["atom_write", "table"]),
+    ]
+    for name, trig in core_protected:
+        r = classify_realm(name, trig)
+        assert r["realm"] == "core", f"FALSE POSITIVE: {name} → local ({r})"
+        assert r["protected"] is True, f"{name} should be protected"
+
+    # 未在保護清單但詞庫無命中 → 安全預設 core（非 protected）
+    for name, trig in [("memory-index-caption-regen", ["MEMORY.md", "sync-memory-index"]),
+                       ("realm-範疇分區機制-v5", ["realm", "範疇分區", "注入閘門"])]:
+        r = classify_realm(name, trig)
+        assert r["realm"] == "core" and r["protected"] is False, f"{name}: {r}"
+
+    # 實例專屬 atom：name 單獨（weight-10）即足以判 local + 正確 domain
+    local_expect = {
+        "腦內世界-v3-自癒與-command-bus-架構": "World",
+        "reconcile-render-動畫狀態歸屬陷阱": "World",
+        "腦內世界-環境演化-放置式架構": "World",
+        "gdoc-harvester": "Tools",
+        "electron-uia-automation": "Tools",
+        "codex-log-bloat-analytics": "Tools",
+        "cc-能力查證反編譯實跑-binary": "Tools",
+        "guardian-dashboard-孤兒佔埠與新碼重啟": "MemDev",
+    }
+    for name, dom in local_expect.items():
+        r = classify_realm(name, [])
+        assert r["realm"] == "local", f"{name} not local: {r}"
+        assert r["domain"] == dom, f"{name} domain {r['domain']} != {dom}"
+
+
+# ─── 17. realm classifier py↔js parity (mirror guard) ──────────────────────────
+
+
+def test_17_classify_realm_py_js_parity():
+    """classify_realm (py) 必與 server.js classifyRealm (js) 對同一 fixture 集一致判定。
+    守 lib↔server.js 鏡像漂移（realm/domain/protected/matched 全比）。"""
+    import shutil
+    import subprocess
+
+    from lib.atom_locations import classify_realm
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    if not server_js.exists():
+        pytest.skip("server.js not found")
+
+    fixtures = [
+        ["gdoc-harvester", ["harvester", "Google Docs"]],
+        ["guardian-dashboard-孤兒佔埠與新碼重啟", ["guardian", "world.html", "EADDRINUSE"]],
+        ["腦內世界-環境演化-放置式架構", ["腦內世界", "環境演化", "world.html"]],
+        ["decisions-architecture", ["guardian", "SessionStart"]],
+        ["feedback-tooling-reliability", ["codex", "MCP"]],
+        ["memory-index-caption-regen", ["MEMORY.md"]],
+        ["cc-能力查證反編譯實跑-binary", ["反編譯", "claude binary"]],
+        ["atom-usefulness-loop", ["usefulness"]],
+        ["some-new-world-note", ["腦內世界", "wander"]],
+        ["plain-generic-atom", ["foo", "bar"]],
+    ]
+    py = [classify_realm(n, t) for n, t in fixtures]
+
+    js_script = (
+        "const fs=require('fs');"
+        "const src=fs.readFileSync(process.argv[1],'utf-8');"
+        "const start=src.indexOf('const LOCAL_REALM_CORE_PROTECTED_PREFIXES');"
+        "const block=src.slice(start, src.indexOf('const TOOLS_DIR'));"
+        "const LOCAL_REALM_DOMAINS=new Set(['World','Tools','MemDev']);"
+        "eval(block);"
+        "const fx=JSON.parse(process.argv[2]);"
+        "const out=fx.map(([n,t])=>{const r=classifyRealm(n,t);"
+        "return {realm:r.realm,domain:r.domain,prot:r.protected,matched:r.matched};});"
+        "process.stdout.write(JSON.stringify(out));"
+    )
+    proc = subprocess.run(
+        [node, "-e", js_script, str(server_js), json.dumps(fixtures)],
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
+    )
+    assert proc.returncode == 0, f"node failed: {proc.stderr}"
+    js = json.loads(proc.stdout)
+    for (n, _t), p, j in zip(fixtures, py, js):
+        assert p["realm"] == j["realm"], f"{n}: realm py={p['realm']} js={j['realm']}"
+        assert p["domain"] == j["domain"], f"{n}: domain py={p['domain']} js={j['domain']}"
+        assert p["protected"] == j["prot"], f"{n}: protected py={p['protected']} js={j['prot']}"
+        assert sorted(p["matched"]) == sorted(j["matched"]), \
+            f"{n}: matched py={p['matched']} js={j['matched']}"

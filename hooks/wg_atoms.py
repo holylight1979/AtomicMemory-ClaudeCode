@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR,
-    MEMORY_INDEX, ATOM_INDEX,
+    MEMORY_INDEX, ATOM_INDEX, REALM_AUTOMOVE_MARKER,
     CONTEXT_BUDGET_DEFAULT,
     discover_all_project_memory_dirs, resolve_access_json, resolve_staging_dir,
     get_project_memory_dir, log_promotion_audit,
@@ -45,6 +45,12 @@ try:
     from atom_locations import iter_atom_files_multi
 except ImportError:
     iter_atom_files_multi = None
+
+try:
+    from atom_locations import classify_realm, is_local_realm_path
+except ImportError:
+    classify_realm = None
+    is_local_realm_path = None
 
 
 # ─── Memory Index Parsing ────────────────────────────────────────────────────
@@ -1487,6 +1493,73 @@ def _trigger_incremental_index(config: Dict[str, Any]) -> None:
         urllib.request.urlopen(req, timeout=1)
     except Exception as e:
         _atom_debug_error("注入:_trigger_incremental_index", e)
+
+
+# ─── V5+ Realm 維度：SessionEnd 自動歸類搬移 sweep ──────────────────────────
+
+
+def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """SessionEnd：掃全域 core atom，高信心 local 者自動搬到 _AIDocs/_atoms/（drift 補捉）。
+
+    這是「掛兩處」之二（之一＝server.js 新 atom 寫入時自動帶 realm）。非熱路徑。
+    安全網（計畫 R1）：classify_realm 零誤判 + 核心保護清單硬擋（protected→realm=core→不搬）
+      + atom-set-realm 原子搬（含 .access.json sidecar）/ 可 undo（--to-core 反向）。
+    永不靜默：搬移結果寫 marker，下個 SessionStart 一行提示「N 顆已自動歸 local，可 undo」。
+    只掃全域索引（realm 是 global-memory 概念）；已 local（path 前綴）者跳過。
+    回 list of {slug, domain, from, to}（空 list = 無搬移；8 顆 allowlist 搬完後通常恆空）。
+    """
+    if classify_realm is None or is_local_realm_path is None or load_atom_index_json is None:
+        return []
+    # 安全閥：使用者定案②為全自動，預設開；保留 config 關閉途徑（不新增 config.json 面）
+    if not config.get("realm", {}).get("auto_migrate", True):
+        return []
+
+    moved: List[Dict[str, Any]] = []
+    try:
+        import importlib.util
+        tool_path = CLAUDE_DIR / "tools" / "atom-set-realm.py"
+        spec = importlib.util.spec_from_file_location("atom_set_realm", tool_path)
+        if spec is None or spec.loader is None:
+            return []
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        data = load_atom_index_json(MEMORY_DIR)
+        for a in data.get("atoms", []):
+            name = a.get("name", "")
+            path = a.get("path", "")
+            if not name or is_local_realm_path(path):
+                continue  # 已 local，跳過（idempotent）
+            rc = classify_realm(name, a.get("triggers", []))
+            if rc.get("realm") != "local":
+                continue  # core / protected → 不搬（安全預設）
+            res = mod.set_realm(name, domain=rc.get("domain"))
+            if res.get("ok") and not res.get("noop"):
+                moved.append({
+                    "slug": name, "domain": rc.get("domain"),
+                    "from": res.get("from"), "to": res.get("to"),
+                })
+    except Exception as e:
+        _atom_debug_error("realm:auto_sweep", e)
+
+    if moved:
+        # 累加寫入 marker（多次 SessionEnd 未被讀清前合併），SessionStart 一次提示 + 清空
+        try:
+            REALM_AUTOMOVE_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            existing: List[Dict[str, Any]] = []
+            if REALM_AUTOMOVE_MARKER.exists():
+                try:
+                    prev = json.loads(REALM_AUTOMOVE_MARKER.read_text(encoding="utf-8"))
+                    if isinstance(prev, list):
+                        existing = prev
+                except (OSError, json.JSONDecodeError):
+                    existing = []
+            existing.extend(moved)
+            REALM_AUTOMOVE_MARKER.write_text(
+                json.dumps(existing, ensure_ascii=False), encoding="utf-8")
+        except OSError as e:
+            _atom_debug_error("realm:automove_marker", e)
+    return moved
 
 
 # ─── Self-Iteration: atom 晉升 (was wg_iteration._self_iterate_atoms) ────────

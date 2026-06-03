@@ -37,6 +37,48 @@ LOCAL_ATOMS_REL = "_AIDocs/_atoms"
 LOCAL_REALM_DOMAINS = frozenset({"World", "Tools", "MemDev"})
 LOCAL_REALM_DEFAULT_DOMAIN = "Misc"
 
+# ─── Local-realm 分類器常數（新 atom 路由 + drift sweep 共用 SoT）─────────────
+#
+# 設計守則（防誤殺核心；計畫「分類器」節 + 必驗 #1）：
+#   1. 核心保護清單「硬擋」——名稱命中即強制 core，永不判 local（先於詞庫）。
+#   2. 詞庫只用「實例專屬名」（綁定特定 app/工具/環境的詞）；**絕不用記憶系統通用詞**
+#      （server.js/wg_/hook/atom_/記憶系統…）——核心 atom 本身充滿這些詞，會誤殺。
+#   3. 只掃 name + triggers（高訊號低雜訊）；不掃知識內文（核心 atom 可能以這些實例
+#      當例子提及，掃內文擴大誤判面）。
+#   4. 安全預設 core：詞庫無命中 → core；僅命中實例詞才判 local。
+#   5. 絕不靠 _AIDocs/ 路徑前綴判 local——feedback-* 就在 _AIDocs/Failures/ 卻是 core。
+#
+# MIRROR: server.js:classifyRealm / CORE_PROTECTED_* / LOCAL_REALM_LEXICON — keep in sync。
+LOCAL_REALM_CORE_PROTECTED_PREFIXES = (
+    "decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-",
+)
+LOCAL_REALM_CORE_PROTECTED_EXACT = frozenset({"preferences", "cognitive-patterns"})
+
+# 實例專屬詞庫（lowercase 子字串比對）：term → domain。命中任一 → local。
+LOCAL_REALM_LEXICON = {
+    # World：腦內世界 / world.html 生態
+    "腦內世界": "World",
+    "world.html": "World",
+    "reconcile-render": "World",
+    "環境演化": "World",
+    "env-layer": "World",
+    # Tools：外部工具與環境踩坑（特定工具/二進位）
+    "gdoc": "Tools",
+    "harvester": "Tools",
+    "electron-uia": "Tools",
+    "electron 自動化": "Tools",
+    "codex": "Tools",
+    "logs_2.sqlite": "Tools",
+    "反編譯": "Tools",
+    # MemDev：Guardian「特定實例」開發踩坑（非通用機制詞）
+    "guardian-dashboard": "MemDev",
+    "孤兒佔埠": "MemDev",
+    "eaddrinuse": "MemDev",
+}
+# name 命中權重 > trigger 命中權重（domain 消歧用；見 classify_realm）
+LOCAL_REALM_NAME_WEIGHT = 10
+LOCAL_REALM_TRIGGER_WEIGHT = 1
+
 # wg_core 既有白名單 base（原 wg_core._WHITELIST_DIR_SEGMENTS 主體搬入）
 # 注意：含 V4 **按需建立** 目錄（_pending_review=敏感待審路由、personal/_archived/_rejected=
 # 專案層 scope 與生命週期）。部分目錄在某些 memory tree 下尚未實體存在，但**不得剪除**——
@@ -70,6 +112,41 @@ def is_local_realm_path(rel_path: str) -> bool:
     注入閘門（session_start）即用此前綴在外部專案濾掉 local。
     """
     return rel_path.startswith(LOCAL_ATOMS_REL + "/")
+
+
+def classify_realm(name: str, triggers: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+    """新 atom / drift sweep 的 realm 分類器（安全預設 core，僅高信心判 local）。
+
+    回 {"realm": "core"|"local", "domain": str|None, "matched": [str], "protected": bool}：
+      - protected=True：名稱命中核心保護清單（永不 local）。
+      - realm="local" 時 domain 為命中分數最高的範疇（name 命中權重 > trigger）。
+    只掃 name + triggers（不掃知識內文）。MIRROR: server.js:classifyRealm — keep in sync。
+    """
+    nm = (name or "").strip().lower()
+    # 1) 核心保護硬擋（先於詞庫；計畫 §Phase3「核心保護清單」/ 必驗 #1）
+    if nm in LOCAL_REALM_CORE_PROTECTED_EXACT or nm.startswith(LOCAL_REALM_CORE_PROTECTED_PREFIXES):
+        return {"realm": "core", "domain": None, "matched": [], "protected": True}
+    # 2) 實例詞庫掃描（name 權重 > trigger 權重，用於 domain 消歧）
+    trig_blob = " ".join((t or "").lower() for t in (triggers or []))
+    scores: Dict[str, int] = {}
+    matched: List[str] = []
+    for term, dom in LOCAL_REALM_LEXICON.items():
+        hit = 0
+        if term in nm:
+            hit += LOCAL_REALM_NAME_WEIGHT
+        if term in trig_blob:
+            hit += LOCAL_REALM_TRIGGER_WEIGHT
+        if hit:
+            scores[dom] = scores.get(dom, 0) + hit
+            matched.append(term)
+    if not scores:
+        return {"realm": "core", "domain": None, "matched": [], "protected": False}
+    # 平手 → 依 sorted(LOCAL_REALM_DOMAINS) 固定序取，確保可重現
+    best_dom = max(sorted(LOCAL_REALM_DOMAINS), key=lambda d: scores.get(d, 0))
+    return {
+        "realm": "local", "domain": best_dom,
+        "matched": sorted(set(matched)), "protected": False,
+    }
 
 
 # ─── Search / scan（從 atom_spec 搬入，本檔為唯一源） ─────────────────────────
