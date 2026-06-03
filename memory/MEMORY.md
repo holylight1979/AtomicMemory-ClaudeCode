@@ -25,6 +25,7 @@
 | 腦內世界-v3-自癒與-command-bus-架構 | 腦內世界 v3 自癒與 Command Bus 架構 |
 | reconcile-render-動畫狀態歸屬陷阱 | reconcile-render 動畫狀態歸屬陷阱 |
 | 腦內世界-環境演化-放置式架構 | 腦內世界-環境演化-放置式架構 |
+| realm-範疇分區機制-v5 | Realm 範疇分區機制 (V5+) |
 | feedback-* | 行為校正（7 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
