@@ -28,6 +28,9 @@ stats-cache.json
 # config.json IS tracked; state files are not
 workflow/state-*.json
 workflow/state-*.json.bak-*
+workflow/state-*.json.corrupt
+workflow/world-dev.json
+workflow/_*.log
 workflow/guardian-crash.log
 workflow/extract-worker.log
 workflow/hot_cache.json

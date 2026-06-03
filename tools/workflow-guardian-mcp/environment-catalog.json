@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "_note": "腦內世界環境演化風格目錄。world.html fetch 此檔；LLM 從 families 白名單選 family_id。tier 累加非替換；threshold=該 tier 解鎖門檻(發展度%)。element: {id,name_zh,emoji,svg_hint?,pos,tier,threshold,unique?,night_glow?}。pos ∈ ground-row|wall|center|corner|edge|scatter。emoji 必填(小框首選)；svg_hint 選填(center 大地標退簡易 SVG symbol，無對應 symbol 則放大 emoji)。",
+  "thresholds": [0, 20, 40, 60, 80, 100],
+  "seeds": [
+    {"id": "seed.campfire", "name_zh": "營火", "emoji": "🔥", "pos": "center", "tier": 0, "threshold": 0, "night_glow": true},
+    {"id": "seed.bedroll", "name_zh": "地鋪", "emoji": "🛏️", "pos": "wall", "tier": 0, "threshold": 0},
+    {"id": "seed.path", "name_zh": "小徑", "emoji": "·", "pos": "ground-row", "tier": 0, "threshold": 0},
+    {"id": "seed.signpost", "name_zh": "路牌", "emoji": "🪧", "pos": "edge", "tier": 0, "threshold": 0},
+    {"id": "seed.sapling", "name_zh": "樹苗", "emoji": "🌱", "pos": "scatter", "tier": 0, "threshold": 0}
+  ],
+  "families": {
+    "settlement": {
+      "name_zh": "聚落城鎮", "emoji": "🏠", "mood": "溫暖群居、煙火氣",
+      "fits_personality": ["social", "general", "mixed", "docs", "preferences"],
+      "tiers": {
+        "0": [{"id": "settlement.tent", "name_zh": "帳篷", "emoji": "⛺", "pos": "ground-row", "tier": 0, "threshold": 0}],
+        "20": [{"id": "settlement.hut", "name_zh": "草棚", "emoji": "🛖", "pos": "ground-row", "tier": 1, "threshold": 20},
+               {"id": "settlement.well", "name_zh": "水井", "emoji": "🪣", "pos": "corner", "tier": 1, "threshold": 20}],
+        "40": [{"id": "settlement.house", "name_zh": "木屋", "emoji": "🏠", "pos": "ground-row", "tier": 2, "threshold": 40},
+               {"id": "settlement.stall", "name_zh": "市集攤", "emoji": "🍎", "pos": "edge", "tier": 2, "threshold": 40}],
+        "60": [{"id": "settlement.stone_house", "name_zh": "石屋", "emoji": "🏘️", "pos": "ground-row", "tier": 3, "threshold": 60},
+               {"id": "settlement.chapel", "name_zh": "禮拜堂", "emoji": "⛪", "pos": "wall", "tier": 3, "threshold": 60}],
+        "80": [{"id": "settlement.fountain", "name_zh": "噴泉", "emoji": "⛲", "pos": "center", "tier": 4, "threshold": 80},
+               {"id": "settlement.clock_tower", "name_zh": "鐘樓", "emoji": "🕰️", "svg_hint": "tower", "pos": "wall", "tier": 4, "threshold": 80},
+               {"id": "settlement.lamp", "name_zh": "街燈", "emoji": "🏮", "pos": "scatter", "tier": 4, "threshold": 80, "night_glow": true}],
+        "100": [{"id": "settlement.town_hall", "name_zh": "市政廳", "emoji": "🏛️", "svg_hint": "hall", "pos": "center", "tier": 5, "threshold": 100, "unique": true},
+                {"id": "settlement.gate", "name_zh": "城門", "emoji": "🚪", "pos": "edge", "tier": 5, "threshold": 100}]
+      }
+    },
+    "fortress": {
+      "name_zh": "城堡要塞", "emoji": "🏰", "mood": "嚴謹防禦、秩序威嚴",
+      "fits_personality": ["system", "architecture", "security", "rules", "core", "decisions"],
+      "tiers": {
+        "0": [{"id": "fortress.watchfire", "name_zh": "瞭望火", "emoji": "🔥", "pos": "center", "tier": 0, "threshold": 0, "night_glow": true}],
+        "20": [{"id": "fortress.motte", "name_zh": "土丘木塔", "emoji": "🗼", "svg_hint": "keep", "pos": "center", "tier": 1, "threshold": 20, "unique": true},
+               {"id": "fortress.palisade", "name_zh": "木柵", "emoji": "🚧", "pos": "edge", "tier": 1, "threshold": 20}],
+        "40": [{"id": "fortress.keep", "name_zh": "石堡", "emoji": "🏰", "svg_hint": "keep", "pos": "center", "tier": 2, "threshold": 40, "unique": true},
+               {"id": "fortress.barracks", "name_zh": "兵營", "emoji": "⚔️", "pos": "ground-row", "tier": 2, "threshold": 40}],
+        "60": [{"id": "fortress.wall", "name_zh": "城牆", "emoji": "🧱", "pos": "edge", "tier": 3, "threshold": 60},
+               {"id": "fortress.tower", "name_zh": "角塔", "emoji": "🗼", "pos": "corner", "tier": 3, "threshold": 60}],
+        "80": [{"id": "fortress.gatehouse", "name_zh": "門樓", "emoji": "🚪", "pos": "edge", "tier": 4, "threshold": 80},
+               {"id": "fortress.banner", "name_zh": "旗幟", "emoji": "🚩", "pos": "wall", "tier": 4, "threshold": 80},
+               {"id": "fortress.moat", "name_zh": "護城河", "emoji": "🌊", "pos": "edge", "tier": 4, "threshold": 80}],
+        "100": [{"id": "fortress.castle", "name_zh": "大城堡", "emoji": "🏯", "svg_hint": "castle", "pos": "center", "tier": 5, "threshold": 100, "unique": true},
+                {"id": "fortress.drawbridge", "name_zh": "吊橋", "emoji": "🌉", "pos": "edge", "tier": 5, "threshold": 100}]
+      }
+    },
+    "garden": {
+      "name_zh": "園林花園", "emoji": "🌷", "mood": "寧靜療癒、有機留白",
+      "fits_personality": ["meditation", "notes", "calm", "personal", "memory"],
+      "tiers": {
+        "0": [{"id": "garden.flowerbed", "name_zh": "花圃", "emoji": "🌸", "pos": "ground-row", "tier": 0, "threshold": 0}],
+        "20": [{"id": "garden.stone_path", "name_zh": "踏石步道", "emoji": "🪨", "pos": "ground-row", "tier": 1, "threshold": 20},
+               {"id": "garden.hedge", "name_zh": "綠籬", "emoji": "🌿", "pos": "edge", "tier": 1, "threshold": 20}],
+        "40": [{"id": "garden.pond", "name_zh": "蓮池", "emoji": "🪷", "pos": "center", "tier": 2, "threshold": 40},
+               {"id": "garden.bridge", "name_zh": "拱橋", "emoji": "🌉", "pos": "center", "tier": 2, "threshold": 40}],
+        "60": [{"id": "garden.fountain", "name_zh": "噴泉", "emoji": "⛲", "pos": "center", "tier": 3, "threshold": 60},
+               {"id": "garden.topiary", "name_zh": "造型樹", "emoji": "🌳", "pos": "scatter", "tier": 3, "threshold": 60},
+               {"id": "garden.lantern", "name_zh": "石燈籠", "emoji": "🏮", "pos": "edge", "tier": 3, "threshold": 60, "night_glow": true}],
+        "80": [{"id": "garden.zen_sand", "name_zh": "枯山水", "emoji": "🌀", "pos": "ground-row", "tier": 4, "threshold": 80},
+               {"id": "garden.basin", "name_zh": "水缽", "emoji": "🫗", "pos": "corner", "tier": 4, "threshold": 80},
+               {"id": "garden.torii", "name_zh": "鳥居", "emoji": "⛩️", "pos": "edge", "tier": 4, "threshold": 80}],
+        "100": [{"id": "garden.tea_house", "name_zh": "茶亭", "emoji": "🏯", "svg_hint": "pavilion", "pos": "center", "tier": 5, "threshold": 100, "unique": true},
+                {"id": "garden.pagoda", "name_zh": "寶塔", "emoji": "🗼", "svg_hint": "pagoda", "pos": "corner", "tier": 5, "threshold": 100, "unique": true}]
+      }
+    },
+    "playground": {
+      "name_zh": "遊戲場", "emoji": "🛝", "mood": "童趣活潑、無壓力",
+      "fits_personality": ["experiment", "draft", "light", "play", "sandbox"],
+      "tiers": {
+        "0": [{"id": "playground.sandbox", "name_zh": "沙坑", "emoji": "🏖️", "pos": "ground-row", "tier": 0, "threshold": 0}],
+        "20": [{"id": "playground.swing", "name_zh": "鞦韆", "emoji": "🤸", "pos": "ground-row", "tier": 1, "threshold": 20},
+               {"id": "playground.spring_rider", "name_zh": "彈簧搖馬", "emoji": "🐴", "pos": "scatter", "tier": 1, "threshold": 20}],
+        "40": [{"id": "playground.slide", "name_zh": "溜滑梯", "emoji": "🛝", "pos": "ground-row", "tier": 2, "threshold": 40},
+               {"id": "playground.seesaw", "name_zh": "蹺蹺板", "emoji": "⚖️", "pos": "ground-row", "tier": 2, "threshold": 40}],
+        "60": [{"id": "playground.climb", "name_zh": "攀爬架", "emoji": "🧗", "pos": "center", "tier": 3, "threshold": 60},
+               {"id": "playground.monkey_bars", "name_zh": "猴架", "emoji": "🐒", "pos": "ground-row", "tier": 3, "threshold": 60}],
+        "80": [{"id": "playground.carousel", "name_zh": "旋轉木馬", "emoji": "🎠", "pos": "center", "tier": 4, "threshold": 80},
+               {"id": "playground.jungle_gym", "name_zh": "組合堡台", "emoji": "🧩", "pos": "corner", "tier": 4, "threshold": 80}],
+        "100": [{"id": "playground.play_castle", "name_zh": "遊戲城堡", "emoji": "🏰", "svg_hint": "playcastle", "pos": "center", "tier": 5, "threshold": 100, "unique": true},
+                {"id": "playground.trampoline", "name_zh": "彈跳床", "emoji": "🤾", "pos": "corner", "tier": 5, "threshold": 100}]
+      }
+    },
+    "themepark": {
+      "name_zh": "主題樂園", "emoji": "🎡", "mood": "歡騰誇張、奇觀人潮",
+      "fits_personality": ["creative", "ideas", "flagship", "active", "world"],
+      "tiers": {
+        "0": [{"id": "themepark.ticket", "name_zh": "售票亭", "emoji": "🎫", "pos": "edge", "tier": 0, "threshold": 0},
+              {"id": "themepark.balloon", "name_zh": "氣球攤", "emoji": "🎈", "pos": "ground-row", "tier": 0, "threshold": 0}],
+        "20": [{"id": "themepark.teacups", "name_zh": "旋轉杯", "emoji": "🫖", "pos": "ground-row", "tier": 1, "threshold": 20},
+               {"id": "themepark.carousel", "name_zh": "旋轉木馬", "emoji": "🎠", "pos": "ground-row", "tier": 1, "threshold": 20}],
+        "40": [{"id": "themepark.bumper", "name_zh": "碰碰車", "emoji": "🚗", "pos": "ground-row", "tier": 2, "threshold": 40},
+               {"id": "themepark.funhouse", "name_zh": "歡樂屋", "emoji": "🎪", "pos": "wall", "tier": 2, "threshold": 40}],
+        "60": [{"id": "themepark.ferris", "name_zh": "摩天輪", "emoji": "🎡", "svg_hint": "ferris", "pos": "center", "tier": 3, "threshold": 60, "unique": true}],
+        "80": [{"id": "themepark.coaster", "name_zh": "雲霄飛車", "emoji": "🎢", "pos": "edge", "tier": 4, "threshold": 80},
+               {"id": "themepark.drop_tower", "name_zh": "自由落體", "emoji": "🗼", "pos": "corner", "tier": 4, "threshold": 80}],
+        "100": [{"id": "themepark.castle", "name_zh": "童話城堡", "emoji": "🏰", "svg_hint": "fairycastle", "pos": "center", "tier": 5, "threshold": 100, "unique": true},
+                {"id": "themepark.fireworks", "name_zh": "煙火", "emoji": "🎆", "pos": "scatter", "tier": 5, "threshold": 100, "night_glow": true}]
+      }
+    },
+    "farm": {
+      "name_zh": "農場工坊", "emoji": "🚜", "mood": "務實循環、自給生產",
+      "fits_personality": ["tool", "pipeline", "automation", "routine", "toolchain"],
+      "tiers": {
+        "0": [{"id": "farm.soil", "name_zh": "犁田", "emoji": "🟫", "pos": "ground-row", "tier": 0, "threshold": 0},
+              {"id": "farm.scarecrow", "name_zh": "稻草人", "emoji": "🧑‍🌾", "pos": "scatter", "tier": 0, "threshold": 0}],
+        "20": [{"id": "farm.crops", "name_zh": "作物", "emoji": "🌾", "pos": "ground-row", "tier": 1, "threshold": 20},
+               {"id": "farm.veggie", "name_zh": "菜圃", "emoji": "🥕", "pos": "ground-row", "tier": 1, "threshold": 20}],
+        "40": [{"id": "farm.coop", "name_zh": "雞舍", "emoji": "🐔", "pos": "corner", "tier": 2, "threshold": 40},
+               {"id": "farm.fence", "name_zh": "圍欄", "emoji": "🚧", "pos": "edge", "tier": 2, "threshold": 40},
+               {"id": "farm.animal", "name_zh": "牲口", "emoji": "🐄", "pos": "scatter", "tier": 2, "threshold": 40}],
+        "60": [{"id": "farm.barn", "name_zh": "穀倉", "emoji": "🏚️", "svg_hint": "barn", "pos": "center", "tier": 3, "threshold": 60, "unique": true},
+               {"id": "farm.silo", "name_zh": "穀塔", "emoji": "🛢️", "pos": "corner", "tier": 3, "threshold": 60}],
+        "80": [{"id": "farm.windmill", "name_zh": "風車", "emoji": "🌬️", "svg_hint": "windmill", "pos": "corner", "tier": 4, "threshold": 80},
+               {"id": "farm.workshop", "name_zh": "工坊", "emoji": "🔨", "pos": "ground-row", "tier": 4, "threshold": 80},
+               {"id": "farm.waterwheel", "name_zh": "水車", "emoji": "⚙️", "pos": "edge", "tier": 4, "threshold": 80}],
+        "100": [{"id": "farm.manor", "name_zh": "莊園磨坊", "emoji": "🏰", "svg_hint": "mill", "pos": "center", "tier": 5, "threshold": 100, "unique": true},
+                {"id": "farm.orchard", "name_zh": "果園", "emoji": "🍎", "pos": "ground-row", "tier": 5, "threshold": 100}]
+      }
+    },
+    "harbor": {
+      "name_zh": "水岸港口", "emoji": "⚓", "mood": "開放流動、連結貿易",
+      "fits_personality": ["io", "api", "sync", "hub", "interface", "vector"],
+      "tiers": {
+        "0": [{"id": "harbor.shore", "name_zh": "灘岸", "emoji": "🌊", "pos": "edge", "tier": 0, "threshold": 0},
+              {"id": "harbor.rowboat", "name_zh": "小舟", "emoji": "🚣", "pos": "ground-row", "tier": 0, "threshold": 0}],
+        "20": [{"id": "harbor.dock", "name_zh": "木棧道", "emoji": "🪵", "pos": "edge", "tier": 1, "threshold": 20},
+               {"id": "harbor.net", "name_zh": "漁網", "emoji": "🎣", "pos": "corner", "tier": 1, "threshold": 20}],
+        "40": [{"id": "harbor.boat", "name_zh": "漁船", "emoji": "⛵", "pos": "edge", "tier": 2, "threshold": 40},
+               {"id": "harbor.fish_market", "name_zh": "魚市", "emoji": "🐟", "pos": "ground-row", "tier": 2, "threshold": 40}],
+        "60": [{"id": "harbor.pier", "name_zh": "石堤碼頭", "emoji": "🛟", "pos": "edge", "tier": 3, "threshold": 60},
+               {"id": "harbor.warehouse", "name_zh": "倉庫", "emoji": "🏭", "pos": "wall", "tier": 3, "threshold": 60}],
+        "80": [{"id": "harbor.crane", "name_zh": "起重機", "emoji": "🏗️", "pos": "corner", "tier": 4, "threshold": 80},
+               {"id": "harbor.cargo_ship", "name_zh": "貨輪", "emoji": "🚢", "pos": "edge", "tier": 4, "threshold": 80},
+               {"id": "harbor.container", "name_zh": "貨櫃", "emoji": "📦", "pos": "ground-row", "tier": 4, "threshold": 80}],
+        "100": [{"id": "harbor.lighthouse", "name_zh": "燈塔", "emoji": "🗼", "svg_hint": "lighthouse", "pos": "corner", "tier": 5, "threshold": 100, "unique": true, "night_glow": true},
+                {"id": "harbor.grand_port", "name_zh": "大商港", "emoji": "🌉", "pos": "center", "tier": 5, "threshold": 100, "unique": true}]
+      }
+    },
+    "wonder": {
+      "name_zh": "世界奇觀", "emoji": "🗿", "mood": "史詩唯一、紀念碑性",
+      "fits_personality": ["milestone", "flagship", "mature", "showcase", "elder"],
+      "tiers": {
+        "0": [{"id": "wonder.foundation", "name_zh": "基壇", "emoji": "🪨", "pos": "center", "tier": 0, "threshold": 0},
+              {"id": "wonder.scaffold", "name_zh": "鷹架", "emoji": "🏗️", "pos": "edge", "tier": 0, "threshold": 0}],
+        "20": [{"id": "wonder.obelisk", "name_zh": "方尖碑", "emoji": "🗿", "svg_hint": "obelisk", "pos": "center", "tier": 1, "threshold": 20, "unique": true}],
+        "40": [{"id": "wonder.temple", "name_zh": "神殿", "emoji": "🏛️", "svg_hint": "temple", "pos": "center", "tier": 2, "threshold": 40, "unique": true}],
+        "60": [{"id": "wonder.pyramid", "name_zh": "金字塔", "emoji": "🔺", "svg_hint": "pyramid", "pos": "center", "tier": 3, "threshold": 60, "unique": true},
+               {"id": "wonder.gardens", "name_zh": "空中花園", "emoji": "🌿", "pos": "wall", "tier": 3, "threshold": 60}],
+        "80": [{"id": "wonder.colossus", "name_zh": "巨像", "emoji": "🗽", "svg_hint": "colossus", "pos": "center", "tier": 4, "threshold": 80, "unique": true},
+               {"id": "wonder.great_lighthouse", "name_zh": "大燈塔", "emoji": "🗼", "pos": "corner", "tier": 4, "threshold": 80, "night_glow": true}],
+        "100": [{"id": "wonder.great_pyramid", "name_zh": "世界奇觀", "emoji": "🔺", "svg_hint": "greatpyramid", "pos": "center", "tier": 5, "threshold": 100, "unique": true},
+                {"id": "wonder.aura", "name_zh": "聖光", "emoji": "✨", "pos": "scatter", "tier": 5, "threshold": 100, "night_glow": true}]
+      }
+    }
+  }
+}

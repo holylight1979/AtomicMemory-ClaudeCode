@@ -2166,6 +2166,45 @@ function apiWorldSnapshot(req, res) {
   jsonRes(res, 200, { ...worldSnapshot, age_seconds: age });
 }
 
+// ── World 環境演化狀態（per-region 發展；★獨立於原子記憶系統，只讀寫 workflow/world-dev.json，不碰 memory/）──
+const WORLD_DEV_PATH = path.join(WORKFLOW_DIR, "world-dev.json");
+function emptyWorldDev() { return { version: 1, updated_at: 0, mode: "slow", regions: {} }; }
+function readWorldDev() {
+  try { const d = JSON.parse(fs.readFileSync(WORLD_DEV_PATH, "utf-8")); return (d && d.regions) ? d : emptyWorldDev(); }
+  catch { return emptyWorldDev(); }
+}
+let worldDev = readWorldDev();
+let worldDevTimer = null;
+function flushWorldDev() {                                   // 原子寫，仿 writeState（.tmp→rename）
+  worldDevTimer = null;
+  worldDev.updated_at = Date.now();
+  const tmp = WORLD_DEV_PATH + ".tmp";
+  try {
+    fs.mkdirSync(WORKFLOW_DIR, { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify(worldDev, null, 2), "utf-8");
+    fs.renameSync(tmp, WORLD_DEV_PATH);
+  } catch { try { fs.unlinkSync(tmp); } catch {} }
+}
+function scheduleWorldDevWrite() {                           // debounce 300ms，批次落盤
+  if (worldDevTimer) clearTimeout(worldDevTimer);
+  worldDevTimer = setTimeout(flushWorldDev, 300);
+}
+function apiWorldDev(req, res) {
+  if (req.method === "POST") {
+    return readJsonBody(req, (body) => {
+      if (!body || typeof body !== "object") return jsonRes(res, 400, { error: "bad body" });
+      if (typeof body.mode === "string") worldDev.mode = body.mode;
+      if (body.regions && typeof body.regions === "object") {  // 前端為各 region 真相源 → 整顆 region 物件覆寫
+        for (const k of Object.keys(body.regions)) worldDev.regions[k] = body.regions[k];
+      }
+      if (body.reset === true) worldDev = emptyWorldDev();     // 全清（僅 world-dev.json，不碰 atom）
+      scheduleWorldDevWrite();
+      jsonRes(res, 200, { ok: true });
+    });
+  }
+  jsonRes(res, 200, worldDev);                                // GET：回完整發展狀態
+}
+
 // ── 記憶自癒：spawn atom-heal.py（分級 L1 機械/L2 LLM判斷/L3 喚醒），皆走泛用 healRunner ──
 const healRunner = makeJobRunner({ maxConcurrent: (loadConfig().heal || {}).max_concurrent || 1, ttlMs: 300000 });
 const ATOM_NAME_RE = /^[\w一-鿿.-]+$/;   // 防 shell 注入：只允許字母數字底線連字號點與 CJK
@@ -3922,6 +3961,7 @@ const httpServer = http.createServer((req, res) => {
   if (pathname === "/api/world-commands" && req.method === "GET") return apiWorldCommandsGet(req, res, url.searchParams.get("since"));
   if (pathname === "/api/world-result" && req.method === "POST") return apiWorldResultPost(req, res);
   if (pathname === "/api/world-snapshot") return apiWorldSnapshot(req, res);
+  if (pathname === "/api/world-dev") return apiWorldDev(req, res);
   // ── 記憶自癒路由（先比對固定路徑，再 heal/(.+) 否則被吃掉）──
   if (pathname === "/api/heal-all" && req.method === "POST") return apiHealAll(req, res);
   if (pathname === "/api/heal-review" && req.method === "GET") return apiHealReview(req, res);
