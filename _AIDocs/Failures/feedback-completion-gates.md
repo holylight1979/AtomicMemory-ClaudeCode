@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 完成宣告, 收尾, pytest, run_verify, verify, smoke test, 研究先行, trial-and-error, 清理, 先清後建, 基線, 測試上傳, 上 SVN, known regression, xfail, 衍生暫存, 暫存檔, 清暫存, 收尾檢核
 - Created-at: 2026-05-26
-- Related: feedback-workflow-discipline, feedback-tooling-reliability
+- Related: feedback-workflow-discipline, feedback-tooling-reliability, reconcile-render-動畫狀態歸屬陷阱
 
 ## 知識
 

@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: guardian, server.js, 3848, dashboard, 重啟, 孤兒, EADDRINUSE, 新路由 404, creature-chat, world.html
 - Created-at: 2026-06-02
-- Related: decisions-architecture, feedback-tooling-reliability, toolchain
+- Related: decisions-architecture, feedback-tooling-reliability, toolchain, reconcile-render-動畫狀態歸屬陷阱, 腦內世界-v3-自癒與-command-bus-架構
 
 ## 知識
 
