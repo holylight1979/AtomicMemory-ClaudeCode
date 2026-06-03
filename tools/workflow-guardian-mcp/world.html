@@ -778,13 +778,27 @@ const ENGINE = {
   POST_THROTTLE_MS: 4000,        // dev 連續累加節流落盤
   PROPOSAL_TTL_SLOW: 1000*60*30, // 醞釀逾時未達共識 → 枯死
   PROPOSAL_TTL_FAST: 60000,
+  ENV_LLM_MIN_GAP: 4000,         // ★LLM 硬閘：兩次環境 LLM（種子/定案）最短間隔（含 fast；3090 序列不爆）
+  ENV_LLM_TIMEOUT: 20000,        // 環境 LLM 逾時 → fallback（crack 模型夾 thought channel 產 JSON 較慢，留 20s 裕度）
+  CROSS_FACTOR: 0.5,             // 跨區串門子：訪客對作客區 dev 貢獻 = devStep × 此（免LLM）
+  CROSS_MAX: 2,                  // 同時最多幾隻在外串門子
+  VISIT_TTL: 26,                 // 單次串門子壽命（秒，rAF 時鐘；逾時強制歸位）
+  VISIT_STAY_SLOW: 8, VISIT_STAY_FAST: 4,   // 到站後作客停留秒數
   modes: {                       // 雙軌倍率（config.json world_dev 為宣告鏡像，前端為運行時源；純前端免重啟）
-    slow: { env_chance: 0.01, pair_chance: 0.05, dev_step: 1.2 },
-    fast: { env_chance: 0.55, pair_chance: 0.75, dev_step: 6.0 },
+    //   ★fast 只加速「免LLM 路徑」（env_chance/pair_chance/dev_step/cross_chance）；LLM 走 ENV_LLM_MIN_GAP 正常節奏不加速
+    slow: { env_chance: 0.01, pair_chance: 0.05, dev_step: 1.2, cross_chance: 0.012 },
+    fast: { env_chance: 0.55, pair_chance: 0.75, dev_step: 6.0, cross_chance: 0.09 },
   },
 };
 let _modeOverride = null;        // ?fast=1 / worlddev 指令（覆寫 server mode）
 let _serverMode = "slow";        // 由 GET /api/world-dev 回填
+/* ── Phase 4 LLM/跨區 暫態狀態（★全模組級，不落盤、不進 model.c）─────────────
+   _lastEnvLlm：上次環境 LLM 完成/發起時戳（MIN_GAP 硬閘基準）
+   _envSeedInFlight / _envDirInFlight：種子/定案 LLM 飛行中守衛（防同區/同提案重複觸發）*/
+let _lastEnvLlm = 0;
+const _envSeedInFlight = new Set();   // region.key
+const _envDirInFlight  = new Set();   // region.key + "|" + pid
+function envLlmReady(){ return !chatBusy && (Date.now() - _lastEnvLlm >= ENGINE.ENV_LLM_MIN_GAP); }   // 與生物對話共用 chatBusy（3090 序列鎖）
 function curMode(){ return _modeOverride || _serverMode || "slow"; }
 function isFast(){ return curMode() === "fast"; }
 function tn(){ return ENGINE.modes[curMode()] || ENGINE.modes.slow; }
@@ -834,14 +848,102 @@ function canSeed(r, dev){
   if(!rank1Style(dev)) return !liveProp;                        // 首風格未鎖：無進行中提案才種
   return dev.next_style_eligible && !rank2Style(dev) && !liveProp;   // 已鎖首：達閘且無次風格才種第二
 }
+/* 建提案核心（種子 LLM 與 fallback 共用）：選首位貢獻者、起始 dev、賦予 el._carry 想法載體 */
+function buildProposal(r, dev, family, theme){
+  if((r.list||[]).length===0) return null;
+  const first = (r.list||[])[hash32(r.key+family)%r.list.length];
+  theme = theme || regionTheme(family);
+  dev.proposals.push({ pid:"p_"+family, family, theme, consensus:1,
+    contributors: first?[first.name]:[], dev: tn().dev_step, created_by: first?first.name:"", created_at: Date.now(), direction_locked:false });
+  if(first){ const el=elOf(first); if(el) el._carry={family, theme, pid:"p_"+family, strength:1}; }
+  _engineDirty = true;
+  return first;
+}
+/* 免LLM fallback 種子：純前端依生物個性投票選 family + 罐頭主題（LLM 失敗/閘關時走此，仍建 proposal 不阻塞）*/
 function seedProposal(r, dev){
   const used = new Set([...(dev.styles||[]).map(s=>s.family), ...(dev.proposals||[]).map(p=>p.family)]);
   const family = regionFamilyVote(r, used); if(!family) return;
-  const first = (r.list||[])[hash32(r.key+family)%r.list.length];
-  dev.proposals.push({ pid:"p_"+family, family, theme:regionTheme(family), consensus:1,
-    contributors: first?[first.name]:[], dev: tn().dev_step, created_by: first?first.name:"", created_at: Date.now(), direction_locked:false });
-  if(first){ const el=elOf(first); if(el) el._carry={family, theme:regionTheme(family), pid:"p_"+family, strength:1}; }
-  _engineDirty = true;
+  buildProposal(r, dev, family, regionTheme(family));
+}
+
+/* ── 種子 LLM 派發（envSeed）：閘開→LLM 種子；閘關→免LLM fallback（不阻塞引擎）──
+   ★fast 仍跑（env_chance 加速），但 LLM 受 ENV_LLM_MIN_GAP 節流，多數 fast 種子走 fallback → fast 不卡 */
+function envSeed(r, dev){
+  if(!envLlmReady()){ seedProposal(r, dev); markDirty(r.key); return; }   // 閘關（忙線/未過 MIN_GAP）→ 免LLM
+  chatBusy = true; _lastEnvLlm = Date.now(); _envSeedInFlight.add(r.key);  // 占用 3090 序列鎖 + 飛行守衛
+  dev.llm_calls = (dev.llm_calls||0) + 1;                                  // 計數本次 LLM 發起（落盤 telemetry）
+  const hasLiveProp = () => (dev.proposals||[]).some(p=>!p.direction_locked);
+  envBrainstorm(r, dev)
+    .then(res => applyEnvSeed(r, dev, res))                                // {family∈白名單, theme, line}
+    .catch(() => { if(!hasLiveProp()) seedProposal(r, dev); })             // LLM 失敗/逾時/解析不過 → 投票 fallback（仍建 proposal）
+    .finally(() => { chatBusy = false; _envSeedInFlight.delete(r.key); markDirty(r.key); _engineDirty = true; if(model) render(); });
+}
+function applyEnvSeed(r, dev, res){
+  if((dev.proposals||[]).some(p=>!p.direction_locked)) return;             // 飛行中已被跨區/他途種下 → 不重複建提案
+  const used = new Set([...(dev.styles||[]).map(s=>s.family), ...(dev.proposals||[]).map(p=>p.family)]);
+  if(!res || !res.family || used.has(res.family)){ seedProposal(r, dev); return; }  // 無效/重複 family → 投票 fallback
+  const first = buildProposal(r, dev, res.family, res.theme);
+  if(first && res.line){ const el=elOf(first); if(el) bubbleAtEl(el, res.line, 3600); }   // 生物說出 LLM 種子台詞
+}
+
+/* ── 環境 LLM 通道（複用 /api/creature-chat → rdchat 3090；world-chat.js 不改；斷網/逾時必拋→fallback）── */
+async function envLlmCall(sys, usr){
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), ENGINE.ENV_LLM_TIMEOUT);
+  try{
+    const r = await fetch(API_BASE + "/api/creature-chat", {
+      method:"POST", headers:{"Content-Type":"application/json"}, signal:ctrl.signal,
+      body: JSON.stringify({ model:CHAT_MODEL, think:false, options:{num_predict:200, temperature:0.7},
+        messages:[{role:"system",content:sys},{role:"user",content:usr}] })
+    });
+    if(!r.ok) throw new Error("http "+r.status);
+    const j = await r.json();
+    return j.content || "";
+  } finally { clearTimeout(timer); }
+}
+/* crack 模型會夾 <|channel|> 控制 token + ```圍欄 → 剝除後 JSON.parse；失敗再抓 /\{[\s\S]*\}/ 重試 */
+function parseEnvJson(raw){
+  if(!raw) return null;
+  let s = String(raw).replace(/<\|?[^>]*\|?>/g," ").replace(/```json?/gi," ").replace(/```/g," ");
+  try{ return JSON.parse(s); }catch{}
+  const m = s.match(/\{[\s\S]*\}/);
+  if(m){ try{ return JSON.parse(m[0]); }catch{} }
+  return null;
+}
+/* 聚合該區生物集體個性（類別分布 + 代表名 + fits_personality 命中傾向）給 LLM 配對 family */
+function aggregatePersona(r){
+  const list = (r.list||[]);
+  const types = {}; list.forEach(c=>{ const k=c.type||"atom"; types[k]=(types[k]||0)+1; });
+  const tally = {}; Object.keys((ENV_CATALOG&&ENV_CATALOG.families)||{}).forEach(f=>tally[f]=0);
+  for(const c of list){ const sig=[String(c.type||""),norm(c.name),norm(c.scope||""),...((c.triggers||[]).map(norm))].join(" ");
+    for(const f in tally){ for(const kw of (ENV_CATALOG.families[f].fits_personality||[])){ if(kw && sig.includes(kw)) tally[f]++; } } }
+  const lean = Object.entries(tally).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([f])=>f);
+  const names = list.slice(0,6).map(c=>c.name).join("、");
+  return `${list.length} 隻（${Object.entries(types).map(([k,v])=>k+"×"+v).join("，")}）：${names}` + (lean.length?`；個性偏向：${lean.join("/")}`:"");
+}
+/* LLM#1 種子腦力激盪：依集體個性挑 family + 主題 + 起始設施 + 提議台詞；回 {family,theme,line}（family 須∈可用白名單）*/
+async function envBrainstorm(r, dev){
+  const used = new Set([...(dev.styles||[]).map(s=>s.family), ...(dev.proposals||[]).map(p=>p.family)]);
+  const avail = Object.keys(ENV_CATALOG.families).filter(f=>!used.has(f));
+  if(!avail.length) throw new Error("no available family");
+  const famList = avail.map(f=>{ const m=ENV_CATALOG.families[f]; return `${f}（${m.name_zh}/${m.mood}）`; }).join("、");
+  const sys = '你是『腦內世界』某腦區的環境設計師。根據該區記憶生物的集體個性，從給定風格家族挑「一個」最契合的，提出環境發展方向。'
+            + '嚴格只輸出一個 JSON 物件，格式：{"family_id":"<清單裡的id>","theme":"<4到8字中文主題>","seed_element":"<起始設施中文名>","line":"<一句生物提議的口語台詞,不超過25字>"}。不要任何其他文字或說明。';
+  const usr = `腦區「${r.label}」住著這些記憶生物：${aggregatePersona(r)}。可選風格家族：${famList}。挑最契合集體個性的一個 family_id（必須是清單裡的英文 id），給這區一個發展主題與起始設施，並用一句生物的口吻說出這個提議。`;
+  const obj = parseEnvJson(await envLlmCall(sys, usr));
+  if(!obj || !obj.family_id || !avail.includes(obj.family_id)) throw new Error("invalid family");
+  return { family: obj.family_id, theme: (String(obj.theme||"").slice(0,12) || regionTheme(obj.family_id)), line: cleanLine(obj.line||"") };
+}
+/* LLM#2 定案宣告：確認/微調 family + 最終主題 + 興奮定案台詞；回 {family,theme,line} */
+async function envDirection(r, dev, p){
+  const fam = famMeta(p.family);
+  const sys = '你是『腦內世界』某腦區的環境總設計師。這個腦區醞釀出一個發展方向，現在要正式定案。'
+            + '嚴格只輸出一個 JSON：{"family_id":"<有效家族id>","theme":"<4到8字中文主題>","line":"<一句定案宣告的口語台詞,不超過30字>"}。不要其他文字。';
+  const usr = `腦區「${r.label}」決定往「${fam?fam.name_zh:p.family}（${p.theme}）」風格發展。請確認 family_id=「${p.family}」（若有更貼切的可改，但必須是有效家族），給最終主題，並用一句生物興奮宣告定案的台詞。`;
+  const obj = parseEnvJson(await envLlmCall(sys, usr));
+  if(!obj) throw new Error("parse fail");
+  const fid = (obj.family_id && ENV_CATALOG.families[obj.family_id]) ? obj.family_id : p.family;
+  return { family: fid, theme: (String(obj.theme||p.theme||"").slice(0,12)), line: cleanLine(obj.line||"") };
 }
 
 /* ② 配對擴散：成長已鎖風格（含 rank2 並行）+ 醞釀 top proposal；consensus 綁不重複貢獻者 → 收斂封頂 */
@@ -875,12 +977,33 @@ function unlockTiers(r, dev, s, before, after){
   }
 }
 
-/* ③ 定案：proposal 達門檻 → 晉升 styles[rank N]（Phase 3 罐頭定案；LLM Phase 4）*/
+/* ③ 定案：proposal 達門檻 → 晉升 styles[rank N]（Phase 4：envDirect 走 LLM 定案，閘關/失敗退罐頭 promoteToStyle）*/
 function promoteProposals(r, dev){
   for(const p of (dev.proposals||[]).slice()){
     if(p.direction_locked) continue;
-    if((p.dev||0)>=ENGINE.DIRECTION_GATE && (p.consensus||0)>=consMin(r)) promoteToStyle(r, dev, p);
+    if((p.dev||0)>=ENGINE.DIRECTION_GATE && (p.consensus||0)>=consMin(r)) envDirect(r, dev, p);
   }
+}
+/* LLM#2 定案派發：飛行守衛 → 閘關走罐頭 promoteToStyle；閘開呼 envDirection 產定案台詞 + 確認 family，失敗退罐頭 */
+function envDirect(r, dev, p){
+  const key = r.key + "|" + p.pid;
+  if(_envDirInFlight.has(key)) return;                                   // 同提案 LLM 飛行中 → 不重觸（亦防 chatBusy 期間同步罐頭搶跑）
+  if(!envLlmReady()){ promoteToStyle(r, dev, p); return; }               // 閘關 → 免LLM 罐頭定案
+  _envDirInFlight.add(key); chatBusy = true; _lastEnvLlm = Date.now();
+  dev.llm_calls = (dev.llm_calls||0) + 1;
+  envDirection(r, dev, p)
+    .then(res => {
+      if(res){
+        if(res.family && res.family!==p.family && ENV_CATALOG.families[res.family]
+           && !(dev.styles||[]).some(s=>s.family===res.family)){ p.family=res.family; p.pid="p_"+res.family; }  // 微調 family（去重後）
+        if(res.theme) p.theme = res.theme;
+      }
+      promoteToStyle(r, dev, p);
+      const c = findCr(p.created_by) || (r.list||[])[0]; const el = c && elOf(c);
+      if(el && res && res.line) bubbleAtEl(el, res.line, 4200);          // 生物宣告定案
+    })
+    .catch(() => promoteToStyle(r, dev, p))                              // LLM 失敗/逾時 → 罐頭定案
+    .finally(() => { _envDirInFlight.delete(key); chatBusy = false; markDirty(r.key); _engineDirty = true; if(model) render(); });
 }
 function promoteToStyle(r, dev, p){
   if((dev.styles||[]).some(s=>s.family===p.family)){ p.direction_locked=true; dev.proposals=dev.proposals.filter(x=>x!==p); return; }
@@ -912,6 +1035,50 @@ function pruneProposals(r, dev){
 /* el._carry 想法衰減（存 el，跨 refresh 存活；Phase 4 跨區串門子載體）*/
 function decayCarries(){ crEls.forEach(el=>{ if(el._carry){ el._carry.strength*=ENGINE.CARRY_DECAY; if(el._carry.strength<0.05) el._carry=null; } }); }
 
+/* ════════ ④ 跨區串門子（需求#3，免LLM）════════════════════════════════════════
+   低頻挑「攜帶想法（el._carry）」的閒置生物，lerp 走向他區中心作客 → 注入提案/共識 → 到期歸位。
+   ★只動 el._x/_y（視覺），絕不改 c.region（模型）；carry 於觸發時快照進 _visiting，免被 decayCarries 沖掉。
+   ★_visiting 掛持久 el（守 reconcile-render 鐵律），lerp 接在 tick() 位移軸（見 stepVisit）。*/
+function _visitCount(){ let n=0; crEls.forEach(el=>{ if(el._visiting) n++; }); return n; }
+function maybeCrossVisit(t){
+  if(_visitCount() >= ENGINE.CROSS_MAX) return;
+  if(Math.random() >= (t.cross_chance||0)) return;                 // 低頻（fast 略快，仍免LLM）
+  const cands=[]; crEls.forEach(el=>{ const c=el._c;
+    if(c && el._carry && !el._visiting && !el._dragging && !el._pinned && !c.sick) cands.push(el); });
+  if(!cands.length) return;
+  const el=cands[Math.floor(Math.random()*cands.length)], c=el._c;
+  const targets=(rooms||[]).filter(rr=>rr.key!==c.region && (rr.list||[]).length>0);
+  if(!targets.length) return;
+  const rr=targets[Math.floor(Math.random()*targets.length)];
+  const now=performance.now()/1000;
+  el._visiting={ toKey:rr.key, tx:rr.x+rr.w/2, ty:rr.y+rr.h/2, phase:"going",
+                 carry:{family:el._carry.family, theme:el._carry.theme}, stayUntil:0, until:now+ENGINE.VISIT_TTL };
+}
+/* 訪客到站 → 對作客區注入（免LLM）：同 family 風格/提案→共識+1 & dev+=devStep×CROSS_FACTOR；無同 family→以 carry 為種子建提案 */
+function crossInject(v, visitorC){
+  const rr=(rooms||[]).find(x=>x.key===v.toKey); if(!rr){ return; }
+  const dev=ensureDev(rr.key), carry=v.carry, name=visitorC.name; if(!carry) return;
+  const sameStyle=(dev.styles||[]).find(s=>s.family===carry.family);
+  const sameProp =(dev.proposals||[]).find(p=>p.family===carry.family && !p.direction_locked);
+  if(sameStyle){
+    if(!sameStyle.contributors.includes(name)){ sameStyle.contributors.push(name); sameStyle.consensus=sameStyle.contributors.length; }
+    const before=sameStyle.dev||0; sameStyle.dev=Math.min(100, before + devStep(before)*ENGINE.CROSS_FACTOR);  // 單調夾頂
+    unlockTiers(rr, dev, sameStyle, before, sameStyle.dev);
+  } else if(sameProp){
+    if(!sameProp.contributors.includes(name)){ sameProp.contributors.push(name); sameProp.consensus=sameProp.contributors.length; }
+    sameProp.dev=Math.min(100,(sameProp.dev||0)+devStep(sameProp.dev||0)*ENGINE.CROSS_FACTOR);
+  } else {
+    const used=new Set([...(dev.styles||[]).map(s=>s.family),...(dev.proposals||[]).map(p=>p.family)]);
+    if(!used.has(carry.family) && canSeed(rr, dev)){                 // 無同 family 且該區可種 → carry 當種子（免LLM）
+      dev.proposals.push({ pid:"p_"+carry.family, family:carry.family, theme:carry.theme||regionTheme(carry.family),
+        consensus:1, contributors:[name], dev:tn().dev_step, created_by:name, created_at:Date.now(), direction_locked:false, cross_seeded:true });
+    }
+  }
+  dev.last_activity_at=Date.now(); markDirty(rr.key); _engineDirty=true; if(model) render();
+  const el=elOf(visitorC); if(el) bubbleAtEl(el, "我從「"+(c2label(visitorC.region))+"」帶來個點子…", 2800);
+}
+function c2label(key){ const r=(rooms||[]).find(x=>x.key===key); return r?r.label:(key||"").replace("project:",""); }
+
 /* 引擎主迴圈（低頻 TICK_MS；只動 regionDev/el，render 反映進度；單調、零影響原子記憶）*/
 function engineTick(){
   if(!ENV_CATALOG || !model || !rooms.length) return;
@@ -920,13 +1087,14 @@ function engineTick(){
     let dev=regionDev.get(r.key);
     if((r.list||[]).length===0){ if(dev) dev.dormant=true; continue; }   // 空區休眠（保留既有 styles 凍結）
     if(dev) dev.dormant=false;
-    if(canSeed(r, dev) && Math.random()<t.env_chance){ dev=ensureDev(r.key); seedProposal(r, dev); markDirty(r.key); }
+    if(canSeed(r, dev) && !_envSeedInFlight.has(r.key) && Math.random()<t.env_chance){ dev=ensureDev(r.key); envSeed(r, dev); markDirty(r.key); }  // 種子（LLM/閘關 fallback；飛行守衛防重觸）
     if(!dev) continue;
     if(Math.random()<t.pair_chance){ diffuse(r, dev); markDirty(r.key); }
     promoteProposals(r, dev);
     pruneProposals(r, dev);
     checkGates(r, dev);
   }
+  maybeCrossVisit(t);                                            // ④ 跨區串門子（免LLM；低頻挑攜帶想法生物 lerp 去鄰區）
   decayCarries();
   if(_engineDirty){ if(model) render(); _engineDirty=false; }    // 變動才重繪（env-layer 仍 sig 髒檢查）
   _postDev(false);                                               // dev 累加節流落盤
@@ -1087,7 +1255,7 @@ function moveCreatureTo(c, to){
     const rm=(rooms||[]).find(r=>r&&(r.key===to||r.label===to||r.slug===to||(r.label&&r.label.includes(to))||r.key.includes(to)));
     if(!rm) return "找不到目標：「"+to+"」"; tx=rm.x+rm.w/2; ty=rm.y+rm.h/2;
   }
-  el._pinned=true; el._x=tx; el._y=ty; el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
+  el._pinned=true; el._visiting=null; el._x=tx; el._y=ty; el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;  // 刻意擺放 → 取消串門子
   return `${c.name} → ${to}`;
 }
 /* registry：加新指令＝在此加一筆（UI 選單/說明/控件/executor 自動長出）*/
@@ -1184,6 +1352,7 @@ function tick(ts){
       el._wasSettling=false; el._wox=el._x-c.slotX; el._woy=el._y-c.slotY; el._wnext=0;
     }
     if(c.sick && autoOn && !healing.has(c.name) && !autoHealTried.has(c.name)){ sickWalk(c,el,t); return; }   // 壞記憶自走診所
+    if(el._visiting){ stepVisit(c, el, t); return; }   // ④ 跨區串門子：位移軸新狀態（優先於 wander；與 talking 可疊加）
     let ox=0, oy=0;
     const talking = t < (el._talkUntil||0);              // 活動軸（疊加）：對話中暫停 wander 前進，僅保留原地呼吸晃動
     if(c.sleeping){ oy=4; }
@@ -1219,6 +1388,31 @@ function wander(c,el,t){
   }
   el._wox += (el._wtx - el._wox)*0.02;                  // 緩步 lerp 朝目標
   el._woy += (el._wty - el._woy)*0.02;
+}
+
+/* ── ④ 跨區串門子位移（位移軸新狀態；只動 el._x/_y，c.region 不變）─────────────
+   going：lerp 去他區中心 → 到站 crossInject（一次） → staying：作客遊蕩到 stayUntil/until → back：lerp 回原 slot → 清 _visiting 接回 wander。
+   與 talking 可疊加：對話中暫停前進、僅原地呼吸（同 8713dbb 活動軸語義），講完續行。*/
+function stepVisit(c, el, t){
+  const v=el._visiting;
+  if(t < (el._talkUntil||0)){                            // talking 疊加：暫停 lerp，原地呼吸
+    el._x += Math.sin(t*1.6+c.phase)*0.5; el._y += Math.sin(t*2.0+c.phase)*0.6;
+    el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`; return;
+  }
+  if(v.phase==="going"){
+    el._x += (v.tx-el._x)*0.03; el._y += (v.ty-el._y)*0.03;
+    const dx=v.tx-el._x, dy=v.ty-el._y;
+    if(dx*dx+dy*dy < 900){ v.phase="staying"; v.stayUntil=t+(isFast()?ENGINE.VISIT_STAY_FAST:ENGINE.VISIT_STAY_SLOW); crossInject(v, c); }  // 到站注入（一次）
+  } else if(v.phase==="staying"){
+    el._x += Math.sin(t*1.4+c.phase)*0.7; el._y += Math.cos(t*1.6+c.phase)*0.7;   // 作客遊蕩
+    if(t>=v.stayUntil || t>=v.until) v.phase="back";
+  } else {                                                // back：歸位原 slot（c 每 POLL_MS 重建→用最新 slot）
+    const hx=c.slotX, hy=c.slotY;
+    el._x += (hx-el._x)*0.03; el._y += (hy-el._y)*0.03;
+    const dx=hx-el._x, dy=hy-el._y;
+    if(dx*dx+dy*dy < 400){ el._visiting=null; el._wox=el._x-c.slotX; el._woy=el._y-c.slotY; el._wnext=0; }  // 接回 wander（不瞬移）
+  }
+  el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
 }
 
 /* 生病生物自主走向診所，到院觸發自動 L1（healReal 內有 healing 鎖 + autoHealTried 防重觸/騷擾）*/
@@ -1265,15 +1459,16 @@ function sayPair(a,b,ae){
   const be = crEls.get(b.uid);                                    // 對方 el：雙方都要暫停 wander + 記對話
   const talkFor = (sec)=>{ const u=(performance.now()/1000)+sec; ae._talkUntil=u; if(be) be._talkUntil=u; };  // 活動軸：對話中暫停前進
   const logBoth = (text)=>{ pushChat(ae, "→", b.name, text); pushChat(be, "←", a.name, text); };               // 雙方各記一筆 → 點任一隻都看得到剛才誰對話
+  // ★只記「LLM 真實輸出」進對話記憶卡；罐頭 fallback（忙線/逾時/失敗）僅冒泡不入 _chatLog（避免記憶卡被無意義填充字洗版）
 
-  // 忙線中（已有一個 LLM 請求在飛）→ 直接罐頭，不排隊不灌爆
-  if(chatBusy){ talkFor(2.2); bubbleAtEl(ae, canned, 2000); logBoth(canned); return; }
-  // 否則：先冒「💭…」泡泡（不自動消），async 問 LLM，回來替換；失敗 → 罐頭
+  // 忙線中（已有一個 LLM 請求在飛）→ 直接罐頭，不排隊不灌爆；不記入對話記憶
+  if(chatBusy){ talkFor(2.2); bubbleAtEl(ae, canned, 2000); return; }
+  // 否則：先冒「💭…」泡泡（不自動消），async 問 LLM，回來替換；失敗 → 罐頭（同樣不入記憶）
   chatBusy = true; talkFor(4.5);                                  // 含思考期先給寬，回來再依實際 ttl 收斂
   const bub = bubbleAtEl(ae, "💭…", 0);
   creatureChat(a, b, related)
-    .then(line => { const L=line||canned; updateBubble(bub, ae, L, 3800); talkFor(3.8); logBoth(L); })
-    .catch(()  => { updateBubble(bub, ae, canned, 2200); talkFor(2.2); logBoth(canned); })
+    .then(line => { const L=line||canned; updateBubble(bub, ae, L, 3800); talkFor(3.8); if(line) logBoth(line); })  // 僅 LLM 真實台詞入記憶
+    .catch(()  => { updateBubble(bub, ae, canned, 2200); talkFor(2.2); })
     .finally(() => { chatBusy = false; });
 }
 function t1(){ return (performance.now()%1000)/1000; }
@@ -1355,7 +1550,7 @@ function bindDrag(el, c0){
   let sx,sy,ox,oy,moved;
   el.addEventListener("pointerdown",(e)=>{
     const c=el._c||c0; if(c.type==="episodic") return;
-    try{ el.setPointerCapture(e.pointerId); }catch{} el._dragging=true; el.classList.add("drag");
+    try{ el.setPointerCapture(e.pointerId); }catch{} el._dragging=true; el._visiting=null; el.classList.add("drag");  // 使用者接手 → 取消串門子
     const p=toScene(e); sx=p.x; sy=p.y; ox=el._x; oy=el._y; moved=false;
     e.preventDefault();
   });
