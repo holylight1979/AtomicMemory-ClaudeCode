@@ -360,7 +360,7 @@
     },
     {
       "name": "memory-index-caption-regen",
-      "path": "memory/memory-index-caption-regen.md",
+      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/memory-index-caption-regen.md",
       "triggers": [
         "MEMORY.md",
         "sync-memory-index",

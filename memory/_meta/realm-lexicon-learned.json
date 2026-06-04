@@ -4,6 +4,8 @@
     "error_logon_type_not_granted": "OS/Windows/WSL",
     "seservicelogonright": "OS/Windows/WSL",
     "s-1-5-83-0": "OS/Windows/WSL",
-    "gpo": "OS/Windows/WSL"
+    "gpo": "OS/Windows/WSL",
+    "h1 第一行": "MemDev/MemoryIndex",
+    "background fire-and-forget": "MemDev/MemoryIndex"
   }
 }

@@ -1,0 +1,18 @@
+{
+  "_comment": "觸發評估查詢：應觸發（手動歸檔某 .md 到 atom 樹）+ 不應觸發（建新 atom / 檢健康 / 跑 sweep / 一般檔案操作）",
+  "skill_name": "refile",
+  "queries": [
+    {"query": "/refile memory/wsl2-排錯筆記.md", "should_trigger": true, "note": "標準呼叫"},
+    {"query": "把這個 md 歸到它應該在的地方", "should_trigger": true, "note": "口語措辭"},
+    {"query": "這份筆記該放哪個 domain，幫我歸位", "should_trigger": true, "note": "歸位 + domain"},
+    {"query": "幫我重新歸檔這個 markdown 檔", "should_trigger": true, "note": "重新歸檔"},
+    {"query": "這個 atom 放錯地方了，移到正確的 realm", "should_trigger": true, "note": "既有 atom 換 realm"},
+    {"query": "把 _staging 下這份 .md 歸類進 _AIDocs/_atoms", "should_trigger": true, "note": "明確指向 atom 樹"},
+    {"query": "這檔案到底屬於 core 還是 local，幫我判一下並移過去", "should_trigger": true, "note": "分類 + 移動"},
+    {"query": "記一個新知識：WSL2 vhdx 救援步驟", "should_trigger": false, "note": "建新 atom 應走 atom_write/extract，非搬既有檔"},
+    {"query": "檢查一下記憶系統健不健康", "should_trigger": false, "note": "屬 /memory health"},
+    {"query": "跑一次 SessionEnd 的 realm 自動歸檔 sweep", "should_trigger": false, "note": "自動 sweep 是 hook，非手動 skill"},
+    {"query": "把這個 png 檔搬到 assets 資料夾", "should_trigger": false, "note": "一般檔案搬移、非 .md 歸檔"},
+    {"query": "幫我把這份文件上傳到 Google Drive", "should_trigger": false, "note": "外部上傳、與 refile 無關"}
+  ]
+}

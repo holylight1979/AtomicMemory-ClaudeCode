@@ -26,7 +26,7 @@
 | workflow-parallel-agents | memory/workflow-parallel-agents.md | 多 agent, 平行 agent, sub-agent, 並行, 並行加速, 拆 agent, 多開 agent, 分頭, 多檔調查, 批量重構, 全面審視, 跨檔比較, parallel agents | global |
 | atom-table-support | memory/atom-table-support.md | atom_write, 表格, table, markdown 表格, code fence, 程式碼 fence, knowledge block, block 渲染, dogfood | global |
 | feedback-memory-system-doc-sync | _AIDocs/Failures/feedback-memory-system-doc-sync.md | 原子記憶系統, 記憶系統修正, 記憶系統修改, 記憶系統開發, 改 hook, 改 wg_, 改 server.js, memory system, 文件同步, doc sync | global |
-| memory-index-caption-regen | memory/memory-index-caption-regen.md | MEMORY.md, sync-memory-index, 描述欄, caption, atom_write regen, 裸名, syncMemoryIndex, 記憶索引, 索引描述, MEMORY.md 描述 | global |
+| memory-index-caption-regen | _AIDocs/_atoms/MemDev/MemoryIndex/memory-index-caption-regen.md | MEMORY.md, sync-memory-index, 描述欄, caption, atom_write regen, 裸名, syncMemoryIndex, 記憶索引, 索引描述, MEMORY.md 描述 | global |
 | atom-usefulness-loop | memory/atom-usefulness-loop.md | 效用閉環, usefulness, record_usefulness, atom 晉升, use 偵測, Wilson 下界, 慢衰減, Beta-Bernoulli, 注入使用結果, useful_hits, used_fail, 原子記憶開發 | global |
 | cc-能力查證反編譯實跑-binary | _AIDocs/_atoms/Tools/cc-能力查證反編譯實跑-binary.md | CC 版本, hook event, 查證, 反編譯, claude binary, docs 幻覺, 版本分裂, WebFetch, capability, PostCompact, PostToolBatch | global |
 | codex-log-bloat-analytics | _AIDocs/_atoms/Tools/codex-log-bloat-analytics.md | codex, logs_2.sqlite, 日誌暴量, analytics, OTEL, app-server, codex 崩潰, codex 卡頓, --analytics-default-enabled | global |

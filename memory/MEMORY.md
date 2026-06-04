@@ -14,7 +14,6 @@
 | workflow-svn | SVN 工作流規則 |
 | workflow-parallel-agents | 多 agent 並行：拆 ≥2 sub-agent 同 message dispatch 的評估準則 |
 | atom-table-support | atom_write 知識區表格/程式碼 fence block 渲染用法（dogfood） |
-| memory-index-caption-regen | MEMORY.md 描述欄 regen 機制 + 保留人工策展（atom_write 沖描述覆轍根治） |
 | atom-usefulness-loop | 注入→使用→結果 閉環效用 (α,β)：use 偵測 + Wilson 晉升 + 慢衰減（Phase 2，#2） |
 | atom-元資料編輯與晉升閘真相 | atom 元資料編輯與晉升閘真相 |
 | realm-範疇分區機制-v5 | Realm 範疇分區機制 (V5+) |
