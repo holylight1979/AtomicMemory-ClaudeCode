@@ -22,6 +22,9 @@
 | `CLAUDE.md` / `IDENTITY.md` / `USER.md` | 僅動到啟動契約 / 身份 / 偏好時 |
 
 - [臨] 更新方式 = **對 SoT 用 cross-ref、不複製衍生事實/規則本體**（呼應 [[feedback-workflow-discipline]] 的 TECH.md same_file_3x 覆轍根因：計數/規則真源在 code/SPEC/`_atom_index.json`，給人文件只指向、不複製）。atom `.md` 一律走 funnel（`atom_write` / `atom_io.write_raw`，禁直接 Edit）；`README`/`TECH`/`_AIDocs` 等一般 doc 直接編輯。表格/程式當獨立 knowledge 元素傳入見 [[atom-table-support]]。
+- [臨] 此清單治的是「系統自我認知文件」——CC + 原子記憶的**架構/邏輯/流程/工具/說明**（`Architecture.md` / `SPEC_ATOM_V5` / `TECH.md` / `DocIndex-System` / `Project_File_Tree` + `decisions-architecture` 印象 atom），讓 CC 能隨時查詢全系統架構流程、有更深需求時調整並再同步——**非僅 `_CHANGELOG` 變更紀錄**。同步＝cross-ref SoT 不複製本體；印象→索引→知識分層。
+- [臨] 覆轍實例（Realm S1–S3，2026-06）：realm 範疇分區 landed 後，`TECH.md` 連 §2.1 Failures 多根都一直漏更、「~17 atoms」過時，直到 S3 收尾 user 追問「是否都同步」才 doc-audit 補齊。**最易漏＝`TECH.md` / `Project_File_Tree` 這類「全貌型」檔**（不像 `_CHANGELOG` 有 Stop 提醒）。教訓：記憶系統變更收尾、逐項過清單前先點名這兩支。
+- [臨]「自動」現況：靠本 atom + Stop hook「Sync: _AIDocs→_CHANGELOG」提醒 + `wg_docdrift`（src Edit→偻測對應 _AIDocs 需更新）；但 docdrift 未涵蓋 TECH/SPEC/Project_File_Tree 全清單 → 仍靠人/AI 紀律、會漏。要真程式化強制 → 擴 `wg_docdrift` 對照表納本清單（待拍板）。
 
 ## 行動
 
