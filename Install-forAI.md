@@ -96,7 +96,7 @@ cp "$SRC/version.json" "$DST/version.json"
 # 核心模組（整資料夾覆蓋；不含個人 atom 與 runtime state）
 rsync -a --delete "$SRC/hooks/" "$DST/hooks/"      # dispatcher + handlers/ + wg_*.py + 獨立 hook
 rsync -a --delete "$SRC/lib/" "$DST/lib/"          # atom_io / atom_spec / atom_locations / atom_index_json / atom_access / ollama_extract_core
-rsync -a --delete "$SRC/skills/" "$DST/skills/"    # 20 個 skill
+rsync -a --delete "$SRC/skills/" "$DST/skills/"    # 22 個 skill
 rsync -a --delete "$SRC/rules/" "$DST/rules/"
 
 # Tools（保留 user 自加；只覆蓋系統內建）
@@ -176,7 +176,7 @@ npm i -g @playwright/mcp      # 瀏覽器自動化
 - Windows: `C:\\Program Files\\nodejs\\node.exe` + `%APPDATA%/npm/node_modules/{pkg}/...`
 - 已有同名 server 不覆蓋，跳過並回報
 
-`workflow-guardian` MCP 暴露 3 tool：`atom_write` / `atom_move` / `atom_promote`。
+`workflow-guardian` MCP 暴露 4 tool：`atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta`。
 
 ### Step 5：初始化個人記憶層
 
@@ -255,9 +255,9 @@ GPU 伺服器（Open WebUI + Ollama），編輯 `workflow/config.json.ollama_bac
 | 4 | Vector Service | `curl -s http://127.0.0.1:3849/health` | `{"status":"ok"}` |
 | 5 | Memory 健檢 | `python ~/.claude/tools/memory-audit.py` | 無 ERROR |
 | 6 | Atom Index SoT | `python -c "from lib.atom_index_json import load_atom_index_json; from pathlib import Path; print(len(load_atom_index_json(Path('memory'))['atoms']))"` | 數字 > 0 |
-| 7 | Skills 註冊 | VS Code 按 `/` 看到 `/memory` `/handoff` `/continue` 等 | 20 個 skill 可見 |
+| 7 | Skills 註冊 | VS Code 按 `/` 看到 `/memory` `/handoff` `/continue` 等 | 22 個 skill 可見 |
 | 8 | MCP servers | `~/.claude.json.mcpServers` 含 template 內 server | MCPControl + playwright + workflow-guardian 至少有 |
-| 9 | MCP 3 tool | 在 Claude Code 中問「列出 workflow-guardian MCP 工具」 | atom_write / atom_move / atom_promote |
+| 9 | MCP 4 tool | 在 Claude Code 中問「列出 workflow-guardian MCP 工具」 | atom_write / atom_move / atom_promote / atom_edit_meta |
 | 10 | 整合驗證 | 開新 Claude Code session | 看到 `[Workflow Guardian] Active` |
 
 ---
@@ -274,7 +274,7 @@ cd ~/.claude && git pull
 - [ ] `hooks/dispatcher.py` 存在 + `hooks/handlers/` 10 個 event handler 各一檔（含選配 #4 的 post_compact / post_tool_batch）
 - [ ] `hooks/wg_*.py` 為 6 主模組（core/atoms/extraction/episodic/evasion/docdrift）+ 2 shim（roles/atom_observation）
 - [ ] `commands/` **已刪除**（22 檔合 19 skill）
-- [ ] `skills/` 含 20 個 skill（19 遷移 + skill-creator 新增）；`/memory` 統一 5 subcmd（health/peek/undo/review/session-score）
+- [ ] `skills/` 含 22 個 skill（19 遷移 + skill-creator/heal-review/refile 新增）；`/memory` 統一 5 subcmd（health/peek/undo/review/session-score）
 - [ ] `lib/atom_index_json.py` + `memory/_atom_index.json` 存在
 - [ ] `tools/codex-companion/audit.py` 存在；`tools/codex-companion/service.py` 已刪
 - [ ] `memory/_meta/forbidden-phrases.json` 存在

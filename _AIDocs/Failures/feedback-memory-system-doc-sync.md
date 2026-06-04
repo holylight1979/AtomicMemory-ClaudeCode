@@ -25,6 +25,7 @@
 - [臨] 此清單治的是「系統自我認知文件」——CC + 原子記憶的**架構/邏輯/流程/工具/說明**（`Architecture.md` / `SPEC_ATOM_V5` / `TECH.md` / `DocIndex-System` / `Project_File_Tree` + `decisions-architecture` 印象 atom），讓 CC 能隨時查詢全系統架構流程、有更深需求時調整並再同步——**非僅 `_CHANGELOG` 變更紀錄**。同步＝cross-ref SoT 不複製本體；印象→索引→知識分層。
 - [臨] 覆轍實例（Realm S1–S3，2026-06）：realm 範疇分區 landed 後，`TECH.md` 連 §2.1 Failures 多根都一直漏更、「~17 atoms」過時，直到 S3 收尾 user 追問「是否都同步」才 doc-audit 補齊。**最易漏＝`TECH.md` / `Project_File_Tree` 這類「全貌型」檔**（不像 `_CHANGELOG` 有 Stop 提醒）。教訓：記憶系統變更收尾、逐項過清單前先點名這兩支。
 - [臨]「自動」現況：靠本 atom + Stop hook「Sync: _AIDocs→_CHANGELOG」提醒 + `wg_docdrift`（src Edit→偻測對應 _AIDocs 需更新）；但 docdrift 未涵蓋 TECH/SPEC/Project_File_Tree 全清單 → 仍靠人/AI 紀律、會漏。要真程式化強制 → 擴 `wg_docdrift` 對照表納本清單（待拍板）。
+- [臨] **覆轍（2026-06-04）：phase 收尾 doc-sync 只照「當階段 plan 列的清單」做 → 漏更 TECH.md / Install-forAI.md**。實例：realm V6 Phase G 只更 SPEC/Architecture/DocIndex（plan 列的），漏 TECH.md（skill 20→22、atom 17→32、`_atoms` domain 階層、verify 14→26）與 Install-forAI.md（skill 數、MCP 3→4 tool），經 user 點出才補。**鐵則：doc-sync 一律以本 atom 完整表為準、非 plan 子集**；TECH.md（架構/流程/計數）與 Install-forAI.md（對外安裝/skill·tool 計數/檔案清單）最易漏——凡動 skill 數 / atom 數 / MCP tool 數 / 檔案結構，必檢這兩檔。
 
 ## 行動
 

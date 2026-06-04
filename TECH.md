@@ -87,7 +87,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── unity-desktop/
 │   └── workflow-guardian-mcp/server.js             ← MCP @ stdio，4 tool（atom_write/move/promote/edit_meta）
 │
-├── skills/                                         ← V5：20 個 skill（19 遷移自 commands/ + skill-creator 新增）
+├── skills/                                         ← 22 個 skill（19 遷移自 commands/ + skill-creator/heal-review/refile 新增）
 │   ├── atom-debug / browse-sprites / changelog-debug
 │   ├── conflict / conflict-review / consciousness-stream
 │   ├── continue / handoff / init-roles
@@ -95,11 +95,12 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── generate-episodic / harvest / journal
 │   ├── memory（合 health/peek/undo/review/session-score 5→1）
 │   ├── read-project / upgrade / vector
-│   ├── skill-creator（新增 meta-skill：寫/改/審 skill）
+│   ├── skill-creator（meta-skill：寫/改/審 skill）/ heal-review（管理職裁決自癒佇列）
+│   ├── refile（V6 手動歸檔：非 _atoms/ 的 .md → 核心檔護欄 + realm 分類 + 移檔 doc-sync）
 │
 ├── memory/                                         ← 全域記憶層
 │   ├── MEMORY.md                                   ← AI 一覽索引（人類可讀）
-│   ├── _atom_index.json                            ← V5 JSON SoT（17 atoms：10 一般 + 5 feedback + cognitive-patterns + memory-pipeline-silent-failure-2026-05）
+│   ├── _atom_index.json                            ← V5 JSON SoT（32 atoms：core 13 + feedback 7 + 失敗模式 2 + local 10〔World3/Tools4/MemDev2/OS1〕）
 │   ├── _ATOM_INDEX.md                              ← deprecated mirror（自動生成）
 │   ├── _meta/forbidden-phrases.json                ← V5 禁語單一真相
 │   ├── preferences.md / decisions*.md / workflow-*.md / toolchain*.md
@@ -127,12 +128,12 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── ClaudeCodeInternals/                       ← CC 原生架構研究筆記
 │   ├── Tools/                                     ← 工具與領域知識
 │   ├── Failures/                                  ← 失敗模式 + feedback-* atoms 物理位置（V5+ Session α 起，仍屬 core realm）
-│   ├── _atoms/<domain>/                           ← V5+ local realm atom（World/Tools/MemDev；scope 仍 global、只在 ~/.claude 注入，§2.2）
+│   ├── _atoms/<domain 多段階層>/                  ← V5+ local realm atom（World/Tools/MemDev/OS/Else，如 OS/Windows/WSL；V6 各層按需 _INDEX.md；scope 仍 global、只在 ~/.claude 注入、SessionEnd sweep 自動歸檔，§2.2）
 │   ├── DevHistory/                                ← 版本演進 + V5 升版完整紀錄（v5-overhaul-2026-05/）
 │   ├── DocIndex-System.md / known-regressions.md / Project_File_Tree.md
 │
-├── hooks/verify/ tools/verify/ lib/verify/         ← 14 個 verify_*.py（H-test-prune 後 verify 化）
-│   tools/codex-companion/verify/                   ← 跑 `python run_verify.py`（283 passed baseline）
+├── hooks/verify/ tools/verify/ lib/verify/         ← 26 個 verify_*.py（H-test-prune 後 verify 化）
+│   tools/codex-companion/verify/                   ← 跑 `python run_verify.py`（446 passed）
 ├── skills/{name}/verify/                           ← 17 個空結構（候選見 _staging/next-phase-skills-verify.md）
 │
 └── {project_root}/.claude/                         ← 專案自治層（每專案獨立）
@@ -223,7 +224,7 @@ V4 把知識空間從單層拓展為四層，V5 完全沿用：
 
 ### 5.1 Atom Index — JSON SoT（V5 P3b）
 
-`memory/_atom_index.json` 為唯一機器源（31 atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
+`memory/_atom_index.json` 為唯一機器源（32 atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
 
 **Atom 物理多根 + Realm 範疇（V5+）**：`global` atom 物理散三根——`memory/`（core 一般）、`_AIDocs/Failures/`（feedback-* + 失敗模式，仍 core）、`_AIDocs/_atoms/<domain>/`（**local realm**，World/Tools/MemDev）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/` 與 Failures 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
@@ -242,7 +243,7 @@ API：[lib/atom_index_json.py](lib/atom_index_json.py)（`load/save/upsert/delet
 
 ### 5.2 BM25 全域檢索層（V5 P5a）
 
-全域 ~31 atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
+全域 ~32 atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
 
 - ASCII word + 中文 char-bigram tokenization
 - 參數：k1=1.2, b=0.75
@@ -267,13 +268,13 @@ state schema 不變、Silent Advisory / Score Gate / Dedup / Max Audits Cap 邏�
 
 ### 5.4 Commands → Skills 遷移（V5 P1）
 
-Anthropic 官方明文「Custom commands have been merged into skills」。V5 把 22 個 `commands/*.md` 全刪，改用 `skills/{name}/SKILL.md` 結構（遷移後 19 個；後續另新增 skill-creator，全域共 20 個）：
+Anthropic 官方明文「Custom commands have been merged into skills」。V5 把 22 個 `commands/*.md` 全刪，改用 `skills/{name}/SKILL.md` 結構（遷移後 19 個；後續另新增 skill-creator/heal-review/refile，全域共 22 個）：
 
 - **直接遷移**（13）：atom-debug, browse-sprites, conflict, conflict-review, consciousness-stream, extract, fix-escalation, generate-episodic, harvest, journal, read-project, upgrade, vector
 - **全域保留**（4）：codex-companion, continue, handoff, init-roles
 - **合 1 個 /memory**（5→1）：memory-{health,peek,undo,review,session-score} 統一用 `$0` 取 subcmd
 - **改名為 debug 工具**（1）：changelog-roll → changelog-debug
-- **後續新增（非遷移）**（1）：skill-creator（meta-skill，寫/改/審 skill，2026-05-29 經 MR !3 合入）
+- **後續新增（非遷移）**（3）：skill-creator（meta-skill，寫/改/審 skill，2026-05-29 經 MR !3 合入）、heal-review（管理職裁決記憶自癒失敗佇列）、refile（V6 手動歸檔 + 核心檔護欄，2026-06-04）
 - **刪除**（與內建衝突）：resume / init-project / svn-update / unity-yaml
 
 Skill frontmatter 含 `description` / `when_to_use` / `disable-model-invocation` / `user-invocable` / `allowed-tools` / `context` / `paths` 等欄位。
@@ -655,7 +656,7 @@ flowchart TD
 | **V5 BM25** | [hooks/wg_atoms.py](hooks/wg_atoms.py) `bm25_match` | 全域層替代 Vector（~80 行手刻） |
 | **V5 JSON SoT** | [lib/atom_index_json.py](lib/atom_index_json.py) | 取代 `_ATOM_INDEX.md` table parser |
 | **V5 Codex Subprocess** | [hooks/codex_companion.py](hooks/codex_companion.py) + `tools/codex-companion/audit.py` | daemon → subprocess（無 port 3850）|
-| **V5 Skill 體系** | [skills/](skills/) 20 個 + frontmatter | 19 遷移自 legacy commands/ + skill-creator 新增 |
+| **V5 Skill 體系** | [skills/](skills/) 22 個 + frontmatter | 19 遷移自 legacy commands/ + skill-creator/heal-review/refile 新增 |
 | **V5 MCP（4 tool）** | [tools/workflow-guardian-mcp/server.js](tools/workflow-guardian-mcp/server.js) | atom_write / atom_move / atom_promote / atom_edit_meta（砍 4 內部 IPC）|
 | **V5 禁語 JSON** | `memory/_meta/forbidden-phrases.json` | IDENTITY.md + wg_evasion.py single source |
 | **V5 Log Rotation** | [hooks/wg_core.py](hooks/wg_core.py) | guardian-crash.log / extract-worker.log 自動輪轉 |
