@@ -81,7 +81,9 @@ const FEEDBACK_TITLE_PREFIX = "feedback-";
 const LOCAL_ATOMS_DIR = path.join(CLAUDE_DIR, "_AIDocs", "_atoms");
 const LOCAL_ATOMS_REL = "_AIDocs/_atoms";
 const LOCAL_REALM_DOMAINS = new Set(["World", "Tools", "MemDev"]);
-const LOCAL_REALM_DEFAULT_DOMAIN = "Misc";
+const LOCAL_REALM_DEFAULT_DOMAIN = "Else";
+// 階層 domain 路徑最大深度（MIRROR: lib/atom_locations.py:LOCAL_REALM_MAX_DEPTH）。
+const LOCAL_REALM_MAX_DEPTH = 7;
 // V5+ realm 分類器（MIRROR: lib/atom_locations.py:classify_realm / CORE_PROTECTED_* /
 // LOCAL_REALM_LEXICON — keep in sync；parity test_17 守漂移）。設計守則見 py 端註解：
 // 核心保護硬擋 → 實例詞庫 → 安全預設 core；只掃 name + triggers，絕不用記憶系統通用詞。
@@ -445,7 +447,7 @@ const TOOL_DEFINITIONS = [
         },
         domain: {
           type: "string",
-          description: "Sub-folder for realm=local atoms: World (brain-world) | Tools (external tools / env troubleshooting) | MemDev (memory-system / Guardian dev). Unknown values warn but are allowed; defaults to Misc.",
+          description: "Hierarchical sub-path for realm=local atoms (slash-separated, max depth 7, e.g. 'Tools' or 'OS/Windows/WSL'). Lv1 roots: World (brain-world) | Tools (external tools / env troubleshooting) | MemDev (memory-system / Guardian dev), or a new root. Go deeper only when a NARROW topic has large known content volume. Empty/invalid → 'Else' (catch-all).",
         },
         confidence: { type: "string", enum: ["[固]", "[觀]", "[臨]"], description: "Confidence level" },
         triggers: {
@@ -983,18 +985,27 @@ function applyFeedbackRouting(resolved, slug, scope) {
   return { memDir, baseDir, indexDir, indexRoot, routedToFailures };
 }
 
-/** V5+ local-realm 路由：本地範疇 atom 物理落 _AIDocs/_atoms/<domain>/。
+/** 單段正規化（path-traversal 最後防線）。MIRROR: lib/atom_locations.py:_clean_segment。
+ *  非法（空 / 含分隔 / `_`·`.` 前綴 / 不安全字元）→ ""（caller 截斷/退 fail-safe）。 */
+function cleanRealmSegment(seg) {
+  const s = (seg || "").replace(/\s+/g, " ").trim();
+  if (!s || s.includes("/") || s.includes("\\")) return "";
+  if (s[0] === "_" || s[0] === ".") return "";
+  if (/[<>:"|?*]/.test(s)) return "";
+  return s;
+}
+
+/** V5+ local-realm 路由：本地範疇 atom 物理落 _AIDocs/_atoms/<domain_path>/。
  *  realm 由 index path 前綴推導（不存欄位）。索引仍在 memory/_atom_index.json。
- *  domain 未知 → warn 不擋；空 → LOCAL_REALM_DEFAULT_DOMAIN。
- *  MIRROR: lib/atom_locations.py:local_write_target — keep in sync.
+ *  domain 支援多段階層路徑（"OS/Windows/WSL"，mkdir-p 全鏈）；空/全非法 → DEFAULT。
+ *  每段過 cleanRealmSegment 防寫到樹外。MIRROR: lib/atom_locations.py:local_write_target。
  *  Returns: { memDir, baseDir, indexDir, indexRoot }.
  */
 function applyLocalRouting(domain) {
   const dom = (domain || "").trim() || LOCAL_REALM_DEFAULT_DOMAIN;
-  if (!LOCAL_REALM_DOMAINS.has(dom)) {
-    try { process.stderr.write(`[atom_write] warn: unknown local domain ${dom} (known: ${[...LOCAL_REALM_DOMAINS].join(", ")})\n`); } catch {}
-  }
-  const memDir = path.join(LOCAL_ATOMS_DIR, dom);
+  let segs = dom.split("/").map(cleanRealmSegment).filter(Boolean).slice(0, LOCAL_REALM_MAX_DEPTH);
+  if (segs.length === 0) segs = [LOCAL_REALM_DEFAULT_DOMAIN];  // fail-safe，永不寫到樹外
+  const memDir = path.join(LOCAL_ATOMS_DIR, ...segs);
   fs.mkdirSync(memDir, { recursive: true });
   return { memDir, baseDir: memDir, indexDir: MEMORY_DIR, indexRoot: CLAUDE_DIR };
 }

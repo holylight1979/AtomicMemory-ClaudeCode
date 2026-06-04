@@ -39,7 +39,7 @@ if str(CLAUDE_DIR) not in sys.path:
 
 from lib.atom_locations import (  # noqa: E402
     GLOBAL_MEMORY_DIR, LOCAL_ATOMS_DIR, LOCAL_ATOMS_REL, LOCAL_REALM_DOMAINS,
-    is_local_realm_path,
+    enumerate_local_paths, is_local_realm_path, normalize_domain_path,
 )
 from lib.atom_io import write_index, _audit_log, _gen_audit_id  # noqa: E402
 from lib.atom_index_json import load_atom_index_json  # noqa: E402
@@ -95,6 +95,25 @@ def _move_pair(src_md: Path, dst_md: Path) -> bool:
     return False
 
 
+def _prune_empty_parents(start: Path) -> None:
+    """搬離後從 start 往上刪空目錄，止於（不含）LOCAL_ATOMS_DIR。best-effort。
+
+    深層 local atom 搬走（如 to-core）後留下的空 OS/Windows/WSL 鏈不殘留。
+    非空 rmdir 自然失敗 → 停（不動仍有 atom 的層）。
+    """
+    try:
+        cur = start.resolve()
+        stop = LOCAL_ATOMS_DIR.resolve()
+    except OSError:
+        return
+    while cur != stop and stop in cur.parents:
+        try:
+            cur.rmdir()  # 僅當空才成功
+        except OSError:
+            break
+        cur = cur.parent
+
+
 def _read_scope(md: Path) -> str:
     """讀 .md frontmatter 的 Scope（搬移不改它，僅供回報/驗證 scope 仍 global）。"""
     try:
@@ -138,13 +157,15 @@ def set_realm(
         new_rel = f"memory/{slug}.md"
         new_realm = "core"
     else:
-        if domain not in LOCAL_REALM_DOMAINS:
-            return {"ok": False,
-                    "error": f"unknown domain {domain!r} (known: {sorted(LOCAL_REALM_DOMAINS)})"}
+        if not (domain or "").strip():
+            return {"ok": False, "error": "empty domain (need --domain <path> or --to-core)"}
+        # 多段階層路徑：canon（對既有樹 snap）取代舊 allow-list 驗證
+        dom_path = normalize_domain_path(domain, enumerate_local_paths())
         if cur_is_local:
             return {"ok": True, "noop": True, "msg": f"{slug} already local ({cur_path})"}
-        dst_md = LOCAL_ATOMS_DIR / domain / f"{slug}.md"
-        new_rel = f"{LOCAL_ATOMS_REL}/{domain}/{slug}.md"
+        segs = [s for s in dom_path.split("/") if s]
+        dst_md = LOCAL_ATOMS_DIR.joinpath(*segs, f"{slug}.md")
+        new_rel = f"{LOCAL_ATOMS_REL}/{dom_path}/{slug}.md"
         new_realm = "local"
 
     if dst_md.resolve() == src_md.resolve():
@@ -190,6 +211,10 @@ def set_realm(
         "from_realm": "local" if cur_is_local else "core", "to_realm": new_realm,
         "sidecar_moved": sidecar_moved,
     })
+
+    # 4) 搬離 local 子夾後清空的階層目錄（best-effort，止於 LOCAL_ATOMS_DIR）
+    if cur_is_local:
+        _prune_empty_parents(src_md.parent)
 
     return {
         "ok": True, "slug": slug, "from": cur_path, "to": new_rel,

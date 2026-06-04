@@ -15,7 +15,8 @@ JS mirror：tools/workflow-guardian-mcp/server.js:applyFeedbackRouting
 
 from __future__ import annotations
 
-import sys
+import difflib
+import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -34,8 +35,15 @@ FEEDBACK_TITLE_PREFIX = "feedback-"
 # JS mirror：server.js:applyLocalRouting / LOCAL_ATOMS_* 常數 — keep in sync。
 LOCAL_ATOMS_DIR = CLAUDE_DIR / "_AIDocs" / "_atoms"
 LOCAL_ATOMS_REL = "_AIDocs/_atoms"
+# Lv1 已知根（canon 種子 + js mirror parity，test_14）；非 allow-list（深層 free-form）。
 LOCAL_REALM_DOMAINS = frozenset({"World", "Tools", "MemDev"})
-LOCAL_REALM_DEFAULT_DOMAIN = "Misc"
+# catch-all / fail-safe domain（取代舊 "Misc"；LLM 低信心·unsure 歸此，py+js 鏡像 test_14）。
+LOCAL_REALM_DEFAULT_DOMAIN = "Else"
+# 階層 domain 路徑最大深度（user 拍板：深=內容多需細分、非範疇廣；
+# 擴大根因＝「窄範疇但已知內容量龐大」→ 必須加層）。canon 超此→截尾。
+LOCAL_REALM_MAX_DEPTH = 7
+# 詞庫自學檔（py-only supplement；js 維持 base-only 以保 classify_realm parity / test_17）。
+LEARNED_LEXICON_PATH = GLOBAL_MEMORY_DIR / "_meta" / "realm-lexicon-learned.json"
 
 # ─── Local-realm 分類器常數（新 atom 路由 + drift sweep 共用 SoT）─────────────
 #
@@ -114,23 +122,29 @@ def is_local_realm_path(rel_path: str) -> bool:
     return rel_path.startswith(LOCAL_ATOMS_REL + "/")
 
 
-def classify_realm(name: str, triggers: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
+                   extra_lexicon: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """新 atom / drift sweep 的 realm 分類器（安全預設 core，僅高信心判 local）。
 
     回 {"realm": "core"|"local", "domain": str|None, "matched": [str], "protected": bool}：
       - protected=True：名稱命中核心保護清單（永不 local）。
       - realm="local" 時 domain 為命中分數最高的範疇（name 命中權重 > trigger）。
-    只掃 name + triggers（不掃知識內文）。MIRROR: server.js:classifyRealm — keep in sync。
+
+    `extra_lexicon`（py-only 自學詞庫 {term: domain_path}）：**None 時行為與 base 完全相同**
+    （js 對拍面 / test_17 永遠跑 base→不破）；SessionEnd sweep 才注入 learned 補 recall。
+    learned 值可為多段路徑（domain 因而可能是 "OS/Windows/WSL"）。
+    只掃 name + triggers（不掃知識內文）。MIRROR: server.js:classifyRealm（僅 base 部分）。
     """
     nm = (name or "").strip().lower()
     # 1) 核心保護硬擋（先於詞庫；計畫 §Phase3「核心保護清單」/ 必驗 #1）
     if nm in LOCAL_REALM_CORE_PROTECTED_EXACT or nm.startswith(LOCAL_REALM_CORE_PROTECTED_PREFIXES):
         return {"realm": "core", "domain": None, "matched": [], "protected": True}
-    # 2) 實例詞庫掃描（name 權重 > trigger 權重，用於 domain 消歧）
+    # 2) 實例詞庫掃描（base ＋ 可選 learned；name 權重 > trigger 權重，用於 domain 消歧）
+    lexicon = LOCAL_REALM_LEXICON if not extra_lexicon else {**LOCAL_REALM_LEXICON, **extra_lexicon}
     trig_blob = " ".join((t or "").lower() for t in (triggers or []))
     scores: Dict[str, int] = {}
     matched: List[str] = []
-    for term, dom in LOCAL_REALM_LEXICON.items():
+    for term, dom in lexicon.items():
         hit = 0
         if term in nm:
             hit += LOCAL_REALM_NAME_WEIGHT
@@ -141,8 +155,8 @@ def classify_realm(name: str, triggers: Optional[Iterable[str]] = None) -> Dict[
             matched.append(term)
     if not scores:
         return {"realm": "core", "domain": None, "matched": [], "protected": False}
-    # 平手 → 依 sorted(LOCAL_REALM_DOMAINS) 固定序取，確保可重現
-    best_dom = max(sorted(LOCAL_REALM_DOMAINS), key=lambda d: scores.get(d, 0))
+    # 平手 → 依 sorted(命中 domain) 固定序首位（base 子集與 js 對拍同序；亦容多段 learned domain）
+    best_dom = max(sorted(scores), key=lambda d: scores[d])
     return {
         "realm": "local", "domain": best_dom,
         "matched": sorted(set(matched)), "protected": False,
@@ -251,18 +265,20 @@ def failures_write_target() -> Dict[str, Any]:
 
 
 def local_write_target(domain: Optional[str] = None) -> Dict[str, Any]:
-    """V5+ local-realm 路由：本地範疇 atom 物理落 _AIDocs/_atoms/<domain>/，
+    """V5+ local-realm 路由：本地範疇 atom 物理落 _AIDocs/_atoms/<domain_path>/，
     索引仍在 memory/_atom_index.json（index_root=CLAUDE_DIR → rel_path 以 _AIDocs/_atoms/ 開頭）。
 
-    domain 未知 → warn 不擋（避免白名單變摩擦）；空 → LOCAL_REALM_DEFAULT_DOMAIN。
-    回 {dir, base, index_dir, index_root} — caller 自行疊加 scope_label / routed_* 旗標。
+    domain 支援**多段階層路徑**（如 "OS/Windows/WSL"，mkdir-p 全鏈）；空/全非法 →
+    LOCAL_REALM_DEFAULT_DOMAIN。每段過 `_clean_segment`（拒 `..`/分隔符/`_`前綴等），
+    防寫到樹外（path traversal）。回 {dir, base, index_dir, index_root}。
     MIRROR: server.js:applyLocalRouting — keep in sync。
     """
     dom = (domain or "").strip() or LOCAL_REALM_DEFAULT_DOMAIN
-    if dom not in LOCAL_REALM_DOMAINS:
-        print(f"[atom_locations] warn: unknown local domain {dom!r} "
-              f"(known: {sorted(LOCAL_REALM_DOMAINS)})", file=sys.stderr)
-    target = LOCAL_ATOMS_DIR / dom
+    safe = [_clean_segment(s) for s in dom.split("/") if s.strip()]
+    safe = [s for s in safe if s][:LOCAL_REALM_MAX_DEPTH]
+    if not safe:  # 全非法/空 → fail-safe 落 catch-all，永不寫到樹外
+        safe = [LOCAL_REALM_DEFAULT_DOMAIN]
+    target = LOCAL_ATOMS_DIR.joinpath(*safe)
     target.mkdir(parents=True, exist_ok=True)
     return {
         "dir": target,
@@ -320,3 +336,159 @@ def local_realm_domain(rel_path: str) -> str:
     rest = rel_path[len(LOCAL_ATOMS_REL) + 1:]
     head, _, tail = rest.partition("/")
     return head if (head and tail) else LOCAL_REALM_DEFAULT_DOMAIN
+
+
+def local_realm_path_segments(rel_path: str) -> List[str]:
+    """_AIDocs/_atoms/<a>/<b>/.../<slug>.md → ['a','b',...]（去尾檔名）；非 local → []。
+
+    扁平 'Tools/slug.md' → ['Tools']；多段 'OS/Windows/WSL/slug.md' → ['OS','Windows','WSL']。
+    供階層 catalog 建樹 / Lv1 抽取 / existing_paths 枚舉。
+    """
+    if not is_local_realm_path(rel_path):
+        return []
+    rest = rel_path[len(LOCAL_ATOMS_REL) + 1:]
+    parts = [p for p in rest.split("/") if p]
+    return parts[:-1]  # 去檔名（最後一段）
+
+
+def local_realm_lv1_root(rel_path: str) -> str:
+    """抽 Lv1 根（最廣範疇，always-load catalog 用）；缺 → LOCAL_REALM_DEFAULT_DOMAIN。"""
+    segs = local_realm_path_segments(rel_path)
+    return segs[0] if segs else LOCAL_REALM_DEFAULT_DOMAIN
+
+
+def enumerate_local_paths(mem_dir: Path = GLOBAL_MEMORY_DIR) -> List[str]:
+    """從 index 抽所有 local atom 的去重 domain 路徑（多段 join，如 'OS/Windows/WSL'）。
+
+    供 LLM canon 種子（既有路徑清單）與 normalize_domain_path 的 snap 來源。
+    例外吞掉回 []（沿用本模組 graceful fallback 慣例）。
+    """
+    try:
+        from .atom_index_json import load_atom_index_json
+    except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+        from atom_index_json import load_atom_index_json
+    try:
+        data = load_atom_index_json(mem_dir)
+    except (OSError, ValueError):
+        return []
+    paths = set()
+    for a in data.get("atoms", []):
+        rp = a.get("path") or ""
+        if is_local_realm_path(rp):
+            segs = local_realm_path_segments(rp)
+            if segs:
+                paths.add("/".join(segs))
+    return sorted(paths)
+
+
+# ─── 階層 domain 路徑：segment 正規化 + canonicalization（OPEN 2）──────────────
+#
+# 防 free-form 樹分歧（OS/Win vs OS/Windows）：主防線是 LLM 拿既有路徑清單優先複用；
+# 本層為次防線——逐段對「同深度既有兄弟段」snap（大小寫無視 ∨ 前綴包含 ∨ difflib）。
+
+_SEG_SNAP_RATIO = 0.85
+_SEG_PREFIX_MIN = 3
+_SEG_UNSAFE_CHARS = set('<>:"|?*')
+
+
+def _clean_segment(seg: str) -> str:
+    """單段正規化：trim + collapse 內部空白。非法 → ''（caller 截斷/退 fail-safe）。
+
+    拒：空、含路徑分隔（/ \\）、`_`/`.` 前綴（避免 _INDEX/_meta 衝突、隱藏檔、`..` 上跳）、
+    檔名不安全字元。**path traversal 的最後防線**（local_write_target / set_realm 共用）。
+    """
+    s = " ".join((seg or "").split()).strip()
+    if not s or "/" in s or "\\" in s:
+        return ""
+    if s[0] in "_.":
+        return ""
+    if any(c in _SEG_UNSAFE_CHARS for c in s):
+        return ""
+    return s
+
+
+def _snap_segment(seg: str, siblings: Dict[str, str]) -> str:
+    """把 seg snap 到同深度既有兄弟段 canonical。siblings: {lower: canonical}。
+
+    規則序：大小寫無視精確 → 前綴包含(雙向, len≥3，治 'Win'↔'Windows') → difflib≥0.85；
+    皆不中 → 回 seg（新層）。
+    """
+    low = seg.lower()
+    if low in siblings:
+        return siblings[low]
+    for cl, canon in siblings.items():
+        if len(low) >= _SEG_PREFIX_MIN and len(cl) >= _SEG_PREFIX_MIN and \
+                (low.startswith(cl) or cl.startswith(low)):
+            return canon
+    best, best_ratio = None, 0.0
+    for cl, canon in siblings.items():
+        r = difflib.SequenceMatcher(None, low, cl).ratio()
+        if r > best_ratio:
+            best, best_ratio = canon, r
+    return best if (best is not None and best_ratio >= _SEG_SNAP_RATIO) else seg
+
+
+def _build_children_map(existing_paths: Iterable[str]) -> Dict[str, Dict[str, str]]:
+    """existing_paths（多段 domain）→ {parent_lower: {child_lower: canonical}}（逐層兄弟表）。"""
+    children: Dict[str, Dict[str, str]] = {}
+    for ep in existing_paths or []:
+        parent = ""
+        for s in (x for x in (ep or "").split("/") if x):
+            children.setdefault(parent.lower(), {}).setdefault(s.lower(), s)
+            parent = f"{parent}/{s}" if parent else s
+    return children
+
+
+def normalize_domain_path(path: str, existing_paths: Optional[Iterable[str]] = None) -> str:
+    """LLM 回的 domain 路徑 → canonical（OPEN 2 雙層 canon 的次防線）。
+
+    逐段 _clean_segment → _snap_segment（對同深度既有兄弟）；遇非法段即截斷；
+    超 LOCAL_REALM_MAX_DEPTH 截尾；全空/全非法 → LOCAL_REALM_DEFAULT_DOMAIN。
+    """
+    children = _build_children_map(existing_paths or [])
+    out: List[str] = []
+    parent = ""
+    for raw in (path or "").split("/"):
+        seg = _clean_segment(raw)
+        if not seg:
+            break  # 截斷於第一個非法段（保前綴可用部分）
+        canon = _snap_segment(seg, children.get(parent.lower(), {}))
+        out.append(canon)
+        parent = f"{parent}/{canon}" if parent else canon
+        if len(out) >= LOCAL_REALM_MAX_DEPTH:
+            break
+    return "/".join(out) if out else LOCAL_REALM_DEFAULT_DOMAIN
+
+
+# ─── 詞庫自學（py-only supplement；js 維持 base-only 保 parity / test_17）──────
+
+
+def load_learned_lexicon() -> Dict[str, str]:
+    """讀自學詞庫 {term_lower: domain_path}。缺/壞 → {}（fail-safe，永不拋）。"""
+    try:
+        data = json.loads(LEARNED_LEXICON_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    terms = data.get("terms", {}) if isinstance(data, dict) else {}
+    return {str(k).strip().lower(): str(v).strip()
+            for k, v in terms.items() if str(k).strip() and str(v).strip()}
+
+
+def append_learned_terms(new_terms: Dict[str, str]) -> Dict[str, str]:
+    """併 {term: domain_path} 入 learned.json（atomic temp+rename + 去重）。回合併後全集。
+
+    LLM sweep 判 local 後寫入 → 下次 deterministic 直接命中、免再喚 LLM。
+    """
+    merged = load_learned_lexicon()
+    for k, v in (new_terms or {}).items():
+        kk, vv = str(k).strip().lower(), str(v).strip()
+        if kk and vv:
+            merged[kk] = vv
+    LEARNED_LEXICON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = LEARNED_LEXICON_PATH.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps({"terms": merged}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(LEARNED_LEXICON_PATH)
+    return merged

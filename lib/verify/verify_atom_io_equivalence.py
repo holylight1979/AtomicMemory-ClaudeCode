@@ -594,3 +594,124 @@ def test_17_classify_realm_py_js_parity():
         assert p["protected"] == j["prot"], f"{n}: protected py={p['protected']} js={j['prot']}"
         assert sorted(p["matched"]) == sorted(j["matched"]), \
             f"{n}: matched py={p['matched']} js={j['matched']}"
+
+
+# ─── 18. normalize_domain_path: 階層 canon（snap 既有層 + 深度 + 拒非法）─────────
+
+
+def test_18_normalize_domain_path():
+    """OPEN 2 canon：對既有兄弟段 snap（精確/前綴/difflib）、深度截尾、拒 path-traversal。"""
+    from lib.atom_locations import normalize_domain_path, LOCAL_REALM_DEFAULT_DOMAIN
+
+    existing = ["OS/Windows/WSL", "Tools", "World"]
+    # 大小寫無視精確（逐層）
+    assert normalize_domain_path("os/windows/wsl", existing) == "OS/Windows/WSL"
+    # 前綴包含 snap：Win → Windows（治縮寫分歧，difflib ratio 0.6 接不住、靠前綴）
+    assert normalize_domain_path("OS/Win", existing) == "OS/Windows"
+    # 新層保留（無既有兄弟可 snap）
+    assert normalize_domain_path("OS/Windows/Hermes", existing) == "OS/Windows/Hermes"
+    assert normalize_domain_path("NewRoot/Sub", existing) == "NewRoot/Sub"
+    # 深度截尾（>7）
+    assert normalize_domain_path("a/b/c/d/e/f/g/h/i", []) == "a/b/c/d/e/f/g"
+    # path-traversal / 隱藏前綴 → 截斷或退 fail-safe
+    assert normalize_domain_path("../etc", []) == LOCAL_REALM_DEFAULT_DOMAIN
+    assert normalize_domain_path("Good/_bad/More", existing) == "Good"
+    assert normalize_domain_path("", []) == LOCAL_REALM_DEFAULT_DOMAIN
+    assert normalize_domain_path("_hidden", []) == LOCAL_REALM_DEFAULT_DOMAIN
+
+
+# ─── 19. 階層路徑 segment 抽取 ─────────────────────────────────────────────────
+
+
+def test_19_local_realm_path_segments():
+    from lib.atom_locations import local_realm_path_segments, local_realm_lv1_root
+
+    flat = "_AIDocs/_atoms/Tools/gdoc-harvester.md"
+    deep = "_AIDocs/_atoms/OS/Windows/WSL/wsl2-x.md"
+    assert local_realm_path_segments(flat) == ["Tools"]
+    assert local_realm_path_segments(deep) == ["OS", "Windows", "WSL"]
+    assert local_realm_path_segments("memory/foo.md") == []          # 非 local
+    assert local_realm_lv1_root(deep) == "OS"
+    assert local_realm_lv1_root(flat) == "Tools"
+
+
+# ─── 20. realm=local 多段階層路徑路由（_AIDocs/_atoms/OS/Windows/WSL/）───────────
+
+
+def test_20_local_realm_multi_segment_routing(isolated_claude, monkeypatch):
+    """realm='local' + 多段 domain → 物理落深層 _AIDocs/_atoms/<a>/<b>/<c>/，Scope 仍 global。"""
+    from lib import atom_locations as aloc
+    fake_claude = isolated_claude["claude"]
+    monkeypatch.setattr(aloc, "CLAUDE_DIR", fake_claude)
+    monkeypatch.setattr(aloc, "GLOBAL_MEMORY_DIR", isolated_claude["memory"])
+    monkeypatch.setattr(aloc, "LOCAL_ATOMS_DIR", fake_claude / "_AIDocs" / "_atoms")
+
+    result = write_atom(
+        title="WSL2 vhdx Rescue", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=["k"],
+        realm="local", domain="OS/Windows/WSL",
+        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+    )
+    assert result.ok, result.error
+    expected = fake_claude / "_AIDocs" / "_atoms" / "OS" / "Windows" / "WSL" / "wsl2-vhdx-rescue.md"
+    assert result.path == expected, f"routed to {result.path}, want {expected}"
+    assert "- Scope: global" in result.path.read_text(encoding="utf-8")
+
+
+# ─── 21. classify_realm extra_lexicon（learned 補 recall；None=base 不變）────────
+
+
+def test_21_classify_realm_extra_lexicon():
+    """extra_lexicon=None → base 行為不變（parity 面）；傳 learned → 補命中 + 多段 domain。
+    核心保護硬擋永遠先於詞庫（含 learned）。"""
+    from lib.atom_locations import classify_realm
+
+    learned = {"wsl2": "OS/Windows/WSL", "vhdx": "OS/Windows/WSL"}
+    # base：詞庫無命中 → core
+    assert classify_realm("wsl2-0x80070569-救援", ["vhdx", "gpo"])["realm"] == "core"
+    # learned 注入：命中 → local + 多段 domain
+    r = classify_realm("wsl2-0x80070569-救援", ["vhdx"], extra_lexicon=learned)
+    assert r["realm"] == "local" and r["domain"] == "OS/Windows/WSL", r
+    # None 時與 base fixture 完全一致（不被 learned 污染）
+    assert classify_realm("gdoc-harvester", [])["domain"] == "Tools"
+    # 核心保護先於 learned（即使 learned 含會命中的詞）
+    prot = classify_realm("feedback-x", [], extra_lexicon={"feedback": "Tools"})
+    assert prot["realm"] == "core" and prot["protected"] is True
+
+
+# ─── 22. path-traversal 守門 py↔js parity（_clean_segment ↔ cleanRealmSegment）──
+
+
+def test_22_clean_segment_py_js_parity():
+    """單段正規化（path-traversal 最後防線）py↔js 一致。守 applyLocalRouting 鏡像漂移。"""
+    import shutil
+    import subprocess
+    from lib.atom_locations import _clean_segment
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    if not server_js.exists():
+        pytest.skip("server.js not found")
+
+    fixtures = ["Windows", "  OS  ", "WSL", "..", "_hidden", ".dot",
+                "a/b", "a\\b", "bad<x", 'q"x', "", "Hermes Agent"]
+    py = [_clean_segment(s) for s in fixtures]
+
+    js_script = (
+        "const fs=require('fs');"
+        "const src=fs.readFileSync(process.argv[1],'utf-8');"
+        "const start=src.indexOf('function cleanRealmSegment');"
+        "const block=src.slice(start, src.indexOf('function applyLocalRouting'));"
+        "eval(block);"
+        "const fx=JSON.parse(process.argv[2]);"
+        "process.stdout.write(JSON.stringify(fx.map(cleanRealmSegment)));"
+    )
+    proc = subprocess.run(
+        [node, "-e", js_script, str(server_js), json.dumps(fixtures)],
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
+    )
+    assert proc.returncode == 0, f"node failed: {proc.stderr}"
+    js = json.loads(proc.stdout)
+    assert py == js, f"clean-segment drift\nPY={py}\nJS={js}"
