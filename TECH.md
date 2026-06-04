@@ -346,7 +346,7 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 dispatcher → V5：
 | 每次 prompt 額外延遲 | ~0 ms | +200-500 ms（含 BM25 + 向量搜尋） |
 | 首次 prompt 額外延遲 | ~0 ms | +500-1,500 ms（episodic search） |
 | PostToolUse 延遲 | ~0 ms | +50-250 ms（含 hot cache read） |
-| always-load token | 0 | ~3,200-5,400（@import 鏈 IDENTITY/USER/MEMORY ~4,200 字元 + rules/core.md ~1,186；CJK 估，含 Realm「本地範疇」段） |
+| always-load token | 0 | **外部專案** ~3,200-5,400（@import 鏈 IDENTITY/USER/MEMORY(core-only) ~3,500 字元 + rules/core.md ~1,186；CJK 估）；**核心環境(~/.claude)** 另由 SessionStart hook 注入 `_local_catalog.md` ~450 tok。2026-06-04 catalog 層 realm 拆分後，本地範疇段（~722 字元）不再隨 @import 漏進外部專案（省 ~450 tok/session） |
 | 典型 session overhead | 0 | ~3,200-6,500 tok（always-load 全鏈 + 每輪 atom 注入 ≤5k budget；turn 2 起 always-load 進 prompt cache，邊際成本約 10%） |
 | 磁碟空間 | 0 | ~5-20 MB（atoms + LanceDB + state） |
 | 背景 RAM | 0 | ~100-200 MB（LanceDB + Ollama 常駐模型） |

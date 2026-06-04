@@ -79,13 +79,13 @@ V4 的三層 scope 機制不變：
 - **注入閘門**：`hooks/handlers/session_start.py` 在**建候選快取處**（非注入迴圈）依 `_is_under_claude_dir(cwd)` 過濾掉 path 落 `_AIDocs/_atoms/` 的候選；外部專案零負擔。compact/resume 複用舊 state 為已知低頻限制。
 - **分類器**（`classify_realm`，新 atom + drift sweep 共用）：**安全預設 core，僅高信心判 local**。核心保護清單（`decisions*`/`workflow-*`/`toolchain*`/`feedback-*`/`memory-pipeline-*`/`atom-*`/`preferences`/`cognitive-patterns`）**硬擋**永不 local；詞庫**只用實例專屬名**（腦內世界/world.html/reconcile/gdoc/codex/electron-uia/guardian-dashboard…），**絕不用記憶系統通用詞**（會誤殺核心 atom）；只掃 name+triggers，**絕不靠 `_AIDocs/` 路徑前綴判 local**（feedback-* 就在 _AIDocs 卻是 core）。
 - **搬遷工具 `tools/atom-set-realm.py`**：`set <slug> --domain D` / `--to-core`（undo）。為 `_AIDocs/_atoms/` path 的**唯一寫者**（防 reconcile 誤重算翻轉 realm）；**連 `.access.json` sidecar 原子性搬移**（否則 confirmations/usefulness 歸零、晉升飄移）；Scope 保持 global。**不**走 `atom-move`（它會把新根誤判 project 層、改錯 Scope）。
-- **MEMORY.md「本地範疇」段**：`sync-memory-index` 把 local atom 抽出主表、依 domain 收進尾段（R4 印象層指標，人在 ~/.claude 仍找得到）。
+- **印象層 catalog 的 realm 拆分（V5+ S5，2026-06-04）**：realm 原則貫徹到 **index/catalog 層**。`sync-memory-index` 雙輸出——core atom → `MEMORY.md`（CLAUDE.md `@import`，全專案 always-load，fail-safe 退路）；local atom → 側檔 `memory/_local_catalog.md`（自含 H1 + domain 子表），僅核心環境由 `session_start.py` 共同尾段（`_is_under_claude_dir` gate）注入 `additionalContext`。MEMORY.md 末尾僅留一行指標。**修前**：MEMORY.md 全文（含本地範疇段 ~722 字元）隨靜態 `@import` 漏進每個外部專案 always-load；**修後**：外部專案僅 core catalog（省 ~450 tok/session），本地段只在 ~/.claude 注入。caption preserve 跨 `MEMORY.md`+`_local_catalog.md` 兩檔合併（migration 首跑本地描述仍在舊 MEMORY.md → 自動保留）。`_` 前綴側檔不被任何 scanner 當 atom（server.js / wg_atoms / is_atom_file 皆 skip `_*`）。
 
 **規則來源（single source of truth）**：
 - Python：[`lib/atom_locations.py`](../lib/atom_locations.py) — `LOCAL_ATOMS_DIR` / `LOCAL_ATOMS_REL` / `LOCAL_REALM_DOMAINS` / `is_local_realm_path` / `classify_realm` / `local_write_target` / `local_realm_domain` / `atom_index_row_kind`
 - JS mirror：[`tools/workflow-guardian-mcp/server.js`](../tools/workflow-guardian-mcp/server.js) — `LOCAL_ATOMS_*` 常數 / `classifyRealm` / `applyLocalRouting` / `findAtomFileRecursive(LOCAL_ATOMS_DIR)` find-fallback
 
-**守門**：`lib/verify/verify_atom_io_equivalence.py` test_14（路徑/realm 常數 py↔js parity）+ test_15（local routing，Scope 仍 global）+ test_16（分類器零誤判：核心保護清單全 core）+ test_17（classifier py↔js parity）；`lib/verify/verify_realm_injection_gate.py`（3 gate 單測）；`tools/verify/verify_memory_index_caption_preserve.py`（本地範疇段 render + caption preserve）。詳見 atom `realm-範疇分區機制-v5`。
+**守門**：`lib/verify/verify_atom_io_equivalence.py` test_14（路徑/realm 常數 py↔js parity）+ test_15（local routing，Scope 仍 global）+ test_16（分類器零誤判：核心保護清單全 core）+ test_17（classifier py↔js parity）；`lib/verify/verify_realm_injection_gate.py`（3 gate 單測，body 候選層）；`tools/verify/verify_memory_index_caption_preserve.py`（core/local render + caption preserve）；`tools/verify/verify_local_catalog_split.py`（catalog 層範疇閘：core 不含 local 8 顆、含 core+feedback；側檔 domain 分組；雙檔 round-trip `--check`）。詳見 atom `realm-範疇分區機制-v5`。
 
 ---
 

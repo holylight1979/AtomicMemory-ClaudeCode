@@ -16,6 +16,7 @@
 - [臨] **funnel bypass 兩處（已修）**：`atom-health-check.py:fix_reverse_refs` + `sync-atom-index.py:fix_frontmatter_from_index` 原用裸 `Path.write_text` 繞過 lib.atom_io → Windows 翻整檔 EOL(double-CR) + 無 audit。已改走 `write_raw(source=tool:atom-health-audit / tool:sync-atom-index)`。教訓：funnel 合規要掃所有 atom 寫入路徑含 CLI 工具。
 - [臨] **AtomFunnelBlock guard 覆蓋缺口**：只攔 `memory/*.md`、不攔 `_AIDocs/Failures/*.md` → Failures atom 可被直接 Edit 繞過 funnel（待補）。
 - [臨] **查 atom 寫入 corruption 工具鏈**：node byte-level 行尾分類（MSYS2 `grep $'\r\r'`/`file` 對 CR 不可靠、會誤導）+ `_meta/atom_io_audit.jsonl` 看 source/op（無痕=bypass）+ `sync-atom-index.py --check`(has_drift) + git churn `--ignore-all-space` 分 EOL/內容。
+- [臨] **caption preserve 跨兩檔（2026-06-04 catalog 層 realm 拆分）**：sync-memory-index 改雙輸出（`MEMORY.md` core-only + 側檔 `memory/_local_catalog.md`）；`main()` 把 `existing_caps` 合併兩檔（`parse_existing_captions(MEMORY.md)` ∪ `parse_existing_captions(_local_catalog.md)`），migration 首跑本地描述仍在舊 MEMORY.md→自動保留進側檔、之後住側檔。原 `render_atom_section` 拆成 `render_core_section`/`render_local_catalog`（+共用 `_classify_rows`），caller 測試已對應更新。`--check` 改驗兩檔任一 drift→exit1。機制全貌見 [[realm-範疇分區機制-v5]]。
 
 ## 行動
 

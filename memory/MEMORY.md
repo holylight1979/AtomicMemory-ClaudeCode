@@ -22,29 +22,4 @@
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
 
-## 本地範疇（~/.claude，僅核心環境注入）
-
-> 物理居 `_AIDocs/_atoms/<domain>/`，索引仍在 `_atom_index.json`（scope=global）；**只在 cwd∈~/.claude 時注入**，外部專案零負擔。機制見 [[realm-範疇分區機制-v5]]。
-
-### MemDev
-
-| Atom | 說明 |
-|------|------|
-| guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
-
-### Tools
-
-| Atom | 說明 |
-|------|------|
-| electron-uia-automation | Electron app UI 自動化三層障礙 |
-| gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
-| cc-能力查證反編譯實跑-binary | CC 能力查證：反編譯實跑 binary |
-| codex-log-bloat-analytics | codex-log-bloat-analytics |
-
-### World
-
-| Atom | 說明 |
-|------|------|
-| 腦內世界-v3-自癒與-command-bus-架構 | 腦內世界 v3 自癒與 Command Bus 架構 |
-| reconcile-render-動畫狀態歸屬陷阱 | reconcile-render 動畫狀態歸屬陷阱 |
-| 腦內世界-環境演化-放置式架構 | 腦內世界-環境演化-放置式架構 |
+> 本地範疇（World/Tools/MemDev，僅 ~/.claude 注入）索引見 `_local_catalog.md`。

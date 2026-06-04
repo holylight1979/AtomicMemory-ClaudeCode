@@ -385,6 +385,21 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except Exception as e:
                 _atom_debug_error("project_hook:session_start", e)
 
+    # ── V5+ realm：本地範疇 catalog 注入（補完 index 層 realm 一致性）────────────
+    # core catalog 走 CLAUDE.md @import memory/MEMORY.md（全專案，fail-safe 退路）；
+    # 本地範疇明細抽到側檔 memory/_local_catalog.md，僅核心環境（cwd∈~/.claude）此處注入，
+    # 外部專案不注入 → always-load 省本地段。對 startup/resume/compact 兩分支皆生效。
+    # fail-safe：缺檔/讀錯/非核心 → 靜默略過（catalog 本屬 readability，local atom 仍 trigger 注入）。
+    try:
+        if _is_under_claude_dir(cwd):
+            _lc = MEMORY_DIR / "_local_catalog.md"
+            if _lc.exists():
+                _lc_txt = _lc.read_text(encoding="utf-8-sig").strip()
+                if _lc_txt:
+                    lines.append(_lc_txt)
+    except Exception as e:
+        _atom_debug_error("realm:local_catalog_inject", e)
+
     # V5+ Realm 維度：上個 session 自動歸類搬移的不靜默提示（永不靜默；讀後清 marker）
     try:
         if REALM_AUTOMOVE_MARKER.exists():

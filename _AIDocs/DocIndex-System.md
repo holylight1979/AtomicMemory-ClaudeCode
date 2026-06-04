@@ -30,8 +30,10 @@ settings.json（hook 配置 + 權限白名單）
 CLAUDE.md @import
   ├─ IDENTITY.md（AI 人格 — 收尾檢核 4 項硬契約）
   ├─ USER.md（使用者偏好）
-  ├─ MEMORY.md（atom 索引人類可讀版）
+  ├─ MEMORY.md（atom 索引人類可讀版 — **core-only**；本地範疇段抽到 _local_catalog.md）
   └─ rules/core.md
+  ↓
+SessionStart hook（cwd∈~/.claude 才注入 memory/_local_catalog.md 本地範疇 catalog）
   ↓
 Session Ready
   ↓
@@ -172,7 +174,8 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - memory-conflict-detector.py — 向量衝突 + LLM 分類（mode ∈ {full-scan / write-check / pull-audit}）
 - conflict-review.py — Pending Queue 後端（list / approve / reject，is_management 雙向認證 guard）
 - atom-move.py — 跨層原子搬遷工具（mv + 更新 Scope + 同步索引 + 處理 inbound refs）
-- sync-atom-index.py / sync-memory-index.py — atom frontmatter Trigger ↔ `_atom_index.json` 一致性同步
+- sync-atom-index.py — atom frontmatter Trigger ↔ `_atom_index.json` 一致性同步
+- sync-memory-index.py — 從 `_atom_index.json` 雙輸出渲染：`MEMORY.md`（core-only，@import）+ `_local_catalog.md`（本地範疇，hook 注）；`--check` 兩檔 round-trip、caption preserve 跨檔
 - cleanup-projects-residue.py — projects/{slug}/memory/ 殘骸清理工具
 
 ### 遷移 / 維護
@@ -202,7 +205,8 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ## 7. 記憶層
 
-- **MEMORY.md**（always loaded）— 31 atoms 一覽（人類可讀；core 主表 + 「本地範疇」獨立段）
+- **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
+- **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog（World/Tools/MemDev domain 分組）；僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
 - **_atom_index.json**（JSON SoT）— 機器源真相，31 atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms（31）** = **core 14**（住 `memory/`：decisions / decisions-architecture / preferences / workflow-rules·icld·svn·parallel-agents / toolchain·-ollama / atom-table-support / memory-index-caption-regen / atom-usefulness-loop / atom-元資料編輯與晉升閘真相 / realm-範疇分區機制-v5）+ **feedback 7 + 失敗模式 2**（cognitive-patterns / memory-pipeline-silent-failure-2026-05，物理在 `_AIDocs/Failures/`）+ **local 8**（realm=local，住 `_AIDocs/_atoms/<domain>/`，只在 cwd∈~/.claude 注入；World 3 / Tools 4 / MemDev 1）

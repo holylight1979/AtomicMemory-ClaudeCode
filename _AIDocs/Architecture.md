@@ -214,7 +214,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 - **注入閘門**：`hooks/handlers/session_start.py` 建候選快取處依 `wg_core._is_under_claude_dir(cwd)` 濾掉 local 候選；外部專案完全略過、core（含 `_AIDocs/Failures/*`）不誤殺。
 - **分類器 `classify_realm`**（lib + server.js mirror）：安全預設 core、核心保護清單硬擋、詞庫只用實例專屬名（不用記憶系統通用詞）、只掃 name+triggers。
 - **搬遷工具 `tools/atom-set-realm.py`**：`_AIDocs/_atoms/` path 唯一寫者，連 `.access.json` sidecar 原子搬、Scope 保 global、`--to-core` 可逆；**不**走 `atom-move`。
-- **印象層**：`sync-memory-index` 把 local atom 收進 MEMORY.md「本地範疇」獨立段（依 domain 分組），人在 ~/.claude 仍找得到。
+- **印象層（catalog 層 realm，2026-06-04）**：`sync-memory-index` 雙輸出——core atom → `MEMORY.md`（CLAUDE.md `@import`，全專案，fail-safe 退路）；local atom → 側檔 `memory/_local_catalog.md`（依 domain 分組），僅核心環境由 `session_start.py` 共同尾段（`_is_under_claude_dir` gate）注入。MEMORY.md 末尾僅留一行指標 → **外部專案 always-load 不再含本地範疇段（省 ~450 tok）**，補完 realm 在 index 層的一致性。fail-safe：hook 掛掉/缺檔僅損核心環境本地「目錄顯示」（atom 仍 trigger 注入），外部專案不受影響。
 - **find-fallback**：server.js promote/edit_meta/find 對物理在 memory/ 外的 atom 加 `findAtomFileRecursive(LOCAL_ATOMS_DIR)`（鏡像 feedback fallback），否則 scope=global 的 local atom 會 `Atom not found`。
 - **守門**：`verify_atom_io_equivalence.py` test_14–17（常數/routing/分類器零誤判/py↔js parity）+ `verify_realm_injection_gate.py`。
 
