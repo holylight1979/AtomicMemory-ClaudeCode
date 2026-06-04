@@ -63,6 +63,10 @@ memory/_vectordb/service.pid
 memory/_vectordb/service.log
 
 # ─── ACT-R access logs (runtime, auto-generated) ──────────
+# 政策：所有 atom 遙測 sidecar（read_hits/confirmations/usefulness）一律不進版控——
+# per-machine 執行期資料，提交會 churn + 跨機衝突。下方 blanket 收斂全部位置
+# （含 _AIDocs/_atoms/ local realm、_AIDocs/Tools/；2026-06 補 S1/S2 realm 遷移破口）。
+**/*.access.json
 memory/*.access.json
 memory/**/*.access.json
 **/memory/*.access.json
