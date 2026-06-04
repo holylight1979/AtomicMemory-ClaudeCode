@@ -346,8 +346,8 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 dispatcher → V5：
 | 每次 prompt 額外延遲 | ~0 ms | +200-500 ms（含 BM25 + 向量搜尋） |
 | 首次 prompt 額外延遲 | ~0 ms | +500-1,500 ms（episodic search） |
 | PostToolUse 延遲 | ~0 ms | +50-250 ms（含 hot cache read） |
-| CLAUDE.md token | 0 | ~1,500-2,500（含 @import IDENTITY/USER/MEMORY） |
-| 典型 session overhead | 0 | ~2,000-5,500 tok |
+| CLAUDE.md token | 0 | ~2,500-3,800（@import IDENTITY/USER/MEMORY 鏈實測 ~4,200 字元、CJK 估；2026-06 含 Realm「本地範疇」段後） |
+| 典型 session overhead | 0 | ~3,000-6,500 tok（always-load ~2.5-3.8k + 每輪 atom 注入 ≤5k budget） |
 | 磁碟空間 | 0 | ~5-20 MB（atoms + LanceDB + state） |
 | 背景 RAM | 0 | ~100-200 MB（LanceDB + Ollama 常駐模型） |
 
