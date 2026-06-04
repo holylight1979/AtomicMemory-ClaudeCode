@@ -38,16 +38,16 @@ H1 = {
 }
 
 
-def _build_memdir(tmp_path: Path) -> Path:
+def _build_memdir(tmp_path: Path, rows=ROWS) -> Path:
     """搭一個臨時 ~/.claude：memory/ + _AIDocs/{Failures,_atoms/<dom>}/ + _atom_index.json。"""
     mem = tmp_path / "memory"
     mem.mkdir()
-    for name, rel, _ in ROWS:
+    for name, rel, _ in rows:
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(f"# {H1[name]}\n\n- Confidence: [臨]\n", encoding="utf-8")
+        p.write_text(f"# {H1.get(name, name)}\n\n- Confidence: [臨]\n", encoding="utf-8")
     index = {"version": "1.0", "atoms": [
-        {"name": n, "path": rel, "triggers": [f"t-{n}"], "scope": sc} for n, rel, sc in ROWS
+        {"name": n, "path": rel, "triggers": [f"t-{n}"], "scope": sc} for n, rel, sc in rows
     ]}
     (mem / "_atom_index.json").write_text(
         json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -72,27 +72,34 @@ def test_core_section_excludes_local_keeps_core_and_feedback(tmp_path: Path):
     assert "_local_catalog.md" in core
 
 
-def test_local_catalog_groups_local_by_domain(tmp_path: Path):
+def test_local_catalog_shows_lv1_roots_only(tmp_path: Path):
+    """OPEN 1：側檔只列 Lv1 根 + 遞迴計數 + drill 指標（不攤每顆 atom caption）。"""
     _build_memdir(tmp_path)
     local = MOD.render_local_catalog(ROWS, tmp_path, {})
     assert local, "有 local atom 時側檔不該為空"
-    assert "### Tools" in local and "### World" in local
-    assert "| gizmo-tool | Gizmo 工具踩坑 |" in local
-    assert "| brain-x | 腦內世界X |" in local
+    # Lv1 根表（Tools/World 各 1 顆）
+    assert "| Tools | 1 |" in local and "| World | 1 |" in local
+    # 單 atom 葉無子層 → 不生 _INDEX，drill 直指該 atom 檔
+    assert "_AIDocs/_atoms/Tools/gizmo-tool.md" in local
+    # always-load 不攤每顆 caption（移至 drill 目標）
+    assert "Gizmo 工具踩坑" not in local and "腦內世界X" not in local
     # core / feedback 不進側檔
-    assert "core-note" not in local
-    assert "feedback-foo" not in local
+    assert "core-note" not in local and "feedback-foo" not in local
 
 
 # ─── 雙檔 round-trip：--check 對拍預渲染檔 → exit 0 / drift → exit 1 ──────────────
 
 
-def _prerender(mem: Path, claude_root: Path) -> None:
-    """以 MOD 渲染兩檔並落地（對拍 main() 的 new_core/new_local 組裝；無 knowledge_tail）。"""
-    core = MOD.render_core_section(ROWS, claude_root, {}) + "\n"
-    local = MOD.render_local_catalog(ROWS, claude_root, {}) + "\n"
+def _prerender(mem: Path, claude_root: Path, rows=ROWS) -> None:
+    """以 MOD 渲染所有檔並落地（core + 側檔 + per-level _INDEX.md；對拍 main() 組裝）。"""
+    core = MOD.render_core_section(rows, claude_root, {}) + "\n"
+    local = MOD.render_local_catalog(rows, claude_root, {})
     (mem / "MEMORY.md").write_text(core, encoding="utf-8")
-    (mem / "_local_catalog.md").write_text(local, encoding="utf-8")
+    if local:
+        (mem / "_local_catalog.md").write_text(local + "\n", encoding="utf-8")
+    for abs_path, content in MOD.collect_per_level_files(rows, claude_root, {}).items():
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_text(content + "\n", encoding="utf-8")
 
 
 def _run_check(mem: Path) -> subprocess.CompletedProcess:
@@ -125,3 +132,64 @@ def test_check_detects_local_drift(tmp_path: Path):
     r = _run_check(mem)
     assert r.returncode == 1
     assert "_local_catalog.md drift" in r.stderr
+
+
+# ─── 階層樹：per-level _INDEX.md 按需生成 + drill + round-trip + stale ────────────
+
+DEEP_ROWS = [
+    ("core-note", "memory/core-note.md", "global"),
+    ("wsl-a", "_AIDocs/_atoms/OS/Windows/WSL/wsl-a.md", "global"),
+    ("wsl-b", "_AIDocs/_atoms/OS/Windows/WSL/wsl-b.md", "global"),
+    ("tool-1", "_AIDocs/_atoms/Tools/tool-1.md", "global"),
+    ("tool-2", "_AIDocs/_atoms/Tools/tool-2.md", "global"),
+    ("lone", "_AIDocs/_atoms/Loner/lone.md", "global"),
+]
+
+
+def test_catalog_deep_tree_lv1_counts_and_drill(tmp_path: Path):
+    _build_memdir(tmp_path, DEEP_ROWS)
+    local = MOD.render_local_catalog(DEEP_ROWS, tmp_path, {})
+    assert "| OS | 2 | `_AIDocs/_atoms/OS/_INDEX.md` |" in local      # 有子層 → _INDEX
+    assert "| Tools | 2 | `_AIDocs/_atoms/Tools/_INDEX.md` |" in local  # ≥2 → _INDEX
+    assert "| Loner | 1 | `_AIDocs/_atoms/Loner/lone.md` |" in local    # 單葉 → 直指 atom
+
+
+def test_per_level_index_generation_on_demand(tmp_path: Path):
+    _build_memdir(tmp_path, DEEP_ROWS)
+    files = MOD.collect_per_level_files(DEEP_ROWS, tmp_path, {})
+    rels = {p.relative_to(tmp_path).as_posix() for p in files}
+    # 生成：OS、OS/Windows、OS/Windows/WSL、Tools；不生：Loner（單葉雞肋）
+    assert rels == {
+        "_AIDocs/_atoms/OS/_INDEX.md",
+        "_AIDocs/_atoms/OS/Windows/_INDEX.md",
+        "_AIDocs/_atoms/OS/Windows/WSL/_INDEX.md",
+        "_AIDocs/_atoms/Tools/_INDEX.md",
+    }
+    wsl_idx = next(c for p, c in files.items() if p.as_posix().endswith("WSL/_INDEX.md"))
+    assert "| wsl-a |" in wsl_idx and "| wsl-b |" in wsl_idx        # 本層 atom
+    os_idx = next(c for p, c in files.items() if p.as_posix().endswith("OS/_INDEX.md"))
+    assert "## 子層" in os_idx and "| Windows | 2 |" in os_idx       # 直屬子層 + 遞迴計數
+
+
+def test_deep_tree_roundtrip_no_drift(tmp_path: Path):
+    mem = _build_memdir(tmp_path, DEEP_ROWS)
+    _prerender(mem, tmp_path, DEEP_ROWS)
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "--check", "--memory-dir", str(mem)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, f"預期無 drift，stderr={r.stderr}"
+
+
+def test_check_detects_stale_index(tmp_path: Path):
+    mem = _build_memdir(tmp_path, DEEP_ROWS)
+    _prerender(mem, tmp_path, DEEP_ROWS)
+    # 製造 stale：多一個不該存在的 _INDEX.md
+    bogus = tmp_path / "_AIDocs" / "_atoms" / "Ghost" / "_INDEX.md"
+    bogus.parent.mkdir(parents=True, exist_ok=True)
+    bogus.write_text("# 殘留\n", encoding="utf-8")
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "--check", "--memory-dir", str(mem)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 1 and "stale _INDEX.md" in r.stderr

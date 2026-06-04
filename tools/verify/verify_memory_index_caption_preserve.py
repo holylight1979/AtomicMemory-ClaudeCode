@@ -87,9 +87,9 @@ def test_local_realm_atom_split_core_vs_side(tmp_path: Path):
     assert "gizmo-tool" not in core
     assert "## 本地範疇" not in core
     assert "_local_catalog.md" in core              # 指標（discoverability）
-    # 側檔 catalog：local atom 依 domain 分組
-    assert local and "### Tools" in local
-    assert "| gizmo-tool | Gizmo 工具踩坑 |" in local
+    # 側檔 catalog：Lv1 根表（OPEN 1，單葉 drill 指 atom；caption 移至 _INDEX）
+    assert local and "| Tools | 1 |" in local
+    assert "_AIDocs/_atoms/Tools/gizmo-tool.md" in local
     assert "core-note" not in local                 # core 不進側檔
 
 
@@ -104,8 +104,13 @@ def test_no_local_atoms_no_pointer_no_side(tmp_path: Path):
 
 
 def test_local_realm_bare_h1_preserves_existing_caption(tmp_path: Path):
-    """local atom H1 退化成裸名 → 側檔沿用現有人工描述（與一般 atom 同 preserve 規則）。"""
-    _write_local_atom(tmp_path, "World", "world-thing", "world-thing")  # H1==name → 裸名
-    rows = [("world-thing", "_AIDocs/_atoms/World/world-thing.md", "global")]
-    local = MOD.render_local_catalog(rows, tmp_path, {"world-thing": "腦內世界某機制"})
-    assert "| world-thing | 腦內世界某機制 |" in local
+    """local atom H1 退化成裸名 → _INDEX.md 沿用現有人工描述（與一般 atom 同 preserve 規則）。"""
+    _write_local_atom(tmp_path, "World", "world-thing", "world-thing")   # H1==name → 裸名
+    _write_local_atom(tmp_path, "World", "world-other", "腦內世界其二")  # 湊 ≥2 → 生 _INDEX
+    rows = [
+        ("world-thing", "_AIDocs/_atoms/World/world-thing.md", "global"),
+        ("world-other", "_AIDocs/_atoms/World/world-other.md", "global"),
+    ]
+    files = MOD.collect_per_level_files(rows, tmp_path, {"world-thing": "腦內世界某機制"})
+    world_idx = next(c for p, c in files.items() if p.as_posix().endswith("World/_INDEX.md"))
+    assert "| world-thing | 腦內世界某機制 |" in world_idx
