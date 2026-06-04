@@ -225,7 +225,7 @@ V4 把知識空間從單層拓展為四層，V5 完全沿用：
 
 `memory/_atom_index.json` 為唯一機器源（31 atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
 
-**Atom 物理多根 + Realm 範疇（V5+）**：`global` atom 物理散三根——`memory/`（core 一般）、`_AIDocs/Failures/`（feedback-* + 失敗模式，仍 core）、`_AIDocs/_atoms/<domain>/`（**local realm**，World/Tools/MemDev）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/` 與 Failures 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。MEMORY.md 收進「本地範疇」段。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md)。
+**Atom 物理多根 + Realm 範疇（V5+）**：`global` atom 物理散三根——`memory/`（core 一般）、`_AIDocs/Failures/`（feedback-* + 失敗模式，仍 core）、`_AIDocs/_atoms/<domain>/`（**local realm**，World/Tools/MemDev）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/` 與 Failures 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
 ```json
 {
@@ -637,7 +637,7 @@ flowchart TD
 | Workflow Guardian | [hooks/workflow-guardian.py](hooks/workflow-guardian.py) → [hooks/dispatcher.py](hooks/dispatcher.py) | Stop 閘門 — 有未同步修改阻止結束，最多 2 次強制放行 |
 | Event Handlers | [hooks/handlers/](hooks/handlers/) | 10 個 event 各一檔（session_start/end、UPS、pre/post_tool_use、stop、pre_compact、post_compact、post_tool_batch、notification） |
 | Atom Index SoT (V5) | [lib/atom_index_json.py](lib/atom_index_json.py) + `memory/_atom_index.json` | JSON 唯一機器源；MD 自動生成 mirror |
-| Realm 範疇分區 (V5+) | [lib/atom_locations.py](lib/atom_locations.py) `classify_realm`/`is_local_realm_path` + [tools/atom-set-realm.py](tools/atom-set-realm.py) + server.js mirror | core（`memory/`+`Failures/`，全專案注入）vs local（`_AIDocs/_atoms/<domain>/`，只在 ~/.claude 注入）；realm 由 path 推導、scope 仍 global。→SPEC §2.2 |
+| Realm 範疇分區 (V5+/V6) | [lib/atom_locations.py](lib/atom_locations.py) `classify_realm`/`normalize_domain_path` + [tools/atom-set-realm.py](tools/atom-set-realm.py) + [tools/realm_llm_classify.py](tools/realm_llm_classify.py) + server.js mirror | core（`memory/`+`Failures/`，全專案注入）vs local（`_AIDocs/_atoms/<階層路徑>/`，只在 ~/.claude 注入）；realm 由 path 推導、scope 仍 global。V6：階層多段 domain + SessionEnd LLM recall（unknown-core）+ 詞庫自學 + 增量深度閘。→SPEC §2.2 |
 | Hybrid RECALL | [hooks/wg_atoms.py](hooks/wg_atoms.py) | trigger + **BM25**（V5）+ Vector + ACT-R + Related-Edge + Section-Level |
 | Hot Cache | [hooks/wg_extraction.py](hooks/wg_extraction.py) + `workflow/hot_cache.json` | quick-extract 寫 → PostToolUse/UPS 注入 → deep extract 覆寫 |
 | Response Capture | [hooks/extract-worker.py](hooks/extract-worker.py) + [hooks/quick-extract.py](hooks/quick-extract.py) | SessionEnd 全量 + Stop 逐輪 |
