@@ -532,6 +532,31 @@
         "記憶系統"
       ],
       "scope": "global"
+    },
+    {
+      "name": "wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除",
+      "path": "_AIDocs/_atoms/OS/Windows/WSL/wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除.md",
+      "triggers": [
+        "WSL",
+        "WSL2",
+        "WSL1",
+        "0x80070569",
+        "ERROR_LOGON_TYPE_NOT_GRANTED",
+        "以服務方式登入",
+        "SeServiceLogonRight",
+        "Log on as a service",
+        "S-1-5-83-0",
+        "網域GPO",
+        "vhdx",
+        "ext4",
+        "7z救援",
+        "OOBE卡住",
+        "Provisioning卡住",
+        "wsl移除",
+        "unregister",
+        "Remove-Item hook"
+      ],
+      "scope": "global"
     }
   ]
 }

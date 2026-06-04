@@ -5,5 +5,6 @@
 | 範疇根 | atom 數 | 深入 |
 |--------|---------|------|
 | MemDev | 1 | `_AIDocs/_atoms/MemDev/guardian-dashboard-孤兒佔埠與新碼重啟.md` |
+| OS | 1 | `_AIDocs/_atoms/OS/_INDEX.md` |
 | Tools | 4 | `_AIDocs/_atoms/Tools/_INDEX.md` |
 | World | 3 | `_AIDocs/_atoms/World/_INDEX.md` |

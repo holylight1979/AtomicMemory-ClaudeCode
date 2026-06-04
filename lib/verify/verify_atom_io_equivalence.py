@@ -608,11 +608,14 @@ def test_18_normalize_domain_path():
     assert normalize_domain_path("os/windows/wsl", existing) == "OS/Windows/WSL"
     # 前綴包含 snap：Win → Windows（治縮寫分歧，difflib ratio 0.6 接不住、靠前綴）
     assert normalize_domain_path("OS/Win", existing) == "OS/Windows"
-    # 新層保留（無既有兄弟可 snap）
+    # 新層保留（既有兄弟在 OS/Windows 下 → 允許深 1 層到 Hermes）
     assert normalize_domain_path("OS/Windows/Hermes", existing) == "OS/Windows/Hermes"
     assert normalize_domain_path("NewRoot/Sub", existing) == "NewRoot/Sub"
-    # 深度截尾（>7）
-    assert normalize_domain_path("a/b/c/d/e/f/g/h/i", []) == "a/b/c/d/e/f/g"
+    # 增量深度閘：全新分支封頂 Lv3（即使 LLM 灌很深；existing 無 OS 分支）
+    assert normalize_domain_path("a/b/c/d/e/f/g/h/i", []) == "a/b/c"
+    assert normalize_domain_path("OS/Windows/WSL/Advanced/Troubleshooting", ["Tools", "World"]) == "OS/Windows/WSL"
+    # 深度隨內容量長：既有已有 OS/Windows/WSL → 允許再深 1 層到 Lv4
+    assert normalize_domain_path("OS/Windows/WSL/Networking", existing) == "OS/Windows/WSL/Networking"
     # path-traversal / 隱藏前綴 → 截斷或退 fail-safe
     assert normalize_domain_path("../etc", []) == LOCAL_REALM_DEFAULT_DOMAIN
     assert normalize_domain_path("Good/_bad/More", existing) == "Good"
@@ -715,3 +718,28 @@ def test_22_clean_segment_py_js_parity():
     assert proc.returncode == 0, f"node failed: {proc.stderr}"
     js = json.loads(proc.stdout)
     assert py == js, f"clean-segment drift\nPY={py}\nJS={js}"
+
+
+# ─── 23. 自學詞庫 load/append round-trip（Phase C；atomic + 去重 + 餵 classify）──
+
+
+def test_23_learned_lexicon_roundtrip(tmp_path, monkeypatch):
+    """append_learned_terms：atomic 寫 + case-insensitive 去重；load → 餵 classify_realm 補命中。"""
+    from lib import atom_locations as aloc
+
+    fake = tmp_path / "_meta" / "realm-lexicon-learned.json"
+    monkeypatch.setattr(aloc, "LEARNED_LEXICON_PATH", fake)
+
+    assert aloc.load_learned_lexicon() == {}                       # 缺檔 → {}
+    aloc.append_learned_terms({"wsl2": "OS/Windows/WSL"})
+    assert fake.exists()
+    assert aloc.load_learned_lexicon() == {"wsl2": "OS/Windows/WSL"}
+
+    # 併入 + case-insensitive 去重（WSL2 併進 wsl2 同 key）
+    aloc.append_learned_terms({"vhdx": "OS/Windows/WSL", "WSL2": "OS/Windows/WSL"})
+    learned = aloc.load_learned_lexicon()
+    assert set(learned) == {"wsl2", "vhdx"}
+
+    # learned 餵 classify_realm → 命中 + 多段 domain（base None 時不受影響已由 test_21 覆蓋）
+    r = aloc.classify_realm("wsl2-0x80070569", ["vhdx"], extra_lexicon=learned)
+    assert r["realm"] == "local" and r["domain"] == "OS/Windows/WSL"

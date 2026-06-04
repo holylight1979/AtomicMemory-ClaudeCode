@@ -40,8 +40,11 @@ LOCAL_REALM_DOMAINS = frozenset({"World", "Tools", "MemDev"})
 # catch-all / fail-safe domain（取代舊 "Misc"；LLM 低信心·unsure 歸此，py+js 鏡像 test_14）。
 LOCAL_REALM_DEFAULT_DOMAIN = "Else"
 # 階層 domain 路徑最大深度（user 拍板：深=內容多需細分、非範疇廣；
-# 擴大根因＝「窄範疇但已知內容量龐大」→ 必須加層）。canon 超此→截尾。
+# 擴大根因＝「窄範疇但已知內容量龐大」→ 必須加層）。canon 超此→截尾（絕對天花板）。
 LOCAL_REALM_MAX_DEPTH = 7
+# 新分支起始封頂：全新（無既有 atom）的路徑最多這麼深；之後只能比「既有已積 atom 的最深
+# 匹配前綴」深 1 層 → 深度**隨內容量增長**而非被 LLM 一次灌深（deterministic 落實 depth=volume）。
+LOCAL_REALM_NEW_BRANCH_DEPTH = 3
 # 詞庫自學檔（py-only supplement；js 維持 base-only 以保 classify_realm parity / test_17）。
 LEARNED_LEXICON_PATH = GLOBAL_MEMORY_DIR / "_meta" / "realm-lexicon-learned.json"
 
@@ -457,6 +460,20 @@ def normalize_domain_path(path: str, existing_paths: Optional[Iterable[str]] = N
         parent = f"{parent}/{canon}" if parent else canon
         if len(out) >= LOCAL_REALM_MAX_DEPTH:
             break
+    # 增量深度閘（depth=volume，user 拍板）：新分支封頂 LOCAL_REALM_NEW_BRANCH_DEPTH；
+    # 只能比「既有已積 atom 的最深匹配前綴」深 1 層 → 深度隨內容量長，不被 LLM 一次灌深。
+    if out:
+        prefixes = set()
+        for ep in (existing_paths or []):
+            segs = [s for s in (ep or "").split("/") if s]
+            for i in range(1, len(segs) + 1):
+                prefixes.add("/".join(segs[:i]).lower())
+        prefix_depth = 0
+        for i in range(len(out), 0, -1):
+            if "/".join(out[:i]).lower() in prefixes:
+                prefix_depth = i
+                break
+        out = out[:max(LOCAL_REALM_NEW_BRANCH_DEPTH, prefix_depth + 1)]
     return "/".join(out) if out else LOCAL_REALM_DEFAULT_DOMAIN
 
 

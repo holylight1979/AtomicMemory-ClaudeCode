@@ -1,0 +1,9 @@
+{
+  "terms": {
+    "0x80070569": "OS/Windows/WSL",
+    "error_logon_type_not_granted": "OS/Windows/WSL",
+    "seservicelogonright": "OS/Windows/WSL",
+    "s-1-5-83-0": "OS/Windows/WSL",
+    "gpo": "OS/Windows/WSL"
+  }
+}
