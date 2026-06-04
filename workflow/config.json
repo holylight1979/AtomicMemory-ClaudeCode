@@ -193,6 +193,16 @@
     "run_full_verify": false,
     "_comment": "記憶自癒(腦內世界 P3)：backend=ollama 本地免費序列；改 cloud + max_concurrent>1 可雲端並行(需接 adapter)"
   },
+  "realm": {
+    "auto_migrate": true,
+    "llm_fallback": {
+      "enabled": true,
+      "backend": "ollama",
+      "max_per_session": 5,
+      "min_confidence": 0.7,
+      "_comment": "SessionEnd sweep 對詞庫 miss 的 unknown-core atom 喚本地 LLM 判 realm+階層 domain。基礎設施失敗→defer 留原地(不誤降級)；unsure/低信心→Else；local≥min_confidence→搬+學詞。protected 永不喚 LLM。enabled=false 則只跑 deterministic 詞庫(含 learned)。"
+    }
+  },
   "world_dev": {
     "_doc": "腦內世界環境演化引擎旋鈕（宣告鏡像）。引擎在前端 world.html(ENGINE 常數)為運行時源，純前端免重啟；mode 經 world-dev.json 持久、?fast=1 / 指令台 worlddev 覆寫。改此處需同步 world.html ENGINE。",
     "mode": "slow",

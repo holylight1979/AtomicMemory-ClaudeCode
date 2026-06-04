@@ -408,12 +408,26 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except (OSError, json.JSONDecodeError):
                 _rm = []
             if isinstance(_rm, list) and _rm:
-                _names = ", ".join(m.get("slug", "?") for m in _rm[:6])
+                _names = ", ".join(
+                    (f"{m.get('slug','?')}（{m.get('via')}）"
+                     if m.get("via") in ("LLM", "Else") else m.get("slug", "?"))
+                    for m in _rm[:6]
+                )
                 _more = f" 等 {len(_rm)} 顆" if len(_rm) > 6 else f"（{len(_rm)} 顆）"
                 lines.append(
                     f"[Realm] 已自動歸 local：{_names}{_more}。"
                     f"外部專案不再注入；如需還原：python tools/atom-set-realm.py set <slug> --to-core"
                 )
+                # 移檔後 doc-sync（user 補充）：舊 path/檔名引用提示需同步的說明文件
+                _drefs: Dict[str, List[str]] = {}
+                for _m in _rm:
+                    for _k, _v in (_m.get("doc_refs") or {}).items():
+                        _drefs.setdefault(_k, []).extend(_v or [])
+                if _drefs:
+                    _parts = "；".join(
+                        f"{_k}→{', '.join(sorted(set(_v)))}" for _k, _v in list(_drefs.items())[:4]
+                    )
+                    lines.append(f"[Realm] ⚠ 說明文件含被搬 atom 的舊引用，請查是否需同步：{_parts}")
             try:
                 REALM_AUTOMOVE_MARKER.unlink()
             except OSError:

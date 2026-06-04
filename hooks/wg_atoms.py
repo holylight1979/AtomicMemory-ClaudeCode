@@ -47,10 +47,18 @@ except ImportError:
     iter_atom_files_multi = None
 
 try:
-    from atom_locations import classify_realm, is_local_realm_path
+    from atom_locations import (
+        classify_realm, is_local_realm_path,
+        enumerate_local_paths, load_learned_lexicon, append_learned_terms,
+        LOCAL_REALM_DEFAULT_DOMAIN,
+    )
 except ImportError:
     classify_realm = None
     is_local_realm_path = None
+    enumerate_local_paths = None
+    load_learned_lexicon = None
+    append_learned_terms = None
+    LOCAL_REALM_DEFAULT_DOMAIN = "Else"
 
 
 # ─── Memory Index Parsing ────────────────────────────────────────────────────
@@ -1498,31 +1506,115 @@ def _trigger_incremental_index(config: Dict[str, Any]) -> None:
 # ─── V5+ Realm 維度：SessionEnd 自動歸類搬移 sweep ──────────────────────────
 
 
-def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """SessionEnd：掃全域 core atom，高信心 local 者自動搬到 _AIDocs/_atoms/（drift 補捉）。
+def _load_tool_module(filename: str, mod_name: str):
+    """以 spec_from_file_location 載 tools/ 下單檔模組（self-sufficient sys.path）。失敗→None。"""
+    try:
+        import importlib.util
+        p = CLAUDE_DIR / "tools" / filename
+        spec = importlib.util.spec_from_file_location(mod_name, p)
+        if spec is None or spec.loader is None:
+            return None
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    except Exception as e:
+        _atom_debug_error(f"realm:load_{mod_name}", e)
+        return None
 
-    這是「掛兩處」之二（之一＝server.js 新 atom 寫入時自動帶 realm）。非熱路徑。
-    安全網（計畫 R1）：classify_realm 零誤判 + 核心保護清單硬擋（protected→realm=core→不搬）
-      + atom-set-realm 原子搬（含 .access.json sidecar）/ 可 undo（--to-core 反向）。
-    永不靜默：搬移結果寫 marker，下個 SessionStart 一行提示「N 顆已自動歸 local，可 undo」。
-    只掃全域索引（realm 是 global-memory 概念）；已 local（path 前綴）者跳過。
-    回 list of {slug, domain, from, to}（空 list = 無搬移；8 顆 allowlist 搬完後通常恆空）。
+
+def _read_atom_excerpt(rel_path: str, limit: int = 800) -> str:
+    """讀 atom 內文摘要供 LLM 判定（utf-8-sig 容 BOM）。失敗→''。"""
+    try:
+        return (CLAUDE_DIR / rel_path).read_text(encoding="utf-8-sig")[:limit]
+    except OSError:
+        return ""
+
+
+def _trigger_sync_memory_index() -> None:
+    """搬移後 fire-and-forget 重產 MEMORY.md / _local_catalog.md / per-level _INDEX.md。
+
+    set_realm 只改 _atom_index.json，不重產 catalog；故搬移後須補觸發（對拍 server.js 行為）。
+    """
+    try:
+        import subprocess
+        subprocess.Popen(
+            [sys.executable, str(CLAUDE_DIR / "tools" / "sync-memory-index.py"), "--write"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(CLAUDE_DIR),
+        )
+    except Exception as e:
+        _atom_debug_error("realm:sync_index", e)
+
+
+def _scan_doc_refs(moved: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """搬移後掃**人面向說明文件**是否仍含舊 path/檔名引用（移檔非建檔特有；user 補充）。
+
+    回 {slug: [需同步的 rel 文件...]}。只掃 _AIDocs/（排除 atom 物理區 Failures/_atoms，
+    那裡的 slug 引用是 atom-atom Related、搬 path 不斷）＋根層 README/TECH。advisory only。
+    """
+    docs: List[Path] = []
+    aidocs = CLAUDE_DIR / "_AIDocs"
+    if aidocs.is_dir():
+        for p in aidocs.rglob("*.md"):
+            rel = p.relative_to(CLAUDE_DIR).as_posix()
+            if rel.startswith("_AIDocs/Failures/") or rel.startswith("_AIDocs/_atoms/"):
+                continue
+            docs.append(p)
+    for fn in ("README.md", "TECH.md"):
+        p = CLAUDE_DIR / fn
+        if p.exists():
+            docs.append(p)
+    cache = {}
+    for p in docs:
+        try:
+            cache[p] = p.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    refs: Dict[str, List[str]] = {}
+    for m in moved:
+        slug, frm = m.get("slug", ""), m.get("from", "")
+        fname = frm.rsplit("/", 1)[-1] if frm else f"{slug}.md"
+        hits = sorted({
+            p.relative_to(CLAUDE_DIR).as_posix()
+            for p, txt in cache.items() if (frm and frm in txt) or fname in txt
+        })
+        if hits:
+            refs[slug] = hits
+    return refs
+
+
+def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """SessionEnd：掃全域 core atom，自動歸 local（drift 補捉）。非熱路徑。
+
+    兩段判定：① 詞庫（deterministic，含 py-only learned 補 recall）命中 local → 搬；
+    ② 詞庫 miss 的「unknown core」（非 protected）→ 喚 LLM（計畫 Fail-safe 表）：
+      error（基礎設施失敗）→ defer 留原地（**防 Ollama 離線把全部掃進 Else**）；
+      core → 留；local≥門檻 → 搬 canon domain + 學詞；unsure/低信心 → Else。
+    安全網：核心保護硬擋（protected）永不喚 LLM、永不搬；set_realm 原子搬（含 .access.json）/
+      可 undo（--to-core）；max_per_session 限額；搬移寫 marker（含 via + doc-ref）不靜默。
+    回 list of {slug, domain, from, to, via}（空 = 無搬移）。
     """
     if classify_realm is None or is_local_realm_path is None or load_atom_index_json is None:
         return []
-    # 安全閥：使用者定案②為全自動，預設開；保留 config 關閉途徑（不新增 config.json 面）
-    if not config.get("realm", {}).get("auto_migrate", True):
+    realm_cfg = config.get("realm", {})
+    if not realm_cfg.get("auto_migrate", True):
         return []
 
+    llm_cfg = realm_cfg.get("llm_fallback", {})
+    llm_enabled = bool(llm_cfg.get("enabled", False))
+    max_llm = int(llm_cfg.get("max_per_session", 5))
+    min_conf = float(llm_cfg.get("min_confidence", 0.7))
+    learned = load_learned_lexicon() if load_learned_lexicon else {}
+    default_dom = LOCAL_REALM_DEFAULT_DOMAIN
+
     moved: List[Dict[str, Any]] = []
+    learned_add: Dict[str, str] = {}
+    llm_calls = 0
     try:
-        import importlib.util
-        tool_path = CLAUDE_DIR / "tools" / "atom-set-realm.py"
-        spec = importlib.util.spec_from_file_location("atom_set_realm", tool_path)
-        if spec is None or spec.loader is None:
+        mod = _load_tool_module("atom-set-realm.py", "atom_set_realm")
+        if mod is None:
             return []
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        llm_mod = _load_tool_module("realm_llm_classify.py", "realm_llm_classify") if llm_enabled else None
+        existing_paths = list(enumerate_local_paths(MEMORY_DIR)) if enumerate_local_paths else []
 
         data = load_atom_index_json(MEMORY_DIR)
         for a in data.get("atoms", []):
@@ -1530,20 +1622,56 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             path = a.get("path", "")
             if not name or is_local_realm_path(path):
                 continue  # 已 local，跳過（idempotent）
-            rc = classify_realm(name, a.get("triggers", []))
-            if rc.get("realm") != "local":
-                continue  # core / protected → 不搬（安全預設）
-            res = mod.set_realm(name, domain=rc.get("domain"))
+            rc = classify_realm(name, a.get("triggers", []), extra_lexicon=learned or None)
+
+            target_dom: Optional[str] = None
+            via: Optional[str] = None
+            if rc.get("realm") == "local":
+                target_dom, via = rc.get("domain"), "lex"
+            elif rc.get("protected"):
+                continue  # 核心保護硬擋：永不喚 LLM、永不搬
+            elif llm_mod is not None and llm_calls < max_llm:
+                llm_calls += 1
+                lr = llm_mod.llm_classify_realm(
+                    name, a.get("triggers", []), _read_atom_excerpt(path), existing_paths, config)
+                realm = lr.get("realm")
+                if realm in ("error", "core"):
+                    continue  # 基礎設施失敗→defer / LLM 確信核心→留
+                if realm == "local" and lr.get("confidence", 0.0) >= min_conf:
+                    target_dom, via = lr.get("domain_path") or default_dom, "LLM"
+                    for t in lr.get("terms", []):
+                        learned_add[t] = target_dom
+                    if target_dom:  # 新分支同 session 後續可複用
+                        existing_paths = sorted(set(existing_paths) | {target_dom})
+                else:  # unsure / 低信心 local → catch-all
+                    target_dom, via = default_dom, "Else"
+            else:
+                continue  # LLM 未啟用 / 額度用罄 → 留 core（defer）
+
+            if not target_dom:
+                continue
+            res = mod.set_realm(name, domain=target_dom)
             if res.get("ok") and not res.get("noop"):
                 moved.append({
-                    "slug": name, "domain": rc.get("domain"),
+                    "slug": name, "domain": target_dom, "via": via,
                     "from": res.get("from"), "to": res.get("to"),
                 })
     except Exception as e:
         _atom_debug_error("realm:auto_sweep", e)
 
+    # 收尾：學詞回寫 → marker（含 via + doc-ref）→ 補觸發 catalog 重產
+    if learned_add and append_learned_terms:
+        try:
+            append_learned_terms(learned_add)
+        except Exception as e:
+            _atom_debug_error("realm:learned_append", e)
+
     if moved:
-        # 累加寫入 marker（多次 SessionEnd 未被讀清前合併），SessionStart 一次提示 + 清空
+        doc_refs = {}
+        try:
+            doc_refs = _scan_doc_refs(moved)
+        except Exception as e:
+            _atom_debug_error("realm:doc_ref_scan", e)
         try:
             REALM_AUTOMOVE_MARKER.parent.mkdir(parents=True, exist_ok=True)
             existing: List[Dict[str, Any]] = []
@@ -1554,11 +1682,15 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                         existing = prev
                 except (OSError, json.JSONDecodeError):
                     existing = []
-            existing.extend(moved)
+            payload = list(moved)
+            if doc_refs:  # 附在首筆，SessionStart 統一呈現
+                payload[0] = {**payload[0], "doc_refs": doc_refs}
+            existing.extend(payload)
             REALM_AUTOMOVE_MARKER.write_text(
                 json.dumps(existing, ensure_ascii=False), encoding="utf-8")
         except OSError as e:
             _atom_debug_error("realm:automove_marker", e)
+        _trigger_sync_memory_index()
     return moved
 
 
