@@ -1537,9 +1537,12 @@ def _trigger_sync_memory_index() -> None:
     """
     try:
         import subprocess
+        # Windows: 不帶 CREATE_NO_WINDOW 會讓 fire-and-forget 子行程另開可見 console 視窗
+        _no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         subprocess.Popen(
             [sys.executable, str(CLAUDE_DIR / "tools" / "sync-memory-index.py"), "--write"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(CLAUDE_DIR),
+            creationflags=_no_window,
         )
     except Exception as e:
         _atom_debug_error("realm:sync_index", e)

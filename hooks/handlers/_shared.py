@@ -28,6 +28,9 @@ from wg_core import (
 )
 from wg_extraction import _is_lease_valid, _set_lease
 
+# Windows: 外呼 python/git 等 console 程式時若不帶此 flag，無主控台的 hook 父行程會被配一個可見 console 視窗
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # ─── module-level regex / 常數 ───────────────────────────────────────────────
 
 _SUPERSEDES_RE = re.compile(r"^- Supersedes:\s*(.+)", re.MULTILINE)
@@ -117,6 +120,7 @@ def _call_project_hook(project_root: Path, action: str, context: Dict[str, Any])
             capture_output=True,
             text=True,
             timeout=5,
+            creationflags=_NO_WINDOW,
         )
         if result.returncode == 0 and result.stdout.strip():
             return json.loads(result.stdout)

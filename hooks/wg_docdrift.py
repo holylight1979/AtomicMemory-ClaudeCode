@@ -22,6 +22,9 @@ if _HOOKS_DIR not in sys.path:
 
 from wg_core import _now_iso
 
+# Windows: 外呼 git 時若不帶此 flag，無主控台的 hook 父行程會被配一個可見 console 視窗
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
 # ─── Defaults ───────────────────────────────────────────────────────────────
 
 _DEFAULT_EXCLUDES = [
@@ -135,6 +138,7 @@ def _git_dirty_files(project_root: str) -> Optional[set]:
             capture_output=True,
             text=True,
             timeout=3,
+            creationflags=_NO_WINDOW,
         )
         if result.returncode != 0:
             return None
