@@ -214,5 +214,17 @@
       "slow": { "env_chance": 0.01, "pair_chance": 0.05, "dev_step": 1.2 },
       "fast": { "env_chance": 0.55, "pair_chance": 0.75, "dev_step": 6.0 }
     }
+  },
+  "auto_handoff": {
+    "_doc": "Auto-Handoff 自動無損交接（plans/wise-wobbling-gem.md）。PreCompact 壓縮前自動備六區塊 stub 到 _staging（核心保底，不依賴 token 量測）；PostToolBatch 壓縮後注入提示叫模型補全主觀區塊。token_warn 系列為 Phase 2 Stop 預警旗標。enabled=false 一鍵全關回現狀。",
+    "enabled": true,
+    "precompact_stub": true,
+    "postbatch_emit": true,
+    "token_warn": true,
+    "token_warn_ratio": 0.85,
+    "context_window_tokens": 200000,
+    "context_base_overhead_tokens": 15000,
+    "sessionend_fallback": true,
+    "stub_filename": "next-phase-auto.md"
   }
 }
