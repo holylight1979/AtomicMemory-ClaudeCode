@@ -557,6 +557,22 @@
         "Remove-Item hook"
       ],
       "scope": "global"
+    },
+    {
+      "name": "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags",
+      "path": "_AIDocs/_atoms/OS/Windows/windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags.md",
+      "triggers": [
+        "閃 console",
+        "console 視窗",
+        "hook 閃窗",
+        "pythonw",
+        "CREATE_NO_WINDOW",
+        "Windows hook",
+        "settings.json hook",
+        "GUI subsystem",
+        "視窗標題"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -37,3 +37,4 @@
 | 腦內世界-環境演化-放置式架構 | _AIDocs/_atoms/World/腦內世界-環境演化-放置式架構.md | 腦內世界, 環境演化, world-dev, world.html, 放置, env-layer, 風格演化, 零影響隔離 | global |
 | realm-範疇分區機制-v5 | memory/realm-範疇分區機制-v5.md | realm, 範疇分區, 核心非核心, local atom, _AIDocs/_atoms, 注入閘門, atom 物理位置, promote fallback, wg_core bootstrap, 記憶系統 | global |
 | wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除 | _AIDocs/_atoms/OS/Windows/WSL/wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除.md | WSL, WSL2, WSL1, 0x80070569, ERROR_LOGON_TYPE_NOT_GRANTED, 以服務方式登入, SeServiceLogonRight, Log on as a service, S-1-5-83-0, 網域GPO, vhdx, ext4, 7z救援, OOBE卡住, Provisioning卡住, wsl移除, unregister, Remove-Item hook | global |
+| windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags | _AIDocs/_atoms/OS/Windows/windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags.md | 閃 console, console 視窗, hook 閃窗, pythonw, CREATE_NO_WINDOW, Windows hook, settings.json hook, GUI subsystem, 視窗標題 | global |
