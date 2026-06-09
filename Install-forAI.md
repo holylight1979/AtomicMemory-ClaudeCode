@@ -279,7 +279,7 @@ cd ~/.claude && git pull
 - [ ] `tools/codex-companion/audit.py` 存在；`tools/codex-companion/service.py` 已刪
 - [ ] `memory/_meta/forbidden-phrases.json` 存在
 - [ ] `workflow/config.json` 含 `vector_search.global_layer="bm25"` + `codex_companion.subprocess_timeout`
-- [ ] `tools/workflow-guardian-mcp/server.js` 暴露 3 tool（非 V4 的 7 tool）
+- [ ] `tools/workflow-guardian-mcp/server.js` 暴露 4 tool（atom_write/move/promote/edit_meta；非 V4 的 7 tool）
 
 > 多職務團隊：專案執行 `/init-roles` 建立 `memory/shared/_roles.md` + `role/{name}/` 目錄。
 
