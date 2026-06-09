@@ -32,7 +32,7 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"$HOME/.claude/hooks/user-init.sh\"", "timeout": 3 },
+          { "type": "command", "command": "pythonw \"$HOME/.claude/hooks/run-bash-hidden.py\" user-init.sh", "timeout": 5 },
           { "type": "command", "command": "pythonw -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"", "timeout": 5 },
           { "type": "command", "command": "pythonw -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/ensure-mcp.py'),run_name='__main__')\"", "timeout": 5 },
           { "type": "command", "command": "pythonw -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"", "timeout": 5 }
@@ -51,7 +51,7 @@
       {
         "matcher": "WebFetch",
         "hooks": [
-          { "type": "command", "command": "bash \"$HOME/.claude/hooks/webfetch-guard.sh\"", "timeout": 20 }
+          { "type": "command", "command": "pythonw \"$HOME/.claude/hooks/run-bash-hidden.py\" webfetch-guard.sh", "timeout": 20 }
         ]
       },
       {
