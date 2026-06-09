@@ -31,7 +31,8 @@
 **(b) AI 逃避通報**：本次有/沒有 忽略 / 偷埋的現象。**僅在發生時寫**。
 （防 AI 在大量回應中偷埋不易察覺的內文；自評可疑必寫）
 
-**(c) Token 累積警示**：本 session token 已巨量、可能處理失真時,附新 session 接續 prompt。**僅在實際發生時寫**。
+**(c) Token 累積警示**：見 hook `[Auto-Handoff]` 程式化預警則判斷是否已處理失真，是則附新 session 接續 prompt（壓縮真發生時系統自動備 stub 保底）。**僅在實際發生時寫**。
+（語意判斷層保留；程式化量測在 `wg_handoff.token_warn_payload` + stop.py Layer 1，文字與 stop.py ScanReport gate (c) 同步）
 
 **(d) 衍生暫存清單**：本次衍生暫存檔/資料夾,預設**直接刪**；user 要求保留者標示「保留？」。**必寫**,無則「無」。
 （判定見 [[feedback-completion-gates]]）
