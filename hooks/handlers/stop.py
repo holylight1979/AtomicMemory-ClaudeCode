@@ -24,6 +24,7 @@ from wg_evasion import (
     get_current_turn_text,
 )
 from wg_episodic import _find_session_transcript
+from wg_handoff import token_warn_payload
 from wg_extraction import _maybe_spawn_per_turn_extraction
 from handlers._shared import (
     _maybe_spawn_user_extract_worker,
@@ -228,12 +229,25 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     last_text = ""
     cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
     transcript = _find_session_transcript(session_id, cwd) if cwd else None
+
+    # ── Layer 1: token 預警 proxy（piggyback 既有 block，不獨立打斷）──────
+    # 早段算一次預警句（純函式、無副作用）；於下方各 gate 將 output_block(reason)
+    # 前用 _piggyback append。token_warn_emitted 旗標只在「實際 append」時才標，
+    # 並隨該 gate 的 write_state 固化（一次性、整 session 一次）。詳見
+    # plans/wise-wobbling-gem.md Layer 1 與 Q3 門檻取捨。
+    _token_warn = token_warn_payload(state, config, transcript)
+
+    def _piggyback(reason: str) -> str:
+        if _token_warn:
+            state["token_warn_emitted"] = True
+            return reason + _token_warn
+        return reason
+
     if failing:
         last_text = get_last_assistant_text(transcript)
         if claims_completion(last_text):
             state["stop_blocked_count"] = stop_count + 1
-            write_state(session_id, state)
-            reason = (
+            reason = _piggyback(
                 f"[Guardian:TestFailGate] 測試未綠（{len(failing)} 項失敗），"
                 "不得宣告完成。\n"
                 + "\n".join(
@@ -244,6 +258,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 + "\n選 (a) 修復 (b) 明確說明為何不修並標記為已知 regression "
                 "(c) 降級任務定義。不得籠統帶過。"
             )
+            write_state(session_id, state)
             output_block(reason)
             return
 
@@ -266,16 +281,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if detect_missing_scan_report(last_text, len(mod_files_all), recent_prompts):
             state["stop_blocked_count"] = stop_count + 1
             state["scan_report_warned"] = True
-            write_state(session_id, state)
-            reason = (
+            reason = _piggyback(
                 "[Guardian:ScanReport] 宣告完成但未提交收尾檢核，違反 IDENTITY「反退避契約」。\n"
                 "依格式強制，報告尾端**全項檢視**（非擇一）：\n"
                 "  (a) 缺失發現與修補清單：`- 檔:行 — 改了什麼`；無則明寫「無」。**必寫**\n"
                 "  (b) AI 逃避通報：本次有/沒有 忽略 / 偷埋的現象。**僅在發生時寫**\n"
-                "  (c) Token 累積警示：本 session token 已巨量、可能處理失真時，附新 session 接續 prompt。**僅在發生時寫**\n"
+                "  (c) Token 累積警示：見 hook `[Auto-Handoff]` 程式化預警則判斷是否已處理失真，是則附新 session 接續 prompt。**僅在發生時寫**\n"
                 "  (d) 衍生暫存清單：本次衍生暫存檔/資料夾，預設直接刪。**必寫**，無則明寫「無」\n"
                 "請補上後再宣告完成；不得用「不在範圍 / 留給未來」籠統帶過。"
             )
+            write_state(session_id, state)
             output_block(reason)
             return
 
@@ -295,14 +310,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if uncommitted:
             state["sync_reminder_count"] = sr_count + 1
             state["stop_blocked_count"] = stop_count + 1
-            write_state(session_id, state)
             shown = uncommitted[:8]
             names = "\n".join(f"  - {p}" for p in shown)
             more = (
                 f"\n  ...（共 {len(uncommitted)} 檔，僅顯示前 8）"
                 if len(uncommitted) > 8 else ""
             )
-            reason = (
+            reason = _piggyback(
                 f"[Guardian:SyncReminder] 偵測到 {len(uncommitted)} 個已修改但"
                 "尚未提交的檔案，依 rules/core.md「完成修改後主動提出 "
                 ".git→commit+push」應提示同步。\n"
@@ -312,6 +326,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "  (b) 我不打算上 — 請說明原因（會跳過本次提醒）\n"
                 "  (c) 已在前一輪上過了 — git/svn clean 後本 gate 自動清旗標"
             )
+            write_state(session_id, state)
             output_block(reason)
             return
 
@@ -367,9 +382,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     state["stop_blocked_count"] = stop_count + 1
-    write_state(session_id, state)
-    _maybe_spawn_per_turn_extraction(session_id, state, config)
-    _maybe_spawn_user_extract_worker(session_id, state, config)
 
     file_names = ", ".join(f.rsplit("/", 1)[-1] for f in unique_files[:8])
 
@@ -388,5 +400,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 reason += f"\n[DocDrift] {len(dp)} source change(s) → consider updating: {', '.join(docs[:5])}"
         except Exception:
             pass
+
+    reason = _piggyback(reason)
+    write_state(session_id, state)
+    _maybe_spawn_per_turn_extraction(session_id, state, config)
+    _maybe_spawn_user_extract_worker(session_id, state, config)
 
     output_block(reason)

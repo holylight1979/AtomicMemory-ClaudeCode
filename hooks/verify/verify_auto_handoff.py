@@ -232,3 +232,90 @@ def test_reinjection_only_still_works(tmp_path, monkeypatch, capsys):
     assert "[Atom:alpha]" in ctx, "既有壓縮還原回歸：應注入 atom 內文"
     assert "Auto-Handoff" not in ctx, "無 handoff pending 時不應有 handoff 提示"
     assert set(holder["state"].get("injected_atoms", [])) == {"alpha"}, "未 merge 回 injected_atoms"
+
+
+# ─── Phase 2：estimate_context_usage（proxy 量測，僅觸發信號）─────────────────
+
+
+def test_estimate_context_usage_ratio(tmp_path):
+    """ratio = (_estimate_tokens(transcript 原文) + overhead) / window，自洽計算。"""
+    from wg_core import _estimate_tokens
+    text = "hello world 中文測試 " * 200
+    t = tmp_path / "t.jsonl"
+    t.write_text(text, encoding="utf-8")
+    expected = (_estimate_tokens(text) + 5000) / 100000
+    got = wh.estimate_context_usage(str(t), 100000, 5000)
+    assert abs(got - expected) < 1e-9, f"ratio 計算錯：{got} != {expected}"
+
+
+def test_estimate_context_usage_unmeasurable_returns_zero(tmp_path):
+    """無法量測（None / 不存在 / window 非正）一律回 0.0，自然落門檻下不誤觸發。"""
+    assert wh.estimate_context_usage(None, 200000, 15000) == 0.0
+    assert wh.estimate_context_usage(str(tmp_path / "missing.jsonl"), 200000, 15000) == 0.0
+    t = tmp_path / "z.jsonl"
+    t.write_text("x", encoding="utf-8")
+    assert wh.estimate_context_usage(str(t), 0, 15000) == 0.0, "window 非正應回 0"
+
+
+def test_estimate_context_usage_overhead_compensates(tmp_path):
+    """base_overhead 補 proxy 低估：補償量恰為 overhead/window。"""
+    t = tmp_path / "t.jsonl"
+    t.write_text("x", encoding="utf-8")
+    r0 = wh.estimate_context_usage(str(t), 100000, 0)
+    r1 = wh.estimate_context_usage(str(t), 100000, 20000)
+    assert r1 > r0, "base_overhead 應拉高 ratio"
+    assert abs((r1 - r0) - 0.2) < 1e-6, "補償量應 = overhead/window"
+
+
+# ─── Phase 2：token_warn_payload（門檻 / 一次性 / disabled）───────────────────
+
+
+def _ah_cfg(**over):
+    ah = {
+        "enabled": True, "token_warn": True, "token_warn_ratio": 0.85,
+        "context_window_tokens": 200000, "context_base_overhead_tokens": 15000,
+    }
+    ah.update(over)
+    return {"auto_handoff": ah}
+
+
+def _transcript(tmp_path, text="x"):
+    t = tmp_path / "tr.jsonl"
+    t.write_text(text, encoding="utf-8")
+    return str(t)
+
+
+def test_token_warn_payload_above_threshold(tmp_path):
+    # window=10k + overhead=9k → ratio≈0.9 > 0.85，即使 transcript 極小也達標
+    cfg = _ah_cfg(context_window_tokens=10000, context_base_overhead_tokens=9000)
+    out = wh.token_warn_payload({}, cfg, _transcript(tmp_path))
+    assert out, "達門檻應回預警句"
+    assert "Auto-Handoff" in out and "/handoff" in out, "預警句應引導主動 handoff"
+
+
+def test_token_warn_payload_below_threshold(tmp_path):
+    cfg = _ah_cfg(context_window_tokens=10_000_000, context_base_overhead_tokens=0)  # ratio≈0
+    assert wh.token_warn_payload({}, cfg, _transcript(tmp_path)) is None, "未達門檻不應警"
+
+
+def test_token_warn_payload_one_time(tmp_path):
+    cfg = _ah_cfg(context_window_tokens=10000, context_base_overhead_tokens=9000)
+    assert wh.token_warn_payload({"token_warn_emitted": True}, cfg, _transcript(tmp_path)) is None, \
+        "已提醒過（一次性）不應再警"
+
+
+def test_token_warn_payload_disabled(tmp_path):
+    over = {"context_window_tokens": 10000, "context_base_overhead_tokens": 9000}
+    tr = _transcript(tmp_path)
+    assert wh.token_warn_payload({}, _ah_cfg(enabled=False, **over), tr) is None, \
+        "auto_handoff.enabled=false 不應警"
+    assert wh.token_warn_payload({}, _ah_cfg(token_warn=False, **over), tr) is None, \
+        "token_warn=false 不應警"
+
+
+def test_token_warn_payload_pure_no_side_effect(tmp_path):
+    """純函式契約：不可自設 token_warn_emitted（旗標由 stop.py append 時才標）。"""
+    cfg = _ah_cfg(context_window_tokens=10000, context_base_overhead_tokens=9000)
+    st = {}
+    wh.token_warn_payload(st, cfg, _transcript(tmp_path))
+    assert "token_warn_emitted" not in st, "token_warn_payload 不應有副作用設旗標"

@@ -12,15 +12,18 @@ Phase 1 提供：
 - build_handoff_stub(state, cwd): 生成六區塊 stub（客觀區塊自動填 + 主觀區塊 TODO 佔位）
 - should_write_stub(staging_dir, state, stub_filename): 無既有手寫 next-phase*.md
   + 有未完成工作才自動補（不覆蓋更佳的手寫版）
-（estimate_context_usage 於 Phase 2 加入，供 Stop token 預警）
+
+Phase 2 提供（供 Stop Layer 1 token 預警，piggyback 既有 block）：
+- estimate_context_usage(transcript, window, overhead): proxy context 佔用比率（僅信號）
+- token_warn_payload(state, config, transcript): 純函式決策是否回預警句（無副作用）
 """
 
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from wg_core import _now_iso
+from wg_core import _estimate_tokens, _now_iso
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
@@ -145,3 +148,64 @@ def build_handoff_stub(state: Dict[str, Any], cwd: str) -> str:
 ---
 > 補全後可直接續工；或人工檢視後刪除。標準接續：下個 session 打 `/continue`。
 """
+
+
+# ─── Phase 2: Stop token 預警（Layer 1，piggyback 既有 block）─────────────────
+
+
+def estimate_context_usage(
+    transcript_path: Any,
+    window_tokens: int = 200000,
+    base_overhead: int = 15000,
+) -> float:
+    """proxy context 佔用比率（0.0 起；可能 >1.0）。
+
+    讀 transcript jsonl 原文 → `_estimate_tokens`（複用 wg_core）→ 加 `base_overhead`
+    補償後 / `window_tokens`。base_overhead 補 transcript 漏算的常駐開銷（system
+    prompt / 工具定義 / CLAUDE.md imports / 注入 atom，~10–15k）。
+
+    ⚠️ **僅觸發信號、非硬決策**：transcript 只記對話 events，proxy 傾向**低估**
+    真實 context window 佔用；補償後仍是估值。回 `0.0` 表無法量測（transcript
+    不存在 / 讀取失敗 / window 非正）→ 自然落在門檻下、不誤觸發。核心保底
+    （PreCompact 自動 stub）完全不依賴本量測，proxy 不準不影響正確性。
+    """
+    if not transcript_path or window_tokens <= 0:
+        return 0.0
+    try:
+        text = Path(transcript_path).read_text(encoding="utf-8", errors="ignore")
+    except (OSError, ValueError):
+        return 0.0
+    if not text:
+        return 0.0
+    tokens = _estimate_tokens(text) + max(0, int(base_overhead))
+    return tokens / window_tokens
+
+
+def token_warn_payload(
+    state: Dict[str, Any], config: Dict[str, Any], transcript_path: Any,
+) -> Optional[str]:
+    """Layer 1 預警句決策（**純函式、無副作用**，方便單元測試）。
+
+    回非空字串 = 應 piggyback 到既有 Stop block 的 reason 末尾；回 None = 不警。
+    一次性（token_warn_emitted）/ config 開關（enabled、token_warn）/ 門檻
+    （token_warn_ratio）全在此判定。**不設旗標**——旗標由呼叫端在「實際 append
+    到會 output_block 的 reason」時才標，避免 warning 未顯示就被當成已發。
+    """
+    ah = config.get("auto_handoff", {}) or {}
+    if not ah.get("enabled", True) or not ah.get("token_warn", True):
+        return None
+    if state.get("token_warn_emitted"):
+        return None
+    ratio = estimate_context_usage(
+        transcript_path,
+        ah.get("context_window_tokens", 200000),
+        ah.get("context_base_overhead_tokens", 15000),
+    )
+    if ratio < float(ah.get("token_warn_ratio", 0.85)):
+        return None
+    pct = int(ratio * 100)
+    return (
+        f"\n[Auto-Handoff] context 估佔 ~{pct}%（proxy，傾向低估），接近自動壓縮點。"
+        "建議主動 `/handoff` 備妥六區塊交接、或開新 session 前先存檔（壓縮真發生時"
+        "系統會自動備 stub 保底）。是否已『處理失真』由你語意判斷。"
+    )
