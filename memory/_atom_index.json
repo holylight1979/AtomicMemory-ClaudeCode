@@ -573,6 +573,21 @@
         "視窗標題"
       ],
       "scope": "global"
+    },
+    {
+      "name": "a執p-自執驗上p-自動完工協議",
+      "path": "memory/a執p-自執驗上p-自動完工協議.md",
+      "triggers": [
+        "A執P",
+        "自執驗上P",
+        "Auto執驗上P",
+        "自動執驗上P",
+        "全自動完工",
+        "自動推進",
+        "auto-handoff",
+        "自動交接"
+      ],
+      "scope": "global"
     }
   ]
 }

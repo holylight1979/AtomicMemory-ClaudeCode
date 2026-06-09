@@ -29,6 +29,7 @@ sys.path.insert(0, str(CLAUDE / "lib"))
 
 import handlers.pre_compact as prc  # noqa: E402
 import handlers.post_tool_batch as ptb  # noqa: E402
+import handlers.session_end as se  # noqa: E402
 import wg_handoff as wh  # noqa: E402
 
 STUB_NAME = "next-phase-auto.md"
@@ -319,3 +320,72 @@ def test_token_warn_payload_pure_no_side_effect(tmp_path):
     st = {}
     wh.token_warn_payload(st, cfg, _transcript(tmp_path))
     assert "token_warn_emitted" not in st, "token_warn_payload 不應有副作用設旗標"
+
+
+# ─── Phase 3：Layer 4 SessionEnd 兜底 ────────────────────────────────────────
+
+
+def _setup_session_end(tmp_path, monkeypatch, state):
+    """neutralize SessionEnd 重型協作者（worker/評估/episodic/conflict/索引/子程序），
+    只留 Layer 4 邏輯與 state I/O。回 (holder, staging)。"""
+    import types
+    staging = tmp_path / "_staging"
+    holder = {"state": state}
+    monkeypatch.setattr(se, "_ensure_state", lambda sid, inp, cfg: holder["state"])
+    monkeypatch.setattr(se, "write_state", lambda sid, st: holder.__setitem__("state", st))
+    monkeypatch.setattr(se, "resolve_staging_dir", lambda cwd: staging)
+    monkeypatch.setattr(se, "get_project_memory_dir", lambda cwd: None)
+    monkeypatch.setattr(se, "_cleanup_old_states", lambda: None)
+    monkeypatch.setattr(se, "_spawn_extract_worker", lambda ctx: 0)
+    monkeypatch.setattr(se, "_maybe_spawn_user_extract_worker", lambda sid, st, cfg: False)
+    monkeypatch.setattr(se, "_collect_iteration_metrics", lambda st: {})
+    monkeypatch.setattr(se, "_detect_oscillation", lambda st, cfg: [])
+    monkeypatch.setattr(se, "_save_oscillation_state", lambda x: None)
+    monkeypatch.setattr(se, "_self_iterate_atoms", lambda st, cfg: {})
+    monkeypatch.setattr(se, "_sweep_realm_auto_migrate", lambda cfg: [])
+    monkeypatch.setattr(se, "_detect_atom_conflicts", lambda st, cfg: [])
+    monkeypatch.setattr(se, "_trigger_incremental_index", lambda cfg: None)
+    monkeypatch.setattr(se, "DOCDRIFT_AVAILABLE", False)
+    monkeypatch.setattr(se, "WISDOM_AVAILABLE", False)
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    return holder, staging
+
+
+def test_sessionend_writes_stub_when_work(tmp_path, monkeypatch):
+    """有未完成工作 + 無既有手寫 handoff + sessionend_fallback 預設開 → 寫客觀 stub。
+    session 已結束、無 PostToolBatch 可消費 → 不設 pending_handoff_emit。"""
+    holder, staging = _setup_session_end(tmp_path, monkeypatch, _state())
+    _run(se.handle_session_end, {"session_id": "test-sid"}, {})
+    stub = staging / STUB_NAME
+    assert stub.exists(), "SessionEnd 兜底未寫 stub"
+    body = stub.read_text(encoding="utf-8")
+    assert "feat-x" in body and "TODO(模型補全)" in body, "stub 缺客觀填入 / TODO 佔位"
+    st = holder["state"]
+    assert st.get("handoff_stub_path") == str(stub)
+    assert st.get("handoff_stub_at")
+    assert st.get("pending_handoff_emit") is not True, "SessionEnd 不應設 pending_handoff_emit"
+
+
+def test_sessionend_fallback_disabled_no_stub(tmp_path, monkeypatch):
+    holder, staging = _setup_session_end(tmp_path, monkeypatch, _state())
+    _run(se.handle_session_end, {"session_id": "test-sid"},
+         {"auto_handoff": {"sessionend_fallback": False}})
+    assert not (staging / STUB_NAME).exists(), "sessionend_fallback=false 不應寫 stub"
+
+
+def test_sessionend_respects_handwritten(tmp_path, monkeypatch):
+    state = _state()
+    holder, staging = _setup_session_end(tmp_path, monkeypatch, state)
+    staging.mkdir(parents=True, exist_ok=True)
+    (staging / "next-phase-myfeature.md").write_text("手寫 handoff", encoding="utf-8")
+    _run(se.handle_session_end, {"session_id": "test-sid"}, {})
+    assert not (staging / STUB_NAME).exists(), "有手寫 next-phase*.md 時不應自動補 stub"
+
+
+def test_sessionend_no_work_no_stub(tmp_path, monkeypatch):
+    holder, staging = _setup_session_end(tmp_path, monkeypatch, _state(mod=[]))
+    _run(se.handle_session_end, {"session_id": "test-sid"}, {})
+    assert not (staging / STUB_NAME).exists(), "無 modified_files 不應寫 stub"

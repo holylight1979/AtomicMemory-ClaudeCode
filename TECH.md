@@ -56,6 +56,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── wg_docdrift.py                              ← src → _AIDocs 映射 drift
 │   ├── wg_roles.py                                 ← shim：V4 sub-layer 探勘
 │   ├── wg_atom_observation.py                      ← shim：REG-005 觀察採樣（flag-gated）
+│   ├── wg_handoff.py                               ← Auto-Handoff 四層自動交接（stub/門檻/token 預警）
 │   ├── wisdom_engine.py                            ← 反思引擎 + Fix Escalation
 │   ├── codex_companion.py                          ← V5 P5b 重寫為 subprocess 模型
 │   ├── extract-worker.py / quick-extract.py / user-extract-worker.py
@@ -299,7 +300,7 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 dispatcher → V5：
 
 - **主模組（6）**：wg_core / wg_atoms / wg_extraction / wg_episodic / wg_evasion / wg_docdrift
 - **Shim（2）**：wg_roles / wg_atom_observation
-- **獨立保留**：wisdom_engine / codex_companion / extract-worker / quick-extract / user-extract-worker
+- **獨立保留**：wisdom_engine / codex_companion / extract-worker / quick-extract / user-extract-worker / wg_handoff（2026-06-09 新增，Auto-Handoff 跨 session 交接，被 pre_compact/post_tool_batch/stop/session_end 共用）
 - **Dispatcher**：`dispatcher.py`（~75 行純路由）+ `handlers/` 10 個 event handler 各一檔（含選配 #4 的 post_compact / post_tool_batch）
 - **`workflow-guardian.py`**：1 行 shim 轉發到 `dispatcher.main()`
 

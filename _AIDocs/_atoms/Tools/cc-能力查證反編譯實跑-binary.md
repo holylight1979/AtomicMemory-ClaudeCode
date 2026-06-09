@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: CC 版本, hook event, 查證, 反編譯, claude binary, docs 幻覺, 版本分裂, WebFetch, capability, PostCompact, PostToolBatch
 - Created-at: 2026-06-01
-- Related: toolchain, feedback-tooling-reliability, cognitive-patterns
+- Related: toolchain, feedback-tooling-reliability, cognitive-patterns, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags
 
 ## 知識
 

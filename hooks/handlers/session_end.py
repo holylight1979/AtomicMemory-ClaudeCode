@@ -21,6 +21,7 @@ from wg_atoms import (
 )
 from wg_extraction import _spawn_extract_worker
 from wg_episodic import _detect_atom_conflicts, _generate_episodic_atom
+from wg_handoff import build_handoff_stub, should_write_stub
 from wg_evasion import (
     evaluate_session,
     _collect_iteration_metrics, _detect_oscillation, _save_oscillation_state,
@@ -166,6 +167,32 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
 
     cwd = state.get("session", {}).get("cwd", "")
     staging_dir = resolve_staging_dir(cwd)
+
+    # ── Layer 4: Auto-Handoff SessionEnd 兜底 ──
+    # 補「PreCompact 沒觸發、session 直接結束」缺口：有未完成工作且無既有 handoff 時，
+    # 寫客觀 stub 供下個 session /continue。session 已結束、無壓縮上下文壓力 → 只填客觀
+    # 區塊、主觀照 TODO 佔位（不設 pending_handoff_emit，已無 PostToolBatch 可消費）。
+    # should_write_stub 的 modified_files 檢查與 sync_pending 同源（post_tool_use.py:168
+    # 兩者一併設、session 內不清），已涵蓋 plan line 79「modified_files + sync_pending」。
+    # 寫在 staging reminder 前，使其計入下方暫存檔提示。fail-open 不影響收尾主流程。
+    ah = config.get("auto_handoff", {}) or {}
+    if ah.get("enabled", True) and ah.get("sessionend_fallback", True):
+        try:
+            stub_name = ah.get("stub_filename", "next-phase-auto.md")
+            if should_write_stub(staging_dir, state, stub_name):
+                staging_dir.mkdir(parents=True, exist_ok=True)
+                (staging_dir / stub_name).write_text(
+                    build_handoff_stub(state, cwd), encoding="utf-8"
+                )
+                state["handoff_stub_path"] = str(staging_dir / stub_name)
+                state["handoff_stub_at"] = _now_iso()
+                print(
+                    f"[auto-handoff] sessionend fallback stub: {staging_dir / stub_name}",
+                    file=sys.stderr,
+                )
+        except Exception as e:
+            print(f"[auto-handoff] sessionend fallback error: {e}", file=sys.stderr)
+
     if staging_dir.exists():
         staging_files = list(staging_dir.glob("*.md"))
         if staging_files:

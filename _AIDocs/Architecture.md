@@ -16,10 +16,10 @@
 | `PreCompact` | Context 壓縮前 | 快照 state + 快照 `injected_atoms`（`pre_compact_injected_atoms`，供壓縮後內文復原，不受 SessionStart(compact) 清空順序影響）+ **Auto-Handoff Layer 2**：壓縮前自動寫六區塊 stub 到 `_staging`（核心保底，不依賴 token 量測） |
 | `PostCompact` | Context 壓縮後 | 依 PreCompact 快照 stash 已注入 atom 的緊湊內文 + 設 `pending_reinjection` flag（**本身不注入**，PostCompact 不支援 additionalContext） |
 | `PostToolBatch` | 一批（含並行）工具全解析後，每批一次 | idle 時極輕 early-exit；見 flag 時一次性 `additionalContext` 重注入壓縮前 atom 內文 + 清 flag + 名單 merge 回 `injected_atoms`（閉 mid-turn auto-compact 失憶缺口，選配 #4）；**Auto-Handoff Layer 3**：與 `pending_reinjection` blob 合流注入 stub 補全提示 |
-| `Stop` | 對話結束前 | Sync 閘門 + Fix Escalation + TestFailGate（阻擋完成宣告）+ Evasion Detection |
+| `Stop` | 對話結束前 | Sync 閘門 + Fix Escalation + TestFailGate（阻擋完成宣告）+ Evasion Detection + **Auto-Handoff Layer 1**：proxy ratio≥門檻時 piggyback 既有 block 附 token 預警（一次性，不額外打斷） |
 | `Stop (async)` | 對話結束後 | V3 quick-extract：qwen3:1.7b 5s 快篩 → hot_cache.json |
 | `SessionStart` | Session 開始 | 初始化 state + 去重 + Wisdom 盲點 + 定期檢閱 + 專案自治層 delegate |
-| `SessionEnd` | Session 結束 | Episodic 生成 + 回應萃取 + 鞏固 + 衝突偵測 + Wisdom 反思 |
+| `SessionEnd` | Session 結束 | Episodic 生成 + 回應萃取 + 鞏固 + 衝突偵測 + Wisdom 反思 + **Auto-Handoff Layer 4**：session 直接結束（非壓縮）兜底寫客觀 stub（補 PreCompact 未觸發缺口） |
 
 ### Hook 模組拆分（V5 6+2 主模組）
 
@@ -32,8 +32,8 @@
 | `handlers/user_prompt_submit.py` | UPS：RECALL trigger 注入（trigger → BM25 全域層 → Vector fallback）+ intent + evasion + budget |
 | `handlers/pre_tool_use.py` | PreToolUse：Write/Edit atom format gate + memory path block + Bash SVN test block |
 | `handlers/post_tool_use.py` | PostToolUse：file tracking + 增量索引 + read tracking + test-fail 偵測 + changelog auto-roll |
-| `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection |
-| `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + docdrift advisory |
+| `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection + Auto-Handoff Layer 1（token 預警 piggyback 既有 block） |
+| `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + docdrift advisory + Auto-Handoff Layer 4（SessionEnd 兜底寫客觀 stub） |
 | `handlers/pre_compact.py` | PreCompact：state snapshot + `injected_atoms` 快照 + Auto-Handoff Layer 2（壓縮前自動寫六區塊 stub） |
 | `handlers/post_compact.py` | PostCompact：依快照複用 `wg_atoms.load_atoms_within_budget` stash 壓縮前 atom 緊湊內文 + `pending_reinjection` flag（不注入；選配 #4） |
 | `handlers/post_tool_batch.py` | PostToolBatch：idle early-exit；見 flag 一次性 `additionalContext` 重注入 + 清 flag + 名單 merge 回 `injected_atoms`（選配 #4）+ Auto-Handoff Layer 3（合流注入 stub 補全提示） |
@@ -45,7 +45,7 @@
 | `wg_evasion.py` | Evasion Guard + Test-Fail + ScanReport + 4 套自評整合（合 wg_session_evaluator + wg_iteration 自評部分） |
 | `wg_docdrift.py` | src → _AIDocs 映射 drift 偵測 |
 | `wg_roles.py` | V4 sub-layer 探勘 shim（V4 角色機制） |
-| `wg_handoff.py` | **Auto-Handoff**（2026-06-09，跨 session 無損交接）：`build_handoff_stub` 六區塊 stub（客觀區塊自動填 git/files/atoms + 主觀區塊 TODO 佔位）+ `should_write_stub`（不覆蓋手寫 handoff）；被 `pre_compact`(Layer 2)/`post_tool_batch`(Layer 3) 共用。Phase 2 加 `estimate_context_usage`（Stop token 預警）。設計：`plans/wise-wobbling-gem.md` |
+| `wg_handoff.py` | **Auto-Handoff**（2026-06-09，跨 session 無損交接）：`build_handoff_stub` 六區塊 stub（客觀區塊自動填 git/files/atoms + 主觀區塊 TODO 佔位）+ `should_write_stub`（不覆蓋手寫 handoff）+ `estimate_context_usage`/`token_warn_payload`（Phase 2 Stop Layer 1 token 預警，純函式無副作用）。被 `pre_compact`(L2)/`post_tool_batch`(L3)/`stop`(L1)/`session_end`(L4) 共用（L4 為 Phase 3 SessionEnd 兜底）。設計：`plans/wise-wobbling-gem.md` |
 | **獨立保留** | |
 | `wisdom_engine.py` | 反思引擎 + Fix Escalation |
 | `codex_companion.py` | **V5 P5b 重寫**：HTTP daemon → subprocess（in-process state + spawn `tools/codex-companion/audit.py`） |
@@ -54,6 +54,22 @@
 | `quick-extract.py` | Stop async 快篩 |
 
 > V4.1 終態的 16 個 `wg_*.py` + 2651 行 dispatcher 歸檔在 [`DevHistory/v4-archive/`](DevHistory/v4-archive/)（19 檔），含演化對照表。
+
+### Auto-Handoff 四層自動交接（2026-06-09）
+
+大型工項跨 session 時，原本只靠使用者記得手動 `/handoff` 才有六區塊交接；context 自動壓縮或 token 將盡而未先 handoff → 下個 session「裸奔」失真。核心模組 `wg_handoff.py`，四層協作（皆包 `config.auto_handoff.*` 開關、fail-open、`enabled=false` 一鍵全關回現狀）：
+
+| 層 | Hook | 角色 | 觸發信號 |
+|----|------|------|---------|
+| **Layer 2** 核心保底 | `PreCompact` | 壓縮真發生時 `should_write_stub` 通過 → `build_handoff_stub` 寫客觀 stub 到 `resolve_staging_dir`，設 `pending_handoff_emit` | 壓縮事件（**不依賴 token 量測**，最可靠） |
+| **Layer 3** 品質補全 | `PostToolBatch` | 壓縮後首批工具呼叫見 `pending_handoff_emit` → 與 `pending_reinjection` blob **合流**注入提示叫模型補全主觀 TODO 區塊 + 清 flag | `pending_handoff_emit` |
+| **Layer 1** 提前預警 | `Stop` | `token_warn_payload` 算 proxy ratio≥`token_warn_ratio`(預設 0.85) → piggyback 既有 block 附 token 預警（一次性 `token_warn_emitted`，零額外打斷） | proxy ratio（transcript 估值 + overhead 補償，傾向低估，僅信號） |
+| **Layer 4** 直結兜底 | `SessionEnd` | session 直接結束（非壓縮）、有未完成工作且無既有 handoff → 補寫客觀 stub（不設 `pending_handoff_emit`，已無 PostToolBatch 可消費） | `should_write_stub`（modified_files；與 `sync_pending` 同源） |
+
+- **stub 六區塊**：前置脈絡/已完成/權威來源/產出位置（客觀，自動填 git branch+commit / modified+accessed files / injected atoms / knowledge_queue）+ 做法/決策依據/why（主觀，留 `TODO(模型補全)` 佔位）。第一行為 `/continue` 選單摘要、檔名 `next-phase-auto.md`（/continue glob `next-phase*.md` 涵蓋）。
+- **state 欄位**（additive，舊 state 讀不到當 False）：`pending_handoff_emit` / `handoff_stub_path` / `handoff_stub_at` / `token_warn_emitted`。
+- **IDENTITY 收尾 (c) 串接**：Layer 1 程式化 token 量測取代「純 AI 自估」；見 `[Auto-Handoff]` 預警則由 AI 語意判斷是否已處理失真（語意層保留，見 `stop.py` ScanReport gate (c) 文字）。
+- **Phase 4（未做，獨立於 hook）**：`claude -p "/continue"` headless watcher 外部編排自動 spawn 新 session，含 guard（最大連續數/預算/人工確認/kill switch）。設計與可行性邊界見 `plans/wise-wobbling-gem.md`。
 
 ### 輔助 Hook 腳本
 
