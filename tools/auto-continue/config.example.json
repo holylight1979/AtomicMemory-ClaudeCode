@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "claude_bin": null,
+  "permission_mode": "bypassPermissions",
+  "model": null,
+  "extra_args": [],
+  "poll_interval_sec": 5.0,
+  "idle_timeout_sec": 60.0,
+  "stub_stable_sec": 3.0,
+  "spawn_timeout_sec": 1800.0,
+  "max_consecutive_spawns": 5,
+  "budget_usd": 5.0,
+  "confirm_every_n": 0,
+  "confirm_timeout_sec": 300.0,
+  "kill_switch": "STOP",
+  "watch_dir": null,
+  "dry_run": false
+}

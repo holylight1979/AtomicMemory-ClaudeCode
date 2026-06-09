@@ -10,3 +10,9 @@
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
 | electron-uia-automation | Electron app UI 自動化三層障礙 |
 | gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
+
+## 子層
+
+| 子層 | atom 數 | 深入 |
+|------|---------|------|
+| 自動化流程與協議 | 1 | `_AIDocs/_atoms/Tools/自動化流程與協議/a執p-自執驗上p-自動完工協議.md` |

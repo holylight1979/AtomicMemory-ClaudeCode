@@ -9,6 +9,7 @@ fixed = [
     ROOT / "hooks" / "verify",
     ROOT / "tools" / "verify",
     ROOT / "tools" / "codex-companion" / "verify",
+    ROOT / "tools" / "auto-continue" / "verify",
     ROOT / "lib" / "verify",
 ]
 skills = ROOT / "skills"

@@ -82,6 +82,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── changelog-roll.py / check-bypass.py / journal-aggregate.py
 │   ├── generate-episodic-manual.py / rag-engine.py / unity-yaml-tool.py
 │   ├── read-excel.py / sprite_contact_sheet.py
+│   ├── auto-continue/                              ← Auto-Handoff Phase 4 watcher（PoC·實驗性）：claude -p /continue 外部編排 + 4 guard
 │   ├── codex-companion/                            ← V5：assessor/heuristics/prompts/scorer/state + audit.py(subprocess)
 │   ├── gdoc-harvester/                             ← 網頁收割
 │   ├── memory-vector-service/                     ← HTTP Vector @ :3849（專案層仍用）
@@ -133,8 +134,8 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── DevHistory/                                ← 版本演進 + V5 升版完整紀錄（v5-overhaul-2026-05/）
 │   ├── DocIndex-System.md / known-regressions.md / Project_File_Tree.md
 │
-├── hooks/verify/ tools/verify/ lib/verify/         ← 26 個 verify_*.py（H-test-prune 後 verify 化）
-│   tools/codex-companion/verify/                   ← 跑 `python run_verify.py`（446 passed）
+├── hooks/verify/ tools/verify/ lib/verify/         ← 28 個 verify_*.py（H-test-prune 後 verify 化）
+│   tools/codex-companion/verify/ auto-continue/verify/ ← 跑 `python run_verify.py`（491 passed）
 ├── skills/{name}/verify/                           ← 17 個空結構（候選見 _staging/next-phase-skills-verify.md）
 │
 └── {project_root}/.claude/                         ← 專案自治層（每專案獨立）

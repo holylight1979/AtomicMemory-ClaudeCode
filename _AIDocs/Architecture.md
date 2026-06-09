@@ -69,7 +69,7 @@
 - **stub 六區塊**：前置脈絡/已完成/權威來源/產出位置（客觀，自動填 git branch+commit / modified+accessed files / injected atoms / knowledge_queue）+ 做法/決策依據/why（主觀，留 `TODO(模型補全)` 佔位）。第一行為 `/continue` 選單摘要、檔名 `next-phase-auto.md`（/continue glob `next-phase*.md` 涵蓋）。
 - **state 欄位**（additive，舊 state 讀不到當 False）：`pending_handoff_emit` / `handoff_stub_path` / `handoff_stub_at` / `token_warn_emitted`。
 - **IDENTITY 收尾 (c) 串接**：Layer 1 程式化 token 量測取代「純 AI 自估」；見 `[Auto-Handoff]` 預警則由 AI 語意判斷是否已處理失真（語意層保留，見 `stop.py` ScanReport gate (c) 文字）。
-- **Phase 4（未做，獨立於 hook）**：`claude -p "/continue"` headless watcher 外部編排自動 spawn 新 session，含 guard（最大連續數/預算/人工確認/kill switch）。設計與可行性邊界見 `plans/wise-wobbling-gem.md`。
+- **Phase 4（PoC 完成，獨立於 hook · 實驗性 · 非正式上線）**：`tools/auto-continue/auto_continue.py` 外部編排 watcher——監看 `resolve_staging_dir` 的 `next-phase*.md` → 起 headless `claude -p "/continue"` 自動接續 → 完工寫新 stub → 遞迴。四道 guard（`max_consecutive_spawns` / `budget_usd` 累計成本 / `confirm_every_n` 人工確認 / `kill_switch` flag）＋ single-stub 不變式（多 stub 時 headless `/continue` 會選單卡死 → 停手）。**已實證**（VSCode 擴充套件 binary 2.1.169）：`claude -p "/continue" --output-format json` 在隔離空目錄回 `is_error:false`/exit 0、`result` 為 /continue skill 0-stub 原文 → headless 確實執行 slash-command skill（依 atom [[cc-能力查證反編譯實跑-binary]]，binary 字串表 + 實跑雙查證）。spawn 接 stdin DEVNULL 避 3s 卡。設計與可行性邊界見 `plans/wise-wobbling-gem.md` line 50-58/81-82；用法/風險見 `tools/auto-continue/README.md`。
 
 ### 輔助 Hook 腳本
 
