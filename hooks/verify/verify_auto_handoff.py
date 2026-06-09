@@ -1,4 +1,4 @@
-"""verify_auto_handoff.py — Auto-Handoff 自動無損交接守門（Phase 1，2026-06-09）.
+"""verify_auto_handoff.py — Auto-Handoff 自動無損交接守門（Phase 1-3，2026-06-09）.
 
 守住 plans/wise-wobbling-gem.md 的不變式：
 1. **PreCompact 自動 stub**：壓縮前 build_handoff_stub 寫入 resolve_staging_dir，設
@@ -10,6 +10,10 @@
    合進同一 additionalContext，不互搶。
 5. **should_write_stub**：有手寫 next-phase*.md 則不覆蓋；自身 auto stub 可更新；無工作不寫。
 6. **行為相容**：auto_handoff.enabled=false 不介入；既有壓縮還原 / idle early-exit 不變。
+7. **Phase 2 Layer 1（Stop token 預警）**：estimate_context_usage proxy ratio 計算 + 無法
+   量測回 0.0 + overhead 補償；token_warn_payload 門檻/一次性/disabled/純函式無副作用。
+8. **Phase 3 Layer 4（SessionEnd 兜底）**：session 直接結束有工作且無手寫 handoff 時寫客觀
+   stub（不設 pending_handoff_emit）；sessionend_fallback=false 不寫；尊重手寫；無工作不寫。
 
 受控 tmp staging + monkeypatch state I/O + resolve_staging_dir + _git，不依賴磁碟/真實 git。
 """
