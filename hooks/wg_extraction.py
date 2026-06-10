@@ -112,6 +112,22 @@ def _count_new_assistant_chars(transcript_path, byte_offset: int) -> int:
 # ─── Worker Spawning ─────────────────────────────────────────────────────────
 
 
+def _gui_python() -> str:
+    """回傳 GUI-subsystem pythonw（無 console 視窗）；找不到退回 sys.executable。
+
+    坑：hermes venv 的 pythonw 是 **console-subsystem**（uv venv trampoline 會 re-exec
+    成 base python.exe），spawn 出來會閃黑窗；且 `CREATE_NO_WINDOW | DETACHED_PROCESS`
+    組合在 console 子行程上不保證壓窗。故改用穩定的 uv default-shim GUI pythonw
+    （`AppData\\Local\\Python\\bin\\pythonw.exe`，路徑無版本號→ uv 升級不破）。
+    與 settings.json hook interpreter 同源；見 atom
+    windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags。"""
+    if sys.platform == "win32":
+        cand = Path.home() / "AppData" / "Local" / "Python" / "bin" / "pythonw.exe"
+        if cand.exists():
+            return str(cand)
+    return sys.executable
+
+
 def _spawn_extract_worker(ctx_dict: dict) -> int:
     """Spawn extract-worker.py as detached subprocess. Returns PID or 0."""
     import subprocess as _sp
@@ -131,7 +147,7 @@ def _spawn_extract_worker(ctx_dict: dict) -> int:
         try:
             json_ctx = json.dumps(ctx_dict, ensure_ascii=False)
             proc = _sp.Popen(
-                [sys.executable, str(worker_path)],
+                [_gui_python(), str(worker_path)],
                 stdin=_sp.PIPE,
                 stdout=_sp.DEVNULL,
                 stderr=worker_log_fh,

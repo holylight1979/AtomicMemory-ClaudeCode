@@ -1,24 +1,25 @@
-# Windows CC hook 閃 console — pythonw 修 layer-1，勿只補巢狀 creationflags
+# windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags
 
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: 閃 console, console 視窗, hook 閃窗, pythonw, CREATE_NO_WINDOW, Windows hook, settings.json hook, GUI subsystem, 視窗標題
+- Trigger: 閃 console, console 視窗, hook 閃窗, MCP 閃窗, 黑窗, pythonw, venv pythonw, CREATE_NO_WINDOW, Windows hook, settings.json hook, GUI subsystem, subsystem, 視窗標題, WindowsTerminal, Embedding, console host, run-hidden, GetStdHandle, STARTUPINFO, MCP server 閃窗
 - Created-at: 2026-06-09
-- Related: feedback-workflow-discipline, cc-能力查證反編譯實跑-binary, cognitive-patterns
+- Related: feedback-memory-system-doc-sync, cc-能力查證反編譯實跑-binary, cognitive-patterns, feedback-tooling-reliability
 
 ## 知識
 
-- [臨] **Windows 下 Claude Code hook 每輪閃一個 console 空視窗 = hook 解譯器自身（layer 1）被配 console，不是 hook 內部 subprocess（layer 2）。** GUI 行程（claude.exe，無主控台）spawn console-subsystem 子行程（python.exe）且未帶 CREATE_NO_WINDOW 時，Windows 會替它另配一個可見 console。hook 的 `command` 由 claude.exe spawn，console 在我方 script 任何程式碼執行『前』就配好了 → 在 script 內補 `creationflags` 改不到自己父行程的視窗。
-- [臨] **診斷鐵律：先認 layer——看閃窗的視窗標題＝正在跑的執行檔路徑。** 標題是 `python.exe`/解譯器 → layer 1（interpreter）；是 `git.exe`/`svn.exe`/`node.exe` → layer 2（巢狀 subprocess）。本案標題 `…\AppData\Local\hermes\…\python.exe` 直指 layer 1，但前兩次修都補在 layer 2 的 git/svn status → 連兩次沒中（commit 1d73e55 自稱『根治』實為誤診）。輔證：grep 確認全 hook 巢狀 spawn 皆已帶 flag，仍閃 ⇒ 排除 layer 2，只可能 layer 1。
-- [臨] **修法：`settings.json` hook 指令 `python -c "…"` → `pythonw -c "…"`。** `pythonw.exe` 是 GUI-subsystem 解譯器，Windows 永不配 console；stdio pipe 仍通（hook 走 stdin/stdout JSON，claude 一律 pipe → 實測 round-trip exit0）。`pythonw.exe` 與作用中（venv）`python.exe` 同層、PATH 先命中。layer-2 的 `creationflags=CREATE_NO_WINDOW` 保留＝互補非取代（Unix no-op）。settings 改動下個 session 生效。
-- [臨] **殘留 / 限制**：`bash …user-init.sh`(SessionStart)、`webfetch-guard.sh`(WebFetch) 仍是 console-subsystem，只在 session 起始 / WebFetch 時閃（非每輪）；無 `bashw` 變體，要根治需用 `pythonw -c "subprocess.run(['bash',…], creationflags=0x08000000)"` 包裹。**可攜性**：`pythonw` 為 Windows-only，若 settings.json 跨 macOS/Linux 共用會炸（無 pythonw）——本機 settings.json 無 template、判定為個人檔故直接硬改。
-- [臨] **bash hook 的閃窗不能只拿 `pythonw` 包同樣手法。** `bash.exe`＝console-subsystem 且無 `bashw` 變體。實測 4 組：① bash + `CREATE_NO_WINDOW` + **繼承**原生 pipe stdin → MSYS2 `cat` 讀不到（exit 1、無 I/O）；② `C:\Program Files\Git\bin\bash.exe`（啟動器）連 echo 都敗；③✅ stdio 走 temp file；④✅ python 全中介 `input=`/`PIPE`。可行解必用 `C:\Program Files\Git\usr\bin\bash.exe`（真 bash）。**原因**：MSYS bash 無主控台時讀不了繼承來的原生 Windows pipe；讓 python 代理 pipe I/O 則正常。
-- [臨] **修法：`hooks/run-bash-hidden.py` 中介啟動器。** `settings.json` 改 `pythonw "$HOME/.claude/hooks/run-bash-hidden.py" <script.sh>`；pythonw（無窗）跑啟動器→自讀 stdin→managed pipe 餵 `usr\bin\bash.exe`（`CREATE_NO_WINDOW`）→擷取 stdout/stderr 回吐→透傳 exit code；basename 防穿越、bash 缺失/infra 錯 fail-open(exit0)。適用於任何需隱窗跑 bash hook 的場合。
-- [臨] **關鍵驗證：MSYS bash 以 `CREATE_NO_WINDOW` 起動時，其子孫原生 console 程式（python/curl）亦不配 console。** 探針：pythonw→bash(NO_WINDOW)→`python -c "ctypes.windll.kernel32.GetConsoleWindow()"` 回 **0**（無 console）、`curl_ran=0`。所以包 bash 的 hook（如 webfetch-guard 內部叫 python+curl）不會因子行程而殘闃。
+- [臨] **黑窗真身＝`WindowsTerminal.exe -Embedding`（Win11『預設終端機=Windows Terminal』的 console host 視窗）。** `claude.exe`（GUI、無 console）spawn 任何 **console-subsystem** 子行程（node/cmd/uvx/python.exe/**含某些 pythonw**）且未帶 `CREATE_NO_WINDOW` → Windows 替它彈一個 host 窗，標題＝被托管 exe 的 image 路徑（故看到 `C:\Users\…\AppData\Local\…python.exe`）。**不只 hook——MCP server、worker subprocess 亦然**；與 hook 機制無關，所以光改 hook 永遠改不掉。
+- [臨] **致命坑（推翻舊認知）：bare `pythonw` 不一定是 GUI。** 本機 `pythonw` 經 PATH 命中 **hermes uv-venv 的 `Scripts\pythonw.exe`，其 PE subsystem＝3(Console)**——uv venv 的 pythonw 是 trampoline，會 re-exec 成 base `python.exe`（console）→ 早年「`python -c`→`pythonw -c`」的 layer-1『真修』被它沖掉、照閃。**鐵律：用前驗 PE subsystem**（讀 bytes：DOS@0x3C 取 PE 偏移；`Subsystem` 在 PE+0x5C；**2=GUI 永不配 console、3=Console**）。只認 subsystem=2 的 pythonw。
+- [臨] **真修 A（hook 解譯器）：settings.json 全 hook 的 bare `pythonw` → 真 GUI pythonw 完整路徑。** 本機穩定選擇＝uv default-shim `C:\Users\holylight\AppData\Local\Python\bin\pythonw.exe`（subsystem=2、**路徑無版本號** → uv 升級 python 版本不破；反之 venv 與 `…\cpython-3.11.x-…` 路徑會易變）。實證：GUI pythonw 在 claude 重導向下 `sys.stdin/stdout` **仍可用**（hook JSON 收發正常）、可 import 全部 hook 模組（純 stdlib+local、無 venv 套件依賴）→ 換置安全。settings 改動下個 session 生效。
+- [臨] **真修 B（MCP server／任何 claude-spawn 的 stdio console 子行程）：包 `hooks/run-hidden.py`。** 形式 `<GUI-pythonw> run-hidden.py <真 exe> <args>`。**坑**：pythonw 下 `sys.std*`＝None、**裸繼承不會把 claude 的 MCP pipe 接力給子行程**（實測 stdin/stdout 雙向皆斷、node EPIPE）。故 run-hidden 用 **ctypes `GetStdHandle` 取 OS 標準handle → `subprocess.STARTUPINFO` + `STARTF_USESTDHANDLES` 直接交給子行程 ＋ `CREATE_NO_WINDOW`**（真透傳、免 byte-pump）。套法 `claude mcp add NAME -s user [-e K=V] -- <GUI-pythonw> run-hidden.py node <server.js>`；驗證＝`claude mcp list` 全 √Connected ＋ trace 零彈窗。
+- [臨] **真修 C（layer-2 worker spawn）**：hook 內 `subprocess.Popen([sys.executable,…], creationflags=CREATE_NO_WINDOW|DETACHED_PROCESS)` 仍會閃——`sys.executable` 在 venv trampoline 下＝console `python.exe`，且 `CREATE_NO_WINDOW|DETACHED_PROCESS` 組合在 console 子行程**不保證**壓窗。改用 GUI pythonw spawn（subsystem=2 永不配窗、flags 變 moot）。`wg_extraction._spawn_extract_worker` 已改 `_gui_python()`（回穩定 GUI pythonw，找不到退回 sys.executable）。其餘 spawner（codex/ensure-mcp/wg_atoms/wg_docdrift）已帶 `CREATE_NO_WINDOW` 且 trace 未見閃，暫不動。
+- [臨] **診斷鐵律 + 工具**：先看**視窗標題＝執行檔路徑**認 layer/來源（python.exe→解譯器；node/cmd/uvx→MCP；git/svn→巢狀）。`tools/console-window-trace.ps1`：列舉全機 console-class 視窗、抓『新建 ∨ 隱藏→可見』翻轉＋完整父鏈，記 `Logs/console-window-trace.log`（抓 transient 黑窗）。`Get-CimInstance Win32_Process` 比對 `ParentProcessId` 追鏈、抓 console-subsystem 新生行程命令列。**WT host 窗的 owner＝WindowsTerminal 本身**（被托管行程經 ConPTY 連、非父子）→ 認來源靠『時間相關 + 新生 console 行程命令列』，非視窗 owner。
+- [臨] **bash hook**：`bash.exe` 是 console-subsystem 且無 `bashw` 變體 → 用 `hooks/run-bash-hidden.py`（GUI pythonw 跑啟動器→ python 全中介 pipe I/O 餵 `usr\bin\bash.exe` `CREATE_NO_WINDOW`；MSYS bash 讀不了繼承的原生 pipe 故須 python proxy，與 node 可直接吃 handle 不同）。SessionStart/WebFetch 兩 bash hook 適用。
 
 ## 行動
 
-- Windows hook 閃 console：先看視窗標題認 layer，再決定改哪裡
-- interpreter 級閃窗（標題=python.exe）→ settings.json 改 pythonw，勿只補巢狀 creationflags
-- 巢狀 subprocess 閃窗（標題=git/node 等）→ 該 subprocess.run/Popen 補 creationflags=CREATE_NO_WINDOW
+- Windows hook/MCP 閃黑窗：先用 console-window-trace.ps1 認標題/layer/來源，勿假設是 hook
+- 選 pythonw 前**驗 PE subsystem（PE+0x5C：2=GUI）**——bare pythonw 可能是 venv console trampoline；用真 GUI pythonw 完整路徑（穩定選 AppData\Local\Python\bin\pythonw.exe）
+- MCP server／stdio console 子行程閃窗 → 包 run-hidden.py（GUI pythonw + ctypes GetStdHandle/STARTUPINFO 直傳 + CREATE_NO_WINDOW）；裸繼承在 pythonw 下會斷 stdio
+- 改 hook 解譯器/worker spawn 後驗證：subsystem=2 + GUI pythonw 重導向 stdio 通 + import 全模組 OK + claude mcp list 全 Connected + trace 零彈窗

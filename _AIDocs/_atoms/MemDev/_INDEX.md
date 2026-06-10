@@ -12,4 +12,4 @@
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| MemoryIndex | 1 | `_AIDocs/_atoms/MemDev/MemoryIndex/memory-index-caption-regen.md` |
+| MemoryIndex | 2 | `_AIDocs/_atoms/MemDev/MemoryIndex/_INDEX.md` |

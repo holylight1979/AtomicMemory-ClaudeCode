@@ -11,6 +11,8 @@
     "自執驗上p": "Tools/自動化流程與協議",
     "auto-handoff": "Tools/自動化流程與協議",
     "全自動完工": "Tools/自動化流程與協議",
-    "自動推進": "Tools/自動化流程與協議"
+    "自動推進": "Tools/自動化流程與協議",
+    "promote fallback": "MemDev/MemoryIndex",
+    "注入閘門": "MemDev/MemoryIndex"
   }
 }

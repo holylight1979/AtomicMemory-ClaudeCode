@@ -518,7 +518,7 @@
     },
     {
       "name": "realm-範疇分區機制-v5",
-      "path": "memory/realm-範疇分區機制-v5.md",
+      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/realm-範疇分區機制-v5.md",
       "triggers": [
         "realm",
         "範疇分區",
@@ -565,12 +565,23 @@
         "閃 console",
         "console 視窗",
         "hook 閃窗",
+        "MCP 閃窗",
+        "黑窗",
         "pythonw",
+        "venv pythonw",
         "CREATE_NO_WINDOW",
         "Windows hook",
         "settings.json hook",
         "GUI subsystem",
-        "視窗標題"
+        "subsystem",
+        "視窗標題",
+        "WindowsTerminal",
+        "Embedding",
+        "console host",
+        "run-hidden",
+        "GetStdHandle",
+        "STARTUPINFO",
+        "MCP server 閃窗"
       ],
       "scope": "global"
     },
