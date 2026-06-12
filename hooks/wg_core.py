@@ -920,12 +920,41 @@ def check_svn_test_block(
     )
 
 
-# ─── Cross-Realm Write Guard（方案甲 2026-06-12）─────────────────────────────
-# 守門對象：~/.claude 核心層（skills/tools/hooks/lib/rules）。
-# 判別子＝session cwd：外部專案 session 寫核心層 → deny（SGI 跨層污染教訓）；
-# ~/.claude 自身的開發 session 完全不受影響。deterministic、零 LLM。
+# ─── Cross-Realm Write Guard（方案甲 2026-06-12；v1.1 同日擴充）──────────────
+# 守門對象：~/.claude 核心層（skills/tools/hooks/lib/rules 子目錄 + 根層敏感檔
+# settings.json/CLAUDE.md/IDENTITY*.md/USER*.md）+ Bash `claude mcp add/remove`
+# 全域 scope 操作。判別子＝session cwd：外部專案 session → deny（SGI 跨層污染
+# 教訓）；~/.claude 自身的開發 session 完全不受影響。deterministic、零 LLM。
 
 _CORE_GUARDED_SUBDIRS = ("skills", "tools", "hooks", "lib", "rules")
+_CORE_GUARDED_ROOT_FILES = ("settings.json", "claude.md", "user.md")  # lower
+_MCP_MUTATE_RE = re.compile(
+    r"\bclaude(?:\.exe|\.cmd)?\s+mcp\s+(add(?:-json|-from-claude-desktop)?|remove)\b",
+    re.IGNORECASE,
+)
+_MCP_SCOPE_USER_RE = re.compile(r"(?:-s|--scope)[\s=]+user\b", re.IGNORECASE)
+_MCP_SCOPE_PROJECT_LOCAL_RE = re.compile(
+    r"(?:-s|--scope)[\s=]+(?:project|local)\b", re.IGNORECASE)
+
+
+def _is_core_session(cwd: str) -> Optional[bool]:
+    """cwd 是否落在 ~/.claude 下。None＝無法判定（caller fail-open）。"""
+    if not cwd:
+        return None
+    home_claude = (Path.home() / ".claude").resolve()
+    try:
+        cwd_p = Path(cwd).resolve()
+    except (OSError, ValueError):
+        return None
+    return cwd_p == home_claude or home_claude in cwd_p.parents
+
+
+def _is_root_sensitive_name(name_lower: str) -> bool:
+    return (
+        name_lower in _CORE_GUARDED_ROOT_FILES
+        or (name_lower.startswith("identity") and name_lower.endswith(".md"))
+        or (name_lower.startswith("user-") and name_lower.endswith(".md"))
+    )
 
 
 def check_cross_realm_write(
@@ -947,30 +976,80 @@ def check_cross_realm_write(
         rel = fp.relative_to(home_claude)
     except (OSError, ValueError):
         return None  # 目標不在 ~/.claude 下 → 與本閘無關
-    if not rel.parts or rel.parts[0].lower() not in _CORE_GUARDED_SUBDIRS:
+    if not rel.parts:
         return None
-    try:
-        cwd_p = Path(cwd).resolve()
-        if cwd_p == home_claude or home_claude in cwd_p.parents:
-            return None  # 核心開發 session（cwd ∈ ~/.claude）放行
-    except (OSError, ValueError):
-        return None  # cwd 無法解析 → fail-open
+    top = rel.parts[0].lower()
+    is_core_subdir = top in _CORE_GUARDED_SUBDIRS
+    # v1.1 ①：根層敏感檔（settings.json 可注入任意 hook 指令，比 skills 更敏感）
+    is_root_sensitive = len(rel.parts) == 1 and _is_root_sensitive_name(top)
+    if not is_core_subdir and not is_root_sensitive:
+        return None
+    if _is_core_session(cwd) is not False:
+        return None  # 核心開發 session 放行；無法判定 → fail-open
     fp_norm = str(fp).replace("\\", "/").lower()
     for pat in g.get("allowlist", []) or []:
         if pat and str(pat).replace("\\", "/").lower() in fp_norm:
             return None
+    target_desc = (
+        f"~/.claude/{rel.parts[0]}/" if is_core_subdir
+        else f"核心根層敏感檔 ~/.claude/{rel.parts[0]}"
+    )
     return (
         f"[Guardian:CrossRealmWriteBlock] 偵測到外部專案 session 寫入核心層 "
-        f"~/.claude/{rel.parts[0]}/。\n"
+        f"{target_desc}。\n"
         f"路徑：{fp_str}\n"
         f"session cwd：{cwd}\n"
-        "核心層（skills/tools/hooks/lib/rules）只接受 ~/.claude session 的修改。\n"
+        "核心層（skills/tools/hooks/lib/rules + settings.json/CLAUDE.md/"
+        "IDENTITY*.md/USER*.md）只接受 ~/.claude session 的修改。\n"
         "正確做法：\n"
         "  (1) 專案專屬 skill/tool → 寫到 {專案根}/.claude/skills/ 或 "
         ".claude/tools/（Claude Code 原生支援專案層疊加）\n"
         "  (2) 暫存產物（截圖/log/dump）→ 寫到專案目錄或系統 temp\n"
         "  (3) user 明確要求改核心層 → 請在 ~/.claude 開 session 操作，或於 "
         "workflow/config.json guard.cross_realm_write.allowlist 加入路徑"
+    )
+
+
+def check_cross_realm_mcp_cmd(
+    tool_name: str, tool_input: Dict[str, Any], cwd: str,
+    config: Dict[str, Any],
+) -> Optional[str]:
+    """v1.1 ②：外部專案 session 的 Bash `claude mcp add/remove` 全域 scope → deny。
+
+    deny 條件：add 帶 `-s/--scope user`（寫 ~/.claude.json 全域區）、或 remove
+    未限定 `-s project|local`（可能移除全域 server）。project/local scope 放行
+    （效果限於該專案）。core session / cwd 無法判定 → fail-open。
+    """
+    if tool_name != "Bash":
+        return None
+    g = (config.get("guard") or {}).get("cross_realm_write") or {}
+    if not g.get("enabled", True):
+        return None
+    cmd = tool_input.get("command", "") or ""
+    m = _MCP_MUTATE_RE.search(cmd)
+    if not m:
+        return None
+    if _is_core_session(cwd) is not False:
+        return None
+    sub = m.group(1).lower()
+    if sub.startswith("add"):
+        if not _MCP_SCOPE_USER_RE.search(cmd):
+            return None  # 預設 local / 顯式 project|local：效果限本專案，放行
+        reason = "add 帶 `-s user`（寫入全域 ~/.claude.json mcpServers）"
+    else:  # remove
+        if _MCP_SCOPE_PROJECT_LOCAL_RE.search(cmd):
+            return None
+        reason = "remove 未限定 `-s project|local`（可能移除全域 server）"
+    return (
+        f"[Guardian:CrossRealmMcpBlock] 偵測到外部專案 session 的全域 MCP 變更：\n"
+        f"指令：{cmd[:200]}\n"
+        f"session cwd：{cwd}\n"
+        f"攔截原因：{reason}。\n"
+        "正確做法：\n"
+        "  (1) 專案要用的 MCP → `claude mcp add <name> -s project ...`"
+        "（寫專案 .mcp.json，可版控共享）\n"
+        "  (2) 確要全域註冊/移除 → 請在 ~/.claude 開 session 操作，"
+        "或 config guard.cross_realm_write.enabled=false 暫關本閘"
     )
 
 

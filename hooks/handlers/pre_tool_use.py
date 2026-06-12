@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 from wg_core import (
     output_json, output_nothing,
     check_memory_path_block, check_svn_test_block,
-    check_cross_realm_write,
+    check_cross_realm_write, check_cross_realm_mcp_cmd,
     _atom_debug_log,
 )
 from wg_atoms import build_injection_blob
@@ -194,9 +194,12 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
-    # Phase 3b（方案甲 2026-06-12）：外部專案 session 寫核心層 → deny
-    deny_reason = check_cross_realm_write(
-        tool_name, tool_input, input_data.get("cwd", "") or "", config,
+    # Phase 3b（方案甲 2026-06-12；v1.1 含根層敏感檔 + Bash 全域 MCP 變更）：
+    # 外部專案 session 寫核心層 / 全域 MCP add/remove → deny
+    _cwd = input_data.get("cwd", "") or ""
+    deny_reason = (
+        check_cross_realm_write(tool_name, tool_input, _cwd, config)
+        or check_cross_realm_mcp_cmd(tool_name, tool_input, _cwd, config)
     )
     if deny_reason:
         output_json({

@@ -19,7 +19,7 @@ from pathlib import Path
 HOOKS_DIR = Path(__file__).resolve().parent.parent  # hooks/verify/ → hooks/
 sys.path.insert(0, str(HOOKS_DIR))
 
-from wg_core import check_cross_realm_write  # noqa: E402
+from wg_core import check_cross_realm_write, check_cross_realm_mcp_cmd  # noqa: E402
 
 HOME_CLAUDE = Path.home() / ".claude"
 PROJ = "C:/FakeProj/game-x" if sys.platform == "win32" else "/tmp/fakeproj/game-x"
@@ -117,3 +117,85 @@ def test_missing_guard_config_defaults_enabled():
     msg = check_cross_realm_write(
         "Write", _w(HOME_CLAUDE / "rules" / "evil.md"), PROJ, {})
     assert msg and "CrossRealmWriteBlock" in msg
+
+
+# ─── v1.1 ①：根層敏感檔 ─────────────────────────────────────────────────────
+
+def test_root_sensitive_files_denied():
+    for fname in ("settings.json", "CLAUDE.md", "USER.md",
+                  "IDENTITY.md", "IDENTITY-holylight.md"):
+        msg = check_cross_realm_write("Write", _w(HOME_CLAUDE / fname), PROJ, CFG_ON)
+        assert msg and "CrossRealmWriteBlock" in msg, f"{fname} 該擋沒擋"
+
+
+def test_root_nonsensitive_file_allowed():
+    # 根層非敏感檔（如 README/TECH）不在守門清單
+    assert check_cross_realm_write(
+        "Write", _w(HOME_CLAUDE / "TECH.md"), PROJ, CFG_ON) is None
+
+
+def test_core_session_root_sensitive_allowed():
+    assert check_cross_realm_write(
+        "Write", _w(HOME_CLAUDE / "settings.json"), str(HOME_CLAUDE), CFG_ON) is None
+
+
+# ─── v1.1 ②：Bash 全域 MCP 變更 ──────────────────────────────────────────────
+
+def _b(cmd) -> dict:
+    return {"command": cmd}
+
+
+def test_mcp_add_user_scope_denied():
+    msg = check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp add foo -s user -- npx -y foo-server"), PROJ, CFG_ON)
+    assert msg and "CrossRealmMcpBlock" in msg
+
+
+def test_mcp_add_scope_eq_user_denied():
+    msg = check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp add-json foo --scope=user '{}'"), PROJ, CFG_ON)
+    assert msg and "CrossRealmMcpBlock" in msg
+
+
+def test_mcp_add_project_scope_allowed():
+    assert check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp add foo -s project -- npx foo"), PROJ, CFG_ON) is None
+
+
+def test_mcp_add_default_local_allowed():
+    # 預設 local scope 效果限本專案 → 放行
+    assert check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp add foo -- npx foo"), PROJ, CFG_ON) is None
+
+
+def test_mcp_remove_unscoped_denied():
+    msg = check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp remove foo"), PROJ, CFG_ON)
+    assert msg and "CrossRealmMcpBlock" in msg
+
+
+def test_mcp_remove_project_scope_allowed():
+    assert check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp remove foo -s local"), PROJ, CFG_ON) is None
+
+
+def test_mcp_list_allowed():
+    assert check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp list"), PROJ, CFG_ON) is None
+
+
+def test_mcp_core_session_allowed():
+    assert check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp add foo -s user -- npx foo"),
+        str(HOME_CLAUDE), CFG_ON) is None
+
+
+def test_mcp_disabled_config_allows():
+    cfg = {"guard": {"cross_realm_write": {"enabled": False}}}
+    assert check_cross_realm_mcp_cmd(
+        "Bash", _b("claude mcp remove foo"), PROJ, cfg) is None
+
+
+def test_mcp_non_bash_tool_ignored():
+    assert check_cross_realm_mcp_cmd(
+        "Write", {"file_path": "x"}, PROJ, CFG_ON) is None

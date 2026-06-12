@@ -78,7 +78,7 @@ Session Ready
 | handlers/_shared.py | — | 跨 handler 共用 helper |
 | handlers/session_start.py | — | init state + 去重 + bootstrap + Vector bg subprocess |
 | handlers/user_prompt_submit.py | — | RECALL（trigger → BM25 → Vector）+ intent + evasion |
-| handlers/pre_tool_use.py | — | Write/Edit atom format gate + memory path block + cross-realm write block（外部專案 session 禁寫核心層）+ Bash SVN test block |
+| handlers/pre_tool_use.py | — | Write/Edit atom format gate + memory path block + cross-realm write block（外部專案 session 禁寫核心層子目錄+根層敏感檔）+ Bash 全域 MCP 變更閘 + SVN test block |
 | handlers/post_tool_use.py | — | file tracking + 增量索引 + read tracking + test-fail + changelog auto-roll |
 | handlers/stop.py | — | sync 閘門 + Fix Escalation + TestFailGate + Evasion |
 | handlers/session_end.py | — | Episodic + 萃取 + 衝突偵測 + Wisdom 反思 |
