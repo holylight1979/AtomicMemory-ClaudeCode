@@ -602,7 +602,7 @@
     },
     {
       "name": "dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app",
-      "path": "memory/dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app.md",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app.md",
       "triggers": [
         "dotnet run 單檔",
         "file-based app",
@@ -649,7 +649,7 @@
     },
     {
       "name": "專案等級-mcpskillhookslog-不放全域根層",
-      "path": "memory/專案等級-mcpskillhookslog-不放全域根層.md",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/專案等級-mcpskillhookslog-不放全域根層.md",
       "triggers": [
         "建立skill",
         "建立mcp",

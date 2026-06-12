@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 閃 console, console 視窗, hook 閃窗, MCP 閃窗, 黑窗, pythonw, venv pythonw, CREATE_NO_WINDOW, Windows hook, settings.json hook, GUI subsystem, subsystem, 視窗標題, WindowsTerminal, Embedding, console host, run-hidden, GetStdHandle, STARTUPINFO, MCP server 閃窗
 - Created-at: 2026-06-09
-- Related: feedback-memory-system-doc-sync, cc-能力查證反編譯實跑-binary, cognitive-patterns, feedback-tooling-reliability
+- Related: feedback-memory-system-doc-sync, cc-能力查證反編譯實跑-binary, cognitive-patterns, feedback-tooling-reliability, feedback-workflow-discipline
 
 ## 知識
 

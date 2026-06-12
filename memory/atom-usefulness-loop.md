@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 效用閉環, usefulness, record_usefulness, atom 晉升, use 偵測, Wilson 下界, 慢衰減, Beta-Bernoulli, 注入使用結果, useful_hits, used_fail, 原子記憶開發
 - Created-at: 2026-06-01
-- Related: decisions, workflow-rules, feedback-memory-system-doc-sync, memory-pipeline-silent-failure-2026-05, atom-table-support, atom-元資料編輯與晉升閘真相
+- Related: decisions, workflow-rules, feedback-memory-system-doc-sync, memory-pipeline-silent-failure-2026-05, atom-table-support, atom-元資料編輯與晉升閘真相, confirmations-已退役-phase2-usefulness-接管晉升
 
 ## 知識
 

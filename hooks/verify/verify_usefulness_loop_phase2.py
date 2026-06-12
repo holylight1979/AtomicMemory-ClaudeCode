@@ -294,8 +294,13 @@ def test_hint_tier_pure_exposure_none():
 
 
 def test_ups_hint_is_usefulness_driven():
-    """UPS 注入提示改由效用 Wilson 下界驅動；stale ReadHits 晉升提示須完全退場。"""
-    src = (CLAUDE / "hooks" / "handlers" / "user_prompt_submit.py").read_text(encoding="utf-8")
+    """UPS 注入提示改由效用 Wilson 下界驅動；stale ReadHits 晉升提示須完全退場。
+
+    2026-06-12 熱點重構後注入段移至 handlers/ups_inject.py，orchestrator 一併掃描
+    確認 stale 邏輯沒有殘留在任何一邊。
+    """
+    src = (CLAUDE / "hooks" / "handlers" / "ups_inject.py").read_text(encoding="utf-8")
+    src += (CLAUDE / "hooks" / "handlers" / "user_prompt_submit.py").read_text(encoding="utf-8")
     assert "usefulness_hint_tier" in src, "UPS 未接 usefulness_hint_tier"
     assert "READHIT_THRESHOLDS" not in src, "UPS 應移除 ReadHits 晉升提示門檻字典"
     assert "ReadHits 已達" not in src, "UPS 應移除 stale ReadHits 晉升提示語"

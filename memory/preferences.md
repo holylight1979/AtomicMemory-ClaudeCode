@@ -5,7 +5,7 @@
 - Trigger: 偏好, 風格, 習慣, 語言, 回應, 執P, 執驗上P, 上GIT
 - Type: preference
 
-- Related: feedback-decision-no-tech-menu, feedback-no-outsource-rigor, feedback-git-log-chinese, feedback-fix-on-discovery, feedback-humanist-decision-framing, a執p-自執驗上p-自動完工協議
+- Related: feedback-decision-no-tech-menu, feedback-no-outsource-rigor, feedback-git-log-chinese, feedback-fix-on-discovery, feedback-humanist-decision-framing, a執p-自執驗上p-自動完工協議, 專案等級-mcpskillhookslog-不放全域根層
 
 ## 知識
 

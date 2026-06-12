@@ -26,7 +26,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from wg_core import (
     CLAUDE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     MEMORY_INDEX, ATOM_INDEX, REALM_AUTOMOVE_MARKER,
-    CONTEXT_BUDGET_DEFAULT,
+    CONTEXT_BUDGET_DEFAULT, TURN_BUDGET_LIMIT,
+    compute_token_budget,  # re-export：budget 單一來源在 wg_core，舊 caller 仍從本模組 import
     discover_all_project_memory_dirs, resolve_access_json, resolve_staging_dir,
     get_project_memory_dir, log_promotion_audit,
     _atom_debug_log, _atom_debug_error,
@@ -234,11 +235,21 @@ def _kw_match(kw: str, prompt_lower: str) -> bool:
     return kw in prompt_lower
 
 
+def any_trigger_hit(keywords, prompt_lower: str) -> bool:
+    """keyword 清單 vs prompt 的單一比對原語（trigger match / AIDocs sweep 共用）。"""
+    return any(_kw_match(kw, prompt_lower) for kw in keywords)
+
+
+def count_trigger_hits(keywords, prompt_lower: str) -> int:
+    """命中數版本（跨專案掃描 ≥2 門檻用）。"""
+    return sum(1 for kw in keywords if _kw_match(kw, prompt_lower))
+
+
 def match_triggers(prompt: str, atoms: List[AtomEntry]) -> List[AtomEntry]:
     prompt_lower = prompt.lower()
     matched = []
     for name, rel_path, triggers in atoms:
-        if any(_kw_match(kw, prompt_lower) for kw in triggers):
+        if any_trigger_hit(triggers, prompt_lower):
             matched.append((name, rel_path, triggers))
     return matched
 
@@ -336,16 +347,8 @@ def bm25_match(
 
 
 # ─── Token Budget & Atom Loading ─────────────────────────────────────────────
-
-
-def compute_token_budget(prompt: str) -> int:
-    plen = len(prompt)
-    if plen < 50:
-        return 1500
-    elif plen < 200:
-        return 3000
-    else:
-        return 5000
+# budget 常數/計算已集中 wg_core（見該檔「Token budget 單一來源」註解）；
+# compute_token_budget 由上方 import re-export。
 
 
 _STRIP_META_RE = re.compile(
@@ -479,7 +482,7 @@ def _strip_atom_for_injection_impression_only(content: str) -> str:
     return "\n\n".join(parts).strip()
 
 
-_TURN_BUDGET_LIMIT = 800
+_TURN_BUDGET_LIMIT = TURN_BUDGET_LIMIT  # 舊名 re-export（caller/verify 鎖定此名）
 
 
 def decide_atom_injection(

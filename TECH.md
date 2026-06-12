@@ -41,10 +41,12 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 ├── hooks/                                          ← V5 重整：6 主模組 + 2 shim + handlers/
 │   ├── workflow-guardian.py                        ← 1 行 shim → dispatcher.main()
 │   ├── dispatcher.py                               ← 純路由（~75 行）
-│   ├── handlers/                                   ← 10 event handler 各一檔
+│   ├── handlers/                                   ← 10 event handler 各一檔 + UPS 四段子模組
 │   │   ├── _shared.py
 │   │   ├── session_start.py / session_end.py
 │   │   ├── user_prompt_submit.py / pre_compact.py
+│   │   ├── ups_gates.py / ups_context.py           ← UPS 拆分（2026-06-12）：detect / context build
+│   │   ├── ups_search.py / ups_inject.py           ←   search pipeline / injection assemble 四段
 │   │   ├── pre_tool_use.py / post_tool_use.py
 │   │   ├── stop.py / notification.py
 │   │   ├── post_compact.py / post_tool_batch.py    ← 選配 #4：壓縮後 atom 內文重注入
@@ -382,7 +384,7 @@ sequenceDiagram
 
     U->>G: 輸入 prompt
     rect rgba(100,200,100,0.1)
-        note over G,F: UserPromptSubmit (handlers/user_prompt_submit.py — 完整流程 ~680 行)
+        note over G,F: UserPromptSubmit (handlers/user_prompt_submit.py orchestrator + ups_gates/ups_context/ups_search/ups_inject 四段)
         G->>G: [前置] recent_user_prompts 追蹤 + failing_tests dismiss check
         G->>G: [L0] V4.1 使用者決策 detector — detect_signal score ≥0.4 append pending_user_extract
         G->>G: [V4.1] Confirmed extractions / veto 處理
@@ -415,7 +417,7 @@ sequenceDiagram
     end
 ```
 
-> Mermaid 流程序對應 [`hooks/handlers/user_prompt_submit.py`](hooks/handlers/user_prompt_submit.py) 實際呼叫順序（680 行 handler）。V4 寫法把 [L0] 排在最後是早期文件殘留；V5 把 V4.1 detector 提至 handler 開頭以最小延遲攔截使用者決策語句。
+> Mermaid 流程序對應 [`hooks/handlers/user_prompt_submit.py`](hooks/handlers/user_prompt_submit.py) 實際呼叫順序。2026-06-12 熱點重構：790 行 handler 拆為 orchestrator（~195 行）+ 四段子模組（[前置]~[Atom-Write Guard]→`ups_gates`、[A]~[JIT]→`ups_context`、[B]~[G]→`ups_search`、[H]~[ReadHits++]→`ups_inject`，其餘收尾留 orchestrator），流程語意不變。V4 寫法把 [L0] 排在最後是早期文件殘留；V5 把 V4.1 detector 提至 handler 開頭以最小延遲攔截使用者決策語句。
 
 ### 8.1.1 實際運作範例
 
@@ -432,11 +434,11 @@ sequenceDiagram
 [Guardian] Reminder: 9 files modified, 11 knowledge items pending. ← Sync reminders
 ```
 
-對應 [`user_prompt_submit.py`](hooks/handlers/user_prompt_submit.py) code path：
-- `[QuickExtract] ... cached`：來自 hot_cache.json `source=quick_extract`（L178-187 `read_hot_cache` → `format_injection_line` → `mark_injected`）
+對應 code path（2026-06-12 拆分後按段落歸屬）：
+- `[QuickExtract] ... cached`：來自 hot_cache.json `source=quick_extract`（`ups_gates.run_pre_gates` 內 `read_hot_cache` → `format_injection_line` → `mark_injected`）
 - `[HotCache:deep_extract ⚠AUTO-DRAFT]`：來自 hot_cache.json `source=deep_extract`（同樣 fast-path，但 source 標籤不同）
-- `[Atom:preferences]`：Trigger 命中「上GIT」（preferences.md frontmatter `Trigger: ..., 上GIT`），走 `_kw_match` (L343) → 進 matched_with_dir → ACT-R 排序 → Section-Level + budget decide → 注入完整 atom
-- `[Guardian:Evasion]`：state["evasion_flag"] 由 PostToolUse 偵測本輪 assistant 輸出含禁語時設置，下一輪 UserPromptSubmit (L644-654) 注入 → 清 flag
+- `[Atom:preferences]`：Trigger 命中「上GIT」（preferences.md frontmatter `Trigger: ..., 上GIT`），走 `wg_atoms.any_trigger_hit`（`ups_search`）→ 進 matched_with_dir → ACT-R 排序 → Section-Level + budget decide 注入（`ups_inject`）
+- `[Guardian:Evasion]`：state["evasion_flag"] 由 PostToolUse 偵測本輪 assistant 輸出含禁語時設置，下一輪 UserPromptSubmit（orchestrator 收尾段）注入 → 清 flag
 - `[Guardian] Reminder`：mod_count/kq_count > 0 且 remind_count >= remind_after（預設 3） → 注入提醒（L686-700）
 
 

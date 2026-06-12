@@ -46,7 +46,28 @@ except ImportError:
     failures_atom_stems = None
     is_local_realm_path = None
 
+# ─── Token budget 單一來源（2026-06-12 熱點重構集中）─────────────────────────
+# 三個 budget 概念各司其職，數值不互相推導：
+#   compute_token_budget(prompt) — 每輪 additionalContext 總額（隨 prompt 長度 1500/3000/5000）
+#   CONTEXT_BUDGET_DEFAULT       — _truncate_context_by_activation 的 fallback 上限
+#   TURN_BUDGET_LIMIT            — atom 注入段 per-turn 硬頂（wg_atoms re-export 舊名 _TURN_BUDGET_LIMIT）
+# 兩個 token 估算器口徑不同，勿混用、勿合併（合併會改變注入行為）：
+#   wg_core._estimate_tokens  — CJK-aware（中文 ~1.5 tok/字），量 transcript/handoff/debug 摘要
+#   wg_atoms._estimate_tokens — flat len//4，atom 注入預算口徑（verify_atom_injection_budget 鎖定）
 CONTEXT_BUDGET_DEFAULT = 3000
+TURN_BUDGET_LIMIT = 800
+
+
+def compute_token_budget(prompt: str) -> int:
+    """每輪注入總額：短 prompt 少注入，長 prompt 多注入。"""
+    plen = len(prompt)
+    if plen < 50:
+        return 1500
+    elif plen < 200:
+        return 3000
+    else:
+        return 5000
+
 
 # Defaults（可被 config.json 覆寫）
 DEFAULTS = {

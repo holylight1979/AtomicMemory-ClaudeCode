@@ -77,7 +77,11 @@ Session Ready
 | dispatcher.py | ~75 | 純路由：讀 stdin event → 找 handler → 呼叫 |
 | handlers/_shared.py | — | 跨 handler 共用 helper |
 | handlers/session_start.py | — | init state + 去重 + bootstrap + Vector bg subprocess |
-| handlers/user_prompt_submit.py | — | RECALL（trigger → BM25 → Vector）+ intent + evasion |
+| handlers/user_prompt_submit.py | — | UPS orchestrator：串聯 ups_* 四段 + 收尾（2026-06-12 拆分） |
+| handlers/ups_gates.py | — | UPS detect 段：evasion 追蹤 + V4.1 + long_die + hot cache + atom-write guard |
+| handlers/ups_context.py | — | UPS context 段：session context + wisdom + parallel + AIDocs + JIT |
+| handlers/ups_search.py | — | UPS search 段：RECALL（trigger → BM25 → Vector）+ supersedes + ACT-R |
+| handlers/ups_inject.py | — | UPS inject 段：hot/cold + budget + related spread + 效用晉升提示 |
 | handlers/pre_tool_use.py | — | Write/Edit atom format gate + memory path block + cross-realm write block（外部專案 session 禁寫核心層子目錄+根層敏感檔）+ Bash 全域 MCP 變更閘 + SVN test block |
 | handlers/post_tool_use.py | — | file tracking + 增量索引 + read tracking + test-fail + changelog auto-roll |
 | handlers/stop.py | — | sync 閘門 + Fix Escalation + TestFailGate + Evasion |
@@ -86,8 +90,8 @@ Session Ready
 | handlers/post_compact.py | — | 壓縮後 stash 壓縮前 atom 緊湊內文 + pending flag（不注入；選配 #4） |
 | handlers/post_tool_batch.py | — | idle early-exit；見 flag 一次性 additionalContext 重注入 + 清 flag（選配 #4） |
 | handlers/notification.py | — | 通知處理 |
-| wg_core.py | — | 路徑唯一真相 + state IO + log rotation + PreToolUse guards |
-| wg_atoms.py | — | trigger + BM25 + ACT-R + vector search + atom 晉升 |
+| wg_core.py | — | 路徑唯一真相 + state IO + token budget 單一來源（2026-06-12 集中） + log rotation + PreToolUse guards |
+| wg_atoms.py | — | trigger（any/count_trigger_hits 原語）+ BM25 + ACT-R + vector search + atom 晉升 |
 | wg_extraction.py | — | per-turn 萃取 + worker + hot cache + user-extract + content classify |
 | wg_episodic.py | — | episodic 生成 + 衝突 + 品質回饋 |
 | wg_evasion.py | — | Evasion Guard + Test-Fail + ScanReport + 自評整合 |

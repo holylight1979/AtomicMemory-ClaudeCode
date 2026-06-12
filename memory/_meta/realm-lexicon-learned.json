@@ -13,6 +13,14 @@
     "全自動完工": "Tools/自動化流程與協議",
     "自動推進": "Tools/自動化流程與協議",
     "promote fallback": "MemDev/MemoryIndex",
-    "注入閘門": "MemDev/MemoryIndex"
+    "注入閘門": "MemDev/MemoryIndex",
+    "dotnet run 單檔": "Tools/自動化流程與協議/dotnet",
+    "file-based app": "Tools/自動化流程與協議/dotnet",
+    "c# 單檔 demo": "Tools/自動化流程與協議/dotnet",
+    "top-level statements": "Tools/自動化流程與協議/dotnet",
+    ".net 10 sdk": "Tools/自動化流程與協議/dotnet",
+    "sgi": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "專案結構": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "skillbundle": "Tools/自動化流程與協議/SGI-ProjectStructure"
   }
 }

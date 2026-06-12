@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: realm, 範疇分區, 核心非核心, local atom, _AIDocs/_atoms, 注入閘門, atom 物理位置, promote fallback, wg_core bootstrap, 記憶系統
 - Created-at: 2026-06-03
-- Related: decisions-architecture, memory-index-caption-regen, feedback-workflow-discipline, 腦內世界-環境演化-放置式架構
+- Related: decisions-architecture, memory-index-caption-regen, feedback-workflow-discipline, 腦內世界-環境演化-放置式架構, 專案等級-mcpskillhookslog-不放全域根層
 
 ## 知識
 
