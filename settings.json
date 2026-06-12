@@ -1,6 +1,6 @@
 {
   "env": {},
-  "effortLevel": "medium",
+  "effortLevel": "high",
   "permissions": {
     "allow": [
       "Bash(*)",
