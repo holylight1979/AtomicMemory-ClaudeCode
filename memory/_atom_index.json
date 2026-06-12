@@ -679,6 +679,53 @@
         "homoglyph"
       ],
       "scope": "global"
+    },
+    {
+      "name": "powershell7-寫檔預設無bom會剝源碼檔bom",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/powershell7-寫檔預設無bom會剝源碼檔bom.md",
+      "triggers": [
+        "Set-Content",
+        "Out-File",
+        "BOM",
+        "utf8",
+        "編碼",
+        "批次替換",
+        "PowerShell 寫檔",
+        "亂碼"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "runtime鏡射宿主生命週期判定與反射差分測試",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/runtime鏡射宿主生命週期判定與反射差分測試.md",
+      "triggers": [
+        "runtime 鏡射",
+        "cache 洩漏",
+        "ConditionalWeakTable",
+        "stale cache",
+        "差分測試",
+        "反射測試",
+        "write-through",
+        "解耦"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "harness原生memory與atom索引marker撞名辨識",
+      "path": "_AIDocs/_atoms/MemDev/harness原生memory與atom索引marker撞名辨識.md",
+      "triggers": [
+        "discover_all_project",
+        "memory_dirs 掃描",
+        "harness memory",
+        "file-based memory",
+        "MEMORY.md 撞名",
+        "cross-project 掃描",
+        "marker",
+        "projects/ memory",
+        "flat-legacy",
+        "誤納"
+      ],
+      "scope": "global"
     }
   ]
 }

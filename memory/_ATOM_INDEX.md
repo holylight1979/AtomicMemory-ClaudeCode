@@ -44,3 +44,6 @@
 | confirmations-已退役-phase2-usefulness-接管晉升 | _AIDocs/_atoms/MemDev/confirmations-已退役-phase2-usefulness-接管晉升.md | confirmations, confirmation_events, 恒 0, 零增, 晋升判定, wilson, usefulness, 記憶健檢, 静默失效誤報 | global |
 | 專案等級-mcpskillhookslog-不放全域根層 | _AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/專案等級-mcpskillhookslog-不放全域根層.md | 建立skill, 建立mcp, 新增hooks, 暫存檔, play-log, 全域 vs 專案, ~/.claude 根層, 專案自包含, skill 放哪, 檔案歸屬 | global |
 | realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透 | _AIDocs/_atoms/MemDev/realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透.md | realm 遷移, domain 亂碼, 자동화, 韓文 domain, normalize_domain_path, 詞庫污染, realm sweep, LLM 分類器, homoglyph | global |
+| powershell7-寫檔預設無bom會剝源碼檔bom | _AIDocs/_atoms/Tools/自動化流程與協議/dotnet/powershell7-寫檔預設無bom會剝源碼檔bom.md | Set-Content, Out-File, BOM, utf8, 編碼, 批次替換, PowerShell 寫檔, 亂碼 | global |
+| runtime鏡射宿主生命週期判定與反射差分測試 | _AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/runtime鏡射宿主生命週期判定與反射差分測試.md | runtime 鏡射, cache 洩漏, ConditionalWeakTable, stale cache, 差分測試, 反射測試, write-through, 解耦 | global |
+| harness原生memory與atom索引marker撞名辨識 | _AIDocs/_atoms/MemDev/harness原生memory與atom索引marker撞名辨識.md | discover_all_project, memory_dirs 掃描, harness memory, file-based memory, MEMORY.md 撞名, cross-project 掃描, marker, projects/ memory, flat-legacy, 誤納 | global |

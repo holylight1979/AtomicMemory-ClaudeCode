@@ -21,6 +21,14 @@
     ".net 10 sdk": "Tools/自動化流程與協議/dotnet",
     "sgi": "Tools/自動化流程與協議/SGI-ProjectStructure",
     "專案結構": "Tools/自動化流程與協議/SGI-ProjectStructure",
-    "skillbundle": "Tools/自動化流程與協議/SGI-ProjectStructure"
+    "skillbundle": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "powershell7": "Tools/自動化流程與協議/dotnet",
+    "set-content": "Tools/自動化流程與協議/dotnet",
+    "out-file": "Tools/自動化流程與協議/dotnet",
+    "bom": "Tools/自動化流程與協議/dotnet",
+    "utf8encoding($true)": "Tools/自動化流程與協議/dotnet",
+    "runtime 鏡射": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "conditionalweaktable": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "反射測試": "Tools/自動化流程與協議/SGI-ProjectStructure"
   }
 }
