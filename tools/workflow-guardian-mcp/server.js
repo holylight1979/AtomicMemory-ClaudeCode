@@ -90,7 +90,9 @@ const LOCAL_REALM_MAX_DEPTH = 7;
 const LOCAL_REALM_CORE_PROTECTED_PREFIXES = [
   "decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-",
 ];
-const LOCAL_REALM_CORE_PROTECTED_EXACT = new Set(["preferences", "cognitive-patterns"]);
+const LOCAL_REALM_CORE_PROTECTED_EXACT = new Set([
+  "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
+]);
 const LOCAL_REALM_LEXICON = {
   "腦內世界": "World", "world.html": "World", "reconcile-render": "World",
   "環境演化": "World", "env-layer": "World",
@@ -128,6 +130,17 @@ function classifyRealm(name, triggers) {
   let bestDom = domsSorted[0];
   for (const d of domsSorted) {
     if ((scores[d] || 0) > (scores[bestDom] || 0)) bestDom = d;
+  }
+  // Domain 段字元集 guard（base lexicon 恆過；防污染詞庫的亂碼 domain 流出 —
+  // 2026-06-12 韓文實案）。MIRROR: lib/atom_locations.py:classify_realm → _clean_segment。
+  // 注意：須自足於 test_17 eval block（不得引用 cleanRealmSegment，定義在 block 外）。
+  const segBad = (sg) => {
+    const t = sg.replace(/\s+/g, " ").trim();
+    return !t || t[0] === "_" || t[0] === "." || /[<>:"|?*]/.test(t) ||
+           !/^[\x20-\x7E㐀-䶿一-鿿]+$/.test(t);
+  };
+  if (bestDom.split("/").filter(sg => sg.trim()).some(segBad)) {
+    bestDom = LOCAL_REALM_DEFAULT_DOMAIN;
   }
   return {
     realm: "local", domain: bestDom,
@@ -1002,12 +1015,17 @@ function applyFeedbackRouting(resolved, slug, scope) {
 }
 
 /** 單段正規化（path-traversal 最後防線）。MIRROR: lib/atom_locations.py:_clean_segment。
- *  非法（空 / 含分隔 / `_`·`.` 前綴 / 不安全字元）→ ""（caller 截斷/退 fail-safe）。 */
+ *  非法（空 / 含分隔 / `_`·`.` 前綴 / 不安全字元 / 非 CJK·ASCII 字元）→ ""
+ *  （caller 截斷/退 fail-safe）。字元集 guard：LLM 生成 domain 視為不可信輸入，
+ *  跨文字系統字元（Hangul「자동화」實案 2026-06-12）穿透 snap 防線 → 整段拒。
+ *  MIRROR: lib/atom_locations.py:_SEG_ALLOWED_RE（parity test_22）。 */
 function cleanRealmSegment(seg) {
   const s = (seg || "").replace(/\s+/g, " ").trim();
   if (!s || s.includes("/") || s.includes("\\")) return "";
   if (s[0] === "_" || s[0] === ".") return "";
   if (/[<>:"|?*]/.test(s)) return "";
+  // 字元集 guard regex 內聯（test_22 eval block 自足性：不得引用函式外 const）
+  if (!/^[\x20-\x7E㐀-䶿一-鿿]+$/.test(s)) return "";
   return s;
 }
 
@@ -1535,14 +1553,16 @@ async function toolAtomWrite(id, args) {
       }
     }
 
-    const content = buildAtomContent({
+    // 2026-06-12 parity 方案 B：內容構造統一 spawn py funnel（lib.atom_io_cli "build"，
+    // 含 validate）；js buildAtomContent 退役為 test_13 parity fixture。
+    const br = await spawnAtomCli("build", {
       title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
-      audience, author, pendingReviewBy, mergeStrategy: merge_strategy, createdAt: today,
+      audience, author, pending_review_by: pendingReviewBy, merge_strategy, created_at: today,
     });
-    const err = validateAtomContent(content);
-    if (err) {
-      return sendToolResult(id, `Validation failed: ${err}`, true);
+    if (!br.ok) {
+      return sendToolResult(id, `Validation failed: ${br.error}`, true);
     }
+    const content = (br.extra || {}).content;
 
     fs.mkdirSync(memDir, { recursive: true });
     // S3.2: 走 lib.atom_io.write_raw funnel（atomic write + audit log）
@@ -1581,32 +1601,12 @@ async function toolAtomWrite(id, args) {
       return sendToolResult(id, `Atom not found: ${slug}.md — use mode=create first`, true);
     }
 
-    let existing = fs.readFileSync(filePath, "utf-8");
-    if (existing.charCodeAt(0) === 0xFEFF) existing = existing.slice(1);
-
-    const actionIdx = existing.indexOf("## 行動");
-    if (actionIdx < 0) {
-      return sendToolResult(id, `Atom ${slug}.md has no ## 行動 section — cannot append`, true);
-    }
-
-    // block-aware（對拍 atom_io.py）：表格/fence 開頭補一空行隔開既有知識
-    const _rendered = renderKnowledgeLines(knowledge).join("\n");
-    const _bh = _rendered.replace(/^\s+/, "");
-    const newLines = (_bh.startsWith("|") || _bh.startsWith("```")) ? `\n${_rendered}` : _rendered;
-    const before = existing.slice(0, actionIdx).trimEnd();
-    const after = existing.slice(actionIdx);
-    // Wave 2: Last-used 不在 .md，append 後改寫 access.json
-    const finalContent = before + "\n" + newLines + "\n\n" + after;
-
-    const err = validateAtomContent(finalContent);
-    if (err) {
-      return sendToolResult(id, `Validation failed after append: ${err}`, true);
-    }
-
-    // S3.2: 走 lib.atom_io.write_raw funnel
-    const wr = await funnelWriteRaw(filePath, finalContent, "mcp", "atom_append");
+    // 2026-06-12 parity 方案 B：拼接+validate+落檔統一 spawn py（lib.atom_io.append_atom_file）
+    // —— 退役 js readFileSync 自拼 splice（CRLF 混寫面，見 lib/atom_io.py:_atomic_write 註解）。
+    // Wave 2: Last-used 不在 .md，append 後改寫 access.json（下方 spawnAtomAccess）。
+    const wr = await spawnAtomCli("append", { file_path: filePath, knowledge, source: "mcp" });
     if (!wr.ok) {
-      return sendToolResult(id, `funnel write_raw failed: ${wr.error}`, true);
+      return sendToolResult(id, `funnel append failed: ${wr.error}`, true);
     }
 
     // Wave 2: 同步刷 access.json last_used
@@ -1654,14 +1654,16 @@ async function toolAtomWrite(id, args) {
       } catch {}
     }
 
-    const content = buildAtomContent({
+    // 2026-06-12 parity 方案 B：同 create，內容構造 spawn py funnel "build"（含 validate）
+    const br = await spawnAtomCli("build", {
       title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
-      audience, author: prevAuthor, pendingReviewBy, mergeStrategy: merge_strategy, createdAt: prevCreatedAt,
+      audience, author: prevAuthor, pending_review_by: pendingReviewBy,
+      merge_strategy, created_at: prevCreatedAt,
     });
-    const err = validateAtomContent(content);
-    if (err) {
-      return sendToolResult(id, `Validation failed: ${err}`, true);
+    if (!br.ok) {
+      return sendToolResult(id, `Validation failed: ${br.error}`, true);
     }
+    const content = (br.extra || {}).content;
 
     fs.mkdirSync(memDir, { recursive: true });
     // S3.2: 走 lib.atom_io.write_raw funnel

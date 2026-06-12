@@ -420,6 +420,57 @@ def write_raw(
     return WriteResult(ok=True, audit_id=audit_id, path=file_path)
 
 
+def _build_append_content(existing: str, knowledge: List[str]) -> str:
+    """把 knowledge 渲染後插入 ## 行動 之前（block-aware）。
+
+    write_atom(mode=append) 與 append_atom_file 共用的唯一拼接實作
+    （2026-06-12 parity 方案 B：server.js append 改 spawn CLI 走此處，
+    消滅 js 自拼 readFileSync+`\\n` 的 CRLF 混寫面）。
+    caller 須先確認 "## 行動" 存在。
+    """
+    action_idx = existing.find("## 行動")
+    rendered = "\n".join(render_knowledge_lines(knowledge))
+    before = existing[:action_idx].rstrip()
+    after = existing[action_idx:]
+    # 表格/fence 開頭需與既有知識間隔一空行才正確渲染（block-aware append）
+    gap = "\n\n" if rendered.lstrip().startswith(("|", "```")) else "\n"
+    return before + gap + rendered + "\n\n" + after
+
+
+def append_atom_file(
+    file_path: Path,
+    knowledge: List[str],
+    *,
+    source: str,
+    op: str = "atom_append",
+) -> WriteResult:
+    """對「已定位」的 atom .md 追加知識行（path 由 caller 解析，不重跑 scope 路由）。
+
+    供 server.js toolAtomWrite(mode=append) spawn 用：js 端已處理 legacy fallback /
+    Failures / local-realm 路由得到 file_path，內容拼接與落檔統一走 py（單一實作，
+    EOL 由 _atomic_write byte-stable）。對拍 write_atom(mode=append) 拼接行為。
+    不更新 access.json / index（caller 沿既有 spawnAtomAccess / appendToIndex 流程）。
+    """
+    audit_id = _gen_audit_id()
+    if source not in VALID_SOURCES:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"invalid source: {source}")
+    fp = Path(file_path)
+    try:
+        existing = fp.read_text(encoding="utf-8-sig")
+    except OSError as e:
+        return WriteResult(ok=False, audit_id=audit_id, error=f"read failed: {e}")
+    if "## 行動" not in existing:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"Atom {fp.name} has no ## 行動 section")
+    content = _build_append_content(existing, knowledge)
+    err = validate_atom_content(content)
+    if err:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"Validation failed after append: {err}")
+    return write_raw(fp, content, source=source, op=op)
+
+
 def edit_metadata(
     file_path: Path,
     *,
@@ -600,13 +651,8 @@ def write_atom(
         if action_idx < 0:
             return WriteResult(ok=False, audit_id=audit_id,
                                error=f"Atom {slug}.md has no ## 行動 section")
-        rendered = "\n".join(render_knowledge_lines(knowledge))
-        before = existing[:action_idx].rstrip()
-        after = existing[action_idx:]
-        # 表格/fence 開頭需與既有知識間隔一空行才正確渲染（block-aware append）
-        gap = "\n\n" if rendered.lstrip().startswith(("|", "```")) else "\n"
         # Wave 2: Last-used 不再寫 .md；append 後由下方 atom_access.write_access_field 刷
-        content = before + gap + rendered + "\n\n" + after
+        content = _build_append_content(existing, knowledge)
     elif mode == "replace":
         # Wave 2: Confirmations/ReadHits 在 access.json，replace 不需保留（檔本就分離）
         # Author/Created-at 仍從舊 atom .md 抽（屬知識性 metadata）

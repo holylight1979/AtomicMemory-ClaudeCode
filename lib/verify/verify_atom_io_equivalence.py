@@ -506,6 +506,8 @@ def test_16_classify_realm_zero_false_positive():
         ("feedback-tooling-reliability", ["codex", "codex companion", "MCP"]),
         ("feedback-workflow-discipline", ["handoff", "上 GIT"]),
         ("cognitive-patterns", ["過度工程", "proxy metric"]),
+        # 2026-06-12 二度誤降後列保護：SGI 詞庫污染（karpathy/verify loop）name 命中也硬擋
+        ("goal-driven-verify-loopkarpathy-吸收", ["karpathy", "verify loop", "成功標準"]),
         ("memory-pipeline-silent-failure-2026-05", ["episodic", "晉升"]),
         ("atom-usefulness-loop", ["usefulness", "Wilson 下界"]),
         ("atom-table-support", ["atom_write", "table"]),
@@ -567,6 +569,8 @@ def test_17_classify_realm_py_js_parity():
         ["atom-usefulness-loop", ["usefulness"]],
         ["some-new-world-note", ["腦內世界", "wander"]],
         ["plain-generic-atom", ["foo", "bar"]],
+        # 保護清單 py↔js 鏡像（2026-06-12 goal-driven 二度誤降後加硬擋）
+        ["goal-driven-verify-loopkarpathy-吸收", ["karpathy", "verify loop"]],
     ]
     py = [classify_realm(n, t) for n, t in fixtures]
 
@@ -576,6 +580,7 @@ def test_17_classify_realm_py_js_parity():
         "const start=src.indexOf('const LOCAL_REALM_CORE_PROTECTED_PREFIXES');"
         "const block=src.slice(start, src.indexOf('const TOOLS_DIR'));"
         "const LOCAL_REALM_DOMAINS=new Set(['World','Tools','MemDev']);"
+        "const LOCAL_REALM_DEFAULT_DOMAIN='Else';"  # classifyRealm 出口 guard 引用（block 外常數）
         "eval(block);"
         "const fx=JSON.parse(process.argv[2]);"
         "const out=fx.map(([n,t])=>{const r=classifyRealm(n,t);"
@@ -621,6 +626,12 @@ def test_18_normalize_domain_path():
     assert normalize_domain_path("Good/_bad/More", existing) == "Good"
     assert normalize_domain_path("", []) == LOCAL_REALM_DEFAULT_DOMAIN
     assert normalize_domain_path("_hidden", []) == LOCAL_REALM_DEFAULT_DOMAIN
+    # 非 CJK/ASCII 字元段（2026-06-12 韓文「자동화」亂碼 domain 實案）→ 降 Else / 截斷
+    assert normalize_domain_path("자동화流程與協議", existing) == LOCAL_REALM_DEFAULT_DOMAIN
+    assert normalize_domain_path("Tools/자동화流程與協議", existing) == "Tools"
+    assert normalize_domain_path("Кириллица", []) == LOCAL_REALM_DEFAULT_DOMAIN  # homoglyph 系
+    # 合法 CJK 段不受字元集 guard 影響
+    assert normalize_domain_path("Tools/自動化流程與協議", existing) == "Tools/自動化流程與協議"
 
 
 # ─── 19. 階層路徑 segment 抽取 ─────────────────────────────────────────────────
@@ -699,7 +710,9 @@ def test_22_clean_segment_py_js_parity():
         pytest.skip("server.js not found")
 
     fixtures = ["Windows", "  OS  ", "WSL", "..", "_hidden", ".dot",
-                "a/b", "a\\b", "bad<x", 'q"x', "", "Hermes Agent"]
+                "a/b", "a\\b", "bad<x", 'q"x', "", "Hermes Agent",
+                # 非 CJK/ASCII 字元集 guard（2026-06-12 韓文亂碼 domain 實案）
+                "자동화流程與協議", "自動化流程與協議", "Кириллица", "Tools①"]
     py = [_clean_segment(s) for s in fixtures]
 
     js_script = (
@@ -743,3 +756,123 @@ def test_23_learned_lexicon_roundtrip(tmp_path, monkeypatch):
     # learned 餵 classify_realm → 命中 + 多段 domain（base None 時不受影響已由 test_21 覆蓋）
     r = aloc.classify_realm("wsl2-0x80070569", ["vhdx"], extra_lexicon=learned)
     assert r["realm"] == "local" and r["domain"] == "OS/Windows/WSL"
+
+
+# ─── 24. append CRLF byte-stability（parity 方案 B：拼接統一走 py 單一實作）─────
+
+
+def test_24_append_crlf_byte_stability(isolated_claude):
+    """CRLF 既有檔 append 後：行尾全保 CRLF、零混寫（\\r\\r\\n）、既有行 byte 不動。
+    覆 lib/atom_io.py:_atomic_write L135-138 註解描述的混寫風險面。"""
+    from lib.atom_io import append_atom_file
+
+    write_atom(
+        title="Crlf Atom", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=["original-fact"],
+        mode="create", source="test", skip_gate=True, today="2026-05-01",
+    )
+    fp = isolated_claude["memory"] / "crlf-atom.md"
+    # 強制整檔 CRLF（不依賴平台 os.linesep）
+    crlf_bytes = fp.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    fp.write_bytes(crlf_bytes)
+
+    result = append_atom_file(fp, ["new-fact-crlf"], source="test")
+    assert result.ok, result.error
+
+    raw = fp.read_bytes()
+    assert b"\r\r\n" not in raw, "CRLF 二次翻譯（CR CR LF）"
+    assert raw.count(b"\n") == raw.count(b"\r\n"), "混寫：存在裸 LF"
+    lines = raw.split(b"\r\n")
+    assert "- original-fact".encode() in lines
+    assert "- new-fact-crlf".encode() in lines
+    # 既有行 byte 不動：除插入行與其間隔外，原行序列完整保留
+    old_lines = [ln for ln in crlf_bytes.split(b"\r\n") if ln]
+    new_lines = [ln for ln in raw.split(b"\r\n") if ln]
+    assert [ln for ln in new_lines if ln in old_lines] == old_lines
+
+
+# ─── 25. CLI build/append 跨語言對拍（server.js spawn 面 + 落檔 byte 驗證）──────
+
+
+def test_25_cli_build_append_cross_language(tmp_path):
+    """atom_io_cli 新 action：build 內容與 py 直呼 byte-identical；append 對 CRLF 檔
+    落檔 EOL 穩定。並 source-level 驗 server.js 已退役 js 自拼（delegation guard，
+    同 test_14 手法）——兩語言收斂單一實作即 CRLF 跨語言對拍的成立條件。"""
+    import os
+    import subprocess
+
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+
+    def run_cli(payload):
+        proc = subprocess.run(
+            [sys.executable, "-m", "lib.atom_io_cli"],
+            input=json.dumps(payload, ensure_ascii=False),
+            capture_output=True, text=True, encoding="utf-8",
+            cwd=str(LIB_PARENT), env=env, timeout=30,
+        )
+        assert proc.stdout, f"CLI no stdout; stderr={proc.stderr}"
+        return json.loads(proc.stdout)
+
+    # build：與 py build_atom_content byte-identical（含 block knowledge）
+    kn = ["[固] 門檻：", "| 軌 | 值 |\n|---|---|\n| P | 4 |", "tail"]
+    payload = dict(
+        title="Cli Parity", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=kn, actions=["act1"],
+        author="testuser", created_at="2026-05-01", today=FIXED_TODAY,
+    )
+    expected = build_atom_content(**payload)
+    res = run_cli({"action": "build", **payload})
+    assert res["ok"], res.get("error")
+    assert res["extra"]["content"] == expected
+
+    # append：CRLF 既有檔 → 落檔全 CRLF 零混寫（server.js spawn 的同一條路）
+    fp = tmp_path / "cli-append.md"
+    fp.write_bytes(expected.replace("\n", "\r\n").encode("utf-8"))
+    res2 = run_cli({"action": "append", "file_path": str(fp),
+                    "knowledge": ["cli-appended"], "source": "test"})
+    assert res2["ok"], res2.get("error")
+    raw = fp.read_bytes()
+    assert b"\r\r\n" not in raw and raw.count(b"\n") == raw.count(b"\r\n")
+    assert "- cli-appended".encode() in raw.split(b"\r\n")
+
+    # delegation guard：server.js 三處已 spawn py、js 自拼 splice 已退役
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    if server_js.exists():
+        js = server_js.read_text(encoding="utf-8")
+        assert 'spawnAtomCli("build"' in js, "create/replace 未走 py build"
+        assert 'spawnAtomCli("append"' in js, "append 未走 py append"
+        assert 'existing.indexOf("## 行動")' not in js, "js 自拼 splice 未退役"
+
+
+# ─── 26. 詞庫污染雙護欄（泛用詞拒收 + 亂碼 domain 拒收/降 Else）─────────────────
+
+
+def test_26_learned_lexicon_pollution_guards(tmp_path, monkeypatch):
+    """append_learned_terms sink 護欄：泛用詞（2026-06-12 goal-driven-verify-loop 誤降
+    實案）與亂碼 domain（韓文「자동화」實案）拒收；classify_realm 出口對已污染
+    learned 的亂碼 domain 降 Else。"""
+    from lib import atom_locations as aloc
+
+    fake = tmp_path / "_meta" / "realm-lexicon-learned.json"
+    monkeypatch.setattr(aloc, "LEARNED_LEXICON_PATH", fake)
+
+    aloc.append_learned_terms({
+        "refactor": "Tools", "fix bug": "Tools", "verify": "Tools",
+        "寫程式": "Tools", "verify loop": "Tools",             # 泛用詞 → 拒
+        "badterm": "Tools/자동화流程與協議",                     # 亂碼 domain → 拒
+        "wsl2": "OS/Windows/WSL",                               # 合法 → 收
+        "skillbundle": "Tools/自動化流程與協議",                 # 合法 CJK domain → 收
+    })
+    learned = aloc.load_learned_lexicon()
+    assert set(learned) == {"wsl2", "skillbundle"}, learned
+
+    # classify_realm 出口 guard：已污染 learned 的亂碼 domain → 降 Else（不外流成資料夾名）
+    polluted = {"weirdterm": "Tools/자동화"}
+    r = aloc.classify_realm("weirdterm-case", [], extra_lexicon=polluted)
+    assert r["realm"] == "local" and r["domain"] == aloc.LOCAL_REALM_DEFAULT_DOMAIN, r
+
+    # is_generic_lexicon_term 邊界：全泛用 token 才拒；含實例 token 即收
+    assert aloc.is_generic_lexicon_term("fix-bug")
+    assert aloc.is_generic_lexicon_term("測試")
+    assert not aloc.is_generic_lexicon_term("auto-handoff")
+    assert not aloc.is_generic_lexicon_term("gpo")              # 既有 3 字 ASCII 實例詞不誤殺

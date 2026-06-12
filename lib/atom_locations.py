@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -64,7 +65,11 @@ LEARNED_LEXICON_PATH = GLOBAL_MEMORY_DIR / "_meta" / "realm-lexicon-learned.json
 LOCAL_REALM_CORE_PROTECTED_PREFIXES = (
     "decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-",
 )
-LOCAL_REALM_CORE_PROTECTED_EXACT = frozenset({"preferences", "cognitive-patterns"})
+# goal-driven-verify-loop…：core atom（user 裁決），LLM sweep 兩度因 SGI 詞庫污染誤搬
+# local（dc43019 矯正後本日再犯）→ 列保護硬擋根治（protected 永不喚 LLM、永不搬）。
+LOCAL_REALM_CORE_PROTECTED_EXACT = frozenset({
+    "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
+})
 
 # 實例專屬詞庫（lowercase 子字串比對）：term → domain。命中任一 → local。
 LOCAL_REALM_LEXICON = {
@@ -177,6 +182,10 @@ def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
         return {"realm": "core", "domain": None, "matched": [], "protected": False}
     # 平手 → 依 sorted(命中 domain) 固定序首位（base 子集與 js 對拍同序；亦容多段 learned domain）
     best_dom = max(sorted(scores), key=lambda d: scores[d])
+    # Domain 段字元集 guard（base lexicon 恆過；learned 可能已被污染——2026-06-12
+    # 韓文亂碼實案）：任一段非法 → 降 fail-safe Else。MIRROR: server.js:classifyRealm。
+    if any(not _clean_segment(s) for s in best_dom.split("/") if s.strip()):
+        best_dom = LOCAL_REALM_DEFAULT_DOMAIN
     return {
         "realm": "local", "domain": best_dom,
         "matched": sorted(set(matched)), "protected": False,
@@ -412,13 +421,19 @@ def enumerate_local_paths(mem_dir: Path = GLOBAL_MEMORY_DIR) -> List[str]:
 _SEG_SNAP_RATIO = 0.85
 _SEG_PREFIX_MIN = 3
 _SEG_UNSAFE_CHARS = set('<>:"|?*')
+# Domain 段允許字元集：ASCII 可印字元 + CJK 統一表意文字（含 Ext-A）。
+# LLM 生成的 domain 視為不可信輸入：跨文字系統字元（Hangul「자동화」實案 2026-06-12、
+# 西里爾 homoglyph…）穿透 snap 防線造成重複亂碼資料夾 → 整段判非法、降 fail-safe。
+# MIRROR: server.js:cleanRealmSegment — keep in sync（parity test_22）。
+_SEG_ALLOWED_RE = re.compile(r"^[\x20-\x7e㐀-䶿一-鿿]+$")
 
 
 def _clean_segment(seg: str) -> str:
     """單段正規化：trim + collapse 內部空白。非法 → ''（caller 截斷/退 fail-safe）。
 
     拒：空、含路徑分隔（/ \\）、`_`/`.` 前綴（避免 _INDEX/_meta 衝突、隱藏檔、`..` 上跳）、
-    檔名不安全字元。**path traversal 的最後防線**（local_write_target / set_realm 共用）。
+    檔名不安全字元、非 CJK/ASCII 字元（_SEG_ALLOWED_RE，2026-06-12 韓文亂碼 domain 實案）。
+    **path traversal 的最後防線**（local_write_target / set_realm 共用）。
     """
     s = " ".join((seg or "").split()).strip()
     if not s or "/" in s or "\\" in s:
@@ -426,6 +441,8 @@ def _clean_segment(seg: str) -> str:
     if s[0] in "_.":
         return ""
     if any(c in _SEG_UNSAFE_CHARS for c in s):
+        return ""
+    if not _SEG_ALLOWED_RE.match(s):
         return ""
     return s
 
@@ -499,6 +516,42 @@ def normalize_domain_path(path: str, existing_paths: Optional[Iterable[str]] = N
 
 # ─── 詞庫自學（py-only supplement；js 維持 base-only 保 parity / test_17）──────
 
+# 泛用詞 token 黑名單（sink 端防線，蓋所有 append_learned_terms caller）：
+# 2026-06-12 實案——LLM sweep 把「寫程式 / refactor / fix bug / verify」等泛用詞學進
+# 詞庫，core atom goal-driven-verify-loop 因 trigger 命中被誤降 local（dc43019 矯正）。
+# 上游 realm_llm_classify._GENERIC_TERMS 只擋系統詞，擋不住開發泛用動詞 → 此處補閘。
+# 判定：term 以空白/連字號切 token，**全部** token 落在本集合 → 拒收
+# （"fix bug"/"verify loop" 拒；"auto-handoff"/"verify-gate-x" 因含非泛用 token 收）。
+_LEXICON_GENERIC_TOKENS = frozenset({
+    # 英文開發泛用動詞/名詞
+    "fix", "bug", "bugs", "fixbug", "bugfix", "debug", "debugging",
+    "refactor", "refactoring", "rewrite", "verify", "verification", "validate",
+    "test", "tests", "testing", "loop", "code", "coding", "program", "programming",
+    "develop", "development", "dev", "build", "run", "deploy", "deployment",
+    "commit", "push", "pull", "merge", "review", "release", "patch",
+    "install", "setup", "config", "configuration", "update", "upgrade",
+    "error", "errors", "fail", "failure", "plan", "planning", "task", "todo",
+    "doc", "docs", "document", "documentation", "workflow", "pipeline",
+    "git", "svn", "ci", "cd", "api", "cli", "log", "logs", "file", "files",
+    # 記憶系統/harness 通用詞（核心 atom 滿是這些詞）
+    "atom", "atoms", "memory", "hook", "hooks", "mcp", "agent", "agents",
+    "session", "prompt", "token", "tokens", "index", "trigger", "triggers",
+    "guardian", "sweep", "realm", "scope", "inject", "injection",
+    # 中文開發泛用詞
+    "寫程式", "程式", "程式碼", "重構", "除錯", "修bug", "測試", "驗證",
+    "部署", "設定", "開發", "完成", "收尾", "同步", "索引", "文件",
+    "記憶", "記憶系統", "工作流", "規劃", "升級", "安裝", "錯誤", "上git",
+    "可驗證目標", "成功標準", "驗證目標",  # 2026-06-12 二度污染實案（goal-driven 再誤降）
+})
+_LEXICON_TOKEN_SPLIT_RE = re.compile(r"[\s\-_/]+")
+
+
+def is_generic_lexicon_term(term: str) -> bool:
+    """term 是否泛用詞（不具實例辨識度）→ 詞庫拒收。空字串視為泛用。"""
+    tl = (term or "").strip().lower()
+    tokens = [t for t in _LEXICON_TOKEN_SPLIT_RE.split(tl) if t]
+    return not tokens or all(t in _LEXICON_GENERIC_TOKENS for t in tokens)
+
 
 def load_learned_lexicon() -> Dict[str, str]:
     """讀自學詞庫 {term_lower: domain_path}。缺/壞 → {}（fail-safe，永不拋）。"""
@@ -517,6 +570,11 @@ def append_learned_terms(new_terms: Dict[str, str]) -> Dict[str, str]:
     LLM sweep 判 local 後寫入 → 下次 deterministic 直接命中、免再喚 LLM。
     讀-改-寫全程持 advisory lock（仿 wg_core.write_state）：兩個 session 同時
     SessionEnd 時防 lost-update（學到的詞被互蓋永久遺失）。
+
+    輸入護欄（2026-06-12 詞庫污染雙實案，sink 端蓋所有 caller）：
+      - 泛用詞拒收（is_generic_lexicon_term）——防 core atom 被泛用 trigger 誤降 local
+      - domain path 任一段非法（含非 CJK/ASCII 字元，_clean_segment）→ 整條拒收
+        ——防亂碼 domain 經詞庫自我強化
     """
     LEARNED_LEXICON_PATH.parent.mkdir(parents=True, exist_ok=True)
     lock_path = LEARNED_LEXICON_PATH.with_suffix(".lock")
@@ -534,8 +592,13 @@ def append_learned_terms(new_terms: Dict[str, str]) -> Dict[str, str]:
         merged = load_learned_lexicon()
         for k, v in (new_terms or {}).items():
             kk, vv = str(k).strip().lower(), str(v).strip()
-            if kk and vv:
-                merged[kk] = vv
+            if not kk or not vv:
+                continue
+            if is_generic_lexicon_term(kk):
+                continue  # 泛用詞拒收
+            if any(not _clean_segment(s) for s in vv.split("/") if s.strip()):
+                continue  # domain 段非法（亂碼/traversal）拒收
+            merged[kk] = vv
         tmp = LEARNED_LEXICON_PATH.with_suffix(".json.tmp")
         tmp.write_text(
             json.dumps({"terms": merged}, ensure_ascii=False, indent=2) + "\n",
