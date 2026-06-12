@@ -102,7 +102,7 @@ Session Ready
 | user-init.sh | — | 多人 USER.md 初始化 |
 | webfetch-guard.sh | — | WebFetch 安全護欄 |
 
-## 5. Skills（22 個全域）
+## 5. Skills（24 個全域；前 22 為記憶系統 skill，末 2 為外部/通用 skill）
 
 V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 全刪除。
 
@@ -130,6 +130,8 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /skill-creator | skills/skill-creator/SKILL.md | **新增 meta-skill**：寫/改/審 skill（三層架構 + 5 設計模式 + audit/new-skill/cost-measure） | 無 |
 | /heal-review | skills/heal-review/SKILL.md | 管理職裁決記憶自癒失敗佇列（`_heal_review/` resolve/dismiss；腦內世界 P3） | wg_roles + atom-health-check |
 | /refile | skills/refile/SKILL.md | **V6 手動歸檔**：拖入非 `_AIDocs/_atoms/` 的 `.md` → 核心檔辨識護欄 + realm 分類提議 + 互動移檔 + doc-ref 掃描（sweep 的手動鏡像） | Ollama（分類 fallback） |
+| /unity-mcp-skill | skills/unity-mcp-skill/SKILL.md | **外部 skill**：透過 MCP 編排 Unity Editor（GameObject/script/scene/test 自動化） | MCP for Unity |
+| /karpathy-guidelines | skills/karpathy-guidelines/SKILL.md | **外部 skill（MIT，源 multica-ai）**：寫/審/重構碼的行為準則（Think Before / Simplicity / Surgical / Goal-Driven）。on-demand 被動觸發，非 always-on；唯一加值的 verify-loop 另萃成 atom `goal-driven-verify-loop` | 無 |
 
 > 已刪除（與內建衝突）：`/resume`（內建 --resume）/ `/init-project`（內建 /init）/ `/svn-update` / `/unity-yaml`（下沉專案層）/ `/changelog-roll`（改名 changelog-debug）
 

@@ -79,7 +79,7 @@
 | `ensure-mcp.py` | MCP server 可用性確認 |
 | `webfetch-guard.sh` | WebFetch 安全護欄 |
 
-## Skills（V5 全域 20 個，2026-05-27 起；skill-creator 2026-05-29 經 MR !3 加入）
+## Skills（V5 全域 24 個，2026-05-27 起；前 22 為記憶系統 skill，末 2〔unity-mcp-skill/karpathy-guidelines〕為外部/通用 skill）
 
 V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` **2026-05-27 已刪除**（原 7 天緩衝經對拍 100% identical 驗證後提前廢止）。
 
@@ -105,6 +105,10 @@ V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（�
 | `/browse-sprites` | `skills/browse-sprites/SKILL.md` | 批次圖片預覽 |
 | `/codex-companion` | `skills/codex-companion/SKILL.md` | Codex Companion 開關（V5 subprocess 模型） |
 | `/skill-creator` | `skills/skill-creator/SKILL.md` | **新增 meta-skill**：寫/改/審 skill（Progressive Disclosure 三層 + 5 設計模式 + audit/new-skill/cost-measure 工具） |
+| `/heal-review` | `skills/heal-review/SKILL.md` | 管理職裁決記憶自癒失敗佇列 |
+| `/refile` | `skills/refile/SKILL.md` | V6 手動歸檔（核心檔護欄 + realm 分類提議 + doc-ref 掃描） |
+| `/unity-mcp-skill` | `skills/unity-mcp-skill/SKILL.md` | **外部 skill**：MCP 編排 Unity Editor |
+| `/karpathy-guidelines` | `skills/karpathy-guidelines/SKILL.md` | **外部 skill（MIT，源 multica-ai）**：寫/審/重構碼行為準則；on-demand 被動，非 always-on；加值的 verify-loop 另萃 atom [[goal-driven-verify-loop]] |
 
 > V5 已刪除（與內建衝突）：`/resume`（內建 --resume）、`/init-project`（內建 /init）、`/svn-update` / `/unity-yaml`（下沉專案層）、`/changelog-roll`（改名 changelog-debug）。
 
