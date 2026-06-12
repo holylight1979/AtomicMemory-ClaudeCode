@@ -16,6 +16,7 @@
 - [臨] **真修 C（layer-2 worker spawn）**：hook 內 `subprocess.Popen([sys.executable,…], creationflags=CREATE_NO_WINDOW|DETACHED_PROCESS)` 仍會閃——`sys.executable` 在 venv trampoline 下＝console `python.exe`，且 `CREATE_NO_WINDOW|DETACHED_PROCESS` 組合在 console 子行程**不保證**壓窗。改用 GUI pythonw spawn（subsystem=2 永不配窗、flags 變 moot）。`wg_extraction._spawn_extract_worker` 已改 `_gui_python()`（回穩定 GUI pythonw，找不到退回 sys.executable）。其餘 spawner（codex/ensure-mcp/wg_atoms/wg_docdrift）已帶 `CREATE_NO_WINDOW` 且 trace 未見閃，暫不動。
 - [臨] **診斷鐵律 + 工具**：先看**視窗標題＝執行檔路徑**認 layer/來源（python.exe→解譯器；node/cmd/uvx→MCP；git/svn→巢狀）。`tools/console-window-trace.ps1`：列舉全機 console-class 視窗、抓『新建 ∨ 隱藏→可見』翻轉＋完整父鏈，記 `Logs/console-window-trace.log`（抓 transient 黑窗）。`Get-CimInstance Win32_Process` 比對 `ParentProcessId` 追鏈、抓 console-subsystem 新生行程命令列。**WT host 窗的 owner＝WindowsTerminal 本身**（被托管行程經 ConPTY 連、非父子）→ 認來源靠『時間相關 + 新生 console 行程命令列』，非視窗 owner。
 - [臨] **bash hook**：`bash.exe` 是 console-subsystem 且無 `bashw` 變體 → 用 `hooks/run-bash-hidden.py`（GUI pythonw 跑啟動器→ python 全中介 pipe I/O 餵 `usr\bin\bash.exe` `CREATE_NO_WINDOW`；MSYS bash 讀不了繼承的原生 pipe 故須 python proxy，與 node 可直接吃 handle 不同）。SessionStart/WebFetch 兩 bash hook 適用。
+- [臨] **續集事故（2026-06-09→12，hooks 全滅 3 天）**：黑窗根治 v2 把 settings.json 18 條 hook 指令轉全路徑時**丟失執行檔與參數間的空格**（`pythonw.exe-c`/`pythonw.exe"$HOME`），cmd/bash 都找不到執行檔 → 全部 hook 靜默死亡（hook 崩潰=結果被忽略、工具照常跑，零報錯）。當時驗證只驗「JSON 合法 18/18 轉換」沒驗指令能跑。**鐵律：改 settings.json hook 指令後，必須擷取實際 command 字串、餵 hook 格式 stdin 端到端真跑一條，看到 hookSpecificOutput 才算驗證**；事後偵測信號=workflow/state-*.json 與 Logs/atom-debug-* 的 mtime 斷流。
 
 ## 行動
 
