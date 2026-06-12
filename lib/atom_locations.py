@@ -114,7 +114,11 @@ def is_failures_routed_title(title: Optional[str]) -> bool:
     """
     if not title:
         return False
-    from .atom_spec import slugify  # lazy import: atom_spec 不 import 本模組，避免任何 cycle 風險
+    # lazy import: atom_spec 不 import 本模組，避免任何 cycle 風險（dual-safe 同 line 211）
+    try:
+        from .atom_spec import slugify
+    except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+        from atom_spec import slugify
     slug = slugify(title)
     if slug.startswith(FEEDBACK_TITLE_PREFIX):
         return True
@@ -237,7 +241,10 @@ def iter_atom_files_multi(
         roots: 自訂搜尋根；None → 用 atom_search_roots() 預設
         apply_failures_filter: 對 FAILURES_DIR root 是否套 stems 過濾
     """
-    from .atom_spec import is_atom_file
+    try:
+        from .atom_spec import is_atom_file
+    except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+        from atom_spec import is_atom_file
     roots_list = list(roots) if roots is not None else atom_search_roots()
     stems_cache: Optional[set] = None
     try:

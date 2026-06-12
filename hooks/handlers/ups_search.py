@@ -135,6 +135,8 @@ def collect_matched_atoms(
                 all_atoms.append(((name, rel_path, triggers), cross_parent))
                 _atom_debug_log("CrossProject", f"{_cross_slug}/{name} matched", config)
     for (name, rel_path, triggers), base_dir in all_atoms:
+        if name in atom_source:
+            continue  # 同名去重：all_atoms 多層（global/project/cross）混入同名時只取首見
         if name not in already_injected and any_trigger_hit(triggers, prompt_lower):
             matched_with_dir.append(((name, rel_path, triggers), base_dir))
             atom_source[name] = "trigger"

@@ -401,6 +401,20 @@ def get_slug_pointer_path(cwd: str) -> Path:
 
 def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
     """Discover all project memory directories. Registry-first + old-path fallback."""
+    # 全域記憶目錄不得被當「專案記憶」回傳：registry 若有 root=家目錄 的條目
+    # （root/.claude/memory == 全域 MEMORY_DIR），cross-project 掃描會把全域 atom
+    # 再補進候選一次造成同 atom 雙注入（2026-06-12 c--users-holylight 實例）。
+    try:
+        _global_mem = MEMORY_DIR.resolve()
+    except OSError:
+        _global_mem = MEMORY_DIR
+
+    def _is_global_mem(mem: Path) -> bool:
+        try:
+            return mem.resolve() == _global_mem
+        except OSError:
+            return False
+
     seen_slugs: set = set()
     results: List[Tuple[str, Path]] = []
     reg = _load_registry()
@@ -410,11 +424,12 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
             continue
         new_mem = root / ".claude" / "memory"
         if new_mem.is_dir() and (new_mem / MEMORY_INDEX).exists():
-            results.append((slug, new_mem))
+            if not _is_global_mem(new_mem):
+                results.append((slug, new_mem))
             seen_slugs.add(slug)
             continue
         old_mem = CLAUDE_DIR / "projects" / slug / "memory"
-        if old_mem.is_dir():
+        if old_mem.is_dir() and not _is_global_mem(old_mem):
             results.append((slug, old_mem))
             seen_slugs.add(slug)
     projects_dir = CLAUDE_DIR / "projects"
@@ -428,7 +443,7 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
             mem = proj_dir / "memory"
             # Phase 0: 要求 atom 索引 marker（MEMORY.md / _atom_index.json）才納入，
             # 避免 CC 原生 auto-memory dir（projects/<proj>/memory/）污染 cross-project 掃描。
-            if mem.is_dir() and (
+            if mem.is_dir() and not _is_global_mem(mem) and (
                 (mem / MEMORY_INDEX).exists() or (mem / "_atom_index.json").exists()
             ):
                 results.append((slug, mem))
