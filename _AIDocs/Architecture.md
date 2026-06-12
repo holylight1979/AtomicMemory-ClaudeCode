@@ -199,7 +199,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 **強制門禁（PreToolUse）：**
 
 - `hooks/wg_core.py:check_memory_path_block`
-  - (a) `~/.claude/projects/{slug}/memory/` 殘骸 → deny [P1]
+  - (a) `~/.claude/projects/{slug}/memory/` 殘骸 → deny [P1]（⚠ 2026-06-12 認知更新：新版 CC harness 原生 file-based memory 重新合法佔用此路徑且自建 MEMORY.md，與 atom 索引 marker 撞名；cross-project 掃描已改 `_has_atom_index_marker` 內容辨識（`dad9783`），P1 gate 是否續擋 harness 寫入待裁決——詳 atom [[harness原生memory與atom索引marker撞名辨識]]）
   - (b) `~/.claude/.claude/memory/` 雙層路徑 → deny [P6]
   - (c) `.claude/memory/` 樹下 atom .md 直 Write/Edit 不走 funnel → deny [S3.3]
   - (d) `_AIDocs/Failures/` 下「註冊 atom」(feedback-* / cognitive-patterns / memory-pipeline-* 等失敗 atom) 直 Write/Edit → deny（`_is_failures_atom_path` 以 `failures_atom_stems()` 比對 `_atom_index.json` 精準鎖定，不誤擋同目錄混居的 legacy 失敗筆記與 `_INDEX.md`）
