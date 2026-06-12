@@ -599,6 +599,37 @@
         "自動交接"
       ],
       "scope": "global"
+    },
+    {
+      "name": "dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app",
+      "path": "memory/dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app.md",
+      "triggers": [
+        "dotnet run 單檔",
+        "file-based app",
+        "C# 單檔",
+        "拋棄式 demo",
+        "C# script",
+        "驗證 C# 語意"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "goal-driven-verify-loopkarpathy-吸收",
+      "path": "memory/goal-driven-verify-loopkarpathy-吸收.md",
+      "triggers": [
+        "寫程式",
+        "寫扣",
+        "實作",
+        "refactor",
+        "重構",
+        "fix bug",
+        "修 bug",
+        "add validation",
+        "成功標準",
+        "verify",
+        "驗收"
+      ],
+      "scope": "global"
     }
   ]
 }
