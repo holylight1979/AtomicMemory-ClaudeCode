@@ -10,7 +10,7 @@
 | Hook | 觸發時機 | 用途 |
 |------|---------|------|
 | `UserPromptSubmit` | 使用者送出訊息 | RECALL 記憶檢索 + intent 分類（含 handoff）+ Context Budget 監控 + Wisdom 情境分類 + Failures 偵測 + Evasion 注入 |
-| `PreToolUse` (Write/Edit) | Write/Edit 工具呼叫前 | (1) Atom Format Gate：阻擋 `/.claude/memory/*.md` 不符原子格式的寫入；(2) Atom Confidence Gate：新建 atom 的 frontmatter `Confidence:` 與內文 `- [固]/- [觀]` 標籤必須全為 `[臨]`，鏡射 MCP `atom_write` mode=create 規則（[server.js:1109-1117](../tools/workflow-guardian-mcp/server.js)）封堵 Write tool 繞過路徑；(3) **Memory Path Block**：阻擋寫入 `~/.claude/projects/{slug}/memory/`（原子記憶專案自治層覆寫此路徑），對應 atom `feedback-memory-path` |
+| `PreToolUse` (Write/Edit) | Write/Edit 工具呼叫前 | (1) Atom Format Gate：阻擋 `/.claude/memory/*.md` 不符原子格式的寫入；(2) Atom Confidence Gate：新建 atom 的 frontmatter `Confidence:` 與內文 `- [固]/- [觀]` 標籤必須全為 `[臨]`，鏡射 MCP `atom_write` mode=create 規則（[server.js:1109-1117](../tools/workflow-guardian-mcp/server.js)）封堵 Write tool 繞過路徑；(3) **Memory Path Block**：阻擋寫入 `~/.claude/projects/{slug}/memory/`（原子記憶專案自治層覆寫此路徑），對應 atom `feedback-memory-path`；(4) **Cross-Realm Write Block**（方案甲 2026-06-12）：外部專案 session（cwd∉~/.claude）寫入核心層 `~/.claude/{skills,tools,hooks,lib,rules}/` → deny 並指路專案層 `.claude/skills|tools/`（SGI 跨層污染教訓；config `guard.cross_realm_write` 可關/設 allowlist；核心開發 session 不受影響） |
 | `PreToolUse` (Bash) | Bash 工具呼叫前 | **SVN Test Block**：阻擋 `svn commit/ci` 含 `tests?/` `__tests__/` 路徑或 `*Test.<ext>` 檔案（r10854 教訓），對應 atom `feedback-no-test-to-svn` |
 | `PostToolUse` (Edit/Write/Bash) | 工具呼叫後 | 追蹤修改檔案 + 增量索引 + Read Tracking + Test-Fail 偵測（Bash）+ _CHANGELOG auto-roll |
 | `PreCompact` | Context 壓縮前 | 快照 state + 快照 `injected_atoms`（`pre_compact_injected_atoms`，供壓縮後內文復原，不受 SessionStart(compact) 清空順序影響）+ **Auto-Handoff Layer 2**：壓縮前自動寫六區塊 stub 到 `_staging`（核心保底，不依賴 token 量測） |
@@ -296,10 +296,10 @@ V5 GA 後 tests/ 已 verify 化重組（H-test-prune，2026-05-28）。
 **目錄結構**：
 
 ```
-hooks/verify/                                ← 9 個（atom/evasion/extract/wisdom 等 hook 守衛）
+hooks/verify/                                ← 10 個（atom/evasion/extract/wisdom/cross_realm_guard 等 hook 守衛）
 tools/verify/                                ← 1 個（check_bypass）
 tools/codex-companion/verify/                ← 3 個（assessor_retry / scorer / heuristics）
-lib/verify/                                  ← 1 個（atom_io_equivalence S1.3 contract）
+lib/verify/                                  ← 3 個（atom_io_equivalence S1.3 contract / edit_metadata / failures_routing）
 skills/{name}/verify/                        ← 17 個空結構（內容由 next-phase-skills-verify.md 衍生任務補）
 ```
 

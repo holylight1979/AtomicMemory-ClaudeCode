@@ -135,7 +135,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── DocIndex-System.md / known-regressions.md / Project_File_Tree.md
 │
 ├── hooks/verify/ tools/verify/ lib/verify/         ← 28 個 verify_*.py（H-test-prune 後 verify 化）
-│   tools/codex-companion/verify/ auto-continue/verify/ ← 跑 `python run_verify.py`（491 passed）
+│   tools/codex-companion/verify/ auto-continue/verify/ ← 跑 `python run_verify.py`（510 passed）
 ├── skills/{name}/verify/                           ← 17 個空結構（候選見 _staging/next-phase-skills-verify.md）
 │
 └── {project_root}/.claude/                         ← 專案自治層（每專案獨立）

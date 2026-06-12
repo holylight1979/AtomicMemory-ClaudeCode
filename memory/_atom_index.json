@@ -630,6 +630,22 @@
         "驗收"
       ],
       "scope": "global"
+    },
+    {
+      "name": "confirmations-已退役-phase2-usefulness-接管晉升",
+      "path": "_AIDocs/_atoms/MemDev/confirmations-已退役-phase2-usefulness-接管晉升.md",
+      "triggers": [
+        "confirmations",
+        "confirmation_events",
+        "恒 0",
+        "零增",
+        "晋升判定",
+        "wilson",
+        "usefulness",
+        "記憶健檢",
+        "静默失效誤報"
+      ],
+      "scope": "global"
     }
   ]
 }

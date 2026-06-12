@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -104,11 +105,23 @@ _BASE_WRITABLE_DIR_SEGMENTS = frozenset({
 
 
 def is_failures_routed_title(title: Optional[str]) -> bool:
-    """title slugify 後檢查 feedback- 前綴。對拍 server.js:applyFeedbackRouting。"""
+    """title 是否該路由到 _AIDocs/Failures/。對拍 server.js:applyFeedbackRouting。
+
+    兩類：(1) feedback- 前綴（create 起即路由）；(2) 已註冊在索引、path 落
+    Failures 的非 feedback- atom（cognitive-patterns / memory-pipeline-* 等）——
+    缺 (2) 時這些 atom 的 append/replace 會在 memory/ 找不到檔而失敗
+    （2026-06-12 funnel 缺口修補）。
+    """
     if not title:
         return False
     from .atom_spec import slugify  # lazy import: atom_spec 不 import 本模組，避免任何 cycle 風險
-    return slugify(title).startswith(FEEDBACK_TITLE_PREFIX)
+    slug = slugify(title)
+    if slug.startswith(FEEDBACK_TITLE_PREFIX):
+        return True
+    try:
+        return slug in failures_atom_stems()
+    except Exception:
+        return False
 
 
 def is_in_failures_path(rel_path: str) -> bool:
@@ -495,17 +508,43 @@ def append_learned_terms(new_terms: Dict[str, str]) -> Dict[str, str]:
     """併 {term: domain_path} 入 learned.json（atomic temp+rename + 去重）。回合併後全集。
 
     LLM sweep 判 local 後寫入 → 下次 deterministic 直接命中、免再喚 LLM。
+    讀-改-寫全程持 advisory lock（仿 wg_core.write_state）：兩個 session 同時
+    SessionEnd 時防 lost-update（學到的詞被互蓋永久遺失）。
     """
-    merged = load_learned_lexicon()
-    for k, v in (new_terms or {}).items():
-        kk, vv = str(k).strip().lower(), str(v).strip()
-        if kk and vv:
-            merged[kk] = vv
     LEARNED_LEXICON_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = LEARNED_LEXICON_PATH.with_suffix(".json.tmp")
-    tmp.write_text(
-        json.dumps({"terms": merged}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    tmp.replace(LEARNED_LEXICON_PATH)
-    return merged
+    lock_path = LEARNED_LEXICON_PATH.with_suffix(".lock")
+    lock_fh = None
+    if sys.platform == "win32":
+        try:
+            import msvcrt
+            lock_fh = open(lock_path, "ab")
+            msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
+        except OSError:
+            if lock_fh:
+                lock_fh.close()
+            lock_fh = None
+    try:
+        merged = load_learned_lexicon()
+        for k, v in (new_terms or {}).items():
+            kk, vv = str(k).strip().lower(), str(v).strip()
+            if kk and vv:
+                merged[kk] = vv
+        tmp = LEARNED_LEXICON_PATH.with_suffix(".json.tmp")
+        tmp.write_text(
+            json.dumps({"terms": merged}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(LEARNED_LEXICON_PATH)
+        return merged
+    finally:
+        if lock_fh is not None:
+            try:
+                import msvcrt
+                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            lock_fh.close()
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass

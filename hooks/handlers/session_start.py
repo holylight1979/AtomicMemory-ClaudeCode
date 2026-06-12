@@ -206,8 +206,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         rotate_log_if_oversized(WORKFLOW_DIR / "guardian-crash.log", max_mb=10)
         rotate_log_if_oversized(WORKFLOW_DIR / "extract-worker.log", max_mb=10)
         rotate_log_if_oversized(CLAUDE_DIR / "Logs" / "codex-companion.log", max_mb=10)
-    except Exception:
-        pass
+    except Exception as e:
+        _atom_debug_error("session_start:log_rotation", e)
 
     # ── V3/1.5A: SessionStart 去重 ──
     sibling = None
@@ -345,6 +345,41 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "[Workflow Guardian] Active.",
             f"Global: {len(g_names)} atoms. Project: {len(p_names)}.",
         ]
+
+        # ── 索引載入後校驗（2026-06-12 總檢視 E1）─────────────────────────
+        # 防 _atom_index.json 被 funnel 外改壞 → 注入鏈靜默降效（2026-05 前科
+        # 同型）。廉價雙向：index→disk 存在性 + memory/ 頂層→index 漏登。
+        # 失配＝log（always-on）+ 可見 advisory，不自動重建（避免與 funnel 互搶）。
+        try:
+            _idx_missing = [
+                n for n, p, _t in global_atoms
+                if p and not (CLAUDE_DIR / p).exists()
+            ]
+            _idx_paths = {
+                str((CLAUDE_DIR / p).resolve()).lower()
+                for _n, p, _t in global_atoms if p
+            }
+            _disk_orphans = [
+                f.stem for f in MEMORY_DIR.glob("*.md")
+                if not f.name.startswith("_") and f.name != MEMORY_INDEX
+                and str(f.resolve()).lower() not in _idx_paths
+            ]
+            if _idx_missing or _disk_orphans:
+                _atom_debug_error(
+                    "session_start:index_validate",
+                    RuntimeError(
+                        f"index 失配 missing_on_disk={_idx_missing[:5]} "
+                        f"unindexed_on_disk={_disk_orphans[:5]}"
+                    ),
+                )
+                lines.append(
+                    "[Guardian:IndexValidate] ⚠ _atom_index.json 與磁碟失配"
+                    f"（索引指向不存在 {len(_idx_missing)} 筆 / 磁碟未登記 "
+                    f"{len(_disk_orphans)} 筆）。請跑 "
+                    "python tools/sync-atom-index.py 重建；詳 Logs/atom-debug。"
+                )
+        except Exception as e:
+            _atom_debug_error("session_start:index_validate", e)
         if v4_user:
             lines.append(
                 f"[Role] user={v4_user} roles={','.join(v4_roles) or 'programmer'} mgmt={v4_mgmt}"

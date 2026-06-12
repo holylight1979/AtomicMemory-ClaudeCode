@@ -50,8 +50,8 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
             drift_msg = build_drift_advisory(state, config)
             if drift_msg:
                 print(f"[Guardian:DocDrift] {drift_msg}", file=sys.stderr)
-        except Exception:
-            pass
+        except Exception as e:
+            _atom_debug_error("session_end:docdrift_advisory", e)
 
     ue_config = config.get("userExtraction", {})
     if not ue_config.get("enabled", False) and state.get("pending_user_extract"):

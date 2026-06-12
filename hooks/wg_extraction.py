@@ -104,7 +104,8 @@ def _count_new_assistant_chars(transcript_path, byte_offset: int) -> int:
                         t = block.get("text", "")
                         if t and len(t) > 30:
                             total += len(t)
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as e:
+        _atom_debug_error("extraction:count_assistant_chars", e)
         pass
     return total
 
@@ -468,7 +469,8 @@ def write_hot_cache(data: dict) -> None:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         os.replace(str(tmp_path), str(HOT_CACHE_PATH))
-    except OSError:
+    except OSError as e:
+        _atom_debug_error("extraction:hot_cache_write", e)
         if tmp_path.exists():
             try:
                 tmp_path.unlink()
@@ -486,7 +488,8 @@ def read_hot_cache(session_id: str) -> Optional[dict]:
     try:
         with open(HOT_CACHE_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        _atom_debug_error("extraction:hot_cache_read", e)
         return None
     finally:
         _release_lock(lock_fh, lock_mod, LOCK_PATH)
@@ -528,7 +531,8 @@ def mark_injected(session_id: str) -> bool:
             json.dump(data, f, ensure_ascii=False, indent=2)
         os.replace(str(tmp_path), str(HOT_CACHE_PATH))
         return True
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        _atom_debug_error("extraction:hot_cache_mark_injected", e)
         return False
     finally:
         _release_lock(lock_fh, lock_mod, LOCK_PATH)

@@ -45,6 +45,16 @@ def _load_config() -> Dict[str, Any]:
         return {}
 
 
+# ─── Always-on error log（standalone：不依賴 wg_core，寫 stderr）─────────────
+
+
+def _log_err(source: str, exc: Exception) -> None:
+    try:
+        sys.stderr.write(f"[{source}] {type(exc).__name__}: {exc}\n")
+    except OSError:
+        pass
+
+
 # ─── Output helpers (same protocol as workflow-guardian) ──────────────────────
 
 
@@ -68,7 +78,8 @@ def _output_block(reason: str, session_id: str = "") -> None:
         try:
             import state as companion_state
             companion_state.increment_metric(session_id, "behavior_gap_blocks")
-        except Exception:
+        except Exception as e:
+            _log_err("codex:metric_block_count", e)
             pass
     _output_json({"decision": "block", "reason": reason})
 
@@ -146,8 +157,9 @@ def _spawn_audit_subprocess(turn_data: Dict[str, Any]) -> None:
             )
         finally:
             proc.stdin.close()
-    except Exception:
+    except Exception as e:
         # Fail silently — companion is optional
+        _log_err("codex:assessor_spawn", e)
         if hasattr(log_fh, "close"):
             try:
                 log_fh.close()
@@ -190,7 +202,8 @@ def _get_last_assistant_tail(input_data: Dict[str, Any]) -> str:
                                 last = t
             if last:
                 return last[:2000]
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as e:
+            _log_err("codex:stop_text_transcript", e)
             pass
 
         try:
@@ -198,7 +211,8 @@ def _get_last_assistant_tail(input_data: Dict[str, Any]) -> str:
             tail = wg_evasion.get_last_assistant_text(Path(transcript_path))
             if tail:
                 return tail[:2000]
-        except Exception:
+        except Exception as e:
+            _log_err("codex:stop_text_fallback", e)
             pass
 
     return ""
@@ -343,7 +357,8 @@ def _mark_injected(path: Path, data: Dict[str, Any]) -> None:
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         tmp.replace(path)
-    except OSError:
+    except OSError as e:
+        _log_err("codex:assessment_mark_injected", e)
         pass
 
 
@@ -377,7 +392,8 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
     for path in paths:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as e:
+            _log_err("codex:assessment_read", e)
             continue
         if data.get("injected", False):
             continue
@@ -404,7 +420,8 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
             try:
                 import state as companion_state
                 companion_state.increment_metric(session_id, "advisory_suppressed_silent")
-            except Exception:
+            except Exception as e:
+                _log_err("codex:metric_suppressed", e)
                 pass
             continue
 
@@ -475,7 +492,8 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
     try:
         import state as companion_state
         companion_state.increment_metric(session_id, "quality_gap_advises", len(blocks))
-    except Exception:
+    except Exception as e:
+        _log_err("codex:metric_advises", e)
         pass
 
     context_text = "\n\n".join(blocks)
@@ -610,7 +628,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
                             companion_state.increment_metric(
                                 session_id, "silent_advisory_suppressed"
                             )
-                        except Exception:
+                        except Exception as e:
+                            _log_err("codex:metric_silent_advisory", e)
                             pass
                     else:
                         detail = heuristics.format_for_context(results)
@@ -623,7 +642,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
                         except (KeyError, IndexError):
                             block_reason = template + "\n" + detail
                         _output_block(block_reason, session_id=session_id)
-        except Exception:
+        except Exception as e:
+            _log_err("codex:heuristics_gate", e)
             pass  # Heuristics failure → degrade gracefully
 
     # ── Sprint 3 Phase 3.2：score gate / dedup / cap ─────────────────────
@@ -634,13 +654,15 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
         sys.path.insert(0, str(COMPANION_DIR))
         import scorer
         score = scorer.compute_turn_score(merged_state, stop_text=last_assistant_tail)
-    except Exception:
+    except Exception as e:
+        _log_err("codex:turn_score", e)
         score = 99  # 算分失敗安全預設：不抑制觸發，避免漏審查
 
     if score < score_threshold:
         try:
             companion_state.increment_metric(session_id, "audits_skipped_by_score")
-        except Exception:
+        except Exception as e:
+            _log_err("codex:metric_skip_score", e)
             pass
         _output_nothing()
 
@@ -660,7 +682,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
     # Sprint 5.5 B1：實際送出 audit 前 +1（Phase 6 §四 C3 ratio 分母）
     try:
         companion_state.increment_metric(session_id, "audits_total_attempted")
-    except Exception:
+    except Exception as e:
+        _log_err("codex:metric_audit_attempt", e)
         pass
 
     companion_state.record_checkpoint(session_id, "turn_audit")
@@ -696,7 +719,8 @@ def _flush_metrics_to_reflection(session_id: str) -> None:
     try:
         import state as companion_state
         metrics = companion_state.read_metrics(session_id)
-    except Exception:
+    except Exception as e:
+        _log_err("codex:metrics_read", e)
         return
     if not metrics or not any(metrics.values()):
         return
@@ -721,7 +745,8 @@ def _flush_metrics_to_reflection(session_id: str) -> None:
         tmp = metrics_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(metrics_path)
-    except OSError:
+    except OSError as e:
+        _log_err("codex:metrics_flush_write", e)
         pass
 
 

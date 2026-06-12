@@ -962,6 +962,21 @@ function resolveMemDir(scope, projectCwd, opts = {}) {
   return { dir, base };
 }
 
+/** 已註冊 Failures atom（非 feedback- 前綴，如 cognitive-patterns / memory-pipeline-*）。
+ *  MIRROR: lib/atom_locations.py:failures_atom_stems ∈ is_failures_routed_title。
+ *  缺此判定時這些 atom 的 append/replace 會在 memory/ 找不到檔（2026-06-12 缺口修補）。 */
+function isRegisteredFailuresStem(slug) {
+  try {
+    const data = JSON.parse(
+      fs.readFileSync(path.join(MEMORY_DIR, "_atom_index.json"), "utf-8"));
+    return (data.atoms || []).some(
+      (a) => (a.path || "").startsWith(FAILURES_REL + "/") &&
+        path.basename(a.path, ".md") === slug);
+  } catch {
+    return false;
+  }
+}
+
 /** V5+ feedback-* 路由疊加。將 resolveMemDir 結果改寫為 _AIDocs/Failures/ 目的地。
  *  索引仍在 memory/_atom_index.json（單一索引來源）。
  *  MIRROR: lib/atom_locations.py:failures_write_target — keep in sync.
@@ -974,7 +989,8 @@ function applyFeedbackRouting(resolved, slug, scope) {
   let indexDir = baseDir;
   let indexRoot = path.dirname(baseDir);
   let routedToFailures = false;
-  if (scope === "global" && slug.startsWith(FEEDBACK_TITLE_PREFIX)) {
+  if (scope === "global" &&
+      (slug.startsWith(FEEDBACK_TITLE_PREFIX) || isRegisteredFailuresStem(slug))) {
     fs.mkdirSync(FAILURES_DIR, { recursive: true });
     memDir = FAILURES_DIR;
     baseDir = FAILURES_DIR;

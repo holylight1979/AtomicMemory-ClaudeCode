@@ -769,8 +769,8 @@ def resolve_atom_path(name: str) -> Optional[Path]:
             for p in iter_atom_files_multi():
                 if p.name == target:
                     return p
-        except Exception:
-            pass
+        except Exception as e:
+            _atom_debug_error("usefulness:atom_lookup_multi", e)
     cand = MEMORY_DIR / target
     return cand if cand.exists() else None
 
@@ -814,7 +814,8 @@ def detect_atom_use(
     if embed_fn is not None and n_shared == max(0, rare_token_min - 1) and n_shared >= 1:
         try:
             cos = embed_fn(atom_content, turn_text)
-        except Exception:
+        except Exception as e:
+            _atom_debug_error("usefulness:embed_tiebreak", e)
             cos = None
         if cos is not None and cos >= embed_min:
             return {"used": True, "shared": n_shared, "containment": round(containment, 3),
@@ -861,7 +862,8 @@ def make_embed_tiebreak_fn(config: Dict[str, Any]):
             if na == 0 or nb == 0:
                 return None
             return dot / (na * nb)
-        except Exception:
+        except Exception as e:
+            _atom_debug_error("usefulness:embed_cosine", e)
             return None
 
     return _cosine
@@ -911,8 +913,8 @@ def _truncate_context_by_activation(
             ep = mem_dir / "episodic"
             if ep.is_dir():
                 fallback_roots.append(ep)
-    except Exception:
-        pass
+    except Exception as e:
+        _atom_debug_error("usefulness:project_roots_discover", e)
 
     for ab in atom_blocks:
         atom_name = ab["name"]
@@ -1238,7 +1240,8 @@ def _get_vector_obs_logger() -> Optional[logging.Logger]:
             lg.addHandler(h)
         _vector_obs_logger = lg
         return lg
-    except Exception:
+    except Exception as e:
+        _atom_debug_error("vector_obs:logger_init", e)
         _vector_obs_logger_failed = True
         return None
 
@@ -1266,8 +1269,8 @@ def _log_vector_obs(
         rec.update(extra)
     try:
         lg.info(json.dumps(rec, ensure_ascii=False))
-    except Exception:
-        pass
+    except Exception as e:
+        _atom_debug_error("vector_obs:write", e)
 
 
 def _search_episodic_context(

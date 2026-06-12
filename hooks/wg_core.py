@@ -88,6 +88,12 @@ DEFAULTS = {
         "pattern_threshold": 2,
         "migration_hint_threshold": 3,
     },
+    "guard": {
+        "cross_realm_write": {
+            "enabled": True,
+            "allowlist": [],
+        },
+    },
 }
 
 
@@ -153,9 +159,11 @@ def rotate_log_if_oversized(log_path: Path, max_mb: int = 10, keep: int = 3) -> 
             log_path.rename(rotated)
             log_path.touch()
             return True
-        except OSError:
+        except OSError as e:
+            _atom_debug_error("log_rotation:rename", e)
             return False
-    except Exception:
+    except Exception as e:
+        _atom_debug_error("log_rotation", e)
         return False
 
 
@@ -645,7 +653,8 @@ def _find_active_sibling_state(
                 best_mtime = mtime
 
         return best
-    except Exception:
+    except Exception as e:
+        _atom_debug_error("state:sibling_scan", e)
         return None
 
 
@@ -722,8 +731,8 @@ def log_promotion_audit(action: str, atom: str, **fields: Any) -> None:
         audit_path = MEMORY_DIR / "_promotion_audit.jsonl"
         with open(audit_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        _atom_debug_error("promotion:audit_append", e)
 
 
 # ─── Atom Debug Log ──────────────────────────────────────────────────────────
@@ -838,7 +847,8 @@ def _is_failures_atom_path(fp: Path) -> bool:
         return False
     try:
         return fp.stem in failures_atom_stems()
-    except Exception:
+    except Exception as e:
+        _atom_debug_error("guard:failures_atom_path", e)
         return False
 
 
@@ -907,6 +917,60 @@ def check_svn_test_block(
         "*Test.<ext> 檔案。測試/練習/新手作業檔不可上 SVN（r10854 教訓）。\n"
         "若確實要上，請 (1) 將指定檔案逐一列入命令、不用 glob；或 "
         "(2) 由使用者明確指示後再執行。"
+    )
+
+
+# ─── Cross-Realm Write Guard（方案甲 2026-06-12）─────────────────────────────
+# 守門對象：~/.claude 核心層（skills/tools/hooks/lib/rules）。
+# 判別子＝session cwd：外部專案 session 寫核心層 → deny（SGI 跨層污染教訓）；
+# ~/.claude 自身的開發 session 完全不受影響。deterministic、零 LLM。
+
+_CORE_GUARDED_SUBDIRS = ("skills", "tools", "hooks", "lib", "rules")
+
+
+def check_cross_realm_write(
+    tool_name: str, tool_input: Dict[str, Any], cwd: str,
+    config: Dict[str, Any],
+) -> Optional[str]:
+    """外部專案 session 寫入 ~/.claude 核心層 → deny。cwd 缺失 fail-open。"""
+    if tool_name not in ("Write", "Edit", "NotebookEdit"):
+        return None
+    g = (config.get("guard") or {}).get("cross_realm_write") or {}
+    if not g.get("enabled", True):
+        return None
+    fp_str = tool_input.get("file_path", "") or ""
+    if not fp_str or not cwd:
+        return None
+    home_claude = (Path.home() / ".claude").resolve()
+    try:
+        fp = Path(fp_str).resolve()
+        rel = fp.relative_to(home_claude)
+    except (OSError, ValueError):
+        return None  # 目標不在 ~/.claude 下 → 與本閘無關
+    if not rel.parts or rel.parts[0].lower() not in _CORE_GUARDED_SUBDIRS:
+        return None
+    try:
+        cwd_p = Path(cwd).resolve()
+        if cwd_p == home_claude or home_claude in cwd_p.parents:
+            return None  # 核心開發 session（cwd ∈ ~/.claude）放行
+    except (OSError, ValueError):
+        return None  # cwd 無法解析 → fail-open
+    fp_norm = str(fp).replace("\\", "/").lower()
+    for pat in g.get("allowlist", []) or []:
+        if pat and str(pat).replace("\\", "/").lower() in fp_norm:
+            return None
+    return (
+        f"[Guardian:CrossRealmWriteBlock] 偵測到外部專案 session 寫入核心層 "
+        f"~/.claude/{rel.parts[0]}/。\n"
+        f"路徑：{fp_str}\n"
+        f"session cwd：{cwd}\n"
+        "核心層（skills/tools/hooks/lib/rules）只接受 ~/.claude session 的修改。\n"
+        "正確做法：\n"
+        "  (1) 專案專屬 skill/tool → 寫到 {專案根}/.claude/skills/ 或 "
+        ".claude/tools/（Claude Code 原生支援專案層疊加）\n"
+        "  (2) 暫存產物（截圖/log/dump）→ 寫到專案目錄或系統 temp\n"
+        "  (3) user 明確要求改核心層 → 請在 ~/.claude 開 session 操作，或於 "
+        "workflow/config.json guard.cross_realm_write.allowlist 加入路徑"
     )
 
 

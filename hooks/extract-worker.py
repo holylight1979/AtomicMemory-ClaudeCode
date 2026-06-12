@@ -116,7 +116,8 @@ def _extract_all_assistant_texts(
                 if total >= max_chars:
                     break
             final_offset = f.tell()
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError) as e:
+        _atom_debug_error("extract_worker:transcript_read", e)
         pass
     return texts, final_offset
 
@@ -436,7 +437,8 @@ def _write_state_atomic(state_path: Path, state: dict) -> bool:
             json.dump(state, f, ensure_ascii=False, indent=2)
         tmp.replace(state_path)
         return True
-    except OSError:
+    except OSError as e:
+        _atom_debug_error("extract_worker:state_write", e)
         if tmp.exists():
             try:
                 tmp.unlink()
@@ -492,7 +494,8 @@ def _per_turn_writeback(ctx: dict, result: dict) -> None:
                 "summary": summary[:200],
                 "token_estimate": max(len(summary) // 4, 10),
             })
-    except Exception:
+    except Exception as e:
+        _atom_debug_error("extract_worker:hot_cache_writeback", e)
         pass  # hot cache 是增強功能，失敗不影響主流程
 
 
@@ -699,5 +702,6 @@ if __name__ == "__main__":
             _legacy_main()
         else:
             main()
-    except Exception:
+    except Exception as e:
+        _atom_debug_error("extract_worker:entry", e)
         pass  # Silent failure — never block Claude Code

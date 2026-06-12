@@ -32,6 +32,14 @@ _NPM_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+def _log_err(source, exc):
+    """Always-on 錯誤通報（standalone：不依賴 wg_core，寫 stderr）。"""
+    try:
+        sys.stderr.write(f"[{source}] {type(exc).__name__}: {exc}\n")
+    except OSError:
+        pass
+
+
 def _find_node():
     """Return node.exe absolute path or None. Fast: check common paths first."""
     # Common Windows locations
@@ -49,7 +57,8 @@ def _find_node():
                            creationflags=_NPM_FLAGS)
         if r.returncode == 0:
             return r.stdout.strip().splitlines()[0]
-    except Exception:
+    except Exception as e:
+        _log_err("ensure_mcp:find_node", e)
         pass
     return None
 
@@ -67,7 +76,8 @@ def _npm_global_prefix():
                            creationflags=_NPM_FLAGS)
         if r.returncode == 0:
             return r.stdout.strip()
-    except Exception:
+    except Exception as e:
+        _log_err("ensure_mcp:npm_prefix", e)
         pass
     return None
 
@@ -202,7 +212,8 @@ def _spawn_background(flag, packages_csv):
             stderr=subprocess.DEVNULL,
             creationflags=flags,
         )
-    except Exception:
+    except Exception as e:
+        _log_err("ensure_mcp:spawn_background", e)
         pass
 
 
@@ -219,7 +230,8 @@ def slow_install(packages_csv):
             stderr=subprocess.DEVNULL,
             creationflags=_NPM_FLAGS,
         )
-    except Exception:
+    except Exception as e:
+        _log_err("ensure_mcp:npm_install", e)
         pass
 
 
@@ -245,7 +257,8 @@ def slow_update(packages_csv):
                     stderr=subprocess.DEVNULL,
                     creationflags=_NPM_FLAGS,
                 )
-    except Exception:
+    except Exception as e:
+        _log_err("ensure_mcp:npm_update", e)
         pass
 
     # Update TTL cache

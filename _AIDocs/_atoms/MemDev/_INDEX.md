@@ -6,6 +6,7 @@
 
 | Atom | 說明 |
 |------|------|
+| confirmations-已退役-phase2-usefulness-接管晉升 | confirmations-已退役-Phase2-usefulness-接管晉升 |
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
 
 ## 子層

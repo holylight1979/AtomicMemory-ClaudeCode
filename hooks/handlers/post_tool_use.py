@@ -13,6 +13,7 @@ from typing import Any, Dict
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
+    _atom_debug_error,
 )
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
@@ -126,7 +127,8 @@ def _maybe_auto_roll_changelog(file_path: str, config: Dict[str, Any]) -> None:
              f"--keep={threshold}", "--quiet"],
             **bg_kwargs,
         )
-    except Exception:
+    except Exception as e:
+        _atom_debug_error("post_tool_use:changelog_auto_roll", e)
         pass
 
 
@@ -301,7 +303,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         try:
             if prune_committed_entries(state, config) > 0:
                 write_state(session_id, state)
-        except Exception:
+        except Exception as e:
+            _atom_debug_error("post_tool_use:docdrift_prune", e)
             pass
 
     advisories = []
@@ -323,7 +326,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             if hot_data:
                 advisories.append(format_injection_line(hot_data, context="mid-turn"))
                 mark_injected(session_id)
-        except Exception:
+        except Exception as e:
+            _atom_debug_error("post_tool_use:hot_cache_inject", e)
             pass
 
     if advisories:

@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from wg_core import (
     output_json, output_nothing,
     check_memory_path_block, check_svn_test_block,
+    check_cross_realm_write,
     _atom_debug_log,
 )
 from wg_atoms import build_injection_blob
@@ -183,6 +184,20 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         return
 
     deny_reason = check_memory_path_block(tool_name, tool_input)
+    if deny_reason:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
+    # Phase 3b（方案甲 2026-06-12）：外部專案 session 寫核心層 → deny
+    deny_reason = check_cross_realm_write(
+        tool_name, tool_input, input_data.get("cwd", "") or "", config,
+    )
     if deny_reason:
         output_json({
             "hookSpecificOutput": {

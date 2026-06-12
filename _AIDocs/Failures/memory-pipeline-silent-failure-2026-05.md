@@ -20,6 +20,7 @@
 - [臨] 關鍵性質：不是「檢查技能過時」。sync-atom-index / sync-memory-index / memory-health 與 runtime hook 用的是同一個 strict parser、同一個真相源（_ATOM_INDEX.md），它們一致。壞的是「寫入端產出的格式」違反 parser 的紧湊假設（表內不得有空行）。寫入端有兩個（MCP server.js / lib/atom_io.py）+ batch 重組（sync-memory-index / atom-move），任一次留下空行就 silent 讀 0。
 - [臨] 為何專案層更常中招：atom_write 預設 scope=shared→寫專案層索引；跨層 atom_move/reconcile 會重寫兩層索引（本 session move linemate 即觸發 working-copy 重寫）。寫入頻繁 + 較新 → 更高機率被插入空行 → 該專案 atom 全不注入。
 - [臨] 預防方向（需動 hook+MCP，待另 session）：(1) 讓 parser 容忍空行（遇空行 skip 不 break，或改成掃全文 | ... | row regex），同步改 wg_atoms.py + sync-*.py；(2) SessionStart 加 fail-loud：某層 _ATOM_INDEX 存在但 parse 出 0 atoms → 警告（現在 silent）；(3) 寫入後跡 sync-atom-index --check gate。
+- [臨] **簽章更新（2026-06-12）**：「confirmations 零增」項已過時——Phase 2 usefulness Wilson 接管晉升後 confirmations 恆 0 屬正常（詳 [[confirmations-已退役-phase2-usefulness-接管晉升]]）。現行有效活性指標：useful_hits/used_fail 增長 + _meta/atom_io_audit.jsonl 追加 + episodic 檔日期。勿再拿 confirmations=0 誤報失效。
 
 ## 行動
 

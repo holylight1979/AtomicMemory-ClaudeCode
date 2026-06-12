@@ -41,3 +41,4 @@
 | a執p-自執驗上p-自動完工協議 | _AIDocs/_atoms/Tools/自動化流程與協議/a執p-自執驗上p-自動完工協議.md | A執P, 自執驗上P, Auto執驗上P, 自動執驗上P, 全自動完工, 自動推進, auto-handoff, 自動交接 | global |
 | dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app | memory/dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app.md | dotnet run 單檔, file-based app, C# 單檔, 拋棄式 demo, C# script, 驗證 C# 語意 | global |
 | goal-driven-verify-loopkarpathy-吸收 | memory/goal-driven-verify-loopkarpathy-吸收.md | 寫程式, 寫扣, 實作, refactor, 重構, fix bug, 修 bug, add validation, 成功標準, verify, 驗收 | global |
+| confirmations-已退役-phase2-usefulness-接管晉升 | _AIDocs/_atoms/MemDev/confirmations-已退役-phase2-usefulness-接管晉升.md | confirmations, confirmation_events, 恒 0, 零增, 晋升判定, wilson, usefulness, 記憶健檢, 静默失效誤報 | global |
