@@ -89,7 +89,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── unity-desktop/
 │   └── workflow-guardian-mcp/server.js             ← MCP @ stdio，4 tool（atom_write/move/promote/edit_meta）
 │
-├── skills/                                         ← 24 個 skill（19 遷移自 commands/ + skill-creator/heal-review/refile + 外部 unity-mcp-skill/karpathy-guidelines）
+├── skills/                                         ← 23 個 skill（19 遷移自 commands/ + skill-creator/heal-review/refile + 外部 karpathy-guidelines）
 │   ├── atom-debug / browse-sprites / changelog-debug
 │   ├── conflict / conflict-review / consciousness-stream
 │   ├── continue / handoff / init-roles
@@ -102,7 +102,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │
 ├── memory/                                         ← 全域記憶層
 │   ├── MEMORY.md                                   ← AI 一覽索引（人類可讀）
-│   ├── _atom_index.json                            ← V5 JSON SoT（36 atoms：core 14 + feedback 7 + 失敗模式 2 + local 13〔World3/Tools5/MemDev3/OS2〕）
+│   ├── _atom_index.json                            ← V5 JSON SoT（38 atoms：core 15 + feedback 7 + 失敗模式 2 + local 14〔World3/Tools5/MemDev4/OS2〕）
 │   ├── _ATOM_INDEX.md                              ← deprecated mirror（自動生成）
 │   ├── _meta/forbidden-phrases.json                ← V5 禁語單一真相
 │   ├── preferences.md / decisions*.md / workflow-*.md / toolchain*.md
@@ -270,7 +270,7 @@ state schema 不變、Silent Advisory / Score Gate / Dedup / Max Audits Cap 邏�
 
 ### 5.4 Commands → Skills 遷移（V5 P1）
 
-Anthropic 官方明文「Custom commands have been merged into skills」。V5 把 22 個 `commands/*.md` 全刪，改用 `skills/{name}/SKILL.md` 結構（遷移後 19 個；後續另新增 skill-creator/heal-review/refile；另含 2 外部 skill unity-mcp-skill/karpathy-guidelines，全域共 24 個）：
+Anthropic 官方明文「Custom commands have been merged into skills」。V5 把 22 個 `commands/*.md` 全刪，改用 `skills/{name}/SKILL.md` 結構（遷移後 19 個；後續另新增 skill-creator/heal-review/refile；另含 1 外部 skill karpathy-guidelines，全域共 23 個）：
 
 - **直接遷移**（13）：atom-debug, browse-sprites, conflict, conflict-review, consciousness-stream, extract, fix-escalation, generate-episodic, harvest, journal, read-project, upgrade, vector
 - **全域保留**（4）：codex-companion, continue, handoff, init-roles
@@ -658,7 +658,7 @@ flowchart TD
 | **V5 BM25** | [hooks/wg_atoms.py](hooks/wg_atoms.py) `bm25_match` | 全域層替代 Vector（~80 行手刻） |
 | **V5 JSON SoT** | [lib/atom_index_json.py](lib/atom_index_json.py) | 取代 `_ATOM_INDEX.md` table parser |
 | **V5 Codex Subprocess** | [hooks/codex_companion.py](hooks/codex_companion.py) + `tools/codex-companion/audit.py` | daemon → subprocess（無 port 3850）|
-| **V5 Skill 體系** | [skills/](skills/) 24 個 + frontmatter | 19 遷移自 legacy commands/ + skill-creator/heal-review/refile + 外部 unity-mcp-skill/karpathy-guidelines |
+| **V5 Skill 體系** | [skills/](skills/) 23 個 + frontmatter | 19 遷移自 legacy commands/ + skill-creator/heal-review/refile + 外部 karpathy-guidelines |
 | **V5 MCP（4 tool）** | [tools/workflow-guardian-mcp/server.js](tools/workflow-guardian-mcp/server.js) | atom_write / atom_move / atom_promote / atom_edit_meta（砍 4 內部 IPC）|
 | **V5 禁語 JSON** | `memory/_meta/forbidden-phrases.json` | IDENTITY.md + wg_evasion.py single source |
 | **V5 Log Rotation** | [hooks/wg_core.py](hooks/wg_core.py) | guardian-crash.log / extract-worker.log 自動輪轉 |

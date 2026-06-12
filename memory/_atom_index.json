@@ -646,6 +646,23 @@
         "静默失效誤報"
       ],
       "scope": "global"
+    },
+    {
+      "name": "專案等級-mcpskillhookslog-不放全域根層",
+      "path": "memory/專案等級-mcpskillhookslog-不放全域根層.md",
+      "triggers": [
+        "建立skill",
+        "建立mcp",
+        "新增hooks",
+        "暫存檔",
+        "play-log",
+        "全域 vs 專案",
+        "~/.claude 根層",
+        "專案自包含",
+        "skill 放哪",
+        "檔案歸屬"
+      ],
+      "scope": "global"
     }
   ]
 }
