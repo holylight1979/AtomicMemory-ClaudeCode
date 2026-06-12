@@ -415,6 +415,22 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
         except OSError:
             return False
 
+    def _has_atom_index_marker(mem: Path) -> bool:
+        # CC harness 原生 file-based memory（projects/<slug>/memory/）也自建 MEMORY.md
+        # （`- [Title](file.md) — hook` 清單），與 atom 索引撞名。辨識依據：
+        # atom 索引必有 _atom_index.json / _ATOM_INDEX.md，或 MEMORY.md 含
+        # 「| Atom」trigger 表頭 / migrated-v2.21 slug-pointer stub（get_slug_pointer_path）。
+        if (mem / "_atom_index.json").exists() or (mem / ATOM_INDEX).exists():
+            return True
+        idx = mem / MEMORY_INDEX
+        if not idx.is_file():
+            return False
+        try:
+            text = idx.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError):
+            return False
+        return "| Atom" in text or "|Atom" in text or "Status: migrated-v2.21" in text
+
     seen_slugs: set = set()
     results: List[Tuple[str, Path]] = []
     reg = _load_registry()
@@ -429,8 +445,11 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
             seen_slugs.add(slug)
             continue
         old_mem = CLAUDE_DIR / "projects" / slug / "memory"
-        if old_mem.is_dir() and not _is_global_mem(old_mem):
-            results.append((slug, old_mem))
+        if old_mem.is_dir():
+            # registry old-path 同樣要過 atom marker：harness 原生 memory dir 與
+            # 此路徑完全重合（2026-06-12 c--users-holylight--claude 空 dir 實例）。
+            if not _is_global_mem(old_mem) and _has_atom_index_marker(old_mem):
+                results.append((slug, old_mem))
             seen_slugs.add(slug)
     projects_dir = CLAUDE_DIR / "projects"
     if projects_dir.is_dir():
@@ -441,11 +460,10 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
             if slug in seen_slugs:
                 continue
             mem = proj_dir / "memory"
-            # Phase 0: 要求 atom 索引 marker（MEMORY.md / _atom_index.json）才納入，
-            # 避免 CC 原生 auto-memory dir（projects/<proj>/memory/）污染 cross-project 掃描。
-            if mem.is_dir() and not _is_global_mem(mem) and (
-                (mem / MEMORY_INDEX).exists() or (mem / "_atom_index.json").exists()
-            ):
+            # Phase 0: 要求 atom 索引 marker 才納入。MEMORY.md 僅存在不夠——
+            # 新版 CC harness file-based memory 也在此路徑自建 MEMORY.md，
+            # 需內容辨識（_has_atom_index_marker）區分兩套系統。
+            if mem.is_dir() and not _is_global_mem(mem) and _has_atom_index_marker(mem):
                 results.append((slug, mem))
     return results
 
