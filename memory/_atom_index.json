@@ -663,6 +663,22 @@
         "檔案歸屬"
       ],
       "scope": "global"
+    },
+    {
+      "name": "realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透",
+      "path": "_AIDocs/_atoms/MemDev/realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透.md",
+      "triggers": [
+        "realm 遷移",
+        "domain 亂碼",
+        "자동화",
+        "韓文 domain",
+        "normalize_domain_path",
+        "詞庫污染",
+        "realm sweep",
+        "LLM 分類器",
+        "homoglyph"
+      ],
+      "scope": "global"
     }
   ]
 }

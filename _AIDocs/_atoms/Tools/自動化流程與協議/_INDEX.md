@@ -12,5 +12,5 @@
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| dotnet | 1 | `_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app.md` |
 | SGI-ProjectStructure | 1 | `_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/專案等級-mcpskillhookslog-不放全域根層.md` |
+| dotnet | 1 | `_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app.md` |

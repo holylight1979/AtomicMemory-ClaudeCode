@@ -43,3 +43,4 @@
 | goal-driven-verify-loopkarpathy-吸收 | memory/goal-driven-verify-loopkarpathy-吸收.md | 寫程式, 寫扣, 實作, refactor, 重構, fix bug, 修 bug, add validation, 成功標準, verify, 驗收 | global |
 | confirmations-已退役-phase2-usefulness-接管晉升 | _AIDocs/_atoms/MemDev/confirmations-已退役-phase2-usefulness-接管晉升.md | confirmations, confirmation_events, 恒 0, 零增, 晋升判定, wilson, usefulness, 記憶健檢, 静默失效誤報 | global |
 | 專案等級-mcpskillhookslog-不放全域根層 | _AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/專案等級-mcpskillhookslog-不放全域根層.md | 建立skill, 建立mcp, 新增hooks, 暫存檔, play-log, 全域 vs 專案, ~/.claude 根層, 專案自包含, skill 放哪, 檔案歸屬 | global |
+| realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透 | _AIDocs/_atoms/MemDev/realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透.md | realm 遷移, domain 亂碼, 자동화, 韓文 domain, normalize_domain_path, 詞庫污染, realm sweep, LLM 分類器, homoglyph | global |
