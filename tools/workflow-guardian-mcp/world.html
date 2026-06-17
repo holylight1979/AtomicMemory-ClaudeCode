@@ -1442,8 +1442,8 @@ function pushChat(el, dir, other, text){
 }
 /* ── 對話 session（#3）：雙方輪流講、帶上下文接續、依耦合性續談、第2句後「我還要忙一下」中斷機率逐輪拉升 ── */
 const MAX_TURNS = 4;            // 硬上限調短（單顆 3090 序列：對話越短 → 鎖越快釋放 → 全場輪流開講、不卡死一對）
-const INTERRUPT_BASE = 0.30;    // 雙方各講一次後的基礎中斷機率（調高 → 多數對話 2~3 句收）
-const INTERRUPT_RAMP = 0.16;    // 每多講一句累加的中斷機率
+const INTERRUPT_BASE = 0.18;    // 雙方各講一次後的基礎中斷機率（調降 → 少冒「下次再說」、對話多撐到 3~4 句）
+const INTERRUPT_RAMP = 0.10;    // 每多講一句累加的中斷機率
 const BUSY_LINES = ["我還要忙一下，回頭聊～","先去做點事，下次再說！","啊、我有事得忙了","改天再續，我先走囉"];
 const sleep = ms => new Promise(r=>setTimeout(r, ms));
 function cannedFor(a,b){        // 罐頭備援（LLM 忙線/逾時/失敗）：分享/家園向短句，依關係挑
