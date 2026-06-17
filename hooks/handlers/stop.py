@@ -213,6 +213,53 @@ def _attribute_usefulness(
         print(f"[phase2] usefulness attribution error: {e}", file=sys.stderr)
 
 
+# ─── Stage 3: Deep Post-Mortem Gate（高 effort 失敗 → Claude 深寫指令）──────────
+
+
+def _should_deep_postmortem(
+    state: Dict[str, Any], stop_count: int, max_blocks: int, config: Dict[str, Any]
+) -> bool:
+    """是否要在本 Stop 注入「深寫 post-mortem」指令。
+
+    觸發＝高 effort 失敗訊號任一：
+      - wisdom_retry_count >= 2（反覆重試）
+      - fix_escalation_triggered（精確修正升級已啟動）
+      - 同檔 edit >= 3 次（same_file_3x，鑽牛角尖）
+    且：本 session 未深寫過（deep_postmortem_done）、block 預算未耗盡
+    （stop_count < stop_gate_max_blocks）、config 未關閉。
+
+    純判定、無副作用——副作用（設旗標、計數、output_block）由 gate 處理。
+    """
+    dpm = (config or {}).get("deep_postmortem", {}) or {}
+    if not dpm.get("enabled", True):
+        return False
+    if state.get("deep_postmortem_done"):
+        return False
+    if stop_count >= max_blocks:  # 尊重 stop_gate_max_blocks，不超發
+        return False
+    edit_counts = state.get("edit_counts", {}) or {}
+    same_file_3x = any(int(c or 0) >= 3 for c in edit_counts.values())
+    return (
+        int(state.get("wisdom_retry_count", 0) or 0) >= 2
+        or bool(state.get("fix_escalation_triggered"))
+        or same_file_3x
+    )
+
+
+_DEEP_POSTMORTEM_INSTRUCTION = (
+    "[Guardian:DeepPostMortem] 偵測到高 effort 失敗訊號（反覆重試 / fix-escalation"
+    " / 同檔多次修改）。失敗骨架已由 hook 自動落地，但根因與設計脈絡只有你知道。\n"
+    "結束前請用 atom_write 補一條完整 post-mortem（寫入既有 failure atom，或"
+    " realm=local、domain 視主題新建），涵蓋：\n"
+    "  - 始末：觸發場景 → 錯誤行為 → 最終正確做法\n"
+    "  - 根因：為何會犯（非表面症狀）\n"
+    "  - 該區設計原理：出錯那塊程式/機制當初為何這樣設計\n"
+    "  - 運作邏輯：它實際怎麼跑、哪個環節斷掉\n"
+    "  - 防再犯：下次如何提早攔截\n"
+    "寫完即可宣告完成；此為一次性提示，本 session 不再出現。"
+)
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -329,6 +376,18 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             write_state(session_id, state)
             output_block(reason)
             return
+
+    # ── Deep Post-Mortem Gate（Stage 3）────────────────────────
+    # 高 effort 失敗訊號 + 本 session 未深寫過 + block 預算未耗盡 → 注入指令要 Claude
+    # 結束前用 atom_write 補完整 post-mortem。deep_postmortem_done 一次性防重複；
+    # 排在 correctness/sync gate 之後（那些優先），共用 stop_blocked_count 預算。
+    if _should_deep_postmortem(state, stop_count, max_blocks, config):
+        state["deep_postmortem_done"] = True
+        state["stop_blocked_count"] = stop_count + 1
+        reason = _piggyback(_DEEP_POSTMORTEM_INSTRUCTION)
+        write_state(session_id, state)
+        output_block(reason)
+        return
 
     # ── Phase 2: 注入→使用→結果 閉環歸因（correctness gates 通過後、per-turn 一次性）──
     # 走到這裡代表本 Stop 未被 test-fail/scan-report 等 correctness gate 攔下 →

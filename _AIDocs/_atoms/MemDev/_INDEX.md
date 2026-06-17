@@ -11,6 +11,7 @@
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
 | harness原生memory與atom索引marker撞名辨識 | harness原生memory與atom索引marker撞名辨識 |
 | realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透 | realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透 |
+| 對談結束自動記憶與錯誤加權深記 | 對談結束自動記憶與錯誤加權深記 |
 
 ## 子層
 

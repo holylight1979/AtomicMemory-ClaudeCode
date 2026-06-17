@@ -1,0 +1,121 @@
+"""verify_deep_postmortem_gate.py — Stage 3：Deep Post-Mortem Gate。
+
+驗證 handlers/stop.py 的高 effort 失敗 → Claude 深寫指令閘：
+  純判定 _should_deep_postmortem：
+    - 首次擋：retry>=2 / fix_escalation_triggered / 同檔 edit>=3 任一 → True
+    - 設旗標後放行：deep_postmortem_done=True → False
+    - 無 effort 訊號 → False
+    - block 預算耗盡（stop_count>=max_blocks）→ False
+    - config enabled=false → False
+  端到端 handle_stop：
+    - 首次（有 effort 訊號）→ 設 deep_postmortem_done、emit DeepPostMortem block
+    - 旗標已設 → 本 gate 不再觸發（放行，輸出不含 DeepPostMortem）
+
+對應修補：handlers/stop.py _should_deep_postmortem / handle_stop Deep Post-Mortem
+Gate + config.json deep_postmortem.enabled（補「失敗深層脈絡無人補寫」缺口）。
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+HOOKS_DIR = Path(__file__).resolve().parent.parent  # hooks/verify/ → hooks/
+sys.path.insert(0, str(HOOKS_DIR))
+
+from handlers import stop as st  # noqa: E402
+
+
+# ─── 純判定 _should_deep_postmortem ──────────────────────────────────
+
+_CFG = {}  # 預設 enabled=True
+_MAX = 2
+
+
+def test_retry_triggers():
+    """wisdom_retry_count>=2 → 首次擋。"""
+    assert st._should_deep_postmortem({"wisdom_retry_count": 2}, 0, _MAX, _CFG) is True
+
+
+def test_fix_escalation_triggers():
+    """fix_escalation_triggered → 首次擋。"""
+    assert st._should_deep_postmortem(
+        {"fix_escalation_triggered": True}, 0, _MAX, _CFG) is True
+
+
+def test_same_file_3x_triggers():
+    """同檔 edit>=3 → 首次擋。"""
+    state = {"edit_counts": {"hooks/foo.py": 3}}
+    assert st._should_deep_postmortem(state, 0, _MAX, _CFG) is True
+
+
+def test_no_effort_signal_skips():
+    """無任何 effort 訊號 → 不觸發。"""
+    state = {"wisdom_retry_count": 1, "edit_counts": {"a.py": 2}}
+    assert st._should_deep_postmortem(state, 0, _MAX, _CFG) is False
+
+
+def test_flag_set_blocks_repeat():
+    """設旗標後放行：deep_postmortem_done=True → 即使有訊號也不再觸發。"""
+    state = {"wisdom_retry_count": 5, "deep_postmortem_done": True}
+    assert st._should_deep_postmortem(state, 0, _MAX, _CFG) is False
+
+
+def test_budget_exhausted_skips():
+    """stop_count>=max_blocks → 尊重預算不超發。"""
+    assert st._should_deep_postmortem(
+        {"wisdom_retry_count": 3}, _MAX, _MAX, _CFG) is False
+
+
+def test_disabled_skips():
+    """config deep_postmortem.enabled=false → 完全不觸發。"""
+    cfg = {"deep_postmortem": {"enabled": False}}
+    assert st._should_deep_postmortem({"wisdom_retry_count": 3}, 0, _MAX, cfg) is False
+
+
+# ─── 端到端 handle_stop ──────────────────────────────────────────────
+
+@pytest.fixture
+def driven(monkeypatch):
+    """攔掉 handle_stop 的所有外部依賴，只保留 gate 控制流。
+
+    回傳 drive(state, config) → (stdout_text, state)；遇 output_* 的 sys.exit
+    以 SystemExit 接住。state 由 _ensure_state 回傳並就地 mutate（write_state no-op）。
+    """
+    monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: None)
+    monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: "")
+    monkeypatch.setattr(st, "token_warn_payload", lambda *a, **k: "")
+    monkeypatch.setattr(st, "detect_evasion", lambda *a, **k: None)
+    monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_maybe_spawn_per_turn_extraction", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
+
+    def drive(state, config, capsys):
+        monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
+        with pytest.raises(SystemExit):
+            st.handle_stop({"session_id": "sid", "cwd": ""}, config)
+        out = capsys.readouterr().out
+        return out, state
+
+    return drive
+
+
+def test_handle_stop_first_time_blocks_and_sets_flag(driven, capsys):
+    """首次：有 effort 訊號 + 無修改檔 → emit DeepPostMortem、設 deep_postmortem_done。"""
+    state = {"phase": "working", "wisdom_retry_count": 2,
+             "modified_files": [], "failing_tests": []}
+    out, state = driven(state, {}, capsys)
+    assert "DeepPostMortem" in out
+    assert '"decision": "block"' in out
+    assert state.get("deep_postmortem_done") is True
+
+
+def test_handle_stop_second_time_passes(driven, capsys):
+    """旗標已設 → 本 gate 不再觸發，輸出不含 DeepPostMortem（放行至無事可做）。"""
+    state = {"phase": "working", "wisdom_retry_count": 2,
+             "deep_postmortem_done": True,
+             "modified_files": [], "failing_tests": []}
+    out, _ = driven(state, {}, capsys)
+    assert "DeepPostMortem" not in out

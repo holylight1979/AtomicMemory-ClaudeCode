@@ -824,6 +824,23 @@
         "follow-through"
       ],
       "scope": "global"
+    },
+    {
+      "name": "對談結束自動記憶與錯誤加權深記",
+      "path": "_AIDocs/_atoms/MemDev/對談結束自動記憶與錯誤加權深記.md",
+      "triggers": [
+        "對談結束自動記憶",
+        "錯誤深記",
+        "失敗骨架",
+        "deep postmortem",
+        "Deep Post-Mortem Gate",
+        "session_end flush",
+        "失敗記錄",
+        "post-mortem",
+        "wisdom_retry",
+        "fix_escalation"
+      ],
+      "scope": "global"
     }
   ]
 }

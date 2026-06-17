@@ -12,6 +12,7 @@ Survives hook timeout — runs ~60s on GTX 1050 Ti.
 """
 
 import json
+import re
 import sys
 import time
 import urllib.request
@@ -624,6 +625,60 @@ _FAILURE_TITLES = {
     "cognitive": "認知模式偏差（Cognitive Patterns）",
 }
 
+# ── 失敗深記：多區塊骨架 ──────────────────────────────────────────────
+#
+# 舊版失敗只寫一行「- [臨] {content}」——根因/設計脈絡全丟。改成五區塊骨架：
+# 始末/根因/設計原理/運作邏輯/防再犯。腳本（小模型）一律自動寫能填的部分（始末＝
+# LLM 敘事、根因＝從「（根因: …）」拆出），其餘空段留「待補」標記給 Claude 在
+# 高 effort 時用 atom_write 深寫補完（見 handlers/stop.py Deep Post-Mortem Gate）。
+
+_FAILURE_SKELETON_SECTIONS = ("始末", "根因", "設計原理", "運作邏輯", "防再犯")
+_FAILURE_TODO_MARK = "_(待補：深寫時由 Claude 補完)_"
+_ROOT_CAUSE_RE = re.compile(r"[（(]\s*根因\s*[:：]\s*(.+?)\s*[）)]\s*$")
+
+
+def _split_root_cause(content: str) -> tuple:
+    """從 LLM content「{敘事}…（根因: X）」尾端拆出根因。無「（根因: …）」則
+    回 (原文, "")。Returns (narrative, root_cause)。"""
+    content = (content or "").strip()
+    m = _ROOT_CAUSE_RE.search(content)
+    if m:
+        narrative = content[:m.start()].strip()
+        return (narrative or content), m.group(1).strip()
+    return content, ""
+
+
+def _build_failure_skeleton(content: str, tags: list, now: str) -> str:
+    """組多區塊失敗骨架。始末填 LLM 敘事；能拆出根因就填，其餘留待補。"""
+    narrative, root = _split_root_cause(content)
+    tag_str = "  " + " ".join(f"#{t}" for t in tags) if tags else ""
+    # 標題取觸發場景（→ 前段）首 40 字，純供人眼掃讀
+    title = (narrative.split("→")[0].strip() or narrative)[:40]
+    return "\n".join([
+        f"### [臨] {title}{tag_str}  ({now})",
+        "",
+        f"- **始末**：{narrative}",
+        f"- **根因**：{root or _FAILURE_TODO_MARK}",
+        f"- **設計原理**：{_FAILURE_TODO_MARK}",
+        f"- **運作邏輯**：{_FAILURE_TODO_MARK}",
+        f"- **防再犯**：{_FAILURE_TODO_MARK}",
+    ])
+
+
+def _failure_dedup_hit(existing_text: str, content: str) -> bool:
+    """與既有失敗檔比對是否已記過同一條（新骨架的始末行 + 舊單行格式皆涵蓋）。"""
+    for line in existing_text.split("\n"):
+        ls = line.strip()
+        if "**始末**" in ls:
+            cmp_line = ls.split("：", 1)[-1] if "：" in ls else ls
+        elif ls.startswith("- ["):  # 舊版 - [臨] 單行格式 backward-compat
+            cmp_line = ls
+        else:
+            continue
+        if _word_overlap_score(content, cmp_line) >= 0.65:
+            return True
+    return False
+
 
 def _failure_writeback(ctx: dict, items: list) -> None:
     """將萃取的失敗記錄寫入對應 failure atom 檔。"""
@@ -645,21 +700,15 @@ def _failure_writeback(ctx: dict, items: list) -> None:
         if not content or len(content) < 10:
             continue
 
-        # Dedup：與目標檔案既有條目比對
-        if target.exists():
-            existing = target.read_text(encoding="utf-8-sig")
-            skip = False
-            for line in existing.split("\n"):
-                if line.startswith("- [") and _word_overlap_score(content, line) >= 0.65:
-                    skip = True
-                    break
-            if skip:
-                continue
+        # Dedup：與目標檔案既有條目比對（新骨架始末行 + 舊單行格式）
+        if target.exists() and _failure_dedup_hit(
+            target.read_text(encoding="utf-8-sig"), content
+        ):
+            continue
 
-        # 組裝條目
-        tag_str = f"  #{' #'.join(tags)}" if tags else ""
+        # 組多區塊骨架（始末/根因/設計原理/運作邏輯/防再犯）
         now = datetime.now().strftime("%Y-%m-%d")
-        entry_line = f"- [臨] {content}{tag_str}  ({now})"
+        entry_block = _build_failure_skeleton(content, tags, now)
 
         # S3.0: 走 atom_io.write_raw funnel（保留原 marker fallback 行為，
         # 但統一經過 audit log + PreToolUse 強制門禁放行）
@@ -669,17 +718,17 @@ def _failure_writeback(ctx: dict, items: list) -> None:
             for marker in ("## 行動", "## 演化日誌"):
                 idx = text.find(marker)
                 if idx > 0:
-                    text = text[:idx] + entry_line + "\n\n" + text[idx:]
+                    text = text[:idx] + entry_block + "\n\n" + text[idx:]
                     inserted = True
                     break
             if not inserted:
-                text += "\n" + entry_line + "\n"
+                text += "\n" + entry_block + "\n"
             res = write_raw(target, text, source="hook:extract-worker", op="failure_append")
             if not res.ok:
                 _atom_debug_log("failure_writeback", f"funnel reject: {res.error}", config)
                 continue
         else:
-            _create_failure_atom(target, ftype, entry_line)
+            _create_failure_atom(target, ftype, entry_block)
         written += 1
 
     if written:
@@ -690,8 +739,8 @@ def _failure_writeback(ctx: dict, items: list) -> None:
         )
 
 
-def _create_failure_atom(path: Path, ftype: str, first_entry: str) -> None:
-    """建立最小 failure atom 檔（專案層首次寫入用）。
+def _create_failure_atom(path: Path, ftype: str, first_block: str) -> None:
+    """建立最小 failure atom 檔（專案層首次寫入用）。first_block 為多區塊骨架。
 
     S3.0: 走 atom_io.write_raw funnel（failures 子族不符 V4 build_atom_content
     規範 — 用 Type/Created 而非 Trigger/Last-used，故走 raw escape hatch）。
@@ -702,7 +751,7 @@ def _create_failure_atom(path: Path, ftype: str, first_entry: str) -> None:
         f"- Confidence: [臨]\n"
         f"- Type: procedural\n"
         f"- Created: {datetime.now().strftime('%Y-%m-%d')}\n\n"
-        f"## 知識\n\n{first_entry}\n\n"
+        f"## 知識\n\n{first_block}\n\n"
         f"## 行動\n\n- 同全域 failures 共通行動規則\n"
     )
     path.parent.mkdir(parents=True, exist_ok=True)
