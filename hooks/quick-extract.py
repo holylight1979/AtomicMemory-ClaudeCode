@@ -1,8 +1,11 @@
 """
 quick-extract.py — Stop async hook: 快速知識萃取 → hot cache (V3)
 
-背景執行，讀 last_assistant_message，呼叫 local LLM (qwen3:1.7b) 快篩，
+背景執行，讀 last_assistant_message，呼叫 Ollama LLM 快篩，
 結果寫入 workflow/hot_cache.json。
+
+LLM 走 ollama_client 多 backend + priority failover（目前：遠端 rdchat-direct
+gemma4:e4b 優先 → 本機 local qwen3:1.7b 後備）；兩個 backend 全掛才放棄萃取。
 """
 
 import json
@@ -90,7 +93,7 @@ def main():
     # 2. Truncate
     truncated = text[:MAX_TEXT_LEN]
 
-    # 3. Call Ollama (local backend, qwen3:1.7b)
+    # 3. Call Ollama (multi-backend failover by priority: rdchat-direct → local)
     try:
         from ollama_client import get_client
 
