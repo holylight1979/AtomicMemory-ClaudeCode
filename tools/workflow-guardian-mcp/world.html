@@ -1413,20 +1413,24 @@ function sickWalk(c, el, t){
 let lastBubble = 0;
 const CONTACT_F = 0.55;     // 接觸閾值：距離² < (a.s+b.s)² × 此
 const CHAT_COOLDOWN = 8;    // 講完冷卻秒數
-function eligibleForChat(el, t){
+function eligibleForChat(el, t){                          // 可被接觸觸發：非拖曳中、未在對話、非沉睡（冷卻在 checkDialogue 內判，手動撮合可破冷卻）
   const c=el._c;
-  return !!c && !el._dragging && t >= (el._talkUntil||0) && t >= (el._chatCdUntil||0) && !c.sleeping;
+  return !!c && !el._dragging && t >= (el._talkUntil||0) && !c.sleeping;
 }
 function checkDialogue(t){
-  if(chatBusy || t - lastBubble < 1.6) return;          // 序列鎖（同時只一場）+ 節流
+  if(t - lastBubble < 1.6) return;                        // 節流（不在此擋 chatBusy → 才能偵測「忙線中的手動撮合」並給回饋）
   const list=[]; crEls.forEach(el=>{ if(eligibleForChat(el,t)) list.push(el); });
-  let pa=null, pb=null, bd=1e9;
+  let pa=null, pb=null, bd=1e9, drop=false;
   for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
     const ae=list[i], be=list[j], a=ae._c, b=be._c;
     const dx=ae._x-be._x, dy=ae._y-be._y, d=dx*dx+dy*dy;
-    if(d < (a.s+b.s)*(a.s+b.s)*CONTACT_F && d<bd){ bd=d; pa=ae; pb=be; }   // 挑最近的一對接觸
+    if(d >= (a.s+b.s)*(a.s+b.s)*CONTACT_F || d>=bd) continue;
+    const isDrop = ae._justDropped||be._justDropped;       // 使用者剛拖放造成的接觸 → 最高優先、無視冷卻
+    if(isDrop || ((t>=(ae._chatCdUntil||0)) && (t>=(be._chatCdUntil||0)))){ bd=d; pa=ae; pb=be; drop=isDrop; }
   }
-  if(pa){ sayPair(pa._c, pb._c, pa); lastBubble=t; }
+  if(!pa) return;
+  if(chatBusy){ if(drop){ bubbleAtEl(pa, "（等我聊完這場…）", 1600); lastBubble=t; } return; }  // 忙線：手動撮合至少給回饋，證明接觸有被偵測
+  sayPair(pa._c, pb._c, pa); lastBubble=t;
 }
 /* 每隻生物的對話記憶（環形緩衝，留最近 5 句；★存持久 el 不存 c）。dir：→ 我說的 / ← 對方說的 */
 function pushChat(el, dir, other, text){
@@ -1435,8 +1439,8 @@ function pushChat(el, dir, other, text){
   if(el._chatLog.length>5) el._chatLog.shift();
 }
 /* ── 對話 session（#3）：雙方輪流講、帶上下文接續、依耦合性續談、第2句後「我還要忙一下」中斷機率逐輪拉升 ── */
-const MAX_TURNS = 8;            // 硬上限（防失控；通常遠早於此被中斷散場）
-const INTERRUPT_BASE = 0.18;    // 雙方各講一次後的基礎中斷機率
+const MAX_TURNS = 4;            // 硬上限調短（單顆 3090 序列：對話越短 → 鎖越快釋放 → 全場輪流開講、不卡死一對）
+const INTERRUPT_BASE = 0.30;    // 雙方各講一次後的基礎中斷機率（調高 → 多數對話 2~3 句收）
 const INTERRUPT_RAMP = 0.16;    // 每多講一句累加的中斷機率
 const BUSY_LINES = ["我還要忙一下，回頭聊～","先去做點事，下次再說！","啊、我有事得忙了","改天再續，我先走囉"];
 const sleep = ms => new Promise(r=>setTimeout(r, ms));
@@ -1487,7 +1491,7 @@ async function runConversation(a,b,ae,be){
     history.push({who:sp.name, text});
     if(line){ pushChat(sEl,"→",ls.name,text); pushChat(lEl,"←",sp.name,text); }   // 只記 LLM 真實輸出進記憶卡
     [sp,ls]=[ls,sp]; [sEl,lEl]=[lEl,sEl];                       // 換人講
-    await sleep(3200);                                          // 留時間讀這句
+    await sleep(2400);                                          // 留時間讀這句
     if(turn>=2){                                                // 雙方至少各講一次後 → 依耦合性 + 逐輪拉升的機率決定是否「忙了，先散」
       const interrupt = Math.min(0.92, (INTERRUPT_BASE + INTERRUPT_RAMP*(turn-1)) * (1.3 - coupling));
       if(Math.random() < interrupt){
