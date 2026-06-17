@@ -570,7 +570,14 @@ async function refresh(){
     // 回填 regionDev（server=重開續長的存檔源）。★只 backfill 缺漏 key，不覆寫本地進行中狀態：
     //   瀏覽器引擎(Phase 3)為各 region 真相源，POST 落盤；避免 GET 沖掉 in-flight 推進。
     if(worlddev && worlddev.regions){
-      for(const [k,v] of Object.entries(worlddev.regions)){ if(!regionDev.has(k)) regionDev.set(k, v); }
+      for(const [k,v] of Object.entries(worlddev.regions)){          // ★單調 max 合併（取代「只 backfill 永不更新」）：本地沒有→收；本地正在改→保留；server 較進階→採用
+        const local=regionDev.get(k);
+        if(!local){ regionDev.set(k, v); continue; }
+        if(_devDirty.has(k) || _envSeedInFlight.has(k)) continue;      // 本地 in-flight → 別被 server 舊值覆寫
+        const sStyles=(v.styles||[]).length, lStyles=(local.styles||[]).length;
+        const sMax=(v.styles||[]).reduce((m,s)=>Math.max(m,s.dev||0),0), lMax=(local.styles||[]).reduce((m,s)=>Math.max(m,s.dev||0),0);
+        if((v.completed&&!local.completed) || sStyles>lStyles || sMax>lMax+0.5) regionDev.set(k, v);  // 修「舊分頁/本地 idle 擋住 server 進度」
+      }
     }
     if(worlddev && worlddev.mode) _serverMode = worlddev.mode;     // server 持久 mode（_modeOverride 優先）
     model = buildModel({projects, atoms, health, sessions, episodic});
@@ -880,6 +887,9 @@ function collectEnvElements(dev){
   };
   pushStyle(rank1Style(dev));
   pushStyle(rank2Style(dev));
+  // ★施工中工地：有未完工風格 or 規劃中提案 → 旁邊放吊車🏗️+圍欄🚧（dev 到 100 完工後自動撤、只剩成品地標）
+  const _bld = dev && ((dev.styles||[]).some(s=>(s.dev||0)>0 && (s.dev||0)<100) || (dev.proposals||[]).some(p=>!p.direction_locked));
+  if(_bld){ out.push({id:"_ws.crane", emoji:"🏗️", pos:"wall"}); out.push({id:"_ws.fence", emoji:"🚧", pos:"corner"}); }
   if(!out.length && dev){                                          // 醞釀中/已追蹤但未鎖：放幾顆種子（未追蹤的房維持空）
     ((ENV_CATALOG && ENV_CATALOG.seeds) || []).slice(0,3).forEach(e=> out.push(e));
   }
@@ -941,8 +951,10 @@ const ENGINE = {
   CONS_MIN: 3,                   // proposal consensus≥（小區自動下修至生物數）→ 可定案
   STYLE2_GATE: [60, 80],         // rank1 dev∈此 → 准開第二風格
   DONE_AT: 80,                   // rank1 dev≥ → 該區完工
-  CHAT_DEV: 3.5,                 // 同區原子對談每句注入的基礎 dev（×affinity；活動驅動主力，取代純 RNG）
+  CHAT_DEV: 1.5,                 // 同區原子對談每句注入的基礎 dev（×affinity；蓋房子才是主力、對談為輔）
   BUILD_FLOOR: 1,                // 「蓋房子」bar 一旦開始的最低值（setback 不歸零）
+  PROP_BUILD_STEP: 3.5,          // 蓋房子推進「規劃中提案(未定案)」的量（正向、無 setback）
+  BUILD_WALK_TTL: 16,            // 一次蓋房子行程上限秒數（逾時強制歸位）
   THRESHOLDS: [0, 20, 40, 60, 80, 100],
   CARRY_DECAY: 0.7,              // el._carry 想法強度每 tick 衰減
   POST_THROTTLE_MS: 4000,        // dev 連續累加節流落盤
@@ -955,10 +967,11 @@ const ENGINE = {
   VISIT_TTL: 26,                 // 單次串門子壽命（秒，rAF 時鐘；逾時強制歸位）
   VISIT_STAY_SLOW: 8, VISIT_STAY_FAST: 4,   // 到站後作客停留秒數
   modes: {                       // 雙軌倍率（config.json world_dev 為宣告鏡像，前端為運行時源；純前端免重啟）
-    //   ★fast 只加速「免LLM 路徑」（env_chance/pair_chance/dev_step/cross_chance/build_chance）；LLM 走 ENV_LLM_MIN_GAP 正常節奏不加速
-    //   pair_chance（純 RNG 擴散）降為「微量底噪」：dev 累加主力改為原子活動（對談/蓋房子/串門子，走 contributeEnv）
-    slow: { env_chance: 0.01, pair_chance: 0.025, dev_step: 1.2, cross_chance: 0.012, build_chance: 0.06 },
-    fast: { env_chance: 0.55, pair_chance: 0.75,  dev_step: 6.0, cross_chance: 0.09,  build_chance: 0.35 },
+    //   ★活動驅動·慢：dev 累加「只」靠生物行為——蓋房子(maybeBuild 走工地) / 同區對談(contributeEnv) / 串門子(crossInject)。
+    //     engineTick 不再呼 RNG diffuse（閒置≈凍結、每一步都看得到是哪隻生物造成）。env_chance 只決定「何時種下要蓋什麼」的提案。
+    //     pair_chance 保留欄位但已不驅動 dev（=0）。fast 只加快蓋房子頻率/種子，不動 LLM 節奏。
+    slow: { env_chance: 0.03, pair_chance: 0, dev_step: 1.2, cross_chance: 0.010, build_chance: 0.5 },
+    fast: { env_chance: 0.6,  pair_chance: 0, dev_step: 6.0, cross_chance: 0.06,  build_chance: 1.0 },
   },
 };
 let _modeOverride = null;        // ?fast=1 / worlddev 指令（覆寫 server mode）
@@ -1191,7 +1204,7 @@ function promoteToStyle(r, dev, p){
 /* ⑤ 多風格閘 + ⑥ 完工（rank1 為準；次風格續長不影響完工判定）*/
 function checkGates(r, dev){
   const s1=rank1Style(dev); if(!s1) return; const d1=s1.dev||0;
-  if(d1>=ENGINE.STYLE2_GATE[0] && d1<ENGINE.STYLE2_GATE[1] && !dev.next_style_eligible){ dev.next_style_eligible=true; postMilestone(r.key); _engineDirty=true; }
+  if(d1>=ENGINE.STYLE2_GATE[0] && !dev.next_style_eligible){ dev.next_style_eligible=true; postMilestone(r.key); _engineDirty=true; }  // 去上界：fast 單 tick 跨過 [60,80) 窗口也能開第二風格
   if(d1>=ENGINE.DONE_AT && !dev.completed){ dev.completed=true; dev.completed_at=Date.now(); postMilestone(r.key); _engineDirty=true; }
 }
 
@@ -1199,7 +1212,7 @@ function checkGates(r, dev){
 function pruneProposals(r, dev){
   const now=Date.now(), ttl=isFast()?ENGINE.PROPOSAL_TTL_FAST:ENGINE.PROPOSAL_TTL_SLOW, n=(r.list||[]).length;
   const before=dev.proposals.length;
-  dev.proposals=dev.proposals.filter(p=> !p.direction_locked && n>=2 && !((now-(p.created_at||now))>ttl && (p.consensus||0)<consMin(r)) );
+  dev.proposals=dev.proposals.filter(p=> !p.direction_locked && !((now-(p.created_at||now))>ttl && (p.consensus||0)<consMin(r)) && (n>=2 || (p.dev||0)>=ENGINE.DIRECTION_GATE) );  // 區暫掉到<2 不誤殺已近定案的高進度提案
   if(dev.proposals.length!==before) _engineDirty=true;
 }
 
@@ -1278,30 +1291,32 @@ function affinityFor(el){
   }
   return el._envAffinity;
 }
-/* #1+#3 contributeEnv：唯一的環境 dev 注入口。把一份原子活動量灌進「該原子所在腦區」的進行中建築。
-   優先推已定案、未滿的風格(bar)；否則推最高共識的進行中提案；區內全無提案則由本次活動就地播種（免LLM）。 */
-function contributeEnv(el, baseAmt, reason){
+/* 純讀取版 affinity（不觸發 LLM、無副作用）：給 maybeBuild 每 tick 選人用，避免對全區生物連發 LLM 灌爆並發池 */
+function affinityCached(el){ const c=el&&el._c; if(!c) return 0.5; return (typeof el._envAffinity==="number") ? el._envAffinity : affinityFallback(c); }
+/* #1+#3 contributeEnv：對談的發展貢獻＝「建立共識」(把參與的原子記為 contributor → consensus)＋無提案時就地播種「要蓋什麼」。
+   ★dev(實體進度)不在這裡加 → 那是蓋房子(maybeBuild 走工地)的可視工作。如此 slow 節奏由全域蓋房子速率決定、與人口無關，
+     熱鬧區(很多生物→很多對談)不會偷偷暴衝；define 仍需 consensus≥門檻(靠對談) + dev≥35(靠蓋)，兩者缺一不可。 */
+function contributeEnv(el, reason){
   const c=el&&el._c; if(!c) return false;
   const rr=(rooms||[]).find(x=>x.key===c.region); if(!rr) return false;
   let dev=regionDev.get(c.region); if(!dev) dev=ensureDev(c.region);
-  const amt=baseAmt*affinityFor(el); if(amt<=0) return false;
+  const addC=(o)=>{ if(o && !o.contributors.includes(c.name)){ o.contributors.push(c.name); o.consensus=o.contributors.length; } };
   const style=(dev.styles||[]).filter(s=>(s.dev||0)<100).sort((a,b)=>(a.dev||0)-(b.dev||0))[0];
-  if(style){
-    const before=style.dev||0; style.dev=Math.min(100, before+amt);
-    if(!style.contributors.includes(c.name)){ style.contributors.push(c.name); style.consensus=style.contributors.length; }
-    unlockTiers(rr, dev, style, before, style.dev);
-  } else {
+  if(style){ addC(style); }                                       // 進行中風格 → 添一名參與者（dev 留給蓋房子）
+  else {
     let p=(dev.proposals||[]).filter(x=>!x.direction_locked).sort((a,b)=>(b.consensus||0)-(a.consensus||0))[0];
-    if(!p){ if(!canSeed(rr, dev)) return false; seedProposal(rr, dev); p=(dev.proposals||[]).filter(x=>!x.direction_locked)[0]; if(!p) return false; }
-    p.dev=Math.min(100,(p.dev||0)+amt);
-    if(!p.contributors.includes(c.name)){ p.contributors.push(c.name); p.consensus=p.contributors.length; }
+    if(!p){ if(!canSeed(rr, dev)) return false; seedProposal(rr, dev); p=(dev.proposals||[]).filter(x=>!x.direction_locked)[0]; if(!p) return false; }  // 無提案 → 對談就地播下方向
+    addC(p);
     if(!el._carry) el._carry={family:p.family, theme:p.theme, pid:p.pid, strength:1};
   }
   dev.last_activity_at=Date.now(); markDirty(c.region); _engineDirty=true;
   return true;
 }
-/* #4 maybeBuild「蓋房子」新原子活動：低頻挑一隻原子去推「已定案、進行中」的建築 bar。
-   依 affinity 加權選原子 → 興趣檢定 Math.random()<affinity 才動手；bar 變動 delta∈[-1,+2]、一旦開始最低只降到 BUILD_FLOOR(1)。 */
+/* #4 蓋房子（活動驅動主力·可視）：低頻挑一個「進行中」腦區（有規劃提案 or 未完工風格），依 affinity 加權選一隻原子，
+   興趣檢定過 → 派牠「走到工地」(el._building，見 stepBuild)；到站才真的推進（applyBuild）+ 🔨 蓋房台詞。
+   閒置（沒人去蓋）→ bar 完全不動，發展看得到是哪隻生物造成、slow 下緩慢可看。 */
+const BUILD_LINES = ["這面牆我來砌！","地基要打穩～","屋頂交給我","再疊一層磚","這裡留扇窗吧","幫忙遞個料～","快成形了！","這根樑這樣擺"];
+function buildSiteXY(r){ return { tx: r.x + r.w/2, ty: r.y + r.h*0.34 }; }   // 工地點＝中央地標附近（與 placeEnv center 對齊）
 function maybeBuild(t){
   if(!autoOn) return;
   if(Math.random() >= (t.build_chance||0)) return;
@@ -1309,24 +1324,42 @@ function maybeBuild(t){
   for(const r of (rooms||[])){
     if(!(r.list||[]).length) continue;
     const dev=regionDev.get(r.key); if(!dev) continue;
-    const s=(dev.styles||[]).filter(x=>(x.dev||0)>0 && (x.dev||0)<100).sort((a,b)=>(a.dev||0)-(b.dev||0))[0];
-    if(s) sites.push({r, dev, s});
+    if((dev.styles||[]).some(x=>(x.dev||0)<100) || (dev.proposals||[]).some(x=>!x.direction_locked)) sites.push(r);
   }
   if(!sites.length) return;
-  const site=sites[Math.floor(Math.random()*sites.length)];
-  const els=[]; for(const c of (site.r.list||[])){ const el=elOf(c); if(el && !el._dragging && !el._visiting && !c.sleeping) els.push(el); }
+  const r=sites[Math.floor(Math.random()*sites.length)];
+  const els=[]; for(const c of (r.list||[])){ const el=elOf(c);
+    if(el && !el._dragging && !el._visiting && !el._building && !c.sleeping && !c.sick) els.push(el); }
   if(!els.length) return;
-  let best=els[0], bw=-1; for(const el of els){ const w=affinityFor(el)*(0.4+Math.random()); if(w>bw){ bw=w; best=el; } }
-  if(Math.random() >= affinityFor(best)){ bubbleAtEl(best, "（這個先不蓋…）", 1400); return; }   // 興趣檢定沒過 → 這次不蓋
-  const before=site.s.dev||0;
-  const delta=Math.floor(Math.random()*4)-1;                         // -1,0,1,2
-  const after=Math.max(ENGINE.BUILD_FLOOR, Math.min(100, before+delta));
-  site.s.dev=after;
-  if(after>before) unlockTiers(site.r, site.dev, site.s, before, after);   // 只在上升時解鎖 tier；下降只掉 bar、不拆已蓋元素
-  const c=best._c; if(!site.s.contributors.includes(c.name)){ site.s.contributors.push(c.name); site.s.consensus=site.s.contributors.length; }
-  const fam=famMeta(site.s.family);
-  bubbleAtEl(best, (delta<0 ? "🔨…欸、做壞了" : "🔨 蓋"+(fam?fam.name_zh:"房子")), 2000);
-  site.dev.last_activity_at=Date.now(); markDirty(site.r.key); _engineDirty=true;
+  let best=els[0], bw=-1; for(const el of els){ const w=affinityCached(el)*(0.4+Math.random()); if(w>bw){ bw=w; best=el; } }
+  affinityFor(best);   // #2：順手讓被選中者的「對發展的興趣」走一次 LLM 評定（gated、最多一次/dispatch，結果快取於 el）
+  if(Math.random() >= affinityCached(best)){ if(Math.random()<0.2) bubbleAtEl(best, "（先忙別的…）", 1200); return; }  // 興趣沒過 → 這次不蓋
+  const xy=buildSiteXY(r);
+  best._building={ rkey:r.key, tx:xy.tx, ty:xy.ty, phase:"going", until:(performance.now()/1000)+ENGINE.BUILD_WALK_TTL, applied:false };
+}
+/* 到工地後實際推進該區進行中目標：未完工風格 → bar delta∈[-1,2]、floor=已解鎖最高門檻(bar 不低於已蓋的)；
+   無風格但有提案 → 正向推進提案 dev（達 DIRECTION_GATE 由 promoteProposals 定案）。回傳 🔨/📐 台詞。 */
+function applyBuild(rkey, name){
+  const dev=regionDev.get(rkey); if(!dev) return null;
+  const rr=(rooms||[]).find(x=>x.key===rkey); if(!rr) return null;
+  const style=(dev.styles||[]).filter(x=>(x.dev||0)<100).sort((a,b)=>(a.dev||0)-(b.dev||0))[0];
+  if(style){
+    const before=style.dev||0, delta=Math.floor(Math.random()*4)-1;            // -1,0,1,2（使用者指定範圍）
+    const floor=Math.max(ENGINE.BUILD_FLOOR, ...((style.crossed&&style.crossed.length)?style.crossed:[0]));
+    const after=Math.max(floor, Math.min(100, before+delta));
+    style.dev=after;
+    if(after>before) unlockTiers(rr, dev, style, before, after);              // bar 不低於已解鎖門檻 → 進度條與已蓋元素一致
+    if(!style.contributors.includes(name)){ style.contributors.push(name); style.consensus=style.contributors.length; }
+    dev.last_activity_at=Date.now(); markDirty(rkey); _engineDirty=true;
+    return delta<0 ? "🔨…欸、這邊歪了重來" : "🔨 "+BUILD_LINES[Math.floor(t1()*BUILD_LINES.length)];
+  }
+  let p=(dev.proposals||[]).filter(x=>!x.direction_locked).sort((a,b)=>(b.consensus||0)-(a.consensus||0))[0];
+  if(!p){ if(!canSeed(rr, dev)) return null; seedProposal(rr, dev); p=(dev.proposals||[]).filter(x=>!x.direction_locked)[0]; if(!p) return null; }
+  const fam=famMeta(p.family);
+  p.dev=Math.min(100,(p.dev||0)+ENGINE.PROP_BUILD_STEP);
+  if(!p.contributors.includes(name)){ p.contributors.push(name); p.consensus=p.contributors.length; }
+  dev.last_activity_at=Date.now(); markDirty(rkey); _engineDirty=true;
+  return "📐 規劃「"+(fam?fam.name_zh:p.family)+"」…";
 }
 
 /* 引擎主迴圈（低頻 TICK_MS；只動 regionDev/el，render 反映進度；單調、零影響原子記憶）*/
@@ -1337,9 +1370,9 @@ function engineTick(){
     let dev=regionDev.get(r.key);
     if((r.list||[]).length===0){ if(dev) dev.dormant=true; continue; }   // 空區休眠（保留既有 styles 凍結）
     if(dev) dev.dormant=false;
-    if(canSeed(r, dev) && !_envSeedInFlight.has(r.key) && Math.random()<t.env_chance){ dev=ensureDev(r.key); envSeed(r, dev); markDirty(r.key); }  // 種子（LLM/閘關 fallback；飛行守衛防重觸）
+    if(canSeed(r, dev) && !_envSeedInFlight.has(r.key) && Math.random()<t.env_chance){ dev=ensureDev(r.key); envSeed(r, dev); markDirty(r.key); }  // 種子＝決定「要蓋什麼」(免LLM fallback；飛行守衛防重觸)
     if(!dev) continue;
-    if(Math.random()<t.pair_chance){ diffuse(r, dev); markDirty(r.key); }
+    // ★活動驅動：dev 累加只靠生物行為（maybeBuild 蓋房子 / contributeEnv 對談 / crossInject 串門）→ 不再呼 RNG diffuse，閒置≈凍結
     promoteProposals(r, dev);
     pruneProposals(r, dev);
     checkGates(r, dev);
@@ -1519,6 +1552,9 @@ const WORLD_COMMANDS = [
   { cmd:"worlddev", label:"環境演化", desc:"控制區域環境演化引擎（加速/慢速/重置/狀態）",
     args:[{name:"action",type:"enum",label:"動作",options:["status","fast","slow","reset"]}],
     run:a=>worldDevCmd(a.action) },
+  { cmd:"reload", label:"清快取重載", desc:"強制從硬碟重讀 world.html，繞過 file:// 快取（改了碼卻看不到更新時用這個）",
+    args:[],
+    run:()=>{ location.href = location.pathname + "?_cb=" + Date.now(); return "重載中…"; } },
 ];
 function curCmdDef(){ return WORLD_COMMANDS.find(d=>d.cmd===$("cbCmd").value) || WORLD_COMMANDS[0]; }
 function buildCmdBar(){
@@ -1587,6 +1623,7 @@ function tick(ts){
       el._wasSettling=false; el._wox=el._x-c.slotX; el._woy=el._y-c.slotY; el._wnext=0;
     }
     if(c.sick && autoOn && !healing.has(c.name) && !autoHealTried.has(c.name)){ sickWalk(c,el,t); return; }   // 壞記憶自走診所
+    if(el._building){ stepBuild(c, el, t); return; }   // ⑤ 蓋房子：走到工地敲打（活動軸，優先於 wander）
     if(el._visiting){ stepVisit(c, el, t); return; }   // ④ 跨區串門子：位移軸新狀態（優先於 wander；與 talking 可疊加）
     let ox=0, oy=0;
     const talking = t < (el._talkUntil||0);              // 活動軸（疊加）：對話中暫停 wander 前進，僅保留原地呼吸晃動
@@ -1649,6 +1686,30 @@ function stepVisit(c, el, t){
   el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
 }
 
+/* ── ⑤ 蓋房子位移（活動軸；只動 el._x/_y）：going→走到工地 applyBuild(一次)+🔨台詞 → working 敲打小停 → back 歸位 ── */
+function stepBuild(c, el, t){
+  const v=el._building;
+  if(t < (el._talkUntil||0)){ el._x += Math.sin(t*1.6+c.phase)*0.5; el._y += Math.sin(t*2.0+c.phase)*0.6; el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`; return; }
+  if(t >= v.until && v.phase!=="back"){ v.phase="back"; }                       // 逾時強制歸位
+  if(v.phase==="going"){
+    el._x += (v.tx-el._x)*0.045; el._y += (v.ty-el._y)*0.045;
+    const dx=v.tx-el._x, dy=v.ty-el._y;
+    if(dx*dx+dy*dy < 900){
+      if(!v.applied){ v.applied=true; const line=applyBuild(v.rkey, c.name); if(line) bubbleAtEl(el, line, 2400); }
+      v.phase="working"; v.workUntil=t+1.8;
+    }
+  } else if(v.phase==="working"){
+    el._x += Math.sin(t*9+c.phase)*1.6; el._y += Math.cos(t*7+c.phase)*1.0;     // 敲打小抖
+    if(t>=v.workUntil) v.phase="back";
+  } else {
+    const hx=c.slotX, hy=c.slotY;
+    el._x += (hx-el._x)*0.045; el._y += (hy-el._y)*0.045;
+    const dx=hx-el._x, dy=hy-el._y;
+    if(dx*dx+dy*dy < 400){ el._building=null; el._wox=el._x-c.slotX; el._woy=el._y-c.slotY; el._wnext=0; }
+  }
+  el.style.transform=`translate(${el._x-c.s/2}px,${el._y-c.s}px)`;
+}
+
 /* 生病生物自主走向診所，到院觸發自動 L1（healReal 內有 healing 鎖 + autoHealTried 防重觸/騷擾）*/
 function sickWalk(c, el, t){
   const ss=scene.getBoundingClientRect(), r=$("clinic").getBoundingClientRect();
@@ -1666,7 +1727,7 @@ const CONTACT_F = 0.55;     // 接觸閾值：距離² < (a.s+b.s)² × 此
 const CHAT_COOLDOWN = 8;    // 講完冷卻秒數
 function eligibleForChat(el, t){                          // 可被接觸觸發：非拖曳中、未在對話、非沉睡（冷卻在 checkDialogue 內判，手動撮合可破冷卻）
   const c=el._c;
-  return !!c && !el._dragging && t >= (el._talkUntil||0) && !c.sleeping;
+  return !!c && !el._dragging && !el._building && t >= (el._talkUntil||0) && !c.sleeping;
 }
 function checkDialogue(t){
   if(t - lastBubble < 1.6) return;                        // 節流（不在此擋池滿 → 才能偵測「池滿時的手動撮合」並給回饋）
@@ -1714,10 +1775,10 @@ function couplingOf(a,b){       // 談話耦合性 0..1：關係越近越想繼�
 }
 function pickTopic(a,b){        // 整場對話固定一個主題 → 接續才有方向
   const roomA = a.region==="core" ? ".claude 核心腦區" : ((a.region||"").replace("project:","")+" 腦區");
-  return [`分享彼此記得的事與經驗`,
-          `各自（依守備範圍）感興趣、好奇的東西`,
-          `你們住的「${roomA}」這個家，想一起蓋成、發展成什麼樣子`
-         ][Math.floor(Math.random()*3)];
+  const home = `你們住的「${roomA}」這個家，想一起蓋成、發展成什麼樣子`;
+  const dev=regionDev.get(a.region), building = dev && ((dev.styles||[]).some(s=>(s.dev||0)<100) || (dev.proposals||[]).some(p=>!p.direction_locked));
+  if(building && Math.random()<0.6) return home;   // 自家正在發展 → 多聊「家要蓋成什麼樣」
+  return [`分享彼此記得的事與經驗`, `各自（依守備範圍）感興趣、好奇的東西`, home][Math.floor(Math.random()*3)];
 }
 function sayPair(a,b,ae){       // 入口：接觸/指令觸發 → 起一場對話 session（池滿則婉拒、給罐頭回饋）
   if(chatPoolFull()){ if(ae) bubbleAtEl(ae, cannedFor(a,b), 2000); return; }
@@ -1741,7 +1802,7 @@ async function runConversation(a,b,ae,be){
     updateBubble(bub, sEl, text, 3600); lockBoth(4.0);
     history.push({who:sp.name, text});
     if(line){ pushChat(sEl,"→",ls.name,text); pushChat(lEl,"←",sp.name,text); }   // 只記 LLM 真實輸出進記憶卡
-    if(line && sp.region===ls.region) contributeEnv(sEl, ENGINE.CHAT_DEV, "對談");  // #1 同區對談 → 推進自家建築（活動驅動主力）
+    if(line && sp.region===ls.region) contributeEnv(sEl, "對談");  // #1 同區對談 → 建立共識(誰參與蓋這個家)，實體 dev 由蓋房子負責
     [sp,ls]=[ls,sp]; [sEl,lEl]=[lEl,sEl];                       // 換人講
     await sleep(2400);                                          // 留時間讀這句
     if(turn>=2){                                                // 雙方至少各講一次後 → 依耦合性 + 逐輪拉升的機率決定是否「忙了，先散」
