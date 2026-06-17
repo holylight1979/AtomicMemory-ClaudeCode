@@ -1442,7 +1442,7 @@ function sayPair(a,b,ae){
   else if(related) lines=["我們常一起出現呢","這件事我也記得！","跟你聊總有共鳴"];
   else if(a.elder||b.elder) lines=["我見過不少事…","這讓我想起以前","聽我說個經驗吧"];
   else if(a.type&&a.type===b.type) lines=["我們守著同類的東西","你都記得些什麼？","原來你也顧這塊"];
-  else lines=["我在想一件事…","你對什麼好奇呢？","我記得一個小細節","想跟你分享個記憶"];
+  else lines=["我在想一件事…","你對什麼好奇呢？","我記得一個小細節","我們這個家想蓋成怎樣？"];
   const canned = lines[Math.floor(t1()*lines.length)];
 
   const be = crEls.get(b.uid);                                    // 對方 el：雙方都要暫停 wander + 記對話
@@ -1507,9 +1507,15 @@ function personaOf(c){
   return `你是「${job}」，${age}。${mood}`;
 }
 async function creatureChat(a, b, related){
-  const sys = "你是『腦內世界』裡的一隻記憶生物。" + personaOf(a) + "請用繁體中文講『一句』口語、自然的短台詞（不超過25字）：向旁邊的夥伴**分享你自己的一段經驗或記憶，或聊聊你（依自己的守備範圍）可能會感興趣、好奇的事**。語氣溫和友善，是在交流見聞、不是抬槓或互嗆。只輸出台詞本身，不要旁白、不要思考過程、不要引號。";
+  const roomA = a.region==="core" ? ".claude 核心腦區" : ((a.region||"").replace("project:","")+" 腦區");
+  const sys = "你是『腦內世界』裡的一隻記憶生物。" + personaOf(a) + "請用繁體中文講『一句』口語、自然的短台詞（不超過25字）。語氣溫和友善，是在交流、不是抬槓或互嗆。只輸出台詞本身，不要旁白、不要思考過程、不要引號。";
   const rel = related ? "你們互為關聯夥伴（彼此 related），常有共同話題" : "你們不太熟，正好認識一下";
-  const usr = `我是記憶生物「${a.name}」（${descOf(a)}）。旁邊來了「${b.name}」（${descOf(b)}）。${rel}。跟牠分享一件你記得的事，或聊聊你好奇、在意的東西。`;
+  const topics = [                                                   // 主題輪替：分享經驗 / 聊興趣 / 商量「家」要蓋成什麼樣（保留環境演化的家園主題）
+    `跟牠分享一件你記得的事，或一段你的經驗。`,
+    `聊聊你（依自己的守備範圍）會感興趣、好奇的東西。`,
+    `和牠商量你們住的「${roomA}」這個家，想一起把它蓋成、發展成什麼樣子。`,
+  ];
+  const usr = `我是記憶生物「${a.name}」（${descOf(a)}）。旁邊來了「${b.name}」（${descOf(b)}）。${rel}。${topics[Math.floor(Math.random()*topics.length)]}`;
   const ctrl = new AbortController();
   const timer = setTimeout(()=>ctrl.abort(), 9000);   // 9s 逾時 → fallback 罐頭
   try{
@@ -1651,28 +1657,64 @@ function showDetail(c){
 function hideDetail(){ $("detail").classList.remove("show"); }
 function setConn(ok){ $("conn").className="dot "+(ok?"ok":"bad"); $("connTxt").textContent=ok?"已連線 :3848":"無法連線 :3848"; }
 
-/* ── 背景：腦內電路（節點 + 突觸 + 脈衝）────────────────────────────── */
+/* ── 背景：巨大電子腦（神經元聚成腦輪廓 + 腦溝 + 突觸脈衝）+ Anthropic 暖陶橘 spark 意象 ──────
+   程序生成（無外部圖檔、file:// 即可跑、可改色）。Anthropic 為「致敬向」配色＋放射 spark，非精確商標；
+   要放真 logo 把官方 SVG 疊在 #bg 上即可。可調旋鈕：ACCENT(主色)、節點數、BRAIN 半徑、各 alpha。 */
 const bg=$("bg"), bx=bg.getContext("2d"); let nodes=[];
+const ACCENT="217,119,87";          // Anthropic clay-orange #D97757
+let BRAIN={cx:0,cy:0,rx:1,ry:1,inside:()=>false};
+function brainShape(w,h){
+  const cx=w/2, cy=h*0.46, rx=Math.min(w*0.34,470), ry=Math.min(h*0.30,310);
+  return { cx, cy, rx, ry, inside:(x,y)=>{ const nx=(x-cx)/rx, ny=(y-cy)/ry; return nx*nx+ny*ny<=1; } };
+}
 function resize(){
   bg.width=innerWidth; bg.height=innerHeight;
-  if(nodes.length===0) for(let i=0;i<46;i++) nodes.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,vx:(Math.random()-.5)*.12,vy:(Math.random()-.5)*.12});
+  BRAIN=brainShape(bg.width,bg.height);
+  if(nodes.length===0) for(let i=0;i<72;i++){
+    let x,y; const core=i<52;                          // 多數神經元落在腦輪廓內，讀作「腦由神經元構成」；其餘散成背景塵
+    if(core){ const a=Math.random()*7, r=Math.sqrt(Math.random()); x=BRAIN.cx+Math.cos(a)*BRAIN.rx*r; y=BRAIN.cy+Math.sin(a)*BRAIN.ry*r; }
+    else { x=Math.random()*innerWidth; y=Math.random()*innerHeight; }
+    nodes.push({x,y,vx:(Math.random()-.5)*.10,vy:(Math.random()-.5)*.10,core});
+  }
   if(model){ layout(); render(); }
 }
 function drawBg(ts){
-  const g=bx.createRadialGradient(bg.width/2,bg.height*0.4,80,bg.width/2,bg.height*0.4,Math.max(bg.width,bg.height)*0.75);
-  g.addColorStop(0,"#0a1120"); g.addColorStop(1,"#06080f");
-  bx.fillStyle=g; bx.fillRect(0,0,bg.width,bg.height);
-  nodes.forEach(n=>{ n.x+=n.vx; n.y+=n.vy; if(n.x<0||n.x>bg.width)n.vx*=-1; if(n.y<0||n.y>bg.height)n.vy*=-1; });
-  // 突觸連線
+  const W=bg.width,H=bg.height;
+  // 底：深炭 + 暖橘核心微光
+  const g=bx.createRadialGradient(BRAIN.cx,BRAIN.cy,60,BRAIN.cx,BRAIN.cy,Math.max(W,H)*0.8);
+  g.addColorStop(0,"#15100d"); g.addColorStop(0.5,"#0b0a0e"); g.addColorStop(1,"#06070b");
+  bx.fillStyle=g; bx.fillRect(0,0,W,H);
+  // Anthropic spark：中心緩轉的放射細線（很淡）
+  bx.save(); bx.translate(BRAIN.cx,BRAIN.cy); const spin=ts/26000;
+  for(let k=0;k<12;k++){ const a=spin+k*Math.PI/6; bx.strokeStyle=`rgba(${ACCENT},0.05)`; bx.lineWidth=1;
+    bx.beginPath(); bx.moveTo(0,0); bx.lineTo(Math.cos(a)*BRAIN.rx*1.5,Math.sin(a)*BRAIN.ry*1.5); bx.stroke(); }
+  bx.restore();
+  // 腦輪廓暈光
+  const halo=bx.createRadialGradient(BRAIN.cx,BRAIN.cy,20,BRAIN.cx,BRAIN.cy,BRAIN.rx);
+  halo.addColorStop(0,`rgba(${ACCENT},0.10)`); halo.addColorStop(1,`rgba(${ACCENT},0)`);
+  bx.fillStyle=halo; bx.beginPath(); bx.ellipse(BRAIN.cx,BRAIN.cy,BRAIN.rx,BRAIN.ry,0,0,7); bx.fill();
+  // 腦溝（gyri）：幾圈微抖波浪弧
+  bx.strokeStyle=`rgba(${ACCENT},0.08)`; bx.lineWidth=1.4;
+  for(let r=0.35;r<1;r+=0.22){ bx.beginPath();
+    for(let a=0;a<=Math.PI*2+0.001;a+=0.18){ const wob=1+0.06*Math.sin(a*6+ts/2000);
+      const x=BRAIN.cx+Math.cos(a)*BRAIN.rx*r*wob, y=BRAIN.cy+Math.sin(a)*BRAIN.ry*r*wob;
+      a===0?bx.moveTo(x,y):bx.lineTo(x,y); }
+    bx.closePath(); bx.stroke(); }
+  // 移動 + 邊界（腦內節點軟禁在輪廓內，其餘整屏反彈）
+  nodes.forEach(n=>{ n.x+=n.vx; n.y+=n.vy;
+    if(n.core){ if(!BRAIN.inside(n.x,n.y)){ n.vx*=-1; n.vy*=-1; n.x+=n.vx*2; n.y+=n.vy*2; } }
+    else { if(n.x<0||n.x>W)n.vx*=-1; if(n.y<0||n.y>H)n.vy*=-1; } });
+  // 突觸連線 + 脈衝
   for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
     const a=nodes[i],b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy);
-    if(d<170){ bx.strokeStyle=`rgba(88,166,255,${(1-d/170)*0.12})`; bx.lineWidth=1; bx.beginPath(); bx.moveTo(a.x,a.y); bx.lineTo(b.x,b.y); bx.stroke();
-      // 脈衝
-      const ph=((ts/1400 + i*0.13)%1); const px=a.x+(b.x-a.x)*ph, py=a.y+(b.y-a.y)*ph;
-      bx.fillStyle=`rgba(120,190,255,${(1-d/170)*0.5})`; bx.beginPath(); bx.arc(px,py,1.3,0,7); bx.fill();
+    if(d<150){ const al=1-d/150; bx.strokeStyle=`rgba(${ACCENT},${al*0.16})`; bx.lineWidth=1;
+      bx.beginPath(); bx.moveTo(a.x,a.y); bx.lineTo(b.x,b.y); bx.stroke();
+      const ph=((ts/1400+i*0.13)%1), px=a.x+(b.x-a.x)*ph, py=a.y+(b.y-a.y)*ph;
+      bx.fillStyle=`rgba(255,180,120,${al*0.6})`; bx.beginPath(); bx.arc(px,py,1.4,0,7); bx.fill();
     }
   }
-  nodes.forEach(n=>{ bx.fillStyle="rgba(88,166,255,.5)"; bx.beginPath(); bx.arc(n.x,n.y,1.6,0,7); bx.fill(); });
+  // 節點（腦內較亮）
+  nodes.forEach(n=>{ bx.fillStyle=n.core?`rgba(${ACCENT},0.7)`:`rgba(${ACCENT},0.3)`; bx.beginPath(); bx.arc(n.x,n.y,n.core?1.8:1.2,0,7); bx.fill(); });
   requestAnimationFrame(drawBg);
 }
 

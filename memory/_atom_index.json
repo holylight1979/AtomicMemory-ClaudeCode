@@ -783,6 +783,24 @@
         "看不到專案記憶"
       ],
       "scope": "global"
+    },
+    {
+      "name": "腦內世界生物對話系統真相-模型觸發方針背景",
+      "path": "_AIDocs/_atoms/World/腦內世界生物對話系統真相-模型觸發方針背景.md",
+      "triggers": [
+        "腦內世界",
+        "world.html",
+        "生物對話",
+        "creature-chat",
+        "CHAT_MODEL",
+        "接觸觸發",
+        "checkDialogue",
+        "sayPair",
+        "對話方針",
+        "背景電子腦",
+        "模型退罐頭"
+      ],
+      "scope": "global"
     }
   ]
 }
