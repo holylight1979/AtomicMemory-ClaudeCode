@@ -369,7 +369,9 @@
 const API_BASE = "http://127.0.0.1:3848";
 const POLL_MS  = 5000;
 const CHAT_MODEL = "sorc/qwen3.5-claude-4.6-opus:4b";  // 生物對話 LLM（跑在 rdchat-direct 3090，經 :3848 /api/creature-chat 代理）。★必須是後端實際載入的模型名（/api/tags），否則 upstream 404 → 永遠退罐頭台詞
-let chatBusy = false;   // in-flight 鎖：同時只一個 LLM 對話，避免灌爆 3090
+let activeChats = 0;          // 並發對話計數：取代單一 chatBusy 鎖，允許同時多場 LLM 對話
+const MAX_CHATS = 2;          // 並發上限（生物對話 + 環境 LLM 共用此池；單顆 3090，建議 2~3、別超 3）
+function chatPoolFull(){ return activeChats >= MAX_CHATS; }   // 讀:池滿？ 寫:占用 activeChats++ / 釋放(finally) activeChats--
 let autoOn = true;      // 自主行為總開關（漫步 + 對話導演）；可由指令台 auto on/off 切換
 const $ = (id) => document.getElementById(id);
 const scene = $("scene");
@@ -798,7 +800,7 @@ let _serverMode = "slow";        // 由 GET /api/world-dev 回填
 let _lastEnvLlm = 0;
 const _envSeedInFlight = new Set();   // region.key
 const _envDirInFlight  = new Set();   // region.key + "|" + pid
-function envLlmReady(){ return !chatBusy && (Date.now() - _lastEnvLlm >= ENGINE.ENV_LLM_MIN_GAP); }   // 與生物對話共用 chatBusy（3090 序列鎖）
+function envLlmReady(){ return !chatPoolFull() && (Date.now() - _lastEnvLlm >= ENGINE.ENV_LLM_MIN_GAP); }   // 與生物對話共用並發池（3090；池滿→閘關走免LLM fallback）
 function curMode(){ return _modeOverride || _serverMode || "slow"; }
 function isFast(){ return curMode() === "fast"; }
 function tn(){ return ENGINE.modes[curMode()] || ENGINE.modes.slow; }
@@ -870,13 +872,13 @@ function seedProposal(r, dev){
    ★fast 仍跑（env_chance 加速），但 LLM 受 ENV_LLM_MIN_GAP 節流，多數 fast 種子走 fallback → fast 不卡 */
 function envSeed(r, dev){
   if(!envLlmReady()){ seedProposal(r, dev); markDirty(r.key); return; }   // 閘關（忙線/未過 MIN_GAP）→ 免LLM
-  chatBusy = true; _lastEnvLlm = Date.now(); _envSeedInFlight.add(r.key);  // 占用 3090 序列鎖 + 飛行守衛
+  activeChats++; _lastEnvLlm = Date.now(); _envSeedInFlight.add(r.key);  // 占用並發池一槽 + 飛行守衛
   dev.llm_calls = (dev.llm_calls||0) + 1;                                  // 計數本次 LLM 發起（落盤 telemetry）
   const hasLiveProp = () => (dev.proposals||[]).some(p=>!p.direction_locked);
   envBrainstorm(r, dev)
     .then(res => applyEnvSeed(r, dev, res))                                // {family∈白名單, theme, line}
     .catch(() => { if(!hasLiveProp()) seedProposal(r, dev); })             // LLM 失敗/逾時/解析不過 → 投票 fallback（仍建 proposal）
-    .finally(() => { chatBusy = false; _envSeedInFlight.delete(r.key); markDirty(r.key); _engineDirty = true; if(model) render(); });
+    .finally(() => { activeChats--; _envSeedInFlight.delete(r.key); markDirty(r.key); _engineDirty = true; if(model) render(); });
 }
 function applyEnvSeed(r, dev, res){
   if((dev.proposals||[]).some(p=>!p.direction_locked)) return;             // 飛行中已被跨區/他途種下 → 不重複建提案
@@ -987,9 +989,9 @@ function promoteProposals(r, dev){
 /* LLM#2 定案派發：飛行守衛 → 閘關走罐頭 promoteToStyle；閘開呼 envDirection 產定案台詞 + 確認 family，失敗退罐頭 */
 function envDirect(r, dev, p){
   const key = r.key + "|" + p.pid;
-  if(_envDirInFlight.has(key)) return;                                   // 同提案 LLM 飛行中 → 不重觸（亦防 chatBusy 期間同步罐頭搶跑）
+  if(_envDirInFlight.has(key)) return;                                   // 同提案 LLM 飛行中 → 不重觸（亦防池滿期間同步罐頭搶跑）
   if(!envLlmReady()){ promoteToStyle(r, dev, p); return; }               // 閘關 → 免LLM 罐頭定案
-  _envDirInFlight.add(key); chatBusy = true; _lastEnvLlm = Date.now();
+  _envDirInFlight.add(key); activeChats++; _lastEnvLlm = Date.now();
   dev.llm_calls = (dev.llm_calls||0) + 1;
   envDirection(r, dev, p)
     .then(res => {
@@ -1003,7 +1005,7 @@ function envDirect(r, dev, p){
       if(el && res && res.line) bubbleAtEl(el, res.line, 4200);          // 生物宣告定案
     })
     .catch(() => promoteToStyle(r, dev, p))                              // LLM 失敗/逾時 → 罐頭定案
-    .finally(() => { _envDirInFlight.delete(key); chatBusy = false; markDirty(r.key); _engineDirty = true; if(model) render(); });
+    .finally(() => { _envDirInFlight.delete(key); activeChats--; markDirty(r.key); _engineDirty = true; if(model) render(); });
 }
 function promoteToStyle(r, dev, p){
   if((dev.styles||[]).some(s=>s.family===p.family)){ p.direction_locked=true; dev.proposals=dev.proposals.filter(x=>x!==p); return; }
@@ -1252,7 +1254,7 @@ const WORLD_COMMANDS = [
     run:a=>{ const c=findCr(a.name), el=elOf(c); if(!el) return "找不到生物"; bubbleAtEl(el, a.text||"…", 2600); return c.name+"："+a.text; } },
   { cmd:"chat", label:"對話", desc:"讓兩隻生物對話一次（呼本地 LLM 約 1 次）",
     args:[{name:"a",type:"creature",label:"生物A"},{name:"b",type:"creature",label:"生物B"}],
-    run:a=>{ const ca=findCr(a.a), cb=findCr(a.b), ea=elOf(ca); if(!ca||!cb||!ea) return "找不到生物"; if(chatBusy) return "忙線中，稍候"; sayPair(ca, cb, ea); return ca.name+" ↔ "+cb.name; } },
+    run:a=>{ const ca=findCr(a.a), cb=findCr(a.b), ea=elOf(ca); if(!ca||!cb||!ea) return "找不到生物"; if(chatPoolFull()) return "忙線中，稍候"; sayPair(ca, cb, ea); return ca.name+" ↔ "+cb.name; } },
   { cmd:"heal", label:"治療", desc:"把生物送診所觸發修復（生病才有效）",
     args:[{name:"name",type:"creature",label:"生物"}],
     run:a=>{ const c=findCr(a.name); if(!c) return "找不到生物"; heal(c); return "送診："+c.name; } },
@@ -1409,7 +1411,7 @@ function sickWalk(c, el, t){
 }
 
 /* ── 對話觸發：兩隻「真接觸」才開講（同房漫步 or 跨區串門子訪客皆可）。
-   單一序列鎖 chatBusy（共用 3090）+ 每隻講完冷卻，避免黏在一起反覆觸發。 ── */
+   並發池 activeChats/MAX_CHATS（共用 3090）+ 每隻講完冷卻，避免黏在一起反覆觸發。 ── */
 let lastBubble = 0;
 const CONTACT_F = 0.55;     // 接觸閾值：距離² < (a.s+b.s)² × 此
 const CHAT_COOLDOWN = 8;    // 講完冷卻秒數
@@ -1418,7 +1420,7 @@ function eligibleForChat(el, t){                          // 可被接觸觸發�
   return !!c && !el._dragging && t >= (el._talkUntil||0) && !c.sleeping;
 }
 function checkDialogue(t){
-  if(t - lastBubble < 1.6) return;                        // 節流（不在此擋 chatBusy → 才能偵測「忙線中的手動撮合」並給回饋）
+  if(t - lastBubble < 1.6) return;                        // 節流（不在此擋池滿 → 才能偵測「池滿時的手動撮合」並給回饋）
   const list=[]; crEls.forEach(el=>{ if(eligibleForChat(el,t)) list.push(el); });
   let pa=null, pb=null, bd=1e9, drop=false;
   for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
@@ -1429,7 +1431,7 @@ function checkDialogue(t){
     if(isDrop || ((t>=(ae._chatCdUntil||0)) && (t>=(be._chatCdUntil||0)))){ bd=d; pa=ae; pb=be; drop=isDrop; }
   }
   if(!pa) return;
-  if(chatBusy){ if(drop){ bubbleAtEl(pa, "（等我聊完這場…）", 1600); lastBubble=t; } return; }  // 忙線：手動撮合至少給回饋，證明接觸有被偵測
+  if(chatPoolFull()){ if(drop){ bubbleAtEl(pa, "（等我聊完這場…）", 1600); lastBubble=t; } return; }  // 池滿：手動撮合至少給回饋，證明接觸有被偵測
   sayPair(pa._c, pb._c, pa); lastBubble=t;
 }
 /* 每隻生物的對話記憶（環形緩衝，留最近 5 句；★存持久 el 不存 c）。dir：→ 我說的 / ← 對方說的 */
@@ -1468,12 +1470,12 @@ function pickTopic(a,b){        // 整場對話固定一個主題 → 接續才�
           `你們住的「${roomA}」這個家，想一起蓋成、發展成什麼樣子`
          ][Math.floor(Math.random()*3)];
 }
-function sayPair(a,b,ae){       // 入口：接觸/指令觸發 → 起一場對話 session（chatBusy 期間僅一場）
-  if(chatBusy){ if(ae) bubbleAtEl(ae, cannedFor(a,b), 2000); return; }
+function sayPair(a,b,ae){       // 入口：接觸/指令觸發 → 起一場對話 session（池滿則婉拒、給罐頭回饋）
+  if(chatPoolFull()){ if(ae) bubbleAtEl(ae, cannedFor(a,b), 2000); return; }
   const be = crEls.get(b.uid);
-  chatBusy = true;
+  activeChats++;                // 占用並發池一槽（runConversation.finally 釋放，與 ++ 必配對）
   runConversation(a,b,ae,be).catch(()=>{}).finally(()=>{
-    chatBusy = false;
+    activeChats--;
     const u=(performance.now()/1000)+CHAT_COOLDOWN; ae._chatCdUntil=u; if(be) be._chatCdUntil=u;   // 散場後雙方冷卻
   });
 }
