@@ -370,7 +370,7 @@ const API_BASE = "http://127.0.0.1:3848";
 const POLL_MS  = 5000;
 const CHAT_MODEL = "sorc/qwen3.5-claude-4.6-opus:4b";  // 生物對話 LLM（跑在 rdchat-direct 3090，經 :3848 /api/creature-chat 代理）。★必須是後端實際載入的模型名（/api/tags），否則 upstream 404 → 永遠退罐頭台詞
 let activeChats = 0;          // 並發對話計數：取代單一 chatBusy 鎖，允許同時多場 LLM 對話
-const MAX_CHATS = 2;          // 並發上限（生物對話 + 環境 LLM 共用此池；單顆 3090，建議 2~3、別超 3）
+const MAX_CHATS = 4;          // 並發上限（生物對話 + 環境 LLM 共用此池）。4b 模型在 3090 吃得下 4；真並行需後端 OLLAMA_NUM_PARALLEL≥4，否則 Ollama 端排隊（功能仍可用、只是每句變慢）
 function chatPoolFull(){ return activeChats >= MAX_CHATS; }   // 讀:池滿？ 寫:占用 activeChats++ / 釋放(finally) activeChats--
 let autoOn = true;      // 自主行為總開關（漫步 + 對話導演）；可由指令台 auto on/off 切換
 const $ = (id) => document.getElementById(id);
