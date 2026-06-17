@@ -33,45 +33,75 @@ _CFG = {}  # 預設 enabled=True
 _MAX = 2
 
 
+def _judge(state, stop_count=0, max_blocks=_MAX, config=_CFG, claims_done=False):
+    """預設 claims_done=False（＝未宣告完成 → real_failure 成立），讓「有 effort
+    訊號」的測試維持原『觸發』語意；真失敗訊號的測試另以參數覆寫。"""
+    return st._should_deep_postmortem(state, stop_count, max_blocks, config, claims_done)
+
+
+# effort 訊號（搭配未宣告完成的真失敗訊號）→ 觸發
+
 def test_retry_triggers():
-    """wisdom_retry_count>=2 → 首次擋。"""
-    assert st._should_deep_postmortem({"wisdom_retry_count": 2}, 0, _MAX, _CFG) is True
+    """wisdom_retry_count>=2 + 未宣告完成 → 首次擋。"""
+    assert _judge({"wisdom_retry_count": 2}) is True
 
 
 def test_fix_escalation_triggers():
-    """fix_escalation_triggered → 首次擋。"""
-    assert st._should_deep_postmortem(
-        {"fix_escalation_triggered": True}, 0, _MAX, _CFG) is True
+    """fix_escalation_triggered + 未宣告完成 → 首次擋。"""
+    assert _judge({"fix_escalation_triggered": True}) is True
 
 
 def test_same_file_3x_triggers():
-    """同檔 edit>=3 → 首次擋。"""
-    state = {"edit_counts": {"hooks/foo.py": 3}}
-    assert st._should_deep_postmortem(state, 0, _MAX, _CFG) is True
+    """同檔 edit>=3 + 未宣告完成 → 首次擋。"""
+    assert _judge({"edit_counts": {"hooks/foo.py": 3}}) is True
 
 
 def test_no_effort_signal_skips():
-    """無任何 effort 訊號 → 不觸發。"""
-    state = {"wisdom_retry_count": 1, "edit_counts": {"a.py": 2}}
-    assert st._should_deep_postmortem(state, 0, _MAX, _CFG) is False
+    """無任何 effort 訊號 → 不觸發（即使未宣告完成）。"""
+    assert _judge({"wisdom_retry_count": 1, "edit_counts": {"a.py": 2}}) is False
 
 
 def test_flag_set_blocks_repeat():
     """設旗標後放行：deep_postmortem_done=True → 即使有訊號也不再觸發。"""
-    state = {"wisdom_retry_count": 5, "deep_postmortem_done": True}
-    assert st._should_deep_postmortem(state, 0, _MAX, _CFG) is False
+    assert _judge({"wisdom_retry_count": 5, "deep_postmortem_done": True}) is False
 
 
 def test_budget_exhausted_skips():
     """stop_count>=max_blocks → 尊重預算不超發。"""
-    assert st._should_deep_postmortem(
-        {"wisdom_retry_count": 3}, _MAX, _MAX, _CFG) is False
+    assert _judge({"wisdom_retry_count": 3}, stop_count=_MAX) is False
 
 
 def test_disabled_skips():
     """config deep_postmortem.enabled=false → 完全不觸發。"""
-    cfg = {"deep_postmortem": {"enabled": False}}
-    assert st._should_deep_postmortem({"wisdom_retry_count": 3}, 0, _MAX, cfg) is False
+    assert _judge({"wisdom_retry_count": 3}, config={"deep_postmortem": {"enabled": False}}) is False
+
+
+# ─── 方案 A：AND 真失敗訊號（dogfood 誤觸修正）──────────────────────
+
+def test_effort_but_success_not_triggered():
+    """關鍵：effort 訊號齊備但已宣告完成且無 failing_tests/evasion → 不觸發。
+    這正是 dogfood 誤觸案（成功的多次迭代開發踩 same_file_3x/retry 門檻）。"""
+    state = {"wisdom_retry_count": 5, "edit_counts": {"x.py": 9},
+             "failing_tests": [], "evasion_flag": None}
+    assert _judge(state, claims_done=True) is False
+
+
+def test_effort_with_failing_tests_triggers_even_if_claims_done():
+    """effort + failing_tests 非空 → 真失敗成立，縱使宣告完成仍觸發。"""
+    state = {"wisdom_retry_count": 2, "failing_tests": [{"cmd": "pytest"}]}
+    assert _judge(state, claims_done=True) is True
+
+
+def test_effort_with_evasion_triggers_even_if_claims_done():
+    """effort + evasion_flag → 真失敗成立，縱使宣告完成仍觸發。"""
+    state = {"edit_counts": {"y.py": 4}, "evasion_flag": {"kind": "vague"}}
+    assert _judge(state, claims_done=True) is True
+
+
+def test_real_failure_without_effort_skips():
+    """只有真失敗訊號、無 effort → 不觸發（effort AND real_failure，非 OR）。"""
+    state = {"failing_tests": [{"cmd": "pytest"}]}
+    assert _judge(state, claims_done=False) is False
 
 
 # ─── 端到端 handle_stop ──────────────────────────────────────────────

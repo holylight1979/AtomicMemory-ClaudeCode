@@ -36,7 +36,7 @@
 | `handlers/ups_inject.py` | UPS injection assemble 段：hot/cold + per-turn budget（ok/fallback/skip）+ related spread + ReadHits++/效用晉升提示 |
 | `handlers/pre_tool_use.py` | PreToolUse：Write/Edit atom format gate + memory path block + Bash SVN test block |
 | `handlers/post_tool_use.py` | PostToolUse：file tracking + 增量索引 + read tracking + test-fail 偵測 + changelog auto-roll |
-| `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection + **Deep Post-Mortem Gate**（`_should_deep_postmortem`：retry≥2 / fix_escalation_triggered / 同檔 edit≥3 → 指示 Claude 深寫 post-mortem；`deep_postmortem_done` 一次性、共用 `stop_gate_max_blocks` 預算）+ Auto-Handoff Layer 1（token 預警 piggyback 既有 block） |
+| `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection + **Deep Post-Mortem Gate**（`_should_deep_postmortem`：(effort：retry≥2 ∨ fix_escalation_triggered ∨ 同檔 edit≥3) **AND** (真失敗：failing_tests ∨ evasion_flag ∨ 未宣告完成) → 指示 Claude 深寫 post-mortem；AND 真失敗訊號是 dogfood 修正，純 effort 會對成功的多次迭代開發誤觸；`deep_postmortem_done` 一次性、共用 `stop_gate_max_blocks` 預算）+ Auto-Handoff Layer 1（token 預警 piggyback 既有 block） |
 | `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + docdrift advisory + Auto-Handoff Layer 4（SessionEnd 兜底寫客觀 stub） |
 | `handlers/pre_compact.py` | PreCompact：state snapshot + `injected_atoms` 快照 + Auto-Handoff Layer 2（壓縮前自動寫六區塊 stub） |
 | `handlers/post_compact.py` | PostCompact：依快照複用 `wg_atoms.load_atoms_within_budget` stash 壓縮前 atom 緊湊內文 + `pending_reinjection` flag（不注入；選配 #4） |

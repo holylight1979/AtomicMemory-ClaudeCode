@@ -217,18 +217,22 @@ def _attribute_usefulness(
 
 
 def _should_deep_postmortem(
-    state: Dict[str, Any], stop_count: int, max_blocks: int, config: Dict[str, Any]
+    state: Dict[str, Any], stop_count: int, max_blocks: int,
+    config: Dict[str, Any], claims_done: bool,
 ) -> bool:
     """是否要在本 Stop 注入「深寫 post-mortem」指令。
 
-    觸發＝高 effort 失敗訊號任一：
-      - wisdom_retry_count >= 2（反覆重試）
-      - fix_escalation_triggered（精確修正升級已啟動）
-      - 同檔 edit >= 3 次（same_file_3x，鑽牛角尖）
+    觸發＝(effort 訊號任一) AND (真失敗訊號任一)：
+      effort：wisdom_retry_count>=2 ∨ fix_escalation_triggered ∨ same_file_3x（edit>=3）
+      real_failure：failing_tests 非空 ∨ evasion_flag ∨ 未宣告完成（not claims_done）
+    為何 AND：純 effort 會誤觸——成功的多次迭代開發本就會踩 effort 門檻（same_file_3x /
+    wisdom_retry 對正常改一個檔 ≥3 次即超標，dogfood 在本機制自身開發 session 已證實
+    誤觸）。疊一個真失敗訊號才把「高 effort 成功」與「反覆修不好」區分開。
     且：本 session 未深寫過（deep_postmortem_done）、block 預算未耗盡
     （stop_count < stop_gate_max_blocks）、config 未關閉。
 
-    純判定、無副作用——副作用（設旗標、計數、output_block）由 gate 處理。
+    純判定、無副作用——claims_done 由 caller 算好傳入（避免在此讀 transcript）；
+    副作用（設旗標、計數、output_block）由 gate 處理。
     """
     dpm = (config or {}).get("deep_postmortem", {}) or {}
     if not dpm.get("enabled", True):
@@ -239,11 +243,17 @@ def _should_deep_postmortem(
         return False
     edit_counts = state.get("edit_counts", {}) or {}
     same_file_3x = any(int(c or 0) >= 3 for c in edit_counts.values())
-    return (
+    effort = (
         int(state.get("wisdom_retry_count", 0) or 0) >= 2
         or bool(state.get("fix_escalation_triggered"))
         or same_file_3x
     )
+    real_failure = (
+        bool(state.get("failing_tests"))
+        or bool(state.get("evasion_flag"))
+        or not claims_done
+    )
+    return effort and real_failure
 
 
 _DEEP_POSTMORTEM_INSTRUCTION = (
@@ -378,10 +388,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             return
 
     # ── Deep Post-Mortem Gate（Stage 3）────────────────────────
-    # 高 effort 失敗訊號 + 本 session 未深寫過 + block 預算未耗盡 → 注入指令要 Claude
-    # 結束前用 atom_write 補完整 post-mortem。deep_postmortem_done 一次性防重複；
+    # (effort 訊號) AND (真失敗訊號) + 本 session 未深寫過 + block 預算未耗盡 → 注入指令
+    # 要 Claude 結束前用 atom_write 補完整 post-mortem。deep_postmortem_done 一次性防重複；
     # 排在 correctness/sync gate 之後（那些優先），共用 stop_blocked_count 預算。
-    if _should_deep_postmortem(state, stop_count, max_blocks, config):
+    if not last_text:
+        last_text = get_last_assistant_text(transcript)
+    claims_done = bool(last_text and claims_completion(last_text))
+    if _should_deep_postmortem(state, stop_count, max_blocks, config, claims_done):
         state["deep_postmortem_done"] = True
         state["stop_blocked_count"] = stop_count + 1
         reason = _piggyback(_DEEP_POSTMORTEM_INSTRUCTION)
