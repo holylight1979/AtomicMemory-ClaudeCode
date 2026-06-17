@@ -512,7 +512,13 @@
         "放置",
         "env-layer",
         "風格演化",
-        "零影響隔離"
+        "零影響隔離",
+        "活動驅動耦合",
+        "contributeEnv",
+        "affinity",
+        "蓋房子",
+        "maybeBuild",
+        "原子興趣"
       ],
       "scope": "global"
     },

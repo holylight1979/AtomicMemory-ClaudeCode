@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: reconcile, render, world.html, 每隔一段時間跳, 彈回原位, snap back, 動畫狀態, POLL_MS, wander, 漫步, model 重建, requestAnimationFrame, _wox, el._x, 畫面跳刷新
 - Created-at: 2026-06-02
-- Related: 腦內世界-v3-自癒與-command-bus-架構, guardian-dashboard-孤兒佔埠與新碼重啟, feedback-completion-gates, 腦內世界-環境演化-放置式架構
+- Related: 腦內世界-v3-自癒與-command-bus-架構, guardian-dashboard-孤兒佔埠與新碼重啟, feedback-completion-gates, 腦內世界-環境演化-放置式架構, 腦內世界生物對話系統真相-模型觸發方針背景
 
 ## 知識
 
