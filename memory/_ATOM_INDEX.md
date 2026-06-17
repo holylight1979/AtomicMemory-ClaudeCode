@@ -50,4 +50,5 @@
 | headless-chrome-svg轉png-windows踩坑 | _AIDocs/_atoms/OS/Windows/Tools/headless-chrome-svg轉png-windows踩坑.md | svg轉png, svg to png, headless chrome, 渲染svg, 截圖渲染, 向量轉點陣, chrome --screenshot, force-device-scale-factor, 產示意圖, 遊戲截圖svg | global |
 | 本機-mysqlsh-adhoc-sql查詢-免裝連接器 | _AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/本機-mysqlsh-adhoc-sql查詢-免裝連接器.md | mysqlsh, MySQL Shell, SQL查詢, 查表, 下SQL, 資料庫查詢, MySQL, X protocol, 33060, 3306, SELECT, mysql connector, pymysql, 查DB, sgi_playerdb, ad-hoc sql | global |
 | dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房 | _AIDocs/_atoms/MemDev/dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房.md | dashboard, world.html, 腦內世界, apiAtoms, scanProjMemDir, 專案atom消失, project shared, scope 誤歸, 核心房, 看不到專案記憶 | global |
-| 腦內世界生物對話系統真相-模型觸發方針背景 | _AIDocs/_atoms/World/腦內世界生物對話系統真相-模型觸發方針背景.md | 腦內世界, world.html, 生物對話, creature-chat, CHAT_MODEL, 接觸觸發, checkDialogue, sayPair, 對話方針, 背景電子腦, 模型退罐頭 | global |
+| 腦內世界生物對話系統真相-模型觸發方針背景 | _AIDocs/_atoms/World/腦內世界生物對話系統真相-模型觸發方針背景.md | 腦內世界, world.html, 生物對話, creature-chat, CHAT_MODEL, 接觸觸發, checkDialogue, runConversation, 對話並發, chatBusy, 背景電子腦, env 蒛房子 | global |
+| 自己flag的維護動作直接做完不要反問 | memory/自己flag的維護動作直接做完不要反問.md | 更新atom, 維護, 同步, 反問, 要不要我, 該做就做, 推進, 收尾, follow-through | global |

@@ -795,10 +795,27 @@
         "CHAT_MODEL",
         "接觸觸發",
         "checkDialogue",
-        "sayPair",
-        "對話方針",
+        "runConversation",
+        "對話並發",
+        "chatBusy",
         "背景電子腦",
-        "模型退罐頭"
+        "env 蒛房子"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "自己flag的維護動作直接做完不要反問",
+      "path": "memory/自己flag的維護動作直接做完不要反問.md",
+      "triggers": [
+        "更新atom",
+        "維護",
+        "同步",
+        "反問",
+        "要不要我",
+        "該做就做",
+        "推進",
+        "收尾",
+        "follow-through"
       ],
       "scope": "global"
     }
