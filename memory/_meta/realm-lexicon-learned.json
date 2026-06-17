@@ -29,6 +29,11 @@
     "utf8encoding($true)": "Tools/自動化流程與協議/dotnet",
     "runtime 鏡射": "Tools/自動化流程與協議/SGI-ProjectStructure",
     "conditionalweaktable": "Tools/自動化流程與協議/SGI-ProjectStructure",
-    "反射測試": "Tools/自動化流程與協議/SGI-ProjectStructure"
+    "反射測試": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "headless-chrome": "OS/Windows/Tools",
+    "svg轉png": "OS/Windows/Tools",
+    "windows踩坑": "OS/Windows/Tools",
+    "force-device-scale-factor": "OS/Windows/Tools",
+    "chrome.exe": "OS/Windows/Tools"
   }
 }

@@ -1,6 +1,6 @@
 {
   "env": {},
-  "effortLevel": "high",
+  "effortLevel": "xhigh",
   "permissions": {
     "allow": [
       "Bash(*)",
@@ -186,6 +186,5 @@
         ]
       }
     ]
-  },
-  "model": "claude-fable-5[1m]"
+  }
 }

@@ -12,4 +12,5 @@
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
+| Tools | 1 | `_AIDocs/_atoms/OS/Windows/Tools/headless-chrome-svg轉png-windows踩坑.md` |
 | WSL | 1 | `_AIDocs/_atoms/OS/Windows/WSL/wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除.md` |

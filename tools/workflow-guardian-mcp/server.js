@@ -2728,11 +2728,19 @@ function apiAtoms(req, res) {
   function scanProjMemDir(projMemDir, slug) {
     const before = atoms.length;
     scanFlatDir(projMemDir, "project:" + slug, "project:" + slug);
-    // 若 atom frontmatter 寫 `Scope: project`（V4 SPEC 允許值），把 slug 補回去，避免畫面只看到 "project"
-    for (let i = before; i < atoms.length; i++) {
-      if (atoms[i].scope === "project") atoms[i].scope = "project:" + slug;
-    }
     scanV4ScopeDirs(projMemDir, "project:" + slug + ":", "project:" + slug + ":");
+    // 路徑即權威：專案 memory 目錄下的 atom 一律歸該 slug。
+    // pushAtomFromFile 解析 frontmatter 時會用 bare `Scope:`（project/shared/personal/role:x）
+    // 覆寫掉 path-derived 的 composite scope，導致 shared/ 子層 atom 被誤歸 "core" 房
+    // （c--projects 全在 shared/ → 整個房間消失）。兩段掃描後統一補正回 project:<slug>[:subscope]。
+    for (let i = before; i < atoms.length; i++) {
+      const sc = atoms[i].scope || "";
+      if (sc === "project:" + slug || sc.startsWith("project:" + slug + ":")) continue;
+      if (sc === "project") atoms[i].scope = "project:" + slug;
+      else if (sc === "shared" || sc === "personal" || sc.startsWith("role:")) {
+        atoms[i].scope = "project:" + slug + ":" + sc;
+      }
+    }
   }
 
   // V4: global shared/ + roles/{r}/ scan (本專案目前無此目錄，預留給未來)

@@ -8,3 +8,4 @@
 |------|------|
 | runtime鏡射宿主生命週期判定與反射差分測試 | runtime鏡射宿主生命週期判定與反射差分測試 |
 | 專案等級-mcpskillhookslog-不放全域根層 | 專案等級 mcp/skill/hooks/log 不放全域根層 |
+| 本機-mysqlsh-adhoc-sql查詢-免裝連接器 | 本機-mysqlsh-adhoc-sql查詢-免裝連接器 |

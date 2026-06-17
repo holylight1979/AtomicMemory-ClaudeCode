@@ -12,5 +12,5 @@
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| SGI-ProjectStructure | 2 | `_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/_INDEX.md` |
+| SGI-ProjectStructure | 3 | `_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/_INDEX.md` |
 | dotnet | 2 | `_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/_INDEX.md` |
