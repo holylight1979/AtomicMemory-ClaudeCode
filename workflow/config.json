@@ -129,6 +129,10 @@
       "strong_keywords": ["又錯了", "沒修好", "還是壞", "修復失敗", "一樣的問題", "又壞了", "怎麼又", "再次失敗"],
       "weak_keywords": ["錯了", "不對", "壞了", "失敗", "沒用", "沒效", "不行", "bug", "broken", "failed", "still broken", "same error", "為什麼還", "怎麼還", "反覆", "踩坑", "又踩", "沒生效", "白做了"],
       "weak_min_match": 3
+    },
+    "session_end_flush": {
+      "enabled": true,
+      "max_atoms": 8
     }
   },
   "userExtraction": {

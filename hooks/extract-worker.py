@@ -39,7 +39,8 @@ from wg_extraction import classify_extracted_item
 _LIB_PARENT = str(Path.home() / ".claude")
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
-from lib.atom_io import write_raw  # noqa: E402
+from lib.atom_io import write_raw, write_atom  # noqa: E402
+from lib.atom_spec import slugify  # noqa: E402
 
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 
@@ -499,6 +500,114 @@ def _per_turn_writeback(ctx: dict, result: dict) -> None:
         pass  # hot cache 是增強功能，失敗不影響主流程
 
 
+# ─── Session-end writeback: flush knowledge → [臨] atoms ──────────────────────
+#
+# 補長期缺口：session_end 深度萃取算完即丟、knowledge_queue 從未落地成 atom
+# （見上方 _per_turn_writeback 註解「per_turn appends to knowledge_queue for later
+# session_end processing」——那個 processing 從沒實作）。此處補完：把本 session
+# 累積的 queue + session_end 全文萃取，過品質閘後寫成 global personal [臨] atom，
+# 全自動、不問使用者。只清「寫成功」的 queue 項，失敗者留待下次重試。
+
+_FLUSH_MIN_LEN = 12  # 過短碎句不值得建 atom（內聯常數，非旋鈕）
+
+
+def _flush_item_to_atom(content: str, triggers: list) -> str:
+    """把一條萃取知識寫成 global [臨] atom（系統指定的跨專案知識層，任何專案皆注入；
+    見 atom_io._resolve_target「use scope=global for cross-project knowledge」）。
+
+    比照 user-extract-worker._write_atom_via_mcp：content 推 slug、路徑去重 + -N
+    防撞、走 atom_io.write_atom funnel。Returns 'wrote' | 'deduped' | 'failed'。
+    """
+    content = content.strip()
+    triggers = [t.strip() for t in (triggers or []) if t and str(t).strip()] or ["auto-capture"]
+    slug = slugify(content[:60]) or "auto-capture"
+
+    if (MEMORY_DIR / f"{slug}.md").exists():
+        try:
+            if content[:80] in (MEMORY_DIR / f"{slug}.md").read_text(encoding="utf-8-sig"):
+                return "deduped"
+        except (OSError, UnicodeDecodeError):
+            pass
+        for i in range(2, 10):
+            if not (MEMORY_DIR / f"{slug}-{i}.md").exists():
+                slug = f"{slug}-{i}"
+                break
+
+    try:
+        res = write_atom(
+            title=slug,
+            scope="global",
+            confidence="[臨]",
+            triggers=triggers,
+            knowledge=[f"- [臨] {content}"],
+            mode="create",
+            source="hook:extract-worker",
+            author="auto-captured",
+        )
+    except Exception as e:
+        _atom_debug_error("session_end_writeback:write_atom", e)
+        return "failed"
+    if res.ok:
+        return "wrote"
+    if "already exists" in (res.error or ""):
+        return "deduped"
+    _atom_debug_error("session_end_writeback:write_atom", Exception(res.error or ""))
+    return "failed"
+
+
+def _session_end_writeback(ctx: dict, result: dict) -> None:
+    """Flush session_end 萃取 + 累積 knowledge_queue → [臨] atoms（全自動）。
+
+    順序：先 fresh（session_end 全文萃取的精選 top-N，品質較高）再 queue（per_turn
+    累積）。達 max_atoms 上限即停，未處理的 queue 項留在 queue 下次再 flush（不丟）。
+    """
+    config = ctx.get("config", {})
+    sef = config.get("response_capture", {}).get("session_end_flush", {})
+    if not sef.get("enabled", True):
+        return
+
+    session_id = ctx.get("session_id", "")
+    queue = ctx.get("knowledge_queue", []) or []
+    fresh = result.get("extracted_items", []) or []
+    max_atoms = sef.get("max_atoms", 8)
+
+    # fresh 先（origin='fresh'，不在 queue 不需清）；queue 後（記原 index 供 ack-clear）
+    tagged = [("fresh", -1, it) for it in fresh] + \
+             [("queue", i, it) for i, it in enumerate(queue)]
+
+    written_q_indices = []
+    n_written = 0
+    seen: List[str] = []
+    for origin, qidx, it in tagged:
+        if n_written >= max_atoms:
+            break
+        content = (it.get("content") or "").strip()
+        if len(content) < _FLUSH_MIN_LEN or classify_extracted_item(it) == "plan":
+            continue
+        if any(_word_overlap_score(content, s) >= 0.65 for s in seen):
+            if origin == "queue":
+                written_q_indices.append(qidx)  # 已被本批其他項涵蓋 → 視為已捕捉、可清
+            continue
+        status = _flush_item_to_atom(content, it.get("domain_tags", []))
+        if status in ("wrote", "deduped"):
+            seen.append(content)
+            if status == "wrote":
+                n_written += 1
+            if origin == "queue":
+                written_q_indices.append(qidx)
+        # failed → 不清，留 queue 下次重試
+
+    if written_q_indices and session_id:
+        ack_then_clear(WORKFLOW_DIR / f"state-{session_id}.json",
+                       "knowledge_queue", written_q_indices)
+
+    _atom_debug_log(
+        "session_end_writeback",
+        f"flushed {n_written} atoms → global, cleared {len(written_q_indices)} queue items",
+        config,
+    )
+
+
 # ─── Failure writeback ────────────────────────────────────────────────────────
 
 _FAILURE_TYPE_FILE = {
@@ -641,6 +750,8 @@ def main():
                 _failure_writeback(ctx, items)
         elif mode == "per_turn":
             _per_turn_writeback(ctx, result)
+        else:  # session_end (default) — flush queue + fresh extraction → [臨] atoms
+            _session_end_writeback(ctx, result)
 
         sys.stdout.write(json.dumps(result, ensure_ascii=False))
     except Exception as e:
