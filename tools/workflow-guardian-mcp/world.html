@@ -660,29 +660,31 @@ function placeEnv(r, element){
   const rnd = mkRnd(hash32(r.key+"|"+element.id));
   const W=r.w, H=r.h, M=16, innerW=Math.max(20, W-2*M);
   let x, y, size;
+  /* ★建築垂直帶壓到房間上中段 0.12~0.55H：房間常比視窗高，原本下段(0.58~0.92H)落在視窗下緣外/被底部生物擋住 → 看不到。
+     上中段在你視窗內、且生物多聚底部那段較空，建築一眼可見。 */
   switch(element.pos){
     case "center":
       size = Math.max(40, Math.min(92, Math.min(W,H)*0.34));
-      x = W/2 + (rnd()-0.5)*W*0.08; y = H*0.58; break;
+      x = W/2 + (rnd()-0.5)*W*0.08; y = H*0.32; break;
     case "ground-row":
-      size = 22; x = M + rnd()*innerW; y = H*0.80 + (rnd()-0.5)*H*0.05; break;
+      size = 22; x = M + rnd()*innerW; y = H*0.50 + (rnd()-0.5)*H*0.05; break;
     case "wall":
-      size = 22; x = M + rnd()*innerW; y = H*0.30 + (rnd()-0.5)*H*0.04; break;
+      size = 22; x = M + rnd()*innerW; y = H*0.18 + (rnd()-0.5)*H*0.04; break;
     case "corner": { size = 22; const k=Math.floor(rnd()*4);
-      x = (k%2) ? W-M-6 : M+6; y = (k<2) ? H*0.30 : H*0.86; break; }
-    case "edge": { size = 20; const per=2*(innerW + H*0.6), top=innerW, side=H*0.6; let d=rnd()*per;
-      if(d<top){ x=M+d; y=H*0.22; }
-      else if(d<top+side){ x=W-M; y=H*0.22+(d-top); }
-      else if(d<2*top+side){ x=W-M-(d-top-side); y=H*0.82; }
-      else { x=M; y=H*0.82-(d-2*top-side); } break; }
-    case "scatter": default: { size=20; x=M+rnd()*innerW; y=H*0.42+rnd()*H*0.46;
+      x = (k%2) ? W-M-6 : M+6; y = (k<2) ? H*0.16 : H*0.50; break; }
+    case "edge": { size = 20; const per=2*(innerW + H*0.40), top=innerW, side=H*0.40; let d=rnd()*per;
+      if(d<top){ x=M+d; y=H*0.14; }
+      else if(d<top+side){ x=W-M; y=H*0.14+(d-top); }
+      else if(d<2*top+side){ x=W-M-(d-top-side); y=H*0.54; }
+      else { x=M; y=H*0.54-(d-2*top-side); } break; }
+    case "scatter": default: { size=20; x=M+rnd()*innerW; y=H*0.18+rnd()*H*0.36;
       for(let t=0;t<5;t++){ let hit=false;                       // 碰生物 slot（scene 座標轉房內）→ 黃金角推開
         for(const c of (r.list||[])){ const sx=c.slotX-r.x, sy=c.slotY-r.y;
           if((x-sx)*(x-sx)+(y-sy)*(y-sy) < (c.s*0.7)*(c.s*0.7)){ hit=true; break; } }
         if(!hit) break;
         const ang=t*2.39996323+rnd()*0.5, rad=14+t*6;            // 137.5° 黃金角
         x=Math.max(M, Math.min(W-M, x+Math.cos(ang)*rad));
-        y=Math.max(H*0.40, Math.min(H*0.92, y+Math.sin(ang)*rad)); }
+        y=Math.max(H*0.14, Math.min(H*0.56, y+Math.sin(ang)*rad)); }
       break; }
   }
   return {x, y, size};
