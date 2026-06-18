@@ -31,6 +31,7 @@ from wg_core import (
     cwd_to_project_slug,
     get_transcript_path,
     resolve_failures_dir,
+    find_project_root,
     CLAUDE_DIR,
     MEMORY_DIR,
 )
@@ -512,32 +513,52 @@ def _per_turn_writeback(ctx: dict, result: dict) -> None:
 _FLUSH_MIN_LEN = 12  # 過短碎句不值得建 atom（內聯常數，非旋鈕）
 
 
-def _flush_item_to_atom(content: str, triggers: list) -> str:
-    """把一條萃取知識寫成 global [臨] atom（系統指定的跨專案知識層，任何專案皆注入；
-    見 atom_io._resolve_target「use scope=global for cross-project knowledge」）。
+def _flush_route(cwd, _find_root=None):
+    """決定自動萃取 atom 的落點（2026-06-18 修）：專案 session（cwd 有 project root 且非 ~/.claude）
+    → ('shared', cwd, 專案 shared 層)，只在該專案注入；~/.claude / 無 root / 空 cwd → ('global',
+    None, MEMORY_DIR)。避免專案專屬知識污染 global core、被注入到每個專案。_find_root 供測試注入。"""
+    finder = _find_root or find_project_root
+    root = finder(cwd) if cwd else None
+    rootp = Path(root) if root else None
+    try:
+        is_project = bool(rootp) and rootp.resolve() != CLAUDE_DIR.resolve()
+    except OSError:
+        is_project = False
+    if is_project:
+        return "shared", cwd, rootp / ".claude" / "memory" / "shared"
+    return "global", None, MEMORY_DIR
 
-    比照 user-extract-worker._write_atom_via_mcp：content 推 slug、路徑去重 + -N
-    防撞、走 atom_io.write_atom funnel。Returns 'wrote' | 'deduped' | 'failed'。
+
+def _flush_item_to_atom(content: str, triggers: list, *,
+                        scope: str = "global", project_cwd=None,
+                        dedup_dir=MEMORY_DIR) -> str:
+    """把一條萃取知識寫成 [臨] atom，落點由 scope 決定（見 _flush_route）。
+
+    2026-06-18 修：專案 session 的自動萃取知識 → scope=shared（落專案層、只在該專案注入），
+    不再一律 scope=global 污染 global core 並被注入每個專案。dedup_dir 對齊實際落點。
+    比照 user-extract-worker._write_atom_via_mcp：content 推 slug、路徑去重 + -N 防撞、
+    走 atom_io.write_atom funnel。Returns 'wrote' | 'deduped' | 'failed'。
     """
     content = content.strip()
     triggers = [t.strip() for t in (triggers or []) if t and str(t).strip()] or ["auto-capture"]
     slug = slugify(content[:60]) or "auto-capture"
 
-    if (MEMORY_DIR / f"{slug}.md").exists():
+    if (dedup_dir / f"{slug}.md").exists():
         try:
-            if content[:80] in (MEMORY_DIR / f"{slug}.md").read_text(encoding="utf-8-sig"):
+            if content[:80] in (dedup_dir / f"{slug}.md").read_text(encoding="utf-8-sig"):
                 return "deduped"
         except (OSError, UnicodeDecodeError):
             pass
         for i in range(2, 10):
-            if not (MEMORY_DIR / f"{slug}-{i}.md").exists():
+            if not (dedup_dir / f"{slug}-{i}.md").exists():
                 slug = f"{slug}-{i}"
                 break
 
     try:
         res = write_atom(
             title=slug,
-            scope="global",
+            scope=scope,
+            project_cwd=project_cwd,
             confidence="[臨]",
             triggers=triggers,
             knowledge=[f"- [臨] {content}"],
@@ -571,6 +592,8 @@ def _session_end_writeback(ctx: dict, result: dict) -> None:
     queue = ctx.get("knowledge_queue", []) or []
     fresh = result.get("extracted_items", []) or []
     max_atoms = sef.get("max_atoms", 8)
+    # 2026-06-18 修：依 session cwd 決定落點——專案 session → 專案層 shared、不污染 global core。
+    flush_scope, flush_pcwd, dedup_dir = _flush_route(ctx.get("cwd", ""))
 
     # fresh 先（origin='fresh'，不在 queue 不需清）；queue 後（記原 index 供 ack-clear）
     tagged = [("fresh", -1, it) for it in fresh] + \
@@ -589,7 +612,9 @@ def _session_end_writeback(ctx: dict, result: dict) -> None:
             if origin == "queue":
                 written_q_indices.append(qidx)  # 已被本批其他項涵蓋 → 視為已捕捉、可清
             continue
-        status = _flush_item_to_atom(content, it.get("domain_tags", []))
+        status = _flush_item_to_atom(
+            content, it.get("domain_tags", []),
+            scope=flush_scope, project_cwd=flush_pcwd, dedup_dir=dedup_dir)
         if status in ("wrote", "deduped"):
             seen.append(content)
             if status == "wrote":
@@ -604,7 +629,7 @@ def _session_end_writeback(ctx: dict, result: dict) -> None:
 
     _atom_debug_log(
         "session_end_writeback",
-        f"flushed {n_written} atoms → global, cleared {len(written_q_indices)} queue items",
+        f"flushed {n_written} atoms → {flush_scope}, cleared {len(written_q_indices)} queue items",
         config,
     )
 

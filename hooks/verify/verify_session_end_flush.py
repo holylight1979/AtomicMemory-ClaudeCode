@@ -56,8 +56,9 @@ def patched(monkeypatch):
     """攔截真實副作用：記錄 flush 內容與 ack_then_clear 的 index；classifier 固定非 plan。"""
     calls = {"flushed": [], "cleared": None}
 
-    def fake_flush(content, triggers):
+    def fake_flush(content, triggers, **kwargs):
         calls["flushed"].append(content)
+        calls.setdefault("scopes", []).append(kwargs.get("scope"))
         return "wrote"
 
     def fake_ack(state_path, key, indices):
@@ -113,7 +114,7 @@ def test_cap_limits_and_leaves_rest_in_queue(patched):
 
 def test_failed_write_not_cleared(patched, monkeypatch):
     """寫入失敗 → 不清，留 queue。"""
-    monkeypatch.setattr(ew, "_flush_item_to_atom", lambda c, t: "failed")
+    monkeypatch.setattr(ew, "_flush_item_to_atom", lambda c, t, **kw: "failed")
     queue = [_item(_DISTINCT[0])]
     ew._session_end_writeback(_ctx(queue), {"extracted_items": []})
     assert patched["cleared"] is None
@@ -137,3 +138,22 @@ def test_disabled_noop(patched):
     ew._session_end_writeback(_ctx(queue, cfg), {"extracted_items": []})
     assert patched["flushed"] == []
     assert patched["cleared"] is None
+
+
+# ─── 落點路由（2026-06-18 修）端到端 wiring ───────────────────────────
+
+def test_flush_routes_global_when_no_cwd(patched):
+    """ctx 無 cwd → 落點 global（_flush_route 預設）。"""
+    queue = [_item(_DISTINCT[0])]
+    ew._session_end_writeback(_ctx(queue), {"extracted_items": []})
+    assert patched["scopes"] == ["global"]
+
+
+def test_flush_routes_shared_for_project_cwd(patched, monkeypatch):
+    """專案 session（cwd 有非 ~/.claude 的 project root）→ 落點 shared、不污染 global core。"""
+    monkeypatch.setattr(ew, "find_project_root", lambda c: Path("C:/Projects/Game"))
+    queue = [_item(_DISTINCT[0])]
+    ctx = _ctx(queue)
+    ctx["cwd"] = "C:/Projects/Game/src"
+    ew._session_end_writeback(ctx, {"extracted_items": []})
+    assert patched["scopes"] == ["shared"]
