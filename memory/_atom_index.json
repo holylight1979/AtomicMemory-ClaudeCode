@@ -811,7 +811,7 @@
     },
     {
       "name": "自己flag的維護動作直接做完不要反問",
-      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/自己驅動維護動作/自己flag的維護動作直接做完不要反問.md",
+      "path": "memory/自己flag的維護動作直接做完不要反問.md",
       "triggers": [
         "更新atom",
         "維護",
@@ -951,62 +951,6 @@
         "漏洞反饋",
         "正交軸綁死",
         "為什麼這麼複雜"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "bag-的序列化必須繞過框架預設的-migrateforwardall-流程因為其複雜的-oneof-結構會導致標",
-      "path": "memory/bag-的序列化必須繞過框架預設的-migrateforwardall-流程因為其複雜的-oneof-結構會導致標.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "bag-的核心結構為-bagsubdata其中包含關鍵的-itemdata-itemdatafield-5",
-      "path": "memory/bag-的核心結構為-bagsubdata其中包含關鍵的-itemdata-itemdatafield-5.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "由於無法使用框架-orm需透過-mysqlxclient-的原始-sql-api-進行操作executenon",
-      "path": "memory/由於無法使用框架-orm需透過-mysqlxclient-的原始-sql-api-進行操作executenon.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "在資料庫層面儲存角色-id-char-id-時必須使用-sql-的-bigint-unsigned-類型來",
-      "path": "memory/在資料庫層面儲存角色-id-char-id-時必須使用-sql-的-bigint-unsigned-類型來.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "當使用-mysqlx-協定33060進行資料讀取時如果-mysql-server-重啟後-x-連線狀態異常cli",
-      "path": "memory/當使用-mysqlx-協定33060進行資料讀取時如果-mysql-server-重啟後-x-連線狀態異常cli.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "卡死點位於-chardatablobtool-的-programcs94-行var-result-await",
-      "path": "memory/卡死點位於-chardatablobtool-的-programcs94-行var-result-await.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "診斷卡死根因時應比對-server-端-processlist-的-session-數量與-client-端程式的等待",
-      "path": "memory/診斷卡死根因時應比對-server-端-processlist-的-session-數量與-client-端程式的等待.md",
-      "triggers": [
-        "auto-capture"
       ],
       "scope": "global"
     }

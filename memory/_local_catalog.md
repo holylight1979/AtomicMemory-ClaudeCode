@@ -5,7 +5,7 @@
 | 範疇根 | atom 數 | 深入 |
 |--------|---------|------|
 | Continuity | 2 | `_AIDocs/_atoms/Continuity/_INDEX.md` |
-| MemDev | 10 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
+| MemDev | 9 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
 | OS | 3 | `_AIDocs/_atoms/OS/_INDEX.md` |
 | Tools | 11 | `_AIDocs/_atoms/Tools/_INDEX.md` |
 | World | 4 | `_AIDocs/_atoms/World/_INDEX.md` |
