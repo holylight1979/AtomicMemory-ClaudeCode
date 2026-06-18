@@ -1597,6 +1597,15 @@ async function toolAtomWrite(id, args) {
       filePath = legacyPath;
       relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
     }
+    if (!fs.existsSync(filePath) && scopeLabel === "global") {
+      // find-fallback：local（_AIDocs/_atoms/）與 feedback-*（_AIDocs/Failures/）物理居 memory/ 外，
+      // 鏡像 promote/edit_meta 的遞迴 fallback；否則 scope=global 的 local atom append 報 not-found。
+      const found = findAtomFileRecursive(FAILURES_DIR, slug) || findAtomFileRecursive(LOCAL_ATOMS_DIR, slug);
+      if (found) {
+        filePath = found;
+        relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
+      }
+    }
     if (!fs.existsSync(filePath)) {
       return sendToolResult(id, `Atom not found: ${slug}.md — use mode=create first`, true);
     }
@@ -1630,6 +1639,14 @@ async function toolAtomWrite(id, args) {
     }
     // Guard: replace = overwrite an EXISTING atom. If the target is absent, this was a
     // silent upsert that birthed a brand-new atom bypassing the create [臨] gate. Refuse.
+    if (!fs.existsSync(filePath) && scopeLabel === "global") {
+      // find-fallback（同 append）：local / feedback-* 物理居 memory/ 外。
+      const found = findAtomFileRecursive(FAILURES_DIR, slug) || findAtomFileRecursive(LOCAL_ATOMS_DIR, slug);
+      if (found) {
+        filePath = found;
+        relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
+      }
+    }
     if (!fs.existsSync(filePath)) {
       const variant = findSeparatorVariant(memDir, slug);
       return sendToolResult(id,
