@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 原子記憶系統, 記憶系統修正, 記憶系統修改, 記憶系統開發, 改 hook, 改 wg_, 改 server.js, memory system, 文件同步, doc sync
 - Created-at: 2026-06-01
-- Related: workflow-rules, feedback-workflow-discipline, atom-table-support, memory-index-caption-regen, atom-usefulness-loop, atom-元資料編輯與晉升閘真相, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透, 對談結束自動記憶與錯誤加權深記
+- Related: workflow-rules, feedback-workflow-discipline, atom-table-support, memory-index-caption-regen, atom-usefulness-loop, atom-元資料編輯與晉升閘真相, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透, 對談結束自動記憶與錯誤加權深記, skill-計數單一來源-skill-index
 
 ## 知識
 

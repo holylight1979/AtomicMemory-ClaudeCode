@@ -20,13 +20,16 @@ for _p in (CLAUDE / "hooks", CLAUDE / "lib", CLAUDE):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from wg_core import _is_under_claude_dir, is_local_realm_path  # noqa: E402
+from wg_core import (  # noqa: E402
+    _is_under_claude_dir, is_local_realm_path, is_cross_project_local,
+)
 
 
 def _apply_gate(atoms, cwd):
     """重現 session_start 的過濾邏輯（純函式版本）。"""
     if is_local_realm_path is not None and not _is_under_claude_dir(cwd):
-        return [(n, p, t) for (n, p, t) in atoms if not is_local_realm_path(p)]
+        return [(n, p, t) for (n, p, t) in atoms
+                if not is_local_realm_path(p) or is_cross_project_local(p)]
     return list(atoms)
 
 
@@ -35,6 +38,7 @@ ATOMS = [
     ("feedback-x", "_AIDocs/Failures/feedback-x.md", ["handoff"]),           # core (Failures!)
     ("brain", "_AIDocs/_atoms/World/brain.md", ["腦內世界"]),                # local
     ("gdoc-harvester", "_AIDocs/_atoms/Tools/gdoc-harvester.md", ["gdoc"]),  # local
+    ("handoff-q", "_AIDocs/_atoms/Continuity/handoff-q.md", ["handoff"]),    # local but cross-project
 ]
 
 
@@ -45,13 +49,22 @@ def test_gate_external_project_filters_local():
     assert "feedback-x" in names          # _AIDocs/Failures/ core 保留（不誤殺）
     assert "brain" not in names           # local 濾掉
     assert "gdoc-harvester" not in names  # local 濾掉
+    assert "handoff-q" in names           # 解綁：Continuity（cross-project local）外部專案仍保留
+
+
+def test_gate_cross_project_local_predicate():
+    # storage 在 _atoms 但屬 CROSS_PROJECT_LOCAL_DOMAINS → 跨專案；其餘 local → 否
+    assert is_cross_project_local("_AIDocs/_atoms/Continuity/handoff-q.md") is True
+    assert is_cross_project_local("_AIDocs/_atoms/World/brain.md") is False
+    assert is_cross_project_local("memory/decisions.md") is False
+    assert is_cross_project_local("_AIDocs/Failures/feedback-x.md") is False
 
 
 def test_gate_under_claude_keeps_local():
     for cwd in (str(CLAUDE), str(CLAUDE / "tools"), str(CLAUDE / "lib" / "verify")):
         out = _apply_gate(ATOMS, cwd)
         names = {n for n, _, _ in out}
-        assert names == {"decisions", "feedback-x", "brain", "gdoc-harvester"}, cwd
+        assert names == {"decisions", "feedback-x", "brain", "gdoc-harvester", "handoff-q"}, cwd
 
 
 def test_is_under_claude_dir_predicate():

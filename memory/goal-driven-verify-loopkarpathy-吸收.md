@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 寫程式, 寫扣, 實作, refactor, 重構, fix bug, 修 bug, add validation, 成功標準, verify, 驗收
 - Created-at: 2026-06-12
-- Related: feedback-workflow-discipline, workflow-icld, decisions
+- Related: feedback-workflow-discipline, workflow-icld, decisions, handoff-綜觀品質與抗失真寫法
 
 ## 知識
 

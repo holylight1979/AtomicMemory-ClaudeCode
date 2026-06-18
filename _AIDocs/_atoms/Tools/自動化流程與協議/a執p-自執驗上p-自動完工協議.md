@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: A執P, 自執驗上P, Auto執驗上P, 自動執驗上P, 全自動完工, 自動推進, auto-handoff, 自動交接
 - Created-at: 2026-06-09
-- Related: workflow-rules, feedback-workflow-discipline, preferences
+- Related: workflow-rules, feedback-workflow-discipline, preferences, handoff-綜觀品質與抗失真寫法
 
 ## 知識
 

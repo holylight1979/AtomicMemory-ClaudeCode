@@ -40,11 +40,13 @@ sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 try:
     from atom_locations import (
         atom_writable_dir_segments, failures_atom_stems, is_local_realm_path,
+        is_cross_project_local,
     )
 except ImportError:
     atom_writable_dir_segments = None
     failures_atom_stems = None
     is_local_realm_path = None
+    is_cross_project_local = None
 
 # ─── Token budget 單一來源（2026-06-12 熱點重構集中）─────────────────────────
 # 三個 budget 概念各司其職，數值不互相推導：

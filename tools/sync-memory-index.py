@@ -42,6 +42,14 @@ from lib.atom_locations import (  # noqa: E402
     local_realm_path_segments,
 )
 
+# 人讀文件 atom 計數同步（SoT=_atom_index.json）：piggyback 本工具的 atom_write 觸發鏈，
+# 每次 atom 增刪/搬移後靜默把 TECH/_INDEX/DocIndex 的計數標記跟上（見 sync_doc_counts.py）。
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ for sibling import
+try:
+    import sync_doc_counts  # noqa: E402
+except Exception:
+    sync_doc_counts = None
+
 MEMORY_DIR = Path.home() / ".claude" / "memory"
 MEMORY_INDEX_NAME = "MEMORY.md"
 LOCAL_CATALOG_NAME = "_local_catalog.md"  # V5+ realm：本地範疇側檔（hook 僅核心環境注入）
@@ -364,6 +372,11 @@ def main() -> int:
         for abs_path in stale_index_files:
             print(f"[sync-memory-index] stale _INDEX.md: {abs_path}", file=sys.stderr)
             drift = True
+        if sync_doc_counts is not None:
+            dc_drift, dc_msgs = sync_doc_counts.sync(claude_root, write=False)
+            for m in dc_msgs:
+                print(m, file=sys.stderr)
+            drift = drift or dc_drift
         return 1 if drift else 0
 
     if args.write:
@@ -396,6 +409,10 @@ def main() -> int:
               f"{' + ' + str(local_catalog_path) if new_local else ' (no local; removed side catalog)'}"
               f"{f' + {len(new_index_files)} _INDEX.md' if new_index_files else ''}"
               f"{f' (-{len(stale_index_files)} stale)' if stale_index_files else ''}")
+        if sync_doc_counts is not None:
+            _dc_drift, dc_msgs = sync_doc_counts.sync(claude_root, write=True)
+            for m in dc_msgs:
+                print(m, file=sys.stderr)
         return 0
 
     print(new_core)

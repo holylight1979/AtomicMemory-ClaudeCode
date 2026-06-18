@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: realm, 範疇分區, 核心非核心, local atom, _AIDocs/_atoms, 注入閘門, atom 物理位置, promote fallback, wg_core bootstrap, 記憶系統
 - Created-at: 2026-06-03
-- Related: decisions-architecture, memory-index-caption-regen, feedback-workflow-discipline, 腦內世界-環境演化-放置式架構, 專案等級-mcpskillhookslog-不放全域根層, realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透, harness原生memory與atom索引marker撞名辨識, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房
+- Related: decisions-architecture, memory-index-caption-regen, feedback-workflow-discipline, 腦內世界-環境演化-放置式架構, 專案等級-mcpskillhookslog-不放全域根層, realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透, harness原生memory與atom索引marker撞名辨識, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房, skill-計數單一來源-skill-index, feedback-complexity-origin-trace
 
 ## 知識
 
@@ -30,6 +30,7 @@
 - [臨] **V6 Phase G 完成（2026-06-04，realm V6 全 plan 落地）**：`/refile` 手動歸檔 skill 已建（`skills/refile/`，pipeline；用 skill-creator 建、audit 0 fail）。deterministic 三段護欄全在 `skills/refile/scripts/refile_classify.py`：① 輸入護欄（已在 `_AIDocs/_atoms/`→拒）② 核心檔辨識（bootstrap/設定集精確·樣式檔名 ∨ rules/*.md ∨ _meta/*.json ∨ protected slug ∨ memory/ 內被 bootstrap 鏈引用→不搬+回報關聯+提供中斷/升級 EnterPlanMode）③ 分類提議（復用 `classify_realm`→miss→`llm_classify_realm` 同引擎，Fail-safe 四態：defer/core/local/else）。移檔：既有 atom 走 `atom-set-realm`、loose .md 走 `atom_write`、非 atom 型建議 `_staging/`；移後 `docrefs` 子命令掃 doc-ref。
 - [臨] **守門事實更正**（前述 V6 bullet 記憶有誤）：sweep 的 Fail-safe 四態測試**在 `tools/verify/verify_realm_llm_classify.py` 內**，**無獨立 `verify_realm_sweep.py`**；atom-io 階層測試為 `lib/verify/verify_atom_io_equivalence.py` **test_18–22**（normalize_domain_path canon/深度閘、local_realm_path_segments、多段 routing、extra_lexicon 自學、_clean_segment py↔js parity）。實證守門全集：test_14–22 + verify_realm_injection_gate + verify_realm_llm_classify + verify_local_catalog_split，`run_verify.py` 446 passed。
 - [臨] **【自我更正，撤銷上一條「守門事實更正」】**：`hooks/verify/verify_realm_sweep.py` **確實存在**（我先前只掃 `lib/verify/`+`tools/verify/`、漏掃 `hooks/verify/` → 誤判不存在）。正確 V6 守門全集＝`hooks/verify/verify_realm_sweep.py`（10 test，SessionEnd sweep Fail-safe 四態決策分支）+ `tools/verify/verify_realm_llm_classify.py`（9 test，LLM 分類器函式）+ `lib/verify/verify_atom_io_equivalence.py` test_14–22 + `verify_realm_injection_gate` + `verify_local_catalog_split`。**原 atom 的『verify_realm_llm_classify(9)/verify_realm_sweep(10)』記述本來就正確**。教訓：查 verify 檔三處都要掃（lib/verify ∥ tools/verify ∥ hooks/verify）。
+- [臨] **解綁「儲存位置 vs 注入範圍」（2026-06-18）**：新增 `CROSS_PROJECT_LOCAL_DOMAINS`（`lib/atom_locations.py` frozenset，預設 {Continuity}）+ `is_cross_project_local(rel_path)`；注入閘門 `session_start.py` 對清單內 Lv1 根的 local atom **例外放行**（外部專案仍注入）——storage 仍在 `_AIDocs/_atoms/<domain>/`、write 路由/realm/catalog 歸類全不變，**僅注入範圍**跨專案，對偶 feedback-*（物理 Failures 卻 core 注入）。py-only（注入是 Python hook 無 js 對拍面；classifyRealm 等 write 面不動）。守門 `lib/verify/verify_realm_injection_gate.py` +1 case（cross-project-local 外部專案保留）+ predicate test。動機：user 心智模型「memory/=索引、_AIDocs/_atoms=知識儲存」要求知識住 _atoms 但仍能跨專案；此前「路徑前綴綁死注入範圍」即該矛盾本體（見 [[feedback-complexity-origin-trace]]）。**append 缺口**：atom_write mode=append 對 local atom 報「Atom not found」（find-fallback 未覆蓋 append 路徑，僅 promote/edit_meta/find 有），本條經直接 Edit 補入。
 
 ## 行動
 

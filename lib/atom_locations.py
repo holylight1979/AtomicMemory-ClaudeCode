@@ -41,6 +41,11 @@ LOCAL_ATOMS_REL = "_AIDocs/_atoms"
 LOCAL_REALM_DOMAINS = frozenset({"World", "Tools", "MemDev"})
 # catch-all / fail-safe domain（取代舊 "Misc"；LLM 低信心·unsure 歸此，py+js 鏡像 test_14）。
 LOCAL_REALM_DEFAULT_DOMAIN = "Else"
+# 跨專案注入的 local 範疇（解開「儲存位置綁死注入範圍」）：storage 仍在 _atoms（write 路由不變），
+# 但 injection 全專案——對偶 feedback-*（物理居 _AIDocs/Failures/ 卻 core 注入）。注入閘門
+# （session_start）對清單內 Lv1 根的 local atom 例外放行。**僅影響注入範圍**，不改 realm/path/
+# write 路由/catalog 歸類。py-only（注入是 Python hook，無 js 對拍面）。
+CROSS_PROJECT_LOCAL_DOMAINS = frozenset({"Continuity"})
 # 階層 domain 路徑最大深度（user 拍板：深=內容多需細分、非範疇廣；
 # 擴大根因＝「窄範疇但已知內容量龐大」→ 必須加層）。canon 超此→截尾（絕對天花板）。
 LOCAL_REALM_MAX_DEPTH = 7
@@ -387,6 +392,17 @@ def local_realm_lv1_root(rel_path: str) -> str:
     """抽 Lv1 根（最廣範疇，always-load catalog 用）；缺 → LOCAL_REALM_DEFAULT_DOMAIN。"""
     segs = local_realm_path_segments(rel_path)
     return segs[0] if segs else LOCAL_REALM_DEFAULT_DOMAIN
+
+
+def is_cross_project_local(rel_path: str) -> bool:
+    """local-realm atom 但 Lv1 根 ∈ CROSS_PROJECT_LOCAL_DOMAINS ⇒ 外部專案仍注入。
+
+    解開「儲存位置（_atoms）綁死注入範圍（僅 ~/.claude）」：清單內範疇 storage 在 _atoms、
+    injection 全專案（如 Continuity），對偶 feedback-*。非 local 路徑一律 False。
+    """
+    if not is_local_realm_path(rel_path):
+        return False
+    return local_realm_lv1_root(rel_path) in CROSS_PROJECT_LOCAL_DOMAINS
 
 
 def enumerate_local_paths(mem_dir: Path = GLOBAL_MEMORY_DIR) -> List[str]:

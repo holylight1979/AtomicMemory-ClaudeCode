@@ -232,7 +232,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 
 > 全貌見 [`SPEC_ATOM_V5.md` §2.2](SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
-非核心（local）記憶（腦內世界 / 特定外部工具踩坑 / Guardian 特定實例開發）**只在 ~/.claude 內才有用**，跨專案時佔 token 又是雜訊。補上 realm 維度後外部專案零負擔。
+非核心（local）記憶（腦內世界 / 特定外部工具踩坑 / Guardian 特定實例開發）**只在 ~/.claude 內才有用**，跨專案時佔 token 又是雜訊。補上 realm 維度後外部專案零負擔（例外：`CROSS_PROJECT_LOCAL_DOMAINS` 如 `Continuity`，storage 在 _atoms 但跨專案注入，對偶 feedback-*）。
 
 - **realm 由 index `path` 前綴推導**（不存欄位、與 scope 正交）：path 落 `_AIDocs/_atoms/<domain>/`（World/Tools/MemDev）⇒ local（**仍 `Scope=global`**）；否則 core。沿用 feedback-* 同一招（物理在 `_AIDocs/` 下、靠 index path 注入），零新管線。
 - **注入閘門**：`hooks/handlers/session_start.py` 建候選快取處依 `wg_core._is_under_claude_dir(cwd)` 濾掉 local 候選；外部專案完全略過、core（含 `_AIDocs/Failures/*`）不誤殺。

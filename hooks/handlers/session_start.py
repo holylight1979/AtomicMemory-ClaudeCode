@@ -26,7 +26,8 @@ from wg_core import (
     register_project,
     read_state, write_state, new_state, _find_active_sibling_state,
     _check_mcp_servers,
-    _is_under_claude_dir, is_local_realm_path, REALM_AUTOMOVE_MARKER,
+    _is_under_claude_dir, is_local_realm_path, is_cross_project_local,
+    REALM_AUTOMOVE_MARKER,
 )
 from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
@@ -268,12 +269,15 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 此處為「新 session 候選快取建立處」——user_prompt_submit 只讀此快取做
         # trigger 比對注入，故閘門落點在此、非注入迴圈。外部專案（cwd∉~/.claude）
         # 濾掉 local-realm atom（index path 前綴 _AIDocs/_atoms/）；core（含 feedback-*
-        # 所在的 _AIDocs/Failures/）不受影響。直接用既有 3-tuple 的 path 過濾，不查
-        # realm map、不改 tuple 形狀。is_local_realm_path 為 None（lib import 失敗）→
+        # 所在的 _AIDocs/Failures/）不受影響。**例外**：is_cross_project_local 為真者
+        # （storage 在 _atoms 但屬 CROSS_PROJECT_LOCAL_DOMAINS，如 Continuity）保留——
+        # 解開「儲存位置綁死注入範圍」，對偶 feedback-*。直接用既有 3-tuple 的 path 過濾，
+        # 不查 realm map、不改 tuple 形狀。is_local_realm_path 為 None（lib import 失敗）→
         # 不過濾（fail-open 回退至 pre-S2 全注入，安全）。
         if is_local_realm_path is not None and not _is_under_claude_dir(cwd):
             global_atoms = [
-                (n, p, t) for (n, p, t) in global_atoms if not is_local_realm_path(p)
+                (n, p, t) for (n, p, t) in global_atoms
+                if not is_local_realm_path(p) or is_cross_project_local(p)
             ]
         project_mem_dir = get_project_memory_dir(cwd)
         project_atoms = parse_memory_index(project_mem_dir) if project_mem_dir else []

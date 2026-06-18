@@ -811,7 +811,7 @@
     },
     {
       "name": "自己flag的維護動作直接做完不要反問",
-      "path": "memory/自己flag的維護動作直接做完不要反問.md",
+      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/自己驅動維護動作/自己flag的維護動作直接做完不要反問.md",
       "triggers": [
         "更新atom",
         "維護",
@@ -893,6 +893,120 @@
         "增刪 skill",
         "skill 漂移",
         "skill drift"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "handoff-綜觀品質與抗失真寫法",
+      "path": "_AIDocs/_atoms/Continuity/handoff-綜觀品質與抗失真寫法.md",
+      "triggers": [
+        "handoff",
+        "續接",
+        "下 session",
+        "next-phase",
+        "/continue",
+        "交接",
+        "接續 prompt",
+        "綜觀",
+        "失真",
+        "多 session",
+        "寫接續文",
+        "handoff 品質",
+        "新開 session"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "跨session資訊失真機制與對策",
+      "path": "_AIDocs/_atoms/Continuity/跨session資訊失真機制與對策.md",
+      "triggers": [
+        "失真",
+        "失憶",
+        "context 壓縮",
+        "長對話",
+        "多 session",
+        "lost in the middle",
+        "context rot",
+        "goal drift",
+        "摘要有損",
+        "為什麼會偏掉",
+        "anchoring",
+        "context poisoning",
+        "錯誤發展",
+        "錯誤認知"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-complexity-origin-trace",
+      "path": "_AIDocs/Failures/feedback-complexity-origin-trace.md",
+      "triggers": [
+        "太複雜",
+        "看不懂",
+        "敘述太長",
+        "內文超出預期",
+        "複雜回答",
+        "設計矛盾",
+        "追蹤起源",
+        "漏洞反饋",
+        "正交軸綁死",
+        "為什麼這麼複雜"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "bag-的序列化必須繞過框架預設的-migrateforwardall-流程因為其複雜的-oneof-結構會導致標",
+      "path": "memory/bag-的序列化必須繞過框架預設的-migrateforwardall-流程因為其複雜的-oneof-結構會導致標.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "bag-的核心結構為-bagsubdata其中包含關鍵的-itemdata-itemdatafield-5",
+      "path": "memory/bag-的核心結構為-bagsubdata其中包含關鍵的-itemdata-itemdatafield-5.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "由於無法使用框架-orm需透過-mysqlxclient-的原始-sql-api-進行操作executenon",
+      "path": "memory/由於無法使用框架-orm需透過-mysqlxclient-的原始-sql-api-進行操作executenon.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "在資料庫層面儲存角色-id-char-id-時必須使用-sql-的-bigint-unsigned-類型來",
+      "path": "memory/在資料庫層面儲存角色-id-char-id-時必須使用-sql-的-bigint-unsigned-類型來.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "當使用-mysqlx-協定33060進行資料讀取時如果-mysql-server-重啟後-x-連線狀態異常cli",
+      "path": "memory/當使用-mysqlx-協定33060進行資料讀取時如果-mysql-server-重啟後-x-連線狀態異常cli.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "卡死點位於-chardatablobtool-的-programcs94-行var-result-await",
+      "path": "memory/卡死點位於-chardatablobtool-的-programcs94-行var-result-await.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "診斷卡死根因時應比對-server-端-processlist-的-session-數量與-client-端程式的等待",
+      "path": "memory/診斷卡死根因時應比對-server-端-processlist-的-session-數量與-client-端程式的等待.md",
+      "triggers": [
+        "auto-capture"
       ],
       "scope": "global"
     }

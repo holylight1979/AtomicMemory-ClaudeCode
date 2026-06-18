@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 縝密, 漏掉, 沒看到, max thinking, high thinking, 外包思考, 規範, rigor, 前例, precedent, 既有 drift
 - Created-at: 2026-05-26
-- Related: feedback-workflow-discipline, feedback-memory-structure, cognitive-patterns
+- Related: feedback-workflow-discipline, feedback-memory-structure, cognitive-patterns, feedback-complexity-origin-trace
 
 ## 知識
 

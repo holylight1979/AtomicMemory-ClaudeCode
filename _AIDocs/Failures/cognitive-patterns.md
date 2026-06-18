@@ -5,7 +5,7 @@
 - Trigger: 過度工程, 代理指標, proxy metric, AI看不懂, AI在打轉, 品質回饋, 自我合理化, 編造規則, 籠統話術, 訂規保留, 設計慣例
 - Last-used: 2026-05-28
 - Created-at: 2026-03-13
-- Related: decisions, feedback-rigor-standards, cc-能力查證反編譯實跑-binary, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, 對談結束自動記憶與錯誤加權深記
+- Related: decisions, feedback-rigor-standards, cc-能力查證反編譯實跑-binary, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, 對談結束自動記憶與錯誤加權深記, feedback-complexity-origin-trace
 
 ## 知識
 
