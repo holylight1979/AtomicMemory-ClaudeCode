@@ -18,6 +18,7 @@
 | atom-元資料編輯與晉升閘真相 | atom 元資料編輯與晉升閘真相 |
 | goal-driven-verify-loopkarpathy-吸收 | goal-driven-verify-loop（karpathy 吸收） |
 | 自己flag的維護動作直接做完不要反問 | 自己flag的維護動作直接做完不要反問 |
+| 遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準 | 遊戲伺服器架構：框架型 vs 元件型（三核心 + 遠瞻性判準） |
 | feedback-* | 行為校正（7 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |

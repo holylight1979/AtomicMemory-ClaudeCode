@@ -6,5 +6,6 @@
 
 | Atom | 說明 |
 |------|------|
+| bash-呼叫-msbuild-用-dash-參數 | bash 呼叫 MSBuild 用 dash 參數 |
 | dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app | dotnet run 單檔跑拋棄式 demo (.NET 10 file-based app) |
 | powershell7-寫檔預設無bom會剝源碼檔bom | powershell7-寫檔預設無BOM會剝源碼檔BOM |

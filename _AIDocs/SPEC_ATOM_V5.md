@@ -186,7 +186,9 @@ paths: "memory/**/*.md"           # glob 命中才 auto-load
 ---
 ```
 
-### 4.2 V5 全域 20 個 skills
+### 4.2 V5 遷移當時的 20 個 skills（歷史快照）
+
+> 此表為 2026-05-27 V5 遷移當下的快照。**現役 skill 數以 `skills/_skill_index.json` 為 SoT**（由 `tools/skill-index.py` 掃 `skills/*/SKILL.md` 維護；增刪改 skill 由 PostToolUse hook 自動同步、SessionStart `--check` 防呆）；後續另增 heal-review / refile / 外部 karpathy-guidelines 等，當前計數見各文件 `<!-- skill-count -->` marker。
 
 | 處理方式 | skills（共 20）|
 |---------|-------|

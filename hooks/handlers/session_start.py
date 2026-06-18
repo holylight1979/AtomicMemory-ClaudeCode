@@ -380,6 +380,32 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 )
         except Exception as e:
             _atom_debug_error("session_start:index_validate", e)
+
+        # ── skill 計數 SoT 防呆（2026-06-18）──────────────────────────────
+        # 補 PostToolUse 自動同步漏接者（如 Bash 刪 skill 目錄）：實檔
+        # skills/*/SKILL.md 數 ≠ _skill_index.json count → advisory 提示跑
+        # tools/skill-index.py --write。不自動改檔（與 PostToolUse 自動同步分工）。
+        try:
+            if (config or {}).get("skill_index", {}).get("enabled", True):
+                import json as _json
+                _sk_dir = CLAUDE_DIR / "skills"
+                _true_sk = sum(1 for _ in _sk_dir.glob("*/SKILL.md"))
+                _idx = _sk_dir / "_skill_index.json"
+                _idx_n = None
+                if _idx.exists():
+                    try:
+                        _idx_n = _json.loads(
+                            _idx.read_text(encoding="utf-8-sig")).get("count")
+                    except (ValueError, OSError):
+                        _idx_n = None
+                if _idx_n != _true_sk:
+                    lines.append(
+                        f"[Guardian:SkillIndex] ⚠ skills/ 實檔 {_true_sk} 個 ≠ "
+                        f"_skill_index.json count={_idx_n}。請跑 "
+                        "python tools/skill-index.py --write 同步計數與文件 marker。"
+                    )
+        except Exception as e:
+            _atom_debug_error("session_start:skill_index_validate", e)
         if v4_user:
             lines.append(
                 f"[Role] user={v4_user} roles={','.join(v4_roles) or 'programmer'} mgmt={v4_mgmt}"

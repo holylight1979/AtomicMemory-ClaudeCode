@@ -132,6 +132,36 @@ def _maybe_auto_roll_changelog(file_path: str, config: Dict[str, Any]) -> None:
         pass
 
 
+def _maybe_sync_skill_index(file_path: str, config: Dict[str, Any]) -> None:
+    """Detached `skill-index.py --write` when a skills/*/SKILL.md is added/edited.
+
+    skill 計數 SoT 自動同步：重生 _skill_index.json + 重寫文件 marker。Bash 刪除等
+    本 hook 漏接的情況由 SessionStart --check 防呆。Fail-open。"""
+    try:
+        normalized = file_path.replace("\\", "/")
+        if "/skills/" not in normalized or not normalized.endswith("/SKILL.md"):
+            return
+        cfg = (config or {}).get("skill_index", {}) or {}
+        if not cfg.get("enabled", True):
+            return
+        tool_path = Path(__file__).resolve().parent.parent.parent / "tools" / "skill-index.py"
+        if not tool_path.exists():
+            return
+        bg_kwargs: dict = {
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            bg_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        else:
+            bg_kwargs["start_new_session"] = True
+        subprocess.Popen([sys.executable, str(tool_path), "--write"], **bg_kwargs)
+    except Exception as e:
+        _atom_debug_error("post_tool_use:skill_index_sync", e)
+        pass
+
+
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -156,6 +186,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     if tool_name in ("Edit", "Write") and file_path:
         _maybe_auto_roll_changelog(file_path, config)
+        _maybe_sync_skill_index(file_path, config)
 
     if (
         tool_name in ("Edit", "Write")

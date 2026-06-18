@@ -841,6 +841,60 @@
         "fix_escalation"
       ],
       "scope": "global"
+    },
+    {
+      "name": "bash-呼叫-msbuild-用-dash-參數",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/bash-呼叫-msbuild-用-dash-參數.md",
+      "triggers": [
+        "msbuild",
+        "dotnet build",
+        "MSYS2",
+        "git bash",
+        "MSB1008",
+        "編譯參數",
+        "斜線參數",
+        "dash flag",
+        "bash 編譯",
+        "/t:Build"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準",
+      "path": "memory/遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準.md",
+      "triggers": [
+        "遊戲伺服器設計",
+        "game server 架構",
+        "server 架構設計",
+        "框架型設計",
+        "元件型設計",
+        "過度封裝",
+        "過度繼承",
+        "反射濾用",
+        "底層耦合",
+        "存儲傳輸耦合",
+        "over-engineering",
+        "架構評估",
+        "設計遠瞻",
+        "stack trace 難追"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "skill-計數單一來源-skill-index",
+      "path": "_AIDocs/_atoms/MemDev/skill-計數單一來源-skill-index.md",
+      "triggers": [
+        "skill 計數",
+        "skill count",
+        "skill-index",
+        "_skill_index.json",
+        "skill-count marker",
+        "出文件 skill 數",
+        "增刪 skill",
+        "skill 漂移",
+        "skill drift"
+      ],
+      "scope": "global"
     }
   ]
 }

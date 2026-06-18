@@ -53,3 +53,6 @@
 | 腦內世界生物對話系統真相-模型觸發方針背景 | _AIDocs/_atoms/World/腦內世界生物對話系統真相-模型觸發方針背景.md | 腦內世界, world.html, 生物對話, creature-chat, CHAT_MODEL, 接觸觸發, checkDialogue, runConversation, 對話並發, chatBusy, 背景電子腦, env 蒛房子 | global |
 | 自己flag的維護動作直接做完不要反問 | memory/自己flag的維護動作直接做完不要反問.md | 更新atom, 維護, 同步, 反問, 要不要我, 該做就做, 推進, 收尾, follow-through | global |
 | 對談結束自動記憶與錯誤加權深記 | _AIDocs/_atoms/MemDev/對談結束自動記憶與錯誤加權深記.md | 對談結束自動記憶, 錯誤深記, 失敗骨架, deep postmortem, Deep Post-Mortem Gate, session_end flush, 失敗記錄, post-mortem, wisdom_retry, fix_escalation | global |
+| bash-呼叫-msbuild-用-dash-參數 | _AIDocs/_atoms/Tools/自動化流程與協議/dotnet/bash-呼叫-msbuild-用-dash-參數.md | msbuild, dotnet build, MSYS2, git bash, MSB1008, 編譯參數, 斜線參數, dash flag, bash 編譯, /t:Build | global |
+| 遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準 | memory/遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準.md | 遊戲伺服器設計, game server 架構, server 架構設計, 框架型設計, 元件型設計, 過度封裝, 過度繼承, 反射濾用, 底層耦合, 存儲傳輸耦合, over-engineering, 架構評估, 設計遠瞻, stack trace 難追 | global |
+| skill-計數單一來源-skill-index | _AIDocs/_atoms/MemDev/skill-計數單一來源-skill-index.md | skill 計數, skill count, skill-index, _skill_index.json, skill-count marker, 出文件 skill 數, 增刪 skill, skill 漂移, skill drift | global |

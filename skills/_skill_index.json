@@ -1,0 +1,122 @@
+{
+  "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
+  "generated_from": "skills/*/SKILL.md",
+  "count": 23,
+  "skills": [
+    {
+      "name": "atom-debug",
+      "dir": "atom-debug",
+      "description": "切換原子記憶系統的注入/萃取 debug log（寫入 ~/.claude/Logs/atom-debug-*.log）"
+    },
+    {
+      "name": "browse-sprites",
+      "dir": "browse-sprites",
+      "description": "批次圖片預覽：拼貼縮圖 + 大張原圖讓 AI 同時看清整體與細節"
+    },
+    {
+      "name": "changelog-debug",
+      "dir": "changelog-debug",
+      "description": "Hook 觸發失靈時手動滾動 _CHANGELOG.md（正常情況自動觸發，這是 debug 用）"
+    },
+    {
+      "name": "codex-companion",
+      "dir": "codex-companion",
+      "description": "切換 Codex Companion 監督系統開關（GPT 第二意見審計）"
+    },
+    {
+      "name": "conflict",
+      "dir": "conflict",
+      "description": "記憶衝突偵測：偵測 atom 內容衝突並列出待處理項目"
+    },
+    {
+      "name": "conflict-review",
+      "dir": "conflict-review",
+      "description": "管理職裁決 Pending Queue：審視 _pending_review/ 下敏感原子並做出 approve/reject 決議"
+    },
+    {
+      "name": "consciousness-stream",
+      "dir": "consciousness-stream",
+      "description": "識流處理（Consciousness Stream Pipeline）— 連續對話流的記憶寫入"
+    },
+    {
+      "name": "continue",
+      "dir": "continue",
+      "description": "讀取 _staging/next-phase*.md 並立即執行續接任務（多任務時列選單）"
+    },
+    {
+      "name": "extract",
+      "dir": "extract",
+      "description": "手動知識萃取：從當前對話抽取 atom（補 LLM 自動萃取漏網）"
+    },
+    {
+      "name": "fix-escalation",
+      "dir": "fix-escalation",
+      "description": "精確修正升級協議（Fix Escalation Protocol）— 反覆修不好時升級到更深層分析"
+    },
+    {
+      "name": "generate-episodic",
+      "dir": "generate-episodic",
+      "description": "手動生成 episodic atom（補自動 episodic 生成）"
+    },
+    {
+      "name": "handoff",
+      "dir": "handoff",
+      "description": "跨 Session Handoff Prompt Builder — 強制 6 區塊 self-sufficient 模板，避免下 session 裸奔"
+    },
+    {
+      "name": "harvest",
+      "dir": "harvest",
+      "description": "網頁收割工具：Playwright + cookie 從 Google Docs/Sheets/網頁抓內容"
+    },
+    {
+      "name": "heal-review",
+      "dir": "heal-review",
+      "description": "管理職裁決記憶自癒失敗佇列：審視 _heal_review/ 下「自動修不好」的 atom 診斷卡並 resolve/dismiss"
+    },
+    {
+      "name": "init-roles",
+      "dir": "init-roles",
+      "description": "專案多職務模式啟用引導 — 初始化 shared/roles/personal 三層 atom 結構"
+    },
+    {
+      "name": "journal",
+      "dir": "journal",
+      "description": "工作日誌產出：從 atoms + git log + transcript 聚合產出日誌"
+    },
+    {
+      "name": "karpathy-guidelines",
+      "dir": "karpathy-guidelines",
+      "description": "Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria."
+    },
+    {
+      "name": "memory",
+      "dir": "memory",
+      "description": "原子記憶系統綜合工具 — health/peek/undo/review/score 五合一。用於檢查記憶健康、檢視自動萃取、撤銷誤寫、自我迭代、Session 評分。"
+    },
+    {
+      "name": "read-project",
+      "dir": "read-project",
+      "description": "專案文件閱讀與知識截錄：跨檔讀懂專案並提取重點到 atom"
+    },
+    {
+      "name": "refile",
+      "dir": "refile",
+      "description": "拖入非 _AIDocs/_atoms/ 下的任意 .md 檔，先過輸入護欄與核心/設定檔辨識護欄，再用 realm 分類引擎提議歸檔位置，互動確認後移檔並掃描需同步的說明文件引用"
+    },
+    {
+      "name": "skill-creator",
+      "dir": "skill-creator",
+      "description": "建立、改造、稽核 Claude Code skill 的標準作業。確保每個 skill 遵循 Anthropic Progressive Disclosure 三層架構與 5 大設計模式，避免 agent 腦補亂寫。**任何要寫新 skill、改既有 skill、或評估 skill 品質的場合都該觸發。**"
+    },
+    {
+      "name": "upgrade",
+      "dir": "upgrade",
+      "description": "原子記憶環境升級：檢查並執行 V4/V5 schema migration"
+    },
+    {
+      "name": "vector",
+      "dir": "vector",
+      "description": "向量服務管理：啟動/停止/重建 Vector Service（LanceDB + Ollama）"
+    }
+  ]
+}

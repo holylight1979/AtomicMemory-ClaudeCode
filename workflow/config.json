@@ -150,6 +150,10 @@
     "enabled": true,
     "threshold": 8
   },
+  "skill_index": {
+    "_doc": "skills/ 計數 SoT 同步（tools/skill-index.py）。enabled=true 時：PostToolUse 偵測 skills/*/SKILL.md 增刪改 → 自動 --write 重生 _skill_index.json + 重寫文件 <!-- skill-count --> marker；SessionStart --check 防呆（實檔數≠json count → advisory）。一鍵關 = enabled:false。",
+    "enabled": true
+  },
   "codex_companion": {
     "enabled": true,
     "codex_binary": "C:/Users/holylight/AppData/Roaming/npm/codex.cmd",
