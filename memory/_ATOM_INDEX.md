@@ -58,3 +58,4 @@
 | feedback-complexity-origin-trace | _AIDocs/Failures/feedback-complexity-origin-trace.md | 太複雜, 看不懂, 敘述太長, 內文超出預期, 複雜回答, 設計矛盾, 追蹤起源, 漏洞反饋, 正交軸綁死, 為什麼這麼複雜 | global |
 | feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長 | _AIDocs/Failures/feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長.md | 未證實, 斷言, 必爆, 先證再修, proof-first, show don't tell, 從根源驗證, 對帳, 交接單, 講人話, DB 鍵, 計畫 checklist | global |
 | auto-capture碎片sweep污染詞庫-defer根治 | _AIDocs/_atoms/MemDev/auto-capture碎片sweep污染詞庫-defer根治.md | auto-capture, realm sweep, 詞庫污染, 專案知識寫到根層, extract-worker 分類, realm-lexicon-learned, auto_migrate | global |
+| 記憶汙染與上下文腐化-注入萃取自檢 | memory/記憶汙染與上下文腐化-注入萃取自檢.md | 上下文腐化, context rot, 記憶汙染, 知識汙染, 累積知識, 焦點模糊, 回應偏門, 越做越小, 多session, 接續, 大型專案, 注入, 萃取, context engineering, memory governance, selective forgetting, 上下文工程, 偏離目標 | global |

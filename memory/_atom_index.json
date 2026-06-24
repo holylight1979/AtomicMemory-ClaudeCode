@@ -930,6 +930,31 @@
         "auto_migrate"
       ],
       "scope": "global"
+    },
+    {
+      "name": "記憶汙染與上下文腐化-注入萃取自檢",
+      "path": "memory/記憶汙染與上下文腐化-注入萃取自檢.md",
+      "triggers": [
+        "上下文腐化",
+        "context rot",
+        "記憶汙染",
+        "知識汙染",
+        "累積知識",
+        "焦點模糊",
+        "回應偏門",
+        "越做越小",
+        "多session",
+        "接續",
+        "大型專案",
+        "注入",
+        "萃取",
+        "context engineering",
+        "memory governance",
+        "selective forgetting",
+        "上下文工程",
+        "偏離目標"
+      ],
+      "scope": "global"
     }
   ]
 }
