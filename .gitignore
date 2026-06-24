@@ -77,6 +77,10 @@ _AIDocs/Failures/*.access.json
 # ─── Staging area (temp files, session prompts) ──────────
 memory/_staging/
 
+# ─── Auto-capture drafts (隔離區，未確認 [臨]，不入版控/索引/注入) ─────────
+memory/_drafts/
+**/memory/shared/_drafts/
+
 # ─── Episodic atoms (TTL 24d, auto-generated) ─────────────
 memory/episodic/
 

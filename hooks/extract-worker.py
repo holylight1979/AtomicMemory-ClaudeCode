@@ -41,7 +41,7 @@ from wg_extraction import classify_extracted_item
 _LIB_PARENT = str(Path.home() / ".claude")
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
-from lib.atom_io import write_raw, write_atom  # noqa: E402
+from lib.atom_io import build_atom_content, write_raw  # noqa: E402
 from lib.atom_spec import slugify  # noqa: E402
 
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
@@ -514,9 +514,15 @@ _FLUSH_MIN_LEN = 12  # 過短碎句不值得建 atom（內聯常數，非旋鈕�
 
 
 def _flush_route(cwd, _find_root=None):
-    """決定自動萃取 atom 的落點（2026-06-18 修）：專案 session（cwd 有 project root 且非 ~/.claude）
-    → ('shared', cwd, 專案 shared 層)，只在該專案注入；~/.claude / 無 root / 空 cwd → ('global',
-    None, MEMORY_DIR)。避免專案專屬知識污染 global core、被注入到每個專案。_find_root 供測試注入。"""
+    """決定自動萃取 atom 草稿的落點。
+
+    2026-06-18：專案 session（cwd 有 project root 且非 ~/.claude）→ scope=shared（只在該專案
+    注入），~/.claude / 無 root / 空 cwd → scope=global。避免專案專屬知識污染 global core。
+    2026-06-24：auto-capture [臨] 草稿一律隔離到 `_drafts/auto-capture/` 子層（dedup_dir）——
+    `sync-atom-index` EXCLUDED_DIR_PARTS 排除 `_drafts` → 不入索引、不注入、不計數，根治
+    content-as-filename 碎片污染 memory/ 根（user 2026-06-24 報）。scope 仍決定 _drafts 掛在
+    global（memory/）或專案 shared 樹下。_find_root 供測試注入。
+    回 (scope, project_cwd, draft_dir)。"""
     finder = _find_root or find_project_root
     root = finder(cwd) if cwd else None
     rootp = Path(root) if root else None
@@ -524,24 +530,33 @@ def _flush_route(cwd, _find_root=None):
         is_project = bool(rootp) and rootp.resolve() != CLAUDE_DIR.resolve()
     except OSError:
         is_project = False
+    draft = Path("_drafts") / "auto-capture"
     if is_project:
-        return "shared", cwd, rootp / ".claude" / "memory" / "shared"
-    return "global", None, MEMORY_DIR
+        return "shared", cwd, rootp / ".claude" / "memory" / "shared" / draft
+    return "global", None, MEMORY_DIR / draft
 
 
 def _flush_item_to_atom(content: str, triggers: list, *,
                         scope: str = "global", project_cwd=None,
                         dedup_dir=MEMORY_DIR) -> str:
-    """把一條萃取知識寫成 [臨] atom，落點由 scope 決定（見 _flush_route）。
+    """把一條萃取知識寫成 [臨] auto-capture 草稿，隔離落 dedup_dir（`_drafts/auto-capture/`，
+    見 _flush_route）。
 
-    2026-06-18 修：專案 session 的自動萃取知識 → scope=shared（落專案層、只在該專案注入），
-    不再一律 scope=global 污染 global core 並被注入每個專案。dedup_dir 對齊實際落點。
-    比照 user-extract-worker._write_atom_via_mcp：content 推 slug、路徑去重 + -N 防撞、
-    走 atom_io.write_atom funnel。Returns 'wrote' | 'deduped' | 'failed'。
+    2026-06-24 改：auto-capture 草稿**不再走 write_atom 入索引/注入**（user 報大量
+    content-as-filename 碎片污染 memory/ 根層）。改 build_atom_content + write_raw 直寫
+    dedup_dir（`_drafts/` 被 sync-atom-index 排除 → 不入索引、不注入、不計數）。草稿待人工
+    檢視/手動晉升；真有值的知識在工作中已正規記錄（changelog / atom_write）。
+    content 推 slug、路徑去重 + -N 防撞。Returns 'wrote' | 'deduped' | 'failed'。
     """
     content = content.strip()
     triggers = [t.strip() for t in (triggers or []) if t and str(t).strip()] or ["auto-capture"]
     slug = slugify(content[:60]) or "auto-capture"
+
+    try:
+        dedup_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        _atom_debug_error("session_end_writeback:draft_mkdir", e)
+        return "failed"
 
     if (dedup_dir / f"{slug}.md").exists():
         try:
@@ -555,25 +570,22 @@ def _flush_item_to_atom(content: str, triggers: list, *,
                 break
 
     try:
-        res = write_atom(
+        atom_text = build_atom_content(
             title=slug,
             scope=scope,
-            project_cwd=project_cwd,
             confidence="[臨]",
             triggers=triggers,
             knowledge=[f"- [臨] {content}"],
-            mode="create",
-            source="hook:extract-worker",
             author="auto-captured",
         )
+        res = write_raw(dedup_dir / f"{slug}.md", atom_text,
+                        source="hook:extract-worker", op="auto_capture_draft")
     except Exception as e:
-        _atom_debug_error("session_end_writeback:write_atom", e)
+        _atom_debug_error("session_end_writeback:write_draft", e)
         return "failed"
     if res.ok:
         return "wrote"
-    if "already exists" in (res.error or ""):
-        return "deduped"
-    _atom_debug_error("session_end_writeback:write_atom", Exception(res.error or ""))
+    _atom_debug_error("session_end_writeback:write_draft", Exception(res.error or ""))
     return "failed"
 
 

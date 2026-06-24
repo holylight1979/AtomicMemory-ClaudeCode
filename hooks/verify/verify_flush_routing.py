@@ -31,20 +31,20 @@ def test_project_session_routes_to_shared():
     scope, pcwd, dedup = ew._flush_route(str(proj / "src"), _find_root=lambda c: proj)
     assert scope == "shared"
     assert pcwd == str(proj / "src")
-    assert dedup == proj / ".claude" / "memory" / "shared"
+    assert dedup == proj / ".claude" / "memory" / "shared" / "_drafts" / "auto-capture"
 
 
 def test_claude_dir_session_routes_to_global():
     """cwd 在 ~/.claude（finder 回 CLAUDE_DIR 自身）→ 不可進專案層、回 global。"""
     scope, pcwd, dedup = ew._flush_route(
         str(CLAUDE_DIR / "tools"), _find_root=lambda c: CLAUDE_DIR)
-    assert (scope, pcwd, dedup) == ("global", None, MEMORY_DIR)
+    assert (scope, pcwd, dedup) == ("global", None, MEMORY_DIR / "_drafts" / "auto-capture")
 
 
 def test_no_project_root_routes_to_global():
     """找不到 project root → global（不會丟到不存在的專案層）。"""
     scope, pcwd, dedup = ew._flush_route("/tmp/whatever", _find_root=lambda c: None)
-    assert (scope, pcwd, dedup) == ("global", None, MEMORY_DIR)
+    assert (scope, pcwd, dedup) == ("global", None, MEMORY_DIR / "_drafts" / "auto-capture")
 
 
 def test_empty_cwd_routes_to_global():
@@ -56,5 +56,5 @@ def test_empty_cwd_routes_to_global():
         return Path("X")
 
     scope, pcwd, dedup = ew._flush_route("", _find_root=finder)
-    assert (scope, pcwd, dedup) == ("global", None, MEMORY_DIR)
+    assert (scope, pcwd, dedup) == ("global", None, MEMORY_DIR / "_drafts" / "auto-capture")
     assert called == []
