@@ -78,6 +78,9 @@ LOCAL_REALM_CORE_PROTECTED_PREFIXES = (
 LOCAL_REALM_CORE_PROTECTED_EXACT = frozenset({
     "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
     "自己flag的維護動作直接做完不要反問",
+    # 跨專案行為 atom：談記憶系統術語(注入/萃取/context)易被 LLM 誤判 local，但必須 core
+    # 跨專案注入（痛點在 ~/.claude 外大專案）。2026-06-24 被 sweep 移走一次，硬擋防再犯。
+    "記憶汙染與上下文腐化-注入萃取自檢",
 })
 
 # 實例專屬詞庫（lowercase 子字串比對）：term → domain。命中任一 → local。
