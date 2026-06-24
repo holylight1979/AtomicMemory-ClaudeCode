@@ -5,6 +5,7 @@
 | 範疇根 | atom 數 | 深入 |
 |--------|---------|------|
 | Continuity | 2 | `_AIDocs/_atoms/Continuity/_INDEX.md` |
+| Else | 1 | `_AIDocs/_atoms/Else/自己flag的維護動作直接做完不要反問.md` |
 | MemDev | 11 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
 | OS | 3 | `_AIDocs/_atoms/OS/_INDEX.md` |
 | Tools | 8 | `_AIDocs/_atoms/Tools/_INDEX.md` |

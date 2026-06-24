@@ -164,6 +164,8 @@ description: 跨 Session Handoff Prompt Builder — 強制 6 區塊 self-suffici
 
 知識依據見 atom [[handoff-綜觀品質與抗失真寫法]]、[[跨session資訊失真機制與對策]]。
 
+> **獨立他評後盾（codex-companion 開啟時）**：把 handoff 寫入 `_staging/next-phase*.md` 後，Codex 會以本 8 問當對抗式 checklist 自動複審該檔（PostToolUse 觸發 `handoff_review`），中度以上缺口會在下一輪以 `[Codex Companion: Handoff 自檢]` 注入。這是「他評」補「自評抓不到自身盲點」——但**不取代** Step 3.5 自審（codex 可能離線/未開）；自審仍是必經硬閘。
+
 ## Step 4：輸出
 
 包在 code block。若使用者要求存 staging：

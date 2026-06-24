@@ -16,7 +16,7 @@ You MUST respond with a single JSON object (no markdown fences, no extra text):
 {
   "status": "ok" | "warning" | "needs_followup",
   "severity": "low" | "medium" | "high",
-  "category": "plan_gap" | "missing_evidence" | "laziness" | "architecture_risk" | "completion_risk",
+  "category": "plan_gap" | "missing_evidence" | "laziness" | "architecture_risk" | "completion_risk" | "handoff_gap",
   "summary": "one-line summary in Traditional Chinese",
   "evidence": "the concrete fact you observed that justifies this verdict, in Traditional Chinese (cite tool trace / file path / heuristic flag)",
   "delivery": "ignore" | "inject",
@@ -144,6 +144,68 @@ turn_index = {turn_index}
 
 {output_schema}
 """
+
+
+HANDOFF_REVIEW = """\
+{sandbox_constraint}
+
+You are an adversarial handoff-quality reviewer. An AI agent (Claude) has just written a \
+cross-session handoff / next-phase document. The NEXT session will see NONE of the current \
+conversation — it has ONLY this document. Your job is to find the gaps that would make the next \
+session lose context, drift, or act on wrong assumptions. The author cannot see its own blind \
+spots — that is exactly why an independent reviewer exists. （全程繁體中文輸出。）
+
+## Turn Index Reference
+turn_index = {turn_index}
+（請在輸出 JSON 的 turn_index 欄位原樣抄寫此整數）
+
+## User's Original Goal (if captured)
+{user_goal}
+
+## Handoff / Next-Phase Document (the ONLY thing the next session will see)
+{handoff_content}
+
+## 對抗式檢核（逐項判「文件是否真的做到」，命中任一實質缺口即 needs_followup）
+1. **為何而做**：新 session 讀完知道目標/動機（outcome·why），不只知道「做什麼」？
+2. **決策理由**：每個已鎖定決策附一行 why？被否決的 alternative 有寫原因？
+3. **未解問題**：獨立成區、每條是「可被回答的具體問句」，而非模糊待辦？
+4. **只寫 delta**：本 session 特有/會變/接手必知；通用 SOP 用連結帶過、沒整段重貼稀釋重點？
+   （注意：通用規則「沒整段重貼」是優點，**不要**因此 flag。）
+5. **load-bearing 逐字保留**：數值/路徑/識別碼原樣保留，沒被改寫成「那個檔/之前的方法」這類斷鏈模糊描述？
+6. **假設 vs 已驗證**：未驗證項有標「待確認、勿據此鎖死」？
+7. **新舊矛盾顯式裁決**：以 X 為準、作廢 Y，沒並列丟給下游自己猜？
+8. **關鍵約束/否定條件放首尾**：沒被埋在中段（lost-in-middle 會被下個 session 忽略）？
+
+## Instructions
+- 預設「作者有盲點」，主動挑會害下個 session 失真/跑錯的缺口；不要客套、不要稱讚。
+- 具體指出**哪一項**缺、缺在哪（引文件原文片段，或指出「應有卻沒有」）。evidence 欄寫此具體事證。
+- 真的 8 項都到位且文件自足 → status="ok"、delivery="ignore"。
+- 有任一實質缺口 → status="needs_followup"、category="handoff_gap"、delivery="inject"、severity 視嚴重度、\
+corrective_prompt 給「補哪一項、怎麼補」的具體一句話。
+- 文件為空或極短 = 嚴重缺口（severity=high）。
+
+{output_schema}
+"""
+
+
+def build_handoff_review_prompt(
+    handoff_content: str,
+    user_goal: str = "",
+    turn_index: int = 0,
+) -> str:
+    """跨 session handoff/next-phase 文件的對抗式自檢（Q2 自檢機制）。
+
+    把 skills/handoff Step 3.5 的 8 問交給獨立 codex 當「他評」checklist，補掉
+    「作者自評抓不到自身盲點」的缺口（2026-06 dogfood 實證）。handoff_content 為
+    next-phase 檔全文（PostToolUse 偵測 next-phase/handoff 檔寫入時讀入）。
+    """
+    return HANDOFF_REVIEW.format(
+        sandbox_constraint=SANDBOX_CONSTRAINT,
+        turn_index=turn_index,
+        user_goal=user_goal or "(not captured — 由文件自述的目標判斷)",
+        handoff_content=handoff_content or "(空文件 — 這本身就是嚴重缺口)",
+        output_schema=OUTPUT_SCHEMA,
+    )
 
 
 def build_plan_review_prompt(

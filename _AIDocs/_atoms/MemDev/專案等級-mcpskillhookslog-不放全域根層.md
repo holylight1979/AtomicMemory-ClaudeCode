@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 建立skill, 建立mcp, 新增hooks, 暫存檔, play-log, 全域 vs 專案, ~/.claude 根層, 專案自包含, skill 放哪, 檔案歸屬
 - Created-at: 2026-06-12
-- Related: decisions, realm-範疇分區機制-v5, preferences
+- Related: decisions, realm-範疇分區機制-v5, preferences, auto-capture碎片sweep污染詞庫-defer根治
 
 ## 知識
 

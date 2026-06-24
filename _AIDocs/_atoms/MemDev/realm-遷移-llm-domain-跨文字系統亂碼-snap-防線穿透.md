@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: realm 遷移, domain 亂碼, 자동화, 韓文 domain, normalize_domain_path, 詞庫污染, realm sweep, LLM 分類器, homoglyph
 - Created-at: 2026-06-12
-- Related: realm-範疇分區機制-v5, feedback-memory-system-doc-sync
+- Related: realm-範疇分區機制-v5, feedback-memory-system-doc-sync, auto-capture碎片sweep污染詞庫-defer根治
 
 ## 知識
 

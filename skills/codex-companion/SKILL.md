@@ -5,8 +5,10 @@ description: 切換 Codex Companion 監督系統開關（GPT 第二意見審計�
 
 # /codex-companion — Codex Companion 開關
 
-> 切換 Codex Companion 監督系統。啟用後，Codex (GPT) 會在計畫審閱與 turn 審計時提供第二意見。
+> 切換 Codex Companion 監督系統。啟用後，Codex (GPT) 會在計畫審閱、turn 審計、跨 session handoff 自檢時提供獨立第二意見。
 > 全域 Skill，適用任何專案。
+>
+> **Handoff 自檢 (2026-06-24)**：寫入 `_staging/next-phase*.md` 或 handoff 檔時，Codex 以 skills/handoff Step 3.5 的 8 問當對抗式 checklist 複審交接文件——把作者「自評」升級為獨立「他評」，補掉「作者抓不到自身盲點」的缺口（中度缺口即浮上、不被預設 high 門檻吞）。由 `soft_gate.handoff_review` 控制（預設開）。
 >
 > **V5 (2026-05-27)**：daemon @ port 3850 已淘汰，改 in-process state + spawn `tools/codex-companion/audit.py` 短命子程序。本 skill 不再管理 service 生命週期，只切換 config flag。
 
@@ -43,7 +45,7 @@ description: 切換 Codex Companion 監督系統開關（GPT 第二意見審計�
 
 回覆切換結果：
 
-- **開啟**：「Codex Companion 已開啟。計畫審閱與 turn 審計會 spawn `audit.py` 短命子程序由 Codex 提供第二意見。」
+- **開啟**：「Codex Companion 已開啟。計畫審閱、turn 審計、handoff 自檢會 spawn `audit.py` 短命子程序由 Codex 提供第二意見。」
 - **關閉**：「Codex Companion 已關閉。」
 
 無需額外清理 — 下次 hook 觸發即生效，沒有常駐 daemon。

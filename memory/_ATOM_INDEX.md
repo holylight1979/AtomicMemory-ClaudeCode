@@ -49,7 +49,7 @@
 | headless-chrome-svg轉png-windows踩坑 | _AIDocs/_atoms/OS/Windows/Tools/headless-chrome-svg轉png-windows踩坑.md | svg轉png, svg to png, headless chrome, 渲染svg, 截圖渲染, 向量轉點陣, chrome --screenshot, force-device-scale-factor, 產示意圖, 遊戲截圖svg | global |
 | dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房 | _AIDocs/_atoms/MemDev/dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房.md | dashboard, world.html, 腦內世界, apiAtoms, scanProjMemDir, 專案atom消失, project shared, scope 誤歸, 核心房, 看不到專案記憶 | global |
 | 腦內世界生物對話系統真相-模型觸發方針背景 | _AIDocs/_atoms/World/腦內世界生物對話系統真相-模型觸發方針背景.md | 腦內世界, world.html, 生物對話, creature-chat, CHAT_MODEL, 接觸觸發, checkDialogue, runConversation, 對話並發, chatBusy, 並發池, activeChats, MAX_CHATS, 背景電子腦, env 蓋房子 | global |
-| 自己flag的維護動作直接做完不要反問 | memory/自己flag的維護動作直接做完不要反問.md | 更新atom, 維護, 同步, 反問, 要不要我, 該做就做, 推進, 收尾, follow-through | global |
+| 自己flag的維護動作直接做完不要反問 | _AIDocs/_atoms/Else/自己flag的維護動作直接做完不要反問.md | 更新atom, 維護, 同步, 反問, 要不要我, 該做就做, 推進, 收尾, follow-through | global |
 | 對談結束自動記憶與錯誤加權深記 | _AIDocs/_atoms/MemDev/對談結束自動記憶與錯誤加權深記.md | 對談結束自動記憶, 錯誤深記, 失敗骨架, deep postmortem, Deep Post-Mortem Gate, session_end flush, 失敗記錄, post-mortem, wisdom_retry, fix_escalation | global |
 | bash-呼叫-msbuild-用-dash-參數 | _AIDocs/_atoms/Tools/自動化流程與協議/dotnet/bash-呼叫-msbuild-用-dash-參數.md | msbuild, dotnet build, MSYS2, git bash, MSB1008, 編譯參數, 斜線參數, dash flag, bash 編譯, /t:Build | global |
 | skill-計數單一來源-skill-index | _AIDocs/_atoms/MemDev/skill-計數單一來源-skill-index.md | skill 計數, skill count, skill-index, _skill_index.json, skill-count marker, 出文件 skill 數, 增刪 skill, skill 漂移, skill drift | global |

@@ -776,7 +776,7 @@
     },
     {
       "name": "自己flag的維護動作直接做完不要反問",
-      "path": "memory/自己flag的維護動作直接做完不要反問.md",
+      "path": "_AIDocs/_atoms/Else/自己flag的維護動作直接做完不要反問.md",
       "triggers": [
         "更新atom",
         "維護",

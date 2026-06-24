@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -92,6 +93,9 @@ def _output_nothing() -> None:
 
 _PLAN_TOOLS = {"ExitPlanMode", "EnterPlanMode"}
 _WRITE_TOOLS = {"Edit", "Write"}
+# 跨 session 交接檔：_staging/next-phase*.md 或檔名含 handoff（持久化 artifact，
+# /continue 接手端實際讀的就是它）。命中 → 對抗式 handoff 自檢（Q2）。
+_NEXT_PHASE_RE = re.compile(r"(?:next-phase|next_phase|handoff)[^/\\]*\.md$", re.IGNORECASE)
 
 
 def _detect_checkpoint(
@@ -101,9 +105,15 @@ def _detect_checkpoint(
 
     (1) ExitPlanMode/EnterPlanMode → plan_review
     (2) 結構性檔案 Edit/Write + soft_gate.architecture_review=true → architecture_review
+    (3) next-phase/handoff 檔 Edit/Write（soft_gate.handoff_review，預設開）→ handoff_review
+        ——跨 session 交接文件的對抗式自檢，把作者「自評」升級為獨立「他評」（補盲點）。
     """
     if tool_name in _PLAN_TOOLS:
         return "plan_review"
+    if (tool_name in _WRITE_TOOLS and file_path
+            and config.get("soft_gate", {}).get("handoff_review", True)
+            and _NEXT_PHASE_RE.search(file_path.replace("\\", "/"))):
+        return "handoff_review"
     if (tool_name in _WRITE_TOOLS and file_path
             and config.get("soft_gate", {}).get("architecture_review", False)):
         try:
@@ -312,6 +322,14 @@ def _summarize_files_examined(
     return text
 
 
+def _read_handoff_content(file_path: str, limit: int = 6000) -> str:
+    """讀 next-phase/handoff 檔全文供 codex 對抗式自檢（utf-8-sig 容 BOM）。失敗→''。"""
+    try:
+        return Path(file_path).read_text(encoding="utf-8-sig")[:limit]
+    except OSError:
+        return ""
+
+
 def _build_verification_signals(input_data: Dict[str, Any], tool_response: Any) -> Dict[str, Any]:
     """Phase 1.5：給 codex 的最小化 verification_signals 包。"""
     sig: Dict[str, Any] = {
@@ -413,7 +431,11 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
         status = str(assessment.get("status", "ok")).lower()
         corrective = (assessment.get("corrective_prompt", "")
                       or assessment.get("recommended_action", ""))
-        if (sev < inject_threshold
+        # handoff_review 是 user 主動要求的跨 session 交接自檢 → 降門檻至 medium，不被預設 high
+        # 靜默吞掉（交接缺口即使中度也該讓本 session 當場補，避免下個 session 失真/跑錯）。
+        atype_eff = str(data.get("type", assessment.get("_assessment_type", ""))).lower()
+        eff_threshold = min(inject_threshold, 1) if atype_eff == "handoff_review" else inject_threshold
+        if (sev < eff_threshold
                 or status not in actionable_statuses
                 or not corrective):
             _mark_injected(path, data)
@@ -439,6 +461,7 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
         "plan_review": "Plan Review",
         "turn_audit": "Turn Audit",
         "architecture_review": "Architecture Review",
+        "handoff_review": "Handoff 自檢",
     }
 
     blocks: list[str] = []
@@ -558,18 +581,25 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
             st = companion_state.read_state(session_id) or {}
             verification = _build_verification_signals(input_data, tool_response)
             files_examined = _summarize_files_examined(st.get("tool_trace", []))
+            ctx: Dict[str, Any] = {
+                "trigger_tool": tool_name,
+                "trigger_file": file_path,
+                "tool_failed": failed,
+                "verification_signals": verification,
+                "files_examined": files_examined,
+            }
+            if checkpoint == "handoff_review" and file_path:
+                # 餵 handoff 全文給 codex 對抗式自檢（assessor 經 extra_context 取用）
+                ctx["handoff_content"] = _read_handoff_content(file_path)
+                ug = st.get("user_goal", "")
+                if ug:
+                    ctx["user_goal"] = ug
             _spawn_audit_subprocess({
                 "session_id": session_id,
                 "turn_index": int(st.get("turn_index", 0)),
                 "assessment_type": checkpoint,
                 "cwd": st.get("cwd", ""),
-                "context": {
-                    "trigger_tool": tool_name,
-                    "trigger_file": file_path,
-                    "tool_failed": failed,
-                    "verification_signals": verification,
-                    "files_examined": files_examined,
-                },
+                "context": ctx,
             })
 
     _output_nothing()

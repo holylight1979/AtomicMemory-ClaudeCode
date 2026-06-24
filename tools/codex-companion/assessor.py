@@ -412,6 +412,12 @@ def run_assessment(
             tool_trace=trace_str,
             turn_index=turn_index,
         )
+    elif assessment_type == "handoff_review":
+        prompt = prompts.build_handoff_review_prompt(
+            handoff_content=extra_context.get("handoff_content", ""),
+            user_goal=extra_context.get("user_goal", ""),
+            turn_index=turn_index,
+        )
     else:
         # Default: turn_audit
         prompt = prompts.build_turn_audit_prompt(
