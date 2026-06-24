@@ -16,7 +16,7 @@
 | `PreCompact` | Context 壓縮前 | 快照 state + 快照 `injected_atoms`（`pre_compact_injected_atoms`，供壓縮後內文復原，不受 SessionStart(compact) 清空順序影響）+ **Auto-Handoff Layer 2**：壓縮前自動寫六區塊 stub 到 `_staging`（核心保底，不依賴 token 量測） |
 | `PostCompact` | Context 壓縮後 | 依 PreCompact 快照 stash 已注入 atom 的緊湊內文 + 設 `pending_reinjection` flag（**本身不注入**，PostCompact 不支援 additionalContext） |
 | `PostToolBatch` | 一批（含並行）工具全解析後，每批一次 | idle 時極輕 early-exit；見 flag 時一次性 `additionalContext` 重注入壓縮前 atom 內文 + 清 flag + 名單 merge 回 `injected_atoms`（閉 mid-turn auto-compact 失憶缺口，選配 #4）；**Auto-Handoff Layer 3**：與 `pending_reinjection` blob 合流注入 stub 補全提示 |
-| `Stop` | 對話結束前 | Sync 閘門 + Fix Escalation + TestFailGate（阻擋完成宣告）+ Evasion Detection + **Deep Post-Mortem Gate**（高 effort 失敗訊號 → 注入指令要 Claude 用 atom_write 補完整 post-mortem，一次性）+ **Auto-Handoff Layer 1**：proxy ratio≥門檻時 piggyback 既有 block 附 token 預警（一次性，不額外打斷） |
+| `Stop` | 對話結束前 | Sync 閘門 + Fix Escalation + TestFailGate（阻擋完成宣告）+ Evasion Detection + **Deep Post-Mortem Gate**（高 effort 失敗訊號 → 注入指令要 Claude 用 atom_write 補完整 post-mortem，一次性）+ **Auto-Handoff Layer 1**：usage ratio≥門檻時 piggyback 既有 block 附 token 預警（一次性，不額外打斷） |
 | `Stop (async)` | 對話結束後 | V3 quick-extract：qwen3:1.7b 5s 快篩 → hot_cache.json |
 | `SessionStart` | Session 開始 | 初始化 state + 去重 + Wisdom 盲點 + 定期檢閱 + 專案自治層 delegate |
 | `SessionEnd` | Session 結束 | Episodic 生成 + 回應萃取 + 鞏固 + 衝突偵測 + Wisdom 反思 + **Auto-Handoff Layer 4**：session 直接結束（非壓縮）兜底寫客觀 stub（補 PreCompact 未觸發缺口） |
@@ -67,7 +67,7 @@
 |----|------|------|---------|
 | **Layer 2** 核心保底 | `PreCompact` | 壓縮真發生時 `should_write_stub` 通過 → `build_handoff_stub` 寫客觀 stub 到 `resolve_staging_dir`，設 `pending_handoff_emit` | 壓縮事件（**不依賴 token 量測**，最可靠） |
 | **Layer 3** 品質補全 | `PostToolBatch` | 壓縮後首批工具呼叫見 `pending_handoff_emit` → 與 `pending_reinjection` blob **合流**注入提示叫模型補全主觀 TODO 區塊 + 清 flag | `pending_handoff_emit` |
-| **Layer 1** 提前預警 | `Stop` | `token_warn_payload` 算 proxy ratio≥`token_warn_ratio`(預設 0.85) → piggyback 既有 block 附 token 預警（一次性 `token_warn_emitted`，零額外打斷） | proxy ratio（transcript 估值 + overhead 補償，傾向低估，僅信號） |
+| **Layer 1** 提前預警 | `Stop` | `token_warn_payload` 算 usage ratio≥`token_warn_ratio`(預設 0.85) → piggyback 既有 block 附 token 預警（一次性 `token_warn_emitted`，零額外打斷） | usage ratio（讀 `message.usage` 真實 token；分母自我校準 200k/1M〔曾破 200k 必為 1M〕、預設 1M；無 usage 時 fallback char-proxy；僅信號） |
 | **Layer 4** 直結兜底 | `SessionEnd` | session 直接結束（非壓縮）、有未完成工作且無既有 handoff → 補寫客觀 stub（不設 `pending_handoff_emit`，已無 PostToolBatch 可消費） | `should_write_stub`（modified_files；與 `sync_pending` 同源） |
 
 - **stub 六區塊**：前置脈絡/已完成/權威來源/產出位置（客觀，自動填 git branch+commit / modified+accessed files / injected atoms / knowledge_queue）+ 做法/決策依據/why（主觀，留 `TODO(模型補全)` 佔位）。第一行為 `/continue` 選單摘要、檔名 `next-phase-auto.md`（/continue glob `next-phase*.md` 涵蓋）。
