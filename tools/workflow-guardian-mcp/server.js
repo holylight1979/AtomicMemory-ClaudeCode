@@ -92,6 +92,7 @@ const LOCAL_REALM_CORE_PROTECTED_PREFIXES = [
 ];
 const LOCAL_REALM_CORE_PROTECTED_EXACT = new Set([
   "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
+  "自己flag的維護動作直接做完不要反問",  // 跨專案行為規則,LLM sweep 三度誤搬 local→硬擋(2026-06-24)
 ]);
 const LOCAL_REALM_LEXICON = {
   "腦內世界": "World", "world.html": "World", "reconcile-render": "World",

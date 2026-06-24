@@ -72,8 +72,12 @@ LOCAL_REALM_CORE_PROTECTED_PREFIXES = (
 )
 # goal-driven-verify-loop…：core atom（user 裁決），LLM sweep 兩度因 SGI 詞庫污染誤搬
 # local（dc43019 矯正後本日再犯）→ 列保護硬擋根治（protected 永不喚 LLM、永不搬）。
+# 自己flag…：跨專案行為規則（de5fa9f user 裁決歸 core，與 feedback-* 同範疇），Author=holylight
+# /[臨] 故 P2 auto-capture defer 不護它，且詞庫清乾淨後 LLM fallback 仍把它判 local→Else（2026-06-24
+# 第三度：de5fa9f 歸 core→被搬回、本日歸 core→又搬 Else）→ 同 goal-driven 列硬擋根治。
 LOCAL_REALM_CORE_PROTECTED_EXACT = frozenset({
     "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
+    "自己flag的維護動作直接做完不要反問",
 })
 
 # 實例專屬詞庫（lowercase 子字串比對）：term → domain。命中任一 → local。
