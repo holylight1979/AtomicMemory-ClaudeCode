@@ -25,7 +25,7 @@ from wg_core import (
 from wg_atoms import (
     AtomEntry,
     parse_memory_index, parse_project_aliases,
-    any_trigger_hit, count_trigger_hits, compute_activation,
+    any_trigger_hit, count_trigger_hits, compute_activation, compute_injection_rank,
     classify_intent,
     _semantic_search,
     bm25_match,
@@ -208,11 +208,11 @@ def collect_matched_atoms(
             if entry[0][0] not in superseded_names
         ]
 
-    # ACT-R activation sort
+    # ACT-R activation sort（扣分心懲罰：高曝光低效用者降權，憲法 Distraction 對策）
     def _activation_key(entry):
         (name, rel_path, _triggers), base_dir = entry
         atom_dir = (base_dir / rel_path).parent if rel_path else (base_dir / "memory")
-        return compute_activation(name, atom_dir)
+        return compute_injection_rank(name, atom_dir, config)
 
     matched_with_dir.sort(key=_activation_key, reverse=True)
 

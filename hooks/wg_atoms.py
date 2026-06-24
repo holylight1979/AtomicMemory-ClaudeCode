@@ -228,6 +228,41 @@ def compute_activation(atom_name: str, atom_dir: Path) -> float:
     return math.log(total) if total > 0 else -10.0
 
 
+def compute_injection_rank(
+    atom_name: str, atom_dir: Path, config: Optional[Dict[str, Any]] = None,
+) -> float:
+    """注入排序鍵 = ACT-R activation − 分心懲罰（高曝光低效用者降權）。
+
+    憲法 Context Distraction 對策（_AIDocs/context-memory-governance.md）：read_hits 是
+    純曝光、不代表有用；對「已有足夠效用樣本(n≥min_n)但 Wilson 下界低」的 atom 課
+    penalty = w·log10(read_hits+1)·(1−lb)，降其注入優先序。
+    寧漏勿誤殺：n<min_n（新 atom / 樣本不足）一律不罰；關閉 / 資料缺失 → 退回純
+    activation（fail-open）。config usefulness.distraction_{enabled,weight} 旋鈕。
+    """
+    activation = compute_activation(atom_name, atom_dir)
+    if not config:
+        return activation  # 無 config（讀取失敗）→ fail-open 不罰
+    u = config.get("usefulness") or {}
+    if not u.get("distraction_enabled", True):
+        return activation
+    weight = float(u.get("distraction_weight", 0.5) or 0.0)
+    if weight <= 0:
+        return activation
+    try:
+        from lib.atom_access import read_access, usefulness_stats
+        acc = read_access(atom_dir / f"{atom_name}.md")
+        read_hits = int(acc.get("read_hits") or 0)
+        if read_hits <= 0:
+            return activation
+        st = usefulness_stats(acc, z=float(u.get("wilson_z", 1.96)))
+        if st.get("n", 0) < int(u.get("min_n", 3)):
+            return activation  # 樣本不足不罰（保守，防壓新 atom）
+        penalty = weight * math.log10(read_hits + 1) * (1.0 - st.get("lower_bound", 0.0))
+        return activation - penalty
+    except Exception:
+        return activation
+
+
 def _kw_match(kw: str, prompt_lower: str) -> bool:
     """Match a trigger keyword against prompt. ASCII uses word-boundary, CJK uses substring."""
     if kw.isascii():
