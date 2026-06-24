@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: handoff, 續接, 下 session, next-phase, /continue, 交接, 接續 prompt, 綜觀, 失真, 多 session, 寫接續文, handoff 品質, 新開 session
 - Created-at: 2026-06-18
-- Related: feedback-workflow-discipline, 跨session資訊失真機制與對策, a執p-自執驗上p-自動完工協議, goal-driven-verify-loopkarpathy-吸收, feedback-completion-gates
+- Related: feedback-workflow-discipline, 跨session資訊失真機制與對策, a執p-自執驗上p-自動完工協議, goal-driven-verify-loopkarpathy-吸收, feedback-completion-gates, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長
 
 ## 知識
 

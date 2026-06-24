@@ -804,14 +804,17 @@
         "runConversation",
         "對話並發",
         "chatBusy",
+        "並發池",
+        "activeChats",
+        "MAX_CHATS",
         "背景電子腦",
-        "env 蒛房子"
+        "env 蓋房子"
       ],
       "scope": "global"
     },
     {
       "name": "自己flag的維護動作直接做完不要反問",
-      "path": "memory/自己flag的維護動作直接做完不要反問.md",
+      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture/自己flag的維護動作直接做完不要反問.md",
       "triggers": [
         "更新atom",
         "維護",
@@ -861,7 +864,7 @@
     },
     {
       "name": "遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準",
-      "path": "memory/遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準.md",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準.md",
       "triggers": [
         "遊戲伺服器設計",
         "game server 架構",
@@ -951,6 +954,49 @@
         "漏洞反饋",
         "正交軸綁死",
         "為什麼這麼複雜"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "新增兩個核心跨專案-atom1-handoff-綜觀品質與抗失真寫法路徑-memoryhandoff-綜觀品質",
+      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/新增兩個核心跨專案-atom1-handoff-綜觀品質與抗失真寫法路徑-memoryhandoff-綜觀品質.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "系統觀察到一個檔案移動的副作用原路徑-d-memory自己flag的維護動作直接做完不要反問md-的內容已成功",
+      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/系統觀察到一個檔案移動的副作用原路徑-d-memory自己flag的維護動作直接做完不要反問md-的內容已成功.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "根據對抗式自我複審的實證需求建議在現有的-handoff-skill-skillshandoffski",
+      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture/根據對抗式自我複審的實證需求建議在現有的-handoff-skill-skillshandoffski.md",
+      "triggers": [
+        "auto-capture"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
+      "path": "_AIDocs/Failures/feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長.md",
+      "triggers": [
+        "未證實",
+        "斷言",
+        "必爆",
+        "先證再修",
+        "proof-first",
+        "show don't tell",
+        "從根源驗證",
+        "對帳",
+        "交接單",
+        "講人話",
+        "DB 鍵",
+        "計畫 checklist"
       ],
       "scope": "global"
     }

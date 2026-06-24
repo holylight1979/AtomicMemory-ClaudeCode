@@ -94,6 +94,15 @@
     "觸發詞": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture",
     "英zh-tw": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture",
     "master分支": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture",
-    "commit id": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture"
+    "commit id": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture",
+    "flag 動作": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture",
+    "直接做完不要反問": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture",
+    "follow-through": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture",
+    "維護": "MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture",
+    "game server 架構": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "元件式設計": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "三核心分離": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "底層耦合規避": "Tools/自動化流程與協議/SGI-ProjectStructure",
+    "協定封裝": "Tools/自動化流程與協議/SGI-ProjectStructure"
   }
 }

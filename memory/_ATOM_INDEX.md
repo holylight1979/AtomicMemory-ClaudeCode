@@ -50,12 +50,16 @@
 | headless-chrome-svg轉png-windows踩坑 | _AIDocs/_atoms/OS/Windows/Tools/headless-chrome-svg轉png-windows踩坑.md | svg轉png, svg to png, headless chrome, 渲染svg, 截圖渲染, 向量轉點陣, chrome --screenshot, force-device-scale-factor, 產示意圖, 遊戲截圖svg | global |
 | 本機-mysqlsh-adhoc-sql查詢-免裝連接器 | _AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/本機-mysqlsh-adhoc-sql查詢-免裝連接器.md | mysqlsh, MySQL Shell, SQL查詢, 查表, 下SQL, 資料庫查詢, MySQL, X protocol, 33060, 3306, SELECT, mysql connector, pymysql, 查DB, sgi_playerdb, ad-hoc sql | global |
 | dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房 | _AIDocs/_atoms/MemDev/dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房.md | dashboard, world.html, 腦內世界, apiAtoms, scanProjMemDir, 專案atom消失, project shared, scope 誤歸, 核心房, 看不到專案記憶 | global |
-| 腦內世界生物對話系統真相-模型觸發方針背景 | _AIDocs/_atoms/World/腦內世界生物對話系統真相-模型觸發方針背景.md | 腦內世界, world.html, 生物對話, creature-chat, CHAT_MODEL, 接觸觸發, checkDialogue, runConversation, 對話並發, chatBusy, 背景電子腦, env 蒛房子 | global |
-| 自己flag的維護動作直接做完不要反問 | memory/自己flag的維護動作直接做完不要反問.md | 更新atom, 維護, 同步, 反問, 要不要我, 該做就做, 推進, 收尾, follow-through | global |
+| 腦內世界生物對話系統真相-模型觸發方針背景 | _AIDocs/_atoms/World/腦內世界生物對話系統真相-模型觸發方針背景.md | 腦內世界, world.html, 生物對話, creature-chat, CHAT_MODEL, 接觸觸發, checkDialogue, runConversation, 對話並發, chatBusy, 並發池, activeChats, MAX_CHATS, 背景電子腦, env 蓋房子 | global |
+| 自己flag的維護動作直接做完不要反問 | _AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture/自己flag的維護動作直接做完不要反問.md | 更新atom, 維護, 同步, 反問, 要不要我, 該做就做, 推進, 收尾, follow-through | global |
 | 對談結束自動記憶與錯誤加權深記 | _AIDocs/_atoms/MemDev/對談結束自動記憶與錯誤加權深記.md | 對談結束自動記憶, 錯誤深記, 失敗骨架, deep postmortem, Deep Post-Mortem Gate, session_end flush, 失敗記錄, post-mortem, wisdom_retry, fix_escalation | global |
 | bash-呼叫-msbuild-用-dash-參數 | _AIDocs/_atoms/Tools/自動化流程與協議/dotnet/bash-呼叫-msbuild-用-dash-參數.md | msbuild, dotnet build, MSYS2, git bash, MSB1008, 編譯參數, 斜線參數, dash flag, bash 編譯, /t:Build | global |
-| 遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準 | memory/遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準.md | 遊戲伺服器設計, game server 架構, server 架構設計, 框架型設計, 元件型設計, 過度封裝, 過度繼承, 反射濾用, 底層耦合, 存儲傳輸耦合, over-engineering, 架構評估, 設計遠瞻, stack trace 難追 | global |
+| 遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準 | _AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準.md | 遊戲伺服器設計, game server 架構, server 架構設計, 框架型設計, 元件型設計, 過度封裝, 過度繼承, 反射濾用, 底層耦合, 存儲傳輸耦合, over-engineering, 架構評估, 設計遠瞻, stack trace 難追 | global |
 | skill-計數單一來源-skill-index | _AIDocs/_atoms/MemDev/skill-計數單一來源-skill-index.md | skill 計數, skill count, skill-index, _skill_index.json, skill-count marker, 出文件 skill 數, 增刪 skill, skill 漂移, skill drift | global |
 | handoff-綜觀品質與抗失真寫法 | _AIDocs/_atoms/Continuity/handoff-綜觀品質與抗失真寫法.md | handoff, 續接, 下 session, next-phase, /continue, 交接, 接續 prompt, 綜觀, 失真, 多 session, 寫接續文, handoff 品質, 新開 session | global |
 | 跨session資訊失真機制與對策 | _AIDocs/_atoms/Continuity/跨session資訊失真機制與對策.md | 失真, 失憶, context 壓縮, 長對話, 多 session, lost in the middle, context rot, goal drift, 摘要有損, 為什麼會偏掉, anchoring, context poisoning, 錯誤發展, 錯誤認知 | global |
 | feedback-complexity-origin-trace | _AIDocs/Failures/feedback-complexity-origin-trace.md | 太複雜, 看不懂, 敘述太長, 內文超出預期, 複雜回答, 設計矛盾, 追蹤起源, 漏洞反饋, 正交軸綁死, 為什麼這麼複雜 | global |
+| 新增兩個核心跨專案-atom1-handoff-綜觀品質與抗失真寫法路徑-memoryhandoff-綜觀品質 | _AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/新增兩個核心跨專案-atom1-handoff-綜觀品質與抗失真寫法路徑-memoryhandoff-綜觀品質.md | auto-capture | global |
+| 系統觀察到一個檔案移動的副作用原路徑-d-memory自己flag的維護動作直接做完不要反問md-的內容已成功 | _AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/系統觀察到一個檔案移動的副作用原路徑-d-memory自己flag的維護動作直接做完不要反問md-的內容已成功.md | auto-capture | global |
+| 根據對抗式自我複審的實證需求建議在現有的-handoff-skill-skillshandoffski | _AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture/根據對抗式自我複審的實證需求建議在現有的-handoff-skill-skillshandoffski.md | auto-capture | global |
+| feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長 | _AIDocs/Failures/feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長.md | 未證實, 斷言, 必爆, 先證再修, proof-first, show don't tell, 從根源驗證, 對帳, 交接單, 講人話, DB 鍵, 計畫 checklist | global |

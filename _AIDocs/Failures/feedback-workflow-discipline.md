@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: handoff, 續接, 下 session, next-phase, 順手修補, drift 修補, 重複失敗, fix-escalation, 裁決, 決策推薦, plan 路徑, SessionStart hook, commit message, 上 GIT
 - Created-at: 2026-05-26
-- Related: feedback-completion-gates, feedback-tooling-reliability, v5-overhaul-audit-2026-05, feedback-rigor-standards, workflow-parallel-agents, feedback-memory-system-doc-sync, realm-範疇分區機制-v5, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, a執p-自執驗上p-自動完工協議, goal-driven-verify-loopkarpathy-吸收, 自己flag的維護動作直接做完不要反問, feedback-complexity-origin-trace, handoff-綜觀品質與抗失真寫法, 跨session資訊失真機制與對策
+- Related: feedback-completion-gates, feedback-tooling-reliability, v5-overhaul-audit-2026-05, feedback-rigor-standards, workflow-parallel-agents, feedback-memory-system-doc-sync, realm-範疇分區機制-v5, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, a執p-自執驗上p-自動完工協議, goal-driven-verify-loopkarpathy-吸收, 自己flag的維護動作直接做完不要反問, feedback-complexity-origin-trace, handoff-綜觀品質與抗失真寫法, 跨session資訊失真機制與對策, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長
 
 ## 知識
 
