@@ -53,7 +53,7 @@
 | **獨立保留** | |
 | `wisdom_engine.py` | 反思引擎 + Fix Escalation |
 | `codex_companion.py` | **V5 P5b 重寫**：HTTP daemon → subprocess（in-process state + spawn `tools/codex-companion/audit.py`） |
-| `extract-worker.py` | SessionEnd 萃取子程序（共用 `lib/ollama_extract_core.py`）。**對談結束自動落地**：`_session_end_writeback` 把 session_end 全文萃取 + 累積 `knowledge_queue` flush 成 [臨] atom（**2026-06-18 修：依 session cwd 路由——專案 session→專案層 scope=shared、~/.claude→global，見 `_flush_route`，不再一律污染 global core**；過品質閘、只清寫成功項、`session_end_flush.max_atoms` 上限）。**失敗深記**：`_failure_writeback` 寫多區塊骨架（始末/根因/設計原理/運作邏輯/防再犯；小模型填始末＋拆根因，餘段留待 Claude 深寫） |
+| `extract-worker.py` | SessionEnd 萃取子程序（共用 `lib/ollama_extract_core.py`）。**對談結束自動落地**：`_session_end_writeback` 把 session_end 全文萃取 + 累積 `knowledge_queue` flush 成 [臨] auto-capture 草稿（**2026-06-18：依 session cwd 路由 scope=shared/global，見 `_flush_route`**；**2026-06-24：草稿一律隔離到 `_drafts/auto-capture/` 子層，`_flush_item_to_atom` 改 `build_atom_content`+`write_raw` 直寫——`sync-atom-index` 排除 `_drafts` → 不入索引/不注入/不計數，根治 content-as-filename 碎片污染 memory/ 根**；過品質閘、只清寫成功項、`session_end_flush.max_atoms` 上限）。**失敗深記**：`_failure_writeback` 寫多區塊骨架（始末/根因/設計原理/運作邏輯/防再犯；小模型填始末＋拆根因，餘段留待 Claude 深寫） |
 | `lib/ollama_extract_core.py` | 萃取共用核心 |
 | `quick-extract.py` | Stop async 快篩 |
 
