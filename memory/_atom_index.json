@@ -655,7 +655,7 @@
     },
     {
       "name": "專案等級-mcpskillhookslog-不放全域根層",
-      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/專案等級-mcpskillhookslog-不放全域根層.md",
+      "path": "_AIDocs/_atoms/MemDev/專案等級-mcpskillhookslog-不放全域根層.md",
       "triggers": [
         "建立skill",
         "建立mcp",
@@ -702,21 +702,6 @@
       "scope": "global"
     },
     {
-      "name": "runtime鏡射宿主生命週期判定與反射差分測試",
-      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/runtime鏡射宿主生命週期判定與反射差分測試.md",
-      "triggers": [
-        "runtime 鏡射",
-        "cache 洩漏",
-        "ConditionalWeakTable",
-        "stale cache",
-        "差分測試",
-        "反射測試",
-        "write-through",
-        "解耦"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "harness原生memory與atom索引marker撞名辨識",
       "path": "_AIDocs/_atoms/MemDev/harness原生memory與atom索引marker撞名辨識.md",
       "triggers": [
@@ -747,29 +732,6 @@
         "force-device-scale-factor",
         "產示意圖",
         "遊戲截圖svg"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "本機-mysqlsh-adhoc-sql查詢-免裝連接器",
-      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/本機-mysqlsh-adhoc-sql查詢-免裝連接器.md",
-      "triggers": [
-        "mysqlsh",
-        "MySQL Shell",
-        "SQL查詢",
-        "查表",
-        "下SQL",
-        "資料庫查詢",
-        "MySQL",
-        "X protocol",
-        "33060",
-        "3306",
-        "SELECT",
-        "mysql connector",
-        "pymysql",
-        "查DB",
-        "sgi_playerdb",
-        "ad-hoc sql"
       ],
       "scope": "global"
     },
@@ -814,7 +776,7 @@
     },
     {
       "name": "自己flag的維護動作直接做完不要反問",
-      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture/自己flag的維護動作直接做完不要反問.md",
+      "path": "memory/自己flag的維護動作直接做完不要反問.md",
       "triggers": [
         "更新atom",
         "維護",
@@ -859,27 +821,6 @@
         "dash flag",
         "bash 編譯",
         "/t:Build"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準",
-      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/SGI-ProjectStructure/遊戲伺服器架構框架型-vs-元件型三核心-遠瞻性判準.md",
-      "triggers": [
-        "遊戲伺服器設計",
-        "game server 架構",
-        "server 架構設計",
-        "框架型設計",
-        "元件型設計",
-        "過度封裝",
-        "過度繼承",
-        "反射濾用",
-        "底層耦合",
-        "存儲傳輸耦合",
-        "over-engineering",
-        "架構評估",
-        "設計遠瞻",
-        "stack trace 難追"
       ],
       "scope": "global"
     },
@@ -958,30 +899,6 @@
       "scope": "global"
     },
     {
-      "name": "新增兩個核心跨專案-atom1-handoff-綜觀品質與抗失真寫法路徑-memoryhandoff-綜觀品質",
-      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/新增兩個核心跨專案-atom1-handoff-綜觀品質與抗失真寫法路徑-memoryhandoff-綜觀品質.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "系統觀察到一個檔案移動的副作用原路徑-d-memory自己flag的維護動作直接做完不要反問md-的內容已成功",
-      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/系統觀察到一個檔案移動的副作用原路徑-d-memory自己flag的維護動作直接做完不要反問md-的內容已成功.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "根據對抗式自我複審的實證需求建議在現有的-handoff-skill-skillshandoffski",
-      "path": "_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/自動化流程與協議/auto-capture/根據對抗式自我複審的實證需求建議在現有的-handoff-skill-skillshandoffski.md",
-      "triggers": [
-        "auto-capture"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
       "path": "_AIDocs/Failures/feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長.md",
       "triggers": [
@@ -997,6 +914,20 @@
         "講人話",
         "DB 鍵",
         "計畫 checklist"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "auto-capture碎片sweep污染詞庫-defer根治",
+      "path": "_AIDocs/_atoms/MemDev/auto-capture碎片sweep污染詞庫-defer根治.md",
+      "triggers": [
+        "auto-capture",
+        "realm sweep",
+        "詞庫污染",
+        "專案知識寫到根層",
+        "extract-worker 分類",
+        "realm-lexicon-learned",
+        "auto_migrate"
       ],
       "scope": "global"
     }

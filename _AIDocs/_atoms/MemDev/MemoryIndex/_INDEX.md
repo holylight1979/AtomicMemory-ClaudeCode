@@ -8,9 +8,3 @@
 |------|------|
 | memory-index-caption-regen | memory-index-caption-regen |
 | realm-範疇分區機制-v5 | Realm 範疇分區機制 (V5+) |
-
-## 子層
-
-| 子層 | atom 數 | 深入 |
-|------|---------|------|
-| 記憶系統開發 | 4 | `_AIDocs/_atoms/MemDev/MemoryIndex/記憶系統開發/_INDEX.md` |

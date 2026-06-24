@@ -561,10 +561,27 @@ _LEXICON_GENERIC_TOKENS = frozenset({
 })
 _LEXICON_TOKEN_SPLIT_RE = re.compile(r"[\s\-_/]+")
 
+# 保留標籤 / realm 自名 / 已知外部專案 token：learned 詞庫**絕不收**（exact-match 拒收）。
+# 2026-06-24 實案——SGI（外部專案）知識與系統自身 trigger 標籤 "auto-capture" 雙雙被學進
+# 詞庫，drift sweep 據此把 SGI core atom 搬進根層 _atoms/、把碎片塞進名為 "auto-capture"
+# 的葉夾（trigger 標籤被當分類維度）。三類絕不該成為實例分類詞：
+#   - 系統 trigger 標籤（auto-capture/auto-captured/觸發詞）：extract-worker 預設標籤，非實例詞。
+#   - realm 自名（memdev/world/tools/continuity）：分類『維度』本身，不該回頭當分類『詞』。
+#   - 已知外部專案（sgi/uba…）：其知識屬專案層、非 ~/.claude-local；**新外部專案在此擴充**。
+# 主防線是 SessionEnd sweep 對 auto-captured 碎片整體 defer（wg_atoms._is_unconfirmed_autocapture，
+# 斷『學詞』來源）；本集合為 sink 端 belt-and-suspenders，蓋非 auto-capture 途徑寫入的詞。
+_RESERVED_LEXICON_TERMS = frozenset({
+    "auto-capture", "auto-captured", "觸發詞",
+    "memdev", "world", "tools", "continuity",
+    "sgi", "uba",
+})
+
 
 def is_generic_lexicon_term(term: str) -> bool:
-    """term 是否泛用詞（不具實例辨識度）→ 詞庫拒收。空字串視為泛用。"""
+    """term 是否泛用詞 / 保留標籤（不具實例辨識度）→ 詞庫拒收。空字串視為泛用。"""
     tl = (term or "").strip().lower()
+    if tl in _RESERVED_LEXICON_TERMS:
+        return True  # 保留標籤 / realm 自名 / 已知外部專案：絕不收
     tokens = [t for t in _LEXICON_TOKEN_SPLIT_RE.split(tl) if t]
     return not tokens or all(t in _LEXICON_GENERIC_TOKENS for t in tokens)
 

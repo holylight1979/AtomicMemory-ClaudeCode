@@ -15,4 +15,4 @@
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| 自動化流程與協議 | 8 | `_AIDocs/_atoms/Tools/自動化流程與協議/_INDEX.md` |
+| 自動化流程與協議 | 4 | `_AIDocs/_atoms/Tools/自動化流程與協議/_INDEX.md` |

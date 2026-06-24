@@ -1536,6 +1536,33 @@ def _read_atom_excerpt(rel_path: str, limit: int = 800) -> str:
         return ""
 
 
+def _is_unconfirmed_autocapture(entry: Dict[str, Any]) -> bool:
+    """index entry 是否為『未確認的 auto-capture 萃取碎片』→ drift sweep defer（不搬、不喚 LLM 學詞）。
+
+    2026-06-24 根治：auto-captured 碎片本是未經人確認的 [臨] 萃取，sweep 卻當穩定 core atom
+    處理 → LLM 對其吐專案/標籤詞污染學習詞庫（SGI 外部專案知識被搬進根層 _atoms/、碎片被塞進
+    名為 "auto-capture" 的葉夾即此）。整體 defer 斷源頭，待人工確認 / 晉升（[臨]→[觀]）後才正常
+    sweep 歸檔。
+
+    判定（index-only 優先，零 file I/O）：triggers 含 'auto-capture'（extract-worker 預設標籤，
+    涵蓋現存全部污染）。次判（frontmatter，非熱路徑）：Author==auto-captured 且 Confidence==[臨]
+    ——catch『domain_tags 已填、trigger 非預設』但仍未確認的碎片；晉升後 Confidence 變 → 不再 defer。
+    """
+    for t in (entry.get("triggers") or []):
+        if "auto-capture" in str(t).lower():
+            return True
+    author = conf = ""
+    for line in _read_atom_excerpt(entry.get("path") or "", limit=400).splitlines():
+        s = line.strip()
+        if s.startswith("- Author:"):
+            author = s.split(":", 1)[1].strip().lower()
+        elif s.startswith("- Confidence:"):
+            conf = s.split(":", 1)[1].strip()
+        if author and conf:
+            break
+    return author == "auto-captured" and conf == "[臨]"
+
+
 def _trigger_sync_memory_index() -> None:
     """搬移後 fire-and-forget 重產 MEMORY.md / _local_catalog.md / per-level _INDEX.md。
 
@@ -1631,6 +1658,8 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             path = a.get("path", "")
             if not name or is_local_realm_path(path):
                 continue  # 已 local，跳過（idempotent）
+            if _is_unconfirmed_autocapture(a):
+                continue  # P2: 未確認 auto-capture 碎片 → defer（不搬、不喚 LLM 學詞，斷詞庫污染源）
             rc = classify_realm(name, a.get("triggers", []), extra_lexicon=learned or None)
 
             target_dom: Optional[str] = None

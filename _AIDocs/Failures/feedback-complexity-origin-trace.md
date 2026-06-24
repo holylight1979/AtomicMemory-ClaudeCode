@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 太複雜, 看不懂, 敘述太長, 內文超出預期, 複雜回答, 設計矛盾, 追蹤起源, 漏洞反饋, 正交軸綁死, 為什麼這麼複雜
 - Created-at: 2026-06-18
-- Related: feedback-workflow-discipline, feedback-rigor-standards, realm-範疇分區機制-v5, cognitive-patterns
+- Related: feedback-workflow-discipline, feedback-rigor-standards, realm-範疇分區機制-v5, cognitive-patterns, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長
 
 ## 知識
 
