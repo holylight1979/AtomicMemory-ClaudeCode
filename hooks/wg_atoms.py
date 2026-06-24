@@ -1616,6 +1616,78 @@ def _trigger_sync_memory_index() -> None:
         _atom_debug_error("realm:sync_index", e)
 
 
+def select_forget_candidates(archive_candidates, config):
+    """Phase D selective forgetting：從封存候選篩出可隔離者（憲法 Forgetting 對策）。
+
+    規則：score < isolate_threshold 且 atom 名不在核心保護清單
+    （LOCAL_REALM_CORE_PROTECTED_EXACT）。純函式、可測。
+    """
+    fcfg = ((config or {}).get("self_iteration") or {}).get("forget") or {}
+    threshold = float(fcfg.get("isolate_threshold", 0.3))
+    try:
+        from lib.atom_locations import LOCAL_REALM_CORE_PROTECTED_EXACT as _protected
+    except Exception:
+        _protected = frozenset()
+    out = []
+    for c in (archive_candidates or []):
+        if float(c.get("score", 1.0)) >= threshold:
+            continue
+        if c.get("atom") in _protected:
+            continue
+        out.append(c)
+    return out
+
+
+def apply_selective_forget(archive_candidates, config, *, atoms_dir=None,
+                           staging_dir=None):
+    """Phase D selective forgetting：stale+低用+非保護 atom 隔離到 `_distant/`。
+
+    `_distant/` 已被 sync-atom-index EXCLUDED_DIR_PARTS 排除 → 搬入即不入索引/不注入、
+    且可逆（搬回即復原），無需手改 index row。**預設 dry-run**（forget.enabled=false
+    或 dry_run=true）→ 只寫候選清單到 _staging、不搬。憲法 selective forgetting 對策。
+    回 {mode, candidates, forgotten, skipped}。
+    """
+    atoms_dir = atoms_dir or MEMORY_DIR
+    fcfg = ((config or {}).get("self_iteration") or {}).get("forget") or {}
+    cands = select_forget_candidates(archive_candidates, config)
+    if staging_dir is not None and cands:  # 候選清單寫 _staging（always；bare count → 可行動）
+        try:
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            lines = ["# Selective-Forget 候選（stale + 低用 + 非核心保護）", ""]
+            lines += [f"- {c.get('atom')} (score={c.get('score')}, "
+                      f"last_used={c.get('last_used')})" for c in cands]
+            (staging_dir / "forget-candidates.md").write_text(
+                "\n".join(lines) + "\n", encoding="utf-8")
+        except OSError as e:
+            _atom_debug_error("forget:write_candidates", e)
+    cand_names = [c.get("atom") for c in cands]
+    if not bool(fcfg.get("enabled", False)) or bool(fcfg.get("dry_run", True)):
+        return {"mode": "dry_run", "candidates": cand_names, "forgotten": [], "skipped": []}
+    import shutil
+    distant = atoms_dir / "_distant"
+    forgotten, skipped = [], []
+    for c in cands:
+        slug = c.get("atom")
+        md = atoms_dir / f"{slug}.md"
+        if not md.exists():
+            skipped.append(slug)
+            continue
+        try:
+            distant.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(md), str(distant / md.name))
+            acc = atoms_dir / f"{slug}.access.json"
+            if acc.exists():
+                shutil.move(str(acc), str(distant / acc.name))
+            forgotten.append(slug)
+        except OSError as e:
+            _atom_debug_error("forget:isolate", e)
+            skipped.append(slug)
+    if forgotten:
+        _trigger_sync_memory_index()  # 重產索引/catalog（_distant 已排除，移除其列）
+    return {"mode": "isolated", "candidates": cand_names,
+            "forgotten": forgotten, "skipped": skipped}
+
+
 def _scan_doc_refs(moved: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     """搬移後掃**人面向說明文件**是否仍含舊 path/檔名引用（移檔非建檔特有；user 補充）。
 
@@ -1964,5 +2036,12 @@ def _self_iterate_atoms(
         (staging / "archive-candidates.md").write_text(
             "\n".join(out_lines), encoding="utf-8"
         )
+
+        # Phase D — selective forgetting（預設 dry-run：只寫候選；enabled+!dry_run 才隔離 _distant/）
+        try:
+            results["forget"] = apply_selective_forget(
+                results["archive_candidates"], config, staging_dir=staging)
+        except Exception as e:
+            _atom_debug_error("forget:apply", e)
 
     return results

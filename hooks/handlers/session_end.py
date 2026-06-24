@@ -125,11 +125,20 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
                     file=sys.stderr,
                 )
         if si_results.get("archive_candidates"):
-            print(
-                f"[v2.16] Archive candidates: "
-                f"{len(si_results['archive_candidates'])} atoms (low decay score)",
-                file=sys.stderr,
-            )
+            _fr = si_results.get("forget") or {}
+            if _fr.get("mode") == "isolated" and _fr.get("forgotten"):
+                print(
+                    f"[v2.16] Selective-forget: isolated "
+                    f"{len(_fr['forgotten'])} stale atoms → _distant/ (可逆)",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"[v2.16] Archive candidates: "
+                    f"{len(si_results['archive_candidates'])} atoms (low decay score; "
+                    f"dry-run → _staging/forget-candidates.md)",
+                    file=sys.stderr,
+                )
     except Exception as e:
         print(f"[v2.16] Self-iteration error: {e}", file=sys.stderr)
 

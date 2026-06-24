@@ -86,7 +86,13 @@
     "archive_score_threshold": 0.3,
     "oscillation_window": 3,
     "oscillation_threshold": 2,
-    "review_interval": 6
+    "review_interval": 6,
+    "forget": {
+      "_doc": "Task 2 Phase D selective forgetting：stale+低用+非核心保護的封存候選隔離到 memory/_distant/（被 sync-atom-index 排除→不注入、可逆）。預設 dry-run（enabled=false ∨ dry_run=true）只寫 _staging/forget-candidates.md 不搬。真隔離需 enabled=true ∧ dry_run=false。憲法 Forgetting 對策。",
+      "enabled": false,
+      "dry_run": true,
+      "isolate_threshold": 0.3
+    }
   },
   "usefulness": {
     "_doc": "Phase 2 (#2) 注入→使用→結果 閉環效用：Beta-Bernoulli (α,β) + Wilson 下界 + 慢衰減。py↔js 鏡像門檻 (promote_lb/min_n/wilson_z) 與 lib/atom_access.py、server.js SYNC。",
