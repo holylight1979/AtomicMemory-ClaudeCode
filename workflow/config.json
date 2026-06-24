@@ -225,13 +225,13 @@
     }
   },
   "auto_handoff": {
-    "_doc": "Auto-Handoff 自動無損交接（plans/wise-wobbling-gem.md）。PreCompact 壓縮前自動備六區塊 stub 到 _staging（核心保底，不依賴 token 量測）；PostToolBatch 壓縮後注入提示叫模型補全主觀區塊。token_warn 系列為 Phase 2 Stop 預警旗標。enabled=false 一鍵全關回現狀。",
+    "_doc": "Auto-Handoff 自動無損交接（plans/wise-wobbling-gem.md）。PreCompact 壓縮前自動備六區塊 stub 到 _staging（核心保底，不依賴 token 量測）；PostToolBatch 壓縮後注入提示叫模型補全主觀區塊。token_warn 系列為 Phase 2 Stop 預警旗標。enabled=false 一鍵全關回現狀。token 量測主路徑讀 transcript message.usage 真實 token；context_window_tokens 為分母『預設/下限』（1M，貼合常跑 1M Opus），實際視窗自我校準：usage 曾破 200k → 數學上必為 1M 自動升頂（200k 視窗逼近前 harness 已先壓縮、摸不到 200k）。context_base_overhead_tokens 僅 fallback char-proxy（無 usage 時）用。",
     "enabled": true,
     "precompact_stub": true,
     "postbatch_emit": true,
     "token_warn": true,
     "token_warn_ratio": 0.85,
-    "context_window_tokens": 200000,
+    "context_window_tokens": 1000000,
     "context_base_overhead_tokens": 15000,
     "sessionend_fallback": true,
     "stub_filename": "next-phase-auto.md"

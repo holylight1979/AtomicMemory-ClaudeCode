@@ -14,10 +14,12 @@ Phase 1 提供：
   + 有未完成工作才自動補（不覆蓋更佳的手寫版）
 
 Phase 2 提供（供 Stop Layer 1 token 預警，piggyback 既有 block）：
-- estimate_context_usage(transcript, window, overhead): proxy context 佔用比率（僅信號）
+- estimate_context_usage(transcript, window, overhead): context 佔用比率（僅信號）。
+  主路徑讀 message.usage 真實 token + 自我校準 200k/1M 分母；無 usage 時 fallback char-proxy。
 - token_warn_payload(state, config, transcript): 純函式決策是否回預警句（無副作用）
 """
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -153,21 +155,67 @@ def build_handoff_stub(state: Dict[str, Any], cwd: str) -> str:
 # ─── Phase 2: Stop token 預警（Layer 1，piggyback 既有 block）─────────────────
 
 
+def _usage_totals_from_text(text: str) -> List[int]:
+    """逐 assistant turn 的真實 context 佔用 token（input+cache_creation+cache_read）。
+
+    讀 transcript jsonl 每行的 `message.usage`（API 真的算給這輪的量，已含 system
+    prompt / 工具定義 / CLAUDE.md / 注入 atom，故無須再加 base_overhead）。回各輪
+    總量 list（依序）；無可解析 usage 回 `[]`（呼叫端 fallback 回 char-proxy）。
+    """
+    totals: List[int] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or '"usage"' not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        msg = obj.get("message")
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        u = msg.get("usage")
+        if not isinstance(u, dict):
+            continue
+        total = (
+            int(u.get("input_tokens", 0) or 0)
+            + int(u.get("cache_creation_input_tokens", 0) or 0)
+            + int(u.get("cache_read_input_tokens", 0) or 0)
+        )
+        if total > 0:
+            totals.append(total)
+    return totals
+
+
+def _calibrated_window(peak_observed: int, default_window: int) -> int:
+    """自我校準 context 視窗上限（分母），無須知道模型或 [1m] beta。
+
+    物理事實：200k 視窗的 session 在逼近 200k 前 harness 就先 auto-compact，usage
+    總量永遠摸不到 200k；故**只要曾觀測到 >200k → 數學上必為 1M 視窗**。未破 200k
+    時無從反推、用 `default_window`（預設 1M，貼合常跑 1M 的現實）。取 `max` 確保
+    default 調低（如 200k）時仍會在真突破後自動升 1M、不會反而縮小。
+    """
+    calibrated = 1_000_000 if peak_observed > 200_000 else 0
+    return max(int(default_window), calibrated)
+
+
 def estimate_context_usage(
     transcript_path: Any,
-    window_tokens: int = 200000,
+    window_tokens: int = 1_000_000,
     base_overhead: int = 15000,
 ) -> float:
-    """proxy context 佔用比率（0.0 起；可能 >1.0）。
+    """context 佔用比率（0.0 起；可能 >1.0）。
 
-    讀 transcript jsonl 原文 → `_estimate_tokens`（複用 wg_core）→ 加 `base_overhead`
-    補償後 / `window_tokens`。base_overhead 補 transcript 漏算的常駐開銷（system
-    prompt / 工具定義 / CLAUDE.md imports / 注入 atom，~10–15k）。
+    **主路徑**：讀 transcript 每輪 `message.usage` 的真實 token 佔用（input+
+    cache_creation+cache_read）。分子 = 最近一輪佔用（= 現在 context 實塞多少）；
+    分母 = `_calibrated_window`（自我校準 200k/1M，見該函式）。usage 已含常駐
+    開銷，**不另加 base_overhead**。
+    **Fallback**（transcript 無任何可解析 usage：全新 session / 讀取失敗 / 舊格式）
+    → 退回原 char-proxy（`_estimate_tokens` + base_overhead）/ `window_tokens`。
 
-    ⚠️ **僅觸發信號、非硬決策**：transcript 只記對話 events，proxy 傾向**低估**
-    真實 context window 佔用；補償後仍是估值。回 `0.0` 表無法量測（transcript
-    不存在 / 讀取失敗 / window 非正）→ 自然落在門檻下、不誤觸發。核心保底
-    （PreCompact 自動 stub）完全不依賴本量測，proxy 不準不影響正確性。
+    ⚠️ **僅觸發信號、非硬決策**：回 `0.0` 表無法量測（transcript 不存在 / 讀取
+    失敗 / window 非正）→ 自然落在門檻下、不誤觸發。核心保底（PreCompact 自動
+    stub）完全不依賴本量測，估值不準不影響正確性。
     """
     if not transcript_path or window_tokens <= 0:
         return 0.0
@@ -177,6 +225,10 @@ def estimate_context_usage(
         return 0.0
     if not text:
         return 0.0
+    totals = _usage_totals_from_text(text)
+    if totals:
+        return totals[-1] / _calibrated_window(max(totals), window_tokens)
+    # fallback：無 usage → 原 char-proxy（degrade gracefully、與舊行為一致）
     tokens = _estimate_tokens(text) + max(0, int(base_overhead))
     return tokens / window_tokens
 
@@ -198,14 +250,14 @@ def token_warn_payload(
         return None
     ratio = estimate_context_usage(
         transcript_path,
-        ah.get("context_window_tokens", 200000),
+        ah.get("context_window_tokens", 1_000_000),
         ah.get("context_base_overhead_tokens", 15000),
     )
     if ratio < float(ah.get("token_warn_ratio", 0.85)):
         return None
     pct = int(ratio * 100)
     return (
-        f"\n[Auto-Handoff] context 估佔 ~{pct}%（proxy，傾向低估），接近自動壓縮點。"
+        f"\n[Auto-Handoff] context 估佔 ~{pct}%（依 API 實際 token 用量），接近自動壓縮點。"
         "建議主動 `/handoff` 備妥六區塊交接、或開新 session 前先存檔（壓縮真發生時"
         "系統會自動備 stub 保底）。是否已『處理失真』由你語意判斷。"
     )

@@ -311,7 +311,7 @@ cd ~/.claude && git pull
 - `"vector_search.enabled": false` → 關語意搜尋（保留 BM25 + keyword）
 - `"vector_search.global_layer": "vector"` → 全域層改用 Vector（預設 BM25）
 - `"response_capture.enabled": false` → 關回應萃取
-- `"response_capture.session_end_flush.enabled": false` → 關對談結束自動把萃取知識落地成 global [臨] atom（Stage 1）
+- `"response_capture.session_end_flush.enabled": false` → 關對談結束自動把萃取知識落地成 [臨] auto-capture 草稿（**2026-06-24 起隔離寫 `memory/_drafts/auto-capture/`，`write_raw` 直寫、不入索引/注入/計數**；Stage 1）
 - `"deep_postmortem.enabled": false` → 關 Deep Post-Mortem Gate（高 effort 失敗時要 Claude 深寫 post-mortem，Stage 3）
 - `"cross_session.enabled": false` → 關跨 session 鞏固
 - `"docdrift.enabled": false` → 關文件漂移

@@ -52,7 +52,7 @@
 | `wg_handoff.py` | **Auto-Handoff**（2026-06-09，跨 session 無損交接）：`build_handoff_stub` 六區塊 stub（客觀區塊自動填 git/files/atoms + 主觀區塊 TODO 佔位）+ `should_write_stub`（不覆蓋手寫 handoff）+ `estimate_context_usage`/`token_warn_payload`（Phase 2 Stop Layer 1 token 預警，純函式無副作用）。被 `pre_compact`(L2)/`post_tool_batch`(L3)/`stop`(L1)/`session_end`(L4) 共用（L4 為 Phase 3 SessionEnd 兜底）。設計：`plans/wise-wobbling-gem.md` |
 | **獨立保留** | |
 | `wisdom_engine.py` | 反思引擎 + Fix Escalation |
-| `codex_companion.py` | **V5 P5b 重寫**：HTTP daemon → subprocess（in-process state + spawn `tools/codex-companion/audit.py`） |
+| `codex_companion.py` | **V5 P5b 重寫**：HTTP daemon → subprocess（in-process state + spawn `tools/codex-companion/audit.py`）。**2026-06-24**：新增第四類審計 `handoff_review`——偵測 `_staging/next-phase*.md`/handoff 檔寫入 → 把 `skills/handoff` Step 3.5 八問當對抗 checklist 餵 codex 對交接文件做獨立第二意見複審（自評→他評），降注入門檻 medium（`soft_gate.handoff_review`，預設開） |
 | `extract-worker.py` | SessionEnd 萃取子程序（共用 `lib/ollama_extract_core.py`）。**對談結束自動落地**：`_session_end_writeback` 把 session_end 全文萃取 + 累積 `knowledge_queue` flush 成 [臨] auto-capture 草稿（**2026-06-18：依 session cwd 路由 scope=shared/global，見 `_flush_route`**；**2026-06-24：草稿一律隔離到 `_drafts/auto-capture/` 子層，`_flush_item_to_atom` 改 `build_atom_content`+`write_raw` 直寫——`sync-atom-index` 排除 `_drafts` → 不入索引/不注入/不計數，根治 content-as-filename 碎片污染 memory/ 根**；過品質閘、只清寫成功項、`session_end_flush.max_atoms` 上限）。**失敗深記**：`_failure_writeback` 寫多區塊骨架（始末/根因/設計原理/運作邏輯/防再犯；小模型填始末＋拆根因，餘段留待 Claude 深寫） |
 | `lib/ollama_extract_core.py` | 萃取共用核心 |
 | `quick-extract.py` | Stop async 快篩 |
@@ -236,7 +236,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 
 - **realm 由 index `path` 前綴推導**（不存欄位、與 scope 正交）：path 落 `_AIDocs/_atoms/<domain>/`（World/Tools/MemDev）⇒ local（**仍 `Scope=global`**）；否則 core。沿用 feedback-* 同一招（物理在 `_AIDocs/` 下、靠 index path 注入），零新管線。
 - **注入閘門**：`hooks/handlers/session_start.py` 建候選快取處依 `wg_core._is_under_claude_dir(cwd)` 濾掉 local 候選；外部專案完全略過、core（含 `_AIDocs/Failures/*`）不誤殺。
-- **分類器 `classify_realm`**（lib + server.js mirror）：安全預設 core、核心保護清單硬擋、詞庫只用實例專屬名（不用記憶系統通用詞）、只掃 name+triggers。
+- **分類器 `classify_realm`**（lib + server.js mirror）：安全預設 core、核心保護清單硬擋、詞庫只用實例專屬名（不用記憶系統通用詞）、只掃 name+triggers。**詞庫污染根治（2026-06-24，SGI 第三度污染後）**：① sink 端第三護欄 `_RESERVED_LEXICON_TERMS` exact 拒收系統 trigger 標籤/realm 自名/已知外部專案名（sgi/uba）；② SessionEnd sweep 對未確認 auto-capture 碎片（`_is_unconfirmed_autocapture`：trigger 含 auto-capture ∨ Author=auto-captured∧[臨]）整體 defer 不搬不喚 LLM，斷詞庫自汙染源；③ 核心保護 exact 集補 `自己flag…`（Author=holylight/[臨] 故 P2 不護→反覆誤搬後列硬擋）。
 - **搬遷工具 `tools/atom-set-realm.py`**：`_AIDocs/_atoms/` path 唯一寫者，連 `.access.json` sidecar 原子搬、Scope 保 global、`--to-core` 可逆；**不**走 `atom-move`。
 - **印象層（catalog 層 realm，2026-06-04）**：`sync-memory-index` 雙輸出——core atom → `MEMORY.md`（CLAUDE.md `@import`，全專案，fail-safe 退路）；local atom → 側檔 `memory/_local_catalog.md`（依 domain 分組），僅核心環境由 `session_start.py` 共同尾段（`_is_under_claude_dir` gate）注入。MEMORY.md 末尾僅留一行指標 → **外部專案 always-load 不再含本地範疇段（省 ~450 tok）**，補完 realm 在 index 層的一致性。fail-safe：hook 掛掉/缺檔僅損核心環境本地「目錄顯示」（atom 仍 trigger 注入），外部專案不受影響。
 - **find-fallback**：server.js promote/edit_meta/find 對物理在 memory/ 外的 atom 加 `findAtomFileRecursive(LOCAL_ATOMS_DIR)`（鏡像 feedback fallback），否則 scope=global 的 local atom 會 `Atom not found`。

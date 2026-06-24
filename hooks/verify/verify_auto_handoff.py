@@ -272,6 +272,54 @@ def test_estimate_context_usage_overhead_compensates(tmp_path):
     assert abs((r1 - r0) - 0.2) < 1e-6, "補償量應 = overhead/window"
 
 
+def _usage_transcript(tmp_path, totals):
+    """寫一份每輪帶 message.usage 的 transcript（整數佔用塞 cache_read 即可）。"""
+    import json as _json
+    lines = []
+    for n in totals:
+        lines.append(_json.dumps({
+            "type": "assistant",
+            "message": {"role": "assistant", "usage": {
+                "input_tokens": 0, "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": int(n), "output_tokens": 1,
+            }},
+        }))
+    t = tmp_path / "u.jsonl"
+    t.write_text("\n".join(lines), encoding="utf-8")
+    return str(t)
+
+
+def test_estimate_usage_based_uses_last_turn_over_window(tmp_path):
+    """主路徑：分子 = 最近一輪真實 usage，分母 = 預設 1M；忽略 base_overhead。"""
+    tr = _usage_transcript(tmp_path, [50_000, 120_000])
+    got = wh.estimate_context_usage(tr, 1_000_000, 999_999)  # overhead 應被忽略
+    assert abs(got - 0.12) < 1e-9, f"應為 120000/1M=0.12，得 {got}"
+
+
+def test_estimate_usage_self_calibrates_to_1m(tmp_path):
+    """usage 曾破 200k → 分母數學上必為 1M，即使 default_window 傳 200k 也不誤用。"""
+    tr = _usage_transcript(tmp_path, [150_000, 250_000])
+    got = wh.estimate_context_usage(tr, 200_000, 0)  # 故意給低 default
+    assert abs(got - 0.25) < 1e-9, f"應自我校準成 250000/1M=0.25，得 {got}（誤用 200k 會得 1.25）"
+
+
+def test_estimate_usage_below_200k_uses_default_window(tmp_path):
+    """未破 200k → 無從反推，用 default_window（此處 1M）。"""
+    tr = _usage_transcript(tmp_path, [80_000])
+    assert abs(wh.estimate_context_usage(tr, 1_000_000, 0) - 0.08) < 1e-9
+
+
+def test_estimate_usage_takes_precedence_over_charproxy(tmp_path):
+    """有 usage 時走真實 token、不退 char-proxy（即使文字很長）。"""
+    import json as _json
+    line = _json.dumps({"type": "assistant", "message": {"role": "assistant",
+            "usage": {"cache_read_input_tokens": 100_000}}})
+    t = tmp_path / "mix.jsonl"
+    t.write_text(line + "\n" + ("中文" * 50_000), encoding="utf-8")  # 長尾文字
+    got = wh.estimate_context_usage(str(t), 1_000_000, 0)
+    assert abs(got - 0.1) < 1e-9, f"應用 usage 100000/1M=0.1、非 char-proxy，得 {got}"
+
+
 # ─── Phase 2：token_warn_payload（門檻 / 一次性 / disabled）───────────────────
 
 
