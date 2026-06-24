@@ -103,6 +103,14 @@
     "embedding_tiebreak": true,
     "embed_timeout_s": 1.5
   },
+  "injection": {
+    "_doc": "Task 2 Phase C 注入端 relevance gate（context governance 落地）。related_gate 只裁切 related-edge spreading（非 prompt 命中、純連結擴散＝最易成 distractor），主迴圈 trigger/bm25/vector 命中者完全不碰，故不誤殺 prompt 相關或新 atom。憲法 Context Confusion 對策。",
+    "related_gate": {
+      "enabled": true,
+      "skip_demoted": true,
+      "max_related": 6
+    }
+  },
   "hot_cache": {
     "enabled": true,
     "quick_extract_timeout": 15,

@@ -18,12 +18,57 @@ from wg_core import log_promotion_audit, _atom_debug_log
 from wg_atoms import (
     AtomEntry,
     _strip_atom_for_injection,
-    spread_related, decide_atom_injection,
+    spread_related, decide_atom_injection, compute_injection_rank,
     classify_hot_cold, format_cold_inject_line,
     SECTION_INJECT_THRESHOLD, _extract_sections,
     _TURN_BUDGET_LIMIT,
 )
 from wg_extraction import log_injection
+
+
+def _filter_related_by_relevance(
+    related_entries: List[Tuple[AtomEntry, Path]], config: Dict[str, Any],
+) -> Tuple[List[Tuple[AtomEntry, Path]], List[Tuple[str, str]]]:
+    """Phase C：related-spread 最小高訊號集裁切（憲法 Context Confusion 對策）。
+
+    related atom 不命中 prompt（純連結擴散）= 最易成 distractor。本閘**只動 related-spread**，
+    主迴圈（trigger/bm25/vector 命中 prompt）完全不碰 → 不誤殺 prompt 相關或新 atom。
+    規則：① skip_demoted：剔除「已證明低效用」者（demote_candidate, n≥min_n；只動證明過的，
+    絕不誤殺新/未證 atom）② 依注入 rank 降序、保留前 max_related（最小集）。
+    關閉 / 無 config / 匯入失敗 → 原樣回傳（fail-open）。回 (kept, skipped:[(name,reason)])。
+    """
+    ig = ((config or {}).get("injection") or {}).get("related_gate") or {}
+    if not ig.get("enabled", True) or not related_entries:
+        return related_entries, []
+    try:
+        from lib.atom_access import read_access, usefulness_demote_candidate
+    except Exception:
+        return related_entries, []  # fail-open
+    skip_demoted = ig.get("skip_demoted", True)
+    max_related = int(ig.get("max_related", 6))
+    u = (config or {}).get("usefulness") or {}
+    min_n = int(u.get("min_n", 3))
+    z = float(u.get("wilson_z", 1.96))
+    demote_lb = float(u.get("demote_lb", 0.35))
+
+    skipped: List[Tuple[str, str]] = []
+    scored = []
+    for entry in related_entries:
+        (rname, rel_path, _t), base_dir = entry
+        rdir = (base_dir / rel_path).parent if rel_path else (base_dir / "memory")
+        if skip_demoted:
+            try:
+                acc = read_access(rdir / f"{rname}.md")
+                if usefulness_demote_candidate(acc, demote_lb=demote_lb, min_n=min_n, z=z):
+                    skipped.append((rname, "demoted"))
+                    continue
+            except Exception:
+                pass
+        scored.append((compute_injection_rank(rname, rdir, config), entry, rname))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    kept = [e for _, e, _ in scored[:max_related]]
+    skipped.extend((nm, "min_set_cap") for _, _, nm in scored[max_related:])
+    return kept, skipped
 
 
 def assemble_injection(
@@ -116,10 +161,13 @@ def assemble_injection(
             log_injection(session_id or "", name, "hot", source)
             break
 
-    # Related-Edge Spreading
+    # Related-Edge Spreading（+ Phase C 最小高訊號集裁切：剔除已證明低效用、依 rank 保留前 N）
     related_entries = spread_related(
         set(newly_injected), all_atoms, already_injected, max_depth=1,
     )
+    related_entries, related_skipped = _filter_related_by_relevance(related_entries, config)
+    for _sk_name, _sk_reason in related_skipped:
+        _atom_debug_log("RELEVANCE", f"atom={_sk_name}(related) skipped={_sk_reason}", config)
     for (rname, rel_path, _triggers), base_dir in related_entries:
         if rname in newly_injected:
             continue
