@@ -13,6 +13,7 @@
 | harness原生memory與atom索引marker撞名辨識 | harness原生memory與atom索引marker撞名辨識 |
 | realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透 | realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透 |
 | skill-計數單一來源-skill-index | skill-計數單一來源-skill-index |
+| write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值 | write_raw 對未列舉 source 靜默回 ok=False 不 raise（呼叫端必檢查回傳值） |
 | 專案等級-mcpskillhookslog-不放全域根層 | 專案等級 mcp/skill/hooks/log 不放全域根層 |
 | 對談結束自動記憶與錯誤加權深記 | 對談結束自動記憶與錯誤加權深記 |
 

@@ -42,7 +42,7 @@ from .atom_locations import (
 
 AUDIT_LOG = GLOBAL_MEMORY_DIR / "_meta" / "atom_io_audit.jsonl"
 
-# 接受的 source（供 audit 反查；未列舉值會 raise ValueError）
+# 接受的 source（供 audit 反查；未列舉值 → write_raw 回 WriteResult(ok=False, error="invalid source")、不 raise，呼叫端必檢查 .ok）
 VALID_SOURCES = frozenset({
     "mcp",
     "hook:atom-inject",  # Wave 2: workflow-guardian.py 注入 atom 時走 atom_access
