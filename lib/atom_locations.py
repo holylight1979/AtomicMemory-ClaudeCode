@@ -560,6 +560,15 @@ _LEXICON_GENERIC_TOKENS = frozenset({
     "atom", "atoms", "memory", "hook", "hooks", "mcp", "agent", "agents",
     "session", "prompt", "token", "tokens", "index", "trigger", "triggers",
     "guardian", "sweep", "realm", "scope", "inject", "injection",
+    # context-engineering / memory-governance 概念詞（通用學術/業界術語，非 ~/.claude 實例詞；
+    # 2026-06-24 實案：governance atom 被 sweep 學進 "context rot"/"context engineering"/
+    # "selective forgetting"/"context poisoning" → 污染未來同詞 atom。這些是概念維度、絕非分類詞）
+    "context", "contexts", "rot", "poison", "poisoning", "distraction", "distract",
+    "distractor", "confusion", "clash", "engineering", "governance", "forget",
+    "forgetting", "selective", "relevance", "relevant", "extract", "extraction",
+    "retrieval", "recall", "rerank", "salience", "anchoring", "drift", "gating",
+    "gate", "minimal", "signal", "rag", "embedding", "semantic",
+    "萃取", "上下文", "汙染", "污染", "分心", "遺忘", "腐化", "上下文工程",
     # 中文開發泛用詞
     "寫程式", "程式", "程式碼", "重構", "除錯", "修bug", "測試", "驗證",
     "部署", "設定", "開發", "完成", "收尾", "同步", "索引", "文件",
