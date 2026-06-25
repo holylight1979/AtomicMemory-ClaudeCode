@@ -49,17 +49,36 @@
 
 ---
 
-## 4. 對到本系統管線的落點（Task 2 hook 設計的標的）
+## 3.5 根理論速查（人類科學 / 統計 / ML 類比）
 
-> 既有 anti-pollution DNA（順著長、非打掉重練）：`decisions.md` 已把 ReadHits 降為純曝光計數、不參與晉升（防純注入頻率劣化品質，Xiong 2505.16067）。本表是它的延伸。
+> LLM 側（§1）的母體理論。本系統的工程對策都能回溯到這些更早的學問。
 
-| 失效模式 | 系統風險點（檔） | 候選自檢 hook 方向 |
+| 領域 | 術語 | 一句話（與本系統的對應） | 來源 |
+|---|---|---|---|
+| 認知科學 | **Cognitive Load Theory**（Sweller 1988） | 工作記憶有硬上限；**extraneous load**（無關材料）= 被原生內容汙染的人類版 → 對應「注入最小高訊號集」 | §5 |
+| 資訊科學 | **Information Overload**（Toffler 1970） | 「資訊超載」現象本名：input 超過處理量→決策品質下降 | §5 |
+| 決策科學 | **Bounded Rationality / 注意力貧困**（Simon 1971） | 「資訊豐富造成注意力貧困」：注意力是被消耗的稀缺資源 → 為何累積會傷 | §5 |
+| 資訊理論 | **Signal-to-Noise Ratio**（Shannon 1948） | noise 越多→有效通道容量越低 → 你要的「統計框架」；對應 relevance gate | §5 |
+| ML 持續學習 | **Catastrophic Forgetting**（McCloskey & Cohen 1989） | 序列學新知識**覆蓋**舊知識 → 「多 session 侵蝕早期理解」的機器版 | §5 |
+| ML 資料漂移 | **Concept Drift**（Tsymbal 2004） | 舊統計關係隨時間失效→累積假設變誤導 → 對應 selective forgetting | §5 |
+
+---
+
+## 4. 對到本系統管線的落點（Task 2 — **已落地**，2026-06-24）
+
+> **統合命名**：本系列落地為記憶系統的「**記憶治理（Memory Governance）**」自檢層——
+> 注入側 distraction/relevance gate、萃取側 poisoning 防線、遺忘側 selective forgetting。
+> 既有 anti-pollution DNA（順著長、非打掉重練）：`decisions.md` 已把 ReadHits 降為純曝光計數、不參與晉升（防純注入頻率劣化品質，Xiong 2505.16067）。
+
+| 失效模式 | 系統風險點（檔） | 落地狀態 |
 |---|---|---|
-| **Poisoning** | 萃取把幻覺/誤判寫成 atom，之後反覆注入（`wg_extraction.py` / `memory-write-gate.py`） | 萃取 write-gate 加「來源實證 / 信心」閘；低信心 atom 注入前標記隔離 |
-| **Distraction** | SessionStart/UPS 注入過多 atom，context 變肥（`ups_inject.py`） | 注入預算動態收斂；ReadHits 高但 use 低者降權（已有 Wilson，可加「分心懲罰」項） |
-| **Confusion** | 語意檢索召回「相關但無關」distractor（`ups_search.py` BM25/Vector） | 注入前 relevance gate（lexical+vector 雙閘已有雛形）+「最小集」裁切 |
-| **Clash** | 多 session atom 互相矛盾（已有 `/conflict`、`memory-conflict-detector.py`） | 注入時即時 clash 偵測 → 自我提示「這兩條衝突，先確認」 |
-| **(跨層) Forgetting 缺位** | 只有 λ 慢衰減，缺主動隔離（SessionEnd 鞏固） | 過期 / 低效用 atom 主動隔離；session 收尾自檢「這輪注入有沒有幫上忙」閉環 |
+| **Poisoning** | 萃取把幻覺/誤判寫成 atom（`extract-worker.py` / `memory-write-gate.py`） | ✅ **已被既有防線覆蓋**（auto-capture 全進 `_drafts/` 不注入＋刻意寫入強制 `[臨]` 起步＋confirmation 晉升閘）→ Phase B 判冗餘、不另寫碼 |
+| **Distraction** | UPS 注入高曝光低效用 atom（`ups_inject.py`/`ups_search.py`） | ✅ **Phase A**：`wg_atoms.compute_injection_rank`＝activation−`w·log10(rh+1)·(1−lb)`，config `usefulness.distraction_*`（ON-保守） |
+| **Confusion** | related-spread 召回非 prompt 命中的 distractor（`ups_inject.py`） | ✅ **Phase C**：`_filter_related_by_relevance`（剔 demoted＋rank 降序保前 N），config `injection.related_gate`（ON-保守） |
+| **Clash** | 多 session atom 互相矛盾（`memory-conflict-detector.py`） | ⏸ **Phase E defer**：同步 LLM clash 傷高效、與目標相悖；既有 `/conflict` + pull-audit 已覆蓋 |
+| **(跨層) Forgetting 缺位** | 只有 λ 慢衰減、缺主動隔離（SessionEnd） | ✅ **Phase D**：`apply_selective_forget` 隔離 `_distant/`（可逆），config `self_iteration.forget`（**預設 dry-run**） |
+
+> 驗證件：`hooks/verify/verify_{distraction_penalty,related_relevance_gate,selective_forget}.py`（A/C/D）＋ realm 免疫 `lib/verify/verify_lexicon_concept_terms.py`。實作 commit 見 `_CHANGELOG.md` 2026-06-24 段。
 
 ---
 
@@ -76,6 +95,9 @@
 - Cognitive Load Theory（Sweller 1988, *Cognitive Science* 12(2):257-285）: https://en.wikipedia.org/wiki/Cognitive_load
 - Information Overload（Toffler 1970）: https://en.wikipedia.org/wiki/Information_overload
 - Simon, poverty of attention (1971): https://hapgood.us/2018/10/08/designing-organizations-for-an-information-rich-world/
+- Shannon, *A Mathematical Theory of Communication* (1948): https://en.wikipedia.org/wiki/Shannon%E2%80%93Hartley_theorem
+- Catastrophic Forgetting（McCloskey & Cohen 1989）: https://en.wikipedia.org/wiki/Catastrophic_interference
+- Concept Drift（Tsymbal 2004）: https://en.wikipedia.org/wiki/Concept_drift
 
 > Memory Governance / Selective Forgetting 概念為真且主流（Codex 第二意見 cross-check 一致）；其提供的具體 arXiv 編號未獨立驗證、依使用者決定丟棄（概念已內化，不影響本文結論）。
 

@@ -32,12 +32,12 @@
 | `handlers/user_prompt_submit.py` | UPS orchestrator（2026-06-12 熱點重構 790→195 行）：串聯 ups_* 四段 + 收尾（blind-spot / fix escalation / evasion 舉證 / handoff / topic / sync reminder / turn_injected / debug 摘要 / budget 截斷輸出） |
 | `handlers/ups_gates.py` | UPS detect 段：evasion 追蹤 + V4.1 decision gate + confirmed extractions + long_die + Hot Cache + Atom-Write Guard |
 | `handlers/ups_context.py` | UPS context build 段：session context（episodic + proactive）+ wisdom 分類 + parallel 建議 + AIDocs keyword + JIT internal-pipeline |
-| `handlers/ups_search.py` | UPS search pipeline 段：index 組裝 + 跨專案 alias + trigger → BM25 全域層 → Vector fallback + supersedes + ACT-R 排序 |
-| `handlers/ups_inject.py` | UPS injection assemble 段：hot/cold + per-turn budget（ok/fallback/skip）+ related spread + ReadHits++/效用晉升提示 |
+| `handlers/ups_search.py` | UPS search pipeline 段：index 組裝 + 跨專案 alias + trigger → BM25 全域層 → Vector fallback + supersedes + ACT-R 排序（含**分心懲罰** `compute_injection_rank`，Memory Governance A） |
+| `handlers/ups_inject.py` | UPS injection assemble 段：hot/cold + per-turn budget（ok/fallback/skip）+ related spread（含 **relevance gate** `_filter_related_by_relevance` 最小集裁切，Memory Governance C）+ ReadHits++/效用晉升提示 |
 | `handlers/pre_tool_use.py` | PreToolUse：Write/Edit atom format gate + memory path block + Bash SVN test block |
 | `handlers/post_tool_use.py` | PostToolUse：file tracking + 增量索引 + read tracking + test-fail 偵測 + changelog auto-roll |
 | `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection + **Deep Post-Mortem Gate**（`_should_deep_postmortem`：(effort：retry≥2 ∨ fix_escalation_triggered ∨ 同檔 edit≥3) **AND** (真失敗：failing_tests ∨ evasion_flag ∨ 未宣告完成) → 指示 Claude 深寫 post-mortem；AND 真失敗訊號是 dogfood 修正，純 effort 會對成功的多次迭代開發誤觸；`deep_postmortem_done` 一次性、共用 `stop_gate_max_blocks` 預算）+ Auto-Handoff Layer 1（token 預警 piggyback 既有 block） |
-| `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + docdrift advisory + Auto-Handoff Layer 4（SessionEnd 兜底寫客觀 stub） |
+| `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + **selective forgetting**（`apply_selective_forget` 隔離 `_distant/`，預設 dry-run，Memory Governance D）+ docdrift advisory + Auto-Handoff Layer 4（SessionEnd 兜底寫客觀 stub） |
 | `handlers/pre_compact.py` | PreCompact：state snapshot + `injected_atoms` 快照 + Auto-Handoff Layer 2（壓縮前自動寫六區塊 stub） |
 | `handlers/post_compact.py` | PostCompact：依快照複用 `wg_atoms.load_atoms_within_budget` stash 壓縮前 atom 緊湊內文 + `pending_reinjection` flag（不注入；選配 #4） |
 | `handlers/post_tool_batch.py` | PostToolBatch：idle early-exit；見 flag 一次性 `additionalContext` 重注入 + 清 flag + 名單 merge 回 `injected_atoms`（選配 #4）+ Auto-Handoff Layer 3（合流注入 stub 補全提示） |
