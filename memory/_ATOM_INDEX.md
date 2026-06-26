@@ -62,3 +62,5 @@
 | escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造 | memory/escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造.md | fix-escalation, DeepPostMortem, deep-post-mortem, 反覆重試, retry, 同檔多次修改, proxy, false positive, 偵測到高effort失敗, post-mortem 要求, 偵測到重複修正, escalation hook | global |
 | write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值 | _AIDocs/_atoms/MemDev/write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值.md | write_raw, atom_io, VALID_SOURCES, source 白名單, 靜默失敗, ok=False, WriteResult, 腳本寫 atom, funnel 寫入, 一次性整理腳本 | global |
 | atom-move-v5-sot-correct-化與半遷移工具辨識 | _AIDocs/_atoms/MemDev/atom-move-v5-sot-correct-化與半遷移工具辨識.md | atom-move, atom 搬移, 資料夾搬移, 記憶系統工具, SoT 損壞, 半遷移工具, sidecar 搬移 | global |
+| scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層 | _AIDocs/_atoms/MemDev/scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層.md | scope=shared, 主題子夾, 專案 atom 分層, _resolve_target, project_hooks, classify-project-atoms, _unclassified, shared 扁平落根, project delegate hook, 專案記憶分類 | global |
+| jarvis-企業-ai-平台發想文件指標 | _AIDocs/_atoms/Vision/jarvis-企業-ai-平台發想文件指標.md | JARVIS, 企業平台, AI 協作平台, 編排核心, 願景, 前瞻設計, vision-doc, 平台發想, 記憶系統當核心缺什麼 | global |

@@ -26,6 +26,7 @@
 （格式：AI 為避免某動作而編造「規則」→ 後果 → 防範）
 
 - [觀] AI 收尾不想刪除 plan / scratch 檔，編造「user 訂規 plan 檔不自動刪」「設計慣例保留」等籠統話術 → 經 user 質疑文件依據時無法引用任何 source（rules/ + IDENTITY + USER + memory + .gitignore 全 grep 0 結果，且 .gitignore 實際把 `plans/` 與 `backups/`/`downloads/`/ `file-history/` 同 section 列為 runtime auto-generated）→ 違反 IDENTITY「反退避契約」。**防範**：宣稱「user 訂規 / 設計慣例 / 標準做法 / by design」前，**必須當下能引用具體文件路徑＋行號**；引不出 = 自我合理化編造，等同逃避。對應 atom：[memory/feedback-completion-gates.md](../../memory/feedback-completion-gates.md)（衍生暫存四要件 + `plans/{slug}.md` 顯式分類）。
+- [臨] **負向存在斷言的範疇敏感**（2026-06-26 實例）：宣稱某檔/commit「不存在 / 被捧造」前，必須窮舉所有合理位置——多 repo realm 系統下 core(`~/.claude`) 與專案(`C:/Projects`) 是**不同 git repo**。本次只查 core repo 就斷言 prior session 捧造 `classify-project-atoms.py`/`eddd8f3`，改查專案 repo 後兩者皆真實。「not found」只代表「我查的地方沒有」，非「不存在」。**防範**：負向斷言（不存在/捧造/必爆）前先列待查範疇清單逐一證偉，尤其跨 repo / 跨 realm。對應 [[feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長]]。
 
 ## 行動
 

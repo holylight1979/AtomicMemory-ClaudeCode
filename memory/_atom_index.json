@@ -1005,6 +1005,39 @@
         "sidecar 搬移"
       ],
       "scope": "global"
+    },
+    {
+      "name": "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層",
+      "path": "_AIDocs/_atoms/MemDev/scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層.md",
+      "triggers": [
+        "scope=shared",
+        "主題子夾",
+        "專案 atom 分層",
+        "_resolve_target",
+        "project_hooks",
+        "classify-project-atoms",
+        "_unclassified",
+        "shared 扁平落根",
+        "project delegate hook",
+        "專案記憶分類"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "jarvis-企業-ai-平台發想文件指標",
+      "path": "_AIDocs/_atoms/Vision/jarvis-企業-ai-平台發想文件指標.md",
+      "triggers": [
+        "JARVIS",
+        "企業平台",
+        "AI 協作平台",
+        "編排核心",
+        "願景",
+        "前瞻設計",
+        "vision-doc",
+        "平台發想",
+        "記憶系統當核心缺什麼"
+      ],
+      "scope": "global"
     }
   ]
 }

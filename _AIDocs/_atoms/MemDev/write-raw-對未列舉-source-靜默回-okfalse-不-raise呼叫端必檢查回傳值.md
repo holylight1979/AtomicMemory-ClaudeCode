@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: write_raw, atom_io, VALID_SOURCES, source 白名單, 靜默失敗, ok=False, WriteResult, 腳本寫 atom, funnel 寫入, 一次性整理腳本
 - Created-at: 2026-06-25
-- Related: atom-元資料編輯與晉升閘真相, feedback-tooling-reliability
+- Related: atom-元資料編輯與晉升閘真相, feedback-tooling-reliability, atom-move-v5-sot-correct-化與半遷移工具辨識
 
 ## 知識
 
