@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
-"""atom-move.py — 原子搬遷工具（含 inbound refs / _ATOM_INDEX / Scope 同步）
+"""atom-move.py — 原子搬遷工具（V5 SoT-correct：動 _atom_index.json + 搬 sidecar）
 
 子命令：
-  move      — 從 source root 搬到 target root，完整同步
-  reconcile — atom 已在 target（例如被手動 mv），掃其他層清除 stale 狀態
+  move      — 把 atom 搬到目標資料夾（同 index-root 改分類 / 跨 root 換層級），完整同步 JSON SoT
+  reconcile — atom 已被手動搬到 --at，掃描修正 JSON 索引與跨層反向連結
 
-層序規則：
+V5 契約（與 V4 舊版差異 — 舊版只改 deprecated `_ATOM_INDEX.md`、不搬 sidecar、把子夾誤當 root，
+靜默損壞單中央索引 SoT。本次重寫修正）：
+  - 唯一機器索引源是各 memory-root 的 `_atom_index.json`（非 per-folder `_ATOM_INDEX.md`）。
+    改 path 一律走 lib.atom_index_json.upsert_atom/delete_atom（自動重生 `_ATOM_INDEX.md` 鏡像）。
+  - `.md` 與 `.access.json` sidecar 原子性同搬（lib.atom_access.move_atom_pair；計數不歸零）。
+  - 子資料夾不再被誤當 memory root：以 find_index_dir 上溯到擁有 `_atom_index.json` 的根，
+    JSON path 一律相對 index_dir.parent（對拍 atom_io 的 index_root=base.parent）。
+  - 落 `_AIDocs/_atoms/`（local realm）/ `_AIDocs/Failures/`（feedback）的 atom 由專屬路由器管，
+    本工具拒絕搬移、導引到 atom-set-realm.py / title 前綴路由。
+  - 搬移後跑 validate_index 自驗；有 error → exit 2。
+
+層序規則（跨 root inbound ref）：
   global (最高) > project (子層)
   - up-ref  (project → global): 合法保留
   - down-ref (global  → project): 違規移除
@@ -16,34 +27,51 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 CLAUDE_DIR = Path.home() / ".claude"
 GLOBAL_MEMORY = CLAUDE_DIR / "memory"
 REGISTRY_PATH = GLOBAL_MEMORY / "project-registry.json"
-ATOM_INDEX = "_ATOM_INDEX.md"
-MEMORY_INDEX = "MEMORY.md"
-SKIP_NAMES = {ATOM_INDEX, MEMORY_INDEX}
+ATOM_INDEX_JSON = "_atom_index.json"
+SKIP_PREFIXES = ("_",)
 
-# S3.1: route atom-move writes through atom_io funnel
 if str(CLAUDE_DIR) not in sys.path:
     sys.path.insert(0, str(CLAUDE_DIR))
-from lib.atom_io import write_raw, write_index_full  # noqa: E402
 
-_ATOM_MOVE_SOURCE = "tool:atom-move"
+from lib.atom_index_json import (  # noqa: E402
+    load_atom_index_json, upsert_atom, delete_atom, validate_index,
+)
+from lib.atom_access import (  # noqa: E402
+    move_atom_pair, access_sidecar_path, prune_empty_parents,
+)
+from lib.atom_io import write_raw, _audit_log, _gen_audit_id  # noqa: E402
+
+_SOURCE = "tool:atom-move"
 
 
-def find_atom_file(root: Path, slug: str):
-    if not root.is_dir():
-        return None
-    for p in root.rglob(f"{slug}.md"):
-        return p
-    return None
+def _fail(msg: str):
+    print(f"ERROR {msg}", file=sys.stderr)
+    sys.exit(1)
 
 
-def parse_frontmatter(path: Path):
+def _audit(op: str, **extra: Any) -> None:
+    entry = {
+        "audit_id": _gen_audit_id(),
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "op": op, "source": _SOURCE,
+    }
+    entry.update(extra)
+    _audit_log(entry)
+
+
+# ─── frontmatter / Related 解析（跨 root reconcile 用） ───────────────────────
+
+
+def parse_frontmatter(path: Path) -> Dict[str, str]:
     text = path.read_text(encoding="utf-8")
-    fm = {}
+    fm: Dict[str, str] = {}
     if text.startswith("---\n"):
         end = text.find("\n---\n", 4)
         if end > 0:
@@ -61,46 +89,109 @@ def parse_frontmatter(path: Path):
     return fm
 
 
-def get_related(fm):
+def get_related(fm: Dict[str, str]) -> List[str]:
     raw = fm.get("Related", "") or fm.get("related", "")
     if not raw or raw.strip() in ("(none)", "—", ""):
         return []
     return [r.strip() for r in raw.split(",") if r.strip()]
 
 
+def triggers_from_md(md: Path) -> List[str]:
+    fm = parse_frontmatter(md)
+    raw = fm.get("Trigger", "") or fm.get("trigger", "")
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
 def iter_atoms(root: Path):
     if not root.is_dir():
         return
     for p in root.rglob("*.md"):
-        if p.name in SKIP_NAMES or p.name.startswith("_"):
+        if p.name.startswith(SKIP_PREFIXES) or p.name in ("MEMORY.md",):
             continue
         yield p
 
 
-def is_global(root: Path) -> bool:
+# ─── index-root / path 解析（修「子夾誤當 root」） ────────────────────────────
+
+
+def find_index_dir(path: Path) -> Optional[Path]:
+    """從 path（dir，或尚未建立的目標 dir）往上找最近含 `_atom_index.json` 的祖先 = index_dir。
+
+    修 V4 bug「子資料夾被當 memory root」：子夾沒有自己的索引，須上溯到擁有
+    `_atom_index.json` 的 memory-root（global=~/.claude/memory；project=專案/.claude/memory）。
+    """
     try:
-        return root.resolve() == GLOBAL_MEMORY.resolve()
+        cur = Path(path).resolve(strict=False)
+    except OSError:
+        cur = Path(path)
+    while True:
+        if (cur / ATOM_INDEX_JSON).exists():
+            return cur
+        if cur.parent == cur:
+            return None
+        cur = cur.parent
+
+
+def rel_path_for(moved_md: Path, index_dir: Path) -> str:
+    """JSON path 欄位 = 檔案相對 index_dir.parent（global→相對 ~/.claude；project→相對 專案/.claude）。
+
+    對拍 lib.atom_io._resolve_target 的 index_root=base.parent 慣例（純路徑運算，不需檔已存在）。
+    """
+    return Path(moved_md).resolve(strict=False).relative_to(
+        Path(index_dir).parent.resolve()
+    ).as_posix()
+
+
+def is_global_index(index_dir: Path) -> bool:
+    try:
+        return Path(index_dir).resolve() == GLOBAL_MEMORY.resolve()
     except OSError:
         return False
 
 
-def layer_label(root: Path) -> str:
-    if is_global(root):
-        return "global"
-    return f"project({root.parent.parent.name})"
+_SPECIAL_REALM_MARKERS = (
+    ("_AIDocs/_atoms", "local realm（_AIDocs/_atoms/）— 改用 tools/atom-set-realm.py 搬 core⇄local"),
+    ("_AIDocs/Failures", "feedback/failures（_AIDocs/Failures/）— 由 title 前綴自動路由，勿手搬"),
+)
 
 
-def discover_project_roots():
-    roots = set()
+def special_realm_reason(p: Path) -> Optional[str]:
+    """p 落在 local-realm / failures 受管目錄 → 回拒絕原因字串，否則 None。"""
+    s = Path(p).resolve(strict=False).as_posix() + "/"
+    for marker, reason in _SPECIAL_REALM_MARKERS:
+        if f"/{marker}/" in s:
+            return reason
+    return None
+
+
+def find_entry(index_dir: Path, slug: str) -> Optional[Dict[str, Any]]:
+    for a in load_atom_index_json(index_dir).get("atoms", []):
+        if a.get("name") == slug:
+            return a
+    return None
+
+
+def locate_md(index_dir: Path, slug: str, entry: Optional[Dict[str, Any]]) -> Optional[Path]:
+    """以 JSON path（相對 index_dir.parent）優先定位；落空則 rglob index_dir。"""
+    if entry and entry.get("path"):
+        p = Path(index_dir).parent / entry["path"]
+        if p.exists():
+            return p
+    for hit in Path(index_dir).rglob(f"{slug}.md"):
+        return hit
+    return None
+
+
+def discover_project_roots() -> List[Path]:
+    roots: set = set()
     if REGISTRY_PATH.exists():
         try:
             reg = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
             for _, info in reg.get("projects", {}).items():
                 pr = Path(info.get("root", ""))
-                if pr.is_dir():
-                    new_mem = pr / ".claude" / "memory"
-                    if new_mem.is_dir():
-                        roots.add(new_mem.resolve())
+                mem = pr / ".claude" / "memory"
+                if mem.is_dir():
+                    roots.add(mem.resolve())
         except (json.JSONDecodeError, OSError):
             pass
     legacy = CLAUDE_DIR / "projects"
@@ -115,62 +206,24 @@ def discover_project_roots():
     return [Path(r) for r in roots]
 
 
-def remove_atom_index_row(root: Path, slug: str):
-    idx = root / ATOM_INDEX
-    if not idx.exists():
-        return False
-    lines = idx.read_text(encoding="utf-8").splitlines(keepends=True)
-    new = [l for l in lines if not re.match(rf"^\|\s*{re.escape(slug)}\s*\|", l)]
-    if len(new) != len(lines):
-        # S3.1: 走 atom_io.write_index_full funnel
-        write_index_full(idx, "".join(new), source=_ATOM_MOVE_SOURCE)
-        return True
-    return False
+def all_index_dirs() -> List[Path]:
+    out, seen = [], set()
+    for d in [GLOBAL_MEMORY, *discover_project_roots()]:
+        try:
+            key = d.resolve()
+        except OSError:
+            key = d
+        if key not in seen:
+            seen.add(key)
+            out.append(d)
+    return out
 
 
-def add_atom_index_row(root: Path, slug: str, trigger: str, scope: str):
-    idx = root / ATOM_INDEX
-    if not idx.exists():
-        # S3.1: 首次建檔走 funnel
-        write_index_full(
-            idx,
-            "# Atom Trigger Index\n\n"
-            "> Machine-parsed by workflow-guardian hooks. Not @imported into context.\n\n"
-            "| Atom | Path | Trigger | Scope |\n"
-            "|------|------|---------|-------|\n",
-            source=_ATOM_MOVE_SOURCE,
-        )
-    text = idx.read_text(encoding="utf-8")
-    if re.search(rf"^\|\s*{re.escape(slug)}\s*\|", text, re.MULTILINE):
-        return False
-    atom_path = find_atom_file(root, slug)
-    if not atom_path:
-        return False
-    rel = atom_path.relative_to(root).as_posix()
-    # Global convention uses 'memory/' prefix
-    display_path = f"memory/{rel}" if is_global(root) else rel
-    row = f"| {slug} | {display_path} | {trigger} | {scope} |\n"
-    if not text.endswith("\n"):
-        text += "\n"
-    text += row
-    write_index_full(idx, text, source=_ATOM_MOVE_SOURCE)
-    return True
+# ─── 跨 root 反向連結層序 ─────────────────────────────────────────────────────
 
 
-def remove_memory_index_row(root: Path, slug: str):
-    mem_idx = root / MEMORY_INDEX
-    if not mem_idx.exists():
-        return False
-    text = mem_idx.read_text(encoding="utf-8")
-    pattern = re.compile(rf"^\|\s*{re.escape(slug)}\s*\|.*$\n?", re.MULTILINE)
-    new, n = pattern.subn("", text)
-    if n:
-        write_index_full(mem_idx, new, source=_ATOM_MOVE_SOURCE)
-        return True
-    return False
-
-
-def remove_inbound_ref(atom_path: Path, slug: str):
+def remove_inbound_ref(atom_path: Path, slug: str) -> bool:
+    """從 atom_path 的 `- Related:` 移除 slug（走 write_raw funnel）。回是否實際改動。"""
     text = atom_path.read_text(encoding="utf-8")
     m = re.search(r"^- Related:\s*(.+)$", text, re.MULTILINE)
     if not m:
@@ -181,200 +234,199 @@ def remove_inbound_ref(atom_path: Path, slug: str):
         return False
     new_line = f"- Related: {', '.join(new_items) if new_items else '(none)'}"
     text = text.replace(m.group(0), new_line, 1)
-    write_raw(atom_path, text, source=_ATOM_MOVE_SOURCE, op="atom_move_related")
-    return True
+    res = write_raw(atom_path, text, source=_SOURCE, op="atom_move_related")
+    return bool(getattr(res, "ok", False))
 
 
-def update_scope_field(atom_path: Path, new_scope: str):
-    text = atom_path.read_text(encoding="utf-8")
-    m = re.search(r"^- Scope:\s*(.+)$", text, re.MULTILINE)
-    if m and m.group(1).strip() == new_scope:
-        return None
-    if m:
-        old = m.group(1).strip()
-        text = text.replace(m.group(0), f"- Scope: {new_scope}", 1)
-        write_raw(atom_path, text, source=_ATOM_MOVE_SOURCE, op="atom_move_scope")
-        return f"{old} → {new_scope}"
-    # No Scope field — insert after title
-    lines = text.splitlines(keepends=True)
-    for i, ln in enumerate(lines):
-        if ln.startswith("# "):
-            lines.insert(i + 2, f"- Scope: {new_scope}\n")
-            write_raw(atom_path, "".join(lines), source=_ATOM_MOVE_SOURCE, op="atom_move_scope_insert")
-            return f"(none) → {new_scope}"
-    return None
+def reconcile_inbound_refs(slug: str, target_index: Path, dry_run: bool) -> List[str]:
+    """跨 root 搬移後：清其他 root 的 stale JSON 條目 + 套 Related 反向連結層序規則。
 
-
-def reconcile(slug: str, target_root: Path, extra_roots, dry_run=False):
-    report = {
-        "target": str(target_root),
-        "scope_updated": None,
-        "target_index_added": False,
-        "stale_index_removed": [],
-        "stale_memory_removed": [],
-        "inbound_refs_removed": [],
-        "inbound_refs_kept": [],
-        "warnings": [],
-    }
-
-    atom_path = find_atom_file(target_root, slug)
-    if not atom_path:
-        print(f"ERROR atom '{slug}' not found under {target_root}", file=sys.stderr)
-        sys.exit(1)
-
-    fm = parse_frontmatter(atom_path)
-    trigger = fm.get("Trigger", "").strip()
-    target_scope = "global" if is_global(target_root) else "project"
-
-    # Scope normalize
-    if not dry_run:
-        sc = update_scope_field(atom_path, target_scope)
-        if sc:
-            report["scope_updated"] = sc
-
-    # Collect scan roots
-    all_roots = {GLOBAL_MEMORY.resolve()}
-    for r in discover_project_roots():
-        all_roots.add(r.resolve())
-    for r in extra_roots:
-        try:
-            all_roots.add(Path(r).resolve())
-        except OSError:
-            pass
+    V5 single-index：atom 只該住一處索引；其他 root 若有同 slug 條目即 stale，清除。
+    Related 用 slug 引用（非 path）→ slug 不變、連結不斷；只需處理 down-ref 違規與 sibling 警告。
+    """
+    warnings: List[str] = []
+    target_is_global = is_global_index(target_index)
     try:
-        target_resolved = target_root.resolve()
+        target_resolved = Path(target_index).resolve()
     except OSError:
-        target_resolved = target_root
-    other_roots = [Path(r) for r in all_roots if r != target_resolved]
-
-    target_is_global = is_global(target_root)
-
-    for r in other_roots:
-        if not r.is_dir():
-            continue
-        # Remove stale _ATOM_INDEX row
-        idx_path = r / ATOM_INDEX
-        if idx_path.exists():
-            if dry_run:
-                text = idx_path.read_text(encoding="utf-8")
-                if re.search(rf"^\|\s*{re.escape(slug)}\s*\|", text, re.MULTILINE):
-                    report["stale_index_removed"].append(str(idx_path))
-            else:
-                if remove_atom_index_row(r, slug):
-                    report["stale_index_removed"].append(str(idx_path))
-
-        # Remove stale MEMORY.md row (table style)
-        if dry_run:
-            mp = r / MEMORY_INDEX
-            if mp.exists():
-                if re.search(rf"^\|\s*{re.escape(slug)}\s*\|", mp.read_text(encoding="utf-8"), re.MULTILINE):
-                    report["stale_memory_removed"].append(str(mp))
-        else:
-            if remove_memory_index_row(r, slug):
-                report["stale_memory_removed"].append(str(r / MEMORY_INDEX))
-
-        # Inbound ref handling per layering rule
-        r_is_global = is_global(r)
-        for hit in iter_atoms(r):
-            fm_hit = parse_frontmatter(hit)
-            if slug not in get_related(fm_hit):
+        target_resolved = Path(target_index)
+    for root in all_index_dirs():
+        try:
+            if root.resolve() == target_resolved:
                 continue
-            tag = f"{hit.relative_to(r) if r in hit.parents else hit.name}"
-            if r_is_global and not target_is_global:
-                # Down-ref: forbidden, remove
+        except OSError:
+            continue
+        if not root.is_dir():
+            continue
+        if find_entry(root, slug):
+            if not dry_run:
+                delete_atom(root, slug)
+            warnings.append(f"stale index entry {'would be ' if dry_run else ''}removed: {root / ATOM_INDEX_JSON}")
+        root_is_global = is_global_index(root)
+        for hit in iter_atoms(root):
+            if slug not in get_related(parse_frontmatter(hit)):
+                continue
+            if root_is_global and not target_is_global:
                 if dry_run:
-                    report["inbound_refs_removed"].append(f"{hit}  [down-ref]")
-                else:
-                    if remove_inbound_ref(hit, slug):
-                        report["inbound_refs_removed"].append(f"{hit}  [down-ref removed]")
-            elif not r_is_global and target_is_global:
-                # Up-ref: keep
-                report["inbound_refs_kept"].append(f"{hit}  [up-ref kept]")
-            elif not r_is_global and not target_is_global:
-                # Sibling cross-project: warn
-                report["warnings"].append(f"sibling ref {hit} → {slug} (both project-layer; manual review)")
-            else:
-                # global→global: same layer, always kept
-                report["inbound_refs_kept"].append(f"{hit}  [same-layer]")
+                    warnings.append(f"down-ref would remove: {hit}")
+                elif remove_inbound_ref(hit, slug):
+                    warnings.append(f"down-ref removed: {hit}")
+            elif not root_is_global and not target_is_global:
+                warnings.append(f"sibling ref (manual review): {hit} → {slug}")
+            # up-ref / same-layer：合法保留，不回報
+    return warnings
 
-    # Ensure target has _ATOM_INDEX entry
-    if not dry_run:
-        if add_atom_index_row(target_root, slug, trigger, target_scope):
-            report["target_index_added"] = True
-    else:
-        idx = target_root / ATOM_INDEX
-        text = idx.read_text(encoding="utf-8") if idx.exists() else ""
-        if not re.search(rf"^\|\s*{re.escape(slug)}\s*\|", text, re.MULTILINE):
-            report["target_index_added"] = True
 
-    return report
+# ─── 子命令 ───────────────────────────────────────────────────────────────────
 
 
 def cmd_move(args):
-    src = Path(args.src)
-    target = Path(args.to)
     slug = args.atom
-    src_file = find_atom_file(src, slug)
-    if not src_file:
-        print(f"ERROR atom '{slug}' not found in {src}", file=sys.stderr)
-        sys.exit(1)
-    target.mkdir(parents=True, exist_ok=True)
-    dst_file = target / src_file.name
-    if dst_file.exists():
-        print(f"ERROR target already exists: {dst_file}", file=sys.stderr)
-        sys.exit(1)
-    if not args.dry_run:
-        src_file.rename(dst_file)
-    else:
-        print(f"[dry-run] would move {src_file} → {dst_file}")
-    report = reconcile(slug, target, extra_roots=[src], dry_run=args.dry_run)
-    _print_report(slug, report, args.dry_run)
+    from_dir = Path(args.src)
+    to_dir = Path(args.to)
+
+    src_index = find_index_dir(from_dir)
+    if not src_index:
+        _fail(f"no {ATOM_INDEX_JSON} at/above --from: {from_dir}")
+    dst_index = find_index_dir(to_dir)
+    if not dst_index:
+        _fail(f"no {ATOM_INDEX_JSON} at/above --to: {to_dir}")
+
+    entry = find_entry(src_index, slug)
+    src_md = locate_md(src_index, slug, entry)
+    if not src_md or not src_md.exists():
+        _fail(f"atom '{slug}' not found under {src_index}")
+
+    for p, lbl in ((src_md, "source"), (to_dir, "target")):
+        reason = special_realm_reason(p)
+        if reason:
+            _fail(f"{lbl} 落在受管目錄：{reason}")
+
+    dst_md = to_dir / src_md.name
+    if dst_md.resolve(strict=False) == src_md.resolve():
+        print(json.dumps({"ok": True, "noop": True, "msg": f"{slug} 已在 {to_dir}"}, ensure_ascii=False))
+        return
+    if dst_md.exists():
+        _fail(f"target already exists: {dst_md}")
+
+    triggers = (entry or {}).get("triggers") or triggers_from_md(src_md)
+    cur_scope = (entry or {}).get("scope", "global")
+    same_root = src_index.resolve() == dst_index.resolve()
+    new_scope = cur_scope if same_root else ("global" if is_global_index(dst_index) else "project")
+    new_rel = rel_path_for(dst_md, dst_index)
+
+    if args.dry_run:
+        report = {
+            "mode": "DRY-RUN", "slug": slug, "same_root": same_root,
+            "from": str(src_md), "to": str(dst_md), "new_rel": new_rel,
+            "scope": new_scope, "scope_changed": new_scope != cur_scope,
+            "sidecar": access_sidecar_path(src_md).exists(),
+        }
+        if not same_root and not is_global_index(dst_index):
+            report["warn_scope"] = "跨 root 搬入 project：scope 設 'project'（無法自動判 shared/role/personal，必要時走 atom_write 改）"
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+
+    # 1) 實體搬（.md + sidecar 原子）
+    try:
+        sidecar_moved = move_atom_pair(src_md, dst_md)
+    except OSError as e:
+        _fail(f"move failed: {e}")
+
+    # 2) JSON SoT（失敗 → rollback 實體檔）
+    try:
+        if same_root:
+            upsert_atom(dst_index, slug, new_rel, triggers, scope=cur_scope)
+        else:
+            delete_atom(src_index, slug)
+            upsert_atom(dst_index, slug, new_rel, triggers, scope=new_scope)
+    except Exception as e:  # noqa: BLE001 — 任何索引失敗都要 rollback 實體
+        try:
+            dst_md.rename(src_md)
+            if sidecar_moved:
+                access_sidecar_path(dst_md).rename(access_sidecar_path(src_md))
+        except OSError:
+            pass
+        _fail(f"index update failed (實體已 rollback): {e}")
+
+    _audit("atom_move", slug=slug, from_path=str(src_md), to_path=new_rel,
+           same_root=same_root, scope=new_scope, sidecar_moved=sidecar_moved)
+
+    warnings = reconcile_inbound_refs(slug, dst_index, dry_run=False) if not same_root else []
+
+    prune_empty_parents(src_md.parent, src_index)
+
+    errs = validate_index(dst_index)
+    if not same_root:
+        errs = errs + validate_index(src_index)
+
+    report = {
+        "mode": "APPLIED", "slug": slug, "same_root": same_root,
+        "from": str(src_md), "to_rel": new_rel, "scope": new_scope,
+        "scope_changed": new_scope != cur_scope,
+        "sidecar_moved": sidecar_moved, "warnings": warnings,
+        "validate_errors": errs,
+    }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if errs:
+        sys.exit(2)
 
 
 def cmd_reconcile(args):
-    target = Path(args.at)
-    report = reconcile(args.atom, target, extra_roots=[], dry_run=args.dry_run)
-    _print_report(args.atom, report, args.dry_run)
+    slug = args.atom
+    at_dir = Path(args.at)
+    index_dir = find_index_dir(at_dir)
+    if not index_dir:
+        _fail(f"no {ATOM_INDEX_JSON} at/above --at: {at_dir}")
 
+    md = None
+    if at_dir.is_dir():
+        for hit in at_dir.rglob(f"{slug}.md"):
+            md = hit
+            break
+    if md is None:
+        md = locate_md(index_dir, slug, find_entry(index_dir, slug))
+    if not md or not md.exists():
+        _fail(f"atom '{slug}' not found at {at_dir}")
 
-def _print_report(slug, report, dry_run):
-    mode = "DRY-RUN" if dry_run else "APPLIED"
-    print(f"\n=== Reconcile '{slug}' ({mode}) → {report['target']} ===")
-    if report["scope_updated"]:
-        print(f"  Scope: {report['scope_updated']}")
-    if report["target_index_added"]:
-        print(f"  [target] _ATOM_INDEX row added")
-    for path in report["stale_index_removed"]:
-        print(f"  [stale] _ATOM_INDEX row removed: {path}")
-    for path in report["stale_memory_removed"]:
-        print(f"  [stale] MEMORY.md row removed: {path}")
-    for ln in report["inbound_refs_removed"]:
-        print(f"  [down-ref] {ln}")
-    for ln in report["inbound_refs_kept"]:
-        print(f"  [keep]     {ln}")
-    for w in report["warnings"]:
-        print(f"  WARN {w}")
-    if not any((
-        report["scope_updated"], report["target_index_added"],
-        report["stale_index_removed"], report["stale_memory_removed"],
-        report["inbound_refs_removed"], report["inbound_refs_kept"],
-        report["warnings"],
-    )):
-        print("  (already consistent)")
+    reason = special_realm_reason(md)
+    if reason:
+        _fail(f"atom 落在受管目錄：{reason}")
+
+    entry = find_entry(index_dir, slug)
+    triggers = (entry or {}).get("triggers") or triggers_from_md(md)
+    scope = (entry or {}).get("scope") or ("global" if is_global_index(index_dir) else "project")
+    new_rel = rel_path_for(md, index_dir)
+
+    if not args.dry_run:
+        upsert_atom(index_dir, slug, new_rel, triggers, scope=scope)
+        _audit("atom_reconcile", slug=slug, to_path=new_rel, scope=scope)
+
+    warnings = reconcile_inbound_refs(slug, index_dir, dry_run=args.dry_run)
+    errs = [] if args.dry_run else validate_index(index_dir)
+
+    report = {
+        "mode": "DRY-RUN" if args.dry_run else "APPLIED", "slug": slug,
+        "index": str(index_dir / ATOM_INDEX_JSON), "rel": new_rel, "scope": scope,
+        "warnings": warnings, "validate_errors": errs,
+    }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if errs:
+        sys.exit(2)
 
 
 def main():
-    p = argparse.ArgumentParser(description="Atomic atom move across memory layers")
+    p = argparse.ArgumentParser(description="V5 SoT-correct atom move (JSON index + sidecar)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    mv = sub.add_parser("move", help="Move atom from --from to --to and sync all state")
+    mv = sub.add_parser("move", help="Move atom to target folder and sync _atom_index.json + sidecar")
     mv.add_argument("atom")
-    mv.add_argument("--from", dest="src", required=True)
-    mv.add_argument("--to", required=True)
+    mv.add_argument("--from", dest="src", required=True, help="source dir (atom located via index/slug)")
+    mv.add_argument("--to", required=True, help="target folder (subfolder under a memory-root is OK)")
     mv.add_argument("--dry-run", action="store_true")
     mv.set_defaults(func=cmd_move)
 
-    rc = sub.add_parser("reconcile", help="Sync stale refs/indexes for atom already at --at")
+    rc = sub.add_parser("reconcile", help="Atom already moved to --at; fix JSON index + inbound refs")
     rc.add_argument("atom")
     rc.add_argument("--at", required=True)
     rc.add_argument("--dry-run", action="store_true")

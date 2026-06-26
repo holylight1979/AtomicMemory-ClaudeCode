@@ -991,6 +991,20 @@
         "一次性整理腳本"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom-move-v5-sot-correct-化與半遷移工具辨識",
+      "path": "_AIDocs/_atoms/MemDev/atom-move-v5-sot-correct-化與半遷移工具辨識.md",
+      "triggers": [
+        "atom-move",
+        "atom 搬移",
+        "資料夾搬移",
+        "記憶系統工具",
+        "SoT 損壞",
+        "半遷移工具",
+        "sidecar 搬移"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -4,12 +4,14 @@
 local atom 物理落 `_AIDocs/_atoms/<domain>/`，但**索引仍 global、Scope 仍 global**
 （realm 與 scope 正交；realm 由 index path 前綴推導、不存欄位、不寫 frontmatter）。
 
-為何不用 atom-move.py 的 --from/--to：
-  - atom-move 的 reconcile() 會 `is_global(target_root)==False` → 把 Scope 誤設成
-    "project"、且往 `target_root/_ATOM_INDEX.md` 寫列（但 local 的索引在
-    `memory/_atom_index.json`）。兩者皆破壞 local 的「scope=global、索引在 global」契約。
-  - 故本工具自成一格：**只搬實體檔（含 `.access.json` sidecar）+ 改 index path，Scope 不動**。
-  - 本工具為 `_AIDocs/_atoms/` index path 的**唯一寫者**（防 reconcile 誤重算翻轉 realm；計畫 R3）。
+為何不用 atom-move.py：
+  - atom-move（V5 SoT-correct 重寫後）走 JSON SoT、同根搬移保留 scope，但**刻意拒絕**
+    `_AIDocs/_atoms/` 下的 local atom（守門導回本工具）——realm 維度的 path 由本工具獨佔，
+    防兩個寫者競爭翻轉 realm。
+    （歷史：V4 殘留版 atom-move 曾把子夾誤當 root、誤設 scope=project、只改 deprecated
+    `_ATOM_INDEX.md` 不動 JSON SoT，故當年另造本工具繞過；該缺陷已於 2026-06 修復。）
+  - 本工具只搬實體檔（含 `.access.json` sidecar）+ 改 index path，Scope 一律不動（local 維持 global）。
+  - 本工具為 `_AIDocs/_atoms/` index path 的**唯一寫者**（防 realm 翻轉；計畫 R3）。
 
 為何不需 reconcile 修反向連結：
   - global→local 是**純 path 搬移**（scope 不變、slug 不變）。Related 反向連結用 **slug**
@@ -43,6 +45,9 @@ from lib.atom_locations import (  # noqa: E402
 )
 from lib.atom_io import write_index, _audit_log, _gen_audit_id  # noqa: E402
 from lib.atom_index_json import load_atom_index_json  # noqa: E402
+from lib.atom_access import (  # noqa: E402
+    access_sidecar_path, move_atom_pair, prune_empty_parents,
+)
 
 _SOURCE = "tool:atom-set-realm"
 
@@ -71,47 +76,8 @@ def _locate_md(slug: str, index_path: str) -> Optional[Path]:
     return None
 
 
-def _access_path(md: Path) -> Path:
-    """<atom>.md → <atom>.access.json（對拍 lib.atom_access._access_path）。"""
-    return md.with_suffix(".access.json")
-
-
-def _move_pair(src_md: Path, dst_md: Path) -> bool:
-    """原子性搬 .md + .access.json sidecar。sidecar 搬失敗 → rollback .md 後 raise。
-
-    回傳 sidecar 是否實際搬移（src 無 sidecar → False，非錯誤）。
-    """
-    dst_md.parent.mkdir(parents=True, exist_ok=True)
-    src_access = _access_path(src_md)
-    dst_access = _access_path(dst_md)
-    src_md.rename(dst_md)
-    if src_access.exists():
-        try:
-            src_access.rename(dst_access)
-        except OSError:
-            dst_md.rename(src_md)  # rollback：.md 先搬回，維持 .md+sidecar 同層
-            raise
-        return True
-    return False
-
-
-def _prune_empty_parents(start: Path) -> None:
-    """搬離後從 start 往上刪空目錄，止於（不含）LOCAL_ATOMS_DIR。best-effort。
-
-    深層 local atom 搬走（如 to-core）後留下的空 OS/Windows/WSL 鏈不殘留。
-    非空 rmdir 自然失敗 → 停（不動仍有 atom 的層）。
-    """
-    try:
-        cur = start.resolve()
-        stop = LOCAL_ATOMS_DIR.resolve()
-    except OSError:
-        return
-    while cur != stop and stop in cur.parents:
-        try:
-            cur.rmdir()  # 僅當空才成功
-        except OSError:
-            break
-        cur = cur.parent
+# sidecar-aware 原子搬移 helper 已上移到 lib.atom_access（atom-move / atom-set-realm 共用單一來源）：
+#   access_sidecar_path / move_atom_pair / prune_empty_parents（行為不變，prune 的 stop 改顯式傳 LOCAL_ATOMS_DIR）
 
 
 def _read_scope(md: Path) -> str:
@@ -181,12 +147,12 @@ def set_realm(
             "from": cur_path, "to": new_rel,
             "from_realm": "local" if cur_is_local else "core", "to_realm": new_realm,
             "scope": scope, "scope_field": cur_scope_field,
-            "sidecar": _access_path(src_md).exists(),
+            "sidecar": access_sidecar_path(src_md).exists(),
         }
 
     # 1) 實體檔 + sidecar 原子搬
     try:
-        sidecar_moved = _move_pair(src_md, dst_md)
+        sidecar_moved = move_atom_pair(src_md, dst_md)
     except OSError as e:
         return {"ok": False, "error": f"move failed: {e}"}
 
@@ -197,7 +163,7 @@ def set_realm(
         try:
             dst_md.rename(src_md)
             if sidecar_moved:
-                _access_path(dst_md).rename(_access_path(src_md))
+                access_sidecar_path(dst_md).rename(access_sidecar_path(src_md))
         except OSError:
             pass
         return {"ok": False, "error": f"index update failed: {res.error}"}
@@ -214,7 +180,7 @@ def set_realm(
 
     # 4) 搬離 local 子夾後清空的階層目錄（best-effort，止於 LOCAL_ATOMS_DIR）
     if cur_is_local:
-        _prune_empty_parents(src_md.parent)
+        prune_empty_parents(src_md.parent, LOCAL_ATOMS_DIR)
 
     return {
         "ok": True, "slug": slug, "from": cur_path, "to": new_rel,

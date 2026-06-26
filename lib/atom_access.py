@@ -101,6 +101,60 @@ def _access_path(atom_path: Path) -> Path:
     return atom_path.with_suffix(".access.json")
 
 
+# ─── Sidecar-aware 原子搬移 helper（atom-move / atom-set-realm 共用單一來源）─────
+#
+# 搬 atom 實體 .md 時必須連 .access.json sidecar 一起搬，否則
+# read_hits/confirmations/usefulness(α,β) 計數變孤兒、晉升歷史飄移。
+# 本組為 public，純動實體檔（不碰 index、不寫 audit）；index 更新與 audit 由呼叫端負責。
+
+
+def access_sidecar_path(atom_md: Path) -> Path:
+    """<atom>.md → <atom>.access.json（public 版 _access_path，供搬移工具定位 sidecar）。"""
+    return _access_path(atom_md)
+
+
+def move_atom_pair(src_md: Path, dst_md: Path) -> bool:
+    """原子性搬 .md + .access.json sidecar。sidecar 搬失敗 → rollback .md 後 raise。
+
+    回傳 sidecar 是否實際搬移（src 無 sidecar → False，非錯誤）。
+    先搬 .md、再搬 sidecar；sidecar rename 失敗則把 .md 搬回原處再 raise，
+    確保 .md 與 sidecar 永不分離（計數歸零的防線）。
+    """
+    dst_md = Path(dst_md)
+    src_md = Path(src_md)
+    dst_md.parent.mkdir(parents=True, exist_ok=True)
+    src_access = _access_path(src_md)
+    dst_access = _access_path(dst_md)
+    src_md.rename(dst_md)
+    if src_access.exists():
+        try:
+            src_access.rename(dst_access)
+        except OSError:
+            dst_md.rename(src_md)  # rollback：.md 先搬回，維持 .md+sidecar 同層
+            raise
+        return True
+    return False
+
+
+def prune_empty_parents(start: Path, stop: Path) -> None:
+    """搬離後從 start 往上刪空目錄，止於（不含）stop。best-effort。
+
+    深層子夾的 atom 搬走後留下的空目錄鏈不殘留；非空 rmdir 自然失敗 → 停
+    （不動仍有檔的層）。stop 與其外層永不刪（守住 memory-root / 索引根）。
+    """
+    try:
+        cur = Path(start).resolve()
+        stop_resolved = Path(stop).resolve()
+    except OSError:
+        return
+    while cur != stop_resolved and stop_resolved in cur.parents:
+        try:
+            cur.rmdir()  # 僅當空才成功
+        except OSError:
+            break
+        cur = cur.parent
+
+
 def _today_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 

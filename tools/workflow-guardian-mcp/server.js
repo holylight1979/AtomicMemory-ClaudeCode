@@ -527,19 +527,18 @@ const TOOL_DEFINITIONS = [
   {
     name: "atom_move",
     description:
-      "Atomic atom move/reconcile across memory layers. " +
-      "subcommand='move' moves atom from --from to --to (both memory-root dirs) and syncs _ATOM_INDEX/MEMORY.md/inbound refs. " +
-      "subcommand='reconcile' assumes atom already lives at --at and cleans stale state elsewhere. " +
-      "Enforces layering: down-refs (global→project) removed automatically, up-refs (project→global) kept, " +
-      "sibling cross-project refs reported as warnings. Use dry_run=true to preview.",
+      "V5 SoT-correct atom move/reconcile. Updates the single central _atom_index.json (via upsert/delete) and moves the .access.json sidecar with the .md; the _ATOM_INDEX.md mirror is auto-regenerated — it does NOT hand-edit per-folder indexes. " +
+      "subcommand='move' relocates an atom to --to (a memory-root OR a subfolder under one — index root is auto-detected, scope preserved on same-root folder moves). " +
+      "subcommand='reconcile' assumes the atom was manually moved to --at and fixes its index path + cross-layer refs. " +
+      "Refuses atoms under _AIDocs/_atoms/ (use atom-set-realm) or _AIDocs/Failures/ (title-routed). Cross-root layering: down-refs (global→project) removed, up-refs kept, sibling refs warned. Self-validates via validate_index. Use dry_run=true to preview.",
     inputSchema: {
       type: "object",
       properties: {
-        subcommand: { type: "string", enum: ["move", "reconcile"], description: "move=full mv + sync; reconcile=sync only (atom already at target)" },
+        subcommand: { type: "string", enum: ["move", "reconcile"], description: "move=mv + sync JSON SoT + sidecar; reconcile=sync only (atom already at target)" },
         atom: { type: "string", description: "Atom slug (filename without .md)" },
-        from: { type: "string", description: "Source memory root dir (required for move)" },
-        to: { type: "string", description: "Target memory root dir (required for move)" },
-        at: { type: "string", description: "Current memory root where atom lives (required for reconcile)" },
+        from: { type: "string", description: "Source dir — atom located via index/slug; index root auto-detected by walking up (required for move)" },
+        to: { type: "string", description: "Target folder — a memory-root or any subfolder under one (required for move)" },
+        at: { type: "string", description: "Dir at/under the memory-root where the atom now lives (required for reconcile)" },
         dry_run: { type: "boolean", description: "Preview without applying changes" },
       },
       required: ["subcommand", "atom"],
