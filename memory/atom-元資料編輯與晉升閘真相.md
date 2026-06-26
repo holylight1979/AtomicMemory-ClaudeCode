@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: edit_metadata, atom 元資料編輯, atom_edit_meta, trigger 裁減, 改 trigger, atom 晉升, ReadHits, usefulness, 晉升閘, access.json, sidecar, 行尾損壞
 - Created-at: 2026-06-02
-- Related: feedback-tooling-reliability, memory-pipeline-silent-failure-2026-05, atom-usefulness-loop, feedback-memory-system-doc-sync
+- Related: feedback-tooling-reliability, memory-pipeline-silent-failure-2026-05, atom-usefulness-loop, feedback-memory-system-doc-sync, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值
 
 ## 知識
 

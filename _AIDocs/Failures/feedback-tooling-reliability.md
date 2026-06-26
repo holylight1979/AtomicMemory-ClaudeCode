@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: codex, codex companion, codex CLI, gpt-5, bg subprocess, DEVNULL, ready flag, subprocess Popen, MCP, 安裝 MCP, 安裝 skill, silent failure, probe burst, 規則唯一來源
 - Created-at: 2026-05-26
-- Related: feedback-completion-gates, feedback-memory-structure, feedback-workflow-discipline, atom-table-support, cc-能力查證反編譯實跑-binary, codex-log-bloat-analytics, atom-元資料編輯與晉升閘真相, guardian-dashboard-孤兒佔埠與新碼重啟, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags
+- Related: feedback-completion-gates, feedback-memory-structure, feedback-workflow-discipline, atom-table-support, cc-能力查證反編譯實跑-binary, codex-log-bloat-analytics, atom-元資料編輯與晉升閘真相, guardian-dashboard-孤兒佔埠與新碼重啟, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值
 
 ## 知識
 
