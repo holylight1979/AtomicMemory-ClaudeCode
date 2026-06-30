@@ -47,7 +47,7 @@ MEMORY_DIR = Path.home() / ".claude" / "memory"
 CLAUDE_ROOT = MEMORY_DIR.parent
 
 EXCLUDED_DIR_PARTS = {"_reference", "_archived", "_pending_review", "_staging",
-                      "templates", "wisdom", "_drafts", "episodic"}
+                      "templates", "wisdom", "_drafts", "episodic", "_distant"}
 EXCLUDED_FILE_NAMES = {"MEMORY.md", "_ATOM_INDEX.md"}
 
 TRIGGER_LINE_RE = re.compile(r"^- Trigger:\s*(.+)$", re.MULTILINE)
