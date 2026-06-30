@@ -1080,6 +1080,26 @@
         "sync-atom-index"
       ],
       "scope": "global"
+    },
+    {
+      "name": "dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版",
+      "path": "_AIDocs/_atoms/MemDev/dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版.md",
+      "triggers": [
+        "dedup",
+        "去蕪",
+        "DedupStage",
+        "draft",
+        "草稿",
+        "_drafts",
+        "截斷",
+        "truncate",
+        "soft-delete",
+        "牢籠",
+        "taxonomy",
+        "近重複",
+        "sweep"
+      ],
+      "scope": "global"
     }
   ]
 }
