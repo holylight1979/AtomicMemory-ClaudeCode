@@ -36,19 +36,26 @@ from handlers._shared import (
 
 
 def _dedup_sweep_core() -> dict:
-    """SessionEnd 去蕪 sweep（core _drafts 牢籠；可逆 soft-delete，SoT §3）。
+    """SessionEnd 去蕪 sweep + 過期 trash 硬刪（core _drafts 牢籠；SoT §3）。
 
-    env=core → 只清截斷碎片、不去重（碎片吸收）。非阻塞 file-lock 拿不到即 skip。
-    全 soft-delete（_drafts/_trash + 14 天閘 + /refile 救回）；**失敗絕不影響 SessionEnd**
-    （fail-soft：吞例外 + log）。回 sweep 報告 dict（失敗回 {'status': 'error'}）。
+    ① sweep_drafts(env=core)：只清截斷碎片、不去重（碎片吸收），非阻塞 file-lock 拿不到即 skip，
+       全 soft-delete（_drafts/_trash + sidecar，可逆 + /refile 救回）。
+    ② purge_expired_trash：硬刪 trash 內 deleted_at 逾 14 天者（**唯一硬刪路徑**，14 天內恆可救回）。
+    **失敗絕不影響 SessionEnd**（fail-soft：吞例外 + log）。回報告 dict（失敗回 {'status': 'error'}）。
     """
     try:
-        from lib.dedup_stage import sweep_drafts
+        from lib.dedup_stage import sweep_drafts, purge_expired_trash
         core_mem = CLAUDE_DIR / "memory"
-        rep = sweep_drafts(core_mem / "_drafts", core_mem, env="core")
+        drafts_root = core_mem / "_drafts"
+        rep = sweep_drafts(drafts_root, core_mem, env="core")
         if rep.get("truncated"):
             print(f"[dedup] soft-deleted {len(rep['truncated'])} truncated "
                   f"draft(s) → _drafts/_trash (status={rep['status']})", file=sys.stderr)
+        purged = purge_expired_trash(drafts_root)   # 14 天閘：逾期 trash 硬刪（唯一硬刪）
+        if purged:
+            print(f"[dedup] purged {len(purged)} expired trash item(s) (>14d, 已過救回窗)",
+                  file=sys.stderr)
+        rep["purged"] = len(purged)
         return rep
     except Exception as e:
         _atom_debug_error("session_end:dedup_sweep", e)

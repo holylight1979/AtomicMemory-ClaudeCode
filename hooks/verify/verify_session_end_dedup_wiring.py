@@ -10,6 +10,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 HOOKS_DIR = Path(__file__).resolve().parent.parent   # hooks/verify/ → hooks/
 CLAUDE = HOOKS_DIR.parent                             # → ~/.claude
 for _p in (str(CLAUDE), str(HOOKS_DIR), str(CLAUDE / "lib")):
@@ -18,6 +20,12 @@ for _p in (str(CLAUDE), str(HOOKS_DIR), str(CLAUDE / "lib")):
 
 import handlers.session_end as se  # noqa: E402
 import lib.dedup_stage as ds  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _noop_purge(monkeypatch):
+    """預設讓 purge_expired_trash no-op，避免任何測試誤刪真實 _trash（個別測試可 override 為 spy）。"""
+    monkeypatch.setattr(ds, "purge_expired_trash", lambda *a, **k: [])
 
 
 # ── ① 接線存在：handler 主體真的呼叫 helper（非死碼）────────────────────────
@@ -66,4 +74,37 @@ def test_helper_fail_soft_on_import_error(monkeypatch):
     """連 sweep_drafts 都拿不到（import 失敗）也得 fail-soft。"""
     monkeypatch.delattr(ds, "sweep_drafts", raising=False)
     rep = se._dedup_sweep_core()       # from-import 取不到屬性 → ImportError → 吞
+    assert rep == {"status": "error"}
+
+
+# ── ④ 14 天閘接線：helper 呼 purge_expired_trash（唯一硬刪路徑）────────────────
+def test_helper_calls_purge_on_core_drafts(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(ds, "sweep_drafts",
+                        lambda dr, md, *, env, **kw: {"status": "ok", "truncated": []})
+    monkeypatch.setattr(ds, "purge_expired_trash",
+                        lambda dr, **kw: captured.update(dr=Path(dr)) or [])
+    se._dedup_sweep_core()
+    assert captured["dr"] == (CLAUDE / "memory" / "_drafts")   # 對 core _drafts 跑 14 天閘
+
+
+def test_report_includes_purged_count(monkeypatch):
+    monkeypatch.setattr(ds, "sweep_drafts",
+                        lambda dr, md, *, env, **kw: {"status": "ok", "truncated": []})
+    monkeypatch.setattr(ds, "purge_expired_trash",
+                        lambda dr, **kw: ["expired-a.md", "expired-b.md"])  # 假裝硬刪 2 筆
+    rep = se._dedup_sweep_core()
+    assert rep["purged"] == 2
+
+
+def test_helper_fail_soft_on_purge_error(monkeypatch):
+    """purge 出錯也 fail-soft（14 天閘硬刪炸了，SessionEnd 仍不被弄垮）。"""
+    monkeypatch.setattr(ds, "sweep_drafts",
+                        lambda dr, md, *, env, **kw: {"status": "ok", "truncated": []})
+
+    def boom(*a, **k):
+        raise RuntimeError("purge 內爆")
+
+    monkeypatch.setattr(ds, "purge_expired_trash", boom)
+    rep = se._dedup_sweep_core()
     assert rep == {"status": "error"}
