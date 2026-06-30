@@ -35,6 +35,26 @@ from handlers._shared import (
 )
 
 
+def _dedup_sweep_core() -> dict:
+    """SessionEnd 去蕪 sweep（core _drafts 牢籠；可逆 soft-delete，SoT §3）。
+
+    env=core → 只清截斷碎片、不去重（碎片吸收）。非阻塞 file-lock 拿不到即 skip。
+    全 soft-delete（_drafts/_trash + 14 天閘 + /refile 救回）；**失敗絕不影響 SessionEnd**
+    （fail-soft：吞例外 + log）。回 sweep 報告 dict（失敗回 {'status': 'error'}）。
+    """
+    try:
+        from lib.dedup_stage import sweep_drafts
+        core_mem = CLAUDE_DIR / "memory"
+        rep = sweep_drafts(core_mem / "_drafts", core_mem, env="core")
+        if rep.get("truncated"):
+            print(f"[dedup] soft-deleted {len(rep['truncated'])} truncated "
+                  f"draft(s) → _drafts/_trash (status={rep['status']})", file=sys.stderr)
+        return rep
+    except Exception as e:
+        _atom_debug_error("session_end:dedup_sweep", e)
+        return {"status": "error"}
+
+
 def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -259,6 +279,8 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
             print(f"[v2.6] Review marker saved (total={total})", file=sys.stderr)
         except Exception as e:
             print(f"[v2.6] Review marker save error: {e}", file=sys.stderr)
+
+    _dedup_sweep_core()   # core _drafts 去蕪（fail-soft，見 helper docstring）
 
     write_state(session_id, state)
 
