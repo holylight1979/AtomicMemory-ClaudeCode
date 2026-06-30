@@ -528,6 +528,14 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
     except OSError:
         pass
 
+    # V5+: atom 實體可居子目錄（專案 shared/<domain>/）或跨層（_AIDocs/Failures、_atoms/）。
+    # actual_files 走扁平 iterdir() → 子目錄 atom 不在其中，index→file 存在性會誤報
+    # 「索引指向不存在的檔案」。補一份遞迴 stem 集作 fallback（委派 iter_atom_files：
+    # global=memory+Failures+_atoms，非 global=rglob 單根，與其餘掃描同源）。
+    # 僅用於 index→file 存在性；file→index 方向仍用扁平 actual_files，避免子目錄
+    # auto-capture atom 全被誤報「未在索引中列出」的洪水。
+    tree_stems: Set[str] = {p.stem for p in iter_atom_files(memory_dir)}
+
     # Check index → file
     indexed_files: Set[str] = set()
     for entry in index_entries:
@@ -552,7 +560,8 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
         indexed_files.add(file_name)
 
         full_path = memory_dir / file_name
-        if not full_path.exists():
+        entry_stem = file_name[:-3] if file_name.endswith(".md") else file_name
+        if not full_path.exists() and entry_stem not in tree_stems:
             # Try relative to parent of memory_dir
             alt_path = memory_dir.parent / entry.path
             # V5+: feedback-* / cognitive-patterns 居 _AIDocs/Failures/

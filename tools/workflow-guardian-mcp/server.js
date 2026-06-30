@@ -1844,8 +1844,10 @@ async function toolAtomPromote(id, args) {
     .replace(/^- Confidence:\s*.+$/m, `- Confidence: ${next}`);
 
   // Also update individual knowledge lines: [臨] → [觀] etc.
+  // NB: .replace() 已把 [ ] 跳脫成 \[ \]，模板前綴只需「- 」一個空白；
+  //     若再多寫 `\\` 前綴會產出 `- \\[X\]`（字元類未閉合 → Unterminated character class）。
   const finalContent = updated.replace(
-    new RegExp(`- \\${meta.confidence.replace(/[[\]]/g, "\\$&")}`, "g"),
+    new RegExp(`- ${meta.confidence.replace(/[[\]]/g, "\\$&")}`, "g"),
     `- ${next}`
   );
 

@@ -27,7 +27,7 @@ from pathlib import Path
 # Single source of truth (S1.2): lib/atom_spec.py
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_spec import is_atom_file, REQUIRED_METADATA  # noqa: E402
-from lib.atom_locations import iter_atom_files_multi  # noqa: E402
+from lib.atom_locations import iter_atom_files_multi, atom_search_roots  # noqa: E402
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 from lib.atom_access import read_access  # noqa: E402  Wave 2：計數欄已搬 sidecar <atom>.access.json
 
@@ -639,8 +639,12 @@ def main():
     # scanning global, since MEMORY_ROOT will be global and project not in extras).
     try:
         if MEMORY_ROOT.resolve() != GLOBAL_MEMORY_ROOT.resolve():
-            if GLOBAL_MEMORY_ROOT.is_dir():
-                EXTRA_SCAN_ROOTS = [GLOBAL_MEMORY_ROOT]
+            # V5+: 全域 atom 不只居 memory/，亦含 _AIDocs/Failures/（feedback-* / cognitive-
+            # patterns）與 _AIDocs/_atoms/（local realm，可深層子目錄如 Tools/.../dotnet/）。
+            # 原本只放 global memory → 專案 atom 對這些他層 atom 的 up-ref 全被誤報 broken。
+            # 改用 atom_search_roots() 涵蓋三根，與 find_atoms 全域掃描範圍對齊；
+            # 真正不存在的 ref（任一根都找不到）仍正確回報。
+            EXTRA_SCAN_ROOTS = [r for r in atom_search_roots() if r.is_dir()]
     except OSError:
         pass
 
