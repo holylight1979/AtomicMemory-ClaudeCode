@@ -350,6 +350,28 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             f"Global: {len(g_names)} atoms. Project: {len(p_names)}.",
         ]
 
+        # ── 全域 index 解析 fail-loud（2026-06-30, silent-failure direction 2）──
+        # 全域 index 檔存在但解析出 0 atom = 解析失敗（_ATOM_INDEX.md 表內空行/檔
+        # 截斷等），非合法空層（全域恆有 atom）。不再 silent——log + 顯著 advisory。
+        # 專案層可合法為空，故僅檢全域。
+        try:
+            if not g_names and (
+                (MEMORY_DIR / "_atom_index.json").exists()
+                or (MEMORY_DIR / "_ATOM_INDEX.md").exists()
+                or (MEMORY_DIR / MEMORY_INDEX).exists()
+            ):
+                _atom_debug_error(
+                    "session_start:global_index_zero",
+                    RuntimeError("全域 index 檔存在但 parse_memory_index 回傳 0 atom"),
+                )
+                lines.append(
+                    "[Guardian:IndexZero] ⚠ 全域 atom index 解析出 0 筆——index 檔存在但"
+                    " parse 失敗（疑 _ATOM_INDEX.md 表內空行/格式損壞），trigger 注入將"
+                    "全失效。跑 python tools/sync-atom-index.py 重建；詳 Logs/atom-debug。"
+                )
+        except Exception as e:
+            _atom_debug_error("session_start:global_index_zero", e)
+
         # ── 索引載入後校驗（2026-06-12 總檢視 E1）─────────────────────────
         # 防 _atom_index.json 被 funnel 外改壞 → 注入鏈靜默降效（2026-05 前科
         # 同型）。廉價雙向：index→disk 存在性 + memory/ 頂層→index 漏登。

@@ -121,6 +121,13 @@ def _parse_trigger_table(text: str) -> List[AtomEntry]:
                 in_table = True
                 continue
         else:
+            # 表內容忍（2026-05 silent-failure 真因防線 direction 1）：空行 skip 不結束表
+            #（寫入端意外留空行不該 silent 掉後續 atom）；重複表頭 skip（多區塊表不誤收
+            # 表頭為 atom）。僅「非空且非 |」的真內容才視為表結束。
+            if stripped == "":
+                continue
+            if stripped.startswith("| Atom") or stripped.startswith("|Atom"):
+                continue
             if stripped.startswith("|---") or stripped.startswith("| ---"):
                 continue
             if not stripped.startswith("|"):
@@ -1136,6 +1143,12 @@ def parse_aidocs_index(project_root: Path) -> List[AiDocsEntry]:
                 in_table = True
                 continue
         else:
+            # 表內容忍（同 _parse_trigger_table，silent-failure direction 1）：空行 skip
+            # 不結束表；重複表頭 skip。僅「非空且非 |」真內容才視為表結束。
+            if stripped == "":
+                continue
+            if stripped.startswith("| #") or stripped.startswith("|#"):
+                continue
             if stripped.startswith("|---") or stripped.startswith("| ---"):
                 continue
             if not stripped.startswith("|"):
