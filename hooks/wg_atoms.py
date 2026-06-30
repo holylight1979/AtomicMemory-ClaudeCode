@@ -1598,6 +1598,30 @@ def _is_unconfirmed_autocapture(entry: Dict[str, Any]) -> bool:
     return author == "auto-captured" and conf == "[臨]"
 
 
+def _autocapture_unconfirmed_from_text(text: str) -> bool:
+    """body 全文判『未確認 auto-capture 碎片』（晉升掃描面用，零額外 file I/O）。
+
+    規則與 _is_unconfirmed_autocapture **同一條**，只是輸入適配器不同（index entry vs 已載入
+    body 全文）：① `- Trigger:` 行含 'auto-capture'（index triggers 即由此行建，已實證 byte-mirror
+    → 等價）；② Author==auto-captured 且 Confidence==[臨]。兩者皆 catch 未經人確認的 [臨] 萃取碎片。
+    改動判定規則時兩函式須同步（adapter 並存、規則單源）。
+    """
+    trig = author = conf = ""
+    for line in text.splitlines():
+        s = line.strip()
+        if not trig and s.startswith("- Trigger:"):
+            trig = s.split(":", 1)[1].lower()
+        elif not author and s.startswith("- Author:"):
+            author = s.split(":", 1)[1].strip().lower()
+        elif not conf and s.startswith("- Confidence:"):
+            conf = s.split(":", 1)[1].strip()
+        if trig and author and conf:
+            break
+    if "auto-capture" in trig:
+        return True
+    return author == "auto-captured" and conf == "[臨]"
+
+
 def _trigger_sync_memory_index() -> None:
     """搬移後 fire-and-forget 重產 MEMORY.md / _local_catalog.md / per-level _INDEX.md。
 
@@ -1946,7 +1970,13 @@ def _self_iterate_atoms(
                 acc, promote_lb=promote_lb, min_n=min_n, z=wilson_z)
         )
         promote_method = "confirmations" if confirmations >= promote_conf_threshold else "usefulness"
-        if confirmations >= promote_conf_threshold or util_eligible:
+        # INV-PROMOTION-GATE-ON-SCAN-FACE：未確認 auto-capture 碎片不得自動晉升（與 realm sweep
+        # 路徑 _sweep_realm_auto_migrate:1768 同源規則：碎片是未經人確認的 [臨] 萃取，confirmations
+        # 達標也不算數，待人工確認/晉升後才算）。斷『佔位符碎片被當穩定 atom 自動晉升』漏洞——
+        # 該過濾原僅在 realm sweep，晉升掃描面缺，故碎片曾被算晉升。手動 atom_promote（js）為
+        # 人工確認路徑、不受此限。
+        if (confirmations >= promote_conf_threshold or util_eligible) \
+                and not _autocapture_unconfirmed_from_text(text):
             lines = text.split("\n")
             promoted_in_file = []
             changed = False
