@@ -21,6 +21,7 @@
 - [臨] 為何專案層更常中招：atom_write 預設 scope=shared→寫專案層索引；跨層 atom_move/reconcile 會重寫兩層索引（本 session move linemate 即觸發 working-copy 重寫）。寫入頻繁 + 較新 → 更高機率被插入空行 → 該專案 atom 全不注入。
 - [臨] 預防方向（需動 hook+MCP，待另 session）：(1) 讓 parser 容忍空行（遇空行 skip 不 break，或改成掃全文 | ... | row regex），同步改 wg_atoms.py + sync-*.py；(2) SessionStart 加 fail-loud：某層 _ATOM_INDEX 存在但 parse 出 0 atoms → 警告（現在 silent）；(3) 寫入後跡 sync-atom-index --check gate。
 - [臨] **簽章更新（2026-06-12）**：「confirmations 零增」項已過時——Phase 2 usefulness Wilson 接管晉升後 confirmations 恆 0 屬正常（詳 [[confirmations-已退役-phase2-usefulness-接管晉升]]）。現行有效活性指標：useful_hits/used_fail 增長 + _meta/atom_io_audit.jsonl 追加 + episodic 檔日期。勿再拿 confirmations=0 誤報失效。
+- [臨] **複驗更新（2026-06-30 /memory review）**：①「episodic 停擺於 20260506／16 天斷層」已過時——實證兩層皆持續產出至 2026-06-30（project …0626/0629/0630；global …0625/0626/0630），震盪/覆轍偵測不再因 episodic 失明。② confirmations 計數（architecture 76、client-il 48 等）為退役前**凍結歷史值**，`confirmation_events` 已空、無 live 增量，與上條「已退役」一致（**非「修復」**）；現行活性指標 useful_hits/used_fail/read_hits 正常增長。③ 仍待修：line 22 的 _ATOM_INDEX 空行 parser 脆弱（wg_atoms._parse_trigger_table）與同族 memory-audit.py metadata parser 遇空行 break，待 ~/.claude session 一併治本。
 
 ## 行動
 
