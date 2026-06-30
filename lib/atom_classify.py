@@ -40,3 +40,22 @@ def taxonomy_term_pairs(domains: Dict[str, Dict]) -> List[Tuple[str, str]]:
     return [(term, dom)
             for dom, spec in domains.items()
             for term in spec.get("terms", [])]
+
+
+def classify_taxonomy(name, triggers, taxonomy: Dict) -> Tuple[str, List[str]]:
+    """project taxonomy 分類（drop-in 取代 classify-project-atoms.py::classify）。
+
+    回 (domain, matched_terms)。決策語意（override 優先 / 無命中落 default_domain /
+    priority+宣告序 tiebreak）為 TaxonomyStrategy；計分走共用 score_by_lexicon。
+    byte-equal verified 對 SGI 全 atom（verify_atom_classify.py）。
+    """
+    overrides: Dict[str, str] = taxonomy.get("overrides", {})
+    if name in overrides:
+        return overrides[name], ["<override>"]
+    domains: Dict[str, Dict] = taxonomy.get("domains", {})
+    scores, matched_by = score_by_lexicon(name, triggers, taxonomy_term_pairs(domains))
+    if not scores:
+        return (taxonomy.get("default_domain") or "_unclassified"), []
+    order = list(domains.keys())
+    best = max(scores, key=lambda d: (scores[d], int(domains[d].get("priority", 0)), -order.index(d)))
+    return best, matched_by.get(best, [])

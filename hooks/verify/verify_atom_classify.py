@@ -18,7 +18,7 @@ CLAUDE = VERIFY_DIR.parent.parent
 if str(CLAUDE) not in sys.path:
     sys.path.insert(0, str(CLAUDE))
 
-from lib.atom_classify import score_by_lexicon, taxonomy_term_pairs  # noqa: E402
+from lib.atom_classify import score_by_lexicon, taxonomy_term_pairs, classify_taxonomy  # noqa: E402
 from lib import atom_locations as AL  # noqa: E402
 from lib.atom_locations import classify_realm  # noqa: E402
 
@@ -103,18 +103,6 @@ def _ref_classify(name, triggers, taxonomy):
     return best_dom
 
 
-def reconstruct_taxonomy(name, triggers, taxonomy):
-    overrides = taxonomy.get("overrides", {})
-    if name in overrides:
-        return overrides[name]
-    domains = taxonomy.get("domains", {})
-    scores, _ = score_by_lexicon(name, triggers, taxonomy_term_pairs(domains), name_w=10, trig_w=1)
-    if not scores:
-        return taxonomy.get("default_domain") or "_unclassified"
-    order = list(domains.keys())
-    return max(scores, key=lambda d: (scores[d], int(domains[d].get("priority", 0)), -order.index(d)))
-
-
 SGI = Path("C:/Projects/.claude")
 
 
@@ -127,7 +115,7 @@ def test_taxonomy_byte_equal_all_sgi_atoms():
         if "/shared/" not in (a.get("path") or "").replace("\\", "/"):
             continue
         name, trig = a["name"], a.get("triggers", [])
-        e, g = _ref_classify(name, trig, tax), reconstruct_taxonomy(name, trig, tax)
+        e, g = _ref_classify(name, trig, tax), classify_taxonomy(name, trig, tax)[0]
         checked += 1
         if e != g:
             bad.append((name, e, g))
