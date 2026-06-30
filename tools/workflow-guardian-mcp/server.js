@@ -94,6 +94,9 @@ const LOCAL_REALM_CORE_PROTECTED_EXACT = new Set([
   "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
   "自己flag的維護動作直接做完不要反問",  // 跨專案行為規則,LLM sweep 三度誤搬 local→硬擋(2026-06-24)
   "記憶汙染與上下文腐化-注入萃取自檢",  // 跨專案 governance atom,談記憶術語易誤判 local→硬擋(2026-06-24)
+  // 跨專案 meta-cognitive atom（驗證紀律 / escalation 誤判辨識）：2026-06-30 sweep 誤降 local→硬擋
+  "品質完整性判定須讀完整內容-勿從截斷採樣斷言",
+  "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
 ]);
 const LOCAL_REALM_LEXICON = {
   "腦內世界": "World", "world.html": "World", "reconcile-render": "World",

@@ -91,6 +91,11 @@ LOCAL_REALM_CORE_PROTECTED_EXACT = frozenset({
     # 跨專案行為 atom：談記憶系統術語(注入/萃取/context)易被 LLM 誤判 local，但必須 core
     # 跨專案注入（痛點在 ~/.claude 外大專案）。2026-06-24 被 sweep 移走一次，硬擋防再犯。
     "記憶汙染與上下文腐化-注入萃取自檢",
+    # 跨專案 meta-cognitive atom（驗證紀律 / escalation 誤判辨識，與 cognitive-patterns 同 family）：
+    # 2026-06-30 realm sweep LLM fallback 把這兩顆從 core 誤降 local（外部專案因此注入不到）→ 硬擋防再降。
+    # MIRROR: server.js:LOCAL_REALM_CORE_PROTECTED_EXACT — keep in sync。
+    "品質完整性判定須讀完整內容-勿從截斷採樣斷言",
+    "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
 })
 
 # 實例專屬詞庫（lowercase 子字串比對）：term → domain。命中任一 → local。
@@ -591,6 +596,9 @@ _LEXICON_GENERIC_TOKENS = frozenset({
     "部署", "設定", "開發", "完成", "收尾", "同步", "索引", "文件",
     "記憶", "記憶系統", "工作流", "規劃", "升級", "安裝", "錯誤", "上git",
     "可驗證目標", "成功標準", "驗證目標",  # 2026-06-12 二度污染實案（goal-driven 再誤降）
+    # 2026-06-30 sweep 漏網（品質完整性判定 atom 被誤降時學進詞庫的概念詞）：品質/驗證/紀錄/取樣類
+    # 概念維度詞，非實例專屬——命中會把任何提及它們的 atom 誤拉進 MemDev（詞庫自我強化污染）。
+    "excerpt", "post", "mortem", "截斷", "品質判定", "源根驗證", "取樣", "採樣",
 })
 _LEXICON_TOKEN_SPLIT_RE = re.compile(r"[\s\-_/]+")
 
