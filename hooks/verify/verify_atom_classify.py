@@ -18,18 +18,32 @@ CLAUDE = VERIFY_DIR.parent.parent
 if str(CLAUDE) not in sys.path:
     sys.path.insert(0, str(CLAUDE))
 
-from lib.atom_classify import score_by_lexicon, taxonomy_term_pairs, classify_taxonomy  # noqa: E402
+from lib.atom_classify import classify_taxonomy  # noqa: E402
 from lib import atom_locations as AL  # noqa: E402
 from lib.atom_locations import classify_realm  # noqa: E402
 
 
-# ─── realm 重建（決策語意複刻 classify_realm，計分走核心）──────────────────
+# ─── realm 重建（hand-rolled 獨立 oracle，**不**呼 score_by_lexicon）──────────
 def reconstruct_realm(name, triggers):
+    """重構前 classify_realm 的內聯計分逐行手寫複刻——刻意**不**依賴 lib.atom_classify。
+
+    classify_realm 已重構為委派 score_by_lexicon；本獨立實作維持 byte-equal 對拍的真
+    oracle：證『realm 計分鏈在「退核心」重構前後零行為改變』。任一端輸出漂移即被逮，
+    避免 production 與 oracle 同走 score_by_lexicon 導致對拍退化為恆等式。
+    """
     nm = (name or "").strip().lower()
     if nm in AL.LOCAL_REALM_CORE_PROTECTED_EXACT or nm.startswith(AL.LOCAL_REALM_CORE_PROTECTED_PREFIXES):
         return {"realm": "core", "domain": None, "protected": True}
-    scores, _ = score_by_lexicon(name, triggers, list(AL.LOCAL_REALM_LEXICON.items()),
-                                 name_w=AL.LOCAL_REALM_NAME_WEIGHT, trig_w=AL.LOCAL_REALM_TRIGGER_WEIGHT)
+    trig_blob = " ".join((t or "").lower() for t in (triggers or []))
+    scores = {}
+    for term, dom in AL.LOCAL_REALM_LEXICON.items():
+        hit = 0
+        if term in nm:
+            hit += AL.LOCAL_REALM_NAME_WEIGHT
+        if term in trig_blob:
+            hit += AL.LOCAL_REALM_TRIGGER_WEIGHT
+        if hit:
+            scores[dom] = scores.get(dom, 0) + hit
     if not scores:
         return {"realm": "core", "domain": None, "protected": False}
     best = max(sorted(scores), key=lambda d: scores[d])

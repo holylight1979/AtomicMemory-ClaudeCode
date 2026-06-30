@@ -22,6 +22,16 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+# score_by_lexicon：統一計分核心（lib.atom_classify）。realm 端不再手刻累分骨架，
+# 與 project taxonomy 共用單一計分來源（INV-LOGIC-SINGLE-PY-SOURCE）。決策語意
+# （無命中=留 core / sorted-domain tiebreak / 段字元集 guard）仍由本檔的 RealmStrategy 詮釋。
+# dual-safe import：容 `lib.atom_locations`（相對）與 wg_core sys.path.insert 後頂層
+# `atom_locations`（絕對）兩種載入路徑；atom_classify 為 leaf（不 import 本模組）→ 無 cycle。
+try:
+    from .atom_classify import score_by_lexicon
+except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+    from atom_classify import score_by_lexicon
+
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -176,20 +186,14 @@ def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
     # 1) 核心保護硬擋（先於詞庫；計畫 §Phase3「核心保護清單」/ 必驗 #1）
     if nm in LOCAL_REALM_CORE_PROTECTED_EXACT or nm.startswith(LOCAL_REALM_CORE_PROTECTED_PREFIXES):
         return {"realm": "core", "domain": None, "matched": [], "protected": True}
-    # 2) 實例詞庫掃描（base ＋ 可選 learned；name 權重 > trigger 權重，用於 domain 消歧）
+    # 2) 實例詞庫掃描（base ＋ 可選 learned）→ 委派統一計分核心 score_by_lexicon
+    #    （name 權重 > trigger 的累分骨架不再手刻；INV-LOGIC-SINGLE-PY-SOURCE）。
+    #    決策語意（無命中=留 core / sorted-domain tiebreak / 段 guard）仍為 RealmStrategy；
+    #    js classifyRealm 維持手寫 mirror（INV-...-JS-MIRROR，parity test_17）。
     lexicon = LOCAL_REALM_LEXICON if not extra_lexicon else {**LOCAL_REALM_LEXICON, **extra_lexicon}
-    trig_blob = " ".join((t or "").lower() for t in (triggers or []))
-    scores: Dict[str, int] = {}
-    matched: List[str] = []
-    for term, dom in lexicon.items():
-        hit = 0
-        if term in nm:
-            hit += LOCAL_REALM_NAME_WEIGHT
-        if term in trig_blob:
-            hit += LOCAL_REALM_TRIGGER_WEIGHT
-        if hit:
-            scores[dom] = scores.get(dom, 0) + hit
-            matched.append(term)
+    scores, matched_by = score_by_lexicon(
+        name, triggers, lexicon.items(),
+        name_w=LOCAL_REALM_NAME_WEIGHT, trig_w=LOCAL_REALM_TRIGGER_WEIGHT)
     if not scores:
         return {"realm": "core", "domain": None, "matched": [], "protected": False}
     # 平手 → 依 sorted(命中 domain) 固定序首位（base 子集與 js 對拍同序；亦容多段 learned domain）
@@ -198,9 +202,11 @@ def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
     # 韓文亂碼實案）：任一段非法 → 降 fail-safe Else。MIRROR: server.js:classifyRealm。
     if any(not _clean_segment(s) for s in best_dom.split("/") if s.strip()):
         best_dom = LOCAL_REALM_DEFAULT_DOMAIN
+    # matched 攤平回扁平去重排序集（與重構前 sorted(set(...)) byte-equal；test_17 比 matched）
+    matched = sorted({t for terms in matched_by.values() for t in terms})
     return {
         "realm": "local", "domain": best_dom,
-        "matched": sorted(set(matched)), "protected": False,
+        "matched": matched, "protected": False,
     }
 
 
