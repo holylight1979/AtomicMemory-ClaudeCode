@@ -37,3 +37,5 @@
 {"ts": "2026-06-01T15:07:48", "action": "hint", "atom": "decisions-architecture", "from": "[觀]", "to": "[固]", "readhits": 51, "session_id": "b4161da7-1253-4bde-9a1c-e69214a6bb90"}
 {"ts": "2026-06-01T15:09:09", "action": "hint", "atom": "feedback-workflow-discipline", "from": "[臨]", "to": "[觀]", "readhits": 26, "session_id": "bc1492f7-01cd-41d2-9903-ff39ada74006"}
 {"ts": "2026-06-18T18:58:10", "action": "hint", "atom": "orbit-server-是-userjoybaseserver-框架源碼非黑箱-nuget", "from": "[臨]", "to": "[觀]", "method": "usefulness", "tier": "near", "lower_bound": 0.566, "n": 5, "session_id": "497956f9-b9f0-411d-9415-de3893f70b3b"}
+{"ts": "2026-06-26T15:10:29", "action": "auto_observe", "atom": "cognitive-patterns", "items": 1, "confirmations": 38, "header_promoted": false, "method": "confirmations", "lower_bound": 0.068}
+{"ts": "2026-06-30T14:46:22", "action": "auto_observe", "atom": "cognitive-patterns", "items": 3, "confirmations": 38, "header_promoted": false, "method": "confirmations", "lower_bound": 0.227}

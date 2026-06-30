@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 未證實, 斷言, 必爆, 先證再修, proof-first, show don't tell, 從根源驗證, 對帳, 交接單, 講人話, DB 鍵, 計畫 checklist
 - Created-at: 2026-06-24
-- Related: cognitive-patterns, feedback-workflow-discipline, handoff-綜觀品質與抗失真寫法, feedback-rigor-standards, feedback-completion-gates, feedback-complexity-origin-trace
+- Related: cognitive-patterns, feedback-workflow-discipline, handoff-綜觀品質與抗失真寫法, feedback-rigor-standards, feedback-completion-gates, feedback-complexity-origin-trace, 品質完整性判定須讀完整內容-勿從截斷採樣斷言, post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用
 
 ## 知識
 

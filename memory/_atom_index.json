@@ -1059,6 +1059,27 @@
         "盲點"
       ],
       "scope": "global"
+    },
+    {
+      "name": "post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用",
+      "path": "_AIDocs/_atoms/MemDev/post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用.md",
+      "triggers": [
+        "write_raw",
+        "atom_io",
+        "VALID_SOURCES",
+        "WriteResult",
+        "ok=False",
+        "靜默失敗",
+        "未檢回傳值",
+        "funnel",
+        "fail-soft",
+        "invalid source",
+        "代理訊號",
+        "post-mortem",
+        "批次寫入驗收",
+        "sync-atom-index"
+      ],
+      "scope": "global"
     }
   ]
 }
