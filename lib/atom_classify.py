@@ -59,3 +59,20 @@ def classify_taxonomy(name, triggers, taxonomy: Dict) -> Tuple[str, List[str]]:
     order = list(domains.keys())
     best = max(scores, key=lambda d: (scores[d], int(domains[d].get("priority", 0)), -order.index(d)))
     return best, matched_by.get(best, [])
+
+
+def classify_project_atom(name, triggers, taxonomy: Dict, *, escape_protected=None):
+    """專案 atom 分類入口 = 跨 realm 逃逸閘（前置）+ classify_taxonomy（後置 pure）。
+
+    escape_protected: 可選 callable(name)->bool，**注入**核心保護判定
+    （lib.atom_locations.is_core_protected_name）。以注入而非 import 取得——atom_locations 已單向
+    import 本模組的 score_by_lexicon，反向 import 會成 cycle，故由 caller 注入。
+
+    命中逃逸閘（核心跨專案規則 atom 逃進專案）→ 回 ('_refile', ['<cross-realm-escapee>']):
+    caller 送人工 /refile、**不**歸專案業務夾（INV-CROSS-REALM-ESCAPE-HATCH）。未命中（或未注入）
+    → classify_taxonomy（taxonomy 維持 pure、protection 永 null，INV-STRATEGY-ISOLATION：逃逸閘是
+    分類『前』的正交邊界守，非 TaxonomyStrategy 內部）。回 (domain, matched_terms)。
+    """
+    if escape_protected is not None and escape_protected(name):
+        return "_refile", ["<cross-realm-escapee>"]
+    return classify_taxonomy(name, triggers, taxonomy)

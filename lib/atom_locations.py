@@ -169,6 +169,18 @@ def is_local_realm_path(rel_path: str) -> bool:
     return rel_path.startswith(LOCAL_ATOMS_REL + "/")
 
 
+def is_core_protected_name(name: str) -> bool:
+    """name 命中核心保護清單（EXACT 或 PREFIXES）⇒ 核心 atom：永不判 local、跨 realm 不歸業務夾。
+
+    **單一來源**——classify_realm 的核心保護硬擋與「跨 realm 逃逸閘」（INV-CROSS-REALM-ESCAPE-HATCH）
+    共用本判定，杜絕兩處各自維護保護清單而漂移。逃逸閘語意：專案分類遇此回 True ⇒ 該 atom 是
+    逃進專案的核心跨專案規則（decisions/workflow-/toolchain/feedback-/memory-pipeline-/atom- 前綴，
+    或 EXACT 名單），應送人工 /refile 而非歸專案業務夾。MIRROR: server.js:classifyRealm 保護硬擋。
+    """
+    nm = (name or "").strip().lower()
+    return nm in LOCAL_REALM_CORE_PROTECTED_EXACT or nm.startswith(LOCAL_REALM_CORE_PROTECTED_PREFIXES)
+
+
 def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
                    extra_lexicon: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """新 atom / drift sweep 的 realm 分類器（安全預設 core，僅高信心判 local）。
@@ -182,9 +194,8 @@ def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
     learned 值可為多段路徑（domain 因而可能是 "OS/Windows/WSL"）。
     只掃 name + triggers（不掃知識內文）。MIRROR: server.js:classifyRealm（僅 base 部分）。
     """
-    nm = (name or "").strip().lower()
-    # 1) 核心保護硬擋（先於詞庫；計畫 §Phase3「核心保護清單」/ 必驗 #1）
-    if nm in LOCAL_REALM_CORE_PROTECTED_EXACT or nm.startswith(LOCAL_REALM_CORE_PROTECTED_PREFIXES):
+    # 1) 核心保護硬擋（先於詞庫）：退用單源 is_core_protected_name，與跨 realm 逃逸閘共用、不漂移
+    if is_core_protected_name(name):
         return {"realm": "core", "domain": None, "matched": [], "protected": True}
     # 2) 實例詞庫掃描（base ＋ 可選 learned）→ 委派統一計分核心 score_by_lexicon
     #    （name 權重 > trigger 的累分骨架不再手刻；INV-LOGIC-SINGLE-PY-SOURCE）。
