@@ -7,6 +7,6 @@
 | Continuity | 2 | `_AIDocs/_atoms/Continuity/_INDEX.md` |
 | MemDev | 17 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
 | OS | 3 | `_AIDocs/_atoms/OS/_INDEX.md` |
-| Tools | 8 | `_AIDocs/_atoms/Tools/_INDEX.md` |
+| Tools | 9 | `_AIDocs/_atoms/Tools/_INDEX.md` |
 | Vision | 1 | `_AIDocs/_atoms/Vision/jarvis-企業-ai-平台發想文件指標.md` |
 | World | 4 | `_AIDocs/_atoms/World/_INDEX.md` |

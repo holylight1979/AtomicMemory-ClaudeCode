@@ -1167,6 +1167,28 @@
         "多 session"
       ],
       "scope": "global"
+    },
+    {
+      "name": "windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff",
+      "path": "_AIDocs/_atoms/Tools/windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff.md",
+      "triggers": [
+        "write_text",
+        "newline",
+        "CRLF",
+        "LF",
+        "EOL",
+        "換行",
+        "phantom diff",
+        "整檔假 diff",
+        "一位改動整檔 diff",
+        "os.linesep",
+        "檔案改寫工具",
+        "換行翻轉",
+        "marker 同步",
+        "read_text universal newline",
+        "git diff 整檔"
+      ],
+      "scope": "global"
     }
   ]
 }
