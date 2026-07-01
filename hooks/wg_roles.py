@@ -34,9 +34,15 @@ def load_management_roster(cwd: str) -> List[str]:
     return [_DEFAULT_USER]
 
 
-def is_management(cwd: str, user: str) -> bool:
-    """Single-user env: current user is always management."""
-    return user == _DEFAULT_USER or user == os.environ.get("CLAUDE_USER", "")
+def is_management(cwd: str = "", user: str = "") -> bool:
+    """單人環境無多職務治理：裁決權恆屬當前唯一使用者，此閘恆真。
+
+    誠實化（原「user 比對」在單人環境形同虛設，且暗藏 CLAUDE_USER 誤設即誤擋的假風險）。
+    參數與無參呼叫皆相容，僅為 API 相容保留——conflict-review / heal-review /
+    init-roles / session_start 仍 import。未來若回多人協作，
+    從 hooks/_v4_archive/wg_roles.py 還原雙向認證。
+    """
+    return True
 
 
 def bootstrap_personal_dir(cwd: str, user: str) -> Optional[Path]:
