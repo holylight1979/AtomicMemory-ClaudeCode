@@ -23,6 +23,8 @@ from wg_evasion import (  # noqa: E402
     is_dismiss_prompt,
     get_last_assistant_text,
     tail_lines,
+    is_core_file,
+    detect_missing_scan_report,
 )
 
 
@@ -131,6 +133,20 @@ def test_tail_lines_limits():
 ])
 def test_claims_completion(text, expected):
     assert claims_completion(text) is expected
+
+
+@pytest.mark.parametrize("text", [
+    # P4 #2: 進行式/否定修飾緊鄰完成詞 → 非真正終結宣告（實測 false-positive）
+    "完成條件尚未滿足",
+    "我總結一下但還沒做完",
+    "尚未完成",
+    "還沒做完",
+    "先確認 X 再宣告完成",
+    "細節待補",
+    "這部分還沒解決",
+])
+def test_claims_completion_excludes_incomplete_modifier(text):
+    assert claims_completion(text) is False
 
 
 def test_claims_completion_only_scans_tail():
@@ -260,3 +276,81 @@ def test_get_last_assistant_text_skips_short():
     r = get_last_assistant_text(Path(fp))
     assert len(r) >= 100
     Path(fp).unlink()
+
+
+# ─── is_core_file (P4 #1) ───────────────────────────────────────────
+
+@pytest.mark.parametrize("path, expected", [
+    (r"c:\Users\x\.claude\hooks\wg_evasion.py", True),
+    ("c:/Users/x/.claude/lib/atom_access.py", True),
+    ("c:/Users/x/.claude/tools/foo.py", True),
+    (r"c:\Users\x\.claude\rules\core.md", True),
+    (r"c:\Users\x\.claude\IDENTITY.md", True),
+    (r"c:\Users\x\.claude\USER.md", True),
+    (r"c:\Users\x\.claude\CLAUDE.md", True),
+    (r"c:\Users\x\.claude\settings.json", True),
+    (r"c:\Users\x\.claude\IDENTITY-holylight.md", True),
+    # 非 core：純內容 / 文件
+    (r"c:\Users\x\.claude\memory\foo.md", False),
+    (r"c:\proj\_AIDocs\bar.md", False),
+    (r"c:\proj\src\app.py", False),
+    ("", False),
+])
+def test_is_core_file(path, expected):
+    assert is_core_file(path) is expected
+
+
+# ─── detect_missing_scan_report (P4 #1: 降條件觸發) ──────────────────
+
+def _mf(*paths):
+    return [{"path": p, "tool": "Edit"} for p in paths]
+
+
+def test_scan_report_single_noncore_not_triggered():
+    # 純單檔 / 文件小改 → 不觸發（4.8 過度觸發修正）
+    assert detect_missing_scan_report(
+        "全部完成了", _mf(r"c:\a\.claude\memory\foo.md"), [], 2
+    ) is False
+
+
+def test_scan_report_single_core_triggered():
+    # 動 core 檔 → 觸發
+    assert detect_missing_scan_report(
+        "全部完成了", _mf(r"c:\a\.claude\hooks\x.py"), [], 2
+    ) is True
+
+
+def test_scan_report_multi_noncore_triggered():
+    # 多檔（≥min_files）→ 觸發
+    assert detect_missing_scan_report(
+        "全部完成了", _mf("a/x.md", "a/y.md"), [], 2
+    ) is True
+
+
+def test_scan_report_dupe_paths_below_min_not_triggered():
+    # 同一非 core 檔重複算一次 → unique<min → 不觸發
+    assert detect_missing_scan_report(
+        "全部完成了", _mf("a/x.md", "a/x.md"), [], 2
+    ) is False
+
+
+def test_scan_report_has_report_not_triggered():
+    assert detect_missing_scan_report(
+        "全部完成了 缺失發現：無", _mf(r"c:\a\.claude\hooks\x.py"), [], 2
+    ) is False
+
+
+def test_scan_report_no_completion_not_triggered():
+    assert detect_missing_scan_report(
+        "還在做", _mf(r"c:\a\.claude\hooks\x.py"), [], 2
+    ) is False
+
+
+def test_scan_report_dismiss_prompt_not_triggered():
+    assert detect_missing_scan_report(
+        "全部完成了", _mf(r"c:\a\.claude\hooks\x.py"), ["先這樣"], 2
+    ) is False
+
+
+def test_scan_report_empty_files_not_triggered():
+    assert detect_missing_scan_report("全部完成了", [], [], 2) is False

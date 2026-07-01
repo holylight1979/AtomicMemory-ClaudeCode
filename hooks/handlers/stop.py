@@ -328,12 +328,15 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             write_state(session_id, state)
 
     # ── Scan-Report Gate ────────────────────────────────────────
+    # P4 #1: 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
+    # 純單檔/文件小改不觸發（對 4.8 過度觸發成儀式性負擔，非防退避）。
     mod_files_all = state.get("modified_files", []) or []
     if mod_files_all and not state.get("scan_report_warned"):
         if not last_text:
             last_text = get_last_assistant_text(transcript)
         recent_prompts = state.get("recent_user_prompts", []) or []
-        if detect_missing_scan_report(last_text, len(mod_files_all), recent_prompts):
+        sr_min_files = int(config.get("min_files_to_block", 2))
+        if detect_missing_scan_report(last_text, mod_files_all, recent_prompts, sr_min_files):
             state["stop_blocked_count"] = stop_count + 1
             state["scan_report_warned"] = True
             reason = _piggyback(

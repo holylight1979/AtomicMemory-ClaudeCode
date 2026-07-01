@@ -70,6 +70,12 @@ _FALLBACK_COMPLETION_PATTERNS = [
     r"done", r"finished", r"all\s+set", r"wrapped\s+up",
     r"大功告成", r"搞定",
 ]
+# P4 #2: 進行式/否定修飾緊鄰完成詞 → 非真正終結宣告，排除（實測 false-positive）。
+_FALLBACK_COMPLETION_EXCLUDE = [
+    r"(?:還沒|還未|尚未|尚待|未|沒有?|先確認|正在)[^，。！？\n]{0,8}(?:完成|做完|解決|收尾|搞定)",
+    r"(?:完成|做完|解決|收尾|搞定)[^，。！？\n]{0,6}(?:尚未|還沒|還未|未完|沒完|未滿足|沒做完|未達|待補|待修)",
+    r"待(?:補|修|辦|處理|確認|完善)",
+]
 
 
 def _load_phrases() -> Dict[str, List[str]]:
@@ -88,12 +94,17 @@ def _load_phrases() -> Dict[str, List[str]]:
                 evasion.append(p)
     dismiss = list(data.get("dismiss_keywords", {}).get("patterns", []) or [])
     scan_report = list(data.get("scan_report_markers", {}).get("patterns", []) or [])
-    completion = list(data.get("completion_claim", {}).get("patterns", []) or [])
+    completion_claim = data.get("completion_claim", {}) or {}
+    completion = list(completion_claim.get("patterns", []) or [])
+    completion_exclude = list(
+        (completion_claim.get("exclude_patterns", {}) or {}).get("patterns", []) or []
+    )
     return {
         "evasion": evasion or _FALLBACK_EVASION_PATTERNS,
         "dismiss": dismiss or _FALLBACK_DISMISS_PATTERNS,
         "scan_report": scan_report or _FALLBACK_SCAN_REPORT_PATTERNS,
         "completion": completion or _FALLBACK_COMPLETION_PATTERNS,
+        "completion_exclude": completion_exclude or _FALLBACK_COMPLETION_EXCLUDE,
     }
 
 
@@ -109,12 +120,16 @@ _phrases = _load_phrases() or {
     "dismiss": _FALLBACK_DISMISS_PATTERNS,
     "scan_report": _FALLBACK_SCAN_REPORT_PATTERNS,
     "completion": _FALLBACK_COMPLETION_PATTERNS,
+    "completion_exclude": _FALLBACK_COMPLETION_EXCLUDE,
 }
 
 _EVASION_RE = _compile_union(_phrases["evasion"])
 _DISMISS_RE = _compile_union(_phrases["dismiss"], re.IGNORECASE)
 _SCAN_REPORT_RE = _compile_union(_phrases["scan_report"], re.IGNORECASE)
 _COMPLETION_CLAIM_RE = _compile_union(_phrases["completion"], re.IGNORECASE)
+_COMPLETION_EXCLUDE_RE = _compile_union(
+    _phrases.get("completion_exclude") or _FALLBACK_COMPLETION_EXCLUDE, re.IGNORECASE
+)
 
 
 def is_test_command(cmd: str) -> bool:
@@ -140,9 +155,18 @@ def detect_test_failure(
 
 
 def claims_completion(text: str) -> bool:
+    """終結宣告偵測。P4 #2: 命中完成詞後，若鄰近有進行式/否定修飾
+    （還沒/尚未/未…完成、完成…尚未 等）→ 非真正終結，排除。
+    偏 false-negative（少判完成→少誤阻）符合契約鬆綁方向。
+    """
     if not text:
         return False
-    return bool(_COMPLETION_CLAIM_RE.search(text[-2000:]))
+    tail = text[-2000:]
+    if not _COMPLETION_CLAIM_RE.search(tail):
+        return False
+    if _COMPLETION_EXCLUDE_RE.search(tail):
+        return False
+    return True
 
 
 def detect_evasion(text: str, recent_user_prompts: List[str]) -> Optional[Dict[str, str]]:
@@ -175,20 +199,52 @@ def has_scan_report(text: str) -> bool:
     return bool(_SCAN_REPORT_RE.search(text))
 
 
+_CORE_DIR_SEGMENTS = ("/hooks/", "/lib/", "/tools/", "/rules/")
+_ROOT_CONFIG_FILES = frozenset({
+    "claude.md", "identity.md", "user.md",
+    "settings.json", "settings.local.json",
+})
+
+
+def is_core_file(path: str) -> bool:
+    """path 是否為系統核心檔（hooks/lib/tools/rules 目錄 或 根層契約/設定檔）。
+
+    P4 #1 ScanReport gate 用：動 core 檔才要求收尾檢核。判定寬鬆偏保守
+    （寧可對 core-like 路徑要求收尾）；純內容/文件（_AIDocs、memory atom .md）
+    不落在這些目錄段，正確被排除。
+    """
+    if not path:
+        return False
+    p = path.replace("\\", "/").lower()
+    if any(seg in p for seg in _CORE_DIR_SEGMENTS):
+        return True
+    fname = p.rsplit("/", 1)[-1]
+    if fname in _ROOT_CONFIG_FILES:
+        return True
+    if fname.startswith("identity-") and fname.endswith(".md"):
+        return True
+    return False
+
+
 def detect_missing_scan_report(
     text: str,
-    modified_file_count: int,
+    modified_files: List[Dict[str, Any]],
     recent_user_prompts: List[str],
+    min_files: int = 2,
 ) -> bool:
-    """宣告完成但缺掃描報告 → 違約。
+    """宣告完成 +（動 core 檔 或 動 ≥min_files 檔）+ 缺收尾檢核 → 違約。
+
+    P4 #1: 從「任一 modified 檔即要求」降為條件觸發——純單檔/文件小改不觸發。
+    對 4.8 過度觸發成儀式性負擔，非防退避；只在動系統核心（hooks/lib/tools/
+    rules/根層契約設定）或多檔批量時才要求收尾檢核。
 
     觸發條件（全部成立）：
-      1. text 含完成宣告詞
-      2. modified_file_count > 0（有實際動工才要求掃描）
+      1. text 含完成宣告詞（claims_completion）
+      2. modified_files 觸及 core 檔，或 unique 檔數 ≥ min_files
       3. text 不含任何 _SCAN_REPORT_RE 標記
       4. 近 3 則 user prompt 無豁免關鍵字
     """
-    if not text or modified_file_count <= 0:
+    if not text or not modified_files:
         return False
     if not claims_completion(text):
         return False
@@ -197,6 +253,11 @@ def detect_missing_scan_report(
     for p in (recent_user_prompts or [])[-3:]:
         if _DISMISS_RE.search(p or ""):
             return False
+    unique_paths = {(m or {}).get("path", "") for m in modified_files}
+    unique_paths.discard("")
+    touched_core = any(is_core_file(p) for p in unique_paths)
+    if not touched_core and len(unique_paths) < max(int(min_files), 1):
+        return False
     return True
 
 
