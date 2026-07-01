@@ -137,7 +137,7 @@ function classifyRealm(name, triggers) {
     if ((scores[d] || 0) > (scores[bestDom] || 0)) bestDom = d;
   }
   // Domain 段字元集 guard（base lexicon 恆過；防污染詞庫的亂碼 domain 流出 —
-  // 2026-06-12 韓文實案）。MIRROR: lib/atom_locations.py:classify_realm → _clean_segment。
+  // 韓文實案）。MIRROR: lib/atom_locations.py:classify_realm → _clean_segment。
   // 注意：須自足於 test_17 eval block（不得引用 cleanRealmSegment，定義在 block 外）。
   const segBad = (sg) => {
     const t = sg.replace(/\s+/g, " ").trim();
@@ -412,15 +412,15 @@ function handleMessage(msg) {
 
 // ─── Tool Definitions ───────────────────────────────────────────────────────
 
-// V5 P2 (2026-05-26): 4 internal IPC tools removed from MCP surface
-// (workflow_status / workflow_signal / memory_queue_add / memory_queue_flush).
-// Reason: these are hook-internal state ops that should not appear in Claude's
-// tool menu. Replacements:
+// 4 internal IPC tools are intentionally not exposed on the MCP surface
+// (workflow_status / workflow_signal / memory_queue_add / memory_queue_flush):
+// these are hook-internal state ops that should not appear in Claude's tool
+// menu. Each is handled elsewhere:
 //   - workflow_status     → 由 SessionStart hook 自動注入 state 摘要
 //   - workflow_signal     → Stop gate 自動偵測 git/svn clean 標 sync_completed
 //   - memory_queue_*      → 由 wg_extraction extract-worker 全自動處理
-// The toolXxx() handler functions below are kept temporarily as dead code
-// (until P6 Wave 5 cleanup) so the file structure stays stable.
+// The toolXxx() handler functions below are kept as dead code so the file
+// structure stays stable.
 const TOOL_DEFINITIONS = [
   {
     name: "atom_write",
@@ -498,7 +498,7 @@ const TOOL_DEFINITIONS = [
         },
         skip_conflict_check: {
           type: "boolean",
-          description: "Skip V4 Phase 5 write-time conflict detection (shared scope only). Use only for controlled migrations / tests.",
+          description: "Skip write-time conflict detection (shared scope only). Use only for controlled migrations / tests.",
         },
       },
       required: ["title", "confidence", "triggers", "knowledge", "mode"],
@@ -585,12 +585,12 @@ const TOOL_DEFINITIONS = [
 
 function handleToolCall(id, toolName, args) {
   switch (toolName) {
-    // V5 P2: workflow_status / workflow_signal / memory_queue_add / memory_queue_flush
-    // no longer exposed in TOOL_DEFINITIONS — they fall through to default error.
+    // workflow_status / workflow_signal / memory_queue_add / memory_queue_flush
+    // are not exposed in TOOL_DEFINITIONS — they fall through to default error.
     case "atom_write":
       return toolAtomWrite(id, args).catch(e => sendToolResult(id, `atom_write error: ${e.message}`, true));
     case "atom_promote":
-      // S3.2: toolAtomPromote 改 async，需 .catch 包 throw（與 atom_write/atom_move 一致）
+      // toolAtomPromote 為 async，需 .catch 包 throw（與 atom_write/atom_move 一致）
       return toolAtomPromote(id, args).catch(e => sendToolResult(id, `atom_promote error: ${e.message}`, true));
     case "atom_move":
       return toolAtomMove(id, args).catch(e => sendToolResult(id, `atom_move error: ${e.message}`, true));
@@ -811,7 +811,7 @@ function buildAtomContent({
   }
   lines.push(`- Confidence: ${confidence}`);
   lines.push(`- Trigger: ${triggers.join(", ")}`);
-  // Wave 2: Last-used / Confirmations / ReadHits 移到 <atom>.access.json，不再寫 .md
+  // Last-used / Confirmations / ReadHits 居 <atom>.access.json，不寫入 .md
   if (pendingReviewBy) {
     lines.push(`- Pending-review-by: ${pendingReviewBy}`);
   }
@@ -982,7 +982,7 @@ function resolveMemDir(scope, projectCwd, opts = {}) {
 
 /** 已註冊 Failures atom（非 feedback- 前綴，如 cognitive-patterns / memory-pipeline-*）。
  *  MIRROR: lib/atom_locations.py:failures_atom_stems ∈ is_failures_routed_title。
- *  缺此判定時這些 atom 的 append/replace 會在 memory/ 找不到檔（2026-06-12 缺口修補）。 */
+ *  缺此判定時這些 atom 的 append/replace 會在 memory/ 找不到檔。 */
 function isRegisteredFailuresStem(slug) {
   try {
     const data = JSON.parse(
@@ -1022,7 +1022,7 @@ function applyFeedbackRouting(resolved, slug, scope) {
 /** 單段正規化（path-traversal 最後防線）。MIRROR: lib/atom_locations.py:_clean_segment。
  *  非法（空 / 含分隔 / `_`·`.` 前綴 / 不安全字元 / 非 CJK·ASCII 字元）→ ""
  *  （caller 截斷/退 fail-safe）。字元集 guard：LLM 生成 domain 視為不可信輸入，
- *  跨文字系統字元（Hangul「자동화」實案 2026-06-12）穿透 snap 防線 → 整段拒。
+ *  跨文字系統字元（Hangul「자동화」實案）穿透 snap 防線 → 整段拒。
  *  MIRROR: lib/atom_locations.py:_SEG_ALLOWED_RE（parity test_22）。 */
 function cleanRealmSegment(seg) {
   const s = (seg || "").replace(/\s+/g, " ").trim();
@@ -1049,14 +1049,14 @@ function applyLocalRouting(domain) {
   return { memDir, baseDir: memDir, indexDir: MEMORY_DIR, indexRoot: CLAUDE_DIR };
 }
 
-/** Find atom index path for a given scope (V3.2: prefer _ATOM_INDEX.md) */
+/** Find atom index path for a given scope (prefer _ATOM_INDEX.md) */
 function resolveMemoryIndex(memDir) {
   const atomIdx = path.join(memDir, "_ATOM_INDEX.md");
   if (fs.existsSync(atomIdx)) return atomIdx;
   return path.join(memDir, "MEMORY.md");  // fallback
 }
 
-/** V4 Phase 5: Run conflict-detector --mode=write-check.
+/** Run conflict-detector --mode=write-check.
  *  Returns Promise<{verdict, matches, detector_model, skipped, skip_reason, scope}>.
  *  Fail-open: on script error resolves to verdict=ok+skipped=true (do not block writes
  *  when detector infra is down). Longer timeout than write-gate (LLM is slower). */
@@ -1102,7 +1102,7 @@ function execConflictDetector(content, scope, projectCwd) {
   });
 }
 
-/** V4 Phase 5: TSV append to {baseDir}/_merge_history.log. SPEC §10.
+/** TSV append to {baseDir}/_merge_history.log. SPEC §10.
  *  baseDir is {proj}/.claude/memory/ (so log sits alongside shared/ roles/ personal/). */
 function appendMergeHistory(baseDir, action, atom, scope, by, detail) {
   try {
@@ -1115,7 +1115,7 @@ function appendMergeHistory(baseDir, action, atom, scope, by, detail) {
   }
 }
 
-/** V4 Phase 5: render CONTRADICT report (non-atom) for _pending_review/{slug}.conflict.md. */
+/** render CONTRADICT report (non-atom) for _pending_review/{slug}.conflict.md. */
 function buildConflictReport({ slug, incomingTitle, incomingContent, matches, detectorModel, author }) {
   const lines = [
     `# Write-time conflict: ${incomingTitle || slug}`,
@@ -1219,7 +1219,7 @@ function parseAtomMeta(content) {
       case "scope": meta.scope = val; break;
       case "trigger": meta.triggers = val; break;
       case "related": meta.related = val; break;
-      // Wave 2: confirmations / readhits / last-used 從 <atom>.access.json 讀（見 readAtomAccess）
+      // confirmations / readhits / last-used 從 <atom>.access.json 讀（見 readAtomAccess）
     }
   }
   const titleMatch = content.match(/^# (.+)$/m);
@@ -1227,7 +1227,7 @@ function parseAtomMeta(content) {
   return meta;
 }
 
-/** Wave 2: 讀 <atom>.access.json 旁路檔（同步 fs，不 spawn 子程序）。 */
+/** 讀 <atom>.access.json 旁路檔（同步 fs，不 spawn 子程序）。 */
 function readAtomAccess(atomPath) {
   try {
     const accessPath = atomPath.replace(/\.md$/, ".access.json");
@@ -1248,7 +1248,7 @@ function readAtomAccess(atomPath) {
   }
 }
 
-// ─── Phase 2 (#2): 效用 Wilson 下界（SYNC: lib/atom_access.py wilson_lower_bound /
+// ─── 效用 Wilson 下界（SYNC: lib/atom_access.py wilson_lower_bound /
 //     usefulness_stats / usefulness_promote_eligible —— py↔js 鏡像，改一邊要改另一邊）。
 function wilsonLowerBound(successes, n, z) {
   if (n <= 0) return 0.0;
@@ -1295,7 +1295,7 @@ function enrichAtomWithAccess(atom, filePath) {
   }
 }
 
-/** Wave 2: spawn `python -m lib.atom_access <subcommand>` 對 access 旁路檔做寫入。 */
+/** spawn `python -m lib.atom_access <subcommand>` 對 access 旁路檔做寫入。 */
 function spawnAtomAccess(subcommand, args) {
   return new Promise((resolve) => {
     let cp;
@@ -1322,7 +1322,7 @@ function spawnAtomAccess(subcommand, args) {
   });
 }
 
-// ─── S3.2: Atom Funnel Bridge (spawn lib/atom_io_cli) ─────────────────────
+// ─── Atom Funnel Bridge (spawn lib/atom_io_cli) ─────────────────────
 
 /** Spawn `python -m lib.atom_io_cli` to perform atom write through the
  *  centralized funnel (audit log + audit-id + uniform error contract).
@@ -1443,7 +1443,7 @@ async function toolAtomWrite(id, args) {
   let { memDir, baseDir, indexDir, indexRoot, routedToFailures } =
     applyFeedbackRouting(resolved, slug, scope);
 
-  // V5+ realm 自動分類（無顯式 realm 時跑分類器；計畫 Phase3「掛兩處」之 server.js 側）。
+  // V5+ realm 自動分類（無顯式 realm 時跑分類器；server.js 側）。
   // 顯式 realm（含 "core"）優先、不覆寫；核心保護硬擋、安全預設 core。跑於所有 global
   // 非-feedback 寫入（非只 create）——因 8 顆 allowlist 的 slug 皆含 lexicon 詞（name 權重），
   // append/replace 任意 triggers 都穩定判 local → 找得到已遷移的 local 檔（防 append 回歸）。
@@ -1478,7 +1478,7 @@ async function toolAtomWrite(id, args) {
   if (scope === "role") scopeLabel = `role:${role}`;
   else if (scope === "personal") scopeLabel = `personal:${user}`;
 
-  // V4 Phase 5: filePath/relPath may be recomputed after conflict-detector reroute
+  // filePath/relPath may be recomputed after conflict-detector reroute
   let filePath = path.join(memDir, slug + ".md");
   let relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
 
@@ -1523,7 +1523,7 @@ async function toolAtomWrite(id, args) {
       }
     }
 
-    // ─── V4 Phase 5: write-time conflict detection (SPEC §7.1) ───
+    // ─── write-time conflict detection (SPEC §7.1) ───
     // Only shared scope. skip_conflict_check honored for migrations/tests.
     if (scope === "shared" && !skip_conflict_check) {
       const cr = await execConflictDetector(knowledge.join("\n"), "shared", project_cwd);
@@ -1559,10 +1559,9 @@ async function toolAtomWrite(id, args) {
     }
 
     // create funnel 併單一 spawn（lib.atom_io_cli create_atom）：內容構造 build+validate →
-    // write_raw → access.json(init + set last_used) → write_index，一次 Python 冷啟取代原本
-    // 5 次子程序。逐步函式與順序不變，落檔 .md / .access.json / index byte-identical
-    // （守 verify_atom_io_equivalence 對拍）。build/validate/write_raw 失敗致命；
-    // index 失敗非致命（對拍舊 appendToIndex 的 crashLog-only）。
+    // write_raw → access.json(init + set last_used) → write_index，一次 Python 冷啟跑完整條
+    // 管線。落檔 .md / .access.json / index byte-identical（守 verify_atom_io_equivalence
+    // 對拍）。build/validate/write_raw 失敗致命；index 失敗非致命（crashLog-only）。
     const cr = await spawnAtomCli("create_atom", {
       build: {
         title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
@@ -1611,15 +1610,15 @@ async function toolAtomWrite(id, args) {
       return sendToolResult(id, `Atom not found: ${slug}.md — use mode=create first`, true);
     }
 
-    // 2026-06-12 parity 方案 B：拼接+validate+落檔統一 spawn py（lib.atom_io.append_atom_file）
-    // —— 退役 js readFileSync 自拼 splice（CRLF 混寫面，見 lib/atom_io.py:_atomic_write 註解）。
-    // Wave 2: Last-used 不在 .md，append 後改寫 access.json（下方 spawnAtomAccess）。
+    // 拼接+validate+落檔統一 spawn py（lib.atom_io.append_atom_file）；不走 js readFileSync
+    // 自拼 splice（CRLF 混寫面，見 lib/atom_io.py:_atomic_write 註解）。
+    // Last-used 不在 .md，append 後改寫 access.json（下方 spawnAtomAccess）。
     const wr = await spawnAtomCli("append", { file_path: filePath, knowledge, source: "mcp" });
     if (!wr.ok) {
       return sendToolResult(id, `funnel append failed: ${wr.error}`, true);
     }
 
-    // Wave 2: 同步刷 access.json last_used
+    // 同步刷 access.json last_used
     await spawnAtomAccess("set", [filePath, "--field", "last_used",
                                   "--value", today, "--source", "mcp"]);
 
@@ -1658,7 +1657,7 @@ async function toolAtomWrite(id, args) {
         `To add a NEW atom use mode=create (new atoms must start at [臨]).`,
         true);
     }
-    // Wave 2: Confirmations / ReadHits 在 access.json，replace 不需保留（檔本就分離）
+    // Confirmations / ReadHits 在 access.json，replace 不需保留（檔本就分離）
     // 仍保留 Author / Created-at（屬知識性 metadata）
     let prevAuthor = author;
     let prevCreatedAt = today;
@@ -1672,7 +1671,7 @@ async function toolAtomWrite(id, args) {
       } catch {}
     }
 
-    // 2026-06-12 parity 方案 B：同 create，內容構造 spawn py funnel "build"（含 validate）
+    // 同 create，內容構造 spawn py funnel "build"（含 validate）
     const br = await spawnAtomCli("build", {
       title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
       audience, author: prevAuthor, pending_review_by: pendingReviewBy,
@@ -1684,13 +1683,13 @@ async function toolAtomWrite(id, args) {
     const content = (br.extra || {}).content;
 
     fs.mkdirSync(memDir, { recursive: true });
-    // S3.2: 走 lib.atom_io.write_raw funnel
+    // 走 lib.atom_io.write_raw funnel
     const wr = await funnelWriteRaw(filePath, content, "mcp", "atom_replace");
     if (!wr.ok) {
       return sendToolResult(id, `funnel write_raw failed: ${wr.error}`, true);
     }
 
-    // Wave 2: 刷 access.json last_used（access 計數自動保留）
+    // 刷 access.json last_used（access 計數自動保留）
     await spawnAtomAccess("set", [filePath, "--field", "last_used",
                                   "--value", today, "--source", "mcp"]);
 
@@ -1788,13 +1787,13 @@ async function toolAtomPromote(id, args) {
   }
 
   const { next, confirmations: reqConf, readhits: reqRH } = path_info;
-  // Wave 2: 計數從 <atom>.access.json 讀，不再 parseAtomMeta（meta.confidence 仍從 .md 抽）
+  // 計數從 <atom>.access.json 讀，不走 parseAtomMeta（meta.confidence 仍從 .md 抽）
   const access = readAtomAccess(filePath);
   const confirmations = access.confirmations || 0;
   const readhits = access.readhits || 0;
 
-  // Phase 2 (#2): 晉升 = 真實 Confirmations 主軌 OR 效用 Wilson 下界。
-  // ReadHits 降為純曝光計數，不再參與晉升（取代 Phase 0 readhits 輔助門）。
+  // 晉升 = 真實 Confirmations 主軌 OR 效用 Wilson 下界。
+  // ReadHits 為純曝光計數，不參與晉升。
   // SYNC: lib/atom_access.py usefulness_promote_eligible + wg_atoms.py:_self_iterate_atoms。
   const uconf = (loadConfig().usefulness) || {};
   const promoteLb = Number(uconf.promote_lb != null ? uconf.promote_lb : 0.6);
@@ -1839,7 +1838,7 @@ async function toolAtomPromote(id, args) {
   }
 
   // Execute promotion
-  // Wave 2: Last-used 不在 .md，只改 Confidence + 知識條目層級的 [臨]/[觀]
+  // Last-used 不在 .md，只改 Confidence + 知識條目層級的 [臨]/[觀]
   const updated = content
     .replace(/^- Confidence:\s*.+$/m, `- Confidence: ${next}`);
 
@@ -1851,13 +1850,13 @@ async function toolAtomPromote(id, args) {
     `- ${next}`
   );
 
-  // S3.2: 走 lib.atom_io.write_raw funnel
+  // 走 lib.atom_io.write_raw funnel
   const wrPromote = await funnelWriteRaw(filePath, finalContent, "mcp", "atom_promote");
   if (!wrPromote.ok) {
     return sendToolResult(id, `funnel write_raw failed: ${wrPromote.error}`, true);
   }
 
-  // Wave 2: 同步寫 access.json 的 last_promoted_at + last_used
+  // 同步寫 access.json 的 last_promoted_at + last_used
   await spawnAtomAccess("record-promotion",
     [filePath, "--target", next, "--source", "mcp"]);
 
@@ -1880,10 +1879,10 @@ async function toolAtomPromote(id, args) {
     fs.appendFileSync(auditPath, JSON.stringify(entry) + "\n");
   } catch {}
 
-  // ─── 方案 c: [觀]→[固] 合併流程 ────────────────────────────────
-  // 方案 a（自動提示）：只要晉升為 [固]，一律在回覆裡附上「是否合進 preferences.md」提示，
+  // ─── [觀]→[固] 合併流程 ────────────────────────────────
+  // 自動提示：只要晉升為 [固]，一律在回覆裡附上「是否合進 preferences.md」提示，
   // 讓 Claude 引導使用者裁決。
-  // 方案 b（自動執行）：當 merge_to_preferences=true，立即把 knowledge 追加到 preferences.md、
+  // 自動執行：當 merge_to_preferences=true，立即把 knowledge 追加到 preferences.md、
   // 歸檔本 atom 到 _archived/，再請 Claude 後續手動移除 _ATOM_INDEX.md 的該行。
   const promotedToStable = next === "[固]";
   let mergeReport = "";
@@ -1905,7 +1904,7 @@ async function toolAtomPromote(id, args) {
           `\n\n### 歸檔合併 · ${atom_name} (${today})\n` +
           `> 自 [觀]→[固] 晉升時合併自 \`${path.basename(filePath)}\`\n\n` +
           knowledgeLines.map(l => `- ${l}`).join("\n") + "\n";
-        // S3.2: 走 lib.atom_io.write_raw funnel
+        // 走 lib.atom_io.write_raw funnel
         const wrPref = await funnelWriteRaw(
           prefPath, prefText.trimEnd() + mergeSection, "mcp", "promote_merge_pref"
         );
@@ -2170,7 +2169,7 @@ function parseEpisodicAtom(filePath) {
 function apiEpisodic(req, res) {
   try {
     const dirsToScan = [MEMORY_DIR];
-    // V2.21: scan registry project dirs (new path)
+    // scan registry project dirs
     for (const { memDir } of getRegistryMemDirs()) {
       if (!dirsToScan.includes(memDir)) dirsToScan.push(memDir);
     }
@@ -2573,7 +2572,7 @@ function apiProjects(req, res) {
       failure_count: 0,
       episodic_count: 0,
     };
-    // V2.21: if root itself is the .claude dir, memory is at root/memory/ directly
+    // if root itself is the .claude dir, memory is at root/memory/ directly
     const rootNorm = path.resolve(info.root || "");
     const isClaudeDir = rootNorm.toLowerCase() === path.resolve(CLAUDE_DIR).toLowerCase();
     const memDir = isClaudeDir
@@ -2766,7 +2765,7 @@ function apiAtoms(req, res) {
   // V4: global shared/ + roles/{r}/ scan (本專案目前無此目錄，預留給未來)
   scanV4ScopeDirs(MEMORY_DIR, "", "");
 
-  // V2.21: scan registry project dirs (new path)
+  // scan registry project dirs
   const seenProjDirs = new Set();
   for (const { slug, memDir } of getRegistryMemDirs()) {
     scanProjMemDir(memDir, slug);
@@ -3289,7 +3288,7 @@ function updateStats(total, active, pending, extra) {
   document.getElementById("statsBar").innerHTML = html;
 }
 
-// ─── V3: Hot Cache Card ───
+// ─── Hot Cache Card ───
 
 async function renderHotCache() {
   const el = document.getElementById("hotCacheCard");
@@ -3311,7 +3310,7 @@ async function renderHotCache() {
   } catch { el.style.display = "none"; }
 }
 
-// ─── V3: Vector Ready Indicator ───
+// ─── Vector Ready Indicator ───
 
 async function fetchVectorReady() {
   try {
@@ -4163,7 +4162,7 @@ const httpServer = http.createServer((req, res) => {
     return apiMcpServers(req, res);
   }
 
-  // ── V3: Hot Cache status ──
+  // ── Hot Cache status ──
   if (pathname === "/api/hot-cache" && req.method === "GET") {
     const cachePath = path.join(WORKFLOW_DIR, "hot_cache.json");
     try {
@@ -4178,7 +4177,7 @@ const httpServer = http.createServer((req, res) => {
     }
   }
 
-  // ── V3: Vector Ready indicator ──
+  // ── Vector Ready indicator ──
   if (pathname === "/api/vector-ready" && req.method === "GET") {
     const flagPath = path.join(WORKFLOW_DIR, "vector_ready.flag");
     const ready = fs.existsSync(flagPath);
