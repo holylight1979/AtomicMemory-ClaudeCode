@@ -20,7 +20,9 @@ from wg_atoms import (
     _self_iterate_atoms, _trigger_incremental_index, _sweep_realm_auto_migrate,
 )
 from wg_extraction import _spawn_extract_worker
-from wg_episodic import _detect_atom_conflicts, _generate_episodic_atom
+from wg_episodic import (
+    _detect_atom_conflicts, _generate_episodic_atom, _purge_expired_episodic,
+)
 from wg_handoff import build_handoff_stub, should_write_stub
 from wg_evasion import (
     evaluate_session,
@@ -252,6 +254,23 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
             print(f"[episodic] generation failed: {e}", file=sys.stderr)
             _atom_debug_error("萃取:_generate_episodic_atom", e)
 
+    # ── 輕量 episodic purge：兌現 24d TTL（decay/forget 皆 SKIP episodic，此為唯一淘汰者）──
+    # 先生成本 session 的 episodic（今建、24d 後才過期），再把過期舊檔搬 _distant/（可逆、
+    # 被 index/vector 排除→不再注入）。獨立 pass、fail-open，不阻斷收尾主流程。
+    purged_count = 0
+    if config.get("episodic", {}).get("purge_expired", True):
+        try:
+            purged = _purge_expired_episodic()
+            purged_count = len(purged)
+            if purged:
+                _preview = ", ".join(purged[:5]) + ("…" if purged_count > 5 else "")
+                print(
+                    f"[episodic] purged {purged_count} expired → _distant/ (可逆): {_preview}",
+                    file=sys.stderr,
+                )
+        except Exception as e:
+            _atom_debug_error("session_end:episodic_purge", e)
+
     if state.get("review_due"):
         try:
             total = sum(1 for _ in EPISODIC_DIR.glob("episodic-*.md")) if EPISODIC_DIR.exists() else 0
@@ -272,7 +291,7 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         and m.get("path", "").endswith(".md")
         for m in modified
     )
-    if has_atom_changes or episodic_generated:
+    if has_atom_changes or episodic_generated or purged_count:
         _trigger_incremental_index(config)
 
     sys.exit(0)

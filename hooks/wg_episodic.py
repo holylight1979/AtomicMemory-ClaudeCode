@@ -13,7 +13,7 @@ import time
 import urllib.request
 import urllib.error
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -33,7 +33,7 @@ _LIB_PARENT = str(Path.home() / ".claude")
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
 from lib.atom_io import write_raw  # noqa: E402
-from lib.atom_access import increment_confirmation  # noqa: E402
+from lib.atom_access import increment_confirmation, move_atom_pair  # noqa: E402
 
 
 # ─── Episodic Gate ────────────────────────────────────────────────────────────
@@ -895,3 +895,63 @@ def _check_output_quality(
             }
 
     return None
+
+
+# ─── SessionEnd 輕量 Episodic Purge（兌現 24d TTL）───────────────────────────
+
+# 只掃檔頭（Expires-at 落在 front-matter 前 ~600 字內），避免整檔讀入。
+_EXPIRES_RE = re.compile(r"^\s*-\s*Expires-at:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+
+
+def _purge_expired_episodic(
+    episodic_dir: Optional[Path] = None, *, today: Optional[str] = None
+) -> List[str]:
+    """把 episodic_dir 內 `Expires-at < today` 的 atom（連 .access.json sidecar）
+    搬到 `memory/_distant/{year}_{month}/`，兌現 24d TTL。
+
+    存在理由：self_iteration/decay/forget/memory-audit 全把 episodic/ 列 SKIP_DIRS，
+    無任何機制依 Expires-at 淘汰 → 過期 episodic 堆積成假 TTL + 主動製造 lost-in-middle。
+    本 pass 是唯一淘汰者，獨立於 decay/forget（不走它們刻意 SKIP 的路徑）。
+
+    - `_distant/` 已被 sync-atom-index EXCLUDED_DIR_PARTS + vector index_distant=False
+      排除 → 搬入即不再被 `_search_episodic_context` 掃到/注入，且可逆
+      （`memory-audit.py --restore` 搬回即復原）。
+    - 走 `lib.atom_access.move_atom_pair` funnel（原子搬 .md+sidecar，sidecar 失敗
+      rollback .md），非裸 shutil.move → read_hits/α/β 計數不變孤兒。
+    - fail-open：整體與逐檔皆包 try/except，任何錯誤不阻斷 SessionEnd 收尾。
+
+    回被搬走的 atom stem list。
+    """
+    ep_dir = episodic_dir or EPISODIC_DIR
+    if not ep_dir.exists():
+        return []
+    today_s = today or date.today().isoformat()
+    _t = date.today()
+    # _distant 落在 memory/ 根（episodic_dir 的上一層），與 memory-audit.move_to_distant 慣例對齊
+    distant_root = ep_dir.parent / "_distant" / f"{_t.year}_{_t.month:02d}"
+
+    try:
+        candidates = sorted(ep_dir.glob("episodic-*.md"))
+    except OSError as e:
+        _atom_debug_error("episodic:purge_glob", e)
+        return []
+
+    moved: List[str] = []
+    for md in candidates:
+        try:
+            head = md.read_text(encoding="utf-8-sig")[:600]
+            m = _EXPIRES_RE.search(head)
+            if not m:
+                continue  # 無 Expires-at 欄位 → 保守不動
+            # YYYY-MM-DD 定寬字串序 == 日期序；== today 視為未過（保留到期當天）
+            if m.group(1) >= today_s:
+                continue
+            dst = distant_root / md.name
+            if dst.exists():
+                continue  # 目標同名已存在 → 跳過，不覆蓋
+            move_atom_pair(md, dst)  # 原子搬 .md + .access.json sidecar（含 rollback）
+            moved.append(md.stem)
+        except (OSError, ValueError) as e:
+            _atom_debug_error("episodic:purge_one", e)
+            continue
+    return moved

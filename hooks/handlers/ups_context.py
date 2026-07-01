@@ -13,15 +13,47 @@ handlers/ups_context.py — UserPromptSubmit context build 段
 """
 
 import sys
+from pathlib import Path
 from typing import Any, Dict, List
 
-from wg_core import MEMORY_DIR, _atom_debug_error
+from wg_core import MEMORY_DIR, EPISODIC_DIR, _atom_debug_error
 from wg_atoms import (
     any_trigger_hit,
     _search_episodic_context, _build_session_context,
     _proactive_classify,
 )
 from handlers._shared import WISDOM_AVAILABLE, classify_situation
+
+# lib funnel（atom_access）：episodic 注入曝光遙測。確保 ~/.claude 在 path（handler 執行時 cwd 不定）。
+_LIB_PARENT = str(Path.home() / ".claude")
+if _LIB_PARENT not in sys.path:
+    sys.path.insert(0, _LIB_PARENT)
+from lib.atom_access import increment_read_hits  # noqa: E402
+
+
+def _record_episodic_exposure(injected: List[Dict[str, Any]]) -> None:
+    """對「實際注入」的 episodic atom read_hits++，讓 episodic 效用可測。
+
+    背景：56 顆 episodic 長期 read_hits=0（注入從不 increment）→ 系統對「episodic
+    有沒有用」永久自盲、易被誤判雞肋誤拔。read_hits 定義＝注入曝光次數，此處補上。
+
+    以 file_path（vector 回傳，跨 scope 正確）定位、`is_file()` 驗證後才計數 —— 對已被
+    purge 搬走/不存在的路徑一律跳過，避免 `increment_read_hits` 憑空建 sidecar 污染。
+    走 lib.atom_access funnel、fail-open（逐筆 try/except，不阻斷注入）。
+    """
+    for ep in injected:
+        try:
+            fp = ep.get("file_path") or ""
+            path = Path(fp) if fp else None
+            if not (path and path.is_file()):
+                name = ep.get("atom_name", "")
+                cand = EPISODIC_DIR / f"{name}.md" if name else None
+                path = cand if (cand and cand.is_file()) else None
+            if path is None:
+                continue
+            increment_read_hits(path, source="hook:atom-inject")
+        except (OSError, ValueError) as e:
+            _atom_debug_error("注入:episodic_read_hits", e)
 
 
 def _is_memory_system_dev(prompt_lower: str, cwd: str) -> bool:
@@ -61,6 +93,9 @@ def build_context(
                 sc_config = config.get("session_context", {})
                 reserved = sc_config.get("reserved_tokens", 200)
                 budget = max(budget - reserved, 500)
+                # 效用遙測：ctx_lines[0] 是 header，其餘資料行由 _build_session_context 按序
+                # 納入 episodic_results 直到 char_budget 用完 → 被注入者精準對應其前綴。
+                _record_episodic_exposure(episodic_results[:len(ctx_lines) - 1])
             proactive_lines = _proactive_classify(state, episodic_results, prompt, config)
             lines.extend(proactive_lines)
 
