@@ -340,8 +340,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             state["stop_blocked_count"] = stop_count + 1
             state["scan_report_warned"] = True
             reason = _piggyback(
-                "[Guardian:ScanReport] 宣告完成但未提交收尾檢核，違反 IDENTITY「反退避契約」。\n"
-                "依格式強制，報告尾端**全項檢視**（非擇一）：\n"
+                "[Guardian:ScanReport] 宣告完成且本 session 動到 core 檔/多檔（達收尾檢核門檻），"
+                "但未提交收尾檢核，違反 IDENTITY「反退避契約」。\n"
+                "（純單檔/文件小改不觸發此閘；本次因累積動過 core 檔。）依格式，報告尾端全項檢視（非擇一）：\n"
                 "  (a) 缺失發現與修補清單：`- 檔:行 — 改了什麼`；無則明寫「無」。**必寫**\n"
                 "  (b) AI 逃避通報：本次有/沒有 忽略 / 偷埋的現象。**僅在發生時寫**\n"
                 "  (c) Token 累積警示：見 hook `[Auto-Handoff]` 程式化預警則判斷是否已處理失真，是則附新 session 接續 prompt。**僅在發生時寫**\n"
