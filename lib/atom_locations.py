@@ -80,7 +80,7 @@ LEARNED_LEXICON_PATH = GLOBAL_MEMORY_DIR / "_meta" / "realm-lexicon-learned.json
 LOCAL_REALM_CORE_PROTECTED_PREFIXES = (
     "decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-",
 )
-# goal-driven-verify-loop…：core atom（user 裁決），曾因 SGI 詞庫污染被 LLM sweep 反覆
+# goal-driven-verify-loop…：core atom（user 裁決），曾因詞庫污染被 LLM sweep 反覆
 # 誤搬 local → 列保護硬擋根治（protected 永不喚 LLM、永不搬）。
 # 自己flag…：跨專案行為規則（user 裁決歸 core，與 feedback-* 同範疇），Author=holylight
 # /[臨] 故 P2 auto-capture defer 不護它，且詞庫清乾淨後 LLM fallback 仍反覆把它判 local→Else
@@ -602,8 +602,8 @@ _LEXICON_GENERIC_TOKENS = frozenset({
 _LEXICON_TOKEN_SPLIT_RE = re.compile(r"[\s\-_/]+")
 
 # 保留標籤 / realm 自名 / 已知外部專案 token：learned 詞庫**絕不收**（exact-match 拒收）。
-# SGI（外部專案）知識與系統自身 trigger 標籤 "auto-capture" 曾雙雙被學進
-# 詞庫，drift sweep 據此把 SGI core atom 搬進根層 _atoms/、把碎片塞進名為 "auto-capture"
+# 外部專案知識與系統自身 trigger 標籤 "auto-capture" 曾雙雙被學進
+# 詞庫，drift sweep 據此把外部專案 core atom 搬進根層 _atoms/、把碎片塞進名為 "auto-capture"
 # 的葉夾（trigger 標籤被當分類維度）。三類絕不該成為實例分類詞：
 #   - 系統 trigger 標籤（auto-capture/auto-captured/觸發詞）：extract-worker 預設標籤，非實例詞。
 #   - realm 自名（memdev/world/tools/continuity）：分類『維度』本身，不該回頭當分類『詞』。
