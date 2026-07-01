@@ -5,7 +5,7 @@
   - lib.atom_locations: where atoms physically live + routing decisions（本檔）
   - lib.atom_io       : write funnel（消費上述兩者）
 
-V5+ feedback-* atoms 物理居 `_AIDocs/Failures/`（commit 082f791），索引仍在
+V5+ feedback-* atoms 物理居 `_AIDocs/Failures/`，索引仍在
 `memory/_atom_index.json`。本模組封裝這條規則 + 多 root 掃描 + 白名單常數，
 caller 統一走 API；JS 端在 server.js 維護對拍 mirror。
 
@@ -80,19 +80,19 @@ LEARNED_LEXICON_PATH = GLOBAL_MEMORY_DIR / "_meta" / "realm-lexicon-learned.json
 LOCAL_REALM_CORE_PROTECTED_PREFIXES = (
     "decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-",
 )
-# goal-driven-verify-loop…：core atom（user 裁決），LLM sweep 兩度因 SGI 詞庫污染誤搬
-# local（dc43019 矯正後本日再犯）→ 列保護硬擋根治（protected 永不喚 LLM、永不搬）。
-# 自己flag…：跨專案行為規則（de5fa9f user 裁決歸 core，與 feedback-* 同範疇），Author=holylight
-# /[臨] 故 P2 auto-capture defer 不護它，且詞庫清乾淨後 LLM fallback 仍把它判 local→Else（2026-06-24
-# 第三度：de5fa9f 歸 core→被搬回、本日歸 core→又搬 Else）→ 同 goal-driven 列硬擋根治。
+# goal-driven-verify-loop…：core atom（user 裁決），曾因 SGI 詞庫污染被 LLM sweep 反覆
+# 誤搬 local → 列保護硬擋根治（protected 永不喚 LLM、永不搬）。
+# 自己flag…：跨專案行為規則（user 裁決歸 core，與 feedback-* 同範疇），Author=holylight
+# /[臨] 故 P2 auto-capture defer 不護它，且詞庫清乾淨後 LLM fallback 仍反覆把它判 local→Else
+# → 同 goal-driven 列硬擋根治。
 LOCAL_REALM_CORE_PROTECTED_EXACT = frozenset({
     "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
     "自己flag的維護動作直接做完不要反問",
     # 跨專案行為 atom：談記憶系統術語(注入/萃取/context)易被 LLM 誤判 local，但必須 core
-    # 跨專案注入（痛點在 ~/.claude 外大專案）。2026-06-24 被 sweep 移走一次，硬擋防再犯。
+    # 跨專案注入（痛點在 ~/.claude 外大專案）。曾被 sweep 移走，硬擋防再犯。
     "記憶汙染與上下文腐化-注入萃取自檢",
     # 跨專案 meta-cognitive atom（驗證紀律 / escalation 誤判辨識，與 cognitive-patterns 同 family）：
-    # 2026-06-30 realm sweep LLM fallback 把這兩顆從 core 誤降 local（外部專案因此注入不到）→ 硬擋防再降。
+    # realm sweep LLM fallback 曾把這兩顆從 core 誤降 local（外部專案因此注入不到）→ 硬擋防再降。
     # MIRROR: server.js:LOCAL_REALM_CORE_PROTECTED_EXACT — keep in sync。
     "品質完整性判定須讀完整內容-勿從截斷採樣斷言",
     "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
@@ -141,8 +141,7 @@ def is_failures_routed_title(title: Optional[str]) -> bool:
 
     兩類：(1) feedback- 前綴（create 起即路由）；(2) 已註冊在索引、path 落
     Failures 的非 feedback- atom（cognitive-patterns / memory-pipeline-* 等）——
-    缺 (2) 時這些 atom 的 append/replace 會在 memory/ 找不到檔而失敗
-    （2026-06-12 funnel 缺口修補）。
+    缺 (2) 時這些 atom 的 append/replace 會在 memory/ 找不到檔而失敗。
     """
     if not title:
         return False
@@ -214,8 +213,8 @@ def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
         return {"realm": "core", "domain": None, "matched": [], "protected": False}
     # 平手 → 依 sorted(命中 domain) 固定序首位（base 子集與 js 對拍同序；亦容多段 learned domain）
     best_dom = max(sorted(scores), key=lambda d: scores[d])
-    # Domain 段字元集 guard（base lexicon 恆過；learned 可能已被污染——2026-06-12
-    # 韓文亂碼實案）：任一段非法 → 降 fail-safe Else。MIRROR: server.js:classifyRealm。
+    # Domain 段字元集 guard（base lexicon 恆過；learned 可能已被污染，如韓文等
+    # 跨文字系統亂碼）：任一段非法 → 降 fail-safe Else。MIRROR: server.js:classifyRealm。
     if any(not _clean_segment(s) for s in best_dom.split("/") if s.strip()):
         best_dom = LOCAL_REALM_DEFAULT_DOMAIN
     # matched 攤平回扁平去重排序集（test_17 比 matched）
@@ -467,7 +466,7 @@ _SEG_SNAP_RATIO = 0.85
 _SEG_PREFIX_MIN = 3
 _SEG_UNSAFE_CHARS = set('<>:"|?*')
 # Domain 段允許字元集：ASCII 可印字元 + CJK 統一表意文字（含 Ext-A）。
-# LLM 生成的 domain 視為不可信輸入：跨文字系統字元（Hangul「자동화」實案 2026-06-12、
+# LLM 生成的 domain 視為不可信輸入：跨文字系統字元（如 Hangul「자동화」、
 # 西里爾 homoglyph…）穿透 snap 防線造成重複亂碼資料夾 → 整段判非法、降 fail-safe。
 # MIRROR: server.js:cleanRealmSegment — keep in sync（parity test_22）。
 _SEG_ALLOWED_RE = re.compile(r"^[\x20-\x7e㐀-䶿一-鿿]+$")
@@ -477,7 +476,7 @@ def _clean_segment(seg: str) -> str:
     """單段正規化：trim + collapse 內部空白。非法 → ''（caller 截斷/退 fail-safe）。
 
     拒：空、含路徑分隔（/ \\）、`_`/`.` 前綴（避免 _INDEX/_meta 衝突、隱藏檔、`..` 上跳）、
-    檔名不安全字元、非 CJK/ASCII 字元（_SEG_ALLOWED_RE，2026-06-12 韓文亂碼 domain 實案）。
+    檔名不安全字元、非 CJK/ASCII 字元（_SEG_ALLOWED_RE，防跨文字系統亂碼 domain）。
     **path traversal 的最後防線**（local_write_target / set_realm 共用）。
     """
     s = " ".join((seg or "").split()).strip()
@@ -562,8 +561,8 @@ def normalize_domain_path(path: str, existing_paths: Optional[Iterable[str]] = N
 # ─── 詞庫自學（py-only supplement；js 維持 base-only 保 parity / test_17）──────
 
 # 泛用詞 token 黑名單（sink 端防線，蓋所有 append_learned_terms caller）：
-# 2026-06-12 實案——LLM sweep 把「寫程式 / refactor / fix bug / verify」等泛用詞學進
-# 詞庫，core atom goal-driven-verify-loop 因 trigger 命中被誤降 local（dc43019 矯正）。
+# 泛用詞污染案例：LLM sweep 曾把「寫程式 / refactor / fix bug / verify」等泛用詞學進
+# 詞庫，core atom goal-driven-verify-loop 因 trigger 命中被誤降 local。
 # 上游 realm_llm_classify._GENERIC_TERMS 只擋系統詞，擋不住開發泛用動詞 → 此處補閘。
 # 判定：term 以空白/連字號切 token，**全部** token 落在本集合 → 拒收
 # （"fix bug"/"verify loop" 拒；"auto-handoff"/"verify-gate-x" 因含非泛用 token 收）。
@@ -583,7 +582,7 @@ _LEXICON_GENERIC_TOKENS = frozenset({
     "session", "prompt", "token", "tokens", "index", "trigger", "triggers",
     "guardian", "sweep", "realm", "scope", "inject", "injection",
     # context-engineering / memory-governance 概念詞（通用學術/業界術語，非 ~/.claude 實例詞；
-    # 2026-06-24 實案：governance atom 被 sweep 學進 "context rot"/"context engineering"/
+    # governance atom 曾被 sweep 學進 "context rot"/"context engineering"/
     # "selective forgetting"/"context poisoning" → 污染未來同詞 atom。這些是概念維度、絕非分類詞）
     "context", "contexts", "rot", "poison", "poisoning", "distraction", "distract",
     "distractor", "confusion", "clash", "engineering", "governance", "forget",
@@ -595,15 +594,15 @@ _LEXICON_GENERIC_TOKENS = frozenset({
     "寫程式", "程式", "程式碼", "重構", "除錯", "修bug", "測試", "驗證",
     "部署", "設定", "開發", "完成", "收尾", "同步", "索引", "文件",
     "記憶", "記憶系統", "工作流", "規劃", "升級", "安裝", "錯誤", "上git",
-    "可驗證目標", "成功標準", "驗證目標",  # 2026-06-12 二度污染實案（goal-driven 再誤降）
-    # 2026-06-30 sweep 漏網（品質完整性判定 atom 被誤降時學進詞庫的概念詞）：品質/驗證/紀錄/取樣類
+    "可驗證目標", "成功標準", "驗證目標",  # 泛用目標詞（曾致 goal-driven 誤降）
+    # 品質完整性判定 atom 被誤降時學進詞庫的概念詞：品質/驗證/紀錄/取樣類
     # 概念維度詞，非實例專屬——命中會把任何提及它們的 atom 誤拉進 MemDev（詞庫自我強化污染）。
     "excerpt", "post", "mortem", "截斷", "品質判定", "源根驗證", "取樣", "採樣",
 })
 _LEXICON_TOKEN_SPLIT_RE = re.compile(r"[\s\-_/]+")
 
 # 保留標籤 / realm 自名 / 已知外部專案 token：learned 詞庫**絕不收**（exact-match 拒收）。
-# 2026-06-24 實案——SGI（外部專案）知識與系統自身 trigger 標籤 "auto-capture" 雙雙被學進
+# SGI（外部專案）知識與系統自身 trigger 標籤 "auto-capture" 曾雙雙被學進
 # 詞庫，drift sweep 據此把 SGI core atom 搬進根層 _atoms/、把碎片塞進名為 "auto-capture"
 # 的葉夾（trigger 標籤被當分類維度）。三類絕不該成為實例分類詞：
 #   - 系統 trigger 標籤（auto-capture/auto-captured/觸發詞）：extract-worker 預設標籤，非實例詞。
@@ -645,7 +644,7 @@ def append_learned_terms(new_terms: Dict[str, str]) -> Dict[str, str]:
     讀-改-寫全程持 advisory lock（仿 wg_core.write_state）：兩個 session 同時
     SessionEnd 時防 lost-update（學到的詞被互蓋永久遺失）。
 
-    輸入護欄（2026-06-12 詞庫污染雙實案，sink 端蓋所有 caller）：
+    輸入護欄（詞庫污染防線，sink 端蓋所有 caller）：
       - 泛用詞拒收（is_generic_lexicon_term）——防 core atom 被泛用 trigger 誤降 local
       - domain path 任一段非法（含非 CJK/ASCII 字元，_clean_segment）→ 整條拒收
         ——防亂碼 domain 經詞庫自我強化

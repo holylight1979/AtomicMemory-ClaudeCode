@@ -1,4 +1,4 @@
-"""verify_taxonomy_caging.py — Phase 0 地基安全證成（_drafts 內部 taxonomy 引擎）。
+"""verify_taxonomy_caging.py — 地基安全證成（_drafts 內部 taxonomy 引擎）。
 
 釘死「軸1 歸夾 = 牢籠內子夾移動」不觸發軸2(晉升)/軸3(學詞)/軸4(注入+索引)。
 不喚 LLM、不打真索引、不碰真磁碟 memory（全 tmp_path）。pytest。
@@ -54,7 +54,7 @@ def test_relocate_stays_in_drafts(tmp_path):
     rel = target.relative_to(mem)
     assert CAGE_SEGMENT in rel.parts               # 仍在牢籠
     assert BY_CLASS in rel.parts
-    assert rel.parts[-2] == TAXONOMY_CATCHALL      # Phase 0 全填 _Unsorted
+    assert rel.parts[-2] == TAXONOMY_CATCHALL      # 全填 _Unsorted
     assert target.exists() and not draft.exists()
 
 

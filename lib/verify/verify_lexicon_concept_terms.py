@@ -3,10 +3,8 @@
 守住 atom_locations._LEXICON_GENERIC_TOKENS 擴充後不變式：context-engineering /
 memory-governance 通用概念詞（context rot / selective forgetting / context poisoning /
 context engineering …）一律判泛用 → learned 詞庫讀寫兩端拒收，根治「sweep 學概念詞 →
-污染未來同詞 atom 誤降 local」的自我強化迴圈（2026-06-24 governance atom 實案）。
+污染未來同詞 atom 誤降 local」的自我強化迴圈。
 含實例詞的 local 詞仍照收（需全 token 泛用才拒）。
-
-Design: plans/cozy-sauteeing-jellyfish.md systemic follow-up。
 """
 
 from __future__ import annotations

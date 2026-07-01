@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-memory-undo.py — V4.1 /memory-undo backend
+memory-undo.py — /memory-undo backend
 
 Revokes auto-extracted atoms: moves to _rejected/ with reason + timestamp.
 Writes back to reflection_metrics.json v41_extraction block.
@@ -254,7 +254,7 @@ def _update_reflection_metrics(reason: str, undo_count: int) -> bool:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="V4.1 /memory-undo backend")
+    ap = argparse.ArgumentParser(description="/memory-undo backend")
     ap.add_argument("--user", default=None)
     ap.add_argument("--project-cwd", default="")
     ap.add_argument("--list", action="store_true", help="Dry-run: list candidates only")

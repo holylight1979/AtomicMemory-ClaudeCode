@@ -1,4 +1,4 @@
-"""verify_failures_routing.py — Failures 路由判定（2026-06-12 funnel 缺口修補）.
+"""verify_failures_routing.py — Failures 路由判定.
 
 不變式：
 1. feedback- 前綴 title → 路由 Failures（既有行為不變）。

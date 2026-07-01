@@ -1,4 +1,4 @@
-"""verify_taxonomy_classify.py — Phase 1 單後端 batch 分類器（mock，零 LLM）。
+"""verify_taxonomy_classify.py — 單後端 batch 分類器（mock，零 LLM）。
 
 驗 build_classify_prompt / parse / classify_batch 的正規化與防飄移：
 closed-list slug 強制、is_real clamp、缺 id 補 unsure、解析失敗不爆。

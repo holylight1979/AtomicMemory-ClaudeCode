@@ -1,7 +1,7 @@
 """
-sync-atom-index.py — Atom frontmatter Trigger ↔ _atom_index.json 同步工具（V5 P6c）
+sync-atom-index.py — Atom frontmatter Trigger ↔ _atom_index.json 同步工具
 
-設計依據：V5 Wave 3 P3b（_AIDocs/V5-upgrade-plan.md）
+索引模型：
 - `_atom_index.json` 為機器真相源（schema v1.0；lib.atom_index_json）
 - `_ATOM_INDEX.md` 為自動生成 mirror（lib.atom_index_json.regenerate_atom_index_md）
 - frontmatter Trigger 為註記，drift 時以 JSON 為主對齊

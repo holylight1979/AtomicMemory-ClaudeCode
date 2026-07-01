@@ -1,4 +1,4 @@
-"""verify_usefulness_access_phase2.py — Phase 2 (#2) 效用閉環 access 層守門 (2026-06-01).
+"""verify_usefulness_access_phase2.py — Phase 2 (#2) 效用閉環 access 層守門.
 
 守住 lib/atom_access.py 的 Phase 2 不變式：
 1. schema v2→v3 冪等 migration：缺 useful_hits/used_fail → 補 prior(1)，可重入不壞既有計數。
@@ -7,7 +7,7 @@
 4. Wilson 下界 + usefulness_stats + 升/降資格（遲滯帶：升≥0.6、降≤0.35，皆 n≥3）。
 5. _coerce_num：整數存 int、非整數存 float。
 
-純函式 + tmp atom 路徑，不污染現役 access.json。Design: plans/typed-purring-stearns.md Phase 2。
+純函式 + tmp atom 路徑，不污染現役 access.json。
 """
 
 from __future__ import annotations

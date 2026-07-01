@@ -506,7 +506,7 @@ def test_16_classify_realm_zero_false_positive():
         ("feedback-tooling-reliability", ["codex", "codex companion", "MCP"]),
         ("feedback-workflow-discipline", ["handoff", "上 GIT"]),
         ("cognitive-patterns", ["過度工程", "proxy metric"]),
-        # 2026-06-12 二度誤降後列保護：SGI 詞庫污染（karpathy/verify loop）name 命中也硬擋
+        # SGI 詞庫污染（karpathy/verify loop）name 命中也硬擋，列保護
         ("goal-driven-verify-loopkarpathy-吸收", ["karpathy", "verify loop", "成功標準"]),
         ("memory-pipeline-silent-failure-2026-05", ["episodic", "晉升"]),
         ("atom-usefulness-loop", ["usefulness", "Wilson 下界"]),
@@ -569,7 +569,7 @@ def test_17_classify_realm_py_js_parity():
         ["atom-usefulness-loop", ["usefulness"]],
         ["some-new-world-note", ["腦內世界", "wander"]],
         ["plain-generic-atom", ["foo", "bar"]],
-        # 保護清單 py↔js 鏡像（2026-06-12 goal-driven 二度誤降後加硬擋）
+        # 保護清單 py↔js 鏡像（goal-driven 曾誤降後加硬擋）
         ["goal-driven-verify-loopkarpathy-吸收", ["karpathy", "verify loop"]],
     ]
     py = [classify_realm(n, t) for n, t in fixtures]
@@ -626,7 +626,7 @@ def test_18_normalize_domain_path():
     assert normalize_domain_path("Good/_bad/More", existing) == "Good"
     assert normalize_domain_path("", []) == LOCAL_REALM_DEFAULT_DOMAIN
     assert normalize_domain_path("_hidden", []) == LOCAL_REALM_DEFAULT_DOMAIN
-    # 非 CJK/ASCII 字元段（2026-06-12 韓文「자동화」亂碼 domain 實案）→ 降 Else / 截斷
+    # 非 CJK/ASCII 字元段（如韓文「자동화」亂碼 domain）→ 降 Else / 截斷
     assert normalize_domain_path("자동화流程與協議", existing) == LOCAL_REALM_DEFAULT_DOMAIN
     assert normalize_domain_path("Tools/자동화流程與協議", existing) == "Tools"
     assert normalize_domain_path("Кириллица", []) == LOCAL_REALM_DEFAULT_DOMAIN  # homoglyph 系
@@ -711,7 +711,7 @@ def test_22_clean_segment_py_js_parity():
 
     fixtures = ["Windows", "  OS  ", "WSL", "..", "_hidden", ".dot",
                 "a/b", "a\\b", "bad<x", 'q"x', "", "Hermes Agent",
-                # 非 CJK/ASCII 字元集 guard（2026-06-12 韓文亂碼 domain 實案）
+                # 非 CJK/ASCII 字元集 guard（防韓文等亂碼 domain）
                 "자동화流程與協議", "自動化流程與協議", "Кириллица", "Tools①"]
     py = [_clean_segment(s) for s in fixtures]
 
@@ -758,7 +758,7 @@ def test_23_learned_lexicon_roundtrip(tmp_path, monkeypatch):
     assert r["realm"] == "local" and r["domain"] == "OS/Windows/WSL"
 
 
-# ─── 24. append CRLF byte-stability（parity 方案 B：拼接統一走 py 單一實作）─────
+# ─── 24. append CRLF byte-stability（parity：拼接統一走 py 單一實作）─────
 
 
 def test_24_append_crlf_byte_stability(isolated_claude):
@@ -848,8 +848,8 @@ def test_25_cli_build_append_cross_language(tmp_path):
 
 
 def test_26_learned_lexicon_pollution_guards(tmp_path, monkeypatch):
-    """append_learned_terms sink 護欄：泛用詞（2026-06-12 goal-driven-verify-loop 誤降
-    實案）與亂碼 domain（韓文「자동화」實案）拒收；classify_realm 出口對已污染
+    """append_learned_terms sink 護欄：泛用詞（如 goal-driven-verify-loop 曾誤降）
+    與亂碼 domain（如韓文「자동화」）拒收；classify_realm 出口對已污染
     learned 的亂碼 domain 降 Else。"""
     from lib import atom_locations as aloc
 

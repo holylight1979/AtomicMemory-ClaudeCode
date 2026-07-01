@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """cleanup-projects-residue.py — 清理 ~/.claude/projects/{slug}/memory/ 殘骸 (S1.1.2)
 
-V2.21 之後，專案層 memory 統一住在 {project_root}/.claude/memory/，
+專案層 memory 統一住在 {project_root}/.claude/memory/，
 ~/.claude/projects/{slug}/memory/ 變成 migration stub 或空殼，會污染：
   - audit 跨層 duplicate 偵測
   - 雙層 .claude (P1 漏洞觸發點)

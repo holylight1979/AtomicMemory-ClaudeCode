@@ -1,8 +1,8 @@
-"""taxonomy_jury.py — _drafts 內部 taxonomy 引擎（Phase 0 最小殼）。
+"""taxonomy_jury.py — _drafts 內部 taxonomy 引擎（最小殼）。
 
-Phase 0 目的：用可執行測試釘死「軸1 歸夾 = 牢籠內子夾移動，draft 永遠出不了
+目的：用可執行測試釘死「軸1 歸夾 = 牢籠內子夾移動，draft 永遠出不了
 _drafts/」這個安全前提；不喚 LLM、不碰 _atom_index.json、不寫詞庫、不改
-Confidence、不晉升。後續 Phase 才接三路 LLM jury / 去蕪 soft-delete / 畢業閘。
+Confidence、不晉升。後續才接三路 LLM jury / 去蕪 soft-delete / 畢業閘。
 
 硬不變式（見 memory/_staging/next-phase-draft-taxonomy-engine.md §4）：
   INV-DRAFT-STAYS-CAGED：任何歸夾/soft-delete 終點 path 必含 '_drafts' 段，
@@ -51,7 +51,7 @@ def relocate_within_cage(draft_path: Path, memory_dir: Path,
                          slug: str = TAXONOMY_CATCHALL) -> Path:
     """把 _drafts/auto-capture/<x>.md 物理 mv 到 _drafts/by-class/<slug>/<x>.md。
 
-    Phase 0：slug 預設 _Unsorted（不分類、不喚 LLM）。純物理 rename，不碰索引/
+    slug 預設 _Unsorted（不分類、不喚 LLM）。純物理 rename，不碰索引/
     詞庫/Confidence。移檔前過 cage_assert（INV-DRAFT-STAYS-CAGED）。回 target 路徑。
     """
     dest_dir = _drafts_root(draft_path) / BY_CLASS / slug

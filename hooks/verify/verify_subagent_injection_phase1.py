@@ -11,7 +11,7 @@
 6. 結構守門：PreToolUse 有 Agent/Task 分支且用 updatedInput（CC 版本相依欄位，probe 已驗）；
    settings.json Pre+Post matcher 含 Agent|Task。
 
-純函式 + 受控 tmp 索引，不依賴磁碟既有 atom。Design: plans/typed-purring-stearns.md Phase 1。
+純函式 + 受控 tmp 索引，不依賴磁碟既有 atom。
 """
 
 from __future__ import annotations

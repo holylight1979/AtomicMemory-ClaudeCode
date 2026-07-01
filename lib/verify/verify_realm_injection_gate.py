@@ -1,4 +1,4 @@
-"""verify_realm_injection_gate.py — Phase 2 注入閘門（範疇限定）回歸測試。
+"""verify_realm_injection_gate.py — 注入閘門（範疇限定）回歸測試。
 
 驗證 `_is_under_claude_dir`（wg_core）+ `is_local_realm_path`（atom_locations）組合在
 session_start「候選快取建立處」的過濾語意：

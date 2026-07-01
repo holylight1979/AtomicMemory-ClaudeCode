@@ -9,7 +9,7 @@
    依據：Xiong 2505.16067 —— 純檢索/注入頻率晉升會傳播錯誤、劣化品質。
 3. `workflow/config.json` `self_iteration.promote_confirmations_threshold` 必須顯式存在。
 
-純檔案讀取 + 純邏輯，無重依賴。Design: plans/typed-purring-stearns.md Phase 0+2。
+純檔案讀取 + 純邏輯，無重依賴。
 """
 
 from __future__ import annotations

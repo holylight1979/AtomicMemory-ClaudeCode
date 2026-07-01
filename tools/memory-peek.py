@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-memory-peek.py — V4.1 /memory-peek backend
+memory-peek.py — /memory-peek backend
 
 Lists recent auto-extracted atoms + pending candidates + trigger reasons.
 Scans personal/auto/{user}/ for atoms with author=auto-extracted-v4.1.
@@ -183,7 +183,7 @@ def _scan_pending_candidates(user: str, cwd: str, since: datetime) -> List[Dict[
 
 
 def main():
-    ap = argparse.ArgumentParser(description="V4.1 /memory-peek backend")
+    ap = argparse.ArgumentParser(description="/memory-peek backend")
     ap.add_argument("--user", default=None)
     ap.add_argument("--project-cwd", default="")
     ap.add_argument("--since", default="24h",

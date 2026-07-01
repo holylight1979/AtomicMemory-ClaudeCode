@@ -9,7 +9,7 @@
    - per-turn 一次性（turn_seq 守門，重呼不重複計）。
    - sub-agent 注入（subagent_injections）一併歸因，agent error 覆寫為 fail。
 
-受控 tmp atom + tmp 轉錄，不依賴磁碟既有 atom。Design: plans/typed-purring-stearns.md Phase 2。
+受控 tmp atom + tmp 轉錄，不依賴磁碟既有 atom。
 """
 
 from __future__ import annotations

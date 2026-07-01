@@ -1,10 +1,8 @@
 """
-sync-memory-index.py — 從 _atom_index.json 自動生成 memory/MEMORY.md（V5 P6c）
+sync-memory-index.py — 從 _atom_index.json 自動生成 memory/MEMORY.md
 
-設計依據：V5 Wave 3 P3b — `_atom_index.json` 為 SoT
-
-V4→V5 變更：parse_atom_index 改讀 `_atom_index.json`（先前讀 `_ATOM_INDEX.md`，
-該檔現為自動生成 mirror，drift 風險可避）。
+`_atom_index.json` 為機器真相源（SoT）；parse_atom_index 以它為來源，
+`_ATOM_INDEX.md` 為自動生成 mirror，不作解析來源以避 drift。
 
 行為：
 - 讀 `_atom_index.json` 取得所有 atom（按 name 排序、計數）

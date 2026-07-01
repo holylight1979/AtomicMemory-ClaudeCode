@@ -115,10 +115,9 @@ def _has_completion_claim(state: Dict[str, Any], stop_text: str) -> bool:
 def _has_state_change(state: Dict[str, Any]) -> bool:
     """真的有檔案被改 — 僅看 trace 最近 RECENT_WINDOW 條（turn-scoped）。
 
-    BUG FIX (2026-04-28)：原版同時看 modified_files（session-cumulative）和
-    完整 tool_trace（也是 session-cumulative），導致任何 turn 內出現完成口風 +
-    session 早期某 turn 寫過檔，就會觸發 BLOCK 無限循環。改成只看最近 N 條
-    trace（約一個 turn 的工具呼叫量），仍能捕捉「同 turn 寫檔不驗證」的真實風險。
+    只看最近 N 條 trace（約一個 turn 的工具呼叫量）而非 session-cumulative 的
+    modified_files / tool_trace：後者會讓「turn 內完成口風 + session 早期曾寫檔」
+    誤觸 BLOCK 無限循環；限縮 window 仍能捕捉「同 turn 寫檔不驗證」的真實風險。
     """
     RECENT_WINDOW = 10
     for t in _get_tool_trace(state)[-RECENT_WINDOW:]:

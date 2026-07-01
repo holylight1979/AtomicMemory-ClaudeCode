@@ -1,6 +1,6 @@
 """taxonomy_classify.py — 單後端 batch 分類器（jury 的可組合單元）。
 
-Phase 1：把 ≤8 條 draft 包成一題，丟一個後端（generate_fn 注入），回每條
+把 ≤8 條 draft 包成一題，丟一個後端（generate_fn 注入），回每條
 {id, slug, is_real, sensitive, reason}。generate_fn 注入 → mock 可單測、接
 lib.ollama_extract_core._call_ollama 可實跑。**dry-run：只算建議、不搬檔、不碰索引/詞庫。**
 

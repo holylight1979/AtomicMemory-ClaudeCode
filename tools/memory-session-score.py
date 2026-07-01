@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-memory-session-score.py — V4.1 P4 /memory-session-score backend
+memory-session-score.py — /memory-session-score backend
 
 Reads reflection_metrics.json `v41_extraction.session_scores[]` and displays
-session evaluation breakdowns. Future V4.2 `/v41-backfill --score-threshold=0.5`
-will use this data for filtering.
+session evaluation breakdowns.
 """
 
 import argparse
@@ -101,7 +100,7 @@ def _format_entry(e: dict) -> str:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="V4.1 /memory-session-score backend")
+    ap = argparse.ArgumentParser(description="/memory-session-score backend")
     ap.add_argument("--last", action="store_true", help="Show last session only")
     ap.add_argument("--since", default="", help="Filter: '24h', '7d', or '2026-04-16'")
     ap.add_argument("--top-n", type=int, default=0, help="Top-N by weighted score")
@@ -133,7 +132,7 @@ def main():
         }, ensure_ascii=False, indent=2))
         return
 
-    print(f"[V4.1 Session Scores — {mode} ({len(filtered)} 筆)]")
+    print(f"[Session Scores — {mode} ({len(filtered)} 筆)]")
     for e in filtered:
         print(_format_entry(e))
         print("")
