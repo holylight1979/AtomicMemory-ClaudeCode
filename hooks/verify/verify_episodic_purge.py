@@ -1,6 +1,6 @@
 """verify_episodic_purge.py — SessionEnd 輕量 episodic purge + 注入曝光遙測。
 
-守 P5-episodic 兩個新契約（atom-audit-2026-07-01-plan.md P5）：
+守 episodic purge 兩個契約：
 
 purge（wg_episodic._purge_expired_episodic）：
 - Expires-at < today → md + .access.json sidecar 搬 _distant/{year}_{month}/（走

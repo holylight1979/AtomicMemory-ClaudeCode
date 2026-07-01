@@ -1,4 +1,4 @@
-"""verify_post_compact_reinjection_phase4.py — 選配 #4 壓縮後 atom 內文復原守門 (2026-06-01).
+"""verify_post_compact_reinjection_phase4.py — 選配 #4 壓縮後 atom 內文復原守門.
 
 守住 Option B 的不變式（plans/deep-wobbling-bentley.md）：
 1. **PostCompact 不注入**：post_compact.py 絕不走 output_json / hookSpecificOutput（反編譯實證 PostCompact

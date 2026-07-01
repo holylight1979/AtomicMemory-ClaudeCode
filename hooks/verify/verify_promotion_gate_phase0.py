@@ -1,4 +1,4 @@
-"""verify_promotion_gate_phase0.py — Phase 0 地基 + Phase 2 效用晉升守門 (2026-06-01).
+"""verify_promotion_gate_phase0.py — Phase 0 地基 + Phase 2 效用晉升守門.
 
 守住曾是已驗證缺陷 / 漂移的不變式（Phase 2 已強化第 2 條）：
 1. `wg_episodic.py` 必須 `import time` —— 缺它，cross-session Confirmations 加計

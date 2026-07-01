@@ -1,4 +1,4 @@
-"""test_atom_strip_for_injection.py — REG-005 A-layer (Session 1/3, 2026-04-28).
+"""verify_atom_strip_for_injection.py — REG-005 A-layer.
 
 Covers `wg_atoms._strip_atom_for_injection` rewrite from整檔剝離 to summary-first
 routing by atom type (impression_action / knowledge_mixed / fallback), plus the

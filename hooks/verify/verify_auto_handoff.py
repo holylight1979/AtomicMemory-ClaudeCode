@@ -1,4 +1,4 @@
-"""verify_auto_handoff.py — Auto-Handoff 自動無損交接守門（Phase 1-3，2026-06-09）.
+"""verify_auto_handoff.py — Auto-Handoff 自動無損交接守門（Phase 1-3）.
 
 守住 plans/wise-wobbling-gem.md 的不變式：
 1. **PreCompact 自動 stub**：壓縮前 build_handoff_stub 寫入 resolve_staging_dir，設

@@ -1,4 +1,4 @@
-"""verify_usefulness_loop_phase2.py — Phase 2 (#2) 注入→使用→結果 閉環守門 (2026-06-01).
+"""verify_usefulness_loop_phase2.py — Phase 2 (#2) 注入→使用→結果 閉環守門.
 
 守住 hook 層 Phase 2 不變式：
 1. detect_atom_use（詞彙重疊）：used 場景（code/CJK 稀有 token 交集）True、無關 False、空 atom no_rare。
@@ -296,7 +296,7 @@ def test_hint_tier_pure_exposure_none():
 def test_ups_hint_is_usefulness_driven():
     """UPS 注入提示改由效用 Wilson 下界驅動；stale ReadHits 晉升提示須完全退場。
 
-    2026-06-12 熱點重構後注入段移至 handlers/ups_inject.py，orchestrator 一併掃描
+    注入段位於 handlers/ups_inject.py，orchestrator 一併掃描
     確認 stale 邏輯沒有殘留在任何一邊。
     """
     src = (CLAUDE / "hooks" / "handlers" / "ups_inject.py").read_text(encoding="utf-8")

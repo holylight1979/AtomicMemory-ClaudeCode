@@ -1,4 +1,4 @@
-"""test_hot_cold_classifier.py — REG-005 C-layer (Session 2/3, 2026-04-29).
+"""verify_hot_cold_classifier.py — REG-005 C-layer.
 
 Covers `_recent_reads_7d`, `classify_hot_cold`, `format_cold_inject_line`.
 

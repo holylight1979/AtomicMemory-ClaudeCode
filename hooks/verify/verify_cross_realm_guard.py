@@ -1,4 +1,4 @@
-"""verify_cross_realm_guard.py — Cross-Realm Write Guard（方案甲 2026-06-12）守門.
+"""verify_cross_realm_guard.py — Cross-Realm Write Guard 守門.
 
 不變式：
 1. 外部專案 session（cwd ∉ ~/.claude）寫 ~/.claude/{skills,tools,hooks,lib,rules}/ → deny。

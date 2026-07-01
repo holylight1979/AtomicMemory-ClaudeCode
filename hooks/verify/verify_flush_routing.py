@@ -1,4 +1,4 @@
-"""verify_flush_routing.py — session_end auto-flush 落點路由（2026-06-18 修）。
+"""verify_flush_routing.py — session_end auto-flush 落點路由。
 
 驗證 extract-worker._flush_route：專案 session 的自動萃取知識 → 專案層 shared（只在該專案
 注入），~/.claude session / 無 project root / 空 cwd → global。修「flush 一律 scope=global，

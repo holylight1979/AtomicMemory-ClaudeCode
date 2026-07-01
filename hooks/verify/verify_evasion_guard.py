@@ -190,7 +190,7 @@ def test_evasion_flags_preexisting():
     "另外處理即可",
 ])
 def test_evasion_flags_deferral_keywords(text):
-    """2026-04-17 使用者指出關鍵字不夠，補完時間性延後語。"""
+    """時間性延後語（退避關鍵字）須被偵測到。"""
     r = detect_evasion(text, [])
     assert r is not None, f"未抓到退避語：{text!r}"
 

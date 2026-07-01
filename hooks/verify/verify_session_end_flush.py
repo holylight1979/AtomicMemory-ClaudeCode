@@ -140,7 +140,7 @@ def test_disabled_noop(patched):
     assert patched["cleared"] is None
 
 
-# ─── 落點路由（2026-06-18 修）端到端 wiring ───────────────────────────
+# ─── 落點路由端到端 wiring ───────────────────────────
 
 def test_flush_routes_global_when_no_cwd(patched):
     """ctx 無 cwd → 落點 global（_flush_route 預設）。"""

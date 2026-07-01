@@ -1,4 +1,4 @@
-"""verify_failure_skeleton.py — Stage 2：失敗記錄多區塊骨架。
+"""verify_failure_skeleton.py — 失敗記錄多區塊骨架。
 
 驗證 extract-worker 的失敗深記骨架（取代舊「- [臨] 一行」）：
   - _build_failure_skeleton 必含五區塊標題：始末/根因/設計原理/運作邏輯/防再犯

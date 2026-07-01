@@ -1,4 +1,4 @@
-"""test_related_hot_cold_filter.py — REG-005 D-layer (Session 2/3 commit 5, 2026-04-29).
+"""verify_related_hot_cold_filter.py — REG-005 D-layer.
 
 Covers Related-spread hot/cold routing in workflow-guardian.py:
 - hot Related atoms → full content via decide_atom_injection (existing flow)

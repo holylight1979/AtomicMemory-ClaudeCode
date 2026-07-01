@@ -1,4 +1,4 @@
-"""verify_subagent_injection_phase1.py — Phase 1 (#1) sub-agent 記憶注入守門 (2026-06-01).
+"""verify_subagent_injection_phase1.py — Phase 1 (#1) sub-agent 記憶注入守門.
 
 守住 Phase 1 的不變式：
 1. `build_injection_blob`（wg_atoms）對含 trigger 的 prompt 產出緊湊 blob，

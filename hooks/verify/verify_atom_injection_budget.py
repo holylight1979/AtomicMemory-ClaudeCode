@@ -1,7 +1,7 @@
-"""test_atom_injection_budget.py — REG-005 B-layer (Session 1/3, 2026-04-29).
+"""verify_atom_injection_budget.py — REG-005 B-layer.
 
 Covers per-turn budget tracker (`_TURN_BUDGET_LIMIT = 500`, `decide_atom_injection`)
-and the SECTION_INJECT_THRESHOLD lowering (300 → 200).
+and the SECTION_INJECT_THRESHOLD = 200 gate.
 
 Tests the decision function in isolation (ok / fallback / skip) plus the
 threshold change. End-to-end multi-atom integration through workflow-guardian's
@@ -136,7 +136,7 @@ def test_decision_skip_when_impression_not_smaller_than_full():
 
 
 def test_budget_constant_is_500():
-    """Sanity check on the published constant (2026-07-01 縮量: 800→500，見淨值審查 atom)."""
+    """Sanity check on the published constant _TURN_BUDGET_LIMIT == 500（見淨值審查 atom）."""
     assert wg_atoms._TURN_BUDGET_LIMIT == 500
 
 
@@ -155,7 +155,7 @@ def test_no_module_level_state_carries_between_calls():
 
 
 def test_section_inject_threshold_lowered_to_200():
-    """REG-005 B-layer: 300 → 200, more atoms now eligible for vector section
+    """SECTION_INJECT_THRESHOLD = 200：more atoms now eligible for vector section
     extraction."""
     assert wg_atoms.SECTION_INJECT_THRESHOLD == 200
 

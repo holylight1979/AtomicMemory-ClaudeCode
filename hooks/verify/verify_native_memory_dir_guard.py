@@ -1,15 +1,14 @@
-"""verify_native_memory_dir_guard.py — CC harness 原生 memory dir 誤納防護 (2026-06-12).
+"""verify_native_memory_dir_guard.py — CC harness 原生 memory dir 誤納防護.
 
 守住的不變式：
 1. 新版 CC harness file-based memory（projects/<slug>/memory/）會自建 MEMORY.md
    （`- [Title](file.md) — hook` 清單格式），與 atom 索引撞名。
    `discover_all_project_memory_dirs()` 不得把它納入 cross-project 掃描——
    否則 harness 自寫記憶檔會被 discover_v4_sublayers 的 flat-legacy 路徑當 atom 注入。
-   兩個分支都要守：registry old-path fallback（無 marker 檢查的歷史漏洞，
-   2026-06-12 c--users-holylight--claude 實例）與 Phase-0 目錄掃描。
+   兩個分支都要守：registry old-path fallback（無 marker 檢查的歷史漏洞）與 Phase-0 目錄掃描。
 2. 合法 atom 索引照常納入：_atom_index.json / _ATOM_INDEX.md /
    MEMORY.md 含「| Atom」trigger 表頭 / migrated-v2.21 slug-pointer stub。
-3. cbf7c15 的 _is_global_mem 護欄不得回退（全域 memory dir 不得當專案回傳）。
+3. _is_global_mem 護欄不得回退（全域 memory dir 不得當專案回傳）。
 """
 
 from __future__ import annotations
@@ -91,7 +90,7 @@ def test_harness_native_dir_excluded_via_phase0_scan(tmp_path):
 
 
 def test_empty_dir_excluded(tmp_path):
-    """harness 預建的空 memory dir（2026-06-12 實例）不得納入。"""
+    """harness 預建的空 memory dir 不得納入。"""
     claude_dir, restore = _make_env(tmp_path)
     try:
         _proj_mem(claude_dir, "c--proj-empty")
@@ -118,7 +117,7 @@ def test_atom_markers_still_included(tmp_path):
 
 
 def test_global_mem_guard_not_regressed(tmp_path):
-    """cbf7c15 護欄：registry root=家目錄 → 全域 memory dir 不得當專案回傳。"""
+    """_is_global_mem 護欄：registry root=家目錄 → 全域 memory dir 不得當專案回傳。"""
     claude_dir, restore = _make_env(tmp_path)
     try:
         # 全域 memory dir 放上合法 atom 索引，仍不得被回傳
@@ -134,4 +133,4 @@ def test_source_has_marker_helper():
     """靜態守門：兩分支都必須過 _has_atom_index_marker，_is_global_mem 不得移除。"""
     src = (HOOKS / "wg_core.py").read_text(encoding="utf-8")
     assert src.count("_has_atom_index_marker(") >= 3, "helper 定義 + 兩分支呼叫缺一"
-    assert "_is_global_mem" in src, "cbf7c15 全域 memory 護欄被移除"
+    assert "_is_global_mem" in src, "全域 memory 護欄（_is_global_mem）被移除"
