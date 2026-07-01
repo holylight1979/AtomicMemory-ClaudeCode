@@ -1,7 +1,7 @@
 {
   "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
   "generated_from": "skills/*/SKILL.md",
-  "count": 23,
+  "count": 21,
   "skills": [
     {
       "name": "atom-debug",
@@ -27,11 +27,6 @@
       "name": "conflict",
       "dir": "conflict",
       "description": "記憶衝突偵測：偵測 atom 內容衝突並列出待處理項目"
-    },
-    {
-      "name": "conflict-review",
-      "dir": "conflict-review",
-      "description": "管理職裁決 Pending Queue：審視 _pending_review/ 下敏感原子並做出 approve/reject 決議"
     },
     {
       "name": "consciousness-stream",
@@ -72,11 +67,6 @@
       "name": "heal-review",
       "dir": "heal-review",
       "description": "管理職裁決記憶自癒失敗佇列：審視 _heal_review/ 下「自動修不好」的 atom 診斷卡並 resolve/dismiss"
-    },
-    {
-      "name": "init-roles",
-      "dir": "init-roles",
-      "description": "專案多職務模式啟用引導 — 初始化 shared/roles/personal 三層 atom 結構"
     },
     {
       "name": "journal",

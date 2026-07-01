@@ -124,7 +124,9 @@ def write(skills_dir: Path = SKILLS_DIR, claude_dir: Path = CLAUDE_DIR) -> Tuple
     idx_path = skills_dir / "_skill_index.json"
     new_json = json.dumps(build_index(skills), ensure_ascii=False, indent=2) + "\n"
     if _read(idx_path) != new_json:
-        idx_path.write_text(new_json, encoding="utf-8")
+        # newline="\n"：不讓 Windows 預設 translation 把 LF 文件翻成 CRLF（否則
+        # 1 位 marker 改動 → 整檔 EOL flip 的假 diff；repo 無 .gitattributes、人讀檔為 LF）
+        idx_path.write_text(new_json, encoding="utf-8", newline="\n")
         changed.append(str(idx_path.relative_to(claude_dir)).replace("\\", "/"))
 
     repl = r"\g<1>" + str(n) + r"\g<2>"
@@ -135,7 +137,7 @@ def write(skills_dir: Path = SKILLS_DIR, claude_dir: Path = CLAUDE_DIR) -> Tuple
             continue
         new = MARKER_RE.sub(repl, text)
         if new != text:
-            p.write_text(new, encoding="utf-8")
+            p.write_text(new, encoding="utf-8", newline="\n")  # 見上：防 LF→CRLF flip
             changed.append(rel)
     return n, changed
 

@@ -4,7 +4,7 @@ wg_roles.py — V5 shim（單人環境 hardcode）
 原 V4 雙向認證 / personal dir bootstrap / management roster 在 single-user 環境
 無實質意義。本 shim 保留 4 個函式 API（其他模組仍 import），內容簡化為 hardcode。
 
-未來若回多人協作模式，從 hooks/_v4_archive/wg_roles.py 還原即可。
+未來若回多人協作模式，從 _AIDocs/DevHistory/v4-archive/wg_roles.py 還原即可。
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def is_management(cwd: str = "", user: str = "") -> bool:
     誠實化（原「user 比對」在單人環境形同虛設，且暗藏 CLAUDE_USER 誤設即誤擋的假風險）。
     參數與無參呼叫皆相容，僅為 API 相容保留——conflict-review / heal-review /
     init-roles / session_start 仍 import。未來若回多人協作，
-    從 hooks/_v4_archive/wg_roles.py 還原雙向認證。
+    從 _AIDocs/DevHistory/v4-archive/wg_roles.py 還原雙向認證。
     """
     return True
 
