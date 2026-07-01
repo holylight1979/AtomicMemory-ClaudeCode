@@ -1189,6 +1189,31 @@
         "git diff 整檔"
       ],
       "scope": "global"
+    },
+    {
+      "name": "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證",
+      "path": "_AIDocs/_atoms/MemDev/原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證.md",
+      "triggers": [
+        "記憶系統審查",
+        "atom audit",
+        "誠實化",
+        "修剪",
+        "拔死碼",
+        "死碼",
+        "實證先行",
+        "always-load",
+        "fail-open",
+        "可觀測性",
+        "vector 靜默死",
+        "誤刀",
+        "復活基座",
+        "過度工程",
+        "跨模型他評",
+        "codex",
+        "併發執P",
+        "MCP 重啟"
+      ],
+      "scope": "global"
     }
   ]
 }

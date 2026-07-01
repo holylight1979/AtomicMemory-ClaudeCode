@@ -5,7 +5,7 @@
 
 ## Hooks 系統（V5 架構，2026-05-27）
 
-10 個 hook 事件（含 async Stop；2026-06-01 選配 #4 加 `PostCompact`+`PostToolBatch`），定義在 `settings.json`。**V5 Wave 2** 把 V4.1 的 2651 行 `workflow-guardian.py` 拆成 `dispatcher.py`（純路由）+ `handlers/{event}.py` 模組；16 個 `wg_*.py` 整併為 6 主模組 + 1 shim（Wave 5 Session 6 砍 `wg_atom_observation.py`）。V4 終態的 19 個檔案歸檔在 [`DevHistory/v4-archive/`](DevHistory/v4-archive/)。
+**9 個 hook 事件**（settings.json 註冊：SessionStart / UserPromptSubmit / Pre·PostToolUse / Pre·PostCompact / PostToolBatch / Stop / SessionEnd；Stop 兼同步閘門與 async 萃取，且 2026-07-01 起同時掛 3 支 standalone Stop hook — guardian / codex_companion / lang_guard；2026-06-01 選配 #4 加 `PostCompact`+`PostToolBatch`；handlers/ 另含未註冊事件的 `notification.py`，共 10 handler 模組）。**V5 Wave 2** 把 V4.1 的 2651 行 `workflow-guardian.py` 拆成 `dispatcher.py`（純路由）+ `handlers/{event}.py` 模組；16 個 `wg_*.py` 整併為 6 主模組 + 1 shim（Wave 5 Session 6 砍 `wg_atom_observation.py`）。V4 終態的 19 個檔案歸檔在 [`DevHistory/v4-archive/`](DevHistory/v4-archive/)。
 
 | Hook | 觸發時機 | 用途 |
 |------|---------|------|
@@ -16,8 +16,8 @@
 | `PreCompact` | Context 壓縮前 | 快照 state + 快照 `injected_atoms`（`pre_compact_injected_atoms`，供壓縮後內文復原，不受 SessionStart(compact) 清空順序影響）+ **Auto-Handoff Layer 2**：壓縮前自動寫六區塊 stub 到 `_staging`（核心保底，不依賴 token 量測） |
 | `PostCompact` | Context 壓縮後 | 依 PreCompact 快照 stash 已注入 atom 的緊湊內文 + 設 `pending_reinjection` flag（**本身不注入**，PostCompact 不支援 additionalContext） |
 | `PostToolBatch` | 一批（含並行）工具全解析後，每批一次 | idle 時極輕 early-exit；見 flag 時一次性 `additionalContext` 重注入壓縮前 atom 內文 + 清 flag + 名單 merge 回 `injected_atoms`（閉 mid-turn auto-compact 失憶缺口，選配 #4）；**Auto-Handoff Layer 3**：與 `pending_reinjection` blob 合流注入 stub 補全提示 |
-| `Stop` | 對話結束前 | Sync 閘門 + Fix Escalation + TestFailGate（阻擋完成宣告）+ Evasion Detection + **Deep Post-Mortem Gate**（高 effort 失敗訊號 → 注入指令要 Claude 用 atom_write 補完整 post-mortem，一次性）+ **Auto-Handoff Layer 1**：usage ratio≥門檻時 piggyback 既有 block 附 token 預警（一次性，不額外打斷） |
-| `Stop (async)` | 對話結束後 | V3 quick-extract：qwen3:1.7b 5s 快篩 → hot_cache.json |
+| `Stop` | 對話結束前 | （3 支 standalone Stop hook）**guardian**：Sync 閘門 + Fix Escalation + TestFailGate（阻擋完成宣告）+ Evasion Detection + **Deep Post-Mortem Gate**（高 effort 失敗訊號 → 注入指令要 Claude 用 atom_write 補完整 post-mortem，獨立預算一次性）+ **Auto-Handoff Layer 1**（token 預警 piggyback）；**codex_companion**：完成證據/handoff 第二意見複審；**lang_guard**（P8b）：終版訊息英文佔比 >0.5 → 注入繁中提醒 |
+| `Stop (async)` | 對話結束後 | ~~V3 quick-extract~~（**孤兒·已撤，無 caller**）；hot_cache 現僅由 deep_extract 覆寫路徑餵 |
 | `SessionStart` | Session 開始 | 初始化 state + 去重 + Wisdom 盲點 + 定期檢閱 + 專案自治層 delegate |
 | `SessionEnd` | Session 結束 | Episodic 生成 + 回應萃取 + 鞏固 + 衝突偵測 + Wisdom 反思 + **Auto-Handoff Layer 4**：session 直接結束（非壓縮）兜底寫客觀 stub（補 PreCompact 未觸發缺口） |
 
@@ -36,7 +36,7 @@
 | `handlers/ups_inject.py` | UPS injection assemble 段：hot/cold + per-turn budget（ok/fallback/skip）+ related spread（含 **relevance gate** `_filter_related_by_relevance` 最小集裁切，Memory Governance C）+ ReadHits++/效用晉升提示 |
 | `handlers/pre_tool_use.py` | PreToolUse：Write/Edit atom format gate + memory path block + Bash SVN test block |
 | `handlers/post_tool_use.py` | PostToolUse：file tracking + 增量索引 + read tracking + test-fail 偵測 + changelog auto-roll |
-| `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection + **Deep Post-Mortem Gate**（`_should_deep_postmortem`：(effort：retry≥2 ∨ fix_escalation_triggered ∨ 同檔 edit≥3) **AND** (真失敗：failing_tests ∨ evasion_flag ∨ 未宣告完成) → 指示 Claude 深寫 post-mortem；AND 真失敗訊號是 dogfood 修正，純 effort 會對成功的多次迭代開發誤觸；`deep_postmortem_done` 一次性、共用 `stop_gate_max_blocks` 預算）+ Auto-Handoff Layer 1（token 預警 piggyback 既有 block） |
+| `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection + **Deep Post-Mortem Gate**（`_should_deep_postmortem`：(effort：retry≥2 ∨ fix_escalation_triggered ∨ 同檔 edit≥3) **AND** (真失敗：failing_tests ∨ evasion_flag ∨ 未宣告完成) → 指示 Claude 深寫 post-mortem；AND 真失敗訊號是 dogfood 修正，純 effort 會對成功的多次迭代開發誤觸；`deep_postmortem_done` 一次性＝**獨立預算 1（P5 起不與 Sync/Scan/TestFail 共用 `stop_gate_max_blocks`，止餓死）**）+ Auto-Handoff Layer 1（token 預警 piggyback 既有 block） |
 | `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + **selective forgetting**（`apply_selective_forget` 隔離 `_distant/`，預設 dry-run，Memory Governance D）+ docdrift advisory + Auto-Handoff Layer 4（SessionEnd 兜底寫客觀 stub） |
 | `handlers/pre_compact.py` | PreCompact：state snapshot + `injected_atoms` 快照 + Auto-Handoff Layer 2（壓縮前自動寫六區塊 stub） |
 | `handlers/post_compact.py` | PostCompact：依快照複用 `wg_atoms.load_atoms_within_budget` stash 壓縮前 atom 緊湊內文 + `pending_reinjection` flag（不注入；選配 #4） |
@@ -55,7 +55,7 @@
 | `codex_companion.py` | **V5 P5b 重寫**：HTTP daemon → subprocess（in-process state + spawn `tools/codex-companion/audit.py`）。**2026-06-24**：新增第四類審計 `handoff_review`——偵測 `_staging/next-phase*.md`/handoff 檔寫入 → 把 `skills/handoff` Step 3.5 八問當對抗 checklist 餵 codex 對交接文件做獨立第二意見複審（自評→他評），降注入門檻 medium（`soft_gate.handoff_review`，預設開） |
 | `extract-worker.py` | SessionEnd 萃取子程序（共用 `lib/ollama_extract_core.py`）。**對談結束自動落地**：`_session_end_writeback` 把 session_end 全文萃取 + 累積 `knowledge_queue` flush 成 [臨] auto-capture 草稿（**2026-06-18：依 session cwd 路由 scope=shared/global，見 `_flush_route`**；**2026-06-24：草稿一律隔離到 `_drafts/auto-capture/` 子層，`_flush_item_to_atom` 改 `build_atom_content`+`write_raw` 直寫——`sync-atom-index` 排除 `_drafts` → 不入索引/不注入/不計數，根治 content-as-filename 碎片污染 memory/ 根**；過品質閘、只清寫成功項、`session_end_flush.max_atoms` 上限）。**失敗深記**：`_failure_writeback` 寫多區塊骨架（始末/根因/設計原理/運作邏輯/防再犯；小模型填始末＋拆根因，餘段留待 Claude 深寫） |
 | `lib/ollama_extract_core.py` | 萃取共用核心 |
-| `quick-extract.py` | Stop async 快篩 |
+| `quick-extract.py` | ~~Stop async 快篩~~（**孤兒·Stop hook 已撤、無 caller；檔案保留供回滾**）|
 
 > V4.1 終態的 16 個 `wg_*.py` + 2651 行 dispatcher 歸檔在 [`DevHistory/v4-archive/`](DevHistory/v4-archive/)（19 檔），含演化對照表。
 
@@ -83,13 +83,13 @@
 | `ensure-mcp.py` | MCP server 可用性確認 |
 | `webfetch-guard.sh` | WebFetch 安全護欄 |
 
-## Skills（V5 全域 <!-- skill-count -->21<!-- /skill-count --> 個，2026-05-27 起；前 22 為記憶系統 skill，外加 1 外部〔karpathy-guidelines〕；unity-mcp-skill 2026-06-12 已搬遷專案層）
+## Skills（V5 全域 <!-- skill-count -->21<!-- /skill-count --> 個 active，2026-05-27 起；記憶系統 skill + 1 外部〔karpathy-guidelines〕；unity-mcp-skill 2026-06-12 已搬遷專案層；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`**，故不計入 21）
 
 V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` **2026-05-27 已刪除**（原 7 天緩衝經對拍 100% identical 驗證後提前廢止）。
 
 | Skill | 檔案 | 用途 |
 |-------|------|------|
-| `/init-roles` | `skills/init-roles/SKILL.md` | V4 多職務模式啟用引導 |
+| ~~`/init-roles`~~ | `skills/_archived/init-roles/SKILL.md` | V4 多職務模式啟用引導（**P8a archived·dormant**；tools/init-roles.py 仍在）|
 | `/continue` | `skills/continue/SKILL.md` | 讀 _staging/next-phase.md 續接 |
 | `/consciousness-stream` | `skills/consciousness-stream/SKILL.md` | 識流處理 |
 | `/handoff` | `skills/handoff/SKILL.md` | 跨 Session Handoff Prompt Builder |
@@ -99,7 +99,7 @@ V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（�
 | `/extract` | `skills/extract/SKILL.md` | 手動知識萃取 |
 | `/generate-episodic` | `skills/generate-episodic/SKILL.md` | 手動生成 episodic atom |
 | `/conflict` | `skills/conflict/SKILL.md` | 記憶衝突偵測 |
-| `/conflict-review` | `skills/conflict-review/SKILL.md` | V4 管理職裁決 Pending Queue |
+| ~~`/conflict-review`~~ | `skills/_archived/conflict-review/SKILL.md` | V4 管理職裁決 Pending Queue（**P8a archived·dormant**；tools/conflict-review.py 仍在）|
 | `/memory` | `skills/memory/SKILL.md` | **5 合 1**：health / peek / undo / review / session-score（subcmd 分派） |
 | `/atom-debug` | `skills/atom-debug/SKILL.md` | Debug log 開關 |
 | `/harvest` | `skills/harvest/SKILL.md` | 網頁收割→Markdown |
@@ -139,6 +139,8 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 ## 規則模組
 
 `.claude/rules/core.md`（合併版）由 Claude Code 自動載入；CLAUDE.md 瘦身至 ~50 行。Hook 自動執行可程式碼化的部分（同步、品質函數、震盪偵測）。
+
+**治理原則（P5 2026-07-01 入 `rules/core.md`）**：① **Native-first** — 原生機制（CLAUDE.md / skills / memory / resume）優先，自製 atom/hook 只做原生做不到的「結構化·可稽核·跨-session 高價值」，不為想像中的需求長枝葉（過度工程的正解是誠實化＋修剪，非推倒重來）；② **可觀測性鐵律** — 所有 fail-open 必「不阻斷但要告知」，降級/靜默失敗要浮出訊號（反例：vector service 靜默死 27 天無人知）。
 
 ## 記憶系統（原子記憶 V5）— 子系統索引
 
@@ -238,9 +240,9 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 - **注入閘門**：`hooks/handlers/session_start.py` 建候選快取處依 `wg_core._is_under_claude_dir(cwd)` 濾掉 local 候選；外部專案完全略過、core（含 `_AIDocs/Failures/*`）不誤殺。
 - **分類器 `classify_realm`**（lib + server.js mirror）：安全預設 core、核心保護清單硬擋、詞庫只用實例專屬名（不用記憶系統通用詞）、只掃 name+triggers。**詞庫污染根治（2026-06-24，SGI 第三度污染後）**：① sink 端第三護欄 `_RESERVED_LEXICON_TERMS` exact 拒收系統 trigger 標籤/realm 自名/已知外部專案名（sgi/uba）；② SessionEnd sweep 對未確認 auto-capture 碎片（`_is_unconfirmed_autocapture`：trigger 含 auto-capture ∨ Author=auto-captured∧[臨]）整體 defer 不搬不喚 LLM，斷詞庫自汙染源；③ 核心保護 exact 集補 `自己flag…`（Author=holylight/[臨] 故 P2 不護→反覆誤搬後列硬擋）。
 - **搬遷工具 `tools/atom-set-realm.py`**：`_AIDocs/_atoms/` path 唯一寫者，連 `.access.json` sidecar 原子搬、Scope 保 global、`--to-core` 可逆；**不**走 `atom-move`。
-- **印象層（catalog 層 realm，2026-06-04）**：`sync-memory-index` 雙輸出——core atom → `MEMORY.md`（CLAUDE.md `@import`，全專案，fail-safe 退路）；local atom → 側檔 `memory/_local_catalog.md`（依 domain 分組），僅核心環境由 `session_start.py` 共同尾段（`_is_under_claude_dir` gate）注入。MEMORY.md 末尾僅留一行指標 → **外部專案 always-load 不再含本地範疇段（省 ~450 tok）**，補完 realm 在 index 層的一致性。fail-safe：hook 掛掉/缺檔僅損核心環境本地「目錄顯示」（atom 仍 trigger 注入），外部專案不受影響。
+- **印象層（catalog 層 realm，2026-06-04）**：`sync-memory-index` 雙輸出——core atom → `MEMORY.md`（CLAUDE.md `@import`，全專案，fail-safe 退路）；local atom → 側檔 `memory/_local_catalog.md`（依 domain 分組），僅核心環境由 `session_start.py` 共同尾段（`_is_under_claude_dir` gate）注入。MEMORY.md 末尾僅留一行指標 → **外部專案 always-load 不再含本地範疇段（`_local_catalog.md` 546 字元，實務 ~180 tok；CJK-aware 保守估 ~330）**，補完 realm 在 index 層的一致性。fail-safe：hook 掛掉/缺檔僅損核心環境本地「目錄顯示」（atom 仍 trigger 注入），外部專案不受影響。
 - **find-fallback**：server.js promote/edit_meta/find 對物理在 memory/ 外的 atom 加 `findAtomFileRecursive(LOCAL_ATOMS_DIR)`（鏡像 feedback fallback），否則 scope=global 的 local atom 會 `Atom not found`。
-- **V6 LLM-assisted recall + 階層 domain（2026-06-04，全貌見 SPEC §2.2）**：詞庫封閉 allow-list 漏判（wsl2 漏進 core）的根治。① 詞庫 miss 的 unknown-core 在 **SessionEnd sweep** 喚本地 LLM（`tools/realm_llm_classify.py`，**熱路徑不掛**）判 realm + 多段階層 domain，Fail-safe 四態（`error`→defer 留原地、`core`→留、`local`→搬 canon、`unsure`/低信心→`Else`；protected 永不喚 LLM）；② domain 變**關聯式分級階層**（`normalize_domain_path` snap 既有兄弟 + 增量深度閘 depth=volume，新分支封頂 3、絕對天花板 7）；③ validated terms 回寫 `memory/_meta/realm-lexicon-learned.json` 自學（py-only，js 維持 base-only 保 parity）；④ catalog `_local_catalog.md` always-load 只 Lv1 根、深層按需 `_INDEX.md`；⑤ 手動前端 **`/refile` skill**（`skills/refile/`）含核心檔辨識護欄 + 移檔後 doc-ref 掃描。
+- **V6 LLM-assisted recall + 階層 domain（2026-06-04，全貌見 SPEC §2.2）**：詞庫封閉 allow-list 漏判（wsl2 漏進 core）的根治。① 詞庫 miss 的 unknown-core 在 **SessionEnd sweep** 喚本地 LLM（`tools/realm_llm_classify.py`，**熱路徑不掛**）判 realm + 多段階層 domain，Fail-safe 四態（`error`→defer 留原地、`core`→留、`local`→搬 canon、`unsure`/低信心→`Else`；protected 永不喚 LLM）。**⚠ P3（2026-07-01）起 `realm.llm_fallback.enabled=false` 預設關 — 只跑 deterministic 詞庫（含 learned）保確定性 sweep；改回 true 才復原 LLM recall**；② domain 變**關聯式分級階層**（`normalize_domain_path` snap 既有兄弟 + 增量深度閘 depth=volume，新分支封頂 3、絕對天花板 7）；③ validated terms 回寫 `memory/_meta/realm-lexicon-learned.json` 自學（py-only，js 維持 base-only 保 parity）；④ catalog `_local_catalog.md` always-load 只 Lv1 根、深層按需 `_INDEX.md`；⑤ 手動前端 **`/refile` skill**（`skills/refile/`）含核心檔辨識護欄 + 移檔後 doc-ref 掃描。
 - **守門**：`verify_atom_io_equivalence.py` test_14–22（常數/routing/分類器零誤判/py↔js parity/canon/深度閘/自學）+ `verify_realm_injection_gate.py` + `tools/verify/verify_realm_llm_classify.py`（V6 LLM 分類器函式）+ `hooks/verify/verify_realm_sweep.py`（V6 SessionEnd sweep Fail-safe 四態決策）+ `verify_local_catalog_split.py`（深樹 + stale）。
 
 ## MCP Servers（V5：4 tool）
@@ -332,7 +334,7 @@ skills/{name}/verify/                        ← 17 個空結構（內容由 nex
 ### P3 記憶自癒（`tools/atom-heal.py`＝單一來源）
 腳本主導、判斷才呼 LLM、修完即驗證：
 - **L1** `missing_reverse_refs` → 機械補反向連結（`edit_metadata`，免 LLM）。
-- **L2** `broken_refs`/格式 → 呼 LLM 出結構化提案（repoint/remove/needs_human）→ 腳本經 funnel 套用 → 驗證。**禁盲刪**、repoint 只能指真實候選、LLM 失敗一律 needs_human。
+- **L2** `broken_refs`/格式 → 呼 LLM 出結構化提案（repoint/remove/needs_human）→ 腳本經 funnel 套用 → 驗證。**禁盲刪**、repoint 只能指真實候選、LLM 失敗一律 needs_human。**P5（2026-07-01）：server.js `apiHealAll` 背景 sweep 抽出 `missing_reverse_refs`（已由 SessionEnd `--fix-refs` L1 補）＝只掃 `broken_refs`，與腦內世界解耦；SessionEnd/`/memory health` 事件接線待後續。**
 - **L3** `stale` → 喚醒（不修）。
 - 重用 `atom-health-check.py`（importlib：`single_atom_report` + `--atom` 過濾）/ `lib.atom_io.edit_metadata`(source=`tool:atom-heal`) / `lib.atom_spec.validate_atom_content` / `tools/ollama_client.get_client`。
 - **後端可插拔**：`config.json` `heal.backend` 預設 `ollama`（本地免費、序列 `max_concurrent=1`）；`cloud` 為選配（並行 cap=N，adapter 待接）。

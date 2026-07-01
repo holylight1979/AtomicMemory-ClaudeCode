@@ -121,7 +121,7 @@ cp "$SRC/mcp-servers.template.json" "$DST/"
 rsync -a "$SRC/_AIDocs/" "$DST/_AIDocs/"
 ```
 
-> 已存在 `workflow/config.json` 時改執行 JSON merge（不覆蓋 user 設值），新欄位（`vector_search.global_layer` / `codex_companion.subprocess_timeout`）補預設。
+> 已存在 `workflow/config.json` 時改執行 JSON merge（不覆蓋 user 設值），新欄位（`vector_search.global_layer` 等）補預設。（`codex_companion.subprocess_timeout` 已於 P2 2026-07-01 拔除死鍵，勿再補。）
 
 ### Step 3：合併 settings.json hooks 區塊
 
@@ -278,10 +278,11 @@ cd ~/.claude && git pull
 - [ ] `lib/atom_index_json.py` + `memory/_atom_index.json` 存在
 - [ ] `tools/codex-companion/audit.py` 存在；`tools/codex-companion/service.py` 已刪
 - [ ] `memory/_meta/forbidden-phrases.json` 存在
-- [ ] `workflow/config.json` 含 `vector_search.global_layer="bm25"` + `codex_companion.subprocess_timeout`
+- [ ] `workflow/config.json` 含 `vector_search.global_layer="bm25"` + `bm25_min_score=3.5`（P2 已拔 `codex_companion.subprocess_timeout` 死鍵）
 - [ ] `tools/workflow-guardian-mcp/server.js` 暴露 4 tool（atom_write/move/promote/edit_meta；非 V4 的 7 tool）
 
 > 多職務團隊：專案執行 `/init-roles` 建立 `memory/shared/_roles.md` + `role/{name}/` 目錄。
+> ⚠ **P8a 2026-07-01**：參考部署為單人環境，`/init-roles`·`/conflict-review` skill 已降 dormant → `skills/_archived/`（`tools/init-roles.py`·`tools/conflict-review.py` 仍在）；要 onboard 團隊時從 `_archived/` 復原 skill 即可。
 
 ---
 

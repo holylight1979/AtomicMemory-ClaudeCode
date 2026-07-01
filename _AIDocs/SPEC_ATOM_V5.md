@@ -81,9 +81,9 @@ V4 的三層 scope 機制不變：
 - **搬遷工具**：兩支職責分離，共用 `lib.atom_access.move_atom_pair`（`.md`+`.access.json` sidecar 原子搬，計數不歸零）。
   - `tools/atom-set-realm.py`：`set <slug> --domain D` / `--to-core`（undo）。core⇄local **realm 維度**搬移；為 `_AIDocs/_atoms/` path 的**唯一寫者**（防翻轉 realm）；Scope 保持 global。
   - `tools/atom-move.py`（V5 SoT-correct，2026-06-26 重寫）：`move <slug> --from <dir> --to <dir>` / `reconcile … --at`。memory 樹內**資料夾分類搬移**與**跨 root 層級搬移**。改 path 走 `_atom_index.json` 的 `upsert_atom`/`delete_atom`（自動重生 `_ATOM_INDEX.md` 鏡像），同根搬移**保留 scope**；index-root 自 target 上溯偵測（修 V4「子夾誤當 root」）；落 `_AIDocs/_atoms/`（→ 導回 atom-set-realm）或 `_AIDocs/Failures/`（title 路由）一律**拒絕**；搬後 `validate_index` 自驗。**歷史坑**：V4 殘留版只改 deprecated `_ATOM_INDEX.md`、不動 JSON SoT、不搬 sidecar，靜默損壞單中央索引（見 atom `atom-move-v5-sot-correct-化…`）。
-- **印象層 catalog 的 realm 拆分（V5+ S5，2026-06-04）**：realm 原則貫徹到 **index/catalog 層**。`sync-memory-index` 雙輸出——core atom → `MEMORY.md`（CLAUDE.md `@import`，全專案 always-load，fail-safe 退路）；local atom → 側檔 `memory/_local_catalog.md`（自含 H1 + domain 子表），僅核心環境由 `session_start.py` 共同尾段（`_is_under_claude_dir` gate）注入 `additionalContext`。MEMORY.md 末尾僅留一行指標。**修前**：MEMORY.md 全文（含本地範疇段 ~722 字元）隨靜態 `@import` 漏進每個外部專案 always-load；**修後**：外部專案僅 core catalog（省 ~450 tok/session），本地段只在 ~/.claude 注入。caption preserve 跨 `MEMORY.md`+`_local_catalog.md` 兩檔合併（migration 首跑本地描述仍在舊 MEMORY.md → 自動保留）。`_` 前綴側檔不被任何 scanner 當 atom（server.js / wg_atoms / is_atom_file 皆 skip `_*`）。
+- **印象層 catalog 的 realm 拆分（V5+ S5，2026-06-04）**：realm 原則貫徹到 **index/catalog 層**。`sync-memory-index` 雙輸出——core atom → `MEMORY.md`（CLAUDE.md `@import`，全專案 always-load，fail-safe 退路）；local atom → 側檔 `memory/_local_catalog.md`（自含 H1 + domain 子表），僅核心環境由 `session_start.py` 共同尾段（`_is_under_claude_dir` gate）注入 `additionalContext`。MEMORY.md 末尾僅留一行指標。**修前**：MEMORY.md 全文（含本地範疇段，2026-06-04 時 ~722 字元）隨靜態 `@import` 漏進每個外部專案 always-load；**修後**：外部專案僅 core catalog（省下的本地段實務 ~180 tok/session；~450 為 CJK-aware 保守估），本地段只在 ~/.claude 注入。caption preserve 跨 `MEMORY.md`+`_local_catalog.md` 兩檔合併（migration 首跑本地描述仍在舊 MEMORY.md → 自動保留）。`_` 前綴側檔不被任何 scanner 當 atom（server.js / wg_atoms / is_atom_file 皆 skip `_*`）。
 - **V6：LLM-assisted recall + 關聯式分級階層 domain（V5+ S6 / Phase A–H，2026-06-04）**——詞庫封閉 allow-list 漏判的根治（wsl2 atom 漏進 core always-load 為觸發案例；任何詞庫未預見的新主題都漏到 core）：
-  - **LLM fallback**（[`tools/realm_llm_classify.py`](../tools/realm_llm_classify.py)，複用 atom-heal Ollama 樣板）掛 **SessionEnd sweep**（`hooks/wg_atoms.py:_sweep_realm_auto_migrate`），**server.js 寫入熱路徑不掛 LLM**。只對「unknown core」（非 protected、詞庫 miss）喚 LLM，`max_per_session` 限額。config：`workflow/config.json` `realm.llm_fallback{enabled,backend:ollama,max_per_session:5,min_confidence:0.7}`。
+  - **LLM fallback**（[`tools/realm_llm_classify.py`](../tools/realm_llm_classify.py)，複用 atom-heal Ollama 樣板）掛 **SessionEnd sweep**（`hooks/wg_atoms.py:_sweep_realm_auto_migrate`），**server.js 寫入熱路徑不掛 LLM**。只對「unknown core」（非 protected、詞庫 miss）喚 LLM，`max_per_session` 限額。config：`workflow/config.json` `realm.llm_fallback{enabled,backend:ollama,max_per_session:5,min_confidence:0.7}`。**⚠ P3（2026-07-01）起 `enabled=false` 預設關 — 外科停 LLM，只跑 deterministic 詞庫（含 learned）保確定性 sweep；改回 true 才復原 LLM recall。**
   - **Fail-safe 四態**（紅線：protected 永不喚 LLM、恆 core）：`error`(連不到 backend/逾時)→**defer 留原地**（防 Ollama 離線把全部 unknown-core 掃進 Else）；`core`→留；`local`≥`min_confidence`→搬 canon `domain_path`；`unsure`/低信心→`_AIDocs/_atoms/Else`（catch-all，`LOCAL_REALM_DEFAULT_DOMAIN`）。
   - **關聯式分級階層 domain**：多段路徑 `_AIDocs/_atoms/<L1>/<L2>/…/`（Lv 小=範疇廣）。`normalize_domain_path` 逐段對同層既有兄弟 snap（大小寫無視精確 ∨ 前綴包含 len≥3 治 `Win`→`Windows` ∨ difflib≥0.85）+ `_clean_segment` 拒 path-traversal **+ 非 CJK/ASCII 字元段（2026-06-12 韓文「자동화」亂碼 domain 實案，跨文字系統穿透 snap → 字元集 guard 降 `Else`；py `_SEG_ALLOWED_RE` / js `cleanRealmSegment`·`classifyRealm` 出口鏡像，parity test_22）**。**增量深度閘（depth=volume）**：新分支封頂 `LOCAL_REALM_NEW_BRANCH_DEPTH=3`、只能比既有最深匹配前綴深 1 層（絕對天花板 `LOCAL_REALM_MAX_DEPTH=7`）→ 深度隨內容量長、不被 LLM 一次灌深（dogfood 揭露 LLM 深度飄移 Lv3~5、靠本閘 deterministic 落實）。
   - **詞庫自學閉環**：LLM 判 local 後 validated `terms→domain_path` atomic append `memory/_meta/realm-lexicon-learned.json`（py-only；`classify_realm(extra_lexicon=)` 合併 base+learned、`extra_lexicon=None` 時行為與 base 完全相同→**js 維持 base-only 保 test_17 parity**）。`_validate_terms` 剔系統通用詞/過短/自身命中 protected 的詞（防 learned 反殺核心）→ 下次 deterministic 命中免 LLM。**Sink 端雙護欄（2026-06-12 詞庫污染雙實案後補，`append_learned_terms` 蓋所有 caller）**：① 泛用詞拒收（`is_generic_lexicon_term`，token 全落 `_LEXICON_GENERIC_TOKENS` 即拒——「寫程式/refactor/fix bug/verify」被學進詞庫曾致 core atom `goal-driven-verify-loop` 誤降 local）；② domain 段非法（亂碼/traversal）整條拒收；`classify_realm` 出口對已污染 learned 的亂碼 domain 再降 `Else`（test_26）；③ **保留詞拒收（2026-06-24，`_RESERVED_LEXICON_TERMS` exact-match）**：系統 trigger 標籤（`auto-capture`/`觸發詞`）、realm 自名（`memdev`/`world`/`tools`/`continuity`）、已知外部專案（`sgi`/`uba`）絕不收。**源頭阻斷**：SessionEnd sweep 對 `_is_unconfirmed_autocapture`（index trigger 含 `auto-capture` ∨ frontmatter Author=auto-captured∧[臨]）的未確認碎片**整體 `continue` defer——不搬、不喚 LLM 學詞**，根治「LLM 對碎片吐專案詞→詞庫自汙染」（2026-06-24 SGI 第三度污染實案）。
@@ -200,6 +200,8 @@ paths: "memory/**/*.md"           # glob 命中才 auto-load
 | **改名為 debug 工具**（1） | changelog-roll → `changelog-debug`（避免與 PostToolUse hook 自動觸發混淆） |
 | **後續新增（非遷移）**（1） | skill-creator（meta-skill：寫/改/審 skill；2026-05-29 經 MR !3 合入） |
 
+> **post-audit 2026-07-01（P8a）**：`init-roles` / `conflict-review`（上表「全域保留」「直接遷移」中）於單人環境降 dormant，skill 版 archive 至 `skills/_archived/`（tools/ 版仍在）→ 現役 active **21**（marker 為準）。
+
 ### 4.3 已刪除（與內建衝突）
 
 - `resume`（CC 內建 --resume）
@@ -264,13 +266,13 @@ V5 引入 in-memory BM25 替代全域層，**保留 vector 給專案層**（atom
   - BM25 參數：k1=1.2, b=0.75
 - **hooks/handlers/user_prompt_submit.py** — 注入流程：
   1. trigger match
-  2. BM25 全域層（≤2 trigger 命中時觸發；min_score=1.0；top_k=3）
+  2. BM25 全域層（≤2 trigger 命中時觸發；min_score=3.5；top_k=3）
   3. Vector fallback（僅當 BM25 + trigger 雙 0 命中 或 `vector_search.global_layer ≠ bm25`）
-- **workflow/config.json** — `vector_search.global_layer: "bm25"` + `bm25_min_score: 1.0` + `bm25_top_k: 3`
+- **workflow/config.json** — `vector_search.global_layer: "bm25"` + `bm25_min_score: 3.5`（P3 2026-07-01：1.0→3.5 濾雜訊召回）+ `bm25_top_k: 3`
 
 ### 6.2 Vector Service 角色（保留）
 
-- **全域層**：BM25 替代（17 atoms 規模）
+- **全域層**：BM25 替代（~30 core atoms 規模；SoT 共 67，含 local 37 僅 ~/.claude 注入）
 - **專案層**：仍走 vector（避免上百 atoms 規模的 BM25 效能退化）
 - **Episodic search**：仍走 vector（cross-session 知識）
 - **Cross-session dedup / 衝突偵測**：仍走 vector
@@ -309,7 +311,7 @@ hooks/codex_companion.py:
 | `tools/codex-companion/audit.py` | **新增**：one-shot subprocess（stdin JSON → assessor → state.write_assessment） |
 | `tools/codex-companion/service.py` | **刪除**：HTTP daemon 不再需要 |
 | `hooks/codex_companion.py` | **重寫**：移除 HTTP client（urllib / socket / _http_post / _ensure_service）；改為直接 `import state as companion_state` + `_spawn_audit_subprocess` |
-| `workflow/config.json` | 移除 `codex_companion.service_port`；新增 `codex_companion.subprocess_timeout: 90` |
+| `workflow/config.json` | 移除 `codex_companion.service_port`；~~新增 `codex_companion.subprocess_timeout: 90`~~（**P2 2026-07-01 拔除此死 config 鍵——subprocess spawn 從未實際消費**）|
 | `skills/codex-companion/SKILL.md` | 移除 service.py 啟動指令；只切換 config flag |
 
 ### 7.3 保留的設計
