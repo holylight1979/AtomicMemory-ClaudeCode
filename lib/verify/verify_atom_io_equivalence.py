@@ -506,7 +506,7 @@ def test_16_classify_realm_zero_false_positive():
         ("feedback-tooling-reliability", ["codex", "codex companion", "MCP"]),
         ("feedback-workflow-discipline", ["handoff", "上 GIT"]),
         ("cognitive-patterns", ["過度工程", "proxy metric"]),
-        # SGI 詞庫污染（karpathy/verify loop）name 命中也硬擋，列保護
+        # 詞庫污染（karpathy/verify loop）name 命中也硬擋，列保護
         ("goal-driven-verify-loopkarpathy-吸收", ["karpathy", "verify loop", "成功標準"]),
         ("memory-pipeline-silent-failure-2026-05", ["episodic", "晉升"]),
         ("atom-usefulness-loop", ["usefulness", "Wilson 下界"]),
