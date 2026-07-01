@@ -1150,6 +1150,23 @@
         "docstring 版本"
       ],
       "scope": "global"
+    },
+    {
+      "name": "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
+      "path": "memory/併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a.md",
+      "triggers": [
+        "上GIT",
+        "git add",
+        "staging",
+        "收尾",
+        "git status",
+        "併發 session",
+        "concurrent session",
+        "commit",
+        "disjoint 批次",
+        "多 session"
+      ],
+      "scope": "global"
     }
   ]
 }

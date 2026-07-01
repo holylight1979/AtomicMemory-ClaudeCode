@@ -69,3 +69,4 @@
 | dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版 | _AIDocs/_atoms/MemDev/dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版.md | dedup, 去蕪, DedupStage, draft, 草稿, _drafts, 截斷, truncate, soft-delete, 牢籠, taxonomy, 近重複, sweep | global |
 | 自動萃取層淨值審查-調整式拔除-2026-07 | _AIDocs/_atoms/MemDev/自動萃取層淨值審查-調整式拔除-2026-07.md | auto-capture, DedupStage, 淨值審查, 調整式拔除, 草稿, _drafts, 注入縮量, usefulness, turn-global, Wilson, write-only, 記憶效益 | global |
 | feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔 | _AIDocs/Failures/feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔.md | 版本殘留, 版本標記, V2.x, v[X.X], V5 Pxx, Phase, Sprint, Wave, 里程碑, milestone, stderr 前綴, spec 錨, 執行流程字串, 變更叙事, 自我更正鏈, 歷史脈絡, 方案代號, 操作日期, commit hash, CHANGELOG, timeless, 註解版本, atom 過時 claim, docstring 版本 | global |
+| 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | memory/併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a.md | 上GIT, git add, staging, 收尾, git status, 併發 session, concurrent session, commit, disjoint 批次, 多 session | global |
