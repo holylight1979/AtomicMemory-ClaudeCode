@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-conflict-review.py — V4 Phase 5 backend for /conflict-review.
+conflict-review.py — backend for /conflict-review.
 
 列 _pending_review/ 草稿與報告；依 is_management() 雙向認證核可 approve/reject。
 所有動作寫 _merge_history.log，approve 後觸發 vector reindex。
@@ -299,7 +299,7 @@ def action_reject(proj_cwd: str, target: str, user: str, reason: str) -> Dict[st
 # ─── CLI ────────────────────────────────────────────────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="V4 Phase 5 pending-review backend")
+    ap = argparse.ArgumentParser(description="pending-review backend")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--action", choices=["approve", "reject"])
     ap.add_argument("--target", type=str)

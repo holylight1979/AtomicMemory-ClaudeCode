@@ -81,7 +81,7 @@ def _summarize_modified_files(trace: List[Dict[str, Any]]) -> str:
 def _extract_arch_files(trace: List[Dict[str, Any]]) -> str:
     """Extract structural files from trace.
 
-    Sprint 3：共用 heuristics._ARCH_FILE_RE 避免 service / assessor / heuristics
+    共用 heuristics._ARCH_FILE_RE 避免 service / assessor / heuristics
     三處 regex drift。
     """
     import heuristics as _heur
@@ -96,7 +96,7 @@ def _extract_arch_files(trace: List[Dict[str, Any]]) -> str:
 
 
 def _extract_verification_evidence(trace: List[Dict[str, Any]]) -> str:
-    """Sprint 3 Phase 4.3：從 tool_trace 抽 verify cmd 事證給 codex prompt。
+    """從 tool_trace 抽 verify cmd 事證給 codex prompt。
 
     撈取 Bash + 命中 heuristics._VERIFY_CMD_RE 的 input 行。
     若出現過 `[FAILED] ` prefix（hook 端 failure 偵測），保留以提示 codex。
@@ -126,7 +126,7 @@ def _extract_verification_evidence(trace: List[Dict[str, Any]]) -> str:
 def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str, str]:
     """Run `codex exec` and return (stdout_text, stderr_text).
 
-    Sprint 4 Phase 5.1：stderr 回傳給上層做 sandbox 失敗識別。
+    stderr 回傳給上層做 sandbox 失敗識別。
     無論成功失敗都把 stderr（含 timeout/spawn 錯誤的合成訊息）一併送出。
     """
     codex_bin = config.get("codex_binary", "codex")
@@ -205,7 +205,7 @@ _SANDBOX_FAILURE_RE = re.compile(r"CreateProcessWithLogon|sandbox", re.IGNORECAS
 def _run_codex_with_retry(
     prompt_text: str, cwd: str, config: Dict[str, Any]
 ) -> tuple[str, str, int]:
-    """Sprint 4 Phase 5.1：空字串/非 JSON → 退 300-500ms 重試 1 次。
+    """空字串/非 JSON → 退 300-500ms 重試 1 次。
 
     回傳 (stdout, stderr_combined, attempts)。
     第一次 stdout 不空且能 JSON 解析 → 直接返回 attempts=1。
@@ -226,7 +226,7 @@ def _run_codex_with_retry(
 
 
 def _classify_failure(stderr: str) -> Dict[str, Any]:
-    """Sprint 4 Phase 5.1：依 stderr 內容把 codex 失敗分類成 assessment。
+    """依 stderr 內容把 codex 失敗分類成 assessment。
 
     sandbox 命中（CreateProcessWithLogon|sandbox）→ system 高嚴重度，
       防 R2-5 級 bug 再被吞掉。
@@ -260,9 +260,9 @@ def _classify_failure(stderr: str) -> Dict[str, Any]:
 
 
 def _apply_defaults(d: Dict[str, Any]) -> Dict[str, Any]:
-    """Sprint 3：補 schema v2 預設值；舊 codex 回 recommended_action 也吃。
+    """補 schema v2 預設值；舊 codex 回 recommended_action 也吃。
 
-    Sprint 4 提到模組級：給 _classify_failure / _try_parse_json 共用。
+    模組級 helper：給 _classify_failure / _try_parse_json 共用。
     """
     d.setdefault("status", "ok")
     d.setdefault("severity", "low")
@@ -287,7 +287,7 @@ def _apply_defaults(d: Dict[str, Any]) -> Dict[str, Any]:
 def _try_parse_json(raw: str) -> Optional[Dict[str, Any]]:
     """嘗試從 codex stdout 抽出 JSON dict。失敗回 None（讓 retry 路徑判斷）。
 
-    Sprint 4：抽 module-level 給 _run_codex_with_retry 用。
+    抽 module-level 給 _run_codex_with_retry 用。
     """
     if not raw:
         return None
@@ -329,7 +329,7 @@ def _try_parse_json(raw: str) -> Optional[Dict[str, Any]]:
 def _parse_assessment(raw: str) -> Dict[str, Any]:
     """Parse Codex output into structured assessment dict.
 
-    Sprint 4：失敗分類已搬到 _classify_failure；本函式只負責成功路徑與
+    失敗分類由 _classify_failure 負責；本函式只負責成功路徑與
     legacy fallback（unknown 文字當 summary）。
     """
     parsed = _try_parse_json(raw)
@@ -361,7 +361,7 @@ def run_assessment(
 
     assessment_type: "plan_review" | "turn_audit" | "architecture_review"
 
-    Sprint 3 Phase 4.3：turn_audit 額外傳 turn_index + last_assistant_tail
+    turn_audit 額外傳 turn_index + last_assistant_tail
     + verification_evidence + heuristic_summary。前者由 service 從 state 讀並
     放進 extra_context；後兩者由 assessor 從 trace 即時抽取（避免 stale state）。
     """
@@ -434,7 +434,7 @@ def run_assessment(
 
     _log(f"Prompt built for {assessment_type} (t{turn_index}): {len(prompt)} chars")
 
-    # Sprint 4 Phase 5.1：retry 1 次 + sandbox 失敗識別
+    # retry 1 次 + sandbox 失敗識別
     raw, stderr_combined, attempts = _run_codex_with_retry(prompt, cwd, config)
     parsed = _try_parse_json(raw) if raw else None
     if parsed is None:

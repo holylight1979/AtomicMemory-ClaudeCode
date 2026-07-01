@@ -237,9 +237,9 @@ def build_turn_audit_prompt(
     heuristic_summary: str = "",
     files_examined: str = "",
 ) -> str:
-    """Sprint 3 Phase 4.2/4.3 + 2026-05-28 fix：
+    """組出 turn-audit 提示。
 
-    新增段：
+    段落組成：
       * Files Examined by the Agent — Read/Glob/Grep/Edit/Write/Agent 統一摘要
         （含 sub-agent 代理活動，修了 codex 看不到 sub-agent file 接觸的盲點）
       * Last Assistant Reply (Tail)  — 取自 state.last_assistant_tail

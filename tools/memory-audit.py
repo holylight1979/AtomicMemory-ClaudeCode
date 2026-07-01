@@ -61,7 +61,7 @@ from lib.atom_access import read_access, usefulness_promote_eligible
 # ─── Audit-specific constants（atom_spec 不需共享的） ────────────────────────
 
 STALENESS_THRESHOLDS: Dict[str, int] = {"[固]": 90, "[觀]": 60, "[臨]": 30}
-# v2.1 Sprint 3: Type-based decay multiplier (procedural ages slower, episodic faster)
+# Type-based decay multiplier (procedural ages slower, episodic faster)
 TYPE_DECAY_MULTIPLIER: Dict[str, float] = {"semantic": 1.0, "episodic": 0.8, "procedural": 1.5}
 # SYNC: server.js atom_promote — confirmations 主軌（suggest only, not gate）。
 # ReadHits 已退役（純曝光、不參與晉升）；usefulness 軌走 lib.atom_access（自帶 lb/min_n 預設）。
@@ -113,7 +113,7 @@ class AtomMetadata:
     raw_metadata: Dict[str, str] = field(default_factory=dict)
     is_claude_native: bool = False    # True if --- YAML frontmatter (Claude auto-memory)
     had_bad_eol: bool = False         # Fix B: 原始檔含 \r\r\n（雙CR）損壞行尾 → emit warning
-    # v2.1 fields (all optional, graceful fallback)
+    # Optional fields (all with graceful fallback)
     atom_type: str = "semantic"       # semantic/episodic/procedural
     created: Optional[date] = None
     ttl: Optional[str] = None         # e.g. "30d"
@@ -245,7 +245,7 @@ def parse_atom_file(path: Path, layer_name: str) -> AtomMetadata:
     raw_trigger = atom.raw_metadata.get("Trigger", "")
     atom.trigger = [t.strip() for t in re.split(r"[,，]", raw_trigger) if t.strip()]
 
-    # Wave 2: Last-used / Confirmations / ReadHits 從 <atom>.access.json 讀
+    # Last-used / Confirmations / ReadHits 從 <atom>.access.json 讀
     # （legacy 過渡：若 .md 仍有 frontmatter 欄則作為 fallback，access 優先）
     try:
         from lib.atom_access import read_access
@@ -278,7 +278,7 @@ def parse_atom_file(path: Path, layer_name: str) -> AtomMetadata:
     atom.privacy = atom.raw_metadata.get("Privacy", "public")
     atom.source = atom.raw_metadata.get("Source", "")
 
-    # v2.1 fields — graceful fallback to defaults
+    # Optional fields — graceful fallback to defaults
     atom.atom_type = atom.raw_metadata.get("Type", "semantic").strip().lower()
     if atom.atom_type not in VALID_TYPES:
         atom.atom_type = "semantic"
@@ -687,7 +687,7 @@ def restore_from_distant(atom_path: Path) -> Tuple[bool, str]:
         flags=re.MULTILINE,
     )
 
-    # Wave 2: Last-used / Confirmations / ReadHits 從 .md 移到 access.json，
+    # Last-used / Confirmations / ReadHits 存於 access.json（非 .md），
     # restore 後在 dest path 改寫 access 旁路檔（重置為 0、last_used 設今天）
     today_str = date.today().isoformat()
 
@@ -696,7 +696,7 @@ def restore_from_distant(atom_path: Path) -> Tuple[bool, str]:
         _r = write_raw(dest, text, source=_AUDIT_SOURCE, op="audit_demote")
         if not _r.ok:
             raise OSError(_r.error)
-        # 同步 access 旁路檔重置（Wave 2）
+        # 同步 access 旁路檔重置
         try:
             from lib.atom_access import write_access_field
             write_access_field(dest, field="confirmations", value=0,
@@ -764,7 +764,7 @@ def _append_evolution_entry(atom_path: Path, change: str, source: str = "memory-
 def compact_evolution_logs(
     atom_path: Path, max_entries: int = 10, dry_run: bool = False
 ) -> Optional[str]:
-    """Compact evolution log: merge oldest entries into a summary if > max_entries (v2.1 Sprint 3)."""
+    """Compact evolution log: merge oldest entries into a summary if > max_entries."""
     try:
         text = atom_path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError):
@@ -831,7 +831,7 @@ def compact_evolution_logs(
 def delete_atom(
     atom_name: str, layer: str = "global", purge: bool = False, dry_run: bool = False
 ) -> Tuple[bool, str]:
-    """Delete an atom with full chain propagation (v2.1 Sprint 2).
+    """Delete an atom with full chain propagation.
 
     Steps:
     1. Locate atom file
@@ -1103,7 +1103,7 @@ AUDIT_LOG_PATH = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 
 
 def _write_audit_entry(entry: Dict[str, Any]) -> None:
-    """Append a JSONL entry to audit.log (v2.1 Sprint 3)."""
+    """Append a JSONL entry to audit.log."""
     entry["ts"] = datetime.now().isoformat(timespec="seconds")
     AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -1114,7 +1114,7 @@ def _write_audit_entry(entry: Dict[str, Any]) -> None:
 
 
 def parse_audit_log() -> Dict[str, Any]:
-    """Parse audit.log JSONL and aggregate statistics (v2.1 Sprint 3)."""
+    """Parse audit.log JSONL and aggregate statistics."""
     stats: Dict[str, Any] = {
         "total_entries": 0,
         "by_action": {},
@@ -1166,11 +1166,11 @@ def discover_layers(
 ) -> List[Tuple[str, Path]]:
     """Discover all memory layers.
 
-    V2.21: project_dir 若提供，優先列在 global 之前（專案層優先）。
+    project_dir 若提供，優先列在 global 之前（專案層優先）。
     """
     layers: List[Tuple[str, Path]] = []
 
-    # V2.21: 專案自治層（{project_root}/.claude/memory/）
+    # 專案自治層（{project_root}/.claude/memory/）
     # global_only=True 時跳過專案層
     if not global_only and project_dir and project_dir.is_dir() and (project_dir / MEMORY_INDEX).exists():
         layers.append(("project", project_dir))
@@ -1266,7 +1266,7 @@ def generate_markdown_report(report: HealthReport) -> str:
             lines.append(f"| {d.file_a} | {d.file_b} | {triggers} | {'Yes' if d.title_match else 'No'} |")
         lines.append("")
 
-    # Audit Trail Summary (v2.1 Sprint 3)
+    # Audit Trail Summary
     if report.audit_stats and report.audit_stats.get("total_entries", 0) > 0:
         stats = report.audit_stats
         lines.append("## Audit Trail Summary")
@@ -1444,7 +1444,7 @@ def run_audit(args: argparse.Namespace) -> HealthReport:
     # Detect cross-layer duplicates
     report.duplicates.extend(detect_duplicates(all_atoms))
 
-    # Audit trail statistics (v2.1 Sprint 3)
+    # Audit trail statistics
     report.audit_stats = parse_audit_log()
 
     return report
@@ -1460,21 +1460,21 @@ def main():
     parser.add_argument("--global-only", action="store_true", help="只掃描全域層")
     parser.add_argument("--project", type=str, default=None, help="指定專案名稱過濾（舊路徑過濾）")
     parser.add_argument("--project-dir", type=str, default=None,
-                        help="V2.21 專案記憶目錄（{project_root}/.claude/memory/），列在全域層之前")
+                        help="專案記憶目錄（{project_root}/.claude/memory/），列在全域層之前")
     parser.add_argument("--json", action="store_true", help="JSON 格式輸出")
     parser.add_argument("--verbose", action="store_true", help="含逐 atom 詳細資訊")
 
-    # Decay enforce (v2.1)
+    # Decay enforce
     parser.add_argument("--enforce", action="store_true",
                         help="自動淘汰：[臨]>30d 移入 _distant/，[觀]>60d 標記 pending-review")
     parser.add_argument("--dry-run", action="store_true",
                         help="搭配 --enforce/--compact-logs，只報告不執行")
 
-    # Evolution log compaction (v2.1 Sprint 3)
+    # Evolution log compaction
     parser.add_argument("--compact-logs", action="store_true",
                         help="壓縮演化日誌：超過 10 筆合併為摘要")
 
-    # Delete propagation (v2.1 Sprint 2)
+    # Delete propagation
     parser.add_argument("--delete", type=str, metavar="ATOM_NAME",
                         help="刪除 atom（移入 _distant/），全鏈清除 LanceDB + Related 引用 + MEMORY.md 索引")
     parser.add_argument("--purge", type=str, metavar="ATOM_NAME",
@@ -1489,7 +1489,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Handle delete/purge (v2.1 Sprint 2)
+    # Handle delete/purge
     if args.delete or args.purge:
         atom_name = args.delete or args.purge
         purge = bool(args.purge)
@@ -1527,12 +1527,12 @@ def main():
         print(msg)
         sys.exit(0 if ok else 1)
 
-    # Enforce decay (v2.1)
+    # Enforce decay
     if args.enforce:
         enforce_decay(args)
         return
 
-    # Compact evolution logs (v2.1 Sprint 3)
+    # Compact evolution logs
     if args.compact_logs:
         layers = discover_layers(global_only=args.global_only, project_filter=args.project,
                                  project_dir=_project_dir_from_args(args))

@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlparse
 # Add parent dir to path for imports
 SERVICE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SERVICE_DIR))
-# V2.20: import wg_core for centralized path resolution
+# import wg_core for centralized path resolution
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 
 from config import load_config, VECTORDB_DIR
@@ -159,7 +159,7 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
             "/index/incremental": self._handle_index_incremental,
             "/reload": self._handle_reload,
             "/shutdown": self._handle_shutdown,
-            # Phase 3 endpoints
+            # enhanced search / rerank / extract endpoints
             "/search/enhanced": self._handle_search_enhanced,
             "/rerank": self._handle_rerank,
             "/extract": self._handle_extract,
@@ -291,7 +291,7 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
         )
 
         # Enrich each result with summary + triggers from the atom file
-        # V2.20: use wg_paths for path resolution
+        # use wg_paths for path resolution
         from wg_core import MEMORY_DIR as _mem_dir, discover_all_project_memory_dirs
         _proj_dir_map = {s: d for s, d in discover_all_project_memory_dirs()}
         for r in results:
@@ -404,7 +404,7 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
         self._send_json({"status": "shutting_down"})
         threading.Timer(0.5, lambda: os._exit(0)).start()
 
-    # ── Phase 3 placeholders ──
+    # ── enhanced search / rerank / extract handlers ──
 
     def _handle_search_enhanced(self):
         body = self._parse_json_body()

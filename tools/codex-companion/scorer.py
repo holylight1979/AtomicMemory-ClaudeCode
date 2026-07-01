@@ -1,6 +1,5 @@
-"""scorer.py — Sprint 3 turn-level risk scoring for token gating.
+"""scorer.py — turn-level risk scoring for token gating.
 
-Plan v5 Phase 3.1：
   compute_turn_score(state) -> 0-10
   五因子加權：
     write_footprint    (0-2) — 修改檔數

@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_spec import is_atom_file, REQUIRED_METADATA  # noqa: E402
 from lib.atom_locations import iter_atom_files_multi, atom_search_roots  # noqa: E402
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
-from lib.atom_access import read_access  # noqa: E402  Wave 2：計數欄已搬 sidecar <atom>.access.json
+from lib.atom_access import read_access  # noqa: E402  計數欄居 sidecar <atom>.access.json
 
 MEMORY_ROOT = Path.home() / ".claude" / "memory"
 GLOBAL_MEMORY_ROOT = Path.home() / ".claude" / "memory"
@@ -467,7 +467,7 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
 
     for name, path in sorted(atoms.items()):
         fm = parse_frontmatter(path)
-        acc = read_access(path)  # Wave 2：計數欄居 sidecar <atom>.access.json
+        acc = read_access(path)  # 計數欄居 sidecar <atom>.access.json
         related = parse_related(fm)
         # V5+: atoms 可居 _AIDocs/Failures/，相對於 ~/.claude 計算
         try:
@@ -492,7 +492,7 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
             for k in REQUIRED_METADATA:
                 if not fm.get(k):
                     entry["issues"].append(f"missing {k}")
-            # Tracking fields now live in sidecar <atom>.access.json (Wave 2).
+            # Tracking fields live in sidecar <atom>.access.json.
             # confirmations=0 is normal for a tracked atom; only a missing
             # sidecar (never tracked → first_seen is None) warrants a warning.
             if acc.get("first_seen") is None:

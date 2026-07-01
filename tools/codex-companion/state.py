@@ -214,7 +214,7 @@ def cleanup(session_id: str) -> None:
             pass
 
 
-# --- Sprint 4 Phase 5：observability metrics（獨立檔避免與 state 競爭寫入）---
+# --- observability metrics（獨立檔避免與 state 競爭寫入）---
 
 def _metrics_path(session_id: str) -> Path:
     return WORKFLOW_DIR / f"companion-metrics-{session_id}.json"
@@ -222,7 +222,7 @@ def _metrics_path(session_id: str) -> Path:
 
 _METRIC_KEYS = (
     "audits_skipped_by_score",
-    "audits_total_attempted",  # Sprint 5.5 B1：Phase 6 §四 C3 ratio 分母用
+    "audits_total_attempted",  # §四 C3 ratio 分母用
     "empty_returns",
     "sandbox_failures",
     "behavior_gap_blocks",

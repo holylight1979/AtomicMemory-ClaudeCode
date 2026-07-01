@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-# V2.20: import wg_core for centralized path logic
+# import wg_core for centralized path logic
 sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
 # 2026-07-01 fix: lib.* 需 ~/.claude 在 sys.path，否則 L28 `from lib.atom_locations`
 # 直接 ModuleNotFoundError → service.py fire-and-forget spawn 秒崩 → 不寫 vector_ready.flag

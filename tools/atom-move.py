@@ -5,8 +5,7 @@
   move      — 把 atom 搬到目標資料夾（同 index-root 改分類 / 跨 root 換層級），完整同步 JSON SoT
   reconcile — atom 已被手動搬到 --at，掃描修正 JSON 索引與跨層反向連結
 
-V5 契約（與 V4 舊版差異 — 舊版只改 deprecated `_ATOM_INDEX.md`、不搬 sidecar、把子夾誤當 root，
-靜默損壞單中央索引 SoT。本次重寫修正）：
+契約：
   - 唯一機器索引源是各 memory-root 的 `_atom_index.json`（非 per-folder `_ATOM_INDEX.md`）。
     改 path 一律走 lib.atom_index_json.upsert_atom/delete_atom（自動重生 `_ATOM_INDEX.md` 鏡像）。
   - `.md` 與 `.access.json` sidecar 原子性同搬（lib.atom_access.move_atom_pair；計數不歸零）。

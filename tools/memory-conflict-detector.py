@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-memory-conflict-detector.py — Atomic Memory Conflict Detection (v2.1 Sprint 2)
+memory-conflict-detector.py — Atomic Memory Conflict Detection
 
 掃描所有活躍 atom，透過向量相似度找出疑似衝突對，
 再用 LLM (rdchat: gemma4:e4b / local: qwen3:1.7b) 判定 AGREE/CONTRADICT/EXTEND/UNRELATED。
@@ -32,7 +32,7 @@ from ollama_client import get_client
 CLAUDE_DIR = Path.home() / ".claude"
 AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 
-# V4 Phase 5 conflict detection
+# conflict detection
 WRITE_CHECK_THRESHOLD = 0.85       # SPEC §7.3
 WRITE_CHECK_VECTOR_MIN = 0.60      # vector pre-filter (cheaper than LLM)
 WRITE_CHECK_DUP_THRESHOLD = 0.95   # duplicate cutoff (handled by write-gate)
@@ -52,10 +52,10 @@ BULLET_RE = re.compile(r"^- \[([固觀臨])\]\s*(.+)")
 def discover_layers(project_dir: Optional[Path] = None) -> List[Tuple[str, Path]]:
     """Discover global + project memory layers.
 
-    V2.21: project_dir 若提供，優先列在全域層之前。
+    project_dir 若提供，優先列在全域層之前。
     """
     layers = []
-    # V2.21: 專案自治層優先（project_dir 若有效才加）
+    # 專案自治層優先（project_dir 若有效才加）
     if project_dir is not None and project_dir.is_dir() and (project_dir / "MEMORY.md").exists():
         layers.append(("project", project_dir))
     global_mem = CLAUDE_DIR / "memory"
@@ -395,7 +395,7 @@ def print_report(results: List[Dict], dry_run: bool = False) -> None:
             print()
 
 
-# ─── V4 Phase 5: write-check / pull-audit shared helpers ─────────────────────
+# ─── write-check / pull-audit shared helpers ─────────────────────────────────
 
 MERGE_HISTORY_NAME = "_merge_history.log"
 LAST_AUDIT_TS_NAME = ".last_pull_audit_ts"
@@ -737,13 +737,13 @@ def run_pull_audit(project_cwd: str, since: str = "last") -> Dict[str, Any]:
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Atomic Memory Conflict Detector (v2.1 / V4 Phase 5)")
+    parser = argparse.ArgumentParser(description="Atomic Memory Conflict Detector")
     parser.add_argument("--atom", help="Only scan conflicts for this atom (full-scan mode)")
     parser.add_argument("--dry-run", action="store_true", help="List candidates without LLM classification")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--project-dir", type=str, default=None,
-                        help="V2.21 專案記憶目錄（{project_root}/.claude/memory/），優先掃描")
-    # V4 Phase 5 new modes
+                        help="專案記憶目錄（{project_root}/.claude/memory/），優先掃描")
+    # scan modes
     parser.add_argument("--mode", choices=["full-scan", "write-check", "pull-audit"],
                         default="full-scan",
                         help="full-scan (legacy) | write-check | pull-audit")
@@ -759,7 +759,7 @@ def main():
                         help="(pull-audit) ISO ts or 'last' (read .last_pull_audit_ts)")
     args = parser.parse_args()
 
-    # ─ V4 Phase 5: write-check ─
+    # ─ write-check ─
     if args.mode == "write-check":
         if not args.content:
             print(json.dumps({"error": "--content is required for write-check"}))
@@ -768,7 +768,7 @@ def main():
         print(json.dumps(result, ensure_ascii=False))
         return
 
-    # ─ V4 Phase 5: pull-audit ─
+    # ─ pull-audit ─
     if args.mode == "pull-audit":
         if not args.project_cwd:
             print(json.dumps({"error": "--project-cwd is required for pull-audit"}))

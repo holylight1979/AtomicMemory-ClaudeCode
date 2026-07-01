@@ -2,7 +2,7 @@
 searcher.py — 語意搜尋引擎
 
 使用 LanceDB 進行向量搜尋。
-v2.1: ranked_search() 加入 intent-aware 多因子排序。
+ranked_search() 以 intent-aware 多因子排序。
 V4: user/roles 參數 → 組 layer SQL clause 過濾可見性（SPEC §8.1）。
 """
 
@@ -50,7 +50,7 @@ def _build_v4_layer_clause(
     return "(" + " OR ".join(clauses) + ")"
 
 
-# ─── v2.1 Ranking Constants ──────────────────────────────────────────────────
+# ─── Ranking Constants ───────────────────────────────────────────────────────
 
 CONFIDENCE_SCORE_MAP = {"[固]": 1.0, "[觀]": 0.7, "[臨]": 0.4}
 
@@ -68,7 +68,7 @@ INTENT_WEIGHT = {
     ("preference", "design"): 1.0, ("preference", "recall"): 1.0,
 }
 
-# v2.1 Sprint 3: atom_type-level intent bonus (additive)
+# atom_type-level intent bonus (additive)
 TYPE_INTENT_BONUS = {
     ("procedural", "build"): 0.05, ("procedural", "recall"): 0.03,
     ("episodic", "recall"): 0.05, ("episodic", "debug"): 0.03,
@@ -113,7 +113,7 @@ def _compute_final_score(hit: Dict[str, Any], intent: str) -> Dict[str, Any]:
     cat = _classify_atom_category(hit)
     intent_boost = INTENT_WEIGHT.get((cat, intent), 1.0)
 
-    # Type-level bonus (v2.1 Sprint 3)
+    # Type-level bonus
     atom_type = hit.get("atom_type", "semantic")
     type_bonus = TYPE_INTENT_BONUS.get((atom_type, intent), 0.0)
 
@@ -243,7 +243,7 @@ def ranked_search(
     user: Optional[str] = None,
     roles: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Intent-aware ranked search (v2.1).
+    """Intent-aware ranked search.
 
     Uses multi-factor scoring: 0.45*Semantic + 0.15*Recency + 0.20*IntentBoost
     + 0.10*Confidence + 0.10*Confirmation.
@@ -331,7 +331,7 @@ def ranked_search_sections(
     user: Optional[str] = None,
     roles: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Intent-aware ranked search preserving section-level detail (v2.18).
+    """Intent-aware ranked search preserving section-level detail.
 
     Same scoring as ranked_search(), but dedup groups by atom and keeps
     top-N chunks per atom instead of collapsing to 1.

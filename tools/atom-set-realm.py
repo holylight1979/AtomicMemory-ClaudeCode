@@ -8,21 +8,19 @@ local atom 物理落 `_AIDocs/_atoms/<domain>/`，但**索引仍 global、Scope 
   - atom-move（V5 SoT-correct 重寫後）走 JSON SoT、同根搬移保留 scope，但**刻意拒絕**
     `_AIDocs/_atoms/` 下的 local atom（守門導回本工具）——realm 維度的 path 由本工具獨佔，
     防兩個寫者競爭翻轉 realm。
-    （歷史：V4 殘留版 atom-move 曾把子夾誤當 root、誤設 scope=project、只改 deprecated
-    `_ATOM_INDEX.md` 不動 JSON SoT，故當年另造本工具繞過；該缺陷已於 2026-06 修復。）
   - 本工具只搬實體檔（含 `.access.json` sidecar）+ 改 index path，Scope 一律不動（local 維持 global）。
-  - 本工具為 `_AIDocs/_atoms/` index path 的**唯一寫者**（防 realm 翻轉；計畫 R3）。
+  - 本工具為 `_AIDocs/_atoms/` index path 的**唯一寫者**（防 realm 翻轉）。
 
 為何不需 reconcile 修反向連結：
   - global→local 是**純 path 搬移**（scope 不變、slug 不變）。Related 反向連結用 **slug**
     引用（非 path），slug 不變 → 連結不斷裂。`_ATOM_INDEX.md` mirror 由 upsert 自動重生。
 
-可逆（計畫驗收 B#4「undo 演練」；memory-undo.py 只處理 V4.1 自動萃取，不適用本搬移）：
+可逆（memory-undo.py 只處理自動萃取 atom，不適用本搬移）：
   set <slug> --domain <World|Tools|MemDev>   core → local（memory/ → _AIDocs/_atoms/D/）
   set <slug> --to-core                        local → core（反向搬回，即 undo）
   set <slug> ... --dry-run                    只算路徑、不落檔
 
-sidecar 隨 .md 原子性搬（計畫必驗 #8）：先搬 .md，sidecar 搬失敗則 rollback .md，
+sidecar 隨 .md 原子性搬：先搬 .md，sidecar 搬失敗則 rollback .md，
 避免 confirmations/usefulness 計數歸零、晉升歷史飄移。
 """
 

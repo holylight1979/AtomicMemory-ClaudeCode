@@ -1,6 +1,6 @@
 """heuristics.py — Rule-based soft gate checks for Codex Companion.
 
-Sprint 2 重構：BLOCK 權收斂到單一規則 `confident_completion_without_evidence`，
+BLOCK 權收斂到單一規則 `confident_completion_without_evidence`，
 其餘規則一律降為 advisory (low)，只走 inject 不走 block。
 
 三條件 BLOCK 模型：
@@ -9,10 +9,10 @@ Sprint 2 重構：BLOCK 權收斂到單一規則 `confident_completion_without_e
   3. no_verify_*     — trace 無 verify cmd 且 stop_text 無 verify 敘述
   三者皆中才會 BLOCK；任一缺席即放行。
 
-Sprint 1 教訓（state 缺 trace 但 tail 含實證據）：
-  Sprint 1 收尾被誤觸發過一次 — companion-state 被外力刪除導致 trace 清空，
-  但當時實際做了 pytest 10/10 + commit，只是訊息留在 last_assistant_tail。
-  本次重構把 stop_text 的「驗證敘述」也視為弱證據，避免 trace 單點失效誤判。
+弱證據 fallback（state 缺 trace 但 tail 含實證據）：
+  companion-state 被外力刪除導致 trace 清空時（實際已做 pytest + commit，
+  訊息只留在 last_assistant_tail），只看 trace 會誤觸完成宣告 BLOCK。
+  故 stop_text 的「驗證敘述」也視為弱證據，避免 trace 單點失效誤判。
 
 No LLM calls. All checks run < 10ms.
 Input: dict with `modified_files`, `accessed_files`, `tool_trace` keys。
@@ -47,7 +47,7 @@ _VERIFY_CMD_RE = re.compile(
     r"python\s+.*\.py|"
     r"make\s+(?:test|check|build)|"
     r"(?:npm|yarn|pnpm)\s+run\s+build|"
-    # doc/security/config 類驗證（2026-04-28 擴充）
+    # doc/security/config 類驗證
     r"git\s+(?:check-ignore|status|diff|log|ls-files|merge-base)|"
     r"python\s+-m\s+json\.tool|jq|"
     r"grep\s+-[lLnEric]+|xargs\s+grep|"
@@ -68,7 +68,7 @@ _ARCH_FILE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Sprint 2：stop_text 內出現實際驗證敘述（弱證據，不走 BLOCK 路徑）
+# stop_text 內出現實際驗證敘述（弱證據，不走 BLOCK 路徑）
 # - 「X/Y PASS」「10/10 通過」明確分數型
 # - 「pytest 通過」「tests passed」「build 成功」近距離搭配
 # - 「驗證通過」「測試綠燈」「all green」整體性敘述
@@ -135,7 +135,7 @@ def _has_verify_cmd(state: Dict[str, Any]) -> bool:
 
 
 def _has_verify_narrative(stop_text: str) -> bool:
-    """Sprint 1 教訓 fallback：stop_text 含明確驗證敘述視為弱證據。"""
+    """弱證據 fallback：stop_text 含明確驗證敘述視為弱證據。"""
     if not stop_text:
         return False
     return bool(_VERIFY_NARRATIVE_RE.search(stop_text))
@@ -185,15 +185,15 @@ def check_confident_completion_without_evidence(
     )
 
 
-# Sprint 2：保留舊名作為向下相容 alias（一律走新邏輯）
+# 保留舊名作為向下相容 alias（一律走新邏輯）
 check_completion_without_evidence = check_confident_completion_without_evidence
 
 
 def check_missing_verification(state: Dict[str, Any]) -> HeuristicResult:
     """改檔但沒測試指令 — advisory only (low)。
 
-    Sprint 2：原 medium 降為 low；只 inject 不 block。
-    BLOCK 權只屬 confident_completion_without_evidence。
+    advisory 級（low）：只 inject 不 block；BLOCK 權只屬
+    confident_completion_without_evidence。
     """
     modified = _get_modified_files(state)
     if not modified:
@@ -215,7 +215,7 @@ def check_missing_verification(state: Dict[str, Any]) -> HeuristicResult:
 def check_architecture_change(state: Dict[str, Any]) -> HeuristicResult:
     """新建 bridge/provider/adapter/service 等結構性檔案 — advisory only (low)。
 
-    Sprint 2：原 medium 降為 low；只 inject 不 block。
+    advisory 級（low）：只 inject 不 block。
     """
     modified = _get_modified_files(state)
     arch_files = [
@@ -299,7 +299,7 @@ def max_severity(results: List[HeuristicResult]) -> str:
 
 
 def severity_at_or_above(results: List[HeuristicResult], threshold: str) -> bool:
-    """Sprint 2：給 hook 端做門檻比較用。"""
+    """給 hook 端做門檻比較用。"""
     if not results:
         return False
     th = _SEV_ORDER.get(threshold, 2)
