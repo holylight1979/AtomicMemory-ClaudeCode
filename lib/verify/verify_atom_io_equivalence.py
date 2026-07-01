@@ -876,3 +876,62 @@ def test_26_learned_lexicon_pollution_guards(tmp_path, monkeypatch):
     assert aloc.is_generic_lexicon_term("測試")
     assert not aloc.is_generic_lexicon_term("auto-handoff")
     assert not aloc.is_generic_lexicon_term("gpo")              # 既有 3 字 ASCII 實例詞不誤殺
+
+
+# ─── 27. merged create_atom == 逐一 build+write_raw+init+set last_used+write_index ──
+
+
+def test_27_create_atom_merged_byte_parity(isolated_claude, tmp_path):
+    """create funnel 併單一 spawn：atom_io_cli.create_atom 一次落 .md / .access.json /
+    index，須與『逐一呼叫 build+write_raw+init_access+set last_used+write_index』（同組
+    函式、同順序）三件 byte-identical——守 5→1 spawn 合併為純重構、零行為變更。"""
+    import json as _json
+    from lib.atom_io_cli import create_atom
+    from lib.atom_access import init_access, write_access_field
+    from lib.atom_spec import validate_atom_content
+
+    build_params = dict(
+        title="Merge Parity", scope="global", confidence="[臨]",
+        triggers=["a", "b", "c"], knowledge=["k1", "k2"], actions=["act1"],
+        author="tester", created_at="2026-05-01",
+    )
+    slug, rel = "merge-parity", "merge-parity.md"
+
+    # Path A — merged create_atom action
+    dirA = tmp_path / "A"
+    dirA.mkdir()
+    fpA = dirA / "merge-parity.md"
+    resA = create_atom({
+        "build": build_params, "file_path": str(fpA), "today": FIXED_TODAY,
+        "index": {"base_dir": str(dirA), "slug": slug, "rel_path": rel,
+                  "triggers": build_params["triggers"]},
+    })
+    assert resA.ok, resA.error
+    assert resA.extra["index_ok"] is True
+
+    # Path B — 逐一呼叫同一組函式、同順序
+    dirB = tmp_path / "B"
+    dirB.mkdir()
+    fpB = dirB / "merge-parity.md"
+    content = build_atom_content(**build_params)
+    assert validate_atom_content(content) is None
+    atom_io.write_raw(fpB, content, source="mcp", op="atom_create")
+    init_access(fpB, first_seen=FIXED_TODAY, source="mcp")
+    write_access_field(fpB, field="last_used", value=FIXED_TODAY, source="mcp")
+    atom_io.write_index(base_dir=dirB, slug=slug, rel_path=rel,
+                        triggers=build_params["triggers"], source="mcp")
+
+    # 三件 byte-identical
+    assert fpA.read_bytes() == fpB.read_bytes(), "atom .md 不一致"
+    assert fpA.with_suffix(".access.json").read_bytes() == \
+        fpB.with_suffix(".access.json").read_bytes(), ".access.json 不一致"
+    assert (dirA / "_atom_index.json").read_bytes() == \
+        (dirB / "_atom_index.json").read_bytes(), "_atom_index.json 不一致"
+
+    # 內容正確性抽驗（非只 A==B）
+    assert "# Merge Parity" in fpA.read_text(encoding="utf-8")
+    idx = _json.loads((dirA / "_atom_index.json").read_text(encoding="utf-8"))
+    assert any(e["name"] == slug and e["path"] == rel for e in idx["atoms"])
+    acc = _json.loads(fpA.with_suffix(".access.json").read_text(encoding="utf-8"))
+    assert acc["first_seen"] == FIXED_TODAY and acc["last_used"] == FIXED_TODAY
+    assert acc["read_hits"] == 0 and acc["confirmations"] == 0

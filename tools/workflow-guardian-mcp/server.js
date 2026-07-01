@@ -508,7 +508,8 @@ const TOOL_DEFINITIONS = [
     name: "atom_promote",
     description:
       "Promote an atom's confidence level. " +
-      "Checks dual thresholds: [臨]→[觀] Conf≥4 or RH≥20, [觀]→[固] Conf≥10 or RH≥50. " +
+      "Eligible when Confirmations (cross-session) ≥4→[觀] / ≥10→[固], OR usefulness Wilson " +
+      "lower-bound ≥ promote_lb with n ≥ min_n. ReadHits is exposure-only, not a promotion gate. " +
       "Use execute=false for dry-run. " +
       "When promoting to [固], pass merge_to_preferences=true to append knowledge " +
       "into preferences.md and archive the source atom (global scope only).",
@@ -1506,7 +1507,7 @@ async function toolAtomWrite(id, args) {
         `New atom must start at [臨] (confidence=${confidence} rejected).\n` +
         `Reason: [觀]/[固] reflect cross-session stability; first-write cannot assert that.\n` +
         `Knowledge items inside should also use [臨] prefix.\n` +
-        `Promotion: Confirmations (cross-session) ≥4→[觀] ≥10→[固]; ReadHits (injection) ≥20/≥50 auxiliary.`,
+        `Promotion: Confirmations (cross-session) ≥4→[觀] ≥10→[固], OR usefulness Wilson lower-bound ≥ promote_lb (n≥min_n). ReadHits is exposure-only, not a promotion gate.`,
         true);
     }
 
@@ -1557,30 +1558,26 @@ async function toolAtomWrite(id, args) {
       }
     }
 
-    // 2026-06-12 parity 方案 B：內容構造統一 spawn py funnel（lib.atom_io_cli "build"，
-    // 含 validate）；js buildAtomContent 退役為 test_13 parity fixture。
-    const br = await spawnAtomCli("build", {
-      title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
-      audience, author, pending_review_by: pendingReviewBy, merge_strategy, created_at: today,
+    // create funnel 併單一 spawn（lib.atom_io_cli create_atom）：內容構造 build+validate →
+    // write_raw → access.json(init + set last_used) → write_index，一次 Python 冷啟取代原本
+    // 5 次子程序。逐步函式與順序不變，落檔 .md / .access.json / index byte-identical
+    // （守 verify_atom_io_equivalence 對拍）。build/validate/write_raw 失敗致命；
+    // index 失敗非致命（對拍舊 appendToIndex 的 crashLog-only）。
+    const cr = await spawnAtomCli("create_atom", {
+      build: {
+        title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
+        audience, author, pending_review_by: pendingReviewBy, merge_strategy, created_at: today,
+      },
+      file_path: filePath,
+      today,
+      index: { base_dir: indexDir, slug, rel_path: relPath, triggers },
     });
-    if (!br.ok) {
-      return sendToolResult(id, `Validation failed: ${br.error}`, true);
+    if (!cr.ok) {
+      return sendToolResult(id, `atom_create funnel failed: ${cr.error}`, true);
     }
-    const content = (br.extra || {}).content;
-
-    fs.mkdirSync(memDir, { recursive: true });
-    // S3.2: 走 lib.atom_io.write_raw funnel（atomic write + audit log）
-    const wr = await funnelWriteRaw(filePath, content, "mcp", "atom_create");
-    if (!wr.ok) {
-      return sendToolResult(id, `funnel write_raw failed: ${wr.error}`, true);
+    if (cr.extra && cr.extra.index_ok === false) {
+      crashLog("appendToIndex funnel (json)", cr.extra.index_error);
     }
-
-    // Wave 2: 同步建立 <atom>.access.json 旁路檔（first_seen=today）
-    await spawnAtomAccess("init", [filePath, "--first-seen", today, "--source", "mcp"]);
-    await spawnAtomAccess("set", [filePath, "--field", "last_used",
-                                  "--value", today, "--source", "mcp"]);
-
-    await appendToIndex(indexDir, slug, relPath, triggers);
     triggerVectorReindex();
     if (scopeLabel === "global") syncMemoryIndex();
 
