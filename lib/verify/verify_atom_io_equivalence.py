@@ -1,4 +1,4 @@
-"""test_atom_io_equivalence.py — atom_io.write_atom byte-equivalence vs server.js (S1.3)
+"""verify_atom_io_equivalence.py — atom_io.write_atom byte-equivalence vs server.js (S1.3)
 
 10 情境覆蓋 server.js:1065 toolAtomWrite 行為契約。每情境 fixture 寫死 today
 日期，比對 build_atom_content 與 write_atom 落檔結果 byte-identical。

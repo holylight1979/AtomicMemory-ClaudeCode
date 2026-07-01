@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_wisdom_sliding_window.py — V2.12 sliding window 行為單元測試
+verify_wisdom_sliding_window.py — sliding window 行為單元測試
 
 驗證：
   1. first_approach_accuracy.recent: append + 維持 max len = window_size

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_wisdom_retry_calibration.py — retry 信號（error-based）校準
+verify_wisdom_retry_calibration.py — retry 信號（error-based）校準
 
 驗證：
   0. track_retry error gate：failing_tests 空 → 同檔狂 edit 也 0 retry

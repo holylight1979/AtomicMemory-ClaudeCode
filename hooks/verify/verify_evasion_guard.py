@@ -1,4 +1,4 @@
-"""test_evasion_guard.py — wg_evasion helpers + hook integration tests.
+"""verify_evasion_guard.py — wg_evasion helpers + hook integration tests.
 
 Pure-function tests for wg_evasion (no state/hook mocking needed).
 Hook integration smoke-tested via plan §5.
@@ -136,7 +136,7 @@ def test_claims_completion(text, expected):
 
 
 @pytest.mark.parametrize("text", [
-    # P4 #2: 進行式/否定修飾緊鄰完成詞 → 非真正終結宣告（實測 false-positive）
+    # 進行式/否定修飾緊鄰完成詞 → 非真正終結宣告（實測 false-positive）
     "完成條件尚未滿足",
     "我總結一下但還沒做完",
     "尚未完成",
@@ -278,7 +278,7 @@ def test_get_last_assistant_text_skips_short():
     Path(fp).unlink()
 
 
-# ─── is_core_file (P4 #1) ───────────────────────────────────────────
+# ─── is_core_file ───────────────────────────────────────────
 
 @pytest.mark.parametrize("path, expected", [
     (r"c:\Users\x\.claude\hooks\wg_evasion.py", True),
@@ -300,7 +300,7 @@ def test_is_core_file(path, expected):
     assert is_core_file(path) is expected
 
 
-# ─── detect_missing_scan_report (P4 #1: 降條件觸發) ──────────────────
+# ─── detect_missing_scan_report (降條件觸發) ──────────────────
 
 def _mf(*paths):
     return [{"path": p, "tool": "Edit"} for p in paths]

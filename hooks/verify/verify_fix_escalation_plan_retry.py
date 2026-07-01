@@ -1,4 +1,4 @@
-"""test_fix_escalation_plan_retry.py — FixEscalation 計畫迭代豁免 + error gate。
+"""verify_fix_escalation_plan_retry.py — FixEscalation 計畫迭代豁免 + error gate。
 
 track_retry 對「計畫類檔」（plans/、_staging/、檔名命中 plan/draft/roadmap/wip）
 的多次編輯不累計 retry_count，因此不會在下一輪 UserPromptSubmit 注入

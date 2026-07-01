@@ -1,4 +1,4 @@
-"""test_assessor_retry.py — Sprint 4 Phase 5.1 單測。
+"""verify_assessor_retry.py — assessor retry 單元測試。
 
 涵蓋三件事：
   1. _run_codex_with_retry：第一次空回 → 退 0.4s 重試 → 第二次成功解析

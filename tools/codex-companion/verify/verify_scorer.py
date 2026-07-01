@@ -1,4 +1,4 @@
-"""test_scorer.py — Sprint 3 scorer 五因子覆蓋測試。
+"""verify_scorer.py — scorer 五因子覆蓋測試。
 
 Plan v5 Phase 3.1 完成標準：6 種典型 turn 預期分數覆蓋。
 五因子：write_footprint(0-2) + verification_gap(0-3) + structural_risk(0-2)

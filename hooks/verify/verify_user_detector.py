@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_user_detector.py — Unit tests for L0 rule-based detector (V4.1 P1)
+verify_user_detector.py — Unit tests for L0 rule-based detector
 
 Acceptance red lines: Precision >= 0.95, Recall >= 0.55
 """

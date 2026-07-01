@@ -1,4 +1,4 @@
-"""test_heuristics.py — Codex Companion heuristics 單元測試 (Sprint 2 重構)。
+"""verify_heuristics.py — Codex Companion heuristics 單元測試。
 
 Sprint 2 驗證面：
   * BLOCK 權收斂：唯有 confident_completion_without_evidence 可 high
