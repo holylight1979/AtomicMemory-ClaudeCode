@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: dedup, 去蕪, DedupStage, draft, 草稿, _drafts, 截斷, truncate, soft-delete, 牢籠, taxonomy, 近重複, sweep
 - Created-at: 2026-06-30
-- Related: 品質完整性判定須讀完整內容-勿從截斷採樣斷言, realm-範疇分區機制-v5
+- Related: 品質完整性判定須讀完整內容-勿從截斷採樣斷言, realm-範疇分區機制-v5, 自動萃取層淨值審查-調整式拔除-2026-07
 
 ## 知識
 

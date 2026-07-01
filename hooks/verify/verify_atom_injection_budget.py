@@ -1,6 +1,6 @@
 """test_atom_injection_budget.py — REG-005 B-layer (Session 1/3, 2026-04-29).
 
-Covers per-turn budget tracker (`_TURN_BUDGET_LIMIT = 800`, `decide_atom_injection`)
+Covers per-turn budget tracker (`_TURN_BUDGET_LIMIT = 500`, `decide_atom_injection`)
 and the SECTION_INJECT_THRESHOLD lowering (300 → 200).
 
 Tests the decision function in isolation (ok / fallback / skip) plus the
@@ -135,9 +135,9 @@ def test_decision_skip_when_impression_not_smaller_than_full():
 # ─── budget reset semantics (per-turn local var, no module state) ───────────
 
 
-def test_budget_constant_is_800():
-    """Sanity check on the published constant."""
-    assert wg_atoms._TURN_BUDGET_LIMIT == 800
+def test_budget_constant_is_500():
+    """Sanity check on the published constant (2026-07-01 縮量: 800→500，見淨值審查 atom)."""
+    assert wg_atoms._TURN_BUDGET_LIMIT == 500
 
 
 def test_no_module_level_state_carries_between_calls():

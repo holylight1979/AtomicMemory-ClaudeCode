@@ -1100,6 +1100,25 @@
         "sweep"
       ],
       "scope": "global"
+    },
+    {
+      "name": "自動萃取層淨值審查-調整式拔除-2026-07",
+      "path": "_AIDocs/_atoms/MemDev/自動萃取層淨值審查-調整式拔除-2026-07.md",
+      "triggers": [
+        "auto-capture",
+        "DedupStage",
+        "淨值審查",
+        "調整式拔除",
+        "草稿",
+        "_drafts",
+        "注入縮量",
+        "usefulness",
+        "turn-global",
+        "Wilson",
+        "write-only",
+        "記憶效益"
+      ],
+      "scope": "global"
     }
   ]
 }

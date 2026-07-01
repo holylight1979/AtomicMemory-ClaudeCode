@@ -67,3 +67,4 @@
 | 品質完整性判定須讀完整內容-勿從截斷採樣斷言 | memory/品質完整性判定須讀完整內容-勿從截斷採樣斷言.md | 斷言品質, 沒垃圾, 沒讀完整, excerpt, 截斷, 採樣, 完整內容, 品質判定, 完整性, 重複偵測, 去蕪, 從根源驗證, post-mortem, 盲點 | global |
 | post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用 | _AIDocs/_atoms/MemDev/post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用.md | write_raw, atom_io, VALID_SOURCES, WriteResult, ok=False, 靜默失敗, 未檢回傳值, funnel, fail-soft, invalid source, 代理訊號, post-mortem, 批次寫入驗收, sync-atom-index | global |
 | dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版 | _AIDocs/_atoms/MemDev/dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版.md | dedup, 去蕪, DedupStage, draft, 草稿, _drafts, 截斷, truncate, soft-delete, 牢籠, taxonomy, 近重複, sweep | global |
+| 自動萃取層淨值審查-調整式拔除-2026-07 | _AIDocs/_atoms/MemDev/自動萃取層淨值審查-調整式拔除-2026-07.md | auto-capture, DedupStage, 淨值審查, 調整式拔除, 草稿, _drafts, 注入縮量, usefulness, turn-global, Wilson, write-only, 記憶效益 | global |

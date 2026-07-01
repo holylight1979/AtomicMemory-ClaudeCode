@@ -57,18 +57,19 @@ except ImportError:
 #   wg_core._estimate_tokens  — CJK-aware（中文 ~1.5 tok/字），量 transcript/handoff/debug 摘要
 #   wg_atoms._estimate_tokens — flat len//4，atom 注入預算口徑（verify_atom_injection_budget 鎖定）
 CONTEXT_BUDGET_DEFAULT = 3000
-TURN_BUDGET_LIMIT = 800
+TURN_BUDGET_LIMIT = 500   # 2026-07-01 調整式拔除(option A 縮量)：800→500，降 atom 注入每輪 token 稅
 
 
 def compute_token_budget(prompt: str) -> int:
-    """每輪注入總額：短 prompt 少注入，長 prompt 多注入。"""
+    """每輪注入總額：短 prompt 少注入，長 prompt 多注入。
+    2026-07-01 調整式拔除(option A 縮量)：1500/3000/5000 → 1000/2000/3000（-40%）。"""
     plen = len(prompt)
     if plen < 50:
-        return 1500
+        return 1000
     elif plen < 200:
-        return 3000
+        return 2000
     else:
-        return 5000
+        return 3000
 
 
 # Defaults（可被 config.json 覆寫）

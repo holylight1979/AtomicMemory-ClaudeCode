@@ -35,33 +35,6 @@ from handlers._shared import (
 )
 
 
-def _dedup_sweep_core() -> dict:
-    """SessionEnd 去蕪 sweep + 過期 trash 硬刪（core _drafts 牢籠；SoT §3）。
-
-    ① sweep_drafts(env=core)：只清截斷碎片、不去重（碎片吸收），非阻塞 file-lock 拿不到即 skip，
-       全 soft-delete（_drafts/_trash + sidecar，可逆 + /refile 救回）。
-    ② purge_expired_trash：硬刪 trash 內 deleted_at 逾 14 天者（**唯一硬刪路徑**，14 天內恆可救回）。
-    **失敗絕不影響 SessionEnd**（fail-soft：吞例外 + log）。回報告 dict（失敗回 {'status': 'error'}）。
-    """
-    try:
-        from lib.dedup_stage import sweep_drafts, purge_expired_trash
-        core_mem = CLAUDE_DIR / "memory"
-        drafts_root = core_mem / "_drafts"
-        rep = sweep_drafts(drafts_root, core_mem, env="core")
-        if rep.get("truncated"):
-            print(f"[dedup] soft-deleted {len(rep['truncated'])} truncated "
-                  f"draft(s) → _drafts/_trash (status={rep['status']})", file=sys.stderr)
-        purged = purge_expired_trash(drafts_root)   # 14 天閘：逾期 trash 硬刪（唯一硬刪）
-        if purged:
-            print(f"[dedup] purged {len(purged)} expired trash item(s) (>14d, 已過救回窗)",
-                  file=sys.stderr)
-        rep["purged"] = len(purged)
-        return rep
-    except Exception as e:
-        _atom_debug_error("session_end:dedup_sweep", e)
-        return {"status": "error"}
-
-
 def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -286,8 +259,6 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
             print(f"[v2.6] Review marker saved (total={total})", file=sys.stderr)
         except Exception as e:
             print(f"[v2.6] Review marker save error: {e}", file=sys.stderr)
-
-    _dedup_sweep_core()   # core _drafts 去蕪（fail-soft，見 helper docstring）
 
     write_state(session_id, state)
 

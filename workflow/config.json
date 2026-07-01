@@ -132,7 +132,8 @@
     "session_end_timeout_seconds": 10,
     "classification_default": "[臨]",
     "per_turn": {
-      "enabled": true,
+      "_disabled_2026_07_01": "調整式拔除：auto-capture 草稿為 write-only 死路（0 下游消費；DedupStage 實跑 0/16）。停產。失敗萃取(failure_extraction)與 episodic 生成保留。回滾：改回 true。",
+      "enabled": false,
       "min_new_chars": 500,
       "max_items": 3,
       "skip_cross_session": true,
@@ -147,7 +148,8 @@
       "weak_min_match": 3
     },
     "session_end_flush": {
-      "enabled": true,
+      "_disabled_2026_07_01": "調整式拔除：見 per_turn._disabled_2026_07_01。停 session_end 草稿 flush。回滾：改回 true。",
+      "enabled": false,
       "max_atoms": 8
     }
   },
