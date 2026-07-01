@@ -2,7 +2,8 @@
 
 驗證 handlers/stop.py 的高 effort 失敗 → Claude 深寫指令閘：
   純判定 _should_deep_postmortem：
-    - 首次擋：retry>=2 / fix_escalation_triggered / 同檔 edit>=3 任一 → True
+    - 首次擋：retry>=2 / fix_escalation_triggered 任一（AND real_failure）→ True
+    - same_file_3x（同檔 edit>=3）不是 effort 訊號，單獨不觸發（edit 次數 ≠ 失敗）
     - 設旗標後放行：deep_postmortem_done=True → False
     - 無 effort 訊號 → False
     - block 預算耗盡（stop_count>=max_blocks）→ False
@@ -51,9 +52,10 @@ def test_fix_escalation_triggers():
     assert _judge({"fix_escalation_triggered": True}) is True
 
 
-def test_same_file_3x_triggers():
-    """同檔 edit>=3 + 未宣告完成 → 首次擋。"""
-    assert _judge({"edit_counts": {"hooks/foo.py": 3}}) is True
+def test_same_file_3x_alone_does_not_trigger():
+    """same_file_3x 不是 effort 訊號——同檔 edit>=3 但無 retry/fix_esc → 不觸發
+    （即使未宣告完成；edit 次數 ≠ 失敗）。"""
+    assert _judge({"edit_counts": {"hooks/foo.py": 9}}) is False
 
 
 def test_no_effort_signal_skips():
@@ -76,13 +78,12 @@ def test_disabled_skips():
     assert _judge({"wisdom_retry_count": 3}, config={"deep_postmortem": {"enabled": False}}) is False
 
 
-# ─── 方案 A：AND 真失敗訊號（dogfood 誤觸修正）──────────────────────
+# ─── AND 真失敗訊號（避免高 effort 成功誤觸）─────────────────────────
 
 def test_effort_but_success_not_triggered():
     """關鍵：effort 訊號齊備但已宣告完成且無 failing_tests/evasion → 不觸發。
-    這正是 dogfood 誤觸案（成功的多次迭代開發踩 same_file_3x/retry 門檻）。"""
-    state = {"wisdom_retry_count": 5, "edit_counts": {"x.py": 9},
-             "failing_tests": [], "evasion_flag": None}
+    retry 可代表失敗中反覆，但 real_failure 未成立即不觸。"""
+    state = {"wisdom_retry_count": 5, "failing_tests": [], "evasion_flag": None}
     assert _judge(state, claims_done=True) is False
 
 
@@ -93,8 +94,8 @@ def test_effort_with_failing_tests_triggers_even_if_claims_done():
 
 
 def test_effort_with_evasion_triggers_even_if_claims_done():
-    """effort + evasion_flag → 真失敗成立，縱使宣告完成仍觸發。"""
-    state = {"edit_counts": {"y.py": 4}, "evasion_flag": {"kind": "vague"}}
+    """effort（fix_escalation）+ evasion_flag → 真失敗成立，縱使宣告完成仍觸發。"""
+    state = {"fix_escalation_triggered": True, "evasion_flag": {"kind": "vague"}}
     assert _judge(state, claims_done=True) is True
 
 

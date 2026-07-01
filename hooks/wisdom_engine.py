@@ -213,7 +213,7 @@ def reflect(state: Dict[str, Any]) -> None:
     retry_count = int(state.get("wisdom_retry_count", 0))
     fix_escalation = bool(state.get("fix_escalation_triggered", False))
 
-    # V2.12 commit-2 retry calibration:
+    # retry calibration:
     #   - architecture tasks: tolerate 1 retry (plan-mode iteration is by design),
     #     but fix_escalation_triggered overrides → real failure
     #   - other tasks: strict, retry_count == 0 means correct
@@ -282,18 +282,29 @@ def _is_plan_iteration_path(norm_path: str) -> bool:
 
 
 def track_retry(state: Dict[str, Any], file_path: str) -> None:
-    """PostToolUse: count repeated edits to the same file as retries.
+    """PostToolUse: count same-file edits made while a failure is unresolved as
+    fix-retries.
 
-    Plan-type files are excluded — multiple edits to a plan are iteration,
-    not error retry, and should not trigger Fix Escalation Protocol.
+    A retry only counts when a real failure signal is present —
+    ``state["failing_tests"]`` non-empty (a test/lint failure detected by
+    detect_test_failure and not yet cleared). This makes ``wisdom_retry_count``
+    mean what FixEscalation targets: repeatedly editing the same file while tests
+    stay red = genuinely stuck (反覆修不好). Without a failure signal there is no
+    retry — successful iteration never keeps failing_tests set, so heavy editing
+    of a single file is not mistaken for a fix loop (edit count ≠ failure).
 
-    V2.12: plan-mode sessions raise the threshold (4 same-file edits before
-    counting as retry). Rationale: architecture-level work iterates on the
-    same file by design; the V2.11 threshold of 2 systematically penalised
-    arch tasks, dragging architecture first-approach accuracy to 13%.
+    Plan-type files are excluded up front: editing a plan is not a fix attempt
+    against a code failure, even when tests are red elsewhere.
+
+    The same file must be re-edited ``threshold`` times during the failure before
+    it counts — one attempt is not 反覆. plan-mode uses a higher threshold (4 vs
+    2) because architecture work iterates the same file by design.
     """
     norm = file_path.replace("\\", "/")
     if _is_plan_iteration_path(norm):
+        return
+    # Error gate: only re-edits made against an unresolved failure count.
+    if not state.get("failing_tests"):
         return
     edits = state.get("modified_files", [])
     count = sum(1 for m in edits if m.get("path", "").replace("\\", "/") == norm)
@@ -303,4 +314,4 @@ def track_retry(state: Dict[str, Any], file_path: str) -> None:
 
     if count >= threshold:
         state["wisdom_retry_count"] = state.get("wisdom_retry_count", 0) + 1
-        # V2.11: 只更新 state 計數，由 SessionEnd reflect() 統一寫入 reflection_metrics
+        # only bump the state counter; SessionEnd reflect() writes reflection_metrics

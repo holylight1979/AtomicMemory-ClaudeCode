@@ -223,11 +223,12 @@ def _should_deep_postmortem(
     """是否要在本 Stop 注入「深寫 post-mortem」指令。
 
     觸發＝(effort 訊號任一) AND (真失敗訊號任一)：
-      effort：wisdom_retry_count>=2 ∨ fix_escalation_triggered ∨ same_file_3x（edit>=3）
+      effort：wisdom_retry_count>=2 ∨ fix_escalation_triggered
       real_failure：failing_tests 非空 ∨ evasion_flag ∨ 未宣告完成（not claims_done）
-    為何 AND：純 effort 會誤觸——成功的多次迭代開發本就會踩 effort 門檻（same_file_3x /
-    wisdom_retry 對正常改一個檔 ≥3 次即超標，dogfood 在本機制自身開發 session 已證實
-    誤觸）。疊一個真失敗訊號才把「高 effort 成功」與「反覆修不好」區分開。
+    為何 AND：疊一個真失敗訊號，才把「高 effort 成功」與「反覆修不好」區分開。
+    effort 只採 retry / fix_escalation——兩者都已在 track_retry 層以 failing_tests
+    error-gate，是誠實的「失敗中反覆」訊號。不採同檔 edit 次數：它未 failure-gate、
+    對正常重度迭代開發本就會超標（edit 次數 ≠ 失敗）。
     且：本 session 未深寫過（deep_postmortem_done）、block 預算未耗盡
     （stop_count < stop_gate_max_blocks）、config 未關閉。
 
@@ -241,12 +242,9 @@ def _should_deep_postmortem(
         return False
     if stop_count >= max_blocks:  # 尊重 stop_gate_max_blocks，不超發
         return False
-    edit_counts = state.get("edit_counts", {}) or {}
-    same_file_3x = any(int(c or 0) >= 3 for c in edit_counts.values())
     effort = (
         int(state.get("wisdom_retry_count", 0) or 0) >= 2
         or bool(state.get("fix_escalation_triggered"))
-        or same_file_3x
     )
     real_failure = (
         bool(state.get("failing_tests"))
@@ -257,8 +255,8 @@ def _should_deep_postmortem(
 
 
 _DEEP_POSTMORTEM_INSTRUCTION = (
-    "[Guardian:DeepPostMortem] 偵測到高 effort 失敗訊號（反覆重試 / fix-escalation"
-    " / 同檔多次修改）。失敗骨架已由 hook 自動落地，但根因與設計脈絡只有你知道。\n"
+    "[Guardian:DeepPostMortem] 偵測到高 effort 失敗訊號（失敗中反覆重試 /"
+    " fix-escalation）。失敗骨架已由 hook 自動落地，但根因與設計脈絡只有你知道。\n"
     "結束前請用 atom_write 補一條完整 post-mortem（寫入既有 failure atom，或"
     " realm=local、domain 視主題新建），涵蓋：\n"
     "  - 始末：觸發場景 → 錯誤行為 → 最終正確做法\n"

@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
 """
-test_wisdom_retry_calibration.py — V2.12 retry 信號重新校準
+test_wisdom_retry_calibration.py — retry 信號（error-based）校準
 
 驗證：
-  1. track_retry plan-mode threshold = 4（vs 預設 2）
-  2. track_retry direct-mode 維持 threshold = 2（不變）
-  3. track_retry plan iteration path 仍豁免（與 plan-mode threshold 互補）
+  0. track_retry error gate：failing_tests 空 → 同檔狂 edit 也 0 retry
+     （無真失敗證據不開火，edit 次數 ≠ 失敗）
+  1. track_retry plan-mode threshold = 4（direct 預設 2）—— 前提 failing_tests 非空
+  2. track_retry direct-mode threshold = 2 —— 前提 failing_tests 非空
+  3. track_retry plan iteration path 豁免（先於 failure gate 早退）
   4. reflect architecture 容忍 1 retry（plan-mode iteration 是設計上要試錯）
   5. reflect architecture + fix_escalation_triggered → 真失敗（覆蓋容忍）
-  6. reflect single_file / multi_file 維持嚴格規則 retry_count == 0
+  6. reflect single_file / multi_file 嚴格 retry_count == 0
 
-Background:
-  V2.11 retry 邏輯對 architecture 任務系統性偏誤：plan-mode session 本質要
-  iterate（同檔多次 Edit = 試錯探索），但被 V2.11 計入 retry_count，把
-  architecture first-approach accuracy 拉到 13%。V2.12 透過：
-    (a) plan-mode 提高同檔 Edit threshold 從 2 → 4
-    (b) reflect() 對 architecture 容忍 1 retry，但 fix_escalation_triggered
-        是真失敗信號（覆蓋容忍）
+retry 僅在 state["failing_tests"] 非空（detect_test_failure 偵到、尚未被清的真
+測試/lint 失敗）時才計——數的是「測試仍紅、反覆改同檔」= 真正的反覆修不好；
+正常反覆迭代在零測試失敗下不進 retry。
 """
 
 import json
@@ -38,64 +36,93 @@ def _tmp_reflection(tmp_path, monkeypatch):
     yield p
 
 
-# ── track_retry: plan-mode threshold ────────────────────────────────────────
+# 真失敗訊號 —— threshold 測試皆須在 failing_tests 非空前提下才計 retry
+_FAILING = [{"cmd": "pytest", "at": "t"}]
+
+
+# ── track_retry: error gate（無真失敗證據不開火）──────────────────────────────
+
+
+def test_no_failure_signal_no_retry(_tmp_reflection):
+    """failing_tests 空 → 同檔狂 edit（遠超 threshold）也 0 retry。
+
+    零測試失敗下的正常反覆迭代不該進 retry（edit 次數 ≠ 失敗）。
+    """
+    state = {
+        "wisdom_approach": "direct",
+        "modified_files": [{"path": "src/a.py"}] * 8,
+        # failing_tests 缺 / 空
+    }
+    we.track_retry(state, "src/a.py")
+    assert state.get("wisdom_retry_count", 0) == 0
+
+
+# ── track_retry: plan-mode threshold（前提：failing_tests 非空）────────────────
 
 
 def test_plan_mode_3_edits_no_retry(_tmp_reflection):
-    """plan approach + 同檔 3 次 Edit → 不計 retry（threshold=4）。"""
+    """plan approach + 同檔 3 次 Edit（測試紅）→ 不計 retry（threshold=4）。"""
     state = {
         "wisdom_approach": "plan",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}, {"path": "src/a.py"}],
+        "failing_tests": _FAILING,
     }
     we.track_retry(state, "src/a.py")
     assert state.get("wisdom_retry_count", 0) == 0
 
 
 def test_plan_mode_4_edits_counts_as_retry(_tmp_reflection):
-    """plan approach + 同檔 4 次 Edit → 計 1 retry。"""
+    """plan approach + 同檔 4 次 Edit（測試紅）→ 計 1 retry。"""
     state = {
         "wisdom_approach": "plan",
         "modified_files": [{"path": "src/a.py"}] * 4,
+        "failing_tests": _FAILING,
     }
     we.track_retry(state, "src/a.py")
     assert state["wisdom_retry_count"] == 1
 
 
 def test_direct_mode_2_edits_counts_as_retry(_tmp_reflection):
-    """direct approach + 同檔 2 次 Edit → 維持 V2.11 規則，計 1 retry。"""
+    """direct approach + 同檔 2 次 Edit（測試紅）→ 維持 threshold=2，計 1 retry。"""
     state = {
         "wisdom_approach": "direct",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
+        "failing_tests": _FAILING,
     }
     we.track_retry(state, "src/a.py")
     assert state["wisdom_retry_count"] == 1
 
 
 def test_confirm_mode_uses_default_threshold(_tmp_reflection):
-    """confirm approach 不適用 plan-mode 寬鬆規則，仍 threshold=2。"""
+    """confirm approach 不適用 plan-mode 寬鬆規則，仍 threshold=2（測試紅）。"""
     state = {
         "wisdom_approach": "confirm",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
+        "failing_tests": _FAILING,
     }
     we.track_retry(state, "src/a.py")
     assert state["wisdom_retry_count"] == 1
 
 
 def test_plan_path_excluded_regardless_of_approach(_tmp_reflection):
-    """計畫檔（plans/）路徑豁免，與 wisdom_approach 無關。"""
+    """計畫檔（plans/）路徑豁免——即使 failing_tests 非空仍早退（先於 failure gate）。"""
     # _is_plan_iteration_path 用 "/plans/" 子串檢查 → 路徑需含 leading 區段
     plan_path = "C:/Users/holylight/.claude/plans/foo.md"
     state = {
         "wisdom_approach": "direct",
         "modified_files": [{"path": plan_path}] * 5,
+        "failing_tests": _FAILING,  # 有真失敗但編的是計畫檔 → 仍不算 fix-retry
     }
     we.track_retry(state, plan_path)
     assert state.get("wisdom_retry_count", 0) == 0
 
 
 def test_unknown_approach_defaults_to_direct(_tmp_reflection):
-    """未設 wisdom_approach → 預設視為 direct（threshold=2）。"""
-    state = {"modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}]}
+    """未設 wisdom_approach → 預設視為 direct（threshold=2；測試紅）。"""
+    state = {
+        "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
+        "failing_tests": _FAILING,
+    }
     we.track_retry(state, "src/a.py")
     assert state["wisdom_retry_count"] == 1
 
@@ -187,11 +214,8 @@ def test_multi_file_strict_no_tolerance(_tmp_reflection):
 
 
 def test_simulation_arch_calibration_lifts_rate(_tmp_reflection):
-    """模擬：3 sessions plan + retry=1 + no fix_esc。
-
-    V2.11 邏輯下：3 fails → arch sensitivity elevated
-    V2.12 邏輯下：3 successes → arch sensitivity 不會 elevate（合理校準）
-    """
+    """模擬：3 sessions plan + retry=1 + no fix_esc → 3 successes（architecture
+    容忍 1 retry）→ arch sensitivity 不 elevate、blind_spot 不觸（合理校準）。"""
     for _ in range(3):
         we.reflect({
             "wisdom_approach": "plan",

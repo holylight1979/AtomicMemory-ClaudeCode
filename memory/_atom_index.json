@@ -1119,6 +1119,26 @@
         "記憶效益"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔",
+      "path": "_AIDocs/Failures/feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔.md",
+      "triggers": [
+        "版本殘留",
+        "版本標記",
+        "V2.x",
+        "v[X.X]",
+        "變更叙事",
+        "歷史脂絡",
+        "方案代號",
+        "操作日期",
+        "CHANGELOG",
+        "timeless",
+        "註解版本",
+        "atom 過時 claim",
+        "docstring 版本"
+      ],
+      "scope": "global"
     }
   ]
 }

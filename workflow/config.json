@@ -254,7 +254,7 @@
     "stub_filename": "next-phase-auto.md"
   },
   "deep_postmortem": {
-    "_doc": "Stage 3：高 effort 失敗（wisdom_retry_count>=2 / fix_escalation_triggered / 同檔 edit>=3）時，Stop gate 注入指令要 Claude 用 atom_write 補完整 post-mortem（始末/根因/設計原理/運作邏輯/防再犯）。deep_postmortem_done 一次性、共用 stop_gate_max_blocks 預算。enabled=false 一鍵關。",
+    "_doc": "Stage 3：高 effort 失敗（wisdom_retry_count>=2 / fix_escalation_triggered，AND 真失敗訊號 failing_tests/evasion/未宣告完成）時，Stop gate 注入指令要 Claude 用 atom_write 補完整 post-mortem（始末/根因/設計原理/運作邏輯/防再犯）。effort 只採 retry/fix_esc（均於 track_retry 層 error-gate，僅測試/lint 失敗未解時才計），不採同檔 edit 次數。deep_postmortem_done 一次性、共用 stop_gate_max_blocks 預算。enabled=false 一鍵關。",
     "enabled": true
   },
   "guard": {
