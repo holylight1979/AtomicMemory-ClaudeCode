@@ -1175,7 +1175,7 @@ function execWriteGate(content, classification) {
   });
 }
 
-/** V5 P3b: Upsert atom entry to _atom_index.json (SoT) via funnel.
+/** Upsert atom entry to _atom_index.json (SoT) via funnel.
  *  Auto-regenerates _ATOM_INDEX.md mirror via lib/atom_index_json.upsert_atom. */
 async function appendToIndex(memDir, atomName, relPath, triggers) {
   const r = await funnelWriteIndex(memDir, atomName, relPath, triggers, "mcp");
@@ -1379,7 +1379,7 @@ function funnelWriteIndexFull(indexPath, content, source) {
   });
 }
 
-/** V5 P3b: Single-atom upsert via lib.atom_io.write_index → _atom_index.json. */
+/** Single-atom upsert via lib.atom_io.write_index → _atom_index.json. */
 function funnelWriteIndex(baseDir, slug, relPath, triggers, source) {
   return spawnAtomCli("write_index", {
     base_dir: baseDir, slug, rel_path: relPath,
