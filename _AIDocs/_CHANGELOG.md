@@ -1,7 +1,7 @@
 # 變更記錄
 
 > 保留最近 ~8 筆（PostToolUse hook 自動滾動到 `_CHANGELOG_ARCHIVE.md`）。
-> 每條僅留「標題 + 一句摘要 + 詳情 log 連結」。實作細節見 `DevHistory/session-logs/{date}-{slug}.md`。
+> 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
 
