@@ -1,12 +1,12 @@
 """
 handlers/ups_search.py — UserPromptSubmit search pipeline 段
 
-從 user_prompt_submit.py 拆出（2026-06-12 複雜度熱點重構）。
+從 user_prompt_submit.py 拆出。
 職責：本輪 prompt 的 atom 候選收集與排序：
 - atom index 組裝（global + project 層，_AIAtoms/ 基底解析）
 - 跨專案 alias 掃描（mtime 排序上限 20 專案）+ ProjectMemory 注入
 - trigger keyword match
-- V5 P5a：BM25 over global layer（trigger 命中 ≤2 才跑）
+- BM25 over global layer（trigger 命中 ≤2 才跑）
 - vector fallback（_semantic_search，含 V4 identity 過濾）+ section hints
 - supersedes filtering
 - ACT-R activation sort
@@ -145,7 +145,7 @@ def collect_matched_atoms(
 
     kw_matched_names = {e[0][0] for e in matched_with_dir}
 
-    # V5 P5a: BM25 over global layer (replaces vector round-trip for global atoms).
+    # BM25 over global layer (replaces vector round-trip for global atoms).
     # Only run if no/few trigger hits (≤2). Project layer still uses vector below.
     vs_cfg = config.get("vector_search", {})
     if vs_cfg.get("global_layer", "bm25") == "bm25" and len(matched_with_dir) <= 2:

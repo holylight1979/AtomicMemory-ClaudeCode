@@ -2,7 +2,7 @@
 handlers/session_start.py — SessionStart hook handler
 
 最大的 handler（~400 行）。負責：
-- V5 P0 log rotation
+- Log rotation
 - Session 去重 / merged_into 處理
 - atom_index 解析 + V4 role-aware atoms 收集
 - MEMORY.md 動態重生（V4 layout）
@@ -156,7 +156,7 @@ def _count_pending_review(project_mem_dir: Optional[Path]) -> int:
 
 
 def _count_recent_auto_atoms(user: str, cwd: str, hours: int = 24) -> int:
-    """[F18] Count auto-extracted-v4.1 atoms created within last N hours."""
+    """Count auto-extracted-v4.1 atoms created within last N hours."""
     import re as _re
     count = 0
     cutoff = datetime.now() - timedelta(hours=hours)
@@ -201,7 +201,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     cwd = input_data.get("cwd", "")
     source = input_data.get("source", "startup")
 
-    # V5 P0: log rotation — prevent runaway log bloat
+    # log rotation — prevent runaway log bloat
     try:
         from wg_core import rotate_log_if_oversized
         rotate_log_if_oversized(WORKFLOW_DIR / "guardian-crash.log", max_mb=10)
@@ -250,7 +250,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if kq_count > 0:
             items = [q["content"][:40] for q in state["knowledge_queue"][:3]]
             lines.append(f"Pending knowledge: {'; '.join(items)}")
-        # 注（2026-06-01 Phase-0 probe）：full `/compact` 實測會觸發 SessionStart(source=compact)
+        # 注：full `/compact` 會觸發 SessionStart(source=compact)
         # （序：PreCompact → SessionStart(compact) → PostCompact），故本分支非死碼、保留。
         # 但此處僅「列出壓縮前 atom 名稱」（資訊性 ~30 tok）；完整內文的壓縮後復原由
         # PostCompact(snapshot stash)→PostToolBatch(一次性注入) 負責（選配 #4），兩者互補不重複。
@@ -350,7 +350,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             f"Global: {len(g_names)} atoms. Project: {len(p_names)}.",
         ]
 
-        # ── 全域 index 解析 fail-loud（2026-06-30, silent-failure direction 2）──
+        # ── 全域 index 解析 fail-loud ──
         # 全域 index 檔存在但解析出 0 atom = 解析失敗（_ATOM_INDEX.md 表內空行/檔
         # 截斷等），非合法空層（全域恆有 atom）。不再 silent——log + 顯著 advisory。
         # 專案層可合法為空，故僅檢全域。
@@ -372,9 +372,9 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             _atom_debug_error("session_start:global_index_zero", e)
 
-        # ── 索引載入後校驗（2026-06-12 總檢視 E1）─────────────────────────
-        # 防 _atom_index.json 被 funnel 外改壞 → 注入鏈靜默降效（2026-05 前科
-        # 同型）。廉價雙向：index→disk 存在性 + memory/ 頂層→index 漏登。
+        # ── 索引載入後校驗 ─────────────────────────
+        # 防 _atom_index.json 被 funnel 外改壞 → 注入鏈靜默降效。
+        # 廉價雙向：index→disk 存在性 + memory/ 頂層→index 漏登。
         # 失配＝log（always-on）+ 可見 advisory，不自動重建（避免與 funnel 互搶）。
         try:
             _idx_missing = [
@@ -407,7 +407,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             _atom_debug_error("session_start:index_validate", e)
 
-        # ── skill 計數 SoT 防呆（2026-06-18）──────────────────────────────
+        # ── skill 計數 SoT 防呆 ──────────────────────────────
         # 補 PostToolUse 自動同步漏接者（如 Bash 刪 skill 目錄）：實檔
         # skills/*/SKILL.md 數 ≠ _skill_index.json count → advisory 提示跑
         # tools/skill-index.py --write。不自動改檔（與 PostToolUse 自動同步分工）。
@@ -446,7 +446,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 v41_count = _count_recent_auto_atoms(v4_user, cwd, hours=24)
                 if v41_count > 0:
                     lines.append(
-                        f"[V4.1] 昨日新增 {v41_count} 條自動萃取 atom，/memory-peek 檢視"
+                        f"昨日新增 {v41_count} 條自動萃取 atom，/memory-peek 檢視"
                     )
             except Exception as e:
                 _atom_debug_error("V4.1:daily_push", e)
@@ -571,8 +571,8 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     except Exception as e:
         print(f"[mcp-health] Check error: {e}", file=sys.stderr)
 
-    # 2026-07-01 可觀測性：Vector 連續 3 session no_flag → 浮出告警（fail-open 的『不阻斷』
-    # 必須『告知』；對應本次 indexer.py sys.path 修復——避免服務再度靜默死 4 週沒人知）
+    # 可觀測性：Vector 連續 3 session no_flag → 浮出告警（fail-open 的『不阻斷』
+    # 必須『告知』——避免服務再度靜默死沒人知）
     try:
         _probe_log = CLAUDE_DIR / "Logs" / "vector-observation-probe.log"
         if _probe_log.exists():

@@ -17,7 +17,7 @@ from wg_core import (
 )
 from wg_atoms import build_injection_blob
 
-# Phase 1: sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
+# sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
 _SUBAGENT_INJECT_BUDGET = 700
 
 
@@ -130,7 +130,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
 
-    # ─── Phase 1 (#1): Sub-agent 記憶注入 ────────────────────────────────────
+    # ─── Sub-agent 記憶注入 ────────────────────────────────────
     # sub-agent（Agent/Task）開全新 context、不觸發 UserPromptSubmit，吃不到 atom。
     # 唯一 parent→child 通道是工具 prompt 字串 → 經 PreToolUse updatedInput prepend
     # 緊湊記憶 blob。fail-open：任何錯誤都不擋 spawn。
@@ -194,7 +194,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
-    # Phase 3b（方案甲 2026-06-12；v1.1 含根層敏感檔 + Bash 全域 MCP 變更）：
+    # 根層敏感檔 + Bash 全域 MCP 變更：
     # 外部專案 session 寫核心層 / 全域 MCP add/remove → deny
     _cwd = input_data.get("cwd", "") or ""
     deny_reason = (

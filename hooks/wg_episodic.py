@@ -28,7 +28,7 @@ from wg_extraction import is_plan_content
 sys.path.insert(0, str(Path.home() / ".claude" / "tools"))
 from ollama_client import get_client
 
-# S3.0: route Confirmations counter update through atom_io funnel
+# route Confirmations counter update through atom_io funnel
 _LIB_PARENT = str(Path.home() / ".claude")
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
@@ -50,7 +50,7 @@ def _should_generate_episodic(state: Dict[str, Any], config: Dict[str, Any]) -> 
     kq_count = len(state.get("knowledge_queue", []))
     min_files = ep_cfg.get("min_files", 1)
 
-    # V2.10: Pure-read sessions (≥5 files) also warrant episodic atoms
+    # Pure-read sessions (≥5 files) also warrant episodic atoms
     if mod_count < min_files and kq_count == 0 and read_count < 5:
         return False
 
@@ -129,7 +129,7 @@ def _resolve_episodic_dir(state: Dict[str, Any]) -> Tuple[Path, str]:
     return resolve_episodic_dir(cwd)
 
 
-# ─── V2.4: Response Knowledge Capture (Ollama LLM) ──────────────────────────
+# ─── Response Knowledge Capture (Ollama LLM) ──────────────────────────
 
 
 def _find_session_transcript(session_id: str, cwd: str) -> Optional[Path]:
@@ -269,7 +269,7 @@ def _llm_extract_knowledge(text: str, existing_queue: List[dict],
     return results
 
 
-# ─── V2.4 Phase 3: Cross-Session Pattern Consolidation ──────────────────────
+# ─── Cross-Session Pattern Consolidation ──────────────────────
 
 
 def _check_cross_session_patterns(
@@ -350,7 +350,7 @@ def _check_cross_session_patterns(
             if hit_count < promote_threshold:
                 continue
 
-            # V2.11: No auto-promote — Confirmations +1 only, hint at 4+
+            # No auto-promote — Confirmations +1 only, hint at 4+
             current_class = item.get("classification", "[臨]")
             action = ""
 
@@ -359,8 +359,7 @@ def _check_cross_session_patterns(
             else:
                 action = f"跨 session 命中 {hit_count} 次（Confirmations +1）"
 
-            # Wave 2: 跨 session 加計透過 atom_access.increment_confirmation
-            # （取代原 update_atom_field + 直接寫 access.json 的雙寫路徑）
+            # 跨 session 加計透過 atom_access.increment_confirmation
             import uuid as _uuid
             for r in results:
                 atom_file = r.get("file_path", "")
@@ -398,7 +397,7 @@ def _check_cross_session_patterns(
     return observations
 
 
-# ─── V2.11: Conflict Detection ───────────────────────────────────────────────
+# ─── Conflict Detection ───────────────────────────────────────────────
 
 
 def _detect_atom_conflicts(
@@ -505,7 +504,7 @@ def _build_episodic_summary(state: Dict[str, Any]) -> Dict[str, Any]:
 
     atoms_referenced = list(state.get("injected_atoms", []))
 
-    # V2.10: Read tracking
+    # Read tracking
     accessed = state.get("accessed_files", [])
     accessed_areas: Counter = Counter()
     for a in accessed:
@@ -517,7 +516,7 @@ def _build_episodic_summary(state: Dict[str, Any]) -> Dict[str, Any]:
     intent_dist = tracker.get("intent_distribution", {})
     dominant_intent = max(intent_dist, key=intent_dist.get) if intent_dist else "general"
 
-    # V2.10: Use accessed areas as fallback for primary_area when no modifications
+    # Use accessed areas as fallback for primary_area when no modifications
     if not work_areas and accessed_areas:
         acc_areas = [{"area": a, "count": c} for a, c in accessed_areas.most_common()]
         primary_area = acc_areas[0]["area"] if acc_areas else "session-work"
@@ -566,7 +565,7 @@ def _generate_triggers(state: Dict[str, Any], work_areas: list) -> list:
 
 
 def _update_memory_index(memory_dir: Path, atom_name: str, triggers: list) -> None:
-    """V5 P3b: Upsert atom entry to _atom_index.json (JSON is single source of truth).
+    """Upsert atom entry to _atom_index.json (JSON is single source of truth).
 
     Auto-regenerates _ATOM_INDEX.md mirror via lib/atom_index_json.upsert_atom.
     Legacy fallback: if JSON helper missing, write to _ATOM_INDEX.md directly.
@@ -622,7 +621,7 @@ def _update_memory_index(memory_dir: Path, atom_name: str, triggers: list) -> No
 
 
 def _build_read_tracking_section(summary: Dict[str, Any]) -> str:
-    """Build '## 閱讀軌跡' section — compressed summary (V2.14 token diet).
+    """Build '## 閱讀軌跡' section — compressed summary (token diet).
 
     Instead of listing every file path (which vector search can't match anyway),
     produce a compact summary: count + area breakdown.
@@ -669,7 +668,7 @@ def _build_cross_session_section(state: Dict[str, Any]) -> str:
 
 
 def _build_conflict_section(state: Dict[str, Any]) -> str:
-    """V2.11: Build '## ⚠ 衝突警告' section from conflict detection results."""
+    """Build '## ⚠ 衝突警告' section from conflict detection results."""
     warnings = state.get("conflict_warnings", [])
     if not warnings:
         return ""
@@ -723,12 +722,12 @@ def _generate_episodic_atom(
             f"- [臨] 引用 atoms: {', '.join(summary['atoms_referenced'])}"
         )
     for ki in summary["knowledge_items"]:
-        # V2.22: Filter out plan-type knowledge items from episodic atoms
+        # Filter out plan-type knowledge items from episodic atoms
         if is_plan_content(ki.get("content", "")):
             continue
         knowledge_lines.append(f"- [{ki['classification'].strip('[]')}] {ki['content']}")
 
-    # V2.10: Read tracking summary
+    # Read tracking summary
     if summary.get("files_accessed", 0) > 0:
         knowledge_lines.append(f"- [臨] 閱讀 {summary['files_accessed']} 個檔案")
         if summary.get("accessed_areas"):
@@ -740,7 +739,7 @@ def _generate_episodic_atom(
     if vcs:
         knowledge_lines.append(f"- [臨] 版控查詢 {len(vcs)} 次")
 
-    # V2.17: 覆轍信號 — record cross-session retry patterns
+    # 覆轍信號 — record cross-session retry patterns
     rut_signals = []
     edit_counts = state.get("edit_counts", {})
     for fpath, cnt in edit_counts.items():
@@ -775,7 +774,7 @@ def _generate_episodic_atom(
             f"- Referenced atoms: {', '.join(summary['atoms_referenced'])}"
         )
 
-    # Wave 2: episodic atom .md 檔頭不再寫 Last-used / Confirmations / ReadHits
+    # episodic atom .md 檔頭不再寫 Last-used / Confirmations / ReadHits
     # （這些計數搬到 <atom>.access.json，由 atom_access.init_access 在落檔後建立）
     content = (
         f"# Session: {today} {summary['primary_area']}\n"
@@ -813,10 +812,10 @@ def _generate_episodic_atom(
         f"| {today} | 自動建立 episodic atom (v2.2) | session:{session_id[:8]} |\n"
     )
 
-    # S3.3: episodic atom 走 funnel write_raw（在 SKIP_DIRS 不算 V4 atom，
+    # episodic atom 走 funnel write_raw（在 SKIP_DIRS 不算 V4 atom，
     # 但仍經 audit log 確保 PreToolUse 強制門禁可放行）
     write_raw(atom_path, content, source="hook:episodic", op="episodic_create")
-    # Wave 2: 同步建立 access.json 旁路檔（first_seen=今天，後續注入時 increment_read_hits）
+    # 同步建立 access.json 旁路檔（first_seen=今天，後續注入時 increment_read_hits）
     try:
         from lib.atom_access import init_access
         init_access(atom_path, first_seen=today, source="hook:episodic")
@@ -835,7 +834,7 @@ def _generate_episodic_atom(
     return atom_name
 
 
-# ─── V2.7: Output Quality Feedback ──────────────────────────────────────────
+# ─── Output Quality Feedback ──────────────────────────────────────────
 
 
 def _check_output_quality(

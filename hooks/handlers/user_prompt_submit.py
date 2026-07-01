@@ -1,8 +1,8 @@
 """
 handlers/user_prompt_submit.py — UserPromptSubmit hook handler（orchestrator）
 
-2026-06-12 複雜度熱點重構：790 行拆為四個子模組，本檔收斂為串聯呼叫：
-- ups_gates.run_pre_gates — detect 段（evasion 追蹤 / V4.1 / long_die /
+拆為四個子模組，本檔收斂為串聯呼叫：
+- ups_gates.run_pre_gates — detect 段（evasion 追蹤 / user decision gate / long_die /
   hot cache / atom-write guard）
 - ups_context.build_context — context build 段（session context / wisdom /
   parallel 建議 / AIDocs / JIT）
@@ -50,7 +50,7 @@ def handle_user_prompt_submit(
     prompt_lower = clean_prompt.lower()
     lines: List[str] = []
 
-    # ─── Detect 段：前置閘（evasion 追蹤 / V4.1 / long_die / hot cache / atom-write guard）
+    # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / hot cache / atom-write guard）
     hot_cache_tokens = run_pre_gates(
         session_id, state, config, clean_prompt, prompt_lower, lines
     )
@@ -130,7 +130,7 @@ def handle_user_prompt_submit(
     # Topic tracking
     _update_topic_tracker(state, prompt, intent, newly_injected)
 
-    # Phase 2: Sync reminders
+    # Sync reminders
     mod_count = len(state.get("modified_files", []))
     kq_count = len(state.get("knowledge_queue", []))
     sync_kw = config.get("sync_keywords", [])
@@ -160,7 +160,7 @@ def handle_user_prompt_submit(
                 state["remind_count"] = 0
                 state["total_reminds"] = total_reminds + 1
 
-    # Phase 2 (#2): per-turn 注入記錄（每 turn 覆寫）。
+    # per-turn 注入記錄（每 turn 覆寫）。
     # injected_atoms 是 session 累積（line 582 合併後 per-turn delta 遺失），
     # 無法精準歸因；turn_injected 只存「本 turn 注入」清單 + atom 檔路徑，
     # 供 Stop 做注入→使用→結果 (α,β) 歸因。無注入 turn → 覆寫為 []（清上一 turn）。

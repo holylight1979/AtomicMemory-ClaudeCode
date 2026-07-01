@@ -6,7 +6,7 @@ wg_core.py — Workflow Guardian 共用基礎模組（V5）
 - 路徑集中管理（前 wg_paths）
 - PreToolUse 路徑/指令防呆（前 wg_pretool_guards）
 - MCP server 健檢（前 wg_intent._check_mcp_servers）
-- Log rotation（V5 P0）
+- Log rotation
 - Promotion audit log
 """
 
@@ -48,7 +48,7 @@ except ImportError:
     is_local_realm_path = None
     is_cross_project_local = None
 
-# ─── Token budget 單一來源（2026-06-12 熱點重構集中）─────────────────────────
+# ─── Token budget 單一來源─────────────────────────
 # 三個 budget 概念各司其職，數值不互相推導：
 #   compute_token_budget(prompt) — 每輪 additionalContext 總額（隨 prompt 長度 1500/3000/5000）
 #   CONTEXT_BUDGET_DEFAULT       — _truncate_context_by_activation 的 fallback 上限
@@ -57,12 +57,11 @@ except ImportError:
 #   wg_core._estimate_tokens  — CJK-aware（中文 ~1.5 tok/字），量 transcript/handoff/debug 摘要
 #   wg_atoms._estimate_tokens — flat len//4，atom 注入預算口徑（verify_atom_injection_budget 鎖定）
 CONTEXT_BUDGET_DEFAULT = 3000
-TURN_BUDGET_LIMIT = 500   # 2026-07-01 調整式拔除(option A 縮量)：800→500，降 atom 注入每輪 token 稅
+TURN_BUDGET_LIMIT = 500   # atom 注入段 per-turn 硬頂，控每輪 token 稅
 
 
 def compute_token_budget(prompt: str) -> int:
-    """每輪注入總額：短 prompt 少注入，長 prompt 多注入。
-    2026-07-01 調整式拔除(option A 縮量)：1500/3000/5000 → 1000/2000/3000（-40%）。"""
+    """每輪注入總額：短 prompt 少注入，長 prompt 多注入。"""
     plen = len(prompt)
     if plen < 50:
         return 1000
@@ -154,7 +153,7 @@ def _estimate_tokens(text: str) -> int:
 
 
 def rotate_log_if_oversized(log_path: Path, max_mb: int = 10, keep: int = 3) -> bool:
-    """V5 P0: size-based log rotation. Fail-open.
+    """Size-based log rotation. Fail-open.
 
     Rotates `log_path` to `log_path.1` (.1->.2, .2->.3) when > max_mb.
     Keeps last `keep` rotated copies. Returns True if rotated.
@@ -406,7 +405,7 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
     """Discover all project memory directories. Registry-first + old-path fallback."""
     # 全域記憶目錄不得被當「專案記憶」回傳：registry 若有 root=家目錄 的條目
     # （root/.claude/memory == 全域 MEMORY_DIR），cross-project 掃描會把全域 atom
-    # 再補進候選一次造成同 atom 雙注入（2026-06-12 c--users-holylight 實例）。
+    # 再補進候選一次造成同 atom 雙注入。
     try:
         _global_mem = MEMORY_DIR.resolve()
     except OSError:
@@ -450,7 +449,7 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
         old_mem = CLAUDE_DIR / "projects" / slug / "memory"
         if old_mem.is_dir():
             # registry old-path 同樣要過 atom marker：harness 原生 memory dir 與
-            # 此路徑完全重合（2026-06-12 c--users-holylight--claude 空 dir 實例）。
+            # 此路徑完全重合。
             if not _is_global_mem(old_mem) and _has_atom_index_marker(old_mem):
                 results.append((slug, old_mem))
             seen_slugs.add(slug)
@@ -463,7 +462,7 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
             if slug in seen_slugs:
                 continue
             mem = proj_dir / "memory"
-            # Phase 0: 要求 atom 索引 marker 才納入。MEMORY.md 僅存在不夠——
+            # 要求 atom 索引 marker 才納入。MEMORY.md 僅存在不夠——
             # 新版 CC harness file-based memory 也在此路徑自建 MEMORY.md，
             # 需內容辨識（_has_atom_index_marker）區分兩套系統。
             if mem.is_dir() and not _is_global_mem(mem) and _has_atom_index_marker(mem):
@@ -912,7 +911,7 @@ def _is_failures_atom_path(fp: Path) -> bool:
 def check_memory_path_block(
     tool_name: str, tool_input: Dict[str, Any]
 ) -> Optional[str]:
-    """阻擋三類 memory 違規寫入：projects/{slug}/memory（P1）/ 雙層 .claude（P6）/ atom 直 Write（S3.3）。"""
+    """阻擋三類 memory 違規寫入：projects/{slug}/memory / 雙層 .claude / atom 直 Write。"""
     if tool_name not in ("Write", "Edit"):
         return None
     fp_str = tool_input.get("file_path", "") or ""
@@ -932,7 +931,7 @@ def check_memory_path_block(
     if _DOUBLE_CLAUDE_RE.search(fp_str):
         return (
             "[Guardian:DoubleClaudeBlock] 禁止寫入 `~/.claude/.claude/memory/` 雙層路徑。"
-            "這是 P1 雙層 bug 的殘骸 — 應寫到 `~/.claude/memory/`。"
+            "這是雙層 bug 的殘骸 — 應寫到 `~/.claude/memory/`。"
         )
 
     if os.environ.get("WG_DISABLE_ATOM_GUARD") == "1":
@@ -977,7 +976,7 @@ def check_svn_test_block(
     )
 
 
-# ─── Cross-Realm Write Guard（方案甲 2026-06-12；v1.1 同日擴充）──────────────
+# ─── Cross-Realm Write Guard ──────────────
 # 守門對象：~/.claude 核心層（skills/tools/hooks/lib/rules 子目錄 + 根層敏感檔
 # settings.json/CLAUDE.md/IDENTITY*.md/USER*.md）+ Bash `claude mcp add/remove`
 # 全域 scope 操作。判別子＝session cwd：外部專案 session → deny（SGI 跨層污染

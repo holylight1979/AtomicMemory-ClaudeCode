@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """
-wisdom_engine.py — Wisdom Engine V2.12
+wisdom_engine.py — Wisdom Engine
 
 Two forces: Situation Classifier (hard rules), Reflection Engine (sliding window).
 Called by workflow-guardian.py. Cold start = zero tokens.
 
-V2.12 changes:
-  - reflection_metrics.json schema: cumulative {correct,total} → sliding window
-    of last `window_size` (=10) outcomes per task_type. window_size now actually
-    used (V2.11 dead schema field activated).
-  - Migration shim _migrate_v211_to_v212() preserves V2.11 cumulative values
-    in `legacy_cumulative` for historical reference.
+reflection_metrics.json schema: per task_type stores a sliding window of the last
+  `window_size` (=10) outcomes (not cumulative {correct,total}).
+  _migrate_v211_to_v212() preserves old V2.11 cumulative in `legacy_cumulative`.
 """
 import json
 import sys
@@ -116,7 +113,7 @@ def _append_sliding(lst: List[Any], item: Any, cap: int) -> List[Any]:
     return lst
 
 
-# ── Force 1: Situation Classifier (V2.11 hard rules, unchanged) ─────────────
+# ── Force 1: Situation Classifier ─────────────
 
 def classify_situation(prompt_analysis: Dict[str, Any]) -> Dict[str, str]:
     """Hard rules → approach (direct/confirm/plan) + inject string."""
@@ -139,7 +136,7 @@ def classify_situation(prompt_analysis: Dict[str, Any]) -> Dict[str, str]:
     return result
 
 
-# ── Force 2: Reflection Engine (V2.12 sliding window) ───────────────────────
+# ── Force 2: Reflection Engine (sliding window) ───────────────────────
 
 def _empty_reflection() -> Dict[str, Any]:
     return {

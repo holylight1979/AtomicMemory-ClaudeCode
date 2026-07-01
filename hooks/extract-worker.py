@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extraction worker for V2.13 response capture.
+"""Extraction worker for response capture.
 
 Spawned by workflow-guardian.py as a detached subprocess.
 Three modes:
@@ -37,7 +37,7 @@ from wg_core import (
 )
 from wg_extraction import classify_extracted_item
 
-# S3.0: route failure atom writes through atom_io funnel
+# route failure atom writes through atom_io funnel
 _LIB_PARENT = str(Path.home() / ".claude")
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
@@ -204,7 +204,7 @@ VALID_FAILURE_TYPES = ("env", "assumption", "silent", "cognitive")
 def _build_prompt(intent: str, text: str, existing_items: List[dict] = None) -> str:
     template = _PROMPT_TEMPLATES.get(intent, _PROMPT_TEMPLATES["build"])
     prompt = template.replace("{text}", text[:4000])
-    # V2.14: Removed pre-filter dedup injection (was ~200 tok/call).
+    # Removed pre-filter dedup injection (was ~200 tok/call).
     # Post-filter _dedup_items() at threshold=0.65 is sufficient to catch duplicates.
     return prompt
 
@@ -347,7 +347,7 @@ def run_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
         max_chars = 4000
         max_items = pt.get("max_items", 3)
     else:
-        # V2.14: SessionEnd skips already-extracted bytes with overlap for context
+        # SessionEnd skips already-extracted bytes with overlap for context
         prev_offset = ctx.get("byte_offset", 0)
         overlap = 1000  # chars of overlap to maintain context continuity
         byte_offset = max(0, prev_offset - overlap)
@@ -387,7 +387,7 @@ def run_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     if not items:
         return _empty_result()
 
-    # V2.22: Content-type gate — filter out plan/draft items (route to _staging)
+    # Content-type gate — filter out plan/draft items (route to _staging)
     plan_items = [it for it in items if classify_extracted_item(it) == "plan"]
     items = [it for it in items if classify_extracted_item(it) != "plan"]
     if plan_items:
@@ -404,7 +404,7 @@ def run_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     aggregation = _check_trigger_overlap(items)
 
     # Cross-session vector search (skip in per_turn and failure if configured)
-    # V2.14: lazy mode — only search items that overlap with existing knowledge_queue,
+    # lazy mode — only search items that overlap with existing knowledge_queue,
     # since brand-new items (confirmations=1) are unlikely to have cross-session hits.
     observations = []
     if not (is_per_turn and pt.get("skip_cross_session", True)) and not is_failure:
@@ -476,7 +476,7 @@ def _per_turn_writeback(ctx: dict, result: dict) -> None:
     state["extract_worker_pid"] = 0  # clear lease (worker done)
     state["last_updated"] = _now_iso()
     _write_state_atomic(state_path, state)
-    # Note: ack_then_clear (imported from lib/) is available for V4.1
+    # Note: ack_then_clear (imported from lib/) is available for
     # user-extract-worker.py to pop from pending_user_extract after
     # successful atom_write. Not called here — per_turn appends to
     # knowledge_queue for later session_end processing.
@@ -516,11 +516,11 @@ _FLUSH_MIN_LEN = 12  # 過短碎句不值得建 atom（內聯常數，非旋鈕�
 def _flush_route(cwd, _find_root=None):
     """決定自動萃取 atom 草稿的落點。
 
-    2026-06-18：專案 session（cwd 有 project root 且非 ~/.claude）→ scope=shared（只在該專案
+    專案 session（cwd 有 project root 且非 ~/.claude）→ scope=shared（只在該專案
     注入），~/.claude / 無 root / 空 cwd → scope=global。避免專案專屬知識污染 global core。
-    2026-06-24：auto-capture [臨] 草稿一律隔離到 `_drafts/auto-capture/` 子層（dedup_dir）——
+    auto-capture [臨] 草稿一律隔離到 `_drafts/auto-capture/` 子層（dedup_dir）——
     `sync-atom-index` EXCLUDED_DIR_PARTS 排除 `_drafts` → 不入索引、不注入、不計數，根治
-    content-as-filename 碎片污染 memory/ 根（user 2026-06-24 報）。scope 仍決定 _drafts 掛在
+    content-as-filename 碎片污染 memory/ 根。scope 仍決定 _drafts 掛在
     global（memory/）或專案 shared 樹下。_find_root 供測試注入。
     回 (scope, project_cwd, draft_dir)。"""
     finder = _find_root or find_project_root
@@ -542,7 +542,7 @@ def _flush_item_to_atom(content: str, triggers: list, *,
     """把一條萃取知識寫成 [臨] auto-capture 草稿，隔離落 dedup_dir（`_drafts/auto-capture/`，
     見 _flush_route）。
 
-    2026-06-24 改：auto-capture 草稿**不再走 write_atom 入索引/注入**（user 報大量
+    auto-capture 草稿**不再走 write_atom 入索引/注入**（避免大量
     content-as-filename 碎片污染 memory/ 根層）。改 build_atom_content + write_raw 直寫
     dedup_dir（`_drafts/` 被 sync-atom-index 排除 → 不入索引、不注入、不計數）。草稿待人工
     檢視/手動晉升；真有值的知識在工作中已正規記錄（changelog / atom_write）。
@@ -604,7 +604,7 @@ def _session_end_writeback(ctx: dict, result: dict) -> None:
     queue = ctx.get("knowledge_queue", []) or []
     fresh = result.get("extracted_items", []) or []
     max_atoms = sef.get("max_atoms", 8)
-    # 2026-06-18 修：依 session cwd 決定落點——專案 session → 專案層 shared、不污染 global core。
+    # 依 session cwd 決定落點——專案 session → 專案層 shared、不污染 global core。
     flush_scope, flush_pcwd, dedup_dir = _flush_route(ctx.get("cwd", ""))
 
     # fresh 先（origin='fresh'，不在 queue 不需清）；queue 後（記原 index 供 ack-clear）
@@ -747,7 +747,7 @@ def _failure_writeback(ctx: dict, items: list) -> None:
         now = datetime.now().strftime("%Y-%m-%d")
         entry_block = _build_failure_skeleton(content, tags, now)
 
-        # S3.0: 走 atom_io.write_raw funnel（保留原 marker fallback 行為，
+        # 走 atom_io.write_raw funnel（保留原 marker fallback 行為，
         # 但統一經過 audit log + PreToolUse 強制門禁放行）
         if target.exists():
             text = target.read_text(encoding="utf-8-sig")
@@ -779,7 +779,7 @@ def _failure_writeback(ctx: dict, items: list) -> None:
 def _create_failure_atom(path: Path, ftype: str, first_block: str) -> None:
     """建立最小 failure atom 檔（專案層首次寫入用）。first_block 為多區塊骨架。
 
-    S3.0: 走 atom_io.write_raw funnel（failures 子族不符 V4 build_atom_content
+    走 atom_io.write_raw funnel（failures 子族不符 V4 build_atom_content
     規範 — 用 Type/Created 而非 Trigger/Last-used，故走 raw escape hatch）。
     """
     content = (

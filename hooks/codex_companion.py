@@ -1,7 +1,7 @@
-"""codex_companion.py — Codex Companion hook (V5 subprocess model).
+"""codex_companion.py — Codex Companion hook (subprocess model).
 
-V5 P5b 重構：HTTP daemon @ port 3850 廢止；改 in-process state + spawn
-`tools/codex-companion/audit.py` 短命子程序執行 codex assessment。
+in-process state + spawn `tools/codex-companion/audit.py` 短命子程序執行
+codex assessment（無常駐 daemon）。
 
 Events handled:
   SessionStart    → companion_state.ensure_state
@@ -74,7 +74,7 @@ def _output_context(event_name: str, text: str) -> None:
 
 
 def _output_block(reason: str, session_id: str = "") -> None:
-    # Phase 5 觀測：每次 BLOCK 累加 behavior_gap_blocks
+    # 觀測：每次 BLOCK 累加 behavior_gap_blocks
     if session_id:
         try:
             import state as companion_state
@@ -125,7 +125,7 @@ def _detect_checkpoint(
     return None
 
 
-# ─── Audit subprocess spawn (V5: replaces /trigger HTTP) ─────────────────────
+# ─── Audit subprocess spawn ─────────────────────
 
 
 def _spawn_audit_subprocess(turn_data: Dict[str, Any]) -> None:
@@ -229,8 +229,7 @@ def _get_last_assistant_tail(input_data: Dict[str, Any]) -> str:
 
 
 def _summarize_tool_response(tool_response: Any) -> tuple[str, bool]:
-    """Phase 1.1+1.2：
-    - 從 tool_response 取 stdout/stderr 截 300 字組摘要
+    """- 從 tool_response 取 stdout/stderr 截 300 字組摘要
     - 偵測失敗訊號 (error / exit_code != 0 / stderr / is_error) → prefix [FAILED]
     回傳 (summary, failed)
     """
@@ -331,7 +330,7 @@ def _read_handoff_content(file_path: str, limit: int = 6000) -> str:
 
 
 def _build_verification_signals(input_data: Dict[str, Any], tool_response: Any) -> Dict[str, Any]:
-    """Phase 1.5：給 codex 的最小化 verification_signals 包。"""
+    """給 codex 的最小化 verification_signals 包。"""
     sig: Dict[str, Any] = {
         "tool_name": input_data.get("tool_name", ""),
     }
@@ -383,8 +382,8 @@ def _mark_injected(path: Path, data: Dict[str, Any]) -> None:
 def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]):
     """Inject pending per-turn Codex assessments as additionalContext.
 
-    Phase 1.8：drain 掃 companion-assessment-{sid}-t*.json，依 turn_index 排序。
-    Sprint 3 Phase 4.4：依 codex 回的 delivery 路由：
+    drain 掃 companion-assessment-{sid}-t*.json，依 turn_index 排序。
+    依 codex 回的 delivery 路由：
       delivery=ignore → 標 injected 略過注入（codex 自判此 turn 不打擾）
       delivery=inject → 注入文字並加 confidence + applies_until 標籤
     """
@@ -397,7 +396,7 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
     if not paths:
         _output_nothing()
 
-    # 2026-04-28 改：靜默過濾門檻。預設 high；config 可調。
+    # 靜默過濾門檻。預設 high；config 可調。
     # 只有同時滿足 (severity >= max_inject_severity) AND
     # (status in {error, needs_followup}) AND (corrective_prompt 非空)
     # 的 advisory 才浮上來。其他自動標 injected 落盤但不展示。
@@ -420,13 +419,13 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
             _mark_injected(path, data)  # 錯誤 assessment 標掉避免堆積
             continue
 
-        # Sprint 3 Phase 4.4：delivery=ignore 直接標掉、不注入
+        # delivery=ignore 直接標掉、不注入
         delivery = str(assessment.get("delivery", "inject")).lower()
         if delivery == "ignore":
             _mark_injected(path, data)
             continue
 
-        # 2026-04-28：靜默過濾。低於門檻 / 非可行動狀態 / 無 corrective_prompt → 不注入
+        # 靜默過濾。低於門檻 / 非可行動狀態 / 無 corrective_prompt → 不注入
         sev = _SEV_ORDER.get(str(assessment.get("severity", "low")).lower(), 0)
         status = str(assessment.get("status", "ok")).lower()
         corrective = (assessment.get("corrective_prompt", "")
@@ -465,7 +464,7 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
     }
 
     blocks: list[str] = []
-    notify_summaries: list[str] = []  # Phase 5.2：notify_next_turn 短訊收集
+    notify_summaries: list[str] = []  # notify_next_turn 短訊收集
     for turn_index, atype, path, data in pending:
         assessment = data.get("assessment", {})
         type_label = type_label_map.get(atype, "Review")
@@ -480,7 +479,7 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
         evidence = assessment.get("evidence", "")
         corrective = assessment.get("corrective_prompt", "") or assessment.get("recommended_action", "")
 
-        # Phase 5.2：assessor 在失敗回退時會帶 notify_next_turn=True
+        # assessor 在失敗回退時會帶 notify_next_turn=True
         if assessment.get("notify_next_turn"):
             notify_summaries.append(f"t{turn_index} {summary or status}")
 
@@ -503,7 +502,7 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
     if not blocks:
         _output_nothing()
 
-    # Phase 5.2：若任一 pending 帶 notify_next_turn，前置一段提醒短訊
+    # 若任一 pending 帶 notify_next_turn，前置一段提醒短訊
     if notify_summaries:
         reminder = (
             "[Codex Companion 提醒] 上輪審查未取得有效回應，本輪暫退回 heuristics-only。"
@@ -511,7 +510,7 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
         )
         blocks.insert(0, reminder)
 
-    # Phase 5 觀測：累加注入次數（每實際送出 1 個 inject 即 +1）
+    # 觀測：累加注入次數（每實際送出 1 個 inject 即 +1）
     try:
         import state as companion_state
         companion_state.increment_metric(session_id, "quality_gap_advises", len(blocks))
@@ -528,7 +527,7 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
 
 
 def _within_audit_cap(session_id: str, max_audits: int) -> bool:
-    """V5 P5b: in-process counter via state.assessments_requested。
+    """in-process counter via state.assessments_requested。
 
     State 由 record_checkpoint 在 spawn audit 之前 +1。subprocess 失敗不會
     decrement → 保守路徑（under-runs not over-runs）。
@@ -541,7 +540,7 @@ def _within_audit_cap(session_id: str, max_audits: int) -> bool:
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
     """Accumulate events + spawn audit subprocess on checkpoint.
 
-    V5 P5b：直接寫 state（無 HTTP）；checkpoint 命中 → spawn audit.py。
+    直接寫 state；checkpoint 命中 → spawn audit.py。
     """
     import state as companion_state
 
@@ -606,11 +605,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
 
 
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
-    """Run heuristic soft gate + score-gated turn audit (V5 subprocess).
+    """Run heuristic soft gate + score-gated turn audit (subprocess).
 
-    Phase 1.3：last_assistant_tail 三層 fallback。
-    Sprint 3 Phase 3.2：score gate + dedup + max_audits cap。
-    V5 P5b：state ops in-process；audit 以 subprocess 啟動。
+    last_assistant_tail 三層 fallback。
+    score gate + dedup + max_audits cap。
+    state ops in-process；audit 以 subprocess 啟動。
     """
     import state as companion_state
 
@@ -620,7 +619,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
 
     last_assistant_tail = _get_last_assistant_tail(input_data)
 
-    # State：persist tail + increment turn_index（取代舊 /event POST）
+    # State：persist tail + increment turn_index
     if last_assistant_tail:
         companion_state.update_last_assistant_tail(session_id, last_assistant_tail)
     companion_state.increment_turn(session_id)
@@ -641,8 +640,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
     }
     turn_index_post = int(comp_state.get("turn_index", 0))
 
-    # ── Sprint 2：heuristic soft gate（BLOCK 權只屬 confident_completion）─
-    # 2026-04-28：silent_advisory 開啟時 heuristic 結果只計數 + 落盤觀測，
+    # ── heuristic soft gate（BLOCK 權只屬 confident_completion）─
+    # silent_advisory 開啟時 heuristic 結果只計數 + 落盤觀測，
     # 不 BLOCK，不打擾對話。BLOCK 路徑保留給未來「明確失敗訊號」用。
     soft_gate_config = config.get("soft_gate", {})
     silent_advisory = bool(config.get("silent_advisory", False))
@@ -676,7 +675,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
             _log_err("codex:heuristics_gate", e)
             pass  # Heuristics failure → degrade gracefully
 
-    # ── Sprint 3 Phase 3.2：score gate / dedup / cap ─────────────────────
+    # ── score gate / dedup / cap ─────────────────────
     score_threshold = int(config.get("score_threshold", 4))
     max_audits = int(config.get("max_audits_per_session", 30))
 
@@ -709,7 +708,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
     user_goal_hint = (guardian_state.get("user_goal_hint")
                       or guardian_state.get("user_intent") or "")[:500]
 
-    # Sprint 5.5 B1：實際送出 audit 前 +1（Phase 6 §四 C3 ratio 分母）
+    # 實際送出 audit 前 +1（audit ratio 分母）
     try:
         companion_state.increment_metric(session_id, "audits_total_attempted")
     except Exception as e:
@@ -739,11 +738,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
 
 
 def _flush_metrics_to_reflection(session_id: str) -> None:
-    """Phase 5 觀測：把本 session 的 codex_companion 計數附加到
+    """觀測：把本 session 的 codex_companion 計數附加到
     memory/wisdom/reflection_metrics.json 的 codex_companion.sessions 陣列。
 
     最多保留最近 100 筆，與 wisdom_engine 既有結構共存（top-level codex_companion
-    為新欄位，wisdom_engine 不讀，不破壞 V4.1 P4 路徑）。
+    為新欄位，wisdom_engine 不讀，不破壞既有路徑）。
     全 zero 的 session 跳過避免噪音。
     """
     try:

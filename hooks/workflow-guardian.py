@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """
-workflow-guardian.py — V5 shim
+workflow-guardian.py — shim
 
-V4.1 → V5 重構：dispatcher 邏輯搬到 dispatcher.py + handlers/。
+dispatcher 邏輯在 dispatcher.py + handlers/。
 保留本檔以兼容 settings.json / 文件中既有的 workflow-guardian.py 路徑引用。
-
-完整 V4.1 原版見 hooks/_v4_archive/workflow-guardian.py（P6 GA 後可刪本 shim 並改寫
-settings.json 直接指 dispatcher.py）。
 """
 
 import sys

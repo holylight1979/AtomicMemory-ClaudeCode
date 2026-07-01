@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-user-extract-worker.py — V4.1 Stop hook detached worker
+user-extract-worker.py — Stop hook detached worker
 
 Spawned by workflow-guardian.py (Stop/SessionEnd) as a detached subprocess.
 Reads pending_user_extract[] from state, runs L1+L2 LLM pipeline,
@@ -8,13 +8,13 @@ writes confirmed atoms via MCP atom_write.
 
 Flow:
   state-{sid}.json/pending_user_extract[]
-  → mixed-sentence filter [F10]
-  → emotional-commitment filter [F24]
-  → session budget tracker [F22]
-  → L1 qwen3:1.7b binary yes/no [F4]
+  → mixed-sentence filter
+  → emotional-commitment filter
+  → session budget tracker
+  → L1 qwen3:1.7b binary yes/no
   → L2 gemma4:e4b structured extraction
   → conf-based routing (≥0.92 confirm / 0.70-0.92 pending / <0.70 skip)
-  → ack-then-clear [F12]
+  → ack-then-clear
 """
 
 import json
@@ -82,12 +82,12 @@ _EMOTIONAL_COMMITMENT = re.compile(
 
 
 def _is_mixed_sentence(prompt: str) -> bool:
-    """[F10] Detect emotion + decision signal co-existing."""
+    """Detect emotion + decision signal co-existing."""
     return bool(_EMOTION_WORDS.search(prompt) and _DECISION_SIGNAL_WORDS.search(prompt))
 
 
 def _is_emotional_commitment(prompt: str) -> bool:
-    """[F24] Detect emotional commitment patterns (「絕不/再也不」+ emotion)."""
+    """Detect emotional commitment patterns (「絕不/再也不」+ emotion)."""
     return bool(_EMOTIONAL_COMMITMENT.search(prompt) and _EMOTION_WORDS.search(prompt))
 
 
@@ -132,7 +132,7 @@ def _load_l2_prompt(user_prompt: str, assistant_last: str) -> str:
         return ""
 
 
-# ─── Transcript helper: get assistant last 600 chars [F9] ─────────────────────
+# ─── Transcript helper: get assistant last 600 chars ─────────────────────────
 
 def _get_assistant_last_600(session_id: str, cwd: str) -> str:
     """Read last assistant block from transcript, return last 600 chars."""
@@ -157,7 +157,7 @@ def _get_assistant_last_600(session_id: str, cwd: str) -> str:
                         t = block.get("text", "")
                         if t:
                             last_text = t
-        # Return last 600 chars [F9]
+        # Return last 600 chars
         return last_text[-600:] if last_text else ""
     except (OSError, UnicodeDecodeError):
         return ""
@@ -331,7 +331,7 @@ def _write_atom_via_mcp(
 ) -> str:
     """Write atom via funnel write_atom (lib/atom_io).
 
-    S2.2: 改走 funnel — 自動產生 audit log + 統一 atomic write 行為。
+    走 funnel — 自動產生 audit log + 統一 atomic write 行為。
     Returns 'wrote' | 'deduped' | 'failed'.
     """
     statement = l2_result.get("statement", "")
@@ -468,10 +468,10 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     if not pending:
         return {"processed": 0, "confirmed": 0, "skipped": 0}
 
-    # Get assistant context [F9]
+    # Get assistant context
     assistant_last = _get_assistant_last_600(session_id, cwd)
 
-    # Session budget tracker [F22]
+    # Session budget tracker
     budget = SessionBudgetTracker(budget=token_budget)
 
     confirmed_extractions = []
@@ -490,7 +490,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
 
         stats["processed"] += 1
 
-        # ── [F10] Mixed sentence detection ────────────────────────────
+        # ── Mixed sentence detection ──────────────────────────────────
         if _is_mixed_sentence(prompt_text):
             _atom_debug_log(
                 "user-extract:mixed",
@@ -502,7 +502,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
             stats["skipped"] += 1
             continue
 
-        # ── [F24] Emotional commitment detection ─────────────────────
+        # ── Emotional commitment detection ───────────────────────────
         if _is_emotional_commitment(prompt_text):
             _atom_debug_log(
                 "user-extract:emotional",
@@ -517,7 +517,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
             stats["skipped"] += 1
             continue
 
-        # ── Budget check [F22] ────────────────────────────────────────
+        # ── Budget check ──────────────────────────────────────────────
         if budget.is_exceeded():
             _atom_debug_log(
                 "user-extract:budget",
@@ -528,16 +528,15 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
 
         l1_only = budget.remaining() <= 20  # <20 tok left → L1 only
 
-        # ── L1: binary yes/no [F4] ────────────────────────────────────
+        # ── L1: binary yes/no ─────────────────────────────────────────
         l1_prompt = _load_l1_prompt(prompt_text)
         if not l1_prompt:
             processed_indices.append(idx)
             stats["skipped"] += 1
             continue
 
-        # [F22] Budget counts user-side delta only (plan v2 §8 intent: amortized
-        # user-delta tok, not wall cost). Few-shot template is a fixed overhead
-        # independent of pending count.
+        # Budget counts user-side delta only (amortized user-delta tok, not wall
+        # cost). Few-shot template is a fixed overhead independent of pending count.
         l1_tok = _estimate_tokens(prompt_text) + 12  # user prompt + ~12 tok yes/no response
         budget.spend(l1_tok)
 
@@ -576,9 +575,9 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
             stats["skipped"] += 1
             continue
 
-        # [F22] Budget counts user-side delta only (user prompt + assistant
-        # context window + ~180 tok structured response). Few-shot template is
-        # fixed overhead.
+        # Budget counts user-side delta only (user prompt + assistant context
+        # window + ~180 tok structured response). Few-shot template is fixed
+        # overhead.
         l2_tok = (
             _estimate_tokens(prompt_text)
             + _estimate_tokens(assistant_last[:600])
@@ -624,7 +623,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
             )
             continue
 
-        # ── conf ≥ 0.92 → confirmed [F5] ─────────────────────────────
+        # ── conf ≥ 0.92 → confirmed ──────────────────────────────────
         confirmed_extractions.append({
             "statement": l2_result.get("statement", ""),
             "scope": l2_result.get("scope", "personal"),
@@ -643,11 +642,11 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
             config,
         )
 
-    # ── Write confirmed extractions to state for guardian [F5] ────────
+    # ── Write confirmed extractions to state for guardian ─────────────
     if confirmed_extractions:
         state.setdefault("confirmed_extractions", []).extend(confirmed_extractions)
 
-    # ── Ack-then-clear processed candidates [F12] ─────────────────────
+    # ── Ack-then-clear processed candidates ───────────────────────────
     if processed_indices:
         ack_then_clear(state_path, "pending_user_extract", processed_indices)
 
@@ -688,7 +687,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
         config,
     )
 
-    # ── V4.1 P4: Session evaluator — run on latest state snapshot ──
+    # ── Session evaluator — run on latest state snapshot ──
     try:
         fresh_state = _read_state(session_id) or state
         score_entry = evaluate_session(session_id, fresh_state, config, stats)

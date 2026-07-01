@@ -102,7 +102,7 @@ def _detect_uncommitted_files(
     return uncommitted
 
 
-# ─── Phase 2 (#2): 注入→使用→結果 閉環歸因 ───────────────────────────────────
+# ─── 注入→使用→結果 閉環歸因 ───────────────────────────────────
 
 
 def _detect_turn_outcome(state: Dict[str, Any], last_text: str) -> Optional[bool]:
@@ -180,7 +180,7 @@ def _attribute_usefulness(
             if res is not None:
                 attributed.append((name, res))
 
-        # 2) 本 turn sub-agent 注入（Phase 1 state["subagent_injections"]）
+        # 2) 本 turn sub-agent 注入（state["subagent_injections"]）
         #    use 偵測比對該 agent 的 output_summary（其實際產物）；outcome 疊 agent 狀態。
         for rec in (state.get("subagent_injections") or []):
             if rec.get("attributed"):
@@ -328,8 +328,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             write_state(session_id, state)
 
     # ── Scan-Report Gate ────────────────────────────────────────
-    # P4 #1: 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
-    # 純單檔/文件小改不觸發（對 4.8 過度觸發成儀式性負擔，非防退避）。
+    # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
+    # 純單檔/文件小改不觸發（避免過度觸發成儀式性負擔，非防退避）。
     mod_files_all = state.get("modified_files", []) or []
     if mod_files_all and not state.get("scan_report_warned"):
         if not last_text:
@@ -404,7 +404,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         output_block(reason)
         return
 
-    # ── Phase 2: 注入→使用→結果 閉環歸因（correctness gates 通過後、per-turn 一次性）──
+    # ── 注入→使用→結果 閉環歸因（correctness gates 通過後、per-turn 一次性）──
     # 走到這裡代表本 Stop 未被 test-fail/scan-report 等 correctness gate 攔下 →
     # 該 turn 的對錯訊號已落定。turn_seq 守門一次性；write_state 立即固化標記
     # （防後續 phase=done / muted 等不寫 state 的終止路徑導致重複計 α/β）。

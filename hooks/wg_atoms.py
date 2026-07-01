@@ -33,7 +33,7 @@ from wg_core import (
     _atom_debug_log, _atom_debug_error,
 )
 
-# V5 P3b: prefer _atom_index.json (machine source of truth)
+# prefer _atom_index.json (machine source of truth)
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 try:
     from atom_index_json import load_atom_index_json, to_atom_entries, ATOM_INDEX_JSON
@@ -72,9 +72,9 @@ AtomEntry = Tuple[str, str, List[str]]
 
 def parse_memory_index(memory_dir: Path) -> List[AtomEntry]:
     """Parse atom index, return list of (name, path, triggers).
-    V5 P3b: 優先 _atom_index.json，fallback _ATOM_INDEX.md → MEMORY.md。
+    優先 _atom_index.json，fallback _ATOM_INDEX.md → MEMORY.md。
     """
-    # V5 P3b: prefer JSON
+    # prefer JSON
     if load_atom_index_json is not None:
         json_path = memory_dir / ATOM_INDEX_JSON
         if json_path.exists():
@@ -255,7 +255,7 @@ def compute_injection_rank(
     weight = float(u.get("distraction_weight", 0.5) or 0.0)
     if weight <= 0:
         return activation
-    # 2026-07-01: 核心策展 atom（decisions/workflow-*/preferences/toolchain/feedback-* ...）豁免
+    # 核心策展 atom（decisions/workflow-*/preferences/toolchain/feedback-* ...）豁免
     # distraction penalty。turn-global 歸因下高頻核心 atom 系統性累積無辜 β，penalty 反把最重的
     # 懲罰打在最該注入的人工策展知識上（曝光越高罰越重＝頻率 artifact，與策展價值反相關）＝止血。
     try:
@@ -305,7 +305,7 @@ def match_triggers(prompt: str, atoms: List[AtomEntry]) -> List[AtomEntry]:
     return matched
 
 
-# ─── BM25 Match (V5 P5a) ─────────────────────────────────────────────────────
+# ─── BM25 Match ─────────────────────────────────────────────────────
 # Hand-rolled BM25 over atom trigger lists. ~30 lines, no external dep.
 # Use case: global layer (~17 atoms) — replaces vector service round-trip
 # (200-500ms) with in-memory <10ms scoring.
@@ -657,7 +657,7 @@ def load_atoms_within_budget(
     return lines, injected, used
 
 
-# ─── Sub-agent Injection Orchestrator (Phase 1, #1) ──────────────────────────
+# ─── Sub-agent Injection Orchestrator ──────────────────────────
 # 可重用注入 orchestrator：parent → sub-agent 記憶注入（PreToolUse updatedInput）。
 # 包裝既有純函式（parse_memory_index / match_triggers / bm25_match /
 # load_atoms_within_budget / _strip_atom_for_injection）。全域層 only，
@@ -736,7 +736,7 @@ def build_injection_blob(
     return blob, injected
 
 
-# ─── Use 偵測：詞彙重疊 (Phase 2, #2) ────────────────────────────────────────
+# ─── Use 偵測：詞彙重疊 ────────────────────────────────────────
 # 注入≠使用：某 atom 被注入後是否真的被「用上」，以零成本詞彙重疊判定 —
 #   取 atom 的稀有/識別性 token（程式碼識別碼/路徑/API + CJK 雙字 bigram，
 #   去停用詞、可選 IDF 過濾高頻 token），與本 turn assistant 訊息＋tool-call args
@@ -932,7 +932,7 @@ def _truncate_context_by_activation(
     lines: List[str], limit: int = CONTEXT_BUDGET_DEFAULT,
     source_dirs: Optional[Dict[str, Path]] = None,
 ) -> List[str]:
-    """V2.11: Truncate additionalContext lines to fit within token budget."""
+    """Truncate additionalContext lines to fit within token budget."""
     full_text = "\n".join(lines)
     used = len(full_text) // 4
     if used <= limit:
@@ -1601,7 +1601,7 @@ def _read_atom_excerpt(rel_path: str, limit: int = 800) -> str:
 def _is_unconfirmed_autocapture(entry: Dict[str, Any]) -> bool:
     """index entry 是否為『未確認的 auto-capture 萃取碎片』→ drift sweep defer（不搬、不喚 LLM 學詞）。
 
-    2026-06-24 根治：auto-captured 碎片本是未經人確認的 [臨] 萃取，sweep 卻當穩定 core atom
+    auto-captured 碎片本是未經人確認的 [臨] 萃取，sweep 卻當穩定 core atom
     處理 → LLM 對其吐專案/標籤詞污染學習詞庫（SGI 外部專案知識被搬進根層 _atoms/、碎片被塞進
     名為 "auto-capture" 的葉夾即此）。整體 defer 斷源頭，待人工確認 / 晉升（[臨]→[觀]）後才正常
     sweep 歸檔。
@@ -1896,15 +1896,15 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _self_iterate_atoms(
     state: Dict[str, Any], config: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """V2.16/Phase 2: Atom decay scoring + 效用驅動 [臨]→[觀] auto-promotion.
+    """Atom decay scoring + 效用驅動 [臨]→[觀] auto-promotion.
 
     Runs at SessionEnd. Scans all atom files, calculates health scores,
     auto-promotes [臨] items in mature atoms, reports archive/demote candidates.
 
-    Phase 2 (#2)：
+    效用驅動：
       - 慢衰減：每顆 atom α←1+λ(α−1); β←1+λ(β−1)（λ≈0.97），把效用證據往 prior 拉。
       - 晉升閘改由「真實 Confirmations 主軌 + 效用 Wilson 下界」驅動；
-        ReadHits 降為純曝光計數，不再單獨觸發晉升（取代 Phase 0 過渡）。
+        ReadHits 降為純曝光計數，不再單獨觸發晉升。
       - Wilson 下界 ≤ demote_lb 且 n≥min_n → 列降級候選（不自動降，留裁決）。
     """
     si_config = config.get("self_iteration", {})
@@ -1912,7 +1912,7 @@ def _self_iterate_atoms(
     decay_half_life = si_config.get("decay_half_life_days", 30)
     promote_conf_threshold = si_config.get("promote_confirmations_threshold", 4)
     archive_threshold = si_config.get("archive_score_threshold", 0.3)
-    # Phase 2 效用旋鈕（py↔js 鏡像：server.js）
+    # 效用旋鈕（py↔js 鏡像：server.js）
     decay_lambda = float(u_config.get("decay_lambda", 0.97))
     promote_lb = float(u_config.get("promote_lb", 0.6))
     demote_lb = float(u_config.get("demote_lb", 0.35))
@@ -1988,8 +1988,8 @@ def _self_iterate_atoms(
                 "confirmations": confirmations,
             })
 
-        # Phase 2: 晉升 = 真實 Confirmations 主軌 OR 效用 Wilson 下界（升≥promote_lb 且 n≥min_n）。
-        # ReadHits 降為純曝光，不再參與晉升（取代 Phase 0 readhits 輔助門）。
+        # 晉升 = 真實 Confirmations 主軌 OR 效用 Wilson 下界（升≥promote_lb 且 n≥min_n）。
+        # ReadHits 降為純曝光，不再參與晉升。
         # py↔js 鏡像：server.js toolAtomPromote usefulness gate。
         util_eligible = bool(
             usefulness_promote_eligible
@@ -2054,7 +2054,7 @@ def _self_iterate_atoms(
                     lower_bound=round(u_stats.get("lower_bound", 0.0), 3),
                 )
 
-        # Phase 2: 效用 Wilson 下界 ≤ demote_lb 且 n≥min_n、且仍有非[臨]條目 → 降級候選
+        # 效用 Wilson 下界 ≤ demote_lb 且 n≥min_n、且仍有非[臨]條目 → 降級候選
         # （不自動降，屬敏感裁決；列入 staging 報告供管理職審視）。
         if (usefulness_demote_candidate
                 and usefulness_demote_candidate(

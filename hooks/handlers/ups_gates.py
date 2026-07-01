@@ -1,10 +1,10 @@
 """
 handlers/ups_gates.py — UserPromptSubmit detect 段（前置閘）
 
-從 user_prompt_submit.py 拆出（2026-06-12 複雜度熱點重構）。
+從 user_prompt_submit.py 拆出。
 職責：每輪 prompt 的前置偵測與輕量通知，全部在 atom 注入之前執行：
 - evasion guard 旁路（追蹤近 5 則 prompt、清 failing_tests）
-- V4.1 user decision detector gate
+- user decision detector gate
 - confirmed extractions / veto
 - long_die response（停用/保持 backend）
 - Hot Cache 注入
@@ -50,7 +50,7 @@ def run_pre_gates(
     if state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
         state["failing_tests"] = []
 
-    # ─── V4.1: User Decision Detector gate ────────────────────────────
+    # ─── User Decision Detector gate ────────────────────────────
     ue_config = config.get("userExtraction", {})
     if ue_config.get("enabled", False):
         try:
@@ -70,7 +70,7 @@ def run_pre_gates(
         except Exception as e:
             _atom_debug_error("V4.1:user_extract_gate", e)
 
-    # ─── V4.1 [F5]: Confirmed extractions ──
+    # ─── Confirmed extractions ──
     confirmed = state.get("confirmed_extractions", [])
     if confirmed:
         veto = any(kw in prompt_lower for kw in ("否", "不要記", "別記", "取消記憶"))
@@ -86,7 +86,7 @@ def run_pre_gates(
             for ext in confirmed:
                 stmt = ext.get("statement", "")
                 lines.append(
-                    f"[V4.1] 偵測到決策語句：「{stmt}」— 將記為 atom。回覆「否」可攔截。"
+                    f"偵測到決策語句：「{stmt}」— 將記為 atom。回覆「否」可攔截。"
                 )
             state["confirmed_extractions"] = []
 

@@ -7,7 +7,7 @@ handlers/_shared.py — module-level state + 跨 handler 共用 helper
 - _call_project_hook（subprocess invoke project hook）
 - _cleanup_old_states（state 檔 TTL 清理）
 - _is_ephemeral_path（路徑過濾）
-- _maybe_spawn_user_extract_worker（V4.1 user extract worker spawn）
+- _maybe_spawn_user_extract_worker（user extract worker spawn）
 """
 
 import json
@@ -101,7 +101,7 @@ def _is_ephemeral_path(path: str) -> bool:
     return any(tok in norm_low for tok in _EPHEMERAL_DIR_TOKENS)
 
 
-# ─── Project delegate hook (V2.21) ───────────────────────────────────────────
+# ─── Project delegate hook ───────────────────────────────────────────
 
 
 def _call_project_hook(project_root: Path, action: str, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -172,8 +172,8 @@ def _cleanup_old_states() -> None:
         except OSError:
             pass
 
-    # 2026-07-01: codex companion 旁路檔（companion-state/assessment/metrics-*.json）原無
-    # 自帶清理，5 週累積 491 檔。>7d 一律清（與上方 state 檔 catch-all 同標準；活躍 session <7d 不動）。
+    # codex companion 旁路檔（companion-state/assessment/metrics-*.json）原無
+    # 自帶清理，易累積。>7d 一律清（與上方 state 檔 catch-all 同標準；活躍 session <7d 不動）。
     for f in WORKFLOW_DIR.glob("companion-*.json"):
         try:
             if now - f.stat().st_mtime > 7 * 86400:
@@ -182,7 +182,7 @@ def _cleanup_old_states() -> None:
             pass
 
 
-# ─── V4.1: User Extract Worker Spawning ──────────────────────────────────────
+# ─── User Extract Worker Spawning ──────────────────────────────────────
 
 
 def _maybe_spawn_user_extract_worker(

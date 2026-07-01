@@ -1,7 +1,7 @@
 """
 handlers/ups_inject.py — UserPromptSubmit injection assemble 段
 
-從 user_prompt_submit.py 拆出（2026-06-12 複雜度熱點重構）。
+從 user_prompt_submit.py 拆出。
 職責：把 search 段排序後的候選組裝成注入內容：
 - hot/cold 分類（cold → 1-line 摘要）
 - per-turn budget 硬上限（decide_atom_injection：ok/fallback/skip）
@@ -246,9 +246,9 @@ def _emit_usefulness_hints(
     matched_with_dir: List[Tuple[AtomEntry, Path]],
     lines: List[str],
 ) -> None:
-    """ReadHits++ via lib.atom_access (Wave 2 funnel discipline)。
+    """ReadHits++ via lib.atom_access (funnel discipline)。
 
-    Phase 2 (#2)：ReadHits 降為純曝光計數、退出晉升路徑；晉升提示改由
+    ReadHits 降為純曝光計數、退出晉升路徑；晉升提示改由
     效用 Wilson 下界接近/已達升門時觸發（純曝光不再提示，杜絕雜訊）。
     SYNC: lib/atom_access.usefulness_hint_tier、server.js usefulnessStats、
           wg_atoms._self_iterate_atoms 晉升閘。

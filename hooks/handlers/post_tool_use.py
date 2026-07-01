@@ -30,7 +30,7 @@ from handlers._shared import (
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
 
-# Phase 1: 從 sub-agent prompt 的注入 header 回推 atom 清單。
+# 從 sub-agent prompt 的注入 header 回推 atom 清單。
 #   header 形如：[WG:SubagentMemory] …… atoms=a,b,c
 _SUBAGENT_ATOMS_RE = re.compile(r"\[WG:SubagentMemory\][^\n]*?atoms=([^\n]+)")
 _SUBAGENT_INJ_CAP = 50          # state 中保留最近 N 筆 spawn 記錄
@@ -173,10 +173,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     tool_input = input_data.get("tool_input", {})
     file_path = tool_input.get("file_path", "")
 
-    # ─── Phase 1 (#1): sub-agent 注入歸因記錄 ───────────────────────────────
+    # ─── sub-agent 注入歸因記錄 ───────────────────────────────
     # PostToolUse 對 Agent/Task 自足：tool_response 含 agentId / content / prompt
     # （注入後的完整 prompt）。從 blob marker 回推注入清單 + 擷取輸出摘要，
-    # keyed by agentId 寫入 state，供 Phase 2 (注入→使用→結果) 歸因。
+    # keyed by agentId 寫入 state，供注入→使用→結果歸因。
     if tool_name in ("Agent", "Task"):
         try:
             if _record_subagent_injection(state, input_data):
@@ -256,7 +256,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     _correct_base = f"{_proj_root_norm}/.claude/memory/"
                     state["_path_enforcement_advisory"] = (
                         f"🚫 **路徑錯誤** — 寫入了舊個人層路徑 `~/.claude/projects/*/memory/`。\n"
-                        f"V2.21 規則：專案記憶必須寫到 `{_correct_base}`。\n"
+                        f"規則：專案記憶必須寫到 `{_correct_base}`。\n"
                         f"正確路徑：`{_correct_base}{_rel_part}`\n"
                         f"請立即搬移檔案並刪除錯誤路徑的副本。"
                     )

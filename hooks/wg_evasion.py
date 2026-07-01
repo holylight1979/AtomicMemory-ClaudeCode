@@ -6,7 +6,7 @@ Stop: 偵測退避詞彙 → state["evasion_flag"]
 UPS: 讀 evasion_flag → 注入舉證要求，清旗標
 UPS: 使用者放行關鍵字 → 清 failing_tests
 
-V5 P4b: 禁語/放行/掃描報告/完成宣告四類 pattern 從
+禁語/放行/掃描報告/完成宣告四類 pattern 從
 memory/_meta/forbidden-phrases.json 載入；fail-open 退回硬編碼 fallback。
 """
 
@@ -34,7 +34,7 @@ _FAILURE_PATTERNS = [
 ]
 
 
-# ─── V5 P4b: phrase loader (single source = memory/_meta/forbidden-phrases.json) ──
+# ─── phrase loader (single source = memory/_meta/forbidden-phrases.json) ──
 
 _PHRASES_JSON = Path.home() / ".claude" / "memory" / "_meta" / "forbidden-phrases.json"
 
@@ -70,7 +70,7 @@ _FALLBACK_COMPLETION_PATTERNS = [
     r"done", r"finished", r"all\s+set", r"wrapped\s+up",
     r"大功告成", r"搞定",
 ]
-# P4 #2: 進行式/否定修飾緊鄰完成詞 → 非真正終結宣告，排除（實測 false-positive）。
+# 進行式/否定修飾緊鄰完成詞 → 非真正終結宣告，排除（false-positive）。
 _FALLBACK_COMPLETION_EXCLUDE = [
     r"(?:還沒|還未|尚未|尚待|未|沒有?|先確認|正在)[^，。！？\n]{0,8}(?:完成|做完|解決|收尾|搞定)",
     r"(?:完成|做完|解決|收尾|搞定)[^，。！？\n]{0,6}(?:尚未|還沒|還未|未完|沒完|未滿足|沒做完|未達|待補|待修)",
@@ -155,7 +155,7 @@ def detect_test_failure(
 
 
 def claims_completion(text: str) -> bool:
-    """終結宣告偵測。P4 #2: 命中完成詞後，若鄰近有進行式/否定修飾
+    """終結宣告偵測。命中完成詞後，若鄰近有進行式/否定修飾
     （還沒/尚未/未…完成、完成…尚未 等）→ 非真正終結，排除。
     偏 false-negative（少判完成→少誤阻）符合契約鬆綁方向。
     """
@@ -209,7 +209,7 @@ _ROOT_CONFIG_FILES = frozenset({
 def is_core_file(path: str) -> bool:
     """path 是否為系統核心檔（hooks/lib/tools/rules 目錄 或 根層契約/設定檔）。
 
-    P4 #1 ScanReport gate 用：動 core 檔才要求收尾檢核。判定寬鬆偏保守
+    ScanReport gate 用：動 core 檔才要求收尾檢核。判定寬鬆偏保守
     （寧可對 core-like 路徑要求收尾）；純內容/文件（_AIDocs、memory atom .md）
     不落在這些目錄段，正確被排除。
     """
@@ -234,8 +234,8 @@ def detect_missing_scan_report(
 ) -> bool:
     """宣告完成 +（動 core 檔 或 動 ≥min_files 檔）+ 缺收尾檢核 → 違約。
 
-    P4 #1: 從「任一 modified 檔即要求」降為條件觸發——純單檔/文件小改不觸發。
-    對 4.8 過度觸發成儀式性負擔，非防退避；只在動系統核心（hooks/lib/tools/
+    從「任一 modified 檔即要求」降為條件觸發——純單檔/文件小改不觸發。
+    避免過度觸發成儀式性負擔，非防退避；只在動系統核心（hooks/lib/tools/
     rules/根層契約設定）或多檔批量時才要求收尾檢核。
 
     觸發條件（全部成立）：
@@ -331,7 +331,7 @@ def get_current_turn_text(transcript_path: Optional[Path], *, max_chars: int = 8
     """擷取「本 turn」assistant 活動文字（assistant text + tool_use input args）。
 
     turn 邊界 = 最後一則真實 user prompt（非 tool_result 延續）之後的所有 assistant 訊息。
-    供 Phase 2 (#2) use 偵測比對 atom 稀有 token。fail-open 回 ""。
+    供 use 偵測比對 atom 稀有 token。fail-open 回 ""。
     """
     if not transcript_path:
         return ""
@@ -704,7 +704,7 @@ def _calculate_maturity_phase(config: Dict[str, Any]) -> Dict[str, Any]:
 def _detect_rut_patterns(
     state: Dict[str, Any], config: Dict[str, Any]
 ) -> Optional[str]:
-    """V2.17: Scan recent episodic atoms for repeated 覆轍信號."""
+    """Scan recent episodic atoms for repeated 覆轍信號."""
     window = config.get("self_iteration", {}).get("oscillation_window", 3)
 
     episodic_dirs = set()
