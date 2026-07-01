@@ -34,7 +34,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-# S3.3: route memory-audit atom writes through funnel
+# route memory-audit atom writes through funnel
 _CLAUDE_DIR = Path.home() / ".claude"
 if str(_CLAUDE_DIR) not in sys.path:
     sys.path.insert(0, str(_CLAUDE_DIR))
@@ -42,7 +42,7 @@ from lib.atom_io import write_raw  # noqa: E402
 
 _AUDIT_SOURCE = "tool:memory-audit"
 
-# ─── Single source of truth: lib/atom_spec.py（S1.2 規則收束） ────────────────
+# ─── Single source of truth: lib/atom_spec.py（規則收束） ────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_spec import (
     SKIP_DIRS, SKIP_PREFIXES, REQUIRED_METADATA, OPTIONAL_METADATA,
@@ -99,7 +99,7 @@ class AtomMetadata:
     layer_name: str
     title: str = ""
     scope: str = ""
-    scope_label: str = ""  # P7: dedup 用（frontmatter 優先，缺則由路徑推斷；對齊 lib/atom_spec.VALID_SCOPES）
+    scope_label: str = ""  # dedup 用（frontmatter 優先，缺則由路徑推斷；對齊 lib/atom_spec.VALID_SCOPES）
     confidence: str = ""
     trigger: List[str] = field(default_factory=list)
     last_used: Optional[date] = None
@@ -236,7 +236,7 @@ def parse_atom_file(path: Path, layer_name: str) -> AtomMetadata:
 
     # Extract structured fields
     atom.scope = atom.raw_metadata.get("Scope", "")
-    # P7: scope_label — frontmatter 優先，缺則路徑推斷（對齊 tools/migrate-scope-field.py:infer_scope）
+    # scope_label — frontmatter 優先，缺則路徑推斷（對齊 tools/migrate-scope-field.py:infer_scope）
     atom.scope_label = atom.scope or _infer_scope_from_path(path)
     raw_conf = atom.raw_metadata.get("Confidence", "")
     cm = CONFIDENCE_EXTRACT.search(raw_conf)
@@ -594,7 +594,7 @@ def detect_duplicates(all_atoms: List[AtomMetadata]) -> List[DuplicatePair]:
             if a.file_path.parent == b.file_path.parent:
                 continue
 
-            # Title match — P7: 同 (scope_label, normalized title) 才算重複；
+            # Title match — 同 (scope_label, normalized title) 才算重複；
             # 跨 scope 同名 atom（如 global/decisions vs shared/decisions）不該誤判
             key_a = (a.scope_label, _normalize(a.title)) if a.title else None
             key_b = (b.scope_label, _normalize(b.title)) if b.title else None
@@ -692,7 +692,7 @@ def restore_from_distant(atom_path: Path) -> Tuple[bool, str]:
     today_str = date.today().isoformat()
 
     try:
-        # S3.3: 走 funnel
+        # 走 funnel
         _r = write_raw(dest, text, source=_AUDIT_SOURCE, op="audit_demote")
         if not _r.ok:
             raise OSError(_r.error)
@@ -752,12 +752,12 @@ def _append_evolution_entry(atom_path: Path, change: str, source: str = "memory-
                             lines.insert(j + 1, entry_line)
                             break
                     break
-        # S3.3: 走 funnel
+        # 走 funnel
         write_raw(atom_path, "\n".join(lines), source=_AUDIT_SOURCE, op="audit_evolution_insert")
     else:
         # No evolution log section; append one
         text += f"\n\n## 演化日誌\n\n| 日期 | 變更 | 來源 |\n|------|------|------|\n{entry_line}\n"
-        # S3.3: 走 funnel
+        # 走 funnel
         write_raw(atom_path, text, source=_AUDIT_SOURCE, op="audit_evolution_create")
 
 
@@ -823,7 +823,7 @@ def compact_evolution_logs(
         else:
             new_lines.append(line)
 
-    # S3.3: 走 funnel
+    # 走 funnel
     write_raw(atom_path, "\n".join(new_lines), source=_AUDIT_SOURCE, op="audit_compact")
     return f"COMPACTED: {rel} — merged {merge_count} entries ({earliest}~{latest})"
 
@@ -1332,7 +1332,7 @@ def _normalize(s: str) -> str:
 
 
 def _infer_scope_from_path(atom_path: Path) -> str:
-    """P7: 由路徑推斷 scope（fallback when frontmatter 缺 Scope:）。
+    """由路徑推斷 scope（fallback when frontmatter 缺 Scope:）。
 
     對齊 tools/migrate-scope-field.py:infer_scope 與 lib/atom_spec.VALID_SCOPES。
     支援 ~/.claude/memory/ 與 {project}/.claude/memory/ 兩種根層。
