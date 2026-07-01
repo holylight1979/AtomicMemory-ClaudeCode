@@ -1,4 +1,4 @@
-"""atom_index_json.py — V5 P3b: _atom_index.json single source of truth.
+"""atom_index_json.py — _atom_index.json single source of truth.
 
 Schema:
     {
@@ -136,7 +136,7 @@ def regenerate_atom_index_md(mem_dir: Path) -> None:
     lines = [
         "# Atom Trigger Index — Global",
         "",
-        "> **Deprecated mirror.** Machine source: `_atom_index.json` (V5 P3b).",
+        "> **Deprecated mirror.** Machine source: `_atom_index.json`.",
         "> 本檔由 lib/atom_index_json.py 自動生成；勿手改。",
         "",
         "| Atom | Path | Trigger | Scope |",

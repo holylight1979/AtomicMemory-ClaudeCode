@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check-bypass.py — 掃描 ~/.claude 內所有寫入 memory/ 的程式碼點 (S3.3)
+"""check-bypass.py — 掃描 ~/.claude 內所有寫入 memory/ 的程式碼點
 
 目的：funnel 收束完成後，反向證明「沒有任何 caller 繞過 lib.atom_io」。
 找出疑似直接 write_text/open(..., "w")/fs.writeFileSync 落在 memory/** 的程式碼。

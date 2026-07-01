@@ -1,6 +1,6 @@
 # Atom Trigger Index — Global
 
-> **Deprecated mirror.** Machine source: `_atom_index.json` (V5 P3b).
+> **Deprecated mirror.** Machine source: `_atom_index.json`.
 > 本檔由 lib/atom_index_json.py 自動生成；勿手改。
 
 | Atom | Path | Trigger | Scope |

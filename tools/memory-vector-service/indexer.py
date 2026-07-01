@@ -682,7 +682,7 @@ def cleanup_stale_chunks(
     config: Dict[str, Any],
     verbose: bool = False,
 ) -> Dict[str, Any]:
-    """V5 P5a: Delete chunks for atoms that no longer exist on disk.
+    """Delete chunks for atoms that no longer exist on disk.
 
     Iterates DB rows, builds set of orphan (layer, atom_name) tuples
     by comparing against current discover_atoms() result. Deletes those rows.
@@ -810,7 +810,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--incremental", action="store_true")
     ap.add_argument("--cleanup-stale", action="store_true",
-                    help="V5 P5a: delete chunks for atoms no longer on disk")
+                    help="delete chunks for atoms no longer on disk")
     ap.add_argument("--verbose", action="store_true", default=True)
     args = ap.parse_args()
 

@@ -22,7 +22,7 @@ sys.path.insert(0, str(HOOKS_DIR))
 from wg_core import find_project_root, CLAUDE_DIR, MEMORY_DIR  # noqa: E402
 from wg_roles import get_current_user  # noqa: E402
 
-# S3.1: route undo/reject writes through atom_io funnel
+# route undo/reject writes through atom_io funnel
 sys.path.insert(0, str(CLAUDE_DIR))
 from lib.atom_io import write_raw  # noqa: E402
 
@@ -185,7 +185,7 @@ def _execute_undo(candidates: List[Dict], reason_key: str) -> Dict[str, Any]:
                     break
 
         # Append reject footer to file content before moving
-        # S3.1: dest 落檔走 atom_io.write_raw funnel（reject 是「移到 _rejected/」
+        # dest 落檔走 atom_io.write_raw funnel（reject 是「移到 _rejected/」
         # 而非建新 atom；不適用 build_atom_content，走 raw escape hatch）
         try:
             content = path.read_text(encoding="utf-8")

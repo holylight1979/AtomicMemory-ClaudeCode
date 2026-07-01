@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cleanup-projects-residue.py — 清理 ~/.claude/projects/{slug}/memory/ 殘骸 (S1.1.2)
+"""cleanup-projects-residue.py — 清理 ~/.claude/projects/{slug}/memory/ 殘骸
 
 專案層 memory 統一住在 {project_root}/.claude/memory/，
 ~/.claude/projects/{slug}/memory/ 變成 migration stub 或空殼，會污染：
@@ -38,7 +38,7 @@ def is_migration_stub(slug: str, mem_dir: Path) -> tuple[bool, str]:
     回傳 (is_stub, reason)。判定為殘骸的條件（任一成立）：
       - slug 是 ~/.claude 自身（雙層 .claude P1 bug 殘骸 — 內含的 atoms 全部
         是當 cwd=~/.claude 誤觸發 episodic/extract 寫進去的副本）
-      - 含 "migrated-v2.21" / "Project Pointer" 標記（V2.21 migration stub）
+      - 含 "migrated-v2.21" / "Project Pointer" 標記（migration stub）
       - 子目錄無 atom（含遞迴掃描，但排除 MEMORY.md / `_*` 系統檔）
     """
     if slug == _claude_dir_slug():

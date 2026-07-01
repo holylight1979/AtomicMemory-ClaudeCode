@@ -1,14 +1,9 @@
-"""atom_io.py — 全系統 atom 寫入唯一 funnel (S1.3)
+"""atom_io.py — 全系統 atom 寫入唯一 funnel
 
 設計目標：
   - 所有 atom 寫入入口（MCP server.js / hooks / tools）統一走 write_atom()
   - 行為對拍 server.js:1065 toolAtomWrite （byte-identical 內容契約）
   - 反向證明：每筆寫入記入 _meta/atom_io_audit.jsonl，可對拍 mtime 找出繞過
-
-S1 邊界（硬限制）：
-  - 本檔已可獨立呼叫 + 通過 byte-equivalence 等價測試
-  - 但**不接任何現役 caller**，避免測試結果被現役寫入污染
-  - S2.2 / S3.1 / S3.2 才把 hooks/tools/server.js 切到本檔
 
 Skip flags：
   - skip_gate=True: 不呼叫 memory-write-gate.py（migration / 測試用）
@@ -282,9 +277,9 @@ def write_index(
     triggers: Iterable[str],
     source: str,
 ) -> WriteResult:
-    """更新或追加 atom 條目到 _atom_index.json (V5 P3b SoT)，並回寫 _ATOM_INDEX.md mirror。
+    """更新或追加 atom 條目到 _atom_index.json (SoT)，並回寫 _ATOM_INDEX.md mirror。
 
-    對拍 server.js:953 appendToIndex；V5 P3b 起 JSON 為唯一機器源。
+    對拍 server.js:953 appendToIndex；JSON 為唯一機器源。
     """
     if source not in VALID_SOURCES:
         return WriteResult(ok=False, error=f"invalid source: {source}",
@@ -293,7 +288,7 @@ def write_index(
     audit_id = _gen_audit_id()
     triggers_list = list(triggers)
 
-    # V5 P3b: write JSON via lib/atom_index_json (auto-regen MD mirror)
+    # write JSON via lib/atom_index_json (auto-regen MD mirror)
     try:
         from .atom_index_json import upsert_atom
         upsert_atom(

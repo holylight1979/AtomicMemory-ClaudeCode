@@ -153,7 +153,7 @@ def _dedup_items(
     return results
 
 
-# ─── Ack-then-clear [F12] ──────────────────────────────────────────────────
+# ─── Ack-then-clear ──────────────────────────────────────────────────
 
 def ack_then_clear(state_path: Path, key: str, indices: List[int]) -> bool:
     """Atomically read state → pop specified indices from state[key] → write back.
@@ -197,7 +197,7 @@ def ack_then_clear(state_path: Path, key: str, indices: List[int]) -> bool:
         return False
 
 
-# ─── Session Budget Tracker [F22] ──────────────────────────────────────────
+# ─── Session Budget Tracker ──────────────────────────────────────────
 
 class SessionBudgetTracker:
     """Track token budget consumption within a session.

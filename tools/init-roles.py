@@ -291,7 +291,7 @@ def action_promote_mgmt(root: Path, user: str) -> Dict[str, Any]:
     return result
 
 
-# ─── Privacy check [F21] ────────────────────────────────────────────
+# ─── Privacy check ────────────────────────────────────────────
 
 
 _CLOUD_SYNC_PATTERNS = [
@@ -304,7 +304,7 @@ _CLOUD_SYNC_PATTERNS = [
 
 
 def action_privacy_check(root: Path, user: str) -> Dict[str, Any]:
-    """[F21] Scan if personal/ dir sits under a cloud-sync path. Warn only."""
+    """Scan if personal/ dir sits under a cloud-sync path. Warn only."""
     mem = _proj_memory_base(root)
     personal_dir = mem / "personal"
     auto_dir = mem / "personal" / "auto" / user
@@ -420,7 +420,7 @@ def main() -> None:
     ap.add_argument("--promote-mgmt", metavar="USER", default=None)
     ap.add_argument("--install-hook", action="store_true")
     ap.add_argument("--privacy-check", action="store_true",
-                    help="[F21] Scan cloud-sync paths, .gitignore, SVN ignore for personal/")
+                    help="Scan cloud-sync paths, .gitignore, SVN ignore for personal/")
     ap.add_argument("--status", action="store_true")
     args = ap.parse_args()
 

@@ -1,9 +1,9 @@
 """verify_heuristics.py — Codex Companion heuristics 單元測試。
 
-Sprint 2 驗證面：
+驗證面：
   * BLOCK 權收斂：唯有 confident_completion_without_evidence 可 high
   * 三條件齊備模型：claim + state_change + no_verify_evidence
-  * Sprint 1 教訓 case：state 缺 trace 但 last_assistant_tail 含實證據 → 放行
+  * 教訓 case：state 缺 trace 但 last_assistant_tail 含實證據 → 放行
   * 其他規則（missing_verification / architecture_change / spinning）一律 low
   * severity_at_or_above 門檻 API
 """

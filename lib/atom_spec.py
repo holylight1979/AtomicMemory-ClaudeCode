@@ -1,4 +1,4 @@
-"""atom_spec.py — 全系統「什麼是合法 atom」的唯一規則來源 (S1.2)
+"""atom_spec.py — 全系統「什麼是合法 atom」的唯一規則來源
 
 純資料 + 純函式，零 IO（除 resolve_scope_dir 需訪問 fs 標記）。
 被 memory-audit / atom-health-check / atom_io 共用 import，避免規則漂移。

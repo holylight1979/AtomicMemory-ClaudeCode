@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
 
-# Single source of truth (S1.2): lib/atom_spec.py
+# Single source of truth: lib/atom_spec.py
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_spec import is_atom_file, REQUIRED_METADATA  # noqa: E402
 from lib.atom_locations import iter_atom_files_multi, atom_search_roots  # noqa: E402

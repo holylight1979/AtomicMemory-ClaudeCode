@@ -1,4 +1,4 @@
-"""audit.py — One-shot Codex Companion assessment subprocess (V5 P5b).
+"""audit.py — One-shot Codex Companion assessment subprocess.
 
 Replaces the threaded `_run_assessment` worker that used to live in
 service.py (V4 daemon @ port 3850). Spawned fire-and-forget by

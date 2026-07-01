@@ -1,4 +1,4 @@
-"""verify_check_bypass.py — check-bypass.py 規則驗證 (S4.D.2)
+"""verify_check_bypass.py — check-bypass.py 規則驗證
 
 5 cases：
   1. WHITELIST 直接匹配

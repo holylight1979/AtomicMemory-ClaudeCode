@@ -1,6 +1,6 @@
-"""atom_io_cli.py — thin CLI bridge: stdin JSON → write_atom → stdout JSON (S1.3)
+"""atom_io_cli.py — thin CLI bridge: stdin JSON → write_atom → stdout JSON
 
-供 S3.2 server.js 切 spawn 用：MCP toolAtomWrite/Promote 最終落檔
+供 server.js 切 spawn 用：MCP toolAtomWrite/Promote 最終落檔
 改 spawn `python -m lib.atom_io_cli`，stdin 餵 JSON 參數，stdout 讀 WriteResult。
 
 Schema:
