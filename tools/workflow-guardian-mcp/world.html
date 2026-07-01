@@ -1,4 +1,16 @@
 <!DOCTYPE html>
+<!--
+  腦內世界（Brain-World）— L2 娛樂外掛，非 guardian 常駐。
+  ▸ 定位：原子記憶的擬人化視覺化（生物＝atom、房間＝專案、診所＝atom-heal 手動觸發）。
+  ▸ 生命週期：獨立瀏覽器檔（file:// 開啟），按需啟動；輪詢 guardian MCP(:3848) 的 /api/*。
+             不隨 guardian hook pipeline 常駐、不屬收尾主流程——關掉瀏覽器即完全休眠。
+  ▸ 診所（clinic）：手動拖入生病生物＝按需觸發 atom-heal（含 L2 LLM 死連結修復）。
+             這是「娛樂 UI 的按需入口」，非唯一/主要觸發；世界無關的背景 L2 sweep 走
+             server.js /api/heal-all（headless），真引擎在 tools/atom-heal.py。
+  ▸ World Command Bus（/api/world-command…）：保留的按需通道（Claude/使用者下指令→前端
+             執行→回報），非死路；同屬此娛樂層，不常駐。
+  正名原則：此層可獨立存在、可隨時不開，但不刪——它是有效的視覺化/手動維護面。
+-->
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8" />

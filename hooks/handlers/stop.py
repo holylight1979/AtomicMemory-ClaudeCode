@@ -217,8 +217,7 @@ def _attribute_usefulness(
 
 
 def _should_deep_postmortem(
-    state: Dict[str, Any], stop_count: int, max_blocks: int,
-    config: Dict[str, Any], claims_done: bool,
+    state: Dict[str, Any], config: Dict[str, Any], claims_done: bool,
 ) -> bool:
     """是否要在本 Stop 注入「深寫 post-mortem」指令。
 
@@ -229,8 +228,13 @@ def _should_deep_postmortem(
     effort 只採 retry / fix_escalation——兩者都已在 track_retry 層以 failing_tests
     error-gate，是誠實的「失敗中反覆」訊號。不採同檔 edit 次數：它未 failure-gate、
     對正常重度迭代開發本就會超標（edit 次數 ≠ 失敗）。
-    且：本 session 未深寫過（deep_postmortem_done）、block 預算未耗盡
-    （stop_count < stop_gate_max_blocks）、config 未關閉。
+
+    ★獨立預算（不與 Sync/Scan/TestFail 共用 stop_gate_max_blocks）：DPM 本就一次性
+    ——deep_postmortem_done 一設即永不再觸，anti-loop 由此 one-shot 保證，無需再疊
+    共用計數。曾共用實測會餓死：Sync(1)+TestFail(1) 就吃光 2-block 預算，輪到 DPM 時
+    stop_count>=max 而永不觸發，偏偏那正是「反覆修不好」最該補 post-mortem 的 session。
+    其它 gate 各自以自身 flag/counter 自限（sr_count / scan_report_warned），唯 DPM
+    曾被共用預算綁住；正名獨立後與眾 gate 對稱。config 未關閉才觸發。
 
     純判定、無副作用——claims_done 由 caller 算好傳入（避免在此讀 transcript）；
     副作用（設旗標、計數、output_block）由 gate 處理。
@@ -238,9 +242,7 @@ def _should_deep_postmortem(
     dpm = (config or {}).get("deep_postmortem", {}) or {}
     if not dpm.get("enabled", True):
         return False
-    if state.get("deep_postmortem_done"):
-        return False
-    if stop_count >= max_blocks:  # 尊重 stop_gate_max_blocks，不超發
+    if state.get("deep_postmortem_done"):  # 一次性即獨立預算＝1，anti-loop 由此保證
         return False
     effort = (
         int(state.get("wisdom_retry_count", 0) or 0) >= 2
@@ -390,13 +392,14 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             return
 
     # ── Deep Post-Mortem Gate（Stage 3）────────────────────────
-    # (effort 訊號) AND (真失敗訊號) + 本 session 未深寫過 + block 預算未耗盡 → 注入指令
-    # 要 Claude 結束前用 atom_write 補完整 post-mortem。deep_postmortem_done 一次性防重複；
-    # 排在 correctness/sync gate 之後（那些優先），共用 stop_blocked_count 預算。
+    # (effort 訊號) AND (真失敗訊號) + 本 session 未深寫過 → 注入指令，要 Claude 結束前用
+    # atom_write 補完整 post-mortem。deep_postmortem_done 一次性防重複＝獨立預算 1；
+    # 排在 correctness/sync gate 之後（那些優先）但★不共用 stop_gate_max_blocks——
+    # 否則 Sync+TestFail 先吃光預算就餓死 DPM（見 _should_deep_postmortem docstring 實證）。
     if not last_text:
         last_text = get_last_assistant_text(transcript)
     claims_done = bool(last_text and claims_completion(last_text))
-    if _should_deep_postmortem(state, stop_count, max_blocks, config, claims_done):
+    if _should_deep_postmortem(state, config, claims_done):
         state["deep_postmortem_done"] = True
         state["stop_blocked_count"] = stop_count + 1
         reason = _piggyback(_DEEP_POSTMORTEM_INSTRUCTION)

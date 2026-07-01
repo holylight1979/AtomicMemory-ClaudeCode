@@ -2287,6 +2287,9 @@ function apiTestRunStart(req, res) {
 function apiTestRunStatus(req, res, jobId) { return testRunner.statusRes(res, jobId); }
 
 // ── World Command Bus：Claude/使用者下指令 → 前端輪詢執行 → 回報；snapshot 供讀取世界狀態 ──
+//   ★正名：屬「腦內世界」L2 娛樂層的按需通道（非死路、非常駐）。僅在瀏覽器開著 world.html
+//   時才有前端輪詢消費；無人開＝命令留佇列（cap 200）自然過期，不阻斷任何收尾流程、不隨
+//   guardian pipeline 常駐。保留：它是 Claude↔世界的有效按需橋，勿刪。
 function readJsonBody(req, cb) {
   let body = "";
   req.on("data", (ch) => (body += ch));
@@ -2366,6 +2369,14 @@ function apiWorldDev(req, res) {
 }
 
 // ── 記憶自癒：spawn atom-heal.py（分級 L1 機械/L2 LLM判斷/L3 喚醒），皆走泛用 healRunner ──
+//   兩條入口，職責分離：
+//     /api/heal/:atom        單一 atom（腦內世界診所：手動拖入=含 L2；auto=1 自走=僅 L1）
+//                            ——L2 娛樂外掛的按需觸發，需瀏覽器開著。
+//     /api/heal-all          世界無關的背景 L2 sweep（headless 可觸發）：只掃 broken_refs
+//                            交 LLM 判斷，不碰 reverse_refs（L1 已由 SessionEnd 的
+//                            atom-health-check --fix-refs 機械補齊，別重覆跑）。
+//                            預期呼叫者＝/memory health 或（未來·gated）SessionEnd 背景，
+//                            非常駐 daemon（不隨 guardian 起 timer 白燒）。
 const healRunner = makeJobRunner({ maxConcurrent: (loadConfig().heal || {}).max_concurrent || 1, ttlMs: 300000 });
 const ATOM_NAME_RE = /^[\w一-鿿.-]+$/;   // 防 shell 注入：只允許字母數字底線連字號點與 CJK
 function healCfg() { return loadConfig().heal || {}; }
@@ -2388,7 +2399,9 @@ function apiHealAll(req, res) {
     try {
       const h = JSON.parse(stdout);
       (h.broken_refs || []).forEach((b) => names.add(b.atom));
-      (h.missing_reverse_refs || []).forEach((r) => names.add(r.atom_a));
+      // ★不收 missing_reverse_refs：反向連結（L1）已由 SessionEnd 的 atom-health-check
+      //   --fix-refs 機械補齊。此背景 sweep 只做 L2（死連結，需 LLM），避免與 --fix-refs
+      //   重覆跑（見上方入口註解）。單一 atom 的 L1 仍走 /api/heal/:atom（診所按需）。
     } catch { /* ignore */ }
     const started = [];
     for (const n of names) {

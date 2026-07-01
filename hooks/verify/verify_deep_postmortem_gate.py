@@ -6,11 +6,12 @@
     - same_file_3x（同檔 edit>=3）不是 effort 訊號，單獨不觸發（edit 次數 ≠ 失敗）
     - 設旗標後放行：deep_postmortem_done=True → False
     - 無 effort 訊號 → False
-    - block 預算耗盡（stop_count>=max_blocks）→ False
+    - ★獨立預算：不再受 stop_gate_max_blocks 綁（曾共用會餓死），僅 one-shot 自限
     - config enabled=false → False
   端到端 handle_stop：
     - 首次（有 effort 訊號）→ 設 deep_postmortem_done、emit DeepPostMortem block
     - 旗標已設 → 本 gate 不再觸發（放行，輸出不含 DeepPostMortem）
+    - ★回歸：Sync+TestFail 吃光 stop_gate_max_blocks(2) 後 DPM 仍觸發（獨立預算）
 
 對應修補：handlers/stop.py _should_deep_postmortem / handle_stop Deep Post-Mortem
 Gate + config.json deep_postmortem.enabled（補「失敗深層脈絡無人補寫」缺口）。
@@ -34,10 +35,13 @@ _CFG = {}  # 預設 enabled=True
 _MAX = 2
 
 
-def _judge(state, stop_count=0, max_blocks=_MAX, config=_CFG, claims_done=False):
+def _judge(state, config=_CFG, claims_done=False):
     """預設 claims_done=False（＝未宣告完成 → real_failure 成立），讓「有 effort
-    訊號」的測試維持原『觸發』語意；真失敗訊號的測試另以參數覆寫。"""
-    return st._should_deep_postmortem(state, stop_count, max_blocks, config, claims_done)
+    訊號」的測試維持原『觸發』語意；真失敗訊號的測試另以參數覆寫。
+
+    ★DPM 已改獨立預算，_should_deep_postmortem 不再收 stop_count/max_blocks；
+    共用預算餓死的回歸改在端到端 test_dpm_not_starved_by_shared_budget 驗證。"""
+    return st._should_deep_postmortem(state, config, claims_done)
 
 
 # effort 訊號（搭配未宣告完成的真失敗訊號）→ 觸發
@@ -66,11 +70,6 @@ def test_no_effort_signal_skips():
 def test_flag_set_blocks_repeat():
     """設旗標後放行：deep_postmortem_done=True → 即使有訊號也不再觸發。"""
     assert _judge({"wisdom_retry_count": 5, "deep_postmortem_done": True}) is False
-
-
-def test_budget_exhausted_skips():
-    """stop_count>=max_blocks → 尊重預算不超發。"""
-    assert _judge({"wisdom_retry_count": 3}, stop_count=_MAX) is False
 
 
 def test_disabled_skips():
@@ -150,3 +149,53 @@ def test_handle_stop_second_time_passes(driven, capsys):
              "modified_files": [], "failing_tests": []}
     out, _ = driven(state, {}, capsys)
     assert "DeepPostMortem" not in out
+
+
+# ─── 回歸：獨立預算，不被 Sync+TestFail 吃光預算而餓死 ──────────────────
+
+def test_dpm_not_starved_by_shared_budget(monkeypatch, capsys):
+    """★回歸：DPM 獨立預算。同一「反覆修不好」session 中前兩輪 Sync + TestFail
+    先吃光 stop_gate_max_blocks(2)，第 3 輪 DPM 條件成立（retry>=2 + failing_tests）
+    仍須觸發——曾因共用 stop_count 預算而永不觸發（餓死），現 one-shot 獨立預算修復。
+
+    三輪同一 state（write_state no-op、就地 mutate 累積 stop_blocked_count）：
+      turn1 未宣告完成 + 有未提交檔 → SyncReminder（0→1）
+      turn2 宣告完成 + failing   → TestFailGate（1→2，吃光共用預算）
+      turn3 未宣告完成 + 已提交   → 其它 gate 全不觸；DPM 該觸發（獨立預算）
+    """
+    monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: "T")
+    monkeypatch.setattr(st, "token_warn_payload", lambda *a, **k: "")
+    monkeypatch.setattr(st, "detect_evasion", lambda *a, **k: None)
+    monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_maybe_spawn_per_turn_extraction", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
+
+    state = {
+        "phase": "working", "wisdom_retry_count": 3,
+        "failing_tests": [{"cmd": "pytest", "summary": "boom"}],
+        "modified_files": [{"path": "hooks/foo.py"}, {"path": "hooks/bar.py"}],
+        "stop_blocked_count": 0, "recent_user_prompts": [],
+    }
+    monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
+
+    def turn(last_text, uncommitted):
+        monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: last_text)
+        monkeypatch.setattr(st, "_detect_uncommitted_files",
+                            lambda mf: list(uncommitted) or None)
+        try:
+            st.handle_stop({"session_id": "sid", "cwd": "x"},
+                           {"stop_gate_max_blocks": 2})
+        except SystemExit:
+            pass
+        return capsys.readouterr().out
+
+    o1 = turn("還在調查中，尚未完成。", ["hooks/foo.py"])   # Sync (0->1)
+    o2 = turn("任務完成，全部搞定。", ["hooks/foo.py"])      # TestFail (1->2)
+    o3 = turn("還在調查中，尚未完成。", [])                  # DPM 該觸發
+
+    assert "SyncReminder" in o1
+    assert "TestFailGate" in o2
+    assert state.get("stop_blocked_count", 0) >= 2   # 共用預算已被吃光
+    assert "DeepPostMortem" in o3                     # 曾餓死 → 現獨立預算觸發
+    assert state.get("deep_postmortem_done") is True

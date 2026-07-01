@@ -7,6 +7,11 @@
   L3 stale (>60d)         → 非真壞，回 wake（不修）
   修不好（驗證不過 / needs_human）→ fixed=False + needs_human=True，由 caller 退回人工審查
 
+L1 與 SessionEnd 重疊，dedup 契約：反向連結（L1）SessionEnd 已跑 atom-health-check
+  --fix-refs 全庫機械補齊。故「背景/批次」呼叫者（server.js /api/heal-all）只餵 broken_refs
+  的 atom（→ 分級 L2，僅治死連結，不碰 reverse），別對純 L1 的 atom 重覆跑。單一 atom 的
+  L1 仍由診所 /api/heal/:atom 按需觸發（世界 UI 用，非批次）。
+
 重用（不重寫）：
   tools/atom-health-check.py  偵測(single_atom_report) + reverse 修復邏輯（importlib 載入）
   lib/atom_io.edit_metadata   改 Related（byte-stable + audit，source=tool:atom-heal）
