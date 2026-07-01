@@ -62,6 +62,20 @@ description: 原子記憶系統綜合工具 — health/peek/undo/review/score �
 
 5. **互動**：發現問題詢問是否修正。**禁止手動 mv atom 跨層** — 用 `atom-move.py move` 或 MCP `atom_move`。
 
+6. **broken_refs → OFFER L2 自癒（純手動觸發，零每-session 常駐成本）**：
+   報告出現 **Broken References（死連結）** 時，**詢問**使用者是否跑 L2 LLM 修復（絕不自動跑；Native-first：不長常駐枝葉）。
+   同意 → 對報告中每個含死連結的 atom（`broken_refs[].atom` 去重），逐個 CLI 直呼：
+   ```bash
+   python ~/.claude/tools/atom-heal.py --atom <name> --apply --backend ollama --json
+   ```
+   CLI 直呼為**預設路徑**：headless、無伺服器依賴、不受 :3848 孤兒舊碼影響。逐個判讀 JSON：
+   - `fixed:true` → 已修好（repoint 錯字 / remove 無效連結），回報改了什麼。
+   - `needs_human:true` → 自動修不好，`atom-heal.py` 已落診斷卡 `memory/_heal_review/<atom>.json` → 提示使用者走 `/heal-review` 人工裁決。
+
+   **可選快路徑**（僅當 dashboard :3848 已開且確認跑新碼）：`POST http://127.0.0.1:3848/api/heal-all` 一次背景批修全部 broken_refs（走 server `healRunner` 併發、回 202 `{started,count,pending}`）。⚠️ live :3848 可能是**孤兒舊碼**（`/api/heal-all` 路由非新增、舊碼不會 404 而是靜默跑舊行為）→ 用前先確認新碼上線（見 atom [[guardian-dashboard-孤兒佔埠與新碼重啟]]）；不確定就用上面 CLI。
+
+   L1 反向連結**不在此處理** — SessionEnd `atom-health-check --fix-refs` 已全庫機械補齊，此處只治 L2 死連結，別重覆跑。
+
 ### peek → V4.1 自動萃取檢視
 
 ```bash
