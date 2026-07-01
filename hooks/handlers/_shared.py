@@ -172,6 +172,15 @@ def _cleanup_old_states() -> None:
         except OSError:
             pass
 
+    # 2026-07-01: codex companion 旁路檔（companion-state/assessment/metrics-*.json）原無
+    # 自帶清理，5 週累積 491 檔。>7d 一律清（與上方 state 檔 catch-all 同標準；活躍 session <7d 不動）。
+    for f in WORKFLOW_DIR.glob("companion-*.json"):
+        try:
+            if now - f.stat().st_mtime > 7 * 86400:
+                f.unlink(missing_ok=True)
+        except OSError:
+            pass
+
 
 # ─── V4.1: User Extract Worker Spawning ──────────────────────────────────────
 
