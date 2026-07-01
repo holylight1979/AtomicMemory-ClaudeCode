@@ -130,7 +130,7 @@
 | `journal-aggregate.py` | 工作日誌聚合 |
 | `generate-episodic-manual.py` | 手動 episodic 生成 |
 | `rag-engine.py` | Vector Service CLI |
-| `read-excel.py` / `sprite_contact_sheet.py` / `unity-yaml-tool.py` | 領域工具 |
+| `read-excel.py` / `sprite_contact_sheet.py` | 領域工具 |
 | `init-roles.py` / `conflict-review.py` | 多職務管理工具 |
 | `codex-companion/` | V5 P5b 子目錄（audit.py + assessor + heuristics + prompts + scorer + state） |
 | `gdoc-harvester/` | 網頁收割工具集 |

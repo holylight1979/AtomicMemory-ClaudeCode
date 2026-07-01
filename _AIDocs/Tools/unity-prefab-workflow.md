@@ -13,7 +13,7 @@
 
 | Tool | Path | 用途 |
 |------|------|------|
-| unity-yaml-tool.py | `~/.claude/tools/unity-yaml-tool.py` | generate-ui-prefab / validate / generate-meta |
+| unity-yaml-tool.py | `C:\Projects\.claude\tools\unity-yaml-tool.py` | generate-ui-prefab / validate / generate-meta |
 | ClaudeEditorHelper.cs | `sgi_client/client/Assets/Editor/ClaudeEditorHelper.cs` | AutoGenUICode / ValidatePrefab (batch mode) |
 | unity_batch.py | `~/.claude/tools/unity-desktop/unity_batch.py` | 執行 Unity batch method |
 

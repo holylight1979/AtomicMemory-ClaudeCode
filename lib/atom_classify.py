@@ -47,7 +47,7 @@ def classify_taxonomy(name, triggers, taxonomy: Dict) -> Tuple[str, List[str]]:
 
     回 (domain, matched_terms)。決策語意（override 優先 / 無命中落 default_domain /
     priority+宣告序 tiebreak）為 TaxonomyStrategy；計分走共用 score_by_lexicon。
-    byte-equal verified 對 SGI 全 atom（verify_atom_classify.py）。
+    byte-equal verified 對專案層全 atom。
     """
     overrides: Dict[str, str] = taxonomy.get("overrides", {})
     if name in overrides:

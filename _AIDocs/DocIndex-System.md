@@ -204,7 +204,6 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ### 其他
 - read-excel.py（openpyxl + xlrd）
-- unity-yaml-tool.py
 - rag-engine.py（CLI wrapper）
 - sprite_contact_sheet.py
 - gdoc-harvester/（Playwright 網頁收割 + dashboard）

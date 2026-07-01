@@ -511,7 +511,7 @@ def _build_episodic_summary(state: Dict[str, Any]) -> Dict[str, Any]:
         area = _extract_area(a.get("path", ""))
         accessed_areas[area] += 1
 
-    # Topic tracker enrichment (v2.2)
+    # Topic tracker enrichment
     tracker = state.get("topic_tracker", {})
     intent_dist = tracker.get("intent_distribution", {})
     dominant_intent = max(intent_dist, key=intent_dist.get) if intent_dist else "general"
@@ -557,7 +557,7 @@ def _generate_triggers(state: Dict[str, Any], work_areas: list) -> list:
     for atom_name in state.get("injected_atoms", []):
         triggers.add(atom_name.lower())
 
-    # Keyword topics from topic tracker (v2.2)
+    # Keyword topics from topic tracker
     for kw in state.get("topic_tracker", {}).get("keyword_signals", [])[:5]:
         triggers.add(kw.lower())
 
@@ -751,7 +751,7 @@ def _generate_episodic_atom(
     if rut_signals:
         knowledge_lines.append(f"- [臨] 覆轍信號: {', '.join(rut_signals)}")
 
-    # Build 摘要 section (v2.2)
+    # Build 摘要 section
     desc = summary.get("session_description", "")
     dom_intent = summary.get("dominant_intent", "general")
     prompt_count = summary.get("prompt_count", 0)
@@ -759,7 +759,7 @@ def _generate_episodic_atom(
     if desc:
         summary_line += f" {desc}"
 
-    # Build 關聯 section (v2.2)
+    # Build 關聯 section
     relation_lines = []
     intent_dist = summary.get("intent_distribution", {})
     if intent_dist:
@@ -809,7 +809,7 @@ def _generate_episodic_atom(
         f"\n"
         f"| 日期 | 變更 | 來源 |\n"
         f"|------|------|------|\n"
-        f"| {today} | 自動建立 episodic atom (v2.2) | session:{session_id[:8]} |\n"
+        f"| {today} | 自動建立 episodic atom | session:{session_id[:8]} |\n"
     )
 
     # episodic atom 走 funnel write_raw（在 SKIP_DIRS 不算 V4 atom，
@@ -821,7 +821,7 @@ def _generate_episodic_atom(
         init_access(atom_path, first_seen=today, source="hook:episodic")
     except (ImportError, OSError, ValueError):
         pass
-    # v2.2: Episodic atoms NOT listed in MEMORY.md index (TTL 24d, vector search discovers them)
+    # Episodic atoms NOT listed in MEMORY.md index (TTL 24d, vector search discovers them)
 
     # Debug log: one-line summary instead of full content (full is in atom file)
     kn_count = len(knowledge_lines)

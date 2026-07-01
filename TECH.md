@@ -83,7 +83,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── atom-move.py / atom-health-audit.py / atom-health-check.py
 │   ├── audit-reconcile.py / cleanup-old-files.py / cleanup-projects-residue.py
 │   ├── changelog-roll.py / check-bypass.py / journal-aggregate.py
-│   ├── generate-episodic-manual.py / rag-engine.py / unity-yaml-tool.py
+│   ├── generate-episodic-manual.py / rag-engine.py
 │   ├── read-excel.py / sprite_contact_sheet.py
 │   ├── auto-continue/                              ← Auto-Handoff Phase 4 watcher（PoC·實驗性）：claude -p /continue 外部編排 + 4 guard
 │   ├── codex-companion/                            ← V5：assessor/heuristics/prompts/scorer/state + audit.py(subprocess)
