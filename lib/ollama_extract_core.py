@@ -1,8 +1,7 @@
 """
 ollama_extract_core.py — Shared extraction utilities for extract-worker.py and user-extract-worker.py.
 
-Refactored from hooks/extract-worker.py (V2.13).
-Functions preserve original signatures for backward compatibility.
+Functions preserve the signatures used by extract-worker.py and user-extract-worker.py.
 """
 
 import json
@@ -203,7 +202,7 @@ def ack_then_clear(state_path: Path, key: str, indices: List[int]) -> bool:
 class SessionBudgetTracker:
     """Track token budget consumption within a session.
 
-    Budget defaults to 240 tok (V4.1 NFR).
+    Budget defaults to 240 tok.
     When exceeded, callers should degrade to L1-only or skip extraction entirely.
     """
 

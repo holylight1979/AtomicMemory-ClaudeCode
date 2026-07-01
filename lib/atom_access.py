@@ -20,7 +20,7 @@ Schema v3（<atom>.access.json）:
     "confirmation_events": [{ts, ...} ...]
   }
 
-效用閉環（Phase 2, #2）：注入→使用→結果以 (α,β) 校準信心，取代純曝光（read_hits）。
+效用閉環：注入→使用→結果以 (α,β) 校準信心，取代純曝光（read_hits）。
   - record_usefulness：本 turn 某 atom 被判 used 且 outcome 決定性 → success α++ / fail β++；
     unused 或 outcome=unknown 一律 no-op（防雜訊污染，關鍵守則）。
   - Wilson 下界（wilson_lower_bound / usefulness_stats）：升 ≥0.6、降候選 ≤0.35，皆需 n≥3。
@@ -63,8 +63,8 @@ ACCESS_VALID_SOURCES = frozenset({
     "hook:atom-inject",          # workflow-guardian.py atom 注入時 increment_read_hits
     "hook:episodic",             # episodic atom 建立時 init_access
     "hook:episodic-confirm",     # cross-session confirmation
-    "hook:usefulness",           # Phase 2: stop.py 注入→使用→結果 α/β 更新
-    "hook:atom-decay",           # Phase 2: SessionEnd _self_iterate_atoms 慢衰減
+    "hook:usefulness",           # stop.py 注入→使用→結果 α/β 更新
+    "hook:atom-decay",           # SessionEnd _self_iterate_atoms 慢衰減
     "hook:user-extract",
     "hook:extract-worker",
     "tool:atom-move",
@@ -404,7 +404,7 @@ def write_access_field(
     return _audit("access_field", source, atom_path, field=field, value=str(value))
 
 
-# ─── 效用閉環 (α,β)：Phase 2 (#2) ────────────────────────────────────────────
+# ─── 效用閉環 (α,β) ────────────────────────────────────────────
 
 
 def record_usefulness(
@@ -572,7 +572,7 @@ def usefulness_hint_tier(
       - 'near'    ：promote_lb − near_band ≤ lb < promote_lb（接近升門）
       - None      ：lb 離升門尚遠 **或** n < min_n（無樣本不提示，防純曝光雜訊）
 
-    Phase 2 (#2)：ReadHits 降為純曝光、退出晉升路徑後，UPS 注入提示改由本函式驅動。
+    ReadHits 為純曝光、不參與晉升，UPS 注入提示改由本函式驅動。
     SYNC: usefulness_promote_eligible（'eligible' 與其同義）、server.js usefulnessStats。
     """
     st = usefulness_stats(access, z=z)

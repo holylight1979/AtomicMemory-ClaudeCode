@@ -11,13 +11,13 @@ Schema:
 
 write_raw / write_index_full 額外參數：caller 端傳 file_path (str)、content (str)。
 
-build / append（2026-06-12 parity 方案 B）：server.js toolAtomWrite 的內容構造
+build / append：server.js toolAtomWrite 的內容構造
 與 append 拼接統一走 py 單一實作（js buildAtomContent / 自拼 splice 退役為
 test_13 parity fixture）：
   build:  build_atom_content kwargs → {ok, extra: {content}}（含 validate，不落檔）
   append: {file_path, knowledge, source} → 拼接+validate+write_raw 落檔
 
-Wave 2 移除：update_atom_field action（計數類欄位改走 lib/atom_access.py CLI
+update_atom_field action 已移除（計數類欄位改走 lib/atom_access.py CLI
 入口 `python -m lib.atom_access ...`，不再透過此 bridge）。
 """
 

@@ -188,7 +188,7 @@ def test_07_append_mode(isolated_claude):
     access_path = file_path.with_suffix(".access.json")
     before = file_path.read_text(encoding="utf-8")
     assert "- original-fact" in before
-    # Wave 2: Last-used 不在 .md，在 access.json
+    # Last-used 不在 .md，在 access.json
     assert "- Last-used:" not in before
     import json as _json
     acc_before = _json.loads(access_path.read_text(encoding="utf-8"))
@@ -204,7 +204,7 @@ def test_07_append_mode(isolated_claude):
     assert "- original-fact" in after  # preserved
     assert "- new-fact-1" in after
     assert "- new-fact-2" in after
-    # Wave 2: append 後 last_used 在 access.json 被刷新
+    # append 後 last_used 在 access.json 被刷新
     acc_after = _json.loads(access_path.read_text(encoding="utf-8"))
     assert acc_after["last_used"] == FIXED_TODAY
     # appended knowledge must be before ## 行動
@@ -221,7 +221,7 @@ def test_08_replace_preserves_counters(isolated_claude):
         author="orig-author",
         mode="create", source="test", skip_gate=True, today="2026-05-01",
     )
-    # Wave 2: 計數在 access.json，模擬 post-write 演進
+    # 計數在 access.json，模擬 post-write 演進
     fp = initial.path
     from lib.atom_access import write_access_field
     write_access_field(fp, field="confirmations", value=7, source="test")
@@ -235,7 +235,7 @@ def test_08_replace_preserves_counters(isolated_claude):
     )
     assert result.ok, result.error
     after = fp.read_text(encoding="utf-8")
-    # Wave 2: 計數在 access.json，replace 不重建（檔本就分離）
+    # 計數在 access.json，replace 不重建（檔本就分離）
     import json as _json
     acc = _json.loads(fp.with_suffix(".access.json").read_text(encoding="utf-8"))
     assert acc["confirmations"] == 7  # preserved

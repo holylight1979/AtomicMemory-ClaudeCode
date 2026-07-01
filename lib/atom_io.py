@@ -45,14 +45,14 @@ AUDIT_LOG = GLOBAL_MEMORY_DIR / "_meta" / "atom_io_audit.jsonl"
 # 接受的 source（供 audit 反查；未列舉值 → write_raw 回 WriteResult(ok=False, error="invalid source")、不 raise，呼叫端必檢查 .ok）
 VALID_SOURCES = frozenset({
     "mcp",
-    "hook:atom-inject",  # Wave 2: workflow-guardian.py 注入 atom 時走 atom_access
+    "hook:atom-inject",  # workflow-guardian.py 注入 atom 時走 atom_access
     "hook:episodic",
     "hook:episodic-confirm",  # wg_episodic L367 cross-session 加計
     "hook:user-extract",
     "hook:extract-worker",
     "tool:atom-move",
     "tool:atom-set-realm",  # V5+ Realm 維度：core⇄local 範疇搬移（_AIDocs/_atoms/ path 唯一寫者）
-    "tool:atom-health-audit",  # Wave 3: atom 體質審視工具
+    "tool:atom-health-audit",  # atom 體質審視工具
     "tool:atom-heal",  # 記憶自癒（腦內世界 P3）：機械修反向連結 / LLM 提案修死連結
     "tool:changelog-roll",
     "tool:memory-audit",  # memory-audit demote/compact/log_evolution 修補
@@ -268,7 +268,7 @@ def _resolve_target(
 
 
 def _resolve_index_path(mem_dir: Path) -> Path:
-    """V3.2: 優先 _ATOM_INDEX.md，否則 MEMORY.md（對拍 server.js:827）。"""
+    """優先 _ATOM_INDEX.md，否則 MEMORY.md（對拍 server.js:827）。"""
     atom_idx = mem_dir / ATOM_INDEX
     if atom_idx.exists():
         return atom_idx
@@ -424,7 +424,7 @@ def _build_append_content(existing: str, knowledge: List[str]) -> str:
     """把 knowledge 渲染後插入 ## 行動 之前（block-aware）。
 
     write_atom(mode=append) 與 append_atom_file 共用的唯一拼接實作
-    （2026-06-12 parity 方案 B：server.js append 改 spawn CLI 走此處，
+    （server.js append 改 spawn CLI 走此處，
     消滅 js 自拼 readFileSync+`\\n` 的 CRLF 混寫面）。
     caller 須先確認 "## 行動" 存在。
     """
@@ -548,7 +548,7 @@ def edit_metadata(
     return write_raw(Path(file_path), new_text, source=source, op="meta-edit")
 
 
-# Wave 2 移除：update_atom_field
+# update_atom_field 已移除
 # ----------------------------
 # 計數類欄位（ReadHits / Confirmations / Last-used）已移到 <atom>.access.json
 # 旁路檔，由 lib/atom_access.py 統一管理。任何過去呼叫 update_atom_field 的位置：
@@ -651,10 +651,10 @@ def write_atom(
         if action_idx < 0:
             return WriteResult(ok=False, audit_id=audit_id,
                                error=f"Atom {slug}.md has no ## 行動 section")
-        # Wave 2: Last-used 不再寫 .md；append 後由下方 atom_access.write_access_field 刷
+        # Last-used 不再寫 .md；append 後由下方 atom_access.write_access_field 刷
         content = _build_append_content(existing, knowledge)
     elif mode == "replace":
-        # Wave 2: Confirmations/ReadHits 在 access.json，replace 不需保留（檔本就分離）
+        # Confirmations/ReadHits 在 access.json，replace 不需保留（檔本就分離）
         # Author/Created-at 仍從舊 atom .md 抽（屬知識性 metadata）
         prev_author = author
         prev_created = today or datetime.now(timezone.utc).date().isoformat()
@@ -691,7 +691,7 @@ def write_atom(
     # ── Write file ──
     _atomic_write(file_path, content)
 
-    # ── Wave 2: 同步維護 <atom>.access.json 旁路檔 ──
+    # ── 同步維護 <atom>.access.json 旁路檔 ──
     # 延遲 import 避免 atom_io ↔ atom_access 環依（atom_access import atom_io 的 audit infra）
     today_str = today or datetime.now(timezone.utc).date().isoformat()
     try:

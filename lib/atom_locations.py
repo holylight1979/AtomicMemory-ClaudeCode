@@ -218,7 +218,7 @@ def classify_realm(name: str, triggers: Optional[Iterable[str]] = None,
     # 韓文亂碼實案）：任一段非法 → 降 fail-safe Else。MIRROR: server.js:classifyRealm。
     if any(not _clean_segment(s) for s in best_dom.split("/") if s.strip()):
         best_dom = LOCAL_REALM_DEFAULT_DOMAIN
-    # matched 攤平回扁平去重排序集（與重構前 sorted(set(...)) byte-equal；test_17 比 matched）
+    # matched 攤平回扁平去重排序集（test_17 比 matched）
     matched = sorted({t for terms in matched_by.values() for t in terms})
     return {
         "realm": "local", "domain": best_dom,
