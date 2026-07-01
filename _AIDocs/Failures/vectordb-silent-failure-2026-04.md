@@ -65,3 +65,19 @@ bg subprocess `stdout/stderr` 都導向 DEVNULL → 啟動失敗無痕跡，連 
 
 - 議題 #2（根因深挖）：本次已部分回答（路徑寫死 = 重構漏改、12 天無人察覺 = silent failure 本就不可見）。剩餘：git log 找出哪個 commit 引入路徑寫死。
 - 議題 #6（新增）：ranked search min_score 偏寬鬆 + service.py 查詢字串寫 stderr 兩個 follow-up，待另開 session 處理。
+
+## 2026-07-01 P1 後複測（Vector daemon @ 3849 去留驗證）
+
+P1（commit `fbc7069`「vector 復活+告警」）後，複測 `Logs/vector-observation.log`（累積 1118 筆，2026-04-28 → 07-01；排除 1 筆 smoke_test）以定 daemon 去留。門檻沿用 Wave 3b：REVIVE ≥ 50% / RETIRE ≤ 5%。
+
+| 分段 | ready 命中率 | flag_state 分佈 | error |
+|------|-------------|----------------|-------|
+| 全體（排 smoke） | **87.4%**（534/611） | ready 611 / no_flag 380 / error 127 | 127（全在 P1 前） |
+| P1 後真實 session（n=31） | **88.9%**（16/18） | ready 18 / no_flag 13 | 0 |
+
+- **判定 KEEP**（維持 Wave 3b REVIVE）：命中率 87–89%，遠超 ≥50% 門檻。砍 daemon 會讓 ~87% 語意命中掉回純 keyword，不符「無效果才砍」條件。
+- P1 後 `error` 歸零（P1 前 127）→ health-gate + 路徑修復（Wave 3a）生效驗證。
+- `no_flag`（P1 後 42%、近 60 筆 70%）＝ **fire-and-forget 冷啟動假象**：session 首幾筆搜尋在 health-gate 寫 `vector_ready.flag` 前先跑 → keyword fallback（典型：session `68f23dc5` 先 7 筆 no_flag 後轉 7 筆 ready）。非命中品質問題，**不影響去留**；縮短冷啟動屬另議 follow-up（見下）。
+- **複測法（工具已汰除，改 ad-hoc 可複現）**：讀 JSONL log → 按 `flag_state` 分組 → 命中率 = `ready 且 result_count>0` ÷ `ready 總數`。schema 見 §Wave 3a-3。此為 snapshot；「非一次性」——日常真實 session 持續累積，若未來 ready 命中率跌破 50% 再評估砍。
+- **修正紀錄**：續接 prompt 引「歷史 51%」查無來源；codebase 實測歷史與當前皆 ~87%，據此校正。
+- **follow-up（不影響去留）**：冷啟動 no_flag 期較長 → 可評估 SessionStart 同步等 health 或前次 PID 復用（與議題 #6 併觀）。

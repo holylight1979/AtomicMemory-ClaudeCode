@@ -131,7 +131,7 @@ V5 Wave 4 P5b 拆掉 Codex Companion daemon @ 3850，但 Vector daemon @ 3849 �
 
 - BM25 dict 全在 hook process 記憶體，每次 UPS 重建（17 atoms × 幾百 tokens 規模 <5ms）。如全域 atom 規模成長到 100+，可考慮 cache 到 `workflow/bm25_index.json`。
 - Stale chunk 清理已加：`tools/memory-vector-service/indexer.py --cleanup-stale`（atom 被 supersede/archive → 自動 evict 對應 chunk）。
-- 觀察 log：`Logs/vector-observation.log` 仍記錄 BM25 vs Vector fallback 統計，由 `tools/vector-observation-summary.py` 聚合。
+- 觀察 log：`Logs/vector-observation.log` 仍記錄 BM25 vs Vector fallback 統計（JSONL，schema 見 `Failures/vectordb-silent-failure-2026-04.md` §Wave 3a）。聚合工具 `vector-observation-summary.py` 已於 `d76bba1`（Wave 5 汰舊）移除 → 改 ad-hoc 讀 log 聚合；最新複測（2026-07-01 P1 後，命中率 87–89% → daemon KEEP）見同文件 §2026-07-01。
 
 ---
 
