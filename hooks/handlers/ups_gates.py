@@ -135,7 +135,7 @@ def run_pre_gates(
             "[Atom-Write Guard] 偵測到記憶寫入意圖。硬規則："
             "(1) 新 atom 一律 [臨]，MCP atom_write 會 reject [固]/[觀]；"
             "(2) 單次成功 ≠ 穩定模式，需 4+ session 命中才建議晉升；"
-            "(3) 晉升走 atom_promote（雙軌：Primary Confirmations ≥4→[觀]/≥10→[固]；Auxiliary ReadHits ≥20→[觀]/≥50→[固] 但需 Confirmations ≥1，純注入次數不單獨晉升），不手動改 frontmatter；"
+            "(3) 晉升走 atom_promote（Confirmations ≥4→[觀]/≥10→[固] 主軌，或效用 Wilson 下界 ≥0.6 且 n≥3；ReadHits 已退出晉升、僅純曝光計數），不手動改 frontmatter；"
             "(4) 若是更新既有 atom，用 mode=append 並保留原 confidence。"
         )
 

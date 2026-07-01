@@ -7,6 +7,7 @@ Claude Code hooks 的統一入口，從 stdin 讀取 JSON，根據 hook_event_na
 V5 設計：純路由 + main entry，無業務邏輯。所有 handler 在 handlers/。
 """
 
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -18,29 +19,21 @@ from wg_core import (
     WORKFLOW_DIR, load_config,
     _atom_debug_error,
 )
-from handlers import (
-    handle_session_start,
-    handle_user_prompt_submit,
-    handle_pre_tool_use,
-    handle_post_tool_use,
-    handle_pre_compact,
-    handle_post_compact,
-    handle_post_tool_batch,
-    handle_stop,
-    handle_session_end,
-)
 
-
+# 2026-07-01 惰性 import：event → (module, func)，只在該 event 觸發時 importlib 載入
+# 對應 handler module，省下每次 hook（含最高頻 PostToolBatch/PreToolUse）付全量
+# 9-handler import 傳遞稅（實測 ~520-639ms → ~120ms）。handlers/__init__.py 的
+# __getattr__ 保 `from handlers import handle_X` 舊用法仍可用但同樣惰性。
 HANDLERS = {
-    "SessionStart": handle_session_start,
-    "UserPromptSubmit": handle_user_prompt_submit,
-    "PreToolUse": handle_pre_tool_use,
-    "PostToolUse": handle_post_tool_use,
-    "PreCompact": handle_pre_compact,
-    "PostCompact": handle_post_compact,        # 選配 #4：壓縮後復原 stash
-    "PostToolBatch": handle_post_tool_batch,   # 選配 #4：一次性重注入
-    "Stop": handle_stop,
-    "SessionEnd": handle_session_end,
+    "SessionStart": ("handlers.session_start", "handle_session_start"),
+    "UserPromptSubmit": ("handlers.user_prompt_submit", "handle_user_prompt_submit"),
+    "PreToolUse": ("handlers.pre_tool_use", "handle_pre_tool_use"),
+    "PostToolUse": ("handlers.post_tool_use", "handle_post_tool_use"),
+    "PreCompact": ("handlers.pre_compact", "handle_pre_compact"),
+    "PostCompact": ("handlers.post_compact", "handle_post_compact"),        # 選配 #4
+    "PostToolBatch": ("handlers.post_tool_batch", "handle_post_tool_batch"),  # 選配 #4
+    "Stop": ("handlers.stop", "handle_stop"),
+    "SessionEnd": ("handlers.session_end", "handle_session_end"),
 }
 
 
@@ -63,10 +56,11 @@ def main():
         sys.exit(0)
 
     event = input_data.get("hook_event_name", "")
-    handler = HANDLERS.get(event)
-    if handler:
+    spec = HANDLERS.get(event)
+    if spec:
         try:
-            handler(input_data, config)
+            module = importlib.import_module(spec[0])
+            getattr(module, spec[1])(input_data, config)
         except Exception as e:
             print(f"[workflow-guardian] Error in {event}: {e}", file=sys.stderr)
             _atom_debug_error(f"workflow-guardian:{event}", e)

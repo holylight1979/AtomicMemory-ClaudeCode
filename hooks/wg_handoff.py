@@ -69,21 +69,35 @@ def _bullets(items: List[Any], limit: int = 15, empty: str = "（無）") -> str
 
 def should_write_stub(
     staging_dir: Path, state: Dict[str, Any], stub_filename: str,
+    fresh_window_hours: float = 24.0,
 ) -> bool:
     """是否自動補 stub。
 
-    True 條件：有未完成工作（modified_files 非空）且 staging 無既有「手寫」
+    True 條件：有未完成工作（modified_files 非空）且 staging 無既有「新鮮的手寫」
     next-phase*.md（既有手寫 handoff 品質更佳，尊重不覆蓋；自身產出的 auto stub
     可被新 stub 更新，故排除自身檔名）。
+
+    2026-07-01 新鮮度窗：只尊重 mtime 在 fresh_window_hours（預設 24h）內的手寫檔。
+    逾期手寫檔＝陳舊 backlog（已完成/放棄的舊 phase），不再阻擋救生艇——否則抗失真
+    保底 Layer 2(PreCompact)/Layer 4(SessionEnd) 會被一個永遠躺在 staging 的老檔卡成
+    「實際是死的」（實測 staging 曾有兩個 5 月老檔把此層在 ~/.claude 環境卡死）。
     """
     if not (state.get("modified_files") or []):
         return False
+    import time
+    now = time.time()
     try:
         if staging_dir.exists():
             for f in staging_dir.glob("next-phase*.md"):
                 if f.name == stub_filename:
                     continue  # 自身 auto stub，可更新
-                return False   # 有手寫 handoff → 尊重之
+                try:
+                    age_h = (now - f.stat().st_mtime) / 3600.0
+                except OSError:
+                    age_h = 0.0
+                if age_h <= fresh_window_hours:
+                    return False   # 有「新鮮」手寫 handoff → 尊重不覆蓋
+                # 逾期手寫檔（>fresh_window_hours）＝陳舊 backlog，不阻擋救生艇
     except OSError:
         pass
     return True

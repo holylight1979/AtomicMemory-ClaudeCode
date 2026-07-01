@@ -63,7 +63,11 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         print(f"[v3] SessionEnd cleanup error: {e}", file=sys.stderr)
 
     rc = config.get("response_capture", {})
-    if rc.get("enabled", True):
+    # 2026-07-01: session_end 全文萃取 worker 的唯一下游是 session_end_flush（2026-07-01 已停產）；
+    # gate 綁 flush.enabled，避免每次 SessionEnd 白燒本機 LLM 30-60s 產出被 DEVNULL 丟棄的結果。
+    # episodic 生成在本 handler 內（_generate_episodic_atom）、failure 萃取走獨立路徑，皆不受此 gate 影響。
+    _sef_enabled = rc.get("session_end_flush", {}).get("enabled", True)
+    if rc.get("enabled", True) and _sef_enabled:
         cwd = state.get("session", {}).get("cwd", "")
         tracker = state.get("topic_tracker", {})
         dist = tracker.get("intent_distribution", {})

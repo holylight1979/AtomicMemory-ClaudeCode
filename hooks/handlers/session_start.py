@@ -571,6 +571,26 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     except Exception as e:
         print(f"[mcp-health] Check error: {e}", file=sys.stderr)
 
+    # 2026-07-01 可觀測性：Vector 連續 3 session no_flag → 浮出告警（fail-open 的『不阻斷』
+    # 必須『告知』；對應本次 indexer.py sys.path 修復——避免服務再度靜默死 4 週沒人知）
+    try:
+        _probe_log = CLAUDE_DIR / "Logs" / "vector-observation-probe.log"
+        if _probe_log.exists():
+            _tail = _probe_log.read_text(encoding="utf-8", errors="ignore").splitlines()[-3:]
+            _recs = []
+            for _ln in _tail:
+                try:
+                    _recs.append(json.loads(_ln))
+                except Exception:
+                    pass
+            if len(_recs) >= 3 and all(r.get("flag_state") == "no_flag" for r in _recs):
+                lines.append(
+                    "[Guardian:Vector⚠] Vector 服務連續 3 session 未就緒（no_flag）——"
+                    "語意召回/episodic/衝突偵測可能靜默失效，請查 tools/memory-vector-service 或跑 /vector。"
+                )
+    except Exception:
+        pass
+
     write_state(session_id, state)
 
     try:
