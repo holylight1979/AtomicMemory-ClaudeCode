@@ -14,6 +14,7 @@
 - [臨] 診斷意外出現的 modified 檔：diff 內容判別是 (a) runtime hook 自動寫入（如 world.html 演化）還是 (b) 他 session 的手寫批次。若主題連貫、`run_verify` 通過＝完整的他 session 批次 → **留給其 owner session 自行 commit，不代刀**（他常會用自己的正確 message 落地，如實測 P8b 隔壁 P5 session 自行提交 6 檔）。
 - **Why:** 盲 `git add -A` 在併發共用工作樹下會跨批次污染——把不屬於本批、甚至你被明確交代不可編輯的檔（如 stop.py）併進 commit，事後難拆。
 - **How to apply:** 收尾三步——① `git status --porcelain` 核對；② 只 `git add` 本批宣告的檔；③ commit 後再 `git status` 確認殘留檔恰為「非本批、他 session 的」，於收尾報告通報，不擅動。
+- [臨] 反向診斷（上面從「我掃走他人檔」角度寫，這裡是反方向）：他 session 的 `git add -A` 也會把**我未 commit 的編輯**掃進他的 commit → 我那筆改動 `git status`、`git diff HEAD` 皆空（working==HEAD）。若「我明明改了卻不顯示」，先 `git show HEAD:<檔>` 查是否已被平行 commit 吃掉，**別當編輯遺失或自己幻覺**。實例：2026-07-01 P5 批我改的 `workflow/config.json` `_doc` 被隰壁 `f12e0c8`（lang-guard P8b）掃走；同時 `run_verify` 695→710 也是平行 session 加的測試。
 
 ## 行動
 

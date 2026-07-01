@@ -22,6 +22,7 @@
 ### Fix Escalation
 - [固] 同一問題修正第 2 次起 → 6 Agent 精確修正會議
 - [固] Guardian 自動偵測 retry_count ≥ 2 → 注入信號
+- [固] 治理原則（Native-first + 可觀測性鐵律）：完整條文在 `rules/core.md`「治理原則」段（每 session 必載・SoT）——原生機制（CLAUDE.md/skills/memory/resume）優先、自製只做原生做不到的「結構化·可稽核·跨-session 高價值」，不為想像需求長枝葉；fail-open 必「不阻斷但要告知」（vector 靜默死 27d 為反例·已修）。此為指標，SoT 在 core.md。
 
 ## 行動
 
