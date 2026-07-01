@@ -189,6 +189,12 @@
     },
     "block_template": "Codex Companion 軟閘：偵測到高風險缺漏。\n{detail}\n請補充驗證或修正後再收尾。"
   },
+  "lang_guard": {
+    "_doc": "P8b 英文回應漂移攔截（hooks/lang_guard.py，standalone Stop hook）。量測 assistant 終版訊息英文語言字元佔比（先剝 code fence/inline/URL/link 目標，政策B只管 user-facing 對話輸出），超門檻→systemMessage 提醒繁中（可見+注入下一輪，模型自我修正）。stateless 每輪自校正、無 flag。一鍵關=enabled:false；english_ratio_threshold=英文佔比門檻(0~1，英文字母/(英文字母+CJK))；min_lang_chars=低於此語言字元數不判(濾短訊如 Done.)。",
+    "enabled": true,
+    "english_ratio_threshold": 0.5,
+    "min_lang_chars": 40
+  },
   "docdrift": {
     "enabled": true,
     "path_mappings": {
@@ -254,7 +260,7 @@
     "stub_filename": "next-phase-auto.md"
   },
   "deep_postmortem": {
-    "_doc": "Stage 3：高 effort 失敗（wisdom_retry_count>=2 / fix_escalation_triggered，AND 真失敗訊號 failing_tests/evasion/未宣告完成）時，Stop gate 注入指令要 Claude 用 atom_write 補完整 post-mortem（始末/根因/設計原理/運作邏輯/防再犯）。effort 只採 retry/fix_esc（均於 track_retry 層 error-gate，僅測試/lint 失敗未解時才計），不採同檔 edit 次數。deep_postmortem_done 一次性、共用 stop_gate_max_blocks 預算。enabled=false 一鍵關。",
+    "_doc": "Stage 3：高 effort 失敗（wisdom_retry_count>=2 / fix_escalation_triggered，AND 真失敗訊號 failing_tests/evasion/未宣告完成）時，Stop gate 注入指令要 Claude 用 atom_write 補完整 post-mortem（始末/根因/設計原理/運作邏輯/防再犯）。effort 只採 retry/fix_esc（均於 track_retry 層 error-gate，僅測試/lint 失敗未解時才計），不採同檔 edit 次數。deep_postmortem_done 一次性即獨立預算＝1，不共用 stop_gate_max_blocks（曾共用會被 Sync+TestFail 吃光預算而餓死）。enabled=false 一鍵關。",
     "enabled": true
   },
   "guard": {
