@@ -386,12 +386,12 @@ def _check_cross_session_patterns(
             })
 
             print(
-                f"[v2.11] Cross-session: \"{content[:40]}...\" → {action}",
+                f"Cross-session: \"{content[:40]}...\" → {action}",
                 file=sys.stderr,
             )
 
         except Exception as e:
-            print(f"[v2.4] Cross-session check error: {e}", file=sys.stderr)
+            print(f"Cross-session check error: {e}", file=sys.stderr)
             continue
 
     return observations
@@ -475,7 +475,7 @@ def _detect_atom_conflicts(
                 })
 
         except Exception as e:
-            print(f"[v2.11] Conflict detection error: {e}", file=sys.stderr)
+            print(f"Conflict detection error: {e}", file=sys.stderr)
             continue
 
     return conflicts

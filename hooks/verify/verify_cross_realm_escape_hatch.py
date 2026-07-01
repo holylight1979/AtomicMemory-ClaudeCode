@@ -1,7 +1,7 @@
 """verify_cross_realm_escape_hatch.py — 跨 realm 逃逸閘守門（INV-CROSS-REALM-ESCAPE-HATCH）.
 
 專案分類層無保護（TaxonomyStrategy protection 永 null）→ 逃進專案的核心跨專案規則 atom
-（feedback-/atom-/decisions/workflow-…）會被歸進業務夾固化（如 SGI _unclassified 躺 feedback-*）。
+（feedback-/atom-/decisions/workflow-…）會被歸進業務夾固化（如 _unclassified 躺 feedback-*）。
 修：分類『前』置跨 realm 邊界守，命中核心 PROTECTED → 送人工 /refile 而非業務夾。本守門驗：
 
 1. is_core_protected_name 單一來源正確（EXACT + PREFIXES 命中、業務 atom 不誤命中）。

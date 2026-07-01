@@ -158,7 +158,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 return
         except Exception as e:
             try:
-                sys.stderr.write(f"[phase1] sub-agent inject error: {e}\n")
+                sys.stderr.write(f"sub-agent inject error: {e}\n")
             except OSError:
                 pass
         output_nothing()

@@ -226,7 +226,7 @@ def _maybe_spawn_per_turn_extraction(
         state["last_per_turn_extraction_at"] = _now_iso()
         write_state(session_id, state)
         print(
-            f"[v2.12] per-turn extract-worker spawned (pid={pid}, offset={prev_offset}, new_chars={new_chars})",
+            f"per-turn extract-worker spawned (pid={pid}, offset={prev_offset}, new_chars={new_chars})",
             file=sys.stderr,
         )
 

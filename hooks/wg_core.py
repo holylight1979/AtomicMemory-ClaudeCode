@@ -979,7 +979,7 @@ def check_svn_test_block(
 # ─── Cross-Realm Write Guard ──────────────
 # 守門對象：~/.claude 核心層（skills/tools/hooks/lib/rules 子目錄 + 根層敏感檔
 # settings.json/CLAUDE.md/IDENTITY*.md/USER*.md）+ Bash `claude mcp add/remove`
-# 全域 scope 操作。判別子＝session cwd：外部專案 session → deny（SGI 跨層污染
+# 全域 scope 操作。判別子＝session cwd：外部專案 session → deny（跨層污染
 # 教訓）；~/.claude 自身的開發 session 完全不受影響。deterministic、零 LLM。
 
 _CORE_GUARDED_SUBDIRS = ("skills", "tools", "hooks", "lib", "rules")

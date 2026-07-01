@@ -140,7 +140,7 @@ def _regenerate_role_filtered_memory_index(
     try:
         target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     except OSError as e:
-        _atom_debug_error("V4:regenerate_memory_md", e)
+        _atom_debug_error("regenerate_memory_md", e)
 
 
 def _count_pending_review(project_mem_dir: Optional[Path]) -> int:
@@ -298,7 +298,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             if project_mem_dir:
                 v4_entries = _collect_v4_role_atoms(project_mem_dir, v4_user, v4_roles)
         except Exception as e:
-            _atom_debug_error("V4:role_bootstrap", e)
+            _atom_debug_error("role_bootstrap", e)
 
         state["user_identity"] = {
             "user": v4_user,
@@ -449,7 +449,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                         f"昨日新增 {v41_count} 條自動萃取 atom，/memory-peek 檢視"
                     )
             except Exception as e:
-                _atom_debug_error("V4.1:daily_push", e)
+                _atom_debug_error("daily_push", e)
 
         max_entries = config.get("aidocs", {}).get("max_session_start_entries", 15)
         if aidocs_entries:
@@ -528,28 +528,28 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             lines.append(review_reminder)
             state["review_due"] = True
     except Exception as e:
-        print(f"[v2.6] Review check error: {e}", file=sys.stderr)
+        print(f"Review check error: {e}", file=sys.stderr)
 
     try:
         osc_warning = _load_oscillation_warnings()
         if osc_warning:
             lines.append(osc_warning)
     except Exception as e:
-        print(f"[v2.16] Oscillation load error: {e}", file=sys.stderr)
+        print(f"Oscillation load error: {e}", file=sys.stderr)
 
     try:
         rut_warning = _detect_rut_patterns(state, config)
         if rut_warning:
             lines.append(rut_warning)
     except Exception as e:
-        print(f"[v2.17] Rut detection error: {e}", file=sys.stderr)
+        print(f"Rut detection error: {e}", file=sys.stderr)
 
     if WISDOM_AVAILABLE:
         try:
             wisdom_lines = get_reflection_summary()
             lines.extend(wisdom_lines)
         except Exception as e:
-            print(f"[v2.8] Wisdom reflection error: {e}", file=sys.stderr)
+            print(f"Wisdom reflection error: {e}", file=sys.stderr)
 
     try:
         long_die = check_long_die_status()
@@ -596,7 +596,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     try:
         _cleanup_old_states()
     except Exception as e:
-        print(f"[v3] SessionStart cleanup error: {e}", file=sys.stderr)
+        print(f"SessionStart cleanup error: {e}", file=sys.stderr)
 
     try:
         (WORKFLOW_DIR / "vector_ready.flag").unlink(missing_ok=True)

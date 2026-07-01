@@ -210,7 +210,7 @@ def _attribute_usefulness(
             })
             state["usefulness_log"] = state["usefulness_log"][-50:]
     except Exception as e:
-        print(f"[phase2] usefulness attribution error: {e}", file=sys.stderr)
+        print(f"usefulness attribution error: {e}", file=sys.stderr)
 
 
 # ─── Stage 3: Deep Post-Mortem Gate（高 effort 失敗 → Claude 深寫指令）──────────

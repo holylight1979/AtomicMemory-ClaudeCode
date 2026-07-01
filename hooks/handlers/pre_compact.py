@@ -31,9 +31,9 @@ def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
                 result = _generate_episodic_atom(session_id, state, config)
                 if result:
                     state["episodic_checkpoint_done"] = True
-                    print(f"[v2.22] episodic checkpoint: {result}", file=sys.stderr)
+                    print(f"episodic checkpoint: {result}", file=sys.stderr)
             except Exception as e:
-                print(f"[v2.22] episodic checkpoint failed: {e}", file=sys.stderr)
+                print(f"episodic checkpoint failed: {e}", file=sys.stderr)
 
     # ── Layer 2: Auto-Handoff stub（壓縮前自動備六區塊交接，核心保底）──
     # 壓縮真的發生 = 最可靠信號，不依賴 token 量測。客觀區塊自動填、主觀區塊留 TODO，

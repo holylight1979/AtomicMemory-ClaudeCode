@@ -68,7 +68,7 @@ def run_pre_gates(
                 if len(pending) > 10:
                     state["pending_user_extract"] = pending[-10:]
         except Exception as e:
-            _atom_debug_error("V4.1:user_extract_gate", e)
+            _atom_debug_error("user_extract_gate", e)
 
     # ─── Confirmed extractions ──
     confirmed = state.get("confirmed_extractions", [])

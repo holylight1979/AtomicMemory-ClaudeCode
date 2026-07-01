@@ -32,7 +32,7 @@ _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 def _git(args: List[str], cwd: str, timeout: float = 1.5) -> str:
     """跑 git 子程序，fail-open 回空字串（git 不存在 / 非 repo / 逾時）。
-    creationflags=_NO_WINDOW 防 Windows 閃 console（覆轍 commit 1d73e55）。"""
+    creationflags=_NO_WINDOW 防 Windows 閃 console（覆轍）。"""
     if not cwd:
         return ""
     try:
@@ -77,7 +77,7 @@ def should_write_stub(
     next-phase*.md（既有手寫 handoff 品質更佳，尊重不覆蓋；自身產出的 auto stub
     可被新 stub 更新，故排除自身檔名）。
 
-    2026-07-01 新鮮度窗：只尊重 mtime 在 fresh_window_hours（預設 24h）內的手寫檔。
+    新鮮度窗：只尊重 mtime 在 fresh_window_hours（預設 24h）內的手寫檔。
     逾期手寫檔＝陳舊 backlog（已完成/放棄的舊 phase），不再阻擋救生艇——否則抗失真
     保底 Layer 2(PreCompact)/Layer 4(SessionEnd) 會被一個永遠躺在 staging 的老檔卡成
     「實際是死的」（實測 staging 曾有兩個 5 月老檔把此層在 ~/.claude 環境卡死）。

@@ -245,11 +245,11 @@ def _maybe_spawn_user_extract_worker(
         _set_lease(state, "user_extract_worker_pid", proc.pid)
         write_state(session_id, state)
         print(
-            f"[v4.1] user-extract-worker spawned (pid={proc.pid}, "
+            f"user-extract-worker spawned (pid={proc.pid}, "
             f"pending={len(pending)})",
             file=sys.stderr,
         )
         return True
     except Exception as e:
-        _atom_debug_error("V4.1:spawn_user_extract_worker", e)
+        _atom_debug_error("spawn_user_extract_worker", e)
         return False

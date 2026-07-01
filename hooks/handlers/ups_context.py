@@ -1,7 +1,7 @@
 """
 handlers/ups_context.py — UserPromptSubmit context build 段
 
-從 user_prompt_submit.py 拆出（2026-06-12 複雜度熱點重構）。
+從 user_prompt_submit.py 拆出（複雜度熱點重構）。
 職責：atom 注入前的場景脈絡建構：
 - session context（first prompt only：episodic 搜尋 + proactive classification）
 - wisdom engine situation classification
@@ -118,7 +118,7 @@ def build_context(
             if rank.get(cur, 0) > rank.get(prev, 0):
                 state["wisdom_approach"] = cur
         except Exception as e:
-            print(f"[v2.8] Wisdom prompt error: {e}", file=sys.stderr)
+            print(f"Wisdom prompt error: {e}", file=sys.stderr)
 
     # ─── Parallel Agent Suggestion ─────────────────
     try:

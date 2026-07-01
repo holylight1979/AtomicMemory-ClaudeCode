@@ -391,7 +391,7 @@ def run_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     plan_items = [it for it in items if classify_extracted_item(it) == "plan"]
     items = [it for it in items if classify_extracted_item(it) != "plan"]
     if plan_items:
-        print(f"[v2.22] Filtered {len(plan_items)} plan-type items from extraction", file=sys.stderr)
+        print(f"Filtered {len(plan_items)} plan-type items from extraction", file=sys.stderr)
     if not items and not is_failure:
         return _empty_result()
 

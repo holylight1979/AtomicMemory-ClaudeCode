@@ -180,7 +180,7 @@ def prune_committed_entries(state: dict, config: dict) -> int:
         src_norm = _normalize(pending[k]["source"])
         if src_norm not in dirty:
             del pending[k]
-            print(f"[v3.3] DocDrift auto-pruned (not dirty): {k}", file=sys.stderr)
+            print(f"DocDrift auto-pruned (not dirty): {k}", file=sys.stderr)
             pruned += 1
     return pruned
 
@@ -213,7 +213,7 @@ def check_source_drift(file_path: str, state: dict, config: dict) -> None:
                 "doc": doc,
                 "added_at": _now_iso(),
             }
-            print(f"[v3.3] DocDrift: {rel} \u2192 {doc}", file=sys.stderr)
+            print(f"DocDrift: {rel} \u2192 {doc}", file=sys.stderr)
 
 
 def resolve_doc_update(file_path: str, state: dict, config: dict) -> None:
@@ -238,7 +238,7 @@ def resolve_doc_update(file_path: str, state: dict, config: dict) -> None:
     ]
     for k in keys_to_remove:
         del pending[k]
-        print(f"[v3.3] DocDrift resolved: {k}", file=sys.stderr)
+        print(f"DocDrift resolved: {k}", file=sys.stderr)
 
 
 def build_drift_advisory(state: dict, config: dict) -> Optional[str]:

@@ -1602,7 +1602,7 @@ def _is_unconfirmed_autocapture(entry: Dict[str, Any]) -> bool:
     """index entry 是否為『未確認的 auto-capture 萃取碎片』→ drift sweep defer（不搬、不喚 LLM 學詞）。
 
     auto-captured 碎片本是未經人確認的 [臨] 萃取，sweep 卻當穩定 core atom
-    處理 → LLM 對其吐專案/標籤詞污染學習詞庫（SGI 外部專案知識被搬進根層 _atoms/、碎片被塞進
+    處理 → LLM 對其吐專案/標籤詞污染學習詞庫（外部專案知識被搬進根層 _atoms/、碎片被塞進
     名為 "auto-capture" 的葉夾即此）。整體 defer 斷源頭，待人工確認 / 晉升（[臨]→[觀]）後才正常
     sweep 歸檔。
 

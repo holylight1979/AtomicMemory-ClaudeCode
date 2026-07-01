@@ -20,7 +20,7 @@ from wg_core import (
     _atom_debug_error,
 )
 
-# 2026-07-01 惰性 import：event → (module, func)，只在該 event 觸發時 importlib 載入
+# 惰性 import：event → (module, func)，只在該 event 觸發時 importlib 載入
 # 對應 handler module，省下每次 hook（含最高頻 PostToolBatch/PreToolUse）付全量
 # 9-handler import 傳遞稅（實測 ~520-639ms → ~120ms）。handlers/__init__.py 的
 # __getattr__ 保 `from handlers import handle_X` 舊用法仍可用但同樣惰性。

@@ -182,7 +182,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             if _record_subagent_injection(state, input_data):
                 write_state(session_id, state)
         except Exception as e:
-            print(f"[phase1] sub-agent inject record error: {e}", file=sys.stderr)
+            print(f"sub-agent inject record error: {e}", file=sys.stderr)
 
     if tool_name in ("Edit", "Write") and file_path:
         _maybe_auto_roll_changelog(file_path, config)
@@ -207,7 +207,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             try:
                 wisdom_track_retry(state, file_path)
             except Exception as e:
-                print(f"[v2.8] Wisdom retry track error: {e}", file=sys.stderr)
+                print(f"Wisdom retry track error: {e}", file=sys.stderr)
 
         try:
             qf = _check_output_quality(file_path, session_id, config)
@@ -216,12 +216,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     "rewritten_files", []
                 ).append(qf)
                 print(
-                    f"[v2.7] Quality feedback: {file_path} was also modified "
+                    f"Quality feedback: {file_path} was also modified "
                     f"in session {qf['original_session']}",
                     file=sys.stderr,
                 )
         except Exception as e:
-            print(f"[v2.7] Quality check error: {e}", file=sys.stderr)
+            print(f"Quality check error: {e}", file=sys.stderr)
 
         write_state(session_id, state)
 
@@ -238,7 +238,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     f"建議重新命名：mv → next-phase.md"
                 )
                 print(
-                    f"[v2.16] Staging name gate: {staging_fname}", file=sys.stderr
+                    f"Staging name gate: {staging_fname}", file=sys.stderr
                 )
 
         _claude_projects_pat = "/.claude/projects/"
@@ -261,7 +261,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                         f"請立即搬移檔案並刪除錯誤路徑的副本。"
                     )
                     print(
-                        f"[v2.22] Path enforcement BLOCKED: {normalized} → should be {_correct_base}{_rel_part}",
+                        f"Path enforcement BLOCKED: {normalized} → should be {_correct_base}{_rel_part}",
                         file=sys.stderr,
                     )
 
@@ -273,7 +273,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     f"建議放 memory/_staging/ 而非 _AIDocs/。"
                     f"判斷基準：實作完成後是否仍有長期參考價值？"
                 )
-                print(f"[v2.15] AIDocs gate triggered: {fname}", file=sys.stderr)
+                print(f"AIDocs gate triggered: {fname}", file=sys.stderr)
 
         if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
             try:
@@ -283,7 +283,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     check_source_drift(file_path, state, config)
                 write_state(session_id, state)
             except Exception as e:
-                print(f"[v3.3] DocDrift error: {e}", file=sys.stderr)
+                print(f"DocDrift error: {e}", file=sys.stderr)
 
     elif tool_name == "Read" and file_path:
         accessed = state.setdefault("accessed_files", [])
