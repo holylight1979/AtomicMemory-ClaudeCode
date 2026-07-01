@@ -1,7 +1,7 @@
 # Internal Pipeline Reference
 
 > 記憶系統內部管線技術細節。JIT 按需注入，僅在記憶系統開發場景載入。
-> 來源：decisions.md + decisions-architecture.md（V3.1 Phase 3 移出）
+> 來源：decisions.md + decisions-architecture.md
 
 ## 記憶檢索管線
 

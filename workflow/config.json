@@ -259,7 +259,7 @@
   },
   "guard": {
     "cross_realm_write": {
-      "_doc": "方案甲（2026-06-12）：外部專案 session（cwd∉~/.claude）寫入核心層 ~/.claude/{skills,tools,hooks,lib,rules}/ → PreToolUse deny。核心開發 session 不受影響。allowlist 為路徑子字串白名單。",
+      "_doc": "外部專案 session（cwd∉~/.claude）寫入核心層 ~/.claude/{skills,tools,hooks,lib,rules}/ → PreToolUse deny。核心開發 session 不受影響。allowlist 為路徑子字串白名單。",
       "enabled": true,
       "allowlist": []
     }

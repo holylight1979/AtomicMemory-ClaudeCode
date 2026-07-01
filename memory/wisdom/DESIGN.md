@@ -1,11 +1,11 @@
-# Wisdom Engine 設計文件（V2.12）
+# Wisdom Engine 設計文件
 
 - Scope: global
 - Confidence: [固]
 - Last-used: 2026-05-05
 - Confirmations: 0
 - Related: decisions-architecture, decisions
-- Status: ✅ V2.12 校準完成（Wave 4）
+- Status: ✅ 校準完成
 - Created: 2026-03-10
 - Updated: 2026-05-05
 - Work-Unit: 智慧引擎 Wisdom Engine
@@ -166,35 +166,3 @@ V2.11 retry 邏輯對 architecture 系統性偏誤：plan-mode session 同檔多
 - Phronesis（實踐智慧）：情境分類器 = 正確感知特殊情境的能力
 - 蘇格拉底 γνῶθι σεαυτόν：反思引擎 = 可行動的精確自我校準
 - 核心：Wisdom ≠ 知道更多（WHAT），= 判斷時機（WHEN）+ 認識自己（SELF）
-
----
-
-## 變更記錄
-
-### V2.12（2026-05-05，Wave 4）
-
-- **改 schema**：metrics.* 從 cumulative `{correct, total}` 改為 sliding window `{recent: [...]}`，window_size=10 真實使用（V2.11 dead schema field 啟用）
-- **新增 schema_version: "2.12"** 辨識
-- **新增 legacy_cumulative**：保留 V2.11 累計值（single 402/420、arch 4/32 等）作歷史快照
-- **新增 _migrate_v211_to_v212()**：冪等 migration，所有 reader/writer 透過 `_load_metrics()` 自動觸發
-- **改 retry 校準**：track_retry plan-mode threshold 從 2 → 4；reflect architecture 容忍 1 retry 但 fix_escalation_triggered 覆蓋
-- **新增 fix_escalation_triggered**：workflow-guardian.py 的 Fix Escalation Protocol 注入點同步寫 state，給 reflect() 用為真失敗信號
-- **副作用**：SessionStart 的 `[自知]` blind_spot 提醒在 sliding window 累積 ≥3 條前暫不觸發；歷史累計表現存於 legacy_cumulative
-- **行數**：~213（V2.11 ~170 → V2.12 +43，主要為 migration shim）
-
-### V2.11（2026-03-13）
-
-- **移除**：因果圖（CausalGraph class + BFS + Bayesian update + causal_graph.json）
-- **移除**：5 信號加權評分函數 + DEFAULT_WEIGHTS + QUICK/THOROUGH_KEYWORDS + calibrated_weights
-- **改為硬規則**：2 條規則（plan: arch/file_count、confirm: feature/file_count、default: direct）
-- **新增**：over_engineering_rate 追蹤（PostToolUse revert 信號 + SessionEnd 計數）
-- **新增**：silence_accuracy 追蹤（_last_approach module-level state）
-- **新增**：Bayesian arch sensitivity 校準（architecture 連續失敗 → 降低 plan 閾值）
-- **行數**：251 → ~170
-
-### V2.8（2026-03-10 ~ 2026-03-11）
-
-- 初版三力架構（因果圖 + 情境分類 + 反思引擎）
-- 因果圖種子資料 3 edges
-- BFS dedup 修復、情境閾值調校 4/10
-- track_retry() PostToolUse 追蹤
