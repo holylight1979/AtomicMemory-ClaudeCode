@@ -5,7 +5,7 @@ description: 管理職裁決記憶自癒失敗佇列：審視 _heal_review/ 下�
 
 # /heal-review — 記憶自癒失敗佇列裁決
 
-> 腦內世界 P3：`atom-heal.py` 自動修壞掉的記憶（L1 機械補反向連結 / L2 LLM 判斷修死連結），
+> `atom-heal.py` 自動修壞掉的記憶（L1 機械補反向連結 / L2 LLM 判斷修死連結），
 > 修不好（驗證不過 / needs_human）時在 `memory/_heal_review/<atom>.json` 留診斷卡，轉人工。
 > 本 skill 引導裁決：已修好→`resolve` 清卡；決定不修→`dismiss`。resolve/dismiss 需 management 角色。
 

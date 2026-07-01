@@ -5,7 +5,7 @@ description: 專案多職務模式啟用引導 — 初始化 shared/roles/person
 
 # /init-roles — 專案多職務模式啟用引導
 
-> V4 Phase 6：在當前專案啟用「多職務共享記憶」的互動引導。
+> 在當前專案啟用「多職務共享記憶」的互動引導。
 > 建自己的 `personal/{user}/role.md`、`shared/_roles.md` 樣板、補 `.gitignore`、可選安裝 `post-merge` hook。
 > 全部呼叫 `~/.claude/tools/init-roles.py` 後端，冪等。
 

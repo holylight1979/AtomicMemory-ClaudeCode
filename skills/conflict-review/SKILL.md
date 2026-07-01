@@ -5,7 +5,7 @@ description: 管理職裁決 Pending Queue：審視 _pending_review/ 下敏感�
 
 # /conflict-review — 管理職裁決 Pending Queue
 
-> V4 Phase 5：列 `shared/_pending_review/` 的草稿與衝突報告，引導管理職 approve / reject。
+> 列 `shared/_pending_review/` 的草稿與衝突報告，引導管理職 approve / reject。
 > **雙向認證**（SPEC §6.2）：personal role.md 自宣告 + shared `_roles.md` 白名單，缺一不可。
 
 ---

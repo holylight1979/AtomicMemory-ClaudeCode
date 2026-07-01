@@ -5,7 +5,7 @@ description: 原子記憶系統綜合工具 — health/peek/undo/review/score �
 
 # /memory — 記憶系統綜合工具
 
-> V5 P1：合併原 `/memory-health`、`/memory-peek`、`/memory-undo`、`/memory-review`、`/memory-session-score` 五個 commands 為單一 skill。
+> 合併 `/memory-health`、`/memory-peek`、`/memory-undo`、`/memory-review`、`/memory-session-score` 五個 command 為單一 skill。
 > 全域 Skill，適用任何專案。
 
 ---
