@@ -1,18 +1,17 @@
 # USER.md - 操作者是誰
 
-> 由 CLAUDE.md @import 自動載入。每位團隊成員維護自己的版本。
+> 由 CLAUDE.md @import 自動載入。本檔為模板，拷成個人實例 `USER.md` 使用。
 
 ## 使用者的基本資料
 
 * **帳號**：**{{USERNAME}}**（由 user-init.sh 從系統取得）
 * **平台**：Windows 11 Pro；shell 環境：MSYS2 bash & POWERSHELL
 
-## V4 多職務模式（團隊共享記憶）
+## 職務
 
-* **當前職務**：依專案 `personal/{user}/role.md` 宣告（預設 programmer；管理職需雙向認證）
-* **記憶分層**：`global`（個人）/ `shared`（團隊全員可見）/ `role`（同職務可見）/ `personal/{user}`（只自己）
-* **帳號切換**：`CLAUDE_USER` 環境變數（team collaborator 在同機測試用）
-* **管理職特權**：裁決 `shared/_pending_review/` 的敏感原子（architecture/decision）與 pull-audit 衝突報告，其他 user 只能提交草稿
+* **職務**：依需求宣告（預設 programmer；單人環境下開發者兼決策者）。
+* **範疇**：單人單機，記憶實際只用到 `global`（跨專案）/ `personal`（僅自己）。
+* ⚠️ **留意未來可能**：若本 AI 升級為**伺服器級**、須同時替多個使用者的 AI 發出總決策，多使用者/多職務治理才需啟用——察覺此情境再議，當前非此狀態，勿腦補團隊審批佇列。
 
 ## 使用者的溝通偏好
 
