@@ -5,7 +5,7 @@
 - Trigger: 過度工程, 代理指標, proxy metric, AI看不懂, AI在打轉, 品質回饋, 自我合理化, 編造規則, 籠統話術, 訂規保留, 設計慣例
 - Last-used: 2026-05-28
 - Created-at: 2026-03-13
-- Related: decisions, feedback-rigor-standards, cc-能力查證反編譯實跑-binary, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, 對談結束自動記憶與錯誤加權深記, feedback-complexity-origin-trace, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 記憶汙染與上下文腐化-注入萃取自檢, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, 品質完整性判定須讀完整內容-勿從截斷採樣斷言, 自動萃取層淨值審查-調整式拔除-2026-07
+- Related: decisions, feedback-rigor-standards, cc-能力查證反編譯實跑-binary, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, 對談結束自動記憶與錯誤加權深記, feedback-complexity-origin-trace, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 記憶汙染與上下文腐化-注入萃取自檢, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, 品質完整性判定須讀完整內容-勿從截斷採樣斷言, 自動萃取層淨值審查-調整式拔除-2026-07, feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔
 
 ## 知識
 
