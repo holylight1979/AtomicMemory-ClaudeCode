@@ -65,6 +65,6 @@ python ~/.claude/tools/heal-review.py dismiss <atom> --json   # 決定不修
 ---
 
 ## 注意
-- resolve/dismiss 需 management 角色（沿用 [[conflict-review]] 的雙向認證）。
+- resolve/dismiss 需 management 角色：單人環境 `wg_roles.is_management()` 恆真、永不擋；回多人協作才走雙向認證（後端見 `skills/_archived/conflict-review`）。
 - 診斷卡是 JSON（非 atom 格式），不走 atom funnel；清卡＝刪除該 JSON。
 - 自癒機制細節見 atom [[guardian-dashboard-孤兒佔埠與新碼重啟]] 同族的腦內世界 P3 文件與 `tools/atom-heal.py`。
