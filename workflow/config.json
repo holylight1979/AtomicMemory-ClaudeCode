@@ -56,7 +56,7 @@
     "auto_start_service": true,
     "auto_index_on_change": true,
     "global_layer": "bm25",
-    "bm25_min_score": 1.0,
+    "bm25_min_score": 3.5,
     "bm25_top_k": 3
   },
   "write_gate": {
@@ -222,7 +222,7 @@
   "realm": {
     "auto_migrate": true,
     "llm_fallback": {
-      "enabled": true,
+      "enabled": false,
       "backend": "ollama",
       "max_per_session": 5,
       "min_confidence": 0.7,

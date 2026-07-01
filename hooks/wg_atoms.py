@@ -255,6 +255,15 @@ def compute_injection_rank(
     weight = float(u.get("distraction_weight", 0.5) or 0.0)
     if weight <= 0:
         return activation
+    # 2026-07-01: 核心策展 atom（decisions/workflow-*/preferences/toolchain/feedback-* ...）豁免
+    # distraction penalty。turn-global 歸因下高頻核心 atom 系統性累積無辜 β，penalty 反把最重的
+    # 懲罰打在最該注入的人工策展知識上（曝光越高罰越重＝頻率 artifact，與策展價值反相關）＝止血。
+    try:
+        from lib.atom_locations import is_core_protected_name
+        if is_core_protected_name(atom_name):
+            return activation
+    except Exception:
+        pass
     try:
         from lib.atom_access import read_access, usefulness_stats
         acc = read_access(atom_dir / f"{atom_name}.md")
@@ -689,7 +698,12 @@ def build_injection_blob(
     # 2) trigger 命中少（≤2）時用 BM25 補（鏡像 UPS 全域層路徑）
     if len(matched) <= 2:
         seen = {e[0] for e in matched}
-        for entry in bm25_match(prompt_str, entries, min_score=1.0, top_k=_SUBAGENT_TOP_K):
+        try:
+            from wg_core import load_config
+            _bm25_ms = float((load_config().get("vector_search") or {}).get("bm25_min_score", 3.5))
+        except Exception:
+            _bm25_ms = 3.5
+        for entry in bm25_match(prompt_str, entries, min_score=_bm25_ms, top_k=_SUBAGENT_TOP_K):
             if entry[0] not in seen and entry[0] not in already:
                 matched.append(entry)
                 seen.add(entry[0])
