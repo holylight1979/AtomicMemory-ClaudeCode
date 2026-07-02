@@ -344,7 +344,7 @@ skills/{name}/verify/                        ← 17 個空結構（內容由 nex
 - **`makeJobRunner` + `execJson`**：抽 testJobs 的「Map+鎖+輪詢+TTL 清除」共用，test 與 heal 共用（DRY）。
 - 路由：Command Bus（`/api/world-command|world-commands|world-result|world-snapshot`）+ 自癒（`/api/heal/:atom?auto=1`、`heal-job/:id`、`heal-all`、`heal-review`）。spawn `atom-heal.py` 前 `ATOM_NAME_RE` 擋 shell 注入。
 - **誠實痊癒**：前端只有 server 回 `fixed` 才移 `.sick`；修不好貼 🩹「轉診人工」不假裝。
-- ⚠️ **改 server.js 需走重啟 SOP**（殺舊碼孤兒讓新實例重綁 :3848；見 atom `guardian-dashboard-孤兒佔埠與新碼重啟`）。
+- ⚠️ **改 server.js 需走重啟 SOP**（讓新實例透過協作式交棒接管 :3848；見 atom `guardian-dashboard-孤兒佔埠與新碼重啟`）。孤兒本身現由 **stdin-EOF 自行退出**預防（父 CC client 一斷線即隨之退出、自然釋放埠），交棒降為 abrupt-kill / 新舊碼升級路徑的兜底。
 
 ---
 

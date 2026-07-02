@@ -457,8 +457,12 @@
         "dashboard",
         "重啟",
         "孤兒",
+        "孤兒預防",
+        "stdin",
+        "EOF",
         "EADDRINUSE",
         "新路由 404",
+        "relinquish",
         "creature-chat",
         "world.html"
       ],

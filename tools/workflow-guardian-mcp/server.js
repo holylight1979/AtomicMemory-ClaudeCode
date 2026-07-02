@@ -4365,6 +4365,27 @@ if (require.main === module) {
 
   // Keep MCP alive
   process.stdin.resume();
+
+  // Orphan prevention (root fix): this process is spawned by exactly one Claude
+  // Code client over stdio. When that client exits (session / VS Code closes),
+  // the OS closes the pipe's write end and our stdin reaches EOF. We exit so the
+  // process dies with its owner instead of lingering as an orphan that holds
+  // :3848 and serves stale code. This only ever exits THIS process on ITS OWN
+  // parent's exit — it never touches another instance, so an active session's
+  // MCP is safe (its stdin is still connected to a live parent → no EOF).
+  // Complements the /api/relinquish hand-off below, which remains the backstop
+  // for abrupt kills (where EOF may not fire) and the new-code-vs-stale-orphan
+  // upgrade path.
+  let _parentGone = false;
+  const exitOnParentGone = (why) => {
+    if (_parentGone) return;
+    _parentGone = true;
+    try { process.stderr.write(`[workflow-guardian] stdin ${why}; parent gone, exiting (orphan prevention).\n`); } catch {}
+    try { httpServer.close(); } catch {}
+    process.exit(0);
+  };
+  process.stdin.on("end", () => exitOnParentGone("end"));
+  process.stdin.on("close", () => exitOnParentGone("close"));
 }
 
 // Test/tooling surface: pure content builders (no side effects). Safe to require

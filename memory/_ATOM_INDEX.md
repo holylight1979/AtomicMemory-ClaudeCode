@@ -31,7 +31,7 @@
 | cc-能力查證反編譯實跑-binary | _AIDocs/_atoms/Tools/cc-能力查證反編譯實跑-binary.md | CC 版本, hook event, 查證, 反編譯, claude binary, docs 幻覺, 版本分裂, WebFetch, capability, PostCompact, PostToolBatch | global |
 | codex-log-bloat-analytics | _AIDocs/_atoms/Tools/codex-log-bloat-analytics.md | codex, logs_2.sqlite, 日誌暴量, analytics, OTEL, app-server, codex 崩潰, codex 卡頓, --analytics-default-enabled | global |
 | atom-元資料編輯與晉升閘真相 | memory/atom-元資料編輯與晉升閘真相.md | edit_metadata, atom 元資料編輯, atom_edit_meta, trigger 裁減, 改 trigger, atom 晉升, ReadHits, usefulness, 晉升閘, access.json, sidecar, 行尾損壞 | global |
-| guardian-dashboard-孤兒佔埠與新碼重啟 | _AIDocs/_atoms/MemDev/guardian-dashboard-孤兒佔埠與新碼重啟.md | guardian, server.js, 3848, dashboard, 重啟, 孤兒, EADDRINUSE, 新路由 404, creature-chat, world.html | global |
+| guardian-dashboard-孤兒佔埠與新碼重啟 | _AIDocs/_atoms/MemDev/guardian-dashboard-孤兒佔埠與新碼重啟.md | guardian, server.js, 3848, dashboard, 重啟, 孤兒, 孤兒預防, stdin, EOF, EADDRINUSE, 新路由 404, relinquish, creature-chat, world.html | global |
 | 腦內世界-v3-自癒與-command-bus-架構 | _AIDocs/_atoms/World/腦內世界-v3-自癒與-command-bus-架構.md | 腦內世界, atom-heal, 記憶自癒, command bus, world.html, jobRunner, _heal_review, heal-review | global |
 | reconcile-render-動畫狀態歸屬陷阱 | _AIDocs/_atoms/World/reconcile-render-動畫狀態歸屬陷阱.md | reconcile, render, world.html, 每隔一段時間跳, 彈回原位, snap back, 動畫狀態, POLL_MS, wander, 漫步, model 重建, requestAnimationFrame, _wox, el._x, 畫面跳刷新 | global |
 | 腦內世界-環境演化-放置式架構 | _AIDocs/_atoms/World/腦內世界-環境演化-放置式架構.md | 腦內世界, 環境演化, world-dev, world.html, 放置, env-layer, 風格演化, 零影響隔離, 活動驅動耦合, contributeEnv, affinity, 蓋房子, maybeBuild, 原子興趣 | global |
