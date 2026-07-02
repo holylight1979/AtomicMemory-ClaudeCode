@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const https = require("https");
-const { exec, execFile } = require("child_process");
+const { exec } = require("child_process");
 const worldChat = require("./world-chat");   // 腦內世界生物 LLM 對話代理（同進程模組）
 
 // ─── Crash protection & logging ─────────────────────────────────────────────
@@ -156,7 +156,17 @@ const TOOLS_DIR = path.join(CLAUDE_DIR, "tools");
 const CONFIG_PATH = path.join(WORKFLOW_DIR, "config.json");
 const REGISTRY_PATH = path.join(MEMORY_DIR, "project-registry.json");
 const VERSION_PATH = path.join(CLAUDE_DIR, "version.json");
-const DASHBOARD_PORT = loadConfig().dashboard_port || 3848;
+// WG_DASHBOARD_PORT env override (testing / running a second isolated instance)
+// takes precedence over config; falls back to config then the 3848 default.
+const DASHBOARD_PORT = Number(process.env.WG_DASHBOARD_PORT) || loadConfig().dashboard_port || 3848;
+
+// mtime of THIS server.js captured once at process start. A newer instance —
+// whose file mtime is greater because server.js was edited after we booted —
+// uses this (exposed via /api/whoami · /api/relinquish) to recognize us as
+// stale code and ask us to hand off the port. See the port-binding section.
+const SELF_MTIME_AT_BOOT = (() => {
+  try { return fs.statSync(__filename).mtimeMs; } catch { return 0; }
+})();
 
 function loadVersions() {
   try { return JSON.parse(fs.readFileSync(VERSION_PATH, "utf-8")); }
@@ -4049,6 +4059,46 @@ const httpServer = http.createServer((req, res) => {
     return res.end(DASHBOARD_HTML);
   }
 
+  // API: identify this instance — pid, the server.js file it loaded, and that
+  // file's mtime at our boot. Lets a newer instance judge whether the current
+  // port holder is stale code, and lets a human verify "is new code live?".
+  if (pathname === "/api/whoami" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ pid: process.pid, file: __filename, mtime: SELF_MTIME_AT_BOOT }));
+  }
+
+  // API: cooperative port hand-off (self-heal). A newer instance running the SAME
+  // server.js (requesterFile === our __filename) with fresher code (requesterMtime
+  // > our boot-time mtime) asks us to release :3848. We ACK, then exit OURSELVES so
+  // it can rebind. No process ever kills another — the stale holder terminates
+  // itself; 守好只殺自己人 by construction. A non-guardian process has no such
+  // route (404) so nothing outside our own code is ever affected. Localhost-only,
+  // same trust model as /api/sessions/:id/signal.
+  if (pathname === "/api/relinquish" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      let reqMtime = NaN, reqFile = "";
+      try {
+        const j = JSON.parse(body || "{}");
+        reqMtime = Number(j.requesterMtime);
+        reqFile = String(j.requesterFile || "");
+      } catch {}
+      const sameFile = !!reqFile &&
+        path.resolve(reqFile).toLowerCase() === path.resolve(__filename).toLowerCase();
+      const newer = Number.isFinite(reqMtime) && reqMtime > SELF_MTIME_AT_BOOT;
+      const relinquishing = sameFile && newer;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ relinquishing, pid: process.pid, mtime: SELF_MTIME_AT_BOOT }));
+      if (relinquishing) {
+        process.stderr.write(`[workflow-guardian] Relinquishing port ${DASHBOARD_PORT}: my code (mtime ${SELF_MTIME_AT_BOOT}) is older than requester (${reqMtime}); exiting.\n`);
+        // Flush the ACK, stop accepting, then exit so the listening socket frees.
+        setTimeout(() => { try { httpServer.close(); } catch {} process.exit(0); }, 200);
+      }
+    });
+    return;
+  }
+
   // API: list sessions
   if (pathname === "/api/sessions" && req.method === "GET") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -4209,74 +4259,54 @@ const httpServer = http.createServer((req, res) => {
 // Self-heal: an old session's server.js process does NOT exit when the session /
 // VS Code closes — it lingers as an orphan holding 3848 and serving STALE code,
 // so edited routes never go live (POST /api/<new route> → 404). When we find the
-// port held, we identify the holder via the OS: if it is OUR OWN stale orphan
-// (a node process running THIS server.js path, started before this file's mtime =
-// old code, and not us), we kill it and rebind. Anything else — a peer running
-// current code, or an unrelated process — we leave alone and yield.
-// 守好只殺自己人: same server.js path AND older-than-mtime AND not self; if the OS
-// won't confirm all three (e.g. CommandLine unreadable), we do NOT kill.
+// port held, we ask the holder to hand off via POST /api/relinquish: a holder
+// running OUR server.js with OLDER code (its boot-time mtime < this file's current
+// mtime) exits ITSELF and we rebind; a peer on current code, or any non-guardian
+// process (no such route → not-ok/404), keeps the port and we yield.
+// 守好只殺自己人 by construction: we never kill another process — the stale holder
+// terminates itself, and only our own code exposes the relinquish contract. Pure
+// Node http (no shell / external process spawn), so nothing for AV to flag and it
+// works on any platform.
 const HEARTBEAT_INTERVAL_MS = 15000;
 let dashboardHeartbeat = null;
 let _reclaiming = false;
 
-/** Windows-only: if port DASHBOARD_PORT is held by our own stale (old-code)
- *  orphan, kill it and rebind. Otherwise yield. No-op off Windows / while busy. */
+/** If port DASHBOARD_PORT is held by our own stale (old-code) orphan, ask it to
+ *  relinquish (it self-exits) and rebind. Otherwise yield. No-op while busy. */
 function reclaimStaleOrphan() {
-  if (process.platform !== "win32") return;   // yield on non-Windows
   if (_reclaiming || httpServer.listening) return;
   _reclaiming = true;
   const done = () => { _reclaiming = false; };
 
-  let selfMtimeMs;
-  try { selfMtimeMs = fs.statSync(__filename).mtimeMs; }
+  let currentMtime;
+  try { currentMtime = fs.statSync(__filename).mtimeMs; }
   catch { return done(); }
 
-  // Inspect the listener(s) on the port: owning PID, command line, start time.
-  // Get-CimInstance (not wmic|grep) — the latter mis-pairs PID↔cmd and can mis-kill.
-  const inspect = [
-    "$ErrorActionPreference='SilentlyContinue';",
-    `$c = Get-NetTCPConnection -LocalPort ${DASHBOARD_PORT} -State Listen;`,
-    "if (-not $c) { '[]'; exit 0 };",
-    "$ids = @($c.OwningProcess | Select-Object -Unique);",
-    "$out = foreach ($op in $ids) {",
-    "  $p = Get-CimInstance Win32_Process -Filter \"ProcessId=$op\";",
-    "  if ($p) { [pscustomobject]@{ pid=[int]$p.ProcessId; cmd=[string]$p.CommandLine; created=$p.CreationDate.ToString('o') } }",
-    "};",
-    "@($out) | ConvertTo-Json -Compress",
-  ].join(" ");
-
-  execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", inspect],
-    { windowsHide: true, timeout: 8000 }, (err, stdout) => {
-      if (err) return done();
-      let procs;
-      try {
-        const raw = (stdout || "").trim();
-        if (!raw || raw === "[]") return done();
-        procs = JSON.parse(raw);
-      } catch { return done(); }
-      if (!Array.isArray(procs)) procs = [procs];   // PS 5.1 unwraps single object
-
-      const sig = __filename.replace(/\\/g, "/").toLowerCase();       // this server.js
-      const dirSig = __dirname.replace(/\\/g, "/").toLowerCase();     // its folder (fallback)
-      const victims = procs.filter((p) => {
-        if (!p || typeof p.pid !== "number" || p.pid === process.pid) return false; // never self
-        const cmd = String(p.cmd || "").replace(/\\/g, "/").toLowerCase();
-        const ours = cmd.includes(sig) || (cmd.includes(dirSig) && cmd.includes("server.js"));
-        if (!ours) return false;                     // not our server.js → yield
-        const created = Date.parse(p.created);
-        return !isNaN(created) && created < selfMtimeMs;  // started before our mtime = old code
+  const payload = JSON.stringify({ requesterMtime: currentMtime, requesterFile: __filename });
+  const req = http.request(
+    { hostname: "127.0.0.1", port: DASHBOARD_PORT, path: "/api/relinquish", method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
+      timeout: 1500 },
+    (res) => {
+      let body = "";
+      res.setEncoding("utf-8");
+      res.on("data", (c) => { body += c; });
+      res.on("end", () => {
+        let out;
+        try { out = JSON.parse(body); } catch { return done(); }
+        // Only a stale holder of OUR code answers relinquishing:true; peers on
+        // current code answer false, non-guardians never reach here → yield.
+        if (res.statusCode !== 200 || !out || !out.relinquishing) return done();
+        process.stderr.write(`[workflow-guardian] Stale holder pid=${out.pid} relinquishing port ${DASHBOARD_PORT}; rebinding.\n`);
+        // Holder is exiting itself; give the socket a moment to free, then rebind.
+        setTimeout(() => { _reclaiming = false; tryBindDashboard(); }, 700);
       });
-
-      if (victims.length === 0) return done();       // holder is a peer / not ours → yield
-      const ids = victims.map((v) => v.pid);
-      process.stderr.write(`[workflow-guardian] Port ${DASHBOARD_PORT} held by our stale orphan(s) ${ids.join(", ")}; killing + rebinding.\n`);
-      execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command",
-        `Stop-Process -Id ${ids.join(",")} -Force -ErrorAction SilentlyContinue`],
-        { windowsHide: true, timeout: 8000 }, () => {
-          // Give the OS a moment to release the socket, then retry the bind.
-          setTimeout(() => { _reclaiming = false; tryBindDashboard(); }, 500);
-        });
-    });
+    }
+  );
+  req.on("error", () => done());   // no relinquish route / unreachable → yield
+  req.on("timeout", () => { req.destroy(); done(); });
+  req.write(payload);
+  req.end();
 }
 
 function tryBindDashboard() {
@@ -4285,8 +4315,8 @@ function tryBindDashboard() {
   const probe = http.request(
     { hostname: "127.0.0.1", port: DASHBOARD_PORT, path: "/", method: "HEAD", timeout: 500 },
     () => {
-      // Port occupied by an HTTP server. If it is our own stale orphan, reclaim
-      // it; otherwise reclaimStaleOrphan() yields and the heartbeat keeps waiting.
+      // Port occupied by an HTTP server. If it is our own stale orphan, ask it to
+      // hand off; otherwise reclaimStaleOrphan() yields and the heartbeat waits.
       probe.destroy();
       reclaimStaleOrphan();
     }
@@ -4322,8 +4352,8 @@ httpServer.on("error", (err) => {
 
 // Only boot the network/lifecycle side-effects when actually run as `node
 // server.js`. Guards against a bare require() (parity tests import this module
-// for buildAtomContent) probing the port, binding it, or — now that reclaim can
-// kill processes — ever killing the live guardian from a test context.
+// for buildAtomContent) probing the port, binding it, or triggering a port
+// hand-off against the live guardian from a test context.
 if (require.main === module) {
   tryBindDashboard();
   setImmediate(() => {
