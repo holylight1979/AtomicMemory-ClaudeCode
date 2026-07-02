@@ -333,12 +333,19 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
     # 純單檔/文件小改不觸發（避免過度觸發成儀式性負擔，非防退避）。
     mod_files_all = state.get("modified_files", []) or []
-    if mod_files_all and not state.get("scan_report_warned"):
+    # 只認「本 session 自己 Edit/Write 的檔」——共用工作樹/merged state 下，他 session
+    # 改的 core 檔（session_id 不符）不得誤觸發本 session 的收尾檢核。未標記 session_id
+    # 的 legacy entry 保守視為本 session（fail-open，不漏防退避）。
+    own_mod_files = [
+        m for m in mod_files_all
+        if (m or {}).get("session_id", session_id) == session_id
+    ]
+    if own_mod_files and not state.get("scan_report_warned"):
         if not last_text:
             last_text = get_last_assistant_text(transcript)
         recent_prompts = state.get("recent_user_prompts", []) or []
         sr_min_files = int(config.get("min_files_to_block", 2))
-        if detect_missing_scan_report(last_text, mod_files_all, recent_prompts, sr_min_files):
+        if detect_missing_scan_report(last_text, own_mod_files, recent_prompts, sr_min_files):
             state["stop_blocked_count"] = stop_count + 1
             state["scan_report_warned"] = True
             reason = _piggyback(

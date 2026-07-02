@@ -196,6 +196,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         state.setdefault("modified_files", []).append({
             "path": file_path,
             "tool": tool_name,
+            "session_id": session_id,
             "at": _now_iso(),
         })
         state["sync_pending"] = True
