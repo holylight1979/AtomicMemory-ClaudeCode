@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const https = require("https");
-const { exec } = require("child_process");
+const { exec, execFile } = require("child_process");
 const worldChat = require("./world-chat");   // 腦內世界生物 LLM 對話代理（同進程模組）
 
 // ─── Crash protection & logging ─────────────────────────────────────────────
@@ -4202,11 +4202,82 @@ const httpServer = http.createServer((req, res) => {
   res.end("Not found");
 });
 
-// ─── Dashboard port binding with recovery heartbeat ─────────────────────────
+// ─── Dashboard port binding with recovery heartbeat + stale-orphan reclaim ───
 // When multiple Claude Code instances exist, only one binds port 3848.
-// If that instance dies, a surviving instance must reclaim the port.
+// If that instance dies, a surviving instance reclaims the port via heartbeat.
+//
+// Self-heal: an old session's server.js process does NOT exit when the session /
+// VS Code closes — it lingers as an orphan holding 3848 and serving STALE code,
+// so edited routes never go live (POST /api/<new route> → 404). When we find the
+// port held, we identify the holder via the OS: if it is OUR OWN stale orphan
+// (a node process running THIS server.js path, started before this file's mtime =
+// old code, and not us), we kill it and rebind. Anything else — a peer running
+// current code, or an unrelated process — we leave alone and yield.
+// 守好只殺自己人: same server.js path AND older-than-mtime AND not self; if the OS
+// won't confirm all three (e.g. CommandLine unreadable), we do NOT kill.
 const HEARTBEAT_INTERVAL_MS = 15000;
 let dashboardHeartbeat = null;
+let _reclaiming = false;
+
+/** Windows-only: if port DASHBOARD_PORT is held by our own stale (old-code)
+ *  orphan, kill it and rebind. Otherwise yield. No-op off Windows / while busy. */
+function reclaimStaleOrphan() {
+  if (process.platform !== "win32") return;   // yield on non-Windows
+  if (_reclaiming || httpServer.listening) return;
+  _reclaiming = true;
+  const done = () => { _reclaiming = false; };
+
+  let selfMtimeMs;
+  try { selfMtimeMs = fs.statSync(__filename).mtimeMs; }
+  catch { return done(); }
+
+  // Inspect the listener(s) on the port: owning PID, command line, start time.
+  // Get-CimInstance (not wmic|grep) — the latter mis-pairs PID↔cmd and can mis-kill.
+  const inspect = [
+    "$ErrorActionPreference='SilentlyContinue';",
+    `$c = Get-NetTCPConnection -LocalPort ${DASHBOARD_PORT} -State Listen;`,
+    "if (-not $c) { '[]'; exit 0 };",
+    "$ids = @($c.OwningProcess | Select-Object -Unique);",
+    "$out = foreach ($op in $ids) {",
+    "  $p = Get-CimInstance Win32_Process -Filter \"ProcessId=$op\";",
+    "  if ($p) { [pscustomobject]@{ pid=[int]$p.ProcessId; cmd=[string]$p.CommandLine; created=$p.CreationDate.ToString('o') } }",
+    "};",
+    "@($out) | ConvertTo-Json -Compress",
+  ].join(" ");
+
+  execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", inspect],
+    { windowsHide: true, timeout: 8000 }, (err, stdout) => {
+      if (err) return done();
+      let procs;
+      try {
+        const raw = (stdout || "").trim();
+        if (!raw || raw === "[]") return done();
+        procs = JSON.parse(raw);
+      } catch { return done(); }
+      if (!Array.isArray(procs)) procs = [procs];   // PS 5.1 unwraps single object
+
+      const sig = __filename.replace(/\\/g, "/").toLowerCase();       // this server.js
+      const dirSig = __dirname.replace(/\\/g, "/").toLowerCase();     // its folder (fallback)
+      const victims = procs.filter((p) => {
+        if (!p || typeof p.pid !== "number" || p.pid === process.pid) return false; // never self
+        const cmd = String(p.cmd || "").replace(/\\/g, "/").toLowerCase();
+        const ours = cmd.includes(sig) || (cmd.includes(dirSig) && cmd.includes("server.js"));
+        if (!ours) return false;                     // not our server.js → yield
+        const created = Date.parse(p.created);
+        return !isNaN(created) && created < selfMtimeMs;  // started before our mtime = old code
+      });
+
+      if (victims.length === 0) return done();       // holder is a peer / not ours → yield
+      const ids = victims.map((v) => v.pid);
+      process.stderr.write(`[workflow-guardian] Port ${DASHBOARD_PORT} held by our stale orphan(s) ${ids.join(", ")}; killing + rebinding.\n`);
+      execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+        `Stop-Process -Id ${ids.join(",")} -Force -ErrorAction SilentlyContinue`],
+        { windowsHide: true, timeout: 8000 }, () => {
+          // Give the OS a moment to release the socket, then retry the bind.
+          setTimeout(() => { _reclaiming = false; tryBindDashboard(); }, 500);
+        });
+    });
+}
 
 function tryBindDashboard() {
   if (httpServer.listening) return;
@@ -4214,8 +4285,10 @@ function tryBindDashboard() {
   const probe = http.request(
     { hostname: "127.0.0.1", port: DASHBOARD_PORT, path: "/", method: "HEAD", timeout: 500 },
     () => {
-      // Port occupied by another instance — keep heartbeat running
+      // Port occupied by an HTTP server. If it is our own stale orphan, reclaim
+      // it; otherwise reclaimStaleOrphan() yields and the heartbeat keeps waiting.
       probe.destroy();
+      reclaimStaleOrphan();
     }
   );
 
@@ -4247,16 +4320,22 @@ httpServer.on("error", (err) => {
   }
 });
 
-tryBindDashboard();
-setImmediate(() => {
-  if (!httpServer.listening && !dashboardHeartbeat) {
-    dashboardHeartbeat = setInterval(tryBindDashboard, HEARTBEAT_INTERVAL_MS);
-    dashboardHeartbeat.unref();
-  }
-});
+// Only boot the network/lifecycle side-effects when actually run as `node
+// server.js`. Guards against a bare require() (parity tests import this module
+// for buildAtomContent) probing the port, binding it, or — now that reclaim can
+// kill processes — ever killing the live guardian from a test context.
+if (require.main === module) {
+  tryBindDashboard();
+  setImmediate(() => {
+    if (!httpServer.listening && !dashboardHeartbeat) {
+      dashboardHeartbeat = setInterval(tryBindDashboard, HEARTBEAT_INTERVAL_MS);
+      dashboardHeartbeat.unref();
+    }
+  });
 
-// Keep MCP alive
-process.stdin.resume();
+  // Keep MCP alive
+  process.stdin.resume();
+}
 
 // Test/tooling surface: pure content builders (no side effects). Safe to require
 // for parity tests; production boots via `node server.js` (require.main === module)

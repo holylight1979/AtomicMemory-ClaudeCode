@@ -14,6 +14,7 @@
 - [臨] 修復步驟：(1) `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*workflow-guardian-mcp*server.js*' } | Select ProcessId,CreationDate` 列**全部**實例（勿用 wmic|grep，配對會錯致誤殺，見 [[feedback-tooling-reliability]]）；(2) 取 server.js mtime，CreationDate 早於 mtime = 舊碼；(3) Stop-Process 殺光所有舊碼孤兒（含佔埠者），**保留**啟動晚於 mtime 的本 session 實例（用 /api/sessions 的 started_at 交叉比對 PID）；(4) 存活實例 ≤15s heartbeat 自動重綁 3848。
 - [臨] 驗證：POST /api/<route> 回**非-404**（400 = route 存在僅 payload 無效，即成功）+ `(Get-NetTCPConnection -LocalPort 3848 -State Listen).OwningProcess` == 保留的新實例 PID。
 - [臨] 例外：純前端改（world.html 等 dashboard 靜態檔）**不需殺程序** —— httpServer 每次 GET 重讀檔案，瀏覽器 Ctrl+F5 即生效。只有改 server.js 本身才要走上面重啟流程。
+- [臨] 自癒落地（現況機制）：新碼 server.js 的 `tryBindDashboard` 探測到 :3848 被佔時呼 `reclaimStaleOrphan()`（Windows-only）——經 OS 查佔埠 PID 的 CommandLine + CreationDate，只在「同 server.js 路徑 ∧ CreationDate < 本檔 mtime（＝舊碼）∧ 非本進程」**三者全真**時才 `Stop-Process -Force` 殺該孤兒、500ms 後重綁；任一不成立（CommandLine 讀不到／持有者是跑當前碼的 peer〔created>mtime〕／非 guardian 程序）即讓步不殺。故上面「bind 撞 EADDRINUSE 只進 heartbeat 待命」現僅適用於「持有者非自己人舊碼」的讓步分支；改碼後重啟時，舊碼孤兒會被新實例啟動即自動清掉、無需再靠手動殺。查程序用 Get-CimInstance（非 wmic|grep，避免 PID↔cmd 錯配誤殺）。另有 `require.main === module` 守門：bare `require()`（parity test 匯入 buildAtomContent）不會觸發綁埠/殺程序。
 
 ## 行動
 
