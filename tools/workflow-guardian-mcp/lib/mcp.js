@@ -251,6 +251,23 @@ const TOOL_DEFINITIONS = [
       required: ["atom_name", "scope"],
     },
   },
+  {
+    name: "anti_evasion_report",
+    description:
+      "結構化提交收尾檢核 (a)(b)(c)(d)；內容走 Anti-Evasion HUD、chat 只留折疊 chip。" +
+      "動 core 檔並宣告完成時由 Stop 閘要求。四參都 required；未發生填「無」。" +
+      "本 tool 只回 chip、不寫 state（one-writer：state/持久化由 Python PostToolUse 獨佔）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        a: { type: "string", description: "缺失發現與修補清單（`- 檔:行 — 改了什麼`）；無則「無」。必寫" },
+        b: { type: "string", description: "AI 逃避通報（忽略/偷埋現象）；僅發生時填、否則「無」" },
+        c: { type: "string", description: "Token 累積警示（Auto-Handoff 預警則附接續 prompt）；僅發生時填、否則「無」" },
+        d: { type: "string", description: "衍生暫存清單（預設直接刪）；無則「無」。必寫" },
+      },
+      required: ["a", "b", "c", "d"],
+    },
+  },
 ];
 
 // ─── Tool Handlers ──────────────────────────────────────────────────────────
@@ -269,6 +286,10 @@ function handleToolCall(id, toolName, args) {
       return toolAtomMove(id, args).catch(e => sendToolResult(id, `atom_move error: ${e.message}`, true));
     case "atom_edit_meta":
       return toolAtomEditMeta(id, args).catch(e => sendToolResult(id, `atom_edit_meta error: ${e.message}`, true));
+    case "anti_evasion_report":
+      // one-writer：只回 chip、不碰 state（state/持久化/HUD 由 Python PostToolUse 獨佔）。
+      return require("./anti-evasion").toolAntiEvasionReport(id, args)
+        .catch(e => sendToolResult(id, `anti_evasion_report error: ${e.message}`, true));
     default:
       sendError(id, -32601, `Unknown tool: ${toolName}`);
   }

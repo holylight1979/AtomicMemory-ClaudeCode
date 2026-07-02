@@ -20,7 +20,7 @@ from wg_core import (
 )
 from wg_evasion import (
     detect_test_failure, is_test_command, claims_completion, detect_evasion,
-    is_dismiss_prompt, get_last_assistant_text, detect_missing_scan_report,
+    is_dismiss_prompt, get_last_assistant_text, detect_missing_aec_emission,
     get_current_turn_text,
 )
 from wg_episodic import _find_session_transcript
@@ -346,27 +346,59 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 仍被擋。未 commit 就 commit 的檔仍由 SyncReminder / 一般 block 兜底。
     turn_seq = int(state.get("turn_seq", 0))
     committed_this_turn = bool(turn_seq) and state.get("last_commit_turn_seq") == turn_seq
+    # emit 滿足＝本回合有呼叫 anti_evasion_report。★雙鍵（turn_seq **且** session_id）為硬性：
+    # merged/sibling session 共用同一實體 state 檔且共用同一 turn_seq 計數器，唯 session_id 能
+    # 區辨——否則隔壁 session 的 emit 會誤放行本 session（重演 own_mod_files 要防的洩漏）。
+    # bool(turn_seq) 護欄：防 turn_seq==0 的 fallback state 以 0==0 假滿足。
+    aec = state.get("anti_evasion_report") or {}
+    emitted_this_turn = (
+        bool(turn_seq)
+        and aec.get("turn_seq") == turn_seq
+        and aec.get("session_id") == session_id
+    )
     if own_mod_files and not state.get("scan_report_warned") and not committed_this_turn:
         if not last_text:
             last_text = get_last_assistant_text(transcript)
         recent_prompts = state.get("recent_user_prompts", []) or []
         sr_min_files = int(config.get("min_files_to_block", 2))
-        if detect_missing_scan_report(last_text, own_mod_files, recent_prompts, sr_min_files):
+        if detect_missing_aec_emission(
+            last_text, own_mod_files, recent_prompts, sr_min_files, emitted_this_turn
+        ):
             state["stop_blocked_count"] = stop_count + 1
-            state["scan_report_warned"] = True
+            state["scan_report_warned"] = True  # 保留 one-shot anti-nag（比照現況）
             reason = _piggyback(
                 "[Guardian:ScanReport] 宣告完成且本 session 動到 core 檔/多檔（達收尾檢核門檻），"
-                "但未提交收尾檢核，違反 IDENTITY「反退避契約」。\n"
-                "（純單檔/文件小改不觸發此閘；本次因累積動過 core 檔。）依格式，報告尾端全項檢視（非擇一）：\n"
-                "  (a) 缺失發現與修補清單：`- 檔:行 — 改了什麼`；無則明寫「無」。**必寫**\n"
-                "  (b) AI 逃避通報：本次有/沒有 忽略 / 偷埋的現象。**僅在發生時寫**\n"
-                "  (c) Token 累積警示：見 hook `[Auto-Handoff]` 程式化預警則判斷是否已處理失真，是則附新 session 接續 prompt。**僅在發生時寫**\n"
-                "  (d) 衍生暫存清單：本次衍生暫存檔/資料夾，預設直接刪。**必寫**，無則明寫「無」\n"
-                "請補上後再宣告完成；不得用「不在範圍 / 留給未來」籠統帶過。"
+                "但本回合未 emit anti_evasion_report，違反 IDENTITY「反退避契約」。\n"
+                "請呼叫 MCP tool anti_evasion_report(a, b, c, d) 提交收尾檢核——內容走 HUD、"
+                "chat 只留折疊 chip：\n"
+                "  (a) 缺失發現與修補清單：`- 檔:行 — 改了什麼`；無則填「無」。**必寫**\n"
+                "  (b) AI 逃避通報：本次有/沒有 忽略 / 偷埋的現象；**僅發生時填**，否則「無」\n"
+                "  (c) Token 累積警示：見 hook `[Auto-Handoff]` 預警則判斷失真並附接續 prompt；**僅發生時填**，否則「無」\n"
+                "  (d) 衍生暫存清單：本次衍生暫存檔/資料夾（預設直接刪）；**必寫**，無則「無」\n"
+                "四參都 required、未發生填「無」。不得用 prose「不在範圍 / 留給未來」籠統帶過。"
             )
             write_state(session_id, state)
             output_block(reason)
             return
+
+    # HUD 不可達且本回合 emit 為 notable/real-evasion → 大聲 fallback 回 chat（可觀測性鐵律：
+    # push 不到窗不得 fail-silent）。post_tool_use 標旗，此處消費一次（新 emit 再標則再補，
+    # 不永久靜音 real-evasion）。Node tool chip 是 emit 當下的主要 UX 面；本 fallback 是
+    # Python 端獨立的觀測保證，不倚賴窗是否渲染。emit 閘本身已放行（見上），此處不再擋 emit。
+    if state.get("aec_hud_fallback"):
+        state["aec_hud_fallback"] = False  # 消費，避免重播
+        state["stop_blocked_count"] = stop_count + 1
+        sev = aec.get("severity", "notable")
+        fb = [
+            f"[Guardian:AEC] HUD 不可達，{sev} 收尾檢核 fallback 回 chat（不 fail-silent）："
+        ]
+        for _k, _label in (("a", "(a) 缺失修補"), ("b", "(b) 逃避通報")):
+            _v = (aec.get(_k) or "").strip()
+            if _v and _v != "無":
+                fb.append(f"  {_label}：{_v}")
+        write_state(session_id, state)
+        output_block(_piggyback("\n".join(fb)))
+        return
 
     # ── Sync Reminder Gate ──────────────────────────────────────
     sr_config = config.get("sync_reminder", {}) or {}

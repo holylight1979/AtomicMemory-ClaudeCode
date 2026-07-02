@@ -226,29 +226,25 @@ def is_core_file(path: str) -> bool:
     return False
 
 
-def detect_missing_scan_report(
+def _completion_gate_applies(
     text: str,
     modified_files: List[Dict[str, Any]],
     recent_user_prompts: List[str],
-    min_files: int = 2,
+    min_files: int,
 ) -> bool:
-    """宣告完成 +（動 core 檔 或 動 ≥min_files 檔）+ 缺收尾檢核 → 違約。
+    """收尾閘共用前置：宣告完成 +（動 core 檔 或 動 ≥min_files 檔）+ 無豁免關鍵字。
 
-    從「任一 modified 檔即要求」降為條件觸發——純單檔/文件小改不觸發。
-    避免過度觸發成儀式性負擔，非防退避；只在動系統核心（hooks/lib/tools/
-    rules/根層契約設定）或多檔批量時才要求收尾檢核。
+    True＝已達「該交代收尾」門檻（尚未判定用何種方式滿足）。滿足方式（prose 標記
+    vs anti_evasion_report emit）由各 caller 疊上。純單檔/文件小改不達門檻。
 
-    觸發條件（全部成立）：
+    達門檻條件（全部成立）：
       1. text 含完成宣告詞（claims_completion）
       2. modified_files 觸及 core 檔，或 unique 檔數 ≥ min_files
-      3. text 不含任何 _SCAN_REPORT_RE 標記
-      4. 近 3 則 user prompt 無豁免關鍵字
+      3. 近 3 則 user prompt 無豁免關鍵字
     """
     if not text or not modified_files:
         return False
     if not claims_completion(text):
-        return False
-    if has_scan_report(text):
         return False
     for p in (recent_user_prompts or [])[-3:]:
         if _DISMISS_RE.search(p or ""):
@@ -259,6 +255,61 @@ def detect_missing_scan_report(
     if not touched_core and len(unique_paths) < max(int(min_files), 1):
         return False
     return True
+
+
+def detect_missing_scan_report(
+    text: str,
+    modified_files: List[Dict[str, Any]],
+    recent_user_prompts: List[str],
+    min_files: int = 2,
+) -> bool:
+    """宣告完成 +（動 core 檔 或 動 ≥min_files 檔）+ 缺 prose 收尾檢核標記 → 違約。
+
+    滿足方式＝回報尾端含 _SCAN_REPORT_RE 標記（has_scan_report）。保留供既有 prose
+    路徑 / 回歸測試；live 閘已改用 detect_missing_aec_emission（結構化 emit 滿足）。
+    """
+    if not _completion_gate_applies(text, modified_files, recent_user_prompts, min_files):
+        return False
+    return not has_scan_report(text)
+
+
+def detect_missing_aec_emission(
+    text: str,
+    modified_files: List[Dict[str, Any]],
+    recent_user_prompts: List[str],
+    min_files: int = 2,
+    emitted_this_turn: bool = False,
+) -> bool:
+    """鏡像 detect_missing_scan_report，唯滿足方式從 prose 標記換成「本回合是否 emit 過
+    anti_evasion_report」（emitted_this_turn 由 caller 以 turn_seq+session_id 雙鍵判定）。
+
+    回 True＝達門檻卻未 emit（block、逼補結構化收尾檢核）。門檻與豁免（core/min_files、
+    dismiss 逃生門）與 scan_report 版共用 _completion_gate_applies，不重演。
+    """
+    if not _completion_gate_applies(text, modified_files, recent_user_prompts, min_files):
+        return False
+    return not emitted_this_turn
+
+
+def _aec_blank(v: Optional[str]) -> bool:
+    """收尾檢核欄位是否「無內容」——空字串或僅填「無」（IDENTITY 收尾格式未發生時填「無」）。"""
+    s = (v or "").strip()
+    return s == "" or s == "無"
+
+
+def aec_severity(a: str, b: str, c: str, d: str) -> str:
+    """tool-arg 內容 severity（Node lib/anti-evasion.js aecSeverity 同規則、single source of truth）。
+
+      - real-evasion：(b) AI 逃避通報非空≠「無」（真偷埋自report，最嚴重）
+      - notable：(a) 缺失修補清單有真修補行（b 空）
+      - routine：(a)(b) 皆「無」/空
+    (c) Token 警示 / (d) 衍生暫存為資訊性，不升級 severity（severity 只衡量「退避」訊號）。
+    """
+    if not _aec_blank(b):
+        return "real-evasion"
+    if not _aec_blank(a):
+        return "notable"
+    return "routine"
 
 
 def get_last_assistant_text(transcript_path: Optional[Path]) -> str:

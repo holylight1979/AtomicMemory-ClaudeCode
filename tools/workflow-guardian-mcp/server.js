@@ -17,6 +17,8 @@ const { onFatal, crashLog } = require("./lib/log");
 const { resolveSessionId, readState, writeState, deleteState, listAllSessions } = require("./lib/state");
 const { buildAtomContent, renderKnowledgeLines, isBlockKnowledge } = require("./lib/atom-render");
 const dashboardHtml = require("./lib/dashboard-html");
+const antiEvasion = require("./lib/anti-evasion");   // Anti-Evasion HUD 唯讀 API + heartbeat
+const aecHudHtml = require("./lib/aec-hud-html");     // Anti-Evasion HUD 頁模板
 require("./lib/mcp");   // MCP stdio transport：載入即註冊 process.stdin data handler（buffer 私有其內）
 const {
   jsonRes,
@@ -253,6 +255,25 @@ const httpServer = http.createServer((req, res) => {
     const ready = fs.existsSync(flagPath);
     res.writeHead(200, { "Content-Type": "application/json" });
     return res.end(JSON.stringify({ ready }));
+  }
+
+  // ── Anti-Evasion HUD 路由（唯讀；港口持有者供頁 + glob disk 上 Python 落的 report 檔）──
+  if (pathname === "/aec/hud" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    return res.end(aecHudHtml.render());
+  }
+  if (pathname === "/api/aec/reports" && req.method === "GET") {
+    return antiEvasion.apiAecReports(req, res, url.searchParams.get("since"));
+  }
+  const aecReportMatch = pathname.match(/^\/api\/aec\/report\/([^/]+)\/(\d+)$/);
+  if (aecReportMatch && req.method === "GET") {
+    return antiEvasion.apiAecReport(req, res, aecReportMatch[1], aecReportMatch[2]);
+  }
+  if (pathname === "/api/aec/beat" && req.method === "GET") {
+    return antiEvasion.apiAecBeat(req, res);
+  }
+  if (pathname === "/api/aec/beat-status" && req.method === "GET") {
+    return antiEvasion.apiAecBeatStatus(req, res);
   }
 
   res.writeHead(404);

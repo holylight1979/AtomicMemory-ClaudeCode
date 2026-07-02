@@ -5,6 +5,7 @@ handlers/post_tool_use.py — PostToolUse hook handler
 偵測測試失敗、_CHANGELOG 自動 roll、staging 命名、路徑強制、docdrift、hot cache mid-turn 注入。
 """
 
+import json
 import re
 import subprocess
 import sys
@@ -13,11 +14,11 @@ from typing import Any, Dict
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
-    _atom_debug_error,
+    _atom_debug_error, WORKFLOW_DIR,
 )
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
-from wg_evasion import is_test_command, detect_test_failure
+from wg_evasion import is_test_command, detect_test_failure, aec_severity
 from wg_atoms import _trigger_incremental_index
 from wg_extraction import is_plan_filename
 from handlers._shared import (
@@ -164,6 +165,91 @@ def _maybe_sync_skill_index(file_path: str, config: Dict[str, Any]) -> None:
     except Exception as e:
         _atom_debug_error("post_tool_use:skill_index_sync", e)
         pass
+
+
+# ─── Anti-Evasion HUD：one-writer 寫入者（MCP tool 只 emit、此處獨佔寫 state/檔）──
+
+
+def _write_aec_report_file(session_id: str, turn_seq: int, report: Dict[str, Any]) -> None:
+    """落 per-turn 報告檔 workflow/aec-report-<sid>-t<turn>.json（atomic tmp→rename）。
+
+    供 HUD 唯讀輪詢最新卡 + 歷史格瀏覽；港口持有者 glob 供頁、與哪個 session 的 MCP
+    跑了 tool 無關（Python 寫 disk，跨 instance 安全）。命名比照 codex-companion
+    _assessment_turn_path。Fail-open。"""
+    try:
+        WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
+        p = WORKFLOW_DIR / f"aec-report-{session_id}-t{turn_seq}.json"
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except OSError as e:
+        _atom_debug_error("post_tool_use:aec_report_write", e)
+
+
+def _hud_beat_fresh(port: int, threshold_s: int) -> bool:
+    """GET /api/aec/beat-status → age_s < threshold？不可達 / 舊碼(404) / 逾時 → False（窗死）。"""
+    try:
+        import urllib.request
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/aec/beat-status", timeout=0.6
+        ) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        return int(data.get("age_s", 10 ** 9)) < threshold_s
+    except Exception:
+        return False
+
+
+def _find_edge() -> str:
+    """定位 msedge 執行檔（僅 Windows 主環境；找不到回 ""）。"""
+    if sys.platform == "win32":
+        for c in (
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ):
+            if Path(c).exists():
+                return c
+    return ""
+
+
+def _spawn_hud_edge(port: int) -> None:
+    """no-shell spawn Edge --app 開 HUD（config gate 已過）。全庫唯一 browser 外呼，
+    刻意 shell=False（AV 安全，比照 server.js 純 Node 設計）。Fail-open。"""
+    edge = _find_edge()
+    if not edge:
+        return
+    url = f"http://127.0.0.1:{port}/aec/hud"
+    bg: dict = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if sys.platform == "win32":
+        bg["creationflags"] = subprocess.CREATE_NO_WINDOW
+    else:
+        bg["start_new_session"] = True
+    try:
+        subprocess.Popen([edge, f"--app={url}"], shell=False, **bg)
+    except (OSError, ValueError) as e:
+        _atom_debug_error("post_tool_use:aec_spawn_edge", e)
+
+
+def _maybe_spawn_hud(sev: str, state: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """窗活著（心跳新）→ 會輪詢渲染、無需 fallback。窗死：config.aec.hud_autospawn 才嘗試
+    spawn Edge（預設關）；且 sev∈{notable,real-evasion} → 標 aec_hud_fallback 供 Stop 大聲
+    補 chat（可觀測性鐵律：push 不到窗不得 fail-silent）。routine 窗死只落 disk（無退避訊號、
+    可事後由歷史格瀏覽，非違反可觀測性）。Fail-open。"""
+    try:
+        aec_cfg = (config or {}).get("aec", {}) or {}
+        port = int((config or {}).get("dashboard_port", 3848))
+        threshold = int(aec_cfg.get("hud_stale_s", 30))
+        if _hud_beat_fresh(port, threshold):
+            return
+        if aec_cfg.get("hud_autospawn", False):
+            _spawn_hud_edge(port)
+        if sev in ("notable", "real-evasion"):
+            state["aec_hud_fallback"] = True
+    except Exception as e:
+        _atom_debug_error("post_tool_use:aec_maybe_spawn_hud", e)
 
 
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -340,6 +426,27 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 if len(after) != len(before):
                     state["failing_tests"] = after
                     write_state(session_id, state)
+
+    elif tool_name.endswith("anti_evasion_report"):
+        # MCP 結構化收尾 emit（one-writer spine）：MCP tool 只回 chip、不碰 state；
+        # 由此 PostToolUse 分支獨佔寫 state + 落 per-turn 報告檔 + 判 HUD fallback。
+        # session_id 用原始 input_data["session_id"]（與 modified_files 的 session_id 戳
+        # 同源）＝sibling 隔離關鍵：Stop 閘以 turn_seq+session_id 雙鍵讀，隔壁 session 的
+        # emit 不誤放行本 session。turn_seq 由 UserPromptSubmit 每真 prompt +1。
+        a, b, c, d = (str(tool_input.get(k, "") or "") for k in ("a", "b", "c", "d"))
+        turn_seq = int(state.get("turn_seq", 0))
+        sev = aec_severity(a, b, c, d)
+        report = {
+            "session_id": session_id,
+            "turn_seq": turn_seq,
+            "a": a, "b": b, "c": c, "d": d,
+            "severity": sev,
+            "at": _now_iso(),
+        }
+        state["anti_evasion_report"] = report
+        _write_aec_report_file(session_id, turn_seq, report)
+        _maybe_spawn_hud(sev, state, config)
+        write_state(session_id, state)
 
     if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
         try:
