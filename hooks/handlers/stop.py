@@ -340,7 +340,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         m for m in mod_files_all
         if (m or {}).get("session_id", session_id) == session_id
     ]
-    if own_mod_files and not state.get("scan_report_warned"):
+    # 純 VCS commit turn 豁免收尾檢核：本 turn 已把工作寫進 VCS 歷史（可稽核＝與「藏」相反），
+    # anti-evasion 目的在 commit 那刻消解。不開後門——豁免綁「本 turn 真的 commit 了」
+    # （post_tool_use 記的 last_commit_turn_seq），而非「本 turn 沒 Edit」；光宣告完成不 commit
+    # 仍被擋。未 commit 就 commit 的檔仍由 SyncReminder / 一般 block 兜底。
+    turn_seq = int(state.get("turn_seq", 0))
+    committed_this_turn = bool(turn_seq) and state.get("last_commit_turn_seq") == turn_seq
+    if own_mod_files and not state.get("scan_report_warned") and not committed_this_turn:
         if not last_text:
             last_text = get_last_assistant_text(transcript)
         recent_prompts = state.get("recent_user_prompts", []) or []

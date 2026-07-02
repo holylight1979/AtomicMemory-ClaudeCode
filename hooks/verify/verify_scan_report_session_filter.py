@@ -24,6 +24,8 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent  # hooks/verify/ → hooks/
 sys.path.insert(0, str(HOOKS_DIR))
 
 from handlers import stop as st  # noqa: E402
+from handlers import post_tool_use as pt  # noqa: E402
+from handlers.post_tool_use import _VCS_COMMIT_RE  # noqa: E402
 
 _SID = "sid"
 _CORE = r"c:\a\.claude\hooks\x.py"
@@ -47,7 +49,7 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "_maybe_spawn_per_turn_extraction", lambda *a, **k: None)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 
-    def drive(modified_files, capsys):
+    def drive(modified_files, capsys, **extra):
         state = {
             "phase": "working",
             "modified_files": modified_files,
@@ -55,6 +57,7 @@ def driven(monkeypatch):
             "recent_user_prompts": [],
             "stop_blocked_count": 0,
         }
+        state.update(extra)
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         with pytest.raises(SystemExit):
             st.handle_stop({"session_id": _SID, "cwd": ""}, {})
@@ -96,3 +99,71 @@ def test_coordinator_docs_only_not_triggered(driven, capsys):
         capsys,
     )
     assert "ScanReport" not in out
+
+
+# ─── 純 VCS commit turn 豁免收尾檢核 ─────────────────────────────────
+
+def test_commit_this_turn_exempts(driven, capsys):
+    """本 turn 有 commit（last_commit_turn_seq==turn_seq）→ 豁免，即使動 core 亦不觸發。"""
+    out = driven([_mf(_CORE, session_id=_SID)], capsys,
+                 turn_seq=5, last_commit_turn_seq=5)
+    assert "ScanReport" not in out
+
+
+def test_commit_prior_turn_not_exempt(driven, capsys):
+    """commit 發生在別 turn（≠本 turn）→ 不豁免，照觸發（不因歷史 commit 永久放行）。"""
+    out = driven([_mf(_CORE, session_id=_SID)], capsys,
+                 turn_seq=5, last_commit_turn_seq=4)
+    assert "[Guardian:ScanReport]" in out
+
+
+def test_no_commit_flag_not_exempt(driven, capsys):
+    """本 turn 未 commit（無 last_commit_turn_seq）→ 不豁免，照觸發。"""
+    out = driven([_mf(_CORE, session_id=_SID)], capsys, turn_seq=5)
+    assert "[Guardian:ScanReport]" in out
+
+
+# ─── _VCS_COMMIT_RE：commit 指令偵測 ─────────────────────────────────
+
+@pytest.mark.parametrize("cmd, matches", [
+    ('git commit -m "x"', True),
+    ('git -C "C:/p" commit -m "x"', True),
+    ('svn commit -m "x"', True),
+    ('git add . && git commit -m "x"', True),   # 串接第二段命中
+    ('git log --oneline | grep commit', False),  # commit 在管線後、非 git 子命令
+    ('git push', False),
+    ('git status', False),
+    ('git show HEAD', False),
+])
+def test_vcs_commit_regex(cmd, matches):
+    assert bool(_VCS_COMMIT_RE.search(cmd)) is matches
+
+
+# ─── 端到端：post_tool_use 對 git commit 記 last_commit_turn_seq ───────
+
+def _drive_ptu(monkeypatch, command):
+    state = {"turn_seq": 7}
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "read_hot_cache", None)
+    inp = {
+        "session_id": _SID,
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "tool_response": {},
+    }
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use(inp, {"docdrift": {"enabled": False}})
+    return state
+
+
+def test_ptu_git_commit_sets_flag(monkeypatch):
+    """跑 git commit → last_commit_turn_seq = 當前 turn_seq。"""
+    state = _drive_ptu(monkeypatch, 'git commit -m "fix: x"')
+    assert state.get("last_commit_turn_seq") == 7
+
+
+def test_ptu_non_commit_no_flag(monkeypatch):
+    """非 commit 指令（git status）→ 不設旗標。"""
+    state = _drive_ptu(monkeypatch, "git status")
+    assert "last_commit_turn_seq" not in state

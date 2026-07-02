@@ -30,6 +30,10 @@ from handlers._shared import (
 
 _CHANGELOG_TABLE_DATA_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|")
 
+# git/svn commit 指令偵測（供 ScanReport 閘「本 turn 已 commit → 豁免收尾檢核」）。
+# 限 commit 出現在首個管線/串接段之前，故 `git log | grep commit` 不誤中。
+_VCS_COMMIT_RE = re.compile(r"\b(?:git|svn)\b[^|&;\n]*?\bcommit\b", re.IGNORECASE)
+
 # 從 sub-agent prompt 的注入 header 回推 atom 清單。
 #   header 形如：[WG:SubagentMemory] …… atoms=a,b,c
 _SUBAGENT_ATOMS_RE = re.compile(r"\[WG:SubagentMemory\][^\n]*?atoms=([^\n]+)")
@@ -297,6 +301,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if re.search(r"\b(git\s+(log|blame|show|diff)|svn\s+(log|blame|diff))\b", command):
             vcs = state.setdefault("vcs_queries", [])
             vcs.append({"command": command[:200], "at": _now_iso()})
+            write_state(session_id, state)
+
+        # 本 turn 有跑 git/svn commit → 記 turn_seq，供 ScanReport 閘豁免收尾檢核
+        # （工作已寫進 VCS 歷史＝可稽核、與「藏」相反，anti-evasion 目的消解）。
+        if _VCS_COMMIT_RE.search(command):
+            state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
             write_state(session_id, state)
 
         if is_test_command(command):
