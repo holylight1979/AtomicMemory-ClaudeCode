@@ -106,7 +106,7 @@ Session Ready
 | user-init.sh | — | 多人 USER.md 初始化 |
 | webfetch-guard.sh | — | WebFetch 安全護欄 |
 
-## 5. Skills（23 個全域；前 22 為記憶系統 skill，外加 1 個外部/通用 skill）
+## 5. Skills（21 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入 21**）
 
 V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 全刪除。
 
@@ -116,7 +116,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /codex-companion | skills/codex-companion/SKILL.md | Codex Companion 開關（subprocess 模型，只 toggle config flag） | codex CLI |
 | /changelog-debug | skills/changelog-debug/SKILL.md | 手動滾動 _CHANGELOG.md（PostToolUse 已自動，僅 debug） | 無 |
 | /conflict | skills/conflict/SKILL.md | 記憶衝突偵測 | Vector Service + Ollama |
-| /conflict-review | skills/conflict-review/SKILL.md | 管理職裁決 Pending Queue（雙向認證） | wg_roles + Vector Service |
+| ~~/conflict-review~~ | skills/_archived/conflict-review/SKILL.md | 管理職裁決 Pending Queue（雙向認證）**P8a archived·dormant** | wg_roles + Vector Service |
 | /consciousness-stream | skills/consciousness-stream/SKILL.md | 高風險跨系統識流處理 | 無 |
 | /continue | skills/continue/SKILL.md | 讀 _staging/next-phase.md 續接 | 無 |
 | /extract | skills/extract/SKILL.md | 手動知識萃取 | Ollama |
@@ -124,7 +124,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /generate-episodic | skills/generate-episodic/SKILL.md | 手動生成 episodic atom | 無 |
 | /handoff | skills/handoff/SKILL.md | 跨 Session Handoff Prompt Builder | 無 |
 | /harvest | skills/harvest/SKILL.md | Playwright 網頁收割→Markdown | Playwright |
-| /init-roles | skills/init-roles/SKILL.md | 多職務模式啟用引導 | wg_roles + git |
+| ~~/init-roles~~ | skills/_archived/init-roles/SKILL.md | 多職務模式啟用引導 **P8a archived·dormant** | wg_roles + git |
 | /memory | skills/memory/SKILL.md | 5 合 1：health / peek / undo / review / session-score（subcmd 分派） | 無 |
 | /read-project | skills/read-project/SKILL.md | 系統性閱讀→doc-index atom | 無 |
 | /upgrade | skills/upgrade/SKILL.md | 環境升級（diff + merge + rebuild） | 無 |
@@ -137,6 +137,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /karpathy-guidelines | skills/karpathy-guidelines/SKILL.md | **外部 skill（MIT，源 multica-ai）**：寫/審/重構碼的行為準則（Think Before / Simplicity / Surgical / Goal-Driven）。on-demand 被動觸發，非 always-on；唯一加值的 verify-loop 另萃成 atom `goal-driven-verify-loop` | 無 |
 
 > 已刪除（與內建衝突）：`/resume`（內建 --resume）/ `/init-project`（內建 /init）/ `/svn-update` / `/unity-yaml`（下沉專案層）/ `/changelog-roll`（改名 changelog-debug）
+> 已休眠（單人環境·非刪）：`/init-roles` / `/conflict-review`（多人團隊層）→ 見 `skills/_archived/README.md`
 
 ## 6. 工具鏈（tools/）
 

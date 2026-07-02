@@ -19,7 +19,9 @@
 
 後端 `tools/init-roles.py` / `tools/conflict-review.py` 仍留在 `tools/`（未動），一併作為回滾基座。
 
-> 註：`heal-review` **未**休眠——它有 world-dashboard `/api/heal` 消費者，對單人有效；
+> 註：`heal-review` **未**休眠——它有真實 live chain：producer `tools/atom-heal.py`（SessionEnd 觸發）
+> → `memory/_heal_review/` 佇列 → `/heal-review` skill（`tools/heal-review.py`），對單人有效。
+> （server.js 的 `/api/heal-review` endpoint 為 vestigial：world.html 未呼叫、非其 live 消費者。）
 > 其 `is_management()` 閘走 `wg_roles` 誠實 shim（恆真），單人永不被擋，非假閘。
 
 ## 如何還原（回多人協作時）
