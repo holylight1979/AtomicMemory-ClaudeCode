@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: skill 計數, skill count, skill-index, _skill_index.json, skill-count marker, 出文件 skill 數, 增刪 skill, skill 漂移, skill drift
 - Created-at: 2026-06-18
-- Related: realm-範疇分區機制-v5, feedback-memory-system-doc-sync
+- Related: realm-範疇分區機制-v5, feedback-memory-system-doc-sync, windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff
 
 ## 知識
 
