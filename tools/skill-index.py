@@ -36,6 +36,7 @@ MARKED_DOCS = [
     "Install-forAI.md",
     "_AIDocs/Architecture.md",
     "_AIDocs/_INDEX.md",
+    "_AIDocs/DocIndex-System.md",
 ]
 MARKER_RE = re.compile(r"(<!-- skill-count -->)\s*\d+\s*(<!-- /skill-count -->)")
 
