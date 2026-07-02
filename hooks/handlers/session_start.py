@@ -196,6 +196,37 @@ def _count_recent_auto_atoms(user: str, cwd: str, hours: int = 24) -> int:
     return count
 
 
+def _refresh_vector_flag(
+    config: Dict[str, Any], *, flag_path: Optional[Path] = None
+) -> str:
+    """SessionStart 冷啟動關窗：服務已暖（health 200）則寫/保留 `vector_ready.flag`，
+    首個 prompt 即可用 vector；ping 失敗才拆 flag（fail-closed，防信任指向死服務的舊
+    flag——27d 靜默失效的教訓）。回 'kept'（服務活）/ 'cleared'（無回應→拆）。
+
+    下方 fire-and-forget bg subprocess 仍會重啟服務 + 重驗/重建 flag + probe log；
+    此僅在服務本就常駐時提前把 flag 立好，消掉「拆→async 重建」之間的 no_flag 空窗
+    （該空窗內早期搜尋 fallback 到 keyword）。ping timeout 短：服務活 ~ms、死則
+    connection-refused 立即失敗，故對 SessionStart 延遲影響可忽略。
+    """
+    flag = flag_path or (WORKFLOW_DIR / "vector_ready.flag")
+    port = config.get("vector_search", {}).get("service_port", 3849)
+    try:
+        import urllib.request
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1.0)
+    except Exception:
+        try:
+            flag.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return "cleared"
+    try:
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.write_text("ready", encoding="utf-8")
+    except OSError:
+        pass
+    return "kept"
+
+
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
@@ -598,10 +629,11 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     except Exception as e:
         print(f"SessionStart cleanup error: {e}", file=sys.stderr)
 
+    # 服務已暖則保留 flag（省冷啟動 no_flag 空窗），只有 health ping 失敗才拆（fail-closed）。
     try:
-        (WORKFLOW_DIR / "vector_ready.flag").unlink(missing_ok=True)
-    except OSError:
-        pass
+        _refresh_vector_flag(config)
+    except Exception as e:
+        _atom_debug_error("SessionStart:vector_flag_refresh", e)
 
     print(json.dumps({
         "hookSpecificOutput": {
