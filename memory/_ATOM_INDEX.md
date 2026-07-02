@@ -73,3 +73,4 @@
 | windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff | _AIDocs/_atoms/Tools/windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff.md | write_text, newline, CRLF, LF, EOL, 換行, phantom diff, 整檔假 diff, 一位改動整檔 diff, os.linesep, 檔案改寫工具, 換行翻轉, marker 同步, read_text universal newline, git diff 整檔 | global |
 | 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證 | _AIDocs/_atoms/MemDev/原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證.md | 記憶系統審查, atom audit, 誠實化, 修剪, 拔死碼, 死碼, 實證先行, always-load, fail-open, 可觀測性, vector 靜默死, 誤刀, 復活基座, 過度工程, 跨模型他評, codex, 併發執P, MCP 重啟 | global |
 | atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove | _AIDocs/_atoms/MemDev/atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove.md | atom-heal, broken_ref, L2 自癒, repoint, 死連結, prefix rename, needs_human, atom rename 反向連結, 記憶自癒誤判 | global |
+| 巨檔純機械拆分-carve腳本與驗證盲點 | _AIDocs/_atoms/MemDev/巨檔純機械拆分-carve腳本與驗證盲點.md | 拆檔, server.js 拆分, 純機械拆分, carve, 模組拆分, split module, depgraph, 循環相依, live MCP 測試汙染, byte-identical 搬移 | global |

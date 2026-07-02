@@ -1234,6 +1234,23 @@
         "記憶自癒誤判"
       ],
       "scope": "global"
+    },
+    {
+      "name": "巨檔純機械拆分-carve腳本與驗證盲點",
+      "path": "_AIDocs/_atoms/MemDev/巨檔純機械拆分-carve腳本與驗證盲點.md",
+      "triggers": [
+        "拆檔",
+        "server.js 拆分",
+        "純機械拆分",
+        "carve",
+        "模組拆分",
+        "split module",
+        "depgraph",
+        "循環相依",
+        "live MCP 測試汙染",
+        "byte-identical 搬移"
+      ],
+      "scope": "global"
     }
   ]
 }
