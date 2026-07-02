@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: fix-escalation, DeepPostMortem, deep-post-mortem, 反覆重試, retry, 同檔多次修改, proxy, false positive, 偵測到高effort失敗, post-mortem 要求, 偵測到重複修正, escalation hook
 - Created-at: 2026-06-25
-- Related: cognitive-patterns, feedback-rigor-standards
+- Related: cognitive-patterns, feedback-rigor-standards, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證, post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用
 
 ## 知識
 
