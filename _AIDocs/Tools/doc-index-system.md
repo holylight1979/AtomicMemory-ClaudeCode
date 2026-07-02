@@ -92,7 +92,7 @@
 | `/changelog-debug` | 手動滾動 _CHANGELOG.md（debug） | tools/changelog-roll.py |
 | `/codex-companion` | 切換 Codex Companion 開關 | codex CLI |
 | `/conflict` | 記憶衝突偵測 | Vector Service + Ollama |
-| `/conflict-review` | 管理職裁決 _pending_review/ | 無 |
+| ~~`/conflict-review`~~ | 管理職裁決 _pending_review/（**P8a archived·dormant** → `skills/_archived/`） | 無 |
 | `/consciousness-stream` | 識流處理（連續對話流寫入記憶） | 無 |
 | `/continue` | 讀 _staging/next-phase*.md 續接任務 | 無 |
 | `/extract` | 手動知識萃取（不等 SessionEnd）| Ollama |
@@ -100,7 +100,7 @@
 | `/generate-episodic` | 手動生成 episodic atom | 無 |
 | `/handoff` | 跨 session handoff prompt（6 區塊強制模板） | 無 |
 | `/harvest` | 網頁收割（Playwright + cookie） | Playwright |
-| `/init-roles` | 專案多職務模式啟用 | 無 |
+| ~~`/init-roles`~~ | 專案多職務模式啟用（**P8a archived·dormant** → `skills/_archived/`） | 無 |
 | `/journal` | 工作日誌產出（atoms + git log + transcript）| Ollama |
 | `/memory` | 5-in-1 記憶工具（health/peek/undo/review/score） | 無 |
 | `/read-project` | 系統性讀取專案 → atom + DocIndex | Ollama（可選）|
