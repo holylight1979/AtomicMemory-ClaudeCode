@@ -14,6 +14,8 @@
 - [臨] 既有 atom / 註解內容過時 → 直接修成現況（timeless），不 append「某版本改了什麼」的變更註記（那只是把歷史搬進 live 記憶）。
 - [臨] **KEEP 邊界（勿誤剝，本 session 血淚）**：SCHEMA_VERSION / _migrate_vXXX 遷移識別與 schema 欄位版本、**裸 V4/V5/V6 能力世代 scope**（非里程碑 Pxx）、測試 fixture 日期/值、程式實際比對的功能 literal（migrated-v2.21 / JSON key / SVN 錯誤碼 / protocolVersion）、**檔名耦合 Phase N**（verify_*_phaseN.py 標題，且不改檔名）、SPEC §、DevHistory/正位 doc 章節導覽錨。判別問：「此 token 是當前功能識別，還是開發過程脈絡？」前者 KEEP、後者剝；不確定 → KEEP 並標出。
 - [臨] **掃除方法（勿信逐檔清單為完整）**：先 pattern-first 全庫 grep（上述①-⑥）再動手——逐檔清單/印象常漏系統性殘留（本 session 首批漏跨目錄陳舊 docstring、漏 stderr 前綴檔）。只動註解/docstring/字串 → run_verify + AST 兜底（行為零改）；atom body 走 byte-exact 不動 frontmatter（零 index/mirror drift）。
+- [臨] **主動移除（Point 2，非只別加）**：舊版本宣告在新版本進文件更新階段後要**主動全面移除**（不只「不新增」）——視為系統內部一份子、不再特別標註版本。pattern-first 全庫掃，非等下次遇到才改。
+- [臨] **編年不入 atom（Point 3，邊界）**：「發展型編年紀錄」（milestone/「Pn 改了 X」/審查總結/機制演化史）**不進 atom** → 歸 `_AIDocs/DevHistory/` 或 release-note；atom 只收**可重用的 timeless gotcha/機制/決策**（trigger 自動注入的自我防呆）。區別：DevHistory=文件不自動注入；MemDev atom=自動注入+計數。只禁編年、非廢 MemDev realm。規則權威已升 rules/core.md「版本與文件治理」段。
 
 ## 行動
 

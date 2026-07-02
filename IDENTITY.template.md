@@ -37,4 +37,7 @@
 **(d) 衍生暫存清單**：本次衍生暫存檔/資料夾,預設**直接刪**；user 要求保留者標示「保留？」。**達門檻必寫**,無則「無」。
 （判定見 [[feedback-completion-gates]]）
 
+**(e) 版本脈絡掃除檢核**：本次動過 code/test/atom/config 時，pattern-first 自檢有無埋入版本操作脈絡（版本/階段標記·日期戳·commit·「原X改Y」變更敘事·`[vN]`/`[phaseN]` 前綴·spec 錨），對照 KEEP 邊界排除功能識別後移除；`hooks/version_guard.py` warn 提醒為輔。**僅在動過上述檔且發現殘留時寫**。
+（規則見 rules/core.md「版本與文件治理」；pattern/KEEP 邊界見 [[feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔]]）
+
 > **環境認知**：啟動辨識所在環境（核心 ~/.claude / 專案 / 額外）以定 realm 注入範疇。

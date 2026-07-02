@@ -10,6 +10,13 @@
 - 修改核心結構/新認知/踩坑 → 更新 _AIDocs + _CHANGELOG.md；新增時同步 _INDEX.md
 - _AIDocs 只放長期參考知識；規劃/TODO/進行中 → memory/_staging/
 
+## 版本與文件治理（timeless 原則）
+- **live 檔（.py/.js/config/test）與 atom 只寫 timeless 現況**，禁埋版本操作脈絡（版本/階段標記、日期戳、commit hash、「原X改Y」變更敘事、`[vN]`/`[phaseN]` 前綴、spec 錨）。
+- **舊版本宣告在文件更新後「主動移除」**（不只別新增）——視為系統內部一份子、不再特別標註版本。
+- **編年型發展紀錄不進 atom**（atom 只收可重用 gotcha/機制/決策）→ 歸 `_AIDocs/DevHistory/` 或 release-note；版本演進只寫 `_CHANGELOG.md`。
+- **只有最新版本宣告留 `TECH.md`**；歷史正位＝`_CHANGELOG`/`TECH`/`Architecture`/`DevHistory`。
+- 完整 pattern（①–⑥）+ KEEP 邊界（`_migrate_vXXX`/`SCHEMA_VERSION`/裸 V4-6 能力 scope/檔名耦合 phaseN/fixture）見 atom [[feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔]]；程式化 warn 提醒由 `hooks/version_guard.py`（PostToolUse，可觀測不阻斷）。
+
 ## 記憶
 - 分類：「記住」→[固]、反覆模式→[觀]、做取捨→[臨]；不寫臨時嘗試/未確認猜測
 - 寫入用 atom_write MCP（自動驗證去重索引晉升）；已記錄事實直接引用
@@ -25,5 +32,5 @@
 - 「用識流…」→ /consciousness-stream
 - 獨立子任務可新開對話；拆分前確保知識已存入
 - 段落完成即存；Token 快上限時優先存檔；/resume → /continue
-- Context 壓縮/任務告段落 → 提醒開新 session
+- Context 壓縮即將發生 → 提醒開新 session
 - **多 agent 並行（按需評估）**：任務**明確要求**並行、或**明顯受益**（多個互不衝突的獨立切面：調查/實作/重構/比較/批量）時，才評估拆 ≥2 個 Agent 於同 message 一次 dispatch（Explore/Plan/general-purpose 視任務挑）；否則單線處理即可，**不每 prompt 硬掃**（避免與成本控管/單人工作流對沖）。細節見 [[workflow-parallel-agents]]

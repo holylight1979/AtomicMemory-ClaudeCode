@@ -113,6 +113,16 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/version_guard.py'),run_name='__main__')\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PreCompact": [

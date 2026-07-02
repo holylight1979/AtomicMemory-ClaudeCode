@@ -195,6 +195,12 @@
     "english_ratio_threshold": 0.5,
     "min_lang_chars": 40
   },
+  "version_guard": {
+    "_doc": "版本操作脈絡殘留 warn hook（hooks/version_guard.py，standalone PostToolUse）。Write/Edit 後掃剛寫入的 ~/.claude 內檔，命中高精度版本 pattern（V5 Pxx/Sprint/Wave/方案代號/[vN]·[phaseN] 前綴/[Fxx] 錨）→ warn-only(systemMessage+stderr)，不阻斷。寧漏報不誤報：模糊 pattern（裸 Phase N/日期/v2.x/變更敘事）刻意不收。正位檔(DevHistory/_CHANGELOG/TECH/Architecture/SPEC/plans/verify/_staging)+功能 token(_migrate_v/SCHEMA_VERSION/protocolVersion)豁免。規則 rules/core.md「版本與文件治理」；pattern single source＝atom feedback-live-…。一鍵關=enabled:false 或 mode:off；min_matches=命中幾項才提醒。",
+    "enabled": true,
+    "mode": "warn",
+    "min_matches": 1
+  },
   "docdrift": {
     "enabled": true,
     "path_mappings": {
