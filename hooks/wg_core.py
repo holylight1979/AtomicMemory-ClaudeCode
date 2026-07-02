@@ -50,7 +50,7 @@ except ImportError:
 
 # ─── Token budget 單一來源─────────────────────────
 # 三個 budget 概念各司其職，數值不互相推導：
-#   compute_token_budget(prompt) — 每輪 additionalContext 總額（隨 prompt 長度 1500/3000/5000）
+#   compute_token_budget(prompt) — 每輪 additionalContext 總額（隨 prompt 長度 1000/2000/3000）
 #   CONTEXT_BUDGET_DEFAULT       — _truncate_context_by_activation 的 fallback 上限
 #   TURN_BUDGET_LIMIT            — atom 注入段 per-turn 硬頂（wg_atoms re-export 舊名 _TURN_BUDGET_LIMIT）
 # 兩個 token 估算器口徑不同，勿混用、勿合併（合併會改變注入行為）：
