@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: write_raw, atom_io, VALID_SOURCES, WriteResult, ok=False, 靜默失敗, 未檢回傳值, funnel, fail-soft, invalid source, 代理訊號, post-mortem, 批次寫入驗收, sync-atom-index
 - Created-at: 2026-06-30
-- Related: atom-元資料編輯與晉升閘真相, goal-driven-verify-loopkarpathy-吸收, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識
+- Related: atom-元資料編輯與晉升閘真相, goal-driven-verify-loopkarpathy-吸收, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造
 
 ## 知識
 
