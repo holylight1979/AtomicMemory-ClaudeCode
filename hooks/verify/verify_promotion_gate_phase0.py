@@ -52,12 +52,13 @@ def test_py_gate_usefulness_driven():
 
 
 def test_js_gate_usefulness_driven():
-    """Phase 2：server.js 晉升鏡像改由 usefulnessStats / Wilson 下界驅動。"""
-    src = _read("tools/workflow-guardian-mcp/server.js")
-    assert "usefulnessStats" in src and "wilsonLowerBound" in src, "server.js 缺效用 Wilson 鏡像"
+    """Phase 2：晉升鏡像改由 usefulnessStats / Wilson 下界驅動（拆檔後居 lib/atom-access.js + lib/atom-tools.js）。"""
+    src = (_read("tools/workflow-guardian-mcp/lib/atom-access.js")
+           + _read("tools/workflow-guardian-mcp/lib/atom-tools.js"))
+    assert "usefulnessStats" in src and "wilsonLowerBound" in src, "atom-access.js 缺效用 Wilson 鏡像"
     assert not re.search(
         r"readhits\s*>=\s*reqRH\s*&&\s*confirmations\s*>\s*0", src
-    ), "Phase 2 應移除 server.js readhits 輔助晉升門"
+    ), "Phase 2 應移除 readhits 輔助晉升門（lib/atom-tools.js toolAtomPromote）"
 
 
 def test_readhits_alone_not_promotion_trigger():

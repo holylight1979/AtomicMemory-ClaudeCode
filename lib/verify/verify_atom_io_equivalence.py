@@ -437,9 +437,10 @@ def test_14_py_js_path_constants_parity():
         LOCAL_REALM_DOMAINS, LOCAL_REALM_DEFAULT_DOMAIN,
     )
 
-    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    # 拆檔：realm 路由常數居 lib/realm.js（py 鏡像 atom_locations.py）
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "realm.js"
     if not server_js.exists():
-        pytest.skip("server.js not found")
+        pytest.skip("lib/realm.js not found")
     js = server_js.read_text(encoding="utf-8")
 
     assert f'FAILURES_REL = "{FAILURES_REL}"' in js, "FAILURES_REL drift"
@@ -554,9 +555,10 @@ def test_17_classify_realm_py_js_parity():
     node = shutil.which("node")
     if not node:
         pytest.skip("node not available")
-    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    # 拆檔：classifyRealm 居 lib/realm.js（py 鏡像 atom_locations.py）
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "realm.js"
     if not server_js.exists():
-        pytest.skip("server.js not found")
+        pytest.skip("lib/realm.js not found")
 
     fixtures = [
         ["gdoc-harvester", ["harvester", "Google Docs"]],
@@ -578,7 +580,7 @@ def test_17_classify_realm_py_js_parity():
         "const fs=require('fs');"
         "const src=fs.readFileSync(process.argv[1],'utf-8');"
         "const start=src.indexOf('const LOCAL_REALM_CORE_PROTECTED_PREFIXES');"
-        "const block=src.slice(start, src.indexOf('const TOOLS_DIR'));"
+        "const block=src.slice(start, src.indexOf('function slugify'));"  # 拆檔：realm.js 中 classifyRealm 後接 slugify（原為 const TOOLS_DIR）
         "const LOCAL_REALM_DOMAINS=new Set(['World','Tools','MemDev']);"
         "const LOCAL_REALM_DEFAULT_DOMAIN='Else';"  # classifyRealm 出口 guard 引用（block 外常數）
         "eval(block);"
@@ -705,9 +707,10 @@ def test_22_clean_segment_py_js_parity():
     node = shutil.which("node")
     if not node:
         pytest.skip("node not available")
-    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    # 拆檔：cleanRealmSegment / applyLocalRouting 居 lib/realm.js
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "realm.js"
     if not server_js.exists():
-        pytest.skip("server.js not found")
+        pytest.skip("lib/realm.js not found")
 
     fixtures = ["Windows", "  OS  ", "WSL", "..", "_hidden", ".dot",
                 "a/b", "a\\b", "bad<x", 'q"x', "", "Hermes Agent",
@@ -835,8 +838,8 @@ def test_25_cli_build_append_cross_language(tmp_path):
     assert b"\r\r\n" not in raw and raw.count(b"\n") == raw.count(b"\r\n")
     assert "- cli-appended".encode() in raw.split(b"\r\n")
 
-    # delegation guard：server.js 三處已 spawn py、js 自拼 splice 已退役
-    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "server.js"
+    # delegation guard：三處已 spawn py、js 自拼 splice 已退役（拆檔：toolAtomWrite 居 lib/atom-tools.js）
+    server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "atom-tools.js"
     if server_js.exists():
         js = server_js.read_text(encoding="utf-8")
         assert 'spawnAtomCli("build"' in js, "create/replace 未走 py build"
