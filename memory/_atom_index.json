@@ -1214,6 +1214,22 @@
         "MCP 重啟"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove",
+      "path": "_AIDocs/_atoms/MemDev/atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove.md",
+      "triggers": [
+        "atom-heal",
+        "broken_ref",
+        "L2 自癒",
+        "repoint",
+        "死連結",
+        "prefix rename",
+        "needs_human",
+        "atom rename 反向連結",
+        "記憶自癒誤判"
+      ],
+      "scope": "global"
     }
   ]
 }

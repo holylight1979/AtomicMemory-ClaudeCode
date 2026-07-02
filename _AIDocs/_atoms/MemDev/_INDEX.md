@@ -6,6 +6,7 @@
 
 | Atom | 說明 |
 |------|------|
+| atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove | atom-heal L2 broken-ref 誤判 prefix-rename 為 remove |
 | atom-move-v5-sot-correct-化與半遷移工具辨識 | atom-move V5 SoT-correct 化與半遷移工具辨識 |
 | auto-capture碎片sweep污染詞庫-defer根治 | auto-capture碎片sweep污染詞庫-defer根治 |
 | confirmations-已退役-phase2-usefulness-接管晉升 | confirmations-已退役-Phase2-usefulness-接管晉升 |
