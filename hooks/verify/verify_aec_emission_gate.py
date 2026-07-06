@@ -151,9 +151,18 @@ def test_hud_fallback_surfaces_notable(driven, capsys):
     ("- x.py:1 — fix", "無", "notable"),
     ("無", "偷埋了 X", "real-evasion"),
     ("- x — y", "偷埋", "real-evasion"),  # (b) 優先於 (a)
+    # ── blank-detection 回歸：模型慣寫「無。」（含尾標點）須視同「無」，否則 routine 誤升 real-evasion（洗 chat）──
+    ("無。", "無", "routine"),               # (a) 尾標點「無。」仍 blank → routine
+    ("無程式修補。x", "無。", "notable"),      # (b)「無。」blank 不誤判 real；(a) 真有內容 → notable
+    ("無", "我略過了測試", "real-evasion"),   # 守無漏判：(b) 真敘述絕不當 blank
 ])
 def test_aec_severity(a, b, expected):
     assert aec_severity(a, b, "無", "無") == expected
+
+
+def test_aec_severity_trailing_punct_full_fields():
+    """完整四欄（c/d 亦帶尾標點/括註）dogfood 現場案例：(b)「無。」須 blank → notable、非 real-evasion。"""
+    assert aec_severity("無程式修補。x", "無。", "無。", "無（略）") == "notable"
 
 
 def test_aec_severity_cd_informational():
@@ -163,6 +172,8 @@ def test_aec_severity_cd_informational():
 
 @pytest.mark.parametrize("v,blank", [
     ("", True), ("無", True), ("  無  ", True), ("x", False), ("- a — b", False),
+    # ── blank-detection 回歸：尾標點「無。」「無、」須 blank；有實質字尾（「無程式修補」）非 blank ──
+    ("無。", True), ("無、", True), ("無 。", True), ("無程式修補", False),
 ])
 def test_aec_blank(v, blank):
     assert _aec_blank(v) is blank

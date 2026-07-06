@@ -23,7 +23,9 @@ const SID_RE = /^[A-Za-z0-9-]+$/;     // 防路徑穿越：session_id 只允許 
 // (b) 真偷埋通報非空 → real-evasion；(a) 有真修補行 → notable；(a)(b) 皆「無」/空 → routine。
 // (c)/(d) 為資訊性，不升級 severity（severity 只衡量「退避」訊號）。
 function aecBlank(v) {
-  const s = String(v == null ? "" : v).trim();
+  // 放寬「無」認定含結尾標點（「無。」）；太嚴會把 routine 誤升 real-evasion → 洗 chat。
+  // MIRROR: hooks/wg_evasion.py _aec_blank — keep in sync。
+  const s = String(v == null ? "" : v).trim().replace(/[\s。．.,，、；;：:!！?？~～\-—…]+$/u, "");
   return s === "" || s === "無";
 }
 function aecSeverity(a, b, c, d) {

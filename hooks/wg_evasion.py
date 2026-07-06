@@ -292,8 +292,11 @@ def detect_missing_aec_emission(
 
 
 def _aec_blank(v: Optional[str]) -> bool:
-    """收尾檢核欄位是否「無內容」——空字串或僅填「無」（IDENTITY 收尾格式未發生時填「無」）。"""
-    s = (v or "").strip()
+    """收尾檢核欄位是否「無內容」——空、或「無」（含結尾標點，如「無。」「無、」）。
+    太嚴（只認裸「無」）會把 routine 報告（模型慣寫「無。」）誤判 real-evasion → 洗 chat，
+    defeats HUD 目的；放寬只減誤升級，真退避是敘述文、絕不 normalize 成「無」。
+    MIRROR: lib/anti-evasion.js aecBlank — keep in sync。"""
+    s = (v or "").strip().rstrip("　 。．.,，、；;：:!！?？~～-—…")
     return s == "" or s == "無"
 
 
