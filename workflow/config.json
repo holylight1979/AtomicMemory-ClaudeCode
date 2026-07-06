@@ -271,7 +271,7 @@
   },
   "aec": {
     "_doc": "Anti-Evasion HUD：hud_autospawn=true → notable/real-evasion 報告且窗死時自動 spawn Edge --app HUD 窗（否則 fallback 回 chat）。hud_stale_s=心跳新鮮度門檻秒（預設 30）。",
-    "hud_autospawn": true
+    "hud_autospawn": false
   },
   "guard": {
     "cross_realm_write": {
