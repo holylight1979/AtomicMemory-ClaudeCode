@@ -156,12 +156,14 @@ function sectionHtmlD(r) {
   if (isBlank(r.d)) {
     return head + '<span class="k"></span></div><div class="sec-body blank">無</div></div>';
   }
-  var lines = String(r.d).split("\n");
+  // 注意：本 script 整塊在外層 render() 的 template literal 內，字串/comment 中的反斜線
+  // 都須 \\ 跳脫，否則會在 render 時被 outer JS 當跳脫序列吃掉（換行字元須寫 "\\n"）。
+  var lines = String(r.d).split("\\n");
   var rows = "", shown = 0;
   for (var i = 0; i < lines.length; i++) {
     var raw = lines[i].trim();
     if (!raw) { continue; }
-    rows += decRow(r, shown, raw.replace(/^[-*•·]\s*/, ""));   // 去前導 bullet 顯示
+    rows += decRow(r, shown, raw.replace(/^[-*•·]\\s*/, ""));   // 去前導 bullet 顯示
     shown++;
   }
   if (!rows) {
