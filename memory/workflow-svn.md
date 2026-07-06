@@ -6,7 +6,7 @@
 - Trigger: svn, svn-update, TortoiseSVN, 衝突, conflict
 - Created: 2026-03-18
 - Tags: svn, vcs
-- Related: workflow-rules
+- Related: workflow-rules, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉
 
 ## 知識
 

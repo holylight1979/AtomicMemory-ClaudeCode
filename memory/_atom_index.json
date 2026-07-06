@@ -1279,6 +1279,26 @@
         "force 保護"
       ],
       "scope": "global"
+    },
+    {
+      "name": "anti-evasion-hud-設計脊柱與強化前必讀",
+      "path": "_AIDocs/_atoms/MemDev/anti-evasion-hud-設計脊柱與強化前必讀.md",
+      "triggers": [
+        "anti-evasion",
+        "AEC",
+        "AEC HUD",
+        "收尾檢核 HUD",
+        "anti_evasion_report",
+        "one-writer",
+        "sibling 隔離",
+        "aec_severity",
+        "autospawn",
+        "彈窗",
+        "強化 AEC",
+        "改 AEC HUD",
+        "記憶系統開發"
+      ],
+      "scope": "global"
     }
   ]
 }

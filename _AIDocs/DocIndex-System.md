@@ -141,9 +141,10 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ## 6. 工具鏈（tools/）
 
-### MCP Server（4 tool）
-- `workflow-guardian-mcp/server.js` — stdio MCP + dashboard port 3848
-  - `atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta`（4 個業務 tool；`atom_edit_meta`=元資料外科編輯 → [SPEC_ATOM_V5 §3.4](SPEC_ATOM_V5.md)）
+### MCP Server（5 tool）
+- `workflow-guardian-mcp/server.js`（+ 11 lib 模組，原 4394 行單檔純機械拆分）— stdio MCP + dashboard port 3848
+  - `atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta`（4 個 atom 業務 tool；`atom_edit_meta`=元資料外科編輯 → [SPEC_ATOM_V5 §3.4](SPEC_ATOM_V5.md)）
+  - `anti_evasion_report`（收尾檢核 (a)(b)(c)(d) emit → Anti-Evasion HUD；**one-writer**：MCP tool 只回 chip，Python `post_tool_use` 獨佔寫 state + 落 `workflow/aec-report/`；HUD 頁 `lib/{anti-evasion,aec-hud-html}.js` 服）
   - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
   - 內部 IPC 4 個（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`）已內化為 Stop gate hook 自動偵測
 
@@ -213,7 +214,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->70<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->71<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms（56）** = **core 16**（住 `memory/`：decisions / decisions-architecture / preferences / workflow-rules·icld·svn·parallel-agents / toolchain·-ollama / atom-table-support / atom-usefulness-loop / atom-元資料編輯與晉升閘真相 / goal-driven-verify-loop / 自己flag-維護動作直接做完 / 記憶汙染與上下文腐化-注入萃取自檢 / escalation-hook-false-fire辨識）+ **feedback 9 + 失敗模式 2**（cognitive-patterns / memory-pipeline-silent-failure-2026-05，物理在 `_AIDocs/Failures/`）+ **local 29**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；World 4 / Tools 8 / MemDev 12 / OS 3 / Continuity 2）。**V6 sweep 自動搬遷**：`memory-index-caption-regen` 於 2026-06-04 由 core 經 LLM fallback 判 local 自動搬到 `MemDev/MemoryIndex/`（記憶系統內部知識，判 local 正確）；OS root 為 wsl2 dogfood 新增；`realm-範疇分區機制-v5` 亦已由 core 搬入 local/MemDev
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain：World / Tools / MemDev / OS / Else，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（例外：`CROSS_PROJECT_LOCAL_DOMAINS` 如 `Continuity` 跨專案注入）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2 V6 塊
