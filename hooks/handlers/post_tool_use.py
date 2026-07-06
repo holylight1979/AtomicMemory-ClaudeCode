@@ -171,14 +171,15 @@ def _maybe_sync_skill_index(file_path: str, config: Dict[str, Any]) -> None:
 
 
 def _write_aec_report_file(session_id: str, turn_seq: int, report: Dict[str, Any]) -> None:
-    """落 per-turn 報告檔 workflow/aec-report-<sid>-t<turn>.json（atomic tmp→rename）。
+    """落 per-turn 報告檔 workflow/aec-report/<sid>-t<turn>.json（atomic tmp→rename）。
 
-    供 HUD 唯讀輪詢最新卡 + 歷史格瀏覽；港口持有者 glob 供頁、與哪個 session 的 MCP
+    供 HUD 唯讀輪詢最新卡 + 歷史格瀏覽；港口持有者 glob 子夾供頁、與哪個 session 的 MCP
     跑了 tool 無關（Python 寫 disk，跨 instance 安全）。命名比照 codex-companion
     _assessment_turn_path。Fail-open。"""
     try:
-        WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
-        p = WORKFLOW_DIR / f"aec-report-{session_id}-t{turn_seq}.json"
+        d = WORKFLOW_DIR / "aec-report"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{session_id}-t{turn_seq}.json"
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         tmp.replace(p)

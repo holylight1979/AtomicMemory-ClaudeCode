@@ -34,7 +34,7 @@ http-api ← server
 | `mcp.js` | MCP stdio JSON-RPC transport；`buffer` 私有其內；4 個 dead IPC handler 隨此搬。handleToolCall lazy-require atom-tools。 | — |
 | `http-api.js` | dashboard 唯讀 API 端點群（含 http-util helpers: jsonRes/pyCmd/makeJobRunner/execJson/readJsonBody）。私有可變 state 只透過本檔 handler 存取。 | — |
 | `dashboard-html.js` | dashboard HTML 模板；匯出 `render(versions)→string`。內層瀏覽器端 const 為前端 JS，勿 hoist。 | — |
-| `anti-evasion.js` | Anti-Evasion HUD 的 Node 面：MCP tool `anti_evasion_report` handler（只回 chip、**不碰 state**；one-writer）＋ HUD 唯讀 API（`apiAecReports`/`apiAecReport` glob disk 上 Python 落的 `aec-report-*.json`）＋ heartbeat（`apiAecBeat`/`apiAecBeatStatus`）＋ `aecSeverity`。 | `hooks/wg_evasion.py::aec_severity`（same-rule mirror）＋ `hooks/handlers/post_tool_use.py`（state/檔唯一寫者） |
+| `anti-evasion.js` | Anti-Evasion HUD 的 Node 面：MCP tool `anti_evasion_report` handler（只回 chip、**不碰 state**；one-writer）＋ HUD 唯讀 API（`apiAecReports`/`apiAecReport` glob disk 上 Python 落的 `aec-report/*.json` 子夾）＋ heartbeat（`apiAecBeat`/`apiAecBeatStatus`）＋ `aecSeverity`。 | `hooks/wg_evasion.py::aec_severity`（same-rule mirror）＋ `hooks/handlers/post_tool_use.py`（state/檔唯一寫者） |
 | `aec-hud-html.js` | Anti-Evasion HUD 頁模板；匯出 `render()→string`。dark 單頁：最新收尾檢核卡 (a)(b)(c)(d) + 近 N 回合 severity 歷史格；輪詢 1.5s（非 SSE）。內層瀏覽器端 JS 勿 hoist（C7）。 | — |
 | `server.js` | 進入點：requires/wiring、MCP 轉接、HTTP route table + createServer、埠自癒（C1：`__filename`/`SELF_MTIME_AT_BOOT`/relinquish 鎖此）、boot block、`require.main` guard + re-export（C4）。 | — |
 

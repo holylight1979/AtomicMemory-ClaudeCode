@@ -238,7 +238,7 @@ def test_ptu_emit_writes_state_and_file(monkeypatch, tmp_path):
     aec = state.get("anti_evasion_report")
     assert aec and aec["turn_seq"] == 7 and aec["session_id"] == _SID
     assert aec["severity"] == "notable"
-    p = tmp_path / f"aec-report-{_SID}-t7.json"
+    p = tmp_path / "aec-report" / f"{_SID}-t7.json"
     assert p.exists()
     data = json.loads(p.read_text(encoding="utf-8"))
     assert data["a"].startswith("- x.py:10")
@@ -253,5 +253,5 @@ def test_ptu_routine_no_fallback(monkeypatch, tmp_path):
         {"a": "無", "b": "無", "c": "無", "d": "無"},
     )
     assert state["anti_evasion_report"]["severity"] == "routine"
-    assert (tmp_path / f"aec-report-{_SID}-t7.json").exists()
+    assert (tmp_path / "aec-report" / f"{_SID}-t7.json").exists()
     assert not state.get("aec_hud_fallback")

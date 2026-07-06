@@ -40,6 +40,7 @@ workflow/_merge_history.log
 workflow/last_review_marker.json
 workflow/realm_automove_pending.json
 workflow/mcp-version-cache.json
+workflow/aec-report/
 
 # ─── Per-user / per-machine state (Wave 5 untracked) ─────
 memory/project-registry.json

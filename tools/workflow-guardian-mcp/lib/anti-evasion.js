@@ -2,7 +2,7 @@
 //
 // one-writer spine：本檔的 tool handler 只回 chip、**不碰 state**；state/持久化/HUD spawn
 // 由 Python PostToolUse（帶原始 session_id + turn_seq）獨佔（見 hooks/handlers/post_tool_use.py）。
-// 本檔另供 HUD 唯讀 API：glob disk 上 Python 落的 aec-report-<sid>-t<turn>.json 供頁 +
+// 本檔另供 HUD 唯讀 API：glob disk 上 Python 落的 aec-report/<sid>-t<turn>.json 供頁 +
 // heartbeat（lazy-spawn 判窗死用）。港口持有者供頁、與哪個 session 的 MCP 跑了 tool 無關。
 //
 // sendToolResult 來自 mcp.js（循環相依：mcp.handleToolCall lazy-require 本檔，故 tool handler
@@ -15,7 +15,7 @@ const { WORKFLOW_DIR } = require("./paths");
 // HUD 頁心跳（記憶體，港口持有者持有）；apiAecBeat 更新、apiAecBeatStatus 回 age_s。
 let lastHudBeat = 0;
 
-const REPORT_PREFIX = "aec-report-";
+const REPORT_DIR = path.join(WORKFLOW_DIR, "aec-report");  // per-turn 報告檔子夾（檔名 <sid>-t<turn>.json）
 const REPORT_CAP = 100;               // 唯讀 API 回傳上限（近 N 筆）
 const SID_RE = /^[A-Za-z0-9-]+$/;     // 防路徑穿越：session_id 只允許 hex/hyphen
 
@@ -70,16 +70,16 @@ function _json(res, code, data) {
   res.end(JSON.stringify(data));
 }
 
-// glob WORKFLOW_DIR/aec-report-*.json → 依 at(→turn_seq) 新→舊排序。Fail-open 回 []。
+// glob WORKFLOW_DIR/aec-report/*.json → 依 at(→turn_seq) 新→舊排序。Fail-open 回 []。
 function _readReports() {
   let files;
-  try { files = fs.readdirSync(WORKFLOW_DIR); }
+  try { files = fs.readdirSync(REPORT_DIR); }
   catch { return []; }
   const out = [];
   for (const f of files) {
-    if (!f.startsWith(REPORT_PREFIX) || !f.endsWith(".json")) continue;
+    if (!f.endsWith(".json")) continue;   // 略過 .tmp（atomic write 過渡檔）
     try {
-      out.push(JSON.parse(fs.readFileSync(path.join(WORKFLOW_DIR, f), "utf-8")));
+      out.push(JSON.parse(fs.readFileSync(path.join(REPORT_DIR, f), "utf-8")));
     } catch { /* skip corrupt / partial */ }
   }
   out.sort((x, y) =>
@@ -101,7 +101,7 @@ function apiAecReport(req, res, sid, turn) {
   if (!SID_RE.test(String(sid || "")) || !/^\d+$/.test(String(turn || ""))) {
     return _json(res, 404, { error: "bad params" });
   }
-  const p = path.join(WORKFLOW_DIR, `${REPORT_PREFIX}${sid}-t${turn}.json`);
+  const p = path.join(REPORT_DIR, `${sid}-t${turn}.json`);
   try {
     _json(res, 200, JSON.parse(fs.readFileSync(p, "utf-8")));
   } catch {
