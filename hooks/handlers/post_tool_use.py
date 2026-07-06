@@ -245,7 +245,8 @@ def _maybe_spawn_hud(sev: str, state: Dict[str, Any], config: Dict[str, Any]) ->
         threshold = int(aec_cfg.get("hud_stale_s", 30))
         if _hud_beat_fresh(port, threshold):
             return
-        if aec_cfg.get("hud_autospawn", False):
+        # B：只有 notable/real-evasion 才彈窗（routine 靜默入 disk、不打擾）。
+        if aec_cfg.get("hud_autospawn", False) and sev in ("notable", "real-evasion"):
             _spawn_hud_edge(port)
         if sev in ("notable", "real-evasion"):
             state["aec_hud_fallback"] = True
