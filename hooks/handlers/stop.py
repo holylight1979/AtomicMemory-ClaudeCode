@@ -405,14 +405,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     sr_enabled = sr_config.get("enabled", True)
     sr_max = int(sr_config.get("max_reminders", 1))
     sr_count = int(state.get("sync_reminder_count", 0))
+    # session-filter：只認本 session 自己改的檔（own_mod_files）。共用工作樹下，協調
+    # session 不得替他 session 未提交的檔誤觸發同步提醒（比照 Scan-Report 閘的過濾）。
     if (
         sr_enabled
-        and mod_files_all
+        and own_mod_files
         and not state.get("muted")
         and phase not in ("done", "syncing")
         and sr_count < sr_max
     ):
-        uncommitted = _detect_uncommitted_files(mod_files_all)
+        uncommitted = _detect_uncommitted_files(own_mod_files)
         if uncommitted:
             state["sync_reminder_count"] = sr_count + 1
             state["stop_blocked_count"] = stop_count + 1
@@ -476,9 +478,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         output_nothing()
         return
 
-    mod_count = len(state.get("modified_files", []))
+    # session-filter：底部一般 block 亦只數本 session 自己改的檔（own_mod_files）——
+    # 協調 session（own 為空）不因共用樹上他 session 的檔而誤觸發。kq_count 不過濾：
+    # knowledge_queue 是本 session 自己的待記知識，即使 own 檔為 0 仍是本 session 責任。
+    mod_count = len(own_mod_files)
     kq_count = len(state.get("knowledge_queue", []))
-    unique_files = list({m["path"] for m in state.get("modified_files", [])})
+    unique_files = list({m["path"] for m in own_mod_files})
     min_files = config.get("min_files_to_block", 2)
 
     if state.get("muted"):
