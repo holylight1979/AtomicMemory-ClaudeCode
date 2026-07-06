@@ -16,13 +16,14 @@ handoff 提醒、failure-triggered extraction、topic tracking、sync reminders�
 turn_injected 歸因記錄、atom-debug summary、budget 截斷輸出。
 """
 
+import json
 import re
 from typing import Any, Dict, List
 
 from wg_core import (
     _ensure_state, _estimate_tokens, write_state,
     output_json, output_nothing,
-    _atom_debug_log,
+    _atom_debug_log, WORKFLOW_DIR,
 )
 from wg_atoms import (
     compute_token_budget,
@@ -34,6 +35,59 @@ from handlers.ups_gates import run_pre_gates
 from handlers.ups_context import build_context
 from handlers.ups_search import collect_matched_atoms
 from handlers.ups_inject import assemble_injection
+
+
+def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
+    """HUD (d) 保留/刪除決策 drain（注入端）。
+
+    decision 檔由 Node（anti-evasion.js apiAecDecisionPost）落於 workflow/aec-decision/
+    <sid>-t<turn>-<idx>.json（Node 寫 / 本處 Python 讀 = 對稱 one-writer）。glob 本 session
+    未注入的決策 → 聚合成一段 additionalContext → 標 injected（atomic），供模型下回合 deferred
+    執行（刪除 / 略過保留）。fail-open：讀不到 / 壞檔 skip，不阻斷 UPS。
+    """
+    if not session_id:
+        return
+    ddir = WORKFLOW_DIR / "aec-decision"
+    try:
+        paths = sorted(ddir.glob(f"{session_id}-t*.json"))
+    except Exception:
+        return
+    deletes: List[str] = []
+    keeps: List[str] = []
+    consumed: List[tuple] = []
+    for p in paths:
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue   # 壞檔 / 過渡檔 → skip
+        if data.get("injected"):
+            continue
+        if data.get("session_id") != session_id:
+            continue   # 檔名前綴已 scope，再校驗 session_id 欄位
+        item = str(data.get("item", "")).strip() or f"(idx {data.get('idx')})"
+        action = data.get("action")
+        if action == "delete":
+            deletes.append(item)
+        elif action == "keep":
+            keeps.append(item)
+        else:
+            continue
+        consumed.append((p, data))
+    if not consumed:
+        return
+    block = ["[Guardian:AEC-Decision] 使用者於 HUD 對 (d) 暫存清單做了處置："]
+    block += [f"  🗑 刪除：{it}" for it in deletes]
+    block += [f"  📌 保留：{it}" for it in keeps]
+    block.append("請據此執行——刪除項確認路徑後移除、保留項略過；為 deferred，本回合執行。")
+    lines.append("\n".join(block))
+    for p, data in consumed:   # 標 injected（atomic tmp→replace），防下回合重注入
+        data["injected"] = True
+        try:
+            tmp = p.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(p)
+        except Exception:
+            pass
 
 
 def handle_user_prompt_submit(
@@ -129,6 +183,9 @@ def handle_user_prompt_submit(
 
     # Topic tracking
     _update_topic_tracker(state, prompt, intent, newly_injected)
+
+    # AEC HUD 決策 drain：HUD (d) 保留/刪除鈕落的決策 → 注入 → 模型本回合 deferred 執行
+    _drain_aec_decisions(session_id, lines)
 
     # Sync reminders
     mod_count = len(state.get("modified_files", []))

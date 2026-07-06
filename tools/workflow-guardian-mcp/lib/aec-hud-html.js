@@ -60,6 +60,17 @@ function render() {
   .cell.real { background: var(--sev-real); box-shadow: 0 0 0 2px #d03b3b55; }
   .cell.active { outline: 2px solid var(--ink); }
   .empty { color: var(--muted); font-size: .82em; padding: 24px 0; text-align: center; }
+  .dec-list { font-family: inherit; }
+  .dec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; border-top: 1px dashed #ffffff0f; }
+  .dec-row:first-child { border-top: none; }
+  .dec-item { flex: 1; min-width: 0; word-break: break-all; }
+  .dec-row.dec-done .dec-item { color: #545d68; }
+  .dec-btns { flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
+  .aec-dec-btn { font-size: .72em; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-2); cursor: pointer; }
+  .aec-dec-btn:hover { border-color: var(--ink-2); }
+  .aec-dec-btn.danger { color: #ff9a9a; border-color: #d03b3b66; }
+  .aec-dec-btn.danger:hover { background: #d03b3b26; border-color: #d03b3b; }
+  .dec-status { font-size: .74em; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -98,6 +109,7 @@ var SEV = {
 };
 var activeKey = null;   // 使用者點選的歷史格（null=跟隨最新）
 var reports = [];       // 新→舊
+var decisionsMade = {}; // "<sid>|<turn>|<idx>" → "keep"|"delete"（跨 poll 重渲染保留視覺）
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>]/g, function (ch) {
@@ -117,6 +129,48 @@ function sectionHtml(letter, name, val) {
          ' <span class="k"></span></div>' + body + "</div>";
 }
 
+function escAttr(s) { return esc(s).replace(/"/g, "&quot;"); }
+
+// (d) 專屬渲染：逐行拆 r.d、每非空行一列 + 保留/刪除鈕。(d) 為 freeform 純文字（無 per-item
+// 身份）→ 逐行啟發式、idx=非空行序（同 (d) 內容穩定，供決策檔覆寫用）。已決者渲染「已排定」。
+function decRow(r, idx, item) {
+  var sid = r.session_id || "";
+  var turn = r.turn_seq != null ? r.turn_seq : "";
+  var done = decisionsMade[sid + "|" + turn + "|" + idx];
+  var right;
+  if (done) {
+    right = '<span class="dec-status">已排定：' + (done === "delete" ? "刪除 🗑" : "保留 📌") + "</span>";
+  } else {
+    var attrs = ' data-sid="' + escAttr(String(sid)) + '" data-turn="' + escAttr(String(turn)) +
+                '" data-idx="' + idx + '" data-item="' + escAttr(item) + '"';
+    right = '<button class="aec-dec-btn"' + attrs + ' data-action="keep">保留</button>' +
+            '<button class="aec-dec-btn danger"' + attrs + ' data-action="delete">刪除</button>';
+  }
+  return '<div class="dec-row' + (done ? " dec-done" : "") + '">' +
+         '<span class="dec-item">' + esc(item) + "</span>" +
+         '<span class="dec-btns">' + right + "</span></div>";
+}
+
+function sectionHtmlD(r) {
+  var head = '<div class="sec"><div class="sec-h">(d) 衍生暫存清單 ';
+  if (isBlank(r.d)) {
+    return head + '<span class="k"></span></div><div class="sec-body blank">無</div></div>';
+  }
+  var lines = String(r.d).split("\n");
+  var rows = "", shown = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var raw = lines[i].trim();
+    if (!raw) { continue; }
+    rows += decRow(r, shown, raw.replace(/^[-*•·]\s*/, ""));   // 去前導 bullet 顯示
+    shown++;
+  }
+  if (!rows) {
+    return head + '<span class="k"></span></div><div class="sec-body blank">無</div></div>';
+  }
+  return head + '<span class="k">· 逐項可保留/刪除（決策下回合注入、模型 deferred 執行）</span>' +
+         '</div><div class="sec-body dec-list">' + rows + "</div></div>";
+}
+
 function renderCard(r) {
   var slot = document.getElementById("card-slot");
   if (!r) { return; }
@@ -133,9 +187,13 @@ function renderCard(r) {
     sectionHtml("a", "缺失發現與修補清單", r.a) +
     sectionHtml("b", "AI 逃避通報", r.b) +
     sectionHtml("c", "Token 累積警示", r.c) +
-    sectionHtml("d", "衍生暫存清單", r.d) +
+    sectionHtmlD(r) +
   "</div>";
   slot.innerHTML = html;
+  var decBtns = slot.querySelectorAll(".aec-dec-btn");
+  for (var b = 0; b < decBtns.length; b++) {
+    decBtns[b].addEventListener("click", onDecClick);
+  }
 }
 
 function renderGrid() {
@@ -164,6 +222,41 @@ function onCellClick(e) {
   fetch("/api/aec/report/" + encodeURIComponent(parts[0]) + "/" + encodeURIComponent(parts[1]))
     .then(function (res) { return res.ok ? res.json() : null; })
     .then(function (r) { if (r) { renderCard(r); renderGrid(); } })
+    .catch(function () {});
+}
+
+function findReport(sid, turn) {
+  for (var i = 0; i < reports.length; i++) {
+    if (String(reports[i].session_id) === String(sid) &&
+        String(reports[i].turn_seq) === String(turn)) { return reports[i]; }
+  }
+  return null;
+}
+
+function onDecClick(e) {
+  var el = e.currentTarget;
+  postDecision(
+    el.getAttribute("data-sid"), el.getAttribute("data-turn"),
+    el.getAttribute("data-idx"), el.getAttribute("data-item"),
+    el.getAttribute("data-action")
+  );
+}
+
+// POST 決策 → 落磁碟佇列（Node 寫）；成功後就地標「已排定」（decisionsMade 跨 poll 保留）。
+function postDecision(sid, turn, idx, item, action) {
+  fetch("/api/aec/decision", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sid: sid, turn: Number(turn), idx: Number(idx), item: item, action: action })
+  })
+    .then(function (res) { return res.ok ? res.json() : null; })
+    .then(function (j) {
+      if (j && j.ok) {
+        decisionsMade[sid + "|" + turn + "|" + idx] = action;
+        var r = findReport(sid, turn);
+        if (r) { renderCard(r); }   // 重渲染目前卡，該列轉「已排定」
+      }
+    })
     .catch(function () {});
 }
 

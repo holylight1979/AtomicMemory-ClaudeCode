@@ -275,6 +275,9 @@ const httpServer = http.createServer((req, res) => {
   if (pathname === "/api/aec/beat-status" && req.method === "GET") {
     return antiEvasion.apiAecBeatStatus(req, res);
   }
+  if (pathname === "/api/aec/decision" && req.method === "POST") {
+    return antiEvasion.apiAecDecisionPost(req, res);   // HUD (d) 保留/刪除鈕 → 決策落磁碟
+  }
 
   res.writeHead(404);
   res.end("Not found");

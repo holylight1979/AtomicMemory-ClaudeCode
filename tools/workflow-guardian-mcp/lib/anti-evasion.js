@@ -5,6 +5,11 @@
 // 本檔另供 HUD 唯讀 API：glob disk 上 Python 落的 aec-report/<sid>-t<turn>.json 供頁 +
 // heartbeat（lazy-spawn 判窗死用）。港口持有者供頁、與哪個 session 的 MCP 跑了 tool 無關。
 //
+// 兩命名空間、各單一 writer（不互搶，維持 one-writer spine）：
+//   report（<sid>-t<turn>.json）  = Python 寫 / Node 讀（唯讀 API 供 HUD）
+//   decision（<sid>-t<turn>-<idx>.json）= Node 寫（apiAecDecisionPost，HUD 保留/刪除鈕）/ Python 讀
+//                                   （user_prompt_submit drain → 注入 → 模型 deferred 執行）
+//
 // sendToolResult 來自 mcp.js（循環相依：mcp.handleToolCall lazy-require 本檔，故 tool handler
 // 內 lazy-require mcp 即可，載入順序無虞）。
 
@@ -16,6 +21,7 @@ const { WORKFLOW_DIR } = require("./paths");
 let lastHudBeat = 0;
 
 const REPORT_DIR = path.join(WORKFLOW_DIR, "aec-report");  // per-turn 報告檔子夾（檔名 <sid>-t<turn>.json）
+const DECISION_DIR = path.join(WORKFLOW_DIR, "aec-decision");  // HUD 保留/刪除決策佇列（<sid>-t<turn>-<idx>.json）
 const REPORT_CAP = 100;               // 唯讀 API 回傳上限（近 N 筆）
 const SID_RE = /^[A-Za-z0-9-]+$/;     // 防路徑穿越：session_id 只允許 hex/hyphen
 
@@ -121,8 +127,55 @@ function apiAecBeatStatus(req, res) {
   _json(res, 200, { age_s });
 }
 
+// ─── AEC decision 寫入端（Node 唯一 writer；HUD (d) 保留/刪除鈕）──────────────────
+function _readBody(req, cb) {
+  let body = "";
+  req.on("data", (ch) => (body += ch));
+  req.on("end", () => { try { cb(body ? JSON.parse(body) : {}); } catch { cb(null); } });
+}
+
+// POST /api/aec/decision — HUD (d) 暫存清單逐項 保留/刪除 決策落磁碟。
+// body: {sid, turn, idx, item, action:"keep"|"delete"}。同一 (sid,turn,idx) 重點擊→覆寫同檔
+// （reset injected:false → Python drain 重注入新決策）。atomic tmp→rename，Python glob 略過 .tmp。
+// loopback 信任模型：無 auth（同 dashboard sendSignal），僅 127.0.0.1。
+function apiAecDecisionPost(req, res) {
+  _readBody(req, (body) => {
+    if (!body) return _json(res, 400, { error: "bad json" });
+    const sid = String(body.sid == null ? "" : body.sid);
+    const turn = String(body.turn == null ? "" : body.turn);
+    const idx = String(body.idx == null ? "" : body.idx);
+    const action = String(body.action == null ? "" : body.action);
+    if (!SID_RE.test(sid) || !/^\d+$/.test(turn) || !/^\d+$/.test(idx)) {
+      return _json(res, 404, { error: "bad params" });   // SID_RE 防路徑穿越
+    }
+    if (action !== "keep" && action !== "delete") {
+      return _json(res, 400, { error: "bad action" });
+    }
+    const record = {
+      session_id: sid,
+      turn_seq: Number(turn),
+      idx: Number(idx),
+      item: String(body.item == null ? "" : body.item),
+      action,
+      at: new Date().toISOString(),
+      injected: false,
+    };
+    try {
+      fs.mkdirSync(DECISION_DIR, { recursive: true });
+      const p = path.join(DECISION_DIR, `${sid}-t${turn}-${idx}.json`);
+      const tmp = p + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(record, null, 2), "utf-8");
+      fs.renameSync(tmp, p);   // atomic
+    } catch {
+      return _json(res, 500, { error: "write failed" });
+    }
+    _json(res, 200, { ok: true, action });
+  });
+}
+
 module.exports = {
   aecBlank, aecSeverity,
   toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus,
+  apiAecDecisionPost,
 };
