@@ -1251,6 +1251,34 @@
         "byte-identical 搬移"
       ],
       "scope": "global"
+    },
+    {
+      "name": "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/git/git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉.md",
+      "triggers": [
+        "git commit",
+        "git push",
+        "amend",
+        "git amend",
+        "force push",
+        "force-with-lease",
+        "rebase",
+        "dual push url",
+        "雙push",
+        "gitlab",
+        "github",
+        "pre-receive hook declined",
+        "non-fast-forward",
+        "遠端分叉",
+        "分叉",
+        "commit message",
+        "heredoc",
+        "多行 commit message",
+        "上GIT",
+        "main 保護",
+        "force 保護"
+      ],
+      "scope": "global"
     }
   ]
 }
