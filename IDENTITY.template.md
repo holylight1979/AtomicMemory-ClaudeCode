@@ -22,22 +22,17 @@
 ### 發現即處理門檻
 詳見 atom [[feedback-workflow-discipline]]（trigger: 順手修補, drift 修補）。
 
-### 收尾檢核（宣告完成 + 動 core/多檔 才要求）
-**觸發門檻**：僅在「宣告完成」且「動到 core 檔（hooks/lib/tools/rules/根層契約設定）或多檔（≥`min_files_to_block`）」時要求下列 (a)(d)；純單檔/文件小改**免收尾檢核**（對 4.8 過度觸發成儀式性負擔，非防退避）。達門檻時報告尾端全項檢視（非擇一）：
+### 收尾檢核（宣告完成 + 動 core/多檔 才要求；Stop 閘程式化強制）
+**觸發門檻**：僅在「宣告完成」且「動到 core 檔（hooks/lib/tools/rules/根層契約設定）或多檔（≥`min_files_to_block`）」時要求；純單檔/文件小改**免收尾檢核**（避免 4.8 過度觸發成儀式性負擔）。達門檻時以 MCP tool `anti_evasion_report(a,b,c,d)` 結構化提交——內容走 Anti-Evasion HUD、chat 只留折疊 chip（**不再於報告尾端攤 prose**）；Stop 閘（stop.py）偵測動 core + 未 emit → block 逼補。格式細節見 tool schema，此處留 disposition：
 
-**(a) 缺失發現與修補清單**：`- 檔:行 — 改了什麼`；無則「無」。**達門檻必寫**。
-（涵蓋本次疏漏 + 現存 drift；處理門檻見 [[feedback-workflow-discipline]]）
+**(a) 缺失發現與修補清單**：本次疏漏 + 現存 drift（含 (e) 版本脈絡殘留之修補）；無則「無」。**達門檻必填**。（[[feedback-workflow-discipline]]）
 
-**(b) AI 逃避通報**：本次有/沒有 忽略 / 偷埋的現象。**僅在發生時寫**。
-（防 AI 在大量回應中偷埋不易察覺的內文；自評可疑必寫）
+**(b) AI 逃避通報**：忽略/偷埋現象；**自評可疑必寫**（閘逼得出 emit、逼不出誠實——這條靠自律）。僅發生時填。
 
-**(c) Token 累積警示**：見 hook `[Auto-Handoff]` 程式化預警則判斷是否已處理失真，是則附新 session 接續 prompt（壓縮真發生時系統自動備 stub 保底）。**僅在實際發生時寫**。
-（語意判斷層保留；程式化量測在 `wg_handoff.token_warn_payload` + stop.py Layer 1，文字與 stop.py ScanReport gate (c) 同步）
+**(c) Token 累積警示**：`[Auto-Handoff]` 預警則附新 session 接續 prompt。僅發生時填。
 
-**(d) 衍生暫存清單**：本次衍生暫存檔/資料夾,預設**直接刪**；user 要求保留者標示「保留？」。**達門檻必寫**,無則「無」。
-（判定見 [[feedback-completion-gates]]）
+**(d) 衍生暫存清單**：預設**直接刪**；保留者標「保留？」。**達門檻必填**，無則「無」。（[[feedback-completion-gates]]）
 
-**(e) 版本脈絡掃除檢核**：本次動過 code/test/atom/config 時，pattern-first 自檢有無埋入版本操作脈絡（版本/階段標記·日期戳·commit·「原X改Y」變更敘事·`[vN]`/`[phaseN]` 前綴·spec 錨），對照 KEEP 邊界排除功能識別後移除；`hooks/version_guard.py` warn 提醒為輔。**僅在動過上述檔且發現殘留時寫**。
-（規則見 rules/core.md「版本與文件治理」；pattern/KEEP 邊界見 [[feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔]]）
+**(e) 版本脈絡掃除（自檢，非獨立 emit 欄）**：動過 code/test/atom/config 時 pattern-first 自檢有無埋入版本操作脈絡（版本/階段標記·日期戳·commit·「原X改Y」變更敘事·`[vN]`/`[phaseN]` 前綴·spec 錨），對照 KEEP 邊界排除功能識別後移除；**發現殘留列入 (a)**。`hooks/version_guard.py` warn 為輔。（[[feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔]]）
 
 > **環境認知**：啟動辨識所在環境（核心 ~/.claude / 專案 / 額外）以定 realm 注入範疇。
