@@ -227,6 +227,30 @@ def _refresh_vector_flag(
     return "kept"
 
 
+def _prune_aec_files(max_age_days: int = 7) -> int:
+    """清 workflow/aec-report/ 與 aec-decision/ 中 mtime 超過 max_age_days 的 .json（TTL GC）。
+
+    兩者皆 per-turn 執行期狀態檔（Python 寫報告 / Node 寫決策），寫了不清會無限累積。
+    在 SessionStart 順手掃一次（比照上方 log rotation 的開機打掃時機）。glob *.json 自然略過
+    atomic write 的 .tmp 過渡檔。fail-open：目錄不存在 / 單檔被別進程刪或鎖 → 略過不炸。
+    回傳刪除檔數（供測試 / 觀測）。"""
+    cutoff = (datetime.now() - timedelta(days=max_age_days)).timestamp()
+    pruned = 0
+    for sub in ("aec-report", "aec-decision"):
+        try:
+            entries = list((WORKFLOW_DIR / sub).glob("*.json"))
+        except Exception:
+            continue
+        for p in entries:
+            try:
+                if p.stat().st_mtime < cutoff:
+                    p.unlink()
+                    pruned += 1
+            except Exception:
+                continue
+    return pruned
+
+
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
@@ -238,6 +262,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         rotate_log_if_oversized(WORKFLOW_DIR / "guardian-crash.log", max_mb=10)
         rotate_log_if_oversized(WORKFLOW_DIR / "extract-worker.log", max_mb=10)
         rotate_log_if_oversized(CLAUDE_DIR / "Logs" / "codex-companion.log", max_mb=10)
+        _prune_aec_files(max_age_days=7)  # AEC 報告/決策檔 7 天 TTL（防執行期狀態檔無限累積）
     except Exception as e:
         _atom_debug_error("session_start:log_rotation", e)
 
