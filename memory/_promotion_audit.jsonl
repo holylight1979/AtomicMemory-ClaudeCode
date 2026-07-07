@@ -39,3 +39,4 @@
 {"ts": "2026-06-18T18:58:10", "action": "hint", "atom": "orbit-server-是-userjoybaseserver-框架源碼非黑箱-nuget", "from": "[臨]", "to": "[觀]", "method": "usefulness", "tier": "near", "lower_bound": 0.566, "n": 5, "session_id": "497956f9-b9f0-411d-9415-de3893f70b3b"}
 {"ts": "2026-06-26T15:10:29", "action": "auto_observe", "atom": "cognitive-patterns", "items": 1, "confirmations": 38, "header_promoted": false, "method": "confirmations", "lower_bound": 0.068}
 {"ts": "2026-06-30T14:46:22", "action": "auto_observe", "atom": "cognitive-patterns", "items": 3, "confirmations": 38, "header_promoted": false, "method": "confirmations", "lower_bound": 0.227}
+{"ts": "2026-07-07T20:38:23", "action": "hint", "atom": "feedback-completion-gates", "from": "[臨]", "to": "[觀]", "method": "usefulness", "tier": "near", "lower_bound": 0.508, "n": 9, "session_id": "2b3834f0-3743-4817-ad1b-6a021b97b9c8"}
