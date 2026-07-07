@@ -51,7 +51,6 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
     monkeypatch.setattr(st, "_should_deep_postmortem", lambda *a, **k: False)
-    monkeypatch.setattr(st, "_maybe_spawn_per_turn_extraction", lambda *a, **k: None)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 
     def drive(modified_files, capsys, uncommitted="echo", **extra):

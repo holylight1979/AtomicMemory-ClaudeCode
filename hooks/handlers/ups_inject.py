@@ -23,7 +23,6 @@ from wg_atoms import (
     SECTION_INJECT_THRESHOLD, _extract_sections,
     _TURN_BUDGET_LIMIT,
 )
-from wg_extraction import log_injection
 
 
 def _filter_related_by_relevance(
@@ -114,7 +113,6 @@ def assemble_injection(
                 f"atom={name} source={source} classification=cold (1-line)",
                 config,
             )
-            log_injection(session_id or "", name, "cold", source)
             continue
 
         content = _strip_atom_for_injection(raw_content)
@@ -137,7 +135,6 @@ def assemble_injection(
                 f"atom={name} source={source} tokens={consumed} decision=ok used={used_tokens}/{_TURN_BUDGET_LIMIT}",
                 config,
             )
-            log_injection(session_id or "", name, "hot", source)
         elif decision == "fallback":
             atom_lines.append(f"[Atom:{name}] (budget fallback)\n{inject_content}")
             newly_injected.append(name)
@@ -147,7 +144,6 @@ def assemble_injection(
                 f"atom={name} source={source} tokens={consumed} decision=fallback used={used_tokens}/{_TURN_BUDGET_LIMIT}",
                 config,
             )
-            log_injection(session_id or "", name, "hot", source)
         else:
             first_line = content.split("\n", 1)[0].strip("# ").strip()
             display_path = rel_path or f"{name}.md"
@@ -158,7 +154,6 @@ def assemble_injection(
                 f"atom={name} source={source} decision=skip used={used_tokens}/{_TURN_BUDGET_LIMIT}",
                 config,
             )
-            log_injection(session_id or "", name, "hot", source)
             break
 
     # Related-Edge Spreading（+ Phase C 最小高訊號集裁切：剔除已證明低效用、依 rank 保留前 N）
@@ -190,7 +185,6 @@ def assemble_injection(
                 f"atom={rname}(related) classification=cold (1-line)",
                 config,
             )
-            log_injection(session_id or "", rname, "cold", "related")
             continue
 
         content = _strip_atom_for_injection(raw_content)
@@ -206,7 +200,6 @@ def assemble_injection(
                 f"atom={rname}(related) classification=hot tokens={consumed} decision=ok used={used_tokens}/{_TURN_BUDGET_LIMIT}",
                 config,
             )
-            log_injection(session_id or "", rname, "hot", "related")
         elif decision == "fallback":
             atom_lines.append(f"[Atom:{rname}] (related, budget fallback)\n{inject_content}")
             newly_injected.append(rname)
@@ -216,7 +209,6 @@ def assemble_injection(
                 f"atom={rname}(related) classification=hot tokens={consumed} decision=fallback used={used_tokens}/{_TURN_BUDGET_LIMIT}",
                 config,
             )
-            log_injection(session_id or "", rname, "hot", "related")
         else:
             first_line = content.split("\n", 1)[0].strip("# ").strip()
             atom_lines.append(f"[Atom:{rname}] (related) {first_line} (full: Read {rel_path or rname + '.md'})")
@@ -226,14 +218,13 @@ def assemble_injection(
                 f"atom={rname}(related) classification=hot decision=skip used={used_tokens}/{_TURN_BUDGET_LIMIT}",
                 config,
             )
-            log_injection(session_id or "", rname, "hot", "related")
             break
 
     if atom_lines:
         lines.extend(atom_lines)
         state["injected_atoms"] = already_injected + newly_injected
         _emit_usefulness_hints(
-            session_id, config, newly_injected, matched_with_dir, lines
+            session_id, config, newly_injected, matched_with_dir
         )
 
     return newly_injected, atom_source_dirs
@@ -244,7 +235,6 @@ def _emit_usefulness_hints(
     config: Dict[str, Any],
     newly_injected: List[str],
     matched_with_dir: List[Tuple[AtomEntry, Path]],
-    lines: List[str],
 ) -> None:
     """ReadHits++ via lib.atom_access (funnel discipline)。
 
@@ -303,12 +293,8 @@ def _emit_usefulness_hints(
                 break
             st = usefulness_stats(acc, z=wilson_z)
             lb, n = st["lower_bound"], int(st["n"])
-            status = "已達效用升門" if tier == "eligible" else "效用接近升門"
-            lines.append(
-                f"⚡ [{inj_name}] 效用 lb={lb:.2f} (n={n})，目前{cur}→{target}："
-                f"{status}（need lb≥{promote_lb} & n≥{min_n}），"
-                f"觸及相關行為時請主動確認是否晉升"
-            )
+            # chat 不出提示行（跟進率極低）；晉升由 SessionEnd 程式化路徑執行，
+            # 此處只留 audit 記錄供稽核。
             log_promotion_audit(
                 "hint", inj_name,
                 **{"from": cur, "to": target,

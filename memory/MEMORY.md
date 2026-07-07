@@ -13,9 +13,6 @@
 | workflow-rules | 工作流規則（全域） |
 | workflow-svn | SVN 工作流規則 |
 | workflow-parallel-agents | 多 agent 並行：拆 ≥2 sub-agent 同 message dispatch 的評估準則 |
-| atom-table-support | atom_write 知識區表格/程式碼 fence block 渲染用法（dogfood） |
-| atom-usefulness-loop | 注入→使用→結果 閉環效用 (α,β)：use 偵測 + Wilson 晉升 + 慢衰減（Phase 2，#2） |
-| atom-元資料編輯與晉升閘真相 | atom 元資料編輯與晉升閘真相 |
 | goal-driven-verify-loopkarpathy-吸收 | goal-driven-verify-loop（karpathy 吸收） |
 | 自己flag的維護動作直接做完不要反問 | 自己flag的維護動作直接做完不要反問 |
 | 記憶汙染與上下文腐化-注入萃取自檢 | 記憶汙染與上下文腐化-注入萃取自檢 |

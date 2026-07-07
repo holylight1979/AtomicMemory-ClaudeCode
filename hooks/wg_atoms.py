@@ -10,14 +10,10 @@ wg_atoms.py — Atom 索引解析 / Trigger / Intent / Vector search / Activatio
 
 import json
 import logging
-import logging.handlers
 import math
 import re
 import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +24,7 @@ from wg_core import (
     MEMORY_INDEX, ATOM_INDEX, REALM_AUTOMOVE_MARKER,
     CONTEXT_BUDGET_DEFAULT, TURN_BUDGET_LIMIT,
     compute_token_budget,  # re-export：budget 單一來源在 wg_core，舊 caller 仍從本模組 import
+    _estimate_tokens,  # CJK-aware 估算器（單一口徑，中文 ~1.5 tok/字）
     discover_all_project_memory_dirs, resolve_access_json, resolve_staging_dir,
     get_project_memory_dir, log_promotion_audit,
     _atom_debug_log, _atom_debug_error,
@@ -420,10 +417,6 @@ _FRONTMATTER_KEEP_RE = re.compile(
 _KNOWLEDGE_CAP_TOKENS_DEFAULT = 200
 
 
-def _estimate_tokens(text: str) -> int:
-    return len(text) // 4
-
-
 def _extract_named_section(
     content: str, section_title: str, max_tokens: Optional[int] = None,
 ) -> Optional[str]:
@@ -446,7 +439,9 @@ def _extract_named_section(
 
     header = f"## {section_title}\n"
     marker = f"\n\n…（已截斷，原 {full_tokens} tokens）"
-    target_chars = max_tokens * 4 - len(header) - len(marker)
+    # 依實際 token/char 密度換算截斷字元數（CJK 密度高、chars/token 低）
+    chars_per_token = len(full) / full_tokens if full_tokens else 4.0
+    target_chars = int(max_tokens * chars_per_token) - len(header) - len(marker)
     if target_chars < 50:
         target_chars = 50
     truncated = body[:target_chars]
@@ -891,6 +886,8 @@ def make_embed_tiebreak_fn(config: Dict[str, Any]):
     逾時、格式異常）回 None → detect_atom_use 視同無 tiebreak，不污染主判。
     走既有 Ollama /api/embeddings（短逾時、截斷輸入），屬偶發呼叫（僅邊界 case）。
     """
+    import urllib.request
+
     uconf = (config or {}).get("usefulness", {}) or {}
     if not uconf.get("embedding_tiebreak", False):
         return None
@@ -1276,7 +1273,6 @@ def _update_topic_tracker(
 
 # ─── Vector Observation Log + Semantic Search (was wg_intent) ───────────────
 
-_RANKED_FLOOR = 0.55
 _VECTOR_OBS_LOG = CLAUDE_DIR / "Logs" / "vector-observation.log"
 _vector_obs_logger: Optional[logging.Logger] = None
 _vector_obs_logger_failed: bool = False
@@ -1289,6 +1285,8 @@ def _get_vector_obs_logger() -> Optional[logging.Logger]:
     if _vector_obs_logger_failed:
         return None
     try:
+        import logging.handlers
+
         _VECTOR_OBS_LOG.parent.mkdir(parents=True, exist_ok=True)
         lg = logging.getLogger("wg.vector_obs")
         lg.setLevel(logging.INFO)
@@ -1342,6 +1340,9 @@ def _search_episodic_context(
     prompt: str, config: Dict[str, Any], session_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """Query /search/episodic for related past sessions. First-prompt only."""
+    import urllib.parse
+    import urllib.request
+
     vs_config = config.get("vector_search", {})
     if not vs_config.get("enabled", True):
         _log_vector_obs(session_id, "_search_episodic_context", "disabled", 0, True)
@@ -1480,6 +1481,10 @@ def _semantic_search(
     session_id: Optional[str] = None,
 ) -> List[Tuple[str, str, List[str], List[Dict]]]:
     """Query Memory Vector Service with intent-aware ranked search."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
     vs_config = config.get("vector_search", {})
     if not vs_config.get("enabled", True):
         _log_vector_obs(session_id, "_semantic_search", "disabled", 0, True,
@@ -1505,7 +1510,7 @@ def _semantic_search(
         use_sections = True
         params_dict = _add_identity({
             "q": prompt, "top_k": top_k,
-            "min_score": min(min_score, _RANKED_FLOOR),
+            "min_score": min_score,
             "intent": intent,
             "max_sections": 3,
         })
@@ -1520,7 +1525,7 @@ def _semantic_search(
                 use_sections = False
                 params_dict = _add_identity({
                     "q": prompt, "top_k": top_k,
-                    "min_score": min(min_score, _RANKED_FLOOR),
+                    "min_score": min_score,
                     "intent": intent,
                 })
                 params = urllib.parse.urlencode(params_dict)
@@ -1555,6 +1560,8 @@ def _semantic_search(
 
 def _trigger_incremental_index(config: Dict[str, Any]) -> None:
     """Non-blocking request to re-index changed atoms."""
+    import urllib.request
+
     vs_config = config.get("vector_search", {})
     if not vs_config.get("auto_index_on_change", True):
         return

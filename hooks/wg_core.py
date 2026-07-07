@@ -53,9 +53,8 @@ except ImportError:
 #   compute_token_budget(prompt) — 每輪 additionalContext 總額（隨 prompt 長度 1000/2000/3000）
 #   CONTEXT_BUDGET_DEFAULT       — _truncate_context_by_activation 的 fallback 上限
 #   TURN_BUDGET_LIMIT            — atom 注入段 per-turn 硬頂（wg_atoms re-export 舊名 _TURN_BUDGET_LIMIT）
-# 兩個 token 估算器口徑不同，勿混用、勿合併（合併會改變注入行為）：
-#   wg_core._estimate_tokens  — CJK-aware（中文 ~1.5 tok/字），量 transcript/handoff/debug 摘要
-#   wg_atoms._estimate_tokens — flat len//4，atom 注入預算口徑（verify_atom_injection_budget 鎖定）
+# token 估算器單一口徑：wg_core._estimate_tokens — CJK-aware（中文 ~1.5 tok/字 + ASCII word），
+# transcript/handoff/debug 摘要與 atom 注入預算共用（wg_atoms import 複用）
 CONTEXT_BUDGET_DEFAULT = 3000
 TURN_BUDGET_LIMIT = 500   # atom 注入段 per-turn 硬頂，控每輪 token 稅
 
@@ -78,9 +77,7 @@ DEFAULTS = {
     "min_files_to_block": 2,
     "remind_after_turns": 3,
     "max_reminders": 3,
-    "stale_threshold_hours": 24,
     "sync_keywords": ["同步", "sync", "commit", "提交", "結束", "收工"],
-    "completion_indicators": ["已同步", "同步完成", "已更新", "已提交", "committed"],
     "session_context": {
         "enabled": True,
         "max_episodic": 3,
@@ -846,7 +843,7 @@ _TEST_PATH_RE = re.compile(
 
 _WHITELIST_BASENAMES = frozenset({
     "MEMORY.md", "_ATOM_INDEX.md", "_CHANGELOG.md", "_CHANGELOG_ARCHIVE.md",
-    "_roles.md", "hot_cache.json", "atom_io_audit.jsonl",
+    "_roles.md", "atom_io_audit.jsonl",
     "_promotion_audit.jsonl", "project-registry.json", "session_score.json",
     "DESIGN.md", "role.md",
 })

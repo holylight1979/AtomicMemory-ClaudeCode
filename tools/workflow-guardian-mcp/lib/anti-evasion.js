@@ -32,7 +32,7 @@ function aecBlank(v) {
   // 放寬「無」認定含結尾標點（「無。」）；太嚴會把 routine 誤升 real-evasion → 洗 chat。
   // MIRROR: hooks/wg_evasion.py _aec_blank — keep in sync。
   const s = String(v == null ? "" : v).trim().replace(/[\s。．.,，、；;：:!！?？~～\-—…]+$/u, "");
-  return s === "" || s === "無";
+  return s === "" || /^[無无]\s*(?:[（(][^）)]*[）)])?$/u.test(s);
 }
 function aecSeverity(a, b, c, d) {
   if (!aecBlank(b)) return "real-evasion";

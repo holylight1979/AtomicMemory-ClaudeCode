@@ -104,14 +104,13 @@ def handle_user_prompt_submit(
     prompt_lower = clean_prompt.lower()
     lines: List[str] = []
 
-    # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / hot cache / atom-write guard）
-    hot_cache_tokens = run_pre_gates(
+    # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / atom-write guard）
+    run_pre_gates(
         session_id, state, config, clean_prompt, prompt_lower, lines
     )
 
     # ─── Context build 段：session context / wisdom / parallel / AIDocs / JIT
     budget = compute_token_budget(prompt)
-    budget = max(budget - hot_cache_tokens, 500)
     budget = build_context(
         session_id, state, config, prompt, clean_prompt, prompt_lower,
         budget, lines,
@@ -132,16 +131,6 @@ def handle_user_prompt_submit(
         matched_with_dir, all_atoms, already_injected,
         atom_source, section_hints, lines,
     )
-
-    # Blind-Spot Reporter
-    if (not matched_with_dir and not newly_injected and not alias_injected_projects
-            and len(clean_prompt) >= 10):
-        sem_count = len(sem_atoms) if sem_atoms else 0
-        _atom_debug_log(
-            "BlindSpot",
-            f"未匹配: {clean_prompt[:80]} | intent={intent}, sem_results={sem_count}, already_injected={len(already_injected)}",
-            config,
-        )
 
     # Fix Escalation Protocol
     retry_count = state.get("wisdom_retry_count", 0)

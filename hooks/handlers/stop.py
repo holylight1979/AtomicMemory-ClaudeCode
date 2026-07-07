@@ -19,13 +19,12 @@ from wg_core import (
     _ensure_state, _now_iso, write_state, output_nothing, output_block,
 )
 from wg_evasion import (
-    detect_test_failure, is_test_command, claims_completion, detect_evasion,
-    is_dismiss_prompt, get_last_assistant_text, detect_missing_aec_emission,
+    claims_completion, detect_evasion,
+    get_last_assistant_text, detect_missing_aec_emission,
     get_current_turn_text,
 )
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload
-from wg_extraction import _maybe_spawn_per_turn_extraction
 from handlers._shared import (
     _maybe_spawn_user_extract_worker,
     DOCDRIFT_AVAILABLE,
@@ -467,13 +466,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if stop_count >= max_blocks:
         state["phase"] = "done"
         write_state(session_id, state)
-        _maybe_spawn_per_turn_extraction(session_id, state, config)
         _maybe_spawn_user_extract_worker(session_id, state, config)
         output_nothing()
         return
 
     if phase in ("done", "syncing"):
-        _maybe_spawn_per_turn_extraction(session_id, state, config)
         _maybe_spawn_user_extract_worker(session_id, state, config)
         output_nothing()
         return
@@ -487,7 +484,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     min_files = config.get("min_files_to_block", 2)
 
     if state.get("muted"):
-        _maybe_spawn_per_turn_extraction(session_id, state, config)
         _maybe_spawn_user_extract_worker(session_id, state, config)
         output_nothing()
         return
@@ -495,7 +491,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if mod_count == 0 and kq_count == 0:
         state["phase"] = "done"
         write_state(session_id, state)
-        _maybe_spawn_per_turn_extraction(session_id, state, config)
         _maybe_spawn_user_extract_worker(session_id, state, config)
         output_nothing()
         return
@@ -503,7 +498,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     if len(unique_files) < min_files and kq_count == 0:
         state["phase"] = "done"
         write_state(session_id, state)
-        _maybe_spawn_per_turn_extraction(session_id, state, config)
         _maybe_spawn_user_extract_worker(session_id, state, config)
         output_nothing()
         return
@@ -530,7 +524,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     reason = _piggyback(reason)
     write_state(session_id, state)
-    _maybe_spawn_per_turn_extraction(session_id, state, config)
     _maybe_spawn_user_extract_worker(session_id, state, config)
 
     output_block(reason)

@@ -38,7 +38,7 @@ python -c "
 import sys, os
 sys.path.insert(0, os.path.expanduser('~/.claude/hooks'))
 try:
-    from wg_paths import get_project_memory_dir
+    from wg_core import get_project_memory_dir
     d = get_project_memory_dir(os.getcwd())
     print(d or '')
 except Exception:

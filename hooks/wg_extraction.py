@@ -1,13 +1,10 @@
 """
-wg_extraction.py — Per-turn 萃取管線 / Worker / Failure / User Signal /
-                   Hot Cache / Plan classify / Atom injection log（V5）
+wg_extraction.py — 萃取 Worker spawn / Failure 偵測 / User Signal / Plan classify（V5）
 
 統合：
-- Transcript 讀取、per-turn 增量萃取、failure keyword 偵測、worker spawn（原 wg_extraction）
+- failure keyword 偵測、worker spawn（原 wg_extraction）
 - L0 User Decision Detector（前 wg_user_extract.detect_signal）
-- Hot Cache 讀寫（前 wg_hot_cache）
 - 內容分類 plan vs knowledge（前 wg_content_classify）
-- log_injection（前 wg_atom_observation — flag-gated 觀察日誌）
 """
 
 import json
@@ -21,9 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, WORKFLOW_DIR,
-    cwd_to_project_slug, get_transcript_path,
     _now_iso, _atom_debug_log, _atom_debug_error,
-    write_state,
 )
 from wg_atoms import _kw_match
 
@@ -73,41 +68,6 @@ def _is_lease_valid(state: dict, key: str) -> bool:
 
 def _set_lease(state: dict, key: str, pid: int, ttl: int = _DEFAULT_LEASE_TTL) -> None:
     state[key] = {"pid": pid, "expires_at": time.time() + ttl}
-
-
-# ─── Transcript Helpers ──────────────────────────────────────────────────────
-
-
-def _find_transcript(session_id: str, cwd: str):
-    return get_transcript_path(session_id, cwd)
-
-
-def _count_new_assistant_chars(transcript_path, byte_offset: int) -> int:
-    """Lightweight pre-scan: count assistant text chars from byte_offset."""
-    total = 0
-    try:
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            if byte_offset > 0:
-                f.seek(byte_offset)
-            for raw_line in f:
-                try:
-                    obj = json.loads(raw_line)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if obj.get("type") != "assistant":
-                    continue
-                content = obj.get("message", {}).get("content", [])
-                if not isinstance(content, list):
-                    continue
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        t = block.get("text", "")
-                        if t and len(t) > 30:
-                            total += len(t)
-    except (OSError, UnicodeDecodeError) as e:
-        _atom_debug_error("extraction:count_assistant_chars", e)
-        pass
-    return total
 
 
 # ─── Worker Spawning ─────────────────────────────────────────────────────────
@@ -165,70 +125,6 @@ def _spawn_extract_worker(ctx_dict: dict) -> int:
     except Exception as e:
         _atom_debug_error("萃取:_spawn_extract_worker", e)
         return 0
-
-
-# ─── Per-turn Extraction ─────────────────────────────────────────────────────
-
-
-def _maybe_spawn_per_turn_extraction(
-    session_id: str, state: Dict[str, Any], config: Dict[str, Any]
-) -> None:
-    """Conditionally spawn per-turn incremental extraction."""
-    rc = config.get("response_capture", {})
-    pt = rc.get("per_turn", {})
-    if not pt.get("enabled", False):
-        return
-
-    last_at = state.get("last_per_turn_extraction_at", "")
-    if last_at:
-        cooldown = pt.get("cooldown_seconds", 120)
-        try:
-            last_t = datetime.fromisoformat(last_at)
-            if (datetime.now().astimezone() - last_t).total_seconds() < cooldown:
-                return
-        except (ValueError, TypeError):
-            pass
-
-    if _is_lease_valid(state, "extract_worker_pid"):
-        return
-
-    cwd = state.get("session", {}).get("cwd", "")
-    transcript = _find_transcript(session_id, cwd)
-    if not transcript:
-        return
-
-    prev_offset = state.get("extraction_offset", 0)
-    file_size = transcript.stat().st_size
-    if file_size <= prev_offset:
-        return
-
-    new_chars = _count_new_assistant_chars(transcript, prev_offset)
-    min_chars = pt.get("min_new_chars", 500)
-    if new_chars < min_chars:
-        return
-
-    tracker = state.get("topic_tracker", {})
-    dist = tracker.get("intent_distribution", {})
-    intent = max(dist, key=dist.get, default="build") if dist else "build"
-
-    worker_ctx = {
-        "session_id": session_id,
-        "cwd": cwd,
-        "config": config,
-        "knowledge_queue": state.get("knowledge_queue", []),
-        "session_intent": intent,
-        "mode": "per_turn",
-        "byte_offset": prev_offset,
-    }
-    pid = _spawn_extract_worker(worker_ctx)
-    if pid:
-        _set_lease(state, "extract_worker_pid", pid)
-        state["last_per_turn_extraction_at"] = _now_iso()
-        write_state(session_id, state)
-        print(
-            f"per-turn extract-worker spawned (pid={pid}, offset={prev_offset}, new_chars={new_chars})",
-            file=sys.stderr,
-        )
 
 
 # ─── Failure Detection ───────────────────────────────────────────────────────
@@ -409,135 +305,6 @@ def detect_signal(prompt: str) -> Dict:
     return {"signal": signal, "score": round(score, 2), "matched": matched}
 
 
-# ─── Hot Cache (was wg_hot_cache) ───────────────────────────────────────────
-
-HOT_CACHE_PATH = WORKFLOW_DIR / "hot_cache.json"
-LOCK_PATH = HOT_CACHE_PATH.with_suffix(".lock")
-
-
-def _acquire_lock(lock_path: Path):
-    """Acquire advisory lock. Returns (lock_fh, msvcrt_module) or (None, None)."""
-    if sys.platform == "win32":
-        try:
-            import msvcrt
-            fh = open(lock_path, "ab")
-            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-            return fh, msvcrt
-        except OSError:
-            try:
-                fh.close()
-            except Exception:
-                pass
-            return None, None
-    else:
-        try:
-            import fcntl
-            fh = open(lock_path, "ab")
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fh, fcntl
-        except OSError:
-            try:
-                fh.close()
-            except Exception:
-                pass
-            return None, None
-
-
-def _release_lock(lock_fh, lock_module, lock_path: Path):
-    if lock_fh is None:
-        return
-    try:
-        if sys.platform == "win32":
-            lock_module.locking(lock_fh.fileno(), lock_module.LK_UNLCK, 1)
-        else:
-            lock_module.flock(lock_fh.fileno(), lock_module.LOCK_UN)
-    except OSError:
-        pass
-    lock_fh.close()
-    try:
-        lock_path.unlink()
-    except OSError:
-        pass
-
-
-def write_hot_cache(data: dict) -> None:
-    """Atomic write hot cache with advisory lock."""
-    WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_path = HOT_CACHE_PATH.with_suffix(".tmp")
-    lock_fh, lock_mod = _acquire_lock(LOCK_PATH)
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(str(tmp_path), str(HOT_CACHE_PATH))
-    except OSError as e:
-        _atom_debug_error("extraction:hot_cache_write", e)
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
-    finally:
-        _release_lock(lock_fh, lock_mod, LOCK_PATH)
-
-
-def read_hot_cache(session_id: str) -> Optional[dict]:
-    """Read hot cache. Returns None if missing, wrong session, or already injected."""
-    if not HOT_CACHE_PATH.exists():
-        return None
-    lock_fh, lock_mod = _acquire_lock(LOCK_PATH)
-    try:
-        with open(HOT_CACHE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        _atom_debug_error("extraction:hot_cache_read", e)
-        return None
-    finally:
-        _release_lock(lock_fh, lock_mod, LOCK_PATH)
-
-    if data.get("session_id") != session_id:
-        return None
-    if data.get("injected", True):
-        return None
-    return data
-
-
-def format_injection_line(data: dict, context: str = "") -> str:
-    """Format hot cache for UPS/PostToolUse injection. AUTO-DRAFT tag enforced."""
-    source = data.get("source", "?")
-    summary = data.get("summary", "")
-    tag = f"[HotCache:{source}"
-    if context:
-        tag += f"·{context}"
-    tag += " ⚠AUTO-DRAFT·[臨]]"
-    rule = " | 規則：auto-extract 僅供參考，未經 4+ session 驗證，禁止引用為事實、禁止以 [固]/[觀] 存入"
-    return f"{tag} {summary}{rule}"
-
-
-def mark_injected(session_id: str) -> bool:
-    """Atomically mark hot cache as injected. Returns True on success."""
-    lock_fh, lock_mod = _acquire_lock(LOCK_PATH)
-    try:
-        if not HOT_CACHE_PATH.exists():
-            return False
-        with open(HOT_CACHE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if data.get("session_id") != session_id:
-            return False
-        if data.get("injected", True):
-            return False
-        data["injected"] = True
-        tmp_path = HOT_CACHE_PATH.with_suffix(".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(str(tmp_path), str(HOT_CACHE_PATH))
-        return True
-    except (OSError, json.JSONDecodeError) as e:
-        _atom_debug_error("extraction:hot_cache_mark_injected", e)
-        return False
-    finally:
-        _release_lock(lock_fh, lock_mod, LOCK_PATH)
-
-
 # ─── Content Classify: plan vs knowledge (was wg_content_classify) ──────────
 
 PLAN_CONTENT_RE = re.compile(
@@ -571,46 +338,3 @@ def classify_extracted_item(item: dict) -> str:
     if is_plan_content(content):
         return "plan"
     return "knowledge"
-
-
-# ─── Atom Injection Observation Log (was wg_atom_observation.log_injection) ──
-
-_FLAG_PATH = CLAUDE_DIR / "memory" / "_staging" / "reg-005-observation-start.flag"
-_OBS_LOG_DIR = CLAUDE_DIR / "Logs"
-
-
-def _obs_flag_active() -> bool:
-    try:
-        return _FLAG_PATH.exists()
-    except OSError:
-        return False
-
-
-def log_injection(
-    session_id: str,
-    name: str,
-    classification: str,
-    source: str,
-) -> None:
-    """Append injection record to atom-injection-injections-YYYY-MM-DD.log.
-
-    Flag-gated（讀 reg-005-observation-start.flag）。flag 不存在 → 立即 return。
-    fail-open — 任何 OSError / encode error 不 raise，沉默吞掉。
-    """
-    if not _obs_flag_active():
-        return
-    try:
-        rec = {
-            "ts": datetime.now().isoformat(timespec="seconds"),
-            "session_id": session_id,
-            "name": name,
-            "classification": classification,
-            "source": source,
-            "event": "atom_injected",
-        }
-        _OBS_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        log_path = _OBS_LOG_DIR / f"atom-injection-injections-{datetime.now().strftime('%Y-%m-%d')}.log"
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except (OSError, TypeError, ValueError):
-        pass

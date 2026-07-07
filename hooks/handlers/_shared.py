@@ -3,7 +3,7 @@ handlers/_shared.py — module-level state + 跨 handler 共用 helper
 
 共用：
 - regex 常數（_SUPERSEDES_RE / _V4_TRIGGER_LINE_RE / _MEMORY_MD_AUTO_HEADER）
-- lazy import flag（WISDOM_AVAILABLE / DOCDRIFT_AVAILABLE / read_hot_cache）
+- lazy import flag（WISDOM_AVAILABLE / DOCDRIFT_AVAILABLE）
 - _call_project_hook（subprocess invoke project hook）
 - _cleanup_old_states（state 檔 TTL 清理）
 - _is_ephemeral_path（路徑過濾）
@@ -60,14 +60,6 @@ except ImportError:
     get_reflection_summary = None
     wisdom_reflect = None
     wisdom_track_retry = None
-
-try:
-    from wg_extraction import read_hot_cache, mark_injected, HOT_CACHE_PATH, format_injection_line
-except ImportError:
-    read_hot_cache = None
-    mark_injected = None
-    HOT_CACHE_PATH = None
-    format_injection_line = None
 
 try:
     from wg_docdrift import (

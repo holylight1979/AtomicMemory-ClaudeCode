@@ -7,7 +7,6 @@ handlers/ups_gates.py — UserPromptSubmit detect 段（前置閘）
 - user decision detector gate
 - confirmed extractions / veto
 - long_die response（停用/保持 backend）
-- Hot Cache 注入
 - atom-write guard reminder（建議階段不該宣告 [固]/[觀]）
 """
 
@@ -18,9 +17,6 @@ from typing import Any, Dict, List
 from wg_core import _now_iso, _atom_debug_log, _atom_debug_error
 from wg_extraction import detect_signal
 from wg_evasion import is_dismiss_prompt
-from handlers._shared import (
-    read_hot_cache, mark_injected, format_injection_line,
-)
 
 # Ollama client（dispatcher 已加 tools/ 到 sys.path）
 sys.path.insert(0, str(Path.home() / ".claude" / "tools"))
@@ -39,8 +35,8 @@ def run_pre_gates(
     clean_prompt: str,
     prompt_lower: str,
     lines: List[str],
-) -> int:
-    """執行 detect 段全部前置閘。mutate state / append lines，回傳 hot_cache_tokens。"""
+) -> None:
+    """執行 detect 段全部前置閘。mutate state / append lines。"""
     # ── Evasion Guard: 追蹤近 5 則 user prompt ─────
     rup = state.setdefault("recent_user_prompts", [])
     rup.append(clean_prompt[:500])
@@ -85,10 +81,36 @@ def run_pre_gates(
         else:
             for ext in confirmed:
                 stmt = ext.get("statement", "")
-                lines.append(
-                    f"偵測到決策語句：「{stmt}」— 將記為 atom。回覆「否」可攔截。"
-                )
+                wr = ext.get("write_result")
+                if wr in ("wrote", "deduped"):
+                    lines.append(
+                        f"偵測到決策語句：「{stmt}」— 已記為 atom。回覆「否」可攔截。"
+                    )
+                elif wr == "failed":
+                    lines.append(
+                        f"[user-extract] 決策語句「{stmt}」atom 寫入失敗，未入庫（詳見 atom-debug log）。"
+                    )
+                    # 已逐筆宣告 → 從 aggregate 告警清單去重
+                    fw = state.get("user_extract_write_failed", [])
+                    state["user_extract_write_failed"] = [
+                        s for s in fw if s != stmt[:80]
+                    ]
+                else:
+                    # 舊 state / worker 尚未回寫結果 → 只宣告已送管線，不假成功
+                    lines.append(
+                        f"偵測到決策語句：「{stmt}」— 已送萃取管線。回覆「否」可攔截。"
+                    )
             state["confirmed_extractions"] = []
+
+    # ─── User-extract 寫入失敗告警（可觀測性鐵律：fail 必告知） ──
+    failed_writes = state.get("user_extract_write_failed", [])
+    if failed_writes:
+        lines.append(
+            f"[user-extract] {len(failed_writes)} 筆決策 atom 寫入失敗："
+            + "；".join(f"「{s}」" for s in failed_writes[:3])
+            + ("…" if len(failed_writes) > 3 else "")
+        )
+        state["user_extract_write_failed"] = []
 
     # ─── Dual-Backend: long_die user response ─────
     try:
@@ -112,18 +134,6 @@ def run_pre_gates(
     except Exception as e:
         print(f"[dual-backend] Long DIE response error: {e}", file=sys.stderr)
 
-    # ─── Hot Cache Fast Path ───────────────────────────────
-    hot_cache_tokens = 0
-    if read_hot_cache:
-        try:
-            hot_data = read_hot_cache(session_id)
-            if hot_data:
-                lines.append(format_injection_line(hot_data))
-                hot_cache_tokens = hot_data.get("token_estimate", 50)
-                mark_injected(session_id)
-        except Exception:
-            pass
-
     # ─── Atom-Write Guard: confidence gate reminder ─────────────────────
     atom_write_triggers = (
         "記住", "記下來", "存起來", "存下來", "值得存", "值得記",
@@ -138,5 +148,3 @@ def run_pre_gates(
             "(3) 晉升走 atom_promote（Confirmations ≥4→[觀]/≥10→[固] 主軌，或效用 Wilson 下界 ≥0.6 且 n≥3；ReadHits 已退出晉升、僅純曝光計數），不手動改 frontmatter；"
             "(4) 若是更新既有 atom，用 mode=append 並保留原 confidence。"
         )
-
-    return hot_cache_tokens

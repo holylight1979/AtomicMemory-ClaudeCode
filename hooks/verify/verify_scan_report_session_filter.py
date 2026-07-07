@@ -46,7 +46,6 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
     monkeypatch.setattr(st, "_detect_uncommitted_files", lambda mf: [])
-    monkeypatch.setattr(st, "_maybe_spawn_per_turn_extraction", lambda *a, **k: None)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 
     def drive(modified_files, capsys, **extra):
@@ -145,7 +144,6 @@ def _drive_ptu(monkeypatch, command):
     state = {"turn_seq": 7}
     monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
-    monkeypatch.setattr(pt, "read_hot_cache", None)
     inp = {
         "session_id": _SID,
         "tool_name": "Bash",

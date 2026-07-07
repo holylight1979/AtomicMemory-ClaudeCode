@@ -107,7 +107,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │
 ├── memory/                                         ← 全域記憶層
 │   ├── MEMORY.md                                   ← AI 一覽索引（人類可讀）
-│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->72 atoms：core 18 + feedback 10 + 失敗模式 2 + local 42〔World4/Tools10/MemDev22/OS3/Continuity2/Vision1〕<!-- /atom-breakdown -->）
+│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->71 atoms：core 15 + feedback 10 + 失敗模式 2 + local 44〔World4/Tools10/MemDev24/OS3/Continuity2/Vision1〕<!-- /atom-breakdown -->）
 │   ├── _ATOM_INDEX.md                              ← deprecated mirror（自動生成）
 │   ├── _meta/forbidden-phrases.json                ← V5 禁語單一真相
 │   ├── preferences.md / decisions*.md / workflow-*.md / toolchain*.md
@@ -231,7 +231,7 @@ V4 把知識空間從單層拓展為四層，V5 完全沿用：
 
 ### 5.1 Atom Index — JSON SoT（V5 P3b）
 
-`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->72<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
+`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->71<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
 
 **Atom 物理多根 + Realm 範疇（V5+）**：`global` atom 物理散三根——`memory/`（core 一般）、`_AIDocs/Failures/`（feedback-* + 失敗模式，仍 core）、`_AIDocs/_atoms/<domain>/`（**local realm**，World/Tools/MemDev）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/` 與 Failures 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM；2026-06-12 起 sink 端雙護欄：泛用詞拒收 + 非 CJK/ASCII 亂碼 domain 拒收/降 Else，見 SPEC §2）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
@@ -250,7 +250,7 @@ API：[lib/atom_index_json.py](lib/atom_index_json.py)（`load/save/upsert/delet
 
 ### 5.2 BM25 全域檢索層（V5 P5a）
 
-全域 ~<!-- atom-total -->72<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
+全域 ~<!-- atom-total -->71<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
 
 - ASCII word + 中文 char-bigram tokenization
 - 參數：k1=1.2, b=0.75
@@ -409,13 +409,13 @@ sequenceDiagram
         G->>G: [Cross-Project] alias + ≥2 trigger 命中 → 注入 cross-project atom
         G->>G: [C] Intent 分類 rule-based ~1ms
         G->>G: [D] BM25 全域層（trigger ≤2 命中 AND global_layer=="bm25"；min_score=3.5；top_k=3）
-        G->>V: [E] Vector fallback（matched==0 OR global_layer!="bm25"；專案層 enrichment）
+        G->>V: [E] Vector fallback（僅 trigger/BM25 命中=0 或 global_layer!="bm25" 時跑；預設 bm25 下有命中即不跑 vector）
         V->>O: embed
         G->>G: [F] Supersedes 過濾
         G->>G: [G] ACT-R Activation Sort
         G->>F: [H] Section-Level + Hot/Cold + budget decide（_TURN_BUDGET_LIMIT）
         G->>G: [I] Related-Edge Spreading (depth=1)
-        G->>F: [ReadHits++] lib.atom_access funnel + 達 20/50 → 晉升輔助提示
+        G->>F: [ReadHits++] lib.atom_access funnel（純曝光計數；晉升 hint 走效用 Wilson 下界，非 ReadHits 門檻）
         G->>G: [J] Blind-Spot Reporter（無命中時記 atom-debug）
         G->>G: [K] retry_count≥2 → FixEscalation 信號
         G->>G: [Evasion] 上輪命中 → 注入舉證要求 (a)/(b)
@@ -484,6 +484,11 @@ sequenceDiagram
         G->>G: Wisdom reflect / oscillation 檢查
     end
 ```
+
+> **2026-07-01 audit 現況（上圖為設計原貌，標記實際 runtime）**：
+> - Stop Hook「逐輪增量萃取」已停產（`response_capture.per_turn.enabled=false`，write-only 死路）；Stop 現存職責為同步閘門。
+> - SessionEnd 草稿 flush 亦停（`session_end_flush.enabled=false`）；SessionEnd 全量萃取、episodic 生成、Wisdom reflect 仍在跑。
+> - 「跨 session 鞏固」的 Confirmations 軌已除役（資料源停產、全庫 confirmation_events=0）——自動晉升唯一路徑為效用 Wilson 軌（§13 Self-Iteration）。
 
 ---
 
@@ -611,6 +616,7 @@ flowchart TD
 > - `response_capture.session_end_flush.enabled=false` — 停 session_end 草稿 flush。
 > - `quick-extract.py` 為**孤兒**（Stop hook 已撤、無 caller），QE 分支（Q1~Q4）不再運行；hot_cache 仍由 deep_extract 覆寫路徑餵。
 > - 實際在跑：**failure_extraction**（失敗關鍵字）+ **episodic 生成** + **SessionEnd 全量萃取**。回滾：對應 config `enabled` 改回 `true`。
+> - CS 子圖 Confirmations 軌**已除役**（資料源停產、全庫 confirmation_events=0）——Confirm++/「4+ 建議晉升」不再發生，自動晉升唯一路徑為效用 Wilson 軌（§13 Self-Iteration）。
 
 ### 知識類型（[lib/ollama_extract_core.py](lib/ollama_extract_core.py) `VALID_TYPES`）
 
@@ -622,7 +628,7 @@ flowchart TD
 - Deep extract (SessionEnd) timeout: **10 s**
 - Per-turn（**現停產** `per_turn.enabled=false`）最小新增 chars: **500**、max_items: **3**、cooldown: **120 s**
 - Failure extraction（**在跑**）冷卻: **180 s**、max_items: **2**
-- Cross-session: `promote_threshold=2`、`suggest_threshold=4`、`min_score=0.75`
+- Cross-session（**已除役**，值保留供回滾）: `promote_threshold=2`、`suggest_threshold=4`、`min_score=0.75`
 
 ---
 
@@ -665,8 +671,8 @@ flowchart TD
 | Hot Cache | [hooks/wg_extraction.py](hooks/wg_extraction.py) + `workflow/hot_cache.json` | quick-extract〔**孤兒·Stop hook 已撤**〕→ PostToolUse/UPS 注入 → deep extract 覆寫（現僅 deep_extract 覆寫路徑餵）|
 | Response Capture | [hooks/extract-worker.py](hooks/extract-worker.py) + quick-extract.py〔孤兒〕 | SessionEnd 全量 **在跑** + Stop 逐輪；auto-capture per-turn 草稿 **2026-07-01 停產**（`per_turn.enabled=false`·write-only 死路 DedupStage 0/16）；`session_end_flush.enabled=false` 亦停 |
 | Episodic Memory | [hooks/wg_episodic.py](hooks/wg_episodic.py) | Session 結束生成摘要（TTL 24d） |
-| Cross-Session | `handle_session_end` | 2+ sessions Confirm++、4+ 建議晉升 |
-| Self-Iteration | （V5 已整合進 wg_evasion）| 3 條核心 + 自動晉升 [臨]→[觀]：Confirmations≥4 OR 效用 Wilson 下界≥0.6(n≥3)；ReadHits **退純曝光**（不再助晉升）；**α/β 核心 atom 豁免 distraction penalty（P3 止反噬）**（Phase 2，→SPEC §12）|
+| Cross-Session | `handle_session_end` | Confirmations 軌**已除役**（資料源停產、confirmation_events=0）；設計原貌 2+ sessions Confirm++、4+ 建議晉升，現由效用 Wilson 軌接管晉升 |
+| Self-Iteration | （V5 已整合進 wg_evasion）| 3 條核心 + 自動晉升 [臨]→[觀]：效用 Wilson 下界≥0.6(n≥3)（Confirmations 軌已除役）；ReadHits **退純曝光**（不再助晉升）；**α/β 核心 atom 豁免 distraction penalty（P3 止反噬）**（Phase 2，→SPEC §12）|
 | Wisdom Engine | [hooks/wisdom_engine.py](hooks/wisdom_engine.py) + `memory/wisdom/` | 情境分類 + 反思（3 指標 Bayesian 校準）|
 | Fix Escalation | [skills/fix-escalation/](skills/fix-escalation/) + wisdom_engine | **同錯誤重複失敗（P3 觸發信號改 error-based：`track_retry` gate on `failing_tests`，非 edit-count / `same_file_3x` proxy）** → 6 Agent 精確修正會議（會議協定不變）|
 | Failures 自動化 | wg_extraction `_check_failure_patterns` | 失敗關鍵字 → detached worker → 三維路由 |

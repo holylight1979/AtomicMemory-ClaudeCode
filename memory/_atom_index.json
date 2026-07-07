@@ -156,12 +156,9 @@
       "path": "_AIDocs/_atoms/Tools/gdoc-harvester.md",
       "triggers": [
         "harvester",
-        "Google Docs",
-        "Sheets",
         "收割",
-        "Playwright",
-        "cookie",
-        "export"
+        "Google Docs",
+        "Google Sheets"
       ],
       "scope": "global"
     },
@@ -170,10 +167,6 @@
       "path": "memory/preferences.md",
       "triggers": [
         "偏好",
-        "風格",
-        "習慣",
-        "語言",
-        "回應",
         "執P",
         "執驗上P",
         "上GIT"
@@ -219,13 +212,9 @@
       "path": "memory/workflow-icld.md",
       "triggers": [
         "ICLD",
-        "閉環",
         "Sprint",
-        "功能拆解",
-        "開發計畫",
-        "大型新功能",
-        "新系統規劃",
-        "規格書"
+        "閉環",
+        "功能拆解"
       ],
       "scope": "global"
     },
@@ -250,9 +239,7 @@
       "triggers": [
         "svn",
         "svn-update",
-        "TortoiseSVN",
-        "衝突",
-        "conflict"
+        "TortoiseSVN"
       ],
       "scope": "global"
     },
@@ -327,7 +314,7 @@
     },
     {
       "name": "atom-table-support",
-      "path": "memory/atom-table-support.md",
+      "path": "_AIDocs/_atoms/MemDev/atom-table-support.md",
       "triggers": [
         "atom_write",
         "表格",
@@ -377,7 +364,7 @@
     },
     {
       "name": "atom-usefulness-loop",
-      "path": "memory/atom-usefulness-loop.md",
+      "path": "_AIDocs/_atoms/MemDev/atom-usefulness-loop.md",
       "triggers": [
         "效用閉環",
         "usefulness",
@@ -430,7 +417,7 @@
     },
     {
       "name": "atom-元資料編輯與晉升閘真相",
-      "path": "memory/atom-元資料編輯與晉升閘真相.md",
+      "path": "_AIDocs/_atoms/MemDev/atom-元資料編輯與晉升閘真相.md",
       "triggers": [
         "edit_metadata",
         "atom 元資料編輯",
@@ -627,17 +614,10 @@
       "name": "goal-driven-verify-loopkarpathy-吸收",
       "path": "memory/goal-driven-verify-loopkarpathy-吸收.md",
       "triggers": [
-        "寫程式",
-        "寫扣",
-        "實作",
-        "refactor",
-        "重構",
-        "fix bug",
-        "修 bug",
-        "add validation",
         "成功標準",
-        "verify",
-        "驗收"
+        "驗收",
+        "verify loop",
+        "goal-driven"
       ],
       "scope": "global"
     },
@@ -782,14 +762,9 @@
       "name": "自己flag的維護動作直接做完不要反問",
       "path": "memory/自己flag的維護動作直接做完不要反問.md",
       "triggers": [
-        "更新atom",
-        "維護",
-        "同步",
         "反問",
         "要不要我",
         "該做就做",
-        "推進",
-        "收尾",
         "follow-through"
       ],
       "scope": "global"
@@ -939,24 +914,12 @@
       "name": "記憶汙染與上下文腐化-注入萃取自檢",
       "path": "memory/記憶汙染與上下文腐化-注入萃取自檢.md",
       "triggers": [
-        "上下文腐化",
-        "context rot",
         "記憶汙染",
         "知識汙染",
-        "累積知識",
-        "焦點模糊",
-        "回應偏門",
-        "越做越小",
-        "多session",
-        "接續",
-        "大型專案",
-        "注入",
-        "萃取",
-        "context engineering",
-        "memory governance",
-        "selective forgetting",
-        "上下文工程",
-        "偏離目標"
+        "上下文腐化",
+        "context rot",
+        "poisoning",
+        "selective forgetting"
       ],
       "scope": "global"
     },
@@ -1082,26 +1045,6 @@
         "post-mortem",
         "批次寫入驗收",
         "sync-atom-index"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版",
-      "path": "_AIDocs/_atoms/MemDev/dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版.md",
-      "triggers": [
-        "dedup",
-        "去蕪",
-        "DedupStage",
-        "draft",
-        "草稿",
-        "_drafts",
-        "截斷",
-        "truncate",
-        "soft-delete",
-        "牢籠",
-        "taxonomy",
-        "近重複",
-        "sweep"
       ],
       "scope": "global"
     },

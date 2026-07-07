@@ -111,8 +111,6 @@ def collect_matched_atoms(
                 return 0.0
         _all_cross = sorted(_all_cross, key=_mem_mtime, reverse=True)[:_MAX_CROSS_PROJECT_SCAN]
     for _cross_slug, cross_mem in _all_cross:
-        if _cross_slug in loaded_proj_names:
-            continue
         aliases = parse_project_aliases(cross_mem)
         if aliases and any(alias in prompt_lower for alias in aliases):
             try:

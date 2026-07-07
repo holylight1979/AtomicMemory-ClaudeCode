@@ -303,17 +303,10 @@ function applyLocalRouting(domain) {
   return { memDir, baseDir: memDir, indexDir: MEMORY_DIR, indexRoot: CLAUDE_DIR };
 }
 
-/** Find atom index path for a given scope (prefer _ATOM_INDEX.md) */
-function resolveMemoryIndex(memDir) {
-  const atomIdx = path.join(memDir, "_ATOM_INDEX.md");
-  if (fs.existsSync(atomIdx)) return atomIdx;
-  return path.join(memDir, "MEMORY.md");  // fallback
-}
-
 module.exports = {
   classifyRealm, slugify, findSeparatorVariant, findProjectRoot, getCurrentUser,
   isSensitiveAudience, resolveMemDir, isRegisteredFailuresStem, applyFeedbackRouting,
-  cleanRealmSegment, applyLocalRouting, resolveMemoryIndex,
+  cleanRealmSegment, applyLocalRouting,
   FAILURES_DIR, FAILURES_REL, FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR,
   LOCAL_REALM_DOMAINS, LOCAL_REALM_DEFAULT_DOMAIN,
 };

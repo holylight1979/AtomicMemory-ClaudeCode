@@ -3,7 +3,6 @@
 - Scope: global
 - Confidence: [固]
 - Type: procedural
-- Trigger: Win環境陷阱, Windows, MSYS2, Node.js, npx, Ollama, port, MCP啟動, VSCode
 - Last-used: 2026-03-31
 - Created: 2026-03-10
 - Confirmations: 48

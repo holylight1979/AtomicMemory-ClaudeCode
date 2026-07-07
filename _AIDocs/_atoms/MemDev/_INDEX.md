@@ -9,10 +9,12 @@
 | anti-evasion-hud-設計脊柱與強化前必讀 | anti-evasion-hud-設計脊柱與強化前必讀 |
 | atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove | atom-heal L2 broken-ref 誤判 prefix-rename 為 remove |
 | atom-move-v5-sot-correct-化與半遷移工具辨識 | atom-move V5 SoT-correct 化與半遷移工具辨識 |
+| atom-table-support | atom_write 知識區表格/程式碼 fence block 渲染用法（dogfood） |
+| atom-usefulness-loop | 注入→使用→結果 閉環效用 (α,β)：use 偵測 + Wilson 晉升 + 慢衰減（Phase 2，#2） |
+| atom-元資料編輯與晉升閘真相 | atom 元資料編輯與晉升閘真相 |
 | auto-capture碎片sweep污染詞庫-defer根治 | auto-capture碎片sweep污染詞庫-defer根治 |
 | confirmations-已退役-phase2-usefulness-接管晉升 | confirmations-已退役-Phase2-usefulness-接管晉升 |
 | dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房 | dashboard apiAtoms 專案 shared 範疇被 frontmatter Scope 覆寫誤歸核心房 |
-| dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版 | dedup-stage-牢籠去蕪設計-信任模型隔離與substring-only首版 |
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
 | harness原生memory與atom索引marker撞名辨識 | harness原生memory與atom索引marker撞名辨識 |
 | post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用 | post-mortem-write_raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用 |

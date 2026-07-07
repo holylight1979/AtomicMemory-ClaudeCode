@@ -3,7 +3,6 @@
 - Scope: global
 - Confidence: [固]
 - Type: procedural
-- Trigger: 靜默, silent, 看似正常, setdefault, knowledge_queue為空, 沒報錯但沒動作, 吞掉錯誤
 - Last-used: 2026-03-19
 - Created: 2026-03-13
 - Confirmations: 36

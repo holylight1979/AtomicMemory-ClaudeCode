@@ -2,7 +2,6 @@
 
 - Scope: global
 - Confidence: [固]
-- Trigger: 誤診, 驗證優先, verify first, 診斷失敗, 先射箭再畫靶, 假設錯誤就規劃, 過度規劃, 沒驗證就動手
 - Last-used: 2026-03-22
 - Confirmations: 3
 

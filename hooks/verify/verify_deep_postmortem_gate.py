@@ -119,7 +119,6 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "detect_evasion", lambda *a, **k: None)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
-    monkeypatch.setattr(st, "_maybe_spawn_per_turn_extraction", lambda *a, **k: None)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 
     def drive(state, config, capsys):
@@ -168,7 +167,6 @@ def test_dpm_not_starved_by_shared_budget(monkeypatch, capsys):
     monkeypatch.setattr(st, "detect_evasion", lambda *a, **k: None)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
-    monkeypatch.setattr(st, "_maybe_spawn_per_turn_extraction", lambda *a, **k: None)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 
     state = {

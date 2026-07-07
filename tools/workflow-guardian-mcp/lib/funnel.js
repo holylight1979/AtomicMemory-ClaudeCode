@@ -205,13 +205,6 @@ function funnelWriteRaw(filePath, content, source, op) {
   });
 }
 
-/** Index full overwrite through funnel. */
-function funnelWriteIndexFull(indexPath, content, source) {
-  return spawnAtomCli("write_index_full", {
-    index_path: indexPath, content, source,
-  });
-}
-
 /** Single-atom upsert via lib.atom_io.write_index → _atom_index.json. */
 function funnelWriteIndex(baseDir, slug, relPath, triggers, source) {
   return spawnAtomCli("write_index", {

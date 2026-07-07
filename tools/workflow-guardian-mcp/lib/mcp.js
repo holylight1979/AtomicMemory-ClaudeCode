@@ -2,7 +2,6 @@
 // handleToolCall lazy-require atom-tools 以化解 mcp<->atom-tools 循環相依。
 const { VERSIONS } = require("./paths");
 const { crashLog } = require("./log");
-const { resolveSessionId, readState, writeState, listAllSessions } = require("./state");
 
 // ─── MCP Protocol ───────────────────────────────────────────────────────────
 
@@ -84,15 +83,6 @@ function handleMessage(msg) {
 
 // ─── Tool Definitions ───────────────────────────────────────────────────────
 
-// 4 internal IPC tools are intentionally not exposed on the MCP surface
-// (workflow_status / workflow_signal / memory_queue_add / memory_queue_flush):
-// these are hook-internal state ops that should not appear in Claude's tool
-// menu. Each is handled elsewhere:
-//   - workflow_status     → 由 SessionStart hook 自動注入 state 摘要
-//   - workflow_signal     → Stop gate 自動偵測 git/svn clean 標 sync_completed
-//   - memory_queue_*      → 由 wg_extraction extract-worker 全自動處理
-// The toolXxx() handler functions below are kept as dead code so the file
-// structure stays stable.
 const TOOL_DEFINITIONS = [
   {
     name: "atom_write",
@@ -275,8 +265,6 @@ const TOOL_DEFINITIONS = [
 function handleToolCall(id, toolName, args) {
   const { toolAtomWrite, toolAtomPromote, toolAtomMove, toolAtomEditMeta } = require("./atom-tools");
   switch (toolName) {
-    // workflow_status / workflow_signal / memory_queue_add / memory_queue_flush
-    // are not exposed in TOOL_DEFINITIONS — they fall through to default error.
     case "atom_write":
       return toolAtomWrite(id, args).catch(e => sendToolResult(id, `atom_write error: ${e.message}`, true));
     case "atom_promote":
@@ -295,133 +283,6 @@ function handleToolCall(id, toolName, args) {
   }
 }
 
-function toolWorkflowStatus(id, args) {
-  if (args.session_id) {
-    const resolved = resolveSessionId(args.session_id);
-    if (!resolved) {
-      return sendToolResult(id, `No state found for session ${args.session_id}`);
-    }
-    const state = readState(resolved);
-    if (!state) {
-      return sendToolResult(id, `No state found for session ${args.session_id}`);
-    }
-    const modFiles = (state.modified_files || [])
-      .map((m) => `  - ${m.path} (${m.tool} @ ${m.at})`)
-      .join("\n");
-    const kqItems = (state.knowledge_queue || [])
-      .map((q) => `  - ${q.classification} ${q.content}`)
-      .join("\n");
-    const text = [
-      `## Session ${args.session_id}`,
-      `- Phase: ${state.phase}`,
-      `- CWD: ${state.session?.cwd || "?"}`,
-      `- Started: ${state.session?.started_at || "?"}`,
-      `- Sync pending: ${state.sync_pending}`,
-      `- Stop blocked: ${state.stop_blocked_count || 0}x`,
-      "",
-      `### Modified files (${(state.modified_files || []).length})`,
-      modFiles || "  (none)",
-      "",
-      `### Knowledge queue (${(state.knowledge_queue || []).length})`,
-      kqItems || "  (none)",
-    ].join("\n");
-    return sendToolResult(id, text);
-  }
-
-  // List all sessions
-  const sessions = listAllSessions();
-  if (sessions.length === 0) {
-    return sendToolResult(id, "No active workflow sessions.");
-  }
-  const lines = sessions.map(
-    (s) =>
-      `- **${s.session_id.slice(0, 8)}** | ${s.phase} | files: ${s.modified_files_count} | knowledge: ${s.knowledge_queue_count} | ${s.age_minutes}min${s.ended ? " (ended)" : ""}`
-  );
-  return sendToolResult(id, "## Active Sessions\n" + lines.join("\n"));
-}
-
-function toolWorkflowSignal(id, args) {
-  const { session_id, signal } = args;
-  const resolved = resolveSessionId(session_id);
-  if (!resolved) {
-    return sendToolResult(id, `No state found for session ${session_id}`, true);
-  }
-  const state = readState(resolved);
-  if (!state) {
-    return sendToolResult(id, `No state found for session ${session_id}`, true);
-  }
-
-  switch (signal) {
-    case "sync_started":
-      state.phase = "syncing";
-      break;
-    case "sync_completed":
-      state.phase = "done";
-      state.sync_pending = false;
-      state.knowledge_queue = [];
-      state.modified_files = [];
-      state.ended_at = new Date().toISOString();
-      break;
-    case "reset":
-      state.phase = "working";
-      state.sync_pending = false;
-      state.stop_blocked_count = 0;
-      state.remind_count = 0;
-      state.muted = false;
-      break;
-    case "mute":
-      state.muted = true;
-      break;
-  }
-
-  writeState(resolved, state);
-  return sendToolResult(id, `Signal '${signal}' applied. Phase: ${state.phase}`);
-}
-
-function toolMemoryQueueAdd(id, args) {
-  const { session_id, content, classification, trigger_context } = args;
-  const resolved = resolveSessionId(session_id);
-  if (!resolved) {
-    return sendToolResult(id, `No state found for session ${session_id}`, true);
-  }
-  const state = readState(resolved);
-  if (!state) {
-    return sendToolResult(id, `No state found for session ${session_id}`, true);
-  }
-
-  state.knowledge_queue = state.knowledge_queue || [];
-  state.knowledge_queue.push({
-    content,
-    classification: classification || "[臨]",
-    context: trigger_context || "",
-    at: new Date().toISOString(),
-  });
-  state.sync_pending = true;
-  writeState(resolved, state);
-
-  return sendToolResult(
-    id,
-    `Added to knowledge queue (${state.knowledge_queue.length} items): ${classification} ${content.slice(0, 60)}`
-  );
-}
-
-function toolMemoryQueueFlush(id, args) {
-  const { session_id } = args;
-  const resolved = resolveSessionId(session_id);
-  if (!resolved) {
-    return sendToolResult(id, `No state found for session ${session_id}`, true);
-  }
-  const state = readState(resolved);
-  if (!state) {
-    return sendToolResult(id, `No state found for session ${session_id}`, true);
-  }
-
-  const count = (state.knowledge_queue || []).length;
-  state.knowledge_queue = [];
-  writeState(resolved, state);
-
-  return sendToolResult(id, `Flushed ${count} knowledge queue items.`);
-}
 function sendToolResult(id, text, isError = false) {
   sendResponse(id, {
     content: [{ type: "text", text }],

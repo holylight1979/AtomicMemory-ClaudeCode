@@ -43,7 +43,6 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
     monkeypatch.setattr(st, "_detect_uncommitted_files", lambda mf: [])
-    monkeypatch.setattr(st, "_maybe_spawn_per_turn_extraction", lambda *a, **k: None)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 
     def drive(modified_files, capsys, **extra):
@@ -213,7 +212,6 @@ def _drive_ptu(monkeypatch, tmp_path, tool_input, turn_seq=7, session_id=_SID):
     state = {"turn_seq": turn_seq}
     monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
-    monkeypatch.setattr(pt, "read_hot_cache", None)
     monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
     monkeypatch.setattr(pt, "_hud_beat_fresh", lambda *a, **k: False)  # HUD 死
     monkeypatch.setattr(pt, "_spawn_hud_edge", lambda *a, **k: None)

@@ -35,6 +35,7 @@ if _HOOKS_DIR not in sys.path:
 from wg_core import (
     CLAUDE_DIR, WORKFLOW_DIR,
     cwd_to_project_slug, get_transcript_path, find_project_root,
+    _is_under_claude_dir,
 )
 
 _CLAUDE_ROOT = str(CLAUDE_DIR)
@@ -356,10 +357,17 @@ def _write_atom_via_mcp(
     slug = _slug_from_statement(statement)
     knowledge_lines = [f"- [臨] {statement}", f"<!-- src: {turn_id} -->"]
 
+    # cwd 在 ~/.claude 之下時 funnel realm 閘會拒 scope=personal（~/.claude 本身
+    # 即 global root），改走 scope=global 才寫得進去。
+    in_claude_dir = _is_under_claude_dir(cwd) if cwd else False
+    write_scope = "global" if in_claude_dir else "personal"
+
     # Pre-check existence for dedup parity with prior behaviour.
-    # personal scope → memory/personal/{user}/{slug}.md
+    # personal scope → memory/personal/{user}/{slug}.md；global → memory/{slug}.md
     project_root = find_project_root(cwd) if cwd else None
-    if project_root:
+    if in_claude_dir:
+        target_dir = CLAUDE_DIR / "memory"
+    elif project_root:
         target_dir = Path(project_root) / ".claude" / "memory" / "personal" / user
     else:
         target_dir = CLAUDE_DIR / "memory" / "personal" / user
@@ -381,7 +389,7 @@ def _write_atom_via_mcp(
     try:
         result = write_atom(
             title=slug,
-            scope="personal",
+            scope=write_scope,
             confidence="[臨]",
             triggers=triggers,
             knowledge=knowledge_lines,
@@ -650,20 +658,28 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     if processed_indices:
         ack_then_clear(state_path, "pending_user_extract", processed_indices)
 
-    # Save state with confirmed_extractions
+    # ── Direct atom write for confirmed (pre-write, pending user veto) ──
+    # 先寫 atom 再存 state，讓每筆 confirmed_extraction 帶 write_result，
+    # UPS 宣告時能區分成功/失敗（可觀測性鐵律：寫入失敗必須浮出訊號）。
+    write_failed: List[str] = []
+    for ext in confirmed_extractions:
+        result = _write_atom_via_mcp(ext, ext, session_id, user, config)
+        ext["write_result"] = result
+        if result == "deduped":
+            dedup_hit += 1
+        elif result == "failed":
+            write_failed.append(ext.get("statement", "")[:80])
+
+    # Save state with confirmed_extractions (含 write_result)
     if confirmed_extractions:
         # Re-read state (ack_then_clear may have modified it)
         fresh_state = _read_state(session_id)
         if fresh_state:
             fresh_state.setdefault("confirmed_extractions", []).extend(confirmed_extractions)
+            if write_failed:
+                fresh_state.setdefault("user_extract_write_failed", []).extend(write_failed)
             fresh_state["last_updated"] = datetime.now().astimezone().isoformat()
             _write_state_atomic(state_path, fresh_state)
-
-    # ── Direct atom write for confirmed (pre-write, pending user veto) ──
-    for ext in confirmed_extractions:
-        result = _write_atom_via_mcp(ext, ext, session_id, user, config)
-        if result == "deduped":
-            dedup_hit += 1
 
     # ── Merge history log ─────────────────────────────────────────────
     _append_merge_history(

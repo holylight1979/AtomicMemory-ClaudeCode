@@ -481,27 +481,6 @@ def _per_turn_writeback(ctx: dict, result: dict) -> None:
     # successful atom_write. Not called here — per_turn appends to
     # knowledge_queue for later session_end processing.
 
-    # ── V3: deep extract → hot cache writeback ──
-    try:
-        from wg_extraction import write_hot_cache
-        if items:
-            summary = "; ".join(
-                it.get("content", "")[:60] for it in items[:3]
-            )
-            write_hot_cache({
-                "session_id": session_id,
-                "timestamp": time.time(),
-                "source": "deep_extract",
-                "injected": False,
-                "knowledge": items[:5],
-                "summary": summary[:200],
-                "token_estimate": max(len(summary) // 4, 10),
-            })
-    except Exception as e:
-        _atom_debug_error("extract_worker:hot_cache_writeback", e)
-        pass  # hot cache 是增強功能，失敗不影響主流程
-
-
 # ─── Session-end writeback: flush knowledge → [臨] atoms ──────────────────────
 #
 # 補長期缺口：session_end 深度萃取算完即丟、knowledge_queue 從未落地成 atom

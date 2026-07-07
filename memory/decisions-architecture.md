@@ -3,7 +3,7 @@
 - Scope: global
 - Confidence: [觀]
 - Trigger: 架構, hooks, pipeline, guardian, SessionStart, hot cache, extract-worker, vector service
-- Related: decisions, toolchain-ollama, feedback-pointer-atom, realm-範疇分區機制-v5
+- Related: decisions, toolchain-ollama, feedback-memory-structure, realm-範疇分區機制-v5
 
 ## 印象
 

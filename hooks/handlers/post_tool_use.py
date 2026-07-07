@@ -25,7 +25,6 @@ from handlers._shared import (
     _is_ephemeral_path,
     WISDOM_AVAILABLE, wisdom_track_retry,
     DOCDRIFT_AVAILABLE, check_source_drift, resolve_doc_update, prune_committed_entries,
-    read_hot_cache, mark_injected, format_injection_line,
 )
 
 
@@ -470,16 +469,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             if val:
                 advisories.append(f"{prefix} {val}")
                 del state[key]
-
-    if read_hot_cache:
-        try:
-            hot_data = read_hot_cache(session_id)
-            if hot_data:
-                advisories.append(format_injection_line(hot_data, context="mid-turn"))
-                mark_injected(session_id)
-        except Exception as e:
-            _atom_debug_error("post_tool_use:hot_cache_inject", e)
-            pass
 
     if advisories:
         write_state(session_id, state)

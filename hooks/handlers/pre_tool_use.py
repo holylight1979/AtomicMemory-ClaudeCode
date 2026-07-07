@@ -15,7 +15,6 @@ from wg_core import (
     check_cross_realm_write, check_cross_realm_mcp_cmd,
     _atom_debug_log,
 )
-from wg_atoms import build_injection_blob
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
 _SUBAGENT_INJECT_BUDGET = 700
@@ -136,6 +135,9 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 緊湊記憶 blob。fail-open：任何錯誤都不擋 spawn。
     if tool_name in ("Agent", "Task"):
         try:
+            # 惰性 import：wg_atoms 全額 import 成本高，只在 Agent/Task spawn 才付
+            from wg_atoms import build_injection_blob
+
             orig_prompt = tool_input.get("prompt", "") or ""
             blob, injected = build_injection_blob(
                 orig_prompt, budget=_SUBAGENT_INJECT_BUDGET,
