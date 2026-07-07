@@ -1,5 +1,6 @@
 # 啟動設定
 @IDENTITY.md
+@IDENTITY-holylight.md
 @USER.md
 @memory/MEMORY.md
 

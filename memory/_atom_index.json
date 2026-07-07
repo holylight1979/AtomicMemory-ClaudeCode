@@ -1299,6 +1299,22 @@
         "記憶系統開發"
       ],
       "scope": "global"
+    },
+    {
+      "name": "模型行為移植-fable行為契約必載檔",
+      "path": "_AIDocs/_atoms/MemDev/模型行為移植-fable行為契約必載檔.md",
+      "triggers": [
+        "模型切換",
+        "Opus",
+        "Fable",
+        "行為契約",
+        "自動推進",
+        "抓重點",
+        "IDENTITY 擴充",
+        "行為移植",
+        "model behavior"
+      ],
+      "scope": "global"
     }
   ]
 }

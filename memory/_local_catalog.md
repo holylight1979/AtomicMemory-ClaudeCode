@@ -5,7 +5,7 @@
 | 範疇根 | atom 數 | 深入 |
 |--------|---------|------|
 | Continuity | 2 | `_AIDocs/_atoms/Continuity/_INDEX.md` |
-| MemDev | 21 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
+| MemDev | 22 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
 | OS | 3 | `_AIDocs/_atoms/OS/_INDEX.md` |
 | Tools | 10 | `_AIDocs/_atoms/Tools/_INDEX.md` |
 | Vision | 1 | `_AIDocs/_atoms/Vision/jarvis-企業-ai-平台發想文件指標.md` |
