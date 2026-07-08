@@ -28,6 +28,7 @@ from wg_core import (
     discover_all_project_memory_dirs, resolve_access_json, resolve_staging_dir,
     get_project_memory_dir, log_promotion_audit,
     _atom_debug_log, _atom_debug_error,
+    sanitize_harness_noise,
 )
 
 # prefer _atom_index.json (machine source of truth)
@@ -1251,11 +1252,15 @@ def _update_topic_tracker(
     dist[intent] = dist.get(intent, 0) + 1
     tracker["prompt_count"] = tracker.get("prompt_count", 0) + 1
 
-    if not tracker.get("first_prompt_summary"):
-        tracker["first_prompt_summary"] = prompt[:200]
+    # harness 標籤/hook 殘渣先剔——first_prompt_summary 會進 episodic 摘要與
+    # handoff 提示，殘留 <ide_opened_file> 等雜訊會污染跨 session 記憶。
+    # 首 prompt 若剔完全空（純 IDE 事件），留空讓下一個真 prompt 補位。
+    clean_prompt = sanitize_harness_noise(prompt)
+    if not tracker.get("first_prompt_summary") and clean_prompt:
+        tracker["first_prompt_summary"] = clean_prompt[:200]
 
     existing_kw = set(tracker.get("keyword_signals", []))
-    words = re.findall(r"[a-zA-Z一-鿿]{4,}", prompt)
+    words = re.findall(r"[a-zA-Z一-鿿]{4,}", clean_prompt)
     for w in words:
         wl = w.lower()
         if wl not in _TOPIC_STOP_WORDS and wl not in existing_kw:

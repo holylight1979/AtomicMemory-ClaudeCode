@@ -217,6 +217,8 @@ def estimate_context_usage(
     transcript_path: Any,
     window_tokens: int = 1_000_000,
     base_overhead: int = 15000,
+    *,
+    text: Optional[str] = None,
 ) -> float:
     """context 佔用比率（0.0 起；可能 >1.0）。
 
@@ -230,13 +232,19 @@ def estimate_context_usage(
     ⚠️ **僅觸發信號、非硬決策**：回 `0.0` 表無法量測（transcript 不存在 / 讀取
     失敗 / window 非正）→ 自然落在門檻下、不誤觸發。核心保底（PreCompact 自動
     stub）完全不依賴本量測，估值不準不影響正確性。
+
+    text 給定時（read_transcript_tail 共用尾段）直接用該字串、不再開檔；分子取
+    最近一輪 usage 本就在尾段，校準峰值同理（context 單調成長至壓縮點）。
     """
-    if not transcript_path or window_tokens <= 0:
+    if window_tokens <= 0:
         return 0.0
-    try:
-        text = Path(transcript_path).read_text(encoding="utf-8", errors="ignore")
-    except (OSError, ValueError):
-        return 0.0
+    if text is None:
+        if not transcript_path:
+            return 0.0
+        try:
+            text = Path(transcript_path).read_text(encoding="utf-8", errors="ignore")
+        except (OSError, ValueError):
+            return 0.0
     if not text:
         return 0.0
     totals = _usage_totals_from_text(text)
@@ -249,6 +257,8 @@ def estimate_context_usage(
 
 def token_warn_payload(
     state: Dict[str, Any], config: Dict[str, Any], transcript_path: Any,
+    *,
+    transcript_text: Optional[str] = None,
 ) -> Optional[str]:
     """Layer 1 預警句決策（**純函式、無副作用**，方便單元測試）。
 
@@ -266,6 +276,7 @@ def token_warn_payload(
         transcript_path,
         ah.get("context_window_tokens", 1_000_000),
         ah.get("context_base_overhead_tokens", 15000),
+        text=transcript_text,
     )
     if ratio < float(ah.get("token_warn_ratio", 0.85)):
         return None

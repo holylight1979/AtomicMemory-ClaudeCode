@@ -39,8 +39,8 @@ Session Ready
   ↓
 [UserPromptSubmit] ×N → trigger → BM25 全域層 → Vector fallback → atom 注入 + Evasion
 [PreToolUse] → Write/Edit/Bash matcher → atom format gate + memory path block + cross-realm write block + SVN test block
-[PostToolUse] → file tracking + 增量索引 + read tracking + test-fail 偵測 + _CHANGELOG auto-roll
-[Stop] → sync 閘門 + TestFailGate + Evasion Detection
+[PostToolUse] → file tracking + 增量索引 + test-fail 偵測 + _CHANGELOG auto-roll（matcher 無 Read）
+[Stop] → sync 閘門 + TestFailGate + Evasion Detection + transcript 單次 tail-read（含 accessed_files 回收）
 [Stop async] → quick-extract.py (qwen3:1.7b 5s → hot_cache.json)
 [PreCompact] → state snapshot + injected_atoms 快照
 [PostCompact] → stash 壓縮前 atom 緊湊內文 + pending_reinjection flag（不注入）

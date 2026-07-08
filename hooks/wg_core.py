@@ -149,6 +149,39 @@ def _estimate_tokens(text: str) -> int:
     return int(cjk * 1.5 + ascii_part * 0.25)
 
 
+# harness 注入標籤（IDE 開檔/選取、system-reminder、skill 展開）——成對或未閉合
+# （截斷）皆吃到閉合標或字串尾。用於把「使用者訊息」清成「使用者實際打的字」。
+_HARNESS_TAG_RE = re.compile(
+    r"<(system-reminder|ide_opened_file|ide_selection|ide_diagnostics|"
+    r"command-name|command-message|command-args|local-command-stdout)\b[^>]*>"
+    r".*?(?:</\1>|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+# hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] 等
+# additionalContext 前綴）——整行剔除。
+_HOOK_RESIDUE_LINE_RE = re.compile(
+    r"^\[(?:Guardian|Atom|JIT|Session|Parallel|Workflow Guardian|WG|Role|AIDocs|"
+    r"Context budget)[^\]]*\].*$",
+    re.MULTILINE,
+)
+
+
+def sanitize_harness_noise(text: str) -> str:
+    """剔除 harness 標籤區塊與 hook 注入殘渣行，回收使用者/模型的實際文字。
+
+    用途：topic tracker 的 first_prompt_summary / keyword 訊號、episodic 摘要等
+    「給人看或給 LLM 吃」的文字源頭。純文字處理、fail-open（異常回原文）。
+    """
+    if not text:
+        return ""
+    try:
+        cleaned = _HARNESS_TAG_RE.sub(" ", text)
+        cleaned = _HOOK_RESIDUE_LINE_RE.sub(" ", cleaned)
+        return re.sub(r"\s+", " ", cleaned).strip()
+    except Exception:
+        return text
+
+
 def rotate_log_if_oversized(log_path: Path, max_mb: int = 10, keep: int = 3) -> bool:
     """Size-based log rotation. Fail-open.
 

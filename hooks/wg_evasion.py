@@ -336,31 +336,65 @@ def crosscheck_aec_severity(
     return sev, False
 
 
-def get_last_assistant_text(transcript_path: Optional[Path]) -> str:
-    """Read JSONL transcript, return last assistant text block (or empty)."""
+def read_transcript_tail(
+    transcript_path: Optional[Path], max_bytes: int = 2_000_000
+) -> str:
+    """讀 transcript 尾段一次，供同一 hook 內多個消費者共用（單次 I/O 取代逐函式全檔讀）。
+
+    檔案 ≤ max_bytes 時即全檔；超過時取尾段並捨棄首個不完整行。尾窗涵蓋 Stop
+    所需的全部訊號（最後 assistant 文字 / 本 turn 活動 / 最近 usage）——2MB ≈
+    數百輪文字，遠大於單 turn 規模。fail-open 回 ""。
+    """
     if not transcript_path:
         return ""
     try:
-        last = ""
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            for raw in f:
-                try:
-                    obj = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if obj.get("type") != "assistant":
-                    continue
-                content = obj.get("message", {}).get("content", [])
-                if not isinstance(content, list):
-                    continue
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        t = block.get("text", "")
-                        if t and len(t) > 30:
-                            last = t
-        return last
-    except (OSError, UnicodeDecodeError):
+        with open(transcript_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+                data = f.read()
+                nl = data.find(b"\n")
+                data = data[nl + 1:] if nl >= 0 else data
+            else:
+                f.seek(0)
+                data = f.read()
+        return data.decode("utf-8", errors="ignore")
+    except OSError:
         return ""
+
+
+def get_last_assistant_text(
+    transcript_path: Optional[Path], *, text: Optional[str] = None
+) -> str:
+    """Read JSONL transcript, return last assistant text block (or empty).
+
+    text 給定時（read_transcript_tail 共用尾段）直接掃該字串、不再開檔。
+    """
+    if text is None:
+        if not transcript_path:
+            return ""
+        try:
+            text = Path(transcript_path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError, ValueError):
+            return ""
+    last = ""
+    for raw in text.splitlines():
+        try:
+            obj = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant":
+            continue
+        content = obj.get("message", {}).get("content", [])
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                t = block.get("text", "")
+                if t and len(t) > 30:
+                    last = t
+    return last
 
 
 def _is_real_user_prompt(content: Any) -> bool:
@@ -402,26 +436,31 @@ def _flatten_tool_input(inp: Any, cap: int = 2000) -> str:
     return " ".join(out)[:cap]
 
 
-def get_current_turn_text(transcript_path: Optional[Path], *, max_chars: int = 8000) -> str:
+def get_current_turn_text(
+    transcript_path: Optional[Path], *, max_chars: int = 8000,
+    text: Optional[str] = None,
+) -> str:
     """擷取「本 turn」assistant 活動文字（assistant text + tool_use input args）。
 
     turn 邊界 = 最後一則真實 user prompt（非 tool_result 延續）之後的所有 assistant 訊息。
-    供 use 偵測比對 atom 稀有 token。fail-open 回 ""。
+    供 use 偵測比對 atom 稀有 token。text 給定時（read_transcript_tail 共用尾段）
+    直接掃該字串、不再開檔。fail-open 回 ""。
     """
-    if not transcript_path:
-        return ""
-    try:
-        records: List[Dict[str, Any]] = []
-        with open(transcript_path, "r", encoding="utf-8") as f:
-            for raw in f:
-                try:
-                    obj = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-                if isinstance(obj, dict):
-                    records.append(obj)
-    except (OSError, UnicodeDecodeError):
-        return ""
+    if text is None:
+        if not transcript_path:
+            return ""
+        try:
+            text = Path(transcript_path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError, ValueError):
+            return ""
+    records: List[Dict[str, Any]] = []
+    for raw in text.splitlines():
+        try:
+            obj = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            records.append(obj)
 
     last_user_idx = -1
     for i, obj in enumerate(records):

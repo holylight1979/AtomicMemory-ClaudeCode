@@ -95,7 +95,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|Read|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report",
+        "matcher": "Edit|Write|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report",
         "hooks": [
           {
             "type": "command",
@@ -164,7 +164,7 @@
           {
             "type": "command",
             "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
-            "timeout": 20
+            "timeout": 10
           },
           {
             "type": "command",

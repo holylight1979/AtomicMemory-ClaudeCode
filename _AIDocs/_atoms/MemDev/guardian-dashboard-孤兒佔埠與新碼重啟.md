@@ -16,6 +16,8 @@
 - [臨] 上線 SOP（改 server.js 後讓 live :3848 換新碼）：改碼 mtime 變大 → 現存新實例走交棒接管；驗證＝`GET /api/whoami` 的 mtime == 新檔 mtime（或 POST 新路由回**非-404**，400=payload 無效即路由存在）+ `(Get-NetTCPConnection -LocalPort 3848 -State Listen).OwningProcess` == 新實例 PID。手動兜底（極少需要）：`Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*workflow-guardian-mcp*server.js*' } | Select ProcessId,CreationDate` 列**全部**實例（勿用 wmic|grep，配對會錯致誤傷，見 [[feedback-tooling-reliability]]），CreationDate 早於 mtime = 舊碼 → Stop-Process 回收（保留啟動晚於 mtime 的本 session 實例）。
 - [臨] 例外：純前端改（world.html 等 dashboard 靜態檔）**不需動程序**——httpServer 每次 GET 重讀檔，瀏覽器 Ctrl+F5 即生效。只有改 server.js 本身才走上面重啟流程。
 - [臨] 踩雷教訓：交棒初版用 JS `execFile powershell`（Get-CimInstance 查、Stop-Process 回收）→ detached 情境 `spawn EPERM` 崩、且 node→powershell→終止進程被卡巴斯基當惡意行為封鎖 → 改純 http 協作、自行退出、跨平台、零 spawn。孤兒預防（EOF 自退）同樣是純 Node、不 spawn、不碰別進程的取向延伸。
+- [臨] runtime 重綁已 E2E 實證（隔離埠 38482）：交棒觸發條件＝啟動 probe + 每 15s heartbeat（setImmediate boot 兜底 + EADDRINUSE handler，自 2026-03 da1ff4c 即存在）；持埠者被 SIGKILL 暴斃後，存活實例 ~15s 內自動重綁。「只在啟動時搶埠、無 runtime 重試」為錯誤假說。
+- [臨] 診斷「0 listener + 多個活 node」先分辨 node.exe 身分：playwright/excel/MCPControl 等 MCP 也是 node.exe，非 guardian 實例不會（也不該）搶 :3848。用 Get-CimInstance 看 CommandLine 含 workflow-guardian-mcp 者才算；guardian 全滅時 0 listener 是正確狀態，開新 session 即自癒。
 
 ## 行動
 

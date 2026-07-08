@@ -22,6 +22,7 @@ from wg_core import (
     cwd_to_project_slug, get_project_memory_dir,
     resolve_episodic_dir, get_transcript_path,
     _now_iso, _atom_debug_log, _atom_debug_error,
+    sanitize_harness_noise,
 )
 from wg_extraction import is_plan_content
 
@@ -187,86 +188,6 @@ def _call_ollama_generate(prompt: str, model: str = None,
     except Exception as e:
         _atom_debug_error("萃取:_call_ollama_generate", e)
         return ""
-
-
-_EXTRACT_PROMPT_TEMPLATE = (
-    "你是「原子記憶系統」的知識萃取器。從 AI 回應中萃取可跨 session 重用的知識。\n"
-    "輸出 JSON array: [{{\"content\": \"精簡事實，最多150字\", "
-    "\"type\": \"factual|procedural|architectural|pitfall|decision\"}}]\n\n"
-    "只萃取：根因分析、API 行為、架構限制、除錯模式、設定值、環境特有行為。\n"
-    "不萃取：程式碼變更、通用程式知識、session 進度、問候語。\n"
-    "沒有值得萃取的內容就輸出 []。直接輸出 JSON。\n\n"
-    "回應文字:\n{text}\n\nJSON:"
-)
-
-
-def _llm_extract_knowledge(text: str, existing_queue: List[dict],
-                           source: str = "session-end") -> List[dict]:
-    """Use local LLM to extract knowledge from assistant text (SessionEnd only).
-
-    Args:
-        text: Assistant response text
-        existing_queue: Already queued knowledge items (for dedup)
-        source: extraction source label
-
-    Returns:
-        List of knowledge items: [{content, classification, knowledge_type, source, at}]
-    """
-    if not text or len(text) < 50:
-        return []
-
-    max_chars = 4000
-    max_items = 5
-
-    truncated = text[:max_chars]
-    prompt = _EXTRACT_PROMPT_TEMPLATE.format(text=truncated)
-
-    raw = _call_ollama_generate(prompt)
-    if not raw:
-        return []
-
-    # Parse JSON (with fallback)
-    items = []
-    try:
-        # Try to find JSON array in response
-        match = re.search(r"\[.*\]", raw, re.DOTALL)
-        if match:
-            items = json.loads(match.group(0))
-    except (json.JSONDecodeError, ValueError):
-        # Regex fallback: try to extract content/type pairs
-        for m in re.finditer(r'"content"\s*:\s*"([^"]{10,150})"', raw):
-            items.append({"content": m.group(1), "type": "factual"})
-
-    if not items:
-        return []
-
-    # Dedup against existing queue
-    existing_fingerprints = {
-        q.get("content", "")[:40].lower() for q in existing_queue
-    }
-
-    results = []
-    now = _now_iso()
-    for item in items[:max_items]:
-        content = item.get("content", "").strip()
-        if not content or len(content) < 10:
-            continue
-        # Skip if too similar to existing
-        if content[:40].lower() in existing_fingerprints:
-            continue
-        knowledge_type = item.get("type", "factual")
-        if knowledge_type not in ("factual", "procedural", "architectural", "pitfall", "decision"):
-            knowledge_type = "factual"
-        results.append({
-            "content": content[:150],
-            "classification": "[臨]",
-            "knowledge_type": knowledge_type,
-            "source": source,
-            "at": now,
-        })
-        existing_fingerprints.add(content[:40].lower())
-
-    return results
 
 
 # ─── Cross-Session Pattern Consolidation ──────────────────────
@@ -530,7 +451,11 @@ def _build_episodic_summary(state: Dict[str, Any]) -> Dict[str, Any]:
         "dominant_intent": dominant_intent,
         "intent_distribution": intent_dist,
         "prompt_count": tracker.get("prompt_count", 0),
-        "session_description": tracker.get("first_prompt_summary", ""),
+        # 記錄端（_update_topic_tracker）已剔 harness 雜訊；此處再過一次是防
+        # 修正前就存在的舊 state（殘留 <ide_opened_file> 等標籤）繼續污染摘要。
+        "session_description": sanitize_harness_noise(
+            tracker.get("first_prompt_summary", "")
+        )[:200],
         "keyword_topics": tracker.get("keyword_signals", []),
         "related_episodic": tracker.get("related_episodic", []),
         "accessed_files": accessed,
@@ -709,35 +634,15 @@ def _generate_episodic_atom(
     atom_path = _resolve_episodic_filename(episodic_dir, date_compact, slug)
     atom_name = atom_path.stem
 
-    # Build knowledge lines
+    # Build knowledge lines — 知識段只放「具體行動知識」（LLM 萃取項 + 覆轍信號）。
+    # 檔案數/區域/版控次數等 session 進度統計是流水帳不是知識：工作範圍改記在
+    # 摘要段、閱讀/版控統計已有 ## 閱讀軌跡、引用 atoms 已有 ## 關聯，不重複塞。
     knowledge_lines = []
-    if summary["work_areas"]:
-        areas_str = ", ".join(
-            f"{wa['area']} ({wa['count']} files)" for wa in summary["work_areas"]
-        )
-        knowledge_lines.append(f"- [臨] 工作區域: {areas_str}")
-    knowledge_lines.append(f"- [臨] 修改 {summary['files_modified']} 個檔案")
-    if summary["atoms_referenced"]:
-        knowledge_lines.append(
-            f"- [臨] 引用 atoms: {', '.join(summary['atoms_referenced'])}"
-        )
     for ki in summary["knowledge_items"]:
         # Filter out plan-type knowledge items from episodic atoms
         if is_plan_content(ki.get("content", "")):
             continue
         knowledge_lines.append(f"- [{ki['classification'].strip('[]')}] {ki['content']}")
-
-    # Read tracking summary
-    if summary.get("files_accessed", 0) > 0:
-        knowledge_lines.append(f"- [臨] 閱讀 {summary['files_accessed']} 個檔案")
-        if summary.get("accessed_areas"):
-            read_areas_str = ", ".join(
-                f"{ra['area']} ({ra['count']})" for ra in summary["accessed_areas"][:5]
-            )
-            knowledge_lines.append(f"- [臨] 閱讀區域: {read_areas_str}")
-    vcs = summary.get("vcs_queries", [])
-    if vcs:
-        knowledge_lines.append(f"- [臨] 版控查詢 {len(vcs)} 次")
 
     # 覆轍信號 — record cross-session retry patterns
     rut_signals = []
@@ -751,13 +656,26 @@ def _generate_episodic_atom(
     if rut_signals:
         knowledge_lines.append(f"- [臨] 覆轍信號: {', '.join(rut_signals)}")
 
-    # Build 摘要 section
+    if not knowledge_lines:
+        knowledge_lines.append(
+            "- （本 session 無具體行動知識；工作軌跡見摘要與閱讀軌跡）"
+        )
+
+    # Build 摘要 section（工作範圍統計歸此，不佔知識段）
     desc = summary.get("session_description", "")
     dom_intent = summary.get("dominant_intent", "general")
     prompt_count = summary.get("prompt_count", 0)
     summary_line = f"{dom_intent.capitalize()}-focused session ({prompt_count} prompts)."
     if desc:
         summary_line += f" {desc}"
+    summary_extra = ""
+    if summary["work_areas"]:
+        areas_str = ", ".join(
+            f"{wa['area']} ({wa['count']})" for wa in summary["work_areas"]
+        )
+        summary_extra = (
+            f"\n\n- 工作範圍: {areas_str}（修改 {summary['files_modified']} 檔）"
+        )
 
     # Build 關聯 section
     relation_lines = []
@@ -789,7 +707,7 @@ def _generate_episodic_atom(
         f"\n"
         f"## 摘要\n"
         f"\n"
-        f"{summary_line}\n"
+        f"{summary_line}{summary_extra}\n"
         f"\n"
         f"## 知識\n"
         f"\n"

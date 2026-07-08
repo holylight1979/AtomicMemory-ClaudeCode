@@ -1,7 +1,8 @@
 """
 handlers/post_tool_use.py — PostToolUse hook handler
 
-追蹤 modified_files / accessed_files / vcs_queries；
+追蹤 modified_files / vcs_queries（accessed_files 由 Stop 端從 transcript 尾段
+一次回收，matcher 不含 Read——省去每次讀檔一個 hook 行程）；
 偵測測試失敗、_CHANGELOG 自動 roll、staging 命名、路徑強制、docdrift、hot cache mid-turn 注入。
 """
 
@@ -407,12 +408,6 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 write_state(session_id, state)
             except Exception as e:
                 print(f"DocDrift error: {e}", file=sys.stderr)
-
-    elif tool_name == "Read" and file_path:
-        accessed = state.setdefault("accessed_files", [])
-        if not any(a["path"] == file_path for a in accessed):
-            accessed.append({"path": file_path, "at": _now_iso()})
-            write_state(session_id, state)
 
     elif tool_name == "Bash":
         command = tool_input.get("command", "")
