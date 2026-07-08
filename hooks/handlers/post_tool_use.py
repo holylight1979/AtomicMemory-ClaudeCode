@@ -296,6 +296,14 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     tool_input = input_data.get("tool_input", {})
     file_path = tool_input.get("file_path", "")
 
+    # ─── 救援日誌：工具呼叫命中已注入 atom 的高特異 token → rescue-log ───
+    try:
+        from wg_rescue import check_rescue_hits
+        if check_rescue_hits(state, session_id, tool_name, tool_input):
+            write_state(session_id, state)
+    except Exception as e:
+        print(f"rescue check error: {e}", file=sys.stderr)
+
     # ─── sub-agent 注入歸因記錄 ───────────────────────────────
     # PostToolUse 對 Agent/Task 自足：tool_response 含 agentId / content / prompt
     # （注入後的完整 prompt）。從 blob marker 回推注入清單 + 擷取輸出摘要，

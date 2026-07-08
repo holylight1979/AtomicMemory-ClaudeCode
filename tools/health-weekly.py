@@ -155,6 +155,22 @@ def collect() -> dict:
     if not (MEMORY / "_vectordb").exists():
         red.append("memory/_vectordb 目錄不存在（向量庫遺失）")
 
+    # 5b. 注入效果報表（token 稅 / 死重 / 使用證據——效果面，非結構面）
+    er = _run_json([str(TOOLS / "memory-effect-report.py"), "--json"])
+    if er is None:
+        red.append("memory-effect-report.py 執行失敗（工具自身壞掉）")
+    else:
+        n_tax = len(er.get("exposure_tax") or [])
+        n_dead = len(er.get("dead_candidates") or [])
+        n_useful = len(er.get("top_useful") or [])
+        if n_tax:
+            names = ", ".join(r["name"] for r in er["exposure_tax"][:5])
+            yellow.append(f"高曝光零使用（token 稅）{n_tax} 筆：{names}"
+                          f"（跑 memory-effect-report.py 看 trigger 收斂建議）")
+        if n_useful == 0:
+            yellow.append("30 天內無任何 atom 效用證據——效用閉環（α/β）或 rescue 管線疑似停擺")
+        info.append(f"注入效果：top 有用 {n_useful} / token 稅 {n_tax} / 零曝光候選 {n_dead}")
+
     # 6. 管線鮮度（死人偵測核心）
     fresh_cut = now - timedelta(days=FRESH_DAYS)
     last_session = _newest_mtime(WORKFLOW, "state-*.json")

@@ -750,103 +750,11 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         }
     }, ensure_ascii=False))
 
-    # ── V3/1.5C: Vector service — fire-and-forget bg subprocess ────────────
+    # ── Vector service：fire-and-forget 啟動器（自癒/觀測邏輯在 starter.py）──
     if (config.get("vector_search", {}).get("auto_start_service", True)
             and not state.get("_skip_vector_init")):
         try:
-            vs_port = config.get("vector_search", {}).get("service_port", 3849)
-            vs_script = str(CLAUDE_DIR / "tools" / "memory-vector-service" / "service.py")
-            flag_path = str(WORKFLOW_DIR / "vector_ready.flag")
-            probe_log_path = str(CLAUDE_DIR / "Logs" / "vector-observation-probe.log")
-            _bg_code = f"""
-import urllib.request, urllib.error, urllib.parse, subprocess, sys, time, os, json, re
-from pathlib import Path
-
-port = {vs_port}
-base = f"http://127.0.0.1:{{port}}"
-
-try:
-    urllib.request.urlopen(f"{{base}}/health", timeout=2)
-except Exception:
-    import socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.bind(("127.0.0.1", port))
-        sock.close()
-        kw = {{"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}}
-        if sys.platform == "win32":
-            kw["creationflags"] = 0x08000000
-        else:
-            kw["start_new_session"] = True
-        subprocess.Popen([sys.executable, {repr(vs_script)}], **kw)
-    except OSError:
-        sock.close()
-
-ready = False
-for _ in range(30):
-    try:
-        urllib.request.urlopen(f"{{base}}/health", timeout=2)
-        ready = True
-        break
-    except Exception:
-        time.sleep(0.5)
-
-if ready:
-    try:
-        Path({repr(flag_path)}).write_text("ready", encoding="utf-8")
-    except Exception:
-        pass
-
-if ready:
-    try:
-        urllib.request.urlopen(f"{{base}}/search?q=warmup&top_k=1&min_score=0.99", timeout=15)
-    except Exception:
-        pass
-
-probe_q = "workflow guardian SessionStart 機制"
-vec_count = -1
-fallback_used = not ready
-if ready:
-    try:
-        params = urllib.parse.urlencode({{"q": probe_q, "top_k": 5, "min_score": 0.5}})
-        with urllib.request.urlopen(f"{{base}}/search/ranked?{{params}}", timeout=10) as r:
-            data = json.loads(r.read())
-            vec_count = len(data) if isinstance(data, list) else 0
-    except Exception:
-        vec_count = -1
-        fallback_used = True
-
-kw_count = 0
-mem_dir = Path({repr(str(CLAUDE_DIR / "memory"))})
-try:
-    pattern = re.compile("workflow|guardian|SessionStart", re.IGNORECASE)
-    for md in mem_dir.rglob("*.md"):
-        try:
-            if pattern.search(md.read_text(encoding="utf-8", errors="ignore")):
-                kw_count += 1
-        except Exception:
-            pass
-except Exception:
-    pass
-
-try:
-    log_p = Path({repr(probe_log_path)})
-    log_p.parent.mkdir(parents=True, exist_ok=True)
-    rec = {{
-        "ts": time.time(),
-        "session_id": {repr(session_id)},
-        "fn": "session_start_probe",
-        "flag_state": "ready" if ready else "no_flag",
-        "result_count": vec_count,
-        "fallback_used": fallback_used,
-        "kw_count": kw_count,
-        "probe_q": probe_q,
-    }}
-    with open(str(log_p), "a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\\n")
-except Exception:
-    pass
-"""
+            starter = CLAUDE_DIR / "tools" / "memory-vector-service" / "starter.py"
             _bg_kwargs: dict = {
                 "stdin": subprocess.DEVNULL,
                 "stdout": subprocess.DEVNULL,
@@ -857,7 +765,8 @@ except Exception:
             else:
                 _bg_kwargs["start_new_session"] = True
             subprocess.Popen(
-                [sys.executable, "-c", _bg_code],
+                [sys.executable, str(starter),
+                 "--phase", "sessionstart", "--session-id", session_id or ""],
                 **_bg_kwargs,
             )
         except Exception as e:

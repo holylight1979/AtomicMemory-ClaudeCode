@@ -1341,6 +1341,64 @@ def _log_vector_obs(
         _atom_debug_error("vector_obs:write", e)
 
 
+_REKICK_MARKER = WORKFLOW_DIR / "vector_rekick.marker"
+_REKICK_COOLDOWN_S = 120.0
+
+
+def _ensure_vector_ready(
+    session_id: Optional[str],
+    *,
+    flag_path: Optional[Path] = None,
+    marker_path: Optional[Path] = None,
+    spawn: bool = True,
+    wait_s: float = 0.3,
+) -> Tuple[bool, bool]:
+    """flag 缺失時的 UPS 端自癒。回 (ready, kicked)。
+
+    fire-and-forget spawn starter.py（cooldown 防同 session 連環 spawn），再短等
+    ≤wait_s 一次性補救「服務活著只是 flag 遺失」類（starter 首次 health 成功即回寫
+    flag，毫秒級）；真冷啟動秒級以上，本輪照舊 fallback、下一 prompt 收割。
+    """
+    flag = flag_path or (WORKFLOW_DIR / "vector_ready.flag")
+    if flag.exists():
+        return True, False
+    marker = marker_path or _REKICK_MARKER
+    kicked = False
+    try:
+        stale = (
+            not marker.exists()
+            or time.time() - marker.stat().st_mtime > _REKICK_COOLDOWN_S
+        )
+        if stale and spawn:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(str(time.time()), encoding="utf-8")
+            import subprocess
+            starter = CLAUDE_DIR / "tools" / "memory-vector-service" / "starter.py"
+            kw: Dict[str, Any] = {
+                "stdin": subprocess.DEVNULL,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            }
+            if sys.platform == "win32":
+                kw["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+            else:
+                kw["start_new_session"] = True
+            subprocess.Popen(
+                [sys.executable, str(starter),
+                 "--phase", "ups_rekick", "--session-id", session_id or ""],
+                **kw,
+            )
+            kicked = True
+    except Exception as e:
+        _atom_debug_error("vector:rekick", e)
+    deadline = time.time() + wait_s
+    while time.time() < deadline:
+        time.sleep(0.1)
+        if flag.exists():
+            return True, kicked
+    return False, kicked
+
+
 def _search_episodic_context(
     prompt: str, config: Dict[str, Any], session_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
@@ -1356,8 +1414,10 @@ def _search_episodic_context(
     if not sc_config.get("enabled", True):
         _log_vector_obs(session_id, "_search_episodic_context", "disabled", 0, True)
         return []
-    if not (WORKFLOW_DIR / "vector_ready.flag").exists():
-        _log_vector_obs(session_id, "_search_episodic_context", "no_flag", 0, True)
+    _ready, _kicked = _ensure_vector_ready(session_id)
+    if not _ready:
+        _log_vector_obs(session_id, "_search_episodic_context", "no_flag", 0, True,
+                        extra={"rekicked": _kicked})
         return []
 
     port = vs_config.get("service_port", 3849)
@@ -1495,9 +1555,10 @@ def _semantic_search(
         _log_vector_obs(session_id, "_semantic_search", "disabled", 0, True,
                         extra={"intent": intent})
         return []
-    if not (WORKFLOW_DIR / "vector_ready.flag").exists():
+    _ready, _kicked = _ensure_vector_ready(session_id)
+    if not _ready:
         _log_vector_obs(session_id, "_semantic_search", "no_flag", 0, True,
-                        extra={"intent": intent})
+                        extra={"intent": intent, "rekicked": _kicked})
         return []
     port = vs_config.get("service_port", 3849)
     top_k = vs_config.get("search_top_k", 5)

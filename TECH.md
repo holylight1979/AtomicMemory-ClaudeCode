@@ -326,6 +326,17 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 dispatcher → V5：
 - **週健檢**（`tools/health-weekly.py`，Task Scheduler `Claude-Memory-WeeklyHealth` 週一 09:00 + StartWhenAvailable）：唯讀聚合 memory-audit / atom-health-check / sync-atom-index --check / skill-index --check / vector / 管線鮮度（近 14 天有 session 但 promotion audit 或 episodic 無新增 → 紅＝管線靜默停擺）→ 報告落 `workflow/health-reports/`（輪替 12 份）+ `health-last-run.json`。SessionStart `_health_advisory` 死人開關：last-run 缺檔/逾 10 天/red>0 → advisory；健康時零輸出。腳本入口防護 pythonw 下 `sys.stdout=None`（否則排程執行秒死，見 atom [[pythonw-下-stdout-為-none-排程腳本秒死陷阱]]）。
 - **不採 OTEL**：官方 export 無 per-hook 延遲、api_request 無法歸因注入 token 稅到個別來源，且需常駐 collector——評估結論不實作（atom [[otel-遙測評估結論-不實作-兩目標指標皆測不到]]）。
 
+### 5.10 召回可靠性 + 效果實證（E 組）
+
+回答兩個長期盲點：「vector 服務到底在不在」與「注入的記憶到底有沒有用」。
+
+- **Vector 啟動器自癒**（`tools/memory-vector-service/starter.py`，SessionStart 與 UPS 共用入口）：診斷實證就緒空窗主因非冷啟動時序，而是**服務起不來的整段故障窗**（曾連續 4 小時、多次 SessionStart 啟動全失敗，stderr 進 DEVNULL 零證據）。對症三刀：① service stdout/stderr 落 `Logs/vector-service.log`（>5MB 輪替 .old；embedder 載入計時可視化）；② hang 死自癒——health timeout + port 被占 → kill `service.pid` 舊程序重啟；等待窗 15s→120s（Ollama 不在時 bge-m3 fallback 冷載遠超 15s），spawn lock 防多 session 重複載 embedder；③ **UPS re-kick**——`wg_atoms._ensure_vector_ready`：flag 缺失時 fire-and-forget spawn starter（cooldown 120s marker）+ ≤300ms 短等（「服務活著只是 flag 遺失」類毫秒級恢復），服務中途死改為下一 prompt 自癒而非等下次 SessionStart。E2E 實測 kill 服務後 4s 復活。
+- **救援日誌**（`hooks/wg_rescue.py` → `Logs/rescue-log.jsonl`）：注入 atom 時從實注入內容**確定性**抽高特異 token（路徑 / inline-code / ALL_CAPS / snake_case ≥8；泛詞黑名單＋子字串抑制，寧缺勿濫），本 session 後續工具呼叫 tool_input 命中 → 落 {atom, token, evidence, turn_seq}。純字串比對零模型判斷。精度守則：跨 atom 同 token 歸因模糊即整個剔除、Agent/Task prompt 欄不掃（`[WG:SubagentMemory]` 自動注入會自我命中）、寫 memory/_atoms .md 不掃、每 (atom,token) 每 session 一次。
+- **效果報表**（`tools/memory-effect-report.py`，唯讀）：彙總 access.json（曝光 timestamps + α/β Wilson 下界）+ rescue-log → 三清單：top 有用 / 高曝光零使用（token 稅，附 trigger 收斂建議）/ 零曝光死重候選，+ 30 天週趨勢。接入 `/memory health` step 4 與週健檢 5b（token 稅 → 黃；30 天零效用證據 → 黃＝效用閉環停擺嫌疑）。
+- **專案層 enrichment 放行**（`ups_search.collect_matched_atoms`）：舊行為 trigger/BM25 命中 >0 即整個跳過 vector → 專案層語意近似永不浮出（註解寫了 enrichment 但未實作）。放行為：命中 >0 且**存在專案層 atom** 才跑 vector、結果只取專案層命中（全域層仍歸 trigger/BM25）；無專案層照舊跳過（省 round-trip）。預算不變式由 assemble 端 `decide_atom_injection` TURN_BUDGET 硬頂結構性保證。
+- **原生記憶橋接**（`tools/native-memory-bridge.py`，獨立腳本執行）：核心 atom 索引以指標行鏡像進 CC 原生 memory（`projects/<slug>/memory/atom-index-bridge.md` + MEMORY.md 一行指標，冪等重寫，標明機器生成勿手編）。硬約束：輸出僅 harness 清單格式——絕不放 `_atom_index.json` / `| Atom` 表頭，橋接目錄不得被 atom 掃描誤納（`verify_native_bridge.py` 對 `discover_all_project_memory_dirs` 做組合驗證）。
+- **裁決記錄（本批明確不做）**：trigger 同義詞擴充（與 trigger 收斂工程對沖，模糊召回歸 BM25 層）；重複勞動偵測（誤判率高，訊號由 rescue 缺席＋效果報表間接取得）；兩級注入重構（等效果報表數據證明「指標行被跟進」再議）。
+
 ---
 
 ## 6. 版本歷史

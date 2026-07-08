@@ -58,11 +58,19 @@ description: 原子記憶系統綜合工具 — health/peek/undo/review/score �
    python ~/.claude/tools/atom-health-check.py --report [--json]
    ```
 
-4. **綜合報告**：格式驗證 / 過期 / 參照完整性 / 晉升降級 / 重複偵測 / 索引一致性，每個區塊有問題列出、無問題 ✓。末尾總結 N 個問題 / 全健康。
+4. **效果報表**（結構面之外的效果面——注入的記憶有沒有被用上）：
+   ```bash
+   python ~/.claude/tools/memory-effect-report.py
+   ```
+   三清單直接轉述：A top 有用（α/β Wilson 下界 + rescue 命中）、B 高曝光零使用
+   （token 稅，附 trigger 收斂建議）、C 零曝光死重候選；末尾 30 天週趨勢表。
+   B/C 有項目時點出，但**不自動改 trigger / 不自動刪 atom**（裁決權在使用者）。
 
-5. **互動**：發現問題詢問是否修正。**禁止手動 mv atom 跨層** — 用 `atom-move.py move` 或 MCP `atom_move`。
+5. **綜合報告**：格式驗證 / 過期 / 參照完整性 / 晉升降級 / 重複偵測 / 索引一致性，每個區塊有問題列出、無問題 ✓。末尾總結 N 個問題 / 全健康。
 
-6. **broken_refs → OFFER L2 自癒（純手動觸發，零每-session 常駐成本）**：
+6. **互動**：發現問題詢問是否修正。**禁止手動 mv atom 跨層** — 用 `atom-move.py move` 或 MCP `atom_move`。
+
+7. **broken_refs → OFFER L2 自癒（純手動觸發，零每-session 常駐成本）**：
    報告出現 **Broken References（死連結）** 時，**詢問**使用者是否跑 L2 LLM 修復（絕不自動跑；Native-first：不長常駐枝葉）。
    同意 → 對報告中每個含死連結的 atom（`broken_refs[].atom` 去重），逐個 CLI 直呼：
    ```bash

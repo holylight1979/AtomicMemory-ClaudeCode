@@ -167,12 +167,32 @@ def collect_matched_atoms(
     if _v4_id.get("management"):
         _v4_user = None
         _v4_roles = None
-    # Vector fallback: only when BM25/trigger gave 0 hits, OR for project layer enrichment.
-    sem_atoms = _semantic_search(
-        prompt, config, intent=intent,
-        user=_v4_user, roles=_v4_roles,
-        session_id=session_id,
-    ) if (len(matched_with_dir) == 0 or vs_cfg.get("global_layer") != "bm25") else []
+    # Vector 兩用途：hits=0 → 全層 fallback；hits>0 → 專案層 enrichment
+    #（trigger/BM25 只擅長全域層關鍵詞，專案層語意近似仍值得補充；
+    #  結果仍受 assemble 端 TURN_BUDGET_LIMIT 硬頂與服務端 min_score 約束）。
+    project_atoms = [e for e in all_atoms if e[1] != MEMORY_DIR.parent]
+    full_fallback = (
+        len(matched_with_dir) == 0 or vs_cfg.get("global_layer") != "bm25"
+    )
+    if full_fallback or project_atoms:
+        sem_atoms = _semantic_search(
+            prompt, config, intent=intent,
+            user=_v4_user, roles=_v4_roles,
+            session_id=session_id,
+        )
+    else:
+        sem_atoms = []
+    if not full_fallback and sem_atoms:
+        # enrichment 模式：只取專案層命中，全域層交給 trigger/BM25
+        project_names = {e[0][0] for e in project_atoms}
+        sem_atoms = [s for s in sem_atoms if s[0] in project_names]
+        if sem_atoms:
+            _atom_debug_log(
+                "ENRICH",
+                f"project-layer vector enrichment: +{len(sem_atoms)} "
+                f"({', '.join(s[0] for s in sem_atoms)})",
+                config,
+            )
     section_hints: Dict[str, List[Dict]] = {}
     for sem_entry in sem_atoms:
         sem_name = sem_entry[0]

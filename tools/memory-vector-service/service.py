@@ -47,10 +47,19 @@ def _init_service():
     _start_time = time.time()
 
     try:
+        _t = time.time()
         _embedder = create_embedder(_config)
-        print(f"[service] Embedder loaded: {_embedder.__class__.__name__}", file=sys.stderr)
+        print(
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')} [service] Embedder loaded: "
+            f"{_embedder.__class__.__name__} ({time.time() - _t:.1f}s)",
+            file=sys.stderr, flush=True,
+        )
     except Exception as e:
-        print(f"[service] WARNING: No embedder available: {e}", file=sys.stderr)
+        print(
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')} [service] WARNING: "
+            f"No embedder available: {e}",
+            file=sys.stderr, flush=True,
+        )
         _embedder = None
 
 

@@ -35,6 +35,8 @@ workflow/guardian-crash.log
 workflow/extract-worker.log
 workflow/hot_cache.json
 workflow/vector_ready.flag
+workflow/vector_rekick.marker
+workflow/vector_starting.lock
 workflow/.backend_long_die.json
 workflow/_merge_history.log
 workflow/last_review_marker.json

@@ -90,6 +90,7 @@ def assemble_injection(
 
     atom_lines: List[str] = []
     used_tokens = 0
+    rescue_pairs: List[Tuple[str, str]] = []  # (atom, 實注入內容) → 救援日誌 watch
 
     for (name, rel_path, triggers), base_dir in matched_with_dir:
         atom_path = (base_dir / rel_path) if rel_path else (base_dir / "memory" / f"{name}.md")
@@ -129,6 +130,7 @@ def assemble_injection(
         if decision == "ok":
             atom_lines.append(f"[Atom:{name}]\n{inject_content}")
             newly_injected.append(name)
+            rescue_pairs.append((name, inject_content))
             used_tokens += consumed
             _atom_debug_log(
                 "BUDGET",
@@ -138,6 +140,7 @@ def assemble_injection(
         elif decision == "fallback":
             atom_lines.append(f"[Atom:{name}] (budget fallback)\n{inject_content}")
             newly_injected.append(name)
+            rescue_pairs.append((name, inject_content))
             used_tokens += consumed
             _atom_debug_log(
                 "BUDGET",
@@ -194,6 +197,7 @@ def assemble_injection(
         if decision == "ok":
             atom_lines.append(f"[Atom:{rname}] (related)\n{inject_content}")
             newly_injected.append(rname)
+            rescue_pairs.append((rname, inject_content))
             used_tokens += consumed
             _atom_debug_log(
                 "BUDGET",
@@ -203,6 +207,7 @@ def assemble_injection(
         elif decision == "fallback":
             atom_lines.append(f"[Atom:{rname}] (related, budget fallback)\n{inject_content}")
             newly_injected.append(rname)
+            rescue_pairs.append((rname, inject_content))
             used_tokens += consumed
             _atom_debug_log(
                 "BUDGET",
@@ -223,6 +228,12 @@ def assemble_injection(
     if atom_lines:
         lines.extend(atom_lines)
         state["injected_atoms"] = already_injected + newly_injected
+        if rescue_pairs:
+            try:
+                from wg_rescue import record_rescue_watch
+                record_rescue_watch(state, rescue_pairs)
+            except Exception as e:
+                _atom_debug_log("RESCUE", f"watch record error: {e}", config)
         _emit_usefulness_hints(
             session_id, config, newly_injected, matched_with_dir
         )
