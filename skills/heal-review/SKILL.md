@@ -1,6 +1,7 @@
 ---
 name: heal-review
 description: 管理職裁決記憶自癒失敗佇列：審視 _heal_review/ 下「自動修不好」的 atom 診斷卡並 resolve/dismiss
+disable-model-invocation: true
 ---
 
 # /heal-review — 記憶自癒失敗佇列裁決

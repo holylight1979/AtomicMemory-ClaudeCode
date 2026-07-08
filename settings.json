@@ -1,6 +1,12 @@
 {
   "env": {},
-  "effortLevel": "high",
+  "effortLevel": "medium",
+  "statusLine": {
+    "type": "command",
+    "command": "C:/Users/holylight/AppData/Local/Python/bin/python.exe C:/Users/holylight/.claude/tools/statusline.py",
+    "padding": 0,
+    "refreshInterval": 10
+  },
   "permissions": {
     "allow": [
       "Bash(*)",

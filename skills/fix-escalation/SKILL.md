@@ -1,6 +1,7 @@
 ---
 name: fix-escalation
 description: 精確修正升級協議（Fix Escalation Protocol）— 反覆修不好時升級到更深層分析
+disable-model-invocation: true
 ---
 
 # 精確修正升級（Fix Escalation Protocol）

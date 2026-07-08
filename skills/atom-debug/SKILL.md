@@ -1,6 +1,7 @@
 ---
 name: atom-debug
 description: 切換原子記憶系統的注入/萃取 debug log（寫入 ~/.claude/Logs/atom-debug-*.log）
+disable-model-invocation: true
 ---
 
 # /atom-debug — 原子記憶 Debug Log 開關

@@ -75,8 +75,6 @@ DEFAULTS = {
     "enabled": True,
     "stop_gate_max_blocks": 2,
     "min_files_to_block": 2,
-    "remind_after_turns": 3,
-    "max_reminders": 3,
     "sync_keywords": ["同步", "sync", "commit", "提交", "結束", "收工"],
     "session_context": {
         "enabled": True,
@@ -681,7 +679,6 @@ def new_state(session_id: str, cwd: str, source: str) -> Dict[str, Any]:
         "knowledge_queue": [],
         "sync_pending": False,
         "stop_blocked_count": 0,
-        "remind_count": 0,
         "topic_tracker": {
             "intent_distribution": {},
             "prompt_count": 0,

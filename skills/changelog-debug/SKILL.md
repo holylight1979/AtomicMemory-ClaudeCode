@@ -1,6 +1,7 @@
 ---
 name: changelog-debug
 description: Hook 觸發失靈時手動滾動 _CHANGELOG.md（正常情況自動觸發，這是 debug 用）
+disable-model-invocation: true
 ---
 
 # /changelog-debug

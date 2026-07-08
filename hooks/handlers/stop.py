@@ -552,17 +552,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if uncommitted:
             state["sync_reminder_count"] = sr_count + 1
             state["stop_blocked_count"] = stop_count + 1
-            shown = uncommitted[:8]
-            names = "\n".join(f"  - {p}" for p in shown)
-            more = (
-                f"\n  ...（共 {len(uncommitted)} 檔，僅顯示前 8）"
-                if len(uncommitted) > 8 else ""
-            )
+            # 訊息瘦身：檔案清單不進 chat（statusline 常駐示數、模型自行 git status）
             reason = _piggyback(
                 f"[Guardian:SyncReminder] 偵測到 {len(uncommitted)} 個已修改但"
-                "尚未提交的檔案，依 rules/core.md「完成修改後主動提出 "
-                ".git→commit+push」應提示同步。\n"
-                f"{names}{more}\n"
+                "尚未提交的檔案（清單自行 git status），依 rules/core.md"
+                "「完成修改後主動提出 .git→commit+push」應提示同步。\n"
                 "請選一個方向：\n"
                 "  (a) 上 GIT — 立刻 commit + push\n"
                 "  (b) 我不打算上 — 請說明原因（會跳過本次提醒）\n"

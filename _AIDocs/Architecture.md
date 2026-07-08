@@ -28,8 +28,8 @@
 | `workflow-guardian.py` | 20 行薄 shim 轉發 `dispatcher.main()`（保留 V4.1 entry path 相容） |
 | `dispatcher.py` | ~75 行純路由：讀 stdin event → 找 handler → 呼叫 |
 | `handlers/_shared.py` | 跨 handler 共用常數/helper（MEMORY_MD 標頭、project hook caller、cleanup_old_states 等） |
-| `handlers/session_start.py` | SessionStart：init state + 去重 + V4 role bootstrap + AIDocs bridge + Wisdom + MCP health + log rotation + Vector service bg subprocess |
-| `handlers/user_prompt_submit.py` | UPS orchestrator（2026-06-12 熱點重構 790→195 行）：串聯 ups_* 四段 + 收尾（blind-spot / fix escalation / evasion 舉證 / handoff / topic / sync reminder / turn_injected / debug 摘要 / budget 截斷輸出）＋ **UPS 被 kill 哨兵**（開頭 arm `workflow/ups-sentinel/<sid>.json`、正常結尾 clear；見殘留＝上輪注入被 harness timeout 砍 → 告警）＋ AEC (d) 刪除決策後驗 |
+| `handlers/session_start.py` | SessionStart：init state + 去重 + V4 role bootstrap + AIDocs bridge + Wisdom + MCP health + log rotation + Vector service bg subprocess + **週健檢死人開關**（`_health_advisory` 讀 `workflow/health-last-run.json`：缺檔/逾 10 天/red>0 → advisory 浮出，健康時零 context） |
+| `handlers/user_prompt_submit.py` | UPS orchestrator（2026-06-12 熱點重構 790→195 行）：串聯 ups_* 四段 + 收尾（blind-spot / fix escalation / evasion 舉證 / handoff / topic / sync context（僅 sync 關鍵字觸發；週期性 `[Guardian] Reminder` 已退役 → statusline 常駐顯示）/ turn_injected / debug 摘要 / budget 截斷輸出）＋ **UPS 被 kill 哨兵**（開頭 arm `workflow/ups-sentinel/<sid>.json`、正常結尾 clear；見殘留＝上輪注入被 harness timeout 砍 → 告警）＋ AEC (d) 刪除決策後驗 |
 | `handlers/ups_gates.py` | UPS detect 段：evasion 追蹤 + V4.1 decision gate + confirmed extractions + long_die + Hot Cache + Atom-Write Guard |
 | `handlers/ups_context.py` | UPS context build 段：session context（episodic + proactive）+ wisdom 分類 + parallel 建議 + AIDocs keyword + JIT internal-pipeline |
 | `handlers/ups_search.py` | UPS search pipeline 段：index 組裝 + 跨專案 alias + trigger → BM25 全域層 → Vector fallback + supersedes + ACT-R 排序（含**分心懲罰** `compute_injection_rank`，Memory Governance A） |
@@ -83,9 +83,22 @@
 | `ensure-mcp.py` | MCP server 可用性確認 |
 | `webfetch-guard.sh` | WebFetch 安全護欄 |
 
+### 常駐可觀測層（statusline + 週健檢）
+
+零 token 的使用者可見層，把「純資訊性 chat 注入」移出 context：
+
+| 元件 | 機制 |
+|------|------|
+| `tools/statusline.py` | settings.json `statusLine` 指入（refreshInterval 10s + 每則訊息事件驅動）。stdin 吃 CC status JSON（session_id/model/context_window），純 stdlib 讀 `state-<sid>.json`（改檔/讀檔/知識佇列數）+ `vector_ready.flag` + `aec-report/<sid>-t*.json` 最大 turn severity → 一行 ANSI 狀態列。fail-open 必告知：state 壞 → `WG:?`；任何錯誤仍印一行 |
+| `tools/health-weekly.py` | Windows Task Scheduler `Claude-Memory-WeeklyHealth`（週一 09:00，StartWhenAvailable 補跑）驅動，無 CC session 依賴。唯讀聚合：memory-audit + atom-health-check + 兩索引 --check + vector + **管線鮮度**（有 session 但 promotion audit/episodic 停 14 天 → 紅）→ `workflow/health-reports/`（留 12 份）+ `health-last-run.json`。SessionStart `_health_advisory` 為死人開關：排程器本身死了也會在 session 浮出 |
+
+取捨：CC 原生 CronCreate 為雲端 agent、碰不到本機 `~/.claude`，故健檢採 Task Scheduler。OTEL export 評估不做（兩目標指標 per-hook 延遲/注入 token 稅皆不在匯出面，見 atom [[otel-遙測評估結論-不實作-兩目標指標皆測不到]]）。
+
 ## Skills（V5 全域 <!-- skill-count -->21<!-- /skill-count --> 個 active，2026-05-27 起；記憶系統 skill + 1 外部〔karpathy-guidelines〕；unity-mcp-skill 2026-06-12 已搬遷專案層；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`**，故不計入 21）
 
 V5 Wave 3 把 V4 的 `commands/*.md` 遷到 `.claude/skills/{name}/SKILL.md`（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` **2026-05-27 已刪除**（原 7 天緩衝經對拍 100% identical 驗證後提前廢止）。
+
+**invocation 硬化**：9 個重炮/儀式/debug 型 skill 設 frontmatter `disable-model-invocation: true`（atom-debug / changelog-debug / codex-companion / continue / extract / fix-escalation / generate-episodic / heal-review / upgrade）——模型不可呼叫（含自然語言請求）、description 不佔 context，僅使用者 `/slash` 可觸發；codex-companion 另有反逃避意涵（模型不得自關監督器）。保留模型可呼叫的例外依據：consciousness-stream（rules/core.md「用識流…」映射由模型代打）、handoff（`wg_handoff.py` 注入「建議主動 /handoff」）、skill-creator / karpathy-guidelines（設計上要自動觸發）、其餘工具型（browse-sprites / harvest / journal / memory / conflict / read-project / refile / vector）自然語言觸發利大於誤觸。
 
 | Skill | 檔案 | 用途 |
 |-------|------|------|

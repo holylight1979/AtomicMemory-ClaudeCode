@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 模型切換, Opus, Fable, 行為契約, 自動推進, 抓重點, IDENTITY 擴充, 行為移植, model behavior
 - Created-at: 2026-07-07
-- Related: 自己flag的維護動作直接做完不要反問, feedback-workflow-discipline, workflow-parallel-agents
+- Related: 自己flag的維護動作直接做完不要反問, feedback-workflow-discipline, workflow-parallel-agents, 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立
 
 ## 知識
 

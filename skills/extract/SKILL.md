@@ -1,6 +1,7 @@
 ---
 name: extract
 description: 手動知識萃取：從當前對話抽取 atom（補 LLM 自動萃取漏網）
+disable-model-invocation: true
 ---
 
 # /extract — 手動知識萃取

@@ -1,6 +1,7 @@
 ---
 name: generate-episodic
 description: 手動生成 episodic atom（補自動 episodic 生成）
+disable-model-invocation: true
 ---
 
 # /generate-episodic — 手動生成 episodic atom

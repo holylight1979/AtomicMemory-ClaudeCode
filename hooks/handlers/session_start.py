@@ -251,6 +251,47 @@ def _prune_aec_files(max_age_days: int = 7) -> int:
     return pruned
 
 
+HEALTH_RUN_STALE_DAYS = 10  # 週排程 + 3 天寬限；超過 = 排程器本身死了
+
+
+def _health_advisory(last_run_path) -> list:
+    """週健檢死人開關 → advisory 行（無異常回 []，不佔 context）。
+
+    三種浮出：last-run 缺檔（從未跑/被清）、at 逾 HEALTH_RUN_STALE_DAYS 天
+    （Task Scheduler 停擺）、上次健檢 red>0（有待處理項未看）。自身壞掉走
+    _atom_debug_error，不阻斷 SessionStart。
+    """
+    try:
+        if not last_run_path.exists():
+            return [
+                "[Guardian:HealthCheck] ⚠ 週健檢 last-run 不存在——排程未註冊或"
+                "檔案被清。手動跑 python tools/health-weekly.py 並確認 schtasks"
+                " Claude-Memory-WeeklyHealth 存在。"
+            ]
+        d = json.loads(last_run_path.read_text(encoding="utf-8"))
+        at = datetime.fromisoformat(d.get("at", ""))
+        age = (datetime.now() - at).days
+        out = []
+        if age > HEALTH_RUN_STALE_DAYS:
+            out.append(
+                f"[Guardian:HealthCheck] ⚠ 週健檢已 {age} 天未跑（上次 "
+                f"{at:%Y-%m-%d}）——Task Scheduler 疑停擺，檢查 schtasks "
+                "Claude-Memory-WeeklyHealth。"
+            )
+        if int(d.get("red", 0)) > 0:
+            out.append(
+                f"[Guardian:HealthCheck] 🔴 上次健檢有 {d['red']} 項需處理 → "
+                f"Read {d.get('report', 'workflow/health-reports/')}"
+            )
+        return out
+    except Exception as e:
+        _atom_debug_error("session_start:health_advisory", e)
+        return [
+            "[Guardian:HealthCheck] ⚠ health-last-run.json 不可解析——健檢狀態"
+            "未知，手動跑 python tools/health-weekly.py。"
+        ]
+
+
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
@@ -488,6 +529,13 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     )
         except Exception as e:
             _atom_debug_error("session_start:skill_index_validate", e)
+
+        # ── 週健檢死人開關 ──────────────────────────────────
+        # tools/health-weekly.py（Task Scheduler 每週跑）落 health-last-run.json。
+        # 缺檔/逾期 = 排程器本身死了；red>0 = 上次健檢有待處理項。兩者都必須
+        # 在 session 內浮出（fail-open 必告知）——「靜默死 27 天」的最後防線。
+        lines.extend(_health_advisory(WORKFLOW_DIR / "health-last-run.json"))
+
         if v4_user:
             lines.append(
                 f"[Role] user={v4_user} roles={','.join(v4_roles) or 'programmer'} mgmt={v4_mgmt}"

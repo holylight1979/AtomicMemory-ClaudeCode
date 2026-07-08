@@ -1,6 +1,7 @@
 ---
 name: upgrade
 description: 原子記憶環境升級：檢查並執行 V4/V5 schema migration
+disable-model-invocation: true
 ---
 
 # /upgrade — 原子記憶環境升級

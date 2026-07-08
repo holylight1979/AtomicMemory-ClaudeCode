@@ -301,21 +301,8 @@ def handle_user_prompt_submit(
         if kq_count > 0:
             for q in state["knowledge_queue"]:
                 lines.append(f"  - {q.get('classification', '[臨]')} {q['content'][:60]}")
-    elif mod_count > 0 or kq_count > 0:
-        remind_after = config.get("remind_after_turns", 3)
-        remind_count = state.get("remind_count", 0)
-        if remind_count < remind_after:
-            state["remind_count"] = remind_count + 1
-        else:
-            max_reminders = config.get("max_reminders", 3)
-            total_reminds = state.get("total_reminds", 0)
-            if total_reminds < max_reminders:
-                lines.append(
-                    f"[Guardian] Reminder: {mod_count} files modified, {kq_count} knowledge items pending. "
-                    "Consider syncing when current task completes."
-                )
-                state["remind_count"] = 0
-                state["total_reminds"] = total_reminds + 1
+    # 週期性「N files modified」提醒不進 chat——statusline（tools/statusline.py）
+    # 常駐顯示改檔/佇列數（零 token）；模型端 enforcement 由 Stop SyncReminder 閘兜底。
 
     # per-turn 注入記錄（每 turn 覆寫）。
     # injected_atoms 是 session 累積（line 582 合併後 per-turn delta 遺失），

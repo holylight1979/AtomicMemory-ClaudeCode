@@ -1222,6 +1222,34 @@
         "契約檔損毀"
       ],
       "scope": "global"
+    },
+    {
+      "name": "otel-遙測評估結論-不實作-兩目標指標皆測不到",
+      "path": "_AIDocs/_atoms/MemDev/otel-遙測評估結論-不實作-兩目標指標皆測不到.md",
+      "triggers": [
+        "OTEL",
+        "OpenTelemetry",
+        "遙測",
+        "telemetry",
+        "hook 延遲量測",
+        "token 稅量測",
+        "CLAUDE_CODE_ENABLE_TELEMETRY"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "pythonw-下-stdout-為-none-排程腳本秒死陷阱",
+      "path": "_AIDocs/_atoms/OS/pythonw-下-stdout-為-none-排程腳本秒死陷阱.md",
+      "triggers": [
+        "pythonw",
+        "Task Scheduler",
+        "排程",
+        "schtasks",
+        "sys.stdout None",
+        "reconfigure",
+        "排程器靜默失敗"
+      ],
+      "scope": "global"
     }
   ]
 }

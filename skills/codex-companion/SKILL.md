@@ -1,6 +1,7 @@
 ---
 name: codex-companion
 description: 切換 Codex Companion 監督系統開關（GPT 第二意見審計）
+disable-model-invocation: true
 ---
 
 # /codex-companion — Codex Companion 開關

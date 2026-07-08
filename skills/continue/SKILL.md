@@ -1,6 +1,7 @@
 ---
 name: continue
 description: 讀取 _staging/next-phase*.md 並立即執行續接任務（多任務時列選單）
+disable-model-invocation: true
 ---
 
 # /continue — 續接暫存任務

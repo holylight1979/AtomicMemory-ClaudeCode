@@ -3,8 +3,6 @@
   "enabled": true,
   "stop_gate_max_blocks": 2,
   "min_files_to_block": 2,
-  "remind_after_turns": 3,
-  "max_reminders": 3,
   "dashboard_port": 3848,
   "sync_keywords": [
     "同步",

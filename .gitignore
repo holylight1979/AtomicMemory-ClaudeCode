@@ -45,12 +45,15 @@ workflow/aec-decision/
 workflow/ups-sentinel/
 workflow/outcome_stats.jsonl
 workflow/outcome-unknown-advisory.json
+workflow/health-reports/
+workflow/health-last-run.json
 
 # ─── Per-user / per-machine state (Wave 5 untracked) ─────
 memory/project-registry.json
 memory/wisdom/reflection_metrics.json
 memory/wisdom/causal_graph.json
 memory/_meta/atom_io_audit.jsonl
+memory/_promotion_audit.jsonl
 policy-limits.json
 
 # ─── Codex Companion runtime state ────────────────────────
