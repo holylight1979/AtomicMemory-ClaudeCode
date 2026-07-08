@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 版本殘留, 版本標記, V2.x, v[X.X], V5 Pxx, Phase, Sprint, Wave, 里程碑, milestone, stderr 前綴, spec 錨, 執行流程字串, 變更叙事, 自我更正鏈, 歷史脈絡, 方案代號, 操作日期, commit hash, CHANGELOG, timeless, 註解版本, atom 過時 claim, docstring 版本
 - Created-at: 2026-07-01
-- Related: feedback-rigor-standards, cognitive-patterns, feedback-memory-structure
+- Related: feedback-rigor-standards, cognitive-patterns, feedback-memory-system-doc-sync
 
 ## 知識
 

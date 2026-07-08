@@ -1,5 +1,6 @@
 // realm.js — 範疇/路由分類（py 鏡像：lib/atom_locations.py，keep in sync；parity test_14/17/22）。
-// classifyRealm / cleanRealmSegment 供跨語言 parity eval-block 讀取本檔原始碼。
+// cleanRealmSegment 供跨語言 parity eval-block 讀取本檔原始碼（test_22）；
+// classifyRealm 由 test_17 直接 require 本模組對拍（詞庫 JSON 化後 eval-block 不再自足）。
 const fs = require("fs");
 const path = require("path");
 const { CLAUDE_DIR, MEMORY_DIR } = require("./paths");
@@ -17,29 +18,41 @@ const LOCAL_REALM_DOMAINS = new Set(["World", "Tools", "MemDev"]);
 const LOCAL_REALM_DEFAULT_DOMAIN = "Else";
 // 階層 domain 路徑最大深度（MIRROR: lib/atom_locations.py:LOCAL_REALM_MAX_DEPTH）。
 const LOCAL_REALM_MAX_DEPTH = 7;
-// V5+ realm 分類器（MIRROR: lib/atom_locations.py:classify_realm / CORE_PROTECTED_* /
-// LOCAL_REALM_LEXICON — keep in sync；parity test_17 守漂移）。設計守則見 py 端註解：
-// 核心保護硬擋 → 實例詞庫 → 安全預設 core；只掃 name + triggers，絕不用記憶系統通用詞。
-const LOCAL_REALM_CORE_PROTECTED_PREFIXES = [
-  "decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-",
-];
-const LOCAL_REALM_CORE_PROTECTED_EXACT = new Set([
-  "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
-  "自己flag的維護動作直接做完不要反問",  // 跨專案行為規則,曾遭 LLM sweep 誤搬 local→硬擋
-  "記憶汙染與上下文腐化-注入萃取自檢",  // 跨專案 governance atom,談記憶術語易誤判 local→硬擋
-  // 跨專案 meta-cognitive atom（驗證紀律 / escalation 誤判辨識）：曾遭 sweep 誤降 local→硬擋
-  "品質完整性判定須讀完整內容-勿從截斷採樣斷言",
-  "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
-]);
-const LOCAL_REALM_LEXICON = {
-  "腦內世界": "World", "world.html": "World", "reconcile-render": "World",
-  "環境演化": "World", "env-layer": "World",
-  "gdoc": "Tools", "harvester": "Tools", "electron-uia": "Tools",
-  "electron 自動化": "Tools", "codex": "Tools", "logs_2.sqlite": "Tools", "反編譯": "Tools",
-  "guardian-dashboard": "MemDev", "孤兒佔埠": "MemDev", "eaddrinuse": "MemDev",
-};
-const LOCAL_REALM_NAME_WEIGHT = 10;
-const LOCAL_REALM_TRIGGER_WEIGHT = 1;
+// V5+ realm 分類器。演算法鏡像 lib/atom_locations.py:classify_realm（parity test_17 守漂移）；
+// 詞庫/核心保護清單/權重不再手抄——單一來源 memory/_meta/realm-lexicon.json，py/js 兩端讀同檔。
+// 收詞守則見 py 端註解：核心保護硬擋 → 實例詞庫 → 安全預設 core；只掃 name + triggers。
+const REALM_LEXICON_PATH = path.join(MEMORY_DIR, "_meta", "realm-lexicon.json");
+// fallback 內建最小保護清單（JSON 缺失/損毀時仍硬擋最關鍵核心名；詞庫停用 → 全判 core）
+function loadRealmLexicon() {
+  try {
+    const d = JSON.parse(fs.readFileSync(REALM_LEXICON_PATH, "utf-8"));
+    const prefixes = (d.core_protected_prefixes || []).map(String);
+    const exact = new Set((d.core_protected_exact || []).map(String));
+    const lexicon = d.lexicon || {};
+    const nameW = Number(d.name_weight), trigW = Number(d.trigger_weight);
+    if (!prefixes.length || !exact.size || !Object.keys(lexicon).length ||
+        !Number.isFinite(nameW) || !Number.isFinite(trigW)) {
+      throw new Error("empty/missing section");
+    }
+    return { prefixes, exact, lexicon, nameW, trigW };
+  } catch (e) {
+    // fail-open + 浮訊號（可觀測性鐵律）：stderr 不污染 MCP stdout 協議
+    process.stderr.write(
+      `[realm.js] realm-lexicon.json unavailable (${e.message}); ` +
+      "fallback to built-in minimal core-protected list; lexicon disabled (all->core)\n");
+    return {
+      prefixes: ["decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-"],
+      exact: new Set(["preferences", "cognitive-patterns"]),
+      lexicon: {}, nameW: 10, trigW: 1,
+    };
+  }
+}
+const _REALM_LEX = loadRealmLexicon();  // 模組載入時讀一次（快取；改 JSON 需重啟 MCP）
+const LOCAL_REALM_CORE_PROTECTED_PREFIXES = _REALM_LEX.prefixes;
+const LOCAL_REALM_CORE_PROTECTED_EXACT = _REALM_LEX.exact;
+const LOCAL_REALM_LEXICON = _REALM_LEX.lexicon;
+const LOCAL_REALM_NAME_WEIGHT = _REALM_LEX.nameW;
+const LOCAL_REALM_TRIGGER_WEIGHT = _REALM_LEX.trigW;
 
 /** Realm 分類器（安全預設 core，僅高信心判 local）。回 {realm, domain, matched, protected}。
  *  只掃 name + triggers。MIRROR: lib/atom_locations.py:classify_realm — keep in sync. */

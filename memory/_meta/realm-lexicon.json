@@ -1,0 +1,37 @@
+{
+  "_doc": "realm 分類詞庫單一來源（SoT）：lib/atom_locations.py 與 tools/workflow-guardian-mcp/lib/realm.js 兩端於模組載入時讀本檔；缺失/損毀時各自 fallback 內建最小保護清單（詞庫停用、全判 core）並 stderr 告警。詞庫收詞守則見 atom_locations.py 註解（只收實例專屬名，絕不收記憶系統通用詞）；學習詞庫獨立在 realm-lexicon-learned.json。",
+  "core_protected_prefixes": [
+    "decisions",
+    "workflow-",
+    "toolchain",
+    "feedback-",
+    "memory-pipeline-",
+    "atom-"
+  ],
+  "core_protected_exact": [
+    "preferences",
+    "cognitive-patterns",
+    "goal-driven-verify-loopkarpathy-吸收",
+    "自己flag的維護動作直接做完不要反問",
+    "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造"
+  ],
+  "lexicon": {
+    "腦內世界": "World",
+    "world.html": "World",
+    "reconcile-render": "World",
+    "環境演化": "World",
+    "env-layer": "World",
+    "gdoc": "Tools",
+    "harvester": "Tools",
+    "electron-uia": "Tools",
+    "electron 自動化": "Tools",
+    "codex": "Tools",
+    "logs_2.sqlite": "Tools",
+    "反編譯": "Tools",
+    "guardian-dashboard": "MemDev",
+    "孤兒佔埠": "MemDev",
+    "eaddrinuse": "MemDev"
+  },
+  "name_weight": 10,
+  "trigger_weight": 1
+}

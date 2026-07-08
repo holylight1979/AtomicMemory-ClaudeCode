@@ -54,6 +54,12 @@ AI 會自己走完檔案合併 + npm 套件 + MCP 設定 + Ollama 模型 + Vecto
 - **接續使用者**：從版控 pull 專案的 `.claude/memory/` 即可直接接上團隊記憶
 - 兩個重要縮寫：**「執P」**（分階段執行+驗證+上 GIT+給下階段 prompt）、**「上GIT」**（把當次異動一次推上 GIT / SVN）— 直接問 AI 會解釋，也會照規則執行
 
+### 3. 啟動檔維護規則（IDENTITY / USER）
+
+- **`IDENTITY.md`**（AI 行為契約，每 session 必載，由 `CLAUDE.md` @import）：直接維護此檔為單一真相；改完**同步一份到 `templates/IDENTITY.template.md`**（template 進 git，是實例損毀時 SessionStart 自動還原的來源）。
+- **`IDENTITY-{使用者名}.md`**：選配的個人擴充槽（gitignore、per-user）。想加**僅屬個人**的行為擴充寫這裡，並在 `CLAUDE.md` 加一行 `@IDENTITY-{使用者名}.md` 啟用；不要把它當 IDENTITY.md 的複本維護。
+- **`USER.md` / `USER-{使用者名}.md`**：操作者個人資料。編輯 `USER-{使用者名}.md`（每 session 啟動自動拷成 `USER.md`），多人同機各自一份。
+
 ---
 
 ## 技術細節

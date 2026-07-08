@@ -4,7 +4,7 @@
 > 最近更新：2026-05-28（feedback-* atoms 遷入 + cognitive-patterns 升 atom）
 
 > **本目錄含兩類**：
-> - **atom（受原子記憶體系管轄）**：`cognitive-patterns.md` + `feedback-*.md`（7 檔）+ `memory-pipeline-silent-failure-2026-05.md` — 印象在 [MEMORY.md](../../memory/MEMORY.md)，認知本體在此
+> - **atom（受原子記憶體系管轄）**：`cognitive-patterns.md` + `feedback-*.md`（9 檔）+ `memory-pipeline-silent-failure-2026-05.md` — 印象在 [MEMORY.md](../../memory/MEMORY.md)，認知本體在此
 > - **參考文件（非 atom）**：其餘 7 檔失敗模式（env-traps / wrong-assumptions / silent-failures / misdiagnosis-* / codex-* / vectordb-*）
 
 ---
@@ -20,7 +20,6 @@
 | 4a | feedback-workflow-discipline.md | **atom** [臨] | handoff 自足 / drift 修補門檻 / 裁決推薦 / commit 中文 | handoff, 續接, 下 session, next-phase, 順手修補, drift 修補, 重複失敗, fix-escalation, 裁決, 決策推薦, plan 路徑, commit message, 上 GIT |
 | 4b | feedback-completion-gates.md | **atom** [臨] | pytest 必跑 / smoke / 收尾 4 項檢核 / 衍生暫存清單 / plans 屬衍生 | 完成宣告, 收尾, pytest, smoke test, 研究先行, 清理, 先清後建, 基線, 衍生暫存, 暫存檔, 清暫存, 收尾檢核, plans 目錄, plan 檔 |
 | 4c | feedback-tooling-reliability.md | **atom** [臨] | codex brief / bg subprocess / MCP 全域 / silent failure | codex, codex companion, codex CLI, gpt-5, bg subprocess, DEVNULL, ready flag, MCP, silent failure, probe burst, 規則唯一來源 |
-| 4d | feedback-memory-structure.md | **atom** [臨] | atom 指標型 / scope 敏感 / gitignore vs git | 寫入記憶, atom 設計, atom 顆粒, 指標型, scope 敏感, GUID硬編碼, 環境相依, gitignore, git rm, memory path, _staging |
 | 4e | feedback-rigor-standards.md | **atom** [臨] | high thinking 紀律 / 規範先讀 / 技術我決 | 縝密, 漏掉, 沒看到, max thinking, high thinking, 外包思考, 規範, rigor, 前例, precedent, 既有 drift |
 | 4e2 | feedback-atom-write-initial-confidence.md | **atom** [臨] | atom_write 初次寫入必 [臨]、不能直接 [固]；晉升 ≥4→[觀] ≥10→[固] | atom_write, 初次寫, 信心度, confidence, knowledge 行, 隨手寫 [固] |
 | 4e3 | feedback-memory-system-doc-sync.md | **atom** [臨] | 記憶系統修改後必逐項同步相關文件（標準檢視清單） | 記憶系統修正, 改 hook, 改 wg_, server.js, 文件同步, doc sync |

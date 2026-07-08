@@ -3,9 +3,9 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: 原子記憶系統, 記憶系統修正, 記憶系統修改, 記憶系統開發, 改 hook, 改 wg_, 改 server.js, memory system, 文件同步, doc sync
+- Trigger: 原子記憶系統, 記憶系統修正, 記憶系統修改, 記憶系統開發, 改 hook, 改 wg_, 改 server.js, memory system, 文件同步, doc sync, 寫入記憶, atom 設計, atom 顆粒, 指標型, GUID硬編碼, 環境相依, gitignore, memory path
 - Created-at: 2026-06-01
-- Related: workflow-rules, feedback-workflow-discipline, atom-table-support, memory-index-caption-regen, atom-usefulness-loop, atom-元資料編輯與晉升閘真相, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透, 對談結束自動記憶與錯誤加權深記, skill-計數單一來源-skill-index, atom-move-v5-sot-correct-化與半遷移工具辨識, anti-evasion-hud-設計脊柱與強化前必讀
+- Related: workflow-rules, feedback-workflow-discipline, feedback-rigor-standards, atom-table-support, memory-index-caption-regen, atom-usefulness-loop, atom-元資料編輯與晉升閘真相, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透, 對談結束自動記憶與錯誤加權深記, skill-計數單一來源-skill-index, atom-move-v5-sot-correct-化與半遷移工具辨識, anti-evasion-hud-設計脊柱與強化前必讀, feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, feedback-tooling-reliability, decisions-architecture
 
 ## 知識
 
@@ -26,9 +26,11 @@
 - [臨] 覆轍實例（Realm S1–S3，2026-06）：realm 範疇分區 landed 後，`TECH.md` 連 §2.1 Failures 多根都一直漏更、「~17 atoms」過時，直到 S3 收尾 user 追問「是否都同步」才 doc-audit 補齊。**最易漏＝`TECH.md` / `Project_File_Tree` 這類「全貌型」檔**（不像 `_CHANGELOG` 有 Stop 提醒）。教訓：記憶系統變更收尾、逐項過清單前先點名這兩支。
 - [臨]「自動」現況：靠本 atom + Stop hook「Sync: _AIDocs→_CHANGELOG」提醒 + `wg_docdrift`（src Edit→偻測對應 _AIDocs 需更新）；但 docdrift 未涵蓋 TECH/SPEC/Project_File_Tree 全清單 → 仍靠人/AI 紀律、會漏。要真程式化強制 → 擴 `wg_docdrift` 對照表納本清單（待拍板）。
 - [臨] **覆轍（2026-06-04）：phase 收尾 doc-sync 只照「當階段 plan 列的清單」做 → 漏更 TECH.md / Install-forAI.md**。實例：realm V6 Phase G 只更 SPEC/Architecture/DocIndex（plan 列的），漏 TECH.md（skill 20→22、atom 17→32、`_atoms` domain 階層、verify 14→26）與 Install-forAI.md（skill 數、MCP 3→4 tool），經 user 點出才補。**鐵則：doc-sync 一律以本 atom 完整表為準、非 plan 子集**；TECH.md（架構/流程/計數）與 Install-forAI.md（對外安裝/skill·tool 計數/檔案清單）最易漏——凡動 skill 數 / atom 數 / MCP tool 數 / 檔案結構，必檢這兩檔。
+- [臨] **atom 寫入結構原則**：① 專案層記憶寫 `{project}/.claude/memory/`，禁寫 `~/.claude/projects/{slug}/memory/`（原子記憶專案自治層覆寫）；② atom 用「指標型顆粒」——印象段只放指標、行動段具體可執行、禁知識描述堆砌；③ 硬編碼環境相依值（fileID／GUID／port／絕對路徑）不進 atom——記「查什麼」不記「值是什麼」；④ 刪檔分流：gitignored 檔走 fs unlink、tracked 檔走 `git rm`（勿對 gitignored 檔 git rm）。
 
 ## 行動
 
 - 記憶系統修正完成 → 逐項過上表清單，需更新者更新（cross-ref SoT、不複製本體）；沒改動者不動
 - atom .md 走 atom_write/write_raw funnel；README/TECH/_AIDocs 一般 doc 直接 Edit；`_AIDocs/_CHANGELOG.md` 每次必更
 - 文件更新完一併上 GIT（與碼同 commit 或紧鄰 commit）
+- 寫 atom：指標型顆粒、環境相依硬編碼值不進 atom；專案層記憶寫 {project}/.claude/memory/；刪檔按 gitignored/tracked 分流

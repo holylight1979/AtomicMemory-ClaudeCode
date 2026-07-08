@@ -116,24 +116,6 @@
       "scope": "global"
     },
     {
-      "name": "feedback-memory-structure",
-      "path": "_AIDocs/Failures/feedback-memory-structure.md",
-      "triggers": [
-        "寫入記憶",
-        "atom 設計",
-        "atom 顆粒",
-        "指標型",
-        "scope 敏感",
-        "GUID硬編碼",
-        "環境相依",
-        "gitignore",
-        "git rm",
-        "memory path",
-        "_staging"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "feedback-rigor-standards",
       "path": "_AIDocs/Failures/feedback-rigor-standards.md",
       "triggers": [
@@ -272,7 +254,12 @@
         "編造規則",
         "籠統話術",
         "訂規保留",
-        "設計慣例"
+        "設計慣例",
+        "截斷",
+        "採樣",
+        "完整內容",
+        "品質判定",
+        "excerpt"
       ],
       "scope": "global"
     },
@@ -341,7 +328,15 @@
         "改 server.js",
         "memory system",
         "文件同步",
-        "doc sync"
+        "doc sync",
+        "寫入記憶",
+        "atom 設計",
+        "atom 顆粒",
+        "指標型",
+        "GUID硬編碼",
+        "環境相依",
+        "gitignore",
+        "memory path"
       ],
       "scope": "global"
     },
@@ -856,7 +851,11 @@
         "anchoring",
         "context poisoning",
         "錯誤發展",
-        "錯誤認知"
+        "錯誤認知",
+        "記憶汙染",
+        "知識汙染",
+        "上下文腐化",
+        "selective forgetting"
       ],
       "scope": "global"
     },
@@ -911,19 +910,6 @@
       "scope": "global"
     },
     {
-      "name": "記憶汙染與上下文腐化-注入萃取自檢",
-      "path": "memory/記憶汙染與上下文腐化-注入萃取自檢.md",
-      "triggers": [
-        "記憶汙染",
-        "知識汙染",
-        "上下文腐化",
-        "context rot",
-        "poisoning",
-        "selective forgetting"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
       "path": "memory/escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造.md",
       "triggers": [
@@ -955,7 +941,12 @@
         "WriteResult",
         "腳本寫 atom",
         "funnel 寫入",
-        "一次性整理腳本"
+        "一次性整理腳本",
+        "代理訊號",
+        "fail-soft",
+        "未檢回傳值",
+        "批次寫入驗收",
+        "post-mortem"
       ],
       "scope": "global"
     },
@@ -1003,48 +994,6 @@
         "vision-doc",
         "平台發想",
         "記憶系統當核心缺什麼"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "品質完整性判定須讀完整內容-勿從截斷採樣斷言",
-      "path": "memory/品質完整性判定須讀完整內容-勿從截斷採樣斷言.md",
-      "triggers": [
-        "斷言品質",
-        "沒垃圾",
-        "沒讀完整",
-        "excerpt",
-        "截斷",
-        "採樣",
-        "完整內容",
-        "品質判定",
-        "完整性",
-        "重複偵測",
-        "去蕪",
-        "從根源驗證",
-        "post-mortem",
-        "盲點"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用",
-      "path": "_AIDocs/_atoms/MemDev/post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用.md",
-      "triggers": [
-        "write_raw",
-        "atom_io",
-        "VALID_SOURCES",
-        "WriteResult",
-        "ok=False",
-        "靜默失敗",
-        "未檢回傳值",
-        "funnel",
-        "fail-soft",
-        "invalid source",
-        "代理訊號",
-        "post-mortem",
-        "批次寫入驗收",
-        "sync-atom-index"
       ],
       "scope": "global"
     },
@@ -1256,6 +1205,21 @@
         "IDENTITY 擴充",
         "行為移植",
         "model behavior"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立",
+      "path": "_AIDocs/_atoms/MemDev/啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立.md",
+      "triggers": [
+        "user-init",
+        "IDENTITY.md 被覆寫",
+        "啟動鏈",
+        "SessionStart 覆寫",
+        "雙檔 pipeline",
+        "檔案自動覆蓋",
+        "stub 覆寫",
+        "契約檔損毀"
       ],
       "scope": "global"
     }

@@ -105,7 +105,7 @@
 
 ## 6. 關聯
 
-- atom：[[記憶汙染與上下文腐化-注入萃取自檢]]（跨專案行為守則，本文的可注入精簡版）
+- atom：[[跨session資訊失真機制與對策]]（跨專案注入 atom；含 M1–M10 失真機制表＋注入/萃取自檢，本文的可注入精簡版）
 - atom：[[cognitive-patterns]]（認知偏差，姊妹篇，管代理指標誤用/自我合理化）
 - atom：[[decisions]]（ReadHits 降權的 anti-pollution DNA）/ [[decisions-architecture]]（管線架構）
 - doc：[Architecture.md](Architecture.md) / [DocIndex-System.md](DocIndex-System.md)（hook 管線全貌）

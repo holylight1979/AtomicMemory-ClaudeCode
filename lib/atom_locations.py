@@ -65,63 +65,61 @@ LOCAL_REALM_NEW_BRANCH_DEPTH = 3
 # 詞庫自學檔（py-only supplement；js 維持 base-only 以保 classify_realm parity / test_17）。
 LEARNED_LEXICON_PATH = GLOBAL_MEMORY_DIR / "_meta" / "realm-lexicon-learned.json"
 
-# ─── Local-realm 分類器常數（新 atom 路由 + drift sweep 共用 SoT）─────────────
+# ─── Local-realm 分類器詞庫（單一來源：memory/_meta/realm-lexicon.json）────────
 #
-# 設計守則（防誤殺核心；計畫「分類器」節 + 必驗 #1）：
+# 詞庫/核心保護清單/權重由 realm-lexicon.json 供給，py（本檔）與 js
+# （tools/workflow-guardian-mcp/lib/realm.js）兩端讀同一份——取代舊「兩份手抄
+# 常數 + MIRROR 註解」模式（同 forbidden-phrases.json 先例）。演算法仍雙實作
+# 鏡像（classifyRealm，parity test_17）；資料不再手抄。
+#
+# 收詞守則（改 JSON 前必讀；防誤殺核心；計畫「分類器」節 + 必驗 #1）：
 #   1. 核心保護清單「硬擋」——名稱命中即強制 core，永不判 local（先於詞庫）。
+#      反覆被 sweep/LLM 誤搬的 core atom 列 exact 集根治（protected 永不喚 LLM、永不搬）。
 #   2. 詞庫只用「實例專屬名」（綁定特定 app/工具/環境的詞）；**絕不用記憶系統通用詞**
 #      （server.js/wg_/hook/atom_/記憶系統…）——核心 atom 本身充滿這些詞，會誤殺。
 #   3. 只掃 name + triggers（高訊號低雜訊）；不掃知識內文（核心 atom 可能以這些實例
 #      當例子提及，掃內文擴大誤判面）。
 #   4. 安全預設 core：詞庫無命中 → core；僅命中實例詞才判 local。
 #   5. 絕不靠 _AIDocs/ 路徑前綴判 local——feedback-* 就在 _AIDocs/Failures/ 卻是 core。
-#
-# MIRROR: server.js:classifyRealm / CORE_PROTECTED_* / LOCAL_REALM_LEXICON — keep in sync。
-LOCAL_REALM_CORE_PROTECTED_PREFIXES = (
+REALM_LEXICON_PATH = GLOBAL_MEMORY_DIR / "_meta" / "realm-lexicon.json"
+
+# fallback 內建最小保護清單（JSON 缺失/損毀時仍硬擋最關鍵核心名；詞庫停用 → 全判 core）
+_FALLBACK_CORE_PROTECTED_PREFIXES = (
     "decisions", "workflow-", "toolchain", "feedback-", "memory-pipeline-", "atom-",
 )
-# goal-driven-verify-loop…：core atom（user 裁決），曾因詞庫污染被 LLM sweep 反覆
-# 誤搬 local → 列保護硬擋根治（protected 永不喚 LLM、永不搬）。
-# 自己flag…：跨專案行為規則（user 裁決歸 core，與 feedback-* 同範疇），Author=holylight
-# /[臨] 故 P2 auto-capture defer 不護它，且詞庫清乾淨後 LLM fallback 仍反覆把它判 local→Else
-# → 同 goal-driven 列硬擋根治。
-LOCAL_REALM_CORE_PROTECTED_EXACT = frozenset({
-    "preferences", "cognitive-patterns", "goal-driven-verify-loopkarpathy-吸收",
-    "自己flag的維護動作直接做完不要反問",
-    # 跨專案行為 atom：談記憶系統術語(注入/萃取/context)易被 LLM 誤判 local，但必須 core
-    # 跨專案注入（痛點在 ~/.claude 外大專案）。曾被 sweep 移走，硬擋防再犯。
-    "記憶汙染與上下文腐化-注入萃取自檢",
-    # 跨專案 meta-cognitive atom（驗證紀律 / escalation 誤判辨識，與 cognitive-patterns 同 family）：
-    # realm sweep LLM fallback 曾把這兩顆從 core 誤降 local（外部專案因此注入不到）→ 硬擋防再降。
-    # MIRROR: server.js:LOCAL_REALM_CORE_PROTECTED_EXACT — keep in sync。
-    "品質完整性判定須讀完整內容-勿從截斷採樣斷言",
-    "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
-})
+_FALLBACK_CORE_PROTECTED_EXACT = frozenset({"preferences", "cognitive-patterns"})
 
-# 實例專屬詞庫（lowercase 子字串比對）：term → domain。命中任一 → local。
-LOCAL_REALM_LEXICON = {
-    # World：腦內世界 / world.html 生態
-    "腦內世界": "World",
-    "world.html": "World",
-    "reconcile-render": "World",
-    "環境演化": "World",
-    "env-layer": "World",
-    # Tools：外部工具與環境踩坑（特定工具/二進位）
-    "gdoc": "Tools",
-    "harvester": "Tools",
-    "electron-uia": "Tools",
-    "electron 自動化": "Tools",
-    "codex": "Tools",
-    "logs_2.sqlite": "Tools",
-    "反編譯": "Tools",
-    # MemDev：Guardian「特定實例」開發踩坑（非通用機制詞）
-    "guardian-dashboard": "MemDev",
-    "孤兒佔埠": "MemDev",
-    "eaddrinuse": "MemDev",
-}
-# name 命中權重 > trigger 命中權重（domain 消歧用；見 classify_realm）
-LOCAL_REALM_NAME_WEIGHT = 10
-LOCAL_REALM_TRIGGER_WEIGHT = 1
+
+def _load_realm_lexicon():
+    """讀 realm-lexicon.json → (prefixes, exact, lexicon, name_w, trig_w)。模組載入時執行一次（快取）。
+
+    fail-open：缺失/損毀/缺鍵 → 內建最小保護清單 + 空詞庫（安全預設 core，分類不阻斷）
+    ＋ stderr 浮訊號（可觀測性鐵律：降級不阻斷但要告知）。
+    """
+    try:
+        data = json.loads(REALM_LEXICON_PATH.read_text(encoding="utf-8"))
+        prefixes = tuple(str(p) for p in data["core_protected_prefixes"])
+        exact = frozenset(str(n) for n in data["core_protected_exact"])
+        lexicon = {str(k): str(v) for k, v in data["lexicon"].items()}
+        name_w, trig_w = int(data["name_weight"]), int(data["trigger_weight"])
+        if not (prefixes and exact and lexicon):
+            raise ValueError("empty section")
+        return prefixes, exact, lexicon, name_w, trig_w
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        print(
+            f"[atom_locations] realm-lexicon.json unavailable ({e!r}); "
+            "fallback to built-in minimal core-protected list; lexicon disabled (all->core)",
+            file=sys.stderr,
+        )
+        return _FALLBACK_CORE_PROTECTED_PREFIXES, _FALLBACK_CORE_PROTECTED_EXACT, {}, 10, 1
+
+
+(LOCAL_REALM_CORE_PROTECTED_PREFIXES,
+ LOCAL_REALM_CORE_PROTECTED_EXACT,
+ LOCAL_REALM_LEXICON,
+ # name 命中權重 > trigger 命中權重（domain 消歧用；見 classify_realm）
+ LOCAL_REALM_NAME_WEIGHT,
+ LOCAL_REALM_TRIGGER_WEIGHT) = _load_realm_lexicon()
 
 # wg_core 既有白名單 base（原 wg_core._WHITELIST_DIR_SEGMENTS 主體搬入）
 # 注意：含 V4 **按需建立** 目錄（_pending_review=敏感待審路由、personal/_archived/_rejected=

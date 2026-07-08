@@ -3,9 +3,9 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: 失真, 失憶, context 壓縮, 長對話, 多 session, lost in the middle, context rot, goal drift, 摘要有損, 為什麼會偏掉, anchoring, context poisoning, 錯誤發展, 錯誤認知
+- Trigger: 失真, 失憶, context 壓縮, 長對話, 多 session, lost in the middle, context rot, goal drift, 摘要有損, 為什麼會偏掉, anchoring, context poisoning, 錯誤發展, 錯誤認知, 記憶汙染, 知識汙染, 上下文腐化, selective forgetting
 - Created-at: 2026-06-18
-- Related: handoff-綜觀品質與抗失真寫法, feedback-workflow-discipline, decisions-architecture
+- Related: handoff-綜觀品質與抗失真寫法, feedback-workflow-discipline, decisions-architecture, cognitive-patterns, decisions, realm-範疇分區機制-v5
 
 ## 知識
 
@@ -26,10 +26,13 @@
 | M10 Omission/Confusion | 漏寫的前提被下游腦補；冗餘工具/資訊也會被誤用降品質 | 顯式列出隱含前提（環境/版本/路徑/已試過的）；只帶相關背景 |
 
 - [臨] **可量測警訊（handoff 高失真風險信號）**：挾帶完整舊 transcript 而非精煉結論、主體是「摘要的摘要」(多代轉述)、通篇陳述句無 verified/assumption 區分、找不到顯式主目標區、新舊指示並列無時序裁決、依賴未寫出的環境/路徑前提。自動化偵測方向：對「原始意圖」的語意距離/KL 逐 turn 上升且無 restoring → drift 失控，可作記憶系統的 drift gate。
-- [臨] **landmark 來源**：Lost-in-the-Middle (arXiv 2307.03172)、LLMs Get Lost in Multi-Turn Conversation (2505.06120)、Context Rot (Chroma)、Anthropic 工程文 effective-context-engineering / effective-harnesses-for-long-running-agents。寫法守則落地見 [[handoff-綜觀品質與抗失真寫法]]。
+- [臨] **學門分層與記憶治理定位**：Context Engineering（塞什麼進視窗，Anthropic「最小高訊號 token 集」）／ Agent Memory Management·Memory Governance（長期記憶庫的形成·檢索·遺忘·汙染·漂移治理，本記憶系統屬此）／人類根理論 Cognitive Load Theory（extraneous load＝無關材料拖垮處理）。對策核心非省 token，而是 selective forgetting + relevance gating + 最小高訊號集——**避免汙染 > 省 token**。全貌見 `_AIDocs/context-memory-governance.md`。
+- [臨] **landmark 來源**：Lost-in-the-Middle (arXiv 2307.03172)、LLMs Get Lost in Multi-Turn Conversation (2505.06120)、Context Rot (Chroma)、Anthropic 工程文 effective-context-engineering / effective-harnesses-for-long-running-agents。Drew Breunig 4 失效模式（poisoning／distraction／confusion／clash）≒ M8／M4／M10／M9 的別名子集。寫法守則落地見 [[handoff-綜觀品質與抗失真寫法]]。
 
 ## 行動
 
 - 寫/讀 handoff 時對照 10 機制逐一套對策（首尾放約束、標 ✓/✗、顯式裁決矛盾、週期重申主目標）
 - 不靠「換更強模型」解多-session 失真——靠文件寫法本身
+- 大型/多 session 任務感覺偏離時自檢四問：① 這條 context 是高訊號還是 distractor？② 有無被前面的錯誤/摘要 poison？③ 有無與現有資訊 clash？④ 範圍是否在縮小（distraction）？
+- 設計/改記憶系統注入·萃取 hook：注入做 relevance gate + 最小高訊號集裁切；萃取寫 atom 前先過「這是實證還是幻覺/臆測」的 poisoning gate；衰減做過期低效用主動隔離（selective forgetting）。既有 anti-pollution DNA：ReadHits 降純曝光、不參與晉升。
 - (記憶系統可選) 把「主目標語意距離逐 turn 上升且無 restoring」做成自動 drift gate

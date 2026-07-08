@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 成功標準, 驗收, verify loop, goal-driven
 - Created-at: 2026-06-12
-- Related: feedback-workflow-discipline, workflow-icld, decisions, handoff-綜觀品質與抗失真寫法, post-mortem-write-raw靜默拒寫invalid-source-未檢回傳值誤報成功-代理訊號非真副作用
+- Related: feedback-workflow-discipline, workflow-icld, decisions, handoff-綜觀品質與抗失真寫法, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值
 
 ## 知識
 

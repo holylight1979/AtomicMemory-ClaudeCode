@@ -78,17 +78,20 @@ git clone <repo-URL> /tmp/atomic-memory
 
 V5 採全資料夾同步策略（不再逐檔列）。使用者個人實例（`USER.md` / `IDENTITY.md` / `IDENTITY-{user}.md` / `USER-{user}.md`）一律保留。
 
+> **啟動檔角色**：`IDENTITY.md` 為直接維護的單一真相（行為契約），`templates/IDENTITY.template.md` 是其 tracked 備份 / 還原源（實例損毀時 SessionStart 自動還原），兩者需保持同步。`IDENTITY-{user}.md` 是選配個人擴充槽（啟用時需在 `CLAUDE.md` 加 `@IDENTITY-{user}.md`），**不是** IDENTITY.md 的複本、安裝與升級都不經手它。`USER-{user}.md` 才是 USER 的編輯點（每 session 自動拷成 `USER.md`）。
+
 ```bash
 SRC=/tmp/atomic-memory
 DST=~/.claude
 
 # 啟動文件（不覆蓋個人實例）
 cp "$SRC/CLAUDE.md" "$DST/CLAUDE.md"
-cp "$SRC/IDENTITY.template.md" "$DST/IDENTITY.template.md"
-cp "$SRC/USER.template.md" "$DST/USER.template.md"
+mkdir -p "$DST/templates"
+cp "$SRC/templates/IDENTITY.template.md" "$DST/templates/IDENTITY.template.md"
+cp "$SRC/templates/USER.template.md" "$DST/templates/USER.template.md"
 cp "$SRC/BOOTSTRAP.md" "$DST/BOOTSTRAP.md"
-[ ! -f "$DST/IDENTITY.md" ] && cp "$SRC/IDENTITY.template.md" "$DST/IDENTITY.md"
-[ ! -f "$DST/USER.md" ] && cp "$SRC/USER.template.md" "$DST/USER.md"
+[ ! -f "$DST/IDENTITY.md" ] && cp "$SRC/templates/IDENTITY.template.md" "$DST/IDENTITY.md"
+[ ! -f "$DST/USER.md" ] && cp "$SRC/templates/USER.template.md" "$DST/USER.md"
 
 # 版本標識
 cp "$SRC/version.json" "$DST/version.json"

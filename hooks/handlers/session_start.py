@@ -648,7 +648,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         pass
 
     # 可觀測性：IDENTITY.md 完整性哨兵——被覆寫成 stub / 缺核心契約段時浮出告警
-    # （完整版備份在 IDENTITY.template.md；檢查本身出錯不阻斷）
+    # （完整版備份在 templates/IDENTITY.template.md；檢查本身出錯不阻斷）
     try:
         _identity = CLAUDE_DIR / "IDENTITY.md"
         _id_ok = False
@@ -656,11 +656,11 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if _identity.exists():
             _id_size = _identity.stat().st_size
             _id_text = _identity.read_text(encoding="utf-8", errors="ignore")
-            _id_ok = "高階自主行為契約" in _id_text or _id_size >= 2000
+            _id_ok = "自主行為契約" in _id_text and _id_size >= 2000
         if not _id_ok:
             lines.append(
                 f"[Guardian:Identity⚠] IDENTITY.md 疑似損毀/被覆寫（現 {_id_size} bytes），"
-                "完整版在 IDENTITY.template.md，請比對回復。"
+                "完整版在 templates/IDENTITY.template.md，請比對回復。"
             )
     except Exception:
         pass

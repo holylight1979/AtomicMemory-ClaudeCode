@@ -26,7 +26,7 @@ http-api ← server
 | `paths.js` | 路徑錨（CLAUDE/WORKFLOW/MEMORY/TOOLS/CONFIG/REGISTRY/VERSION）＋ config/registry/version 載入。零內部相依葉。 | — |
 | `log.js` | crash 記錄與致命錯誤守門（crashLog / onFatal）。全域 `process.on` handler 留 server.js 呼叫本檔。 | — |
 | `state.js` | `workflow/state-*.json` 讀寫＋會期 3-tier auto-cleanup。 | — |
-| `realm.js` | 範疇/路由分類（classifyRealm / cleanRealmSegment / resolveMemDir / applyFeedback·LocalRouting / slugify …）。 | `lib/atom_locations.py`（parity test_14/17/22 讀本檔原始碼 eval） |
+| `realm.js` | 範疇/路由分類（classifyRealm / cleanRealmSegment / resolveMemDir / applyFeedback·LocalRouting / slugify …）。詞庫/保護清單/權重讀 `memory/_meta/realm-lexicon.json`（單一來源，py 同檔；缺失 fallback＋stderr）。 | `lib/atom_locations.py`（parity test_14/14b/17 require 實跑＋schema 守法；test_22 讀本檔原始碼 eval） |
 | `atom-render.js` | atom 內容構造/渲染/驗證（buildAtomContent / renderKnowledgeLines / isBlockKnowledge / validateAtomContent）。 | `lib/atom_spec.py`（byte-identical；test_13 require server.js re-export） |
 | `atom-access.js` | `<atom>.access.json` 遙測讀取＋效用 Wilson 下界（usefulnessStats / wilsonLowerBound / enrichAtomWithAccess）。 | `lib/atom_access.py`（SYNC；verify_promotion_gate 讀本檔） |
 | `funnel.js` | python subprocess 橋接群（conflict-detector / write-gate / atom_io_cli / access）。 | `lib/atom_io*.py` / `lib/atom_access.py`（spawn 面） |

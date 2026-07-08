@@ -922,7 +922,7 @@ def check_memory_path_block(
             "正確做法：(1) 全域記憶 → 用 MCP `atom_write` (scope=global) 寫到 "
             "~/.claude/memory/；(2) 專案記憶 → 用 MCP `atom_write` "
             "(scope=shared/role/personal) 寫到 {project_root}/.claude/memory/。\n"
-            "詳見 memory/feedback/feedback-memory-structure.md。"
+            "詳見 _AIDocs/Failures/feedback-memory-system-doc-sync.md。"
         )
 
     if _DOUBLE_CLAUDE_RE.search(fp_str):

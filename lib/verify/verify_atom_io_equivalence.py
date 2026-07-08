@@ -451,6 +451,52 @@ def test_14_py_js_path_constants_parity():
         assert f'"{dom}"' in js, f"local domain {dom!r} missing in server.js LOCAL_REALM_DOMAINS"
 
 
+# ─── 14b. realm 詞庫 JSON 單一來源（schema 完整 + 兩端讀同檔、無手抄殘留）────────
+
+
+def test_14b_realm_lexicon_json_single_source():
+    """詞庫/核心保護清單/權重的單一來源是 memory/_meta/realm-lexicon.json：
+    ① JSON schema 完整（必要鍵、非空、型別、domain ∈ 已知 Lv1 根）；
+    ② py 端載入結果 == JSON 內容（證明讀的是 JSON、非殘留手抄）；
+    ③ 兩端原始碼無詞庫手抄殘留、js 端確實引用 JSON 檔（守「改回雙抄」的倒退）。"""
+    from lib import atom_locations as AL
+
+    lex_path = LIB_PARENT / "memory" / "_meta" / "realm-lexicon.json"
+    assert lex_path.exists(), "realm-lexicon.json missing（單一來源檔不存在）"
+    data = json.loads(lex_path.read_text(encoding="utf-8"))
+
+    # ① schema 完整性
+    for key in ("core_protected_prefixes", "core_protected_exact", "lexicon",
+                "name_weight", "trigger_weight"):
+        assert key in data, f"realm-lexicon.json missing key: {key}"
+    assert data["core_protected_prefixes"] and isinstance(data["core_protected_prefixes"], list)
+    assert data["core_protected_exact"] and isinstance(data["core_protected_exact"], list)
+    assert data["lexicon"] and isinstance(data["lexicon"], dict)
+    assert isinstance(data["name_weight"], int) and isinstance(data["trigger_weight"], int)
+    assert data["name_weight"] > data["trigger_weight"] > 0, "權重序被破壞（name > trigger > 0）"
+    known_lv1 = AL.LOCAL_REALM_DOMAINS | {AL.LOCAL_REALM_DEFAULT_DOMAIN}
+    for term, dom in data["lexicon"].items():
+        assert dom.split("/")[0] in known_lv1, f"lexicon[{term!r}]={dom!r} Lv1 根不在已知集合"
+
+    # ② py 端載入結果 == JSON 內容
+    assert AL.LOCAL_REALM_CORE_PROTECTED_PREFIXES == tuple(data["core_protected_prefixes"])
+    assert AL.LOCAL_REALM_CORE_PROTECTED_EXACT == frozenset(data["core_protected_exact"])
+    assert AL.LOCAL_REALM_LEXICON == data["lexicon"]
+    assert AL.LOCAL_REALM_NAME_WEIGHT == data["name_weight"]
+    assert AL.LOCAL_REALM_TRIGGER_WEIGHT == data["trigger_weight"]
+
+    # ③ 無手抄殘留（sentinel 詞不得出現在任一端原始碼）+ js 端引用 JSON
+    py_src = (LIB_PARENT / "lib" / "atom_locations.py").read_text(encoding="utf-8")
+    realm_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "realm.js"
+    if realm_js.exists():
+        js_src = realm_js.read_text(encoding="utf-8")
+        assert "realm-lexicon.json" in js_src, "realm.js 未引用 realm-lexicon.json"
+        for sentinel in ("腦內世界", "guardian-dashboard", "reconcile-render"):
+            assert sentinel not in js_src, f"realm.js 出現手抄詞庫殘留: {sentinel}"
+    for sentinel in ("腦內世界", "guardian-dashboard", "reconcile-render"):
+        assert sentinel not in py_src, f"atom_locations.py 出現手抄詞庫殘留: {sentinel}"
+
+
 # ─── 15. realm=local routing → _AIDocs/_atoms/<domain>/ (Scope stays global) ───
 
 
@@ -545,8 +591,9 @@ def test_16_classify_realm_zero_false_positive():
 
 
 def test_17_classify_realm_py_js_parity():
-    """classify_realm (py) 必與 server.js classifyRealm (js) 對同一 fixture 集一致判定。
-    守 lib↔server.js 鏡像漂移（realm/domain/protected/matched 全比）。"""
+    """classify_realm (py) 必與 realm.js classifyRealm (js) 對同一 fixture 集一致判定。
+    兩端各自從 memory/_meta/realm-lexicon.json 載入詞庫（單一來源）後 require 實跑對拍
+    ——同時守「演算法鏡像漂移」與「兩端都正確讀同一 JSON」（realm/domain/protected/matched 全比）。"""
     import shutil
     import subprocess
 
@@ -576,14 +623,10 @@ def test_17_classify_realm_py_js_parity():
     ]
     py = [classify_realm(n, t) for n, t in fixtures]
 
+    # 直接 require 模組實跑（非 eval 原始碼塊）：realm.js 載入時讀 realm-lexicon.json，
+    # 與 py 端同一份 → 對拍即同時驗演算法鏡像與 JSON 讀取正確性。
     js_script = (
-        "const fs=require('fs');"
-        "const src=fs.readFileSync(process.argv[1],'utf-8');"
-        "const start=src.indexOf('const LOCAL_REALM_CORE_PROTECTED_PREFIXES');"
-        "const block=src.slice(start, src.indexOf('function slugify'));"  # 拆檔：realm.js 中 classifyRealm 後接 slugify（原為 const TOOLS_DIR）
-        "const LOCAL_REALM_DOMAINS=new Set(['World','Tools','MemDev']);"
-        "const LOCAL_REALM_DEFAULT_DOMAIN='Else';"  # classifyRealm 出口 guard 引用（block 外常數）
-        "eval(block);"
+        "const {classifyRealm}=require(process.argv[1]);"
         "const fx=JSON.parse(process.argv[2]);"
         "const out=fx.map(([n,t])=>{const r=classifyRealm(n,t);"
         "return {realm:r.realm,domain:r.domain,prot:r.protected,matched:r.matched};});"

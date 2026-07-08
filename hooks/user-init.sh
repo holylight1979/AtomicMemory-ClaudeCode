@@ -7,7 +7,7 @@ USERNAME="$(whoami | sed 's/.*\\/\//; s/.*\\\\//')"
 
 # === USER.md ===
 USER_FILE="$CLAUDE_DIR/USER-${USERNAME}.md"
-USER_TEMPLATE="$CLAUDE_DIR/USER.template.md"
+USER_TEMPLATE="$CLAUDE_DIR/templates/USER.template.md"
 USER_TARGET="$CLAUDE_DIR/USER.md"
 
 if [ ! -f "$USER_FILE" ] && [ -f "$USER_TEMPLATE" ]; then
@@ -18,13 +18,12 @@ if [ -f "$USER_FILE" ]; then
 fi
 
 # === IDENTITY.md ===
-ID_FILE="$CLAUDE_DIR/IDENTITY-${USERNAME}.md"
-ID_TEMPLATE="$CLAUDE_DIR/IDENTITY.template.md"
+# IDENTITY.md 為直接維護的單一真相（行為契約必載檔）；IDENTITY-{user}.md 是選配的
+# 個人擴充槽（啟用時由 CLAUDE.md @import，本腳本不經手）。
+# 這裡只做災難復原：IDENTITY.md 不存在時從 template 還原（與 SessionStart 完整性哨兵互補）。
+ID_TEMPLATE="$CLAUDE_DIR/templates/IDENTITY.template.md"
 ID_TARGET="$CLAUDE_DIR/IDENTITY.md"
 
-if [ ! -f "$ID_FILE" ] && [ -f "$ID_TEMPLATE" ]; then
-  cp "$ID_TEMPLATE" "$ID_FILE"
-fi
-if [ -f "$ID_FILE" ]; then
-  cp "$ID_FILE" "$ID_TARGET"
+if [ ! -f "$ID_TARGET" ] && [ -f "$ID_TEMPLATE" ]; then
+  cp "$ID_TEMPLATE" "$ID_TARGET"
 fi
