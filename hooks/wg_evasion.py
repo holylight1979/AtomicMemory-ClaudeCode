@@ -319,6 +319,23 @@ def aec_severity(a: str, b: str, c: str, d: str) -> str:
     return "routine"
 
 
+def crosscheck_aec_severity(
+    sev: str, b: str, hook_evidence: List[Dict[str, Any]]
+) -> tuple:
+    """AEC (b) 欄 cross-check：hook 實測到退避（evasion_flag / evasion_events）
+    但模型自評 (b)=「無」 → 升 severity 為 real-evasion（不信模型自評）。
+
+    回 (severity, upgraded)。(b) 已誠實填報（非空）→ 內容 severity 本就
+    real-evasion，不重複升級。純函式；證據收集（state 讀取）由 one-writer
+    caller（post_tool_use）負責。
+    注意：Node chip（lib/anti-evasion.js aecSeverity）為純內容判定、無 session
+    state 可查，chip 顯示可能仍為 routine——升級後的 severity 以 Python 落的
+    report 檔 + Stop fallback 為準（one-writer 設計的既知不對稱）。"""
+    if hook_evidence and _aec_blank(b):
+        return "real-evasion", True
+    return sev, False
+
+
 def get_last_assistant_text(transcript_path: Optional[Path]) -> str:
     """Read JSONL transcript, return last assistant text block (or empty)."""
     if not transcript_path:
@@ -603,6 +620,88 @@ def evaluate_session(
 
     append_session_score(entry)
     return entry
+
+
+# ─── 效用歸因遙測：outcome unknown 比率監測 ──────────────────────────────────
+# _detect_turn_outcome 回 None(unknown) 的 turn 不動 (α,β)；若完成語 regex 與
+# 模型輸出習慣失配（如換模型後中文完成語變化），unknown 會系統性偏高 → α/β
+# 晉升軌靜默停滯。此監測讓停滯浮出（可觀測性鐵律）。
+
+OUTCOME_STATS_PATH = WORKFLOW_DIR / "outcome_stats.jsonl"
+
+
+def _unknown_streak(
+    entries: List[Dict[str, Any]], threshold: float, window: int
+) -> bool:
+    """最近 window 筆 session 的 unknown 比率是否全部 > threshold。不足 window 筆 → False。"""
+    if len(entries) < window:
+        return False
+    return all(
+        float(e.get("ratio", 0.0)) > threshold for e in entries[-window:]
+    )
+
+
+def flush_outcome_stats(
+    state: Dict[str, Any], config: Dict[str, Any], session_id: str = ""
+) -> Optional[str]:
+    """SessionEnd 收尾：把本 session 的 outcome_stats（Stop 端逐 turn 累計）落一筆
+    到 workflow/outcome_stats.jsonl，並檢查連續偏高 → 回 advisory 字串（無則 None）。
+
+    turn 數 < min_turns 的 session 不計（樣本太小，unknown 比率無意義）。fail-open。"""
+    try:
+        uconf = (config or {}).get("usefulness", {}) or {}
+        wconf = uconf.get("unknown_watch", {}) or {}
+        if not wconf.get("enabled", True):
+            return None
+        threshold = float(wconf.get("threshold", 0.7))
+        window = int(wconf.get("window", 3))
+        min_turns = int(wconf.get("min_turns", 3))
+
+        stats = state.get("outcome_stats") or {}
+        total = sum(int(stats.get(k, 0)) for k in ("success", "fail", "unknown"))
+        if total < min_turns:
+            return None
+        unknown = int(stats.get("unknown", 0))
+        ratio = unknown / total
+
+        entries: List[Dict[str, Any]] = []
+        if OUTCOME_STATS_PATH.exists():
+            for raw in OUTCOME_STATS_PATH.read_text(encoding="utf-8").splitlines():
+                try:
+                    entries.append(json.loads(raw))
+                except (json.JSONDecodeError, ValueError):
+                    continue
+        entry = {
+            "at": _now_iso(),
+            "session_id": session_id,
+            "unknown": unknown,
+            "total": total,
+            "ratio": round(ratio, 4),
+        }
+        entries.append(entry)
+        entries = entries[-50:]  # 滾動保留最近 50 session
+        tmp = OUTCOME_STATS_PATH.with_suffix(".tmp")
+        tmp.write_text(
+            "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(OUTCOME_STATS_PATH)
+
+        if _unknown_streak(entries, threshold, window):
+            recent = ", ".join(
+                f"{round(float(e.get('ratio', 0)) * 100)}%" for e in entries[-window:]
+            )
+            return (
+                f"[Guardian:OutcomeWatch] 效用歸因 outcome=unknown 比率連續 "
+                f"{window} session 偏高（{recent}，門檻 {round(threshold * 100)}%）。"
+                f"α/β 晉升軌可能靜默停滯——常見根因：完成宣告 regex "
+                f"（forbidden-phrases.json completion_claim）與目前模型的完成語慣用寫法失配。"
+                f"請抽查近期 session 終版訊息比對 claims_completion 是否漏判。"
+            )
+        return None
+    except Exception:
+        return None
+
 
 
 # ─── V5: Iteration metrics + oscillation + rut + review (was wg_iteration) ──

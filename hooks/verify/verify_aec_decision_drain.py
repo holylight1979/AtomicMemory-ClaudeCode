@@ -113,3 +113,67 @@ def test_empty_session_id_noop(ddir):
     lines = []
     ups._drain_aec_decisions("", lines)
     assert lines == []
+
+
+# ─── 刪除決策後驗（exists() 實查，不信宣告）──────────────────────────────────
+
+
+def test_delete_still_exists_reinjects_once(ddir, tmp_path):
+    """已注入的 delete 項，檔案仍在 → 🔁 重注入一次 + 標 reinjected。"""
+    target = tmp_path / "leftover.tmp"
+    target.write_text("x", encoding="utf-8")
+    p = _write(ddir, _SID, 1, 0, "delete", str(target), injected=True)
+    lines = []
+    ups._drain_aec_decisions(_SID, lines)
+    assert len(lines) == 1
+    assert "刪除決策後驗" in lines[0] and "🔁" in lines[0]
+    data = json.loads(p.read_text(encoding="utf-8"))
+    assert data["reinjected"] is True and not data.get("verified")
+
+
+def test_delete_still_exists_second_time_warns_and_closes(ddir, tmp_path):
+    """重注入過仍在 → ⚠ 告警 + verified 結案（不無限 nag）。"""
+    target = tmp_path / "stubborn.tmp"
+    target.write_text("x", encoding="utf-8")
+    p = _write(ddir, _SID, 1, 0, "delete", str(target), injected=True)
+    d = json.loads(p.read_text(encoding="utf-8"))
+    d["reinjected"] = True
+    p.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    lines = []
+    ups._drain_aec_decisions(_SID, lines)
+    assert len(lines) == 1 and "⚠" in lines[0]
+    data = json.loads(p.read_text(encoding="utf-8"))
+    assert data["verified"] is True
+    # 結案後不再產訊息
+    lines2 = []
+    ups._drain_aec_decisions(_SID, lines2)
+    assert lines2 == []
+
+
+def test_delete_gone_verified_silently(ddir, tmp_path):
+    """檔案已消失 → 靜默 verified 結案、無告警。"""
+    p = _write(ddir, _SID, 1, 0, "delete", str(tmp_path / "gone.tmp"), injected=True)
+    lines = []
+    ups._drain_aec_decisions(_SID, lines)
+    assert lines == []
+    assert json.loads(p.read_text(encoding="utf-8"))["verified"] is True
+
+
+def test_delete_prose_item_not_checked(ddir):
+    """(d) 項為 prose（無路徑分隔符）→ 無從定位 → 靜默結案不誤告警。"""
+    p = _write(ddir, _SID, 1, 0, "delete", "三個暫存檔已清", injected=True)
+    lines = []
+    ups._drain_aec_decisions(_SID, lines)
+    assert lines == []
+    assert json.loads(p.read_text(encoding="utf-8"))["verified"] is True
+
+
+def test_keep_action_not_verified(ddir, tmp_path):
+    """keep 決策不做後驗（保留本來就該存在）。"""
+    target = tmp_path / "keep.md"
+    target.write_text("x", encoding="utf-8")
+    p = _write(ddir, _SID, 1, 0, "keep", str(target), injected=True)
+    lines = []
+    ups._drain_aec_decisions(_SID, lines)
+    assert lines == []
+    assert "verified" not in json.loads(p.read_text(encoding="utf-8"))

@@ -578,6 +578,23 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     except Exception as e:
         print(f"[realm] automove notice error: {e}", file=sys.stderr)
 
+    # 效用歸因遙測 advisory：上個 session 判定 unknown 比率連續偏高（讀後清 marker）
+    try:
+        _ow_marker = WORKFLOW_DIR / "outcome-unknown-advisory.json"
+        if _ow_marker.exists():
+            try:
+                _ow = json.loads(_ow_marker.read_text(encoding="utf-8"))
+                if _ow.get("msg"):
+                    lines.append(_ow["msg"])
+            except (OSError, json.JSONDecodeError):
+                pass
+            try:
+                _ow_marker.unlink()
+            except OSError:
+                pass
+    except Exception as e:
+        print(f"Outcome-watch notice error: {e}", file=sys.stderr)
+
     try:
         review_reminder = _check_periodic_review_due(config)
         if review_reminder:

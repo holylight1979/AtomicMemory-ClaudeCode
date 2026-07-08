@@ -20,7 +20,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from wg_core import _now_iso
+from wg_core import _now_iso, append_guard_log
 
 # Windows: 外呼 git 時若不帶此 flag，無主控台的 hook 父行程會被配一個可見 console 視窗
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -214,6 +214,7 @@ def check_source_drift(file_path: str, state: dict, config: dict) -> None:
                 "added_at": _now_iso(),
             }
             print(f"DocDrift: {rel} \u2192 {doc}", file=sys.stderr)
+            append_guard_log("docdrift", {"source": rel, "doc": doc})
 
 
 def resolve_doc_update(file_path: str, state: dict, config: dict) -> None:

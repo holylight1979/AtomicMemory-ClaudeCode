@@ -10,7 +10,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
@@ -18,7 +18,9 @@ from wg_core import (
 )
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
-from wg_evasion import is_test_command, detect_test_failure, aec_severity
+from wg_evasion import (
+    is_test_command, detect_test_failure, aec_severity, crosscheck_aec_severity,
+)
 from wg_atoms import _trigger_incremental_index
 from wg_extraction import is_plan_filename
 from handlers._shared import (
@@ -184,6 +186,35 @@ def _write_aec_report_file(session_id: str, turn_seq: int, report: Dict[str, Any
         tmp.replace(p)
     except OSError as e:
         _atom_debug_error("post_tool_use:aec_report_write", e)
+
+
+def _collect_aec_evidence(
+    state: Dict[str, Any], session_id: str
+) -> List[Dict[str, Any]]:
+    """收集本 session「上次 AEC emit 之後」的 hook 實測退避證據，供 (b) 欄
+    cross-check（模型自評 vs hook 實測，不信自評）。
+
+    來源：state["evasion_events"]（Stop 端 detect_evasion 命中即存，不受
+    evasion_flag 被 UPS 注入後清空影響）+ 現行未清的 evasion_flag。
+    窗口用 >=：同 turn 內 Stop（記事件）永遠在 emit 之後，事件 turn_seq ==
+    上份報告 turn_seq 者必然是 emit 後才發生，屬下一份報告的證據。"""
+    prev = state.get("anti_evasion_report") or {}
+    prev_turn = (
+        int(prev.get("turn_seq", -1))
+        if prev.get("session_id") == session_id else -1
+    )
+    evidence = [
+        e for e in (state.get("evasion_events") or [])
+        if int(e.get("turn_seq", 0)) >= prev_turn
+    ]
+    ev = state.get("evasion_flag")
+    if ev and not any(x.get("at") == ev.get("at") for x in evidence):
+        evidence.append({
+            "phrase": ev.get("phrase", ""),
+            "turn_seq": int(state.get("turn_seq", 0)),
+            "at": ev.get("at", ""),
+        })
+    return evidence
 
 
 def _hud_beat_fresh(port: int, threshold_s: int) -> bool:
@@ -437,6 +468,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         a, b, c, d = (str(tool_input.get(k, "") or "") for k in ("a", "b", "c", "d"))
         turn_seq = int(state.get("turn_seq", 0))
         sev = aec_severity(a, b, c, d)
+        # (b) 欄 cross-check：hook 實測到退避但模型自評「無」→ 升 real-evasion +
+        # 附 hook 證據（升級只發生在 Python one-writer；Node chip 純內容判定，
+        # 顯示可能不同步——report 檔 + Stop fallback 為準）。
+        evidence = _collect_aec_evidence(state, session_id)
+        sev, upgraded = crosscheck_aec_severity(sev, b, evidence)
         report = {
             "session_id": session_id,
             "turn_seq": turn_seq,
@@ -444,6 +480,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "severity": sev,
             "at": _now_iso(),
         }
+        if upgraded:
+            report["severity_upgraded_by"] = "hook:evasion-crosscheck"
+            report["hook_evidence"] = evidence[-5:]
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         _maybe_spawn_hud(sev, state, config)

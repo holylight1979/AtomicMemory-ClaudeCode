@@ -18,10 +18,11 @@ turn_injected 歸因記錄、atom-debug summary、budget 截斷輸出。
 
 import json
 import re
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from wg_core import (
-    _ensure_state, _estimate_tokens, write_state,
+    _ensure_state, _estimate_tokens, _now_iso, write_state,
     output_json, output_nothing,
     _atom_debug_log, WORKFLOW_DIR,
 )
@@ -37,14 +38,43 @@ from handlers.ups_search import collect_matched_atoms
 from handlers.ups_inject import assemble_injection
 
 
+def _write_decision_file(p: Path, data: Dict[str, Any]) -> None:
+    """決策檔回寫（atomic tmp→replace）。fail-open。"""
+    try:
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:
+        pass
+
+
+def _decision_item_path(item: str) -> Optional[Path]:
+    """把 (d) 決策項字串保守解析為可 exists() 檢查的路徑；非路徑樣貌回 None。
+
+    只認含路徑分隔符的單行短字串（prose 敘述 / 裸檔名無從定位 → None＝不後驗）；
+    相對路徑以 ~/.claude 為基準（HUD (d) 項慣為 repo 相對路徑）。"""
+    s = (item or "").strip().strip("`\"'")
+    if not s or len(s) > 400 or "\n" in s:
+        return None
+    if "/" not in s and "\\" not in s:
+        return None
+    p = Path(s).expanduser()
+    if not p.is_absolute():
+        p = Path.home() / ".claude" / s
+    return p
+
+
 def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
-    """HUD (d) 保留/刪除決策 drain（注入端）。
+    """HUD (d) 保留/刪除決策 drain（注入端）+ 刪除決策後驗。
 
     decision 檔由 Node（anti-evasion.js apiAecDecisionPost）落於 workflow/aec-decision/
     <sid>-t<turn>-<idx>.json（Node 寫 / 本處 Python 讀 = 對稱 one-writer）。glob 本 session
     未注入的決策 → 聚合成一段 additionalContext → 標 injected（atomic），供模型下回合 deferred
     執行（刪除 / 略過保留）。fail-open：讀不到 / 壞檔 skip，不阻斷 UPS。
-    """
+
+    後驗（exists() 實查，不信宣告）：上輪已注入的 delete 項，本輪檢查檔案是否真的
+    消失——仍在 → 重注入一次（reinjected 標記）；重注入後仍在 → 浮告警後結案
+    （verified 標記，不無限 nag）；已消失/無從解析路徑 → 靜默結案。"""
     if not session_id:
         return
     ddir = WORKFLOW_DIR / "aec-decision"
@@ -52,18 +82,50 @@ def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
         paths = sorted(ddir.glob(f"{session_id}-t*.json"))
     except Exception:
         return
-    deletes: List[str] = []
-    keeps: List[str] = []
-    consumed: List[tuple] = []
+    loaded: List[tuple] = []
     for p in paths:
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue   # 壞檔 / 過渡檔 → skip
-        if data.get("injected"):
-            continue
         if data.get("session_id") != session_id:
             continue   # 檔名前綴已 scope，再校驗 session_id 欄位
+        loaded.append((p, data))
+
+    # ── Phase 1：刪除決策後驗（只看已 injected 且未 verified 的 delete 項）──
+    reinject: List[str] = []
+    warn: List[str] = []
+    for p, data in loaded:
+        if (
+            not data.get("injected")
+            or data.get("action") != "delete"
+            or data.get("verified")
+        ):
+            continue
+        item = str(data.get("item", ""))
+        target = _decision_item_path(item)
+        if target is None or not target.exists():
+            data["verified"] = True     # 已刪 / 無從檢查 → 結案
+        elif not data.get("reinjected"):
+            data["reinjected"] = True   # 仍在 → 重注入一次
+            reinject.append(item)
+        else:
+            data["verified"] = True     # 重注入過仍在 → 告警後結案
+            warn.append(item)
+        _write_decision_file(p, data)
+    if reinject or warn:
+        blk = ["[Guardian:AEC-Decision] 刪除決策後驗（exists() 實查）："]
+        blk += [f"  🔁 上輪已注入刪除但檔案仍存在，請本回合執行刪除：{it}" for it in reinject]
+        blk += [f"  ⚠ 重注入後仍未刪除，請說明原因或請使用者手動處理：{it}" for it in warn]
+        lines.append("\n".join(blk))
+
+    # ── Phase 2：新決策注入（未 injected 者）──
+    deletes: List[str] = []
+    keeps: List[str] = []
+    consumed: List[tuple] = []
+    for p, data in loaded:
+        if data.get("injected"):
+            continue
         item = str(data.get("item", "")).strip() or f"(idx {data.get('idx')})"
         action = data.get("action")
         if action == "delete":
@@ -82,12 +144,58 @@ def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
     lines.append("\n".join(block))
     for p, data in consumed:   # 標 injected（atomic tmp→replace），防下回合重注入
         data["injected"] = True
-        try:
-            tmp = p.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(p)
-        except Exception:
-            pass
+        _write_decision_file(p, data)
+
+
+# ─── UPS 被 kill 哨兵：偵測上輪注入被 harness timeout 砍掉 ────────────────────
+
+
+def _ups_sentinel_path(session_id: str) -> Path:
+    return WORKFLOW_DIR / "ups-sentinel" / f"{session_id}.json"
+
+
+def _ups_sentinel_check_and_arm(
+    session_id: str, state: Dict[str, Any], lines: List[str]
+) -> None:
+    """UPS 開頭 touch 哨兵檔、正常結尾清除（_ups_sentinel_clear）。本輪見殘留哨兵
+    ＝上輪 UPS 未跑完（harness timeout 砍掉 / hook 例外中斷）→ 該輪記憶注入缺失
+    ——過去完全靜默，本哨兵讓它浮出（可觀測性鐵律）。fail-open。"""
+    if not session_id:
+        return
+    try:
+        p = _ups_sentinel_path(session_id)
+        if p.exists():
+            info: Dict[str, Any] = {}
+            try:
+                info = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+            lines.append(
+                f"[Guardian:UPS-Sentinel] 上輪（turn {info.get('turn_seq', '?')}，"
+                f"{info.get('at', '?')}）UserPromptSubmit 未跑完即中斷"
+                "（疑 harness timeout / hook 例外）——該輪記憶注入可能缺失。"
+            )
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            json.dumps({
+                "turn_seq": int(state.get("turn_seq", 0)) + 1,
+                "at": _now_iso(),
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _ups_sentinel_clear(session_id: str) -> None:
+    if not session_id:
+        return
+    try:
+        p = _ups_sentinel_path(session_id)
+        if p.exists():
+            p.unlink()
+    except Exception:
+        pass
 
 
 def handle_user_prompt_submit(
@@ -103,6 +211,9 @@ def handle_user_prompt_submit(
     clean_prompt = re.sub(r'<ide_\w+>.*?</ide_\w+>', '', prompt, flags=re.DOTALL).strip()
     prompt_lower = clean_prompt.lower()
     lines: List[str] = []
+
+    # 被 kill 哨兵：見上輪殘留 → 告警；隨即 arm 本輪（正常結尾 clear）
+    _ups_sentinel_check_and_arm(session_id, state, lines)
 
     # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / atom-write guard）
     run_pre_gates(
@@ -251,6 +362,9 @@ def handle_user_prompt_submit(
             + ("\n".join(summary_parts) if summary_parts else "NONE")
         )
         _atom_debug_log("注入", injection_body, config)
+
+    # 走到這裡＝本輪 UPS 完整跑完 → 拆哨兵（timeout 砍掉時到不了這行，哨兵殘留）
+    _ups_sentinel_clear(session_id)
 
     if lines:
         lines = _truncate_context_by_activation(lines, budget, atom_source_dirs)

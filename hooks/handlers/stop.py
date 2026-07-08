@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_nothing, output_block,
+    append_guard_log,
 )
 from wg_evasion import (
     claims_completion, detect_evasion,
@@ -122,6 +123,18 @@ def _detect_turn_outcome(state: Dict[str, Any], last_text: str) -> Optional[bool
     return None
 
 
+def _bump_outcome_stats(state: Dict[str, Any], outcome: Optional[bool]) -> None:
+    """per-turn outcome 三值計數（success/fail/unknown）。SessionEnd flush 成
+    unknown 比率遙測——unknown 系統性偏高＝完成語 regex 失配、α/β 晉升軌
+    靜默停滯的早期訊號。與 α/β 歸因同守 once-per-turn（caller 已以
+    usefulness_attributed_seq 守門）。"""
+    stats = state.setdefault(
+        "outcome_stats", {"success": 0, "fail": 0, "unknown": 0}
+    )
+    key = "success" if outcome is True else "fail" if outcome is False else "unknown"
+    stats[key] = int(stats.get(key, 0)) + 1
+
+
 def _attribute_usefulness(
     state: Dict[str, Any], config: Dict[str, Any], session_id: str,
     transcript, last_text: str,
@@ -148,6 +161,7 @@ def _attribute_usefulness(
 
         turn_text = get_current_turn_text(transcript) if transcript else ""
         outcome = _detect_turn_outcome(state, last_text)
+        _bump_outcome_stats(state, outcome)
 
         def _read(path_str: str) -> str:
             try:
@@ -326,6 +340,20 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if ev:
             ev["at"] = _now_iso()
             state["evasion_flag"] = ev
+            # 證據暫存（evasion_flag 會被下輪 UPS 注入後清空；事件列表留存供
+            # AEC (b) 欄 cross-check——hook 實測 vs 模型自評，不信自評）
+            events = state.setdefault("evasion_events", [])
+            events.append({
+                "phrase": ev.get("phrase", ""),
+                "turn_seq": int(state.get("turn_seq", 0)),
+                "at": ev["at"],
+            })
+            state["evasion_events"] = events[-10:]
+            append_guard_log("evasion", {
+                "session_id": session_id,
+                "phrase": ev.get("phrase", ""),
+                "excerpt": (ev.get("context_excerpt", "") or "")[:120],
+            })
             write_state(session_id, state)
 
     # ── Scan-Report Gate ────────────────────────────────────────
@@ -395,6 +423,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             _v = (aec.get(_k) or "").strip()
             if _v and _v != "無":
                 fb.append(f"  {_label}：{_v}")
+        # cross-check 升級：模型自評 (b)=無但 hook 實測退避 → 附 hook 證據（不信自評）
+        if aec.get("severity_upgraded_by"):
+            fb.append("  ⚠ severity 由 hook cross-check 升級——(b) 自評「無」與 hook 實測不符：")
+            for _e in (aec.get("hook_evidence") or [])[:3]:
+                fb.append(
+                    f"    - turn {_e.get('turn_seq', '?')}: 退避語『{_e.get('phrase', '')}』"
+                )
         write_state(session_id, state)
         output_block(_piggyback("\n".join(fb)))
         return

@@ -42,6 +42,9 @@ workflow/realm_automove_pending.json
 workflow/mcp-version-cache.json
 workflow/aec-report/
 workflow/aec-decision/
+workflow/ups-sentinel/
+workflow/outcome_stats.jsonl
+workflow/outcome-unknown-advisory.json
 
 # ─── Per-user / per-machine state (Wave 5 untracked) ─────
 memory/project-registry.json

@@ -788,6 +788,29 @@ def log_promotion_audit(action: str, atom: str, **fields: Any) -> None:
         _atom_debug_error("promotion:audit_append", e)
 
 
+# ─── Guard Trigger Log（可觀測性：各護欄觸發計數 JSONL）─────────────────────
+
+GUARD_LOG_DIR = Path.home() / ".claude" / "Logs"
+
+
+def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
+    """護欄觸發事件落一行 JSONL 到 Logs/guard-<guard>.jsonl（含時間戳+觸發摘要）。
+
+    用途：量測誤攔率——evasion / docdrift / lang 等 fail-open 護欄過去只進
+    stderr（不可稽核），本 log 供事後統計觸發頻率與內容分布。
+    每護欄獨立檔＝多 Stop hook 並行時無同檔競寫。fail-open。"""
+    try:
+        GUARD_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = GUARD_LOG_DIR / f"guard-{guard}.jsonl"
+        rotate_log_if_oversized(log_path, max_mb=5, keep=2)
+        entry = {"at": _now_iso()}
+        entry.update(payload)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        _atom_debug_error(f"guard_log:{guard}", e)
+
+
 # ─── Atom Debug Log ──────────────────────────────────────────────────────────
 
 

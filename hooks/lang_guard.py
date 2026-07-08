@@ -23,6 +23,31 @@ from typing import Any, Dict, Tuple
 
 CLAUDE_DIR = Path.home() / ".claude"
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
+TRIGGER_LOG_PATH = CLAUDE_DIR / "Logs" / "guard-lang.jsonl"
+
+
+def _append_trigger_log(payload: Dict[str, Any]) -> None:
+    """觸發事件落一行 JSONL（誤攔率可量測）。standalone 自含、不 import wg_core
+    ——與本 hook 的 stateless 設計一致；獨立檔避免與並行 Stop hook 競寫。fail-open。"""
+    try:
+        TRIGGER_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if (
+            TRIGGER_LOG_PATH.exists()
+            and TRIGGER_LOG_PATH.stat().st_size > 5 * 1024 * 1024
+        ):
+            rotated = TRIGGER_LOG_PATH.with_suffix(".jsonl.1")
+            if rotated.exists():
+                rotated.unlink()
+            TRIGGER_LOG_PATH.rename(rotated)
+        from datetime import datetime, timezone
+        entry = {
+            "at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        }
+        entry.update(payload)
+        with open(TRIGGER_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 # ─── Config ──────────────────────────────────────────────────────────────────
@@ -145,9 +170,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     threshold = float(config.get("english_ratio_threshold", 0.5))
     min_lang_chars = int(config.get("min_lang_chars", 40))
 
-    need, ratio, _ = should_remind(text, threshold, min_lang_chars)
+    need, ratio, lang_chars = should_remind(text, threshold, min_lang_chars)
     if not need:
         sys.exit(0)
+
+    _append_trigger_log({
+        "session_id": input_data.get("session_id", ""),
+        "ratio": round(ratio, 4),
+        "lang_chars": lang_chars,
+        "excerpt": strip_noncontent(text).strip()[:120],
+    })
 
     pct = round(ratio * 100)
     th_pct = round(threshold * 100)

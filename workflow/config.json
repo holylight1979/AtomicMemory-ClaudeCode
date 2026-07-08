@@ -99,7 +99,14 @@
     "distraction_enabled": true,
     "distraction_weight": 0.5,
     "embedding_tiebreak": true,
-    "embed_timeout_s": 3.0
+    "embed_timeout_s": 3.0,
+    "unknown_watch": {
+      "_doc": "效用歸因遙測：SessionEnd 統計 _detect_turn_outcome 的 unknown 比率（落 workflow/outcome_stats.jsonl），連續 window 個 session > threshold → 下個 SessionStart 浮 advisory。防完成語 regex 與模型輸出習慣失配 → α/β 晉升軌靜默停滯。turn 數 < min_turns 的 session 不計。",
+      "enabled": true,
+      "threshold": 0.7,
+      "window": 3,
+      "min_turns": 3
+    }
   },
   "injection": {
     "_doc": "Task 2 Phase C 注入端 relevance gate（context governance 落地）。related_gate 只裁切 related-edge spreading（非 prompt 命中、純連結擴散＝最易成 distractor），主迴圈 trigger/bm25/vector 命中者完全不碰，故不誤殺 prompt 相關或新 atom。憲法 Context Confusion 對策。",

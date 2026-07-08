@@ -7,11 +7,12 @@ wisdom reflect / staging reminder / conflict detection / atom health fix /
 episodic gen / review marker / vector reindex。
 """
 
+import json
 import sys
 from typing import Any, Dict
 
 from wg_core import (
-    CLAUDE_DIR, EPISODIC_DIR,
+    CLAUDE_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     _ensure_state, _now_iso, write_state,
     _atom_debug_error,
     discover_all_project_memory_dirs, get_project_memory_dir, resolve_staging_dir,
@@ -25,7 +26,7 @@ from wg_episodic import (
 )
 from wg_handoff import build_handoff_stub, should_write_stub
 from wg_evasion import (
-    evaluate_session,
+    evaluate_session, flush_outcome_stats,
     _collect_iteration_metrics, _detect_oscillation, _save_oscillation_state,
     _save_review_marker,
 )
@@ -86,6 +87,21 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         if pid:
             print(f"extract-worker spawned (pid={pid}, intent={intent})", file=sys.stderr)
         state["extract_worker_pid"] = 0
+
+    # 效用歸因遙測：outcome unknown 比率落 workflow/outcome_stats.jsonl；連續偏高
+    # → 寫 advisory marker（SessionStart 讀後注入並清除，同 realm automove 模式）。
+    # 防換模型後完成語 regex 失配 → unknown 全吞 → α/β 晉升軌靜默停滯。
+    try:
+        _ow_advisory = flush_outcome_stats(state, config, session_id)
+        if _ow_advisory:
+            _ow_marker = WORKFLOW_DIR / "outcome-unknown-advisory.json"
+            _ow_marker.write_text(
+                json.dumps({"msg": _ow_advisory, "at": _now_iso()}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            print(_ow_advisory, file=sys.stderr)
+    except Exception as e:
+        _atom_debug_error("session_end:outcome_watch", e)
 
     worker_spawned = _maybe_spawn_user_extract_worker(session_id, state, config)
 
