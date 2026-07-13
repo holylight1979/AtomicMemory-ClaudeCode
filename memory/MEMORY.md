@@ -17,7 +17,7 @@
 | 自己flag的維護動作直接做完不要反問 | 自己flag的維護動作直接做完不要反問 |
 | escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造 | escalation-hook 在 edit-count-proxy 上 false-fire 的辨識（無真實失敗迴圈時不盲從不編造） |
 | 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | 併發 session 共用工作樹-收尾選擇性 staging 勿 git add -A |
-| feedback-* | 行為校正（9 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
+| feedback-* | 行為校正（10 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
 

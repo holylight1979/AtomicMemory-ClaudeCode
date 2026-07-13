@@ -164,7 +164,7 @@
   "codex_companion": {
     "enabled": true,
     "codex_binary": "C:/Users/holylight/AppData/Roaming/npm/codex.cmd",
-    "model": "",
+    "model": "gpt-5.6-sol",
     "assessment_timeout": 60,
     "score_threshold": 7,
     "max_audits_per_session": 30,

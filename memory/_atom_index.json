@@ -1250,6 +1250,26 @@
         "排程器靜默失敗"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字",
+      "path": "_AIDocs/Failures/feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字.md",
+      "triggers": [
+        "註解",
+        "comment",
+        "summary",
+        "敘事",
+        "版本標記",
+        "階段標記",
+        "咬文嚼字",
+        "LLM污染",
+        "現況導向",
+        "白話",
+        "code comment",
+        "可讀性",
+        "寫code"
+      ],
+      "scope": "global"
     }
   ]
 }

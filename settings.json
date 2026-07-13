@@ -1,6 +1,6 @@
 {
   "env": {},
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
   "statusLine": {
     "type": "command",
     "command": "C:/Users/holylight/AppData/Local/Python/bin/python.exe C:/Users/holylight/.claude/tools/statusline.py",
@@ -201,6 +201,5 @@
         ]
       }
     ]
-  },
-  "model": "opus[1m]"
+  }
 }
