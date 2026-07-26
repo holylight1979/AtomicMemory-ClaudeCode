@@ -4,11 +4,13 @@ collect()：
   - A top 有用：有 α/β 證據或 rescue 命中才入列，依 Wilson 下界排序
   - B token 稅：窗內曝光 ≥ EXPOSURE_TAX_MIN 且零證據零 rescue 才入列
   - C 死重候選：窗內零曝光
+  - D 失念：recall-miss.jsonl 窗內聚合（atom × 次數 × 最近 evidence × trigger 聯集）
   - 30 天週趨勢 bucket 數 = ceil(days/7)；rescue 命中入正確 bucket
-  - sidecar 缺失 / rescue log 缺失 → 不炸，計為零
-render_md()：三清單 + 趨勢表 + caveat 皆呈現。
+  - sidecar 缺失 / rescue log 缺失 / recall-miss log 缺失 → 不炸，計為零
+render_md()：四清單 + 趨勢表 + caveat 皆呈現；D 無資料顯示（無）。
 
-受控 tmp 環境：monkeypatch 模組常數 ATOM_INDEX / RESCUE_LOG / CLAUDE_DIR。
+受控 tmp 環境：monkeypatch 模組常數 ATOM_INDEX / RESCUE_LOG / RECALL_MISS_LOG /
+CLAUDE_DIR。
 """
 from __future__ import annotations
 
@@ -28,8 +30,9 @@ _spec.loader.exec_module(mer)
 NOW = time.time()
 
 
-def _setup(tmp_path, monkeypatch, atoms, sidecars=None, rescue_lines=None):
-    """建 tmp 索引/側車/rescue log 並重指模組常數。"""
+def _setup(tmp_path, monkeypatch, atoms, sidecars=None, rescue_lines=None,
+           recall_lines=None):
+    """建 tmp 索引/側車/rescue log/recall-miss log 並重指模組常數。"""
     (tmp_path / "memory").mkdir(exist_ok=True)
     (tmp_path / "Logs").mkdir(exist_ok=True)
     idx = tmp_path / "memory" / "_atom_index.json"
@@ -43,9 +46,15 @@ def _setup(tmp_path, monkeypatch, atoms, sidecars=None, rescue_lines=None):
     if rescue_lines is not None:
         rl.write_text("\n".join(json.dumps(x) for x in rescue_lines) + "\n",
                       encoding="utf-8")
+    rm = tmp_path / "Logs" / "recall-miss.jsonl"
+    if recall_lines is not None:
+        rm.write_text(
+            "\n".join(json.dumps(x, ensure_ascii=False) for x in recall_lines) + "\n",
+            encoding="utf-8")
     monkeypatch.setattr(mer, "CLAUDE_DIR", tmp_path)
     monkeypatch.setattr(mer, "ATOM_INDEX", idx)
     monkeypatch.setattr(mer, "RESCUE_LOG", rl)
+    monkeypatch.setattr(mer, "RECALL_MISS_LOG", rm)
 
 
 def _atom(name):
@@ -117,6 +126,50 @@ def test_missing_sidecar_and_log_no_crash(tmp_path, monkeypatch):
     assert r["atom_count"] == 1
     assert [x["name"] for x in r["dead_candidates"]] == ["bare"]
     assert not r["top_useful"] and not r["exposure_tax"]
+
+
+def _rm_line(atom, days_ago, evidence="pytest 紅 E155036", triggers=("svn", "工作副本")):
+    from datetime import datetime, timedelta
+    at = (datetime.now().astimezone() - timedelta(days=days_ago)).isoformat(
+        timespec="seconds")
+    return {"at": at, "session_id": "sid", "atom": atom,
+            "matched_triggers": list(triggers), "evidence": evidence,
+            "source": "failing_tests"}
+
+
+def test_recall_miss_aggregation_window_and_order(tmp_path, monkeypatch):
+    _setup(
+        tmp_path, monkeypatch, atoms=[_atom("a1")],
+        recall_lines=[
+            _rm_line("often-missed", 5, evidence="舊 evidence"),
+            _rm_line("often-missed", 1, evidence="最新 evidence", triggers=("checkin",)),
+            _rm_line("rare-missed", 2),
+            _rm_line("out-of-window", 90),  # 窗外不計
+        ],
+    )
+    r = mer.collect(days=30)
+    assert [x["atom"] for x in r["recall_miss"]] == ["often-missed", "rare-missed"]
+    top = r["recall_miss"][0]
+    assert top["count"] == 2
+    assert top["last_evidence"] == "最新 evidence"          # 取最近一筆
+    assert set(top["matched_triggers"]) == {"svn", "工作副本", "checkin"}  # 聯集
+
+
+def test_recall_miss_render_and_empty_silent(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch, atoms=[_atom("a1")],
+           recall_lines=[_rm_line("missed-one", 1)])
+    md = mer.render_md(mer.collect(days=30))
+    assert "D. 失念" in md
+    assert "missed-one" in md
+    assert "trigger 是否該補詞" in md
+    # 無資料 → （無），且缺檔不炸（乾淨子目錄，避免沿用上面已寫的 log）
+    clean = tmp_path / "clean"
+    clean.mkdir()
+    _setup(clean, monkeypatch, atoms=[_atom("a1")])
+    r2 = mer.collect(days=30)
+    assert r2["recall_miss"] == []
+    md2 = mer.render_md(r2)
+    assert "D. 失念" in md2 and "（無）" in md2
 
 
 def test_render_md_sections(tmp_path, monkeypatch):

@@ -31,21 +31,21 @@ from .atom_io import (
     write_atom, write_index, write_index_full, write_raw,
     append_atom_file, WriteResult,
 )
-from .atom_access import init_access, write_access_field
+from .atom_access import init_access
 from .atom_spec import build_atom_content, validate_atom_content
 
 
 def create_atom(payload: dict) -> WriteResult:
-    """合併 create funnel：build→write_raw→access(init + set last_used)→write_index，
-    單一 subprocess 取代 create 路徑原本的 5 次 spawn。
+    """合併 create funnel：build→write_raw→access init（first_seen+last_used 單寫）
+    →write_index，單一 subprocess 取代 create 路徑原本的多次 spawn。
 
-    純重構：逐步呼叫的函式與順序與原本分開 spawn 完全一致，落檔 .md /
-    .access.json / index 三件 byte-identical（守 verify_atom_io_equivalence 對拍）。
+    落檔 .md / .access.json / index 三件 byte-identical
+    （守 verify_atom_io_equivalence 對拍）。
 
-    行為對拍原 create 路徑：
+    行為對拍逐一呼叫路徑：
       - build / validate 失敗 → 致命（ok=False）
       - write_raw 失敗 → 致命（ok=False）
-      - access init / set → 不檢查結果（原 spawn 亦未檢查回傳）
+      - access init → 不檢查結果（原 spawn 亦未檢查回傳）
       - write_index 失敗 → 非致命（原 appendToIndex 僅 crashLog）：ok 仍 True，
         index 狀態放 extra.index_ok / extra.index_error 供 caller 記錄。
 
@@ -71,9 +71,8 @@ def create_atom(payload: dict) -> WriteResult:
     if not wr.ok:
         return WriteResult(ok=False, error=f"write_raw: {wr.error}")
 
-    # 3. access.json：init（first_seen）+ set last_used（對拍原 init→set 兩 spawn）
-    init_access(file_path, first_seen=today, source="mcp")
-    write_access_field(file_path, field="last_used", value=today, source="mcp")
+    # 3. access.json：init 一次帶齊 first_seen + last_used（單寫，去冗餘雙寫）
+    init_access(file_path, first_seen=today, last_used=today, source="mcp")
 
     # 4. index upsert（非致命，對拍 appendToIndex 的 crashLog-only）
     ir = write_index(

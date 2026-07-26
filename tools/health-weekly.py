@@ -48,9 +48,12 @@ WORKFLOW = CLAUDE_DIR / "workflow"
 MEMORY = CLAUDE_DIR / "memory"
 REPORT_DIR = WORKFLOW / "health-reports"
 LAST_RUN = WORKFLOW / "health-last-run.json"
+RECALL_MISS_LOG = CLAUDE_DIR / "Logs" / "recall-miss.jsonl"
 
 FRESH_DAYS = 14        # 管線鮮度門檻：有 session 卻 N 天無管線輸出 = 停擺
 KEEP_REPORTS = 12      # 報告保留份數（~3 個月）
+RECALL_MISS_DAYS = 14  # 失念窗：近 N 天
+RECALL_MISS_MIN = 3    # 同一 atom 失念 ≥ N 次 → 黃燈
 VECTOR_PORT = 3849
 PY = sys.executable
 
@@ -105,6 +108,28 @@ def _promotion_last_ts() -> datetime | None:
     except OSError:
         pass
     return None
+
+
+def _recall_miss_counts(days: int) -> dict[str, int]:
+    """Logs/recall-miss.jsonl 近 N 天 atom → 失念次數（缺檔/壞行計為零）。"""
+    counts: dict[str, int] = {}
+    cut = datetime.now().astimezone() - timedelta(days=days)
+    try:
+        for line in RECALL_MISS_LOG.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+                at = datetime.fromisoformat(str(rec.get("at", "")))
+            except (json.JSONDecodeError, ValueError, TypeError):
+                continue
+            if at.tzinfo is None:
+                at = at.astimezone()
+            if at >= cut and rec.get("atom"):
+                counts[str(rec["atom"])] = counts.get(str(rec["atom"]), 0) + 1
+    except OSError:
+        pass
+    return counts
 
 
 def collect() -> dict:
@@ -170,6 +195,20 @@ def collect() -> dict:
         if n_useful == 0:
             yellow.append("30 天內無任何 atom 效用證據——效用閉環（α/β）或 rescue 管線疑似停擺")
         info.append(f"注入效果：top 有用 {n_useful} / token 稅 {n_tax} / 零曝光候選 {n_dead}")
+
+    # 5c. 失念（recall-miss）：近 14 天同一 atom 反覆「該想起而未想起」→ 黃燈
+    rm = _recall_miss_counts(RECALL_MISS_DAYS)
+    flagged = {a: c for a, c in rm.items() if c >= RECALL_MISS_MIN}
+    if flagged:
+        tops = ", ".join(
+            f"{a}×{c}" for a, c in
+            sorted(flagged.items(), key=lambda x: (-x[1], x[0]))[:5]
+        )
+        yellow.append(
+            f"失念 recall-miss {len(flagged)} atom：{tops}"
+            f"（近 {RECALL_MISS_DAYS} 天 ≥{RECALL_MISS_MIN} 次；"
+            f"檢視 trigger 是否該補詞，詳 memory-effect-report.py D 節）"
+        )
 
     # 6. 管線鮮度（死人偵測核心）
     fresh_cut = now - timedelta(days=FRESH_DAYS)

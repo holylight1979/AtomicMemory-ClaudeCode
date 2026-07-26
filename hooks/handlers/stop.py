@@ -13,12 +13,13 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_nothing, output_block,
-    append_guard_log,
+    append_guard_log, WORKFLOW_DIR,
 )
 from wg_evasion import (
     claims_completion, detect_evasion,
@@ -152,6 +153,9 @@ def _detect_uncommitted_files(
     return uncommitted
 
 
+_ACCESSED_FILES_CAP = 500  # accessed_files state 條目上限（超出裁最舊）
+
+
 def _harvest_accessed_files(state: Dict[str, Any], transcript_text: str) -> bool:
     """從共用 transcript 尾段一次回收 Read 過的檔案到 accessed_files；回是否有新增。
 
@@ -167,6 +171,7 @@ def _harvest_accessed_files(state: Dict[str, Any], transcript_text: str) -> bool
     accessed = state.setdefault("accessed_files", [])
     seen = {a.get("path") for a in accessed if isinstance(a, dict)}
     added = False
+    trimmed = False
     for raw in transcript_text.splitlines():
         # 廉價預篩：多數行連 tool_use/Read 字樣都沒有，免逐行 json.loads
         if '"tool_use"' not in raw or '"Read"' not in raw:
@@ -191,21 +196,73 @@ def _harvest_accessed_files(state: Dict[str, Any], transcript_text: str) -> bool
                     seen.add(fp)
                     accessed.append({"path": fp, "at": _now_iso()})
                     added = True
-    return added
+    # 上限 500（重讀量大的長 session 不無限累積 state）：裁最舊；被裁路徑之後
+    # 再被 Read 會重新回收（消費端皆 best-effort 統計，可接受）。
+    if len(accessed) > _ACCESSED_FILES_CAP:
+        state["accessed_files"] = accessed[-_ACCESSED_FILES_CAP:]
+        trimmed = True
+    return added or trimmed
 
 
 # ─── 注入→使用→結果 閉環歸因 ───────────────────────────────────
 
 
+def _budgeted_embed_fn(raw_embed_fn, uconf: Dict[str, Any]):
+    """embedding tiebreak 的全 turn 共用時間預算包裝。
+
+    單次 tiebreak 最壞 2×embed_timeout_s（兩段 embed），多顆 atom 疊加會頂到
+    Stop hook 上限。累計耗時超過 usefulness.embed_budget_s（預設 3s）→ 之後
+    一律回 None（detect_atom_use 退回 lexical 主判）。預算耗盡浮 stderr 一行
+    （fail-open 必告知）。raw_embed_fn 為 None 時原樣回 None。
+    """
+    if raw_embed_fn is None:
+        return None
+    try:
+        budget_s = float(uconf.get("embed_budget_s", 3.0))
+    except (TypeError, ValueError):
+        budget_s = 3.0
+    if budget_s <= 0:
+        return raw_embed_fn
+    spent = [0.0]
+    exhausted_warned = [False]
+
+    def _fn(a: str, b: str):
+        if spent[0] >= budget_s:
+            if not exhausted_warned[0]:
+                exhausted_warned[0] = True
+                print(
+                    f"[usefulness] embed tiebreak turn budget exhausted "
+                    f"({spent[0]:.1f}s ≥ {budget_s}s) — falling back to lexical",
+                    file=sys.stderr,
+                )
+            return None
+        t0 = time.monotonic()
+        try:
+            return raw_embed_fn(a, b)
+        finally:
+            spent[0] += time.monotonic() - t0
+
+    return _fn
+
+
 def _detect_turn_outcome(state: Dict[str, Any], last_text: str) -> Optional[bool]:
     """3 值 success 偵測（複用既有訊號）。回 True(+1)/False(0)/None(unknown=no-op)。
 
-      - 0（fail）：failing_tests 非空 / 本 turn evasion_flag / wisdom_retry_count≥2
-        （error / 糾正 / retry / evasion 任一）。
+      - 0（fail）：**本 turn** failing_tests 非空 / 本 turn evasion_flag /
+        wisdom_retry_count≥2（error / 糾正 / retry / evasion 任一）。
       - +1（success）：宣告完成（claims_completion）且無上述 fail 訊號（硬正向）。
       - None（unknown）：既無完成宣告也無 fail 訊號 → 不動 (α,β)，防雜訊污染。
+
+    failing_tests 只認本 turn（entry turn_seq == state turn_seq）——全量累積會讓
+    早前 turn 的舊失敗污染後續每個 turn 的 outcome。無 turn_seq 的 entry（升級前
+    in-flight session）保守視為本 turn（fail-open，不漏 fail 訊號）。sync gate /
+    TestFailGate 等其他消費者維持全量語意不變。
     """
-    failing = state.get("failing_tests") or []
+    turn_seq = int(state.get("turn_seq", 0))
+    failing = [
+        f for f in (state.get("failing_tests") or [])
+        if int((f or {}).get("turn_seq", turn_seq)) == turn_seq
+    ]
     evasion = bool(state.get("evasion_flag"))
     retry = int(state.get("wisdom_retry_count", 0) or 0)
     if failing or evasion or retry >= 2:
@@ -251,7 +308,7 @@ def _attribute_usefulness(
 
         rare_min = int(uconf.get("rare_token_min", 2))
         overlap_min = float(uconf.get("lexical_overlap_min", 0.18))
-        embed_fn = make_embed_tiebreak_fn(config)
+        embed_fn = _budgeted_embed_fn(make_embed_tiebreak_fn(config), uconf)
 
         turn_text = (
             get_current_turn_text(transcript, text=transcript_text)
@@ -364,6 +421,16 @@ def _should_deep_postmortem(
         or not claims_done
     )
     return effort and real_failure
+
+
+def _dpm_marker(session_id: str) -> Path:
+    """DPM one-shot 的檔案側 marker。
+
+    state 旗標在併發 hook 行程的全量覆寫下可能被舊快照競掉（旗標寫入後被他行程
+    write_state 蓋回），marker 檔不受 state 覆寫影響；gate 以 state 旗標 OR marker
+    判定，保證真 one-shot。
+    """
+    return WORKFLOW_DIR / "dpm-done" / f"{session_id}.flag"
 
 
 _DEEP_POSTMORTEM_INSTRUCTION = (
@@ -572,8 +639,19 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 排在 correctness/sync gate 之後（那些優先）但★不共用 stop_gate_max_blocks——
     # 否則 Sync+TestFail 先吃光預算就餓死 DPM（見 _should_deep_postmortem docstring 實證）。
     claims_done = bool(last_text and claims_completion(last_text))
-    if _should_deep_postmortem(state, config, claims_done):
+    if (_should_deep_postmortem(state, config, claims_done)
+            and not _dpm_marker(session_id).exists()):
         state["deep_postmortem_done"] = True
+        try:
+            marker = _dpm_marker(session_id)
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            cutoff = time.time() - 7 * 86400  # 舊 marker 順手清，防執行期狀態檔累積
+            for old in marker.parent.glob("*.flag"):
+                if old.stat().st_mtime < cutoff:
+                    old.unlink()
+            marker.touch()
+        except OSError:
+            pass
         state["stop_blocked_count"] = stop_count + 1
         reason = _piggyback(_DEEP_POSTMORTEM_INSTRUCTION)
         write_state(session_id, state)

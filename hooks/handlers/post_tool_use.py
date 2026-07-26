@@ -294,13 +294,21 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-    file_path = tool_input.get("file_path", "")
+    # NotebookEdit 的路徑欄位是 notebook_path，映射進同一條 modified_files 軌
+    file_path = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+
+    # dirty-flag 模式：本函式所有 state 變異只標 dirty，函式尾單次 write_state
+    # （原先單事件最多 5 次全量寫）。殘餘競窗：read（_ensure_state）→ 尾端 write
+    # 之間他 hook 行程的寫入會被本次覆蓋——write_state 的 msvcrt lock 只保護單次
+    # 寫入原子性，不涵蓋整段 R-M-W；要全程上鎖需把 lock 提出 write_state 重構
+    # 所有 caller，改動過大，接受此窗（同 turn 內 PostToolUse 序列執行，實際窗極小）。
+    dirty = False
 
     # ─── 救援日誌：工具呼叫命中已注入 atom 的高特異 token → rescue-log ───
     try:
         from wg_rescue import check_rescue_hits
         if check_rescue_hits(state, session_id, tool_name, tool_input):
-            write_state(session_id, state)
+            dirty = True
     except Exception as e:
         print(f"rescue check error: {e}", file=sys.stderr)
 
@@ -311,7 +319,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if tool_name in ("Agent", "Task"):
         try:
             if _record_subagent_injection(state, input_data):
-                write_state(session_id, state)
+                dirty = True
         except Exception as e:
             print(f"sub-agent inject record error: {e}", file=sys.stderr)
 
@@ -320,16 +328,32 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _maybe_sync_skill_index(file_path, config)
 
     if (
-        tool_name in ("Edit", "Write")
+        tool_name in ("Edit", "Write", "NotebookEdit")
         and file_path
         and not _is_ephemeral_path(file_path)
     ):
-        state.setdefault("modified_files", []).append({
-            "path": file_path,
-            "tool": tool_name,
-            "session_id": session_id,
-            "at": _now_iso(),
-        })
+        # modified_files 以 (path, session_id) 去重：重複編輯只累加 count + 刷 at，
+        # 不無限累積 entry。消費端計「編輯次數」者（wisdom track_retry / episodic
+        # 工作區統計）改讀 count 欄（legacy 重複 entry 無 count → 預設 1，語意不變）。
+        mods = state.setdefault("modified_files", [])
+        for m in mods:
+            if (
+                isinstance(m, dict)
+                and m.get("path") == file_path
+                and m.get("session_id", session_id) == session_id
+            ):
+                m["count"] = int(m.get("count", 1)) + 1
+                m["at"] = _now_iso()
+                m["tool"] = tool_name
+                break
+        else:
+            mods.append({
+                "path": file_path,
+                "tool": tool_name,
+                "session_id": session_id,
+                "at": _now_iso(),
+                "count": 1,
+            })
         state["sync_pending"] = True
 
         edit_counts = state.setdefault("edit_counts", {})
@@ -355,15 +379,18 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             print(f"Quality check error: {e}", file=sys.stderr)
 
-        write_state(session_id, state)
+        dirty = True
 
         normalized = file_path.replace("\\", "/")
         if "/memory/" in normalized and normalized.endswith(".md"):
             _trigger_incremental_index(config)
 
         if "/_staging/" in normalized and normalized.endswith(".md"):
-            staging_fname = normalized.rsplit("/", 1)[-1]
-            if staging_fname != "next-phase.md":
+            # 只檢 _staging/ 頂層檔：子資料夾是多檔工作區（彙整/評估文件），
+            # 非 /continue 交接入口，不套 next-phase 命名慣例
+            staging_tail = normalized.split("/_staging/", 1)[-1]
+            staging_fname = staging_tail.rsplit("/", 1)[-1]
+            if "/" not in staging_tail and staging_fname != "next-phase.md":
                 state["_staging_advisory"] = (
                     f"⚠ `_staging/{staging_fname}` 非標準檔名。"
                     f"/continue 優先讀 `next-phase.md`。"
@@ -413,7 +440,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     resolve_doc_update(file_path, state, config)
                 else:
                     check_source_drift(file_path, state, config)
-                write_state(session_id, state)
+                dirty = True
             except Exception as e:
                 print(f"DocDrift error: {e}", file=sys.stderr)
 
@@ -422,13 +449,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if re.search(r"\b(git\s+(log|blame|show|diff)|svn\s+(log|blame|diff))\b", command):
             vcs = state.setdefault("vcs_queries", [])
             vcs.append({"command": command[:200], "at": _now_iso()})
-            write_state(session_id, state)
+            dirty = True
 
         # 本 turn 有跑 git/svn commit → 記 turn_seq，供 ScanReport 閘豁免收尾檢核
         # （工作已寫進 VCS 歷史＝可稽核、與「藏」相反，anti-evasion 目的消解）。
         if _VCS_COMMIT_RE.search(command):
             state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
-            write_state(session_id, state)
+            dirty = True
 
         if is_test_command(command):
             tr = input_data.get("tool_response", {}) or {}
@@ -446,8 +473,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     "cmd": command[:200],
                     "summary": failure,
                     "at": _now_iso(),
+                    # 供 Stop 端 outcome 歸因「只認本 turn 失敗」（sync/test-fail
+                    # gate 等其他消費者仍看全量清單，語意不變）
+                    "turn_seq": int(state.get("turn_seq", 0)),
                 })
-                write_state(session_id, state)
+                dirty = True
             elif state.get("failing_tests"):
                 cmd_prefix = command[:80].strip()
                 cmd_lower = command.lower()
@@ -460,7 +490,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 ]
                 if len(after) != len(before):
                     state["failing_tests"] = after
-                    write_state(session_id, state)
+                    dirty = True
 
     elif tool_name.endswith("anti_evasion_report"):
         # MCP 結構化收尾 emit（one-writer spine）：MCP tool 只回 chip、不碰 state；
@@ -489,12 +519,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         _maybe_spawn_hud(sev, state, config)
-        write_state(session_id, state)
+        dirty = True
 
     if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
         try:
             if prune_committed_entries(state, config) > 0:
-                write_state(session_id, state)
+                dirty = True
         except Exception as e:
             _atom_debug_error("post_tool_use:docdrift_prune", e)
             pass
@@ -511,9 +541,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             if val:
                 advisories.append(f"{prefix} {val}")
                 del state[key]
+                dirty = True
+
+    # 函式尾單次寫（dirty-flag 收斂）
+    if dirty:
+        write_state(session_id, state)
 
     if advisories:
-        write_state(session_id, state)
         output_json({
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUse",

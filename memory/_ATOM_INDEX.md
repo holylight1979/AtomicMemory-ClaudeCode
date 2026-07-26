@@ -76,3 +76,5 @@
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | _AIDocs/_atoms/MemDev/otel-遙測評估結論-不實作-兩目標指標皆測不到.md | OTEL, OpenTelemetry, 遙測, telemetry, hook 延遲量測, token 稅量測, CLAUDE_CODE_ENABLE_TELEMETRY | global |
 | pythonw-下-stdout-為-none-排程腳本秒死陷阱 | _AIDocs/_atoms/OS/pythonw-下-stdout-為-none-排程腳本秒死陷阱.md | pythonw, Task Scheduler, 排程, schtasks, sys.stdout None, reconfigure, 排程器靜默失敗 | global |
 | feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字 | _AIDocs/Failures/feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字.md | 註解, comment, summary, 敘事, 版本標記, 階段標記, 咬文嚼字, LLM污染, 現況導向, 白話, code comment, 可讀性, 寫code | global |
+| 檢索融合與回歸集調參-rrf-min-score-定案 | _AIDocs/_atoms/MemDev/檢索融合與回歸集調參-rrf-min-score-定案.md | RRF, 融合檢索, min_score 調參, memory-eval, 回歸集, 誤注入率, Recall@3, 檢索品質 | global |
+| 佛法三缺口工程化-失念壞滅緣了義 | _AIDocs/_atoms/MemDev/佛法三缺口工程化-失念壞滅緣了義.md | 失念, recall-miss, 壞滅緣, Depends 欄位, Evidence 欄位, 證據等級, fast-refute, 佛法, 唯識 | global |

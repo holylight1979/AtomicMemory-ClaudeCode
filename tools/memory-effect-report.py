@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """memory-effect-report.py — 記憶注入效果報表（唯讀，零模型判斷）。
 
-彙總三資料源，回答「注入的記憶到底有沒有用」：
+彙總四資料源，回答「注入的記憶到底有沒有用」：
   1. <atom>.access.json — 曝光（read_hits/timestamps）+ 效用 α/β（Wilson 下界）
   2. Logs/rescue-log.jsonl — 工具呼叫命中注入 token 的直接使用證據
-  3. memory/_atom_index.json — atom 清單 + trigger（SoT）
+  3. Logs/recall-miss.jsonl — 失念證據（踩坑時庫有可防 atom 但未被注入）
+  4. memory/_atom_index.json — atom 清單 + trigger（SoT）
 
-輸出三清單 + 30 天週趨勢：
+輸出四清單 + 30 天週趨勢：
   A. top 有用（α/β 證據 + rescue 命中）
   B. 高曝光零使用（token 稅，附 trigger 收斂建議）
   C. 零曝光死重候選
+  D. 失念（該想起而未想起，附 trigger 補詞建議）
 接入點：/memory health 與 tools/health-weekly.py 週健檢。
 
 用法：python tools/memory-effect-report.py [--json] [--days 30] [--top 10]
@@ -32,6 +34,7 @@ from lib.atom_access import USEFULNESS_PRIOR, wilson_lower_bound  # noqa: E402
 
 ATOM_INDEX = CLAUDE_DIR / "memory" / "_atom_index.json"
 RESCUE_LOG = CLAUDE_DIR / "Logs" / "rescue-log.jsonl"
+RECALL_MISS_LOG = CLAUDE_DIR / "Logs" / "recall-miss.jsonl"
 
 EXPOSURE_TAX_MIN = 10   # 窗內曝光 ≥ 此值且零使用證據 → token 稅
 TOP_N_DEFAULT = 10
@@ -62,6 +65,51 @@ def _load_rescue_hits(since_ts: float) -> dict[str, list[dict]]:
     except OSError:
         pass
     return hits
+
+
+def _load_recall_misses(since_ts: float) -> list[dict]:
+    """讀 recall-miss.jsonl 窗內記錄（"at" 為 ISO 字串）。缺檔/壞行計為零。"""
+    recs: list[dict] = []
+    if not RECALL_MISS_LOG.exists():
+        return recs
+    try:
+        for line in RECALL_MISS_LOG.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+                ts = datetime.fromisoformat(str(rec.get("at", ""))).timestamp()
+            except (json.JSONDecodeError, ValueError, TypeError):
+                continue
+            if ts >= since_ts:
+                recs.append(rec)
+    except OSError:
+        pass
+    return recs
+
+
+def _aggregate_recall_misses(recs: list[dict]) -> list[dict]:
+    """atom × 次數 × 最近 evidence × 命中 trigger 聯集，依次數降冪。"""
+    agg: dict[str, dict] = {}
+    for rec in recs:
+        atom = str(rec.get("atom", ""))
+        if not atom:
+            continue
+        row = agg.setdefault(atom, {
+            "atom": atom, "count": 0, "matched_triggers": set(),
+            "last_at": "", "last_evidence": "", "last_source": "",
+        })
+        row["count"] += 1
+        row["matched_triggers"].update(rec.get("matched_triggers") or [])
+        at = str(rec.get("at", ""))
+        if at >= row["last_at"]:  # ISO 字串序 == 時間序
+            row["last_at"] = at
+            row["last_evidence"] = str(rec.get("evidence", ""))
+            row["last_source"] = str(rec.get("source", ""))
+    rows = sorted(agg.values(), key=lambda r: (-r["count"], r["atom"]))
+    for r in rows:
+        r["matched_triggers"] = sorted(r["matched_triggers"])
+    return rows
 
 
 def collect(days: int = 30, top_n: int = TOP_N_DEFAULT) -> dict:
@@ -134,6 +182,9 @@ def collect(days: int = 30, top_n: int = TOP_N_DEFAULT) -> dict:
             "rescue_hits": sum(1 for t in all_rescue_ts if lo <= t < hi),
         })
 
+    # D. 失念：踩坑時庫有可防 atom（trigger 命中失敗證據 ≥2 詞）但未被注入
+    recall_miss = _aggregate_recall_misses(_load_recall_misses(since))
+
     for r in rows:
         r.pop("stamps", None)
     return {
@@ -143,6 +194,7 @@ def collect(days: int = 30, top_n: int = TOP_N_DEFAULT) -> dict:
         "top_useful": useful,
         "exposure_tax": tax,
         "dead_candidates": dead,
+        "recall_miss": recall_miss,
         "trend_weekly": trend,
         "caveat": "timestamps 上限 50/atom，超高頻 atom 窗內曝光為下限估計",
     }
@@ -180,6 +232,21 @@ def render_md(result: dict) -> str:
         for r in result["dead_candidates"]:
             L.append(f"- {r['name']}（last_used: {r['last_used'] or '從未'}，"
                      f"累計曝光 {r['read_hits_total']}）")
+    else:
+        L.append("（無）")
+
+    L.append("")
+    L.append("## D. 失念（該想起而未想起；踩坑時庫有可防 atom 但檢索未命中）")
+    if result.get("recall_miss"):
+        L.append("| atom | 次數 | 命中 trigger | 最近 evidence |")
+        L.append("|------|------|-------------|--------------|")
+        for r in result["recall_miss"]:
+            trig = ", ".join(r["matched_triggers"][:5])
+            ev = r["last_evidence"][:60].replace("|", "\\|").replace("\n", " ")
+            L.append(f"| {r['atom']} | {r['count']} | {trig} | {ev} |")
+        L.append("")
+        L.append("> 建議：檢視上列 atom 的 trigger 是否該補詞"
+                 "（失敗證據已能匹配部分 trigger，卻不足以在當下 prompt 觸發注入）")
     else:
         L.append("（無）")
 

@@ -323,9 +323,12 @@ async function toolAtomWrite(id, args) {
 // are valid atom subdirs (mirrors lib/atom_spec.SKIP_DIRS exclusions).
 function findAtomFileRecursive(memDir, atomName) {
   const target = atomName + ".md";
+  // SYNC: lib/atom_spec.py SKIP_DIRS（+ _drafts：taxonomy 牢籠草稿非 atom；
+  // _archived 由下方 startsWith("_archive") 涵蓋）。
   const SKIP = new Set([
-    "_reference", "_archived", "_pending_review", "_staging",
-    "templates", "wisdom", "_drafts", "episodic", "_meta",
+    "_meta", "_reference", "_staging", "_vectordb", "_distant",
+    "episodic", "templates", "personal", "wisdom", "_pending_review",
+    "_drafts",
   ]);
   const queue = [memDir];
   while (queue.length) {
@@ -343,6 +346,51 @@ function findAtomFileRecursive(memDir, atomName) {
     }
   }
   return null;
+}
+
+/** Spawn inline python → lib.atom_index_json.delete_atom（含 _ATOM_INDEX.md mirror
+ *  自動 regenerate）。沿用 spawnEditMetadata 慣例：cwd=CLAUDE_DIR、PYTHONIOENCODING、
+ *  windowsHide、30s timeout。Returns Promise<{ok, removed?, error?}>。 */
+function spawnIndexDelete(memDir, atomName) {
+  const inline = [
+    "import sys, json",
+    "from pathlib import Path",
+    "from lib.atom_index_json import delete_atom",
+    "removed = delete_atom(Path(sys.argv[1]), sys.argv[2])",
+    "print(json.dumps({'ok': True, 'removed': removed}))",
+  ].join("\n");
+  return new Promise((resolve) => {
+    let cp;
+    try {
+      cp = require("child_process").spawn(
+        "python", ["-c", inline, memDir, atomName],
+        { cwd: CLAUDE_DIR, windowsHide: true,
+          env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
+      );
+    } catch (e) {
+      return resolve({ ok: false, error: `spawn failed: ${e.message}` });
+    }
+    let out = "", err = "", timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { cp.kill(); } catch {}
+    }, 30000);
+    cp.stdout.on("data", (d) => { out += d.toString("utf-8"); });
+    cp.stderr.on("data", (d) => { err += d.toString("utf-8"); });
+    cp.on("close", () => {
+      clearTimeout(timer);
+      if (timedOut) return resolve({ ok: false, error: "index delete timeout (30s), killed" });
+      try {
+        resolve(JSON.parse(out.trim()));
+      } catch (e) {
+        resolve({ ok: false, error: `parse fail: ${e.message} stderr=${err.slice(0, 200)}` });
+      }
+    });
+    cp.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: `spawn error: ${e.message}` });
+    });
+  });
 }
 
 async function toolAtomPromote(id, args) {
@@ -407,7 +455,7 @@ async function toolAtomPromote(id, args) {
   const uconf = (loadConfig().usefulness) || {};
   const promoteLb = Number(uconf.promote_lb != null ? uconf.promote_lb : 0.6);
   const minN = Number(uconf.min_n != null ? uconf.min_n : 3);
-  const wilsonZ = Number(uconf.wilson_z != null ? uconf.wilson_z : 1.96);
+  const wilsonZ = Number(uconf.wilson_z != null ? uconf.wilson_z : 1.28);
   const ustat = usefulnessStats(access, wilsonZ);
   const utilEligible = ustat.n >= minN && ustat.lowerBound >= promoteLb;
 
@@ -452,12 +500,21 @@ async function toolAtomPromote(id, args) {
     .replace(/^- Confidence:\s*.+$/m, `- Confidence: ${next}`);
 
   // Also update individual knowledge lines: [臨] → [觀] etc.
-  // NB: .replace() 已把 [ ] 跳脫成 \[ \]，模板前綴只需「- 」一個空白；
-  //     若再多寫 `\\` 前綴會產出 `- \\[X\]`（字元類未閉合 → Unterminated character class）。
-  const finalContent = updated.replace(
-    new RegExp(`- ${meta.confidence.replace(/[[\]]/g, "\\$&")}`, "g"),
-    `- ${next}`
-  );
+  // 只處理 ## 知識 段落內、行首（含縮排）的 `- [X]` 條目——全文全域替換會誤改
+  // ## 行動 區與引文中出現的同字樣。段落邊界 = 下一個 `## ` 標題。
+  // NB: .replace() 已把 [ ] 跳脫成 \[ \]；若再多寫 `\\` 前綴會產出未閉合字元類。
+  const confLineRe = new RegExp(
+    `^(\\s*- )${meta.confidence.replace(/[[\]]/g, "\\$&")}`);
+  const outLines = updated.split("\n");
+  let inKnowledge = false;
+  for (let i = 0; i < outLines.length; i++) {
+    if (/^## /.test(outLines[i])) {
+      inKnowledge = /^## 知識/.test(outLines[i]);
+      continue;
+    }
+    if (inKnowledge) outLines[i] = outLines[i].replace(confLineRe, `$1${next}`);
+  }
+  const finalContent = outLines.join("\n");
 
   // 走 lib.atom_io.write_raw funnel
   const wrPromote = await funnelWriteRaw(filePath, finalContent, "mcp", "atom_promote");
@@ -492,7 +549,8 @@ async function toolAtomPromote(id, args) {
   // 自動提示：只要晉升為 [固]，一律在回覆裡附上「是否合進 preferences.md」提示，
   // 讓 Claude 引導使用者裁決。
   // 自動執行：當 merge_to_preferences=true，立即把 knowledge 追加到 preferences.md、
-  // 歸檔本 atom 到 _archived/，再請 Claude 後續手動移除 _ATOM_INDEX.md 的該行。
+  // 歸檔本 atom（含 .access.json sidecar）到 _archived/，並從 _atom_index.json
+  // 移除條目（mirror 自動 regenerate）。
   const promotedToStable = next === "[固]";
   let mergeReport = "";
   if (promotedToStable && merge_to_preferences) {
@@ -520,12 +578,33 @@ async function toolAtomPromote(id, args) {
         if (!wrPref.ok) throw new Error(`funnel write_raw failed: ${wrPref.error}`);
 
         fs.renameSync(filePath, archivePath);
+        // 同步歸檔 .access.json sidecar（遙測跟著 atom 走，不留孤兒）
+        const accSrc = filePath.replace(/\.md$/, ".access.json");
+        let accMoved = false;
+        if (fs.existsSync(accSrc)) {
+          fs.renameSync(accSrc, archivePath.replace(/\.md$/, ".access.json"));
+          accMoved = true;
+        }
+
+        // 從 _atom_index.json（SoT）移除條目；mirror _ATOM_INDEX.md 由
+        // lib.atom_index_json.delete_atom 自動 regenerate。
+        const idxDel = await spawnIndexDelete(MEMORY_DIR, atom_name);
+        let idxLine;
+        if (idxDel.ok) {
+          idxLine = idxDel.removed
+            ? `  - Removed ${atom_name} from _atom_index.json (+mirror regenerated)`
+            : `  - Index entry ${atom_name} not found in _atom_index.json（無需移除）`;
+        } else {
+          crashLog("merge_to_preferences index delete", idxDel.error);
+          idxLine = `  - ⚠ 索引移除失敗（${idxDel.error}）— 請手動清 _atom_index.json 的 ${atom_name} 條目`;
+        }
 
         mergeReport =
           `\n\n[merge_to_preferences] 已執行：\n` +
           `  - Appended ${knowledgeLines.length} 行到 preferences.md\n` +
-          `  - Archived → ${path.relative(MEMORY_DIR, archivePath)}\n` +
-          `  - ⚠ 請手動移除 _ATOM_INDEX.md 中 ${atom_name} 的索引列。`;
+          `  - Archived → ${path.relative(MEMORY_DIR, archivePath)}` +
+          (accMoved ? "（含 .access.json sidecar）" : "") + `\n` +
+          idxLine;
       } catch (e) {
         mergeReport = `\n\n[merge_to_preferences] 失敗：${e.message}`;
       }
@@ -583,17 +662,26 @@ function spawnEditMetadata(filePath, fields) {
     } catch (e) {
       return resolve({ ok: false, error: `spawn failed: ${e.message}` });
     }
-    let out = "", err = "";
+    let out = "", err = "", timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { cp.kill(); } catch {}
+    }, 30000);
     cp.stdout.on("data", (d) => { out += d.toString("utf-8"); });
     cp.stderr.on("data", (d) => { err += d.toString("utf-8"); });
     cp.on("close", () => {
+      clearTimeout(timer);
+      if (timedOut) return resolve({ ok: false, error: "edit_metadata timeout (30s), killed" });
       try {
         resolve(JSON.parse(out.trim()));
       } catch (e) {
         resolve({ ok: false, error: `cli parse fail: ${e.message} stderr=${err.slice(0, 300)}` });
       }
     });
-    cp.on("error", (e) => resolve({ ok: false, error: `spawn error: ${e.message}` }));
+    cp.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: `spawn error: ${e.message}` });
+    });
   });
 }
 

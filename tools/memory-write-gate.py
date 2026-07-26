@@ -222,8 +222,12 @@ def check_dedup(content: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]
             "text_preview": top.get("text", "")[:80],
             "verdict": "duplicate" if score > 0.95 else "similar",
         }
-    except Exception:
-        return None  # Vector service unavailable — skip dedup
+    except Exception as e:
+        # Vector service unavailable — fail-open skip dedup，但必留訊號（可觀測性鐵律）
+        write_audit_log("dedup_skipped_service_down", content, 0, error=str(e)[:120])
+        print(f"[write-gate] dedup skipped: vector service unavailable ({e})",
+              file=sys.stderr)
+        return None
 
 
 # ─── Audit Log ───────────────────────────────────────────────────────────────
@@ -296,18 +300,8 @@ def evaluate(
             "reason": "explicit user trigger",
         }
 
-    # Pitfall/trap detection → add with [觀]
-    pitfall_keywords = ["陷阱", "坑", "pitfall", "gotcha", "注意", "caution", "bug", "重入"]
-    if any(kw in content.lower() or kw in trigger_context.lower() for kw in pitfall_keywords):
-        quality = 0.7
-        write_audit_log("add", content, quality, classification="[觀]", reason="pitfall_detected")
-        return {
-            "action": "add",
-            "quality_score": quality,
-            "reason": "pitfall/trap detected, auto-add as [觀]",
-        }
-
-    # Dedup check
+    # Dedup check（先於 pitfall 捷徑：pitfall 只豁免品質評分，不豁免去重——
+    # 重複的坑知識 >0.95 仍 skip、相似仍建議 update）
     dedup = check_dedup(content, config)
     if dedup:
         if dedup["verdict"] == "duplicate":
@@ -327,6 +321,17 @@ def evaluate(
                 "reason": f"similar to {dedup['atom_name']} (score={dedup['score']}), suggest update",
                 "dedup_match": dedup,
             }
+
+    # Pitfall/trap detection → add with [觀]（僅豁免品質評分；dedup 已在上方跑過）
+    pitfall_keywords = ["陷阱", "坑", "pitfall", "gotcha", "注意", "caution", "bug", "重入"]
+    if any(kw in content.lower() or kw in trigger_context.lower() for kw in pitfall_keywords):
+        quality = 0.7
+        write_audit_log("add", content, quality, classification="[觀]", reason="pitfall_detected")
+        return {
+            "action": "add",
+            "quality_score": quality,
+            "reason": "pitfall/trap detected, auto-add as [觀]",
+        }
 
     # Quality score
     quality, reasons = compute_quality_score(content, explicit_user, trigger_context)

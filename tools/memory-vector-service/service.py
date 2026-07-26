@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 import traceback
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
@@ -462,10 +462,18 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
 
 
 def run_server(port: int = 3849):
-    """Start the HTTP daemon."""
+    """Start the HTTP daemon.
+
+    ThreadingHTTPServer：每請求獨立執行緒，長請求（/rerank、/search/enhanced 等
+    走 LLM 的路徑）不會 block /health，starter 才不會把忙碌中的健康服務誤判 hang 死。
+    執行緒安全依據：LanceDB 每請求各自 connect/open_table（讀走版本快照）；
+    索引寫入已由 _index_lock 序列化在單一背景執行緒；OllamaClient 每呼叫獨立
+    HTTP request；_request_count 為 best-effort 計數（競態僅影響統計值）。
+    """
     _init_service()
 
-    server = HTTPServer(("127.0.0.1", port), VectorServiceHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), VectorServiceHandler)
+    server.daemon_threads = True
     print(f"[service] Memory Vector Service listening on http://127.0.0.1:{port}", file=sys.stderr)
 
     # Write PID file for management
@@ -479,7 +487,10 @@ def run_server(port: int = 3849):
             pid_file.unlink(missing_ok=True)
         except Exception:
             pass
-        server.shutdown()
+        # server.shutdown() 會阻塞等 serve_forever 迴圈退出；signal handler 跑在
+        # 主執行緒（= serve_forever 所在執行緒），同執行緒同步呼叫會互等死鎖
+        # （POSIX 面；Windows SIGTERM 面亦同理）→ 改由獨立 thread 觸發。
+        threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)

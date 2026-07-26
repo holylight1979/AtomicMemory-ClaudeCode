@@ -50,10 +50,23 @@ def _write_text_preserving_eol(path: Path, content: str) -> None:
     body = content.replace("\r\n", "\n").replace("\r", "\n")
     if eol != "\n":
         body = body.replace("\n", eol)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8", newline="") as f:
-        f.write(body)
-    tmp.replace(path)
+    # tmp 後綴帶 PID+TID 唯一化（仿 atom_access._write_raw）：索引檔為全系統共用，
+    # 固定 ".tmp" 在併發 session upsert 時互踩（truncate 競態 → 半空索引）。
+    import threading as _threading
+    tmp = path.with_suffix(
+        f"{path.suffix}.tmp.{os.getpid()}.{_threading.get_ident()}"
+    )
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as f:
+            f.write(body)
+        tmp.replace(path)
+    except OSError:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _empty_index() -> Dict[str, Any]:

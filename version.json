@@ -1,6 +1,6 @@
 {
-  "guardian": "5.0.0",
-  "atom_memory": "5.0",
-  "ga_date": "2026-05-27",
-  "codename": "對齊原生 + JSON SoT + BM25 + Subprocess"
+  "guardian": "5.1.0",
+  "atom_memory": "5.1",
+  "ga_date": "2026-07-25",
+  "codename": "RRF 融合 + 回歸評估 + 失念/壞滅緣/證據等級"
 }

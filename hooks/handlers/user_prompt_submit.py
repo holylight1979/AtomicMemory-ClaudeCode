@@ -215,6 +215,24 @@ def handle_user_prompt_submit(
     # 被 kill 哨兵：見上輪殘留 → 告警；隨即 arm 本輪（正常結尾 clear）
     _ups_sentinel_check_and_arm(session_id, state, lines)
 
+    # fallback state 重建告警（_ensure_state 標旗，此處消費一次）——
+    # 原 state 遭 TTL 清除 / SessionStart 未跑，已重建最小 atom_index。
+    if state.pop("_fallback_state_rebuilt", None):
+        idx = state.get("atom_index", {})
+        lines.append(
+            f"[Guardian] state 已重建（原 state 遺失/被 TTL 清除）——最小 atom index "
+            f"global={len(idx.get('global', []))} project={len(idx.get('project', []))}，"
+            "trigger 注入已恢復；本 session 早前累積脈絡（modified/accessed）不可復原。"
+        )
+
+    # config.json 解析失敗告警（load_config 標旗；一 session 一次）
+    if config.get("_config_parse_failed") and not state.get("_config_warned"):
+        state["_config_warned"] = True
+        lines.append(
+            "[Guardian:Config⚠] workflow/config.json 解析失敗，本 session 以內建 "
+            "DEFAULTS 運行——請修復 JSON（詳 Logs/atom-debug）。"
+        )
+
     # ─── Detect 段：前置閘（evasion 追蹤 / user decision gate / long_die / atom-write guard）
     run_pre_gates(
         session_id, state, config, clean_prompt, prompt_lower, lines
@@ -232,6 +250,7 @@ def handle_user_prompt_submit(
     (
         matched_with_dir, atom_source, all_atoms,
         sem_atoms, section_hints, alias_injected_projects, intent,
+        caches,
     ) = collect_matched_atoms(
         session_id, state, config, prompt, prompt_lower, lines
     )
@@ -241,6 +260,7 @@ def handle_user_prompt_submit(
         session_id, state, config,
         matched_with_dir, all_atoms, already_injected,
         atom_source, section_hints, lines,
+        caches=caches,
     )
 
     # Fix Escalation Protocol

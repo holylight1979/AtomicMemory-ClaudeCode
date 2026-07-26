@@ -80,11 +80,63 @@ def _port_free(port: int) -> bool:
         sock.close()
 
 
+# pid 身分指紋：cmdline 必須同時含這兩段才視為本服務
+# （單獨 "service.py" 太寬——verify_vector_service.py 等檔名也含該子字串）。
+_SERVICE_CMDLINE_MARKS = ("memory-vector-service", "service.py")
+
+
+def _pid_cmdline(pid: int) -> Optional[str]:
+    """取 pid 的 command line；取不到回 None（呼叫端保守不殺）。
+
+    Windows 免 psutil：PowerShell CIM 為主，wmic 為備（部分 Win11 已移除 wmic）。
+    POSIX：讀 /proc/<pid>/cmdline。
+    """
+    if sys.platform == "win32":
+        candidates = [
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+            ["wmic", "process", "where", f"processid={pid}", "get", "commandline"],
+        ]
+        for cmd in candidates:
+            try:
+                out = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=10,
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                ).stdout.strip()
+                if out:
+                    return out
+            except Exception:
+                continue
+        return None
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip() or None
+    except OSError:
+        return None
+
+
 def _kill_stale_pid(pid_file: Path = PID_FILE) -> Optional[int]:
-    """殺掉 pid file 指向的 hang 死服務。回被殺的 pid，無 pid file / 失敗回 None。"""
+    """殺掉 pid file 指向的 hang 死服務。回被殺的 pid；無 pid file / 失敗 / 身分不符回 None。
+
+    殺前驗證 pid 身分（Windows PID 會重用，殘留 pid file 可能指向無辜程序）：
+    cmdline 須含 memory-vector-service + service.py 才殺；取不到 cmdline →
+    保守不殺 + 落 log；cmdline 屬他程序 → 不殺、清掉過期 pid file。
+    """
     try:
         pid = int(pid_file.read_text(encoding="utf-8").strip())
     except Exception:
+        return None
+    cmdline = _pid_cmdline(pid)
+    if cmdline is None:
+        _slog(f"pid {pid} cmdline unverifiable; refusing to kill (fail-safe)")
+        return None
+    if not all(mark in cmdline for mark in _SERVICE_CMDLINE_MARKS):
+        _slog(f"pid {pid} belongs to another process ({cmdline[:120]!r}); "
+              "not killing; removing stale pid file")
+        try:
+            pid_file.unlink()
+        except OSError:
+            pass
         return None
     try:
         os.kill(pid, signal.SIGTERM)

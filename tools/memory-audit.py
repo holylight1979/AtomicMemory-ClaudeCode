@@ -28,7 +28,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -38,7 +37,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 _CLAUDE_DIR = Path.home() / ".claude"
 if str(_CLAUDE_DIR) not in sys.path:
     sys.path.insert(0, str(_CLAUDE_DIR))
-from lib.atom_io import write_raw  # noqa: E402
+from lib.atom_io import write_raw, write_index_full  # noqa: E402
 
 _AUDIT_SOURCE = "tool:memory-audit"
 
@@ -49,6 +48,7 @@ from lib.atom_spec import (
     REQUIRED_SECTIONS, KNOWLEDGE_SECTIONS, VALID_CONFIDENCE,
     INDEX_MAX_LINES, ATOM_MAX_LINES, TRIGGER_MIN, TRIGGER_MAX,
     MEMORY_INDEX,
+    parse_depends, resolve_depends_path, depends_warnings, evidence_warning,
 )
 from lib.atom_locations import (
     GLOBAL_MEMORY_DIR, FAILURES_DIR,
@@ -56,7 +56,12 @@ from lib.atom_locations import (
 )
 # 晉升判定權威來源（server.js 的 py 鏡像）：confirmations 主軌 + usefulness Wilson 下界軌。
 # ReadHits 已退役（純曝光、不參與晉升）。
-from lib.atom_access import read_access, usefulness_promote_eligible
+from lib.atom_access import read_access, usefulness_promote_eligible, move_atom_pair
+# _atom_index.json 為索引唯一機器源：delete/restore 必同步（含 _ATOM_INDEX.md mirror regen）
+from lib.atom_index_json import (
+    delete_atom as index_delete_atom,
+    upsert_atom as index_upsert_atom,
+)
 
 # ─── Audit-specific constants（atom_spec 不需共享的） ────────────────────────
 
@@ -168,6 +173,8 @@ class HealthReport:
     duplicates: List[DuplicatePair] = field(default_factory=list)
     distant_count: int = 0
     audit_stats: Dict[str, Any] = field(default_factory=dict)
+    # 壞滅緣（validity conditions）：path 型 Depends 指向已消失路徑的 atoms
+    stale_deps: List[Dict[str, str]] = field(default_factory=list)
 
 
 # ─── Parsing ─────────────────────────────────────────────────────────────────
@@ -362,6 +369,16 @@ def parse_memory_index(path: Path) -> Tuple[List[IndexEntry], int]:
                 in_table = True
                 header_seen = True
                 continue
+            # CC 原生 auto-memory 清單格式：`- [標題](檔.md) — 說明`
+            # （projects/<slug>/memory/MEMORY.md 用此格式，非 atom 表格）
+            m = re.match(r"^- \[[^\]]*\]\(([^)]+\.md)\)", stripped)
+            if m:
+                rel = m.group(1)
+                entries.append(IndexEntry(
+                    atom_name=Path(rel).stem, path=rel,
+                    trigger="", confidence="",
+                ))
+                continue
         else:
             if stripped.startswith("|---") or stripped.startswith("| ---"):
                 continue  # separator
@@ -451,7 +468,38 @@ def validate_format(atom: AtomMetadata) -> List[Issue]:
             Issue(rel, "info", "trigger", f"Trigger 數量 {trigger_count}（建議 {TRIGGER_MIN}~{TRIGGER_MAX}）")
         )
 
+    # Depends / Evidence（皆 optional；缺欄靜默，格式錯誤僅 warning 不 fail）
+    if "Depends" in atom.raw_metadata:
+        for w in depends_warnings(atom.raw_metadata["Depends"]):
+            issues.append(Issue(rel, "warning", "format", w))
+    if "Evidence" in atom.raw_metadata:
+        ew = evidence_warning(atom.raw_metadata["Evidence"])
+        if ew:
+            issues.append(Issue(rel, "warning", "format", ew))
+
     return issues
+
+
+def check_stale_deps(atom: AtomMetadata) -> List[Dict[str, str]]:
+    """壞滅緣檢查：path 型 Depends 條目指向不存在的路徑（warning 級）。
+
+    無 Depends 欄一律靜默（optional，向後相容）；自由文字型條目不可驗、跳過。
+    """
+    raw = atom.raw_metadata.get("Depends", "")
+    if not raw or atom.is_claude_native:
+        return []
+    out: List[Dict[str, str]] = []
+    for e in parse_depends(raw):
+        if e["type"] != "path" or not e["value"]:
+            continue
+        resolved = resolve_depends_path(e["value"])
+        if not resolved.exists():
+            out.append({
+                "file": _rel_path(atom.file_path),
+                "dep": e["value"],
+                "resolved": str(resolved),
+            })
+    return out
 
 
 def check_staleness(atom: AtomMetadata, today: date) -> Optional[Suggestion]:
@@ -708,11 +756,31 @@ def restore_from_distant(atom_path: Path) -> Tuple[bool, str]:
         except (ImportError, OSError, ValueError):
             pass
         atom_path.unlink()
+        # _distant 側殘留的 access sidecar 一併清除（計數已在 dest 重置歸零）
+        old_access = atom_path.with_suffix(".access.json")
+        if old_access.exists():
+            try:
+                old_access.unlink()
+            except OSError:
+                pass
         # Clean up empty year_month dir
         parent = atom_path.parent
         if parent.is_dir() and not any(parent.iterdir()):
             parent.rmdir()
-        return True, f"已拉回: {dest}（Confidence 重置為 [臨]）"
+        # _atom_index.json SoT 同步（唯一機器源；含 mirror regen）——
+        # 失敗不回滾檔案，但必浮訊號（可觀測性鐵律）
+        index_note = ""
+        try:
+            from lib.atom_spec import parse_frontmatter
+            fm = parse_frontmatter(text)
+            triggers = [t.strip() for t in re.split(r"[,，]", fm.get("Trigger", ""))
+                        if t.strip()]
+            rel = dest.relative_to(memory_dir.parent).as_posix()
+            index_upsert_atom(memory_dir, dest.stem, rel, triggers,
+                              scope=fm.get("Scope", "global") or "global")
+        except (OSError, ValueError) as e:
+            index_note = f"；_atom_index.json 更新失敗: {e}"
+        return True, f"已拉回: {dest}（Confidence 重置為 [臨]）{index_note}"
     except OSError as e:
         return False, f"寫入失敗: {e}"
 
@@ -922,7 +990,11 @@ def delete_atom(
                             actions.append(f"  WARNING: {md_file.stem} supersedes deleted atom {atom_name}")
                 new_lines.append(line)
             if changed and not dry_run:
-                md_file.write_text("\n".join(new_lines), encoding="utf-8")
+                # 走 funnel：EOL-preserving + audit（裸 write_text 會翻整檔行尾且無稽核）
+                _r = write_raw(md_file, "\n".join(new_lines),
+                               source=_AUDIT_SOURCE, op="audit_related_clean")
+                if not _r.ok:
+                    actions.append(f"  Related cleanup FAILED for {md_file.stem}: {_r.error}")
     if related_cleaned:
         actions.append(f"  Related references cleaned: {related_cleaned} atom(s)")
 
@@ -944,8 +1016,13 @@ def delete_atom(
                     if dry_run:
                         actions.append("  [DRY-RUN] Would remove MEMORY.md index row")
                     else:
-                        index_path.write_text("\n".join(new_idx_lines), encoding="utf-8")
-                        actions.append("  MEMORY.md index row removed")
+                        # 走 funnel（索引整檔覆寫入口）：EOL-preserving + audit
+                        _r = write_index_full(index_path, "\n".join(new_idx_lines),
+                                              source=_AUDIT_SOURCE)
+                        if not _r.ok:
+                            actions.append(f"  MEMORY.md update failed: {_r.error}")
+                        else:
+                            actions.append("  MEMORY.md index row removed")
             except (OSError, UnicodeDecodeError) as e:
                 actions.append(f"  MEMORY.md update failed: {e}")
 
@@ -964,6 +1041,18 @@ def delete_atom(
             actions.append(f"  {msg}")
             if not ok:
                 return False, "\n".join(actions)
+
+    # 5b. _atom_index.json SoT 同步（唯一機器源；含 _ATOM_INDEX.md mirror 自動 regen）
+    if dry_run:
+        actions.append("  [DRY-RUN] Would remove _atom_index.json entry")
+    else:
+        try:
+            if index_delete_atom(mem_dir, atom_name):
+                actions.append("  _atom_index.json entry removed (mirror regenerated)")
+            else:
+                actions.append("  _atom_index.json: no entry found (unchanged)")
+        except (OSError, ValueError) as e:
+            actions.append(f"  _atom_index.json update FAILED: {e}")
 
     # 6. Trigger incremental re-index
     if not dry_run:
@@ -1056,7 +1145,11 @@ def enforce_decay(args: argparse.Namespace) -> None:
                                     r"\1\n- Tags: pending-review",
                                     text, count=1, flags=re.MULTILINE,
                                 )
-                            md_file.write_text(text, encoding="utf-8")
+                            # 走 funnel：EOL-preserving + audit（裸 write_text 會翻整檔行尾）
+                            _r = write_raw(md_file, text, source=_AUDIT_SOURCE,
+                                           op="audit_pending_review")
+                            if not _r.ok:
+                                raise OSError(_r.error)
                             _append_evolution_entry(md_file, f"標記 pending-review ({days}d > {threshold}d)")
                             compact_evolution_logs(md_file)
                             actions.append(f"MARKED: {rel} → pending-review")
@@ -1090,8 +1183,11 @@ def move_to_distant(atom_path: Path) -> Tuple[bool, str]:
         return False, f"遙遠記憶已有同名檔案: {dest}"
 
     try:
-        shutil.move(str(atom_path), str(dest))
-        return True, f"已移入遙遠記憶: {dest}"
+        # .md + .access.json sidecar 原子搬移（lib.atom_access 單一來源；
+        # 只搬 .md 會讓計數 sidecar 變孤兒）
+        moved_sidecar = move_atom_pair(atom_path, dest)
+        note = "（含 access sidecar）" if moved_sidecar else ""
+        return True, f"已移入遙遠記憶: {dest}{note}"
     except OSError as e:
         return False, f"移動失敗: {e}"
 
@@ -1223,6 +1319,8 @@ def generate_markdown_report(report: HealthReport) -> str:
     lines.append(f"- Promotion candidates: {len(report.promotions)} | Demotion candidates: {len(report.demotions)}")
     if report.duplicates:
         lines.append(f"- Duplicate suspects: {len(report.duplicates)}")
+    if report.stale_deps:
+        lines.append(f"- Stale depends（壞滅緣觸發）: {len(report.stale_deps)}")
     lines.append("")
 
     # Issues
@@ -1264,6 +1362,14 @@ def generate_markdown_report(report: HealthReport) -> str:
         for d in report.duplicates:
             triggers = ", ".join(d.shared_triggers[:5])
             lines.append(f"| {d.file_a} | {d.file_b} | {triggers} | {'Yes' if d.title_match else 'No'} |")
+        lines.append("")
+
+    # 壞滅緣（validity conditions）— 有觸發才出現
+    if report.stale_deps:
+        lines.append("## 壞滅緣（Stale Depends）")
+        lines.append("")
+        for d in report.stale_deps:
+            lines.append(f"- 壞滅緣觸發：atom {d['file']} 依賴 {d['dep']} 已不存在")
         lines.append("")
 
     # Audit Trail Summary
@@ -1311,6 +1417,7 @@ def generate_json_report(report: HealthReport) -> str:
             for d in report.duplicates
         ],
         "audit_stats": report.audit_stats,
+        "stale_deps": report.stale_deps,
     }
     return json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -1440,6 +1547,9 @@ def run_audit(args: argparse.Namespace) -> HealthReport:
             promo = suggest_promotions(atom)
             if promo:
                 report.promotions.append(promo)
+
+            # 壞滅緣（path 型 Depends 存在性）
+            report.stale_deps.extend(check_stale_deps(atom))
 
     # Detect cross-layer duplicates
     report.duplicates.extend(detect_duplicates(all_atoms))

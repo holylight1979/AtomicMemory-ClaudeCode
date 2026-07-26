@@ -1,0 +1,223 @@
+{"q": "我想了解一下整體系統的 global scope 裡，有哪些決策流程是透過 hooks 來實現的？", "expect": "decisions-architecture", "cls": "direct", "gen": "llm"}
+{"q": "在設計新的 pipeline 時，關於 SessionStart 的初始化步驟，我們該如何確保 guardian 可以正確地被調用？", "expect": "decisions-architecture", "cls": "direct", "gen": "llm"}
+{"q": "當我們需要優化 hot cache 的讀取時，是否有關於 extract-worker 在處理 vector service 呼叫上的架構建議？", "expect": "decisions-architecture", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下關於 `context budget` 的全域決策機制，特別是昇級的門檻是什麼？", "expect": "decisions", "cls": "direct", "gen": "llm"}
+{"q": "在設計記憶系統時，能否詳細說明一下「原子記憶」如何處理跨元件的決策邏輯？", "expect": "decisions", "cls": "direct", "gen": "llm"}
+{"q": "我們需要一個總覽，關於如何在 `server.js` 裡實作像『晉升』那樣的全域決策流程。", "expect": "decisions", "cls": "direct", "gen": "llm"}
+{"q": "今天天氣如何？隨便聊聊", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "幫我想三個晚餐菜色", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "翻譯這句話成英文：早安，祝你有美好的一天", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "1 加到 100 的總和是多少", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "推薦幾部好看的科幻電影", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "寫一首關於海的短詩", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "台北到高雄的高鐵大概要多久", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "什麼是光合作用？", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "幫我把這段話改得更有禮貌：請盡快回覆", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "貓為什麼喜歡紙箱？", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "解釋一下棒球的內野高飛球規則", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "早餐吃燕麥好還是吐司好", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "幫我規劃三天兩夜的花蓮行程", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "為什麼天空是藍色的", "expect": null, "cls": "negative", "gen": "template"}
+{"q": "我在用 Electron app 做 UI 自動化測試時，遇到 focus swap 和 ghost button 的問題該怎麼處理？", "expect": "electron-uia-automation", "cls": "direct", "gen": "llm"}
+{"q": "每次在 VS Code 中進行自動點擊操作時，如果觸發了 UIA Invoke 或其他 Chromium 相關的 error，要注意哪些陷阱？", "expect": "electron-uia-automation", "cls": "direct", "gen": "llm"}
+{"q": "想了解一些進階技巧，像是用 PostMessage 來穩定地模擬輸入或處理那些奇怪的 GUI 工具流程問題。", "expect": "electron-uia-automation", "cls": "direct", "gen": "llm"}
+{"q": "幫我檢查一下這次的 handoff 的流程是否完整？記得需要涵蓋所有六個區塊。", "expect": "feedback-workflow-discipline", "cls": "direct", "gen": "llm"}
+{"q": "我們在做一次 next-phase 的討論，有沒有相關的最佳實踐可以參考，特別是關於 commit message 的規範？", "expect": "feedback-workflow-discipline", "cls": "direct", "gen": "llm"}
+{"q": "剛才這邊有重複失敗的地方，能否快速回顧一下上次決策推薦的路徑和後續的 fix-escalation 步驟？", "expect": "feedback-workflow-discipline", "cls": "direct", "gen": "llm"}
+{"q": "每次做完一個功能後，我應該怎麼跑一些必要的測試來確認這次的變動沒出問題？", "expect": "feedback-completion-gates", "cls": "direct", "gen": "llm"}
+{"q": "剛完成這部分的開發了，我想執行一下 smoketest 或是 run_verify.py 來做個全面的檢查。", "expect": "feedback-completion-gates", "cls": "direct", "gen": "llm"}
+{"q": "如果發現了一個 known regression 的地方，最好的處理流程是什麼？需要特別注意哪些步驟嗎？", "expect": "feedback-completion-gates", "cls": "direct", "gen": "llm"}
+{"q": "在處理完 MCP 或 skill 安裝後，是否需要注意全域部署到 ~/.claude/ 的問題？", "expect": "feedback-tooling-reliability", "cls": "direct", "gen": "llm"}
+{"q": "我在用 subprocess Popen 執行一些工具，感覺有時會出現 silent failure，有沒有最佳實踐可以確保可靠性？", "expect": "feedback-tooling-reliability", "cls": "direct", "gen": "llm"}
+{"q": "請問關於哪些情況下應該使用一個 ready flag 來檢查某個外部依賴（例如 codex CLI）是否真的啟動成功了？", "expect": "feedback-tooling-reliability", "cls": "direct", "gen": "llm"}
+{"q": "在進行設計回饋時，我該如何確保思考過程的 rigor 呢？有沒有什麼避免開放式問題的好方法？", "expect": "feedback-rigor-standards", "cls": "direct", "gen": "llm"}
+{"q": "剛才討論到這點，我想確認一下是否『漏掉』了哪些關鍵的 precedent 或規範點？希望能夠做到 max thinking。", "expect": "feedback-rigor-standards", "cls": "direct", "gen": "llm"}
+{"q": "我們在 reviewing 的流程中，除了檢查技術正確性，還需要特別關注是否有外包思考（outsource thinking）的傾向嗎？", "expect": "feedback-rigor-standards", "cls": "direct", "gen": "llm"}
+{"q": "如何用程式碼偵測到完整的 Web Page navigation，尤其是在 SPA 的情況下？", "expect": "gdoc-harvester", "cls": "direct", "gen": "llm"}
+{"q": "關於 Google Docs 或 Google Sheets 內容的 web crawling 問題，有沒有推薦的 Harvester 工具或技術棧？", "expect": "gdoc-harvester", "cls": "direct", "gen": "llm"}
+{"q": "當網站使用 pushState API 時，我該如何準確地抓取所有頁面內容，模擬 framenavigated 行為呢？", "expect": "gdoc-harvester", "cls": "direct", "gen": "llm"}
+{"q": "關於我們系統的設計，能否幫我找一下關於『偏好』設定的部分，特別是給開發者看的底層機制？", "expect": "preferences", "cls": "direct", "gen": "llm"}
+{"q": "請問使用者在設置個人化『preferen ces』（偏好）時，有沒有相關的知識點可以讓我更深入理解架構呢？", "expect": "preferences", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一個基本原則：我們的系統應該採用什麼樣的框架結構比較好，最好能讓開發者理解底層運作原理。", "expect": "preferences", "cls": "direct", "gen": "llm"}
+{"q": "請問如何使用 ollama_client.py 實作一個 support dual-backend 的結構？", "expect": "toolchain-ollama", "cls": "direct", "gen": "llm"}
+{"q": "我需要一個能自動從 primary 到 fallback 的語法來處理 embedding API。", "expect": "toolchain-ollama", "cls": "direct", "gen": "llm"}
+{"q": "在 Open WebUI 環境中，我想了解關於 qwen3 和 rdchat 的最佳化設置。", "expect": "toolchain-ollama", "cls": "direct", "gen": "llm"}
+{"q": "我在用 Claude Code 的 bash 環境時，遇到路徑從 C:\\Users 變成 /c/Users，這樣正常嗎？", "expect": "toolchain", "cls": "direct", "gen": "llm"}
+{"q": "請問在設定開發環境時，如果涉及 npm 全域安裝或 MCPControl，是否有相關的最佳實踐可以參考？", "expect": "toolchain", "cls": "direct", "gen": "llm"}
+{"q": "剛截了個 PowerShell 螢幕圖，想確認一下關於這個 toolchain 的知識摘要內容是否準確。", "expect": "toolchain", "cls": "direct", "gen": "llm"}
+{"q": "請問在做功能拆解時，應該用什麼方法來評估需求的可行性？", "expect": "workflow-icld", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下如何從使用者需求出發，依照 ICLD 流程進行增量開發的步驟。", "expect": "workflow-icld", "cls": "direct", "gen": "llm"}
+{"q": "剛收到一個新的 Sprint 的功能需求，AI 可以幫我分析一下它是否適合用閉環的方式來分階段實作嗎？", "expect": "workflow-icld", "cls": "direct", "gen": "llm"}
+{"q": "幫我檢查 工作流程 相關的部分", "expect": "workflow-rules", "cls": "direct", "gen": "template"}
+{"q": "大型任務 這塊是怎麼運作的？", "expect": "workflow-rules", "cls": "direct", "gen": "template"}
+{"q": "我在處理一個跟 工作流程 和 大型任務 有關的問題", "expect": "workflow-rules", "cls": "direct", "gen": "template"}
+{"q": "我在開始修改檔案之前，系統會不會檢查我是否執行了 svn update？", "expect": "workflow-svn", "cls": "direct", "gen": "llm"}
+{"q": "每次要 edit .cs 原始碼前，是不是需要先確認有沒有跑过一次 svn-update 的動作？", "expect": "workflow-svn", "cls": "direct", "gen": "llm"}
+{"q": "第一次在 session 裡寫程式碼，如果沒有做過 svn 更新的話，流程怎麼走？", "expect": "workflow-svn", "cls": "direct", "gen": "llm"}
+{"q": "最近有觀察到 `memory` 的索引處理器似乎會因為表內空行而靜默失敗，該怎麼排查？", "expect": "memory-pipeline-silent-failure-2026-05", "cls": "direct", "gen": "llm"}
+{"q": "關於記憶體的健康檢查 (memory-health)，有沒有什麼需要注意的寫入或同步流程陷阱嗎？", "expect": "memory-pipeline-silent-failure-2026-05", "cls": "direct", "gen": "llm"}
+{"q": "我懷疑是不是在進行 batch 重組時，留下的空行導致 `episodic` 相關的 `atom` 無法被正確檢索到。", "expect": "memory-pipeline-silent-failure-2026-05", "cls": "direct", "gen": "llm"}
+{"q": "幫我檢查 過度工程 相關的部分", "expect": "cognitive-patterns", "cls": "direct", "gen": "template"}
+{"q": "代理指標 這塊是怎麼運作的？", "expect": "cognitive-patterns", "cls": "direct", "gen": "template"}
+{"q": "我在處理一個跟 過度工程 和 代理指標 有關的問題", "expect": "cognitive-patterns", "cls": "direct", "gen": "template"}
+{"q": "關於初次寫入新知識時的 confidence 標籤使用規範，需要了解一下是否有限制？", "expect": "feedback-atom-write-initial-confidence", "cls": "direct", "gen": "llm"}
+{"q": "我們在進行 atom_write 操作時，第一次寫入（first-write）是否應該強制使用臨時（[臨]）的信心度標籤呢？", "expect": "feedback-atom-write-initial-confidence", "cls": "direct", "gen": "llm"}
+{"q": "請問在 feedback 的知識儲存流程中，關於初始 confidence 的設定有什麼特別的規則嗎？", "expect": "feedback-atom-write-initial-confidence", "cls": "direct", "gen": "llm"}
+{"q": "如果我需要設計一個需要同時執行多個子任務的 workflow，該怎麼規劃 best practice 呢？", "expect": "workflow-parallel-agents", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下在做 cross-document comparison 或全貌審視時，如何使用 parallel agents 來加速處理流程。", "expect": "workflow-parallel-agents", "cls": "direct", "gen": "llm"}
+{"q": "當我的工作流涉及分頭或需要多人協作式的調查時，有沒有關於多 agent 運用的最佳實踐指南？", "expect": "workflow-parallel-agents", "cls": "direct", "gen": "llm"}
+{"q": "我在寫一個關於使用 `atom_write` 的新功能，需要將一段 markdown 表格當作獨立的 knowledge element 傳入。", "expect": "atom-table-support", "cls": "direct", "gen": "llm"}
+{"q": "請問如果我把程式碼 block 放在 `knowledge` 陣列裡，`atom_write` 是如何處理它的格式化的？", "expect": "atom-table-support", "cls": "direct", "gen": "llm"}
+{"q": "寫一個知識區塊（knowledge block），我想讓它包含一個表格結構，應該要注意什麼點？", "expect": "atom-table-support", "cls": "direct", "gen": "llm"}
+{"q": "我剛修改了 atomic memory system 的 hooks/wg_ 和 server.js，需要確認哪些其他相關文件也必須同步更新？", "expect": "feedback-memory-system-doc-sync", "cls": "direct", "gen": "llm"}
+{"q": "關於 feedback-memory-system-doc-sync 這個流程，我應該怎麼做才能確保所有關於 atom 粒度的變動都跟著同步更新？", "expect": "feedback-memory-system-doc-sync", "cls": "direct", "gen": "llm"}
+{"q": "請問在開發記憶系統時，如果修改了 memory path 或進行了新的 doc sync 操作，標準的檢查清單是什麼？」]}<tool_call|>一組符合要求的 JSON 字串陣列：```json[", "expect": "feedback-memory-system-doc-sync", "cls": "direct", "gen": "llm"}
+{"q": "請問如何確保 `MEMORY.md` 中的描述欄是從 H1 第一行自動生成的？", "expect": "memory-index-caption-regen", "cls": "direct", "gen": "llm"}
+{"q": "關於 `sync-memory-index` 的機制，請問生成 caption 是在哪個檔案或函式執行的呢？", "expect": "memory-index-caption-regen", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下當使用 `atom_write regen` 時，記憶索引的 description 是如何更新和產生的。", "expect": "memory-index-caption-regen", "cls": "direct", "gen": "llm"}
+{"q": "我們應該如何利用 Beta-Bernoulli 機制來重新校準 atom 的真實效用？", "expect": "atom-usefulness-loop", "cls": "direct", "gen": "llm"}
+{"q": "關於 '注入使用結果' 這個流程，有沒有關於 use 偵測和 Wilson 下界計算的詳細說明？", "expect": "atom-usefulness-loop", "cls": "direct", "gen": "llm"}
+{"q": "指導我查看一下關於 slow decay 和 usefulness loop 的最新設計，尤其是在程式碼層面如何實現。", "expect": "atom-usefulness-loop", "cls": "direct", "gen": "llm"}
+{"q": "關於 CC capability 的查證流程，如果我懷疑 docs agent 產生了幻覺，應該以哪個資源作為 ground-truth？", "expect": "cc-能力查證反編譯實跑-binary", "cls": "direct", "gen": "llm"}
+{"q": "請問如何用 binary 來驗證 WebFetch 功能的實際能力範圍，特別是涉及到行號引用的情況？", "expect": "cc-能力查證反編譯實跑-binary", "cls": "direct", "gen": "llm"}
+{"q": "在做一個包含『反編譯實跑』的測試時，我需要注意哪些地方來避免版本分裂導致的問題？", "expect": "cc-能力查證反編譯實跑-binary", "cls": "direct", "gen": "llm"}
+{"q": "我的 VSCode ChatGPT 擴充版好像有 log 暴增的問題，請問是否和 app-server 的日誌有關？", "expect": "codex-log-bloat-analytics", "cls": "direct", "gen": "llm"}
+{"q": "為什麼執行了 `codex.exe app-server --analytics-default-enabled` 後，background process 的 logs 好像一直在寫入？", "expect": "codex-log-bloat-analytics", "cls": "direct", "gen": "llm"}
+{"q": "幫我檢查 edit_metadata 相關的部分", "expect": "atom-元資料編輯與晉升閘真相", "cls": "direct", "gen": "template"}
+{"q": "atom 元資料編輯 這塊是怎麼運作的？", "expect": "atom-元資料編輯與晉升閘真相", "cls": "direct", "gen": "template"}
+{"q": "我在處理一個跟 edit_metadata 和 atom 元資料編輯 有關的問題", "expect": "atom-元資料編輯與晉升閘真相", "cls": "direct", "gen": "template"}
+{"q": "幫我檢查 guardian 相關的部分", "expect": "guardian-dashboard-孤兒佔埠與新碼重啟", "cls": "direct", "gen": "template"}
+{"q": "server.js 這塊是怎麼運作的？", "expect": "guardian-dashboard-孤兒佔埠與新碼重啟", "cls": "direct", "gen": "template"}
+{"q": "我在處理一個跟 guardian 和 server.js 有關的問題", "expect": "guardian-dashboard-孤兒佔埠與新碼重啟", "cls": "direct", "gen": "template"}
+{"q": "腦內世界 v3 自癒與 Command Bus 架構的知識摘要中，如何處理 L1 反向參考？", "expect": "腦內世界-v3-自癒與-command-bus-架構", "cls": "direct", "gen": "llm"}
+{"q": "如何用 atom-heal.py 進行分級 L1 反向參考的機械補修？", "expect": "腦內世界-v3-自癒與-command-bus-架構", "cls": "direct", "gen": "llm"}
+{"q": "腦內世界 v3 自癒與 Command Bus 架構中，L3 stale 唤醒的實現是什麼？", "expect": "腦內世界-v3-自癒與-command-bus-架構", "cls": "direct", "gen": "llm"}
+{"q": "reconcile", "expect": "reconcile-render-動畫狀態歸屬陷阱", "cls": "direct", "gen": "llm"}
+{"q": "render", "expect": "reconcile-render-動畫狀態歸屬陷阱", "cls": "direct", "gen": "llm"}
+{"q": "我想看看我們關於 world.html 的放置式架構規劃，尤其是環境演化那塊。", "expect": "腦內世界-環境演化-放置式架構", "cls": "direct", "gen": "llm"}
+{"q": "能否幫我找到一下那個負責處理 '活动驱动耦合' 和 'contributeEnv' 邏輯的資料，有點忘記細節了。", "expect": "腦內世界-環境演化-放置式架構", "cls": "direct", "gen": "llm"}
+{"q": "關於『原子興趣』與『affinity』如何影響到整個腦內世界 (world-dev) 的發展流程，需要審閱一下相關的環境演化機制。", "expect": "腦內世界-環境演化-放置式架構", "cls": "direct", "gen": "llm"}
+{"q": "請問 Realm 的範疇分區機制是如何決定核心與 local atom 差異的？", "expect": "realm-範疇分區機制-v5", "cls": "direct", "gen": "llm"}
+{"q": "在看 `_AIDocs/_atoms/` 路徑時，Realm 的 index path 前綴和 Scope 的關係是什麼？", "expect": "realm-範疇分區機制-v5", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下 promote fallback 流程中，是否會影響到我們用到的 wg_core bootstrap 機制？", "expect": "realm-範疇分區機制-v5", "cls": "direct", "gen": "llm"}
+{"q": "WSL2 跑遇到 0x80070569 的登入問題，是不是跟網域 GPO 權限有關？", "expect": "wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除", "cls": "direct", "gen": "llm"}
+{"q": "我的電腦在 OOBE 或 Provisioning 卡住了，需要用 vhdx 和 ext4 救援移除 WSL2。", "expect": "wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除", "cls": "direct", "gen": "llm"}
+{"q": "如何手動修復 WSL 無法以 service 方式登入 (SeServiceLogonRight) 的問題？", "expect": "wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除", "cls": "direct", "gen": "llm"}
+{"q": "在 Win11 環境下，如果想讓子行程以黑窗或無 console 的方式運行 Pythonw 相關的模組，該如何操作？", "expect": "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags", "cls": "direct", "gen": "llm"}
+{"q": "我正在處理一個需要模擬 GUI subsystem 行為的應用程式，是否可以使用 -Embedding 來啟動一個看起來像 Windows Terminal 的控制台視窗呢？", "expect": "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags", "cls": "direct", "gen": "llm"}
+{"q": "當我們從父进程 spawn 出去執行包含 console-subsystem 或 pythonw 的子行程時，有没有關於 STARTUPINFO 結構體中 creationflags 需要注意的細節？", "expect": "windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags", "cls": "direct", "gen": "llm"}
+{"q": "如何確保整個 A執P 的流程能自動連續推進，最好能達到全自動完工的狀態？", "expect": "a執p-自執驗上p-自動完工協議", "cls": "direct", "gen": "llm"}
+{"q": "我們需要一個機制來處理自執驗上P 和 auto-handoff 之間的無縫銜接，重點是自動交接。", "expect": "a執p-自執驗上p-自動完工協議", "cls": "direct", "gen": "llm"}
+{"q": "請問在實施了『執行→驗證』後，還有哪些步驟可以讓系統更具備『自動推進』的能力呢？", "expect": "a執p-自執驗上p-自動完工協議", "cls": "direct", "gen": "llm"}
+{"q": "我想知道如何用 dotnet run 來執行一個單一的 .cs 檔案 demo，有沒有什麼最佳實踐？", "expect": "dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app", "cls": "direct", "gen": "llm"}
+{"q": "關於 C# script 和 file-based app 的用法，能否了解一下用 dotnet run 直接跑 single file 的方式？", "expect": "dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app", "cls": "direct", "gen": "llm"}
+{"q": "當我只有一個 C# 單檔沒建 project 時，是用哪個指令可以進行拋棄式編譯和執行呢？", "expect": "dotnet-run-單檔跑拋棄式-demo-net-10-file-based-app", "cls": "direct", "gen": "llm"}
+{"q": "我該怎麼把一個單純的指令式任務，改造成一套可以自己不斷驗證 (verify loop) 的目標框架？", "expect": "goal-driven-verify-loopkarpathy-吸收", "cls": "direct", "gen": "llm"}
+{"q": "在設計系統時，如果想提升其獨立性，能否參考一下如何設定一個完善的成功標準 (success standard) 來實現持續優化呢？", "expect": "goal-driven-verify-loopkarpathy-吸收", "cls": "direct", "gen": "llm"}
+{"q": "關於 goal-driven 的開發流程，是否有推薦如何將模糊的需求轉化為可執行的、需要邊驗證邊收斂的步驟？", "expect": "goal-driven-verify-loopkarpathy-吸收", "cls": "direct", "gen": "llm"}
+{"q": "關於 confirmations 相關的邏輯判斷，現在是不是不能直接用全域恒 0 來判定了？", "expect": "confirmations-已退役-phase2-usefulness-接管晉升", "cls": "direct", "gen": "llm"}
+{"q": "能否幫我確認一下 Phase 2 階段中，晉升判定是基於 OR 條件的細節，特別是 usefulness Wilson 的邊界值？", "expect": "confirmations-已退役-phase2-usefulness-接管晉升", "cls": "direct", "gen": "llm"}
+{"q": "我在看記憶健檢時看到 confirmation_events 和 usefulness 相關的更新，這和之前關於失效信號的定調有什麼變化嗎？", "expect": "confirmations-已退役-phase2-usefulness-接管晉升", "cls": "direct", "gen": "llm"}
+{"q": "請問專案 level 的 mcp server、skill 和 hooks log 這些資料，都應該放在哪個目錄層級才最合適？", "expect": "專案等級-mcpskillhookslog-不放全域根層", "cls": "direct", "gen": "llm"}
+{"q": "我在建一個新 skill 的過程中，不確定這些檔案是該放在全局的 ~/.claude 下面還是要跟 project 一起版本控制呢？", "expect": "專案等級-mcpskillhookslog-不放全域根層", "cls": "direct", "gen": "llm"}
+{"q": "當我需要記錄專案特定的 play-log 或暫存截圖時，有沒有建議的最佳存放路徑，避免污染根層目錄？", "expect": "專案等級-mcpskillhookslog-不放全域根層", "cls": "direct", "gen": "llm"}
+{"q": "我在遷移 realm 的資料時，遇到了自動化流程生成韓文亂碼 domain 的問題，該如何處理？", "expect": "realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透", "cls": "direct", "gen": "llm"}
+{"q": "LLM 分類器把中文的『自動化流程』誤判成韓文並建立新的 domain 路徑，有什麼寫法可以避免？」, <0xC2><0xA0>// 包含 LLM 分類器, 自動化/domain (隱含)", "expect": "realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透", "cls": "direct", "gen": "llm"}
+{"q": "在 PowerShell 中用 Set-Content 寫檔時，如果使用 utf8 編碼，會不會把原始檔案的 BOM 給弄掉？", "expect": "powershell7-寫檔預設無bom會剝源碼檔bom", "cls": "direct", "gen": "llm"}
+{"q": "我想要批次替換一些腳本檔，但發現用 Out-File -Encoding utf8 後，源碼檔開頭的 BOM 好像不見了。", "expect": "powershell7-寫檔預設無bom會剝源碼檔bom", "cls": "direct", "gen": "llm"}
+{"q": "請問 PowerShell 7 的 Set-Content 對於帶有 BOM 的原始程式檔寫回時，是否會導致編碼結構變動？", "expect": "powershell7-寫檔預設無bom會剝源碼檔bom", "cls": "direct", "gen": "llm"}
+{"q": "為什麼在使用新版 CC harness 的時候，我會遇到 file-based memory 路徑和 atom 索引的 marker 發生撞名辨識的問題？", "expect": "harness原生memory與atom索引marker撞名辨識", "cls": "direct", "gen": "llm"}
+{"q": "請問 cross-project 掃描時，關於 harness 原生 memory 和 MEMORY.md 這種結構差異，有沒有專門的說明文件可以參考一下？", "expect": "harness原生memory與atom索引marker撞名辨識", "cls": "direct", "gen": "llm"}
+{"q": "我在嘗試 discover_all_project 的過程中，發現它似乎誤納了舊版專案中的 flat-legacy 記憶資料，該如何修正？」", "expect": "harness原生memory與atom索引marker撞名辨識", "cls": "direct", "gen": "llm"}
+{"q": "在 Windows 環境下，我用 headless Chrome 要把 SVG 檔案轉成 PNG，需要注意哪些細節？", "expect": "headless-chrome-svg轉png-windows踩坑", "cls": "direct", "gen": "llm"}
+{"q": "如何使用 chrome --screenshot 參數來準確地從程式碼中渲染 SVG 圖檔並截圖呢？", "expect": "headless-chrome-svg轉png-windows踩坑", "cls": "direct", "gen": "llm"}
+{"q": "幫我看一下用 Python 爬蟲做遊戲截圖的時候，處理 SVG 轉換為點陣圖的最佳實踐。", "expect": "headless-chrome-svg轉png-windows踩坑", "cls": "direct", "gen": "llm"}
+{"q": "我在瀏覽 world.html 的 dashboard 頁面看專案時，發現某個專案的 atom 內容好像跑去核心房被 hide 了，怎麼找？", "expect": "dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房", "cls": "direct", "gen": "llm"}
+{"q": "為什麼我明明在 /shared/ 目錄放了 project shared 的 atom，到專案介面卻看不到，是不是 scope 被 frontmatter 誤歸了？", "expect": "dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房", "cls": "direct", "gen": "llm"}
+{"q": "我的 apiAtoms 相關記憶好像從正常的 project 結構消失了，懷疑是 core room 的問題，需要 scanProjMemDir 看看。", "expect": "dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下 `world.html` 中關於生物對話系統的 **CHAT_MODEL** 觸發機制和後端連線細節。", "expect": "腦內世界生物對話系統真相-模型觸發方針背景", "cls": "direct", "gen": "llm"}
+{"q": "請問如果後端的 `/api/tags` 沒有指定模型，我們的聊天系統會如何處理 404 或 502 的錯誤？", "expect": "腦內世界生物對話系統真相-模型觸發方針背景", "cls": "direct", "gen": "llm"}
+{"q": "在進行 `runConversation` 時，特別是當我們需要處理多個並發的 chat session (如 `activeChats`) 時，是否有最佳化的啟動流程建議呢？", "expect": "腦內世界生物對話系統真相-模型觸發方針背景", "cls": "direct", "gen": "llm"}
+{"q": "這個我們之前說過需要同步更新的 maintenance task，你覺得我現在就先跑掉比較好嗎？", "expect": "自己flag的維護動作直接做完不要反問", "cls": "direct", "gen": "llm"}
+{"q": "針對上次討論到的幾個點，比如要補正那個 stale index 和 clean up 的部分，可以不用跟我確認一下就直接執行了嗎？", "expect": "自己flag的維護動作直接做完不要反問", "cls": "direct", "gen": "llm"}
+{"q": "如果這三個 atomic 流程（update過時 atom, clear derived temp cache, run nightly batch GIT）都是我已經 flag 出來了，你希望我還是都要先問一下？」", "expect": "自己flag的維護動作直接做完不要反問", "cls": "direct", "gen": "llm"}
+{"q": "session_end flush 流程時，如何確保自動記憶機制能正確觸發？", "expect": "對談結束自動記憶與錯誤加權深記", "cls": "direct", "gen": "llm"}
+{"q": "當發生失敗的情況下，我們應該走哪個路徑來進行錯誤深記 (error deep postmortem)？", "expect": "對談結束自動記憶與錯誤加權深記", "cls": "direct", "gen": "llm"}
+{"q": "能否幫我過一次對談結束後，系統是透過什麼機制來完成知識的總結與寫入？", "expect": "對談結束自動記憶與錯誤加權深記", "cls": "direct", "gen": "llm"}
+{"q": "我在用 Git-bash 環境下執行 msbuild 編譯時，用了 /t:Build 和 /p 參數後會出 MSB1008 的錯誤，該怎麼修正？", "expect": "bash-呼叫-msbuild-用-dash-參數", "cls": "direct", "gen": "llm"}
+{"q": "在 Windows MSYS2 下，呼叫 dotnet build 時，斜線開頭的參數 (e.g., /m) 會被轉換掉嗎？", "expect": "bash-呼叫-msbuild-用-dash-參數", "cls": "direct", "gen": "llm"}
+{"q": "如何用 bash 在 Git-bash 中正確傳遞多個編譯參數給 msbuild.exe，避免路徑轉換問題？", "expect": "bash-呼叫-msbuild-用-dash-參數", "cls": "direct", "gen": "llm"}
+{"q": "我需要一個地方來快速查看目前系統中所有可用的 skills 清單和它們的計數？", "expect": "skill-計數單一來源-skill-index", "cls": "direct", "gen": "llm"}
+{"q": "如何檢查或更新 `skill-index` 的最新狀態？可以幫我看一下 skill count 相關的資訊嗎？", "expect": "skill-計數單一來源-skill-index", "cls": "direct", "gen": "llm"}
+{"q": "請問我們該從哪個檔案結構去確認最新的 'skill' 定義，特別是關於其索引（index）的部分？", "expect": "skill-計數單一來源-skill-index", "cls": "direct", "gen": "llm"}
+{"q": "我們剛才討論了這麼多點，下次需要用什麼方法能確保下一個 session 能完整綜觀整體流程？", "expect": "handoff-綜觀品質與抗失真寫法", "cls": "direct", "gen": "llm"}
+{"q": "在做 handoff 給下一位同事時，如何避免資訊傳遞失真，讓對方能快速掌握全局脈絡？", "expect": "handoff-綜觀品質與抗失真寫法", "cls": "direct", "gen": "llm"}
+{"q": "如果新開一個 session 需要接續上次討論的內容，除了簡單交接 prompt 以外，有沒有專門確保品質的撰寫建議？", "expect": "handoff-綜觀品質與抗失真寫法", "cls": "direct", "gen": "llm"}
+{"q": "在處理長對話或多 session 的情況下，我觀察到資訊很容易發生 drift 或 lost in the middle 的現象，這背後可能的機制是什麼？", "expect": "跨session資訊失真機制與對策", "cls": "direct", "gen": "llm"}
+{"q": "我們如何從技術上防止 context rot 和 memory 汙染的問題，而不是單純依賴模型參數的增強？", "expect": "跨session資訊失真機制與對策", "cls": "direct", "gen": "llm"}
+{"q": "請問對於跨 session 的資訊連續性問題，有沒有更可靠的 Handoff 或 Context stitching 設計模式可以避免 goal drift 的風險？", "expect": "跨session資訊失真機制與對策", "cls": "direct", "gen": "llm"}
+{"q": "這個答案的邏輯流程有點太複雜了，請問能否幫我追蹤一下它哪裡出現了設計矛盾？", "expect": "feedback-complexity-origin-trace", "cls": "direct", "gen": "llm"}
+{"q": "內文看起來很長，好像是前兩個概念被實作綁死導致的敘述膨脹，請帮我簡化並 pinpoint 核心的 conflict。", "expect": "feedback-complexity-origin-trace", "cls": "direct", "gen": "llm"}
+{"q": "當用戶說『太複雜』的時候，我們應該直接指出 '這是一個 design contradiction' 的本質，而不是繼續補充解釋。", "expect": "feedback-complexity-origin-trace", "cls": "direct", "gen": "llm"}
+{"q": "幫我檢查 未證實 相關的部分", "expect": "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長", "cls": "direct", "gen": "template"}
+{"q": "斷言 這塊是怎麼運作的？", "expect": "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長", "cls": "direct", "gen": "template"}
+{"q": "我在處理一個跟 未證實 和 斷言 有關的問題", "expect": "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長", "cls": "direct", "gen": "template"}
+{"q": "當我們使用 extract-worker 處理碎片時，如何確保這些零分類的內容能被正確寫到 memory/<slug>.md 中？", "expect": "auto-capture碎片sweep污染詞庫-defer根治", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下 auto-capture 和 realm sweep 污染詞庫之間，關於 defer 根治的最佳實踐是什麼？", "expect": "auto-capture碎片sweep污染詞庫-defer根治", "cls": "direct", "gen": "llm"}
+{"q": "在進行 auto_migrate 時，如果資料來源涉及到 realm-lexicon-learned 的更新，是否需要特別注意分類的傳遞？」, 3.", "expect": "auto-capture碎片sweep污染詞庫-defer根治", "cls": "direct", "gen": "llm"}
+{"q": "幫我檢查 fix-escalation 相關的部分", "expect": "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造", "cls": "direct", "gen": "template"}
+{"q": "DeepPostMortem 這塊是怎麼運作的？", "expect": "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造", "cls": "direct", "gen": "template"}
+{"q": "我在處理一個跟 fix-escalation 和 DeepPostMortem 有關的問題", "expect": "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造", "cls": "direct", "gen": "template"}
+{"q": "當我在 `write_raw` 時傳入一個未在 VALID_SOURCES 中的 source 什麼情況會發生？", "expect": "write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值", "cls": "direct", "gen": "llm"}
+{"q": "我們需要了解一下關於 funnel 寫入時，如果指定了不存在的 source，系統是靜默回報 ok=False 還是直接 raise？", "expect": "write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值", "cls": "direct", "gen": "llm"}
+{"q": "腳本在做一次性整理資料寫入時，最好注意未檢查回傳值的風險，特別是在使用 atom_io.write_raw 時。", "expect": "write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下關於 atom-move V5 的資料處理流程，特別是關於 SoT 損壞時的修正步驟。", "expect": "atom-move-v5-sot-correct-化與半遷移工具辨識", "cls": "direct", "gen": "llm"}
+{"q": "當我需要做資料夾搬移（atom move）到新位置時，是否還會用到舊版的 _ATOM_INDEX.md？", "expect": "atom-move-v5-sot-correct-化與半遷移工具辨識", "cls": "direct", "gen": "llm"}
+{"q": "請問 sidecar 搬移過程中，如何確保我們正確辨識半遷移工具所需的路徑資訊？", "expect": "atom-move-v5-sot-correct-化與半遷移工具辨識", "cls": "direct", "gen": "llm"}
+{"q": "關於 lib/atom_io.py 的 _resolve_target 邏輯，請問在處理 scope=shared 的情況時，路由機制是否會導致資料寫入扁平的目錄結構？", "expect": "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層", "cls": "direct", "gen": "llm"}
+{"q": "我在實作 project hooks 時遇到一個問題，能否請教一下 shared/role/personal 這類型的 memory 資料預設會被如何分類和儲存？", "expect": "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層", "cls": "direct", "gen": "llm"}
+{"q": "請問哪些場景下，system 會觸發 project delegate hook 來處理專案記憶的歸檔與分層邏輯？", "expect": "scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層", "cls": "direct", "gen": "llm"}
+{"q": "我們正在規劃一個下一代的企業級 AI 協作平台，目前最大的痛點在哪裡？", "expect": "jarvis-企業-ai-平台發想文件指標", "cls": "direct", "gen": "llm"}
+{"q": "有沒有關於如何設計一個能充當 JARVIS 式核心的 AI 平台的 vision-doc 分析文件？", "expect": "jarvis-企業-ai-平台發想文件指標", "cls": "direct", "gen": "llm"}
+{"q": "請問在構建我們的 enterprise AI platform 時，從前瞻設計的角度來看，記憶系統核心缺少哪些關鍵能力？", "expect": "jarvis-企業-ai-平台發想文件指標", "cls": "direct", "gen": "llm"}
+{"q": "關於 2026-07 這個版本，能否回顧一下『自動萃取』到『DedupStage』的審查流程和最終決策？", "expect": "自動萃取層淨值審查-調整式拔除-2026-07", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下這次針對草稿 (draft) 資料集，採用 'auto-capture' 和 'usefulness' 評估後的 '調整式拔除' 的具體標準是什麼？", "expect": "自動萃取層淨值審查-調整式拔除-2026-07", "cls": "direct", "gen": "llm"}
+{"q": "在處理涉及到寫入 (write-only) 和記憶效益的部分，有沒有相關的『淨值審查』文件可以參考一下？", "expect": "自動萃取層淨值審查-調整式拔除-2026-07", "cls": "direct", "gen": "llm"}
+{"q": "請問在新的 V5 Pxx 版本部署時，我們應該如何處理記錄這次變更的歷史歸檔？", "expect": "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔", "cls": "direct", "gen": "llm"}
+{"q": "我正在看某個腳本，裡面提到一個舊版的 spec 錨點和 commit hash，這該怎麼處理？", "expect": "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔", "cls": "direct", "gen": "llm"}
+{"q": "能否幫我查一下，當我們進行一次大型 milestone 更新時，有沒有標準的流程文件可以參考？", "expect": "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔", "cls": "direct", "gen": "llm"}
+{"q": "我同時開啟了幾個 Claude session 在這一個 repository 工作目錄裡操作，如何正確判斷哪些改動是屬於其他 session 的？", "expect": "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a", "cls": "direct", "gen": "llm"}
+{"q": "當我使用 git add 後，如果後來發現有其它 concurrent session 做了修改，git status 會顯示什麼樣的狀況？", "expect": "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a", "cls": "direct", "gen": "llm"}
+{"q": "在處理多 session、共用工作樹時，我想了解本機 repo 狀態快照可能出現哪些『失真』的問題點。", "expect": "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a", "cls": "direct", "gen": "llm"}
+{"q": "為什麼用 Python 的 write_text 写文件時，Windows 會把所有的 \\n 都變成 \\r\\n 造成整檔 diff？", "expect": "windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff", "cls": "direct", "gen": "llm"}
+{"q": "在 Git diff 看檔案修改時，如果只是換行符 (newline) 的問題，為什麼會顯示เป็น 整檔假 diff?", "expect": "windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff", "cls": "direct", "gen": "llm"}
+{"q": "遇到 file content 的跨平台寫入問題，如何避免因為沒有指定 newline 參數導致的 LF 和 CRLF 翻轉？」", "expect": "windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff", "cls": "direct", "gen": "llm"}
+{"q": "我們系統跑了很久，懷疑有些好機制被小故障卡住了，該怎麼做 audit 檢查一下？", "expect": "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證", "cls": "direct", "gen": "llm"}
+{"q": "想了解一下什麼時候不應該為了預防萬一而過度工程 (over-engineering)，最好先實證 (prove) 會更穩健。", "expect": "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證", "cls": "direct", "gen": "llm"}
+{"q": "能否幫我總結一下，在進行記憶系統審查時，如何區分是『小故障卡死』還是真的有架構問題？", "expect": "原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證", "cls": "direct", "gen": "llm"}
+{"q": "L2 修理 broken_ref 時，如果我懷疑是 prefix rename 的情況，該怎麼處理？", "expect": "atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove", "cls": "direct", "gen": "llm"}
+{"q": "當遇到 atom 連結有誤判成『類似度極低』並建議 remove 時，是不是和 atom-heal 的 prefix rename 有關？", "expect": "atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove", "cls": "direct", "gen": "llm"}
+{"q": "我想知道關於 'atom heal' 過程中，如何區分到底是真正的死連結還是只是一個新的前綴別名 (prefix rename)？", "expect": "atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove", "cls": "direct", "gen": "llm"}
+{"q": "關於大型檔案的純機械拆分 (pure mechanical carve)，是否有推薦的腳本和驗證步驟？", "expect": "巨檔純機械拆分-carve腳本與驗證盲點", "cls": "direct", "gen": "llm"}
+{"q": "如何用 script 來進行模組的 split module？想確保每行內容都能被準確追蹤。", "expect": "巨檔純機械拆分-carve腳本與驗證盲點", "cls": "direct", "gen": "llm"}
+{"q": "在處理有循環相依 (circular dependency) 的巨型 codebase 時，哪些技巧可以避免 live MCP 測試汙染？", "expect": "巨檔純機械拆分-carve腳本與驗證盲點", "cls": "direct", "gen": "llm"}
+{"q": "我剛執行了一個 git push 後，GitLab 回傳了 pre-receive hook declined 的錯誤，是怎麼回事？", "expect": "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉", "cls": "direct", "gen": "llm"}
+{"q": "關於我們的 repo，是不是因為設定了雙 push url 和 main 分支的 force 保護，所以連 rebase 或是 non-fast-forward 的推送都會被擋掉？", "expect": "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉", "cls": "direct", "gen": "llm"}
+{"q": "想了解關於 anti-evasion HUD 的設計流程和相關的 SoT 指標有哪些要注意的地方？", "expect": "anti-evasion-hud-設計脊柱與強化前必讀", "cls": "direct", "gen": "llm"}
+{"q": "請問在強化 AEC 或修改 AEC HUD 之前，有哪些關鍵的開發前必讀事項可以參考？", "expect": "anti-evasion-hud-設計脊柱與強化前必讀", "cls": "direct", "gen": "llm"}
+{"q": "我需要查閱關於 one-writer 和 sibling 隔離時，記憶系統開發中必須先知道哪些知識點。", "expect": "anti-evasion-hud-設計脊柱與強化前必讀", "cls": "direct", "gen": "llm"}
+{"q": "在用 Opus 時，如何確保它能穩定具備「自動推進」和「收尾完整性」等高階行為？", "expect": "模型行為移植-fable行為契約必載檔", "cls": "direct", "gen": "llm"}
+{"q": "我想了解一下 `IDENTITY` 擴充中關於 model behavior 移植的那些行為契約細節。", "expect": "模型行為移植-fable行為契約必載檔", "cls": "direct", "gen": "llm"}
+{"q": "當我需要模型像 Fable 一樣主動進行觀察或抓重點時，應該如何設置強制執行的機制？", "expect": "模型行為移植-fable行為契約必載檔", "cls": "direct", "gen": "llm"}
+{"q": "最近在處理一個 session 開始時自動複製 source file 的流程，如果源檔案結構變動會不會有風險？", "expect": "啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立", "cls": "direct", "gen": "llm"}
+{"q": "我看到關於 user-init 腳本的描述，請問這個自動覆寫陷阱 (auto overwrite trap) 是什麼問題？", "expect": "啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立", "cls": "direct", "gen": "llm"}
+{"q": "懷疑我們的雙檔 pipeline 在啟動時可能會被 stub 內容誤覆蓋掉原始契約文件，怎麼驗證？", "expect": "啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立", "cls": "direct", "gen": "llm"}
+{"q": "關於 otel 遙測的評估結論，為什麼兩筆目標指標都無法被測到？", "expect": "otel-遙測評估結論-不實作-兩目標指標皆測不到", "cls": "direct", "gen": "llm"}
+{"q": "請問我們在啟用 CLAUDE_CODE_ENABLE_TELEMETRY 後，為何拿不到 hook 延遲量測的真實分布？", "expect": "otel-遙測評估結論-不實作-兩目標指標皆測不到", "cls": "direct", "gen": "llm"}
+{"q": "請說明一下 OTEL export 的官方匯出面，特別是針對 session/token.usage 的限制。", "expect": "otel-遙測評估結論-不實作-兩目標指標皆測不到", "cls": "direct", "gen": "llm"}
+{"q": "我在使用 Task Scheduler 設定 Python 排程腳本時，遇到它在 pythonw.exe 環境下直接因為 stdout 為 None 而 AttributeError 失敗，該如何修復？", "expect": "pythonw-下-stdout-為-none-排程腳本秒死陷阱", "cls": "direct", "gen": "llm"}
+{"q": "如果排程腳本是透過 schtasks 或排程器執行，並且涉及到 sys.stdout.reconfigure(encoding='utf-8') 的話，要注意哪些可能導致靜默失敗的陷阱？", "expect": "pythonw-下-stdout-為-none-排程腳本秒死陷阱", "cls": "direct", "gen": "llm"}
+{"q": "為什麼在 pythonw 環境下，無論我如何修改程式碼，還是會因為 stdout 是 None 而無法偵測到腳本的錯誤輸出？", "expect": "pythonw-下-stdout-為-none-排程腳本秒死陷阱", "cls": "direct", "gen": "llm"}
+{"q": "我在寫程式碼時，怎麼讓註解和輸出的文字敘述都更白話、像聊天一樣？", "expect": "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字", "cls": "direct", "gen": "llm"}
+{"q": "能不能幫我優化一下我的 code comment，讓它語氣比較接近現況的直覺描述，而不是太過學術化？", "expect": "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字", "cls": "direct", "gen": "llm"}
+{"q": "這部分邏輯需要加上 summary 說明，但不能帶有版本標記或過於咬文嚼字的說法，要夠口語化。", "expect": "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字", "cls": "direct", "gen": "llm"}

@@ -107,7 +107,7 @@ def test_real_failure_without_effort_skips():
 # ─── 端到端 handle_stop ──────────────────────────────────────────────
 
 @pytest.fixture
-def driven(monkeypatch):
+def driven(monkeypatch, tmp_path):
     """攔掉 handle_stop 的所有外部依賴，只保留 gate 控制流。
 
     回傳 drive(state, config) → (stdout_text, state)；遇 output_* 的 sys.exit
@@ -118,6 +118,7 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "token_warn_payload", lambda *a, **k: "")
     monkeypatch.setattr(st, "detect_evasion", lambda *a, **k: None)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_dpm_marker", lambda sid: tmp_path / f"{sid}.flag")
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 
@@ -152,7 +153,7 @@ def test_handle_stop_second_time_passes(driven, capsys):
 
 # ─── 回歸：獨立預算，不被 Sync+TestFail 吃光預算而餓死 ──────────────────
 
-def test_dpm_not_starved_by_shared_budget(monkeypatch, capsys):
+def test_dpm_not_starved_by_shared_budget(monkeypatch, capsys, tmp_path):
     """★回歸：DPM 獨立預算。同一「反覆修不好」session 中前兩輪 Sync + TestFail
     先吃光 stop_gate_max_blocks(2)，第 3 輪 DPM 條件成立（retry>=2 + failing_tests）
     仍須觸發——曾因共用 stop_count 預算而永不觸發（餓死），現 one-shot 獨立預算修復。
@@ -166,6 +167,7 @@ def test_dpm_not_starved_by_shared_budget(monkeypatch, capsys):
     monkeypatch.setattr(st, "token_warn_payload", lambda *a, **k: "")
     monkeypatch.setattr(st, "detect_evasion", lambda *a, **k: None)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_dpm_marker", lambda sid: tmp_path / f"{sid}.flag")
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
 

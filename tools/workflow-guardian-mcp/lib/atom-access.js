@@ -74,7 +74,8 @@ function usefulnessStats(access, z) {
 
 // world.html「戰力星級」資料源（v2）：把 <atom>.access.json 的遙測併進 /api/atoms 的
 // atom 物件。access.json 為 Wave-2 權威來源（counts/last_used 不在 .md），故覆寫同名 .md 欄位。
-const POWER_WILSON_Z = 1.96;
+// z=1.28 (~80% one-sided) — SYNC: lib/atom_access.py 與 workflow/config.json usefulness.wilson_z。
+const POWER_WILSON_Z = 1.28;
 function enrichAtomWithAccess(atom, filePath) {
   const acc = readAtomAccess(filePath);
   if (acc.confirmations != null) atom.confirmations = acc.confirmations;
@@ -105,17 +106,28 @@ function spawnAtomAccess(subcommand, args) {
     } catch (e) {
       return resolve({ ok: false, error: `spawn failed: ${e.message}` });
     }
-    let out = "", err = "";
+    let out = "", err = "", timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { cp.kill(); } catch {}
+    }, 30000);
     cp.stdout.on("data", (d) => { out += d.toString("utf-8"); });
     cp.stderr.on("data", (d) => { err += d.toString("utf-8"); });
     cp.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        return resolve({ ok: false, error: `atom_access timeout (30s), killed (${subcommand})` });
+      }
       try {
         resolve(out ? JSON.parse(out) : { ok: code === 0 });
       } catch (e) {
         resolve({ ok: false, error: `cli parse fail: ${e.message} stderr=${err.slice(0, 200)}` });
       }
     });
-    cp.on("error", (e) => resolve({ ok: false, error: `spawn error: ${e.message}` }));
+    cp.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: `spawn error: ${e.message}` });
+    });
   });
 }
 

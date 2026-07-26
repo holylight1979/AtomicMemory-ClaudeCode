@@ -77,8 +77,23 @@
 | **Confusion** | related-spread 召回非 prompt 命中的 distractor（`ups_inject.py`） | ✅ **Phase C**：`_filter_related_by_relevance`（剔 demoted＋rank 降序保前 N），config `injection.related_gate`（ON-保守） |
 | **Clash** | 多 session atom 互相矛盾（`memory-conflict-detector.py`） | ⏸ **Phase E defer**：同步 LLM clash 傷高效、與目標相悖；既有 `/conflict` + pull-audit 已覆蓋 |
 | **(跨層) Forgetting 缺位** | 只有 λ 慢衰減、缺主動隔離（SessionEnd） | ✅ **Phase D**：`apply_selective_forget` 隔離 `_distant/`（可逆），config `self_iteration.forget`（**預設 dry-run**） |
+| **(對偶面) 失念**——該想起而未想起 | 監控只抓「不該注入而注入」（token 稅），抓不到「庫有可防 atom 但 trigger 未命中」 | ✅ `hooks/wg_recall_miss.py`：SessionEnd 比對失敗證據 × 未注入 atom trigger（≥2 非泛用詞命中）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
 
-> 驗證件：`hooks/verify/verify_{distraction_penalty,related_relevance_gate,selective_forget}.py`（A/C/D）＋ realm 免疫 `lib/verify/verify_lexicon_concept_terms.py`。實作 commit 見 `_CHANGELOG.md` 2026-06-24 段。
+> 驗證件：`hooks/verify/verify_{distraction_penalty,related_relevance_gate,selective_forget,recall_miss}.py`（A/C/D/失念）＋ realm 免疫 `lib/verify/verify_lexicon_concept_terms.py`。實作 commit 見 `_CHANGELOG.md` 2026-06-24 段。
+
+---
+
+## 4.5 唯識對照（佛法心識模型 × 記憶治理）
+
+系統與唯識「**種子生現行、現行薰種子**」閉環同構：atom（種子）→ 檢索注入（生現行）→ 使用與效用統計 α/β（現行薰種子）→ 晉升/降級（種子勢力增減）；「不刪只歸檔 `_distant/`」＝恆隨轉的中道、延遲效用歸因＝異熟。對照曾揭露三個工程缺口，皆已工程化：
+
+| 唯識概念 | 缺口 | 工程落地 |
+|---|---|---|
+| 五遍行「念」vs **失念** | 只監控誤注入，不監控「該想起而未想起」 | recall-miss 偵測（本節 §4 表末列） |
+| **諸行無常**（壞滅緣） | decay 是時間函數非真值函數，「世界變了」偵測不到 | atom optional `- Depends:`（path 型機器可驗）+ `check_stale_deps` 主動標 stale |
+| **依了義不依不了義**（四依） | atom 無證據等級，衝突裁決實為「新勝舊」 | atom optional `- Evidence: 實證\|引述\|推測` + 裁決優先序（實證>引述>推測>未標）+ fast-refute 快速否證通道 |
+
+其餘對照（per-use 回寫＝剎那滅、異熟跨 session 歸因、等流偏誤抽驗、末那識染污）成本中高或僅哲學參考，列長期方向不實作。
 
 ---
 

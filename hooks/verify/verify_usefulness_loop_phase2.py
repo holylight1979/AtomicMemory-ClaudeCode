@@ -271,8 +271,8 @@ def test_hint_tier_eligible():
 
 
 def test_hint_tier_near():
-    # 4 連勝 lb≈0.51 ∈ [0.5, 0.6) → near（接近升門）
-    assert A.usefulness_hint_tier({"useful_hits": 5, "used_fail": 1}) == "near"
+    # succ=6, n=8 → lb≈0.524 ∈ [0.5, 0.6) → near（接近升門）
+    assert A.usefulness_hint_tier({"useful_hits": 7, "used_fail": 3}) == "near"
 
 
 def test_hint_tier_none_low_lb():

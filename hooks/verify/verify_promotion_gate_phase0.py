@@ -28,11 +28,17 @@ def _read(rel: str) -> str:
     return (CLAUDE / rel).read_text(encoding="utf-8")
 
 
-def test_wg_episodic_imports_time():
-    """缺 import time → cross-session confirm 分支 NameError（主軌晉升死）。"""
+def test_wg_episodic_cross_session_dead_code_gone():
+    """cross-session confirm 分支（原守門對象）已判死碼移除——worker 另有實作。
+    此測改守「死碼不得回流」：_check_cross_session_patterns 不得重現於 wg_episodic。"""
     src = _read("hooks/wg_episodic.py")
-    assert re.search(r"^import time$", src, re.MULTILINE), "wg_episodic.py 缺 import time"
-    assert "time.time()" in src, "守門點 time.time() 不在 → 測試前提失效"
+    assert "_check_cross_session_patterns" not in src, (
+        "死碼 _check_cross_session_patterns 不得回流 wg_episodic（無 caller，"
+        "cross-session 實作在 extract-worker）"
+    )
+    assert "_update_memory_index" not in src, (
+        "死碼 _update_memory_index 不得回流 wg_episodic（index upsert 走 funnel）"
+    )
 
 
 def test_config_has_promote_confirmations_threshold():
@@ -75,14 +81,52 @@ def _eligible(confirmations, access, req_conf=4, promote_lb=0.6, min_n=3):
         access, promote_lb=promote_lb, min_n=min_n)
 
 
+def _wilson_lb(successes: int, n: int, z: float) -> float:
+    """複刻 py↔js 鏡像公式（lib/atom_access.py wilson_lower_bound /
+    atom-access.js wilsonLowerBound）——測試端獨立實作，防兩邊同時漂。"""
+    if n <= 0:
+        return 0.0
+    phat = successes / n
+    denom = 1.0 + (z * z) / n
+    centre = phat + (z * z) / (2.0 * n)
+    margin = z * ((phat * (1.0 - phat) + (z * z) / (4.0 * n)) / n) ** 0.5
+    return max(0.0, min(1.0, (centre - margin) / denom))
+
+
+def test_js_wilson_z_128():
+    """z 校準 1.96→1.28（~80% 單尾）：js 側常數與 fallback 都要是 1.28。
+    z=1.28 下 3 連勝 lb≈0.647 ≥ promote_lb 0.6（1.96 時僅 0.438 → 永遠晉升不了）。"""
+    access_src = _read("tools/workflow-guardian-mcp/lib/atom-access.js")
+    tools_src = _read("tools/workflow-guardian-mcp/lib/atom-tools.js")
+    assert "POWER_WILSON_Z = 1.28" in access_src, "atom-access.js POWER_WILSON_Z 應為 1.28"
+    assert re.search(r"uconf\.wilson_z\s*!=\s*null\s*\?\s*uconf\.wilson_z\s*:\s*1\.28", tools_src), \
+        "atom-tools.js wilson_z fallback 應為 1.28"
+    assert "1.96" not in access_src and "1.96" not in tools_src, "js 側殘留 z=1.96"
+    # 期望值（與 node 實算對拍，見公式鏡像）
+    assert abs(_wilson_lb(3, 3, 1.28) - 0.6468) < 5e-4
+    assert abs(_wilson_lb(4, 4, 1.28) - 0.7094) < 5e-4
+    assert abs(_wilson_lb(2, 3, 1.28) - 0.3215) < 5e-4
+    assert _wilson_lb(3, 3, 1.28) >= 0.6, "z=1.28 下 3 連勝應過 promote_lb=0.6"
+
+
+def test_js_promote_replace_scoped_to_knowledge_section():
+    """[臨]→[觀] 條目改寫必須限定 ## 知識 段落且行首錨定——
+    全文全域替換會誤改 ## 行動 區與引文中的同字樣。"""
+    src = _read("tools/workflow-guardian-mcp/lib/atom-tools.js")
+    assert not re.search(r"new RegExp\(`- \$\{meta\.confidence[^`]*`,\s*\"g\"\)", src), \
+        "promote 不得再用全文 g-flag 替換知識條目"
+    assert "confLineRe" in src and "inKnowledge" in src and "## 知識" in src, \
+        "promote 應以 ## 知識 段落邊界 + 行首錨定改寫條目"
+
+
 def test_gate_semantics():
     # 純曝光（無 confirmations、無效用證據）不得晉升
     assert _eligible(0, {"useful_hits": 1, "used_fail": 1}) is False
     # primary confirmations 達標應晉升
     assert _eligible(4, {"useful_hits": 1, "used_fail": 1}) is True
-    # 效用 Wilson 達標（6 連勝，lb≈0.61）應晉升
-    assert _eligible(0, {"useful_hits": 7, "used_fail": 1}) is True
-    # 效用未達下界（lb≈0.51<0.6）不得晉升
-    assert _eligible(0, {"useful_hits": 5, "used_fail": 1}) is False
-    # 樣本不足（n=2<3）不得晉升
+    # 效用 Wilson 達標（z=1.28 下 3 連勝 lb≈0.647）應晉升
+    assert _eligible(0, {"useful_hits": 4, "used_fail": 1}) is True
+    # 效用未達下界（2 勝 1 敗，lb≈0.32<0.6）不得晉升
+    assert _eligible(0, {"useful_hits": 3, "used_fail": 2}) is False
+    # 樣本不足（n=2<3）不得晉升——即使 2 連勝
     assert _eligible(0, {"useful_hits": 3, "used_fail": 1}) is False

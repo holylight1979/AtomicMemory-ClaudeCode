@@ -126,8 +126,11 @@ def _call_project_hook(project_root: Path, action: str, context: Dict[str, Any])
 
 def _cleanup_old_states() -> None:
     """V3/2.2A: Tiered TTL cleanup for state files.
-    age < 600s keep; merged_into → 10min; empty working → 10min; working >30min;
+    age < 600s keep; merged_into → 10min; empty working → 1h; working >30min;
     done synced > 1h; done pending > 4h; anything > 7d.
+
+    empty working 取 1h：idle session（開著沒下 prompt）state 被清後，
+    _ensure_state fallback 只能重建最小 index、早前脈絡不可復原——寬限放長。
     """
     now = time.time()
     for f in WORKFLOW_DIR.glob("state-*.json"):
@@ -151,7 +154,7 @@ def _cleanup_old_states() -> None:
 
             if merged and age > 600:
                 f.unlink(missing_ok=True)
-            elif prompt_count == 0 and phase == "working" and age > 600:
+            elif prompt_count == 0 and phase == "working" and age > 3600:
                 f.unlink(missing_ok=True)
             elif prompt_count > 0 and phase == "working" and age > 1800:
                 f.unlink(missing_ok=True)

@@ -5,6 +5,7 @@ Usage:
   python atom-health-check.py --validate-refs   檢查 Related 完整性
   python atom-health-check.py --fix-refs        自動修復缺失的反向參照
   python atom-health-check.py --stale-check     列出 Last-used > 60 天的 atoms
+  python atom-health-check.py --deps-check      壞滅緣檢查（path 型 Depends 存在性）
   python atom-health-check.py --report          生成完整健康報告
   python atom-health-check.py --report --json   JSON 格式輸出
 """
@@ -26,7 +27,9 @@ from pathlib import Path
 
 # Single source of truth: lib/atom_spec.py
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lib.atom_spec import is_atom_file, REQUIRED_METADATA  # noqa: E402
+from lib.atom_spec import (  # noqa: E402
+    is_atom_file, REQUIRED_METADATA, parse_depends, resolve_depends_path,
+)
 from lib.atom_locations import iter_atom_files_multi, atom_search_roots  # noqa: E402
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 from lib.atom_access import read_access  # noqa: E402  計數欄居 sidecar <atom>.access.json
@@ -193,7 +196,10 @@ def auto_fix_broken_refs(broken: list[dict]) -> list[dict]:
         if len(new_items) == len(items):
             continue
         new_line = f"- Related: {', '.join(new_items) if new_items else '(none)'}"
-        path.write_text(text.replace(m.group(0), new_line, 1), encoding="utf-8")
+        # 走 funnel：EOL-preserving _atomic_write + audit（裸 write_text 會在
+        # Windows 翻整檔 EOL 且不留稽核；仿 fix_reverse_refs 既有先例）
+        write_raw(path, text.replace(m.group(0), new_line, 1),
+                  source="tool:atom-health-check", op="broken-ref-remove")
         fixes.append({"atom": b["atom"], "removed_ref": missing, "file": str(path)})
     return fixes
 
@@ -298,7 +304,7 @@ def fix_reverse_refs(atoms: dict[str, Path], aliases: dict[str, str] | None = No
 
         # 走 funnel：EOL-preserving _atomic_write + audit log
         # （舊版裸 write_text 會在 Windows 翻整檔 EOL，且反向參照補全不留 audit）
-        write_raw(path_b, text, source="tool:atom-health-audit", op="reverse-ref-add")
+        write_raw(path_b, text, source="tool:atom-health-check", op="reverse-ref-add")
         fixes.append({
             "target": atom_b,
             "added_ref": add_name,
@@ -329,6 +335,33 @@ def stale_check(atoms: dict[str, Path], days: int = 60) -> list[dict]:
         except ValueError:
             pass
     return stale
+
+
+def check_stale_deps(atoms: dict[str, Path]) -> list[dict]:
+    """壞滅緣（validity conditions）檢查：path 型 Depends 指向不存在的路徑。
+
+    只驗 path 型條目（自由文字型不可驗，僅展示）。warning 級：
+    知識失效是真值問題，非時間問題 — 依賴的路徑消失 = 該 atom 知識可能已壞滅。
+    無 Depends 欄的 atom 一律靜默（欄位 optional，向後相容）。
+    """
+    issues = []
+    for name, path in sorted(atoms.items()):
+        fm = parse_frontmatter(path)
+        raw = fm.get("Depends", "")
+        if not raw:
+            continue
+        for e in parse_depends(raw):
+            if e["type"] != "path" or not e["value"]:
+                continue
+            resolved = resolve_depends_path(e["value"])
+            if not resolved.exists():
+                issues.append({
+                    "atom": name,
+                    "dep": e["value"],
+                    "resolved": str(resolved),
+                    "file": str(path),
+                })
+    return issues
 
 
 def _strip_noise_lines(text: str) -> str:
@@ -462,6 +495,7 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
         "broken_refs": validate_refs(atoms, aliases),
         "missing_reverse_refs": check_reverse_refs(atoms, aliases),
         "stale_atoms": stale_check(atoms),
+        "stale_deps": check_stale_deps(atoms),
         "shadow_atoms": shadow_atoms or [],
     }
 
@@ -526,6 +560,9 @@ def single_atom_report(name: str, atoms: dict[str, Path],
     # stale_atoms: NAME if it is in the stale list, else empty
     stale = [s for s in stale_check(atoms) if s["atom"] == name]
 
+    # stale_deps: NAME 的壞滅緣觸發（path 型 Depends 指向已消失路徑）
+    deps = [d for d in check_stale_deps(atoms) if d["atom"] == name]
+
     return {
         "generated": datetime.now().isoformat(),
         "atom": name,
@@ -533,6 +570,7 @@ def single_atom_report(name: str, atoms: dict[str, Path],
         "broken_refs": broken,
         "missing_reverse_refs": reverse,
         "stale_atoms": stale,
+        "stale_deps": deps,
     }
 
 
@@ -581,6 +619,15 @@ def print_text_report(report: dict):
     else:
         print("── Stale Atoms: None ✅ ──\n")
 
+    # 壞滅緣（validity conditions）— warning 級
+    if report.get("stale_deps"):
+        print("── 壞滅緣（Stale Depends）──")
+        for d in report["stale_deps"]:
+            print(f"  ⚠️ 壞滅緣觸發：atom {d['atom']} 依賴 {d['dep']} 已不存在")
+        print()
+    else:
+        print("── 壞滅緣（Stale Depends）: None ✅ ──\n")
+
     # Shadow atoms (warning level — does NOT count toward issues_count)
     if report.get("shadow_atoms"):
         print("── Shadow Atoms (vs _AIDocs) ──")
@@ -597,6 +644,7 @@ def print_text_report(report: dict):
         len(report["broken_refs"])
         + len(report["missing_reverse_refs"])
         + len(report["stale_atoms"])
+        + len(report.get("stale_deps", []))
         + sum(1 for a in report["atoms"] if a["issues"])
     )
     if issues_count == 0:
@@ -611,6 +659,8 @@ def main():
     parser.add_argument("--fix-refs", action="store_true", help="Auto-fix missing reverse references")
     parser.add_argument("--auto-fix-broken", action="store_true", help="Auto-remove broken Related refs from source atoms (unresolvable targets)")
     parser.add_argument("--stale-check", action="store_true", help="List atoms with Last-used > 60 days")
+    parser.add_argument("--deps-check", action="store_true",
+                        help="壞滅緣檢查：path 型 Depends 指向不存在路徑的 atoms")
     parser.add_argument("--stale-days", type=int, default=60, help="Stale threshold in days (default: 60)")
     parser.add_argument("--shadow-check", action="store_true",
                         help="Detect atom sections (## 印象 / ## 知識) shadowing _AIDocs md subsections")
@@ -652,7 +702,8 @@ def main():
     aliases = parse_memory_index(MEMORY_ROOT)
 
     if not any([args.validate_refs, args.fix_refs, args.auto_fix_broken,
-                args.stale_check, args.shadow_check, args.report, args.atom]):
+                args.stale_check, args.deps_check, args.shadow_check,
+                args.report, args.atom]):
         parser.print_help()
         sys.exit(0)
 
@@ -679,6 +730,11 @@ def main():
                     print(f"🕐 {s['atom']} — {s['last_used']} ({s['days_ago']}d ago)")
             else:
                 print("✅ Not stale.")
+            if report["stale_deps"]:
+                for d in report["stale_deps"]:
+                    print(f"⚠️ 壞滅緣觸發：atom {d['atom']} 依賴 {d['dep']} 已不存在")
+            else:
+                print("✅ No stale depends.")
         sys.exit(0)
 
     if args.fix_refs:
@@ -733,6 +789,16 @@ def main():
                 print(f"🕐 {s['atom']} — {s['last_used']} ({s['days_ago']}d ago)")
         else:
             print(f"✅ No atoms older than {args.stale_days} days.")
+
+    elif args.deps_check:
+        deps = check_stale_deps(atoms)
+        if args.json:
+            print(json.dumps(deps, indent=2, ensure_ascii=False))
+        elif deps:
+            for d in deps:
+                print(f"⚠️ 壞滅緣觸發：atom {d['atom']} 依賴 {d['dep']} 已不存在")
+        else:
+            print("✅ No stale depends（所有 path 型 Depends 路徑存在）.")
 
     elif args.shadow_check:
         shadow = detect_shadow_atoms(

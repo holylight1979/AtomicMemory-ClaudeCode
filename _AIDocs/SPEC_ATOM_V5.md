@@ -264,15 +264,16 @@ V5 引入 in-memory BM25 替代全域層，**保留 vector 給專案層**（atom
 - **hooks/wg_atoms.py** — `bm25_match` / `_bm25_score` / `_bm25_tokenize`（手刻 ~80 行）
   - ASCII word + 中文 char-bigram tokenization
   - BM25 參數：k1=1.2, b=0.75
-- **hooks/handlers/user_prompt_submit.py** — 注入流程：
+- **hooks/handlers/ups_search.py** — 注入流程：
   1. trigger match
-  2. BM25 全域層（≤2 trigger 命中時觸發；min_score=3.5；top_k=3）
-  3. Vector fallback（僅當 BM25 + trigger 雙 0 命中 或 `vector_search.global_layer ≠ bm25`）
-- **workflow/config.json** — `vector_search.global_layer: "bm25"` + `bm25_min_score: 3.5`（P3 2026-07-01：1.0→3.5 濾雜訊召回）+ `bm25_top_k: 3`
+  2. BM25 全域層（≤2 trigger 命中時觸發；min_score=7.0；top_k=3）
+  3. Vector（trigger/BM25 全空 → 全層 fallback；命中 >0 且存在專案層 atom 且 trigger 命中 <3 → 專案層 enrichment，結果只取專案層）
+  4. **RRF 三路融合**（§14）：trigger/BM25/vector 三路 rank 融合 × activation 調節
+- **workflow/config.json** — `vector_search.global_layer: "bm25"` + `bm25_min_score: 7.0`（memory-eval 回歸集調參：3.5 時負例誤注入 21.4% → 7.0 歸零、R@3 僅 -1.5pt）+ `bm25_top_k: 3` + `fusion: "rrf"`
 
 ### 6.2 Vector Service 角色（保留）
 
-- **全域層**：BM25 替代（~30 core atoms 規模；SoT 共 67，含 local 37 僅 ~/.claude 注入）
+- **全域層**：BM25 替代（core atoms 數十顆規模；實際計數見 `_atom_index.json` SoT / 各文件 atom-breakdown marker）
 - **專案層**：仍走 vector（避免上百 atoms 規模的 BM25 效能退化）
 - **Episodic search**：仍走 vector（cross-session 知識）
 - **Cross-session dedup / 衝突偵測**：仍走 vector
@@ -384,16 +385,53 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續�
 - **use 偵測（零成本詞彙重疊）**：`wg_atoms.detect_atom_use` 取 atom 稀有 token（識別碼/路徑/API + CJK bigram，去停用詞）與本 turn assistant 活動（`wg_evasion.get_current_turn_text`）求 containment/Jaccard；共享≥`rare_token_min` 或 containment≥`lexical_overlap_min` → used。不確定（差一）時才用 Ollama embedding cosine tiebreak（fail-safe、偶發）。
 - **success 偵測（3 值）**：`stop._detect_turn_outcome` 複用 `failing_tests`/`claims_completion`/`evasion_flag`/`wisdom_retry_count`。+1=完成宣告且乾淨；0=error/糾正/retry/evasion；**其餘 unknown=no-op（防雜訊污染關鍵守則）**。
 - **更新規則**：`stop._attribute_usefulness` 對 used 且 outcome 決定性者 → `record_usefulness`（success α++/fail β++，走 funnel）；per-turn 一次性（`turn_seq` 守門）。
-- **慢衰減**：`_self_iterate_atoms`（SessionEnd）α←1+λ(α−1); β←1+λ(β−1)，λ=0.97，重啟冷啟動。
-- **晉升閘改寫**：晉升 = 真實 Confirmations 主軌 **OR 效用 Wilson 下界**（升≥`promote_lb`=0.6 且 n≥`min_n`=3，z=1.96）；**ReadHits 退出晉升、降為純曝光計數**（取代 Phase 0 過渡）。降級候選（Wilson 下界≤`demote_lb`=0.35,n≥3）列 staging 報告供裁決、不自動降。
+- **慢衰減**：`_self_iterate_atoms`（SessionEnd）α←1+λ(α−1); β←1+λ(β−1)，λ=0.97；**每日護欄**（`last_decay_date`，per-atom 每日至多衰減一次——防多 session 同日重複衰減致半衰期壓縮至 ~2.3 天、α/β 追不上）。
+- **晉升閘改寫**：晉升 = 真實 Confirmations 主軌 **OR 效用 Wilson 下界**（升≥`promote_lb`=0.6 且 n≥`min_n`=3；**z=`wilson_z`=1.28**——校準前 1.96 下 lb≥0.6 實需 ~6 連勝、min_n=3 形同虛設；1.28 下 3 連勝 lb=0.6468 可升）；**ReadHits 退出晉升、降為純曝光計數**（取代 Phase 0 過渡）。降級候選（Wilson 下界≤`demote_lb`=0.35 且 **n≥`demote_min_n`=5**，防小樣本誤降）列 staging 報告供裁決、不自動降。
 - **py↔js 鏡像**：`wilson_lower_bound`/`usefulness_*`（`lib/atom_access.py`）↔ `wilsonLowerBound`/`usefulnessStats`（`server.js toolAtomPromote`），`SYNC:` 註解 + `memory/decisions.md` 對齊。**改 server.js 後須重啟 MCP server**。
-- **旋鈕**：`workflow/config.json` `usefulness.{lexical_overlap_min,rare_token_min,wilson_z,promote_lb,demote_lb,min_n,decay_lambda,embedding_tiebreak}`。
-- **守門**：`lib/verify/verify_usefulness_access_phase2.py`（18）+ `hooks/verify/verify_usefulness_loop_phase2.py`（21）+ `verify_promotion_gate_phase0.py`（效用驅動）+ `verify_subagent_injection_phase1.py`（21）。
+- **旋鈕**：`workflow/config.json` `usefulness.{lexical_overlap_min,rare_token_min,wilson_z,promote_lb,demote_lb,demote_min_n,min_n,decay_lambda,stability_gamma,embedding_tiebreak}`。
+- **守門**：`lib/verify/verify_usefulness_access_phase2.py` + `hooks/verify/verify_usefulness_loop_phase2.py` + `verify_promotion_gate_phase0.py`（效用驅動）+ `verify_subagent_injection_phase1.py` + `hooks/verify/verify_stability_decay.py`（個別化 decay + 每日護欄）。
 
-## 13. 變更紀錄
+## 13. Optional metadata：Depends（壞滅緣）/ Evidence（證據等級）
+
+兩個 optional frontmatter 欄位（`lib/atom_spec.py` `OPTIONAL_METADATA`）。**向後相容鐵則：既有 atom 缺欄一律靜默通過**；欄值非法僅 warning 級（不 fail validate）。
+
+### 13.1 `- Depends:` — 壞滅緣（validity conditions）
+
+atom 標「依何條件而為真」——decay 是時間函數，這是**真值函數**：世界變了（檔案刪了、決策翻了）但沒人寫新 atom 時可被機器偵測。逗號分隔多條目，兩型：
+
+| 型 | 格式 | 驗證 |
+|---|---|---|
+| path 型 | `path:<相對或~路徑>`（相對路徑以 `~/.claude` 為根） | 機器可驗存在性：`tools/atom-health-check.py` `check_stale_deps` 掃 path 型指向已消失路徑 → 報 `stale_deps`（壞滅緣觸發，主動標 stale） |
+| 自由文字型 | 如 `decision:xxx`、版本描述 | 不可驗，僅展示 |
+
+- 實作：`atom_spec.parse_depends` / `resolve_depends_path` / `depends_warnings`（缺路徑值等格式警告）。
+
+### 13.2 `- Evidence:` — 證據等級（了義裁決）
+
+合法值 `實證`（實際跑過/測過）/ `引述`（文件/網路來源）/ `推測`（模型推斷）；裁決權重 **實證3 > 引述2 > 推測1 > 未標/非法0**（`atom_spec.evidence_rank`，非法值視同未標 + warning）。
+
+消費端（`tools/memory-conflict-detector.py`）：
+- **衝突裁決優先序**：證據等級 → recency →（原有規則），取代純「新勝舊」——依了義不依不了義。
+- **fast-refute 快速否證通道**（`fast_refute_check`）：CONTRADICT 且新側 `Evidence=實證`、舊側 `[固]/[觀]` → 置頂高優先裁決浮出，**不等 Wilson 統計窗**——單一強矛盾實證即觸發 review。
+
+守門：`lib/verify/verify_atom_spec_depends_evidence.py` + `tools/verify/verify_stale_deps.py` + `tools/verify/verify_conflict_evidence.py`。
+
+## 14. 檢索融合：RRF × ACT-R 個別化 decay
+
+全域檢索排序從「序列 fallback + 純 ACT-R」升級為**多路 rank 融合**（`hooks/wg_atoms.py` + `hooks/handlers/ups_search.py`）：
+
+- **RRF（Reciprocal Rank Fusion）**：`rrf_fuse(route_ranked, k=60)`——trigger（命中數降冪）/ BM25（分數降冪）/ vector（相似度降冪）三路各出 rank，`score = Σ 1/(k+rank)`。移除對絕對閾值的排序依賴（min_score 僅作各路入場過濾）。
+- **activation 乘性調節**：`final = rrf × exp(gain·activation_rank)`，gain=`RRF_ACTIVATION_GAIN`=0.25（activation ±2 ≈ ×0.61…×1.65）——相關性（RRF）為主、記憶強度（ACT-R）為輔。
+- **ACT-R 個別化 decay**（FSRS stability 思想）：`d = clamp(0.5 − γ·wilson_lb, 0.3, 0.5)`，γ=`usefulness.stability_gamma`（0.3；設 0 退回固定 d=0.5）——實證有用的 atom 記憶衰減慢。無 access log 的新 atom activation 回**中性 0.0**（舊 −10.0 使新 atom 永遠隊尾）。
+- **回退開關**：`vector_search.fusion: "rrf"`（預設）｜`"legacy"`（回退純 ACT-R rank 排序）。
+- **驗證前提**：`tools/memory-eval/` 回歸集（223 條合成查詢，Recall@1/@3、MRR、誤注入率 + `baseline.json` 比對）——本節所有參數（含 `bm25_min_score` 7.0）皆以此集實測定值（Recall@1 34→53.6%、MRR 0.584→0.709、誤注入不劣化）。
+- 守門：`hooks/verify/verify_rrf_fusion.py` + `hooks/verify/verify_stability_decay.py` + `tools/verify/verify_memory_eval.py`。
+
+## 15. 變更紀錄
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-07-25 | V5.1 | **檢索融合（§14）+ Optional metadata（§13）+ 效用校準（§12.2）**：RRF 三路融合（k=60）× ACT-R 個別化 decay（γ=0.3）＋ `tools/memory-eval/` 回歸集 223 條定參（bm25_min_score 3.5→7.0）；atom optional `Depends`/`Evidence` 欄 + stale_deps 檢查 + 衝突裁決證據優先序 + fast-refute；wilson_z 1.96→1.28、`demote_min_n=5`、decay 每日護欄（`last_decay_date`）；失念偵測 recall-miss（SessionEnd → `Logs/recall-miss.jsonl`） |
 | 2026-06-03 | V5+ S1–S3 | **Realm 範疇分區（§2.2）**：core vs local 由 index path 前綴推導（不存欄位）；local 住 `_AIDocs/_atoms/<domain>/`、scope 仍 global、只在 cwd∈~/.claude 注入。注入閘門（session_start）+ 分類器（`classify_realm` 安全預設 core+核心保護硬擋）+ 搬遷工具 `atom-set-realm.py`（sidecar 原子搬、`_atoms/` path 唯一寫者）+ 8 顆既有 local atom 遷移 + MEMORY.md「本地範疇」段 + py↔js parity（test_14–17）+ `verify_realm_injection_gate.py` |
 | 2026-06-02 | V5+ | `edit_metadata` 元資料外科編輯入口（§3.4）+ MCP `atom_edit_meta`；memory-audit 晉升建議改對齊線上 usefulness Wilson 閘；atom-health-check 計數改讀 `.access.json` sidecar；funnel 寫入紀律延伸（health-check / sync-atom-index 裸 write_text → write_raw） |
 | 2026-06-01 | V5+ #1/#2 | Sub-agent 記憶注入（Phase 1）+ 注入→使用→結果 (α,β) 閉環效用歸因（Phase 2）；晉升改 Confirmations OR 效用 Wilson 下界、ReadHits 降純曝光 |

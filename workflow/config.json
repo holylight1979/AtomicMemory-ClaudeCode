@@ -46,8 +46,9 @@
     "auto_start_service": true,
     "auto_index_on_change": true,
     "global_layer": "bm25",
-    "bm25_min_score": 3.5,
-    "bm25_top_k": 3
+    "bm25_min_score": 7.0,
+    "bm25_top_k": 3,
+    "fusion": "rrf"
   },
   "write_gate": {
     "enabled": true,
@@ -89,15 +90,18 @@
     "enabled": true,
     "lexical_overlap_min": 0.18,
     "rare_token_min": 2,
-    "wilson_z": 1.96,
+    "wilson_z": 1.28,
     "promote_lb": 0.6,
     "demote_lb": 0.35,
+    "demote_min_n": 5,
     "min_n": 3,
     "decay_lambda": 0.97,
     "distraction_enabled": true,
     "distraction_weight": 0.5,
     "embedding_tiebreak": true,
     "embed_timeout_s": 3.0,
+    "embed_budget_s": 3.0,
+    "stability_gamma": 0.3,
     "unknown_watch": {
       "_doc": "效用歸因遙測：SessionEnd 統計 _detect_turn_outcome 的 unknown 比率（落 workflow/outcome_stats.jsonl），連續 window 個 session > threshold → 下個 SessionStart 浮 advisory。防完成語 regex 與模型輸出習慣失配 → α/β 晉升軌靜默停滯。turn 數 < min_turns 的 session 不計。",
       "enabled": true,

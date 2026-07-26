@@ -1270,6 +1270,37 @@
         "寫code"
       ],
       "scope": "global"
+    },
+    {
+      "name": "檢索融合與回歸集調參-rrf-min-score-定案",
+      "path": "_AIDocs/_atoms/MemDev/檢索融合與回歸集調參-rrf-min-score-定案.md",
+      "triggers": [
+        "RRF",
+        "融合檢索",
+        "min_score 調參",
+        "memory-eval",
+        "回歸集",
+        "誤注入率",
+        "Recall@3",
+        "檢索品質"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "佛法三缺口工程化-失念壞滅緣了義",
+      "path": "_AIDocs/_atoms/MemDev/佛法三缺口工程化-失念壞滅緣了義.md",
+      "triggers": [
+        "失念",
+        "recall-miss",
+        "壞滅緣",
+        "Depends 欄位",
+        "Evidence 欄位",
+        "證據等級",
+        "fast-refute",
+        "佛法",
+        "唯識"
+      ],
+      "scope": "global"
     }
   ]
 }

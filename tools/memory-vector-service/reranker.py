@@ -9,6 +9,7 @@ C. 知識萃取 (Auto-extract)
 所有功能都是「離線路徑」，不在 3 秒 hook timeout 內使用。
 """
 
+import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional

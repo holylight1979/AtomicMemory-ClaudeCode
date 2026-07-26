@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .atom_spec import (
-    SKIP_DIRS, MEMORY_INDEX, ATOM_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
+    SKIP_DIRS, MEMORY_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
     build_atom_content, slugify, validate_atom_content, render_knowledge_lines,
 )
 from .atom_locations import (
@@ -47,7 +47,7 @@ VALID_SOURCES = frozenset({
     "hook:extract-worker",
     "tool:atom-move",
     "tool:atom-set-realm",  # V5+ Realm 維度：core⇄local 範疇搬移（_AIDocs/_atoms/ path 唯一寫者）
-    "tool:atom-health-audit",  # atom 體質審視工具
+    "tool:atom-health-check",  # atom 健康診斷 / 反向參照修補
     "tool:atom-heal",  # 記憶自癒（腦內世界 P3）：機械修反向連結 / LLM 提案修死連結
     "tool:changelog-roll",
     "tool:memory-audit",  # memory-audit demote/compact/log_evolution 修補
@@ -97,11 +97,35 @@ def _gen_audit_id() -> str:
 
 
 def _audit_log(entry: Dict[str, Any]) -> None:
-    """Append JSONL entry to atom_io_audit.jsonl（best-effort）。"""
+    """Append JSONL entry to atom_io_audit.jsonl（best-effort），>10MB 輪替。"""
     try:
         AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
         with open(AUDIT_LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        if AUDIT_LOG.stat().st_size > 10 * 1024 * 1024:
+            _rotate_audit_log()
+    except OSError:
+        pass
+
+
+def _rotate_audit_log() -> None:
+    """輪替 atom_io_audit.jsonl（保留 3 份），對拍 memory-write-gate._rotate_log。"""
+    for i in range(2, 0, -1):
+        src = Path(f"{AUDIT_LOG}.{i}")
+        dst = Path(f"{AUDIT_LOG}.{i + 1}")
+        if src.exists():
+            if i == 2:
+                try:
+                    src.unlink()
+                except OSError:
+                    pass
+            else:
+                try:
+                    src.rename(dst)
+                except OSError:
+                    pass
+    try:
+        AUDIT_LOG.rename(Path(f"{AUDIT_LOG}.1"))
     except OSError:
         pass
 
@@ -137,10 +161,23 @@ def _atomic_write(path: Path, content: str) -> None:
     body = content.replace("\r\n", "\n").replace("\r", "\n")
     if eol != "\n":
         body = body.replace("\n", eol)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp, "w", encoding="utf-8", newline="") as f:
-        f.write(body)
-    os.replace(str(tmp), str(path))
+    # tmp 後綴帶 PID+TID 唯一化（仿 atom_access._write_raw）：固定 ".tmp" 會讓
+    # 併發 session 寫同一 atom 時共用 tmp 檔互踩（truncate 競態 → 半空檔）。
+    import threading as _threading
+    tmp = path.with_suffix(
+        f"{path.suffix}.tmp.{os.getpid()}.{_threading.get_ident()}"
+    )
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as f:
+            f.write(body)
+        os.replace(str(tmp), str(path))
+    except OSError:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _find_project_root(cwd: Optional[str]) -> Optional[Path]:
@@ -262,14 +299,6 @@ def _resolve_target(
 # ─── Index update（對拍 server.js:953 appendToIndex） ─────────────────────────
 
 
-def _resolve_index_path(mem_dir: Path) -> Path:
-    """優先 _ATOM_INDEX.md，否則 MEMORY.md（對拍 server.js:827）。"""
-    atom_idx = mem_dir / ATOM_INDEX
-    if atom_idx.exists():
-        return atom_idx
-    return mem_dir / MEMORY_INDEX
-
-
 def write_index(
     base_dir: Path,
     slug: str,
@@ -279,7 +308,8 @@ def write_index(
 ) -> WriteResult:
     """更新或追加 atom 條目到 _atom_index.json (SoT)，並回寫 _ATOM_INDEX.md mirror。
 
-    對拍 server.js:953 appendToIndex；JSON 為唯一機器源。
+    對拍 server.js:953 appendToIndex；JSON 為唯一機器源
+    （atom_index_json 同 package，import 恆成功；MD 由其自動 regen）。
     """
     if source not in VALID_SOURCES:
         return WriteResult(ok=False, error=f"invalid source: {source}",
@@ -289,66 +319,20 @@ def write_index(
     triggers_list = list(triggers)
 
     # write JSON via lib/atom_index_json (auto-regen MD mirror)
-    try:
-        from .atom_index_json import upsert_atom
-        upsert_atom(
-            mem_dir=base_dir,
-            name=slug,
-            path=rel_path,
-            triggers=triggers_list,
-            scope="global",
-        )
-        index_path = base_dir / "_atom_index.json"
-        _audit_log({
-            "audit_id": audit_id,
-            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "op": "index", "source": source,
-            "path": str(index_path), "slug": slug,
-        })
-        return WriteResult(ok=True, path=index_path, audit_id=audit_id)
-    except ImportError:
-        pass  # fall through to legacy MD write
-
-    index_path = _resolve_index_path(base_dir)
-    trigger_str = ", ".join(triggers_list)
-    new_row = f"| {slug} | {rel_path} | {trigger_str} |"
-
-    try:
-        content = index_path.read_text(encoding="utf-8")
-    except (OSError, FileNotFoundError):
-        content = "\n".join([
-            "# Atom Index", "",
-            "> Session 啟動時先讀此索引。比對 Trigger → Read 對應 atom。",
-            "| Atom | Path | Trigger |",
-            "|------|------|---------|",
-            "",
-        ])
-
-    escaped = re.escape(slug)
-    existing_re = re.compile(rf"^\|\s*{escaped}\s*\|.*$", re.MULTILINE)
-    if existing_re.search(content):
-        content = existing_re.sub(new_row, content, count=1)
-    else:
-        lines = content.split("\n")
-        insert_idx = -1
-        found_sep = False
-        for i, line in enumerate(lines):
-            if line.startswith("|------"):
-                found_sep = True
-                continue
-            if found_sep and not line.startswith("|"):
-                insert_idx = i
-                break
-        if insert_idx >= 0:
-            lines.insert(insert_idx, new_row)
-            content = "\n".join(lines)
-        else:
-            content = content.rstrip() + "\n" + new_row + "\n"
-
-    _atomic_write(index_path, content)
+    from .atom_index_json import upsert_atom
+    upsert_atom(
+        mem_dir=base_dir,
+        name=slug,
+        path=rel_path,
+        triggers=triggers_list,
+        scope="global",
+    )
+    index_path = base_dir / "_atom_index.json"
     _audit_log({
-        "audit_id": audit_id, "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "op": "index", "source": source, "path": str(index_path), "slug": slug,
+        "audit_id": audit_id,
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "op": "index", "source": source,
+        "path": str(index_path), "slug": slug,
     })
     return WriteResult(ok=True, path=index_path, audit_id=audit_id)
 
@@ -692,12 +676,9 @@ def write_atom(
     try:
         from . import atom_access
         if mode == "create":
+            # init 一次帶齊 first_seen + last_used（單寫；create 時 sidecar 必為新檔）
             atom_access.init_access(
-                file_path, first_seen=today_str, source=source,
-            )
-            # 同步把 last_used 設為 today（init 只設 first_seen，未設 last_used）
-            atom_access.write_access_field(
-                file_path, field="last_used", value=today_str, source=source,
+                file_path, first_seen=today_str, last_used=today_str, source=source,
             )
         else:  # append / replace
             atom_access.write_access_field(

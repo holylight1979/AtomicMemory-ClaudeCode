@@ -2,7 +2,6 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const { exec } = require("child_process");
 const { TOOLS_DIR, CLAUDE_DIR } = require("./paths");
 const { crashLog } = require("./log");
 
@@ -101,27 +100,56 @@ function buildConflictReport({ slug, incomingTitle, incomingContent, matches, de
   return lines.join("\n");
 }
 
-/** Run write-gate Python script for dedup check. Returns Promise<{action, reason}> */
+/** Run write-gate Python script for dedup check. Returns Promise<{action, reason}>.
+ *  Payload goes over stdin (script's no-args pipe mode) — no shell, no escaping
+ *  surface. Fail-open on any infra error, but crashLog so the degradation is
+ *  visible (可觀測性鐵律). */
 function execWriteGate(content, classification) {
   return new Promise((resolve) => {
     const scriptPath = path.join(TOOLS_DIR, "memory-write-gate.py");
     if (!fs.existsSync(scriptPath)) {
       return resolve({ action: "add", reason: "write-gate script not found, allowing" });
     }
-    // Escape content for CLI: use stdin via echo pipe
-    const escaped = JSON.stringify({ content, classification });
-    const cmd = `echo ${escaped.replace(/"/g, '\\"')} | python "${scriptPath.replace(/\\/g, "/")}"`;
-    exec(cmd, { timeout: 15000 }, (err, stdout) => {
-      if (err || !stdout) {
+    let cp;
+    try {
+      cp = require("child_process").spawn("python", [scriptPath], {
+        windowsHide: true,
+        env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+      });
+    } catch (e) {
+      crashLog("write-gate unavailable (spawn failed)", e);
+      return resolve({ action: "add", reason: "write-gate unavailable, allowing" });
+    }
+    let out = "", err = "", timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { cp.kill(); } catch {}
+    }, 15000);
+    cp.stdout.on("data", (d) => { out += d.toString("utf-8"); });
+    cp.stderr.on("data", (d) => { err += d.toString("utf-8"); });
+    cp.on("close", () => {
+      clearTimeout(timer);
+      if (timedOut || !out) {
+        crashLog("write-gate unavailable",
+          timedOut ? "timeout (15s), killed" : `no output; stderr=${err.slice(0, 200)}`);
         return resolve({ action: "add", reason: "write-gate unavailable, allowing" });
       }
       try {
-        const result = JSON.parse(stdout.trim());
-        resolve(result);
-      } catch {
+        resolve(JSON.parse(out.trim()));
+      } catch (e) {
+        crashLog("write-gate parse error", `${e.message} stderr=${err.slice(0, 200)}`);
         resolve({ action: "add", reason: "write-gate parse error, allowing" });
       }
     });
+    cp.on("error", (e) => {
+      clearTimeout(timer);
+      crashLog("write-gate unavailable (spawn error)", e);
+      resolve({ action: "add", reason: "write-gate unavailable, allowing" });
+    });
+    try {
+      cp.stdin.write(JSON.stringify({ content, classification }));
+      cp.stdin.end();
+    } catch {} // close handler resolves either way
   });
 }
 
@@ -132,14 +160,25 @@ async function appendToIndex(memDir, atomName, relPath, triggers) {
   if (!r.ok) crashLog("appendToIndex funnel (json)", r.error);
 }
 
-/** Trigger vector service re-index (fire and forget) */
+/** Trigger vector service incremental re-index (fire and forget, but surfaced:
+ *  service down / non-2xx goes to crashLog — 可觀測性鐵律, no silent swallow).
+ *  Route SYNC: tools/memory-vector-service/service.py POST /index/incremental
+ *  (no body — handler just kicks a background incremental build). */
 function triggerVectorReindex() {
   try {
-    const url = "http://127.0.0.1:3849/reindex";
-    const req = http.request(url, { method: "POST", timeout: 3000 }, () => {});
-    req.on("error", () => {}); // ignore
+    const url = "http://127.0.0.1:3849/index/incremental";
+    const req = http.request(url, { method: "POST", timeout: 3000 }, (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        crashLog("vector reindex", `HTTP ${res.statusCode} from POST /index/incremental`);
+      }
+      res.resume();
+    });
+    req.on("timeout", () => { try { req.destroy(new Error("timeout (3s)")); } catch {} });
+    req.on("error", (e) => crashLog("vector reindex unavailable", e));
     req.end();
-  } catch {}
+  } catch (e) {
+    crashLog("vector reindex unavailable", e);
+  }
 }
 
 /** Regenerate MEMORY.md from _ATOM_INDEX (fire and forget).
@@ -178,17 +217,28 @@ function spawnAtomCli(action, payload) {
     } catch (e) {
       return resolve({ ok: false, error: `spawn failed: ${e.message}` });
     }
-    let out = "", err = "";
+    let out = "", err = "", timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { cp.kill(); } catch {}
+    }, 30000);
     cp.stdout.on("data", (d) => { out += d.toString("utf-8"); });
     cp.stderr.on("data", (d) => { err += d.toString("utf-8"); });
     cp.on("close", () => {
+      clearTimeout(timer);
+      if (timedOut) {
+        return resolve({ ok: false, error: `atom_io_cli timeout (30s), killed (action=${action})` });
+      }
       try {
         resolve(JSON.parse(out));
       } catch (e) {
         resolve({ ok: false, error: `cli parse fail: ${e.message} stderr=${err.slice(0, 200)}` });
       }
     });
-    cp.on("error", (e) => resolve({ ok: false, error: `spawn error: ${e.message}` }));
+    cp.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: `spawn error: ${e.message}` });
+    });
     try {
       cp.stdin.write(JSON.stringify({ action, ...payload }));
       cp.stdin.end();

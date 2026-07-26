@@ -26,10 +26,20 @@ VALID_TYPES = ("factual", "procedural", "architectural", "pitfall", "decision")
 # ─── Token estimation ──────────────────────────────────────────────────────
 
 def _estimate_tokens(text: str) -> int:
-    """CJK-aware token estimation. Chinese ~1.5 tok/char, ASCII ~0.25 tok/word."""
+    """CJK-aware token estimation. CJK ~1.5 tok/char, \u5176\u9918 ~0.25 tok/char\uff08\u7686\u6309\u5b57\u5143\u8a08\uff09\u3002
+
+    CJK \u5224\u5b9a\u6db5\u84cb\uff1a\u6f22\u5b57\uff08U+4E00-9FFF\uff09\u3001CJK \u6a19\u9ede\uff08U+3000-303F\uff09\u3001
+    \u304b\u306a\uff08U+3040-30FF\uff09\u3001\u5168\u5f62/\u534a\u5f62\u5f62\u5f0f\uff08U+FF00-FFEF\uff0c\u542b\u5168\u5f62\u6a19\u9ede\uff1a\uff1f\uff01\uff08\uff09\u7b49\uff09\u3002
+    """
     if not text:
         return 0
-    cjk = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u303f')
+    cjk = sum(
+        1 for c in text
+        if '\u4e00' <= c <= '\u9fff'
+        or '\u3000' <= c <= '\u303f'
+        or '\u3040' <= c <= '\u30ff'
+        or '\uff00' <= c <= '\uffef'
+    )
     ascii_part = len(text) - cjk
     return int(cjk * 1.5 + ascii_part * 0.25)
 
@@ -156,45 +166,76 @@ def _dedup_items(
 # ─── Ack-then-clear ──────────────────────────────────────────────────
 
 def ack_then_clear(state_path: Path, key: str, indices: List[int]) -> bool:
-    """Atomically read state → pop specified indices from state[key] → write back.
+    """Read state → pop specified indices from state[key] → write back（持鎖 RMW）。
 
     Used to clear successfully-written items from knowledge_queue / pending_user_extract
     without losing items added concurrently by other hooks.
 
+    整段 read-modify-write 持 advisory lock（仿 atom_locations.append_learned_terms
+    的 msvcrt 模式）：無鎖時兩個 worker 併發 RMW 會 lost-update——
+    對方剛 append 的 queue 項被本方以舊快照整檔覆寫而永久遺失。
+
     Returns True on success, False on any error.
     """
+    lock_path = state_path.with_suffix(".lock")
+    lock_fh = None
+    if sys.platform == "win32":
+        try:
+            import msvcrt
+            lock_fh = open(lock_path, "ab")
+            msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
+        except OSError:
+            # 鎖失敗 fail-open（不阻斷清佇列），但留訊號（可觀測性鐵律）
+            print(f"[ack_then_clear] advisory lock unavailable for {state_path.name}; "
+                  "proceeding unlocked", file=sys.stderr)
+            if lock_fh:
+                lock_fh.close()
+            lock_fh = None
     try:
-        with open(state_path, "r", encoding="utf-8") as f:
-            state = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return False
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return False
 
-    queue = state.get(key, [])
-    if not queue or not indices:
-        return True  # nothing to clear
+        queue = state.get(key, [])
+        if not queue or not indices:
+            return True  # nothing to clear
 
-    # Pop indices in reverse order to maintain correctness
-    for idx in sorted(indices, reverse=True):
-        if 0 <= idx < len(queue):
-            queue.pop(idx)
+        # Pop indices in reverse order to maintain correctness
+        for idx in sorted(indices, reverse=True):
+            if 0 <= idx < len(queue):
+                queue.pop(idx)
 
-    state[key] = queue
-    state["last_updated"] = datetime.now().astimezone().isoformat()
+        state[key] = queue
+        state["last_updated"] = datetime.now().astimezone().isoformat()
 
-    # Atomic write: temp file → rename
-    tmp = state_path.with_suffix(".tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-        tmp.replace(state_path)
-        return True
-    except OSError:
-        if tmp.exists():
+        # Atomic write: temp file → rename
+        tmp = state_path.with_suffix(".tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+            tmp.replace(state_path)
+            return True
+        except OSError:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+            return False
+    finally:
+        if lock_fh is not None:
             try:
-                tmp.unlink()
+                import msvcrt
+                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
             except OSError:
                 pass
-        return False
+            lock_fh.close()
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
 
 
 # ─── Session Budget Tracker ──────────────────────────────────────────

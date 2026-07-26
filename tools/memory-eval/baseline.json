@@ -1,0 +1,9 @@
+{
+  "recall_at_1": 0.6698564593301436,
+  "recall_at_3": 0.9043062200956937,
+  "mrr": 0.7889154704944178,
+  "neg_injection_rate": 0.0,
+  "n_direct": 209,
+  "n_negative": 14,
+  "generated_at": "2026-07-25T19:59:13"
+}

@@ -77,8 +77,8 @@ def test_empty_passthrough(tmp_path):
 
 
 def test_skip_demoted(tmp_path):
-    # bad: alpha=1,beta=5 → succ=0,fail=4,n=4≥min_n，lb=0≤demote_lb → demote_candidate → 剔除
-    _write_access(tmp_path, "bad", read_hits=20, alpha=1, beta=5)
+    # bad: alpha=1,beta=7 → succ=0,fail=6,n=6≥demote_min_n(5)，lb=0≤demote_lb → demote_candidate → 剔除
+    _write_access(tmp_path, "bad", read_hits=20, alpha=1, beta=7)
     _write_access(tmp_path, "ok", read_hits=1, alpha=1, beta=1)  # n=0 → 不剔
     kept, skipped = _filter_related_by_relevance(
         [_entry(tmp_path, "bad"), _entry(tmp_path, "ok")], _cfg())

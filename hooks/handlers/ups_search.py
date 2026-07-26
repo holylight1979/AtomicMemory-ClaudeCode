@@ -22,13 +22,16 @@ from wg_core import (
     discover_all_project_memory_dirs,
     _atom_debug_log,
 )
+import math
+
 from wg_atoms import (
     AtomEntry,
     parse_memory_index, parse_project_aliases,
     any_trigger_hit, count_trigger_hits, compute_activation, compute_injection_rank,
     classify_intent,
     _semantic_search,
-    bm25_match,
+    bm25_match, BM25_MIN_SCORE_DEFAULT,
+    read_atom_text, rrf_fuse, RRF_ACTIVATION_GAIN,
 )
 from handlers._shared import _SUPERSEDES_RE
 
@@ -63,17 +66,24 @@ def collect_matched_atoms(
     prompt_lower: str,
     lines: List[str],
 ) -> Tuple[
-    List[Tuple[AtomEntry, Path]],  # matched_with_dir（已 ACT-R 排序）
+    List[Tuple[AtomEntry, Path]],  # matched_with_dir（已排序：RRF×activation 或 legacy ACT-R）
     Dict[str, str],                # atom_source（name → trigger/bm25/vector）
     List[Tuple[AtomEntry, Path]],  # all_atoms（含跨專案補入）
     list,                          # sem_atoms（vector 原始結果，供 blind-spot 統計）
     Dict[str, List[Dict]],         # section_hints（vector section 提示）
     set,                           # alias_injected_projects
     str,                           # intent
+    Dict[str, Dict],               # caches：{"content": path→text, "access": md path→access dict}
 ]:
-    """收集並排序本輪可注入的 atom 候選。append lines（alias 注入）。"""
+    """收集並排序本輪可注入的 atom 候選。append lines（alias 注入）。
+
+    caches 隨管線下傳（assemble_injection 續用）——同 atom 本 prompt 只實讀一次。
+    """
     atom_index = state.get("atom_index", {})
     already_injected = state.get("injected_atoms", [])
+    content_cache: Dict[str, str] = {}
+    access_cache: Dict[str, Dict] = {}
+    caches: Dict[str, Dict] = {"content": content_cache, "access": access_cache}
 
     all_atoms: List[Tuple[AtomEntry, Path]] = []
     for entry in atom_index.get("global", []):
@@ -132,29 +142,34 @@ def collect_matched_atoms(
             if name not in already_injected and count_trigger_hits(triggers, prompt_lower) >= 2:
                 all_atoms.append(((name, rel_path, triggers), cross_parent))
                 _atom_debug_log("CrossProject", f"{_cross_slug}/{name} matched", config)
+    trigger_hits: Dict[str, int] = {}  # RRF trigger 路排序依據（命中數降冪）
     for (name, rel_path, triggers), base_dir in all_atoms:
         if name in atom_source:
             continue  # 同名去重：all_atoms 多層（global/project/cross）混入同名時只取首見
         if name not in already_injected and any_trigger_hit(triggers, prompt_lower):
             matched_with_dir.append(((name, rel_path, triggers), base_dir))
             atom_source[name] = "trigger"
+            trigger_hits[name] = count_trigger_hits(triggers, prompt_lower)
 
     intent = classify_intent(prompt)
 
     kw_matched_names = {e[0][0] for e in matched_with_dir}
+    trigger_hit_count = len(matched_with_dir)  # 純 trigger 命中數（BM25 合併前快照）
 
     # BM25 over global layer (replaces vector round-trip for global atoms).
     # Only run if no/few trigger hits (≤2). Project layer still uses vector below.
     vs_cfg = config.get("vector_search", {})
+    bm25_route: List[str] = []  # RRF bm25 路（bm25_match 已依分數排序、min_score 已過濾）
     if vs_cfg.get("global_layer", "bm25") == "bm25" and len(matched_with_dir) <= 2:
         global_atoms = [e for e in all_atoms if e[1] == MEMORY_DIR.parent]
         if global_atoms:
             global_entries = [e[0] for e in global_atoms]
             bm25_hits = bm25_match(
                 prompt, global_entries,
-                min_score=vs_cfg.get("bm25_min_score", 1.0),
+                min_score=vs_cfg.get("bm25_min_score", BM25_MIN_SCORE_DEFAULT),
                 top_k=vs_cfg.get("bm25_top_k", 3),
             )
+            bm25_route = [entry[0] for entry in bm25_hits]
             for entry in bm25_hits:
                 _merge_hit(
                     entry[0], global_atoms, "bm25",
@@ -170,11 +185,13 @@ def collect_matched_atoms(
     # Vector 兩用途：hits=0 → 全層 fallback；hits>0 → 專案層 enrichment
     #（trigger/BM25 只擅長全域層關鍵詞，專案層語意近似仍值得補充；
     #  結果仍受 assemble 端 TURN_BUDGET_LIMIT 硬頂與服務端 min_score 約束）。
+    # enrichment 前置條件：trigger 已命中 ≥3（keyword 訊號充足）就不再為專案層
+    # 每 prompt 打 vector round-trip（省 200-500ms；召回缺口由 trigger 命中兜底）。
     project_atoms = [e for e in all_atoms if e[1] != MEMORY_DIR.parent]
     full_fallback = (
         len(matched_with_dir) == 0 or vs_cfg.get("global_layer") != "bm25"
     )
-    if full_fallback or project_atoms:
+    if full_fallback or (project_atoms and trigger_hit_count < 3):
         sem_atoms = _semantic_search(
             prompt, config, intent=intent,
             user=_v4_user, roles=_v4_roles,
@@ -204,15 +221,14 @@ def collect_matched_atoms(
             matched_with_dir, atom_source, kw_matched_names, already_injected,
         )
 
-    # Supersedes filtering
+    # Supersedes filtering（讀過的內文入 content_cache，assemble 段免重讀）
     superseded_names: set = set()
     for (name, rel_path, triggers), base_dir in matched_with_dir:
         atom_path = (base_dir / rel_path) if rel_path else (base_dir / "memory" / f"{name}.md")
         if not atom_path.exists():
             continue
-        try:
-            text = atom_path.read_text(encoding="utf-8-sig")
-        except (OSError, UnicodeDecodeError):
+        text = read_atom_text(atom_path, content_cache)
+        if text is None:
             continue
         sm = _SUPERSEDES_RE.search(text)
         if sm:
@@ -226,15 +242,36 @@ def collect_matched_atoms(
             if entry[0][0] not in superseded_names
         ]
 
-    # ACT-R activation sort（扣分心懲罰：高曝光低效用者降權，憲法 Distraction 對策）
-    def _activation_key(entry):
+    def _rank_of(entry) -> float:
+        """ACT-R 注入 rank（activation − 分心懲罰，憲法 Distraction 對策）。"""
         (name, rel_path, _triggers), base_dir = entry
         atom_dir = (base_dir / rel_path).parent if rel_path else (base_dir / "memory")
-        return compute_injection_rank(name, atom_dir, config)
+        return compute_injection_rank(name, atom_dir, config, access_cache)
 
-    matched_with_dir.sort(key=_activation_key, reverse=True)
+    # 排序：RRF 融合（相關性路 rank 融合 × activation 乘性調節）；
+    # fusion="legacy" 回退純 ACT-R rank 排序。入場過濾（各路 min_score）不變。
+    fusion = vs_cfg.get("fusion", "rrf")
+    if fusion == "rrf" and matched_with_dir:
+        trigger_route = sorted(trigger_hits, key=trigger_hits.get, reverse=True)
+        vector_route = [s[0] for s in sem_atoms]
+        rrf_scores = rrf_fuse({
+            "trigger": trigger_route,
+            "bm25": bm25_route,
+            "vector": vector_route,
+        })
+
+        def _fused_key(entry) -> float:
+            name = entry[0][0]
+            return rrf_scores.get(name, 0.0) * math.exp(
+                RRF_ACTIVATION_GAIN * _rank_of(entry)
+            )
+
+        matched_with_dir.sort(key=_fused_key, reverse=True)
+    else:
+        matched_with_dir.sort(key=_rank_of, reverse=True)
 
     return (
         matched_with_dir, atom_source, all_atoms,
         sem_atoms, section_hints, alias_injected_projects, intent,
+        caches,
     )

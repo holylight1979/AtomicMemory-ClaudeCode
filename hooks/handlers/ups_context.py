@@ -16,7 +16,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from wg_core import MEMORY_DIR, EPISODIC_DIR, _atom_debug_error
+from wg_core import (
+    MEMORY_DIR, EPISODIC_DIR, _atom_debug_error,
+    _estimate_tokens, truncate_to_tokens,
+)
 from wg_atoms import (
     any_trigger_hit,
     _search_episodic_context, _build_session_context,
@@ -157,10 +160,12 @@ def build_context(
         if ref_path.exists():
             try:
                 ref_text = ref_path.read_text(encoding="utf-8")
-                ref_tokens = len(ref_text) // 4
+                ref_tokens = _estimate_tokens(ref_text)
                 jit_budget = min(ref_tokens, 250)
                 if jit_budget <= budget:
-                    lines.append(f"[JIT:InternalPipeline]\n{ref_text[:jit_budget * 4]}")
+                    lines.append(
+                        f"[JIT:InternalPipeline]\n{truncate_to_tokens(ref_text, jit_budget)}"
+                    )
                     budget -= jit_budget
             except (OSError, UnicodeDecodeError):
                 pass

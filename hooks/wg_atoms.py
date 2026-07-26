@@ -15,6 +15,7 @@ import re
 import sys
 import time
 from collections import Counter
+from functools import lru_cache
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -166,6 +167,57 @@ def parse_project_aliases(memory_dir: Path) -> List[str]:
     return [a.strip().lower() for a in m.group(1).split(",") if a.strip()]
 
 
+# ─── Per-turn 讀取快取原語 ───────────────────────────────────────────────────
+# UPS 管線同一顆 atom 每 prompt 會被讀 3-4 次（supersedes 掃描 / related 擴散 /
+# assemble / usefulness hints），access sidecar 更多（activation / rank / hot-cold /
+# hints）。cache 參數皆可選：None 時自讀（各函式保持可獨測），呼叫端傳同一 dict
+# 即得單次讀取共用（hook 行程 per-event 短命，無跨 prompt 失效問題）。
+
+
+def read_atom_text(
+    atom_path: Path, cache: Optional[Dict[str, Optional[str]]] = None,
+) -> Optional[str]:
+    """讀 atom 內文（utf-8-sig）；cache 提供時同 path 只實讀一次（含失敗 None 也快取）。"""
+    key = str(atom_path)
+    if cache is not None and key in cache:
+        return cache[key]
+    try:
+        text = atom_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        text = None
+    if cache is not None:
+        cache[key] = text
+    return text
+
+
+def load_access_cached(
+    atom_md_path: Path, cache: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """讀 atom 的 access sidecar（正規化 dict；檔缺/損毀回 defaults）。
+
+    優先走 lib.atom_access.read_access（v3 正規化，timestamps/α/β 欄位齊）；
+    lib 不可用時退直讀 raw JSON（caller 以 .get 容忍缺欄）。cache 同 read_atom_text。
+    """
+    key = str(atom_md_path)
+    if cache is not None and key in cache:
+        return cache[key]
+    data: Dict[str, Any] = {}
+    try:
+        from lib.atom_access import read_access
+        data = read_access(atom_md_path)
+    except Exception:
+        acc = atom_md_path.parent / f"{atom_md_path.stem}.access.json"
+        try:
+            raw = json.loads(acc.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                data = raw
+        except (OSError, json.JSONDecodeError, ValueError):
+            data = {}
+    if cache is not None:
+        cache[key] = data
+    return data
+
+
 def _find_atom_path(name: str, all_atoms: List[Tuple[AtomEntry, Path]]) -> Optional[Path]:
     for (aname, rel_path, _triggers), base_dir in all_atoms:
         if aname == name:
@@ -181,6 +233,7 @@ def spread_related(
     all_atoms: List[Tuple[AtomEntry, Path]],
     already_injected: List[str],
     max_depth: int = 1,
+    content_cache: Optional[Dict[str, Optional[str]]] = None,
 ) -> List[Tuple[AtomEntry, Path]]:
     """沿 Related 邊擴散，回傳尚未匹配的相關 atoms (depth-limited BFS)."""
     _RELATED_RE = re.compile(r"^- Related:\s*(.+)", re.MULTILINE)
@@ -194,9 +247,8 @@ def spread_related(
             atom_path = _find_atom_path(name, all_atoms)
             if not atom_path or not atom_path.exists():
                 continue
-            try:
-                text = atom_path.read_text(encoding="utf-8-sig")
-            except (OSError, UnicodeDecodeError):
+            text = read_atom_text(atom_path, content_cache)
+            if text is None:
                 continue
             rm = _RELATED_RE.search(text)
             if not rm:
@@ -213,28 +265,67 @@ def spread_related(
     return result
 
 
-def compute_activation(atom_name: str, atom_dir: Path) -> float:
-    """ACT-R base-level activation: B_i = ln(Σ t_k^{-0.5})."""
-    access_file = atom_dir / f"{atom_name}.access.json"
-    if not access_file.exists():
-        return -10.0
+# 個別化 decay 旋鈕預設（config usefulness.stability_gamma；0=關閉退回固定 d=0.5）
+_STABILITY_GAMMA_DEFAULT = 0.3
+_DECAY_D_MIN = 0.3
+_DECAY_D_MAX = 0.5
+
+
+def _decay_exponent(access: Dict[str, Any], config: Optional[Dict[str, Any]]) -> float:
+    """ACT-R decay 指數 d 的個別化：d = clamp(0.5 − γ·wilson_lb, 0.3, 0.5)。
+
+    被效用閉環證明有用的 atom（Wilson 下界高）衰減更慢（記憶更穩固）。
+    無 config（legacy caller）/ γ≤0 / 無效用樣本（n=0）→ 0.5 不變。fail-open。
+    """
+    if not config:
+        return _DECAY_D_MAX
+    u = config.get("usefulness") or {}
     try:
-        data = json.loads(access_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return -10.0
-    timestamps = data.get("timestamps", [])
+        gamma = float(u.get("stability_gamma", _STABILITY_GAMMA_DEFAULT))
+    except (TypeError, ValueError):
+        return _DECAY_D_MAX
+    if gamma <= 0:
+        return _DECAY_D_MAX
+    try:
+        from lib.atom_access import usefulness_stats
+        st = usefulness_stats(access, z=float(u.get("wilson_z", 1.28)))
+        if st.get("n", 0) <= 0:
+            return _DECAY_D_MAX
+        return min(_DECAY_D_MAX, max(_DECAY_D_MIN, _DECAY_D_MAX - gamma * st["lower_bound"]))
+    except Exception:
+        return _DECAY_D_MAX
+
+
+def compute_activation(
+    atom_name: str, atom_dir: Path,
+    config: Optional[Dict[str, Any]] = None,
+    access_cache: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> float:
+    """ACT-R base-level activation: B_i = ln(Σ t_k^{-d})。
+
+    d 預設 0.5；config 給定時走 _decay_exponent 個別化（效用高者衰減慢）。
+    無 access log（新 atom / sidecar 缺失）回中性 0.0——不當「最低分」
+    讓新 atom 在排序/截斷時優先被犧牲（曝光都還沒開始就被壓死）。
+    """
+    data = load_access_cached(atom_dir / f"{atom_name}.md", access_cache)
+    timestamps = data.get("timestamps") or []
     if not timestamps:
-        return -10.0
+        return 0.0
+    d = _decay_exponent(data, config)
     now = time.time()
     total = 0.0
     for ts in timestamps:
-        t_k = max(now - ts, 1.0)
-        total += t_k ** -0.5
-    return math.log(total) if total > 0 else -10.0
+        try:
+            t_k = max(now - float(ts), 1.0)
+        except (TypeError, ValueError):
+            continue
+        total += t_k ** -d
+    return math.log(total) if total > 0 else 0.0
 
 
 def compute_injection_rank(
     atom_name: str, atom_dir: Path, config: Optional[Dict[str, Any]] = None,
+    access_cache: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> float:
     """注入排序鍵 = ACT-R activation − 分心懲罰（高曝光低效用者降權）。
 
@@ -244,7 +335,7 @@ def compute_injection_rank(
     寧漏勿誤殺：n<min_n（新 atom / 樣本不足）一律不罰；關閉 / 資料缺失 → 退回純
     activation（fail-open）。config usefulness.distraction_{enabled,weight} 旋鈕。
     """
-    activation = compute_activation(atom_name, atom_dir)
+    activation = compute_activation(atom_name, atom_dir, config, access_cache)
     if not config:
         return activation  # 無 config（讀取失敗）→ fail-open 不罰
     u = config.get("usefulness") or {}
@@ -263,8 +354,8 @@ def compute_injection_rank(
     except Exception:
         pass
     try:
-        from lib.atom_access import read_access, usefulness_stats
-        acc = read_access(atom_dir / f"{atom_name}.md")
+        from lib.atom_access import usefulness_stats
+        acc = load_access_cached(atom_dir / f"{atom_name}.md", access_cache)
         read_hits = int(acc.get("read_hits") or 0)
         if read_hits <= 0:
             return activation
@@ -277,10 +368,26 @@ def compute_injection_rank(
         return activation
 
 
+@lru_cache(maxsize=4096)
+def _kw_pattern(kw: str) -> "re.Pattern":
+    """trigger keyword → 編譯後 word-boundary pattern（memoized）。
+
+    全索引 trigger 詞彙量超過 re 模組內建 512 條 pattern cache 上限時，每次
+    _kw_match 觸發整包重編譯（實測佔 UPS 主路徑 ~85% CPU）；以本地 lru_cache
+    釘住（詞彙量由索引大小自然封頂，4096 綽綽有餘）。
+    """
+    return re.compile(r'(?<![\w-])' + re.escape(kw) + r'(?![\w-])')
+
+
 def _kw_match(kw: str, prompt_lower: str) -> bool:
     """Match a trigger keyword against prompt. ASCII uses word-boundary, CJK uses substring."""
     if kw.isascii():
-        return bool(re.search(r'(?<![\w-])' + re.escape(kw) + r'(?![\w-])', prompt_lower))
+        # 廉價預篩：literal kw 非子字串則 pattern 必不中——絕大多數 keyword 未出現在
+        # prompt，免掉 per-kw regex 編譯/搜尋（冷行程全索引 ~千餘詞的編譯是 UPS
+        # 主路徑最大 CPU 項）。語意零變：子字串包含是 word-boundary match 的必要條件。
+        if kw not in prompt_lower:
+            return False
+        return bool(_kw_pattern(kw).search(prompt_lower))
     return kw in prompt_lower
 
 
@@ -310,6 +417,9 @@ def match_triggers(prompt: str, atoms: List[AtomEntry]) -> List[AtomEntry]:
 
 _BM25_K1 = 1.2
 _BM25_B = 0.75
+# min_score 預設單一來源（簽名預設 / UPS fallback / sub-agent blob 三處同值）
+# 7.0 由回歸集調參定案：負例誤注入 21.4%→0%、R@3 -1.5pt（漏網由 vector fallback 補位）
+BM25_MIN_SCORE_DEFAULT = 7.0
 
 
 def _bm25_tokenize(text: str) -> List[str]:
@@ -378,7 +488,7 @@ def _bm25_score(prompt: str, atoms: List[AtomEntry]) -> List[Tuple[str, float]]:
 def bm25_match(
     prompt: str,
     atoms: List[AtomEntry],
-    min_score: float = 1.0,
+    min_score: float = BM25_MIN_SCORE_DEFAULT,
     top_k: int = 3,
 ) -> List[AtomEntry]:
     """Return top-k atoms whose BM25 score exceeds min_score."""
@@ -393,6 +503,33 @@ def bm25_match(
         if name in by_name:
             result.append(by_name[name])
     return result
+
+
+# ─── RRF 融合（多路檢索 rank 融合）───────────────────────────────────────────
+# 多路（trigger / bm25 / vector）都有結果時，排序以 Reciprocal Rank Fusion 取代
+# 「各路各自門檻 + 串接」：score = Σ_routes 1/(k + rank)。只決定排序；各路既有
+# min_score（BM25 3.5 / vector 0.65）仍是入場過濾，不因融合放寬。
+# config: vector_search.fusion = "rrf"（預設）| "legacy"（回退原排序）。
+
+RRF_K_DEFAULT = 60
+# activation（記憶強度）作為融合後排序的乘性調節：final = rrf · exp(gain·rank)。
+# gain=0.25 → activation ±2 對應 ×0.61…×1.65 調節——相關性（RRF）為主、
+# 記憶強度為輔，不讓 activation 的大值域反客為主。
+RRF_ACTIVATION_GAIN = 0.25
+
+
+def rrf_fuse(
+    route_ranked: Dict[str, List[str]], k: int = RRF_K_DEFAULT,
+) -> Dict[str, float]:
+    """RRF rank 融合：route_ranked = {route: [name 依該路排序]} → {name: score}。
+
+    純函式；rank 1-based（清單首位 rank=1 → 1/(k+1)）。多路命中者分數相加。
+    """
+    scores: Dict[str, float] = {}
+    for names in route_ranked.values():
+        for i, nm in enumerate(names):
+            scores[nm] = scores.get(nm, 0.0) + 1.0 / (k + i + 1)
+    return scores
 
 
 # ─── Token Budget & Atom Loading ─────────────────────────────────────────────
@@ -557,14 +694,8 @@ _HOT_RECENT_WINDOW_SEC = _HOT_RECENT_DAYS * 86400
 _COLD_LINE_CAP = 80
 
 
-def _recent_reads_7d(access_file: Path) -> int:
-    if not access_file.exists():
-        return 0
-    try:
-        data = json.loads(access_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 0
-    timestamps = data.get("timestamps", []) if isinstance(data, dict) else []
+def _recent_count(timestamps: Any) -> int:
+    """timestamps 清單中落在 7d 窗內的筆數（_recent_reads_7d / cache 路徑共用）。"""
     if not isinstance(timestamps, list):
         return 0
     now = time.time()
@@ -578,13 +709,30 @@ def _recent_reads_7d(access_file: Path) -> int:
     return count
 
 
+def _recent_reads_7d(access_file: Path) -> int:
+    if not access_file.exists():
+        return 0
+    try:
+        data = json.loads(access_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    timestamps = data.get("timestamps", []) if isinstance(data, dict) else []
+    return _recent_count(timestamps)
+
+
 def classify_hot_cold(
     atom_path: Path, source: str, hot_recent_threshold: int = 3,
+    access_cache: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> str:
     if source == "trigger":
         return "hot"
-    access_file = atom_path.parent / f"{atom_path.stem}.access.json"
-    return "hot" if _recent_reads_7d(access_file) >= hot_recent_threshold else "cold"
+    if access_cache is not None:
+        data = load_access_cached(atom_path, access_cache)
+        recent = _recent_count(data.get("timestamps"))
+    else:
+        access_file = atom_path.parent / f"{atom_path.stem}.access.json"
+        recent = _recent_reads_7d(access_file)
+    return "hot" if recent >= hot_recent_threshold else "cold"
 
 
 def format_cold_inject_line(name: str, raw_content: str, rel_path: str) -> str:
@@ -639,7 +787,7 @@ def load_atoms_within_budget(
             continue
 
         content = _strip_atom_for_injection(content)
-        content_tokens = len(content) // 4
+        content_tokens = _estimate_tokens(content)
         if used + content_tokens <= budget_tokens:
             lines.append(f"[Atom:{name}]\n{content}")
             injected.append(name)
@@ -696,9 +844,12 @@ def build_injection_blob(
         seen = {e[0] for e in matched}
         try:
             from wg_core import load_config
-            _bm25_ms = float((load_config().get("vector_search") or {}).get("bm25_min_score", 3.5))
+            _bm25_ms = float(
+                (load_config().get("vector_search") or {})
+                .get("bm25_min_score", BM25_MIN_SCORE_DEFAULT)
+            )
         except Exception:
-            _bm25_ms = 3.5
+            _bm25_ms = BM25_MIN_SCORE_DEFAULT
         for entry in bm25_match(prompt_str, entries, min_score=_bm25_ms, top_k=_SUBAGENT_TOP_K):
             if entry[0] not in seen and entry[0] not in already:
                 matched.append(entry)
@@ -932,7 +1083,7 @@ def _truncate_context_by_activation(
 ) -> List[str]:
     """Truncate additionalContext lines to fit within token budget."""
     full_text = "\n".join(lines)
-    used = len(full_text) // 4
+    used = _estimate_tokens(full_text)
     if used <= limit:
         lines.append(f"[Context budget: {used}/{limit} tokens]")
         return lines
@@ -952,7 +1103,7 @@ def _truncate_context_by_activation(
                 "name": name,
                 "start": i,
                 "end": end,
-                "tokens": len(block_text) // 4,
+                "tokens": _estimate_tokens(block_text),
                 "first_line": lines[i].split("\n", 1)[0] if "\n" in lines[i] else lines[i],
             })
             i = end
@@ -978,22 +1129,50 @@ def _truncate_context_by_activation(
         src_dir = source_dirs.get(atom_name) if source_dirs else None
         if src_dir:
             ab["activation"] = compute_activation(atom_name, src_dir)
+            ab["src_dir"] = src_dir
         else:
-            best = -10.0
+            # 只在「access sidecar 實際存在」的 root 取分（compute_activation 對缺檔
+            # 回中性 0.0，若不過濾，缺檔 root 的 0.0 會蓋掉真實負值 activation）
+            best: Optional[float] = None
+            best_dir: Optional[Path] = None
             for cand in fallback_roots:
+                if not (cand / f"{atom_name}.access.json").exists():
+                    continue
                 score = compute_activation(atom_name, cand)
-                if score > best:
+                if best is None or score > best:
                     best = score
-            ab["activation"] = best
+                    best_dir = cand
+            ab["activation"] = 0.0 if best is None else best
+            ab["src_dir"] = best_dir
 
     atom_blocks.sort(key=lambda x: x["activation"])
+
+    def _display_path(ab: dict) -> str:
+        """截斷提示的真實路徑：src_dir 優先，否則掃 roots 找實檔；~/.claude 下轉相對。"""
+        name = ab["name"]
+        src = ab.get("src_dir")
+        if src is None:
+            for cand in fallback_roots:
+                if (cand / f"{name}.md").exists():
+                    src = cand
+                    break
+        if src is None:
+            return f"memory/{name}.md"  # 找不到實檔的最後退路
+        p = Path(src) / f"{name}.md"
+        try:
+            return p.relative_to(CLAUDE_DIR).as_posix()
+        except ValueError:
+            return str(p)
 
     truncated_indices: set = set()
     for ab in atom_blocks:
         if used <= limit:
             break
-        summary = f"[Atom:{ab['name']}] (truncated, activation={ab['activation']:.2f}) Read memory/{ab['name']}.md"
-        saved = ab["tokens"] - (len(summary) // 4)
+        summary = (
+            f"[Atom:{ab['name']}] (truncated, activation={ab['activation']:.2f}) "
+            f"Read {_display_path(ab)}"
+        )
+        saved = ab["tokens"] - _estimate_tokens(summary)
         if saved > 0:
             truncated_indices.add(ab["start"])
             ab["summary"] = summary
@@ -1214,11 +1393,15 @@ INTENT_PATTERNS = {
 
 
 def classify_intent(prompt: str) -> str:
-    """Rule-based intent classifier. Zero LLM overhead (~1ms)."""
+    """Rule-based intent classifier. Zero LLM overhead (~1ms)。
+
+    _kw_match：ASCII 詞 word-boundary（防 "fix" 誤中 "prefix" 類子字串）、
+    CJK 維持子字串比對。
+    """
     prompt_lower = prompt.lower()
     scores = {}
     for intent, keywords in INTENT_PATTERNS.items():
-        scores[intent] = sum(1 for kw in keywords if kw in prompt_lower)
+        scores[intent] = sum(1 for kw in keywords if _kw_match(kw, prompt_lower))
     best = max(scores, key=scores.get)
     return best if scores[best] > 0 else "general"
 
@@ -1990,7 +2173,9 @@ def _self_iterate_atoms(
     promote_lb = float(u_config.get("promote_lb", 0.6))
     demote_lb = float(u_config.get("demote_lb", 0.35))
     min_n = int(u_config.get("min_n", 3))
-    wilson_z = float(u_config.get("wilson_z", 1.96))
+    # demote 側門檻較嚴（n≥5）：67-75% 成功率的 atom 不因小樣本波動列降級候選
+    demote_min_n = int(u_config.get("demote_min_n", 5))
+    wilson_z = float(u_config.get("wilson_z", 1.28))
 
     results = {"promoted": [], "archive_candidates": [],
                "demote_candidates": [], "scanned": 0}
@@ -2127,11 +2312,11 @@ def _self_iterate_atoms(
                     lower_bound=round(u_stats.get("lower_bound", 0.0), 3),
                 )
 
-        # 效用 Wilson 下界 ≤ demote_lb 且 n≥min_n、且仍有非[臨]條目 → 降級候選
+        # 效用 Wilson 下界 ≤ demote_lb 且 n≥demote_min_n、且仍有非[臨]條目 → 降級候選
         # （不自動降，屬敏感裁決；列入 staging 報告供管理職審視）。
         if (usefulness_demote_candidate
                 and usefulness_demote_candidate(
-                    acc, demote_lb=demote_lb, min_n=min_n, z=wilson_z)
+                    acc, demote_lb=demote_lb, min_n=demote_min_n, z=wilson_z)
                 and re.search(r"^- \[(觀|固)\]", text, re.MULTILINE)):
             results["demote_candidates"].append({
                 "atom": md_file.stem,
@@ -2157,7 +2342,7 @@ def _self_iterate_atoms(
                 )
         if results["demote_candidates"]:
             out_lines.append(
-                f"\n## 降級候選（效用 Wilson 下界 ≤ {demote_lb}，n≥{min_n}；需裁決）\n")
+                f"\n## 降級候選（效用 Wilson 下界 ≤ {demote_lb}，n≥{demote_min_n}；需裁決）\n")
             for c in results["demote_candidates"]:
                 out_lines.append(
                     f"- **{c['atom']}** — lower_bound={c['lower_bound']}, "

@@ -9,7 +9,6 @@ import json
 import os
 import re
 import sys
-import time
 import urllib.request
 import urllib.error
 from collections import Counter
@@ -18,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, MEMORY_DIR, EPISODIC_DIR, MEMORY_INDEX, ATOM_INDEX, WORKFLOW_DIR,
+    CLAUDE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     cwd_to_project_slug, get_project_memory_dir,
     resolve_episodic_dir, get_transcript_path,
     _now_iso, _atom_debug_log, _atom_debug_error,
@@ -34,7 +33,7 @@ _LIB_PARENT = str(Path.home() / ".claude")
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
 from lib.atom_io import write_raw  # noqa: E402
-from lib.atom_access import increment_confirmation, move_atom_pair  # noqa: E402
+from lib.atom_access import move_atom_pair  # noqa: E402
 
 
 # ─── Episodic Gate ────────────────────────────────────────────────────────────
@@ -190,134 +189,6 @@ def _call_ollama_generate(prompt: str, model: str = None,
         return ""
 
 
-# ─── Cross-Session Pattern Consolidation ──────────────────────
-
-
-def _check_cross_session_patterns(
-    knowledge_items: List[dict], session_id: str, config: Dict[str, Any]
-) -> List[dict]:
-    """Check if knowledge items appeared in past sessions via vector search.
-
-    For each item, query vector service top-3 (min_score: 0.75).
-    Count distinct sessions that mention similar knowledge.
-    - 2+ sessions → auto-promote [臨] → [觀]
-    - 4+ sessions → mark suggestion to promote [觀] → [固] (not auto)
-
-    Returns list of cross-session observation dicts for episodic atom.
-    Also mutates knowledge_items in-place (classification upgrade).
-    """
-    vs_config = config.get("vector_search", {})
-    if not vs_config.get("enabled", True):
-        return []
-
-    port = vs_config.get("service_port", 3849)
-    cross_session_config = config.get("cross_session", {})
-    min_score = cross_session_config.get("min_score", 0.75)
-    promote_threshold = cross_session_config.get("promote_threshold", 2)
-    suggest_threshold = cross_session_config.get("suggest_threshold", 4)
-    timeout_s = cross_session_config.get("timeout_seconds", 5)
-
-    observations: List[dict] = []
-    current_session_prefix = session_id[:8] if session_id else ""
-
-    for item in knowledge_items:
-        content = item.get("content", "")
-        if not content or len(content) < 20:
-            continue
-
-        # Query vector search for similar knowledge
-        try:
-            import urllib.parse
-            params = urllib.parse.urlencode({
-                "q": content[:200],
-                "top_k": 5,
-                "min_score": min_score,
-            })
-            url = f"http://127.0.0.1:{port}/search/ranked?{params}"
-            req = urllib.request.Request(url, headers={"Accept": "application/json"})
-            try:
-                with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-                    results = json.loads(resp.read())
-            except urllib.error.HTTPError as e:
-                if e.code == 404:
-                    # Fallback to basic /search
-                    params = urllib.parse.urlencode({
-                        "q": content[:200], "top_k": 5, "min_score": min_score,
-                    })
-                    url = f"http://127.0.0.1:{port}/search?{params}"
-                    req = urllib.request.Request(url, headers={"Accept": "application/json"})
-                    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-                        results = json.loads(resp.read())
-                else:
-                    continue
-
-            # Count distinct sessions from results (episodic atoms encode session info)
-            session_hits = set()
-            for r in results:
-                atom_name = r.get("atom_name", "")
-                # Episodic atoms: "episodic-YYYYMMDD-slug" → each is a different session
-                if "episodic" in atom_name.lower():
-                    # Exclude current session's atom (prefix match)
-                    if current_session_prefix and current_session_prefix in atom_name:
-                        continue
-                    session_hits.add(atom_name)
-                else:
-                    # Non-episodic atoms: check if they contain session references
-                    atom_text = r.get("text", r.get("content", ""))
-                    if atom_text:
-                        session_hits.add(f"atom:{atom_name}")
-
-            hit_count = len(session_hits)
-            if hit_count < promote_threshold:
-                continue
-
-            # No auto-promote — Confirmations +1 only, hint at 4+
-            current_class = item.get("classification", "[臨]")
-            action = ""
-
-            if hit_count >= suggest_threshold:
-                action = f"建議晉升（{hit_count} sessions 命中，需使用者確認）"
-            else:
-                action = f"跨 session 命中 {hit_count} 次（Confirmations +1）"
-
-            # 跨 session 加計透過 atom_access.increment_confirmation
-            import uuid as _uuid
-            for r in results:
-                atom_file = r.get("file_path", "")
-                if atom_file and os.path.isfile(atom_file):
-                    try:
-                        increment_confirmation(
-                            Path(atom_file),
-                            event={
-                                "ts": time.time(),
-                                "correlation_id": str(_uuid.uuid4()),
-                                "hit_count": hit_count,
-                            },
-                            source="hook:episodic-confirm",
-                        )
-                    except (OSError, ValueError):
-                        pass
-
-            observations.append({
-                "content": content[:80],
-                "classification": current_class,
-                "sessions_hit": hit_count,
-                "action": action,
-                "matched_atoms": list(session_hits)[:5],
-            })
-
-            print(
-                f"Cross-session: \"{content[:40]}...\" → {action}",
-                file=sys.stderr,
-            )
-
-        except Exception as e:
-            print(f"Cross-session check error: {e}", file=sys.stderr)
-            continue
-
-    return observations
-
-
 # ─── Conflict Detection ───────────────────────────────────────────────
 
 
@@ -411,7 +282,8 @@ def _build_episodic_summary(state: Dict[str, Any]) -> Dict[str, Any]:
     area_counts: Counter = Counter()
     for m in modified:
         area = _extract_area(m.get("path", ""))
-        area_counts[area] += 1
+        # modified_files 已 per-path 去重帶 count（編輯次數）；legacy entry 無 count → 1
+        area_counts[area] += int(m.get("count", 1))
 
     work_areas = [{"area": a, "count": c} for a, c in area_counts.most_common()]
     primary_area = work_areas[0]["area"] if work_areas else "session-work"
@@ -487,59 +359,6 @@ def _generate_triggers(state: Dict[str, Any], work_areas: list) -> list:
         triggers.add(kw.lower())
 
     return sorted(triggers)[:12]
-
-
-def _update_memory_index(memory_dir: Path, atom_name: str, triggers: list) -> None:
-    """Upsert atom entry to _atom_index.json (JSON is single source of truth).
-
-    Auto-regenerates _ATOM_INDEX.md mirror via lib/atom_index_json.upsert_atom.
-    Legacy fallback: if JSON helper missing, write to _ATOM_INDEX.md directly.
-    """
-    try:
-        from lib.atom_index_json import upsert_atom
-        upsert_atom(
-            mem_dir=memory_dir,
-            name=atom_name,
-            path=f"memory/{atom_name}.md",
-            triggers=list(triggers),
-            scope="global",
-        )
-        return
-    except ImportError:
-        _atom_debug_log("update_index_md_fallback", atom=atom_name)
-
-    # Legacy fallback path (kept for safety; should never run in V5)
-    atom_idx = memory_dir / ATOM_INDEX
-    index_path = atom_idx if atom_idx.exists() else memory_dir / MEMORY_INDEX
-    if not index_path.exists():
-        return
-
-    text = index_path.read_text(encoding="utf-8-sig")
-    trigger_str = ", ".join(triggers)
-    new_row = f"| {atom_name} | memory/{atom_name}.md | {trigger_str} |"
-
-    lines = text.splitlines()
-    insert_idx = None
-    in_table = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("| Atom") or stripped.startswith("|Atom"):
-            in_table = True
-            continue
-        if in_table:
-            if stripped.startswith("|---"):
-                continue
-            if stripped.startswith("|"):
-                insert_idx = i
-            else:
-                break
-
-    if insert_idx is not None:
-        lines.insert(insert_idx + 1, new_row)
-    else:
-        lines.append(new_row)
-
-    index_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 # ─── Episodic Section Builders ───────────────────────────────────────────────
@@ -691,6 +510,21 @@ def _generate_episodic_atom(
         relation_lines.append(
             f"- Referenced atoms: {', '.join(summary['atoms_referenced'])}"
         )
+    # oscillation 資料源：wg_evasion._detect_oscillation 掃 episodic 的
+    # 「修改 atoms: a, b」行（split("修改 atoms:")[-1] 再逗號切）——marker 格式
+    # 與該掃描邏輯對拍（verify_episodic_osc_marker 斷言）。過濾條件鏡像
+    # wg_evasion._collect_iteration_metrics（/memory/ 下 .md、排除索引/變更檔）。
+    modified_atom_names = sorted({
+        p.rsplit("/", 1)[-1][:-3]
+        for p in (
+            m.get("path", "").replace("\\", "/")
+            for m in state.get("modified_files", [])
+        )
+        if "/memory/" in p and p.endswith(".md")
+        and p.rsplit("/", 1)[-1][:-3] not in ("MEMORY", "_CHANGELOG", "_CHANGELOG_ARCHIVE")
+    })
+    if modified_atom_names:
+        relation_lines.append(f"- 修改 atoms: {', '.join(modified_atom_names)}")
 
     # episodic atom .md 檔頭不再寫 Last-used / Confirmations / ReadHits
     # （這些計數搬到 <atom>.access.json，由 atom_access.init_access 在落檔後建立）

@@ -3,7 +3,8 @@
 覆蓋：
   - session_start._health_advisory：缺檔 / 逾期 / red>0 / 健康 / 壞 JSON
     五態各自浮出正確 advisory（fail-open 必告知，健康時零 context 佔用）
-  - tools/health-weekly.py：_promotion_last_ts 讀尾筆 ts、write_report 輪替保留
+  - tools/health-weekly.py：_promotion_last_ts 讀尾筆 ts、write_report 輪替保留、
+    _recall_miss_counts 失念計數（14 天窗過濾、缺檔/壞行零計）
 
 對應：hooks/handlers/session_start.py（_health_advisory / HEALTH_RUN_STALE_DAYS）、
 tools/health-weekly.py。
@@ -99,3 +100,32 @@ def test_write_report_rotates(hw):
                          "red": [], "yellow": [], "info": []})
     left = list((hw.REPORT_DIR).glob("health-*.md"))
     assert len(left) == hw.KEEP_REPORTS
+
+
+# ─── 失念（recall-miss）黃燈計數 ─────────────────────────────────────
+
+
+def _rm_rec(atom, days_ago):
+    at = (datetime.now().astimezone() - timedelta(days=days_ago)).isoformat(
+        timespec="seconds")
+    return {"at": at, "session_id": "sid", "atom": atom,
+            "matched_triggers": ["a", "b"], "evidence": "e", "source": "failing_tests"}
+
+
+def test_recall_miss_counts_window_filter(hw, tmp_path, monkeypatch):
+    log = tmp_path / "recall-miss.jsonl"
+    rows = [_rm_rec("hot-atom", 1), _rm_rec("hot-atom", 3), _rm_rec("hot-atom", 5),
+            _rm_rec("cold-atom", 2), _rm_rec("hot-atom", 60)]  # 最後一筆窗外
+    log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows)
+                   + "\n壞行not-json\n", encoding="utf-8")
+    monkeypatch.setattr(hw, "RECALL_MISS_LOG", log)
+    counts = hw._recall_miss_counts(hw.RECALL_MISS_DAYS)
+    assert counts == {"hot-atom": 3, "cold-atom": 1}
+    # 黃燈門檻：hot-atom 達 RECALL_MISS_MIN、cold-atom 未達
+    assert counts["hot-atom"] >= hw.RECALL_MISS_MIN
+    assert counts["cold-atom"] < hw.RECALL_MISS_MIN
+
+
+def test_recall_miss_counts_missing_log_zero(hw, tmp_path, monkeypatch):
+    monkeypatch.setattr(hw, "RECALL_MISS_LOG", tmp_path / "nope.jsonl")
+    assert hw._recall_miss_counts(14) == {}

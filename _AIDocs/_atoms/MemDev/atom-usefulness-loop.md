@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 效用閉環, usefulness, record_usefulness, atom 晉升, use 偵測, Wilson 下界, 慢衰減, Beta-Bernoulli, 注入使用結果, useful_hits, used_fail, 原子記憶開發
 - Created-at: 2026-06-01
-- Related: decisions, workflow-rules, feedback-memory-system-doc-sync, memory-pipeline-silent-failure-2026-05, atom-table-support, atom-元資料編輯與晉升閘真相, confirmations-已退役-phase2-usefulness-接管晉升
+- Related: decisions, workflow-rules, feedback-memory-system-doc-sync, memory-pipeline-silent-failure-2026-05, atom-table-support, atom-元資料編輯與晉升閘真相, confirmations-已退役-phase2-usefulness-接管晉升, 檢索融合與回歸集調參-rrf-min-score-定案
 
 ## 知識
 
@@ -17,6 +17,7 @@
 - [臨] py↔js 鏡像：wilson_lower_bound/usefulness_*（lib/atom_access.py）↔ wilsonLowerBound/usefulnessStats（server.js toolAtomPromote），SYNC: 註解 + memory/decisions.md 對齊。**改 server.js 後須重啟 MCP server 才生效新晉升閘**。旋鈕：workflow/config.json usefulness.{...}。守門：verify_usefulness_access_phase2(18)+verify_usefulness_loop_phase2(21)。
 - [觀] embedding tiebreak (wg_atoms.make_embed_tiebreak_fn) 對真實 Ollama qwen3-embedding(4096-dim) live 煙測(2026-06-01)：cosine 語義正確（相似~0.85/無關~0.29、similar≫unrelated）、fail-safe 穩（逾時/服務掛→None 不污染主判）。但 prod embed_timeout_s=1.5 對 CJK 偏緊：暖機短文~0.6s/embed、CJK 長句單次可>1.5s→tiebreak 常 fail-safe None；冷載~24s→模型未保溫時近惰性。屬 best-effort by-design；要 CJK 實效須 Ollama 保溫或酌升 embed_timeout_s≈2.5。
 - [觀] UPS 注入晉升提示(user_prompt_submit.py)改由 lib/atom_access.usefulness_hint_tier 驅動(eligible/near/None)：純曝光(ReadHits)/n<min_n 一律不提示，取代 Phase 2 前的 stale READHIT_THRESHOLDS 提示語。
+- [臨] 校準定案：wilson_z=1.28（3 連勝 lb=0.6468 過升門；舊 1.96 下實需 ~6 連勝、min_n=3 虛設）；demote 另設 `demote_min_n=5`（n=4 小樣本不列降級）；decay 加每日一次護欄 last_decay_date（舊行為每 SessionEnd 各衰一次，多 session 日衰 0.74 把證據抹平）；ACT-R 個別化 d=0.5−0.3×wilson_lb clamp[0.3,0.5]（有用者衰慢）。改門檻需同步：config usefulness.* + lib/atom_access.py + js 鏡像 + hooks 呼端。
 
 ## 行動
 

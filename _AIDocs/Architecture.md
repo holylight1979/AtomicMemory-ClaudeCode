@@ -32,12 +32,12 @@
 | `handlers/user_prompt_submit.py` | UPS orchestrator（2026-06-12 熱點重構 790→195 行）：串聯 ups_* 四段 + 收尾（blind-spot / fix escalation / evasion 舉證 / handoff / topic / sync context（僅 sync 關鍵字觸發；週期性 `[Guardian] Reminder` 已退役 → statusline 常駐顯示）/ turn_injected / debug 摘要 / budget 截斷輸出）＋ **UPS 被 kill 哨兵**（開頭 arm `workflow/ups-sentinel/<sid>.json`、正常結尾 clear；見殘留＝上輪注入被 harness timeout 砍 → 告警）＋ AEC (d) 刪除決策後驗 |
 | `handlers/ups_gates.py` | UPS detect 段：evasion 追蹤 + V4.1 decision gate + confirmed extractions + long_die + Hot Cache + Atom-Write Guard |
 | `handlers/ups_context.py` | UPS context build 段：session context（episodic + proactive）+ wisdom 分類 + parallel 建議 + AIDocs keyword + JIT internal-pipeline |
-| `handlers/ups_search.py` | UPS search pipeline 段：index 組裝 + 跨專案 alias + trigger → BM25 全域層 → Vector fallback + supersedes + ACT-R 排序（含**分心懲罰** `compute_injection_rank`，Memory Governance A） |
+| `handlers/ups_search.py` | UPS search pipeline 段：index 組裝 + 跨專案 alias + trigger → BM25 全域層 → Vector（全空 fallback / 專案層 enrichment：trigger 命中 <3 才打）+ supersedes + **RRF 三路融合 × ACT-R**（個別化 decay；`fusion:"legacy"` 回退純 ACT-R 排序；含**分心懲罰** `compute_injection_rank`，Memory Governance A） |
 | `handlers/ups_inject.py` | UPS injection assemble 段：hot/cold + per-turn budget（ok/fallback/skip）+ related spread（含 **relevance gate** `_filter_related_by_relevance` 最小集裁切，Memory Governance C）+ ReadHits++/效用晉升提示 |
 | `handlers/pre_tool_use.py` | PreToolUse：Write/Edit atom format gate + memory path block + Bash SVN test block |
 | `handlers/post_tool_use.py` | PostToolUse：file tracking + 增量索引 + test-fail 偵測 + changelog auto-roll（read tracking 移 Stop 端回收） |
 | `handlers/stop.py` | Stop：sync 閘門 + Fix Escalation + TestFailGate + Evasion Detection + **Deep Post-Mortem Gate**（`_should_deep_postmortem`：(effort：retry≥2 ∨ fix_escalation_triggered) **AND** (真失敗：failing_tests ∨ evasion_flag ∨ 未宣告完成) → 指示 Claude 深寫 post-mortem；effort 已由 track_retry 以 failing_tests error-gate（不採同檔 edit 次數＝正常重度迭代不誤觸）；`deep_postmortem_done` 一次性＝**獨立預算 1（P5 起不與 Sync/Scan/TestFail 共用 `stop_gate_max_blocks`，止餓死）**）+ Auto-Handoff Layer 1（token 預警 piggyback 既有 block）+ outcome 三值計數（`outcome_stats`，隨 α/β 歸因 once-per-turn，供 unknown 比率遙測）；**transcript 單次 tail-read**（`read_transcript_tail` 2MB 尾窗，last_text / token 預警 / turn 文字 / accessed_files 回收全共用，取代逐消費者全檔讀；Stop hook timeout 得以 20→10）+ `_detect_uncommitted_files` 按 VCS root 分組 batch status（零 per-file subprocess） |
-| `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + **selective forgetting**（`apply_selective_forget` 隔離 `_distant/`，預設 dry-run，Memory Governance D）+ docdrift advisory + Auto-Handoff Layer 4（SessionEnd 兜底寫客觀 stub）+ **outcome unknown 比率遙測**（`flush_outcome_stats` → `workflow/outcome_stats.jsonl` 滾動 50 筆；連續 `window` session > `threshold` → 寫 marker → 下個 SessionStart 注入 advisory 後清除。防完成語 regex 與模型輸出失配 → α/β 晉升軌靜默停滯；config `usefulness.unknown_watch`） |
+| `handlers/session_end.py` | SessionEnd：Episodic 生成 + 回應萃取 + 衝突偵測 + Wisdom 反思 + **selective forgetting**（`apply_selective_forget` 隔離 `_distant/`，預設 dry-run，Memory Governance D）+ docdrift advisory + Auto-Handoff Layer 4（SessionEnd 兜底寫客觀 stub）+ **outcome unknown 比率遙測**（`flush_outcome_stats` → `workflow/outcome_stats.jsonl` 滾動 50 筆；連續 `window` session > `threshold` → 寫 marker → 下個 SessionStart 注入 advisory 後清除。防完成語 regex 與模型輸出失配 → α/β 晉升軌靜默停滯；config `usefulness.unknown_watch`）+ **失念偵測**（`wg_recall_miss.detect_recall_misses` → `Logs/recall-miss.jsonl`，config `recall_miss.enabled`） |
 | `handlers/pre_compact.py` | PreCompact：state snapshot + `injected_atoms` 快照 + Auto-Handoff Layer 2（壓縮前自動寫六區塊 stub） |
 | `handlers/post_compact.py` | PostCompact：依快照複用 `wg_atoms.load_atoms_within_budget` stash 壓縮前 atom 緊湊內文 + `pending_reinjection` flag（不注入；選配 #4） |
 | `handlers/post_tool_batch.py` | PostToolBatch：idle early-exit；見 flag 一次性 `additionalContext` 重注入 + 清 flag + 名單 merge 回 `injected_atoms`（選配 #4）+ Auto-Handoff Layer 3（合流注入 stub 補全提示） |
@@ -183,11 +183,23 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 |------|--------|
 | Vector 啟動器自癒（`tools/memory-vector-service/starter.py`） | SessionStart/UPS 共用：service stderr 落 `Logs/vector-service.log`、hang 死 kill-restart、等待窗 120s + spawn lock；UPS 端 flag 缺失 re-kick（`wg_atoms._ensure_vector_ready`，cooldown 120s）——服務中途死下一 prompt 自癒 |
 | 救援日誌（`hooks/wg_rescue.py`） | 注入 atom 抽高特異 token（確定性、寧缺勿濫）→ 後續工具呼叫命中落 `Logs/rescue-log.jsonl`＝「記憶真被用上」直接證據 |
-| 效果報表（`tools/memory-effect-report.py`） | 三清單：top 有用 / token 稅 / 死重候選 + 30 天趨勢 |
-| 專案層 vector enrichment（`ups_search`） | trigger 命中後仍跑 vector 但只取專案層命中；無專案層 atom 跳過 |
+| 效果報表（`tools/memory-effect-report.py`） | 四節：top 有用 / token 稅 / 死重候選 / **D 失念（recall-miss 30 天聚合）** + 30 天趨勢 |
+| 失念偵測（`hooks/wg_recall_miss.py`） | SessionEnd 比對「本 session 失敗證據（failing_tests/evasion/failure_kw）× 庫中未注入 atom trigger」（≥2 非泛用詞命中才算）→ `Logs/recall-miss.jsonl`；週健檢 14 天 ≥3 次 → 黃燈 |
+| 專案層 vector enrichment（`ups_search`） | trigger 命中後、**專案層 atom 存在且 trigger 命中 <3** 才跑 vector 且只取專案層命中；訊號充足或無專案層跳過 |
 | 原生記憶橋接（`tools/native-memory-bridge.py`） | 核心 atom 索引指標行鏡像進 `projects/<slug>/memory/`（harness 清單格式，掃描不誤納） |
 
-詳見 TECH §5.10；驗證 `verify_{vector_starter,rescue_log,effect_report,project_enrichment,native_bridge}.py`。
+詳見 TECH §5.10–5.12；驗證 `verify_{vector_starter,rescue_log,effect_report,project_enrichment,native_bridge,recall_miss}.py`。
+
+### 檢索品質工程（RRF 融合 + 回歸評估）
+
+| 機制 | 一句話 |
+|------|--------|
+| RRF 三路融合（`wg_atoms.rrf_fuse` + `ups_search`） | trigger/BM25/vector 三路 rank 融合 `Σ 1/(60+rank)` × activation 調節 `exp(0.25·rank)`；config `vector_search.fusion`（"legacy" 回退純 ACT-R 排序） |
+| ACT-R 個別化 decay（`wg_atoms`） | `d = clamp(0.5 − γ·wilson_lb, 0.3, 0.5)`，γ=`usefulness.stability_gamma`(0.3)——高效用 atom 衰減慢；新 atom（無 access log）activation 回中性 0.0 |
+| 回歸評估集（`tools/memory-eval/`） | 223 條合成查詢 + Recall@1/@3/MRR/誤注入 + baseline 比對——調參秒級 A/B（bm25_min_score 7.0、RRF 落地皆以此定值） |
+| 效用校準 | `wilson_z` 1.28（3 連勝可升）+ `demote_min_n` 5 + decay 每日護欄（`last_decay_date`） |
+
+詳見 TECH §5.11；SPEC §13/§14（Depends/Evidence + 檢索融合規格）。
 
 ### Atom 寫入單點收束（funnel，S1–S4，2026-05-04）
 
@@ -296,7 +308,7 @@ V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `me
 
 晉升門檻（Phase 2 #2，py↔js 鏡像，SYNC: `lib/atom_access` ↔ `server.js`）—— **Confirmations 主軌 OR 效用 Wilson 下界**：
 - **Primary**: Confirmations（跨 session 萃取命中）[臨]→[觀] ≥4, [觀]→[固] ≥10
-- **Usefulness**: 效用 Wilson 下界 lb≥`promote_lb`(0.6) 且 n≥`min_n`(3)（注入→使用→結果 α/β 校準，遲滯帶降候選 ≤0.35）
+- **Usefulness**: 效用 Wilson 下界 lb≥`promote_lb`(0.6) 且 n≥`min_n`(3)，z=`wilson_z`(1.28，3 連勝 lb=0.6468 可升)（注入→使用→結果 α/β 校準；降級候選 lb≤0.35 且 n≥`demote_min_n`(5)）
 - **ReadHits 已退出晉升、降為純曝光計數**（取代舊 Auxiliary ≥20/≥50 + 7 天 fallback；依 Xiong 2505.16067 純檢索/注入頻率晉升會劣化品質）。注入時僅 `usefulness_hint_tier` 判定接近/已達升門才提示主動確認
 
 `merge_to_preferences=true`（global only，[觀]→[固] 時）把「## 知識」合併到 `preferences.md` 並搬原 atom 到 `memory/_archived/`。
@@ -327,11 +339,11 @@ V5 GA 後 tests/ 已 verify 化重組（H-test-prune，2026-05-28）。
 **目錄結構**：
 
 ```
-hooks/verify/                                ← 10 個（atom/evasion/extract/wisdom/cross_realm_guard 等 hook 守衛）
-tools/verify/                                ← 1 個（check_bypass）
-tools/codex-companion/verify/                ← 3 個（assessor_retry / scorer / heuristics）
-lib/verify/                                  ← 3 個（atom_io_equivalence S1.3 contract / edit_metadata / failures_routing）
-skills/{name}/verify/                        ← 17 個空結構（內容由 next-phase-skills-verify.md 衍生任務補）
+hooks/verify/                                ← 68 個（atom/evasion/extract/wisdom/rrf_fusion/stability_decay/recall_miss 等 hook 守衛）
+tools/verify/                                ← 12 個（check_bypass / memory_eval / stale_deps / conflict_evidence / vector_service 等）
+tools/codex-companion/verify/                ← 4 個（assessor_retry / scorer / heuristics / handoff_review）
+tools/auto-continue/verify/                  ← 1 個
+lib/verify/                                  ← 8 個（atom_io_equivalence contract / edit_metadata / atom_spec_depends_evidence / usefulness_access 等）
 ```
 
 **命名與 pytest 規則**：

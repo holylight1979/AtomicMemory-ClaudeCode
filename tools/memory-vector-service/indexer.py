@@ -29,12 +29,19 @@ sys.path.insert(0, str(Path.home() / ".claude"))
 from ollama_client import get_client
 from wg_core import CLAUDE_DIR, MEMORY_DIR, discover_memory_layers
 # V5+ Session β: Failures layer 注入 + stems filter（對拍 lib/atom_locations）
-from lib.atom_locations import FAILURES_DIR, failures_atom_stems  # noqa: E402
+from lib.atom_locations import (  # noqa: E402
+    FAILURES_DIR, LOCAL_ATOMS_DIR, atom_search_roots, failures_atom_stems,
+)
+# 遙測欄位（last_used / read_hits / confirmations）住 <atom>.access.json sidecar，
+# 統一經 lib.atom_access 讀取（.md frontmatter 不再攜帶這些欄位）
+from lib.atom_access import read_access  # noqa: E402
 
 COLLECTION_NAME = "atom_memory"
 
 # Layer label 用於 Failures filter 觸發判斷
 FAILURES_LAYER_LABEL = "extra:failures"
+# Local realm atoms（_AIDocs/_atoms/ 階層：Tools/MemDev/World/Continuity/...）
+LOCAL_ATOMS_LAYER_LABEL = "extra:local-atoms"
 
 # Atom 檔案排除清單
 SKIP_FILENAMES = {"MEMORY.md", "_CHANGELOG.md", "_CHANGELOG_ARCHIVE.md"}
@@ -81,10 +88,21 @@ def discover_layers(
         return False
 
     if _accept("global"):
-        layers.append(("global", MEMORY_DIR, "recursive"))
-        # V5+: feedback-* atoms 居 _AIDocs/Failures/，需獨立 layer 索引
-        if FAILURES_DIR.is_dir():
-            layers.append((FAILURES_LAYER_LABEL, FAILURES_DIR, "recursive"))
+        # 全域 atom 根走 lib.atom_locations.atom_search_roots() 單一來源：
+        # memory/（global）+ _AIDocs/Failures/（feedback-* 等）+ _AIDocs/_atoms/
+        # （local realm 階層目錄，遞迴掃描；_atoms 本身是根、不受 `_` 前綴排除規則影響）
+        for root in atom_search_roots():
+            if root == MEMORY_DIR:
+                layers.append(("global", MEMORY_DIR, "recursive"))
+            elif root == FAILURES_DIR:
+                if FAILURES_DIR.is_dir():
+                    layers.append((FAILURES_LAYER_LABEL, FAILURES_DIR, "recursive"))
+            elif root == LOCAL_ATOMS_DIR:
+                if LOCAL_ATOMS_DIR.is_dir():
+                    layers.append((LOCAL_ATOMS_LAYER_LABEL, LOCAL_ATOMS_DIR, "recursive"))
+            elif root.is_dir():
+                # atom_search_roots 未來新增根時仍進索引（label 依目錄名生成）
+                layers.append((f"extra:{root.name.strip('_').lower()}", root, "recursive"))
 
     for slug, mem_dir in discover_all_project_memory_dirs():
         for label, path, kind in discover_v4_sublayers(slug, mem_dir):
@@ -245,9 +263,6 @@ def parse_and_chunk(
     atom_name = file_path.stem
     title = ""
     confidence = ""
-    last_used = ""
-    confirmations = 0
-    readhits = 0
     atom_type = "semantic"
     tags_str = ""
     scope_meta = ""      # V4: "shared" | "role:{r}" | "personal:{u}" | "global"
@@ -263,14 +278,6 @@ def parse_and_chunk(
                 # Extract [固]/[觀]/[臨]
                 cm = re.search(r"\[(固|觀|臨)\]", val)
                 confidence = f"[{cm.group(1)}]" if cm else val
-            elif key == "Last-used":
-                last_used = val
-            elif key == "ReadHits":
-                cm2 = re.search(r"\d+", val)
-                readhits = int(cm2.group()) if cm2 else 0
-            elif key == "Confirmations":
-                cm2 = re.search(r"\d+", val)
-                confirmations = int(cm2.group()) if cm2 else 0
             elif key == "Type":
                 if val in ("semantic", "episodic", "procedural"):
                     atom_type = val
@@ -282,6 +289,13 @@ def parse_and_chunk(
                 audience_meta = val
             elif key == "Author":
                 author_meta = val
+
+    # 遙測欄位活訊號：讀 <atom>.access.json sidecar（lib.atom_access.read_access，
+    # 缺檔/損毀回 defaults 不拋）。searcher 的 recency / confirm_score 排序因子靠這些值。
+    access = read_access(file_path)
+    last_used = str(access.get("last_used") or "")
+    confirmations = int(access.get("confirmations") or 0)
+    readhits = int(access.get("read_hits") or 0)
 
     fhash = file_hash(file_path)
     chunks: List[Dict[str, Any]] = []
@@ -499,6 +513,28 @@ def create_embedder(config: Dict[str, Any]) -> Any:
     raise RuntimeError("No embedding backend available. Install Ollama or sentence-transformers.")
 
 
+# ─── Embed Input（contextual prefix）─────────────────────────────────────────
+
+
+def _embed_input(record: Dict[str, Any]) -> str:
+    """Embed 輸入 = 一行脈絡前綴 + chunk 原文（contextual retrieval 廉價版，免 LLM）。
+
+    前綴「{atom 標題} — {所屬層/domain}」直接由 frontmatter 標題與 layer/路徑組成，
+    讓短 chunk 帶上出處語意、提升檢索命中。**只影響 embedding 輸入**；
+    存進 DB 的 text 欄位維持原文不變。
+    """
+    title = record.get("title") or record.get("atom_name", "")
+    layer = record.get("layer", "")
+    if layer == LOCAL_ATOMS_LAYER_LABEL:
+        # local realm：file_path 相對 _AIDocs/_atoms/，父目錄鏈即 domain 階層（如 Tools、MemDev/x）
+        domain = str(Path(record.get("file_path", "")).parent).replace("\\", "/")
+        if domain and domain != ".":
+            layer = f"local:{domain}"
+    ctx = f"{title} — {layer}".strip(" —")
+    text = record.get("text", "")
+    return f"{ctx}\n{text}" if ctx else text
+
+
 # ─── LanceDB Operations ──────────────────────────────────────────────────────
 
 
@@ -609,9 +645,9 @@ def build_index(
             })
             total_chunks += 1
 
-    # Embed all texts
+    # Embed all texts（輸入帶 contextual prefix；DB text 欄位仍存原文）
     if records:
-        texts = [r["text"] for r in records]
+        texts = [_embed_input(r) for r in records]
         if verbose:
             print(f"[indexer] Embedding {len(texts)} chunks...")
         batch_size = 16
@@ -660,6 +696,19 @@ def build_index(
         # No records and full rebuild → create empty-ish table or skip
         pass
 
+    # 增量索引順帶清 stale：discover 已產出全量 atom 清單，據此把已刪/改名 atom 的
+    # 殘留 chunk 一併移除（單次 2 欄位掃描，成本輕）。layer_filter 限定時跳過，
+    # 避免把未掃描的層誤判 stale 而整層誤刪。
+    stale_stats: Optional[Dict[str, Any]] = None
+    if incremental and layer_filter in (None, "all"):
+        try:
+            table = db.open_table(TABLE_NAME)
+            current_keys = {f"{ln}:{fp.stem}" for ln, fp, _rp in atoms}
+            stale_stats = _delete_stale_keys(table, current_keys, verbose=verbose)
+        except Exception as e:
+            # fail-open 但浮訊號（可觀測性鐵律：降級不阻斷但要告知）
+            print(f"[indexer] incremental stale cleanup skipped: {e}", file=sys.stderr)
+
     elapsed = time.time() - t0
     stats = {
         "atoms_found": len(atoms),
@@ -671,11 +720,52 @@ def build_index(
         "incremental": incremental,
         "embedder": embedder.__class__.__name__,
     }
+    if stale_stats is not None:
+        stats["stale_cleanup"] = stale_stats
 
     if verbose:
         print(f"[indexer] Done: {total_chunks} chunks from {len(atoms) - skipped} atoms in {elapsed:.1f}s")
 
     return stats
+
+
+def _delete_stale_keys(
+    table,
+    current_keys: set,
+    verbose: bool = False,
+) -> Dict[str, Any]:
+    """刪掉 table 中 (layer:atom_name) 不在 current_keys 的殘留 chunk。
+
+    cleanup_stale_chunks（CLI 全清）與 build_index 增量順帶清理共用的核心。
+    """
+    total = table.count_rows()
+    rows = table.search().select(["layer", "atom_name"]).limit(total).to_list()
+
+    db_keys: Dict[str, int] = {}
+    for r in rows:
+        k = f"{r.get('layer', '')}:{r.get('atom_name', '')}"
+        db_keys[k] = db_keys.get(k, 0) + 1
+
+    stale = [k for k in db_keys if k not in current_keys]
+    deleted_chunks = 0
+    for k in stale:
+        layer_val, atom_val = k.split(":", 1)
+        layer_val = layer_val.replace("'", "''")
+        atom_val = atom_val.replace("'", "''")
+        try:
+            table.delete(f"layer = '{layer_val}' AND atom_name = '{atom_val}'")
+            deleted_chunks += db_keys[k]
+            if verbose:
+                print(f"  cleanup: removed {k} ({db_keys[k]} chunks)")
+        except Exception as e:
+            if verbose:
+                print(f"  cleanup: failed {k}: {e}")
+
+    return {
+        "db_atoms_before": len(db_keys),
+        "deleted_atoms": len(stale),
+        "deleted_chunks": deleted_chunks,
+    }
 
 
 def cleanup_stale_chunks(
@@ -703,39 +793,14 @@ def cleanup_stale_chunks(
     try:
         db = _get_db()
         table = db.open_table(TABLE_NAME)
-        total = table.count_rows()
-        rows = table.search().select(["layer", "atom_name"]).limit(total).to_list()
     except Exception as e:
         return {"error": str(e), "deleted_atoms": 0, "deleted_chunks": 0}
 
-    db_keys: Dict[str, int] = {}
-    for r in rows:
-        k = f"{r.get('layer', '')}:{r.get('atom_name', '')}"
-        db_keys[k] = db_keys.get(k, 0) + 1
-
-    stale = [k for k in db_keys if k not in current_keys]
-    deleted_chunks = 0
-    for k in stale:
-        layer_val, atom_val = k.split(":", 1)
-        layer_val = layer_val.replace("'", "''")
-        atom_val = atom_val.replace("'", "''")
-        try:
-            table.delete(f"layer = '{layer_val}' AND atom_name = '{atom_val}'")
-            deleted_chunks += db_keys[k]
-            if verbose:
-                print(f"  cleanup: removed {k} ({db_keys[k]} chunks)")
-        except Exception as e:
-            if verbose:
-                print(f"  cleanup: failed {k}: {e}")
-
-    stats = {
-        "current_atoms": len(current_keys),
-        "db_atoms_before": len(db_keys),
-        "deleted_atoms": len(stale),
-        "deleted_chunks": deleted_chunks,
-    }
+    stats = _delete_stale_keys(table, current_keys, verbose=verbose)
+    stats["current_atoms"] = len(current_keys)
     if verbose:
-        print(f"[cleanup] stale={len(stale)} atoms, {deleted_chunks} chunks removed")
+        print(f"[cleanup] stale={stats['deleted_atoms']} atoms, "
+              f"{stats['deleted_chunks']} chunks removed")
     return stats
 
 

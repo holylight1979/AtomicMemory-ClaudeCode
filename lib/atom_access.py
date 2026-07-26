@@ -23,8 +23,10 @@ Schema v3（<atom>.access.json）:
 效用閉環：注入→使用→結果以 (α,β) 校準信心，取代純曝光（read_hits）。
   - record_usefulness：本 turn 某 atom 被判 used 且 outcome 決定性 → success α++ / fail β++；
     unused 或 outcome=unknown 一律 no-op（防雜訊污染，關鍵守則）。
-  - Wilson 下界（wilson_lower_bound / usefulness_stats）：升 ≥0.6、降候選 ≤0.35，皆需 n≥3。
-  - decay_usefulness（SessionEnd 慢衰減）：α←1+λ(α−1); β←1+λ(β−1)，λ≈0.97，重啟冷啟動。
+  - Wilson 下界（wilson_lower_bound / usefulness_stats）：z=1.28（80% 單尾信賴）；
+    升 ≥0.6 需 n≥3、降候選 ≤0.35 需 n≥5（降級誤殺成本高，樣本門檻更嚴）。
+  - decay_usefulness（SessionEnd 慢衰減）：α←1+λ(α−1); β←1+λ(β−1)，λ≈0.97，重啟冷啟動；
+    每日至多執行一次（last_decay_date 護欄，防多 session 同日重複衰減）。
   α/β 只存兩個 scalar（不寫進 .md），零索引膨脹；succ=α−1, fail=β−1, n=succ+fail（減去 prior）。
 
 舊 schema 偵測：confirmations 是陣列 → migrate (陣列→confirmation_events)；
@@ -72,7 +74,7 @@ ACCESS_VALID_SOURCES = frozenset({
     "tool:changelog-roll",
     "tool:memory-audit",         # restore_atom 計數歸零
     "tool:migrate",              # 一次性遷移
-    "tool:atom-health-audit",    # Phase B 健康診斷
+    "tool:atom-health-check",    # 健康診斷 / 反向參照修補
     "tool:sync-atom-index",
     "tool:sync-memory-index",
     "tool:undo",
@@ -86,10 +88,15 @@ TIMESTAMPS_MAX = 50
 # Beta-Bernoulli Laplace prior：useful_hits=α、used_fail=β 預設皆 1（succ=α−1, fail=β−1）。
 USEFULNESS_PRIOR = 1
 # Wilson 下界預設參數（py↔js 鏡像，SYNC: tools/workflow-guardian-mcp/server.js usefulnessStats）。
-WILSON_Z_DEFAULT = 1.96
+# z=1.28（80% 單尾信賴）：小樣本場景 z=1.96 過度保守——3 連勝 lb 僅 0.44 遠不及升門 0.6，
+# 6 連勝才達標，晉升軌實質凍結；1.28 下 3 連勝 lb≈0.647 即過門，與 confirmations 主軌步調相稱。
+WILSON_Z_DEFAULT = 1.28
 PROMOTE_LB_DEFAULT = 0.6
 DEMOTE_LB_DEFAULT = 0.35
 USEFULNESS_MIN_N_DEFAULT = 3
+# 降級候選樣本門檻獨立且更嚴（n≥5）：誤降的成本（知識降信心/淘汰）高於誤不升，
+# 少量壞樣本不足以構成降級證據。SYNC: server.js usefulnessDemoteCandidate。
+DEMOTE_MIN_N_DEFAULT = 5
 DECAY_LAMBDA_DEFAULT = 0.97
 
 
@@ -211,6 +218,7 @@ def _normalize(data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
         "used_fail": USEFULNESS_PRIOR,
         "last_promoted_at": None,
         "first_seen": None,
+        "last_decay_date": None,
         "timestamps": [],
         "confirmation_events": [],
     }
@@ -229,11 +237,24 @@ def _normalize(data: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
 
 
 def _read_raw(access_path: Path) -> Optional[Dict[str, Any]]:
+    """讀 sidecar JSON。檔不存在 → None（正常）；檔存在但損毀/讀失敗 → None，
+    但**必留 audit 訊號**（access_corrupt_reset）——callers 以 `or {}` 從零重來會
+    靜默歸零計數，損毀事件不可無聲吞掉（可觀測性鐵律）。"""
     if not access_path.exists():
         return None
     try:
         return json.loads(access_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        _audit_log({
+            "audit_id": _gen_audit_id(),
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "op": "access_corrupt_reset",
+            "source": "lib:atom_access",
+            "path": str(access_path),
+            "error": f"{type(e).__name__}: {e}"[:200],
+        })
+        print(f"[atom_access] corrupt sidecar (counts reset from defaults): "
+              f"{access_path} — {type(e).__name__}", file=sys.stderr)
         return None
 
 
@@ -291,11 +312,18 @@ def read_access(atom_path: Path) -> Dict[str, Any]:
     return normalized
 
 
-def init_access(atom_path: Path, *, first_seen: Optional[str] = None, source: str) -> str:
-    """為 atom 建立新的 access 檔（覆蓋既存）。
+def init_access(
+    atom_path: Path, *,
+    first_seen: Optional[str] = None,
+    last_used: Optional[str] = None,
+    source: str,
+) -> str:
+    """為 atom 建立新的 access 檔。
 
     用於：MCP atom_write create / hook:episodic atom 建立時。
     若已存在 → 不覆蓋既有計數，只補齊缺欄並保留現值。
+    first_seen / last_used 皆缺省 today；create 路徑一次帶齊兩欄，
+    不需再補一次 write_access_field（單寫，去冗餘雙寫）。
     """
     _validate_source(source)
     access_path = _access_path(atom_path)
@@ -305,7 +333,7 @@ def init_access(atom_path: Path, *, first_seen: Optional[str] = None, source: st
     if not raw.get("first_seen"):
         raw["first_seen"] = first_seen or today
     if not raw.get("last_used"):
-        raw["last_used"] = today
+        raw["last_used"] = last_used or today
     _write_raw(access_path, raw)
     return _audit("access_init", source, atom_path, first_seen=raw["first_seen"])
 
@@ -460,6 +488,8 @@ def decay_usefulness(
 
     λ≈0.97 → 單次衰減僅 3%，重啟冷啟動、防僵化。α/β 皆已在 prior 之上（≥1），
     衰減後仍 ≥1。若 α≈β≈1（無證據）→ 不寫檔（避免無意義 churn）。
+    每日護欄：record 的 last_decay_date（本地 YYYY-MM-DD）同日已衰減 → no-op
+    （多 session 同日各觸發 SessionEnd 時，證據不被重複打折）。
     回傳衰減後 (α, β)。
     """
     _validate_source(source)
@@ -470,6 +500,10 @@ def decay_usefulness(
     raw, _ = _normalize(raw)
     alpha = float(raw.get("useful_hits") or USEFULNESS_PRIOR)
     beta = float(raw.get("used_fail") or USEFULNESS_PRIOR)
+    today_local = datetime.now().strftime("%Y-%m-%d")
+    # 每日護欄：同日已衰減 → no-op（不寫檔）
+    if raw.get("last_decay_date") == today_local:
+        return alpha, beta
     prior = float(USEFULNESS_PRIOR)
     # 無證據（在 prior 上幾乎不動）→ 不寫
     if abs(alpha - prior) < 1e-9 and abs(beta - prior) < 1e-9:
@@ -478,6 +512,7 @@ def decay_usefulness(
     new_beta = prior + lam * (beta - prior)
     raw["useful_hits"] = _coerce_num(new_alpha)
     raw["used_fail"] = _coerce_num(new_beta)
+    raw["last_decay_date"] = today_local
     if not _write_raw(access_path, raw):
         _audit("usefulness_decay_dropped", source, atom_path, reason="write_contention")
         return alpha, beta
@@ -546,10 +581,14 @@ def usefulness_promote_eligible(
 def usefulness_demote_candidate(
     access: Dict[str, Any], *,
     demote_lb: float = DEMOTE_LB_DEFAULT,
-    min_n: int = USEFULNESS_MIN_N_DEFAULT,
+    min_n: int = DEMOTE_MIN_N_DEFAULT,
     z: float = WILSON_Z_DEFAULT,
 ) -> bool:
-    """效用降級候選：Wilson 下界 ≤ demote_lb 且 n ≥ min_n（遲滯帶下緣）。"""
+    """效用降級候選：Wilson 下界 ≤ demote_lb 且 n ≥ min_n（遲滯帶下緣）。
+
+    min_n 預設 DEMOTE_MIN_N_DEFAULT（5，比升門的 3 嚴）：降級誤殺成本高，
+    需更多樣本才成立。caller 若從 config 傳 min_n 覆寫，應對降級一側取 ≥5。
+    """
     st = usefulness_stats(access, z=z)
     return st["n"] >= min_n and st["lower_bound"] <= demote_lb
 
@@ -589,7 +628,7 @@ def usefulness_hint_tier(
 def bulk_read(memory_root: Optional[Path] = None) -> Dict[str, Dict[str, Any]]:
     """掃描 memory 樹下所有 *.access.json，回傳 {atom_id: access_dict}。
 
-    給 hooks/wg_iteration.py 衰退掃描 / tools/memory-audit.py / tools/atom-health-audit.py 用。
+    給 hooks/wg_iteration.py 衰退掃描 / tools/memory-audit.py / tools/atom-health-check.py 用。
     atom_id = access 檔 stem（不含 .access）；跨 scope 統一 namespace。
     """
     root = memory_root or GLOBAL_MEMORY_DIR

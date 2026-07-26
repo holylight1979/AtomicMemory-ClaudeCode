@@ -28,9 +28,12 @@ for p in (str(HOOKS_DIR), str(CLAUDE), str(CLAUDE / "lib")):
 import wg_atoms  # noqa: E402
 from lib import atom_access as A  # noqa: E402
 
+# stability_gamma 釘 0：本檔守「分心懲罰」不變式，需與個別化 decay（會改
+# activation 本身）隔離——對照組 compute_activation 不帶 config（d=0.5）。
+# 個別化 decay 的行為由 verify_stability_decay.py 覆蓋。
 CFG_ON = {"usefulness": {"distraction_enabled": True, "distraction_weight": 0.5,
-                         "min_n": 3, "wilson_z": 1.96}}
-CFG_OFF = {"usefulness": {"distraction_enabled": False}}
+                         "min_n": 3, "wilson_z": 1.96, "stability_gamma": 0.0}}
+CFG_OFF = {"usefulness": {"distraction_enabled": False, "stability_gamma": 0.0}}
 
 FIXED_NOW = 1_750_000_000.0
 
@@ -73,9 +76,10 @@ def test_no_config_returns_pure_activation(tmp_path):
 
 
 def test_no_access_fail_open(tmp_path):
-    # 無 access 檔 → activation=-10.0，penalty 路徑讀到 read_hits=0 → 純 activation
+    # 無 access 檔 → activation=0.0（中性，新 atom 不被截斷優先犧牲）；
+    # penalty 路徑讀到 read_hits=0 → 純 activation
     act = wg_atoms.compute_activation("missing", tmp_path)
-    assert act == -10.0
+    assert act == 0.0
     assert wg_atoms.compute_injection_rank("missing", tmp_path, CFG_ON) == act
 
 

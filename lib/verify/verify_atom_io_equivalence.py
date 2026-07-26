@@ -924,16 +924,16 @@ def test_26_learned_lexicon_pollution_guards(tmp_path, monkeypatch):
     assert not aloc.is_generic_lexicon_term("gpo")              # 既有 3 字 ASCII 實例詞不誤殺
 
 
-# ─── 27. merged create_atom == 逐一 build+write_raw+init+set last_used+write_index ──
+# ─── 27. merged create_atom == 逐一 build+write_raw+init(first_seen+last_used)+write_index ──
 
 
 def test_27_create_atom_merged_byte_parity(isolated_claude, tmp_path):
     """create funnel 併單一 spawn：atom_io_cli.create_atom 一次落 .md / .access.json /
-    index，須與『逐一呼叫 build+write_raw+init_access+set last_used+write_index』（同組
-    函式、同順序）三件 byte-identical——守 5→1 spawn 合併為純重構、零行為變更。"""
+    index，須與『逐一呼叫 build+write_raw+init_access(first_seen+last_used 單寫)+
+    write_index』（同組函式、同順序）三件 byte-identical。"""
     import json as _json
     from lib.atom_io_cli import create_atom
-    from lib.atom_access import init_access, write_access_field
+    from lib.atom_access import init_access
     from lib.atom_spec import validate_atom_content
 
     build_params = dict(
@@ -962,8 +962,7 @@ def test_27_create_atom_merged_byte_parity(isolated_claude, tmp_path):
     content = build_atom_content(**build_params)
     assert validate_atom_content(content) is None
     atom_io.write_raw(fpB, content, source="mcp", op="atom_create")
-    init_access(fpB, first_seen=FIXED_TODAY, source="mcp")
-    write_access_field(fpB, field="last_used", value=FIXED_TODAY, source="mcp")
+    init_access(fpB, first_seen=FIXED_TODAY, last_used=FIXED_TODAY, source="mcp")
     atom_io.write_index(base_dir=dirB, slug=slug, rel_path=rel,
                         triggers=build_params["triggers"], source="mcp")
 

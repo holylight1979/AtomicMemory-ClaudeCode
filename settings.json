@@ -46,7 +46,7 @@
           {
             "type": "command",
             "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
-            "timeout": 5
+            "timeout": 8
           },
           {
             "type": "command",
@@ -89,7 +89,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|Bash|Agent|Task",
+        "matcher": "Write|Edit|NotebookEdit|Bash|Agent|Task",
         "hooks": [
           {
             "type": "command",
@@ -101,7 +101,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report",
+        "matcher": "Edit|Write|NotebookEdit|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report",
         "hooks": [
           {
             "type": "command",
@@ -201,5 +201,6 @@
         ]
       }
     ]
-  }
+  },
+  "model": "claude-fable-5[1m]"
 }

@@ -119,15 +119,20 @@ DEFAULTS = {
 
 
 def load_config() -> Dict[str, Any]:
-    """Load config with defaults fallback."""
+    """Load config with defaults fallback。
+
+    config.json 損毀時退 DEFAULTS 但不得靜默（可觀測性鐵律）：log +
+    `_config_parse_failed` 旗標，UPS/SessionStart 見旗標注入一行告警。
+    """
     config = dict(DEFAULTS)
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 user_config = json.load(f)
             config.update(user_config)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            _atom_debug_error("config:parse_failed", e)
+            config["_config_parse_failed"] = True
     return config
 
 
@@ -145,6 +150,23 @@ def _estimate_tokens(text: str) -> int:
     cjk = sum(1 for c in text if '一' <= c <= '鿿' or '　' <= c <= '〿')
     ascii_part = len(text) - cjk
     return int(cjk * 1.5 + ascii_part * 0.25)
+
+
+def truncate_to_tokens(text: str, max_tokens: int) -> str:
+    """以 _estimate_tokens 口徑把 text 截到 ≤ max_tokens（字元邊界二分）。
+
+    取代 `text[:budget*4]` 這類 chars/4 換算切片（CJK 下嚴重超額）。
+    """
+    if _estimate_tokens(text) <= max_tokens:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if _estimate_tokens(text[:mid]) <= max_tokens:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo]
 
 
 # harness 注入標籤（IDE 開檔/選取、system-reminder、skill 展開）——成對或未閉合
@@ -429,8 +451,39 @@ def get_slug_pointer_path(cwd: str) -> Path:
     return CLAUDE_DIR / "projects" / slug / "memory" / MEMORY_INDEX
 
 
+# per-process memoize：同一 hook 行程內多次 discover（UPS 跨專案掃描 + 截斷
+# fallback roots 等）只實掃一次。簽章 = registry 檔 + projects/ 目錄的
+# (path, mtime)——任一變動（登錄新專案 / 新增專案夾）即失效重掃。
+# hook 行程 per-event 短命，cache 生命週期即單次 hook 呼叫，無跨 prompt 過期問題。
+_DISCOVER_CACHE: Optional[Tuple[tuple, List[Tuple[str, Path]]]] = None
+
+
+def _discover_signature() -> tuple:
+    def _mt(p: Path) -> int:
+        try:
+            return p.stat().st_mtime_ns
+        except OSError:
+            return 0
+    reg = REGISTRY_PATH
+    projects = CLAUDE_DIR / "projects"
+    return (str(reg), _mt(reg), str(projects), _mt(projects))
+
+
 def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
-    """Discover all project memory directories. Registry-first + old-path fallback."""
+    """Discover all project memory directories. Registry-first + old-path fallback.
+
+    Per-process memoized（見 _DISCOVER_CACHE）；回傳 list 為淺拷貝，caller 可安全變異。
+    """
+    global _DISCOVER_CACHE
+    sig = _discover_signature()
+    if _DISCOVER_CACHE is not None and _DISCOVER_CACHE[0] == sig:
+        return list(_DISCOVER_CACHE[1])
+    results = _discover_all_project_memory_dirs_uncached()
+    _DISCOVER_CACHE = (sig, list(results))
+    return results
+
+
+def _discover_all_project_memory_dirs_uncached() -> List[Tuple[str, Path]]:
     # 全域記憶目錄不得被當「專案記憶」回傳：registry 若有 root=家目錄 的條目
     # （root/.claude/memory == 全域 MEMORY_DIR），cross-project 掃描會把全域 atom
     # 再補進候選一次造成同 atom 雙注入。
@@ -741,6 +794,35 @@ def _find_active_sibling_state(
         return None
 
 
+def _rebuild_min_atom_index(cwd: str) -> Dict[str, Any]:
+    """Fallback state 用最小 atom_index 重建（SessionStart 完整版的廉價子集）。
+
+    復用 session_start 同一套原料：parse_memory_index(global) + realm 過濾 +
+    專案層 index。不含 V4 role sublayer / AIDocs（那些需要 role bootstrap，
+    fallback 場景成本不划算）。失敗回 {}（caller 保持無 index、advisory 仍浮出）。
+    """
+    try:
+        from wg_atoms import parse_memory_index  # lazy：避免模組層循環 import
+        global_atoms = parse_memory_index(MEMORY_DIR)
+        if is_local_realm_path is not None and not _is_under_claude_dir(cwd):
+            global_atoms = [
+                (n, p, t) for (n, p, t) in global_atoms
+                if not is_local_realm_path(p) or is_cross_project_local(p)
+            ]
+        project_mem_dir = get_project_memory_dir(cwd)
+        project_atoms = parse_memory_index(project_mem_dir) if project_mem_dir else []
+        project_root = find_project_root(cwd)
+        return {
+            "global": [(n, p, t) for n, p, t in global_atoms],
+            "project": [(n, p, t) for n, p, t in project_atoms],
+            "project_memory_dir": str(project_mem_dir) if project_mem_dir else "",
+            "project_root": str(project_root) if project_root else "",
+        }
+    except Exception as e:
+        _atom_debug_error("state:min_index_rebuild", e)
+        return {}
+
+
 def _ensure_state(
     session_id: str, input_data: Dict[str, Any], config: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
@@ -777,10 +859,18 @@ def _ensure_state(
 
     state = new_state(session_id, cwd, "fallback")
     state["phase"] = "working"
+    # 無 atom_index 的 fallback state 會讓本 session 餘生 trigger/BM25 全空——
+    # 重建最小 index + 標 advisory（UPS 消費注入一行，可觀測性鐵律：不得靜默降級）。
+    min_index = _rebuild_min_atom_index(cwd)
+    if min_index:
+        state["atom_index"] = min_index
+    state["_fallback_state_rebuilt"] = True
     write_state(session_id, state)
     _atom_debug_log(
         "Fallback",
-        f"SessionStart missed for {session_id[:12]}… — auto-created state",
+        f"SessionStart missed for {session_id[:12]}… — auto-created state "
+        f"(min atom_index: global={len(min_index.get('global', []))} "
+        f"project={len(min_index.get('project', []))})",
         config,
     )
     return state
@@ -1073,7 +1163,8 @@ def check_cross_realm_write(
     g = (config.get("guard") or {}).get("cross_realm_write") or {}
     if not g.get("enabled", True):
         return None
-    fp_str = tool_input.get("file_path", "") or ""
+    # NotebookEdit 的路徑欄位是 notebook_path
+    fp_str = tool_input.get("file_path", "") or tool_input.get("notebook_path", "") or ""
     if not fp_str or not cwd:
         return None
     home_claude = (Path.home() / ".claude").resolve()

@@ -52,6 +52,43 @@ except ImportError:
     check_long_die_status = lambda: None  # noqa: E731
 
 
+def _check_se_sentinel_residual(lines: List[str], min_age_s: float = 60.0) -> None:
+    """SessionEnd 哨兵殘留（session_end._se_sentinel_arm 留下、未被正常收尾拆除）
+    → 告警一行 + 清除。只認 mtime 超過 min_age_s 者：並行 session 的 SessionEnd
+    可能正在跑（<30s 窗），剛 arm 的哨兵不是殘留，不得誤清誤報。"""
+    import time as _time
+    se_dir = wg_core_workflow_dir() / "se-sentinel"
+    if not se_dir.is_dir():
+        return
+    now = _time.time()
+    residual = []
+    for p in sorted(se_dir.glob("*.json")):
+        try:
+            if now - p.stat().st_mtime > min_age_s:
+                residual.append(p)
+        except OSError:
+            continue
+    if not residual:
+        return
+    sids = ", ".join(p.stem[:12] + "…" for p in residual[:3])
+    lines.append(
+        f"[Guardian:SE-Sentinel] 偵測到 {len(residual)} 個 SessionEnd "
+        f"未跑完的殘留哨兵（{sids}）——上次收尾（episodic 生成/晉升掃描/"
+        "realm sweep 等）可能中斷未完成。"
+    )
+    for p in residual:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
+def wg_core_workflow_dir() -> Path:
+    """取 wg_core.WORKFLOW_DIR 的即時值（測試 monkeypatch wg_core 後仍生效）。"""
+    import wg_core
+    return wg_core.WORKFLOW_DIR
+
+
 def _collect_v4_role_atoms(
     project_mem_dir: Optional[Path], user: str, roles: List[str],
 ) -> List[Tuple[str, str, List[str]]]:
@@ -576,6 +613,13 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except Exception as e:
                 _atom_debug_error("project_hook:session_start", e)
 
+    # config.json 解析失敗 → 一行告警（load_config 標旗；fail-open 必浮出）
+    if config.get("_config_parse_failed"):
+        lines.append(
+            "[Guardian:Config⚠] workflow/config.json 解析失敗，已退回內建 DEFAULTS"
+            "——請修復 JSON（詳 Logs/atom-debug）。"
+        )
+
     # ── V5+ realm：本地範疇 catalog 注入（補完 index 層 realm 一致性）────────────
     # core catalog 走 CLAUDE.md @import memory/MEMORY.md（全專案，fail-safe 退路）；
     # 本地範疇明細抽到側檔 memory/_local_catalog.md，僅核心環境（cwd∈~/.claude）此處注入，
@@ -625,6 +669,13 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 pass
     except Exception as e:
         print(f"[realm] automove notice error: {e}", file=sys.stderr)
+
+    # SessionEnd 哨兵殘留檢查：殘留＝上個 session 的收尾流程未跑完即中斷
+    # （harness timeout / 例外）→ 浮一行告警後清（收尾擁擠不得靜默失敗）。
+    try:
+        _check_se_sentinel_residual(lines)
+    except Exception as e:
+        print(f"SE-sentinel check error: {e}", file=sys.stderr)
 
     # 效用歸因遙測 advisory：上個 session 判定 unknown 比率連續偏高（讀後清 marker）
     try:

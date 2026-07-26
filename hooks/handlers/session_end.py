@@ -25,6 +25,7 @@ from wg_episodic import (
     _detect_atom_conflicts, _generate_episodic_atom, _purge_expired_episodic,
 )
 from wg_handoff import build_handoff_stub, should_write_stub
+from wg_recall_miss import detect_recall_misses
 from wg_evasion import (
     evaluate_session, flush_outcome_stats,
     _collect_iteration_metrics, _detect_oscillation, _save_oscillation_state,
@@ -38,12 +39,46 @@ from handlers._shared import (
 )
 
 
+def _se_sentinel_path(session_id: str):
+    # 取 wg_core.WORKFLOW_DIR 即時值（非 import 時綁定）：測試 monkeypatch 後仍生效
+    import wg_core
+    return wg_core.WORKFLOW_DIR / "se-sentinel" / f"{session_id}.json"
+
+
+def _se_sentinel_arm(session_id: str) -> None:
+    """SessionEnd 開頭 touch 哨兵、結尾清（_se_sentinel_clear）。哨兵殘留＝
+    收尾流程未跑完即中斷（harness timeout / 例外）→ 下個 SessionStart 檢殘留
+    浮一行告警（比照 UPS 哨兵；可觀測性鐵律：擁擠超時不得靜默）。fail-open。"""
+    if not session_id:
+        return
+    try:
+        p = _se_sentinel_path(session_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            json.dumps({"at": _now_iso()}, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _se_sentinel_clear(session_id: str) -> None:
+    if not session_id:
+        return
+    try:
+        p = _se_sentinel_path(session_id)
+        if p.exists():
+            p.unlink()
+    except OSError:
+        pass
+
+
 def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
     if not state:
         sys.exit(0)
         return
+
+    _se_sentinel_arm(session_id)
 
     state["ended_at"] = _now_iso()
     state["phase"] = "done"
@@ -245,18 +280,24 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     except Exception as e:
         print(f"Conflict detection error: {e}", file=sys.stderr)
 
+    # atom-health-check 修參照：fire-and-forget（不 wait）——SessionEnd 30s 窗擁擠，
+    # 兩個子行程各可吃 10s；其輸出本就丟棄、結果不影響收尾流程，detach 即可。
     try:
         import subprocess as _sp
         _hc_script = str(CLAUDE_DIR / "tools" / "atom-health-check.py")
-        _sp.run(
-            [sys.executable, _hc_script, "--fix-refs"],
-            capture_output=True, timeout=10,
-        )
+        _hc_kwargs: Dict[str, Any] = {
+            "stdin": _sp.DEVNULL, "stdout": _sp.DEVNULL, "stderr": _sp.DEVNULL,
+        }
+        if sys.platform == "win32":
+            _hc_kwargs["creationflags"] = _sp.CREATE_NO_WINDOW
+        else:
+            _hc_kwargs["start_new_session"] = True
+        _sp.Popen([sys.executable, _hc_script, "--fix-refs"], **_hc_kwargs)
         _proj_mem = get_project_memory_dir(state.get("session", {}).get("cwd", ""))
         if _proj_mem:
-            _sp.run(
+            _sp.Popen(
                 [sys.executable, _hc_script, "--fix-refs", "--memory-root", str(_proj_mem)],
-                capture_output=True, timeout=10,
+                **_hc_kwargs,
             )
     except Exception as e:
         print(f"fix-refs error: {e}", file=sys.stderr)
@@ -287,6 +328,22 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         except Exception as e:
             _atom_debug_error("session_end:episodic_purge", e)
 
+    # ── 失念偵測（recall-miss）：本 session 有失敗證據、庫中未注入 atom 的 trigger
+    # 卻命中 ≥2 詞 → 落 Logs/recall-miss.jsonl（浮出走 effect-report D 節 + 週健檢黃燈）。
+    # 純本地字串比對、fail-open 浮訊號，不阻斷收尾。
+    if config.get("recall_miss", {}).get("enabled", True):
+        try:
+            _rm = detect_recall_misses(session_id, state)
+            if _rm:
+                _rm_names = ", ".join(r["atom"] for r in _rm[:5])
+                print(
+                    f"[recall-miss] {len(_rm)} atom 該想起而未想起: {_rm_names}",
+                    file=sys.stderr,
+                )
+        except Exception as e:
+            print(f"[recall-miss] error: {e}", file=sys.stderr)
+            _atom_debug_error("session_end:recall_miss", e)
+
     if state.get("review_due"):
         try:
             total = sum(1 for _ in EPISODIC_DIR.glob("episodic-*.md")) if EPISODIC_DIR.exists() else 0
@@ -309,5 +366,8 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     )
     if has_atom_changes or episodic_generated or purged_count:
         _trigger_incremental_index(config)
+
+    # 走到這裡＝收尾完整跑完 → 拆哨兵（timeout 砍掉時到不了這行，哨兵殘留告警）
+    _se_sentinel_clear(session_id)
 
     sys.exit(0)
