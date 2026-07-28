@@ -329,6 +329,37 @@ def _health_advisory(last_run_path) -> list:
         ]
 
 
+def _unpushed_advisory() -> list:
+    """本地有已 commit 未 push 的東西 → advisory 行（無則回 []，不佔 context）。
+
+    存在理由：SessionEnd 的晉升自動提交把 push 丟到背景（30s 預算內不等網路），
+    push 掛掉時 commit 只留在本地、當下沒人看得到。這裡在下個 session 開頭補上
+    可見性，讓「背景 fail-open」不變成「永遠沒人發現」（可觀測性鐵律）。
+
+    只讀 git 不寫，任何失敗回 []——沒有 upstream / 不是 repo / git 不在都算正常。
+    """
+    try:
+        import subprocess
+        if not (CLAUDE_DIR / ".git").exists():
+            return []
+        r = subprocess.run(
+            ["git", "-C", str(CLAUDE_DIR), "rev-list", "--count", "@{u}..HEAD"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=5)
+        if r.returncode != 0:  # 無 upstream / detached HEAD → 不是異常，不吵
+            return []
+        ahead = int((r.stdout or "0").strip() or 0)
+        if ahead <= 0:
+            return []
+        return [
+            f"[Guardian:Sync] ⚠ ~/.claude 本地有 {ahead} 筆 commit 未 push"
+            f"（背景 push 可能失敗，見 Logs/auto-commit.log）→ 跑 git push 補推。"
+        ]
+    except Exception as e:
+        _atom_debug_error("session_start:unpushed_advisory", e)
+        return []
+
+
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
@@ -572,6 +603,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 缺檔/逾期 = 排程器本身死了；red>0 = 上次健檢有待處理項。兩者都必須
         # 在 session 內浮出（fail-open 必告知）——「靜默死 27 天」的最後防線。
         lines.extend(_health_advisory(WORKFLOW_DIR / "health-last-run.json"))
+
+        # ── 未推送 commit ─────────────────────────────────────
+        # SessionEnd 晉升自動提交的 push 走背景、失敗當下無人知 → 這裡補可見性。
+        lines.extend(_unpushed_advisory())
 
         if v4_user:
             lines.append(

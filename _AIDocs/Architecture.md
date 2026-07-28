@@ -28,7 +28,7 @@
 | `workflow-guardian.py` | 20 行薄 shim 轉發 `dispatcher.main()`（保留 V4.1 entry path 相容） |
 | `dispatcher.py` | ~75 行純路由：讀 stdin event → 找 handler → 呼叫 |
 | `handlers/_shared.py` | 跨 handler 共用常數/helper（MEMORY_MD 標頭、project hook caller、cleanup_old_states 等） |
-| `handlers/session_start.py` | SessionStart：init state + 去重 + V4 role bootstrap + AIDocs bridge + Wisdom + MCP health + log rotation + Vector service bg subprocess + **週健檢死人開關**（`_health_advisory` 讀 `workflow/health-last-run.json`：缺檔/逾 10 天/red>0 → advisory 浮出，健康時零 context） |
+| `handlers/session_start.py` | SessionStart：init state + 去重 + V4 role bootstrap + AIDocs bridge + Wisdom + MCP health + log rotation + Vector service bg subprocess + **週健檢死人開關**（`_health_advisory` 讀 `workflow/health-last-run.json`：缺檔/逾 10 天/red>0 → advisory 浮出，健康時零 context）+ **未推送提醒**（`_unpushed_advisory`：`git rev-list --count @{u}..HEAD` > 0 → 浮一行；補 SessionEnd 晉升自動提交「背景 push 失敗當下無人知」的可見性缺口。唯讀、無 upstream/非 repo 一律靜默、健康時零 context） |
 | `handlers/user_prompt_submit.py` | UPS orchestrator（2026-06-12 熱點重構 790→195 行）：串聯 ups_* 四段 + 收尾（blind-spot / fix escalation / evasion 舉證 / handoff / topic / sync context（僅 sync 關鍵字觸發；週期性 `[Guardian] Reminder` 已退役 → statusline 常駐顯示）/ turn_injected / debug 摘要 / budget 截斷輸出）＋ **UPS 被 kill 哨兵**（開頭 arm `workflow/ups-sentinel/<sid>.json`、正常結尾 clear；見殘留＝上輪注入被 harness timeout 砍 → 告警）＋ AEC (d) 刪除決策後驗 |
 | `handlers/ups_gates.py` | UPS detect 段：evasion 追蹤 + V4.1 decision gate + confirmed extractions + long_die + Hot Cache + Atom-Write Guard |
 | `handlers/ups_context.py` | UPS context build 段：session context（episodic + proactive）+ wisdom 分類 + parallel 建議 + AIDocs keyword + JIT internal-pipeline |
