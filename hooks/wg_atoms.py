@@ -2298,6 +2298,9 @@ def _self_iterate_atoms(
                         pass
                 results["promoted"].append({
                     "atom": md_file.stem,
+                    # 實體路徑：SessionEnd 的自動提交要按檔名清單選擇性 stage，
+                    # 只有 stem 無法定位（atom 散在 memory/ 與 _AIDocs/ 多根）。
+                    "path": str(md_file),
                     "items": promoted_in_file,
                     "confirmations": confirmations,
                     "method": promote_method,
