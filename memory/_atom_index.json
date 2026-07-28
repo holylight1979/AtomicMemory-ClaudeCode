@@ -977,7 +977,12 @@
         "_unclassified",
         "shared 扁平落根",
         "project delegate hook",
-        "專案記憶分類"
+        "專案記憶分類",
+        "atom_write append 失敗",
+        "Atom not found",
+        "locate_existing_atom",
+        "落點 vs 定位",
+        "subdir atom"
       ],
       "scope": "global"
     },
