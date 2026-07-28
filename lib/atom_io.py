@@ -30,6 +30,7 @@ from .atom_spec import (
 from .atom_locations import (
     CLAUDE_DIR, GLOBAL_MEMORY_DIR, FAILURES_DIR,
     is_failures_routed_title, failures_write_target, local_write_target,
+    atom_search_roots, locate_existing_atom,
 )
 
 
@@ -210,7 +211,12 @@ def _resolve_target(
     realm: Optional[str] = None,
     domain: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """回傳 {dir, base, index_dir, index_root, scope_label, routed_to_*, error}。
+    """回傳 {dir, base, index_dir, index_root, search_roots, scope_label, routed_to_*, error}。
+
+    `dir` = **新 atom 的落點**（扁平；主題分層由事後 classifier sweep 歸位，見
+    [[scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層]]）。
+    `search_roots` = **既有 atom 的定位範圍**（append/replace 用，含子夾）——兩者
+    刻意分離：create 不猜子夾、append/replace 不因子夾而找不到檔。
 
     對拍 server.js:777 resolveMemDir + 1095-1101 sensitive audience routing。
     V5+ 擴展（皆 global scope 內疊加，與 scope 正交）：
@@ -223,9 +229,14 @@ def _resolve_target(
         scope = "global"
 
     if scope == "global":
+        # global 的三個物理居所（memory/ + _AIDocs/Failures/ + _AIDocs/_atoms/）一律
+        # 全納入定位範圍，不隨 create 落點縮窄——否則 realm/domain 給錯（或沒給）的
+        # append/replace 會在錯的子樹找檔。對拍 server.js append/replace 的 find-fallback。
+        global_roots = atom_search_roots()
         if is_failures_routed_title(title):
             return {
                 **failures_write_target(),
+                "search_roots": global_roots,
                 "scope_label": "global",
                 "routed_to_failures": True, "routed_to_pending": False,
                 "routed_to_local": False,
@@ -234,6 +245,7 @@ def _resolve_target(
         if realm == "local":
             return {
                 **local_write_target(domain),
+                "search_roots": global_roots,
                 "scope_label": "global",
                 "routed_to_failures": False, "routed_to_pending": False,
                 "routed_to_local": True,
@@ -243,6 +255,7 @@ def _resolve_target(
         return {
             "dir": GLOBAL_MEMORY_DIR, "base": GLOBAL_MEMORY_DIR,
             "index_dir": GLOBAL_MEMORY_DIR, "index_root": CLAUDE_DIR,
+            "search_roots": global_roots,
             "scope_label": "global",
             "routed_to_failures": False, "routed_to_pending": False,
             "routed_to_local": False,
@@ -277,6 +290,10 @@ def _resolve_target(
     else:  # personal
         target_dir = base / "personal" / user
         scope_label = f"personal:{user}"
+    # 定位範圍 = 該 scope 自己的子樹（含主題子夾）。**不**放寬到 base/：
+    # scope=shared 不得改到 personal/ 的檔，personal 不得跨使用者。
+    # personal/auto/<user>/（extract-worker 自動草稿）落在 target_dir 之外 → 自然排除。
+    search_roots = [target_dir]
 
     routed_to_pending = False
     if scope == "shared" and audience and any(
@@ -289,6 +306,7 @@ def _resolve_target(
     return {
         "dir": target_dir, "base": base,
         "index_dir": base, "index_root": base.parent,
+        "search_roots": search_roots,
         "scope_label": scope_label,
         "routed_to_failures": False, "routed_to_pending": routed_to_pending,
         "routed_to_local": False,
@@ -608,7 +626,27 @@ def write_atom(
     slug = slugify(title)
     file_path = mem_dir / f"{slug}.md"
     index_root = resolved["index_root"]
-    rel_path = file_path.relative_to(index_root).as_posix()
+
+    # append/replace 的實體檔可能不在扁平落點（專案 shared/<Domain>/、local realm
+    # _AIDocs/_atoms/<domain>/）→ 索引優先、rglob 為輔定位。create 不做：新 atom
+    # 一律落扁平點，主題分層交事後 classifier sweep（見 _resolve_target docstring）。
+    if mode in ("append", "replace") and not file_path.exists():
+        found, loc_err = locate_existing_atom(
+            slug,
+            index_dir=resolved["index_dir"],
+            index_root=index_root,
+            search_roots=resolved.get("search_roots") or [],
+        )
+        if loc_err:
+            return WriteResult(ok=False, audit_id=audit_id, error=loc_err)
+        if found:
+            file_path = found
+
+    try:
+        rel_path = file_path.relative_to(index_root).as_posix()
+    except ValueError:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"located atom outside index root: {file_path}")
 
     # ── Build content ──
     if mode == "create":
@@ -702,3 +740,56 @@ def write_atom(
 
     return WriteResult(ok=True, audit_id=audit_id, path=file_path,
                        routed_to_pending=routed_to_pending, skip_gate=skip_gate)
+
+
+def locate_atom(
+    title: str,
+    scope: str = "shared",
+    *,
+    project_cwd: Optional[str] = None,
+    role: Optional[str] = None,
+    user: Optional[str] = None,
+    audience: Optional[List[str]] = None,
+    force_global: bool = False,
+    realm: Optional[str] = None,
+    domain: Optional[str] = None,
+) -> WriteResult:
+    """定位既有 atom 實體檔（唯讀，無副作用之外的落檔）。給 MCP js 端 append/replace 用。
+
+    js 不自建第二套定位邏輯（既有 findAtomFileRecursive 只覆蓋 scope=global，
+    專案 scope 全漏）——統一 spawn 本函式，py/js 定位規則單一來源、不會漂移。
+    回 WriteResult：ok=True 且 path=None ⇒ 找不到（caller 給 not-found 訊息）；
+    ok=False ⇒ 撞名或 scope 解析錯，error 已含說明。extra.rel_path 供索引回寫。
+    """
+    audit_id = _gen_audit_id()
+    if scope == "project":
+        scope = "shared"
+    resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
+                               title=title, realm=realm, domain=domain)
+    if resolved.get("error"):
+        return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
+
+    slug = slugify(title)
+    index_root = resolved["index_root"]
+    file_path = resolved["dir"] / f"{slug}.md"
+    if not file_path.exists():
+        found, loc_err = locate_existing_atom(
+            slug,
+            index_dir=resolved["index_dir"],
+            index_root=index_root,
+            search_roots=resolved.get("search_roots") or [],
+        )
+        if loc_err:
+            return WriteResult(ok=False, audit_id=audit_id, error=loc_err)
+        if not found:
+            return WriteResult(ok=True, audit_id=audit_id, path=None,
+                               extra={"found": False})
+        file_path = found
+    try:
+        rel_path = file_path.relative_to(index_root).as_posix()
+    except ValueError:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"located atom outside index root: {file_path}")
+    return WriteResult(ok=True, audit_id=audit_id, path=file_path,
+                       extra={"found": True, "rel_path": rel_path,
+                              "scope_label": resolved["scope_label"]})

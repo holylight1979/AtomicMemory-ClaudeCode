@@ -5,7 +5,7 @@
 
 Schema:
   stdin:  {"action": "write_atom"|"write_index"|"write_index_full"|"write_raw"
-                    |"build"|"append", ...kwargs}
+                    |"build"|"append"|"locate", ...kwargs}
   stdout: WriteResult.to_dict()  (single-line JSON)
   exit code: 0=ok, 1=error
 
@@ -16,6 +16,10 @@ build / append：server.js toolAtomWrite 的內容構造
 test_13 parity fixture）：
   build:  build_atom_content kwargs → {ok, extra: {content}}（含 validate，不落檔）
   append: {file_path, knowledge, source} → 拼接+validate+write_raw 落檔
+
+locate：{title, scope, project_cwd, role, user, audience, realm, domain}
+→ {ok, path, extra:{found, rel_path}}。append/replace 找不到扁平落點時，js 端
+以此定位子夾內的實體檔（定位規則 py 單一來源，見 atom_io.locate_atom）。
 
 update_atom_field action 已移除（計數類欄位改走 lib/atom_access.py CLI
 入口 `python -m lib.atom_access ...`，不再透過此 bridge）。
@@ -29,7 +33,7 @@ from pathlib import Path
 
 from .atom_io import (
     write_atom, write_index, write_index_full, write_raw,
-    append_atom_file, WriteResult,
+    append_atom_file, locate_atom, WriteResult,
 )
 from .atom_access import init_access
 from .atom_spec import build_atom_content, validate_atom_content
@@ -116,6 +120,8 @@ def main() -> int:
             result = append_atom_file(**payload)
         elif action == "create_atom":
             result = create_atom(payload)
+        elif action == "locate":
+            result = locate_atom(**payload)
         else:
             result = WriteResult(ok=False, error=f"unknown action: {action}")
     except TypeError as e:

@@ -91,6 +91,23 @@ async function toolAtomWrite(id, args) {
   let filePath = path.join(memDir, slug + ".md");
   let relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
 
+  // append/replace 的實體檔常不在扁平落點：專案 shared atom 被 classifier sweep 歸位到
+  // shared/<Domain>/，local realm atom 落 _AIDocs/_atoms/<多段 domain>/。定位規則
+  // （索引 path 優先 → rglob → 撞名報錯）**只在 py 維護一份**（lib/atom_io.locate_atom），
+  // js 不自建第二套；只在扁平落點 miss 時才 spawn，正常路徑零額外成本。
+  async function locateExisting() {
+    const lr = await spawnAtomCli("locate", {
+      title, scope, project_cwd, role, user, audience, realm, domain,
+    });
+    if (!lr.ok) return { error: lr.error };
+    if (!lr.path) return {};
+    return {
+      filePath: lr.path,
+      relPath: ((lr.extra || {}).rel_path) ||
+               path.relative(indexRoot, lr.path).replace(/\\/g, "/"),
+    };
+  }
+
   const author = getCurrentUser();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -206,14 +223,10 @@ async function toolAtomWrite(id, args) {
       filePath = legacyPath;
       relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
     }
-    if (!fs.existsSync(filePath) && scopeLabel === "global") {
-      // find-fallback：local（_AIDocs/_atoms/）與 feedback-*（_AIDocs/Failures/）物理居 memory/ 外，
-      // 鏡像 promote/edit_meta 的遞迴 fallback；否則 scope=global 的 local atom append 報 not-found。
-      const found = findAtomFileRecursive(FAILURES_DIR, slug) || findAtomFileRecursive(LOCAL_ATOMS_DIR, slug);
-      if (found) {
-        filePath = found;
-        relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
-      }
+    if (!fs.existsSync(filePath)) {
+      const lr = await locateExisting();
+      if (lr.error) return sendToolResult(id, `atom_write: ${lr.error}`, true);
+      if (lr.filePath) { filePath = lr.filePath; relPath = lr.relPath; }
     }
     if (!fs.existsSync(filePath)) {
       return sendToolResult(id, `Atom not found: ${slug}.md — use mode=create first`, true);
@@ -248,13 +261,10 @@ async function toolAtomWrite(id, args) {
     }
     // Guard: replace = overwrite an EXISTING atom. If the target is absent, this was a
     // silent upsert that birthed a brand-new atom bypassing the create [臨] gate. Refuse.
-    if (!fs.existsSync(filePath) && scopeLabel === "global") {
-      // find-fallback（同 append）：local / feedback-* 物理居 memory/ 外。
-      const found = findAtomFileRecursive(FAILURES_DIR, slug) || findAtomFileRecursive(LOCAL_ATOMS_DIR, slug);
-      if (found) {
-        filePath = found;
-        relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
-      }
+    if (!fs.existsSync(filePath)) {
+      const lr = await locateExisting();
+      if (lr.error) return sendToolResult(id, `atom_write: ${lr.error}`, true);
+      if (lr.filePath) { filePath = lr.filePath; relPath = lr.relPath; }
     }
     if (!fs.existsSync(filePath)) {
       const variant = findSeparatorVariant(memDir, slug);

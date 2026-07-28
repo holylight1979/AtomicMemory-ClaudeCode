@@ -100,6 +100,22 @@ V4 的三層 scope 機制不變：
 
 **守門**：`lib/verify/verify_atom_io_equivalence.py` test_14（路徑/realm 常數 py↔js parity）+ test_15（local routing，Scope 仍 global）+ test_16（分類器零誤判：核心保護清單全 core）+ test_17（classifier py↔js parity）+ **test_18–22**（`normalize_domain_path` canon/深度閘、`local_realm_path_segments`、多段 routing、`extra_lexicon` 自學、`_clean_segment` py↔js parity 含非 CJK/ASCII 字元集 guard）+ **test_26**（詞庫污染雙護欄：泛用詞/亂碼 domain 拒收 + `classify_realm` 出口降 Else）；`lib/verify/verify_realm_injection_gate.py`（3 gate 單測，body 候選層）；`tools/verify/verify_realm_llm_classify.py`（**V6** LLM 分類器函式 9 test：canon/term 驗證/error/unsure/core/local→else）+ `hooks/verify/verify_realm_sweep.py`（**V6** SessionEnd sweep Fail-safe 四態決策 10 test：lexicon 搬 / protected 不喚 LLM / error→defer / core→留 / local→搬+學 / unsure·低信心→Else / max_per_session / already-local skip）；`tools/verify/verify_memory_index_caption_preserve.py`（core/local render + caption preserve）；`tools/verify/verify_local_catalog_split.py`（catalog 層範疇閘：core 不含任何 local（含 `OS/Windows/WSL` 深樹）、含 core+feedback；側檔 domain 階層分組；雙檔 + `_INDEX.md` 深樹 round-trip + stale 清理 `--check`）。詳見 atom `realm-範疇分區機制-v5`。
 
+### 2.3 落點 vs 定位分離（`atom_write` create/append/replace）
+
+**寫入落點（create）永遠扁平**：`scope=shared|role|personal` 一律寫 `memory/{shared | roles/<r> | personal/<u>}/<slug>.md`，**write 端不猜主題子夾**。主題分層是**事後**職責——專案自建 taxonomy classifier 接 `project_hooks` session_start sweep 把 curated atom 歸位到 `shared/<Domain>/`（見 atom `scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層`）；`global` 則由 realm sweep 歸位到 `_AIDocs/_atoms/<domain>/`。
+
+**定位（append/replace）必須認子夾**：實體檔被 sweep 搬走後，只看扁平落點會誤判 not-found。順序：
+
+1. `_atom_index.json` 的 `path` 欄（權威，含子夾）——須檔案存在**且落在該 scope 的搜尋根之內**（跨 scope 保護：`shared` 不得改到 `personal/` 的檔）。
+2. 落空 → rglob 搜尋根，跳過草稿牢籠與封存（`_drafts` / `_pending_review` / `personal` / `_archive*` / `episodic` / `templates` / `wisdom` …）。
+3. 撞名（多檔同 slug 且索引無條目）→ **明確報錯列出全部候選**，不靜默取第一個。
+
+搜尋根：`global` = `memory/` + `_AIDocs/Failures/` + `_AIDocs/_atoms/`（全納入，不隨 `realm`/`domain` 落點縮窄——參數給錯也找得到）；`shared`/`role`/`personal` = 各自的 scope 子樹。索引回寫的 `path` 一律由**定位到的實體路徑**推導，不寫扁平假路徑。
+
+**規則來源**：Python `lib/atom_locations.py:locate_existing_atom`（唯一實作）；`lib/atom_io.py` 的 `write_atom`（append/replace 分支）與 `locate_atom`（唯讀查詢）消費之。**JS 不自建第二套**——`atom-tools.js:toolAtomWrite` 在扁平落點 miss 時 spawn `python -m lib.atom_io_cli` 的 `locate` action（正常路徑零額外 spawn）。`findAtomFileRecursive` 仍服務 `atom_promote` / `atom_edit_meta`（那兩者本就遞迴，無此缺口）。
+
+**守門**：`lib/verify/verify_atom_subdir_locate.py`（14 test：index 優先 / rglob fallback / 撞名報錯 / 跨 scope 保護 / 草稿夾排除 / create 仍扁平 / global 扁平無回歸 / local realm 免 domain 提示）。
+
 ---
 
 ## 3. Atom Index — JSON SoT（V5 P3b，2026-05-27）

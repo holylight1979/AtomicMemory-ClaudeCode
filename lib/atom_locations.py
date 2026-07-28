@@ -351,6 +351,118 @@ def local_write_target(domain: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+# ─── Locate existing atom（append/replace 的實體檔定位） ─────────────────────
+
+# 定位時不得下探的目錄：草稿牢籠（_drafts/auto-capture、personal/auto/<user>）、封存、
+# 非 atom 子族（episodic/templates/wisdom…）。這些不是 curated atom，不該成為
+# append/replace 的目標。SYNC: server.js findAtomFileRecursive 的 SKIP 集合。
+_LOCATE_SKIP_DIRS = frozenset({
+    "_meta", "_reference", "_staging", "_vectordb", "_distant",
+    "episodic", "templates", "personal", "wisdom", "_pending_review",
+    "_drafts",
+})
+
+
+def _is_under(child: Path, roots: List[Path]) -> bool:
+    try:
+        c = child.resolve()
+    except OSError:
+        c = child
+    for r in roots:
+        try:
+            c.relative_to(r)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _rglob_locate(root: Path, slug: str) -> List[Path]:
+    """BFS root 找 <slug>.md，跳過 _LOCATE_SKIP_DIRS / _archive* 子樹。"""
+    hits: List[Path] = []
+    target = f"{slug}.md"
+    queue = [root]
+    while queue:
+        cur = queue.pop(0)
+        try:
+            entries = sorted(cur.iterdir())
+        except OSError:
+            continue
+        for e in entries:
+            if e.is_dir():
+                if e.name in _LOCATE_SKIP_DIRS or e.name.startswith("_archive"):
+                    continue
+                queue.append(e)
+            elif e.name == target:
+                hits.append(e)
+    return hits
+
+
+def locate_existing_atom(
+    slug: str,
+    *,
+    index_dir: Path,
+    index_root: Path,
+    search_roots: Iterable[Path],
+) -> tuple:
+    """定位既有 atom 的實體檔（append/replace 用）。回 (path|None, error|None)。
+
+    為何需要：atom 的**寫入預設落點是扁平的**（scope=shared → `memory/shared/`），
+    但實體檔常被事後歸位到主題子夾（專案 classifier sweep → `shared/<Domain>/`；
+    local realm → `_AIDocs/_atoms/<domain 多段>/`）。只看預設落點會誤判 not-found。
+
+    定位順序（抄 tools/atom-move.py:locate_md 的既有正解）：
+      1. `_atom_index.json` 的 path 欄位（權威，含子夾）——需檔案存在且落在 search_roots
+         之內（跨 scope 保護：scope=shared 不得改到 personal 的檔）。
+      2. 落空 → 逐一 rglob search_roots。
+
+    撞名（多個 root/子夾各有同 slug .md 且索引無條目）→ 回 error 明確報出所有候選，
+    **不靜默取第一個**。找不到 → (None, None)，由 caller 給既有 not-found 訊息。
+    """
+    roots: List[Path] = []
+    for r in search_roots:
+        try:
+            if r.is_dir():
+                roots.append(r.resolve())
+        except OSError:
+            continue
+    if not roots:
+        return (None, None)
+
+    # 1) index path 優先
+    try:
+        from .atom_index_json import load_atom_index_json
+    except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+        from atom_index_json import load_atom_index_json
+    try:
+        for a in load_atom_index_json(index_dir).get("atoms", []):
+            if a.get("name") != slug or not a.get("path"):
+                continue
+            p = Path(index_root) / a["path"]
+            if p.exists() and _is_under(p, roots):
+                return (p, None)
+            break
+    except (OSError, ValueError):
+        pass
+
+    # 2) rglob fallback
+    hits: List[Path] = []
+    seen = set()
+    for r in roots:
+        for h in _rglob_locate(r, slug):
+            key = str(h.resolve()).lower() if sys.platform == "win32" else str(h.resolve())
+            if key not in seen:
+                seen.add(key)
+                hits.append(h)
+    if len(hits) > 1:
+        return (None,
+                f"Ambiguous atom {slug}.md — {len(hits)} files match and "
+                f"_atom_index.json has no entry to disambiguate: "
+                + ", ".join(str(h) for h in hits)
+                + ". Merge or rename the duplicates first.")
+    return (hits[0] if hits else None, None)
+
+
 # ─── Whitelist（從 wg_core 搬入；含 dormant Failures entry） ──────────────────
 
 
