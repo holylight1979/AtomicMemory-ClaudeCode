@@ -1306,6 +1306,39 @@
         "唯識"
       ],
       "scope": "global"
+    },
+    {
+      "name": "禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱",
+      "path": "_AIDocs/_atoms/MemDev/禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱.md",
+      "triggers": [
+        "禁語",
+        "退避語",
+        "evasion hook",
+        "wg_evasion",
+        "誤報",
+        "false positive",
+        "引用豁免",
+        "detect_evasion",
+        "forbidden-phrases"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "取用端稽核與瘦身規範-atomaudit與3kb預算",
+      "path": "_AIDocs/_atoms/MemDev/取用端稽核與瘦身規範-atomaudit與3kb預算.md",
+      "triggers": [
+        "AtomAudit",
+        "取用端稽核",
+        "injection_log",
+        "瘦身",
+        "knowledge budget",
+        "大小預算",
+        "Status 行",
+        "cold 注入",
+        "budget skip",
+        "一行路標"
+      ],
+      "scope": "global"
     }
   ]
 }

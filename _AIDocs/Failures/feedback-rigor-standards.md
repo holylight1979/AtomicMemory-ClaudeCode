@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 縝密, 漏掉, 沒看到, max thinking, high thinking, 外包思考, 規範, rigor, 前例, precedent, 既有 drift
 - Created-at: 2026-05-26
-- Related: feedback-workflow-discipline, feedback-memory-system-doc-sync, cognitive-patterns, feedback-complexity-origin-trace, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, preferences
+- Related: feedback-workflow-discipline, feedback-memory-system-doc-sync, cognitive-patterns, feedback-complexity-origin-trace, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, preferences, 禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱
 
 ## 知識
 
