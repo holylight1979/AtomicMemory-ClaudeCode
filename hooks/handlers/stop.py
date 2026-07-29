@@ -204,6 +204,79 @@ def _harvest_accessed_files(state: Dict[str, Any], transcript_text: str) -> bool
     return added or trimmed
 
 
+# ─── 取用端閉環稽核（AtomAudit Gate） ───────────────────────────
+
+
+def _normalize_read_path(p: str) -> str:
+    return (p or "").replace("\\", "/").lower()
+
+
+_ATOM_AUDIT_LIST_MAX = 3  # 收尾訊息最多列名幾顆（其餘以計數帶過）
+
+
+def _audit_pointer_atom_consumption(
+    state: Dict[str, Any],
+) -> Optional[tuple]:
+    """取用端閉環：trigger 命中（＝與本場任務域吻合）但僅以一行路標注入
+    （budget skip / cold）、且整場未 Read 的 atom → 回 (reason, names) 供
+    Stop 閘要求三選一表態；無候選回 None。
+
+    寫入端有閘（write-gate/funnel），取用端此前全靠模型自律——路標的具體性
+    輸給 context 實體線索時就漏（實證：trigger 命中的肥 atom 被 budget skip
+    成一行、全程未展開）。防噪內建：
+      - 只稽核 source=trigger（bm25/vector/related 不催——related 擴散本就低確信）
+      - 同 turn 注入不催（至少給模型一個完整 turn 決定要不要展開）
+      - 消費判定用 Stop 已回收的 accessed_files（同 turn 的 Read 先於本判定入 state）
+    """
+    inj_log = state.get("injection_log") or []
+    if not inj_log:
+        return None
+    turn_seq = int(state.get("turn_seq", 0))
+    prompted = set(state.get("atom_audit_prompted") or [])
+    accessed = {
+        _normalize_read_path(a.get("path"))
+        for a in (state.get("accessed_files") or [])
+        if isinstance(a, dict)
+    }
+    seen: set = set()
+    candidates: List[Dict[str, Any]] = []
+    for rec in inj_log:
+        if not isinstance(rec, dict):
+            continue
+        name = rec.get("name") or ""
+        if not name or name in prompted or name in seen:
+            continue
+        if rec.get("source") != "trigger" or rec.get("form") not in ("skip", "cold"):
+            continue
+        if turn_seq and int(rec.get("turn_seq", 0)) >= turn_seq:
+            continue  # 本 turn 才注入——不催
+        rec_path = _normalize_read_path(rec.get("path"))
+        suffix = f"/{name.lower()}.md"
+        if any(ap == rec_path or ap.endswith(suffix) for ap in accessed):
+            continue  # 已 Read（consumed）
+        seen.add(name)
+        candidates.append(rec)
+    if not candidates:
+        return None
+
+    msg: List[str] = [
+        "[Guardian:AtomAudit] 本 session 有 trigger 命中、但僅以一行路標注入"
+        "（token 預算降級/cold）且全程未 Read 的 atom：",
+    ]
+    for rec in candidates[:_ATOM_AUDIT_LIST_MAX]:
+        msg.append(f"  - {rec['name']} → Read {rec.get('rel') or rec.get('path', '')}")
+    if len(candidates) > _ATOM_AUDIT_LIST_MAX:
+        msg.append(f"  …另 {len(candidates) - _ATOM_AUDIT_LIST_MAX} 顆（見 state injection_log）")
+    msg.append(
+        "路標命中＝該 atom 的 trigger 與本場任務域吻合，可能含本場獨有的教訓。"
+        "請對每顆三選一表態（每 atom 本 session 只提醒一次，不阻工作）：\n"
+        "  (a) 已從其他來源取得等價資訊——說明來源\n"
+        "  (b) 確與本場任務無關——一句理由即可\n"
+        "  (c) 現在補讀（Read 上列路徑）再收尾"
+    )
+    return "\n".join(msg), [r["name"] for r in candidates]
+
+
 # ─── 注入→使用→結果 閉環歸因 ───────────────────────────────────
 
 
@@ -631,6 +704,28 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             )
             write_state(session_id, state)
             output_block(reason)
+            return
+
+    # ── Atom Consumption Audit Gate（取用端閉環稽核）──────────────
+    # 排序：correctness / sync 之後（那些優先）、DPM 之前；沿用 stop_gate_max_blocks
+    # 全域預算（第 3 次強制放行）。per-atom 一次（atom_audit_prompted）防轟炸。
+    # fail-open：判定任何失敗 → stderr 浮訊號後照常放行，不比既有慣例更擋人。
+    if (
+        (config.get("atom_audit", {}) or {}).get("enabled", True)
+        and stop_count < max_blocks
+    ):
+        try:
+            aa = _audit_pointer_atom_consumption(state)
+        except Exception as e:
+            aa = None
+            print(f"[Guardian:AtomAudit] audit error (fail-open): {e}", file=sys.stderr)
+        if aa:
+            aa_reason, aa_names = aa
+            prompted = state.setdefault("atom_audit_prompted", [])
+            prompted.extend(n for n in aa_names if n not in prompted)
+            state["stop_blocked_count"] = stop_count + 1
+            write_state(session_id, state)
+            output_block(_piggyback(aa_reason))
             return
 
     # ── Deep Post-Mortem Gate（Stage 3）────────────────────────

@@ -14,6 +14,7 @@
 - 管線概覽（Intent→Trigger→Vector→Section→Budget→注入）→ memory/_reference/internal-pipeline.md（hook 寫死引用）
 - Atomic Memory Single Funnel → _AIDocs/Architecture.md「Atomic Memory Single Funnel」section
 - Wisdom Engine 校準（metrics.* sliding window + retry 校準 plan-mode threshold + fix_escalation_triggered 真失敗信號）→ _AIDocs/DevHistory/wisdom-engine.md「V2.12」章節 + memory/wisdom/DESIGN.md
+- 取用端閉環稽核（AtomAudit Stop 閘）+ atom 瘦身規範（write-gate 3KB 預算/樣式軟警/Status 行）→ _AIDocs/Architecture.md「Stop」列 + atom_write 節
 
 ## 行動
 

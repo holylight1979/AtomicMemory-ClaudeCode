@@ -548,7 +548,7 @@ _STRIP_SECTION_RE = re.compile(
 )
 
 _FRONTMATTER_KEEP_RE = re.compile(
-    r"^- (?:Confidence|Trigger|Last-used):\s*.+$",
+    r"^- (?:Confidence|Trigger|Last-used|Status):\s*.+$",
     re.MULTILINE,
 )
 
@@ -693,6 +693,25 @@ _HOT_RECENT_DAYS = 7
 _HOT_RECENT_WINDOW_SEC = _HOT_RECENT_DAYS * 86400
 _COLD_LINE_CAP = 80
 
+_STATUS_LINE_RE = re.compile(r"^- Status:\s*(.+)$", re.MULTILINE)
+_STATUS_CAP = 40
+
+
+def atom_status_suffix(raw_content: str) -> str:
+    """atom 選填 `- Status:` 現況行 → 一行注入（cold / budget skip）的附帶字串。
+
+    肥 atom 被降為一行路標時，不展開也保有最低現況資訊量（如「案結」＝
+    收尾期非爭議期）。無 Status 行回空字串。"""
+    m = _STATUS_LINE_RE.search(raw_content or "")
+    if not m:
+        return ""
+    val = m.group(1).replace("\n", " ").replace("\r", " ").strip()
+    if not val:
+        return ""
+    if len(val) > _STATUS_CAP:
+        val = val[:_STATUS_CAP].rstrip() + "…"
+    return f" [Status: {val}]"
+
 
 def _recent_count(timestamps: Any) -> int:
     """timestamps 清單中落在 7d 窗內的筆數（_recent_reads_7d / cache 路徑共用）。"""
@@ -762,7 +781,8 @@ def format_cold_inject_line(name: str, raw_content: str, rel_path: str) -> str:
         summary = summary[:_COLD_LINE_CAP].rstrip() + "…"
 
     display_path = rel_path or f"{name}.md"
-    return f"[Atom:{name}] (cold) {summary} (full: Read {display_path})"
+    status = atom_status_suffix(raw_content)
+    return f"[Atom:{name}] (cold) {summary}{status} (full: Read {display_path})"
 
 
 def load_atoms_within_budget(

@@ -19,7 +19,7 @@ from wg_atoms import (
     AtomEntry,
     _strip_atom_for_injection,
     spread_related, decide_atom_injection, compute_injection_rank,
-    classify_hot_cold, format_cold_inject_line,
+    classify_hot_cold, format_cold_inject_line, atom_status_suffix,
     SECTION_INJECT_THRESHOLD, _extract_sections,
     _TURN_BUDGET_LIMIT,
     read_atom_text, load_access_cached,
@@ -28,6 +28,10 @@ from wg_atoms import (
 # budget skip 連續次數上限：首顆超 budget 不再直接 break（後面可能有塞得下的
 # 小顆/impression fallback），連 impression fallback 都塞不下連續 N 次才停。
 _BUDGET_SKIP_STREAK_MAX = 2
+
+# injection_log state 條目上限（session 累積、超出裁最舊）——供 Stop 取用端
+# 稽核閘（AtomAudit）判定「trigger 命中但僅一行路標注入且未 Read」。
+_INJECTION_LOG_CAP = 100
 
 
 def _filter_related_by_relevance(
@@ -111,6 +115,18 @@ def assemble_injection(
     used_tokens = 0
     skip_streak = 0  # 連續 budget skip 計數（達 _BUDGET_SKIP_STREAK_MAX 才 break）
     rescue_pairs: List[Tuple[str, str]] = []  # (atom, 實注入內容) → 救援日誌 watch
+    # 本 turn 注入記錄（name/path/source/form），尾段落 state["injection_log"]。
+    # form: ok=全文 / fallback=印象 / skip=budget 一行 / cold=cold 一行
+    inject_records: List[Dict[str, Any]] = []
+
+    def _record(name_: str, path_: Path, rel_: str, source_: str, form_: str) -> None:
+        inject_records.append({
+            "name": name_,
+            "path": str(path_),
+            "rel": rel_ or f"{name_}.md",
+            "source": source_,
+            "form": form_,
+        })
 
     for (name, rel_path, triggers), base_dir in matched_with_dir:
         atom_path = (base_dir / rel_path) if rel_path else (base_dir / "memory" / f"{name}.md")
@@ -128,6 +144,7 @@ def assemble_injection(
             cold_line = format_cold_inject_line(name, raw_content, rel_path)
             atom_lines.append(cold_line)
             newly_injected.append(name)
+            _record(name, atom_path, rel_path, source, "cold")
             _atom_debug_log(
                 "BUDGET",
                 f"atom={name} source={source} classification=cold (1-line)",
@@ -152,6 +169,7 @@ def assemble_injection(
             rescue_pairs.append((name, inject_content))
             used_tokens += consumed
             skip_streak = 0
+            _record(name, atom_path, rel_path, source, "ok")
             _atom_debug_log(
                 "BUDGET",
                 f"atom={name} source={source} tokens={consumed} decision=ok used={used_tokens}/{_TURN_BUDGET_LIMIT}",
@@ -163,6 +181,7 @@ def assemble_injection(
             rescue_pairs.append((name, inject_content))
             used_tokens += consumed
             skip_streak = 0
+            _record(name, atom_path, rel_path, source, "fallback")
             _atom_debug_log(
                 "BUDGET",
                 f"atom={name} source={source} tokens={consumed} decision=fallback used={used_tokens}/{_TURN_BUDGET_LIMIT}",
@@ -173,8 +192,12 @@ def assemble_injection(
             # 排序偏後仍可能有塞得下的小顆；連續 skip 達上限才視為 budget 真枯竭。
             first_line = content.split("\n", 1)[0].strip("# ").strip()
             display_path = rel_path or f"{name}.md"
-            atom_lines.append(f"[Atom:{name}] {first_line} (full: Read {display_path})")
+            atom_lines.append(
+                f"[Atom:{name}] {first_line}{atom_status_suffix(raw_content)}"
+                f" (full: Read {display_path})"
+            )
             newly_injected.append(name)
+            _record(name, atom_path, rel_path, source, "skip")
             skip_streak += 1
             _atom_debug_log(
                 "BUDGET",
@@ -210,6 +233,7 @@ def assemble_injection(
             cold_line = cold_line.replace(f"[Atom:{rname}] (cold)", f"[Atom:{rname}] (related, cold)", 1)
             atom_lines.append(cold_line)
             newly_injected.append(rname)
+            _record(rname, rpath, rel_path, "related", "cold")
             _atom_debug_log(
                 "BUDGET",
                 f"atom={rname}(related) classification=cold (1-line)",
@@ -227,6 +251,7 @@ def assemble_injection(
             rescue_pairs.append((rname, inject_content))
             used_tokens += consumed
             skip_streak = 0
+            _record(rname, rpath, rel_path, "related", "ok")
             _atom_debug_log(
                 "BUDGET",
                 f"atom={rname}(related) classification=hot tokens={consumed} decision=ok used={used_tokens}/{_TURN_BUDGET_LIMIT}",
@@ -238,6 +263,7 @@ def assemble_injection(
             rescue_pairs.append((rname, inject_content))
             used_tokens += consumed
             skip_streak = 0
+            _record(rname, rpath, rel_path, "related", "fallback")
             _atom_debug_log(
                 "BUDGET",
                 f"atom={rname}(related) classification=hot tokens={consumed} decision=fallback used={used_tokens}/{_TURN_BUDGET_LIMIT}",
@@ -245,8 +271,12 @@ def assemble_injection(
             )
         else:
             first_line = content.split("\n", 1)[0].strip("# ").strip()
-            atom_lines.append(f"[Atom:{rname}] (related) {first_line} (full: Read {rel_path or rname + '.md'})")
+            atom_lines.append(
+                f"[Atom:{rname}] (related) {first_line}{atom_status_suffix(raw_content)}"
+                f" (full: Read {rel_path or rname + '.md'})"
+            )
             newly_injected.append(rname)
+            _record(rname, rpath, rel_path, "related", "skip")
             skip_streak += 1
             _atom_debug_log(
                 "BUDGET",
@@ -259,6 +289,16 @@ def assemble_injection(
     if atom_lines:
         lines.extend(atom_lines)
         state["injected_atoms"] = already_injected + newly_injected
+        # 取用端稽核資料面：session 累積注入記錄（含 source/form），Stop AtomAudit
+        # 閘據此判定「trigger 命中但僅一行路標且未 Read」。turn_seq 在 UPS 收尾才
+        # +1（user_prompt_submit 尾段），此處先 +1 對齊「本 turn」序號。
+        cur_turn = int(state.get("turn_seq", 0)) + 1
+        for rec in inject_records:
+            rec["turn_seq"] = cur_turn
+        inj_log = state.setdefault("injection_log", [])
+        inj_log.extend(inject_records)
+        if len(inj_log) > _INJECTION_LOG_CAP:
+            state["injection_log"] = inj_log[-_INJECTION_LOG_CAP:]
         if rescue_pairs:
             try:
                 from wg_rescue import record_rescue_watch

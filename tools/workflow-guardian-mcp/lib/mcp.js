@@ -146,6 +146,10 @@ const TOOL_DEFINITIONS = [
           type: "array", items: { type: "string" },
           description: "Related atom names (optional)",
         },
+        status: {
+          type: "string",
+          description: "Optional one-line current status (e.g. '案結 2026-07-29'). Shown alongside cold/one-line injections so the pointer carries minimal state. Current-state ONLY — no version history / change narrative.",
+        },
         mode: {
           type: "string", enum: ["create", "append", "replace"],
           description: "create=new atom, append=add knowledge lines, replace=overwrite knowledge section",

@@ -44,6 +44,8 @@ OPTIONAL_METADATA = frozenset({
     "Expires-at", "Tags", "Related", "Supersedes", "Quality",
     "Audience", "Author", "Pending-review-by", "Merge-strategy", "Created-at",
     "Depends", "Evidence",  # 壞滅緣（validity conditions）/ 證據等級（了義裁決）
+    "Status",  # 選填現況一行（如「案結 2026-07-29」）；cold/skip 一行注入時附帶。
+               # 只寫現況，禁歷史敘事/版本脈絡（feedback-live-檔與記憶不留版本操作脈絡）
 })
 
 # 行動 always required; 知識 or 印象（指標型 atom 變體）二選一
@@ -68,6 +70,18 @@ TRIGGER_MIN = 3
 TRIGGER_MAX = 12
 ATOM_MAX_LINES = 200
 INDEX_MAX_LINES = 40
+
+# ─── Knowledge 區大小預算（寫入端硬拒；audit 的 ATOM_MAX_LINES 為事後 warning）──
+# 門檻依據：注入端 per-turn 預算 TURN_BUDGET_LIMIT=500 tok（hooks/wg_core.py）+
+# 知識段注入上限 _KNOWLEDGE_CAP_TOKENS_DEFAULT=200 tok（hooks/wg_atoms.py）——
+# 知識段超過 ~1KB 時全文注入必被截斷/降級，寫再多也到不了模型眼前。管線查無
+# 單顆 byte 硬門檻可直接反推，取 3KB 為硬拒線：低於截斷點的 3 倍餘裕內仍容
+# 得下正常結論型 atom；超過即代表在堆個案敘事而非結論。
+KNOWLEDGE_BUDGET_BYTES = 3072
+
+# 內容樣式軟警門檻（逐筆表格列數 / 含路徑行數）
+STYLE_TABLE_MIN_ROWS = 6
+STYLE_PATH_MIN_LINES = 8
 
 
 # ─── Pure functions ───────────────────────────────────────────────────────────
@@ -222,6 +236,46 @@ def validate_atom_content(content: str) -> Optional[str]:
     return None
 
 
+def knowledge_sections_bytes(content: str) -> int:
+    """atom 全文中 ## 知識 + ## 印象 區 body 的 utf-8 bytes 總和（大小預算量測口徑）。"""
+    total = 0
+    for sec in KNOWLEDGE_SECTIONS:
+        m = re.search(
+            r"^##[ \t]+" + re.escape(sec) + r"[ \t]*\n([\s\S]*?)(?=^## |\Z)",
+            content, re.MULTILINE,
+        )
+        if m:
+            total += len(m.group(1).encode("utf-8"))
+    return total
+
+
+def knowledge_budget_error(nbytes: int, budget: int = KNOWLEDGE_BUDGET_BYTES) -> Optional[str]:
+    """knowledge 區超過大小預算 → 錯誤訊息（寫入端硬拒）；否則 None。budget<=0 停用。"""
+    if budget <= 0 or nbytes <= budget:
+        return None
+    return (
+        f"knowledge 區 {nbytes} bytes 超過預算 {budget} bytes——"
+        "個案事實移文件；atom 只留結論/判斷/教訓/現況/檔案錨點"
+        "（大段逐筆內容改為文件路徑一行）"
+    )
+
+
+_STYLE_PATH_RE = re.compile(r"[\w~.\\-]*[/\\][\w.\\-]+\.\w{1,5}")
+
+
+def knowledge_style_warnings(text: str) -> List[str]:
+    """內容樣式軟警（不硬拒）：逐筆表格 / 逐輪檔名·路徑清單 → 應為文件錨點一行。"""
+    lines = text.splitlines()
+    warns: List[str] = []
+    table_rows = sum(1 for ln in lines if ln.lstrip().startswith("|"))
+    if table_rows >= STYLE_TABLE_MIN_ROWS:
+        warns.append(f"逐筆表格 {table_rows} 列——此類個案清單應收斂為文件錨點一行")
+    path_lines = sum(1 for ln in lines if _STYLE_PATH_RE.search(ln))
+    if path_lines >= STYLE_PATH_MIN_LINES:
+        warns.append(f"含路徑/檔名的行達 {path_lines} 行——逐輪檔名/路徑清單應收斂為文件錨點一行")
+    return warns
+
+
 def _is_block_knowledge(item: str) -> bool:
     """knowledge 元素是否為原樣輸出 block（markdown 表格列，或三反引號 fence）。"""
     s = item.lstrip()
@@ -264,13 +318,15 @@ def build_atom_content(
     merge_strategy: Optional[str] = None,
     created_at: Optional[str] = None,
     today: Optional[str] = None,
+    status: Optional[str] = None,
 ) -> str:
     """從結構化參數構造 atom 檔內容。
 
     對拍 server.js:669-721 buildAtomContent —— byte-identical 等價契約。
     SPEC §4 metadata 順序：Scope → Audience → Author → Confidence → Trigger →
-    Last-used → Confirmations → ReadHits → Pending-review-by → Merge-strategy →
-    Created-at → Related。空值欄位省略。
+    Status → Last-used → Confirmations → ReadHits → Pending-review-by →
+    Merge-strategy → Created-at → Related。空值欄位省略（status 未給時輸出
+    與既有 parity fixture byte-identical）。
     """
     today = today or date.today().isoformat()
     triggers_list = list(triggers)
@@ -287,6 +343,8 @@ def build_atom_content(
         lines.append(f"- Author: {author}")
     lines.append(f"- Confidence: {confidence}")
     lines.append(f"- Trigger: {', '.join(triggers_list)}")
+    if status:
+        lines.append(f"- Status: {status}")
     # Last-used / Confirmations / ReadHits 居 <atom>.access.json，不再寫入 .md 檔頭
     if pending_review_by:
         lines.append(f"- Pending-review-by: {pending_review_by}")

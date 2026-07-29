@@ -36,7 +36,16 @@ from .atom_io import (
     append_atom_file, locate_atom, WriteResult,
 )
 from .atom_access import init_access
-from .atom_spec import build_atom_content, validate_atom_content
+from .atom_spec import (
+    build_atom_content, validate_atom_content,
+    knowledge_sections_bytes, knowledge_budget_error,
+)
+
+
+def _budget_check(content: str):
+    """build 產物的 knowledge 區大小預算（create/replace 共用硬拒；append 在
+    atom_io.append_atom_file 內檢）。超額回錯誤字串，否則 None。"""
+    return knowledge_budget_error(knowledge_sections_bytes(content))
 
 
 def create_atom(payload: dict) -> WriteResult:
@@ -69,6 +78,9 @@ def create_atom(payload: dict) -> WriteResult:
     err = validate_atom_content(content)
     if err is not None:
         return WriteResult(ok=False, error=f"validate: {err}")
+    budget_err = _budget_check(content)
+    if budget_err is not None:
+        return WriteResult(ok=False, error=f"budget: {budget_err}")
 
     # 2. write_raw（atomic write + audit；_atomic_write 自動 mkdir parent）
     wr = write_raw(file_path, content, source="mcp", op="atom_create")
@@ -112,7 +124,7 @@ def main() -> int:
             result = write_raw(**payload)
         elif action == "build":
             content = build_atom_content(**payload)
-            err = validate_atom_content(content)
+            err = validate_atom_content(content) or _budget_check(content)
             result = WriteResult(ok=err is None, error=err,
                                  extra={"content": content})
         elif action == "append":

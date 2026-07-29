@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from .atom_spec import (
     SKIP_DIRS, MEMORY_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
     build_atom_content, slugify, validate_atom_content, render_knowledge_lines,
+    knowledge_sections_bytes, knowledge_budget_error,
 )
 from .atom_locations import (
     CLAUDE_DIR, GLOBAL_MEMORY_DIR, FAILURES_DIR,
@@ -465,6 +466,13 @@ def append_atom_file(
     if err:
         return WriteResult(ok=False, audit_id=audit_id,
                            error=f"Validation failed after append: {err}")
+    # 大小預算硬拒（append 是 atom 肥大化的實際路徑：一次一點、累積成山）。
+    # 以「拼接後」的 knowledge 區總量計——existing 已超額者任何 append 都會被拒，
+    # 逼迫先瘦身（結論留 atom、個案敘事外移文件）再追加。
+    budget_err = knowledge_budget_error(knowledge_sections_bytes(content))
+    if budget_err:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"Budget rejected after append: {budget_err}")
     return write_raw(fp, content, source=source, op=op)
 
 

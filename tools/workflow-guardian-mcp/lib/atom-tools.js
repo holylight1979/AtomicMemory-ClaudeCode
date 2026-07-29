@@ -24,7 +24,7 @@ async function toolAtomWrite(id, args) {
     title, scope, confidence, triggers, knowledge, actions, related, mode,
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
-    realm, domain,
+    realm, domain, status,
   } = args;
 
   // Validate core required fields (scope now optional, defaults to shared)
@@ -137,6 +137,7 @@ async function toolAtomWrite(id, args) {
         true);
     }
 
+    let gateWarnings = [];
     if (!skip_gate) {
       const gateResult = await execWriteGate(knowledge.join("\n"), confidence);
       if (gateResult.action === "skip") {
@@ -146,6 +147,10 @@ async function toolAtomWrite(id, args) {
         return sendToolResult(id,
           `Write-gate: similar to existing atom "${gateResult.dedup_match.atom_name}" ` +
           `(score=${gateResult.dedup_match.score}). Use mode=append on that atom instead.`, true);
+      }
+      // 樣式軟警（逐筆表格/路徑清單）：不擋，附在成功訊息尾端轉述給寫入者
+      if (Array.isArray(gateResult.warnings) && gateResult.warnings.length) {
+        gateWarnings = gateResult.warnings;
       }
     }
 
@@ -192,6 +197,7 @@ async function toolAtomWrite(id, args) {
       build: {
         title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
         audience, author, pending_review_by: pendingReviewBy, merge_strategy, created_at: today,
+        status,
       },
       file_path: filePath,
       today,
@@ -212,7 +218,8 @@ async function toolAtomWrite(id, args) {
       `Author: ${author}\n` +
       (pendingReviewBy ? `Pending-review-by: ${pendingReviewBy} (sensitive audience auto-routed)\n` : "") +
       `Triggers: ${triggers.join(", ")}\n` +
-      `MEMORY.md index updated.`
+      `MEMORY.md index updated.` +
+      (gateWarnings.length ? `\n[write-gate 樣式警告] ${gateWarnings.join("；")}` : "")
     );
   }
 
@@ -294,7 +301,7 @@ async function toolAtomWrite(id, args) {
     const br = await spawnAtomCli("build", {
       title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
       audience, author: prevAuthor, pending_review_by: pendingReviewBy,
-      merge_strategy, created_at: prevCreatedAt,
+      merge_strategy, created_at: prevCreatedAt, status,
     });
     if (!br.ok) {
       return sendToolResult(id, `Validation failed: ${br.error}`, true);

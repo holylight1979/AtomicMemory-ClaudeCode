@@ -32,6 +32,22 @@ CLAUDE_DIR = Path.home() / ".claude"
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
 AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 
+# 大小預算 + 樣式警告：規則單一來源 lib/atom_spec；import 失敗時退最小 fallback
+# （預算常數內建、樣式警告停用）並照舊放行其餘檢查——本 gate 不因依賴缺失而更擋人。
+try:
+    sys.path.insert(0, str(CLAUDE_DIR))
+    from lib.atom_spec import (
+        KNOWLEDGE_BUDGET_BYTES as _BUDGET_DEFAULT,
+        knowledge_style_warnings as _style_warnings,
+    )
+except Exception as _e:  # pragma: no cover
+    print(f"[write-gate] lib.atom_spec unavailable, minimal fallback ({_e})",
+          file=sys.stderr)
+    _BUDGET_DEFAULT = 3072
+
+    def _style_warnings(text):
+        return []
+
 # Quality score components
 QUALITY_RULES = {
     "length_20": 0.15,       # content length > 20 chars
@@ -103,6 +119,7 @@ def load_config() -> Dict[str, Any]:
         "ask_threshold": 0.3,
         "dedup_score": 0.80,
         "skip_on_explicit_user": True,
+        "knowledge_budget_bytes": _BUDGET_DEFAULT,  # <=0 停用大小硬拒
     }
     if CONFIG_PATH.exists():
         try:
@@ -290,15 +307,44 @@ def evaluate(
     if config is None:
         config = load_config()
 
+    # 大小預算硬拒 — 排最前：explicit_user / pitfall 捷徑皆不豁免（「記住」不等於
+    # 可以把個案敘事整坨塞進 atom）。落檔端 lib/atom_io_cli 另有同源 floor 檢查
+    # （skip_gate 繞過本 gate 時仍會被攔）。
+    try:
+        budget = int(config.get("knowledge_budget_bytes", _BUDGET_DEFAULT))
+    except (TypeError, ValueError):
+        budget = _BUDGET_DEFAULT
+    nbytes = len(content.encode("utf-8"))
+    if 0 < budget < nbytes:
+        write_audit_log("skip", content, 0, reason="over_budget",
+                        bytes=nbytes, budget=budget)
+        return {
+            "action": "skip",
+            "quality_score": 0,
+            "reason": (
+                f"knowledge 區 {nbytes} bytes 超過預算 {budget} bytes——"
+                "個案事實移文件；atom 只留結論/判斷/教訓/現況/檔案錨點"
+                "（大段逐筆內容改為文件路徑一行）"
+            ),
+        }
+
+    # 內容樣式軟警（不擋，附掛在放行結果上；caller 端轉述給寫入者）
+    style_warns = _style_warnings(content)
+
+    def _with_warnings(result: Dict[str, Any]) -> Dict[str, Any]:
+        if style_warns and result.get("action") in ("add", "ask"):
+            result["warnings"] = style_warns
+        return result
+
     # Fast path: explicit user trigger → always add
     # Note: [固] no longer fast-paths here — 移除反向激勵，[固] 也需過 dedup/quality
     if explicit_user:
         write_audit_log("add", content, 1.0, classification=classification, reason="explicit_user")
-        return {
+        return _with_warnings({
             "action": "add",
             "quality_score": 1.0,
             "reason": "explicit user trigger",
-        }
+        })
 
     # Dedup check（先於 pitfall 捷徑：pitfall 只豁免品質評分，不豁免去重——
     # 重複的坑知識 >0.95 仍 skip、相似仍建議 update）
@@ -327,11 +373,11 @@ def evaluate(
     if any(kw in content.lower() or kw in trigger_context.lower() for kw in pitfall_keywords):
         quality = 0.7
         write_audit_log("add", content, quality, classification="[觀]", reason="pitfall_detected")
-        return {
+        return _with_warnings({
             "action": "add",
             "quality_score": quality,
             "reason": "pitfall/trap detected, auto-add as [觀]",
-        }
+        })
 
     # Quality score
     quality, reasons = compute_quality_score(content, explicit_user, trigger_context)
@@ -348,11 +394,11 @@ def evaluate(
 
     write_audit_log(action, content, quality, classification=classification, reasons=reasons)
 
-    return {
+    return _with_warnings({
         "action": action,
         "quality_score": round(quality, 2),
         "reason": f"quality={quality:.2f} ({'>=auto' if action == 'add' else 'ask' if action == 'ask' else '<skip'} threshold), factors: {', '.join(reasons)}",
-    }
+    })
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
