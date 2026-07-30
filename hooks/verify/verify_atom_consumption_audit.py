@@ -178,6 +178,67 @@ def test_assemble_injection_records_log(tmp_path):
     assert log[0]["rel"] == "memory/small-atom.md"
 
 
+# ── 跨 realm 路標斷鏈防線：一行路標一律絕對路徑 ─────────────────
+# rel_path 只相對 atom 自己的 realm root（~/.claude 或某專案 .claude）；
+# 消費端以 cwd 解析 → 跨 realm 必斷鏈（實證：專案 atom 的
+# memory/shared/ProjectWorkflow/pitfalls.md 在 ~/.claude 下 glob 不到）。
+
+
+def test_pointer_path_absolute_when_atom_path_given(tmp_path):
+    from wg_atoms import pointer_path
+
+    p = tmp_path / "memory" / "shared" / "ProjectWorkflow" / "pitfalls.md"
+    assert pointer_path(p) == p.as_posix()
+    assert Path(pointer_path(p)).is_absolute()
+
+
+def test_pointer_path_falls_back_to_rel_without_atom_path():
+    from wg_atoms import pointer_path
+
+    assert pointer_path(None, "memory/x.md", "x") == "memory/x.md"
+    assert pointer_path(None, "", "x") == "x.md"
+
+
+def test_cold_line_prefers_absolute_atom_path(tmp_path):
+    p = tmp_path / "memory" / "shared" / "ProjectWorkflow" / "pitfalls.md"
+    line = format_cold_inject_line(
+        "pitfalls", _ATOM_WITH_STATUS, "memory/shared/ProjectWorkflow/pitfalls.md", p,
+    )
+    assert line.endswith(f"(full: Read {p.as_posix()})")
+
+
+def test_assemble_injection_cold_line_absolute(tmp_path):
+    """專案 realm 的 cold atom：注入行的路標必須是絕對路徑。"""
+    from handlers.ups_inject import assemble_injection
+
+    proj = tmp_path / "proj" / ".claude"
+    atom = proj / "memory" / "shared" / "ProjectWorkflow" / "pitfalls.md"
+    atom.parent.mkdir(parents=True)
+    atom.write_text(_ATOM_WITH_STATUS, encoding="utf-8")
+    lines = []
+    assemble_injection(
+        "sid-cold", {"turn_seq": 1}, {},
+        [(("pitfalls", "memory/shared/ProjectWorkflow/pitfalls.md", ["x"]), proj)],
+        [], [], {"pitfalls": "vector"}, {}, lines,
+    )
+    cold = [ln for ln in lines if ln.startswith("[Atom:pitfalls] (cold)")]
+    assert cold, lines
+    assert atom.as_posix() in cold[0]
+
+
+def test_audit_message_uses_absolute_path():
+    rec = _rec(
+        "pitfalls",
+        path="C:\\Projects\\.claude\\memory\\shared\\ProjectWorkflow\\pitfalls.md",
+        rel="memory/shared/ProjectWorkflow/pitfalls.md",
+    )
+    out = _audit_pointer_atom_consumption(_state([rec]))
+    assert out is not None
+    reason, _names = out
+    assert rec["path"] in reason
+    assert "→ Read memory/shared" not in reason
+
+
 def test_normalize_read_path():
     assert _normalize_read_path("C:\\A\\b.MD") == "c:/a/b.md"
     assert _normalize_read_path(None) == ""

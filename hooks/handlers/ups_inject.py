@@ -19,7 +19,7 @@ from wg_atoms import (
     AtomEntry,
     _strip_atom_for_injection,
     spread_related, decide_atom_injection, compute_injection_rank,
-    classify_hot_cold, format_cold_inject_line, atom_status_suffix,
+    classify_hot_cold, format_cold_inject_line, atom_status_suffix, pointer_path,
     SECTION_INJECT_THRESHOLD, _extract_sections,
     _TURN_BUDGET_LIMIT,
     read_atom_text, load_access_cached,
@@ -141,7 +141,7 @@ def assemble_injection(
         classification = classify_hot_cold(atom_path, source, access_cache=access_cache)
 
         if classification == "cold":
-            cold_line = format_cold_inject_line(name, raw_content, rel_path)
+            cold_line = format_cold_inject_line(name, raw_content, rel_path, atom_path)
             atom_lines.append(cold_line)
             newly_injected.append(name)
             _record(name, atom_path, rel_path, source, "cold")
@@ -191,7 +191,7 @@ def assemble_injection(
             # skip（連 impression fallback 都塞不下）→ 1-line 指標後 continue：
             # 排序偏後仍可能有塞得下的小顆；連續 skip 達上限才視為 budget 真枯竭。
             first_line = content.split("\n", 1)[0].strip("# ").strip()
-            display_path = rel_path or f"{name}.md"
+            display_path = pointer_path(atom_path)
             atom_lines.append(
                 f"[Atom:{name}] {first_line}{atom_status_suffix(raw_content)}"
                 f" (full: Read {display_path})"
@@ -229,7 +229,7 @@ def assemble_injection(
             continue
         related_classification = classify_hot_cold(rpath, "related", access_cache=access_cache)
         if related_classification == "cold":
-            cold_line = format_cold_inject_line(rname, raw_content, rel_path)
+            cold_line = format_cold_inject_line(rname, raw_content, rel_path, rpath)
             cold_line = cold_line.replace(f"[Atom:{rname}] (cold)", f"[Atom:{rname}] (related, cold)", 1)
             atom_lines.append(cold_line)
             newly_injected.append(rname)
@@ -273,7 +273,7 @@ def assemble_injection(
             first_line = content.split("\n", 1)[0].strip("# ").strip()
             atom_lines.append(
                 f"[Atom:{rname}] (related) {first_line}{atom_status_suffix(raw_content)}"
-                f" (full: Read {rel_path or rname + '.md'})"
+                f" (full: Read {pointer_path(rpath)})"
             )
             newly_injected.append(rname)
             _record(rname, rpath, rel_path, "related", "skip")

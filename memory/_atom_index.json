@@ -1339,6 +1339,24 @@
         "一行路標"
       ],
       "scope": "global"
+    },
+    {
+      "name": "winget-升不動-powershell-msi-與-msix-通道分裂",
+      "path": "memory/winget-升不動-powershell-msi-與-msix-通道分裂.md",
+      "triggers": [
+        "winget",
+        "pwsh",
+        "PowerShell 升級",
+        "powershell update",
+        "msix",
+        "exit 43",
+        "UPDATE_NOT_APPLICABLE",
+        "winget upgrade",
+        "winget list",
+        "Package Cache",
+        "Windows PowerShell 5.1"
+      ],
+      "scope": "global"
     }
   ]
 }

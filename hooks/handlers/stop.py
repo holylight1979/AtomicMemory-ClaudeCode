@@ -264,7 +264,8 @@ def _audit_pointer_atom_consumption(
         "（token 預算降級/cold）且全程未 Read 的 atom：",
     ]
     for rec in candidates[:_ATOM_AUDIT_LIST_MAX]:
-        msg.append(f"  - {rec['name']} → Read {rec.get('rel') or rec.get('path', '')}")
+        # 一律用絕對 path（rel 只相對該 atom 自己的 realm root，跨 realm 會斷鏈）
+        msg.append(f"  - {rec['name']} → Read {rec.get('path') or rec.get('rel', '')}")
     if len(candidates) > _ATOM_AUDIT_LIST_MAX:
         msg.append(f"  …另 {len(candidates) - _ATOM_AUDIT_LIST_MAX} 顆（見 state injection_log）")
     msg.append(

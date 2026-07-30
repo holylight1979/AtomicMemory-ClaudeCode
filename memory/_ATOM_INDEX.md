@@ -80,3 +80,4 @@
 | 佛法三缺口工程化-失念壞滅緣了義 | _AIDocs/_atoms/MemDev/佛法三缺口工程化-失念壞滅緣了義.md | 失念, recall-miss, 壞滅緣, Depends 欄位, Evidence 欄位, 證據等級, fast-refute, 佛法, 唯識 | global |
 | 禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱 | _AIDocs/_atoms/MemDev/禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱.md | 禁語, 退避語, evasion hook, wg_evasion, 誤報, false positive, 引用豁免, detect_evasion, forbidden-phrases | global |
 | 取用端稽核與瘦身規範-atomaudit與3kb預算 | _AIDocs/_atoms/MemDev/取用端稽核與瘦身規範-atomaudit與3kb預算.md | AtomAudit, 取用端稽核, injection_log, 瘦身, knowledge budget, 大小預算, Status 行, cold 注入, budget skip, 一行路標 | global |
+| winget-升不動-powershell-msi-與-msix-通道分裂 | memory/winget-升不動-powershell-msi-與-msix-通道分裂.md | winget, pwsh, PowerShell 升級, powershell update, msix, exit 43, UPDATE_NOT_APPLICABLE, winget upgrade, winget list, Package Cache, Windows PowerShell 5.1 | global |

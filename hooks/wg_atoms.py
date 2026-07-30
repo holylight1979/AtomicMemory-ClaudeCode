@@ -754,7 +754,24 @@ def classify_hot_cold(
     return "hot" if recent >= hot_recent_threshold else "cold"
 
 
-def format_cold_inject_line(name: str, raw_content: str, rel_path: str) -> str:
+def pointer_path(
+    atom_path: Optional[Path] = None, rel_path: str = "", name: str = "",
+) -> str:
+    """一行路標的路徑渲染：有實檔路徑就給絕對路徑（正斜線）。
+
+    atom 分屬多個 realm root（~/.claude 與各專案 .claude），rel_path 只相對它自己
+    那顆 root；消費端（模型）拿到裸相對路徑只能以 cwd 解析 → 跨 realm 必斷鏈，
+    最壞是解析到同名的另一顆檔。故路標一律絕對化；atom_path 缺席（legacy caller）
+    才退回 rel_path。
+    """
+    if atom_path is not None:
+        return Path(atom_path).as_posix()
+    return rel_path or f"{name}.md"
+
+
+def format_cold_inject_line(
+    name: str, raw_content: str, rel_path: str, atom_path: Optional[Path] = None,
+) -> str:
     summary = ""
     impression = _extract_named_section(raw_content, "印象")
     if impression:
@@ -780,7 +797,7 @@ def format_cold_inject_line(name: str, raw_content: str, rel_path: str) -> str:
     if len(summary) > _COLD_LINE_CAP:
         summary = summary[:_COLD_LINE_CAP].rstrip() + "…"
 
-    display_path = rel_path or f"{name}.md"
+    display_path = pointer_path(atom_path, rel_path, name)
     status = atom_status_suffix(raw_content)
     return f"[Atom:{name}] (cold) {summary}{status} (full: Read {display_path})"
 
@@ -814,7 +831,7 @@ def load_atoms_within_budget(
             used += content_tokens
         else:
             first_line = content.split("\n", 1)[0].strip("# ").strip()
-            lines.append(f"[Atom:{name}] {first_line} (full: Read {rel_path or name + '.md'})")
+            lines.append(f"[Atom:{name}] {first_line} (full: Read {pointer_path(atom_path)})")
             injected.append(name)
             break
 
@@ -1168,7 +1185,7 @@ def _truncate_context_by_activation(
     atom_blocks.sort(key=lambda x: x["activation"])
 
     def _display_path(ab: dict) -> str:
-        """截斷提示的真實路徑：src_dir 優先，否則掃 roots 找實檔；~/.claude 下轉相對。"""
+        """截斷提示的真實路徑：src_dir 優先，否則掃 roots 找實檔（絕對路徑，跨 realm 可解析）。"""
         name = ab["name"]
         src = ab.get("src_dir")
         if src is None:
@@ -1177,12 +1194,8 @@ def _truncate_context_by_activation(
                     src = cand
                     break
         if src is None:
-            return f"memory/{name}.md"  # 找不到實檔的最後退路
-        p = Path(src) / f"{name}.md"
-        try:
-            return p.relative_to(CLAUDE_DIR).as_posix()
-        except ValueError:
-            return str(p)
+            return (MEMORY_DIR / f"{name}.md").as_posix()  # 找不到實檔的最後退路
+        return pointer_path(Path(src) / f"{name}.md")
 
     truncated_indices: set = set()
     for ab in atom_blocks:
