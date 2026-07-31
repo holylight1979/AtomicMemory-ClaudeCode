@@ -81,3 +81,4 @@
 | 禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱 | _AIDocs/_atoms/MemDev/禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱.md | 禁語, 退避語, evasion hook, wg_evasion, 誤報, false positive, 引用豁免, detect_evasion, forbidden-phrases | global |
 | 取用端稽核與瘦身規範-atomaudit與3kb預算 | _AIDocs/_atoms/MemDev/取用端稽核與瘦身規範-atomaudit與3kb預算.md | AtomAudit, 取用端稽核, injection_log, 瘦身, knowledge budget, 大小預算, Status 行, cold 注入, budget skip, 一行路標 | global |
 | winget-升不動-powershell-msi-與-msix-通道分裂 | memory/winget-升不動-powershell-msi-與-msix-通道分裂.md | winget, pwsh, PowerShell 升級, powershell update, msix, exit 43, UPDATE_NOT_APPLICABLE, winget upgrade, winget list, Package Cache, Windows PowerShell 5.1 | global |
+| 跨session協調-衝突預警機制與cc原生現況 | _AIDocs/_atoms/MemDev/跨session協調-衝突預警機制與cc原生現況.md | 跨 session 溝通, session 協調, 衝突預警, CoordWarn, wg_coordination, session_message, 收件匣, coordination, 多 session 併行, session 互踩, add -A 預警, late-collision, Agent Teams | global |

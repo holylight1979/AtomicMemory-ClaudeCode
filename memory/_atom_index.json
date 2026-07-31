@@ -1357,6 +1357,26 @@
         "Windows PowerShell 5.1"
       ],
       "scope": "global"
+    },
+    {
+      "name": "跨session協調-衝突預警機制與cc原生現況",
+      "path": "_AIDocs/_atoms/MemDev/跨session協調-衝突預警機制與cc原生現況.md",
+      "triggers": [
+        "跨 session 溝通",
+        "session 協調",
+        "衝突預警",
+        "CoordWarn",
+        "wg_coordination",
+        "session_message",
+        "收件匣",
+        "coordination",
+        "多 session 併行",
+        "session 互踩",
+        "add -A 預警",
+        "late-collision",
+        "Agent Teams"
+      ],
+      "scope": "global"
     }
   ]
 }

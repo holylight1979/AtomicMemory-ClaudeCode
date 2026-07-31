@@ -176,6 +176,26 @@ def _cleanup_old_states() -> None:
         except OSError:
             pass
 
+    # 跨 session 協調旁路檔：warn-cache（含殘留 .tmp）同 7d 標準；observation log 30d
+    for f in WORKFLOW_DIR.glob("coord-warn-cache-*.tmp"):
+        try:
+            if now - f.stat().st_mtime > 7 * 86400:
+                f.unlink(missing_ok=True)
+        except OSError:
+            pass
+    for f in WORKFLOW_DIR.glob("coord-warn-cache-*.json"):
+        try:
+            if now - f.stat().st_mtime > 7 * 86400:
+                f.unlink(missing_ok=True)
+        except OSError:
+            pass
+    for f in (WORKFLOW_DIR.parent / "Logs" / "session-coordination").glob("*.jsonl*"):
+        try:
+            if now - f.stat().st_mtime > 30 * 86400:
+                f.unlink(missing_ok=True)
+        except OSError:
+            pass
+
 
 # ─── User Extract Worker Spawning ──────────────────────────────────────
 

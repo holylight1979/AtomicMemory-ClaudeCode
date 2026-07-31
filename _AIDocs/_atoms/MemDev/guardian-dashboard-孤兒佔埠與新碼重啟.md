@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: guardian, server.js, 3848, dashboard, 重啟, 孤兒, 孤兒預防, stdin, EOF, EADDRINUSE, 新路由 404, relinquish, creature-chat, world.html
 - Created-at: 2026-06-02
-- Related: decisions-architecture, feedback-tooling-reliability, toolchain, reconcile-render-動畫狀態歸屬陷阱, 腦內世界-v3-自癒與-command-bus-架構, 腦內世界-環境演化-放置式架構, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房, 巨檔純機械拆分-carve腳本與驗證盲點, anti-evasion-hud-設計脊柱與強化前必讀
+- Related: decisions-architecture, feedback-tooling-reliability, toolchain, reconcile-render-動畫狀態歸屬陷阱, 腦內世界-v3-自癒與-command-bus-架構, 腦內世界-環境演化-放置式架構, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房, 巨檔純機械拆分-carve腳本與驗證盲點, anti-evasion-hud-設計脊柱與強化前必讀, 跨session協調-衝突預警機制與cc原生現況
 
 ## 知識
 

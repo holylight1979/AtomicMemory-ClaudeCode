@@ -547,6 +547,33 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if dirty:
         write_state(session_id, state)
 
+    # ─── 跨 session late-collision（寫後補償；必須在 write_state 之後查——
+    # 兩 session 同時首寫時，寫前掃描雙方都看不見對方，落盤後才可見）───
+    if (
+        (config.get("coordination") or {}).get("enabled", False)
+        and tool_name in ("Edit", "Write", "NotebookEdit")
+        and file_path
+        and not _is_ephemeral_path(file_path)
+    ):
+        try:
+            from wg_coordination import (
+                check_cross_session_conflict, format_late_collision,
+                _warn_cache_suppressed, _norm_path,
+            )
+            _hit = check_cross_session_conflict(
+                session_id, file_path, config,
+                entry_window_s=60, use_cache=False, ev="late_collision",
+            )
+            if _hit:
+                # log 恆記；advisory 僅在 PreToolUse 近期未警過同檔時附加（防洗版）
+                _sup_s = float((config.get("coordination") or {}).get("warn_suppress_min", 10)) * 60
+                if not _warn_cache_suppressed(session_id, _norm_path(file_path), _sup_s):
+                    _msg = format_late_collision(_hit)
+                    advisories.append(_msg)
+                    print(_msg, file=sys.stderr)
+        except Exception as e:
+            _atom_debug_error("post_tool_use:late_collision", e)
+
     if advisories:
         output_json({
             "hookSpecificOutput": {

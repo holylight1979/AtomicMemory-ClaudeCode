@@ -174,6 +174,43 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         except OSError:
             pass
 
+    # ─── 跨 session 衝突預警（warn-only、fail-open；deny 觸發時警告只留 stderr）───
+    # config 先判 enabled 才 import wg_coordination（disabled = 零 import 成本）。
+    # additionalContext 隨工具結果進下一輪（非寫前攔截）；systemMessage 同步給使用者。
+    coord_warn = None
+    coord_warn_fp = None  # 發警時才記 warn-cache（deny 蓋掉的回合不記）
+    coord_sid = input_data.get("session_id", "") or ""
+    if (config.get("coordination") or {}).get("enabled", False):
+        try:
+            _sid = coord_sid
+            if tool_name in ("Write", "Edit", "NotebookEdit"):
+                _fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+                if _fp:
+                    from wg_coordination import (
+                        check_cross_session_conflict, format_conflict_warning,
+                    )
+                    _hit = check_cross_session_conflict(_sid, _fp, config)
+                    if _hit:
+                        coord_warn = format_conflict_warning(_hit)
+                        coord_warn_fp = _fp
+            elif tool_name == "Bash":
+                _cmd = tool_input.get("command", "") or ""
+                if _cmd:
+                    from wg_coordination import check_bash_git_finalize
+                    coord_warn = check_bash_git_finalize(
+                        _sid, _cmd, input_data.get("cwd", "") or "", config,
+                    )
+            if coord_warn:
+                try:
+                    sys.stderr.write(coord_warn + "\n")
+                except OSError:
+                    pass
+        except Exception as e:
+            try:
+                sys.stderr.write(f"[Guardian:Coord] pre_tool_use 檢查異常（fail-open）：{e}\n")
+            except OSError:
+                pass
+
     deny_reason = _check_memory_atom_format(tool_name, tool_input)
     if deny_reason:
         output_json({
@@ -221,6 +258,24 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 "permissionDecision": "deny",
                 "permissionDecisionReason": deny_reason,
             }
+        })
+        return
+
+    # 無 deny 才輸出衝突警告（stdout 恆單一 JSON；不帶 permissionDecision——
+    # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）
+    if coord_warn:
+        if coord_warn_fp:
+            try:
+                from wg_coordination import record_warn_cache
+                record_warn_cache(coord_sid, coord_warn_fp)
+            except Exception:
+                pass
+        output_json({
+            "systemMessage": coord_warn,
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": coord_warn,
+            },
         })
         return
 

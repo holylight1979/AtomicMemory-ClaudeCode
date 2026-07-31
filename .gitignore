@@ -29,6 +29,7 @@ stats-cache.json
 workflow/state-*.json
 workflow/state-*.json.bak-*
 workflow/state-*.json.corrupt
+workflow/coord-warn-cache-*.json
 workflow/world-dev.json
 workflow/_*.log
 workflow/guardian-crash.log

@@ -268,6 +268,13 @@
     "_doc": "Anti-Evasion HUD：hud_autospawn=true → notable/real-evasion 報告且窗死時自動 spawn Edge --app HUD 窗（否則 fallback 回 chat）。hud_stale_s=心跳新鮮度門檻秒（預設 30）。",
     "hud_autospawn": true
   },
+  "coordination": {
+    "_doc": "跨 session 協調衝突預警（hooks/wg_coordination.py）。PreToolUse 掃其他活 session state 的 modified_files：Write/Edit/NotebookEdit 同檔 → warn-only（additionalContext 隨工具結果下一輪可見 + systemMessage）；Bash git add -A/reset --hard 且同 cwd 有他人未收改動 → 同型警告；PostToolUse 補 60s late-collision。全程 fail-open，log 落 Logs/session-coordination/<sid>.jsonl。enabled 一鍵關；warn_suppress_min=同檔重警抑制分鐘；scan_mtime_window_s=peer state 活躍窗；max_scan_files=單次 parse 上限。日落：log 連續 4 週 conflict_warn 零命中 → 提降級評估。",
+    "enabled": true,
+    "warn_suppress_min": 10,
+    "scan_mtime_window_s": 1800,
+    "max_scan_files": 20
+  },
   "guard": {
     "cross_realm_write": {
       "_doc": "外部專案 session（cwd∉~/.claude）寫入核心層 ~/.claude/{skills,tools,hooks,lib,rules}/ → PreToolUse deny。核心開發 session 不受影響。allowlist 為路徑子字串白名單。",
