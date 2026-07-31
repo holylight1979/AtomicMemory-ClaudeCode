@@ -202,5 +202,6 @@
       }
     ]
   },
-  "switchModelsOnFlag": true
+  "switchModelsOnFlag": true,
+  "model": "claude-fable-5[1m]"
 }

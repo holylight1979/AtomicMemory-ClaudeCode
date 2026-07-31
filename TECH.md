@@ -60,6 +60,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── wg_atom_observation.py                      ← shim：REG-005 觀察採樣（flag-gated）
 │   ├── wg_handoff.py                               ← Auto-Handoff 四層自動交接（stub/門檻/token 預警）
 │   ├── wg_rescue.py / wg_recall_miss.py            ← 救援日誌（記憶被用上的證據）/ 失念偵測（該想起而未想起）
+│   ├── wg_coordination.py                          ← 跨 session 衝突預警（同檔互寫 / git add -A 收尾 / late-collision）
 │   ├── wisdom_engine.py                            ← 反思引擎 + Fix Escalation
 │   ├── codex_companion.py                          ← V5 P5b 重寫為 subprocess 模型
 │   ├── lang_guard.py                               ← P8b 英文回應漂移攔截（standalone Stop hook，仿 codex_companion）
@@ -356,6 +357,18 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 dispatcher → V5：
 - **失念偵測（recall-miss，`hooks/wg_recall_miss.py`）**：既有監控抓「不該注入而注入」（token 稅），本模組抓對偶面——本 session 有失敗證據（failing_tests / evasion / failure_kw）、庫中其實有 atom 可防（trigger 命中 ≥2 個非泛用詞）卻未被注入。SessionEnd 純字串比對（<1s、零 LLM），落 `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈（14 天 ≥3 次）。
 - **壞滅緣（atom optional `- Depends:`）**：atom 標「依何條件而為真」——`path:<路徑>` 型機器可驗存在性、自由文字型僅展示。`atom-health-check` `check_stale_deps` 驗 path 型指向消失 → 主動標 stale（decay 是時間函數，這是真值函數）。
 - **證據等級（atom optional `- Evidence: 實證|引述|推測`）**：衝突裁決（`memory-conflict-detector`）優先序改為**證據等級（實證3>引述2>推測1>未標0）→ recency**，取代純「新勝舊」；**fast-refute 快速否證通道**：CONTRADICT 且新側 Evidence=實證、舊側 [固]/[觀] → 置頂高優先裁決，不等 Wilson 統計窗。兩欄皆 optional，既有 atom 缺欄靜默通過（向後相容鐵則）。
+
+### 5.13 跨 Session 衝突預警（`hooks/wg_coordination.py`）
+
+多 session 共用同一工作樹（含跨專案）互踩的 advisory 層。背景：CC 原生無跨 session 溝通管道（SendMessage 限本 session subagent／同 agent team；Agent Teams 實驗性限單 team）；官方策略只有 worktree 隔離。本機制以 Guardian 既有 state 檔為資料源補上「衝突可見性」——**純檔案方案，不依賴 3848 daemon**（PreToolUse 熱路徑不打 HTTP；daemon CORS wildcard 未解前不加 mutation API）。
+
+- **同檔互寫預警**（PreToolUse Write/Edit/NotebookEdit）：目標檔出現在其他活 session state（phase=working/syncing、mtime<30min、無 merged_into）的 `modified_files` → warn-only。歸屬以 **entry 級 `session_id`** 判定（merged 工作樹 state 含多 session entry，只看 state owner 會誤報自己）。輸出＝裸 `hookSpecificOutput.additionalContext`（模型可見；probe 實測 2.1.220：**隨工具結果進下一輪、非寫前攔截**——寫前生效僅 deny/ask）+ 頂層 `systemMessage`（使用者可見）；**禁帶 `permissionDecision:"allow"`**（會自動核准繞過權限系統）。deny gate 優先，warn 只留 stderr。同檔 10min 抑制（`coord-warn-cache-<sid>.json`，發警時才記錄——deny 回合不記，修正後合法重試照警；寫入時修剪 >24h entry）。
+- **Bash git 收尾預警**：`git add -A|--all|.`／`reset --hard`／`checkout -- .`／`clean -f`（dry-run／`clean -n` 排除；引號**解包**比對——`git add "-A"` 抓得到、`echo "git add -A"` 不誤報；`#` 只在空白後算註解；`command`/`(` 前綴剝除）且**同 cwd** 有其他活 session 留有改動紀錄 → 警告 + 選擇性 staging 提示（state 不追 VCS 狀態，措辭為查證提示非斷言未提交）。對應 pain atom `併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a` 的實證事故。
+- **Late-collision 補償**（PostToolUse）：兩 session 60s 內先後寫同檔（寫前互看不見的 first-write race 盲區）→ **write_state 落盤後**再掃、寫後告警（log 恆記、advisory 受同檔抑制窗防洗版）。
+- **失效邊界（如實聲明）**：first-write race 無法消除（advisory 非鎖）；擋不住不走 hook 的寫入（外部編輯器等）；oversize state（>512KB）跳過（`skip_oversize` log 可稽核）；掃描上限 20 檔、溢出落 `scan_overflow` log（截斷盲區不靜默）。
+- **可觀測性**：per-session NDJSON `Logs/session-coordination/<sid>.jsonl`（分檔迴避跨行程共檔競寫；記完整 session id；ev=conflict_warn/late_collision/bash_finalize_warn/conflict_suppressed/scan_clear 採樣/skip_oversize/scan_overflow/fail_open + ms 延遲）。GC：warn-cache 7d、log 30d（`handlers/_shared.py`）。實測單次掃描 ~5.5ms。
+- **config `coordination.*`**：`enabled` 一鍵關／`warn_suppress_min`(10)／`scan_mtime_window_s`(1800)／`max_scan_files`(20)。**日落條款**：log 連續 4 週 conflict_warn 零命中 → 主動提降級評估。
+- **設計裁決（多大師計畫 2026-07-31，七席共議 + 雙稽核 + 紅隊）**：協調資料**絕不寫入 `state-*.json`**（Node `writeState` 無鎖吞錯 + Python/Node 三條 GC 互不相認 → last-writer-wins 必失資料）；Stage 2 session 收件匣（MCP chip → PostToolUse one-writer 蓋章真實 sender → 一訊息一檔 sidecar）與 Phase 3 檔案認領制 **defer 待數據**。全紀錄 → [_AIDocs/DevHistory/session-coordination-bus.md](_AIDocs/DevHistory/session-coordination-bus.md)；verify → [hooks/verify/verify_session_coordination.py](hooks/verify/verify_session_coordination.py)（22 測項）。
 
 ---
 
@@ -726,6 +739,7 @@ flowchart TD
 | **lang_guard（P8b）** | [hooks/lang_guard.py](hooks/lang_guard.py) | standalone Stop hook（仿 codex_companion）：量測終版訊息英文佔比 > 0.5（≥40 語言字元）→ `systemMessage` 注入繁中提醒（規則化·stateless 每輪自校正·無 flag）；觸發落 `Logs/guard-lang.jsonl` |
 | **程式化收尾強化（Q3-A）** | [hooks/wg_evasion.py](hooks/wg_evasion.py) `crosscheck_aec_severity`/`flush_outcome_stats` + [hooks/handlers/post_tool_use.py](hooks/handlers/post_tool_use.py) `_collect_aec_evidence` + [hooks/handlers/user_prompt_submit.py](hooks/handlers/user_prompt_submit.py) 哨兵/後驗 | ① AEC (b) 欄 cross-check：hook 實測退避（`evasion_events` 證據暫存）而模型自評「無」→ Python one-writer 升 real-evasion + report 附 `hook_evidence`（不信自評；Node chip 純內容判定，以 report 檔/Stop fallback 為準）② 護欄觸發 JSONL（`Logs/guard-{evasion,docdrift,lang}.jsonl`，誤攔率可量測）③ outcome unknown 比率遙測（`workflow/outcome_stats.jsonl`，連續 3 session >70% → SessionStart advisory，防完成語 regex 失配 → α/β 晉升軌靜默停滯）④ HUD 刪除決策後驗（下輪 UPS `exists()` 實查 → 重注入一次 / 告警結案）⑤ UPS 被 kill 哨兵（`workflow/ups-sentinel/`，殘留＝上輪注入被 timeout 砍 → 告警）。config：`usefulness.unknown_watch` |
 | **性能與結構修復（Q3-B）** | [hooks/handlers/stop.py](hooks/handlers/stop.py) + [hooks/wg_evasion.py](hooks/wg_evasion.py) `read_transcript_tail` + [hooks/wg_core.py](hooks/wg_core.py) `sanitize_harness_noise` | ① Stop transcript 消費者（last_text / token 預警 / turn 文字 / accessed_files）合併**單次 2MB tail-read**（原 3 次全檔讀）→ settings.json Stop timeout 20→10 ② `_detect_uncommitted_files` 按 VCS root 分組（`_find_vcs_root` 純 walk-up）**batch status**（原 ~2N 次 git/svn 子行程 → 每根 1 次）③ PostToolUse matcher 移除 Read——accessed_files 改 Stop 端從共用尾段回收（省 per-Read hook 行程；極早期讀取超出尾窗會漏＝已接受邊界）④ episodic 品質：`sanitize_harness_noise` 剔 `<ide_opened_file>`/`<system-reminder>` 等標籤與 `[Guardian:*]` 殘渣行（topic tracker 記錄端 + episodic 摘要防禦端雙保險）、知識段只收 LLM 萃取項 + 覆轍信號（「修改 N 檔」類統計歸摘要工作範圍行/閱讀軌跡）、刪死碼 `_llm_extract_knowledge` ⑤ :3848 交棒假說（「只在啟動搶埠、無 runtime 重試」）經隔離埠 E2E **實證推翻**——heartbeat 重綁自 2026-03 存在且 15s 內收斂，不動碼；跨專案 alias 掃描實測 ~11ms/prompt，快取化**實證不成立**跳過 |
+| **跨 Session 衝突預警** | [hooks/wg_coordination.py](hooks/wg_coordination.py) | 多 session 共用工作樹互踩 advisory：PreToolUse 同檔互寫 warn（entry 級 session_id 歸屬、裸 additionalContext+systemMessage、禁 permissionDecision）+ Bash `git add -A`/`reset --hard` 同 cwd 預警（引號解包、dry-run 排除）+ PostToolUse 60s late-collision。純檔案方案不依賴 daemon；log `Logs/session-coordination/`；config `coordination.*` + 4 週日落條款；Stage 2 收件匣/認領制 defer。→§5.13 |
 | 治理原則（P5） | [rules/core.md](rules/core.md) | **Native-first**（原生機制優先，自製只做結構化·跨-session 高價值）+ **可觀測性鐵律**（fail-open 必告知；vector 靜默死 27d 反例）|
 | Token Diet | wg_atoms `_strip_atom_for_injection` | 注入前 strip metadata + Section-Level |
 | Write Gate | [tools/memory-write-gate.py](tools/memory-write-gate.py) | 規則 + dedup 0.8 + CJK patterns |
