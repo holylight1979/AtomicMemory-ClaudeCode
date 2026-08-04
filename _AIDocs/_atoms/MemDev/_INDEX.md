@@ -7,6 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | anti-evasion-hud-設計脊柱與強化前必讀 | anti-evasion-hud-設計脊柱與強化前必讀 |
+| atom-edit-meta與atom-heal對專案層atom的缺口與繞法 | atom-edit-meta與atom-heal對專案層atom的缺口與繞法 |
 | atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove | atom-heal L2 broken-ref 誤判 prefix-rename 為 remove |
 | atom-move-v5-sot-correct-化與半遷移工具辨識 | atom-move V5 SoT-correct 化與半遷移工具辨識 |
 | atom-table-support | atom_write 知識區表格/程式碼 fence block 渲染用法（dogfood） |

@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: AtomAudit, 取用端稽核, injection_log, 瘦身, knowledge budget, 大小預算, Status 行, cold 注入, budget skip, 一行路標
 - Created-at: 2026-07-29
-- Related: decisions-architecture, unity-support-engagement
+- Related: decisions-architecture
 
 ## 知識
 

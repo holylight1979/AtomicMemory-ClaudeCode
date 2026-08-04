@@ -1377,6 +1377,48 @@
         "Agent Teams"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom-edit-meta與atom-heal對專案層atom的缺口與繞法",
+      "path": "_AIDocs/_atoms/MemDev/atom-edit-meta與atom-heal對專案層atom的缺口與繞法.md",
+      "triggers": [
+        "atom_edit_meta",
+        "atom-heal",
+        "broken_refs",
+        "專案層 atom",
+        "trigger 編輯",
+        "file not under",
+        "L2 自癒",
+        "死連結修復",
+        "sync-atom-index",
+        "--fix",
+        "--memory-dir",
+        "mirror 重生"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問",
+      "path": "_AIDocs/Failures/feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問.md",
+      "triggers": [
+        "整理",
+        "歸檔",
+        "搬移",
+        "歷史搬移",
+        "瘦身",
+        "封存",
+        "刪檔",
+        "長期追蹤",
+        "擱置",
+        "watch",
+        "非本波",
+        "機械執行",
+        "錯點搬移",
+        "去留",
+        "合併文件",
+        "推託"
+      ],
+      "scope": "global"
     }
   ]
 }
