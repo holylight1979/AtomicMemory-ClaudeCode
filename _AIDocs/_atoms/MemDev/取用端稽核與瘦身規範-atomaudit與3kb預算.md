@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: AtomAudit, 取用端稽核, injection_log, 瘦身, knowledge budget, 大小預算, Status 行, cold 注入, budget skip, 一行路標
 - Created-at: 2026-07-29
-- Related: decisions-architecture
+- Related: decisions-architecture, atom-edit-meta與atom-heal對專案層atom的缺口與繞法
 
 ## 知識
 
