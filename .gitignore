@@ -17,6 +17,7 @@ projects/
 session-env/
 shell-snapshots/
 statsig/
+tasks/
 telemetry/
 todos/
 
@@ -50,6 +51,7 @@ workflow/outcome_stats.jsonl
 workflow/outcome-unknown-advisory.json
 workflow/health-reports/
 workflow/health-last-run.json
+workflow/dpm-done/
 
 # ─── Per-user / per-machine state (Wave 5 untracked) ─────
 memory/project-registry.json
