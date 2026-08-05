@@ -4,15 +4,18 @@ handlers/pre_tool_use.py — PreToolUse hook handler
 對 Write/Edit 進行 atom 格式/Confidence gate + memory 路徑防呆 + svn test block。
 """
 
+import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from wg_core import (
+    WORKFLOW_DIR,
     output_json, output_nothing,
     check_memory_path_block, check_svn_test_block,
     check_cross_realm_write, check_cross_realm_mcp_cmd,
+    read_state, get_transcript_path, append_guard_log,
     _atom_debug_log,
 )
 
@@ -123,6 +126,312 @@ def _check_feedback_routing_advisory(
         "MCP 會自動路由到 _AIDocs/Failures/（含索引同步 + access.json）。\n"
         "詳見 _AIDocs/SPEC_ATOM_V5.md「Atom 存放擴展」段。"
     )
+
+
+# ─── Pre-Action Notice Gate（PAN，Hermes 技轉）────────────────────────────
+# 每使用者回合首次「會動手」工具（Write/Edit/NotebookEdit/非唯讀 Bash）呼叫前，
+# 檢查本 turn 是否已有可見預告（「執行目標」+「預估/概估」+ 實質內容）。
+# mode: observe=只落 guard log / warn=systemMessage 提醒 / deny=攔 + 補救模板
+#（每回合上限 max_denies_per_turn，超過強制放行 + log）。通過寫
+# workflow/pan-pass/{sid}-t{turn}.flag（armed 快路徑，回合內全放；marker 抗
+# 併發覆寫，仿 dpm-done）。sidechain/resume 保底：state 無 turn_seq 即 fail-open。
+# 全程 fail-open；觸發事件落 Logs/guard-pre-action-notice.jsonl。
+
+_PAN_GUARD = "pre-action-notice"
+_PAN_GATED_TOOLS = ("Write", "Edit", "NotebookEdit", "Bash")
+_PAN_GOAL_LABEL = "執行目標"
+_PAN_TIME_LABELS = ("預估", "概估")
+# 實質內容判定的剝除字元集：空白（含全形）、標點、裝飾、括號。
+_PAN_STRIP_CHARS = (
+    " \t\r\n　"
+    "：:，,。．.、；;！!？?…~～"
+    "*_#>-—＝=`・•"
+    "()（）[]【】「」『』<>＜＞"
+)
+# 佔位符防呆：deny 模板的「<一句話目標>」被盲目複誦時，整個 <…> span（含內文）
+# 視為佔位符移除，不得冒充實質內容。
+_PAN_PLACEHOLDER_RE = re.compile(r"[<＜][^<>＜＞\n]{0,60}[>＞]")
+_PAN_PURE_TIME_RE = re.compile(
+    r"^[0-9０-９一二三四五六七八九十半約\s]*"
+    r"(分鐘|分|秒鐘|秒|小時|時|hrs?|mins?|secs?|天|週)$",
+    re.IGNORECASE,
+)
+_PAN_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+
+_PAN_FAIL_DETAIL = {
+    "no_goal_label": "缺「執行目標」標籤",
+    "no_est_label": "缺「預估」或「概估」標籤",
+    "goal_blank": "「執行目標」後沒有實質內容",
+    "goal_time_masq": "「執行目標」後只有時間，缺具體目標",
+    "est_blank": "「預估/概估」後沒有實質內容",
+}
+
+_PAN_FALLBACK_DENY = (
+    "[Guardian:PreActionNotice] 本回合尚未輸出動手前預告（{fail_detail}），工具呼叫已暫擋。\n"
+    "請先以使用者可見的一般文字輸出「執行目標：<具體目標>；預估 <時間或工作量>」，"
+    "再重新呼叫工具。（第 {n}/{max} 次提醒）"
+)
+
+
+def pan_validate_notice(visible_text: str) -> Tuple[bool, str]:
+    """Hermes 規則移植：雙標籤 + 實質內容 + 時間冒充目標防禦。
+
+    回 (ok, fail_code)。全文任一「執行目標…預估/概估」組合通過即 pass
+    （模型寫壞一次再補好可過）。驗證前剝 code fence（引用範例不冒充）。
+    """
+    if not isinstance(visible_text, str) or not visible_text.strip():
+        return False, "no_goal_label"
+    text = _PAN_CODE_FENCE_RE.sub("", visible_text)
+    idx = 0
+    found_goal = False
+    last_fail = "no_est_label"
+    while True:
+        g = text.find(_PAN_GOAL_LABEL, idx)
+        if g < 0:
+            break
+        found_goal = True
+        idx = g + len(_PAN_GOAL_LABEL)
+        rest = text[idx:]
+        hits = [
+            (p, lbl) for lbl in _PAN_TIME_LABELS
+            if (p := rest.find(lbl)) >= 0
+        ]
+        if not hits:
+            last_fail = "no_est_label"
+            continue
+        t_pos, t_lbl = min(hits)
+        goal_seg = rest[:t_pos]
+        goal_core = _PAN_PLACEHOLDER_RE.sub("", goal_seg)
+        for ch in _PAN_STRIP_CHARS:
+            goal_core = goal_core.replace(ch, "")
+        if not goal_core:
+            # 目標段剝空：緊鄰時間標籤（執行目標：預估…）視為時間冒充
+            last_fail = "goal_time_masq" if len(goal_seg.strip()) <= 2 else "goal_blank"
+            continue
+        if _PAN_PURE_TIME_RE.match(goal_core):
+            last_fail = "goal_time_masq"
+            continue
+        est_seg = rest[t_pos + len(t_lbl):].split("\n", 1)[0]
+        est_core = _PAN_PLACEHOLDER_RE.sub("", est_seg)
+        for ch in _PAN_STRIP_CHARS:
+            est_core = est_core.replace(ch, "")
+        if not est_core:
+            last_fail = "est_blank"
+            continue
+        return True, ""
+    return (False, last_fail) if found_goal else (False, "no_goal_label")
+
+
+def pan_is_readonly_bash(command: str, pan_cfg: Dict[str, Any]) -> bool:
+    """Bash 唯讀判定（全過才唯讀；解析失敗保守回 False=gated）。
+
+    ① heredoc → gated；② redirect 目標非 null device → gated；
+    ③ &&/||/;/| 切段，每段首綴須命中白名單（cd 為透明段例外）；
+    ④ find 段含 -delete/-exec → gated。
+    """
+    try:
+        cmd = (command or "").strip()
+        if not cmd:
+            return True
+        if "<<" in cmd:
+            return False
+        tmp = re.sub(r"\d?>\s*&\d", "", cmd)  # 2>&1
+        tmp = re.sub(r"\d?>>?\s*(/dev/null|nul|\$null)\b", "", tmp, flags=re.IGNORECASE)
+        if ">" in tmp:
+            return False
+        prefixes = [
+            str(p).lower() for p in (pan_cfg.get("bash_readonly_prefixes") or []) if p
+        ]
+        if not prefixes:
+            return False
+        for seg in re.split(r"&&|\|\||;|\|", cmd):
+            seg_l = seg.strip().lower()
+            if not seg_l:
+                continue
+            first = seg_l.split()[0]
+            if first == "cd":
+                continue  # 透明段：單獨 cd 無副作用
+            if not any(seg_l.startswith(p) for p in prefixes):
+                return False
+            if first == "find" and re.search(r"\s-(delete|exec)\b", seg_l):
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def pan_is_gated(
+    tool_name: str, tool_input: Dict[str, Any], pan_cfg: Dict[str, Any]
+) -> bool:
+    """本次工具呼叫是否受 PAN 閘門管轄（唯讀 Bash / 豁免路徑不管）。"""
+    if tool_name not in _PAN_GATED_TOOLS:
+        return False
+    if tool_name == "Bash":
+        return not pan_is_readonly_bash(tool_input.get("command", "") or "", pan_cfg)
+    fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "") or ""
+    if fp:
+        norm = str(fp).replace("\\", "/")
+        for sub in pan_cfg.get("exempt_path_substrings") or []:
+            if sub and sub in norm:
+                return False
+    return True
+
+
+def _pan_pass_marker(session_id: str, turn_seq: int) -> Path:
+    return WORKFLOW_DIR / "pan-pass" / f"{session_id}-t{turn_seq}.flag"
+
+
+def _pan_deny_file(session_id: str, turn_seq: int) -> Path:
+    return WORKFLOW_DIR / "pan-deny" / f"{session_id}-t{turn_seq}.json"
+
+
+def _pan_touch_marker(marker: Path) -> None:
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("armed", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _pan_bump_counter(session_id: str, turn_seq: int) -> Optional[int]:
+    """deny/observe 計數 +1，回新值。I/O 失敗回 None（caller 走 fail-open——
+    counter 壞掉不能變成永久 deny 迴圈）。競態最壞少計一次 → 多 deny 一次，
+    force-release 仍會到（單調不減即可，不加鎖）。"""
+    try:
+        path = _pan_deny_file(session_id, turn_seq)
+        count = 0
+        if path.exists():
+            try:
+                count = int(json.loads(path.read_text(encoding="utf-8")).get("count", 0))
+            except (json.JSONDecodeError, ValueError, OSError):
+                count = 0
+        count += 1
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"count": count}), encoding="utf-8")
+        return count
+    except Exception:
+        return None
+
+
+def _pan_log_ok(session_id: str, turn_seq: int) -> bool:
+    """log 節流：同 (sid, turn) 上限 3 筆（含 fail-open 路徑——外部專案 session
+    每呼叫落一筆會洗版，實測已見）。counter I/O 失敗 → 照記（可觀測性優先）。"""
+    count = _pan_bump_counter(session_id or "unknown", turn_seq)
+    return count is None or count <= 3
+
+
+def _check_pre_action_notice(
+    input_data: Dict[str, Any], config: Dict[str, Any]
+) -> Tuple[Optional[str], Optional[str]]:
+    """回 (deny_reason, warn_msg)，兩者互斥；放行 = (None, None)。全程 fail-open。"""
+    try:
+        pan_cfg = (config.get("guard") or {}).get("pre_action_notice") or {}
+        if not pan_cfg.get("enabled", False):
+            return None, None
+        tool_name = input_data.get("tool_name", "")
+        tool_input = input_data.get("tool_input", {}) or {}
+        if not pan_is_gated(tool_name, tool_input, pan_cfg):
+            return None, None
+
+        mode = pan_cfg.get("mode", "observe")
+        sid = input_data.get("session_id", "") or ""
+        state = read_state(sid) if sid else None
+        turn_seq = int((state or {}).get("turn_seq", 0) or 0)
+        if not state or turn_seq <= 0:
+            # sidechain / resume / state 缺失保底：不擋，只記（節流）
+            if _pan_log_ok(sid, 0):
+                append_guard_log(_PAN_GUARD, {
+                    "tool": tool_name, "mode": mode,
+                    "outcome": "fail_open_no_state", "sid": sid[:8],
+                })
+            return None, None
+
+        marker = _pan_pass_marker(sid, turn_seq)
+        if marker.exists():
+            return None, None  # armed 快路徑：回合內已通過，零 transcript I/O
+
+        # 惰性 import：wg_evasion 37KB，只在 gated 且未 armed 才付
+        from wg_evasion import read_transcript_tail, get_current_turn_visible_text
+
+        tpath = input_data.get("transcript_path") or ""
+        if not tpath:
+            tp = get_transcript_path(sid, input_data.get("cwd", "") or "")
+            tpath = str(tp) if tp else ""
+        tail = read_transcript_tail(Path(tpath)) if tpath else ""
+        if not tail:
+            if _pan_log_ok(sid, turn_seq):
+                append_guard_log(_PAN_GUARD, {
+                    "tool": tool_name, "mode": mode,
+                    "outcome": "fail_open_no_transcript", "sid": sid[:8],
+                })
+            return None, None
+        visible, probe = get_current_turn_visible_text(
+            None, max_chars=int(pan_cfg.get("max_turn_text_chars", 12000)), text=tail,
+        )
+        if not probe:
+            if _pan_log_ok(sid, turn_seq):
+                append_guard_log(_PAN_GUARD, {
+                    "tool": tool_name, "mode": mode,
+                    "outcome": "fail_open_probe_failed", "sid": sid[:8],
+                })
+            return None, None
+
+        ok, fail_code = pan_validate_notice(visible)
+        probe["cur_tool_flushed"] = tool_name in (probe.get("turn_tool_names") or [])
+        max_denies = int(pan_cfg.get("max_denies_per_turn", 2))
+        base = {
+            "tool": tool_name, "mode": mode, "turn": turn_seq, "sid": sid[:8],
+            "fail_code": fail_code,
+        }
+
+        if mode == "observe":
+            count = _pan_bump_counter(sid, turn_seq) or 1
+            if count <= 3:  # 每 turn log 上限，防洗版
+                append_guard_log(_PAN_GUARD, {
+                    **base, "outcome": "observe",
+                    "would_deny": not ok,
+                    "payload_keys": sorted(input_data.keys()),
+                    "turn_probe": probe,
+                })
+            # would_deny 時不寫 pass marker：保留同 turn 後續呼叫的時序樣本
+            #（判 transcript flush lag 的關鍵縱深）
+            if ok:
+                _pan_touch_marker(marker)
+            return None, None
+
+        if ok:
+            _pan_touch_marker(marker)
+            append_guard_log(_PAN_GUARD, {**base, "outcome": "pass"})
+            return None, None
+
+        count = _pan_bump_counter(sid, turn_seq)
+        if count is None or count > max_denies:
+            _pan_touch_marker(marker)  # 本回合不再騷擾
+            append_guard_log(_PAN_GUARD, {
+                **base, "outcome": "force_release", "force_release": True,
+                "count": count,
+            })
+            return None, None
+
+        fail_detail = _PAN_FAIL_DETAIL.get(fail_code, fail_code)
+        template = pan_cfg.get("deny_template") or _PAN_FALLBACK_DENY
+        try:
+            msg = template.format(fail_detail=fail_detail, n=count, max=max_denies)
+        except (KeyError, IndexError, ValueError):
+            msg = _PAN_FALLBACK_DENY.format(
+                fail_detail=fail_detail, n=count, max=max_denies,
+            )
+        if mode == "warn":
+            append_guard_log(_PAN_GUARD, {**base, "outcome": "warn", "count": count})
+            return None, msg
+        append_guard_log(_PAN_GUARD, {**base, "outcome": "deny", "count": count})
+        return msg, None
+    except Exception as e:
+        try:
+            sys.stderr.write(f"[Guardian:PAN] 檢查異常（fail-open）：{e}\n")
+        except OSError:
+            pass
+        return None, None
 
 
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -261,20 +570,34 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
-    # 無 deny 才輸出衝突警告（stdout 恆單一 JSON；不帶 permissionDecision——
+    # ─── Pre-Action Notice Gate（殿後：特定 guard 先攔，PAN 管透明度）────
+    pan_deny, pan_warn = _check_pre_action_notice(input_data, config)
+    if pan_deny:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": pan_deny,
+            }
+        })
+        return
+
+    # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
     # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）
-    if coord_warn:
-        if coord_warn_fp:
+    warn_msgs = [m for m in (coord_warn, pan_warn) if m]
+    if warn_msgs:
+        if coord_warn and coord_warn_fp:
             try:
                 from wg_coordination import record_warn_cache
                 record_warn_cache(coord_sid, coord_warn_fp)
             except Exception:
                 pass
+        combined = "\n".join(warn_msgs)
         output_json({
-            "systemMessage": coord_warn,
+            "systemMessage": combined,
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "additionalContext": coord_warn,
+                "additionalContext": combined,
             },
         })
         return

@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Pattern
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 
 _TEST_CMD_RE = re.compile(
@@ -493,6 +493,112 @@ def get_current_turn_text(
         if total >= max_chars:
             break
     return "\n".join(parts)[:max_chars]
+
+
+def get_current_turn_visible_text(
+    transcript_path: Optional[Path], *, max_chars: int = 12000,
+    text: Optional[str] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """擷取「本 turn」使用者可見文字 + turn 診斷 probe（PAN 預告閘門用）。
+
+    與 get_current_turn_text 的差異：只收 assistant 的 type=="text" block——
+    tool_use input 完全跳過（防 tool_input 字串冒充預告；thinking 白名單制
+    天然排除）。record 級 isSidechain==True（user/assistant 皆）跳過，欄位
+    存在性記入 probe。turn 邊界沿用 _is_real_user_prompt；tail 截斷吃掉
+    turn 起點（last_user_idx==-1）→ 全尾段視為 turn（寧鬆勿卡），probe 記
+    boundary_lost=true。超過 max_chars 時保留頭+尾各半（預告可能在 turn
+    早段，也可能在超長 turn——如 plan mode 全程同 turn——的動手前夕；
+    中段丟失對標籤搜尋無妨）。任何異常 fail-open 回 ("", {})。
+
+    probe 欄位：boundary_lost / sidechain_field / first_user_head /
+    text_blocks / tooluse_blocks / turn_tool_names（尾 8 個，供 caller 算
+    cur_tool_flushed 判 transcript flush lag）。
+    """
+    try:
+        if text is None:
+            if not transcript_path:
+                return "", {}
+            text = Path(transcript_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, ValueError):
+        return "", {}
+    try:
+        probe: Dict[str, Any] = {}
+        records: List[Dict[str, Any]] = []
+        for raw in text.splitlines():
+            try:
+                obj = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if isinstance(obj, dict):
+                records.append(obj)
+
+        sidechain_field = "absent"
+        last_user_idx = -1
+        for i, obj in enumerate(records):
+            if sidechain_field == "absent" and "isSidechain" in obj:
+                sidechain_field = "present"
+            if obj.get("type") != "user":
+                continue
+            if obj.get("isSidechain") is True:
+                continue
+            if _is_real_user_prompt(obj.get("message", {}).get("content")):
+                last_user_idx = i
+
+        probe["boundary_lost"] = last_user_idx == -1
+        probe["sidechain_field"] = sidechain_field
+        if last_user_idx >= 0:
+            head = ""
+            content = records[last_user_idx].get("message", {}).get("content")
+            if isinstance(content, str):
+                head = content
+            elif isinstance(content, list):
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "text":
+                        head = b.get("text", "") or ""
+                        break
+                    if isinstance(b, str):
+                        head = b
+                        break
+            probe["first_user_head"] = head[:60]
+
+        parts: List[str] = []
+        text_blocks = 0
+        tooluse_blocks = 0
+        tool_names: List[str] = []
+        for obj in records[last_user_idx + 1:]:
+            if obj.get("type") != "assistant":
+                continue
+            if obj.get("isSidechain") is True:
+                continue
+            content = obj.get("message", {}).get("content", [])
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                bt = block.get("type")
+                if bt == "tool_use":
+                    tooluse_blocks += 1
+                    n = block.get("name", "") or ""
+                    if n:
+                        tool_names.append(n)
+                    continue
+                if bt != "text":
+                    continue
+                s = block.get("text", "") or ""
+                if s:
+                    text_blocks += 1
+                    parts.append(s)
+        probe["text_blocks"] = text_blocks
+        probe["tooluse_blocks"] = tooluse_blocks
+        probe["turn_tool_names"] = tool_names[-8:]
+        joined = "\n".join(parts)
+        if len(joined) > max_chars:
+            half = max_chars // 2
+            joined = joined[:half] + "\n…\n" + joined[-half:]
+        return joined, probe
+    except Exception:
+        return "", {}
 
 
 # ─── V5: Session Evaluator (was wg_session_evaluator) ────────────────────────

@@ -128,22 +128,26 @@ def test_missing_sidecar_and_log_no_crash(tmp_path, monkeypatch):
     assert not r["top_useful"] and not r["exposure_tax"]
 
 
-def _rm_line(atom, days_ago, evidence="pytest 紅 E155036", triggers=("svn", "工作副本")):
+def _rm_line(atom, days_ago, evidence="pytest 紅 E155036", triggers=("svn", "工作副本"),
+             sid="sid"):
     from datetime import datetime, timedelta
     at = (datetime.now().astimezone() - timedelta(days=days_ago)).isoformat(
         timespec="seconds")
-    return {"at": at, "session_id": "sid", "atom": atom,
+    return {"at": at, "session_id": sid, "atom": atom,
             "matched_triggers": list(triggers), "evidence": evidence,
             "source": "failing_tests"}
 
 
 def test_recall_miss_aggregation_window_and_order(tmp_path, monkeypatch):
+    """次數口徑 = distinct session 數（resume 去重）：同 atom 跨 session 各計一次。"""
     _setup(
         tmp_path, monkeypatch, atoms=[_atom("a1")],
         recall_lines=[
-            _rm_line("often-missed", 5, evidence="舊 evidence"),
-            _rm_line("often-missed", 1, evidence="最新 evidence", triggers=("checkin",)),
+            _rm_line("often-missed", 5, evidence="舊 evidence", sid="sid-a"),
+            _rm_line("often-missed", 1, evidence="最新 evidence",
+                     triggers=("checkin",), sid="sid-b"),
             _rm_line("rare-missed", 2),
+            _rm_line("rare-missed", 3),  # 同 session 重複落檔 → 去重計 1
             _rm_line("out-of-window", 90),  # 窗外不計
         ],
     )
@@ -151,6 +155,7 @@ def test_recall_miss_aggregation_window_and_order(tmp_path, monkeypatch):
     assert [x["atom"] for x in r["recall_miss"]] == ["often-missed", "rare-missed"]
     top = r["recall_miss"][0]
     assert top["count"] == 2
+    assert r["recall_miss"][1]["count"] == 1  # resume 去重
     assert top["last_evidence"] == "最新 evidence"          # 取最近一筆
     assert set(top["matched_triggers"]) == {"svn", "工作副本", "checkin"}  # 聯集
 

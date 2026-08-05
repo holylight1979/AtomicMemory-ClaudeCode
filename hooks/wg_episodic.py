@@ -677,7 +677,10 @@ def _purge_expired_episodic(
     if not ep_dir.exists():
         return []
     today_s = today or date.today().isoformat()
-    _t = date.today()
+    try:
+        _t = date.fromisoformat(today_s)  # 桶月份跟隨 today 基準（測試可決定論）
+    except ValueError:
+        _t = date.today()
     # _distant 落在 memory/ 根（episodic_dir 的上一層），與 memory-audit.move_to_distant 慣例對齊
     distant_root = ep_dir.parent / "_distant" / f"{_t.year}_{_t.month:02d}"
 

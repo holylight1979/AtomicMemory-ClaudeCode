@@ -280,6 +280,28 @@
       "_doc": "外部專案 session（cwd∉~/.claude）寫入核心層 ~/.claude/{skills,tools,hooks,lib,rules}/ → PreToolUse deny。核心開發 session 不受影響。allowlist 為路徑子字串白名單。",
       "enabled": true,
       "allowlist": []
+    },
+    "pre_action_notice": {
+      "_doc": "實作前預告閘門（Hermes 技轉，handlers/pre_tool_use.py PAN 段）。每回合首次『會動手』工具（Write/Edit/NotebookEdit/非唯讀 Bash）呼叫前，需已輸出含『執行目標』+『預估/概估』的可見預告。mode: observe=只落 Logs/guard-pre-action-notice.jsonl 不擋 / warn=systemMessage 提醒 / deny=攔+補救訊息（每回合上限 max_denies_per_turn 次，超過強制放行+log force_release）。armed=每回合一次，通過後寫 workflow/pan-pass/{sid}-t{turn}.flag 回合內全放（state TTL 清除後 turn_seq 撞舊 marker 機率極低且方向寬鬆，接受）。sidechain/resume 保底：state 無 turn_seq 即 fail-open。MCP 工具不在 settings.json matcher 天然不管。一鍵關=enabled:false。日落：上線 4 週後 force_release 率 >20% 或預告敷衍化 → 降回 warn 重評。",
+      "enabled": true,
+      "mode": "observe",
+      "max_denies_per_turn": 2,
+      "max_turn_text_chars": 12000,
+      "exempt_path_substrings": ["/plans/", "/_staging/", "/Temp/claude/", "/workflow/"],
+      "bash_readonly_prefixes": [
+        "git status", "git log", "git diff", "git show", "git branch --list",
+        "git branch -a", "git rev-parse", "git ls-files", "git remote -v",
+        "git stash list", "git blame", "git describe", "git shortlog",
+        "git tag --list",
+        "ls", "dir", "cat", "head", "tail", "wc", "pwd", "which", "where",
+        "whoami", "file", "stat", "du", "df", "tree", "type", "rg", "grep",
+        "findstr", "find",
+        "python run_verify.py", "python -m pytest", "pytest",
+        "python --version", "node --version", "npm ls", "pip show", "pip list",
+        "get-childitem", "get-content", "select-string", "test-path",
+        "get-command"
+      ],
+      "deny_template": "[Guardian:PreActionNotice] 本回合尚未輸出動手前預告（{fail_detail}），工具呼叫已暫擋。\n請先以使用者可見的一般文字輸出預告（thinking 區塊不算），然後再重新呼叫工具：\n\n執行目標：<這次動手要達成的具體目標，一句話>\n預估：<工作量或時間，例：改 2 個檔約 3 分鐘>\n\n格式規則：\n- 「執行目標」後必須是實質目標內容；只填時間不合格（例：「執行目標：預估1分鐘」）。\n- 「預估」可改寫「概估」，其後必須有實質內容。\n- 建議先送出這段文字、下一步再呼叫工具（同訊息夾帶可能偵測不到）。\n- 本回合通過一次後，後續工具呼叫不再檢查。\n（第 {n}/{max} 次提醒；達上限將放行並記錄。若你是 subagent，同樣補一段預告即可通過。）"
     }
   }
 }

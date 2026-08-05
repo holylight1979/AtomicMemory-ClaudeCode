@@ -265,26 +265,33 @@ def _refresh_vector_flag(
 
 
 def _prune_aec_files(max_age_days: int = 7) -> int:
-    """清 workflow/aec-report/ 與 aec-decision/ 中 mtime 超過 max_age_days 的 .json（TTL GC）。
+    """清 workflow/ 下 per-turn 執行期狀態檔的 TTL GC（mtime 超過 max_age_days）。
 
-    兩者皆 per-turn 執行期狀態檔（Python 寫報告 / Node 寫決策），寫了不清會無限累積。
-    在 SessionStart 順手掃一次（比照上方 log rotation 的開機打掃時機）。glob *.json 自然略過
-    atomic write 的 .tmp 過渡檔。fail-open：目錄不存在 / 單檔被別進程刪或鎖 → 略過不炸。
-    回傳刪除檔數（供測試 / 觀測）。"""
+    對象：aec-report/ 與 aec-decision/（*.json，Python 寫報告 / Node 寫決策）、
+    pan-pass/ 與 pan-deny/（*.flag / *.json，PAN 預告閘門 armed marker 與 deny 計數）。
+    寫了不清會無限累積。在 SessionStart 順手掃一次（比照上方 log rotation 的開機
+    打掃時機）。glob 副檔名白名單自然略過 atomic write 的 .tmp 過渡檔。
+    fail-open：目錄不存在 / 單檔被別進程刪或鎖 → 略過不炸。回傳刪除檔數（供測試 / 觀測）。"""
     cutoff = (datetime.now() - timedelta(days=max_age_days)).timestamp()
     pruned = 0
-    for sub in ("aec-report", "aec-decision"):
-        try:
-            entries = list((WORKFLOW_DIR / sub).glob("*.json"))
-        except Exception:
-            continue
-        for p in entries:
+    for sub, patterns in (
+        ("aec-report", ("*.json",)),
+        ("aec-decision", ("*.json",)),
+        ("pan-pass", ("*.flag",)),
+        ("pan-deny", ("*.json",)),
+    ):
+        for pattern in patterns:
             try:
-                if p.stat().st_mtime < cutoff:
-                    p.unlink()
-                    pruned += 1
+                entries = list((WORKFLOW_DIR / sub).glob(pattern))
             except Exception:
                 continue
+            for p in entries:
+                try:
+                    if p.stat().st_mtime < cutoff:
+                        p.unlink()
+                        pruned += 1
+                except Exception:
+                    continue
     return pruned
 
 
