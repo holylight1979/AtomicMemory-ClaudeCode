@@ -81,7 +81,7 @@
     {
       "name": "memory",
       "dir": "memory",
-      "description": "原子記憶系統綜合工具 — health/peek/undo/review/score 五合一。用於檢查記憶健康、檢視自動萃取、撤銷誤寫、自我迭代、Session 評分。"
+      "description": "原子記憶系統綜合工具 — health/review/score 三主力 + peek/undo（僅查自動萃取歷史殘留）。用於檢查記憶健康、自我迭代、Session 評分。"
     },
     {
       "name": "read-project",
