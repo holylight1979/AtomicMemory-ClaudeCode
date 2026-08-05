@@ -390,11 +390,14 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             # 非 /continue 交接入口，不套 next-phase 命名慣例
             staging_tail = normalized.split("/_staging/", 1)[-1]
             staging_fname = staging_tail.rsplit("/", 1)[-1]
-            if "/" not in staging_tail and staging_fname != "next-phase.md":
+            # 命名慣例＝ `next-phase*.md`（與 wg_handoff.should_write_stub 的
+            # glob、codex_companion._NEXT_PHASE_RE 同源）：多份計畫並存為常態，
+            # 不得要求收斂成單一 next-phase.md。
+            if "/" not in staging_tail and not staging_fname.startswith("next-phase"):
                 state["_staging_advisory"] = (
                     f"⚠ `_staging/{staging_fname}` 非標準檔名。"
-                    f"/continue 優先讀 `next-phase.md`。"
-                    f"建議重新命名：mv → next-phase.md"
+                    f"/continue 掃 `next-phase*.md`。"
+                    f"建議重新命名：mv → next-phase-<主題>.md"
                 )
                 print(
                     f"Staging name gate: {staging_fname}", file=sys.stderr

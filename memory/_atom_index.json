@@ -1291,6 +1291,22 @@
         "連跳"
       ],
       "scope": "global"
+    },
+    {
+      "name": "codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺",
+      "path": "_AIDocs/_atoms/MemDev/codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺.md",
+      "triggers": [
+        "codex 誤報",
+        "handoff 自檢",
+        "文件截斷",
+        "誤報截斷",
+        "審查者輸入",
+        "6000字",
+        "_read_handoff_content",
+        "頭尾採樣",
+        "codex companion 截斷"
+      ],
+      "scope": "global"
     }
   ]
 }

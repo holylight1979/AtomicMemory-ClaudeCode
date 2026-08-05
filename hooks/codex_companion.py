@@ -321,12 +321,24 @@ def _summarize_files_examined(
     return text
 
 
-def _read_handoff_content(file_path: str, limit: int = 6000) -> str:
-    """讀 next-phase/handoff 檔全文供 codex 對抗式自檢（utf-8-sig 容 BOM）。失敗→''。"""
+def _read_handoff_content(file_path: str, head: int = 4500, tail: int = 1500) -> str:
+    """讀 next-phase/handoff 檔供 codex 對抗式自檢（utf-8-sig 容 BOM）。失敗→''。
+
+    超長檔取頭+尾採樣並**明確標記截斷**（可觀測性鐵律：靜默截斷會讓 codex 把
+    「輸入被切斷」誤判成「文件本身斷鏈」，且看不到文末的授權/收尾段）。
+    """
     try:
-        return Path(file_path).read_text(encoding="utf-8-sig")[:limit]
+        text = Path(file_path).read_text(encoding="utf-8-sig")
     except OSError:
         return ""
+    if len(text) <= head + tail:
+        return text
+    return (
+        text[:head]
+        + f"\n\n…（中段省略：全文共 {len(text)} 字，此處僅含開頭 {head} 字與結尾 {tail} 字；"
+        f"審查時勿把此採樣截斷誤判為文件本身截斷/斷鏈）…\n\n"
+        + text[-tail:]
+    )
 
 
 def _build_verification_signals(input_data: Dict[str, Any], tool_response: Any) -> Dict[str, Any]:

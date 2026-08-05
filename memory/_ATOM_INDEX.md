@@ -77,3 +77,4 @@
 | atom-edit-meta與atom-heal對專案層atom的缺口與繞法 | _AIDocs/_atoms/MemDev/atom-edit-meta與atom-heal對專案層atom的缺口與繞法.md | atom_edit_meta, atom-heal, broken_refs, 專案層 atom, trigger 編輯, file not under, L2 自癒, 死連結修復, sync-atom-index, --fix, --memory-dir, mirror 重生 | global |
 | feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問 | _AIDocs/Failures/feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問.md | 整理, 歸檔, 搬移, 歷史搬移, 瘦身, 封存, 刪檔, 長期追蹤, 擱置, watch, 非本波, 機械執行, 錯點搬移, 去留, 合併文件, 推託 | global |
 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 | _AIDocs/_atoms/MemDev/usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升.md | atom_promote, 晉升, Promotion Suggestions, usefulness, Wilson, 臨觀固, memory health, 連跳 | global |
+| codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 | _AIDocs/_atoms/MemDev/codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺.md | codex 誤報, handoff 自檢, 文件截斷, 誤報截斷, 審查者輸入, 6000字, _read_handoff_content, 頭尾採樣, codex companion 截斷 | global |
