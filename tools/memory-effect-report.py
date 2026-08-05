@@ -89,23 +89,31 @@ def _load_recall_misses(since_ts: float) -> list[dict]:
 
 
 def _aggregate_recall_misses(recs: list[dict]) -> list[dict]:
-    """atom × 次數 × 最近 evidence × 命中 trigger 聯集，依次數降冪。"""
+    """atom × 次數 × 最近 evidence × 命中 trigger 聯集，依次數降冪。
+
+    次數口徑 = distinct session 數：偵測端每 (session, atom) 一筆，但 resume 後
+    多次 SessionEnd 的舊 log 可能同 session 重複落檔——聚合端以 session 去重，
+    避免「同 session 記兩輪」呈現成兩次獨立失念。
+    """
     agg: dict[str, dict] = {}
-    for rec in recs:
+    for i, rec in enumerate(recs):
         atom = str(rec.get("atom", ""))
         if not atom:
             continue
         row = agg.setdefault(atom, {
-            "atom": atom, "count": 0, "matched_triggers": set(),
+            "atom": atom, "_sessions": set(), "matched_triggers": set(),
             "last_at": "", "last_evidence": "", "last_source": "",
         })
-        row["count"] += 1
+        # 無 session_id 的異常記錄以序號代替，退回逐筆計數
+        row["_sessions"].add(str(rec.get("session_id") or f"_rec{i}"))
         row["matched_triggers"].update(rec.get("matched_triggers") or [])
         at = str(rec.get("at", ""))
         if at >= row["last_at"]:  # ISO 字串序 == 時間序
             row["last_at"] = at
             row["last_evidence"] = str(rec.get("evidence", ""))
             row["last_source"] = str(rec.get("source", ""))
+    for r in agg.values():
+        r["count"] = len(r.pop("_sessions"))
     rows = sorted(agg.values(), key=lambda r: (-r["count"], r["atom"]))
     for r in rows:
         r["matched_triggers"] = sorted(r["matched_triggers"])

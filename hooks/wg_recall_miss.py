@@ -142,6 +142,23 @@ def _load_active_atoms(state: Dict[str, Any]) -> List[Tuple[str, str, List[str]]
     return atoms
 
 
+def _logged_session_atoms(session_id: str, log_path: Path) -> Set[str]:
+    """既有 log 中此 session 已記過的 atom 名（小寫）。缺檔/壞行回空集。"""
+    out: Set[str] = set()
+    try:
+        with open(log_path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("session_id") == session_id and rec.get("atom"):
+                    out.add(str(rec["atom"]).lower())
+    except OSError:
+        pass
+    return out
+
+
 def detect_recall_misses(
     session_id: str,
     state: Dict[str, Any],
@@ -162,8 +179,11 @@ def detect_recall_misses(
 
     lowered = [(src, t, t.lower()) for src, t in texts]
     records: List[dict] = []
-    seen: Set[str] = set()  # 每 (session, atom) 一筆（同名跨層索引亦去重）
     lp = log_path or RECALL_MISS_LOG
+    # 每 (session, atom) 一筆（同名跨層索引亦去重）。預載既有 log 中此 session
+    # 已記過的 atom——resume 後同 session 會再觸發一次 SessionEnd，state 的失敗
+    # 證據延續，不預載會把同一事件重複落檔。
+    seen: Set[str] = _logged_session_atoms(session_id, lp)
 
     for name, _rel, triggers in atoms:
         key = str(name).lower()

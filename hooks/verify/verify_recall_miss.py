@@ -160,6 +160,20 @@ def test_one_record_per_atom_and_no_candidates_silent(tmp_path):
     assert not log2.exists()
 
 
+def test_resumed_session_second_end_not_relogged(tmp_path):
+    log = tmp_path / "recall-miss.jsonl"
+    state = _state_failing()
+    recs1 = detect_recall_misses("sid-r", state, atoms=[ATOM_SVN], log_path=log)
+    assert len(recs1) == 1
+    # resume 後同 session 再次 SessionEnd（state 失敗證據延續）→ 不重記
+    recs2 = detect_recall_misses("sid-r", state, atoms=[ATOM_SVN], log_path=log)
+    assert recs2 == []
+    assert len(log.read_text(encoding="utf-8").strip().splitlines()) == 1
+    # 不同 session 踩同坑 → 照記
+    recs3 = detect_recall_misses("sid-other", state, atoms=[ATOM_SVN], log_path=log)
+    assert len(recs3) == 1
+
+
 def test_evidence_capped_200(tmp_path):
     log = tmp_path / "recall-miss.jsonl"
     state = _state_failing(cmd="svn checkin", summary="工作副本 " + "很長" * 300)

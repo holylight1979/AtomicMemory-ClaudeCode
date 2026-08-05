@@ -1,12 +1,12 @@
 ---
 name: memory
-description: 原子記憶系統綜合工具 — health/peek/undo/review/score 五合一。用於檢查記憶健康、檢視自動萃取、撤銷誤寫、自我迭代、Session 評分。
+description: 原子記憶系統綜合工具 — health/review/score 三主力 + peek/undo（僅查自動萃取歷史殘留）。用於檢查記憶健康、自我迭代、Session 評分。
 ---
 
 # /memory — 記憶系統綜合工具
 
-> 合併 `/memory-health`、`/memory-peek`、`/memory-undo`、`/memory-review`、`/memory-session-score` 五個 command 為單一 skill。
-> 全域 Skill，適用任何專案。
+> 單一 skill 統整 health / peek / undo / review / score 五個 subcommand
+> （peek/undo 僅查自動萃取歷史殘留）。全域 Skill，適用任何專案。
 
 ---
 
@@ -14,8 +14,8 @@ description: 原子記憶系統綜合工具 — health/peek/undo/review/score �
 
 ```
 /memory health [--json]
-/memory peek [--since=24h]
-/memory undo [last | --since=24h | --all-from-today]
+/memory peek [--since=24h]        # 僅查歷史殘留（自動萃取管線已裁撤）
+/memory undo [last | --since=24h | --all-from-today]   # 同上
 /memory review
 /memory score [--last | --since=24h | --top-n=10]
 ```
@@ -84,15 +84,21 @@ description: 原子記憶系統綜合工具 — health/peek/undo/review/score �
 
    L1 反向連結**不在此處理** — SessionEnd `atom-health-check --fix-refs` 已全庫機械補齊，此處只治 L2 死連結，別重覆跑。
 
-### peek → V4.1 自動萃取檢視
+### peek → 自動萃取檢視（僅歷史殘留）
+
+> ⚠️ auto-capture 自動萃取管線已裁撤（`per_turn` 與 `session_end_flush` 停用；
+> 裁決見 atom [[自動萃取層淨值審查-調整式拔除-2026-07]]），不再產生新草稿。
+> 回報 `{"written":0,"pending":0}` 為預期現況、非故障。本命令僅供查詢舊殘留。
 
 ```bash
 python ~/.claude/tools/memory-peek.py $ARGS
 ```
 
-`$ARGS` 為 `--since=...` 等使用者傳入參數。列最近 24h（或自訂時段）自動萃取的 atom + pending candidates + trigger 原因。
+`$ARGS` 為 `--since=...` 等使用者傳入參數。列指定時段內自動萃取的 atom + pending candidates + trigger 原因（現況只有歷史殘留會出現）。
 
-### undo → V4.1 撤銷自動萃取
+### undo → 撤銷自動萃取（僅歷史殘留）
+
+> ⚠️ 同 peek：管線已裁撤，無新寫入可撤。`memory-undo.py` 對舊殘留仍可運作。
 
 ```bash
 python ~/.claude/tools/memory-undo.py $ARGS
