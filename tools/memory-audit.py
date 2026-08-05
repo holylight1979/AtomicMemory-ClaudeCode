@@ -1126,6 +1126,14 @@ def enforce_decay(args: argparse.Namespace) -> None:
                     compact_evolution_logs(md_file)
                     ok, msg = move_to_distant(md_file)
                     actions.append(f"{'OK' if ok else 'FAIL'}: {msg}")
+                    if ok:
+                        # _atom_index.json SoT 同步（同 --delete 5b；漏刪會留 dangling
+                        # entry，下次健檢變真 error）。mem_dir 即該層索引根。
+                        try:
+                            if index_delete_atom(mem_dir, md_file.stem):
+                                actions.append(f"  _atom_index.json entry removed: {md_file.stem}")
+                        except (OSError, ValueError) as e:
+                            actions.append(f"  _atom_index.json update FAILED: {md_file.stem} — {e}")
                     _write_audit_entry({"action": "decay", "atom": md_file.stem,
                                         "layer": layer_name, "confidence": atom.confidence,
                                         "days_stale": days, "type": atom.atom_type})
