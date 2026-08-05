@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: write_text, newline, CRLF, LF, EOL, 換行, phantom diff, 整檔假 diff, 一位改動整檔 diff, os.linesep, 檔案改寫工具, 換行翻轉, marker 同步, read_text universal newline, git diff 整檔
 - Created-at: 2026-07-01
-- Related: toolchain, skill-計數單一來源-skill-index
+- Related: toolchain
 
 ## 知識
 

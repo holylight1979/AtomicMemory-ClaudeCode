@@ -584,6 +584,13 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
     # auto-capture atom 全被誤報「未在索引中列出」的洪水。
     tree_stems: Set[str] = {p.stem for p in iter_atom_files(memory_dir)}
 
+    # personal/ 在 SKIP_DIRS（掃描報表不計入），但 personal atom 可正式登記於
+    # _atom_index.json 且由 wg_atoms 注入——index→file 存在性檢查必須看得到它們，
+    # 否則每次健檢固定誤報「索引指向不存在的檔案」。僅補存在性口徑，不進掃描報表。
+    personal_root = memory_dir / "personal"
+    if personal_root.is_dir():
+        tree_stems |= {p.stem for p in personal_root.rglob("*.md") if p.is_file()}
+
     # Check index → file
     indexed_files: Set[str] = set()
     for entry in index_entries:

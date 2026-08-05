@@ -12,5 +12,5 @@
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| dotnet | 3 | `_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/_INDEX.md` |
+| dotnet | 2 | `_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/_INDEX.md` |
 | git | 1 | `_AIDocs/_atoms/Tools/自動化流程與協議/git/git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉.md` |

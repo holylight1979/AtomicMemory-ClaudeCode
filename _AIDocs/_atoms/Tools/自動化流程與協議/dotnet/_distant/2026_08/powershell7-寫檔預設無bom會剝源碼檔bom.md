@@ -17,3 +17,10 @@
 
 - PS 批次替換源碼檔後，回寫一律 UTF8Encoding($true) 或改用 Edit 工具
 - commit 前 diff 檢查首行
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-08-05 | --enforce 自動淘汰 (42d > 30d) | memory-audit --enforce |

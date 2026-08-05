@@ -6,7 +6,7 @@
 - Created: 2026-03-19
 - Type: procedural
 - Tags: ollama, dual-backend, extraction
-- Related: toolchain, decisions-architecture, decisions, 腦內世界-v3-自癒與-command-bus-架構
+- Related: toolchain, decisions-architecture, decisions
 
 ## 知識
 

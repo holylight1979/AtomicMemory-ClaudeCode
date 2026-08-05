@@ -21,3 +21,10 @@
 - realm sweep 後抽查新建 domain 資料夾名是否與既有資料夾語意重複（特別是非中英文字元）
 - 修亂碼 domain 必同步 5 處索引/詞庫，最後 grep 歸零驗證
 - 動 normalize_domain_path / classifyRealm 前先讀 test_17/test_22 parity 測試
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-08-05 | --enforce 自動淘汰 (34d > 30d) | memory-audit --enforce |

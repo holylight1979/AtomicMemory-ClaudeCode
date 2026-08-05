@@ -451,64 +451,6 @@
       "scope": "global"
     },
     {
-      "name": "腦內世界-v3-自癒與-command-bus-架構",
-      "path": "_AIDocs/_atoms/World/腦內世界-v3-自癒與-command-bus-架構.md",
-      "triggers": [
-        "腦內世界",
-        "atom-heal",
-        "記憶自癒",
-        "command bus",
-        "world.html",
-        "jobRunner",
-        "_heal_review",
-        "heal-review"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "reconcile-render-動畫狀態歸屬陷阱",
-      "path": "_AIDocs/_atoms/World/reconcile-render-動畫狀態歸屬陷阱.md",
-      "triggers": [
-        "reconcile",
-        "render",
-        "world.html",
-        "每隔一段時間跳",
-        "彈回原位",
-        "snap back",
-        "動畫狀態",
-        "POLL_MS",
-        "wander",
-        "漫步",
-        "model 重建",
-        "requestAnimationFrame",
-        "_wox",
-        "el._x",
-        "畫面跳刷新"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "腦內世界-環境演化-放置式架構",
-      "path": "_AIDocs/_atoms/World/腦內世界-環境演化-放置式架構.md",
-      "triggers": [
-        "腦內世界",
-        "環境演化",
-        "world-dev",
-        "world.html",
-        "放置",
-        "env-layer",
-        "風格演化",
-        "零影響隔離",
-        "活動驅動耦合",
-        "contributeEnv",
-        "affinity",
-        "蓋房子",
-        "maybeBuild",
-        "原子興趣"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "realm-範疇分區機制-v5",
       "path": "_AIDocs/_atoms/MemDev/MemoryIndex/realm-範疇分區機制-v5.md",
       "triggers": [
@@ -650,37 +592,6 @@
       "scope": "global"
     },
     {
-      "name": "realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透",
-      "path": "_AIDocs/_atoms/MemDev/realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透.md",
-      "triggers": [
-        "realm 遷移",
-        "domain 亂碼",
-        "자동화",
-        "韓文 domain",
-        "normalize_domain_path",
-        "詞庫污染",
-        "realm sweep",
-        "LLM 分類器",
-        "homoglyph"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "powershell7-寫檔預設無bom會剝源碼檔bom",
-      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/powershell7-寫檔預設無bom會剝源碼檔bom.md",
-      "triggers": [
-        "Set-Content",
-        "Out-File",
-        "BOM",
-        "utf8",
-        "編碼",
-        "批次替換",
-        "PowerShell 寫檔",
-        "亂碼"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "harness原生memory與atom索引marker撞名辨識",
       "path": "_AIDocs/_atoms/MemDev/harness原生memory與atom索引marker撞名辨識.md",
       "triggers": [
@@ -732,28 +643,6 @@
       "scope": "global"
     },
     {
-      "name": "腦內世界生物對話系統真相-模型觸發方針背景",
-      "path": "_AIDocs/_atoms/World/腦內世界生物對話系統真相-模型觸發方針背景.md",
-      "triggers": [
-        "腦內世界",
-        "world.html",
-        "生物對話",
-        "creature-chat",
-        "CHAT_MODEL",
-        "接觸觸發",
-        "checkDialogue",
-        "runConversation",
-        "對話並發",
-        "chatBusy",
-        "並發池",
-        "activeChats",
-        "MAX_CHATS",
-        "背景電子腦",
-        "env 蓋房子"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "自己flag的維護動作直接做完不要反問",
       "path": "memory/自己flag的維護動作直接做完不要反問.md",
       "triggers": [
@@ -795,22 +684,6 @@
         "dash flag",
         "bash 編譯",
         "/t:Build"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "skill-計數單一來源-skill-index",
-      "path": "_AIDocs/_atoms/MemDev/skill-計數單一來源-skill-index.md",
-      "triggers": [
-        "skill 計數",
-        "skill count",
-        "skill-index",
-        "_skill_index.json",
-        "skill-count marker",
-        "出文件 skill 數",
-        "增刪 skill",
-        "skill 漂移",
-        "skill drift"
       ],
       "scope": "global"
     },
@@ -1117,22 +990,6 @@
       "scope": "global"
     },
     {
-      "name": "atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove",
-      "path": "_AIDocs/_atoms/MemDev/atom-heal-l2-broken-ref-誤判-prefix-rename-為-remove.md",
-      "triggers": [
-        "atom-heal",
-        "broken_ref",
-        "L2 自癒",
-        "repoint",
-        "死連結",
-        "prefix rename",
-        "needs_human",
-        "atom rename 反向連結",
-        "記憶自癒誤判"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "巨檔純機械拆分-carve腳本與驗證盲點",
       "path": "_AIDocs/_atoms/MemDev/巨檔純機械拆分-carve腳本與驗證盲點.md",
       "triggers": [
@@ -1417,6 +1274,21 @@
         "去留",
         "合併文件",
         "推託"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升",
+      "path": "_AIDocs/_atoms/MemDev/usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升.md",
+      "triggers": [
+        "atom_promote",
+        "晉升",
+        "Promotion Suggestions",
+        "usefulness",
+        "Wilson",
+        "臨觀固",
+        "memory health",
+        "連跳"
       ],
       "scope": "global"
     }

@@ -21,3 +21,10 @@
 - 出文件要寫 skill 數 → 用 `<!-- skill-count -->N<!-- /skill-count -->` marker、勿硬編；新位置加進 MARKED_DOCS
 - 看到 [Guardian:SkillIndex] advisory → 跑 --write 同步
 - 判 skill drift 先信 `_skill_index.json`/實檔，非文件硬編數
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-08-05 | --enforce 自動淘汰 (35d > 30d) | memory-audit --enforce |

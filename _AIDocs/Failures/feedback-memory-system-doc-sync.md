@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: 原子記憶系統, 記憶系統修正, 記憶系統修改, 記憶系統開發, 改 hook, 改 wg_, 改 server.js, memory system, 文件同步, doc sync, 寫入記憶, atom 設計, atom 顆粒, 指標型, GUID硬編碼, 環境相依, gitignore, memory path
 - Created-at: 2026-06-01
-- Related: workflow-rules, feedback-workflow-discipline, feedback-rigor-standards, atom-table-support, memory-index-caption-regen, atom-usefulness-loop, atom-元資料編輯與晉升閘真相, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, realm-遷移-llm-domain-跨文字系統亂碼-snap-防線穿透, 對談結束自動記憶與錯誤加權深記, skill-計數單一來源-skill-index, atom-move-v5-sot-correct-化與半遷移工具辨識, anti-evasion-hud-設計脊柱與強化前必讀, feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, feedback-tooling-reliability, decisions-architecture
+- Related: workflow-rules, feedback-workflow-discipline, feedback-rigor-standards, atom-table-support, memory-index-caption-regen, atom-usefulness-loop, atom-元資料編輯與晉升閘真相, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, 對談結束自動記憶與錯誤加權深記, atom-move-v5-sot-correct-化與半遷移工具辨識, anti-evasion-hud-設計脊柱與強化前必讀, feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, feedback-tooling-reliability, decisions-architecture
 
 ## 知識
 

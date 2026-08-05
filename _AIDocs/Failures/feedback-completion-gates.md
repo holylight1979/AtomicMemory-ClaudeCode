@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: 完成宣告, 收尾, pytest, run_verify, verify, smoke test, 研究先行, trial-and-error, 清理, 先清後建, 基線, 測試上傳, 上 SVN, known regression, xfail, 衍生暫存, 暫存檔, 清暫存, 收尾檢核
 - Created-at: 2026-05-26
-- Related: feedback-workflow-discipline, feedback-tooling-reliability, reconcile-render-動畫狀態歸屬陷阱, 自己flag的維護動作直接做完不要反問, handoff-綜觀品質與抗失真寫法, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, cognitive-patterns, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 巨檔純機械拆分-carve腳本與驗證盲點
+- Related: feedback-workflow-discipline, feedback-tooling-reliability, 自己flag的維護動作直接做完不要反問, handoff-綜觀品質與抗失真寫法, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, cognitive-patterns, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 巨檔純機械拆分-carve腳本與驗證盲點
 
 ## 知識
 

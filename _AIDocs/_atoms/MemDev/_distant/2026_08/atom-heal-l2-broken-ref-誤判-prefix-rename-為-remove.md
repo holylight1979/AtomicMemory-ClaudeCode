@@ -18,3 +18,10 @@
 - atom-heal L2 `--apply` 前必看 dry-run proposal
 - broken ref 若目標改名而非消失 → 手動 atom_edit_meta repoint，不靠 L2 remove
 - 改 atom-heal 時補 prefix/substring 候選比對 + remove→needs_human fallback
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-08-05 | --enforce 自動淘汰 (34d > 30d) | memory-audit --enforce |

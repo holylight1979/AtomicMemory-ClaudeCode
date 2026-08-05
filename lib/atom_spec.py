@@ -23,9 +23,12 @@ from typing import Dict, Iterable, List, Optional
 # - wisdom/: Wisdom Engine 設計文件（DESIGN.md），非 atom（用設計文件章節）
 # - episodic/: auto-generated session 摘要，使用 ## 摘要 章節，與 atom 格式不同
 # - _pending_review/: shared 敏感原子待裁決區，非活躍 atom
+# - _rejected/: memory-undo 撤銷歸檔區，非活躍 atom
+# - _drafts/: auto-capture 草稿隔離區（extract-worker），不入索引不注入
 SKIP_DIRS = frozenset({
     "_meta", "_reference", "_staging", "_vectordb", "_distant",
     "episodic", "templates", "personal", "wisdom", "_pending_review",
+    "_rejected", "_drafts",
 })
 
 # 系統檔前綴（檔名等級跳過）

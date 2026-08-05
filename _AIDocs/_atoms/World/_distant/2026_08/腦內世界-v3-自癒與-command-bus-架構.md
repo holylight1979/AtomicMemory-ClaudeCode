@@ -22,3 +22,10 @@
 - 加新指令 → world.html WORLD_COMMANDS 加一筆（UI/說明/executor 自動長出）
 - 改 server.js 後走重啟 SOP 才生效
 - 自癒品質不足 → config heal.backend 升 cloud（需接 adapter）
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-08-05 | --enforce 自動淘汰 (34d > 30d) | memory-audit --enforce |
