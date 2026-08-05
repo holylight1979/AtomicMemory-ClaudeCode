@@ -112,7 +112,9 @@ def _detect_checkpoint(
         return "plan_review"
     if (tool_name in _WRITE_TOOLS and file_path
             and config.get("soft_gate", {}).get("handoff_review", True)
-            and _NEXT_PHASE_RE.search(file_path.replace("\\", "/"))):
+            and _NEXT_PHASE_RE.search(file_path.replace("\\", "/"))
+            # 範本檔（templates/）是骨架非交接內容，審它必然「全是佔位符」誤報
+            and "/templates/" not in file_path.replace("\\", "/")):
         return "handoff_review"
     if (tool_name in _WRITE_TOOLS and file_path
             and config.get("soft_gate", {}).get("architecture_review", False)):
