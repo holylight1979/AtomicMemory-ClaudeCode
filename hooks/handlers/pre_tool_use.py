@@ -132,7 +132,10 @@ def _check_feedback_routing_advisory(
 # 每使用者回合首次「會動手」工具（Write/Edit/NotebookEdit/非唯讀 Bash）呼叫前，
 # 檢查本 turn 是否已有可見預告（「執行目標」+「預估/概估」+ 實質內容）。
 # mode: observe=只落 guard log / warn=systemMessage 提醒 / deny=攔 + 補救模板
-#（每回合上限 max_denies_per_turn，超過強制放行 + log）。通過寫
+#（每回合上限 max_denies_per_turn，超過強制放行 + log；lenient_first_miss=true
+# 時 deny 模式首 miss 降 warn，第 2 次起才 deny——同回合快路徑偵測不可靠的緩衝，
+# 見 Phase 1.5 發現 3）。compaction continuation 回合（turn 首 user 訊息命中
+# harness 續接敘述特徵）整回合豁免。通過寫
 # workflow/pan-pass/{sid}-t{turn}.flag（armed 快路徑，回合內全放；marker 抗
 # 併發覆寫，仿 dpm-done）。sidechain/resume 保底：state 無 turn_seq 即 fail-open。
 # 全程 fail-open；觸發事件落 Logs/guard-pre-action-notice.jsonl。
@@ -157,6 +160,12 @@ _PAN_PURE_TIME_RE = re.compile(
     re.IGNORECASE,
 )
 _PAN_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+# Compaction continuation 豁免：壓縮續接回合的 turn 首 user 訊息是 harness 生成
+# 的固定敘述（probe first_user_head 特徵）；該回合預告語境已斷，整回合放行。
+_PAN_CONTINUATION_MARKERS = (
+    "This session is being continued from a previous conversation",
+    "Please continue the conversation from where we left it",
+)
 
 _PAN_FAIL_DETAIL = {
     "no_goal_label": "缺「執行目標」標籤",
@@ -376,6 +385,15 @@ def _check_pre_action_notice(
                 })
             return None, None
 
+        head = str(probe.get("first_user_head", "") or "")
+        if any(m in head for m in _PAN_CONTINUATION_MARKERS):
+            _pan_touch_marker(marker)  # 整回合豁免，後續呼叫走 armed 快路徑
+            append_guard_log(_PAN_GUARD, {
+                "tool": tool_name, "mode": mode, "turn": turn_seq,
+                "sid": sid[:8], "outcome": "exempt_continuation",
+            })
+            return None, None
+
         ok, fail_code = pan_validate_notice(visible)
         probe["cur_tool_flushed"] = tool_name in (probe.get("turn_tool_names") or [])
         max_denies = int(pan_cfg.get("max_denies_per_turn", 2))
@@ -423,6 +441,13 @@ def _check_pre_action_notice(
             )
         if mode == "warn":
             append_guard_log(_PAN_GUARD, {**base, "outcome": "warn", "count": count})
+            return None, msg
+        if pan_cfg.get("lenient_first_miss", False) and count == 1:
+            # 首 miss 降 warn：同回合快路徑偵測不可靠（長文字+工具訊息 text
+            # block 可能不落 transcript），先提醒；模型補獨立短訊息預告即過。
+            append_guard_log(_PAN_GUARD, {
+                **base, "outcome": "lenient_warn", "count": count,
+            })
             return None, msg
         append_guard_log(_PAN_GUARD, {**base, "outcome": "deny", "count": count})
         return msg, None

@@ -1307,6 +1307,24 @@
         "codex companion 截斷"
       ],
       "scope": "global"
+    },
+    {
+      "name": "pan-hermes不移植部件與vscode-text-block不落盤實測",
+      "path": "_AIDocs/_atoms/MemDev/pan-hermes不移植部件與vscode-text-block不落盤實測.md",
+      "triggers": [
+        "PAN",
+        "預告閘門",
+        "pre_action_notice",
+        "Hermes",
+        "技轉",
+        "text_blocks",
+        "transcript 不落盤",
+        "翻 deny",
+        "lenient_first_miss",
+        "continuation 豁免",
+        "偵測率"
+      ],
+      "scope": "global"
     }
   ]
 }

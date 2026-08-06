@@ -5,7 +5,9 @@
    turn 邊界（tool_result 延續不重置）、isSidechain 跳過、fail-open
 3. pan_is_readonly_bash：白名單前綴 + redirect/heredoc/複合指令保守判定
 4. _check_pre_action_notice：observe 恆不 deny 只落 log、enabled=false 全靜默、
-   state 缺 fail-open、deny 模式攔 + 計數 + force-release、pass 寫 marker
+   state 缺 fail-open、deny 模式攔 + 計數 + force-release、pass 寫 marker、
+   config deny_template 消費 + 壞模板 fallback、lenient_first_miss 首 miss 降
+   warn、compaction continuation 回合豁免
 """
 from __future__ import annotations
 
@@ -306,3 +308,43 @@ def test_fail_open_log_throttled(gate_env, tmp_path):
             _input(missing), _pan_cfg("observe")) == (None, None)
     assert len(gate_env) == 3
     assert all(p["outcome"] == "fail_open_no_transcript" for _, p in gate_env)
+
+
+def test_deny_uses_config_template_and_fallback(gate_env, tmp_path):
+    """deny 訊息消費 config deny_template；模板佔位符寫壞 → fallback 模板。"""
+    tp = _transcript(tmp_path, [_user("修"), _asst_text("直接動手")])
+    cfg = _pan_cfg("deny", deny_template="自訂模板：{fail_detail}（{n}/{max}）")
+    d1, _ = ptu._check_pre_action_notice(_input(tp), cfg)
+    assert d1 == "自訂模板：缺「執行目標」標籤（1/2）"
+    bad = _pan_cfg("deny", deny_template="壞模板 {no_such_key}")
+    d2, _ = ptu._check_pre_action_notice(_input(tp), bad)
+    assert d2 and "[Guardian:PreActionNotice]" in d2  # fallback
+
+
+def test_lenient_first_miss_warns_then_denies(gate_env, tmp_path):
+    """lenient_first_miss：deny 模式首 miss 降 warn（同回合快路徑偵測不可靠
+    的緩衝，發現 3），第 2 次 deny，第 3 次 force-release。"""
+    tp = _transcript(tmp_path, [_user("修"), _asst_text("直接動手")])
+    cfg = _pan_cfg("deny", lenient_first_miss=True)
+    d1, w1 = ptu._check_pre_action_notice(_input(tp), cfg)
+    assert d1 is None and w1 and "[Guardian:PreActionNotice]" in w1
+    assert gate_env[-1][1]["outcome"] == "lenient_warn"
+    d2, w2 = ptu._check_pre_action_notice(_input(tp), cfg)
+    assert d2 and w2 is None and gate_env[-1][1]["outcome"] == "deny"
+    d3, w3 = ptu._check_pre_action_notice(_input(tp), cfg)
+    assert (d3, w3) == (None, None)
+    assert gate_env[-1][1]["outcome"] == "force_release"
+
+
+def test_continuation_turn_exempt(gate_env, tmp_path):
+    """compaction continuation 回合：turn 首 user 訊息命中續接敘述特徵 →
+    整回合豁免（log exempt_continuation + marker 落地），無預告也不擋。"""
+    tp = _transcript(tmp_path, [
+        _user("This session is being continued from a previous conversation"
+              " that ran out of context. Summary below:"),
+        _asst_text("直接動手"),
+    ])
+    deny, warn = ptu._check_pre_action_notice(_input(tp), _pan_cfg("deny"))
+    assert (deny, warn) == (None, None)
+    assert gate_env[-1][1]["outcome"] == "exempt_continuation"
+    assert ptu._pan_pass_marker("pansid01", 3).exists()
