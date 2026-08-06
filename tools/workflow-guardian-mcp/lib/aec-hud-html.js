@@ -131,8 +131,23 @@ function sectionHtml(letter, name, val) {
 
 function escAttr(s) { return esc(s).replace(/"/g, "&quot;"); }
 
-// (d) 專屬渲染：逐行拆 r.d、每非空行一列 + 保留/刪除鈕。(d) 為 freeform 純文字（無 per-item
-// 身份）→ 逐行啟發式、idx=非空行序（同 (d) 內容穩定，供決策檔覆寫用）。已決者渲染「已排定」。
+// 刪除鈕啟發式：(d) 常混入「XX — 保留、非暫存」說明行，逐行一律配刪除鈕會誘發誤按。
+// 只對「行內抽得出路徑樣貌 token（含 / 或 \\）且未標保留」的行給刪除鈕——與 Python 端
+// _decision_item_path 的保守精神一致（prose 行無從定位 → 不給刪）。其餘行仍有保留鈕可表態。
+function isDeletable(item) {
+  var s = String(item == null ? "" : item);
+  if (/保留|不刪|勿刪|非暫存/.test(s)) { return false; }
+  var toks = s.split(/[\\s，,、（()）—;；|]+/);
+  for (var i = 0; i < toks.length; i++) {
+    var t = toks[i];
+    if (t.length > 2 && (t.indexOf("/") >= 0 || t.indexOf("\\\\") >= 0)) { return true; }
+  }
+  return false;
+}
+
+// (d) 專屬渲染：逐行拆 r.d、每非空行一列 + 保留鈕（刪除鈕僅 isDeletable 行）。(d) 為 freeform
+// 純文字（無 per-item 身份）→ 逐行啟發式、idx=非空行序（同 (d) 內容穩定，供決策檔覆寫用）。
+// 已決者渲染「已排定」。
 function decRow(r, idx, item) {
   var sid = r.session_id || "";
   var turn = r.turn_seq != null ? r.turn_seq : "";
@@ -143,8 +158,10 @@ function decRow(r, idx, item) {
   } else {
     var attrs = ' data-sid="' + escAttr(String(sid)) + '" data-turn="' + escAttr(String(turn)) +
                 '" data-idx="' + idx + '" data-item="' + escAttr(item) + '"';
-    right = '<button class="aec-dec-btn"' + attrs + ' data-action="keep">保留</button>' +
-            '<button class="aec-dec-btn danger"' + attrs + ' data-action="delete">刪除</button>';
+    right = '<button class="aec-dec-btn"' + attrs + ' data-action="keep">保留</button>';
+    if (isDeletable(item)) {
+      right += '<button class="aec-dec-btn danger"' + attrs + ' data-action="delete">刪除</button>';
+    }
   }
   return '<div class="dec-row' + (done ? " dec-done" : "") + '">' +
          '<span class="dec-item">' + esc(item) + "</span>" +
