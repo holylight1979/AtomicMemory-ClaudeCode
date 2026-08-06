@@ -364,6 +364,10 @@
       "/plans/"
     ]
   },
+  "acceptance_regression_hint": {
+    "_doc": "迴歸累積提示（handlers/stop.py::_acceptance_regression_hint）：本 session 驗收裁判有 fail/high（enforce 級）判定 → 收尾 block 訊息搭車建議 (a) 補測試案例 (b) 模式類落 atom。純 piggyback 不獨立打斷、每 session 一次、不建佇列。一鍵關=enabled:false。",
+    "enabled": true
+  },
   "guard": {
     "cross_realm_write": {
       "_doc": "外部專案 session（cwd∉~/.claude）寫入核心層 ~/.claude/{skills,tools,hooks,lib,rules}/ → PreToolUse deny。核心開發 session 不受影響。allowlist 為路徑子字串白名單。",

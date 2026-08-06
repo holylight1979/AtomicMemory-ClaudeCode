@@ -521,6 +521,62 @@ _DEEP_POSTMORTEM_INSTRUCTION = (
 )
 
 
+# ─── 迴歸累積提示（驗收真命中 → 建議補測試/落 atom）───────────────
+
+
+def _acceptance_regression_hint(
+    state: Dict[str, Any], session_id: str, config: Dict[str, Any],
+) -> Optional[str]:
+    """驗收裁判真命中的迴歸累積提示（非強制）：本 session 的 acceptance-audit.jsonl
+    有 verdict=fail 且 severity=high（enforce 級——回測兩輪 4/4 零誤擋的那一級）
+    → 收尾訊息搭車建議 (a) 補測試案例 (b) 模式類落 atom。
+
+    純 piggyback（同 token 預警模式）：只搭既有 block 訊息帶出，不獨立打斷；
+    一次性（acceptance_hint_emitted，隨該 gate 的 write_state 固化）；
+    不建佇列不建表——做不做由模型當場判斷，誤判忽略即可。
+    fail-open：讀檔/解析失敗 stderr 浮訊號後回 None。
+    """
+    try:
+        cfg = (config or {}).get("acceptance_regression_hint", {}) or {}
+        if not cfg.get("enabled", True):
+            return None
+        if state.get("acceptance_hint_emitted"):
+            return None
+        audit_path = WORKFLOW_DIR / "acceptance-audit.jsonl"
+        if not audit_path.exists():
+            return None
+        slugs: List[str] = []
+        hits = 0
+        for line in audit_path.read_text(encoding="utf-8").splitlines():
+            if session_id not in line:  # 廉價預篩，免逐行 json.loads
+                continue
+            try:
+                rec = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if not isinstance(rec, dict) or rec.get("session_id") != session_id:
+                continue
+            if rec.get("verdict") != "fail" or rec.get("severity") != "high":
+                continue
+            hits += 1
+            slug = rec.get("task_slug") or Path(str(rec.get("spec_path", ""))).stem
+            if slug and slug not in slugs:
+                slugs.append(slug)
+        if not hits:
+            return None
+        return (
+            f"\n[Guardian:RegressionHint] 本 session 驗收裁判有 {hits} 筆真命中級"
+            f"判定（fail/high；任務：{', '.join(slugs[:3])}）。"
+            "抓到的漏修完就過去＝同型錯下次照犯，建議（非強制、當場判斷）：\n"
+            "  (a) 在該專案為漏掉的行為補一個測試案例（永久防線）\n"
+            "  (b) 屬跨任務模式類教訓 → atom_write 落 atom\n"
+            "裁判誤判或防線已存在則忽略即可，不建佇列不追蹤。"
+        )
+    except Exception as e:
+        print(f"[Guardian:RegressionHint] hint error (fail-open): {e}", file=sys.stderr)
+        return None
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -553,11 +609,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     _token_warn = token_warn_payload(
         state, config, transcript, transcript_text=transcript_text
     )
+    # 迴歸累積提示同為 piggyback payload：驗收裁判真命中 → 建議補測試/落 atom。
+    _accept_hint = _acceptance_regression_hint(state, session_id, config)
 
     def _piggyback(reason: str) -> str:
         if _token_warn:
             state["token_warn_emitted"] = True
-            return reason + _token_warn
+            reason = reason + _token_warn
+        if _accept_hint:
+            state["acceptance_hint_emitted"] = True
+            reason = reason + _accept_hint
         return reason
 
     if failing and claims_completion(last_text):
