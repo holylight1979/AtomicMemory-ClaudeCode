@@ -64,6 +64,8 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── wisdom_engine.py                            ← 反思引擎 + Fix Escalation
 │   ├── codex_companion.py                          ← V5 P5b 重寫為 subprocess 模型
 │   ├── lang_guard.py                               ← P8b 英文回應漂移攔截（standalone Stop hook，仿 codex_companion）
+│   ├── version_guard.py                            ← live 檔版本操作脈絡殘留掃描（standalone PostToolUse，warn-only）
+│   ├── acceptance_spec.py                          ← 驗收規格工件分級啟動（standalone PostToolUse，→§5.15）
 │   ├── extract-worker.py / quick-extract.py〔孤兒·Stop hook 已撤，無 caller〕 / user-extract-worker.py
 │   └── ensure-mcp.py / post-git-pull.sh / user-init.sh / webfetch-guard.sh
 │
@@ -110,7 +112,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │
 ├── memory/                                         ← 全域記憶層
 │   ├── MEMORY.md                                   ← AI 一覽索引（人類可讀）
-│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->76 atoms：core 14 + feedback 12 + 失敗模式 2 + local 48〔Tools9/MemDev32/OS4/Continuity2/Vision1〕<!-- /atom-breakdown -->）
+│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->78 atoms：core 15 + feedback 12 + 失敗模式 2 + local 49〔Tools9/MemDev33/OS4/Continuity2/Vision1〕<!-- /atom-breakdown -->）
 │   ├── _ATOM_INDEX.md                              ← deprecated mirror（自動生成）
 │   ├── _meta/forbidden-phrases.json                ← V5 禁語單一真相
 │   ├── preferences.md / decisions*.md / workflow-*.md / toolchain*.md
@@ -154,7 +156,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 **背景服務**：
 - **Vector Service** `http://127.0.0.1:3849`（LanceDB + Ollama embedding）— **僅專案層 + episodic search 用**；全域層 V5 已改 BM25 in-memory
 - **Codex Companion** — V5 P5b 從 daemon @ 3850 改 subprocess（port 3850 無人聽）
-- **MCP Server** `tools/workflow-guardian-mcp/server.js`（stdio）— 暴露 4 tool（atom_write / atom_move / atom_promote / atom_edit_meta）
+- **MCP Server** `tools/workflow-guardian-mcp/server.js`（stdio）— 暴露 5 tool（atom_write / atom_move / atom_promote / atom_edit_meta + anti_evasion_report）
 - **Ollama** Dual-Backend（rdchat-direct / local，依 `config.json`）
 
 ---
@@ -234,7 +236,7 @@ V4 把知識空間從單層拓展為四層，V5 完全沿用：
 
 ### 5.1 Atom Index — JSON SoT（V5 P3b）
 
-`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->76<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
+`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->78<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
 
 **Atom 物理多根 + Realm 範疇（V5+）**：`global` atom 物理散三根——`memory/`（core 一般）、`_AIDocs/Failures/`（feedback-* + 失敗模式，仍 core）、`_AIDocs/_atoms/<domain>/`（**local realm**，World/Tools/MemDev）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/` 與 Failures 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM；2026-06-12 起 sink 端雙護欄：泛用詞拒收 + 非 CJK/ASCII 亂碼 domain 拒收/降 Else，見 SPEC §2）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
@@ -253,7 +255,7 @@ API：[lib/atom_index_json.py](lib/atom_index_json.py)（`load/save/upsert/delet
 
 ### 5.2 BM25 全域檢索層（V5 P5a）
 
-全域 ~<!-- atom-total -->76<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
+全域 ~<!-- atom-total -->78<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
 
 - ASCII word + 中文 char-bigram tokenization
 - 參數：k1=1.2, b=0.75
@@ -278,6 +280,8 @@ state schema 不變、Silent Advisory / Score Gate / Dedup / Max Audits Cap 邏�
 
 **第四類審計 `handoff_review`（2026-06-24）**：`_detect_checkpoint` 偵測 `_staging/next-phase*.md` / handoff 檔 Write/Edit → 把 `skills/handoff` Step 3.5 的 8 問當對抗 checklist 餵 codex 對交接文件做獨立第二意見複審（把作者「自評」升級為「他評」）；`handle_user_prompt_submit` 對其**降注入門檻至 medium**（不被預設 `max_inject_severity=high` 靜默吞）。`soft_gate.handoff_review`（預設開）可控；不取代 Step 3.5 自審（codex 可能離線），為後盾。`tools/codex-companion/prompts.py` 加 `HANDOFF_REVIEW` 模板、`verify/verify_handoff_review.py` 12 測。
 
+**第五類審計 `acceptance_review`（2026-08-06）**：驗收裁判——codex 拿任務專屬案卷審 Claude 的完成宣稱，屬「AI 審查 AI 產出」四段閉環的裁判段，全貌見 §5.15。
+
 ### 5.4 Commands → Skills 遷移（V5 P1）
 
 Anthropic 官方明文「Custom commands have been merged into skills」。V5 把 22 個 `commands/*.md` 全刪，改用 `skills/{name}/SKILL.md` 結構（遷移後 19 個；後續另新增 skill-creator/heal-review/refile；另含 1 外部 skill karpathy-guidelines，V5 期間全域共 23 個 → **post-audit 2026-07-01 active 21**：init-roles / conflict-review 於 P8a 單人環境降 dormant，archive 至 `skills/_archived/`）：
@@ -296,6 +300,8 @@ Skill frontmatter 含 `description` / `when_to_use` / `disable-model-invocation`
 V4 7 tool → V5 3 tool。砍掉 4 個內部 IPC（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`），改由 Stop gate 自動偵測（hook 內化）。
 
 保留：`atom_write` / `atom_move` / `atom_promote`（多步驗證 + 去重 + 索引，合理走 MCP）。
+
+**現況 5 tool**：後續增 `atom_edit_meta`（2026-06-02，元資料外科編輯）與 `anti_evasion_report`（收尾檢核結構化提交，emit → Anti-Evasion HUD；IDENTITY 反退避契約的程式化出口，Stop ScanReport Gate 強制）。
 
 > `atom_write` 的 `knowledge` 陣列為 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出（不加 bullet、前後補空行）。完整規則與 py↔js byte-parity 為單一來源，見 [SPEC_ATOM_V5 §11](_AIDocs/SPEC_ATOM_V5.md)。
 
@@ -369,6 +375,33 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 dispatcher → V5：
 - **可觀測性**：per-session NDJSON `Logs/session-coordination/<sid>.jsonl`（分檔迴避跨行程共檔競寫；記完整 session id；ev=conflict_warn/late_collision/bash_finalize_warn/conflict_suppressed/scan_clear 採樣/skip_oversize/scan_overflow/fail_open + ms 延遲）。GC：warn-cache 7d、log 30d（`handlers/_shared.py`）。實測單次掃描 ~5.5ms。
 - **config `coordination.*`**：`enabled` 一鍵關／`warn_suppress_min`(10)／`scan_mtime_window_s`(1800)／`max_scan_files`(20)。**日落條款**：log 連續 4 週 conflict_warn 零命中 → 主動提降級評估。
 - **設計裁決（多大師計畫 2026-07-31，七席共議 + 雙稽核 + 紅隊）**：協調資料**絕不寫入 `state-*.json`**（Node `writeState` 無鎖吞錯 + Python/Node 三條 GC 互不相認 → last-writer-wins 必失資料）；Stage 2 session 收件匣（MCP chip → PostToolUse one-writer 蓋章真實 sender → 一訊息一檔 sidecar）與 Phase 3 檔案認領制 **defer 待數據**。全紀錄 → [_AIDocs/DevHistory/session-coordination-bus.md](_AIDocs/DevHistory/session-coordination-bus.md)；verify → [hooks/verify/verify_session_coordination.py](hooks/verify/verify_session_coordination.py)（22 測項）。
+
+### 5.14 PAN 實作前預告閘門（Hermes 技轉，2026-08-05）
+
+IDENTITY「自主行為契約 §2 動手前預告」的程式化保險絲——行為責任（未預告不動手）仍在契約，閘門只補程式化檢核。實作於 [hooks/handlers/pre_tool_use.py](hooks/handlers/pre_tool_use.py)（`_check_pre_action_notice` / `pan_validate_notice` / `pan_is_gated`，可見文字源 `wg_evasion.get_current_turn_visible_text`）。
+
+- **檢核對象**：每使用者回合**首次**「會動手」工具（Write / Edit / NotebookEdit / 非唯讀 Bash / 非唯讀 PowerShell）呼叫前，本 turn transcript 可見文字須含「執行目標」+「預估/概估」+ 實質內容。Bash 與 PowerShell 共用白名單前綴分類器 `pan_is_readonly_bash`（config `bash_readonly_prefixes`：git 唯讀子命令 / ls / rg / pytest / get-* 等唯讀 cmdlet；heredoc、redirect 非 null device、複合段未命中、變數賦值段一律視為動手）。驗證器純函式：剝標點 / 佔位符 `<…>` span / code fence，防「時間冒充目標」。
+- **mode 三態**：`observe`（只落 log）/ `warn`（systemMessage 提醒）/ `deny`（攔 + 補救模板，`max_denies_per_turn`=2 超過 force_release；`lenient_first_miss=true` 首 miss 降 warn）。**終局裁決（2026-08-06）：mode 永久 `warn`，deny 已否決**——warn 期滿判讀四門檻中 1/2/3 過、門檻 4 漏偵率 14.3%〜33.3% 遠超 ≤5%：VSCode 環境「文字+工具」訊息的 text block **落盤延遲結構性存在**（合格預告落盤後 4 秒的 gated 呼叫仍讀到 `text_blocks:0`），另有 subagent／非本 cwd session 整段 transcript 不存在的第二類破口——deny 模式在此兩類下不是零防護就是全誤攔。逐筆證據見 [_AIDocs/DevHistory/pan-deny-judgement-2026-08-06.md](_AIDocs/DevHistory/pan-deny-judgement-2026-08-06.md)。
+- **通過與豁免**：通過寫 `workflow/pan-pass/{sid}-t{turn}.flag`（armed 快路徑，回合內後續呼叫全放、marker 抗併發）；compaction continuation 回合整回合豁免；`exempt_path_substrings`（plans / _staging / scratchpad / workflow）；sidechain / resume 保底 state 無 `turn_seq` 即 fail-open（同 (sid,turn) 節流 3 筆）；MCP 工具不在 settings.json matcher 天然不管。
+- **可觀測性**：全數落 `Logs/guard-pre-action-notice.jsonl`（pass / warn / deny / force_release / fail_open_no_transcript，pass 附 `text_blocks` 佐證欄）。config `guard.pre_action_notice` 一鍵關 + 4 週日落條款（force_release 率 >20% 或預告敷衍化 → 降級重評）。
+- **Hermes 三部件不移植**：兩階段狀態機（CC deny→重試迴圈原生等價）、歷史清除（transcript 由 harness 管理）、scaffolding 隔離（tool pairing + code fence 剝除已涵蓋）——重複造只會加狀態面積。後續替代資料源候選（payload `prompt_id` 對齊 / PostToolUse 側錄）待使用者裁決，見 atom `pan-hermes不移植部件與vscode-text-block不落盤實測`。
+
+### 5.15 驗收裁判 — AI 審查 AI 產出（acceptance 四段閉環，2026-08-06 全段上線）
+
+「AI 驗證 AI」的落地形：**先給裁判案卷（任務專屬驗收標準）再談能力**——通用直覺審必然低精度。四段閉環全部上線（enforce=true）：
+
+| 段 | 切入點 | 機制 |
+|----|--------|------|
+| ① 規格工件 | [hooks/acceptance_spec.py](hooks/acceptance_spec.py)（standalone PostToolUse） | **分級啟動護輕量極簡**：ExitPlanMode（plan 獲同意）→ 注入指示從 plan 落 `<專案根>/.claude/verify/acceptance-<slug>.md`（frontmatter 綁定 + 必須發生/禁止發生/驗證指令三段）；無 plan 但同 session 修改 ≥3 檔（`min_files_trigger`，記憶/暫存路徑不計）→ 一次性建議。小任務零打擾、advisory-only；sidecar `workflow/acceptance-spec/<sid>.json` 抑制重複提醒 |
+| ② 影子裁判 | [tools/codex-companion/acceptance.py](tools/codex-companion/acceptance.py)（codex 第五類審計） | Stop 完成宣稱或規格檔 status→done 觸發：解析任務↔規格綁定（**四分流**：本 session 唯一 open 規格＝bound 才審；ambiguous / other_session / none 記 uncertain 不發、不猜最新一份）→ 組案卷（需求原話 + 驗收清單 + diff 頭尾採樣附 in-band 截斷標記 + 測試輸出）發 codex 回 verdict（pass/fail/uncertain）。`assessor.map_acceptance_verdict` 程式化紅線：unbound→uncertain、fail 無證據→uncertain、裁判逾時→uncertain 揭露（INV-CASE-BINDING-OR-UNCERTAIN）。判定落 `workflow/acceptance-audit.jsonl` |
+| ③ enforce Stop 閘 | codex_companion standalone Stop hook | config `codex_companion.acceptance_review.enforce=true`：Stop 同步審，**fail 且 severity≥high 才 block** 收尾（附逐條證據）；沿用 `stop_gate_max_blocks=2`，第 3 次強制放行＋誠實揭露；裁判逾時→uncertain 放行＋degraded metric。一鍵退影子＝`enforce:false`（數據照收） |
+| ④ 迴歸提示 | [hooks/handlers/stop.py](hooks/handlers/stop.py) `_acceptance_regression_hint` | 本 session 有 fail/high 真命中 → 收尾 block 訊息 piggyback 建議 (a) 補測試案例 (b) 模式類落 atom；非強制、每 session 一次、不建佇列（config `acceptance_regression_hint`） |
+
+- **轉正依據（回測代替影子等待）**：`tools/codex-companion/backtest_acceptance.py` 20 案 × 2 輪真 codex（A 完好回放 10 / B 種缺陷 7 / C 截斷紀律 3，真值由構造保證）：C 紀律 6/6、B 抓取 5/7、**precision 83%、severity=high 級 4/4 全真命中零誤擋** → 據此拍板只擋 high。實彈首 3 筆：1 uncertain（安全出口）+ 2 fail 皆真命中（precision 2/2、零誤擋）。教訓：回測 3 誤報中 2 例是回測 harness 構造錯——**評估裁判前先驗評估工具本身**。
+- **殺閘誠實寫死在程式**（`promotion_stats()`）：fail 標註 ≥10 筆且 precision<50% → 收掉不轉正，防「感覺有用」續命；轉正門檻同樣程式化（N≥20 ∧ precision≥60% ∧ uncertain≤30%）。
+- **配額分桶**（`audit_quota`，INV-BUDGET-ISOLATION）：acceptance 上限 8 / 保底 6，與其他四類審計互不餓死。
+- **證據管道優先於裁判加碼**（INV-EVIDENCE-PIPE-HONESTY）：歷次誤報根因幾乎全在輸入端（靜默截斷/範本誤觸發/採樣太瘦）——一切截斷必 in-band 標記；確定性驗證歸程式判，裁判只收語意題（範圍完整性、宣稱-證據一致性）。裁判永不授權副作用（只驗結果），高風險操作照走人工核准。
+- 設計知識 atom：`專案工作驗收裁判的分級啟動與殺閘設計`。
 
 ---
 
@@ -739,6 +772,8 @@ flowchart TD
 | **lang_guard（P8b）** | [hooks/lang_guard.py](hooks/lang_guard.py) | standalone Stop hook（仿 codex_companion）：量測終版訊息英文佔比 > 0.5（≥40 語言字元）→ `systemMessage` 注入繁中提醒（規則化·stateless 每輪自校正·無 flag）；觸發落 `Logs/guard-lang.jsonl` |
 | **程式化收尾強化（Q3-A）** | [hooks/wg_evasion.py](hooks/wg_evasion.py) `crosscheck_aec_severity`/`flush_outcome_stats` + [hooks/handlers/post_tool_use.py](hooks/handlers/post_tool_use.py) `_collect_aec_evidence` + [hooks/handlers/user_prompt_submit.py](hooks/handlers/user_prompt_submit.py) 哨兵/後驗 | ① AEC (b) 欄 cross-check：hook 實測退避（`evasion_events` 證據暫存）而模型自評「無」→ Python one-writer 升 real-evasion + report 附 `hook_evidence`（不信自評；Node chip 純內容判定，以 report 檔/Stop fallback 為準）② 護欄觸發 JSONL（`Logs/guard-{evasion,docdrift,lang}.jsonl`，誤攔率可量測）③ outcome unknown 比率遙測（`workflow/outcome_stats.jsonl`，連續 3 session >70% → SessionStart advisory，防完成語 regex 失配 → α/β 晉升軌靜默停滯）④ HUD 刪除決策後驗（下輪 UPS `exists()` 實查 → 重注入一次 / 告警結案）⑤ UPS 被 kill 哨兵（`workflow/ups-sentinel/`，殘留＝上輪注入被 timeout 砍 → 告警）。config：`usefulness.unknown_watch` |
 | **性能與結構修復（Q3-B）** | [hooks/handlers/stop.py](hooks/handlers/stop.py) + [hooks/wg_evasion.py](hooks/wg_evasion.py) `read_transcript_tail` + [hooks/wg_core.py](hooks/wg_core.py) `sanitize_harness_noise` | ① Stop transcript 消費者（last_text / token 預警 / turn 文字 / accessed_files）合併**單次 2MB tail-read**（原 3 次全檔讀）→ settings.json Stop timeout 20→10 ② `_detect_uncommitted_files` 按 VCS root 分組（`_find_vcs_root` 純 walk-up）**batch status**（原 ~2N 次 git/svn 子行程 → 每根 1 次）③ PostToolUse matcher 移除 Read——accessed_files 改 Stop 端從共用尾段回收（省 per-Read hook 行程；極早期讀取超出尾窗會漏＝已接受邊界）④ episodic 品質：`sanitize_harness_noise` 剔 `<ide_opened_file>`/`<system-reminder>` 等標籤與 `[Guardian:*]` 殘渣行（topic tracker 記錄端 + episodic 摘要防禦端雙保險）、知識段只收 LLM 萃取項 + 覆轍信號（「修改 N 檔」類統計歸摘要工作範圍行/閱讀軌跡）、刪死碼 `_llm_extract_knowledge` ⑤ :3848 交棒假說（「只在啟動搶埠、無 runtime 重試」）經隔離埠 E2E **實證推翻**——heartbeat 重綁自 2026-03 存在且 15s 內收斂，不動碼；跨專案 alias 掃描實測 ~11ms/prompt，快取化**實證不成立**跳過 |
+| **PAN 實作前預告閘門** | [hooks/handlers/pre_tool_use.py](hooks/handlers/pre_tool_use.py) `_check_pre_action_notice` | 每回合首次動手工具（Write/Edit/非唯讀 Bash/PowerShell）前檢查可見預告（「執行目標」+「預估」）；mode **終局 warn**（deny 否決——text block 落盤延遲 + subagent 無 transcript，漏偵率 14.3〜33.3% ≫ 5% 門檻）；armed 快路徑 + continuation 豁免 + fail-open；log `Logs/guard-pre-action-notice.jsonl`；config `guard.pre_action_notice`。→§5.14 |
+| **驗收裁判（AI 審查 AI）** | [hooks/acceptance_spec.py](hooks/acceptance_spec.py) + [tools/codex-companion/acceptance.py](tools/codex-companion/acceptance.py) + stop.py RegressionHint | 四段閉環：規格工件分級啟動（ExitPlanMode/≥3 檔）→ codex 影子裁判（案卷 + 四分流綁定，unbound 永不 block）→ enforce Stop 閘（fail∧high 才 block，`stop_gate_max_blocks=2` 第 3 次放行）→ 迴歸提示；回測 precision 83%、high 4/4 零誤擋轉正；殺閘 `promotion_stats()` 程式化。→§5.15 |
 | **跨 Session 衝突預警** | [hooks/wg_coordination.py](hooks/wg_coordination.py) | 多 session 共用工作樹互踩 advisory：PreToolUse 同檔互寫 warn（entry 級 session_id 歸屬、裸 additionalContext+systemMessage、禁 permissionDecision）+ Bash `git add -A`/`reset --hard` 同 cwd 預警（引號解包、dry-run 排除）+ PostToolUse 60s late-collision。純檔案方案不依賴 daemon；log `Logs/session-coordination/`；config `coordination.*` + 4 週日落條款；Stage 2 收件匣/認領制 defer。→§5.13 |
 | 治理原則（P5） | [rules/core.md](rules/core.md) | **Native-first**（原生機制優先，自製只做結構化·跨-session 高價值）+ **可觀測性鐵律**（fail-open 必告知；vector 靜默死 27d 反例）|
 | Token Diet | wg_atoms `_strip_atom_for_injection` | 注入前 strip metadata + Section-Level |
@@ -750,7 +785,7 @@ flowchart TD
 | **V5 JSON SoT** | [lib/atom_index_json.py](lib/atom_index_json.py) | 取代 `_ATOM_INDEX.md` table parser |
 | **V5 Codex Subprocess** | [hooks/codex_companion.py](hooks/codex_companion.py) + `tools/codex-companion/audit.py` | daemon → subprocess（無 port 3850；P2 拔 `subprocess_timeout` 死 config 鍵）|
 | **V5 Skill 體系** | [skills/](skills/) <!-- skill-count -->21<!-- /skill-count --> 個 + frontmatter | 19 遷移自 legacy commands/ + skill-creator/heal-review/refile + 外部 karpathy-guidelines |
-| **V5 MCP（4 tool）** | [tools/workflow-guardian-mcp/server.js](tools/workflow-guardian-mcp/server.js) | atom_write / atom_move / atom_promote / atom_edit_meta（砍 4 內部 IPC）|
+| **V5 MCP（5 tool）** | [tools/workflow-guardian-mcp/server.js](tools/workflow-guardian-mcp/server.js) | atom_write / atom_move / atom_promote / atom_edit_meta + anti_evasion_report（砍 4 內部 IPC；AEC HUD 於 lib/{anti-evasion,aec-hud-html}.js）|
 | **V5 禁語 JSON** | `memory/_meta/forbidden-phrases.json` | IDENTITY.md + wg_evasion.py single source |
 | **V5 Log Rotation** | [hooks/wg_core.py](hooks/wg_core.py) | guardian-crash.log / extract-worker.log 自動輪轉 |
 | Staging Area | `memory/_staging/` | 續接 prompt、暫存草稿（gitignored）|
