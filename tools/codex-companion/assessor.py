@@ -23,7 +23,20 @@ from typing import Any, Dict, List, Optional
 SERVICE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SERVICE_DIR))
 
+import artifact_io
 import prompts
+
+# artifact 採樣預算：主審對象（plan_review 的計畫檔）給大預算；
+# handoff 維持既有預算。原則見 artifact_io module docstring。
+PLAN_SAMPLE_HEAD = 8000
+PLAN_SAMPLE_TAIL = 2000
+HANDOFF_SAMPLE_HEAD = 4500
+HANDOFF_SAMPLE_TAIL = 1500
+
+# 最終 prompt 軟預算：超額時以縮減 trace 重組一次（單次，不迭代；
+# artifact 採樣段與 last_assistant_tail 永不砍）。
+DEFAULT_MAX_PROMPT_CHARS = 16000
+BUDGET_TRACE_MAX_ITEMS = 8
 
 # Windows: detached 父進程（codex_companion hook spawn audit.py 帶 DETACHED_PROCESS）
 # 沒 console 時呼叫 codex.cmd batch wrapper → Windows 會新開 cmd.exe 視窗。
@@ -36,13 +49,29 @@ def _log(msg: str):
     print(f"[assessor {ts}] {msg}", file=sys.stderr, flush=True)
 
 
-def _summarize_tool_trace(trace: List[Dict[str, Any]], max_items: int = 30) -> str:
-    """Format tool trace into a compact string for prompt injection."""
+def _summarize_tool_trace(
+    trace: List[Dict[str, Any]],
+    max_items: int = 30,
+    dropped_earlier: int = 0,
+    budget_reduced: bool = False,
+) -> str:
+    """Format tool trace into a compact string for prompt injection.
+
+    集合截斷附計數標頭（showing last N of M）：codex 需要知道自己看的是
+    節錄，否則會把「trace 裡沒有」誤判成「agent 沒做過」。
+    dropped_earlier = state 端 trace 腰斬已丟棄的筆數。
+    """
     if not trace:
         return "(empty)"
 
     recent = trace[-max_items:]
+    total = len(trace) + max(0, int(dropped_earlier))
     lines = []
+    if len(recent) < total:
+        header = f"(showing last {len(recent)} of {total} tool events; earlier events not shown"
+        if budget_reduced:
+            header += "; 因 prompt 總量預算，trace 已縮減"
+        lines.append(header + ")")
     for i, t in enumerate(recent, 1):
         tool = t.get("tool", t.get("type", "?"))
         inp = t.get("input", "")
@@ -93,6 +122,60 @@ def _extract_arch_files(trace: List[Dict[str, Any]]) -> str:
     if not paths:
         return "(none)"
     return "\n".join(f"- {p}" for p in sorted(paths))
+
+
+def _summarize_files_examined(
+    tool_trace: List[Dict[str, Any]], max_items: int = 30, max_chars: int = 1500
+) -> str:
+    """從 tool_trace 萃取「代理人已接觸的檔案」摘要供 codex prompt 用。
+
+    實際供給受 hook 監測範圍限制：PostToolUse matcher 只送 Edit/Write/Bash/
+    plan/handoff 觸發事件進 trace，Read/Glob/Grep/Agent 不在其中——分支保留
+    （data-driven，監測範圍放寬即自動生效），模板端已明示此限制避免
+    「agent 未讀檔」誤報。Cap max_items 條 / max_chars 字。
+    """
+    if not tool_trace:
+        return "(none)"
+
+    read_tools = {"Read", "Glob", "Grep"}
+    write_tools = {"Edit", "Write", "NotebookEdit"}
+
+    lines: List[str] = []
+    seen_paths: set = set()
+
+    for t in tool_trace:
+        tool = t.get("tool", "")
+        path = (t.get("path") or "").strip()
+        inp = (t.get("input") or "").strip()
+        out = (t.get("output_summary") or "").strip()
+
+        if tool in read_tools:
+            label = path or inp
+            if label and label not in seen_paths:
+                lines.append(f"- [{tool}] {label[:160]}")
+                seen_paths.add(label)
+        elif tool in write_tools:
+            if path and path not in seen_paths:
+                lines.append(f"- [{tool}] {path[:160]}")
+                seen_paths.add(path)
+        elif tool == "Agent":
+            desc = inp[:120] if inp else "(no desc)"
+            out_snip = out[:240] if out else ""
+            entry = f"- [Agent] {desc}"
+            if out_snip:
+                entry += f"\n    → result: {out_snip}"
+            lines.append(entry)
+
+        if len(lines) >= max_items:
+            break
+
+    if not lines:
+        return "(none)"
+
+    text = "\n".join(lines)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n…(truncated)"
+    return text
 
 
 def _extract_verification_evidence(trace: List[Dict[str, Any]]) -> str:
@@ -349,26 +432,62 @@ def _parse_assessment(raw: str) -> Dict[str, Any]:
 # ─── Public API ──────────────────────────────────────────────────────────────
 
 
-def run_assessment(
+def _resolve_artifact_body(
+    extra_context: Dict[str, Any],
+    head: int,
+    tail: int,
+    inline_key: str = "plan_inline",
+    artifact_label: str = "artifact",
+) -> str:
+    """依統一原則取 artifact 正文：inline 全文優先，否則讀 artifact_path 實體。
+
+    兩者皆不可得 → 回 in-band 說明（動作紀錄不得替代內容本體，
+    codex 須知道自己沒有正文可依據，而非拿到冒充品）。
+    """
+    inline = (extra_context.get(inline_key) or "").strip()
+    if inline:
+        return artifact_io.sample_text(inline, head=head, tail=tail)
+
+    artifact_path = (extra_context.get("artifact_path") or "").strip()
+    if artifact_path:
+        body = artifact_io.read_artifact_sampled(artifact_path, head=head, tail=tail)
+        if body:
+            return body
+        return (
+            f"({artifact_label} 讀取失敗：{artifact_path} — 本審計無正文可依據；"
+            "請以 missing_evidence 回報此狀況，勿臆測內容)"
+        )
+    return (
+        f"(未解析到{artifact_label} — 本審計無正文可依據；"
+        "請以 missing_evidence 回報此狀況，勿把工具動作紀錄當作正文)"
+    )
+
+
+def build_prompt(
     assessment_type: str,
-    session_id: str,
     tool_trace: List[Dict[str, Any]],
     cwd: str,
     extra_context: Dict[str, Any],
-    config: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Run a Codex assessment and return structured result.
+    trace_max_items: int = 30,
+    budget_reduced: bool = False,
+) -> str:
+    """組出送 codex 的完整 prompt。純函式（不打 codex、不碰 state 檔），
+    輸入完整性 verify 直接對此斷言。
 
-    assessment_type: "plan_review" | "turn_audit" | "architecture_review"
-
-    turn_audit 額外傳 turn_index + last_assistant_tail
-    + verification_evidence + heuristic_summary。前者由 service 從 state 讀並
-    放進 extra_context；後兩者由 assessor 從 trace 即時抽取（避免 stale state）。
+    材料規則（唯一來源，caller 不各自組裝）：
+    - artifact 正文（plan/handoff）經 _resolve_artifact_body 實體化
+    - trace/files/verification 皆由 tool_trace 即時計算（避免 stale state）
+    - extra_context 只收觸發事實：turn_index / last_assistant_tail / user_goal /
+      artifact_path / plan_inline / trace_dropped
     """
-    trace_str = _summarize_tool_trace(tool_trace)
-    modified_str = _summarize_modified_files(tool_trace)
+    trace_dropped = int(extra_context.get("trace_dropped", 0) or 0)
+    trace_str = _summarize_tool_trace(
+        tool_trace, max_items=trace_max_items,
+        dropped_earlier=trace_dropped, budget_reduced=budget_reduced,
+    )
 
     turn_index = int(extra_context.get("turn_index", 0))
+    user_goal = extra_context.get("user_goal", "") or ""
     last_assistant_tail = extra_context.get("last_assistant_tail", "") or ""
     if last_assistant_tail and len(last_assistant_tail) > 1500:
         last_assistant_tail = last_assistant_tail[:1500] + "…(截斷)"
@@ -394,43 +513,87 @@ def run_assessment(
     except Exception:
         pass
 
-    verification_evidence = _extract_verification_evidence(tool_trace)
-
-    # Build prompt based on type
     if assessment_type == "plan_review":
-        prompt = prompts.build_plan_review_prompt(
-            user_goal=extra_context.get("user_goal", ""),
-            plan_content=extra_context.get("plan_content", trace_str),
-            files_examined=extra_context.get("files_examined", ""),
+        return prompts.build_plan_review_prompt(
+            user_goal=user_goal,
+            plan_content=_resolve_artifact_body(
+                extra_context, PLAN_SAMPLE_HEAD, PLAN_SAMPLE_TAIL,
+                artifact_label="計畫 artifact",
+            ),
+            files_examined=_summarize_files_examined(tool_trace),
             heuristic_flags=flags_str,
             turn_index=turn_index,
         )
-    elif assessment_type == "architecture_review":
-        prompt = prompts.build_architecture_review_prompt(
+    if assessment_type == "architecture_review":
+        return prompts.build_architecture_review_prompt(
             cwd=cwd,
             arch_files=_extract_arch_files(tool_trace),
             tool_trace=trace_str,
             turn_index=turn_index,
         )
-    elif assessment_type == "handoff_review":
-        prompt = prompts.build_handoff_review_prompt(
-            handoff_content=extra_context.get("handoff_content", ""),
-            user_goal=extra_context.get("user_goal", ""),
+    if assessment_type == "handoff_review":
+        return prompts.build_handoff_review_prompt(
+            handoff_content=_resolve_artifact_body(
+                extra_context, HANDOFF_SAMPLE_HEAD, HANDOFF_SAMPLE_TAIL,
+                inline_key="handoff_inline", artifact_label="handoff 文件",
+            ),
+            user_goal=user_goal,
             turn_index=turn_index,
         )
-    else:
-        # Default: turn_audit
-        prompt = prompts.build_turn_audit_prompt(
-            cwd=cwd,
-            tool_trace=trace_str,
-            modified_files=modified_str,
-            heuristic_flags=flags_str,
-            turn_index=turn_index,
-            last_assistant_tail=last_assistant_tail,
-            verification_evidence=verification_evidence,
-            heuristic_summary=heuristic_summary,
-            files_examined=extra_context.get("files_examined", ""),
+    # Default: turn_audit
+    return prompts.build_turn_audit_prompt(
+        cwd=cwd,
+        tool_trace=trace_str,
+        modified_files=_summarize_modified_files(tool_trace),
+        heuristic_flags=flags_str,
+        turn_index=turn_index,
+        user_goal=user_goal,
+        last_assistant_tail=last_assistant_tail,
+        verification_evidence=_extract_verification_evidence(tool_trace),
+        heuristic_summary=heuristic_summary,
+        files_examined=_summarize_files_examined(tool_trace),
+    )
+
+
+def build_prompt_budgeted(
+    assessment_type: str,
+    tool_trace: List[Dict[str, Any]],
+    cwd: str,
+    extra_context: Dict[str, Any],
+    config: Dict[str, Any],
+) -> str:
+    """總量軟預算：超額時以縮減 trace 重組一次（單次不迭代）。
+
+    artifact 採樣段與 last_assistant_tail 自帶上限、永不砍；縮減有
+    in-band 標記（budget_reduced → trace 計數標頭註明）。
+    """
+    prompt = build_prompt(assessment_type, tool_trace, cwd, extra_context)
+    max_chars = int(config.get("max_prompt_chars", DEFAULT_MAX_PROMPT_CHARS))
+    if len(prompt) > max_chars:
+        prompt = build_prompt(
+            assessment_type, tool_trace, cwd, extra_context,
+            trace_max_items=BUDGET_TRACE_MAX_ITEMS, budget_reduced=True,
         )
+    return prompt
+
+
+def run_assessment(
+    assessment_type: str,
+    session_id: str,
+    tool_trace: List[Dict[str, Any]],
+    cwd: str,
+    extra_context: Dict[str, Any],
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Run a Codex assessment and return structured result.
+
+    assessment_type: "plan_review" | "turn_audit" | "architecture_review"
+                     | "handoff_review"
+    prompt 材料組裝全在 build_prompt（規則唯一來源）；本函式只負責
+    預算檢查 → 呼叫 codex → 解析。
+    """
+    turn_index = int(extra_context.get("turn_index", 0))
+    prompt = build_prompt_budgeted(assessment_type, tool_trace, cwd, extra_context, config)
 
     _log(f"Prompt built for {assessment_type} (t{turn_index}): {len(prompt)} chars")
 

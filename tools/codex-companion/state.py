@@ -51,8 +51,28 @@ def new_state(session_id: str, cwd: str) -> Dict[str, Any]:
         "assessments_completed": 0,
         "turn_index": 0,
         "last_assistant_tail": "",
+        "user_goal": "",
+        "trace_dropped": 0,
         "last_updated": _now_iso(),
     }
+
+
+def set_user_goal(session_id: str, text: str) -> None:
+    """Capture 使用者原始目標（首個非空 prompt 前段，codex brief 的「背景」要件）。
+
+    Write-once：已有值不覆寫，保「原始目標」語意。Thread-safe。
+    """
+    text = (text or "").strip()
+    if not text:
+        return
+    with _state_lock:
+        st = read_state(session_id)
+        if st is None:
+            st = new_state(session_id, "")
+        if st.get("user_goal"):
+            return
+        st["user_goal"] = text[:400]
+        write_state(session_id, st)
 
 
 def increment_turn(session_id: str) -> int:
@@ -107,10 +127,14 @@ def append_event(session_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
             st = new_state(session_id, "")
         trace = st.setdefault("tool_trace", [])
 
-        # Keep trace bounded to avoid unbounded growth
+        # Keep trace bounded to avoid unbounded growth。
+        # 丟棄量累計在 trace_dropped：下游 prompt 的 trace 計數標頭
+        # (showing last N of M) 需要總量，砍歷史不得無聲。
         MAX_TRACE = 200
         if len(trace) >= MAX_TRACE:
-            trace[:] = trace[-(MAX_TRACE // 2):]
+            keep = MAX_TRACE // 2
+            st["trace_dropped"] = int(st.get("trace_dropped", 0)) + (len(trace) - keep)
+            trace[:] = trace[-keep:]
 
         event["timestamp"] = _now_iso()
         trace.append(event)
@@ -222,6 +246,7 @@ def _metrics_path(session_id: str) -> Path:
 
 _METRIC_KEYS = (
     "audits_skipped_by_score",
+    "audits_skipped_no_artifact",  # plan_review 解析不到計畫 artifact → skip（不空審）
     "audits_total_attempted",  # §四 C3 ratio 分母用
     "empty_returns",
     "sandbox_failures",

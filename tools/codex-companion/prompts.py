@@ -50,7 +50,7 @@ turn_index = {turn_index}
 ## User's Original Goal
 {user_goal}
 
-## Plan Content
+## Plan Content（實體計畫文件；超長時已頭尾採樣並附中段省略標記）
 {plan_content}
 
 ## Files Examined by the Agent
@@ -65,7 +65,7 @@ turn_index = {turn_index}
 - Check: is there a verification/testing step after implementation?
 - Check: are edge cases or failure modes considered?
 - Check: is the scope appropriate (concrete creep risk only — do not flag "too narrow" unless a critical dependency is genuinely missing)?
-- Files Examined includes both direct Read/Glob/Grep and `[Agent]` entries (sub-agent investigations) — count both as the agent's file knowledge when evaluating coverage.
+- Files Examined lists only files touched via monitored tools (Edit/Write/Bash and plan/handoff triggers). Read/Glob/Grep and sub-agent (`[Agent]`) activity are NOT monitored — do NOT infer the agent failed to examine a file merely because it is absent from this list.
 - Be concise and specific. Do not praise or encourage. Only point out problems or confirm "ok".
 
 {output_schema}
@@ -84,6 +84,9 @@ turn_index = {turn_index}
 
 ## Session Working Directory
 {cwd}
+
+## User's Original Goal
+{user_goal}
 
 ## Tool Trace (recent actions)
 {tool_trace}
@@ -106,7 +109,7 @@ turn_index = {turn_index}
 ## Instructions
 - Evaluate: did the agent actually DO what it said it would do? (check tool trace for evidence)
 - Evaluate: were there verification steps (tests, builds, manual checks)? Cross-check Last Assistant Reply against Tool Trace — if reply claims "tests passed" but trace has no test command AND Verification Evidence Found is empty, that is a real gap.
-- Evaluate: did the agent read necessary files before modifying them? (Files Examined includes both direct Read/Glob/Grep and `[Agent]` entries representing sub-agent investigations — both count as agent's file knowledge.)
+- Evaluate: did the agent read necessary files before modifying them? Note: Files Examined lists only files touched via monitored tools (Edit/Write/Bash); Read/Glob/Grep and sub-agent (`[Agent]`) activity are NOT monitored — do NOT infer the agent failed to read a file merely because it is absent from this list.
 - Evaluate: any signs of shortcuts (skipped steps, assumed success without checking)?
 - Do NOT penalize if the turn was genuinely simple and complete — set delivery=ignore.
 - Heuristic Triggered is reference only; do NOT echo it back. Form your own opinion based on the actual artifacts above.
@@ -232,6 +235,7 @@ def build_turn_audit_prompt(
     modified_files: str,
     heuristic_flags: str = "None",
     turn_index: int = 0,
+    user_goal: str = "",
     last_assistant_tail: str = "",
     verification_evidence: str = "",
     heuristic_summary: str = "",
@@ -240,8 +244,9 @@ def build_turn_audit_prompt(
     """組出 turn-audit 提示。
 
     段落組成：
-      * Files Examined by the Agent — Read/Glob/Grep/Edit/Write/Agent 統一摘要
-        （含 sub-agent 代理活動，修了 codex 看不到 sub-agent file 接觸的盲點）
+      * User's Original Goal — state.user_goal（首個非空 user prompt 前段）
+      * Files Examined by the Agent — trace 內監測範圍工具接觸的檔案摘要
+        （模板明示 Read/Glob/Grep/Agent 不在監測範圍，防「未讀檔」誤報）
       * Last Assistant Reply (Tail)  — 取自 state.last_assistant_tail
       * Verification Evidence Found  — assessor 抽自 trace 的 verify cmd 摘要
       * Heuristic Triggered (Reference Only) — heuristics.format_for_context 結果
@@ -254,6 +259,7 @@ def build_turn_audit_prompt(
         sandbox_constraint=SANDBOX_CONSTRAINT,
         turn_index=turn_index,
         cwd=cwd or "(unknown)",
+        user_goal=user_goal or "(not captured)",
         tool_trace=tool_trace or "(no trace)",
         modified_files=modified_files or "(none)",
         files_examined=files_examined or "(none)",

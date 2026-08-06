@@ -76,6 +76,10 @@ def main() -> int:
     context.setdefault("turn_index", turn_index)
     if "last_assistant_tail" not in context:
         context["last_assistant_tail"] = st.get("last_assistant_tail", "")
+    # 全審計類型共用背景/計數：user_goal（brief「背景」要件）與
+    # trace_dropped（trace 計數標頭的總量分母）
+    context.setdefault("user_goal", st.get("user_goal", ""))
+    context.setdefault("trace_dropped", int(st.get("trace_dropped", 0) or 0))
 
     try:
         result = assessor.run_assessment(

@@ -91,11 +91,37 @@ def _output_nothing() -> None:
 
 # ─── Checkpoint detection (V5: moved from service.py) ────────────────────────
 
-_PLAN_TOOLS = {"ExitPlanMode", "EnterPlanMode"}
+# EnterPlanMode 不觸發：進 plan mode 當下計畫尚不存在，審必空
+# （動作紀錄不得替代內容本體）。
+_PLAN_TOOLS = {"ExitPlanMode"}
 _WRITE_TOOLS = {"Edit", "Write"}
 # 跨 session 交接檔：_staging/next-phase*.md 或檔名含 handoff（持久化 artifact，
 # /continue 接手端實際讀的就是它）。命中 → 對抗式 handoff 自檢（Q2）。
 _NEXT_PHASE_RE = re.compile(r"(?:next-phase|next_phase|handoff)[^/\\]*\.md$", re.IGNORECASE)
+# plan-mode 工作流：計畫先 Write 到 plans/<name>.md 再 ExitPlanMode。
+_PLAN_ARTIFACT_RE = re.compile(r"/plans/[^/]+\.md$", re.IGNORECASE)
+
+
+def _resolve_plan_artifact(tool_input: Any, tool_trace: list) -> tuple[str, str]:
+    """回 (artifact_path, plan_inline) 供 plan_review 取計畫正文。
+
+    主路徑：反掃本 session trace，取最近一筆 Write/Edit 到 plans/*.md 的路徑
+    （assessor 於審計時點讀實體檔，拿到最新版全文）。
+    保險路徑：舊版 harness 的 ExitPlanMode 帶 tool_input.plan 全文 → inline。
+    兩者皆空 → caller skip 本次審計，不拿動作紀錄冒充計畫。
+    """
+    inline = ""
+    if isinstance(tool_input, dict):
+        p = tool_input.get("plan", "")
+        if isinstance(p, str):
+            inline = p.strip()
+    for t in reversed(tool_trace or []):
+        if t.get("tool") not in _WRITE_TOOLS:
+            continue
+        path = (t.get("path") or "").strip()
+        if path and _PLAN_ARTIFACT_RE.search(path.replace("\\", "/")):
+            return path, inline
+    return "", inline
 
 
 def _detect_checkpoint(
@@ -103,7 +129,7 @@ def _detect_checkpoint(
 ) -> Optional[str]:
     """Determine if this tool use triggers a checkpoint.
 
-    (1) ExitPlanMode/EnterPlanMode → plan_review
+    (1) ExitPlanMode → plan_review
     (2) 結構性檔案 Edit/Write + soft_gate.architecture_review=true → architecture_review
     (3) next-phase/handoff 檔 Edit/Write（soft_gate.handoff_review，預設開）→ handoff_review
         ——跨 session 交接文件的對抗式自檢，把作者「自評」升級為獨立「他評」（補盲點）。
@@ -269,93 +295,9 @@ def _summarize_tool_response(tool_response: Any) -> tuple[str, bool]:
     return summary, failed
 
 
-def _summarize_files_examined(
-    tool_trace: list, max_items: int = 30, max_chars: int = 1500
-) -> str:
-    """從 tool_trace 萃取「代理人已接觸的檔案」摘要供 codex prompt 用。
-
-    含 Read/Glob/Grep（直接讀檔/搜檔）+ Edit/Write/NotebookEdit（修改即接觸）+
-    Agent（sub-agent 代理活動：input=description / output_summary 含 sub-agent 讀的檔）。
-    Cap max_items 條 / max_chars 字，避免 prompt token 膨脹。
-    """
-    if not tool_trace:
-        return "(none)"
-
-    read_tools = {"Read", "Glob", "Grep"}
-    write_tools = {"Edit", "Write", "NotebookEdit"}
-
-    lines: list[str] = []
-    seen_paths: set[str] = set()
-
-    for t in tool_trace:
-        tool = t.get("tool", "")
-        path = (t.get("path") or "").strip()
-        inp = (t.get("input") or "").strip()
-        out = (t.get("output_summary") or "").strip()
-
-        if tool in read_tools:
-            label = path or inp
-            if label and label not in seen_paths:
-                lines.append(f"- [{tool}] {label[:160]}")
-                seen_paths.add(label)
-        elif tool in write_tools:
-            if path and path not in seen_paths:
-                lines.append(f"- [{tool}] {path[:160]}")
-                seen_paths.add(path)
-        elif tool == "Agent":
-            # sub-agent 活動：description + output 尾巴
-            desc = inp[:120] if inp else "(no desc)"
-            out_snip = out[:240] if out else ""
-            entry = f"- [Agent] {desc}"
-            if out_snip:
-                entry += f"\n    → result: {out_snip}"
-            lines.append(entry)
-
-        if len(lines) >= max_items:
-            break
-
-    if not lines:
-        return "(none)"
-
-    text = "\n".join(lines)
-    if len(text) > max_chars:
-        text = text[:max_chars] + "\n…(truncated)"
-    return text
-
-
-def _read_handoff_content(file_path: str, head: int = 4500, tail: int = 1500) -> str:
-    """讀 next-phase/handoff 檔供 codex 對抗式自檢（utf-8-sig 容 BOM）。失敗→''。
-
-    超長檔取頭+尾採樣並**明確標記截斷**（可觀測性鐵律：靜默截斷會讓 codex 把
-    「輸入被切斷」誤判成「文件本身斷鏈」，且看不到文末的授權/收尾段）。
-    """
-    try:
-        text = Path(file_path).read_text(encoding="utf-8-sig")
-    except OSError:
-        return ""
-    if len(text) <= head + tail:
-        return text
-    return (
-        text[:head]
-        + f"\n\n…（中段省略：全文共 {len(text)} 字，此處僅含開頭 {head} 字與結尾 {tail} 字；"
-        f"審查時勿把此採樣截斷誤判為文件本身截斷/斷鏈）…\n\n"
-        + text[-tail:]
-    )
-
-
-def _build_verification_signals(input_data: Dict[str, Any], tool_response: Any) -> Dict[str, Any]:
-    """給 codex 的最小化 verification_signals 包。"""
-    sig: Dict[str, Any] = {
-        "tool_name": input_data.get("tool_name", ""),
-    }
-    if isinstance(tool_response, dict):
-        for k in ("exit_code", "returncode", "is_error"):
-            if k in tool_response:
-                sig[k] = tool_response[k]
-    return sig
-
-
 # ─── Event handlers ──────────────────────────────────────────────────────────
+# （artifact 內容實體化與 prompt 材料組裝集中在 tools/codex-companion/
+#   artifact_io.py + assessor.build_prompt；hook 只傳觸發事實。）
 
 
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]):
@@ -404,6 +346,16 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
     session_id = input_data.get("session_id", "")
     if not session_id:
         _output_nothing()
+
+    # 首個非空 prompt = 使用者原始目標（codex brief 的「背景」要件；
+    # state.set_user_goal 為 write-once，後續 prompt 不覆寫）
+    try:
+        import state as companion_state
+        companion_state.set_user_goal(
+            session_id, str(input_data.get("prompt", "") or "")
+        )
+    except Exception as e:
+        _log_err("codex:user_goal_capture", e)
 
     pattern = f"companion-assessment-{session_id}-t*.json"
     paths = sorted(WORKFLOW_DIR.glob(pattern))
@@ -576,7 +528,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
         input_summary = str(tool_input)[:200]
 
     tool_response = input_data.get("tool_response", "")
-    output_summary, failed = _summarize_tool_response(tool_response)
+    output_summary, _failed = _summarize_tool_response(tool_response)
 
     companion_state.append_event(session_id, {
         "type": "tool_use",
@@ -590,23 +542,34 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
     if checkpoint:
         max_audits = int(config.get("max_audits_per_session", 30))
         if _within_audit_cap(session_id, max_audits):
-            companion_state.record_checkpoint(session_id, checkpoint)
             st = companion_state.read_state(session_id) or {}
-            verification = _build_verification_signals(input_data, tool_response)
-            files_examined = _summarize_files_examined(st.get("tool_trace", []))
-            ctx: Dict[str, Any] = {
-                "trigger_tool": tool_name,
-                "trigger_file": file_path,
-                "tool_failed": failed,
-                "verification_signals": verification,
-                "files_examined": files_examined,
-            }
-            if checkpoint == "handoff_review" and file_path:
-                # 餵 handoff 全文給 codex 對抗式自檢（assessor 經 extra_context 取用）
-                ctx["handoff_content"] = _read_handoff_content(file_path)
-                ug = st.get("user_goal", "")
-                if ug:
-                    ctx["user_goal"] = ug
+            # ctx 只傳觸發事實；內容實體化在 assessor（規則唯一來源）
+            ctx: Dict[str, Any] = {}
+            if checkpoint == "plan_review":
+                artifact_path, plan_inline = _resolve_plan_artifact(
+                    tool_input, st.get("tool_trace", [])
+                )
+                if not artifact_path and not plan_inline:
+                    # 無計畫正文可審 → skip（動作紀錄不得替代內容本體）；
+                    # fail-open 但留訊號：stderr + metric
+                    _log_err(
+                        "codex:plan_artifact_missing",
+                        ValueError(f"no plan artifact resolved (trigger={tool_name})"),
+                    )
+                    try:
+                        companion_state.increment_metric(
+                            session_id, "audits_skipped_no_artifact"
+                        )
+                    except Exception as e:
+                        _log_err("codex:metric_skip_no_artifact", e)
+                    _output_nothing()
+                if artifact_path:
+                    ctx["artifact_path"] = artifact_path
+                if plan_inline:
+                    ctx["plan_inline"] = plan_inline
+            elif checkpoint == "handoff_review" and file_path:
+                ctx["artifact_path"] = file_path
+            companion_state.record_checkpoint(session_id, checkpoint)
             _spawn_audit_subprocess({
                 "session_id": session_id,
                 "turn_index": int(st.get("turn_index", 0)),
@@ -719,9 +682,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
         _output_nothing()
 
     # ── trigger turn_audit via audit.py subprocess ───────────────────────
-    user_goal_hint = (guardian_state.get("user_goal_hint")
-                      or guardian_state.get("user_intent") or "")[:500]
-
     # 實際送出 audit 前 +1（audit ratio 分母）
     try:
         companion_state.increment_metric(session_id, "audits_total_attempted")
@@ -730,21 +690,14 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
         pass
 
     companion_state.record_checkpoint(session_id, "turn_audit")
-    files_examined = _summarize_files_examined(comp_state.get("tool_trace", []))
     _spawn_audit_subprocess({
         "session_id": session_id,
         "turn_index": turn_index_post,
         "assessment_type": "turn_audit",
         "cwd": comp_state.get("cwd", ""),
         "context": {
-            "user_goal_hint": user_goal_hint,
             "last_assistant_tail": last_assistant_tail,
             "turn_score": score,
-            "files_examined": files_examined,
-            "verification_signals": {
-                "stop_text_len": len(last_assistant_tail),
-                "stop_text_source": "fallback_layered",
-            },
         },
     })
 

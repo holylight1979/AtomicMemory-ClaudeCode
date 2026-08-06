@@ -53,7 +53,7 @@
 | `wg_handoff.py` | **Auto-Handoff**（2026-06-09，跨 session 無損交接）：`build_handoff_stub` 六區塊 stub（客觀區塊自動填 git/files/atoms + 主觀區塊 TODO 佔位）+ `should_write_stub`（不覆蓋手寫 handoff）+ `estimate_context_usage`/`token_warn_payload`（Phase 2 Stop Layer 1 token 預警，純函式無副作用）。被 `pre_compact`(L2)/`post_tool_batch`(L3)/`stop`(L1)/`session_end`(L4) 共用（L4 為 Phase 3 SessionEnd 兜底）。設計：`plans/wise-wobbling-gem.md` |
 | **獨立保留** | |
 | `wisdom_engine.py` | 反思引擎 + Fix Escalation |
-| `codex_companion.py` | **V5 P5b 重寫**：HTTP daemon → subprocess（in-process state + spawn `tools/codex-companion/audit.py`）。**2026-06-24**：新增第四類審計 `handoff_review`——偵測 `_staging/next-phase*.md`/handoff 檔寫入 → 把 `skills/handoff` Step 3.5 八問當對抗 checklist 餵 codex 對交接文件做獨立第二意見複審（自評→他評），降注入門檻 medium（`soft_gate.handoff_review`，預設開） |
+| `codex_companion.py` | **V5 P5b 重寫**：HTTP daemon → subprocess（in-process state + spawn `tools/codex-companion/audit.py`）。**2026-06-24**：新增第四類審計 `handoff_review`——偵測 `_staging/next-phase*.md`/handoff 檔寫入 → 把 `skills/handoff` Step 3.5 八問當對抗 checklist 餵 codex 對交接文件做獨立第二意見複審（自評→他評），降注入門檻 medium（`soft_gate.handoff_review`，預設開）。**輸入組成鐵律**：hook 只傳觸發事實（artifact_path/tail/score），artifact 內容實體化與 prompt 材料組裝集中在 `tools/codex-companion/artifact_io.py` + `assessor.build_prompt()`（規則唯一來源）——引用檔案類 artifact 必附實體內容（超長頭尾採樣 + in-band 標記），動作紀錄不得替代內容本體，集合截斷附計數標頭；plan_review 由 trace 反掃 `plans/*.md` 讀實體（解析不到 → skip + metric，不空審），僅 ExitPlanMode 觸發 |
 | `extract-worker.py` | SessionEnd 萃取子程序（共用 `lib/ollama_extract_core.py`）。**對談結束自動落地**：`_session_end_writeback` 把 session_end 全文萃取 + 累積 `knowledge_queue` flush 成 [臨] auto-capture 草稿（**2026-06-18：依 session cwd 路由 scope=shared/global，見 `_flush_route`**；**2026-06-24：草稿一律隔離到 `_drafts/auto-capture/` 子層，`_flush_item_to_atom` 改 `build_atom_content`+`write_raw` 直寫——`sync-atom-index` 排除 `_drafts` → 不入索引/不注入/不計數，根治 content-as-filename 碎片污染 memory/ 根**；過品質閘、只清寫成功項、`session_end_flush.max_atoms` 上限）。**失敗深記**：`_failure_writeback` 寫多區塊骨架（始末/根因/設計原理/運作邏輯/防再犯；小模型填始末＋拆根因，餘段留待 Claude 深寫） |
 | `lib/ollama_extract_core.py` | 萃取共用核心 |
 | `quick-extract.py` | ~~Stop async 快篩~~（**孤兒·Stop hook 已撤、無 caller；檔案保留供回滾**）|
@@ -343,7 +343,7 @@ V5 GA 後 tests/ 已 verify 化重組（H-test-prune，2026-05-28）。
 ```
 hooks/verify/                                ← 68 個（atom/evasion/extract/wisdom/rrf_fusion/stability_decay/recall_miss 等 hook 守衛）
 tools/verify/                                ← 12 個（check_bypass / memory_eval / stale_deps / conflict_evidence / vector_service 等）
-tools/codex-companion/verify/                ← 4 個（assessor_retry / scorer / heuristics / handoff_review）
+tools/codex-companion/verify/                ← 6 個（assessor_retry / scorer / heuristics / handoff_review / artifact_sampling / prompt_input_integrity；另有 smoke_plan_review.py 手動冒煙不被收集）
 tools/auto-continue/verify/                  ← 1 個
 lib/verify/                                  ← 8 個（atom_io_equivalence contract / edit_metadata / atom_spec_depends_evidence / usefulness_access 等）
 ```
