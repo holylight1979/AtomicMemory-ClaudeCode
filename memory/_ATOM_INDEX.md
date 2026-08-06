@@ -81,3 +81,4 @@
 | pan-hermes不移植部件與vscode-text-block不落盤實測 | _AIDocs/_atoms/MemDev/pan-hermes不移植部件與vscode-text-block不落盤實測.md | PAN, 預告閘門, pre_action_notice, Hermes, 技轉, text_blocks, transcript 不落盤, 翻 deny, lenient_first_miss, continuation 豁免, 偵測率, PowerShell 納管 | global |
 | feedback-收尾報告使用者視角四要素-白話綜觀非片段細節 | _AIDocs/Failures/feedback-收尾報告使用者視角四要素-白話綜觀非片段細節.md | 收尾報告, 完成報告, 總結, 回報, 使用者看不懂, 白話, 可讀性, 最終訊息, Chat 回應, TLDR, 報告格式 | global |
 | 專案工作驗收裁判的分級啟動與殺閘設計 | _AIDocs/_atoms/MemDev/專案工作驗收裁判的分級啟動與殺閘設計.md | 驗收裁判, acceptance_review, 驗收規格, enforce 閘, 殺閘, 回測, AI 驗證 AI, regression hint, 驗收清單 | global |
+| guardian-警告訊息辨識度-emoji-前綴分流 | _AIDocs/_atoms/MemDev/guardian-警告訊息辨識度-emoji-前綴分流.md | 警告辨識度, systemMessage, emoji 前綴, ⛔, ⚠️, Guardian 警告, CoordWarn, PreActionNotice, 警告樣式, 字體放大 | global |

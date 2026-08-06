@@ -1360,6 +1360,23 @@
         "驗收清單"
       ],
       "scope": "global"
+    },
+    {
+      "name": "guardian-警告訊息辨識度-emoji-前綴分流",
+      "path": "_AIDocs/_atoms/MemDev/guardian-警告訊息辨識度-emoji-前綴分流.md",
+      "triggers": [
+        "警告辨識度",
+        "systemMessage",
+        "emoji 前綴",
+        "⛔",
+        "⚠️",
+        "Guardian 警告",
+        "CoordWarn",
+        "PreActionNotice",
+        "警告樣式",
+        "字體放大"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -242,7 +242,7 @@ def check_cross_session_conflict(
 
 def format_conflict_warning(hit: Dict[str, Any]) -> str:
     return (
-        f"[Guardian:CoordWarn] 另一個活躍 session（{hit['peer_sid8']}）也改過此檔："
+        f"⚠️ [Guardian:CoordWarn] 另一個活躍 session（{hit['peer_sid8']}）也改過此檔："
         f"{hit['path']}（最近 {hit['peer_at']}，共 {hit['peer_count']} 次）。"
         "共用工作樹下後寫覆蓋前寫、無自動合併——請先確認不互踩（必要時與使用者確認分工），"
         "收尾 staging 只揀自己的檔、勿 git add -A。"
@@ -251,7 +251,7 @@ def format_conflict_warning(hit: Dict[str, Any]) -> str:
 
 def format_late_collision(hit: Dict[str, Any]) -> str:
     return (
-        f"[Guardian:CoordWarn] 寫後偵測：session {hit['peer_sid8']} 於 60 秒內"
+        f"⚠️ [Guardian:CoordWarn] 寫後偵測：session {hit['peer_sid8']} 於 60 秒內"
         f"也寫過 {hit['path']}（{hit['peer_at']}）。兩邊幾乎同時首寫、寫前互看不見，"
         "請檢查是否覆蓋了對方的內容。"
     )
@@ -328,7 +328,7 @@ def check_bash_git_finalize(
             return None
         coord_log(session_id, "bash_finalize_warn", peers=peers, cwd=cwd)
         return (
-            f"[Guardian:CoordWarn] 偵測到全域型 git 收尾指令，且同一工作樹有其他活躍 "
+            f"⚠️ [Guardian:CoordWarn] 偵測到全域型 git 收尾指令，且同一工作樹有其他活躍 "
             f"session 留有改動紀錄：{'、'.join(peers)}（對方可能已提交、也可能還沒——"
             "state 不追 VCS 狀態，先 git status 查證）。"
             "git add -A / reset --hard 會掃走或沖掉他人未提交的修改——"

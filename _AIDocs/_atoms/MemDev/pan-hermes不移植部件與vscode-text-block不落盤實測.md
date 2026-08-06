@@ -4,10 +4,10 @@
 - Author: holylight
 - Confidence: [臨]
 - Trigger: PAN, 預告閘門, pre_action_notice, Hermes, 技轉, text_blocks, transcript 不落盤, 翻 deny, lenient_first_miss, continuation 豁免, 偵測率, PowerShell 納管
-- Status: warn 軟著陸中，翻 deny 待正樣本
+- Status: 終局裁決＝不翻 deny，永久 warn；待使用者裁決替代資料源
 - Created-at: 2026-08-06
 
-- Related: workflow-rules, 跨session資訊失真機制與對策
+- Related: workflow-rules, 跨session資訊失真機制與對策, guardian-警告訊息辨識度-emoji-前綴分流
 
 ## 知識
 

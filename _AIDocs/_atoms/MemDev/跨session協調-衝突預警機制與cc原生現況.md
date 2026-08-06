@@ -6,7 +6,7 @@
 - Trigger: 跨 session 溝通, session 協調, 衝突預警, CoordWarn, wg_coordination, session_message, 收件匣, coordination, 多 session 併行, session 互踩, add -A 預警, late-collision, Agent Teams
 - Status: Stage 0+1 已上線；Stage 2/3 defer 待數據
 - Created-at: 2026-07-31
-- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 跨session資訊失真機制與對策, guardian-dashboard-孤兒佔埠與新碼重啟
+- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 跨session資訊失真機制與對策, guardian-dashboard-孤兒佔埠與新碼重啟, guardian-警告訊息辨識度-emoji-前綴分流
 
 ## 知識
 

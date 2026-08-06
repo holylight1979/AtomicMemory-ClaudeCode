@@ -175,6 +175,19 @@ def test_late_collision_bypasses_cache(tmp_path, monkeypatch):
                                            use_cache=False) is not None    # 不受抑制
 
 
+def test_warning_texts_carry_alert_emoji_prefix(tmp_path, monkeypatch):
+    """三處預警文字開頭固定 ⚠️——systemMessage 樣式不可控（字級顏色無 API），
+    辨識度只能靠內容；⚠️ 與 PAN 閘門的 ⛔ 分流，一眼區分警告類型。"""
+    _patch_dirs(tmp_path, monkeypatch)
+    t = str(tmp_path / "emoji.py")
+    _mk_state(tmp_path, "peer-7777-ffff", [(t, _iso(-3))], cwd="C:/w")
+    hit = wc.check_cross_session_conflict(SELF, t, CFG)
+    assert wc.format_conflict_warning(hit).startswith("⚠️ ")
+    assert wc.format_late_collision(hit).startswith("⚠️ ")
+    assert wc.check_bash_git_finalize(
+        SELF, "git add -A", "C:/w", CFG).startswith("⚠️ ")
+
+
 # ─── Bash 收尾指令 ──────────────────────────────────────────────────────────
 
 
