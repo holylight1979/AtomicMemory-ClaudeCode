@@ -49,6 +49,7 @@ workflow/aec-decision/
 workflow/ups-sentinel/
 workflow/pan-pass/
 workflow/pan-deny/
+workflow/acceptance-spec/
 workflow/outcome_stats.jsonl
 workflow/outcome-unknown-advisory.json
 workflow/health-reports/

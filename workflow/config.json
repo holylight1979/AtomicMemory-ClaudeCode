@@ -275,6 +275,12 @@
     "scan_mtime_window_s": 1800,
     "max_scan_files": 20
   },
+  "acceptance_spec": {
+    "_doc": "驗收規格工件 hook（hooks/acceptance_spec.py，standalone PostToolUse）。分級啟動：ExitPlanMode（plan 獲同意）→ 注入指示落 <專案根>/.claude/verify/acceptance-<slug>.md（frontmatter 綁定 + 必須發生/禁止發生/驗證指令三段）；無 plan 但同 session 修改 ≥min_files_trigger 檔 → 一次性建議。小任務零打擾。advisory-only 不阻斷；sidecar workflow/acceptance-spec/<sid>.json 保證每 session 每型至多提醒一次。count_exclude_substrings=計檔數時排除的路徑片段（記憶/暫存寫入不算任務檔）。一鍵關=enabled:false。",
+    "enabled": true,
+    "min_files_trigger": 3,
+    "count_exclude_substrings": ["/memory/", "/_staging/", "/workflow/", "/Logs/", "/Temp/claude/", "/plans/"]
+  },
   "guard": {
     "cross_realm_write": {
       "_doc": "外部專案 session（cwd∉~/.claude）寫入核心層 ~/.claude/{skills,tools,hooks,lib,rules}/ → PreToolUse deny。核心開發 session 不受影響。allowlist 為路徑子字串白名單。",
