@@ -129,8 +129,9 @@ def _check_feedback_routing_advisory(
 
 
 # ─── Pre-Action Notice Gate（PAN，Hermes 技轉）────────────────────────────
-# 每使用者回合首次「會動手」工具（Write/Edit/NotebookEdit/非唯讀 Bash）呼叫前，
-# 檢查本 turn 是否已有可見預告（「執行目標」+「預估/概估」+ 實質內容）。
+# 每使用者回合首次「會動手」工具（Write/Edit/NotebookEdit/非唯讀 Bash/
+# 非唯讀 PowerShell）呼叫前，檢查本 turn 是否已有可見預告（「執行目標」+
+# 「預估/概估」+ 實質內容）。
 # mode: observe=只落 guard log / warn=systemMessage 提醒 / deny=攔 + 補救模板
 #（每回合上限 max_denies_per_turn，超過強制放行 + log；lenient_first_miss=true
 # 時 deny 模式首 miss 降 warn，第 2 次起才 deny——同回合快路徑偵測不可靠的緩衝，
@@ -142,7 +143,7 @@ def _check_feedback_routing_advisory(
 # 全程 fail-open；觸發事件落 Logs/guard-pre-action-notice.jsonl。
 
 _PAN_GUARD = "pre-action-notice"
-_PAN_GATED_TOOLS = ("Write", "Edit", "NotebookEdit", "Bash")
+_PAN_GATED_TOOLS = ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell")
 _PAN_GOAL_LABEL = "執行目標"
 _PAN_TIME_LABELS = ("預估", "概估")
 # 實質內容判定的剝除字元集：空白（含全形）、標點、裝飾、括號。
@@ -233,11 +234,13 @@ def pan_validate_notice(visible_text: str) -> Tuple[bool, str]:
 
 
 def pan_is_readonly_bash(command: str, pan_cfg: Dict[str, Any]) -> bool:
-    """Bash 唯讀判定（全過才唯讀；解析失敗保守回 False=gated）。
+    """Bash/PowerShell 共用唯讀判定（全過才唯讀；解析失敗保守回 False=gated）。
 
-    ① heredoc → gated；② redirect 目標非 null device → gated；
+    ① heredoc → gated；② redirect 目標非 null device（含 `$null`）→ gated；
     ③ &&/||/;/| 切段，每段首綴須命中白名單（cd 為透明段例外）；
     ④ find 段含 -delete/-exec → gated。
+    PowerShell 語法差異在保守側自然收斂：cmdlet 靠白名單前綴（小寫比對），
+    here-string/呼叫運算子 `&`/變數賦值段都不會命中白名單 → gated。
     """
     try:
         cmd = (command or "").strip()
@@ -276,7 +279,7 @@ def pan_is_gated(
     """本次工具呼叫是否受 PAN 閘門管轄（唯讀 Bash / 豁免路徑不管）。"""
     if tool_name not in _PAN_GATED_TOOLS:
         return False
-    if tool_name == "Bash":
+    if tool_name in ("Bash", "PowerShell"):
         return not pan_is_readonly_bash(tool_input.get("command", "") or "", pan_cfg)
     fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "") or ""
     if fp:

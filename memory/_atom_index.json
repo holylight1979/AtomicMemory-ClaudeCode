@@ -1322,7 +1322,8 @@
         "翻 deny",
         "lenient_first_miss",
         "continuation 豁免",
-        "偵測率"
+        "偵測率",
+        "PowerShell 納管"
       ],
       "scope": "global"
     },

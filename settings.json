@@ -91,7 +91,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|Bash|Agent|Task",
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task",
         "hooks": [
           {
             "type": "command",

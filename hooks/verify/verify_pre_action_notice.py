@@ -34,8 +34,9 @@ def _pan_cfg(mode: str = "observe", **overrides):
         "max_turn_text_chars": 12000,
         "exempt_path_substrings": ["/plans/", "/_staging/"],
         "bash_readonly_prefixes": [
-            "git status", "git log", "git diff", "ls", "cat", "head", "rg",
-            "pytest", "python -m pytest", "python run_verify.py",
+            "git status", "git log", "git diff", "git ls-remote", "ls", "cat",
+            "head", "rg", "pytest", "python -m pytest", "python run_verify.py",
+            "get-childitem", "get-content", "select-object", "test-path",
         ],
     }
     cfg.update(overrides)
@@ -214,6 +215,30 @@ PAN_CFG = _pan_cfg()["guard"]["pre_action_notice"]
 def test_bash_readonly_table(cmd, readonly):
     """白名單前綴 + redirect/heredoc/複合段保守判定。"""
     assert ptu.pan_is_readonly_bash(cmd, PAN_CFG) is readonly
+
+
+@pytest.mark.parametrize("cmd, readonly", [
+    ("Get-Content x.log -Tail 5", True),
+    ("Get-Content x.log | Select-Object -First 3", True),
+    ("git ls-remote origin main", True),
+    ("Test-Path C:/x && Get-ChildItem C:/x", True),
+    ("Remove-Item build -Recurse -Force", False),
+    ("Get-Content a.txt > b.txt", False),
+    ("New-Item -ItemType File x.txt", False),
+    ("$env:X = 'y'; Get-Content a.txt", False),
+    ("git commit -m @'\nmsg\n'@", False),
+])
+def test_powershell_readonly_table(cmd, readonly):
+    """PowerShell 共用 Bash 白名單分類器：cmdlet 前綴小寫比對、redirect/
+    賦值段/here-string commit 保守 gated。"""
+    assert ptu.pan_is_readonly_bash(cmd, PAN_CFG) is readonly
+
+
+def test_powershell_gated_scope():
+    """PowerShell 納入 gated 名單：非唯讀指令 gate、唯讀指令不 gate。"""
+    assert ptu.pan_is_gated("PowerShell", {"command": "Remove-Item x"}, PAN_CFG)
+    assert not ptu.pan_is_gated(
+        "PowerShell", {"command": "Get-ChildItem C:/proj"}, PAN_CFG)
 
 
 def test_gated_scope():
