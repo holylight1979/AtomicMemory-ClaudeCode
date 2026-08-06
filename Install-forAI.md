@@ -156,6 +156,15 @@ rsync -a "$SRC/_AIDocs/" "$DST/_AIDocs/"
 > `workflow-guardian.py` 為 1 行 shim → `dispatcher.main()`，handler 在 `hooks/handlers/{event}.py`。
 > Python 指令：若 user 系統是 `python3` 而非 `python`，全部改 `python3`。
 
+**⚠ 直譯器路徑（必做檢查）**：repo 內的 `settings.json` 帶的是**原作者機器的絕對路徑**（Windows 用 `pythonw.exe` 讓 hook 不閃 console 視窗）。若直接沿用該檔而非依上面模板合併，安裝後 14+ 處 hook 會一起起不來。校正指令：
+
+```bash
+python tools/fix-hook-python.py            # 只檢查：列出每處直譯器與是否存在
+python tools/fix-hook-python.py --write    # 用「跑這行的這支 python」改寫（備份 settings.json.bak）
+```
+
+不要自作主張把路徑改成裸 `python`——PATH 上的 `python` 未必是預期那支（實例：某機 PATH 首位是某 venv 的 3.11，而 hook 原本跑 3.14）。工具會實跑候選直譯器驗版本、`pythonw` 維持 w 版、已正確則零改動。hook 全部只用標準函式庫，CPython 3.9+ 皆可。
+
 ### Step 4：npm 全域套件 + `~/.claude.json` MCP 合併
 
 ```bash
@@ -283,6 +292,8 @@ cd ~/.claude && git pull
 - [ ] `memory/_meta/forbidden-phrases.json` 存在
 - [ ] `workflow/config.json` 含 `vector_search.global_layer="bm25"` + `bm25_min_score=3.5`（P2 已拔 `codex_companion.subprocess_timeout` 死鍵）
 - [ ] `tools/workflow-guardian-mcp/server.js` 暴露 4 tool（atom_write/move/promote/edit_meta；非 V4 的 7 tool）
+- [ ] `python tools/fix-hook-python.py` 全數 `[OK ]`（沿用 repo settings.json 者需先 `--write` 校正直譯器路徑）
+- [ ] 無 codex CLI 的環境：確認 `claude` 可被找到（備援裁判走 headless `claude -p`）；兩者皆無時 SessionStart 會揭露一次，驗收裁判與計畫審查不運作
 
 > 多職務團隊：專案執行 `/init-roles` 建立 `memory/shared/_roles.md` + `role/{name}/` 目錄。
 > ⚠ **P8a 2026-07-01**：參考部署為單人環境，`/init-roles`·`/conflict-review` skill 已降 dormant → `skills/_archived/`（`tools/init-roles.py`·`tools/conflict-review.py` 仍在）；要 onboard 團隊時從 `_archived/` 復原 skill 即可。
