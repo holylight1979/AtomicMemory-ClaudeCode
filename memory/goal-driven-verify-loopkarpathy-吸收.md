@@ -5,7 +5,7 @@
 - Confidence: [固]
 - Trigger: 成功標準, 驗收, verify loop, goal-driven
 - Created-at: 2026-06-12
-- Related: feedback-workflow-discipline, workflow-icld, decisions, handoff-綜觀品質與抗失真寫法, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值
+- Related: feedback-workflow-discipline, workflow-icld, decisions, handoff-綜觀品質與抗失真寫法, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值, 專案工作驗收裁判的分級啟動與殺閘設計
 
 ## 知識
 

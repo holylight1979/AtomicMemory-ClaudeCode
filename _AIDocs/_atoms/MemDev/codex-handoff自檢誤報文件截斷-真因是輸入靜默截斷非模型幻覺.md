@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: codex 誤報, handoff 自檢, 文件截斷, 誤報截斷, 審查者輸入, 6000字, _read_handoff_content, 頭尾採樣, codex companion 截斷
 - Created-at: 2026-08-05
-- Related: 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證, feedback-tooling-reliability, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長
+- Related: 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證, feedback-tooling-reliability, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 專案工作驗收裁判的分級啟動與殺閘設計
 
 ## 知識
 
