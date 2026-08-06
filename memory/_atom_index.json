@@ -1344,6 +1344,22 @@
         "報告格式"
       ],
       "scope": "global"
+    },
+    {
+      "name": "專案工作驗收裁判的分級啟動與殺閘設計",
+      "path": "_AIDocs/_atoms/MemDev/專案工作驗收裁判的分級啟動與殺閘設計.md",
+      "triggers": [
+        "驗收裁判",
+        "acceptance_review",
+        "驗收規格",
+        "enforce 閘",
+        "殺閘",
+        "回測",
+        "AI 驗證 AI",
+        "regression hint",
+        "驗收清單"
+      ],
+      "scope": "global"
     }
   ]
 }
