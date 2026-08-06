@@ -1,7 +1,8 @@
-"""assessor.py — Codex assessment runner.
+"""assessor.py — 裁判執行器（Codex 為主、claude headless 為備援）。
 
-Builds review prompts from accumulated events, invokes `codex exec`,
-parses structured JSON output.
+Builds review prompts from accumulated events, invokes the judge backend
+(`codex exec`；缺席或未開通授權時退 `claude -p`)，parses structured JSON output.
+後端選擇規則集中在 judge_backend.py，本檔不自行判斷可用性。
 
 Sandbox: 不傳 -s 旗標，沿用 ~/.codex/config.toml 預設（通常 danger-full-access）。
 Windows 上 -s read-only 會踩 CreateProcessWithLogonW 1385 spawn 失敗導致 stdout 為空。
@@ -24,6 +25,7 @@ SERVICE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SERVICE_DIR))
 
 import artifact_io
+import judge_backend
 import prompts
 
 # artifact 採樣預算：主審對象（plan_review 的計畫檔）給大預算；
@@ -214,7 +216,7 @@ def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str,
     stderr 回傳給上層做 sandbox 失敗識別。
     無論成功失敗都把 stderr（含 timeout/spawn 錯誤的合成訊息）一併送出。
     """
-    codex_bin = config.get("codex_binary", "codex")
+    codex_bin = judge_backend.resolve_codex_bin(config) or config.get("codex_binary", "codex")
     model = config.get("model", "")
     timeout = config.get("assessment_timeout", 60)
 
@@ -308,6 +310,42 @@ def _run_codex_with_retry(
     final_stdout = stdout2 or stdout1
     combined_stderr = "\n".join(s for s in (stderr1, stderr2) if s)
     return final_stdout, combined_stderr, 2
+
+
+def _run_judge(
+    prompt_text: str, cwd: str, config: Dict[str, Any],
+    timeout: Optional[int] = None,
+) -> tuple[str, str, int, str]:
+    """跑裁判，回 (raw_stdout, stderr, attempts, backend)。
+
+    codex 成功 → 清除抑制標記。codex 因**授權/額度**失敗（≠ 逾時或輸出解析
+    失敗）→ 落抑制標記並當場改用 claude 備援，本輪就有判定，不必等下一輪。
+    """
+    backend, binary = judge_backend.select_backend(config)
+
+    if backend == judge_backend.BACKEND_CLAUDE:
+        raw, stderr = judge_backend.run_claude_judge(
+            prompt_text, cwd, config, binary, timeout=timeout)
+        return raw, stderr, 1, backend
+
+    if backend == judge_backend.BACKEND_NONE:
+        return "", "[assessor] 無可用裁判後端（codex 與 claude 皆不可用）", 0, backend
+
+    raw, stderr, attempts = _run_codex_with_retry(prompt_text, cwd, config)
+    if raw and _try_parse_json(raw) is not None:
+        judge_backend.clear_codex_unavailable()
+        return raw, stderr, attempts, backend
+
+    if judge_backend.is_entitlement_failure(stderr):
+        judge_backend.mark_codex_unavailable(stderr)
+        if judge_backend.fallback_enabled(config):
+            claude_bin = judge_backend.resolve_claude_bin(config)
+            if claude_bin:
+                fb_raw, fb_err = judge_backend.run_claude_judge(
+                    prompt_text, cwd, config, claude_bin, timeout=timeout)
+                combined = "\n".join(s for s in (stderr, fb_err) if s)
+                return fb_raw, combined, attempts + 1, judge_backend.BACKEND_CLAUDE
+    return raw, stderr, attempts, backend
 
 
 def _classify_failure(stderr: str) -> Dict[str, Any]:
@@ -726,8 +764,8 @@ def run_assessment(
 
     _log(f"Prompt built for {assessment_type} (t{turn_index}): {len(prompt)} chars")
 
-    # retry 1 次 + sandbox 失敗識別
-    raw, stderr_combined, attempts = _run_codex_with_retry(prompt, cwd, config)
+    # 後端選擇 + retry 1 次 + sandbox/授權失敗識別（規則在 judge_backend）
+    raw, stderr_combined, attempts, backend = _run_judge(prompt, cwd, config)
     parsed = _try_parse_json(raw) if raw else None
 
     if assessment_type == "acceptance_review":
@@ -757,5 +795,12 @@ def run_assessment(
     result["_prompt_chars"] = len(prompt)
     result["_session_id"] = session_id
     result["_attempts"] = attempts
+    # 誰做的判定 — 決定 block 權（備援預設只有 advisory 權）且必須落審計軌
+    result["_judge_backend"] = backend
+    result["_judge_model"] = (
+        str(judge_backend.fallback_cfg(config).get("model") or "sonnet")
+        if backend == judge_backend.BACKEND_CLAUDE
+        else str(config.get("model", ""))
+    )
 
     return result

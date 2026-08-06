@@ -23,6 +23,7 @@ standalone 仿 version_guard.py；never-crash 降級靜默。
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -235,6 +236,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
 
 def main() -> None:
+    # 備援裁判子 session（headless claude judge）內不跑任何提示
+    if os.environ.get("CLAUDE_COMPANION_JUDGE"):
+        sys.exit(0)
+
     if sys.platform == "win32":
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):

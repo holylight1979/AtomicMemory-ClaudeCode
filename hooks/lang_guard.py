@@ -16,6 +16,7 @@ Fast path: config disabled → exit(0)。stateless（無 flag，每輪自我校�
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -195,6 +196,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
 
 def main() -> None:
+    # 備援裁判子 session（headless claude judge）內不做語言檢查
+    if os.environ.get("CLAUDE_COMPANION_JUDGE"):
+        sys.exit(0)
+
     # Force UTF-8 on Windows
     if sys.platform == "win32":
         for stream in (sys.stdout, sys.stderr):

@@ -145,7 +145,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── DocIndex-System.md / known-regressions.md / Project_File_Tree.md
 │
 ├── hooks/verify/ tools/verify/ lib/verify/         ← 93 個 verify_*.py（H-test-prune 後 verify 化）
-│   tools/codex-companion/verify/ auto-continue/verify/ ← 跑 `python run_verify.py`（1092 passed）
+│   tools/codex-companion/verify/ auto-continue/verify/ ← 跑 `python run_verify.py`（1341 passed）
 ├── skills/{name}/verify/                           ← 17 個空結構（候選見 _staging/next-phase-skills-verify.md）
 │
 └── {project_root}/.claude/                         ← 專案自治層（每專案獨立）
@@ -400,6 +400,7 @@ IDENTITY「自主行為契約 §2 動手前預告」的程式化保險絲——�
 - **轉正依據（回測代替影子等待）**：`tools/codex-companion/backtest_acceptance.py` 20 案 × 2 輪真 codex（A 完好回放 10 / B 種缺陷 7 / C 截斷紀律 3，真值由構造保證）：C 紀律 6/6、B 抓取 5/7、**precision 83%、severity=high 級 4/4 全真命中零誤擋** → 據此拍板只擋 high。實彈首 3 筆：1 uncertain（安全出口）+ 2 fail 皆真命中（precision 2/2、零誤擋）。教訓：回測 3 誤報中 2 例是回測 harness 構造錯——**評估裁判前先驗評估工具本身**。
 - **殺閘誠實寫死在程式**（`promotion_stats()`）：fail 標註 ≥10 筆且 precision<50% → 收掉不轉正，防「感覺有用」續命；轉正門檻同樣程式化（N≥20 ∧ precision≥60% ∧ uncertain≤30%）。
 - **配額分桶**（`audit_quota`，INV-BUDGET-ISOLATION）：acceptance 上限 8 / 保底 6，與其他四類審計互不餓死。
+- **裁判後端鏈**（[tools/codex-companion/judge_backend.py](tools/codex-companion/judge_backend.py)，規則唯一來源）：codex（跨廠 → 獨立性滿血，**有** block 權）→ headless `claude -p --model sonnet`（同廠不同模型 → 盲點相關，預設**只有** advisory 權，`fallback.allow_block` 才升硬閘）→ 皆不可用退 heuristics-only 並於 SessionStart 揭露一次。codex binary 解析為「config 路徑 → PATH → 裸 codex」三段，寫死路徑在別台機器不存在不等於關閉功能；授權/額度類失敗（未登入 / 401 / 429）當輪即切備援並落 `workflow/companion-backend.json` 抑制標記，`reprobe_hours` 內不重試、codex 一次成功即清除。備援子 session 帶 env `CLAUDE_COMPANION_JUDGE=1`，五支自家 python hook 見之全數早退（防裁判觸發裁判的遞迴與狀態汙染），工具面只留唯讀。判定來源 `judge_backend`/`model` 寫入 acceptance-audit.jsonl。
 - **證據管道優先於裁判加碼**（INV-EVIDENCE-PIPE-HONESTY）：歷次誤報根因幾乎全在輸入端（靜默截斷/範本誤觸發/採樣太瘦）——一切截斷必 in-band 標記；確定性驗證歸程式判，裁判只收語意題（範圍完整性、宣稱-證據一致性）。裁判永不授權副作用（只驗結果），高風險操作照走人工核准。
 - 設計知識 atom：`專案工作驗收裁判的分級啟動與殺閘設計`。
 

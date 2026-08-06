@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -662,6 +661,18 @@ def _maybe_spawn_acceptance_review(
 _SEV_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
+def _judge_may_block(result: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """本次判定有沒有擋收尾的權力。
+
+    codex（跨廠獨立）恆有；claude 備援（同廠同家族、盲點相關）預設沒有，
+    需 config `fallback.allow_block=true` 明示授權。
+    """
+    import judge_backend
+    if result.get("_judge_backend") == judge_backend.BACKEND_CLAUDE:
+        return judge_backend.fallback_can_block(config)
+    return True
+
+
 def _enforce_acceptance_gate(
     session_id: str, turn_index: int, cwd: str, config: Dict[str, Any],
     merged_state: Dict[str, Any], last_assistant_tail: str,
@@ -756,7 +767,9 @@ def _enforce_acceptance_gate(
     problems = result.get("problems") or []
     acceptance.append_audit({
         "session_id": session_id, "turn_index": turn_index, "cwd": cwd,
-        "model": config.get("model", ""), "spec_path": spec_path,
+        "model": result.get("_judge_model", "") or config.get("model", ""),
+        "judge_backend": result.get("_judge_backend", ""),
+        "spec_path": spec_path,
         "task_slug": info.get("task_slug", ""), "binding": "bound",
         "trigger": "stop_enforce",
         "verdict": result.get("verdict", ""), "score": result.get("score", -1),
@@ -788,6 +801,17 @@ def _enforce_acceptance_gate(
     sev = _SEV_RANK.get(str(result.get("severity", "low")).lower(), 0)
     if verdict != "fail" or sev < threshold:
         return  # pass / uncertain / 低嚴重度 fail → 放行，advisory 照既有管道
+
+    # 備援裁判（同廠同家族，盲點相關）預設只有 advisory 權：judgment 照落盤與
+    # 次輪注入，但不擋收尾。要升級成硬閘＝config fallback.allow_block=true。
+    if not _judge_may_block(result, config):
+        try:
+            companion_state.increment_metric(session_id, "acceptance_fallback_advisory")
+        except Exception as e:
+            _log_err("codex:metric_fallback_advisory", e)
+        _log_err("codex:acceptance_fallback_no_block", RuntimeError(
+            "備援裁判判定 fail，但備援無 block 權（fallback.allow_block=false）→ 放行並注入 advisory"))
+        return
 
     new_count = companion_state.increment_spec_blocks(session_id, spec_path)
     try:
@@ -1111,6 +1135,30 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]):
     _output_nothing()
 
 
+def _disclose_no_judge_once(config: Dict[str, Any], judge_backend) -> None:
+    """無可用裁判後端時，每台機器揭露一次（SessionStart additionalContext）。
+
+    靜默關掉 = 使用者以為驗收裁判在跑、其實沒有。揭露後標記，不重複打擾；
+    使用者裝好 codex 或 claude 後標記自然失效（後端可用就不會走到這裡）。
+    """
+    state = judge_backend.read_backend_state()
+    if state.get("no_judge_disclosed"):
+        return
+    state["no_judge_disclosed"] = True
+    try:
+        judge_backend._write_backend_state(state)
+    except Exception as e:
+        _log_err("codex:disclose_state", e)
+    _output_context(
+        "SessionStart",
+        "[Codex Companion] 已停用：" + judge_backend.describe_unavailable(config)
+        + "。影響：驗收裁判（AI 審查 AI）、計畫審查、handoff 自檢不會運作；"
+        "本地 heuristics 軟閘與其餘 guardian 機制正常。"
+        "要啟用請安裝 codex CLI 或確保 claude CLI 可被找到（備援裁判）。"
+        "此訊息每台機器只出現一次。",
+    )
+
+
 # ─── Main dispatcher ─────────────────────────────────────────────────────────
 
 HANDLERS = {
@@ -1134,9 +1182,10 @@ def main():
     if not config.get("enabled", False):
         sys.exit(0)
 
-    # 沒裝 codex CLI 的環境直接退出，避免每輪 spawn 失敗後落盤 assessment 檔與 log
-    codex_bin = config.get("codex_binary", "codex")
-    if not (os.path.isfile(codex_bin) or shutil.which(codex_bin)):
+    import judge_backend
+
+    # 備援裁判子 session（claude -p）內不得再跑 companion — 否則裁判觸發裁判（遞迴）
+    if os.environ.get(judge_backend.JUDGE_ENV):
         sys.exit(0)
 
     # Read stdin
@@ -1147,6 +1196,14 @@ def main():
         sys.exit(0)
 
     event = input_data.get("hook_event_name", "")
+
+    # 無任何可用裁判後端（沒 codex、也沒 claude 可備援）→ 退回 heuristics-only。
+    # 可觀測性鐵律：不得無聲降級，每台機器揭露一次。
+    backend, _binary = judge_backend.select_backend(config)
+    if not backend:
+        if event == "SessionStart":
+            _disclose_no_judge_once(config, judge_backend)
+        sys.exit(0)
     handler = HANDLERS.get(event)
     if handler is None:
         sys.exit(0)

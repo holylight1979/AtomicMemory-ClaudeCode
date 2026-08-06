@@ -9,6 +9,7 @@ V5 設計：純路由 + main entry，無業務邏輯。所有 handler 在 handle
 
 import importlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -38,6 +39,11 @@ HANDLERS = {
 
 
 def main():
+    # 備援裁判子 session（judge_backend.run_claude_judge 起的 headless claude）內
+    # 一律早退：那是隻唯讀的裁判，不該累積 state、注入記憶或被自家收尾閘擋住。
+    if os.environ.get("CLAUDE_COMPANION_JUDGE"):
+        sys.exit(0)
+
     # Force UTF-8 output on Windows
     if sys.platform == "win32":
         sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False)

@@ -70,6 +70,7 @@ policy-limits.json
 workflow/companion-state-*.json
 workflow/companion-assessment-*.json
 workflow/companion-metrics-*.json
+workflow/companion-backend.json
 workflow/companion.pid
 
 # ─── Runtime logs (atom-debug, hook output) ───────────────
