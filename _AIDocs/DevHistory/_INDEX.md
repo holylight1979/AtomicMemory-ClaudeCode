@@ -22,6 +22,7 @@
 | 15 | vector-threshold-calibration-2026-04.md | Wave 3b probe-burst 數據驅動的 ranked-sections min_score 校準（90 query x 6 threshold 矩陣 + 決策） | vector, threshold, calibration, ranked-sections, min_score, probe-burst, 議題 #6, REG-005 |
 | 16 | atom-injection-refactor-2026-04.md | REG-005 atom 注入機制重構收尾（A+B+C+D 4 層 + 觀察期 KEEP 判定 + 設計歸檔） | REG-005, atom, injection, summary-first, budget, hot-cold, related, 4-layer, KEEP, 觀察期 |
 | 17 | v4-archive/ | Wave 4 hooks/_v4_archive 19 檔對照證物（V4 hook 模組退役前最後一版） | v4-archive, hooks, 證物, V4 退役 |
+| 19 | pan-deny-judgement-2026-08-06.md | PAN 預告閘門 warn→deny 終局判讀（四門檻逐筆證據 + 漏偵決定性反證 + 判讀方法學踩坑） | PAN, 預告閘門, pre_action_notice, 翻 deny, 漏偵率, 假陰性, text_blocks, fail_open_no_transcript |
 | 18 | v5-overhaul-2026-05/ | V5 升版完整紀錄（起因 + 4-Wave + Wave 5 全面汰舊 + GA Checklist 驗收 + Session α/β feedback-aidocs 遷移）— 取代原 audit atom | V5, GA, 升版, overhaul, Wave, 全面汰舊, BM25, JSON SoT, Codex subprocess, 114GB, feedback-aidocs, atom_locations |
 | 19 | session-coordination-bus.md | 跨 session 衝突預警多大師計畫紀錄（CC 原生無跨 session 管道查證 + 七席共議仲裁 + PreToolUse additionalContext probe 實測 + Stage 2/3 defer 條件） | session 協調, 衝突預警, coordination, 多大師, CoordWarn, probe, Agent Teams, add -A |
 | 19 | auto-memory-writeback.md | 對談結束自動記憶 writeback 三 stage 開發脈絡（session_end flush 落點路由 + 失敗五區塊骨架 + Deep Post-Mortem Gate；含 edit-count proxy 拔除、獨立預算演化） | session_end flush, 失敗骨架, deep post-mortem, writeback, 落點路由, extract-worker, stop gate, edit-count proxy |
