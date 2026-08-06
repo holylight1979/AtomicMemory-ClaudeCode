@@ -325,7 +325,7 @@ def _pan_bump_counter(session_id: str, turn_seq: int) -> Optional[int]:
 
 def _pan_log_ok(session_id: str, turn_seq: int) -> bool:
     """log 節流：同 (sid, turn) 上限 3 筆（含 fail-open 路徑——外部專案 session
-    每呼叫落一筆會洗版，實測已見）。counter I/O 失敗 → 照記（可觀測性優先）。"""
+    每呼叫落一筆會洗版）。counter I/O 失敗 → 照記（可觀測性優先）。"""
     count = _pan_bump_counter(session_id or "unknown", turn_seq)
     return count is None or count <= 3
 

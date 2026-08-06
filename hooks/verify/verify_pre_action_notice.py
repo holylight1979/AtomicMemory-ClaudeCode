@@ -186,7 +186,7 @@ def test_visible_text_boundary_lost(tmp_path):
 
 def test_visible_text_overflow_keeps_head_and_tail(tmp_path):
     """超長 turn（如 plan mode 全程同 turn）超過 max_chars → 保留頭+尾各半，
-    動手前夕的預告不被頭部累積截掉（實測 20:42 誤報的根因）。"""
+    動手前夕的預告不被頭部累積截掉。"""
     tp = _transcript(tmp_path, [
         _user("修"), _asst_text("填" * 500), _asst_text(NOTICE),
     ])
@@ -301,7 +301,7 @@ def test_warn_mode_returns_warn_not_deny(gate_env, tmp_path):
 
 def test_fail_open_log_throttled(gate_env, tmp_path):
     """fail-open 路徑同 (sid, turn) log 上限 3 筆——外部專案 session 每呼叫
-    落一筆會洗版（實測已見 JARVIS session 連環 fail_open_no_transcript）。"""
+    落一筆會洗版。"""
     missing = tmp_path / "no-such-transcript.jsonl"
     for _ in range(5):
         assert ptu._check_pre_action_notice(
