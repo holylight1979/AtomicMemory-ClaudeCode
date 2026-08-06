@@ -178,7 +178,7 @@ _PAN_FAIL_DETAIL = {
 }
 
 _PAN_FALLBACK_DENY = (
-    "[Guardian:PreActionNotice] 本回合尚未輸出動手前預告（{fail_detail}），工具呼叫已暫擋。\n"
+    "⛔ [Guardian:PreActionNotice] 本回合尚未輸出動手前預告（{fail_detail}），工具呼叫已暫擋。\n"
     "請先以使用者可見的一般文字輸出「執行目標：<具體目標>；預估 <時間或工作量>」，"
     "再重新呼叫工具。（第 {n}/{max} 次提醒）"
 )

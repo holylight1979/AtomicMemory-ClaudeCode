@@ -346,6 +346,15 @@ def test_deny_uses_config_template_and_fallback(gate_env, tmp_path):
     assert d2 and "[Guardian:PreActionNotice]" in d2  # fallback
 
 
+def test_messages_carry_alert_emoji_prefix():
+    """警告/攔阻訊息開頭固定 ⛔——systemMessage 區塊樣式不可控（字級顏色無 API），
+    視覺辨識度只能靠訊息內容本身。實模板與 fallback 皆須帶。"""
+    real = json.loads(
+        (HOOKS_DIR.parent / "workflow" / "config.json").read_text(encoding="utf-8"))
+    assert real["guard"]["pre_action_notice"]["deny_template"].startswith("⛔ ")
+    assert ptu._PAN_FALLBACK_DENY.startswith("⛔ ")
+
+
 def test_lenient_first_miss_warns_then_denies(gate_env, tmp_path):
     """lenient_first_miss：deny 模式首 miss 降 warn（同回合快路徑偵測不可靠
     的緩衝，發現 3），第 2 次 deny，第 3 次 force-release。"""
