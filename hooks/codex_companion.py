@@ -659,6 +659,156 @@ def _maybe_spawn_acceptance_review(
     })
 
 
+_SEV_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def _enforce_acceptance_gate(
+    session_id: str, turn_index: int, cwd: str, config: Dict[str, Any],
+    merged_state: Dict[str, Any], last_assistant_tail: str,
+) -> None:
+    """Phase 3 轉正閘：Stop 時同步審驗收，fail 且 severity 達標才 block。
+
+    紅線（全部程式化）：
+      - 只有 bound（本 session 唯一 open 規格）才審；其餘 uncertain 記錄後放行。
+      - block 必經 map_acceptance_verdict（unbound/無證據 fail → uncertain 不 block）。
+      - 修訂上限＝top-level stop_gate_max_blocks（預設 2）；達上限不再審、
+        強制放行 + 揭露（advisory 次輪注入 + metric）。
+      - 裁判逾時/無效 → uncertain → 放行 + 揭露，不卡收尾。
+    無 block 需要時靜默返回（advisory 走既有 assessment 檔管道）。
+    """
+    import acceptance
+    import state as companion_state
+
+    info = acceptance.resolve_binding(session_id, cwd)
+    if info["binding"] != acceptance.BINDING_BOUND:
+        _record_unbound(session_id, turn_index, cwd, info, "stop_enforce")
+        return
+    spec_path = info["spec_path"]
+
+    # 修訂上限：第 3 次起不再審，強制放行＋揭露
+    try:
+        full_cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        full_cfg = {}
+    max_blocks = int(full_cfg.get("stop_gate_max_blocks", 2))
+    blocks_used = companion_state.get_spec_blocks(session_id, spec_path)
+    if blocks_used >= max_blocks:
+        try:
+            companion_state.increment_metric(session_id, "acceptance_forced_release")
+        except Exception as e:
+            _log_err("codex:metric_forced_release", e)
+        _log_err("codex:acceptance_force_release", RuntimeError(
+            f"spec {Path(spec_path).name} 已達 {max_blocks} 次修訂上限，強制放行"))
+        companion_state.write_assessment(session_id, turn_index, "acceptance_review", {
+            "status": "needs_followup", "severity": "high",
+            "category": "completion_risk", "delivery": "inject",
+            "confidence": "high", "applies_until": "next_prompt",
+            "turn_index": turn_index, "verdict": "fail",
+            "summary": f"驗收修訂已達 {max_blocks} 次上限，本次強制放行",
+            "evidence": f"規格檔：{spec_path}",
+            "corrective_prompt": (
+                "【強制放行揭露】此任務的驗收裁判連續未過且已達修訂上限。"
+                "請在下一則回覆向 user 誠實列出：哪些驗收條目未過、為什麼、"
+                "目前的實際狀態——不得宣稱全部完成。"
+            ),
+        })
+        return
+
+    # 配額與 per-spec 上限（與影子路共用計數）
+    st = companion_state.read_state(session_id) or {}
+    per_spec = (st.get("acceptance_reviews", {}) or {})
+    max_per_spec = int(config.get("acceptance_review", {}).get("max_per_spec", 2))
+    if int(per_spec.get(spec_path.replace("\\", "/"), 0)) >= max_per_spec:
+        return
+    max_audits = int(config.get("max_audits_per_session", 30))
+    if not _within_audit_cap(session_id, max_audits, config, "acceptance_review"):
+        try:
+            companion_state.increment_metric(session_id, "acceptance_quota_blocked")
+        except Exception as e:
+            _log_err("codex:metric_acceptance_quota", e)
+        return
+
+    # 同步審（在 hook 行程內；settings.json Stop timeout 已配合放寬）
+    companion_state.record_checkpoint(session_id, "acceptance_review", spec_path=spec_path)
+    try:
+        companion_state.increment_metric(session_id, "acceptance_reviews_spawned")
+    except Exception as e:
+        _log_err("codex:metric_acceptance_spawned", e)
+
+    import assessor
+    digest, diff_truncated = acceptance.collect_diff_digest(cwd)
+    enforce_cfg = dict(config)
+    enforce_cfg["assessment_timeout"] = int(
+        config.get("acceptance_review", {}).get("enforce_timeout", 60))
+    ctx = {
+        "spec_path": spec_path, "task_slug": info.get("task_slug", ""),
+        "binding": "bound", "binding_reason": "", "trigger": "stop_enforce",
+        "turn_index": turn_index,
+        "user_goal": st.get("user_goal", ""),
+        "last_assistant_tail": last_assistant_tail,
+        "diff_digest": digest,
+    }
+    result = assessor.run_assessment(
+        "acceptance_review", session_id, st.get("tool_trace", []), cwd, ctx, enforce_cfg)
+    result["_turn_index"] = turn_index
+
+    # 雙軌數據不中斷：enforce 判定照寫 jsonl + assessment 檔
+    problems = result.get("problems") or []
+    acceptance.append_audit({
+        "session_id": session_id, "turn_index": turn_index, "cwd": cwd,
+        "model": config.get("model", ""), "spec_path": spec_path,
+        "task_slug": info.get("task_slug", ""), "binding": "bound",
+        "trigger": "stop_enforce",
+        "verdict": result.get("verdict", ""), "score": result.get("score", -1),
+        "severity": result.get("severity", "low"),
+        "confidence": result.get("confidence", ""),
+        "summary": result.get("summary", ""),
+        "problems_count": len(problems), "problems": problems[:10],
+        "uncertain_reason": result.get("uncertain_reason", ""),
+        "prompt_chars": result.get("_prompt_chars", 0),
+        "diff_truncated": diff_truncated,
+        "codex_attempts": result.get("_attempts", 1),
+        "enforce_blocks_used": blocks_used,
+    })
+    companion_state.write_assessment(
+        session_id, turn_index, "acceptance_review", result)
+
+    verdict = str(result.get("verdict", "")).lower()
+    if verdict == "uncertain" and result.get("notify_next_turn"):
+        # 裁判失效（逾時/無效輸出）→ 放行 + 訊號（advisory 次輪注入）
+        try:
+            companion_state.increment_metric(session_id, "acceptance_judge_degraded")
+        except Exception as e:
+            _log_err("codex:metric_judge_degraded", e)
+        return
+
+    threshold = _SEV_RANK.get(str(
+        config.get("acceptance_review", {}).get("enforce_severity_threshold", "high")
+    ).lower(), 2)
+    sev = _SEV_RANK.get(str(result.get("severity", "low")).lower(), 0)
+    if verdict != "fail" or sev < threshold:
+        return  # pass / uncertain / 低嚴重度 fail → 放行，advisory 照既有管道
+
+    new_count = companion_state.increment_spec_blocks(session_id, spec_path)
+    try:
+        companion_state.increment_metric(session_id, "acceptance_enforce_blocks")
+    except Exception as e:
+        _log_err("codex:metric_enforce_blocks", e)
+    lines = [
+        f"[驗收裁判] 收尾被擋（第 {new_count}/{max_blocks} 次；"
+        f"第 {max_blocks + 1} 次將強制放行並要求向 user 誠實揭露未過項）。",
+        f"規格檔：{spec_path}",
+        f"判定：{result.get('summary', '')}",
+        "未達標條目（逐條證據）：",
+    ]
+    for p in problems[:5]:
+        lines.append(f"  - {p.get('criterion', '?')}｜事證：{p.get('evidence', '')}"
+                     f"｜{p.get('explanation', '')}")
+    lines.append(
+        "請按證據補做或修正後再收尾；若裁判誤判，請在回覆中說明依據並再次收尾。")
+    _output_block("\n".join(lines), session_id=session_id)
+
+
 def _spec_marked_done(tool_name: str, file_path: str, tool_input: Any) -> bool:
     """規格檔被改成 status: done — 「宣稱完成」的權威訊號（案卷最完整的時點）。
 
@@ -835,20 +985,28 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
             _log_err("codex:heuristics_gate", e)
             pass  # Heuristics failure → degrade gracefully
 
-    # ── acceptance_review（影子裁判）───────────────────────────────────────
-    # 完成宣稱 + 本 turn 真有改動 + 綁得到本 session 唯一 open 規格 → 組案卷。
-    # 全程 advisory：不 block、不改變任何既有收尾路徑。
+    # ── acceptance_review（enforce=同步閘；否則影子 async）─────────────────
+    # 觸發條件：完成宣稱 + 本 turn 真有改動 + 綁得到本 session 唯一 open 規格。
+    # enforce 開啟 → 同步審，fail+severity 達標才 block（其餘一律放行）；
+    # enforce 關閉 → 維持影子 async，全程 advisory。
     if _acceptance_enabled(config):
         try:
             import heuristics as _heur
             claimed = _heur._has_completion_claim(merged_state, last_assistant_tail)
             changed = _heur._has_state_change(merged_state)
             if claimed and changed:
-                _maybe_spawn_acceptance_review(
-                    session_id, turn_index_post,
-                    comp_state.get("cwd", "") or input_data.get("cwd", ""),
-                    config, "stop_claim",
-                )
+                cwd_eff = comp_state.get("cwd", "") or input_data.get("cwd", "")
+                if bool(config.get("acceptance_review", {}).get("enforce", False)):
+                    _enforce_acceptance_gate(
+                        session_id, turn_index_post, cwd_eff, config,
+                        merged_state, last_assistant_tail,
+                    )
+                else:
+                    _maybe_spawn_acceptance_review(
+                        session_id, turn_index_post, cwd_eff, config, "stop_claim",
+                    )
+        except SystemExit:
+            raise  # block 路徑的正常出口
         except Exception as e:
             _log_err("codex:acceptance_stop", e)
 

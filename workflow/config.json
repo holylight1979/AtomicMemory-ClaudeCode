@@ -219,10 +219,13 @@
       "acceptance_review_max": 8
     },
     "acceptance_review": {
-      "_doc": "Phase 2 影子驗收裁判：宣稱完成/規格檔標 done 時，組案卷（需求原話+驗收清單+diff 採樣+測試輸出）發 codex 回 verdict，只寫 workflow/acceptance-audit.jsonl + advisory，不 block 任何收尾。綁定契約：本 session 唯一 open 規格才審，否則記 uncertain（INV-CASE-BINDING-OR-UNCERTAIN）。max_per_spec=同一份規格檔每 session 重審上限；max_prompt_chars=案卷總預算。一鍵關=enabled:false。",
+      "_doc": "驗收裁判（Phase 3 已轉正）：宣稱完成且綁到本 session 唯一 open 規格 → 組案卷（需求原話+驗收清單+diff 採樣+測試輸出）發 codex 回 verdict。enforce=true 時於 Stop 同步審：fail 且 severity≥enforce_severity_threshold → block 收尾（沿用 top-level stop_gate_max_blocks=2，第 3 次強制放行+揭露）；pass/uncertain/低嚴重度→放行，advisory 照注。裁判逾時→uncertain 放行不卡收尾。規格檔標 done 觸發的審計維持 async 影子。全部判定寫 acceptance-audit.jsonl。綁定契約：唯一 open 規格才審，否則 uncertain 永不 block（INV-CASE-BINDING-OR-UNCERTAIN）。max_per_spec=同規格每 session 審計上限；enforce_timeout=同步審單次 codex 秒數上限。一鍵退影子=enforce:false；全關=enabled:false。",
       "enabled": true,
       "max_per_spec": 2,
-      "max_prompt_chars": 14000
+      "max_prompt_chars": 22000,
+      "enforce": true,
+      "enforce_severity_threshold": "high",
+      "enforce_timeout": 60
     }
   },
   "lang_guard": {

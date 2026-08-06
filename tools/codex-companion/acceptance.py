@@ -42,13 +42,16 @@ AUDIT_JSONL_MAX_BYTES = 2 * 1024 * 1024
 
 _TZ = timezone(timedelta(hours=8))
 
-# 案卷材料預算（Q3 拍板：材料合計 ≤12k 字，模板本體另計）
+# 案卷材料預算（Q3：回測第一輪實證後加碼——預算太瘦時裁判大量回
+# uncertain「核心實作未採樣」，加碼直接換判定信心；總量對應 config
+# acceptance_review.max_prompt_chars）
 SPEC_HEAD, SPEC_TAIL = 2400, 600
 GOAL_HEAD, GOAL_TAIL = 1200, 400
-DIFF_BUDGET_CHARS = 5000          # Q4：unified diff 逐檔採樣總預算
-DIFF_PER_FILE_HEAD = 1000
-DIFF_PER_FILE_TAIL = 300
-DIFF_STAT_MAX_CHARS = 2000
+DIFF_BUDGET_CHARS = 9000          # Q4：unified diff 逐檔採樣總預算
+DIFF_PER_FILE_HEAD = 2000
+DIFF_PER_FILE_TAIL = 600
+# stat 是「檔案不在清單＝沒做」反證推理的骨幹，寧大勿截
+DIFF_STAT_MAX_CHARS = 6000
 UNTRACKED_MAX_FILES = 3           # 新檔取檔頭的檔數上限
 UNTRACKED_HEAD_CHARS = 800
 EVIDENCE_MAX_ITEMS = 8
@@ -288,41 +291,40 @@ def _untracked_files(cwd: str) -> List[str]:
     return files
 
 
-def collect_diff_digest(cwd: str) -> Tuple[str, bool]:
-    """組案卷的變更摘要，回 (digest_text, truncated)。
+def build_diff_digest_from_text(
+    stat_text: str,
+    diff_text: str,
+    untracked_blocks: Optional[List[Tuple[str, str]]] = None,
+    force_skip_files: Optional[List[str]] = None,
+) -> Tuple[str, bool]:
+    """由現成 diff 文字組案卷變更摘要（採樣/標記規則的唯一來源）。
 
-    組成：
-      A. `git diff HEAD --stat` — 檔案清單求完整（超長才採樣並標記）
-      B. 逐檔 unified diff 頭尾採樣，累積至 DIFF_BUDGET_CHARS；
-         超預算的檔案不靜默丟掉，改列成「未採樣檔案清單」
-      C. untracked 新檔：前 N 檔取檔頭，其餘列清單（新檔在 diff HEAD 看不到，
-         漏掉會讓裁判把「新增了 X」誤判成沒做）
+    工作樹版 `collect_diff_digest` 與回測（歷史 commit 回放）共用本函式，
+    確保兩邊的採樣行為與 in-band 標記完全一致、不 drift。
+
+    force_skip_files：這些檔名即使預算足夠也強制列入「未採樣清單」
+    （回測 C 組用——驗證裁判對缺席內容守 uncertain 紀律）。
     """
-    if not cwd or not os.path.isdir(cwd):
-        return ("（無法取得工作目錄，本次案卷沒有變更內容可依據；"
-                "請以 uncertain 回報，勿臆測改了什麼）", True)
-
-    root = git_root(cwd) or cwd
     truncated = False
     parts: List[str] = []
+    force_skip = set(force_skip_files or [])
 
-    stat = _run_git(["diff", "HEAD", "--stat"], root).strip()
+    stat = (stat_text or "").strip()
     if stat:
         if len(stat) > DIFF_STAT_MAX_CHARS:
             stat = _sample(stat, DIFF_STAT_MAX_CHARS - 400, 400, "變更檔案清單")
             truncated = True
-        parts.append("### 變更檔案清單（git diff HEAD --stat）\n" + stat)
+        parts.append("### 變更檔案清單（git diff --stat）\n" + stat)
     else:
-        parts.append("### 變更檔案清單（git diff HEAD --stat）\n"
+        parts.append("### 變更檔案清單（git diff --stat）\n"
                      "（無已追蹤檔案變更；可能全部已 commit，或改動僅在新增未追蹤檔）")
 
-    raw_diff = _run_git(["diff", "HEAD"], root)
-    chunks = _split_diff_by_file(raw_diff)
+    chunks = _split_diff_by_file(diff_text or "")
     used = 0
     shown: List[str] = []
     skipped: List[str] = []
     for name, body in chunks:
-        if used >= DIFF_BUDGET_CHARS:
+        if used >= DIFF_BUDGET_CHARS or name in force_skip:
             skipped.append(name)
             continue
         sampled = _sample(body, DIFF_PER_FILE_HEAD, DIFF_PER_FILE_TAIL, f"{name} 的 diff")
@@ -341,6 +343,33 @@ def collect_diff_digest(cwd: str) -> Tuple[str, bool]:
             + "\n（這些檔案「有」變更，只是內容未附；勿因未見內容就判定沒做，"
               "如需依據請以 uncertain 回報）"
         )
+
+    for name, block in (untracked_blocks or []):
+        parts.append(block)
+
+    return "\n\n".join(parts), truncated
+
+
+def collect_diff_digest(cwd: str) -> Tuple[str, bool]:
+    """組工作樹的案卷變更摘要，回 (digest_text, truncated)。
+
+    組成：
+      A. `git diff HEAD --stat` — 檔案清單求完整（超長才採樣並標記）
+      B. 逐檔 unified diff 頭尾採樣，累積至 DIFF_BUDGET_CHARS；
+         超預算的檔案不靜默丟掉，改列成「未採樣檔案清單」
+      C. untracked 新檔：前 N 檔取檔頭，其餘列清單（新檔在 diff HEAD 看不到，
+         漏掉會讓裁判把「新增了 X」誤判成沒做）
+    採樣邏輯共用 build_diff_digest_from_text（規則唯一來源）。
+    """
+    if not cwd or not os.path.isdir(cwd):
+        return ("（無法取得工作目錄，本次案卷沒有變更內容可依據；"
+                "請以 uncertain 回報，勿臆測改了什麼）", True)
+
+    root = git_root(cwd) or cwd
+    stat = _run_git(["diff", "HEAD", "--stat"], root)
+    raw_diff = _run_git(["diff", "HEAD"], root)
+    digest, truncated = build_diff_digest_from_text(stat, raw_diff)
+    parts: List[str] = [digest] if digest else []
 
     untracked = _untracked_files(root)
     if untracked:

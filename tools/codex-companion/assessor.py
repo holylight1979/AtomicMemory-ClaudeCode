@@ -37,8 +37,8 @@ HANDOFF_SAMPLE_TAIL = 1500
 # artifact 採樣段與 last_assistant_tail 永不砍）。
 DEFAULT_MAX_PROMPT_CHARS = 16000
 BUDGET_TRACE_MAX_ITEMS = 8
-# acceptance_review 案卷（Q3 拍板）：材料合計 ≤12k 字，模板本體 ~2k 另計。
-ACCEPTANCE_MAX_PROMPT_CHARS = 14000
+# acceptance_review 案卷總量（config acceptance_review.max_prompt_chars 同步）
+ACCEPTANCE_MAX_PROMPT_CHARS = 22000
 
 # Windows: detached 父進程（codex_companion hook spawn audit.py 帶 DETACHED_PROCESS）
 # 沒 console 時呼叫 codex.cmd batch wrapper → Windows 會新開 cmd.exe 視窗。

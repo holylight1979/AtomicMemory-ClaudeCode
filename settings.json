@@ -187,7 +187,7 @@
           {
             "type": "command",
             "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
-            "timeout": 10
+            "timeout": 150
           },
           {
             "type": "command",
