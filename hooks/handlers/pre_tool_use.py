@@ -134,7 +134,8 @@ def _check_feedback_routing_advisory(
 # mode: observe=只落 guard log / warn=systemMessage 提醒 / deny=攔 + 補救模板
 #（每回合上限 max_denies_per_turn，超過強制放行 + log；lenient_first_miss=true
 # 時 deny 模式首 miss 降 warn，第 2 次起才 deny——同回合快路徑偵測不可靠的緩衝，
-# 見 Phase 1.5 發現 3）。compaction continuation 回合（turn 首 user 訊息命中
+# 見 atom pan-hermes不移植部件與vscode-text-block不落盤實測）。
+# compaction continuation 回合（turn 首 user 訊息命中
 # harness 續接敘述特徵）整回合豁免。通過寫
 # workflow/pan-pass/{sid}-t{turn}.flag（armed 快路徑，回合內全放；marker 抗
 # 併發覆寫，仿 dpm-done）。sidechain/resume 保底：state 無 turn_seq 即 fail-open。
