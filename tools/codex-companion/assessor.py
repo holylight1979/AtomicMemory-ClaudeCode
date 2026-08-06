@@ -37,6 +37,8 @@ HANDOFF_SAMPLE_TAIL = 1500
 # artifact 採樣段與 last_assistant_tail 永不砍）。
 DEFAULT_MAX_PROMPT_CHARS = 16000
 BUDGET_TRACE_MAX_ITEMS = 8
+# acceptance_review 案卷（Q3 拍板）：材料合計 ≤12k 字，模板本體 ~2k 另計。
+ACCEPTANCE_MAX_PROMPT_CHARS = 14000
 
 # Windows: detached 父進程（codex_companion hook spawn audit.py 帶 DETACHED_PROCESS）
 # 沒 console 時呼叫 codex.cmd batch wrapper → Windows 會新開 cmd.exe 視窗。
@@ -401,7 +403,8 @@ def _try_parse_json(raw: str) -> Optional[Dict[str, Any]]:
     if json_match:
         try:
             parsed = json.loads(json_match.group())
-            if isinstance(parsed, dict) and "status" in parsed:
+            # acceptance_review 回的是 verdict schema（無 status 欄）
+            if isinstance(parsed, dict) and ("status" in parsed or "verdict" in parsed):
                 return _apply_defaults(parsed)
         except json.JSONDecodeError:
             pass
@@ -524,6 +527,25 @@ def build_prompt(
             heuristic_flags=flags_str,
             turn_index=turn_index,
         )
+    if assessment_type == "acceptance_review":
+        import acceptance
+        spec_path = extra_context.get("spec_path", "") or ""
+        _fm, spec_text = (
+            acceptance.read_spec_with_done_fallback(spec_path)
+            if spec_path else ({}, "")
+        )
+        diff_digest = extra_context.get("diff_digest", "") or ""
+        return prompts.build_acceptance_review_prompt(
+            user_goal=acceptance.sample_goal(user_goal),
+            spec_path=spec_path,
+            spec_content=acceptance.sample_spec(spec_text) if spec_text else "",
+            diff_digest=diff_digest,
+            verification_evidence=acceptance.collect_verification_evidence(tool_trace),
+            tool_trace=trace_str,
+            last_assistant_tail=last_assistant_tail,
+            cwd=cwd,
+            turn_index=turn_index,
+        )
     if assessment_type == "architecture_review":
         return prompts.build_architecture_review_prompt(
             cwd=cwd,
@@ -568,13 +590,120 @@ def build_prompt_budgeted(
     in-band 標記（budget_reduced → trace 計數標頭註明）。
     """
     prompt = build_prompt(assessment_type, tool_trace, cwd, extra_context)
-    max_chars = int(config.get("max_prompt_chars", DEFAULT_MAX_PROMPT_CHARS))
+    if assessment_type == "acceptance_review":
+        # 案卷有專屬預算（含 diff/規格/測試輸出，與一般審計不同量級）
+        max_chars = int(
+            config.get("acceptance_review", {}).get("max_prompt_chars")
+            or config.get("max_prompt_chars")
+            or ACCEPTANCE_MAX_PROMPT_CHARS
+        )
+    else:
+        max_chars = int(config.get("max_prompt_chars", DEFAULT_MAX_PROMPT_CHARS))
     if len(prompt) > max_chars:
         prompt = build_prompt(
             assessment_type, tool_trace, cwd, extra_context,
             trace_max_items=BUDGET_TRACE_MAX_ITEMS, budget_reduced=True,
         )
     return prompt
+
+
+_VALID_VERDICTS = ("pass", "fail", "uncertain")
+
+
+def map_acceptance_verdict(
+    parsed: Dict[str, Any],
+    binding: str = "bound",
+    binding_reason: str = "",
+) -> Dict[str, Any]:
+    """把 acceptance verdict schema 映射成既有 assessment 欄位（沿用注入管道）。
+
+    **紅線 INV-CASE-BINDING-OR-UNCERTAIN 的程式化執行點**：binding 不是
+    `bound` 時，無論裁判回什麼，一律改寫成 uncertain 且 delivery=ignore；
+    Phase 3 接 Stop 閘時也必須經過本函式，故不得 block 的保證在此落實。
+
+    映射（影子期 delivery 僅決定 advisory 是否浮出，無 block 權）：
+      pass      → status=ok,             delivery=ignore
+      fail      → status=needs_followup, delivery=inject, category=completion_risk
+      uncertain → status=warning,        delivery=ignore, category=missing_evidence
+    """
+    result = dict(parsed or {})
+    verdict = str(result.get("verdict", "")).lower().strip()
+    if verdict not in _VALID_VERDICTS:
+        verdict = "uncertain"
+        result.setdefault(
+            "uncertain_reason", "裁判輸出缺少有效 verdict 欄位，依保守原則記為 uncertain"
+        )
+
+    if binding != "bound":
+        verdict = "uncertain"
+        result["uncertain_reason"] = binding_reason or result.get(
+            "uncertain_reason", "任務與驗收規格檔無法唯一對應"
+        )
+        result["problems"] = []
+        result["score"] = -1
+
+    problems = result.get("problems")
+    if not isinstance(problems, list):
+        problems = []
+    # 扣分必引證據：引不出 evidence 的 problem 不算數（本場 5 誤報的教訓）
+    problems = [
+        p for p in problems
+        if isinstance(p, dict) and str(p.get("evidence", "")).strip()
+    ]
+    result["problems"] = problems
+    if verdict == "fail" and not problems:
+        # 判 fail 卻列不出帶證據的問題 → 降為 uncertain，不讓無證據的擋收尾
+        verdict = "uncertain"
+        result["uncertain_reason"] = result.get("uncertain_reason") or (
+            "裁判判 fail 但未提出任何帶證據的具體問題，依「扣分必引證據」降為 uncertain"
+        )
+
+    result["verdict"] = verdict
+    summary = str(result.get("summary", "")).strip()
+
+    if verdict == "pass":
+        result.update({
+            "status": "ok", "severity": "low", "category": "completion_risk",
+            "delivery": "ignore",
+            "summary": summary or "驗收清單逐條均有對應證據",
+            "corrective_prompt": "",
+        })
+    elif verdict == "fail":
+        sev = str(result.get("severity", "medium")).lower()
+        if sev not in ("low", "medium", "high"):
+            sev = "medium"
+        lines = [
+            f"- {p.get('criterion', '(未指明條目)')}｜事證：{p.get('evidence', '')}"
+            f"｜{p.get('explanation', '')}"
+            for p in problems[:5]
+        ]
+        result.update({
+            "status": "needs_followup", "severity": sev,
+            "category": "completion_risk", "delivery": "inject",
+            "summary": summary or f"驗收未過：{len(problems)} 項未達標",
+            "evidence": "\n".join(lines)[:1200],
+            "corrective_prompt": (
+                "【影子裁判 advisory，不阻斷收尾】獨立裁判對照本任務驗收清單後認為"
+                f"有 {len(problems)} 項未達標（見事證）。請自行判斷是否屬實：真的漏做就補，"
+                "誤判請忽略——本輪不會擋你收尾。"
+            ),
+        })
+    else:  # uncertain
+        result.update({
+            "status": "warning", "severity": "low",
+            "category": "missing_evidence", "delivery": "ignore",
+            "summary": summary or "案卷證據不足以判定驗收結果",
+            "evidence": str(result.get("uncertain_reason", ""))[:600],
+            "corrective_prompt": "",
+            "score": -1,
+        })
+
+    result.setdefault("score", -1 if verdict == "uncertain" else 0)
+    result.setdefault("confidence", "medium")
+    result.setdefault("applies_until", "next_prompt")
+    result.setdefault("turn_index", 0)
+    result["_binding"] = binding
+    return result
 
 
 def run_assessment(
@@ -600,13 +729,32 @@ def run_assessment(
     # retry 1 次 + sandbox 失敗識別
     raw, stderr_combined, attempts = _run_codex_with_retry(prompt, cwd, config)
     parsed = _try_parse_json(raw) if raw else None
-    if parsed is None:
+
+    if assessment_type == "acceptance_review":
+        # 裁判失效（逾時/空回/非 JSON）→ uncertain 而非靜默通過
+        # （INV-JUDGE-FAILURE-IS-DISCLOSE：揭露後放行，不假裝有審過）
+        base = parsed if parsed is not None else {
+            "verdict": "uncertain",
+            "uncertain_reason": (
+                "裁判未回傳有效判定（逾時或輸出無法解析）："
+                + (stderr_combined or "")[-200:]
+            ),
+        }
+        result = map_acceptance_verdict(
+            base,
+            binding=str(extra_context.get("binding", "bound")),
+            binding_reason=str(extra_context.get("binding_reason", "")),
+        )
+        if parsed is None:
+            result["notify_next_turn"] = True
+    elif parsed is None:
         result = _classify_failure(stderr_combined)
     else:
         result = parsed
 
     # Tag with metadata
     result["_assessment_type"] = assessment_type
+    result["_prompt_chars"] = len(prompt)
     result["_session_id"] = session_id
     result["_attempts"] = attempts
 

@@ -139,8 +139,37 @@
       "enabled": true,
       "cooldown_seconds": 180,
       "max_items": 2,
-      "strong_keywords": ["又錯了", "沒修好", "還是壞", "修復失敗", "一樣的問題", "又壞了", "怎麼又", "再次失敗"],
-      "weak_keywords": ["錯了", "不對", "壞了", "失敗", "沒用", "沒效", "不行", "bug", "broken", "failed", "still broken", "same error", "為什麼還", "怎麼還", "反覆", "踩坑", "又踩", "沒生效", "白做了"],
+      "strong_keywords": [
+        "又錯了",
+        "沒修好",
+        "還是壞",
+        "修復失敗",
+        "一樣的問題",
+        "又壞了",
+        "怎麼又",
+        "再次失敗"
+      ],
+      "weak_keywords": [
+        "錯了",
+        "不對",
+        "壞了",
+        "失敗",
+        "沒用",
+        "沒效",
+        "不行",
+        "bug",
+        "broken",
+        "failed",
+        "still broken",
+        "same error",
+        "為什麼還",
+        "怎麼還",
+        "反覆",
+        "踩坑",
+        "又踩",
+        "沒生效",
+        "白做了"
+      ],
       "weak_min_match": 3
     },
     "session_end_flush": {
@@ -183,7 +212,18 @@
       "handoff_review": true,
       "block_severity_threshold": "high"
     },
-    "block_template": "Codex Companion 軟閘：偵測到高風險缺漏。\n{detail}\n請補充驗證或修正後再收尾。"
+    "block_template": "Codex Companion 軟閘：偵測到高風險缺漏。\n{detail}\n請補充驗證或修正後再收尾。",
+    "audit_quota": {
+      "_doc": "Q8 配額分桶（INV-BUDGET-ISOLATION）：共用 max_audits_per_session 總量之上，acceptance_review 自用上限 max、保底名額 min（其他審查最多用 total-min），兩類互不餓死。",
+      "acceptance_review_min": 6,
+      "acceptance_review_max": 8
+    },
+    "acceptance_review": {
+      "_doc": "Phase 2 影子驗收裁判：宣稱完成/規格檔標 done 時，組案卷（需求原話+驗收清單+diff 採樣+測試輸出）發 codex 回 verdict，只寫 workflow/acceptance-audit.jsonl + advisory，不 block 任何收尾。綁定契約：本 session 唯一 open 規格才審，否則記 uncertain（INV-CASE-BINDING-OR-UNCERTAIN）。max_per_spec=同一份規格檔每 session 重審上限；max_prompt_chars=案卷總預算。一鍵關=enabled:false。",
+      "enabled": true,
+      "max_per_spec": 2,
+      "max_prompt_chars": 14000
+    }
   },
   "lang_guard": {
     "_doc": "P8b 英文回應漂移攔截（hooks/lang_guard.py，standalone Stop hook）。量測 assistant 終版訊息英文語言字元佔比（先剝 code fence/inline/URL/link 目標，政策B只管 user-facing 對話輸出），超門檻→systemMessage 提醒繁中（可見+注入下一輪，模型自我修正）。stateless 每輪自校正、無 flag。一鍵關=enabled:false；english_ratio_threshold=英文佔比門檻(0~1，英文字母/(英文字母+CJK))；min_lang_chars=低於此語言字元數不判(濾短訊如 Done.)。",
@@ -200,20 +240,45 @@
   "docdrift": {
     "enabled": true,
     "path_mappings": {
-      "hooks/wg_*.py": ["Architecture.md"],
-      "hooks/dispatcher.py": ["Architecture.md"],
-      "hooks/handlers/*.py": ["Architecture.md"],
-      "hooks/workflow-guardian.py": ["Architecture.md"],
-      "hooks/extract-worker.py": ["Architecture.md"],
-      "hooks/wisdom_engine.py": ["Architecture.md"],
-      "skills/*/SKILL.md": ["DocIndex-System.md"],
-      "rules/*.md": ["DocIndex-System.md"],
-      "tools/*.py": ["DocIndex-System.md"]
+      "hooks/wg_*.py": [
+        "Architecture.md"
+      ],
+      "hooks/dispatcher.py": [
+        "Architecture.md"
+      ],
+      "hooks/handlers/*.py": [
+        "Architecture.md"
+      ],
+      "hooks/workflow-guardian.py": [
+        "Architecture.md"
+      ],
+      "hooks/extract-worker.py": [
+        "Architecture.md"
+      ],
+      "hooks/wisdom_engine.py": [
+        "Architecture.md"
+      ],
+      "skills/*/SKILL.md": [
+        "DocIndex-System.md"
+      ],
+      "rules/*.md": [
+        "DocIndex-System.md"
+      ],
+      "tools/*.py": [
+        "DocIndex-System.md"
+      ]
     },
     "exclude_patterns": [
-      "_aidocs/", "memory/", "_staging/", ".git/",
-      "node_modules/", "__pycache__/", ".claude/workflow/",
-      "backups/", "debug/", "Logs/"
+      "_aidocs/",
+      "memory/",
+      "_staging/",
+      ".git/",
+      "node_modules/",
+      "__pycache__/",
+      ".claude/workflow/",
+      "backups/",
+      "debug/",
+      "Logs/"
     ],
     "keyword_match_threshold": 2,
     "max_pending_display": 5
@@ -244,8 +309,16 @@
     "style2_unlock": 60,
     "done_at": 80,
     "modes": {
-      "slow": { "env_chance": 0.01, "pair_chance": 0.05, "dev_step": 1.2 },
-      "fast": { "env_chance": 0.55, "pair_chance": 0.75, "dev_step": 6.0 }
+      "slow": {
+        "env_chance": 0.01,
+        "pair_chance": 0.05,
+        "dev_step": 1.2
+      },
+      "fast": {
+        "env_chance": 0.55,
+        "pair_chance": 0.75,
+        "dev_step": 6.0
+      }
     }
   },
   "auto_handoff": {
@@ -279,7 +352,14 @@
     "_doc": "驗收規格工件 hook（hooks/acceptance_spec.py，standalone PostToolUse）。分級啟動：ExitPlanMode（plan 獲同意）→ 注入指示落 <專案根>/.claude/verify/acceptance-<slug>.md（frontmatter 綁定 + 必須發生/禁止發生/驗證指令三段）；無 plan 但同 session 修改 ≥min_files_trigger 檔 → 一次性建議。小任務零打擾。advisory-only 不阻斷；sidecar workflow/acceptance-spec/<sid>.json 保證每 session 每型至多提醒一次。count_exclude_substrings=計檔數時排除的路徑片段（記憶/暫存寫入不算任務檔）。一鍵關=enabled:false。",
     "enabled": true,
     "min_files_trigger": 3,
-    "count_exclude_substrings": ["/memory/", "/_staging/", "/workflow/", "/Logs/", "/Temp/claude/", "/plans/"]
+    "count_exclude_substrings": [
+      "/memory/",
+      "/_staging/",
+      "/workflow/",
+      "/Logs/",
+      "/Temp/claude/",
+      "/plans/"
+    ]
   },
   "guard": {
     "cross_realm_write": {
@@ -294,22 +374,76 @@
       "lenient_first_miss": true,
       "max_denies_per_turn": 2,
       "max_turn_text_chars": 12000,
-      "exempt_path_substrings": ["/plans/", "/_staging/", "/Temp/claude/", "/workflow/"],
+      "exempt_path_substrings": [
+        "/plans/",
+        "/_staging/",
+        "/Temp/claude/",
+        "/workflow/"
+      ],
       "bash_readonly_prefixes": [
-        "git status", "git log", "git diff", "git show", "git branch --list",
-        "git branch -a", "git rev-parse", "git ls-files", "git remote -v",
-        "git stash list", "git blame", "git describe", "git shortlog",
+        "git status",
+        "git log",
+        "git diff",
+        "git show",
+        "git branch --list",
+        "git branch -a",
+        "git rev-parse",
+        "git ls-files",
+        "git remote -v",
+        "git stash list",
+        "git blame",
+        "git describe",
+        "git shortlog",
         "git tag --list",
-        "ls", "dir", "cat", "head", "tail", "wc", "pwd", "which", "where",
-        "whoami", "file", "stat", "du", "df", "tree", "type", "rg", "grep",
-        "findstr", "find",
-        "python run_verify.py", "python -m pytest", "pytest",
-        "python --version", "node --version", "npm ls", "pip show", "pip list",
-        "get-childitem", "get-content", "select-string", "test-path",
-        "get-command", "get-item", "get-location", "get-date", "get-process",
-        "select-object", "sort-object", "measure-object", "compare-object",
-        "format-table", "format-list", "out-string", "write-output", "echo",
-        "resolve-path", "split-path", "git ls-remote"
+        "ls",
+        "dir",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "pwd",
+        "which",
+        "where",
+        "whoami",
+        "file",
+        "stat",
+        "du",
+        "df",
+        "tree",
+        "type",
+        "rg",
+        "grep",
+        "findstr",
+        "find",
+        "python run_verify.py",
+        "python -m pytest",
+        "pytest",
+        "python --version",
+        "node --version",
+        "npm ls",
+        "pip show",
+        "pip list",
+        "get-childitem",
+        "get-content",
+        "select-string",
+        "test-path",
+        "get-command",
+        "get-item",
+        "get-location",
+        "get-date",
+        "get-process",
+        "select-object",
+        "sort-object",
+        "measure-object",
+        "compare-object",
+        "format-table",
+        "format-list",
+        "out-string",
+        "write-output",
+        "echo",
+        "resolve-path",
+        "split-path",
+        "git ls-remote"
       ],
       "deny_template": "[Guardian:PreActionNotice] 本回合尚未輸出動手前預告（{fail_detail}），工具呼叫已暫擋。\n請先以使用者可見的一般文字輸出預告（thinking 區塊不算），然後再重新呼叫工具：\n\n執行目標：<這次動手要達成的具體目標，一句話>\n預估：<工作量或時間，例：改 2 個檔約 3 分鐘>\n\n格式規則：\n- 「執行目標」後必須是實質目標內容；只填時間不合格（例：「執行目標：預估1分鐘」）。\n- 「預估」可改寫「概估」，其後必須有實質內容。\n- 建議先送出這段文字、下一步再呼叫工具（同訊息夾帶可能偵測不到）。\n- 本回合通過一次後，後續工具呼叫不再檢查。\n（第 {n}/{max} 次提醒；達上限將放行並記錄。若你是 subagent，同樣補一段預告即可通過。）"
     }

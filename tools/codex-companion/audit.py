@@ -43,6 +43,40 @@ def _load_config() -> dict:
         return {}
 
 
+def _write_acceptance_audit(
+    session_id: str, turn_index: int, cwd: str, context: dict,
+    result: dict, diff_truncated: bool, elapsed_ms: int, config: dict,
+) -> None:
+    """影子期唯一的數據來源：每次 acceptance_review 落一筆 jsonl。
+
+    `human_label` 留 null，Phase 3 開工前一次性回顧標註（Q5 precision 分母）。
+    """
+    import acceptance
+    problems = result.get("problems") or []
+    acceptance.append_audit({
+        "session_id": session_id,
+        "turn_index": turn_index,
+        "cwd": cwd,
+        "model": config.get("model", ""),
+        "spec_path": context.get("spec_path", ""),
+        "task_slug": context.get("task_slug", ""),
+        "binding": context.get("binding", ""),
+        "trigger": context.get("trigger", ""),
+        "verdict": result.get("verdict", ""),
+        "score": result.get("score", -1),
+        "severity": result.get("severity", "low"),
+        "confidence": result.get("confidence", ""),
+        "summary": result.get("summary", ""),
+        "problems_count": len(problems),
+        "problems": problems[:10],
+        "uncertain_reason": result.get("uncertain_reason", ""),
+        "prompt_chars": result.get("_prompt_chars", 0),
+        "diff_truncated": diff_truncated,
+        "codex_attempts": result.get("_attempts", 1),
+        "elapsed_ms": elapsed_ms,
+    })
+
+
 def main() -> int:
     if sys.platform == "win32":
         for stream in (sys.stdout, sys.stderr):
@@ -81,6 +115,14 @@ def main() -> int:
     context.setdefault("user_goal", st.get("user_goal", ""))
     context.setdefault("trace_dropped", int(st.get("trace_dropped", 0) or 0))
 
+    # acceptance_review：diff 採樣在本子程序做（git subprocess 不阻塞 hook）
+    diff_truncated = False
+    if assessment_type == "acceptance_review":
+        import acceptance
+        digest, diff_truncated = acceptance.collect_diff_digest(cwd)
+        context["diff_digest"] = digest
+
+    started = time.time()
     try:
         result = assessor.run_assessment(
             assessment_type=assessment_type,
@@ -100,6 +142,11 @@ def main() -> int:
             companion_state.increment_metric(session_id, "empty_returns")
 
         companion_state.write_assessment(session_id, turn_index, assessment_type, result)
+        if assessment_type == "acceptance_review":
+            _write_acceptance_audit(
+                session_id, turn_index, cwd, context, result,
+                diff_truncated, int((time.time() - started) * 1000), config,
+            )
         _log(
             f"done {session_id[:8]} t{turn_index} type={assessment_type} "
             f"status={result.get('status')} attempts={result.get('_attempts', 1)}"
@@ -113,6 +160,23 @@ def main() -> int:
             "category": "system",
             "summary": f"Assessment failed: {e}",
         })
+        # 裁判崩潰也要留痕：影子數據不得因例外而無聲缺一筆
+        if assessment_type == "acceptance_review":
+            try:
+                import acceptance
+                acceptance.append_audit({
+                    "session_id": session_id, "turn_index": turn_index,
+                    "cwd": cwd,
+                    "spec_path": context.get("spec_path", ""),
+                    "task_slug": context.get("task_slug", ""),
+                    "binding": context.get("binding", ""),
+                    "trigger": context.get("trigger", ""),
+                    "verdict": "uncertain",
+                    "uncertain_reason": f"審計程序異常：{type(e).__name__}: {e}",
+                    "score": -1, "problems": [], "problems_count": 0,
+                })
+            except Exception as e2:
+                _log(f"audit jsonl on-error write failed: {e2}")
         return 1
 
 

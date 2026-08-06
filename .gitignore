@@ -50,6 +50,7 @@ workflow/ups-sentinel/
 workflow/pan-pass/
 workflow/pan-deny/
 workflow/acceptance-spec/
+workflow/acceptance-audit.jsonl*
 workflow/outcome_stats.jsonl
 workflow/outcome-unknown-advisory.json
 workflow/health-reports/

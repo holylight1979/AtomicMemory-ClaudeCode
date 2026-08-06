@@ -100,6 +100,9 @@ _WRITE_TOOLS = {"Edit", "Write"}
 _NEXT_PHASE_RE = re.compile(r"(?:next-phase|next_phase|handoff)[^/\\]*\.md$", re.IGNORECASE)
 # plan-mode 工作流：計畫先 Write 到 plans/<name>.md 再 ExitPlanMode。
 _PLAN_ARTIFACT_RE = re.compile(r"/plans/[^/]+\.md$", re.IGNORECASE)
+# 驗收規格檔（Phase 1 落地契約）與其「完成」標記 — acceptance_review 的權威觸發訊號。
+_SPEC_PATH_RE = re.compile(r"/\.claude/verify/acceptance-[^/]+\.md$", re.IGNORECASE)
+_STATUS_DONE_RE = re.compile(r"^status:\s*done\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 def _resolve_plan_artifact(tool_input: Any, tool_trace: list) -> tuple[str, str]:
@@ -398,8 +401,11 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
                       or assessment.get("recommended_action", ""))
         # handoff_review 是 user 主動要求的跨 session 交接自檢 → 降門檻至 medium，不被預設 high
         # 靜默吞掉（交接缺口即使中度也該讓本 session 當場補，避免下個 session 失真/跑錯）。
+        # acceptance_review 影子期同樣降至 medium：影子數據要「看得見」才校得準（fail 預設 medium）。
         atype_eff = str(data.get("type", assessment.get("_assessment_type", ""))).lower()
-        eff_threshold = min(inject_threshold, 1) if atype_eff == "handoff_review" else inject_threshold
+        eff_threshold = (min(inject_threshold, 1)
+                         if atype_eff in ("handoff_review", "acceptance_review")
+                         else inject_threshold)
         if (sev < eff_threshold
                 or status not in actionable_statuses
                 or not corrective):
@@ -427,6 +433,7 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
         "turn_audit": "Turn Audit",
         "architecture_review": "Architecture Review",
         "handoff_review": "Handoff 自檢",
+        "acceptance_review": "驗收裁判（影子）",
     }
 
     blocks: list[str] = []
@@ -492,15 +499,179 @@ def handle_user_prompt_submit(input_data: Dict[str, Any], config: Dict[str, Any]
     _output_context("UserPromptSubmit", context_text)
 
 
-def _within_audit_cap(session_id: str, max_audits: int) -> bool:
-    """in-process counter via state.assessments_requested。
+def _within_audit_cap(
+    session_id: str, max_audits: int, config: Optional[Dict[str, Any]] = None,
+    assessment_type: str = "",
+) -> bool:
+    """配額閘（Q8 分桶：acceptance_review 與既有審查互不餓死）。
+
+    共用總量 max_audits（預設 30）之上加兩條邊界：
+      - acceptance_review 自己最多用 `acceptance_review_max`（其他類型永遠
+        保有 max_audits - max 的空間）
+      - 其他類型最多用 max_audits - `acceptance_review_min`
+        （acceptance_review 永遠保有 min 個名額，不被前面燒光）
 
     State 由 record_checkpoint 在 spawn audit 之前 +1。subprocess 失敗不會
     decrement → 保守路徑（under-runs not over-runs）。
     """
     import state as companion_state
     st = companion_state.read_state(session_id) or {}
-    return int(st.get("assessments_requested", 0)) < max_audits
+    total = int(st.get("assessments_requested", 0))
+    if total >= max_audits:
+        return False
+
+    quota = (config or {}).get("audit_quota", {}) or {}
+    acc_min = int(quota.get("acceptance_review_min", 6))
+    acc_max = int(quota.get("acceptance_review_max", 8))
+    by_type = st.get("assessments_by_type", {}) or {}
+    acc_used = int(by_type.get("acceptance_review", 0))
+
+    if assessment_type == "acceptance_review":
+        return acc_used < acc_max
+    # 其他類型：留 acc_min 個名額給驗收裁判
+    others_used = total - acc_used
+    return others_used < max(0, max_audits - acc_min)
+
+
+# ─── acceptance_review（Phase 2 影子裁判） ───────────────────────────────────
+
+
+def _acceptance_enabled(config: Dict[str, Any]) -> bool:
+    return bool(config.get("acceptance_review", {}).get("enabled", True))
+
+
+def _record_unbound(
+    session_id: str, turn_index: int, cwd: str, binding_info: Dict[str, Any],
+    trigger: str,
+) -> None:
+    """綁不到規格檔 → 不發裁判，直接落一筆 uncertain。
+
+    INV-CASE-BINDING-OR-UNCERTAIN：不得用「最新一份」猜案卷。
+    只在 ambiguous/other_session 落筆（`none` 代表本任務不在分級線上，
+    每次收尾都記等於噪音）。
+    """
+    import acceptance
+    import state as companion_state
+    if binding_info.get("binding") == acceptance.BINDING_NONE:
+        return
+    acceptance.append_audit({
+        "session_id": session_id, "turn_index": turn_index, "cwd": cwd,
+        "spec_path": "", "task_slug": "",
+        "binding": binding_info.get("binding", ""),
+        "trigger": trigger,
+        "verdict": "uncertain", "score": -1,
+        "problems": [], "problems_count": 0,
+        "summary": "案卷未組（任務與驗收規格檔無法唯一對應）",
+        "uncertain_reason": binding_info.get("uncertain_reason", ""),
+        "candidates": binding_info.get("candidates", [])[:10],
+    })
+    try:
+        companion_state.increment_metric(session_id, "acceptance_unbound")
+    except Exception as e:
+        _log_err("codex:metric_acceptance_unbound", e)
+
+
+def _maybe_spawn_acceptance_review(
+    session_id: str, turn_index: int, cwd: str, config: Dict[str, Any],
+    trigger: str, spec_path_hint: str = "",
+) -> None:
+    """解析綁定 → 過閘 → spawn 案卷審計。影子模式：全程不 block。
+
+    trigger: "stop_claim"（收尾宣稱完成）或 "spec_done"（規格檔 status 改 done）。
+    spec_path_hint：spec_done 觸發時必傳——剛標 done 的規格檔已非 open，
+    resolve_binding 掃不到它；但「哪份規格剛完成」本身就是唯一綁定事實，
+    直接對 hint 檔驗 session_id 歸屬即可，不經 open 掃描。
+    """
+    import acceptance
+    import state as companion_state
+
+    if spec_path_hint:
+        fm, text = acceptance.read_spec(spec_path_hint)
+        if not text:
+            return  # 檔案讀不到（已被移走等）→ 無案卷可綁，靜默
+        if fm.get("session_id", "") == session_id:
+            info = {
+                "binding": acceptance.BINDING_BOUND,
+                "spec_path": spec_path_hint,
+                "task_slug": fm.get("task_slug", ""),
+                "candidates": [spec_path_hint],
+                "uncertain_reason": "",
+            }
+        else:
+            info = {
+                "binding": acceptance.BINDING_OTHER_SESSION,
+                "spec_path": "", "task_slug": "",
+                "candidates": [spec_path_hint],
+                "uncertain_reason": (
+                    "被標記完成的規格檔 frontmatter session_id 屬其他 session，"
+                    "無法確認是本 session 的任務，依綁定契約回 uncertain。"
+                ),
+            }
+    else:
+        info = acceptance.resolve_binding(session_id, cwd)
+    if info["binding"] != acceptance.BINDING_BOUND:
+        _record_unbound(session_id, turn_index, cwd, info, trigger)
+        return
+
+    spec_path = info["spec_path"]
+    st = companion_state.read_state(session_id) or {}
+    per_spec = (st.get("acceptance_reviews", {}) or {})
+    max_per_spec = int(config.get("acceptance_review", {}).get("max_per_spec", 2))
+    if int(per_spec.get(spec_path.replace("\\", "/"), 0)) >= max_per_spec:
+        return
+
+    dedup = WORKFLOW_DIR / (
+        f"companion-assessment-{session_id}-t{turn_index}-acceptance_review.json"
+    )
+    if dedup.exists():
+        return
+
+    max_audits = int(config.get("max_audits_per_session", 30))
+    if not _within_audit_cap(session_id, max_audits, config, "acceptance_review"):
+        # 可觀測性鐵律：撞配額不得無聲跳過
+        _log_err(
+            "codex:acceptance_quota",
+            RuntimeError(f"acceptance_review quota exhausted (session total cap {max_audits})"),
+        )
+        try:
+            companion_state.increment_metric(session_id, "acceptance_quota_blocked")
+        except Exception as e:
+            _log_err("codex:metric_acceptance_quota", e)
+        return
+
+    companion_state.record_checkpoint(session_id, "acceptance_review", spec_path=spec_path)
+    try:
+        companion_state.increment_metric(session_id, "acceptance_reviews_spawned")
+    except Exception as e:
+        _log_err("codex:metric_acceptance_spawned", e)
+    _spawn_audit_subprocess({
+        "session_id": session_id,
+        "turn_index": turn_index,
+        "assessment_type": "acceptance_review",
+        "cwd": cwd,
+        "context": {
+            "spec_path": spec_path,
+            "task_slug": info.get("task_slug", ""),
+            "binding": info["binding"],
+            "binding_reason": "",
+            "trigger": trigger,
+        },
+    })
+
+
+def _spec_marked_done(tool_name: str, file_path: str, tool_input: Any) -> bool:
+    """規格檔被改成 status: done — 「宣稱完成」的權威訊號（案卷最完整的時點）。
+
+    Write 看 content、Edit 看 new_string；讀不到內容就不猜。
+    """
+    if tool_name not in _WRITE_TOOLS or not file_path:
+        return False
+    if not _SPEC_PATH_RE.search(file_path.replace("\\", "/")):
+        return False
+    if not isinstance(tool_input, dict):
+        return False
+    body = str(tool_input.get("content", "") or tool_input.get("new_string", "") or "")
+    return bool(_STATUS_DONE_RE.search(body))
 
 
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
@@ -538,10 +709,22 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]):
         "path": file_path,
     })
 
+    # 驗收規格檔改成 status: done → 權威完成訊號，立刻組案卷（影子，不阻斷）
+    if _acceptance_enabled(config) and _spec_marked_done(tool_name, file_path, tool_input):
+        try:
+            st = companion_state.read_state(session_id) or {}
+            _maybe_spawn_acceptance_review(
+                session_id, int(st.get("turn_index", 0)),
+                st.get("cwd", "") or input_data.get("cwd", ""),
+                config, "spec_done", spec_path_hint=file_path,
+            )
+        except Exception as e:
+            _log_err("codex:acceptance_spec_done", e)
+
     checkpoint = _detect_checkpoint(tool_name, file_path, config)
     if checkpoint:
         max_audits = int(config.get("max_audits_per_session", 30))
-        if _within_audit_cap(session_id, max_audits):
+        if _within_audit_cap(session_id, max_audits, config, checkpoint):
             st = companion_state.read_state(session_id) or {}
             # ctx 只傳觸發事實；內容實體化在 assessor（規則唯一來源）
             ctx: Dict[str, Any] = {}
@@ -652,6 +835,23 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
             _log_err("codex:heuristics_gate", e)
             pass  # Heuristics failure → degrade gracefully
 
+    # ── acceptance_review（影子裁判）───────────────────────────────────────
+    # 完成宣稱 + 本 turn 真有改動 + 綁得到本 session 唯一 open 規格 → 組案卷。
+    # 全程 advisory：不 block、不改變任何既有收尾路徑。
+    if _acceptance_enabled(config):
+        try:
+            import heuristics as _heur
+            claimed = _heur._has_completion_claim(merged_state, last_assistant_tail)
+            changed = _heur._has_state_change(merged_state)
+            if claimed and changed:
+                _maybe_spawn_acceptance_review(
+                    session_id, turn_index_post,
+                    comp_state.get("cwd", "") or input_data.get("cwd", ""),
+                    config, "stop_claim",
+                )
+        except Exception as e:
+            _log_err("codex:acceptance_stop", e)
+
     # ── score gate / dedup / cap ─────────────────────
     score_threshold = int(config.get("score_threshold", 4))
     max_audits = int(config.get("max_audits_per_session", 30))
@@ -678,7 +878,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
         _output_nothing()
 
     # max_audits cap via state counter
-    if not _within_audit_cap(session_id, max_audits):
+    if not _within_audit_cap(session_id, max_audits, config, "turn_audit"):
         _output_nothing()
 
     # ── trigger turn_audit via audit.py subprocess ───────────────────────
