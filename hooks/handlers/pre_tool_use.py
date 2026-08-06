@@ -401,6 +401,8 @@ def _check_pre_action_notice(
         base = {
             "tool": tool_name, "mode": mode, "turn": turn_seq, "sid": sid[:8],
             "fail_code": fail_code,
+            # 判讀佐證：pass 樣本需能證明「偵測到的預告確實來自落盤 text block」
+            "text_blocks": probe.get("text_blocks"),
         }
 
         if mode == "observe":

@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: 註解, comment, summary, 敘事, 版本標記, 階段標記, 咬文嚼字, LLM污染, 現況導向, 白話, code comment, 可讀性, 寫code
 - Created-at: 2026-07-09
-- Related: feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, feedback-workflow-discipline
+- Related: feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, feedback-workflow-discipline, feedback-收尾報告使用者視角四要素-白話綜觀非片段細節
 
 ## 知識
 

@@ -79,3 +79,4 @@
 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 | _AIDocs/_atoms/MemDev/usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升.md | atom_promote, 晉升, Promotion Suggestions, usefulness, Wilson, 臨觀固, memory health, 連跳 | global |
 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 | _AIDocs/_atoms/MemDev/codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺.md | codex 誤報, handoff 自檢, 文件截斷, 誤報截斷, 審查者輸入, 6000字, _read_handoff_content, 頭尾採樣, codex companion 截斷 | global |
 | pan-hermes不移植部件與vscode-text-block不落盤實測 | _AIDocs/_atoms/MemDev/pan-hermes不移植部件與vscode-text-block不落盤實測.md | PAN, 預告閘門, pre_action_notice, Hermes, 技轉, text_blocks, transcript 不落盤, 翻 deny, lenient_first_miss, continuation 豁免, 偵測率 | global |
+| feedback-收尾報告使用者視角四要素-白話綜觀非片段細節 | _AIDocs/Failures/feedback-收尾報告使用者視角四要素-白話綜觀非片段細節.md | 收尾報告, 完成報告, 總結, 回報, 使用者看不懂, 白話, 可讀性, 最終訊息, Chat 回應, TLDR, 報告格式 | global |
