@@ -185,12 +185,14 @@ def test_read_failure_errors(isolated_claude):
     assert not res.ok and "read failed" in res.error
 
 
-# ─── 8. triggers 編輯但檔不在 CLAUDE_DIR 下 → error，且不落檔 ─────────────────
+# ─── 8. triggers 編輯但檔不在任何 memory root 下 → error，且不落檔 ────────────
+# （專案層 atom 現為合法：index root 以上溯最近 _atom_index.json 定位；
+#  上溯不到索引才拒絕——ClAUDE_DIR 外不再一律擋。）
 
 
-def test_triggers_edit_outside_claude_dir_errors(isolated_claude):
-    # 在 tmp 但不在 fake_claude 下；含 Trigger 行使 surgical replace 先成功，
-    # 才驗 rel_path 計算階段攔下（surgical replace 在記憶體、尚未落檔）。
+def test_triggers_edit_without_index_root_errors(isolated_claude):
+    # 在 tmp 但不在 fake_claude 下、上溯無 _atom_index.json；含 Trigger 行使
+    # surgical replace 先成功，才驗 index root 定位階段攔下（尚未落檔）。
     outside = isolated_claude["root"] / "stray.md"
     outside.write_text(
         "# Stray\n\n- Scope: global\n- Confidence: [臨]\n- Trigger: a, b\n\n## 知識\n\n- k\n",
@@ -198,7 +200,7 @@ def test_triggers_edit_outside_claude_dir_errors(isolated_claude):
     )
     before = outside.read_bytes()
     res = edit_metadata(outside, triggers=["z"], source="test")
-    assert not res.ok and "not under" in res.error
+    assert not res.ok and "no _atom_index.json found" in res.error
     assert outside.read_bytes() == before  # frontmatter 未落檔
 
 

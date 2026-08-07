@@ -41,6 +41,7 @@ if str(CLAUDE_DIR) not in sys.path:
 
 from lib.atom_index_json import (  # noqa: E402
     load_atom_index_json, upsert_atom, delete_atom, validate_index,
+    find_index_dir as _lib_find_index_dir,
 )
 from lib.atom_access import (  # noqa: E402
     move_atom_pair, access_sidecar_path, prune_empty_parents,
@@ -114,21 +115,12 @@ def iter_atoms(root: Path):
 
 
 def find_index_dir(path: Path) -> Optional[Path]:
-    """從 path（dir，或尚未建立的目標 dir）往上找最近含 `_atom_index.json` 的祖先 = index_dir。
+    """上溯最近含 `_atom_index.json` 的祖先 = index_dir（單一實作在 lib.atom_index_json）。
 
-    修 V4 bug「子資料夾被當 memory root」：子夾沒有自己的索引，須上溯到擁有
-    `_atom_index.json` 的 memory-root（global=~/.claude/memory；project=專案/.claude/memory）。
+    子夾沒有自己的索引，須上溯到擁有 `_atom_index.json` 的 memory-root
+    （global=~/.claude/memory；project=專案/.claude/memory）。
     """
-    try:
-        cur = Path(path).resolve(strict=False)
-    except OSError:
-        cur = Path(path)
-    while True:
-        if (cur / ATOM_INDEX_JSON).exists():
-            return cur
-        if cur.parent == cur:
-            return None
-        cur = cur.parent
+    return _lib_find_index_dir(path)
 
 
 def rel_path_for(moved_md: Path, index_dir: Path) -> str:
@@ -311,7 +303,8 @@ def cmd_move(args):
     triggers = (entry or {}).get("triggers") or triggers_from_md(src_md)
     cur_scope = (entry or {}).get("scope", "global")
     same_root = src_index.resolve() == dst_index.resolve()
-    new_scope = cur_scope if same_root else ("global" if is_global_index(dst_index) else "project")
+    # scope 一律沿用索引既有值（含 cross-root）；變更須呼叫端以 --scope 明確指定。
+    new_scope = args.scope or cur_scope
     new_rel = rel_path_for(dst_md, dst_index)
 
     if args.dry_run:
@@ -321,8 +314,8 @@ def cmd_move(args):
             "scope": new_scope, "scope_changed": new_scope != cur_scope,
             "sidecar": access_sidecar_path(src_md).exists(),
         }
-        if not same_root and not is_global_index(dst_index):
-            report["warn_scope"] = "跨 root 搬入 project：scope 設 'project'（無法自動判 shared/role/personal，必要時走 atom_write 改）"
+        if not same_root and not args.scope:
+            report["warn_scope"] = f"跨 root 搬移沿用既有 scope '{cur_scope}'；層級語意若已改變，用 --scope 明確指定"
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return
 
@@ -335,7 +328,7 @@ def cmd_move(args):
     # 2) JSON SoT（失敗 → rollback 實體檔）
     try:
         if same_root:
-            upsert_atom(dst_index, slug, new_rel, triggers, scope=cur_scope)
+            upsert_atom(dst_index, slug, new_rel, triggers, scope=new_scope)
         else:
             delete_atom(src_index, slug)
             upsert_atom(dst_index, slug, new_rel, triggers, scope=new_scope)
@@ -422,6 +415,8 @@ def main():
     mv.add_argument("atom")
     mv.add_argument("--from", dest="src", required=True, help="source dir (atom located via index/slug)")
     mv.add_argument("--to", required=True, help="target folder (subfolder under a memory-root is OK)")
+    mv.add_argument("--scope", default=None,
+                    help="explicitly set index scope (default: preserve existing)")
     mv.add_argument("--dry-run", action="store_true")
     mv.set_defaults(func=cmd_move)
 

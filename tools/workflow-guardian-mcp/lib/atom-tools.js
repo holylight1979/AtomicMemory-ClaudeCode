@@ -6,9 +6,13 @@ const { CLAUDE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig } = require("./paths");
 const { crashLog } = require("./log");
 const {
   slugify, findSeparatorVariant, getCurrentUser, isSensitiveAudience, resolveMemDir,
-  applyFeedbackRouting, applyLocalRouting, classifyRealm,
+  applyFeedbackRouting, applyLocalRouting, classifyRealm, resolveSubdirTarget,
   FAILURES_DIR, FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR,
 } = require("./realm");
+
+// SYNC: lib/atom_index_json.py TRIGGER_MAX_LEN — 超長 trigger 在寫入當下即拒，
+// 不留給後續 validate_index / atom_move 才爆（exit 2）。
+const TRIGGER_MAX_LEN = 30;
 const { parseAtomMeta, readAtomAccess, spawnAtomAccess, usefulnessStats } = require("./atom-access");
 const {
   execConflictDetector, appendMergeHistory, buildConflictReport, execWriteGate,
@@ -24,12 +28,24 @@ async function toolAtomWrite(id, args) {
     title, scope, confidence, triggers, knowledge, actions, related, mode,
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
-    realm, domain, status,
+    realm, domain, status, subdir,
   } = args;
 
   // Validate core required fields (scope now optional, defaults to shared)
   if (!title || !confidence || !triggers || !knowledge || !mode) {
     return sendToolResult(id, "Missing required parameters (title, confidence, triggers, knowledge, mode)", true);
+  }
+
+  // trigger 長度寫入當下即驗（create/replace 會回寫索引 triggers；append 不動）。
+  // [...t] 以 code point 計長，對拍 py len()。
+  if ((mode === "create" || mode === "replace") && Array.isArray(triggers)) {
+    const tooLong = triggers.filter((t) => [...String(t)].length > TRIGGER_MAX_LEN);
+    if (tooLong.length) {
+      return sendToolResult(id,
+        `trigger too long (>${TRIGGER_MAX_LEN} chars): ${tooLong.map(t => `"${t}"`).join(", ")}\n` +
+        `Shorten the trigger — an over-limit trigger poisons every later validate_index run (atom_move exit 2).`,
+        true);
+    }
   }
 
   // V4: default scope, transparent legacy mapping
@@ -72,6 +88,20 @@ async function toolAtomWrite(id, args) {
   if (!routedToFailures && scope === "global" && realm === "local") {
     ({ memDir, baseDir, indexDir, indexRoot } = applyLocalRouting(domain));
     routedToLocal = true;
+  }
+
+  // subdir（相對 memory root 的 create 落點，多段斜線）：僅 scope=shared 支援，
+  // 其他 scope 給了就明確報錯（不靜默忽略）。沙盒化在 resolveSubdirTarget
+  // （MIRROR: lib/atom_locations.py:project_subdir_target）。
+  // 注意順序：敏感 audience → _pending_review 路由在下方，優先權高於 subdir。
+  if (subdir) {
+    if (scope !== "shared") {
+      return sendToolResult(id,
+        `atom_write: subdir is only supported for scope=shared (got scope=${scope})`, true);
+    }
+    const sub = resolveSubdirTarget(baseDir, subdir);
+    if (sub.error) return sendToolResult(id, `atom_write: ${sub.error}`, true);
+    memDir = sub.dir;
   }
 
   // SPEC 7.4: sensitive audience on shared → auto-pending
@@ -126,6 +156,17 @@ async function toolAtomWrite(id, args) {
         `→ Use mode=append/replace on the existing atom, or rename "${variant}" to the hyphen convention first.`,
         true);
     }
+    // 撞名防叉：同 slug 已存在於子夾（projects/<X>/、shared/<Domain>/…）→ 拒絕。
+    // 否則 create 會叉出重複 atom 並讓索引 path 蹍掉舊檔（定位規則同 append/replace，
+    // py 單一來源）。
+    {
+      const lr = await locateExisting();
+      if (lr.error) return sendToolResult(id, `atom_write: ${lr.error}`, true);
+      if (lr.filePath) {
+        return sendToolResult(id,
+          `Atom already exists: ${lr.filePath} — use mode=append or mode=replace`, true);
+      }
+    }
 
     // 原子記憶語意契約：新 atom 必須 [臨]
     if (confidence !== "[臨]") {
@@ -157,7 +198,11 @@ async function toolAtomWrite(id, args) {
     // ─── write-time conflict detection (SPEC §7.1) ───
     // Only shared scope. skip_conflict_check honored for migrations/tests.
     if (scope === "shared" && !skip_conflict_check) {
-      const cr = await execConflictDetector(knowledge.join("\n"), "shared", project_cwd);
+      const cr = await execConflictDetector(knowledge.join("\n"), "shared", project_cwd, subdir);
+      // 偵測器降級訊號（複驗不穩 / 跨分區 / LLM ERROR fail-open）→ 併入成功訊息浮出
+      if (Array.isArray(cr.warnings) && cr.warnings.length) {
+        gateWarnings = gateWarnings.concat(cr.warnings.map(w => `[conflict-detector] ${w}`));
+      }
       if (cr.verdict === "contradict") {
         const pendingDir = path.join(baseDir, "shared", "_pending_review");
         fs.mkdirSync(pendingDir, { recursive: true });
@@ -171,9 +216,10 @@ async function toolAtomWrite(id, args) {
         appendMergeHistory(baseDir, "pending-create", slug, scopeLabel, author,
           `contradict vs ${(cr.matches[0] || {}).atom_name || "?"} sim=${((cr.matches[0] || {}).similarity || 0).toFixed(3)}`);
         return sendToolResult(id,
-          `BLOCKED by conflict detector — CONTRADICT vs "${(cr.matches[0] || {}).atom_name || "?"}".\n` +
+          `BLOCKED by conflict detector — CONTRADICT (double-confirmed) vs "${(cr.matches[0] || {}).atom_name || "?"}".\n` +
           `Report written: ${reportPath}\n` +
-          `Atom NOT written to shared/. Awaiting management review (/conflict-review).`,
+          `Atom NOT written to shared/. 待審出路：/conflict pending 檢視 → approve/reject\n` +
+          `（後端 tools/conflict-review.py --list / --action approve|reject --target <name> --project-cwd <root>）`,
           false  // not isError — pending is normal flow
         );
       }
@@ -201,7 +247,9 @@ async function toolAtomWrite(id, args) {
       },
       file_path: filePath,
       today,
-      index: { base_dir: indexDir, slug, rel_path: relPath, triggers },
+      // index scope 傳 scopeLabel（與 frontmatter 一致）——不再由 py 端預設 global
+      // 蹍掉專案層 scope。
+      index: { base_dir: indexDir, slug, rel_path: relPath, triggers, scope: scopeLabel },
     });
     if (!cr.ok) {
       return sendToolResult(id, `atom_create funnel failed: ${cr.error}`, true);
@@ -774,6 +822,8 @@ function toolAtomMove(id, args) {
       return Promise.resolve(sendToolResult(id, "atom_move move: --from and --to required", true));
     }
     argv.push("--from", args.from, "--to", args.to);
+    // scope 預設沿用索引既有值；明給才覆寫（atom-move.py --scope）
+    if (args.scope) argv.push("--scope", args.scope);
   } else if (subcommand === "reconcile") {
     if (!args.at) {
       return Promise.resolve(sendToolResult(id, "atom_move reconcile: --at required", true));

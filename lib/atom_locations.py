@@ -351,6 +351,31 @@ def local_write_target(domain: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def project_subdir_target(base: Path, subdir: str) -> tuple:
+    """scope=shared + subdir 的 create 落點：`<memory root>/<subdir>/`（相對 base，多段斜線）。
+
+    支援「一 repo 多專案分區」佈局（memory/projects/<專案名>/）一次寫到位。
+    逐段 _clean_segment 沙盒化（拒 `..`/分隔符/`_`前綴/非法字元），再拒
+    _LOCATE_SKIP_DIRS 保護段（personal/roles/episodic…）——subdir 不得寫進
+    受保護子樹。回 (target_dir|None, error|None)；合法時 mkdir-p。
+    MIRROR: atom-tools.js resolveSubdirTarget — keep in sync。
+    """
+    raw_segs = [s for s in (subdir or "").replace("\\", "/").split("/") if s.strip()]
+    if not raw_segs:
+        return (None, "subdir is empty")
+    segs = []
+    for raw in raw_segs:
+        seg = _clean_segment(raw)
+        if not seg:
+            return (None, f"subdir segment invalid: {raw!r}")
+        if seg in _LOCATE_SKIP_DIRS:
+            return (None, f"subdir segment protected: {seg!r}")
+        segs.append(seg)
+    target = Path(base).joinpath(*segs)
+    target.mkdir(parents=True, exist_ok=True)
+    return (target, None)
+
+
 # ─── Locate existing atom（append/replace 的實體檔定位） ─────────────────────
 
 # 定位時不得下探的目錄：草稿牢籠（_drafts/auto-capture、personal/auto/<user>）、封存、
@@ -358,22 +383,31 @@ def local_write_target(domain: Optional[str] = None) -> Dict[str, Any]:
 # append/replace 的目標。SYNC: server.js findAtomFileRecursive 的 SKIP 集合。
 _LOCATE_SKIP_DIRS = frozenset({
     "_meta", "_reference", "_staging", "_vectordb", "_distant",
-    "episodic", "templates", "personal", "wisdom", "_pending_review",
+    "episodic", "templates", "personal", "roles", "wisdom", "_pending_review",
     "_drafts",
 })
 
 
 def _is_under(child: Path, roots: List[Path]) -> bool:
+    """child 落在任一 root 內，且相對路徑不含 skip 段/_archive* 段。
+
+    段層級防護：search_roots 放寬到整個 memory root 後（shared atom 可被歸位到
+    projects/<X>/ 等兄弟子夾），跨 scope 保護改由「路徑段」把關——personal/roles/
+    草稿/封存子樹內的檔即使被索引指到也不當定位目標。
+    """
     try:
         c = child.resolve()
     except OSError:
         c = child
     for r in roots:
         try:
-            c.relative_to(r)
-            return True
+            rel = c.relative_to(r)
         except ValueError:
             continue
+        segs = rel.parts[:-1]  # 目錄段（去檔名）
+        if any(s in _LOCATE_SKIP_DIRS or s.startswith("_archive") for s in segs):
+            return False
+        return True
     return False
 
 

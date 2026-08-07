@@ -855,7 +855,12 @@
         "Atom not found",
         "locate_existing_atom",
         "落點 vs 定位",
-        "subdir atom"
+        "subdir atom",
+        "subdir",
+        "scope 沿用",
+        "atom-move scope",
+        "memory/projects 分區",
+        "trigger 長度"
       ],
       "scope": "global"
     },
@@ -1375,6 +1380,39 @@
         "PreActionNotice",
         "警告樣式",
         "字體放大"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog",
+      "path": "memory/winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog.md",
+      "triggers": [
+        "FolderBrowserDialog",
+        "Multiselect",
+        "多選資料夾",
+        "IFileOpenDialog",
+        "WinForms",
+        "net8.0-windows",
+        "資料夾選擇"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "衝突偵測-block-資格閘-複驗一致-分區感知-待審出路",
+      "path": "_AIDocs/_atoms/MemDev/衝突偵測-block-資格閘-複驗一致-分區感知-待審出路.md",
+      "triggers": [
+        "conflict detector",
+        "衝突偵測",
+        "CONTRADICT",
+        "write-check",
+        "_pending_review",
+        "待審",
+        "conflict-review",
+        "/conflict pending",
+        "跨專案誤報",
+        "偵測不穩定",
+        "skip_conflict_check",
+        "分區感知"
       ],
       "scope": "global"
     }

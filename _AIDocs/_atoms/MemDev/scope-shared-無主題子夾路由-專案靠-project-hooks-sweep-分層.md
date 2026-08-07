@@ -3,23 +3,23 @@
 - Scope: global
 - Author: holylight
 - Confidence: [臨]
-- Trigger: scope=shared, 主題子夾, 專案 atom 分層, _resolve_target, project_hooks, classify-project-atoms, _unclassified, shared 扁平落根, project delegate hook, 專案記憶分類, atom_write append 失敗, Atom not found, locate_existing_atom, 落點 vs 定位, subdir atom
+- Trigger: scope=shared, 主題子夾, 專案 atom 分層, _resolve_target, project_hooks, classify-project-atoms, _unclassified, shared 扁平落根, project delegate hook, 專案記憶分類, atom_write append 失敗, Atom not found, locate_existing_atom, 落點 vs 定位, subdir atom, subdir, scope 沿用, atom-move scope, memory/projects 分區, trigger 長度
 - Created-at: 2026-06-26
-- Related: realm-範疇分區機制-v5, auto-capture碎片sweep污染詞庫-defer根治, 專案等級-mcpskillhookslog-不放全域根層
 
 ## 知識
 
-- [臨] **落點規則**：`lib/atom_io.py:_resolve_target` 只對 realm=local（→ `_AIDocs/_atoms/<domain>/`）與 feedback-（→ `_AIDocs/Failures/`）做物理子夾路由；scope=shared/role/personal 的**新** atom 一律扁平落 `<project>/.claude/memory/{shared | roles/<r> | personal/<u>}/<slug>.md`——write 端不猜主題子夾，curated 專案 atom 的分層是**事後** classifier sweep 的職責。auto-capture 草稿另由 extract-worker._flush_route 隔離到 `shared/_drafts/auto-capture/`（不入索引、不注入）。
-- [臨] **落點 ≠ 定位**：append/replace 的實體檔常已被 sweep 歸位到子夾，只看扁平落點會誤判 `Atom not found`（子夾化的專案 memory 會 append/replace 全線失效；realm=local 的 global atom 在 domain 給錯/沒給時同理）；而 Guardian AtomFunnelBlock 又擋直接 Write/Edit .md → 「唯一合法入口打不到檔」死結。定位統一走 `lib/atom_locations.locate_existing_atom`：`_atom_index.json` 的 path 優先（需落在該 scope 搜尋根內，跨 scope 保護）→ 落空 rglob scope 子樹（跳過 _drafts / _pending_review / personal / _archive* 等草稿與封存）→ 撞名列出全部候選明確報錯、不靜默取第一個；索引回寫 path 由定位到的實體路徑推導，不寫扁平假路徑。守門 `lib/verify/verify_atom_subdir_locate.py`。
-- [臨] 專案要把 curated shared atom 分層 → **自建 taxonomy classifier 接 core 的 project delegate hook**（`hooks/handlers/_shared.py:_call_project_hook`：subprocess / 5s timeout / never-raises），core 只在 session_start 呼叫 `<project>/.claude/hooks/project_hooks.py`（session_start.py:442）。不該把專案分類器硬接進 core wg_atoms.py（會耦合單一專案 taxonomy + 打全專案最熱寫入路徑，違反 realm 分區）。
-- [臨] C:/Projects 的實作：project_hooks.handle_session_start → `_auto_classify_shared_atoms` → importlib in-process 載 `tools/classify-project-atoms.apply_classification`（taxonomy 計分 name×10>trigger×1；無命中 → `shared/_unclassified/`，每次重掃 _unclassified → 補詞庫後自動畢業到主題夾）。搬移後當 session 不靜默、注入提示行——仿核心 `_sweep_realm_auto_migrate` + `REALM_AUTOMOVE_MARKER` 的 1-session-lag 慣例。
-- [臨] `_unclassified` 命名安全關鍵：`_` 前綴**不在** sync-atom-index `EXCLUDED_DIR_PARTS`（=_drafts/_archived/_pending_review/_staging/templates/wisdom/episodic/_reference）內 → 落此夾的 atom **仍入索引/注入**（curated 知識不轉暗），`_` 只作視覺「待補詞庫」標記。若改用排除清單內名稱會讓 atom 靜默消失。
-- [臨] 同族缺口辨識法：atom 的**寫入端**（atom_write）與**維護端**（atom_promote / atom_edit_meta / atom-move）定位邏輯各寫一份，而維護端本就用 `findAtomFileRecursive` / `locate_md` 遞迴 → 子夾化後 promote/edit_meta 正常、只有 append/replace 壞。「部分功能正常」正是這類缺口難被發現的原因；除錯時別因為 promote 能跑就排除定位問題。
-- [臨] MCP `atom_write` 的實際執行體是 **js**（`tools/workflow-guardian-mcp/lib/atom-tools.js:toolAtomWrite` 解析路徑 → spawn `python -m lib.atom_io_cli` 落檔）：只改 `lib/atom_io.py` **修不好 MCP 症狀**，js 端路徑解析才是入口。定位規則不在 js 維第二套：js 於扁平落點 miss 時 spawn `atom_io_cli` 的 `locate` action（正常路徑零額外 spawn），`findAtomFileRecursive` 只留給 promote/edit_meta。**js 改動需重啟 MCP server 才生效**（同 realm.js 慣例）。
+- [臨] **落點規則**：`lib/atom_io.py:_resolve_target` 對 realm=local（→ `_AIDocs/_atoms/<domain>/`）與 feedback-（→ `_AIDocs/Failures/`）做物理子夾路由；scope=shared 預設扁平落 `shared/`，另可用 `subdir` 參數（**相對 memory root**、僅 scope=shared、僅影響 create 落點）一次寫到 `memory/projects/<專案名>/` 等分區；逐段 `_clean_segment` 沙盒化，personal/roles/episodic 等保護段拒絕（py `project_subdir_target` / js `resolveSubdirTarget` 鏡像）。敏感 audience → `_pending_review` 路由優先於 subdir。auto-capture 草稿另由 extract-worker._flush_route 隔離到 `shared/_drafts/auto-capture/`。
+- [臨] **落點 ≠ 定位**：append/replace（及 create 撞名防叉）統一走 `lib/atom_locations.locate_existing_atom`：`_atom_index.json` path 優先 → 落空 rglob → 撞名列候選明確報錯。防護是**段層級**（相對路徑含 `_LOCATE_SKIP_DIRS`/`_archive*` 段即拒，含 personal/roles），非整棵搜尋根限制；shared 搜尋根＝整個 memory root，所以歸位到 `projects/<X>/` 等兄弟子夾的 atom 一步命中；role/personal 維持窄根不跨界。
+- [臨] **scope 沿用鐵律**：索引 scope 由 create 寫 scope_label；replace/edit_metadata/`write_index(scope=None)` 一律**沿用既有條目**（新條目才預設 global）；atom-move 含 cross-root 一律沿用、`--scope` 明給才變、scope_changed 據實。frontmatter `- Scope:` 是漂移偵測的正確源（sync-atom-index scope_drift）。
+- [臨] trigger 長度上限 `TRIGGER_MAX_LEN=30`（lib/atom_index_json 單一常數）在**寫入當下**即驗（py write_atom/write_index + js toolAtomWrite 雙入口，create/replace 才驗）；append 不動既有 triggers，legacy 超長 atom 仍可 append。atom_edit_meta 支援專案層：index root 以 `find_index_dir` 上溯最近 `_atom_index.json`（lib.atom_index_json 單一實作，atom-move 共用），不硬編 ~/.claude。
+- [臨] 專案要把 curated shared atom 分層 → **自建 taxonomy classifier 接 core 的 project delegate hook**（`hooks/handlers/_shared.py:_call_project_hook`），core 只在 session_start 呼 `<project>/.claude/hooks/project_hooks.py`；不把專案分類器硬接進 core wg_atoms.py。`_unclassified` 命名安全關鍵：`_` 前綴不在 sync-atom-index EXCLUDED_DIR_PARTS 內 → 仍入索引/注入；改用排除清單內名稱會讓 atom 靜默消失。
+- [臨] 同族缺口辨識法：寫入端與維護端（promote/edit_meta/move）定位邏輯若各寫一份，子夾化後會「部分功能正常、只有 append/replace 壞」；除錯時別因 promote 能跑就排除定位問題。
+- [臨] MCP `atom_write` 實際執行體是 **js**（`atom-tools.js` 解析路徑 → spawn `lib.atom_io_cli`）：只改 py 修不好 MCP 症狀；定位規則 py 單一來源（js 扁平落點 miss 才 spawn `locate`）。**js 改動需重啟 MCP server 才生效**。
 
 ## 行動
 
-- 專案要 shared atom 分層：寫 taxonomy classifier + 接 project_hooks session_start，勿動 core
-- 判斷 atom 是否該分類：有 .access.json/已索引=curated 該分；_drafts/auto-capture 下=草稿不動
-- 新增待分類夾務必確認名稱不在 sync-atom-index EXCLUDED_DIR_PARTS，否則 atom 會脫索引
-- 改 atom 寫入/定位：py 改完必查 js 是否才是真正入口，並重啟 MCP server 驗證
+- 專案分區寫入：atom_write 加 subdir="projects/<名>" 一步到位，不必寫完再搬
+- 改已歸位 atom 直接 replace/append（索引定位），禁四步 workaround
+- 要變索引 scope 用 atom-move --scope 明給，不靠搜移點默改
+- 改 atom 寫入/定位：py 改完必查 js 入口，並重啟 MCP server 驗證
+- 新增待分類夾務必確認名稱不在 sync-atom-index EXCLUDED_DIR_PARTS

@@ -513,6 +513,30 @@ def _classify_match(content: str, match: Dict[str, Any]) -> str:
     )
 
 
+def _partition_of_path(file_path: str) -> Optional[str]:
+    """atom 檔所屬專案分區：`.../memory/projects/<X>/...` → "projects/<X>"；否則 None。
+
+    「一 repo 多專案共用一層記憶」佈局（memory/projects/<專案名>/）的分區判定；
+    shared/<Domain>/ 是主題夾非分區，不參與。
+    """
+    parts = Path(file_path or "").as_posix().split("/")
+    try:
+        i = len(parts) - 1 - parts[::-1].index("memory")  # 最後一個 memory 段
+    except ValueError:
+        return None
+    if i + 2 < len(parts) and parts[i + 1] == "projects":
+        return f"projects/{parts[i + 2]}"
+    return None
+
+
+def _partition_of_subdir(subdir: Optional[str]) -> Optional[str]:
+    """incoming 寫入目標（subdir，相對 memory root）的分區；非 projects/<X> → None。"""
+    segs = [s for s in (subdir or "").replace("\\", "/").split("/") if s]
+    if len(segs) >= 2 and segs[0] == "projects":
+        return f"projects/{segs[1]}"
+    return None
+
+
 def _decide_verdict(matches: List[Dict[str, Any]],
                     threshold: float) -> Tuple[str, Optional[Dict[str, Any]]]:
     """Apply SPEC §7.2 ordering: contradict > duplicate > extend_overlap > ok.
@@ -542,15 +566,23 @@ def _decide_verdict(matches: List[Dict[str, Any]],
 
 
 def run_write_check(content: str, project_cwd: Optional[str], scope: str,
-                    threshold: float = WRITE_CHECK_THRESHOLD) -> Dict[str, Any]:
+                    threshold: float = WRITE_CHECK_THRESHOLD,
+                    subdir: Optional[str] = None) -> Dict[str, Any]:
     """Pre-write semantic conflict check (SPEC §7.1 write-time).
 
     Returns:
-      {verdict, matches: [...], detector_model, skipped, skip_reason}
+      {verdict, matches: [...], detector_model, skipped, skip_reason, warnings}
     Verdict ∈ {ok, extend_overlap, contradict, duplicate}.
 
     On any vector/LLM unavailability: verdict=ok + skipped=True (fail-open at
     write-time so dead infrastructure does not block all writes).
+
+    Block 資格閘（LLM 判定是機率性的，block 必須高把握；降級一律入 warnings 浮出）：
+      - CONTRADICT 需**第二次獨立判定一致**才成立；不一致 → UNSTABLE，warn 不 block。
+      - 高相似但 LLM ERROR → warn 不 block（fail-open；舊行為保守判 contradict
+        會讓壞掉的 LLM 擋下所有寫入）。
+      - subdir 給定且 incoming 落 projects/<X> 分區時，**其他分區**的相似 atom
+        不參與 block（跨專案相似陳述非事實衝突），warn 浮出。
     """
     out = {
         "verdict": "ok",
@@ -560,6 +592,7 @@ def run_write_check(content: str, project_cwd: Optional[str], scope: str,
         "skip_reason": None,
         "scope": scope,
         "fast_refute": False,
+        "warnings": [],
     }
     if not content or not content.strip():
         out["skipped"] = True
@@ -593,6 +626,15 @@ def run_write_check(content: str, project_cwd: Optional[str], scope: str,
         label = _classify_match(content, h)
         if label == "ERROR":
             llm_errors += 1
+        elif label == "CONTRADICT":
+            # 穩定性複驗：同輸入第二次獨立判定；不一致 = 判定不穩，降 warn 不 block。
+            # （小模型對同輸入常翻面——單次 CONTRADICT 不足以擋寫入。）
+            second = _classify_match(content, h)
+            if second != "CONTRADICT":
+                out["warnings"].append(
+                    f"unstable verdict on '{h.get('atom_name', '')}': "
+                    f"CONTRADICT→{second} across two runs — downgraded to warn, not blocking")
+                label = f"UNSTABLE({second})"
         matches.append({
             "atom_name": h.get("atom_name", ""),
             "layer": h.get("layer", ""),
@@ -609,7 +651,33 @@ def run_write_check(content: str, project_cwd: Optional[str], scope: str,
         out["skip_reason"] = "all LLM classifications failed"
         return out
 
-    verdict, primary = _decide_verdict(matches, threshold)
+    # 跨分區排除：incoming 目標落 projects/<X> 時，其他分區的相似 atom 不參與 block
+    #（同 shared 層下多個獨立專案的相似設定/陳述非事實衝突）。
+    decide_matches = matches
+    incoming_part = _partition_of_subdir(subdir)
+    if incoming_part:
+        decide_matches = []
+        for m in matches:
+            mp = _partition_of_path(m.get("file_path", ""))
+            if mp and mp != incoming_part:
+                m["cross_partition"] = mp
+                if m.get("classification", "").startswith(("CONTRADICT", "UNSTABLE")):
+                    out["warnings"].append(
+                        f"cross-partition match '{m.get('atom_name', '')}' ({mp} vs "
+                        f"{incoming_part}) — independent project, similar wording is "
+                        f"not a factual conflict; not blocking")
+            else:
+                decide_matches.append(m)
+
+    verdict, primary = _decide_verdict(decide_matches, threshold)
+    # 高相似但 LLM ERROR：fail-open 降 warn（舊行為保守判 contradict → 壞掉的
+    # LLM 會擋下所有寫入；可觀測性鐵律：降級必浮訊號）。
+    if (verdict == "contradict" and primary is not None
+            and primary.get("classification") == "ERROR"):
+        out["warnings"].append(
+            f"LLM classification failed on high-similarity match "
+            f"'{primary.get('atom_name', '')}' — degraded to warn (fail-open); review manually")
+        verdict, primary = "ok", None
     out["verdict"] = verdict
     # 快速否證通道：incoming（新側）Evidence=實證 且矛盾對象為 [固]/[觀] → 高優先浮出
     if (verdict == "contradict" and primary is not None
@@ -851,6 +919,9 @@ def main():
                         help="(write-check / pull-audit) project root")
     parser.add_argument("--threshold", type=float, default=WRITE_CHECK_THRESHOLD,
                         help="(write-check) cosine threshold for extend_overlap (default 0.85)")
+    parser.add_argument("--subdir", type=str, default=None,
+                        help="(write-check) incoming write target subdir relative to memory root "
+                             "(e.g. projects/X) — cross-partition matches warn instead of block")
     parser.add_argument("--since", type=str, default="last",
                         help="(pull-audit) ISO ts or 'last' (read .last_pull_audit_ts)")
     args = parser.parse_args()
@@ -860,7 +931,8 @@ def main():
         if not args.content:
             print(json.dumps({"error": "--content is required for write-check"}))
             sys.exit(2)
-        result = run_write_check(args.content, args.project_cwd, args.scope, args.threshold)
+        result = run_write_check(args.content, args.project_cwd, args.scope, args.threshold,
+                                 subdir=args.subdir)
         print(json.dumps(result, ensure_ascii=False))
         return
 

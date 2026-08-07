@@ -26,7 +26,7 @@
     {
       "name": "conflict",
       "dir": "conflict",
-      "description": "記憶衝突偵測：偵測 atom 內容衝突並列出待處理項目"
+      "description": "記憶衝突偵測與待審處理：偵測 atom 內容衝突；pending 子命令檢視/核准/退回 _pending_review 待審草稿"
     },
     {
       "name": "consciousness-stream",

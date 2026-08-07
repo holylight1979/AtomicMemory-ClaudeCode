@@ -129,6 +129,10 @@ const TOOL_DEFINITIONS = [
           type: "string",
           description: "Hierarchical sub-path for realm=local atoms (slash-separated, max depth 7, e.g. 'Tools' or 'OS/Windows/WSL'). Lv1 roots: World (brain-world) | Tools (external tools / env troubleshooting) | MemDev (memory-system / Guardian dev), or a new root. Go deeper only when a NARROW topic has large known content volume. Empty/invalid → 'Else' (catch-all).",
         },
+        subdir: {
+          type: "string",
+          description: "Optional create-target subdir relative to the project memory root (slash-separated, scope=shared only), e.g. 'projects/AI-gen-X' → memory/projects/AI-gen-X/<slug>.md. Supports one-repo-multi-project partition layouts in a single write. Segments are sandboxed (no '..', no '_' prefix, protected dirs like personal/roles rejected). Only affects the create landing spot — append/replace locate the existing file via the index regardless of subfolder.",
+        },
         confidence: { type: "string", enum: ["[固]", "[觀]", "[臨]"], description: "Confidence level" },
         triggers: {
           type: "array", items: { type: "string" },
@@ -198,7 +202,7 @@ const TOOL_DEFINITIONS = [
     name: "atom_move",
     description:
       "V5 SoT-correct atom move/reconcile. Updates the single central _atom_index.json (via upsert/delete) and moves the .access.json sidecar with the .md; the _ATOM_INDEX.md mirror is auto-regenerated — it does NOT hand-edit per-folder indexes. " +
-      "subcommand='move' relocates an atom to --to (a memory-root OR a subfolder under one — index root is auto-detected, scope preserved on same-root folder moves). " +
+      "subcommand='move' relocates an atom to --to (a memory-root OR a subfolder under one — index root is auto-detected; the index scope is always preserved unless explicitly overridden via `scope`). " +
       "subcommand='reconcile' assumes the atom was manually moved to --at and fixes its index path + cross-layer refs. " +
       "Refuses atoms under _AIDocs/_atoms/ (use atom-set-realm) or _AIDocs/Failures/ (title-routed). Cross-root layering: down-refs (global→project) removed, up-refs kept, sibling refs warned. Self-validates via validate_index. Use dry_run=true to preview.",
     inputSchema: {
@@ -209,6 +213,7 @@ const TOOL_DEFINITIONS = [
         from: { type: "string", description: "Source dir — atom located via index/slug; index root auto-detected by walking up (required for move)" },
         to: { type: "string", description: "Target folder — a memory-root or any subfolder under one (required for move)" },
         at: { type: "string", description: "Dir at/under the memory-root where the atom now lives (required for reconcile)" },
+        scope: { type: "string", description: "Explicitly set the index scope on move (optional). Default: preserve the existing index scope — moves never reset scope on their own; scope_changed in the report is honest." },
         dry_run: { type: "boolean", description: "Preview without applying changes" },
       },
       required: ["subcommand", "atom"],

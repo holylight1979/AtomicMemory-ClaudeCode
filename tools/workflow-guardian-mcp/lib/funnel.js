@@ -9,7 +9,7 @@ const { crashLog } = require("./log");
  *  Returns Promise<{verdict, matches, detector_model, skipped, skip_reason, scope}>.
  *  Fail-open: on script error resolves to verdict=ok+skipped=true (do not block writes
  *  when detector infra is down). Longer timeout than write-gate (LLM is slower). */
-function execConflictDetector(content, scope, projectCwd) {
+function execConflictDetector(content, scope, projectCwd, subdir) {
   return new Promise((resolve) => {
     const scriptPath = path.join(TOOLS_DIR, "memory-conflict-detector.py");
     if (!fs.existsSync(scriptPath)) {
@@ -21,6 +21,10 @@ function execConflictDetector(content, scope, projectCwd) {
                   "--content", content];
     if (projectCwd) {
       args.push("--project-cwd", projectCwd);
+    }
+    // 分區感知：incoming 落 projects/<X> 時其他分區相似 atom warn 不 block
+    if (subdir) {
+      args.push("--subdir", subdir);
     }
     const cp = require("child_process").spawn("python", [scriptPath, ...args], {
       windowsHide: true,

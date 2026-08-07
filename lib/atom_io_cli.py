@@ -91,9 +91,11 @@ def create_atom(payload: dict) -> WriteResult:
     init_access(file_path, first_seen=today, last_used=today, source="mcp")
 
     # 4. index upsert（非致命，對拍 appendToIndex 的 crashLog-only）
+    # scope：js 端 create 傳 scopeLabel（與 frontmatter 一致）；缺省 None → 沿用既有/global
     ir = write_index(
         base_dir=Path(index["base_dir"]), slug=index["slug"],
         rel_path=index["rel_path"], triggers=list(index["triggers"]), source="mcp",
+        scope=index.get("scope"),
     )
     return WriteResult(
         ok=True,

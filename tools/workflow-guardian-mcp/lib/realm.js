@@ -301,6 +301,34 @@ function cleanRealmSegment(seg) {
   return s;
 }
 
+/** scope=shared + subdir 的 create 落點：`<memory root>/<subdir>/`（相對 base，多段斜線）。
+ *  一 repo 多專案分區佈局（memory/projects/<專案名>/）一次寫到位。
+ *  逐段 cleanRealmSegment 沙盒化，再拒受保護段（personal/roles/episodic 等定位 skip 目錄）。
+ *  MIRROR: lib/atom_locations.py:project_subdir_target — keep in sync。
+ *  Returns: { dir } 或 { error }。合法時 mkdir-p。 */
+const SUBDIR_PROTECTED = new Set([
+  // SYNC: lib/atom_locations.py _LOCATE_SKIP_DIRS（`_` 前綴段 cleanRealmSegment 已拒，
+  // 此集合防的是無底線的保護目錄名）
+  "episodic", "templates", "personal", "roles", "wisdom",
+]);
+function resolveSubdirTarget(base, subdir) {
+  const rawSegs = String(subdir || "").replace(/\\/g, "/").split("/")
+    .filter((s) => s.trim());
+  if (rawSegs.length === 0) return { error: "invalid subdir: subdir is empty" };
+  const segs = [];
+  for (const raw of rawSegs) {
+    const seg = cleanRealmSegment(raw);
+    if (!seg) return { error: `invalid subdir: segment invalid: '${raw}'` };
+    if (SUBDIR_PROTECTED.has(seg)) {
+      return { error: `invalid subdir: segment protected: '${seg}'` };
+    }
+    segs.push(seg);
+  }
+  const dir = path.join(base, ...segs);
+  fs.mkdirSync(dir, { recursive: true });
+  return { dir };
+}
+
 /** V5+ local-realm 路由：本地範疇 atom 物理落 _AIDocs/_atoms/<domain_path>/。
  *  realm 由 index path 前綴推導（不存欄位）。索引仍在 memory/_atom_index.json。
  *  domain 支援多段階層路徑（"OS/Windows/WSL"，mkdir-p 全鏈）；空/全非法 → DEFAULT。
@@ -319,7 +347,7 @@ function applyLocalRouting(domain) {
 module.exports = {
   classifyRealm, slugify, findSeparatorVariant, findProjectRoot, getCurrentUser,
   isSensitiveAudience, resolveMemDir, isRegisteredFailuresStem, applyFeedbackRouting,
-  cleanRealmSegment, applyLocalRouting,
+  cleanRealmSegment, applyLocalRouting, resolveSubdirTarget,
   FAILURES_DIR, FAILURES_REL, FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR,
   LOCAL_REALM_DOMAINS, LOCAL_REALM_DEFAULT_DOMAIN,
 };
