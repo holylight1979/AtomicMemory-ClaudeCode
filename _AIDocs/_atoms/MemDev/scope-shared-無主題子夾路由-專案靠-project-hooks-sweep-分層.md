@@ -6,6 +6,8 @@
 - Trigger: scope=shared, 主題子夾, 專案 atom 分層, _resolve_target, project_hooks, classify-project-atoms, _unclassified, shared 扁平落根, project delegate hook, 專案記憶分類, atom_write append 失敗, Atom not found, locate_existing_atom, 落點 vs 定位, subdir atom, subdir, scope 沿用, atom-move scope, memory/projects 分區, trigger 長度
 - Created-at: 2026-06-26
 
+- Related: auto-capture碎片sweep污染詞庫-defer根治, realm-範疇分區機制-v5, 專案等級-mcpskillhookslog-不放全域根層
+
 ## 知識
 
 - [臨] **落點規則**：`lib/atom_io.py:_resolve_target` 對 realm=local（→ `_AIDocs/_atoms/<domain>/`）與 feedback-（→ `_AIDocs/Failures/`）做物理子夾路由；scope=shared 預設扁平落 `shared/`，另可用 `subdir` 參數（**相對 memory root**、僅 scope=shared、僅影響 create 落點）一次寫到 `memory/projects/<專案名>/` 等分區；逐段 `_clean_segment` 沙盒化，personal/roles/episodic 等保護段拒絕（py `project_subdir_target` / js `resolveSubdirTarget` 鏡像）。敏感 audience → `_pending_review` 路由優先於 subdir。auto-capture 草稿另由 extract-worker._flush_route 隔離到 `shared/_drafts/auto-capture/`。
