@@ -6,6 +6,8 @@
 - Trigger: atom_edit_meta, atom-heal, broken_refs, 專案層 atom, trigger 編輯, file not under, L2 自癒, 死連結修復, sync-atom-index, --fix, --memory-dir, mirror 重生
 - Created-at: 2026-08-04
 
+- Related: realm-範疇分區機制-v5, 取用端稽核與瘦身規範-atomaudit與3kb預算
+
 ## 知識
 
 - [臨] `atom-heal.py`（L2 死連結自癒）仍寫死全域根（`ahc.MEMORY_ROOT`，無 CLI 覆寫參數）→ 對專案層 atom 一律回「找不到此 atom」。專案層死連結只能手修：逐顆查正主名（多數是錯字／改名級：底線 vs 連字號、漏字母、舊短名），再用 `atom_edit_meta` 換 Related 整行。

@@ -84,3 +84,7 @@
 | guardian-警告訊息辨識度-emoji-前綴分流 | _AIDocs/_atoms/MemDev/guardian-警告訊息辨識度-emoji-前綴分流.md | 警告辨識度, systemMessage, emoji 前綴, ⛔, ⚠️, Guardian 警告, CoordWarn, PreActionNotice, 警告樣式, 字體放大 | global |
 | winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog | memory/winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog.md | FolderBrowserDialog, Multiselect, 多選資料夾, IFileOpenDialog, WinForms, net8.0-windows, 資料夾選擇 | global |
 | 衝突偵測-block-資格閘-複驗一致-分區感知-待審出路 | _AIDocs/_atoms/MemDev/衝突偵測-block-資格閘-複驗一致-分區感知-待審出路.md | conflict detector, 衝突偵測, CONTRADICT, write-check, _pending_review, 待審, conflict-review, /conflict pending, 跨專案誤報, 偵測不穩定, skip_conflict_check, 分區感知 | global |
+| commit-前必須核對-staged-清單而非只信自己-add-了什麼 | memory/commit-前必須核對-staged-清單而非只信自己-add-了什麼.md | git diff --cached, staged 清單, commit 前核對, 誤提交, 別的 session 的檔 | global |
+| minimal-hosting-下-configuretestservices-靜默失效 | memory/minimal-hosting-下-configuretestservices-靜默失效.md | ConfigureTestServices, WebApplicationFactory, TestServer, ConfigureWebHostBuilder, GenericWebHostBuilder, minimal hosting, UseTestServer, builder.WebHost, 測試 override 沒生效, ASP.NET Core 整合測試 | global |
+| sed-i-在-crlf-repo-會整檔改換行 | memory/sed-i-在-crlf-repo-會整檔改換行.md | sed -i, CRLF, LF, gitattributes, eol=crlf, 換行差異, 批改多檔, git status 多出檔, autocrlf, 機械式取代 | global |
+| 目標展開與收斂-立體菱形體思考模型 | memory/目標展開與收斂-立體菱形體思考模型.md | 收束, 收斂, 菱形體, 報告結構, 研究報告, 展開, 尾端, 結尾收尾, 落地, 回應形狀, 亮線 | global |

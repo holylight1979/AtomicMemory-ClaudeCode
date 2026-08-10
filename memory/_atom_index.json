@@ -1415,6 +1415,70 @@
         "分區感知"
       ],
       "scope": "global"
+    },
+    {
+      "name": "commit-前必須核對-staged-清單而非只信自己-add-了什麼",
+      "path": "memory/commit-前必須核對-staged-清單而非只信自己-add-了什麼.md",
+      "triggers": [
+        "git diff --cached",
+        "staged 清單",
+        "commit 前核對",
+        "誤提交",
+        "別的 session 的檔"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "minimal-hosting-下-configuretestservices-靜默失效",
+      "path": "memory/minimal-hosting-下-configuretestservices-靜默失效.md",
+      "triggers": [
+        "ConfigureTestServices",
+        "WebApplicationFactory",
+        "TestServer",
+        "ConfigureWebHostBuilder",
+        "GenericWebHostBuilder",
+        "minimal hosting",
+        "UseTestServer",
+        "builder.WebHost",
+        "測試 override 沒生效",
+        "ASP.NET Core 整合測試"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "sed-i-在-crlf-repo-會整檔改換行",
+      "path": "memory/sed-i-在-crlf-repo-會整檔改換行.md",
+      "triggers": [
+        "sed -i",
+        "CRLF",
+        "LF",
+        "gitattributes",
+        "eol=crlf",
+        "換行差異",
+        "批改多檔",
+        "git status 多出檔",
+        "autocrlf",
+        "機械式取代"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "目標展開與收斂-立體菱形體思考模型",
+      "path": "memory/目標展開與收斂-立體菱形體思考模型.md",
+      "triggers": [
+        "收束",
+        "收斂",
+        "菱形體",
+        "報告結構",
+        "研究報告",
+        "展開",
+        "尾端",
+        "結尾收尾",
+        "落地",
+        "回應形狀",
+        "亮線"
+      ],
+      "scope": "global"
     }
   ]
 }

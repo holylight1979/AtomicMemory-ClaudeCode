@@ -19,6 +19,10 @@
 | 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | 併發 session 共用工作樹-收尾選擇性 staging 勿 git add -A |
 | winget-升不動-powershell-msi-與-msix-通道分裂 | winget 升不動 PowerShell — MSI 與 MSIX 通道分裂 |
 | winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog | WinForms 多選資料夾 — .NET 8 無 Multiselect 須走 IFileOpenDialog |
+| commit-前必須核對-staged-清單而非只信自己-add-了什麼 | commit 前必須核對 staged 清單而非只信自己 add 了什麼 |
+| minimal-hosting-下-configuretestservices-靜默失效 | minimal hosting 下 ConfigureTestServices 靜默失效 |
+| sed-i-在-crlf-repo-會整檔改換行 | sed -i 在 CRLF repo 會整檔改換行 |
+| 目標展開與收斂-立體菱形體思考模型 | 目標展開與收斂-立體菱形體思考模型 |
 | feedback-* | 行為校正（12 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
