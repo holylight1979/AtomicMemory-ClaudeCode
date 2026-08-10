@@ -719,7 +719,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         state["stop_blocked_count"] = stop_count + 1
         sev = aec.get("severity", "notable")
         fb = [
-            f"[Guardian:AEC] HUD 不可達，{sev} 收尾檢核 fallback 回 chat（不 fail-silent）："
+            f"[Guardian:AEC] HUD 視窗未開啟，{sev} 收尾檢核改回 chat 呈現（不 fail-silent）："
         ]
         for _k, _label in (("a", "(a) 缺失修補"), ("b", "(b) 逃避通報")):
             _v = (aec.get(_k) or "").strip()
