@@ -1479,6 +1479,22 @@
         "亮線"
       ],
       "scope": "global"
+    },
+    {
+      "name": "mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口",
+      "path": "_AIDocs/_atoms/OS/Windows/mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口.md",
+      "triggers": [
+        "mcp.json",
+        "MCP 雙開",
+        "MCP 行程重複",
+        "scope 優先序",
+        "user scope",
+        "project scope",
+        "黑窗",
+        "閃 console",
+        "claude mcp add"
+      ],
+      "scope": "global"
     }
   ]
 }

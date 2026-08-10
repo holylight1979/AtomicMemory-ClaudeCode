@@ -6,6 +6,7 @@
 
 | Atom | 說明 |
 |------|------|
+| mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口 | mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口 |
 | windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags | Windows CC hook 閃 console — pythonw 修 layer-1，勿只補巢狀 creationflags |
 
 ## 子層
