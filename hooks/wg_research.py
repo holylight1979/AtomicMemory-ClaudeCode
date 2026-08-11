@@ -3,11 +3,15 @@
 UPS handler 偵測「知識檢索型」請求（幫我查 / 搜索 / 我想知道 / 研究一下），
 注入兩階段 fan-out SOP 提示。
 
-為什麼獨立於 wg_parallel：
-  - wg_parallel 以「切面數」計分（多目標 / 多檔 / 批量詞），且 `_is_pure_question`
-    會主動濾掉「什麼是 X」「為什麼 Y」開頭的 prompt。
-  - 但研究型請求恰好相反：**單一問題也值得 fan-out**（同一問題的多個檢索角度），
-    且句型多半就是被濾掉的那種純問句。兩者判準互斥，故分模組。
+為什麼獨立於 wg_parallel（實測依據，勿憑印象合併）：
+  - wg_parallel 的計分維度只有連接詞 / 批量詞 / 跨目標動詞 / 多檔提及 —— 檢索意圖
+    不在其中任何一維。實測「幫我搜索 X 的差別」「我想知道 A 跟 B 選型」score 皆為
+    **0**，永遠過不了 min_score 門檻。這是它對檢索型全啞的真正原因。
+  - （次要）`_is_pure_question` 另會濾掉「什麼是 X」「為什麼 Y」**開頭**的無動詞
+    純問句；那類本模組也不接管（無檢索動詞），故非本模組的存在理由。
+  - 根本差異：wg_parallel 的並行價值定義是「多個目標」，檢索型的價值是「同一問題
+    的多個檢索角度」——單一目標也值得 fan-out。兩者判準互斥，故分模組而非放寬門檻
+    （放寬會讓所有單目標 prompt 誤觸發並行建議）。
 
 輸出兩種模式（互斥）：
   - knowledge：外部知識/技術問題 → 兩階段（關鍵字擴充 → 記憶庫+網路併搜）
@@ -21,7 +25,8 @@ UPS handler 偵測「知識檢索型」請求（幫我查 / 搜索 / 我想知�
 Config (workflow/config.json `research_fanout`):
   - enabled: bool
   - cooldown_turns: int (default 2)
-  - min_prompt_chars: int (default 8)
+  - min_prompt_chars: int (default 5) —— 中文密度高，「幫我查最佳實踐」僅 7 字元即
+    是完整請求；檢索動詞已是必要條件，長度門檻只需擋住「查」這類單詞殘句。
 """
 
 from __future__ import annotations
@@ -157,7 +162,7 @@ def detect_research_fanout(
     if not cfg.get("enabled", True):
         return None
 
-    if len(prompt.strip()) < cfg.get("min_prompt_chars", 8):
+    if len(prompt.strip()) < cfg.get("min_prompt_chars", 5):
         return None
     if _is_skip(prompt):
         return None

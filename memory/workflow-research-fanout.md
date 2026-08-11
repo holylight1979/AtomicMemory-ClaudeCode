@@ -9,34 +9,32 @@
 
 ## 知識
 
-- ### 為什麼檢索型請求要單獨判準
-- [臨] `wg_parallel` 以「切面數」計分（多目標/多檔/批量詞），且 `_is_pure_question` 主動濾掉「什麼是 X」「為什麼 Y」開頭 prompt — 檢索型請求正是那種句型，靠 parallel 機制永遠不觸發
-- [臨] 檢索型的並行價值不在「多個目標」，在「同一問題的多個檢索角度」：單一問題也值得 fan-out
-- [臨] `hooks/wg_research.py` 補這個缺口：偵測檢索動詞 → 判 knowledge / codebase 兩模式 → 注入 `[Research:Fanout]`；命中時抑制 `[Parallel:Suggest]` 避免重複佔位
+- ### 為什麼單獨分模組（實測依據）
+- [臨] 檢索意圖不在 `wg_parallel` 的任一計分維度（連接詞/批量詞/跨目標動詞/多檔）。實測「幫我搜索 X 的差別」等 score 皆 **0** — 這才是它對檢索型全啶的原因
+- [臨] 曾誤寫主因為 `_is_pure_question` 濾掉純問句，實測推翻：那只對「什麼是 X」開頭的無動詞句生效，而那類 research 也不接管
+- [臨] 並行價值定義不同：parallel＝「多個目標」，research＝「同一問題的多個檢索角度」（單目標也值得 fan-out）。放寬 parallel 門檻會讓所有單目標 prompt 誤觸發
+- [臨] 中文密度高：`min_prompt_chars` 設 5（「幫我查最佳實踐」僅 7 字元即完整請求；沿用 parallel 的 15 會擋掉合法短請求）
 - 
 - ### 兩階段 SOP（knowledge 模式）
-- [臨] Stage A 關鍵字擴充：1-2 agent，任務＝術語同義詞 + 中文↔英文對應 + 上下位概念 + 常見誤稱，一路查網路確認業界實際用語；回報格式限「純關鍵字清單」
-- [臨] Stage B 併搜：帶 Stage A 全部關鍵字，同 message dispatch ≥2 agent — 一路掃原子記憶庫/_AIDocs（既有結論優先，命中就別重查），一路 WebSearch/WebFetch 補外部最新
-- [臨] A→B 是**真序列依賴**（B 的 prompt 要 A 產出的關鍵字），無法 pipeline；故 A 必須輕（agent 少、回報短），並行主力放 Stage B
-- [臨] Stage A 只開 1-2 個而非「幾個」：關鍵字擴充是低分歧一次性工作，多開只增 barrier 等待，不增品質
-- [臨] 中文↔英文術語橋是 Stage A 的真正價值點 — 本地 atom 庫是中文、外部知識以英文為主，缺這層對應會兩邊都搜不到
+- [臨] Stage A 關鍵字擴充：1-2 agent，產出同義詞 + 中↔英對應 + 上下位概念 + 常見誤稱；回報限純關鍵字清單
+- [臨] Stage B 併搜：帶全部關鍵字，同 message dispatch ≥2 agent — 一路掃記憶庫/_AIDocs（既有結論優先），一路 WebSearch 補外部
+- [臨] A→B 是**真序列依賴**（B 要 A 的關鍵字）無法 pipeline；故 A 必須輕，並行主力放 B。Stage A 只開 1-2 個：低分歧一次性工作，多開只增 barrier 等待
+- [臨] 中↔英術語橋是 Stage A 真正價值點 — 本地 atom 庫中文、外部知識英文，缺這層兩邊都搜不到
 - 
-- ### codebase 模式（本地程式碼定位）
-- [臨] 訊號：「在哪個檔」「誰呼叫」「這個函式」或明示檔名/路徑 → 單階段，dispatch ≥2 個 `Explore` agent，各給不同命名慣例/目錄切面
-- [臨] 不需 Stage A 關鍵字擴充、不需 WebSearch — 本地 symbol 名是精確的，擴充只會引入噪音
+- ### codebase 模式
+- [臨] 訊號：「在哪個檔」「誰呼叫」或明示檔名 → 單階段 dispatch ≥2 個 `Explore`，各給不同命名慣例切面；不需關鍵字擴充與 WebSearch（本地 symbol 精確，擴充只引噪音）
 - 
-- ### 不該 fan-out 的情況
-- [臨] 記憶庫/`_AIDocs` 已有結論的問題：直接引用，禁重掃（核心規則「已有文件直接引用」）
-- [臨] 使用者在描述問題/思考出聲而非要檢索 → 交付物是評估不是搜尋結果
-- [臨] 答案在當前 context 已具備：fan-out 只是把已知的東西再繞一圈
+- ### 不該 fan-out
+- [臨] 記憶庫/`_AIDocs` 已有結論 → 直接引用禁重掃；使用者在思考出聲而非要檢索 → 交付物是評估；答案已在當前 context → fan-out 只是繞圈
 - 
-- ### 注入層次
-- [臨] rules/core.md 原則 → 本 atom 手冊 → `wg_research.py` 即時推播；同 `workflow-parallel-agents` 的三層慣例
-- [臨] 開關：`workflow/config.json` → `research_fanout.enabled`；cooldown 2 turns（追問時已在流程內，不重複提醒）
+- ### 回歸防線
+- [臨] rules/core.md 原則 → 本 atom 手冊 → `wg_research.py` 推播（同 parallel 三層慣例）；開關 `research_fanout.enabled`
+- [臨] `hooks/verify/verify_research_fanout.py` 21 綠釘住：兩模式分流、6 反例不誤觸發、cooldown、kill switch、以及「parallel 對檢索型恆 0 分」這個分模組前提
 
 ## 行動
 
-- 看到 `[Research:Fanout] knowledge` → 先跑 Stage A 關鍵字擴充（1-2 agent，回純清單），再帶關鍵字 dispatch Stage B 併搜
-- 看到 `[Research:Fanout] codebase` → 直接 dispatch ≥2 個 Explore agent，跳過關鍵字擴充與 WebSearch
-- Stage B 前先自問：記憶庫既有結論是否已足夠？足夠就引用不重掃
-- 判定不適合 fan-out 時，在回應裡明說原因（同 parallel 慣例）
+- 看到 `[Research:Fanout] knowledge` → 先跑 Stage A（1-2 agent 回純清單），再帶關鍵字 dispatch Stage B 併搜
+- 看到 `[Research:Fanout] codebase` → 直接 dispatch ≥2 個 Explore，跳過擴充與 WebSearch
+- Stage B 前先自問：記憶庫既有結論是否已足夠？
+- 判定不適合 fan-out 時在回應裡明說原因
+- 改偵測邏輯前先跑 `pytest hooks/verify/verify_research_fanout.py`
