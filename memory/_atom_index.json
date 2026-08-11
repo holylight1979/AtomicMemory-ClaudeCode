@@ -1516,6 +1516,23 @@
         "最佳實踐"
       ],
       "scope": "global"
+    },
+    {
+      "name": "並行agent產出併入交付物必須標驗證強度分層",
+      "path": "memory/並行agent產出併入交付物必須標驗證強度分層.md",
+      "triggers": [
+        "並行agent",
+        "sub-agent",
+        "多agent",
+        "研究成果併入",
+        "查證強度",
+        "逐字引用",
+        "誠實聲明",
+        "二手來源",
+        "文件產出",
+        "subagent 回報"
+      ],
+      "scope": "global"
     }
   ]
 }
