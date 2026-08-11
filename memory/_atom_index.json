@@ -1533,6 +1533,24 @@
         "subagent 回報"
       ],
       "scope": "global"
+    },
+    {
+      "name": "歸因早停-找到合理嫌疑機制就停止驗證",
+      "path": "memory/歸因早停-找到合理嫌疑機制就停止驗證.md",
+      "triggers": [
+        "根因",
+        "歸因",
+        "真因",
+        "為何不觸發",
+        "為什麼失效",
+        "嫌疑機制",
+        "root cause",
+        "因果",
+        "debug 推論",
+        "讀原始碼判斷",
+        "post-mortem"
+      ],
+      "scope": "global"
     }
   ]
 }

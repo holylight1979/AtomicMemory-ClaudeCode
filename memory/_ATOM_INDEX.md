@@ -91,3 +91,4 @@
 | mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口 | _AIDocs/_atoms/OS/Windows/mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口.md | mcp.json, MCP 雙開, MCP 行程重複, scope 優先序, user scope, project scope, 黑窗, 閃 console, claude mcp add | global |
 | workflow-research-fanout | memory/workflow-research-fanout.md | 幫我搜索, 幫我查, 搜索, 搜尋, 查詢, 我想知道, 想了解, 研究一下, 調查一下, 關鍵字擴充, 知識檢索, research fanout, 多 agent 搜尋, 最佳實踐 | global |
 | 並行agent產出併入交付物必須標驗證強度分層 | memory/並行agent產出併入交付物必須標驗證強度分層.md | 並行agent, sub-agent, 多agent, 研究成果併入, 查證強度, 逐字引用, 誠實聲明, 二手來源, 文件產出, subagent 回報 | global |
+| 歸因早停-找到合理嫌疑機制就停止驗證 | memory/歸因早停-找到合理嫌疑機制就停止驗證.md | 根因, 歸因, 真因, 為何不觸發, 為什麼失效, 嫌疑機制, root cause, 因果, debug 推論, 讀原始碼判斷, post-mortem | global |

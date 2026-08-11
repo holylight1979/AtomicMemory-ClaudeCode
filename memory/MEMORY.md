@@ -25,6 +25,7 @@
 | 目標展開與收斂-立體菱形體思考模型 | 目標展開與收斂-立體菱形體思考模型 |
 | workflow-research-fanout | workflow-research-fanout |
 | 並行agent產出併入交付物必須標驗證強度分層 | 並行agent產出併入交付物必須標驗證強度分層 |
+| 歸因早停-找到合理嫌疑機制就停止驗證 | 歸因早停-找到合理嫌疑機制就停止驗證 |
 | feedback-* | 行為校正（12 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
