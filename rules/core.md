@@ -27,3 +27,4 @@
 - 獨立子任務可新開對話；拆分前確保知識已存入
 - 段落完成即存；Token 快上限時優先存檔；Context 壓縮即將發生 → 提醒開新 session；/resume → /continue
 - 多 agent 並行：任務**明確要求**或**明顯受益**（多個互不衝突的獨立切面）才評估拆，不每 prompt 硬掃。判準見 [[workflow-parallel-agents]]
+- 知識檢索型請求（幫我查/搜索/我想知道/研究一下）：預設兩階段 fan-out — Stage A 關鍵字擴充（含中↔英術語橋）→ Stage B 記憶庫+網路併搜；本地程式碼定位型則單階段 Explore fan-out。判準見 [[workflow-research-fanout]]

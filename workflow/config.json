@@ -189,6 +189,12 @@
     "cooldown_turns": 3,
     "min_prompt_chars": 15
   },
+  "research_fanout": {
+    "_doc": "知識檢索型 prompt（幫我查/搜索/我想知道）偵測 → 注入兩階段 fan-out SOP。命中時抑制 parallel_agents 提示避免重複。一鍵關 = enabled:false。",
+    "enabled": true,
+    "cooldown_turns": 2,
+    "min_prompt_chars": 8
+  },
   "changelog_auto_roll": {
     "enabled": true,
     "threshold": 8

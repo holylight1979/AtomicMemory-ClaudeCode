@@ -1495,6 +1495,27 @@
         "claude mcp add"
       ],
       "scope": "global"
+    },
+    {
+      "name": "workflow-research-fanout",
+      "path": "memory/workflow-research-fanout.md",
+      "triggers": [
+        "幫我搜索",
+        "幫我查",
+        "搜索",
+        "搜尋",
+        "查詢",
+        "我想知道",
+        "想了解",
+        "研究一下",
+        "調查一下",
+        "關鍵字擴充",
+        "知識檢索",
+        "research fanout",
+        "多 agent 搜尋",
+        "最佳實踐"
+      ],
+      "scope": "global"
     }
   ]
 }

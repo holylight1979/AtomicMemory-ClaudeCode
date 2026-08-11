@@ -89,3 +89,4 @@
 | sed-i-在-crlf-repo-會整檔改換行 | memory/sed-i-在-crlf-repo-會整檔改換行.md | sed -i, CRLF, LF, gitattributes, eol=crlf, 換行差異, 批改多檔, git status 多出檔, autocrlf, 機械式取代 | global |
 | 目標展開與收斂-立體菱形體思考模型 | memory/目標展開與收斂-立體菱形體思考模型.md | 收束, 收斂, 菱形體, 報告結構, 研究報告, 展開, 尾端, 結尾收尾, 落地, 回應形狀, 亮線 | global |
 | mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口 | _AIDocs/_atoms/OS/Windows/mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口.md | mcp.json, MCP 雙開, MCP 行程重複, scope 優先序, user scope, project scope, 黑窗, 閃 console, claude mcp add | global |
+| workflow-research-fanout | memory/workflow-research-fanout.md | 幫我搜索, 幫我查, 搜索, 搜尋, 查詢, 我想知道, 想了解, 研究一下, 調查一下, 關鍵字擴充, 知識檢索, research fanout, 多 agent 搜尋, 最佳實踐 | global |
