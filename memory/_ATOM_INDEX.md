@@ -92,3 +92,11 @@
 | workflow-research-fanout | memory/workflow-research-fanout.md | 幫我搜索, 幫我查, 搜索, 搜尋, 查詢, 我想知道, 想了解, 研究一下, 調查一下, 關鍵字擴充, 知識檢索, research fanout, 多 agent 搜尋, 最佳實踐 | global |
 | 並行agent產出併入交付物必須標驗證強度分層 | memory/並行agent產出併入交付物必須標驗證強度分層.md | 並行agent, sub-agent, 多agent, 研究成果併入, 查證強度, 逐字引用, 誠實聲明, 二手來源, 文件產出, subagent 回報 | global |
 | 歸因早停-找到合理嫌疑機制就停止驗證 | memory/歸因早停-找到合理嫌疑機制就停止驗證.md | 根因, 歸因, 真因, 為何不觸發, 為什麼失效, 嫌疑機制, root cause, 因果, debug 推論, 讀原始碼判斷, post-mortem | global |
+| aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token | memory/aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token.md | graceful shutdown, 關閉卡住, ShutdownTimeout, RequestAborted, ApplicationStopping, WebSocket, CloseAsync, Kestrel, StopAsync, IHostApplicationLifetime, 關閉逾時, in-flight request | global |
+| vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現 | memory/vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現.md | vendor, 雜湊不一致, SHA-256, lock 檔, 外部 dll, deterministic build, BaseIntermediateOutputPath, OutputPath, 鎖定檔, 建置可重現 | global |
+| windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring | memory/windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring.md | CredWrite, Credential Manager, 認證管理員, keyring, DPAPI, token 儲存, OAuth token, 保險庫, vault, ProtectedData, 靜默失敗, WindowsCredentialStorage | global |
+| feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問 | _AIDocs/Failures/feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問.md | 上乾淨, 工作樹, 收尾, git status, 未提交, chore commit, 用不到就刪, 選擇性 staging, 殘留檔, 上版, 上GIT | global |
+| feedback-模糊裁示不硬化先深問-決策選項含使用到再問 | _AIDocs/Failures/feedback-模糊裁示不硬化先深問-決策選項含使用到再問.md | 模糊裁示, 硬化, 深問, 使用到的時候才提問, 遞延裁決, 詮釋飄移, 逐字原話, 裁決選項 | global |
+| 混改檔hunk級選擇性staging | memory/混改檔hunk級選擇性staging.md | hunk, 混改檔, 選擇性 staging, git apply, 併發 session, exact-stage | global |
+| atom-write-global必須省略project-cwd | memory/atom-write-global必須省略project-cwd.md | atom_write, scope=global, project_cwd, force_global, global 寫入被拒 | global |
+| 契約加欄位必查手寫映射點-單元綠不代表wire存活 | memory/契約加欄位必查手寫映射點-單元綠不代表wire存活.md | DTO 加欄位, wire parser, 手寫映射, TryParse, 序列化 drift, 契約欄位, E2E 探針, 逐欄重建 | global |

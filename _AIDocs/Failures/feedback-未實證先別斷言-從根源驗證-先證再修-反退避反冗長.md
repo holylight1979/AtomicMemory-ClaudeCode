@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: 未證實, 斷言, 必爆, 先證再修, proof-first, show don't tell, 從根源驗證, 對帳, 交接單, 講人話, DB 鍵, 計畫 checklist
 - Created-at: 2026-06-24
-- Related: cognitive-patterns, feedback-workflow-discipline, handoff-綜觀品質與抗失真寫法, feedback-rigor-standards, feedback-completion-gates, feedback-complexity-origin-trace, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值, codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺, winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog, 目標展開與收斂-立體菱形體思考模型, 並行agent產出併入交付物必須標驗證強度分層
+- Related: cognitive-patterns, feedback-workflow-discipline, handoff-綜觀品質與抗失真寫法, feedback-rigor-standards, feedback-completion-gates, feedback-complexity-origin-trace, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值, codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺, winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog, 目標展開與收斂-立體菱形體思考模型, 並行agent產出併入交付物必須標驗證強度分層, 歸因早停-找到合理嫌疑機制就停止驗證, aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token
 
 ## 知識
 

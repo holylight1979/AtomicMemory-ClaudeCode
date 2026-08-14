@@ -4,7 +4,7 @@
 > 最近更新：2026-05-28（feedback-* atoms 遷入 + cognitive-patterns 升 atom）
 
 > **本目錄含兩類**：
-> - **atom（受原子記憶體系管轄）**：`cognitive-patterns.md` + `feedback-*.md`（9 檔）+ `memory-pipeline-silent-failure-2026-05.md` — 印象在 [MEMORY.md](../../memory/MEMORY.md)，認知本體在此
+> - **atom（受原子記憶體系管轄）**：`cognitive-patterns.md` + `feedback-*.md`（14 檔）+ `memory-pipeline-silent-failure-2026-05.md` — 印象在 [MEMORY.md](../../memory/MEMORY.md)，認知本體在此
 > - **參考文件（非 atom）**：其餘 7 檔失敗模式（env-traps / wrong-assumptions / silent-failures / misdiagnosis-* / codex-* / vectordb-*）
 
 ---

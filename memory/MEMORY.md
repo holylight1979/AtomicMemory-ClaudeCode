@@ -26,7 +26,13 @@
 | workflow-research-fanout | workflow-research-fanout |
 | 並行agent產出併入交付物必須標驗證強度分層 | 並行agent產出併入交付物必須標驗證強度分層 |
 | 歸因早停-找到合理嫌疑機制就停止驗證 | 歸因早停-找到合理嫌疑機制就停止驗證 |
-| feedback-* | 行為校正（12 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
+| aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token | aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token |
+| vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現 | vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現 |
+| windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring |
+| 混改檔hunk級選擇性staging | 混改檔hunk級選擇性staging |
+| atom-write-global必須省略project-cwd | atom-write-global必須省略project-cwd |
+| 契約加欄位必查手寫映射點-單元綠不代表wire存活 | 契約加欄位必查手寫映射點-單元綠不代表wire存活 |
+| feedback-* | 行為校正（14 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
 

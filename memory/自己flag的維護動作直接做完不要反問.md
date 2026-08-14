@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: 反問, 要不要我, 該做就做, follow-through
 - Created-at: 2026-06-17
-- Related: feedback-workflow-discipline, feedback-completion-gates, 模型行為移植-fable行為契約必載檔
+- Related: feedback-workflow-discipline, feedback-completion-gates, 模型行為移植-fable行為契約必載檔, feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, feedback-模糊裁示不硬化先深問-決策選項含使用到再問
 
 ## 知識
 

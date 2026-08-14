@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: codex, codex companion, codex CLI, gpt-5, bg subprocess, DEVNULL, ready flag, subprocess Popen, MCP, 安裝 MCP, 安裝 skill, silent failure, probe burst, 規則唯一來源
 - Created-at: 2026-05-26
-- Related: feedback-completion-gates, feedback-memory-system-doc-sync, feedback-workflow-discipline, atom-table-support, cc-能力查證反編譯實跑-binary, codex-log-bloat-analytics, atom-元資料編輯與晉升閘真相, guardian-dashboard-孤兒佔埠與新碼重啟, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺
+- Related: feedback-completion-gates, feedback-memory-system-doc-sync, feedback-workflow-discipline, atom-table-support, cc-能力查證反編譯實跑-binary, codex-log-bloat-analytics, atom-元資料編輯與晉升閘真相, guardian-dashboard-孤兒佔埠與新碼重啟, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags, write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺, atom-write-global必須省略project-cwd
 
 ## 知識
 

@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 幫我搜索, 幫我查, 搜索, 搜尋, 查詢, 我想知道, 想了解, 研究一下, 調查一下, 關鍵字擴充, 知識檢索, research fanout, 多 agent 搜尋, 最佳實踐
 - Created-at: 2026-08-11
-- Related: workflow-parallel-agents, workflow-rules, decisions
+- Related: workflow-parallel-agents, workflow-rules, decisions, 歸因早停-找到合理嫌疑機制就停止驗證
 
 ## 知識
 
