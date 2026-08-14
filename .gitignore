@@ -68,6 +68,7 @@ policy-limits.json
 
 # ─── Codex Companion runtime state ────────────────────────
 workflow/companion-state-*.json
+workflow/companion-state-*.tmp
 workflow/companion-assessment-*.json
 workflow/companion-metrics-*.json
 workflow/companion-backend.json
