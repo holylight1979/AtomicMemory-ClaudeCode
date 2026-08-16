@@ -32,6 +32,7 @@
 | 混改檔hunk級選擇性staging | 混改檔hunk級選擇性staging |
 | atom-write-global必須省略project-cwd | atom-write-global必須省略project-cwd |
 | 契約加欄位必查手寫映射點-單元綠不代表wire存活 | 契約加欄位必查手寫映射點-單元綠不代表wire存活 |
+| 汰舊刪腳本要-grep-全-repo-實際呼叫點 | 汰舊刪腳本要 grep 全 repo 實際呼叫點 |
 | feedback-* | 行為校正（14 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |

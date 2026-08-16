@@ -30,7 +30,7 @@
 | cc-能力查證反編譯實跑-binary | _AIDocs/_atoms/Tools/cc-能力查證反編譯實跑-binary.md | CC 版本, hook event, 查證, 反編譯, claude binary, docs 幻覺, 版本分裂, WebFetch, capability, PostCompact, PostToolBatch | global |
 | codex-log-bloat-analytics | _AIDocs/_atoms/Tools/codex-log-bloat-analytics.md | codex, logs_2.sqlite, 日誌暴量, analytics, OTEL, app-server, codex 崩潰, codex 卡頓, --analytics-default-enabled | global |
 | atom-元資料編輯與晉升閘真相 | _AIDocs/_atoms/MemDev/atom-元資料編輯與晉升閘真相.md | edit_metadata, atom 元資料編輯, atom_edit_meta, trigger 裁減, 改 trigger, atom 晉升, ReadHits, usefulness, 晉升閘, access.json, sidecar, 行尾損壞 | global |
-| guardian-dashboard-孤兒佔埠與新碼重啟 | _AIDocs/_atoms/MemDev/guardian-dashboard-孤兒佔埠與新碼重啟.md | guardian, server.js, 3848, dashboard, 重啟, 孤兒, 孤兒預防, stdin, EOF, EADDRINUSE, 新路由 404, relinquish, creature-chat, world.html | global |
+| guardian-dashboard-孤兒佔埠與新碼重啟 | _AIDocs/_atoms/MemDev/guardian-dashboard-孤兒佔埠與新碼重啟.md | guardian, server.js, 3848, dashboard, 重啟, 孤兒, stdin, EOF, EADDRINUSE, 新路由 404, relinquish, world.html, WG_DASHBOARD_PORT, 隔離埠, lib 改動 | global |
 | realm-範疇分區機制-v5 | _AIDocs/_atoms/MemDev/MemoryIndex/realm-範疇分區機制-v5.md | realm, 範疇分區, 核心非核心, local atom, _AIDocs/_atoms, 注入閘門, atom 物理位置, promote fallback, wg_core bootstrap, 記憶系統 | global |
 | wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除 | _AIDocs/_atoms/OS/Windows/WSL/wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除.md | WSL, WSL2, WSL1, 0x80070569, ERROR_LOGON_TYPE_NOT_GRANTED, 以服務方式登入, SeServiceLogonRight, Log on as a service, S-1-5-83-0, 網域GPO, vhdx, ext4, 7z救援, OOBE卡住, Provisioning卡住, wsl移除, unregister, Remove-Item hook | global |
 | windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags | _AIDocs/_atoms/OS/Windows/windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags.md | 閃 console, console 視窗, hook 閃窗, MCP 閃窗, 黑窗, pythonw, venv pythonw, CREATE_NO_WINDOW, Windows hook, settings.json hook, GUI subsystem, subsystem, 視窗標題, WindowsTerminal, Embedding, console host, run-hidden, GetStdHandle, STARTUPINFO, MCP server 閃窗 | global |
@@ -100,3 +100,4 @@
 | 混改檔hunk級選擇性staging | memory/混改檔hunk級選擇性staging.md | hunk, 混改檔, 選擇性 staging, git apply, 併發 session, exact-stage | global |
 | atom-write-global必須省略project-cwd | memory/atom-write-global必須省略project-cwd.md | atom_write, scope=global, project_cwd, force_global, global 寫入被拒 | global |
 | 契約加欄位必查手寫映射點-單元綠不代表wire存活 | memory/契約加欄位必查手寫映射點-單元綠不代表wire存活.md | DTO 加欄位, wire parser, 手寫映射, TryParse, 序列化 drift, 契約欄位, E2E 探針, 逐欄重建 | global |
+| 汰舊刪腳本要-grep-全-repo-實際呼叫點 | memory/汰舊刪腳本要-grep-全-repo-實際呼叫點.md | 汰舊, 刪除腳本, 清理舊檔, 死連結, deprecate, 移除檔案, 檔案改名 | global |

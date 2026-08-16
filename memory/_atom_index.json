@@ -439,14 +439,15 @@
         "dashboard",
         "重啟",
         "孤兒",
-        "孤兒預防",
         "stdin",
         "EOF",
         "EADDRINUSE",
         "新路由 404",
         "relinquish",
-        "creature-chat",
-        "world.html"
+        "world.html",
+        "WG_DASHBOARD_PORT",
+        "隔離埠",
+        "lib 改動"
       ],
       "scope": "global"
     },
@@ -1677,6 +1678,20 @@
         "契約欄位",
         "E2E 探針",
         "逐欄重建"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "汰舊刪腳本要-grep-全-repo-實際呼叫點",
+      "path": "memory/汰舊刪腳本要-grep-全-repo-實際呼叫點.md",
+      "triggers": [
+        "汰舊",
+        "刪除腳本",
+        "清理舊檔",
+        "死連結",
+        "deprecate",
+        "移除檔案",
+        "檔案改名"
       ],
       "scope": "global"
     }
