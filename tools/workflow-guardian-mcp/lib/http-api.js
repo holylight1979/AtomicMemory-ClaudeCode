@@ -173,10 +173,36 @@ function execJson(cmd, opts = {}) {
   });
 }
 
+// run_verify.py --json 的 schema 與 dashboard 前端契約不同：前者 {total,passed,failed,
+// errors,skipped,cases:[{id,outcome,duration_s,message}]}，後者吃 {passed,failed,skipped,
+// total,results:[{name,passed,skipped,duration_ms,message}]}。映射在此，前端不動。
+// errors（setup/teardown 失敗）併入 failed——對使用者而言同樣是「沒過」。
+function mapVerifyToDashboard(v) {
+  const cases = Array.isArray(v && v.cases) ? v.cases : [];
+  return {
+    passed: (v && v.passed) || 0,
+    failed: ((v && v.failed) || 0) + ((v && v.errors) || 0),
+    skipped: (v && v.skipped) || 0,
+    total: (v && v.total) || cases.length,
+    results: cases.map((c) => ({
+      name: c.id,
+      passed: c.outcome === "passed",
+      skipped: c.outcome === "skipped",
+      duration_ms: Math.round((c.duration_s || 0) * 1000),
+      message: c.message || null,
+    })),
+  };
+}
+
 const testRunner = makeJobRunner({ maxConcurrent: 1, ttlMs: 300000 });
 function apiTestRunStart(req, res) {
-  const scriptPath = path.join(TOOLS_DIR, "test-memory-v21.py");
-  const r = testRunner.start(() => execJson(pyCmd(scriptPath, "--json"), { timeout: 120000 }));
+  // V5 統一 verify 入口（hooks/tools/lib/skills 各層 verify/）；舊 tools/test-memory-v21.py
+  // 已於 V5 Wave 5 汰除，此處為當時漏改的呼叫點。1400 餘案 JSON 約 300 KB → 放大 maxBuffer。
+  const scriptPath = path.join(CLAUDE_DIR, "run_verify.py");
+  const r = testRunner.start(() =>
+    execJson(pyCmd(scriptPath, "--json"), { timeout: 180000, maxBuffer: 32 * 1024 * 1024 })
+      .then(mapVerifyToDashboard)
+  );
   if (!r.ok) return jsonRes(res, 409, { error: "test already running" });
   jsonRes(res, 202, { job_id: r.id, status: "running" });
 }
