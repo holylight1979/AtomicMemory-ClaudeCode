@@ -6,6 +6,8 @@
 - Trigger: guardian, server.js, 3848, dashboard, 重啟, 孤兒, stdin, EOF, EADDRINUSE, 新路由 404, relinquish, world.html, WG_DASHBOARD_PORT, 隔離埠, lib 改動
 - Created-at: 2026-06-02
 
+- Related: toolchain, feedback-tooling-reliability, anti-evasion-hud-設計脊柱與強化前必讀, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房, 巨檔純機械拆分-carve腳本與驗證盲點, 跨session協調-衝突預警機制與cc原生現況
+
 ## 知識
 
 - [觀] 架構：server.js 一進程雙職——各 session spawn 的 stdio MCP + 綁 127.0.0.1:3848 的 HTTP dashboard，埠只一進程佔；回收佔埠者可能同時砍掉某活躍 session 的 atom 工具。

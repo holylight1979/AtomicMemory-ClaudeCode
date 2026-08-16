@@ -19,6 +19,7 @@
 - [觀] 衍生暫存判定 = 工具自動產生 + 無 git track + 無人工填值 + 僅服務當次任務。例：`.pytest_cache/` / `backups/.claude.json.backup.*` / `.playwright-mcp/` / `workflow/companion-*.json` / `workflow/state-*.json` / `_staging/next-phase-*.md`（已執行完者）/ `tmp/` / `downloads/` / `cache/` 內 ad-hoc 檔。**不算**：source code / `_AIDocs/` 知識庫 / `memory/` atom / `workflow/config.json` 等 tracked 設定 / persistent SOP `_staging/next-phase-{name}.md`（檔頭聲明保留者）。
 - [觀] 收尾檢核四項（IDENTITY）：(a) 缺失修補清單必寫 / (b) AI 逃避通報僅發生時寫 / (c) Token 巨量警示僅發生時寫 / (d) 衍生暫存清單必寫。全項必檢視，非擇一。
 - [觀] `plans/{slug}.md`（Plan mode 自動產出，任務完成後）屬衍生暫存：gitignored + 自動產出 + AI 撰寫 + 僅服務當次任務四要件全中 → 預設刪。**禁用「設計慣例 / 訂規保留」等籠統話術自我合理化**；唯一例外：plan 內含長期參考價值的設計決策時，先抽到 `_AIDocs/` 對應目錄再刪 plan，禁原地保留。
+- [觀] 背景任務（測試/build）還在跑時的回合末狀態小結，若用「已落地的改動」條列式寫法會被驗收裁判讀成完成宣稱而擋收尾（2026-08-14 V1 看圖實例）。正解：等得到結果就用 TaskOutput 阻塞等完再續作，不提前結束回合；非結不可時期中報告首句明寫「尚未完成、等候中」且不用完成式句型。
 
 ## 行動
 
