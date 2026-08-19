@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: hunk, 混改檔, 選擇性 staging, git apply, 併發 session, exact-stage
 - Created-at: 2026-08-13
-- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, commit-前必須核對-staged-清單而非只信自己-add-了什麼
+- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, commit-前必須核對-staged-清單而非只信自己-add-了什麼, 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源
 
 ## 知識
 

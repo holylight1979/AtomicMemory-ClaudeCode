@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: DTO 加欄位, wire parser, 手寫映射, TryParse, 序列化 drift, 契約欄位, E2E 探針, 逐欄重建
 - Created-at: 2026-08-13
-- Related: 歸因早停-找到合理嫌疑機制就停止驗證, goal-driven-verify-loopkarpathy-吸收
+- Related: 歸因早停-找到合理嫌疑機制就停止驗證, goal-driven-verify-loopkarpathy-吸收, 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值
 
 ## 知識
 

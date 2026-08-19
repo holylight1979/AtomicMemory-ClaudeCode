@@ -37,6 +37,8 @@
 | winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用 | WinForms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用 |
 | designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰 | Designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰 |
 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 |
+| 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對 | 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對 |
+| 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值 | 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值 |
 | feedback-* | 行為校正（14 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |

@@ -105,3 +105,5 @@
 | winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用 | memory/winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用.md | WinForms, AutoScrollPosition, AutoScrollMinSize, 自繪, Paint, 捲動, scroll, 畫布, isometric, 等距, 命中測試, hit test, 捲到某物 | global |
 | designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰 | memory/designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰.md | WinForms, Designer, InitializeComponent, SelectedIndex, SelectedIndexChanged, 建構式, 啟動就崩潰, exe 起不來, NullReference, 事件處理器, 初始化順序 | global |
 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 | memory/併發session共用的不只工作樹-執行中的應用程式行程也是共用資源.md | 並行 session, 併發 session, Stop-Process, 重啟應用程式, 部署新版, 共用行程, 測試循環, 重啟服務, CoordWarn | global |
+| 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對 | memory/否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對.md | 否證, 假説, 交叉比對, 相關性, 樣本, 受控實驗, 統計, 證據不足, 排除可能, 沒有關聯, 資料不支持 | global |
+| 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值 | memory/弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值.md | 自動推導, 視覺推斷, 啓發式, heuristic, 覆寫, 降級, 狀態寫入, 資訊遺失, 多來源, 快取, 推斷寫回, 自動學習 | global |
