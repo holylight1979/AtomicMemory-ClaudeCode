@@ -101,3 +101,7 @@
 | atom-write-global必須省略project-cwd | memory/atom-write-global必須省略project-cwd.md | atom_write, scope=global, project_cwd, force_global, global 寫入被拒 | global |
 | 契約加欄位必查手寫映射點-單元綠不代表wire存活 | memory/契約加欄位必查手寫映射點-單元綠不代表wire存活.md | DTO 加欄位, wire parser, 手寫映射, TryParse, 序列化 drift, 契約欄位, E2E 探針, 逐欄重建 | global |
 | 汰舊刪腳本要-grep-全-repo-實際呼叫點 | memory/汰舊刪腳本要-grep-全-repo-實際呼叫點.md | 汰舊, 刪除腳本, 清理舊檔, 死連結, deprecate, 移除檔案, 檔案改名 | global |
+| json設定檔已持久化欄位會蓋過程式碼新預設值 | memory/json設定檔已持久化欄位會蓋過程式碼新預設值.md | 設定檔, 預設值, 改預設沒生效, 持久化, 反序列化, 黑名單, 白名單, 遷移, settings.json | global |
+| winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用 | memory/winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用.md | WinForms, AutoScrollPosition, AutoScrollMinSize, 自繪, Paint, 捲動, scroll, 畫布, isometric, 等距, 命中測試, hit test, 捲到某物 | global |
+| designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰 | memory/designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰.md | WinForms, Designer, InitializeComponent, SelectedIndex, SelectedIndexChanged, 建構式, 啟動就崩潰, exe 起不來, NullReference, 事件處理器, 初始化順序 | global |
+| 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 | memory/併發session共用的不只工作樹-執行中的應用程式行程也是共用資源.md | 並行 session, 併發 session, Stop-Process, 重啟應用程式, 部署新版, 共用行程, 測試循環, 重啟服務, CoordWarn | global |

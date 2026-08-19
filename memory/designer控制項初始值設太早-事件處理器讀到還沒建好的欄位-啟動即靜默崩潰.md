@@ -1,0 +1,18 @@
+# Designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰
+
+- Scope: global
+- Author: holylight
+- Confidence: [臨]
+- Trigger: WinForms, Designer, InitializeComponent, SelectedIndex, SelectedIndexChanged, 建構式, 啟動就崩潰, exe 起不來, NullReference, 事件處理器, 初始化順序
+- Created-at: 2026-08-18
+
+## 知識
+
+- [臨] 在 Form 建構式裡給 Designer 控制項設初始值（`comboBox.SelectedIndex = 0`、`checkBox.Checked = x`…）會**立刻觸發它的 Changed 事件**。若該事件處理器讀的欄位還在建構式後面才建（readonly 非 null 型別也一樣），就是 NullReference——而且發生在 UI 起來之前，**畫面什麼都不會顯示**，exe 直接沒跡象，build 又是 0 錯誤，很容易誤判成部署問題。
+- [臨] 兩道防線一起上：① 把「設初始值」移到所有相依欄位建好之後（並在該行旁寫下為什麼不能提前）；② 事件處理器開頭加守衛（`if (SelectedIndex < 0) return;` 或 null 檢查）。只做① 下次重排建構式又會重現。
+- [臨] 診斷手法：WinForms 啟動即死且無視窗時，先檢查建構式裡「跨層讀別的欄位」的行，而不是先懷疑 build 輸出或部署路徑。
+
+## 行動
+
+- 建構式裡的控制項初始值一律排在相依欄位建置之後，且事件處理器自己也要能承受「還沒準備好」
+- WinForms 啟動即死、無錯誤訊息時，先審建構式的初始化順序
