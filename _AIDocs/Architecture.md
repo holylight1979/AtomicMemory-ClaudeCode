@@ -42,11 +42,11 @@
 | `handlers/post_compact.py` | PostCompact：依快照複用 `wg_atoms.load_atoms_within_budget` stash 壓縮前 atom 緊湊內文 + `pending_reinjection` flag（不注入；選配 #4） |
 | `handlers/post_tool_batch.py` | PostToolBatch：idle early-exit；見 flag 一次性 `additionalContext` 重注入 + 清 flag + 名單 merge 回 `injected_atoms`（選配 #4）+ Auto-Handoff Layer 3（合流注入 stub 補全提示） |
 | **主模組 6 + shim 1**（V5 §5）| |
-| `wg_core.py` | 路徑唯一真相 + config/state IO + **token budget 單一來源**（CONTEXT_BUDGET_DEFAULT / TURN_BUDGET_LIMIT / compute_token_budget，2026-06-12 集中；兩估算器口徑見該檔註解）+ log rotation + PreToolUse guards（合 wg_paths + wg_pretool_guards） |
-| `wg_atoms.py` | atom index 解析 + trigger 匹配（any_trigger_hit/count_trigger_hits 共用原語）+ **BM25 全域層** + ACT-R + vector search + atom 晉升（合 wg_intent + wg_iteration atom 晉升部分） |
+| `wg_core.py` | 路徑唯一真相 + config/state IO + **token budget 單一來源**（CONTEXT_BUDGET_DEFAULT / TURN_BUDGET_LIMIT / compute_token_budget，2026-06-12 集中；兩估算器口徑見該檔註解。注意 compute_token_budget 為起始額，build_context 逐段扣減——session context −200、JIT −250——故 `[Context budget: x/y]` 的 y 常見 750/1750/2550 等扣減後值）+ **same_file_3x 覆轍白名單單一來源**（`RUT_FILE_WHITELIST_DEFAULT`/`is_rut_whitelisted`：README/_CHANGELOG/DocIndex-\*/各種 _INDEX/acceptance-\* 等高頻正常改動檔不構成覆轍證據；config `self_iteration.rut_file_whitelist` 覆寫；wg_episodic 生成端、wg_evasion 掃描端、wg_recall_miss 共用，略過必落 atom-debug log）+ log rotation + PreToolUse guards（合 wg_paths + wg_pretool_guards） |
+| `wg_atoms.py` | atom index 解析 + trigger 匹配（any_trigger_hit/count_trigger_hits 共用原語）+ **BM25 全域層** + ACT-R + vector search + atom 晉升（合 wg_intent + wg_iteration atom 晉升部分）+ **最終 budget 裁切寧缺勿截**（`_truncate_context_by_activation`：超支時按 ACT-R activation 低→高犧牲——activation 是近期存取強度、log 尺度天然跨零，**負值≠不相關**（相關性由 trigger/BM25/vector 入場閘把關，故不做分數過濾）；被犧牲者中僅 activation 最高的前 N 顆留一行指標（`injection.truncated_pointer_max`，預設 3），其餘整塊不注入；截斷行不顯示 activation 數值（易誤讀為負相關性，移 atom-debug log）；尾行 budget 標記附 trim 統計） |
 | `wg_extraction.py` | per-turn 萃取 + worker + failure + hot cache + user-extract + content classify（合 wg_user_extract + wg_hot_cache + wg_content_classify） |
-| `wg_episodic.py` | episodic 生成 + 衝突偵測 + 品質回饋（摘要經 `sanitize_harness_noise` 剔 harness 標籤/hook 殘渣；知識段只收 LLM 萃取項 + 覆轍信號，統計歸摘要/閱讀軌跡） |
-| `wg_evasion.py` | Evasion Guard + Test-Fail + ScanReport + 4 套自評整合（合 wg_session_evaluator + wg_iteration 自評部分） |
+| `wg_episodic.py` | episodic 生成 + 衝突偵測 + 品質回饋（摘要經 `sanitize_harness_noise` 剔 harness 標籤/hook 殘渣；知識段只收 LLM 萃取項 + 覆轍信號——same_file_3x 過 `is_rut_whitelisted` 白名單，統計歸摘要/閱讀軌跡） |
+| `wg_evasion.py` | Evasion Guard + Test-Fail + ScanReport + 4 套自評整合（合 wg_session_evaluator + wg_iteration 自評部分；`_detect_rut_patterns` 掃描端同過覆轍白名單——涵蓋白名單上線前既存 episodic 舊信號） |
 | `wg_docdrift.py` | src → _AIDocs 映射 drift 偵測 |
 | `wg_roles.py` | V4 sub-layer 探勘 shim（V4 角色機制） |
 | `wg_coordination.py` | **跨 session 衝突預警**：同檔衝突掃描（唯讀他人 `state-*.json`、entry 級歸屬、oversize/mtime 過濾）+ Bash git 收尾指令偵測（剝引號註解、指令段錨定）+ warn-cache 去重 + per-session observation log。純檔案方案（不依賴 3848 daemon）；warn-only、fail-open。多大師計畫定案：Stage 2 收件匣/Phase 3 認領制 defer，重啟條件見 config `coordination._doc` 日落條款反向 |

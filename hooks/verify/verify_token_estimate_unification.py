@@ -102,17 +102,27 @@ def test_truncation_hint_uses_real_path(tmp_path):
     assert str(d / "zz.md") in joined.replace("/", "\\") or (d / "zz.md").as_posix() in joined
 
 
-def test_fallback_root_skips_missing_sidecar(tmp_path, monkeypatch):
-    """無 source_dirs 時：只採 sidecar 實存 root 的 activation——缺檔 root 的中性
-    0.0 不得蓋掉真實負值（截斷行 activation 顯示 < 0）。"""
+def test_fallback_root_skips_missing_sidecar(tmp_path):
+    """無 src_dir 時：只採 sidecar 實存 root 的 activation——缺檔 root 的中性
+    0.0 不得蓋掉真實負值（_resolve_block_activation 抽出後直測；注入行已不
+    顯示 activation 數值，該值移至 atom-debug log）。"""
     mem, epi = tmp_path / "memory", tmp_path / "memory" / "episodic"
     epi.mkdir(parents=True)
     _write_access(mem, "cc", [time.time() - 30 * 86400])
-    monkeypatch.setattr(wg_atoms, "MEMORY_DIR", mem)
-    monkeypatch.setattr(wg_atoms, "EPISODIC_DIR", epi)
-    monkeypatch.setattr(wg_atoms, "discover_all_project_memory_dirs", lambda: [])
 
-    out = wg_atoms._truncate_context_by_activation([f"[Atom:cc]\n{_CJK_400}"], limit=50)
-    m = re.search(r"activation=(-?\d+\.\d+)", "\n".join(out))
-    assert m, "應出現截斷行含 activation 值"
-    assert float(m.group(1)) < 0, "實存 sidecar 的負 activation 不該被缺檔 root 的 0.0 蓋掉"
+    act, src = wg_atoms._resolve_block_activation("cc", None, [epi, mem])
+    assert act < 0, "實存 sidecar 的負 activation 不該被缺檔 root 的 0.0 蓋掉"
+    assert src == mem
+
+
+def test_truncated_line_hides_activation_value(tmp_path):
+    """截斷指標行不再顯示 activation 數值（log 尺度負值易被誤讀為負相關性）。"""
+    d = tmp_path / "m"
+    d.mkdir()
+    _write_access(d, "dd", [time.time() - 30 * 86400])
+    out = wg_atoms._truncate_context_by_activation(
+        [f"[Atom:dd]\n{_CJK_400}"], limit=50, source_dirs={"dd": d},
+    )
+    joined = "\n".join(out)
+    assert "(truncated)" in joined
+    assert "activation=" not in joined

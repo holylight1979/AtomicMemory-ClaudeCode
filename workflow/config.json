@@ -81,6 +81,16 @@
     "oscillation_window": 3,
     "oscillation_threshold": 2,
     "review_interval": 6,
+    "_doc_rut_file_whitelist": "same_file_3x 覆轍信號檔名白名單（fnmatch、不分大小寫）：索引/編年/驗收工件每 session 高頻反覆更新屬常態，不構成表面修復證據。生成端(wg_episodic)、掃描端(wg_evasion)、recall-miss 共用；被略過者落 atom-debug log。",
+    "rut_file_whitelist": [
+      "readme*",
+      "_changelog*",
+      "docindex-*",
+      "*_index*",
+      "memory.md",
+      "_atom_index*",
+      "acceptance-*"
+    ],
     "forget": {
       "_doc": "Task 2 Phase D selective forgetting：stale+低用+非核心保護的封存候選隔離到 memory/_distant/（被 sync-atom-index 排除→不注入、可逆）。預設 dry-run（enabled=false ∨ dry_run=true）只寫 _staging/forget-candidates.md 不搬。真隔離需 enabled=true ∧ dry_run=false。憲法 Forgetting 對策。",
       "enabled": false,
@@ -119,7 +129,9 @@
       "enabled": true,
       "skip_demoted": true,
       "max_related": 6
-    }
+    },
+    "_doc_truncated_pointer_max": "最終 budget 裁切（_truncate_context_by_activation）寧缺勿截：超支犧牲的 atom 中僅 activation 最高的前 N 顆留一行指標，其餘整塊不注入（明細落 atom-debug log，尾行 budget 標記附 trim 統計）。",
+    "truncated_pointer_max": 3
   },
   "response_capture": {
     "enabled": true,

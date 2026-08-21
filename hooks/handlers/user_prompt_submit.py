@@ -374,7 +374,7 @@ def handle_user_prompt_submit(
     _ups_sentinel_clear(session_id)
 
     if lines:
-        lines = _truncate_context_by_activation(lines, budget, atom_source_dirs)
+        lines = _truncate_context_by_activation(lines, budget, atom_source_dirs, config)
         output_json({
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",

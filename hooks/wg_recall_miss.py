@@ -29,7 +29,10 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from wg_core import CLAUDE_DIR, MEMORY_DIR, _atom_debug_error, _now_iso, get_project_memory_dir
+from wg_core import (
+    CLAUDE_DIR, MEMORY_DIR, _atom_debug_error, _now_iso, get_project_memory_dir,
+    is_rut_whitelisted,
+)
 from wg_atoms import _kw_match, parse_memory_index
 from wg_rescue import _GENERIC as _RESCUE_GENERIC
 
@@ -92,7 +95,11 @@ def collect_problem_texts(state: Dict[str, Any]) -> List[Tuple[str, str]]:
     for fpath, cnt in (state.get("edit_counts") or {}).items():
         try:
             if int(cnt) >= 3:
-                rut.append(str(fpath).replace("\\", "/").rsplit("/", 1)[-1])
+                short = str(fpath).replace("\\", "/").rsplit("/", 1)[-1]
+                # 高頻正常改動檔白名單（與 episodic 覆轍信號同源，wg_core 單一來源）
+                if is_rut_whitelisted(short):
+                    continue
+                rut.append(short)
         except (TypeError, ValueError):
             continue
     if int(state.get("wisdom_retry_count", 0) or 0) >= 2:

@@ -610,7 +610,7 @@ from datetime import datetime, timezone
 from wg_core import (
     MEMORY_DIR, WORKFLOW_DIR, EPISODIC_DIR,
     discover_all_project_memory_dirs, get_project_memory_dir, resolve_staging_dir,
-    _now_iso,
+    _now_iso, _atom_debug_log, is_rut_whitelisted,
 )
 
 REFLECTION_METRICS_PATH = MEMORY_DIR / "wisdom" / "reflection_metrics.json"
@@ -1039,8 +1039,18 @@ def _detect_rut_patterns(
             signals_part = line.split("覆轍信號:")[-1].strip()
             for sig in signals_part.split(","):
                 sig = sig.strip()
-                if sig:
-                    signal_sessions[sig] = signal_sessions.get(sig, 0) + 1
+                if not sig:
+                    continue
+                # 掃描端也過白名單：涵蓋白名單上線前既存的 episodic 舊信號
+                # （生成端已擋新增；降噪非關警報，略過必留 log）
+                if sig.startswith("same_file_3x:") and is_rut_whitelisted(
+                    sig.split(":", 1)[1], config
+                ):
+                    _atom_debug_log(
+                        "RUT", f"whitelist skip {sig} (rut-scan)", config
+                    )
+                    continue
+                signal_sessions[sig] = signal_sessions.get(sig, 0) + 1
 
     repeated = [s for s, c in signal_sessions.items() if c >= 2]
     if not repeated:

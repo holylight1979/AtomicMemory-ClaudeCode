@@ -10,6 +10,7 @@ wg_core.py — Workflow Guardian 共用基礎模組（V5）
 - Promotion audit log
 """
 
+import fnmatch
 import json
 import math
 import os
@@ -60,7 +61,11 @@ TURN_BUDGET_LIMIT = 500   # atom 注入段 per-turn 硬頂，控每輪 token 稅
 
 
 def compute_token_budget(prompt: str) -> int:
-    """每輪注入總額：短 prompt 少注入，長 prompt 多注入。"""
+    """每輪注入總額：短 prompt 少注入，長 prompt 多注入。
+
+    注意：此為起始額度；build_context 會逐段扣減（session context 注入輪 −reserved_tokens
+    預設 200、JIT 參考注入 −250），故 [Context budget: x/y] 尾行的 y 常見 750（1000−250）
+    或 2550（3000−200−250）等扣減後數字，非固定常數。"""
     plen = len(prompt)
     if plen < 50:
         return 1000
@@ -68,6 +73,27 @@ def compute_token_budget(prompt: str) -> int:
         return 2000
     else:
         return 3000
+
+
+# ─── 覆轍信號（same_file_3x）檔名白名單 ─────────────────────────────────────
+# 索引/編年/說明/驗收工件本來就每 session 高頻反覆更新（README、_CHANGELOG、
+# DocIndex-*、各種 _INDEX、MEMORY.md、acceptance-*），「同檔改 ≥3 次」proxy 對
+# 這類檔必然過度警報 → 警報疲勞。命中白名單者不產生 / 不採計 rut 信號。
+# 降噪非關警報：各過濾點必落 atom-debug log（可觀測性鐵律）。
+# config self_iteration.rut_file_whitelist 覆寫；fnmatch、不分大小寫。
+RUT_FILE_WHITELIST_DEFAULT = [
+    "readme*", "_changelog*", "docindex-*", "*_index*",
+    "memory.md", "_atom_index*", "acceptance-*",
+]
+
+
+def is_rut_whitelisted(filename: str, config: Optional[Dict[str, Any]] = None) -> bool:
+    """same_file_3x 覆轍信號的檔名白名單判定（僅比對檔名，不含路徑）。"""
+    patterns = ((config or {}).get("self_iteration") or {}).get(
+        "rut_file_whitelist", RUT_FILE_WHITELIST_DEFAULT
+    )
+    name = Path(str(filename)).name.lower()
+    return any(fnmatch.fnmatch(name, str(p).lower()) for p in patterns)
 
 
 # Defaults（可被 config.json 覆寫）

@@ -1114,11 +1114,45 @@ def make_embed_tiebreak_fn(config: Dict[str, Any]):
     return _cosine
 
 
+# 截斷指標行數量上限（config injection.truncated_pointer_max 覆寫）：超支犧牲的
+# atom 中只有 activation 最高的前 N 顆留一行指標，其餘整塊不注入——寧缺勿截，
+# 截到只剩路標的條目幾乎零效用卻照樣耗 budget，數量必須有頂。
+TRUNCATED_POINTER_MAX_DEFAULT = 3
+
+
+def _resolve_block_activation(
+    atom_name: str, src_dir: Optional[Path], fallback_roots: List[Path],
+) -> Tuple[float, Optional[Path]]:
+    """回 (activation, src_dir)。src_dir 給定直接算；否則只採「access sidecar 實際
+    存在」的 root 取最高分（compute_activation 對缺檔回中性 0.0，不過濾會讓缺檔
+    root 的 0.0 蓋掉真實負值 activation）。"""
+    if src_dir:
+        return compute_activation(atom_name, src_dir), src_dir
+    best: Optional[float] = None
+    best_dir: Optional[Path] = None
+    for cand in fallback_roots:
+        if not (cand / f"{atom_name}.access.json").exists():
+            continue
+        score = compute_activation(atom_name, cand)
+        if best is None or score > best:
+            best = score
+            best_dir = cand
+    return (0.0 if best is None else best), best_dir
+
+
 def _truncate_context_by_activation(
     lines: List[str], limit: int = CONTEXT_BUDGET_DEFAULT,
     source_dirs: Optional[Dict[str, Path]] = None,
+    config: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
-    """Truncate additionalContext lines to fit within token budget."""
+    """Truncate additionalContext lines to fit within token budget.
+
+    超支時按 ACT-R activation 由低到高犧牲 atom 區塊。activation 是近期存取強度
+    （log 尺度天然跨零），負值≠不相關——相關性已由 trigger/BM25/vector 入場閘
+    把關，故不做 activation<=0 過濾（會誤殺低近期性但高相關的策展 atom）。
+    寧缺勿截：被犧牲者中 activation 較高的前 N 顆（injection.truncated_pointer_max）
+    降級成一行指標，其餘整塊移除；兩者皆落 atom-debug log，且尾行 budget 標記
+    附裁切統計（可觀測性鐵律：降級必浮出訊號）。"""
     full_text = "\n".join(lines)
     used = _estimate_tokens(full_text)
     if used <= limit:
@@ -1162,25 +1196,11 @@ def _truncate_context_by_activation(
         _atom_debug_error("usefulness:project_roots_discover", e)
 
     for ab in atom_blocks:
-        atom_name = ab["name"]
-        src_dir = source_dirs.get(atom_name) if source_dirs else None
-        if src_dir:
-            ab["activation"] = compute_activation(atom_name, src_dir)
-            ab["src_dir"] = src_dir
-        else:
-            # 只在「access sidecar 實際存在」的 root 取分（compute_activation 對缺檔
-            # 回中性 0.0，若不過濾，缺檔 root 的 0.0 會蓋掉真實負值 activation）
-            best: Optional[float] = None
-            best_dir: Optional[Path] = None
-            for cand in fallback_roots:
-                if not (cand / f"{atom_name}.access.json").exists():
-                    continue
-                score = compute_activation(atom_name, cand)
-                if best is None or score > best:
-                    best = score
-                    best_dir = cand
-            ab["activation"] = 0.0 if best is None else best
-            ab["src_dir"] = best_dir
+        ab["activation"], ab["src_dir"] = _resolve_block_activation(
+            ab["name"],
+            source_dirs.get(ab["name"]) if source_dirs else None,
+            fallback_roots,
+        )
 
     atom_blocks.sort(key=lambda x: x["activation"])
 
@@ -1197,19 +1217,51 @@ def _truncate_context_by_activation(
             return (MEMORY_DIR / f"{name}.md").as_posix()  # 找不到實檔的最後退路
         return pointer_path(Path(src) / f"{name}.md")
 
-    truncated_indices: set = set()
+    pointer_max = int(
+        ((config or {}).get("injection") or {})
+        .get("truncated_pointer_max", TRUNCATED_POINTER_MAX_DEFAULT)
+    )
+
+    # Phase A：由低 activation 到高標記需犧牲的區塊（以指標行節省量估算，直到夠用）
+    reduce_list: List[dict] = []
+    projected = used
     for ab in atom_blocks:
-        if used <= limit:
+        if projected <= limit:
             break
-        summary = (
-            f"[Atom:{ab['name']}] (truncated, activation={ab['activation']:.2f}) "
-            f"Read {_display_path(ab)}"
-        )
+        summary = f"[Atom:{ab['name']}] (truncated) Read {_display_path(ab)}"
         saved = ab["tokens"] - _estimate_tokens(summary)
-        if saved > 0:
+        if saved <= 0:
+            continue
+        ab["summary"] = summary
+        ab["pointer_saved"] = saved
+        reduce_list.append(ab)
+        projected -= saved
+
+    # Phase B：犧牲者中 activation 最高的尾端 pointer_max 顆留一行指標，
+    # 其餘整塊不注入（寧缺勿截；整塊移除省得比指標估算多，budget 必然仍滿足）
+    pointer_ids = (
+        {id(ab) for ab in reduce_list[-pointer_max:]} if pointer_max > 0 else set()
+    )
+    truncated_indices: set = set()
+    dropped_indices: set = set()
+    for ab in reduce_list:
+        if id(ab) in pointer_ids:
             truncated_indices.add(ab["start"])
-            ab["summary"] = summary
-            used -= saved
+            used -= ab["pointer_saved"]
+            _atom_debug_log(
+                "BUDGET",
+                f"final-trim atom={ab['name']} activation={ab['activation']:.2f} form=pointer",
+                config,
+            )
+        else:
+            dropped_indices.add(ab["start"])
+            used -= ab["tokens"]
+            _atom_debug_log(
+                "BUDGET",
+                f"final-trim atom={ab['name']} activation={ab['activation']:.2f} "
+                "form=dropped（寧缺勿截，超出指標行上限）",
+                config,
+            )
 
     new_lines: List[str] = []
     skip_until = -1
@@ -1218,15 +1270,26 @@ def _truncate_context_by_activation(
             continue
         found = False
         for ab in atom_blocks:
-            if ab["start"] == idx and idx in truncated_indices:
+            if ab["start"] != idx:
+                continue
+            if idx in truncated_indices:
                 new_lines.append(ab["summary"])
                 skip_until = ab["end"]
                 found = True
-                break
+            elif idx in dropped_indices:
+                skip_until = ab["end"]
+                found = True
+            break
         if not found and idx >= skip_until:
             new_lines.append(line)
 
-    new_lines.append(f"[Context budget: {used}/{limit} tokens]")
+    # 尾行附裁切統計：降級不得無聲（可觀測性鐵律），明細在 atom-debug log
+    trim_note = ""
+    if reduce_list:
+        n_ptr = len(truncated_indices)
+        n_drop = len(dropped_indices)
+        trim_note = f" | trim: {n_ptr} pointer, {n_drop} dropped"
+    new_lines.append(f"[Context budget: {used}/{limit} tokens{trim_note}]")
     return new_lines
 
 
