@@ -6,6 +6,8 @@
 - Trigger: WinForms, AutoScrollPosition, AutoScrollMinSize, 自繪, Paint, 捲動, scroll, 畫布, isometric, 等距, 命中測試, hit test, 捲到某物
 - Created-at: 2026-08-18
 
+- Related: 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗
+
 ## 知識
 
 - [臨] WinForms 自繪捲動 Panel 常見寫法是「算版面時就把 `AutoScrollPosition` 加進每個元素座標」。元素少、畫布小看不出問題，但畫布一大（例如等距投影展開成數千 px）就會踩到：座標同時混了『內容位置』與『目前捲到哪』，於是**寫不出「把某元素捲到畫面中央」**——沒有一組穩定的內容座標可拿來設 `AutoScrollPosition`。實測症狀：開窗只看到一片空白角落，元素其實有畫、只是在畫布別處。

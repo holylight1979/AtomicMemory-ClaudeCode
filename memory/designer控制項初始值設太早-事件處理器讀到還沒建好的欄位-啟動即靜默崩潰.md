@@ -6,6 +6,8 @@
 - Trigger: WinForms, Designer, InitializeComponent, SelectedIndex, SelectedIndexChanged, 建構式, 啟動就崩潰, exe 起不來, NullReference, 事件處理器, 初始化順序
 - Created-at: 2026-08-18
 
+- Related: 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗
+
 ## 知識
 
 - [臨] 在 Form 建構式裡給 Designer 控制項設初始值（`comboBox.SelectedIndex = 0`、`checkBox.Checked = x`…）會**立刻觸發它的 Changed 事件**。若該事件處理器讀的欄位還在建構式後面才建（readonly 非 null 型別也一樣），就是 NullReference——而且發生在 UI 起來之前，**畫面什麼都不會顯示**，exe 直接沒跡象，build 又是 0 錯誤，很容易誤判成部署問題。

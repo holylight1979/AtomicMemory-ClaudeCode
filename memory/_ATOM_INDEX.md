@@ -107,3 +107,13 @@
 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 | memory/併發session共用的不只工作樹-執行中的應用程式行程也是共用資源.md | 並行 session, 併發 session, Stop-Process, 重啟應用程式, 部署新版, 共用行程, 測試循環, 重啟服務, CoordWarn | global |
 | 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對 | memory/否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對.md | 否證, 假説, 交叉比對, 相關性, 樣本, 受控實驗, 統計, 證據不足, 排除可能, 沒有關聯, 資料不支持 | global |
 | 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值 | memory/弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值.md | 自動推導, 視覺推斷, 啓發式, heuristic, 覆寫, 降級, 狀態寫入, 資訊遺失, 多來源, 快取, 推斷寫回, 自動學習 | global |
+| dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段 | memory/dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段.md | APPDATA, SpecialFolder, ApplicationData, 隱離測試, 第二個實例, 不動使用者設定, 環境變數, profile目錄, dotnet, 沙箱 | global |
+| 離線測試過但實機不過-先排除實機跑的不是這份程式碼 | memory/離線測試過但實機不過-先排除實機跑的不是這份程式碼.md | 離線測試過實機不過, 測試通過實際不過, 診斷, debug, 重建, 陳舊執行檔, stale build, 行為不一致, 驗收失敗, 實機驗證 | global |
+| feedback-使用者已宣告不展開的領域-不要回頭跟他要清單 | _AIDocs/Failures/feedback-使用者已宣告不展開的領域-不要回頭跟他要清單.md | 拍板, 問使用者, 清單, 展開, 決策點, 業務取捨, 問錯問題, 範圍 | global |
+| bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 | memory/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md | heredoc, 反斜線, escape, python 腳本, 字串比對失敗, assert, 批改程式碼 | global |
+| 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗 | memory/禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗.md | 截圖驗證, PrintWindow, CopyFromScreen, WinForms 版面, FlowLayoutPanel, 被遮住的視窗, GUI 驗收, 禁 UI 自動化 | global |
+| winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死 | memory/winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死.md | 沒有回應, UI凍死, UpdateFocusedControl, SplitContainer, Focus(), Enter事件, ActiveControl, 焦點迴圈, dotnet-stack, WmSetFocus | global |
+| feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證 | _AIDocs/Failures/feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證.md | 驗證, 實機, 測試, 離線模擬, 我沒有驗證條件, 請你幫我跑, 交付, 收尾, 自驗, 無法驗證, 實機驗證, smoke test | global |
+| 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 | memory/輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測.md | MSB3026, MSB3027, 檔案鎖定, being used by another process, dotnet build, OutputPath, Add-Type, 自測, 驗證證據, app 執行中 | global |
+| powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | memory/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md | PowerShell, $null, NullString, 反射呼叫, LoadFrom, optional 參數, 空字串, 診斷誤報 | global |
+| activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數 | _AIDocs/_atoms/MemDev/activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數.md | activation, ACT-R, 負分, 注入噪音, truncated, context budget, 裁切, 寧缺勿截, truncated_pointer_max, budget 750 | global |

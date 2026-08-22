@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: 上GIT, git add, staging, 收尾, git status, 併發 session, concurrent session, commit, disjoint 批次, 多 session
 - Created-at: 2026-07-01
-- Related: workflow-rules, feedback-completion-gates, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證, 跨session協調-衝突預警機制與cc原生現況, commit-前必須核對-staged-清單而非只信自己-add-了什麼, sed-i-在-crlf-repo-會整檔改換行, feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, 混改檔hunk級選擇性staging, 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源
+- Related: workflow-rules, feedback-completion-gates, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證, 跨session協調-衝突預警機制與cc原生現況, commit-前必須核對-staged-清單而非只信自己-add-了什麼, sed-i-在-crlf-repo-會整檔改換行, feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, 混改檔hunk級選擇性staging, 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源, feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證
 
 ## 知識
 

@@ -12,6 +12,9 @@
 - [觀] 本 repo（~/.claude AtomicMemory）origin＝**雙 push URL**（GitLab + GitHub 同時推）；GitLab main 有 pre-receive force-push 保護（**只准 fast-forward**，force / non-ff → `remote rejected … pre-receive hook declined`），GitHub 無保護。後果：`git commit --amend` / rebase / 任何改寫**已 push** 的 commit 後再 push → **GitHub 接受、GitLab 擋 → 兩遠端分叉**。GitLab 那顆 SHA 動不了，只能把 local + GitHub 一起 `reset --hard` + force 退回對齊 GitLab 的舊 SHA（連同醜 commit message 永久定住、回不去）。
 - [觀] 鐵律：**已 push 的 commit 一律不改寫**（不 amend、不 rebase -i、不 force-push main）。要修 message / 內容 → 往前開**新 commit**。只有『尚未 push』的本地 commit 才可自由 amend。
 - [觀] 多行 commit message 用 `git commit -F <file>`（訊息寫檔再帶入）；**別**把 `$(cat <<'EOF'…)` heredoc 塞進**單引號** `-m` —— 單引號不做命令替換，整段 `$(cat <<EOF` 會**字面**進 message（bash 工具環境實際踩過）。
+- [觀] **區別「雙 push URL」與「兩個獨立 remote」－―前者才會分叉**。上面講的分叉前提是「同一個 remote 掛兩個 push URL、兩邊推**同一份歷史**」，所以一方有 force 保護就會卡住。若是**兩個獨立 remote、推兩份不同的歷史**（例：AI-gen-projs 的 `origin`→GitLab 全 repo，另一個 `github-mud`→用 `git subtree push --prefix=<子資料夾>` 推子資料夾抽出來的歷史），ref 不共用，**沒有分叉問題**。但「已 push 的 commit 不改寫」兩種都適用——改寫了會讓 subtree 重新映射出不同 SHA。
+- [觀] 共用 repo 的**子資料夾**要單獨外推成一個 repo：用 `git subtree`，**不可以在子資料夾裡 `git init`**（檔案已被父 repo 追蹤，嵌套 .git 會讓父 repo 把它當成 submodule）。`git subtree push` 每次重掃全部 commit（輸出一長串 `n/N` 進度數字、跑一兩分鐘）是正常的；不要手動 `git subtree split -b <分支>`，分支已存在會失敗。
+- [觀] 手邊沒裝 `gh` 也能程式化建 GitHub private repo：`git credential fill` 餵 `protocol=https` / `host=github.com` 取出 Windows 認證管理員裡的 token（`gho_` 開頭，實測帶 `repo` scope），再 POST `api.github.com/user/repos` 帶 `private:true`。
 
 ## 行動
 

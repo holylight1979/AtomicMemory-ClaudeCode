@@ -39,7 +39,14 @@
 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 |
 | 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對 | 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對 |
 | 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值 | 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值 |
-| feedback-* | 行為校正（14 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
+| dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段 | dotnet的SpecialFolder不吃APPDATA環境變數-隔離測試要換別的手段 |
+| 離線測試過但實機不過-先排除實機跑的不是這份程式碼 | 離線測試過但實機不過-先排除實機跑的不是這份程式碼 |
+| bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
+| 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗 | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
+| winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死 | winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死 |
+| 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 | 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 |
+| powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
+| feedback-* | 行為校正（16 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
 
