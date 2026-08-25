@@ -177,3 +177,25 @@ def test_keep_action_not_verified(ddir, tmp_path):
     ups._drain_aec_decisions(_SID, lines)
     assert lines == []
     assert "verified" not in json.loads(p.read_text(encoding="utf-8"))
+
+
+def test_delete_with_structured_path_verified_by_path(ddir, tmp_path):
+    """新式決策檔（HUD 殘檔面板）帶 path 欄：後驗直接用 path，item 為 prose 也能真驗。"""
+    target = tmp_path / "leftover.tmp"
+    target.write_text("x")
+    ddir.mkdir(parents=True, exist_ok=True)
+    p = ddir / f"{_SID}-pabc123def456.json"
+    p.write_text(json.dumps({
+        "session_id": _SID, "path": str(target), "item": f"{target} — 一次性輸出",
+        "action": "delete", "at": "2026-01-01T00:00:00", "injected": True,
+    }), encoding="utf-8")
+    lines = []
+    ups._drain_aec_decisions(_SID, lines)
+    assert any("仍存在" in ln for ln in lines)          # 仍在 → 重注入
+    data = json.loads(p.read_text(encoding="utf-8"))
+    assert data["reinjected"] is True and not data.get("verified")
+    target.unlink()
+    lines = []
+    ups._drain_aec_decisions(_SID, lines)
+    assert lines == []                                   # 已刪 → 靜默結案
+    assert json.loads(p.read_text(encoding="utf-8"))["verified"] is True

@@ -37,6 +37,9 @@ from handlers._shared import (
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
+from handlers import aec_ledger
+
+
 def _find_vcs_root(start: Path) -> Optional[tuple]:
     """從 start 向上找最近的 VCS 根：.git（dir 或 worktree/submodule 的 file）或 .svn 目錄。
 
@@ -600,6 +603,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 後續任何 gate 的 write_state 也會一併固化；此處立即寫防走到不寫 state 的路徑。
     if _harvest_accessed_files(state, transcript_text):
         write_state(session_id, state)
+    # 殘檔帳本：每次 Stop 掃一次 session scratchpad 進帳（模型沒 emit 報告也不漏）。fail-open。
+    try:
+        aec_ledger.collect_at_completion(session_id, cwd, None, int(state.get("turn_seq", 0)))
+    except Exception:
+        pass
 
     # ── Layer 1: token 預警 proxy（piggyback 既有 block，不獨立打斷）──────
     # 早段算一次預警句（純函式、無副作用）；於下方各 gate 將 output_block(reason)
@@ -703,7 +711,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "  (a) 缺失發現與修補清單：`- 檔:行 — 改了什麼`；無則填「無」。**必寫**\n"
                 "  (b) AI 逃避通報：本次有/沒有 忽略 / 偷埋的現象；**僅發生時填**，否則「無」\n"
                 "  (c) Token 累積警示：見 hook `[Auto-Handoff]` 預警則判斷失真並附接續 prompt；**僅發生時填**，否則「無」\n"
-                "  (d) 衍生暫存清單：本次衍生暫存檔/資料夾（預設直接刪）；**必寫**，無則「無」\n"
+                "  (d) 衍生暫存清單：**一行一路徑** `<路徑> — <備註>`（絕對或相對 cwd，可 glob）；只列「此刻尚存、留給使用者裁決」的，已刪的不列、純說明不列（預設完工即刪）；**必寫**，無則「無」\n"
                 "四參都 required、未發生填「無」。不得用 prose「不在範圍 / 留給未來」籠統帶過。"
             )
             write_state(session_id, state)

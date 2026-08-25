@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-25 AEC 殘檔帳本 — HUD 暫存清單改以檔案系統為權威
+- 新增 per-session 帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py`），三來源進帳；HUD 新面板由 `/api/aec/tempfiles/<sid>` + exists() 驅動，取代從 (d) prose 猜路徑的 isDeletable 啟發式；刪除鈕不再被「保留」字樣藏起、改 confirm() 二次確認；決策檔改路徑 hash 命名帶 `path` 供真後驗；(d) 契約改一行一路徑。不做 TTL。
+
 ## 2026-04-02 V3.1 Token Diet — 原子記憶精簡
 - Phase 1 直刪：移除 31 條 Claude 不使用的自動化描述條目
 - Phase 2 信號自描述化：5 個 Guardian 信號加入行動指令，移除冗餘 atom 條目

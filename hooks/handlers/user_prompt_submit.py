@@ -79,7 +79,8 @@ def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
         return
     ddir = WORKFLOW_DIR / "aec-decision"
     try:
-        paths = sorted(ddir.glob(f"{session_id}-t*.json"))
+        # 舊式 <sid>-t<turn>-<idx>.json 與新式 <sid>-p<pathhash>.json（HUD 殘檔面板）都撈
+        paths = sorted(ddir.glob(f"{session_id}-*.json"))
     except Exception:
         return
     loaded: List[tuple] = []
@@ -103,7 +104,8 @@ def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
         ):
             continue
         item = str(data.get("item", ""))
-        target = _decision_item_path(item)
+        # 新式決策檔（HUD 殘檔面板）帶結構化 path → 直接後驗；舊式只有 prose item → 保守解析。
+        target = Path(str(data["path"])) if data.get("path") else _decision_item_path(item)
         if target is None or not target.exists():
             data["verified"] = True     # 已刪 / 無從檢查 → 結案
         elif not data.get("reinjected"):

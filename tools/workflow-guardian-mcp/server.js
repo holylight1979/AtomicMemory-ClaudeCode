@@ -265,6 +265,10 @@ const httpServer = http.createServer((req, res) => {
   if (pathname === "/api/aec/reports" && req.method === "GET") {
     return antiEvasion.apiAecReports(req, res, url.searchParams.get("since"));
   }
+  const aecTempMatch = pathname.match(/^\/api\/aec\/tempfiles\/([^/]+)$/);
+  if (aecTempMatch && req.method === "GET") {
+    return antiEvasion.apiAecTempfiles(req, res, aecTempMatch[1]);
+  }
   const aecReportMatch = pathname.match(/^\/api\/aec\/report\/([^/]+)\/(\d+)$/);
   if (aecReportMatch && req.method === "GET") {
     return antiEvasion.apiAecReport(req, res, aecReportMatch[1], aecReportMatch[2]);

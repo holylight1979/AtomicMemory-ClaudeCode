@@ -86,6 +86,7 @@ function render() {
   <div id="card-slot">
     <div class="card"><div class="empty">尚無收尾檢核報告。動 core 檔並宣告完成、呼叫 anti_evasion_report 後出現。</div></div>
   </div>
+  <div id="temp-slot"></div>
 
   <div class="grid-wrap">
     <div class="grid-h">
@@ -109,7 +110,6 @@ var SEV = {
 };
 var activeKey = null;   // 使用者點選的歷史格（null=跟隨最新）
 var reports = [];       // 新→舊
-var decisionsMade = {}; // "<sid>|<turn>|<idx>" → "keep"|"delete"（跨 poll 重渲染保留視覺）
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>]/g, function (ch) {
@@ -131,63 +131,60 @@ function sectionHtml(letter, name, val) {
 
 function escAttr(s) { return esc(s).replace(/"/g, "&quot;"); }
 
-// 刪除鈕啟發式：(d) 常混入「XX — 保留、非暫存」說明行，逐行一律配刪除鈕會誘發誤按。
-// 只對「行內抽得出路徑樣貌 token（含 / 或 \\）且未標保留」的行給刪除鈕——與 Python 端
-// _decision_item_path 的保守精神一致（prose 行無從定位 → 不給刪）。其餘行仍有保留鈕可表態。
-function isDeletable(item) {
-  var s = String(item == null ? "" : item);
-  if (/保留|不刪|勿刪|非暫存/.test(s)) { return false; }
-  var toks = s.split(/[\\s，,、（()）—;；|]+/);
-  for (var i = 0; i < toks.length; i++) {
-    var t = toks[i];
-    if (t.length > 2 && (t.indexOf("/") >= 0 || t.indexOf("\\\\") >= 0)) { return true; }
+// 殘檔面板：資料來自 /api/aec/tempfiles/<sid>（Python 帳本 + Node 當下 exists() 過濾），
+// 不從 (d) prose 猜——(d) 只是宣告來源之一，「還在不在」以檔案系統為準。每列 保留/刪除
+// 兩鈕都給（使用者決定權），刪除經 confirm() 二次確認；已決者顯示狀態但仍可改按（覆寫）。
+// 注意：本 script 整塊在外層 render() 的 template literal 內，字串/comment 中的反斜線
+// 都須 \\ 跳脫，否則會在 render 時被 outer JS 當跳脫序列吃掉（換行字元須寫 "\\n"）。
+function tempRow(sid, it) {
+  var d = it.decision;
+  var status = "";
+  if (d) {
+    status = '<span class="dec-status">' + (d.action === "delete" ? "已排定刪除 🗑" : "已排定保留 📌") +
+             (d.action === "delete" && d.injected ? "（已通知模型，仍在）" : "") + "</span>";
   }
-  return false;
+  var attrs = ' data-sid="' + escAttr(String(sid)) + '" data-path="' + escAttr(String(it.path)) +
+              '" data-note="' + escAttr(String(it.note || "")) + '"';
+  var btns = status +
+    '<button class="aec-dec-btn"' + attrs + ' data-action="keep">保留</button>' +
+    '<button class="aec-dec-btn danger"' + attrs + ' data-action="delete">刪除</button>';
+  var meta = (it.source ? esc(it.source) : "") + (it.note ? " · " + esc(it.note) : "");
+  return '<div class="dec-row' + (d ? " dec-done" : "") + '">' +
+         '<span class="dec-item">' + esc(it.path) +
+           (meta ? '<span class="k"> — ' + meta + "</span>" : "") + "</span>" +
+         '<span class="dec-btns">' + btns + "</span></div>";
 }
 
-// (d) 專屬渲染：逐行拆 r.d、每非空行一列 + 保留鈕（刪除鈕僅 isDeletable 行）。(d) 為 freeform
-// 純文字（無 per-item 身份）→ 逐行啟發式、idx=非空行序（同 (d) 內容穩定，供決策檔覆寫用）。
-// 已決者渲染「已排定」。
-function decRow(r, idx, item) {
-  var sid = r.session_id || "";
-  var turn = r.turn_seq != null ? r.turn_seq : "";
-  var done = decisionsMade[sid + "|" + turn + "|" + idx];
-  var right;
-  if (done) {
-    right = '<span class="dec-status">已排定：' + (done === "delete" ? "刪除 🗑" : "保留 📌") + "</span>";
-  } else {
-    var attrs = ' data-sid="' + escAttr(String(sid)) + '" data-turn="' + escAttr(String(turn)) +
-                '" data-idx="' + idx + '" data-item="' + escAttr(item) + '"';
-    right = '<button class="aec-dec-btn"' + attrs + ' data-action="keep">保留</button>';
-    if (isDeletable(item)) {
-      right += '<button class="aec-dec-btn danger"' + attrs + ' data-action="delete">刪除</button>';
-    }
+function renderTemp(sid, items) {
+  var slot = document.getElementById("temp-slot");
+  if (!sid) { slot.innerHTML = ""; return; }
+  var head = '<div class="card"><div class="sec"><div class="sec-h">本 session 尚存殘檔 ' +
+             '<span class="k">· session ' + esc(String(sid).slice(0, 8)) + " · 帳本 ∪ scratchpad，當下 exists() 過濾 · " +
+             (items.length ? items.length + " 項" : "0 項") + "</span></div>";
+  if (!items.length) {
+    slot.innerHTML = head + '<div class="sec-body blank">無殘檔（帳上路徑皆已不在磁碟）</div></div></div>';
+    return;
   }
-  return '<div class="dec-row' + (done ? " dec-done" : "") + '">' +
-         '<span class="dec-item">' + esc(item) + "</span>" +
-         '<span class="dec-btns">' + right + "</span></div>";
+  var rows = "";
+  for (var i = 0; i < items.length; i++) { rows += tempRow(sid, items[i]); }
+  slot.innerHTML = head + '<div class="sec-body dec-list">' + rows + "</div></div></div>";
+  var btns = slot.querySelectorAll(".aec-dec-btn");
+  for (var b = 0; b < btns.length; b++) { btns[b].addEventListener("click", onDecClick); }
 }
 
-function sectionHtmlD(r) {
-  var head = '<div class="sec"><div class="sec-h">(d) 衍生暫存清單 ';
-  if (isBlank(r.d)) {
-    return head + '<span class="k"></span></div><div class="sec-body blank">無</div></div>';
-  }
-  // 注意：本 script 整塊在外層 render() 的 template literal 內，字串/comment 中的反斜線
-  // 都須 \\ 跳脫，否則會在 render 時被 outer JS 當跳脫序列吃掉（換行字元須寫 "\\n"）。
-  var lines = String(r.d).split("\\n");
-  var rows = "", shown = 0;
-  for (var i = 0; i < lines.length; i++) {
-    var raw = lines[i].trim();
-    if (!raw) { continue; }
-    rows += decRow(r, shown, raw.replace(/^[-*•·]\\s*/, ""));   // 去前導 bullet 顯示
-    shown++;
-  }
-  if (!rows) {
-    return head + '<span class="k"></span></div><div class="sec-body blank">無</div></div>';
-  }
-  return head + '<span class="k">· 逐項可保留/刪除（決策下回合注入、模型 deferred 執行）</span>' +
-         '</div><div class="sec-body dec-list">' + rows + "</div></div>";
+var lastTempKey = "";   // 上次已渲染的 sid|json，同內容不重繪（避免每 1.5s 閃）
+function pollTemp(sid) {
+  if (!sid) { renderTemp("", []); return; }
+  fetch("/api/aec/tempfiles/" + encodeURIComponent(sid))
+    .then(function (res) { return res.ok ? res.json() : { items: [] }; })
+    .then(function (j) {
+      var items = (j && j.items) || [];
+      var key = sid + "|" + JSON.stringify(items);
+      if (key === lastTempKey) { return; }
+      lastTempKey = key;
+      renderTemp(sid, items);
+    })
+    .catch(function () {});
 }
 
 function renderCard(r) {
@@ -206,13 +203,9 @@ function renderCard(r) {
     sectionHtml("a", "缺失發現與修補清單", r.a) +
     sectionHtml("b", "AI 逃避通報", r.b) +
     sectionHtml("c", "Token 累積警示", r.c) +
-    sectionHtmlD(r) +
+    sectionHtml("d", "衍生暫存清單（宣告；實際尚存者見下方殘檔面板）", r.d) +
   "</div>";
   slot.innerHTML = html;
-  var decBtns = slot.querySelectorAll(".aec-dec-btn");
-  for (var b = 0; b < decBtns.length; b++) {
-    decBtns[b].addEventListener("click", onDecClick);
-  }
 }
 
 function renderGrid() {
@@ -254,28 +247,23 @@ function findReport(sid, turn) {
 
 function onDecClick(e) {
   var el = e.currentTarget;
+  if (el.getAttribute("data-action") === "delete" &&
+      !window.confirm("確定排定刪除？\\n" + el.getAttribute("data-path"))) { return; }
   postDecision(
-    el.getAttribute("data-sid"), el.getAttribute("data-turn"),
-    el.getAttribute("data-idx"), el.getAttribute("data-item"),
-    el.getAttribute("data-action")
+    el.getAttribute("data-sid"), el.getAttribute("data-path"),
+    el.getAttribute("data-note"), el.getAttribute("data-action")
   );
 }
 
-// POST 決策 → 落磁碟佇列（Node 寫）；成功後就地標「已排定」（decisionsMade 跨 poll 保留）。
-function postDecision(sid, turn, idx, item, action) {
+// POST 決策 → 落磁碟佇列（Node 寫，檔名=路徑 hash，跨回合穩定）；成功後立刻重抓面板顯示狀態。
+function postDecision(sid, p, note, action) {
   fetch("/api/aec/decision", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sid: sid, turn: Number(turn), idx: Number(idx), item: item, action: action })
+    body: JSON.stringify({ sid: sid, path: p, note: note, action: action })
   })
     .then(function (res) { return res.ok ? res.json() : null; })
-    .then(function (j) {
-      if (j && j.ok) {
-        decisionsMade[sid + "|" + turn + "|" + idx] = action;
-        var r = findReport(sid, turn);
-        if (r) { renderCard(r); }   // 重渲染目前卡，該列轉「已排定」
-      }
-    })
+    .then(function (j) { if (j && j.ok) { lastTempKey = ""; pollTemp(sid); } })
     .catch(function () {});
 }
 
@@ -300,6 +288,10 @@ function poll() {
       if (activeKey === null && reports.length) { renderCard(reports[0]); }
       renderGrid();
       updateBanner();
+      // 殘檔面板跟著目前顯示的卡片所屬 session（點了歷史格就跟那格）。
+      var curSid = activeKey !== null ? String(activeKey).split("|")[0]
+                                      : (reports.length ? reports[0].session_id : "");
+      pollTemp(curSid);
     })
     .catch(function () {
       document.getElementById("poll-txt").textContent = "連線中斷";

@@ -12,6 +12,7 @@ handlers/session_start.py — SessionStart hook handler
 """
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -292,6 +293,30 @@ def _prune_aec_files(max_age_days: int = 7) -> int:
                         pruned += 1
                 except Exception:
                     continue
+    # 殘檔帳本 aec-tempfiles/<sid>.jsonl：過期且「帳上路徑全都已不在磁碟」才清——
+    # 只要還有一個殘檔在，帳本就得留著讓 HUD 繼續列（帳本存在的意義就是追到處置為止）。
+    try:
+        ledgers = list((WORKFLOW_DIR / "aec-tempfiles").glob("*.jsonl"))
+    except Exception:
+        ledgers = []
+    for p in ledgers:
+        try:
+            if p.stat().st_mtime >= cutoff:
+                continue
+            alive = False
+            for line in p.read_text(encoding="utf-8").splitlines():
+                try:
+                    path = json.loads(line).get("path", "")
+                except Exception:
+                    continue
+                if path and os.path.exists(path):
+                    alive = True
+                    break
+            if not alive:
+                p.unlink()
+                pruned += 1
+        except Exception:
+            continue
     return pruned
 
 

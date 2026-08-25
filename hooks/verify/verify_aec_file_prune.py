@@ -78,3 +78,20 @@ def test_custom_age(wdir):
     _touch(dec / "d.json", 3)
     assert ss._prune_aec_files(max_age_days=2) == 1
     assert not (dec / "d.json").exists()
+
+
+def test_ledger_pruned_only_when_no_path_alive(wdir, tmp_path):
+    """aec-tempfiles/<sid>.jsonl：過期但帳上仍有路徑存在 → 留；全都不在 → 清。"""
+    import json, os, time
+    ldir = wdir / "aec-tempfiles"; ldir.mkdir()
+    alive = tmp_path / "still.tmp"; alive.write_text("x")
+    keep = ldir / "keep.jsonl"
+    keep.write_text(json.dumps({"path": str(alive)}) + "\n" + json.dumps({"path": str(tmp_path / "gone")}) + "\n")
+    drop = ldir / "drop.jsonl"
+    drop.write_text(json.dumps({"path": str(tmp_path / "gone2")}) + "\nnot json\n")
+    old = time.time() - 30 * 86400
+    for p in (keep, drop):
+        os.utime(p, (old, old))
+    n = ss._prune_aec_files(max_age_days=7)
+    assert keep.exists() and not drop.exists()
+    assert n == 1

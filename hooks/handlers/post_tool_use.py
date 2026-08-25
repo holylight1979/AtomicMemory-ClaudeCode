@@ -21,9 +21,11 @@ from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
 from wg_evasion import (
     is_test_command, detect_test_failure, aec_severity, crosscheck_aec_severity,
+    _aec_blank,
 )
 from wg_atoms import _trigger_incremental_index
 from wg_extraction import is_plan_filename
+from handlers import aec_ledger
 from handlers._shared import (
     _is_ephemeral_path,
     WISDOM_AVAILABLE, wisdom_track_retry,
@@ -327,6 +329,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _maybe_auto_roll_changelog(file_path, config)
         _maybe_sync_skill_index(file_path, config)
 
+    if tool_name in ("Edit", "Write", "NotebookEdit") and file_path:
+        # 殘檔帳本：工具寫進系統 tempdir（scratchpad 等）的檔 → 進帳，HUD 以 exists() 列尚存者。
+        try:
+            aec_ledger.record_temp_write(session_id, file_path, int(state.get("turn_seq", 0)))
+        except Exception as e:
+            _atom_debug_error("post_tool_use:aec_ledger_write", e)
+
     if (
         tool_name in ("Edit", "Write", "NotebookEdit")
         and file_path
@@ -474,6 +483,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 ft.append({
                     "tool": "Bash",
                     "cmd": command[:200],
+                    # cmd 截 200 字會把串在後段的 pytest 截掉 → 綠的 pytest 對不上、永遠清不掉；
+                    # 記錄時就用全文判定一次
+                    "pytest": "pytest" in command.lower(),
                     "summary": failure,
                     "at": _now_iso(),
                     # 供 Stop 端 outcome 歸因「只認本 turn 失敗」（sync/test-fail
@@ -489,7 +501,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 after = [
                     f for f in before
                     if not f.get("cmd", "").startswith(cmd_prefix[:40])
-                    and not (is_pytest_success and "pytest" in f.get("cmd", "").lower())
+                    and not (is_pytest_success and (
+                        f.get("pytest")
+                        or "pytest" in f.get("cmd", "").lower()
+                        or "short test summary" in f.get("summary", "")   # legacy 無 flag 者看 pytest 輸出特徵
+                    ))
                 ]
                 if len(after) != len(before):
                     state["failing_tests"] = after
@@ -502,6 +518,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 同源）＝sibling 隔離關鍵：Stop 閘以 turn_seq+session_id 雙鍵讀，隔壁 session 的
         # emit 不誤放行本 session。turn_seq 由 UserPromptSubmit 每真 prompt +1。
         a, b, c, d = (str(tool_input.get(k, "") or "") for k in ("a", "b", "c", "d"))
+        # (d) 是給使用者裁決的路徑清單：「無（…括號解釋…）」一律正規化成「無」，
+        # 模型的多嘴說明（執行期狀態檔、已刪了什麼）不得變成 HUD 上要人裁決的一列。
+        if _aec_blank(d):
+            d = "無"
         turn_seq = int(state.get("turn_seq", 0))
         sev = aec_severity(a, b, c, d)
         # (b) 欄 cross-check：hook 實測到退避但模型自評「無」→ 升 real-evasion +
@@ -521,6 +541,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             report["hook_evidence"] = evidence[-5:]
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
+        # 殘檔帳本：(d) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。
+        try:
+            _cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
+            aec_ledger.collect_at_completion(session_id, _cwd, d, turn_seq)
+        except Exception as e:
+            _atom_debug_error("post_tool_use:aec_ledger_collect", e)
         _maybe_spawn_hud(sev, state, config)
         dirty = True
 
