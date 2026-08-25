@@ -10,6 +10,7 @@
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
 | electron-uia-automation | Electron app UI 自動化三層障礙 |
 | gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
+| vscode-reload-對並行ai-session的影響 | VSCode-Reload-對並行AI-session的影響 |
 | windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff | Windows Python write_text 缺 newline 把 LF 翻 CRLF 整檔假 diff |
 
 ## 子層

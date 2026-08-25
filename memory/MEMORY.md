@@ -46,7 +46,9 @@
 | winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死 | winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死 |
 | 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 | 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 |
 | powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
-| feedback-* | 行為校正（16 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
+| 並行llm即時通訊-inbox機制 | 並行llm即時通訊-inbox機制 |
+| grok協作實戰認知-特質與監工分工手感 | grok協作實戰認知-特質與監工分工手感 |
+| feedback-* | 行為校正（19 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
 

@@ -117,3 +117,11 @@
 | 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 | memory/輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測.md | MSB3026, MSB3027, 檔案鎖定, being used by another process, dotnet build, OutputPath, Add-Type, 自測, 驗證證據, app 執行中 | global |
 | powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | memory/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md | PowerShell, $null, NullString, 反射呼叫, LoadFrom, optional 參數, 空字串, 診斷誤報 | global |
 | activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數 | _AIDocs/_atoms/MemDev/activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數.md | activation, ACT-R, 負分, 注入噪音, truncated, context budget, 裁切, 寧缺勿截, truncated_pointer_max, budget 750 | global |
+| 並行llm即時通訊-inbox機制 | memory/並行llm即時通訊-inbox機制.md | inbox機制, 並行LLM, 即時通訊, 跨session通訊, 檔案當信箱, 並行分工, grok協作, ai-inbox, 斷線喚回, monitor喚醒, compat hooks | global |
+| vscode-reload-對並行ai-session的影響 | _AIDocs/_atoms/Tools/vscode-reload-對並行ai-session的影響.md | VSCode Reload, Reload Window, 雙 sessionstart, monitor 重掛, 並行 session, 面板 MCP | global |
+| feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理 | _AIDocs/Failures/feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理.md | 等秒數, sleep, 超時處理, 等待時間, 輪詢, debounce, 固定模式, 事件驅動, timeout 當主要手段, 等一下再送 | global |
+| 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase | _AIDocs/_atoms/MemDev/驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase.md | 驗收裁判, acceptance_review, 收尾被擋, 多階段, 戰役, 等待回合, 強制放行, 規格檔, 長任務, 事件驅動監工 | global |
+| feedback-高速推進每步跨大-禁越執行越偏細節越耗時 | _AIDocs/Failures/feedback-高速推進每步跨大-禁越執行越偏細節越耗時.md | 推進速度, 跨大步, 過度細節, 越做越細, 耗時, 節奏, 監工節奏, 多階段戰役, 派工粒度, 退修門檻 | global |
+| feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向 | _AIDocs/Failures/feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向.md | 每輪校準, 偏移指標, 帶偏風向, inbox 來回, 無止盡自檢, 雞肋驗證, 過度研擬, 全盤現況, 監工回合, 重新對齊 | global |
+| grok協作實戰認知-特質與監工分工手感 | memory/grok協作實戰認知-特質與監工分工手感.md | grok 特質, 跟 grok 合作, 雙 LLM 分工, 監工 grok, grok 水位, grok 交接, 派工給 grok, grok 可信度 | global |
+| hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 | _AIDocs/_atoms/MemDev/hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威.md | 殘檔帳本, aec-tempfiles, aec_ledger, HUD 刪除鈕, isDeletable, 衍生暫存清單, scratchpad 清除, post-mortem, prose 猜路徑, exists() 權威 | global |

@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 多 agent, 平行 agent, sub-agent, 並行, 並行加速, 拆 agent, 多開 agent, 分頭, 多檔調查, 批量重構, 全面審視, 跨檔比較, parallel agents
 - Created-at: 2026-05-28
-- Related: workflow-rules, decisions, feedback-workflow-discipline, 模型行為移植-fable行為契約必載檔, workflow-research-fanout, 並行agent產出併入交付物必須標驗證強度分層
+- Related: workflow-rules, decisions, feedback-workflow-discipline, 模型行為移植-fable行為契約必載檔, workflow-research-fanout, 並行agent產出併入交付物必須標驗證強度分層, 並行llm即時通訊-inbox機制, grok協作實戰認知-特質與監工分工手感, feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向, feedback-高速推進每步跨大-禁越執行越偏細節越耗時
 
 ## 知識
 

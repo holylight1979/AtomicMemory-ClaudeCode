@@ -1964,6 +1964,137 @@
         "budget 750"
       ],
       "scope": "global"
+    },
+    {
+      "name": "並行llm即時通訊-inbox機制",
+      "path": "memory/並行llm即時通訊-inbox機制.md",
+      "triggers": [
+        "inbox機制",
+        "並行LLM",
+        "即時通訊",
+        "跨session通訊",
+        "檔案當信箱",
+        "並行分工",
+        "grok協作",
+        "ai-inbox",
+        "斷線喚回",
+        "monitor喚醒",
+        "compat hooks"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "vscode-reload-對並行ai-session的影響",
+      "path": "_AIDocs/_atoms/Tools/vscode-reload-對並行ai-session的影響.md",
+      "triggers": [
+        "VSCode Reload",
+        "Reload Window",
+        "雙 sessionstart",
+        "monitor 重掛",
+        "並行 session",
+        "面板 MCP"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理",
+      "path": "_AIDocs/Failures/feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理.md",
+      "triggers": [
+        "等秒數",
+        "sleep",
+        "超時處理",
+        "等待時間",
+        "輪詢",
+        "debounce",
+        "固定模式",
+        "事件驅動",
+        "timeout 當主要手段",
+        "等一下再送"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase",
+      "path": "_AIDocs/_atoms/MemDev/驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase.md",
+      "triggers": [
+        "驗收裁判",
+        "acceptance_review",
+        "收尾被擋",
+        "多階段",
+        "戰役",
+        "等待回合",
+        "強制放行",
+        "規格檔",
+        "長任務",
+        "事件驅動監工"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-高速推進每步跨大-禁越執行越偏細節越耗時",
+      "path": "_AIDocs/Failures/feedback-高速推進每步跨大-禁越執行越偏細節越耗時.md",
+      "triggers": [
+        "推進速度",
+        "跨大步",
+        "過度細節",
+        "越做越細",
+        "耗時",
+        "節奏",
+        "監工節奏",
+        "多階段戰役",
+        "派工粒度",
+        "退修門檻"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向",
+      "path": "_AIDocs/Failures/feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向.md",
+      "triggers": [
+        "每輪校準",
+        "偏移指標",
+        "帶偏風向",
+        "inbox 來回",
+        "無止盡自檢",
+        "雞肋驗證",
+        "過度研擬",
+        "全盤現況",
+        "監工回合",
+        "重新對齊"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "grok協作實戰認知-特質與監工分工手感",
+      "path": "memory/grok協作實戰認知-特質與監工分工手感.md",
+      "triggers": [
+        "grok 特質",
+        "跟 grok 合作",
+        "雙 LLM 分工",
+        "監工 grok",
+        "grok 水位",
+        "grok 交接",
+        "派工給 grok",
+        "grok 可信度"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威",
+      "path": "_AIDocs/_atoms/MemDev/hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威.md",
+      "triggers": [
+        "殘檔帳本",
+        "aec-tempfiles",
+        "aec_ledger",
+        "HUD 刪除鈕",
+        "isDeletable",
+        "衍生暫存清單",
+        "scratchpad 清除",
+        "post-mortem",
+        "prose 猜路徑",
+        "exists() 權威"
+      ],
+      "scope": "global"
     }
   ]
 }

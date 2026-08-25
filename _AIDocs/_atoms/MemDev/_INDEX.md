@@ -20,6 +20,7 @@
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
 | guardian-警告訊息辨識度-emoji-前綴分流 | guardian 警告訊息辨識度-emoji 前綴分流 |
 | harness原生memory與atom索引marker撞名辨識 | harness原生memory與atom索引marker撞名辨識 |
+| hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 | HUD暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 |
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | OTEL 遙測評估結論-不實作-兩目標指標皆測不到 |
 | pan-hermes不移植部件與vscode-text-block不落盤實測 | pan-hermes不移植部件與vscode-text-block不落盤實測 |
 | scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層 | scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層 |
@@ -39,6 +40,7 @@
 | 自動萃取層淨值審查-調整式拔除-2026-07 | 自動萃取層淨值審查-調整式拔除-2026-07 |
 | 衝突偵測-block-資格閘-複驗一致-分區感知-待審出路 | 衝突偵測-block-資格閘-複驗一致-分區感知-待審出路 |
 | 跨session協調-衝突預警機制與cc原生現況 | 跨session協調-衝突預警機制與CC原生現況 |
+| 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase |
 
 ## 子層
 
