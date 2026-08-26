@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: memory-review, memory-health, confirmations, episodic, 晉升, 自我迭代, 衰減掃描, 覆轍偵測
 - Created-at: 2026-05-22
-- Related: decisions, decisions-architecture, workflow-rules, atom-usefulness-loop, atom-元資料編輯與晉升閘真相, confirmations-已退役-phase2-usefulness-接管晉升, 自動萃取層淨值審查-調整式拔除-2026-07, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證
+- Related: decisions, decisions-architecture, workflow-rules, atom-usefulness-loop, atom-元資料編輯與晉升閘真相, confirmations-已退役-phase2-usefulness-接管晉升, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證
 
 ## 知識
 

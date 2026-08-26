@@ -12,4 +12,4 @@
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| Windows | 4 | `_AIDocs/_atoms/OS/Windows/_INDEX.md` |
+| Windows | 3 | `_AIDocs/_atoms/OS/Windows/_INDEX.md` |

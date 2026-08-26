@@ -29,3 +29,10 @@
 - 需把 SVG/向量示意圖轉成可直接看的 PNG → 用 headless Chrome --screenshot；記得 --no-sandbox，輸出先 ASCII 名再 mv 改中文名
 - 渲染完用 Read 開 PNG 目視檢查，再交付
 - 目標資料夾若唯讀(EPERM) → 改寫本機並明確回報完整路徑
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-08-26 | --enforce 自動淘汰 (32d > 30d) | memory-audit --enforce |

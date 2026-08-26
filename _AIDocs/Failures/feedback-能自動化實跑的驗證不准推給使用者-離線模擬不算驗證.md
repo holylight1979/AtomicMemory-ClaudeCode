@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 驗證, 實機, 測試, 離線模擬, 我沒有驗證條件, 請你幫我跑, 交付, 收尾, 自驗, 無法驗證, 實機驗證, smoke test
 - Created-at: 2026-08-21
-- Related: mudclient-測試循環-關舊開新自動連線登入, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 自己flag的維護動作直接做完不要反問, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a
+- Related: feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 自己flag的維護動作直接做完不要反問, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a
 
 ## 知識
 

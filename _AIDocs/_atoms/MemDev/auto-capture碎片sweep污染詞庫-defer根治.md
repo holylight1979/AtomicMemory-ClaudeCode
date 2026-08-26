@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: auto-capture, realm sweep, 詞庫污染, 專案知識寫到根層, extract-worker 分類, realm-lexicon-learned, auto_migrate
 - Created-at: 2026-06-24
-- Related: realm-範疇分區機制-v5, 專案等級-mcpskillhookslog-不放全域根層, 對談結束自動記憶與錯誤加權深記, scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層
+- Related: realm-範疇分區機制-v5, 專案等級-mcpskillhookslog-不放全域根層, scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層
 
 ## 知識
 
