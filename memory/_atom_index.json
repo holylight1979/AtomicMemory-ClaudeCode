@@ -610,23 +610,6 @@
       "scope": "global"
     },
     {
-      "name": "headless-chrome-svg轉png-windows踩坑",
-      "path": "_AIDocs/_atoms/OS/Windows/Tools/headless-chrome-svg轉png-windows踩坑.md",
-      "triggers": [
-        "svg轉png",
-        "svg to png",
-        "headless chrome",
-        "渲染svg",
-        "截圖渲染",
-        "向量轉點陣",
-        "chrome --screenshot",
-        "force-device-scale-factor",
-        "產示意圖",
-        "遊戲截圖svg"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房",
       "path": "_AIDocs/_atoms/MemDev/dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房.md",
       "triggers": [
@@ -651,23 +634,6 @@
         "要不要我",
         "該做就做",
         "follow-through"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "對談結束自動記憶與錯誤加權深記",
-      "path": "_AIDocs/_atoms/MemDev/對談結束自動記憶與錯誤加權深記.md",
-      "triggers": [
-        "對談結束自動記憶",
-        "錯誤深記",
-        "失敗骨架",
-        "deep postmortem",
-        "Deep Post-Mortem Gate",
-        "session_end flush",
-        "失敗記錄",
-        "post-mortem",
-        "wisdom_retry",
-        "fix_escalation"
       ],
       "scope": "global"
     },
@@ -878,25 +844,6 @@
         "vision-doc",
         "平台發想",
         "記憶系統當核心缺什麼"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "自動萃取層淨值審查-調整式拔除-2026-07",
-      "path": "_AIDocs/_atoms/MemDev/自動萃取層淨值審查-調整式拔除-2026-07.md",
-      "triggers": [
-        "auto-capture",
-        "DedupStage",
-        "淨值審查",
-        "調整式拔除",
-        "草稿",
-        "_drafts",
-        "注入縮量",
-        "usefulness",
-        "turn-global",
-        "Wilson",
-        "write-only",
-        "記憶效益"
       ],
       "scope": "global"
     },
