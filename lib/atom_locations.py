@@ -60,10 +60,11 @@ LOCAL_REALM_DOMAINS = frozenset({"World", "Tools", "MemDev"})
 # catch-all / fail-safe domain（取代舊 "Misc"；LLM 低信心·unsure 歸此，py+js 鏡像 test_14）。
 LOCAL_REALM_DEFAULT_DOMAIN = "Else"
 # 跨專案注入的 local 範疇（解開「儲存位置綁死注入範圍」）：storage 仍在 _atoms（write 路由不變），
-# 但 injection 全專案——對偶 feedback-*（物理居 _AIDocs/Failures/ 卻 core 注入）。注入閘門
-# （session_start）對清單內 Lv1 根的 local atom 例外放行。**僅影響注入範圍**，不改 realm/path/
-# write 路由/catalog 歸類。py-only（注入是 Python hook，無 js 對拍面）。
-CROSS_PROJECT_LOCAL_DOMAINS = frozenset({"Continuity"})
+# 但 injection 全專案。注入閘門（session_start）對清單內 Lv1 根的 local atom 例外放行。
+# **僅影響注入範圍**，不改 realm/path/write 路由/catalog 歸類。py-only（注入是 Python hook，
+# 無 js 對拍面）。目前清單為空：跨專案通用的知識一律住 memory/<範疇>/（core），local 只留
+# 「只在 ~/.claude 有用」的；機制保留供未來需要時填入 Lv1 根名。
+CROSS_PROJECT_LOCAL_DOMAINS: frozenset = frozenset()
 # 階層 domain 路徑最大深度（user 拍板：深=內容多需細分、非範疇廣；
 # 擴大根因＝「窄範疇但已知內容量龐大」→ 必須加層）。canon 超此→截尾（絕對天花板）。
 LOCAL_REALM_MAX_DEPTH = 7

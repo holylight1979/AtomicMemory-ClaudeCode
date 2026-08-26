@@ -1,6 +1,6 @@
 # _AIDocs/_atoms/Tools — 範疇索引
 
-> 階層 local 範疇索引（自動生成，`_` 前綴非 atom）。機制見 [[realm-範疇分區機制-v5]]。
+> 階層範疇索引（自動生成，`_` 前綴非 atom）。機制見 [[realm-範疇分區機制-v5]]。
 
 ## 本層 atom
 
@@ -10,11 +10,9 @@
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
 | electron-uia-automation | Electron app UI 自動化三層障礙 |
 | gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
-| vscode-reload-對並行ai-session的影響 | VSCode-Reload-對並行AI-session的影響 |
-| windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff | Windows Python write_text 缺 newline 把 LF 翻 CRLF 整檔假 diff |
 
 ## 子層
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| 自動化流程與協議 | 4 | `_AIDocs/_atoms/Tools/自動化流程與協議/_INDEX.md` |
+| 自動化流程與協議 | 3 | `_AIDocs/_atoms/Tools/自動化流程與協議/_INDEX.md` |

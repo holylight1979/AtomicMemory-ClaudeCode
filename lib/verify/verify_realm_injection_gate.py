@@ -20,9 +20,12 @@ for _p in (CLAUDE / "hooks", CLAUDE / "lib", CLAUDE):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+import atom_locations  # noqa: E402  (monkeypatch CROSS_PROJECT_LOCAL_DOMAINS 的宿主)
 from wg_core import (  # noqa: E402
     _is_under_claude_dir, is_local_realm_path, is_cross_project_local,
 )
+
+CROSS = frozenset({"Continuity"})  # 測試用清單：驗證機制，不依賴 live 清單內容
 
 
 def _apply_gate(atoms, cwd):
@@ -42,17 +45,26 @@ ATOMS = [
 ]
 
 
-def test_gate_external_project_filters_local():
+def test_gate_external_project_filters_local(monkeypatch):
+    monkeypatch.setattr(atom_locations, "CROSS_PROJECT_LOCAL_DOMAINS", CROSS)
     out = _apply_gate(ATOMS, r"C:\Projects\SomeApp")
     names = {n for n, _, _ in out}
     assert "decisions" in names           # core 保留
     assert "feedback-x" in names          # _AIDocs/Failures/ core 保留（不誤殺）
     assert "brain" not in names           # local 濾掉
     assert "gdoc-harvester" not in names  # local 濾掉
-    assert "handoff-q" in names           # 解綁：Continuity（cross-project local）外部專案仍保留
+    assert "handoff-q" in names           # 解綁：清單內 Lv1 根（cross-project local）外部專案仍保留
 
 
-def test_gate_cross_project_local_predicate():
+def test_gate_external_project_live_list_empty_filters_all_local():
+    # live 清單為空（跨專案知識一律住 core）→ 外部專案 local 全濾，含 Continuity 路徑
+    assert atom_locations.CROSS_PROJECT_LOCAL_DOMAINS == frozenset()
+    out = _apply_gate(ATOMS, r"C:\Projects\SomeApp")
+    assert {n for n, _, _ in out} == {"decisions", "feedback-x"}
+
+
+def test_gate_cross_project_local_predicate(monkeypatch):
+    monkeypatch.setattr(atom_locations, "CROSS_PROJECT_LOCAL_DOMAINS", CROSS)
     # storage 在 _atoms 但屬 CROSS_PROJECT_LOCAL_DOMAINS → 跨專案；其餘 local → 否
     assert is_cross_project_local("_AIDocs/_atoms/Continuity/handoff-q.md") is True
     assert is_cross_project_local("_AIDocs/_atoms/World/brain.md") is False

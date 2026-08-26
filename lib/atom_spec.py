@@ -72,7 +72,7 @@ EVIDENCE_RANK = {"實證": 3, "引述": 2, "推測": 1}  # 未標/非法 = 0
 TRIGGER_MIN = 3
 TRIGGER_MAX = 12
 ATOM_MAX_LINES = 200
-INDEX_MAX_LINES = 80  # MEMORY.md 行數上限：平鋪期 core atom 一行一列 + 表頭 + 指標列；遷移完成後降 40（Lv1 目錄 + 表頭 + 指標）。超過代表 always-load 索引又長胖，該瘦身而非再調高
+INDEX_MAX_LINES = 40  # MEMORY.md 行數上限：Lv1 範疇目錄一行一列 + 表頭 + 指標列。超過代表 always-load 索引又長胖，該瘦身而非再調高
 
 # ─── Knowledge 區大小預算（寫入端硬拒；audit 的 ATOM_MAX_LINES 為事後 warning）──
 # 門檻依據：注入端 per-turn 預算 TURN_BUDGET_LIMIT=500 tok（hooks/wg_core.py）+

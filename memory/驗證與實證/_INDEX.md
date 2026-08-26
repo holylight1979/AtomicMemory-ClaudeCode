@@ -1,0 +1,13 @@
+# memory/驗證與實證 — 範疇索引
+
+> 階層範疇索引（自動生成，`_` 前綴非 atom）。機制見 [[realm-範疇分區機制-v5]]。
+
+## 本層 atom
+
+| Atom | 說明 |
+|------|------|
+| goal-driven-verify-loopkarpathy-吸收 | goal-driven-verify-loop（karpathy 吸收） |
+| 實驗性改動的復原要驗回快照-送一次指令不算復原 | 實驗性改動的復原要驗回快照-送一次指令不算復原 |
+| 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗 | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
+| 離線測試過但實機不過-先排除實機跑的不是這份程式碼 | 離線測試過但實機不過-先排除實機跑的不是這份程式碼 |
+| 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 | 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 |

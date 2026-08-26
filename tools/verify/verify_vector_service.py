@@ -91,8 +91,10 @@ def test_discover_layers_real_env_has_local_label():
     # 真實 ~/.claude：_AIDocs/_atoms/ 存在 → local layer 必在
     labels = [l for l, _p, _k in indexer.discover_layers(layer_filter="global")]
     assert indexer.LOCAL_ATOMS_LAYER_LABEL in labels
-    assert indexer.FAILURES_LAYER_LABEL in labels
     assert "global" in labels
+    # 失敗家族已住 memory/Failures/<主題>/（global 遞迴層涵蓋）；獨立 failures 層只在
+    # 舊址 _AIDocs/Failures/ 仍存在時才掛——遷移完成後兩者互斥、不得重複索引
+    assert (indexer.FAILURES_LAYER_LABEL in labels) == indexer.LEGACY_FAILURES_DIR.is_dir()
 
 
 def test_discover_atoms_local_hierarchy(tmp_path):

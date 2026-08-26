@@ -3,7 +3,7 @@
   "atoms": [
     {
       "name": "decisions-architecture",
-      "path": "memory/decisions-architecture.md",
+      "path": "_AIDocs/_atoms/MemDev/decisions-architecture.md",
       "triggers": [
         "架構",
         "hooks",
@@ -18,7 +18,7 @@
     },
     {
       "name": "decisions",
-      "path": "memory/decisions.md",
+      "path": "memory/CC與原子記憶契約/decisions.md",
       "triggers": [
         "決策",
         "記憶系統",
@@ -49,7 +49,7 @@
     },
     {
       "name": "feedback-workflow-discipline",
-      "path": "_AIDocs/Failures/feedback-workflow-discipline.md",
+      "path": "memory/Failures/工作流/feedback-workflow-discipline.md",
       "triggers": [
         "handoff",
         "續接",
@@ -70,7 +70,7 @@
     },
     {
       "name": "feedback-completion-gates",
-      "path": "_AIDocs/Failures/feedback-completion-gates.md",
+      "path": "memory/Failures/驗證與實證/feedback-completion-gates.md",
       "triggers": [
         "完成宣告",
         "收尾",
@@ -96,7 +96,7 @@
     },
     {
       "name": "feedback-tooling-reliability",
-      "path": "_AIDocs/Failures/feedback-tooling-reliability.md",
+      "path": "memory/Failures/CC與原子記憶契約/feedback-tooling-reliability.md",
       "triggers": [
         "codex",
         "codex companion",
@@ -117,7 +117,7 @@
     },
     {
       "name": "feedback-rigor-standards",
-      "path": "_AIDocs/Failures/feedback-rigor-standards.md",
+      "path": "memory/Failures/思考與決策/feedback-rigor-standards.md",
       "triggers": [
         "縝密",
         "漏掉",
@@ -146,7 +146,7 @@
     },
     {
       "name": "preferences",
-      "path": "memory/preferences.md",
+      "path": "memory/工作流/節奏與收尾/preferences.md",
       "triggers": [
         "偏好",
         "執P",
@@ -157,7 +157,7 @@
     },
     {
       "name": "toolchain-ollama",
-      "path": "memory/toolchain-ollama.md",
+      "path": "_AIDocs/_atoms/MemDev/toolchain-ollama.md",
       "triggers": [
         "ollama",
         "dual-backend",
@@ -172,7 +172,7 @@
     },
     {
       "name": "toolchain",
-      "path": "memory/toolchain.md",
+      "path": "memory/文字與格式/toolchain.md",
       "triggers": [
         "工具鏈",
         "環境設定",
@@ -191,7 +191,7 @@
     },
     {
       "name": "workflow-icld",
-      "path": "memory/workflow-icld.md",
+      "path": "memory/工作流/節奏與收尾/workflow-icld.md",
       "triggers": [
         "ICLD",
         "Sprint",
@@ -202,7 +202,7 @@
     },
     {
       "name": "workflow-rules",
-      "path": "memory/workflow-rules.md",
+      "path": "memory/工作流/節奏與收尾/workflow-rules.md",
       "triggers": [
         "工作流程",
         "大型任務",
@@ -217,7 +217,7 @@
     },
     {
       "name": "workflow-svn",
-      "path": "memory/workflow-svn.md",
+      "path": "memory/版控/SVN/workflow-svn.md",
       "triggers": [
         "svn",
         "svn-update",
@@ -227,7 +227,7 @@
     },
     {
       "name": "memory-pipeline-silent-failure-2026-05",
-      "path": "_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md",
+      "path": "_AIDocs/_atoms/MemDev/memory-pipeline-silent-failure-2026-05.md",
       "triggers": [
         "memory-review",
         "memory-health",
@@ -242,7 +242,7 @@
     },
     {
       "name": "cognitive-patterns",
-      "path": "_AIDocs/Failures/cognitive-patterns.md",
+      "path": "memory/Failures/思考與決策/cognitive-patterns.md",
       "triggers": [
         "過度工程",
         "代理指標",
@@ -265,7 +265,7 @@
     },
     {
       "name": "feedback-atom-write-initial-confidence",
-      "path": "_AIDocs/Failures/feedback-atom-write-initial-confidence.md",
+      "path": "memory/Failures/CC與原子記憶契約/feedback-atom-write-initial-confidence.md",
       "triggers": [
         "atom_write",
         "初次寫",
@@ -281,7 +281,7 @@
     },
     {
       "name": "workflow-parallel-agents",
-      "path": "memory/workflow-parallel-agents.md",
+      "path": "memory/工作流/協作與並行/workflow-parallel-agents.md",
       "triggers": [
         "多 agent",
         "平行 agent",
@@ -317,7 +317,7 @@
     },
     {
       "name": "feedback-memory-system-doc-sync",
-      "path": "_AIDocs/Failures/feedback-memory-system-doc-sync.md",
+      "path": "_AIDocs/_atoms/MemDev/feedback-memory-system-doc-sync.md",
       "triggers": [
         "原子記憶系統",
         "記憶系統修正",
@@ -550,7 +550,7 @@
     },
     {
       "name": "goal-driven-verify-loopkarpathy-吸收",
-      "path": "memory/goal-driven-verify-loopkarpathy-吸收.md",
+      "path": "memory/驗證與實證/goal-driven-verify-loopkarpathy-吸收.md",
       "triggers": [
         "成功標準",
         "驗收",
@@ -628,7 +628,7 @@
     },
     {
       "name": "自己flag的維護動作直接做完不要反問",
-      "path": "memory/自己flag的維護動作直接做完不要反問.md",
+      "path": "memory/行為契約/自己flag的維護動作直接做完不要反問.md",
       "triggers": [
         "反問",
         "要不要我",
@@ -656,7 +656,7 @@
     },
     {
       "name": "handoff-綜觀品質與抗失真寫法",
-      "path": "_AIDocs/_atoms/Continuity/handoff-綜觀品質與抗失真寫法.md",
+      "path": "memory/工作流/節奏與收尾/handoff-綜觀品質與抗失真寫法.md",
       "triggers": [
         "handoff",
         "續接",
@@ -676,7 +676,7 @@
     },
     {
       "name": "跨session資訊失真機制與對策",
-      "path": "_AIDocs/_atoms/Continuity/跨session資訊失真機制與對策.md",
+      "path": "memory/工作流/節奏與收尾/跨session資訊失真機制與對策.md",
       "triggers": [
         "失真",
         "失憶",
@@ -701,7 +701,7 @@
     },
     {
       "name": "feedback-complexity-origin-trace",
-      "path": "_AIDocs/Failures/feedback-complexity-origin-trace.md",
+      "path": "memory/Failures/思考與決策/feedback-complexity-origin-trace.md",
       "triggers": [
         "太複雜",
         "看不懂",
@@ -718,7 +718,7 @@
     },
     {
       "name": "feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長",
-      "path": "_AIDocs/Failures/feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長.md",
+      "path": "memory/Failures/驗證與實證/feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長.md",
       "triggers": [
         "未證實",
         "斷言",
@@ -751,7 +751,7 @@
     },
     {
       "name": "escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造",
-      "path": "memory/escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造.md",
+      "path": "memory/CC與原子記憶契約/escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造.md",
       "triggers": [
         "fix-escalation",
         "DeepPostMortem",
@@ -849,7 +849,7 @@
     },
     {
       "name": "feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔",
-      "path": "_AIDocs/Failures/feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔.md",
+      "path": "memory/Failures/行為契約/feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔.md",
       "triggers": [
         "版本殘留",
         "版本標記",
@@ -880,7 +880,7 @@
     },
     {
       "name": "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a",
-      "path": "memory/併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a.md",
+      "path": "memory/版控/Git/併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a.md",
       "triggers": [
         "上GIT",
         "git add",
@@ -897,7 +897,7 @@
     },
     {
       "name": "windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff",
-      "path": "_AIDocs/_atoms/Tools/windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff.md",
+      "path": "memory/文字與格式/windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff.md",
       "triggers": [
         "write_text",
         "newline",
@@ -961,7 +961,7 @@
     },
     {
       "name": "git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉",
-      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/git/git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉.md",
+      "path": "memory/版控/Git/git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉.md",
       "triggers": [
         "git commit",
         "git push",
@@ -1054,7 +1054,7 @@
     },
     {
       "name": "pythonw-下-stdout-為-none-排程腳本秒死陷阱",
-      "path": "_AIDocs/_atoms/OS/pythonw-下-stdout-為-none-排程腳本秒死陷阱.md",
+      "path": "memory/OS-Windows/pythonw-下-stdout-為-none-排程腳本秒死陷阱.md",
       "triggers": [
         "pythonw",
         "Task Scheduler",
@@ -1068,7 +1068,7 @@
     },
     {
       "name": "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字",
-      "path": "_AIDocs/Failures/feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字.md",
+      "path": "memory/Failures/行為契約/feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字.md",
       "triggers": [
         "註解",
         "comment",
@@ -1152,7 +1152,7 @@
     },
     {
       "name": "winget-升不動-powershell-msi-與-msix-通道分裂",
-      "path": "memory/winget-升不動-powershell-msi-與-msix-通道分裂.md",
+      "path": "memory/OS-Windows/winget-升不動-powershell-msi-與-msix-通道分裂.md",
       "triggers": [
         "winget",
         "pwsh",
@@ -1209,7 +1209,7 @@
     },
     {
       "name": "feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問",
-      "path": "_AIDocs/Failures/feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問.md",
+      "path": "memory/Failures/工作流/feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問.md",
       "triggers": [
         "整理",
         "歸檔",
@@ -1282,7 +1282,7 @@
     },
     {
       "name": "feedback-收尾報告使用者視角四要素-白話綜觀非片段細節",
-      "path": "_AIDocs/Failures/feedback-收尾報告使用者視角四要素-白話綜觀非片段細節.md",
+      "path": "memory/Failures/工作流/feedback-收尾報告使用者視角四要素-白話綜觀非片段細節.md",
       "triggers": [
         "收尾報告",
         "完成報告",
@@ -1333,7 +1333,7 @@
     },
     {
       "name": "winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog",
-      "path": "memory/winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog.md",
+      "path": "memory/dotnet/WinForms/winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog.md",
       "triggers": [
         "FolderBrowserDialog",
         "Multiselect",
@@ -1366,7 +1366,7 @@
     },
     {
       "name": "commit-前必須核對-staged-清單而非只信自己-add-了什麼",
-      "path": "memory/commit-前必須核對-staged-清單而非只信自己-add-了什麼.md",
+      "path": "memory/版控/Git/commit-前必須核對-staged-清單而非只信自己-add-了什麼.md",
       "triggers": [
         "git diff --cached",
         "staged 清單",
@@ -1378,7 +1378,7 @@
     },
     {
       "name": "minimal-hosting-下-configuretestservices-靜默失效",
-      "path": "memory/minimal-hosting-下-configuretestservices-靜默失效.md",
+      "path": "memory/dotnet/ASPNET/minimal-hosting-下-configuretestservices-靜默失效.md",
       "triggers": [
         "ConfigureTestServices",
         "WebApplicationFactory",
@@ -1395,7 +1395,7 @@
     },
     {
       "name": "sed-i-在-crlf-repo-會整檔改換行",
-      "path": "memory/sed-i-在-crlf-repo-會整檔改換行.md",
+      "path": "memory/版控/Git/sed-i-在-crlf-repo-會整檔改換行.md",
       "triggers": [
         "sed -i",
         "CRLF",
@@ -1412,7 +1412,7 @@
     },
     {
       "name": "目標展開與收斂-立體菱形體思考模型",
-      "path": "memory/目標展開與收斂-立體菱形體思考模型.md",
+      "path": "memory/思考與決策/目標展開與收斂-立體菱形體思考模型.md",
       "triggers": [
         "收束",
         "收斂",
@@ -1430,7 +1430,7 @@
     },
     {
       "name": "mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口",
-      "path": "_AIDocs/_atoms/OS/Windows/mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口.md",
+      "path": "memory/CC與原子記憶契約/mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口.md",
       "triggers": [
         "mcp.json",
         "MCP 雙開",
@@ -1446,7 +1446,7 @@
     },
     {
       "name": "workflow-research-fanout",
-      "path": "memory/workflow-research-fanout.md",
+      "path": "memory/工作流/協作與並行/workflow-research-fanout.md",
       "triggers": [
         "幫我搜索",
         "幫我查",
@@ -1467,7 +1467,7 @@
     },
     {
       "name": "並行agent產出併入交付物必須標驗證強度分層",
-      "path": "memory/並行agent產出併入交付物必須標驗證強度分層.md",
+      "path": "memory/工作流/協作與並行/並行agent產出併入交付物必須標驗證強度分層.md",
       "triggers": [
         "並行agent",
         "sub-agent",
@@ -1484,7 +1484,7 @@
     },
     {
       "name": "歸因早停-找到合理嫌疑機制就停止驗證",
-      "path": "memory/歸因早停-找到合理嫌疑機制就停止驗證.md",
+      "path": "memory/思考與決策/歸因早停-找到合理嫌疑機制就停止驗證.md",
       "triggers": [
         "根因",
         "歸因",
@@ -1502,7 +1502,7 @@
     },
     {
       "name": "aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token",
-      "path": "memory/aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token.md",
+      "path": "memory/dotnet/ASPNET/aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token.md",
       "triggers": [
         "graceful shutdown",
         "關閉卡住",
@@ -1521,7 +1521,7 @@
     },
     {
       "name": "vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現",
-      "path": "memory/vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現.md",
+      "path": "memory/dotnet/建置/vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現.md",
       "triggers": [
         "vendor",
         "雜湊不一致",
@@ -1538,7 +1538,7 @@
     },
     {
       "name": "windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring",
-      "path": "memory/windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring.md",
+      "path": "memory/OS-Windows/windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring.md",
       "triggers": [
         "CredWrite",
         "Credential Manager",
@@ -1557,7 +1557,7 @@
     },
     {
       "name": "feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問",
-      "path": "_AIDocs/Failures/feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問.md",
+      "path": "memory/Failures/工作流/feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問.md",
       "triggers": [
         "上乾淨",
         "工作樹",
@@ -1575,7 +1575,7 @@
     },
     {
       "name": "feedback-模糊裁示不硬化先深問-決策選項含使用到再問",
-      "path": "_AIDocs/Failures/feedback-模糊裁示不硬化先深問-決策選項含使用到再問.md",
+      "path": "memory/Failures/思考與決策/feedback-模糊裁示不硬化先深問-決策選項含使用到再問.md",
       "triggers": [
         "模糊裁示",
         "硬化",
@@ -1590,7 +1590,7 @@
     },
     {
       "name": "混改檔hunk級選擇性staging",
-      "path": "memory/混改檔hunk級選擇性staging.md",
+      "path": "memory/版控/Git/混改檔hunk級選擇性staging.md",
       "triggers": [
         "hunk",
         "混改檔",
@@ -1603,7 +1603,7 @@
     },
     {
       "name": "atom-write-global必須省略project-cwd",
-      "path": "memory/atom-write-global必須省略project-cwd.md",
+      "path": "memory/CC與原子記憶契約/atom-write-global必須省略project-cwd.md",
       "triggers": [
         "atom_write",
         "scope=global",
@@ -1615,7 +1615,7 @@
     },
     {
       "name": "契約加欄位必查手寫映射點-單元綠不代表wire存活",
-      "path": "memory/契約加欄位必查手寫映射點-單元綠不代表wire存活.md",
+      "path": "memory/dotnet/建置/契約加欄位必查手寫映射點-單元綠不代表wire存活.md",
       "triggers": [
         "DTO 加欄位",
         "wire parser",
@@ -1630,7 +1630,7 @@
     },
     {
       "name": "汰舊刪腳本要-grep-全-repo-實際呼叫點",
-      "path": "memory/汰舊刪腳本要-grep-全-repo-實際呼叫點.md",
+      "path": "memory/工作流/節奏與收尾/汰舊刪腳本要-grep-全-repo-實際呼叫點.md",
       "triggers": [
         "汰舊",
         "刪除腳本",
@@ -1644,7 +1644,7 @@
     },
     {
       "name": "json設定檔已持久化欄位會蓋過程式碼新預設值",
-      "path": "memory/json設定檔已持久化欄位會蓋過程式碼新預設值.md",
+      "path": "memory/設計通則/json設定檔已持久化欄位會蓋過程式碼新預設值.md",
       "triggers": [
         "設定檔",
         "預設值",
@@ -1660,7 +1660,7 @@
     },
     {
       "name": "winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用",
-      "path": "memory/winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用.md",
+      "path": "memory/dotnet/WinForms/winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用.md",
       "triggers": [
         "WinForms",
         "AutoScrollPosition",
@@ -1680,7 +1680,7 @@
     },
     {
       "name": "designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰",
-      "path": "memory/designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰.md",
+      "path": "memory/dotnet/WinForms/designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰.md",
       "triggers": [
         "WinForms",
         "Designer",
@@ -1698,7 +1698,7 @@
     },
     {
       "name": "併發session共用的不只工作樹-執行中的應用程式行程也是共用資源",
-      "path": "memory/併發session共用的不只工作樹-執行中的應用程式行程也是共用資源.md",
+      "path": "memory/工作流/協作與並行/併發session共用的不只工作樹-執行中的應用程式行程也是共用資源.md",
       "triggers": [
         "並行 session",
         "併發 session",
@@ -1714,7 +1714,7 @@
     },
     {
       "name": "否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對",
-      "path": "memory/否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對.md",
+      "path": "memory/思考與決策/否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對.md",
       "triggers": [
         "否證",
         "假説",
@@ -1732,7 +1732,7 @@
     },
     {
       "name": "弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值",
-      "path": "memory/弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值.md",
+      "path": "memory/設計通則/弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值.md",
       "triggers": [
         "自動推導",
         "視覺推斷",
@@ -1751,7 +1751,7 @@
     },
     {
       "name": "dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段",
-      "path": "memory/dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段.md",
+      "path": "memory/OS-Windows/dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段.md",
       "triggers": [
         "APPDATA",
         "SpecialFolder",
@@ -1768,7 +1768,7 @@
     },
     {
       "name": "離線測試過但實機不過-先排除實機跑的不是這份程式碼",
-      "path": "memory/離線測試過但實機不過-先排除實機跑的不是這份程式碼.md",
+      "path": "memory/驗證與實證/離線測試過但實機不過-先排除實機跑的不是這份程式碼.md",
       "triggers": [
         "離線測試過實機不過",
         "測試通過實際不過",
@@ -1785,7 +1785,7 @@
     },
     {
       "name": "feedback-使用者已宣告不展開的領域-不要回頭跟他要清單",
-      "path": "_AIDocs/Failures/feedback-使用者已宣告不展開的領域-不要回頭跟他要清單.md",
+      "path": "memory/Failures/行為契約/feedback-使用者已宣告不展開的領域-不要回頭跟他要清單.md",
       "triggers": [
         "拍板",
         "問使用者",
@@ -1800,7 +1800,7 @@
     },
     {
       "name": "bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗",
-      "path": "memory/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md",
+      "path": "memory/文字與格式/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md",
       "triggers": [
         "heredoc",
         "反斜線",
@@ -1814,7 +1814,7 @@
     },
     {
       "name": "禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗",
-      "path": "memory/禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗.md",
+      "path": "memory/驗證與實證/禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗.md",
       "triggers": [
         "截圖驗證",
         "PrintWindow",
@@ -1829,7 +1829,7 @@
     },
     {
       "name": "winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死",
-      "path": "memory/winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死.md",
+      "path": "memory/dotnet/WinForms/winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死.md",
       "triggers": [
         "沒有回應",
         "UI凍死",
@@ -1846,7 +1846,7 @@
     },
     {
       "name": "feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證",
-      "path": "_AIDocs/Failures/feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證.md",
+      "path": "memory/Failures/驗證與實證/feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證.md",
       "triggers": [
         "驗證",
         "實機",
@@ -1865,7 +1865,7 @@
     },
     {
       "name": "輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測",
-      "path": "memory/輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測.md",
+      "path": "memory/dotnet/建置/輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測.md",
       "triggers": [
         "MSB3026",
         "MSB3027",
@@ -1882,7 +1882,7 @@
     },
     {
       "name": "powershell傳null給dotnet-string參數會變空字串-nullstring才是真null",
-      "path": "memory/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md",
+      "path": "memory/文字與格式/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md",
       "triggers": [
         "PowerShell",
         "$null",
@@ -1914,7 +1914,7 @@
     },
     {
       "name": "並行llm即時通訊-inbox機制",
-      "path": "memory/並行llm即時通訊-inbox機制.md",
+      "path": "memory/工作流/協作與並行/並行llm即時通訊-inbox機制.md",
       "triggers": [
         "inbox機制",
         "並行LLM",
@@ -1932,7 +1932,7 @@
     },
     {
       "name": "vscode-reload-對並行ai-session的影響",
-      "path": "_AIDocs/_atoms/Tools/vscode-reload-對並行ai-session的影響.md",
+      "path": "memory/工作流/協作與並行/vscode-reload-對並行ai-session的影響.md",
       "triggers": [
         "VSCode Reload",
         "Reload Window",
@@ -1945,7 +1945,7 @@
     },
     {
       "name": "feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理",
-      "path": "_AIDocs/Failures/feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理.md",
+      "path": "memory/Failures/驗證與實證/feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理.md",
       "triggers": [
         "等秒數",
         "sleep",
@@ -1979,7 +1979,7 @@
     },
     {
       "name": "feedback-高速推進每步跨大-禁越執行越偏細節越耗時",
-      "path": "_AIDocs/Failures/feedback-高速推進每步跨大-禁越執行越偏細節越耗時.md",
+      "path": "memory/Failures/工作流/feedback-高速推進每步跨大-禁越執行越偏細節越耗時.md",
       "triggers": [
         "推進速度",
         "跨大步",
@@ -1996,7 +1996,7 @@
     },
     {
       "name": "feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向",
-      "path": "_AIDocs/Failures/feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向.md",
+      "path": "memory/Failures/工作流/feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向.md",
       "triggers": [
         "每輪校準",
         "偏移指標",
@@ -2013,7 +2013,7 @@
     },
     {
       "name": "grok協作實戰認知-特質與監工分工手感",
-      "path": "memory/grok協作實戰認知-特質與監工分工手感.md",
+      "path": "memory/工作流/協作與並行/grok協作實戰認知-特質與監工分工手感.md",
       "triggers": [
         "grok 特質",
         "跟 grok 合作",
@@ -2045,7 +2045,7 @@
     },
     {
       "name": "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過",
-      "path": "memory/驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過.md",
+      "path": "memory/驗證與實證/驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過.md",
       "triggers": [
         "驗證腳本",
         "通過判準",
@@ -2063,7 +2063,7 @@
     },
     {
       "name": "雙claude協作實戰認知-fable監工opus主力的分工手感",
-      "path": "memory/雙claude協作實戰認知-fable監工opus主力的分工手感.md",
+      "path": "memory/工作流/協作與並行/雙claude協作實戰認知-fable監工opus主力的分工手感.md",
       "triggers": [
         "Opus",
         "雙 Claude",
@@ -2083,7 +2083,7 @@
     },
     {
       "name": "實驗性改動的復原要驗回快照-送一次指令不算復原",
-      "path": "memory/實驗性改動的復原要驗回快照-送一次指令不算復原.md",
+      "path": "memory/驗證與實證/實驗性改動的復原要驗回快照-送一次指令不算復原.md",
       "triggers": [
         "復原",
         "還原",
@@ -2102,7 +2102,7 @@
     },
     {
       "name": "規格裡未實證的前提要先取樣再實作-不然整包白做",
-      "path": "memory/規格裡未實證的前提要先取樣再實作-不然整包白做.md",
+      "path": "memory/文字與格式/規格裡未實證的前提要先取樣再實作-不然整包白做.md",
       "triggers": [
         "規格前提",
         "未實證前提",
@@ -2118,7 +2118,7 @@
     },
     {
       "name": "自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者",
-      "path": "memory/自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者.md",
+      "path": "memory/行為契約/自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者.md",
       "triggers": [
         "設計債",
         "更根本的做法",

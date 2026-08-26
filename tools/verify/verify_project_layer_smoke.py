@@ -120,10 +120,10 @@ def test_case1_injection_gate_from_project_keeps_core_category_atoms(proj):
         ("feedback-legacy", "_AIDocs/Failures/feedback-legacy.md", ["舊址"]),
         ("git-hunk", "memory/版控/Git/git-hunk.md", ["hunk"]),
         ("brain", "_AIDocs/_atoms/MemDev/brain.md", ["腦內世界"]),
-        ("handoff-q", "_AIDocs/_atoms/Continuity/handoff-q.md", ["handoff"]),
+        ("handoff-q", "_AIDocs/_atoms/Continuity/handoff-q.md", ["handoff"]),  # local；跨專案清單為空 → 濾
     ]
     names = {n for n, _, _ in _apply_gate(atoms, str(proj))}
-    assert names == {"decisions", "feedback-x", "feedback-legacy", "git-hunk", "handoff-q"}
+    assert names == {"decisions", "feedback-x", "feedback-legacy", "git-hunk"}
     # 核心環境不濾
     assert {n for n, _, _ in _apply_gate(atoms, str(CLAUDE_DIR))} == {n for n, _, _ in atoms}
 

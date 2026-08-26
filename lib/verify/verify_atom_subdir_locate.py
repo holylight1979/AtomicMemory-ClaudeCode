@@ -177,12 +177,17 @@ def test_create_lands_by_write_gate_default(tmp_path):
 
 
 def test_global_append_locates_by_index_path(tmp_path):
-    """scope=global 的 append 依 index path 定位（此顆目前登記在 memory/ 根），不繞定位器。"""
+    """scope=global 的 append 依 index path 定位（範疇子夾 memory/<Lv1>/…），不繞定位器。"""
+    from lib.atom_index_json import load_atom_index_json
+    from lib.atom_locations import GLOBAL_MEMORY_DIR
+    indexed = next(a["path"] for a in load_atom_index_json(GLOBAL_MEMORY_DIR)["atoms"]
+                   if a.get("name") == "decisions")
+    assert indexed.startswith("memory/") and "/" in indexed[len("memory/"):], indexed  # 已歸類、非根平鋪
     r = write_atom(title="decisions", scope="global", confidence="[臨]",
                    triggers=["probe"], knowledge=["[臨] probe"],
                    mode="append", source="mcp", dry_run=True)
     assert r.ok, r.error
-    assert r.extra["rel_path"] == "memory/decisions.md"
+    assert r.extra["rel_path"] == indexed
 
 
 def test_global_local_realm_atom_found_without_domain_hint(tmp_path):

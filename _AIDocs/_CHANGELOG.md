@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-26 核心記憶分類階層化 S3 遷移 — memory/ 平鋪 → 範疇資料夾
+- `atom-categorize.py apply`：77 顆進 `memory/<範疇>/`（含 21 顆失敗家族進 `memory/Failures/<主題>/`、11 顆 Continuity/OS/Tools 使用面 local→core）、4 顆開發面進 `_AIDocs/_atoms/MemDev/`；7 份參考文件 + `_INDEX.md` git mv 到 `memory/Failures/_reference/`，`_AIDocs/Failures/` 移除。`taxonomy.gate_enabled=true`、MEMORY.md 改 Lv1 目錄（19 行）、`INDEX_MAX_LINES` 40、`CROSS_PROJECT_LOCAL_DOMAINS` 清空（機制保留）。undo 憑證 `plans/categorize-<ts>.undo.json`（本機）。
+
 ## 2026-08-25 AEC 殘檔帳本 — HUD 暫存清單改以檔案系統為權威
 - 新增 per-session 帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py`），三來源進帳；HUD 新面板由 `/api/aec/tempfiles/<sid>` + exists() 驅動，取代從 (d) prose 猜路徑的 isDeletable 啟發式；刪除鈕不再被「保留」字樣藏起、改 confirm() 二次確認；決策檔改路徑 hash 命名帶 `path` 供真後驗；(d) 契約改一行一路徑。不做 TTL。
 

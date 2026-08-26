@@ -6,7 +6,7 @@
   "dashboard_port": 3848,
   "taxonomy": {
     "_doc": "核心層範疇寫入閘。gate_enabled=false：遷移期（memory/ 仍有散檔）關閉硬規則與拒寫；遷移完成改 true。",
-    "gate_enabled": false,
+    "gate_enabled": true,
     "llm_fallback": {
       "enabled": false,
       "max_per_session": 5,

@@ -439,12 +439,20 @@ def existing_index_files(claude_root: Path, memory_dir: Path) -> Set[Path]:
     只掃 iter_realm_category_dirs 認可的範疇資料夾——`memory/_reference/**`、手寫的
     `_AIDocs/Failures/_INDEX.md` 等永不被視為 stale。
     """
+    def _managed(root: Path) -> Set[Path]:
+        # rglob 會鑽進 `_reference/`、`_distant/` 等 `_` 前綴子夾——那些不是範疇層、
+        # 其 _INDEX.md 是手寫參考索引，不歸本工具管（否則 --write 會把它當 stale 刪掉）
+        return {
+            p for p in root.rglob("_INDEX.md")
+            if not any(part.startswith("_") for part in p.relative_to(root).parts[:-1])
+        }
+
     found: Set[Path] = set()
     local_atoms_dir = claude_root / LOCAL_ATOMS_REL
     if local_atoms_dir.is_dir():
-        found |= set(local_atoms_dir.rglob("_INDEX.md"))
+        found |= _managed(local_atoms_dir)
     for cat_dir in iter_realm_category_dirs(memory_dir):
-        found |= set(cat_dir.rglob("_INDEX.md"))
+        found |= _managed(cat_dir)
     return found
 
 

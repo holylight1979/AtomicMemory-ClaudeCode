@@ -1,60 +1,19 @@
 # Atom Index — Global
 
-> Hook 自動匹配 trigger 注入相關 atom（完整觸發表見 `_atom_index.json` / `_ATOM_INDEX.md` mirror）。
+> Hook 依 trigger 自動注入 atom；範疇資料夾 `memory/<範疇>/`，深入各層 `_INDEX.md`；機器索引 `_atom_index.json`
 
-| Atom | 說明 |
-|------|------|
-| decisions-architecture | 架構決策 |
-| decisions | 全域決策 |
-| preferences | 使用者偏好（補充） |
-| toolchain-ollama | Ollama Dual-Backend 實戰記憶 |
-| toolchain | 工具鏈實戰記憶 |
-| workflow-icld | 增量式閉環開發（ICLD） |
-| workflow-rules | 工作流規則（全域） |
-| workflow-svn | SVN 工作流規則 |
-| workflow-parallel-agents | 多 agent 並行：拆 ≥2 sub-agent 同 message dispatch 的評估準則 |
-| goal-driven-verify-loopkarpathy-吸收 | goal-driven-verify-loop（karpathy 吸收） |
-| 自己flag的維護動作直接做完不要反問 | 自己flag的維護動作直接做完不要反問 |
-| escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造 | escalation-hook 在 edit-count-proxy 上 false-fire 的辨識（無真實失敗迴圈時不盲從不編造） |
-| 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | 併發 session 共用工作樹-收尾選擇性 staging 勿 git add -A |
-| winget-升不動-powershell-msi-與-msix-通道分裂 | winget 升不動 PowerShell — MSI 與 MSIX 通道分裂 |
-| winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog | WinForms 多選資料夾 — .NET 8 無 Multiselect 須走 IFileOpenDialog |
-| commit-前必須核對-staged-清單而非只信自己-add-了什麼 | commit 前必須核對 staged 清單而非只信自己 add 了什麼 |
-| minimal-hosting-下-configuretestservices-靜默失效 | minimal hosting 下 ConfigureTestServices 靜默失效 |
-| sed-i-在-crlf-repo-會整檔改換行 | sed -i 在 CRLF repo 會整檔改換行 |
-| 目標展開與收斂-立體菱形體思考模型 | 目標展開與收斂-立體菱形體思考模型 |
-| workflow-research-fanout | workflow-research-fanout |
-| 並行agent產出併入交付物必須標驗證強度分層 | 並行agent產出併入交付物必須標驗證強度分層 |
-| 歸因早停-找到合理嫌疑機制就停止驗證 | 歸因早停-找到合理嫌疑機制就停止驗證 |
-| aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token | aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token |
-| vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現 | vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現 |
-| windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring |
-| 混改檔hunk級選擇性staging | 混改檔hunk級選擇性staging |
-| atom-write-global必須省略project-cwd | atom-write-global必須省略project-cwd |
-| 契約加欄位必查手寫映射點-單元綠不代表wire存活 | 契約加欄位必查手寫映射點-單元綠不代表wire存活 |
-| 汰舊刪腳本要-grep-全-repo-實際呼叫點 | 汰舊刪腳本要 grep 全 repo 實際呼叫點 |
-| json設定檔已持久化欄位會蓋過程式碼新預設值 | JSON設定檔已持久化欄位會蓋過程式碼新預設值 |
-| winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用 | WinForms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用 |
-| designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰 | Designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰 |
-| 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 |
-| 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對 | 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對 |
-| 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值 | 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值 |
-| dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段 | dotnet的SpecialFolder不吃APPDATA環境變數-隔離測試要換別的手段 |
-| 離線測試過但實機不過-先排除實機跑的不是這份程式碼 | 離線測試過但實機不過-先排除實機跑的不是這份程式碼 |
-| bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
-| 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗 | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
-| winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死 | winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死 |
-| 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 | 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 |
-| powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
-| 並行llm即時通訊-inbox機制 | 並行llm即時通訊-inbox機制 |
-| grok協作實戰認知-特質與監工分工手感 | grok協作實戰認知-特質與監工分工手感 |
-| 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 | 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 |
-| 雙claude協作實戰認知-fable監工opus主力的分工手感 | 雙claude協作實戰認知-fable監工opus主力的分工手感 |
-| 實驗性改動的復原要驗回快照-送一次指令不算復原 | 實驗性改動的復原要驗回快照-送一次指令不算復原 |
-| 規格裡未實證的前提要先取樣再實作-不然整包白做 | 規格裡未實證的前提要先取樣再實作-不然整包白做 |
-| 自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者 | 自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者 |
-| feedback-* | 行為校正（19 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
-| memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
-| cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
+| 範疇 | atom 數 | 深入 |
+|------|---------|------|
+| 版控 | 6 | `memory/版控/_INDEX.md` |
+| 工作流 | 14 | `memory/工作流/_INDEX.md` |
+| 思考與決策 | 3 | `memory/思考與決策/_INDEX.md` |
+| 驗證與實證 | 5 | `memory/驗證與實證/_INDEX.md` |
+| dotnet | 9 | `memory/dotnet/_INDEX.md` |
+| OS-Windows | 4 | `memory/OS-Windows/_INDEX.md` |
+| 文字與格式 | 5 | `memory/文字與格式/_INDEX.md` |
+| 設計通則 | 2 | `memory/設計通則/_INDEX.md` |
+| 行為契約 | 2 | `memory/行為契約/_INDEX.md` |
+| CC與原子記憶契約 | 4 | `memory/CC與原子記憶契約/_INDEX.md` |
+| Failures | 19 | `memory/Failures/_INDEX.md` |
 
 > 本地範疇（僅 ~/.claude 注入）Lv1 根索引見 `_local_catalog.md`，深層 drill 各層 `_INDEX.md`。

@@ -266,10 +266,11 @@ def test_hierarchical_never_generates_memory_root_index(tmp_path: Path):
 def test_hierarchical_roundtrip_no_drift(tmp_path: Path):
     mem = _build_memdir(tmp_path, HIER_ROWS)
     _prerender(mem, tmp_path, HIER_ROWS, hierarchical=True)
-    # 非範疇資料夾裡的 _INDEX.md（_reference/）不歸本工具管 → 不算 stale
-    ref = mem / "_reference" / "_INDEX.md"
-    ref.parent.mkdir()
-    ref.write_text("# 手寫參考\n", encoding="utf-8")
+    # 非範疇資料夾裡的 _INDEX.md（_reference/）不歸本工具管 → 不算 stale；
+    # 範疇資料夾底下的 `_` 前綴子夾（Failures/_reference/ 參考文件索引）同樣豁免
+    for ref in (mem / "_reference" / "_INDEX.md", mem / "Failures" / "_reference" / "_INDEX.md"):
+        ref.parent.mkdir(parents=True, exist_ok=True)
+        ref.write_text("# 手寫參考\n", encoding="utf-8")
     r = _run_check(mem, "--hierarchical")
     assert r.returncode == 0, f"預期無 drift，stderr={r.stderr}"
     assert len((mem / "MEMORY.md").read_text(encoding="utf-8").splitlines()) <= 25
