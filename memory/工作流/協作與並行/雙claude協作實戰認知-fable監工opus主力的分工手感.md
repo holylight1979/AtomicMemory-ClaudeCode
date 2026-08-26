@@ -16,6 +16,8 @@
 - [臨] 收尾必做：雙方 build 都在暫存目錄時，**最後要就地 `dotnet build` 一次**，不然使用者開到的 exe 是舊的（使用者第一句就問「沒有編譯出 exe??」）。
 - [臨] 通道做法：同一個 `.ai-inbox` 加開 `to-opus\`／`to-fable\`，規則與 Grok 通道完全相同、寫進 `PROTOCOL.md` 末段即可，不另建協定檔；兩條通道並存互不干擾。Opus 側用 Monitor persistent bash **每 2 秒比目錄檔名差集**喚醒，一晚 20+ 封零漏接。
 - [臨] 共用資源分兩級：port／行程（headed client、4321）**寄 `status-*` 打招呼就可以動手**、不等回信；真獨佔（連遊戲）才用 `ack` 等 `ok`。實測這樣分級一晚沒撞過一次。
+- [臨] 總管模式（一個 session 只讀 repo、只寄信裁決，主力 session 逐階段接槽）跑完五階段遷移實證可行：每階段主力先寄「坑點清單」（改動面／已知坑對策／驗證對應）、總管回「無異議＋補證項」才准接線；主力交付信附驗證末行，總管**獨立重跑**（run_verify、--check、audit）而非只讀信；放行信的條件要一次寫齊——分兩封寄，主力已按第一封動手（S3 提早 2 分鐘 apply，事後驗證無害）。
+- [臨] 換槽用 status-notice／ack 自報 session id 與起始時間；同槽雙佔（前任沒關 Monitor）會撞序號——前任交付後立刻由使用者關閉 session，總管用 claude.exe 行程清單核實再放行。舊碼 MCP 實例是遷移期最大寫手風險：總管自己的 MCP 也是舊碼，總管全程不呼叫 atom_write，需要落 atom 走 python `lib.atom_io` 新碼。
 
 ## 行動
 
