@@ -12,8 +12,8 @@
 
 - [臨] `atom-heal.py`（L2 死連結自癒）仍寫死全域根（`ahc.MEMORY_ROOT`，無 CLI 覆寫參數）→ 對專案層 atom 一律回「找不到此 atom」。專案層死連結只能手修：逐顆查正主名（多數是錯字／改名級：底線 vs 連字號、漏字母、舊短名），再用 `atom_edit_meta` 換 Related 整行。
 - [臨] `atom_edit_meta` 對專案層 atom **全欄位可直接用**（含 triggers）：`lib/atom_io.py:edit_metadata` 的 index root 以 `find_index_dir` 上溯最近 `_atom_index.json` 定位，不再硬編 ~/.claude（舊「file not under」拒寫已根治；索引 scope 沿用既有值不被蹍 global）。守門 `lib/verify/verify_atom_locate_scope.py:test_edit_metadata_project_layer_atom`。舊繞道（手 Edit index → sync-atom-index --fix → 手重生 mirror）已不需要。
-- [臨] `atom_edit_meta`／`edit_metadata` 只**替換**既有 frontmatter 行；檔裡本來沒有 `- Trigger:` 行（如 extract-worker 舊模板生的 failure 檔）會回「frontmatter field not found」→ 先用 `lib.atom_io.write_raw` 插一行 `- Trigger: …`（位置依 Scope/Confidence 之後），再 `atom_edit_meta` 對齊索引。
-- [臨] 待修 bug（非本案）：`atom_edit_meta` 對專案層 atom 改 triggers 時，index upsert 的 scope 落成 `global`（AI-gen-projs 實測，需手動改回 `shared`）——`lib/atom_io.edit_metadata` 走 `write_index` 未帶該 atom 既有 scope；修法：從 index 既有條目或 frontmatter Scope 取值再 upsert，並加 `verify_atom_io_edit_metadata` 專案層案例。
+- [臨] `atom_edit_meta`／`edit_metadata` 對缺少的欄位行（如舊模板 failure 檔沒有 `- Trigger:`）會自動插到 metadata 區塊末行（沿用原檔 CRLF/LF）；只有整檔沒有 metadata 區塊才回 error。
+- [臨] `atom_edit_meta` 對專案層 atom **首次登錄索引**時 scope 取 frontmatter `Scope`（legacy `project`→`shared`），缺則依層別（~/.claude 內 global、專案層 shared）；索引既有條目的 scope 永遠優先（SoT）。之前預設落 global 的問題已修（`verify_atom_io_edit_metadata` 專案層四案釘住）。
 
 ## 行動
 

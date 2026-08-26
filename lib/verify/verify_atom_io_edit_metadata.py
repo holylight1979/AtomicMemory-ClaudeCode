@@ -156,18 +156,108 @@ def test_edit_tags_line(isolated_claude):
 # ─── 5. 找不到欄位行 → 非靜默 no-op，且不落任何檔 ────────────────────────────
 
 
-def test_field_not_found_errors_without_write(isolated_claude):
-    # 標準 atom 無 Tags 行 → edit tags 應報 not found
+def test_missing_field_is_inserted_at_metadata_block_end(isolated_claude):
+    # 標準 atom 無 Tags 行 → 插到 metadata 區塊末行；其餘 byte 原樣；index 不動（tags 不進 index）
     fp = _make_atom(isolated_claude, triggers=["t1", "t2"])
-    before = fp.read_bytes()
+    before = fp.read_text(encoding="utf-8")
     idx_before = (isolated_claude["memory"] / "_atom_index.json").read_bytes()
 
     res = edit_metadata(fp, tags=["whatever"], source="test")
-    assert not res.ok
-    assert "not found" in res.error and "Tags" in res.error
-    # 檔與 index 皆 byte 原樣（not-found 在 SoT 寫入前）
-    assert fp.read_bytes() == before
+    assert res.ok, res.error
+    after = fp.read_text(encoding="utf-8")
+    assert "- Tags: whatever" in after
+    # 插入位置：metadata 區塊內（在 ## 知識 之前、緊接最後一個 `- Key:` 行），且移除該行後與原檔相同
+    assert after.index("- Tags: whatever") < after.index("## 知識")
+    prev_line = after[: after.index("- Tags: whatever")].rstrip("\n").rsplit("\n", 1)[-1]
+    assert prev_line.startswith("- ")
+    assert after.replace("- Tags: whatever\n", "") == before
     assert (isolated_claude["memory"] / "_atom_index.json").read_bytes() == idx_before
+
+
+def test_missing_trigger_inserted_crlf_and_index_written(isolated_claude):
+    # 舊模板 failure 檔：CRLF、無 Trigger 行、不在 index → 插 Trigger（沿用 CRLF）+ index 新條目
+    mem = isolated_claude["memory"]
+    fp = mem / "設計通則" / "legacy-no-trigger.md"
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_bytes(("# legacy\r\n\r\n- Scope: global\r\n- Confidence: [臨]\r\n- Type: procedural\r\n"
+                    "\r\n## 知識\r\n\r\n- [臨] x\r\n\r\n## 行動\r\n\r\n- y\r\n").encode("utf-8"))
+    res = edit_metadata(fp, triggers=["假設錯誤", "誤判"], source="test")
+    assert res.ok, res.error
+    raw = fp.read_bytes()
+    assert b"- Type: procedural\r\n- Trigger: \xe5\x81\x87\xe8\xa8\xad\xe9\x8c\xaf\xe8\xaa\xa4, \xe8\xaa\xa4\xe5\x88\xa4\r\n\r\n## \xe7\x9f\xa5\xe8\xad\x98" in raw
+    assert b"\n" not in raw.replace(b"\r\n", b"")  # 全檔仍為 CRLF
+    assert _index_triggers(isolated_claude, "legacy-no-trigger") == ["假設錯誤", "誤判"]
+
+
+def test_no_metadata_block_errors_without_write(isolated_claude):
+    mem = isolated_claude["memory"]
+    fp = mem / "設計通則" / "no-block.md"
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text("# bare\n\n只有正文\n", encoding="utf-8")
+    before = fp.read_bytes()
+    res = edit_metadata(fp, tags=["x"], source="test")
+    assert not res.ok and "no metadata block" in res.error
+    assert fp.read_bytes() == before
+
+
+def _make_project(tmp_path):
+    """假專案：<tmp>/proj/.claude/memory/{_atom_index.json(空), shared/}；不在 fake CLAUDE_DIR 下。"""
+    mem = tmp_path / "proj" / ".claude" / "memory"
+    (mem / "shared").mkdir(parents=True)
+    (mem / "_atom_index.json").write_text('{"version": "1.0", "atoms": []}', encoding="utf-8")
+    return mem
+
+
+def _proj_scope(mem, slug):
+    idx = json.loads((mem / "_atom_index.json").read_text(encoding="utf-8"))
+    return next((a["scope"] for a in idx["atoms"] if a["name"] == slug), None)
+
+
+def test_project_atom_first_index_entry_uses_frontmatter_scope(isolated_claude, tmp_path):
+    # 專案層 atom 尚未入索引：scope 取 frontmatter（shared），不得落預設 global
+    mem = _make_project(tmp_path)
+    fp = mem / "shared" / "proj-rule.md"
+    fp.write_text("# proj-rule\n\n- Scope: shared\n- Confidence: [臨]\n\n## 知識\n\n- [臨] x\n\n## 行動\n\n- y\n",
+                  encoding="utf-8")
+    res = edit_metadata(fp, triggers=["pr"], source="test")
+    assert res.ok, res.error
+    assert _proj_scope(mem, "proj-rule") == "shared"
+
+
+def test_project_atom_legacy_scope_project_maps_to_shared(isolated_claude, tmp_path):
+    # legacy frontmatter `Scope: project`（extract-worker 舊模板）→ index 登錄為 shared
+    mem = _make_project(tmp_path)
+    fp = mem / "failures" / "wrong-assumptions.md"
+    fp.parent.mkdir()
+    fp.write_text("# 假設錯誤\n\n- Scope: project\n- Confidence: [臨]\n- Type: procedural\n\n## 知識\n\n- [臨] x\n\n## 行動\n\n- y\n",
+                  encoding="utf-8")
+    res = edit_metadata(fp, triggers=["假設錯誤"], source="test")
+    assert res.ok, res.error
+    assert _proj_scope(mem, "wrong-assumptions") == "shared"
+    assert "- Trigger: 假設錯誤" in fp.read_text(encoding="utf-8")
+
+
+def test_project_atom_without_scope_line_defaults_shared(isolated_claude, tmp_path):
+    mem = _make_project(tmp_path)
+    fp = mem / "shared" / "no-scope.md"
+    fp.write_text("# no-scope\n\n- Confidence: [臨]\n\n## 知識\n\n- [臨] x\n\n## 行動\n\n- y\n", encoding="utf-8")
+    res = edit_metadata(fp, triggers=["ns"], source="test")
+    assert res.ok, res.error
+    assert _proj_scope(mem, "no-scope") == "shared"
+
+
+def test_existing_index_scope_wins_over_frontmatter(isolated_claude, tmp_path):
+    # 索引既有條目 scope 是 SoT：frontmatter 寫 global 也不得改寫
+    mem = _make_project(tmp_path)
+    fp = mem / "shared" / "keep-scope.md"
+    fp.write_text("# keep-scope\n\n- Scope: global\n- Confidence: [臨]\n- Trigger: k\n\n## 知識\n\n- [臨] x\n\n## 行動\n\n- y\n",
+                  encoding="utf-8")
+    (mem / "_atom_index.json").write_text(json.dumps({"version": "1.0", "atoms": [
+        {"name": "keep-scope", "path": "memory/shared/keep-scope.md", "triggers": ["k"], "scope": "shared"}]},
+        ensure_ascii=False), encoding="utf-8")
+    res = edit_metadata(fp, triggers=["k", "k2"], source="test")
+    assert res.ok, res.error
+    assert _proj_scope(mem, "keep-scope") == "shared"
 
 
 # ─── 6. invalid source → error ───────────────────────────────────────────────

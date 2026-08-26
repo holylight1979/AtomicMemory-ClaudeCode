@@ -544,6 +544,52 @@ def append_atom_file(
     return write_raw(fp, content, source=source, op=op)
 
 
+_META_KV_LINE_RE = re.compile(r"^-\s+[\w-]+:\s*.*$")
+
+
+def _insert_meta_line(text: str, line: str) -> Optional[str]:
+    """把 `- Key: value` 插到 metadata 區塊末（H1 後第一段連續 `- Key:` 行）。
+
+    沿用原檔行尾（CRLF/LF）；找不到區塊回 None。
+    """
+    eol = "\r\n" if "\r\n" in text else "\n"
+    lines = text.split(eol)
+    last_meta = -1
+    seen_h1 = False
+    for i, ln in enumerate(lines):
+        if not seen_h1:
+            if ln.startswith("# "):
+                seen_h1 = True
+            continue
+        if _META_KV_LINE_RE.match(ln):
+            last_meta = i
+        elif last_meta >= 0:
+            break  # 區塊結束
+    if last_meta < 0:
+        return None
+    lines.insert(last_meta + 1, line)
+    return eol.join(lines)
+
+
+def _scope_from_frontmatter(text: str) -> Optional[str]:
+    """frontmatter `- Scope:` → VALID_SCOPES 值；legacy `project` 對映 `shared`；缺/非法 → None。"""
+    m = re.search(r"^-\s*Scope:\s*(\S+)", text, re.MULTILINE)
+    if not m:
+        return None
+    val = m.group(1).strip().lower()
+    if val == "project":
+        val = "shared"
+    return val if val in VALID_SCOPES else None
+
+
+def _index_has_entry(base_dir: Path, slug: str) -> bool:
+    try:
+        from .atom_index_json import load_atom_index_json
+        return any(a.get("name") == slug for a in load_atom_index_json(base_dir).get("atoms", []))
+    except (OSError, ValueError, ImportError):
+        return False
+
+
 def edit_metadata(
     file_path: Path,
     *,
@@ -579,7 +625,9 @@ def edit_metadata(
     had_bom = raw.startswith(b"\xef\xbb\xbf")
     text = raw.decode("utf-8-sig")
 
-    # ── Surgical replace（每個非 None 欄位，只改那一行，count=1；找不到不靜默） ──
+    # ── Surgical replace（每個非 None 欄位，只改那一行，count=1）；欄位行不存在則
+    #    插到 metadata 區塊（H1 後連續 `- Key: value` 行）末尾——舊模板生的檔常缺
+    #    Trigger 行，拒寫會讓它永遠補不齊。沒有 metadata 區塊才回 error。 ──
     fields = {"triggers": triggers, "related": related, "tags": tags}
     new_text = text
     for field_name, values in fields.items():
@@ -592,11 +640,13 @@ def edit_metadata(
         line_re = re.compile(rf"^-\s*{label}:\s*.*$", re.MULTILINE)
         new_text, n = line_re.subn(replacement, new_text, count=1)
         if n == 0:
-            # 找不到該欄位行 → 不靜默 no-op（且 frontmatter 尚未寫，index 也未寫）
-            return WriteResult(
-                ok=False, audit_id=audit_id,
-                error=f"frontmatter field not found: {label}",
-            )
+            inserted = _insert_meta_line(new_text, replacement)
+            if inserted is None:
+                return WriteResult(
+                    ok=False, audit_id=audit_id,
+                    error=f"frontmatter field not found and no metadata block to insert into: {label}",
+                )
+            new_text = inserted
 
     # ── SoT 先行：triggers 變更時先寫 _atom_index.json ──
     if triggers is not None:
@@ -628,7 +678,13 @@ def edit_metadata(
                 ok=False, audit_id=audit_id,
                 error=f"file not under index root {index_root}: {file_path}",
             )
-        idx_res = write_index(base_dir, slug, rel_path, triggers, source)
+        # scope：索引既有條目優先（write_index 對 None 會沿用）；本檔尚未入索引時
+        # 依 frontmatter `Scope`（legacy `project`→`shared`）、再依層別預設，
+        # 不能讓專案層 atom 首次登錄就被預設成 global。
+        scope_for_index: Optional[str] = None
+        if not _index_has_entry(base_dir, slug):
+            scope_for_index = _scope_from_frontmatter(text) or ("global" if in_claude else "shared")
+        idx_res = write_index(base_dir, slug, rel_path, triggers, source, scope=scope_for_index)
         if not idx_res.ok:
             # index 領先失敗 → 不續寫 frontmatter（避免不可復原 drift）
             return idx_res
