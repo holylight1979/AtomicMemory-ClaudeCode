@@ -521,7 +521,8 @@ async function renderHealth(force) {
       }
       if (staleAtoms.length) {
         html += '<div style="margin-bottom:8px"><strong style="color:#f0883e">過期 Atom (' + staleAtoms.length + ')</strong></div><ul>';
-        for (const s of staleAtoms) { html += '<li>' + esc(s.name || s) + ' — Last-used: ' + esc(s.last_used || "?") + '</li>'; }
+        // atom-health-check stale_check 的欄位是 atom（非 name）；字串 fallback 供舊 payload
+        for (const s of staleAtoms) { html += '<li>' + esc(s.atom || s.name || (typeof s === "string" ? s : "?")) + ' — Last-used: ' + esc(s.last_used || "?") + (s.days_ago != null ? ' (' + esc(String(s.days_ago)) + 'd)' : '') + '</li>'; }
         html += '</ul>';
       }
     }
