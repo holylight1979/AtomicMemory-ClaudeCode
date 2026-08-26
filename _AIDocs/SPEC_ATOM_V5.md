@@ -40,20 +40,21 @@ V4 的三層 scope 機制不變：
 
 詳細 schema / 衝突偵測 / JIT 注入規則：見 [SPEC_ATOM_V4.md §2–§10](SPEC_ATOM_V4.md)。本 SPEC 只記 V5 增量。
 
-### 2.1 Atom 存放擴展（feedback / 失敗模式類，V5+ Session α/β，2026-05-28）
+### 2.1 核心層物理佈局：範疇資料夾 + 失敗家族
 
-`global` scope 的 atom 物理位置從單根 `memory/` 擴為**多根**：
+`global` scope（core realm）的 atom 一律住 `memory/` 之下的**範疇資料夾**；`memory/` 根下不容平鋪 atom：
 
 | 物理位置 | 收錄對象 | 索引 |
 |---|---|---|
-| `~/.claude/memory/` | 一般全域 atom（decisions / workflow-rules / toolchain ...） | `memory/_atom_index.json` |
-| `~/.claude/_AIDocs/Failures/` | title 以 `feedback-` 開頭的 atom + 失敗模式類（如 `cognitive-patterns`） | 同上（單一索引，path 欄記 `_AIDocs/Failures/...`） |
+| `~/.claude/memory/<Lv1>/[<Lv2>/]` | 一般核心 atom。Lv1 為**閉合清單**（`memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約；資料夾＝中文正名，英文 slug／別名只做輸入對映）；Lv2 自由（對既有兄弟 snap） | `memory/_atom_index.json`（path 欄記 `memory/<Lv1>/…`） |
+| `~/.claude/memory/Failures/<主題>/` | title 以 `feedback-` 開頭的 atom + 失敗模式類（cognitive-patterns / memory-pipeline-* …）；主題＝同一套 Lv1；程式失敗回寫檔名 `<type>-<topic-slug>.md`；非 atom 參考文件在 `Failures/_reference/` | 同上（單一索引，path 欄記 `memory/Failures/<主題>/…`） |
 
-**路由規則**：title slugify 後若 startswith `feedback-` → 自動寫入 `_AIDocs/Failures/`；其他 `_AIDocs/Failures/` 內 atom 需手動建立但走相同索引。
+**路由規則**：title slugify 後若 startswith `feedback-` → `memory/Failures/<domain 指定主題>/`；其餘 global create → `memory/<domain>/`。兩者 `domain` 皆必填（§2.3 寫入閘）。分類法 loader fail-closed（`taxonomy.json` 缺／壞 → 閘拒寫 + stderr）。
 
 **規則來源（single source of truth）**：
-- Python：[`lib/atom_locations.py`](../lib/atom_locations.py) — `FAILURES_DIR` / `FAILURES_REL` / `FEEDBACK_TITLE_PREFIX` / `is_failures_routed_title` / `atom_search_roots` / `iter_atom_files_multi` / `failures_write_target` / `failures_atom_stems`
-- JS mirror：[`tools/workflow-guardian-mcp/server.js`](../tools/workflow-guardian-mcp/server.js) — `FAILURES_DIR` / `FAILURES_REL` / `applyFeedbackRouting` / `findAtomFileRecursive` Failures fallback
+- Python：[`lib/atom_locations.py`](../lib/atom_locations.py) — `CORE_ATOMS_REL` / `FAILURES_REL` / `FAILURES_DIR` / `FEEDBACK_TITLE_PREFIX` / `is_failures_routed_title` / `atom_search_roots` / `iter_atom_files_multi` / `core_write_target` / `failures_topic_target` / `failures_write_target` / `core_category_segments` / `is_flat_core_path` / `iter_realm_category_dirs` / `validate_category_segment` / `CATEGORY_RESERVED_SEGMENTS`；[`lib/atom_taxonomy.py`](../lib/atom_taxonomy.py) — `load_taxonomy` / `core_categories` / `failures_topics` / `match_lv1` / `gate_enabled`
+- JS mirror：[`tools/workflow-guardian-mcp/lib/realm.js`](../tools/workflow-guardian-mcp/lib/realm.js) — `FAILURES_DIR` / `FAILURES_REL` / `applyFeedbackRouting` / `loadTaxonomy`（只供錯誤訊息與預檢；路由 py 單源）
+- 遷移工具：[`tools/atom-categorize.py`](../tools/atom-categorize.py) `plan|apply|undo --map <json> [--memory-dir <proj>/.claude/memory] [--dry-run]`（`apply` 落 `plans/categorize-<ts>.undo.json`）
 
 **多 root 掃描的 caller（V5+ Session β 收尾）**：
 - `hooks/wg_atoms.py:parse_memory_index` — 讀 `_atom_index.json` SoT，path 已含 Failures（α）
@@ -61,7 +62,7 @@ V4 的三層 scope 機制不變：
 - `tools/memory-vector-service/indexer.py:discover_layers` — 注入 `extra:failures` layer + stems filter（β）
 - `tools/atom-health-check.py` / `tools/memory-audit.py` — 已於 α 走多根
 
-**Failures 內參考文件過濾**：`_AIDocs/Failures/` 容納非 atom 文件（如 `_INDEX.md` / `README.md`）。caller 用 `failures_atom_stems()` 從 `_atom_index.json` 抽出真正的 atom stems 過濾，避免把參考文件當 atom 索引。
+**Failures 內參考文件過濾**：`memory/Failures/_reference/` 容納非 atom 文件（`_INDEX.md` / README 等；`_` 前綴目錄被所有 scanner 跳過）。caller 用 `failures_atom_stems()` 從 `_atom_index.json` 抽出真正的 atom stems 過濾。
 
 ### 2.2 Realm 範疇分區（核心 vs 非核心，V5+ S3，2026-06-03）
 
@@ -71,16 +72,16 @@ V4 的三層 scope 機制不變：
 
 | Realm | 判定（index `path`） | 物理位置 | 注入行為 |
 |---|---|---|---|
-| `core`（預設） | **不**以 `_AIDocs/_atoms/` 開頭 | `memory/{slug}.md`（feedback-* 在 `_AIDocs/Failures/`，屬 core） | 全專案注入（現狀不變） |
+| `core`（預設） | **不**以 `_AIDocs/_atoms/` 開頭 | `memory/<Lv1>/[<Lv2>/]{slug}.md`（feedback-* 在 `memory/Failures/<主題>/`，屬 core；§2.1） | 全專案注入 |
 | `local` | 以 `_AIDocs/_atoms/` 開頭 | `_AIDocs/_atoms/<domain>/{slug}.md` | **只在 cwd∈~/.claude 注入**；外部專案完全略過 |
 
-- **local atom 仍 `Scope=global`**——realm 與 scope 正交；沿用 feedback-* 同一招（物理在 `_AIDocs/` 下、靠 index `path` 被 `base_dir=CLAUDE_DIR` join 讀出注入），零新管線。`_AIDocs/_atoms/` 與 feedback 的 `_AIDocs/Failures/` 是不同前綴、零衝突。
+- **local atom 仍 `Scope=global`**——realm 與 scope 正交；靠 index `path` 被 `base_dir=CLAUDE_DIR` join 讀出注入，零新管線。兩根前綴（`memory/` vs `_AIDocs/_atoms/`）零衝突。
 - **Domain**（V6 起為**多段階層路徑**，見下方 V6 塊）：Lv1 根 `World`（腦內世界）/ `Tools`（外部工具與環境踩坑）/ `MemDev`（記憶系統/Guardian「特定實例」開發踩坑）/ `OS`（作業系統·環境踩坑，V6 dogfood 新增）/ `Else`（catch-all fail-safe，取代舊 `Misc`）；深層自由分支（如 `OS/Windows/WSL`），未知 domain warn 不擋。
-- **注入閘門**：`hooks/handlers/session_start.py` 在**建候選快取處**（非注入迴圈）依 `_is_under_claude_dir(cwd)` 過濾掉 path 落 `_AIDocs/_atoms/` 的候選；外部專案零負擔。**例外（2026-06-18 解綁）**：`is_cross_project_local`（Lv1 根 ∈ `CROSS_PROJECT_LOCAL_DOMAINS`，如 `Continuity`）保留——storage 在 _atoms 但跨專案注入，解開「儲存位置綁死注入範圍」、對偶 feedback-*；py-only。compact/resume 複用舊 state 為已知低頻限制。
+- **注入閘門**：`hooks/handlers/session_start.py` 在**建候選快取處**（非注入迴圈）依 `_is_under_claude_dir(cwd)` 過濾掉 path 落 `_AIDocs/_atoms/` 的候選；外部專案零負擔。**例外機制**：`is_cross_project_local`（Lv1 根 ∈ `CROSS_PROJECT_LOCAL_DOMAINS`）——storage 在 _atoms 但跨專案注入；**現況清單為空集合**（跨專案知識一律住 `memory/<範疇>/`，Continuity 已併入核心範疇），機制保留供未來；py-only。compact/resume 複用舊 state 為已知低頻限制。
 - **分類器**（`classify_realm`，新 atom + drift sweep 共用）：**安全預設 core，僅高信心判 local**。核心保護清單（前綴 `decisions*`/`workflow-*`/`toolchain*`/`feedback-*`/`memory-pipeline-*`/`atom-*`＋exact `preferences`/`cognitive-patterns`/`goal-driven-verify-loopkarpathy-吸收`/`自己flag的維護動作直接做完不要反問`）**硬擋**永不 local（反覆被 sweep 誤搬的 core atom 列入 exact 集）。**詞庫/核心保護清單/權重單一來源 `memory/_meta/realm-lexicon.json`**——py（`lib/atom_locations.py`）與 js（`lib/realm.js`）模組載入時讀同檔（缺失/損毀 fallback 內建最小保護清單＋stderr 告警；同 forbidden-phrases.json 先例），演算法仍雙實作鏡像（parity test_17 改 require 實跑對拍、test_14b 守 JSON schema 與手抄殘留）；詞庫**只用實例專屬名**（腦內世界/world.html/reconcile/gdoc/codex/electron-uia/guardian-dashboard…），**絕不用記憶系統通用詞**（會誤殺核心 atom）；只掃 name+triggers，**絕不靠 `_AIDocs/` 路徑前綴判 local**（feedback-* 就在 _AIDocs 卻是 core）。
 - **搬遷工具**：兩支職責分離，共用 `lib.atom_access.move_atom_pair`（`.md`+`.access.json` sidecar 原子搬，計數不歸零）。
   - `tools/atom-set-realm.py`：`set <slug> --domain D` / `--to-core`（undo）。core⇄local **realm 維度**搬移；為 `_AIDocs/_atoms/` path 的**唯一寫者**（防翻轉 realm）；Scope 保持 global。
-  - `tools/atom-move.py`（V5 SoT-correct，2026-06-26 重寫）：`move <slug> --from <dir> --to <dir>` / `reconcile … --at`。memory 樹內**資料夾分類搬移**與**跨 root 層級搬移**。改 path 走 `_atom_index.json` 的 `upsert_atom`/`delete_atom`（自動重生 `_ATOM_INDEX.md` 鏡像），同根搬移**保留 scope**；index-root 自 target 上溯偵測（修 V4「子夾誤當 root」）；落 `_AIDocs/_atoms/`（→ 導回 atom-set-realm）或 `_AIDocs/Failures/`（title 路由）一律**拒絕**；搬後 `validate_index` 自驗。**歷史坑**：V4 殘留版只改 deprecated `_ATOM_INDEX.md`、不動 JSON SoT、不搬 sidecar，靜默損壞單中央索引（見 atom `atom-move-v5-sot-correct-化…`）。
+  - `tools/atom-move.py`（V5 SoT-correct，2026-06-26 重寫）：`move <slug> --from <dir> --to <dir>` / `reconcile … --at`。memory 樹內**資料夾分類搬移**與**跨 root 層級搬移**。改 path 走 `_atom_index.json` 的 `upsert_atom`/`delete_atom`（自動重生 `_ATOM_INDEX.md` 鏡像），同根搬移**保留 scope**；index-root 自 target 上溯偵測（修 V4「子夾誤當 root」）；落 `_AIDocs/_atoms/`（→ 導回 atom-set-realm）**拒絕**；`--to memory/<範疇>[/<Lv2>]`（含 `memory/Failures/<主題>`）必經 `core_write_target`／`failures_topic_target`（Lv1 閉合、snap 正名）；搬後 `validate_index` 自驗。批次歸類用 `tools/atom-categorize.py`（§2.1）。**歷史坑**：V4 殘留版只改 deprecated `_ATOM_INDEX.md`、不動 JSON SoT、不搬 sidecar，靜默損壞單中央索引（見 atom `atom-move-v5-sot-correct-化…`）。
 - **印象層 catalog 的 realm 拆分（V5+ S5，2026-06-04）**：realm 原則貫徹到 **index/catalog 層**。`sync-memory-index` 雙輸出——core atom → `MEMORY.md`（CLAUDE.md `@import`，全專案 always-load，fail-safe 退路）；local atom → 側檔 `memory/_local_catalog.md`（自含 H1 + domain 子表），僅核心環境由 `session_start.py` 共同尾段（`_is_under_claude_dir` gate）注入 `additionalContext`。MEMORY.md 末尾僅留一行指標。**修前**：MEMORY.md 全文（含本地範疇段，2026-06-04 時 ~722 字元）隨靜態 `@import` 漏進每個外部專案 always-load；**修後**：外部專案僅 core catalog（省下的本地段實務 ~180 tok/session；~450 為 CJK-aware 保守估），本地段只在 ~/.claude 注入。caption preserve 跨 `MEMORY.md`+`_local_catalog.md` 兩檔合併（migration 首跑本地描述仍在舊 MEMORY.md → 自動保留）。`_` 前綴側檔不被任何 scanner 當 atom（server.js / wg_atoms / is_atom_file 皆 skip `_*`）。
 - **V6：LLM-assisted recall + 關聯式分級階層 domain（V5+ S6 / Phase A–H，2026-06-04）**——詞庫封閉 allow-list 漏判的根治（wsl2 atom 漏進 core always-load 為觸發案例；任何詞庫未預見的新主題都漏到 core）：
   - **LLM fallback**（[`tools/realm_llm_classify.py`](../tools/realm_llm_classify.py)，複用 atom-heal Ollama 樣板）掛 **SessionEnd sweep**（`hooks/wg_atoms.py:_sweep_realm_auto_migrate`），**server.js 寫入熱路徑不掛 LLM**。只對「unknown core」（非 protected、詞庫 miss）喚 LLM，`max_per_session` 限額。config：`workflow/config.json` `realm.llm_fallback{enabled,backend:ollama,max_per_session:5,min_confidence:0.7}`。**⚠ P3（2026-07-01）起 `enabled=false` 預設關 — 外科停 LLM，只跑 deterministic 詞庫（含 learned）保確定性 sweep；改回 true 才復原 LLM recall。**
@@ -100,9 +101,20 @@ V4 的三層 scope 機制不變：
 
 **守門**：`lib/verify/verify_atom_io_equivalence.py` test_14（路徑/realm 常數 py↔js parity）+ test_15（local routing，Scope 仍 global）+ test_16（分類器零誤判：核心保護清單全 core）+ test_17（classifier py↔js parity）+ **test_18–22**（`normalize_domain_path` canon/深度閘、`local_realm_path_segments`、多段 routing、`extra_lexicon` 自學、`_clean_segment` py↔js parity 含非 CJK/ASCII 字元集 guard）+ **test_26**（詞庫污染雙護欄：泛用詞/亂碼 domain 拒收 + `classify_realm` 出口降 Else）；`lib/verify/verify_realm_injection_gate.py`（3 gate 單測，body 候選層）；`tools/verify/verify_realm_llm_classify.py`（**V6** LLM 分類器函式 9 test：canon/term 驗證/error/unsure/core/local→else）+ `hooks/verify/verify_realm_sweep.py`（**V6** SessionEnd sweep Fail-safe 四態決策 10 test：lexicon 搬 / protected 不喚 LLM / error→defer / core→留 / local→搬+學 / unsure·低信心→Else / max_per_session / already-local skip）；`tools/verify/verify_memory_index_caption_preserve.py`（core/local render + caption preserve）；`tools/verify/verify_local_catalog_split.py`（catalog 層範疇閘：core 不含任何 local（含 `OS/Windows/WSL` 深樹）、含 core+feedback；側檔 domain 階層分組；雙檔 + `_INDEX.md` 深樹 round-trip + stale 清理 `--check`）。詳見 atom `realm-範疇分區機制-v5`。
 
-### 2.3 落點 vs 定位分離（`atom_write` create/append/replace）
+### 2.3 寫入閘（先分類再落地）與 落點 vs 定位分離（`atom_write` create/append/replace）
 
-**寫入落點（create）永遠扁平**：`scope=shared|role|personal` 一律寫 `memory/{shared | roles/<r> | personal/<u>}/<slug>.md`，**write 端不猜主題子夾**。主題分層是**事後**職責——專案自建 taxonomy classifier 接 `project_hooks` session_start sweep 把 curated atom 歸位到 `shared/<Domain>/`（見 atom `scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層`）；`global` 則由 realm sweep 歸位到 `_AIDocs/_atoms/<domain>/`。
+**寫入落點（create）先分類再落地**（`lib/atom_io._resolve_target`，`workflow/config.json` `taxonomy.gate_enabled=true`）：
+
+| scope / 標題 | `domain` | 落點 |
+|---|---|---|
+| `global`（非 local realm） | **必填** `<Lv1>[/<Lv2>]`（正名／slug／別名皆可，snap 回正名） | `memory/<Lv1>/[<Lv2>/]` |
+| feedback-* 標題（任何 scope=global） | **必填**（Lv1＝失敗主題） | `memory/Failures/<主題>/` |
+| `global` + `realm=local` | 階層 local domain（缺 → `Else`） | `_AIDocs/_atoms/<domain>/`（§2.2） |
+| `shared` | **必填**；Lv1 ＝ 核心 taxonomy ∪ 專案 `shared/_taxonomy.json` `domains` 鍵（`project_hooks` delegate 刻意不接） | `<proj>/.claude/memory/shared/<Lv1>/[<Lv2>/]`（給 `subdir` 則落分區之下） |
+| `shared` + 敏感 audience | 免 | `shared/_pending_review/`（待審不分類；`conflict-review approve` 時再經 `project_category_target` 落 `shared/<Lv1>/`，分不出留 pending） |
+| `role` / `personal` | 免 | `roles/<r>/`、`personal/<u>/`（不變） |
+
+缺或未知 Lv1 → 拒寫並列出全部 Lv1（`unclassified_error` 單一出口）；`allow_new_category=true` 才准開新 Lv1（仍受保留名／字元集約束）。`source=="mcp"`（AI 寫入）**永不自動分類**——AI 必給；程式寫手（`hooks/user-extract-worker`、`extract-worker._failure_writeback`）呼叫 `write_atom` 前自行 `classify_category`（taxonomy terms ∪ `_meta/taxonomy-lexicon-learned.json` 詞庫 → 本地 LLM 閉合清單 → lex/llm/unsure/error），分不出拒寫（user-extract 候選進 `_pending.candidates.md` 標 `[category REJECT]`）；失敗回寫走 `failure_type_fallback` 永不拒。episodic／`_drafts/` 草稿不是 atom、不經閘。`dry_run=true` 跑完整條閘鏈回落點但不落檔。後盾：`atom_io_cli.create_atom` 對全域 index 的平鋪／舊址 rel_path 一律拒（舊碼 MCP 實例也攔得住）。append/replace **忽略** `domain`（既有檔靠 index 定位；給了只 stderr 提示）。
 
 **定位（append/replace）必須認子夾**：實體檔被 sweep 搬走後，只看扁平落點會誤判 not-found。順序：
 
@@ -110,11 +122,11 @@ V4 的三層 scope 機制不變：
 2. 落空 → rglob 搜尋根，跳過草稿牢籠與封存（`_drafts` / `_pending_review` / `personal` / `_archive*` / `episodic` / `templates` / `wisdom` …）。
 3. 撞名（多檔同 slug 且索引無條目）→ **明確報錯列出全部候選**，不靜默取第一個。
 
-搜尋根：`global` = `memory/` + `_AIDocs/Failures/` + `_AIDocs/_atoms/`（全納入，不隨 `realm`/`domain` 落點縮窄——參數給錯也找得到）；`shared`/`role`/`personal` = 各自的 scope 子樹。索引回寫的 `path` 一律由**定位到的實體路徑**推導，不寫扁平假路徑。
+搜尋根：`global` = `memory/`（含 `memory/Failures/`）+ `_AIDocs/_atoms/`（全納入，不隨 `realm`/`domain` 落點縮窄——參數給錯也找得到）；`shared`/`role`/`personal` = 各自的 scope 子樹。索引回寫的 `path` 一律由**定位到的實體路徑**推導，不寫扁平假路徑。`locate_atom(mode="create")` 另回 `extra.target_dir/category`＝經閘 snap 後的落點，js 端 create 直接採用、不重作路由。
 
 **規則來源**：Python `lib/atom_locations.py:locate_existing_atom`（唯一實作）；`lib/atom_io.py` 的 `write_atom`（append/replace 分支）與 `locate_atom`（唯讀查詢）消費之。**JS 不自建第二套**——`atom-tools.js:toolAtomWrite` 在扁平落點 miss 時 spawn `python -m lib.atom_io_cli` 的 `locate` action（正常路徑零額外 spawn）。`findAtomFileRecursive` 仍服務 `atom_promote` / `atom_edit_meta`（那兩者本就遞迴，無此缺口）。
 
-**守門**：`lib/verify/verify_atom_subdir_locate.py`（14 test：index 優先 / rglob fallback / 撞名報錯 / 跨 scope 保護 / 草稿夾排除 / create 仍扁平 / global 扁平無回歸 / local realm 免 domain 提示）。
+**守門**：`lib/verify/verify_atom_subdir_locate.py`（index 優先 / rglob fallback / 撞名報錯 / 跨 scope 保護 / 草稿夾排除 / local realm 免 domain 提示）；`lib/verify/verify_category_gate.py`（無 domain 拒、別名 snap、新類旗標、保留名拒、詞庫命中、LLM stub unsure/error 拒、失敗回寫 fallback + index upsert、episodic/_drafts 豁免、gate=false 退扁平）；`tools/verify/verify_project_layer_smoke.py`（專案層：SessionStart 不外洩 local catalog、UPS 命中 `memory/版控/Git/` atom、locate shared create 閘、`create_atom dry_run`、conflict-review approve 經閘、`sync-memory-index --memory-dir` marker 區塊 upsert 含 CRLF 逐 byte 不動）。
 
 ---
 

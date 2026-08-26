@@ -50,6 +50,8 @@ description: 原子記憶系統綜合工具 — health/review/score 三主力 + 
    ```bash
    python ~/.claude/tools/memory-audit.py [--project-dir $PROJECT_MEM_DIR] [--json]
    ```
+   - `layout` error＝全域 `memory/` 根下有平鋪 atom（範疇資料夾必備）→ `python ~/.claude/tools/atom-categorize.py plan`（出草案）→ `apply --map <json>` 歸位，不手動 mv。
+   - 專案層 `MEMORY.md 行數` 在該專案 index 仍含平鋪 `shared/<slug>.md` 時只報 **info**（尚未遷移）；遷移（`atom-categorize.py plan|apply --memory-dir $PROJECT_MEM_DIR`）後才套 40 行上限。專案 MEMORY.md 的 `<!-- atom-catalog -->` 區塊由 `sync-memory-index.py --write --memory-dir $PROJECT_MEM_DIR` 維護。
 
 3. **atom-health-check**（並行 2 個工具）：
    ```bash

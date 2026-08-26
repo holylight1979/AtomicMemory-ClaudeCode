@@ -246,3 +246,47 @@ def test_run_audit_entries_from_atom_index_json(tmp_path, monkeypatch):
     assert not [i for i in index_issues if i.level == "error"], index_issues
     assert not [i for i in index_issues if "未在索引中列出" in i.message], index_issues
     assert report.total_atoms == 2
+
+
+# ─── 8. 專案層 MEMORY.md 行數：index 仍含平鋪 shared atom → info，遷移後 → warning ──────
+
+
+def _mk_project_layer(tmp_path: Path, shared_rel: str) -> Path:
+    """<tmp>/proj/.claude/memory：MEMORY.md 60 行 + 一顆 shared atom（shared_rel 決定平鋪/歸類）。"""
+    mem = tmp_path / "proj" / ".claude" / "memory"
+    md = mem / Path(shared_rel).relative_to("memory")
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(ATOM_BODY.format(name=md.stem).replace("Scope: global", "Scope: shared"),
+                  encoding="utf-8")
+    (mem / "MEMORY.md").write_text("# Atom Index — Project\n" + "\n".join(f"- 手寫分區規則第 {i} 行" for i in range(60)) + "\n",
+                                   encoding="utf-8")
+    from lib.atom_index_json import upsert_atom
+    upsert_atom(mem, md.stem, shared_rel, ["alpha", "beta", "gamma"], scope="shared")
+    return mem
+
+
+@pytest.mark.parametrize("shared_rel,expected_level", [
+    ("memory/shared/flat-one.md", "info"),          # 平鋪 shared 尚在 → 過渡，只 info
+    ("memory/shared/驗證與實證/cat-one.md", "warning"),  # 已歸類 → 套 40 行上限
+])
+def test_run_audit_project_index_lines_info_until_migrated(tmp_path, monkeypatch,
+                                                           shared_rel, expected_level):
+    mem = _mk_project_layer(tmp_path, shared_rel)
+    monkeypatch.setattr(MA, "discover_layers", lambda *a, **k: [("project", mem)])
+    monkeypatch.setattr(MA, "parse_audit_log", lambda: {})
+    monkeypatch.setattr(MA, "AUDIT_LOG_PATH", tmp_path / "audit.log")
+    import argparse
+    report = MA.run_audit(argparse.Namespace(
+        global_only=False, project=None, project_dir=str(mem), verbose=False))
+    size = [i for i in report.issues if i.category == "size" and "MEMORY.md" in i.message]
+    assert len(size) == 1, report.issues
+    assert size[0].level == expected_level, size[0]
+    assert not [i for i in report.issues if i.level == "error"], report.issues
+
+
+def test_has_flat_shared_entries_predicate():
+    E = MA.IndexEntry
+    assert MA._has_flat_shared_entries([E("a", "memory/shared/a.md", "")]) is True
+    assert MA._has_flat_shared_entries([E("a", "memory/shared/版控/a.md", "")]) is False
+    assert MA._has_flat_shared_entries([E("a", "memory/projects/X/a.md", "")]) is False
+    assert MA._has_flat_shared_entries([]) is False

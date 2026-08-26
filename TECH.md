@@ -122,8 +122,9 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── _distant/ / _reference/                     ← 封存與參考
 │   ├── _vectordb/                                  ← LanceDB 索引 + audit.log（專案層用）
 │   └── _promotion_audit.jsonl                      ← 晉升審計
-│                                                   （V5+ Session α 起：feedback-* + cognitive-patterns + memory-pipeline-* 物理在 `_AIDocs/Failures/`，
-│                                                    索引仍登記在此 _atom_index.json 單一來源；規則見 `lib/atom_locations.py` 與 SPEC_ATOM_V5 §2.1）
+│                                                   （核心 atom 一律住 `memory/<範疇>/[<Lv2>/]`：Lv1 閉合清單在 `_meta/taxonomy.json`（中文正名，英文 slug/別名只做輸入對映）；
+│                                                    feedback-* + 失敗模式 atom 住 `memory/Failures/<主題>/`（主題＝同一套 Lv1）；memory/ 根下不容平鋪 atom；
+│                                                    索引單一來源 `_atom_index.json`；規則見 `lib/atom_locations.py` 與 SPEC_ATOM_V5 §2.1/§2.3）
 │
 ├── workflow/                                       ← runtime state（gitignored 多）
 │   ├── config.json                                 ← 統一設定（tracked）
@@ -139,13 +140,12 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── SPEC_ATOM_V5.md（V5 GA 規格主檔，§2.1 feedback-* 路由 + §2.2 Realm 範疇分區）/ SPEC_ATOM_V4.md（對照證物）
 │   ├── ClaudeCodeInternals/                       ← CC 原生架構研究筆記
 │   ├── Tools/                                     ← 工具與領域知識
-│   ├── Failures/                                  ← 失敗模式 + feedback-* atoms 物理位置（V5+ Session α 起，仍屬 core realm）
-│   ├── _atoms/<domain 多段階層>/                  ← V5+ local realm atom（World/Tools/MemDev/OS/Else，如 OS/Windows/WSL；V6 各層按需 _INDEX.md；scope 仍 global、只在 ~/.claude 注入（CROSS_PROJECT_LOCAL_DOMAINS 如 Continuity 例外、跨專案）、SessionEnd sweep 自動歸檔，§2.2）
+│   ├── _atoms/<domain 多段階層>/                  ← local realm atom（MemDev/World/Vision/Tools/OS，如 OS/Windows/WSL；各層按需 _INDEX.md；scope 仍 global、只在 ~/.claude 注入；`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合（機制保留，跨專案知識一律住 memory/）；SessionEnd sweep 自動歸檔，§2.2）
 │   ├── DevHistory/                                ← 版本演進 + V5 升版完整紀錄（v5-overhaul-2026-05/）
 │   ├── DocIndex-System.md / known-regressions.md / Project_File_Tree.md
 │
-├── hooks/verify/ tools/verify/ lib/verify/         ← 93 個 verify_*.py（H-test-prune 後 verify 化）
-│   tools/codex-companion/verify/ auto-continue/verify/ ← 跑 `python run_verify.py`（1349 passed）
+├── hooks/verify/ tools/verify/ lib/verify/         ← 116 個 verify_*.py（H-test-prune 後 verify 化）
+│   tools/codex-companion/verify/ auto-continue/verify/ ← 跑 `python run_verify.py`（1516 passed）
 ├── skills/{name}/verify/                           ← 17 個空結構（候選見 _staging/next-phase-skills-verify.md）
 │
 └── {project_root}/.claude/                         ← 專案自治層（每專案獨立）
@@ -238,7 +238,7 @@ V4 把知識空間從單層拓展為四層，V5 完全沿用：
 
 `memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->124<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
 
-**Atom 物理多根 + Realm 範疇（V5+）**：`global` atom 物理散三根——`memory/`（core 一般）、`_AIDocs/Failures/`（feedback-* + 失敗模式，仍 core）、`_AIDocs/_atoms/<domain>/`（**local realm**，World/Tools/MemDev）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/` 與 Failures 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM；2026-06-12 起 sink 端雙護欄：泛用詞拒收 + 非 CJK/ASCII 亂碼 domain 拒收/降 Else，見 SPEC §2）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
+**Atom 物理兩根 + 範疇資料夾 + Realm（V5+）**：`global` atom 物理只有兩根——`memory/<範疇>/`（core；Lv1 閉合清單 `memory/_meta/taxonomy.json`，`Failures/<主題>/` 為失敗家族、主題同一套 Lv1）與 `_AIDocs/_atoms/<domain>/`（**local realm**，MemDev/World/Vision/Tools/OS）。**寫入閘**：`atom_write(mode=create)` 對 scope=global（非 local）、feedback-* 標題、scope=shared 一律 `domain` 必填（`<Lv1>[/<Lv2>]`，別名 snap 回正名；未知 Lv1 拒，`allow_new_category` 才准開新類；`dry_run` 可預覽落點），MCP 來源永不自動分類；程式寫手（user-extract／失敗回寫）先 `classify_category`（詞庫→本地 LLM 閉合清單）再落地，分不出拒寫（失敗回寫走 `failure_type_fallback` 永不拒）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/**` 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM；2026-06-12 起 sink 端雙護欄：泛用詞拒收 + 非 CJK/ASCII 亂碼 domain 拒收/降 Else，見 SPEC §2）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
 ```json
 {
@@ -446,7 +446,7 @@ IDENTITY「自主行為契約 §2 動手前預告」的程式化保險絲——�
 | 每次 prompt 額外延遲 | ~0 ms | +200-500 ms（含 BM25 + 向量搜尋） |
 | 首次 prompt 額外延遲 | ~0 ms | +500-1,500 ms（episodic search） |
 | PostToolUse 延遲 | ~0 ms | +50-250 ms（含 hot cache read） |
-| always-load token | 0 | @import 鏈 IDENTITY 1,398 + USER 749 + MEMORY 1,625 + rules/core.md 1,781 ≈ **5,553 字元**（2026-07-01 逐檔實測）。token 依 tokenizer 差距大：系統 flat 估 `len//4`=**1,387**、系統 CJK-aware 估（~1.5tok/字，刻意保守供 budget）=**3,739**；Anthropic 真 tokenizer（中文 ~1tok/字）居中，**實務 ~2,000-2,500**。〔舊值 3,200-5,400 取自 CJK-aware 保守上界，非真實開銷〕**核心環境(~/.claude)** 另注入 `_local_catalog.md`（546 字元，flat 136 / cjk 211，實務 ~180 tok；realm 拆分後不漏進外部專案）|
+| always-load token | 0 | @import 鏈 IDENTITY + USER + rules/core.md 依實檔而定；`memory/MEMORY.md` 為 **19 行 Lv1 範疇目錄（`wg_core._estimate_tokens` = 314 tok）**——一 Lv1 一列（範疇／atom 數／深入 `_INDEX.md`），不隨 atom 量膨脹（明細在各層 `_INDEX.md` 按需 drill）。Anthropic 真 tokenizer 下全鏈**實務 ~1,500-2,000 tok**。**核心環境(~/.claude)** 另注入 `_local_catalog.md`（Lv1 根 + 計數 + drill，實務 ~180 tok；realm 拆分後不漏進外部專案）|
 | 典型 session overhead | 0 | 實務 ~2,200-3,000 tok（always-load ~2-2.5k + 每輪 atom 注入 ≤500 硬頂／additionalContext ≤3k budget；turn 2 起 always-load 進 prompt cache，邊際成本約 10%）|
 | 磁碟空間 | 0 | ~5-20 MB（atoms + LanceDB + state） |
 | 背景 RAM | 0 | ~100-200 MB（LanceDB + Ollama 常駐模型） |
@@ -754,7 +754,8 @@ flowchart TD
 | Workflow Guardian | [hooks/workflow-guardian.py](hooks/workflow-guardian.py) → [hooks/dispatcher.py](hooks/dispatcher.py) | Stop 閘門 — 有未同步修改阻止結束，最多 2 次強制放行 |
 | Event Handlers | [hooks/handlers/](hooks/handlers/) | 10 個 event 各一檔（session_start/end、UPS、pre/post_tool_use、stop、pre_compact、post_compact、post_tool_batch、notification） |
 | Atom Index SoT (V5) | [lib/atom_index_json.py](lib/atom_index_json.py) + `memory/_atom_index.json` | JSON 唯一機器源；MD 自動生成 mirror |
-| Realm 範疇分區 (V5+/V6) | [lib/atom_locations.py](lib/atom_locations.py) `classify_realm`/`normalize_domain_path` + [tools/atom-set-realm.py](tools/atom-set-realm.py) + [tools/realm_llm_classify.py](tools/realm_llm_classify.py) + server.js mirror | core（`memory/`+`Failures/`，全專案注入）vs local（`_AIDocs/_atoms/<階層路徑>/`，只在 ~/.claude 注入）；realm 由 path 推導、scope 仍 global。V6：階層多段 domain + SessionEnd LLM recall（unknown-core；**P3 起 `realm.llm_fallback.enabled=false` 預設關 — 只跑 deterministic 詞庫含 learned，保確定性**）+ 詞庫自學 + 增量深度閘。→SPEC §2.2 |
+| Realm 範疇分區 (V5+/V6) | [lib/atom_locations.py](lib/atom_locations.py) `classify_realm`/`normalize_domain_path` + [tools/atom-set-realm.py](tools/atom-set-realm.py) + [tools/realm_llm_classify.py](tools/realm_llm_classify.py) + server.js mirror | core（`memory/<範疇>/`＋`memory/Failures/<主題>/`，全專案注入）vs local（`_AIDocs/_atoms/<階層路徑>/`，只在 ~/.claude 注入）；realm 由 path 推導、scope 仍 global。V6：階層多段 domain + SessionEnd LLM recall（unknown-core；**P3 起 `realm.llm_fallback.enabled=false` 預設關 — 只跑 deterministic 詞庫含 learned，保確定性**）+ 詞庫自學 + 增量深度閘。→SPEC §2.2 |
+| 核心記憶分類階層（寫入閘） | [lib/atom_taxonomy.py](lib/atom_taxonomy.py) + `memory/_meta/taxonomy.json` + [lib/atom_locations.py](lib/atom_locations.py) `core_write_target`/`failures_topic_target`/`project_category_target`/`classify_category` + [lib/atom_io.py](lib/atom_io.py) `_resolve_target` + [tools/atom-categorize.py](tools/atom-categorize.py) + [tools/sync-memory-index.py](tools/sync-memory-index.py) | create 先分類再落地（`domain` 必填、Lv1 閉合、別名 snap、`allow_new_category`、`dry_run`）；MEMORY.md = Lv1 目錄、各層 `_INDEX.md` 按需；專案層 `shared/<Lv1>/` 同規則、專案 MEMORY.md 只 upsert `<!-- atom-catalog -->` 區塊；遷移工具 `atom-categorize.py plan/apply/undo [--memory-dir]`。→SPEC §2.1/§2.3 |
 | Hybrid RECALL | [hooks/wg_atoms.py](hooks/wg_atoms.py) | trigger + **BM25**（V5）+ Vector → **RRF 三路融合**（k=60，`fusion` config 可回退 legacy）× ACT-R（個別化 decay）+ Related-Edge + Section-Level |
 | 檢索回歸評估 | [tools/memory-eval/](tools/memory-eval/) | 223 條合成查詢回歸集（Recall@1/@3、MRR、誤注入率 + baseline 比對）——RRF/BM25 參數/embedding 改動的秒級 A/B 依據，終結盲調參 |
 | 失念偵測（recall-miss） | [hooks/wg_recall_miss.py](hooks/wg_recall_miss.py) | SessionEnd 比對「本 session 失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞命中）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |

@@ -194,7 +194,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - conflict-review.py — Pending Queue 後端（list / approve / reject，is_management 雙向認證 guard）
 - atom-move.py — 跨層原子搬遷工具（mv + 更新 Scope + 同步索引 + 處理 inbound refs）
 - sync-atom-index.py — atom frontmatter Trigger ↔ `_atom_index.json` 一致性同步
-- sync-memory-index.py — 從 `_atom_index.json` 雙輸出渲染：`MEMORY.md`（core-only，@import）+ `_local_catalog.md`（本地範疇 Lv1 根，hook 注）+ **V6 各層按需 `_INDEX.md`**（有子層 ∨ atom≥2）；`--check` 兩檔 + `_INDEX.md` 深樹 round-trip、stale 清理、caption preserve 跨檔；sweep 搬後補觸發 `--write`
+- sync-memory-index.py — 從 `_atom_index.json` 雙輸出渲染：`MEMORY.md`（Lv1 範疇目錄，@import）+ `_local_catalog.md`（本地範疇 Lv1 根，hook 注）+ 兩根各層按需 `_INDEX.md`（有子層 ∨ atom≥2）；硬規則 memory/ 根不容平鋪 atom（`--check` exit 1／`--write` 拒）；`--memory-dir <proj>` 專案模式只 upsert 該專案 MEMORY.md 的 `<!-- atom-catalog -->` 區塊（不生 `_INDEX.md`）；caption preserve 跨檔；atom 寫入後由 `funnel.js syncMemoryIndex([memoryDir])` 背景觸發 `--write`
 - cleanup-projects-residue.py — projects/{slug}/memory/ 殘骸清理工具
 
 ### 常駐可觀測
@@ -234,9 +234,9 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
 - **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->124<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
-- **全域 Atoms** = **core**（住 `memory/`：decisions / decisions-architecture / preferences / workflow-rules·icld·svn·parallel-agents / toolchain·-ollama / goal-driven-verify-loop / 自己flag-維護動作直接做完 / escalation-hook-false-fire辨識 / 併發-session-共用工作樹…）+ **feedback + 失敗模式**（feedback-* / cognitive-patterns / memory-pipeline-silent-failure-2026-05，物理在 `_AIDocs/Failures/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；World / Tools / MemDev / OS / Continuity / Vision）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。**V6 sweep 自動搬遷**：`memory-index-caption-regen` 於 2026-06-04 由 core 經 LLM fallback 判 local 自動搬到 `MemDev/MemoryIndex/`（記憶系統內部知識，判 local 正確）；OS root 為 wsl2 dogfood 新增；`realm-範疇分區機制-v5` 亦已由 core 搬入 local/MemDev
-- **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain：World / Tools / MemDev / OS / Else，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（例外：`CROSS_PROJECT_LOCAL_DOMAINS` 如 `Continuity` 跨專案注入）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2 V6 塊
-- **_AIDocs/Failures/**（atom 子族） — feedback-* + 失敗模式 atom（跨專案踩坑記錄，屬 core）
+- **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
+- **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2
+- **memory/Failures/<主題>/**（atom 子族） — feedback-* + 失敗模式 atom（跨專案踩坑記錄，屬 core）；程式失敗回寫落 `<主題>/<type>-<topic-slug>.md`
 - **templates/** — icld-sprint-template 等（仍由 workflow-icld atom 引用）
 - **_reference/**（手動讀取）— SPEC 等深度規格
 - **wisdom/**（live state）— DESIGN.md + reflection_metrics.json + causal_graph.json
@@ -251,7 +251,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | 路徑 | 用途 |
 |------|------|
 | `.claude/memory/MEMORY.md` | 專案 atom 索引 |
-| `.claude/memory/*.md` | 專案 atoms（V4 三層 scope：shared / role / personal） |
+| `.claude/memory/shared/<Lv1>/*.md` | 專案 shared atoms（create 必給 `domain`；Lv1 = 核心 taxonomy ∪ `shared/_taxonomy.json` domains）；role / personal 各自子樹；MEMORY.md 由 `sync-memory-index --memory-dir` upsert `<!-- atom-catalog -->` 區塊 |
 | `.claude/memory/shared/_roles.md` | V4 管理職白名單（雙向認證） |
 | `.claude/memory/shared/_pending_review/` | 敏感 atom 等管理職裁決 |
 | `.claude/memory/episodic/` | 自動生成（gitignored） |

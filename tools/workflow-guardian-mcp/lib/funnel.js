@@ -185,13 +185,18 @@ function triggerVectorReindex() {
   }
 }
 
-/** Regenerate MEMORY.md from _ATOM_INDEX (fire and forget).
- *  Only touches global memory — project layers don't have sync-memory-index hookup yet. */
-function syncMemoryIndex() {
+/** Regenerate the atom catalog from _atom_index.json (fire and forget).
+ *  No arg → global memory/MEMORY.md (+ _local_catalog.md + per-level _INDEX.md).
+ *  memoryDir → project layer (<proj>/.claude/memory): sync-memory-index --memory-dir upserts the
+ *  `<!-- atom-catalog -->` block in that project's MEMORY.md (shared/<Lv1>/ rows); it never writes
+ *  _local_catalog.md / _INDEX.md there. Caller: atom-tools after a shared create/replace. */
+function syncMemoryIndex(memoryDir) {
   try {
     const script = path.join(TOOLS_DIR, "sync-memory-index.py");
     if (!fs.existsSync(script)) return;
-    const cp = require("child_process").spawn("python", [script, "--write"], {
+    const argv = [script, "--write"];
+    if (memoryDir) argv.push("--memory-dir", String(memoryDir));
+    const cp = require("child_process").spawn("python", argv, {
       windowsHide: true, detached: true, stdio: "ignore",
     });
     cp.on("error", () => {});

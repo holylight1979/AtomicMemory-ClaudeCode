@@ -875,7 +875,12 @@ def failures_topic_target(domain: Optional[str], allow_new: bool = False) -> tup
 
 
 def project_taxonomy_lv1(base: Path) -> List[str]:
-    """專案層 Lv1 擴充：<base>/shared/_taxonomy.json 的 domains 鍵（缺/壞 → []）。"""
+    """專案層 Lv1 擴充：<base>/shared/_taxonomy.json 的 domains 鍵（缺/壞 → []）。
+
+    這是專案自訂範疇的**唯一**資料面入口（與 `taxonomy_term_pairs` 同一檔）。
+    `project_hooks.py` delegate（`action="taxonomy"`）刻意不接：每次 create 熱路徑多一次
+    5s 逾時的子程序、且目前無專案使用；真有需求的專案再開，不為想像需求長枝葉。
+    """
     try:
         data = json.loads((base / "shared" / "_taxonomy.json").read_text(encoding="utf-8-sig"))
         domains = data.get("domains") or {}

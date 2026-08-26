@@ -29,8 +29,8 @@ http-api ← server
 | `realm.js` | 範疇/路由分類（classifyRealm / cleanRealmSegment / resolveMemDir / applyFeedback·LocalRouting / slugify …）。詞庫/保護清單/權重讀 `memory/_meta/realm-lexicon.json`（單一來源，py 同檔；缺失 fallback＋stderr）。 | `lib/atom_locations.py`（parity test_14/14b/17 require 實跑＋schema 守法；test_22 讀本檔原始碼 eval） |
 | `atom-render.js` | atom 內容構造/渲染/驗證（buildAtomContent / renderKnowledgeLines / isBlockKnowledge / validateAtomContent）。 | `lib/atom_spec.py`（byte-identical；test_13 require server.js re-export） |
 | `atom-access.js` | `<atom>.access.json` 遙測讀取＋效用 Wilson 下界（usefulnessStats / wilsonLowerBound / enrichAtomWithAccess）。 | `lib/atom_access.py`（SYNC；verify_promotion_gate 讀本檔） |
-| `funnel.js` | python subprocess 橋接群（conflict-detector / write-gate / atom_io_cli / access）。 | `lib/atom_io*.py` / `lib/atom_access.py`（spawn 面） |
-| `atom-tools.js` | 4 個 MCP tool 業務（atom_write / atom_promote / atom_edit_meta / atom_move）。 | `lib/atom_io.py` toolAtomWrite 對拍（test_25 讀本檔 delegation guard） |
+| `funnel.js` | python subprocess 橋接群（conflict-detector / write-gate / atom_io_cli / access）＋ `syncMemoryIndex([memoryDir])`：無參數刷全域 catalog，帶專案 memory dir 則 `--memory-dir` 只 upsert 該專案 MEMORY.md 的 `<!-- atom-catalog -->` 區塊。 | `lib/atom_io*.py` / `lib/atom_access.py`（spawn 面）；`tools/sync-memory-index.py` |
+| `atom-tools.js` | 4 個 MCP tool 業務（atom_write / atom_promote / atom_edit_meta / atom_move）。atom_write create：缺 `domain` 不 spawn；落點由 py `locate(mode=create)` 回的 `target_dir/category` 決定（js 不重作路由）；`dry_run` 透傳 py `create_atom`（append/replace 定位後短路）；shared create/replace 後 `syncMemoryIndex(baseDir)`。 | `lib/atom_io.py` toolAtomWrite 對拍（test_25 讀本檔 delegation guard） |
 | `mcp.js` | MCP stdio JSON-RPC transport；`buffer` 私有其內；4 個 dead IPC handler 隨此搬。handleToolCall lazy-require atom-tools。 | — |
 | `http-api.js` | dashboard 唯讀 API 端點群（含 http-util helpers: jsonRes/pyCmd/makeJobRunner/execJson/readJsonBody）。私有可變 state 只透過本檔 handler 存取。 | — |
 | `dashboard-html.js` | dashboard HTML 模板；匯出 `render(versions)→string`。內層瀏覽器端 const 為前端 JS，勿 hoist。 | — |

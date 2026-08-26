@@ -52,6 +52,7 @@ VALID_SOURCES = frozenset({
     "tool:atom-move",
     "tool:atom-set-realm",  # V5+ Realm 維度：core⇄local 範疇搬移（_AIDocs/_atoms/ path 唯一寫者）
     "tool:atom-categorize",  # 核心層批次歸類搬遷（memory/<範疇>/、memory/Failures/<主題>/；plan/apply/undo）
+    "tool:conflict-review",  # _pending_review 核可 → shared/<Lv1>/ 落地 + index upsert
     "tool:atom-health-check",  # atom 健康診斷 / 反向參照修補
     "tool:atom-heal",  # 記憶自癒（腦內世界 P3）：機械修反向連結 / LLM 提案修死連結
     "tool:changelog-roll",

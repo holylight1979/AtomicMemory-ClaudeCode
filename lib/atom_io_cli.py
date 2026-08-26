@@ -92,7 +92,9 @@ def create_atom(payload: dict) -> WriteResult:
         index 狀態放 extra.index_ok / extra.index_error 供 caller 記錄。
 
     payload: {build: {...build_atom_content kwargs}, file_path, today,
-              index: {base_dir, slug, rel_path, triggers}}
+              index: {base_dir, slug, rel_path, triggers}, dry_run?: bool}
+    dry_run=True：跑完範疇後盾＋build/validate/budget 即回（ok=True、path=預計落點、
+    extra.dry_run=True），不落檔、不寫 access.json、不動 index。
     """
     build_params = payload["build"]
     file_path = Path(payload["file_path"])
@@ -117,6 +119,11 @@ def create_atom(payload: dict) -> WriteResult:
     budget_err = _budget_check(content)
     if budget_err is not None:
         return WriteResult(ok=False, error=f"budget: {budget_err}")
+    if payload.get("dry_run"):
+        return WriteResult(ok=True, path=file_path,
+                           extra={"content": content, "dry_run": True,
+                                  "rel_path": str(index.get("rel_path") or ""),
+                                  "index_ok": None, "index_error": None})
 
     # 2. write_raw（atomic write + audit；_atomic_write 自動 mkdir parent）
     wr = write_raw(file_path, content, source="mcp", op="atom_create")

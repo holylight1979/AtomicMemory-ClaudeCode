@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -117,9 +118,12 @@ def _prerender(mem: Path, claude_root: Path, rows=ROWS, hierarchical: bool = Fal
 
 
 def _run(mem: Path, *flags: str) -> subprocess.CompletedProcess:
+    # 子程序 stderr 印 CJK：無 PYTHONIOENCODING 的 shell（Git-bash cp950）會讓父端 utf-8 解碼炸
+    # → reader thread 例外、stderr=None。固定子程序輸出 utf-8。
     return subprocess.run(
         [sys.executable, str(SCRIPT), *flags, "--memory-dir", str(mem)],
         capture_output=True, text=True, encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
 
 

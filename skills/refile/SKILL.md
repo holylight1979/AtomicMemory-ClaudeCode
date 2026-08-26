@@ -59,7 +59,7 @@ pattern: pipeline
 |------|------|
 | 既有 indexed atom（`is_indexed_atom=true`） | `python tools/atom-set-realm.py set <stem> --domain "<proposed_domain>"`（py 端即時、含 `.access.json` 原子搬） |
 | loose `.md` 且 `looks_like_atom=true`、`proposed_realm`∈{local, else} | 讀內容 → `atom_write`（`realm=local`, `domain=<proposed_domain>`）建立 atom → 確認落點 → 刪原 loose 檔 |
-| `proposed_realm=core` | 判為跨專案核心 → `atom_write` 建為 **core** atom（不帶 realm）；若本就是既有 core atom 則維持原狀、告知無需搬 |
+| `proposed_realm=core` | 判為跨專案核心 → `atom_write` 建為 **core** atom（不帶 realm，**必給 `domain="<Lv1>[/<Lv2>]"`**：Lv1 閉合清單見 `memory/_meta/taxonomy.json`，落 `memory/<Lv1>/`；feedback-* 標題 domain=失敗主題 → `memory/Failures/<主題>/`；分不出範疇不建 atom）；若本就是既有 core atom 則維持原狀、告知無需搬；既有 core atom 換範疇用 `tools/atom-move.py move <slug> --from memory/<舊> --to memory/<新Lv1>[/<Lv2>]` |
 | `proposed_realm=defer` | LLM 不可用（基礎設施失敗）→ **不搬**，告知稍後重試，或請使用者人工指定 `--domain` 後走 atom-set-realm |
 | `looks_like_atom=false`（TODO / transcript / 散文） | **不塞 atom 樹** → 建議移到 `memory/_staging/` 或 `_AIDocs/`（一般 `mv`），使用者確認 |
 

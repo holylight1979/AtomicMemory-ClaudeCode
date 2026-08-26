@@ -16,7 +16,8 @@
 ## 記憶
 - 分類：「記住」→[固]、反覆模式→[觀]、做取捨→[臨]；不寫臨時嘗試/未確認猜測
 - 寫入用 atom_write MCP（自動驗證去重索引晉升）；已記錄事實直接引用
-- **Realm**：核心知識（跨專案通用）→ `memory/` 全專案注入；非核心（只在 ~/.claude 內有用）→ `_AIDocs/_atoms/<domain>/` 僅本環境注入（scope 仍 global）。判定三問與機制全貌見 [[realm-範疇分區機制-v5]]。
+- **Realm**：核心知識（跨專案通用）→ `memory/<範疇>/` 全專案注入（失敗家族 `memory/Failures/<主題>/`）；非核心（只在 ~/.claude 內有用）→ `_AIDocs/_atoms/<domain>/` 僅本環境注入（scope 仍 global）。判定三問與機制全貌見 [[realm-範疇分區機制-v5]]。
+- **分類必填**：`atom_write(mode=create)` 對 global／feedback-*／shared 一律給 `domain`（`<Lv1>[/<Lv2>]`，Lv1 閉合清單見 `memory/_meta/taxonomy.json`；別名如 `vcs/git` 自動 snap 回 `版控/Git`；不確定落點先 `dry_run`）。分不出範疇的知識不寫 atom。
 
 ## 同步
 完成修改後主動提出：_AIDocs→_CHANGELOG | 新知識→atom | .git→commit+push | .svn→commit

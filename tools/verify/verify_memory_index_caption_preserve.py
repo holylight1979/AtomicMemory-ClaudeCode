@@ -159,10 +159,12 @@ def test_hierarchical_main_reads_captions_from_category_index(tmp_path: Path):
     (mem / "版控" / "_INDEX.md").write_text(
         "# memory/版控 — 範疇索引\n\n| Atom | 說明 |\n|------|------|\n"
         "| git-a | 人工寫的 A |\n| git-b | git-b |\n", encoding="utf-8")
+    import os
     r = subprocess.run(
         [sys.executable, str(CLAUDE_DIR / "tools" / "sync-memory-index.py"),
          "--hierarchical", "--memory-dir", str(mem)],
-        capture_output=True, text=True, encoding="utf-8")
+        capture_output=True, text=True, encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"})  # 子程序 stderr CJK；Git-bash cp950 防炸
     assert r.returncode == 0, r.stderr
     assert "| git-a | 人工寫的 A |" in r.stdout
     assert "| git-b | git-b |" in r.stdout

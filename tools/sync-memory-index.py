@@ -29,6 +29,16 @@ per-level `_INDEX.md`：兩根都走（`_AIDocs/_atoms/<階層>/`、`memory/<範
   --write  覆寫（無 local atom → 移除殘留側檔；stale _INDEX.md 移除）
   (default) dry-run，stdout 顯示新內容
   --hierarchical / --legacy  強制核心區渲染模式（預設讀 config）
+
+專案層（`--memory-dir <proj>/.claude/memory`，memory_dir ≠ 全域 memory/）走**另一條路**：
+- 專案 MEMORY.md 常是手寫的分區規則檔 → 不整檔覆寫，只 upsert `<!-- atom-catalog -->…<!-- /atom-catalog -->`
+  marker 區塊（無 marker：`--write` 追加檔尾、`--check` 報 `project catalog block missing` exit 1）；
+  區塊外內容逐 byte 不動（行尾慣例由 `_atomic_write` 保留）。
+- 區塊內容：`shared/<Lv1>/` 範疇列（同核心 `| 範疇 | atom 數 | 深入 |`）＋其他分區（projects/<X>、
+  roles/<r>、personal）計數列＋**尚未歸類的平鋪 shared atom 逐顆列**（過渡；該專案跑完
+  `atom-categorize.py --memory-dir` 遷移後自然消失）。專案層不套「根下不容平鋪」硬規則。
+- 專案層**不**寫 `_local_catalog.md`、不生成任何 `_INDEX.md`（延後）、不跑 doc-counts。
+觸發：`funnel.js syncMemoryIndex(memoryDir)` 在 shared create/replace 後帶 `--memory-dir` 呼叫。
 """
 from __future__ import annotations
 
@@ -52,6 +62,7 @@ from lib.atom_locations import (  # noqa: E402
     is_legacy_failures_path,
     iter_realm_category_dirs,
     local_realm_path_segments,
+    path_segments_under,
 )
 
 try:
@@ -388,6 +399,141 @@ def render_local_catalog(rows: List[Tuple[str, str, str]],
     return "\n".join(lines)
 
 
+# ─── 專案層 catalog（marker 區塊 upsert；根＝memory/shared/）────────────────────
+
+PROJECT_SHARED_REL = f"{CORE_ATOMS_REL}/shared"
+PROJECT_CATALOG_BEGIN = "<!-- atom-catalog -->"
+PROJECT_CATALOG_END = "<!-- /atom-catalog -->"
+PROJECT_CATALOG_MISSING_MSG = "[sync-memory-index] project catalog block missing (run --write to append)"
+PROJECT_CATALOG_NOTE = (
+    "> 範疇目錄（自動生成，勿手編）：`atom_write(scope=shared, mode=create)` 必給 `domain` → "
+    "`shared/<Lv1>/`；平鋪 shared atom 以 `python ~/.claude/tools/atom-categorize.py plan|apply "
+    "--memory-dir <本目錄>` 歸類；機器索引 `_atom_index.json`。"
+)
+
+
+def is_project_memory_dir(memory_dir: Path) -> bool:
+    """專案層判定：`<proj>/.claude/memory`（父夾名 `.claude` 且不是 ~/.claude 本尊）。
+
+    測試常以 `--memory-dir <tmp>/memory` 驗**全域**渲染（父夾非 `.claude`）→ 仍走全域路；
+    只有真正的專案記憶樹才走 marker 區塊路。
+    """
+    try:
+        md = memory_dir.resolve()
+        return md.parent.name == ".claude" and md != MEMORY_DIR.resolve()
+    except OSError:
+        return False
+
+
+def _project_groups(rows: List[Tuple[str, str, str]], claude_root: Path,
+                    existing_caps: dict | None = None):
+    """專案 index 列 → (shared 範疇 atom [(name,cap,rel,segs)], 平鋪 shared [(name,cap,rel)],
+    其他分區計數 {label: n})。分區 label：projects/<X>、roles/<r> 取兩段，其餘取首段。"""
+    _cap = _make_cap(claude_root, existing_caps or {})
+    categorized: List[Tuple[str, str, str, List[str]]] = []
+    flat: List[Tuple[str, str, str]] = []
+    partitions: dict = {}
+    for name, rel_path, _scope in rows:
+        segs = path_segments_under(rel_path, PROJECT_SHARED_REL)
+        if rel_path.startswith(PROJECT_SHARED_REL + "/"):
+            if segs:
+                categorized.append((name, _cap(name, rel_path), rel_path, segs))
+            else:
+                flat.append((name, _cap(name, rel_path), rel_path))
+            continue
+        psegs = path_segments_under(rel_path, CORE_ATOMS_REL)
+        if not psegs:
+            label = "(memory 根)"
+        elif psegs[0] in ("projects", "roles") and len(psegs) >= 2:
+            label = f"{psegs[0]}/{psegs[1]}"
+        else:
+            label = psegs[0]
+        partitions[label] = partitions.get(label, 0) + 1
+    return categorized, flat, partitions
+
+
+def render_project_catalog(rows: List[Tuple[str, str, str]], claude_root: Path,
+                           existing_caps: dict | None = None) -> str:
+    """專案層 catalog 區塊（不含 marker）：shared/<Lv1>/ 範疇列 + 其他分區列 + 平鋪 shared 逐顆列。"""
+    categorized, flat, partitions = _project_groups(rows, claude_root, existing_caps)
+    tree = _build_tree(categorized)
+    lines = [
+        PROJECT_CATALOG_NOTE,
+        "",
+        "| 範疇 | atom 數 | 深入 |",
+        "|------|---------|------|",
+    ]
+    for lv1 in _ordered_lv1(tree.children):
+        node = tree.children[lv1]
+        rel_dir = f"{PROJECT_SHARED_REL}/{lv1}"
+        if _subtree_count(node) == 1 and not node.children:
+            drill = f"`{node.atoms[0][2]}`"
+        else:
+            drill = f"`{rel_dir}/`"   # 專案層不生成 _INDEX.md：指目錄
+        lines.append(f"| {lv1} | {_subtree_count(node)} | {drill} |")
+    for label in sorted(partitions):
+        lines.append(f"| {label} | {partitions[label]} | `{CORE_ATOMS_REL}/{label}/` |")
+    if flat:
+        lines += ["", "| 尚未歸類（shared/ 平鋪） | 說明 |", "|------|------|"]
+        for name, cap, _rel in sorted(flat):
+            lines.append(f"| {name} | {cap} |")
+    return "\n".join(lines)
+
+
+def upsert_project_catalog(text: str, block: str) -> Tuple[str, bool]:
+    """把 catalog 區塊 upsert 進專案 MEMORY.md 全文（LF 正規化後的 text）。回 (新文, 原本有 marker)。
+
+    有 marker → 只換兩 marker 之間；無 marker → 追加檔尾（空檔則先補 H1）。區塊外文字不動。
+    """
+    wrapped = f"{PROJECT_CATALOG_BEGIN}\n{block}\n{PROJECT_CATALOG_END}"
+    i = text.find(PROJECT_CATALOG_BEGIN)
+    j = text.find(PROJECT_CATALOG_END)
+    if i >= 0 and j > i:
+        return text[:i] + wrapped + text[j + len(PROJECT_CATALOG_END):], True
+    base = text.rstrip("\n")
+    if not base.strip():
+        base = "# Atom Index — Project"
+    return base + "\n\n" + wrapped + "\n", False
+
+
+def _run_project_mode(args, memory_dir: Path, claude_root: Path, memory_path: Path,
+                      rows: List[Tuple[str, str, str]]) -> int:
+    """專案層：只動 MEMORY.md 的 marker 區塊；不碰 _local_catalog.md / _INDEX.md / doc-counts。"""
+    existing_caps = parse_existing_captions(memory_path)
+    block = render_project_catalog(rows, claude_root, existing_caps)
+    if memory_path.exists():
+        with open(memory_path, "r", encoding="utf-8-sig", newline="") as f:
+            raw = f.read()
+    else:
+        raw = ""
+    cur = raw.replace("\r\n", "\n").replace("\r", "\n")
+    new_text, had_marker = upsert_project_catalog(cur, block)
+
+    if args.check:
+        if not had_marker:
+            print(PROJECT_CATALOG_MISSING_MSG, file=sys.stderr)
+            return 1
+        if cur.strip() != new_text.strip():
+            print("[sync-memory-index] MEMORY.md project catalog drift detected", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.write:
+        if had_marker and cur == new_text:
+            print(f"[sync-memory-index] {memory_path} project catalog up to date")
+            return 0
+        r = write_index_full(memory_path, new_text, source="tool:sync-memory-index")
+        if not r.ok:
+            print(f"[sync-memory-index] write failed (project MEMORY.md): {r.error}", file=sys.stderr)
+            return 1
+        print(f"[sync-memory-index] wrote project catalog block → {memory_path}"
+              f"{'' if had_marker else ' (appended; no marker before)'}")
+        return 0
+
+    print(f"{PROJECT_CATALOG_BEGIN}\n{block}\n{PROJECT_CATALOG_END}")
+    return 0
+
+
 def render_level_index(node: _Node, rel_dir: str, hierarchical: Optional[bool] = None) -> str:
     """Render 單層 `_INDEX.md`：本層 atom（名+說明）＋直屬子層（名+遞迴計數 drill）。"""
     note = ("> 階層範疇索引（自動生成，`_` 前綴非 atom）。機制見 [[realm-範疇分區機制-v5]]。"
@@ -496,6 +642,10 @@ def main() -> int:
     if not rows:
         print("[sync-memory-index] _atom_index.json empty or missing", file=sys.stderr)
         return 1
+
+    # 專案層：marker 區塊 upsert（見模組說明）；全域層維持下方雙輸出＋各層 _INDEX.md。
+    if is_project_memory_dir(memory_dir):
+        return _run_project_mode(args, memory_dir, claude_root, memory_path, rows)
 
     # caption preserve 跨多檔：MEMORY.md + 側檔 + 兩根各層 _INDEX.md（人工策展描述名稱不重疊）。
     existing_caps = parse_existing_captions(memory_path)

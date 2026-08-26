@@ -29,8 +29,9 @@ async function toolAtomWrite(id, args) {
     title, scope, confidence, triggers, knowledge, actions, related, mode,
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
-    realm, domain, status, subdir, allow_new_category,
+    realm, domain, status, subdir, allow_new_category, dry_run,
   } = args;
+  dry_run = !!dry_run;
 
   // Validate core required fields (scope now optional, defaults to shared)
   if (!title || !confidence || !triggers || !knowledge || !mode) {
@@ -241,7 +242,8 @@ async function toolAtomWrite(id, args) {
 
     // ─── write-time conflict detection (SPEC §7.1) ───
     // Only shared scope. skip_conflict_check honored for migrations/tests.
-    if (scope === "shared" && !skip_conflict_check) {
+    // dry_run 跳過：偵測器會落 .conflict.md 報告／_pending_review 草稿（副作用），預覽不該留痕。
+    if (scope === "shared" && !skip_conflict_check && !dry_run) {
       const cr = await execConflictDetector(knowledge.join("\n"), "shared", project_cwd, subdir);
       // 偵測器降級訊號（複驗不穩 / 跨分區 / LLM ERROR fail-open）→ 併入成功訊息浮出
       if (Array.isArray(cr.warnings) && cr.warnings.length) {
@@ -294,15 +296,29 @@ async function toolAtomWrite(id, args) {
       // index scope 傳 scopeLabel（與 frontmatter 一致）——不再由 py 端預設 global
       // 蹍掉專案層 scope。
       index: { base_dir: indexDir, slug, rel_path: relPath, triggers, scope: scopeLabel },
+      dry_run,
     });
     if (!cr.ok) {
       return sendToolResult(id, `atom_create funnel failed: ${cr.error}`, true);
+    }
+    if (dry_run) {
+      return sendToolResult(id,
+        `DRY-RUN (nothing written): would create atom ${slug}.md (${confidence}, scope=${scopeLabel})\n` +
+        `Path: ${filePath}\n` +
+        (category ? `Category: ${category}\n` : "") +
+        `Index rel_path: ${relPath}\n` +
+        `Gates passed: domain/category, [臨], write-gate, build+validate, budget.` +
+        (gateWarnings.length ? `\n[write-gate 樣式警告] ${gateWarnings.join("；")}` : "")
+      );
     }
     if (cr.extra && cr.extra.index_ok === false) {
       crashLog("appendToIndex funnel (json)", cr.extra.index_error);
     }
     triggerVectorReindex();
+    // catalog 同步：global → memory/MEMORY.md（+側檔/各層 _INDEX.md）；shared → 該專案
+    // MEMORY.md 的 marker 區塊（--memory-dir）。待審（_pending_review）不入 index → 不觸發。
     if (scopeLabel === "global") syncMemoryIndex();
+    else if (scope === "shared" && !pendingReviewBy) syncMemoryIndex(baseDir);
 
     return sendToolResult(id,
       `Created atom: ${slug}.md (${confidence}, scope=${scopeLabel})\n` +
@@ -330,6 +346,10 @@ async function toolAtomWrite(id, args) {
     }
     if (!fs.existsSync(filePath)) {
       return sendToolResult(id, `Atom not found: ${slug}.md — use mode=create first`, true);
+    }
+    if (dry_run) {
+      return sendToolResult(id,
+        `DRY-RUN (nothing written): would append ${knowledge.length} knowledge line(s) to ${filePath}`);
     }
 
     // 拼接+validate+落檔統一 spawn py（lib.atom_io.append_atom_file）；不走 js readFileSync
@@ -400,6 +420,11 @@ async function toolAtomWrite(id, args) {
       return sendToolResult(id, `Validation failed: ${br.error}`, true);
     }
     const content = (br.extra || {}).content;
+    if (dry_run) {
+      return sendToolResult(id,
+        `DRY-RUN (nothing written): would replace ${filePath} (build+validate passed; ` +
+        `author=${prevAuthor}, created-at=${prevCreatedAt} preserved)`);
+    }
 
     fs.mkdirSync(memDir, { recursive: true });
     // 走 lib.atom_io.write_raw funnel
@@ -415,6 +440,7 @@ async function toolAtomWrite(id, args) {
     await appendToIndex(indexDir, slug, relPath, triggers);
     triggerVectorReindex();
     if (scopeLabel === "global") syncMemoryIndex();
+    else if (scope === "shared" && !pendingReviewBy) syncMemoryIndex(baseDir);
 
     // 讀 access 給訊息顯示保留的計數
     const accAfter = readAtomAccess(filePath);

@@ -79,6 +79,21 @@ def test_gate_under_claude_keeps_local():
         assert names == {"decisions", "feedback-x", "brain", "gdoc-harvester", "handoff-q"}, cwd
 
 
+def test_gate_external_project_cwd_keeps_category_core(tmp_path):
+    """專案 cwd（<tmp>/proj，非 ~/.claude）：memory/<範疇>/ 與 memory/Failures/<主題>/ 的核心
+    atom 全留、_AIDocs/_atoms/ local 全濾——注入閘只看 path 前綴，與範疇資料夾深度無關。"""
+    proj = tmp_path / "proj"
+    (proj / ".claude" / "memory").mkdir(parents=True)
+    atoms = [
+        ("git-a", "memory/版控/Git/git-a.md", ["上GIT"]),
+        ("feedback-x", "memory/Failures/驗證與實證/feedback-x.md", ["驗證"]),
+        ("brain", "_AIDocs/_atoms/World/brain.md", ["腦內世界"]),
+        ("memdev", "_AIDocs/_atoms/MemDev/MemoryIndex/regen.md", ["caption"]),
+    ]
+    out = _apply_gate(atoms, str(proj))
+    assert {n for n, _, _ in out} == {"git-a", "feedback-x"}
+
+
 def test_is_under_claude_dir_predicate():
     assert _is_under_claude_dir(str(CLAUDE)) is True
     assert _is_under_claude_dir(str(CLAUDE / "tools")) is True

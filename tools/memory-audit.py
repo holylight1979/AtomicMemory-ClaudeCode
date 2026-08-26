@@ -598,6 +598,14 @@ def _index_json_entries(mem_dir: Path) -> Optional[List[IndexEntry]]:
     return entries
 
 
+_FLAT_SHARED_RE = re.compile(r"^memory/shared/[^/]+\.md$")
+
+
+def _has_flat_shared_entries(index_entries: List[IndexEntry]) -> bool:
+    """專案 index 是否仍含平鋪 shared atom（memory/shared/<slug>.md，無範疇段）＝尚未遷移。"""
+    return any(_FLAT_SHARED_RE.match(e.path.replace("\\", "/")) for e in index_entries)
+
+
 def validate_index(index_path: Path, memory_dir: Path, index_entries: List[IndexEntry]) -> List[Issue]:
     """Cross-reference index entries with actual files."""
     issues: List[Issue] = []
@@ -1558,14 +1566,20 @@ def run_audit(args: argparse.Namespace) -> HealthReport:
             if json_entries is not None:
                 index_entries = json_entries
 
-            # Check index line count
+            # Check index line count。專案層 index 仍含平鋪 shared atom（memory/shared/<slug>.md，
+            # 尚未跑 atom-categorize 遷移）→ 只報 info：手寫分區規則＋逐顆列表本來就超 40 行，
+            # 遷移完成（index 無平鋪 shared 路徑）才套上限報 warning。
             if idx_lines > INDEX_MAX_LINES:
+                level, note = "warning", ""
+                if layer_name != "global" and _has_flat_shared_entries(index_entries):
+                    level = "info"
+                    note = "；專案仍含平鋪 shared atom（未遷移）→ 只報 info，遷移後才套上限"
                 report.issues.append(
                     Issue(
                         _rel_path(index_path),
-                        "warning",
+                        level,
                         "size",
-                        f"MEMORY.md {idx_lines} 行（上限 {INDEX_MAX_LINES}）",
+                        f"MEMORY.md {idx_lines} 行（上限 {INDEX_MAX_LINES}）{note}",
                     )
                 )
 

@@ -4,6 +4,9 @@ conflict-review.py — backend for /conflict-review.
 
 列 _pending_review/ 草稿與報告；依 is_management() 雙向認證核可 approve/reject。
 所有動作寫 _merge_history.log，approve 後觸發 vector reindex。
+approve 落點走範疇閘：`shared/<Lv1>[/<Lv2>]/`（`--domain` 或 classify_category 自動分類；
+分不出 → 拒、草稿留 pending，不製造未分類 shared atom）＋ `_atom_index.json` upsert
+＋ 背景刷新專案 MEMORY.md catalog 區塊。
 
 JSON over stdout；非零 exit code 代表操作失敗（不是 missing pending）。
 """
@@ -19,9 +22,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 HOOKS_DIR = Path.home() / ".claude" / "hooks"
+CLAUDE_DIR = Path.home() / ".claude"
 sys.path.insert(0, str(HOOKS_DIR))
+sys.path.insert(0, str(CLAUDE_DIR))
 from wg_core import find_project_root  # noqa: E402
 from wg_roles import is_management, get_current_user  # noqa: E402
+from lib.atom_io import _category_gate_enabled, write_index  # noqa: E402
+from lib.atom_locations import classify_category, project_category_target  # noqa: E402
+
+_INDEX_SOURCE = "tool:conflict-review"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -183,7 +192,37 @@ def _strip_pending_marker(text: str, user: str) -> str:
     return text
 
 
-def action_approve(proj_cwd: str, target: str, user: str) -> Dict[str, Any]:
+def _resolve_approve_target(mem: Path, stem: str, triggers: List[str],
+                            domain: Optional[str]) -> Dict[str, Any]:
+    """核可後的 shared 落點：範疇閘開 → `shared/<Lv1>[/<Lv2>]/`（同 atom_write create 規則）。
+
+    domain 未給 → `classify_category`（詞庫→本地 LLM，閉合清單）；分不出 → 回 error、草稿留在
+    `_pending_review/`（不落未分類 shared atom）。閘關 → 扁平 `shared/`（相容）。
+    回 {"dir": Path, "category": str|None} 或 {"error": ...}。
+    """
+    if not _category_gate_enabled():
+        return {"dir": _shared_dir(mem), "category": None}
+    cat_domain = (domain or "").strip()
+    classify: Optional[Dict[str, Any]] = None
+    if not cat_domain:
+        classify = classify_category(stem, triggers, layer="core")
+        cat_domain = classify.get("category") or ""
+        if not cat_domain:
+            return {"error": "unclassified: approve needs a category — rerun with --domain <Lv1>[/<Lv2>]",
+                    "classify": classify,
+                    "hint": "Lv1 closed list = memory/_meta/taxonomy.json ∪ <mem>/shared/_taxonomy.json domains"}
+    target, err = project_category_target(mem, cat_domain, allow_new=False)
+    if err:
+        return {"error": err, "classify": classify}
+    return {"dir": target["dir"], "category": target["category"], "classify": classify}
+
+
+def _parse_triggers(meta: Dict[str, Any]) -> List[str]:
+    return [t.strip() for t in str(meta.get("trigger") or "").split(",") if t.strip()]
+
+
+def action_approve(proj_cwd: str, target: str, user: str,
+                   domain: Optional[str] = None) -> Dict[str, Any]:
     mem = _proj_mem(proj_cwd)
     if not mem:
         return {"error": "no V4 project memory at cwd"}
@@ -218,14 +257,21 @@ def action_approve(proj_cwd: str, target: str, user: str) -> Dict[str, Any]:
 
     patched = _strip_pending_marker(text, user)
 
-    # Destination filename: always the stripped stem
+    # Destination filename: always the stripped stem；落點經範疇閘（shared/<Lv1>/）
     stem = _target_stem(src.name)
-    dest = sdir / f"{stem}.md"
-    if dest.exists():
+    triggers = _parse_triggers(_parse_metadata(src))
+    resolved = _resolve_approve_target(mem, stem, triggers, domain)
+    if resolved.get("error"):
+        return {"error": resolved["error"], "classify": resolved.get("classify"),
+                "hint": resolved.get("hint", "草稿仍在 _pending_review/，補 --domain 後重試")}
+    dest_dir: Path = resolved["dir"]
+    category = resolved.get("category")
+    dest = dest_dir / f"{stem}.md"
+    if dest.exists() or (sdir / f"{stem}.md").exists():
         return {"error": f"shared target already exists: {dest.name}",
                 "hint": "先處理既有 atom（rename / merge / replace）再 approve"}
 
-    sdir.mkdir(parents=True, exist_ok=True)
+    dest_dir.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".md.tmp")
     tmp.write_text(patched, encoding="utf-8")
     tmp.replace(dest)
@@ -245,18 +291,45 @@ def action_approve(proj_cwd: str, target: str, user: str) -> Dict[str, Any]:
     except OSError as e:
         return {"error": f"approve wrote {dest} but failed to remove pending src: {e}"}
 
+    rel_path = f"memory/{dest.relative_to(mem).as_posix()}"
     _append_merge_history(mem, "approve", stem, "shared", user,
-                          f"from={src.name} to=shared/{dest.name}")
+                          f"from={src.name} to={rel_path}")
+    # index upsert（非致命）：核可的 atom 才會被 trigger 注入；MEMORY.md catalog 區塊隨後由
+    # sync-memory-index --memory-dir 補（fire-and-forget，同 funnel.js syncMemoryIndex(memoryDir)）。
+    ir = write_index(base_dir=mem, slug=stem, rel_path=rel_path, triggers=triggers,
+                     source=_INDEX_SOURCE, scope="shared")
+    _sync_project_catalog(mem)
     reindexed = _trigger_reindex()
 
     return {
         "ok": True,
         "target": stem,
         "dest": str(dest),
+        "rel_path": rel_path,
+        "category": category,
+        "classify": resolved.get("classify"),
+        "index_ok": ir.ok,
+        "index_error": ir.error,
         "extras_removed": extras_removed,
         "reindex_triggered": reindexed,
         "decided_by": user,
     }
+
+
+def _sync_project_catalog(mem: Path) -> None:
+    """背景刷新專案 MEMORY.md 的 catalog 區塊（失敗只 stderr，不阻斷 approve）。"""
+    import subprocess
+    script = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+    if not script.exists():
+        return
+    try:
+        kw: Dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+                              "stderr": subprocess.DEVNULL}
+        if sys.platform == "win32":
+            kw["creationflags"] = subprocess.CREATE_NO_WINDOW
+        subprocess.Popen([sys.executable, str(script), "--write", "--memory-dir", str(mem)], **kw)
+    except OSError as e:
+        print(f"[conflict-review] sync-memory-index spawn failed: {e}", file=sys.stderr)
 
 
 # ─── reject ─────────────────────────────────────────────────────────────────
@@ -307,6 +380,8 @@ def main():
                     help="user doing the action; defaults to CLAUDE_USER/os login")
     ap.add_argument("--project-cwd", type=str, required=True)
     ap.add_argument("--reason", type=str, default="")
+    ap.add_argument("--domain", type=str, default=None,
+                    help="approve 落點範疇 '<Lv1>[/<Lv2>]'（未給 → 自動分類；分不出 → 拒、草稿留 pending）")
     args = ap.parse_args()
 
     proj_cwd = args.project_cwd
@@ -320,7 +395,7 @@ def main():
         if not args.target:
             print(json.dumps({"error": "--target required"}))
             sys.exit(2)
-        result = action_approve(proj_cwd, args.target, user)
+        result = action_approve(proj_cwd, args.target, user, domain=args.domain)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         sys.exit(0 if result.get("ok") else 1)
 

@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-26 核心記憶分類階層化 S5 專案層＋文件同步 — 本案結案
+- 專案層：`sync-memory-index --memory-dir <proj>/.claude/memory` 只 upsert 該專案 MEMORY.md 的 `<!-- atom-catalog -->` 區塊（`shared/<Lv1>/` 範疇列＋分區計數列＋平鋪 shared 逐顆列；無 marker `--check` exit 1／`--write` 追加檔尾；區塊外逐 byte 不動；不生 `_INDEX.md`／`_local_catalog.md`／doc-counts）；`funnel.js syncMemoryIndex(memoryDir)` 在 shared create/replace 後帶 `--memory-dir`；`conflict-review approve` 經 `project_category_target`（`--domain` 或 `classify_category`，分不出留 pending）＋ index upsert；`memory-audit` 專案 index 仍含平鋪 shared 時 MEMORY.md 行數只報 info；`project_hooks` delegate 不接（`shared/_taxonomy.json` 為唯一擴充入口）。MCP `atom_write` 補 `dry_run`（schema → atom-tools.js → py `create_atom`；append/replace 定位後短路）。文件同步 TECH／SPEC §2.1/§2.2/§2.3／Architecture／DocIndex／_INDEX／rules/core／skills refile+memory／lib/_MAP 改為兩根＋範疇資料夾現況；4 顆 atom append。測試 `verify_project_layer_smoke.py` 擴至五斷言（hook 子程序 harness）、`verify_realm_injection_gate.py` +專案 cwd、audit sot +info 案。
+
 ## 2026-08-26 核心記憶分類階層化 S4 寫入閘 — create 先分類再落地
 - `atom_io._resolve_target` 接 `core_write_target`／`failures_topic_target`／`project_category_target`：mode=create 且 `taxonomy.gate_enabled` 時 scope=global（非 local）、feedback-* 標題、scope=shared 的 `domain` 必填，缺／未知 Lv1 → 拒並列全部 Lv1（`allow_new_category` 才准新 Lv1）；append/replace 忽略 domain（stderr 提示）；`locate_atom(mode=create)` 回 `extra.target_dir/category` 供 js 採用、`atom_io_cli.create_atom` 加平鋪／舊址後盾。自動分類器 `classify_category`（taxonomy terms ∪ `_meta/taxonomy-lexicon-learned.json` → `llm_classify_category` 閉合清單）只服務程式寫手：user-extract 分不出 → `_pending.candidates.md` `[category REJECT]`；extract-worker 失敗回寫永不拒（`failure_type_fallback`）、落 `Failures/<主題>/<type>-<主題>.md` + index upsert；episodic／`_drafts` 豁免。js：create 缺 domain 不 spawn、`findSeparatorVariant` BFS、mcp schema `domain`/`allow_new_category`。`is_failures_routed_title` 補「index path 在 `_AIDocs/_atoms/` 不回搬」。測試 `verify_category_gate.py` 14 案。
 
