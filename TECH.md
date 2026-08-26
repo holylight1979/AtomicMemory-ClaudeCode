@@ -21,6 +21,14 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 | 5 | **可審計** | JSONL audit trail 全程記錄，知識不刪除只歸檔 |
 | 6 | **對齊原生**（V5 新增） | 採 Anthropic skills / deferred MCP / plugin packaging 原生機制，不重複造輪子 |
 
+### 記憶分類原則
+
+- `memory/` 下**分類資料夾必備**：核心 atom 只住 `memory/<範疇>/[<Lv2>/]`，根下不容平鋪（`sync-memory-index --check` 直接 exit 1）。
+- `MEMORY.md` 只列 Lv1 範疇目錄，由生成器維護、不手編；明細各層 `_INDEX.md` 按需。
+- **寫入先分類再落地**：`atom_write(mode=create)` 必給 `domain`，分不出就拒（core 不設 Else／未分類表）。
+- `Failures` 為 Lv1 家族整體保留，主題 Lv2 沿用同一套核心範疇名。
+- **使用面留 core、開發面去 local**：任何專案的 AI 會碰到的知識住 `memory/`；只在 ~/.claude 有用的（記憶系統開發／本機特定）住 `_AIDocs/_atoms/`。決策脈絡見 [DevHistory/核心記憶分類階層化-2026-08.md](_AIDocs/DevHistory/核心記憶分類階層化-2026-08.md)。
+
 ---
 
 ## 2. 系統架構目錄樹（2026-05-28 V5 GA + Session α/β 現況）

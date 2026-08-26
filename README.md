@@ -47,6 +47,7 @@ AI 會自己走完檔案合併 + npm 套件 + MCP 設定 + Ollama 模型 + Vecto
 - **STEP A**：在專案根目錄開啟 VS Code（或 Claude Code CLI 在專案目錄啟動）
 - **STEP B**：首次進入專案時請 AI「初始化原子記憶庫」— 會自動建立 `{project}/.claude/memory/MEMORY.md` 與 atom 結構；完成後上傳 GIT / SVN 讓團隊共享。多人團隊另跑 `/init-roles` 啟用 shared/role/personal 分層。
 - **STEP C**：其實到這就完成了，照你原本 Claude Code 的方式繼續使用就好 — 系統在背景自動運作
+- **寫 atom 時**：`atom_write` 建新 atom（mode=create）必給 `domain`（範疇 `<Lv1>[/<Lv2>]`，例 `版控/Git`）；Lv1 清單在 `memory/_meta/taxonomy.json`，別名可用（`vcs/git` 會自動對回正名），不確定落點先 `dry_run: true` 看路徑。AI 會自己遵守，這裡只是讓你知道「沒分類就寫不進去」是設計不是故障。
 
 ### 2. 更順手的補充
 
