@@ -433,7 +433,7 @@ def test_14_py_js_path_constants_parity():
     `// MIRROR: keep in sync` comment alone cannot enforce.
     """
     from lib.atom_locations import (
-        FAILURES_REL, LOCAL_ATOMS_REL, FEEDBACK_TITLE_PREFIX,
+        FAILURES_REL, LEGACY_FAILURES_REL, LOCAL_ATOMS_REL, FEEDBACK_TITLE_PREFIX,
         LOCAL_REALM_DOMAINS, LOCAL_REALM_DEFAULT_DOMAIN,
     )
 
@@ -443,7 +443,9 @@ def test_14_py_js_path_constants_parity():
         pytest.skip("lib/realm.js not found")
     js = server_js.read_text(encoding="utf-8")
 
+    assert FAILURES_REL == "memory/Failures", "失敗家族新址必須是 memory/Failures"
     assert f'FAILURES_REL = "{FAILURES_REL}"' in js, "FAILURES_REL drift"
+    assert f'LEGACY_FAILURES_REL = "{LEGACY_FAILURES_REL}"' in js, "LEGACY_FAILURES_REL drift"
     assert f'LOCAL_ATOMS_REL = "{LOCAL_ATOMS_REL}"' in js, "LOCAL_ATOMS_REL drift"
     assert f'FEEDBACK_TITLE_PREFIX = "{FEEDBACK_TITLE_PREFIX}"' in js, "FEEDBACK_TITLE_PREFIX drift"
     assert f'LOCAL_REALM_DEFAULT_DOMAIN = "{LOCAL_REALM_DEFAULT_DOMAIN}"' in js, "default domain drift"
@@ -495,6 +497,40 @@ def test_14b_realm_lexicon_json_single_source():
             assert sentinel not in js_src, f"realm.js 出現手抄詞庫殘留: {sentinel}"
     for sentinel in ("腦內世界", "guardian-dashboard", "reconcile-render"):
         assert sentinel not in py_src, f"atom_locations.py 出現手抄詞庫殘留: {sentinel}"
+
+
+# ─── 14c. 核心層範疇分類法 JSON 單一來源（taxonomy.json ↔ py ↔ js）────────────
+
+
+def test_14c_taxonomy_json_single_source():
+    """memory/_meta/taxonomy.json 是核心層 Lv1 範疇的單一來源：
+    ① js 端確實引用該檔；② Lv1 正名不得撞保留名（casefold）；
+    ③ py core_categories() == JSON core keys；④ py CATEGORY_RESERVED_SEGMENTS 涵蓋 JSON reserved 全項。"""
+    from lib import atom_locations as AL
+    from lib import atom_taxonomy as AT
+
+    tax_path = LIB_PARENT / "memory" / "_meta" / "taxonomy.json"
+    assert tax_path.exists(), "taxonomy.json missing（單一來源檔不存在）"
+    data = json.loads(tax_path.read_text(encoding="utf-8-sig"))
+    core_keys = list(data["core"].keys())
+    reserved = [str(r) for r in data.get("reserved") or []]
+    assert core_keys, "taxonomy core 空"
+
+    # ① js 端引用 JSON
+    realm_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "realm.js"
+    if realm_js.exists():
+        assert "taxonomy.json" in realm_js.read_text(encoding="utf-8"), "realm.js 未引用 taxonomy.json"
+
+    # ② Lv1 ∩ reserved（casefold）== ∅
+    clash = {k.casefold() for k in core_keys} & {r.casefold() for r in reserved}
+    assert not clash, f"Lv1 正名撞保留名: {clash}"
+
+    # ③ py 讀到的 Lv1 == JSON keys
+    assert AT.core_categories(tax_path) == core_keys
+
+    # ④ py 保留名集合涵蓋 JSON reserved 全項（小寫）
+    missing = {r.lower() for r in reserved} - set(AL.CATEGORY_RESERVED_SEGMENTS)
+    assert not missing, f"CATEGORY_RESERVED_SEGMENTS 缺 taxonomy.reserved 項: {missing}"
 
 
 # ─── 15. realm=local routing → _AIDocs/_atoms/<domain>/ (Scope stays global) ───

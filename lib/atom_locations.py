@@ -37,8 +37,16 @@ except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
 
 CLAUDE_DIR = Path.home() / ".claude"
 GLOBAL_MEMORY_DIR = CLAUDE_DIR / "memory"
-FAILURES_DIR = CLAUDE_DIR / "_AIDocs" / "Failures"
-FAILURES_REL = "_AIDocs/Failures"
+CORE_ATOMS_REL = "memory"
+# 失敗家族（feedback-* / cognitive-patterns / memory-pipeline-*）是核心層的一個 Lv1 範疇
+# 資料夾：memory/Failures/<主題>/。舊址 _AIDocs/Failures/ 僅供讀端相容（遷移期間兩處都認），
+# 寫端一律落新址。JS mirror：realm.js FAILURES_* / LEGACY_FAILURES_*。
+FAILURES_ROOT_NAME = "Failures"
+FAILURES_DIR = GLOBAL_MEMORY_DIR / FAILURES_ROOT_NAME
+FAILURES_REL = f"{CORE_ATOMS_REL}/{FAILURES_ROOT_NAME}"
+LEGACY_FAILURES_DIR = CLAUDE_DIR / "_AIDocs" / "Failures"
+LEGACY_FAILURES_REL = "_AIDocs/Failures"
+FAILURES_RELS = (FAILURES_REL, LEGACY_FAILURES_REL)
 FEEDBACK_TITLE_PREFIX = "feedback-"
 
 # V5+ local realm（範疇限定）：~/.claude 本地知識物理落 _AIDocs/_atoms/<domain>/，
@@ -158,8 +166,13 @@ def is_failures_routed_title(title: Optional[str]) -> bool:
 
 
 def is_in_failures_path(rel_path: str) -> bool:
-    """rel_path（POSIX 風格）是否落在 _AIDocs/Failures/ 之下。"""
-    return rel_path.startswith(FAILURES_REL + "/")
+    """rel_path（POSIX 風格）是否屬失敗家族：memory/Failures/ 之下，或舊址 _AIDocs/Failures/。"""
+    return any(rel_path.startswith(r + "/") for r in FAILURES_RELS)
+
+
+def is_legacy_failures_path(rel_path: str) -> bool:
+    """rel_path 仍在舊址 _AIDocs/Failures/（尚未遷入 memory/Failures/）。"""
+    return rel_path.startswith(LEGACY_FAILURES_REL + "/")
 
 
 def is_local_realm_path(rel_path: str) -> bool:
@@ -233,9 +246,9 @@ def atom_search_roots(include_failures: bool = True, include_local: bool = True)
     否則無 decay/promote/usefulness 歸屬而凍結。dir 不存在時由 caller（iter_atom_files_multi）
     的 `is_dir()` 守門略過，故空目錄無副作用。
     """
-    roots = [GLOBAL_MEMORY_DIR]
+    roots = [GLOBAL_MEMORY_DIR]  # memory/Failures/ 在 memory/ 樹下，rglob 自然涵蓋
     if include_failures:
-        roots.append(FAILURES_DIR)
+        roots.append(LEGACY_FAILURES_DIR)  # 舊址讀端相容；不存在時由 caller is_dir() 略過
     if include_local:
         roots.append(LOCAL_ATOMS_DIR)
     return roots
@@ -260,7 +273,7 @@ def failures_atom_stems(mem_dir: Path = GLOBAL_MEMORY_DIR) -> set:
         return {
             (a.get("path") or "").rsplit("/", 1)[-1].removesuffix(".md")
             for a in data.get("atoms", [])
-            if (a.get("path") or "").startswith(FAILURES_REL + "/")
+            if is_in_failures_path(a.get("path") or "")
         }
     except (OSError, ValueError):
         return set()
@@ -287,10 +300,12 @@ def iter_atom_files_multi(
         from atom_spec import is_atom_file
     roots_list = list(roots) if roots is not None else atom_search_roots()
     stems_cache: Optional[set] = None
-    try:
-        failures_resolved = FAILURES_DIR.resolve()
-    except OSError:
-        failures_resolved = FAILURES_DIR
+    failures_resolved = set()
+    for fd in (FAILURES_DIR, LEGACY_FAILURES_DIR):
+        try:
+            failures_resolved.add(fd.resolve())
+        except OSError:
+            failures_resolved.add(fd)
     for root in roots_list:
         if not root.is_dir():
             continue
@@ -298,7 +313,7 @@ def iter_atom_files_multi(
             root_resolved = root.resolve()
         except OSError:
             root_resolved = root
-        is_failures_root = (root_resolved == failures_resolved)
+        is_failures_root = (root_resolved in failures_resolved)
         if is_failures_root and apply_failures_filter and stems_cache is None:
             stems_cache = failures_atom_stems()
         for md in sorted(root.rglob("*.md")):
@@ -312,16 +327,22 @@ def iter_atom_files_multi(
 # ─── Resolution ───────────────────────────────────────────────────────────────
 
 
-def failures_write_target() -> Dict[str, Any]:
-    """V5+ feedback 路由：失敗 atom 物理落 _AIDocs/Failures/，索引仍在 memory/_atom_index.json。
+def failures_write_target(topic: Optional[str] = None) -> Dict[str, Any]:
+    """失敗家族路由：物理落 memory/Failures/[<主題>/]，索引在 memory/_atom_index.json。
 
+    `topic`＝主題範疇（與核心 Lv1 同名，如「驗證與實證」）；經 validate_category_path 沙盒化，
+    非法/空 → 落 Failures 根（寫入閘啟用後由 caller 要求必填）。
     回 {dir, base, index_dir, index_root} — caller 自行疊加 scope_label / error / routed_* 旗標。
-    副作用：FAILURES_DIR.mkdir(parents=True, exist_ok=True)（對拍既有 atom_io 行為）。
+    MIRROR: realm.js applyFeedbackRouting — keep in sync。
     """
-    FAILURES_DIR.mkdir(parents=True, exist_ok=True)
+    target = FAILURES_DIR
+    segs, _err = validate_category_path(topic or "")
+    if segs:
+        target = FAILURES_DIR.joinpath(*segs)
+    target.mkdir(parents=True, exist_ok=True)
     return {
-        "dir": FAILURES_DIR,
-        "base": FAILURES_DIR,
+        "dir": target,
+        "base": target,
         "index_dir": GLOBAL_MEMORY_DIR,
         "index_root": CLAUDE_DIR,
     }
@@ -599,6 +620,176 @@ def enumerate_local_paths(mem_dir: Path = GLOBAL_MEMORY_DIR) -> List[str]:
             if segs:
                 paths.add("/".join(segs))
     return sorted(paths)
+
+
+# ─── 核心層範疇資料夾（memory/<範疇>/…；分類由 index path 推導，與 local realm 同原理）────
+#
+# 兩根：memory/（core，全專案注入；含 Failures 家族 Lv1）與 _AIDocs/_atoms/（local，僅 ~/.claude）。
+# realm 仍由 _AIDocs/_atoms/ 前綴推導（is_local_realm_path 不動）；範疇＝path 在根之後的目錄段。
+REALM_ROOTS = ((CORE_ATOMS_REL, "core"), (LOCAL_ATOMS_REL, "local"))
+
+
+def realm_root_for(rel_path: str) -> Optional[str]:
+    """rel_path 所屬的根（'memory' / '_AIDocs/_atoms'）；舊址 _AIDocs/Failures 視為 core 根；皆非 → None。"""
+    for root, _realm in REALM_ROOTS:
+        if rel_path.startswith(root + "/"):
+            return root
+    if is_legacy_failures_path(rel_path):
+        return LEGACY_FAILURES_REL
+    return None
+
+
+def path_segments_under(rel_path: str, root_rel: str) -> List[str]:
+    """<root>/<a>/<b>/<slug>.md → ['a','b']（去檔名）；不在 root 下 → []。"""
+    prefix = root_rel + "/"
+    if not rel_path.startswith(prefix):
+        return []
+    parts = [p for p in rel_path[len(prefix):].split("/") if p]
+    return parts[:-1]
+
+
+def core_category_segments(rel_path: str) -> List[str]:
+    """核心層範疇段：memory/<Lv1>/<Lv2>/<slug>.md → ['Lv1','Lv2']；根下散檔 → []。
+
+    舊址 _AIDocs/Failures/<slug>.md 視為 ['Failures']（遷移期間 catalog 計數一致）。
+    """
+    if is_legacy_failures_path(rel_path):
+        return [FAILURES_ROOT_NAME] + path_segments_under(rel_path, LEGACY_FAILURES_REL)
+    return path_segments_under(rel_path, CORE_ATOMS_REL)
+
+
+def is_flat_core_path(rel_path: str) -> bool:
+    """memory/<slug>.md（根下散檔、無範疇資料夾）⇒ True。範疇資料夾必備的硬規則就看這個。"""
+    return rel_path.startswith(CORE_ATOMS_REL + "/") and not core_category_segments(rel_path)
+
+
+# 範疇資料夾禁用名（casefold）：撞 atom 掃描 skip 名單、定位 skip、funnel 白名單段、dashboard 層名、
+# 舊址小寫 failures。命中即拒——否則 atom 會被掃描器跳過或整樹被 funnel 豁免。
+# `Failures`（正名大寫）由 taxonomy 明列放行（validate_category_segment 的 allow 參數）。
+def _category_reserved_segments() -> frozenset:
+    try:
+        from .atom_spec import SKIP_DIRS
+    except ImportError:  # 頂層模組載入
+        from atom_spec import SKIP_DIRS
+    extra = {"shared", "roles", "projects", "unity", "memory", "failures"}
+    return frozenset(s.lower() for s in (set(SKIP_DIRS) | _LOCATE_SKIP_DIRS | _BASE_WRITABLE_DIR_SEGMENTS | extra))
+
+
+CATEGORY_RESERVED_SEGMENTS = _category_reserved_segments()
+
+
+def validate_category_segment(seg: str, allow: Iterable[str] = ()) -> str:
+    """單段範疇名驗證：_clean_segment 沙盒 + 保留名拒絕（casefold）+ `_archive*` 拒。合法回正規化段，否則 ''。"""
+    s = _clean_segment(seg)
+    if not s:
+        return ""
+    low = s.lower()
+    if low.startswith("_archive"):
+        return ""
+    if low in CATEGORY_RESERVED_SEGMENTS and s not in set(allow):
+        return ""
+    return s
+
+
+def validate_category_path(path: str, max_depth: int = LOCAL_REALM_MAX_DEPTH,
+                           allow_first: Iterable[str] = (FAILURES_ROOT_NAME,)) -> tuple:
+    """範疇路徑 'Lv1[/Lv2…]' → (segs, error)。任一段非法 → ([], error)。空 → ([], None)。"""
+    raw = [s for s in (path or "").replace("\\", "/").split("/") if s.strip()]
+    if not raw:
+        return ([], None)
+    segs: List[str] = []
+    for i, r in enumerate(raw[:max_depth]):
+        seg = validate_category_segment(r, allow=allow_first if i == 0 else ())
+        if not seg:
+            return ([], f"category segment invalid or reserved: {r!r}")
+        segs.append(seg)
+    return (segs, None)
+
+
+def iter_realm_category_dirs(root: Path) -> List[Path]:
+    """root 直屬的範疇資料夾（名稱通過 validate_category_segment；`_`/skip 名單目錄剪掉）。"""
+    out: List[Path] = []
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return out
+    for e in entries:
+        if e.is_dir() and validate_category_segment(e.name, allow=(FAILURES_ROOT_NAME,)):
+            out.append(e)
+    return out
+
+
+def enumerate_category_paths(mem_dir: Path = GLOBAL_MEMORY_DIR) -> List[str]:
+    """從 index 抽核心層所有去重範疇路徑（'版控/Git' 等；含 'Failures/<主題>'）。例外回 []。"""
+    try:
+        from .atom_index_json import load_atom_index_json
+    except ImportError:
+        from atom_index_json import load_atom_index_json
+    try:
+        data = load_atom_index_json(mem_dir)
+    except (OSError, ValueError):
+        return []
+    paths = set()
+    for a in data.get("atoms", []):
+        segs = core_category_segments(a.get("path") or "")
+        if segs:
+            paths.add("/".join(segs))
+    return sorted(paths)
+
+
+def unclassified_error(raw: Optional[str], categories: Iterable[str], layer: str = "core") -> str:
+    """寫入閘拒寫訊息的單一出口：列出全部合法 Lv1、別名提示、新類旗標。"""
+    cats = ", ".join(categories)
+    return (
+        f"unclassified {layer} atom rejected: domain={raw!r} (missing or unknown). "
+        f"Valid Lv1: {cats}. Aliases/EN slugs accepted (e.g. vcs→版控); Lv2 free (e.g. 版控/Git). "
+        "To create a new Lv1 pass allow_new_category=true."
+    )
+
+
+def core_write_target(domain: Optional[str], allow_new: bool = False,
+                      existing_paths: Optional[Iterable[str]] = None) -> tuple:
+    """核心層 create 落點：memory/<Lv1>[/<Lv2>]/。回 (target_dict|None, error|None)。
+
+    Lv1 必須在 taxonomy 閉合清單（正名／slug／別名皆可，snap 回正名）；未知 Lv1 → 拒，
+    除非 allow_new=True（仍須通過保留名／字元集）。Lv2 自由，對既有同深度兄弟 snap
+    （normalize_domain_path）。`Failures` 走 failures_write_target，不由此函式處理。
+    不做 mkdir 以外的副作用；不猜、不落 Else。
+    """
+    try:
+        from .atom_taxonomy import core_categories, match_lv1, TaxonomyUnavailable
+    except ImportError:
+        from atom_taxonomy import core_categories, match_lv1, TaxonomyUnavailable
+    try:
+        cats = core_categories()
+    except TaxonomyUnavailable as e:
+        return (None, f"taxonomy.json unavailable: {e}")
+    raw = (domain or "").strip().replace("\\", "/")
+    if not raw:
+        return (None, unclassified_error(domain, cats))
+    head, _, rest = raw.partition("/")
+    if head.casefold() == FAILURES_ROOT_NAME.casefold():
+        return (None, "use failures routing (feedback- title / topic) for the Failures family")
+    lv1 = match_lv1(head)
+    if lv1 is None:
+        if not allow_new:
+            return (None, unclassified_error(domain, cats))
+        lv1 = validate_category_segment(head)
+        if not lv1:
+            return (None, f"new category name invalid or reserved: {head!r}")
+    existing = list(existing_paths) if existing_paths is not None else enumerate_category_paths()
+    full = lv1 if not rest else f"{lv1}/{rest}"
+    canon = normalize_domain_path(full, existing)
+    segs, err = validate_category_path(canon, allow_first=())
+    if err or not segs or segs[0] != lv1:
+        return (None, err or f"category path invalid: {canon!r}")
+    target = GLOBAL_MEMORY_DIR.joinpath(*segs)
+    target.mkdir(parents=True, exist_ok=True)
+    return ({
+        "dir": target, "base": target,
+        "index_dir": GLOBAL_MEMORY_DIR, "index_root": CLAUDE_DIR,
+        "category": "/".join(segs),
+    }, None)
 
 
 # ─── 階層 domain 路徑：segment 正規化 + canonicalization（OPEN 2）──────────────

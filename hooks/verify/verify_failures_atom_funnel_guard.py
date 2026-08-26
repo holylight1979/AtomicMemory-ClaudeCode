@@ -1,18 +1,18 @@
-"""verify_failures_atom_funnel_guard.py — AtomFunnelBlock 對 _AIDocs/Failures/ 的覆蓋。
+"""verify_failures_atom_funnel_guard.py — AtomFunnelBlock 對失敗家族兩個家的覆蓋。
 
-覆蓋缺口（b3b5196 commit 訊息附帶發現）：check_memory_path_block 原只攔
-`.claude/memory/` 樹下的 atom .md，不攔物理居 `_AIDocs/Failures/` 的失敗 atom
-（feedback-* / cognitive-patterns / memory-pipeline-*），後者直接 Write/Edit 會繞過
-lib.atom_io funnel + audit。
+失敗家族 atom（feedback-* / cognitive-patterns / memory-pipeline-*）住 `memory/Failures/[<主題>/]`
+（memory 樹下，guard 本就攔）；舊址 `_AIDocs/Failures/` 在 memory 樹外，讀端相容期間
+由 _is_failures_atom_path 補攔，否則直接 Write/Edit 會繞過 lib.atom_io funnel + audit。
 
-本檔守住補攔後的不變式：
-  1. Failures 下「註冊 atom」（stem 在 index）→ BLOCK
-  2. Failures 下「legacy 失敗筆記 / _INDEX.md」（stem 不在 index）→ allow（不誤擋參考文件）
-  3. memory/ 樹下 atom 仍 BLOCK（既有行為不回歸）、MEMORY.md 等白名單仍 allow
+本檔守住的不變式：
+  1. 舊址 Failures 下「註冊 atom」（stem 在 index）→ BLOCK
+  2. 舊址 Failures 下「參考文件 / _INDEX.md」（stem 不在 index）→ allow（不誤擋）
+  3. memory/ 樹下 atom 仍 BLOCK、MEMORY.md 等白名單仍 allow
   4. WG_DISABLE_ATOM_GUARD=1 對 Failures atom 仍可緊急 bypass
   5. Edit 與 Write 同等攔截；非 .md 不攔
   6. failures_atom_stems 為 None（lib import 失敗）→ 退化「不攔」，不致命
-  7. 結構不變式：funnel 白名單不得再含 'Failures'（避免 case-fix 復發覆蓋缺口）
+  7. 結構不變式：funnel 白名單不得含 'Failures'（避免 case-fix 豁免整樹）
+  8. 新址 memory/Failures/[<主題>/] 下 atom → BLOCK；`_reference/` 等白名單段 → allow
 
 以 monkeypatch 注入固定 stems，與現役 _atom_index.json 隔離。
 """
@@ -34,8 +34,9 @@ from wg_core import check_memory_path_block, _is_failures_atom_path  # noqa: E40
 
 STEMS = {"feedback-foo", "cognitive-patterns", "memory-pipeline-silent-failure-2026-05"}
 
-FAILURES = "/x/.claude/_AIDocs/Failures"
+FAILURES = "/x/.claude/_AIDocs/Failures"   # 舊址（讀端相容）
 MEMORY = "/x/.claude/memory"
+NEW_FAILURES = f"{MEMORY}/Failures"          # 新址
 
 
 @pytest.fixture
@@ -135,3 +136,34 @@ def test_whitelist_excludes_failures_segment():
         "funnel 白名單含 'Failures' → 一旦 caller intersect 改 case-insensitive "
         "會豁免整個 Failures 目錄、廢掉本 guard（覆蓋缺口復發）"
     )
+
+
+# ─── 9. 新址 memory/Failures/[<主題>/] ────────────────────────────────────────
+
+
+def test_new_home_root_atom_blocked(fixed_stems):
+    msg = _block(f"{NEW_FAILURES}/feedback-foo.md")
+    assert msg is not None and "AtomFunnelBlock" in msg
+
+
+def test_new_home_topic_atom_blocked(fixed_stems):
+    msg = _block(f"{NEW_FAILURES}/驗證與實證/feedback-foo.md")
+    assert msg is not None and "AtomFunnelBlock" in msg
+    assert _block(f"{NEW_FAILURES}/驗證與實證/feedback-foo.md", tool="Edit") is not None
+
+
+def test_new_home_reference_segment_allowed(fixed_stems):
+    # `_reference` 是 funnel 白名單段：Failures 下的參考文件不攔
+    assert _block(f"{NEW_FAILURES}/_reference/env-traps.md") is None
+
+
+def test_new_home_predicate(fixed_stems):
+    assert _is_failures_atom_path(Path(f"{NEW_FAILURES}/feedback-foo.md")) is True
+    assert _is_failures_atom_path(Path(f"{NEW_FAILURES}/驗證與實證/cognitive-patterns.md")) is True
+    assert _is_failures_atom_path(Path(f"{NEW_FAILURES}/env-traps.md")) is False   # 不在 stems
+    assert _is_failures_atom_path(Path(f"{NEW_FAILURES}/feedback-foo.txt")) is False  # 非 .md
+
+
+def test_new_home_disable_guard_env_bypasses(fixed_stems, monkeypatch):
+    monkeypatch.setenv("WG_DISABLE_ATOM_GUARD", "1")
+    assert _block(f"{NEW_FAILURES}/feedback-foo.md") is None

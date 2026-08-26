@@ -1,0 +1,35 @@
+{
+  "_doc": "核心層範疇分類法單一真相。資料夾＝中文正名（key）；slug/aliases 只做輸入對映；sub＝已知 Lv2（自由、≥2 顆才建）；terms＝詞庫（實例詞，供程式寫入自動分類計分）。py: lib/atom_taxonomy.py；js: realm.js loadTaxonomy。新增 Lv1 需改此檔（atom_write allow_new_category 亦可，但仍受 reserved 與字元集約束）。",
+  "version": 1,
+  "name_weight": 10,
+  "trigger_weight": 1,
+  "core": {
+    "版控": {"slug": "VCS", "aliases": ["版本控制", "git", "svn", "vcs"], "sub": ["Git", "SVN"],
+             "terms": ["git", "svn", "commit", "staged", "staging", "hunk", "worktree", "amend", "push", "merge", "gitattributes", "crlf", "tortoisesvn", "工作樹", "上git", "選擇性 staging"]},
+    "工作流": {"slug": "Workflow", "aliases": ["workflow", "工作流程"], "sub": ["協作與並行", "節奏與收尾"],
+               "terms": ["workflow", "handoff", "續接", "收尾", "分階段", "sprint", "icld", "sub-agent", "並行", "多 agent", "inbox", "grok", "opus", "雙 claude", "session", "執p", "研究報告", "fanout"]},
+    "思考與決策": {"slug": "Thinking", "aliases": ["thinking", "思考", "決策", "推理"], "sub": [],
+                   "terms": ["歸因", "根因", "假說", "否證", "菱形", "收斂", "早停", "偏誤", "取捨", "決策點", "交叉比對", "受控實驗"]},
+    "驗證與實證": {"slug": "Verify", "aliases": ["verify", "驗證", "測試", "實證"], "sub": [],
+                   "terms": ["verify", "驗證腳本", "實機", "取證", "smoke", "判準", "假通過", "快照", "復原", "驗收", "success criteria", "printwindow"]},
+    "dotnet": {"slug": "dotnet", "aliases": [".net", "csharp", "c#", "visualstudio", "vs"], "sub": ["WinForms", "ASPNET", "建置"],
+               "terms": ["dotnet", "winforms", "aspnetcore", "asp.net", "designer", "msbuild", "vendor", "exe", "dll", "net8", "net 8", "net10", "requestaborted", "configuretestservices", "wpf"]},
+    "OS-Windows": {"slug": "Windows", "aliases": ["windows", "os", "os-windows", "win11"], "sub": [],
+                   "terms": ["winget", "credwrite", "credential manager", "specialfolder", "appdata", "pythonw", "task scheduler", "schtasks", "uia", "electron", "msix", "registry", "wsl"]},
+    "文字與格式": {"slug": "Text", "aliases": ["text", "文字", "格式", "shell", "解析"], "sub": [],
+                   "terms": ["heredoc", "反斜線", "escape", "換行", "newline", "lf", "nullstring", "$null", "msys2", "路徑格式", "解析器", "parser", "資料格式", "取樣", "ocr", "辨識"]},
+    "設計通則": {"slug": "Design", "aliases": ["design", "設計", "重構", "refactor"], "sub": [],
+                 "terms": ["預設值", "持久化", "覆寫", "降級", "弱訊號", "heuristic", "汰舊", "死連結", "deprecate", "事件驅動", "debounce", "單一來源"]},
+    "行為契約": {"slug": "Conduct", "aliases": ["conduct", "行為", "契約", "自主"], "sub": [],
+                 "terms": ["反問", "要不要我", "設計債", "當場做", "不展開", "版本脈絡", "註解", "敘事", "白話", "咬文嚼字"]},
+    "CC與原子記憶契約": {"slug": "CC-Memory", "aliases": ["cc-memory", "cc", "claude code", "原子記憶", "記憶契約"], "sub": [],
+                         "terms": ["atom_write", "scope=global", "project_cwd", "escalation", "fix-escalation", "初次寫", "信心度", "mcp.json", "user scope", "mcp 雙開", "mcp 安裝", "skill 安裝", "全域決策"]}
+  },
+  "failures": {
+    "root": "Failures",
+    "topics": "same-as-core",
+    "failure_type_fallback": {"env": "OS-Windows", "assumption": "思考與決策", "silent": "驗證與實證", "cognitive": "思考與決策"}
+  },
+  "reserved": ["_meta", "_reference", "_staging", "_vectordb", "_distant", "_pending_review", "_rejected", "_drafts", "_archived",
+               "episodic", "templates", "personal", "wisdom", "roles", "shared", "projects", "unity", "memory", "failures"]
+}

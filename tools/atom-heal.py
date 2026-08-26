@@ -41,6 +41,7 @@ sys.path.insert(0, str(ROOT))                          # lib.*
 sys.path.insert(0, str(TOOLS))                         # ollama_client
 from lib.atom_io import edit_metadata                  # noqa: E402
 from lib.atom_spec import validate_atom_content        # noqa: E402
+from lib.atom_locations import LEGACY_FAILURES_DIR     # noqa: E402  舊址 _AIDocs/Failures/（遷移期讀端相容）
 
 # atom-health-check.py 檔名含連字號、無法直接 import → importlib 載入，重用其偵測/解析函式
 _spec = importlib.util.spec_from_file_location("atom_health_check", TOOLS / "atom-health-check.py")
@@ -50,15 +51,15 @@ _spec.loader.exec_module(ahc)
 
 # ── 共用小工具 ─────────────────────────────────────────────────────────────
 def atom_file(name):
-    """找出 atom 的 .md 路徑（跳過 _ 前綴目錄；含 _AIDocs/Failures）。"""
+    """找出 atom 的 .md 路徑：memory/ 遞迴（含 memory/Failures/<主題>/，跳過 _ 前綴目錄），
+    再退舊址 _AIDocs/Failures/（尚未遷入的 feedback-*）。"""
     if not name:
         return None
     for p in MEMORY.rglob(f"{name}.md"):
         if not any(part.startswith("_") for part in p.relative_to(MEMORY).parts[:-1]):
             return p
-    fails = ROOT / "_AIDocs" / "Failures"
-    if fails.is_dir():
-        for p in fails.rglob(f"{name}.md"):
+    if LEGACY_FAILURES_DIR.is_dir():
+        for p in LEGACY_FAILURES_DIR.rglob(f"{name}.md"):
             return p
     return None
 

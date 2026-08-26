@@ -30,7 +30,7 @@ from ollama_client import get_client
 from wg_core import CLAUDE_DIR, MEMORY_DIR, discover_memory_layers
 # V5+ Session β: Failures layer 注入 + stems filter（對拍 lib/atom_locations）
 from lib.atom_locations import (  # noqa: E402
-    FAILURES_DIR, LOCAL_ATOMS_DIR, atom_search_roots, failures_atom_stems,
+    FAILURES_DIR, LEGACY_FAILURES_DIR, LOCAL_ATOMS_DIR, atom_search_roots, failures_atom_stems,
 )
 # 遙測欄位（last_used / read_hits / confirmations）住 <atom>.access.json sidecar，
 # 統一經 lib.atom_access 讀取（.md frontmatter 不再攜帶這些欄位）
@@ -89,14 +89,15 @@ def discover_layers(
 
     if _accept("global"):
         # 全域 atom 根走 lib.atom_locations.atom_search_roots() 單一來源：
-        # memory/（global）+ _AIDocs/Failures/（feedback-* 等）+ _AIDocs/_atoms/
-        # （local realm 階層目錄，遞迴掃描；_atoms 本身是根、不受 `_` 前綴排除規則影響）
+        # memory/（global，遞迴已含 memory/Failures/<主題>/）+ 舊址 _AIDocs/Failures/
+        # （尚未遷入的 feedback-*，存在才掛）+ _AIDocs/_atoms/（local realm 階層目錄，
+        # 遞迴掃描；_atoms 本身是根、不受 `_` 前綴排除規則影響）
         for root in atom_search_roots():
             if root == MEMORY_DIR:
                 layers.append(("global", MEMORY_DIR, "recursive"))
-            elif root == FAILURES_DIR:
-                if FAILURES_DIR.is_dir():
-                    layers.append((FAILURES_LAYER_LABEL, FAILURES_DIR, "recursive"))
+            elif root in (FAILURES_DIR, LEGACY_FAILURES_DIR):
+                if root.is_dir():
+                    layers.append((FAILURES_LAYER_LABEL, root, "recursive"))
             elif root == LOCAL_ATOMS_DIR:
                 if LOCAL_ATOMS_DIR.is_dir():
                     layers.append((LOCAL_ATOMS_LAYER_LABEL, LOCAL_ATOMS_DIR, "recursive"))

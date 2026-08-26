@@ -51,7 +51,7 @@ from lib.atom_spec import (
     parse_depends, resolve_depends_path, depends_warnings, evidence_warning,
 )
 from lib.atom_locations import (
-    GLOBAL_MEMORY_DIR, FAILURES_DIR,
+    GLOBAL_MEMORY_DIR, FAILURES_DIR, LEGACY_FAILURES_DIR,
     failures_atom_stems, iter_atom_files_multi,
 )
 # 晉升判定權威來源（server.js 的 py 鏡像）：confirmations 主軌 + usefulness Wilson 下界軌。
@@ -62,6 +62,16 @@ from lib.atom_index_json import (
     delete_atom as index_delete_atom,
     upsert_atom as index_upsert_atom,
 )
+
+def _failures_file_exists(file_name: str) -> bool:
+    """失敗家族檔存在性：memory/Failures/ 樹（含 <主題>/ 子夾）優先，再退舊址 _AIDocs/Failures/。"""
+    for root in (FAILURES_DIR, LEGACY_FAILURES_DIR):
+        if not root.is_dir():
+            continue
+        if (root / file_name).exists() or any(root.rglob(file_name)):
+            return True
+    return False
+
 
 # ─── Audit-specific constants（atom_spec 不需共享的） ────────────────────────
 
@@ -80,7 +90,8 @@ VALID_PRIVACY = {"public", "internal", "sensitive"}
 
 
 def iter_atom_files(mem_dir: Path):
-    """yield 合法 atom .md（V5+: 若 mem_dir == 全域 memory，自動含 _AIDocs/Failures/）。
+    """yield 合法 atom .md（mem_dir == 全域 memory 時多根掃描：memory/ 含 memory/Failures/、
+    舊址 _AIDocs/Failures/、_AIDocs/_atoms/）。
 
     判定統一委派 lib.atom_locations.iter_atom_files_multi（內部用 lib.atom_spec.is_atom_file
     + failures_atom_stems 過濾參考文件）。非全域 mem_dir 只掃單根。
@@ -566,20 +577,19 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
         if f.is_file() and f.suffix == ".md" and f.name != MEMORY_INDEX:
             if not any(f.name.startswith(p) for p in SKIP_PREFIXES):
                 actual_files.add(f.name)
-    # V5+: 索引 wildcard 也納入 _AIDocs/Failures/ 已登記 atom（feedback-* 等）
+    # 索引 wildcard 也納入失敗家族已登記 atom（memory/Failures/<主題>/ 或舊址 _AIDocs/Failures/）
     try:
         if memory_dir.resolve() == GLOBAL_MEMORY_DIR.resolve():
             for stem in failures_atom_stems():
-                fp = FAILURES_DIR / f"{stem}.md"
-                if fp.exists():
-                    actual_files.add(fp.name)
+                if _failures_file_exists(f"{stem}.md"):
+                    actual_files.add(f"{stem}.md")
     except OSError:
         pass
 
-    # V5+: atom 實體可居子目錄（專案 shared/<domain>/）或跨層（_AIDocs/Failures、_atoms/）。
-    # actual_files 走扁平 iterdir() → 子目錄 atom 不在其中，index→file 存在性會誤報
-    # 「索引指向不存在的檔案」。補一份遞迴 stem 集作 fallback（委派 iter_atom_files：
-    # global=memory+Failures+_atoms，非 global=rglob 單根，與其餘掃描同源）。
+    # atom 實體可居子目錄（memory/<範疇>/、memory/Failures/<主題>/、專案 shared/<domain>/）
+    # 或樹外（舊址 _AIDocs/Failures/、_AIDocs/_atoms/）。actual_files 走扁平 iterdir() →
+    # 子目錄 atom 不在其中，index→file 存在性會誤報「索引指向不存在的檔案」。補一份遞迴
+    # stem 集作 fallback（委派 iter_atom_files：global=多根，非 global=rglob 單根，與其餘掃描同源）。
     # 僅用於 index→file 存在性；file→index 方向仍用扁平 actual_files，避免子目錄
     # auto-capture atom 全被誤報「未在索引中列出」的洪水。
     tree_stems: Set[str] = {p.stem for p in iter_atom_files(memory_dir)}
@@ -619,11 +629,9 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
         if not full_path.exists() and entry_stem not in tree_stems:
             # Try relative to parent of memory_dir
             alt_path = memory_dir.parent / entry.path
-            # V5+: feedback-* / cognitive-patterns 居 _AIDocs/Failures/
-            failures_path = (
-                Path.home() / ".claude" / "_AIDocs" / "Failures" / file_name
-            )
-            if not alt_path.exists() and not failures_path.exists():
+            # 失敗家族（feedback-* / cognitive-patterns）居 memory/Failures/<主題>/，
+            # 舊址 _AIDocs/Failures/ 遷移期仍認；兩處都找不到才算索引指向不存在
+            if not alt_path.exists() and not _failures_file_exists(file_name):
                 issues.append(
                     Issue(rel_index, "error", "index", f"索引指向不存在的檔案: {entry.path}")
                 )

@@ -5,9 +5,14 @@ const fs = require("fs");
 const path = require("path");
 const { CLAUDE_DIR, MEMORY_DIR } = require("./paths");
 
-// V5+ feedback-* 路由常數（MIRROR: lib/atom_locations.py — keep in sync）
-const FAILURES_DIR = path.join(CLAUDE_DIR, "_AIDocs", "Failures");
-const FAILURES_REL = "_AIDocs/Failures";
+// 失敗家族（feedback-* / cognitive-patterns / memory-pipeline-*）是核心層的一個 Lv1 範疇資料夾：
+// memory/Failures/<主題>/。舊址 _AIDocs/Failures/ 只供讀端相容（兩處都認），寫端一律落新址。
+// MIRROR: lib/atom_locations.py FAILURES_* / LEGACY_FAILURES_* — keep in sync（parity test_14）。
+const FAILURES_DIR = path.join(MEMORY_DIR, "Failures");
+const FAILURES_REL = "memory/Failures";
+const LEGACY_FAILURES_DIR = path.join(CLAUDE_DIR, "_AIDocs", "Failures");
+const LEGACY_FAILURES_REL = "_AIDocs/Failures";
+const FAILURES_RELS = [FAILURES_REL, LEGACY_FAILURES_REL];
 const FEEDBACK_TITLE_PREFIX = "feedback-";
 // V5+ local realm（範疇限定）：本地知識物理落 _AIDocs/_atoms/<domain>/，索引仍在 memory/_atom_index.json。
 // realm 由 index path 前綴推導（不存欄位）；注入閘門只在 cwd∈~/.claude 才納入。
@@ -247,22 +252,28 @@ function resolveMemDir(scope, projectCwd, opts = {}) {
   fs.mkdirSync(dir, { recursive: true });
   return { dir, base };
 }
+/** index path 屬失敗家族（新址 memory/Failures/ 或舊址 _AIDocs/Failures/）。
+ *  MIRROR: lib/atom_locations.py:is_in_failures_path。 */
+function isInFailuresPath(relPath) {
+  const p = relPath || "";
+  return FAILURES_RELS.some((r) => p.startsWith(r + "/"));
+}
+
 /** 已註冊 Failures atom（非 feedback- 前綴，如 cognitive-patterns / memory-pipeline-*）。
- *  MIRROR: lib/atom_locations.py:failures_atom_stems ∈ is_failures_routed_title。
- *  缺此判定時這些 atom 的 append/replace 會在 memory/ 找不到檔。 */
+ *  新舊兩址的 index path 都認。MIRROR: lib/atom_locations.py:failures_atom_stems ∈ is_failures_routed_title。
+ *  缺此判定時這些 atom 的 append/replace 會在 memory/ 根找不到檔。 */
 function isRegisteredFailuresStem(slug) {
   try {
     const data = JSON.parse(
       fs.readFileSync(path.join(MEMORY_DIR, "_atom_index.json"), "utf-8"));
     return (data.atoms || []).some(
-      (a) => (a.path || "").startsWith(FAILURES_REL + "/") &&
-        path.basename(a.path, ".md") === slug);
+      (a) => isInFailuresPath(a.path) && path.basename(a.path || "", ".md") === slug);
   } catch {
     return false;
   }
 }
 
-/** V5+ feedback-* 路由疊加。將 resolveMemDir 結果改寫為 _AIDocs/Failures/ 目的地。
+/** 失敗家族路由疊加：把 resolveMemDir 結果改寫為 memory/Failures/ 目的地（主題子層由 py 端路由決定）。
  *  索引仍在 memory/_atom_index.json（單一索引來源）。
  *  MIRROR: lib/atom_locations.py:failures_write_target — keep in sync.
  *  Returns: { memDir, baseDir, indexDir, indexRoot, routedToFailures }.
@@ -344,10 +355,43 @@ function applyLocalRouting(domain) {
   return { memDir, baseDir: memDir, indexDir: MEMORY_DIR, indexRoot: CLAUDE_DIR };
 }
 
+// 核心層範疇分類法：單一來源 memory/_meta/taxonomy.json（py: lib/atom_taxonomy.py 讀同檔）。
+// js 端只拿來做錯誤訊息與快速預檢；路由邏輯以 py 端為準。
+const TAXONOMY_PATH = path.join(MEMORY_DIR, "_meta", "taxonomy.json");
+// 缺檔/壞檔 → null + stderr 訊號（不藏第二份手抄清單；寫入閘由 py 端拒寫）。
+function loadTaxonomy() {
+  try {
+    const d = JSON.parse(fs.readFileSync(TAXONOMY_PATH, "utf-8"));
+    const core = d.core;
+    if (!core || typeof core !== "object" || !Object.keys(core).length) {
+      throw new Error("core section empty");
+    }
+    if (d.reserved !== undefined && !Array.isArray(d.reserved)) {
+      throw new Error("reserved must be list");
+    }
+    return d;
+  } catch (e) {
+    process.stderr.write(
+      `[realm.js] taxonomy.json unavailable (${e.message}); ` +
+      "CORE_CATEGORIES empty; category gate handled by py side\n");
+    return null;
+  }
+}
+const _TAXONOMY = loadTaxonomy();  // 模組載入時讀一次（改 JSON 需重啟 MCP）
+const CORE_CATEGORIES = _TAXONOMY ? Object.keys(_TAXONOMY.core) : [];
+// 範疇資料夾禁用名（小寫比對）：撞 atom 掃描 skip 名單、subdir 保護段、舊址小寫 failures。
+// MIRROR: lib/atom_locations.py CATEGORY_RESERVED_SEGMENTS（parity test_14c）。
+const CATEGORY_RESERVED_SEGMENTS = new Set([
+  ...((_TAXONOMY && _TAXONOMY.reserved) || []).map(String),
+  ...SUBDIR_PROTECTED,
+  "shared", "roles", "projects", "unity", "memory", "failures",
+].map((s) => s.toLowerCase()));
+
 module.exports = {
   classifyRealm, slugify, findSeparatorVariant, findProjectRoot, getCurrentUser,
-  isSensitiveAudience, resolveMemDir, isRegisteredFailuresStem, applyFeedbackRouting,
-  cleanRealmSegment, applyLocalRouting, resolveSubdirTarget,
-  FAILURES_DIR, FAILURES_REL, FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR,
-  LOCAL_REALM_DOMAINS, LOCAL_REALM_DEFAULT_DOMAIN,
+  isSensitiveAudience, resolveMemDir, isInFailuresPath, isRegisteredFailuresStem,
+  applyFeedbackRouting, cleanRealmSegment, applyLocalRouting, resolveSubdirTarget, loadTaxonomy,
+  FAILURES_DIR, FAILURES_REL, LEGACY_FAILURES_DIR, LEGACY_FAILURES_REL, FAILURES_RELS,
+  FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR, LOCAL_REALM_DOMAINS, LOCAL_REALM_DEFAULT_DOMAIN,
+  TAXONOMY_PATH, CORE_CATEGORIES, CATEGORY_RESERVED_SEGMENTS,
 };

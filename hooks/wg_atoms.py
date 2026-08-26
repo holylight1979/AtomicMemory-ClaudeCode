@@ -47,6 +47,11 @@ except ImportError:
     iter_atom_files_multi = None
 
 try:
+    from atom_locations import is_in_failures_path
+except ImportError:
+    is_in_failures_path = None
+
+try:
     from atom_locations import (
         classify_realm, is_local_realm_path,
         enumerate_local_paths, load_learned_lexicon, append_learned_terms,
@@ -2091,10 +2096,18 @@ def apply_selective_forget(archive_candidates, config, *, atoms_dir=None,
             "forgotten": forgotten, "skipped": skipped}
 
 
+def _is_atom_physical_rel(rel: str) -> bool:
+    """rel（相對 ~/.claude、POSIX）落在 atom 物理區（失敗家族新舊址 / _AIDocs/_atoms/）⇒ True。"""
+    if is_in_failures_path is not None and is_local_realm_path is not None:
+        return is_in_failures_path(rel) or is_local_realm_path(rel)
+    return (rel.startswith("memory/Failures/") or rel.startswith("_AIDocs/Failures/")
+            or rel.startswith("_AIDocs/_atoms/"))
+
+
 def _scan_doc_refs(moved: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     """搬移後掃**人面向說明文件**是否仍含舊 path/檔名引用（移檔非建檔特有；user 補充）。
 
-    回 {slug: [需同步的 rel 文件...]}。只掃 _AIDocs/（排除 atom 物理區 Failures/_atoms，
+    回 {slug: [需同步的 rel 文件...]}。只掃 _AIDocs/（排除 atom 物理區：舊址 Failures/ 與 _atoms/，
     那裡的 slug 引用是 atom-atom Related、搬 path 不斷）＋根層 README/TECH。advisory only。
     """
     docs: List[Path] = []
@@ -2102,7 +2115,7 @@ def _scan_doc_refs(moved: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     if aidocs.is_dir():
         for p in aidocs.rglob("*.md"):
             rel = p.relative_to(CLAUDE_DIR).as_posix()
-            if rel.startswith("_AIDocs/Failures/") or rel.startswith("_AIDocs/_atoms/"):
+            if _is_atom_physical_rel(rel):
                 continue
             docs.append(p)
     for fn in ("README.md", "TECH.md"):

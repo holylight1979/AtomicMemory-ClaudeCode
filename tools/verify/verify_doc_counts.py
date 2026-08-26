@@ -50,3 +50,20 @@ def test_sync_idempotent_no_drift():
     sdc.sync(CLAUDE, write=True)
     drift, msgs = sdc.sync(CLAUDE, write=False)
     assert drift is False, msgs
+
+
+def test_compute_counts_failures_both_prefixes(tmp_path: Path):
+    """Failures 家族兩個前綴（新址 memory/Failures/、舊址 _AIDocs/Failures/）都不算 core。"""
+    import json
+    mem = tmp_path / "memory"
+    mem.mkdir()
+    (mem / "_atom_index.json").write_text(json.dumps({"version": "1.0", "atoms": [
+        {"name": "a", "path": "memory/版控/a.md"},
+        {"name": "feedback-old", "path": "_AIDocs/Failures/feedback-old.md"},
+        {"name": "feedback-new", "path": "memory/Failures/工作流/feedback-new.md"},
+        {"name": "cognitive-patterns", "path": "memory/Failures/思考與決策/cognitive-patterns.md"},
+        {"name": "t", "path": "_AIDocs/_atoms/Tools/t.md"},
+    ]}), encoding="utf-8")
+    vals = sdc.compute_counts(tmp_path)
+    assert (vals["core"], vals["feedback"], vals["failmode"], vals["local"]) == ("1", "2", "1", "1")
+    assert vals["breakdown"] == "5 atoms：core 1 + feedback 2 + 失敗模式 1 + local 1〔Tools1〕"

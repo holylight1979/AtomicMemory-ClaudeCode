@@ -4,6 +4,9 @@
 --write → extract_atom_caption 讀 H1；funnel 建立的 atom H1=裸 kebab-name → 把
 MEMORY.md 手寫描述沖回裸名）。修法：regen 時若 H1 caption 退化成裸名/空，沿用
 現有較豐富的描述。精準度：描述性 H1 > 現有人工描述 > 裸名。
+
+渲染模式一律顯式指定（hierarchical=False/True），不依賴 live config gate；階層模式下
+caption 住各層 `memory/<範疇>/_INDEX.md`，preserve 來源亦涵蓋它。
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ def test_bare_h1_preserves_existing_caption(tmp_path: Path):
     """H1=裸名 + 現有有描述 → 保留人工描述（核心覆轍防護）。"""
     _write_atom(tmp_path, "foo", "foo")  # H1 == name → 裸名
     rows = [("foo", "foo.md", "global")]
-    out = MOD.render_core_section(rows, tmp_path, {"foo": "豐富的人工描述"})
+    out = MOD.render_core_section(rows, tmp_path, {"foo": "豐富的人工描述"}, hierarchical=False)
     assert "| foo | 豐富的人工描述 |" in out
 
 
@@ -37,7 +40,7 @@ def test_bare_h1_no_existing_falls_back_to_bare(tmp_path: Path):
     """H1=裸名 + 無現有 → 裸名（新 atom 尚未策展的合理預設）。"""
     _write_atom(tmp_path, "foo", "foo")
     rows = [("foo", "foo.md", "global")]
-    out = MOD.render_core_section(rows, tmp_path, {})
+    out = MOD.render_core_section(rows, tmp_path, {}, hierarchical=False)
     assert "| foo | foo |" in out
 
 
@@ -45,7 +48,7 @@ def test_descriptive_h1_wins_over_existing(tmp_path: Path):
     """描述性 H1 優先於現有人工描述（H1 是更權威的真源）。"""
     _write_atom(tmp_path, "foo", "描述性標題")
     rows = [("foo", "foo.md", "global")]
-    out = MOD.render_core_section(rows, tmp_path, {"foo": "舊的人工描述"})
+    out = MOD.render_core_section(rows, tmp_path, {"foo": "舊的人工描述"}, hierarchical=False)
     assert "| foo | 描述性標題 |" in out
 
 
@@ -80,7 +83,7 @@ def test_local_realm_atom_split_core_vs_side(tmp_path: Path):
         ("core-note", "core-note.md", "global"),
         ("gizmo-tool", "_AIDocs/_atoms/Tools/gizmo-tool.md", "global"),
     ]
-    core = MOD.render_core_section(rows, tmp_path, {})
+    core = MOD.render_core_section(rows, tmp_path, {}, hierarchical=False)
     local = MOD.render_local_catalog(rows, tmp_path, {})
     # core（= @import 的 MEMORY.md）：local 明細不外漏
     assert "| core-note | 核心筆記 |" in core
@@ -97,7 +100,7 @@ def test_no_local_atoms_no_pointer_no_side(tmp_path: Path):
     """無 local atom → core 無指標、無「本地範疇」標題；側檔 render 回 ""（caller 據此移除殘留）。"""
     _write_atom(tmp_path, "core-note", "核心筆記")
     rows = [("core-note", "core-note.md", "global")]
-    core = MOD.render_core_section(rows, tmp_path, {})
+    core = MOD.render_core_section(rows, tmp_path, {}, hierarchical=False)
     assert "## 本地範疇" not in core
     assert "_local_catalog.md" not in core
     assert MOD.render_local_catalog(rows, tmp_path, {}) == ""
@@ -111,6 +114,55 @@ def test_local_realm_bare_h1_preserves_existing_caption(tmp_path: Path):
         ("world-thing", "_AIDocs/_atoms/World/world-thing.md", "global"),
         ("world-other", "_AIDocs/_atoms/World/world-other.md", "global"),
     ]
-    files = MOD.collect_per_level_files(rows, tmp_path, {"world-thing": "腦內世界某機制"})
+    files = MOD.collect_per_level_files(rows, tmp_path, {"world-thing": "腦內世界某機制"}, hierarchical=False)
     world_idx = next(c for p, c in files.items() if p.as_posix().endswith("World/_INDEX.md"))
     assert "| world-thing | 腦內世界某機制 |" in world_idx
+
+
+# ─── 階層模式：caption 住 memory/<範疇>/_INDEX.md，preserve 從那裡讀 ──────────────
+
+
+def _write_core_atom(root: Path, rel_dir: str, name: str, h1: str) -> None:
+    d = root / rel_dir
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{name}.md").write_text(f"# {h1}\n\n- Confidence: [臨]\n", encoding="utf-8")
+
+
+def test_hierarchical_core_bare_h1_preserves_existing_caption(tmp_path: Path):
+    """核心範疇 atom H1 退化成裸名 → memory/<範疇>/_INDEX.md 沿用現有人工描述。"""
+    _write_core_atom(tmp_path, "memory/版控", "git-a", "git-a")          # 裸名
+    _write_core_atom(tmp_path, "memory/版控", "git-b", "commit 前核對")  # 湊 ≥2 → 生 _INDEX
+    rows = [
+        ("git-a", "memory/版控/git-a.md", "global"),
+        ("git-b", "memory/版控/git-b.md", "global"),
+    ]
+    files = MOD.collect_per_level_files(rows, tmp_path, {"git-a": "選擇性 staging"}, hierarchical=True)
+    idx = files[tmp_path / "memory" / "版控" / "_INDEX.md"]
+    assert "| git-a | 選擇性 staging |" in idx
+    assert "| git-b | commit 前核對 |" in idx                        # 描述性 H1 不受影響
+    core = MOD.render_core_section(rows, tmp_path, {"git-a": "選擇性 staging"}, hierarchical=True)
+    assert "選擇性 staging" not in core                                # 主表不再攤 caption
+
+
+def test_hierarchical_main_reads_captions_from_category_index(tmp_path: Path):
+    """main() 流程：現有 memory/<範疇>/_INDEX.md 的人工描述在 regen 後保留（dry-run 對拍）。"""
+    import json
+    import subprocess
+    import sys
+    mem = tmp_path / "memory"
+    _write_core_atom(tmp_path, "memory/版控", "git-a", "git-a")
+    _write_core_atom(tmp_path, "memory/版控", "git-b", "git-b")
+    rows = [("git-a", "memory/版控/git-a.md"), ("git-b", "memory/版控/git-b.md")]
+    (mem / "_atom_index.json").write_text(json.dumps({"version": "1.0", "atoms": [
+        {"name": n, "path": p, "triggers": [n], "scope": "global"} for n, p in rows
+    ]}, ensure_ascii=False), encoding="utf-8")
+    (mem / "版控" / "_INDEX.md").write_text(
+        "# memory/版控 — 範疇索引\n\n| Atom | 說明 |\n|------|------|\n"
+        "| git-a | 人工寫的 A |\n| git-b | git-b |\n", encoding="utf-8")
+    r = subprocess.run(
+        [sys.executable, str(CLAUDE_DIR / "tools" / "sync-memory-index.py"),
+         "--hierarchical", "--memory-dir", str(mem)],
+        capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr
+    assert "| git-a | 人工寫的 A |" in r.stdout
+    assert "| git-b | git-b |" in r.stdout

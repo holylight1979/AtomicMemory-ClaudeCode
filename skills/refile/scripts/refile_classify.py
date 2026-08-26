@@ -33,6 +33,7 @@ for _p in (CLAUDE_DIR, CLAUDE_DIR / "tools"):  # lib.* + realm_llm_classify / ol
 from lib.atom_locations import (  # noqa: E402
     GLOBAL_MEMORY_DIR, LOCAL_ATOMS_REL,
     classify_realm, enumerate_local_paths, load_learned_lexicon,
+    is_in_failures_path, is_local_realm_path,
 )
 from lib.atom_index_json import load_atom_index_json  # noqa: E402
 
@@ -215,13 +216,13 @@ def classify(path_arg: str) -> dict:
 
 
 def _doc_scan_targets() -> list[Path]:
-    """人面向說明文件：_AIDocs/（排除 atom 物理區 Failures/_atoms）＋根 README/TECH。"""
+    """人面向說明文件：_AIDocs/（排除 atom 物理區：舊址 Failures/ 與 _atoms/）＋根 README/TECH。"""
     docs: list[Path] = []
     aidocs = CLAUDE_DIR / "_AIDocs"
     if aidocs.is_dir():
         for p in aidocs.rglob("*.md"):
             rel = p.relative_to(CLAUDE_DIR).as_posix()
-            if rel.startswith("_AIDocs/Failures/") or rel.startswith("_AIDocs/_atoms/"):
+            if is_in_failures_path(rel) or is_local_realm_path(rel):
                 continue
             docs.append(p)
     for fn in ("README.md", "TECH.md"):

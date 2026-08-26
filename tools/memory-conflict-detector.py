@@ -32,7 +32,7 @@ from ollama_client import get_client
 CLAUDE_DIR = Path.home() / ".claude"
 AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 
-# atom 掃描統一委派 lib.atom_locations（遞迴 + _AIDocs/Failures/ + _AIDocs/_atoms/）
+# atom 掃描統一委派 lib.atom_locations（memory/ 遞迴含 memory/Failures/ + 舊址 _AIDocs/Failures/ + _AIDocs/_atoms/）
 if str(CLAUDE_DIR) not in sys.path:
     sys.path.insert(0, str(CLAUDE_DIR))
 from lib.atom_locations import GLOBAL_MEMORY_DIR, iter_atom_files_multi  # noqa: E402
@@ -80,9 +80,9 @@ def discover_atoms(layers: List[Tuple[str, Path]]) -> List[Tuple[str, Path, str]
     """Find atom files. Returns [(layer, path, atom_name), ...].
 
     委派 lib.atom_locations.iter_atom_files_multi（單一掃描來源）：
-    遞迴含子目錄（shared/<domain>/ 等）；global 層額外涵蓋
-    _AIDocs/Failures/（feedback-*）與 _AIDocs/_atoms/（local realm）——
-    舊 flat-only glob 會漏掃這些 atom，其衝突永遠測不到。
+    遞迴含子目錄（memory/<範疇>/、memory/Failures/<主題>/、shared/<domain>/ 等）；
+    global 層額外涵蓋舊址 _AIDocs/Failures/（未遷入的 feedback-*）與 _AIDocs/_atoms/
+    （local realm）——flat-only glob 會漏掃這些 atom，其衝突永遠測不到。
     """
     atoms = []
     for layer_name, mem_dir in layers:

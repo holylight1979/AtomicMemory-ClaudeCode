@@ -48,7 +48,7 @@ except ImportError:
     failures_atom_stems = None
     is_local_realm_path = None
     is_cross_project_local = None
-    FAILURES_DIR = CLAUDE_DIR / "_AIDocs" / "Failures"
+    FAILURES_DIR = CLAUDE_DIR / "memory" / "Failures"
 
 # ─── Token budget 單一來源─────────────────────────
 # 三個 budget 概念各司其職，數值不互相推導：
@@ -411,11 +411,18 @@ def resolve_episodic_dir(cwd: str) -> Tuple[Path, str]:
 def resolve_failures_dir(cwd: str) -> Path:
     mem = get_project_memory_dir(cwd)
     if mem:
-        d = mem / "failures"
-        d.mkdir(exist_ok=True)
-        return d
-    # 全域 failures 家族物理居 _AIDocs/Failures/（V5，單一來源 atom_locations.FAILURES_DIR）；
-    # memory/failures/ 是 V3 舊址，寫進去會被全域健檢當 atom 掃到而報格式錯（缺 Trigger）。
+        try:
+            is_root_layer = mem.resolve() == MEMORY_DIR.resolve()
+        except OSError:
+            is_root_layer = mem == MEMORY_DIR
+        if not is_root_layer:
+            d = mem / "failures"
+            d.mkdir(exist_ok=True)
+            return d
+        # cwd 在 ~/.claude 本身：get_project_memory_dir 回 MEMORY_DIR，但根層失敗家族不走
+        # 專案佈局（memory/failures/ 小寫舊址），要落全域家族目錄。
+    # 全域 failures 家族物理居 memory/Failures/<主題>/（單一來源 atom_locations.FAILURES_DIR）；
+    # 小寫 memory/failures/ 是更早的舊址，寫進去會被健檢當 atom 掃到而報格式錯（缺 Trigger）。
     return FAILURES_DIR
 
 
@@ -1050,23 +1057,23 @@ def _atom_path_whitelisted(fp: Path) -> bool:
 
 
 def _is_failures_atom_path(fp: Path) -> bool:
-    """fp 是否為 `_AIDocs/Failures/` 下「已註冊的 atom」(.md)。
+    """fp 是否為失敗家族目錄下「已註冊的 atom」(.md)。
 
-    `_AIDocs/Failures/` 不在 `.claude/memory/` 樹下，故上游 _path_under_memory_dir
-    對其早 return None —— 這正是 funnel guard 的覆蓋缺口（feedback-* / cognitive-patterns
-    / memory-pipeline-* 等失敗 atom 物理居此，直接 Write/Edit 會繞過 funnel + audit）。
+    失敗家族有兩個家：新址 `memory/Failures/[<主題>/]`（在 memory 樹下，上游
+    _path_under_memory_dir 本就會攔）與舊址 `_AIDocs/Failures/`（樹外，讀端相容期間仍需
+    本函式補攔，否則 feedback-* / cognitive-patterns / memory-pipeline-* 直接 Write/Edit
+    會繞過 funnel + audit）。
 
-    該目錄混居「註冊 atom」與「legacy 失敗筆記」（env-traps / silent-failures /
-    wrong-assumptions… 未進 index，屬一般參考文件，不可誤擋），故以 failures_atom_stems()
-    （index SoT）精準比對 stem。_INDEX.md（'_' 前綴）與 legacy 文件 stem 不在 index → 自然放行。
+    目錄內混居「註冊 atom」與「參考文件」（env-traps / silent-failures / _INDEX.md…
+    未進 index，不可誤擋），故以 failures_atom_stems()（index SoT）精準比對 stem。
 
-    failures_atom_stems 在 lib import 失敗時為 None → 退化為「不攔」，與既有行為一致。
+    failures_atom_stems 在 lib import 失敗時為 None → 退化為「不攔」。
     """
     if failures_atom_stems is None or fp.suffix != ".md":
         return False
     parts_lower = [p.lower() for p in fp.parts]
     for i in range(len(parts_lower) - 1):
-        if parts_lower[i] == "_aidocs" and parts_lower[i + 1] == "failures":
+        if parts_lower[i] in ("_aidocs", "memory") and parts_lower[i + 1] == "failures":
             break
     else:
         return False
@@ -1094,7 +1101,7 @@ def check_memory_path_block(
             "正確做法：(1) 全域記憶 → 用 MCP `atom_write` (scope=global) 寫到 "
             "~/.claude/memory/；(2) 專案記憶 → 用 MCP `atom_write` "
             "(scope=shared/role/personal) 寫到 {project_root}/.claude/memory/。\n"
-            "詳見 _AIDocs/Failures/feedback-memory-system-doc-sync.md。"
+            "詳見 atom [[feedback-memory-system-doc-sync]]。"
         )
 
     if _DOUBLE_CLAUDE_RE.search(fp_str):
@@ -1106,8 +1113,8 @@ def check_memory_path_block(
     if os.environ.get("WG_DISABLE_ATOM_GUARD") == "1":
         return None
     fp = Path(fp_str)
-    # memory/ 樹下 atom，或 _AIDocs/Failures/ 下「註冊 atom」(feedback-* 等失敗 atom)
-    # 皆須走 funnel；後者不在 memory 樹下，需 _is_failures_atom_path 補攔（覆蓋缺口）。
+    # memory/ 樹下 atom（含 memory/Failures/），或舊址 _AIDocs/Failures/ 下「註冊 atom」
+    # 皆須走 funnel；後者不在 memory 樹下，需 _is_failures_atom_path 補攔。
     if not _path_under_memory_dir(fp) and not _is_failures_atom_path(fp):
         return None
     if fp.suffix != ".md":

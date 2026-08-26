@@ -2,7 +2,8 @@
 
 不變式：
 1. feedback- 前綴 title → 路由 Failures（既有行為不變）。
-2. 已註冊在 _atom_index.json、path 落 _AIDocs/Failures/ 的非 feedback- atom
+2. 已註冊在 _atom_index.json、path 落失敗家族目錄（memory/Failures/ 或舊址
+   _AIDocs/Failures/）的非 feedback- atom
    （cognitive-patterns / memory-pipeline-*）→ 也路由 Failures，append/replace
    才找得到物理檔（修補前在 memory/ 找不到而失敗，py/js 雙端同病）。
 3. 一般 core atom（decisions 等）→ 不路由。

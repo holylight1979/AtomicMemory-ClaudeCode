@@ -107,7 +107,8 @@ def _check_feedback_routing_advisory(
 ) -> Optional[str]:
     """V5+: 偵測 memory/feedback-*.md Write/Edit → 回 advisory（不阻擋）。
 
-    feedback-* atoms 已遷移至 _AIDocs/Failures/；走 atom_write MCP 會自動正確路由。
+    feedback-* atoms 物理居 memory/Failures/<主題>/（舊址 _AIDocs/Failures/ 遷移中）；
+    走 atom_write MCP 自動路由。
     """
     if tool_name not in ("Write", "Edit"):
         return None
@@ -121,9 +122,10 @@ def _check_feedback_routing_advisory(
     return (
         "[Guardian:RoutingAdvice] 偵測 memory/feedback-* 寫入。\n"
         f"路徑：{fp_raw}\n"
-        "feedback-* atoms 已遷移至 _AIDocs/Failures/。請改用：\n"
+        "feedback-* atoms 物理居 memory/Failures/<主題>/（舊址 _AIDocs/Failures/ 遷移中）；"
+        "走 atom_write MCP 自動路由。請改用：\n"
         "  mcp__workflow-guardian__atom_write(scope=\"global\", title=\"feedback-...\", ...)\n"
-        "MCP 會自動路由到 _AIDocs/Failures/（含索引同步 + access.json）。\n"
+        "MCP 會自動路由到 memory/Failures/<主題>/（含索引同步 + access.json）。\n"
         "詳見 _AIDocs/SPEC_ATOM_V5.md「Atom 存放擴展」段。"
     )
 

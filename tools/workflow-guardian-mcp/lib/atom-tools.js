@@ -7,7 +7,7 @@ const { crashLog } = require("./log");
 const {
   slugify, findSeparatorVariant, getCurrentUser, isSensitiveAudience, resolveMemDir,
   applyFeedbackRouting, applyLocalRouting, classifyRealm, resolveSubdirTarget,
-  FAILURES_DIR, FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR,
+  FAILURES_DIR, LEGACY_FAILURES_DIR, FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR,
 } = require("./realm");
 
 // SYNC: lib/atom_index_json.py TRIGGER_MAX_LEN — 超長 trigger 在寫入當下即拒，
@@ -471,9 +471,12 @@ async function toolAtomPromote(id, args) {
   if (!fs.existsSync(filePath)) {
     // Fallback: recursive lookup (atom may live in feedback/ or other subdir)
     let found = findAtomFileRecursive(memDir, atom_name);
-    // V5+: feedback-* atoms 居 _AIDocs/Failures/，不在 memDir 樹下，需額外掃
-    if (!found && scope === "global" && atom_name.startsWith(FEEDBACK_TITLE_PREFIX)) {
-      found = findAtomFileRecursive(FAILURES_DIR, atom_name);
+    // 失敗家族（feedback-* / cognitive-patterns / memory-pipeline-*）：新址 memory/Failures/
+    // 在 memDir 樹下已被上一行掃到；舊址 _AIDocs/Failures/ 在樹外需補掃。不看 stem 前綴——
+    // 非 feedback- 前綴的失敗 atom 也要找得到。
+    if (!found && scope === "global") {
+      found = findAtomFileRecursive(FAILURES_DIR, atom_name) ||
+        findAtomFileRecursive(LEGACY_FAILURES_DIR, atom_name);
     }
     // V5+: local-realm atoms 居 _AIDocs/_atoms/<domain>/（scope=global 但不在 memory/ 樹下）
     if (!found && scope === "global") {
@@ -779,8 +782,10 @@ async function toolAtomEditMeta(id, args) {
 
   if (!fs.existsSync(filePath)) {
     let found = findAtomFileRecursive(memDir, atom_name);
-    if (!found && scope === "global" && atom_name.startsWith(FEEDBACK_TITLE_PREFIX)) {
-      found = findAtomFileRecursive(FAILURES_DIR, atom_name);
+    // 失敗家族兩址都掃（新址在 memDir 樹下多半已命中；舊址在樹外）；不看 stem 前綴。
+    if (!found && scope === "global") {
+      found = findAtomFileRecursive(FAILURES_DIR, atom_name) ||
+        findAtomFileRecursive(LEGACY_FAILURES_DIR, atom_name);
     }
     // V5+: local-realm atoms 居 _AIDocs/_atoms/<domain>/（scope=global 但不在 memory/ 樹下）
     if (!found && scope === "global") {

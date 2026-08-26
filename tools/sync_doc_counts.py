@@ -26,6 +26,17 @@ from typing import Dict, List, Tuple
 CLAUDE_DIR = Path.home() / ".claude"
 ATOM_INDEX_REL = "memory/_atom_index.json"
 
+# 失敗家族判定與 lib.atom_locations 同源（memory/Failures/ 與舊址 _AIDocs/Failures/ 都認）；
+# lib 載不到（獨立搬走執行）時退回字面前綴，語意相同。
+_CLAUDE_ROOT = Path(__file__).resolve().parent.parent
+if str(_CLAUDE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CLAUDE_ROOT))
+try:
+    from lib.atom_locations import is_in_failures_path  # noqa: E402
+except Exception:
+    def is_in_failures_path(rel_path: str) -> bool:
+        return rel_path.startswith("memory/Failures/") or rel_path.startswith("_AIDocs/Failures/")
+
 # 已埋標記的 live-count 人讀文件（相對 claude_root）。歷史/次要文件刻意不列（防誤改史料）。
 DOC_FILES = ["TECH.md", "_AIDocs/_INDEX.md", "_AIDocs/DocIndex-System.md"]
 
@@ -48,9 +59,10 @@ def compute_counts(root: Path) -> Dict[str, str]:
     """讀 _atom_index.json（唯一機器源）→ 算 total 與 realm/domain 分解字串。
 
     分類純依 index path 前綴（與 lib.atom_locations 同語意）：
-      memory/…                     → core
-      _AIDocs/Failures/feedback-*  → feedback；其餘 _AIDocs/Failures/ → 失敗模式
+      Failures 家族（memory/Failures/ 或舊址 _AIDocs/Failures/）：
+        feedback-* → feedback；其餘 → 失敗模式
       _AIDocs/_atoms/<domain>/…    → local（依 Lv1 domain 分組）
+      其餘 memory/…                → core（= memory/ 減 Failures）
     """
     data = json.loads((root / ATOM_INDEX_REL).read_text(encoding="utf-8-sig"))
     atoms = data.get("atoms", [])
@@ -62,7 +74,7 @@ def compute_counts(root: Path) -> Dict[str, str]:
         if p.startswith("_AIDocs/_atoms/"):
             dom = p[len("_AIDocs/_atoms/"):].split("/")[0] or "Else"
             locals_by_dom[dom] += 1
-        elif p.startswith("_AIDocs/Failures/"):
+        elif is_in_failures_path(p):
             if nm.startswith("feedback-"):
                 feedback += 1
             else:
