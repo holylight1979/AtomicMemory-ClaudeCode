@@ -129,6 +129,32 @@ def test_global_mem_guard_not_regressed(tmp_path):
         restore()
 
 
+def test_funnel_whitelist_only_looks_below_memory_segment():
+    """_atom_path_whitelisted：只比對 memory 段之後的目錄段。
+
+    外層資料夾剛好叫 templates/episodic 不得讓整棵 memory 樹被豁免；memory/ 下的
+    templates/、_meta/ 照常豁免；範疇資料夾（memory/<範疇>/…）不在白名單 → 走 funnel。
+    """
+    wl = wg_core._atom_path_whitelisted
+    base = Path("C:/proj/templates/.claude/memory")
+    assert wl(base / "foo.md") is False
+    assert wl(base / "版控" / "Git" / "foo.md") is False
+    assert wl(base / "Failures" / "驗證與實證" / "feedback-x.md") is False
+    assert wl(base / "templates" / "foo.md") is True
+    assert wl(base / "_meta" / "foo.md") is True
+    assert wl(base / "personal" / "u" / "foo.md") is True
+    assert wl(base / "_INDEX.md") is True          # `_` 前綴檔名照常豁免
+    assert wl(Path("C:/x/episodic/.claude/memory/wisdom-like.md")) is False
+
+
+def test_session_start_orphan_scan_covers_category_dirs():
+    """靜態守門：孤兒檢查走 iter_realm_category_dirs（memory/<範疇>/** 不得被漏掉）。"""
+    src = (HOOKS / "handlers" / "session_start.py").read_text(encoding="utf-8")
+    i = src.find("_disk_orphans")
+    assert i > 0
+    assert "iter_realm_category_dirs(MEMORY_DIR)" in src[max(0, i - 1500):i + 500]
+
+
 def test_source_has_marker_helper():
     """靜態守門：兩分支都必須過 _has_atom_index_marker，_is_global_mem 不得移除。"""
     src = (HOOKS / "wg_core.py").read_text(encoding="utf-8")

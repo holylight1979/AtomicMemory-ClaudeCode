@@ -737,6 +737,28 @@ def enumerate_category_paths(mem_dir: Path = GLOBAL_MEMORY_DIR) -> List[str]:
     return sorted(paths)
 
 
+def known_category_paths(mem_dir: Path = GLOBAL_MEMORY_DIR) -> List[str]:
+    """Lv2 snap 的兄弟來源：index 既有範疇路徑 ∪ taxonomy 宣告的 sub（'版控/Git' 等）。
+
+    宣告過的 Lv2 就算目前還沒有 atom 住進去，也要能把輸入 'vcs/git' snap 成 '版控/Git'
+    （Windows 不分大小寫：同名異案的資料夾會撞在一起、index path 卻分岔）。
+    """
+    paths = set(enumerate_category_paths(mem_dir))
+    try:
+        from .atom_taxonomy import load_taxonomy
+    except ImportError:
+        from atom_taxonomy import load_taxonomy
+    try:
+        core = load_taxonomy()["core"]
+    except Exception:
+        return sorted(paths)
+    for name, info in core.items():
+        for sub in (info or {}).get("sub") or []:
+            if sub:
+                paths.add(f"{name}/{sub}")
+    return sorted(paths)
+
+
 def unclassified_error(raw: Optional[str], categories: Iterable[str], layer: str = "core") -> str:
     """寫入閘拒寫訊息的單一出口：列出全部合法 Lv1、別名提示、新類旗標。"""
     cats = ", ".join(categories)
@@ -777,7 +799,7 @@ def core_write_target(domain: Optional[str], allow_new: bool = False,
         lv1 = validate_category_segment(head)
         if not lv1:
             return (None, f"new category name invalid or reserved: {head!r}")
-    existing = list(existing_paths) if existing_paths is not None else enumerate_category_paths()
+    existing = list(existing_paths) if existing_paths is not None else known_category_paths()
     full = lv1 if not rest else f"{lv1}/{rest}"
     canon = normalize_domain_path(full, existing)
     segs, err = validate_category_path(canon, allow_first=())

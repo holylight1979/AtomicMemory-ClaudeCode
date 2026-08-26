@@ -8,8 +8,10 @@
 3. 撞名（多檔同 slug 且索引無條目）→ 明確報錯，**不靜默取第一個**。
 4. 跨 scope 保護：scope=shared 不得定位到 personal/ 的檔；草稿牢籠（_drafts、
    personal/auto/）不得成為 append/replace 目標。
-5. create 仍落扁平點（分層是事後 sweep 的職責，非 write 端猜測）。
-6. scope=global 扁平 atom 行為不變（無回歸）。
+5. create 的落點由寫入閘決定（taxonomy.gate_enabled 關閉時落層根：shared/、memory/），
+   append/replace 一律依 index 定位、不看落點規則。
+6. scope=global 的 append/replace 依 index path 定位（根下散檔、memory/<範疇>/、_AIDocs/_atoms/
+   皆同一條路），與 create 落點無關。
 """
 
 from __future__ import annotations
@@ -163,8 +165,8 @@ def test_personal_scope_locates_own_user_subtree_only(tmp_path):
     assert draft.ok and draft.path is None, draft
 
 
-def test_create_still_lands_flat(tmp_path):
-    """create 不猜子夾——主題分層是事後 classifier sweep 的職責。"""
+def test_create_lands_by_write_gate_default(tmp_path):
+    """create 落點由寫入閘決定：閘關（無 domain）→ 層根 shared/；不從既有子夾猜。"""
     root = _mkproject(tmp_path, {"shared/Tools/alpha.md": "alpha"})
     r = write_atom(title="brandnew", scope="shared", confidence="[臨]",
                    triggers=["probe"], knowledge=["[臨] fresh"], actions=["do"],
@@ -174,8 +176,8 @@ def test_create_still_lands_flat(tmp_path):
     assert r.path == root / ".claude/memory/shared/brandnew.md"
 
 
-def test_global_flat_atom_unchanged(tmp_path):
-    """回歸守門：scope=global 扁平 atom 走既有扁平落點，不繞定位器。"""
+def test_global_append_locates_by_index_path(tmp_path):
+    """scope=global 的 append 依 index path 定位（此顆目前登記在 memory/ 根），不繞定位器。"""
     r = write_atom(title="decisions", scope="global", confidence="[臨]",
                    triggers=["probe"], knowledge=["[臨] probe"],
                    mode="append", source="mcp", dry_run=True)

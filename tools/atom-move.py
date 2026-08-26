@@ -13,7 +13,9 @@
     JSON path 一律相對 index_dir.parent（對拍 atom_io 的 index_root=base.parent）。
   - 落 `_AIDocs/_atoms/`（local realm）/ 舊址 `_AIDocs/Failures/`（feedback，title 路由）的 atom
     由專屬路由器管，本工具拒絕搬移、導引到 atom-set-realm.py / title 前綴路由。
-    `memory/Failures/<主題>/` 與 `memory/<範疇>/` 在 memory 樹內，是合法的搬移目標。
+    `memory/Failures/<主題>/` 與 `memory/<範疇>/` 在 memory 樹內，是合法的搬移目標；
+    全域 memory/ 下的目標資料夾經 core_target_gate（taxonomy Lv1 閉合清單、別名 snap；
+    `memory/` 根平鋪只在 taxonomy.gate_enabled=false 時放行）。
   - 搬移後跑 validate_index 自驗；有 error → exit 2。
 
 層序規則（跨 root inbound ref）：
@@ -48,6 +50,17 @@ from lib.atom_access import (  # noqa: E402
     move_atom_pair, access_sidecar_path, prune_empty_parents,
 )
 from lib.atom_io import write_raw, _audit_log, _gen_audit_id  # noqa: E402
+from lib.atom_locations import (  # noqa: E402
+    FAILURES_ROOT_NAME, core_write_target, unclassified_error, validate_category_path,
+)
+try:
+    from lib.atom_taxonomy import core_categories, gate_enabled  # noqa: E402
+except Exception:  # taxonomy 缺 → 閘視為關
+    def gate_enabled() -> bool:  # type: ignore[misc]
+        return False
+
+    def core_categories():  # type: ignore[misc]
+        return []
 
 _SOURCE = "tool:atom-move"
 
@@ -155,6 +168,52 @@ def special_realm_reason(p: Path) -> Optional[str]:
         if f"/{marker}/" in s:
             return reason
     return None
+
+
+def core_target_gate(to_dir: Path, dst_index: Path, *, dry_run: bool) -> tuple:
+    """全域 memory/ 樹內的目標資料夾必須是合法範疇：回 (canon_to_dir, note)。
+
+    - `memory/Failures[/<主題>]`：失敗家族 Lv1，名稱經 validate_category_path 放行。
+    - `memory/<Lv1>[/<Lv2>]`：經 core_write_target（taxonomy Lv1 閉合清單、別名／大小寫 snap
+      回正名、Lv2 對既有兄弟 snap）；snap 後的資料夾可能與輸入不同，以回傳值為準。
+    - `memory/` 根（無範疇段）：寫入閘（taxonomy.gate_enabled）開 → 拒；關 → 放行（遷移期）。
+    專案層 index（非全域）不在本閘範圍，原樣回傳。
+    """
+    if not is_global_index(dst_index):
+        return to_dir, None
+    try:
+        rel = Path(to_dir).resolve(strict=False).relative_to(GLOBAL_MEMORY.resolve())
+    except ValueError:
+        return to_dir, None
+    segs = [s for s in rel.as_posix().split("/") if s and s != "."]
+    if not segs:
+        if gate_enabled():
+            try:
+                cats = core_categories()
+            except Exception:
+                cats = []
+            _fail(unclassified_error(None, cats) + " (--to memory/<範疇>/…)")
+        return to_dir, "memory/ 根（平鋪）目前放行：taxonomy.gate_enabled=false"
+    if segs[0].casefold() == FAILURES_ROOT_NAME.casefold():
+        ok_segs, err = validate_category_path("/".join(segs))
+        if err or not ok_segs or ok_segs[0] != FAILURES_ROOT_NAME:
+            _fail(f"failures target invalid: {err or rel.as_posix()!r} (use memory/{FAILURES_ROOT_NAME}/<主題>)")
+        return GLOBAL_MEMORY.joinpath(*ok_segs), None
+    target, err = core_write_target("/".join(segs), allow_new=False)
+    if err:
+        _fail(f"target category rejected: {err}")
+    canon_dir = Path(target["dir"])
+    if dry_run:
+        # core_write_target 會 mkdir 落點：dry-run 不留副作用（空目錄鏈往上清、非空自然停）
+        prune_empty_parents(canon_dir, GLOBAL_MEMORY)
+        try:
+            canon_dir.rmdir()
+        except OSError:
+            pass
+    note = None
+    if canon_dir.resolve(strict=False) != Path(to_dir).resolve(strict=False):
+        note = f"target snapped to canonical category dir: {canon_dir}"
+    return canon_dir, note
 
 
 def find_entry(index_dir: Path, slug: str) -> Optional[Dict[str, Any]]:
@@ -295,6 +354,8 @@ def cmd_move(args):
         if reason:
             _fail(f"{lbl} 落在受管目錄：{reason}")
 
+    to_dir, gate_note = core_target_gate(to_dir, dst_index, dry_run=args.dry_run)
+
     dst_md = to_dir / src_md.name
     if dst_md.resolve(strict=False) == src_md.resolve():
         print(json.dumps({"ok": True, "noop": True, "msg": f"{slug} 已在 {to_dir}"}, ensure_ascii=False))
@@ -318,6 +379,8 @@ def cmd_move(args):
         }
         if not same_root and not args.scope:
             report["warn_scope"] = f"跨 root 搬移沿用既有 scope '{cur_scope}'；層級語意若已改變，用 --scope 明確指定"
+        if gate_note:
+            report["note"] = gate_note
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return
 
@@ -361,6 +424,8 @@ def cmd_move(args):
         "sidecar_moved": sidecar_moved, "warnings": warnings,
         "validate_errors": errs,
     }
+    if gate_note:
+        report["note"] = gate_note
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if errs:
         sys.exit(2)

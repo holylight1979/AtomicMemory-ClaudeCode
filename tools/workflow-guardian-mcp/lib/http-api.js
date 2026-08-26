@@ -515,17 +515,25 @@ function apiProjects(req, res) {
       : path.join(rootNorm, ".claude", "memory");
     if (fs.existsSync(memDir) && fs.existsSync(path.join(memDir, "MEMORY.md"))) {
       proj.has_memory = true;
-      try {
-        proj.atom_count = fs.readdirSync(memDir).filter(f =>
-          f.endsWith(".md") && f !== "MEMORY.md" && !f.startsWith("_") && !f.startsWith("SPEC_")
-        ).length;
-      } catch {}
-      try {
-        const failDir = path.join(memDir, "failures");
-        if (fs.existsSync(failDir)) {
-          proj.failure_count = fs.readdirSync(failDir).filter(f => f.endsWith(".md") && f !== "_INDEX.md").length;
-        }
-      } catch {}
+      // 核心 ~/.claude：atom 散在 memory/<範疇>/…、memory/Failures/…、_AIDocs/…，
+      // 以 memory/_atom_index.json 計數；index 讀不到才退回數根層平鋪檔。
+      const indexEntries = isClaudeDir ? readAtomIndexEntries() : null;
+      if (indexEntries) {
+        proj.atom_count = indexEntries.length;
+        proj.failure_count = indexEntries.filter(e => layerFromRelPath(e && e.path) === "failures").length;
+      } else {
+        try {
+          proj.atom_count = fs.readdirSync(memDir).filter(f =>
+            f.endsWith(".md") && f !== "MEMORY.md" && !f.startsWith("_") && !f.startsWith("SPEC_")
+          ).length;
+        } catch {}
+        try {
+          const failDir = path.join(memDir, "failures");
+          if (fs.existsSync(failDir)) {
+            proj.failure_count = fs.readdirSync(failDir).filter(f => f.endsWith(".md") && f !== "_INDEX.md").length;
+          }
+        } catch {}
+      }
       try {
         const epicDir = path.join(memDir, "episodic");
         if (fs.existsSync(epicDir)) {
@@ -539,113 +547,132 @@ function apiProjects(req, res) {
   jsonRes(res, 200, projects);
 }
 
+// --- Atom index path helpers（純函式，供 apiAtoms / apiProjects 與驗證腳本共用） ---
+// index 的 path 是相對 CLAUDE_DIR 的 posix 路徑，例：
+//   memory/decisions.md · memory/Failures/<主題>/x.md · _AIDocs/Failures/x.md · _AIDocs/_atoms/<domain>/x.md
+
+function normalizeRelPath(rel) {
+  return String(rel || "").replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+// dashboard 分層：failures（兩處 Failures 樹）/ local（本地範疇 _AIDocs/_atoms）/ global（其餘）
+function layerFromRelPath(rel) {
+  const r = normalizeRelPath(rel);
+  if (r.startsWith("memory/Failures/") || r.startsWith("_AIDocs/Failures/")) return "failures";
+  if (r.startsWith("_AIDocs/_atoms/")) return "local";
+  return "global";
+}
+
+// 範疇段：去掉根層前綴（memory/ 或 _AIDocs/_atoms/）與檔名後剩下的目錄段。
+//   memory/x.md → []            memory/a/b/x.md → ["a","b"]
+//   _AIDocs/Failures/x.md → ["Failures"]   _AIDocs/_atoms/a/b/x.md → ["a","b"]
+function categorySegmentsFromRelPath(rel) {
+  const parts = normalizeRelPath(rel).split("/").filter(Boolean);
+  parts.pop();  // 檔名
+  if (parts[0] === "memory") return parts.slice(1);
+  if (parts[0] === "_AIDocs") return parts[1] === "_atoms" ? parts.slice(2) : parts.slice(1);
+  return parts;
+}
+
+// 注入範疇：本地（僅 ~/.claude 內注入）vs 核心（全專案注入）
+function realmFromRelPath(rel) {
+  return normalizeRelPath(rel).startsWith("_AIDocs/_atoms/") ? "local" : "core";
+}
+
+// 讀 memory/_atom_index.json 的 atoms 陣列；檔缺或 JSON 壞回 null（呼叫端決定回退）
+function readAtomIndexEntries() {
+  try {
+    const raw = fs.readFileSync(path.join(MEMORY_DIR, "_atom_index.json"), "utf-8");
+    const idx = JSON.parse(raw);
+    return Array.isArray(idx && idx.atoms) ? idx.atoms : null;
+  } catch { return null; }
+}
+
+// 單一 .md 檔 → dashboard atom 物件（frontmatter、知識條數、行數、last_used 距今、全文、遙測）。
+// 讀檔或解析失敗回 null。
+function parseAtomFile(filePath, fileName, layerLabel, defaultScope) {
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    // 舊專案層 MEMORY.md 遷移殘留 stub（metadata 行 `- Status: migrated-v2.21`）不算 atom；
+    // 錨在行首，正文裡提到這串字的 atom 不受影響
+    if (/^-\s+Status:\s*migrated-v2\.21\s*$/m.test(content)) return null;
+    const atom = {
+      name: fileName.replace(/\.md$/, ""),
+      layer: layerLabel,
+      scope: defaultScope,
+      file: fileName,
+    };
+    const metaRe = /^-\s+([\w-]+):\s*(.+)$/gm;
+    let m;
+    while ((m = metaRe.exec(content)) !== null) {
+      const key = m[1].toLowerCase(), val = m[2].trim();
+      switch (key) {
+        case "confidence": atom.confidence = val; break;
+        case "last-used": atom.last_used = val; break;
+        case "confirmations": atom.confirmations = parseInt(val) || 0; break;
+        case "readhits": atom.readhits = parseInt(val) || 0; break;
+        case "trigger": atom.triggers = val.split(",").map(t => t.trim()); break;
+        case "related": atom.related = val.split(",").map(t => t.trim()); break;
+        case "created": atom.created = val; break;
+        case "type": atom.type = val; break;
+        case "tags": atom.tags = val.split(",").map(t => t.trim()); break;
+        case "scope": atom.scope = val; break;
+        case "audience": atom.audience = val.split(",").map(t => t.trim()); break;
+        case "author": atom.author = val; break;
+      }
+    }
+
+    // `## 知識` 段內 `- [` 開頭的條目數
+    let knowledgeCount = 0;
+    let inKnowledge = false;
+    for (const line of content.split("\n")) {
+      if (/^##\s+知識/.test(line)) { inKnowledge = true; continue; }
+      if (/^##\s+/.test(line) && inKnowledge) break;
+      if (inKnowledge && /^- \[/.test(line)) knowledgeCount++;
+    }
+    atom.knowledge_count = knowledgeCount;
+    atom.line_count = content.split("\n").length;
+
+    if (atom.last_used) {
+      const lu = new Date(atom.last_used);
+      if (!isNaN(lu.getTime())) atom.days_since_used = Math.floor((Date.now() - lu.getTime()) / 86400000);
+    }
+
+    atom.content = content;  // detail view 用全文
+    enrichAtomWithAccess(atom, filePath);  // 戰力/遙測
+    return atom;
+  } catch { return null; }
+}
+
+// 全部 atom 清單：global 層以 memory/_atom_index.json 為真相（含 memory/<範疇>/…、
+// memory/Failures/…、_AIDocs/Failures/…、_AIDocs/_atoms/…），專案層照舊掃 registry / projects/。
 function apiAtoms(req, res) {
   const atoms = [];
   const seenAtomFiles = new Set();
-  const scanDirs = [
-    { dir: MEMORY_DIR, layer: "global", scope: "global" },
-    { dir: path.join(MEMORY_DIR, "failures"), layer: "failures", scope: "global" },
-    { dir: path.join(MEMORY_DIR, "unity"), layer: "unity", scope: "global" },
-  ];
 
-  for (const { dir, layer, scope } of scanDirs) {
-    if (!fs.existsSync(dir)) continue;
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith(".md")) continue;
-      if (f === "MEMORY.md" || f.startsWith("SPEC_") || f.startsWith("_")) continue;
-
-      const filePath = path.join(dir, f);
-      const fileKey = path.resolve(filePath).toLowerCase();
-      if (seenAtomFiles.has(fileKey)) continue;
-      seenAtomFiles.add(fileKey);
-      try {
-        const content = fs.readFileSync(filePath, "utf-8");
-        const atom = { name: f.replace(".md", ""), layer, scope, file: f };
-
-        // Parse metadata
-        const metaRe = /^-\s+([\w-]+):\s*(.+)$/gm;
-        let m;
-        while ((m = metaRe.exec(content)) !== null) {
-          const key = m[1].toLowerCase(), val = m[2].trim();
-          switch (key) {
-            case "confidence": atom.confidence = val; break;
-            case "last-used": atom.last_used = val; break;
-            case "confirmations": atom.confirmations = parseInt(val) || 0; break;
-            case "readhits": atom.readhits = parseInt(val) || 0; break;
-            case "trigger": atom.triggers = val.split(",").map(t => t.trim()); break;
-            case "related": atom.related = val.split(",").map(t => t.trim()); break;
-            case "created": atom.created = val; break;
-            case "type": atom.type = val; break;
-            case "tags": atom.tags = val.split(",").map(t => t.trim()); break;
-            case "scope": atom.scope = val; break;
-            case "audience": atom.audience = val.split(",").map(t => t.trim()); break;
-            case "author": atom.author = val; break;
-          }
-        }
-
-        // Count knowledge items
-        let knowledgeCount = 0;
-        let inKnowledge = false;
-        for (const line of content.split("\n")) {
-          if (/^##\s+知識/.test(line)) { inKnowledge = true; continue; }
-          if (/^##\s+/.test(line) && inKnowledge) break;
-          if (inKnowledge && /^- \[/.test(line)) knowledgeCount++;
-        }
-        atom.knowledge_count = knowledgeCount;
-
-        // Line count
-        atom.line_count = content.split("\n").length;
-
-        // Days since last used
-        if (atom.last_used) {
-          const lu = new Date(atom.last_used);
-          atom.days_since_used = Math.floor((Date.now() - lu.getTime()) / 86400000);
-        }
-
-        // Full content for detail view
-        atom.content = content;
-
-        enrichAtomWithAccess(atom, filePath);  // v2: 戰力/遙測
-        atoms.push(atom);
-      } catch {}
-    }
-  }
-
-  // Helper: scan a single .md as an atom (used by project + V4 shared/role scans)
+  // 唯一的檔案解析入口：去重後交 parseAtomFile，回傳 atom 物件（已 push）或 null
   function pushAtomFromFile(filePath, fileName, layerLabel, defaultScope) {
     const fileKey = path.resolve(filePath).toLowerCase();
-    if (seenAtomFiles.has(fileKey)) return;
+    if (seenAtomFiles.has(fileKey)) return null;
     seenAtomFiles.add(fileKey);
-    try {
-      const content = fs.readFileSync(filePath, "utf-8");
-      if (content.includes("Status: migrated-v2.21")) return;
-      const atom = {
-        name: fileName.replace(".md", ""),
-        layer: layerLabel,
-        scope: defaultScope,
-        file: fileName,
-        content,
-      };
-      const metaRe = /^-\s+([\w-]+):\s*(.+)$/gm;
-      let m2;
-      while ((m2 = metaRe.exec(content)) !== null) {
-        const key = m2[1].toLowerCase(), val = m2[2].trim();
-        switch (key) {
-          case "confidence": atom.confidence = val; break;
-          case "last-used": atom.last_used = val; break;
-          case "confirmations": atom.confirmations = parseInt(val) || 0; break;
-          case "readhits": atom.readhits = parseInt(val) || 0; break;
-          case "related": atom.related = val.split(",").map(t => t.trim()); break;
-          case "trigger": atom.triggers = val.split(",").map(t => t.trim()); break;
-          case "scope": atom.scope = val; break;
-          case "audience": atom.audience = val.split(",").map(t => t.trim()); break;
-          case "author": atom.author = val; break;
-        }
-      }
-      atom.line_count = content.split("\n").length;
-      enrichAtomWithAccess(atom, filePath);  // v2: 戰力/遙測
-      atoms.push(atom);
-    } catch {}
+    const atom = parseAtomFile(filePath, fileName, layerLabel, defaultScope);
+    if (atom) atoms.push(atom);
+    return atom;
+  }
+
+  // global 層：逐筆 index entry；檔不存在跳過
+  function scanFromIndex(entries) {
+    for (const entry of entries) {
+      if (!entry || typeof entry.path !== "string") continue;
+      const rel = normalizeRelPath(entry.path);
+      const filePath = path.join(CLAUDE_DIR, ...rel.split("/"));
+      if (!fs.existsSync(filePath)) continue;
+      const atom = pushAtomFromFile(filePath, path.posix.basename(rel), layerFromRelPath(rel), entry.scope || "global");
+      if (!atom) continue;
+      atom.rel_path = rel;
+      atom.category = categorySegmentsFromRelPath(rel);
+      atom.realm = realmFromRelPath(rel);
+    }
   }
 
   // Helper: scan a flat memory dir, skip excluded dirs, optionally exclude personal/episodic/_*
@@ -696,6 +723,11 @@ function apiAtoms(req, res) {
       }
     }
   }
+
+  // global 層：index 逐筆；index 缺失或壞掉才退回掃 memory/ 根層平鋪
+  const indexEntries = readAtomIndexEntries();
+  if (indexEntries) scanFromIndex(indexEntries);
+  else scanFlatDir(MEMORY_DIR, "global", "global");
 
   // V4: global shared/ + roles/{r}/ scan (本專案目前無此目錄，預留給未來)
   scanV4ScopeDirs(MEMORY_DIR, "", "");
@@ -887,4 +919,6 @@ module.exports = {
   apiHealAll, apiHealReview, apiHealJobStatus, apiHealStart,
   apiVectorStatus, apiOllamaBackendsStatus, apiKnowledgeQueue,
   apiAtoms, apiProjects, apiSkills, apiMcpServers,
+  // atom index 路徑純函式（驗證腳本用）
+  layerFromRelPath, categorySegmentsFromRelPath, realmFromRelPath,
 };

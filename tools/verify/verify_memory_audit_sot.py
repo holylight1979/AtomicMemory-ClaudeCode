@@ -150,3 +150,99 @@ def test_restore_from_distant_upserts_index(tmp_path):
     assert "baz" in entries, msg
     assert entries["baz"]["path"] == "memory/baz.md"
     assert entries["baz"]["triggers"] == ["alpha", "beta", "gamma"]
+
+
+# ─── 4. parse_memory_index：範疇聚合表不產 entry ──────────────────────────────
+
+
+@pytest.mark.parametrize("header", ["| Atom | atom 數 | 深入 |", "| 範疇 | atom 數 | 深入 |"])
+def test_parse_memory_index_category_table_yields_no_entries(tmp_path, header):
+    idx = tmp_path / "MEMORY.md"
+    idx.write_text(
+        "# Atom Index\n\n"
+        f"{header}\n"
+        "|------|------|------|\n"
+        "| 版控 | 4 | `memory/版控/_INDEX.md` |\n"
+        "| 設計通則 | 2 | `memory/設計通則/_INDEX.md` |\n",
+        encoding="utf-8",
+    )
+    entries, lines = MA.parse_memory_index(idx)
+    assert entries == []
+    assert lines == 6
+
+
+def test_parse_memory_index_flat_two_col_still_yields_entries(tmp_path):
+    idx = tmp_path / "MEMORY.md"
+    idx.write_text(
+        "| Atom | 說明 |\n|------|------|\n| decisions | 全域決策 |\n| feedback-* | 行為校正 |\n",
+        encoding="utf-8",
+    )
+    entries, _ = MA.parse_memory_index(idx)
+    assert [e.path for e in entries] == ["decisions.md", "feedback-*.md"]
+
+
+# ─── 5. validate_index：子目錄 atom 遞迴（index→file 與 file→index 雙向）──────
+
+
+def test_validate_index_subdir_atoms_recursive(tmp_path):
+    mem = tmp_path / "memory"
+    _mk_atom(mem / "版控" / "Git", "foo", indexed=False)
+    _mk_atom(mem / "設計通則", "bar", indexed=False)
+    idx = mem / "MEMORY.md"
+    idx.write_text("| Atom | 說明 |\n|---|---|\n", encoding="utf-8")
+    entries = [MA.IndexEntry("foo", "memory/版控/Git/foo.md", "alpha")]
+    issues = MA.validate_index(idx, mem, entries)
+    assert not [i for i in issues if "索引指向不存在" in i.message]
+    assert [i for i in issues if i.level == "warning" and "bar.md 未在索引中列出" in i.message]
+
+
+# ─── 6. validate_index：layout gate（memory/ 根下散檔）─────────────────────────
+
+
+def _bind_tmp_global(monkeypatch, mem: Path):
+    """把 memory-audit 的全域 memory 綁到 tmp；多根掃描也收斂到 tmp 根，不碰現役 memory/。"""
+    real_multi = MA.iter_atom_files_multi
+    monkeypatch.setattr(MA, "GLOBAL_MEMORY_DIR", mem)
+    monkeypatch.setattr(
+        MA, "iter_atom_files_multi",
+        lambda roots=None, **k: real_multi(roots if roots is not None else [mem], **k),
+    )
+
+
+@pytest.mark.parametrize("gate,expected", [(True, 1), (False, 0)])
+def test_validate_index_layout_gate(tmp_path, monkeypatch, gate, expected):
+    mem = tmp_path / "memory"
+    _mk_atom(mem, "flat", indexed=False)
+    idx = mem / "MEMORY.md"
+    idx.write_text("| Atom | 說明 |\n|---|---|\n", encoding="utf-8")
+    _bind_tmp_global(monkeypatch, mem)
+    monkeypatch.setattr(MA, "gate_enabled", lambda: gate)
+    issues = MA.validate_index(idx, mem, [MA.IndexEntry("flat", "memory/flat.md", "alpha")])
+    layout = [i for i in issues if i.category == "layout"]
+    assert len(layout) == expected
+    if gate:
+        assert layout[0].level == "error" and "memory/flat.md" in layout[0].message
+    assert not [i for i in issues if i.level == "error" and i.category == "index"]
+
+
+# ─── 7. run_audit：有 _atom_index.json 時 entries 來自 json，非 MEMORY.md ──────
+
+
+def test_run_audit_entries_from_atom_index_json(tmp_path, monkeypatch):
+    mem = tmp_path / "memory"
+    _mk_atom(mem, "one")
+    _mk_atom(mem, "two")
+    (mem / "MEMORY.md").write_text("| Atom | 說明 |\n|---|---|\n", encoding="utf-8")
+    from lib.atom_index_json import load_atom_index_json
+    assert len(load_atom_index_json(mem)["atoms"]) == 2
+    _bind_tmp_global(monkeypatch, mem)
+    monkeypatch.setattr(MA, "discover_layers", lambda *a, **k: [("global", mem)])
+    monkeypatch.setattr(MA, "CLAUDE_DIR", tmp_path)
+    monkeypatch.setattr(MA, "AUDIT_LOG_PATH", tmp_path / "audit.log")
+    import argparse
+    report = MA.run_audit(argparse.Namespace(
+        global_only=True, project=None, project_dir=None, verbose=False))
+    index_issues = [i for i in report.issues if i.category == "index"]
+    assert not [i for i in index_issues if i.level == "error"], index_issues
+    assert not [i for i in index_issues if "未在索引中列出" in i.message], index_issues
+    assert report.total_atoms == 2

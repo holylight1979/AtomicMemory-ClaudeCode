@@ -41,13 +41,14 @@ sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 try:
     from atom_locations import (
         atom_writable_dir_segments, failures_atom_stems, is_local_realm_path,
-        is_cross_project_local, FAILURES_DIR,
+        is_cross_project_local, iter_realm_category_dirs, FAILURES_DIR,
     )
 except ImportError:
     atom_writable_dir_segments = None
     failures_atom_stems = None
     is_local_realm_path = None
     is_cross_project_local = None
+    iter_realm_category_dirs = None
     FAILURES_DIR = CLAUDE_DIR / "memory" / "Failures"
 
 # ─── Token budget 單一來源─────────────────────────
@@ -1046,12 +1047,23 @@ def _path_under_memory_dir(fp: Path) -> bool:
 
 
 def _atom_path_whitelisted(fp: Path) -> bool:
+    """memory 樹內的豁免判定：只看 `memory` 段**之後**的目錄段是否命中白名單。
+
+    上層目錄名不參與比對——`<proj>/templates/.claude/memory/x.md` 這種「外層資料夾剛好叫
+    templates」不得讓整棵 memory 樹被豁免。範疇資料夾（memory/<範疇>/…）不在白名單，
+    照常走 funnel。
+    """
     if fp.name in _WHITELIST_BASENAMES:
         return True
     if fp.name.startswith("_") or fp.name.startswith("SPEC_"):
         return True
-    parts_lower = {p.lower() for p in fp.parts}
-    if parts_lower & _WHITELIST_DIR_SEGMENTS:
+    parts_lower = [p.lower() for p in fp.parts]
+    try:
+        start = parts_lower.index("memory") + 1
+    except ValueError:
+        start = 0
+    inner = set(parts_lower[start:-1])  # memory 之後、檔名之前的目錄段
+    if inner & _WHITELIST_DIR_SEGMENTS:
         return True
     return False
 

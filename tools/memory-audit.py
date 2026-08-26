@@ -61,7 +61,16 @@ from lib.atom_access import read_access, usefulness_promote_eligible, move_atom_
 from lib.atom_index_json import (
     delete_atom as index_delete_atom,
     upsert_atom as index_upsert_atom,
+    load_atom_index_json,
 )
+# 範疇資料夾硬規則：memory/ 根下散檔須歸入 memory/<範疇>/。gate 由 workflow/config.json
+# taxonomy.gate_enabled 控制；模組缺席時視為關閉（不報 layout error）。
+from lib.atom_locations import is_flat_core_path
+try:
+    from lib.atom_taxonomy import gate_enabled
+except ImportError:  # pragma: no cover
+    def gate_enabled() -> bool:
+        return False
 
 def _failures_file_exists(file_name: str) -> bool:
     """失敗家族檔存在性：memory/Failures/ 樹（含 <主題>/ 子夾）優先，再退舊址 _AIDocs/Failures/。"""
@@ -398,7 +407,11 @@ def parse_memory_index(path: Path) -> Tuple[List[IndexEntry], int]:
             cells = [c.strip() for c in stripped.split("|")]
             cells = [c for c in cells if c]  # remove empties from leading/trailing |
             if len(cells) >= 3:
-                # Legacy 3-col format: | Atom | Path | Trigger | [Confidence]
+                # 3-col format: | Atom | Path | Trigger | [Confidence]
+                # 範疇聚合表（| 範疇 | atom 數 | 深入 |）第二欄是數字或 drill 字串、不是 .md
+                # → 不是 atom 列，跳過不產 entry（atom 真相由 _atom_index.json 提供）
+                if not cells[1].endswith(".md"):
+                    continue
                 entry = IndexEntry(
                     atom_name=cells[0],
                     path=cells[1],
@@ -566,33 +579,45 @@ def suggest_promotions(atom: AtomMetadata) -> Optional[Suggestion]:
     return None
 
 
+def _index_json_entries(mem_dir: Path) -> Optional[List[IndexEntry]]:
+    """從 mem_dir/_atom_index.json 建 IndexEntry 清單；檔不存在 → None（呼叫端退回 MEMORY.md）。
+    檔存在但損壞時 load 回空清單 → 所有 atom 會被報「未在索引中列出」，讓損壞浮出而非靜默。"""
+    if not (mem_dir / "_atom_index.json").exists():
+        return None
+    data = load_atom_index_json(mem_dir)
+    entries: List[IndexEntry] = []
+    for a in data.get("atoms") or []:
+        if not isinstance(a, dict) or not a.get("name") or not a.get("path"):
+            continue
+        entries.append(IndexEntry(
+            atom_name=str(a["name"]),
+            path=str(a["path"]),
+            trigger=", ".join(a.get("triggers") or []),
+            confidence="",
+        ))
+    return entries
+
+
 def validate_index(index_path: Path, memory_dir: Path, index_entries: List[IndexEntry]) -> List[Issue]:
     """Cross-reference index entries with actual files."""
     issues: List[Issue] = []
     rel_index = _rel_path(index_path)
 
-    # Get actual atom files (exclude MEMORY.md, SPEC_*, _distant/)
+    # 實際 atom 檔（遞迴；與其餘掃描同源）：atom 實體可居子目錄（memory/<範疇>/、
+    # memory/Failures/<主題>/、專案 shared/<domain>/）或樹外（舊址 _AIDocs/Failures/、
+    # _AIDocs/_atoms/）。global=多根、非 global=rglob 單根。以檔名比對；未登記索引的
+    # atom 一律 warning「未在索引中列出」。
     actual_files: Set[str] = set()
-    for f in memory_dir.iterdir():
-        if f.is_file() and f.suffix == ".md" and f.name != MEMORY_INDEX:
-            if not any(f.name.startswith(p) for p in SKIP_PREFIXES):
-                actual_files.add(f.name)
-    # 索引 wildcard 也納入失敗家族已登記 atom（memory/Failures/<主題>/ 或舊址 _AIDocs/Failures/）
-    try:
-        if memory_dir.resolve() == GLOBAL_MEMORY_DIR.resolve():
-            for stem in failures_atom_stems():
-                if _failures_file_exists(f"{stem}.md"):
-                    actual_files.add(f"{stem}.md")
-    except OSError:
-        pass
+    tree_stems: Set[str] = set()
+    for p in iter_atom_files(memory_dir):
+        actual_files.add(p.name)
+        tree_stems.add(p.stem)
 
-    # atom 實體可居子目錄（memory/<範疇>/、memory/Failures/<主題>/、專案 shared/<domain>/）
-    # 或樹外（舊址 _AIDocs/Failures/、_AIDocs/_atoms/）。actual_files 走扁平 iterdir() →
-    # 子目錄 atom 不在其中，index→file 存在性會誤報「索引指向不存在的檔案」。補一份遞迴
-    # stem 集作 fallback（委派 iter_atom_files：global=多根，非 global=rglob 單根，與其餘掃描同源）。
-    # 僅用於 index→file 存在性；file→index 方向仍用扁平 actual_files，避免子目錄
-    # auto-capture atom 全被誤報「未在索引中列出」的洪水。
-    tree_stems: Set[str] = {p.stem for p in iter_atom_files(memory_dir)}
+    try:
+        is_global_mem = memory_dir.resolve() == GLOBAL_MEMORY_DIR.resolve()
+    except OSError:
+        is_global_mem = False
+    layout_gate = bool(gate_enabled())
 
     # personal/ 在 SKIP_DIRS（掃描報表不計入），但 personal atom 可正式登記於
     # _atom_index.json 且由 wg_atoms 注入——index→file 存在性檢查必須看得到它們，
@@ -624,17 +649,26 @@ def validate_index(index_path: Path, memory_dir: Path, index_entries: List[Index
 
         indexed_files.add(file_name)
 
-        full_path = memory_dir / file_name
+        # entry.path 相對 memory_dir.parent（memory/x.md、memory/版控/Git/x.md、
+        # _AIDocs/_atoms/…）。依序認：完整相對路徑 → memory_dir 根下同名 → 遞迴 stem 集
+        # → 失敗家族（memory/Failures/<主題>/ 或舊址 _AIDocs/Failures/）；全落空才算不存在
         entry_stem = file_name[:-3] if file_name.endswith(".md") else file_name
-        if not full_path.exists() and entry_stem not in tree_stems:
-            # Try relative to parent of memory_dir
-            alt_path = memory_dir.parent / entry.path
-            # 失敗家族（feedback-* / cognitive-patterns）居 memory/Failures/<主題>/，
-            # 舊址 _AIDocs/Failures/ 遷移期仍認；兩處都找不到才算索引指向不存在
-            if not alt_path.exists() and not _failures_file_exists(file_name):
-                issues.append(
-                    Issue(rel_index, "error", "index", f"索引指向不存在的檔案: {entry.path}")
-                )
+        exists = (
+            (memory_dir.parent / entry.path).exists()
+            or (memory_dir / file_name).exists()
+            or entry_stem in tree_stems
+            or _failures_file_exists(file_name)
+        )
+        if not exists:
+            issues.append(
+                Issue(rel_index, "error", "index", f"索引指向不存在的檔案: {entry.path}")
+            )
+
+        # 範疇資料夾硬規則（gate 開啟時才報）：全域 memory/ 根下散檔須歸入 memory/<範疇>/
+        if layout_gate and is_global_mem and is_flat_core_path(entry.path):
+            issues.append(
+                Issue(rel_index, "error", "layout", f"memory/ 根下散檔（需歸入 memory/<範疇>/）: {entry.path}")
+            )
 
     # Check file → index
     for fname in actual_files:
@@ -1518,6 +1552,11 @@ def run_audit(args: argparse.Namespace) -> HealthReport:
         index_path = mem_dir / MEMORY_INDEX
         if index_path.exists():
             index_entries, idx_lines = parse_memory_index(index_path)
+            # _atom_index.json 是唯一機器真相；存在時 entries 由它建，MEMORY.md 只作
+            # 人讀索引（僅取行數做上限檢查）。缺 json 才退回 MEMORY.md 表格解析。
+            json_entries = _index_json_entries(mem_dir)
+            if json_entries is not None:
+                index_entries = json_entries
 
             # Check index line count
             if idx_lines > INDEX_MAX_LINES:
@@ -1533,14 +1572,9 @@ def run_audit(args: argparse.Namespace) -> HealthReport:
             # Validate index ↔ files
             report.issues.extend(validate_index(index_path, mem_dir, index_entries))
         else:
-            # Skip "missing MEMORY.md" error if directory has no atom files at root
-            # (orphan/empty memory dir from deleted project — harmless)
-            has_atoms = any(
-                f.is_file() and f.suffix == ".md"
-                and f.name != MEMORY_INDEX
-                and not any(f.name.startswith(p) for p in SKIP_PREFIXES)
-                for f in mem_dir.iterdir()
-            )
+            # Skip "missing MEMORY.md" error if directory has no atom files anywhere
+            # in its tree (orphan/empty memory dir from deleted project — harmless)
+            has_atoms = any(True for _ in iter_atom_files(mem_dir))
             if has_atoms:
                 report.issues.append(
                     Issue(str(mem_dir), "error", "index", "缺少 MEMORY.md 索引檔")

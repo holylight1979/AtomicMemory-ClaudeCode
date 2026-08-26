@@ -28,6 +28,7 @@ from wg_core import (
     read_state, write_state, new_state, _find_active_sibling_state,
     _check_mcp_servers,
     _is_under_claude_dir, is_local_realm_path, is_cross_project_local,
+    iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
 )
 from wg_atoms import (
@@ -582,8 +583,17 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 str((CLAUDE_DIR / p).resolve()).lower()
                 for _n, p, _t in global_atoms if p
             }
+            # 磁碟側：memory/ 根層 *.md ＋ 各範疇資料夾（memory/<範疇>/**、含 Failures）
+            # 遞迴；`_` 前綴目錄（_reference/_INDEX 等）與 skip 名單由 iter_realm_category_dirs 剪掉。
+            _disk_candidates = list(MEMORY_DIR.glob("*.md"))
+            if iter_realm_category_dirs is not None:
+                for _cat_dir in iter_realm_category_dirs(MEMORY_DIR):
+                    _disk_candidates += [
+                        f for f in _cat_dir.rglob("*.md")
+                        if not any(part.startswith("_") for part in f.relative_to(_cat_dir).parts)
+                    ]
             _disk_orphans = [
-                f.stem for f in MEMORY_DIR.glob("*.md")
+                f.stem for f in _disk_candidates
                 if not f.name.startswith("_") and f.name != MEMORY_INDEX
                 and str(f.resolve()).lower() not in _idx_paths
             ]

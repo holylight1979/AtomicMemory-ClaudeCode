@@ -71,6 +71,7 @@ ACCESS_VALID_SOURCES = frozenset({
     "hook:extract-worker",
     "tool:atom-move",
     "tool:atom-set-realm",       # V5+ Realm 維度：core⇄local 搬移（sidecar 隨 .md 原子搬）
+    "tool:atom-categorize",      # 核心層批次歸類搬遷（sidecar 隨 .md 原子搬）
     "tool:changelog-roll",
     "tool:memory-audit",         # restore_atom 計數歸零
     "tool:migrate",              # 一次性遷移

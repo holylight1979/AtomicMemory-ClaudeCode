@@ -17,7 +17,8 @@ local atom 物理落 `_AIDocs/_atoms/<domain>/`，但**索引仍 global、Scope 
 
 可逆（memory-undo.py 只處理自動萃取 atom，不適用本搬移）：
   set <slug> --domain <World|Tools|MemDev>   core → local（memory/ → _AIDocs/_atoms/D/）
-  set <slug> --to-core                        local → core（反向搬回，即 undo）
+  set <slug> --to-core [--category Lv1[/Lv2]] local → core（落 memory/<範疇>/；範疇經 core_write_target；
+                                              `Failures/<主題>` 走失敗家族；寫入閘開後 --category 必填）
   set <slug> ... --dry-run                    只算路徑、不落檔
 
 sidecar 隨 .md 原子性搬：先搬 .md，sidecar 搬失敗則 rollback .md，
@@ -38,9 +39,17 @@ if str(CLAUDE_DIR) not in sys.path:
     sys.path.insert(0, str(CLAUDE_DIR))
 
 from lib.atom_locations import (  # noqa: E402
+    CLAUDE_DIR as _CLAUDE_ROOT, FAILURES_ROOT_NAME,
     GLOBAL_MEMORY_DIR, LOCAL_ATOMS_DIR, LOCAL_ATOMS_REL, LOCAL_REALM_DOMAINS,
-    enumerate_local_paths, is_local_realm_path, normalize_domain_path,
+    core_write_target, enumerate_local_paths, failures_write_target,
+    is_local_realm_path, normalize_domain_path, unclassified_error,
 )
+try:
+    from lib.atom_taxonomy import core_categories as _core_categories  # noqa: E402
+    from lib.atom_taxonomy import gate_enabled as _gate_enabled  # noqa: E402
+except Exception:  # taxonomy 缺 → 閘視為關（flat 落點仍可用）
+    _core_categories = None
+    _gate_enabled = None
 from lib.atom_io import write_index, _audit_log, _gen_audit_id  # noqa: E402
 from lib.atom_index_json import load_atom_index_json  # noqa: E402
 from lib.atom_access import (  # noqa: E402
@@ -92,14 +101,51 @@ def _read_scope(md: Path) -> str:
 # ─── Core operation ───────────────────────────────────────────────────────────
 
 
+def _core_landing(slug: str, category: Optional[str]) -> tuple:
+    """--to-core 的落點：(dst_md, new_rel, error)。
+
+    `category` 給了 → 經 core_write_target（Lv1 閉合清單、別名 snap、Lv2 自由）落
+    memory/<Lv1>[/<Lv2>]/；`Failures/<主題>` 走 failures_write_target。沒給 → 寫入閘
+    （taxonomy.gate_enabled）開時拒、關時落 memory/ 根（遷移期相容）。
+    """
+    raw = (category or "").strip().replace("\\", "/")
+    if raw:
+        head, _, rest = raw.partition("/")
+        if head.casefold() == FAILURES_ROOT_NAME.casefold():
+            t = failures_write_target(rest or None)
+        else:
+            t, err = core_write_target(raw, allow_new=False)
+            if err:
+                return (None, "", err)
+        dst = Path(t["dir"]) / f"{slug}.md"
+        return (dst, dst.relative_to(_CLAUDE_ROOT).as_posix(), None)
+    gate_on = False
+    if _gate_enabled is not None:
+        try:
+            gate_on = bool(_gate_enabled())
+        except Exception:
+            gate_on = False
+    if gate_on:
+        cats: List[str] = []
+        if _core_categories is not None:
+            try:
+                cats = list(_core_categories())
+            except Exception:
+                cats = []
+        return (None, "", unclassified_error(category, cats) + " (pass --category <Lv1[/Lv2]>)")
+    dst = GLOBAL_MEMORY_DIR / f"{slug}.md"
+    return (dst, f"memory/{slug}.md", None)
+
+
 def set_realm(
     slug: str, *, domain: Optional[str] = None, to_core: bool = False,
-    dry_run: bool = False,
+    dry_run: bool = False, category: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """把 atom 搬到 local（--domain）或搬回 core（--to_core）。
+    """把 atom 搬到 local（--domain）或搬回 core（--to_core [--category]）。
 
     回 {ok, ...}；no-op（已在目標 realm）回 {ok:True, noop:True}。
     Scope 一律保持原值（必為 global），不修改 .md 的 Scope 行。
+    --to-core 的範疇落點見 _core_landing。
     """
     entry = _find_index_entry(slug)
     if not entry:
@@ -117,8 +163,9 @@ def set_realm(
     if to_core:
         if not cur_is_local:
             return {"ok": True, "noop": True, "msg": f"{slug} already core ({cur_path})"}
-        dst_md = GLOBAL_MEMORY_DIR / f"{slug}.md"
-        new_rel = f"memory/{slug}.md"
+        dst_md, new_rel, err = _core_landing(slug, category)
+        if err:
+            return {"ok": False, "error": err}
         new_realm = "core"
     else:
         if not (domain or "").strip():
@@ -140,6 +187,12 @@ def set_realm(
     cur_scope_field = _read_scope(src_md)
 
     if dry_run:
+        if to_core:  # core_write_target 已 mkdir 落點：dry-run 不留空目錄鏈
+            prune_empty_parents(dst_md.parent, GLOBAL_MEMORY_DIR)
+            try:
+                dst_md.parent.rmdir()
+            except OSError:
+                pass
         return {
             "ok": True, "dry_run": True, "slug": slug,
             "from": cur_path, "to": new_rel,
@@ -198,9 +251,12 @@ def main() -> int:
     st.add_argument("atom", help="atom slug")
     st.add_argument("--domain", default=None, help=f"local domain: {sorted(LOCAL_REALM_DOMAINS)}")
     st.add_argument("--to-core", action="store_true", help="reverse: move local atom back to core (undo)")
+    st.add_argument("--category", default=None,
+                    help="with --to-core: core category 'Lv1[/Lv2]' (taxonomy Lv1 / slug / alias; "
+                         "'Failures/<主題>' for the failures family). Required once taxonomy.gate_enabled")
     st.add_argument("--dry-run", action="store_true")
     st.set_defaults(func=lambda a: set_realm(
-        a.atom, domain=a.domain, to_core=a.to_core, dry_run=a.dry_run,
+        a.atom, domain=a.domain, to_core=a.to_core, dry_run=a.dry_run, category=a.category,
     ))
 
     args = p.parse_args()

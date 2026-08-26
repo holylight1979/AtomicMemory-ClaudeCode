@@ -7,8 +7,10 @@ shared/<domain>/）必須照舊：路徑判定、failures 落點、注入閘門�
 計畫案例對照：
   - 案例 1（專案層路徑判定與 failures 落點）：本檔 test_case1_*
   - 案例 5（sync-memory-index --check 對專案層索引不炸）：本檔 test_case5_*
-  - 案例 2（專案層 atom_write 走 shared/ 不被核心閘拒寫）、案例 3（專案層 catalog 渲染）、
-    案例 4（跨層 up-ref 解析）：待閘門啟用（taxonomy.gate_enabled=true）後補。
+  - 案例 4（memory-audit --project-dir 0 error；atom-categorize plan --memory-dir 對平鋪 shared
+    atom 出對映草案）：本檔 test_case4_*
+  - 案例 2（專案層 atom_write 走 shared/ 不被核心閘拒寫）、案例 3（專案層 catalog 渲染）：
+    待閘門啟用（taxonomy.gate_enabled=true）後補。
 """
 
 from __future__ import annotations
@@ -35,6 +37,8 @@ from lib.atom_locations import (  # noqa: E402
 )
 
 SYNC_MEMORY_INDEX = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+MEMORY_AUDIT = CLAUDE_DIR / "tools" / "memory-audit.py"
+ATOM_CATEGORIZE = CLAUDE_DIR / "tools" / "atom-categorize.py"
 
 
 @pytest.fixture
@@ -50,7 +54,8 @@ def proj(tmp_path) -> Path:
         d = mem / "shared" / sub if sub else mem / "shared"
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{slug}.md").write_text(
-            f"# {slug}\n\n- Confidence: [臨]\n- Trigger: {slug}\n\n## 知識\n\n- [臨] x\n",
+            f"# {slug}\n\n- Scope: shared\n- Confidence: [臨]\n- Trigger: {slug}\n\n"
+            f"## 知識\n\n- [臨] x\n\n## 行動\n\n- y\n",
             encoding="utf-8")
         rel = f"memory/shared/{sub + '/' if sub else ''}{slug}.md"
         atoms.append({"name": slug, "path": rel, "triggers": [slug], "scope": "shared"})
@@ -121,6 +126,60 @@ def test_case1_injection_gate_from_project_keeps_core_category_atoms(proj):
     assert names == {"decisions", "feedback-x", "feedback-legacy", "git-hunk", "handoff-q"}
     # 核心環境不濾
     assert {n for n, _, _ in _apply_gate(atoms, str(CLAUDE_DIR))} == {n for n, _, _ in atoms}
+
+
+# ─── 案例 4：memory-audit --project-dir 0 error；atom-categorize plan --memory-dir ──────
+
+
+def _load_memory_audit():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("memory_audit_smoke", MEMORY_AUDIT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_case4_memory_audit_project_layer_zero_error(proj, monkeypatch):
+    """專案層（shared/ 平鋪 + shared/<Domain>/ 子夾）：index 為 entries、遞迴掃描 → 0 error。"""
+    from argparse import Namespace
+    mem = proj / ".claude" / "memory"
+    MA = _load_memory_audit()
+    monkeypatch.setattr(MA, "discover_layers", lambda *a, **k: [("project", mem)])
+    monkeypatch.setattr(MA, "parse_audit_log", lambda: {})
+    report = MA.run_audit(Namespace(global_only=False, project=None, project_dir=str(mem),
+                                    verbose=False))
+    errors = [i for i in report.issues if i.level == "error"]
+    assert errors == [], [f"{i.file}: {i.message}" for i in errors]
+    assert report.total_atoms == 2
+    # 子夾 atom 已登記索引 → 不得誤報「未在索引中列出」
+    assert not any("proj-rule-b" in i.message for i in report.issues), report.issues
+
+
+def test_case4_atom_categorize_plan_project_layer(proj, tmp_path):
+    """--memory-dir 對假專案：無 map 出詞庫草案；給 map 則產 shared/<範疇>/ 對映且不落地。"""
+    mem = proj / ".claude" / "memory"
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    r = subprocess.run([sys.executable, str(ATOM_CATEGORIZE), "plan", "--memory-dir", str(mem)],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=env, timeout=120)
+    assert r.returncode == 0 and "Traceback" not in r.stderr, (r.stdout, r.stderr)
+    draft = json.loads(r.stdout)
+    assert draft.get("proposed") is True
+    assert "proj-rule-a" in set(draft["atoms"]) | set(draft["undecided"])   # 平鋪者在草案範圍
+    assert "proj-rule-b" not in draft["atoms"] and "proj-rule-b" not in draft["undecided"]  # 已在子夾
+
+    mp = tmp_path / "map.json"
+    mp.write_text(json.dumps({"atoms": {"proj-rule-a": "驗證與實證"}}, ensure_ascii=False),
+                  encoding="utf-8")
+    r = subprocess.run([sys.executable, str(ATOM_CATEGORIZE), "plan", "--map", str(mp),
+                        "--memory-dir", str(mem), "--dry-run"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=env, timeout=120)
+    assert r.returncode == 0 and "Traceback" not in r.stderr, (r.stdout, r.stderr)
+    plan = json.loads(r.stdout)
+    assert plan["layer"] == "project" and plan["errors"] == []
+    assert plan["items"][0]["to"] == "memory/shared/驗證與實證/proj-rule-a.md"
+    assert (mem / "shared" / "proj-rule-a.md").exists()   # plan 不搬
 
 
 # ─── 案例 5：sync-memory-index --check 對專案層索引 ───────────────────────────
