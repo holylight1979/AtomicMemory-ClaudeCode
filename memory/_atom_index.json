@@ -2095,6 +2095,44 @@
         "exists() 權威"
       ],
       "scope": "global"
+    },
+    {
+      "name": "驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過",
+      "path": "memory/驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過.md",
+      "triggers": [
+        "驗證腳本",
+        "通過判準",
+        "實機取證",
+        "RESULT",
+        "假通過",
+        "catch-all",
+        "逐字稿",
+        "行號",
+        "驗收",
+        "sub-agent 驗證",
+        "並行驗證"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "雙claude協作實戰認知-fable監工opus主力的分工手感",
+      "path": "memory/雙claude協作實戰認知-fable監工opus主力的分工手感.md",
+      "triggers": [
+        "Opus",
+        "雙 Claude",
+        "監工",
+        "主力寫碼",
+        "交叉驗證",
+        "分工提案",
+        "無人值守",
+        "夜班",
+        "預先 ok",
+        "實機一輪",
+        "to-opus",
+        "to-fable",
+        "雙 session"
+      ],
+      "scope": "global"
     }
   ]
 }

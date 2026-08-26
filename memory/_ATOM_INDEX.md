@@ -125,3 +125,5 @@
 | feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向 | _AIDocs/Failures/feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向.md | 每輪校準, 偏移指標, 帶偏風向, inbox 來回, 無止盡自檢, 雞肋驗證, 過度研擬, 全盤現況, 監工回合, 重新對齊 | global |
 | grok協作實戰認知-特質與監工分工手感 | memory/grok協作實戰認知-特質與監工分工手感.md | grok 特質, 跟 grok 合作, 雙 LLM 分工, 監工 grok, grok 水位, grok 交接, 派工給 grok, grok 可信度 | global |
 | hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 | _AIDocs/_atoms/MemDev/hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威.md | 殘檔帳本, aec-tempfiles, aec_ledger, HUD 刪除鈕, isDeletable, 衍生暫存清單, scratchpad 清除, post-mortem, prose 猜路徑, exists() 權威 | global |
+| 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 | memory/驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過.md | 驗證腳本, 通過判準, 實機取證, RESULT, 假通過, catch-all, 逐字稿, 行號, 驗收, sub-agent 驗證, 並行驗證 | global |
+| 雙claude協作實戰認知-fable監工opus主力的分工手感 | memory/雙claude協作實戰認知-fable監工opus主力的分工手感.md | Opus, 雙 Claude, 監工, 主力寫碼, 交叉驗證, 分工提案, 無人值守, 夜班, 預先 ok, 實機一輪, to-opus, to-fable, 雙 session | global |

@@ -48,6 +48,8 @@
 | powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
 | 並行llm即時通訊-inbox機制 | 並行llm即時通訊-inbox機制 |
 | grok協作實戰認知-特質與監工分工手感 | grok協作實戰認知-特質與監工分工手感 |
+| 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 | 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 |
+| 雙claude協作實戰認知-fable監工opus主力的分工手感 | 雙claude協作實戰認知-fable監工opus主力的分工手感 |
 | feedback-* | 行為校正（19 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |
