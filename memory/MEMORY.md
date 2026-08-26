@@ -50,6 +50,9 @@
 | grok協作實戰認知-特質與監工分工手感 | grok協作實戰認知-特質與監工分工手感 |
 | 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 | 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 |
 | 雙claude協作實戰認知-fable監工opus主力的分工手感 | 雙claude協作實戰認知-fable監工opus主力的分工手感 |
+| 實驗性改動的復原要驗回快照-送一次指令不算復原 | 實驗性改動的復原要驗回快照-送一次指令不算復原 |
+| 規格裡未實證的前提要先取樣再實作-不然整包白做 | 規格裡未實證的前提要先取樣再實作-不然整包白做 |
+| 自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者 | 自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者 |
 | feedback-* | 行為校正（19 atoms） → [`_AIDocs/Failures/`](../_AIDocs/Failures/) |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） → [`_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md`](../_AIDocs/Failures/memory-pipeline-silent-failure-2026-05.md) |
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） → [`_AIDocs/Failures/cognitive-patterns.md`](../_AIDocs/Failures/cognitive-patterns.md) |

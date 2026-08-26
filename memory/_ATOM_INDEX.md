@@ -127,3 +127,6 @@
 | hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 | _AIDocs/_atoms/MemDev/hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威.md | 殘檔帳本, aec-tempfiles, aec_ledger, HUD 刪除鈕, isDeletable, 衍生暫存清單, scratchpad 清除, post-mortem, prose 猜路徑, exists() 權威 | global |
 | 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 | memory/驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過.md | 驗證腳本, 通過判準, 實機取證, RESULT, 假通過, catch-all, 逐字稿, 行號, 驗收, sub-agent 驗證, 並行驗證 | global |
 | 雙claude協作實戰認知-fable監工opus主力的分工手感 | memory/雙claude協作實戰認知-fable監工opus主力的分工手感.md | Opus, 雙 Claude, 監工, 主力寫碼, 交叉驗證, 分工提案, 無人值守, 夜班, 預先 ok, 實機一輪, to-opus, to-fable, 雙 session | global |
+| 實驗性改動的復原要驗回快照-送一次指令不算復原 | memory/實驗性改動的復原要驗回快照-送一次指令不算復原.md | 復原, 還原, 回滾, rollback, 可逆, 實驗性改動, 改外部狀態, 取證副作用, 備份還原, wear all, 逐格對帳, 使用者資料 | global |
+| 規格裡未實證的前提要先取樣再實作-不然整包白做 | memory/規格裡未實證的前提要先取樣再實作-不然整包白做.md | 規格前提, 未實證前提, 先取樣, 實作順序, 待實機取證, 解析器, 資料格式猜測, 誤判, 假讀數 | global |
+| 自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者 | memory/自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者.md | 設計債, 更根本的做法, 下次再做, 改善建議, 收尾建議, 為什麼還不做, 怎麼還不趕快, 結構性問題, 自己指出的問題 | global |
