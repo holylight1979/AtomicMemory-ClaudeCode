@@ -755,16 +755,26 @@ def _failure_writeback(ctx: dict, items: list) -> None:
         )
 
 
+# 每型固定 Trigger：health 的 REQUIRED_METADATA 含 Trigger，缺了整檔判格式錯（腦內世界標 🤢）
+_FAILURE_TRIGGERS = {
+    "env": "環境踩坑, 環境陷阱, env trap, 路徑問題, 工具鏈",
+    "assumption": "假設錯誤, 誤判, 直覺假設, wrong assumption, 前提錯",
+    "silent": "靜默失敗, silent failure, 沒報錯, 無聲吞掉, 假成功",
+    "cognitive": "認知偏差, 認知模式, cognitive pattern, 思考陷阱",
+}
+
+
 def _create_failure_atom(path: Path, ftype: str, first_block: str) -> None:
     """建立最小 failure atom 檔（專案層首次寫入用）。first_block 為多區塊骨架。
 
     走 atom_io.write_raw funnel（failures 子族不符 V4 build_atom_content
-    規範 — 用 Type/Created 而非 Trigger/Last-used，故走 raw escape hatch）。
+    規範 — 用 Type/Created 而非 Last-used，故走 raw escape hatch；Trigger 仍必填）。
     """
     content = (
         f"# {_FAILURE_TITLES.get(ftype, ftype)}\n\n"
         f"- Scope: project\n"
         f"- Confidence: [臨]\n"
+        f"- Trigger: {_FAILURE_TRIGGERS.get(ftype, _FAILURE_TRIGGERS['assumption'])}\n"
         f"- Type: procedural\n"
         f"- Created: {datetime.now().strftime('%Y-%m-%d')}\n\n"
         f"## 知識\n\n{first_block}\n\n"
