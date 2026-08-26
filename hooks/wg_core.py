@@ -463,9 +463,47 @@ def _save_registry(reg: Dict[str, Any]) -> None:
     tmp.replace(REGISTRY_PATH)
 
 
+def _transient_temp_dirs() -> List[Path]:
+    """系統暫存根（tempfile + TEMP/TMP 環境變數）；測試 harness 的假專案都住這裡。"""
+    import tempfile
+    cands = [tempfile.gettempdir(), os.environ.get("TEMP", ""), os.environ.get("TMP", "")]
+    out: List[Path] = []
+    for c in cands:
+        if c:
+            try:
+                out.append(Path(c).resolve())
+            except OSError:
+                pass
+    return out
+
+
+# 路徑含這些片段即視為暫存專案（pytest tmp_path 的固定命名）；測試可 monkeypatch 為空以驗登記路徑
+_TRANSIENT_PATH_MARKERS = ("pytest-of-",)
+
+
+def is_transient_project_root(root: Path) -> bool:
+    """暫存區內的專案根（pytest tmp_path、系統 Temp）不得登記進 project-registry。
+
+    測試用真 dispatcher 跑假專案時 SessionStart 會呼叫 register_project；不擋會讓
+    registry 每跑一次測試長兩筆、dashboard「已知專案」被垃圾淹掉。
+    """
+    try:
+        r = root.resolve()
+    except OSError:
+        r = root
+    if any(m in str(r) for m in _TRANSIENT_PATH_MARKERS):
+        return True
+    for t in _transient_temp_dirs():
+        if r == t or t in r.parents:
+            return True
+    return False
+
+
 def register_project(cwd: str) -> None:
     root = find_project_root(cwd)
     if not root:
+        return
+    if is_transient_project_root(root):
         return
     has_marker = (
         (root / ".claude" / "memory" / MEMORY_INDEX).exists()
