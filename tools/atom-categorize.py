@@ -55,7 +55,8 @@ from lib.atom_io import _audit_log, _gen_audit_id, write_index  # noqa: E402
 from lib.atom_locations import (  # noqa: E402
     FAILURES_ROOT_NAME, GLOBAL_MEMORY_DIR, LEGACY_FAILURES_DIR, LOCAL_ATOMS_DIR,
     is_flat_core_path, is_in_failures_path, is_legacy_failures_path, is_local_realm_path,
-    known_category_paths, local_realm_path_segments, normalize_domain_path, validate_category_path,
+    known_category_paths, local_realm_path_segments, normalize_domain_path, project_taxonomy_lv1,
+    validate_category_path,
 )
 from lib.atom_taxonomy import (  # noqa: E402
     TaxonomyUnavailable, category_term_pairs, core_categories, failures_topics, match_lv1,
@@ -167,8 +168,14 @@ def resolve_target(target: str, layout: Layout) -> Tuple[Optional[Dict[str, Any]
         cats = core_categories()
     except TaxonomyUnavailable as e:
         return None, f"taxonomy.json unavailable: {e}"
+    # 專案層 Lv1 閉合清單＝核心 ∪ <mem>/shared/_taxonomy.json domains（與寫入閘
+    # project_category_target 同源、同 casefold 比對），否則專案自訂範疇只能寫不能歸。
+    extra = [] if layout.is_global else project_taxonomy_lv1(layout.memory_dir)
     if lv1 is None:
-        return None, f"unknown Lv1 {head!r}; valid: {', '.join(cats)} (slug/alias accepted)"
+        lv1 = next((x for x in extra if x.casefold() == head.casefold()), None)
+    if lv1 is None:
+        valid = cats + [x for x in extra if x not in cats]
+        return None, f"unknown Lv1 {head!r}; valid: {', '.join(valid)} (slug/alias accepted)"
     full = lv1 if not rest else f"{lv1}/{rest}"
     # 先沙盒（保留名／字元集任一段不合就拒，不靜默截斷），再把 Lv2 對既有兄弟／taxonomy 宣告的
     # sub snap（'vcs/git' → '版控/Git'），snap 結果再驗一次。
