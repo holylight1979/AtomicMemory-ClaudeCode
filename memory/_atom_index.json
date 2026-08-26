@@ -2131,6 +2131,23 @@
         "自己指出的問題"
       ],
       "scope": "global"
+    },
+    {
+      "name": "路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址",
+      "path": "_AIDocs/_atoms/MemDev/路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址.md",
+      "triggers": [
+        "resolve_failures_dir",
+        "memory/failures",
+        "舊址重生",
+        "get_project_memory_dir",
+        "根層分支",
+        "failure_writeback",
+        "流浪檔",
+        "路徑遷移",
+        "cwd 在 ~/.claude",
+        "FailureDetect"
+      ],
+      "scope": "global"
     }
   ]
 }

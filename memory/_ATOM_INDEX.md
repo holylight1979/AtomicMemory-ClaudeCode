@@ -127,3 +127,4 @@
 | 實驗性改動的復原要驗回快照-送一次指令不算復原 | memory/實驗性改動的復原要驗回快照-送一次指令不算復原.md | 復原, 還原, 回滾, rollback, 可逆, 實驗性改動, 改外部狀態, 取證副作用, 備份還原, wear all, 逐格對帳, 使用者資料 | global |
 | 規格裡未實證的前提要先取樣再實作-不然整包白做 | memory/規格裡未實證的前提要先取樣再實作-不然整包白做.md | 規格前提, 未實證前提, 先取樣, 實作順序, 待實機取證, 解析器, 資料格式猜測, 誤判, 假讀數 | global |
 | 自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者 | memory/自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者.md | 設計債, 更根本的做法, 下次再做, 改善建議, 收尾建議, 為什麼還不做, 怎麼還不趕快, 結構性問題, 自己指出的問題 | global |
+| 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 | _AIDocs/_atoms/MemDev/路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址.md | resolve_failures_dir, memory/failures, 舊址重生, get_project_memory_dir, 根層分支, failure_writeback, 流浪檔, 路徑遷移, cwd 在 ~/.claude, FailureDetect | global |
