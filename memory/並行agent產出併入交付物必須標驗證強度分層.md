@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: 並行agent, sub-agent, 多agent, 研究成果併入, 查證強度, 逐字引用, 誠實聲明, 二手來源, 文件產出, subagent 回報
 - Created-at: 2026-08-11
-- Related: workflow-parallel-agents, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, feedback-completion-gates, cognitive-patterns
+- Related: workflow-parallel-agents, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, feedback-completion-gates, cognitive-patterns, 實驗性改動的復原要驗回快照-送一次指令不算復原, 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過
 
 ## 知識
 

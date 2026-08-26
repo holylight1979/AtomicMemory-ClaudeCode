@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: grok 特質, 跟 grok 合作, 雙 LLM 分工, 監工 grok, grok 水位, grok 交接, 派工給 grok, grok 可信度
 - Created-at: 2026-08-25
-- Related: 並行llm即時通訊-inbox機制, workflow-parallel-agents, 歸因早停-找到合理嫌疑機制就停止驗證, commit-前必須核對-staged-清單而非只信自己-add-了什麼
+- Related: 並行llm即時通訊-inbox機制, workflow-parallel-agents, 歸因早停-找到合理嫌疑機制就停止驗證, commit-前必須核對-staged-清單而非只信自己-add-了什麼, 雙claude協作實戰認知-fable監工opus主力的分工手感, 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過
 
 ## 知識
 

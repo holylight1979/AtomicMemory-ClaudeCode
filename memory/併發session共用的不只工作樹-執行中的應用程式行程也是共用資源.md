@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 並行 session, 併發 session, Stop-Process, 重啟應用程式, 部署新版, 共用行程, 測試循環, 重啟服務, CoordWarn
 - Created-at: 2026-08-19
-- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 混改檔hunk級選擇性staging, 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測, 並行llm即時通訊-inbox機制
+- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 混改檔hunk級選擇性staging, 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測, 並行llm即時通訊-inbox機制, 雙claude協作實戰認知-fable監工opus主力的分工手感
 
 ## 知識
 
