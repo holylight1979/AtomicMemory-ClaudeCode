@@ -103,7 +103,7 @@ def test_create_dup_guard_when_slug_lives_in_partition(tmp_path):
                 "triggers": ["probe"], "scope": "shared"}])
     r = write_atom(title="gamma", scope="shared", confidence="[臨]",
                    triggers=["probe"], knowledge=["[臨] fork"], actions=["x"],
-                   mode="create", source="mcp", project_cwd=str(root))
+                   mode="create", source="mcp", project_cwd=str(root), domain="工作流")
     assert not r.ok and "already exists" in (r.error or ""), r
 
 
@@ -114,7 +114,7 @@ def test_create_writes_scope_label_to_index(tmp_path):
     root = _mkproject(tmp_path, {})
     r = write_atom(title="epsilon", scope="shared", confidence="[臨]",
                    triggers=["probe"], knowledge=["[臨] fresh"], actions=["x"],
-                   mode="create", source="mcp", project_cwd=str(root))
+                   mode="create", source="mcp", project_cwd=str(root), domain="工作流")
     assert r.ok, r.error
     assert _index_entry(root, "epsilon")["scope"] == "shared"
 
@@ -193,16 +193,23 @@ def test_atom_move_explicit_scope_override_reports_change(tmp_path):
 
 
 def test_subdir_create_lands_in_partition(tmp_path):
+    """subdir 是分區根、domain 是範疇：落 <subdir>/<Lv1>[/<Lv2>]/（範疇閘對專案層同規則）。"""
     root = _mkproject(tmp_path, {})
     r = write_atom(title="kappa", scope="shared", confidence="[臨]",
                    triggers=["probe"], knowledge=["[臨] fresh"], actions=["x"],
                    mode="create", source="mcp", project_cwd=str(root),
-                   subdir="projects/testp")
+                   subdir="projects/testp", domain="vcs/git")
     assert r.ok, r.error
-    assert r.path == root / ".claude/memory/projects/testp/kappa.md"
+    assert r.path == root / ".claude/memory/projects/testp/版控/Git/kappa.md"
     entry = _index_entry(root, "kappa")
-    assert entry["path"] == "memory/projects/testp/kappa.md"
+    assert entry["path"] == "memory/projects/testp/版控/Git/kappa.md"
     assert entry["scope"] == "shared"
+    # subdir 給了、domain 沒給 → 仍拒（分區不是分類）
+    bad = write_atom(title="kappa2", scope="shared", confidence="[臨]",
+                     triggers=["probe"], knowledge=["[臨] fresh"], actions=["x"],
+                     mode="create", source="mcp", project_cwd=str(root),
+                     subdir="projects/testp")
+    assert not bad.ok and "unclassified shared atom" in (bad.error or ""), bad
 
 
 def test_subdir_rejects_traversal_protected_and_wrong_scope(tmp_path):
@@ -238,13 +245,18 @@ def test_sensitive_audience_overrides_subdir(tmp_path):
     assert r.path == root / ".claude/memory/shared/_pending_review/sens.md"
 
 
-def test_no_subdir_still_lands_flat_shared(tmp_path):
+def test_no_subdir_lands_under_shared_category(tmp_path):
+    """無 subdir → 層根 shared/<Lv1>/（別名 snap 回正名）；無 domain → 拒並列全部 Lv1。"""
     root = _mkproject(tmp_path, {})
     r = write_atom(title="mu", scope="shared", confidence="[臨]",
                    triggers=["probe"], knowledge=["[臨] flat"], actions=["x"],
-                   mode="create", source="mcp", project_cwd=str(root))
+                   mode="create", source="mcp", project_cwd=str(root), domain="workflow")
     assert r.ok, r.error
-    assert r.path == root / ".claude/memory/shared/mu.md"
+    assert r.path == root / ".claude/memory/shared/工作流/mu.md"
+    bad = write_atom(title="mu2", scope="shared", confidence="[臨]",
+                     triggers=["probe"], knowledge=["[臨] flat"], actions=["x"],
+                     mode="create", source="mcp", project_cwd=str(root))
+    assert not bad.ok and "Valid Lv1" in (bad.error or ""), bad
 
 
 # ─── 4. trigger 長度寫入時驗證 ────────────────────────────────────────────────

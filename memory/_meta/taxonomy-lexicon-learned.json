@@ -1,0 +1,4 @@
+{
+  "_doc": "核心層範疇分類器（lib.atom_locations.classify_category）的自學詞庫：本地 LLM 閉合清單命中後回寫的實例詞 → 下次詞庫直接命中免 LLM。值＝<Lv1>[/<Lv2>]（Lv1 須在 taxonomy.json）。泛用詞經 is_generic_lexicon_term 拒收。",
+  "terms": {}
+}

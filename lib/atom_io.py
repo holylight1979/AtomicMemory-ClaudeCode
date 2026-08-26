@@ -32,7 +32,9 @@ from .atom_locations import (
     CLAUDE_DIR, GLOBAL_MEMORY_DIR, FAILURES_DIR,
     is_failures_routed_title, failures_write_target, local_write_target,
     atom_search_roots, locate_existing_atom, project_subdir_target,
+    core_write_target, failures_topic_target, project_category_target,
 )
+from .atom_taxonomy import gate_enabled as _taxonomy_gate_enabled
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -213,20 +215,27 @@ def _resolve_target(
     realm: Optional[str] = None,
     domain: Optional[str] = None,
     subdir: Optional[str] = None,
+    mode: Optional[str] = None,
+    allow_new_category: bool = False,
 ) -> Dict[str, Any]:
-    """回傳 {dir, base, index_dir, index_root, search_roots, scope_label, routed_to_*, error}。
+    """回傳 {dir, base, index_dir, index_root, search_roots, scope_label, category, routed_to_*, error}。
 
-    `dir` = **新 atom 的落點**（扁平；主題分層由事後 classifier sweep 歸位，見
-    [[scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層]]）。
-    `search_roots` = **既有 atom 的定位範圍**（append/replace 用，含子夾）——兩者
-    刻意分離：create 不猜子夾、append/replace 不因子夾而找不到檔。
+    `dir` = **新 atom 的落點**；`search_roots` = **既有 atom 的定位範圍**（append/replace 用，
+    含子夾）——兩者刻意分離：append/replace 不因子夾而找不到檔。
+
+    範疇寫入閘（mode="create" 且 taxonomy.gate_enabled）：核心層／失敗家族／專案 shared 的
+    create 落點一律「先分類再落地」——`domain`（"<Lv1>[/<Lv2>]"，正名／slug／別名皆可）必填，
+    經 core_write_target／failures_topic_target／project_category_target snap 回正名；缺或
+    未知 Lv1 → error（unclassified_error 列全部 Lv1；allow_new_category=True 才准開新 Lv1）。
+    不猜、不落 Else；本函式**永不自動分類**（程式寫手在呼叫前自行 classify_category）。
+    mode≠create（append/replace/locate）→ 閘不啟動、domain 不影響落點（既有檔靠 index 定位）。
+    gate 關（遷移期／專案過渡）→ 退回扁平舊落點。role/personal/_pending_review 路由不受閘影響。
 
     對拍 server.js:777 resolveMemDir + 1095-1101 sensitive audience routing。
     V5+ 擴展（皆 global scope 內疊加，與 scope 正交）：
-      - title 前綴 feedback- → 物理路由 _AIDocs/Failures/（routed_to_failures）
-      - realm=local → 物理路由 _AIDocs/_atoms/<domain>/（routed_to_local；realm 由 path 推導，不存欄位）
+      - feedback- 標題 → memory/Failures/<主題>/（routed_to_failures）
+      - realm=local → _AIDocs/_atoms/<domain>/（routed_to_local；realm 由 path 推導，不存欄位）
     兩者索引皆仍在 memory/_atom_index.json（index_root=CLAUDE_DIR，單一來源）。
-    realm 只在 scope=global 生效（local atom 維持 scope=global，realm 與 scope 正交）。
     """
     if force_global:
         scope = "global"
@@ -236,39 +245,41 @@ def _resolve_target(
     if subdir and scope != "shared":
         return {"error": f"subdir is only supported for scope=shared (got scope={scope})"}
 
+    gate = (mode == "create") and _category_gate_enabled()
+
     if scope == "global":
-        # global 的三個物理居所（memory/ + _AIDocs/Failures/ + _AIDocs/_atoms/）一律
+        # global 的三個物理居所（memory/ + memory/Failures/ + _AIDocs/_atoms/）一律
         # 全納入定位範圍，不隨 create 落點縮窄——否則 realm/domain 給錯（或沒給）的
         # append/replace 會在錯的子樹找檔。對拍 server.js append/replace 的 find-fallback。
         global_roots = atom_search_roots()
-        if is_failures_routed_title(title):
-            return {
-                **failures_write_target(),
-                "search_roots": global_roots,
-                "scope_label": "global",
-                "routed_to_failures": True, "routed_to_pending": False,
-                "routed_to_local": False,
-                "error": None,
-            }
-        if realm == "local":
-            return {
-                **local_write_target(domain),
-                "search_roots": global_roots,
-                "scope_label": "global",
-                "routed_to_failures": False, "routed_to_pending": False,
-                "routed_to_local": True,
-                "error": None,
-            }
-        GLOBAL_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        return {
-            "dir": GLOBAL_MEMORY_DIR, "base": GLOBAL_MEMORY_DIR,
-            "index_dir": GLOBAL_MEMORY_DIR, "index_root": CLAUDE_DIR,
-            "search_roots": global_roots,
-            "scope_label": "global",
-            "routed_to_failures": False, "routed_to_pending": False,
-            "routed_to_local": False,
+        common = {
+            "search_roots": global_roots, "scope_label": "global", "category": None,
+            "routed_to_failures": False, "routed_to_pending": False, "routed_to_local": False,
             "error": None,
         }
+        if is_failures_routed_title(title):
+            target = None
+            if domain or gate:
+                target, err = failures_topic_target(domain, allow_new_category)
+                if err and gate:
+                    return {"error": err}
+            if target is None:
+                target = failures_write_target()
+            return {**common, **target, "routed_to_failures": True}
+        if realm == "local":
+            return {**common, **local_write_target(domain), "routed_to_local": True}
+        target = None
+        if domain or gate:
+            target, err = core_write_target(domain, allow_new_category)
+            if err and gate:
+                return {"error": err}
+        if target is None:
+            GLOBAL_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+            target = {
+                "dir": GLOBAL_MEMORY_DIR, "base": GLOBAL_MEMORY_DIR,
+                "index_dir": GLOBAL_MEMORY_DIR, "index_root": CLAUDE_DIR,
+            }
+        return {**common, **target}
 
     if scope not in ("shared", "role", "personal"):
         return {"error": f"Unknown scope: {scope}"}
@@ -289,6 +300,7 @@ def _resolve_target(
         pass
 
     base = root / ".claude" / "memory"
+    category = None
     if scope == "shared":
         if subdir:
             # 一 repo 多專案分區佈局（memory/projects/<專案名>/ 等）一次寫到位；
@@ -321,17 +333,32 @@ def _resolve_target(
     ):
         target_dir = base / "shared" / "_pending_review"
         routed_to_pending = True
+    elif scope == "shared" and (domain or gate):
+        # 專案層同規則：shared create 先分類再落地 → <shared 或 subdir 分區>/<Lv1>[/<Lv2>]/。
+        # 敏感 audience 的 _pending_review 路由優先於範疇（待審草稿不分類）。
+        target, err = project_category_target(base, domain, allow_new_category,
+                                              root_dir=target_dir)
+        if err and gate:
+            return {"error": err}
+        if target is not None:
+            target_dir = target["dir"]
+            category = target["category"]
 
     target_dir.mkdir(parents=True, exist_ok=True)
     return {
         "dir": target_dir, "base": base,
         "index_dir": base, "index_root": base.parent,
         "search_roots": search_roots,
-        "scope_label": scope_label,
+        "scope_label": scope_label, "category": category,
         "routed_to_failures": False, "routed_to_pending": routed_to_pending,
         "routed_to_local": False,
         "error": None,
     }
+
+
+def _category_gate_enabled() -> bool:
+    """範疇寫入閘開關（workflow/config.json taxonomy.gate_enabled）；測試 monkeypatch 此處。"""
+    return _taxonomy_gate_enabled()
 
 
 # ─── Index update（對拍 server.js:953 appendToIndex） ─────────────────────────
@@ -649,14 +676,18 @@ def write_atom(
     realm: Optional[str] = None,
     domain: Optional[str] = None,
     subdir: Optional[str] = None,
+    allow_new_category: bool = False,
 ) -> WriteResult:
     """寫入 atom 的唯一入口。對拍 server.js:1065 toolAtomWrite byte-identical。
 
     Required: title, scope, confidence, triggers, knowledge, mode, source
-    V5+ realm/domain（選填，僅 scope=global 生效）：realm="local" → 物理落
-    _AIDocs/_atoms/<domain>/，realm 由 path 推導不存欄位。預設 core（現狀）。
-    subdir（選填，僅 scope=shared）：create 落點改 `<memory root>/<subdir>/`
-    （多段斜線，相對 memory root），支援一 repo 多專案分區佈局。
+    domain（mode=create 必填於 scope=global 非 local／feedback- 標題／scope=shared）：
+    「層根下的 <Lv1>[/<Lv2>]」範疇路徑（正名／slug／別名皆可，snap 回正名）；
+    realm="local" 時則是 _AIDocs/_atoms/ 下的階層 domain。缺或未知 Lv1 → 拒寫並列出
+    全部 Lv1；allow_new_category=True 才准開新 Lv1（仍受保留名／字元集約束）。
+    本函式永不自動分類（source 為 mcp 時 AI 必給；程式寫手在呼叫前自行 classify_category）。
+    append/replace 忽略 domain（既有檔由 index 定位），給了只 stderr 提示不阻斷。
+    subdir（選填，僅 scope=shared）：create 分區根改 `<memory root>/<subdir>/`，範疇落其下。
     """
     audit_id = _gen_audit_id()
 
@@ -695,8 +726,13 @@ def write_atom(
                         "validate_index run (atom_move exit 2).")
 
     # ── Resolve target dir ──
+    if mode in ("append", "replace") and domain and realm != "local":
+        # 可觀測性鐵律：忽略但要告知（既有檔靠 index 定位，domain 不改落點）
+        print(f"[atom_io] mode={mode}: domain={domain!r} ignored (existing atom located via index)",
+              file=sys.stderr)
     resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
-                               title=title, realm=realm, domain=domain, subdir=subdir)
+                               title=title, realm=realm, domain=domain, subdir=subdir,
+                               mode=mode, allow_new_category=allow_new_category)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
     mem_dir = resolved["dir"]
@@ -824,12 +860,13 @@ def write_atom(
     _audit_log({
         "audit_id": audit_id, "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "op": "write", "source": source, "mode": mode, "scope": scope_label,
-        "slug": slug, "path": str(file_path),
+        "slug": slug, "path": str(file_path), "category": resolved.get("category"),
         "routed_to_pending": routed_to_pending, "skip_gate": skip_gate,
     })
 
     return WriteResult(ok=True, audit_id=audit_id, path=file_path,
-                       routed_to_pending=routed_to_pending, skip_gate=skip_gate)
+                       routed_to_pending=routed_to_pending, skip_gate=skip_gate,
+                       extra={"category": resolved.get("category")})
 
 
 def locate_atom(
@@ -843,25 +880,32 @@ def locate_atom(
     force_global: bool = False,
     realm: Optional[str] = None,
     domain: Optional[str] = None,
+    subdir: Optional[str] = None,
+    mode: Optional[str] = None,
+    allow_new_category: bool = False,
 ) -> WriteResult:
-    """定位既有 atom 實體檔（唯讀，無副作用之外的落檔）。給 MCP js 端 append/replace 用。
+    """定位既有 atom 實體檔（唯讀，無副作用之外的落檔）。給 MCP js 端 append/replace/create 用。
 
     js 不自建第二套定位邏輯（既有 findAtomFileRecursive 只覆蓋 scope=global，
     專案 scope 全漏）——統一 spawn 本函式，py/js 定位規則單一來源、不會漂移。
     回 WriteResult：ok=True 且 path=None ⇒ 找不到（caller 給 not-found 訊息）；
-    ok=False ⇒ 撞名或 scope 解析錯，error 已含說明。extra.rel_path 供索引回寫。
+    ok=False ⇒ 撞名或 scope 解析錯、或 mode="create" 時範疇閘拒寫（error 已含說明）。
+    extra.rel_path 供索引回寫；mode="create" 時另回 extra.target_dir/category＝
+    經範疇閘 snap 後的落點，js 端 create 直接用、不重作路由（py 單源）。
     """
     audit_id = _gen_audit_id()
     if scope == "project":
         scope = "shared"
     resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
-                               title=title, realm=realm, domain=domain)
+                               title=title, realm=realm, domain=domain, subdir=subdir,
+                               mode=mode, allow_new_category=allow_new_category)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
 
     slug = slugify(title)
     index_root = resolved["index_root"]
     file_path = resolved["dir"] / f"{slug}.md"
+    target_extra = {"target_dir": str(resolved["dir"]), "category": resolved.get("category")}
     if not file_path.exists():
         found, loc_err = locate_existing_atom(
             slug,
@@ -873,7 +917,7 @@ def locate_atom(
             return WriteResult(ok=False, audit_id=audit_id, error=loc_err)
         if not found:
             return WriteResult(ok=True, audit_id=audit_id, path=None,
-                               extra={"found": False})
+                               extra={"found": False, **target_extra})
         file_path = found
     try:
         rel_path = file_path.relative_to(index_root).as_posix()
@@ -882,4 +926,4 @@ def locate_atom(
                            error=f"located atom outside index root: {file_path}")
     return WriteResult(ok=True, audit_id=audit_id, path=file_path,
                        extra={"found": True, "rel_path": rel_path,
-                              "scope_label": resolved["scope_label"]})
+                              "scope_label": resolved["scope_label"], **target_extra})

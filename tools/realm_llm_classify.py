@@ -186,3 +186,71 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ─── 核心層範疇分類（閉合清單）— 程式寫手的 LLM fallback（lib.atom_locations.classify_category 喚）──
+
+def _build_category_prompt(name: str, triggers: List[str], content_excerpt: str,
+                           categories: List[str], layer: str) -> str:
+    cats_str = "\n".join(f"  - {c}" for c in categories)
+    trig = ", ".join(triggers or [])
+    excerpt = (content_excerpt or "").strip()[:800]
+    what = "失敗紀錄的主題範疇" if layer == "failures" else "記憶 atom 的範疇"
+    return (
+        f"判斷一則{what}。**只能從下列閉合清單選一個**，清單外一律回 unsure：\n"
+        f"{cats_str}\n\n"
+        f"atom 名稱：{name}\n"
+        f"觸發詞：{trig}\n"
+        f"內容摘要：{excerpt}\n\n"
+        "再抽 2–5 個「實例專屬詞」（綁定該 atom 特定工具/環境的詞，"
+        "**勿用 server.js/hook/記憶系統 等系統通用詞**）。\n\n"
+        '只回 JSON：{"category":"<清單內正名或 unsure>","terms":["..."],'
+        '"confidence":0.0,"reason":"<簡短>"}'
+    )
+
+
+def llm_classify_category(name: str, triggers: Optional[List[str]] = None,
+                          content_excerpt: str = "", categories: Optional[List[str]] = None,
+                          *, layer: str = "core",
+                          config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """喚本地 LLM 從閉合清單選範疇。回 {status: hit|unsure|error, category, confidence, terms, reason}。
+
+    status=error＝基礎設施失敗（連不到 backend／空回應）→ caller 拒寫並標 error（可延後重試）；
+    unsure＝LLM 跑了但清單外／判不出／低信心 → caller 拒寫；hit＝category 在清單內
+    （casefold 比對，回正名）；信心門檻由 caller（classify_category）依 config 裁。
+    """
+    triggers = list(triggers or [])
+    categories = [str(c) for c in (categories or []) if str(c).strip()]
+    if not categories:
+        return {"status": "error", "category": None, "confidence": 0.0, "terms": [],
+                "reason": "empty category list"}
+    prompt = _build_category_prompt(name, triggers, content_excerpt, categories, layer)
+    try:
+        from ollama_client import get_client
+        raw = get_client().generate(prompt, timeout=60, format="json")
+    except Exception as e:  # 連不到 backend / 模型錯誤 → 基礎設施失敗
+        return {"status": "error", "category": None, "confidence": 0.0, "terms": [],
+                "reason": f"LLM 不可用：{str(e)[:120]}"}
+    if not (raw or "").strip():
+        return {"status": "error", "category": None, "confidence": 0.0, "terms": [],
+                "reason": "LLM 空回應"}
+    try:
+        obj = json.loads(_extract_json(raw))
+        if not isinstance(obj, dict):
+            raise ValueError("non-object")
+    except (ValueError, TypeError) as e:
+        return {"status": "unsure", "category": None, "confidence": 0.0, "terms": [],
+                "reason": f"JSON 解析失敗：{str(e)[:100]}"}
+    try:
+        confidence = max(0.0, min(1.0, float(obj.get("confidence", 0.0))))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    terms = _validate_terms(obj.get("terms", []))
+    reason = str(obj.get("reason", ""))[:200]
+    raw_cat = str(obj.get("category") or "").strip()
+    canon = next((c for c in categories if c.casefold() == raw_cat.casefold()), None)
+    if canon is None:
+        return {"status": "unsure", "category": None, "confidence": confidence, "terms": terms,
+                "reason": f"清單外：{raw_cat!r}" if raw_cat and raw_cat.lower() != "unsure" else (reason or "unsure")}
+    return {"status": "hit", "category": canon, "confidence": confidence, "terms": terms,
+            "reason": reason}

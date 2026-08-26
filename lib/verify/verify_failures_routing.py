@@ -34,6 +34,26 @@ def test_registered_failures_stem_routes():
     assert is_failures_routed_title("memory-pipeline-silent-failure-2026-05") is False
 
 
+def test_local_feedback_atom_not_reclaimed(tmp_path, monkeypatch):
+    """顯式守衛：feedback- 前綴但 index path 已在 _AIDocs/_atoms/ → 不路由（append 在 local 樹找檔）；
+    index 未註冊的 feedback- 新標題 → 照路由。真實 repo 案例：feedback-memory-system-doc-sync 住 MemDev。"""
+    from lib import atom_locations as aloc
+    import json
+    assert is_failures_routed_title("feedback-memory-system-doc-sync") is False
+    mem = tmp_path / "memory"
+    mem.mkdir()
+    (mem / "_atom_index.json").write_text(json.dumps({"version": "1.0", "atoms": [
+        {"name": "feedback-local-one", "path": "_AIDocs/_atoms/MemDev/feedback-local-one.md",
+         "triggers": ["x"], "scope": "global"},
+        {"name": "feedback-core-one", "path": "memory/Failures/工作流/feedback-core-one.md",
+         "triggers": ["x"], "scope": "global"},
+    ]}), encoding="utf-8")
+    monkeypatch.setattr(aloc, "GLOBAL_MEMORY_DIR", mem)
+    assert is_failures_routed_title("feedback-local-one") is False
+    assert is_failures_routed_title("feedback-core-one") is True
+    assert is_failures_routed_title("feedback-never-seen") is True
+
+
 def test_plain_core_atom_not_routed():
     assert is_failures_routed_title("decisions") is False
     assert is_failures_routed_title("toolchain") is False

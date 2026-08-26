@@ -8,6 +8,7 @@ const {
   slugify, findSeparatorVariant, getCurrentUser, isSensitiveAudience, resolveMemDir,
   applyFeedbackRouting, applyLocalRouting, classifyRealm, resolveSubdirTarget,
   FAILURES_DIR, LEGACY_FAILURES_DIR, FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR,
+  CORE_CATEGORIES,
 } = require("./realm");
 
 // SYNC: lib/atom_index_json.py TRIGGER_MAX_LEN — 超長 trigger 在寫入當下即拒，
@@ -28,7 +29,7 @@ async function toolAtomWrite(id, args) {
     title, scope, confidence, triggers, knowledge, actions, related, mode,
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
-    realm, domain, status, subdir,
+    realm, domain, status, subdir, allow_new_category,
   } = args;
 
   // Validate core required fields (scope now optional, defaults to shared)
@@ -82,6 +83,27 @@ async function toolAtomWrite(id, args) {
     }
   }
 
+  // 範疇寫入閘快速預檢（js 只做「缺 domain 不 spawn」；路由／snap／拒寫裁決在 py
+  // lib/atom_io._resolve_target 單源，create 落點取下方 locate(mode=create) 回的 target_dir）。
+  // 必給 domain：scope=global 非 local realm、feedback-* 標題、scope=shared（敏感 audience
+  // 的 _pending_review 待審路由豁免）。append/replace 忽略 domain（既有檔靠 index 定位）。
+  if (mode === "create" && !domain) {
+    const needsDomain =
+      (scope === "global" && realm !== "local") ||
+      (scope === "shared" && !isSensitiveAudience(audience));
+    if (needsDomain) {
+      const lv1 = CORE_CATEGORIES.length
+        ? CORE_CATEGORIES.join(", ")
+        : "(taxonomy.json unavailable — py side lists them)";
+      return sendToolResult(id,
+        `atom_write: mode=create requires \`domain\` (category path '<Lv1>[/<Lv2>]') for ` +
+        `${routedToFailures ? "feedback-* titles (Lv1 = failure topic)" : `scope=${scope}`}.\n` +
+        `Valid Lv1: ${lv1}. EN slugs/aliases accepted (e.g. vcs/git → 版控/Git); Lv2 free.\n` +
+        `Unknown Lv1 → rejected unless allow_new_category=true.`,
+        true);
+    }
+  }
+
   // V5+ local-realm routing（與 feedback 互斥；realm 與 scope 正交，只在 global 生效）
   // 對拍 lib/atom_io._resolve_target 的 realm=="local" 分支。
   let routedToLocal = false;
@@ -125,15 +147,23 @@ async function toolAtomWrite(id, args) {
   // shared/<Domain>/，local realm atom 落 _AIDocs/_atoms/<多段 domain>/。定位規則
   // （索引 path 優先 → rglob → 撞名報錯）**只在 py 維護一份**（lib/atom_io.locate_atom），
   // js 不自建第二套；只在扁平落點 miss 時才 spawn，正常路徑零額外成本。
+  // mode=create 時同一次 spawn 也回 extra.target_dir/category（py 範疇閘 snap 後的落點；
+  // domain 缺／未知 Lv1 → lr.ok=false，error 列全部 Lv1）——js 不重作路由。
   async function locateExisting() {
     const lr = await spawnAtomCli("locate", {
       title, scope, project_cwd, role, user, audience, realm, domain,
+      subdir, mode, allow_new_category: !!allow_new_category,
     });
     if (!lr.ok) return { error: lr.error };
-    if (!lr.path) return {};
+    const extra = lr.extra || {};
+    const target = extra.target_dir
+      ? { targetDir: extra.target_dir, category: extra.category || null }
+      : {};
+    if (!lr.path) return target;
     return {
+      ...target,
       filePath: lr.path,
-      relPath: ((lr.extra || {}).rel_path) ||
+      relPath: extra.rel_path ||
                path.relative(indexRoot, lr.path).replace(/\\/g, "/"),
     };
   }
@@ -159,12 +189,26 @@ async function toolAtomWrite(id, args) {
     // 撞名防叉：同 slug 已存在於子夾（projects/<X>/、shared/<Domain>/…）→ 拒絕。
     // 否則 create 會叉出重複 atom 並讓索引 path 蹍掉舊檔（定位規則同 append/replace，
     // py 單一來源）。
+    let category = null;
     {
       const lr = await locateExisting();
       if (lr.error) return sendToolResult(id, `atom_write: ${lr.error}`, true);
       if (lr.filePath) {
         return sendToolResult(id,
           `Atom already exists: ${lr.filePath} — use mode=append or mode=replace`, true);
+      }
+      // 範疇閘落點（memory/<Lv1>[/<Lv2>]/、memory/Failures/<主題>/、shared/<Lv1>/…）
+      // 由 py 單源決定；js 只採用。
+      if (lr.targetDir) {
+        memDir = lr.targetDir;
+        category = lr.category;
+        fs.mkdirSync(memDir, { recursive: true });
+        filePath = path.join(memDir, slug + ".md");
+        relPath = path.relative(indexRoot, filePath).replace(/\\/g, "/");
+        if (fs.existsSync(filePath)) {
+          return sendToolResult(id,
+            `Atom already exists: ${filePath} — use mode=append or mode=replace`, true);
+        }
       }
     }
 
@@ -263,6 +307,7 @@ async function toolAtomWrite(id, args) {
     return sendToolResult(id,
       `Created atom: ${slug}.md (${confidence}, scope=${scopeLabel})\n` +
       `Path: ${filePath}\n` +
+      (category ? `Category: ${category}\n` : "") +
       `Author: ${author}\n` +
       (pendingReviewBy ? `Pending-review-by: ${pendingReviewBy} (sensitive audience auto-routed)\n` : "") +
       `Triggers: ${triggers.join(", ")}\n` +

@@ -121,14 +121,27 @@ function slugify(title) {
  *  incoming slug is "client-il" (slugify maps _→-). Without this guard, mode=create
  *  silently FORKS a near-duplicate atom that no append/replace path can ever reach.
  *  Returns the colliding filename (e.g. "client_il.md") or null. */
+// BFS 掃 memDir 全樹（範疇資料夾必備後，同 slug 的分隔符變體可能住任一 memory/<Lv1>/…）；
+// 跳 `_`/`.` 前綴目錄（_meta/_drafts/_pending_review…）。回相對 memDir 的檔名（posix 分隔）。
 function findSeparatorVariant(memDir, slug) {
-  let entries;
-  try { entries = fs.readdirSync(memDir); } catch { return null; }
-  for (const name of entries) {
-    if (!name.endsWith(".md")) continue;
-    const base = name.slice(0, -3);
-    if (base === slug) continue;             // exact name handled by existsSync
-    if (slugify(base) === slug) return name; // separator-variant collision
+  const queue = [memDir];
+  while (queue.length) {
+    const cur = queue.shift();
+    let entries;
+    try { entries = fs.readdirSync(cur, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (e.name.startsWith("_") || e.name.startsWith(".")) continue;
+        queue.push(path.join(cur, e.name));
+        continue;
+      }
+      if (!e.isFile() || !e.name.endsWith(".md")) continue;
+      const base = e.name.slice(0, -3);
+      if (base === slug) continue;             // exact name handled by existsSync / locate
+      if (slugify(base) === slug) {            // separator-variant collision
+        return path.relative(memDir, path.join(cur, e.name)).replace(/\\/g, "/");
+      }
+    }
   }
   return null;
 }

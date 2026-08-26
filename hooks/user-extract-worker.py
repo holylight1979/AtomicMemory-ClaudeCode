@@ -386,6 +386,26 @@ def _write_atom_via_mcp(
                 slug = alt_slug
                 break
 
+    # 範疇寫入閘（scope=global create 必給 domain）：程式寫手自行分類（詞庫 → 本地 LLM，
+    # lib.atom_locations.classify_category）；unsure/error → **拒寫**，候選改進
+    # _pending.candidates.md（前綴 [category REJECT|ERROR]）+ stderr 浮訊號，不落 Else。
+    domain = None
+    if write_scope == "global":
+        try:
+            from lib.atom_locations import classify_category
+            cls = classify_category(slug, triggers, layer="core", excerpt=statement, config=config)
+        except Exception as e:  # noqa: BLE001 — 分類器本身炸＝error 態
+            cls = {"status": "error", "category": None, "reason": repr(e)}
+        if cls.get("status") in ("lex", "llm") and cls.get("category"):
+            domain = cls["category"]
+        else:
+            tag = "ERROR" if cls.get("status") == "error" else "REJECT"
+            print(f"[category] {tag} user-extract '{slug}': {cls.get('reason', '')}",
+                  file=sys.stderr)
+            _write_pending_candidate(l2_result, candidate, user, cwd,
+                                     prefix=f"[category {tag}]")
+            return "rejected"
+
     try:
         result = write_atom(
             title=slug,
@@ -399,6 +419,7 @@ def _write_atom_via_mcp(
             mode="create",
             source="hook:user-extract",
             author="auto-extracted-v4.1",
+            domain=domain,
         )
     except Exception as e:
         _atom_debug_error("user-extract:_write_atom", e)
@@ -414,9 +435,10 @@ def _write_atom_via_mcp(
 
 
 def _write_pending_candidate(
-    l2_result: Dict, candidate: Dict, user: str, cwd: str,
+    l2_result: Dict, candidate: Dict, user: str, cwd: str, prefix: str = "",
 ) -> bool:
-    """Write conf 0.70-0.92 candidate to _pending.candidates.md."""
+    """Write conf 0.70-0.92 candidate to _pending.candidates.md.
+    `prefix`（如 "[category REJECT]"）：範疇閘拒寫的候選沿用同檔，前綴標明原因。"""
     project_root = find_project_root(cwd) if cwd else None
     if project_root:
         auto_dir = Path(project_root) / ".claude" / "memory" / "personal" / "auto" / user
@@ -432,7 +454,8 @@ def _write_pending_candidate(
     turn_id = candidate.get("turn_id", "")
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    entry = f"- [{now}] conf={conf:.2f} scope={scope} turn={turn_id}: {statement}\n"
+    lead = f"{prefix} " if prefix else ""
+    entry = f"- {lead}[{now}] conf={conf:.2f} scope={scope} turn={turn_id}: {statement}\n"
 
     try:
         with open(pending_file, "a", encoding="utf-8") as f:
@@ -662,6 +685,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     # 先寫 atom 再存 state，讓每筆 confirmed_extraction 帶 write_result，
     # UPS 宣告時能區分成功/失敗（可觀測性鐵律：寫入失敗必須浮出訊號）。
     write_failed: List[str] = []
+    category_rejected: List[str] = []
     for ext in confirmed_extractions:
         result = _write_atom_via_mcp(ext, ext, session_id, user, config)
         ext["write_result"] = result
@@ -669,6 +693,8 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
             dedup_hit += 1
         elif result == "failed":
             write_failed.append(ext.get("statement", "")[:80])
+        elif result == "rejected":  # 範疇閘分不出 → 候選已進 _pending.candidates.md
+            category_rejected.append(ext.get("statement", "")[:80])
 
     # Save state with confirmed_extractions (含 write_result)
     if confirmed_extractions:
@@ -678,6 +704,8 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
             fresh_state.setdefault("confirmed_extractions", []).extend(confirmed_extractions)
             if write_failed:
                 fresh_state.setdefault("user_extract_write_failed", []).extend(write_failed)
+            if category_rejected:
+                fresh_state.setdefault("user_extract_category_rejected", []).extend(category_rejected)
             fresh_state["last_updated"] = datetime.now().astimezone().isoformat()
             _write_state_atomic(state_path, fresh_state)
 

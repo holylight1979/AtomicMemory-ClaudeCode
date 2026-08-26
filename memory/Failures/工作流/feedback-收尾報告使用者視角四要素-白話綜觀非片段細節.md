@@ -5,7 +5,7 @@
 - Confidence: [固]
 - Trigger: 收尾報告, 完成報告, 總結, 回報, 使用者看不懂, 白話, 可讀性, 最終訊息, Chat 回應, TLDR, 報告格式
 - Created-at: 2026-08-06
-- Related: feedback-workflow-discipline, handoff-綜觀品質與抗失真寫法, feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字, 目標展開與收斂-立體菱形體思考模型, feedback-使用者已宣告不展開的領域-不要回頭跟他要清單
+- Related: feedback-workflow-discipline, handoff-綜觀品質與抗失真寫法, feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字, 目標展開與收斂-立體菱形體思考模型, feedback-使用者已宣告不展開的領域-不要回頭跟他要清單, feedback-請使用者挑下一步或範圍時用選單問-可複選就開複選
 
 ## 知識
 

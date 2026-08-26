@@ -128,3 +128,4 @@
 | 規格裡未實證的前提要先取樣再實作-不然整包白做 | memory/文字與格式/規格裡未實證的前提要先取樣再實作-不然整包白做.md | 規格前提, 未實證前提, 先取樣, 實作順序, 待實機取證, 解析器, 資料格式猜測, 誤判, 假讀數 | global |
 | 自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者 | memory/行為契約/自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者.md | 設計債, 更根本的做法, 下次再做, 改善建議, 收尾建議, 為什麼還不做, 怎麼還不趕快, 結構性問題, 自己指出的問題 | global |
 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 | _AIDocs/_atoms/MemDev/路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址.md | resolve_failures_dir, memory/failures, 舊址重生, get_project_memory_dir, 根層分支, failure_writeback, 流浪檔, 路徑遷移, cwd 在 ~/.claude, FailureDetect | global |
+| feedback-請使用者挑下一步或範圍時用選單問-可複選就開複選 | memory/Failures/行為契約/feedback-請使用者挑下一步或範圍時用選單問-可複選就開複選.md | 下一步, 請你挑, 選一個, 候選, AskUserQuestion, 選單, 複選, multiSelect, 收尾問題, 範圍取捨, 拍板 | global |

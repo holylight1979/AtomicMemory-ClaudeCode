@@ -2148,6 +2148,24 @@
         "FailureDetect"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-請使用者挑下一步或範圍時用選單問-可複選就開複選",
+      "path": "memory/Failures/行為契約/feedback-請使用者挑下一步或範圍時用選單問-可複選就開複選.md",
+      "triggers": [
+        "下一步",
+        "請你挑",
+        "選一個",
+        "候選",
+        "AskUserQuestion",
+        "選單",
+        "複選",
+        "multiSelect",
+        "收尾問題",
+        "範圍取捨",
+        "拍板"
+      ],
+      "scope": "global"
     }
   ]
 }

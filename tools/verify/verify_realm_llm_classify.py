@@ -99,3 +99,34 @@ def test_validate_terms_drops_protected_and_short():
     assert "wsl2" in out and "vhdx" in out
     assert "a" not in out                 # 過短
     assert "feedback-x" not in out and "decisions" not in out  # protected 前綴
+
+
+# ─── 核心層範疇分類（閉合清單）llm_classify_category ─────────────────────────
+
+_CATS = ["版控", "工作流", "驗證與實證"]
+
+
+def test_category_hit_in_closed_list(mock_llm):
+    """清單內（大小寫不分）→ hit + 正名；terms 剔系統通用詞。"""
+    mock_llm('{"category":"驗證與實證","terms":["printwindow","server.js"],"confidence":0.85,"reason":"驗"}')
+    r = R.llm_classify_category("x", ["y"], "內文", _CATS)
+    assert r["status"] == "hit" and r["category"] == "驗證與實證"
+    assert r["confidence"] == 0.85 and r["terms"] == ["printwindow"]
+
+
+def test_category_outside_list_is_unsure(mock_llm):
+    """清單外（含 LLM 自創／'unsure'）→ unsure，永不落 Else。"""
+    mock_llm('{"category":"量子","terms":[],"confidence":0.95,"reason":"x"}')
+    r = R.llm_classify_category("x", [], "", _CATS)
+    assert r["status"] == "unsure" and r["category"] is None
+    mock_llm('{"category":"unsure","terms":[],"confidence":0.1,"reason":"?"}')
+    assert R.llm_classify_category("x", [], "", _CATS)["status"] == "unsure"
+
+
+def test_category_infra_failure_and_bad_json(mock_llm):
+    """連不到 → error（caller 標 error、可延後重試）；壞 JSON → unsure；空清單 → error。"""
+    mock_llm(RuntimeError("connection refused"))
+    assert R.llm_classify_category("x", [], "", _CATS)["status"] == "error"
+    mock_llm("not json at all")
+    assert R.llm_classify_category("x", [], "", _CATS)["status"] == "unsure"
+    assert R.llm_classify_category("x", [], "", [])["status"] == "error"

@@ -166,14 +166,19 @@ def test_personal_scope_locates_own_user_subtree_only(tmp_path):
 
 
 def test_create_lands_by_write_gate_default(tmp_path):
-    """create 落點由寫入閘決定：閘關（無 domain）→ 層根 shared/；不從既有子夾猜。"""
+    """create 落點由範疇寫入閘決定：domain 必填 → shared/<Lv1>/；不從既有子夾猜（Tools/ 不會被
+    當落點）；無 domain → 拒。"""
     root = _mkproject(tmp_path, {"shared/Tools/alpha.md": "alpha"})
     r = write_atom(title="brandnew", scope="shared", confidence="[臨]",
                    triggers=["probe"], knowledge=["[臨] fresh"], actions=["do"],
                    mode="create", source="mcp", project_cwd=str(root),
-                   skip_gate=True)
+                   skip_gate=True, domain="design")
     assert r.ok, r.error
-    assert r.path == root / ".claude/memory/shared/brandnew.md"
+    assert r.path == root / ".claude/memory/shared/設計通則/brandnew.md"
+    bad = write_atom(title="brandnew2", scope="shared", confidence="[臨]",
+                     triggers=["probe"], knowledge=["[臨] fresh"], actions=["do"],
+                     mode="create", source="mcp", project_cwd=str(root), skip_gate=True)
+    assert not bad.ok and "unclassified shared atom" in (bad.error or ""), bad
 
 
 def test_global_append_locates_by_index_path(tmp_path):

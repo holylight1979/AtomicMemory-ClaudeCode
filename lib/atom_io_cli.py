@@ -48,6 +48,35 @@ def _budget_check(content: str):
     return knowledge_budget_error(knowledge_sections_bytes(content))
 
 
+def _core_layout_gate_error(base_dir: Path, rel_path: str):
+    """核心層 create 落點後盾：gate 開且 index 在全域 memory/ 時，rel_path 必須帶範疇段。
+    回錯誤字串或 None。專案層 index（非全域）不在此檢。"""
+    from . import atom_io as _aio
+    from .atom_locations import (
+        FAILURES_ROOT_NAME, core_category_segments, is_flat_core_path,
+        is_legacy_failures_path, unclassified_error,
+    )
+    try:
+        if base_dir.resolve() != _aio.GLOBAL_MEMORY_DIR.resolve():
+            return None
+    except OSError:
+        return None
+    if not _aio._category_gate_enabled():
+        return None
+    rel = rel_path.replace("\\", "/")
+    segs = core_category_segments(rel)
+    if is_legacy_failures_path(rel) or is_flat_core_path(rel) or segs == [FAILURES_ROOT_NAME]:
+        try:
+            from .atom_taxonomy import core_categories
+            cats = core_categories()
+        except Exception:  # noqa: BLE001 — taxonomy 缺時仍要拒、只是列不出清單
+            cats = []
+        layer = "failures" if (segs and segs[0] == FAILURES_ROOT_NAME) or is_legacy_failures_path(rel) else "core"
+        return ("category gate: create landing spot must be memory/<Lv1>[/<Lv2>]/ "
+                f"(got {rel!r}); " + unclassified_error(None, cats, layer))
+    return None
+
+
 def create_atom(payload: dict) -> WriteResult:
     """合併 create funnel：build→write_raw→access init（first_seen+last_used 單寫）
     →write_index，單一 subprocess 取代 create 路徑原本的多次 spawn。
@@ -69,6 +98,13 @@ def create_atom(payload: dict) -> WriteResult:
     file_path = Path(payload["file_path"])
     today = payload["today"]
     index = payload["index"]
+
+    # 0. 範疇寫入閘後盾（py 單源）：js 端算好 file_path 才 spawn 本 action，不經 write_atom；
+    #    若 rel_path 仍是核心層平鋪（memory/<slug>.md）、Failures 根平鋪、或舊址 _AIDocs/Failures/
+    #    → 拒（舊碼 MCP 實例／繞路呼叫都攔得住）。專案層由 locate(mode=create) 閘 + js 預檢負責。
+    gate_err = _core_layout_gate_error(Path(index["base_dir"]), str(index.get("rel_path") or ""))
+    if gate_err:
+        return WriteResult(ok=False, error=gate_err)
 
     # 1. build + validate（不落檔）
     try:

@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-26 核心記憶分類階層化 S4 寫入閘 — create 先分類再落地
+- `atom_io._resolve_target` 接 `core_write_target`／`failures_topic_target`／`project_category_target`：mode=create 且 `taxonomy.gate_enabled` 時 scope=global（非 local）、feedback-* 標題、scope=shared 的 `domain` 必填，缺／未知 Lv1 → 拒並列全部 Lv1（`allow_new_category` 才准新 Lv1）；append/replace 忽略 domain（stderr 提示）；`locate_atom(mode=create)` 回 `extra.target_dir/category` 供 js 採用、`atom_io_cli.create_atom` 加平鋪／舊址後盾。自動分類器 `classify_category`（taxonomy terms ∪ `_meta/taxonomy-lexicon-learned.json` → `llm_classify_category` 閉合清單）只服務程式寫手：user-extract 分不出 → `_pending.candidates.md` `[category REJECT]`；extract-worker 失敗回寫永不拒（`failure_type_fallback`）、落 `Failures/<主題>/<type>-<主題>.md` + index upsert；episodic／`_drafts` 豁免。js：create 缺 domain 不 spawn、`findSeparatorVariant` BFS、mcp schema `domain`/`allow_new_category`。`is_failures_routed_title` 補「index path 在 `_AIDocs/_atoms/` 不回搬」。測試 `verify_category_gate.py` 14 案。
+
 ## 2026-08-26 核心記憶分類階層化 S3 遷移 — memory/ 平鋪 → 範疇資料夾
 - `atom-categorize.py apply`：77 顆進 `memory/<範疇>/`（含 21 顆失敗家族進 `memory/Failures/<主題>/`、11 顆 Continuity/OS/Tools 使用面 local→core）、4 顆開發面進 `_AIDocs/_atoms/MemDev/`；7 份參考文件 + `_INDEX.md` git mv 到 `memory/Failures/_reference/`，`_AIDocs/Failures/` 移除。`taxonomy.gate_enabled=true`、MEMORY.md 改 Lv1 目錄（19 行）、`INDEX_MAX_LINES` 40、`CROSS_PROJECT_LOCAL_DOMAINS` 清空（機制保留）。undo 憑證 `plans/categorize-<ts>.undo.json`（本機）。
 

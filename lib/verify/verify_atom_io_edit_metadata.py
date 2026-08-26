@@ -46,6 +46,11 @@ def isolated_claude(tmp_path, monkeypatch):
     monkeypatch.setattr(atom_io, "CLAUDE_DIR", fake_claude)
     monkeypatch.setattr(atom_io, "GLOBAL_MEMORY_DIR", fake_global_mem)
     monkeypatch.setattr(atom_io, "AUDIT_LOG", fake_audit)
+    # 範疇寫入閘落點函式讀 atom_locations 全域 → 一併指 tmp（否則 create 寫進現役 memory/<範疇>/）
+    from lib import atom_locations as _aloc
+    monkeypatch.setattr(_aloc, "CLAUDE_DIR", fake_claude)
+    monkeypatch.setattr(_aloc, "GLOBAL_MEMORY_DIR", fake_global_mem)
+    monkeypatch.setattr(_aloc, "FAILURES_DIR", fake_global_mem / "Failures")
     return {"root": tmp_path, "claude": fake_claude, "memory": fake_global_mem}
 
 
@@ -56,7 +61,7 @@ def _make_atom(isolated_claude, *, title="Edit Target", triggers=("a", "b", "c")
         title=title, scope="global", confidence="[臨]",
         triggers=list(triggers), knowledge=list(knowledge),
         related=list(related) if related else None,
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert res.ok, res.error
     return res.path

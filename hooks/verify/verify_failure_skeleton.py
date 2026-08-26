@@ -134,8 +134,9 @@ def test_writeback_creates_skeleton_file(patched_dir):
         "domain_tags": ["hooks"],
     }
     ew._failure_writeback({"cwd": "", "config": {}}, [item])
-    target = patched_dir / ew._FAILURE_TYPE_FILE["env"]
-    assert target.exists()
+    # 主題＝classify 命中或 failure_type_fallback（env → OS-Windows）；檔名帶主題 slug
+    target = patched_dir / "OS-Windows" / "env-traps-os-windows.md"
+    assert target.exists(), sorted(p.as_posix() for p in patched_dir.rglob("*.md"))
     text = target.read_text(encoding="utf-8")
     for sect in ("始末", "根因", "設計原理", "運作邏輯", "防再犯"):
         assert sect in text, f"檔內缺區塊：{sect}"
@@ -152,6 +153,7 @@ def test_writeback_dedup_second_time(patched_dir):
     ctx = {"cwd": "", "config": {}}
     ew._failure_writeback(ctx, [item])
     ew._failure_writeback(ctx, [item])
-    target = patched_dir / ew._FAILURE_TYPE_FILE["silent"]
+    # silent → fallback 主題 驗證與實證
+    target = patched_dir / "驗證與實證" / "silent-failures-驗證與實證.md"
     text = target.read_text(encoding="utf-8")
     assert text.count("**始末**") == 1

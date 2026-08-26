@@ -37,6 +37,15 @@ def isolated_claude(tmp_path, monkeypatch):
     monkeypatch.setattr(atom_io, "CLAUDE_DIR", fake_claude)
     monkeypatch.setattr(atom_io, "GLOBAL_MEMORY_DIR", fake_global_mem)
     monkeypatch.setattr(atom_io, "AUDIT_LOG", fake_audit)
+    # 範疇寫入閘的落點函式（core_write_target / failures_topic_target / local_write_target）
+    # 讀 atom_locations 的模組全域 → 一併指到 tmp，否則測試會寫進現役 memory/<範疇>/。
+    from lib import atom_locations as _aloc
+    monkeypatch.setattr(_aloc, "CLAUDE_DIR", fake_claude)
+    monkeypatch.setattr(_aloc, "GLOBAL_MEMORY_DIR", fake_global_mem)
+    monkeypatch.setattr(_aloc, "FAILURES_DIR", fake_global_mem / "Failures")
+    monkeypatch.setattr(_aloc, "LOCAL_ATOMS_DIR", fake_claude / "_AIDocs" / "_atoms")
+    monkeypatch.setattr(_aloc, "TAXONOMY_LEARNED_PATH",
+                        fake_global_mem / "_meta" / "taxonomy-lexicon-learned.json")
     return {
         "root": tmp_path,
         "claude": fake_claude,
@@ -66,12 +75,12 @@ def test_01_global_create_byte_identical(isolated_claude):
     result = write_atom(
         title="Hello", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["fact1", "fact2"],
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert result.ok, result.error
     actual = result.path.read_text(encoding="utf-8")
     assert actual == expected, f"DIFF\nEXPECTED:\n{expected}\nACTUAL:\n{actual}"
-    assert result.path == isolated_claude["memory"] / "hello.md"
+    assert result.path == isolated_claude["memory"] / "設計通則" / "hello.md"
 
 
 # ─── 2. shared atom create (project scope) ────────────────────────────────────
@@ -82,10 +91,10 @@ def test_02_shared_create(isolated_claude, fake_project):
         title="Shared Knowledge", scope="shared", confidence="[臨]",
         triggers=["x", "y", "z"], knowledge=["k1"],
         project_cwd=str(fake_project),
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="工作流", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert result.ok, result.error
-    expected_path = fake_project / ".claude" / "memory" / "shared" / "shared-knowledge.md"
+    expected_path = fake_project / ".claude" / "memory" / "shared" / "工作流" / "shared-knowledge.md"
     assert result.path == expected_path
     content = result.path.read_text(encoding="utf-8")
     assert "- Scope: shared" in content
@@ -137,7 +146,7 @@ def test_05_optional_fields(isolated_claude):
         related=["other-atom-1", "other-atom-2"],
         audience=["programmer"],  # not in SENSITIVE_AUDIENCE
         author="testuser", merge_strategy="manual",
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert result.ok, result.error
     content = result.path.read_text(encoding="utf-8")
@@ -152,7 +161,7 @@ def test_05_optional_fields(isolated_claude):
         title="Full Atom 2", scope="global", confidence="[臨]",
         triggers=["x", "y", "z"], knowledge=["k"],
         merge_strategy="ai-assist",
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert "Merge-strategy:" not in result2.path.read_text(encoding="utf-8")
 
@@ -166,7 +175,7 @@ def test_06_sensitive_audience_routes_pending(isolated_claude, fake_project):
         triggers=["d1", "d2", "d3"], knowledge=["k"],
         audience=["decision"],  # sensitive
         project_cwd=str(fake_project),
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="工作流", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert result.ok, result.error
     assert result.routed_to_pending is True
@@ -182,9 +191,9 @@ def test_07_append_mode(isolated_claude):
     write_atom(
         title="Appendable", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["original-fact"],
-        mode="create", source="test", skip_gate=True, today="2026-05-01",
+        domain="設計通則", mode="create", source="test", skip_gate=True, today="2026-05-01",
     )
-    file_path = isolated_claude["memory"] / "appendable.md"
+    file_path = isolated_claude["memory"] / "設計通則" / "appendable.md"
     access_path = file_path.with_suffix(".access.json")
     before = file_path.read_text(encoding="utf-8")
     assert "- original-fact" in before
@@ -219,7 +228,7 @@ def test_08_replace_preserves_counters(isolated_claude):
         title="Counter Atom", scope="global", confidence="[臨]",
         triggers=["c1", "c2", "c3"], knowledge=["v1"],
         author="orig-author",
-        mode="create", source="test", skip_gate=True, today="2026-05-01",
+        domain="設計通則", mode="create", source="test", skip_gate=True, today="2026-05-01",
     )
     # 計數在 access.json，模擬 post-write 演進
     fp = initial.path
@@ -254,7 +263,7 @@ def test_09_dry_run_no_write(isolated_claude):
     result = write_atom(
         title="Ghost Atom", scope="global", confidence="[臨]",
         triggers=["g1", "g2", "g3"], knowledge=["k"],
-        mode="create", source="test", skip_gate=True,
+        domain="設計通則", mode="create", source="test", skip_gate=True,
         dry_run=True, today=FIXED_TODAY,
     )
     assert result.ok
@@ -274,7 +283,7 @@ def test_10_error_paths(isolated_claude, fake_project):
     r1 = write_atom(
         title="X", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["k"],
-        mode="create", source="hacker:bypass", skip_gate=True,
+        domain="設計通則", mode="create", source="hacker:bypass", skip_gate=True,
     )
     assert not r1.ok and "invalid source" in r1.error
 
@@ -290,7 +299,7 @@ def test_10_error_paths(isolated_claude, fake_project):
     r3 = write_atom(
         title="X", scope="global", confidence="[固]",
         triggers=["a", "b", "c"], knowledge=["k"],
-        mode="create", source="test", skip_gate=True,
+        domain="設計通則", mode="create", source="test", skip_gate=True,
     )
     assert not r3.ok and "[臨]" in r3.error
 
@@ -298,12 +307,12 @@ def test_10_error_paths(isolated_claude, fake_project):
     write_atom(
         title="Once", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["k"],
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     r4 = write_atom(
         title="Once", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["k"],
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert not r4.ok and "already exists" in r4.error
 
@@ -323,7 +332,7 @@ def test_audit_log_appends_jsonl(isolated_claude):
     write_atom(
         title="LoggedAtom", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["k"],
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     audit_path = isolated_claude["audit"]
     assert audit_path.exists()
@@ -346,7 +355,7 @@ def test_11_table_and_fence_blocks(isolated_claude):
     result = write_atom(
         title="Block Atom", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=kn,
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert result.ok, result.error
     content = result.path.read_text(encoding="utf-8")
@@ -365,7 +374,7 @@ def test_12_append_table_block(isolated_claude):
     write_atom(
         title="Appendable Table", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["original-fact"],
-        mode="create", source="test", skip_gate=True, today="2026-05-01",
+        domain="設計通則", mode="create", source="test", skip_gate=True, today="2026-05-01",
     )
     result = write_atom(
         title="Appendable Table", scope="global", confidence="[臨]",
@@ -563,10 +572,10 @@ def test_15_local_realm_routing(isolated_claude, monkeypatch):
     core = write_atom(
         title="Plain Core", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["k"],
-        mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
+        domain="設計通則", mode="create", source="test", skip_gate=True, today=FIXED_TODAY,
     )
     assert core.ok, core.error
-    assert core.path == isolated_claude["memory"] / "plain-core.md"
+    assert core.path == isolated_claude["memory"] / "設計通則" / "plain-core.md"
 
 
 # ─── 16. realm classifier: zero false positives + correct local detection ──────
@@ -851,9 +860,9 @@ def test_24_append_crlf_byte_stability(isolated_claude):
     write_atom(
         title="Crlf Atom", scope="global", confidence="[臨]",
         triggers=["a", "b", "c"], knowledge=["original-fact"],
-        mode="create", source="test", skip_gate=True, today="2026-05-01",
+        domain="設計通則", mode="create", source="test", skip_gate=True, today="2026-05-01",
     )
-    fp = isolated_claude["memory"] / "crlf-atom.md"
+    fp = isolated_claude["memory"] / "設計通則" / "crlf-atom.md"
     # 強制整檔 CRLF（不依賴平台 os.linesep）
     crlf_bytes = fp.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
     fp.write_bytes(crlf_bytes)
