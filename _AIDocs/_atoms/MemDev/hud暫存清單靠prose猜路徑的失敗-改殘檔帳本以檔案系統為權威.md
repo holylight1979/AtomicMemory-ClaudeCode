@@ -6,7 +6,7 @@
 - Trigger: 殘檔帳本, aec-tempfiles, aec_ledger, HUD 刪除鈕, isDeletable, 衍生暫存清單, scratchpad 清除, post-mortem, prose 猜路徑, exists() 權威
 - Status: 帳本 + HUD 面板已落地 2026-08-25，待新 session 肉眼驗面板流程
 - Created-at: 2026-08-25
-- Related: feedback-completion-gates, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 歸因早停-找到合理嫌疑機制就停止驗證
+- Related: feedback-completion-gates, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 歸因早停-找到合理嫌疑機制就停止驗證, 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址
 
 ## 知識
 
