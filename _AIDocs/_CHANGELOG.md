@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-27 Stop DeferralGate — 退縮歸屬程式化擋回
+- 起於使用者指正「明明很快、為什麼推給下個 session」：既有 `time-deferral` 只是軟標記且缺「下個 session／不在本案／非我造成」詞。新 `forbidden-phrases.json` 類別 `deferral-attribution`（+`deferral_user_ok` 逃生門、完成詞補完工／結案／已 push）；`wg_evasion.detect_deferral`（命中句去退縮語後 ≥6 字才算有受詞）+ `deferral_gate_reason`（完成宣告 ∨ 本 turn commit、context ≤ `deferral_gate.max_context_ratio` 0.75 讀 transcript 真實 usage）；`stop.py` 在 evasion 標記後、ScanReport 前擋回三選一（做掉／一句話不能做的理由／使用者原話明示延後），每 turn 一次、共用 `stop_gate_max_blocks`、guard log `deferral`。IDENTITY／template 反退避契約加一條；TECH §5.6 五類。測試 `hooks/verify/verify_deferral_gate.py`。
+
 ## 2026-08-26 核心記憶分類階層化 S5 專案層＋文件同步 — 本案結案
 - 專案層：`sync-memory-index --memory-dir <proj>/.claude/memory` 只 upsert 該專案 MEMORY.md 的 `<!-- atom-catalog -->` 區塊（`shared/<Lv1>/` 範疇列＋分區計數列＋平鋪 shared 逐顆列；無 marker `--check` exit 1／`--write` 追加檔尾；區塊外逐 byte 不動；不生 `_INDEX.md`／`_local_catalog.md`／doc-counts）；`funnel.js syncMemoryIndex(memoryDir)` 在 shared create/replace 後帶 `--memory-dir`；`conflict-review approve` 經 `project_category_target`（`--domain` 或 `classify_category`，分不出留 pending）＋ index upsert；`memory-audit` 專案 index 仍含平鋪 shared 時 MEMORY.md 行數只報 info；`project_hooks` delegate 不接（`shared/_taxonomy.json` 為唯一擴充入口）。MCP `atom_write` 補 `dry_run`（schema → atom-tools.js → py `create_atom`；append/replace 定位後短路）。文件同步 TECH／SPEC §2.1/§2.2/§2.3／Architecture／DocIndex／_INDEX／rules/core／skills refile+memory／lib/_MAP 改為兩根＋範疇資料夾現況；4 顆 atom append。測試 `verify_project_layer_smoke.py` 擴至五斷言（hook 子程序 harness）、`verify_realm_injection_gate.py` +專案 cwd、audit sot +info 案。
 

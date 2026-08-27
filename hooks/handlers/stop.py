@@ -22,12 +22,12 @@ from wg_core import (
     append_guard_log, WORKFLOW_DIR,
 )
 from wg_evasion import (
-    claims_completion, detect_evasion,
+    claims_completion, detect_evasion, deferral_gate_reason,
     get_last_assistant_text, detect_missing_aec_emission,
     get_current_turn_text, read_transcript_tail,
 )
 from wg_episodic import _find_session_transcript
-from wg_handoff import token_warn_payload
+from wg_handoff import token_warn_payload, estimate_context_usage
 from handlers._shared import (
     _maybe_spawn_user_extract_worker,
     DOCDRIFT_AVAILABLE,
@@ -667,6 +667,51 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "excerpt": (ev.get("context_excerpt", "") or "")[:120],
             })
             write_state(session_id, state)
+
+    # ── Deferral Gate（退縮歸屬）────────────────────────────────
+    # 主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤ deferral_gate.
+    # max_context_ratio 時，收尾把「帶受詞、可做的事」推給下個 session／獨立議題／
+    # 非我造成 → 擋回三選一。每 turn 一次（deferral_gate_turn）、共用 stop_gate_max_blocks
+    # 全域預算。判定純函式在 wg_evasion.deferral_gate_reason；量測失敗 fail-open。
+    if stop_count < max_blocks and last_text:
+        _dg_turn = int(state.get("turn_seq", 0))
+        _ah = config.get("auto_handoff", {}) or {}
+        try:
+            _dg_ratio = estimate_context_usage(
+                transcript,
+                _ah.get("context_window_tokens", 1_000_000),
+                _ah.get("context_base_overhead_tokens", 15000),
+                text=transcript_text,
+            )
+        except Exception:
+            _dg_ratio = 0.0
+        try:
+            dg = deferral_gate_reason(
+                last_text,
+                state.get("recent_user_prompts", []) or [],
+                turn_seq=_dg_turn,
+                gated_turn=state.get("deferral_gate_turn"),
+                committed_this_turn=(
+                    bool(_dg_turn) and state.get("last_commit_turn_seq") == _dg_turn
+                ),
+                context_ratio=_dg_ratio,
+                config=config,
+            )
+        except Exception as e:
+            dg = None
+            print(f"[Guardian:DeferralGate] error (fail-open): {e}", file=sys.stderr)
+        if dg:
+            state["deferral_gate_turn"] = _dg_turn
+            state["stop_blocked_count"] = stop_count + 1
+            append_guard_log("deferral", {
+                "session_id": session_id,
+                "turn_seq": _dg_turn,
+                "context_ratio": round(float(_dg_ratio), 3),
+                "excerpt": dg.split("\n")[1][:160] if "\n" in dg else "",
+            })
+            write_state(session_id, state)
+            output_block(_piggyback(dg))
+            return
 
     # ── Scan-Report Gate ────────────────────────────────────────
     # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；

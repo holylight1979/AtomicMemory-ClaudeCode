@@ -2166,6 +2166,26 @@
         "拍板"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session",
+      "path": "memory/Failures/行為契約/feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個session.md",
+      "triggers": [
+        "下個 session",
+        "下一個 session",
+        "不是本次",
+        "不在本案",
+        "非我造成",
+        "獨立議題",
+        "遺留議題",
+        "另案",
+        "退縮歸屬",
+        "DeferralGate",
+        "收尾",
+        "遠留項目",
+        "你可以推進的"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -40,6 +40,7 @@
 ## 反退避契約（`wg_evasion.py` Hook 程式化攔截）
 * **禁語**：清單與例外在 `memory/_meta/forbidden-phrases.json`（single source）。出現即違約。
 * **發現即處理**：門檻見 atom [[feedback-workflow-discipline]]。
+* **退縮歸屬**：主任務已完工且 context 用量 ≤75% 時，不得把帶受詞的可做之事（修補、小問題、新／舊 bug、自己或非自己的過失、計畫外項目）推給「下個 session／獨立議題／非我造成」——當場做掉，或一句話說明不可逆／需拍板／會飄移主任務；Stop 閘 `DeferralGate` 程式化擋回。
 * **收尾檢核**：宣告完成且動 core 檔/多檔時，以 MCP tool `anti_evasion_report` 結構化提交四項（欄位定義見 tool schema；衍生暫存預設直接刪），Stop 閘程式化強制。另自檢版本脈絡殘留（[[feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔]]），發現列入缺失清單。
 
 > **環境認知**：啟動辨識所在環境（核心 ~/.claude / 專案 / 額外）以定 realm 注入範疇。

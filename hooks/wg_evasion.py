@@ -48,6 +48,17 @@ _FALLBACK_EVASION_PATTERNS = [
     r"未來[^，。\s]{0,3}處理", r"待後續", r"另行處理", r"另外處理",
     r"留給使用者",
 ]
+_FALLBACK_DEFERRAL_PATTERNS = [
+    r"下\s*(?:個|一個|一)?\s*session", r"待下\s*(?:個|一個|次)?\s*session",
+    r"不(?:是|在|屬於?)本\s*(?:次|輪|案|回合|階段|計畫|任務|session)",
+    r"非本\s*(?:輪|案|回合|階段|計畫|任務|session)",
+    r"非我(?:造成|所改|之過|引起)", r"獨立議題", r"另案(?:處理)?", r"遺留(?:議題|項目|事項)",
+    r"next\s+session",
+]
+_FALLBACK_DEFERRAL_USER_OK_PATTERNS = [
+    r"(?:下|新|另開|另一個)\s*(?:個|一個)?\s*session\s*(?:再|才|做|處理|弄)",
+    r"留(?:到|給)\s*(?:下|新|之後)",
+]
 _FALLBACK_DISMISS_PATTERNS = [
     r"先這樣", r"留著", r"不用管", r"不要管", r"跳過", r"先跳過",
     r"known\s+regression", r"confirmed\s+regression",
@@ -72,8 +83,8 @@ _FALLBACK_COMPLETION_PATTERNS = [
 ]
 # 進行式/否定修飾緊鄰完成詞 → 非真正終結宣告，排除（false-positive）。
 _FALLBACK_COMPLETION_EXCLUDE = [
-    r"(?:還沒|還未|尚未|尚待|未|沒有?|先確認|正在)[^，。！？\n]{0,8}(?:完成|做完|解決|收尾|搞定)",
-    r"(?:完成|做完|解決|收尾|搞定)[^，。！？\n]{0,6}(?:尚未|還沒|還未|未完|沒完|未滿足|沒做完|未達|待補|待修)",
+    r"(?:還沒|還未|尚未|尚待|未|沒有?|先確認|正在)[^，。！？\n]{0,8}(?:完成|做完|解決|收尾|搞定|完工|結案)",
+    r"(?:完成|做完|解決|收尾|搞定|完工|結案)[^，。！？\n]{0,6}(?:尚未|還沒|還未|未完|沒完|未滿足|沒做完|未達|待補|待修)",
     r"待(?:補|修|辦|處理|確認|完善)",
 ]
 
@@ -88,10 +99,14 @@ def _load_phrases() -> Dict[str, List[str]]:
     except (OSError, json.JSONDecodeError):
         return {}
     evasion: List[str] = []
+    deferral: List[str] = []
     for cat in data.get("categories", []) or []:
         for p in cat.get("patterns", []) or []:
             if p:
                 evasion.append(p)
+                if cat.get("id") == "deferral-attribution":
+                    deferral.append(p)
+    deferral_user_ok = list(data.get("deferral_user_ok", {}).get("patterns", []) or [])
     dismiss = list(data.get("dismiss_keywords", {}).get("patterns", []) or [])
     scan_report = list(data.get("scan_report_markers", {}).get("patterns", []) or [])
     completion_claim = data.get("completion_claim", {}) or {}
@@ -105,6 +120,8 @@ def _load_phrases() -> Dict[str, List[str]]:
         "scan_report": scan_report or _FALLBACK_SCAN_REPORT_PATTERNS,
         "completion": completion or _FALLBACK_COMPLETION_PATTERNS,
         "completion_exclude": completion_exclude or _FALLBACK_COMPLETION_EXCLUDE,
+        "deferral": deferral or _FALLBACK_DEFERRAL_PATTERNS,
+        "deferral_user_ok": deferral_user_ok or _FALLBACK_DEFERRAL_USER_OK_PATTERNS,
     }
 
 
@@ -129,6 +146,12 @@ _SCAN_REPORT_RE = _compile_union(_phrases["scan_report"], re.IGNORECASE)
 _COMPLETION_CLAIM_RE = _compile_union(_phrases["completion"], re.IGNORECASE)
 _COMPLETION_EXCLUDE_RE = _compile_union(
     _phrases.get("completion_exclude") or _FALLBACK_COMPLETION_EXCLUDE, re.IGNORECASE
+)
+_DEFERRAL_RE = _compile_union(
+    _phrases.get("deferral") or _FALLBACK_DEFERRAL_PATTERNS, re.IGNORECASE
+)
+_DEFERRAL_USER_OK_RE = _compile_union(
+    _phrases.get("deferral_user_ok") or _FALLBACK_DEFERRAL_USER_OK_PATTERNS, re.IGNORECASE
 )
 
 
@@ -186,6 +209,89 @@ def detect_evasion(text: str, recent_user_prompts: List[str]) -> Optional[Dict[s
     idx = m.start()
     excerpt = text[max(0, idx - 80): idx + len(phrase) + 80]
     return {"phrase": phrase, "context_excerpt": excerpt}
+
+
+_SENTENCE_SPLIT_RE = re.compile(r"[。！？\n；;]")
+_OBJECT_STRIP_RE = re.compile(r"[\s，,、：:（）()「」『』`*\-—–~～?？!！.。]")
+
+
+def detect_deferral(
+    text: str,
+    recent_user_prompts: List[str],
+    min_object_chars: int = 6,
+) -> Optional[Dict[str, str]]:
+    """退縮歸屬偵測：收尾文字把「帶受詞、可做的事」推給下個 session／歸為獨立議題／
+    歸咎非我。回 {phrase, sentence} 或 None。
+
+    受詞判定＝命中句去掉退縮語與標點後仍 ≥ min_object_chars 字（純「下個 session。」
+    這種無受詞的句子不算）。逃生門：近 3 則 user prompt 含命令式延後語
+    （deferral_user_ok）或一般豁免語（dismiss_keywords）→ 使用者明示延後，不標。
+    詞表單一來源 forbidden-phrases.json categories[id=deferral-attribution]。
+    """
+    if not text:
+        return None
+    for p in (recent_user_prompts or [])[-3:]:
+        if _DEFERRAL_USER_OK_RE.search(p or "") or _DISMISS_RE.search(p or ""):
+            return None
+    for sent in _SENTENCE_SPLIT_RE.split(text):
+        m = _DEFERRAL_RE.search(sent)
+        if m:
+            rest = sent
+            for _ in range(4):  # 同句多個退縮語（「留給下」+「個 session」）全部剝掉再數受詞
+                nxt = _DEFERRAL_RE.sub("", rest)
+                if nxt == rest:
+                    break
+                rest = nxt
+            residual = _OBJECT_STRIP_RE.sub("", rest)
+            if len(residual) >= max(int(min_object_chars), 1):
+                return {"phrase": m.group(0), "sentence": sent.strip()[:200]}
+    return None
+
+
+def deferral_gate_reason(
+    last_text: str,
+    recent_user_prompts: List[str],
+    *,
+    turn_seq: int,
+    gated_turn: Any,
+    committed_this_turn: bool,
+    context_ratio: float,
+    config: Dict[str, Any],
+) -> Optional[str]:
+    """DeferralGate 純決策（無副作用）：回 block 文字或 None。
+
+    全部成立才擋：config.deferral_gate.enabled（預設 True）／本 turn 尚未擋過
+    （gated_turn != turn_seq）／detect_deferral 命中／主任務已完工（claims_completion
+    或本 turn 已 commit）／context 用量 ≤ max_context_ratio（預設 0.75；0.0＝無法量測，
+    視為充裕仍擋——新 session 本就小）。「處理後是否飄移主任務」無法程式化，交模型在
+    (b) 一句話說明。
+    """
+    cfg = (config or {}).get("deferral_gate", {}) or {}
+    if not cfg.get("enabled", True):
+        return None
+    if turn_seq and gated_turn == turn_seq:
+        return None
+    det = detect_deferral(
+        last_text, recent_user_prompts, int(cfg.get("min_object_chars", 6))
+    )
+    if not det:
+        return None
+    if not (claims_completion(last_text) or committed_this_turn):
+        return None
+    max_ratio = float(cfg.get("max_context_ratio", 0.75))
+    if context_ratio > max_ratio:
+        return None
+    pct = f"~{int(context_ratio * 100)}%" if context_ratio > 0 else "無法量測（視為充裕）"
+    return (
+        "[Guardian:DeferralGate] 主任務已完工、context 用量 "
+        f"{pct}（≤{int(max_ratio * 100)}%），收尾卻把可做的事推開：\n"
+        f"  「{det['sentence']}」（退縮語：{det['phrase']}）\n"
+        "違反 IDENTITY 反退避契約「退縮歸屬」。三選一，不得籠統帶過：\n"
+        "  (a) 現在做掉（可逆、屬原請求自然延伸的維護／修補／小問題／自己的過失）再收尾\n"
+        "  (b) 一句話說明本 session 真的不能做的理由——不可逆／需使用者拍板業務取捨／"
+        "會飄移主任務認知——並在收尾明寫\n"
+        "  (c) 使用者已明示延後——引用其原話"
+    )
 
 
 def is_dismiss_prompt(prompt: str) -> bool:
