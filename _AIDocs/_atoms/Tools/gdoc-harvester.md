@@ -1,7 +1,7 @@
 # gdoc-harvester — Web Harvester 收割工具經驗
 
 - Scope: global
-- Confidence: [固]
+- Confidence: [臨]
 - Trigger: harvester, 收割, Google Docs, Google Sheets
 
 ## 知識

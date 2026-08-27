@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 下個 session, 下一個 session, 不是本次, 不在本案, 非我造成, 獨立議題, 遺留議題, 另案, 退縮歸屬, DeferralGate, 收尾, 遠留項目, 你可以推進的
 - Created-at: 2026-08-27
-- Related: 自己flag的維護動作直接做完不要反問, feedback-workflow-discipline, feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, 自己指出的更好做法若成本低就當場做掉-不要寫進建議清單留給使用者
+- Related: 自己flag的維護動作直接做完不要反問, feedback-workflow-discipline, feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, 自己指出的更好做法若成本低就當場做掉-不要列成設計債丟給使用者
 
 ## 知識
 
