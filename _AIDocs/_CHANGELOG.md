@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-28 原生記憶橋接檔修復 — slug 算錯 + 從未重產，接上索引重產鏈
+- `projects/<slug>/memory/atom-index-bridge.md`（原子系統與 CC 原生 auto-memory 唯一接點）13/13 路徑失效 7 週：atom 已搬進範疇資料夾但橋接檔 7/8 後未重產；重產工具 `_slug_from_cwd` 把 `c:\Users\x\.claude` 算成 `c-Users-x-.claude`（harness 規則＝每個非英數字元各轉一個 '-'）。修 slug、預設鏡像 ~/.claude 自身原生目錄（不依呼叫者 cwd）、`sync-memory-index --write` 尾端 fail-open 自動重產。現 78/78 有效。順修 Architecture MCP tool 4→5、TECH verify 檔數。新 MemDev atom「注入預算三教訓」。
+
 ## 2026-08-28 atom_write realm 閘 — 專案專屬內容不得落 global + atom_move 收尾同步
 - 起於 c:\Projects session 以 scope=global（replace 時 skip_gate=true）把「此專案下 sgi_server/ sgi_client/ Tools/…」feedback atom 寫進全域 Failures/，create/replace 兩路都放行：既有 cwd→global 閘（`resolveMemDir` P3）只在帶 `project_cwd` 時生效，global 寫入從不帶 → 空轉。新 `lib/realm_gate.py`（單源）：cwd 上溯專案 root，專名機械化推導（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 `name/` / repo-paths `{代號}` / 專案絕對路徑 pattern / 「此專案」字面；與 ~/.claude 頂層同名者、泛詞、URL 排除），掃 title/triggers/knowledge/actions 命中即拒並附 `scope=shared, project_cwd` 與落點；`atom_io.write_atom` 內建、MCP `atom-tools.js` 對 scope=global 所有 mode 先 spawn `atom_io_cli realm_check`（排在 resolveMemDir 前、`skip_gate` 跳不過；缺 `project_cwd` 退用進程 cwd）。決定拒絕不 auto-route（改 scope 會連動去重層/衝突偵測/domain 語意，且常缺 project_cwd）。專案層 feedback-*（scope=shared）落 `failures/<主題>/`（`project_category_target(root_dir=failures)`，主題 = 核心 Lv1 ∪ 專案 `_taxonomy.json`），`wg_core.discover_v4_sublayers` 納入 `failures/` 為 shared 層（向量索引/去重層才看得到）。`atom-move.py`：搬後 `sync_scope_header` 對齊 `- Scope:`、`catalog_sync` 重生兩根 MEMORY.md/_INDEX.md、validate 以搬前基線分離 `validate_errors`（新增，exit 2）與 `index_preexisting_issues`（只回報）；js `formatAtomMoveReport` 兩段呈現。順帶：C:\Projects 3 顆 >30 字 trigger 縮短、搬移 atom 懸空 Related（TSLG personal）移除；「幽靈條目 feedback-svn-上傳必經明確授權」查實是 c:\TSLG personal:wellstseng 的真 atom（非幽靈，去重限層後已不再比到），不清向量庫。測試 `lib/verify/verify_realm_project_term_gate.py` 12 案（原 payload create/replace/skip_gate 三拒、cwd 退用、shared 落 failures/版控/SVN/、atom-move 檔頭+分離回報）。
 
