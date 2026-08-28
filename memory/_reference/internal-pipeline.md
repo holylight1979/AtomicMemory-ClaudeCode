@@ -5,7 +5,7 @@
 
 ## 記憶檢索管線
 
-- [固] UserPromptSubmit: Intent 分類 → Trigger 匹配 → Vector Search → Ranked Merge → additionalContext
+- [固] UserPromptSubmit（ups_gates → ups_context → ups_search → ups_inject）：L0 意圖偵測 → Trigger 匹配（ASCII 整詞邊界／CJK 子字串）→ 跨專案 alias（需 ≥2 命中）→ BM25（僅 trigger 命中 ≤2 時；min_score 7.0、top 3）→ Vector（只補專案層）→ Supersedes 過濾 → RRF 融合 × activation → hot/cold → 同題去冗（trigger 精確重疊 ≥3 → 節錄）→ per-turn 三態 ok/fallback/skip（TURN_BUDGET_LIMIT）→ related spread（max 6）→ 總額裁切（依 activation 由高到低回填）→ additionalContext（尾行 `[Context budget: x/y]`）
 - [固] 索引 2 層：global → project，`**/*.md` 遞迴掃描 + `_` 前綴目錄跳過
 
 ## Hot Cache 機制

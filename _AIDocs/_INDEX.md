@@ -23,6 +23,7 @@
 | 10 | DevHistory/_INDEX.md | 開發紀錄（版本演進、遷移紀錄、A/B 實測數據、atom 演化日誌；含 V5 升版完整紀錄 [DevHistory/v5-overhaul-2026-05/](DevHistory/v5-overhaul-2026-05/README.md)） | 演化, 版本, changelog, 遷移, migration, V2.18, V2.20, V2.21, V5 升版, A/B, 實測, benchmark |
 | 11 | SPEC_ATOM_V5.md | 原子記憶 V5 規格 — skills 取代 commands / hook 6+2 模組 / BM25 全域層 + RRF 融合（§14）/ optional Depends·Evidence 欄（§13）/ Codex subprocess / MCP 砍 4 內部 tool / 禁語 JSON 單一來源 | V5, GA, skills, BM25, RRF, 檢索融合, Depends, Evidence, 壞滅緣, 證據等級, Codex subprocess, MCP, 禁語, hook 整併 |
 | 12 | SPEC_ATOM_V4.md | 原子記憶 V4 規格（V5 詳情依靠的對照證物）— 多職務團隊共享（personal / shared / role 三層 scope、衝突三時段偵測、管理職雙向認證、JIT 角色 filter） | V4, scope 三層, role-shared, personal-in-project, 多職務, 團隊協作, 衝突偵測, 管理職, audience, 角色 filter |
+| 14 | Research/_INDEX.md | 外部調查與業界比對（論文／廠商／社群專案查證整理，附來源 URL）；首篇：LLM agent 長期記憶業界調查 2025–2026 | research, 業界調查, agent memory, Mem0, Letta, Zep, LongMemEval, context rot, 社群專案 |
 | 13 | Vision/_INDEX.md | 發想與前瞻設計（尚未開工、「說不定某天做成成品」的平台設計與現有應用比對）；首個主題：JARVIS 式企業 AI 開發協作平台（README + 9 子檔，記憶服務化/編排核心/模型路由/工具註冊/攝取/多模態/作業紀錄/安全治理/演進路線）。read-on-demand、非 atom、零注入成本 | 發想, 願景, vision, 前瞻設計, jarvis, 企業平台, 編排, 多模型路由, 工具註冊, 演進路線圖 |
 
 ---

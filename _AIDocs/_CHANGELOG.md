@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-28 研究成果歸檔 — 業界調查／CC 原生規格／三方評估／調查編年／探針方法
+- 使用者要求本 session 所有功課（除直接修掉的 bug）分門別類收進 _AIDocs。四 agent 並行撰寫：`Research/agent-memory-industry-survey.md`（新資料夾 Research/＋_INDEX；78 個來源 URL）、`ClaudeCodeInternals/cc-native-memory-hooks-mcp.md`（官方文件查證版：auto-memory 200 行/25KB、28 hook 事件、UPS 30s、MCP scope、cache）、`DevHistory/memory-system-review-2026-08.md`（三方比對＋優缺點／可補強／該修正，as-built 逐檔核對）、`DevHistory/injection-budget-investigation-2026-08.md`（注入變弱調查編年：根因鏈、五次修正、數據）、`Tools/hook-injection-probe.md`（真 hook 進程探針操作法＋清理＋陷阱）。順修 `memory/_reference/internal-pipeline.md` 管線描述對齊實碼（trigger→BM25→vector→RRF→去冗→三態→回填）。各層 _INDEX 同步。
+
 ## 2026-08-28 回訪機制 — 「一週後看數據」變成到期自動跑、零記憶交接進開場
 - 使用者指出「一週後」的 session 早關、主題被沖淡，且不確定怎樣算驗證到。新 `tools/followup-check.py` + `workflow/followups.json`：每筆登記到期日、檢查名、程式化通過線，以及**假設接手者什麼都不記得**的交接（這是什麼／改了什麼 commit／基線／怎麼判／不過怎麼辦／危險／規則連結／結案）。SessionStart 新 `_followup_advisory`：到期後任何一次開 CC 自動跑，INSUFFICIENT 不催、FAIL 每日一次附交接、PASS 自動結案。首筆登記 `injection-budget-2026-08-28`（since 08-29、due 09-04；四指標：全文/回合 ≥2.5、全文率 ≥55%、final-trim dropped/回合 ≤1、高曝光零使用 ≤0）。verify 6 條；TECH／Architecture 同步。
 
