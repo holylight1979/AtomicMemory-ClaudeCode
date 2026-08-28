@@ -206,6 +206,9 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
         user = params.get("user", [""])[0] or None
         roles_raw = params.get("roles", [""])[0]
         roles = [r.strip() for r in roles_raw.split(",") if r.strip()] or None
+        # layers=global,shared:c--proj,...：只搜這幾層（write-gate 去重用）
+        layers_raw = params.get("layers", [""])[0]
+        layers = [l.strip() for l in layers_raw.split(",") if l.strip()] or None
 
         results = search(
             query=q,
@@ -216,6 +219,7 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
             embedder=_embedder,
             user=user,
             roles=roles,
+            layers=layers,
         )
         self._send_json(results)
 

@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-28 write-gate 去重限層 — 只比 global + 當前專案自己的層
+- 起於在 c:\Projects 寫 atom 被 c:\TSLG 下 wellstseng 的 personal atom 以 0.807 擋下（不能 append 過去、只能 skip_gate）：去重查詢原本 `layer=all` 掃全庫 27 層。新 `realm.dedupLayersFor(scope, memBase, {role,user})`（global → `global`+`extra:local-atoms`；shared/role/personal 再加當前專案 `shared:<slug>`／`role:<slug>:<r>`／`personal:<slug>:<u>`，slug 對拍 `wg_core.cwd_to_project_slug`）→ `funnel.execWriteGate` stdin 帶 `layers` → `memory-write-gate.check_dedup` 加 `layers=` → daemon `/search?layers=a,b` → `searcher._build_layers_clause` 組 `layer IN (...)`（標籤只允許 `[\w\-:]`）。拒寫訊息附 searched layers。實測：TSLG personal 原句不限層 0.899 命中 wellstseng atom，限層後排除。測試 `verify_write_gate_pitfall.py` +layers 進查詢字串、`verify_mcp_funnel_hardening.py` +node 端 dedupLayersFor 對拍。
+
 ## 2026-08-28 向量庫 stale 清理失效根治 — layer 標籤含冒號拆鍵錯位
 - 起於專案 session write-gate 回「similar to `feedback-svn-上傳必經明確授權`」但檔案在 ~/.claude 與專案都找不到：實體在 `c:\TSLG\...\personal\wellstseng\`，向量庫跨 27 層共用而 `memory-write-gate.py` 的去重查詢不帶 `layer`。順帶盤點出 93 顆孤兒 + 4132 列重複 chunk：`indexer.py` 增量重索引前的舊 chunk 刪除與 `_delete_stale_keys` 都把 `"layer:atom"` 字串 `split(":", 1)`，V4 layer 標籤本身含冒號（`shared:c--proj`／`extra:failures`／`personal:…`）→ 述詞永遠比不中、LanceDB 刪 0 列靜默成功、統計照「預期數」回報 93 顆已刪。改 `_delete_atom_rows(table, layer, atom)` 分開傳值、刪除數以 count_rows 前後差為準（+`failed_atoms`）；`verify_vector_service.py` fake table 改真刪、+含冒號 layer 案例（17 過）。daemon 重啟載新碼後全量 reindex。附帶坑：`rag-engine.py start` 用 `sys.executable` 起 daemon，PATH 上若是別的 venv（無 lancedb）會起殘廢 daemon 而 health 仍 OK。
 

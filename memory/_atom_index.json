@@ -2274,7 +2274,9 @@
         "similar to existing atom",
         "幽靈 atom",
         "rag-engine",
-        "重複 chunk"
+        "重複 chunk",
+        "dedupLayersFor",
+        "layers"
       ],
       "scope": "global"
     }

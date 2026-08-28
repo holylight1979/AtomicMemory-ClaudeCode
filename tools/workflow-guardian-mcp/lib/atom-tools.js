@@ -6,7 +6,7 @@ const { CLAUDE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig } = require("./paths");
 const { crashLog } = require("./log");
 const {
   slugify, findSeparatorVariant, getCurrentUser, isSensitiveAudience, resolveMemDir,
-  applyFeedbackRouting, applyLocalRouting, classifyRealm, resolveSubdirTarget,
+  applyFeedbackRouting, applyLocalRouting, classifyRealm, resolveSubdirTarget, dedupLayersFor,
   FAILURES_DIR, LEGACY_FAILURES_DIR, FEEDBACK_TITLE_PREFIX, LOCAL_ATOMS_DIR,
   CORE_CATEGORIES,
 } = require("./realm");
@@ -225,14 +225,18 @@ async function toolAtomWrite(id, args) {
 
     let gateWarnings = [];
     if (!skip_gate) {
-      const gateResult = await execWriteGate(knowledge.join("\n"), confidence);
+      // 去重只比「寫入者能 append 到」的層：global + ~/.claude 本地 atom + 當前專案
+      // 自己的 shared／role／personal。不限層會撞到別的專案、別人 personal 的 atom。
+      const gateLayers = dedupLayersFor(scope, resolved.base, { role, user });
+      const gateResult = await execWriteGate(knowledge.join("\n"), confidence, gateLayers);
       if (gateResult.action === "skip") {
         return sendToolResult(id, `Write-gate rejected: ${gateResult.reason}`, true);
       }
       if (gateResult.action === "update" && gateResult.dedup_match) {
         return sendToolResult(id,
           `Write-gate: similar to existing atom "${gateResult.dedup_match.atom_name}" ` +
-          `(score=${gateResult.dedup_match.score}). Use mode=append on that atom instead.`, true);
+          `(score=${gateResult.dedup_match.score}, searched layers: ${gateLayers.join(", ")}). ` +
+          `Use mode=append on that atom instead.`, true);
       }
       // 樣式軟警（逐筆表格/路徑清單）：不擋，附在成功訊息尾端轉述給寫入者
       if (Array.isArray(gateResult.warnings) && gateResult.warnings.length) {

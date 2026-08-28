@@ -203,8 +203,16 @@ def compute_quality_score(
 # ─── Dedup Check ─────────────────────────────────────────────────────────────
 
 
-def check_dedup(content: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Check for duplicate knowledge via Vector Service. Returns match info or None."""
+def check_dedup(
+    content: str,
+    config: Dict[str, Any],
+    layers: Optional[List[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Check for duplicate knowledge via Vector Service. Returns match info or None.
+
+    layers：只跟這幾層比（global + 當前專案自己的層）。不傳 = 全庫比對，會撞到
+    別的專案／別人 personal 層的 atom（寫入者根本不能 append 到那裡）。
+    """
     try:
         port = 3849
         # Load vector config from main config
@@ -219,7 +227,10 @@ def check_dedup(content: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]
     dedup_threshold = config.get("dedup_score", 0.80)
 
     try:
-        params = urllib.parse.urlencode({"q": content, "top_k": 3, "min_score": dedup_threshold})
+        query: Dict[str, Any] = {"q": content, "top_k": 3, "min_score": dedup_threshold}
+        if layers:
+            query["layers"] = ",".join(layers)
+        params = urllib.parse.urlencode(query)
         url = f"http://127.0.0.1:{port}/search?{params}"
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=3) as resp:
@@ -302,8 +313,12 @@ def evaluate(
     trigger_context: str = "",
     explicit_user: bool = False,
     config: Optional[Dict[str, Any]] = None,
+    layers: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Main Write Gate evaluation. Returns decision dict."""
+    """Main Write Gate evaluation. Returns decision dict.
+
+    layers：去重只比這幾層（見 check_dedup）。
+    """
     if config is None:
         config = load_config()
 
@@ -348,7 +363,7 @@ def evaluate(
 
     # Dedup check（先於 pitfall 捷徑：pitfall 只豁免品質評分，不豁免去重——
     # 重複的坑知識 >0.95 仍 skip、相似仍建議 update）
-    dedup = check_dedup(content, config)
+    dedup = check_dedup(content, config, layers)
     if dedup:
         if dedup["verdict"] == "duplicate":
             write_audit_log("skip", content, 0, reason="duplicate", dedup_match=dedup["atom_name"])
@@ -437,6 +452,7 @@ def main():
                         trigger_context=item.get("trigger_context", ""),
                         explicit_user=item.get("explicit_user", False),
                         config=config,
+                        layers=item.get("layers") or None,
                     )
                     print(json.dumps(result, ensure_ascii=False))
         except (OSError, json.JSONDecodeError) as e:
@@ -463,6 +479,7 @@ def main():
                     trigger_context=item.get("trigger_context", ""),
                     explicit_user=item.get("explicit_user", False),
                     config=config,
+                    layers=item.get("layers") or None,
                 )
                 print(json.dumps(result, ensure_ascii=False, indent=2))
             except json.JSONDecodeError:

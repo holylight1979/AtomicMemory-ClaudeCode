@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -83,3 +84,27 @@ def test_merge_to_preferences_archives_sidecar_and_index():
         "merge_to_preferences 應實際走 lib.atom_index_json.delete_atom 移除索引條目"
     assert '.access.json")' in tools and "accSrc" in tools, \
         "歸檔應同步搬 .access.json sidecar"
+
+
+def test_dedup_layers_for_matches_indexer_layer_labels():
+    """write-gate 去重層清單：global 只比 global+本地；專案 scope 再加當前專案自己的層，
+    slug 對拍 wg_core.cwd_to_project_slug（c:/Projects → c--projects；路徑用正斜線寫，projectSlugOf 兩種斜線都吃）。"""
+    import json as _json
+    import subprocess
+    lib = os.path.join(os.path.expanduser("~"), ".claude", "tools", "workflow-guardian-mcp", "lib", "realm.js")
+    script = (
+        "const r=require(process.argv[1]);"
+        "console.log(JSON.stringify(["
+        "r.dedupLayersFor('global', 'C:/Users/x/.claude/memory'),"
+        "r.dedupLayersFor('shared', 'c:/Projects/.claude/memory'),"
+        "r.dedupLayersFor('personal', 'c:/TSLG/.claude/memory', {user:'holylight'}),"
+        "r.dedupLayersFor('role', 'd:/AI-PLAY/AI-gen-projs/FastSVNViewer/.claude/memory', {role:'programmer'}),"
+        "]))"
+    )
+    out = subprocess.run(["node", "-e", script, lib], capture_output=True, text=True, check=True).stdout
+    g, s, p, ro = _json.loads(out)
+    assert g == ["global", "extra:local-atoms"]
+    assert s == ["global", "extra:local-atoms", "shared:c--projects"]
+    assert p == ["global", "extra:local-atoms", "shared:c--tslg", "personal:c--tslg:holylight"]
+    assert ro == ["global", "extra:local-atoms", "shared:d--ai-play-ai-gen-projs-fastsvnviewer",
+                  "role:d--ai-play-ai-gen-projs-fastsvnviewer:programmer"]

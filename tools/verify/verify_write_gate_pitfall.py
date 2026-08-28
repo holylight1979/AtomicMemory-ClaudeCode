@@ -32,7 +32,7 @@ PITFALL_CONTENT = "這是一個坑：Windows 下 Path.write_text 會翻整檔行
 
 
 def _dedup_stub(verdict: str, score: float):
-    def stub(content, config):
+    def stub(content, config, layers=None):
         return {
             "atom_name": "existing-atom", "score": score,
             "text_preview": "preview", "verdict": verdict,
@@ -56,7 +56,7 @@ def test_pitfall_similar_still_suggests_update(monkeypatch):
 
 
 def test_pitfall_without_dedup_hit_auto_adds(monkeypatch):
-    monkeypatch.setattr(WG, "check_dedup", lambda content, config: None)
+    monkeypatch.setattr(WG, "check_dedup", lambda content, config, layers=None: None)
     monkeypatch.setattr(WG, "write_audit_log", lambda *a, **k: None)
     r = WG.evaluate(PITFALL_CONTENT, config=CONFIG)
     assert r["action"] == "add"
@@ -67,7 +67,7 @@ def test_pitfall_without_dedup_hit_auto_adds(monkeypatch):
 def test_explicit_user_fast_path_precedes_dedup(monkeypatch):
     called = []
     monkeypatch.setattr(WG, "check_dedup",
-                        lambda content, config: called.append(1) or None)
+                        lambda content, config, layers=None: called.append(1) or None)
     monkeypatch.setattr(WG, "write_audit_log", lambda *a, **k: None)
     r = WG.evaluate("記住這個", explicit_user=True, config=CONFIG)
     assert r["action"] == "add" and not called
@@ -84,3 +84,23 @@ def test_check_dedup_service_down_writes_audit_signal(monkeypatch):
     monkeypatch.setattr(WG.urllib.request, "urlopen", boom)
     assert WG.check_dedup("任意內容", CONFIG) is None
     assert "dedup_skipped_service_down" in audits
+
+
+def test_check_dedup_layers_go_into_query(monkeypatch):
+    """layers 給了就進 /search 的 layers= 參數（去重只比那幾層）；沒給就不帶（全庫）。"""
+    import io
+    seen = []
+
+    class _Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout=0):
+        seen.append(req.full_url)
+        return _Resp(b"[]")
+
+    monkeypatch.setattr(WG.urllib.request, "urlopen", fake_urlopen)
+    WG.check_dedup("任意內容", CONFIG, layers=["global", "shared:c--proj", "personal:c--proj:me"])
+    WG.check_dedup("任意內容", CONFIG)
+    assert "layers=global%2Cshared%3Ac--proj%2Cpersonal%3Ac--proj%3Ame" in seen[0]
+    assert "layers=" not in seen[1]
