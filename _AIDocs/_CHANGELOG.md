@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-08-28 向量庫 stale 清理失效根治 — layer 標籤含冒號拆鍵錯位
+- 起於專案 session write-gate 回「similar to `feedback-svn-上傳必經明確授權`」但檔案在 ~/.claude 與專案都找不到：實體在 `c:\TSLG\...\personal\wellstseng\`，向量庫跨 27 層共用而 `memory-write-gate.py` 的去重查詢不帶 `layer`。順帶盤點出 93 顆孤兒 + 4132 列重複 chunk：`indexer.py` 增量重索引前的舊 chunk 刪除與 `_delete_stale_keys` 都把 `"layer:atom"` 字串 `split(":", 1)`，V4 layer 標籤本身含冒號（`shared:c--proj`／`extra:failures`／`personal:…`）→ 述詞永遠比不中、LanceDB 刪 0 列靜默成功、統計照「預期數」回報 93 顆已刪。改 `_delete_atom_rows(table, layer, atom)` 分開傳值、刪除數以 count_rows 前後差為準（+`failed_atoms`）；`verify_vector_service.py` fake table 改真刪、+含冒號 layer 案例（17 過）。daemon 重啟載新碼後全量 reindex。附帶坑：`rag-engine.py start` 用 `sys.executable` 起 daemon，PATH 上若是別的 venv（無 lancedb）會起殘廢 daemon 而 health 仍 OK。
+
+## 2026-08-28 AEC 殘檔帳本受保護路徑拒收 — 正式檔不再進 HUD 刪除候選
+- 起於專案 session HUD 把 `_CHANGELOG.md`／`_ATOM_INDEX.md`／新 atom 列為可刪殘檔：模型把「已改未 commit 的正式檔」錯報進 (d)，`parse_d_paths` 只驗 exists() 就進帳。`aec_ledger.protected_reason()`（tempdir 直接放行 → 路徑含 `memory`/`_AIDocs` 段 → 檔名 `_INDEX`/`_ATOM_INDEX`/`_CHANGELOG`/CLAUDE/MEMORY/IDENTITY/USER/TECH/README → `vcs_tracked()` git ls-files／svn info）；(d) 解析拒收並回 `rejected`，PostToolUse 以 additionalContext 告知模型「改列 (a)(b)」；`ledger_append` 不論來源最後一道擋；UPS drain 對受保護路徑的刪除決策注入 ⛔ 拒絕並結案；mcp.js (d) 說明加「絕不列正式產出」。全帳本掃描清 4 筆。測試 `verify_aec_ledger.py` +5、`verify_aec_decision_drain.py` +1。
+
 ## 2026-08-27 Stop DeferralGate — 退縮歸屬程式化擋回
 - 起於使用者指正「明明很快、為什麼推給下個 session」：既有 `time-deferral` 只是軟標記且缺「下個 session／不在本案／非我造成」詞。新 `forbidden-phrases.json` 類別 `deferral-attribution`（+`deferral_user_ok` 逃生門、完成詞補完工／結案／已 push）；`wg_evasion.detect_deferral`（命中句去退縮語後 ≥6 字才算有受詞）+ `deferral_gate_reason`（完成宣告 ∨ 本 turn commit、context ≤ `deferral_gate.max_context_ratio` 0.75 讀 transcript 真實 usage）；`stop.py` 在 evasion 標記後、ScanReport 前擋回三選一（做掉／一句話不能做的理由／使用者原話明示延後），每 turn 一次、共用 `stop_gate_max_blocks`、guard log `deferral`。IDENTITY／template 反退避契約加一條；TECH §5.6 五類。測試 `hooks/verify/verify_deferral_gate.py`。
 

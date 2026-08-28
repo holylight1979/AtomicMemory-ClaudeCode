@@ -194,6 +194,22 @@ def cmd_start(args):
         print(f"Error: {service_py} not found", file=sys.stderr)
         sys.exit(1)
 
+    # daemon 用「目前這個直譯器」起：PATH 上若是別的 venv（沒裝 lancedb/pyarrow），
+    # 起來的 daemon health 會回 OK 但 index/search 全掛。先驗依賴，缺就不起。
+    missing = []
+    for mod in ("lancedb", "pyarrow"):
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(mod)
+    if missing:
+        print(
+            f"Error: interpreter {sys.executable} lacks {', '.join(missing)}; "
+            f"daemon would start crippled. Run with the python that has the vector deps.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     print(f"Starting Memory Vector Service...")
     if sys.platform == "win32":
         CREATE_NO_WINDOW = 0x08000000
