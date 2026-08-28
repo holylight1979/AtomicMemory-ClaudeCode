@@ -62,19 +62,24 @@ CONTEXT_BUDGET_DEFAULT = 3000
 TURN_BUDGET_LIMIT = 1200  # atom 注入段 per-turn 硬頂（atom 全文中位數 ~360 tok → 約 3 顆全文；總額仍由 compute_token_budget 夾住）
 
 
+TOKEN_BUDGET_TIERS = ((15, 1000), (80, 2000))  # (prompt 估算 tok 上限, 總額)；超過最後一級 → 3000
+TOKEN_BUDGET_MAX = 3000
+
+
 def compute_token_budget(prompt: str) -> int:
     """每輪注入總額：短 prompt 少注入，長 prompt 多注入。
+
+    分級依 prompt 的估算 token 數（CJK-aware），不依字元數——中文 37 字≈33 tok 是實質
+    問題，英文 37 字≈9 tok 只是短句；用字元數分級會把中文問句壓在最低額度。
 
     注意：此為起始額度；build_context 會逐段扣減（session context 注入輪 −reserved_tokens
     預設 200、JIT 參考注入 −250），故 [Context budget: x/y] 尾行的 y 常見 750（1000−250）
     或 2550（3000−200−250）等扣減後數字，非固定常數。"""
-    plen = len(prompt)
-    if plen < 50:
-        return 1000
-    elif plen < 200:
-        return 2000
-    else:
-        return 3000
+    ptok = _estimate_tokens(prompt or "")
+    for cap, budget in TOKEN_BUDGET_TIERS:
+        if ptok < cap:
+            return budget
+    return TOKEN_BUDGET_MAX
 
 
 # ─── 覆轍信號（same_file_3x）檔名白名單 ─────────────────────────────────────

@@ -1260,17 +1260,27 @@ def _truncate_context_by_activation(
         reduce_list.append(ab)
         projected -= saved
 
-    # Phase B：犧牲者中 activation 最高的尾端 pointer_max 顆留一行指標，
-    # 其餘整塊不注入（寧缺勿截；整塊移除省得比指標估算多，budget 必然仍滿足）
-    pointer_ids = (
-        {id(ab) for ab in reduce_list[-pointer_max:]} if pointer_max > 0 else set()
-    )
+    # Phase B：從 activation 高到低回填——塞得下全文就恢復全文；塞不下且指標行
+    # 未達上限就留一行指標；再不行整塊移除。Phase A 以「指標行節省量」估算犧牲
+    # 名單，若直接把名單外的全丟，整塊移除省下的遠多於估算，預算會被砍到遠低於
+    # 上限（實測 359/1000 卻丟 5 顆）；回填讓預算用滿、犧牲最少。
     truncated_indices: set = set()
     dropped_indices: set = set()
-    for ab in reduce_list:
-        if id(ab) in pointer_ids:
+    used_now = used - sum(ab["tokens"] for ab in reduce_list)
+    pointers = 0
+    for ab in reversed(reduce_list):
+        ptr_tokens = ab["tokens"] - ab["pointer_saved"]
+        if used_now + ab["tokens"] <= limit:
+            used_now += ab["tokens"]
+            _atom_debug_log(
+                "BUDGET",
+                f"final-trim atom={ab['name']} activation={ab['activation']:.2f} form=restored-full",
+                config,
+            )
+        elif pointers < pointer_max and used_now + ptr_tokens <= limit:
             truncated_indices.add(ab["start"])
-            used -= ab["pointer_saved"]
+            used_now += ptr_tokens
+            pointers += 1
             _atom_debug_log(
                 "BUDGET",
                 f"final-trim atom={ab['name']} activation={ab['activation']:.2f} form=pointer",
@@ -1278,13 +1288,13 @@ def _truncate_context_by_activation(
             )
         else:
             dropped_indices.add(ab["start"])
-            used -= ab["tokens"]
             _atom_debug_log(
                 "BUDGET",
                 f"final-trim atom={ab['name']} activation={ab['activation']:.2f} "
-                "form=dropped（寧缺勿截，超出指標行上限）",
+                "form=dropped（塞不下全文也塞不下指標，或指標行已達上限）",
                 config,
             )
+    used = used_now
 
     new_lines: List[str] = []
     skip_until = -1

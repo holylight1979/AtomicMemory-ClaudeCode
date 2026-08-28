@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-28 注入實機驗證兩修 — 總額裁切過度砍 + 總額分級改依 token
+- Reload 後以真 hook 進程餵短/中/長 prompt 各 3 次實測：① `_truncate_context_by_activation` Phase B 只留 pointer_max 顆指標、其餘整塊丟，整塊移除省得比估算多 → 預算 359/1000 卻丟 5 顆；改成由 activation 高到低回填（塞得下全文→全文，否則指標，再否則丟），實測 998/1000、799/800、1786/1800 用滿。② `compute_token_budget` 依字元數分級，中文 37 字（≈33 tok）實質問句被壓到 1000 而英文 76 字（19 tok）拿 2000；改依 `_estimate_tokens` 分級（<15→1000、<80→2000、其餘 3000），中文中等問句 4 atoms/1 全文/5 丟 → 8 atoms/4 全文/0 丟。TECH §7 表、MemDev atom 同步；新 verify 分級測試。`run_verify` 1562 綠。真資料報表：08-26 週「全文/回合」3.67、熱 atom 全文率 65%（修前 22%）。
+
 ## 2026-08-28 注入變弱根治 — per-turn 硬頂 500→1200 + 降級版保留知識節錄 + 效果量測腳本化
 - 實證：近 14 天 19 個有注入回合，trigger 命中的熱 atom 87 顆僅 19 顆全文（22%），其餘被 `TURN_BUDGET_LIMIT=500` 降成標題/一行路標（atom 全文中位數 ~360 tok → 每輪只裝得下 1 顆），總額 2800 只用 1070。修：`wg_core.TURN_BUDGET_LIMIT` 1200（≈3 顆全文）+ 釘死測試改區間；`_strip_atom_for_injection_impression_only` 無印象段時補知識段前 2 條（[固]/[觀] 優先、每條 160 字截尾，最肥 atom 537→349 tok）；`ups_inject` 每回合追加 `Logs/injection-turns.jsonl`，`memory-effect-report.py` 週趨勢加「有注入回合／全文/回合／熱 atom 全文率」三欄（純腳本統計）；taxonomy 行為契約/驗證與實證/工作流補詞（今日唯一 REJECT 候選「反退避」現可自動歸位）；順手修 `verify_session_coordination.test_entry_window` 貼線 59s 併跑假紅；遙測守衛：`PYTEST_CURRENT_TEST` 存在時不落正式檔，`verify_project_layer_smoke._run_hook` 子行程顯式帶此變數（`_ENV` import 時快照早於 pytest 設定，否則真 dispatcher 假 session 會污染統計）。`run_verify` 1561 綠、跑完統計檔 0 行。
 

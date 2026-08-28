@@ -438,11 +438,11 @@ IDENTITY「自主行為契約 §2 動手前預告」的程式化保險絲——�
 
 ### Token Budget（`compute_token_budget`，[hooks/wg_core.py](hooks/wg_core.py)；wg_atoms re-export）
 
-| prompt 長度 | budget | 模式 |
+| prompt 估算 token（CJK-aware，非字元數） | budget | 模式 |
 |-------------|--------|------|
-| <50 字 | 1,000 tokens | 輕量 |
-| 50–200 字 | 2,000 tokens | 轉場 |
-| ≥200 字 | 3,000 tokens | 深度 |
+| <15 tok（「上GIT」、英文短指令） | 1,000 tokens | 輕量 |
+| 15–80 tok（中文一句實質問句 ≈ 30 字起） | 2,000 tokens | 轉場 |
+| ≥80 tok | 3,000 tokens | 深度 |
 
 > 另有 `TURN_BUDGET_LIMIT = 1200`（[wg_core.py](hooks/wg_core.py)）為 atom 注入段 per-turn 硬頂（≈3 顆中位數 atom 全文），控每輪 token 稅（與上表 additionalContext 總額互不推導；短 prompt 總額 1000 時由總額先夾住）。
 
@@ -856,7 +856,7 @@ flowchart TD
 - **Trigger 匹配**：只有命中才載入
 - **BM25 排序**：全域層 top_k=3
 - **Vector ranked-search**：專案層 top_k=5
-- **Token Budget**：依 prompt 長度調節（1,000-3,000；per-turn atom 注入另受 `TURN_BUDGET_LIMIT=1200` 硬頂）
+- **Token Budget**：依 prompt 估算 token 分級（1,000-3,000，CJK-aware，中文問句不因字元少被壓級；per-turn atom 注入另受 `TURN_BUDGET_LIMIT=1200` 硬頂）
 - **Supersedes**：被取代的舊 atom 自動過濾
 - **硬限制**：MEMORY.md ≤30 行、atom ≤200 行
 

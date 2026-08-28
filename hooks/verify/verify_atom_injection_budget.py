@@ -135,6 +135,18 @@ def test_decision_skip_when_impression_not_smaller_than_full():
 # ─── budget reset semantics (per-turn local var, no module state) ───────────
 
 
+def test_total_budget_tiers_by_tokens_not_chars():
+    """總額分級依估算 token：中文 37 字實質問句 → 2000，不得因字元數少被壓到 1000；
+    英文短句 → 1000；長 prompt → 3000。"""
+    from wg_core import compute_token_budget
+    assert compute_token_budget("上GIT") == 1000
+    assert compute_token_budget("fix the bug in login.py and run tests") == 1000
+    assert compute_token_budget("幫我檢查 git commit 之後 svn 也要同步嗎？收尾報告用白話寫") == 2000
+    assert compute_token_budget("What is the best way to configure the vector service on windows with ollama?") == 2000
+    assert compute_token_budget("我懷疑記憶系統的注入變弱了，" * 12) == 3000
+    assert compute_token_budget("") == 1000
+
+
 def test_budget_constant_fits_three_median_atoms():
     """per-turn 硬頂須容得下約 3 顆中位數（~360 tok）atom 全文，且不超過最小總額 compute_token_budget(短 prompt)=1000 的兩倍。"""
     assert 1000 <= wg_atoms._TURN_BUDGET_LIMIT <= 2000

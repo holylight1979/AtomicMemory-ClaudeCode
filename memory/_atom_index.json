@@ -2235,7 +2235,17 @@
         "ExitPlanMode",
         "驗證完就上",
         "不先問就 commit",
-        "上傳必經明確授權"
+        "上傳必經明確授權",
+        "svn status",
+        "sgi_server",
+        "sgi_client",
+        "Tools/",
+        "順手修",
+        "同事回報",
+        "文件修正",
+        "README",
+        "註解",
+        "SVN 資料夾"
       ],
       "scope": "global"
     },
