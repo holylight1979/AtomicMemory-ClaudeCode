@@ -179,6 +179,15 @@ def main() -> int:
             result = create_atom(payload)
         elif action == "locate":
             result = locate_atom(**payload)
+        elif action == "realm_check":
+            # 專案專屬內容不得落 global（lib/realm_gate.py 單源）。MCP js 對 scope=global
+            # 的所有 mode 先問這裡；不受 skip_gate 影響。
+            from lib.realm_gate import check_global_write
+            gate_err = check_global_write(
+                payload.get("project_cwd"), title=payload.get("title", ""),
+                triggers=payload.get("triggers"), knowledge=payload.get("knowledge"),
+                actions=payload.get("actions"), domain=payload.get("domain"))
+            result = WriteResult(ok=gate_err is None, error=gate_err)
         else:
             result = WriteResult(ok=False, error=f"unknown action: {action}")
     except TypeError as e:

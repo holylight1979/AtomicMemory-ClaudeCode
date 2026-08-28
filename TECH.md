@@ -83,7 +83,8 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── atom_io.py                                  ← atom 讀寫統一入口（write funnel）
 │   ├── atom_spec.py                                ← atom 合法性規範（slugify / is_atom_file / REQUIRED_METADATA）
 │   ├── atom_access.py                              ← .access.json 計數 funnel（ReadHits 純曝光 / Confirmations / 效用 α,β / Wilson 下界，→SPEC §12）
-│   └── atom_locations.py                           ← V5+ atom 物理位置 + 路由規則單一來源（FAILURES_DIR / LOCAL_ATOMS_DIR / iter_atom_files_multi / failures_write_target / local_write_target / classify_realm / is_local_realm_path，含 realm 範疇分區）
+│   ├── atom_locations.py                           ← V5+ atom 物理位置 + 路由規則單一來源（FAILURES_DIR / LOCAL_ATOMS_DIR / iter_atom_files_multi / failures_write_target / local_write_target / classify_realm / is_local_realm_path，含 realm 範疇分區）
+│   └── realm_gate.py                               ← 「專案專屬內容不得落 global」寫入閘：專名從 cwd 的專案 root 機械化推導（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 / repo-paths {代號} / 專案絕對路徑 / 「此專案」字面）；write_atom 與 MCP atom_write（atom_io_cli realm_check）共用，skip_gate 跳不過
 │
 ├── tools/                                          ← Python 工具集
 │   ├── ollama_client.py                            ← Dual-Backend
@@ -120,7 +121,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │
 ├── memory/                                         ← 全域記憶層
 │   ├── MEMORY.md                                   ← AI 一覽索引（人類可讀）
-│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->131 atoms：core 56 + feedback 22 + 失敗模式 1 + local 52〔Tools7/MemDev42/OS2/Vision1〕<!-- /atom-breakdown -->）
+│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->130 atoms：core 56 + feedback 21 + 失敗模式 1 + local 52〔Tools7/MemDev42/OS2/Vision1〕<!-- /atom-breakdown -->）
 │   ├── _ATOM_INDEX.md                              ← deprecated mirror（自動生成）
 │   ├── _meta/forbidden-phrases.json                ← V5 禁語單一真相
 │   ├── preferences.md / decisions*.md / workflow-*.md / toolchain*.md
@@ -244,7 +245,7 @@ V4 把知識空間從單層拓展為四層，V5 完全沿用：
 
 ### 5.1 Atom Index — JSON SoT（V5 P3b）
 
-`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->131<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
+`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->130<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
 
 **Atom 物理兩根 + 範疇資料夾 + Realm（V5+）**：`global` atom 物理只有兩根——`memory/<範疇>/`（core；Lv1 閉合清單 `memory/_meta/taxonomy.json`，`Failures/<主題>/` 為失敗家族、主題同一套 Lv1）與 `_AIDocs/_atoms/<domain>/`（**local realm**，MemDev/World/Vision/Tools/OS）。**寫入閘**：`atom_write(mode=create)` 對 scope=global（非 local）、feedback-* 標題、scope=shared 一律 `domain` 必填（`<Lv1>[/<Lv2>]`，別名 snap 回正名；未知 Lv1 拒，`allow_new_category` 才准開新類；`dry_run` 可預覽落點），MCP 來源永不自動分類；程式寫手（user-extract／失敗回寫）先 `classify_category`（詞庫→本地 LLM 閉合清單）再落地，分不出拒寫（失敗回寫走 `failure_type_fallback` 永不拒）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/**` 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM；2026-06-12 起 sink 端雙護欄：泛用詞拒收 + 非 CJK/ASCII 亂碼 domain 拒收/降 Else，見 SPEC §2）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
@@ -263,7 +264,7 @@ API：[lib/atom_index_json.py](lib/atom_index_json.py)（`load/save/upsert/delet
 
 ### 5.2 BM25 全域檢索層（V5 P5a）
 
-全域 ~<!-- atom-total -->131<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
+全域 ~<!-- atom-total -->130<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
 
 - ASCII word + 中文 char-bigram tokenization
 - 參數：k1=1.2, b=0.75
@@ -763,7 +764,8 @@ flowchart TD
 | Event Handlers | [hooks/handlers/](hooks/handlers/) | 10 個 event 各一檔（session_start/end、UPS、pre/post_tool_use、stop、pre_compact、post_compact、post_tool_batch、notification） |
 | Atom Index SoT (V5) | [lib/atom_index_json.py](lib/atom_index_json.py) + `memory/_atom_index.json` | JSON 唯一機器源；MD 自動生成 mirror |
 | Realm 範疇分區 (V5+/V6) | [lib/atom_locations.py](lib/atom_locations.py) `classify_realm`/`normalize_domain_path` + [tools/atom-set-realm.py](tools/atom-set-realm.py) + [tools/realm_llm_classify.py](tools/realm_llm_classify.py) + server.js mirror | core（`memory/<範疇>/`＋`memory/Failures/<主題>/`，全專案注入）vs local（`_AIDocs/_atoms/<階層路徑>/`，只在 ~/.claude 注入）；realm 由 path 推導、scope 仍 global。V6：階層多段 domain + SessionEnd LLM recall（unknown-core；**P3 起 `realm.llm_fallback.enabled=false` 預設關 — 只跑 deterministic 詞庫含 learned，保確定性**）+ 詞庫自學 + 增量深度閘。→SPEC §2.2 |
-| 核心記憶分類階層（寫入閘） | [lib/atom_taxonomy.py](lib/atom_taxonomy.py) + `memory/_meta/taxonomy.json` + [lib/atom_locations.py](lib/atom_locations.py) `core_write_target`/`failures_topic_target`/`project_category_target`/`classify_category` + [lib/atom_io.py](lib/atom_io.py) `_resolve_target` + [tools/atom-categorize.py](tools/atom-categorize.py) + [tools/sync-memory-index.py](tools/sync-memory-index.py) | create 先分類再落地（`domain` 必填、Lv1 閉合、別名 snap、`allow_new_category`、`dry_run`）；MEMORY.md = Lv1 目錄、各層 `_INDEX.md` 按需；專案層 `shared/<Lv1>/` 同規則、專案 MEMORY.md 只 upsert `<!-- atom-catalog -->` 區塊；遷移工具 `atom-categorize.py plan/apply/undo [--memory-dir]`。→SPEC §2.1/§2.3 |
+| 核心記憶分類階層（寫入閘） | [lib/atom_taxonomy.py](lib/atom_taxonomy.py) + `memory/_meta/taxonomy.json` + [lib/atom_locations.py](lib/atom_locations.py) `core_write_target`/`failures_topic_target`/`project_category_target`/`classify_category` + [lib/atom_io.py](lib/atom_io.py) `_resolve_target` + [tools/atom-categorize.py](tools/atom-categorize.py) + [tools/sync-memory-index.py](tools/sync-memory-index.py) | create 先分類再落地（`domain` 必填、Lv1 閉合、別名 snap、`allow_new_category`、`dry_run`）；MEMORY.md = Lv1 目錄、各層 `_INDEX.md` 按需；專案層 `shared/<Lv1>/` 同規則、feedback-* 落 `failures/<主題>/`（主題 = 核心 Lv1 ∪ 專案 `shared/_taxonomy.json` domains）、專案 MEMORY.md 只 upsert `<!-- atom-catalog -->` 區塊；遷移工具 `atom-categorize.py plan/apply/undo [--memory-dir]`；`atom-move.py` 搬後同步 `- Scope:` 檔頭、重生兩根目錄、既有 validate 錯誤另欄 `index_preexisting_issues`（只對新增錯誤 exit 2）。→SPEC §2.1/§2.3 |
+| Realm 閘：專案專屬不落 global | [lib/realm_gate.py](lib/realm_gate.py) + [lib/atom_io.py](lib/atom_io.py) `write_atom` + [lib/atom_io_cli.py](lib/atom_io_cli.py) `realm_check` + [tools/workflow-guardian-mcp/lib/atom-tools.js](tools/workflow-guardian-mcp/lib/atom-tools.js) | scope=global 的 create/append/replace 一律先掃 title/triggers/knowledge/actions；專名從 cwd 的專案 root 機械化推導（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 / repo-paths `{代號}` / 專案絕對路徑 / 「此專案」字面；與 ~/.claude 頂層同名者、泛詞排除），命中即拒並附 `scope=shared, project_cwd` 修正與落點；`skip_gate` 只跳品質/去重閘、跳不過本閘；MCP 缺 `project_cwd` 退用進程 cwd；cwd∈~/.claude 不啟動。守門 `lib/verify/verify_realm_project_term_gate.py` |
 | Hybrid RECALL | [hooks/wg_atoms.py](hooks/wg_atoms.py) | trigger + **BM25**（V5）+ Vector → **RRF 三路融合**（k=60，`fusion` config 可回退 legacy）× ACT-R（個別化 decay）+ Related-Edge + Section-Level |
 | 檢索回歸評估 | [tools/memory-eval/](tools/memory-eval/) | 223 條合成查詢回歸集（Recall@1/@3、MRR、誤注入率 + baseline 比對）——RRF/BM25 參數/embedding 改動的秒級 A/B 依據，終結盲調參 |
 | 失念偵測（recall-miss） | [hooks/wg_recall_miss.py](hooks/wg_recall_miss.py) | SessionEnd 比對「本 session 失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞命中）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |

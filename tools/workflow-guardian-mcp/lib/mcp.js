@@ -99,7 +99,7 @@ const TOOL_DEFINITIONS = [
         scope: {
           type: "string",
           enum: ["global", "shared", "role", "personal", "project"],
-          description: "V4 scope. shared=project-wide, role=role-shared (requires `role`), personal=per-user (requires `user` or defaults to current). global=cross-project. project (legacy)=transparently mapped to shared. Defaults to shared.",
+          description: "V4 scope. shared=project-wide, role=role-shared (requires `role`), personal=per-user (requires `user` or defaults to current). global=cross-project. project (legacy)=transparently mapped to shared. Defaults to shared. REALM GATE: when called from a project working dir, scope=global is REJECTED (all modes, skip_gate cannot bypass) if title/triggers/knowledge/actions mention any project-specific name (the project's top-level folder names, CLAUDE.md / Workspace_Map member names, repo-paths {codes}, absolute paths under the project root, or 「此專案/本專案」) — use scope=shared + project_cwd instead; feedback-* titles then land in <project>/.claude/memory/failures/<domain>/.",
         },
         role: {
           type: "string",
@@ -168,11 +168,11 @@ const TOOL_DEFINITIONS = [
         },
         project_cwd: {
           type: "string",
-          description: "Project root path (required for scope=shared/role/personal)",
+          description: "Project root path (required for scope=shared/role/personal). For scope=global it feeds the realm gate (project-name scan); omitted → the MCP process cwd (= session cwd) is used.",
         },
         skip_gate: {
           type: "boolean",
-          description: "Skip write-gate quality check (for [固] or explicit user request)",
+          description: "Skip the write-gate QUALITY/DEDUP check only (for [固] or explicit user request). Does NOT skip realm/scope checks: the project-name realm gate for scope=global and the category/domain gate always run.",
         },
         skip_conflict_check: {
           type: "boolean",

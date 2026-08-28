@@ -28,6 +28,7 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -216,6 +217,50 @@ def core_target_gate(to_dir: Path, dst_index: Path, *, dry_run: bool) -> tuple:
     return canon_dir, note
 
 
+# ─── 搬移後的同步：檔頭 Scope / 目錄重生 / 既有錯誤分離 ───────────────────────
+
+_SCOPE_LINE_RE = re.compile(r"^- Scope:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def sync_scope_header(md: Path, scope: str) -> bool:
+    """atom 檔頭 `- Scope:` 與索引 scope 對齊（走 write_raw funnel）。回是否實際改動。"""
+    try:
+        text = md.read_text(encoding="utf-8-sig")
+    except OSError:
+        return False
+    m = _SCOPE_LINE_RE.search(text)
+    if not m or m.group(1) == scope:
+        return False
+    new_text = text[:m.start()] + f"- Scope: {scope}" + text[m.end():]
+    res = write_raw(md, new_text, source=_SOURCE, op="atom_move_scope")
+    return bool(getattr(res, "ok", False))
+
+
+def catalog_sync(index_dir: Path) -> Dict[str, Any]:
+    """重生成該 memory root 的目錄：全域 → MEMORY.md + 各層 _INDEX.md；專案 → MEMORY.md
+    的 atom-catalog 區塊（tools/sync-memory-index.py --write）。回 {ok, error?}。"""
+    script = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+    if not script.exists():
+        return {"ok": False, "error": f"missing {script}"}
+    argv = [sys.executable, str(script), "--write"]
+    if not is_global_index(index_dir):
+        argv += ["--memory-dir", str(index_dir)]
+    try:
+        cp = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                            errors="replace", cwd=str(CLAUDE_DIR), timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"ok": False, "error": str(e)}
+    if cp.returncode != 0:
+        return {"ok": False, "error": (cp.stderr or cp.stdout).strip()[-300:]}
+    return {"ok": True}
+
+
+def split_validate(baseline: List[str], after: List[str]) -> tuple:
+    """(本次新增的錯誤, 搬移前就存在的錯誤)。exit code 只看前者。"""
+    base = set(baseline)
+    return [e for e in after if e not in base], [e for e in after if e in base]
+
+
 def find_entry(index_dir: Path, slug: str) -> Optional[Dict[str, Any]]:
     for a in load_atom_index_json(index_dir).get("atoms", []):
         if a.get("name") == slug:
@@ -369,6 +414,8 @@ def cmd_move(args):
     # scope 一律沿用索引既有值（含 cross-root）；變更須呼叫端以 --scope 明確指定。
     new_scope = args.scope or cur_scope
     new_rel = rel_path_for(dst_md, dst_index)
+    # 搬移前的索引錯誤基線：搬完只對「新增的錯誤」exit 2，既有的另欄回報（不混談）。
+    baseline_errs = validate_index(dst_index) + ([] if same_root else validate_index(src_index))
 
     if args.dry_run:
         report = {
@@ -413,21 +460,31 @@ def cmd_move(args):
 
     prune_empty_parents(src_md.parent, src_index)
 
-    errs = validate_index(dst_index)
+    # 檔頭 `- Scope:` 跟索引 scope 對齊（跨 root 換層時檔頭常還是舊層）
+    header_synced = sync_scope_header(dst_md, new_scope)
+
+    # 目錄重生：目的 root 一定跑；跨 root 時來源 root 也跑（計數 / _INDEX.md 都變了）
+    sync: Dict[str, Any] = {"dst": catalog_sync(dst_index)}
     if not same_root:
-        errs = errs + validate_index(src_index)
+        sync["src"] = catalog_sync(src_index)
+
+    after = validate_index(dst_index) + ([] if same_root else validate_index(src_index))
+    new_errs, preexisting = split_validate(baseline_errs, after)
 
     report = {
         "mode": "APPLIED", "slug": slug, "same_root": same_root,
         "from": str(src_md), "to_rel": new_rel, "scope": new_scope,
         "scope_changed": new_scope != cur_scope,
+        "scope_header_synced": header_synced,
         "sidecar_moved": sidecar_moved, "warnings": warnings,
-        "validate_errors": errs,
+        "catalog_sync": sync,
+        "validate_errors": new_errs,                 # 本次搬移造成的（exit 2）
+        "index_preexisting_issues": preexisting,     # 搬移前就有的（只回報）
     }
     if gate_note:
         report["note"] = gate_note
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    if errs:
+    if new_errs:
         sys.exit(2)
 
 
@@ -454,23 +511,31 @@ def cmd_reconcile(args):
 
     entry = find_entry(index_dir, slug)
     triggers = (entry or {}).get("triggers") or triggers_from_md(md)
-    scope = (entry or {}).get("scope") or ("global" if is_global_index(index_dir) else "project")
+    scope = (entry or {}).get("scope") or ("global" if is_global_index(index_dir) else "shared")
     new_rel = rel_path_for(md, index_dir)
+    baseline_errs = validate_index(index_dir)
 
+    header_synced = False
+    sync: Dict[str, Any] = {}
     if not args.dry_run:
         upsert_atom(index_dir, slug, new_rel, triggers, scope=scope)
         _audit("atom_reconcile", slug=slug, to_path=new_rel, scope=scope)
+        header_synced = sync_scope_header(md, scope)
+        sync = {"dst": catalog_sync(index_dir)}
 
     warnings = reconcile_inbound_refs(slug, index_dir, dry_run=args.dry_run)
-    errs = [] if args.dry_run else validate_index(index_dir)
+    new_errs, preexisting = ([], []) if args.dry_run else split_validate(
+        baseline_errs, validate_index(index_dir))
 
     report = {
         "mode": "DRY-RUN" if args.dry_run else "APPLIED", "slug": slug,
         "index": str(index_dir / ATOM_INDEX_JSON), "rel": new_rel, "scope": scope,
-        "warnings": warnings, "validate_errors": errs,
+        "scope_header_synced": header_synced, "catalog_sync": sync,
+        "warnings": warnings, "validate_errors": new_errs,
+        "index_preexisting_issues": preexisting,
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    if errs:
+    if new_errs:
         sys.exit(2)
 
 

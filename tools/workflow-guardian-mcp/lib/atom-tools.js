@@ -60,6 +60,18 @@ async function toolAtomWrite(id, args) {
   // V4 personal default user
   if (scope === "personal" && !user) user = getCurrentUser();
 
+  // Realm gate：專案專屬內容不得落 global——所有 mode（create/append/replace）都跑，
+  // 且**不受 skip_gate 影響**（skip_gate 只跳品質/去重閘）。裁決在 py lib/realm_gate.py
+  // 單源（專名從 cwd 的專案 root 機械化推導）；缺 project_cwd 時退用本 MCP 進程 cwd
+  // （Claude Code 以 session cwd 啟動 stdio server）。cwd∈~/.claude → py 端不啟動。
+  if (scope === "global") {
+    const gateCwd = project_cwd || process.cwd();
+    const rg = await spawnAtomCli("realm_check", {
+      project_cwd: gateCwd, title, triggers, knowledge, actions, domain,
+    });
+    if (!rg.ok) return sendToolResult(id, `atom_write: ${rg.error}`, true);
+  }
+
   // Resolve target memory dir (write target + base for index)
   const resolved = resolveMemDir(scope, project_cwd, { role, user });
   if (resolved.error) {
@@ -926,7 +938,9 @@ function toolAtomMove(id, args) {
       if (code !== 0) {
         sendToolResult(id, `atom_move exited ${code}\n${combined}`, true);
       } else {
-        sendToolResult(id, combined.trim() || "(no output)");
+        // 本次操作結果與「索引既有問題」分開講：exit 0 = 本次成功；
+        // index_preexisting_issues 是搬移前就存在的 validate 錯誤（非本次造成），只轉述。
+        sendToolResult(id, formatAtomMoveReport(combined));
       }
       resolve();
     });
@@ -936,6 +950,41 @@ function toolAtomMove(id, args) {
       resolve();
     });
   });
+}
+
+/** atom-move.py 的 JSON 報告 → 人讀摘要（成功行 + 既有索引問題另段）+ 原始 JSON。
+ *  非 JSON 輸出原樣回。 */
+function formatAtomMoveReport(raw) {
+  const text = (raw || "").trim();
+  let rep;
+  try { rep = JSON.parse(text.split("\n[stderr]\n")[0]); } catch { return text || "(no output)"; }
+  if (!rep || typeof rep !== "object") return text;
+  const lines = [];
+  if (rep.noop) {
+    lines.push(`atom_move: ${rep.msg || "no-op"}`);
+  } else {
+    const mode = rep.mode || "APPLIED";
+    const dest = rep.to_rel || rep.rel || rep.to || "?";
+    lines.push(`✅ atom_move ${mode}: ${rep.slug} → ${dest} (scope=${rep.scope}` +
+      (rep.scope_changed ? ", scope changed" : "") + ")");
+    if (rep.scope_header_synced) lines.push("  - 檔頭 `- Scope:` 已同步為索引 scope");
+    if (rep.catalog_sync) {
+      for (const [k, v] of Object.entries(rep.catalog_sync)) {
+        lines.push(`  - catalog regen ${k}: ${v.ok ? "ok" : "FAILED " + (v.error || "")}`);
+      }
+    }
+    if (Array.isArray(rep.warnings) && rep.warnings.length) {
+      lines.push(`  - warnings: ${rep.warnings.join(" | ")}`);
+    }
+    const pre = rep.index_preexisting_issues || [];
+    if (pre.length) {
+      lines.push(`⚠ 索引既有問題 ${pre.length} 項（搬移前就存在、非本次造成；` +
+        `修法：atom_edit_meta 縮短 trigger 或 tools/sync-atom-index.py --fix）：`);
+      for (const e of pre) lines.push(`    - ${e}`);
+    }
+  }
+  lines.push(text);
+  return lines.join("\n");
 }
 
 function extractKnowledgeLines(content) {

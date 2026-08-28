@@ -329,11 +329,26 @@ def _resolve_target(
         search_roots = [target_dir]
 
     routed_to_pending = False
+    routed_to_failures = False
     if scope == "shared" and audience and any(
         a.strip().lower() in SENSITIVE_AUDIENCE for a in audience
     ):
         target_dir = base / "shared" / "_pending_review"
         routed_to_pending = True
+    elif scope == "shared" and not subdir and slugify(title or "").startswith("feedback-"):
+        # 專案層失敗家族：feedback-* 落 <base>/failures/<主題>[/<Lv2>]/（對拍全域
+        # memory/Failures/<主題>/；主題清單 = 核心 Lv1 ∪ 專案 shared/_taxonomy.json domains，
+        # 走 project_category_target 同一套 snap）。hook 端 resolve_failures_dir 同址。
+        target_dir = base / "failures"
+        routed_to_failures = True
+        if domain or gate:
+            target, err = project_category_target(base, domain, allow_new_category,
+                                                  root_dir=target_dir)
+            if err and gate:
+                return {"error": err}
+            if target is not None:
+                target_dir = target["dir"]
+                category = f"failures/{target['category']}"
     elif scope == "shared" and (domain or gate):
         # 專案層同規則：shared create 先分類再落地 → <shared 或 subdir 分區>/<Lv1>[/<Lv2>]/。
         # 敏感 audience 的 _pending_review 路由優先於範疇（待審草稿不分類）。
@@ -351,7 +366,7 @@ def _resolve_target(
         "index_dir": base, "index_root": base.parent,
         "search_roots": search_roots,
         "scope_label": scope_label, "category": category,
-        "routed_to_failures": False, "routed_to_pending": routed_to_pending,
+        "routed_to_failures": routed_to_failures, "routed_to_pending": routed_to_pending,
         "routed_to_local": False,
         "error": None,
     }
@@ -781,6 +796,16 @@ def write_atom(
                       + ", ".join(repr(t) for t in too_long)
                       + " — shorten the trigger; it would poison every later "
                         "validate_index run (atom_move exit 2).")
+
+    # ── Realm gate：專案專屬內容不得落 global（所有 mode；skip_gate 跳不過）──
+    # 裁決在 lib/realm_gate.py 單源；cwd 缺（純程式寫手無 session 脈絡）或 cwd∈~/.claude
+    # → 閘不啟動。force_global 為 migration／測試逃生門。
+    if scope == "global" and not force_global:
+        from .realm_gate import check_global_write
+        gate_err = check_global_write(project_cwd, title=title, triggers=triggers,
+                                      knowledge=knowledge, actions=actions, domain=domain)
+        if gate_err:
+            return WriteResult(ok=False, audit_id=audit_id, error=gate_err)
 
     # ── Resolve target dir ──
     if mode in ("append", "replace") and domain and realm != "local":

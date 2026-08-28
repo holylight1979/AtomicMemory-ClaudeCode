@@ -652,6 +652,12 @@ def discover_v4_sublayers(slug: str, mem_dir: Path) -> List[Tuple[str, Path, str
     if shared_dir.is_dir():
         out.append((shared_label, shared_dir, "recursive"))
 
+    # 專案層失敗家族（memory/failures/<主題>/；scope=shared 的 feedback-* 落點，
+    # resolve_failures_dir 同址）屬 shared 層——向量索引／去重層清單靠這裡才看得到。
+    failures_dir = mem_dir / "failures"
+    if failures_dir.is_dir():
+        out.append((shared_label, failures_dir, "recursive"))
+
     roles_root = mem_dir / "roles"
     if roles_root.is_dir():
         for rd in sorted(roles_root.iterdir()):
