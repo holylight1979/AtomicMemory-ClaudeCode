@@ -59,7 +59,7 @@ except ImportError:
 # token 估算器單一口徑：wg_core._estimate_tokens — CJK-aware（中文 ~1.5 tok/字 + ASCII word），
 # transcript/handoff/debug 摘要與 atom 注入預算共用（wg_atoms import 複用）
 CONTEXT_BUDGET_DEFAULT = 3000
-TURN_BUDGET_LIMIT = 500   # atom 注入段 per-turn 硬頂，控每輪 token 稅
+TURN_BUDGET_LIMIT = 1200  # atom 注入段 per-turn 硬頂（atom 全文中位數 ~360 tok → 約 3 顆全文；總額仍由 compute_token_budget 夾住）
 
 
 def compute_token_budget(prompt: str) -> int:

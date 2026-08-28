@@ -660,7 +660,13 @@ def _strip_atom_for_injection(
     return "\n\n".join(parts).strip()
 
 
+_FALLBACK_KNOWLEDGE_LINES = 2   # 無「印象」段時保留的知識條數（[固]/[觀] 優先）
+_FALLBACK_LINE_CHARS = 160      # 每條節錄上限字元（長條目截尾加 …，避免降級版逼近全文大小）
+
+
 def _strip_atom_for_injection_impression_only(content: str) -> str:
+    """budget fallback 用的最小注入：表頭 + 印象段；無印象段則補知識段前幾條，
+    讓降級注入仍帶最低知識量（只剩標題+trigger 等於沒唸卻照樣佔 token）。"""
     parts: List[str] = []
     header = _extract_title_and_frontmatter(content)
     if header:
@@ -668,6 +674,18 @@ def _strip_atom_for_injection_impression_only(content: str) -> str:
     impression = _extract_named_section(content, "印象")
     if impression:
         parts.append(impression)
+    else:
+        knowledge = _extract_named_section(content, "知識")
+        if knowledge:
+            bullets = [ln for ln in knowledge.splitlines() if ln.lstrip().startswith("- ")]
+            ranked = ([b for b in bullets if "[固]" in b or "[觀]" in b]
+                      + [b for b in bullets if "[固]" not in b and "[觀]" not in b])
+            picked = [
+                (b if len(b) <= _FALLBACK_LINE_CHARS else b[:_FALLBACK_LINE_CHARS].rstrip() + "…")
+                for b in ranked[:_FALLBACK_KNOWLEDGE_LINES]
+            ]
+            if picked:
+                parts.append("## 知識（節錄）\n" + "\n".join(picked))
     return "\n\n".join(parts).strip()
 
 

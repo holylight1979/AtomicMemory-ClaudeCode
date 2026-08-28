@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-28 注入變弱根治 — per-turn 硬頂 500→1200 + 降級版保留知識節錄 + 效果量測腳本化
+- 實證：近 14 天 19 個有注入回合，trigger 命中的熱 atom 87 顆僅 19 顆全文（22%），其餘被 `TURN_BUDGET_LIMIT=500` 降成標題/一行路標（atom 全文中位數 ~360 tok → 每輪只裝得下 1 顆），總額 2800 只用 1070。修：`wg_core.TURN_BUDGET_LIMIT` 1200（≈3 顆全文）+ 釘死測試改區間；`_strip_atom_for_injection_impression_only` 無印象段時補知識段前 2 條（[固]/[觀] 優先、每條 160 字截尾，最肥 atom 537→349 tok）；`ups_inject` 每回合追加 `Logs/injection-turns.jsonl`，`memory-effect-report.py` 週趨勢加「有注入回合／全文/回合／熱 atom 全文率」三欄（純腳本統計）；taxonomy 行為契約/驗證與實證/工作流補詞（今日唯一 REJECT 候選「反退避」現可自動歸位）；順手修 `verify_session_coordination.test_entry_window` 貼線 59s 併跑假紅；遙測守衛：`PYTEST_CURRENT_TEST` 存在時不落正式檔，`verify_project_layer_smoke._run_hook` 子行程顯式帶此變數（`_ENV` import 時快照早於 pytest 設定，否則真 dispatcher 假 session 會污染統計）。`run_verify` 1561 綠、跑完統計檔 0 行。
+
 ## 2026-08-28 write-gate 去重限層 — 只比 global + 當前專案自己的層
 - 起於在 c:\Projects 寫 atom 被 c:\TSLG 下 wellstseng 的 personal atom 以 0.807 擋下（不能 append 過去、只能 skip_gate）：去重查詢原本 `layer=all` 掃全庫 27 層。新 `realm.dedupLayersFor(scope, memBase, {role,user})`（global → `global`+`extra:local-atoms`；shared/role/personal 再加當前專案 `shared:<slug>`／`role:<slug>:<r>`／`personal:<slug>:<u>`，slug 對拍 `wg_core.cwd_to_project_slug`）→ `funnel.execWriteGate` stdin 帶 `layers` → `memory-write-gate.check_dedup` 加 `layers=` → daemon `/search?layers=a,b` → `searcher._build_layers_clause` 組 `layer IN (...)`（標籤只允許 `[\w\-:]`）。拒寫訊息附 searched layers。實測：TSLG personal 原句不限層 0.899 命中 wellstseng atom，限層後排除。測試 `verify_write_gate_pitfall.py` +layers 進查詢字串、`verify_mcp_funnel_hardening.py` +node 端 dedupLayersFor 對拍。
 

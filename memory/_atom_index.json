@@ -2279,6 +2279,28 @@
         "layers"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費",
+      "path": "memory/Failures/CC與原子記憶契約/feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費.md",
+      "triggers": [
+        "記憶系統",
+        "原子記憶",
+        "注入",
+        "萃取",
+        "token 稅",
+        "token 浪費",
+        "精準",
+        "高效",
+        "記憶取捨",
+        "budget",
+        "TURN_BUDGET_LIMIT",
+        "記憶變弱",
+        "注入變弱",
+        "分門別類",
+        "積累"
+      ],
+      "scope": "global"
     }
   ]
 }

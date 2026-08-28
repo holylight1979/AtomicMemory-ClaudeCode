@@ -259,11 +259,22 @@ def test_impression_only_returns_minimal_block():
 
 
 def test_impression_only_handles_atom_without_impression():
-    """Atom without ## 印象 → returns header alone (no crash)."""
-    out = wg_atoms._strip_atom_for_injection_impression_only(_knowledge_action_atom())
+    """Atom without ## 印象 → header + 知識段前 2 條節錄（[固]/[觀] 優先），行動段不帶。"""
+    atom = _knowledge_action_atom(["- [臨] 臨時一", "- [固] 固定一", "- [觀] 觀察一", "- [固] 固定二"])
+    out = wg_atoms._strip_atom_for_injection_impression_only(atom)
     assert "# 知識行動型" in out
     assert "Confidence" in out
     assert "## 印象" not in out
+    assert "## 知識（節錄）" in out
+    assert "固定一" in out and "觀察一" in out
+    assert "臨時一" not in out and "固定二" not in out  # 只取 2 條，[固]/[觀] 優先
+    assert "## 行動" not in out
+
+
+def test_impression_only_prefers_impression_over_knowledge():
+    """有 ## 印象 時不節錄知識段（維持原行為）。"""
+    out = wg_atoms._strip_atom_for_injection_impression_only(_impression_action_atom())
+    assert "## 知識" not in out
 
 
 # ─── token reduction smoke check (sanity, not a strict assertion) ───────────

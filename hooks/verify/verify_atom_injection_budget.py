@@ -135,9 +135,10 @@ def test_decision_skip_when_impression_not_smaller_than_full():
 # ─── budget reset semantics (per-turn local var, no module state) ───────────
 
 
-def test_budget_constant_is_500():
-    """Sanity check on the published constant _TURN_BUDGET_LIMIT == 500（見淨值審查 atom）."""
-    assert wg_atoms._TURN_BUDGET_LIMIT == 500
+def test_budget_constant_fits_three_median_atoms():
+    """per-turn 硬頂須容得下約 3 顆中位數（~360 tok）atom 全文，且不超過最小總額 compute_token_budget(短 prompt)=1000 的兩倍。"""
+    assert 1000 <= wg_atoms._TURN_BUDGET_LIMIT <= 2000
+    assert wg_atoms._TURN_BUDGET_LIMIT == 1200
 
 
 def test_no_module_level_state_carries_between_calls():

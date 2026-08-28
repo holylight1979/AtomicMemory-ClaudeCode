@@ -217,9 +217,12 @@ _ENV = dict(os.environ, PYTHONIOENCODING="utf-8")
 def _run_hook(event: str, cwd: Path, session_id: str, **extra) -> str:
     """跑真實 dispatcher，回 additionalContext（無 JSON 輸出 → ""）。"""
     data = {"hook_event_name": event, "cwd": str(cwd), "session_id": session_id, **extra}
+    # _ENV 在 import 時快照，早於 pytest 逐測設定的 PYTEST_CURRENT_TEST → 子行程須顯式帶上，
+    # 讓 hook 端的「測試中不落正式遙測檔」守衛（如 injection-turns.jsonl）生效
+    child_env = dict(_ENV, PYTEST_CURRENT_TEST=os.environ.get("PYTEST_CURRENT_TEST", "smoke"))
     r = subprocess.run([sys.executable, str(GUARDIAN)], input=json.dumps(data, ensure_ascii=False),
                        capture_output=True, text=True, encoding="utf-8", errors="replace",
-                       env=_ENV, cwd=str(cwd), timeout=180)
+                       env=child_env, cwd=str(cwd), timeout=180)
     assert "Traceback" not in r.stderr, r.stderr
     for line in r.stdout.splitlines():
         line = line.strip()

@@ -154,12 +154,13 @@ def test_scan_overflow_logged(tmp_path, monkeypatch):
 def test_entry_window(tmp_path, monkeypatch):
     _patch_dirs(tmp_path, monkeypatch)
     t = str(tmp_path / "w.py")
-    for sid, at in [("peer-1111-aaaa", _iso(-59)), ("peer-2222-bbbb", _iso(-61)),
+    # 窗內樣本取 -45s（非 -59s）：整套 verify 併跑時 wall-clock 會漂 >1s，貼線值會滑出 60s 窗而假紅
+    for sid, at in [("peer-1111-aaaa", _iso(-45)), ("peer-2222-bbbb", _iso(-75)),
                     ("peer-3333-cccc", "not-a-date"), ("peer-4444-dddd", _iso(+120))]:
         _mk_state(tmp_path, sid, [(t, at)])
     hit = wc.check_cross_session_conflict(SELF, t, CFG, entry_window_s=60, use_cache=False)
-    assert hit and hit["peer_sid"] == "peer-1111-aaaa"  # 僅 59s 者命中
-    # 只留 61s / 壞格式 / 未來 → 全跳過
+    assert hit and hit["peer_sid"] == "peer-1111-aaaa"  # 僅窗內（45s）者命中
+    # 只留 75s / 壞格式 / 未來 → 全跳過
     (tmp_path / "state-peer-1111-aaaa.json").unlink()
     assert wc.check_cross_session_conflict(SELF, t, CFG, entry_window_s=60,
                                            use_cache=False) is None

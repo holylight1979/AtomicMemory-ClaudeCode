@@ -14,7 +14,11 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_core import log_promotion_audit, _atom_debug_log, _estimate_tokens
+import json as _json_mod
+import os
+from datetime import datetime
+
+from wg_core import CLAUDE_DIR, log_promotion_audit, _atom_debug_log, _estimate_tokens
 from wg_atoms import (
     AtomEntry,
     _strip_atom_for_injection,
@@ -32,6 +36,39 @@ _BUDGET_SKIP_STREAK_MAX = 2
 # injection_log state 條目上限（session 累積、超出裁最舊）——供 Stop 取用端
 # 稽核閘（AtomAudit）判定「trigger 命中但僅一行路標注入且未 Read」。
 _INJECTION_LOG_CAP = 100
+
+
+_INJECTION_TURNS_LOG = CLAUDE_DIR / "Logs" / "injection-turns.jsonl"
+
+
+def _append_injection_turn_log(
+    session_id: str, turn_seq: int, records: List[Dict[str, Any]],
+    used_tokens: int, config: Dict[str, Any],
+) -> None:
+    """每 turn 一行落 Logs/injection-turns.jsonl：{at, session_id, turn_seq, ok, fallback,
+    skip, cold, used_tokens, limit}。state 的 injection_log 會被 cap 裁掉且 session 結束後
+    不易聚合；這份持久紀錄供 memory-effect-report「每回合平均全文注入數」欄位。fail-open。"""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return  # verify 套件以假 session 跑真 ups_inject，不得污染正式統計
+    try:
+        counts = {"ok": 0, "fallback": 0, "skip": 0, "cold": 0}
+        for r in records:
+            f = r.get("form")
+            if f in counts:
+                counts[f] += 1
+        row = {
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "session_id": session_id,
+            "turn_seq": turn_seq,
+            **counts,
+            "used_tokens": int(used_tokens),
+            "limit": int(_TURN_BUDGET_LIMIT),
+        }
+        _INJECTION_TURNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with _INJECTION_TURNS_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(_json_mod.dumps(row, ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001 — 純遙測，不得影響注入
+        _atom_debug_log("BUDGET", f"injection-turns log write error: {e}", config)
 
 
 def _filter_related_by_relevance(
@@ -299,6 +336,7 @@ def assemble_injection(
         inj_log.extend(inject_records)
         if len(inj_log) > _INJECTION_LOG_CAP:
             state["injection_log"] = inj_log[-_INJECTION_LOG_CAP:]
+        _append_injection_turn_log(session_id, cur_turn, inject_records, used_tokens, config)
         if rescue_pairs:
             try:
                 from wg_rescue import record_rescue_watch

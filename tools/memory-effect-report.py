@@ -35,6 +35,28 @@ from lib.atom_access import USEFULNESS_PRIOR, wilson_lower_bound  # noqa: E402
 ATOM_INDEX = CLAUDE_DIR / "memory" / "_atom_index.json"
 RESCUE_LOG = CLAUDE_DIR / "Logs" / "rescue-log.jsonl"
 RECALL_MISS_LOG = CLAUDE_DIR / "Logs" / "recall-miss.jsonl"
+INJECTION_TURNS_LOG = CLAUDE_DIR / "Logs" / "injection-turns.jsonl"  # ups_inject 每 turn 一行
+
+
+def _load_injection_turns(since_ts: float) -> list[dict]:
+    """讀 injection-turns.jsonl 窗內記錄（每回合 ok/fallback/skip/cold 顆數）。缺檔/壞行計為零。"""
+    if not INJECTION_TURNS_LOG.exists():
+        return []
+    out: list[dict] = []
+    with INJECTION_TURNS_LOG.open(encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                ts = datetime.fromisoformat(rec["at"]).timestamp()
+            except (ValueError, KeyError, TypeError):
+                continue
+            if ts >= since_ts:
+                rec["_ts"] = ts
+                out.append(rec)
+    return out
 
 EXPOSURE_TAX_MIN = 10   # 窗內曝光 ≥ 此值且零使用證據 → token 稅
 TOP_N_DEFAULT = 10
@@ -181,13 +203,22 @@ def collect(days: int = 30, top_n: int = TOP_N_DEFAULT) -> dict:
     n_buckets = max(1, (days + 6) // 7)
     trend = []
     all_rescue_ts = [float(rec["ts"]) for hits in rescue.values() for rec in hits]
+    turn_recs = _load_injection_turns(since)
     for b in range(n_buckets):
         lo = since + b * 7 * 86400
         hi = min(lo + 7 * 86400, now + 1)
+        wk = [t for t in turn_recs if lo <= t["_ts"] < hi]
+        n_turns = len(wk)
+        full = sum(int(t.get("ok", 0)) for t in wk)
+        hot = full + sum(int(t.get("fallback", 0)) + int(t.get("skip", 0)) for t in wk)
         trend.append({
             "week_of": datetime.fromtimestamp(lo).strftime("%m-%d"),
             "exposures": sum(1 for r in rows for t in r["stamps"] if lo <= t < hi),
             "rescue_hits": sum(1 for t in all_rescue_ts if lo <= t < hi),
+            # 每回合平均全文注入顆數 / 熱 atom 全文率（ok ÷ (ok+fallback+skip)）；無紀錄 → None
+            "turns": n_turns,
+            "full_per_turn": round(full / n_turns, 2) if n_turns else None,
+            "full_rate": round(full / hot, 2) if hot else None,
         })
 
     # D. 失念：踩坑時庫有可防 atom（trigger 命中失敗證據 ≥2 詞）但未被注入
@@ -260,10 +291,15 @@ def render_md(result: dict) -> str:
 
     L.append("")
     L.append("## 30 天週趨勢")
-    L.append("| 週起 | 曝光 | rescue 命中 |")
-    L.append("|------|------|------------|")
+    L.append("| 週起 | 曝光 | rescue 命中 | 有注入回合 | 全文/回合 | 熱 atom 全文率 |")
+    L.append("|------|------|------------|-----------|----------|--------------|")
     for t in result["trend_weekly"]:
-        L.append(f"| {t['week_of']} | {t['exposures']} | {t['rescue_hits']} |")
+        fpt = "—" if t.get("full_per_turn") is None else f"{t['full_per_turn']:.2f}"
+        fr = "—" if t.get("full_rate") is None else f"{int(round(t['full_rate'] * 100))}%"
+        L.append(f"| {t['week_of']} | {t['exposures']} | {t['rescue_hits']} | {t.get('turns', 0)} | {fpt} | {fr} |")
+    L.append("")
+    L.append("> 「全文/回合」= 每個有注入的回合平均完整唸入的 atom 顆數；「熱 atom 全文率」= 全文 ÷ (全文+降級+跳過)。"
+             "兩欄來自 Logs/injection-turns.jsonl（ups_inject 每回合自動落檔），是「注入變弱 vs 工作量波動」的分辨依據。")
     L.append("")
     L.append(f"> {result['caveat']}")
     return "\n".join(L)
