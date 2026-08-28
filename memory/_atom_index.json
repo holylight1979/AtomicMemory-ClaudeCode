@@ -2224,32 +2224,6 @@
       "scope": "global"
     },
     {
-      "name": "feedback-svn-commit-一律先問使用者確認-計畫核准不等於上版授權",
-      "path": "memory/Failures/版控/SVN/feedback-svn-commit-一律先問使用者確認-計畫核准不等於上版授權.md",
-      "triggers": [
-        "svn commit",
-        "上SVN",
-        "上版",
-        "commit 授權",
-        "計畫核准",
-        "ExitPlanMode",
-        "驗證完就上",
-        "不先問就 commit",
-        "上傳必經明確授權",
-        "svn status",
-        "sgi_server",
-        "sgi_client",
-        "Tools/",
-        "順手修",
-        "同事回報",
-        "文件修正",
-        "README",
-        "註解",
-        "SVN 資料夾"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕",
       "path": "_AIDocs/_atoms/MemDev/刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕.md",
       "triggers": [

@@ -6,7 +6,7 @@
 - Trigger: svn, svn-update, TortoiseSVN
 - Created: 2026-03-18
 - Tags: svn, vcs
-- Related: workflow-rules, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, feedback-svn-commit-一律先問使用者確認-計畫核准不等於上版授權
+- Related: workflow-rules, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉
 
 ## 知識
 
