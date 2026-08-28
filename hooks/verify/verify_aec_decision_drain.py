@@ -48,6 +48,28 @@ def _write(ddir, sid, turn, idx, action, item, injected=False, session_id=None):
     return p
 
 
+def test_delete_on_protected_path_refused_not_injected_as_delete(ddir, tmp_path, monkeypatch):
+    """HUD 對受保護路徑（memory/ 下、VCS 追蹤）按刪除 → 不注入「🗑 刪除」，改注入 ⛔ 拒絕 + 直接結案（verified）。"""
+    from handlers import aec_ledger as L
+    monkeypatch.setattr(L, "vcs_tracked", lambda p: False)
+    atom = tmp_path / "memory" / "x" / "a.md"; atom.parent.mkdir(parents=True); atom.write_text("x")
+    junk = tmp_path / "junk.log"; junk.write_text("x")
+    ddir.mkdir(parents=True, exist_ok=True)
+    for i, (p, it) in enumerate(((atom, "atom 未 commit"), (junk, "一次性 log"))):
+        rec = {"session_id": _SID, "path": str(p), "item": f"{p} — {it}", "action": "delete",
+               "at": "2026-07-06T00:00:00Z", "injected": False}
+        (ddir / f"{_SID}-p{i:012d}.json").write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+    lines = []
+    ups._drain_aec_decisions(_SID, lines)
+    blob = lines[0]
+    assert f"🗑 刪除：{junk}" in blob
+    assert f"🗑 刪除：{atom}" not in blob
+    assert "⛔ 拒絕刪除" in blob and str(atom) in blob
+    recs = [json.loads(f.read_text(encoding="utf-8")) for f in sorted(ddir.glob("*.json"))]
+    prot = next(r for r in recs if r["path"] == str(atom))
+    assert prot["injected"] is True and prot["verified"] is True
+
+
 def test_own_delete_and_keep_injected(ddir):
     """本 session delete + keep → 注入含兩項 + 檔標 injected:true。"""
     pd = _write(ddir, _SID, 1, 0, "delete", "tmp/a.txt")

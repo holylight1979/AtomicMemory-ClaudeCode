@@ -305,6 +305,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     # 寫入原子性，不涵蓋整段 R-M-W；要全程上鎖需把 lock 提出 write_state 重構
     # 所有 caller，改動過大，接受此窗（同 turn 內 PostToolUse 序列執行，實際窗極小）。
     dirty = False
+    aec_reject_msgs: List[str] = []   # anti_evasion_report 分支填；尾端併入 advisories 回給模型
 
     # ─── 救援日誌：工具呼叫命中已注入 atom 的高特異 token → rescue-log ───
     try:
@@ -542,9 +543,19 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         # 殘檔帳本：(d) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。
+        # (d) 裡的受保護路徑（VCS 追蹤檔 / memory、_AIDocs / 索引類）拒收並回告模型——
+        # 「已改未 commit 的正式檔」屬 (a)(b) 未同步事項，不是衍生暫存；靜默丟掉會讓模型一直錯報。
         try:
             _cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
-            aec_ledger.collect_at_completion(session_id, _cwd, d, turn_seq)
+            _rejected: List[Dict[str, str]] = []
+            aec_ledger.collect_at_completion(session_id, _cwd, d, turn_seq, rejected=_rejected)
+            if _rejected:
+                aec_reject_msgs.append(
+                    "[Guardian:AEC-Ledger] (d) 衍生暫存清單拒收受保護路徑（正式產出不是暫存，"
+                    "不得進 HUD 刪除候選）：\n"
+                    + "\n".join(f"  ✗ {r['path']} — {r['reason']}" for r in _rejected)
+                    + "\n未 commit 的正式檔請改列於 (a)/(b) 未同步事項；(d) 只放你自己產生的暫存／中間產物。"
+                )
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_collect", e)
         _maybe_spawn_hud(sev, state, config)
@@ -558,7 +569,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _atom_debug_error("post_tool_use:docdrift_prune", e)
             pass
 
-    advisories = []
+    advisories = list(aec_reject_msgs)
     if state:
         for key, prefix in [
             ("_path_enforcement_advisory", "[Guardian:PathEnforce]"),

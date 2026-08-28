@@ -21,6 +21,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from handlers import aec_ledger
+
 from wg_core import (
     _ensure_state, _estimate_tokens, _now_iso, write_state,
     output_json, output_nothing,
@@ -124,6 +126,7 @@ def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
     # ── Phase 2：新決策注入（未 injected 者）──
     deletes: List[str] = []
     keeps: List[str] = []
+    refused: List[str] = []   # 受保護路徑的刪除決策：不注入刪除指令（帳本拒收前的舊帳／任何漏網）
     consumed: List[tuple] = []
     for p, data in loaded:
         if data.get("injected"):
@@ -131,7 +134,12 @@ def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
         item = str(data.get("item", "")).strip() or f"(idx {data.get('idx')})"
         action = data.get("action")
         if action == "delete":
-            deletes.append(item)
+            why = aec_ledger.protected_reason(str(data.get("path", "") or ""))
+            if why:
+                refused.append(f"{item}（{why}）")
+                data["verified"] = True   # 直接結案，不進後驗 nag
+            else:
+                deletes.append(item)
         elif action == "keep":
             keeps.append(item)
         else:
@@ -142,7 +150,11 @@ def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
     block = ["[Guardian:AEC-Decision] 使用者於 HUD 對 (d) 暫存清單做了處置："]
     block += [f"  🗑 刪除：{it}" for it in deletes]
     block += [f"  📌 保留：{it}" for it in keeps]
-    block.append("請據此執行——刪除項確認路徑後移除、保留項略過；為 deferred，本回合執行。")
+    block += [f"  ⛔ 拒絕刪除（受保護路徑，正式產出不經 HUD 刪）：{it}" for it in refused]
+    if deletes or keeps:
+        block.append("請據此執行——刪除項確認路徑後移除、保留項略過；為 deferred，本回合執行。")
+    if refused:
+        block.append("拒絕項請一句話告知使用者：該檔屬正式產出，要移除請使用者自行處理。")
     lines.append("\n".join(block))
     for p, data in consumed:   # 標 injected（atomic tmp→replace），防下回合重注入
         data["injected"] = True

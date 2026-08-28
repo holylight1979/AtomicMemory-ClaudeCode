@@ -125,6 +125,77 @@ def test_collect_at_completion_merges_d_and_scan(wdir, monkeypatch):
     assert names == ["maps.bak", "run.ps1"]
 
 
+def test_protected_paths_rejected_from_d_with_reason(wdir, monkeypatch):
+    """(d) 列了正式產出（memory/、_AIDocs/、索引、CHANGELOG）→ 不進帳、rejected 帶原因；同行其他暫存照收。"""
+    cwd = wdir / "proj"
+    for rel in ("memory/x/atom.md", "_AIDocs/Arch.md", "docs/_INDEX.md", "_CHANGELOG.md", "tmp/run.log"):
+        f = cwd / rel; f.parent.mkdir(parents=True, exist_ok=True); f.write_text("x")
+    monkeypatch.setattr(L, "vcs_tracked", lambda p: False)   # 只測 dir/basename 規則
+    d = "\n".join([
+        "memory/x/atom.md — 新 atom 未 commit",
+        "_AIDocs/Arch.md — 已改未 commit",
+        "docs/_INDEX.md — 索引異動",
+        "_CHANGELOG.md — 補一句",
+        "tmp/run.log — 一次性輸出",
+    ])
+    rejected: list = []
+    got = L.parse_d_paths(d, str(cwd), rejected)
+    assert [Path(e["path"]).name for e in got] == ["run.log"]
+    assert sorted(Path(r["path"]).name for r in rejected) == ["Arch.md", "_CHANGELOG.md", "_INDEX.md", "atom.md"]
+    assert all(r["reason"] for r in rejected)
+
+
+def test_vcs_tracked_path_rejected_untracked_allowed(wdir, monkeypatch):
+    """VCS 已追蹤 → 拒；同資料夾未追蹤 → 收。（vcs_tracked 以 stub 取代，真 git 子行程另有 smoke）"""
+    cwd = wdir / "proj"; cwd.mkdir()
+    (cwd / "real.cs").write_text("x"); (cwd / "real.cs.bak").write_text("x")
+    monkeypatch.setattr(L, "vcs_tracked", lambda p: Path(p).name == "real.cs")
+    rejected: list = []
+    got = L.parse_d_paths("real.cs — 改了未 commit\nreal.cs.bak — 改前備份", str(cwd), rejected)
+    assert [Path(e["path"]).name for e in got] == ["real.cs.bak"]
+    assert [Path(r["path"]).name for r in rejected] == ["real.cs"] and "VCS" in rejected[0]["reason"]
+
+
+def test_vcs_tracked_real_git(wdir):
+    """真 git：init 一個 repo，追蹤檔 True、未追蹤 False、無 repo False。"""
+    import shutil, subprocess
+    if not shutil.which("git"):
+        pytest.skip("git not on PATH")
+    repo = wdir / "repo"; repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    (repo / "t.txt").write_text("x"); (repo / "u.txt").write_text("x")
+    subprocess.run(["git", "-C", str(repo), "add", "t.txt"], check=True)
+    assert L.vcs_tracked(str(repo / "t.txt")) is True
+    assert L.vcs_tracked(str(repo / "u.txt")) is False
+    (wdir / "norepo").mkdir(); (wdir / "norepo" / "z.txt").write_text("x")
+    assert L.vcs_tracked(str(wdir / "norepo" / "z.txt")) is False
+
+
+def test_ledger_append_refuses_protected_any_source(wdir, monkeypatch):
+    """最後一道：不論來源（write/scan/manual），受保護路徑不落帳；tempdir 下永不受保護。"""
+    monkeypatch.setattr(L, "vcs_tracked", lambda p: False)
+    tmp = wdir / "tmp"; tmp.mkdir()
+    monkeypatch.setattr(L, "_tempdir", lambda: str(tmp))
+    (tmp / "memory").mkdir(); (tmp / "memory" / "scratch.md").write_text("x")   # tempdir 內同名夾 → 放行
+    (wdir / "memory").mkdir(); (wdir / "memory" / "a.md").write_text("x")
+    n = L.ledger_append(_SID, [
+        {"path": str(wdir / "memory" / "a.md"), "note": "", "source": "manual"},
+        {"path": str(tmp / "memory" / "scratch.md"), "note": "", "source": "write"},
+    ])
+    assert n == 1
+    assert [Path(r["path"]).name for r in L.ledger_read(_SID)] == ["scratch.md"]
+
+
+def test_collect_at_completion_reports_rejected(wdir, monkeypatch):
+    monkeypatch.setattr(L, "vcs_tracked", lambda p: False)
+    monkeypatch.setattr(L, "_tempdir", lambda: str(wdir / "tmp"))
+    cwd = wdir / "proj"; (cwd / "_AIDocs").mkdir(parents=True)
+    (cwd / "_AIDocs" / "_CHANGELOG.md").write_text("x"); (cwd / "o.bak").write_text("x")
+    rej: list = []
+    n = L.collect_at_completion(_SID, str(cwd), "_AIDocs/_CHANGELOG.md — 未 commit\no.bak — 備份", 1, rejected=rej)
+    assert n == 1 and [Path(r["path"]).name for r in rej] == ["_CHANGELOG.md"]
+
+
 def test_ledger_read_missing_or_corrupt_fail_open(wdir):
     assert L.ledger_read(_SID) == []
     p = L.ledger_path(_SID); p.parent.mkdir(parents=True)

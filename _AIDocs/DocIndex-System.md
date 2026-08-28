@@ -76,7 +76,7 @@ Session Ready
 | workflow-guardian.py | 20 | 薄 shim（5 行可執行 code）轉發 `dispatcher.main()` |
 | dispatcher.py | ~75 | 純路由：讀 stdin event → 找 handler → 呼叫 |
 | handlers/_shared.py | — | 跨 handler 共用 helper |
-| handlers/aec_ledger.py | — | per-session 殘檔帳本唯一 writer（`workflow/aec-tempfiles/<sid>.jsonl`）：tempdir 寫入 / (d) 一行一路徑解析 / scratchpad 掃描；HUD 讀端以 exists() 判尚存 |
+| handlers/aec_ledger.py | — | per-session 殘檔帳本唯一 writer（`workflow/aec-tempfiles/<sid>.jsonl`）：tempdir 寫入 / (d) 一行一路徑解析 / scratchpad 掃描；HUD 讀端以 exists() 判尚存。`protected_reason()` 拒收正式檔（VCS 追蹤 / `memory`、`_AIDocs` 下 / 索引、CHANGELOG、核心 md），(d) 拒收回告模型、drain 對其刪除決策注入 ⛔ |
 | handlers/session_start.py | — | init state + 去重 + bootstrap + Vector bg subprocess |
 | handlers/user_prompt_submit.py | — | UPS orchestrator：串聯 ups_* 四段 + 收尾（2026-06-12 拆分）+ UPS 被 kill 哨兵（`workflow/ups-sentinel/`，殘留→告警）+ AEC (d) 刪除決策後驗（exists() 實查→重注入/告警） |
 | handlers/ups_gates.py | — | UPS detect 段：evasion 追蹤 + V4.1 + long_die + hot cache + atom-write guard |
@@ -149,7 +149,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - `workflow-guardian-mcp/server.js`（+ 11 lib 模組，原 4394 行單檔純機械拆分）— stdio MCP + dashboard port 3848
   - `atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta`（4 個 atom 業務 tool；`atom_edit_meta`=元資料外科編輯 → [SPEC_ATOM_V5 §3.4](SPEC_ATOM_V5.md)）
   - `anti_evasion_report`（收尾檢核 (a)(b)(c)(d) emit → Anti-Evasion HUD；**one-writer**：MCP tool 只回 chip，Python `post_tool_use` 獨佔寫 state + 落 `workflow/aec-report/`；HUD 頁 `lib/{anti-evasion,aec-hud-html}.js` 服）
-    - 殘檔帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一 writer：tempdir 寫入 / (d) 一行一路徑 / Stop 掃 scratchpad 三來源進帳）；HUD「本 session 尚存殘檔」面板走 `GET /api/aec/tempfiles/<sid>`（Node 讀帳本 + 當下 exists() 過濾，檔案系統為權威、不做 TTL）；保留/刪除決策檔 `aec-decision/<sid>-p<pathhash>.json` 帶 `path` 供 drain 後驗
+    - 殘檔帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一 writer：tempdir 寫入 / (d) 一行一路徑 / Stop 掃 scratchpad 三來源進帳）；HUD「本 session 尚存殘檔」面板走 `GET /api/aec/tempfiles/<sid>`（Node 讀帳本 + 當下 exists() 過濾，檔案系統為權威、不做 TTL）；保留/刪除決策檔 `aec-decision/<sid>-p<pathhash>.json` 帶 `path` 供 drain 後驗；受保護路徑（`aec_ledger.protected_reason()`：tempdir 放行 → `memory`/`_AIDocs` 段 → 索引／CHANGELOG／核心 md 檔名 → VCS 追蹤）三道拒收：(d) 解析拒收並 additionalContext 回告、`ledger_append` 末道、drain 刪除決策改注入 ⛔ 拒絕
   - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
   - 內部 IPC 4 個（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`）已內化為 Stop gate hook 自動偵測
 
@@ -232,7 +232,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->127<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->130<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2

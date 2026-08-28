@@ -9,6 +9,10 @@
 帳本只記「進過帳」的路徑；「還在不在」不記——由讀端當下 exists() 判定（檔案系統才是權威，
 不信模型自報）。不做 TTL：殘檔正解是完工即刪；帳本裡有、磁碟上還在 → HUD 一直列到被處置。
 fail-open：任何 I/O 例外都吞掉，不阻斷 hook。
+
+受保護路徑（is_protected_path）一律拒收，不論來源：VCS 已追蹤的檔、memory/ 與 _AIDocs/ 之下、
+索引／CHANGELOG／核心設定 md。理由：帳本裡的每一列在 HUD 都配「刪除」鈕，正式產出（改了還沒
+commit 的 code/doc/atom/索引）不是「衍生暫存」，模型錯報進 (d) 也不能變成可一鍵刪的候選。
 """
 from __future__ import annotations
 
@@ -16,6 +20,7 @@ import glob as _glob
 import json
 import os
 import re
+import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +29,74 @@ from typing import Any, Dict, List, Optional
 from wg_core import WORKFLOW_DIR
 
 LEDGER_DIR_NAME = "aec-tempfiles"
+
+# 受保護：路徑任一段等於這些目錄名（知識庫／文件庫，永遠不是暫存）
+PROTECTED_DIR_NAMES = frozenset({"memory", "_AIDocs"})
+# 受保護：檔名樣式（索引、變更紀錄、核心設定 md）
+PROTECTED_BASENAME_RE = re.compile(
+    r"^(?:_INDEX|_ATOM_INDEX|_CHANGELOG(?:_ARCHIVE)?|CLAUDE|MEMORY|IDENTITY|USER|TECH|README)(?:\.[^.]+)?$",
+    re.IGNORECASE,
+)
+_VCS_TIMEOUT_S = 3
+
+
+def _vcs_root_kind(path: str) -> str:
+    """往上找 .git（檔或夾）/ .svn → 'git' | 'svn' | ''。純目錄走訪，不起子行程。"""
+    try:
+        cur = Path(path).resolve()
+    except Exception:
+        return ""
+    for d in [cur] + list(cur.parents):
+        try:
+            if (d / ".git").exists():
+                return "git"
+            if (d / ".svn").is_dir():
+                return "svn"
+        except Exception:
+            continue
+    return ""
+
+
+def vcs_tracked(path: str) -> bool:
+    """git ls-files --error-unmatch / svn info 回 0 = 已追蹤。無 VCS 祖先 → False，不起子行程。
+    任何例外（無 binary、timeout）→ False（fail-open 往「不受保護」偏——但 dir/basename 規則仍擋）。"""
+    kind = _vcs_root_kind(path)
+    if not kind:
+        return False
+    p = Path(path)
+    if kind == "git":
+        cmd = ["git", "-C", str(p.parent), "ls-files", "--error-unmatch", "--", p.name]
+    else:
+        cmd = ["svn", "info", "--non-interactive", str(p)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=_VCS_TIMEOUT_S)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def protected_reason(path: str) -> str:
+    """回傳受保護原因字串；'' = 不受保護。順序：tempdir 直接放行 → 目錄名 → 檔名 → VCS（最貴放最後）。"""
+    if not path:
+        return ""
+    if is_under_tempdir(path):
+        return ""
+    try:
+        parts = Path(path).parts
+    except Exception:
+        return ""
+    for seg in parts[:-1]:
+        if seg in PROTECTED_DIR_NAMES:
+            return f"位於受保護目錄 {seg}/"
+    if parts and PROTECTED_BASENAME_RE.match(parts[-1]):
+        return "受保護檔名（索引／CHANGELOG／核心 md）"
+    if vcs_tracked(path):
+        return "VCS 已追蹤"
+    return ""
+
+
+def is_protected_path(path: str) -> bool:
+    return bool(protected_reason(path))
 
 # (d) 行內「路徑 | 備註」分隔：em-dash / 全形冒號 / 全形括號 / 半形 " - "
 _D_SPLIT_RE = re.compile(r"\s+—\s*|\s*—\s+|—|：|（|\s+-\s+")
@@ -127,9 +200,12 @@ def _resolve(raw: str, cwd: str) -> str:
     return s
 
 
-def parse_d_paths(d_text: str, cwd: str) -> List[Dict[str, Any]]:
+def parse_d_paths(
+    d_text: str, cwd: str, rejected: Optional[List[Dict[str, str]]] = None
+) -> List[Dict[str, Any]]:
     """(d) 每非空行 → `<路徑> — <備註>`；路徑取分隔符前第一個 token。
-    只收「磁碟上此刻存在」的（含 glob 展開）；prose 行 / 已刪的 → 略過（已刪的沒有裁決價值）。"""
+    只收「磁碟上此刻存在」的（含 glob 展開）；prose 行 / 已刪的 → 略過（已刪的沒有裁決價值）。
+    受保護路徑不收，並記入 rejected（{path, reason}）供 caller 浮出訊號——靜默拒收違反可觀測性鐵律。"""
     out: List[Dict[str, Any]] = []
     for line in str(d_text or "").splitlines():
         raw = _BULLET_RE.sub("", line.strip())
@@ -146,8 +222,14 @@ def parse_d_paths(d_text: str, cwd: str) -> List[Dict[str, Any]]:
         cands = _glob.glob(resolved) if any(ch in resolved for ch in "*?[") else [resolved]
         for c in cands:
             try:
-                if os.path.exists(c):
-                    out.append({"path": os.path.abspath(c), "note": note, "source": "aec-d"})
+                if not os.path.exists(c):
+                    continue
+                why = protected_reason(c)
+                if why:
+                    if rejected is not None:
+                        rejected.append({"path": os.path.abspath(c), "reason": why})
+                    continue
+                out.append({"path": os.path.abspath(c), "note": note, "source": "aec-d"})
             except Exception:
                 continue
     return out
@@ -187,7 +269,7 @@ def ledger_append(session_id: str, entries: List[Dict[str, Any]], turn_seq: Opti
     lines: List[str] = []
     for e in entries:
         path = str(e.get("path", "") or "")
-        if not path:
+        if not path or is_protected_path(path):   # 最後一道：不論來源，受保護路徑不落帳
             continue
         k = _key(path)
         prev = existing.get(k)
@@ -223,11 +305,13 @@ def record_temp_write(session_id: str, file_path: str, turn_seq: Optional[int] =
 
 
 def collect_at_completion(
-    session_id: str, cwd: str, d_text: Optional[str] = None, turn_seq: Optional[int] = None
+    session_id: str, cwd: str, d_text: Optional[str] = None, turn_seq: Optional[int] = None,
+    rejected: Optional[List[Dict[str, str]]] = None,
 ) -> int:
-    """收尾時機（anti_evasion_report / Stop）：(d) 宣告 + scratchpad 掃描一次進帳。"""
+    """收尾時機（anti_evasion_report / Stop）：(d) 宣告 + scratchpad 掃描一次進帳。
+    rejected（可選 out-list）收 (d) 裡被拒的受保護路徑，caller 拿去告知模型。"""
     entries: List[Dict[str, Any]] = []
     if d_text:
-        entries += parse_d_paths(d_text, cwd)
+        entries += parse_d_paths(d_text, cwd, rejected)
     entries += scan_scratchpad(cwd, session_id)
     return ledger_append(session_id, entries, turn_seq)
