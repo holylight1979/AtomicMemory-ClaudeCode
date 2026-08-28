@@ -32,8 +32,10 @@ MEMORY_MD_LINE = (
 
 
 def _slug_from_cwd(cwd: Path) -> str:
-    # harness slug 規則：磁碟代號小寫 + 路徑分隔轉 '-'（c:\Users\x\.claude → c--Users-x--claude）
-    s = str(cwd).replace(":", "").replace("\\", "-").replace("/", "-")
+    # harness slug 規則：每個非英數字元各轉一個 '-'（不合併）、磁碟代號小寫
+    # c:\Users\x\.claude → c--Users-x--claude（":" 與 "\" 各一個 '-'，"." 也是 '-'）
+    import re
+    s = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
     return s[0].lower() + s[1:] if s else s
 
 
@@ -105,7 +107,9 @@ def main() -> int:
     ap.add_argument("--create", action="store_true",
                     help="目標原生目錄不存在時允許建立（首次橋接用）")
     args = ap.parse_args()
-    slug = args.slug or _slug_from_cwd(Path.cwd())
+    # 預設鏡像到 ~/.claude 自己的原生 memory 目錄（核心 atom 屬 ~/.claude 知識），
+    # 不依呼叫者 cwd——由 MCP / sync-memory-index 子程序呼叫時 cwd 常是外部專案。
+    slug = args.slug or _slug_from_cwd(CLAUDE_DIR)
     native_mem = CLAUDE_DIR / "projects" / slug / "memory"
     result = sync(native_mem, _core_atoms(), dry_run=args.dry_run,
                   create=args.create)

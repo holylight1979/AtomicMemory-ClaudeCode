@@ -733,6 +733,19 @@ def main() -> int:
             _dc_drift, dc_msgs = sync_doc_counts.sync(claude_root, write=True)
             for m in dc_msgs:
                 print(m, file=sys.stderr)
+        # 核心索引重產 → 同步重產 CC 原生 memory 目錄的橋接檔（指標鏡像；路徑隨 atom 搬移
+        # 而失效，曾 13/13 全壞 7 週無人發現）。fail-open：失敗只 stderr，不影響索引寫入。
+        try:
+            import subprocess
+            r = subprocess.run(
+                [sys.executable, str(Path(claude_root) / "tools" / "native-memory-bridge.py")],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+            )
+            if r.returncode != 0:
+                print(f"[native-memory-bridge] exit {r.returncode}: {(r.stderr or r.stdout)[-200:]}",
+                      file=sys.stderr)
+        except Exception as e:  # noqa: BLE001
+            print(f"[native-memory-bridge] skipped: {e!r}", file=sys.stderr)
         return 0
 
     print(new_core)

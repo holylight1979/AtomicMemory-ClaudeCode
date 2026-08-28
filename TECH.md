@@ -121,7 +121,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │
 ├── memory/                                         ← 全域記憶層
 │   ├── MEMORY.md                                   ← AI 一覽索引（人類可讀）
-│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->130 atoms：core 56 + feedback 21 + 失敗模式 1 + local 52〔Tools7/MemDev42/OS2/Vision1〕<!-- /atom-breakdown -->）
+│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->131 atoms：core 56 + feedback 21 + 失敗模式 1 + local 53〔Tools7/MemDev43/OS2/Vision1〕<!-- /atom-breakdown -->）
 │   ├── _ATOM_INDEX.md                              ← deprecated mirror（自動生成）
 │   ├── _meta/forbidden-phrases.json                ← V5 禁語單一真相
 │   ├── preferences.md / decisions*.md / workflow-*.md / toolchain*.md
@@ -153,7 +153,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │   ├── DevHistory/                                ← 版本演進 + V5 升版完整紀錄（v5-overhaul-2026-05/）
 │   ├── DocIndex-System.md / known-regressions.md / Project_File_Tree.md
 │
-├── hooks/verify/ tools/verify/ lib/verify/         ← 116 個 verify_*.py（H-test-prune 後 verify 化）
+├── hooks/verify/ tools/verify/ lib/verify/         ← 119 個 verify_*.py（H-test-prune 後 verify 化）
 │   tools/codex-companion/verify/ auto-continue/verify/ ← 跑 `python run_verify.py`（1516 passed）
 ├── skills/{name}/verify/                           ← 17 個空結構（候選見 _staging/next-phase-skills-verify.md）
 │
@@ -245,7 +245,7 @@ V4 把知識空間從單層拓展為四層，V5 完全沿用：
 
 ### 5.1 Atom Index — JSON SoT（V5 P3b）
 
-`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->130<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
+`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->131<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
 
 **Atom 物理兩根 + 範疇資料夾 + Realm（V5+）**：`global` atom 物理只有兩根——`memory/<範疇>/`（core；Lv1 閉合清單 `memory/_meta/taxonomy.json`，`Failures/<主題>/` 為失敗家族、主題同一套 Lv1）與 `_AIDocs/_atoms/<domain>/`（**local realm**，MemDev/World/Vision/Tools/OS）。**寫入閘**：`atom_write(mode=create)` 對 scope=global（非 local）、feedback-* 標題、scope=shared 一律 `domain` 必填（`<Lv1>[/<Lv2>]`，別名 snap 回正名；未知 Lv1 拒，`allow_new_category` 才准開新類；`dry_run` 可預覽落點），MCP 來源永不自動分類；程式寫手（user-extract／失敗回寫）先 `classify_category`（詞庫→本地 LLM 閉合清單）再落地，分不出拒寫（失敗回寫走 `failure_type_fallback` 永不拒）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/**` 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM；2026-06-12 起 sink 端雙護欄：泛用詞拒收 + 非 CJK/ASCII 亂碼 domain 拒收/降 Else，見 SPEC §2）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
@@ -264,7 +264,7 @@ API：[lib/atom_index_json.py](lib/atom_index_json.py)（`load/save/upsert/delet
 
 ### 5.2 BM25 全域檢索層（V5 P5a）
 
-全域 ~<!-- atom-total -->130<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
+全域 ~<!-- atom-total -->131<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
 
 - ASCII word + 中文 char-bigram tokenization
 - 參數：k1=1.2, b=0.75

@@ -2285,6 +2285,28 @@
         "積累"
       ],
       "scope": "global"
+    },
+    {
+      "name": "注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產",
+      "path": "_AIDocs/_atoms/MemDev/注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產.md",
+      "triggers": [
+        "TURN_BUDGET_LIMIT",
+        "compute_token_budget",
+        "truncate_context",
+        "budget fallback",
+        "trim: pointer dropped",
+        "Context budget",
+        "注入預算",
+        "預算裁切",
+        "過度砍",
+        "分級",
+        "字元數",
+        "native-memory-bridge",
+        "atom-index-bridge",
+        "橋接檔",
+        "projects slug"
+      ],
+      "scope": "global"
     }
   ]
 }

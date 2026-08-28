@@ -286,7 +286,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 - **V6 LLM-assisted recall + 階層 domain（2026-06-04，全貌見 SPEC §2.2）**：詞庫封閉 allow-list 漏判（wsl2 漏進 core）的根治。① 詞庫 miss 的 unknown-core 在 **SessionEnd sweep** 喚本地 LLM（`tools/realm_llm_classify.py`，**熱路徑不掛**）判 realm + 多段階層 domain，Fail-safe 四態（`error`→defer 留原地、`core`→留、`local`→搬 canon、`unsure`/低信心→`Else`；protected 永不喚 LLM）。**⚠ P3（2026-07-01）起 `realm.llm_fallback.enabled=false` 預設關 — 只跑 deterministic 詞庫（含 learned）保確定性 sweep；改回 true 才復原 LLM recall**；② domain 變**關聯式分級階層**（`normalize_domain_path` snap 既有兄弟 + 增量深度閘 depth=volume，新分支封頂 3、絕對天花板 7）；③ validated terms 回寫 `memory/_meta/realm-lexicon-learned.json` 自學（py-only，js 維持 base-only 保 parity）；④ catalog `_local_catalog.md` always-load 只 Lv1 根、深層按需 `_INDEX.md`；⑤ 手動前端 **`/refile` skill**（`skills/refile/`）含核心檔辨識護欄 + 移檔後 doc-ref 掃描。
 - **守門**：`verify_atom_io_equivalence.py` test_14–22（常數/routing/分類器零誤判/py↔js parity/canon/深度閘/自學）+ `verify_realm_injection_gate.py` + `tools/verify/verify_realm_llm_classify.py`（V6 LLM 分類器函式）+ `hooks/verify/verify_realm_sweep.py`（V6 SessionEnd sweep Fail-safe 四態決策）+ `verify_local_catalog_split.py`（深樹 + stale）。
 
-## MCP Servers（V5：4 tool）
+## MCP Servers（5 tool：atom_write / atom_promote / atom_move / atom_edit_meta / anti_evasion_report）
 
 V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`），改由 Stop gate hook 自動偵測。
 
