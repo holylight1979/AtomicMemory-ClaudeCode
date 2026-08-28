@@ -5,7 +5,7 @@
 - Confidence: [固]
 - Trigger: 上乾淨, 工作樹, 收尾, git status, 未提交, chore commit, 用不到就刪, 選擇性 staging, 殘留檔, 上版, 上GIT
 - Created-at: 2026-08-12
-- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 自己flag的維護動作直接做完不要反問
+- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 自己flag的維護動作直接做完不要反問, feedback-svn-commit-一律先問使用者確認-計畫核准不等於上版授權
 
 ## 知識
 
