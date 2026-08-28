@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: activation, ACT-R, 負分, 注入噪音, truncated, context budget, 裁切, 寧缺勿截, truncated_pointer_max, budget 750
 - Created-at: 2026-08-21
-- Related: escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, decisions-architecture
+- Related: escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, decisions-architecture, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產
 
 ## 知識
 

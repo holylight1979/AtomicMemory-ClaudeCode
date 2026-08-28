@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-28 注入同題去冗 — trigger 精確重疊 ≥3 者降節錄，不重複講同一件事
+- 探針實證同一句「git 收尾」把 3 顆同題 atom 全文一起送（~1,000 tok 講一件事；Chroma context-rot：單一干擾項即傷精度）。`ups_inject.redundant_with`：主迴圈中與本 turn 已全文注入者 trigger **精確**重疊 ≥3 → 只送表頭＋知識前兩句（`_strip_atom_for_injection_impression_only`），標 `(same-topic → 代表者, 節錄)`、form=redundant（AtomAudit 不稽）；子字串重疊不採計（泛 trigger 噪音）。門檻校準：全庫 8,515 對僅 4 對 ≥3 且皆真同題。config `injection.redundancy_gate`；injection-turns.jsonl / effect-report 加「同題節錄」欄；新 verify 8 條（含全庫對數守衛 ≤20）。實機：中文中等問句「收尾工作樹要上乾淨」正確降節錄、代表者「併發 staging」。
+
 ## 2026-08-28 原生記憶橋接檔修復 — slug 算錯 + 從未重產，接上索引重產鏈
 - `projects/<slug>/memory/atom-index-bridge.md`（原子系統與 CC 原生 auto-memory 唯一接點）13/13 路徑失效 7 週：atom 已搬進範疇資料夾但橋接檔 7/8 後未重產；重產工具 `_slug_from_cwd` 把 `c:\Users\x\.claude` 算成 `c-Users-x-.claude`（harness 規則＝每個非英數字元各轉一個 '-'）。修 slug、預設鏡像 ~/.claude 自身原生目錄（不依呼叫者 cwd）、`sync-memory-index --write` 尾端 fail-open 自動重產。現 78/78 有效。順修 Architecture MCP tool 4→5、TECH verify 檔數。新 MemDev atom「注入預算三教訓」。
 

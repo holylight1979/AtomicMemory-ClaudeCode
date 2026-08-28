@@ -139,7 +139,12 @@
       "skip_demoted": true,
       "max_related": 6
     },
-    "_doc_truncated_pointer_max": "最終 budget 裁切（_truncate_context_by_activation）寧缺勿截：超支犧牲的 atom 中僅 activation 最高的前 N 顆留一行指標，其餘整塊不注入（明細落 atom-debug log，尾行 budget 標記附 trim 統計）。",
+    "_doc_redundancy_gate": "同題去冗：主迴圈中與本 turn 已全文注入者 trigger 精確重疊 ≥ min_shared_triggers 的 atom 只送表頭＋知識前兩句（節錄，標 same-topic → 代表者），不整張丟。全庫 8515 對實測精確 ≥3 僅 4 對且皆真同題；子字串重疊不採計（泛 trigger 噪音）。",
+  "redundancy_gate": {
+   "enabled": true,
+   "min_shared_triggers": 3
+  },
+  "_doc_truncated_pointer_max": "最終 budget 裁切（_truncate_context_by_activation）寧缺勿截：超支犧牲的 atom 中僅 activation 最高的前 N 顆留一行指標，其餘整塊不注入（明細落 atom-debug log，尾行 budget 標記附 trim 統計）。",
     "truncated_pointer_max": 3
   },
   "response_capture": {

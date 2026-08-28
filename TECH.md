@@ -511,7 +511,7 @@ sequenceDiagram
         V->>O: embed
         G->>G: [F] Supersedes 過濾
         G->>G: [G] RRF 融合（trigger/BM25/vector 三路 rank，k=60）× ACT-R activation（個別化 decay d=0.5−γ·wilson_lb）
-        G->>F: [H] Section-Level + Hot/Cold + budget decide（_TURN_BUDGET_LIMIT）
+        G->>F: [H] Section-Level + Hot/Cold + 同題去冗（trigger 精確重疊 ≥3 → 節錄）+ budget decide（_TURN_BUDGET_LIMIT）
         G->>G: [I] Related-Edge Spreading (depth=1)
         G->>F: [ReadHits++] lib.atom_access funnel（純曝光計數；晉升 hint 走效用 Wilson 下界，非 ReadHits 門檻）
         G->>G: [J] Blind-Spot Reporter（無命中時記 atom-debug）
@@ -770,7 +770,7 @@ flowchart TD
 | 檢索回歸評估 | [tools/memory-eval/](tools/memory-eval/) | 223 條合成查詢回歸集（Recall@1/@3、MRR、誤注入率 + baseline 比對）——RRF/BM25 參數/embedding 改動的秒級 A/B 依據，終結盲調參 |
 | 失念偵測（recall-miss） | [hooks/wg_recall_miss.py](hooks/wg_recall_miss.py) | SessionEnd 比對「本 session 失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞命中）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
 | 壞滅緣 + 證據等級 | [lib/atom_spec.py](lib/atom_spec.py) + [tools/atom-health-check.py](tools/atom-health-check.py) + [tools/memory-conflict-detector.py](tools/memory-conflict-detector.py) | atom optional `Depends`（path 型機器可驗 → `check_stale_deps` 標 stale）/ `Evidence`（實證>引述>推測>未標，衝突裁決優先序 + fast-refute 快速否證通道） |
-| 記憶治理 (Memory Governance) | [hooks/handlers/ups_inject.py](hooks/handlers/ups_inject.py) + [hooks/wg_atoms.py](hooks/wg_atoms.py) `compute_injection_rank`/`apply_selective_forget` | 注入·萃取·遺忘自檢層（context governance 落地 2026-06-24）：**A** 分心懲罰（高曝光低效用降注入序）/ **C** related-spread relevance gate（最小高訊號集裁切）/ **D** selective forgetting（隔離 `memory/_distant/`，可逆，**預設 dry-run**）。config `usefulness.distraction_*`／`injection.related_gate`／`self_iteration.forget`。憲法→ [_AIDocs/context-memory-governance.md](_AIDocs/context-memory-governance.md) |
+| 記憶治理 (Memory Governance) | [hooks/handlers/ups_inject.py](hooks/handlers/ups_inject.py) + [hooks/wg_atoms.py](hooks/wg_atoms.py) `compute_injection_rank`/`apply_selective_forget` | 注入·萃取·遺忘自檢層（context governance 落地 2026-06-24）：**A** 分心懲罰（高曝光低效用降注入序）/ **C** related-spread relevance gate（最小高訊號集裁切）/ **C2** 同題去冗 redundancy gate（主迴圈：與本 turn 已全文注入者 trigger 精確重疊 ≥3 → 只送節錄、標 same-topic 代表者；config `injection.redundancy_gate`）/ **D** selective forgetting（隔離 `memory/_distant/`，可逆，**預設 dry-run**）。config `usefulness.distraction_*`／`injection.related_gate`／`self_iteration.forget`。憲法→ [_AIDocs/context-memory-governance.md](_AIDocs/context-memory-governance.md) |
 | Hot Cache | [hooks/wg_extraction.py](hooks/wg_extraction.py) + `workflow/hot_cache.json` | quick-extract〔**孤兒·Stop hook 已撤**〕→ PostToolUse/UPS 注入 → deep extract 覆寫（現僅 deep_extract 覆寫路徑餵）|
 | Response Capture | [hooks/extract-worker.py](hooks/extract-worker.py) + quick-extract.py〔孤兒〕 | SessionEnd 全量 **在跑** + Stop 逐輪；auto-capture per-turn 草稿 **2026-07-01 停產**（`per_turn.enabled=false`·write-only 死路 DedupStage 0/16）；`session_end_flush.enabled=false` 亦停 |
 | Episodic Memory | [hooks/wg_episodic.py](hooks/wg_episodic.py) | Session 結束生成摘要（TTL 24d） |

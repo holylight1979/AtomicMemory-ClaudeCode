@@ -24,6 +24,7 @@ from wg_atoms import (
     _strip_atom_for_injection,
     spread_related, decide_atom_injection, compute_injection_rank,
     classify_hot_cold, format_cold_inject_line, atom_status_suffix, pointer_path,
+    _strip_atom_for_injection_impression_only,
     SECTION_INJECT_THRESHOLD, _extract_sections,
     _TURN_BUDGET_LIMIT,
     read_atom_text, load_access_cached,
@@ -51,7 +52,7 @@ def _append_injection_turn_log(
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return  # verify 套件以假 session 跑真 ups_inject，不得污染正式統計
     try:
-        counts = {"ok": 0, "fallback": 0, "skip": 0, "cold": 0}
+        counts = {"ok": 0, "fallback": 0, "skip": 0, "cold": 0, "redundant": 0}
         for r in records:
             f = r.get("form")
             if f in counts:
@@ -69,6 +70,33 @@ def _append_injection_turn_log(
             fh.write(_json_mod.dumps(row, ensure_ascii=False) + "\n")
     except Exception as e:  # noqa: BLE001 — 純遙測，不得影響注入
         _atom_debug_log("BUDGET", f"injection-turns log write error: {e}", config)
+
+
+_REDUNDANCY_MIN_SHARED_DEFAULT = 3  # 與本 turn 已全文注入者 trigger 精確重疊 ≥N → 同題降節錄
+
+
+def _redundancy_cfg(config: Dict[str, Any]) -> Tuple[bool, int]:
+    rg = ((config or {}).get("injection") or {}).get("redundancy_gate") or {}
+    return bool(rg.get("enabled", True)), int(rg.get("min_shared_triggers", _REDUNDANCY_MIN_SHARED_DEFAULT) or 0)
+
+
+def _norm_triggers(triggers) -> set:
+    return {str(t).strip().lower() for t in (triggers or []) if str(t).strip()}
+
+
+def redundant_with(triggers, full_seen: List[Tuple[str, set]], min_shared: int) -> Optional[str]:
+    """同題去冗判定：本 atom 的 trigger 與「本 turn 已全文注入」的某顆精確重疊 ≥ min_shared
+    → 回該顆名稱（由它代表本題），否則 None。只比 trigger 精確字串（小寫），不比子字串——
+    子字串重疊在泛 trigger（workflow-rules 類）上噪音大；全庫實測精確 ≥3 僅 4 對且皆真同題。"""
+    if min_shared <= 0:
+        return None
+    mine = _norm_triggers(triggers)
+    if len(mine) < min_shared:
+        return None
+    for seen_name, seen_set in full_seen:
+        if len(mine & seen_set) >= min_shared:
+            return seen_name
+    return None
 
 
 def _filter_related_by_relevance(
@@ -151,6 +179,8 @@ def assemble_injection(
     atom_lines: List[str] = []
     used_tokens = 0
     skip_streak = 0  # 連續 budget skip 計數（達 _BUDGET_SKIP_STREAK_MAX 才 break）
+    redundancy_on, redundancy_min = _redundancy_cfg(config)
+    full_seen: List[Tuple[str, set]] = []  # 本 turn 已全文注入 (name, trigger set)，同題去冗比對用
     rescue_pairs: List[Tuple[str, str]] = []  # (atom, 實注入內容) → 救援日誌 watch
     # 本 turn 注入記錄（name/path/source/form），尾段落 state["injection_log"]。
     # form: ok=全文 / fallback=印象 / skip=budget 一行 / cold=cold 一行
@@ -189,6 +219,27 @@ def assemble_injection(
             )
             continue
 
+        # 同題去冗：與本 turn 已全文注入者 trigger 重疊 ≥N → 只送表頭＋知識前兩句（節錄），
+        # 註明由誰代表本題。不整張丟（精確度 > 省 token），但不重複講同一件事。
+        if redundancy_on:
+            covered_by = redundant_with(triggers, full_seen, redundancy_min)
+            if covered_by:
+                excerpt = _strip_atom_for_injection_impression_only(raw_content)
+                ex_tokens = _estimate_tokens(excerpt)
+                if used_tokens + ex_tokens <= _TURN_BUDGET_LIMIT:
+                    atom_lines.append(f"[Atom:{name}] (same-topic → {covered_by}, 節錄)\n{excerpt}")
+                    newly_injected.append(name)
+                    rescue_pairs.append((name, excerpt))
+                    used_tokens += ex_tokens
+                    _record(name, atom_path, rel_path, source, "redundant")
+                    _atom_debug_log(
+                        "REDUNDANCY",
+                        f"atom={name} covered_by={covered_by} tokens={ex_tokens} form=excerpt",
+                        config,
+                    )
+                    continue
+                # 連節錄都塞不下 → 落到下方一般 budget 三態（會 skip 成一行路標）
+
         content = _strip_atom_for_injection(raw_content)
         content_tokens = _estimate_tokens(content)
 
@@ -206,6 +257,7 @@ def assemble_injection(
             rescue_pairs.append((name, inject_content))
             used_tokens += consumed
             skip_streak = 0
+            full_seen.append((name, _norm_triggers(triggers)))
             _record(name, atom_path, rel_path, source, "ok")
             _atom_debug_log(
                 "BUDGET",

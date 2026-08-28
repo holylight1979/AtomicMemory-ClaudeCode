@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 記憶系統, 原子記憶, 注入, 萃取, token 稅, token 浪費, 精準, 高效, 記憶取捨, budget, TURN_BUDGET_LIMIT, 記憶變弱, 注入變弱, 分門別類, 積累
 - Created-at: 2026-08-28
-- Related: 取用端稽核與瘦身規範-atomaudit與3kb預算, decisions
+- Related: 取用端稽核與瘦身規範-atomaudit與3kb預算, decisions, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產
 
 ## 知識
 

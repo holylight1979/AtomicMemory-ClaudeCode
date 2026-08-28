@@ -211,6 +211,7 @@ def collect(days: int = 30, top_n: int = TOP_N_DEFAULT) -> dict:
         n_turns = len(wk)
         full = sum(int(t.get("ok", 0)) for t in wk)
         hot = full + sum(int(t.get("fallback", 0)) + int(t.get("skip", 0)) for t in wk)
+        redundant = sum(int(t.get("redundant", 0)) for t in wk)  # 同題去冗降節錄顆數（不計入全文率分母）
         trend.append({
             "week_of": datetime.fromtimestamp(lo).strftime("%m-%d"),
             "exposures": sum(1 for r in rows for t in r["stamps"] if lo <= t < hi),
@@ -219,6 +220,7 @@ def collect(days: int = 30, top_n: int = TOP_N_DEFAULT) -> dict:
             "turns": n_turns,
             "full_per_turn": round(full / n_turns, 2) if n_turns else None,
             "full_rate": round(full / hot, 2) if hot else None,
+            "redundant": redundant,
         })
 
     # D. 失念：踩坑時庫有可防 atom（trigger 命中失敗證據 ≥2 詞）但未被注入
@@ -291,12 +293,12 @@ def render_md(result: dict) -> str:
 
     L.append("")
     L.append("## 30 天週趨勢")
-    L.append("| 週起 | 曝光 | rescue 命中 | 有注入回合 | 全文/回合 | 熱 atom 全文率 |")
-    L.append("|------|------|------------|-----------|----------|--------------|")
+    L.append("| 週起 | 曝光 | rescue 命中 | 有注入回合 | 全文/回合 | 熱 atom 全文率 | 同題節錄 |")
+    L.append("|------|------|------------|-----------|----------|--------------|---------|")
     for t in result["trend_weekly"]:
         fpt = "—" if t.get("full_per_turn") is None else f"{t['full_per_turn']:.2f}"
         fr = "—" if t.get("full_rate") is None else f"{int(round(t['full_rate'] * 100))}%"
-        L.append(f"| {t['week_of']} | {t['exposures']} | {t['rescue_hits']} | {t.get('turns', 0)} | {fpt} | {fr} |")
+        L.append(f"| {t['week_of']} | {t['exposures']} | {t['rescue_hits']} | {t.get('turns', 0)} | {fpt} | {fr} | {t.get('redundant', 0)} |")
     L.append("")
     L.append("> 「全文/回合」= 每個有注入的回合平均完整唸入的 atom 顆數；「熱 atom 全文率」= 全文 ÷ (全文+降級+跳過)。"
              "兩欄來自 Logs/injection-turns.jsonl（ups_inject 每回合自動落檔），是「注入變弱 vs 工作量波動」的分辨依據。")

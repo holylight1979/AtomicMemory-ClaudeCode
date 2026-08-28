@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: AtomAudit, 取用端稽核, injection_log, 瘦身, knowledge budget, 大小預算, Status 行, cold 注入, budget skip, 一行路標
 - Created-at: 2026-07-29
-- Related: decisions-architecture, atom-edit-meta與atom-heal對專案層atom的缺口與繞法, feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費
+- Related: decisions-architecture, atom-edit-meta與atom-heal對專案層atom的缺口與繞法, feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產
 
 ## 知識
 
