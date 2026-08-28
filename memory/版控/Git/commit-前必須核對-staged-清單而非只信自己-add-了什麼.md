@@ -5,7 +5,7 @@
 - Confidence: [固]
 - Trigger: git diff --cached, staged 清單, commit 前核對, 誤提交, 別的 session 的檔
 - Created-at: 2026-08-07
-- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, sed-i-在-crlf-repo-會整檔改換行, vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現, 混改檔hunk級選擇性staging, grok協作實戰認知-特質與監工分工手感, 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase
+- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, sed-i-在-crlf-repo-會整檔改換行, vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現, 混改檔hunk級選擇性staging, grok協作實戰認知-特質與監工分工手感, 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase, svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8
 
 ## 知識
 
