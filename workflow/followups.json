@@ -1,0 +1,59 @@
+{
+ "_doc": "回訪登記表：到期後 SessionStart 自動跑 tools/followup-check.py，結果推到開場 context。每筆 handoff 以「接手者零記憶」為前提寫。結案：--done <id>。",
+ "followups": [
+  {
+   "id": "injection-budget-2026-08-28",
+   "title": "注入預算放寬＋同題去冗，一週實際使用後效果驗證",
+   "since": "2026-08-29",
+   "due": "2026-09-04",
+   "check": "injection-budget",
+   "criteria": {
+    "min_turns": 10,
+    "full_per_turn_min": 2.5,
+    "full_rate_min": 0.55,
+    "dropped_per_turn_max": 1.0,
+    "exposure_tax_max": 0
+   },
+   "context": "2026-08-28 把每回合 atom 注入硬頂 500→1200、裁切演算法改回填、總額分級改依 token、加同題去冗；需一週真實使用數據確認有效且無新 token 稅。",
+   "handoff": {
+    "這是什麼": "~/.claude 的自製原子記憶系統：每回合 UserPromptSubmit hook 依 prompt 關鍵字翻出記憶卡片（atom）注入 context。使用者 2026-08-28 質疑「注入變弱」，查證後根因是預算閘門，已修，本回訪驗證修後一週的真實數據。",
+    "改了什麼（commit）": [
+     "3a4809c：hooks/wg_core.py TURN_BUDGET_LIMIT 500→1200（每回合 atom 段硬頂，原本只裝得下 1 顆全文）；hooks/wg_atoms.py 降級版（budget fallback）改保留知識前 2 條；hooks/handlers/ups_inject.py 每回合落 Logs/injection-turns.jsonl；tools/memory-effect-report.py 週趨勢加「全文/回合」「熱 atom 全文率」欄；memory/_meta/taxonomy.json 補詞",
+     "fc1a888：hooks/wg_atoms.py _truncate_context_by_activation Phase B 改由 activation 高到低回填（修「359/1000 卻丟 5 顆」過度砍）；hooks/wg_core.py compute_token_budget 改依估算 token 分級（<15→1000、<80→2000、其餘 3000），中文問句不再被字元數壓級",
+     "db899d2：tools/native-memory-bridge.py slug 修正＋接上 sync-memory-index 重產鏈（CC 原生 memory 橋接檔 13/13 壞 → 78/78）",
+     "6cd4353：hooks/handlers/ups_inject.py 同題去冗 redundant_with（與本回合已全文注入者 trigger 精確重疊 ≥3 → 只送節錄、form=redundant）；config injection.redundancy_gate"
+    ],
+    "修前基線": "近 14 天：每回合完整注入 1.0 顆、熱 atom 全文率 22%（87 顆命中僅 19 顆全文）、總額裁切有「用量遠低於上限卻丟卡片」、高曝光零使用 atom 0 顆。修後當日 3 回合：3.67 顆 / 65%。 since 設 08-29：排除 08-28 調校當天的探針與調整中回合。",
+    "怎麼判": [
+     "全文/回合 ≥ 2.5：每個有注入的回合平均完整唸入幾顆 atom（來源 Logs/injection-turns.jsonl 的 ok 欄）",
+     "熱 atom 全文率 ≥ 55%：ok ÷ (ok+fallback+skip)，找到的卡片裡真的讀到內容的比例",
+     "final-trim dropped/回合 ≤ 1.0：Logs/atom-debug-*.log 中「final-trim … form=dropped」行數 ÷ 回合，過度砍是否復發",
+     "高曝光零使用 atom 數 ≤ 0：memory-effect-report B 節，放寬預算有沒有帶來新的 token 稅",
+     "樣本不足（回合 <10）→ 狀態 INSUFFICIENT，什麼都不用做，繼續用 CC 累積"
+    ],
+    "不過怎麼辦（逐指標）": [
+     "全文/回合低：先 grep hooks/wg_core.py 確認 TURN_BUDGET_LIMIT 仍 1200、TOKEN_BUDGET_TIERS 仍 ((15,1000),(80,2000))；再看 injection-turns.jsonl 的 skip 是否偏高（atom 過肥 → 看 memory-effect-report C 節與 3KB 上限）",
+     "全文率低：同上；另看 fallback 比例，若 fallback 多代表單顆 atom 平均 >400 tok，考慮拆 atom 而非再放寬預算",
+     "dropped/回合高：看 hooks/wg_atoms.py _truncate_context_by_activation Phase B 是否仍是「回填」版；用真 hook 進程（先 SessionStart 再 UserPromptSubmit，假 session id）餵中等長度中文 prompt 看 [Context budget: x/y | trim: …] 的 x 是否接近 y",
+     "token 稅上升：看 B 節哪些 atom；優先調 config injection.redundancy_gate.min_shared_triggers（3→2 更積極）或補該 atom 的 trigger，不要調回預算",
+     "任何修改：跑 python run_verify.py（基線 1582 綠）→ 更新 _AIDocs/_CHANGELOG.md → 上 GIT（雙遠端，不 force）"
+    ],
+    "危險／已知": [
+     "不要 revert 上述 commit（已 push、GitLab main 只准 fast-forward）",
+     "用假 session 探針驗證會在 atom 的 .access.json 留下曝光計數，會輕微影響 B 節；探針後清 workflow/state-<sid>.json 與 injection-turns.jsonl 的假 session 列",
+     "只送 UserPromptSubmit 不送 SessionStart 的探針會被 _ensure_state 認領同 cwd 兄弟 state 而注入 0 顆——那是設計不是 bug",
+     "hooks/*.py 改動要新 session 才生效"
+    ],
+    "規則連結": [
+     "atom：_AIDocs/_atoms/MemDev/注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產.md",
+     "atom：memory/Failures/CC與原子記憶契約/feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費.md（使用者宣告的最高原則：全積累、分門別類、高精準＋零 token 浪費）",
+     "_AIDocs/_CHANGELOG.md 2026-08-28 四條；TECH.md §7 token budget 表"
+    ],
+    "結案": "全過 → 已自動標 done（或 python tools/followup-check.py --done injection-budget-2026-08-28）；向使用者一句話回報四指標數字。未過 → 依上表處理、修完再跑 python tools/followup-check.py --run --force --id injection-budget-2026-08-28。"
+   },
+   "done": false,
+   "last_shown": "",
+   "result": ""
+  }
+ ]
+}

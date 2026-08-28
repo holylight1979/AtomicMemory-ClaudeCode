@@ -121,7 +121,7 @@ LLM 的 context window 是**工作記憶**，缺的是**長期記憶**。原子�
 │
 ├── memory/                                         ← 全域記憶層
 │   ├── MEMORY.md                                   ← AI 一覽索引（人類可讀）
-│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->131 atoms：core 56 + feedback 21 + 失敗模式 1 + local 53〔Tools7/MemDev43/OS2/Vision1〕<!-- /atom-breakdown -->）
+│   ├── _atom_index.json                            ← V5 JSON SoT（<!-- atom-breakdown -->132 atoms：core 56 + feedback 21 + 失敗模式 1 + local 54〔Tools7/MemDev44/OS2/Vision1〕<!-- /atom-breakdown -->）
 │   ├── _ATOM_INDEX.md                              ← deprecated mirror（自動生成）
 │   ├── _meta/forbidden-phrases.json                ← V5 禁語單一真相
 │   ├── preferences.md / decisions*.md / workflow-*.md / toolchain*.md
@@ -245,7 +245,7 @@ V4 把知識空間從單層拓展為四層，V5 完全沿用：
 
 ### 5.1 Atom Index — JSON SoT（V5 P3b）
 
-`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->131<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
+`memory/_atom_index.json` 為唯一機器源（<!-- atom-total -->132<!-- /atom-total --> atoms）。`_ATOM_INDEX.md` 改為自動生成的人類可讀 mirror，僅 fallback parser 使用。
 
 **Atom 物理兩根 + 範疇資料夾 + Realm（V5+）**：`global` atom 物理只有兩根——`memory/<範疇>/`（core；Lv1 閉合清單 `memory/_meta/taxonomy.json`，`Failures/<主題>/` 為失敗家族、主題同一套 Lv1）與 `_AIDocs/_atoms/<domain>/`（**local realm**，MemDev/World/Vision/Tools/OS）。**寫入閘**：`atom_write(mode=create)` 對 scope=global（非 local）、feedback-* 標題、scope=shared 一律 `domain` 必填（`<Lv1>[/<Lv2>]`，別名 snap 回正名；未知 Lv1 拒，`allow_new_category` 才准開新類；`dry_run` 可預覽落點），MCP 來源永不自動分類；程式寫手（user-extract／失敗回寫）先 `classify_category`（詞庫→本地 LLM 閉合清單）再落地，分不出拒寫（失敗回寫走 `failure_type_fallback` 永不拒）。realm 由 index `path` 前綴推導（不存欄位、與 scope 正交，local 仍 `scope=global`）；`memory/**` 全專案注入，local **只在 cwd∈~/.claude 注入**（注入閘門 `handlers/session_start.py` + `wg_core._is_under_claude_dir`）。分類器 `classify_realm`（安全預設 core + 核心保護清單硬擋）+ 搬遷工具 `tools/atom-set-realm.py`（`_atoms/` path 唯一寫者、連 sidecar 原子搬）。**V6（2026-06-04）**：domain 升級為**關聯式分級階層多段路徑**（`_atoms/<L1>/…/`，`normalize_domain_path` canon + 增量深度閘 depth=volume、MAX_DEPTH=7）；詞庫 miss 的 unknown-core 於 SessionEnd sweep 喚**本地 LLM**（`tools/realm_llm_classify.py`）判 realm+domain（四態 Fail-safe：error→defer／core→留／local→搬／unsure→`Else`），validated 詞回寫 `_meta/realm-lexicon-learned.json` 自學（下次 deterministic 免 LLM；2026-06-12 起 sink 端雙護欄：泛用詞拒收 + 非 CJK/ASCII 亂碼 domain 拒收/降 Else，見 SPEC §2）；catalog 階層化（`_local_catalog.md` 只 Lv1 根+drill、每層 `_INDEX.md` 按需）。詳見 [SPEC §2.1/§2.2](_AIDocs/SPEC_ATOM_V5.md) + atom `realm-範疇分區機制-v5`。
 
@@ -264,7 +264,7 @@ API：[lib/atom_index_json.py](lib/atom_index_json.py)（`load/save/upsert/delet
 
 ### 5.2 BM25 全域檢索層（V5 P5a）
 
-全域 ~<!-- atom-total -->131<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
+全域 ~<!-- atom-total -->132<!-- /atom-total --> atoms 規模用 Vector Service 是殺雞用牛刀。V5 引入 in-memory BM25（~80 行手刻於 `wg_atoms.py`）：
 
 - ASCII word + 中文 char-bigram tokenization
 - 參數：k1=1.2, b=0.75
@@ -342,6 +342,7 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 dispatcher → V5：
 
 - **statusline**（`tools/statusline.py`，settings.json `statusLine` 指入）：stdin 吃 CC status JSON，純 stdlib 讀三個本地檔——`workflow/state-<sid>.json`（改檔/讀檔/知識佇列數；accessed_files 由 Stop 端每 turn 回收）、`vector_ready.flag`、`aec-report/<sid>-t*.json` 最大 turn severity——輸出一行 ANSI 狀態列（模型名 · ctx% · 改N 讀M · vec✓ · AEC:sev）。事件驅動（每則訊息，300ms debounce）+ `refreshInterval: 10`。fail-open 必告知：state 壞 → 紅字 `WG:?`，最外層兜底任何錯誤仍印一行。伴隨退役：UPS 週期性 `[Guardian] Reminder` 注入（config 鍵 `remind_after_turns`/`max_reminders` 一併移除）；Stop `[Guardian:SyncReminder]` 閘保留 enforcement 但訊息瘦身（不再列檔案清單）。
 - **週健檢**（`tools/health-weekly.py`，Task Scheduler `Claude-Memory-WeeklyHealth` 週一 09:00 + StartWhenAvailable）：唯讀聚合 memory-audit / atom-health-check / sync-atom-index --check / skill-index --check / vector / 管線鮮度（近 14 天有 session 但 promotion audit 或 episodic 無新增 → 紅＝管線靜默停擺）→ 報告落 `workflow/health-reports/`（輪替 12 份）+ `health-last-run.json`。SessionStart `_health_advisory` 死人開關：last-run 缺檔/逾 10 天/red>0 → advisory；健康時零輸出。腳本入口防護 pythonw 下 `sys.stdout=None`（否則排程執行秒死，見 atom [[pythonw-下-stdout-為-none-排程腳本秒死陷阱]]）。
+- **回訪（follow-up）**（`tools/followup-check.py` + `workflow/followups.json`）：「改了東西、一週後看數據」的程式化版本。登記表每筆含到期日、檢查名、通過線與**以接手者零記憶為前提的交接**（這是什麼／改了什麼 commit／基線／怎麼判／不過怎麼辦／危險／規則連結／結案）。SessionStart `_followup_advisory` 在到期後任何一次開 CC 自動跑檢查：INSUFFICIENT（樣本不足）只說明不催、FAIL 每日提醒一次並附交接、PASS 自動結案。檢查名現有 `injection-budget`（injection-turns.jsonl 全文/回合、全文率；atom-debug final-trim dropped；effect-report exposure_tax）。CLI：`--list / --run [--force] / --done <id> / --add <json>`。
 - **不採 OTEL**：官方 export 無 per-hook 延遲、api_request 無法歸因注入 token 稅到個別來源，且需常駐 collector——評估結論不實作（atom [[otel-遙測評估結論-不實作-兩目標指標皆測不到]]）。
 
 ### 5.10 召回可靠性 + 效果實證（E 組）

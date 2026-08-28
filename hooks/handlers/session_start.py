@@ -362,6 +362,30 @@ def _health_advisory(last_run_path) -> list:
         ]
 
 
+def _followup_advisory() -> list:
+    """回訪到期 → 開場自動跑 tools/followup-check.py，把檢查結果＋自足交接推進 context。
+
+    存在理由：「一週後再看數據」在 session 關掉後必然被遺忘；登記表 workflow/followups.json
+    以「接手者零記憶」寫交接，到期後使用者任何一次開 CC 都會看到並能直接行動。
+    每日提醒一次（--mark-shown），PASS 自動結案（--auto-close），首次整份、之後精簡（--brief）。
+    純子程序、fail-open：失敗只 debug log，不阻斷 SessionStart。無到期項回 []。
+    """
+    try:
+        import subprocess
+        reg = WORKFLOW_DIR / "followups.json"
+        if not reg.exists():
+            return []
+        r = subprocess.run(
+            [sys.executable, str(CLAUDE_DIR / "tools" / "followup-check.py"),
+             "--run", "--auto-close", "--brief", "--mark-shown"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25)
+        out = (r.stdout or "").strip()
+        return [out] if out else []
+    except Exception as e:
+        _atom_debug_error("session_start:followup_advisory", e)
+        return ["[Guardian:Followup] ⚠ 回訪檢查器執行失敗（見 atom-debug log）——手動跑 python tools/followup-check.py --run"]
+
+
 def _unpushed_advisory() -> list:
     """本地有已 commit 未 push 的東西 → advisory 行（無則回 []，不佔 context）。
 
@@ -649,6 +673,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # ── 未推送 commit ─────────────────────────────────────
         # SessionEnd 晉升自動提交的 push 走背景、失敗當下無人知 → 這裡補可見性。
         lines.extend(_unpushed_advisory())
+        lines.extend(_followup_advisory())
 
         if v4_user:
             lines.append(

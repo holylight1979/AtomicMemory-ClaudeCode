@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-28 回訪機制 — 「一週後看數據」變成到期自動跑、零記憶交接進開場
+- 使用者指出「一週後」的 session 早關、主題被沖淡，且不確定怎樣算驗證到。新 `tools/followup-check.py` + `workflow/followups.json`：每筆登記到期日、檢查名、程式化通過線，以及**假設接手者什麼都不記得**的交接（這是什麼／改了什麼 commit／基線／怎麼判／不過怎麼辦／危險／規則連結／結案）。SessionStart 新 `_followup_advisory`：到期後任何一次開 CC 自動跑，INSUFFICIENT 不催、FAIL 每日一次附交接、PASS 自動結案。首筆登記 `injection-budget-2026-08-28`（since 08-29、due 09-04；四指標：全文/回合 ≥2.5、全文率 ≥55%、final-trim dropped/回合 ≤1、高曝光零使用 ≤0）。verify 6 條；TECH／Architecture 同步。
+
 ## 2026-08-28 注入同題去冗 — trigger 精確重疊 ≥3 者降節錄，不重複講同一件事
 - 探針實證同一句「git 收尾」把 3 顆同題 atom 全文一起送（~1,000 tok 講一件事；Chroma context-rot：單一干擾項即傷精度）。`ups_inject.redundant_with`：主迴圈中與本 turn 已全文注入者 trigger **精確**重疊 ≥3 → 只送表頭＋知識前兩句（`_strip_atom_for_injection_impression_only`），標 `(same-topic → 代表者, 節錄)`、form=redundant（AtomAudit 不稽）；子字串重疊不採計（泛 trigger 噪音）。門檻校準：全庫 8,515 對僅 4 對 ≥3 且皆真同題。config `injection.redundancy_gate`；injection-turns.jsonl / effect-report 加「同題節錄」欄；新 verify 8 條（含全庫對數守衛 ≤20）。實機：中文中等問句「收尾工作樹要上乾淨」正確降節錄、代表者「併發 staging」。
 

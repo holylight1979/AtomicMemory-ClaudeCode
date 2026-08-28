@@ -2307,6 +2307,28 @@
         "projects slug"
       ],
       "scope": "global"
+    },
+    {
+      "name": "回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提",
+      "path": "_AIDocs/_atoms/MemDev/回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提.md",
+      "triggers": [
+        "回訪",
+        "followup",
+        "follow-up",
+        "followups.json",
+        "followup-check",
+        "一週後",
+        "之後再看",
+        "看數據",
+        "到期",
+        "驗證效果",
+        "怎樣算驗證到",
+        "零記憶",
+        "啥都不記得",
+        "自動接續",
+        "SessionStart advisory"
+      ],
+      "scope": "global"
     }
   ]
 }
