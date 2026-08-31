@@ -2351,6 +2351,27 @@
         "常數飄移"
       ],
       "scope": "global"
+    },
+    {
+      "name": "驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源",
+      "path": "_AIDocs/_atoms/MemDev/驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源.md",
+      "triggers": [
+        "探針",
+        "假失敗",
+        "假紅",
+        "heredoc",
+        "反斜線",
+        "node -e",
+        "假 session",
+        "實機驗證",
+        "dry-run 副作用",
+        "探針副作用",
+        "空目錄",
+        "parse_memory_index fallback",
+        "驗證機制",
+        "post-mortem"
+      ],
+      "scope": "global"
     }
   ]
 }
