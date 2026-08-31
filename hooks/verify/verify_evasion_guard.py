@@ -16,6 +16,7 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent  # hooks/verify/ → hooks/
 sys.path.insert(0, str(HOOKS_DIR))
 
 from wg_evasion import (  # noqa: E402
+    strip_quoted_spans,
     is_test_command,
     detect_test_failure,
     claims_completion,
@@ -354,3 +355,22 @@ def test_scan_report_dismiss_prompt_not_triggered():
 
 def test_scan_report_empty_files_not_triggered():
     assert detect_missing_scan_report("全部完成了", [], [], 2) is False
+
+
+# ─── strip_quoted_spans / 引號內轉述不觸發 ───────────────────────────────
+
+def test_quoted_phrase_not_flagged_unquoted_is():
+    """引用 hook 判定原文（引號內）不標；同詞寫在自己敘述句照標。"""
+    quoted = "hook 標的「下個 session」是我引用它的判定原文，沒有推遲。"
+    assert detect_evasion(quoted, []) is None
+    plain = "這個小問題留到下個 session 再處理。"
+    assert detect_evasion(plain, []) is not None
+
+
+def test_strip_quoted_spans_preserves_length_and_unpaired():
+    s = "前「中間」後 `code` 尾『引』端"
+    out = strip_quoted_spans(s)
+    assert len(out) == len(s)
+    assert "中間" not in out and "code" not in out and "引" not in out
+    unpaired = "只有開「引號沒關 下個 session 也在外面"
+    assert strip_quoted_spans(unpaired) == unpaired

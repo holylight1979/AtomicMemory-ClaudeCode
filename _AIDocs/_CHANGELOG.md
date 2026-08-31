@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-31 退避偵測修兩缺陷 — 引號內轉述不觸發 + 升級時 (b) 卡片必帶 hook 證據
+- 使用者指出 HUD 紅框宣稱 (b) 有逃避通報、卡片卻空白。查證：cross-check 升級（hook 實測退避＋模型自評「無」→ real-evasion）只改 severity 與 hook_evidence 欄，HUD (b) 卡片只渲染 b 欄 → 紅框指空卡（違反可觀測性鐵律）。修：升級時把證據寫進 b（turn N『詞』…），原自評存 b_model。另修根因側：`strip_quoted_spans` 把「」『』與反引號 span 換等長空白再比對，引用 hook 判定原文／atom 內文不再觸發 detect_evasion / detect_deferral（實測本 session 連環 4 輪引用型誤標）；真退避在敘述句照標。verify +4（引號不觸發×2、等長/未配對、b 內容組成）。
+
 ## 2026-08-28 研究成果歸檔 — 業界調查／CC 原生規格／三方評估／調查編年／探針方法
 - 使用者要求本 session 所有功課（除直接修掉的 bug）分門別類收進 _AIDocs。四 agent 並行撰寫：`Research/agent-memory-industry-survey.md`（新資料夾 Research/＋_INDEX；78 個來源 URL）、`ClaudeCodeInternals/cc-native-memory-hooks-mcp.md`（官方文件查證版：auto-memory 200 行/25KB、28 hook 事件、UPS 30s、MCP scope、cache）、`DevHistory/memory-system-review-2026-08.md`（三方比對＋優缺點／可補強／該修正，as-built 逐檔核對）、`DevHistory/injection-budget-investigation-2026-08.md`（注入變弱調查編年：根因鏈、五次修正、數據）、`Tools/hook-injection-probe.md`（真 hook 進程探針操作法＋清理＋陷阱）。順修 `memory/_reference/internal-pipeline.md` 管線描述對齊實碼（trigger→BM25→vector→RRF→去冗→三態→回填）。各層 _INDEX 同步。
 

@@ -169,3 +169,13 @@ def test_stop_passes_when_context_high(driven, capsys, monkeypatch):
     monkeypatch.setattr(st, "estimate_context_usage", lambda *a, **k: 0.9)
     out, _ = driven(_DEFER_DONE, capsys)
     assert "[Guardian:DeferralGate]" not in out
+
+
+# ─── 引號內轉述不觸發（strip_quoted_spans 套用）─────────────────────────
+
+def test_quoted_deferral_phrase_not_flagged():
+    """轉述 hook 判定或詞庫字面（引號內）不算退縮；同語寫在敘述句照標。"""
+    quoted = "詞庫要補「下個 session」「另案」這幾個字串，已補完並驗證。"
+    assert detect_deferral(quoted, []) is None
+    plain = "完工。這個 registry 清理留給下個 session 處理比較好。"
+    assert detect_deferral(plain, []) is not None

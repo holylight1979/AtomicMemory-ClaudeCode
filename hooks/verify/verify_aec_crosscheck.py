@@ -146,3 +146,29 @@ def test_emit_report_routine_when_clean(monkeypatch):
     rep = state["anti_evasion_report"]
     assert rep["severity"] == "routine"
     assert "severity_upgraded_by" not in rep
+
+
+def test_emit_report_upgrade_composes_b_content(monkeypatch):
+    """升級時 (b) 欄改寫為含 hook 證據的內容（HUD 卡片只渲染 b；紅框不得指著空卡），
+    模型原自評另存 b_model。"""
+    state = {
+        "turn_seq": 4,
+        "evasion_events": [{"phrase": "先跳過", "turn_seq": 3, "at": "t3"}],
+    }
+    written = {}
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda sid, st: written.update(st))
+    monkeypatch.setattr(pt, "_write_aec_report_file", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_maybe_spawn_hud", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use(
+            {
+                "session_id": _SID,
+                "tool_name": "mcp__workflow-guardian__anti_evasion_report",
+                "tool_input": {"a": "無", "b": "無", "c": "無", "d": "無"},
+            },
+            {},
+        )
+    rep = written.get("anti_evasion_report") or state.get("anti_evasion_report")
+    assert "先跳過" in rep["b"] and "turn 3" in rep["b"]
+    assert rep["b_model"] == "無"

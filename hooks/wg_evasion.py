@@ -192,14 +192,29 @@ def claims_completion(text: str) -> bool:
     return True
 
 
+_QUOTED_SPAN_RE = re.compile(r"「[^「」]{0,200}」|『[^『』]{0,200}』|`[^`\n]{0,200}`")
+
+
+def strip_quoted_spans(text: str) -> str:
+    """把引號「」『』與反引號 code span 內容換成等長空白（索引不位移）。
+
+    退避偵測是字面比對，模型引用 hook 判定原文或 atom 內文時必然再命中，形成
+    「引用→再標→再解釋→再標」迴圈（實測連環 4 輪）。真退避寫在自己的敘述句，
+    不會包在引號裡；只剝成對引號，未配對者不動。"""
+    if not text or ("「" not in text and "『" not in text and "`" not in text):
+        return text
+    return _QUOTED_SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
+
+
 def detect_evasion(text: str, recent_user_prompts: List[str]) -> Optional[Dict[str, str]]:
     """Return {phrase, context_excerpt} or None.
 
     Escape hatch: 若近 3 則 user prompt 有明確豁免關鍵字 → 不標記。
+    引號內轉述不算（strip_quoted_spans）；excerpt 取自原文（等長替換索引不位移）。
     """
     if not text:
         return None
-    m = _EVASION_RE.search(text)
+    m = _EVASION_RE.search(strip_quoted_spans(text))
     if not m:
         return None
     for p in (recent_user_prompts or [])[-3:]:
@@ -233,7 +248,8 @@ def detect_deferral(
     for p in (recent_user_prompts or [])[-3:]:
         if _DEFERRAL_USER_OK_RE.search(p or "") or _DISMISS_RE.search(p or ""):
             return None
-    for sent in _SENTENCE_SPLIT_RE.split(text):
+    for orig_sent in _SENTENCE_SPLIT_RE.split(text):
+        sent = strip_quoted_spans(orig_sent)  # 引號內轉述不觸發（同 detect_evasion）
         m = _DEFERRAL_RE.search(sent)
         if m:
             rest = sent
@@ -244,7 +260,7 @@ def detect_deferral(
                 rest = nxt
             residual = _OBJECT_STRIP_RE.sub("", rest)
             if len(residual) >= max(int(min_object_chars), 1):
-                return {"phrase": m.group(0), "sentence": sent.strip()[:200]}
+                return {"phrase": m.group(0), "sentence": orig_sent.strip()[:200]}
     return None
 
 

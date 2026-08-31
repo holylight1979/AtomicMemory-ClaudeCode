@@ -540,6 +540,17 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if upgraded:
             report["severity_upgraded_by"] = "hook:evasion-crosscheck"
             report["hook_evidence"] = evidence[-5:]
+            # (b) 卡片只渲染 b 欄；升級卻留「無」會出現「紅框指著空卡」（可觀測性
+            # 鐵律：訊號必須帶內容浮出）。把 hook 證據寫進 b，模型原自評另存 b_model。
+            report["b_model"] = b
+            ev_lines = "；".join(
+                f"turn {e.get('turn_seq', '?')}『{e.get('phrase', '')}』"
+                for e in evidence[-5:] if e.get("phrase")
+            )
+            report["b"] = (
+                f"模型自評「{b or '無'}」，但 hook 實測 {len(evidence)} 筆退避命中：{ev_lines}"
+                "（cross-check 升級，不信自評）"
+            )
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         # 殘檔帳本：(d) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。
