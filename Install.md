@@ -9,7 +9,6 @@
 ### 0. 版控庫
 
 <!-- repo-url -->
-* GitHub：`https://github.com/holylight1979/AtomicMemory-ClaudeCode.git`
 * GitLab（公司內網）：`https://gitlab.uj.com.tw/holylight/ClaudeCode-AtomMemory.git`
 <!-- /repo-url -->
 
