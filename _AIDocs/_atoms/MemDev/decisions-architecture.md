@@ -2,16 +2,16 @@
 
 - Scope: global
 - Confidence: [觀]
-- Trigger: 架構, hooks, pipeline, guardian, SessionStart, hot cache, extract-worker, vector service
+- Trigger: 架構決策, hooks 架構, pipeline, guardian, SessionStart, extract-worker, vector service, dispatcher
 - Related: decisions, toolchain-ollama, feedback-memory-system-doc-sync, realm-範疇分區機制-v5
 
 ## 印象
 
 - 雙 LLM 分工（CC 雲端決策 + Ollama 本地處理）→ _AIDocs/Architecture.md
-- 三層即時管線（Stop async → quick-extract → hot_cache → PostToolUse 同 turn 注入）→ _AIDocs/DevHistory/memory-pipeline.md
+- 即時萃取管線已停產（per-turn capture / session_end flush / quick-extract 拔除，留失敗萃取＋episodic＋SessionEnd 全量萃取）；歷史見 _AIDocs/DevHistory/memory-pipeline.md
 - SessionStart 風暴修復（去重 + 分層 TTL 孤兒清理 + vector 非阻塞）→ _AIDocs/DevHistory/session-mgmt.md
 - 專案自治層 + Project-Aliases 跨專案掃描 → _AIDocs/Architecture.md
-- 管線概覽（Intent→Trigger→Vector→Section→Budget→注入）→ memory/_reference/internal-pipeline.md（hook 寫死引用）
+- 注入管線概覽（trigger→BM25→vector→RRF×activation→hot/cold→同題去冗→三態預算→回填裁切）→ memory/_reference/internal-pipeline.md（JIT 注入的參考檔）
 - Atomic Memory Single Funnel → _AIDocs/Architecture.md「Atomic Memory Single Funnel」section
 - Wisdom Engine 校準（metrics.* sliding window + retry 校準 plan-mode threshold + fix_escalation_triggered 真失敗信號）→ _AIDocs/DevHistory/wisdom-engine.md「V2.12」章節 + memory/wisdom/DESIGN.md
 - 取用端閉環稽核（AtomAudit Stop 閘）+ atom 瘦身規範（write-gate 3KB 預算/樣式軟警/Status 行）→ _AIDocs/Architecture.md「Stop」列 + atom_write 節

@@ -5,14 +5,14 @@
       "name": "decisions-architecture",
       "path": "_AIDocs/_atoms/MemDev/decisions-architecture.md",
       "triggers": [
-        "架構",
-        "hooks",
+        "架構決策",
+        "hooks 架構",
         "pipeline",
         "guardian",
         "SessionStart",
-        "hot cache",
         "extract-worker",
-        "vector service"
+        "vector service",
+        "dispatcher"
       ],
       "scope": "global"
     },
@@ -2327,6 +2327,28 @@
         "啥都不記得",
         "自動接續",
         "SessionStart advisory"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點",
+      "path": "_AIDocs/_atoms/MemDev/記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點.md",
+      "triggers": [
+        "總審計",
+        "索引審計",
+        "分類審計",
+        "一條龍",
+        "讀寫鏈",
+        "discover_all_project",
+        "discover_layers",
+        "project-registry",
+        "register_project",
+        "cross-project-index-cache",
+        "syncMemoryIndex",
+        "專案層判定",
+        "壞連結",
+        "Related 壞",
+        "常數飄移"
       ],
       "scope": "global"
     }

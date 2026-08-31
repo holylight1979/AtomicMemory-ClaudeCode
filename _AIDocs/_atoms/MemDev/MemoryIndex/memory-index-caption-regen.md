@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: MEMORY.md, sync-memory-index, 描述欄, caption, atom_write regen, 裸名, syncMemoryIndex, 記憶索引, 索引描述, MEMORY.md 描述
 - Created-at: 2026-06-01
-- Related: atom-table-support, feedback-memory-system-doc-sync, realm-範疇分區機制-v5, atom-write-global必須省略project-cwd
+- Related: atom-table-support, feedback-memory-system-doc-sync, realm-範疇分區機制-v5, atom-write-global必須省略project-cwd, 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點
 
 ## 知識
 

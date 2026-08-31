@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: MSBuild, 亂碼, StandardOutputEncoding, Encoding.Default, Big5, cp950, RedirectStandardOutput, 編譯 log, ProcessStartInfo, UTF-8
 - Created-at: 2026-08-28
-- Related: gpt-sgiserlauncher-工具-危險點與架構約束, svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8
+- Related: svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8
 
 ## 知識
 

@@ -11,7 +11,7 @@
 
 ### 跨 Session 鞏固（效用驅動）
 - [固] 晉升門檻（SYNC: server.js toolAtomPromote / wg_atoms._self_iterate_atoms / lib.atom_access）：
-  - 效用 Wilson 軌為**唯一自動晉升路徑**：效用 Wilson 下界（Beta-Bernoulli α=useful_hits/β=used_fail；succ=α−1,fail=β−1,n=succ+fail）≥ promote_lb(0.6) 且 n ≥ min_n(3)，z=1.96；降級候選 ≤ demote_lb(0.35) 且 n≥3（不自動降，列裁決）；慢衰減 λ=0.97（SessionEnd）
+  - 效用 Wilson 軌為**唯一自動晉升路徑**：效用 Wilson 下界（Beta-Bernoulli α=useful_hits/β=used_fail；succ=α−1,fail=β−1,n=succ+fail）≥ promote_lb(0.6) 且 n ≥ min_n(3)，z=wilson_z(1.28)；降級候選 ≤ demote_lb(0.35) 且 n ≥ demote_min_n(5)（不自動降，列裁決）；旋鈕值以 workflow/config.json usefulness 段為準；慢衰減 λ=0.97（SessionEnd）
   - Confirmations 軌已除役（唯一資料源 per-turn extraction 停產，全庫 confirmation_events=0）
   - ReadHits（注入讀取）：純曝光計數、不參與晉升（防純注入頻率晉升劣化品質，Xiong 2505.16067）
   - 旋鈕：workflow/config.json usefulness.{promote_lb,demote_lb,min_n,wilson_z,decay_lambda,rare_token_min,lexical_overlap_min}

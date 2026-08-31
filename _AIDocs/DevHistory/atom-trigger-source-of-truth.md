@@ -2,7 +2,7 @@
 
 > Date: 2026-04-28
 > 衍生：Stage F 重審 §「附帶議題：atom 注入機制 3 源不一致」（[follow-up-issues.md §議題 #9 末段](memory-cleanup-2026-04/follow-up-issues.md)）
-> 狀態：**設計文件 — 待使用者拍板方向後實作**
+> 狀態：**已落地** — `_atom_index.json` 為唯一真相源（寫入點 `lib/atom_index_json.upsert_atom`），`_ATOM_INDEX.md` 為自動 mirror（`regenerate_atom_index_md`），MEMORY.md 為範疇目錄（`sync-memory-index.py`）。下文為設計時的分析紀錄，所引 server.js 行號已隨程式搬到 `lib/atom-tools.js` 而失效，僅供脈絡參考。
 
 ## 一、現況：三源各自為政
 

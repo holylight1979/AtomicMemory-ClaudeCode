@@ -6,7 +6,7 @@
 - Trigger: ICLD, Sprint, 閉環, 功能拆解
 - Created: 2026-03-19
 - Tags: workflow, icld, sprint
-- Related: workflow-rules, icld-sprint-template, goal-driven-verify-loopkarpathy-吸收
+- Related: workflow-rules, goal-driven-verify-loopkarpathy-吸收
 
 ## 知識
 

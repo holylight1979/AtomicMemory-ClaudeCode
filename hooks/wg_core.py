@@ -508,8 +508,20 @@ def register_project(cwd: str) -> None:
     root = find_project_root(cwd)
     if not root:
         return
+    # 8.3 短檔名（C:\Users\HOLYLI~1）展開成長名，否則同一專案登記成兩個 slug
+    try:
+        root = root.resolve()
+    except OSError:
+        pass
     if is_transient_project_root(root):
         return
+    # ~/.claude 本身與家目錄不是「專案」：家目錄的 .claude/memory 就是全域記憶、
+    # ~/.claude 的記憶在 memory/ 而非 .claude/memory/；登記只會讓專案清單多兩筆假項目
+    try:
+        if root.resolve() in (CLAUDE_DIR.resolve(), CLAUDE_DIR.resolve().parent):
+            return
+    except OSError:
+        pass
     has_marker = (
         (root / ".claude" / "memory" / MEMORY_INDEX).exists()
         or (root / "_AIDocs").is_dir()

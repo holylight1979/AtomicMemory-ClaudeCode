@@ -13,6 +13,7 @@ Survives hook timeout — runs ~60s on GTX 1050 Ti.
 
 import json
 import re
+import subprocess
 import sys
 import time
 import urllib.request
@@ -821,6 +822,40 @@ def _failure_writeback(ctx: dict, items: list) -> None:
             f"Wrote {written} failure entries to {failures_dir}",
             config,
         )
+        _failure_catalog_sync(failures_dir, config)
+
+
+def _failure_catalog_sync(failures_dir: Path, config: dict) -> None:
+    """失敗家族寫入後接上目錄重產（MEMORY.md / _INDEX.md / 橋接檔）。
+
+    這條寫入鏈不經 MCP funnel，原本寫完只 upsert _atom_index.json，目錄與橋接檔
+    要等下次 MCP 寫入或人工跑 sync-memory-index 才更新（一條龍中斷）。同步跑、
+    收 stderr、失敗只 debug log（fail-open）。專案層 failures 走 --memory-dir。"""
+    try:
+        script = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+        if not script.exists():
+            return
+        argv = [sys.executable, str(script), "--write"]
+        mem_dir = failures_dir.parent
+        try:
+            is_global = mem_dir.resolve() == (CLAUDE_DIR / "memory").resolve()
+        except OSError:
+            is_global = False
+        if not is_global:
+            argv += ["--memory-dir", str(mem_dir)]
+        r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=40)
+        if r.returncode != 0:
+            _atom_debug_log("failure_writeback",
+                            f"catalog sync exit {r.returncode}: {(r.stderr or '')[-300:]}", config)
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_log("failure_writeback", f"catalog sync error: {e!r}", config)
+    # 向量庫增量重建（MCP 寫入鏈由 funnel.triggerVectorReindex 做；這條鏈原本沒接）
+    try:
+        from wg_atoms import _trigger_incremental_index
+        _trigger_incremental_index(config)
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_log("failure_writeback", f"vector incremental error: {e!r}", config)
 
 
 # 每型固定 Trigger：health 的 REQUIRED_METADATA 含 Trigger，缺了整檔判格式錯（腦內世界標 🤢）

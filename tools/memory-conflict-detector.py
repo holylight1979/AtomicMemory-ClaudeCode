@@ -65,13 +65,27 @@ def discover_layers(project_dir: Optional[Path] = None) -> List[Tuple[str, Path]
     global_mem = CLAUDE_DIR / "memory"
     if global_mem.is_dir():
         layers.append(("global", global_mem))
-    # Legacy: ~/.claude/projects/{slug}/memory/
-    projects_dir = CLAUDE_DIR / "projects"
-    if projects_dir.is_dir():
-        for proj_dir in sorted(projects_dir.iterdir()):
-            if proj_dir.is_dir():
+    # 專案層：與執行期同一套判定（wg_core.discover_all_project_memory_dirs），
+    # 不自掃 projects/*/memory（會把 CC 原生 auto-memory 目錄誤當 atom 層）。
+    try:
+        import sys as _sys
+        _hooks = CLAUDE_DIR / "hooks"
+        if str(_hooks) not in _sys.path:
+            _sys.path.insert(0, str(_hooks))
+        from wg_core import discover_all_project_memory_dirs  # noqa: E402
+        for slug, mem_dir in discover_all_project_memory_dirs():
+            if project_dir is not None and mem_dir.resolve() == Path(project_dir).resolve():
+                continue
+            layers.append((f"project:{slug}", mem_dir))
+    except Exception as e:  # noqa: BLE001 — 退回舊址掃描（需 atom 索引標記）並告知
+        import sys as _sys
+        print(f"[conflict-detector] wg_core discovery unavailable ({e!r}); fallback scan",
+              file=_sys.stderr)
+        projects_dir = CLAUDE_DIR / "projects"
+        if projects_dir.is_dir():
+            for proj_dir in sorted(projects_dir.iterdir()):
                 mem_dir = proj_dir / "memory"
-                if mem_dir.is_dir():
+                if proj_dir.is_dir() and (mem_dir / "_atom_index.json").exists():
                     layers.append((f"project:{proj_dir.name}", mem_dir))
     return layers
 

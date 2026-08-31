@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: TURN_BUDGET_LIMIT, compute_token_budget, truncate_context, budget fallback, trim: pointer dropped, Context budget, 注入預算, 預算裁切, 過度砍, 分級, 字元數, native-memory-bridge, atom-index-bridge, 橋接檔, projects slug
 - Created-at: 2026-08-28
-- Related: 取用端稽核與瘦身規範-atomaudit與3kb預算, activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數, feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費, 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提
+- Related: 取用端稽核與瘦身規範-atomaudit與3kb預算, activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數, feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費, 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提, 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點
 
 ## 知識
 

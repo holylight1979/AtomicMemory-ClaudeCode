@@ -362,27 +362,27 @@ def _write_atom_via_mcp(
     in_claude_dir = _is_under_claude_dir(cwd) if cwd else False
     write_scope = "global" if in_claude_dir else "personal"
 
-    # Pre-check existence for dedup parity with prior behaviour.
-    # personal scope → memory/personal/{user}/{slug}.md；global → memory/{slug}.md
-    project_root = find_project_root(cwd) if cwd else None
-    if in_claude_dir:
-        target_dir = CLAUDE_DIR / "memory"
-    elif project_root:
-        target_dir = Path(project_root) / ".claude" / "memory" / "personal" / user
-    else:
-        target_dir = CLAUDE_DIR / "memory" / "personal" / user
-    pre_path = target_dir / f"{slug}.md"
-    if pre_path.exists():
+    # 去重預檢：用 funnel 的正規定位（locate_atom）找既有檔。核心層 atom 住
+    # memory/<範疇>/[Lv2]/，自算扁平路徑永遠 miss、去重形同死碼。
+    pre_path = None
+    try:
+        from lib.atom_io import locate_atom
+        loc = locate_atom(slug, write_scope, project_cwd=cwd or None, user=user)
+        if getattr(loc, "ok", False) and getattr(loc, "path", None) and Path(loc.path).exists():
+            pre_path = Path(loc.path)
+    except Exception as e:  # noqa: BLE001 — 定位失敗只失去去重，不擋寫入
+        _atom_debug_error("user-extract:locate", e)
+    if pre_path is not None:
         try:
             existing = pre_path.read_text(encoding="utf-8")
             if statement in existing:
                 return "deduped"
         except (OSError, UnicodeDecodeError):
             pass
-        # Append counter to title (funnel will slugify-by-title)
+        # 同名不同意 → 改名（funnel 以 title slugify）
         for i in range(2, 10):
             alt_slug = f"{slug}-{i}"
-            if not (target_dir / f"{alt_slug}.md").exists():
+            if not (pre_path.parent / f"{alt_slug}.md").exists():
                 slug = alt_slug
                 break
 
@@ -390,7 +390,19 @@ def _write_atom_via_mcp(
     # lib.atom_locations.classify_category）；unsure/error → **拒寫**，候選改進
     # _pending.candidates.md（前綴 [category REJECT|ERROR]）+ stderr 浮訊號，不落 Else。
     domain = None
+    realm = None
     if write_scope == "global":
+        # realm 分類（core 全專案注入 / local 只在 ~/.claude 注入）：MCP 寫入鏈在 js 端
+        # 會自動分，hook 寫入鏈原本一律落 core、靠 SessionEnd sweep 事後搬——同一顆
+        # atom 依寫入路徑落點不同。改成寫前就分，與 MCP 對齊。安全預設 core。
+        try:
+            from lib.atom_locations import classify_realm
+            rc = classify_realm(slug, triggers)
+            if rc.get("realm") == "local" and rc.get("domain") and not rc.get("protected"):
+                realm, domain = "local", rc["domain"]
+        except Exception as e:  # noqa: BLE001 — 分不出就走 core（原行為）
+            _atom_debug_error("user-extract:classify_realm", e)
+    if write_scope == "global" and realm is None:
         try:
             from lib.atom_locations import classify_category
             cls = classify_category(slug, triggers, layer="core", excerpt=statement, config=config)
@@ -420,6 +432,7 @@ def _write_atom_via_mcp(
             source="hook:user-extract",
             author="auto-extracted-v4.1",
             domain=domain,
+            realm=realm,
         )
     except Exception as e:
         _atom_debug_error("user-extract:_write_atom", e)

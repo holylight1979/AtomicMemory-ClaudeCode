@@ -5,7 +5,7 @@
 
 | Atom | Path | Trigger | Scope |
 |------|------|---------|-------|
-| decisions-architecture | _AIDocs/_atoms/MemDev/decisions-architecture.md | 架構, hooks, pipeline, guardian, SessionStart, hot cache, extract-worker, vector service | global |
+| decisions-architecture | _AIDocs/_atoms/MemDev/decisions-architecture.md | 架構決策, hooks 架構, pipeline, guardian, SessionStart, extract-worker, vector service, dispatcher | global |
 | decisions | memory/CC與原子記憶契約/decisions.md | 決策, 記憶系統, 原子記憶, 架構細節, context budget | global |
 | electron-uia-automation | _AIDocs/_atoms/Tools/electron-uia-automation.md | Electron 自動化, VS Code 自動點擊, UIA Invoke, EVENT_E_NO_SUBSCRIBERS, PostMessage Chromium 失效, SendInput 偷塞字, AttachThreadInput, SetForegroundWindow 失敗, focus swap, ghost button, Claude Code 彈窗, GUI 工具 | global |
 | feedback-workflow-discipline | memory/Failures/工作流/feedback-workflow-discipline.md | handoff, 續接, 下 session, next-phase, 順手修補, drift 修補, 重複失敗, fix-escalation, 裁決, 決策推薦, plan 路徑, SessionStart hook, commit message, 上 GIT | global |
@@ -137,3 +137,4 @@
 | feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費 | memory/Failures/CC與原子記憶契約/feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費.md | 記憶系統, 原子記憶, 注入, 萃取, token 稅, token 浪費, 精準, 高效, 記憶取捨, budget, TURN_BUDGET_LIMIT, 記憶變弱, 注入變弱, 分門別類, 積累 | global |
 | 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產 | _AIDocs/_atoms/MemDev/注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產.md | TURN_BUDGET_LIMIT, compute_token_budget, truncate_context, budget fallback, trim: pointer dropped, Context budget, 注入預算, 預算裁切, 過度砍, 分級, 字元數, native-memory-bridge, atom-index-bridge, 橋接檔, projects slug | global |
 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 | _AIDocs/_atoms/MemDev/回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提.md | 回訪, followup, follow-up, followups.json, followup-check, 一週後, 之後再看, 看數據, 到期, 驗證效果, 怎樣算驗證到, 零記憶, 啥都不記得, 自動接續, SessionStart advisory | global |
+| 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點 | _AIDocs/_atoms/MemDev/記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點.md | 總審計, 索引審計, 分類審計, 一條龍, 讀寫鏈, discover_all_project, discover_layers, project-registry, register_project, cross-project-index-cache, syncMemoryIndex, 專案層判定, 壞連結, Related 壞, 常數飄移 | global |

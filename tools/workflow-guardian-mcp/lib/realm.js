@@ -81,8 +81,10 @@ function classifyRealm(name, triggers) {
   if (Object.keys(scores).length === 0) {
     return { realm: "core", domain: null, matched: [], protected: false };
   }
-  // 平手 → 依 sorted(LOCAL_REALM_DOMAINS) 固定序首位（對拍 py max(sorted, key)）
-  const domsSorted = [...LOCAL_REALM_DOMAINS].sort();
+  // 平手 → 在「實際命中的 domain」裡依固定序取首位（對拍 py max(sorted(scores), key)）。
+  // 不得只在 LOCAL_REALM_DOMAINS 三元集合裡挑：詞庫一旦映到第 4 個 domain 或多段路徑
+  // （OS/Windows），會回到分數 0 的預設首位、與 py 分歧。
+  const domsSorted = Object.keys(scores).sort();
   let bestDom = domsSorted[0];
   for (const d of domsSorted) {
     if ((scores[d] || 0) > (scores[bestDom] || 0)) bestDom = d;

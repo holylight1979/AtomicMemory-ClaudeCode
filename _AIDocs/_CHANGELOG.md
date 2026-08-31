@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-08-31 記憶索引／分類／讀寫鏈總審計 — 三路 agent 交叉確認後修 12 項、驗無誤 9 項
+- 三個唯讀審計 agent（索引連結／atom 內容品質／讀寫分類一條龍）＋機器檢查器（sync-atom-index、sync-memory-index、memory-audit、atom-health-check）四路交叉。**驗無誤不動**：索引 132 顆 path/name/trigger/scope 全對、11 範疇計數與 31 層 _INDEX 全對、taxonomy↔資料夾一一對應、保留夾零洩漏、橋接 78/78、episodic TTL 正常、`_ATOM_INDEX.md` 唯一寫入者、taxonomy 單源、範疇閘裁決點唯一、atom-move 已共用 lib 的 find_index_dir、大小寫雙 slug 目錄＝同一 inode（NTFS）。**已修**：① 6 條壞 Related（5 條指向 2026-05 整併歸檔、1 條跨層指向專案 atom）改指接替 atom／刪除＋反向連結補齊；② `decisions.md` 晉升常數飄移（z=1.96→wilson_z 1.28、降級 n≥3→demote_min_n 5）、`atom-usefulness-loop` 自我更正殘留；③ `workflow-rules` 三個死指標（rules/session-management、rules/sync-workflow、memory/preferences 皆不存在）；④ `decisions-architecture` 指標型 atom 含已停產機制與舊管線描述、trigger `hot cache` 拿掉；⑤ 專案層判定五處各一份 → `memory-audit` / `memory-conflict-detector` 改用 `wg_core.discover_all_project_memory_dirs`（健檢 layers 8→12 真專案，Temp 測試夾／grok 原生目錄不再入列）；⑥ `register_project` 不登記 ~/.claude 與家目錄、8.3 短檔名先展開；登記表清 3 筆假專案；⑦ `funnel.js syncMemoryIndex` 由全靜默改收 stderr＋非 0 落 crashLog；⑧ `realm.js` 平手改在實際命中 domain 內取值（對拍 py）；⑨ `native-memory-bridge` slug 全小寫對拍 wg_core；⑩ `user-extract-worker` 去重預檢改 `locate_atom`（原算扁平路徑永遠 miss＝死碼）＋ global 寫入前 `classify_realm`（與 MCP 鏈對齊）；⑪ 失敗家族寫入鏈接上 sync-memory-index＋向量增量（原只 upsert json）；⑫ 跨專案索引聚合快取 `workflow/cross-project-index-cache.json`（每 prompt 免重讀 ~220 KB；實測第二回合 0.75s→0.38s）；DevHistory `atom-trigger-source-of-truth` 標已落地。新 verify 4 條。**未修待拍板**：js/py 落點解析雙實作（atom-tools.js 自算 indexDir/relPath，只 create 的 memDir 採 py）——改法為 locate 一併回傳路由結果、js 不再自算，涉 MCP 重啟與 5 處鏡像。
+
 ## 2026-08-31 退避偵測修兩缺陷 — 引號內轉述不觸發 + 升級時 (b) 卡片必帶 hook 證據
 - 使用者指出 HUD 紅框宣稱 (b) 有逃避通報、卡片卻空白。查證：cross-check 升級（hook 實測退避＋模型自評「無」→ real-evasion）只改 severity 與 hook_evidence 欄，HUD (b) 卡片只渲染 b 欄 → 紅框指空卡（違反可觀測性鐵律）。修：升級時把證據寫進 b（turn N『詞』…），原自評存 b_model。另修根因側：`strip_quoted_spans` 把「」『』與反引號 span 換等長空白再比對，引用 hook 判定原文／atom 內文不再觸發 detect_evasion / detect_deferral（實測本 session 連環 4 輪引用型誤標）；真退避在敘述句照標。verify +4（引號不觸發×2、等長/未配對、b 內容組成）。
 

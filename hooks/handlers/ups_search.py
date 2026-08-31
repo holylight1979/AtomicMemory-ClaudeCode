@@ -35,6 +35,63 @@ from wg_atoms import (
 )
 from handlers._shared import _SUPERSEDES_RE
 
+# 跨專案索引聚合快取：每 prompt 都是新進程，原本無條件重讀最多 20 個專案的
+# MEMORY.md（alias 行）+ _atom_index.json（實測 11 專案 ~220 KB/prompt），而 99%
+# 結果被「≥2 trigger 命中」濾掉。快取以各專案 (MEMORY.md, _atom_index.json) 的
+# mtime_ns 為鍵；任一變動即該專案重讀。fail-open：快取壞掉就照舊逐檔讀。
+_CROSS_CACHE_NAME = "cross-project-index-cache.json"
+
+
+def _cross_cache_key(mem: Path) -> str:
+    def _mt(p: Path) -> int:
+        try:
+            return p.stat().st_mtime_ns
+        except OSError:
+            return 0
+    return f"{_mt(mem / MEMORY_INDEX)}:{_mt(mem / '_atom_index.json')}"
+
+
+def _load_cross_project_cache(cross: List[Tuple[str, Path]]) -> Dict[str, Dict[str, Any]]:
+    """回 {str(mem_dir): {"aliases": [...], "atoms": [[name, rel, triggers], ...]}}，
+    只含鍵仍有效者；失效／缺席者由 caller 逐檔讀後透過 _save_cross_project_cache 回寫。"""
+    import json as _json
+    from wg_core import WORKFLOW_DIR
+    path = WORKFLOW_DIR / _CROSS_CACHE_NAME
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (OSError, ValueError):
+        data = {}
+    out: Dict[str, Dict[str, Any]] = {}
+    stale: List[Tuple[str, Path]] = []
+    for _slug, mem in cross:
+        ent = data.get(str(mem))
+        if ent and ent.get("key") == _cross_cache_key(mem):
+            out[str(mem)] = ent
+        else:
+            stale.append((_slug, mem))
+    if stale:
+        for _slug, mem in stale:
+            try:
+                ent = {
+                    "key": _cross_cache_key(mem),
+                    "aliases": parse_project_aliases(mem),
+                    "atoms": [[n, r, list(t)] for n, r, t in parse_memory_index(mem)],
+                }
+            except Exception:  # noqa: BLE001 — 單一專案讀壞不影響其餘
+                continue
+            data[str(mem)] = ent
+            out[str(mem)] = ent
+        try:
+            keep = {str(m) for _s, m in cross}
+            data = {k: v for k, v in data.items() if k in keep}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(path)
+        except OSError:
+            pass
+    return out
+
 _MAX_CROSS_PROJECT_SCAN = 20
 
 
@@ -120,8 +177,10 @@ def collect_matched_atoms(
             except OSError:
                 return 0.0
         _all_cross = sorted(_all_cross, key=_mem_mtime, reverse=True)[:_MAX_CROSS_PROJECT_SCAN]
+    _cross_cache = _load_cross_project_cache(_all_cross)
     for _cross_slug, cross_mem in _all_cross:
-        aliases = parse_project_aliases(cross_mem)
+        _cached = _cross_cache.get(str(cross_mem))
+        aliases = _cached["aliases"] if _cached else parse_project_aliases(cross_mem)
         if aliases and any(alias in prompt_lower for alias in aliases):
             try:
                 mem_text = (cross_mem / MEMORY_INDEX).read_text(encoding="utf-8-sig")
@@ -134,7 +193,10 @@ def collect_matched_atoms(
                 alias_injected_projects.add(_cross_slug)
             except (OSError, UnicodeDecodeError):
                 pass
-        cross_atoms = parse_memory_index(cross_mem)
+        cross_atoms = (
+            [(a[0], a[1], list(a[2])) for a in _cached["atoms"]]
+            if _cached else parse_memory_index(cross_mem)
+        )
         if not cross_atoms:
             continue
         cross_parent = cross_mem.parent

@@ -6,7 +6,7 @@
 - Trigger: 工作流程, 大型任務, 分階段, SOP, 任務拆分, 上版, GIT, Phase
 - Created: 2026-03-06
 - Tags: workflow, vcs
-- Related: decisions, workflow-svn, workflow-icld, feedback-handoff-self-sufficient, feedback-git-log-chinese, feedback-fix-on-discovery, memory-pipeline-silent-failure-2026-05, workflow-parallel-agents, atom-table-support, feedback-memory-system-doc-sync, atom-usefulness-loop, a執p-自執驗上p-自動完工協議, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, pan-hermes不移植部件與vscode-text-block不落盤實測, workflow-research-fanout
+- Related: decisions, workflow-svn, workflow-icld, handoff-綜觀品質與抗失真寫法, feedback-workflow-discipline, memory-pipeline-silent-failure-2026-05, workflow-parallel-agents, atom-table-support, feedback-memory-system-doc-sync, atom-usefulness-loop, a執p-自執驗上p-自動完工協議, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, pan-hermes不移植部件與vscode-text-block不落盤實測, workflow-research-fanout
 
 ## 知識
 
@@ -14,7 +14,7 @@
 - 分階段 session 執行
 - 每階段：完成 → 驗證 → 上傳 GIT → 提供下一階段 prompt 給使用者
 - **「執驗上P」**：階段收尾口令，等同 執行 → 驗證 → 上 GIT → 產 Prompt（四步都做完）
-- 拆分規則 → 詳見 `rules/session-management.md`（必經處：拆分指引 + 續航 + 開新 session）
+- 拆分規則 → 見 `workflow-parallel-agents`（何時拆 sub-agent）與 `handoff-綜觀品質與抗失真寫法`（開新 session 的交接寫法）
 
 ### 製程選擇
 - **Phase 模式**（預設）：按技術層切分（定義→邏輯→UI），每 Phase 結束「執驗上P」
@@ -23,8 +23,8 @@
 選擇標準：需要中間可驗證的功能節點 → ICLD；按層堆疊即可 → Phase
 
 ### GIT / 同步流程
-→ 詳見 `rules/sync-workflow.md`（必經處：同步條件表 + 秘密洩漏檢查 + Guardian 閘門）
-→ 「上GIT」縮寫定義見 `memory/preferences.md`
+→ 同步條件見 `rules/core.md`「同步」段（_AIDocs→_CHANGELOG｜新知識→atom｜.git→commit+push｜.svn→commit；clean 後 Guardian Stop gate 自動標 sync_completed）
+→ 「上GIT」「執P」等縮寫定義見 `preferences` atom（memory/工作流/節奏與收尾/preferences.md）
 
 ## 行動
 

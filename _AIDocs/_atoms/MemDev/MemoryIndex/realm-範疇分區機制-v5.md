@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: realm, 範疇分區, 核心非核心, local atom, _AIDocs/_atoms, 注入閘門, atom 物理位置, promote fallback, wg_core bootstrap, 記憶系統
 - Created-at: 2026-06-03
-- Related: decisions-architecture, memory-index-caption-regen, feedback-workflow-discipline, 專案等級-mcpskillhookslog-不放全域根層, harness原生memory與atom索引marker撞名辨識, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房, feedback-complexity-origin-trace, auto-capture碎片sweep污染詞庫-defer根治, 跨session資訊失真機制與對策, scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層, atom-edit-meta與atom-heal對專案層atom的缺口與繞法, 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址, atom-write-global必須省略project-cwd, feedback-atom-write-initial-confidence, 向量庫stale清理失效根因-layer標籤含冒號拆鍵錯位-刪0列仍回報成功
+- Related: decisions-architecture, memory-index-caption-regen, feedback-workflow-discipline, 專案等級-mcpskillhookslog-不放全域根層, harness原生memory與atom索引marker撞名辨識, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房, feedback-complexity-origin-trace, auto-capture碎片sweep污染詞庫-defer根治, 跨session資訊失真機制與對策, scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層, atom-edit-meta與atom-heal對專案層atom的缺口與繞法, 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址, atom-write-global必須省略project-cwd, feedback-atom-write-initial-confidence, 向量庫stale清理失效根因-layer標籤含冒號拆鍵錯位-刪0列仍回報成功, 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點
 
 ## 知識
 

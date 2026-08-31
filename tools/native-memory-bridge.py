@@ -35,8 +35,9 @@ def _slug_from_cwd(cwd: Path) -> str:
     # harness slug 規則：每個非英數字元各轉一個 '-'（不合併）、磁碟代號小寫
     # c:\Users\x\.claude → c--Users-x--claude（":" 與 "\" 各一個 '-'，"." 也是 '-'）
     import re
-    s = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
-    return s[0].lower() + s[1:] if s else s
+    # 全小寫：對拍 hooks/wg_core.cwd_to_project_slug（Windows 不分大小寫掩蓋了差異，
+    # 但兩套規則並存會在大小寫敏感檔案系統分岔出第二棵樹）
+    return re.sub(r"[^A-Za-z0-9]", "-", str(cwd)).lower()
 
 
 def _core_atoms() -> list[dict]:

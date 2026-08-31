@@ -197,12 +197,20 @@ function syncMemoryIndex(memoryDir) {
     if (!fs.existsSync(script)) return;
     const argv = [script, "--write"];
     if (memoryDir) argv.push("--memory-dir", String(memoryDir));
+    // 背景重產但不靜默：收 stderr、非 0 退出落 crashLog（可觀測性鐵律——橋接檔曾
+    // 13/13 全壞 7 週無人知，就是這條 fire-and-forget 把訊號吞掉）。
     const cp = require("child_process").spawn("python", argv, {
-      windowsHide: true, detached: true, stdio: "ignore",
+      windowsHide: true, detached: true, stdio: ["ignore", "ignore", "pipe"],
     });
-    cp.on("error", () => {});
+    let err = "";
+    if (cp.stderr) cp.stderr.on("data", (d) => { if (err.length < 2000) err += String(d); });
+    cp.on("error", (e) => crashLog("sync-memory-index spawn error", e));
+    cp.on("exit", (code) => {
+      if (code !== 0) crashLog("sync-memory-index failed", `exit=${code} stderr=${err.slice(0, 400)}`);
+      else if (err.includes("[native-memory-bridge]")) crashLog("native-memory-bridge warning", err.slice(0, 400));
+    });
     cp.unref();
-  } catch {}
+  } catch (e) { crashLog("sync-memory-index unavailable", e); }
 }
 // ─── Atom Funnel Bridge (spawn lib/atom_io_cli) ─────────────────────
 

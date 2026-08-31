@@ -1344,19 +1344,33 @@ def discover_layers(
     if global_only:
         return layers
 
-    # Legacy project layers（~/.claude/projects/{slug}/memory/）
-    projects_dir = CLAUDE_DIR / "projects"
-    if projects_dir.is_dir():
-        for proj_dir in sorted(projects_dir.iterdir()):
-            if not proj_dir.is_dir():
+    # 專案層：與執行期同一套判定（hooks/wg_core.discover_all_project_memory_dirs：
+    # registry 優先 + projects/ 舊址須有 atom 索引標記）。自掃 projects/*/memory 會把
+    # CC harness 原生 auto-memory 目錄（grok / hermes / Temp 測試夾）誤當記憶層。
+    try:
+        _hooks = CLAUDE_DIR / "hooks"
+        if str(_hooks) not in sys.path:
+            sys.path.insert(0, str(_hooks))
+        from wg_core import discover_all_project_memory_dirs  # noqa: E402
+        for slug, mem_dir in discover_all_project_memory_dirs():
+            if project_filter and project_filter not in slug:
                 continue
-
-            if project_filter and project_filter not in proj_dir.name:
-                continue
-
-            mem_dir = proj_dir / "memory"
-            if mem_dir.is_dir():
-                layers.append((proj_dir.name, mem_dir))
+            if project_dir is not None and mem_dir.resolve() == Path(project_dir).resolve():
+                continue  # 已以 "project" 身分列在最前
+            layers.append((slug, mem_dir))
+    except Exception as e:  # noqa: BLE001 — 判定器不可用時退回舊址掃描（並告知）
+        print(f"[memory-audit] wg_core discovery unavailable ({e!r}); fallback to projects/ scan",
+              file=sys.stderr)
+        projects_dir = CLAUDE_DIR / "projects"
+        if projects_dir.is_dir():
+            for proj_dir in sorted(projects_dir.iterdir()):
+                if not proj_dir.is_dir():
+                    continue
+                if project_filter and project_filter not in proj_dir.name:
+                    continue
+                mem_dir = proj_dir / "memory"
+                if mem_dir.is_dir() and (mem_dir / "_atom_index.json").exists():
+                    layers.append((proj_dir.name, mem_dir))
 
     return layers
 
