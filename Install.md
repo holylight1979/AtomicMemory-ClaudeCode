@@ -10,7 +10,6 @@
 
 <!-- repo-url -->
 * GitHub：`https://github.com/holylight1979/AtomicMemory-ClaudeCode.git`
-* GitLab（公司內網）：`https://gitlab.uj.com.tw/holylight/ClaudeCode-AtomMemory.git`
 <!-- /repo-url -->
 
 ### 1. 在 `~/.claude/` 開一個 Claude Code 對話
