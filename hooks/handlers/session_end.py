@@ -132,8 +132,10 @@ def _auto_commit_promotions(promoted, config: Dict[str, Any]) -> None:
         logf = open(log_path, "a", encoding="utf-8")
         logf.write(f"\n=== {_now_iso()} push {len(paths)} promoted atoms ===\n")
         logf.flush()
+        # 不用裸 `git push`：兩遠端各有自己的發布分支（Install.md 網址各留各的），
+        # 由 tools/publish-remotes.py 合併 main 後分推，主工作樹不動。
         subprocess.Popen(
-            ["git", "-C", str(CLAUDE_DIR), "push"],
+            [sys.executable, str(CLAUDE_DIR / "tools" / "publish-remotes.py"), "--quiet"],
             stdout=logf, stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )

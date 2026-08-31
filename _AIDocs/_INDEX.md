@@ -14,7 +14,8 @@
 | 2 | Project_File_Tree.md | 頂層目錄角色說明（30 行；詳細請跑 `tree -L 3`） | 目錄角色, 頂層結構說明 |
 | 3 | _CHANGELOG.md | 變更記錄（最近 ~8 筆） | 變更記錄, 最近更新, 改了什麼 |
 | 4 | _CHANGELOG_ARCHIVE.md | 變更記錄封存 | 歷史變更, 舊版記錄 |
-| 5 | ../README.md | 人讀入口：核心理念 + 與原生 CC 差異表 + 兩層用法 + AI 代跑安裝 + 3 步上手 + 啟動檔維護（零技術名詞） | 安裝, 入門, 使用方式, 快速開始, 設計理念 |
+| 5 | ../README.md | 人讀入口：是什麼 / 平常在做什麼 / 核心理念 + 與原生 CC 差異表（零技術名詞；安裝與用法指到 Install.md） | 安裝, 入門, 使用方式, 快速開始, 設計理念 |
+| 5d | ../Install.md | 人讀安裝指南：版控庫網址 + 在 ~/.claude 貼 prompt 由 AI 代跑 + 驗證 + 專案 3 步 + 啟動檔維護 | 安裝, 人讀, prompt, 專案初始化, 啟動檔 |
 | 5c | ../Install-forAI.md | AI 代跑安裝指南：前置需求逐項附替代方案與降級邏輯、合併安裝步驟、驗證 checklist、升級、FAQ、網頁介面位置 | 安裝, 前置需求, 降級, fail-open, 升級, FAQ, Ollama, codex, Node |
 | 5b | ../TECH.md | 技術深度文件（按現況排章）：設計理念 / 與原生・業界差異 / 一回合流程 / 記憶資料層 / 檢索與注入 / 寫入與積累 / 守門與收尾 / 可觀測 / 背景服務與網頁 / 目錄樹 / 設定總表 / 版本歷史（以代碼為真源） | 設計哲學, 流程圖, ACT-R, RRF, BM25, Write Gate, scope, realm, 注入預算, 核心子系統, 版本歷史 |
 | 6 | DocIndex-System.md | 全檔系統索引（啟動鏈 + Hook 模組 + <!-- skill-count -->21<!-- /skill-count --> Skills + Tools + Memory <!-- atom-breakdown -->134 atoms：core 56 + feedback 21 + 失敗模式 1 + local 56〔Tools7/MemDev46/OS2/Vision1〕<!-- /atom-breakdown -->） | 啟動鏈, lifecycle, 全檔索引, 檔案清單, 系統索引, realm, local atom |

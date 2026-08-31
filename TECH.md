@@ -566,6 +566,7 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 │   ├── conflict-review.py / init-roles.py / heal-review.py   ← 管理職（保留能力）
 │   ├── realm_llm_classify.py / skill-index.py / changelog-roll.py / journal-aggregate.py
 │   ├── fix-hook-python.py                   ← 安裝後修 hook 直譯器路徑
+│   ├── publish-remotes.py                   ← main 分推 GitHub / GitLab（Install.md 網址各留各的，publish/<name> 分支只往前長）
 │   ├── memory-eval/                         ← 223 條回歸集
 │   ├── memory-vector-service/               ← service.py / starter.py / indexer.py
 │   ├── codex-companion/                     ← assessor / acceptance / judge_backend / audit.py / backtest
@@ -668,7 +669,7 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 | `response_capture.per_turn.enabled` / `session_end_flush.enabled` | false / false | 已停產（改 true 回滾） |
 | `userExtraction.tokenBudget` | 240 | 使用者決策萃取每 session 預算 |
 | `episodic.auto_generate` / `min_files` / `min_duration_seconds` | true / 1 / 120 | episodic 生成 |
-| `self_iteration.auto_commit_promotions` / `auto_push_promotions` | true / true | 晉升後自動上版控 |
+| `self_iteration.auto_commit_promotions` / `auto_push_promotions` | true / true | 晉升後自動 commit；push 走 `tools/publish-remotes.py` 分推兩遠端 |
 | `self_iteration.forget.enabled` / `dry_run` | false / true | selective forgetting |
 | `codex_companion.enabled` / `score_threshold` / `max_audits_per_session` | true / 7 / 30 | Codex Companion |
 | `codex_companion.fallback.model` / `allow_block` / `reprobe_hours` | sonnet / false / 24 | 裁判備援 |

@@ -158,6 +158,9 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
   - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
   - 內部 IPC 4 個（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`）已內化為 Stop gate hook 自動偵測
 
+### 發布
+- `publish-remotes.py` — main 分推 GitHub / GitLab，各自 `publish/<name>` 發布分支只留自己的 Install.md 版控庫網址（`<!-- repo-url -->` 區塊）；SessionEnd 自動 push 與「上GIT」皆走它
+
 ### Vector Service（port 3849；專案層 + episodic + cross-session dedup 用）
 - service.py — HTTP daemon（`ThreadingHTTPServer`：長請求不再 block `/health` 致 starter 誤殺；`POST /index/incremental` 為寫後重索引路由〔MCP funnel 呼叫，順跑 stale chunk 清理〕）
 - config.py — config.json 讀寫
@@ -270,7 +273,8 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ## 9. 對外文件
 
-- README.md — 人讀入口：核心理念 + 與原生 CC 差異 + 兩層用法 + AI 代跑安裝 + 3 步上手 + 啟動檔維護（零技術名詞）
+- README.md — 人讀入口：是什麼 / 平常在做什麼 / 核心理念 + 與原生 CC 差異（零技術名詞）
+- Install.md — 人讀安裝指南：版控庫網址、在 ~/.claude 貼 prompt 由 AI 代跑、驗證、專案 3 步、啟動檔維護
 - Install-forAI.md — AI 代跑安裝指南：前置需求逐項附替代方案與降級邏輯、合併安裝、驗證、升級、FAQ、網頁介面
 - TECH.md — 技術深度文件（按現況排章：理念 / 差異 / 一回合流程 / 資料層 / 檢索注入 / 寫入積累 / 守門收尾 / 可觀測 / 服務與網頁 / 目錄樹 / 設定 / 版本歷史；以代碼為真源）
 - version.json — 版本標識 + 網頁介面位置
