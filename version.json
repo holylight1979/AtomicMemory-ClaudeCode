@@ -1,6 +1,24 @@
 {
+  "_doc": "版本標識檔。guardian＝Workflow Guardian（hooks + MCP server）版本，Dashboard 標題與 MCP serverInfo 顯示；atom_memory＝原子記憶系統版本；release_date＝此版本正式發布日；release_theme＝此版本主題一句話。web＝三個網頁介面的位置（純說明，程式不讀）。程式讀者只有 tools/workflow-guardian-mcp/lib/paths.js（只取 guardian / atom_memory）；文件讀者 Install-forAI.md 與 TECH.md。",
   "guardian": "5.1.0",
   "atom_memory": "5.1",
-  "ga_date": "2026-07-25",
-  "codename": "RRF 融合 + 回歸評估 + 失念/壞滅緣/證據等級"
+  "release_date": "2026-07-25",
+  "release_theme": "檢索精準化（RRF 三路融合 + 回歸評估集）+ 記憶完備性（失念偵測 / 壞滅緣 / 證據等級）",
+  "web": {
+    "dashboard": {
+      "url": "http://127.0.0.1:3848/",
+      "what": "記憶系統 Dashboard（原子記憶 / 對話監控 / 健檢 / 測試）",
+      "how": "由 MCP server（tools/workflow-guardian-mcp/server.js）同進程提供；Claude Code 啟動後即可開。port 取環境變數 WG_DASHBOARD_PORT → workflow/config.json 的 dashboard_port → 預設 3848"
+    },
+    "anti_evasion_hud": {
+      "url": "http://127.0.0.1:3848/aec/hud",
+      "what": "Anti-Evasion HUD（收尾檢核報告：缺失修補 / 逃避通報 / token 警示 / 衍生暫存）",
+      "how": "同上 server.js 路由 /aec/hud"
+    },
+    "brain_world": {
+      "file": "tools/workflow-guardian-mcp/world.html",
+      "what": "腦內世界（記憶卡片視覺化成生態世界）",
+      "how": "靜態檔，server.js 不提供路由；用瀏覽器直接開此檔（file://），頁面自行輪詢 http://127.0.0.1:3848/api/*，須 Dashboard 在線"
+    }
+  }
 }

@@ -11,7 +11,7 @@
 - Tags: doc-index, system-overview
 - Related: decisions, decisions-architecture, toolchain
 
-> 本檔為原 V2.21 全檔索引（2026-03-27）的 V5 GA 完整重寫。對應 [TECH.md §2 系統架構目錄樹](../../TECH.md#2-系統架構目錄樹2026-05-28-v5-ga--session-αβ-現況) 與 [SPEC_ATOM_V5.md](../SPEC_ATOM_V5.md) 之現況，提供「按檔索引」視角（TECH.md 是「按子系統」視角）。
+> 本檔為原 V2.21 全檔索引（2026-03-27）的 V5 GA 完整重寫。對應 [TECH.md §10 架構目錄樹](../../TECH.md#2-系統架構目錄樹2026-05-28-v5-ga--session-αβ-現況) 與 [SPEC_ATOM_V5.md](../SPEC_ATOM_V5.md) 之現況，提供「按檔索引」視角（TECH.md 是「按子系統」視角）。
 
 ## 知識
 

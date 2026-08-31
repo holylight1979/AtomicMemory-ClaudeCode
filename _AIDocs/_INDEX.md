@@ -1,8 +1,8 @@
 # MyClaudeCode (.claude) — AI 分析文件索引
 
 > 本資料夾記錄 `~/.claude` 自訂擴充系統的架構與演進。
-> 最近更新：2026-07-25（**V5.1 Ultra-Optimization**：RRF 三路融合 + memory-eval 回歸集 + 失念/壞滅緣/證據等級工程化 — SPEC_V5 §13/§14 新章 + TECH §5.11/5.12 + Architecture/DocIndex/governance §4.5 全同步）
-> 前次：2026-06-03（**Realm 維度 S3**：core vs local 範疇分區文件全同步 — SPEC_V5 §2.2 Realm 章 + Architecture/rules/DocIndex + MEMORY.md「本地範疇」段 + Project_File_Tree V5 校準）
+> 最近更新：2026-08-31（對外四文件全面改寫：README 人讀化、TECH 按現況重排、Install-forAI 前置需求＋降級邏輯、version.json 加網頁位置欄）
+> 前次：2026-07-25（V5.1：RRF 三路融合 + memory-eval 回歸集 + 失念/壞滅緣/證據等級）
 
 ---
 
@@ -10,12 +10,13 @@
 
 | # | 文件名稱 | 說明 | keywords |
 |---|---------|------|----------|
-| 1 | Architecture.md | 系統架構總覽：原子記憶 V5 GA + Workflow Guardian + Wisdom Engine + 三層即時管線 + Hot Cache + 全域 BM25 + 專案自治層 | 架構, hooks, skill, rules, 事件驅動, wisdom engine, 規則模組, guardian, 覆轍偵測, 自我迭代自動化, 專案自治, hot cache, quick extract, 即時管線, BM25 |
+| 1 | Architecture.md | 系統架構索引：hooks 9 事件與模組表 + Skills + Evasion Guard + atom 寫入 funnel + Realm 分區 + MCP 5 tool + 可觀測層 + 腦內世界（子系統索引型；現況細節以 TECH.md 為準） | 架構, hooks, skill, rules, 事件驅動, wisdom engine, 規則模組, guardian, 覆轍偵測, 自我迭代自動化, 專案自治, funnel, realm, MCP, BM25 |
 | 2 | Project_File_Tree.md | 頂層目錄角色說明（30 行；詳細請跑 `tree -L 3`） | 目錄角色, 頂層結構說明 |
 | 3 | _CHANGELOG.md | 變更記錄（最近 ~8 筆） | 變更記錄, 最近更新, 改了什麼 |
 | 4 | _CHANGELOG_ARCHIVE.md | 變更記錄封存 | 歷史變更, 舊版記錄 |
-| 5 | ../README.md | 安裝 + 3 步上手（人類入門，80 行） | 安裝, 入門, 使用方式, 快速開始 |
-| 5b | ../TECH.md | V5 GA 技術深度文件：架構 / 流程圖 / 子系統 / BM25 + JSON SoT + Codex subprocess / V4 scope + V4.1 決策萃取（以代碼為真源） | 設計哲學, 流程圖, ACT-R, Write Gate, Hot Cache, BM25, V4 scope, V4.1 使用者決策, V5 GA, 核心子系統 |
+| 5 | ../README.md | 人讀入口：核心理念 + 與原生 CC 差異表 + 兩層用法 + AI 代跑安裝 + 3 步上手 + 啟動檔維護（零技術名詞） | 安裝, 入門, 使用方式, 快速開始, 設計理念 |
+| 5c | ../Install-forAI.md | AI 代跑安裝指南：前置需求逐項附替代方案與降級邏輯、合併安裝步驟、驗證 checklist、升級、FAQ、網頁介面位置 | 安裝, 前置需求, 降級, fail-open, 升級, FAQ, Ollama, codex, Node |
+| 5b | ../TECH.md | 技術深度文件（按現況排章）：設計理念 / 與原生・業界差異 / 一回合流程 / 記憶資料層 / 檢索與注入 / 寫入與積累 / 守門與收尾 / 可觀測 / 背景服務與網頁 / 目錄樹 / 設定總表 / 版本歷史（以代碼為真源） | 設計哲學, 流程圖, ACT-R, RRF, BM25, Write Gate, scope, realm, 注入預算, 核心子系統, 版本歷史 |
 | 6 | DocIndex-System.md | 全檔系統索引（啟動鏈 + Hook 模組 + <!-- skill-count -->21<!-- /skill-count --> Skills + Tools + Memory <!-- atom-breakdown -->134 atoms：core 56 + feedback 21 + 失敗模式 1 + local 56〔Tools7/MemDev46/OS2/Vision1〕<!-- /atom-breakdown -->） | 啟動鏈, lifecycle, 全檔索引, 檔案清單, 系統索引, realm, local atom |
 | 7 | ClaudeCodeInternals/_INDEX.md | Claude Code 原生架構深度分析（14 章：Harness Engineering 全書） | claude code 架構, harness engineering, tool system, hook system, agent, permission, prompt, MCP, skill, plugin, feature flag, query loop, context, state |
 | 8 | Tools/_INDEX.md | 工具與領域知識（Excel 操作、Unity YAML/Prefab、記憶系統檔案索引、BM25 全域檢索層） | Excel, xlsx, openpyxl, Unity YAML, fileID, GUID, prefab, WndForm, 記憶系統架構, BM25 |
@@ -30,4 +31,4 @@
 
 ## 架構一句話摘要
 
-基於 Claude Code hooks 事件驅動的工作流監督系統，搭配雙 LLM（Claude + Ollama gemma4:e4b / qwen3:1.7b）原子記憶管理跨 session 知識。**V5 GA + Session α/β**：三層即時管線 + Hot Cache + 全域 BM25 / 專案層 Vector + `_atom_index.json` JSON SoT（<!-- atom-total -->134<!-- /atom-total --> atoms：core <!-- atom-core -->56<!-- /atom-core --> 住 `memory/<範疇>/`（Lv1 閉合清單 `memory/_meta/taxonomy.json`）+ <!-- atom-feedback -->21<!-- /atom-feedback --> feedback-* + 失敗模式 atom 住 `memory/Failures/<主題>/` + <!-- atom-local -->56<!-- /atom-local --> local 範疇 atom 物理在 `_AIDocs/_atoms/<domain>/`、realm 由 path 推導、只在 ~/.claude 注入；`CROSS_PROJECT_LOCAL_DOMAINS` 空集合、機制保留）+ Codex Companion subprocess（無 daemon @ 3850）+ Hook 6 主模組 + 2 shim + 8 event handler + <!-- skill-count -->21<!-- /skill-count --> Skills + MCP 4 tool + `lib/atom_locations.py` atom 位置單一規則來源。
+基於 Claude Code hooks 事件驅動的工作流監督系統，搭配雙 LLM（Claude + Ollama gemma4:e4b / qwen3:1.7b）原子記憶管理跨 session 知識。全域 BM25 / 專案層 Vector + RRF 融合 + `_atom_index.json` JSON SoT（<!-- atom-total -->134<!-- /atom-total --> atoms：core <!-- atom-core -->56<!-- /atom-core --> 住 `memory/<範疇>/`（Lv1 閉合清單 `memory/_meta/taxonomy.json`）+ <!-- atom-feedback -->21<!-- /atom-feedback --> feedback-* + 失敗模式 atom 住 `memory/Failures/<主題>/` + <!-- atom-local -->56<!-- /atom-local --> local 範疇 atom 物理在 `_AIDocs/_atoms/<domain>/`、realm 由 path 推導、只在 ~/.claude 注入；`CROSS_PROJECT_LOCAL_DOMAINS` 空集合、機制保留）+ Codex Companion subprocess（無 daemon @ 3850）+ Hook 6 主模組 + 1 shim + 9 event handler + <!-- skill-count -->21<!-- /skill-count --> Skills + MCP 5 tool + `lib/atom_io.locate_atom` atom 落點單一裁決。

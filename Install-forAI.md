@@ -1,61 +1,110 @@
-# Atomic Memory V5 — AI 安裝指南
+# 原子記憶系統 — AI 安裝指南
 
-> **目標讀者**：Claude / 相容 AI 助手，代替使用者執行原子記憶系統的合併安裝。
-> **若你是人類**：建議不要逐步手作，直接在新 Claude Code session 貼 [README.md](README.md) 的「由 AI 全程代跑」prompt，讓 AI 照本指南執行。
+> **目標讀者**：Claude Code（或相容 AI 助手），代替使用者執行原子記憶系統的合併安裝。
+> **若你是人類**：不建議逐步手作。開一個新 Claude Code session，貼 [README.md](README.md) 的「由 AI 全程代跑」prompt，讓 AI 照本檔執行。
+> **版本**：以 `version.json` 為準（`guardian` 5.1.0 / `atom_memory` 5.1）。本檔與實碼衝突時以實碼為準，並回報「指南需更新」。
 
 ---
 
 ## 0. AI 執行守則（開工前必讀）
 
-1. **每一步驗證，每一步回報**。每個 Step 結束告訴使用者「已做 X，接下來做 Y，你確認嗎」。
-2. **不覆蓋使用者現有設定**：`settings.json` 的 `permissions`、`config.json` 使用者自訂值、`USER.md` 個人資料一律 merge，不 overwrite。
-3. **缺套件不自行 pip install / npm i**：列出缺項 + 安裝指令給使用者，**等使用者確認再裝**。跨平台（Windows / Mac / Linux）指令要對。
-4. **帳號密碼類絕不主動寫入**：需要時問使用者，或請使用者自己編輯 gitignored 檔。
-5. **若發現與本指南不符的真源差異**（代碼已改、路徑異動），以當下代碼 / `version.json` / `_AIDocs/SPEC_ATOM_V5.md` 為準，同時回報「指南需更新」。
-6. **路徑符號**：Windows 使用者的 `~/.claude/` 實際是 `C:\Users\{user}\.claude\`。用 `pathlib.Path.home()` 或 bash `$HOME` 確保跨平台。
+1. **每一步驗證，每一步回報**。每個 Step 結束告訴使用者「已做 X，接下來做 Y」。
+2. **不覆蓋使用者現有設定**：`settings.json` 的 `permissions` / `env` / `statusLine`、`workflow/config.json` 的使用者自訂值、`USER-{user}.md`、`IDENTITY.md` 一律 merge，不 overwrite。
+3. **缺套件不自行 pip install / npm i**：列出缺項 + 安裝指令給使用者，等使用者確認再裝。跨平台（Windows / Mac / Linux）指令要對。
+4. **帳號密碼絕不主動寫入**：需要時問使用者，或請使用者自己編輯 gitignored 檔。
+5. **路徑符號**：Windows 的 `~/.claude/` 實際是 `C:\Users\{user}\.claude\`。用 `pathlib.Path.home()` 或 bash `$HOME`。
+6. **缺項不等於裝不了**：§1 每一項都有替代方案與降級行為。缺項只影響對應功能，不影響安裝主流程——先裝完、再回頭補缺項。
 
 ---
 
-## 1. 必備套件自檢清單
+## 1. 前置需求與降級對照
 
-**先全部跑過**再開始裝。結果整理成表回報給使用者，缺項**不要自己補**，給安裝指令由他決定。
+### 1.1 總則：最壞情況也不會壞掉什麼
+
+- 所有 hook 都是 **fail-open**：hook 自身出錯、逾時、依賴缺席 → 放行工具呼叫、在 stderr / SessionStart 訊息浮出訊號，不阻斷 Claude Code。
+- **Claude Code 本體零修改**：系統只靠 `settings.json` 的 `hooks` 區塊、`~/.claude.json` 的 `mcpServers` 掛進去；拔掉這兩塊就回到原生。
+- **最壞情況**（只有 Claude Code + Python）＝原生 Claude Code 只多一行 `[Workflow Guardian] Active`、多 trigger/BM25 純文字記憶注入；沒有向量搜尋、沒有 MCP 寫入工具、沒有 Dashboard、沒有 LLM 萃取與 AI 裁判。
+- 降級狀態的可見訊號：statusline（`WG:?` 紅字＝Guardian state 壞、`vec✗`＝向量服務未就緒）、SessionStart 的 `[Guardian:*]` / `[Codex Companion]` / `[MCP]` advisory、`Logs/vector-service.log`。
+
+### 1.2 自檢指令
+
+**先全部跑過**再開始裝。結果整理成表回報使用者，缺項不要自己補。
 
 | 項目 | 自檢指令 | 通過標準 |
 |------|---------|---------|
-| Claude Code Extension | 問使用者「VS Code 的 Claude Code 面板能開嗎？」或檢查 `code --list-extensions \| grep claude` | 有 Anthropic 官方 Claude extension |
-| Python | `python --version`（或 `python3`）| ≥ 3.10 |
-| Node.js | `node --version` | LTS |
+| Claude Code | `claude --version`；或問使用者 VS Code 的 Claude Code 面板能否開 | 有 |
+| Python | `python --version`（或 `python3`） | ≥ 3.10 |
+| Node.js | `node --version` | 任意 LTS（≥ 18） |
 | Git | `git --version` | 任意 |
-| Ollama | `ollama --version` | 有 |
-| Ollama 模型 | `ollama list` | 含 `qwen3-embedding` + `qwen3:1.7b` + `gemma4:e4b` |
-| Python 套件 | `python -c "import lancedb; import sentence_transformers; print('ok')"` | 無 ImportError |
-| Hook 權限 | 檢查 `settings.json` 是否允許執行 `python` hook | 無 sandbox 阻擋 |
+| Ollama | `ollama --version` + `curl -s http://127.0.0.1:11434/api/tags` | 有 daemon 回應 |
+| Ollama 模型 | `ollama list` | 含 `qwen3-embedding`、`qwen3:1.7b`、`gemma4:e4b` |
+| Python 套件 | `python -c "import lancedb, sentence_transformers; print('ok')"` | 無 ImportError |
+| Codex CLI | `codex --version`；再確認已登入（`codex login` 狀態） | 有且已授權 |
+| Hook 直譯器路徑 | `python tools/fix-hook-python.py`（在 `~/.claude` 下跑） | 全數 `[OK ]` |
 
-**內網 + 遠端 Ollama backend** 補查：
-- 遠端 base URL 連通性（`curl -s <base_url>/api/tags`）
-- LDAP bearer token 可認證（可選）
+內網遠端 Ollama backend 補查：`curl -s <base_url>/api/tags` 連通；認證型 backend 的憑證走 gitignored 路徑。
 
-**缺項回報格式**：
-```
-以下必備項尚未就緒：
-1. Python 3.9 → 需升級到 3.10+
-2. Ollama 模型 gemma4:e4b 未下載：ollama pull gemma4:e4b
-3. lancedb 套件未裝：pip install lancedb>=0.20
+### 1.3 逐項：用途 / 缺了怎麼辦 / 完全沒有時系統怎麼保證不壞
 
-你補完後告訴我，我再繼續下一步。
-```
+每項四欄：**用途**（系統哪部分靠它）→ **替代**（缺了怎麼辦）→ **降級**（完全沒有替代時，哪些功能少了、怎麼告知、不會壞掉什麼）。
+
+**Claude Code**
+- 用途：宿主。hooks / MCP / skills 全掛在它身上。
+- 替代：無。本系統只服務 Claude Code。
+- 降級：不適用。
+
+**Python 3.10+**（hook 純標準函式庫）
+- 用途：全部 hook（9 事件）、`lib/` atom 讀寫、`tools/` 全部工具、statusline。
+- 替代：無，這是唯一硬依賴。`tools/fix-hook-python.py` 實跑候選直譯器驗版本，下限 3.9（`MIN_VERSION`）；本文件以 3.10 為安裝門檻。
+- 降級：沒 Python → hook 指令執行失敗 → Claude Code 視為 hook 錯誤放行，原生功能完全不受影響；記憶系統整個不啟動。
+
+**Node.js**（≥ 18，零 npm 依賴）
+- 用途：只有兩處——MCP server `tools/workflow-guardian-mcp/server.js`（5 個 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `anti_evasion_report`）與同進程的 Dashboard / HUD 網頁。
+- 替代：atom 仍可經 Python 寫入——`lib/atom_io_cli.py` 是 stdin JSON 橋接（不是 argparse），在 `~/.claude` 下跑 `python -m lib.atom_io_cli`，stdin 餵 `{"action": "...", ...}`，action 有 `locate`（算落點）/ `build`（只組內容驗證，不落檔）/ `create_atom`（build→落檔→access→索引；`dry_run: true` 只預覽）/ `append` / `write_raw`。實務上建議直接用 `skills/memory` 與 `tools/` 內的 Python 腳本，或安裝 Node 後走 MCP。
+- 降級：`hooks/ensure-mcp.py` 在 SessionStart 找不到 node → 寫 `workflow/mcp-needs-node.flag` 並結束，不註冊 MCP；`anti_evasion_report` 收尾檢核因 MCP tool 不存在而無法提交（Stop 閘為 fail-open，會放行）。hooks、注入、萃取全部照常。
+
+**Git**
+- 用途：Stop 同步閘（`hooks/handlers/stop.py` `_detect_uncommitted_files`）、SessionStart 未 push advisory、晉升自動 commit（`self_iteration.auto_commit_promotions`）、`hooks/post-git-pull.sh` pull 後稽核。
+- 替代：SVN 工作區同樣被同步閘辨識（`.svn` 目錄）。
+- 降級：`_detect_uncommitted_files` 對非 git/svn 目錄回 `None`＝**整個同步閘跳過**（不提醒也不阻斷）；git 執行檔不存在時 `git status` 拋 `FileNotFoundError` → 該組回 `None` → 同樣跳過。其餘閘門不受影響。
+
+**Ollama（本地 daemon `http://127.0.0.1:11434`）**
+- 用途：向量嵌入（`qwen3-embedding`）與所有 LLM 萃取（SessionEnd 全量萃取、失敗萃取、使用者決策萃取、episodic 摘要、`heal`）。**全域層檢索本來就不用它**（trigger + BM25 純 Python in-memory）。
+- 替代 1：遠端 backend——`workflow/config.json` → `vector_search.ollama_backends`（priority 小者優先；三階段退避：正常 → Short DIE 60s → 10 分鐘內兩次 Short DIE 進 Long DIE，等到下個 6h 邊界；Long DIE 會在 SessionStart 問使用者要不要永久停用）。
+- 替代 2：向量嵌入改走本地 `sentence-transformers` + `BAAI/bge-m3`（config 已預設 `fallback_backend` / `fallback_model`；需 pip 裝 `sentence-transformers`，冷啟動可到分鐘級）。
+- 降級：兩者皆無 → `indexer.create_embedder` 拋 `RuntimeError`，向量服務起不來（`Logs/vector-service.log` 有證據、statusline `vec✗`、連續 3 session 未就緒時 SessionStart 出 `[Guardian:Vector⚠]`）；專案層檢索只剩 trigger/BM25；萃取類 `ollama_client` 全 backend 不可用回 `None` → 各萃取器跳過並落 atom-debug log / audit。Claude 顯式 `atom_write` 不受影響。
+
+**Ollama 模型（三個，各自缺了影響什麼）**
+- `qwen3-embedding`：向量嵌入。缺 → 走 bge-m3 fallback，再缺 → 向量層跳過（同上）。
+- `qwen3:1.7b`：本地快篩 LLM（使用者決策萃取 L1、失敗分類等輕量判斷）。缺 → 該 backend 的 llm 請求失敗進退避，改試其他 backend；全無 → 該類萃取跳過。
+- `gemma4:e4b`：主萃取 LLM（決策萃取 L2、SessionEnd 全量萃取）。缺 → 同上；全無 → 只剩 Claude 顯式寫入與失敗關鍵字偵測。
+
+**Python 套件 `lancedb`（需 CPU AVX2）與 `sentence-transformers`**
+- 用途：`lancedb`＝向量 DB（`memory/_vectordb/`）；`sentence-transformers`＝無 Ollama 時的本地嵌入。
+- 替代：`lancedb` 無替代（config 的 `fallback_backend` 只管 embedder，不管 DB）；`sentence-transformers` 的替代就是 Ollama。
+- 降級：`lancedb` 缺 → `service.py` 起不來 → `starter.py` 落 `Logs/vector-service.log`、statusline `vec✗`、SessionStart advisory；trigger/BM25 檢索照常。
+
+**Codex CLI 與其授權**
+- 用途：Codex Companion（`hooks/codex_companion.py`）的驗收裁判、計畫審查、handoff 自檢——跨廠 AI 審 AI，擁有 block 權。
+- 替代：`tools/codex-companion/judge_backend.py` 自動退 headless `claude -p --model sonnet`（config `codex_companion.fallback`）；同廠獨立性降級，**預設只有 advisory 權**（`fallback.allow_block=false`）。codex 授權失敗（未登入 / 401 / 額度）落 `workflow/companion-backend.json` 抑制 24h（`reprobe_hours`）。
+- 降級：codex 與 claude 都找不到 → heuristics-only，**SessionStart 揭露一次**（`[Codex Companion] 已停用：…`，每台機器一次）；本地 heuristics 軟閘與其餘 guardian 機制正常。不想要整個功能：`codex_companion.enabled=false`。
+
+**Hook 直譯器路徑**
+- 用途：`settings.json` 每條 hook 指令開頭都是**絕對路徑**的 Python（Windows 用 `pythonw.exe` 避免閃 console）。repo 內帶的是原作者機器的路徑。
+- 替代：`python tools/fix-hook-python.py --write` 用「跑這行的這支 python」改寫全部 hook 與 statusLine 指令（備份 `settings.json.bak`）；`--use <path>` 指定他支。
+- 降級：不校正 → 全部 hook 起不來 → 回到原生 Claude Code，無任何記憶功能，但也不會壞。**不要自作主張改成裸 `python`**：PATH 首位未必是預期那支。
 
 ---
 
 ## 2. 使用者常問問題
 
-- 「**幫我確認必備套件沒漏？**」 → 跑第 1 節
-- 「**Python 3.9 可以嗎？**」 → 不行，需 3.10+
-- 「**沒 GPU 會慢嗎？**」 → Ollama 可 CPU fallback（embedding 200-500 ms / qwen3:1.7b 1-3 s）；建議設遠端 GPU backend
-- 「**沒 admin 權限能裝嗎？**」 → 大部分能（Python / Node.js / Ollama 有 user-local 安裝），pip 套件用 `--user`
-- 「**多職務團隊要怎麼啟用？**」 → 專案執行 `/init-roles` 建立 `memory/shared/_roles.md` 白名單與 `role/{name}/` 目錄
-- 「**沒看到 Guardian Active？**」 → 檢查 `settings.json` 的 hooks 區塊是否合併進來
-- 「**整個移除？**」 → 刪 `settings.json` 的 hooks 區塊，其餘檔案刪掉即可；Claude Code 本體零修改
+- 「**幫我確認必備套件沒漏？**」 → 跑 §1.2，逐項對照 §1.3 回報缺了會少什麼。
+- 「**Python 3.9 可以嗎？**」 → 校正工具接受 3.9，但安裝門檻請以 3.10 為準。
+- 「**沒 GPU 會慢嗎？**」 → Ollama 可 CPU（embedding 200–500 ms / qwen3:1.7b 1–3 s）；建議設遠端 GPU backend（§4.4）。
+- 「**沒 admin 權限能裝嗎？**」 → 大部分能（Python / Node.js / Ollama 都有 user-local 安裝），pip 套件用 `--user`。
+- 「**沒 Node / 沒 Ollama / 沒 Codex 能用嗎？**」 → 能，見 §1.3 各項降級。
+- 「**沒看到 Guardian Active？**」 → `python tools/fix-hook-python.py` 看直譯器路徑；再檢查 `settings.json` hooks 是否合併進來。
+- 「**整個移除？**」 → §8。Claude Code 本體零修改。
 
 ---
 
@@ -68,17 +117,17 @@ cp ~/.claude/settings.json ~/.claude/settings.json.backup 2>/dev/null || true
 cp ~/.claude.json ~/.claude.json.backup 2>/dev/null || true
 ```
 
-### Step 1：Clone repo 到暫存位置
+### Step 1：取得 repo
 
-```bash
-git clone <repo-URL> /tmp/atomic-memory
-```
+兩種情境：
+- **`~/.claude` 尚無任何內容** → 直接 `git clone <repo-URL> ~/.claude`，跳到 Step 3。
+- **`~/.claude` 已有使用者設定** → clone 到暫存位置再合併：`git clone <repo-URL> /tmp/atomic-memory`（Windows 用 `$TEMP`）。
 
 ### Step 2：複製系統檔案（不動使用者個人資料）
 
-V5 採全資料夾同步策略（不再逐檔列）。使用者個人實例（`USER.md` / `IDENTITY.md` / `IDENTITY-{user}.md` / `USER-{user}.md`）一律保留。
+全資料夾同步。使用者個人實例（`USER.md` / `USER-{user}.md` / `IDENTITY.md` / `IDENTITY-{user}.md`）一律保留。
 
-> **啟動檔角色**：`IDENTITY.md` 為直接維護的單一真相（行為契約），`templates/IDENTITY.template.md` 是其 tracked 備份 / 還原源（實例損毀時 SessionStart 自動還原），兩者需保持同步。`IDENTITY-{user}.md` 是選配個人擴充槽（啟用時需在 `CLAUDE.md` 加 `@IDENTITY-{user}.md`），**不是** IDENTITY.md 的複本、安裝與升級都不經手它。`USER-{user}.md` 才是 USER 的編輯點（每 session 自動拷成 `USER.md`）。
+> **啟動檔角色**：`CLAUDE.md` 只 `@IDENTITY.md` `@USER.md` `@memory/MEMORY.md`。`IDENTITY.md` 是直接維護的單一真相，`templates/IDENTITY.template.md` 是其備份／還原源（`hooks/user-init.sh` 缺檔時還原；`hooks/handlers/session_start.py` 完整性哨兵偵測被截斷時提醒），兩者需手動同步。`IDENTITY-{user}.md` 是選配個人擴充槽（啟用需在 `CLAUDE.md` 加 `@IDENTITY-{user}.md`），安裝與升級不經手。`USER-{user}.md` 是 USER 的編輯點，每 SessionStart 拷成 `USER.md`；不存在時從 `templates/USER.template.md` 建。`BOOTSTRAP.md` 不被 @import，是 IDENTITY/USER 為空時的問答引導模板。
 
 ```bash
 SRC=/tmp/atomic-memory
@@ -87,33 +136,25 @@ DST=~/.claude
 # 啟動文件（不覆蓋個人實例）
 cp "$SRC/CLAUDE.md" "$DST/CLAUDE.md"
 mkdir -p "$DST/templates"
-cp "$SRC/templates/IDENTITY.template.md" "$DST/templates/IDENTITY.template.md"
-cp "$SRC/templates/USER.template.md" "$DST/templates/USER.template.md"
+cp "$SRC/templates/IDENTITY.template.md" "$DST/templates/"
+cp "$SRC/templates/USER.template.md" "$DST/templates/"
 cp "$SRC/BOOTSTRAP.md" "$DST/BOOTSTRAP.md"
 [ ! -f "$DST/IDENTITY.md" ] && cp "$SRC/templates/IDENTITY.template.md" "$DST/IDENTITY.md"
-[ ! -f "$DST/USER.md" ] && cp "$SRC/templates/USER.template.md" "$DST/USER.md"
-
-# 版本標識
 cp "$SRC/version.json" "$DST/version.json"
 
 # 核心模組（整資料夾覆蓋；不含個人 atom 與 runtime state）
-rsync -a --delete "$SRC/hooks/" "$DST/hooks/"      # dispatcher + handlers/ + wg_*.py + 獨立 hook
-rsync -a --delete "$SRC/lib/" "$DST/lib/"          # atom_io / atom_spec / atom_locations / atom_index_json / atom_access / ollama_extract_core
-rsync -a --delete "$SRC/skills/" "$DST/skills/"    # <!-- skill-count -->21<!-- /skill-count --> 個 skill
+rsync -a --delete "$SRC/hooks/" "$DST/hooks/"      # dispatcher + handlers/（9 事件）+ wg_*.py + 獨立 hook
+rsync -a --delete "$SRC/lib/" "$DST/lib/"          # atom_io / atom_spec / atom_locations / atom_index_json / atom_access / realm_gate …
+rsync -a --delete "$SRC/skills/" "$DST/skills/"    # <!-- skill-count -->21<!-- /skill-count --> 個 active skill + _archived/
 rsync -a --delete "$SRC/rules/" "$DST/rules/"
+rsync -a "$SRC/tools/" "$DST/tools/"               # 保留 user 自加
 
-# Tools（保留 user 自加；只覆蓋系統內建）
-rsync -a "$SRC/tools/" "$DST/tools/"
-
-# Memory templates（不動已有的個人 atom）
-mkdir -p "$DST/memory/_reference"
+# Memory：只補骨架，不動已有 atom
+mkdir -p "$DST/memory/_reference" "$DST/memory/_meta"
 cp "$SRC/memory/_reference/"*.md "$DST/memory/_reference/" 2>/dev/null || true
+cp "$SRC/memory/_meta/forbidden-phrases.json" "$SRC/memory/_meta/taxonomy.json" "$DST/memory/_meta/"
 [ ! -f "$DST/memory/MEMORY.md" ] && cp "$SRC/memory/MEMORY.md" "$DST/memory/MEMORY.md"
 [ ! -f "$DST/memory/_atom_index.json" ] && cp "$SRC/memory/_atom_index.json" "$DST/memory/_atom_index.json"
-
-# 禁語單一來源（V5 抽 JSON）
-mkdir -p "$DST/memory/_meta"
-cp "$SRC/memory/_meta/forbidden-phrases.json" "$DST/memory/_meta/"
 
 # Workflow 設定（不覆蓋既有）
 mkdir -p "$DST/workflow"
@@ -124,80 +165,70 @@ cp "$SRC/mcp-servers.template.json" "$DST/"
 rsync -a "$SRC/_AIDocs/" "$DST/_AIDocs/"
 ```
 
-> 已存在 `workflow/config.json` 時改執行 JSON merge（不覆蓋 user 設值），新欄位（`vector_search.global_layer` 等）補預設。（`codex_companion.subprocess_timeout` 已於 P2 2026-07-01 拔除死鍵，勿再補。）
+> 已存在 `workflow/config.json` 時改執行 JSON merge（不覆蓋 user 設值），新欄位補預設。
 
-### Step 3：合併 settings.json hooks 區塊
+### Step 3：合併 `settings.json` 的 `hooks` 區塊
 
-**不能直接覆蓋**。AI 讀使用者 `settings.json.backup`，只合併 `hooks` 區塊，保留 `permissions` 與 `env`。
+**不要手抄 JSON 模板**（會漂移）。以 repo `settings.json` 的 `hooks` 區塊為準**整段合併**進使用者的 `settings.json`，保留 `permissions` / `env` / `statusLine` 等使用者原有欄位。合併結果應涵蓋下表（9 事件；hook 檔皆在 `hooks/`）：
 
-目標結構（`permissions` 保留 user 原有）：
+| 事件 | matcher | 掛的 hook（timeout 秒） |
+|------|---------|------------------------|
+| SessionStart | — | `run-bash-hidden.py user-init.sh`(5) → `workflow-guardian.py`(8) → `ensure-mcp.py`(5) → `codex_companion.py`(5) |
+| UserPromptSubmit | — | `workflow-guardian.py`(8)、`codex_companion.py`(3) |
+| PreToolUse | `WebFetch` | `run-bash-hidden.py webfetch-guard.sh`(20) |
+| PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | `workflow-guardian.py`(5) |
+| PostToolUse | `Edit\|Write\|NotebookEdit\|Bash\|Agent\|Task\|mcp__workflow-guardian__anti_evasion_report` | `workflow-guardian.py`(5) |
+| PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | `codex_companion.py`(3) |
+| PostToolUse | `Write\|Edit\|MultiEdit` | `version_guard.py`(5) |
+| PostToolUse | `Write\|Edit\|NotebookEdit\|ExitPlanMode` | `acceptance_spec.py`(5) |
+| PreCompact / PostCompact / PostToolBatch | — | `workflow-guardian.py`(5) |
+| Stop | — | `workflow-guardian.py`(10)、`codex_companion.py`(150)、`lang_guard.py`(5) |
+| SessionEnd | — | `workflow-guardian.py`(30)、`codex_companion.py`(5) |
 
-```jsonc
-{
-  "permissions": { /* user 原有 */ },
-  "env": { /* user 原有 */ },
-  "hooks": {
-    "SessionStart": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5}]}],
-    "UserPromptSubmit": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":3}]}],
-    "PreToolUse": [{"matcher":"Edit|Write|Bash", "hooks":[{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":3}]}],
-    "PostToolUse": [{"matcher":"Edit|Write|Read|Bash", "hooks":[{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":3}]}],
-    "PreCompact": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5}]}],
-    "PostCompact": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5}]}],
-    "PostToolBatch": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5}]}],
-    "Stop": [{"hooks":[
-        {"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":5},
-        {"type":"command", "command":"python \"$HOME/.claude/hooks/quick-extract.py\"", "async":true, "timeout":30}
-    ]}],
-    "SessionEnd": [{"hooks": [{"type":"command", "command":"python \"$HOME/.claude/hooks/workflow-guardian.py\"", "timeout":30}]}]
-  }
-}
-```
+> `workflow-guardian.py` 是 1 行 shim → `hooks/dispatcher.py` → `hooks/handlers/{event}.py`。指令型式為 `<絕對路徑 pythonw.exe> -c "import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/xxx.py'),run_name='__main__')"`，bash 類 hook 經 `run-bash-hidden.py` 包一層。
+> `statusLine` 也由 repo `settings.json` 提供（`tools/statusline.py`）；使用者已有 statusLine 時保留使用者的。
 
-> `workflow-guardian.py` 為 1 行 shim → `dispatcher.main()`，handler 在 `hooks/handlers/{event}.py`。
-> Python 指令：若 user 系統是 `python3` 而非 `python`，全部改 `python3`。
-
-**⚠ 直譯器路徑（必做檢查）**：repo 內的 `settings.json` 帶的是**原作者機器的絕對路徑**（Windows 用 `pythonw.exe` 讓 hook 不閃 console 視窗）。若直接沿用該檔而非依上面模板合併，安裝後 14+ 處 hook 會一起起不來。校正指令：
+**合併後必做**：校正直譯器路徑（repo 內是原作者機器的絕對路徑）。
 
 ```bash
+cd ~/.claude
 python tools/fix-hook-python.py            # 只檢查：列出每處直譯器與是否存在
 python tools/fix-hook-python.py --write    # 用「跑這行的這支 python」改寫（備份 settings.json.bak）
 ```
 
-不要自作主張把路徑改成裸 `python`——PATH 上的 `python` 未必是預期那支（實例：某機 PATH 首位是某 venv 的 3.11，而 hook 原本跑 3.14）。工具會實跑候選直譯器驗版本、`pythonw` 維持 w 版、已正確則零改動。hook 全部只用標準函式庫，CPython 3.9+ 皆可。
+工具會實跑候選直譯器驗版本、`pythonw` 維持 w 版、已全部存在則零改動。Windows 以外的平台沒有 `pythonw`，工具會改成同一支 `python`。
 
-### Step 4：npm 全域套件 + `~/.claude.json` MCP 合併
-
+驗證：
 ```bash
-# 讀 mcp-servers.template.json 對每個 server 處理：
-npm i -g computer-use-mcp     # 螢幕/滑鼠/鍵盤
-npm i -g @playwright/mcp      # 瀏覽器自動化
-# 其他 server 依 template 內容
+echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HOME"'"}' | python ~/.claude/hooks/workflow-guardian.py
 ```
+預期輸出 JSON 含 `hookSpecificOutput.additionalContext`。
 
-合併 `~/.claude.json.mcpServers`（冪等，不覆蓋已有 server）：
+### Step 4：MCP 註冊（`~/.claude.json`）
 
-```
-讀 mcp-servers.template.json 的每個 server
-→ 找 npm 套件位置（Windows: %APPDATA%/npm/node_modules/{pkg}；Unix: $(npm root -g)/{pkg}）
-→ 在 ~/.claude.json.mcpServers 加 entry，type=stdio
-→ npm_package=null 者（如 workflow-guardian）用 entry_absolute 並展開 {claude_dir}=$HOME/.claude
-```
+`hooks/ensure-mcp.py` 每次 SessionStart 自動做這件事：找 node → 讀 `mcp-servers.template.json` → JS 入口存在的 server 合併進 `~/.claude.json` 的 `mcpServers`（缺整塊才補；已存在且 template `_version` 沒升則不動）→ npm 套件不在磁碟的 server 背景 `npm i -g`（下次 session 才寫入 config）→ 每 7 天背景 `npm outdated/update`。**手動合併只是保險**，正常情況開兩次 session 就齊。
 
-關鍵規則：
-- **全域安裝 + 絕對路徑**，不要 `cmd /c npx`
-- Windows: `C:\\Program Files\\nodejs\\node.exe` + `%APPDATA%/npm/node_modules/{pkg}/...`
-- 已有同名 server 不覆蓋，跳過並回報
+template 內三個 server：
 
-`workflow-guardian` MCP 暴露 4 tool：`atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta`。
+| 名稱 | 來源 | 入口 |
+|------|------|------|
+| `workflow-guardian` | repo 內建（`npm_package: null`） | `{claude_dir}/tools/workflow-guardian-mcp/server.js` |
+| `MCPControl` | npm `computer-use-mcp` | `<npm 全域>/node_modules/computer-use-mcp/dist/main.js` |
+| `playwright` | npm `@playwright/mcp` | `<npm 全域>/node_modules/@playwright/mcp/cli.js` |
+
+手動合併規則（若使用者要立刻可用、不等下個 session）：
+- entry 形式 `{"type":"stdio","command":"<node 絕對路徑>","args":["<入口絕對路徑>"]}`；**全域安裝 + 絕對路徑**，不要 `cmd /c npx`。
+- npm 全域位置：Windows `%APPDATA%\npm\node_modules\{pkg}`；Unix `$(npm root -g)/{pkg}`。
+- 已有同名 server 不覆蓋，跳過並回報。
+- `ensure-mcp.py` **不會建立** `~/.claude.json`（Claude Code 首次啟動自己建）；檔案不存在時它直接結束。
+
+驗證：`python -c "import json,io;print(list(json.load(io.open('$HOME/.claude.json',encoding='utf-8'))['mcpServers']))"` 含 `workflow-guardian`。MCP server 變更需 VS Code **Reload Window**（或重啟 `claude`）才生效。
 
 ### Step 5：初始化個人記憶層
 
-若 `~/.claude/memory/MEMORY.md` 不存在才建。已存在不動（user 累積優先）。
-
-AI 把 templates 寫入（若缺）：
-- `memory/MEMORY.md` — atom 索引骨架
-- `memory/_atom_index.json` — JSON SoT 機器源
-- `memory/preferences.md` / `memory/decisions.md` — 全域決策初始空殼
+- `memory/MEMORY.md`（Lv1 範疇目錄，由 `tools/sync-memory-index.py --write` 生成，不手編）與 `memory/_atom_index.json`（索引單一來源）若缺，Step 2 已補骨架。
+- 首次寫 atom 一律走 MCP `atom_write(mode=create)` 並給 `domain`（Lv1 閉合清單在 `memory/_meta/taxonomy.json`）；分不出範疇的知識不寫。
+- 執行 `python tools/sync-memory-index.py --check` 確認索引與檔案一致（不一致再 `--write`）。
 
 ---
 
@@ -206,150 +237,174 @@ AI 把 templates 寫入（若缺）：
 ### 4.1 Ollama 模型
 
 ```bash
-ollama pull qwen3-embedding        # 語意搜尋（需 AVX2；無 AVX2 可選 0.6b 小版）
-ollama pull qwen3:1.7b             # 本地 LLM 快篩（~1.2 GB）
+ollama pull qwen3-embedding        # 向量嵌入
+ollama pull qwen3:1.7b             # 本地快篩 LLM（~1.2 GB）
 ollama pull gemma4:e4b             # 主萃取 LLM（~5 GB）
 ```
 
 ### 4.2 Python 套件
 
 ```bash
-pip install lancedb>=0.20                # Vector DB（需 AVX2）
-pip install sentence-transformers>=4.0   # Fallback embedding
-# 無 AVX2: pip install chromadb 並改 config.json 的 vector_search.fallback_backend
+pip install -r ~/.claude/tools/memory-vector-service/requirements.txt   # lancedb>=0.20 + sentence-transformers>=4.0
 ```
+`lancedb` 需 AVX2；沒有 AVX2 的機器向量層無法啟用，接受 §1.3 的降級即可（trigger/BM25 照常）。
 
-### 4.3 Vector Service 啟動
+### 4.3 Vector Service
 
+不需手動常駐：每次 SessionStart 由 `hooks/handlers/session_start.py` 背景 spawn `tools/memory-vector-service/starter.py --phase sessionstart`，它負責健檢、殺殘留 pid、起 `service.py`、等待就緒（冷啟動上限 120s）、寫 `workflow/vector_ready.flag`，動作與服務輸出全落 `Logs/vector-service.log`，結果一行 JSON 落 `Logs/vector-observation-probe.log`。
+
+手動驗證／重建：
 ```bash
-cd ~/.claude/tools/memory-vector-service
-pip install -r requirements.txt
-
-python ~/.claude/tools/memory-vector-service/service.py &
-
-curl -s http://127.0.0.1:3849/health   # 預期 {"status":"ok", ...}
-curl -s http://127.0.0.1:3849/index/full  # 預期 {"indexed":N, "chunks":M}
+curl -s http://127.0.0.1:3849/health        # 預期 {"status":"ok", ...}
+curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N, "chunks":M}
 ```
+或在 Claude Code 內用 `/vector`。
 
-> Vector Service 由 Guardian 每次 SessionStart 自動檢查 + spawn，不需常駐。
-> V5 全域層改 BM25 in-memory（`config.json.vector_search.global_layer="bm25"`），Vector Service 僅服務專案層 + episodic search + 跨 session dedup / 衝突偵測。
+> 全域層檢索走 BM25 in-memory（`vector_search.global_layer="bm25"`）；Vector Service 只服務專案層 atom、episodic search、跨 session 去重與衝突偵測。
 
-### 4.4 （可選）遠端 Ollama Backend
+### 4.4 （可選）遠端 Ollama backend
 
-GPU 伺服器（Open WebUI + Ollama），編輯 `workflow/config.json.ollama_backends`：
+編輯 `workflow/config.json` → **`vector_search.ollama_backends`**（不是頂層）：
 
 ```jsonc
-"ollama_backends": {
-  "rdchat-direct": {
-    "base_url": "http://<gpu-server>:11434",
-    "llm_model": "gemma4:e4b",
-    "embedding_model": "qwen3-embedding:latest",
-    "priority": 1,
-    "enabled": true
-  },
-  "local": { "base_url": "http://127.0.0.1:11434", "llm_model": "qwen3:1.7b", "priority": 3 }
+"vector_search": {
+  "ollama_backends": {
+    "rdchat-direct": { "base_url": "http://<gpu-server>:11434", "llm_model": "gemma4:e4b",
+                       "embedding_model": "qwen3-embedding:latest", "priority": 1, "enabled": true },
+    "local":         { "base_url": "http://127.0.0.1:11434", "llm_model": "qwen3:1.7b",
+                       "embedding_model": "qwen3-embedding", "priority": 3 }
+  }
 }
 ```
 
-> 認證型 backend（OAuth / LDAP / bearer）的 `auth` 區塊請**私下取得設定範本**，憑證走 gitignored 路徑。
-
-三階段退避：正常 → Short DIE 60s → Long DIE 等下個 6h 邊界（0/6/12/18）。
+認證型 backend（OAuth / LDAP / bearer）的 `auth` 區塊私下取得範本，憑證走 gitignored 路徑。退避行為見 §1.3「Ollama」。
 
 ---
 
-## 5. 驗證 Checklist
+## 5. 安裝後的網頁介面
+
+| 介面 | 位置 | 條件 |
+|------|------|------|
+| Dashboard | `http://127.0.0.1:3848/` | 由 MCP server `server.js` 同進程提供；MCP 註冊完成並 Reload Window 後才有。port 取 env `WG_DASHBOARD_PORT` → config `dashboard_port` → 3848 |
+| Anti-Evasion HUD | `http://127.0.0.1:3848/aec/hud` | 同上 |
+| 腦內世界 | `tools/workflow-guardian-mcp/world.html` | **靜態檔，server.js 不服務它**——用瀏覽器直接開檔（file://），頁面自己輪詢 `http://127.0.0.1:3848/api/*`，所以仍需 MCP server 在跑 |
+
+沒有 Node 時三者皆不可用；不影響記憶注入。
+
+---
+
+## 6. 驗證 Checklist
 
 | # | 驗證項 | 指令 / 方法 | 通過標準 |
 |---|--------|------------|---------|
-| 1 | Python 套件 | `python -c "import lancedb; import sentence_transformers"` | 無 ImportError |
-| 2 | Ollama 模型 | `ollama list` | `qwen3-embedding` + `qwen3:1.7b` + `gemma4:e4b` 全在 |
-| 3 | Hook 可執行 | `echo '{"hook_event_name":"SessionStart","session_id":"test","cwd":"/tmp"}' \| python ~/.claude/hooks/workflow-guardian.py` | 輸出 JSON 含 `additionalContext` |
-| 4 | Vector Service | `curl -s http://127.0.0.1:3849/health` | `{"status":"ok"}` |
-| 5 | Memory 健檢 | `python ~/.claude/tools/memory-audit.py` | 無 ERROR |
-| 6 | Atom Index SoT | `python -c "from lib.atom_index_json import load_atom_index_json; from pathlib import Path; print(len(load_atom_index_json(Path('memory'))['atoms']))"` | 數字 > 0 |
-| 7 | Skills 註冊 | VS Code 按 `/` 看到 `/memory` `/handoff` `/continue` 等 | <!-- skill-count -->21<!-- /skill-count --> 個 skill 可見 |
-| 8 | MCP servers | `~/.claude.json.mcpServers` 含 template 內 server | MCPControl + playwright + workflow-guardian 至少有 |
-| 9 | MCP 4 tool | 在 Claude Code 中問「列出 workflow-guardian MCP 工具」 | atom_write / atom_move / atom_promote / atom_edit_meta |
-| 10 | 整合驗證 | 開新 Claude Code session | 看到 `[Workflow Guardian] Active` |
+| 1 | 版本 | `python -c "import json,io;v=json.load(io.open('version.json',encoding='utf-8'));print(v['atom_memory'],v['guardian'])"` | `5.1 5.1.0` |
+| 2 | Hook 直譯器 | `python tools/fix-hook-python.py` | 全數 `[OK ]` |
+| 3 | Hook 可執行 | Step 3 的 echo 管線 | 輸出 JSON 含 `additionalContext` |
+| 4 | Python 套件 | `python -c "import lancedb, sentence_transformers"` | 無 ImportError（缺＝向量層降級，非失敗） |
+| 5 | Ollama 模型 | `ollama list` | 三模型全在（缺＝萃取降級，非失敗） |
+| 6 | Vector Service | `curl -s http://127.0.0.1:3849/health` | `{"status":"ok"}`；失敗看 `Logs/vector-service.log` |
+| 7 | Memory 健檢 | `python tools/memory-audit.py --global-only` | 無 ERROR |
+| 8 | 索引一致 | `python tools/sync-memory-index.py --check` | 無差異 |
+| 9 | Skills | Claude Code 內按 `/` | `/memory` `/handoff` `/continue` `/vector` 可見 |
+| 10 | MCP servers | `~/.claude.json` 的 `mcpServers` | 至少含 `workflow-guardian` |
+| 11 | MCP 5 tool | 問 Claude「列出 workflow-guardian MCP 工具」 | `atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `anti_evasion_report` |
+| 12 | 整合 | 開新 session | 看到 `[Workflow Guardian] Active`；statusline 無 `WG:?` |
+| 13 | Dashboard | 開 `http://127.0.0.1:3848/` | 有頁面 |
+
+完整回歸：`python run_verify.py`（基線全數 passed，數字見該腳本輸出）。
 
 ---
 
-## 6. 舊版升級
+## 7. 升級
 
 ```bash
 cd ~/.claude && git pull
+python tools/fix-hook-python.py            # pull 後 settings.json 若被更新，重驗直譯器路徑
 ```
 
-補確認（V4.1 / V4 → V5）：
+從 4.x 升級需確認：
 
-- [ ] `version.json` 為 `atom_memory: "5.0"` / `guardian: "5.0.0"`
-- [ ] `hooks/dispatcher.py` 存在 + `hooks/handlers/` 10 個 event handler 各一檔（含選配 #4 的 post_compact / post_tool_batch）
-- [ ] `hooks/wg_*.py` 為 6 主模組（core/atoms/extraction/episodic/evasion/docdrift）+ 2 shim（roles/atom_observation）
-- [ ] `commands/` **已刪除**（22 檔合 19 skill）
-- [ ] `skills/` 含 <!-- skill-count -->21<!-- /skill-count --> 個 skill（19 遷移 + skill-creator/heal-review/refile 新增）；`/memory` 統一 5 subcmd（health/peek/undo/review/session-score）
-- [ ] `lib/atom_index_json.py` + `memory/_atom_index.json` 存在
-- [ ] `tools/codex-companion/audit.py` 存在；`tools/codex-companion/service.py` 已刪
-- [ ] `memory/_meta/forbidden-phrases.json` 存在
-- [ ] `workflow/config.json` 含 `vector_search.global_layer="bm25"` + `bm25_min_score=3.5`（P2 已拔 `codex_companion.subprocess_timeout` 死鍵）
-- [ ] `tools/workflow-guardian-mcp/server.js` 暴露 4 tool（atom_write/move/promote/edit_meta；非 V4 的 7 tool）
-- [ ] `python tools/fix-hook-python.py` 全數 `[OK ]`（沿用 repo settings.json 者需先 `--write` 校正直譯器路徑）
-- [ ] 無 codex CLI 的環境：確認 `claude` 可被找到（備援裁判走 headless `claude -p`）；兩者皆無時 SessionStart 會揭露一次，驗收裁判與計畫審查不運作
+- [ ] `version.json` 為 `atom_memory: "5.1"` / `guardian: "5.1.0"`
+- [ ] `hooks/dispatcher.py` 存在；`hooks/handlers/` 有 **9** 個事件 handler（session_start / session_end / user_prompt_submit / pre_tool_use / post_tool_use / stop / pre_compact / post_compact / post_tool_batch）+ `ups_*.py` 四段 + `_shared.py` + `aec_ledger.py`
+- [ ] `hooks/wg_*.py` 為：wg_atoms / wg_coordination / wg_core / wg_docdrift / wg_episodic / wg_evasion / wg_extraction / wg_handoff / wg_parallel / wg_recall_miss / wg_rescue / wg_research / wg_roles（shim 只有 wg_roles）
+- [ ] `hooks/` 內**沒有** `quick-extract.py`、`wg_atom_observation.py`（已刪）；`commands/` 已刪（併入 `skills/`）
+- [ ] `skills/` 有 <!-- skill-count -->21<!-- /skill-count --> 個 active skill；`skills/_archived/` 放 dormant 的 init-roles / conflict-review
+- [ ] `lib/atom_index_json.py` + `memory/_atom_index.json` 存在；`memory/_meta/taxonomy.json` + `forbidden-phrases.json` 存在
+- [ ] 核心 atom 已階層化在 `memory/<範疇>/`，`memory/` 根目錄無平鋪 atom；`taxonomy.gate_enabled=true`
+- [ ] `workflow/config.json`：`vector_search.global_layer="bm25"`、`bm25_min_score=7.0`、`fusion="rrf"`；無 `codex_companion.subprocess_timeout` 死鍵；`ollama_backends` 在 `vector_search` 底下
+- [ ] `tools/workflow-guardian-mcp/server.js` 暴露 5 tool（§6 #11）
+- [ ] `tools/codex-companion/judge_backend.py` 存在；無 codex CLI 的環境確認 `claude` 可被找到（備援裁判）
+- [ ] Stop hook 只掛 guardian / codex_companion / lang_guard（無 quick-extract）
 
-> 多職務團隊：專案執行 `/init-roles` 建立 `memory/shared/_roles.md` + `role/{name}/` 目錄。
-> ⚠ **P8a 2026-07-01**：參考部署為單人環境，`/init-roles`·`/conflict-review` skill 已降 dormant → `skills/_archived/`（`tools/init-roles.py`·`tools/conflict-review.py` 仍在）；要 onboard 團隊時從 `_archived/` 復原 skill 即可。
+> 多職務團隊：從 `skills/_archived/` 復原 init-roles / conflict-review，專案執行 `/init-roles` 建 `memory/shared/_roles.md` + `memory/roles/<role>/`（`tools/init-roles.py`、`tools/conflict-review.py` 仍在）。單人環境不需要。
 
 ---
 
-## 7. FAQ
+## 8. FAQ
 
 ### Q: 啟動變慢？
-**A**: SessionStart 50-200 ms（去重 + 非阻塞 vector）。每 prompt 200-500 ms（BM25 + 向量搜尋）。首次 prompt 500-1500 ms（episodic context search）。
+SessionStart 主路徑 50–200 ms（向量與 MCP 檢查皆背景）。每 prompt 注入主路徑 ~16 ms（BM25 in-memory），有專案層向量查詢時多 200–500 ms。
 
-### Q: Vector Service 啟動失敗？
-**A**: 檢查 `pip install lancedb`（需 AVX2）。Port 3849 被佔改 `config.json.vector_search.service_port`。無 AVX2 改 ChromaDB 並設 `fallback_backend`。V5 全域層走 BM25 不依賴 Vector Service；專案層需要。
+### Q: Vector Service 起不來？
+看 `Logs/vector-service.log`。常見：`lancedb` 未裝或無 AVX2；Ollama 與 sentence-transformers 都不可用（`No embedding backend available`）；port 3849 被佔（改 `vector_search.service_port`）。全域層不依賴它，只有專案層／episodic 降級。
 
 ### Q: Ollama embedding timeout？
-**A**: 模型首次載入 5-10 秒。確認 `ollama list` 有模型；無反應檢查 daemon（`systemctl status ollama` 或 Windows 工作管理員）。
+模型首次載入 5–10 秒。確認 `ollama list` 有模型；daemon 沒回應查 `systemctl status ollama` 或 Windows 工作管理員。遠端 backend 連續失敗會進 Long DIE，SessionStart 會問你要不要停用。
 
-### Q: Hook 執行但 atom 沒載入？
-**A**: 確認 `_atom_index.json` 的 triggers 含 prompt 關鍵字。可開 `/atom-debug` 啟用注入 debug log。
-
-### Q: 使用者決策萃取可關嗎？
-**A**: `config.json` 設 `"userExtraction.enabled": false`。只降負擔但保留偵測：調低 `userExtraction.tokenBudget`（預設 240）。
-
-### Q: 多人分層怎麼設？
-**A**: 專案 `/init-roles` 建 `memory/shared/_roles.md` 白名單 + `role/{name}/`，管理職用 `/conflict-review` 裁決 `shared/_pending_review/` 敏感原子。
+### Q: Hook 執行但 atom 沒注入？
+確認 `memory/_atom_index.json` 的 triggers 含 prompt 關鍵字（ASCII 整詞、CJK 子字串）。開 `/atom-debug` 看注入 log；每次注入尾行 `[Context budget: x/y | trim: …]` 顯示預算裁切。
 
 ### Q: 不想要某些功能？
-**A**: `config.json` 個別關：
-- `"enabled": false` → 關整個 Guardian
-- `"vector_search.enabled": false` → 關語意搜尋（保留 BM25 + keyword）
-- `"vector_search.global_layer": "vector"` → 全域層改用 Vector（預設 BM25）
-- `"response_capture.enabled": false` → 關回應萃取
-- `"response_capture.session_end_flush.enabled": false` → 關對談結束自動把萃取知識落地成 [臨] auto-capture 草稿（**2026-06-24 起隔離寫 `memory/_drafts/auto-capture/`，`write_raw` 直寫、不入索引/注入/計數**；Stage 1）
-- `"deep_postmortem.enabled": false` → 關 Deep Post-Mortem Gate（高 effort 失敗時要 Claude 深寫 post-mortem，Stage 3）
-- `"cross_session.enabled": false` → 關跨 session 鞏固
-- `"docdrift.enabled": false` → 關文件漂移
-- `"codex_companion.enabled": false` → 關 Codex Companion 監督
+`workflow/config.json` 逐鍵關（值一律 `false`）：
 
-### Q: 沒 GPU 能用嗎？
-**A**: 可以。Ollama CPU fallback 200-500 ms（embedding）、1-3 s（qwen3:1.7b）。加速可設遠端 GPU backend（§4.4）。
+| 鍵 | 關了少什麼 |
+|----|-----------|
+| `enabled` | 整個 Guardian（所有 hook 直接放行） |
+| `vector_search.enabled` | 語意搜尋（保留 trigger + BM25） |
+| `vector_search.global_layer` | 值 `"bm25"`（預設）或 `"vector"`；全域層改走向量 |
+| `vector_search.auto_start_service` | SessionStart 不再自動起向量服務 |
+| `response_capture.enabled` | 全部自動萃取（SessionEnd 全量、失敗萃取） |
+| `response_capture.failure_extraction.enabled` | 只關失敗關鍵字萃取 |
+| `response_capture.per_turn.enabled` | 預設 false，已停產，值保留供回滾 |
+| `response_capture.session_end_flush.enabled` | 預設 false，已停產，值保留供回滾 |
+| `userExtraction.enabled` | 使用者決策萃取（L0→L1→L2）；只降負擔改 `userExtraction.tokenBudget`（預設 240） |
+| `deep_postmortem.enabled` | 高 effort 失敗時要求 Claude 深寫 post-mortem 的 Stop 閘 |
+| `cross_session.enabled` | 跨 session 去重／衝突偵測 |
+| `docdrift.enabled` | 改碼後提醒對應文件的漂移偵測 |
+| `codex_companion.enabled` | AI 裁判（驗收審查／計畫審查／handoff 自檢） |
+| `codex_companion.fallback.enabled` | 無 codex 時不退 `claude -p`，直接 heuristics-only |
+| `coordination.enabled` | 多 session 同檔改動預警 |
+| `guard.pre_action_notice.enabled` | 動手前預告閘（`mode` 可 observe / warn / deny） |
+| `guard.cross_realm_write.enabled` | 外部專案 session 不得寫入 `~/.claude` 核心層（hooks/lib/tools/skills/rules 與根層設定檔）的 deny 閘；「專案專屬內容不得落 global」的 realm 閘在 `lib/realm_gate.py`，無開關 |
+| `injection.redundancy_gate.enabled` | 同題去冗（trigger 重疊 ≥3 只留節錄） |
+| `injection.related_gate.enabled` | related atom 擴散注入 |
+| `taxonomy.gate_enabled` | atom 必須帶範疇才能寫入的閘 |
+| `realm.llm_fallback.enabled` | 預設 false；開了會用本地 LLM 判定 unknown atom 的 realm |
+| `lang_guard.enabled` | 回應英文比例過高時的繁中提醒 |
+| `version_guard.enabled` | 檔內版本操作脈絡殘留的 warn（`mode` warn / off） |
+| `acceptance_spec.enabled` | 多檔改動要求驗收規格 |
+| `deferral_gate.enabled` | Stop 閘攔「推給下個 session」的退縮歸屬 |
+| `auto_handoff.enabled` | 壓縮前／token 逼近時自動產 handoff 交接稿 |
+| `parallel_agents.enabled` / `research_fanout.enabled` | 多 agent 拆分／研究 fan-out 建議 |
+| `aec.hud_autospawn` | 收尾檢核時自動開 HUD |
+| `heal.enabled` | `/heal-review` 自動修復 |
+| `episodic.auto_generate` | session 結束自動生成 episodic 摘要 |
 
 ### Q: 完全移除？
-**A**: 刪 `settings.json` 的 hooks 區塊 → 刪 `~/.claude/{hooks,tools,memory,skills,lib,_AIDocs,workflow}` 等目錄。Claude Code 本體零修改，無殘留。
+見 §9。
 
 ---
 
-## 8. 清理暫存
+## 9. 移除與清理
 
-```bash
-rm -rf /tmp/atomic-memory
-```
+- 移除：刪 `settings.json` 的 `hooks` 與 `statusLine`（若是本系統加的）→ 刪 `~/.claude.json` `mcpServers` 內的 `workflow-guardian`（MCPControl / playwright 視需要）→ 刪 `~/.claude/{hooks,lib,tools,skills,rules,memory,workflow,_AIDocs,Logs,templates}`。Claude Code 本體零修改，無殘留。
+- 暫存：`rm -rf /tmp/atomic-memory`。
 
 ---
 
-## 9. 深度參考
+## 10. 深度參考
 
-- [_AIDocs/SPEC_ATOM_V5.md](_AIDocs/SPEC_ATOM_V5.md) — V5 GA 規格主檔
-- [_AIDocs/DevHistory/v5-overhaul-2026-05/README.md](_AIDocs/DevHistory/v5-overhaul-2026-05/README.md) — V5 升版完整紀錄
-- [TECH.md](TECH.md) — 技術深度文件（架構 / 流程圖 / 子系統）
+- [README.md](README.md) — 設計理念與使用方式
+- [TECH.md](TECH.md) — 技術深度文件（架構 / 流程 / 子系統 / 版本歷史）
+- [_AIDocs/SPEC_ATOM_V5.md](_AIDocs/SPEC_ATOM_V5.md) — atom 規格主檔
+- [_AIDocs/_INDEX.md](_AIDocs/_INDEX.md) — 知識庫索引

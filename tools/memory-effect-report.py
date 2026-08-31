@@ -314,13 +314,14 @@ def main() -> int:
     ap.add_argument("--top", type=int, default=TOP_N_DEFAULT)
     args = ap.parse_args()
     result = collect(days=args.days, top_n=args.top)
+    # 兩種輸出都含中文；Windows 主控台/排程器 stdout 預設 cp950，不重設會 UnicodeEncodeError
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=1))
     else:
-        try:
-            sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
         print(render_md(result))
     return 0
 

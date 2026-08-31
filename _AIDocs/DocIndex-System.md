@@ -1,6 +1,6 @@
 # 原子記憶系統 — 全檔案索引
 
-> 最近同步：2026-07-25（V5.1 ultra-opt：RRF 融合 + memory-eval + recall-miss + Depends/Evidence）
+> 最近同步：2026-08-31（對外四文件改寫；hook 表補齊 wg_parallel/wg_research/wg_coordination/wg_handoff/version_guard/acceptance_spec；拔已刪的 quick-extract.py、notification.py）
 > 目標：讓 Claude Code AI 能了解自己，以利後續升級、迭代、進化
 > V5 概覽：[`SPEC_ATOM_V5.md`](SPEC_ATOM_V5.md)
 
@@ -41,7 +41,7 @@ Session Ready
 [PreToolUse] → Write/Edit/Bash matcher → atom format gate + memory path block + cross-realm write block + SVN test block
 [PostToolUse] → file tracking + 增量索引 + test-fail 偵測 + _CHANGELOG auto-roll（matcher 無 Read）
 [Stop] → sync 閘門 + TestFailGate + Evasion Detection + transcript 單次 tail-read（含 accessed_files 回收）
-[Stop async] → quick-extract.py (qwen3:1.7b 5s → hot_cache.json)
+[Stop] 另掛 codex_companion.py（驗收裁判 enforce 閘）+ lang_guard.py（英文漂移提醒）
 [PreCompact] → state snapshot + injected_atoms 快照
 [PostCompact] → stash 壓縮前 atom 緊湊內文 + pending_reinjection flag（不注入）
 [PostToolBatch] → 見 flag 一次性重注入壓縮前 atom 內文（閉 mid-turn auto-compact 缺口；選配 #4）
@@ -57,8 +57,8 @@ Session Ready
 | IDENTITY.md / USER.md | AI 行為契約（直接維護單一真相）/ 使用者偏好實例 | @import | gitignored, per-user |
 | IDENTITY-{user}.md / USER-{user}.md | 個人擴充槽（IDENTITY 選配）/ USER 編輯點 | 啟用時 @import / 每啟動拷成 USER.md | per-user |
 | BOOTSTRAP.md | 首次設定引導（IDENTITY/USER 為空時觸發） | 條件觸發 | 共用 |
-| settings.json | 8 hook events + 權限白名單 | Claude Code 讀取 | per-user |
-| version.json | atom_memory + guardian 版本標識 | 文件用 | 共用 |
+| settings.json | 9 hook events + 權限白名單 | Claude Code 讀取 | per-user |
+| version.json | 版本標識（guardian / atom_memory / release_date / release_theme）+ 三個網頁介面位置（web.dashboard / anti_evasion_hud / brain_world）；程式只讀 guardian、atom_memory（paths.js） | Dashboard 標題 + 文件用 | 共用 |
 | workflow/config.json | Guardian / Vector / Decay / Capture 全參數 | hook 每次讀取 | 共用 |
 | memory/_meta/forbidden-phrases.json | 禁語 single source | IDENTITY + wg_evasion 共用 | 共用 |
 | mcp-servers.template.json | MCP server 清單（Install-forAI 用） | 安裝時讀 | 共用 |
@@ -69,7 +69,7 @@ Session Ready
 |------|------|
 | core.md | 知識庫維護 + 原子記憶分類 + 同步工作流 + 對話續航（合併單檔） |
 
-## 4. Hook 系統（dispatcher + handlers + 7 wg_*）
+## 4. Hook 系統（dispatcher + 9 事件 handlers + 13 wg_* + 5 standalone hook）
 
 | 檔案 | 行數 | 職責 |
 |------|------|------|
@@ -90,21 +90,26 @@ Session Ready
 | handlers/pre_compact.py | — | state snapshot + injected_atoms 快照 |
 | handlers/post_compact.py | — | 壓縮後 stash 壓縮前 atom 緊湊內文 + pending flag（不注入；選配 #4） |
 | handlers/post_tool_batch.py | — | idle early-exit；見 flag 一次性 additionalContext 重注入 + 清 flag（選配 #4） |
-| handlers/notification.py | — | 通知處理 |
 | wg_core.py | — | 路徑唯一真相 + state IO + token budget 單一來源（2026-06-12 集中） + log rotation + PreToolUse guards |
 | wg_atoms.py | — | trigger（any/count_trigger_hits 原語）+ BM25 + ACT-R + vector search + atom 晉升 |
-| wg_extraction.py | — | per-turn 萃取 + worker + hot cache + user-extract + content classify |
+| wg_extraction.py | — | 失敗萃取 + worker spawn + user-extract L0 + content classify（per-turn / hot cache 已停產） |
 | wg_episodic.py | — | episodic 生成 + 衝突 + 品質回饋 |
 | wg_evasion.py | — | Evasion Guard + Test-Fail + ScanReport + 自評整合 + `crosscheck_aec_severity`（(b) 欄 cross-check 純函式）+ `flush_outcome_stats`（unknown 比率遙測） |
 | wg_docdrift.py | — | src → _AIDocs 映射 drift 偵測（觸發落 `Logs/guard-docdrift.jsonl`） |
 | lang_guard.py | — | P8b 英文回應漂移攔截（standalone Stop hook；觸發落 `Logs/guard-lang.jsonl`） |
 | wg_roles.py | — | V4 sub-layer 探勘 shim |
+| wg_handoff.py | — | Auto-Handoff 四層自動交接（stub 六區塊 / token 預警；pre_compact / post_tool_batch / stop / session_end 共用） |
+| wg_coordination.py | — | 跨 session 衝突預警（同檔互寫 warn / git add -A 收尾預警 / late-collision）→ `Logs/session-coordination/` |
+| wg_parallel.py | — | 多 agent 並行訊號計分 → `[Parallel:Suggest]` 注入 |
+| wg_research.py | — | 知識檢索型請求偵測 → 兩階段 fan-out 提示（命中時抑制 Parallel 建議） |
+| version_guard.py | — | live 檔版本操作脈絡殘留掃描（standalone PostToolUse，warn-only） |
+| acceptance_spec.py | — | 驗收規格工件分級啟動（standalone PostToolUse，advisory） |
+| run-hidden.py / run-bash-hidden.py | — | Windows 下不閃視窗地 spawn 子程序 / 跑 .sh hook |
 | wg_rescue.py | — | 救援日誌：注入 atom 高特異 token watch + 工具呼叫命中 → `Logs/rescue-log.jsonl`（純字串比對） |
 | wg_recall_miss.py | — | 失念偵測（recall-miss）：SessionEnd 比對「失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |
 | extract-worker.py | — | SessionEnd 萃取子程序 |
 | user-extract-worker.py | — | L1/L2 使用者決策萃取 |
-| quick-extract.py | — | Stop async 快篩 |
 | wisdom_engine.py | — | 2 硬規則 + 3 反思指標 + Bayesian arch sensitivity |
 | ensure-mcp.py | — | MCP server 可用性確認 |
 | user-init.sh | — | 多人 USER.md 初始化 |
@@ -265,10 +270,11 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ## 9. 對外文件
 
-- README.md — GitHub 入口（設計理念 + 架構 + Token 影響 + 安裝）
-- Install-forAI.md — AI 代跑安裝指南（V5 GA 對齊）
-- TECH.md — 技術深度文件（架構 / 流程圖 / 子系統，以代碼為真源）
-- _AIDocs/ — 知識庫（Architecture / context-memory-governance / SPEC_ATOM_V5 / SPEC_ATOM_V4 / DevHistory / Failures / ClaudeCodeInternals / Tools）
+- README.md — 人讀入口：核心理念 + 與原生 CC 差異 + 兩層用法 + AI 代跑安裝 + 3 步上手 + 啟動檔維護（零技術名詞）
+- Install-forAI.md — AI 代跑安裝指南：前置需求逐項附替代方案與降級邏輯、合併安裝、驗證、升級、FAQ、網頁介面
+- TECH.md — 技術深度文件（按現況排章：理念 / 差異 / 一回合流程 / 資料層 / 檢索注入 / 寫入積累 / 守門收尾 / 可觀測 / 服務與網頁 / 目錄樹 / 設定 / 版本歷史；以代碼為真源）
+- version.json — 版本標識 + 網頁介面位置
+- _AIDocs/ — 知識庫（Architecture / context-memory-governance / SPEC_ATOM_V5 / SPEC_ATOM_V4 / DevHistory / Research / ClaudeCodeInternals / Tools；失敗家族 atom 在 memory/Failures/）
 - _AIDocs/context-memory-governance.md — 上下文與記憶治理設計憲法（context rot / 4 失效模式 / memory governance / CLT；注入·萃取自檢 hook 的對齊標的）
 - _AIDocs/DevHistory/v5-overhaul-2026-05/ — V5 升版完整紀錄
 - LICENSE — GPLv3
