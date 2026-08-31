@@ -30,6 +30,7 @@
 | toolchain-ollama | Ollama Dual-Backend 實戰記憶 |
 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 |
 | write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值 | write_raw 對未列舉 source 靜默回 ok=False 不 raise（呼叫端必檢查回傳值） |
+| 上git-在-claude-根層走-publish-remotes兩遠端各留自己的-install-網址發布分支只往前長 | 上GIT 在 claude 根層走 publish-remotes——兩遠端各留自己的 Install 網址、發布分支只往前長 |
 | 佛法三缺口工程化-失念壞滅緣了義 | 佛法三缺口工程化-失念壞滅緣了義 |
 | 刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕 | 刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進HUD刪除鈕 |
 | 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證 | 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證 |
