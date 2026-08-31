@@ -475,6 +475,42 @@ def _rglob_locate(root: Path, slug: str) -> List[Path]:
     return hits
 
 
+def find_separator_variant(search_roots: Iterable[Path], slug: str) -> Optional[str]:
+    """既有檔名 slugify 後與 slug 相同、但字面不同（舊底線檔 client_il.md vs 新 slug
+    client-il）→ 回該檔相對 root 的 posix 路徑，否則 None。create 前守門：不擋會叉出
+    append/replace 永遠碰不到的近重複 atom。跳過 `_`/`.` 前綴目錄。"""
+    try:
+        from .atom_spec import slugify as _slugify
+    except ImportError:  # 頂層模組載入
+        from atom_spec import slugify as _slugify  # type: ignore
+    for root in search_roots:
+        try:
+            if not root.is_dir():
+                continue
+        except OSError:
+            continue
+        queue = [root]
+        while queue:
+            cur = queue.pop(0)
+            try:
+                entries = sorted(cur.iterdir())
+            except OSError:
+                continue
+            for e in entries:
+                if e.is_dir():
+                    if e.name.startswith("_") or e.name.startswith("."):
+                        continue
+                    queue.append(e)
+                elif e.suffix == ".md":
+                    base = e.stem
+                    if base != slug and _slugify(base) == slug:
+                        try:
+                            return e.relative_to(root).as_posix()
+                        except ValueError:
+                            return e.as_posix()
+    return None
+
+
 def locate_existing_atom(
     slug: str,
     *,

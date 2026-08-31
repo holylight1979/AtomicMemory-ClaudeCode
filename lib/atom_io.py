@@ -33,6 +33,7 @@ from .atom_locations import (
     is_failures_routed_title, failures_write_target, local_write_target,
     atom_search_roots, locate_existing_atom, project_subdir_target,
     core_write_target, failures_topic_target, project_category_target,
+    find_separator_variant, classify_realm,
 )
 from .atom_taxonomy import gate_enabled as _taxonomy_gate_enabled
 
@@ -218,8 +219,13 @@ def _resolve_target(
     subdir: Optional[str] = None,
     mode: Optional[str] = None,
     allow_new_category: bool = False,
+    enforce_cwd_scope: bool = False,
 ) -> Dict[str, Any]:
     """回傳 {dir, base, index_dir, index_root, search_roots, scope_label, category, routed_to_*, error}。
+
+    enforce_cwd_scope（MCP 寫入路徑開）：scope=global 但 project_cwd 落在某專案 root（非
+    ~/.claude）→ 拒——專案內寫全域知識用 scope=shared；force_global 逃生門。程式寫手
+    （hooks）不開此閘：它們的 cwd 語意已由各自呼叫端處理。
 
     `dir` = **新 atom 的落點**；`search_roots` = **既有 atom 的定位範圍**（append/replace 用，
     含子夾）——兩者刻意分離：append/replace 不因子夾而找不到檔。
@@ -247,6 +253,21 @@ def _resolve_target(
         return {"error": f"subdir is only supported for scope=shared (got scope={scope})"}
 
     gate = (mode == "create") and _category_gate_enabled()
+
+    if scope == "global" and enforce_cwd_scope and not force_global and project_cwd:
+        proj_root = _find_project_root(project_cwd)
+        if proj_root is not None:
+            try:
+                r = proj_root.resolve()
+                home = CLAUDE_DIR.resolve()
+                inside_core = (r == home or home in r.parents)
+            except OSError:
+                inside_core = False
+            if not inside_core:
+                return {"error":
+                        f"scope=global rejected: cwd={project_cwd} is inside project root={proj_root}; "
+                        "use scope=shared/role/personal for project knowledge (omit project_cwd "
+                        "when writing cross-project knowledge from a project)"}
 
     if scope == "global":
         # global 的三個物理居所（memory/ + memory/Failures/ + _AIDocs/_atoms/）一律
@@ -293,10 +314,13 @@ def _resolve_target(
     root = _find_project_root(project_cwd)
     if not root:
         return {"error": f"No project root found for scope={scope} cwd={project_cwd!r}"}
-    # ~/.claude itself is global; reject V4 sub-scopes (P1 雙層防護)
+    # ~/.claude 本身或其子樹（子目錄自帶 .git 也算）沒有 V4 子層；改用 scope=global
     try:
-        if root.resolve() == CLAUDE_DIR.resolve():
-            return {"error": "cwd is ~/.claude itself; use scope=global for cross-project knowledge"}
+        r = root.resolve()
+        home = CLAUDE_DIR.resolve()
+        if r == home or home in r.parents:
+            return {"error": f"scope={scope} rejected: cwd={project_cwd} is under ~/.claude itself; "
+                             "use scope=global for cross-project knowledge"}
     except OSError:
         pass
 
@@ -965,29 +989,62 @@ def locate_atom(
     subdir: Optional[str] = None,
     mode: Optional[str] = None,
     allow_new_category: bool = False,
+    triggers: Optional[List[str]] = None,
+    enforce_cwd_scope: bool = False,
 ) -> WriteResult:
-    """定位既有 atom 實體檔（唯讀，無副作用之外的落檔）。給 MCP js 端 append/replace/create 用。
+    """atom 落點與定位的**唯一裁決者**（唯讀；只 mkdir 落點）。MCP js 端 create/append/
+    replace/promote/edit_meta 一律先問這裡，js 不自算任何路徑。
 
-    js 不自建第二套定位邏輯（既有 findAtomFileRecursive 只覆蓋 scope=global，
-    專案 scope 全漏）——統一 spawn 本函式，py/js 定位規則單一來源、不會漂移。
-    回 WriteResult：ok=True 且 path=None ⇒ 找不到（caller 給 not-found 訊息）；
-    ok=False ⇒ 撞名或 scope 解析錯、或 mode="create" 時範疇閘拒寫（error 已含說明）。
-    extra.rel_path 供索引回寫；mode="create" 時另回 extra.target_dir/category＝
-    經範疇閘 snap 後的落點，js 端 create 直接用、不重作路由（py 單源）。
+    回 WriteResult：
+      ok=True, path=None ⇒ 既有檔不存在（create 可落；append/replace 給 not-found）
+      ok=True, path=<檔> ⇒ 既有檔（含子夾／local realm／失敗家族）
+      ok=False ⇒ 撞名／scope 或 cwd 解析錯／範疇閘拒寫／分隔符變體撞名（error 已含說明）
+    extra（js 照用、不重算）：
+      target_dir, category, base_dir, index_dir, index_root, scope_label, slug,
+      rel_path（既有檔）／create_rel_path（新檔相對 index_root），
+      routed_to_failures / routed_to_pending / routed_to_local, realm, domain,
+      auto_realm（scope=global、realm 未給時由 classify_realm 判 local 的命中詞）。
     """
     audit_id = _gen_audit_id()
     if scope == "project":
         scope = "shared"
+    slug = slugify(title)
+    auto_realm: Optional[List[str]] = None
+    if scope == "global" and realm is None and not is_failures_routed_title(title):
+        # 自動 realm（core 全專案注入／local 只在 ~/.claude）：安全預設 core，核心保護硬擋。
+        try:
+            rc = classify_realm(slug, triggers or [])
+            if rc.get("realm") == "local" and rc.get("domain") and not rc.get("protected"):
+                realm = "local"
+                if not domain:
+                    domain = rc["domain"]
+                auto_realm = list(rc.get("matched") or [])
+        except Exception:  # noqa: BLE001 — 分類器故障 → 維持 core
+            pass
     resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
                                title=title, realm=realm, domain=domain, subdir=subdir,
-                               mode=mode, allow_new_category=allow_new_category)
+                               mode=mode, allow_new_category=allow_new_category,
+                               enforce_cwd_scope=enforce_cwd_scope)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
 
-    slug = slugify(title)
     index_root = resolved["index_root"]
     file_path = resolved["dir"] / f"{slug}.md"
-    target_extra = {"target_dir": str(resolved["dir"]), "category": resolved.get("category")}
+    try:
+        create_rel = file_path.relative_to(index_root).as_posix()
+    except ValueError:
+        create_rel = None
+    common = {
+        "target_dir": str(resolved["dir"]), "category": resolved.get("category"),
+        "base_dir": str(resolved["base"]), "index_dir": str(resolved["index_dir"]),
+        "index_root": str(index_root), "scope_label": resolved["scope_label"], "slug": slug,
+        "create_rel_path": create_rel,
+        "routed_to_failures": bool(resolved.get("routed_to_failures")),
+        "routed_to_pending": bool(resolved.get("routed_to_pending")),
+        "routed_to_local": bool(resolved.get("routed_to_local")),
+        "realm": "local" if resolved.get("routed_to_local") else ("global" if scope == "global" else None),
+        "domain": domain, "auto_realm": auto_realm,
+    }
     if not file_path.exists():
         found, loc_err = locate_existing_atom(
             slug,
@@ -998,8 +1055,17 @@ def locate_atom(
         if loc_err:
             return WriteResult(ok=False, audit_id=audit_id, error=loc_err)
         if not found:
+            variant = find_separator_variant(resolved.get("search_roots") or [], slug)
+            if variant and mode == "create":
+                return WriteResult(
+                    ok=False, audit_id=audit_id,
+                    error=f'Slug collision: "{variant}" already exists and normalizes to the '
+                          f'same slug "{slug}".\nCreating "{slug}.md" would fork a near-duplicate '
+                          f'atom.\n→ Use mode=append/replace on the existing atom, or rename '
+                          f'"{variant}" to the hyphen convention first.')
+            # 非 create：只回報變體（replace 的 not-found 訊息用），不擋
             return WriteResult(ok=True, audit_id=audit_id, path=None,
-                               extra={"found": False, **target_extra})
+                               extra={"found": False, "separator_variant": variant, **common})
         file_path = found
     try:
         rel_path = file_path.relative_to(index_root).as_posix()
@@ -1007,5 +1073,4 @@ def locate_atom(
         return WriteResult(ok=False, audit_id=audit_id,
                            error=f"located atom outside index root: {file_path}")
     return WriteResult(ok=True, audit_id=audit_id, path=file_path,
-                       extra={"found": True, "rel_path": rel_path,
-                              "scope_label": resolved["scope_label"], **target_extra})
+                       extra={"found": True, "rel_path": rel_path, **common})

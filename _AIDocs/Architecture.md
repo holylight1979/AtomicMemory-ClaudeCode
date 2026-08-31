@@ -288,6 +288,8 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 
 ## MCP Servers（5 tool：atom_write / atom_promote / atom_move / atom_edit_meta / anti_evasion_report）
 
+> **落點單一裁決**：atom 該落在哪（scope/realm/feedback/subdir/待審/範疇閘/cwd 防護/既有檔定位/分隔符變體）只在 py `lib/atom_io.locate_atom` 一份；js `atom-tools.js` 每個 tool 先 `spawnAtomCli("locate")` 再照用回傳路徑，`realm.js` 已無任何路由／分類／常數鏡像（只剩 `getCurrentUser`、`dedupLayersFor`）。`verify_atom_io_equivalence.test_14` 守 js 不得回長鏡像。
+
 V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`），改由 Stop gate hook 自動偵測。
 
 | Server | 傳輸 | 用途 | 暴露 tool |

@@ -288,22 +288,8 @@ function funnelWriteIndex(baseDir, slug, relPath, triggers, source) {
 // for injection; write path mirrors that compat for append/replace so users
 // aren't blocked while a project's V3→V5 layout migration is still pending.
 // Only triggers for scope=shared, only when V5 path is absent AND legacy path exists.
-function flatLegacyFallback(scope, baseDir, slug, expectedPath) {
-  if (scope !== "shared") return null;
-  if (fs.existsSync(expectedPath)) return null;
-  const candidate = path.join(baseDir, slug + ".md");
-  if (!fs.existsSync(candidate)) return null;
-  try {
-    process.stderr.write(
-      `[atom_write] flat-legacy fallback: writing to ${candidate} ` +
-      `(V5 expects ${expectedPath} — project pending migration)\n`
-    );
-  } catch {}
-  return candidate;
-}
-
 module.exports = {
   execConflictDetector, appendMergeHistory, buildConflictReport, execWriteGate,
   appendToIndex, triggerVectorReindex, syncMemoryIndex, spawnAtomCli,
-  funnelWriteRaw, flatLegacyFallback,
+  funnelWriteRaw,
 };

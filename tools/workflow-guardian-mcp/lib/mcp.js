@@ -231,8 +231,9 @@ const TOOL_DEFINITIONS = [
     name: "atom_edit_meta",
     description:
       "Surgically edit an atom's metadata (Trigger / Related / Tags) in place — " +
-      "no full-file rebuild. Locates <atom_name>.md via the same scope resolution as " +
-      "atom_promote (global memory, project layers, _AIDocs/Failures for feedback-*), then " +
+      "no full-file rebuild. Locates <atom_name>.md via py lib/atom_io.locate_atom (single " +
+      "authority: global memory/ + memory/Failures/ + _AIDocs/_atoms/; project shared → " +
+      "personal(current user) → role when scope=project), then " +
       "delegates to lib/atom_io.edit_metadata through the audit funnel. " +
       "Pass any subset of triggers/related/tags; at least one is required. " +
       "Each provided field fully replaces that field's existing value.",
@@ -241,6 +242,8 @@ const TOOL_DEFINITIONS = [
       properties: {
         atom_name: { type: "string", description: "Atom filename without .md extension" },
         scope: { type: "string", enum: ["global", "project"], description: "Scope to search in" },
+        role: { type: "string", description: "Optional: also try the project's roles/<role>/ layer when scope=project" },
+        user: { type: "string", description: "Optional: personal layer owner when scope=project (default current OS user)" },
         triggers: {
           type: "array", items: { type: "string" },
           description: "Replacement Trigger keywords (optional). Replaces the whole Trigger line.",
