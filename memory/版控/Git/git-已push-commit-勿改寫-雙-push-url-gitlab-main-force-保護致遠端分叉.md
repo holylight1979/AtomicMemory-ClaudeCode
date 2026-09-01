@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: git commit, git push, amend, git amend, force push, force-with-lease, rebase, dual push url, 雙push, gitlab, github, pre-receive hook declined, non-fast-forward, 遠端分叉, 分叉, commit message, heredoc, 多行 commit message, 上GIT, main 保護, force 保護
 - Created-at: 2026-07-06
-- Related: workflow-rules, feedback-tooling-reliability, workflow-svn
+- Related: workflow-rules, feedback-tooling-reliability, workflow-svn, 上git-在-claude-根層走-publish-remotes兩遠端各留自己的-install-網址發布分支只往前長
 
 ## 知識
 
