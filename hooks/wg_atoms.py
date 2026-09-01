@@ -27,7 +27,7 @@ from wg_core import (
     compute_token_budget,  # re-export：budget 單一來源在 wg_core，舊 caller 仍從本模組 import
     _estimate_tokens,  # CJK-aware 估算器（單一口徑，中文 ~1.5 tok/字）
     discover_all_project_memory_dirs, resolve_access_json, resolve_staging_dir,
-    get_project_memory_dir, log_promotion_audit,
+    get_project_memory_dir, log_promotion_audit, log_promotion_heartbeat,
     _atom_debug_log, _atom_debug_error,
     sanitize_harness_noise,
 )
@@ -2572,5 +2572,9 @@ def _self_iterate_atoms(
                 results["archive_candidates"], config, staging_dir=staging)
         except Exception as e:
             _atom_debug_error("forget:apply", e)
+
+    # 無晉升事件的掃描也要留活性證據，週健檢才能分辨「無事件」與「管線停擺」
+    if not results["promoted"]:
+        log_promotion_heartbeat(scanned=results["scanned"])
 
     return results

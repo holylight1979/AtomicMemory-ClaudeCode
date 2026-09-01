@@ -149,3 +149,4 @@
 | feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫 | memory/personal/holylight/feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫.md | 計畫, 計畫文件, plan, 交付文件, 人稱, 你我, 監督, 重大發現, 埋表格, ExitPlanMode, 審查發現 | personal:holylight |
 | gitlab-ssh金鑰真相-ujgitlab才是活鑰-id-rsa是死鑰 | memory/personal/holylight/gitlab-ssh金鑰真相-ujgitlab才是活鑰-id-rsa是死鑰.md | gitlab, ssh, 金鑰, fetch 失敗, Permission denied, UJGitLab, serverbase 同步, id_rsa | personal:holylight |
 | 給予的技術回饋必須具備高可行動性-聚焦於流程與思考過程-如-為什麼這樣設計-並 | memory/personal/holylight/給予的技術回饋必須具備高可行動性-聚焦於流程與思考過程-如-為什麼這樣設計-並.md | 精簡, 批判性自審, 設計推理, 可行動 | personal:holylight |
+| windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑 | memory/OS-Windows/windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑.md | Microsoft Store, WindowsApps, python.exe, exit 9009, App Execution Alias, spawn python, 裸 python, Unexpected end of JSON input, WG_PYTHON, resolvePythonExe, 新機安裝, PATH 順位 | global |

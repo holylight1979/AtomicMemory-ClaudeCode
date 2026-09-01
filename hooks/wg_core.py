@@ -1006,6 +1006,33 @@ def log_promotion_audit(action: str, atom: str, **fields: Any) -> None:
         _atom_debug_error("promotion:audit_append", e)
 
 
+def log_promotion_heartbeat(scanned: int, min_gap_hours: float = 20.0) -> None:
+    """晉升掃描完成但無事件時落一筆 heartbeat（尾筆距今 < min_gap_hours 則跳過）。
+
+    週健檢鮮度檢查以 _promotion_audit.jsonl 最後一筆 ts 判斷管線死活；
+    沒有 heartbeat 時「長期無晉升事件」與「管線靜默停擺」不可分（誤報紅燈）。
+    節流讓 audit 檔不被 heartbeat 洗版：正常使用約每日一筆。"""
+    try:
+        p = MEMORY_DIR / "_promotion_audit.jsonl"
+        try:
+            with open(p, "rb") as f:
+                f.seek(max(0, p.stat().st_size - 4096))
+                lines = f.read().decode("utf-8", errors="replace").strip().splitlines()
+            for line in reversed(lines):
+                try:
+                    last = datetime.fromisoformat(json.loads(line)["ts"])
+                except (ValueError, KeyError):
+                    continue
+                if (datetime.now() - last).total_seconds() < min_gap_hours * 3600:
+                    return
+                break
+        except OSError:
+            pass  # 檔不存在 → 首筆 heartbeat 直接寫
+        log_promotion_audit("heartbeat", "-", scanned=scanned)
+    except Exception as e:
+        _atom_debug_error("promotion:heartbeat", e)
+
+
 # ─── Guard Trigger Log（可觀測性：各護欄觸發計數 JSONL）─────────────────────
 
 GUARD_LOG_DIR = Path.home() / ".claude" / "Logs"
