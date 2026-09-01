@@ -153,3 +153,8 @@ memory/mail-sorting.md
 sessions/
 
 workflow/aec-tempfiles/
+
+# Claude Code 執行期產物（自動更新結果 / Chrome 擴充 native host / prompt 歷史）
+.last-update-result.json
+chrome/
+history.jsonl
