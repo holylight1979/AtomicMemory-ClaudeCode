@@ -23,9 +23,14 @@ function projectSlugOf(memBase) {
 /** 去重只比「寫入者能 append 到」的層：
  *  global → global + ~/.claude 本地 atom
  *  shared → 再加 shared:<slug>；role → 再加 role:<slug>:<role>；personal → 再加 personal:<slug>:<user>
+ *  personal 跨專案（personalGlobal）→ global + personal:global:<user>
  *  別的專案、別人的 personal 層一律不比（比到了也不能 append 過去，只會卡死寫入）。 */
-function dedupLayersFor(scope, memBase, { role, user } = {}) {
+function dedupLayersFor(scope, memBase, { role, user, personalGlobal } = {}) {
   const layers = ["global", "extra:local-atoms"];
+  if (scope === "personal" && personalGlobal && user) {
+    layers.push(`personal:global:${user}`);  // 本人跨專案 personal（~/.claude/memory/personal/<u>/）
+    return layers;
+  }
   if (scope === "global" || !memBase) return layers;
   const slug = projectSlugOf(memBase);
   layers.push(`shared:${slug}`);

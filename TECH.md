@@ -203,8 +203,9 @@ sequenceDiagram
 | `shared` | 同專案全員 | 專案共識、架構決策、踩坑 | `{project}/.claude/memory/shared/<Lv1>/`；feedback-* 落 `failures/<主題>/` |
 | `role:{name}` | 同職務者 | 職務專有規範 | `{project}/.claude/memory/roles/<role>/` |
 | `personal:{user}` | 只自己 | 個人 scratch、未公開假設 | `{project}/.claude/memory/personal/<user>/` |
+| `personal:{user}`（跨專案） | 只自己，但每個專案都看得到 | 本人跨專案偏好 | `~/.claude/memory/personal/<user>/`（gitignore；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 寫入即落此） |
 
-**讀取端候選池**（SessionStart 建一次、UPS 的 trigger / BM25 / vector / related / AtomAudit 共用）：global + 本專案 shared（含 failures）+ 本人 roles + 本人 personal。他專案任何層都不進池；他人 personal / role 不進池。scope 由索引 path 推導（`personal/<u>/`、`roles/<r>/`），不信 index 的 scope 欄。向量路帶同一套 layers 白名單，管理職不豁免。
+**讀取端候選池**（SessionStart 建一次、UPS 的 trigger / BM25 / vector / related / AtomAudit 共用）：global + 本人跨專案 personal + 本專案 shared（含 failures）+ 本人 roles + 本人 personal。他專案任何層都不進池；他人 personal / role 不進池。scope 由索引 path 推導（`personal/<u>/`、`roles/<r>/`），不信 index 的 scope 欄。向量路帶同一套 layers 白名單，管理職不豁免。
 
 當前部署為單人，實際只用到 global / personal；shared / roles 為保留能力（§13）。
 

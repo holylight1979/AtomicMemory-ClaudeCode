@@ -300,7 +300,8 @@ V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `me
 | `scope=global` | 寫 `~/.claude/memory/` |
 | `scope=shared`（預設） | 寫 `{proj}/.claude/memory/shared/` |
 | `scope=role` + `role=...` | 寫 `roles/{role}/`，metadata `Scope: role:{role}` |
-| `scope=personal` + `user=...` | 寫 `personal/{user}/`，metadata `Scope: personal:{user}` |
+| `scope=personal` + `user=...` | 寫 `{proj}/.claude/memory/personal/{user}/`，metadata `Scope: personal:{user}`；只在該專案、只給本人 |
+| `scope=personal` + `cross_project=true`（或從 ~/.claude 呼叫） | 寫 `~/.claude/memory/personal/{user}/`（gitignore），索引在全域 `_atom_index.json`；任何專案都搜、只給本人；不進 MEMORY.md 目錄／realm 搬移；向量層 `personal:global:{user}` |
 | `scope=project`（legacy） | 透明轉 `shared` + stderr deprecation hint |
 
 新 metadata 自動帶入：`Author`（server 端 env/OS user）、`Created-at`（今日）、`Audience`/`Pending-review-by`/`Merge-strategy`（optional）；選填 `status` 參數 → `- Status:` 現況一行（cold/skip 一行注入時附帶；只寫現況、禁版本敘事）。

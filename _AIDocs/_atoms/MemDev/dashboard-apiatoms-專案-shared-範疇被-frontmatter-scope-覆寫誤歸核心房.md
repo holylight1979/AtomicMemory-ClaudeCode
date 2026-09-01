@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: dashboard, world.html, 腦內世界, apiAtoms, scanProjMemDir, 專案atom消失, project shared, scope 誤歸, 核心房, 看不到專案記憶
 - Created-at: 2026-06-17
-- Related: guardian-dashboard-孤兒佔埠與新碼重啟, realm-範疇分區機制-v5
+- Related: guardian-dashboard-孤兒佔埠與新碼重啟, realm-範疇分區機制-v5, atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人
 
 ## 知識
 

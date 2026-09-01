@@ -278,6 +278,8 @@ def visible_vector_layers(
     layers = ["global"]
     if include_local:
         layers.append("extra:local-atoms")
+    if user:
+        layers.append(f"personal:global:{user}")  # 本人跨專案 personal（~/.claude/memory/personal/<u>/）
     if project_slug:
         layers.append(f"shared:{project_slug}")
         for r in roles or ():
@@ -2272,6 +2274,8 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
             path = a.get("path", "")
             if not name or is_local_realm_path(path):
                 continue  # 已 local，跳過（idempotent）
+            if scope_from_rel_path(path, "global").startswith("personal:"):
+                continue  # 本人跨專案 personal：只給本人，不進 realm 搬移
             if _is_unconfirmed_autocapture(a):
                 continue  # P2: 未確認 auto-capture 碎片 → defer（不搬、不喚 LLM 學詞，斷詞庫污染源）
             rc = classify_realm(name, a.get("triggers", []), extra_lexicon=learned or None)

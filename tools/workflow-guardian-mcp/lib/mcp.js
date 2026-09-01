@@ -109,6 +109,10 @@ const TOOL_DEFINITIONS = [
           type: "string",
           description: "Personal subdir owner. Required when scope=personal; falls back to current OS user.",
         },
+        cross_project: {
+          type: "boolean",
+          description: "scope=personal only. true = the user's CROSS-PROJECT personal preference, stored at ~/.claude/memory/personal/<user>/ and visible to that user in every project (default false = personal-in-project at {proj}/.claude/memory/personal/<user>/, visible only in that project). Calls made from ~/.claude itself land cross-project automatically.",
+        },
         audience: {
           type: "array", items: { type: "string" },
           description: "Audience tags (multi-role). On scope=shared, presence of 'architecture' or 'decision' auto-routes atom to _pending_review/ with Pending-review-by: management.",

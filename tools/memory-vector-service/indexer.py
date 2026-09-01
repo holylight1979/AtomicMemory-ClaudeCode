@@ -95,6 +95,13 @@ def discover_layers(
         for root in atom_search_roots():
             if root == MEMORY_DIR:
                 layers.append(("global", MEMORY_DIR, "recursive"))
+                # 本人跨專案 personal 層 memory/personal/<user>/：獨立 layer 標籤，
+                # 不併入 global（global 對全員可見）；auto/ 與 `_` 前綴夾不是層。
+                personal_root = MEMORY_DIR / "personal"
+                if personal_root.is_dir():
+                    for pd in sorted(personal_root.iterdir()):
+                        if pd.is_dir() and pd.name != "auto" and not pd.name.startswith("_"):
+                            layers.append((f"personal:global:{pd.name}", pd, "recursive"))
             elif root in (FAILURES_DIR, LEGACY_FAILURES_DIR):
                 if root.is_dir():
                     layers.append((FAILURES_LAYER_LABEL, root, "recursive"))
@@ -183,6 +190,8 @@ def discover_atoms(
             rel_parts = md_file.relative_to(mem_dir).parts
             if any(part.startswith("_") for part in rel_parts[:-1]):
                 continue
+            if layer_name == "global" and rel_parts[:1] == ("personal",):
+                continue  # 全域 personal 子夾走 personal:global:<user> 層，不進 global
             if md_file.name in SKIP_FILENAMES:
                 continue
             if any(md_file.name.startswith(p) for p in SKIP_PREFIXES):

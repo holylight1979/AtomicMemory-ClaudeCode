@@ -15,6 +15,8 @@
 - [臨] scope 由索引 path 推導（`personal/<u>/`、`personal/auto/<u>/`、`roles/<r>/`），不信 index 的 `scope` 欄：自動萃取寫入 index 時未傳 scope，`write_index` 新條目預設 global，實測 43/495 條專案層條目 index 寫成 global。
 - [臨] 向量服務索引的是**所有專案**的層，`layer LIKE 'shared:%'` 本身就是跨專案；要用明確 `layers` 白名單（`visible_vector_layers`）而非 user/roles clause。管理職不豁免——管理職多的是待審清單，不是他人 personal（SPEC V4 §8.2）。
 - [臨] `to_atom_entries` 把 index 的 scope 欄丟掉是全部 hook 讀取鏈的入口；改 tuple 形狀牽動所有 3-tuple 解包點，所以走「池內只裝可見的 + state 另存 name→scope 表」而非擴 tuple。
+- [臨] personal 分兩種、同一套讀取規則：本人×專案住 `{proj}/.claude/memory/personal/<u>/`，本人×跨專案住 `~/.claude/memory/personal/<u>/`（索引在全域、path 前綴 `memory/personal/<u>/`）。讀取端不需第二套判斷——`scope_from_rel_path` 看到 `personal/<u>/` 就只給 u，不管它在哪個根。寫入端 `atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 呼叫即落跨專案層。
+- [臨] personal 在全域根要躲三個會把它當一般核心 atom 的機制：MEMORY.md 目錄產生器（`atom_index_row_kind` 回 personal → 不渲染）、realm 自動搬移（跳過）、vector indexer 的 global 遞迴掃（排除 `personal/`，另立 `personal:global:<u>` 層）。`personal` 因在 `SKIP_DIRS` 而天然不能當範疇名，但 `is_atom_file` 需對 `personal/<u>/<slug>.md` 開例外，否則 sync-atom-index 會報索引條目找不到檔。
 
 ## 行動
 

@@ -75,13 +75,96 @@ def test_filter_visible_v3_layout_same_rule():
 
 
 def test_visible_vector_layers():
-    assert visible_vector_layers("", "u", ["programmer"]) == ["global"]
+    assert visible_vector_layers("", "u", ["programmer"]) == ["global", "personal:global:u"]
     assert visible_vector_layers("c--proj", "u", ["programmer"]) == [
-        "global", "shared:c--proj", "role:c--proj:programmer", "personal:c--proj:u",
+        "global", "personal:global:u", "shared:c--proj", "role:c--proj:programmer", "personal:c--proj:u",
     ]
     assert visible_vector_layers("c--proj", None, None, include_local=True) == [
         "global", "extra:local-atoms", "shared:c--proj",
     ]
+
+
+# ─── 本人跨專案 personal 層：~/.claude/memory/personal/<user>/ ────────────────
+
+def test_personal_atom_rel_parts_rule():
+    from lib.atom_spec import is_personal_atom_rel_parts, is_atom_file
+    assert is_personal_atom_rel_parts(("personal", "holylight", "x.md"))
+    assert is_personal_atom_rel_parts(("personal", "holylight", "Sub", "x.md"))
+    assert not is_personal_atom_rel_parts(("personal", "holylight", "role.md"))
+    assert not is_personal_atom_rel_parts(("personal", "auto", "holylight", "x.md"))
+    assert not is_personal_atom_rel_parts(("personal", "x.md"))
+    assert not is_personal_atom_rel_parts(("shared", "x.md"))
+
+
+def test_is_atom_file_accepts_personal_atom(tmp_path):
+    from lib.atom_spec import is_atom_file
+    d = tmp_path / "personal" / "holylight"
+    d.mkdir(parents=True)
+    (d / "pref.md").write_text("# p\n", encoding="utf-8")
+    (d / "role.md").write_text("role\n", encoding="utf-8")
+    assert is_atom_file(d / "pref.md", tmp_path)
+    assert not is_atom_file(d / "role.md", tmp_path)
+
+
+def test_index_row_kind_personal_not_in_catalog():
+    from lib.atom_locations import atom_index_row_kind, is_personal_path
+    assert is_personal_path("memory/personal/holylight/pref.md")
+    assert not is_personal_path("memory/工作流/x.md")
+    assert atom_index_row_kind("memory/personal/holylight/pref.md", "pref") == "personal"
+    assert atom_index_row_kind("memory/工作流/x.md", "x") == "individual"
+
+
+def test_locate_personal_global_from_claude_dir_and_cross_project(tmp_path):
+    from lib import atom_io
+    from lib.atom_io import locate_atom
+    # 從 ~/.claude 子樹寫 personal → 落全域 personal/<user>/，索引在全域
+    r = locate_atom("my-cross-pref", "personal", user="holylight",
+                    project_cwd=str(atom_io.CLAUDE_DIR / "hooks"), mode="create")
+    assert r.ok, r.error
+    assert r.extra["personal_global"] is True
+    assert r.extra["scope_label"] == "personal:holylight"
+    assert r.extra["target_dir"].replace("\\", "/").endswith("/memory/personal/holylight")
+    assert r.extra["create_rel_path"] == "memory/personal/holylight/my-cross-pref.md"
+    assert r.extra["index_dir"].replace("\\", "/").endswith("/.claude/memory")
+    # 從專案 cwd：預設本專案 personal；cross_project=True 才進全域
+    proj = tmp_path / "proj"
+    (proj / ".git").mkdir(parents=True)
+    (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
+    (proj / ".claude" / "memory" / "MEMORY.md").write_text("# m\n", encoding="utf-8")
+    r2 = locate_atom("my-proj-pref", "personal", user="holylight", project_cwd=str(proj), mode="create")
+    assert r2.ok and r2.extra["personal_global"] is False
+    assert str(proj).lower().replace("\\", "/") in r2.extra["target_dir"].lower().replace("\\", "/")
+    r3 = locate_atom("my-proj-pref", "personal", user="holylight", project_cwd=str(proj),
+                     mode="create", cross_project=True)
+    assert r3.ok and r3.extra["personal_global"] is True
+    assert r3.extra["create_rel_path"] == "memory/personal/holylight/my-proj-pref.md"
+    # 讀取端同一規則：此 rel_path 只給本人
+    assert entry_visible(r3.extra["create_rel_path"], "holylight", []) is True
+    assert entry_visible(r3.extra["create_rel_path"], "someone-else", []) is False
+
+
+def test_vector_indexer_personal_global_layer(tmp_path, monkeypatch):
+    sys.path.insert(0, str(CLAUDE_ROOT / "tools" / "memory-vector-service"))
+    import indexer
+    mem = tmp_path / "memory"
+    (mem / "工作流").mkdir(parents=True)
+    (mem / "工作流" / "core.md").write_text("# c\n- Trigger: a\n", encoding="utf-8")
+    (mem / "personal" / "holylight").mkdir(parents=True)
+    (mem / "personal" / "holylight" / "pref.md").write_text("# p\n- Trigger: a\n", encoding="utf-8")
+    (mem / "personal" / "auto").mkdir()
+    monkeypatch.setattr(indexer, "MEMORY_DIR", mem)
+    monkeypatch.setattr(indexer, "atom_search_roots", lambda: [mem])
+    monkeypatch.setattr(wg_core, "discover_all_project_memory_dirs", lambda: [])
+    layers = indexer.discover_layers()
+    labels = [l for l, _p, _k in layers]
+    assert "global" in labels and "personal:global:holylight" in labels
+    assert not any(l.endswith(":auto") for l in labels)
+    files = indexer.discover_atoms(layers)
+    by_layer = {}
+    for layer, p, _rel in files:
+        by_layer.setdefault(layer, set()).add(p.name)
+    assert by_layer["global"] == {"core.md"}  # personal 子夾不進 global 層
+    assert by_layer["personal:global:holylight"] == {"pref.md"}
 
 
 # ─── collect_matched_atoms：他專案 atom 永不進池 ─────────────────────────────
@@ -179,8 +262,8 @@ def test_vector_layers_whitelist_even_for_management(tmp_path, monkeypatch):
     _collect(tmp_path, monkeypatch, "完全無關的句子 nothing", state=state, sem=fake_sem)
     assert seen["user"] == "holylight" and seen["roles"] == ["programmer"]
     assert seen["layers"] == [
-        "global", "shared:c--projects", "role:c--projects:programmer",
-        "personal:c--projects:holylight",
+        "global", "personal:global:holylight", "shared:c--projects",
+        "role:c--projects:programmer", "personal:c--projects:holylight",
     ]
 
 

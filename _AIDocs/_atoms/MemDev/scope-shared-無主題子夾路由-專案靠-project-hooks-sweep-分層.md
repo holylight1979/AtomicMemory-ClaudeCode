@@ -6,7 +6,7 @@
 - Trigger: scope=shared, 主題子夾, 專案 atom 分層, _resolve_target, project_hooks, classify-project-atoms, _unclassified, shared 扁平落根, project delegate hook, 專案記憶分類, atom_write append 失敗, Atom not found, locate_existing_atom, 落點 vs 定位, subdir atom, subdir, scope 沿用, atom-move scope, memory/projects 分區, trigger 長度
 - Created-at: 2026-06-26
 
-- Related: auto-capture碎片sweep污染詞庫-defer根治, realm-範疇分區機制-v5, 專案等級-mcpskillhookslog-不放全域根層
+- Related: auto-capture碎片sweep污染詞庫-defer根治, realm-範疇分區機制-v5, 專案等級-mcpskillhookslog-不放全域根層, atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人
 
 ## 知識
 

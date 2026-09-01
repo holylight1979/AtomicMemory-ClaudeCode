@@ -124,9 +124,26 @@ def is_atom_file(path: Path, memory_root: Path) -> bool:
     except ValueError:
         return False
     # rel_parts: directory parts + filename. Check intermediate dirs only.
+    if is_personal_atom_rel_parts(rel_parts):
+        return True  # personal/<user>/<slug>.md 是 atom（role.md / auto 草稿夾除外）
     if any(part in SKIP_DIRS for part in rel_parts[:-1]):
         return False
     return True
+
+
+def is_personal_atom_rel_parts(rel_parts) -> bool:
+    """memory root 下 personal/<user>/…/<slug>.md ⇒ True。
+    排除：personal/<user>/role.md（V4 角色宣告）、personal/auto/（自動萃取候選）、`_` 前綴段。
+    全域根（本人跨專案偏好）與專案根（本人×專案）同一規則。"""
+    parts = list(rel_parts)
+    if len(parts) < 3 or parts[0] != "personal":
+        return False
+    owner = parts[1]
+    if owner == "auto" or owner.startswith("_"):
+        return False
+    if any(p.startswith("_") for p in parts[2:-1]):
+        return False
+    return parts[-1] != "role.md"
 
 
 _META_LINE_RE = re.compile(r"^-\s+([\w-]+):\s*(.+)$")
