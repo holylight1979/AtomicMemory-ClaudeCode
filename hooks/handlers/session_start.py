@@ -442,6 +442,111 @@ def _unpushed_advisory() -> list:
         return []
 
 
+def _personal_sync_advisory(project_mem_dir, user: str) -> list:
+    """本人 personal atom 的版控同步狀態 → 開場最多三行（無事零 context）。
+
+    存在理由：personal 層的設計是「可上版控、僅本人可搜」（可見性由索引 scope=personal:<user>
+    控管）。但索引三檔跟著 repo 走、personal 檔卻可能留在本機（沒 commit、或被 .gitignore 擋掉）
+    → 他機索引懸空、兩機 hook 重建索引互相加回/拿掉。以前靠人傳話「請把 personal 上傳」；
+    這裡讓每個人的 CC 在自己機器上看到自己的缺口，自己補。
+
+    三種訊號（各自獨立、可同時出）：
+      1. personal/<user>/ 被 .gitignore 擋住 → 提示移除該行
+      2. 本人 personal 檔未 commit（untracked / modified）→ 提示收尾一起 commit
+      3. 索引列了本人 personal atom 但本機無檔 → 多半留在本人另一台機器未 push
+
+    唯讀 git；非 repo／無 user／git 不在 → []。自身出錯不阻斷 SessionStart。
+    """
+    try:
+        if not project_mem_dir or not user:
+            return []
+        mem = Path(project_mem_dir)
+        if not mem.is_dir():
+            return []
+        try:
+            if mem.resolve() == Path(MEMORY_DIR).resolve():
+                return []  # 全域核心 repo 對外公開發布，personal 依 .gitignore 留本機是刻意設計；只管專案層
+        except OSError:
+            pass
+        personal_dir = mem / "personal" / user
+
+        def _git(*args, timeout=5):
+            return subprocess.run(
+                ["git", "-C", str(mem), *args],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=timeout,
+            )
+
+        top = _git("rev-parse", "--show-toplevel")
+        if top.returncode != 0:  # 不是 repo → 不吵
+            return []
+        try:
+            rel = personal_dir.resolve().relative_to(Path(top.stdout.strip()).resolve()).as_posix()
+        except Exception:
+            rel = personal_dir.as_posix()
+
+        # ── 3. 索引懸空（先算：決定本機無目錄時要不要繼續）──
+        dangling: list = []
+        idx = mem / "_atom_index.json"
+        if idx.exists():
+            try:
+                atoms = json.loads(idx.read_text(encoding="utf-8")).get("atoms", [])
+                prefix = f"memory/personal/{user}/"
+                for a in atoms:
+                    ap = str(a.get("path", ""))
+                    if ap.startswith(prefix) and not (mem.parent / ap).exists():
+                        dangling.append(a.get("name") or Path(ap).stem)
+            except Exception as e:  # noqa: BLE001
+                _atom_debug_error("session_start:personal_sync_index", e)
+
+        if not personal_dir.is_dir() and not dangling:
+            return []
+
+        out: list = []
+
+        # ── 1. 被 .gitignore 擋住 ──
+        # --no-index：不受目錄內已追蹤檔干擾；探測目錄內虛擬檔名（對目錄本身判定不穩）
+        ign = _git("check-ignore", "-q", "--no-index", "--", str(personal_dir / "_probe.md"))
+        if ign.returncode == 0:
+            out.append(
+                f"[Guardian:PersonalSync] ⚠ {rel}/ 被 .gitignore 擋住——personal 層現行設計是"
+                "「可上版控、僅本人可搜」；擋掉會讓索引在他機懸空、兩機互相加回/拿掉。"
+                "移除 .gitignore 中對應行，把該目錄一起 commit。"
+            )
+
+        # ── 2. 未 commit ──
+        if personal_dir.is_dir() and ign.returncode != 0:
+            st = _git("status", "--porcelain=v1", "--untracked-files=all", "--", str(personal_dir))
+            pending = []
+            for line in (st.stdout or "").splitlines():
+                if len(line) < 4:
+                    continue
+                path = line[3:].strip().strip('"')
+                if " -> " in path:
+                    path = path.split(" -> ", 1)[1]
+                if path.endswith(".access.json"):
+                    continue
+                pending.append(Path(path).stem)
+            if pending:
+                shown = ", ".join(pending[:3]) + ("…" if len(pending) > 3 else "")
+                out.append(
+                    f"[Guardian:PersonalSync] 你有 {len(pending)} 個 personal atom 尚未上版控（{shown}）"
+                    "——只有本人搜得到，但要 commit + push 才會跟到你的其他機器；索引已列它們，"
+                    f"他機會懸空。收尾時 `git add {rel}/` 一起 commit。"
+                )
+
+        if dangling:
+            shown = ", ".join(dangling[:3]) + ("…" if len(dangling) > 3 else "")
+            out.append(
+                f"[Guardian:PersonalSync] 索引列了你 {len(dangling)} 顆 personal atom 但本機無檔（{shown}）"
+                f"——多半留在你另一台機器未 push；到那台跑 `git add {rel}/` + commit + push。"
+            )
+        return out
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("session_start:personal_sync_advisory", e)
+        return []
+
+
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
@@ -715,6 +820,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_unpushed_advisory())
         lines.extend(_followup_advisory())
         lines.extend(_scope_layout_advisory(project_mem_dir))
+        lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
 
         if v4_user:
             lines.append(

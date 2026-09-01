@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 personal 版控同步自檢 — [Guardian:PersonalSync] + get_current_user 多人安全
+- 背景：專案層 personal 設計為「可上版控、僅本人可搜」，但索引三檔跟 repo 走、personal 檔卻可能留本機（未 commit、或被 .gitignore 擋）→ 他機索引懸空、兩機 hook 重建索引互相加回/拿掉；以前靠人傳話「請把 personal 上傳」。**新增** SessionStart `_personal_sync_advisory(project_mem_dir, user)`：三訊號各一行——personal/<user>/ 被 ignore→提示移除；本人 personal 檔 untracked/modified→提示收尾 `git add` 一起 commit；索引列本人 atom 但本機無檔→提示到另一台機器 push。只算本人目錄、跳 .access.json、唯讀 git、非 repo 靜默；全域核心 memory dir 跳過（公開發布 repo，personal 依 .gitignore 留本機是刻意）。**修** `wg_roles.get_current_user`：寫死 `holylight` → `CLAUDE_USER` → `getpass.getuser()` → 預設；共用核心的同事機器原本會把別人的 personal 當自己的（可見性倒置）。新 `verify_personal_sync_advisory.py` 11 案。
+
 ## 2026-09-01 未整理專案自動引導 — [Guardian:ScopeLayout] 提示 + /memory classify + classify-project-scope.py
 - 使用者要求：其他機器上用本系統的專案若沒依 scope 分層整理過，CC 要主動說明改動並引導整理、上傳。**判定**「已整理」（`lib.atom_locations.scope_layout_classified`）：`_atom_index.json.layout=="scope-v2"`（整理工具完成時打上）或專案自有 `shared/_taxonomy.json`；無索引視為無事可整理。**提示**：SessionStart `_scope_layout_advisory` 對未整理專案出一行（改動說明＋入口）。**工具** `tools/classify-project-scope.py`：`plan`（personal 存量逐顆建議 shared/personal——用寫入端同一把 `_is_project_rule`；索引錯標／懸空／trigger 漂移計數；shared 平鋪數）→ CC 做表問使用者 → `apply --decisions {slug: shared|personal|cross_project|reject}`（搬檔含跨磁碟、索引 delete/upsert、Scope/Author 標頭、`fix-scope-from-path`、catalog 重生、打標記）；`status`／`mark`。`/memory classify` 子命令寫 SOP；Install-forAI §7.1 說明升級後整理。新 `verify_scope_layout_classify.py` 4 案。
 
