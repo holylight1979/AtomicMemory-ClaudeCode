@@ -168,6 +168,11 @@ def collect() -> dict:
         ok, msg = _run_check(args)
         if not ok:
             red.append(f"{name} drift：{msg}")
+    # 專案層索引（全部登記專案，從 ~/.claude 一鍵掃；黃燈：不必逐專案開 session 整理，
+    # 修法同一支：sync-atom-index.py --all-projects --fix-scope-from-path）
+    ok, msg = _run_check([str(TOOLS / "sync-atom-index.py"), "--all-projects", "--check"], timeout=300)
+    if not ok:
+        yellow.append(f"專案層 atom index drift：{msg[:300]}")
 
     # 5. vector
     try:

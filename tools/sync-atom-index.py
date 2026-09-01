@@ -44,13 +44,14 @@ from lib.atom_locations import (  # noqa: E402  V5+ 多根掃描 + Failures filt
     iter_atom_files_multi,
     scope_from_index_path,
 )
+from lib.atom_spec import is_atom_file  # noqa: E402
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 
 MEMORY_DIR = Path.home() / ".claude" / "memory"
 CLAUDE_ROOT = MEMORY_DIR.parent
 
 EXCLUDED_DIR_PARTS = {"_reference", "_archived", "_pending_review", "_staging",
-                      "templates", "wisdom", "_drafts", "episodic", "_distant"}
+                      "templates", "wisdom", "_drafts", "episodic", "_distant", "_rejected"}
 EXCLUDED_FILE_NAMES = {"MEMORY.md", "_ATOM_INDEX.md"}
 
 TRIGGER_LINE_RE = re.compile(r"^- Trigger:\s*(.+)$", re.MULTILINE)
@@ -131,7 +132,9 @@ def scan_atom_files(memory_dir: Path, claude_root: Path) -> Dict[str, AtomFile]:
     if memory_dir.resolve() == MEMORY_DIR.resolve():
         files_iter = iter_atom_files_multi()
     else:
-        files_iter = memory_dir.rglob("*.md")
+        # 專案層與全域同一套 atom 判定（SKIP_DIRS：_rejected/_drafts/episodic…；
+        # personal/<u>/ 是 atom、personal/auto/<u>/ 候選不是）
+        files_iter = (p for p in memory_dir.rglob("*.md") if is_atom_file(p, memory_dir))
     for md in files_iter:
         # memory 樹下仍用既有 excluded dir/file 過濾；Failures root iter_atom_files_multi 已過濾
         try:
@@ -193,7 +196,7 @@ def detect_drift(atoms_by_path: Dict[str, AtomFile],
         if atom is None:
             rep.missing_frontmatter.append(row.name)
             continue
-        if atom.triggers != row.triggers:
+        if sorted(atom.triggers) != sorted(row.triggers):  # 順序不算漂移，只看集合
             rep.trigger_drift.append({
                 "atom": row.name,
                 "path": row.path,
@@ -267,16 +270,27 @@ def fix_index_scope_from_path(memory_dir: Path, claude_root: Path,
     本旗標處理存量與未來任何旁路寫入。回 {"dangling_removed": [...], "scope_fixed": [...]}。"""
     layer = "global" if memory_dir.resolve() == MEMORY_DIR.resolve() else "shared"
     out = {"dangling_removed": [], "scope_fixed": []}
+    out["path_repaired"] = []
     for row in index_rows:
         md = claude_root / row.path
-        if row.path and not md.exists():
-            if delete_atom(memory_dir, row.name):
-                out["dangling_removed"].append(row.name)
+        path = row.path
+        if path and not md.exists():
+            # 先找「只是搬了位置」的同名檔（跳過 skip 目錄）：找到 → 修 path；真的沒有 → 才算懸空
+            found = [p for p in memory_dir.rglob(f"{row.name}.md") if is_atom_file(p, memory_dir)]
+            if len(found) == 1:
+                path = str(found[0].relative_to(claude_root)).replace("\\", "/")
+                md = found[0]
+                out["path_repaired"].append(f"{row.name}: {row.path} -> {path}")
+            else:
+                if delete_atom(memory_dir, row.name):
+                    out["dangling_removed"].append(row.name)
+                continue
+        expected = scope_from_index_path(path, layer)
+        if row.scope == expected and path == row.path:
             continue
-        expected = scope_from_index_path(row.path, layer)
+        upsert_atom(memory_dir, name=row.name, path=path, triggers=row.triggers, scope=expected)
         if row.scope == expected:
             continue
-        upsert_atom(memory_dir, name=row.name, path=row.path, triggers=row.triggers, scope=expected)
         try:
             text = md.read_text(encoding="utf-8-sig")
             m = _SCOPE_HEADER_RE.search(text)
@@ -304,9 +318,43 @@ def main() -> int:
     parser.add_argument("--check", action="store_true",
                         help="quiet drift check (exit 1 if drift, for PreCommit)")
     parser.add_argument("--memory-dir", type=Path, default=MEMORY_DIR)
+    parser.add_argument("--all-projects", action="store_true",
+                        help="apply to every registered project memory dir (hooks/wg_core.discover_all_project_memory_dirs) instead of --memory-dir; exit 1 if any drift")
     args = parser.parse_args()
 
-    memory_dir: Path = args.memory_dir
+    if args.all_projects:
+        return _run_all_projects(args)
+    return _run_one(args.memory_dir, args)
+
+
+def _project_memory_dirs() -> List[Tuple[str, Path]]:
+    """與執行期同一套專案判定（hooks/wg_core.discover_all_project_memory_dirs）；只取有 JSON 索引者。"""
+    hooks = CLAUDE_ROOT / "hooks"
+    if str(hooks) not in sys.path:
+        sys.path.insert(0, str(hooks))
+    from wg_core import discover_all_project_memory_dirs  # noqa: E402
+    return [(slug, mem) for slug, mem in discover_all_project_memory_dirs()
+            if (mem / "_atom_index.json").exists()]
+
+
+def _run_all_projects(args) -> int:
+    """從 ~/.claude 一鍵掃全部登記專案：不必逐一開專案 session 叫 CC 整理。"""
+    worst = 0
+    summary: List[Dict] = []
+    for slug, mem in _project_memory_dirs():
+        rc = _run_one(mem, args, quiet=True, collector=summary, slug=slug)
+        worst = max(worst, rc)
+    if args.check:
+        bad = [s for s in summary if s.get("has_drift")]
+        if bad:
+            print(json.dumps(bad, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 1 if bad else 0
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return worst
+
+
+def _run_one(memory_dir: Path, args, *, quiet: bool = False,
+             collector: Optional[List[Dict]] = None, slug: str = "") -> int:
     claude_root = memory_dir.parent
 
     atoms_by_path = scan_atom_files(memory_dir, claude_root)
@@ -334,6 +382,15 @@ def main() -> int:
             atoms_by_path = scan_atom_files(memory_dir, claude_root)
 
     rep = detect_drift(atoms_by_path, index_rows, claude_root)
+
+    if collector is not None:
+        entry = {"project": slug or memory_dir.parent.parent.name, "memory_dir": str(memory_dir),
+                 "actions": actions_taken, "has_drift": rep.has_drift()}
+        if rep.has_drift():
+            entry["drift"] = rep.to_dict()
+        collector.append(entry)
+    if quiet:
+        return 1 if rep.has_drift() else 0
 
     if args.check:
         if rep.has_drift():

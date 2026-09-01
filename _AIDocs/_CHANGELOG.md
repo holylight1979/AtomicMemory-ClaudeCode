@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 專案層索引一鍵整理 — sync-atom-index --all-projects，接進週健檢
+- 使用者問「之前沒分類好的專案，日後要每個都開來叫 CC 整理嗎？」答：不用——注入／萃取／索引 scope 都是全域 hooks 自動做；剩下能程式化的整理（索引 scope 依 path、懸空條目、frontmatter↔索引漂移）加 `--all-projects`（走 `wg_core.discover_all_project_memory_dirs` 同一套專案判定）從 ~/.claude 一鍵掃全部登記專案；`health-weekly` 加黃燈檢查。實跑 11 個專案全 ok。shared/ 平鋪 vs `<Lv1>/` 資料夾是各專案 taxonomy 的事（只影響目錄可讀性、不影響注入），不在此範圍。
+
 ## 2026-09-01 scope 修法腳本化補強 — write_index 缺省由 path 推導、sync-atom-index --fix-scope-from-path、L2 prompt scope 定義
 - 使用者問「三個 Phase 有沒有守住能腳本就腳本」。自查三處沒守住並補：① 45 條 index scope 錯標的源頭 `atom_io.write_index` 新條目缺省 `"global"` → 改由 `lib.atom_locations.scope_from_index_path`（單一來源；`wg_atoms.scope_from_rel_path` 委派）依 path 推導；② Phase 3 的存量回寫邏輯只活在已刪的 scratchpad 腳本 → 進 `tools/sync-atom-index.py --fix-scope-from-path`（scope 回寫＋懸空條目刪除＋.md 標頭對齊，冪等；write_raw source 用 `tool:sync-atom-index`，失敗浮 stderr）；③ 存量 A/B/C/D 是人判的、寫入端 `_is_project_rule` 純標記詞對 31 顆的一致率只有 **57%**（「必須」把個人偏好誤判成專案規則、專案決策常無標記詞）→ 根因在 L2 prompt：範例把「選 LanceDB」「改用 B」「pnpm」「tab 縮排」全標 personal，與使用者定義相反 → prompt 加 scope 判定準則（「遷就專案還是遷就人」）並改範例，L2 判 shared 由 `_is_project_rule` 優先採用，標記詞降為兜底。新 `verify_index_scope_repair.py` 3 案。
 
