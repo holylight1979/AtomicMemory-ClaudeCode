@@ -35,6 +35,7 @@ workflow/world-dev.json
 workflow/_*.log
 workflow/guardian-crash.log
 workflow/extract-worker.log
+workflow/cross-project-index-cache.json
 workflow/hot_cache.json
 workflow/vector_ready.flag
 workflow/vector_rekick.marker
@@ -60,6 +61,7 @@ workflow/dpm-done/
 
 # ─── Per-user / per-machine state (Wave 5 untracked) ─────
 memory/project-registry.json
+memory/personal/
 memory/wisdom/reflection_metrics.json
 memory/wisdom/causal_graph.json
 memory/_meta/atom_io_audit.jsonl

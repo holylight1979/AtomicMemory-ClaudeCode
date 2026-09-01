@@ -140,3 +140,12 @@
 | 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點 | _AIDocs/_atoms/MemDev/記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點.md | 總審計, 索引審計, 分類審計, 一條龍, 讀寫鏈, discover_all_project, discover_layers, project-registry, register_project, cross-project-index-cache, syncMemoryIndex, 專案層判定, 壞連結, Related 壞, 常數飄移 | global |
 | 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源 | _AIDocs/_atoms/MemDev/驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源.md | 探針, 假失敗, 假紅, heredoc, 反斜線, node -e, 假 session, 實機驗證, dry-run 副作用, 探針副作用, 空目錄, parse_memory_index fallback, 驗證機制, post-mortem | global |
 | 上git-在-claude-根層走-publish-remotes兩遠端各留自己的-install-網址發布分支只往前長 | _AIDocs/_atoms/MemDev/上git-在-claude-根層走-publish-remotes兩遠端各留自己的-install-網址發布分支只往前長.md | 上GIT, publish-remotes, publish/github, publish/gitlab, 雙遠端, gitlab remote, origin 只推 github, Install.md 網址, repo-url, 發布分支, git push origin main, non-fast-forward | global |
+| wrong-assumptions-思考與決策 | memory/Failures/思考與決策/wrong-assumptions-思考與決策.md | 假設錯誤, 誤判, 直覺假設, wrong assumption, 前提錯 | global |
+| atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人 | memory/CC與原子記憶契約/atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人.md | scope 可見性, 跨專案注入, personal 洩漏, 候選池, filter_visible, scope_from_rel_path, cross-project, alias 帶入, layers 白名單, 他專案 atom, scope 過濾 | global |
+| atoms-的納入流程必須由-cc-透過全域-靜默-定期的機制-如-cron-在 | memory/personal/holylight/atoms-的納入流程必須由-cc-透過全域-靜默-定期的機制-如-cron-在.md | 全自動, 靜默, 定期處理, 根層 | personal:holylight |
+| feedback-動手前不要找理由縮小範圍 | memory/personal/holylight/feedback-動手前不要找理由縮小範圍.md | 退縮, 撤退, 找理由, over-thinking, 推測沒驗證, 範圍縮小, 推小範圍, 工程過大, 風險高, 丟給使用者, prompt 漏給, 追蹤承諾, token 過期, auth error | personal:holylight |
+| 要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt | memory/personal/holylight/要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt.md | 清晰, 白話, 條列, session prompt | personal:holylight |
+| 技術調查必須以數據和具體程式碼路徑為依據-避免猜測-懷疑-並著重於找出問題 | memory/personal/holylight/技術調查必須以數據和具體程式碼路徑為依據-避免猜測-懷疑-並著重於找出問題.md | 懷疑, 資料, 程式碼, 根因 | personal:holylight |
+| feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫 | memory/personal/holylight/feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫.md | 計畫, 計畫文件, plan, 交付文件, 人稱, 你我, 監督, 重大發現, 埋表格, ExitPlanMode, 審查發現 | personal:holylight |
+| gitlab-ssh金鑰真相-ujgitlab才是活鑰-id-rsa是死鑰 | memory/personal/holylight/gitlab-ssh金鑰真相-ujgitlab才是活鑰-id-rsa是死鑰.md | gitlab, ssh, 金鑰, fetch 失敗, Permission denied, UJGitLab, serverbase 同步, id_rsa | personal:holylight |
+| 給予的技術回饋必須具備高可行動性-聚焦於流程與思考過程-如-為什麼這樣設計-並 | memory/personal/holylight/給予的技術回饋必須具備高可行動性-聚焦於流程與思考過程-如-為什麼這樣設計-並.md | 精簡, 批判性自審, 設計推理, 可行動 | personal:holylight |

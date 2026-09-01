@@ -114,6 +114,28 @@ def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:
     )
 
 
+def dedup_triggers(triggers, *, lower: bool = False) -> List[str]:
+    """strip + 去空 + 大小寫不敏感保序去重（首見者勝）；lower=True 時輸出一律小寫。
+
+    讀寫兩側共用：索引若同時含 "linemate" 與 "LineMate"，讀取側 .lower() 後會變成
+    兩顆相同 trigger，count_trigger_hits 對單字回 2 而灌水越過跨專案 >=2 門檻。
+    """
+    out: List[str] = []
+    seen = set()
+    for t in triggers or []:
+        if not isinstance(t, str):
+            continue
+        t = t.strip()
+        if not t:
+            continue
+        key = t.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(t.lower() if lower else t)
+    return out
+
+
 def upsert_atom(
     mem_dir: Path,
     name: str,
@@ -125,7 +147,7 @@ def upsert_atom(
     """Insert or update an atom entry. Returns True if changed."""
     data = load_atom_index_json(mem_dir)
     atoms = data["atoms"]
-    triggers = [t.strip() for t in triggers if t and t.strip()]
+    triggers = dedup_triggers(triggers)
     new_entry: Dict[str, Any] = {
         "name": name,
         "path": path,
@@ -220,7 +242,7 @@ def parse_legacy_atom_index_md(md_path: Path) -> List[Dict[str, Any]]:
             continue
         name = cells[0]
         path = cells[1]
-        triggers = [t.strip() for t in cells[2].split(",") if t.strip()]
+        triggers = dedup_triggers(cells[2].split(","))
         scope = cells[3] if len(cells) >= 4 else "global"
         atoms.append({
             "name": name,
@@ -304,6 +326,6 @@ def to_atom_entries(data: Dict[str, Any]) -> List[tuple]:
     for a in data.get("atoms", []):
         name = a.get("name", "")
         path = a.get("path", "")
-        triggers = [t.lower() for t in a.get("triggers", [])]
+        triggers = dedup_triggers(a.get("triggers", []), lower=True)
         entries.append((name, path, triggers))
     return entries

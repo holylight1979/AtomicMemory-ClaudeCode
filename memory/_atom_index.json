@@ -2391,6 +2391,134 @@
         "non-fast-forward"
       ],
       "scope": "global"
+    },
+    {
+      "name": "wrong-assumptions-思考與決策",
+      "path": "memory/Failures/思考與決策/wrong-assumptions-思考與決策.md",
+      "triggers": [
+        "假設錯誤",
+        "誤判",
+        "直覺假設",
+        "wrong assumption",
+        "前提錯"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人",
+      "path": "memory/CC與原子記憶契約/atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人.md",
+      "triggers": [
+        "scope 可見性",
+        "跨專案注入",
+        "personal 洩漏",
+        "候選池",
+        "filter_visible",
+        "scope_from_rel_path",
+        "cross-project",
+        "alias 帶入",
+        "layers 白名單",
+        "他專案 atom",
+        "scope 過濾"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "atoms-的納入流程必須由-cc-透過全域-靜默-定期的機制-如-cron-在",
+      "path": "memory/personal/holylight/atoms-的納入流程必須由-cc-透過全域-靜默-定期的機制-如-cron-在.md",
+      "triggers": [
+        "全自動",
+        "靜默",
+        "定期處理",
+        "根層"
+      ],
+      "scope": "personal:holylight"
+    },
+    {
+      "name": "feedback-動手前不要找理由縮小範圍",
+      "path": "memory/personal/holylight/feedback-動手前不要找理由縮小範圍.md",
+      "triggers": [
+        "退縮",
+        "撤退",
+        "找理由",
+        "over-thinking",
+        "推測沒驗證",
+        "範圍縮小",
+        "推小範圍",
+        "工程過大",
+        "風險高",
+        "丟給使用者",
+        "prompt 漏給",
+        "追蹤承諾",
+        "token 過期",
+        "auth error"
+      ],
+      "scope": "personal:holylight"
+    },
+    {
+      "name": "要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt",
+      "path": "memory/personal/holylight/要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt.md",
+      "triggers": [
+        "清晰",
+        "白話",
+        "條列",
+        "session prompt"
+      ],
+      "scope": "personal:holylight"
+    },
+    {
+      "name": "技術調查必須以數據和具體程式碼路徑為依據-避免猜測-懷疑-並著重於找出問題",
+      "path": "memory/personal/holylight/技術調查必須以數據和具體程式碼路徑為依據-避免猜測-懷疑-並著重於找出問題.md",
+      "triggers": [
+        "懷疑",
+        "資料",
+        "程式碼",
+        "根因"
+      ],
+      "scope": "personal:holylight"
+    },
+    {
+      "name": "feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫",
+      "path": "memory/personal/holylight/feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫.md",
+      "triggers": [
+        "計畫",
+        "計畫文件",
+        "plan",
+        "交付文件",
+        "人稱",
+        "你我",
+        "監督",
+        "重大發現",
+        "埋表格",
+        "ExitPlanMode",
+        "審查發現"
+      ],
+      "scope": "personal:holylight"
+    },
+    {
+      "name": "gitlab-ssh金鑰真相-ujgitlab才是活鑰-id-rsa是死鑰",
+      "path": "memory/personal/holylight/gitlab-ssh金鑰真相-ujgitlab才是活鑰-id-rsa是死鑰.md",
+      "triggers": [
+        "gitlab",
+        "ssh",
+        "金鑰",
+        "fetch 失敗",
+        "Permission denied",
+        "UJGitLab",
+        "serverbase 同步",
+        "id_rsa"
+      ],
+      "scope": "personal:holylight"
+    },
+    {
+      "name": "給予的技術回饋必須具備高可行動性-聚焦於流程與思考過程-如-為什麼這樣設計-並",
+      "path": "memory/personal/holylight/給予的技術回饋必須具備高可行動性-聚焦於流程與思考過程-如-為什麼這樣設計-並.md",
+      "triggers": [
+        "精簡",
+        "批判性自審",
+        "設計推理",
+        "可行動"
+      ],
+      "scope": "personal:holylight"
     }
   ]
 }

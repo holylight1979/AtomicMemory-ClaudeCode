@@ -610,7 +610,37 @@ def atom_index_row_kind(rel_path: str, name: str) -> str:
         return "failures_other"
     if is_local_realm_path(rel_path):
         return "local_realm"
+    if is_personal_path(rel_path):
+        return "personal"
     return "individual"
+
+
+def scope_from_index_path(rel_path: str, layer: str = "shared") -> str:
+    """索引 path → scope 標籤（單一來源；hooks/wg_atoms.scope_from_rel_path 委派到這裡）。
+    personal/<user>/（含 personal/auto/<user>/）→ personal:<user>；roles/<r>/ → role:<r>；
+    其餘回 layer（global 索引給 "global"，專案索引給 "shared"）。不信 index 的 scope 欄。"""
+    parts = [p for p in str(rel_path).replace("\\", "/").split("/") if p]
+    dirs = parts[:-1]
+    for i, seg in enumerate(dirs):
+        if seg == "personal" and i + 1 < len(dirs):
+            owner = dirs[i + 1]
+            if owner == "auto" and i + 2 < len(dirs):
+                owner = dirs[i + 2]
+            return f"personal:{owner}"
+        if seg == "roles" and i + 1 < len(dirs):
+            return f"role:{dirs[i + 1]}"
+    return layer
+
+
+def is_personal_path(rel_path: str) -> bool:
+    """索引 path 落 personal/<user>/（全域根 memory/personal/<u>/ 或專案根 memory/personal/<u>/）⇒ True。
+    personal 只給本人：不進 MEMORY.md 目錄、不進 realm 自動搬移、不當範疇段。"""
+    parts = [p for p in str(rel_path).replace("\\", "/").split("/") if p]
+    dirs = parts[:-1]
+    for i, seg in enumerate(dirs):
+        if seg == "personal" and i + 1 < len(dirs):
+            return True
+    return False
 
 
 def local_realm_domain(rel_path: str) -> str:

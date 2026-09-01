@@ -26,7 +26,7 @@ async function toolAtomWrite(id, args) {
     title, scope, confidence, triggers, knowledge, actions, related, mode,
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
-    realm, domain, status, subdir, allow_new_category, dry_run,
+    realm, domain, status, subdir, allow_new_category, dry_run, cross_project,
   } = args;
   dry_run = !!dry_run;
 
@@ -76,6 +76,7 @@ async function toolAtomWrite(id, args) {
   const lr0 = await spawnAtomCli("locate", {
     title, scope, project_cwd, role, user, audience, realm, domain, triggers,
     subdir, mode, allow_new_category: !!allow_new_category, enforce_cwd_scope: true,
+    cross_project: !!cross_project,
   });
   if (!lr0.ok) return sendToolResult(id, `atom_write: ${lr0.error}`, true);
   const loc = lr0.extra || {};
@@ -124,7 +125,7 @@ async function toolAtomWrite(id, args) {
     if (!skip_gate) {
       // 去重只比「寫入者能 append 到」的層：global + ~/.claude 本地 atom + 當前專案
       // 自己的 shared／role／personal。不限層會撞到別的專案、別人 personal 的 atom。
-      const gateLayers = dedupLayersFor(scope, baseDir, { role, user });
+      const gateLayers = dedupLayersFor(scope, baseDir, { role, user, personalGlobal: !!loc.personal_global });
       const gateResult = await execWriteGate(knowledge.join("\n"), confidence, gateLayers);
       if (gateResult.action === "skip") {
         return sendToolResult(id, `Write-gate rejected: ${gateResult.reason}`, true);
@@ -218,7 +219,7 @@ async function toolAtomWrite(id, args) {
     triggerVectorReindex();
     // catalog 同步：global → memory/MEMORY.md（+側檔/各層 _INDEX.md）；shared → 該專案
     // MEMORY.md 的 marker 區塊（--memory-dir）。待審（_pending_review）不入 index → 不觸發。
-    if (scopeLabel === "global") syncMemoryIndex();
+    if (scopeLabel === "global" || loc.personal_global) syncMemoryIndex();
     else if (scope === "shared" && !pendingReviewBy) syncMemoryIndex(baseDir);
 
     return sendToolResult(id,
@@ -322,7 +323,7 @@ async function toolAtomWrite(id, args) {
 
     await appendToIndex(indexDir, slug, relPath, triggers);
     triggerVectorReindex();
-    if (scopeLabel === "global") syncMemoryIndex();
+    if (scopeLabel === "global" || loc.personal_global) syncMemoryIndex();
     else if (scope === "shared" && !pendingReviewBy) syncMemoryIndex(baseDir);
 
     // 讀 access 給訊息顯示保留的計數

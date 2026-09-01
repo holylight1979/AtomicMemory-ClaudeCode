@@ -33,6 +33,7 @@ from wg_core import (
 )
 from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
+    filter_visible, scope_from_rel_path,
 )
 from wg_evasion import (
     _load_oscillation_warnings, _detect_rut_patterns, _check_periodic_review_due,
@@ -543,11 +544,26 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 project_atoms_merged.append((name, rel_path, triggers))
                 existing_names.add(name)
 
+        # scope 可見性（SPEC §8.1）：候選池只留本人看得到的——personal 只給本人、
+        # role 只給持有者；V3 / V4 佈局一視同仁。UPS 六條檢索路全從此池取，不再各自過濾。
+        global_atoms = filter_visible(global_atoms, v4_user, v4_roles)
+        project_atoms_merged = filter_visible(project_atoms_merged, v4_user, v4_roles)
+        atom_scopes = {n: scope_from_rel_path(p, "global") for n, p, _t in global_atoms}
+        atom_scopes.update({n: scope_from_rel_path(p, "shared") for n, p, _t in project_atoms_merged})
+        project_slug = ""
+        if project_root:
+            try:
+                project_slug = cwd_to_project_slug(str(project_root.resolve()))
+            except OSError:
+                project_slug = cwd_to_project_slug(str(project_root))
+
         state["atom_index"] = {
             "global": [(n, p, t) for n, p, t in global_atoms],
             "project": [(n, p, t) for n, p, t in project_atoms_merged],
             "project_memory_dir": str(project_mem_dir) if project_mem_dir else "",
             "project_root": str(project_root) if project_root else "",
+            "project_slug": project_slug,
+            "scopes": atom_scopes,
         }
         state["injected_atoms"] = []
         state["phase"] = "working"
