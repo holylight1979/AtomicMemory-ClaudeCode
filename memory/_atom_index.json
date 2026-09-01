@@ -983,7 +983,10 @@
         "多行 commit message",
         "上GIT",
         "main 保護",
-        "force 保護"
+        "force 保護",
+        "publish-remotes",
+        "Fork graph",
+        "單一條線"
       ],
       "scope": "global"
     },
@@ -2374,25 +2377,6 @@
       "scope": "global"
     },
     {
-      "name": "上git-在-claude-根層走-publish-remotes兩遠端各留自己的-install-網址發布分支只往前長",
-      "path": "_AIDocs/_atoms/MemDev/上git-在-claude-根層走-publish-remotes兩遠端各留自己的-install-網址發布分支只往前長.md",
-      "triggers": [
-        "上GIT",
-        "publish-remotes",
-        "publish/github",
-        "publish/gitlab",
-        "雙遠端",
-        "gitlab remote",
-        "origin 只推 github",
-        "Install.md 網址",
-        "repo-url",
-        "發布分支",
-        "git push origin main",
-        "non-fast-forward"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "wrong-assumptions-思考與決策",
       "path": "memory/Failures/思考與決策/wrong-assumptions-思考與決策.md",
       "triggers": [
@@ -2551,6 +2535,56 @@
         "Stop 閘",
         "node --check",
         "heredoc"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "git-apply-check-過但-git-am-失敗-crlf-檔案的-patch-用-git-apply-index-加-git-am-continue-保留原作者",
+      "path": "memory/版控/Git/git-apply-check-過但-git-am-失敗-crlf-檔案的-patch-用-git-apply-index-加-git-am-continue-保留原作者.md",
+      "triggers": [
+        "git am",
+        "git apply",
+        "patch does not apply",
+        "format-patch",
+        "同事 patch",
+        "審核 patch",
+        "CRLF patch",
+        "git am --continue",
+        "保留作者",
+        "無 push 權"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "always-load-規則檔修剪判準-事前規則留一句-事後且已有程式硬控制才刪-啟發式提示不算硬控制",
+      "path": "_AIDocs/_atoms/MemDev/always-load-規則檔修剪判準-事前規則留一句-事後且已有程式硬控制才刪-啟發式提示不算硬控制.md",
+      "triggers": [
+        "core.md 太肥",
+        "修剪規則",
+        "always-load",
+        "CLAUDE.md 瘦身",
+        "IDENTITY.md 精簡",
+        "rules/core.md",
+        "重複規則",
+        "hook 已強制",
+        "事前規則",
+        "事後諸葛"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原",
+      "path": "_AIDocs/_atoms/MemDev/mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原.md",
+      "triggers": [
+        "MCP 重啟",
+        "Reload Window",
+        "Received undefined",
+        "spawn failed",
+        "atom_write 壞",
+        "lazy-require",
+        "模組混載",
+        "改 js 後",
+        "paths.js"
       ],
       "scope": "global"
     }

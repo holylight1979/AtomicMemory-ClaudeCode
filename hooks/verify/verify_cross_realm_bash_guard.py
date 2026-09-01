@@ -43,7 +43,7 @@ def test_inline_python_heredoc_after_cd_root_denied():
 def test_root_git_commit_from_project_denied():
     assert _denied("cd ~/.claude && git add hooks/handlers/session_start.py && git commit -m x")
     assert _denied(f"git -C {HOME_CLAUDE} commit -am x")
-    assert _denied("cd ~/.claude && python tools/publish-remotes.py")
+    assert _denied("cd ~/.claude && git push origin main")
 
 
 def test_direct_core_path_write_ops_denied():

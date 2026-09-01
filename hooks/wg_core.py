@@ -1365,8 +1365,7 @@ _BASH_WRITE_OP_RE = re.compile(
     r"(?:<<|>>|(?<![<>=!])>(?!&?/dev/null|\s*\$null|\s*NUL\b)|\btee\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)"
     r"|\b(?:python3?|pythonw|py)(?:\.exe)?\s+-(?:\s|c\b)|\b(?:cp|mv|rm|rmdir|del|erase|copy|move|ren|rename|truncate|install)\b"
     r"|\bgit\s+(?:-C\s+\S+\s+)?(?:add|commit|push|mv|rm|checkout|reset|stash|rebase|cherry-pick|merge|apply|am)\b"
-    r"|\b(?:Set-Content|Out-File|Add-Content|Copy-Item|Move-Item|Remove-Item|New-Item|Rename-Item)\b"
-    r"|\bpublish-remotes\.py\b)",
+    r"|\b(?:Set-Content|Out-File|Add-Content|Copy-Item|Move-Item|Remove-Item|New-Item|Rename-Item)\b)",
     re.IGNORECASE,
 )
 
@@ -1397,11 +1396,11 @@ def check_cross_realm_bash(
             return None
     return (
         "[Guardian:CrossRealmBashBlock] 專案 session 不得經 Bash/PowerShell 修改 ~/.claude 核心層"
-        "（hooks/lib/tools/skills/rules/prompts、根層設定與文件）或操作根層 repo（git add/commit/push、publish）。\n"
+        "（hooks/lib/tools/skills/rules/prompts、根層設定與文件）或操作根層 repo（git add/commit/push）。\n"
         f"命令：{cmd[:160]!r}\n"
         f"session cwd：{cwd}\n"
         "規則：專案層遇到要改根層的需求 → 不動手，把需求寫成一段可貼上的 prompt 交給使用者，"
-        "請他到 ~/.claude 開 session 執行（那裡會跑 verify、選擇性 staging、publish-remotes）。\n"
+        "請他到 ~/.claude 開 session 執行（那裡會跑 verify、選擇性 staging、push）。\n"
         "專案自己的需求 → 寫 {專案根}/.claude/hooks/project_hooks.py 或 .claude/skills/。\n"
         "只是要跑根層工具（唯讀、或針對本專案）→ 不要 cd 進 ~/.claude，直接 "
         "`python ~/.claude/tools/<tool>.py …`。"

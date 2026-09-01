@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 版控發布回歸單線 — 撤 publish-remotes.py／publish/* 分支，Install.md 不列網址，origin 雙 push URL
+- 使用者看 Fork graph 不滿：兩遠端各一條 `publish/<name>` merge 鏈交錯（每次發布固定兩顆 merge + 網址替換 commit）。根因是設計本身：Install.md 兩端內容不同 → 必為不同 commit → 不 force 就只能 merge 鏈。另實證本地 main 已被 `git pull origin` 快轉成 publish/github（origin/main 就是它），設計假設「main 從不 pull 遠端」已破。**定案**：Install.md 版控庫段改平台中性（不列網址、去 `<!-- repo-url -->` 標記），publish/gitlab 最後一次 merge 進 main 收斂（兩遠端皆 fast-forward，不 force），刪 `tools/publish-remotes.py` 與 publish/* 分支；`origin` 掛 GitHub + GitLab 兩個 push URL，`git push` 一次到兩邊、同一份歷史；SessionEnd 晉升自動 push 改 `git push origin main`；Cross-Realm Bash Block 拿掉 publish-remotes 字樣（git push 本就在擋）。鐵律不變：已 push 不改寫。
+
 ## 2026-09-01 rules/core.md 誠實化修剪 — 2.2k→1.3k tokens，只留「事前規則」與「無程式閘」
 - 使用者問 core.md 是否太肥。逐條對照 hook／MCP：刪已程式化強制的「事後型」（Stop Sync 提醒、`[Parallel:Suggest]`、`wg_research` fan-out、`atom_write` domain 拒寫＋Lv1 清單、SessionStart `[查閱知識庫]`）；「事前型」縮一句（根層閘、版本脈絡、token/handoff）；修正與系統矛盾的「『記住』→[固]」（`atom_io` 拒收新建非 [臨]）為「新 atom 一律 [臨] 起跳」。留：Native-first、可觀測性、實證、`_staging`、走 atom_write（無 PreToolUse 閘擋直接 Edit atom）、Realm/Scope 問題句、識流映射。IDENTITY.md（gitignored）預告三行同縮一句（PreActionNotice 只檢「執行目標」「預估/概估」）。判準：hook 是 JIT/事後注入、core.md 是事前常駐——事前型留一句省一次被擋的呼叫，事後型刪零損失。
 
