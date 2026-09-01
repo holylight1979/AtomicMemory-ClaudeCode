@@ -2,6 +2,7 @@
 
 ## 治理原則
 - **Native-first**：原生機制（CLAUDE.md / skills / memory / resume）優先；自製只做原生做不到的「結構化 · 可稽核 · 跨-session 高價值」，不為想像中的需求長枝葉。過度工程的正解是誠實化＋修剪，非推倒重來。
+- **根層只在根層改**：專案 session 遇到要改 `~/.claude` 核心（hooks/lib/tools/skills/rules/prompts、根層設定與文件、根層 repo 的 commit/publish）的需求 → 不動手，把需求寫成一段可貼上的 prompt 交給使用者到 `~/.claude` 開 session 執行（PreToolUse 閘會擋 Write/Edit 與 Bash 寫入）。專案自己的需求寫 `{專案根}/.claude/hooks/project_hooks.py`（delegate：inject/extract/on_session_start）或 `.claude/skills/`。跑根層工具不算改：直接 `python ~/.claude/tools/<tool>.py …`，不 `cd` 進去。
 - **可觀測性鐵律**：所有 fail-open「不阻斷但要告知」——降級／靜默失敗必浮出訊號（告警 / stderr / 收尾報告），不得無聲吞掉。
 
 ## 知識庫
