@@ -239,7 +239,14 @@ def _find_atom_path(name: str, all_atoms: List[Tuple[AtomEntry, Path]]) -> Optio
 
 
 def scope_from_rel_path(rel_path: str, layer: str = "shared") -> str:
-    """索引 path → scope 標籤：personal:<user> / role:<role>；其餘回 layer（global|shared）。"""
+    """索引 path → scope 標籤：personal:<user> / role:<role>；其餘回 layer（global|shared）。
+    單一來源在 lib.atom_locations.scope_from_index_path（寫入端 write_index 缺省 scope、
+    sync-atom-index --fix-scope-from-path 同用）；lib 不可用時本地退化實作同規則。"""
+    try:
+        from atom_locations import scope_from_index_path
+        return scope_from_index_path(rel_path, layer)
+    except ImportError:
+        pass
     parts = [p for p in str(rel_path).replace("\\", "/").split("/") if p]
     dirs = parts[:-1]
     for i, seg in enumerate(dirs):

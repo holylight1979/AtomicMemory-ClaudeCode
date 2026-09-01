@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 scope 修法腳本化補強 — write_index 缺省由 path 推導、sync-atom-index --fix-scope-from-path、L2 prompt scope 定義
+- 使用者問「三個 Phase 有沒有守住能腳本就腳本」。自查三處沒守住並補：① 45 條 index scope 錯標的源頭 `atom_io.write_index` 新條目缺省 `"global"` → 改由 `lib.atom_locations.scope_from_index_path`（單一來源；`wg_atoms.scope_from_rel_path` 委派）依 path 推導；② Phase 3 的存量回寫邏輯只活在已刪的 scratchpad 腳本 → 進 `tools/sync-atom-index.py --fix-scope-from-path`（scope 回寫＋懸空條目刪除＋.md 標頭對齊，冪等；write_raw source 用 `tool:sync-atom-index`，失敗浮 stderr）；③ 存量 A/B/C/D 是人判的、寫入端 `_is_project_rule` 純標記詞對 31 顆的一致率只有 **57%**（「必須」把個人偏好誤判成專案規則、專案決策常無標記詞）→ 根因在 L2 prompt：範例把「選 LanceDB」「改用 B」「pnpm」「tab 縮排」全標 personal，與使用者定義相反 → prompt 加 scope 判定準則（「遷就專案還是遷就人」）並改範例，L2 判 shared 由 `_is_project_rule` 優先採用，標記詞降為兜底。新 `verify_index_scope_repair.py` 3 案。
+
 ## 2026-09-01 寫入端路由 + personal 存量分流（Phase 3）— 專案規則落 shared 記提出者、31 顆存量歸位、索引 scope 以 path 為準
 - **寫入端**：`user-extract-worker` 原本 L2 給的 scope 被 cwd 判斷蓋掉、一律 personal、Author 硬編 `auto-extracted-v4.1`。改三分路由：cwd 在 ~/.claude → global；專案內且內容是專案規則（`_is_project_rule`：L2 判 shared／含此專案・上傳・發布・必須・禁止等標記詞／借 `realm_gate` 的專名推導）→ shared（`classify_category(layer="shared")` 給範疇，分不出退回 personal 不拒寫）；其餘 → 本人×專案 personal。Author 一律填真實使用者；`memory-peek` / `memory-undo` 改以知識段 `<!-- src: turn -->` 辨識自動萃取 atom。新 `verify_user_extract_routing.py` 5 案。
 - **存量**（使用者逐顆拍板）：19 顆 personal→shared（SGI 進 ProjectWorkflow/Client/Server 範疇夾、TSLG feedback-svn 進 failures/版控、其餘專案平鋪 shared；Author 補提出者，含 wellstseng 2 顆）、7 顆→本人跨專案 `~/.claude/memory/personal/holylight/`、3 顆一次性任務移 `_rejected/`、2 顆 zmud 相關搬到 MudClient 專案。**索引**：16 個 memory dir 的 index scope 以 path 推導回寫（45 條，含 `project` legacy→shared）、2 條懸空條目刪除、4 個 `Scope: project` 標頭對齊；各根目錄 catalog 重生。清冊複跑：不一致 49→0、personal 31→9（7 全域＋2 專案）。SGI 20 則 prompt 重放仍 0 洩漏。專案端 memory 變動落在各專案自己的版控，未代提交。

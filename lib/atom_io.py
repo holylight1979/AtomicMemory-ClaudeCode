@@ -442,7 +442,7 @@ def write_index(
     （atom_index_json 同 package，import 恆成功；MD 由其自動 regen）。
 
     scope：明給則用；None → **沿用索引既有條目的 scope**（replace/edit_metadata
-    不得重設專案層 scope）；新條目才預設 "global"。trigger 逐項驗長度上限
+    不得重設專案層 scope）；新條目由 path 推導（scope_from_index_path）。trigger 逐項驗長度上限
     （TRIGGER_MAX_LEN）——超長在寫入當下拒絕，不留給後續 validate_index 才爆。
     """
     if source not in VALID_SOURCES:
@@ -470,12 +470,22 @@ def write_index(
                     break
         except (OSError, ValueError):
             pass
+    if not scope:
+        # 新條目且呼叫端沒給 scope：由 path 推導（personal/<u>/ → personal:<u>、roles/<r>/ →
+        # role:<r>、其餘依索引層 global|shared），不再一律預設 "global"——那正是專案層
+        # 索引長出 45 條 scope=global 錯標的源頭；讀取端同一套規則（scope_from_index_path）。
+        try:
+            from .atom_locations import scope_from_index_path, GLOBAL_MEMORY_DIR
+            _layer = "global" if base_dir.resolve() == GLOBAL_MEMORY_DIR.resolve() else "shared"
+            scope = scope_from_index_path(rel_path, _layer)
+        except (ImportError, OSError):
+            scope = "global"
     upsert_atom(
         mem_dir=base_dir,
         name=slug,
         path=rel_path,
         triggers=triggers_list,
-        scope=scope or "global",
+        scope=scope,
     )
     index_path = base_dir / "_atom_index.json"
     _audit_log({

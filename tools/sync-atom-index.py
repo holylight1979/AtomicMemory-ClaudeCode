@@ -35,12 +35,14 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_index_json import (  # noqa: E402
     dedup_triggers,
+    delete_atom,
     load_atom_index_json,
     upsert_atom,
 )
 from lib.atom_locations import (  # noqa: E402  V5+ 多根掃描 + Failures filter
     atom_search_roots,
     iter_atom_files_multi,
+    scope_from_index_path,
 )
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 
@@ -251,12 +253,54 @@ def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
     return added
 
 
+_SCOPE_HEADER_RE = re.compile(r"^- Scope:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def fix_index_scope_from_path(memory_dir: Path, claude_root: Path,
+                              index_rows: List[IndexRow]) -> Dict[str, List[str]]:
+    """索引 scope 以 path 為準回寫（讀取端同一套 scope_from_index_path），並清懸空條目。
+
+    - 條目 path 指向不存在的檔 → delete_atom（懸空）
+    - scope 欄 ≠ path 推導（personal/<u>/、roles/<r>/、其餘依層 global|shared）→ upsert 回正
+      並把 .md 檔頭 `- Scope:` 對齊（走 write_raw funnel）
+    這是寫入端曾漏傳 scope（預設 global）留下的固定修法；write_index 缺省已改由 path 推導，
+    本旗標處理存量與未來任何旁路寫入。回 {"dangling_removed": [...], "scope_fixed": [...]}。"""
+    layer = "global" if memory_dir.resolve() == MEMORY_DIR.resolve() else "shared"
+    out = {"dangling_removed": [], "scope_fixed": []}
+    for row in index_rows:
+        md = claude_root / row.path
+        if row.path and not md.exists():
+            if delete_atom(memory_dir, row.name):
+                out["dangling_removed"].append(row.name)
+            continue
+        expected = scope_from_index_path(row.path, layer)
+        if row.scope == expected:
+            continue
+        upsert_atom(memory_dir, name=row.name, path=row.path, triggers=row.triggers, scope=expected)
+        try:
+            text = md.read_text(encoding="utf-8-sig")
+            m = _SCOPE_HEADER_RE.search(text)
+            if m and m.group(1) != expected:
+                wr = write_raw(md, text[:m.start()] + f"- Scope: {expected}" + text[m.end():],
+                               source="tool:sync-atom-index", op="fix_scope_from_path")
+                if not getattr(wr, "ok", False):
+                    # write_raw 對未列舉 source／其他失敗回 ok=False 不 raise：浮出、不吞
+                    print(f"[fix-scope] header not rewritten for {row.name}: {getattr(wr, 'error', '')}",
+                          file=sys.stderr)
+        except (OSError, UnicodeDecodeError):
+            pass
+        out["scope_fixed"].append(f"{row.name}: {row.scope} -> {expected}")
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="V5 atom index sync (JSON SoT).")
     parser.add_argument("--fix", action="store_true",
                         help="overwrite frontmatter Trigger from _atom_index.json")
     parser.add_argument("--add-from-frontmatter", action="store_true",
                         help="append atoms with frontmatter Trigger but missing from _atom_index.json")
+    parser.add_argument("--fix-scope-from-path", action="store_true",
+                        help="rewrite index scope from path (personal/roles/layer), drop dangling entries, align .md Scope header")
     parser.add_argument("--check", action="store_true",
                         help="quiet drift check (exit 1 if drift, for PreCommit)")
     parser.add_argument("--memory-dir", type=Path, default=MEMORY_DIR)
@@ -275,6 +319,13 @@ def main() -> int:
         if added:
             actions_taken.append(f"added to _atom_index.json: {added}")
             index_rows = load_index_rows(memory_dir)
+
+    if args.fix_scope_from_path:
+        res = fix_index_scope_from_path(memory_dir, claude_root, index_rows)
+        if res["dangling_removed"] or res["scope_fixed"]:
+            actions_taken.append(f"scope-from-path: {res}")
+            index_rows = load_index_rows(memory_dir)
+            atoms_by_path = scan_atom_files(memory_dir, claude_root)
 
     if args.fix:
         changed = fix_frontmatter_from_index(atoms_by_path, index_rows)
