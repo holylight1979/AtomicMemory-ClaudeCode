@@ -1343,6 +1343,71 @@ def check_cross_realm_write(
     )
 
 
+# ─── 跨層 Bash 寫入閘 ─────────────────────────────────────────────────────────
+# CrossRealmWriteBlock 只看 Write/Edit/NotebookEdit；實證（2026-09-01）專案 session 以
+# `cd ~/.claude && python - <<EOF … write_text` 改根層 hooks、再 `git add && git commit`，
+# 整條沒被看到。這裡補 Bash/PowerShell：根層上下文（cd 進 ~/.claude、git -C、或命令列直接
+# 指到核心路徑）× 會動手的操作（heredoc／內嵌 python／redirect／sed -i／cp mv rm／
+# git add commit push…／PowerShell 寫入 cmdlet）→ deny。純跑根層工具
+# （`python ~/.claude/tools/x.py …`，不 cd 進去）與唯讀命令照常放行。
+_ROOT_CORE_SUBDIRS_RE = r"(?:hooks|lib|tools|skills|rules|prompts)"
+_ROOT_SENSITIVE_FILES_RE = r"(?:settings\.json|CLAUDE\.md|IDENTITY[^/\\\s]*\.md|USER[^/\\\s]*\.md|TECH\.md|README\.md|Install[^/\\\s]*\.md)"
+_ROOT_HOME_RE = r"(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\$env:USERPROFILE|/[a-zA-Z]/Users/[^/\s\"']+|[a-zA-Z]:[\\/]Users[\\/][^\\/\s\"']+)"
+_ROOT_CD_RE = re.compile(
+    rf"(?:\bcd\s+|\bgit\s+-C\s+|\bSet-Location\s+|\bpushd\s+)[\"']?{_ROOT_HOME_RE}[\\/]\.claude(?:[\\/]{_ROOT_CORE_SUBDIRS_RE})?[\\/]?[\"']?(?=\s|;|&&|\|\||$)",
+    re.IGNORECASE,
+)
+_ROOT_CORE_PATH_RE = re.compile(
+    rf"{_ROOT_HOME_RE}[\\/]\.claude[\\/](?:{_ROOT_CORE_SUBDIRS_RE}[\\/]|{_ROOT_SENSITIVE_FILES_RE}\b)",
+    re.IGNORECASE,
+)
+_BASH_WRITE_OP_RE = re.compile(
+    r"(?:<<|>>|(?<![<>=!])>(?!&?/dev/null|\s*\$null|\s*NUL\b)|\btee\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)"
+    r"|\b(?:python3?|pythonw|py)(?:\.exe)?\s+-(?:\s|c\b)|\b(?:cp|mv|rm|rmdir|del|erase|copy|move|ren|rename|truncate|install)\b"
+    r"|\bgit\s+(?:-C\s+\S+\s+)?(?:add|commit|push|mv|rm|checkout|reset|stash|rebase|cherry-pick|merge|apply|am)\b"
+    r"|\b(?:Set-Content|Out-File|Add-Content|Copy-Item|Move-Item|Remove-Item|New-Item|Rename-Item)\b"
+    r"|\bpublish-remotes\.py\b)",
+    re.IGNORECASE,
+)
+
+
+def check_cross_realm_bash(
+    tool_name: str, tool_input: Dict[str, Any], cwd: str,
+    config: Dict[str, Any],
+) -> Optional[str]:
+    """外部專案 session 經 Bash/PowerShell 改 ~/.claude 核心層或操作根層 repo → deny。cwd 缺失 fail-open。"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return None
+    g = (config.get("guard") or {}).get("cross_realm_bash") or {}
+    if not g.get("enabled", True):
+        return None
+    cmd = tool_input.get("command", "") or ""
+    if not cmd or not cwd:
+        return None
+    if _is_core_session(cwd) is not False:
+        return None  # 核心開發 session 放行；無法判定 → fail-open
+    root_ctx = bool(_ROOT_CD_RE.search(cmd) or _ROOT_CORE_PATH_RE.search(cmd))
+    if not root_ctx:
+        return None
+    if not _BASH_WRITE_OP_RE.search(cmd):
+        return None  # 唯讀（sed -n / grep / cat / python ~/.claude/tools/x.py …）放行
+    cmd_norm = cmd.replace("\\", "/").lower()
+    for pat in g.get("allowlist", []) or []:
+        if pat and str(pat).replace("\\", "/").lower() in cmd_norm:
+            return None
+    return (
+        "[Guardian:CrossRealmBashBlock] 專案 session 不得經 Bash/PowerShell 修改 ~/.claude 核心層"
+        "（hooks/lib/tools/skills/rules/prompts、根層設定與文件）或操作根層 repo（git add/commit/push、publish）。\n"
+        f"命令：{cmd[:160]!r}\n"
+        f"session cwd：{cwd}\n"
+        "規則：專案層遇到要改根層的需求 → 不動手，把需求寫成一段可貼上的 prompt 交給使用者，"
+        "請他到 ~/.claude 開 session 執行（那裡會跑 verify、選擇性 staging、publish-remotes）。\n"
+        "專案自己的需求 → 寫 {專案根}/.claude/hooks/project_hooks.py 或 .claude/skills/。\n"
+        "只是要跑根層工具（唯讀、或針對本專案）→ 不要 cd 進 ~/.claude，直接 "
+        "`python ~/.claude/tools/<tool>.py …`。"
+    )
+
+
 def check_cross_realm_mcp_cmd(
     tool_name: str, tool_input: Dict[str, Any], cwd: str,
     config: Dict[str, Any],

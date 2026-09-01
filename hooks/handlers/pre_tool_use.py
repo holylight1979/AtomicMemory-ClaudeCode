@@ -14,7 +14,7 @@ from wg_core import (
     WORKFLOW_DIR,
     output_json, output_nothing,
     check_memory_path_block, check_svn_test_block,
-    check_cross_realm_write, check_cross_realm_mcp_cmd,
+    check_cross_realm_write, check_cross_realm_mcp_cmd, check_cross_realm_bash,
     read_state, get_transcript_path, append_guard_log,
     _atom_debug_log,
 )
@@ -580,6 +580,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     _cwd = input_data.get("cwd", "") or ""
     deny_reason = (
         check_cross_realm_write(tool_name, tool_input, _cwd, config)
+        or check_cross_realm_bash(tool_name, tool_input, _cwd, config)
         or check_cross_realm_mcp_cmd(tool_name, tool_input, _cwd, config)
     )
     if deny_reason:
