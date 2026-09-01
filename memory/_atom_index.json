@@ -2587,6 +2587,21 @@
         "paths.js"
       ],
       "scope": "global"
+    },
+    {
+      "name": "sync-memory-indexpy-在-windows-直接跑會-cp950-unicodeencodeerror-前綴-pythonioencodingutf-8",
+      "path": "_AIDocs/_atoms/Tools/sync-memory-indexpy-在-windows-直接跑會-cp950-unicodeencodeerror-前綴-pythonioencodingutf-8.md",
+      "triggers": [
+        "sync-memory-index",
+        "cp950",
+        "UnicodeEncodeError",
+        "PYTHONIOENCODING",
+        "catalog 重生",
+        "_local_catalog",
+        "sync_doc_counts",
+        "索引重生"
+      ],
+      "scope": "global"
     }
   ]
 }
