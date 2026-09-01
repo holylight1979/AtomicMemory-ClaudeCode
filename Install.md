@@ -17,9 +17,7 @@
 
 ### 0. 版控庫（原子記憶系統本身的，不是你專案的）
 
-<!-- repo-url -->
-* GitHub：`https://github.com/holylight1979/AtomicMemory-ClaudeCode.git`
-<!-- /repo-url -->
+就是你正在看這份文件的這個版控庫——clone 網址在版控庫頁面的 Clone / Code 按鈕裡。
 
 ### 1. 在 `~/.claude/` 開一個 Claude Code 對話
 
@@ -27,7 +25,7 @@
 
 ### 2. 貼 prompt
 
-把上面的網址換進 `[版控庫]`，整段貼給 Claude Code：
+把版控庫的 clone 網址換進 `[版控庫]`，整段貼給 Claude Code：
 
 ```
 1. 請把 [版控庫] 這套原子記憶系統（Atomic Memory）git clone 或下載到 ~/.claude/；
