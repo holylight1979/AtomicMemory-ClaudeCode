@@ -67,7 +67,7 @@ Session Ready
 
 | 模組 | 職責 |
 |------|------|
-| core.md | 知識庫維護 + 原子記憶分類 + 同步工作流 + 對話續航（合併單檔） |
+| core.md | 治理原則 + 知識庫 + 記憶寫入/Realm/Scope + 對話（只留事前規則；Sync/並行/研究 fan-out/domain/版本 warn 已由 hook・MCP 強制，不重述） |
 
 ## 4. Hook 系統（dispatcher + 9 事件 handlers + 13 wg_* + 5 standalone hook）
 
