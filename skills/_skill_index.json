@@ -81,7 +81,7 @@
     {
       "name": "memory",
       "dir": "memory",
-      "description": "原子記憶系統綜合工具 — health/review/score 三主力 + peek/undo（僅查自動萃取歷史殘留）。用於檢查記憶健康、自我迭代、Session 評分。"
+      "description": "原子記憶系統綜合工具 — health/review/score 三主力 + classify（專案記憶 scope 分層整理，SessionStart 出 [Guardian:ScopeLayout] 或使用者說「整理記憶分類」時用）+ peek/undo（僅查自動萃取歷史殘留）。用於檢查記憶健康、自我迭代、Session 評分。"
     },
     {
       "name": "read-project",

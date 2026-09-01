@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 未整理專案自動引導 — [Guardian:ScopeLayout] 提示 + /memory classify + classify-project-scope.py
+- 使用者要求：其他機器上用本系統的專案若沒依 scope 分層整理過，CC 要主動說明改動並引導整理、上傳。**判定**「已整理」（`lib.atom_locations.scope_layout_classified`）：`_atom_index.json.layout=="scope-v2"`（整理工具完成時打上）或專案自有 `shared/_taxonomy.json`；無索引視為無事可整理。**提示**：SessionStart `_scope_layout_advisory` 對未整理專案出一行（改動說明＋入口）。**工具** `tools/classify-project-scope.py`：`plan`（personal 存量逐顆建議 shared/personal——用寫入端同一把 `_is_project_rule`；索引錯標／懸空／trigger 漂移計數；shared 平鋪數）→ CC 做表問使用者 → `apply --decisions {slug: shared|personal|cross_project|reject}`（搬檔含跨磁碟、索引 delete/upsert、Scope/Author 標頭、`fix-scope-from-path`、catalog 重生、打標記）；`status`／`mark`。`/memory classify` 子命令寫 SOP；Install-forAI §7.1 說明升級後整理。新 `verify_scope_layout_classify.py` 4 案。
+
 ## 2026-09-01 同事 patch 合併：週健檢 heartbeat 防誤報 + MCP Python 絕對路徑解析（防 Store 佔位）
 - 兩顆來自同事（StarNight）的 patch 經審核合併（保留原作者）。**fix(health)**：`_self_iterate_atoms` 掃完無晉升事件時 `wg_core.log_promotion_heartbeat` 落一筆 `action=heartbeat`（尾筆 <20h 節流），週健檢 §6 鮮度只讀 ts，不再把「14 天沒發生晉升」誤判為「管線停擺」紅燈；新 `verify_promotion_heartbeat.py` 4 案。**fix(mcp)**：js 端 8 處裸 `spawn("python")`（funnel/atom-tools/atom-access 與 http-api `pyCmd`）改用 `paths.js` `PYTHON_EXE`（`resolvePythonExe()`：`WG_PYTHON` → 常見安裝路徑 → 裸 `python`），根因是 Windows PATH 的 Microsoft Store 佔位 `python.exe` 零輸出 exit 9009 → funnel 全掛、`atom_write` 死透；hooks 端不受影響（`sys.executable` + settings.json 絕對路徑）。**審核補強**：退回裸 `python` 時 stderr 印 WARN（fail-open 必浮訊號）並匯出 `PYTHON_EXE_FALLBACK`；`WG_PYTHON` 進 Install-forAI（FAQ + Step 4）；Store 佔位坑寫入 OS-Windows atom。已知取捨：Windows 上解析不看 PATH 順位，刻意用 conda/pyenv 者需設 `WG_PYTHON`。
 
