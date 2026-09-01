@@ -89,7 +89,7 @@
 | 元件 | 機制 |
 |------|------|
 | `tools/statusline.py` | settings.json `statusLine` 指入（refreshInterval 10s + 每則訊息事件驅動）。stdin 吃 CC status JSON（session_id/model/context_window），純 stdlib 讀 `state-<sid>.json`（改檔/讀檔/知識佇列數）+ `vector_ready.flag` + `aec-report/<sid>-t*.json` 最大 turn severity → 一行 ANSI 狀態列。fail-open 必告知：state 壞 → `WG:?`；任何錯誤仍印一行 |
-| `tools/health-weekly.py` | Windows Task Scheduler `Claude-Memory-WeeklyHealth`（週一 09:00，StartWhenAvailable 補跑）驅動，無 CC session 依賴。唯讀聚合：memory-audit + atom-health-check + 兩索引 --check + vector + **注入效果**（memory-effect-report --json：token 稅/零效用證據 → 黃）+ **管線鮮度**（有 session 但 promotion audit/episodic 停 14 天 → 紅）→ `workflow/health-reports/`（留 12 份）+ `health-last-run.json`。SessionStart `_health_advisory` 為死人開關：排程器本身死了也會在 session 浮出 |
+| `tools/health-weekly.py` | Windows Task Scheduler `Claude-Memory-WeeklyHealth`（週一 09:00，StartWhenAvailable 補跑）驅動，無 CC session 依賴。唯讀聚合：memory-audit + atom-health-check + 兩索引 --check + vector + **注入效果**（memory-effect-report --json：token 稅/零效用證據 → 黃）+ **管線鮮度**（有 session 但 promotion audit/episodic 停 14 天 → 紅；SessionEnd 無晉升事件亦落 `heartbeat`，≤1 筆／日）→ `workflow/health-reports/`（留 12 份）+ `health-last-run.json`。SessionStart `_health_advisory` 為死人開關：排程器本身死了也會在 session 浮出 |
 | `tools/memory-effect-report.py` | 注入效果報表（唯讀）：access.json 曝光+α/β Wilson 下界 + `Logs/rescue-log.jsonl` 使用證據 → 三清單（top 有用 / 高曝光零使用 token 稅附 trigger 收斂建議 / 零曝光死重候選）+ 30 天週趨勢。入口：`/memory health` step 4 + 週健檢 5b。詳見 TECH §5.10 |
 
 取捨：CC 原生 CronCreate 為雲端 agent、碰不到本機 `~/.claude`，故健檢採 Task Scheduler。OTEL export 評估不做（兩目標指標 per-hook 延遲/注入 token 稅皆不在匯出面，見 atom [[otel-遙測評估結論-不實作-兩目標指標皆測不到]]）。

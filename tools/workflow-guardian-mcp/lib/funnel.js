@@ -2,7 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const { TOOLS_DIR, CLAUDE_DIR } = require("./paths");
+const { TOOLS_DIR, CLAUDE_DIR, PYTHON_EXE } = require("./paths");
 const { crashLog } = require("./log");
 
 /** Run conflict-detector --mode=write-check.
@@ -26,7 +26,7 @@ function execConflictDetector(content, scope, projectCwd, subdir) {
     if (subdir) {
       args.push("--subdir", subdir);
     }
-    const cp = require("child_process").spawn("python", [scriptPath, ...args], {
+    const cp = require("child_process").spawn(PYTHON_EXE, [scriptPath, ...args], {
       windowsHide: true,
     });
     let out = "", err = "";
@@ -116,7 +116,7 @@ function execWriteGate(content, classification, layers) {
     }
     let cp;
     try {
-      cp = require("child_process").spawn("python", [scriptPath], {
+      cp = require("child_process").spawn(PYTHON_EXE, [scriptPath], {
         windowsHide: true,
         env: { ...process.env, PYTHONIOENCODING: "utf-8" },
       });
@@ -199,7 +199,7 @@ function syncMemoryIndex(memoryDir) {
     if (memoryDir) argv.push("--memory-dir", String(memoryDir));
     // 背景重產但不靜默：收 stderr、非 0 退出落 crashLog（可觀測性鐵律——橋接檔曾
     // 13/13 全壞 7 週無人知，就是這條 fire-and-forget 把訊號吞掉）。
-    const cp = require("child_process").spawn("python", argv, {
+    const cp = require("child_process").spawn(PYTHON_EXE, argv, {
       windowsHide: true, detached: true, stdio: ["ignore", "ignore", "pipe"],
     });
     let err = "";
@@ -225,7 +225,7 @@ function spawnAtomCli(action, payload) {
     let cp;
     try {
       cp = require("child_process").spawn(
-        "python", ["-m", "lib.atom_io_cli"],
+        PYTHON_EXE, ["-m", "lib.atom_io_cli"],
         {
           cwd: CLAUDE_DIR,
           windowsHide: true,

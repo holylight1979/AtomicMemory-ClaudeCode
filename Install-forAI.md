@@ -104,6 +104,7 @@
 - 「**沒 admin 權限能裝嗎？**」 → 大部分能（Python / Node.js / Ollama 都有 user-local 安裝），pip 套件用 `--user`。
 - 「**沒 Node / 沒 Ollama / 沒 Codex 能用嗎？**」 → 能，見 §1.3 各項降級。
 - 「**沒看到 Guardian Active？**」 → `python tools/fix-hook-python.py` 看直譯器路徑；再檢查 `settings.json` hooks 是否合併進來。
+- 「**MCP 的 `atom_write` 回 `cli parse fail: Unexpected end of JSON input`、stderr 空白？**」 → js 端呼叫的 Python 被 Windows 的 Microsoft Store 佔位 `python.exe`（`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`，零輸出 exit 9009）攔走。MCP 啟動時自動找絕對路徑（`WG_PYTHON` 環境變數 → 常見安裝路徑 → 退回裸 `python` 並在 stderr 留 WARN）；非標準安裝位置請在 `~/.claude.json` 的 `mcpServers.workflow-guardian.env` 加 `"WG_PYTHON": "<python.exe 絕對路徑>"`（跟 hooks 用同一支），再 Reload Window。
 - 「**整個移除？**」 → §8。Claude Code 本體零修改。
 
 ---
@@ -230,6 +231,8 @@ template 內三個 server：
 - `ensure-mcp.py` **不會建立** `~/.claude.json`（Claude Code 首次啟動自己建）；檔案不存在時它直接結束。
 
 驗證：`python -c "import json,io;print(list(json.load(io.open('$HOME/.claude.json',encoding='utf-8'))['mcpServers']))"` 含 `workflow-guardian`。MCP server 變更需 VS Code **Reload Window**（或重啟 `claude`）才生效。
+
+> MCP server 自己會再 spawn Python（`lib/paths.js` `resolvePythonExe()`：`WG_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python3xx`／`%LOCALAPPDATA%\Pythonin`／`C:\Python3xx`／`C:\Program Files\Python3xx` → 裸 `python`）。Python 裝在非標準位置時，把 `"env": {"WG_PYTHON": "<與 hooks 相同的 python.exe 絕對路徑>"}` 加進該 server 的設定；退回裸 `python` 會在 MCP stderr 印 WARN。
 
 ### Step 5：初始化個人記憶層
 

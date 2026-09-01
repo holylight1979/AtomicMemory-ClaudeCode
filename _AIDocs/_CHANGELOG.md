@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 同事 patch 合併：週健檢 heartbeat 防誤報 + MCP Python 絕對路徑解析（防 Store 佔位）
+- 兩顆來自同事（StarNight）的 patch 經審核合併（保留原作者）。**fix(health)**：`_self_iterate_atoms` 掃完無晉升事件時 `wg_core.log_promotion_heartbeat` 落一筆 `action=heartbeat`（尾筆 <20h 節流），週健檢 §6 鮮度只讀 ts，不再把「14 天沒發生晉升」誤判為「管線停擺」紅燈；新 `verify_promotion_heartbeat.py` 4 案。**fix(mcp)**：js 端 8 處裸 `spawn("python")`（funnel/atom-tools/atom-access 與 http-api `pyCmd`）改用 `paths.js` `PYTHON_EXE`（`resolvePythonExe()`：`WG_PYTHON` → 常見安裝路徑 → 裸 `python`），根因是 Windows PATH 的 Microsoft Store 佔位 `python.exe` 零輸出 exit 9009 → funnel 全掛、`atom_write` 死透；hooks 端不受影響（`sys.executable` + settings.json 絕對路徑）。**審核補強**：退回裸 `python` 時 stderr 印 WARN（fail-open 必浮訊號）並匯出 `PYTHON_EXE_FALLBACK`；`WG_PYTHON` 進 Install-forAI（FAQ + Step 4）；Store 佔位坑寫入 OS-Windows atom。已知取捨：Windows 上解析不看 PATH 順位，刻意用 conda/pyenv 者需設 `WG_PYTHON`。
+
 ## 2026-09-01 專案層索引一鍵整理 — sync-atom-index --all-projects，接進週健檢
 - 使用者問「之前沒分類好的專案，日後要每個都開來叫 CC 整理嗎？」答：不用——注入／萃取／索引 scope 都是全域 hooks 自動做；剩下能程式化的整理（索引 scope 依 path、懸空條目、frontmatter↔索引漂移）加 `--all-projects`（走 `wg_core.discover_all_project_memory_dirs` 同一套專案判定）從 ~/.claude 一鍵掃全部登記專案；`health-weekly` 加黃燈檢查。實跑 11 個專案全 ok。shared/ 平鋪 vs `<Lv1>/` 資料夾是各專案 taxonomy 的事（只影響目錄可讀性、不影響注入），不在此範圍。
 
