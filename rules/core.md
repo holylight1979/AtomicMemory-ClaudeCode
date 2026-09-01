@@ -17,6 +17,7 @@
 - 分類：「記住」→[固]、反覆模式→[觀]、做取捨→[臨]；不寫臨時嘗試/未確認猜測
 - 寫入用 atom_write MCP（自動驗證去重索引晉升）；已記錄事實直接引用
 - **Realm**：核心知識（跨專案通用）→ `memory/<範疇>/` 全專案注入（失敗家族 `memory/Failures/<主題>/`）；非核心（只在 ~/.claude 內有用）→ `_AIDocs/_atoms/<domain>/` 僅本環境注入（scope 仍 global）。判定三問與機制全貌見 [[realm-範疇分區機制-v5]]。
+- **Scope 分界**（問「遷就專案還是遷就人？」）：專案的規則／決策（專名、此專案、程式、流程、格式、工具選型、上傳／發布／版控）→ `scope=shared`（Author 自動記提出者，異議找 Author）；只關於這個人（要 AI 怎麼溝通／回饋、個人環境帳號習慣）→ `scope=personal`（只本專案、只本人）；本人在所有專案都適用的偏好 → `scope=personal, cross_project=true`（住 `~/.claude/memory/personal/<user>/`）。讀取端只給本人與本專案：他人 personal、他專案 atom 不進候選池——寫錯層的知識別人看不到、或看到不該看的。
 - **分類必填**：`atom_write(mode=create)` 對 global／feedback-*／shared 一律給 `domain`（`<Lv1>[/<Lv2>]`，Lv1 閉合清單見 `memory/_meta/taxonomy.json`；別名如 `vcs/git` 自動 snap 回 `版控/Git`；不確定落點先 `dry_run`）。分不出範疇的知識不寫 atom。
 
 ## 同步
