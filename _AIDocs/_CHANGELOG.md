@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 rules/core.md 誠實化修剪 — 2.2k→1.3k tokens，只留「事前規則」與「無程式閘」
+- 使用者問 core.md 是否太肥。逐條對照 hook／MCP：刪已程式化強制的「事後型」（Stop Sync 提醒、`[Parallel:Suggest]`、`wg_research` fan-out、`atom_write` domain 拒寫＋Lv1 清單、SessionStart `[查閱知識庫]`）；「事前型」縮一句（根層閘、版本脈絡、token/handoff）；修正與系統矛盾的「『記住』→[固]」（`atom_io` 拒收新建非 [臨]）為「新 atom 一律 [臨] 起跳」。留：Native-first、可觀測性、實證、`_staging`、走 atom_write（無 PreToolUse 閘擋直接 Edit atom）、Realm/Scope 問題句、識流映射。IDENTITY.md（gitignored）預告三行同縮一句（PreActionNotice 只檢「執行目標」「預估/概估」）。判準：hook 是 JIT/事後注入、core.md 是事前常駐——事前型留一句省一次被擋的呼叫，事後型刪零損失。
+
 ## 2026-09-01 Cross-Realm Bash Block — 專案 session 不得經 Bash 改根層／操作根層 repo；規則進 rules/core.md
 - 實證破口：專案 session（c:\Projects）以 `cd ~/.claude && python - <<EOF … write_text` 改根層 `session_start.py`／`wg_roles.py`、再 `git add && git commit`——既有 `CrossRealmWriteBlock` 只看 Write/Edit/NotebookEdit，整條 Bash 路沒被看到（內容正確、地點錯：根層 verify／選擇性 staging／publish 在專案 session 不會跑，且與根層 session 同檔併發）。**新** `wg_core.check_cross_realm_bash`（接在 PreToolUse deny 鏈）：根層上下文 × 動手操作 → deny；純跑根層工具（不 cd）與唯讀放行；`guard.cross_realm_bash.{enabled,allowlist}`。**規則**（使用者定案）寫進 `rules/core.md` 治理原則：專案層要改根層 → 不動手，寫成 prompt 交使用者到 ~/.claude 開 session；專案自己的需求走 `project_hooks.py`／`.claude/skills/`。新 `verify_cross_realm_bash_guard.py` 9 案。
 
