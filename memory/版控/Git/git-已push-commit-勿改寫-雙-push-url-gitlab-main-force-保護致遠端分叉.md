@@ -15,6 +15,7 @@
 - [觀] **區別「雙 push URL」與「兩個獨立 remote」－―前者才會分叉**。上面講的分叉前提是「同一個 remote 掛兩個 push URL、兩邊推**同一份歷史**」，所以一方有 force 保護就會卡住。若是**兩個獨立 remote、推兩份不同的歷史**（例：AI-gen-projs 的 `origin`→GitLab 全 repo，另一個 `github-mud`→用 `git subtree push --prefix=<子資料夾>` 推子資料夾抽出來的歷史），ref 不共用，**沒有分叉問題**。但「已 push 的 commit 不改寫」兩種都適用——改寫了會讓 subtree 重新映射出不同 SHA。
 - [觀] 共用 repo 的**子資料夾**要單獨外推成一個 repo：用 `git subtree`，**不可以在子資料夾裡 `git init`**（檔案已被父 repo 追蹤，嵌套 .git 會讓父 repo 把它當成 submodule）。`git subtree push` 每次重掃全部 commit（輸出一長串 `n/N` 進度數字、跑一兩分鐘）是正常的；不要手動 `git subtree split -b <分支>`，分支已存在會失敗。
 - [觀] 手邊沒裝 `gh` 也能程式化建 GitHub private repo：`git credential fill` 餵 `protocol=https` / `host=github.com` 取出 Windows 認證管理員裡的 token（`gho_` 開頭，實測帶 `repo` scope），再 POST `api.github.com/user/repos` 帶 `private:true`。
+- [觀] 現況（取代上述「雙 push URL」）：`origin` 只推 GitHub、`gitlab` 是獨立 remote；發布一律走 `tools/publish-remotes.py`，每個遠端各維護 `publish/<name>` 分支（= main merge 進來 + 一顆 Install.md 網址替換 commit）再推 `publish/<name>:main`。因為替換 commit 讓發布分支永遠與 main 分叉，每跑一次就固定多兩顆 `Merge branch 'main' into publish/…`——這是設計結果不是異常；直接 `git push origin main` 會被拒（non-ff）。發布在階段收尾跑一次，不要每 commit 跑，否則 graph 滿是空 merge。
 
 ## 行動
 
