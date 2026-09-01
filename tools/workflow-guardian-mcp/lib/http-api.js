@@ -5,7 +5,7 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 const { exec } = require("child_process");
-const { CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, loadRegistry, getRegistryMemDirs } = require("./paths");
+const { CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, loadRegistry, getRegistryMemDirs, PYTHON_EXE } = require("./paths");
 const { listAllSessions, readState, writeState } = require("./state");
 const { enrichAtomWithAccess } = require("./atom-access");
 
@@ -18,7 +18,7 @@ function jsonRes(res, code, data) {
 
 // Build a safe python command (Windows path backslashes must be forward-slashed for exec)
 function pyCmd(scriptPath, args) {
-  return 'python "' + scriptPath.replace(/\\/g, "/") + '" ' + args;
+  return '"' + PYTHON_EXE.replace(/\\/g, "/") + '" "' + scriptPath.replace(/\\/g, "/") + '" ' + args;
 }
 
 // --- Episodic Atom Parser & API ---

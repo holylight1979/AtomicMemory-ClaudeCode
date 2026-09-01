@@ -2,7 +2,7 @@
 // sendToolResult 來自 mcp.js（循環相依：mcp.handleToolCall lazy-require 本檔，故本檔載入時 mcp 已就緒）。
 const fs = require("fs");
 const path = require("path");
-const { CLAUDE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig } = require("./paths");
+const { CLAUDE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, PYTHON_EXE } = require("./paths");
 const { crashLog } = require("./log");
 // 落點／定位／路由全部由 py lib/atom_io.locate_atom 裁決（spawnAtomCli("locate")），
 // js 只採用回傳的路徑；realm.js 只剩 js 自己真的需要的（使用者名、去重層清單）。
@@ -386,7 +386,7 @@ function spawnIndexDelete(memDir, atomName) {
     let cp;
     try {
       cp = require("child_process").spawn(
-        "python", ["-c", inline, memDir, atomName],
+        PYTHON_EXE, ["-c", inline, memDir, atomName],
         { cwd: CLAUDE_DIR, windowsHide: true,
           env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
       );
@@ -658,7 +658,7 @@ function spawnEditMetadata(filePath, fields) {
     let cp;
     try {
       cp = require("child_process").spawn(
-        "python", ["-c", inline, payload],
+        PYTHON_EXE, ["-c", inline, payload],
         {
           cwd: CLAUDE_DIR,
           windowsHide: true,
@@ -761,7 +761,7 @@ function toolAtomMove(id, args) {
   if (dry_run) argv.push("--dry-run");
 
   return new Promise((resolve) => {
-    const cp = require("child_process").spawn("python", argv, { windowsHide: true });
+    const cp = require("child_process").spawn(PYTHON_EXE, argv, { windowsHide: true });
     let out = "", err = "";
     const timer = setTimeout(() => { try { cp.kill(); } catch {} }, 30000);
     cp.stdout.on("data", d => { out += d.toString(); });
