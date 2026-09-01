@@ -2538,6 +2538,21 @@
         "PATH 順位"
       ],
       "scope": "global"
+    },
+    {
+      "name": "testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴",
+      "path": "_AIDocs/_atoms/MemDev/testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴.md",
+      "triggers": [
+        "TestFailGate",
+        "測試未綠",
+        "failing_tests",
+        "不得宣告完成",
+        "重複觸發",
+        "Stop 閘",
+        "node --check",
+        "heredoc"
+      ],
+      "scope": "global"
     }
   ]
 }
