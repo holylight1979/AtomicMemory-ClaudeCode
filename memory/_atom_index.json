@@ -1572,7 +1572,9 @@
         "選擇性 staging",
         "殘留檔",
         "上版",
-        "上GIT"
+        "上GIT",
+        "全上",
+        "git add -A"
       ],
       "scope": "global"
     },

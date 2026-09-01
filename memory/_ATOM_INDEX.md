@@ -92,7 +92,7 @@
 | aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token | memory/dotnet/ASPNET/aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token.md | graceful shutdown, 關閉卡住, ShutdownTimeout, RequestAborted, ApplicationStopping, WebSocket, CloseAsync, Kestrel, StopAsync, IHostApplicationLifetime, 關閉逾時, in-flight request | global |
 | vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現 | memory/dotnet/建置/vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現.md | vendor, 雜湊不一致, SHA-256, lock 檔, 外部 dll, deterministic build, BaseIntermediateOutputPath, OutputPath, 鎖定檔, 建置可重現 | global |
 | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring | memory/OS-Windows/windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring.md | CredWrite, Credential Manager, 認證管理員, keyring, DPAPI, token 儲存, OAuth token, 保險庫, vault, ProtectedData, 靜默失敗, WindowsCredentialStorage | global |
-| feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問 | memory/Failures/工作流/feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問.md | 上乾淨, 工作樹, 收尾, git status, 未提交, chore commit, 用不到就刪, 選擇性 staging, 殘留檔, 上版, 上GIT | global |
+| feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問 | memory/Failures/工作流/feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問.md | 上乾淨, 工作樹, 收尾, git status, 未提交, chore commit, 用不到就刪, 選擇性 staging, 殘留檔, 上版, 上GIT, 全上, git add -A | global |
 | feedback-模糊裁示不硬化先深問-決策選項含使用到再問 | memory/Failures/思考與決策/feedback-模糊裁示不硬化先深問-決策選項含使用到再問.md | 模糊裁示, 硬化, 深問, 使用到的時候才提問, 遞延裁決, 詮釋飄移, 逐字原話, 裁決選項 | global |
 | 混改檔hunk級選擇性staging | memory/版控/Git/混改檔hunk級選擇性staging.md | hunk, 混改檔, 選擇性 staging, git apply, 併發 session, exact-stage | global |
 | atom-write-global必須省略project-cwd | memory/CC與原子記憶契約/atom-write-global必須省略project-cwd.md | atom_write, scope=global, project_cwd, force_global, global 寫入被拒 | global |
