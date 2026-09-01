@@ -528,7 +528,7 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 ├── BOOTSTRAP.md                             ← 不被 @import；IDENTITY/USER 為空時的問答引導
 ├── settings.json                            ← 9 hook 事件 + statusLine
 ├── version.json                             ← 版本標識
-├── rules/core.md                            ← 治理原則、知識庫、記憶、同步、對話規則
+├── rules/core.md                            ← 治理原則、知識庫、記憶、對話規則（hook 已強制者不重述）
 │
 ├── hooks/
 │   ├── workflow-guardian.py                 ← 1 行 shim → dispatcher.main()
