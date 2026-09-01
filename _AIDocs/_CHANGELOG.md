@@ -5,6 +5,10 @@
 
 ---
 
+## 2026-09-01 寫入端路由 + personal 存量分流（Phase 3）— 專案規則落 shared 記提出者、31 顆存量歸位、索引 scope 以 path 為準
+- **寫入端**：`user-extract-worker` 原本 L2 給的 scope 被 cwd 判斷蓋掉、一律 personal、Author 硬編 `auto-extracted-v4.1`。改三分路由：cwd 在 ~/.claude → global；專案內且內容是專案規則（`_is_project_rule`：L2 判 shared／含此專案・上傳・發布・必須・禁止等標記詞／借 `realm_gate` 的專名推導）→ shared（`classify_category(layer="shared")` 給範疇，分不出退回 personal 不拒寫）；其餘 → 本人×專案 personal。Author 一律填真實使用者；`memory-peek` / `memory-undo` 改以知識段 `<!-- src: turn -->` 辨識自動萃取 atom。新 `verify_user_extract_routing.py` 5 案。
+- **存量**（使用者逐顆拍板）：19 顆 personal→shared（SGI 進 ProjectWorkflow/Client/Server 範疇夾、TSLG feedback-svn 進 failures/版控、其餘專案平鋪 shared；Author 補提出者，含 wellstseng 2 顆）、7 顆→本人跨專案 `~/.claude/memory/personal/holylight/`、3 顆一次性任務移 `_rejected/`、2 顆 zmud 相關搬到 MudClient 專案。**索引**：16 個 memory dir 的 index scope 以 path 推導回寫（45 條，含 `project` legacy→shared）、2 條懸空條目刪除、4 個 `Scope: project` 標頭對齊；各根目錄 catalog 重生。清冊複跑：不一致 49→0、personal 31→9（7 全域＋2 專案）。SGI 20 則 prompt 重放仍 0 洩漏。專案端 memory 變動落在各專案自己的版控，未代提交。
+
 ## 2026-09-01 本人跨專案 personal 層（Phase 2）— `~/.claude/memory/personal/<user>/`，任何專案都搜、只給本人
 - 使用者定案 personal 分兩種：本人×專案（既有）與本人×跨專案（新）。**寫**：`atom_io._resolve_target` 對 scope=personal 新增 `cross_project` 開口——明給、或 cwd 在 ~/.claude／不在任何專案 → 落全域 `memory/personal/<user>/`，索引進全域 `_atom_index.json`（path 前綴 `memory/personal/<user>/`），`locate_atom` 回 `personal_global`；MCP `atom_write` 新參數 `cross_project`（mcp.js schema / atom-tools.js 傳遞；去重層 `personal:global:<user>`；**js 改動需重啟 MCP server**）。**讀**：候選池沿用 Phase 1 的 `filter_visible`（path 推 scope）自然只給本人；`visible_vector_layers` 加 `personal:global:<user>`；vector indexer 全域遞迴掃排除 `personal/`、另立 `personal:global:<user>` 層。**邊界**：`atom_spec.is_atom_file` 認 `personal/<user>/<slug>.md` 為 atom（role.md / auto/ 除外）→ sync-atom-index／decay 看得到；MEMORY.md 目錄（sync-memory-index）與 realm 自動搬移排除 personal；`.gitignore` 加 `memory/personal/`（~/.claude 發布到公開遠端，personal 視為敏感）。verify_scope_visibility +5 案。
 

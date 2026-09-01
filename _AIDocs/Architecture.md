@@ -222,7 +222,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 | hooks/extract-worker.py (failure atom) | `hook:extract-worker` | `_failure_writeback` + `_create_failure_atom` |
 | hooks/wg_episodic.py (cross-session confirm) | `hook:episodic-confirm` | `atom_access.increment_confirmation` |
 | hooks/wg_episodic.py (episodic atom) | `hook:episodic` | `write_raw` + `atom_access.init_access` |
-| hooks/user-extract-worker.py | `hook:user-extract` | L1/L2 決策萃取落地 |
+| hooks/user-extract-worker.py | `hook:user-extract` | L1/L2 決策萃取落地；落點三分：~/.claude → global／專案規則（`_is_project_rule`：專名・此專案・上傳・發布・必須・禁止／L2 判 shared）→ shared＋Author=使用者／其餘 → 本人×專案 personal；來源標記走知識段 `<!-- src: turn -->` |
 | tools/memory-undo.py | `tool:undo` | `write_raw` reject footer |
 | tools/atom-move.py | `tool:atom-move` | `write_raw` (atom) + `write_index_full` (index) |
 | tools/memory-audit.py | `tool:memory-audit` | demote / compact / log_evolution `write_raw` + `atom_access.write_access_field` |

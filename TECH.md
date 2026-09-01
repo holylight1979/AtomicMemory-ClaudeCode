@@ -205,6 +205,8 @@ sequenceDiagram
 | `personal:{user}` | 只自己 | 個人 scratch、未公開假設 | `{project}/.claude/memory/personal/<user>/` |
 | `personal:{user}`（跨專案） | 只自己，但每個專案都看得到 | 本人跨專案偏好 | `~/.claude/memory/personal/<user>/`（gitignore；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 寫入即落此） |
 
+**personal 與 shared 的分界**：內容是「針對專案的規則」（專名／此專案／上傳／發布／必須／禁止…）就落 shared，`Author:` 記提出者（自動萃取亦同）；有異議找 Author，管理職可覆寫。personal 只留真正的個人偏好。
+
 **讀取端候選池**（SessionStart 建一次、UPS 的 trigger / BM25 / vector / related / AtomAudit 共用）：global + 本人跨專案 personal + 本專案 shared（含 failures）+ 本人 roles + 本人 personal。他專案任何層都不進池；他人 personal / role 不進池。scope 由索引 path 推導（`personal/<u>/`、`roles/<r>/`），不信 index 的 scope 欄。向量路帶同一套 layers 白名單，管理職不豁免。
 
 當前部署為單人，實際只用到 global / personal；shared / roles 為保留能力（§13）。
@@ -214,7 +216,7 @@ sequenceDiagram
 - `memory/_atom_index.json` 是唯一機器源（API：`lib/atom_index_json.py` load/save/upsert/delete/validate）；`_ATOM_INDEX.md` 是自動生成 mirror，只給 fallback parser。
 - 每筆：`name` / `path` / `triggers` / `scope`（+ realm 由 path 推導）。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
-- 現況計數：<!-- atom-breakdown -->137 atoms：core 57 + feedback 21 + 失敗模式 2 + local 57〔Tools7/MemDev47/OS2/Vision1〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->144 atoms：core 64 + feedback 21 + 失敗模式 2 + local 57〔Tools7/MemDev47/OS2/Vision1〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -256,7 +258,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->137<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->144<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 只在 trigger ≤2 命中時跑**：trigger 是人寫的高精度訊號；命中已 ≥3 代表 keyword 訊號充足，再加 BM25 只會引進「字面相似但主題無關」的噪音（context-rot 研究：單一干擾項即傷精度）。`min_score` 7.0 是回歸集調出來的——3.5 時負例誤注入 21.4%，7.0 歸零、R@3 只掉 1.5pt。
 

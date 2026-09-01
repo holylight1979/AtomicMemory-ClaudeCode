@@ -1,6 +1,6 @@
 # 假設錯誤（Wrong Assumptions）
 
-- Scope: project
+- Scope: global
 - Confidence: [臨]
 - Trigger: 假設錯誤, 誤判, 直覺假設, wrong assumption, 前提錯
 - Type: procedural

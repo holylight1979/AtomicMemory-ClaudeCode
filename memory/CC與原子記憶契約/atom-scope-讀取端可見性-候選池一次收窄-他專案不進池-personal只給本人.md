@@ -17,6 +17,7 @@
 - [臨] `to_atom_entries` 把 index 的 scope 欄丟掉是全部 hook 讀取鏈的入口；改 tuple 形狀牽動所有 3-tuple 解包點，所以走「池內只裝可見的 + state 另存 name→scope 表」而非擴 tuple。
 - [臨] personal 分兩種、同一套讀取規則：本人×專案住 `{proj}/.claude/memory/personal/<u>/`，本人×跨專案住 `~/.claude/memory/personal/<u>/`（索引在全域、path 前綴 `memory/personal/<u>/`）。讀取端不需第二套判斷——`scope_from_rel_path` 看到 `personal/<u>/` 就只給 u，不管它在哪個根。寫入端 `atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 呼叫即落跨專案層。
 - [臨] personal 在全域根要躲三個會把它當一般核心 atom 的機制：MEMORY.md 目錄產生器（`atom_index_row_kind` 回 personal → 不渲染）、realm 自動搬移（跳過）、vector indexer 的 global 遞迴掃（排除 `personal/`，另立 `personal:global:<u>` 層）。`personal` 因在 `SKIP_DIRS` 而天然不能當範疇名，但 `is_atom_file` 需對 `personal/<u>/<slug>.md` 開例外，否則 sync-atom-index 會報索引條目找不到檔。
+- [臨] 寫入端的分界：「這條規則是遷就專案還是遷就我？」——提到專名、此專案、上傳/發布/必須/禁止 的是專案規則 → shared + Author=提出者；自動萃取（user-extract-worker）同規則，Author 不再是硬編來源字串，來源靠知識段 `<!-- src: turn -->`。存量清冊實證：31 顆 personal 裡 19 顆其實是專案規則、自動萃取寫進專案 index 的 scope 欄 45 條是錯的（預設 global）——所以讀取端信 path 不信欄位。
 
 ## 行動
 

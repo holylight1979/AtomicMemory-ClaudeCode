@@ -326,6 +326,32 @@ def _slug_from_statement(statement: str) -> str:
     return slug or "auto-decision"
 
 
+_PROJECT_RULE_MARKERS = (
+    "此專案", "本專案", "這個專案", "專案內", "上傳", "上傳到", "發布", "publish", "deploy",
+    "commit", "svn", "git", "必須", "禁止", "不得", "一律",
+)
+
+
+def _is_project_rule(statement: str, slug: str, triggers: List[str], cwd: str, l2_scope: str) -> bool:
+    """內容是「針對專案的規則」而非個人偏好 ⇒ 該落 shared 並記提出者。
+    三個訊號任一成立：L2 判 shared/project；語句含專案規則標記詞；提到專案專名
+    （借 realm_gate 的專名推導：對 scope=global 會拒的內容，就是專案專屬內容）。"""
+    if str(l2_scope or "").lower() in ("shared", "project"):
+        return True
+    text = statement or ""
+    low = text.lower()
+    if any(m.lower() in low for m in _PROJECT_RULE_MARKERS):
+        return True
+    if cwd:
+        try:
+            from lib.realm_gate import check_global_write
+            if check_global_write(cwd, title=slug, triggers=triggers, knowledge=[text]):
+                return True
+        except Exception as e:  # noqa: BLE001 — 專名推導失敗只失去這一路訊號
+            _atom_debug_error("user-extract:project_rule_gate", e)
+    return False
+
+
 def _write_atom_via_mcp(
     l2_result: Dict, candidate: Dict, session_id: str, user: str,
     config: Dict,
@@ -357,10 +383,16 @@ def _write_atom_via_mcp(
     slug = _slug_from_statement(statement)
     knowledge_lines = [f"- [臨] {statement}", f"<!-- src: {turn_id} -->"]
 
-    # cwd 在 ~/.claude 之下時 funnel realm 閘會拒 scope=personal（~/.claude 本身
-    # 即 global root），改走 scope=global 才寫得進去。
+    # 落點三分：cwd 在 ~/.claude → global（~/.claude 本身即 global root）；
+    # 專案內且內容是「專案規則」（提到專案專名／此專案／上傳／發布／必須／禁止…，或 L2 判 shared）
+    # → shared 並記提出者（Author=使用者，日後異議找 Author）；其餘 → 本人×專案 personal。
     in_claude_dir = _is_under_claude_dir(cwd) if cwd else False
-    write_scope = "global" if in_claude_dir else "personal"
+    if in_claude_dir:
+        write_scope = "global"
+    elif _is_project_rule(statement, slug, triggers, cwd, scope):
+        write_scope = "shared"
+    else:
+        write_scope = "personal"
 
     # 去重預檢：用 funnel 的正規定位（locate_atom）找既有檔。核心層 atom 住
     # memory/<範疇>/[Lv2]/，自算扁平路徑永遠 miss、去重形同死碼。
@@ -417,6 +449,20 @@ def _write_atom_via_mcp(
             _write_pending_candidate(l2_result, candidate, user, cwd,
                                      prefix=f"[category {tag}]")
             return "rejected"
+    if write_scope == "shared":
+        # shared create 也過範疇閘（shared/<Lv1>/）：分不出範疇就退回 personal，
+        # 不丟知識、不拒寫（專案規則只是暫時掛在本人名下，存量分流時再搬）。
+        try:
+            from lib.atom_locations import classify_category
+            cls = classify_category(slug, triggers, layer="shared", excerpt=statement, config=config)
+        except Exception as e:  # noqa: BLE001
+            cls = {"status": "error", "category": None, "reason": repr(e)}
+        if cls.get("status") in ("lex", "llm") and cls.get("category"):
+            domain = cls["category"]
+        else:
+            print(f"[category] shared→personal fallback user-extract '{slug}': {cls.get('reason', '')}",
+                  file=sys.stderr)
+            write_scope = "personal"
 
     try:
         result = write_atom(
@@ -430,7 +476,7 @@ def _write_atom_via_mcp(
             project_cwd=cwd or None,
             mode="create",
             source="hook:user-extract",
-            author="auto-extracted-v4.1",
+            author=user,  # 提出此規則的使用者；來源標記走知識段的 <!-- src: turn --> 與 audit source
             domain=domain,
             realm=realm,
         )

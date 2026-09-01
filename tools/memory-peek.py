@@ -111,6 +111,14 @@ def _get_file_created_time(path: Path, meta: Dict) -> Optional[datetime]:
         return None
 
 
+
+def _has_auto_src_marker(md_file: Path) -> bool:
+    """user-extract 寫的 atom 知識段帶 `<!-- src: <turn_id> -->`（Author 已改記使用者）。"""
+    try:
+        return "<!-- src: " in md_file.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return False
+
 def _scan_written_atoms(user: str, cwd: str, since: datetime) -> List[Dict[str, Any]]:
     """Scan personal/auto/{user}/ for recently written atoms."""
     results = []
@@ -120,8 +128,8 @@ def _scan_written_atoms(user: str, cwd: str, since: datetime) -> List[Dict[str, 
                 continue  # skip _pending.candidates.md, _rejected/
             meta = _parse_atom_metadata(md_file)
             author = meta.get("author", "")
-            if "auto-extracted-v4.1" not in author:
-                continue
+            if "auto-extracted" not in author and not _has_auto_src_marker(md_file):
+                continue  # 自動萃取：Author=使用者，靠知識段 <!-- src: turn --> 標記辨識
             created = _get_file_created_time(md_file, meta)
             if created and created < since:
                 continue
