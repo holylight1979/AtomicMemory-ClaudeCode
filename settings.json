@@ -1,12 +1,5 @@
 {
   "env": {},
-  "effortLevel": "high",
-  "statusLine": {
-    "type": "command",
-    "command": "C:/Users/holylight/AppData/Local/Python/bin/python.exe C:/Users/holylight/.claude/tools/statusline.py",
-    "padding": 0,
-    "refreshInterval": 10
-  },
   "permissions": {
     "allow": [
       "Bash(python ~/.claude/tools/*)",
@@ -36,6 +29,7 @@
       "mcp__playwright__browser_evaluate"
     ]
   },
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "SessionStart": [
       {
@@ -214,6 +208,16 @@
       }
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "C:/Users/holylight/AppData/Local/Python/bin/python.exe C:/Users/holylight/.claude/tools/statusline.py",
+    "padding": 0,
+    "refreshInterval": 10
+  },
+  "language": "繁體中文",
+  "effortLevel": "high",
+  "tui": "fullscreen",
+  "theme": "light",
   "switchModelsOnFlag": true,
-  "model": "claude-fable-5[1m]"
+  "skipDangerousModePermissionPrompt": true
 }
