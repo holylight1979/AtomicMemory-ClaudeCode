@@ -37,8 +37,15 @@ V4 的三層 scope 機制不變：
 | `shared` | 專案內全員共享 | `{proj}/.claude/memory/shared/` |
 | `role:{name}` | 特定職務組共享 | `{proj}/.claude/memory/roles/{name}/` |
 | `personal:{user}` | 個人在該專案的偏好/筆記 | `{proj}/.claude/memory/personal/{user}/`（gitignore） |
+| `personal:{user}`（跨專案） | 本人在**所有**專案都適用的偏好 | `~/.claude/memory/personal/{user}/`（gitignore；索引在全域 `_atom_index.json`，path 前綴 `memory/personal/{user}/`；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 呼叫即落此） |
+
+personal 兩種都視為**敏感**：只給本人、不進 MEMORY.md 目錄、不進 realm 自動搬移、向量層獨立標籤（`personal:global:{user}` / `personal:{slug}:{user}`）。
+
+**personal vs shared 的分界與異議規則**：內容是「針對專案的規則」（提到專案專名／此專案／上傳／發布／必須／禁止…）就不是個人偏好——落 `shared` 並以 `Author:` 記下**提出此規則的使用者**（自動萃取 `user-extract-worker` 亦同：Author=使用者，來源標記走知識段 `<!-- src: turn -->`）。日後他人對該規則有異議 → 找 Author 對齊；管理職可覆寫（`shared/_pending_review/` 流程）。personal 只留真正的個人偏好與未公開假設。
 
 詳細 schema / 衝突偵測 / JIT 注入規則：見 [SPEC_ATOM_V4.md §2–§10](SPEC_ATOM_V4.md)。本 SPEC 只記 V5 增量。
+
+**讀取端可見性（V4 §8.1 的實作落點）**：session 在專案 P、使用者 U 的候選池 = `global` + `~/.claude/memory/personal/U`（本人跨專案）+ `P/shared`（含 `failures/`、根層 flat-legacy）+ `P/roles/{U 持有}` + `P/personal/U`。候選池在 SessionStart 建一次（`wg_atoms.filter_visible`），trigger / BM25 / vector / related / AtomAudit 共用，不各自過濾。**他專案任何層不進池**——他專案只在 prompt 命中其 `Project-Aliases` 時帶入該專案 MEMORY.md 目錄（去表格列、去 `personal/` `roles/` 行）。scope 由索引 `path` 推導（`scope_from_rel_path`），不信 index 的 `scope` 欄；管理職不豁免（管理職多的是待審清單，不是他人 personal）。向量路以 `layers` 白名單（`visible_vector_layers`）表達同一套規則。守門測試 `hooks/verify/verify_scope_visibility.py`。
 
 ### 2.1 核心層物理佈局：範疇資料夾 + 失敗家族
 

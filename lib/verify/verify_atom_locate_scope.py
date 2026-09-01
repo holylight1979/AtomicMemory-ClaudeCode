@@ -132,12 +132,17 @@ def test_replace_preserves_index_scope(tmp_path):
     assert _index_entry(root, "zeta")["scope"] == "shared"
 
 
-def test_write_index_new_entry_defaults_global(tmp_path):
+def test_write_index_new_entry_scope_from_path(tmp_path):
+    """新條目缺省 scope 由 path 推導（專案索引：shared/ → shared、personal/<u>/ → personal:<u>），
+    不再預設 global——舊預設正是專案層索引長出 scope=global 錯標的源頭。"""
     root = _mkproject(tmp_path, {})
     mem = root / ".claude" / "memory"
     res = write_index(mem, "fresh", "memory/shared/fresh.md", ["probe"], "test")
     assert res.ok, res.error
-    assert _index_entry(root, "fresh")["scope"] == "global"
+    assert _index_entry(root, "fresh")["scope"] == "shared"
+    res2 = write_index(mem, "mine", "memory/personal/holylight/mine.md", ["probe"], "test")
+    assert res2.ok, res2.error
+    assert _index_entry(root, "mine")["scope"] == "personal:holylight"
 
 
 def test_write_index_explicit_scope_wins(tmp_path):

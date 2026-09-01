@@ -186,6 +186,8 @@ def assemble_injection(
     # form: ok=全文 / fallback=印象 / skip=budget 一行 / cold=cold 一行
     inject_records: List[Dict[str, Any]] = []
 
+    _atom_scopes: Dict[str, str] = (state.get("atom_index") or {}).get("scopes") or {}
+
     def _record(name_: str, path_: Path, rel_: str, source_: str, form_: str) -> None:
         inject_records.append({
             "name": name_,
@@ -193,6 +195,7 @@ def assemble_injection(
             "rel": rel_ or f"{name_}.md",
             "source": source_,
             "form": form_,
+            "scope": _atom_scopes.get(name_, ""),
         })
 
     for (name, rel_path, triggers), base_dir in matched_with_dir:

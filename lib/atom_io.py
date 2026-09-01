@@ -220,6 +220,7 @@ def _resolve_target(
     mode: Optional[str] = None,
     allow_new_category: bool = False,
     enforce_cwd_scope: bool = False,
+    cross_project: bool = False,
 ) -> Dict[str, Any]:
     """回傳 {dir, base, index_dir, index_root, search_roots, scope_label, category, routed_to_*, error}。
 
@@ -310,6 +311,29 @@ def _resolve_target(
         return {"error": "scope=role requires 'role' parameter"}
     if scope == "personal" and not user:
         return {"error": "scope=personal requires 'user' parameter"}
+
+    if scope == "personal":
+        # 本人跨專案 personal：~/.claude/memory/personal/<user>/。索引在全域 _atom_index.json，
+        # path 前綴 memory/personal/<user>/ → 讀取端（filter_visible）只給本人。
+        # 觸發：明給 cross_project，或 cwd 不在任何專案／在 ~/.claude 子樹。
+        _root = _find_project_root(project_cwd) if project_cwd else None
+        _under_home = _root is None
+        if _root is not None:
+            try:
+                _r = _root.resolve()
+                _home = CLAUDE_DIR.resolve()
+                _under_home = (_r == _home or _home in _r.parents)
+            except OSError:
+                _under_home = False
+        if cross_project or _under_home:
+            pg_dir = GLOBAL_MEMORY_DIR / "personal" / user
+            return {
+                "dir": pg_dir, "base": GLOBAL_MEMORY_DIR, "index_dir": GLOBAL_MEMORY_DIR,
+                "index_root": CLAUDE_DIR, "search_roots": [pg_dir],
+                "scope_label": f"personal:{user}", "category": None,
+                "routed_to_failures": False, "routed_to_pending": False, "routed_to_local": False,
+                "personal_global": True, "error": None,
+            }
 
     root = _find_project_root(project_cwd)
     if not root:
@@ -418,7 +442,7 @@ def write_index(
     （atom_index_json 同 package，import 恆成功；MD 由其自動 regen）。
 
     scope：明給則用；None → **沿用索引既有條目的 scope**（replace/edit_metadata
-    不得重設專案層 scope）；新條目才預設 "global"。trigger 逐項驗長度上限
+    不得重設專案層 scope）；新條目由 path 推導（scope_from_index_path）。trigger 逐項驗長度上限
     （TRIGGER_MAX_LEN）——超長在寫入當下拒絕，不留給後續 validate_index 才爆。
     """
     if source not in VALID_SOURCES:
@@ -446,12 +470,22 @@ def write_index(
                     break
         except (OSError, ValueError):
             pass
+    if not scope:
+        # 新條目且呼叫端沒給 scope：由 path 推導（personal/<u>/ → personal:<u>、roles/<r>/ →
+        # role:<r>、其餘依索引層 global|shared），不再一律預設 "global"——那正是專案層
+        # 索引長出 45 條 scope=global 錯標的源頭；讀取端同一套規則（scope_from_index_path）。
+        try:
+            from .atom_locations import scope_from_index_path, GLOBAL_MEMORY_DIR
+            _layer = "global" if base_dir.resolve() == GLOBAL_MEMORY_DIR.resolve() else "shared"
+            scope = scope_from_index_path(rel_path, _layer)
+        except (ImportError, OSError):
+            scope = "global"
     upsert_atom(
         mem_dir=base_dir,
         name=slug,
         path=rel_path,
         triggers=triggers_list,
-        scope=scope or "global",
+        scope=scope,
     )
     index_path = base_dir / "_atom_index.json"
     _audit_log({
@@ -773,6 +807,7 @@ def write_atom(
     domain: Optional[str] = None,
     subdir: Optional[str] = None,
     allow_new_category: bool = False,
+    cross_project: bool = False,
 ) -> WriteResult:
     """寫入 atom 的唯一入口。對拍 server.js:1065 toolAtomWrite byte-identical。
 
@@ -838,7 +873,8 @@ def write_atom(
               file=sys.stderr)
     resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
                                title=title, realm=realm, domain=domain, subdir=subdir,
-                               mode=mode, allow_new_category=allow_new_category)
+                               mode=mode, allow_new_category=allow_new_category,
+                               cross_project=cross_project)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
     mem_dir = resolved["dir"]
@@ -991,6 +1027,7 @@ def locate_atom(
     allow_new_category: bool = False,
     triggers: Optional[List[str]] = None,
     enforce_cwd_scope: bool = False,
+    cross_project: bool = False,
 ) -> WriteResult:
     """atom 落點與定位的**唯一裁決者**（唯讀；只 mkdir 落點）。MCP js 端 create/append/
     replace/promote/edit_meta 一律先問這裡，js 不自算任何路徑。
@@ -1024,7 +1061,8 @@ def locate_atom(
     resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
                                title=title, realm=realm, domain=domain, subdir=subdir,
                                mode=mode, allow_new_category=allow_new_category,
-                               enforce_cwd_scope=enforce_cwd_scope)
+                               enforce_cwd_scope=enforce_cwd_scope,
+                               cross_project=cross_project)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
 
@@ -1042,6 +1080,7 @@ def locate_atom(
         "routed_to_failures": bool(resolved.get("routed_to_failures")),
         "routed_to_pending": bool(resolved.get("routed_to_pending")),
         "routed_to_local": bool(resolved.get("routed_to_local")),
+        "personal_global": bool(resolved.get("personal_global")),
         "realm": "local" if resolved.get("routed_to_local") else ("global" if scope == "global" else None),
         "domain": domain, "auto_realm": auto_realm,
     }

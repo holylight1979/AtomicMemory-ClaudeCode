@@ -31,7 +31,7 @@
 | `handlers/user_prompt_submit.py` | UPS orchestrator（2026-06-12 熱點重構 790→195 行）：串聯 ups_* 四段 + 收尾（blind-spot / fix escalation / evasion 舉證 / handoff / topic / sync context（僅 sync 關鍵字觸發；週期性 `[Guardian] Reminder` 已退役 → statusline 常駐顯示）/ turn_injected / debug 摘要 / budget 截斷輸出）＋ **UPS 被 kill 哨兵**（開頭 arm `workflow/ups-sentinel/<sid>.json`、正常結尾 clear；見殘留＝上輪注入被 harness timeout 砍 → 告警）＋ AEC (d) 刪除決策後驗（受保護路徑的刪除決策改注入 ⛔ 拒絕並結案，見 `aec_ledger.protected_reason`） |
 | `handlers/ups_gates.py` | UPS detect 段：evasion 追蹤 + V4.1 decision gate + confirmed extractions + long_die + Hot Cache + Atom-Write Guard |
 | `handlers/ups_context.py` | UPS context build 段：session context（episodic + proactive）+ wisdom 分類 + parallel 建議 + AIDocs keyword + JIT internal-pipeline |
-| `handlers/ups_search.py` | UPS search pipeline 段：index 組裝 + 跨專案 alias（各專案 MEMORY.md alias 行＋_atom_index.json 走 `workflow/cross-project-index-cache.json` 聚合快取，鍵＝兩檔 mtime_ns；每 prompt 免重讀 ~220 KB）+ trigger → BM25 全域層 → Vector（全空 fallback / 專案層 enrichment：trigger 命中 <3 才打）+ supersedes + **RRF 三路融合 × ACT-R**（個別化 decay；`fusion:"legacy"` 回退純 ACT-R 排序；含**分心懲罰** `compute_injection_rank`，Memory Governance A） |
+| `handlers/ups_search.py` | UPS search pipeline 段：index 組裝（候選池由 SessionStart 依 scope 可見性收窄：global + 本專案 shared + 本人 roles/personal；他專案 atom 不進池）+ 跨專案 alias（prompt 命中他專案別名 → 只帶入其 MEMORY.md 目錄、去 personal/roles 行；`workflow/cross-project-index-cache.json` 只快取 alias，鍵＝MEMORY.md mtime_ns）+ trigger → BM25 全域層 → Vector（全空 fallback / 專案層 enrichment：trigger 命中 <3 才打；一律帶 `layers` 白名單）+ supersedes + **RRF 三路融合 × ACT-R**（個別化 decay；`fusion:"legacy"` 回退純 ACT-R 排序；含**分心懲罰** `compute_injection_rank`，Memory Governance A） |
 | `handlers/ups_inject.py` | UPS injection assemble 段：hot/cold + **同題去冗**（`redundant_with`：與本 turn 已全文注入者 trigger 精確重疊 ≥3 → 節錄、form=redundant，config `injection.redundancy_gate`）+ per-turn budget（ok/fallback/skip）+ related spread（含 **relevance gate** `_filter_related_by_relevance` 最小集裁切，Memory Governance C）+ ReadHits++/效用晉升提示 + **injection_log 記錄**（name/path/source/form/turn_seq 落 state，cap 100，供 Stop AtomAudit）+ 一行注入（cold/skip）附帶 atom 選填 `Status:` 現況 |
 | `handlers/pre_tool_use.py` | PreToolUse：Write/Edit atom format gate + memory path block + Bash SVN test block + **PAN 實作前預告閘門**（`pan_validate_notice`/`pan_is_gated`/`_check_pre_action_notice`，可見文字源 `wg_evasion.get_current_turn_visible_text`） |
 | `handlers/post_tool_use.py` | PostToolUse：file tracking + 增量索引 + test-fail 偵測 + changelog auto-roll（read tracking 移 Stop 端回收） |
@@ -222,11 +222,11 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 | hooks/extract-worker.py (failure atom) | `hook:extract-worker` | `_failure_writeback` + `_create_failure_atom` |
 | hooks/wg_episodic.py (cross-session confirm) | `hook:episodic-confirm` | `atom_access.increment_confirmation` |
 | hooks/wg_episodic.py (episodic atom) | `hook:episodic` | `write_raw` + `atom_access.init_access` |
-| hooks/user-extract-worker.py | `hook:user-extract` | L1/L2 決策萃取落地 |
+| hooks/user-extract-worker.py | `hook:user-extract` | L1/L2 決策萃取落地；落點三分：~/.claude → global／專案規則（`_is_project_rule`：專名・此專案・上傳・發布・必須・禁止／L2 判 shared）→ shared＋Author=使用者／其餘 → 本人×專案 personal；來源標記走知識段 `<!-- src: turn -->` |
 | tools/memory-undo.py | `tool:undo` | `write_raw` reject footer |
 | tools/atom-move.py | `tool:atom-move` | `write_raw` (atom) + `write_index_full` (index) |
 | tools/memory-audit.py | `tool:memory-audit` | demote / compact / log_evolution `write_raw` + `atom_access.write_access_field` |
-| tools/sync-atom-index / sync-memory-index | `tool:sync-*` | `write_index_full` |
+| tools/sync-atom-index / sync-memory-index | `tool:sync-*` | `write_index_full`；`sync-atom-index --fix-scope-from-path`：索引 scope 以 path 為準回寫（`scope_from_index_path` 單一來源）＋懸空條目刪除＋.md Scope 標頭對齊，冪等 |
 
 **Atom 知識／遙測切分（Wave 2 落地）：**
 
@@ -300,7 +300,8 @@ V5 Wave 2 砍 4 個內部 IPC tool（`workflow_signal` / `workflow_status` / `me
 | `scope=global` | 寫 `~/.claude/memory/` |
 | `scope=shared`（預設） | 寫 `{proj}/.claude/memory/shared/` |
 | `scope=role` + `role=...` | 寫 `roles/{role}/`，metadata `Scope: role:{role}` |
-| `scope=personal` + `user=...` | 寫 `personal/{user}/`，metadata `Scope: personal:{user}` |
+| `scope=personal` + `user=...` | 寫 `{proj}/.claude/memory/personal/{user}/`，metadata `Scope: personal:{user}`；只在該專案、只給本人 |
+| `scope=personal` + `cross_project=true`（或從 ~/.claude 呼叫） | 寫 `~/.claude/memory/personal/{user}/`（gitignore），索引在全域 `_atom_index.json`；任何專案都搜、只給本人；不進 MEMORY.md 目錄／realm 搬移；向量層 `personal:global:{user}` |
 | `scope=project`（legacy） | 透明轉 `shared` + stderr deprecation hint |
 
 新 metadata 自動帶入：`Author`（server 端 env/OS user）、`Created-at`（今日）、`Audience`/`Pending-review-by`/`Merge-strategy`（optional）；選填 `status` 參數 → `- Status:` 現況一行（cold/skip 一行注入時附帶；只寫現況、禁版本敘事）。

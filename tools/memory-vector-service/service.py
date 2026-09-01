@@ -237,6 +237,8 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
         user = params.get("user", [""])[0] or None
         roles_raw = params.get("roles", [""])[0]
         roles = [r.strip() for r in roles_raw.split(",") if r.strip()] or None
+        layers_raw = params.get("layers", [""])[0]
+        layers = [l.strip() for l in layers_raw.split(",") if l.strip()] or None
 
         results = ranked_search(
             query=q,
@@ -248,6 +250,7 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
             embedder=_embedder,
             user=user,
             roles=roles,
+            layers=layers,
         )
         self._send_json(results)
 
@@ -266,6 +269,8 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
         user = params.get("user", [""])[0] or None
         roles_raw = params.get("roles", [""])[0]
         roles = [r.strip() for r in roles_raw.split(",") if r.strip()] or None
+        layers_raw = params.get("layers", [""])[0]
+        layers = [l.strip() for l in layers_raw.split(",") if l.strip()] or None
 
         results = ranked_search_sections(
             query=q,
@@ -278,6 +283,7 @@ class VectorServiceHandler(BaseHTTPRequestHandler):
             embedder=_embedder,
             user=user,
             roles=roles,
+            layers=layers,
         )
         self._send_json(results)
 

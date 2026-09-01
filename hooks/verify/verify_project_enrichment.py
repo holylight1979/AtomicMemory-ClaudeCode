@@ -51,7 +51,7 @@ def _mk_state(tmp_path, with_project: bool):
 def _run(tmp_path, monkeypatch, prompt, with_project, sem_results):
     calls = []
 
-    def _fake_sem(p, config, intent="general", user=None, roles=None, session_id=None):
+    def _fake_sem(p, config, intent="general", user=None, roles=None, session_id=None, layers=None):
         calls.append(p)
         return sem_results
 

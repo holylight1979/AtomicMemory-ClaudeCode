@@ -195,6 +195,8 @@ def _classify_rows(rows: List[Tuple[str, str, str]],
     local_atoms: List[Tuple[str, str, str, List[str]]] = []
     for name, rel_path, _scope in rows:
         kind = atom_index_row_kind(rel_path, name)
+        if kind == "personal":
+            continue  # personal 只給本人：不入 MEMORY.md 目錄
         if kind == "feedback_aggregate":
             feedback_rows.append((name, rel_path))
         elif kind == "failures_other":
@@ -220,7 +222,7 @@ def _core_category_atoms(rows: List[Tuple[str, str, str]],
     categorized: List[Tuple[str, str, str, List[str]]] = []
     flat: List[str] = []
     for name, rel_path, _scope in rows:
-        if atom_index_row_kind(rel_path, name) == "local_realm":
+        if atom_index_row_kind(rel_path, name) in ("local_realm", "personal"):
             continue
         segs = core_category_segments(rel_path)
         if not segs:
@@ -233,7 +235,7 @@ def _core_category_atoms(rows: List[Tuple[str, str, str]],
 def flat_core_atoms(rows: List[Tuple[str, str, str]]) -> List[str]:
     """memory/ 根下平鋪（無範疇資料夾）的核心 atom 名（硬規則檢查用）。"""
     return [name for name, rel_path, _ in rows
-            if atom_index_row_kind(rel_path, name) != "local_realm"
+            if atom_index_row_kind(rel_path, name) not in ("local_realm", "personal")
             and not core_category_segments(rel_path)]
 
 

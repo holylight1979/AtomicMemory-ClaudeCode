@@ -10,3 +10,4 @@
 | feedback-complexity-origin-trace | feedback-complexity-origin-trace |
 | feedback-rigor-standards | feedback-rigor-standards |
 | feedback-模糊裁示不硬化先深問-決策選項含使用到再問 | feedback-模糊裁示不硬化先深問-決策選項含使用到再問 |
+| wrong-assumptions-思考與決策 | 假設錯誤（Wrong Assumptions） |

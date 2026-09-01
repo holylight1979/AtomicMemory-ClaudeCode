@@ -263,6 +263,7 @@ def ranked_search(
     embedder=None,
     user: Optional[str] = None,
     roles: Optional[List[str]] = None,
+    layers: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Intent-aware ranked search.
 
@@ -281,7 +282,8 @@ def ranked_search(
     if not query_vec or not query_vec[0]:
         return []
 
-    layer_clause = _build_v4_layer_clause(user, roles)
+    # 明確 layers 白名單（呼叫端可見性）> V4 role clause
+    layer_clause = _build_layers_clause(layers) or _build_v4_layer_clause(user, roles)
 
     raw_results = search_vectors(
         query_vec[0],
@@ -351,6 +353,7 @@ def ranked_search_sections(
     embedder=None,
     user: Optional[str] = None,
     roles: Optional[List[str]] = None,
+    layers: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Intent-aware ranked search preserving section-level detail.
 
@@ -372,7 +375,7 @@ def ranked_search_sections(
     if not query_vec or not query_vec[0]:
         return []
 
-    layer_clause = _build_v4_layer_clause(user, roles)
+    layer_clause = _build_layers_clause(layers) or _build_v4_layer_clause(user, roles)
 
     raw_results = search_vectors(
         query_vec[0],

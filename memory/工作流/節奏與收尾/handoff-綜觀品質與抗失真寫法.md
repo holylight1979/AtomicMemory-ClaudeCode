@@ -5,7 +5,7 @@
 - Confidence: [固]
 - Trigger: handoff, 續接, 下 session, next-phase, /continue, 交接, 接續 prompt, 綜觀, 失真, 多 session, 寫接續文, handoff 品質, 新開 session
 - Created-at: 2026-06-18
-- Related: feedback-workflow-discipline, 跨session資訊失真機制與對策, a執p-自執驗上p-自動完工協議, goal-driven-verify-loopkarpathy-吸收, feedback-completion-gates, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問, feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, feedback-模糊裁示不硬化先深問-決策選項含使用到再問, 並行llm即時通訊-inbox機制, 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提, workflow-rules
+- Related: feedback-workflow-discipline, 跨session資訊失真機制與對策, a執p-自執驗上p-自動完工協議, goal-driven-verify-loopkarpathy-吸收, feedback-completion-gates, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, feedback-整理歸檔任務-狀態變更即決策-活項對照閘-方向不明動手前先問, feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, feedback-模糊裁示不硬化先深問-決策選項含使用到再問, 並行llm即時通訊-inbox機制, 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提, workflow-rules, feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫
 
 ## 知識
 
