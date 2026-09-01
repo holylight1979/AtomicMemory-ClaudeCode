@@ -2391,6 +2391,36 @@
         "non-fast-forward"
       ],
       "scope": "global"
+    },
+    {
+      "name": "wrong-assumptions-思考與決策",
+      "path": "memory/Failures/思考與決策/wrong-assumptions-思考與決策.md",
+      "triggers": [
+        "假設錯誤",
+        "誤判",
+        "直覺假設",
+        "wrong assumption",
+        "前提錯"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人",
+      "path": "memory/CC與原子記憶契約/atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人.md",
+      "triggers": [
+        "scope 可見性",
+        "跨專案注入",
+        "personal 洩漏",
+        "候選池",
+        "filter_visible",
+        "scope_from_rel_path",
+        "cross-project",
+        "alias 帶入",
+        "layers 白名單",
+        "他專案 atom",
+        "scope 過濾"
+      ],
+      "scope": "global"
     }
   ]
 }

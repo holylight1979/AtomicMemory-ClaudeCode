@@ -2,7 +2,7 @@
 
 覆蓋：
 - register_project 不登記 ~/.claude 本身與家目錄；8.3 短檔名展開後同 slug
-- ups_search 跨專案索引快取：鍵隨 MEMORY.md / _atom_index.json mtime 變動；命中免重讀
+- ups_search 跨專案 alias 快取：只存 alias、鍵隨 MEMORY.md mtime 變動；命中免重讀
 - tools/memory-audit.discover_layers 與 memory-conflict-detector.discover_layers 走 wg_core 判定
 """
 from __future__ import annotations
@@ -62,33 +62,30 @@ def _mk_project(mem: Path, name: str, triggers, alias: str = "") -> None:
     ]}), encoding="utf-8")
 
 
-def test_cross_cache_roundtrip_and_invalidation(tmp_path, monkeypatch):
+def test_cross_cache_alias_only_roundtrip_and_invalidation(tmp_path, monkeypatch):
+    """跨專案快取只存 alias：他專案的 atom 索引不讀、不快取（他專案 atom 不進候選池）。"""
     monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "wf")
     mem = tmp_path / "p1" / ".claude" / "memory"
     _mk_project(mem, "a1", ["alpha", "beta"], alias="p1")
     cross = [("p1", mem)]
     first = ups_search._load_cross_project_cache(cross)
     assert first[str(mem)]["aliases"] == ["p1"]
-    assert first[str(mem)]["atoms"][0][0] == "a1"
+    assert "atoms" not in first[str(mem)]
     cache_file = tmp_path / "wf" / ups_search._CROSS_CACHE_NAME
     assert cache_file.exists()
-    # 命中：不重讀（把索引檔改壞但 mtime 不變 → 仍回快取內容）
-    idx = mem / "_atom_index.json"
+    assert "a1" not in cache_file.read_text(encoding="utf-8")
+    # 命中：MEMORY.md mtime 不變 → 不重讀（把檔改掉但 mtime 復原仍回快取內容）
+    idx = mem / "MEMORY.md"
     st = idx.stat()
-    idx.write_text("{broken", encoding="utf-8")
+    idx.write_text("> Project-Aliases: changed\n", encoding="utf-8")
     os.utime(idx, ns=(st.st_atime_ns, st.st_mtime_ns))
     hit = ups_search._load_cross_project_cache(cross)
-    assert hit[str(mem)]["atoms"][0][0] == "a1"
-    # 失效：mtime 前進 → 重讀（壞 JSON 時 parse_memory_index 走 fallback 索引源，
-    # 不炸；重點是不再回舊快取的 a1）
+    assert hit[str(mem)]["aliases"] == ["p1"]
+    # 失效：mtime 前進 → 重讀新 alias
     os.utime(idx, ns=(st.st_atime_ns + 10**9, st.st_mtime_ns + 10**9))
-    miss = ups_search._load_cross_project_cache(cross)
-    assert all(a[0] != "a1" for a in miss.get(str(mem), {}).get("atoms", []))
-    # 修好後再讀回
-    _mk_project(mem, "a2", ["gamma"])
     time.sleep(0.01)
-    back = ups_search._load_cross_project_cache(cross)
-    assert back[str(mem)]["atoms"][0][0] == "a2"
+    miss = ups_search._load_cross_project_cache(cross)
+    assert miss[str(mem)]["aliases"] == ["changed"]
 
 
 # ─── 工具端判定走 wg_core ─────────────────────────────────────────────────

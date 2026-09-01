@@ -47,7 +47,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | 面向 | Claude Code 原生 | 原子記憶系統 | 差異的意義 |
 |------|------|------|------|
 | 真源 | `projects/<slug>/memory/MEMORY.md` + 自由 md，模型自己決定寫什麼 | Markdown atom 卡片 + `memory/_atom_index.json` 機器索引；每顆有 Trigger / Confidence / Scope | 有索引才能程式化檢索；有欄位才能程式化晉升 |
-| 跨專案 | **無**——記憶綁 project slug | `memory/<範疇>/` 全專案注入；跨專案 alias 掃描（上限 20 專案） | 個人偏好、通用踩坑不必每個專案重學 |
+| 跨專案 | **無**——記憶綁 project slug | `memory/<範疇>/` 全專案注入；他專案只在提到其別名時帶入 MEMORY.md 目錄（上限 20 專案） | 個人偏好、通用踩坑不必每個專案重學；專案層知識不外洩 |
 | 載入方式 | 啟動只載 MEMORY.md 前 200 行／25KB，其餘靠模型按需 Read | 每個 prompt 由 hook 主動挑選注入 | 「有存無用」是業界通病；主動注入直接對治 |
 | 檢索 | 無 | trigger → BM25 → vector → RRF 融合 × 活化 | 模型不必自己想起要去讀哪個檔 |
 | 品質分級 | 無 | [臨]/[觀]/[固] + Wilson 效用晉升 | 未驗證的猜測不會和已驗證的事實平起平坐 |
@@ -204,6 +204,8 @@ sequenceDiagram
 | `role:{name}` | 同職務者 | 職務專有規範 | `{project}/.claude/memory/roles/<role>/` |
 | `personal:{user}` | 只自己 | 個人 scratch、未公開假設 | `{project}/.claude/memory/personal/<user>/` |
 
+**讀取端候選池**（SessionStart 建一次、UPS 的 trigger / BM25 / vector / related / AtomAudit 共用）：global + 本專案 shared（含 failures）+ 本人 roles + 本人 personal。他專案任何層都不進池；他人 personal / role 不進池。scope 由索引 path 推導（`personal/<u>/`、`roles/<r>/`），不信 index 的 scope 欄。向量路帶同一套 layers 白名單，管理職不豁免。
+
 當前部署為單人，實際只用到 global / personal；shared / roles 為保留能力（§13）。
 
 ### 4.5 索引：JSON 單一真相
@@ -211,7 +213,7 @@ sequenceDiagram
 - `memory/_atom_index.json` 是唯一機器源（API：`lib/atom_index_json.py` load/save/upsert/delete/validate）；`_ATOM_INDEX.md` 是自動生成 mirror，只給 fallback parser。
 - 每筆：`name` / `path` / `triggers` / `scope`（+ realm 由 path 推導）。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
-- 現況計數：<!-- atom-breakdown -->135 atoms：core 56 + feedback 21 + 失敗模式 1 + local 57〔Tools7/MemDev47/OS2/Vision1〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->137 atoms：core 57 + feedback 21 + 失敗模式 2 + local 57〔Tools7/MemDev47/OS2/Vision1〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -233,11 +235,11 @@ sequenceDiagram
 
 | # | 段 | 做什麼 | 關鍵條件／常數 |
 |---|-----|--------|------|
-| 1 | 索引組裝 | global 索引 + 當前專案索引；local realm 只在 ~/.claude 才納入 | 跨專案聚合快取 `workflow/cross-project-index-cache.json` |
-| 2 | 跨專案 alias | 其他已登記專案的 atom，trigger ≥2 命中才收 | 上限 20 專案 |
+| 1 | 索引組裝 | 候選池＝SessionStart 建好的 global 索引 + 當前專案索引，已依 scope 可見性收窄（personal 只本人、role 只持有者；scope 由 path 推導，不信 index 欄）；local realm 只在 ~/.claude 才納入 | 六條檢索路共用此池，不各自過濾 |
+| 2 | 跨專案 alias | prompt 命中其他已登記專案的別名 → 只帶入該專案 MEMORY.md 目錄（去表格列、去 personal/roles 行）；**他專案 atom 不進候選池** | 上限 20 專案；`workflow/cross-project-index-cache.json` 只快取 alias |
 | 3 | trigger | 逐 atom 比 Trigger 欄：ASCII 整詞邊界、CJK 子字串 | ~10ms |
 | 4 | BM25 | **只在 trigger 命中 ≤2 時**跑，補 trigger 沒寫到的措辭 | `bm25_min_score` 7.0、top 3；k1=1.2、b=0.75；ASCII word + CJK char-bigram |
-| 5 | vector | 兩種情況才打 :3849：(a) trigger+BM25 全空 → 全域 fallback；(b) 有專案層 atom 且 trigger 命中 <3 → 只補專案層 | top_k 5、min_score 0.65、timeout 3500ms |
+| 5 | vector | 兩種情況才打 :3849：(a) trigger+BM25 全空 → 全域 fallback；(b) 有專案層 atom 且 trigger 命中 <3 → 只補專案層；一律帶 `layers` 白名單（候選池同一套可見性），池外名字合併時直接丟 | top_k 5、min_score 0.65、timeout 3500ms |
 | 6 | supersedes | 規則式剔除被 `Supersedes` 指到的舊 atom | `handlers/_shared.py _SUPERSEDES_RE` |
 | 7 | RRF 融合 | 三路各自排名 → `Σ 1/(60+rank)` | `RRF_K_DEFAULT` 60；`fusion:"legacy"` 可回退 |
 | 8 | 活化調節 | `final = rrf × exp(0.25 × activation_rank)`；再減分心懲罰 | ACT-R `ln(Σ t^-d)`；`RRF_ACTIVATION_GAIN` 0.25 |
@@ -253,7 +255,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->135<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->137<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 只在 trigger ≤2 命中時跑**：trigger 是人寫的高精度訊號；命中已 ≥3 代表 keyword 訊號充足，再加 BM25 只會引進「字面相似但主題無關」的噪音（context-rot 研究：單一干擾項即傷精度）。`min_score` 7.0 是回歸集調出來的——3.5 時負例誤注入 21.4%，7.0 歸零、R@3 只掉 1.5pt。
 
@@ -291,7 +293,7 @@ sequenceDiagram
 | `max_related` | 6 | config `injection.related_gate` |
 | `truncated_pointer_max` | 3 | config `injection` |
 | `SECTION_INJECT_THRESHOLD` | 200 tok | `hooks/wg_atoms.py` |
-| 跨專案 alias | trigger ≥2、上限 20 專案 | `hooks/handlers/ups_search.py` |
+| 跨專案 alias | 只帶 MEMORY.md 目錄、上限 20 專案 | `hooks/handlers/ups_search.py` |
 
 ### 5.4 各檢索路並排比較
 

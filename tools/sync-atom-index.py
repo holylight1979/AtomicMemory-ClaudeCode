@@ -34,6 +34,7 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.atom_index_json import (  # noqa: E402
+    dedup_triggers,
     load_atom_index_json,
     upsert_atom,
 )
@@ -108,7 +109,8 @@ def parse_frontmatter_triggers(text: str) -> Optional[List[str]]:
     m = TRIGGER_LINE_RE.search(text)
     if not m:
         return None
-    return [t.strip() for t in m.group(1).split(",") if t.strip()]
+    # 與索引寫入側同一把去重（大小寫不敏感保序），否則 detect_drift 會永久報 drift
+    return dedup_triggers(m.group(1).split(","))
 
 
 def parse_frontmatter_scope(text: str) -> str:
@@ -159,7 +161,7 @@ def load_index_rows(memory_dir: Path) -> List[IndexRow]:
         rows.append(IndexRow(
             name=a.get("name", ""),
             path=a.get("path", "").replace("\\", "/"),
-            triggers=[t.strip() for t in a.get("triggers", []) if t.strip()],
+            triggers=dedup_triggers(a.get("triggers", [])),
             scope=a.get("scope", "global"),
         ))
     return rows

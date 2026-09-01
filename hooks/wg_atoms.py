@@ -141,7 +141,8 @@ def _parse_trigger_table(text: str) -> List[AtomEntry]:
             if len(cells) >= 3:
                 name = cells[0]
                 rel_path = cells[1]
-                triggers = [t.strip().lower() for t in cells[2].split(",") if t.strip()]
+                # lowercase + strip + 保序去重（大小寫重複會讓 count_trigger_hits 灌水）
+                triggers = list(dict.fromkeys(t.strip().lower() for t in cells[2].split(",") if t.strip()))
                 atoms.append((name, rel_path, triggers))
             elif cells:
                 atoms.append((cells[0], "", []))
@@ -228,6 +229,62 @@ def _find_atom_path(name: str, all_atoms: List[Tuple[AtomEntry, Path]]) -> Optio
         if aname == name:
             return (base_dir / rel_path) if rel_path else (base_dir / "memory" / f"{name}.md")
     return None
+
+
+# ─── Scope 可見性（SPEC §8.1）────────────────────────────────────────────────
+# 候選池在 SessionStart 只裝「本人看得到的」atom：global + 本專案 shared/failures +
+# 本人 roles + 本人 personal。之後 trigger / BM25 / vector / related 全從這個池取，
+# 不各自再過濾。scope 由索引 path 推導、不信 index 的 scope 欄（自動萃取曾把
+# 專案層條目寫成 global）。他專案的 atom 從不進池；他專案只靠 alias 帶入 MEMORY.md。
+
+
+def scope_from_rel_path(rel_path: str, layer: str = "shared") -> str:
+    """索引 path → scope 標籤：personal:<user> / role:<role>；其餘回 layer（global|shared）。"""
+    parts = [p for p in str(rel_path).replace("\\", "/").split("/") if p]
+    dirs = parts[:-1]
+    for i, seg in enumerate(dirs):
+        if seg == "personal" and i + 1 < len(dirs):
+            owner = dirs[i + 1]
+            if owner == "auto" and i + 2 < len(dirs):
+                owner = dirs[i + 2]  # personal/auto/<user>/：自動萃取候選，仍屬該使用者
+            return f"personal:{owner}"
+        if seg == "roles" and i + 1 < len(dirs):
+            return f"role:{dirs[i + 1]}"
+    return layer
+
+
+def entry_visible(rel_path: str, user: Optional[str], roles: Optional[List[str]]) -> bool:
+    """personal 只給本人、role 只給持有者；shared / global 對全員可見。"""
+    label = scope_from_rel_path(rel_path)
+    if label.startswith("personal:"):
+        return bool(user) and label[len("personal:"):] == user
+    if label.startswith("role:"):
+        return label[len("role:"):] in set(roles or ())
+    return True
+
+
+def filter_visible(
+    entries: List[AtomEntry], user: Optional[str], roles: Optional[List[str]],
+) -> List[AtomEntry]:
+    return [e for e in entries if entry_visible(e[1], user, roles)]
+
+
+def visible_vector_layers(
+    project_slug: str, user: Optional[str], roles: Optional[List[str]],
+    include_local: bool = False,
+) -> List[str]:
+    """向量服務 layer 標籤白名單，與候選池同一套可見性（indexer 標籤：global /
+    extra:local-atoms / shared:<slug> / role:<slug>:<r> / personal:<slug>:<u>）。"""
+    layers = ["global"]
+    if include_local:
+        layers.append("extra:local-atoms")
+    if project_slug:
+        layers.append(f"shared:{project_slug}")
+        for r in roles or ():
+            layers.append(f"role:{project_slug}:{r}")
+        if user:
+            layers.append(f"personal:{project_slug}:{user}")
+    return layers
 
 
 # ─── Atom Matching & Activation ──────────────────────────────────────────────
@@ -402,7 +459,7 @@ def any_trigger_hit(keywords, prompt_lower: str) -> bool:
 
 
 def count_trigger_hits(keywords, prompt_lower: str) -> int:
-    """命中數版本（跨專案掃描 ≥2 門檻用）。"""
+    """命中數版本（RRF trigger 路排序依據）。"""
     return sum(1 for kw in keywords if _kw_match(kw, prompt_lower))
 
 
@@ -1485,7 +1542,7 @@ def parse_aidocs_index(project_root: Path) -> List[AiDocsEntry]:
                     continue
                 keywords: List[str] = []
                 if len(cells) >= 4 and cells[3].strip():
-                    keywords = [k.strip().lower() for k in cells[3].split(",") if k.strip()]
+                    keywords = list(dict.fromkeys(k.strip().lower() for k in cells[3].split(",") if k.strip()))
                 entries.append((fname, desc, keywords))
     return entries
 
@@ -1856,8 +1913,12 @@ def _semantic_search(
     user: Optional[str] = None,
     roles: Optional[List[str]] = None,
     session_id: Optional[str] = None,
+    layers: Optional[List[str]] = None,
 ) -> List[Tuple[str, str, List[str], List[Dict]]]:
-    """Query Memory Vector Service with intent-aware ranked search."""
+    """Query Memory Vector Service with intent-aware ranked search.
+
+    layers：可見 layer 白名單（visible_vector_layers），服務端只在這幾層查；
+    user/roles 仍一併送，給尚未支援 layers 的舊服務退回 role clause。"""
     import urllib.error
     import urllib.parse
     import urllib.request
@@ -1883,6 +1944,8 @@ def _semantic_search(
                 p["user"] = user
             if roles:
                 p["roles"] = ",".join(roles)
+            if layers:
+                p["layers"] = ",".join(layers)
             return p
 
         use_sections = True

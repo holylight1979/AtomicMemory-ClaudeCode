@@ -8,6 +8,6 @@
 |------|---------|------|
 | CC與原子記憶契約 | 3 | `memory/Failures/CC與原子記憶契約/_INDEX.md` |
 | 工作流 | 6 | `memory/Failures/工作流/_INDEX.md` |
-| 思考與決策 | 4 | `memory/Failures/思考與決策/_INDEX.md` |
+| 思考與決策 | 5 | `memory/Failures/思考與決策/_INDEX.md` |
 | 行為契約 | 5 | `memory/Failures/行為契約/_INDEX.md` |
 | 驗證與實證 | 4 | `memory/Failures/驗證與實證/_INDEX.md` |
