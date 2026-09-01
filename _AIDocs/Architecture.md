@@ -227,6 +227,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 | tools/atom-move.py | `tool:atom-move` | `write_raw` (atom) + `write_index_full` (index) |
 | tools/memory-audit.py | `tool:memory-audit` | demote / compact / log_evolution `write_raw` + `atom_access.write_access_field` |
 | tools/sync-atom-index / sync-memory-index | `tool:sync-*` | `write_index_full`；`sync-atom-index --fix-scope-from-path`：索引 scope 以 path 為準回寫（`scope_from_index_path` 單一來源）＋懸空條目刪除＋.md Scope 標頭對齊，冪等；`--all-projects` 對全部登記專案一鍵套用／檢查（週健檢黃燈） |
+| tools/classify-project-scope.py | `tool:atom-move`（沿用搬檔／索引 helper） | 專案記憶 scope 分層整理：`status`（已整理＝`_atom_index.json.layout=="scope-v2"` 或 `shared/_taxonomy.json`，`lib.atom_locations.scope_layout_classified`）／`plan`（personal 存量建議、索引計數）／`apply --decisions`（搬檔、索引、標頭、fix-scope、catalog、打標記）／`mark`；SessionStart 對未整理專案出 `[Guardian:ScopeLayout]`，SOP 在 `/memory classify` |
 
 **Atom 知識／遙測切分（Wave 2 落地）：**
 

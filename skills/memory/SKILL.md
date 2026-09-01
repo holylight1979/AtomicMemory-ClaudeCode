@@ -1,6 +1,6 @@
 ---
 name: memory
-description: 原子記憶系統綜合工具 — health/review/score 三主力 + peek/undo（僅查自動萃取歷史殘留）。用於檢查記憶健康、自我迭代、Session 評分。
+description: 原子記憶系統綜合工具 — health/review/score 三主力 + classify（專案記憶 scope 分層整理，SessionStart 出 [Guardian:ScopeLayout] 或使用者說「整理記憶分類」時用）+ peek/undo（僅查自動萃取歷史殘留）。用於檢查記憶健康、自我迭代、Session 評分。
 ---
 
 # /memory — 記憶系統綜合工具
@@ -18,10 +18,32 @@ description: 原子記憶系統綜合工具 — health/review/score 三主力 + 
 /memory undo [last | --since=24h | --all-from-today]   # 同上
 /memory review
 /memory score [--last | --since=24h | --top-n=10]
+/memory classify                  # 專案記憶依 scope 分層整理（personal 只本人／專案規則進 shared）
 ```
 
 第一個 token 為 subcommand。從 `$ARGUMENTS` 解析。
 若無 subcommand → 預設 `health`。
+
+---
+
+### classify → 專案記憶 scope 分層整理
+
+觸發：SessionStart 出現 `[Guardian:ScopeLayout]`、或使用者說「整理記憶分類」。在專案根執行。
+
+1. **plan（腳本）**：
+   ```bash
+   python ~/.claude/tools/classify-project-scope.py plan
+   ```
+   輸出 JSON：`personal[]`（每顆 personal 存量：slug／owner／第一句／`suggest` shared|personal／理由）、`index`（scope 錯標、懸空、trigger 漂移數）、`shared_flat`、`classified`。
+2. **問使用者（唯一要人判的一步）**：把 `personal[]` 做成表（編號｜第一句摘要｜建議去向），用 AskUserQuestion 問「照建議／有例外列編號」。去向四選一：`shared`（專案規則，Author 記提出者）／`personal`（留本人×專案）／`cross_project`（本人跨專案，搬到 `~/.claude/memory/personal/<user>/`）／`reject`（一次性任務，移 `_rejected/`）。先用兩三句白話說明這次改動：personal 只給本人、專案規則要進 shared 別人才看得到、他專案的記憶不再注入。
+3. **apply（腳本）**：把決定寫成 `{slug: 去向}` JSON 檔（放 scratchpad），
+   ```bash
+   python ~/.claude/tools/classify-project-scope.py apply --decisions <file> --dry-run   # 先看
+   python ~/.claude/tools/classify-project-scope.py apply --decisions <file>             # 實搬 + 索引回寫 + 標記
+   ```
+   沒有 personal 存量時直接 `apply` 空決定 `{}` 或 `mark` 即可打標記。
+4. **上傳**：提醒使用者把 `.claude/memory/` 的變動上該專案的版控（git/svn；personal/ 依專案 .gitignore 規則）。
+5. 判「已整理」：`status` 回 `classified=true`（`_atom_index.json.layout=="scope-v2"` 或 `shared/_taxonomy.json` 存在），之後 SessionStart 不再提示。
 
 ---
 

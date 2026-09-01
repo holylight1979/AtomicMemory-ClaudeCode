@@ -346,6 +346,14 @@ python tools/fix-hook-python.py            # pull 後 settings.json 若被更新
 - [ ] `tools/codex-companion/judge_backend.py` 存在；無 codex CLI 的環境確認 `claude` 可被找到（備援裁判）
 - [ ] Stop hook 只掛 guardian / codex_companion / lang_guard（無 quick-extract）
 
+### 7.1 升級到 scope 分層後：各專案的記憶要整理一次
+
+這版把記憶可見性改成：**personal 只給本人、針對專案的規則進 shared 並以 Author 記提出者、他專案的 atom 不再注入**（`_AIDocs/SPEC_ATOM_V5.md` §2）。升級後程式面自動生效，但**既有專案的存量**（過去自動萃取全落 personal、索引 scope 欄錯標）不會自己歸位：
+
+- 打開任何尚未整理的專案，SessionStart 會出 `[Guardian:ScopeLayout]` 提示；請使用者說「整理記憶分類」，AI 走 `/memory classify`（`tools/classify-project-scope.py plan → 使用者確認 personal 去向 → apply`），完成後打上 `_atom_index.json.layout="scope-v2"` 標記，並把 `.claude/memory/` 變動上該專案版控。
+- 「已整理」判定：上述標記，或專案已有 `shared/_taxonomy.json`。
+- 只想先修程式能判的部分（索引 scope、懸空條目），可從 `~/.claude` 一次掃全部登記專案：`python tools/sync-atom-index.py --all-projects --fix-scope-from-path`。
+
 > 多職務團隊：從 `skills/_archived/` 復原 init-roles / conflict-review，專案執行 `/init-roles` 建 `memory/shared/_roles.md` + `memory/roles/<role>/`（`tools/init-roles.py`、`tools/conflict-review.py` 仍在）。單人環境不需要。
 
 ---

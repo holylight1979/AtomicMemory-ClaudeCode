@@ -363,6 +363,30 @@ def _health_advisory(last_run_path) -> list:
         ]
 
 
+def _scope_layout_advisory(project_mem_dir) -> list:
+    """專案記憶尚未依 scope 分層整理 → 開場一行說明改動＋整理入口。
+
+    記憶系統升級後（personal 只本人、專案規則進 shared 記提出者、他專案不注入），其他機器上
+    的既有專案不會自己整理；「已整理」＝ _atom_index.json.layout 標記或 shared/_taxonomy.json
+    （lib.atom_locations.scope_layout_classified）。純判定、fail-open。
+    """
+    try:
+        if not project_mem_dir or not Path(project_mem_dir).is_dir():
+            return []
+        from atom_locations import scope_layout_classified
+        if scope_layout_classified(Path(project_mem_dir)):
+            return []
+        return [
+            "[Guardian:ScopeLayout] 記憶系統已改為 scope 分層：personal 只給本人、針對專案的規則進 shared "
+            "並記提出者、他專案 atom 不再注入。本專案的記憶尚未依此整理（無 layout 標記／shared/_taxonomy.json）。"
+            "使用者說「整理記憶分類」→ 走 /memory classify：plan 出建議表 → 使用者確認 personal 去向 → "
+            "apply（搬檔、索引 scope 回寫、標記）→ 提醒把 .claude/memory 上傳版控。"
+        ]
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("session_start:scope_layout_advisory", e)
+        return []
+
+
 def _followup_advisory() -> list:
     """回訪到期 → 開場自動跑 tools/followup-check.py，把檢查結果＋自足交接推進 context。
 
@@ -690,6 +714,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # SessionEnd 晉升自動提交的 push 走背景、失敗當下無人知 → 這裡補可見性。
         lines.extend(_unpushed_advisory())
         lines.extend(_followup_advisory())
+        lines.extend(_scope_layout_advisory(project_mem_dir))
 
         if v4_user:
             lines.append(

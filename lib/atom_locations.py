@@ -615,6 +615,31 @@ def atom_index_row_kind(rel_path: str, name: str) -> str:
     return "individual"
 
 
+# 專案記憶「已依 scope 分層整理過」的判定：tools/classify-project-scope.py apply/mark 打在
+# _atom_index.json 頂層的 layout 標記，或專案自訂 shared/_taxonomy.json（已在分類的專案）。
+SCOPE_LAYOUT_MARK = "scope-v2"
+
+
+def scope_layout_classified(mem_dir: Path) -> Optional[str]:
+    """回 'marker' | 'taxonomy' | None（未整理）。無索引的專案回 'marker'（沒東西可整理）。"""
+    try:
+        from .atom_index_json import load_atom_index_json
+    except ImportError:
+        from atom_index_json import load_atom_index_json
+    idx = Path(mem_dir) / "_atom_index.json"
+    if not idx.exists():
+        return "marker"
+    try:
+        data = load_atom_index_json(Path(mem_dir))
+    except (OSError, ValueError):
+        return None
+    if data.get("layout") == SCOPE_LAYOUT_MARK:
+        return "marker"
+    if (Path(mem_dir) / "shared" / "_taxonomy.json").exists():
+        return "taxonomy"
+    return None
+
+
 def scope_from_index_path(rel_path: str, layer: str = "shared") -> str:
     """索引 path → scope 標籤（單一來源；hooks/wg_atoms.scope_from_rel_path 委派到這裡）。
     personal/<user>/（含 personal/auto/<user>/）→ personal:<user>；roles/<r>/ → role:<r>；
