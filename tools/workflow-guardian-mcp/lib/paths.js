@@ -76,9 +76,15 @@ function resolvePythonExe() {
   return "python";
 }
 const PYTHON_EXE = resolvePythonExe();
+// fail-open 必浮訊號：退回裸 "python" 時在 stderr 留一行（MCP stdio 的 stderr 不進協定），
+// 否則撞到 Store 佔位程式只會看到下游 "Unexpected end of JSON input"，無從追。
+const PYTHON_EXE_FALLBACK = PYTHON_EXE === "python" && process.platform === "win32";
+if (PYTHON_EXE_FALLBACK) {
+  process.stderr.write("[workflow-guardian] WARN: 找不到 Python 絕對路徑，退回裸 \"python\"（可能被 Microsoft Store 佔位程式攔走）；請設 WG_PYTHON 指向 python.exe\n");
+}
 
 module.exports = {
   CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, CONFIG_PATH, REGISTRY_PATH, VERSION_PATH,
   loadVersions, VERSIONS, loadRegistry, getRegistryMemDirs, loadConfig,
-  resolvePythonExe, PYTHON_EXE,
+  resolvePythonExe, PYTHON_EXE, PYTHON_EXE_FALLBACK,
 };

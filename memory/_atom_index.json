@@ -2519,6 +2519,25 @@
         "可行動"
       ],
       "scope": "personal:holylight"
+    },
+    {
+      "name": "windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑",
+      "path": "memory/OS-Windows/windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑.md",
+      "triggers": [
+        "Microsoft Store",
+        "WindowsApps",
+        "python.exe",
+        "exit 9009",
+        "App Execution Alias",
+        "spawn python",
+        "裸 python",
+        "Unexpected end of JSON input",
+        "WG_PYTHON",
+        "resolvePythonExe",
+        "新機安裝",
+        "PATH 順位"
+      ],
+      "scope": "global"
     }
   ]
 }
