@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 Cross-Realm Bash Block — 專案 session 不得經 Bash 改根層／操作根層 repo；規則進 rules/core.md
+- 實證破口：專案 session（c:\Projects）以 `cd ~/.claude && python - <<EOF … write_text` 改根層 `session_start.py`／`wg_roles.py`、再 `git add && git commit`——既有 `CrossRealmWriteBlock` 只看 Write/Edit/NotebookEdit，整條 Bash 路沒被看到（內容正確、地點錯：根層 verify／選擇性 staging／publish 在專案 session 不會跑，且與根層 session 同檔併發）。**新** `wg_core.check_cross_realm_bash`（接在 PreToolUse deny 鏈）：根層上下文 × 動手操作 → deny；純跑根層工具（不 cd）與唯讀放行；`guard.cross_realm_bash.{enabled,allowlist}`。**規則**（使用者定案）寫進 `rules/core.md` 治理原則：專案層要改根層 → 不動手，寫成 prompt 交使用者到 ~/.claude 開 session；專案自己的需求走 `project_hooks.py`／`.claude/skills/`。新 `verify_cross_realm_bash_guard.py` 9 案。
+
 ## 2026-09-01 personal 版控同步自檢 — [Guardian:PersonalSync] + get_current_user 多人安全
 - 背景：專案層 personal 設計為「可上版控、僅本人可搜」，但索引三檔跟 repo 走、personal 檔卻可能留本機（未 commit、或被 .gitignore 擋）→ 他機索引懸空、兩機 hook 重建索引互相加回/拿掉；以前靠人傳話「請把 personal 上傳」。**新增** SessionStart `_personal_sync_advisory(project_mem_dir, user)`：三訊號各一行——personal/<user>/ 被 ignore→提示移除；本人 personal 檔 untracked/modified→提示收尾 `git add` 一起 commit；索引列本人 atom 但本機無檔→提示到另一台機器 push。只算本人目錄、跳 .access.json、唯讀 git、非 repo 靜默；全域核心 memory dir 跳過（公開發布 repo，personal 依 .gitignore 留本機是刻意）。**修** `wg_roles.get_current_user`：寫死 `holylight` → `CLAUDE_USER` → `getpass.getuser()` → 預設；共用核心的同事機器原本會把別人的 personal 當自己的（可見性倒置）。新 `verify_personal_sync_advisory.py` 11 案。
 
