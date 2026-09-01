@@ -20,8 +20,21 @@ _DEFAULT_MANAGEMENT = True
 
 
 def get_current_user() -> str:
-    """Return current user — env CLAUDE_USER override else hardcoded default."""
-    return os.environ.get("CLAUDE_USER") or _DEFAULT_USER
+    """env CLAUDE_USER → OS 登入帳號 → _DEFAULT_USER。
+
+    personal/<user>/ 目錄名＝各機器 OS 帳號（bootstrap 慣例）。共用此核心的同事機器若拿到
+    寫死的預設值，會把別人的 personal 當成自己的（可見性倒置、PersonalSync 指錯目錄）。
+    本機（帳號即預設值）行為不變。
+    """
+    u = os.environ.get("CLAUDE_USER")
+    if u:
+        return u
+    try:
+        import getpass
+        u = getpass.getuser()
+    except Exception:  # noqa: BLE001
+        u = ""
+    return u or _DEFAULT_USER
 
 
 def load_user_role(cwd: str, user: str) -> Dict[str, Any]:
