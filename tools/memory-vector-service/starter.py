@@ -202,6 +202,7 @@ def ensure_service(
     h = _health(port)
     if h == "ok":
         _write_flag(flag_path)
+        _kick_incremental_index(port)
         return {"ready": True, "action": "already_up", "wait_s": 0.0, "killed_pid": None}
 
     killed_pid = None
@@ -234,12 +235,29 @@ def ensure_service(
     wait_s = round(time.time() - t0, 1)
     if ready:
         _write_flag(flag_path)
+        _kick_incremental_index(port)
         try:
             lock_path.unlink(missing_ok=True)
         except Exception:
             pass
     _slog(f"result ready={ready} action={action} wait_s={wait_s}", log_path)
     return {"ready": ready, "action": action, "wait_s": wait_s, "killed_pid": killed_pid}
+
+
+def _kick_incremental_index(port: int) -> None:
+    """服務就緒後補打增量索引：把 git pull 拉進來、尚未入庫的 atom 立即納入語意召回
+    （trigger/BM25 讀 .md 即時生效，但向量端過去只在 atom 寫入/SessionEnd 才補索引，
+    pull 後首個 session 的語意召回會漏掉新 atom）。庫無變動時 indexer 逐檔比對
+    file_hash 全 skip（零 embedding、零寫入），成本僅掃檔算 hash。
+    fail-open：索引已在跑（already_running）或請求失敗都不影響啟動流程，只落 log。"""
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/index/incremental",
+            data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=2)
+        _slog("kicked incremental index (post-ready)")
+    except Exception as e:
+        _slog(f"incremental index kick failed (fail-open): {e}")
 
 
 def _write_flag(flag_path: Path = FLAG_PATH) -> None:

@@ -4,7 +4,8 @@ starter.ensure_service（tools/memory-vector-service/starter.py）：
 - 服務活著（health ok）→ 回寫 flag、action=already_up、不 spawn
 - health timeout + port 被占（hang 死）→ kill service.pid 舊程序後重啟
 - spawn lock 新鮮（他 session 剛 spawn）→ 只等不重複 spawn（action=wait_other）
-- 就緒後寫 flag、清 spawn lock；等待窗到期未就緒 → ready=False 且不寫 flag
+- 就緒後寫 flag、補打增量索引（納入 pull 進來的新 atom）、清 spawn lock；
+  等待窗到期未就緒 → ready=False 且不寫 flag、不打索引
 - _rotate_log：>max_bytes 輪替 .old，未超過不動
 - _health：timeout / refused / ok 三態分類（hang 死與冷啟動需區分對待）
 
@@ -32,8 +33,18 @@ for p in (str(HOOKS_DIR), str(CLAUDE), str(CLAUDE / "lib"),
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import pytest  # noqa: E402
+
 import starter  # noqa: E402
 import wg_atoms  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def kick_calls(monkeypatch):
+    """攔下就緒後的增量索引補打（不打真實 port），記錄呼叫的 port 供斷言。"""
+    calls = []
+    monkeypatch.setattr(starter, "_kick_incremental_index", lambda port: calls.append(port))
+    return calls
 
 
 def _paths(tmp_path):
@@ -50,7 +61,7 @@ def _paths(tmp_path):
 
 # ── ensure_service ──────────────────────────────────────────────────────────
 
-def test_already_up_writes_flag_no_spawn(tmp_path, monkeypatch):
+def test_already_up_writes_flag_no_spawn(tmp_path, monkeypatch, kick_calls):
     monkeypatch.setattr(starter, "_health", lambda *a, **k: "ok")
     spawned = []
     monkeypatch.setattr(starter, "_spawn_service", lambda *a, **k: spawned.append(1) or True)
@@ -59,6 +70,7 @@ def test_already_up_writes_flag_no_spawn(tmp_path, monkeypatch):
     assert res["ready"] and res["action"] == "already_up"
     assert kw["flag_path"].read_text(encoding="utf-8") == "ready"
     assert not spawned
+    assert kick_calls == [3849]  # 暖路徑也補打增量索引（pull 進來的新 atom 立即入庫）
 
 
 def test_hung_service_killed_then_respawned(tmp_path, monkeypatch):
@@ -89,7 +101,7 @@ def test_fresh_spawn_lock_waits_without_respawn(tmp_path, monkeypatch):
     assert not spawned
 
 
-def test_ready_clears_spawn_lock(tmp_path, monkeypatch):
+def test_ready_clears_spawn_lock(tmp_path, monkeypatch, kick_calls):
     states = ["refused"]
     monkeypatch.setattr(
         starter, "_health", lambda *a, **k: states.pop(0) if states else "ok")
@@ -98,15 +110,17 @@ def test_ready_clears_spawn_lock(tmp_path, monkeypatch):
     res = starter.ensure_service(3849, **kw)
     assert res["ready"] and res["action"] == "spawned"
     assert not kw["lock_path"].exists()
+    assert kick_calls == [3849]  # 冷啟動就緒後同樣補打增量索引
 
 
-def test_timeout_no_flag_written(tmp_path, monkeypatch):
+def test_timeout_no_flag_written(tmp_path, monkeypatch, kick_calls):
     monkeypatch.setattr(starter, "_health", lambda *a, **k: "refused")
     monkeypatch.setattr(starter, "_spawn_service", lambda *a, **k: True)
     kw = _paths(tmp_path)
     res = starter.ensure_service(3849, **kw)
     assert not res["ready"]
     assert not kw["flag_path"].exists()
+    assert not kick_calls  # 未就緒不打索引（服務不在，打了也是白打）
 
 
 # ── 輔助函式 ────────────────────────────────────────────────────────────────

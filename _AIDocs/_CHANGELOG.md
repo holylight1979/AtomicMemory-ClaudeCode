@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-02 SessionStart 補打增量索引 — 多機 pull 後語意召回不再滯後 + USER.md 範疇修正
+- 使用者問「向量庫要不要每專案分庫」。查證定案：**不分庫**——向量庫是各機本地衍生快取（gitignored），共享載體是 atom .md；隔離已由 layer 標籤查詢時 SQL 收窄達成，分庫對多機共享零收益。真缺口在**pull 後語意召回滯後**：增量索引原只在 atom 寫入/SessionEnd 觸發，pull 進來的新 atom 要等下次寫入才進向量庫（post-git-pull.sh 樣板早有同款設計但須手動裝、連根層 repo 都沒裝）。**修**：`starter.py ensure_service` 就緒後（already_up 與冷啟動皆）補打 `/index/incremental`，fail-open 落 log；實測 518 atoms 全 skip 0.35s 收斂＝無新料零成本。verify_vector_starter 加 kick 契約 3 斷言（12 passed）。**另**：USER.md「單人單機」係舊誤植且與多機共享定位矛盾，template/USER-{user}/live 三檔同步改為多機共享範疇（覆蓋鏈：template → USER-{user}.md → USER.md，user-init.sh 每 session 拷貝）。
+
 ## 2026-09-02 閃窗真因定案 — 自家 hook 裸 spawn git/python，補 CREATE_NO_WINDOW + 防回歸掃描
 - 使用者回報開 session 與上GIT 閃 console 窗。console-window-trace 多輪＋對照實驗＋官方 issue（#64163/#58606/#66540：CC 缺 windowsHide）交叉查證，**定案**：「上GIT 閃」主犯＝pre_tool_use **git commit 隱私硬閘**裸 spawn git（GUI pythonw 父無 console → WT `-Embedding` 宿主窗）；session_start 未push檢查/followup、aec_ledger、extract-worker 同類。全補 `creationflags=CREATE_NO_WINDOW`，修後同場景 trace 零事件。**新增防回歸** `hooks/verify/verify_no_window_spawn.py`（AST 掃 hooks/lib 全 subprocess 呼叫，漏帶旗標即 FAIL）。中途曾誤判主因為「PowerShell 工具生 pwsh」並建 core atom「版控走 Bash tool」——純 pwsh probe 不閃否證後已刪該 atom、文件全面更正（教訓：歸因靠對照實驗勿靠時間巧合）。CC 本體殘餘（開場 shell snapshot）使用者定案無視、等官方。完整案卷 `ClaudeCodeInternals/console-window-forensics.md`（原 atom 超預算，forensic 細節外移、atom 瘦身為結論＋錨點）。
 

@@ -180,7 +180,7 @@ PostToolUse hook 偵測 `_CHANGELOG.md` 寫入 → 行數 >`config.changelog_aut
 
 | 機制 | 一句話 |
 |------|--------|
-| Vector 啟動器自癒（`tools/memory-vector-service/starter.py`） | SessionStart/UPS 共用：service stderr 落 `Logs/vector-service.log`、hang 死 kill-restart、等待窗 120s + spawn lock；UPS 端 flag 缺失 re-kick（`wg_atoms._ensure_vector_ready`，cooldown 120s）——服務中途死下一 prompt 自癒 |
+| Vector 啟動器自癒（`tools/memory-vector-service/starter.py`） | SessionStart/UPS 共用：service stderr 落 `Logs/vector-service.log`、hang 死 kill-restart、等待窗 120s + spawn lock；UPS 端 flag 缺失 re-kick（`wg_atoms._ensure_vector_ready`，cooldown 120s）——服務中途死下一 prompt 自癒。就緒後（already_up 與冷啟動皆）補打 `/index/incremental`：git pull 進來的新 atom 立即入向量庫（多機同步的語意召回最後一哩）；庫無變動時 file_hash 全 skip 零成本 |
 | 救援日誌（`hooks/wg_rescue.py`） | 注入 atom 抽高特異 token（確定性、寧缺勿濫）→ 後續工具呼叫命中落 `Logs/rescue-log.jsonl`＝「記憶真被用上」直接證據 |
 | 效果報表（`tools/memory-effect-report.py`） | 四節：top 有用 / token 稅 / 死重候選 / **D 失念（recall-miss 30 天聚合）** + 30 天趨勢 |
 | 失念偵測（`hooks/wg_recall_miss.py`） | SessionEnd 比對「本 session 失敗證據（failing_tests/evasion/failure_kw）× 庫中未注入 atom trigger」（≥2 非泛用詞命中才算）→ `Logs/recall-miss.jsonl`；週健檢 14 天 ≥3 次 → 黃燈 |
