@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-02 Cross-Realm Bash Block 誤擋「跑根層工具＋動專案自己的 .claude/memory」
+- 專案 session（c:\Projects 刪錯誤 atom）回報 6 條命令被擋。實錄重播：全部只是動**專案自己**的 `.claude/memory`（heredoc python 改索引、cp/rm atom、專案 repo 的 git add/push、`python -c` 純讀），根層路徑只出現在同一條命令裡的 `python ~/.claude/tools/sync-*-index.py …`。根因：閘把「命令裡出現根層工具路徑」當成根層上下文，再配上命令任何位置的動手操作就 deny——與自家「純跑根層工具放行」承諾矛盾；另 grep 樣式 `'^<<<<<<<'` 被 `<<` 分支當 heredoc。**修**：判定根層上下文前先抹掉 `python <root>/.claude/tools|hooks|lib|skills/x.py` 這段（`_ROOT_TOOL_INVOKE_RE`），命令其餘部分仍指到根層路徑（`> ~/.claude/hooks/…`、`cp … ~/.claude/hooks/`、`git -C ~/.claude`）照擋；heredoc 分支收緊為 `<<(?!<)-?\s*['"]?\w`。verify 加 1 案 8 斷言（6 條實錄放行＋3 條真陽性照擋），全套 1678 passed。
+
 ## 2026-09-02 SessionStart 補打增量索引 — 多機 pull 後語意召回不再滯後 + USER.md 範疇修正
 - 使用者問「向量庫要不要每專案分庫」。查證定案：**不分庫**——向量庫是各機本地衍生快取（gitignored），共享載體是 atom .md；隔離已由 layer 標籤查詢時 SQL 收窄達成，分庫對多機共享零收益。真缺口在**pull 後語意召回滯後**：增量索引原只在 atom 寫入/SessionEnd 觸發，pull 進來的新 atom 要等下次寫入才進向量庫（post-git-pull.sh 樣板早有同款設計但須手動裝、連根層 repo 都沒裝）。**修**：`starter.py ensure_service` 就緒後（already_up 與冷啟動皆）補打 `/index/incremental`，fail-open 落 log；實測 518 atoms 全 skip 0.35s 收斂＝無新料零成本。verify_vector_starter 加 kick 契約 3 斷言（12 passed）。**另**：USER.md「單人單機」係舊誤植且與多機共享定位矛盾，template/USER-{user}/live 三檔同步改為多機共享範疇（覆蓋鏈：template → USER-{user}.md → USER.md，user-init.sh 每 session 拷貝）。
 

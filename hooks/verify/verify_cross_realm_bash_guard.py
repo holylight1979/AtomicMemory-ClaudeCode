@@ -6,7 +6,10 @@
 不變式：
 1. 專案 session：根層上下文（cd ~/.claude／git -C／命令列指到核心路徑）× 動手操作
    （heredoc、內嵌 python、redirect、sed -i、cp/mv/rm、git add/commit/push、PowerShell 寫入 cmdlet）→ deny。
-2. 專案 session 純跑根層工具（`python ~/.claude/tools/x.py …`，不 cd 進去）→ 放行。
+2. 專案 session 純跑根層工具（`python ~/.claude/tools/x.py …`，不 cd 進去）→ 放行；
+   而且「跑根層工具」不構成根層上下文——同一條命令裡用 heredoc python／cp rm／git add push
+   動**自己專案**的 .claude/memory 也放行（只有命令其餘部分仍指到根層路徑才擋）。
+   grep 樣式裡的 `<<<<<<<` 衝突標記不是 heredoc。
 3. 專案 session 在根層上下文做唯讀（sed -n / grep / cat）→ 放行。
 4. 寫專案自己的 .claude 層、寫 ~/.claude/memory（atom funnel 管）→ 放行。
 5. 核心 session（cwd ∈ ~/.claude）→ 一律放行；config guard.cross_realm_bash.enabled=false／allowlist 命中 → 放行。
@@ -69,6 +72,31 @@ def test_running_root_tools_without_cd_allowed():
     assert _denied(f"python {HOME_CLAUDE}/tools/x.py &> {HOME_CLAUDE}/hooks/out.txt")
     assert _denied(f"python {HOME_CLAUDE}/tools/x.py >& {HOME_CLAUDE}/hooks/out.txt")
     assert not _denied(f"PYTHONIOENCODING=utf-8 python {HOME_CLAUDE}/tools/health-weekly.py")
+
+
+def test_root_tool_plus_project_memory_write_allowed():
+    """實錄（專案 session cwd=C:\\Projects 刪錯誤 atom）：一條命令跑根層索引工具＋動自己專案的
+    .claude/memory，整條被當成改根層誤擋。跑根層工具不算根層上下文。"""
+    # grep 樣式的衝突標記 `<<<<<<<` 不是 heredoc
+    assert not _denied("ls ~/.claude/tools/*.py 2>/dev/null | grep -i index; "
+                       "for f in .claude/memory/MEMORY.md; do echo \"$f: $(grep -c '^<<<<<<<' \"$f\")\"; done")
+    # heredoc python 動專案索引 + 跑根層 sync 工具
+    assert not _denied("python - <<'EOF'\nimport json\nprint(1)\nEOF\n"
+                       f"python {HOME_CLAUDE}/tools/sync-memory-index.py --write --memory-dir C:/FakeProj/game-x/.claude/memory 2>&1 | tail -1")
+    # python -c 純讀 + 根層工具 + 專案 repo 的 git add/push（不是根層 repo）
+    assert not _denied("python -c \"import json;json.load(open(r'.claude/memory/_atom_index.json'))\" && "
+                       f"python {HOME_CLAUDE}/tools/sync-memory-index.py --write --memory-dir C:/FakeProj/game-x/.claude/memory && "
+                       "git add .claude/memory/MEMORY.md && git push origin master")
+    # cp/rm 專案 atom + 引號包住的根層工具絕對路徑
+    assert not _denied("BAD=\"c:/FakeProj/game-x/.claude/memory/shared/x.md\"\ncp \"$BAD\" \"C:/Users/ME~1/AppData/Local/Temp/b.md\"\nrm \"$BAD\"\n"
+                       f"python \"{HOME_CLAUDE}/tools/sync-atom-index.py\" --project-cwd \"c:/FakeProj/game-x\" 2>&1 | tail -8")
+    # 根層工具輸出 pipe 進 python -c
+    assert not _denied(f"python {HOME_CLAUDE}/tools/sync-atom-index.py --memory-dir c:/FakeProj/game-x/.claude/memory --check 2>&1 | "
+                       "python -c \"import sys;print(sys.stdin.read()[:10])\"")
+    # 跑完根層工具後命令其餘部分仍指到根層路徑 → 照擋
+    assert _denied(f"python {HOME_CLAUDE}/tools/x.py > {HOME_CLAUDE}/hooks/out.txt")
+    assert _denied(f"python {HOME_CLAUDE}/tools/x.py && cp a.py {HOME_CLAUDE}/hooks/")
+    assert _denied(f"python {HOME_CLAUDE}/tools/x.py && git -C {HOME_CLAUDE} commit -am x")
 
 
 def test_readonly_in_root_context_allowed():

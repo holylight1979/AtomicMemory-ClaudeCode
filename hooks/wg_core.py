@@ -1350,6 +1350,9 @@ def check_cross_realm_write(
 # 指到核心路徑）× 會動手的操作（heredoc／內嵌 python／redirect／sed -i／cp mv rm／
 # git add commit push…／PowerShell 寫入 cmdlet）→ deny。純跑根層工具
 # （`python ~/.claude/tools/x.py …`，不 cd 進去）與唯讀命令照常放行。
+# 「跑根層工具」不構成根層上下文：判定前先把 `python <root>/.claude/tools|hooks|lib|skills/x.py`
+# 這段抹掉，剩下的命令再找根層路徑。否則專案 session 一條命令裡同時「跑根層索引工具」＋
+# 「用 python/cp/rm/git 動自己專案的 .claude/memory」會被當成改根層而誤擋。
 _ROOT_CORE_SUBDIRS_RE = r"(?:hooks|lib|tools|skills|rules|prompts)"
 _ROOT_SENSITIVE_FILES_RE = r"(?:settings\.json|CLAUDE\.md|IDENTITY[^/\\\s]*\.md|USER[^/\\\s]*\.md|TECH\.md|README\.md|Install[^/\\\s]*\.md)"
 _ROOT_HOME_RE = r"(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%|\$env:USERPROFILE|/[a-zA-Z]/Users/[^/\s\"']+|[a-zA-Z]:[\\/]Users[\\/][^\\/\s\"']+)"
@@ -1361,8 +1364,13 @@ _ROOT_CORE_PATH_RE = re.compile(
     rf"{_ROOT_HOME_RE}[\\/]\.claude[\\/](?:{_ROOT_CORE_SUBDIRS_RE}[\\/]|{_ROOT_SENSITIVE_FILES_RE}\b)",
     re.IGNORECASE,
 )
+_ROOT_TOOL_INVOKE_RE = re.compile(
+    rf"\b(?:python3?|pythonw|py)(?:\.exe)?\s+[\"']?{_ROOT_HOME_RE}[\\/]\.claude[\\/](?:tools|hooks|lib|skills)[\\/][^\s\"']*?\.py[\"']?",
+    re.IGNORECASE,
+)
+# heredoc 是 `<<EOF`／`<<'EOF'`／`<<-EOF`；`<<<`（here-string）與 grep 樣式裡的 `<<<<<<<` 衝突標記不算
 _BASH_WRITE_OP_RE = re.compile(
-    r"(?:<<|>>|(?<![<>=!])>(?!&?/dev/null|\s*\$null|\s*NUL\b|&\d)|\btee\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)"
+    r"(?:<<(?!<)-?\s*[\"']?\w|>>|(?<![<>=!])>(?!&?/dev/null|\s*\$null|\s*NUL\b|&\d)|\btee\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)"
     r"|\b(?:python3?|pythonw|py)(?:\.exe)?\s+-(?:\s|c\b)|\b(?:cp|mv|rm|rmdir|del|erase|copy|move|ren|rename|truncate|install)\b"
     r"|\bgit\s+(?:-C\s+\S+\s+)?(?:add|commit|push|mv|rm|checkout|reset|stash|rebase|cherry-pick|merge|apply|am)\b"
     r"|\b(?:Set-Content|Out-File|Add-Content|Copy-Item|Move-Item|Remove-Item|New-Item|Rename-Item)\b)",
@@ -1385,7 +1393,8 @@ def check_cross_realm_bash(
         return None
     if _is_core_session(cwd) is not False:
         return None  # 核心開發 session 放行；無法判定 → fail-open
-    root_ctx = bool(_ROOT_CD_RE.search(cmd) or _ROOT_CORE_PATH_RE.search(cmd))
+    ctx_cmd = _ROOT_TOOL_INVOKE_RE.sub(" ", cmd)  # 跑根層工具本身不算根層上下文
+    root_ctx = bool(_ROOT_CD_RE.search(ctx_cmd) or _ROOT_CORE_PATH_RE.search(ctx_cmd))
     if not root_ctx:
         return None
     if not _BASH_WRITE_OP_RE.search(cmd):
