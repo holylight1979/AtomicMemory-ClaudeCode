@@ -12,6 +12,7 @@
 - [臨] 專案 session 回報「跑 ~/.claude/tools 一律被擋」時先查 transcript 實錄指令：實證被擋的全帶 `2>&1`，裸跑放行。`_BASH_WRITE_OP_RE` 的 `>` 分支判寫檔，fd 複製 `2>&1`／`>&2` 須排除（lookahead `&\d`），`&> file`／`>& file` 仍是真寫檔。
 - [臨] 開場 `[Guardian:*]` 提醒整批沒出現 → 先查 transcript 有無 `attachment.type=hook_cancelled`（`timedOut`/`durationMs`），不是先懷疑判定邏輯。SessionStart guardian 單跑 1.85s，實際 session 冷啟動 8.9～10.5s（多 hook＋MCP 同起 CPU 爭用）；timeout 太緊 = 所有 fail-open 提醒無聲消失，違反可觀測性鐵律卻無訊號。
 - [臨] 另一 session 的「一律／整段不可用」是推論非事實：接到轉述的修 bug prompt，先用它的 transcript 重現，再定範圍。
+- [臨] 未解（2026-09-02 案結時留尾）：MudClient 專案的 layout=scope-v2「已整理」標記在全部 transcript 中找不到打上它的指令（唯一寫入者 classify-project-scope.py mark/apply 皆無執行紀錄）；末態正確無實害。若日後出現「專案明明沒整理卻不提醒」，先查該專案 _atom_index.json 的 layout 鍵是否被不明來源提早打上，再查 index 重建工具鏈有無隘帶保留/植入頂層鍵。
 
 ## 行動
 

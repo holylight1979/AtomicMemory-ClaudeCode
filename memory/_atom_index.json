@@ -2621,6 +2621,36 @@
         "冷啟動"
       ],
       "scope": "global"
+    },
+    {
+      "name": "gh-cli-已裝已登入-pr本地merge-push自動標merged",
+      "path": "memory/版控/gh-cli-已裝已登入-pr本地merge-push自動標merged.md",
+      "triggers": [
+        "gh",
+        "gh cli",
+        "pull request",
+        "PR",
+        "合併 PR",
+        "github api",
+        "merge",
+        "審 PR"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "本repo公開有同事使用者-外部pr審查與docindex衝突解法",
+      "path": "_AIDocs/_atoms/MemDev/本repo公開有同事使用者-外部pr審查與docindex衝突解法.md",
+      "triggers": [
+        "pull request",
+        "PR",
+        "外部貢獻",
+        "同事",
+        "DocIndex",
+        "衝突",
+        "向後相容",
+        "journal"
+      ],
+      "scope": "global"
     }
   ]
 }
