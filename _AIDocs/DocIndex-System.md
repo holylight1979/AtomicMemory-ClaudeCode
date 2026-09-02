@@ -28,7 +28,7 @@ settings.json（hook 配置 + 權限白名單）
   └─ codex_companion.py（subprocess 模型 in-process state）
   ↓
 CLAUDE.md @import
-  ├─ IDENTITY.md（AI 人格 — 收尾檢核 4 項硬契約）
+  ├─ IDENTITY.md（AI 人格 — 收尾檢核硬契約）
   ├─ USER.md（使用者偏好）
   ├─ MEMORY.md（atom 索引人類可讀版 — **core-only**；本地範疇段抽到 _local_catalog.md）
   └─ rules/core.md
@@ -153,7 +153,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 ### MCP Server（5 tool）
 - `workflow-guardian-mcp/server.js`（+ 11 lib 模組，原 4394 行單檔純機械拆分）— stdio MCP + dashboard port 3848
   - `atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta`（4 個 atom 業務 tool；`atom_edit_meta`=元資料外科編輯 → [SPEC_ATOM_V5 §3.4](SPEC_ATOM_V5.md)）
-  - `anti_evasion_report`（收尾檢核 (a)(b)(c)(d) emit → Anti-Evasion HUD；**one-writer**：MCP tool 只回 chip，Python `post_tool_use` 獨佔寫 state + 落 `workflow/aec-report/`；HUD 頁 `lib/{anti-evasion,aec-hud-html}.js` 服）
+  - `anti_evasion_report`（收尾檢核九欄 (a)–(i) emit → Anti-Evasion HUD；**one-writer**：MCP tool 只回 chip，Python `post_tool_use` 獨佔寫 state + 落 `workflow/aec-report/`；HUD 頁 `lib/{anti-evasion,aec-hud-html}.js` 服）
     - 殘檔帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一 writer：tempdir 寫入 / (d) 一行一路徑 / Stop 掃 scratchpad 三來源進帳）；HUD「本 session 尚存殘檔」面板走 `GET /api/aec/tempfiles/<sid>`（Node 讀帳本 + 當下 exists() 過濾，檔案系統為權威、不做 TTL）；保留/刪除決策檔 `aec-decision/<sid>-p<pathhash>.json` 帶 `path` 供 drain 後驗；受保護路徑（`aec_ledger.protected_reason()`：tempdir 放行 → `memory`/`_AIDocs` 段 → 索引／CHANGELOG／核心 md 檔名 → VCS 追蹤）三道拒收：(d) 解析拒收並 additionalContext 回告、`ledger_append` 末道、drain 刪除決策改注入 ⛔ 拒絕
   - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
   - 內部 IPC 4 個（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`）已內化為 Stop gate hook 自動偵測

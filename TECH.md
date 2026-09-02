@@ -85,7 +85,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | SessionStart | — | `user-init.sh`(5) → `workflow-guardian.py`(8) → `ensure-mcp.py`(5) → `codex_companion.py`(5) | 還原 USER/IDENTITY、state 建立、索引完整性哨兵、vector 啟動器、advisory（健檢／回訪／未 push／裁判後端） |
 | UserPromptSubmit | — | guardian(8)、codex(3) | **記憶注入主路徑**（§5）+ 各種 guard 提醒 |
 | PreToolUse | `WebFetch` | `webfetch-guard.sh`(20) | 抓網頁前置護欄 |
-| PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | PAN 預告閘門、跨 session 同檔互寫預警、subagent 記憶注入 |
+| PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | PAN 預告閘門、跨 session 同檔互寫預警、git commit 隱私硬閘、subagent 記憶注入 |
 | PostToolUse | `Edit\|Write\|NotebookEdit\|Bash\|Agent\|Task\|mcp__workflow-guardian__anti_evasion_report` | guardian(5) | 記錄改檔、docdrift、退避偵測、AEC 證據蒐集、late-collision |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
 | PostToolUse | `Write\|Edit\|MultiEdit` | `version_guard.py`(5) | live 檔版本脈絡殘留 warn |
@@ -417,7 +417,7 @@ sequenceDiagram
 |----|------|------|
 | 同步閘（SyncReminder） | 有未 commit 修改且 ≥`min_files_to_block` 2 | block，訊息瘦身不列檔案清單；git/svn clean 後自動標 `sync_completed` |
 | DeferralGate | 主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤0.75（讀 transcript 真實 usage），收尾把帶受詞的可做之事推給「下個 session／獨立議題／非我造成」 | 擋回三選一：做掉／一句話不能做的理由／使用者明示延後；使用者命令式延後語為逃生門 |
-| ScanReport | 宣告完成且動 core 檔或多檔 | 要求以 MCP `anti_evasion_report` 提交四項收尾檢核 |
+| ScanReport | 宣告完成且動 core 檔或多檔 | 要求以 MCP `anti_evasion_report` 提交九欄收尾檢核 (a)–(i) |
 | 驗收裁判 enforce | 獨立 hook `codex_companion.py`（150s）：fail 且 severity ≥high | block 附逐條證據；裁判逾時 → uncertain 放行 |
 | Deep Post-Mortem | effort AND real_failure | one-shot，**獨立預算**不與上列共用（防餓死）；done 旗標檔案側 marker 7 天自清 |
 | 迴歸提示 | 本 session 有驗收 fail/high 真命中 | piggyback 建議補測試／落 atom，每 session 一次 |
@@ -428,7 +428,7 @@ sequenceDiagram
 |------|------|--------|
 | 禁語清單 | `memory/_meta/forbidden-phrases.json`（single source；IDENTITY.md 與 `wg_evasion.py` 都讀它） | 六類：scope-evasion / time-deferral / precedent-drift / capability-evasion / scope-impact-dismiss / deferral-attribution |
 | 偵測 | PostToolUse `wg_evasion.detect_evasion`；引號「」『』與反引號 span 先換等長空白（引用 hook 判定原文不誤觸） | 命中 → `evasion_flag`，下輪 UPS 注入舉證要求 (a)/(b) |
-| 收尾報告 | MCP `anti_evasion_report` 四欄 (a)(b)(c)(d)；Node chip 純內容判定 | Python one-writer cross-check：hook 實測退避而模型自評「無」→ 升 real-evasion 並把證據寫進 (b) |
+| 收尾報告 | MCP `anti_evasion_report` 九欄 (a)–(i)：a 缺失修補 / b 逃避通報 / c Token警示 / d 記憶收錄帳 / e 未告知決策＋假設 / f 靜默狀態改變 / g 版控收尾 / h 收尾判定 / i 衍生暫存清單；severity 仍只看 a/b，其餘資訊性；Node chip 純內容判定 | Python one-writer cross-check：hook 實測退避而模型自評「無」→ 升 real-evasion 並把證據寫進 (b) |
 | HUD | `http://127.0.0.1:3848/aec/hud` | 顯示報告、殘檔帳本、刪除決策 |
 | 殘檔帳本 | `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py`） | 以檔案系統為權威；受保護路徑（memory/_AIDocs/_INDEX/_CHANGELOG/CLAUDE/…/vcs tracked）拒收 |
 | 刪除後驗 | 下輪 UPS `exists()` 實查 | 沒刪 → 重注入一次／告警結案 |
@@ -687,6 +687,7 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 | `coordination.enabled` / `warn_suppress_min` / `scan_mtime_window_s` / `max_scan_files` | true / 10 / 1800 / 20 | 跨 session 預警 |
 | `auto_handoff.token_warn_ratio` / `context_window_tokens` | 0.85 / 1000000 | token 預警 |
 | `deep_postmortem.enabled` / `aec.hud_autospawn` | true / true | DPM / HUD 自動開 |
+| `privacy.enabled` / `deny_globs` | true / []（追加） | git commit 隱私硬閘 |
 | `parallel_agents.*` / `research_fanout.*` | enabled | 多 agent 拆分／研究 fan-out 判準注入 |
 | `docdrift.path_mappings` | hooks→Architecture.md、skills/rules/tools→DocIndex-System.md | 文件漂移提醒 |
 | `atom_debug` | false | 檢索除錯 log |

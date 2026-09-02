@@ -405,6 +405,7 @@ SessionStart 主路徑 50–200 ms（向量與 MCP 檢查皆背景）。每 prom
 | `auto_handoff.enabled` | 壓縮前／token 逼近時自動產 handoff 交接稿 |
 | `parallel_agents.enabled` / `research_fanout.enabled` | 多 agent 拆分／研究 fan-out 建議 |
 | `aec.hud_autospawn` | 收尾檢核時自動開 HUD |
+| `privacy.enabled` / `deny_globs` | git commit 前隱私檔硬閘（staged 比對 deny globs；預設開、globs 可追加） |
 | `heal.enabled` | `/heal-review` 自動修復 |
 | `episodic.auto_generate` | session 結束自動生成 episodic 摘要 |
 
