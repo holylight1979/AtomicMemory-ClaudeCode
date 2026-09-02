@@ -33,6 +33,7 @@ CLAUDE_DIR = Path.home() / ".claude"
 DEFAULT_JOURNALS_DIR = CLAUDE_DIR / "journals"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 RETENTION_DAYS = 60
+MIRROR_RETENTION_DAYS = 14  # 鏡射目的地（JOURNAL_DIRS[1:]）保留天數
 
 def _load_env_from_settings(name: str) -> str | None:
     """Fallback：os.environ 沒有時，從 ~/.claude/settings*.json 的 env 區段讀。"""
@@ -1132,27 +1133,25 @@ def migrate_legacy_layout() -> dict:
 # ── Cleanup ─────────────────────────────────────────────────────
 
 def cleanup() -> int:
-    cutoff = datetime.now() - timedelta(days=RETENTION_DAYS)
+    # 主路徑保留 RETENTION_DAYS；鏡射目的地（JOURNAL_DIRS[1:]）只留 MIRROR_RETENTION_DAYS
     removed = 0
-    targets: list[Path] = []
-    for base in JOURNAL_DIRS:
+    for i, base in enumerate(JOURNAL_DIRS):
         if not base.exists():
             continue
-        for sub in JOURNAL_SUBDIR.values():
-            d = base / sub
-            if d.exists():
-                targets.append(d)
+        days = RETENTION_DAYS if i == 0 else MIRROR_RETENTION_DAYS
+        cutoff = datetime.now() - timedelta(days=days)
+        targets = [base / sub for sub in JOURNAL_SUBDIR.values() if (base / sub).exists()]
         targets.append(base)  # 平鋪舊檔
-    for d in targets:
-        for f in d.glob("*.md"):
-            m = re.match(r"(\d{4}-\d{2}-\d{2})", f.name)
-            if m:
-                try:
-                    if datetime.strptime(m.group(1), "%Y-%m-%d") < cutoff:
-                        f.unlink()
-                        removed += 1
-                except ValueError:
-                    pass
+        for d in targets:
+            for f in d.glob("*.md"):
+                m = re.match(r"(\d{4}-\d{2}-\d{2})", f.name)
+                if m:
+                    try:
+                        if datetime.strptime(m.group(1), "%Y-%m-%d") < cutoff:
+                            f.unlink()
+                            removed += 1
+                    except ValueError:
+                        pass
     return removed
 
 
@@ -1196,7 +1195,7 @@ def main():
 
     if only_cleanup:
         n = cleanup()
-        print(f"清理 {n} 份過期日誌 (>{RETENTION_DAYS} 天)")
+        print(f"清理 {n} 份過期日誌 (主 >{RETENTION_DAYS} 天 / 鏡射 >{MIRROR_RETENTION_DAYS} 天)")
         return
 
     # 路徑可見：讓使用者/AI 知道實際儲存位置
@@ -1257,7 +1256,7 @@ def main():
 
     n = cleanup()
     if n:
-        print(f"[OK] 清理 {n} 份過期日誌 (>{RETENTION_DAYS} 天)")
+        print(f"[OK] 清理 {n} 份過期日誌 (主 >{RETENTION_DAYS} 天 / 鏡射 >{MIRROR_RETENTION_DAYS} 天)")
 
 
 if __name__ == "__main__":

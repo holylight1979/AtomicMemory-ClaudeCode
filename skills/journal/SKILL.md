@@ -37,7 +37,7 @@ python ~/.claude/tools/journal-aggregate.py $ARGUMENTS
 - VCS commits 自動拉取（git / svn），用於「做了什麼」結構列；log 以 bytes 抓回 UTF-8 decode，避開 cp950 中文訊息解碼失敗
 - LLM 速覽：若本機 Ollama 可達（`127.0.0.1:11434`），自動產 2-4 句段落總結；不可達則跳過
 - 產出版面 `## 總覽` = `### 自動分析`（LLM）+ `### 我的增補`（重產時整段保留使用者手寫內容）+ `### 統計`
-- 腳本自動清理 >60 天的舊日誌（含所有 `CLAUDE_JOURNAL_DIRS` 路徑）
+- 腳本自動清理舊日報：主路徑保留 60 天、鏡射目的地（`CLAUDE_JOURNAL_DIRS` 第 2 個起）保留 14 天
 
 ## 環境變數（選填）
 
