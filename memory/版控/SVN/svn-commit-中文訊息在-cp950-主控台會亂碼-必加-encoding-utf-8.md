@@ -13,6 +13,8 @@
 - [臨] **正解＝`svn commit --encoding UTF-8 -F <utf8檔>`**（`svn help commit` 明列 `--encoding ARG`）。注意 `--encoding` 只吃 textual property，對 `svn propset` 二進位屬性會回 E200007，別拿 propset 當驗證代理。
 - [臨] **事後補救幾乎不可行**：log 是 revprop，改寫要 `svn propset --revprop -r N svn:log`，但 UJ 的 SVN 伺服器未啟用 `pre-revprop-change` hook，client 端一律回 E165006，必須請管理員暫時開 hook 才改得掉。⇒ **commit 訊息一次定生死，送出前就要把編碼弄對**。
 - [臨] 損害控管設計：commit 訊息裡的**對帳關鍵值（commit hash、SHA-256、版號、檔名）保持 ASCII**，即使中文段落壞掉，機器可驗的部分仍完整可用。
+- [臨] **驗證方法：主控台把 log 顯示成亂碼不代表存壞了**——`svn log` 的輸出會經過 cp950 主控台渲染。要看真實儲存編碼，拿原始位元組：`svn log --xml` 導進 python 看 bytes，`\xe4\xbf\xae`（=U+4FEE 修）這種就是正確 UTF-8；能用 big5/cp950 解開才是真壞了。**別因為看到亂碼就去「修復」一個沒壞的東西**，log 改不掉，亂改只會更糟。
+- [臨] 實證（實際提交後以 `--xml` 取回位元組逐字比對 codepoint）：`svn commit --encoding UTF-8 -F <utf8 無 BOM 檔>` 儲存結果正確，本 atom 的處方有效。訊息檔要寫成 UTF-8 **不帶 BOM**。
 
 ## 行動
 
