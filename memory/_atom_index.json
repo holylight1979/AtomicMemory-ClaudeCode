@@ -2604,6 +2604,23 @@
         "索引重生"
       ],
       "scope": "global"
+    },
+    {
+      "name": "跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失",
+      "path": "_AIDocs/_atoms/MemDev/跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失.md",
+      "triggers": [
+        "CrossRealmBashBlock",
+        "2>&1",
+        "fd 複製",
+        "hook_cancelled",
+        "SessionStart 逾時",
+        "timedOut",
+        "開場提醒沒出",
+        "ScopeLayout 沒出",
+        "一律被擋",
+        "冷啟動"
+      ],
+      "scope": "global"
     }
   ]
 }

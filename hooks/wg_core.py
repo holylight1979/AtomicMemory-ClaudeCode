@@ -1362,7 +1362,7 @@ _ROOT_CORE_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 _BASH_WRITE_OP_RE = re.compile(
-    r"(?:<<|>>|(?<![<>=!])>(?!&?/dev/null|\s*\$null|\s*NUL\b)|\btee\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)"
+    r"(?:<<|>>|(?<![<>=!])>(?!&?/dev/null|\s*\$null|\s*NUL\b|&\d)|\btee\b|\bsed\s+(?:-[a-zA-Z]*i|--in-place)"
     r"|\b(?:python3?|pythonw|py)(?:\.exe)?\s+-(?:\s|c\b)|\b(?:cp|mv|rm|rmdir|del|erase|copy|move|ren|rename|truncate|install)\b"
     r"|\bgit\s+(?:-C\s+\S+\s+)?(?:add|commit|push|mv|rm|checkout|reset|stash|rebase|cherry-pick|merge|apply|am)\b"
     r"|\b(?:Set-Content|Out-File|Add-Content|Copy-Item|Move-Item|Remove-Item|New-Item|Rename-Item)\b)",

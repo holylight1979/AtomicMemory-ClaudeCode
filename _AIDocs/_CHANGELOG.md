@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-01 Cross-Realm Bash Block 誤擋 `2>&1` + SessionStart guardian hook 逾時上調
+- 專案 session（MudClient）回報「`python ~/.claude/tools/<tool>.py` 一律被擋、與閘門自己的替代做法矛盾」。實錄查證：5 次被擋**全帶 `2>&1`**，裸跑其實放行——`_BASH_WRITE_OP_RE` 的 `>` 分支只排除 `/dev/null`／`$null`／`NUL`，把 fd 複製（`2>&1`／`>&2`）當寫檔；「一律被擋」是該 session 未試裸跑的推論。**修**：lookahead 加 `&\d`；`&> file`／`>& file`（真寫檔）仍擋；verify 加 5 案。**另一根因**：同 session 開場 `[Guardian:ScopeLayout]` 沒出現，不是判定邏輯（整理前實測回 None＝該提醒），而是 SessionStart guardian hook `hook_cancelled`（8890ms > 8000ms；同日另一專案 10490ms；單跑僅 1.85s，差額是冷啟動多 hook＋MCP 同起的 CPU 爭用）→ 整批開場提醒無聲消失。settings.json timeout：guardian 8→20、user-init 5→12。classify 流程未整段不可用：該 session 以 MCP `atom_move` ×45 + `mark` 完成整理，與 `apply` 同一搬檔引擎。
+
 ## 2026-09-01 版控發布回歸單線 — 撤 publish-remotes.py／publish/* 分支，Install.md 不列網址，origin 雙 push URL
 - 使用者看 Fork graph 不滿：兩遠端各一條 `publish/<name>` merge 鏈交錯（每次發布固定兩顆 merge + 網址替換 commit）。根因是設計本身：Install.md 兩端內容不同 → 必為不同 commit → 不 force 就只能 merge 鏈。另實證本地 main 已被 `git pull origin` 快轉成 publish/github（origin/main 就是它），設計假設「main 從不 pull 遠端」已破。**定案**：Install.md 版控庫段改平台中性（不列網址、去 `<!-- repo-url -->` 標記），publish/gitlab 最後一次 merge 進 main 收斂（兩遠端皆 fast-forward，不 force），刪 `tools/publish-remotes.py` 與 publish/* 分支；`origin` 掛 GitHub + GitLab 兩個 push URL，`git push` 一次到兩邊、同一份歷史；SessionEnd 晉升自動 push 改 `git push origin main`；Cross-Realm Bash Block 拿掉 publish-remotes 字樣（git push 本就在擋）。鐵律不變：已 push 不改寫。
 

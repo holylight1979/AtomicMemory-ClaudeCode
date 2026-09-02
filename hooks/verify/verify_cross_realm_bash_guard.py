@@ -62,6 +62,12 @@ def test_powershell_write_cmdlets_denied():
 def test_running_root_tools_without_cd_allowed():
     assert not _denied(f"python {HOME_CLAUDE}/tools/sync-atom-index.py --memory-dir C:/FakeProj/game-x/.claude/memory --check")
     assert not _denied(f"python {HOME_CLAUDE}/tools/classify-project-scope.py plan")
+    # fd 複製（2>&1 / >&2）不是寫檔——實錄 2026-09-01 專案 session 五次被擋全因尾巴 2>&1
+    assert not _denied(f"python {HOME_CLAUDE}/tools/classify-project-scope.py plan 2>&1 | head -60")
+    assert not _denied(f"python {HOME_CLAUDE}/tools/atom-categorize.py plan --memory-dir D:/Proj/.claude/memory 2>&1 | head -80")
+    assert not _denied(f"python {HOME_CLAUDE}/tools/x.py >&2")
+    assert _denied(f"python {HOME_CLAUDE}/tools/x.py &> {HOME_CLAUDE}/hooks/out.txt")
+    assert _denied(f"python {HOME_CLAUDE}/tools/x.py >& {HOME_CLAUDE}/hooks/out.txt")
     assert not _denied(f"PYTHONIOENCODING=utf-8 python {HOME_CLAUDE}/tools/health-weekly.py")
 
 
