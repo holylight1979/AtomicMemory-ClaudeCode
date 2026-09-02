@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-02 索引三檔多機合併必衝突 → 語意合併驅動 merge-atom-index + blob 統一 LF
+- 專案 session 上GIT 時 `pull --rebase` 衝突（5d92e64 對 3af00d1）。merge-tree 重演證實：只有 `.claude/memory/` 的 MEMORY.md／_ATOM_INDEX.md／_atom_index.json 衝突、atom 本體零衝突；JSON 整檔 2801 行衝突的真因是本機那版被寫成 CRLF（lib 寫檔沿用既有行尾，翻了就黏住），內容差異只 192 行；9/1 的 469875e 已是同型第二次。專案層提的「driver 內從磁碟重建索引」實測不可行：driver 執行當下工作樹只有 HEAD 那側的 atom 檔（merge 缺對方、rebase 缺自己），重建會丟另一側。**修**：新 `tools/merge-atom-index.py` 拿三份 blob 做語意三方（JSON 以 path 為 key 逐條合、triggers 聯集、一側刪一側改留改的；_ATOM_INDEX.md 表列同鍵；MEMORY.md 範疇計數 = ours+theirs−base、表外人寫文字仍走 merge-file、真衝突留標記 exit 1），語意合併失敗退回逐行三方並 stderr 浮訊號；`--install` 各機一次寫 global git config + `~/.config/git/attributes`（`**/.claude/memory/*` 三檔 `merge=atomindex text eol=lf`，venv 內安裝取底層真 Python），根層自帶 `.gitattributes`，根層兩個 CRLF 索引檔 renormalize 成 LF。新 `tools/verify/verify_merge_atom_index.py` 19 案（純函式＋真 git merge/rebase 零衝突＋無驅動對照組必衝突＋driver 時機工作樹實測＋--install 冪等）。prune 旗標不另補：`sync-atom-index --fix-scope-from-path` 已含懸空條目刪除。
+
 ## 2026-09-02 Cross-Realm Bash Block 誤擋「跑根層工具＋動專案自己的 .claude/memory」
 - 專案 session（c:\Projects 刪錯誤 atom）回報 6 條命令被擋。實錄重播：全部只是動**專案自己**的 `.claude/memory`（heredoc python 改索引、cp/rm atom、專案 repo 的 git add/push、`python -c` 純讀），根層路徑只出現在同一條命令裡的 `python ~/.claude/tools/sync-*-index.py …`。根因：閘把「命令裡出現根層工具路徑」當成根層上下文，再配上命令任何位置的動手操作就 deny——與自家「純跑根層工具放行」承諾矛盾；另 grep 樣式 `'^<<<<<<<'` 被 `<<` 分支當 heredoc。**修**：判定根層上下文前先抹掉 `python <root>/.claude/tools|hooks|lib|skills/x.py` 這段（`_ROOT_TOOL_INVOKE_RE`），命令其餘部分仍指到根層路徑（`> ~/.claude/hooks/…`、`cp … ~/.claude/hooks/`、`git -C ~/.claude`）照擋；heredoc 分支收緊為 `<<(?!<)-?\s*['"]?\w`。verify 加 1 案 8 斷言（6 條實錄放行＋3 條真陽性照擋），全套 1678 passed。
 

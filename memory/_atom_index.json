@@ -2677,6 +2677,25 @@
         "收尾"
       ],
       "scope": "global"
+    },
+    {
+      "name": "記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合",
+      "path": "memory/版控/Git/記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合.md",
+      "triggers": [
+        "索引衝突",
+        "_atom_index.json 衝突",
+        "MEMORY.md 衝突",
+        "_ATOM_INDEX.md 衝突",
+        "merge driver",
+        "合併驅動",
+        "rebase 衝突",
+        "pull --rebase 衝突",
+        "CRLF 衝突",
+        "索引三檔",
+        "merge-atom-index",
+        "gitattributes"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -1,0 +1,6 @@
+# 索引三檔：多機各自新增 atom 後 rebase/merge 必衝突 → 語意三方合併驅動 tools/merge-atom-index.py
+# （各機需 `python tools/merge-atom-index.py --install` 一次註冊驅動；未裝時 git 靜默退回逐行三方）
+# text eol=lf：blob 永遠 LF，某機寫成 CRLF 也不會把整檔翻成衝突。
+memory/MEMORY.md merge=atomindex text eol=lf
+memory/_ATOM_INDEX.md merge=atomindex text eol=lf
+memory/_atom_index.json merge=atomindex text eol=lf

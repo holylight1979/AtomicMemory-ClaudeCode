@@ -215,6 +215,7 @@ sequenceDiagram
 
 - `memory/_atom_index.json` 是唯一機器源（API：`lib/atom_index_json.py` load/save/upsert/delete/validate）；`_ATOM_INDEX.md` 是自動生成 mirror，只給 fallback parser。
 - 每筆：`name` / `path` / `triggers` / `scope`（+ realm 由 path 推導）。
+- 多機合併：索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）是「一列一 atom」的集合，兩機各自新增後 git 逐行三方必衝突 → `tools/merge-atom-index.py` 當 git merge driver 做語意三方（JSON 以 path 為 key 逐條合、MEMORY.md 範疇計數差量相加），attributes 同時釘 `text eol=lf` 防 CRLF 翻轉整檔衝突；根層 `.gitattributes` 自帶、專案靠全域 attributes，各機 `--install` 一次。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 現況計數：<!-- atom-breakdown -->153 atoms：core 68 + feedback 21 + 失敗模式 2 + local 62〔Tools8/MemDev51/OS2/Vision1〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
@@ -566,7 +567,7 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 │   ├── ollama_client.py / statusline.py / health-weekly.py / followup-check.py
 │   ├── memory-audit.py / memory-write-gate.py / memory-conflict-detector.py / memory-effect-report.py
 │   ├── memory-peek.py / memory-undo.py / memory-session-score.py
-│   ├── sync-atom-index.py / sync-memory-index.py / sync_doc_counts.py / native-memory-bridge.py
+│   ├── sync-atom-index.py / sync-memory-index.py / sync_doc_counts.py / native-memory-bridge.py / merge-atom-index.py
 │   ├── atom-move.py / atom-categorize.py / atom-set-realm.py / atom-heal.py / atom-health-check.py
 │   ├── conflict-review.py / init-roles.py / heal-review.py   ← 管理職（保留能力）
 │   ├── realm_llm_classify.py / skill-index.py / changelog-roll.py / journal-aggregate.py

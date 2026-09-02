@@ -345,7 +345,7 @@ V5 GA 後 tests/ 已 verify 化重組（H-test-prune，2026-05-28）。
 
 ```
 hooks/verify/                                ← 68 個（atom/evasion/extract/wisdom/rrf_fusion/stability_decay/recall_miss 等 hook 守衛）
-tools/verify/                                ← 12 個（check_bypass / memory_eval / stale_deps / conflict_evidence / vector_service 等）
+tools/verify/                                ← 13 個（check_bypass / memory_eval / stale_deps / conflict_evidence / vector_service / merge_atom_index 等）
 tools/codex-companion/verify/                ← 6 個（assessor_retry / scorer / heuristics / handoff_review / artifact_sampling / prompt_input_integrity；另有 smoke_plan_review.py 手動冒煙不被收集）
 tools/auto-continue/verify/                  ← 1 個
 lib/verify/                                  ← 8 個（atom_io_equivalence contract / edit_metadata / atom_spec_depends_evidence / usefulness_access 等）

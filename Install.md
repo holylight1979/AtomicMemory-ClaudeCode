@@ -78,5 +78,6 @@
 
 - **第一個使用者**想先讓 AI 預載某部分知識：`/read-project <目錄> <方向>` → 掃描並寫入知識庫，之後也記得上傳 GIT / SVN。
 - **接續使用者**：從版控 pull 專案的 `.claude/memory/` 即可直接接上團隊記憶。
+- **多台機器／多人同時寫記憶**：各自新增 atom 後 pull 會在索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）衝突，這是機器級 git 設定要補的——每台機器在 `~/.claude` 跑一次 `python tools/merge-atom-index.py --install`（安裝 prompt 已含），之後自動合併、不必手合。
 - 兩個重要縮寫：**「執P」**（分階段執行＋驗證＋上 GIT＋給下階段 prompt）、**「上GIT」**（把當次異動一次推上 GIT / SVN）——直接問 AI 會解釋，也會照規則執行。
 - 深入技術 → [TECH.md](TECH.md)；給 AI 看的安裝細節與降級邏輯 → [Install-forAI.md](Install-forAI.md)。

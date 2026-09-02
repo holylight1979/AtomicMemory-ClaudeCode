@@ -203,6 +203,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - atom-move.py — 跨層原子搬遷工具（mv + 更新 Scope + 同步索引 + 處理 inbound refs）
 - sync-atom-index.py — atom frontmatter Trigger ↔ `_atom_index.json` 一致性同步
 - sync-memory-index.py — 從 `_atom_index.json` 雙輸出渲染：`MEMORY.md`（Lv1 範疇目錄，@import）+ `_local_catalog.md`（本地範疇 Lv1 根，hook 注）+ 兩根各層按需 `_INDEX.md`（有子層 ∨ atom≥2）；硬規則 memory/ 根不容平鋪 atom（`--check` exit 1／`--write` 拒）；`--memory-dir <proj>` 專案模式只 upsert 該專案 MEMORY.md 的 `<!-- atom-catalog -->` 區塊（不生 `_INDEX.md`）；caption preserve 跨檔；atom 寫入後由 `funnel.js syncMemoryIndex([memoryDir])` 背景觸發 `--write`
+- merge-atom-index.py — 索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）的 git 合併驅動：多機各自新增 atom 後 rebase/merge 的「同區塊各加一列」衝突與 CRLF 整檔衝突，改為拿三份 blob 做語意三方（JSON 以 path 為 key 逐條合、triggers 聯集；MD 表列同鍵；MEMORY.md 範疇計數 = ours+theirs−base、表外文字仍 merge-file），不從磁碟重建（driver 執行當下工作樹只有 HEAD 側 atom）；`--install` 各機一次寫 global git config + `~/.config/git/attributes`（`**/.claude/memory/*` 三檔 `merge=atomindex text eol=lf`），根層 repo 自帶 `.gitattributes`；`--status` 自檢
 - cleanup-projects-residue.py — projects/{slug}/memory/ 殘骸清理工具
 
 ### 常駐可觀測

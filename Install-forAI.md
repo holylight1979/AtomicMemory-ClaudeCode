@@ -240,6 +240,19 @@ template 內三個 server：
 - 首次寫 atom 一律走 MCP `atom_write(mode=create)` 並給 `domain`（Lv1 閉合清單在 `memory/_meta/taxonomy.json`）；分不出範疇的知識不寫。
 - 執行 `python tools/sync-memory-index.py --check` 確認索引與檔案一致（不一致再 `--write`）。
 
+### Step 6：索引三檔 git 合併驅動（多機共享必裝，每台機器一次）
+
+兩台機器各自新增 atom 後 `git pull --rebase`，atom 本體不衝突，但索引三檔（`MEMORY.md` 範疇計數表、`_ATOM_INDEX.md`、`_atom_index.json`）在同區塊各加一列必衝突。merge driver 是機器級 git 設定、版控帶不動，所以每台機器都要跑一次：
+
+```bash
+python tools/merge-atom-index.py --install   # 寫 global git config merge.atomindex + ~/.config/git/attributes（**/.claude/memory/* 三檔 merge=atomindex text eol=lf）
+python tools/merge-atom-index.py --status    # 顯示「已安裝」即可；換 Python 後重跑 --install
+```
+
+- 根層 repo 靠自帶的 `.gitattributes`，專案 repo 靠全域 attributes，專案不必改任何檔。
+- 沒裝的機器 git 會靜默退回逐行三方 → 再看到索引三檔衝突＝那台沒裝；裝好後 `git rebase --abort` 重來即自動合。
+- 原理與「為何不從磁碟重建」見 `tools/merge-atom-index.py` 檔頭；驗證 `tools/verify/verify_merge_atom_index.py`。
+
 ---
 
 ## 4. Ollama + Vector Service
@@ -320,6 +333,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | 11 | MCP 5 tool | 問 Claude「列出 workflow-guardian MCP 工具」 | `atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `anti_evasion_report` |
 | 12 | 整合 | 開新 session | 看到 `[Workflow Guardian] Active`；statusline 無 `WG:?` |
 | 13 | Dashboard | 開 `http://127.0.0.1:3848/` | 有頁面 |
+| 14 | 索引合併驅動 | `python tools/merge-atom-index.py --status` | 末行「狀態：已安裝」 |
 
 完整回歸：`python run_verify.py`（基線全數 passed，數字見該腳本輸出）。
 
@@ -330,6 +344,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 ```bash
 cd ~/.claude && git pull
 python tools/fix-hook-python.py            # pull 後 settings.json 若被更新，重驗直譯器路徑
+python tools/merge-atom-index.py --install # 索引三檔 git 合併驅動（機器級設定：首次、或換 Python 後）
 ```
 
 從 4.x 升級需確認：

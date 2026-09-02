@@ -159,3 +159,4 @@
 | 本repo公開有同事使用者-外部pr審查與docindex衝突解法 | _AIDocs/_atoms/MemDev/本repo公開有同事使用者-外部pr審查與docindex衝突解法.md | pull request, PR, 外部貢獻, 同事, DocIndex, 衝突, 向後相容, journal | global |
 | feedback-口令承接脈絡-開工等短口令以最近承諾的流程為準-不得跳過已承諾的planmode | memory/personal/holylight/feedback-口令承接脈絡-開工等短口令以最近承諾的流程為準-不得跳過已承諾的planmode.md | 開工, 動工, 口令歧義, plan mode, 先出計畫, 誤讀指令, 承諾流程 | personal:holylight |
 | 團隊產出上傳前先問人-記憶庫自動做滿 | memory/行為契約/團隊產出上傳前先問人-記憶庫自動做滿.md | 上傳, commit, push, 提交, 版控, 團隊, 協作, 記憶庫, atom, 自動分類, 要不要問, 收尾 | global |
+| 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 | memory/版控/Git/記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合.md | 索引衝突, _atom_index.json 衝突, MEMORY.md 衝突, _ATOM_INDEX.md 衝突, merge driver, 合併驅動, rebase 衝突, pull --rebase 衝突, CRLF 衝突, 索引三檔, merge-atom-index, gitattributes | global |
