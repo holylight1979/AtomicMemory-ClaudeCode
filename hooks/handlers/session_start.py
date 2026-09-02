@@ -403,7 +403,8 @@ def _followup_advisory() -> list:
         r = subprocess.run(
             [sys.executable, str(CLAUDE_DIR / "tools" / "followup-check.py"),
              "--run", "--auto-close", "--brief", "--mark-shown"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         out = (r.stdout or "").strip()
         return [out] if out else []
     except Exception as e:
@@ -427,7 +428,7 @@ def _unpushed_advisory() -> list:
         r = subprocess.run(
             ["git", "-C", str(CLAUDE_DIR), "rev-list", "--count", "@{u}..HEAD"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=5)
+            timeout=5, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:  # 無 upstream / detached HEAD → 不是異常，不吵
             return []
         ahead = int((r.stdout or "0").strip() or 0)
@@ -475,6 +476,7 @@ def _personal_sync_advisory(project_mem_dir, user: str) -> list:
                 ["git", "-C", str(mem), *args],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=timeout,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
 
         top = _git("rev-parse", "--show-toplevel")

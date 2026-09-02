@@ -70,7 +70,8 @@ def vcs_tracked(path: str) -> bool:
     else:
         cmd = ["svn", "info", "--non-interactive", str(p)]
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=_VCS_TIMEOUT_S)
+        r = subprocess.run(cmd, capture_output=True, timeout=_VCS_TIMEOUT_S,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return r.returncode == 0
     except Exception:
         return False

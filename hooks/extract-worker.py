@@ -844,7 +844,8 @@ def _failure_catalog_sync(failures_dir: Path, config: dict) -> None:
         if not is_global:
             argv += ["--memory-dir", str(mem_dir)]
         r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=40)
+                           errors="replace", timeout=40,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
             _atom_debug_log("failure_writeback",
                             f"catalog sync exit {r.returncode}: {(r.stderr or '')[-300:]}", config)

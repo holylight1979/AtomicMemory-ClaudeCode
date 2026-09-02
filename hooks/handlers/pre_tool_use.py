@@ -532,6 +532,7 @@ def _git_lines(args: List[str], cwd: str) -> Optional[List[str]]:
         r = subprocess.run(
             ["git"] + args, capture_output=True, text=True, timeout=3,
             cwd=cwd or None, encoding="utf-8", errors="replace",
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         if r.returncode != 0:
             return None

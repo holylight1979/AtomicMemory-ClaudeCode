@@ -27,7 +27,8 @@
 | 10 | cc-design-patterns.md | Ch.10 | 7 大設計模式、Harness Engineering Checklist | design pattern, 設計模式, fail-open, fail-closed, memoize, subprocess JSON, checklist |
 | 11 | cc-prompt-engineering.md | Ch.11+13+14 | 5 層優先、17 Section、DYNAMIC_BOUNDARY、防禦性模式、Tool Prompt | prompt, system prompt, DYNAMIC_BOUNDARY, prompt cache, section, NO_TOOLS, BashTool prompt |
 | 12 | cc-feature-inventory.md | Ch.12 | Feature flags、隱藏 CLI 參數 30+、環境變數、Server commands | feature flag, GrowthBook, KAIROS, daemon, bridge, agent triggers, cron, claude server |
-| 13 | cc-native-memory-hooks-mcp.md | 官方文件 2026 | Auto-memory 路徑與 200 行預算、CLAUDE.md 六層載入、28 種 Hook 事件＋UPS 注入協議＋timeout 表、MCP scope、compaction/cache、2.1.238–248 changelog、與原子記憶系統橋接接點 | auto-memory, MEMORY.md, project-slug, CLAUDE.md 階層, @import, rules, UserPromptSubmit, additionalContext, hook timeout, SessionEnd 1.5s, MCP scope, .mcp.json, MAX_MCP_OUTPUT_TOKENS, compaction, prompt cache, cacheTtl, native-memory-bridge |
+| 13 | console-window-forensics.md | 本機實測 | Windows 黑窗（閃 console）完整案卷：機制、修法三式、診斷工具、2026-09-02 殘餘閃窗源判定 | 黑窗, 閃窗, console, WindowsTerminal -Embedding, CREATE_NO_WINDOW, pythonw, run-hidden, console-window-trace |
+| 14 | cc-native-memory-hooks-mcp.md | 官方文件 2026 | Auto-memory 路徑與 200 行預算、CLAUDE.md 六層載入、28 種 Hook 事件＋UPS 注入協議＋timeout 表、MCP scope、compaction/cache、2.1.238–248 changelog、與原子記憶系統橋接接點 | auto-memory, MEMORY.md, project-slug, CLAUDE.md 階層, @import, rules, UserPromptSubmit, additionalContext, hook timeout, SessionEnd 1.5s, MCP scope, .mcp.json, MAX_MCP_OUTPUT_TOKENS, compaction, prompt cache, cacheTtl, native-memory-bridge |
 
 ---
 

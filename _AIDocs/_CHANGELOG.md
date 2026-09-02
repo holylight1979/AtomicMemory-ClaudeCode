@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-02 閃窗真因定案 — 自家 hook 裸 spawn git/python，補 CREATE_NO_WINDOW + 防回歸掃描
+- 使用者回報開 session 與上GIT 閃 console 窗。console-window-trace 多輪＋對照實驗＋官方 issue（#64163/#58606/#66540：CC 缺 windowsHide）交叉查證，**定案**：「上GIT 閃」主犯＝pre_tool_use **git commit 隱私硬閘**裸 spawn git（GUI pythonw 父無 console → WT `-Embedding` 宿主窗）；session_start 未push檢查/followup、aec_ledger、extract-worker 同類。全補 `creationflags=CREATE_NO_WINDOW`，修後同場景 trace 零事件。**新增防回歸** `hooks/verify/verify_no_window_spawn.py`（AST 掃 hooks/lib 全 subprocess 呼叫，漏帶旗標即 FAIL）。中途曾誤判主因為「PowerShell 工具生 pwsh」並建 core atom「版控走 Bash tool」——純 pwsh probe 不閃否證後已刪該 atom、文件全面更正（教訓：歸因靠對照實驗勿靠時間巧合）。CC 本體殘餘（開場 shell snapshot）使用者定案無視、等官方。完整案卷 `ClaudeCodeInternals/console-window-forensics.md`（原 atom 超預算，forensic 細節外移、atom 瘦身為結論＋錨點）。
+
 ## 2026-09-02 收尾檢核擴為九欄（a–i）+ git commit 隱私硬閘
 - 使用者要求把「session 收尾三問」（記憶收錄＋上GIT避隱私／未告知決策／可否關閉）做成固定邏輯。定案：時機與強制交給既有 Stop 閘（完成宣告＋core/多檔門檻），內容判斷留給模型——`anti_evasion_report` 由四欄擴為九欄：a 缺失修補、b 逃避通報、c Token警示、**d 記憶收錄帳**（值得留的知識逐項「已寫入 atom」或「不寫＋理由」，判定不寫也要留痕）、**e 未告知決策＋未驗證假設**、**f 靜默狀態改變**（環境副作用）、**g 版控收尾**、**h 收尾判定**（可關閉/下一動單句）、**i 衍生暫存清單**（原 d，使用者指示移最後）。severity 規則不動（仍只看 a/b，新欄全資訊性）；殘檔帳本改讀 (i)（source=aec-i，舊 aec-d 紀錄照顯示）；HUD 卡片九分區、無 e 欄自動以舊格式渲染舊報告。改 mcp.js schema 需重啟 MCP 生效（實測舊 schema 不禁額外參數，九參可先行提交、Python 端即落九欄）。**新** `pre_tool_use.check_git_privacy`：`git commit` 前 staged（＋`-a` 的 tracked modified）比對隱私 deny globs → deny 並列命中與處置；通用清單只放明顯秘密檔，`projects/*` 等只在 git root＝~/.claude 掛上；`workflow/config.json privacy.{enabled,deny_globs}` 可調；設計上「清單不全也能運作」（.gitignore 第一道、本閘第二道）；非 commit／非 repo／git 失敗一律 fail-open。新 `verify_git_privacy_gate.py` 16 案（真 git repo 實測）＋既有 AEC 測試同步，全套 verify 1184 passed。
 
