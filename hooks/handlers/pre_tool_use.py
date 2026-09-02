@@ -4,11 +4,13 @@ handlers/pre_tool_use.py — PreToolUse hook handler
 對 Write/Edit 進行 atom 格式/Confidence gate + memory 路徑防呆 + svn test block。
 """
 
+import fnmatch
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     WORKFLOW_DIR,
@@ -467,6 +469,157 @@ def _check_pre_action_notice(
         return None, None
 
 
+# ─── Git 隱私硬閘（Bash/PowerShell `git commit` 前擋隱私檔進版控歷史）──────────
+# chokepoint 選 commit（寫進歷史的不可逆點；add 錯了還能 unstage）。deny 為硬性、
+# 不走「阻擋 N 次放行」——隱私是正確性閘，非收尾儀式。判定：staged（+ commit -a
+# 時的 tracked modified）repo 相對路徑比對 deny globs。清單設計上「不全也能運作」：
+# .gitignore 是第一道，本閘只兜「沒被 ignore 的明顯隱私檔」；可由 workflow/config.json
+# privacy 段增補（deny_globs 追加、enabled 關閉）。fail-open：git 不可用/逾時不擋。
+_PRIVACY_DEFAULT_DENY_GLOBS = [
+    # 通用憑證/秘密檔（任何 repo 都不該進歷史）
+    ".credentials*", "*.pem", "*.key", "*.p12", "*.pfx",
+    "id_rsa*", "id_ed25519*", "id_ecdsa*",
+    ".env", ".env.*", "*.secret", "*.secrets", "secrets.json", "secrets.yml",
+    # Claude Code 本機隱私檔（settings.local / .claude.json 含本機權限與 MCP 憑證）
+    "settings.local.json", ".claude.json",
+]
+# 僅當 git root 是 ~/.claude 本身才加掛（他專案裡同名資料夾是正常檔案，不得誤擋）
+_PRIVACY_CLAUDE_ROOT_GLOBS = [
+    "history.jsonl", "projects/*", "shell-snapshots/*", "todos/*",
+    "statsig/*", "file-history/*", "session-env/*",
+]
+# git 全域旗標中「帶參數」者（掃 subcommand 時連值一起跳過）
+_GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"}
+
+
+def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
+    """拆 shell 指令為片段，回傳其中 git subcommand == commit 的 (repo_cd, tokens)。
+    repo_cd = `git -C <path>` 的 path（無則 ""）。保守解析：認不出就當非 commit（寧漏勿誤擋）。"""
+    out: List[Tuple[str, List[str]]] = []
+    for seg in re.split(r"&&|\|\||;|\||\n", command or ""):
+        tokens = seg.split()
+        git_idx = next(
+            (idx for idx, t in enumerate(tokens)
+             if t.lower().rstrip('"\'') in ("git", "git.exe")
+             or t.lower().endswith(("/git", "\\git", "/git.exe", "\\git.exe"))),
+            None,
+        )
+        if git_idx is None:
+            continue
+        repo_cd = ""
+        j = git_idx + 1
+        sub = ""
+        while j < len(tokens):
+            t = tokens[j]
+            if t in _GIT_VALUE_FLAGS:
+                if t == "-C" and j + 1 < len(tokens):
+                    repo_cd = tokens[j + 1].strip("\"'")
+                j += 2
+                continue
+            if t.startswith("-"):
+                j += 1
+                continue
+            sub = t
+            break
+        if sub == "commit":
+            out.append((repo_cd, tokens[j:]))
+    return out
+
+
+def _git_lines(args: List[str], cwd: str) -> Optional[List[str]]:
+    """跑 git 取行清單；任何失敗回 None（fail-open 訊號，caller 不得誤當空清單）。"""
+    try:
+        r = subprocess.run(
+            ["git"] + args, capture_output=True, text=True, timeout=3,
+            cwd=cwd or None, encoding="utf-8", errors="replace",
+        )
+        if r.returncode != 0:
+            return None
+        return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+    except Exception:
+        return None
+
+
+def _privacy_globs(config: Dict[str, Any], repo_root: str) -> List[str]:
+    globs = list(_PRIVACY_DEFAULT_DENY_GLOBS)
+    try:
+        if repo_root and Path(repo_root).resolve() == (Path.home() / ".claude").resolve():
+            globs += _PRIVACY_CLAUDE_ROOT_GLOBS
+    except Exception:
+        pass
+    extra = (config.get("privacy") or {}).get("deny_globs") or []
+    globs += [str(g) for g in extra if g]
+    return globs
+
+
+def _privacy_match(rel_path: str, globs: List[str]) -> Optional[str]:
+    """repo 相對路徑（posix、casefold）比對：pattern 含 / 比對全路徑，否則比對 basename。
+    fnmatch 的 * 可跨 /（等效 **）。回命中的 pattern 或 None。"""
+    rel = rel_path.replace("\\", "/").casefold()
+    base = rel.rsplit("/", 1)[-1]
+    for g in globs:
+        pat = g.replace("\\", "/").casefold()
+        target = rel if "/" in pat else base
+        if fnmatch.fnmatchcase(target, pat):
+            return g
+    return None
+
+
+def check_git_privacy(
+    tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any]
+) -> Optional[str]:
+    """Bash/PowerShell `git commit` → staged（+-a 的 tracked modified）比對隱私 deny globs。
+    命中回 deny 訊息；否則 None。fail-open：git 查詢失敗一律放行。"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return None
+    if not (config.get("privacy") or {}).get("enabled", True):
+        return None
+    command = tool_input.get("command", "") or ""
+    if "git" not in command or "commit" not in command:
+        return None   # 快篩，省 regex/子行程
+    try:
+        for repo_cd, commit_tokens in _git_commit_segments(command):
+            run_cwd = repo_cd or cwd
+            files = _git_lines(
+                ["diff", "--cached", "--name-only", "--diff-filter=ACMR"], run_cwd
+            )
+            if files is None:
+                continue   # fail-open
+            if any(
+                re.fullmatch(r"-[a-zA-Z]*a[a-zA-Z]*", t) or t == "--all"
+                for t in commit_tokens
+            ):
+                extra = _git_lines(["diff", "--name-only", "--diff-filter=ACMR"], run_cwd)
+                files += extra or []
+            if not files:
+                continue
+            root_lines = _git_lines(["rev-parse", "--show-toplevel"], run_cwd)
+            repo_root = root_lines[0] if root_lines else ""
+            globs = _privacy_globs(config, repo_root)
+            hits = []
+            for f in dict.fromkeys(files):
+                pat = _privacy_match(f, globs)
+                if pat:
+                    hits.append((f, pat))
+            if hits:
+                lines = [
+                    "[Guardian:GitPrivacy] 待 commit 內容含隱私檔，已擋下（隱私檔不得進版控歷史）：",
+                ]
+                lines += [f"  ✗ {f} — 命中 deny glob `{p}`" for f, p in hits]
+                lines += [
+                    "處置：`git restore --staged <檔>` 移出後重 commit；該檔確非隱私 → 調整 "
+                    "workflow/config.json privacy.deny_globs（或 privacy.enabled=false 停用本閘）"
+                    "；長期正解是把它加進 .gitignore。",
+                ]
+                return "\n".join(lines)
+    except Exception as e:
+        try:
+            sys.stderr.write(f"[Guardian:GitPrivacy] 檢查異常（fail-open）：{e}\n")
+        except OSError:
+            pass
+    return None
+
+
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
@@ -594,6 +747,18 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         return
 
     deny_reason = check_svn_test_block(tool_name, tool_input)
+    if deny_reason:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
+
+    # git commit 隱私硬閘（staged 含隱私檔 → deny；fail-open）
+    deny_reason = check_git_privacy(tool_name, tool_input, _cwd, config)
     if deny_reason:
         output_json({
             "hookSpecificOutput": {

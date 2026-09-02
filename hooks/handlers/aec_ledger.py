@@ -3,7 +3,8 @@
 路徑固定：workflow/aec-tempfiles/<sid>.jsonl（append-only，一行一 JSON）。
 進帳來源（source）：
   write  = PostToolUse Write/Edit/NotebookEdit 落在系統 tempdir 下的檔（scratchpad 等）
-  aec-d  = anti_evasion_report (d) 欄「一行一路徑」宣告（`<路徑> — <備註>`）
+  aec-i  = anti_evasion_report (i) 欄「一行一路徑」宣告（`<路徑> — <備註>`；
+           2026-09 前為 (d) 欄，舊帳 source=aec-d 僅顯示差異、判定不變）
   scan   = Stop / 收尾時直接 listdir session scratchpad（補模型忘了列的）
 
 帳本只記「進過帳」的路徑；「還在不在」不記——由讀端當下 exists() 判定（檔案系統才是權威，
@@ -200,10 +201,10 @@ def _resolve(raw: str, cwd: str) -> str:
     return s
 
 
-def parse_d_paths(
+def parse_declared_paths(
     d_text: str, cwd: str, rejected: Optional[List[Dict[str, str]]] = None
 ) -> List[Dict[str, Any]]:
-    """(d) 每非空行 → `<路徑> — <備註>`；路徑取分隔符前第一個 token。
+    """(i) 衍生暫存欄每非空行 → `<路徑> — <備註>`；路徑取分隔符前第一個 token。
     只收「磁碟上此刻存在」的（含 glob 展開）；prose 行 / 已刪的 → 略過（已刪的沒有裁決價值）。
     受保護路徑不收，並記入 rejected（{path, reason}）供 caller 浮出訊號——靜默拒收違反可觀測性鐵律。"""
     out: List[Dict[str, Any]] = []
@@ -229,7 +230,7 @@ def parse_d_paths(
                     if rejected is not None:
                         rejected.append({"path": os.path.abspath(c), "reason": why})
                     continue
-                out.append({"path": os.path.abspath(c), "note": note, "source": "aec-d"})
+                out.append({"path": os.path.abspath(c), "note": note, "source": "aec-i"})
             except Exception:
                 continue
     return out
@@ -308,10 +309,10 @@ def collect_at_completion(
     session_id: str, cwd: str, d_text: Optional[str] = None, turn_seq: Optional[int] = None,
     rejected: Optional[List[Dict[str, str]]] = None,
 ) -> int:
-    """收尾時機（anti_evasion_report / Stop）：(d) 宣告 + scratchpad 掃描一次進帳。
-    rejected（可選 out-list）收 (d) 裡被拒的受保護路徑，caller 拿去告知模型。"""
+    """收尾時機（anti_evasion_report / Stop）：(i) 宣告 + scratchpad 掃描一次進帳。
+    rejected（可選 out-list）收 (i) 裡被拒的受保護路徑，caller 拿去告知模型。"""
     entries: List[Dict[str, Any]] = []
     if d_text:
-        entries += parse_d_paths(d_text, cwd, rejected)
+        entries += parse_declared_paths(d_text, cwd, rejected)
     entries += scan_scratchpad(cwd, session_id)
     return ledger_append(session_id, entries, turn_seq)

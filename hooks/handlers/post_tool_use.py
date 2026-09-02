@@ -518,13 +518,16 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # session_id 用原始 input_data["session_id"]（與 modified_files 的 session_id 戳
         # 同源）＝sibling 隔離關鍵：Stop 閘以 turn_seq+session_id 雙鍵讀，隔壁 session 的
         # emit 不誤放行本 session。turn_seq 由 UserPromptSubmit 每真 prompt +1。
-        a, b, c, d = (str(tool_input.get(k, "") or "") for k in ("a", "b", "c", "d"))
-        # (d) 是給使用者裁決的路徑清單：「無（…括號解釋…）」一律正規化成「無」，
+        _AEC_KEYS = ("a", "b", "c", "d", "e", "f", "g", "h", "i")
+        vals = {k: str(tool_input.get(k, "") or "") for k in _AEC_KEYS}
+        a, b = vals["a"], vals["b"]
+        # (i) 是給使用者裁決的路徑清單：「無（…括號解釋…）」一律正規化成「無」，
         # 模型的多嘴說明（執行期狀態檔、已刪了什麼）不得變成 HUD 上要人裁決的一列。
-        if _aec_blank(d):
-            d = "無"
+        if _aec_blank(vals["i"]):
+            vals["i"] = "無"
+        i_paths = vals["i"]
         turn_seq = int(state.get("turn_seq", 0))
-        sev = aec_severity(a, b, c, d)
+        sev = aec_severity(a, b)
         # (b) 欄 cross-check：hook 實測到退避但模型自評「無」→ 升 real-evasion +
         # 附 hook 證據（升級只發生在 Python one-writer；Node chip 純內容判定，
         # 顯示可能不同步——report 檔 + Stop fallback 為準）。
@@ -533,7 +536,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         report = {
             "session_id": session_id,
             "turn_seq": turn_seq,
-            "a": a, "b": b, "c": c, "d": d,
+            **vals,
             "severity": sev,
             "at": _now_iso(),
         }
@@ -553,19 +556,19 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             )
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
-        # 殘檔帳本：(d) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。
-        # (d) 裡的受保護路徑（VCS 追蹤檔 / memory、_AIDocs / 索引類）拒收並回告模型——
-        # 「已改未 commit 的正式檔」屬 (a)(b) 未同步事項，不是衍生暫存；靜默丟掉會讓模型一直錯報。
+        # 殘檔帳本：(i) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。
+        # (i) 裡的受保護路徑（VCS 追蹤檔 / memory、_AIDocs / 索引類）拒收並回告模型——
+        # 「已改未 commit 的正式檔」屬 (a)(b)/(g) 未同步事項，不是衍生暫存；靜默丟掉會讓模型一直錯報。
         try:
             _cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
             _rejected: List[Dict[str, str]] = []
-            aec_ledger.collect_at_completion(session_id, _cwd, d, turn_seq, rejected=_rejected)
+            aec_ledger.collect_at_completion(session_id, _cwd, i_paths, turn_seq, rejected=_rejected)
             if _rejected:
                 aec_reject_msgs.append(
-                    "[Guardian:AEC-Ledger] (d) 衍生暫存清單拒收受保護路徑（正式產出不是暫存，"
+                    "[Guardian:AEC-Ledger] (i) 衍生暫存清單拒收受保護路徑（正式產出不是暫存，"
                     "不得進 HUD 刪除候選）：\n"
                     + "\n".join(f"  ✗ {r['path']} — {r['reason']}" for r in _rejected)
-                    + "\n未 commit 的正式檔請改列於 (a)/(b) 未同步事項；(d) 只放你自己產生的暫存／中間產物。"
+                    + "\n未 commit 的正式檔請改列於 (a)/(b)/(g)；(i) 只放你自己產生的暫存／中間產物。"
                 )
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_collect", e)

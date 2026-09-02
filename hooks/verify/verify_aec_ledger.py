@@ -53,7 +53,7 @@ def test_scan_scratchpad_drive_letter_case_fallback(wdir, monkeypatch):
     assert [Path(e["path"]).name for e in got] == ["z.txt"]
 
 
-def test_parse_d_paths_only_existing_and_skips_prose(wdir):
+def test_parse_declared_paths_only_existing_and_skips_prose(wdir):
     cwd = wdir / "proj"
     (cwd / "scratch").mkdir(parents=True)
     (cwd / "scratch" / "a.log").write_text("x")
@@ -66,21 +66,21 @@ def test_parse_d_paths_only_existing_and_skips_prose(wdir):
         "純 prose 說明行沒有路徑",
         "無",
     ])
-    got = L.parse_d_paths(d, str(cwd))
+    got = L.parse_declared_paths(d, str(cwd))
     names = sorted(Path(e["path"]).name for e in got)
     assert names == ["a.log", "b.log", "keep.bak"]
     by = {Path(e["path"]).name: e for e in got}
     assert by["keep.bak"]["note"].startswith("保留")
     assert by["a.log"]["note"] == "一次性驅動輸出"
-    assert all(e["source"] == "aec-d" for e in got)
+    assert all(e["source"] == "aec-i" for e in got)
 
 
-def test_parse_d_paths_expands_env_and_home(wdir, monkeypatch):
+def test_parse_declared_paths_expands_env_and_home(wdir, monkeypatch):
     target = wdir / "envdir" / "t.txt"
     target.parent.mkdir()
     target.write_text("x")
     monkeypatch.setenv("WG_TEST_ENV", str(wdir / "envdir"))
-    got = L.parse_d_paths("%WG_TEST_ENV%/t.txt — 備份" if sys.platform == "win32" else "$WG_TEST_ENV/t.txt — 備份", "")
+    got = L.parse_declared_paths("%WG_TEST_ENV%/t.txt — 備份" if sys.platform == "win32" else "$WG_TEST_ENV/t.txt — 備份", "")
     assert [Path(e["path"]).name for e in got] == ["t.txt"]
 
 
@@ -90,13 +90,13 @@ def test_ledger_append_dedupes_and_read_last_wins(wdir):
     assert n == 1
     # 同路徑 scan 再進 → 不追加
     assert L.ledger_append(_SID, [{"path": str(p1), "note": "scratchpad", "source": "scan"}]) == 0
-    # 同路徑 aec-d 帶新 note → 追加一筆覆寫 note
-    assert L.ledger_append(_SID, [{"path": str(p1), "note": "回滾用", "source": "aec-d"}]) == 1
+    # 同路徑 aec-i 帶新 note → 追加一筆覆寫 note
+    assert L.ledger_append(_SID, [{"path": str(p1), "note": "回滾用", "source": "aec-i"}]) == 1
     recs = L.ledger_read(_SID)
-    assert len(recs) == 1 and recs[0]["note"] == "回滾用" and recs[0]["source"] == "aec-d"
+    assert len(recs) == 1 and recs[0]["note"] == "回滾用" and recs[0]["source"] == "aec-i"
     # 大小寫不同視為同路徑（Windows）
     if sys.platform == "win32":
-        assert L.ledger_append(_SID, [{"path": str(p1).upper(), "note": "回滾用", "source": "aec-d"}]) == 0
+        assert L.ledger_append(_SID, [{"path": str(p1).upper(), "note": "回滾用", "source": "aec-i"}]) == 0
     raw = L.ledger_path(_SID).read_text(encoding="utf-8").strip().splitlines()
     assert len(raw) == 2 and json.loads(raw[0])["turn_seq"] == 3
 
@@ -126,7 +126,7 @@ def test_collect_at_completion_merges_d_and_scan(wdir, monkeypatch):
 
 
 def test_protected_paths_rejected_from_d_with_reason(wdir, monkeypatch):
-    """(d) 列了正式產出（memory/、_AIDocs/、索引、CHANGELOG）→ 不進帳、rejected 帶原因；同行其他暫存照收。"""
+    """(i) 列了正式產出（memory/、_AIDocs/、索引、CHANGELOG）→ 不進帳、rejected 帶原因；同行其他暫存照收。"""
     cwd = wdir / "proj"
     for rel in ("memory/x/atom.md", "_AIDocs/Arch.md", "docs/_INDEX.md", "_CHANGELOG.md", "tmp/run.log"):
         f = cwd / rel; f.parent.mkdir(parents=True, exist_ok=True); f.write_text("x")
@@ -139,7 +139,7 @@ def test_protected_paths_rejected_from_d_with_reason(wdir, monkeypatch):
         "tmp/run.log — 一次性輸出",
     ])
     rejected: list = []
-    got = L.parse_d_paths(d, str(cwd), rejected)
+    got = L.parse_declared_paths(d, str(cwd), rejected)
     assert [Path(e["path"]).name for e in got] == ["run.log"]
     assert sorted(Path(r["path"]).name for r in rejected) == ["Arch.md", "_CHANGELOG.md", "_INDEX.md", "atom.md"]
     assert all(r["reason"] for r in rejected)
@@ -151,7 +151,7 @@ def test_vcs_tracked_path_rejected_untracked_allowed(wdir, monkeypatch):
     (cwd / "real.cs").write_text("x"); (cwd / "real.cs.bak").write_text("x")
     monkeypatch.setattr(L, "vcs_tracked", lambda p: Path(p).name == "real.cs")
     rejected: list = []
-    got = L.parse_d_paths("real.cs — 改了未 commit\nreal.cs.bak — 改前備份", str(cwd), rejected)
+    got = L.parse_declared_paths("real.cs — 改了未 commit\nreal.cs.bak — 改前備份", str(cwd), rejected)
     assert [Path(e["path"]).name for e in got] == ["real.cs.bak"]
     assert [Path(r["path"]).name for r in rejected] == ["real.cs"] and "VCS" in rejected[0]["reason"]
 

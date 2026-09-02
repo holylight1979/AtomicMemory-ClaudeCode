@@ -29,14 +29,14 @@ const SID_RE = /^[A-Za-z0-9-]+$/;     // 防路徑穿越：session_id 只允許 
 
 // ─── severity（純函式；與 Python wg_evasion.aec_severity 同規則、single source of truth）──
 // (b) 真偷埋通報非空 → real-evasion；(a) 有真修補行 → notable；(a)(b) 皆「無」/空 → routine。
-// (c)/(d) 為資訊性，不升級 severity（severity 只衡量「退避」訊號）。
+// (c)–(i) 為資訊性，不升級 severity（severity 只衡量「退避」訊號）。
 function aecBlank(v) {
   // 放寬「無」認定含結尾標點（「無。」）；太嚴會把 routine 誤升 real-evasion → 洗 chat。
   // MIRROR: hooks/wg_evasion.py _aec_blank — keep in sync。
   const s = String(v == null ? "" : v).trim().replace(/[\s。．.,，、；;：:!！?？~～\-—…]+$/u, "");
   return s === "" || /^[無无]\s*(?:[（(][^）)]*[）)])?$/u.test(s);
 }
-function aecSeverity(a, b, c, d) {
+function aecSeverity(a, b) {
   if (!aecBlank(b)) return "real-evasion";
   if (!aecBlank(a)) return "notable";
   return "routine";
@@ -54,17 +54,15 @@ async function toolAntiEvasionReport(id, args) {
   const { sendToolResult } = require("./mcp");
   const a = String(args && args.a != null ? args.a : "");
   const b = String(args && args.b != null ? args.b : "");
-  const c = String(args && args.c != null ? args.c : "");
-  const d = String(args && args.d != null ? args.d : "");
-  const sev = aecSeverity(a, b, c, d);
+  const sev = aecSeverity(a, b);
 
   let text;
   if (sev === "routine") {
     // routine → 折疊 chip 單行，不攤 prose。
-    text = "anti_evasion_report ✓（routine）— 收尾檢核 (a)(b)(c)(d) 已提交，內容走 HUD。";
+    text = "anti_evasion_report ✓（routine）— 收尾檢核 (a)–(i) 已提交，內容走 HUD。";
   } else {
     // notable / real-evasion → chat 頂層一次（短展開摘要；完整內容走 HUD）。
-    const lines = [`anti_evasion_report ⚠（${sev}）— 收尾檢核已提交（HUD 有完整 (a)(b)(c)(d)）：`];
+    const lines = [`anti_evasion_report ⚠（${sev}）— 收尾檢核已提交（HUD 有完整 (a)–(i)）：`];
     if (!aecBlank(a)) lines.push("  (a) 缺失修補：" + firstLines(a, 3));
     if (!aecBlank(b)) lines.push("  (b) 逃避通報：" + firstLines(b, 3));
     text = lines.join("\n");

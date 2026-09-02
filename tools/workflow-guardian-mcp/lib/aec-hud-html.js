@@ -1,6 +1,6 @@
 // aec-hud-html.js — Anti-Evasion HUD 頁模板。匯出 render()->string（鏡像 dashboard-html.js）。
 //
-// dark HUD 單頁：即時最新收尾檢核卡（(a)(b)(c)(d) 分區）+ 底部近 N 回合 severity 歷史格。
+// dark HUD 單頁：即時最新收尾檢核卡（(a)–(i) 分區；舊報告僅 a–d）+ 底部近 N 回合 severity 歷史格。
 // 傳輸＝輪詢（非 SSE）：setInterval 1.5s fetch /api/aec/reports（增量 ?since=）→ 渲染；
 // 格子 click → fetch /api/aec/report/<sid>/<turn> 展開；每 10s fetch /api/aec/beat 送心跳。
 //
@@ -77,7 +77,7 @@ function render() {
   <div class="top">
     <div>
       <h1>Anti-Evasion HUD</h1>
-      <div class="sub">收尾檢核 (a)(b)(c)(d) · severity-gated · 唯讀歷史</div>
+      <div class="sub">收尾檢核 (a)–(i) · severity-gated · 唯讀歷史</div>
     </div>
     <div class="poll"><span class="dot"></span><span id="poll-txt">輪詢中…</span></div>
   </div>
@@ -132,7 +132,7 @@ function sectionHtml(letter, name, val) {
 function escAttr(s) { return esc(s).replace(/"/g, "&quot;"); }
 
 // 殘檔面板：資料來自 /api/aec/tempfiles/<sid>（Python 帳本 + Node 當下 exists() 過濾），
-// 不從 (d) prose 猜——(d) 只是宣告來源之一，「還在不在」以檔案系統為準。每列 保留/刪除
+// 不從 (i) prose 猜——(i) 只是宣告來源之一，「還在不在」以檔案系統為準。每列 保留/刪除
 // 兩鈕都給（使用者決定權），刪除經 confirm() 二次確認；已決者顯示狀態但仍可改按（覆寫）。
 // 注意：本 script 整塊在外層 render() 的 template literal 內，字串/comment 中的反斜線
 // 都須 \\ 跳脫，否則會在 render 時被 outer JS 當跳脫序列吃掉（換行字元須寫 "\\n"）。
@@ -203,7 +203,15 @@ function renderCard(r) {
     sectionHtml("a", "缺失發現與修補清單", r.a) +
     sectionHtml("b", "AI 逃避通報", r.b) +
     sectionHtml("c", "Token 累積警示", r.c) +
-    sectionHtml("d", "衍生暫存清單（宣告；實際尚存者見下方殘檔面板）", r.d) +
+    // 舊報告（2026-09 前）只有 a–d 且 d=衍生暫存：無 e 欄視為舊格式，d 以舊標籤渲染。
+    (r.e == null
+      ? sectionHtml("d", "衍生暫存清單（舊格式；實際尚存者見下方殘檔面板）", r.d)
+      : sectionHtml("d", "記憶收錄帳", r.d) +
+        sectionHtml("e", "未告知決策＋未驗證假設", r.e) +
+        sectionHtml("f", "靜默狀態改變", r.f) +
+        sectionHtml("g", "版控收尾", r.g) +
+        sectionHtml("h", "收尾判定", r.h) +
+        sectionHtml("i", "衍生暫存清單（宣告；實際尚存者見下方殘檔面板）", r.i)) +
   "</div>";
   slot.innerHTML = html;
 }

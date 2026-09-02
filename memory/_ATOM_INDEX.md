@@ -157,3 +157,4 @@
 | 跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失 | _AIDocs/_atoms/MemDev/跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失.md | CrossRealmBashBlock, 2>&1, fd 複製, hook_cancelled, SessionStart 逾時, timedOut, 開場提醒沒出, ScopeLayout 沒出, 一律被擋, 冷啟動 | global |
 | gh-cli-已裝已登入-pr本地merge-push自動標merged | memory/版控/gh-cli-已裝已登入-pr本地merge-push自動標merged.md | gh, gh cli, pull request, PR, 合併 PR, github api, merge, 審 PR | global |
 | 本repo公開有同事使用者-外部pr審查與docindex衝突解法 | _AIDocs/_atoms/MemDev/本repo公開有同事使用者-外部pr審查與docindex衝突解法.md | pull request, PR, 外部貢獻, 同事, DocIndex, 衝突, 向後相容, journal | global |
+| feedback-口令承接脈絡-開工等短口令以最近承諾的流程為準-不得跳過已承諾的planmode | memory/personal/holylight/feedback-口令承接脈絡-開工等短口令以最近承諾的流程為準-不得跳過已承諾的planmode.md | 開工, 動工, 口令歧義, plan mode, 先出計畫, 誤讀指令, 承諾流程 | personal:holylight |

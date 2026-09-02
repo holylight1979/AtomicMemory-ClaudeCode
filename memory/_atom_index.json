@@ -2651,6 +2651,20 @@
         "journal"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-口令承接脈絡-開工等短口令以最近承諾的流程為準-不得跳過已承諾的planmode",
+      "path": "memory/personal/holylight/feedback-口令承接脈絡-開工等短口令以最近承諾的流程為準-不得跳過已承諾的planmode.md",
+      "triggers": [
+        "開工",
+        "動工",
+        "口令歧義",
+        "plan mode",
+        "先出計畫",
+        "誤讀指令",
+        "承諾流程"
+      ],
+      "scope": "personal:holylight"
     }
   ]
 }

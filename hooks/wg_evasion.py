@@ -426,13 +426,15 @@ def _aec_blank(v: Optional[str]) -> bool:
     return bool(re.fullmatch(r"[無无]\s*(?:[（(][^）)]*[）)])?", s))
 
 
-def aec_severity(a: str, b: str, c: str, d: str) -> str:
+def aec_severity(a: str, b: str, *informational: str) -> str:
     """tool-arg 內容 severity（Node lib/anti-evasion.js aecSeverity 同規則、single source of truth）。
 
       - real-evasion：(b) AI 逃避通報非空≠「無」（真偷埋自report，最嚴重）
       - notable：(a) 缺失修補清單有真修補行（b 空）
       - routine：(a)(b) 皆「無」/空
-    (c) Token 警示 / (d) 衍生暫存為資訊性，不升級 severity（severity 只衡量「退避」訊號）。
+    (c)–(i)（Token 警示 / 記憶收錄帳 / 未告知決策 / 靜默狀態改變 / 版控收尾 /
+    收尾判定 / 衍生暫存）皆資訊性，不升級 severity（severity 只衡量「退避」訊號）；
+    以 *informational 收下不參與判定。
     """
     if not _aec_blank(b):
         return "real-evasion"

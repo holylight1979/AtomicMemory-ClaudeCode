@@ -66,11 +66,14 @@ def _mf(path, session_id=_SID):
     return {"path": path, "tool": "Edit", "session_id": session_id}
 
 
-def _emit(turn_seq, session_id=_SID, severity="routine", a="無", b="無", c="無", d="無"):
-    return {
+def _emit(turn_seq, session_id=_SID, severity="routine", a="無", b="無", **fields):
+    rec = {
         "turn_seq": turn_seq, "session_id": session_id,
-        "a": a, "b": b, "c": c, "d": d, "severity": severity, "at": "now",
+        "a": a, "b": b, "severity": severity, "at": "now",
     }
+    for k in ("c", "d", "e", "f", "g", "h", "i"):
+        rec[k] = fields.get(k, "無")
+    return rec
 
 
 # ─── emit 閘：滿足 / 未滿足 ───────────────────────────────────────
@@ -160,13 +163,13 @@ def test_aec_severity(a, b, expected):
 
 
 def test_aec_severity_trailing_punct_full_fields():
-    """完整四欄（c/d 亦帶尾標點/括註）dogfood 現場案例：(b)「無。」須 blank → notable、非 real-evasion。"""
+    """資訊欄亦帶尾標點/括註的 dogfood 現場案例：(b)「無。」須 blank → notable、非 real-evasion。"""
     assert aec_severity("無程式修補。x", "無。", "無。", "無（略）") == "notable"
 
 
-def test_aec_severity_cd_informational():
-    """(c)/(d) 非空不升級 severity（severity 只衡量退避訊號 (a)/(b)）。"""
-    assert aec_severity("無", "無", "token 警示!", "temp/foo") == "routine"
+def test_aec_severity_informational_fields_ignored():
+    """(c)–(i) 資訊欄非空不升級 severity（severity 只衡量退避訊號 (a)/(b)）。"""
+    assert aec_severity("無", "無", "token 警示!", "有記憶未寫", "偷改了", "裝了套件", "未上", "下一動=x", "temp/foo") == "routine"
 
 
 @pytest.mark.parametrize("v,blank", [
@@ -231,7 +234,8 @@ def test_ptu_emit_writes_state_and_file(monkeypatch, tmp_path):
     + notable+HUD死 → aec_hud_fallback。"""
     state = _drive_ptu(
         monkeypatch, tmp_path,
-        {"a": "- x.py:10 — fix", "b": "無", "c": "無", "d": "無"},
+        {"a": "- x.py:10 — fix", "b": "無", "c": "無", "d": "無", "e": "無",
+         "f": "無", "g": "無", "h": "可關閉", "i": "無"},
     )
     aec = state.get("anti_evasion_report")
     assert aec and aec["turn_seq"] == 7 and aec["session_id"] == _SID
@@ -248,7 +252,8 @@ def test_ptu_routine_no_fallback(monkeypatch, tmp_path):
     """routine emit → 落檔但窗死不 fallback（無退避訊號、可事後由歷史格瀏覽）。"""
     state = _drive_ptu(
         monkeypatch, tmp_path,
-        {"a": "無", "b": "無", "c": "無", "d": "無"},
+        {"a": "無", "b": "無", "c": "無", "d": "無", "e": "無",
+         "f": "無", "g": "無", "h": "可關閉", "i": "無"},
     )
     assert state["anti_evasion_report"]["severity"] == "routine"
     assert (tmp_path / "aec-report" / f"{_SID}-t7.json").exists()

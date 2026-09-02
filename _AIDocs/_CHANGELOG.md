@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-02 收尾檢核擴為九欄（a–i）+ git commit 隱私硬閘
+- 使用者要求把「session 收尾三問」（記憶收錄＋上GIT避隱私／未告知決策／可否關閉）做成固定邏輯。定案：時機與強制交給既有 Stop 閘（完成宣告＋core/多檔門檻），內容判斷留給模型——`anti_evasion_report` 由四欄擴為九欄：a 缺失修補、b 逃避通報、c Token警示、**d 記憶收錄帳**（值得留的知識逐項「已寫入 atom」或「不寫＋理由」，判定不寫也要留痕）、**e 未告知決策＋未驗證假設**、**f 靜默狀態改變**（環境副作用）、**g 版控收尾**、**h 收尾判定**（可關閉/下一動單句）、**i 衍生暫存清單**（原 d，使用者指示移最後）。severity 規則不動（仍只看 a/b，新欄全資訊性）；殘檔帳本改讀 (i)（source=aec-i，舊 aec-d 紀錄照顯示）；HUD 卡片九分區、無 e 欄自動以舊格式渲染舊報告。改 mcp.js schema 需重啟 MCP 生效（實測舊 schema 不禁額外參數，九參可先行提交、Python 端即落九欄）。**新** `pre_tool_use.check_git_privacy`：`git commit` 前 staged（＋`-a` 的 tracked modified）比對隱私 deny globs → deny 並列命中與處置；通用清單只放明顯秘密檔，`projects/*` 等只在 git root＝~/.claude 掛上；`workflow/config.json privacy.{enabled,deny_globs}` 可調；設計上「清單不全也能運作」（.gitignore 第一道、本閘第二道）；非 commit／非 repo／git 失敗一律 fail-open。新 `verify_git_privacy_gate.py` 16 案（真 git repo 實測）＋既有 AEC 測試同步，全套 verify 1184 passed。
+
 ## 2026-09-01 Cross-Realm Bash Block 誤擋 `2>&1` + SessionStart guardian hook 逾時上調
 - 專案 session（MudClient）回報「`python ~/.claude/tools/<tool>.py` 一律被擋、與閘門自己的替代做法矛盾」。實錄查證：5 次被擋**全帶 `2>&1`**，裸跑其實放行——`_BASH_WRITE_OP_RE` 的 `>` 分支只排除 `/dev/null`／`$null`／`NUL`，把 fd 複製（`2>&1`／`>&2`）當寫檔；「一律被擋」是該 session 未試裸跑的推論。**修**：lookahead 加 `&\d`；`&> file`／`>& file`（真寫檔）仍擋；verify 加 5 案。**另一根因**：同 session 開場 `[Guardian:ScopeLayout]` 沒出現，不是判定邏輯（整理前實測回 None＝該提醒），而是 SessionStart guardian hook `hook_cancelled`（8890ms > 8000ms；同日另一專案 10490ms；單跑僅 1.85s，差額是冷啟動多 hook＋MCP 同起的 CPU 爭用）→ 整批開場提醒無聲消失。settings.json timeout：guardian 8→20、user-init 5→12。classify 流程未整段不可用：該 session 以 MCP `atom_move` ×45 + `mark` 完成整理，與 `apply` 同一搬檔引擎。
 
