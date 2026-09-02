@@ -160,3 +160,4 @@ workflow/aec-tempfiles/
 .last-update-result.json
 chrome/
 history.jsonl
+journals/
