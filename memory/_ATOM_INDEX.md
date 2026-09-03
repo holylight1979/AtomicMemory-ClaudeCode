@@ -164,3 +164,4 @@
 | codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated | _AIDocs/_atoms/CC與原子記憶契約/codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated.md | codex exec, codex, 派 codex, 第二觀點, second opinion, 大師會議 | global |
 | repo-全面-lf-決策與守衛鏈 | _AIDocs/_atoms/MemDev/repo-全面-lf-決策與守衛鏈.md | LF, CRLF, 換行, eol, gitattributes, write_text_lf, normalize-eol, verify_lf_writes, newline | global |
 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑 | _AIDocs/_atoms/Tools/heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑.md | heredoc, 反斜線, python - <<EOF, replace 沒中, SyntaxError unterminated, assert old in s, post-mortem, Write 工具 | global |
+| identity-變動需同步更新-identity-template-且所有文件 | memory/文字與格式/identity-變動需同步更新-identity-template-且所有文件.md | identity, identity.template, LF格式, 統一LF | global |

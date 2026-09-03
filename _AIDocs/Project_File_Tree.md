@@ -4,7 +4,7 @@
 ## 頂層目錄角色
 | 路徑 | 角色 | 維護來源 |
 |------|------|---------|
-| `CLAUDE.md` / `IDENTITY.md` / `USER.md` / `rules/core.md` | always-loaded 入口 | 手寫 |
+| `CLAUDE.md` / `IDENTITY.md` / `USER.md` / `rules/core.md` / `rules/coding-style.md` | always-loaded 入口（rules/*.md 全數自動載入；coding-style＝寫碼傾向） | 手寫 |
 | `settings.json` / `.mcp.json` | Hook 鏈 + 權限 + MCP server | 手寫 |
 | `memory/` | 原子記憶資料層：`_atom_index.json`（索引單一來源）+ `MEMORY.md`（Lv1 範疇目錄，生成器維護）+ core atom 住 `<範疇>/[<Lv2>/]`（Lv1 閉合清單 `_meta/taxonomy.json`）+ feedback-*/失敗 atom 住 `Failures/<主題>/` + `_vectordb/` + `wisdom/` + `episodic/` + `_staging/` + `personal/{user}/`。local 範疇 atom 物理居 `_AIDocs/_atoms/`（索引仍在此單一來源） | hook auto + atom_write |
 | `lib/` | atom 規則/IO 單一源（`atom_spec` / `atom_locations` / `atom_io` / `atom_access` + `verify/`） | 手寫 |

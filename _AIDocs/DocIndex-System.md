@@ -31,7 +31,8 @@ CLAUDE.md @import
   ├─ IDENTITY.md（AI 人格 — 收尾檢核硬契約）
   ├─ USER.md（使用者偏好）
   ├─ MEMORY.md（atom 索引人類可讀版 — **core-only**；本地範疇段抽到 _local_catalog.md）
-  └─ rules/core.md
+  ├─ rules/core.md
+  └─ rules/coding-style.md（寫碼傾向：結構／極簡／節奏／自檢）
   ↓
 SessionStart hook（cwd∈~/.claude 才注入 memory/_local_catalog.md 本地範疇 catalog）
   ↓

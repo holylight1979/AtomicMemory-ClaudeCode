@@ -2763,6 +2763,17 @@
         "Write 工具"
       ],
       "scope": "global"
+    },
+    {
+      "name": "identity-變動需同步更新-identity-template-且所有文件",
+      "path": "memory/文字與格式/identity-變動需同步更新-identity-template-且所有文件.md",
+      "triggers": [
+        "identity",
+        "identity.template",
+        "LF格式",
+        "統一LF"
+      ],
+      "scope": "global"
     }
   ]
 }
