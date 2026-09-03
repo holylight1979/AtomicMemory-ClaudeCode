@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -21,6 +22,7 @@ from wg_core import (
     check_cross_realm_write, check_cross_realm_mcp_cmd, check_cross_realm_bash,
     read_state, get_transcript_path, append_guard_log,
     _atom_debug_log,
+    find_vcs_root, memory_dir_candidates,
 )
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
@@ -522,12 +524,15 @@ def _shell_tokens(seg: str) -> List[str]:
 _CD_HEADS = {"cd", "chdir", "pushd", "set-location", "sl"}
 
 
-def _git_segments(command: str, subcommands: set) -> List[Tuple[str, List[str]]]:
-    """拆 shell 指令為片段，回傳其中 git subcommand ∈ subcommands 的 (repo_cd, tokens)。
+def _vcs_segments(command: str, subcommands: set, exe_names: Tuple[str, ...],
+                  value_flags: set) -> List[Tuple[str, List[str]]]:
+    """拆 shell 指令為片段，回傳其中 <exe> subcommand ∈ subcommands 的 (repo_cd, tokens)。
+    exe_names 如 ("git", "git.exe")；也認路徑尾綴（`C:/x/git.exe`）與大小寫。
     tokens 從 subcommand 起算（tokens[0] 即 subcommand）。repo_cd 依序取：
     `git -C <path>` 的 path → 同一條命令裡前面 `cd <path>` 段的 path → ""（caller 用 tool cwd）。
-    支援：`&& || ; | 換行` 切段、引號路徑、`git.exe`／大小寫、`cd X && git …`／`cd X; git …`、
+    支援：`&& || ; | 換行` 切段、引號路徑、`cd X && git …`／`cd X; git …`、
     PowerShell `Set-Location`。保守解析：認不出就當非目標（寧漏勿誤擋）。"""
+    suffixes = tuple(f"{sep}{n}" for n in exe_names for sep in ("/", "\\"))
     out: List[Tuple[str, List[str]]] = []
     last_cd = ""
     for seg in re.split(r"&&|\|\||;|\||\n", command or ""):
@@ -539,20 +544,19 @@ def _git_segments(command: str, subcommands: set) -> List[Tuple[str, List[str]]]
             if args:
                 last_cd = args[0]
             continue
-        git_idx = next(
+        exe_idx = next(
             (idx for idx, t in enumerate(tokens)
-             if t.lower() in ("git", "git.exe")
-             or t.lower().endswith(("/git", "\\git", "/git.exe", "\\git.exe"))),
+             if t.lower() in exe_names or t.lower().endswith(suffixes)),
             None,
         )
-        if git_idx is None:
+        if exe_idx is None:
             continue
         repo_cd = ""
-        j = git_idx + 1
+        j = exe_idx + 1
         sub = ""
         while j < len(tokens):
             t = tokens[j]
-            if t in _GIT_VALUE_FLAGS:
+            if t in value_flags:
                 if t == "-C" and j + 1 < len(tokens):
                     repo_cd = tokens[j + 1]
                 j += 2
@@ -565,6 +569,17 @@ def _git_segments(command: str, subcommands: set) -> List[Tuple[str, List[str]]]
         if sub.lower() in subcommands:
             out.append((repo_cd or last_cd, tokens[j:]))
     return out
+
+
+def _git_segments(command: str, subcommands: set) -> List[Tuple[str, List[str]]]:
+    return _vcs_segments(command, subcommands, ("git", "git.exe"), _GIT_VALUE_FLAGS)
+
+
+_SVN_VALUE_FLAGS = {"--config-dir", "--config-option", "--username", "--password"}
+
+
+def _svn_segments(command: str, subcommands: set) -> List[Tuple[str, List[str]]]:
+    return _vcs_segments(command, subcommands, ("svn", "svn.exe"), _SVN_VALUE_FLAGS)
 
 
 def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
@@ -759,6 +774,63 @@ def _unmerged_index_files(run_cwd: str, timeout: float) -> Optional[List[str]]:
     return found
 
 
+_SVN_RESOLVE_SUBS = {"commit", "ci", "resolve", "resolved"}
+_SVN_ACCEPT_PICKS = {"base", "mine-full", "theirs-full", "mine-conflict", "theirs-conflict", "mf", "tf", "mc", "tc"}
+
+
+def _is_svn_resolve_trigger(tokens: List[str]) -> bool:
+    """svn commit/ci 一律；svn resolve 只在沒明確選邊時（--accept working/postpone 或未給）——
+    使用者已指定 mine-full/theirs-full 等就是他的決定，不搶先合併。svn update 不是觸發（無驅動可裝）。"""
+    sub = tokens[0].lower()
+    if sub in ("commit", "ci"):
+        return True
+    if sub not in ("resolve", "resolved"):
+        return False
+    for i, t in enumerate(tokens):
+        if t.startswith("--accept="):
+            val = t.split("=", 1)[1]
+        elif t == "--accept" and i + 1 < len(tokens):
+            val = tokens[i + 1]
+        else:
+            continue
+        if val.lower() in _SVN_ACCEPT_PICKS:
+            return False
+    return True
+
+
+def _svn_unmerged_index_files(run_cwd: str, timeout: float) -> Optional[List[str]]:
+    """svn 工作副本裡 update 後仍衝突的索引三檔（相對 WC 根）。
+    純檔案系統先找 .svn（不是 svn WC → None、零子行程），再只對 memory dir 候選跑 `svn status --xml`
+    （整個 WC 的 status 要 3～6 秒，超出預算）。None＝查不到；[]＝沒有。"""
+    if not run_cwd or not os.path.isdir(run_cwd):
+        return None
+    vcs = find_vcs_root(Path(run_cwd))
+    if not vcs or vcs[0] != "svn":
+        return None
+    root = vcs[1]
+    dirs = memory_dir_candidates(Path(run_cwd), root)
+    if not dirs:
+        return []
+    r = _run_capture(["svn", "--non-interactive", "status", "--xml", "--", *map(str, dirs)], str(root), timeout)
+    if r.returncode != 0 or not (r.stdout or "").strip():
+        return None
+    found: List[str] = []
+    for ent in ET.fromstring(r.stdout).iter("entry"):
+        ws = ent.find("wc-status")
+        if ws is None or ws.get("item") != "conflicted":
+            continue
+        p = Path(ent.get("path", ""))
+        if p.name not in _INDEX_FILE_NAMES:
+            continue
+        try:
+            rel = (p if p.is_absolute() else root / p).resolve().relative_to(root.resolve()).as_posix()
+        except (OSError, ValueError):
+            continue
+        if rel not in found:
+            found.append(rel)
+    return found
+
+
 def _resolve_json(stdout: str) -> Optional[Dict[str, Any]]:
     """--resolve 的 stdout 契約是單行 JSON；保守取最後一個非空行解析。"""
     for ln in reversed((stdout or "").splitlines()):
@@ -785,11 +857,13 @@ def check_merge_driver(
     if not (auto_resolve or auto_install):
         return None
     command = tool_input.get("command", "") or ""
-    if "git" not in command.lower():
+    low = command.lower()
+    if "git" not in low and "svn" not in low:
         return None
     try:
-        segments = _git_segments(command, _MERGE_RESOLVE_SUBS | _MERGE_INSTALL_SUBS)
-        if not segments:
+        git_segs = _git_segments(command, _MERGE_RESOLVE_SUBS | _MERGE_INSTALL_SUBS) if "git" in low else []
+        svn_segs = _svn_segments(command, _SVN_RESOLVE_SUBS) if "svn" in low else []
+        if not git_segs and not svn_segs:
             return None
         deadline = time.monotonic() + _MERGE_GATE_BUDGET_S
 
@@ -798,16 +872,19 @@ def check_merge_driver(
 
         interp = _hook_python_exe()
 
-        # (B) 解衝突收尾指令 → 索引三檔仍 unmerged 就先 --resolve
+        # (B) 解衝突收尾指令 → 索引三檔仍 unmerged（git stage／svn conflicted）就先 --resolve
         if auto_resolve:
-            for repo_cd, tokens in segments:
-                if not _is_resolve_trigger(tokens):
+            tagged = [("git", cd, tk) for cd, tk in git_segs] + [("svn", cd, tk) for cd, tk in svn_segs]
+            for kind, repo_cd, tokens in tagged:
+                is_git = kind == "git"
+                if not (_is_resolve_trigger(tokens) if is_git else _is_svn_resolve_trigger(tokens)):
                     continue
                 run_cwd = _resolve_run_cwd(repo_cd, cwd)
+                finder = _unmerged_index_files if is_git else _svn_unmerged_index_files
                 try:
-                    unmerged = _unmerged_index_files(run_cwd, _left(1.0))
+                    unmerged = finder(run_cwd, _left(1.0))
                 except subprocess.TimeoutExpired:
-                    return (f"[Guardian:IndexConflict] ⚠ 索引檔衝突檢查逾時（git ls-files）"
+                    return (f"[Guardian:IndexConflict] ⚠ 索引檔衝突檢查逾時（{'git ls-files' if is_git else 'svn status'}）"
                             f" → {_MERGE_MANUAL_RESOLVE}")
                 if not unmerged:
                     continue
@@ -834,16 +911,16 @@ def check_merge_driver(
                 staged = [str(x) for x in (d.get("staged_user_version") or [])]
                 parts = []
                 if resolved:
-                    parts.append(f"已自動合併並 add 索引檔：{', '.join(resolved)}")
+                    parts.append(f"已自動合併並 {'add' if is_git else '標記 resolved'} 索引檔：{', '.join(resolved)}")
                 if staged:
-                    parts.append(f"已 stage 你解好的版本：{', '.join(staged)}")
+                    parts.append(f"已{'stage' if is_git else '標記 resolved'} 你解好的版本：{', '.join(staged)}")
                 if not parts:
                     parts.append("索引三檔已無未合併項")
                 return "[Guardian:IndexConflict] " + "；".join(parts)
 
-        # (A) 合併類指令 → 本機未裝驅動就自動 --install（只對第一個命中段做一次）
+        # (A) 合併類 git 指令 → 本機未裝驅動就自動 --install（只對第一個命中段做一次；svn 無驅動可裝）
         if auto_install:
-            for repo_cd, tokens in segments:
+            for repo_cd, tokens in git_segs:
                 if not _is_install_trigger(tokens):
                     continue
                 run_cwd = _resolve_run_cwd(repo_cd, cwd)

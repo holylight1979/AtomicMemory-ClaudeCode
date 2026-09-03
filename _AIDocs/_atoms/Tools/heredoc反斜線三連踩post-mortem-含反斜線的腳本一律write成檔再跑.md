@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: heredoc, 反斜線, python - <<EOF, replace 沒中, SyntaxError unterminated, assert old in s, post-mortem, Write 工具
 - Created-at: 2026-09-03
-- Related: bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗
+- Related: bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗, hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定
 
 ## 知識
 

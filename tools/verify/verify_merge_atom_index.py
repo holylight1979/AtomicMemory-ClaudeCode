@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -464,6 +465,126 @@ def test_is_installed_and_install_quiet_json(tmp_path):
     cfg = subprocess.run(["git", "config", "--global", "--get", "merge.atomindex.driver"], capture_output=True,
                          text=True, encoding="utf-8", env=env, **_NO_WINDOW).stdout
     assert "pythonw" not in cfg.lower()
+
+
+# ─── 5. SVN 工作副本：update 停在三檔衝突 → --resolve → svn resolve／commit ────────────
+
+SVN_OK = shutil.which("svn") is not None and shutil.which("svnadmin") is not None
+svn_only = pytest.mark.skipif(not SVN_OK, reason="svn／svnadmin 不在 PATH")
+
+
+def _svn(cwd, *args, check=True):
+    r = subprocess.run(["svn", "--non-interactive", *args], cwd=str(cwd), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=60, **_NO_WINDOW)
+    if check and r.returncode:
+        raise AssertionError(f"svn {' '.join(args)} failed rc={r.returncode}\n{r.stdout}\n{r.stderr}")
+    return r
+
+
+CS = ("c", "memory/shared/Server/c.md", ("jenkins",))
+D = ("d", "memory/shared/Server/d.md", ("deploy",))
+
+
+def _make_svn_wcs(tmp_path: Path, *, free_text_conflict=False):
+    """svnadmin 本地倉＋兩個 working copy：a 加 b、d（Server 3）並提交；b 加 c（Server 2，JSON 故意 CRLF）
+    後 `svn up --accept postpone` → 三檔 C（留 .mine/.r1/.r2）。兩側都改同一列計數才會讓 svn 的 diff3 判衝突
+    （git 版 fixture 的「一側改列、一側在其後插列」svn 會自己合掉）。free_text_conflict：兩側還各改 MEMORY.md 手寫段。"""
+    subprocess.run(["svnadmin", "create", str(tmp_path / "repo")], check=True, capture_output=True, **_NO_WINDOW)
+    url = "file:///" + str(tmp_path / "repo").replace("\\", "/")
+    a, b = tmp_path / "a", tmp_path / "b"
+    _svn(tmp_path, "co", "-q", url, str(a))
+    _svn(tmp_path, "co", "-q", url, str(b))
+    mem_a, mem_b = a / ".claude" / "memory", b / ".claude" / "memory"
+    mem_a.mkdir(parents=True)
+    _write_index_set(mem_a, [A], {"Server": 1})
+    _svn(a, "add", "-q", "--force", ".claude")
+    _svn(a, "ci", "-q", "-m", "base")
+    _svn(b, "up", "-q")
+    _write_index_set(mem_a, [A, B, D], {"Server": 3})
+    if free_text_conflict:
+        (mem_a / "MEMORY.md").write_bytes(_memory_md({"Server": 3}, free_text="a 改的說明").encode("utf-8"))
+    _svn(a, "add", "-q", "--force", ".claude")
+    _svn(a, "ci", "-q", "-m", "a adds b d")
+    _write_index_set(mem_b, [A, CS], {"Server": 2}, json_eol="\r\n")
+    if free_text_conflict:
+        (mem_b / "MEMORY.md").write_bytes(_memory_md({"Server": 2}, free_text="b 改的說明").encode("utf-8"))
+    _svn(b, "add", "-q", "--force", ".claude")
+    r = _svn(b, "up", "--accept", "postpone", check=False)
+    assert "Text conflicts: 3" in r.stdout, r.stdout + r.stderr
+    return a, b
+
+
+def _assert_svn_merged(mem: Path):
+    d = json.loads((mem / "_atom_index.json").read_text(encoding="utf-8"))
+    assert sorted(x["name"] for x in d["atoms"]) == ["a", "b", "c", "d"]
+    md = (mem / "_ATOM_INDEX.md").read_text(encoding="utf-8")
+    assert "| b |" in md and "| c |" in md and "| d |" in md and "<<<<<<<" not in md
+    mm = (mem / "MEMORY.md").read_text(encoding="utf-8")
+    assert "| Server | 4 |" in mm and "<<<<<<<" not in mm  # 3 + 2 − 1
+    for f in drv.INDEX_FILES:
+        assert b"\r" not in (mem / f).read_bytes(), f
+    for n in ("a", "b", "c", "d"):
+        assert (mem / "shared" / "Server" / f"{n}.md").exists()
+
+
+def _svn_conflicted(wc: Path) -> int:
+    return _svn(wc, "status", "--xml").stdout.count('item="conflicted"')
+
+
+@svn_only
+def test_svn_resolve_after_update_conflict_then_commit(tmp_path):
+    a, b = _make_svn_wcs(tmp_path)
+    assert _svn_conflicted(b) == 3
+    rc, rep, err = _resolve(b, dict(os.environ))
+    assert rc == 0 and rep["error"] is None, (rep, err)
+    assert _names(rep["resolved"]) == ["MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json"]
+    assert rep["staged_user_version"] == [] and rep["remaining"] == []
+    mem = b / ".claude" / "memory"
+    assert _svn_conflicted(b) == 0 and not list(mem.glob("*.mine")) and not list(mem.glob("*.r[0-9]*"))
+    _svn(b, "ci", "-q", "-m", "merged")
+    _assert_svn_merged(mem)
+    _svn(a, "up", "-q")  # 另一台 update 後拿到合併結果
+    _assert_svn_merged(a / ".claude" / "memory")
+
+
+@svn_only
+def test_svn_resolve_stages_valid_user_version_without_markers(tmp_path):
+    _a, b = _make_svn_wcs(tmp_path)
+    mem = b / ".claude" / "memory"
+    (mem / "_atom_index.json").write_bytes(_json_text(_index(A, B, CS, D)).encode("utf-8"))  # 人解好、無標記
+    rc, rep, err = _resolve(b, dict(os.environ))
+    assert rc == 0 and rep["error"] is None, (rep, err)
+    assert _names(rep["staged_user_version"]) == ["_atom_index.json"]
+    assert _names(rep["resolved"]) == ["MEMORY.md", "_ATOM_INDEX.md"]
+    assert _svn_conflicted(b) == 0
+
+
+@svn_only
+def test_svn_resolve_leaves_free_text_conflict_with_markers(tmp_path):
+    _a, b = _make_svn_wcs(tmp_path, free_text_conflict=True)
+    rc, rep, err = _resolve(b, dict(os.environ))
+    assert rc == 1 and rep["error"] is None, (rep, err)
+    assert _names(rep["remaining"]) == ["MEMORY.md"]
+    assert _names(rep["resolved"]) == ["_ATOM_INDEX.md", "_atom_index.json"]
+    mem = b / ".claude" / "memory"
+    assert "<<<<<<<" in (mem / "MEMORY.md").read_text(encoding="utf-8")
+    assert _svn_conflicted(b) == 1 and (mem / "MEMORY.md.mine").exists()  # 未 resolve、來源檔還在
+    rc2, rep2, _ = _resolve(b, dict(os.environ))  # 再跑：仍含標記＝未動過 → 同樣結果、不炸
+    assert rc2 == 1 and _names(rep2["remaining"]) == ["MEMORY.md"] and rep2["resolved"] == []
+
+
+@svn_only
+def test_svn_resolve_from_subdir_cwd(tmp_path):
+    _a, b = _make_svn_wcs(tmp_path)
+    rc, rep, err = _resolve(b / ".claude" / "memory" / "shared", dict(os.environ))
+    assert rc == 0 and len(rep["resolved"]) == 3, (rep, err)
+
+
+def test_resolve_outside_any_vcs_reports_error(tmp_path):
+    d = tmp_path / "nowhere"
+    d.mkdir()
+    rc, rep, _ = _resolve(d, dict(os.environ))
+    assert rc == 1 and "不在 git repo 或 svn 工作副本內" in (rep["error"] or "")
 
 
 if __name__ == "__main__":

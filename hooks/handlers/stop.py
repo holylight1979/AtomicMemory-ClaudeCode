@@ -40,24 +40,8 @@ _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 from handlers import aec_ledger
 
 
-def _find_vcs_root(start: Path) -> Optional[tuple]:
-    """從 start 向上找最近的 VCS 根：.git（dir 或 worktree/submodule 的 file）或 .svn 目錄。
-
-    純檔案系統 walk-up、零 subprocess——供 _detect_uncommitted_files 按根分組後，
-    每根只跑一次 batch status。回 ("git"|"svn", root)；非工作區回 None。
-    """
-    cur = start
-    while True:
-        try:
-            if (cur / ".git").exists():
-                return ("git", cur)
-            if (cur / ".svn").is_dir():
-                return ("svn", cur)
-        except OSError:
-            return None
-        if cur.parent == cur:
-            return None
-        cur = cur.parent
+# walk-up 定 VCS 根（零 subprocess）；與 pre_tool_use／session_start／tools 共用同一支
+from wg_core import find_vcs_root as _find_vcs_root  # noqa: E402
 
 
 def _norm_for_match(p: str) -> str:

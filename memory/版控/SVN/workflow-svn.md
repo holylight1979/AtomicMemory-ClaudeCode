@@ -30,6 +30,7 @@
 - [固] 生成檔衝突（Proto/Binding/Design）→ 建議接受遠端版本後重新生成
 - [固] 二進位檔衝突 → 建議用 TortoiseSVN 或選擇版本
 - [固] Pre-update 必做 `svn status` 檢查本地 .cs 修改
+- [臨] 「衝突不自動解決」的例外：記憶索引三檔（MEMORY.md／_ATOM_INDEX.md／_atom_index.json）——svn update 停在這三檔衝突後，CC 下 `svn commit / ci / resolve` 前 PreToolUse hook 自動跑 `merge-atom-index.py --resolve`（語意三方、寫回、`svn resolve --accept working`），不需要使用者確認；只有 MEMORY.md 表外手寫段兩側同改才留 `<<<<<<<` 標記交人判斷。其他檔的衝突仍走「AI 分析＋使用者確認」。細節 [[記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合]]。
 
 ## 行動
 

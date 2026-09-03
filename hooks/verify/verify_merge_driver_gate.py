@@ -19,6 +19,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -30,7 +31,8 @@ sys.path.insert(0, str(HOOKS_DIR))
 
 import handlers.pre_tool_use as ptu  # noqa: E402
 from handlers.pre_tool_use import (  # noqa: E402
-    _git_segments, check_git_privacy, check_merge_driver, handle_pre_tool_use,
+    _git_segments, _is_svn_resolve_trigger, _svn_segments, check_git_privacy, check_merge_driver,
+    handle_pre_tool_use,
 )
 
 _NO_WINDOW = {"creationflags": 0x08000000} if os.name == "nt" else {}
@@ -376,6 +378,143 @@ def test_session_start_index_conflict_advisory(isolated_git, tmp_path):
     assert all(n in lines[0] for n in INDEX_NAMES) and "--resolve" in lines[0]
     sub = repo / ".claude" / "memory"
     assert _index_conflict_advisory(str(sub)) == lines         # 子目錄啟動也認得（--git-dir 絕對路徑）
+
+
+# ─── SVN：拆段／觸發詞（純函式）＋ 真 svn 工作副本 e2e ───────────────────────────
+
+SVN_OK = shutil.which("svn") is not None and shutil.which("svnadmin") is not None
+svn_only = pytest.mark.skipif(not SVN_OK, reason="svn／svnadmin 不在 PATH")
+_SVN_SUBS = {"commit", "ci", "resolve", "resolved"}
+
+
+def test_svn_segments_and_triggers():
+    assert _svn_segments("svn commit -m x", _SVN_SUBS) == [("", ["commit", "-m", "x"])]
+    assert _svn_segments("cd wc && svn.exe ci -m x", _SVN_SUBS) == [("wc", ["ci", "-m", "x"])]
+    assert _svn_segments('"C:/Program Files/svn.exe" resolve --accept working f', _SVN_SUBS) == [
+        ("", ["resolve", "--accept", "working", "f"])]
+    assert _svn_segments("svn --username u resolved f", _SVN_SUBS) == [("", ["resolved", "f"])]
+    assert _svn_segments("svn update && svn status", _SVN_SUBS) == []
+    assert _svn_segments("git svn dcommit", _SVN_SUBS) == []
+    assert _is_svn_resolve_trigger(["commit", "-m", "x"]) and _is_svn_resolve_trigger(["ci"])
+    assert _is_svn_resolve_trigger(["resolve", "--accept", "working", "f"])
+    assert _is_svn_resolve_trigger(["resolve", "--accept=postpone", "f"])
+    assert _is_svn_resolve_trigger(["resolved", "f"])
+    assert not _is_svn_resolve_trigger(["resolve", "--accept", "theirs-full", "f"])
+    assert not _is_svn_resolve_trigger(["resolve", "--accept=mine-full", "f"])
+    assert not _is_svn_resolve_trigger(["update"])
+
+
+def test_svn_commit_outside_svn_wc_spawns_nothing(spy, tmp_path):
+    """純檔案系統判定不是 svn WC → 零子行程（git 段亦無）。"""
+    assert check_merge_driver("Bash", {"command": "svn commit -m x"}, str(tmp_path), CFG_ON) is None
+    assert check_merge_driver("PowerShell", {"command": "svn ci -m x"}, str(tmp_path), CFG_ON) is None
+    assert spy.calls == []
+
+
+def _svn(cwd, *args, check=True):
+    r = subprocess.run(["svn", "--non-interactive", *args], cwd=str(cwd), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=60, **_NO_WINDOW)
+    if check and r.returncode:
+        raise AssertionError(f"svn {' '.join(args)} failed rc={r.returncode}\n{r.stdout}\n{r.stderr}")
+    return r
+
+
+CS = ("c", "memory/shared/Server/c.md", ("jenkins",))
+D = ("d", "memory/shared/Server/d.md", ("deploy",))
+
+
+def _svn_conflicted_wc(tmp_path: Path) -> Path:
+    """svnadmin 本地倉＋兩個 wc：a 加 b、d（Server 3）提交；b 加 c（Server 2）後 `svn up --accept postpone`
+    → 三檔 C（兩側都改同一列計數，svn 的 diff3 才會判 MEMORY.md 衝突）。回 wc b。"""
+    subprocess.run(["svnadmin", "create", str(tmp_path / "repo")], check=True, capture_output=True, **_NO_WINDOW)
+    url = "file:///" + str(tmp_path / "repo").replace("\\", "/")
+    a, b = tmp_path / "a", tmp_path / "b"
+    _svn(tmp_path, "co", "-q", url, str(a))
+    _svn(tmp_path, "co", "-q", url, str(b))
+    mem_a = a / ".claude" / "memory"
+    mem_a.mkdir(parents=True)
+    _write_index_set(mem_a, [A], {"Server": 1})
+    _svn(a, "add", "-q", "--force", ".claude")
+    _svn(a, "ci", "-q", "-m", "base")
+    _svn(b, "up", "-q")
+    _write_index_set(mem_a, [A, B, D], {"Server": 3})
+    _svn(a, "add", "-q", "--force", ".claude")
+    _svn(a, "ci", "-q", "-m", "a adds b d")
+    _write_index_set(b / ".claude" / "memory", [A, CS], {"Server": 2}, json_eol="\r\n")
+    _svn(b, "add", "-q", "--force", ".claude")
+    r = _svn(b, "up", "--accept", "postpone", check=False)
+    assert "Text conflicts: 3" in r.stdout, r.stdout + r.stderr
+    return b
+
+
+def _svn_conflicted_count(wc: Path) -> int:
+    return _svn(wc, "status", "--xml").stdout.count('item="conflicted"')
+
+
+@svn_only
+def test_svn_resolve_before_commit_on_conflicted_wc(tmp_path, monkeypatch):
+    wc = _svn_conflicted_wc(tmp_path)
+    monkeypatch.setattr(ptu, "_MERGE_GATE_BUDGET_S", 30.0)
+    msg = check_merge_driver("Bash", {"command": "svn commit -m x"}, str(wc), CFG_ON)
+    assert msg and "[Guardian:IndexConflict]" in msg and "⚠" not in msg, msg
+    assert "標記 resolved" in msg and all(n in msg for n in INDEX_NAMES)
+    assert _svn_conflicted_count(wc) == 0
+    mem = wc / ".claude" / "memory"
+    d = json.loads((mem / "_atom_index.json").read_text(encoding="utf-8"))
+    assert sorted(x["name"] for x in d["atoms"]) == ["a", "b", "c", "d"]
+    mm = (mem / "MEMORY.md").read_text(encoding="utf-8")
+    assert "| Server | 4 |" in mm and "<<<<<<<" not in mm  # 3 + 2 − 1
+    _svn(wc, "ci", "-q", "-m", "merged")  # 真的能提交
+
+    real = ptu._run_capture
+    calls = []
+
+    def rec(args, cwd, timeout):
+        calls.append(list(args))
+        return real(args, cwd, timeout)
+    monkeypatch.setattr(ptu, "_run_capture", rec)
+    assert check_merge_driver("Bash", {"command": "svn commit -m y"}, str(wc), CFG_ON) is None
+    assert calls and all(c[:3] == ["svn", "--non-interactive", "status"] for c in calls)  # 無衝突只查 status
+
+
+@svn_only
+def test_svn_update_and_explicit_accept_never_trigger(spy, tmp_path):
+    wc = _svn_conflicted_wc(tmp_path)
+    for cmd in ("svn update", "svn up --accept postpone", "svn resolve --accept theirs-full .claude/memory/MEMORY.md",
+                "svn status", "svn add x.md"):
+        assert check_merge_driver("Bash", {"command": cmd}, str(wc), CFG_ON) is None, cmd
+    assert spy.calls == []
+
+
+@svn_only
+def test_svn_resolver_fits_hook_budget(tmp_path):
+    import time
+    best, last_msg = 99.0, ""
+    for n in range(2):
+        sub = tmp_path / f"run{n}"
+        sub.mkdir()
+        wc = _svn_conflicted_wc(sub)
+        t0 = time.monotonic()
+        msg = check_merge_driver("Bash", {"command": "svn commit -m x"}, str(wc), CFG_ON)
+        elapsed = time.monotonic() - t0
+        assert msg and "[Guardian:IndexConflict]" in msg
+        best, last_msg = min(best, elapsed), msg
+        if "⚠" not in msg and elapsed <= ptu._MERGE_GATE_BUDGET_S + 0.5:
+            break
+    assert "⚠" not in last_msg and best <= ptu._MERGE_GATE_BUDGET_S + 0.5, (
+        f"svn --resolve 未在 hook 預算 {ptu._MERGE_GATE_BUDGET_S}s 內完成（最快 {best:.2f}s）：{last_msg}")
+
+
+@svn_only
+def test_session_start_svn_index_conflict_advisory(tmp_path):
+    from handlers.session_start import _index_conflict_advisory
+    wc = _svn_conflicted_wc(tmp_path)
+    lines = _index_conflict_advisory(str(wc))
+    assert len(lines) == 1 and "SVN" in lines[0] and all(n in lines[0] for n in INDEX_NAMES), lines
+    assert _index_conflict_advisory(str(wc / ".claude" / "memory")) == lines
+    assert _index_conflict_advisory(str(tmp_path / "a")) == []  # 另一個乾淨 wc：零行
+    check_merge_driver("Bash", {"command": "svn commit -m x"}, str(wc), CFG_ON)
+    assert _index_conflict_advisory(str(wc)) == []  # 解完 .mine 消失 → 零行
 
 
 if __name__ == "__main__":

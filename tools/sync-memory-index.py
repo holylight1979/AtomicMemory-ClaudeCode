@@ -43,6 +43,8 @@ per-level `_INDEX.md`：兩根都走（`_AIDocs/_atoms/<階層>/`、`memory/<範
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import json
 import sys
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
@@ -498,9 +500,41 @@ def upsert_project_catalog(text: str, block: str) -> Tuple[str, bool]:
     return base + "\n\n" + wrapped + "\n", False
 
 
+_CONFIG_PATH = Path(__file__).resolve().parent.parent / "workflow" / "config.json"
+
+
+def _eol_auto_enabled(cfg_path: Path = _CONFIG_PATH) -> bool:
+    """workflow/config.json `eol.auto_normalize_project`（缺／壞 → True）。"""
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+        return bool((cfg.get("eol") or {}).get("auto_normalize_project", True))
+    except Exception:
+        return True
+
+
+def _auto_project_eol(memory_dir: Path) -> None:
+    """專案模式 --write 後的漏斗尾端：記憶樹轉 LF＋VCS 屬性（git .gitattributes 區塊／svn eol-style）。
+    這裡是「每次 atom 寫入」的必經之路，所以專案樹不必再靠人貼 prompt。失敗浮訊號、不改 rc（索引已寫好）。"""
+    try:
+        spec = importlib.util.spec_from_file_location("normalize_eol", Path(__file__).with_name("normalize-eol.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        rep = mod.auto_project_eol(memory_dir)
+    except Exception as e:  # noqa: BLE001
+        print(f"[sync-memory-index] eol normalize failed: {type(e).__name__}: {e}", file=sys.stderr)
+        return
+    if rep.get("error"):
+        print(f"[sync-memory-index] eol normalize failed: {rep['error']}", file=sys.stderr)
+    attrs = rep.get("attrs") or {}
+    tail = {"git": f"git .gitattributes {'ok' if attrs.get('ok') else 'FAIL'}",
+            "svn": f"svn propset {attrs.get('set', 0)} (already {attrs.get('already', 0)})"}.get(rep.get("vcs"), "no vcs")
+    print(f"[sync-memory-index] eol: converted {rep.get('converted', 0)}, {tail}")
+
+
 def _run_project_mode(args, memory_dir: Path, claude_root: Path, memory_path: Path,
                       rows: List[Tuple[str, str, str]]) -> int:
-    """專案層：只動 MEMORY.md 的 marker 區塊；不碰 _local_catalog.md / _INDEX.md / doc-counts。"""
+    """專案層：只動 MEMORY.md 的 marker 區塊；不碰 _local_catalog.md / _INDEX.md / doc-counts。
+    --write 成功（含已 up to date）後接 _auto_project_eol（專案樹 LF 自動化掛點）。"""
     existing_caps = parse_existing_captions(memory_path)
     block = render_project_catalog(rows, claude_root, existing_caps)
     if memory_path.exists():
@@ -523,13 +557,15 @@ def _run_project_mode(args, memory_dir: Path, claude_root: Path, memory_path: Pa
     if args.write:
         if had_marker and cur == new_text:
             print(f"[sync-memory-index] {memory_path} project catalog up to date")
-            return 0
-        r = write_index_full(memory_path, new_text, source="tool:sync-memory-index")
-        if not r.ok:
-            print(f"[sync-memory-index] write failed (project MEMORY.md): {r.error}", file=sys.stderr)
-            return 1
-        print(f"[sync-memory-index] wrote project catalog block → {memory_path}"
-              f"{'' if had_marker else ' (appended; no marker before)'}")
+        else:
+            r = write_index_full(memory_path, new_text, source="tool:sync-memory-index")
+            if not r.ok:
+                print(f"[sync-memory-index] write failed (project MEMORY.md): {r.error}", file=sys.stderr)
+                return 1
+            print(f"[sync-memory-index] wrote project catalog block → {memory_path}"
+                  f"{'' if had_marker else ' (appended; no marker before)'}")
+        if not getattr(args, "no_eol", False) and _eol_auto_enabled():
+            _auto_project_eol(memory_dir)
         return 0
 
     print(f"{PROJECT_CATALOG_BEGIN}\n{block}\n{PROJECT_CATALOG_END}")
@@ -627,6 +663,8 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--memory-dir", type=Path, default=MEMORY_DIR)
+    parser.add_argument("--no-eol", action="store_true",
+                        help="專案模式 --write 後不做記憶樹 LF 自動化（config eol.auto_normalize_project 亦可關）")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--hierarchical", dest="hierarchical", action="store_true", default=None,
                       help="強制範疇表渲染（預設讀 config taxonomy.gate_enabled）")

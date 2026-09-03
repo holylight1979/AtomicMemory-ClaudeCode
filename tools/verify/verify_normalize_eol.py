@@ -10,9 +10,12 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 CLAUDE_DIR = Path(__file__).resolve().parent.parent.parent
 TOOL = CLAUDE_DIR / "tools" / "normalize-eol.py"
@@ -133,3 +136,121 @@ def test_memory_dir_and_gitattributes_idempotent(tmp_path):
     assert rc == 0 and (repo / ".gitattributes").read_bytes() == ga
     attrs = _git(repo, "check-attr", "merge", "eol", "--", ".claude/memory/_atom_index.json").stdout
     assert "merge: atomindex" in attrs and "eol: lf" in attrs
+
+
+# ─── auto_project_eol：專案樹 LF 自動化（sync-memory-index 專案模式 --write 的漏斗尾端）───────
+
+SVN_OK = shutil.which("svn") is not None and shutil.which("svnadmin") is not None
+svn_only = pytest.mark.skipif(not SVN_OK, reason="svn／svnadmin 不在 PATH")
+SYNC = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+
+
+def _svn(cwd, *args, check=True):
+    r = subprocess.run(["svn", "--non-interactive", *args], cwd=str(cwd), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=60, **_NO_WINDOW)
+    if check and r.returncode:
+        raise AssertionError(f"svn {' '.join(args)} failed rc={r.returncode}\n{r.stdout}\n{r.stderr}")
+    return r
+
+
+def _mem_tree(mem: Path):
+    (mem / "shared").mkdir(parents=True)
+    (mem / "shared" / "a.md").write_bytes(b"# a\r\nx\r\n")
+    (mem / "shared" / "b.md").write_bytes(b"# b\ny\n")
+    (mem / "shared" / "bin.dat").write_bytes(b"\x00\x01\r\n")
+    (mem / "_atom_index.json").write_bytes(b"{}\r\n")
+
+
+def test_auto_project_eol_git(tmp_path):
+    repo = _repo(tmp_path)
+    mem = repo / ".claude" / "memory"
+    _mem_tree(mem)
+    rep = ne.auto_project_eol(mem)
+    assert rep["vcs"] == "git" and rep["converted"] == 2 and rep["skipped_binary"] == 1, rep
+    assert rep["error"] is None and rep["attrs"]["ok"], rep
+    assert (mem / "shared" / "a.md").read_bytes() == b"# a\nx\n"
+    ga = (repo / ".gitattributes").read_bytes()
+    assert ga.count(ne.ATTR_MARK.encode()) == 1
+    rep2 = ne.auto_project_eol(mem)
+    assert rep2["converted"] == 0 and rep2["error"] is None and (repo / ".gitattributes").read_bytes() == ga
+
+
+@svn_only
+def test_auto_project_eol_svn(tmp_path):
+    subprocess.run(["svnadmin", "create", str(tmp_path / "repo")], check=True, capture_output=True, **_NO_WINDOW)
+    wc = tmp_path / "wc"
+    _svn(tmp_path, "co", "-q", "file:///" + str(tmp_path / "repo").replace("\\", "/"), str(wc))
+    mem = wc / ".claude" / "memory"
+    _mem_tree(mem)
+    _svn(wc, "add", "-q", "--force", ".claude")
+    _svn(wc, "ci", "-q", "-m", "base")
+    (mem / "shared" / "new.md").write_bytes(b"u\r\n")  # 剛寫入、尚未 svn add 的 atom
+    rep = ne.auto_project_eol(mem)
+    assert rep["vcs"] == "svn" and rep["error"] is None, rep
+    assert rep["converted"] == 3 and rep["skipped_binary"] == 1, rep  # a.md、_atom_index.json、new.md
+    assert rep["attrs"]["set"] == 3 and rep["attrs"]["already"] == 0, rep  # 已版控文字檔：a、b、_atom_index.json
+    pg = _svn(wc, "propget", "svn:eol-style", "-R", "--xml", ".claude/memory").stdout
+    assert pg.count(">LF<") == 3 and "bin.dat" not in pg and "new.md" not in pg
+    rep2 = ne.auto_project_eol(mem)
+    assert rep2["converted"] == 0 and rep2["attrs"] == {"set": 0, "already": 3, "error": None}, rep2
+    _svn(wc, "ci", "-q", "-m", "props")  # 屬性改動能提交
+    _svn(wc, "add", "-q", ".claude/memory/shared/new.md")
+    rep3 = ne.auto_project_eol(mem)
+    assert rep3["attrs"]["set"] == 1 and rep3["error"] is None, rep3  # 新 atom 進版控後下一輪補上
+
+
+def test_auto_project_eol_without_vcs(tmp_path):
+    mem = tmp_path / "plain" / ".claude" / "memory"
+    _mem_tree(mem)
+    rep = ne.auto_project_eol(mem)
+    assert rep["vcs"] is None and rep["converted"] == 2 and rep["attrs"] is None and rep["error"] is None, rep
+
+
+def _project_with_index(tmp_path: Path) -> Path:
+    """tmp git 專案：.claude/memory 含一顆 CRLF atom 與對應 _atom_index.json（sync-memory-index 專案模式輸入）。"""
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    _git(tmp_path, "init", "-q", "-b", "master", str(repo))
+    mem = repo / ".claude" / "memory"
+    (mem / "shared" / "Server").mkdir(parents=True)
+    (mem / "shared" / "Server" / "a.md").write_bytes(b"# a\r\n\r\n- [\xe8\x87\xa8] x\r\n")
+    (mem / "_atom_index.json").write_bytes(json.dumps({"version": "1.0", "atoms": [
+        {"name": "a", "path": "memory/shared/Server/a.md", "triggers": ["x"], "scope": "shared"}]}).encode("utf-8"))
+    (mem / "MEMORY.md").write_bytes(b"# Atom Index \xe2\x80\x94 Project\r\n")
+    return repo
+
+
+def _sync(mem: Path, *extra):
+    return subprocess.run([PY, str(SYNC), "--write", "--memory-dir", str(mem), *extra], capture_output=True,
+                          text=True, encoding="utf-8", errors="replace", timeout=120, **_NO_WINDOW)
+
+
+def test_sync_memory_index_project_write_normalizes_tree(tmp_path):
+    repo = _project_with_index(tmp_path)
+    mem = repo / ".claude" / "memory"
+    r = _sync(mem)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[sync-memory-index] eol: converted" in r.stdout and "eol normalize failed" not in r.stderr, r.stdout + r.stderr
+    assert (mem / "shared" / "Server" / "a.md").read_bytes() == b"# a\n\n- [\xe8\x87\xa8] x\n"
+    assert b"\r" not in (mem / "MEMORY.md").read_bytes()
+    assert ne.ATTR_MARK.encode() in (repo / ".gitattributes").read_bytes()
+    r2 = _sync(mem)  # 已 up to date 仍走漏斗尾端（冪等、零轉檔）
+    assert r2.returncode == 0 and "eol: converted 0" in r2.stdout, r2.stdout + r2.stderr
+
+
+def test_sync_memory_index_no_eol_flag_and_config_off(tmp_path):
+    repo = _project_with_index(tmp_path)
+    mem = repo / ".claude" / "memory"
+    r = _sync(mem, "--no-eol")
+    assert r.returncode == 0 and "eol:" not in r.stdout, r.stdout + r.stderr
+    assert (mem / "shared" / "Server" / "a.md").read_bytes().startswith(b"# a\r\n")
+    assert not (repo / ".gitattributes").exists()
+    spec = importlib.util.spec_from_file_location("sync_memory_index", SYNC)
+    smi = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(smi)
+    cfg = tmp_path / "config.json"
+    cfg.write_bytes(b'{"eol": {"auto_normalize_project": false}}')
+    assert smi._eol_auto_enabled(cfg) is False
+    cfg.write_bytes(b'{"merge_driver": {}}')
+    assert smi._eol_auto_enabled(cfg) is True
+    assert smi._eol_auto_enabled(tmp_path / "missing.json") is True

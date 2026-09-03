@@ -36,6 +36,10 @@ git 呼叫（--install 寫進 global git config）：
       {"resolved":[],"staged_user_version":[],"skipped":[{"path","reason"}],"remaining":[],"installed":bool,"error":null}
       exit 0＝三檔已無 unmerged stage。順手 --install。
       stage 方向：merge 時 :2＝自己、:3＝對方；rebase／cherry-pick 時 :2＝upstream、:3＝正在重放的自己的 commit。
+      SVN 工作副本（cwd 最近的 VCS 根是 .svn）：update 停在索引三檔衝突後，拿 svn 留下的 X.mine（ours）／
+      X.r舊（base）／X.r新（theirs；路徑取自 svn info --xml）跑同一套驅動，寫回並 svn resolve --accept working；
+      仍含 <<<<<<< 標記就當未動過；只掃 memory dir 候選不掃整個 WC；JSON 契約同 git。PreToolUse 在
+      svn commit／resolve 前自動跑。
 根層 repo（~/.claude）自帶 .gitattributes 指到同一驅動；專案 repo 靠全域 attributes 覆蓋 **/.claude/memory/。
 """
 from __future__ import annotations
@@ -46,6 +50,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -629,86 +634,206 @@ def _driver_config_ok() -> bool:
         return False
 
 
+def _resolve_git(root: Path, rep: Dict[str, Any]) -> None:
+    """git：把驅動套在索引三檔的 unmerged stage 上，寫回工作樹並 git add；順手 install。"""
+    to_add: List[str] = []
+    ls = _git_bytes("ls-files", "-u", "-z", cwd=root)
+    stages: Dict[str, Dict[int, str]] = {}
+    for ent in ls.stdout.split(b"\0"):
+        if not ent:
+            continue
+        meta, _, path = ent.partition(b"\t")
+        mode, sha, stage = meta.decode().split()
+        stages.setdefault(path.decode("utf-8", "surrogateescape"), {})[int(stage)] = sha
+    targets = [p for p in stages if Path(p).name in INDEX_FILES and _path_ok(p)]
+    if targets:
+        chk = _git("check-attr", "merge", "--", *targets, cwd=root)
+        ok_paths = {ln.split(": merge: ")[0] for ln in chk.stdout.splitlines() if ln.endswith(": merge: atomindex")}
+        targets = [p for p in targets if p in ok_paths]
+    blobs = _blobs_batch(root, sorted({sha for p in targets for sha in stages[p].values()}))
+    for rel in targets:
+        st = stages[rel]
+        if 2 not in st or 3 not in st:
+            rep["skipped"].append({"path": rel, "reason": "一側刪除了此檔（缺 stage 2 或 3），請人工決定去留"})
+            rep["remaining"].append(rel)
+            continue
+        base = blobs.get(st[1], "") if 1 in st else ""
+        ours, theirs = blobs.get(st[2], ""), blobs.get(st[3], "")
+        fp = root / rel
+        wt = fp.read_bytes().decode("utf-8-sig", errors="replace").replace("\r\n", "\n") if fp.exists() else None
+        merged, conflicts = _driver_on_texts(base, ours, theirs, rel)
+        untouched = wt is None
+        if wt is not None:
+            wt_n = _strip_marker_labels(wt)
+            # git 原始衝突輸出：依工作樹的標記風格只算需要的那種（有 ||||||| 才算 diff3/zdiff3）
+            styles = ("--diff3", "--zdiff3") if "|||||||" in wt else ("",)
+            candidates = [merged]  # 驅動自己上一輪留下的結果（表格已合、手寫段留標記）
+            for style in styles:
+                try:
+                    candidates.append(textual_merge(base, ours, theirs, style)[0])
+                except Exception:
+                    pass
+            untouched = any(wt_n == _strip_marker_labels(c) for c in candidates)
+        if untouched:
+            _write(str(fp), merged)
+            if conflicts == 0:
+                to_add.append(rel)
+                rep["resolved"].append(rel)
+            else:  # 表格已語意合併、手寫段兩側同改留標記；不 add，交 CC 判斷
+                rep["remaining"].append(rel)
+                rep["skipped"].append({"path": rel, "reason": "表格已合併，表外手寫文字兩側同改，已留 <<<<<<< 標記待判斷"})
+        elif "<<<<<<<" not in wt:
+            if _valid_format(rel, wt):
+                to_add.append(rel)
+                rep["staged_user_version"].append(rel)
+            else:
+                rep["remaining"].append(rel)
+                rep["skipped"].append({"path": rel, "reason": "工作樹版本無標記但格式不合法，未 stage"})
+        else:
+            rep["remaining"].append(rel)
+            rep["skipped"].append({"path": rel, "reason": "工作樹已被手動改過且仍有衝突標記，不覆蓋"})
+    if to_add:
+        add = _git("add", "--", *to_add, cwd=root)
+        if add.returncode:
+            rep["error"] = f"git add 失敗：{add.stderr.strip()}"
+            for p in to_add:
+                rep["remaining"].append(p)
+            rep["resolved"], rep["staged_user_version"] = [], []
+    rep["installed"] = _driver_config_ok() or bool(install(quiet=True).get("installed"))
+
+
+# ─── SVN 工作副本：update 停在索引三檔衝突後，套同一套驅動 ─────────────────────
+#
+# SVN 沒有 merge driver 可裝，只有這條備案。update（CLI 或 TortoiseSVN）留下 X.mine（更新前自己的
+# 工作版＝ours）、X.r<舊>（base）、X.r<新>（theirs）；三個路徑由 `svn info --xml` 的 <conflict type="text">
+# 直接給，不猜檔名。解完 `svn resolve --accept working`（.mine/.rN 隨之刪除）。
+# 只掃 memory dir 候選（hooks/wg_core.memory_dir_candidates），不掃整個工作副本：大 WC 的 svn status
+# 要 3～6 秒，超出 hook 預算。svn 只用 --xml 輸出（一律 UTF-8；純文字輸出走 locale，非 ASCII 路徑會壞）。
+# 沒有 stage 可重建「原始衝突輸出」→ 工作檔仍含 <<<<<<< 標記就當未動過（含驅動上一輪留下的殘留），
+# 人解到一半但還留著標記的版本會被覆蓋——SVN 邊界，文件明列。
+
+def _wg_core():
+    hooks = SCRIPT.parent.parent / "hooks"
+    if str(hooks) not in sys.path:
+        sys.path.insert(0, str(hooks))
+    import wg_core  # noqa: E402
+    return wg_core
+
+
+def _svn(*args: str, cwd: Optional[Path] = None, timeout: float = 5.0) -> subprocess.CompletedProcess:
+    return subprocess.run(["svn", "--non-interactive", *args], capture_output=True,
+                          cwd=str(cwd) if cwd else None, timeout=timeout, **_NO_WINDOW)
+
+
+def _svn_err(r: subprocess.CompletedProcess) -> str:
+    lines = r.stderr.decode("utf-8", "replace").strip().splitlines()
+    return lines[-1] if lines else f"rc={r.returncode}"
+
+
+def _svn_entries(r: subprocess.CompletedProcess):
+    return ET.fromstring(r.stdout).iter("entry") if r.stdout.strip() else iter(())
+
+
+def _rel_to(root: Path, p: str) -> Optional[str]:
+    """svn --xml 的 path 屬性（相對 cwd 或絕對、反斜線）→ 相對 root 的正斜線路徑；不在 root 下回 None。"""
+    try:
+        fp = Path(p)
+        return (fp if fp.is_absolute() else root / fp).resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _svn_conflicted_index_files(root: Path, dirs: List[Path]) -> List[str]:
+    r = _svn("status", "--xml", "--", *[str(d) for d in dirs], cwd=root)
+    if r.returncode:
+        raise RuntimeError(f"svn status 失敗：{_svn_err(r)}")
+    out: List[str] = []
+    for ent in _svn_entries(r):
+        ws = ent.find("wc-status")
+        if ws is None or ws.get("item") != "conflicted":
+            continue
+        rel = _rel_to(root, ent.get("path", ""))
+        if rel and Path(rel).name in INDEX_FILES and _path_ok(rel) and rel not in out:
+            out.append(rel)
+    return out
+
+
+def _svn_conflict_sources(root: Path, rels: List[str]) -> Dict[str, Tuple[str, str, str]]:
+    """每檔 (mine＝ours, base, theirs) 的絕對路徑。部分 target 失敗時 svn rc≠0 但其餘照列，能解多少算多少。"""
+    r = _svn("info", "--xml", "--", *rels, cwd=root)
+    out: Dict[str, Tuple[str, str, str]] = {}
+    for ent in _svn_entries(r):
+        rel = _rel_to(root, ent.get("path", ""))
+        for c in ent.findall("conflict"):
+            if c.get("type") != "text":
+                continue
+            mine, base, theirs = (c.findtext(k) for k in ("prev-wc-file", "prev-base-file", "cur-base-file"))
+            if rel and mine and base and theirs:
+                out[rel] = (mine, base, theirs)
+    return out
+
+
+def _resolve_svn(root: Path, start: Path, rep: Dict[str, Any]) -> None:
+    dirs = _wg_core().memory_dir_candidates(start, root)
+    targets = _svn_conflicted_index_files(root, dirs) if dirs else []
+    sources = _svn_conflict_sources(root, targets) if targets else {}
+    to_resolve: List[str] = []
+    for rel in targets:
+        src = sources.get(rel)
+        if not src or not all(Path(p).exists() for p in src):
+            rep["skipped"].append({"path": rel, "reason": "非文字衝突或衝突來源檔（.mine/.rN）已不在，請人工處理"})
+            rep["remaining"].append(rel)
+            continue
+        mine, base, theirs = (_read(p) for p in src)
+        fp = root / rel
+        wt = _read(str(fp)) if fp.exists() else None
+        merged, conflicts = _driver_on_texts(base, mine, theirs, rel)
+        if wt is None or "<<<<<<<" in wt:
+            _write(str(fp), merged)
+            if conflicts == 0:
+                to_resolve.append(rel)
+                rep["resolved"].append(rel)
+            else:
+                rep["remaining"].append(rel)
+                rep["skipped"].append({"path": rel, "reason": "表格已合併，表外手寫文字兩側同改，已留 <<<<<<< 標記待判斷"})
+        elif _valid_format(rel, wt):
+            to_resolve.append(rel)
+            rep["staged_user_version"].append(rel)
+        else:
+            rep["remaining"].append(rel)
+            rep["skipped"].append({"path": rel, "reason": "工作副本版本無標記但格式不合法，未標記 resolved"})
+    if to_resolve:
+        r = _svn("resolve", "--accept", "working", "--", *to_resolve, cwd=root)
+        if r.returncode:
+            rep["error"] = f"svn resolve 失敗：{_svn_err(r)}"
+            rep["remaining"].extend(to_resolve)
+            rep["resolved"], rep["staged_user_version"] = [], []
+    rep["installed"] = _driver_config_ok()  # svn 無驅動可裝；只回報 git 端現況
+
+
 def resolve(cwd: Path, quiet: bool = False) -> Tuple[Dict[str, Any], int]:
     rep: Dict[str, Any] = {"resolved": [], "staged_user_version": [], "skipped": [], "remaining": [],
                            "installed": False, "error": None}
-    to_add: List[str] = []
     try:
-        top = _git("rev-parse", "--show-toplevel", cwd=cwd)
-        if top.returncode:
-            rep["error"] = "不在 git repo 內"
+        vcs = _wg_core().find_vcs_root(cwd)  # 最近的 VCS 根：svn WC 住在 git repo 裡時要走 svn
+        if vcs is None:
+            rep["error"] = "不在 git repo 或 svn 工作副本內"
             return rep, 1
-        root = Path(top.stdout.strip())
-        ls = _git_bytes("ls-files", "-u", "-z", cwd=root)
-        stages: Dict[str, Dict[int, str]] = {}
-        for ent in ls.stdout.split(b"\0"):
-            if not ent:
-                continue
-            meta, _, path = ent.partition(b"\t")
-            mode, sha, stage = meta.decode().split()
-            stages.setdefault(path.decode("utf-8", "surrogateescape"), {})[int(stage)] = sha
-        targets = [p for p in stages if Path(p).name in INDEX_FILES and _path_ok(p)]
-        if targets:
-            chk = _git("check-attr", "merge", "--", *targets, cwd=root)
-            ok_paths = {ln.split(": merge: ")[0] for ln in chk.stdout.splitlines() if ln.endswith(": merge: atomindex")}
-            targets = [p for p in targets if p in ok_paths]
-        blobs = _blobs_batch(root, sorted({sha for p in targets for sha in stages[p].values()}))
-        for rel in targets:
-            st = stages[rel]
-            if 2 not in st or 3 not in st:
-                rep["skipped"].append({"path": rel, "reason": "一側刪除了此檔（缺 stage 2 或 3），請人工決定去留"})
-                rep["remaining"].append(rel)
-                continue
-            base = blobs.get(st[1], "") if 1 in st else ""
-            ours, theirs = blobs.get(st[2], ""), blobs.get(st[3], "")
-            fp = root / rel
-            wt = fp.read_bytes().decode("utf-8-sig", errors="replace").replace("\r\n", "\n") if fp.exists() else None
-            merged, conflicts = _driver_on_texts(base, ours, theirs, rel)
-            untouched = wt is None
-            if wt is not None:
-                wt_n = _strip_marker_labels(wt)
-                # git 原始衝突輸出：依工作樹的標記風格只算需要的那種（有 ||||||| 才算 diff3/zdiff3）
-                styles = ("--diff3", "--zdiff3") if "|||||||" in wt else ("",)
-                candidates = [merged]  # 驅動自己上一輪留下的結果（表格已合、手寫段留標記）
-                for style in styles:
-                    try:
-                        candidates.append(textual_merge(base, ours, theirs, style)[0])
-                    except Exception:
-                        pass
-                untouched = any(wt_n == _strip_marker_labels(c) for c in candidates)
-            if untouched:
-                _write(str(fp), merged)
-                if conflicts == 0:
-                    to_add.append(rel)
-                    rep["resolved"].append(rel)
-                else:  # 表格已語意合併、手寫段兩側同改留標記；不 add，交 CC 判斷
-                    rep["remaining"].append(rel)
-                    rep["skipped"].append({"path": rel, "reason": "表格已合併，表外手寫文字兩側同改，已留 <<<<<<< 標記待判斷"})
-            elif "<<<<<<<" not in wt:
-                if _valid_format(rel, wt):
-                    to_add.append(rel)
-                    rep["staged_user_version"].append(rel)
-                else:
-                    rep["remaining"].append(rel)
-                    rep["skipped"].append({"path": rel, "reason": "工作樹版本無標記但格式不合法，未 stage"})
-            else:
-                rep["remaining"].append(rel)
-                rep["skipped"].append({"path": rel, "reason": "工作樹已被手動改過且仍有衝突標記，不覆蓋"})
-        if to_add:
-            add = _git("add", "--", *to_add, cwd=root)
-            if add.returncode:
-                rep["error"] = f"git add 失敗：{add.stderr.strip()}"
-                for p in to_add:
-                    rep["remaining"].append(p)
-                rep["resolved"], rep["staged_user_version"] = [], []
-        rep["installed"] = _driver_config_ok() or bool(install(quiet=True).get("installed"))
+        if vcs[0] == "svn":
+            _resolve_svn(vcs[1], cwd, rep)
+        else:
+            top = _git("rev-parse", "--show-toplevel", cwd=cwd)
+            if top.returncode:
+                rep["error"] = "不在 git repo 內"
+                return rep, 1
+            _resolve_git(Path(top.stdout.strip()), rep)
     except subprocess.TimeoutExpired as e:
-        rep["error"] = f"git 逾時：{e}"
+        rep["error"] = f"git/svn 逾時：{e}"
     except Exception as e:  # noqa: BLE001
         rep["error"] = f"{type(e).__name__}: {e}"
     rc = 0 if (not rep["remaining"] and not rep["error"]) else 1
     if rep["resolved"]:
-        _say(f"[merge-atom-index] 已合併並 add：{', '.join(rep['resolved'])}", quiet)
+        _say(f"[merge-atom-index] 已合併並 add／resolve：{', '.join(rep['resolved'])}", quiet)
     for s in rep["skipped"]:
         _say(f"[merge-atom-index] 未解：{s['path']} — {s['reason']}", quiet)
     if rep["error"]:

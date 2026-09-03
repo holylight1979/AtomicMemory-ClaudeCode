@@ -67,6 +67,9 @@
 - **唯一會留給人判斷的情況**：`MEMORY.md` 表格以外的手寫文字，兩邊改了同一段。系統把兩邊都留著、加 `<<<<<<<` 標記、不自動 add，交給正在同步的 Claude Code 看內容決定。
 - **Fork 等圖形工具**：驅動裝在 git 本身的設定裡，所以 Fork 按 pull 也受益；但「自動安裝」只在 Claude Code 裡發生——這台還沒裝好前用 Fork 拉會停一次，之後用 Claude Code 拉一次或跑一次 `--install` 就好。Fork 定位是看圖與介入，不為它另補機制。
 
+- **SVN 專案也一樣**：TortoiseSVN 或命令列 `svn update` 停在索引三檔衝突（狀態 C）屬正常——SVN 沒有合併驅動可裝。回到 Claude Code 下 `svn commit`（或 `svn resolve`）時，hook 先自動把三檔合好並標記 resolved，接著正常提交；也可手動 `python ~/.claude/tools/merge-atom-index.py --resolve --cwd <工作副本>`。
+- **專案記憶樹的換行不必你管**：每次寫入記憶後，系統順手把該專案的 `.claude/memory/` 統一成 LF——git 專案在 `.gitattributes` 加一段規則、SVN 專案對已版控檔設 `svn:eol-style=LF`；改動跟著下一次提交一起上，不用到專案 session 貼任何 prompt。
+
 細節（給 AI 或想深究的人）：[_AIDocs/MultiMachineMemorySync.md](_AIDocs/MultiMachineMemorySync.md)。
 
 ---

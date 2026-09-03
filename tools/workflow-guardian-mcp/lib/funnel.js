@@ -208,6 +208,7 @@ function syncMemoryIndex(memoryDir) {
     cp.on("exit", (code) => {
       if (code !== 0) crashLog("sync-memory-index failed", `exit=${code} stderr=${err.slice(0, 400)}`);
       else if (err.includes("[native-memory-bridge]")) crashLog("native-memory-bridge warning", err.slice(0, 400));
+      else if (err.includes("eol normalize failed")) crashLog("sync-memory-index eol warning", err.slice(0, 400));
     });
     cp.unref();
   } catch (e) { crashLog("sync-memory-index unavailable", e); }

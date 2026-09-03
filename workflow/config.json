@@ -506,5 +506,9 @@
     "_doc": "索引三檔合併驅動的兩個自動化（handlers/pre_tool_use.py check_merge_driver，advisory-only 永不 deny）：auto_install＝Bash/PowerShell 跑 git pull/merge/rebase/cherry-pick/stash pop 前若本機未裝驅動就自動 python tools/merge-atom-index.py --install（git 全域設定，各機一次）；auto_resolve＝跑 rebase/merge/cherry-pick --continue、commit、stash pop 時若索引三檔（MEMORY.md/_ATOM_INDEX.md/_atom_index.json）處於未合併狀態就先自動 --resolve（語意合併 stages 並 git add）再放行。一鍵關：auto_install:false / auto_resolve:false。hook 內一律 fail-open、總時限 2.5s。",
     "auto_install": true,
     "auto_resolve": true
+  },
+  "eol": {
+    "_doc": "專案記憶樹（<proj>/.claude/memory）換行自動統一 LF：tools/sync-memory-index.py 專案模式 --write 成功後（＝每次 atom 寫入的漏斗尾端）呼叫 normalize-eol.auto_project_eol——樹內轉 LF，git 專案在 .gitattributes 寫入標記區塊（eol=lf＋索引三檔 merge=atomindex），svn 專案對已版控文字檔 svn propset svn:eol-style LF；第一次會動整棵樹、之後為零，改動跟著下一次記憶提交走。auto_normalize_project:false 或 --no-eol 關閉。",
+    "auto_normalize_project": true
   }
 }

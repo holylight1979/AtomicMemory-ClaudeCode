@@ -30,6 +30,7 @@ from wg_core import (
     _is_under_claude_dir, is_local_realm_path, is_cross_project_local,
     iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
+    find_vcs_root, memory_dir_candidates,
 )
 from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
@@ -454,6 +455,11 @@ def _index_conflict_advisory(cwd: str) -> list:
     try:
         if not cwd or not Path(cwd).is_dir():
             return []
+        vcs = find_vcs_root(Path(cwd))  # 零子行程：非工作區直接零行；svn WC（含住在 git repo 裡的）走 svn 分支
+        if vcs is None:
+            return []
+        if vcs[0] == "svn":
+            return _svn_index_conflict_advisory(cwd, vcs[1])
         r = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -486,6 +492,20 @@ def _index_conflict_advisory(cwd: str) -> list:
     except Exception as e:
         _atom_debug_error("session_start:index_conflict_advisory", e)
         return []
+
+
+def _svn_index_conflict_advisory(cwd: str, root: Path) -> list:
+    """SVN 工作副本：update 停在索引三檔衝突會留下 <檔>.mine；memory dir 候選裡有就提示一行（零子行程）。"""
+    names = sorted({
+        n for d in memory_dir_candidates(Path(cwd), root)
+        for n in ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json") if (d / f"{n}.mine").exists()
+    })
+    if not names:
+        return []
+    return [
+        f"[Guardian:IndexConflict] ⚠ SVN 索引三檔尚未解（{', '.join(names)}）"
+        "→ 在 CC 下 svn commit 前 hook 會自動解，或手動 python ~/.claude/tools/merge-atom-index.py --resolve"
+    ]
 
 
 def _personal_sync_advisory(project_mem_dir, user: str) -> list:

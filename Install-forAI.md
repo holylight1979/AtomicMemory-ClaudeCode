@@ -240,32 +240,25 @@ template 內三個 server：
 - 首次寫 atom 一律走 MCP `atom_write(mode=create)` 並給 `domain`（Lv1 閉合清單在 `memory/_meta/taxonomy.json`）；分不出範疇的知識不寫。
 - 執行 `python tools/sync-memory-index.py --check` 確認索引與檔案一致（不一致再 `--write`）。
 
-### Step 6：索引三檔 git 合併驅動（hook 自動安裝；手動 `--install` 選配）
+### Step 6：索引三檔合併驅動（git hook 自動安裝／svn hook 自動解；手動 `--install` 選配）
 
 兩台機器各自新增 atom 後 `git pull --rebase`，atom 本體不衝突，但索引三檔（`MEMORY.md` 範疇計數表、`_ATOM_INDEX.md`、`_atom_index.json`）在同區塊各加一列必衝突。merge driver 是機器級 git 設定（global git config `merge.atomindex` + `~/.config/git/attributes`），版控帶不動，由 hook 自動裝：
 
 - **自動安裝**：PreToolUse hook（`pre_tool_use.check_merge_driver`）在 CC 的 Bash/PowerShell 跑 `git pull / merge / rebase / cherry-pick / stash pop` 前檢查本機是否已裝（`is_installed`：driver command 存在、引號內的直譯器與腳本存在、attributes 標記存在、目標 repo `git check-attr merge` 為 `atomindex`——任一不成立即重裝），缺就跑 `--install`，訊息 `[Guardian:MergeDriver] 已自動安裝索引三檔合併驅動`。
 - **自動解衝突（備案）**：git 已停在索引三檔衝突時，`git rebase --continue / merge --continue / cherry-pick --continue / commit / stash pop` 前 hook 先跑 `--resolve`，把語意驅動套在三檔的 stage（:1 base／:2 HEAD／:3 對方）上、寫回並 `git add`，訊息 `[Guardian:IndexConflict] 已自動合併並 add 索引檔：…`；解不掉的列 `⚠ … → 手動 --resolve`。SessionStart 若 repo 卡在 rebase/merge 且三檔未合併，注入一行提示。
+- **SVN 專案**：SVN 沒有合併驅動可裝，只有備案——`svn update`（CLI 或 TortoiseSVN）停在索引三檔衝突屬正常；回 CC 下 `svn commit / ci / resolve` 前，hook 對 memory dir 跑 `svn status --xml` 找到 conflicted 三檔就跑同一支 `--resolve`（拿 svn 留下的 `.mine`／`.r舊`／`.r新` 當 ours／base／theirs，路徑取自 `svn info --xml`，寫回後 `svn resolve --accept working`），訊息 `[Guardian:IndexConflict] 已自動合併並 標記 resolved 索引檔：…`。`svn update` 本身不觸發；`--accept mine-full/theirs-full` 等明確選邊的 `svn resolve` 不搶先。
 - config：`workflow/config.json` `merge_driver.{auto_install,auto_resolve}` 預設 true；hook 內 fail-open、總時限 2.5 秒。
 - **手動（選配）**：安裝當下就想裝好、或這台主要不經 CC 用 git：
 
 ```bash
 python tools/merge-atom-index.py --install   # 寫 global git config merge.atomindex + ~/.config/git/attributes（**/.claude/memory/* 三檔 merge=atomindex）
 python tools/merge-atom-index.py --status    # 末行「已安裝」；直譯器換了 hook 會自動重裝，手動重跑 --install 亦可
-python tools/merge-atom-index.py --resolve   # git 已停在索引三檔衝突、hook 沒接手時手動解（可加 --cwd <repo>）
+python tools/merge-atom-index.py --resolve   # git／svn 已停在索引三檔衝突、hook 沒接手時手動解（可加 --cwd <repo 或 svn 工作副本>）
 ```
 
 - driver 綁定：根層 repo 靠自帶的 `.gitattributes`，專案 repo 靠全域 attributes，專案不必改任何檔。
 - 根層 repo 全部 LF 由 `.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘）與 `.editorconfig` 進版控保證，不需要任何機器安裝；驗證 `python tools/normalize-eol.py --root --check`（有 CRLF/混行尾即 exit 1）。
-- 專案記憶樹要一併釘 LF，由**專案 session** 做（根層 session 不碰專案檔），把下面這段貼給專案 session（路徑換成該專案）：
-
-```
-在 C:\Projects 專案 session：
-1. 確認沒有進行中的 rebase/merge，且 git status 對 .claude/memory 與 .gitattributes 沒有他人的 dirty/staged/untracked 改動（有就停）。
-2. python ~/.claude/tools/normalize-eol.py --memory-dir .claude/memory --check   → 看預計異動清單。
-3. python ~/.claude/tools/normalize-eol.py --memory-dir .claude/memory --write-gitattributes
-4. 對該清單 git diff --ignore-cr-at-eol --stat 必須為 0 行內容差異；commit「chore(memory): 記憶樹換行統一 LF」並 push。
-```
+- 專案記憶樹的 LF **自動**：`tools/sync-memory-index.py` 專案模式 `--write` 成功後（＝每次 atom 寫入的漏斗尾端，`funnel.js syncMemoryIndex` 背景觸發）呼叫 `normalize-eol.auto_project_eol`——樹內轉 LF，git 專案在 `.gitattributes` 寫入標記區塊（`.claude/memory/** text eol=lf` ＋ 索引三檔 `merge=atomindex`），svn 專案對已版控文字檔 `svn propset svn:eol-style LF`；第一次會動整棵樹、之後為零，改動跟著該 session 下一次記憶提交走，**不需要任何人到專案 session 貼 prompt**。關閉：config `eol.auto_normalize_project:false` 或 `--no-eol`。想立刻做：`python ~/.claude/tools/normalize-eol.py --memory-dir <proj>/.claude/memory --auto`。
 
 - 原理、stage 方向矩陣、失敗模式與 SOP、不在保證範圍見 `_AIDocs/MultiMachineMemorySync.md`；驗證 `tools/verify/verify_merge_atom_index.py`、`hooks/verify/verify_merge_driver_gate.py`。
 

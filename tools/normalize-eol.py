@@ -11,10 +11,13 @@
       --include-dirty：別的 session 正在改的檔也處理——工作樹就地轉 LF，index 則寫入「HEAD 版本正規化成 LF」的
       blob（純換行差異、不掃進別人的內容改動）；untracked 檔只轉工作樹不 add。
       --check：唯讀。列出 index／工作樹仍有 CRLF 或 mixed 的檔（含 untracked），有殘留 exit 1。
-  python tools/normalize-eol.py --memory-dir <dir> [--check] [--write-gitattributes]
-      專案 .claude/memory 樹（不分 tracked／untracked，跳過 _vectordb、__pycache__）。
+  python tools/normalize-eol.py --memory-dir <dir> [--check] [--write-gitattributes | --auto]
+      專案 .claude/memory 樹（不分 tracked／untracked，跳過 _vectordb、__pycache__、.svn）。
       --write-gitattributes：在該 repo 的 .gitattributes 寫入帶標記的區塊（重跑整段換新）：memory 樹 text eol=lf
       ＋索引三檔 merge=atomindex，寫完用 git check-attr 驗證。
+      --auto：依最近的 VCS 根自動選——git 同 --write-gitattributes；svn 對已版控文字檔 svn propset svn:eol-style LF
+      （已是 LF 的略過，冪等）；無 VCS 只轉檔。tools/sync-memory-index.py 專案模式 --write 後就是呼叫這條
+      （auto_project_eol），使用者不必貼任何 prompt。
   python tools/normalize-eol.py --all-projects [--check]
       所有登記專案的 memory dir（hooks/wg_core.discover_all_project_memory_dirs）。
 
@@ -35,7 +38,7 @@ from typing import Dict, List, Optional, Tuple
 CLAUDE_DIR = Path(__file__).resolve().parent.parent
 INDEX_FILES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
 ATTR_MARK = "# AtomicMemory eol/merge rules"
-SKIP_DIR_PARTS = {"_vectordb", "__pycache__", "node_modules", ".git"}
+SKIP_DIR_PARTS = {"_vectordb", "__pycache__", "node_modules", ".git", ".svn"}
 _NO_WINDOW = {"creationflags": 0x08000000} if os.name == "nt" else {}
 
 
@@ -252,12 +255,90 @@ def write_gitattributes(mem_dir: Path) -> Dict:
     return {"ok": ok, "gitattributes": str(ga), "check_attr": lines}
 
 
-def _project_memory_dirs() -> List[Tuple[str, Path]]:
+def _wg_core():
     hooks = CLAUDE_DIR / "hooks"
     if str(hooks) not in sys.path:
         sys.path.insert(0, str(hooks))
-    from wg_core import discover_all_project_memory_dirs  # noqa: E402
-    return [(slug, mem) for slug, mem in discover_all_project_memory_dirs() if mem.is_dir()]
+    import wg_core  # noqa: E402
+    return wg_core
+
+
+def _project_memory_dirs() -> List[Tuple[str, Path]]:
+    return [(slug, mem) for slug, mem in _wg_core().discover_all_project_memory_dirs() if mem.is_dir()]
+
+
+# ─── SVN：svn:eol-style=LF ─────────────────────────────────────────────────
+
+def _svn(cwd: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["svn", "--non-interactive", *args], capture_output=True, cwd=str(cwd), timeout=60,
+                          **_NO_WINDOW)
+
+
+def _norm_key(p) -> str:
+    return os.path.normcase(str(Path(p).resolve()))
+
+
+def svn_set_eol_props(mem_dir: Path, root: Path) -> Dict:
+    """記憶樹裡已版控的文字檔設 svn:eol-style=LF。只用 --xml 輸出（UTF-8；純文字輸出走 locale，非 ASCII 路徑會壞）。
+    明列 unversioned 檔會 rc 1、混行尾檔會被 svn 拒（所以先 run_memory_dir 轉完再呼叫）；已是 LF 的略過 → 第二次 set=0。"""
+    import xml.etree.ElementTree as ET
+    rep: Dict = {"set": 0, "already": 0, "error": None}
+    st = _svn(root, "status", "-v", "--xml", "--", str(mem_dir))
+    if st.returncode or not st.stdout.strip():
+        rep["error"] = f"svn status 失敗：{st.stderr.decode('utf-8', 'replace').strip().splitlines()[-1:] or st.returncode}"
+        return rep
+    skip_items = {"unversioned", "ignored", "missing", "deleted", "none", "external"}
+    versioned = set()
+    for ent in ET.fromstring(st.stdout).iter("entry"):
+        ws = ent.find("wc-status")
+        if ws is not None and ws.get("item") not in skip_items:
+            versioned.add(_norm_key(root / ent.get("path", "")))
+    already = set()
+    pg = _svn(root, "propget", "svn:eol-style", "--xml", "-R", "--", str(mem_dir))
+    if pg.returncode == 0 and pg.stdout.strip():
+        for t in ET.fromstring(pg.stdout).iter("target"):
+            if (t.findtext("property") or "").strip() == "LF":
+                already.add(_norm_key(t.get("path", "")))
+    todo: List[str] = []
+    for fp in _iter_memory_files(mem_dir):
+        key = _norm_key(fp)
+        if key not in versioned:
+            continue
+        if key in already:
+            rep["already"] += 1
+            continue
+        if classify(fp.read_bytes()) != "binary":
+            todo.append(str(fp))
+    for i in range(0, len(todo), 200):
+        r = _svn(root, "propset", "svn:eol-style", "LF", "--", *todo[i:i + 200])
+        rep["set"] += r.stdout.count(b"property 'svn:eol-style' set on")
+        if r.returncode:
+            tail = r.stderr.decode("utf-8", "replace").strip().splitlines()
+            rep["error"] = f"svn propset 部分失敗：{tail[-1] if tail else 'rc=' + str(r.returncode)}"
+    return rep
+
+
+def auto_project_eol(mem_dir: Path) -> Dict:
+    """專案記憶樹 LF 自動化（sync-memory-index 專案模式 --write 後呼叫）：樹內轉 LF → 依最近的 VCS 根
+    git 寫 .gitattributes 區塊／svn 設 svn:eol-style=LF／無 VCS 只轉檔。不 raise；問題寫進 error。"""
+    rep: Dict = {"dir": str(mem_dir), "vcs": None, "converted": 0, "skipped_binary": 0, "attrs": None, "error": None}
+    try:
+        conv, _rc = run_memory_dir(mem_dir, check=False)
+        rep["converted"], rep["skipped_binary"] = len(conv["converted"]), len(conv["skipped_binary"])
+        vcs = _wg_core().find_vcs_root(mem_dir)
+        if vcs is None:
+            return rep
+        kind, root = vcs
+        rep["vcs"] = kind
+        attrs = write_gitattributes(mem_dir) if kind == "git" else svn_set_eol_props(mem_dir, root)
+        rep["attrs"] = attrs
+        if attrs.get("error"):
+            rep["error"] = attrs["error"]
+        elif kind == "git" and not attrs.get("ok"):
+            rep["error"] = f".gitattributes 寫入後 check-attr 驗證未通過：{attrs.get('check_attr')}"
+    except Exception as e:  # noqa: BLE001
+        rep["error"] = f"{type(e).__name__}: {e}"
+    return rep
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────
@@ -272,6 +353,7 @@ def main(argv: List[str]) -> int:
     ap.add_argument("--include-dirty", action="store_true", help="--root：連別的 session 正在改的檔與 untracked 一起處理")
     ap.add_argument("--check", action="store_true", help="唯讀巡檢，有殘留 exit 1")
     ap.add_argument("--write-gitattributes", action="store_true", help="--memory-dir：在該 repo 的 .gitattributes 寫入規則區塊")
+    ap.add_argument("--auto", action="store_true", help="--memory-dir：依 VCS 自動（git .gitattributes／svn eol-style）")
     a = ap.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -287,6 +369,13 @@ def main(argv: List[str]) -> int:
         print(json.dumps({"mode": "root", "check": a.check, "rc": rc, **{k: len(v) for k, v in rep.items()},
                           "residual": rep["residual_index"] + rep["residual_worktree"]}, ensure_ascii=False))
         return rc
+
+    if a.memory_dir and a.auto and not a.check:
+        rep = auto_project_eol(a.memory_dir.resolve())
+        if rep["error"]:
+            _say(f"[normalize-eol] {rep['error']}")
+        print(json.dumps({"mode": "memory-dir-auto", **rep}, ensure_ascii=False))
+        return 1 if rep["error"] else 0
 
     if a.memory_dir:
         mem = a.memory_dir.resolve()

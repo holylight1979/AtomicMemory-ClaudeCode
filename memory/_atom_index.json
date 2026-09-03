@@ -2696,7 +2696,10 @@
         "gitattributes",
         "--resolve",
         "IndexConflict",
-        "MergeDriver"
+        "MergeDriver",
+        "svn update 衝突",
+        "svn resolve",
+        "svn:eol-style"
       ],
       "scope": "global"
     },

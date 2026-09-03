@@ -575,6 +575,66 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
     return results
 
 
+def find_vcs_root(start: Path) -> Optional[Tuple[str, Path]]:
+    """從 start 往上找最近的 VCS 根：.git（dir 或 worktree/submodule 的 file）或 .svn 目錄。
+
+    純檔案系統 walk-up、零 subprocess。回 ("git"|"svn", root)；非工作區回 None。
+    巢狀時取最近的那個（svn WC 住在 git repo 裡，如 c:/Projects/Tools 在 c:/Projects 之下）。
+    """
+    cur = Path(start)
+    while True:
+        try:
+            if (cur / ".git").exists():
+                return ("git", cur)
+            if (cur / ".svn").is_dir():
+                return ("svn", cur)
+        except OSError:
+            return None
+        if cur.parent == cur:
+            return None
+        cur = cur.parent
+
+
+def memory_dir_candidates(start: Path, root: Path) -> List[Path]:
+    """VCS 根 root 之下可能的記憶樹——不掃整個工作區（大 SVN WC 的 svn status 要 3～6 秒，hook 預算只有 2.5 秒）。
+
+    收：start 往上到 root 每層的 `.claude/memory`、root 的根層佈局 `memory/`（須有 _atom_index.json）、
+    登記專案中位於 root 之下者。回存在的目錄，去重、保序。
+    """
+    out: List[Path] = []
+    seen: set = set()
+
+    def _add(p: Path) -> None:
+        try:
+            key = p.resolve()
+        except OSError:
+            return
+        if p.is_dir() and key not in seen:
+            seen.add(key)
+            out.append(p)
+
+    try:
+        root_r = Path(root).resolve()
+        cur = Path(start).resolve()
+        cur.relative_to(root_r)
+    except (OSError, ValueError):
+        cur, root_r = Path(root), Path(root)
+    while True:
+        _add(cur / ".claude" / "memory")
+        if cur == root_r or cur.parent == cur:
+            break
+        cur = cur.parent
+    if (Path(root) / "memory" / "_atom_index.json").exists():
+        _add(Path(root) / "memory")
+    for _slug, mem in discover_all_project_memory_dirs():
+        try:
+            mem.resolve().relative_to(root_r)
+        except (OSError, ValueError):
+            continue
+        _add(mem)
+    return out
+
+
 def _discover_all_project_memory_dirs_uncached() -> List[Tuple[str, Path]]:
     # 全域記憶目錄不得被當「專案記憶」回傳：registry 若有 root=家目錄 的條目
     # （root/.claude/memory == 全域 MEMORY_DIR），cross-project 掃描會把全域 atom
