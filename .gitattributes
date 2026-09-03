@@ -1,6 +1,28 @@
-# 索引三檔：多機各自新增 atom 後 rebase/merge 必衝突 → 語意三方合併驅動 tools/merge-atom-index.py
-# （各機需 `python tools/merge-atom-index.py --install` 一次註冊驅動；未裝時 git 靜默退回逐行三方）
-# text eol=lf：blob 永遠 LF，某機寫成 CRLF 也不會把整檔翻成衝突。
+# 換行規則：本 repo 的文字檔一律 LF——一般 git add/checkout 下，git 判為文字的檔存 LF、取出 LF。
+# 寫檔工具端由 lib.atom_io.write_text_lf 與 hooks/verify/verify_lf_writes.py 守；結果由 tools/normalize-eol.py --check 掃。
+* text=auto eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.txt text eol=lf
+*.ini text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.html text eol=lf
+*.png binary
+*.ico binary
+*.lance binary
+*.db binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+
+# 索引三檔：多機各自新增 atom 後必衝突 → 語意三方合併驅動 tools/merge-atom-index.py（驅動註冊由 hook 在第一次合併類指令時自動完成）
 memory/MEMORY.md merge=atomindex text eol=lf
 memory/_ATOM_INDEX.md merge=atomindex text eol=lf
 memory/_atom_index.json merge=atomindex text eol=lf
