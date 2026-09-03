@@ -580,6 +580,129 @@ def test_svn_resolve_from_subdir_cwd(tmp_path):
     assert rc == 0 and len(rep["resolved"]) == 3, (rep, err)
 
 
+# ─── 6. 根層衍生索引檔：各層 _INDEX.md／_local_catalog.md（表格文件三方）───────────
+
+def _level_index(atoms, children=None, note="> 階層範疇索引（自動生成）。"):
+    lines = ["# memory/Server — 範疇索引", "", note, "", "## 本層 atom", "", "| Atom | 說明 |", "|------|------|"]
+    lines += [f"| {n} | {d} |" for n, d in atoms]
+    if children:
+        lines += ["", "## 子層", "", "| 子層 | atom 數 | 深入 |", "|------|---------|------|"]
+        lines += [f"| {c} | {k} | `memory/Server/{c}/_INDEX.md` |" for c, k in children]
+    return "\n".join(lines) + "\n"
+
+
+def _local_catalog(roots):
+    head = ["# 本地範疇 Catalog（~/.claude only）", "", "> 註解。", "", "| 範疇根 | atom 數 | 深入 |",
+            "|--------|---------|------|"]
+    return "\n".join(head + [f"| {r} | {k} | {d} |" for r, k, d in roots]) + "\n"
+
+
+def test_table_doc_index_both_add_rows_and_child_counts(tmp_path):
+    base = _level_index([("a", "A")], [("Sub", 1)])
+    ours = _level_index([("a", "A"), ("b", "B")], [("Sub", 2)])
+    theirs = _level_index([("a", "A"), ("c", "C")], [("Sub", 3), ("Sub2", 1)])
+    rc, out = _run(tmp_path, base, ours, theirs, "memory/Server/_INDEX.md")
+    assert rc == 0 and "<<<<<<<" not in out
+    assert "| b | B |" in out and "| c | C |" in out and out.index("| b |") < out.index("| c |")
+    assert "| Sub | 4 |" in out and "| Sub2 | 1 |" in out  # 2 + 3 − 1
+    assert out.count("## 子層") == 1 and out.count("| Atom | 說明 |") == 1
+
+
+def test_table_doc_one_side_adds_child_section(tmp_path):
+    base = _level_index([("a", "A")])
+    ours = _level_index([("a", "A"), ("b", "B")])
+    theirs = _level_index([("a", "A")], [("Sub", 1)])
+    rc, out = _run(tmp_path, base, ours, theirs, "_AIDocs/_atoms/MemDev/_INDEX.md")
+    assert rc == 0 and "| b | B |" in out and "## 子層" in out and "| Sub | 1 |" in out
+
+
+def test_table_doc_local_catalog_counts_and_drill_change(tmp_path):
+    base = _local_catalog([("MemDev", 1, "`_AIDocs/_atoms/MemDev/x.md`")])
+    ours = _local_catalog([("MemDev", 2, "`_AIDocs/_atoms/MemDev/_INDEX.md`")])
+    theirs = _local_catalog([("MemDev", 2, "`_AIDocs/_atoms/MemDev/_INDEX.md`"), ("Tools", 1, "`_AIDocs/_atoms/Tools/y.md`")])
+    rc, out = _run(tmp_path, base, ours, theirs, "memory/_local_catalog.md")
+    assert rc == 0 and "| MemDev | 3 | `_AIDocs/_atoms/MemDev/_INDEX.md` |" in out and "| Tools | 1 |" in out
+
+
+def test_table_doc_note_conflict_keeps_markers(tmp_path):
+    base = _level_index([("a", "A")])
+    ours = _level_index([("a", "A"), ("b", "B")], note="> ours 改的註解")
+    theirs = _level_index([("a", "A")], note="> theirs 改的註解")
+    rc, out = _run(tmp_path, base, ours, theirs, "memory/Server/_INDEX.md")
+    assert rc == 1 and "<<<<<<<" in out
+
+
+def test_table_doc_without_tables_is_textual(tmp_path):
+    rc, out = _run(tmp_path, "# x\n\nline\n", "# x\n\nline\nours\n", "# x\n\nline\n", "memory/_reference/_INDEX.md")
+    assert rc == 0 and out == "# x\n\nline\nours\n"
+
+
+def _make_root_repo(tmp_path: Path, *, install_driver=True) -> Path:
+    """根層佈局：memory/Server/_INDEX.md、memory/_local_catalog.md、_AIDocs/_atoms/MemDev/_INDEX.md 兩分支各加一列。"""
+    repo = tmp_path / "root"
+    srv, ad = repo / "memory" / "Server", repo / "_AIDocs" / "_atoms" / "MemDev"
+    srv.mkdir(parents=True)
+    ad.mkdir(parents=True)
+    _git(tmp_path, "init", "-q", "-b", "master", str(repo))
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "config", "core.autocrlf", "false")
+    if install_driver:
+        _git(repo, "config", "merge.atomindex.driver", drv.driver_command())
+    (repo / ".gitattributes").write_text(
+        "memory/**/_INDEX.md merge=atomindex text eol=lf\n_AIDocs/_atoms/**/_INDEX.md merge=atomindex text eol=lf\n"
+        "memory/_local_catalog.md merge=atomindex text eol=lf\n", encoding="utf-8", newline="\n")
+
+    def _write(atoms, roots, matoms):
+        (srv / "_INDEX.md").write_bytes(_level_index(atoms).encode("utf-8"))
+        (repo / "memory" / "_local_catalog.md").write_bytes(_local_catalog(roots).encode("utf-8"))
+        (ad / "_INDEX.md").write_bytes(_level_index(matoms).encode("utf-8"))
+
+    _write([("a", "A")], [("MemDev", 1, "x")], [("m1", "M1")])
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+    _git(repo, "checkout", "-qb", "A")
+    _write([("a", "A"), ("b", "B")], [("MemDev", 2, "x")], [("m1", "M1"), ("m2", "M2")])
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "A")
+    _git(repo, "checkout", "-q", "master")
+    _write([("a", "A"), ("c", "C")], [("MemDev", 2, "x"), ("Tools", 1, "y")], [("m1", "M1"), ("m3", "M3")])
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "master")
+    return repo
+
+
+def _assert_root_merged(repo: Path):
+    s = (repo / "memory" / "Server" / "_INDEX.md").read_text(encoding="utf-8")
+    assert "| b | B |" in s and "| c | C |" in s and "<<<<<<<" not in s
+    lc = (repo / "memory" / "_local_catalog.md").read_text(encoding="utf-8")
+    assert "| MemDev | 3 |" in lc and "| Tools | 1 |" in lc and "<<<<<<<" not in lc
+    m = (repo / "_AIDocs" / "_atoms" / "MemDev" / "_INDEX.md").read_text(encoding="utf-8")
+    assert "| m2 | M2 |" in m and "| m3 | M3 |" in m and "<<<<<<<" not in m
+    for rel in ("memory/Server/_INDEX.md", "memory/_local_catalog.md", "_AIDocs/_atoms/MemDev/_INDEX.md"):
+        assert b"\r" not in _git(repo, "show", f"HEAD:{rel}").stdout.encode("utf-8")
+
+
+def test_git_merge_derived_index_files_clean(tmp_path):
+    repo = _make_root_repo(tmp_path)
+    r = _git(repo, "merge", "A", "-m", "merge A")
+    assert "CONFLICT" not in r.stdout + r.stderr
+    _assert_root_merged(repo)
+
+
+def test_resolve_derived_index_files_without_driver(tmp_path):
+    env = _iso_env(tmp_path)
+    repo = _make_root_repo(tmp_path, install_driver=False)
+    r = _git(repo, "merge", "A", "-m", "m", check=False, env=env)
+    assert "CONFLICT" in r.stdout + r.stderr
+    rc, rep, err = _resolve(repo, env)
+    assert rc == 0 and rep["error"] is None, (rep, err)
+    assert _names(rep["resolved"]) == ["_INDEX.md", "_INDEX.md", "_local_catalog.md"]
+    assert _unmerged(repo, env).strip() == ""
+    _git(repo, "commit", "-qm", "merged", env=env)
+    _assert_root_merged(repo)
+
+
 def test_resolve_outside_any_vcs_reports_error(tmp_path):
     d = tmp_path / "nowhere"
     d.mkdir()

@@ -478,7 +478,7 @@ def _index_conflict_advisory(cwd: str) -> list:
             timeout=2, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
             return []
-        index_names = {"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json"}
+        index_names = {"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json", "_INDEX.md", "_local_catalog.md"}
         names = sorted({
             entry.split("\t", 1)[1].rsplit("/", 1)[-1]
             for entry in (r.stdout or "").split("\0") if "\t" in entry

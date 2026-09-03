@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-03 根層衍生索引檔（各層 _INDEX.md、_local_catalog.md）納入語意合併驅動
+- 使用者問「多機共享記憶庫的更新衝突解決整個階段完工了嗎」→ 實查根層 repo 還有 12 個各層 `_INDEX.md`＋`memory/_local_catalog.md`（8 月以來 39／28 次 commit）不在驅動覆蓋內，兩人同範疇各加一顆 atom 後 pull 必衝突。**修**：`merge-atom-index.py` 新增 `merge_table_doc`——文件切文字／表格，表格以表頭為鍵換佔位符，骨架走 `git merge-file`；計數表（第 1 欄全數字）o＋t−b、列表以第 0 欄為鍵聯集；一側才有的「## 子層」段隨骨架單側插入；骨架真衝突退回整檔逐行留標記。`detect_kind`／`RESOLVE_FILES`／`_path_ok`（加 `_AIDocs/_atoms/`）／`_valid_format` 同步；根層 `.gitattributes` 綁三條；hook 索引檔名集合加兩名。用真實 `_AIDocs/_atoms/MemDev/_INDEX.md` 冒煙：兩側各加一列＋子層計數 2→3／2→4 → 合成 52→54 條、計數 5、其餘 byte-identical。測試 +8（純函式 5、根層真 git merge 零衝突、無驅動 --resolve、hook 認 _INDEX.md），run_verify 1760 passed。踩坑：測試字串 `"\0100644"` 的 `\010` 被當八進位跳脫吃掉 NUL，改 `"\x00".join`。文件：MultiMachineMemorySync（名詞、防線、CLI、不在保證範圍補「同一顆 atom 兩機各 append」與 `_meta/*-learned.json` 仍逐行衝突）、README、DocIndex；atom replace 瘦身併入。
+
 ## 2026-09-03 memory/_staging 清倉 — 完成品歸 _AIDocs、作廢計畫刪除
 - 七檔逐一對照現況：`next-phase-auto.md`（PreCompact 自動 handoff，phase=done、LF 遷移已在 `0c1f2bc` 落地）、`next-phase-skills-verify.md`（15 個 skill verify stub 已在 `8978222` 當死碼清除）、`next-phase-hardcoded-paths.md`（2026-05 行號盤點過期、atom 路徑已由 `lib/atom_locations.py` 集中、Wave A–D 未採行）三檔刪除；`next-phase-draft-taxonomy-engine.md` 移 `DevHistory/taxonomy-engine-半統一設計-2026-06.md` 並加歸檔狀態頭（核心側落地、DedupStage 於 `755ce07` 停產、Phase B/C 專案端未做）；`grok-inbox-capability-self-report.md` 移 `Research/grok-build-capability-self-report-2026-08.md`（結論已在 atom `並行llm即時通訊-inbox機制`）。`archive-candidates.md`／`forget-candidates.md` 為 session_end 每次重生的自我迭代報告，保留。順手修兩處過期引用：`Tools/doc-index-system.md` verify 結構列、`v5-overhaul-2026-05/wave5-session6-audit.md` 留下項 G。 | `memory/_staging/`（-5 檔）, `_AIDocs/Research/`（+1、_INDEX）, `_AIDocs/DevHistory/`（+1、_INDEX）, `_AIDocs/Tools/doc-index-system.md`, `_AIDocs/DevHistory/v5-overhaul-2026-05/wave5-session6-audit.md`
 

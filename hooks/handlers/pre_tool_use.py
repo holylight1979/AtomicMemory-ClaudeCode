@@ -702,7 +702,7 @@ def check_git_privacy(
 #       不含 `git add`：使用者自己 add 索引檔即 git 已解除 stage，B 在此多餘。
 # 唯一權威＝`git ls-files -u`（index-only、涵蓋 stash／worktree）。全程 fail-open、總時限 2.5s、
 # Windows-safe（CREATE_NO_WINDOW；hook 跑在 pythonw 下，子行程直譯器改用同目錄 python.exe）。
-_INDEX_FILE_NAMES = frozenset({"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json"})
+_INDEX_FILE_NAMES = frozenset({"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json", "_INDEX.md", "_local_catalog.md"})
 # 用 hook 自己的檔案位置定位工具，不靠 HOME 推導（HOME 被覆寫的環境下 CLAUDE_DIR 會指錯地方）
 _MERGE_TOOL = Path(__file__).resolve().parents[2] / "tools" / "merge-atom-index.py"
 _MERGE_GATE_BUDGET_S = 2.5

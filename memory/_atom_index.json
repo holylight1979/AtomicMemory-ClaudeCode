@@ -2686,6 +2686,8 @@
         "_atom_index.json 衝突",
         "MEMORY.md 衝突",
         "_ATOM_INDEX.md 衝突",
+        "_INDEX.md 衝突",
+        "_local_catalog.md 衝突",
         "merge driver",
         "合併驅動",
         "rebase 衝突",

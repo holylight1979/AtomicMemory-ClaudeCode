@@ -404,6 +404,14 @@ def test_svn_segments_and_triggers():
     assert not _is_svn_resolve_trigger(["update"])
 
 
+def test_unmerged_index_files_recognizes_derived_index(monkeypatch, tmp_path):
+    """根層衍生索引檔（各層 _INDEX.md、_local_catalog.md）也算索引檔 → commit 前會觸發 --resolve。"""
+    entries = ["100644 a 1\tmemory/Server/_INDEX.md", "100644 a 3\tmemory/_local_catalog.md", "100644 a 2\tREADME.md"]
+    s = _Spy(stdout="\x00".join(entries) + "\x00")  # 別用 "\0100644"：\010 會被當八進位跳脫吃掉
+    monkeypatch.setattr(ptu, "_run_capture", s)
+    assert ptu._unmerged_index_files(str(tmp_path), 1.0) == ["memory/Server/_INDEX.md", "memory/_local_catalog.md"]
+
+
 def test_svn_commit_outside_svn_wc_spawns_nothing(spy, tmp_path):
     """純檔案系統判定不是 svn WC → 零子行程（git 段亦無）。"""
     assert check_merge_driver("Bash", {"command": "svn commit -m x"}, str(tmp_path), CFG_ON) is None

@@ -13,6 +13,8 @@ repo 全部 LF（.gitattributes eol=lf + lib 寫檔一律 LF）之後這型不�
      - _ATOM_INDEX.md：表列同上（key=Path 欄），表頭取 ours
      - MEMORY.md：「| 範疇 | atom 數 | 深入 |」表的計數 = ours + theirs − base（各自新增互不知情，差量可加）；
        表以外的人寫文字仍走 git merge-file 逐行三方，真衝突照留 <<<<<<< 標記並 exit 1
+     - 根層衍生索引檔（各層 _INDEX.md、_local_catalog.md；同樣由 sync-memory-index 產生）：通用表格文件三方——
+       每張表以表頭為鍵，列表以第 0 欄為鍵聯集、計數表 o+t−b，骨架文字逐行三方（根層 .gitattributes 綁定）
   2. 行尾：驅動一律輸出 LF，與 repo 的 LF 規則一致。
 
 為什麼不「合併時從磁碟重建索引」：merge driver 執行當下，工作樹只有「目前 HEAD 那側」的 atom 檔
@@ -332,11 +334,92 @@ def merge_memory_md(base_t: str, ours_t: str, theirs_t: str) -> Tuple[str, int, 
     return skel.replace(PLACEHOLDER, table), 0, summary
 
 
+# ─── 根層衍生索引檔：各層 _INDEX.md／_local_catalog.md（通用「表格文件」三方）──────────
+#
+# sync-memory-index --write 產生：`| Atom | 說明 |` 列表（鍵＝第 0 欄）與 `| 子層 | atom 數 | 深入 |`／
+# `| 範疇根 | atom 數 | 深入 |` 計數表（第 1 欄全數字 → o+t−b）。兩人同範疇各加一顆 atom 就在同區塊各多一列。
+# 做法同 MEMORY.md：表格以表頭為鍵換成佔位符，骨架（標題／註解）走 git merge-file；一側才有的表（第一個子層
+# 出現時多出的「## 子層」段）跟著骨架單側插入。骨架真衝突 → 整檔逐行、留標記。
+
+TABLE_DOC_FILES = ("_INDEX.md", "_local_catalog.md")
+RESOLVE_FILES = INDEX_FILES + TABLE_DOC_FILES
+TABLE_PH = "@@ATOM-TABLE:{}@@"
+TABLE_PH_RE = re.compile(r"@@ATOM-TABLE:(.*?)@@")
+TABLE_DOC_HEADER_RE = re.compile(r"^\|\s*(Atom|子層|範疇根)\s*\|", re.M)
+
+
+def _split_tables(text: str):
+    """回 (骨架行[每張表換成佔位符], {表頭鍵: (表頭兩行, {第0欄: cells})})。"""
+    lines = text.split("\n")
+    skel: List[str] = []
+    tables: Dict[str, Tuple[List[str], Dict[str, List[str]]]] = {}
+    i = 0
+    while i < len(lines):
+        ln = lines[i]
+        if not (ln.startswith("|") and i + 1 < len(lines) and TABLE_SEP_RE.match(lines[i + 1])):
+            skel.append(ln)
+            i += 1
+            continue
+        key = "|".join(_split_cells(ln))
+        rows: Dict[str, List[str]] = {}
+        j = i + 2
+        while j < len(lines) and lines[j].startswith("|"):
+            cells = _split_cells(lines[j])
+            rows[cells[0] if cells else lines[j]] = cells
+            j += 1
+        tables[key] = ([ln, lines[i + 1]], rows)
+        skel.append(TABLE_PH.format(key))
+        i = j
+    return skel, tables
+
+
+def _is_count_table(*row_dicts: Dict[str, List[str]]) -> bool:
+    seen = False
+    for rd in row_dicts:
+        for cells in rd.values():
+            seen = True
+            if len(cells) < 2 or not cells[1].isdigit():
+                return False
+    return seen
+
+
+def _merge_one_table(bt, ot, tt) -> Tuple[List[str], str]:
+    bh, br = bt if bt else (None, {})
+    oh, orw = ot if ot else (None, {})
+    th, trw = tt if tt else (None, {})
+    head = merge_scalar(bh, oh, th) or oh or th
+    if _is_count_table(br, orw, trw):
+        rows, st = merge_catalog_rows(br, orw, trw)
+        return list(head) + [_join_cells(c) for c in rows], st
+    merged, stt = merge_keyed(br, orw, trw, lambda b, o, t: merge_cells_row(b, o, t, trigger_col=None))
+    return list(head) + [_join_cells(c) for _, c in merged], _fmt_stats(len(br), len(merged), stt)
+
+
+def merge_table_doc(base_t: str, ours_t: str, theirs_t: str) -> Tuple[str, int, str]:
+    bs, bt = _split_tables(base_t)
+    os_, ot = _split_tables(ours_t)
+    ts, tt = _split_tables(theirs_t)
+    if not ot and not tt:
+        text, n = textual_merge(base_t, ours_t, theirs_t)
+        return text, n, "無表格，逐行三方"
+    skel, n = textual_merge("\n".join(bs), "\n".join(os_), "\n".join(ts))
+    keys = TABLE_PH_RE.findall(skel)
+    if n or len(keys) != len(set(keys)) or any(k not in ot and k not in tt for k in keys):
+        text, n = textual_merge(base_t, ours_t, theirs_t)
+        return text, max(n, 1), "表格以外的文字真衝突，留標記"
+    parts = []
+    for k in keys:
+        lines, st = _merge_one_table(bt.get(k), ot.get(k), tt.get(k))
+        skel = skel.replace(TABLE_PH.format(k), "\n".join(lines), 1)
+        parts.append(f"{k.split('|')[0]}表 {st}")
+    return skel, 0, "；".join(parts)
+
+
 # ─── 驅動入口 ──────────────────────────────────────────────────────────────
 
 def detect_kind(path_hint: str, *texts: str) -> str:
     name = Path(path_hint).name if path_hint and path_hint != "%P" else ""
-    if name in INDEX_FILES:
+    if name in RESOLVE_FILES:
         return name
     for t in texts:
         if t.lstrip().startswith("{"):
@@ -360,6 +443,8 @@ def run_driver(base_p: str, ours_p: str, theirs_p: str, path_hint: str = "") -> 
             text, summary = merge_atom_index_md(base, ours, theirs)
         elif kind == "MEMORY.md":
             text, conflicts, summary = merge_memory_md(base, ours, theirs)
+        elif kind in TABLE_DOC_FILES:
+            text, conflicts, summary = merge_table_doc(base, ours, theirs)
         else:
             text, conflicts = textual_merge(base, ours, theirs)
             summary = "非索引檔，逐行三方"
@@ -566,7 +651,7 @@ def _strip_marker_labels(text: str) -> str:
 
 
 def _path_ok(rel: str) -> bool:
-    return rel.startswith("memory/") or "/.claude/memory/" in ("/" + rel)
+    return rel.startswith(("memory/", "_AIDocs/_atoms/")) or "/.claude/memory/" in ("/" + rel)
 
 
 def _valid_format(rel: str, text: str) -> bool:
@@ -577,6 +662,8 @@ def _valid_format(rel: str, text: str) -> bool:
             return isinstance(d, dict) and isinstance(d.get("atoms"), list)
         if name == "_ATOM_INDEX.md":
             return bool(re.search(ATOM_TABLE_HEADER_RE.pattern, text, re.I | re.M))
+        if name in TABLE_DOC_FILES:
+            return bool(TABLE_DOC_HEADER_RE.search(text))
         return bool(re.search(CATALOG_HEADER_RE.pattern, text, re.M)) or "<!-- atom-catalog -->" in text
     except Exception:
         return False
@@ -645,7 +732,7 @@ def _resolve_git(root: Path, rep: Dict[str, Any]) -> None:
         meta, _, path = ent.partition(b"\t")
         mode, sha, stage = meta.decode().split()
         stages.setdefault(path.decode("utf-8", "surrogateescape"), {})[int(stage)] = sha
-    targets = [p for p in stages if Path(p).name in INDEX_FILES and _path_ok(p)]
+    targets = [p for p in stages if Path(p).name in RESOLVE_FILES and _path_ok(p)]
     if targets:
         chk = _git("check-attr", "merge", "--", *targets, cwd=root)
         ok_paths = {ln.split(": merge: ")[0] for ln in chk.stdout.splitlines() if ln.endswith(": merge: atomindex")}
@@ -753,7 +840,7 @@ def _svn_conflicted_index_files(root: Path, dirs: List[Path]) -> List[str]:
         if ws is None or ws.get("item") != "conflicted":
             continue
         rel = _rel_to(root, ent.get("path", ""))
-        if rel and Path(rel).name in INDEX_FILES and _path_ok(rel) and rel not in out:
+        if rel and Path(rel).name in RESOLVE_FILES and _path_ok(rel) and rel not in out:
             out.append(rel)
     return out
 

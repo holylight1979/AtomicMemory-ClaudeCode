@@ -26,3 +26,7 @@
 memory/MEMORY.md merge=atomindex text eol=lf
 memory/_ATOM_INDEX.md merge=atomindex text eol=lf
 memory/_atom_index.json merge=atomindex text eol=lf
+# 根層衍生索引檔（sync-memory-index 產生的各層 _INDEX.md 與 _local_catalog.md）：同型「同區塊各多一列」衝突，同一驅動
+memory/**/_INDEX.md merge=atomindex text eol=lf
+_AIDocs/_atoms/**/_INDEX.md merge=atomindex text eol=lf
+memory/_local_catalog.md merge=atomindex text eol=lf

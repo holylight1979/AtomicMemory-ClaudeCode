@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 探針, 假失敗, 假紅, heredoc, 反斜線, node -e, 假 session, 實機驗證, dry-run 副作用, 探針副作用, 空目錄, parse_memory_index fallback, 驗證機制, post-mortem
 - Created-at: 2026-08-31
-- Related: 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產
+- Related: 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出
 
 ## 知識
 

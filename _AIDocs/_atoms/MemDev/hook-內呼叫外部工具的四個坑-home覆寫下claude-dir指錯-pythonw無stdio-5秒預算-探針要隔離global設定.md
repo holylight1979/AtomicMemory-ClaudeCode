@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: PreToolUse, hook 子行程, CLAUDE_DIR, Path.home, HOME 覆寫, pythonw, stdout None, 5 秒, hook timeout, 探針, GIT_CONFIG_GLOBAL, 隔離測試, run_verify 並行, 假紅
 - Created-at: 2026-09-03
-- Related: repo-全面-lf-決策與守衛鏈, heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑
+- Related: repo-全面-lf-決策與守衛鏈, heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出
 
 ## 知識
 

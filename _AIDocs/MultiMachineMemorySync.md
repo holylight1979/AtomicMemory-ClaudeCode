@@ -8,6 +8,7 @@
 | 名詞 | 白話 |
 |---|---|
 | 索引三檔 | `MEMORY.md`（範疇計數表）、`_ATOM_INDEX.md`（表列 mirror）、`_atom_index.json`（機器源）。一列一 atom 的集合，不是文章 |
+| 根層衍生索引檔 | 只有 `~/.claude` 有：各層 `_INDEX.md`（`memory/<範疇>/**`、`_AIDocs/_atoms/**`；`\| Atom \| 說明 \|` 列表＋可選 `\| 子層 \| atom 數 \|` 計數表）與 `memory/_local_catalog.md`（`\| 範疇根 \| atom 數 \|` 計數表），都由 `sync-memory-index --write` 產生。兩人同範疇各加一顆就在同區塊各多一列——同一驅動以「表格文件」語意合（列表以第 0 欄為鍵聯集、計數表 o＋t−b、骨架文字逐行三方），根層 `.gitattributes` 綁定 |
 | merge driver（驅動） | git 合併某類檔案時改叫的外部程式。註冊名 `atomindex`，在 git 的 **global config**（機器級），靠 `.gitattributes`／全域 attributes 的 `merge=atomindex` 綁到檔案 |
 | stage | git index 在衝突時對同一路徑保留的三份版本：`:1` base（共同祖先）、`:2` HEAD 側、`:3` 對方側。`git ls-files -u` 列出仍未合併的 stage；**衝突是否解除看 index 有無 unmerged stage，不看工作樹有無 `<<<<<<<`** |
 | ours／theirs | git 術語：ours＝`:2`＝目前 HEAD；theirs＝`:3`。rebase 時方向反直覺，見「stage 方向矩陣」 |
@@ -27,7 +28,7 @@
 | 層 | 在哪 | 何時觸發 | 怎麼驗 |
 |---|---|---|---|
 | 1. 行尾全 LF | 根層 `.gitattributes`（`* text=auto eol=lf` + `*.md *.py *.js *.json *.jsonl *.sh *.ps1 *.txt *.ini *.toml *.yaml *.yml text eol=lf`）、`.editorconfig`（`end_of_line=lf`）；寫檔漏斗 `lib.atom_io.write_text_lf()`／`normalize_lf()`，其餘寫檔點 `newline="\n"`。**專案記憶樹**：`tools/sync-memory-index.py` 專案模式 `--write` 成功（含 up to date）後呼叫 `normalize-eol.auto_project_eol(mem)`——樹內轉 LF，git 專案在 `.gitattributes` 寫入標記區塊（`.claude/memory/** text eol=lf`＋索引三檔 `merge=atomindex`），svn 專案對已版控文字檔 `svn propset svn:eol-style LF`（已 LF 略過，冪等）；config `eol.auto_normalize_project`（預設 true）、`--no-eol` | 每次 git add／checkout（porcelain）；每次工具寫檔；專案樹＝每次 atom 寫入（`funnel.js syncMemoryIndex` 背景觸發 `--write`）之後，第一次動整棵樹、之後為零，改動跟著下一次記憶提交走 | 來源 lint：`hooks/verify/verify_lf_writes.py`（AST 掃文字模式寫檔無 `newline=""`／`"\n"` 且無 `# lf-exempt:` 即 FAIL；`**kwargs` 不通行）。結果守衛：`python tools/normalize-eol.py --root --check`（index blob 與工作樹殘留 CRLF／mixed 即 exit 1，含 dirty／untracked 列報）；health-weekly 併入黃燈 |
-| 2. 合併驅動 | `tools/merge-atom-index.py` 註冊為 git merge driver `atomindex`：global git config `merge.atomindex.driver` + `~/.config/git/attributes`（`**/.claude/memory/{三檔} merge=atomindex text eol=lf`）；根層 repo 另有自帶 `.gitattributes` 三行 | git 合併三檔時由 git 自己呼叫（merge／rebase／cherry-pick／stash pop 都走）。**自動安裝**：PreToolUse `check_merge_driver` 在 CC 的 Bash/PowerShell 段含 `git pull|merge|rebase|cherry-pick|stash pop|stash apply` 前呼叫 `is_installed()`，任一項不成立 → `--install --quiet` → `[Guardian:MergeDriver] 已自動安裝索引三檔合併驅動` | `python tools/merge-atom-index.py --status` 末行「已安裝」；`tools/verify/verify_merge_atom_index.py`（純函式＋真 git merge/rebase 零衝突＋無驅動對照組必衝突＋`--install` 冪等＋`--resolve` e2e） |
+| 2. 合併驅動 | `tools/merge-atom-index.py` 註冊為 git merge driver `atomindex`：global git config `merge.atomindex.driver` + `~/.config/git/attributes`（`**/.claude/memory/{三檔} merge=atomindex text eol=lf`）；根層 repo 另有自帶 `.gitattributes`：三檔＋根層衍生索引檔（`memory/**/_INDEX.md`、`_AIDocs/_atoms/**/_INDEX.md`、`memory/_local_catalog.md`） | git 合併三檔時由 git 自己呼叫（merge／rebase／cherry-pick／stash pop 都走）。**自動安裝**：PreToolUse `check_merge_driver` 在 CC 的 Bash/PowerShell 段含 `git pull|merge|rebase|cherry-pick|stash pop|stash apply` 前呼叫 `is_installed()`，任一項不成立 → `--install --quiet` → `[Guardian:MergeDriver] 已自動安裝索引三檔合併驅動` | `python tools/merge-atom-index.py --status` 末行「已安裝」；`tools/verify/verify_merge_atom_index.py`（純函式＋真 git merge/rebase 零衝突＋無驅動對照組必衝突＋`--install` 冪等＋`--resolve` e2e） |
 | 3. resolve 備案 | 同一支 `merge-atom-index.py --resolve` | git 已停在衝突（驅動沒裝、或衝突發生在裝好之前）。**自動觸發**：PreToolUse 段含 `git rebase --continue|merge --continue|cherry-pick --continue|commit|stash pop|stash apply` 且 `git ls-files -u` 有索引三檔 → `--resolve --cwd <repo> --quiet` → `[Guardian:IndexConflict] 已自動合併並 add 索引檔：…`／`已 stage 你解好的版本：…`／`⚠ <error 或 remaining> → 手動 python ~/.claude/tools/merge-atom-index.py --resolve`。SessionStart `_index_conflict_advisory`：repo 卡在 rebase/merge/cherry-pick 且三檔未合併 → 一行提示。**SVN**（沒有驅動可裝，只有這條備案）：段含 `svn commit|ci|resolve|resolved`（`--accept mine-full/theirs-full/base/…` 明確選邊除外）→ 純檔案系統往上找 `.svn`（不是 svn WC → 零子行程）→ 只對 memory dir 候選跑 `svn status --xml`，有 conflicted 索引三檔 → 同一支 `--resolve --cwd <cwd> --quiet`（拿 `.mine`／`.r舊`／`.r新` 跑同一套驅動、寫回、`svn resolve --accept working`）→ `[Guardian:IndexConflict] 已自動合併並 標記 resolved 索引檔：…`。`svn update` 不觸發；SessionStart 對 svn WC 看 memory dir 有無 `<檔>.mine`（零子行程） | `hooks/verify/verify_merge_driver_gate.py`（拆段分類、真 git 題、svn 拆段／觸發詞／非 svn WC 零子行程／svnadmin 本地倉 e2e／預算、`auto_*:false` 不動作、子行程卡死仍 fail-open 且總耗時 ≤2.5s）；`verify_merge_atom_index.py` e2e：無驅動 rebase 卡住 → `--resolve` → `GIT_EDITOR=true git rebase --continue` 成功；svn：兩個 wc 各加 atom → `svn up --accept postpone` 三檔 C → `--resolve` → `svn ci` 成功、另一 wc update 拿到合併結果 |
 
 `is_installed(repo_cwd)` 四項全成立才算已裝：driver command 存在；command 引號內的直譯器與腳本路徑都存在；attributes 檔含 marker 行；目標 repo 對三檔 `git check-attr merge` 回 `atomindex`。任一不成立即重裝（`install()` 先寫 attributes 再寫 config，原子替換、保留既有內容；`pythonw.exe` 換成同目錄 `python.exe`）。
@@ -60,7 +61,7 @@
 
 | 形式 | 用途 | exit |
 |---|---|---|
-| `<base> <ours> <theirs> [<path>]` | git 呼叫的驅動本體；結果寫回 `<ours>` | 0 乾淨；1 仍有衝突（含標記） |
+| `<base> <ours> <theirs> [<path>]` | git 呼叫的驅動本體；結果寫回 `<ours>`。依 `<path>` basename 分派：三檔各自語意；`_INDEX.md`／`_local_catalog.md` 走 `merge_table_doc`；其他逐行 | 0 乾淨；1 仍有衝突（含標記） |
 | `--install [--quiet]` | 寫 attributes + global config | 0 成功；1 失敗（訊息含具體原因：非 UTF-8、不可寫…） |
 | `--status` | 人讀自檢，末行「已安裝」／「未安裝」 | 0 已裝；1 未裝或失效 |
 | `--resolve [--cwd <dir>] [--quiet]` | 依 cwd 最近的 VCS 根分流（`wg_core.find_vcs_root`，svn WC 住在 git repo 裡時取 svn）：git → 把驅動套在索引三檔的 unmerged stage 上；svn → 套在 `.mine`／`.r舊`／`.r新` 上並 `svn resolve --accept working` | 0＝三檔已無 unmerged stage／conflicted；1＝仍有殘留或錯誤（含「不在 git repo 或 svn 工作副本內」） |
@@ -147,7 +148,7 @@ git add <三檔>
 - **git plumbing 寫入**（`hash-object`／`update-index` 直寫 blob）繞過 `.gitattributes` 正規化。
 - **他機 repo-local attributes 覆寫**：`.git/info/attributes` 或更靠近檔案的 `.gitattributes` 可以蓋掉 `merge=atomindex`／`eol=lf`；只能靠 `--status`／`normalize-eol --check` 事後發現。
 - **第三方程式寫檔**、**沒有 CI／伺服器端檢查**：LF 保證是本機層（守衛＋巡檢），不是遠端強制。
-- **只處理三索引檔**的 unmerged stage／conflicted；atom 本體或其他檔的衝突仍由人／CC 處理。
+- **只處理索引三檔與根層衍生索引檔**的 unmerged stage／conflicted；atom 本體或其他檔的衝突仍由人／CC 處理。已知仍會逐行衝突的兩型：**同一顆 atom 兩機各 append**（知識行都加在檔尾）、`memory/_meta/*-learned.json` 自動學習檔兩機同時更新——目前頻率低，撞到再做。
 - **SVN 的 `svn update` 本身不自動解**：client 端只有全域 `diff3-cmd` 外掛，會套到所有檔且 TortoiseSVN 未必吃，風險大；只在 CC 下 `svn commit|ci|resolve` 前解。update 停在衝突屬正常。
 - **SVN 只掃 memory dir 候選**（walk-up `.claude/memory`、WC 根的 `memory/`、登記專案）：記憶樹放在候選之外的位置不會被看到（手動 `--resolve --cwd <該 memory dir>` 可解）。
 - **SVN 沒有 stage 可重建原始衝突輸出**：工作檔仍含 `<<<<<<<` 就視為未動過並覆蓋——人解到一半又留著標記的版本會被驅動結果蓋掉（git 分支會辨識、svn 不會）。解到一半請先把標記清乾淨再下 `svn commit`。
