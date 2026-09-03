@@ -999,7 +999,11 @@
         "彈窗",
         "強化 AEC",
         "改 AEC HUD",
-        "記憶系統開發"
+        "記憶系統開發",
+        "d_pending",
+        "AEC-Pending",
+        "尚未寫",
+        "見下一動"
       ],
       "scope": "global"
     },
@@ -2871,6 +2875,72 @@
         "提前結束回合",
         "run_verify 背景",
         "收尾被擋"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄",
+      "path": "_AIDocs/_atoms/工作流/多模型協作/codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄.md",
+      "triggers": [
+        "codex exec",
+        "codex 沙箱",
+        "read-only sandbox",
+        "CreateProcessWithLogonW",
+        "1385",
+        "第二意見",
+        "獨立掃碼",
+        "codex 報告",
+        "--output-last-message"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "winforms-contextmenustrip-不可在closed事件裡dispose-項目click在關閉後才跑會炸objectdisposed",
+      "path": "memory/dotnet/WinForms/winforms-contextmenustrip-不可在closed事件裡dispose-項目click在關閉後才跑會炸objectdisposed.md",
+      "triggers": [
+        "ContextMenuStrip",
+        "ObjectDisposedException",
+        "Closed 事件",
+        "Dispose",
+        "右鍵選單",
+        "ToolStripMenuItem Click",
+        "WinForms 釋放",
+        "GDI 洩漏",
+        "CreateHandle"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "system-text-json反序列化會丟掉dictionary屬性初始值的comparer-載入後要重建",
+      "path": "memory/dotnet/序列化/system-text-json反序列化會丟掉dictionary屬性初始值的comparer-載入後要重建.md",
+      "triggers": [
+        "System.Text.Json",
+        "JsonSerializer.Deserialize",
+        "Dictionary comparer",
+        "OrdinalIgnoreCase",
+        "大小寫不分",
+        "反序列化",
+        "載入後查不到",
+        "StringComparer"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "coding-style掃碼重構sop-量化掃加獨立第二意見-特徵測試先行-純重構以自測報告逐行相同為證",
+      "path": "memory/工作流/重構/coding-style掃碼重構sop-量化掃加獨立第二意見-特徵測試先行-純重構以自測報告逐行相同為證.md",
+      "triggers": [
+        "掃碼",
+        "重構",
+        "coding-style",
+        "優化重構",
+        "重災區",
+        "零行為變更",
+        "characterization",
+        "特徵測試",
+        "自測報告 diff",
+        "拆 partial",
+        "純重構",
+        "行為修正分 commit"
       ],
       "scope": "global"
     }

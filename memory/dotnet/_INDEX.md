@@ -13,5 +13,6 @@
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
 | ASPNET | 2 | `memory/dotnet/ASPNET/_INDEX.md` |
-| WinForms | 4 | `memory/dotnet/WinForms/_INDEX.md` |
+| WinForms | 5 | `memory/dotnet/WinForms/_INDEX.md` |
+| 序列化 | 1 | `memory/dotnet/序列化/system-text-json反序列化會丟掉dictionary屬性初始值的comparer-載入後要重建.md` |
 | 建置 | 3 | `memory/dotnet/建置/_INDEX.md` |

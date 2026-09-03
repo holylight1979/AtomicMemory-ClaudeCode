@@ -42,6 +42,32 @@ function aecSeverity(a, b) {
   return "routine";
 }
 
+// ─── (d)/(h) pending：把「記憶寫入」推到之後（純函式；MIRROR hooks/wg_evasion.py
+// _AEC_PENDING_RE / _AEC_DONE_RE / _AEC_H_ATOM_RE / aec_pending_items — keep in sync）──
+const AEC_PENDING_RE = /(?:尚未|還沒|還未|沒有|未)\s*(?:寫|記|落|建|補)|待\s*(?:寫|補|記|落|建)|(?:稍後|之後|回頭|等會|等一下|晚點|下輪|下回|下個\s*session|下一動)\s*(?:再)?\s*(?:寫|補|記|落|建)|見下一動|TODO|pending/iu;
+const AEC_DONE_RE = /已\s*(?:寫|append|更新|replace|併|補|落|記|建)|不寫|不記|不落/iu;
+const AEC_H_ATOM_RE = /(?:寫|補|建|落|記)[^，,；;。]{0,12}?(?:atom|記憶|知識)|atom_write/iu;
+
+function aecVerdict(line) {
+  // `- <項目> → <結論>` 取最後一個箭頭後的結論段；無箭頭取整行。
+  for (const arrow of ["→", "->"]) {
+    const i = line.lastIndexOf(arrow);
+    if (i >= 0) line = line.slice(i + arrow.length);
+  }
+  return line.trim();
+}
+function aecPendingItems(d, h) {
+  const out = [];
+  for (const line of String(d == null ? "" : d).split("\n")) {
+    const verdict = aecVerdict(line);
+    if (!verdict || AEC_DONE_RE.test(verdict)) continue;
+    if (AEC_PENDING_RE.test(verdict)) out.push(line.trim().slice(0, 120));
+  }
+  const hs = String(h == null ? "" : h).trim();
+  if (hs.includes("下一動") && AEC_H_ATOM_RE.test(hs)) out.push("(h) " + hs.slice(0, 120));
+  return out;
+}
+
 // 摘取欄位前 n 個非空行（notable/real chip 短展開用）。
 function firstLines(v, n) {
   const lines = String(v || "").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -55,6 +81,7 @@ async function toolAntiEvasionReport(id, args) {
   const a = String(args && args.a != null ? args.a : "");
   const b = String(args && args.b != null ? args.b : "");
   const sev = aecSeverity(a, b);
+  const pending = aecPendingItems(args && args.d, args && args.h);
 
   let text;
   if (sev === "routine") {
@@ -66,6 +93,12 @@ async function toolAntiEvasionReport(id, args) {
     if (!aecBlank(a)) lines.push("  (a) 缺失修補：" + firstLines(a, 3));
     if (!aecBlank(b)) lines.push("  (b) 逃避通報：" + firstLines(b, 3));
     text = lines.join("\n");
+  }
+  if (pending.length) {
+    // 報告是收尾檢核不是待辦清單：記憶寫入推到之後 → 當下回告（Python Stop 另擋一次）。
+    text += "\n⛔ (d)/(h) 有 " + pending.length + " 項把記憶寫入推到之後：\n" +
+      pending.map((x) => "  ✗ " + x).join("\n") +
+      "\n現在 atom_write 寫完，再重新呼叫 anti_evasion_report 改成「→ 已寫入 atom <名>」；否則 Stop 會擋。";
   }
   return sendToolResult(id, text);
 }
@@ -230,7 +263,7 @@ function apiAecDecisionPost(req, res) {
 }
 
 module.exports = {
-  aecBlank, aecSeverity,
+  aecBlank, aecSeverity, aecPendingItems,
   toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus,
   apiAecTempfiles, readLedgerAlive,

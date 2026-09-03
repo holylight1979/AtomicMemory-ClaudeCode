@@ -21,7 +21,7 @@ from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
 from wg_evasion import (
     is_test_command, detect_test_failure, aec_severity, crosscheck_aec_severity,
-    _aec_blank,
+    _aec_blank, aec_pending_items,
 )
 from wg_atoms import _trigger_incremental_index
 from wg_extraction import is_plan_filename
@@ -553,6 +553,18 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             report["b"] = (
                 f"模型自評「{b or '無'}」，但 hook 實測 {len(evidence)} 筆退避命中：{ev_lines}"
                 "（cross-check 升級，不信自評）"
+            )
+        # (d)/(h) pending：把「記憶寫入」推到之後（尚未寫／見下一動／下一動＝寫 atom）。
+        # 報告是收尾檢核，不是待辦清單——落 d_pending 供 HUD 標紅，並回告模型當回合補寫；
+        # Stop 端讀 d_pending 擋一次（AEC-Pending Gate），逼 atom_write 後重新 emit。
+        pending = aec_pending_items(vals["d"], vals["h"])
+        if pending:
+            report["d_pending"] = pending
+            aec_reject_msgs.append(
+                f"[Guardian:AEC-Pending] (d)/(h) 有 {len(pending)} 項把記憶寫入推到之後：\n"
+                + "\n".join(f"  ✗ {x}" for x in pending)
+                + "\n值得寫就現在 atom_write 寫完，再重新呼叫 anti_evasion_report 把該項改成"
+                "「→ 已寫入 atom <名>」（或「→ 不寫（理由）」）；否則 Stop 會擋。"
             )
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)

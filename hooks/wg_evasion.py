@@ -460,6 +460,48 @@ def crosscheck_aec_severity(
     return sev, False
 
 
+# ─── AEC (d)/(h) pending 判定：把「記憶寫入」推到之後 ────────────────────────
+# MIRROR: tools/workflow-guardian-mcp/lib/anti-evasion.js AEC_PENDING_RE / AEC_DONE_RE /
+# AEC_H_ATOM_RE / aecPendingItems — keep in sync（parity test 在 verify_aec_emission_gate）。
+_AEC_PENDING_RE = re.compile(
+    r"(?:尚未|還沒|還未|沒有|未)\s*(?:寫|記|落|建|補)"
+    r"|待\s*(?:寫|補|記|落|建)"
+    r"|(?:稍後|之後|回頭|等會|等一下|晚點|下輪|下回|下個\s*session|下一動)\s*(?:再)?\s*(?:寫|補|記|落|建)"
+    r"|見下一動|TODO|pending",
+    re.IGNORECASE,
+)
+_AEC_DONE_RE = re.compile(r"已\s*(?:寫|append|更新|replace|併|補|落|記|建)|不寫|不記|不落", re.IGNORECASE)
+_AEC_H_ATOM_RE = re.compile(r"(?:寫|補|建|落|記)[^，,；;。]{0,12}?(?:atom|記憶|知識)|atom_write", re.IGNORECASE)
+
+
+def _aec_verdict(line: str) -> str:
+    """`- <項目> → <結論>` 取最後一個箭頭後的結論段；無箭頭取整行。"""
+    for arrow in ("→", "->"):
+        if arrow in line:
+            line = line.rsplit(arrow, 1)[1]
+    return line.strip()
+
+
+def aec_pending_items(d: Optional[str], h: Optional[str]) -> List[str]:
+    """(d) 記憶收錄帳／(h) 收尾判定裡「把記憶寫入推到之後」的項目（純內容判定）。
+
+    (d) 逐行看結論段：含「已寫／不寫」類定論 → 放過；否則命中 pending 語
+    （尚未寫／待補／見下一動／TODO…）→ 列入。(h)：「下一動」且動詞指向 atom／記憶
+    → 列入——(h) 只准列使用者要做的事，寫 atom 是模型自己當下就能做的。
+    列表非空＝報告把記憶留給下一回合；post_tool_use 落 d_pending、Stop 擋一次逼補寫。"""
+    out: List[str] = []
+    for line in (d or "").splitlines():
+        verdict = _aec_verdict(line)
+        if not verdict or _AEC_DONE_RE.search(verdict):
+            continue
+        if _AEC_PENDING_RE.search(verdict):
+            out.append(line.strip()[:120])
+    hs = (h or "").strip()
+    if "下一動" in hs and _AEC_H_ATOM_RE.search(hs):
+        out.append("(h) " + hs[:120])
+    return out
+
+
 def read_transcript_tail(
     transcript_path: Optional[Path], max_bytes: int = 2_000_000
 ) -> str:

@@ -218,6 +218,6 @@
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "light",
-  "switchModelsOnFlag": true,
-  "model": "fable[1m]"
+  "switchModelsOnFlag": false,
+  "model": "claude-fable-5-1[1m]"
 }

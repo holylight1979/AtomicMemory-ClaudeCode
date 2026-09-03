@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 索引衝突, _atom_index.json 衝突, MEMORY.md 衝突, _ATOM_INDEX.md 衝突, _INDEX.md 衝突, _local_catalog.md 衝突, merge driver, 合併驅動, rebase 衝突, pull --rebase 衝突, CRLF 衝突, 索引三檔, merge-atom-index, gitattributes, --resolve, IndexConflict, MergeDriver, svn update 衝突, svn resolve, svn:eol-style
 - Created-at: 2026-09-02
-- Related: git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, repo-全面-lf-決策與守衛鏈, workflow-svn
+- Related: git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, repo-全面-lf-決策與守衛鏈, workflow-svn, git-合併與換行的實證事實-text-auto-不回頭轉-stage-方向-孤立-cr-是-binary-driver-缺-command-會-fatal, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出
 
 ## 知識
 

@@ -206,7 +206,9 @@ function renderCard(r) {
     // 舊報告（2026-09 前）只有 a–d 且 d=衍生暫存：無 e 欄視為舊格式，d 以舊標籤渲染。
     (r.e == null
       ? sectionHtml("d", "衍生暫存清單（舊格式；實際尚存者見下方殘檔面板）", r.d)
-      : sectionHtml("d", "記憶收錄帳", r.d) +
+      : sectionHtml("d", "記憶收錄帳" + (r.d_pending && r.d_pending.length
+            ? ' <span class="badge real">未寫入 ' + r.d_pending.length + " 項（Stop 已擋、待補寫後重提）</span>"
+            : ""), r.d) +
         sectionHtml("e", "未告知決策＋未驗證假設", r.e) +
         sectionHtml("f", "靜默狀態改變", r.f) +
         sectionHtml("g", "版控收尾", r.g) +

@@ -740,18 +740,45 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "  (a) 缺失發現與修補清單：`- 檔:行 — 改了什麼`；無則填「無」。**必寫**\n"
                 "  (b) AI 逃避通報：本次有/沒有 忽略 / 偷埋的現象；**僅發生時填**，否則「無」\n"
                 "  (c) Token 累積警示：見 hook `[Auto-Handoff]` 預警則判斷失真並附接續 prompt；**僅發生時填**，否則「無」\n"
-                "  (d) 記憶收錄帳：本 session 值得留給日後的知識/經驗逐項列——已寫入（atom 名）或判定不寫（一句理由）；"
-                "涵蓋：尚未紀錄的踩坑、帶日期戳的外查資料、偏好/契約、既有 atom 更新/重分類、重點歸納。**必寫**，無則「無」\n"
+                "  (d) 記憶收錄帳：先掃五個來源——①使用者指正/退回/重申的話 ②重試≥2 次或查了才懂的機制/踩坑 "
+                "③外查來的事實（帶日期） ④我做的取捨/契約/偏好 ⑤既有 atom 被證錯或要補的——逐項 "
+                "`- <項目> → 已寫入 atom <名>` 或 `→ 不寫（一句理由）`；值得寫的在呼叫 tool **之前** atom_write 完，"
+                "⛔「尚未寫／見下一動」會被擋。**必寫**，無則「無」\n"
                 "  (e) 未告知決策＋未驗證假設：擅自的取捨（默默選方案/跳過步驟/動了請求之外的檔）與依賴但未驗證的假設；無則「無」\n"
                 "  (f) 靜默狀態改變：對話沒交代的環境副作用——裝套件/改 config/重啟服務/建排程/仍在跑的背景程序；無則「無」\n"
                 "  (g) 版控收尾：哪些已 commit、哪些未上及理由（併發進度/待拍板/隱私）；無改動則「無」\n"
-                "  (h) 收尾判定：單句——「可關閉」或「下一動＝…」。**必寫**\n"
+                "  (h) 收尾判定：單句——「可關閉」或「下一動＝…」（只列使用者要做的事；寫 atom/補測試/commit 是你自己能做的，先做完）。**必寫**\n"
                 "  (i) 衍生暫存清單：**一行一路徑** `<路徑> — <備註>`（絕對或相對 cwd，可 glob）；只列「此刻尚存、留給使用者裁決」的，已刪的不列、純說明不列（預設完工即刪）；**必寫**，無則「無」\n"
                 "九參都 required、未發生填「無」。不得用 prose「不在範圍 / 留給未來」籠統帶過。"
             )
             write_state(session_id, state)
             output_block(reason)
             return
+
+    # ── AEC-Pending Gate：報告把「記憶寫入」推到之後 ─────────────────
+    # (d)「尚未寫／見下一動」、(h)「下一動＝寫 atom」= 把知識留給下一回合（使用者要再問一次
+    # 才會補）。post_tool_use 判定落 report["d_pending"]；此處每 turn 擋一次（共用 max_blocks
+    # 預算）：模型 atom_write 後重新 emit → 新報告無 d_pending → 放行。
+    pending = aec.get("d_pending") or []
+    if (
+        emitted_this_turn and pending
+        and state.get("aec_pending_gate_turn") != turn_seq
+        and stop_count < max_blocks
+    ):
+        state["aec_pending_gate_turn"] = turn_seq
+        state["stop_blocked_count"] = stop_count + 1
+        append_guard_log("aec_pending", {
+            "session_id": session_id, "turn_seq": turn_seq, "items": pending[:5],
+        })
+        write_state(session_id, state)
+        output_block(_piggyback(
+            f"[Guardian:AEC-Pending] 收尾檢核把 {len(pending)} 項記憶寫入推到之後：\n"
+            + "\n".join(f"  ✗ {x}" for x in pending[:5])
+            + "\n這等於把知識留給下一回合（使用者要再問一次才會補），違反反退避契約。"
+            "現在就 atom_write 寫完，再重新呼叫 anti_evasion_report 把該項改成"
+            "「→ 已寫入 atom <名>」（或「→ 不寫（一句理由）」）；(h) 只列使用者要做的事。"
+        ))
+        return
 
     # HUD 不可達且本回合 emit 為 notable/real-evasion → 大聲 fallback 回 chat（可觀測性鐵律：
     # push 不到窗不得 fail-silent）。post_tool_use 標旗，此處消費一次（新 emit 再標則再補，
