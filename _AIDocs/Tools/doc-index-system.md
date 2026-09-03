@@ -210,7 +210,7 @@ V2.21 引入、V5 沿用：
 | `run_verify.py` | 跨平台 entrypoint（動態掃 `{src}/verify/`）|
 | `pytest.ini` | `python_files = test_*.py verify_*.py` |
 | `hooks/verify/` / `tools/verify/` / `tools/codex-companion/verify/` / `lib/verify/` | 14 個 verify_*.py（283 passed baseline）|
-| `skills/{name}/verify/` | 17 個空結構 + .gitkeep + README（候選見 `_staging/next-phase-skills-verify.md`）|
+| `skills/{name}/verify/` | 僅 `skills/_archived/{init-roles,conflict-review}/verify/` 留存；active skill 的 15 個空 stub 於 commit `8978222` 當死碼清除，補 verify 計畫作廢 |
 
 ## 行動
 

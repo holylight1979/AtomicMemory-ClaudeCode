@@ -29,6 +29,7 @@
 | 20 | 核心記憶分類階層化-2026-08.md | 核心記憶分類階層化 S1–S5 編年（起因與使用者原則原文 + 兩根／11 個 Lv1 目標形狀 + 被否決方案與理由 + 五階段 commit／驗證數字 + 附帶修掉的 bug + 遺留議題 + 總管模式協作） | 分類階層化, taxonomy, 範疇資料夾, memory/Failures, MEMORY.md 目錄, 寫入閘, domain 必填, atom-categorize, 兩根, 使用面 開發面, 總管模式, S1–S5 |
 | 20 | memory-system-review-2026-08.md | 原子記憶系統 × CC 原生記憶 × 業界主流三方比對評估（as-built 管線逐檔核對＋優缺點／可補強／該修正各標已處理／待辦＋修前後數據＋單一決策點：積累端 provenance＋週期整併） | 三方比對, 記憶系統評估, RRF, ACT-R, 注入預算, provenance, cross-encoder, 積累端, CC auto-memory, 業界主流, 2026-08 |
 | 21 | injection-budget-investigation-2026-08.md | 注入變弱調查編年（三假設證偽：MEMORY.md 瘦身／分類閘／中文檔名 → 根因 TURN_BUDGET_LIMIT 縮量未回調 → 五次修正各附證據／修法／驗證／commit → 未做與理由 → 回訪四指標 → 教訓） | 注入變弱, TURN_BUDGET_LIMIT, 裁切回填, compute_token_budget, token 分級, 同題去冗, redundancy_gate, 橋接檔 slug, 回訪機制, followup-check, injection-turns.jsonl, 全文率 |
+| 22 | taxonomy-engine-半統一設計-2026-06.md | 分類／去蕪統一引擎設計與執行紀錄（半統一裁決：`score_by_lexicon` 單一計分源 + Realm／Taxonomy adapter 並存；Phase A 核心落地、晉升閘與跨 realm 逃逸閘；DedupStage 已於 `755ce07` 停產；Phase B/C 專案端 thin shim 未執行） | taxonomy, classify, score_by_lexicon, atom_classify, 半統一, adapter, RealmStrategy, TaxonomyStrategy, 逃逸閘, DedupStage, Phase B, thin shim, classify-project-atoms |
 
 > 2026-05-27 Wave 5 Session 2 已歸檔（移至 `memory/_distant/2026_05_v5_overhaul/`，git 不再追蹤）：`session-logs/` / `memory-cleanup-2026-04/` / `atomic-memory-evolution/` / `ab-test-gemma4/` / `atom-v4/` / `atom-v4-phases/` / `changelog-roll/` / `v41-handoffs/` / `v41-p4-simulation/` / `wg-docdrift/`
 

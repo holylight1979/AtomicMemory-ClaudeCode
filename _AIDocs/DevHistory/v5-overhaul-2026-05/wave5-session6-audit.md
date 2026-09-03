@@ -180,7 +180,7 @@
 
 ## 留下 session
 
-- G `next-phase-hardcoded-paths.md` 執行（V5 寫死路徑全面盤點，獨立 staging 已存）
+- G `next-phase-hardcoded-paths.md` 執行（V5 寫死路徑全面盤點，獨立 staging 已存）（2026-09-03 已刪：盤點行號過期、atom 路徑已由 `lib/atom_locations.py` 集中，Wave A–D 未採行）
 - H `next-phase-tests-prune.md` 執行（tests/ 進一步精簡決議，本 session 新建 staging）
 
 兩條互不依賴，可並行 / 順序皆可。
