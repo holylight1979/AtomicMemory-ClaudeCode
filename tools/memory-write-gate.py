@@ -272,7 +272,7 @@ def write_audit_log(action: str, content_preview: str, quality: float, **extra: 
     }
     entry.update(extra)
     try:
-        with open(AUDIT_LOG, "a", encoding="utf-8") as f:
+        with open(AUDIT_LOG, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
         # Log rotation: >10MB → rotate

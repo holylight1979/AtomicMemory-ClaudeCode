@@ -181,7 +181,7 @@ def check_rescue_hits(
         try:
             lp = log_path or RESCUE_LOG
             lp.parent.mkdir(parents=True, exist_ok=True)
-            with open(lp, "a", encoding="utf-8") as f:
+            with open(lp, "a", encoding="utf-8", newline="\n") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             hit_keys.append(dedupe)
             written += 1

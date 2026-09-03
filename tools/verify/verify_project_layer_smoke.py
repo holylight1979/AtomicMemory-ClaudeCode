@@ -14,7 +14,7 @@ shared/<domain>/）必須照舊：路徑判定、failures 落點、注入閘門�
   - 案例 4（memory-audit --project-dir 0 error；atom-categorize plan --memory-dir 出對映草案；
     conflict-review approve 經範疇閘）：test_case4_*
   - 案例 5（sync-memory-index --memory-dir 專案 catalog：marker 區塊 upsert、無 marker → check
-    exit 1、CRLF 手寫段逐 byte 不動、不生 _INDEX.md／_local_catalog.md；`cwd=<tmp>/proj` 下
+    exit 1、CRLF 手寫段轉 LF 後逐字不動、不生 _INDEX.md／_local_catalog.md；`cwd=<tmp>/proj` 下
     run_verify 全綠由收尾手動跑）：test_case5_*
 hook 子程序以唯一 session_id 跑真實 handler（同真 session 的副作用：workflow/state-<sid>.json，
 測後刪；vector starter fire-and-forget 為 SessionStart 常態）。
@@ -418,19 +418,22 @@ HANDWRITTEN_CRLF = (
 ).encode("utf-8")
 
 
-def test_case5_project_catalog_check_missing_then_write_preserves_crlf(proj):
+HANDWRITTEN_LF = HANDWRITTEN_CRLF.replace(b"\r\n", b"\n")
+
+
+def test_case5_project_catalog_check_missing_then_write_normalizes_to_lf(proj):
     mem = proj / ".claude" / "memory"
     (mem / "MEMORY.md").write_bytes(HANDWRITTEN_CRLF)
     # 無 marker → --check drift（exit 1 + 專用訊息）
     r = _smi(mem, "--check")
     assert r.returncode == 1 and "project catalog block missing" in r.stderr, (r.returncode, r.stderr)
-    # --write 追加檔尾；手寫段逐 byte 不動；行尾沿用 CRLF；不生 _INDEX.md / _local_catalog.md
+    # --write 追加檔尾；手寫段逐字不動（換行轉 LF）；全檔 LF；不生 _INDEX.md / _local_catalog.md
     w = _smi(mem, "--write")
     assert w.returncode == 0, (w.stdout, w.stderr)
     raw = (mem / "MEMORY.md").read_bytes()
-    assert raw.startswith(HANDWRITTEN_CRLF.rstrip(b"\r\n")), raw[:200]
+    assert raw.startswith(HANDWRITTEN_LF.rstrip(b"\n")), raw[:200]
     assert b"<!-- atom-catalog -->" in raw and b"<!-- /atom-catalog -->" in raw
-    assert b"\n" not in raw.replace(b"\r\n", b""), "出現非 CRLF 行尾"
+    assert b"\r" not in raw, "落檔必須全 LF"
     assert not list(mem.rglob("_INDEX.md")) and not (mem / "_local_catalog.md").exists()
     # 已同步 → --check 0；再 --write 冪等
     assert _smi(mem, "--check").returncode == 0
@@ -448,6 +451,6 @@ def test_case5_project_catalog_check_missing_then_write_preserves_crlf(proj):
     assert _smi(mem, "--check").returncode == 1
     assert _smi(mem, "--write").returncode == 0
     raw2 = (mem / "MEMORY.md").read_bytes()
-    assert raw2.startswith(HANDWRITTEN_CRLF.rstrip(b"\r\n"))
+    assert raw2.startswith(HANDWRITTEN_LF.rstrip(b"\n"))
     assert raw2.count(b"<!-- atom-catalog -->") == 1
     assert "| 驗證與實證 | 1 |".encode("utf-8") in raw2

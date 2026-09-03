@@ -790,12 +790,12 @@ def test_23_learned_lexicon_roundtrip(tmp_path, monkeypatch):
     assert r["realm"] == "local" and r["domain"] == "OS/Windows/WSL"
 
 
-# ─── 24. append CRLF byte-stability（parity：拼接統一走 py 單一實作）─────
+# ─── 24. append 對 CRLF 輸入：落檔全 LF、既有行原序保留（parity：拼接統一走 py 單一實作）─────
 
 
-def test_24_append_crlf_byte_stability(isolated_claude):
-    """CRLF 既有檔 append 後：行尾全保 CRLF、零混寫（\\r\\r\\n）、既有行 byte 不動。
-    覆 lib/atom_io.py:_atomic_write L135-138 註解描述的混寫風險面。"""
+def test_24_append_crlf_input_normalized_to_lf(isolated_claude):
+    """CRLF 既有檔 append 後：全檔 LF、零 \\r、既有行（LF 正規化後）原序保留。
+    覆 lib/atom_io.py:write_text_lf 的「一律 LF」契約。"""
     from lib.atom_io import append_atom_file
 
     write_atom(
@@ -812,14 +812,13 @@ def test_24_append_crlf_byte_stability(isolated_claude):
     assert result.ok, result.error
 
     raw = fp.read_bytes()
-    assert b"\r\r\n" not in raw, "CRLF 二次翻譯（CR CR LF）"
-    assert raw.count(b"\n") == raw.count(b"\r\n"), "混寫：存在裸 LF"
-    lines = raw.split(b"\r\n")
+    assert b"\r" not in raw, "落檔必須全 LF"
+    lines = raw.split(b"\n")
     assert "- original-fact".encode() in lines
     assert "- new-fact-crlf".encode() in lines
-    # 既有行 byte 不動：除插入行與其間隔外，原行序列完整保留
-    old_lines = [ln for ln in crlf_bytes.split(b"\r\n") if ln]
-    new_lines = [ln for ln in raw.split(b"\r\n") if ln]
+    # 既有行（LF 正規化後）原序保留：除插入行與其間隔外，原行序列完整
+    old_lines = [ln for ln in crlf_bytes.replace(b"\r\n", b"\n").split(b"\n") if ln]
+    new_lines = [ln for ln in lines if ln]
     assert [ln for ln in new_lines if ln in old_lines] == old_lines
 
 
@@ -857,15 +856,15 @@ def test_25_cli_build_append_cross_language(tmp_path):
     assert res["ok"], res.get("error")
     assert res["extra"]["content"] == expected
 
-    # append：CRLF 既有檔 → 落檔全 CRLF 零混寫（server.js spawn 的同一條路）
+    # append：CRLF 既有檔 → 落檔全 LF（server.js spawn 的同一條路）
     fp = tmp_path / "cli-append.md"
     fp.write_bytes(expected.replace("\n", "\r\n").encode("utf-8"))
     res2 = run_cli({"action": "append", "file_path": str(fp),
                     "knowledge": ["cli-appended"], "source": "test"})
     assert res2["ok"], res2.get("error")
     raw = fp.read_bytes()
-    assert b"\r\r\n" not in raw and raw.count(b"\n") == raw.count(b"\r\n")
-    assert "- cli-appended".encode() in raw.split(b"\r\n")
+    assert b"\r" not in raw
+    assert "- cli-appended".encode() in raw.split(b"\n")
 
     # delegation guard：三處已 spawn py、js 自拼 splice 已退役（拆檔：toolAtomWrite 居 lib/atom-tools.js）
     server_js = LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "atom-tools.js"

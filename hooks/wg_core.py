@@ -464,7 +464,7 @@ def _load_registry() -> Dict[str, Any]:
 def _save_registry(reg: Dict[str, Any]) -> None:
     REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = REGISTRY_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
     tmp.replace(REGISTRY_PATH)
 
 
@@ -791,7 +791,7 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
             lock_fh = None
 
     try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
         tmp_path.replace(path)
     except OSError:
@@ -1000,7 +1000,7 @@ def log_promotion_audit(action: str, atom: str, **fields: Any) -> None:
                  "action": action, "atom": atom}
         entry.update(fields)
         audit_path = MEMORY_DIR / "_promotion_audit.jsonl"
-        with open(audit_path, "a", encoding="utf-8") as f:
+        with open(audit_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
         _atom_debug_error("promotion:audit_append", e)
@@ -1050,7 +1050,7 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
         rotate_log_if_oversized(log_path, max_mb=5, keep=2)
         entry = {"at": _now_iso()}
         entry.update(payload)
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
         _atom_debug_error(f"guard_log:{guard}", e)
@@ -1070,7 +1070,7 @@ def _atom_debug_log(tag: str, content: str, config: Dict[str, Any] = None) -> No
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"atom-debug-{datetime.now().strftime('%Y-%m-%d_%H')}.log"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(f"[{ts}][{tag}] {content.strip()}\n\n")
     except Exception:
         pass

@@ -34,7 +34,7 @@ def _state_path(session_id: str) -> Path:
 def _atomic_write(path: Path, data: Dict[str, Any]) -> None:
     """Write JSON atomically via .tmp + rename."""
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
     tmp.replace(path)
 
 

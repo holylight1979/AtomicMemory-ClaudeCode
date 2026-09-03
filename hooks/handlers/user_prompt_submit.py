@@ -44,7 +44,7 @@ def _write_decision_file(p: Path, data: Dict[str, Any]) -> None:
     """決策檔回寫（atomic tmp→replace）。fail-open。"""
     try:
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         tmp.replace(p)
     except Exception:
         pass
@@ -196,7 +196,7 @@ def _ups_sentinel_check_and_arm(
                 "at": _now_iso(),
             }, ensure_ascii=False),
             encoding="utf-8",
-        )
+        newline="\n")
     except Exception:
         pass
 

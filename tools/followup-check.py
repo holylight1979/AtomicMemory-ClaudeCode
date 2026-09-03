@@ -49,7 +49,7 @@ def load() -> dict:
 
 def save(data: dict) -> None:
     FOLLOWUPS.parent.mkdir(parents=True, exist_ok=True)
-    FOLLOWUPS.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    FOLLOWUPS.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
 
 
 def _d(s: str) -> date:

@@ -89,10 +89,10 @@ def sync(native_mem: Path, atoms: list[dict], dry_run: bool = False,
         # 該 dir 竟是 atom 索引 dir（不該發生）——寫入會加劇撞名，拒絕
         return {"written": False, "reason": "目標 MEMORY.md 含 atom 索引表頭，拒寫（撞名防護）"}
     if not dry_run:
-        bridge.write_text(content, encoding="utf-8")
+        bridge.write_text(content, encoding="utf-8", newline="\n")
         if need_line:
             new = (old.rstrip("\n") + "\n" if old.strip() else "") + MEMORY_MD_LINE + "\n"
-            mem_md.write_text(new, encoding="utf-8")
+            mem_md.write_text(new, encoding="utf-8", newline="\n")
     return {
         "written": not dry_run,
         "bridge": str(bridge),

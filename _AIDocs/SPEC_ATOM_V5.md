@@ -194,7 +194,7 @@ atom 已建立後要動 frontmatter 的 `Trigger`/`Related`/`Tags`，不重建�
 | 契約項 | 規範 |
 |---|---|
 | 可改欄位 | 僅 `triggers` / `related` / `tags`（None 表不動該欄；至少傳一個）。知識區、信心 tag、計數類欄位皆不在範圍 |
-| byte-stable | per-label regex 只就地替換目標那一行（`count=1`），其餘 byte 原樣保留（含既有 EOL / BOM）；找不到欄位行 → 不靜默 no-op，回 error |
+| byte-stable | per-label regex 只就地替換目標那一行（`count=1`），其餘內容原樣保留（BOM 保留；行尾一律 LF，走 `write_text_lf`）；找不到欄位行 → 不靜默 no-op，回 error |
 | SoT 順序 | triggers 變更時 **先寫 `_atom_index.json`（機器唯一源）**，成功才續寫 frontmatter（衍生）；index 領先失敗即中止、不寫 frontmatter，避免不可復原 drift。部分失敗由 `tools/sync-atom-index.py --fix` 冪等復原 |
 | 走既有 funnel | triggers 段複用 `write_index`、frontmatter 段複用 `write_raw(op="meta-edit")`，皆入 `_meta/atom_io_audit.jsonl` |
 | source 規範 | 須在 `VALID_SOURCES`（預設 `mcp`）|
@@ -401,7 +401,7 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續�
 - **用法**：表格/程式碼當「獨立 knowledge 元素」傳入；引言句放前一個元素。
 - **單一實作（2026-06-12 parity 方案 B）**：內容構造/拼接唯一邏輯 = `lib/atom_spec.py:render_knowledge_lines` / `build_atom_content` + `lib/atom_io.py:_build_append_content`。MCP server.js 的 create/replace 構造與 append 拼接改 **spawn `lib.atom_io_cli` 新 action `build`/`append`**；js `buildAtomContent`/`renderKnowledgeLines` 退役為 parity fixture（test_13 仍守 js 鏡像不漂移）。
 - **create + append 皆 block-aware**；append 對表格/fence 開頭自動補一空行隔開既有知識。
-- **守門**：`lib/verify/verify_atom_io_equivalence.py` test_11/12（py funnel）+ test_13（py↔js byte-parity，spawn node 經 `module.exports` 對拍）+ **test_24/25**（append CRLF byte-stability + CLI build/append 跨語言對拍 + server.js delegation source-guard）。
+- **守門**：`lib/verify/verify_atom_io_equivalence.py` test_11/12（py funnel）+ test_13（py↔js byte-parity，spawn node 經 `module.exports` 對拍）+ **test_24/25**（append 遇 CRLF 輸入 → 輸出全 LF 且既有行順序不變 + CLI build/append 跨語言對拍 + server.js delegation source-guard）。
 - **下游零衝擊**：conflict-detector 只抽 `- ` 行（表格列被忽略，非誤判）、注入剝離整段保留、write-gate 不檢行格式、逐行 `[固]` parse 不匹配表格列。
 - **注意**：server.js 改動需重啟 MCP server 進程才生效；Python funnel（hooks/tools）下次呼叫即生效。
 

@@ -489,7 +489,7 @@ def run_server(port: int = 3849):
     # Write PID file for management
     pid_file = VECTORDB_DIR / "service.pid"
     VECTORDB_DIR.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text(str(os.getpid()))
+    pid_file.write_text(str(os.getpid()), newline="\n")
 
     def cleanup(signum=None, frame=None):
         print(f"\n[service] Shutting down...", file=sys.stderr)

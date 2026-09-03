@@ -245,11 +245,12 @@ template 內三個 server：
 兩台機器各自新增 atom 後 `git pull --rebase`，atom 本體不衝突，但索引三檔（`MEMORY.md` 範疇計數表、`_ATOM_INDEX.md`、`_atom_index.json`）在同區塊各加一列必衝突。merge driver 是機器級 git 設定、版控帶不動，所以每台機器都要跑一次：
 
 ```bash
-python tools/merge-atom-index.py --install   # 寫 global git config merge.atomindex + ~/.config/git/attributes（**/.claude/memory/* 三檔 merge=atomindex text eol=lf）
+python tools/merge-atom-index.py --install   # 寫 global git config merge.atomindex + ~/.config/git/attributes（**/.claude/memory/* 三檔 merge=atomindex）
 python tools/merge-atom-index.py --status    # 顯示「已安裝」即可；換 Python 後重跑 --install
 ```
 
-- 根層 repo 靠自帶的 `.gitattributes`，專案 repo 靠全域 attributes，專案不必改任何檔。
+- driver 綁定：根層 repo 靠自帶的 `.gitattributes`，專案 repo 靠全域 attributes，專案不必改任何檔。
+- 根層 repo 全部 LF 由 `.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘）進版控保證，不需要任何機器安裝；驗證 `python tools/normalize-eol.py --root --check`（有 CRLF/混行尾即 exit 1）。專案記憶樹要一併釘 LF：`python tools/normalize-eol.py --memory-dir <proj>/.claude/memory --write-gitattributes`（轉檔 + 寫入該專案 `.gitattributes` 區塊：`.claude/memory/** text eol=lf` 與索引三檔 `merge=atomindex`）。
 - 沒裝的機器 git 會靜默退回逐行三方 → 再看到索引三檔衝突＝那台沒裝；裝好後 `git rebase --abort` 重來即自動合。
 - 原理與「為何不從磁碟重建」見 `tools/merge-atom-index.py` 檔頭；驗證 `tools/verify/verify_merge_atom_index.py`。
 

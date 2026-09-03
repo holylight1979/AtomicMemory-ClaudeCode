@@ -178,7 +178,7 @@ def _regenerate_role_filtered_memory_index(
         trig_str = ", ".join(triggers) if triggers else ""
         lines.append(f"| {name} | {rel} | {trig_str} | {scope} |")
     try:
-        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     except OSError as e:
         _atom_debug_error("regenerate_memory_md", e)
 
@@ -261,7 +261,7 @@ def _refresh_vector_flag(
         return "cleared"
     try:
         flag.parent.mkdir(parents=True, exist_ok=True)
-        flag.write_text("ready", encoding="utf-8")
+        flag.write_text("ready", encoding="utf-8", newline="\n")
     except OSError:
         pass
     return "kept"

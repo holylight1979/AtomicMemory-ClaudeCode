@@ -91,7 +91,7 @@ def _load_json(path):
 
 def _save_json(path, data):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n")
 
 
 def _resolve_entry(server_def, npm_prefix):
@@ -127,7 +127,7 @@ def fast_path():
         FLAG_NEEDS_NODE.write_text(
             "Node.js not found.\n"
             "Install: winget install OpenJS.NodeJS.LTS\n"
-        )
+        , newline="\n")
         return
     if FLAG_NEEDS_NODE.exists():
         FLAG_NEEDS_NODE.unlink()

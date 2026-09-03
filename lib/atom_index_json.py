@@ -53,24 +53,13 @@ def find_index_dir(path: Path) -> Optional[Path]:
         cur = cur.parent
 
 
-def _write_text_preserving_eol(path: Path, content: str) -> None:
-    """tmp + rename 落檔，byte-stable EOL（對拍 atom_io._atomic_write）。
+def _write_text_lf(path: Path, content: str) -> None:
+    """tmp + rename 落檔，內容一律 LF（與 atom_io.write_text_lf 同規則；本模組只依賴 stdlib 故自帶一份）。
 
-    索引檔（_atom_index.json / _ATOM_INDEX.md）每次 upsert 都整檔 regen；若用
-    Path.write_text 預設 newline=None，Windows 會把 \\n 全翻成 os.linesep，使既有
-    CRLF 索引每次都整檔翻行尾（reformat blast 同源）。偵測既有檔行尾原樣套回，
-    newline="" 關平台轉譯——既有行 byte-stable、僅真正變動的列進 diff。
+    索引檔每次 upsert 都整檔 regen；newline="" 關掉平台轉譯，Windows 才不會把 \\n 翻成 \\r\\n。
+    tmp 後綴帶 PID+TID：索引檔全系統共用，併發 session upsert 不互踩。
     """
-    try:
-        raw = path.read_bytes()
-        eol = "\r\n" if b"\r\n" in raw else ("\n" if b"\n" in raw else os.linesep)
-    except OSError:
-        eol = os.linesep
     body = content.replace("\r\n", "\n").replace("\r", "\n")
-    if eol != "\n":
-        body = body.replace("\n", eol)
-    # tmp 後綴帶 PID+TID 唯一化（仿 atom_access._write_raw）：索引檔為全系統共用，
-    # 固定 ".tmp" 在併發 session upsert 時互踩（truncate 競態 → 半空索引）。
     import threading as _threading
     tmp = path.with_suffix(
         f"{path.suffix}.tmp.{os.getpid()}.{_threading.get_ident()}"
@@ -109,7 +98,7 @@ def load_atom_index_json(mem_dir: Path) -> Dict[str, Any]:
 def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:
     p = mem_dir / ATOM_INDEX_JSON
     p.parent.mkdir(parents=True, exist_ok=True)
-    _write_text_preserving_eol(
+    _write_text_lf(
         p, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
     )
 
@@ -205,7 +194,7 @@ def regenerate_atom_index_md(mem_dir: Path) -> None:
     lines.append("")
 
     md = mem_dir / ATOM_INDEX_MD
-    _write_text_preserving_eol(md, "\n".join(lines))
+    _write_text_lf(md, "\n".join(lines))
 
 
 # ─── Migration: parse legacy _ATOM_INDEX.md → JSON ──────────────────────────

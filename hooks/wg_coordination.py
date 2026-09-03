@@ -108,7 +108,7 @@ def record_warn_cache(session_id: str, file_path: str) -> None:
                 if isinstance(v, (int, float)) and now - v < 86400}
         data[norm_target] = now
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.write_text(json.dumps(data), encoding="utf-8", newline="\n")
         tmp.replace(p)
     except Exception:
         pass  # 去重失效無害，警告本體不受影響

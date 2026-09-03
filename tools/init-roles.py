@@ -139,7 +139,7 @@ def action_scaffold_roles(root: Path) -> Dict[str, Any]:
     if f.is_file():
         return {"action": "scaffold-roles", "ok": True,
                 "changed": False, "path": str(f), "note": "already exists"}
-    f.write_text(ROLES_TEMPLATE, encoding="utf-8")
+    f.write_text(ROLES_TEMPLATE, encoding="utf-8", newline="\n")
     return {"action": "scaffold-roles", "ok": True,
             "changed": True, "path": str(f)}
 
@@ -152,7 +152,7 @@ def _edit_roles_md(path: Path, update_fn) -> Dict[str, Any]:
     if new_text == text:
         return {"ok": True, "changed": False, "path": str(path)}
     tmp = path.with_suffix(".md.tmp")
-    tmp.write_text(new_text, encoding="utf-8")
+    tmp.write_text(new_text, encoding="utf-8", newline="\n")
     tmp.replace(path)
     return {"ok": True, "changed": True, "path": str(path)}
 
@@ -393,7 +393,7 @@ def action_install_hook(root: Path) -> Dict[str, Any]:
         except (OSError, UnicodeDecodeError):
             pass
     if changed:
-        dst.write_text(src_text, encoding="utf-8")
+        dst.write_text(src_text, encoding="utf-8", newline="\n")
     try:
         st = dst.stat().st_mode
         dst.chmod(st | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)

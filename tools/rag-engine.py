@@ -217,13 +217,13 @@ def cmd_start(args):
             [sys.executable, str(service_py)],
             creationflags=CREATE_NO_WINDOW,
             stdout=subprocess.DEVNULL,
-            stderr=open(VECTORDB_DIR / "service.log", "a"),
+            stderr=open(VECTORDB_DIR / "service.log", "a"),  # lf-exempt: fd 交給子行程寫 log，Python 端不寫入
         )
     else:
         subprocess.Popen(
             [sys.executable, str(service_py)],
             stdout=subprocess.DEVNULL,
-            stderr=open(VECTORDB_DIR / "service.log", "a"),
+            stderr=open(VECTORDB_DIR / "service.log", "a"),  # lf-exempt: fd 交給子行程寫 log，Python 端不寫入
             start_new_session=True,
         )
 

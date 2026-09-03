@@ -253,7 +253,7 @@ def _update_reflection_metrics(reason: str, undo_count: int) -> bool:
             v41["precision_observed"] = 1.0
 
         tmp = REFLECTION_METRICS_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         tmp.replace(REFLECTION_METRICS_PATH)
         return True
     except (OSError, json.JSONDecodeError) as e:

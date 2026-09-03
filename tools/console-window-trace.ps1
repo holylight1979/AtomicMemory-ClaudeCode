@@ -56,7 +56,8 @@ function Get-Chain([int]$startPid){
 
 function Write-Log([string]$msg){
   $ts = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.fff')
-  Add-Content -Path $LogPath -Value "[$ts] $msg" -Encoding utf8
+  # 一律 LF（Add-Content 預設寫 CRLF）
+  [IO.File]::AppendAllText($LogPath, "[$ts] $msg`n", [Text.UTF8Encoding]::new($false))
 }
 
 Write-Log "==================== TRACE START (dur=${DurationSec}s poll=${PollMs}ms pidSelf=$PID) ===================="

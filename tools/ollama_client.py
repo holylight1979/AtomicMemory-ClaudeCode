@@ -573,7 +573,7 @@ class OllamaClient:
                     "obtained_at": datetime.now().isoformat(),
                 }, ensure_ascii=False),
                 encoding="utf-8",
-            )
+            newline="\n")
         except OSError as e:
             logger.warning("Failed to save token: %s", e)
 
@@ -609,7 +609,7 @@ class OllamaClient:
                     f"（可在 config.json 的 ollama_backends.{backend.name}.enabled 手動重新啟用）"
                 ),
                 "created_at": datetime.now().isoformat(timespec="seconds"),
-            }, ensure_ascii=False, indent=2), encoding="utf-8")
+            }, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         except OSError:
             pass
 
@@ -651,7 +651,7 @@ def disable_backend(backend_name: str) -> bool:
         CONFIG_PATH.write_text(
             json.dumps(config, indent=2, ensure_ascii=False),
             encoding="utf-8",
-        )
+        newline="\n")
         # Clear marker + reset singleton so next get_client() picks up change
         OllamaClient._clear_long_die_marker()
         global _client_instance
@@ -676,7 +676,7 @@ def enable_backend(backend_name: str) -> bool:
         CONFIG_PATH.write_text(
             json.dumps(config, indent=2, ensure_ascii=False),
             encoding="utf-8",
-        )
+        newline="\n")
         OllamaClient._clear_long_die_marker()
         global _client_instance
         _client_instance = None

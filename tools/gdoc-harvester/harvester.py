@@ -310,7 +310,7 @@ async def capture_doc(doc_id: str, depth: int, context: BrowserContext) -> None:
     filename = sanitize_filename(title)
     filepath = safe_filepath(output_dir, filename, '.md')
 
-    with open(filepath, 'w', encoding='utf-8') as f:
+    with open(filepath, 'w', encoding='utf-8', newline="\n") as f:
         f.write(f'---\n')
         f.write(f'source: https://docs.google.com/document/d/{doc_id}\n')
         f.write(f'title: "{title}"\n')
@@ -446,7 +446,7 @@ async def capture_sheet(doc_id: str, depth: int, context: BrowserContext) -> Non
     # Save CSV
     if csv_data:
         csv_path = safe_filepath(output_dir, filename, '.csv')
-        with open(csv_path, 'w', encoding='utf-8') as f:
+        with open(csv_path, 'w', encoding='utf-8', newline="\n") as f:
             f.write(csv_data)
         print(f'  ✓ Sheet (CSV): {title} → {csv_path.name}')
 
@@ -459,7 +459,7 @@ async def capture_sheet(doc_id: str, depth: int, context: BrowserContext) -> Non
         markdown = ''
 
     md_path = safe_filepath(output_dir, filename, '.md')
-    with open(md_path, 'w', encoding='utf-8') as f:
+    with open(md_path, 'w', encoding='utf-8', newline="\n") as f:
         f.write(f'---\n')
         f.write(f'source: https://docs.google.com/spreadsheets/d/{doc_id}\n')
         f.write(f'title: "{title}"\n')
@@ -520,7 +520,7 @@ async def capture_slide(doc_id: str, depth: int, context: BrowserContext) -> Non
 
     # 同時存一個 .md 作為索引用 frontmatter
     md_path = safe_filepath(output_dir, filename, '.md')
-    with open(md_path, 'w', encoding='utf-8') as f:
+    with open(md_path, 'w', encoding='utf-8', newline="\n") as f:
         f.write(f'---\n')
         f.write(f'source: https://docs.google.com/presentation/d/{doc_id}\n')
         f.write(f'title: "{title}"\n')
@@ -633,7 +633,7 @@ async def capture_page(page: Page, page_type: str = 'page') -> None:
     filename = sanitize_filename(title)
     filepath = safe_filepath(output_dir, filename, '.md')
 
-    with open(filepath, 'w', encoding='utf-8') as f:
+    with open(filepath, 'w', encoding='utf-8', newline="\n") as f:
         f.write(f'---\n')
         f.write(f'source: {url}\n')
         f.write(f'title: "{title}"\n')
@@ -792,7 +792,7 @@ def generate_index(out_dir: Path) -> None:
         lines.append(f'共 {len(overflow_links)} 個連結，詳見 _overflow_links.md')
 
     index_path = out_dir / '_INDEX.md'
-    with open(index_path, 'w', encoding='utf-8') as f:
+    with open(index_path, 'w', encoding='utf-8', newline="\n") as f:
         f.write('\n'.join(lines) + '\n')
     print(f'  📋 總清單: {index_path}')
 
@@ -984,13 +984,13 @@ async def main():
         "doc_ids": list(visited),
         "errors": error_log,
     }
-    with open(output_dir / '_manifest.json', 'w', encoding='utf-8') as f:
+    with open(output_dir / '_manifest.json', 'w', encoding='utf-8', newline="\n") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     # Save overflow links
     if overflow_links:
         overflow_path = output_dir / '_overflow_links.md'
-        with open(overflow_path, 'w', encoding='utf-8') as f:
+        with open(overflow_path, 'w', encoding='utf-8', newline="\n") as f:
             f.write(f'# 超出深度限制的連結\n\n')
             f.write(f'> 深度限制: {max_depth} | 共 {len(overflow_links)} 個\n\n')
             f.write(f'| # | 類型 | 連結 | 來源文件 | 深度 |\n')

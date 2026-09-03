@@ -185,7 +185,7 @@ def _write_aec_report_file(session_id: str, turn_seq: int, report: Dict[str, Any
         d.mkdir(parents=True, exist_ok=True)
         p = d / f"{session_id}-t{turn_seq}.json"
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         tmp.replace(p)
     except OSError as e:
         _atom_debug_error("post_tool_use:aec_report_write", e)

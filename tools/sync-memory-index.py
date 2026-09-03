@@ -33,7 +33,7 @@ per-level `_INDEX.md`：兩根都走（`_AIDocs/_atoms/<階層>/`、`memory/<範
 專案層（`--memory-dir <proj>/.claude/memory`，memory_dir ≠ 全域 memory/）走**另一條路**：
 - 專案 MEMORY.md 常是手寫的分區規則檔 → 不整檔覆寫，只 upsert `<!-- atom-catalog -->…<!-- /atom-catalog -->`
   marker 區塊（無 marker：`--write` 追加檔尾、`--check` 報 `project catalog block missing` exit 1）；
-  區塊外內容逐 byte 不動（行尾慣例由 `_atomic_write` 保留）。
+  區塊外內容逐字不動；落檔一律 LF（`write_text_lf`）。
 - 區塊內容：`shared/<Lv1>/` 範疇列（同核心 `| 範疇 | atom 數 | 深入 |`）＋其他分區（projects/<X>、
   roles/<r>、personal）計數列＋**尚未歸類的平鋪 shared atom 逐顆列**（過渡；該專案跑完
   `atom-categorize.py --memory-dir` 遷移後自然消失）。專案層不套「根下不容平鋪」硬規則。

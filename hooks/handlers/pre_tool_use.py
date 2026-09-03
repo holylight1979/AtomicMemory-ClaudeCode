@@ -305,7 +305,7 @@ def _pan_deny_file(session_id: str, turn_seq: int) -> Path:
 def _pan_touch_marker(marker: Path) -> None:
     try:
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text("armed", encoding="utf-8")
+        marker.write_text("armed", encoding="utf-8", newline="\n")
     except OSError:
         pass
 
@@ -324,7 +324,7 @@ def _pan_bump_counter(session_id: str, turn_seq: int) -> Optional[int]:
                 count = 0
         count += 1
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"count": count}), encoding="utf-8")
+        path.write_text(json.dumps({"count": count}), encoding="utf-8", newline="\n")
         return count
     except Exception:
         return None

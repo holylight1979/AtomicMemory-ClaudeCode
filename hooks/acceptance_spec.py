@@ -91,7 +91,7 @@ def write_sidecar(session_id: str, data: Dict[str, Any]) -> None:
         SIDECAR_DIR.mkdir(parents=True, exist_ok=True)
         p = _sidecar_path(session_id)
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8", newline="\n")
         tmp.replace(p)
     except OSError as e:
         sys.stderr.write(f"[acceptance_spec] sidecar write: {e}\n")

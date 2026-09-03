@@ -278,7 +278,7 @@ def build_case(case: Dict[str, Any]) -> Dict[str, Any]:
     body = _spec_text(c)
     if not body.lstrip().startswith("---"):
         body = fm + body
-    spec_path.write_text(body, encoding="utf-8")
+    spec_path.write_text(body, encoding="utf-8", newline="\n")
 
     trace = _trace(c.get("edits", []),
                    [] if c.get("strip_evidence") else c.get("verifies", []))
@@ -328,7 +328,7 @@ def run_case(case: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
         "elapsed_s": round(time.time() - t0, 1),
     }
     with _write_lock:
-        with open(OUT_PATH, "a", encoding="utf-8") as f:
+        with open(OUT_PATH, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return rec
 

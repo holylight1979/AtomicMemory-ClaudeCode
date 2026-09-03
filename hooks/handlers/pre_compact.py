@@ -48,7 +48,7 @@ def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
                 staging.mkdir(parents=True, exist_ok=True)
                 (staging / stub_name).write_text(
                     build_handoff_stub(state, cwd), encoding="utf-8"
-                )
+                , newline="\n")
                 state["pending_handoff_emit"] = True
                 state["handoff_stub_path"] = str(staging / stub_name)
                 state["handoff_stub_at"] = _now_iso()

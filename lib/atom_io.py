@@ -107,7 +107,7 @@ def _audit_log(entry: Dict[str, Any]) -> None:
     """Append JSONL entry to atom_io_audit.jsonl（best-effort），>10MB 輪替。"""
     try:
         AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(AUDIT_LOG, "a", encoding="utf-8") as f:
+        with open(AUDIT_LOG, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         if AUDIT_LOG.stat().st_size > 10 * 1024 * 1024:
             _rotate_audit_log()
@@ -137,39 +137,20 @@ def _rotate_audit_log() -> None:
         pass
 
 
-def _detect_eol(path: Path) -> str:
-    """偵測既有檔的主要行尾，供 byte-stable 覆寫。
-
-    讀不到 / 新檔 → os.linesep（維持現行 Windows=CRLF 慣例，避免新 atom 行尾翻轉）。
-    """
-    try:
-        raw = path.read_bytes()
-    except OSError:
-        return os.linesep
-    if b"\r\n" in raw:
-        return "\r\n"
-    if b"\n" in raw:
-        return "\n"
-    return os.linesep
+def normalize_lf(text: str) -> str:
+    """把任何換行（\\r\\n、孤立 \\r）統一成 \\n。"""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _atomic_write(path: Path, content: str) -> None:
-    """tmp + rename 落檔，與 server.js 行為等價。
+def write_text_lf(path: Path, content: str) -> None:
+    """tmp + rename 落檔，內容一律 LF、UTF-8。
 
-    EOL byte-stable（reformat blast radius 根治）：先把 content 正規化成純 LF，
-    再套用「既有檔的行尾慣例」，並以 newline="" 寫入關閉平台轉譯。
-    否則 Windows 預設 newline=None 會把每個 \\n 翻成 os.linesep——caller 混寫的
-    既有 CRLF（如 server.js append 用 Node 原樣讀 \\r\\n 再拼 \\n）會被二次翻成
-    CR CR LF，整檔行尾全變 → git 視為全行更動（append 2 行卻 48 行 diff 的根因）。
-    既有 CRLF 檔偵測為 CRLF→原樣保留，僅真正新增的行進 diff。
+    本 repo 全部 LF（.gitattributes eol=lf）。newline="" 關掉平台轉譯，寫出的位元組就是
+    content 正規化後的樣子；Windows 預設 newline=None 會把 \\n 翻成 \\r\\n，這裡不允許。
+    tmp 後綴帶 PID+TID：併發 session 寫同一檔不互踩（固定 .tmp 會 truncate 競態成半空檔）。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    eol = _detect_eol(path)
-    body = content.replace("\r\n", "\n").replace("\r", "\n")
-    if eol != "\n":
-        body = body.replace("\n", eol)
-    # tmp 後綴帶 PID+TID 唯一化（仿 atom_access._write_raw）：固定 ".tmp" 會讓
-    # 併發 session 寫同一 atom 時共用 tmp 檔互踩（truncate 競態 → 半空檔）。
+    body = normalize_lf(content)
     import threading as _threading
     tmp = path.with_suffix(
         f"{path.suffix}.tmp.{os.getpid()}.{_threading.get_ident()}"
@@ -185,6 +166,9 @@ def _atomic_write(path: Path, content: str) -> None:
         except OSError:
             pass
         raise
+
+
+_atomic_write = write_text_lf  # 既有呼叫名（atom_access、changelog-roll 等 import 這個名字）
 
 
 def _find_project_root(cwd: Optional[str]) -> Optional[Path]:
@@ -587,7 +571,7 @@ def append_atom_file(
 
     供 server.js toolAtomWrite(mode=append) spawn 用：js 端已處理 legacy fallback /
     Failures / local-realm 路由得到 file_path，內容拼接與落檔統一走 py（單一實作，
-    EOL 由 _atomic_write byte-stable）。對拍 write_atom(mode=append) 拼接行為。
+    落檔一律 LF，由 write_text_lf 保證）。對拍 write_atom(mode=append) 拼接行為。
     不更新 access.json / index（caller 沿既有 spawnAtomAccess / appendToIndex 流程）。
     """
     audit_id = _gen_audit_id()
@@ -623,10 +607,10 @@ _META_KV_LINE_RE = re.compile(r"^-\s+[\w-]+:\s*.*$")
 def _insert_meta_line(text: str, line: str) -> Optional[str]:
     """把 `- Key: value` 插到 metadata 區塊末（H1 後第一段連續 `- Key:` 行）。
 
-    沿用原檔行尾（CRLF/LF）；找不到區塊回 None。
+    輸出一律 LF（輸入若含 CRLF 先正規化）；找不到區塊回 None。
     """
-    eol = "\r\n" if "\r\n" in text else "\n"
-    lines = text.split(eol)
+    eol = "\n"
+    lines = normalize_lf(text).split(eol)
     last_meta = -1
     seen_h1 = False
     for i, ln in enumerate(lines):

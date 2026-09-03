@@ -174,18 +174,21 @@ def test_missing_field_is_inserted_at_metadata_block_end(isolated_claude):
     assert (isolated_claude["memory"] / "_atom_index.json").read_bytes() == idx_before
 
 
-def test_missing_trigger_inserted_crlf_and_index_written(isolated_claude):
-    # 舊模板 failure 檔：CRLF、無 Trigger 行、不在 index → 插 Trigger（沿用 CRLF）+ index 新條目
+def test_missing_trigger_inserted_crlf_input_normalized_to_lf(isolated_claude):
+    # 舊模板 failure 檔：CRLF、無 Trigger 行、不在 index → 插 Trigger、全檔轉 LF、既有行順序不變 + index 新條目
     mem = isolated_claude["memory"]
     fp = mem / "設計通則" / "legacy-no-trigger.md"
     fp.parent.mkdir(parents=True, exist_ok=True)
-    fp.write_bytes(("# legacy\r\n\r\n- Scope: global\r\n- Confidence: [臨]\r\n- Type: procedural\r\n"
-                    "\r\n## 知識\r\n\r\n- [臨] x\r\n\r\n## 行動\r\n\r\n- y\r\n").encode("utf-8"))
+    crlf = ("# legacy\r\n\r\n- Scope: global\r\n- Confidence: [臨]\r\n- Type: procedural\r\n"
+            "\r\n## 知識\r\n\r\n- [臨] x\r\n\r\n## 行動\r\n\r\n- y\r\n").encode("utf-8")
+    fp.write_bytes(crlf)
     res = edit_metadata(fp, triggers=["假設錯誤", "誤判"], source="test")
     assert res.ok, res.error
     raw = fp.read_bytes()
-    assert b"- Type: procedural\r\n- Trigger: \xe5\x81\x87\xe8\xa8\xad\xe9\x8c\xaf\xe8\xaa\xa4, \xe8\xaa\xa4\xe5\x88\xa4\r\n\r\n## \xe7\x9f\xa5\xe8\xad\x98" in raw
-    assert b"\n" not in raw.replace(b"\r\n", b"")  # 全檔仍為 CRLF
+    assert b"\r" not in raw  # 落檔一律 LF
+    assert b"- Type: procedural\n- Trigger: \xe5\x81\x87\xe8\xa8\xad\xe9\x8c\xaf\xe8\xaa\xa4, \xe8\xaa\xa4\xe5\x88\xa4\n\n## \xe7\x9f\xa5\xe8\xad\x98" in raw
+    old_lines = crlf.replace(b"\r\n", b"\n").split(b"\n")
+    assert [ln for ln in raw.split(b"\n") if ln in old_lines] == old_lines  # 既有行原序保留
     assert _index_triggers(isolated_claude, "legacy-no-trigger") == ["假設錯誤", "誤判"]
 
 

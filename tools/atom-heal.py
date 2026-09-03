@@ -221,9 +221,9 @@ def write_heal_review(name, result):
     review_dir = MEMORY / "_heal_review"
     review_dir.mkdir(parents=True, exist_ok=True)
     card = {"atom": name, "created_at": datetime.now().isoformat(), **result}
-    (review_dir / f"{name}.json").write_text(json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8")
+    (review_dir / f"{name}.json").write_text(json.dumps(card, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
     try:
-        with open(MEMORY / "_merge_history.log", "a", encoding="utf-8") as f:
+        with open(MEMORY / "_merge_history.log", "a", encoding="utf-8", newline="\n") as f:
             f.write(f"{datetime.now().isoformat()}\theal_failed\t{name}\tglobal\t{HEAL_SOURCE}\t{result.get('action', '')}\n")
     except Exception:
         pass

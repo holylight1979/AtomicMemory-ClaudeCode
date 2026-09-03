@@ -14,6 +14,7 @@
 - [臨] `atom_edit_meta` 對專案層 atom **全欄位可直接用**（含 triggers）：`lib/atom_io.py:edit_metadata` 的 index root 以 `find_index_dir` 上溯最近 `_atom_index.json` 定位，不再硬編 ~/.claude（舊「file not under」拒寫已根治；索引 scope 沿用既有值不被蹍 global）。守門 `lib/verify/verify_atom_locate_scope.py:test_edit_metadata_project_layer_atom`。舊繞道（手 Edit index → sync-atom-index --fix → 手重生 mirror）已不需要。
 - [臨] `atom_edit_meta`／`edit_metadata` 對缺少的欄位行（如舊模板 failure 檔沒有 `- Trigger:`）會自動插到 metadata 區塊末行（沿用原檔 CRLF/LF）；只有整檔沒有 metadata 區塊才回 error。
 - [臨] `atom_edit_meta` 對專案層 atom **首次登錄索引**時 scope 取 frontmatter `Scope`（legacy `project`→`shared`），缺則依層別（~/.claude 內 global、專案層 shared）；索引既有條目的 scope 永遠優先（SoT）。之前預設落 global 的問題已修（`verify_atom_io_edit_metadata` 專案層四案釘住）。
+- [臨] 自動補插欄位行時寫檔一律 LF（`write_text_lf`），不沿用原檔 CRLF/LF；專案記憶樹用 `python tools/normalize-eol.py --memory-dir <proj>/.claude/memory --write-gitattributes` 一次釘 LF。
 
 ## 行動
 

@@ -346,7 +346,7 @@ def _write_undo(path: Path, layout: Layout, entries: List[Dict[str, Any]]) -> No
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"created": _now(), "source": _SOURCE, "memory_dir": str(layout.memory_dir),
                "entries": entries}
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 def apply_plan(layout: Layout, plan: Dict[str, Any], undo_file: Path) -> Dict[str, Any]:

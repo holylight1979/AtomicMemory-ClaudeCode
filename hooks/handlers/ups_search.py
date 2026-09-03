@@ -83,7 +83,7 @@ def _load_cross_project_cache(cross: List[Tuple[str, Path]]) -> Dict[str, Dict[s
             data = {k: v for k, v in data.items() if k in keep}
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
-            tmp.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            tmp.write_text(_json.dumps(data, ensure_ascii=False), encoding="utf-8", newline="\n")
             tmp.replace(path)
         except OSError:
             pass

@@ -64,7 +64,7 @@ def _append_merge_history(mem: Path, action: str, atom: str, scope: str,
     line = "\t".join([_utcnow_iso(), safe(action), safe(atom), safe(scope),
                       safe(by), safe(detail)]) + "\n"
     try:
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(line)
     except OSError as e:
         print(f"[conflict-review] merge_history write failed: {e}", file=sys.stderr)
@@ -273,7 +273,7 @@ def action_approve(proj_cwd: str, target: str, user: str,
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".md.tmp")
-    tmp.write_text(patched, encoding="utf-8")
+    tmp.write_text(patched.replace("\r\n", "\n").replace("\r", "\n"), encoding="utf-8", newline="\n")
     tmp.replace(dest)
 
     # Remove companion .conflict.md if exists (approval implies conflict was resolved)

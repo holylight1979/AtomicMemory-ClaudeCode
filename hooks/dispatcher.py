@@ -46,8 +46,8 @@ def main():
 
     # Force UTF-8 output on Windows
     if sys.platform == "win32":
-        sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False)
-        sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', closefd=False)
+        sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False)  # lf-exempt: 重包 stdio fd，不是檔案；hook 協定輸出不得改
+        sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', closefd=False)  # lf-exempt: 重包 stdio fd，不是檔案；hook 協定輸出不得改
 
     WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -17,6 +17,7 @@
 - [固] live-MCP happy-path 測試會經 funnel 汙染真實 index：atom_edit_meta 會 write_index 把測試 atom 寫進 memory/_atom_index.json + _ATOM_INDEX.md（.md 刪了 index 條目仍殘）。收尾必查 git status、git checkout 還原兩 index；audit jsonl 為 append-only 忠實記錄不改。
 - [固] edit_metadata 有「檔須在 ~/.claude 內」安全護欄→隔離 temp 專案測 edit_meta 會被擋（非拆分 bug）；驗 happy-path 需就地建 throwaway atom 於 memory/ 再刪。
 - [固] 計畫的 move-map 可能有誤（deleteState 標死碼實則 route 有用需 export；atom-tools 標 import render 實則沒用）；以機械 depgraph 為準覆蓋人工清單，並實測 parity 確認哪些 verify 讀原檔源碼需重指（test_14/17/22→realm.js、test_25→atom-tools.js、promotion_gate→atom-access.js）。
+- [臨] 在 `~/.claude` 內拆檔不再需要 CRLF 的 split 特例：全庫由 `.gitattributes` 釘 LF，拆分與落檔一律 `write_text_lf`（LF）；上面的 `split(/\r\n/)`＋轉回 CRLF 做法只留給外部 CRLF repo。
 
 ## 行動
 

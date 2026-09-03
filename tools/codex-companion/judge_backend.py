@@ -157,7 +157,7 @@ def _write_backend_state(data: Dict[str, Any]) -> None:
     try:
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp = STATE_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         tmp.replace(STATE_PATH)
     except OSError as e:
         _log(f"state write failed: {e}")
@@ -238,7 +238,7 @@ def run_claude_judge(
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".txt", delete=False, encoding="utf-8"
-    ) as f:
+    , newline="\n") as f:
         f.write(prompt_text)
         prompt_file = f.name
 

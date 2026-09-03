@@ -219,7 +219,7 @@ def detect_recall_misses(
         }
         try:
             lp.parent.mkdir(parents=True, exist_ok=True)
-            with open(lp, "a", encoding="utf-8") as f:
+            with open(lp, "a", encoding="utf-8", newline="\n") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             seen.add(key)
             records.append(rec)

@@ -36,7 +36,7 @@ def _iso():
 
 def _log(action, atom, by, detail):
     try:
-        with open(MEMORY / "_merge_history.log", "a", encoding="utf-8") as f:
+        with open(MEMORY / "_merge_history.log", "a", encoding="utf-8", newline="\n") as f:
             f.write("\t".join([_iso(), action, atom, "global", by or "-", detail or "-"]) + "\n")
     except OSError:
         pass

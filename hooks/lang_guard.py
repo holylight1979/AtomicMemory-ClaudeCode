@@ -45,7 +45,7 @@ def _append_trigger_log(payload: Dict[str, Any]) -> None:
             "at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
         }
         entry.update(payload)
-        with open(TRIGGER_LOG_PATH, "a", encoding="utf-8") as f:
+        with open(TRIGGER_LOG_PATH, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception:
         pass

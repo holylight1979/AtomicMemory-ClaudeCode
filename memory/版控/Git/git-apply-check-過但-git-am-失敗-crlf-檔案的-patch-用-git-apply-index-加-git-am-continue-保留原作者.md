@@ -10,6 +10,7 @@
 
 - [臨] 收到別人 `git format-patch` 的 .patch 時：`git apply --check` 全過但 `git am` 對同一顆報 `patch does not apply`，差別在 `git am` 經 mailsplit 後對 **CRLF 檔**（本庫 tools/workflow-guardian-mcp/lib/*.js 是 CRLF）的行尾處理與 `git apply` 不同；LF 檔（.py）同一包 am 正常。
 - [臨] 解法（保留對方作者/時間/commit message）：`git am` 停在該顆後，`git apply --index <該 .patch>` 把內容進 index，再 `git am --continue` —— am 會用 patch 裡的 From/Date/Subject 建 commit。不要改用自己 commit（作者會變成自己）。審核實測用 `git worktree add <scratch> HEAD` + `git apply` 在隱離樹跑測試，主工作樹不動；用完 `git worktree remove --force` + `prune`。
+- [臨] 「本庫 tools/workflow-guardian-mcp/lib/*.js 是 CRLF」已不成立：`~/.claude` 全庫由 `.gitattributes` 釘 LF（含 .js），此 am 失敗型只會發生在仍有 CRLF 檔的外部 repo。
 
 ## 行動
 

@@ -228,8 +228,7 @@ def fix_frontmatter_from_index(atoms_by_path: Dict[str, AtomFile],
         text = atom.path.read_text(encoding="utf-8-sig")
         new_text, n = TRIGGER_LINE_RE.subn(new_line, text, count=1)
         if n == 1 and new_text != text:
-            # 走 funnel：EOL-preserving _atomic_write + audit log
-            # （舊版裸 write_text 會在 Windows 翻整檔 EOL，且寫入不留 audit）
+            # 走 funnel：write_text_lf（一律 LF）+ audit log
             write_raw(atom.path, new_text, source="tool:sync-atom-index", op="trigger-align")
             changed.append(atom.rel_path)
     return changed

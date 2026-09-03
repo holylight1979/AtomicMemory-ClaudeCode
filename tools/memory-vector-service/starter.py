@@ -49,7 +49,7 @@ def _slog(msg: str, log_path: Path = SERVICE_LOG) -> None:
     """Starter 動作記錄：時間戳行附加到 service log（失敗不擋流程）。"""
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} [starter] {msg}\n")
     except Exception:
         pass
@@ -170,7 +170,7 @@ def _spawn_service(port: int, service_script: Path = SERVICE_SCRIPT,
     啟動失敗原因不再進 DEVNULL 黑洞）。"""
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_f = open(log_path, "a", encoding="utf-8")
+        log_f = open(log_path, "a", encoding="utf-8", newline="\n")
         kw: Dict[str, Any] = {
             "stdin": subprocess.DEVNULL, "stdout": log_f, "stderr": log_f,
         }
@@ -216,7 +216,7 @@ def ensure_service(
     else:
         try:
             lock_path.parent.mkdir(parents=True, exist_ok=True)
-            lock_path.write_text(str(time.time()), encoding="utf-8")
+            lock_path.write_text(str(time.time()), encoding="utf-8", newline="\n")
         except Exception:
             pass
         _rotate_log(log_path)
@@ -263,7 +263,7 @@ def _kick_incremental_index(port: int) -> None:
 def _write_flag(flag_path: Path = FLAG_PATH) -> None:
     try:
         flag_path.parent.mkdir(parents=True, exist_ok=True)
-        flag_path.write_text("ready", encoding="utf-8")
+        flag_path.write_text("ready", encoding="utf-8", newline="\n")
     except Exception:
         pass
 
@@ -271,7 +271,7 @@ def _write_flag(flag_path: Path = FLAG_PATH) -> None:
 def _log_probe(rec: Dict[str, Any], probe_log: Path = PROBE_LOG) -> None:
     try:
         probe_log.parent.mkdir(parents=True, exist_ok=True)
-        with open(probe_log, "a", encoding="utf-8") as f:
+        with open(probe_log, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except Exception:
         pass

@@ -57,5 +57,5 @@ def save_config(config: Dict[str, Any]) -> None:
             pass
     full["vector_search"] = {k: v for k, v in config.items() if k in DEFAULTS or k in ("additional_atom_dirs", "ollama_backends")}
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+    with open(CONFIG_PATH, "w", encoding="utf-8", newline="\n") as f:
         json.dump(full, f, indent=2, ensure_ascii=False)

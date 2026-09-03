@@ -102,7 +102,7 @@ def _spawn_extract_worker(ctx_dict: dict) -> int:
         else:
             kwargs["start_new_session"] = True
         worker_log = CLAUDE_DIR / "workflow" / "extract-worker.log"
-        worker_log_fh = open(worker_log, "a", encoding="utf-8")
+        worker_log_fh = open(worker_log, "a", encoding="utf-8", newline="\n")
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         try:

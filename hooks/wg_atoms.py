@@ -1749,7 +1749,7 @@ def _ensure_vector_ready(
         )
         if stale and spawn:
             marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.write_text(str(time.time()), encoding="utf-8")
+            marker.write_text(str(time.time()), encoding="utf-8", newline="\n")
             import subprocess
             starter = CLAUDE_DIR / "tools" / "memory-vector-service" / "starter.py"
             kw: Dict[str, Any] = {
@@ -2165,7 +2165,7 @@ def apply_selective_forget(archive_candidates, config, *, atoms_dir=None,
             lines += [f"- {c.get('atom')} (score={c.get('score')}, "
                       f"last_used={c.get('last_used')})" for c in cands]
             (staging_dir / "forget-candidates.md").write_text(
-                "\n".join(lines) + "\n", encoding="utf-8")
+                "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         except OSError as e:
             _atom_debug_error("forget:write_candidates", e)
     cand_names = [c.get("atom") for c in cands]
@@ -2350,7 +2350,7 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
                 payload[0] = {**payload[0], "doc_refs": doc_refs}
             existing.extend(payload)
             REALM_AUTOMOVE_MARKER.write_text(
-                json.dumps(existing, ensure_ascii=False), encoding="utf-8")
+                json.dumps(existing, ensure_ascii=False), encoding="utf-8", newline="\n")
         except OSError as e:
             _atom_debug_error("realm:automove_marker", e)
         _trigger_sync_memory_index()
@@ -2500,7 +2500,7 @@ def _self_iterate_atoms(
 
                 tmp = md_file.with_suffix(".tmp")
                 try:
-                    tmp.write_text("\n".join(lines), encoding="utf-8")
+                    tmp.write_text("\n".join(lines), encoding="utf-8", newline="\n")
                     tmp.replace(md_file)
                 except OSError:
                     try:
@@ -2564,7 +2564,7 @@ def _self_iterate_atoms(
                 )
         (staging / "archive-candidates.md").write_text(
             "\n".join(out_lines), encoding="utf-8"
-        )
+        , newline="\n")
 
         # Phase D — selective forgetting（預設 dry-run：只寫候選；enabled+!dry_run 才隔離 _distant/）
         try:

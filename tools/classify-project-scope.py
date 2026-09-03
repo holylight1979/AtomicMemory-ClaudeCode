@@ -152,7 +152,7 @@ def _set_header(md: Path, key_re: re.Pattern, line: str, insert_after: str = "- 
     else:
         new = re.sub(rf"^({re.escape(insert_after)}.*\n)", rf"\1{line}\n", text, count=1, flags=re.MULTILINE)
     if new != text:
-        md.write_text(new, encoding="utf-8")
+        md.write_text(new.replace("\r\n", "\n").replace("\r", "\n"), encoding="utf-8", newline="\n")
 
 
 def _move_pair(am, src_md: Path, dst_md: Path) -> None:

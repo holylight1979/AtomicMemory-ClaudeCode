@@ -303,7 +303,7 @@ def _write_state_atomic(state_path: Path, state: dict) -> bool:
     """Atomic write: temp → rename."""
     tmp = state_path.with_suffix(".tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
         tmp.replace(state_path)
         return True
@@ -517,7 +517,7 @@ def _write_pending_candidate(
     entry = f"- {lead}[{now}] conf={conf:.2f} scope={scope} turn={turn_id}: {statement}\n"
 
     try:
-        with open(pending_file, "a", encoding="utf-8") as f:
+        with open(pending_file, "a", encoding="utf-8", newline="\n") as f:
             f.write(entry)
         return True
     except OSError:
@@ -531,7 +531,7 @@ def _append_merge_history(session_id: str, action: str, details: str = "") -> No
     log_path = WORKFLOW_DIR / "_merge_history.log"
     try:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(f"[{ts}] action={action} session={session_id} {details}\n")
     except OSError:
         pass

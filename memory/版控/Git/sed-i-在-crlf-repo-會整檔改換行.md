@@ -18,6 +18,7 @@
 - [觀] 另一個相關坑：**Bash tool 的 heredoc 會吃掉反斜線**——`'\\'` 到了 python 裡變成 `'\'`、`\\n` 變成真的換行，導致語法錯誤或字串比對失敗。要在腳本裡處理包含反斜線的內容，改用 Write 工具寫腳本檔再執行，不要用 heredoc 夾帶。
 - [觀] **Python 改檔有同一類的換行陷阱，而且更隱微**：`io.open(p, encoding='utf-8').read()` 預設走 universal newlines，會把 `\r\n` 讀成 `\n`；再用 `newline=''` 寫回去就整檔變 LF。實際踩過：只改 8 行的 README，git 却顯示 238/236（全檔）。**正解：讀寫兩邊都帶 `newline=''`**（讀的時候也要），新插入的行自己用檔案原本的換行字串接。改完用 `git diff --numstat` 對 `--ignore-cr-at-eol` 的結果，兩者差很多就是換行被動了。
 - [觀] **heredoc 裡的 Python 字串跳脫會被吃掉一層**：要產出別的語言的字串字面值（例如 C# 的 `"...\n" +`、Windows 路徑 `%APPDATA%\\Dir`）時，普通引號字串會把 `\n` 直接變成真的換行、`\\` 變成一個反斜線，編譯就炒了（審註兩次）。**正解：用 raw string（`r'...'`）或直接改用 Edit 工具做精確替換**；路徑這種改成目標語言的 verbatim 字串（C# 的 `@"..."`）最安全。
+- [臨] 強制 LF 的 repo（如 ~/.claude）無此坑；`newline=''` 保留法只給仍混行尾的外部 repo，LF repo 正解是寫入端 `newline="\n"`／write_text_lf。
 
 ## 行動
 

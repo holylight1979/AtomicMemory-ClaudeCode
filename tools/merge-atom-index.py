@@ -3,8 +3,8 @@
 
 問題：兩台機器各自新增 atom 後 rebase/merge，atom 本體（各自新檔）不衝突，但索引三檔
 （MEMORY.md 範疇計數表 / _ATOM_INDEX.md 表列 / _atom_index.json）都在同一區塊各加一列，
-git 逐行三方合併必衝突。另一種整檔衝突：某機把檔案寫成 CRLF（lib 寫檔是「沿用既有行尾」，
-翻了就黏住），兩側行尾不同 → 每行都算改過 → 整檔衝突。
+git 逐行三方合併必衝突。另一種整檔衝突：兩側行尾不同（一側 CRLF）→ 每行都算改過 → 整檔衝突；
+repo 全部 LF（.gitattributes eol=lf + lib 寫檔一律 LF）之後這型不再發生。
 
 解法：
   1. 語意三方合併——索引是「一列一 atom」的集合，不是文章：
@@ -13,7 +13,7 @@ git 逐行三方合併必衝突。另一種整檔衝突：某機把檔案寫成 
      - _ATOM_INDEX.md：表列同上（key=Path 欄），表頭取 ours
      - MEMORY.md：「| 範疇 | atom 數 | 深入 |」表的計數 = ours + theirs − base（各自新增互不知情，差量可加）；
        表以外的人寫文字仍走 git merge-file 逐行三方，真衝突照留 <<<<<<< 標記並 exit 1
-  2. 行尾：驅動一律輸出 LF；搭配 attributes `text eol=lf` 讓 blob 永遠 LF，CRLF 翻轉不再進版本。
+  2. 行尾：驅動一律輸出 LF，與 repo 的 LF 規則一致。
 
 為什麼不「合併時從磁碟重建索引」：merge driver 執行當下，工作樹只有「目前 HEAD 那側」的 atom 檔
 （merge 時缺 theirs 新檔、rebase 時缺自己的新檔；tools/verify/verify_merge_atom_index.py 有實測），
@@ -416,7 +416,7 @@ def install() -> int:
         cur = head + "\n".join(rest_lines)
     cur = cur.rstrip("\n")
     new = (cur + "\n\n" if cur else "") + _attr_block()
-    attr.write_text(new, encoding="utf-8")
+    attr.write_text(new, encoding="utf-8", newline="\n")
     if not was_set:
         _git("config", "--global", "core.attributesFile", _fwd(attr))
     print(f"[merge-atom-index] 已安裝：merge.{DRIVER_NAME}.driver = {driver_command()}")

@@ -119,11 +119,11 @@ def sync(root: Path, write: bool) -> Tuple[bool, List[str]]:
         fp = root / rel
         if not fp.exists():
             continue
-        # newline="" 保留各檔原始行尾（repo 混 LF/CRLF）：marker 替換不含換行，故行尾零變動。
-        # 用 read_text/write_text（newline=None）會把 \n→os.linesep 整檔 CRLF 化、製造假 drift。
+        # repo 全部 LF：讀時關平台轉譯、寫出前把任何 CRLF/孤立 CR 正規化成 LF，marker 替換不動其他位元組。
         with open(fp, "r", encoding="utf-8-sig", newline="") as f:
             text = f.read()
         new, hits = _apply(text, vals)
+        new = new.replace("\r\n", "\n").replace("\r", "\n")
         if hits == 0 or new == text:
             continue  # 無 marker 或已同步 → 跳過
         drift = True

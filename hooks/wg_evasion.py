@@ -806,7 +806,7 @@ def _write_reflection_metrics_atomic(data: Dict[str, Any]) -> bool:
     try:
         REFLECTION_METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
         tmp = REFLECTION_METRICS_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         tmp.replace(REFLECTION_METRICS_PATH)
         return True
     except OSError:
@@ -953,7 +953,7 @@ def flush_outcome_stats(
         tmp.write_text(
             "\n".join(json.dumps(e, ensure_ascii=False) for e in entries) + "\n",
             encoding="utf-8",
-        )
+        newline="\n")
         tmp.replace(OUTCOME_STATS_PATH)
 
         if _unknown_streak(entries, threshold, window):
@@ -1068,7 +1068,7 @@ def _save_oscillation_state(oscillations: List[Dict[str, Any]]) -> None:
         }
         tmp = osc_path.with_suffix(".tmp")
         try:
-            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
             tmp.replace(osc_path)
         except OSError:
             try:
@@ -1229,7 +1229,7 @@ def _save_review_marker(total_sessions: int) -> None:
         "reviewed_at": _now_iso(),
     }
     try:
-        with open(marker_path, "w", encoding="utf-8") as f:
+        with open(marker_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(marker, f, ensure_ascii=False, indent=2)
     except OSError:
         pass

@@ -88,7 +88,7 @@ def create_skill(name: str, pattern: str, description: str, triggers: list[str],
             )
 
     skill_md = target / "SKILL.md"
-    skill_md.write_text(content, encoding="utf-8")
+    skill_md.write_text(content, encoding="utf-8", newline="\n")
 
     # 生成 evals/triggers.json 起點（精準觸發驗證用）
     evals_dir = target / "evals"
@@ -106,7 +106,7 @@ def create_skill(name: str, pattern: str, description: str, triggers: list[str],
     }
     (evals_dir / "triggers.json").write_text(
         json.dumps(evals_starter, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    , newline="\n")
 
     return {
         "status": "ok",

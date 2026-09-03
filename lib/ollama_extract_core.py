@@ -59,7 +59,7 @@ def _atom_debug_log(tag: str, content: str, config: Dict[str, Any] = None) -> No
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"atom-debug-{datetime.now().strftime('%Y-%m-%d_%H')}.log"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(f"[{ts}][{tag}] {content.strip()}\n\n")
     except Exception:
         pass
@@ -213,7 +213,7 @@ def ack_then_clear(state_path: Path, key: str, indices: List[int]) -> bool:
         # Atomic write: temp file → rename
         tmp = state_path.with_suffix(".tmp")
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
                 json.dump(state, f, ensure_ascii=False, indent=2)
             tmp.replace(state_path)
             return True

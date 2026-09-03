@@ -277,7 +277,7 @@ def _write_raw(access_path: Path, data: Dict[str, Any]) -> bool:
             f"{access_path.suffix}.tmp.{_os.getpid()}.{_threading.get_ident()}.{attempt}"
         )
         try:
-            tmp.write_text(payload, encoding="utf-8")
+            tmp.write_text(payload, encoding="utf-8", newline="\n")
             _os.replace(str(tmp), str(access_path))
             return True
         except OSError:

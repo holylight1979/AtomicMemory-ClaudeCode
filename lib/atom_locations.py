@@ -1268,7 +1268,7 @@ def append_learned_terms(new_terms: Dict[str, str],
         tmp.write_text(
             json.dumps({"terms": merged}, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
-        )
+        newline="\n")
         tmp.replace(learned_path)
         return merged
     finally:

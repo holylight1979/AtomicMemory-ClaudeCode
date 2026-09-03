@@ -927,7 +927,7 @@ def write_journal(content: str, filename: str, kind: str) -> list[Path]:
     content = _apply_keepout(content, preserved)
     try:
         primary.parent.mkdir(parents=True, exist_ok=True)
-        primary.write_text(content, encoding="utf-8")
+        primary.write_text(content.replace("\r\n", "\n").replace("\r", "\n"), encoding="utf-8", newline="\n")
         written.append(primary)
     except OSError as e:
         print(f"[ERROR] 主路徑寫入失敗 ({primary}): {e}", file=sys.stderr)

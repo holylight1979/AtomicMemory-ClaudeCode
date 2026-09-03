@@ -165,7 +165,7 @@ def main() -> int:
     backup = SETTINGS.with_suffix(".json.bak")
     shutil.copy2(SETTINGS, backup)
     SETTINGS.write_text(
-        json.dumps(preview, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        json.dumps(preview, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"\n已寫入；原檔備份於 {backup}")
     print("重開 Claude Code session 後生效。")
     return 0

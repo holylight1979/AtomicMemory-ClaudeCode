@@ -448,7 +448,7 @@ def append_audit(record: Dict[str, Any]) -> None:
         WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
         if AUDIT_JSONL.exists() and AUDIT_JSONL.stat().st_size > AUDIT_JSONL_MAX_BYTES:
             AUDIT_JSONL.replace(AUDIT_JSONL.with_suffix(".jsonl.1"))
-        with open(AUDIT_JSONL, "a", encoding="utf-8") as f:
+        with open(AUDIT_JSONL, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError as e:
         _log(f"audit append failed: {e}")

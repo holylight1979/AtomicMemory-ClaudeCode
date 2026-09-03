@@ -282,7 +282,7 @@ def fast_refute_check(meta_a: Dict, meta_b: Dict) -> Optional[str]:
 def write_audit(entries: List[Dict]) -> None:
     """Append conflict detection results to audit.log (JSONL)."""
     AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
-    with open(AUDIT_LOG, "a", encoding="utf-8") as f:
+    with open(AUDIT_LOG, "a", encoding="utf-8", newline="\n") as f:
         for entry in entries:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
@@ -490,7 +490,7 @@ def _append_merge_history(proj_root: Path, action: str, atom: str,
     line = "\t".join([_utcnow_iso(), safe(action), safe(atom),
                       safe(scope), safe(by), safe(detail)]) + "\n"
     try:
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(line)
     except OSError as e:
         print(f"[merge_history] write failed: {e}", file=sys.stderr)
@@ -720,7 +720,7 @@ def _set_last_audit_ts(proj_root: Path, ts: str) -> None:
     f = proj_root / ".claude" / "memory" / "shared" / LAST_AUDIT_TS_NAME
     f.parent.mkdir(parents=True, exist_ok=True)
     try:
-        f.write_text(ts, encoding="utf-8")
+        f.write_text(ts, encoding="utf-8", newline="\n")
     except OSError as e:
         print(f"[pull-audit] cannot persist ts: {e}", file=sys.stderr)
 
@@ -823,7 +823,7 @@ def _write_pull_conflict_report(proj_root: Path, atom_name: str,
         "1. 編輯 incoming atom 或 conflicting atom 解決矛盾\n"
         "2. approve（搬到 shared/）或 reject（刪 pending 報告）\n"
     )
-    report_path.write_text(body, encoding="utf-8")
+    report_path.write_text(body, encoding="utf-8", newline="\n")
     return report_path
 
 

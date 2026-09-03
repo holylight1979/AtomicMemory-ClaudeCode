@@ -223,7 +223,7 @@ def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str,
     # Write prompt to temp file to avoid shell escaping issues
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".txt", delete=False, encoding="utf-8"
-    ) as f:
+    , newline="\n") as f:
         f.write(prompt_text)
         prompt_file = f.name
 

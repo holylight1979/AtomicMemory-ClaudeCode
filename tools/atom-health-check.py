@@ -197,8 +197,7 @@ def auto_fix_broken_refs(broken: list[dict]) -> list[dict]:
         if len(new_items) == len(items):
             continue
         new_line = f"- Related: {', '.join(new_items) if new_items else '(none)'}"
-        # 走 funnel：EOL-preserving _atomic_write + audit（裸 write_text 會在
-        # Windows 翻整檔 EOL 且不留稽核；仿 fix_reverse_refs 既有先例）
+        # 走 funnel：write_text_lf（一律 LF）+ audit（仿 fix_reverse_refs 既有先例）
         write_raw(path, text.replace(m.group(0), new_line, 1),
                   source="tool:atom-health-check", op="broken-ref-remove")
         fixes.append({"atom": b["atom"], "removed_ref": missing, "file": str(path)})
@@ -303,8 +302,7 @@ def fix_reverse_refs(atoms: dict[str, Path], aliases: dict[str, str] | None = No
                 else:
                     text += f"\n- Related: {add_name}\n"
 
-        # 走 funnel：EOL-preserving _atomic_write + audit log
-        # （舊版裸 write_text 會在 Windows 翻整檔 EOL，且反向參照補全不留 audit）
+        # 走 funnel：write_text_lf（一律 LF）+ audit log
         write_raw(path_b, text, source="tool:atom-health-check", op="reverse-ref-add")
         fixes.append({
             "target": atom_b,

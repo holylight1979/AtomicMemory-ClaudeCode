@@ -170,7 +170,7 @@ def _spawn_audit_subprocess(turn_data: Dict[str, Any]) -> None:
     log_path = CLAUDE_DIR / "Logs" / "codex-audit.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        log_fh = open(str(log_path), "a", encoding="utf-8")
+        log_fh = open(str(log_path), "a", encoding="utf-8", newline="\n")
     except OSError:
         log_fh = subprocess.DEVNULL
 
@@ -330,7 +330,7 @@ def _mark_injected(path: Path, data: Dict[str, Any]) -> None:
     try:
         data["injected"] = True
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8", newline="\n")
         tmp.replace(path)
     except OSError as e:
         _log_err("codex:assessment_mark_injected", e)
@@ -1121,7 +1121,7 @@ def _flush_metrics_to_reflection(session_id: str) -> None:
         section["sessions"] = sessions[-100:]
     try:
         tmp = metrics_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         tmp.replace(metrics_path)
     except OSError as e:
         _log_err("codex:metrics_flush_write", e)

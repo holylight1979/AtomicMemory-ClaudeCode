@@ -437,7 +437,7 @@ def _write_state_atomic(state_path: Path, state: dict) -> bool:
     """Atomic write: temp file → rename. Returns True on success."""
     tmp = state_path.with_suffix(".tmp")
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
         tmp.replace(state_path)
         return True
@@ -977,7 +977,7 @@ def _legacy_main():
         state["last_updated"] = _now_iso()
         tmp = state_path.with_suffix(".tmp")
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
                 json.dump(state, f, ensure_ascii=False, indent=2)
             tmp.replace(state_path)
         except OSError:

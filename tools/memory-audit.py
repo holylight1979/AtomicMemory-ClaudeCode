@@ -1268,7 +1268,7 @@ def _write_audit_entry(entry: Dict[str, Any]) -> None:
     entry["ts"] = datetime.now().isoformat(timespec="seconds")
     AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
+        with open(AUDIT_LOG_PATH, "a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         pass

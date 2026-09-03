@@ -38,7 +38,7 @@ from pathlib import Path
 for _name in ("stdout", "stderr"):
     _s = getattr(sys, _name)
     if _s is None:
-        setattr(sys, _name, open(os.devnull, "w", encoding="utf-8"))
+        setattr(sys, _name, open(os.devnull, "w", encoding="utf-8", newline="\n"))
     else:
         _s.reconfigure(encoding="utf-8")
 
@@ -168,6 +168,10 @@ def collect() -> dict:
         ok, msg = _run_check(args)
         if not ok:
             red.append(f"{name} drift：{msg}")
+    # 換行殘留（repo 全部 LF；有 CRLF/mixed 就黃燈，修法：python tools/normalize-eol.py --root --include-dirty）
+    ok, msg = _run_check([str(TOOLS / "normalize-eol.py"), "--root", "--check"])
+    if not ok:
+        yellow.append(f"換行殘留（非 LF）：{msg[:300]}")
     # 專案層索引（全部登記專案，從 ~/.claude 一鍵掃；黃燈：不必逐專案開 session 整理，
     # 修法同一支：sync-atom-index.py --all-projects --fix-scope-from-path）
     ok, msg = _run_check([str(TOOLS / "sync-atom-index.py"), "--all-projects", "--check"], timeout=300)
@@ -249,7 +253,7 @@ def write_report(result: dict) -> Path:
         if not items:
             lines.append("- ✓ 無")
         lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     # 輪替：保留最近 KEEP_REPORTS 份
     reports = sorted(REPORT_DIR.glob("health-*.md"))
     for old in reports[:-KEEP_REPORTS]:
@@ -264,7 +268,7 @@ def main() -> int:
         "at": result["at"], "red": len(result["red"]),
         "yellow": len(result["yellow"]),
         "report": str(report),
-    }, ensure_ascii=False), encoding="utf-8")
+    }, ensure_ascii=False), encoding="utf-8", newline="\n")
     if "--json" in sys.argv:
         print(json.dumps(result, ensure_ascii=False, indent=1))
     else:
