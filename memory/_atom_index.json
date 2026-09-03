@@ -2841,6 +2841,36 @@
         "假紅"
       ],
       "scope": "global"
+    },
+    {
+      "name": "svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出",
+      "path": "_AIDocs/_atoms/MemDev/svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出.md",
+      "triggers": [
+        "svn 測試",
+        "svnadmin",
+        "svn status 耗時",
+        "svn diff3",
+        "Text conflicts",
+        "svn --xml",
+        "svn fixture",
+        "memory_dir_candidates"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾",
+      "path": "memory/驗證與實證/背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾.md",
+      "triggers": [
+        "run_in_background",
+        "背景任務",
+        "等通知",
+        "Stop 閘",
+        "驗收裁判",
+        "提前結束回合",
+        "run_verify 背景",
+        "收尾被擋"
+      ],
+      "scope": "global"
     }
   ]
 }

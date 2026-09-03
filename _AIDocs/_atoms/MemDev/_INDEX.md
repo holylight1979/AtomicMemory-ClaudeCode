@@ -31,6 +31,7 @@
 | pan-hermes不移植部件與vscode-text-block不落盤實測 | pan-hermes不移植部件與vscode-text-block不落盤實測 |
 | repo-全面-lf-決策與守衛鏈 | repo-全面-LF-決策與守衛鏈 |
 | scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層 | scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層 |
+| svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出 | svn測試與hook的三個實測事實-diff3相鄰改動自合-整WC status爆預算-只信xml輸出 |
 | testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴 | TestFailGate 非 pytest 失敗紀錄只靠同前綴 40 字的成功指令清除-重跑勿加 cd 前綴 |
 | toolchain-ollama | Ollama Dual-Backend 實戰記憶 |
 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 | usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升 |
