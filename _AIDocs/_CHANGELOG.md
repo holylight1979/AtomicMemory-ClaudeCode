@@ -5,6 +5,9 @@
 
 ---
 
+## 2026-09-03 self-iteration 候選報告落 atom 所屬記憶庫的 _staging — 不再跟 cwd 走
+- 專案層回報：專案 session 收尾時，全域 atom 的 archive/forget 候選被寫進專案 `.claude/memory/_staging/`。實證屬實：`_self_iterate_atoms` 掃描根只有全域三處（memory/、_AIDocs/_atoms/、_AIDocs/Failures/），落點卻用 `resolve_staging_dir(cwd)`。改為候選帶 `path`，新 `_staging_dir_for_atom` 依路徑判庫（全域 → `~/.claude/memory/_staging`，專案 → 該專案庫 `_staging`），分庫時各寫一份；`apply_selective_forget` 改按候選 path 定位 md 與 sidecar（原 `MEMORY_DIR/<slug>.md` 對子目錄 atom 必 skip）；session_end stderr 改印實際報告路徑。新 `verify_self_iterate_staging_routing.py` 5 測，hooks/verify 1212 passed。**hook .py → 下個 session 生效**。 | `hooks/wg_atoms.py`, `hooks/handlers/session_end.py`, `hooks/verify/verify_self_iterate_staging_routing.py`（新）
+
 ## 2026-09-03 rules/coding-style.md 寫碼傾向規則 — 由使用者六條想法經 Codex 討論＋網路研究定稿
 - 使用者要讓 CC 寫碼帶固定傾向（極簡基礎語法、巢狀不超 2 層、不戀 code、集中重複邏輯、明點靜觀）。派 Codex 完整討論＋研究 agent 查 Linux kernel／Code Complete／SonarSource 認知複雜度／最小威力原則／扁平化過頭反例。**定案**：落 `rules/coding-style.md`（rules/*.md 自動載入，atom 靠 trigger 會漏）；「if 優於 for」語法階級改為「先選語義、再取讀者要記最少狀態的構件」；巢狀 =3 為審查線（三個獨立條件必壓平、同一局部決策可留）、≥4 重構；加「扁平化不過頭」防一次性小函式；「明點」落成「自檢」段三個停點。IDENTITY.md／IDENTITY.template.md「閱讀全部關聯文件」改「讀夠」消除與「有目的性閱讀、不整包載入」的衝突。三檔全 LF。新 atom `codex-exec-手動派工三旗標`（--skip-git-repo-check／</dev/null／unelevated，缺一即 0 byte 假成功）。出處與 Codex 審閱要點落 `Research/coding-style-research.md`（規則只留結論、依據在此）。
 
