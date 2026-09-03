@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: heredoc, 反斜線, escape, python 腳本, 字串比對失敗, assert, 批改程式碼
 - Created-at: 2026-08-20
-- Related: windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff
+- Related: windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff, heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑
 
 ## 知識
 

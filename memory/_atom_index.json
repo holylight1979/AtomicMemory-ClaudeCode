@@ -2693,7 +2693,74 @@
         "CRLF 衝突",
         "索引三檔",
         "merge-atom-index",
-        "gitattributes"
+        "gitattributes",
+        "--resolve",
+        "IndexConflict",
+        "MergeDriver"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "unity-editor崩潰鑑識三路徑-事件檔1000先看故障模組-edr注入dll可能是真兇",
+      "path": "memory/OS-Windows/unity-editor崩潰鑑識三路徑-事件檔1000先看故障模組-edr注入dll可能是真兇.md",
+      "triggers": [
+        "Unity crash",
+        "Unity 崩潰",
+        "Editor 閃退",
+        "Native Crash Reporting",
+        "Got a UNKNOWN",
+        "InProcessClient64.dll",
+        "SentinelOne",
+        "EDR",
+        "Application Error 1000",
+        "CrashDumps",
+        "Editor-prev.log",
+        "c0000005",
+        "WER"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated",
+      "path": "_AIDocs/_atoms/CC與原子記憶契約/codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated.md",
+      "triggers": [
+        "codex exec",
+        "codex",
+        "派 codex",
+        "第二觀點",
+        "second opinion",
+        "大師會議"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "repo-全面-lf-決策與守衛鏈",
+      "path": "_AIDocs/_atoms/MemDev/repo-全面-lf-決策與守衛鏈.md",
+      "triggers": [
+        "LF",
+        "CRLF",
+        "換行",
+        "eol",
+        "gitattributes",
+        "write_text_lf",
+        "normalize-eol",
+        "verify_lf_writes",
+        "newline"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑",
+      "path": "_AIDocs/_atoms/Tools/heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑.md",
+      "triggers": [
+        "heredoc",
+        "反斜線",
+        "python - <<EOF",
+        "replace 沒中",
+        "SyntaxError unterminated",
+        "assert old in s",
+        "post-mortem",
+        "Write 工具"
       ],
       "scope": "global"
     }

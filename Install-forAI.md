@@ -240,19 +240,34 @@ template 內三個 server：
 - 首次寫 atom 一律走 MCP `atom_write(mode=create)` 並給 `domain`（Lv1 閉合清單在 `memory/_meta/taxonomy.json`）；分不出範疇的知識不寫。
 - 執行 `python tools/sync-memory-index.py --check` 確認索引與檔案一致（不一致再 `--write`）。
 
-### Step 6：索引三檔 git 合併驅動（多機共享必裝，每台機器一次）
+### Step 6：索引三檔 git 合併驅動（hook 自動安裝；手動 `--install` 選配）
 
-兩台機器各自新增 atom 後 `git pull --rebase`，atom 本體不衝突，但索引三檔（`MEMORY.md` 範疇計數表、`_ATOM_INDEX.md`、`_atom_index.json`）在同區塊各加一列必衝突。merge driver 是機器級 git 設定、版控帶不動，所以每台機器都要跑一次：
+兩台機器各自新增 atom 後 `git pull --rebase`，atom 本體不衝突，但索引三檔（`MEMORY.md` 範疇計數表、`_ATOM_INDEX.md`、`_atom_index.json`）在同區塊各加一列必衝突。merge driver 是機器級 git 設定（global git config `merge.atomindex` + `~/.config/git/attributes`），版控帶不動，由 hook 自動裝：
+
+- **自動安裝**：PreToolUse hook（`pre_tool_use.check_merge_driver`）在 CC 的 Bash/PowerShell 跑 `git pull / merge / rebase / cherry-pick / stash pop` 前檢查本機是否已裝（`is_installed`：driver command 存在、引號內的直譯器與腳本存在、attributes 標記存在、目標 repo `git check-attr merge` 為 `atomindex`——任一不成立即重裝），缺就跑 `--install`，訊息 `[Guardian:MergeDriver] 已自動安裝索引三檔合併驅動`。
+- **自動解衝突（備案）**：git 已停在索引三檔衝突時，`git rebase --continue / merge --continue / cherry-pick --continue / commit / stash pop` 前 hook 先跑 `--resolve`，把語意驅動套在三檔的 stage（:1 base／:2 HEAD／:3 對方）上、寫回並 `git add`，訊息 `[Guardian:IndexConflict] 已自動合併並 add 索引檔：…`；解不掉的列 `⚠ … → 手動 --resolve`。SessionStart 若 repo 卡在 rebase/merge 且三檔未合併，注入一行提示。
+- config：`workflow/config.json` `merge_driver.{auto_install,auto_resolve}` 預設 true；hook 內 fail-open、總時限 2.5 秒。
+- **手動（選配）**：安裝當下就想裝好、或這台主要不經 CC 用 git：
 
 ```bash
 python tools/merge-atom-index.py --install   # 寫 global git config merge.atomindex + ~/.config/git/attributes（**/.claude/memory/* 三檔 merge=atomindex）
-python tools/merge-atom-index.py --status    # 顯示「已安裝」即可；換 Python 後重跑 --install
+python tools/merge-atom-index.py --status    # 末行「已安裝」；直譯器換了 hook 會自動重裝，手動重跑 --install 亦可
+python tools/merge-atom-index.py --resolve   # git 已停在索引三檔衝突、hook 沒接手時手動解（可加 --cwd <repo>）
 ```
 
 - driver 綁定：根層 repo 靠自帶的 `.gitattributes`，專案 repo 靠全域 attributes，專案不必改任何檔。
-- 根層 repo 全部 LF 由 `.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘）進版控保證，不需要任何機器安裝；驗證 `python tools/normalize-eol.py --root --check`（有 CRLF/混行尾即 exit 1）。專案記憶樹要一併釘 LF：`python tools/normalize-eol.py --memory-dir <proj>/.claude/memory --write-gitattributes`（轉檔 + 寫入該專案 `.gitattributes` 區塊：`.claude/memory/** text eol=lf` 與索引三檔 `merge=atomindex`）。
-- 沒裝的機器 git 會靜默退回逐行三方 → 再看到索引三檔衝突＝那台沒裝；裝好後 `git rebase --abort` 重來即自動合。
-- 原理與「為何不從磁碟重建」見 `tools/merge-atom-index.py` 檔頭；驗證 `tools/verify/verify_merge_atom_index.py`。
+- 根層 repo 全部 LF 由 `.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘）與 `.editorconfig` 進版控保證，不需要任何機器安裝；驗證 `python tools/normalize-eol.py --root --check`（有 CRLF/混行尾即 exit 1）。
+- 專案記憶樹要一併釘 LF，由**專案 session** 做（根層 session 不碰專案檔），把下面這段貼給專案 session（路徑換成該專案）：
+
+```
+在 C:\Projects 專案 session：
+1. 確認沒有進行中的 rebase/merge，且 git status 對 .claude/memory 與 .gitattributes 沒有他人的 dirty/staged/untracked 改動（有就停）。
+2. python ~/.claude/tools/normalize-eol.py --memory-dir .claude/memory --check   → 看預計異動清單。
+3. python ~/.claude/tools/normalize-eol.py --memory-dir .claude/memory --write-gitattributes
+4. 對該清單 git diff --ignore-cr-at-eol --stat 必須為 0 行內容差異；commit「chore(memory): 記憶樹換行統一 LF」並 push。
+```
+
+- 原理、stage 方向矩陣、失敗模式與 SOP、不在保證範圍見 `_AIDocs/MultiMachineMemorySync.md`；驗證 `tools/verify/verify_merge_atom_index.py`、`hooks/verify/verify_merge_driver_gate.py`。
 
 ---
 
@@ -334,7 +349,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | 11 | MCP 5 tool | 問 Claude「列出 workflow-guardian MCP 工具」 | `atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `anti_evasion_report` |
 | 12 | 整合 | 開新 session | 看到 `[Workflow Guardian] Active`；statusline 無 `WG:?` |
 | 13 | Dashboard | 開 `http://127.0.0.1:3848/` | 有頁面 |
-| 14 | 索引合併驅動 | `python tools/merge-atom-index.py --status` | 末行「狀態：已安裝」 |
+| 14 | 索引合併驅動 | `python tools/merge-atom-index.py --status` | 末行「已安裝」（hook 會在首次合併類 git 指令前自動裝；此處手動確認） |
 
 完整回歸：`python run_verify.py`（基線全數 passed，數字見該腳本輸出）。
 
@@ -345,8 +360,11 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 ```bash
 cd ~/.claude && git pull
 python tools/fix-hook-python.py            # pull 後 settings.json 若被更新，重驗直譯器路徑
-python tools/merge-atom-index.py --install # 索引三檔 git 合併驅動（機器級設定：首次、或換 Python 後）
+python tools/merge-atom-index.py --install # 一次性：帶來「合併前自動安裝驅動」hook 的那次 pull 跑的還是舊 hook，這次手動補上；之後每台機器由 hook 自動裝／自動重裝
 ```
+
+- 上面那次 `git pull` 若本身卡在索引三檔衝突：`python tools/merge-atom-index.py --resolve` 後 `git rebase --continue`（`GIT_EDITOR=true` 可免開編輯器）。
+- 已含本版 hook 的機器之後不需要這一步；`--status` 末行「已安裝」即可。
 
 從 4.x 升級需確認：
 

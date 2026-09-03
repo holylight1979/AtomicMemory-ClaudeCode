@@ -19,11 +19,23 @@ repo 全部 LF（.gitattributes eol=lf + lib 寫檔一律 LF）之後這型不�
 （merge 時缺 theirs 新檔、rebase 時缺自己的新檔；tools/verify/verify_merge_atom_index.py 有實測），
 重建會把另一側的 atom 從索引弄丟。三份 blob 已含全部資訊，不必碰磁碟。
 
-git 呼叫（--install 會寫進 global git config）：
+git 呼叫（--install 寫進 global git config）：
   python merge-atom-index.py <base> <ours> <theirs> [<path>]   結果寫回 <ours>；exit 0 乾淨、1 仍有衝突
-人工：
-  python merge-atom-index.py --install   各機一次：寫 global git config 的 merge.atomindex + 全域 attributes
-  python merge-atom-index.py --status    檢查本機是否已裝、直譯器是否還在（exit 1 = 未裝/失效）
+人工／hook 呼叫：
+  --install [--quiet]          各機一次：寫全域 attributes + global git config 的 merge.atomindex（先 attributes 後 config，
+                               config 存在即代表整套裝好）。--quiet 時 stdout 單行 JSON {"installed":bool,...}。
+                               PreToolUse hook 在第一次合併類 git 指令前會自動跑，通常不必手動。
+  --is-installed [--cwd <dir>] exit 0＝完整有效（driver 設定＋直譯器與腳本存在＋attributes 標記＋該 repo check-attr）。
+  --status [--cwd <dir>]       人讀狀態；exit 1＝未裝/失效。
+  --resolve [--cwd <dir>] [--quiet]
+      備案：git 已停在衝突時（驅動沒裝、或 Fork 等 CC 以外的 pull），把同一套語意合併套在 index 的三個 stage
+      （:1 base／:2 HEAD／:3 對方）上，寫回工作樹並 git add。只碰 check-attr merge=atomindex 且位於 memory/
+      或 .claude/memory/ 的三檔；只在工作樹仍等於 git 原始衝突輸出（或驅動上一輪輸出）時覆蓋，人解到一半不碰；
+      工作樹已無標記且格式合法 → 直接 stage 使用者版本；缺 :2/:3（一側刪檔）→ skipped；手寫段兩側同改 →
+      寫回含標記結果、不 add、列 remaining。stdout 單行 JSON
+      {"resolved":[],"staged_user_version":[],"skipped":[{"path","reason"}],"remaining":[],"installed":bool,"error":null}
+      exit 0＝三檔已無 unmerged stage。順手 --install。
+      stage 方向：merge 時 :2＝自己、:3＝對方；rebase／cherry-pick 時 :2＝upstream、:3＝正在重放的自己的 commit。
 根層 repo（~/.claude）自帶 .gitattributes 指到同一驅動；專案 repo 靠全域 attributes 覆蓋 **/.claude/memory/。
 """
 from __future__ import annotations
@@ -135,16 +147,16 @@ def _fmt_stats(before: int, after: int, st: Dict[str, int]) -> str:
             f"刪 {st['deleted']}, 兩側同改 {st['both']}）")
 
 
-def textual_merge(base: str, ours: str, theirs: str) -> Tuple[str, int]:
-    """git merge-file 逐行三方（＝沒裝驅動時 git 的做法）。回 (結果, 衝突數)。"""
+def textual_merge(base: str, ours: str, theirs: str, style: str = "") -> Tuple[str, int]:
+    """git merge-file 逐行三方（＝沒裝驅動時 git 的做法）。回 (結果, 衝突數)。style 可為 --diff3／--zdiff3。"""
     with tempfile.TemporaryDirectory() as d:
         paths = []
         for name, text in (("ours", ours), ("base", base), ("theirs", theirs)):
             p = Path(d, name)
             p.write_bytes(text.encode("utf-8"))
             paths.append(str(p))
-        r = subprocess.run(["git", "merge-file", "-p", "-L", "ours", "-L", "base", "-L", "theirs", *paths],
-                           capture_output=True, **_NO_WINDOW)
+        cmd = ["git", "merge-file", "-p"] + ([style] if style else []) + ["-L", "ours", "-L", "base", "-L", "theirs", *paths]
+        r = subprocess.run(cmd, capture_output=True, timeout=10, **_NO_WINDOW)
     out = r.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
     return out, (0 if r.returncode == 0 else max(1, r.returncode))
 
@@ -360,24 +372,56 @@ def run_driver(base_p: str, ours_p: str, theirs_p: str, path_hint: str = "") -> 
     return 1 if conflicts else 0
 
 
-# ─── 安裝 / 狀態 ───────────────────────────────────────────────────────────
+# ─── 共用：子行程／輸出（pythonw 下 stdout/stderr 可能是 None）────────────────
 
-def _git(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", **_NO_WINDOW)
+def _out(msg: str) -> None:
+    try:
+        if sys.stdout:
+            sys.stdout.write(msg + "\n")
+            sys.stdout.flush()
+    except Exception:
+        pass
+
+
+def _say(msg: str, quiet: bool = False) -> None:
+    if quiet:
+        return
+    try:
+        if sys.stderr:
+            sys.stderr.write(msg + "\n")
+    except Exception:
+        pass
+
+
+def _git(*args: str, cwd: Optional[Path] = None, timeout: float = 5.0) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          cwd=str(cwd) if cwd else None, timeout=timeout, **_NO_WINDOW)
+
+
+def _git_bytes(*args: str, cwd: Optional[Path] = None, timeout: float = 5.0) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], capture_output=True, cwd=str(cwd) if cwd else None, timeout=timeout,
+                          **_NO_WINDOW)
 
 
 def _fwd(p: Path) -> str:
     return str(p).replace("\\", "/")
 
 
+# ─── 安裝 / 狀態 ───────────────────────────────────────────────────────────
+
 def _interpreter() -> Path:
-    """寫進 git config 的直譯器：在 venv 裡跑 --install 時取底層真 Python（venv 刪了驅動不跟著失效）。"""
+    """寫進 git config 的直譯器：venv 裡取底層真 Python（venv 刪了驅動不跟著失效）；
+    pythonw.exe（hook 環境）換同目錄 python.exe（pythonw 沒有 stdout/stderr，驅動診斷會消失）。"""
+    exe = Path(sys.executable)
     if sys.prefix != sys.base_prefix:
         base = getattr(sys, "_base_executable", None)
         if base and Path(base).exists():
-            return Path(base)
-    return Path(sys.executable)
+            exe = Path(base)
+    if exe.name.lower() == "pythonw.exe":
+        cand = exe.with_name("python.exe")
+        if cand.exists():
+            exe = cand
+    return exe
 
 
 def driver_command() -> str:
@@ -385,10 +429,12 @@ def driver_command() -> str:
 
 
 def attributes_file() -> Tuple[Path, bool]:
-    """回 (全域 attributes 檔路徑, core.attributesFile 是否已設)。未設 → git 預設位置。"""
+    """回 (全域 attributes 檔路徑, core.attributesFile 是否已設)。未設 → git 預設位置。
+    已設但是相對路徑 → 對 home 解析（git 自己是對執行目錄解析，安裝時一律改寫成絕對路徑）。"""
     v = _git("config", "--global", "core.attributesFile").stdout.strip()
     if v:
-        return Path(os.path.expanduser(v)), True
+        p = Path(os.path.expanduser(v))
+        return (p if p.is_absolute() else Path.home() / p), True
     xdg = os.environ.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else Path.home() / ".config"
     return base / "git" / "attributes", False
@@ -399,69 +445,310 @@ def _attr_block() -> str:
                       *ATTR_LINES]) + "\n"
 
 
-def install() -> int:
-    r1 = _git("config", "--global", f"merge.{DRIVER_NAME}.name", "AtomicMemory 索引三檔語意三方合併")
-    r2 = _git("config", "--global", f"merge.{DRIVER_NAME}.driver", driver_command())
-    if r1.returncode or r2.returncode:
-        print(f"[merge-atom-index] git config 失敗：{(r1.stderr or r2.stderr).strip()}", file=sys.stderr)
-        return 1
+def _driver_paths(drv: str) -> List[str]:
+    return re.findall(r'"([^"]+)"', drv)[:2]
+
+
+def is_installed(cwd: Optional[Path] = None) -> bool:
+    """完整有效狀態：global driver 設定存在、引號內直譯器與腳本都在、attributes 標記在、
+    （若 cwd 是 repo）該 repo 的 check-attr merge 為 atomindex。任一不成立就算沒裝。"""
+    try:
+        drv = _git("config", "--global", "--get", f"merge.{DRIVER_NAME}.driver").stdout.strip()
+        if not drv:
+            return False
+        paths = _driver_paths(drv)
+        if len(paths) < 2 or not all(Path(p).exists() for p in paths):
+            return False
+        attr, _ = attributes_file()
+        if not attr.exists() or ATTR_MARK not in attr.read_text(encoding="utf-8", errors="replace"):
+            return False
+        if cwd is not None:
+            chk = _git("check-attr", "merge", "--", ".claude/memory/_atom_index.json", "memory/_atom_index.json",
+                       cwd=cwd)
+            if chk.returncode == 0 and ": merge: atomindex" not in chk.stdout:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def install(quiet: bool = False) -> Dict[str, Any]:
+    """各機一次。先寫 attributes 再寫 config（config 存在 ⇒ attributes 已成功），冪等。"""
+    rep: Dict[str, Any] = {"installed": False, "driver": driver_command(), "attributes": "", "error": None}
     attr, was_set = attributes_file()
-    attr.parent.mkdir(parents=True, exist_ok=True)
-    cur = attr.read_text(encoding="utf-8") if attr.exists() else ""
-    if ATTR_MARK in cur:
-        head, _, rest = cur.partition(ATTR_MARK)
-        rest_lines = rest.split("\n")[1:]
-        while rest_lines and rest_lines[0].startswith("**/.claude/memory/"):
-            rest_lines.pop(0)
-        cur = head + "\n".join(rest_lines)
-    cur = cur.rstrip("\n")
-    new = (cur + "\n\n" if cur else "") + _attr_block()
-    attr.write_text(new, encoding="utf-8", newline="\n")
-    if not was_set:
-        _git("config", "--global", "core.attributesFile", _fwd(attr))
-    print(f"[merge-atom-index] 已安裝：merge.{DRIVER_NAME}.driver = {driver_command()}")
-    print(f"[merge-atom-index] attributes：{attr}（{len(ATTR_LINES)} 條 **/.claude/memory/* 規則）")
-    return 0
+    rep["attributes"] = str(attr)
+    try:
+        attr.parent.mkdir(parents=True, exist_ok=True)
+        raw = attr.read_bytes() if attr.exists() else b""
+        try:
+            cur = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            rep["error"] = f"attributes 檔不是 UTF-8，請手動加入規則：{attr}"
+            _say(f"[merge-atom-index] {rep['error']}", quiet)
+            return rep
+        cur = cur.replace("\r\n", "\n")
+        if ATTR_MARK in cur:
+            head, _, rest = cur.partition(ATTR_MARK)
+            rest_lines = rest.split("\n")[1:]
+            while rest_lines and rest_lines[0].startswith("**/.claude/memory/"):
+                rest_lines.pop(0)
+            cur = head + "\n".join(rest_lines)
+        cur = cur.rstrip("\n")
+        new = (cur + "\n\n" if cur else "") + _attr_block()
+        tmp = attr.with_suffix(attr.suffix + f".tmp.{os.getpid()}")
+        tmp.write_bytes(new.encode("utf-8"))
+        os.replace(tmp, attr)
+        if not was_set:
+            r = _git("config", "--global", "core.attributesFile", _fwd(attr))
+            if r.returncode:
+                rep["error"] = f"git config core.attributesFile 失敗：{r.stderr.strip()}"
+                return rep
+        # 先 driver 後 name：只有 name 沒 driver 時 git 會 fatal「custom merge driver atomindex lacks command line」
+        r2 = _git("config", "--global", f"merge.{DRIVER_NAME}.driver", driver_command())
+        r1 = _git("config", "--global", f"merge.{DRIVER_NAME}.name", "AtomicMemory 索引三檔語意三方合併")
+        if r1.returncode or r2.returncode:
+            rep["error"] = f"git config 失敗：{(r1.stderr or r2.stderr).strip()}"
+            return rep
+        rep["installed"] = True
+        _say(f"[merge-atom-index] 已安裝：merge.{DRIVER_NAME}.driver = {driver_command()}", quiet)
+        _say(f"[merge-atom-index] attributes：{attr}（{len(ATTR_LINES)} 條 **/.claude/memory/* 規則）", quiet)
+    except Exception as e:  # noqa: BLE001
+        rep["error"] = f"{type(e).__name__}: {e}"
+    if rep["error"]:
+        _say(f"[merge-atom-index] 安裝失敗：{rep['error']}", quiet)
+    return rep
 
 
-def status() -> int:
-    ok = True
-    drv = _git("config", "--global", f"merge.{DRIVER_NAME}.driver").stdout.strip()
-    print(f"merge.{DRIVER_NAME}.driver = {drv or '(未設)'}")
-    if not drv:
-        ok = False
-    else:
-        parts = re.findall(r'"([^"]+)"', drv)
-        for p in parts[:2]:
-            exists = Path(p).exists()
-            print(f"  {'OK ' if exists else 'ERR'} {p}")
-            ok = ok and exists
+def _load_toggles() -> Dict[str, Any]:
+    try:
+        cfg = json.loads((SCRIPT.parent.parent / "workflow" / "config.json").read_text(encoding="utf-8-sig"))
+        return cfg.get("merge_driver") or {}
+    except Exception:
+        return {}
+
+
+def status(cwd: Optional[Path] = None) -> int:
+    drv = _git("config", "--global", "--get", f"merge.{DRIVER_NAME}.driver").stdout.strip()
+    _out(f"merge.{DRIVER_NAME}.driver = {drv or '(未設)'}")
+    for p in _driver_paths(drv) if drv else []:
+        _out(f"  {'OK ' if Path(p).exists() else 'ERR'} {p}")
     attr, was_set = attributes_file()
     has = attr.exists() and ATTR_MARK in attr.read_text(encoding="utf-8", errors="replace")
-    print(f"attributes = {attr}（core.attributesFile {'已設' if was_set else '未設，用 git 預設位置'}）"
-          f" → {'含' if has else '缺'}索引三檔規則")
-    ok = ok and has
-    chk = _git("check-attr", "merge", "text", "eol", "--", ".claude/memory/_atom_index.json", "memory/_atom_index.json")
+    _out(f"attributes = {attr}（core.attributesFile {'已設' if was_set else '未設，用 git 預設位置'}）"
+         f" → {'含' if has else '缺'}索引三檔規則")
+    chk = _git("check-attr", "merge", "text", "eol", "--", ".claude/memory/_atom_index.json",
+               "memory/_atom_index.json", cwd=cwd)
     if chk.returncode == 0:
-        print("check-attr（目前 repo）:\n  " + chk.stdout.strip().replace("\n", "\n  "))
-    print("狀態：" + ("已安裝" if ok else "未安裝或失效 → python tools/merge-atom-index.py --install"))
+        _out("check-attr（目前 repo）:\n  " + chk.stdout.strip().replace("\n", "\n  "))
+    tg = _load_toggles()
+    _out(f"hook 自動化：auto_install={tg.get('auto_install', True)} auto_resolve={tg.get('auto_resolve', True)}"
+         "（workflow/config.json merge_driver）")
+    ok = is_installed(cwd)
+    _out("狀態：" + ("已安裝" if ok else "未安裝或失效 → python tools/merge-atom-index.py --install"))
     return 0 if ok else 1
 
+
+# ─── --resolve：git 已停在衝突時，把語意驅動套在 index 的三個 stage 上 ─────────
+#
+# stage 方向：merge 時 :2＝自己（HEAD）、:3＝對方；rebase／cherry-pick 時 :2＝upstream／新基底、
+# :3＝正在重放的自己的 commit。驅動的 merge_keyed 對兩側一視同仁，方向只影響「兩側異改取 ours」的細節。
+
+_MARKER_RE = re.compile(r"^(<{7}|={7}|>{7}|\|{7})(?: .*)?$", re.MULTILINE)
+
+
+def _strip_marker_labels(text: str) -> str:
+    return _MARKER_RE.sub(lambda m: m.group(1), text)
+
+
+def _path_ok(rel: str) -> bool:
+    return rel.startswith("memory/") or "/.claude/memory/" in ("/" + rel)
+
+
+def _valid_format(rel: str, text: str) -> bool:
+    name = Path(rel).name
+    try:
+        if name == "_atom_index.json":
+            d = json.loads(text)
+            return isinstance(d, dict) and isinstance(d.get("atoms"), list)
+        if name == "_ATOM_INDEX.md":
+            return bool(re.search(ATOM_TABLE_HEADER_RE.pattern, text, re.I | re.M))
+        return bool(re.search(CATALOG_HEADER_RE.pattern, text, re.M)) or "<!-- atom-catalog -->" in text
+    except Exception:
+        return False
+
+
+def _driver_on_texts(base: str, ours: str, theirs: str, rel: str) -> Tuple[str, int]:
+    """把三份文字丟進 run_driver（走實體 tmp 檔，與 git 呼叫路徑相同）。回 (結果, 衝突 0/1)。"""
+    with tempfile.TemporaryDirectory() as d:
+        paths = []
+        for name, text in (("base", base), ("ours", ours), ("theirs", theirs)):
+            p = Path(d, name)
+            p.write_bytes(text.encode("utf-8"))
+            paths.append(str(p))
+        saved = sys.stderr
+        try:
+            rc = run_driver(paths[0], paths[1], paths[2], rel)
+        finally:
+            sys.stderr = saved
+        return _read(paths[1]), rc
+
+
+def _blobs_batch(root: Path, shas: List[str]) -> Dict[str, str]:
+    """一次 `git cat-file --batch` 讀所有 blob（每個子行程約 0.1 秒，hook 預算只有 2.5 秒）。"""
+    if not shas:
+        return {}
+    r = subprocess.run(["git", "cat-file", "--batch"], input=("\n".join(shas) + "\n").encode(), capture_output=True,
+                       cwd=str(root), timeout=5, **_NO_WINDOW)
+    out: Dict[str, str] = {}
+    buf = r.stdout
+    pos = 0
+    while pos < len(buf):
+        nl = buf.find(b"\n", pos)
+        if nl < 0:
+            break
+        header = buf[pos:nl].decode("ascii", "replace").split()
+        if len(header) < 3:
+            break
+        sha, size = header[0], int(header[2])
+        body = buf[nl + 1:nl + 1 + size]
+        out[sha] = body.decode("utf-8-sig", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+        pos = nl + 1 + size + 1
+    return out
+
+
+def _driver_config_ok() -> bool:
+    """比 is_installed 便宜的安裝判定（一個 git 子行程）：config 有驅動、引號內路徑存在、attributes 標記在。"""
+    try:
+        drv = _git("config", "--global", "--get", f"merge.{DRIVER_NAME}.driver", timeout=2).stdout.strip()
+        paths = _driver_paths(drv) if drv else []
+        if len(paths) < 2 or not all(Path(p).exists() for p in paths):
+            return False
+        attr, _ = attributes_file()
+        return attr.exists() and ATTR_MARK in attr.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False
+
+
+def resolve(cwd: Path, quiet: bool = False) -> Tuple[Dict[str, Any], int]:
+    rep: Dict[str, Any] = {"resolved": [], "staged_user_version": [], "skipped": [], "remaining": [],
+                           "installed": False, "error": None}
+    to_add: List[str] = []
+    try:
+        top = _git("rev-parse", "--show-toplevel", cwd=cwd)
+        if top.returncode:
+            rep["error"] = "不在 git repo 內"
+            return rep, 1
+        root = Path(top.stdout.strip())
+        ls = _git_bytes("ls-files", "-u", "-z", cwd=root)
+        stages: Dict[str, Dict[int, str]] = {}
+        for ent in ls.stdout.split(b"\0"):
+            if not ent:
+                continue
+            meta, _, path = ent.partition(b"\t")
+            mode, sha, stage = meta.decode().split()
+            stages.setdefault(path.decode("utf-8", "surrogateescape"), {})[int(stage)] = sha
+        targets = [p for p in stages if Path(p).name in INDEX_FILES and _path_ok(p)]
+        if targets:
+            chk = _git("check-attr", "merge", "--", *targets, cwd=root)
+            ok_paths = {ln.split(": merge: ")[0] for ln in chk.stdout.splitlines() if ln.endswith(": merge: atomindex")}
+            targets = [p for p in targets if p in ok_paths]
+        blobs = _blobs_batch(root, sorted({sha for p in targets for sha in stages[p].values()}))
+        for rel in targets:
+            st = stages[rel]
+            if 2 not in st or 3 not in st:
+                rep["skipped"].append({"path": rel, "reason": "一側刪除了此檔（缺 stage 2 或 3），請人工決定去留"})
+                rep["remaining"].append(rel)
+                continue
+            base = blobs.get(st[1], "") if 1 in st else ""
+            ours, theirs = blobs.get(st[2], ""), blobs.get(st[3], "")
+            fp = root / rel
+            wt = fp.read_bytes().decode("utf-8-sig", errors="replace").replace("\r\n", "\n") if fp.exists() else None
+            merged, conflicts = _driver_on_texts(base, ours, theirs, rel)
+            untouched = wt is None
+            if wt is not None:
+                wt_n = _strip_marker_labels(wt)
+                # git 原始衝突輸出：依工作樹的標記風格只算需要的那種（有 ||||||| 才算 diff3/zdiff3）
+                styles = ("--diff3", "--zdiff3") if "|||||||" in wt else ("",)
+                candidates = [merged]  # 驅動自己上一輪留下的結果（表格已合、手寫段留標記）
+                for style in styles:
+                    try:
+                        candidates.append(textual_merge(base, ours, theirs, style)[0])
+                    except Exception:
+                        pass
+                untouched = any(wt_n == _strip_marker_labels(c) for c in candidates)
+            if untouched:
+                _write(str(fp), merged)
+                if conflicts == 0:
+                    to_add.append(rel)
+                    rep["resolved"].append(rel)
+                else:  # 表格已語意合併、手寫段兩側同改留標記；不 add，交 CC 判斷
+                    rep["remaining"].append(rel)
+                    rep["skipped"].append({"path": rel, "reason": "表格已合併，表外手寫文字兩側同改，已留 <<<<<<< 標記待判斷"})
+            elif "<<<<<<<" not in wt:
+                if _valid_format(rel, wt):
+                    to_add.append(rel)
+                    rep["staged_user_version"].append(rel)
+                else:
+                    rep["remaining"].append(rel)
+                    rep["skipped"].append({"path": rel, "reason": "工作樹版本無標記但格式不合法，未 stage"})
+            else:
+                rep["remaining"].append(rel)
+                rep["skipped"].append({"path": rel, "reason": "工作樹已被手動改過且仍有衝突標記，不覆蓋"})
+        if to_add:
+            add = _git("add", "--", *to_add, cwd=root)
+            if add.returncode:
+                rep["error"] = f"git add 失敗：{add.stderr.strip()}"
+                for p in to_add:
+                    rep["remaining"].append(p)
+                rep["resolved"], rep["staged_user_version"] = [], []
+        rep["installed"] = _driver_config_ok() or bool(install(quiet=True).get("installed"))
+    except subprocess.TimeoutExpired as e:
+        rep["error"] = f"git 逾時：{e}"
+    except Exception as e:  # noqa: BLE001
+        rep["error"] = f"{type(e).__name__}: {e}"
+    rc = 0 if (not rep["remaining"] and not rep["error"]) else 1
+    if rep["resolved"]:
+        _say(f"[merge-atom-index] 已合併並 add：{', '.join(rep['resolved'])}", quiet)
+    for s in rep["skipped"]:
+        _say(f"[merge-atom-index] 未解：{s['path']} — {s['reason']}", quiet)
+    if rep["error"]:
+        _say(f"[merge-atom-index] 錯誤：{rep['error']}", quiet)
+    return rep, rc
+
+
+# ─── CLI ──────────────────────────────────────────────────────────────────
 
 def main(argv: List[str]) -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            if stream:
+                stream.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
             pass
+    quiet = "--quiet" in argv
+    cwd: Optional[Path] = None
+    if "--cwd" in argv:
+        i = argv.index("--cwd")
+        if i + 1 < len(argv):
+            cwd = Path(argv[i + 1])
     if "--install" in argv:
-        return install()
+        rep = install(quiet=quiet)
+        if quiet:
+            _out(json.dumps(rep, ensure_ascii=False))
+        return 0 if rep["installed"] else 1
+    if "--is-installed" in argv:
+        return 0 if is_installed(cwd or Path.cwd()) else 1
     if "--status" in argv:
-        return status()
-    if len(argv) < 3:
-        print(__doc__)
+        return status(cwd or Path.cwd())
+    if "--resolve" in argv:
+        rep, rc = resolve(cwd or Path.cwd(), quiet=quiet)
+        _out(json.dumps(rep, ensure_ascii=False))
+        return rc
+    pos = [a for a in argv if not a.startswith("--")]
+    if len(pos) < 3:
+        _out(__doc__ or "")
         return 2
-    return run_driver(argv[0], argv[1], argv[2], argv[3] if len(argv) > 3 else "")
+    return run_driver(pos[0], pos[1], pos[2], pos[3] if len(pos) > 3 else "")
 
 
 if __name__ == "__main__":

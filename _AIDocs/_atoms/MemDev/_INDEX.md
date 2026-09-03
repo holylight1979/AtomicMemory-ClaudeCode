@@ -28,6 +28,7 @@
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | OTEL 遙測評估結論-不實作-兩目標指標皆測不到 |
 | pan-hermes不移植部件與vscode-text-block不落盤實測 | pan-hermes不移植部件與vscode-text-block不落盤實測 |
+| repo-全面-lf-決策與守衛鏈 | repo-全面-LF-決策與守衛鏈 |
 | scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層 | scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層 |
 | testfailgate-非-pytest-失敗紀錄只靠同前綴-40-字的成功指令清除-重跑勿加-cd-前綴 | TestFailGate 非 pytest 失敗紀錄只靠同前綴 40 字的成功指令清除-重跑勿加 cd 前綴 |
 | toolchain-ollama | Ollama Dual-Backend 實戰記憶 |

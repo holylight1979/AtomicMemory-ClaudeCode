@@ -6,7 +6,7 @@
 - Trigger: 閃 console, console 視窗, 黑窗, 閃窗, pythonw, CREATE_NO_WINDOW, windowsHide, MCP 閃窗, hook 閃窗, WindowsTerminal, 上GIT, git commit 閃窗, subprocess spawn
 - Created-at: 2026-06-09
 
-- Related: mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口, cognitive-patterns, feedback-workflow-discipline, cc-能力查證反編譯實跑-binary
+- Related: mcp-json-與-user-scope-同名-server-並存雙開-黑窗第四層破口, cognitive-patterns, feedback-workflow-discipline, cc-能力查證反編譯實跑-binary, feedback-tooling-reliability, feedback-memory-system-doc-sync
 
 ## 知識
 

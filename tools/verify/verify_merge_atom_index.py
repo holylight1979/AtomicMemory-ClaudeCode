@@ -3,7 +3,9 @@
 三層：
   1. 純函式：JSON / _ATOM_INDEX.md / MEMORY.md 各自的語意三方規則（兩側各加、一側刪、兩側同改、CRLF、壞 JSON）
   2. 真 git：tmp repo 掛 .gitattributes + repo-local driver，merge 與 rebase 都零衝突且內容正確、blob 為 LF
-  3. 安裝：--install 寫到隔離的 GIT_CONFIG_GLOBAL / XDG_CONFIG_HOME，重跑冪等
+  3. 安裝：--install 寫到隔離的 GIT_CONFIG_GLOBAL / XDG_CONFIG_HOME，重跑冪等；--is-installed / --install --quiet JSON
+  4. --resolve 備案（沒裝驅動、git 已停在衝突）：merge / rebase / cherry-pick / 根層佈局都能把三檔解掉並讓
+     commit／--continue 過；人解一半不覆蓋、非索引檔與同名檔不碰、無標記的合法版本直接 stage、一側刪檔列 skipped
 另附「driver 執行當下工作樹只有 HEAD 側 atom 檔」實測（設計依據：為何不從磁碟重建）。
 """
 from __future__ import annotations
@@ -191,16 +193,18 @@ def _write_index_set(mem: Path, atoms, counts, json_eol="\n"):
     (mem / "_atom_index.json").write_bytes(_json_text(_index(*atoms), eol=json_eol).encode("utf-8"))
     (mem / "_ATOM_INDEX.md").write_bytes(_md_table(*atoms).encode("utf-8"))
     (mem / "MEMORY.md").write_bytes(_memory_md(counts).encode("utf-8"))
+    root_layout = mem.parent.name != ".claude"
     for n, p, _t in atoms:
-        f = mem.parent.parent / p.replace("memory/", ".claude/memory/", 1)
+        f = (mem.parent / p) if root_layout else mem.parent.parent / p.replace("memory/", ".claude/memory/", 1)
         f.parent.mkdir(parents=True, exist_ok=True)
         if not f.exists():
-            f.write_text(f"# {n}\n", encoding="utf-8")
+            f.write_text(f"# {n}\n", encoding="utf-8", newline="\n")
 
 
-def _make_repo(tmp_path: Path, *, install_driver=True) -> Path:
+def _make_repo(tmp_path: Path, *, install_driver=True, layout="project") -> Path:
+    """兩分支索引衝突場景。layout=project → <repo>/.claude/memory；layout=root → <repo>/memory（根層 repo 佈局）。"""
     repo = tmp_path / "proj"
-    mem = repo / ".claude" / "memory"
+    mem = (repo / ".claude" / "memory") if layout == "project" else (repo / "memory")
     mem.mkdir(parents=True)
     _git(tmp_path, "init", "-q", "-b", "master", str(repo))
     _git(repo, "config", "user.email", "t@t")
@@ -208,7 +212,8 @@ def _make_repo(tmp_path: Path, *, install_driver=True) -> Path:
     _git(repo, "config", "core.autocrlf", "false")
     if install_driver:
         _git(repo, "config", "merge.atomindex.driver", drv.driver_command())
-    (repo / ".gitattributes").write_text("\n".join(drv.ATTR_LINES) + "\n", encoding="utf-8")
+    attr_lines = drv.ATTR_LINES if layout == "project" else [f"memory/{n} merge=atomindex text eol=lf" for n in drv.INDEX_FILES]
+    (repo / ".gitattributes").write_text("\n".join(attr_lines) + "\n", encoding="utf-8", newline="\n")
     _write_index_set(mem, [A], {"Server": 1})
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "base")
@@ -225,7 +230,8 @@ def _make_repo(tmp_path: Path, *, install_driver=True) -> Path:
 
 
 def _assert_merged(repo: Path):
-    mem = repo / ".claude" / "memory"
+    mem = (repo / ".claude" / "memory") if (repo / ".claude" / "memory").exists() else (repo / "memory")
+    rel = ".claude/memory" if mem.parent.name == ".claude" else "memory"
     d = json.loads((mem / "_atom_index.json").read_text(encoding="utf-8"))
     assert sorted(a["name"] for a in d["atoms"]) == ["a", "b", "c"]
     md = (mem / "_ATOM_INDEX.md").read_text(encoding="utf-8")
@@ -236,7 +242,7 @@ def _assert_merged(repo: Path):
         assert (mem / "shared" / "Server" / f"{n}.md").exists()
     assert (mem / "shared" / "Tools" / "c.md").exists()
     for f in ("_atom_index.json", "_ATOM_INDEX.md", "MEMORY.md"):
-        assert b"\r" not in _git(repo, "show", f"HEAD:.claude/memory/{f}").stdout.encode("utf-8")
+        assert b"\r" not in _git(repo, "show", f"HEAD:{rel}/{f}").stdout.encode("utf-8")
 
 
 def test_git_merge_is_clean(tmp_path):
@@ -308,6 +314,156 @@ def test_install_and_status_isolated(tmp_path):
     r = subprocess.run([PY, str(DRIVER), "--status"], capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=env, **_NO_WINDOW)
     assert r.returncode == 0 and "已安裝" in r.stdout
+
+
+# ─── 6. --resolve：git 已停在衝突（沒裝驅動）→ 把語意合併套在 index stages 上 ──────
+# 所有 git 指令走隔離的 global config（GIT_CONFIG_GLOBAL），否則本機已裝的真驅動會把衝突先合掉。
+
+
+def _iso_env(tmp_path: Path) -> dict:
+    (tmp_path / "gitconfig").write_text("", encoding="utf-8", newline="\n")
+    return dict(os.environ, GIT_CONFIG_GLOBAL=str(tmp_path / "gitconfig"), GIT_CONFIG_NOSYSTEM="1",
+                XDG_CONFIG_HOME=str(tmp_path / "xdg"), HOME=str(tmp_path), USERPROFILE=str(tmp_path))
+
+
+def _resolve(repo: Path, env: dict):
+    r = subprocess.run([PY, str(DRIVER), "--resolve", "--cwd", str(repo), "--quiet"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", env=env, **_NO_WINDOW)
+    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    assert lines, f"no stdout; stderr={r.stderr}"
+    return r.returncode, json.loads(lines[-1]), r.stderr
+
+
+def _unmerged(repo: Path, env: dict) -> str:
+    return _git(repo, "ls-files", "-u", env=env).stdout
+
+
+def _names(paths):
+    return sorted(Path(p).name for p in paths)
+
+
+def test_resolve_after_merge_conflict_then_commit(tmp_path):
+    env = _iso_env(tmp_path)
+    repo = _make_repo(tmp_path, install_driver=False)
+    r = _git(repo, "merge", "A", "-m", "m", check=False, env=env)
+    assert "CONFLICT" in r.stdout + r.stderr
+    rc, rep, err = _resolve(repo, env)
+    assert rc == 0 and rep["error"] is None, (rep, err)
+    assert _names(rep["resolved"]) == ["MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json"]
+    assert rep["installed"] is True and _unmerged(repo, env).strip() == ""
+    _git(repo, "commit", "-qm", "merged", env=env)
+    _assert_merged(repo)
+    cfg = subprocess.run(["git", "config", "--global", "--get", "merge.atomindex.driver"], capture_output=True,
+                         text=True, encoding="utf-8", env=env, **_NO_WINDOW).stdout
+    assert "merge-atom-index.py" in cfg  # 順手裝進（隔離的）global config
+
+
+def test_resolve_during_rebase_then_continue(tmp_path):
+    env = _iso_env(tmp_path)
+    repo = _make_repo(tmp_path, install_driver=False)
+    r = _git(repo, "rebase", "A", check=False, env=env)
+    assert "CONFLICT" in r.stdout + r.stderr
+    rc, rep, err = _resolve(repo, env)
+    assert rc == 0, (rep, err)
+    r = _git(repo, "-c", "core.editor=true", "rebase", "--continue", check=False, env=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert _git(repo, "status", "--porcelain", env=env).stdout.strip() == ""
+    _assert_merged(repo)
+
+
+def test_resolve_during_cherry_pick(tmp_path):
+    env = _iso_env(tmp_path)
+    repo = _make_repo(tmp_path, install_driver=False)
+    r = _git(repo, "cherry-pick", "A", check=False, env=env)
+    assert "CONFLICT" in r.stdout + r.stderr
+    rc, rep, err = _resolve(repo, env)
+    assert rc == 0, (rep, err)
+    r = _git(repo, "-c", "core.editor=true", "cherry-pick", "--continue", check=False, env=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    _assert_merged(repo)
+
+
+def test_resolve_root_layout(tmp_path):
+    env = _iso_env(tmp_path)
+    repo = _make_repo(tmp_path, install_driver=False, layout="root")
+    r = _git(repo, "merge", "A", "-m", "m", check=False, env=env)
+    assert "CONFLICT" in r.stdout + r.stderr
+    rc, rep, err = _resolve(repo, env)
+    assert rc == 0 and all(p.startswith("memory/") for p in rep["resolved"]), (rep, err)
+    _git(repo, "commit", "-qm", "merged", env=env)
+    _assert_merged(repo)
+
+
+def test_resolve_leaves_hand_edited_and_non_index_conflicts(tmp_path):
+    env = _iso_env(tmp_path)
+    repo = _make_repo(tmp_path, install_driver=False)
+    # 同名但不在記憶樹的檔 + 一般檔：兩分支各改 → 一併衝突，resolve 不得碰
+    for branch, text in (("A", "a-side\n"), ("master", "m-side\n")):
+        _git(repo, "checkout", "-q", branch, env=env)
+        (repo / "docs").mkdir(exist_ok=True)
+        (repo / "docs" / "MEMORY.md").write_text(text, encoding="utf-8", newline="\n")
+        (repo / "notes.md").write_text(text, encoding="utf-8", newline="\n")
+        _git(repo, "add", "-A", env=env)
+        _git(repo, "commit", "-qm", f"{branch} docs", env=env)
+    r = _git(repo, "merge", "A", "-m", "m", check=False, env=env)
+    assert "CONFLICT" in r.stdout + r.stderr
+    mem = repo / ".claude" / "memory"
+    # 人解到一半：JSON 仍有標記但內容被動過
+    j = mem / "_atom_index.json"
+    hand = j.read_text(encoding="utf-8").replace("<<<<<<< HEAD", "<<<<<<< HEAD\n// 手動註記", 1)
+    j.write_text(hand, encoding="utf-8", newline="\n")
+    rc, rep, err = _resolve(repo, env)
+    assert rc == 1, (rep, err)
+    assert _names(rep["remaining"]) == ["_atom_index.json"] and "手動" in rep["skipped"][0]["reason"]
+    assert _names(rep["resolved"]) == ["MEMORY.md", "_ATOM_INDEX.md"]
+    assert j.read_text(encoding="utf-8") == hand  # 沒被覆蓋
+    still = _unmerged(repo, env)
+    assert "docs/MEMORY.md" in still and "notes.md" in still and "_atom_index.json" in still
+    assert "<<<<<<<" in (repo / "docs" / "MEMORY.md").read_text(encoding="utf-8")
+
+
+def test_resolve_stages_valid_user_version_without_markers(tmp_path):
+    env = _iso_env(tmp_path)
+    repo = _make_repo(tmp_path, install_driver=False)
+    _git(repo, "merge", "A", "-m", "m", check=False, env=env)
+    mem = repo / ".claude" / "memory"
+    (mem / "_atom_index.json").write_bytes(_json_text(_index(A, B, C)).encode("utf-8"))  # 使用者自己解好
+    rc, rep, err = _resolve(repo, env)
+    assert rc == 0, (rep, err)
+    assert _names(rep["staged_user_version"]) == ["_atom_index.json"]
+    assert _names(rep["resolved"]) == ["MEMORY.md", "_ATOM_INDEX.md"]
+    assert _unmerged(repo, env).strip() == ""
+
+
+def test_resolve_delete_modify_is_skipped_with_reason(tmp_path):
+    env = _iso_env(tmp_path)
+    repo = _make_repo(tmp_path, install_driver=False)
+    _git(repo, "checkout", "-q", "A", env=env)
+    _git(repo, "rm", "-q", ".claude/memory/_ATOM_INDEX.md", env=env)
+    _git(repo, "commit", "-qm", "A drops md mirror", env=env)
+    _git(repo, "checkout", "-q", "master", env=env)
+    r = _git(repo, "merge", "A", "-m", "m", check=False, env=env)
+    assert "CONFLICT" in r.stdout + r.stderr
+    rc, rep, err = _resolve(repo, env)
+    assert rc == 1, (rep, err)
+    assert _names(rep["remaining"]) == ["_ATOM_INDEX.md"] and "刪除" in rep["skipped"][0]["reason"]
+    assert _names(rep["resolved"]) == ["MEMORY.md", "_atom_index.json"]
+
+
+def test_is_installed_and_install_quiet_json(tmp_path):
+    env = _iso_env(tmp_path)
+    r = subprocess.run([PY, str(DRIVER), "--is-installed"], capture_output=True, env=env, **_NO_WINDOW)
+    assert r.returncode == 1  # 隔離的 global 什麼都沒有
+    r = subprocess.run([PY, str(DRIVER), "--install", "--quiet"], capture_output=True, text=True, encoding="utf-8",
+                       env=env, **_NO_WINDOW)
+    rep = json.loads(r.stdout.strip().splitlines()[-1])
+    assert r.returncode == 0 and rep["installed"] is True and r.stderr.strip() == ""
+    r = subprocess.run([PY, str(DRIVER), "--is-installed"], capture_output=True, env=env, **_NO_WINDOW)
+    assert r.returncode == 0
+    # 驅動裡的直譯器不得是 pythonw
+    cfg = subprocess.run(["git", "config", "--global", "--get", "merge.atomindex.driver"], capture_output=True,
+                         text=True, encoding="utf-8", env=env, **_NO_WINDOW).stdout
+    assert "pythonw" not in cfg.lower()
 
 
 if __name__ == "__main__":

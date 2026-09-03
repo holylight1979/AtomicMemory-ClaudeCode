@@ -443,6 +443,51 @@ def _unpushed_advisory() -> list:
         return []
 
 
+def _index_conflict_advisory(cwd: str) -> list:
+    """開場 advisory：上個 session 的 pull/rebase 卡在索引三檔衝突、還沒解就關掉 → 這裡浮出一行。
+
+    exists()-first 省錢：先一次 `git rev-parse --git-dir`（worktree 相容），只有 MERGE_HEAD／
+    CHERRY_PICK_HEAD／rebase-merge／rebase-apply 任一存在（真的卡在合併中）才跑 `git ls-files -u`。
+    唯讀 git；非 repo／git 不在／任何失敗 → []。PreToolUse 的 check_merge_driver 會在下一個
+    `rebase --continue`／`commit` 前自動 --resolve，這行只是讓人先知道現況。
+    """
+    try:
+        if not cwd or not Path(cwd).is_dir():
+            return []
+        r = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=2, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            return []
+        gitdir = Path((r.stdout or "").strip())
+        if not gitdir.is_absolute():
+            gitdir = Path(cwd) / gitdir
+        if not any((gitdir / n).exists()
+                   for n in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply")):
+            return []
+        r = subprocess.run(
+            ["git", "ls-files", "-u", "-z"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=2, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            return []
+        index_names = {"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json"}
+        names = sorted({
+            entry.split("\t", 1)[1].rsplit("/", 1)[-1]
+            for entry in (r.stdout or "").split("\0") if "\t" in entry
+        } & index_names)
+        if not names:
+            return []
+        return [
+            f"[Guardian:IndexConflict] ⚠ 索引三檔尚未合併（{', '.join(names)}）"
+            "→ python ~/.claude/tools/merge-atom-index.py --resolve 後 git rebase --continue"
+        ]
+    except Exception as e:
+        _atom_debug_error("session_start:index_conflict_advisory", e)
+        return []
+
+
 def _personal_sync_advisory(project_mem_dir, user: str) -> list:
     """本人 personal atom 的版控同步狀態 → 開場最多三行（無事零 context）。
 
@@ -820,6 +865,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # ── 未推送 commit ─────────────────────────────────────
         # SessionEnd 晉升自動提交的 push 走背景、失敗當下無人知 → 這裡補可見性。
         lines.extend(_unpushed_advisory())
+        lines.extend(_index_conflict_advisory(cwd))
         lines.extend(_followup_advisory())
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))

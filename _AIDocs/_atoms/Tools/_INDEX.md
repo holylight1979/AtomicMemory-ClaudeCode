@@ -10,6 +10,7 @@
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
 | electron-uia-automation | Electron app UI 自動化三層障礙 |
 | gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
+| heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律Write成檔再跑 |
 | sync-memory-indexpy-在-windows-直接跑會-cp950-unicodeencodeerror-前綴-pythonioencodingutf-8 | sync-memory-index.py 在 Windows 直接跑會 cp950 UnicodeEncodeError — 前綴 PYTHONIOENCODING=utf-8 |
 
 ## 子層

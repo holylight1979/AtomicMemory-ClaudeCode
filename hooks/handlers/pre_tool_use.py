@@ -6,14 +6,16 @@ handlers/pre_tool_use.py — PreToolUse hook handler
 
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    WORKFLOW_DIR,
+    CLAUDE_DIR, WORKFLOW_DIR,
     output_json, output_nothing,
     check_memory_path_block, check_svn_test_block,
     check_cross_realm_write, check_cross_realm_mcp_cmd, check_cross_realm_bash,
@@ -492,15 +494,54 @@ _PRIVACY_CLAUDE_ROOT_GLOBS = [
 _GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"}
 
 
-def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
-    """拆 shell 指令為片段，回傳其中 git subcommand == commit 的 (repo_cd, tokens)。
-    repo_cd = `git -C <path>` 的 path（無則 ""）。保守解析：認不出就當非 commit（寧漏勿誤擋）。"""
+def _shell_tokens(seg: str) -> List[str]:
+    """最小 quote-aware 切詞：引號內整段保留（含空白）、引號本身剝掉；不解跳脫。
+    目的只有一個——`git -C "C:\\My Repo" pull` 的路徑不被 str.split 切碎。"""
+    out: List[str] = []
+    buf: List[str] = []
+    quote = ""
+    for ch in seg:
+        if quote:
+            if ch == quote:
+                quote = ""
+            else:
+                buf.append(ch)
+        elif ch in "\"'":
+            quote = ch
+        elif ch.isspace():
+            if buf:
+                out.append("".join(buf))
+                buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        out.append("".join(buf))
+    return out
+
+
+_CD_HEADS = {"cd", "chdir", "pushd", "set-location", "sl"}
+
+
+def _git_segments(command: str, subcommands: set) -> List[Tuple[str, List[str]]]:
+    """拆 shell 指令為片段，回傳其中 git subcommand ∈ subcommands 的 (repo_cd, tokens)。
+    tokens 從 subcommand 起算（tokens[0] 即 subcommand）。repo_cd 依序取：
+    `git -C <path>` 的 path → 同一條命令裡前面 `cd <path>` 段的 path → ""（caller 用 tool cwd）。
+    支援：`&& || ; | 換行` 切段、引號路徑、`git.exe`／大小寫、`cd X && git …`／`cd X; git …`、
+    PowerShell `Set-Location`。保守解析：認不出就當非目標（寧漏勿誤擋）。"""
     out: List[Tuple[str, List[str]]] = []
+    last_cd = ""
     for seg in re.split(r"&&|\|\||;|\||\n", command or ""):
-        tokens = seg.split()
+        tokens = _shell_tokens(seg)
+        if not tokens:
+            continue
+        if tokens[0].lower() in _CD_HEADS:
+            args = [t for t in tokens[1:] if not t.startswith("-") and t.lower() != "/d"]
+            if args:
+                last_cd = args[0]
+            continue
         git_idx = next(
             (idx for idx, t in enumerate(tokens)
-             if t.lower().rstrip('"\'') in ("git", "git.exe")
+             if t.lower() in ("git", "git.exe")
              or t.lower().endswith(("/git", "\\git", "/git.exe", "\\git.exe"))),
             None,
         )
@@ -513,7 +554,7 @@ def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
             t = tokens[j]
             if t in _GIT_VALUE_FLAGS:
                 if t == "-C" and j + 1 < len(tokens):
-                    repo_cd = tokens[j + 1].strip("\"'")
+                    repo_cd = tokens[j + 1]
                 j += 2
                 continue
             if t.startswith("-"):
@@ -521,9 +562,24 @@ def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
                 continue
             sub = t
             break
-        if sub == "commit":
-            out.append((repo_cd, tokens[j:]))
+        if sub.lower() in subcommands:
+            out.append((repo_cd or last_cd, tokens[j:]))
     return out
+
+
+def _git_commit_segments(command: str) -> List[Tuple[str, List[str]]]:
+    """薄包裝：只取 git commit 段（隱私閘用）。"""
+    return _git_segments(command, {"commit"})
+
+
+def _resolve_run_cwd(repo_cd: str, cwd: str) -> str:
+    """把 `-C`／`cd` 抓到的路徑解成子行程 cwd：展開 ~；相對路徑以 tool cwd 為基準。"""
+    if not repo_cd:
+        return cwd
+    p = os.path.expanduser(repo_cd)
+    if not os.path.isabs(p) and cwd:
+        p = os.path.join(cwd, p)
+    return p
 
 
 def _git_lines(args: List[str], cwd: str) -> Optional[List[str]]:
@@ -580,7 +636,7 @@ def check_git_privacy(
         return None   # 快篩，省 regex/子行程
     try:
         for repo_cd, commit_tokens in _git_commit_segments(command):
-            run_cwd = repo_cd or cwd
+            run_cwd = _resolve_run_cwd(repo_cd, cwd)
             files = _git_lines(
                 ["diff", "--cached", "--name-only", "--diff-filter=ACMR"], run_cwd
             )
@@ -616,6 +672,200 @@ def check_git_privacy(
     except Exception as e:
         try:
             sys.stderr.write(f"[Guardian:GitPrivacy] 檢查異常（fail-open）：{e}\n")
+        except OSError:
+            pass
+    return None
+
+
+# ─── 索引三檔合併驅動閘（advisory-only，永不 deny）─────────────────────────
+# 多機共享記憶庫：兩機各加 atom 後 pull/rebase，索引三檔（MEMORY.md 計數表／_ATOM_INDEX.md／
+# _atom_index.json）同區塊各加一列必衝突。兩層自動化（workflow/config.json merge_driver）：
+#   (A) auto_install：合併類 git 指令（pull/merge/rebase/cherry-pick/stash pop|apply）前，
+#       本機未裝語意合併驅動 → 自動 `merge-atom-index.py --install`（git 全域設定，各機一次）。
+#   (B) auto_resolve：解衝突收尾指令（rebase/merge/cherry-pick --continue、commit、stash pop|apply）
+#       前，索引三檔仍 unmerged → 先 `--resolve`（語意合併 stages 並 git add），再放行原指令。
+#       不含 `git add`：使用者自己 add 索引檔即 git 已解除 stage，B 在此多餘。
+# 唯一權威＝`git ls-files -u`（index-only、涵蓋 stash／worktree）。全程 fail-open、總時限 2.5s、
+# Windows-safe（CREATE_NO_WINDOW；hook 跑在 pythonw 下，子行程直譯器改用同目錄 python.exe）。
+_INDEX_FILE_NAMES = frozenset({"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json"})
+# 用 hook 自己的檔案位置定位工具，不靠 HOME 推導（HOME 被覆寫的環境下 CLAUDE_DIR 會指錯地方）
+_MERGE_TOOL = Path(__file__).resolve().parents[2] / "tools" / "merge-atom-index.py"
+_MERGE_GATE_BUDGET_S = 2.5
+_MERGE_RESOLVE_SUBS = {"rebase", "merge", "cherry-pick", "commit", "stash"}
+_MERGE_INSTALL_SUBS = {"pull", "merge", "rebase", "cherry-pick", "stash"}
+_MERGE_MANUAL_RESOLVE = "手動 python ~/.claude/tools/merge-atom-index.py --resolve"
+_MERGE_MANUAL_INSTALL = "手動 python ~/.claude/tools/merge-atom-index.py --install"
+
+
+def _hook_python_exe() -> str:
+    """子行程直譯器：hook 在 pythonw.exe 下跑，spawn sys.executable 會沒有 stdout → 改用同目錄 python.exe。"""
+    exe = Path(sys.executable)
+    if exe.name.lower() == "pythonw.exe":
+        sib = exe.with_name("python.exe")
+        if sib.exists():
+            return str(sib)
+    return str(exe)
+
+
+def _run_capture(args: List[str], cwd: str, timeout: float) -> subprocess.CompletedProcess:
+    """A/B 共用的 Windows-safe 子行程：capture、UTF-8、errors=replace、timeout、不閃窗。
+    不吞例外（TimeoutExpired 由 caller 轉成 ⚠ advisory）。"""
+    return subprocess.run(
+        args, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=timeout, cwd=cwd or None,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+
+
+def _stash_pop_or_apply(tokens: List[str]) -> bool:
+    return any(t.lower() in ("pop", "apply") for t in tokens[1:])
+
+
+def _is_resolve_trigger(tokens: List[str]) -> bool:
+    sub = tokens[0].lower()
+    if sub == "commit":
+        return True
+    if sub in ("rebase", "merge", "cherry-pick"):
+        return "--continue" in tokens
+    if sub == "stash":
+        return _stash_pop_or_apply(tokens)
+    return False
+
+
+def _is_install_trigger(tokens: List[str]) -> bool:
+    sub = tokens[0].lower()
+    if sub in ("pull", "merge", "rebase", "cherry-pick"):
+        return True
+    if sub == "stash":
+        return _stash_pop_or_apply(tokens)
+    return False
+
+
+def _unmerged_index_files(run_cwd: str, timeout: float) -> Optional[List[str]]:
+    """`git ls-files -u -z` 解出仍 unmerged 的索引三檔 repo 相對路徑。
+    None＝查不到（非 repo／git 失敗）→ caller 當「無資訊」跳過；[]＝沒有。"""
+    if not run_cwd or not os.path.isdir(run_cwd):
+        return None
+    r = _run_capture(["git", "ls-files", "-u", "-z"], run_cwd, timeout)
+    if r.returncode != 0:
+        return None
+    found: List[str] = []
+    for entry in (r.stdout or "").split("\0"):
+        if "\t" not in entry:
+            continue
+        path = entry.split("\t", 1)[1]
+        if path.rsplit("/", 1)[-1] in _INDEX_FILE_NAMES and path not in found:
+            found.append(path)
+    return found
+
+
+def _resolve_json(stdout: str) -> Optional[Dict[str, Any]]:
+    """--resolve 的 stdout 契約是單行 JSON；保守取最後一個非空行解析。"""
+    for ln in reversed((stdout or "").splitlines()):
+        ln = ln.strip()
+        if ln:
+            try:
+                d = json.loads(ln)
+                return d if isinstance(d, dict) else None
+            except ValueError:
+                return None
+    return None
+
+
+def check_merge_driver(
+    tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any]
+) -> Optional[str]:
+    """Bash/PowerShell git 指令前的索引三檔合併自動化。回 advisory 字串或 None；永不 deny。
+    省錢階梯：工具名 → 字串含 git → 拆段命中 → 才動子行程；(B) 命中後不再跑 (A)。"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return None
+    mcfg = config.get("merge_driver") or {}
+    auto_resolve = bool(mcfg.get("auto_resolve", True))
+    auto_install = bool(mcfg.get("auto_install", True))
+    if not (auto_resolve or auto_install):
+        return None
+    command = tool_input.get("command", "") or ""
+    if "git" not in command.lower():
+        return None
+    try:
+        segments = _git_segments(command, _MERGE_RESOLVE_SUBS | _MERGE_INSTALL_SUBS)
+        if not segments:
+            return None
+        deadline = time.monotonic() + _MERGE_GATE_BUDGET_S
+
+        def _left(cap: float) -> float:
+            return max(0.05, min(cap, deadline - time.monotonic()))
+
+        interp = _hook_python_exe()
+
+        # (B) 解衝突收尾指令 → 索引三檔仍 unmerged 就先 --resolve
+        if auto_resolve:
+            for repo_cd, tokens in segments:
+                if not _is_resolve_trigger(tokens):
+                    continue
+                run_cwd = _resolve_run_cwd(repo_cd, cwd)
+                try:
+                    unmerged = _unmerged_index_files(run_cwd, _left(1.0))
+                except subprocess.TimeoutExpired:
+                    return (f"[Guardian:IndexConflict] ⚠ 索引檔衝突檢查逾時（git ls-files）"
+                            f" → {_MERGE_MANUAL_RESOLVE}")
+                if not unmerged:
+                    continue
+                try:
+                    r = _run_capture(
+                        [interp, str(_MERGE_TOOL), "--resolve", "--cwd", run_cwd, "--quiet"],
+                        run_cwd, _left(_MERGE_GATE_BUDGET_S),
+                    )
+                except subprocess.TimeoutExpired:
+                    return (f"[Guardian:IndexConflict] ⚠ 索引檔自動解逾時（{', '.join(unmerged)}）"
+                            f" → {_MERGE_MANUAL_RESOLVE}")
+                d = _resolve_json(r.stdout)
+                if d is None:
+                    tail = ((r.stderr or "").strip().splitlines() or [f"rc={r.returncode}"])[-1]
+                    return (f"[Guardian:IndexConflict] ⚠ 索引檔自動解未完成：{tail}"
+                            f" → {_MERGE_MANUAL_RESOLVE}")
+                remaining = [str(x) for x in (d.get("remaining") or [])]
+                error = d.get("error")
+                if remaining or error or r.returncode != 0:
+                    why = error or ", ".join(remaining) or f"rc={r.returncode}"
+                    return (f"[Guardian:IndexConflict] ⚠ 索引檔自動解未完成：{why}"
+                            f" → {_MERGE_MANUAL_RESOLVE}")
+                resolved = [str(x) for x in (d.get("resolved") or [])]
+                staged = [str(x) for x in (d.get("staged_user_version") or [])]
+                parts = []
+                if resolved:
+                    parts.append(f"已自動合併並 add 索引檔：{', '.join(resolved)}")
+                if staged:
+                    parts.append(f"已 stage 你解好的版本：{', '.join(staged)}")
+                if not parts:
+                    parts.append("索引三檔已無未合併項")
+                return "[Guardian:IndexConflict] " + "；".join(parts)
+
+        # (A) 合併類指令 → 本機未裝驅動就自動 --install（只對第一個命中段做一次）
+        if auto_install:
+            for repo_cd, tokens in segments:
+                if not _is_install_trigger(tokens):
+                    continue
+                run_cwd = _resolve_run_cwd(repo_cd, cwd)
+                try:
+                    chk = _run_capture(
+                        [interp, str(_MERGE_TOOL), "--is-installed", "--cwd", run_cwd],
+                        cwd, _left(1.5),
+                    )
+                    if chk.returncode == 0:
+                        return None
+                    ins = _run_capture(
+                        [interp, str(_MERGE_TOOL), "--install", "--quiet"], cwd, _left(1.5),
+                    )
+                except subprocess.TimeoutExpired:
+                    return f"[Guardian:MergeDriver] ⚠ 驅動安裝檢查逾時 → {_MERGE_MANUAL_INSTALL}"
+                if ins.returncode == 0:
+                    return "[Guardian:MergeDriver] 已自動安裝索引三檔合併驅動（git 全域設定，各機一次）"
+                tail = ((ins.stderr or ins.stdout or "").strip().splitlines() or [f"rc={ins.returncode}"])[-1]
+                return f"[Guardian:MergeDriver] ⚠ 驅動安裝失敗：{tail} → {_MERGE_MANUAL_INSTALL}"
+    except Exception as e:
+        try:
+            sys.stderr.write(f"[Guardian:MergeDriver] 檢查異常（fail-open）：{e}\n")
         except OSError:
             pass
     return None
@@ -758,6 +1008,17 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
+    # 索引三檔合併驅動閘（advisory-only）——必須在隱私閘之前：resolver 會 git add 索引檔，
+    # 隱私檢查要看到它 stage 完的 index。之後 privacy／PAN 仍可能 deny；已 stage 的索引檔
+    # 是冪等的無害合併結果（下次同指令直接放行），不需回滾。訊息同步落 stderr：
+    # 後面若 deny，stdout 只能給 deny JSON，advisory 不能就此無聲消失。
+    merge_warn = check_merge_driver(tool_name, tool_input, _cwd, config)
+    if merge_warn:
+        try:
+            sys.stderr.write(merge_warn + "\n")
+        except OSError:
+            pass
+
     # git commit 隱私硬閘（staged 含隱私檔 → deny；fail-open）
     deny_reason = check_git_privacy(tool_name, tool_input, _cwd, config)
     if deny_reason:
@@ -784,7 +1045,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
     # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）
-    warn_msgs = [m for m in (coord_warn, pan_warn) if m]
+    warn_msgs = [m for m in (coord_warn, merge_warn, pan_warn) if m]
     if warn_msgs:
         if coord_warn and coord_warn_fp:
             try:
