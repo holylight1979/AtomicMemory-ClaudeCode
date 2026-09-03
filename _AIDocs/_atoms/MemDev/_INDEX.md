@@ -23,6 +23,7 @@
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
 | guardian-警告訊息辨識度-emoji-前綴分流 | guardian 警告訊息辨識度-emoji 前綴分流 |
 | harness原生memory與atom索引marker撞名辨識 | harness原生memory與atom索引marker撞名辨識 |
+| hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定 | hook 內呼叫外部工具的四個坑-HOME覆寫下CLAUDE_DIR指錯-pythonw無stdio-5秒預算-探針要隔離global設定 |
 | hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 | HUD暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 |
 | mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原 | MCP js 改動後未重啟-lazy-require 新舊模組混載-tool 回 undefined 類錯誤不是 bug-Reload Window 即復原 |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |

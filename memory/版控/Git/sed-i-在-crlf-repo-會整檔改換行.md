@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: sed -i, CRLF, LF, gitattributes, eol=crlf, 換行差異, 批改多檔, git status 多出檔, autocrlf, 機械式取代
 - Created-at: 2026-08-07
-- Related: commit-前必須核對-staged-清單而非只信自己-add-了什麼, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a
+- Related: commit-前必須核對-staged-清單而非只信自己-add-了什麼, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, git-合併與換行的實證事實-text-auto-不回頭轉-stage-方向-孤立-cr-是-binary-driver-缺-command-會-fatal
 
 ## 知識
 

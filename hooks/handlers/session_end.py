@@ -299,12 +299,15 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
                     file=sys.stderr,
                 )
             else:
-                print(
-                    f"Archive candidates: "
-                    f"{len(si_results['archive_candidates'])} atoms (low decay score; "
-                    f"dry-run → _staging/forget-candidates.md)",
-                    file=sys.stderr,
-                )
+                # 報告落候選 atom 所屬記憶庫的 _staging（全域候選 → ~/.claude/memory/_staging，
+                # 非 cwd 專案庫），故印實際路徑而非相對 "_staging/"。
+                for rp in si_results.get("reports") or []:
+                    print(
+                        f"Archive candidates: "
+                        f"{len(si_results['archive_candidates'])} atoms (low decay score; "
+                        f"dry-run → {rp}, forget-candidates.md 同目錄)",
+                        file=sys.stderr,
+                    )
     except Exception as e:
         print(f"Self-iteration error: {e}", file=sys.stderr)
 

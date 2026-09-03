@@ -26,7 +26,7 @@ from wg_core import (
     CONTEXT_BUDGET_DEFAULT, TURN_BUDGET_LIMIT,
     compute_token_budget,  # re-export：budget 單一來源在 wg_core，舊 caller 仍從本模組 import
     _estimate_tokens,  # CJK-aware 估算器（單一口徑，中文 ~1.5 tok/字）
-    discover_all_project_memory_dirs, resolve_access_json, resolve_staging_dir,
+    discover_all_project_memory_dirs, resolve_access_json,
     get_project_memory_dir, log_promotion_audit, log_promotion_heartbeat,
     _atom_debug_log, _atom_debug_error,
     sanitize_harness_noise,
@@ -2176,14 +2176,14 @@ def apply_selective_forget(archive_candidates, config, *, atoms_dir=None,
     forgotten, skipped = [], []
     for c in cands:
         slug = c.get("atom")
-        md = atoms_dir / f"{slug}.md"
+        md = Path(c["path"]) if c.get("path") else atoms_dir / f"{slug}.md"
         if not md.exists():
             skipped.append(slug)
             continue
         try:
             distant.mkdir(parents=True, exist_ok=True)
             shutil.move(str(md), str(distant / md.name))
-            acc = atoms_dir / f"{slug}.access.json"
+            acc = resolve_access_json(slug, md)  # sidecar 與 md 同目錄
             if acc.exists():
                 shutil.move(str(acc), str(distant / acc.name))
             forgotten.append(slug)
@@ -2360,6 +2360,24 @@ def _sweep_realm_auto_migrate(config: Dict[str, Any]) -> List[Dict[str, Any]]:
 # ─── Self-Iteration: atom 晉升 (was wg_iteration._self_iterate_atoms) ────────
 
 
+def _staging_dir_for_atom(md_file: Path) -> Path:
+    """候選 atom 所屬記憶庫的 _staging/（不看 cwd）。
+
+    專案庫（<root>/.claude/memory/ 或舊址 ~/.claude/projects/<slug>/memory/）→ 該庫 _staging；
+    其餘（~/.claude/memory/、_AIDocs/_atoms/、_AIDocs/Failures/）→ 全域 memory/_staging。
+    """
+    projects_dir = CLAUDE_DIR / "projects"
+    for p in md_file.parents:
+        if p.name != "memory":
+            continue
+        if p == MEMORY_DIR:
+            break
+        if p.parent.name == ".claude" or p.parent.parent == projects_dir:
+            return p / "_staging"
+    return MEMORY_DIR / "_staging"
+
+
+
 def _self_iterate_atoms(
     state: Dict[str, Any], config: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -2452,6 +2470,7 @@ def _self_iterate_atoms(
         if score < archive_threshold:
             results["archive_candidates"].append({
                 "atom": md_file.stem,
+                "path": str(md_file),
                 "score": round(score, 3),
                 "last_used": last_used_raw,
                 "confirmations": confirmations,
@@ -2534,44 +2553,60 @@ def _self_iterate_atoms(
                 and re.search(r"^- \[(觀|固)\]", text, re.MULTILINE)):
             results["demote_candidates"].append({
                 "atom": md_file.stem,
+                "path": str(md_file),
                 "lower_bound": round(u_stats.get("lower_bound", 0.0), 3),
                 "alpha": u_stats.get("alpha"),
                 "beta": u_stats.get("beta"),
                 "n": u_stats.get("n"),
             })
 
-    if results["archive_candidates"] or results["demote_candidates"]:
-        cwd = state.get("session", {}).get("cwd", "")
-        staging = resolve_staging_dir(cwd)
-        staging.mkdir(exist_ok=True)
+    # 報告落「候選 atom 所屬記憶庫」的 _staging/（全域 → ~/.claude/memory/_staging；專案 →
+    # 專案 _staging），不看 cwd——否則專案 session 會把全域候選寫進專案庫。分庫時各寫一份。
+    groups: Dict[Path, Dict[str, list]] = {}
+    for kind in ("archive_candidates", "demote_candidates"):
+        for c in results[kind]:
+            g = groups.setdefault(_staging_dir_for_atom(Path(c["path"])),
+                                  {"archive_candidates": [], "demote_candidates": []})
+            g[kind].append(c)
+    results["reports"] = []
+    forget_all = {"mode": "dry_run", "candidates": [], "forgotten": [], "skipped": []}
+    for staging, g in groups.items():
+        staging.mkdir(parents=True, exist_ok=True)
         out_lines = [
             f"# Archive / Demote Candidates ({today.strftime('%Y-%m-%d')})\n",
         ]
-        if results["archive_candidates"]:
+        if g["archive_candidates"]:
             out_lines.append(f"## 封存候選（score < {archive_threshold}）\n")
-            for c in results["archive_candidates"]:
+            for c in g["archive_candidates"]:
                 out_lines.append(
                     f"- **{c['atom']}** — score={c['score']}, "
                     f"last_used={c['last_used']}, confirmations={c['confirmations']}"
                 )
-        if results["demote_candidates"]:
+        if g["demote_candidates"]:
             out_lines.append(
                 f"\n## 降級候選（效用 Wilson 下界 ≤ {demote_lb}，n≥{demote_min_n}；需裁決）\n")
-            for c in results["demote_candidates"]:
+            for c in g["demote_candidates"]:
                 out_lines.append(
                     f"- **{c['atom']}** — lower_bound={c['lower_bound']}, "
                     f"α={c['alpha']}, β={c['beta']}, n={c['n']}"
                 )
-        (staging / "archive-candidates.md").write_text(
-            "\n".join(out_lines), encoding="utf-8"
-        , newline="\n")
+        report = staging / "archive-candidates.md"
+        report.write_text("\n".join(out_lines), encoding="utf-8", newline="\n")
+        results["reports"].append(str(report))
 
         # Phase D — selective forgetting（預設 dry-run：只寫候選；enabled+!dry_run 才隔離 _distant/）
         try:
-            results["forget"] = apply_selective_forget(
-                results["archive_candidates"], config, staging_dir=staging)
+            fr = apply_selective_forget(
+                g["archive_candidates"], config,
+                atoms_dir=staging.parent, staging_dir=staging)
+            for k in ("candidates", "forgotten", "skipped"):
+                forget_all[k] += fr[k]
+            if fr["mode"] == "isolated":
+                forget_all["mode"] = "isolated"
         except Exception as e:
             _atom_debug_error("forget:apply", e)
+    if groups:
+        results["forget"] = forget_all
 
     # 無晉升事件的掃描也要留活性證據，週健檢才能分辨「無事件」與「管線停擺」
     if not results["promoted"]:

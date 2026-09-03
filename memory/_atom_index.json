@@ -2774,6 +2774,70 @@
         "統一LF"
       ],
       "scope": "global"
+    },
+    {
+      "name": "git-合併與換行的實證事實-text-auto-不回頭轉-stage-方向-孤立-cr-是-binary-driver-缺-command-會-fatal",
+      "path": "memory/版控/Git/git-合併與換行的實證事實-text-auto-不回頭轉-stage-方向-孤立-cr-是-binary-driver-缺-command-會-fatal.md",
+      "triggers": [
+        "text=auto",
+        "eol=lf",
+        "renormalize",
+        "gitattributes",
+        "merge driver",
+        "stage 2",
+        "stage 3",
+        "ls-files -u",
+        "rebase ours theirs",
+        "cherry-pick 衝突",
+        "孤立 CR",
+        "lone CR",
+        "ignore-cr-at-eol",
+        "lacks command line",
+        "add/add",
+        "stash pop 衝突",
+        "MERGE_HEAD"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-強迫選擇也是退避-自動化承諾要對團隊每人成立-不可把專案層動作推給使用者貼prompt",
+      "path": "memory/Failures/行為契約/feedback-強迫選擇也是退避-自動化承諾要對團隊每人成立-不可把專案層動作推給使用者貼prompt.md",
+      "triggers": [
+        "強迫選擇",
+        "先不選",
+        "繼續討論",
+        "決策缺漏",
+        "全自動",
+        "貼 prompt",
+        "專案 session",
+        "自動辦到好",
+        "多機",
+        "團隊每個人",
+        "二選一",
+        "拍板"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定",
+      "path": "_AIDocs/_atoms/MemDev/hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定.md",
+      "triggers": [
+        "PreToolUse",
+        "hook 子行程",
+        "CLAUDE_DIR",
+        "Path.home",
+        "HOME 覆寫",
+        "pythonw",
+        "stdout None",
+        "5 秒",
+        "hook timeout",
+        "探針",
+        "GIT_CONFIG_GLOBAL",
+        "隔離測試",
+        "run_verify 並行",
+        "假紅"
+      ],
+      "scope": "global"
     }
   ]
 }
