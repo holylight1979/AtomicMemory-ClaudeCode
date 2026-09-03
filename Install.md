@@ -78,6 +78,6 @@
 
 - **第一個使用者**想先讓 AI 預載某部分知識：`/read-project <目錄> <方向>` → 掃描並寫入知識庫，之後也記得上傳 GIT / SVN。
 - **接續使用者**：從版控 pull 專案的 `.claude/memory/` 即可直接接上團隊記憶。
-- **多台機器／多人同時寫記憶**：各自新增 atom 後 pull 會在索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）衝突。不必手動裝任何東西：Claude Code 裡第一次跑 pull／merge／rebase 時，hook 自動把合併驅動寫進這台機器的 git 設定，之後索引三檔自動合併；git 真的停住時，`git rebase --continue` 前 hook 也會先自動解掉這三檔。**已裝過舊版的機器升級一次**：`cd ~/.claude && git pull` 後手動跑一次 `python tools/merge-atom-index.py --install`（帶來新機制的那次 pull 跑的還是舊 hook）。自檢 `python tools/merge-atom-index.py --status`；說明見 [README](README.md)「多台電腦／多人同時寫記憶」。
+- **多台機器／多人同時寫記憶**：各自新增 atom 後 pull 會在索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）衝突。不必手動裝任何東西：Claude Code 裡第一次跑 pull／merge／rebase 時，hook 自動把合併驅動寫進這台機器的 git 設定，之後索引三檔自動合併；git 真的停住時，`git rebase --continue` 前 hook 也會先自動解掉這三檔。**已裝過舊版的機器不必預先做什麼**：`cd ~/.claude && git pull` 之後，下一次在 Claude Code 裡跑 pull／merge／rebase 時 hook 就會自動裝；連那次 pull 本身若停在索引三檔，`git rebase --continue` 前新 hook 也會先自動解掉。想立刻確認可手動跑 `python tools/merge-atom-index.py --install`（可選）。自檢 `python tools/merge-atom-index.py --status`；說明見 [README](README.md)「多台電腦／多人同時寫記憶」。
 - 兩個重要縮寫：**「執P」**（分階段執行＋驗證＋上 GIT＋給下階段 prompt）、**「上GIT」**（把當次異動一次推上 GIT / SVN）——直接問 AI 會解釋，也會照規則執行。
 - 深入技術 → [TECH.md](TECH.md)；給 AI 看的安裝細節與降級邏輯 → [Install-forAI.md](Install-forAI.md)。

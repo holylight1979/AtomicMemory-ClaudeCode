@@ -360,7 +360,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 ```bash
 cd ~/.claude && git pull
 python tools/fix-hook-python.py            # pull 後 settings.json 若被更新，重驗直譯器路徑
-python tools/merge-atom-index.py --install # 一次性：帶來「合併前自動安裝驅動」hook 的那次 pull 跑的還是舊 hook，這次手動補上；之後每台機器由 hook 自動裝／自動重裝
+python tools/merge-atom-index.py --install # 可選：不跑也行——下一次在 CC 裡跑合併類 git 指令時 hook 會自動裝；pull 本身若卡在索引三檔，rebase --continue 前新 hook 也會自動解
 ```
 
 - 上面那次 `git pull` 若本身卡在索引三檔衝突：`python tools/merge-atom-index.py --resolve` 後 `git rebase --continue`（`GIT_EDITOR=true` 可免開編輯器）。
