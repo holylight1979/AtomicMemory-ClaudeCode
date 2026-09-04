@@ -2172,7 +2172,6 @@ def apply_selective_forget(archive_candidates, config, *, atoms_dir=None,
     if not bool(fcfg.get("enabled", False)) or bool(fcfg.get("dry_run", True)):
         return {"mode": "dry_run", "candidates": cand_names, "forgotten": [], "skipped": []}
     import shutil
-    distant = atoms_dir / "_distant"
     forgotten, skipped = [], []
     for c in cands:
         slug = c.get("atom")
@@ -2180,6 +2179,8 @@ def apply_selective_forget(archive_candidates, config, *, atoms_dir=None,
         if not md.exists():
             skipped.append(slug)
             continue
+        # 隔離到「原範疇資料夾」下的 _distant/：restore 時直接回原範疇，不會落回 memory/ 根平鋪
+        distant = md.parent / "_distant"
         try:
             distant.mkdir(parents=True, exist_ok=True)
             shutil.move(str(md), str(distant / md.name))
@@ -2378,6 +2379,27 @@ def _staging_dir_for_atom(md_file: Path) -> Path:
 
 
 
+def archive_score(acc: Dict[str, Any], today: datetime, decay_half_life: float,
+                  *, has_use_evidence: bool = False) -> Optional[Dict[str, Any]]:
+    """封存分數（selective forget 的唯一公式；memory-audit 也用這個）：
+    score = 0.5·recency（半衰期 decay_half_life 天）+ 0.5·usage（log10(max(conf, hits)+1)/2）。
+    無任何活動訊號（沒 last_used、或 conf/hits/效用全 0）→ None（不評、不封存）。"""
+    last_used_raw = acc.get("last_used")
+    confirmations = int(acc.get("confirmations") or 0)
+    readhits = int(acc.get("read_hits") or 0)
+    if not last_used_raw or (confirmations == 0 and readhits == 0 and not has_use_evidence):
+        return None
+    try:
+        last_used = datetime.strptime(last_used_raw, "%Y-%m-%d")
+    except ValueError:
+        return None
+    days_since = (today - last_used).days
+    recency = math.exp(-math.log(2) * max(days_since, 0) / decay_half_life)
+    usage = min(1.0, math.log10(max(confirmations, readhits) + 1) / 2)
+    return {"score": 0.5 * recency + 0.5 * usage, "days_since": days_since,
+            "last_used": last_used, "confirmations": confirmations, "readhits": readhits}
+
+
 def _self_iterate_atoms(
     state: Dict[str, Any], config: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -2446,26 +2468,15 @@ def _self_iterate_atoms(
             usefulness_stats = None  # type: ignore
             usefulness_promote_eligible = None  # type: ignore
             usefulness_demote_candidate = None  # type: ignore
-        last_used_raw = acc.get("last_used")
-        confirmations = int(acc.get("confirmations") or 0)
-        readhits = int(acc.get("read_hits") or 0)
         u_stats = usefulness_stats(acc, z=wilson_z) if usefulness_stats else {"n": 0}
         has_use_evidence = u_stats.get("n", 0) > 0
 
-        # 無任何活動訊號（注入/確認/效用）→ 跳過
-        if not last_used_raw or (
-            confirmations == 0 and readhits == 0 and not has_use_evidence
-        ):
-            continue
-        try:
-            last_used = datetime.strptime(last_used_raw, "%Y-%m-%d")
-        except ValueError:
-            continue
-
-        days_since = (today - last_used).days
-        recency = math.exp(-math.log(2) * max(days_since, 0) / decay_half_life)
-        usage = min(1.0, math.log10(max(confirmations, readhits) + 1) / 2)
-        score = 0.5 * recency + 0.5 * usage
+        sc = archive_score(acc, today, decay_half_life, has_use_evidence=has_use_evidence)
+        if sc is None:
+            continue  # 無任何活動訊號（注入/確認/效用）→ 跳過
+        last_used_raw = acc.get("last_used")
+        confirmations, readhits = sc["confirmations"], sc["readhits"]
+        last_used, days_since, score = sc["last_used"], sc["days_since"], sc["score"]
 
         if score < archive_threshold:
             results["archive_candidates"].append({

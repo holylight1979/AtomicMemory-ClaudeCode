@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: atom_promote, 晉升, Promotion Suggestions, usefulness, Wilson, 臨觀固, memory health, 連跳
 - Created-at: 2026-08-05
-- Related: atom-usefulness-loop
+- Related: atom-usefulness-loop, 健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層
 
 ## 知識
 

@@ -182,12 +182,18 @@ def _strip_pending_marker(text: str, user: str) -> str:
                           r"\1\n- Decided-by: " + user,
                           text, count=1, flags=re.MULTILINE)
         else:
-            # Fallback: add before first blank line after title
+            # Fallback: append to the end of the first `- Key:` metadata block
+            # （插在標題下的空行前會把 metadata 區塊切成兩段，audit 解析器只讀到一欄）
             lines = text.splitlines(keepends=True)
+            last_meta = None
             for i, ln in enumerate(lines):
-                if ln.strip() == "" and i > 0:
-                    lines.insert(i, f"- Decided-by: {user}\n")
+                if re.match(r"^-\s*[\w-]+:", ln):
+                    last_meta = i
+                elif last_meta is not None and ln.strip():
                     break
+            if last_meta is None:
+                last_meta = 0
+            lines.insert(last_meta + 1, f"- Decided-by: {user}\n")
             text = "".join(lines)
     return text
 

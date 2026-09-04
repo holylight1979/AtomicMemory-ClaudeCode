@@ -46,6 +46,7 @@ OPTIONAL_METADATA = frozenset({
     "Privacy", "Source", "Type", "Created", "TTL",
     "Expires-at", "Tags", "Related", "Supersedes", "Quality",
     "Audience", "Author", "Pending-review-by", "Merge-strategy", "Created-at",
+    "Decided-by",  # conflict-review 核可 shared atom 時寫入（核可者）
     "Depends", "Evidence",  # 壞滅緣（validity conditions）/ 證據等級（了義裁決）
     "Status",  # 選填現況一行（如「案結 2026-07-29」）；cold/skip 一行注入時附帶。
                # 只寫現況，禁歷史敘事/版本脈絡（feedback-live-檔與記憶不留版本操作脈絡）
@@ -72,7 +73,8 @@ EVIDENCE_RANK = {"實證": 3, "引述": 2, "推測": 1}  # 未標/非法 = 0
 TRIGGER_MIN = 3
 TRIGGER_MAX = 12
 ATOM_MAX_LINES = 200
-INDEX_MAX_LINES = 40  # MEMORY.md 行數上限：Lv1 範疇目錄一行一列 + 表頭 + 指標列。超過代表 always-load 索引又長胖，該瘦身而非再調高
+INDEX_MAX_LINES = 40  # 全域 MEMORY.md 行數上限：Lv1 範疇目錄一行一列 + 表頭 + 指標列。超過代表 always-load 索引又長胖，該瘦身而非再調高
+PROJECT_INDEX_MAX_LINES = 150  # 專案層 MEMORY.md 上限：專案層不生成各範疇 _INDEX.md（sync-memory-index 延後），逐顆列表住在 MEMORY.md 本身，容量比全域寬
 
 # ─── Knowledge 區大小預算（寫入端硬拒；audit 的 ATOM_MAX_LINES 為事後 warning）──
 # 門檻依據：注入端 per-turn 預算 TURN_BUDGET_LIMIT=500 tok（hooks/wg_core.py）+
@@ -152,7 +154,8 @@ _META_LINE_RE = re.compile(r"^-\s+([\w-]+):\s*(.+)$")
 def parse_frontmatter(content: str) -> Dict[str, str]:
     """解析 atom-style metadata block（`- Key: Value` 列表）。
 
-    從 # 標題後的連續 `- Key: Value` 區塊抽 metadata；遇空行/`##` 結束。
+    從 # 標題後的 `- Key: Value` 區塊抽 metadata；空行不結束區塊（conflict-review 核可會在
+    標題下插 `- Decided-by:` 再接空行），第一個非空、非 `- Key:` 的行（通常 `## 知識`）才結束。
     支援 BOM。回傳 dict（無 `_format` key — atom_spec 不關心 Claude-native YAML）。
     """
     if content.startswith("﻿"):
@@ -160,12 +163,13 @@ def parse_frontmatter(content: str) -> Dict[str, str]:
     fm: Dict[str, str] = {}
     in_meta = False
     for line in content.splitlines():
-        if line.startswith("- "):
-            m = _META_LINE_RE.match(line)
-            if m:
-                fm[m.group(1)] = m.group(2).strip()
-                in_meta = True
-        elif in_meta and (line.strip() == "" or line.startswith("##")):
+        if line.strip() == "":
+            continue
+        m = _META_LINE_RE.match(line) if line.startswith("- ") else None
+        if m:
+            fm[m.group(1)] = m.group(2).strip()
+            in_meta = True
+        elif in_meta:
             break
     return fm
 

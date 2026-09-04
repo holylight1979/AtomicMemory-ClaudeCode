@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: 完成宣告, 收尾, pytest, run_verify, verify, smoke test, 研究先行, trial-and-error, 清理, 先清後建, 基線, 測試上傳, 上 SVN, known regression, xfail, 衍生暫存, 暫存檔, 清暫存, 收尾檢核
 - Created-at: 2026-05-26
-- Related: feedback-workflow-discipline, feedback-tooling-reliability, 自己flag的維護動作直接做完不要反問, handoff-綜觀品質與抗失真寫法, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, cognitive-patterns, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 巨檔純機械拆分-carve腳本與驗證盲點, 專案工作驗收裁判的分級啟動與殺閘設計, 並行agent產出併入交付物必須標驗證強度分層, 歸因早停-找到合理嫌疑機制就停止驗證, hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威, 背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾
+- Related: feedback-workflow-discipline, feedback-tooling-reliability, 自己flag的維護動作直接做完不要反問, handoff-綜觀品質與抗失真寫法, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, cognitive-patterns, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 巨檔純機械拆分-carve腳本與驗證盲點, 專案工作驗收裁判的分級啟動與殺閘設計, 並行agent產出併入交付物必須標驗證強度分層, 歸因早停-找到合理嫌疑機制就停止驗證, hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威, 背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾, 多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完
 
 ## 知識
 

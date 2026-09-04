@@ -17,3 +17,10 @@
 ## 行動
 
 - 寫任何可能被 pythonw/排程器執行的腳本：入口先防護 stdout/stderr None；注冊排程後必 Start-ScheduledTask 實跑一次驗副作用
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-09-04 | --enforce 自動淘汰 (37d > 30d) | memory-audit --enforce |

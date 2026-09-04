@@ -252,13 +252,15 @@ def test_run_audit_entries_from_atom_index_json(tmp_path, monkeypatch):
 
 
 def _mk_project_layer(tmp_path: Path, shared_rel: str) -> Path:
-    """<tmp>/proj/.claude/memory：MEMORY.md 60 行 + 一顆 shared atom（shared_rel 決定平鋪/歸類）。"""
+    """<tmp>/proj/.claude/memory：MEMORY.md 超過專案層上限 + 一顆 shared atom（shared_rel 決定平鋪/歸類）。"""
     mem = tmp_path / "proj" / ".claude" / "memory"
     md = mem / Path(shared_rel).relative_to("memory")
     md.parent.mkdir(parents=True, exist_ok=True)
     md.write_text(ATOM_BODY.format(name=md.stem).replace("Scope: global", "Scope: shared"),
                   encoding="utf-8")
-    (mem / "MEMORY.md").write_text("# Atom Index — Project\n" + "\n".join(f"- 手寫分區規則第 {i} 行" for i in range(60)) + "\n",
+    from lib.atom_spec import PROJECT_INDEX_MAX_LINES
+    n_lines = PROJECT_INDEX_MAX_LINES + 20
+    (mem / "MEMORY.md").write_text("# Atom Index — Project\n" + "\n".join(f"- 手寫分區規則第 {i} 行" for i in range(n_lines)) + "\n",
                                    encoding="utf-8")
     from lib.atom_index_json import upsert_atom
     upsert_atom(mem, md.stem, shared_rel, ["alpha", "beta", "gamma"], scope="shared")
@@ -267,7 +269,7 @@ def _mk_project_layer(tmp_path: Path, shared_rel: str) -> Path:
 
 @pytest.mark.parametrize("shared_rel,expected_level", [
     ("memory/shared/flat-one.md", "info"),          # 平鋪 shared 尚在 → 過渡，只 info
-    ("memory/shared/驗證與實證/cat-one.md", "warning"),  # 已歸類 → 套 40 行上限
+    ("memory/shared/驗證與實證/cat-one.md", "warning"),  # 已歸類 → 套專案層 150 行上限
 ])
 def test_run_audit_project_index_lines_info_until_migrated(tmp_path, monkeypatch,
                                                            shared_rel, expected_level):
@@ -290,3 +292,62 @@ def test_has_flat_shared_entries_predicate():
     assert MA._has_flat_shared_entries([E("a", "memory/shared/版控/a.md", "")]) is False
     assert MA._has_flat_shared_entries([E("a", "memory/projects/X/a.md", "")]) is False
     assert MA._has_flat_shared_entries([]) is False
+
+
+# ─── --enforce 委派 selective forget（唯一遺忘機制） ─────────────────────────────
+
+def _mk_stale_layer(tmp_path, days_old: int, confirmations: int = 1):
+    """<tmp>/memory 層：一顆歸類 atom（OS-Windows/stale-x.md）+ sidecar last_used=days_old 天前 + 索引。"""
+    from datetime import timedelta
+    mem = tmp_path / "memory"
+    md = mem / "OS-Windows" / "stale-x.md"
+    md.parent.mkdir(parents=True)
+    md.write_text(ATOM_BODY.format(name="stale-x"), encoding="utf-8")
+    last_used = (MA.date.today() - timedelta(days=days_old)).isoformat()
+    (mem / "OS-Windows" / "stale-x.access.json").write_text(json.dumps(
+        {"last_used": last_used, "confirmations": confirmations, "read_hits": 1,
+         "useful_hits": 1, "used_fail": 1}), encoding="utf-8")
+    from lib.atom_index_json import upsert_atom, load_atom_index_json
+    upsert_atom(mem, "stale-x", "memory/OS-Windows/stale-x.md", ["alpha", "beta", "gamma"], scope="global")
+    assert any(a["name"] == "stale-x" for a in load_atom_index_json(mem)["atoms"])
+    return mem, md
+
+
+def _enforce(mem, monkeypatch, dry_run: bool, capsys):
+    import argparse
+    import wg_atoms
+    monkeypatch.setattr(MA, "discover_layers", lambda *a, **k: [("global", mem)])
+    monkeypatch.setattr(MA, "_write_audit_entry", lambda *a, **k: None)
+    monkeypatch.setattr(MA, "_forget_config",
+                        lambda: {"self_iteration": {"decay_half_life_days": 30,
+                                                    "archive_score_threshold": 0.3,
+                                                    "forget": {"enabled": False, "dry_run": True}}})
+    monkeypatch.setattr(wg_atoms, "_trigger_sync_memory_index", lambda: None)
+    MA.enforce_decay(argparse.Namespace(dry_run=dry_run, global_only=True, project=None, project_dir=None))
+    return capsys.readouterr().out
+
+
+def test_enforce_dry_run_lists_forget_candidate_without_moving(tmp_path, monkeypatch, capsys):
+    mem, md = _mk_stale_layer(tmp_path, days_old=200)
+    out = _enforce(mem, monkeypatch, dry_run=True, capsys=capsys)
+    assert "[DRY-RUN] Would isolate" in out and "stale-x" in out, out
+    assert md.exists()
+
+
+def test_enforce_isolates_into_category_distant_and_drops_index_row(tmp_path, monkeypatch, capsys):
+    mem, md = _mk_stale_layer(tmp_path, days_old=200)
+    out = _enforce(mem, monkeypatch, dry_run=False, capsys=capsys)
+    assert "OK: 已隔離" in out, out
+    assert not md.exists()
+    assert (mem / "OS-Windows" / "_distant" / "stale-x.md").exists()
+    assert (mem / "OS-Windows" / "_distant" / "stale-x.access.json").exists()
+    from lib.atom_index_json import load_atom_index_json
+    assert not any(a["name"] == "stale-x" for a in load_atom_index_json(mem)["atoms"])
+    assert MA._count_distant(mem) == 1
+
+
+def test_enforce_recent_atom_is_not_a_candidate(tmp_path, monkeypatch, capsys):
+    mem, md = _mk_stale_layer(tmp_path, days_old=3, confirmations=5)
+    out = _enforce(mem, monkeypatch, dry_run=False, capsys=capsys)
+    assert "No archive candidates" in out, out
+    assert md.exists()

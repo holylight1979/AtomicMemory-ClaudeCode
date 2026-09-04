@@ -7,7 +7,6 @@
 | Atom | 說明 |
 |------|------|
 | dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段 | dotnet的SpecialFolder不吃APPDATA環境變數-隔離測試要換別的手段 |
-| pythonw-下-stdout-為-none-排程腳本秒死陷阱 | pythonw-下-stdout-為-None-排程腳本秒死陷阱 |
 | unity-editor崩潰鑑識三路徑-事件檔1000先看故障模組-edr注入dll可能是真兇 | Unity-Editor崩潰鑑識三路徑-事件檔1000先看故障模組-EDR注入DLL可能是真兇 |
 | windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑 | Windows 新機 PATH 的 WindowsApps python.exe 是 Store 佔位程式-零輸出 exit 9009-子程序裸 spawn python 必用絕對路徑 |
 | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring |

@@ -286,6 +286,14 @@ def test_case2_ups_upgit_hits_category_atom(proj, hook_session):
     target = "併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a"
     assert rows.get(target, "").startswith("memory/版控/Git/"), rows.get(target)
     _run_hook("SessionStart", proj, hook_session, source="startup")   # 建 state（atom_index 快取）
+    # 首 prompt 的 [Session:Context] 來自 live vector 服務的 episodic 搜尋，內容隨真實 session
+    # 索引漂移、還會扣預算（實測今天三個提到 GIT 的 session 把 800 token 吃到目標 atom 被 drop）。
+    # 本案只驗「上GIT 命中範疇 atom」，先在 state 標記已注入，跳過 Phase 0 讓結果可重現。
+    from wg_core import state_path
+    sp = state_path(hook_session)
+    st = json.loads(sp.read_text(encoding="utf-8"))
+    st["session_context_injected"] = True
+    sp.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     ctx = _run_hook("UserPromptSubmit", proj, hook_session, prompt="這段改完幫我上GIT")
     assert f"[Atom:{target}]" in ctx, ctx[:2000]
     assert "_AIDocs/_atoms/" not in ctx

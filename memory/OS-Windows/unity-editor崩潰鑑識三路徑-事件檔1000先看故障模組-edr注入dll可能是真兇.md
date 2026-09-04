@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: Unity crash, Unity 崩潰, Editor 閃退, Native Crash Reporting, Got a UNKNOWN, InProcessClient64.dll, SentinelOne, EDR, Application Error 1000, CrashDumps, Editor-prev.log, c0000005, WER
 - Created-at: 2026-09-02
-- Related: client儀器log兩坑-CommonUtility.Debug預設tag被過濾-Editor.log被他專案實例輪替
+- Related: (none)
 
 ## 知識
 

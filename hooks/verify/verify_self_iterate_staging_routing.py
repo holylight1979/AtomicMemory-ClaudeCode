@@ -117,6 +117,8 @@ def test_forget_isolates_by_candidate_path(tmp_path, monkeypatch):
     res = wg_atoms.apply_selective_forget(
         [{"atom": "deep", "path": str(md), "score": 0.1}], cfg, atoms_dir=mem)
     assert res["forgotten"] == ["deep"]
-    assert (mem / "_distant" / "deep.md").exists()
-    assert (mem / "_distant" / "deep.access.json").exists()
+    # 隔離到原範疇資料夾下的 _distant/（restore 回原範疇，不落 memory/ 根平鋪）
+    assert (mem / "OS-Windows" / "_distant" / "deep.md").exists()
+    assert (mem / "OS-Windows" / "_distant" / "deep.access.json").exists()
+    assert not (mem / "_distant").exists()
     assert not md.exists()

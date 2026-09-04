@@ -134,17 +134,6 @@
       "scope": "global"
     },
     {
-      "name": "gdoc-harvester",
-      "path": "_AIDocs/_atoms/Tools/gdoc-harvester.md",
-      "triggers": [
-        "harvester",
-        "收割",
-        "Google Docs",
-        "Google Sheets"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "preferences",
       "path": "memory/工作流/節奏與收尾/preferences.md",
       "triggers": [
@@ -1052,20 +1041,6 @@
         "hook 延遲量測",
         "token 稅量測",
         "CLAUDE_CODE_ENABLE_TELEMETRY"
-      ],
-      "scope": "global"
-    },
-    {
-      "name": "pythonw-下-stdout-為-none-排程腳本秒死陷阱",
-      "path": "memory/OS-Windows/pythonw-下-stdout-為-none-排程腳本秒死陷阱.md",
-      "triggers": [
-        "pythonw",
-        "Task Scheduler",
-        "排程",
-        "schtasks",
-        "sys.stdout None",
-        "reconfigure",
-        "排程器靜默失敗"
       ],
       "scope": "global"
     },
@@ -2420,27 +2395,6 @@
       "scope": "personal:holylight"
     },
     {
-      "name": "feedback-動手前不要找理由縮小範圍",
-      "path": "memory/personal/holylight/feedback-動手前不要找理由縮小範圍.md",
-      "triggers": [
-        "退縮",
-        "撤退",
-        "找理由",
-        "over-thinking",
-        "推測沒驗證",
-        "範圍縮小",
-        "推小範圍",
-        "工程過大",
-        "風險高",
-        "丟給使用者",
-        "prompt 漏給",
-        "追蹤承諾",
-        "token 過期",
-        "auth error"
-      ],
-      "scope": "personal:holylight"
-    },
-    {
       "name": "要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt",
       "path": "memory/personal/holylight/要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt.md",
       "triggers": [
@@ -2993,6 +2947,72 @@
         "重啟生效",
         "MCP 重啟",
         "reload window"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層",
+      "path": "_AIDocs/_atoms/MemDev/健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層.md",
+      "triggers": [
+        "memory health",
+        "memory-audit",
+        "缺少必要欄位",
+        "health error",
+        "dashboard 問題",
+        "解析器誤報",
+        "Decided-by",
+        "跨層掃描",
+        "discover_layers",
+        "health-weekly",
+        "為什麼會錯那麼多"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完",
+      "path": "memory/工作流/多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完.md",
+      "triggers": [
+        "驗收規格",
+        "acceptance",
+        "驗收裁判",
+        "分phase",
+        "分階段",
+        "多session",
+        "phase標籤",
+        "收尾被擋",
+        "plan-mode 驗收"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-動手前不要找理由縮小範圍",
+      "path": "memory/personal/holylight/feedback-動手前不要找理由縮小範圍.md",
+      "triggers": [
+        "退縮",
+        "撤退",
+        "找理由",
+        "over-thinking",
+        "推測沒驗證",
+        "範圍縮小",
+        "推小範圍",
+        "工程過大",
+        "風險高",
+        "丟給使用者",
+        "prompt 漏給",
+        "追蹤承諾",
+        "token 過期",
+        "auth error"
+      ],
+      "scope": "personal:holylight"
+    },
+    {
+      "name": "gdoc-harvester",
+      "path": "_AIDocs/_atoms/Tools/gdoc-harvester.md",
+      "triggers": [
+        "harvester",
+        "收割",
+        "Google Docs",
+        "Google Sheets"
       ],
       "scope": "global"
     }

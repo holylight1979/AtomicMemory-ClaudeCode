@@ -12,7 +12,6 @@
 | feedback-completion-gates | memory/Failures/驗證與實證/feedback-completion-gates.md | 完成宣告, 收尾, pytest, run_verify, verify, smoke test, 研究先行, trial-and-error, 清理, 先清後建, 基線, 測試上傳, 上 SVN, known regression, xfail, 衍生暫存, 暫存檔, 清暫存, 收尾檢核 | global |
 | feedback-tooling-reliability | memory/Failures/CC與原子記憶契約/feedback-tooling-reliability.md | codex, codex companion, codex CLI, gpt-5, bg subprocess, DEVNULL, ready flag, subprocess Popen, MCP, 安裝 MCP, 安裝 skill, silent failure, probe burst, 規則唯一來源 | global |
 | feedback-rigor-standards | memory/Failures/思考與決策/feedback-rigor-standards.md | 縝密, 漏掉, 沒看到, max thinking, high thinking, 外包思考, 規範, rigor, 前例, precedent, 既有 drift | global |
-| gdoc-harvester | _AIDocs/_atoms/Tools/gdoc-harvester.md | harvester, 收割, Google Docs, Google Sheets | global |
 | preferences | memory/工作流/節奏與收尾/preferences.md | 偏好, 執P, 執驗上P, 上GIT, 上傳GIT, commit, push | global |
 | toolchain-ollama | _AIDocs/_atoms/MemDev/toolchain-ollama.md | ollama, dual-backend, rdchat, qwen3, embedding, 萃取品質, thinking, Open WebUI | global |
 | toolchain | memory/文字與格式/toolchain.md | 工具鏈, 環境設定, MCPControl, MCP新增, npm全域, 螢幕截圖, Excel MCP, LanceDB, MSYS2, cp950, PowerShell截圖, 向量服務 | global |
@@ -63,7 +62,6 @@
 | 模型行為移植-fable行為契約必載檔 | _AIDocs/_atoms/MemDev/模型行為移植-fable行為契約必載檔.md | 模型切換, Opus, Fable, 行為契約, 自動推進, 抓重點, IDENTITY 擴充, 行為移植, model behavior | global |
 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 | _AIDocs/_atoms/MemDev/啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立.md | user-init, IDENTITY.md 被覆寫, 啟動鏈, SessionStart 覆寫, 雙檔 pipeline, 檔案自動覆蓋, stub 覆寫, 契約檔損毀 | global |
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | _AIDocs/_atoms/MemDev/otel-遙測評估結論-不實作-兩目標指標皆測不到.md | OTEL, OpenTelemetry, 遙測, telemetry, hook 延遲量測, token 稅量測, CLAUDE_CODE_ENABLE_TELEMETRY | global |
-| pythonw-下-stdout-為-none-排程腳本秒死陷阱 | memory/OS-Windows/pythonw-下-stdout-為-none-排程腳本秒死陷阱.md | pythonw, Task Scheduler, 排程, schtasks, sys.stdout None, reconfigure, 排程器靜默失敗 | global |
 | feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字 | memory/Failures/行為契約/feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字.md | 註解, comment, summary, 敘事, 版本標記, 階段標記, 咬文嚼字, LLM污染, 現況導向, 白話, code comment, 可讀性, 寫code | global |
 | 檢索融合與回歸集調參-rrf-min-score-定案 | _AIDocs/_atoms/MemDev/檢索融合與回歸集調參-rrf-min-score-定案.md | RRF, 融合檢索, min_score 調參, memory-eval, 回歸集, 誤注入率, Recall@3, 檢索品質 | global |
 | 佛法三缺口工程化-失念壞滅緣了義 | _AIDocs/_atoms/MemDev/佛法三缺口工程化-失念壞滅緣了義.md | 失念, recall-miss, 壞滅緣, Depends 欄位, Evidence 欄位, 證據等級, fast-refute, 佛法, 唯識 | global |
@@ -142,7 +140,6 @@
 | wrong-assumptions-思考與決策 | memory/Failures/思考與決策/wrong-assumptions-思考與決策.md | 假設錯誤, 誤判, 直覺假設, wrong assumption, 前提錯 | global |
 | atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人 | memory/CC與原子記憶契約/atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人.md | scope 可見性, 跨專案注入, personal 洩漏, 候選池, filter_visible, scope_from_rel_path, cross-project, alias 帶入, layers 白名單, 他專案 atom, scope 過濾 | global |
 | atoms-的納入流程必須由-cc-透過全域-靜默-定期的機制-如-cron-在 | memory/personal/holylight/atoms-的納入流程必須由-cc-透過全域-靜默-定期的機制-如-cron-在.md | 全自動, 靜默, 定期處理, 根層 | personal:holylight |
-| feedback-動手前不要找理由縮小範圍 | memory/personal/holylight/feedback-動手前不要找理由縮小範圍.md | 退縮, 撤退, 找理由, over-thinking, 推測沒驗證, 範圍縮小, 推小範圍, 工程過大, 風險高, 丟給使用者, prompt 漏給, 追蹤承諾, token 過期, auth error | personal:holylight |
 | 要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt | memory/personal/holylight/要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt.md | 清晰, 白話, 條列, session prompt | personal:holylight |
 | 技術調查必須以數據和具體程式碼路徑為依據-避免猜測-懷疑-並著重於找出問題 | memory/personal/holylight/技術調查必須以數據和具體程式碼路徑為依據-避免猜測-懷疑-並著重於找出問題.md | 懷疑, 資料, 程式碼, 根因 | personal:holylight |
 | feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫 | memory/personal/holylight/feedback-計畫文件紀律-人稱標明角色-重大發現獨立成節-監督者與留意事項必寫.md | 計畫, 計畫文件, plan, 交付文件, 人稱, 你我, 監督, 重大發現, 埋表格, ExitPlanMode, 審查發現 | personal:holylight |
@@ -177,3 +174,7 @@
 | feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff | memory/Failures/版控/feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff.md | 上GIT, commit, push, 拆 commit, 先 commit 再問 push, git 異動, 看 diff, 進度切點 | global |
 | 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音 | _AIDocs/_atoms/MemDev/規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音.md | 行為偏移, 契約偏移, 規則衝突, SyncReminder, 先 commit 再 push, 必載檔, core.md 修剪, 200 token, 知識段截斷, USER.md 死連結, 為什麼以前會現在不會 | global |
 | hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟 | _AIDocs/_atoms/MemDev/hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟.md | hook 生效, 下個 session 才生效, 新 session 才生效, hook 改動, PreToolUse 生效, Stop hook 生效, 重啟生效, MCP 重啟, reload window | global |
+| 健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層 | _AIDocs/_atoms/MemDev/健檢error與索引矛盾即解析器誤報-audit跨層全掃自08-31起-週報global-only看不到專案層.md | memory health, memory-audit, 缺少必要欄位, health error, dashboard 問題, 解析器誤報, Decided-by, 跨層掃描, discover_layers, health-weekly, 為什麼會錯那麼多 | global |
+| 多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完 | memory/工作流/多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完.md | 驗收規格, acceptance, 驗收裁判, 分phase, 分階段, 多session, phase標籤, 收尾被擋, plan-mode 驗收 | global |
+| feedback-動手前不要找理由縮小範圍 | memory/personal/holylight/feedback-動手前不要找理由縮小範圍.md | 退縮, 撤退, 找理由, over-thinking, 推測沒驗證, 範圍縮小, 推小範圍, 工程過大, 風險高, 丟給使用者, prompt 漏給, 追蹤承諾, token 過期, auth error | personal:holylight |
+| gdoc-harvester | _AIDocs/_atoms/Tools/gdoc-harvester.md | harvester, 收割, Google Docs, Google Sheets | global |

@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 上GIT, commit, push, 拆 commit, 先 commit 再問 push, git 異動, 看 diff, 進度切點
 - Created-at: 2026-09-04
-- Related: feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, preferences
+- Related: feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, preferences, 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音
 
 ## 知識
 

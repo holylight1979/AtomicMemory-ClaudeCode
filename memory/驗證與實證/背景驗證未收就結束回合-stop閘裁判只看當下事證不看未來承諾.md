@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: run_in_background, 背景任務, 等通知, Stop 閘, 驗收裁判, 提前結束回合, run_verify 背景, 收尾被擋
 - Created-at: 2026-09-03
-- Related: feedback-completion-gates, 專案工作驗收裁判的分級啟動與殺閘設計
+- Related: feedback-completion-gates, 專案工作驗收裁判的分級啟動與殺閘設計, hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟
 
 ## 知識
 
