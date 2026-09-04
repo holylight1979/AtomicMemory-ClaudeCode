@@ -5,6 +5,11 @@
 
 ---
 
+## 2026-09-04 「上GIT＝commit+push」契約在專案 session 偏移 — 根因是兩條規則之間的縫，不是 scope 改版
+- 使用者回報專案 session 近日改成「先 commit 當 phase 切點、等口令才 push」。實查三份必載檔：`IDENTITY.md`／`memory/MEMORY.md` 未動；`rules/core.md` 09-01 誠實化修剪（`ce72381`）刪掉「同步」段（唯一寫明 `.git→commit+push` 的必載文字），理由是 Stop 閘 SyncReminder 已程式化；隔天 09-02 新 atom「團隊產出上傳前先問人」（trigger 含 commit/push/收尾）要求「上傳前必須問人」。兩條疊起來，「先 commit、問完再 push」是同時滿足兩邊的縫——而 SyncReminder 只看 `git status` 髒檔，local commit 就讓它閉嘴，模型從此沒有再校正的壓力。另兩個放大因素：`USER.md` 縮寫指令指向 08-26 就搬走的 `memory/preferences.md`（死連結）；`preferences` atom 的「上GIT」定義排在知識段第 3 條，被 200 token 知識上限截掉，注入時只剩「框架觀」一句。**修**：`USER-holylight.md`／`USER.md`／`templates/USER.template.md` 縮寫指令行改寫成完整契約（口令前不碰 git；commit→push 一氣）並修路徑；`preferences` atom replace 把 上GIT／執P 定義移到前兩條（注入模擬確認 200 cap 內含定義）；09-02 atom append 一條「停點是 commit 之前，不是 push 之前」；`stop.py` SyncReminder 訊息的過期 core.md 引用改指 USER.md 契約。scope 改版（`f332f2f`）只影響 personal／他專案 atom 的候選池，preferences 是 global，與本案無關。 | `USER-holylight.md`, `templates/USER.template.md`, `memory/工作流/節奏與收尾/preferences.md`, `memory/行為契約/團隊產出上傳前先問人-記憶庫自動做滿.md`, `hooks/handlers/stop.py`
+
+---
+
 ## 2026-09-03 AEC-Pending 閘 — 收尾檢核 (d) 不准「尚未寫」，記憶寫入不得推給下一回合
 - 使用者回報：HUD 收尾檢核 (d) 記憶收錄帳照理該讓模型當場把知識寫成 atom，實際上多次是使用者再問一次才冒出一堆 atom。實查 `aec-report/d38eaff2-t8.json`：(d) 寫「值得 atom → 尚未寫（見下一動）」、(h)「下一動=寫一顆 dotnet atom」，回合照樣結束——schema 只說明兩種合法形式、無任何拒收；Stop 只驗「有沒有 emit」與 (b) cross-check，(d)/(h) 內容完全不看；DeferralGate 只掃 chat 文字，tool 參數裡的推後語抓不到。**修**：`wg_evasion.aec_pending_items(d,h)`（看每行箭頭後結論段：已寫／不寫定論放過，命中尚未寫／待補／見下一動／TODO 列入；(h) 下一動指向 atom／記憶列入），Node `aecPendingItems` 同規則 MIRROR＋parity test；post_tool_use 落 `report.d_pending`＋additionalContext 回告、chip 附 ⛔、HUD (d) 標紅；Stop 新 AEC-Pending 閘每 turn 擋一次逼 atom_write 後重新 emit。schema／ScanReport 訊息同步改寫：(d) 先掃五個來源（使用者指正／重試≥2 次或查了才懂／外查事實／取捨契約／既有 atom 被證錯）、值得寫的在呼叫 tool 之前寫完；(h) 只列使用者要做的事。測試 +16（純函式 11、py↔js parity、ptu ×2、stop ×2），run_verify 1776 passed。Node lib／mcp.js schema 需新 node 進程才 live（reload window）。 | `hooks/wg_evasion.py`, `hooks/handlers/post_tool_use.py`, `hooks/handlers/stop.py`, `tools/workflow-guardian-mcp/lib/{mcp,anti-evasion,aec-hud-html}.js`, `hooks/verify/verify_aec_emission_gate.py`, `_AIDocs/Architecture.md`, `tools/workflow-guardian-mcp/lib/_MAP.md`, `TECH.md`
 

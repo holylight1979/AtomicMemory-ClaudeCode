@@ -51,9 +51,10 @@
     ],
     "結案": "全過 → 已自動標 done（或 python tools/followup-check.py --done injection-budget-2026-08-28）；向使用者一句話回報四指標數字。未過 → 依上表處理、修完再跑 python tools/followup-check.py --run --force --id injection-budget-2026-08-28。"
    },
-   "done": false,
-   "last_shown": "",
-   "result": ""
+   "done": true,
+   "last_shown": "2026-09-04",
+   "result": "2026-09-04 PASS",
+   "done_at": "2026-09-04"
   }
  ]
 }

@@ -6,6 +6,8 @@
 - Trigger: anti-evasion, AEC, AEC HUD, 收尾檢核 HUD, anti_evasion_report, one-writer, sibling 隔離, aec_severity, autospawn, 彈窗, 強化 AEC, 改 AEC HUD, 記憶系統開發, d_pending, AEC-Pending, 尚未寫, 見下一動
 - Created-at: 2026-07-06
 
+- Related: feedback-memory-system-doc-sync, guardian-dashboard-孤兒佔埠與新碼重啟
+
 ## 知識
 
 - [臨] **SoT 指標(先讀再改)**：設計/行為權威在 `_AIDocs/Architecture.md`(ScanReport Gate 列)+ `tools/workflow-guardian-mcp/lib/_MAP.md`(模組+one-writer+C7)+ `_CHANGELOG.md`(AEC 系列條目)。本 atom 只收「改/強化前必知的脊柱與踩坑」。

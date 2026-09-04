@@ -13,7 +13,7 @@
 | feedback-tooling-reliability | memory/Failures/CC與原子記憶契約/feedback-tooling-reliability.md | codex, codex companion, codex CLI, gpt-5, bg subprocess, DEVNULL, ready flag, subprocess Popen, MCP, 安裝 MCP, 安裝 skill, silent failure, probe burst, 規則唯一來源 | global |
 | feedback-rigor-standards | memory/Failures/思考與決策/feedback-rigor-standards.md | 縝密, 漏掉, 沒看到, max thinking, high thinking, 外包思考, 規範, rigor, 前例, precedent, 既有 drift | global |
 | gdoc-harvester | _AIDocs/_atoms/Tools/gdoc-harvester.md | harvester, 收割, Google Docs, Google Sheets | global |
-| preferences | memory/工作流/節奏與收尾/preferences.md | 偏好, 執P, 執驗上P, 上GIT | global |
+| preferences | memory/工作流/節奏與收尾/preferences.md | 偏好, 執P, 執驗上P, 上GIT, 上傳GIT, commit, push | global |
 | toolchain-ollama | _AIDocs/_atoms/MemDev/toolchain-ollama.md | ollama, dual-backend, rdchat, qwen3, embedding, 萃取品質, thinking, Open WebUI | global |
 | toolchain | memory/文字與格式/toolchain.md | 工具鏈, 環境設定, MCPControl, MCP新增, npm全域, 螢幕截圖, Excel MCP, LanceDB, MSYS2, cp950, PowerShell截圖, 向量服務 | global |
 | workflow-icld | memory/工作流/節奏與收尾/workflow-icld.md | ICLD, Sprint, 閉環, 功能拆解 | global |
@@ -174,3 +174,5 @@
 | winforms-contextmenustrip-不可在closed事件裡dispose-項目click在關閉後才跑會炸objectdisposed | memory/dotnet/WinForms/winforms-contextmenustrip-不可在closed事件裡dispose-項目click在關閉後才跑會炸objectdisposed.md | ContextMenuStrip, ObjectDisposedException, Closed 事件, Dispose, 右鍵選單, ToolStripMenuItem Click, WinForms 釋放, GDI 洩漏, CreateHandle | global |
 | system-text-json反序列化會丟掉dictionary屬性初始值的comparer-載入後要重建 | memory/dotnet/序列化/system-text-json反序列化會丟掉dictionary屬性初始值的comparer-載入後要重建.md | System.Text.Json, JsonSerializer.Deserialize, Dictionary comparer, OrdinalIgnoreCase, 大小寫不分, 反序列化, 載入後查不到, StringComparer | global |
 | coding-style掃碼重構sop-量化掃加獨立第二意見-特徵測試先行-純重構以自測報告逐行相同為證 | memory/工作流/重構/coding-style掃碼重構sop-量化掃加獨立第二意見-特徵測試先行-純重構以自測報告逐行相同為證.md | 掃碼, 重構, coding-style, 優化重構, 重災區, 零行為變更, characterization, 特徵測試, 自測報告 diff, 拆 partial, 純重構, 行為修正分 commit | global |
+| feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff | memory/Failures/版控/feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff.md | 上GIT, commit, push, 拆 commit, 先 commit 再問 push, git 異動, 看 diff, 進度切點 | global |
+| 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音 | _AIDocs/_atoms/MemDev/規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音.md | 行為偏移, 契約偏移, 規則衝突, SyncReminder, 先 commit 再 push, 必載檔, core.md 修剪, 200 token, 知識段截斷, USER.md 死連結, 為什麼以前會現在不會 | global |

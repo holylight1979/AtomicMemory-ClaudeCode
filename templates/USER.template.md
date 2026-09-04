@@ -20,7 +20,7 @@
 * **高可讀性**：一個檔案看完相關邏輯，減少跨檔跳轉
 * **外擴報備**：建立非使用者主動要求的文件，一律高亮、可連結的報備完整檔案路徑
 * **Prompt 輸出**：給使用者複製貼上的 prompt，一律包在 code block 裡
-* **縮寫指令**：「上GIT」「執P」等定義見 `memory/preferences.md`
+* **縮寫指令**：「上GIT」＝選擇性 staging → commit → push **一氣做完**；口令前**不碰 git**（不先 commit 再等 push，讓我能先看 diff）。「上乾淨」「執P」等其餘定義見 `memory/工作流/節奏與收尾/preferences.md`
 
 ## 使用者的決策偏好
 

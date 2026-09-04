@@ -151,7 +151,10 @@
         "偏好",
         "執P",
         "執驗上P",
-        "上GIT"
+        "上GIT",
+        "上傳GIT",
+        "commit",
+        "push"
       ],
       "scope": "global"
     },
@@ -2941,6 +2944,39 @@
         "拆 partial",
         "純重構",
         "行為修正分 commit"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff",
+      "path": "memory/Failures/版控/feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff.md",
+      "triggers": [
+        "上GIT",
+        "commit",
+        "push",
+        "拆 commit",
+        "先 commit 再問 push",
+        "git 異動",
+        "看 diff",
+        "進度切點"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音",
+      "path": "_AIDocs/_atoms/MemDev/規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音.md",
+      "triggers": [
+        "行為偏移",
+        "契約偏移",
+        "規則衝突",
+        "SyncReminder",
+        "先 commit 再 push",
+        "必載檔",
+        "core.md 修剪",
+        "200 token",
+        "知識段截斷",
+        "USER.md 死連結",
+        "為什麼以前會現在不會"
       ],
       "scope": "global"
     }

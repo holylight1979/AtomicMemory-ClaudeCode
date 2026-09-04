@@ -5,7 +5,7 @@
 - Confidence: [固]
 - Trigger: 上乾淨, 工作樹, 收尾, git status, 未提交, chore commit, 用不到就刪, 選擇性 staging, 殘留檔, 上版, 上GIT, 全上, git add -A
 - Created-at: 2026-08-12
-- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 自己flag的維護動作直接做完不要反問, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉
+- Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 自己flag的維護動作直接做完不要反問, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff, preferences
 
 ## 知識
 
