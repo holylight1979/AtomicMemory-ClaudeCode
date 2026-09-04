@@ -637,6 +637,79 @@ def _privacy_match(rel_path: str, globs: List[str]) -> Optional[str]:
     return None
 
 
+# ─── git commit 口令閘（USER.md 縮寫指令契約的程式化版本）───────────────────
+# 「上GIT」＝commit＋push 一氣；口令下達前不碰 git——使用者要先看 diff 再下令。
+# 事後閘（SyncReminder）只看得到「髒不髒」，模型 local commit 就能讓它閉嘴；本閘把
+# 「口令前不 commit」放到動手前：本回合使用者原話沒有任何版控口令 → deny。
+# fail-open：state 缺失（sidechain／resume／subagent）或本 session 尚無 user prompt → 放行並落 stderr。
+_COMMIT_ORDER_DEFAULT_KEYWORDS = (
+    "上GIT", "上 GIT", "上傳GIT", "上乾淨", "全上", "上版", "上SVN",
+    "執P", "執驗上P", "commit", "提交", "push",
+)
+
+
+# heredoc 內文不是 shell 指令（文件補丁／內嵌 python 常含「git commit」字樣）；剝掉再拆段，
+# 否則口令閘會把文字當成 commit 段誤擋。隱私閘不需要：它接著查 staged，無檔即靜默。
+_HEREDOC_BODY_RE = re.compile(
+    r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|$)",
+    re.S,
+)
+
+
+def _strip_heredoc_bodies(command: str) -> str:
+    return _HEREDOC_BODY_RE.sub("<<HEREDOC_STRIPPED", command or "")
+
+
+def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
+    low = (prompt or "").lower()
+    for k in keywords:
+        if k and k.lower() in low:
+            return k
+    return None
+
+
+def check_git_commit_order(
+    tool_name: str, tool_input: Dict[str, Any], config: Dict[str, Any],
+    state: Optional[Dict[str, Any]],
+) -> Optional[str]:
+    """Bash/PowerShell `git commit` 且本回合使用者原話無版控口令 → deny 訊息；否則 None。"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return None
+    cfg = (config.get("guard") or {}).get("commit_order") or {}
+    if not cfg.get("enabled", True):
+        return None
+    command = tool_input.get("command", "") or ""
+    if "git" not in command or "commit" not in command:
+        return None
+    try:
+        if not _git_commit_segments(_strip_heredoc_bodies(command)):
+            return None
+        prompts = (state or {}).get("recent_user_prompts") or []
+        if not prompts:
+            try:
+                sys.stderr.write("[Guardian:CommitOrder] 無 user prompt 紀錄，口令閘 fail-open\n")
+            except OSError:
+                pass
+            return None
+        keywords = cfg.get("keywords") or list(_COMMIT_ORDER_DEFAULT_KEYWORDS)
+        if _commit_order_keyword_hit(prompts[-1], keywords):
+            return None
+        return (
+            "[Guardian:CommitOrder] 本回合使用者原話沒有版控口令（上GIT／上乾淨／全上／執P…），"
+            "已擋下 git commit。\n"
+            "契約（USER.md 縮寫指令）：口令前不碰 git——先在收尾報告列「改了哪些檔＋驗了什麼／沒驗什麼」，"
+            "等使用者看過 diff 下「上GIT」，再 commit → push 一氣做完；不得先 commit 再等 push。\n"
+            "確為使用者本回合要求：引用其原話請他重下口令；長期口令調整 workflow/config.json "
+            "guard.commit_order.keywords（enabled=false 停用本閘）。"
+        )
+    except Exception as e:
+        try:
+            sys.stderr.write(f"[Guardian:CommitOrder] 檢查異常（fail-open）：{e}\n")
+        except OSError:
+            pass
+    return None
+
+
 def check_git_privacy(
     tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any]
 ) -> Optional[str]:
@@ -1095,6 +1168,20 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             sys.stderr.write(merge_warn + "\n")
         except OSError:
             pass
+
+    # git commit 口令閘（本回合使用者原話無版控口令 → deny；fail-open）
+    _co_sid = input_data.get("session_id", "") or ""
+    _co_state = read_state(_co_sid) if _co_sid else None
+    deny_reason = check_git_commit_order(tool_name, tool_input, config, _co_state)
+    if deny_reason:
+        output_json({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        })
+        return
 
     # git commit 隱私硬閘（staged 含隱私檔 → deny；fail-open）
     deny_reason = check_git_privacy(tool_name, tool_input, _cwd, config)

@@ -56,6 +56,33 @@ except ImportError:
     check_long_die_status = lambda: None  # noqa: E731
 
 
+def check_always_load_contracts(claude_dir: Path) -> List[str]:
+    """必載檔硬契約哨兵：memory/_meta/always-load-contracts.json 登記的句子在 live 檔缺席 → 告警行。
+
+    契約句被修剪／覆寫時，模型當 session 就失去事前依據（事後閘只看狀態不懂語意）。
+    登記表缺或壞 → 回一行告警（不阻斷）。
+    """
+    reg_path = claude_dir / "memory" / "_meta" / "always-load-contracts.json"
+    try:
+        reg = json.loads(reg_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return [f"[Guardian:Contract⚠] 硬契約登記表讀取失敗（{reg_path.name}：{e}）"]
+    out: List[str] = []
+    for c in reg.get("contracts") or []:
+        live = claude_dir / str(c.get("live", ""))
+        try:
+            text = live.read_text(encoding="utf-8", errors="ignore") if live.exists() else ""
+        except OSError:
+            text = ""
+        missing = [m for m in (c.get("must_contain") or []) if m not in text]
+        if missing:
+            out.append(
+                f"[Guardian:Contract⚠] {c.get('live')} 缺硬契約「{c.get('id')}」"
+                f"（缺：{'、'.join(missing)}）→ {c.get('fix', '比對 template 回復')}"
+            )
+    return out
+
+
 def _check_se_sentinel_residual(lines: List[str], min_age_s: float = 60.0) -> None:
     """SessionEnd 哨兵殘留（session_end._se_sentinel_arm 留下、未被正常收尾拆除）
     → 告警一行 + 清除。只認 mtime 超過 min_age_s 者：並行 session 的 SessionEnd
@@ -1097,6 +1124,12 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             )
     except Exception:
         pass
+
+    # 必載檔硬契約哨兵（登記表驅動；USER.md 已由 user-init.sh 從 USER-{user}.md 拷好）
+    try:
+        lines.extend(check_always_load_contracts(CLAUDE_DIR))
+    except Exception as e:
+        print(f"always-load contract check error: {e}", file=sys.stderr)
 
     write_state(session_id, state)
 

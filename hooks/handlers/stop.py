@@ -140,6 +140,43 @@ def _detect_uncommitted_files(
     return uncommitted
 
 
+def _git_unpushed_roots(modified_files: List[Dict[str, Any]]) -> List[str]:
+    """本 session 改過的檔所屬 git repo 中，本地領先 upstream 的（已 commit 未 push）。
+
+    「上GIT」＝commit＋push 一氣：local commit 會讓 git status 乾淨、讓同步閘閉嘴，
+    但對使用者而言仍未同步。無 upstream／查詢失敗的 repo 跳過（fail-open）。
+    """
+    roots: List[Path] = []
+    seen: set = set()
+    for m in modified_files:
+        p = (m or {}).get("path", "")
+        if not p or not os.path.exists(p):
+            continue
+        found = _find_vcs_root(Path(p).parent)
+        if not found or found[0] != "git" or found[1] in seen:
+            continue
+        seen.add(found[1])
+        roots.append(found[1])
+    unpushed: List[str] = []
+    for root in roots:
+        try:
+            r = subprocess.run(
+                ["git", "-C", str(root), "rev-list", "--count", "@{u}..HEAD"],
+                capture_output=True, text=True, timeout=5, creationflags=_NO_WINDOW,
+            )
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            continue
+        if r.returncode != 0:
+            continue
+        try:
+            n = int((r.stdout or "0").strip() or 0)
+        except ValueError:
+            continue
+        if n > 0:
+            unpushed.append(f"{root}（領先 {n} commit）")
+    return unpushed
+
+
 _ACCESSED_FILES_CAP = 500  # accessed_files state 條目上限（超出裁最舊）
 
 
@@ -821,6 +858,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and sr_count < sr_max
     ):
         uncommitted = _detect_uncommitted_files(own_mod_files)
+        unpushed: List[str] = []
+        if not uncommitted and sr_config.get("unpushed", True):
+            unpushed = _git_unpushed_roots(own_mod_files)
         if uncommitted:
             state["sync_reminder_count"] = sr_count + 1
             state["stop_blocked_count"] = stop_count + 1
@@ -828,11 +868,26 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             reason = _piggyback(
                 f"[Guardian:SyncReminder] 偵測到 {len(uncommitted)} 個已修改但"
                 "尚未提交的檔案（清單自行 git status），依 USER.md 縮寫指令契約"
-                "（上GIT＝commit+push 一氣；口令前不先 commit）應提示同步。\n"
+                "（上GIT＝commit+push 一氣；口令前不碰 git）應提示同步。\n"
                 "請選一個方向：\n"
-                "  (a) 上 GIT — 立刻 commit + push\n"
-                "  (b) 我不打算上 — 請說明原因（會跳過本次提醒）\n"
-                "  (c) 已在前一輪上過了 — git/svn clean 後本 gate 自動清旗標"
+                "  (a) 使用者本回合已下「上GIT」等口令 — 立刻 commit + push 一氣做完\n"
+                "  (b) 尚無口令 — 收尾報告列「改了哪些檔＋驗了什麼／沒驗什麼」等口令，不先 commit\n"
+                "  (c) 我不打算上／已在前一輪上過 — 說明原因；git/svn clean 後本 gate 自動清旗標"
+            )
+            write_state(session_id, state)
+            output_block(reason)
+            return
+        if unpushed:
+            state["sync_reminder_count"] = sr_count + 1
+            state["stop_blocked_count"] = stop_count + 1
+            reason = _piggyback(
+                "[Guardian:SyncReminder] 本 session 改的檔已 commit 但尚未 push："
+                + "、".join(unpushed) + "\n"
+                "「上GIT」＝commit + push 一氣，local commit 不算同步、也不是拆階段的切點。\n"
+                "請選一個方向：\n"
+                "  (a) 使用者已下「上GIT」等口令 — 立刻 push\n"
+                "  (b) 使用者沒下口令我卻先 commit 了 — 說明原因；下一批起口令前不碰 git\n"
+                "  (c) 不打算上 — 說明原因"
             )
             write_state(session_id, state)
             output_block(reason)

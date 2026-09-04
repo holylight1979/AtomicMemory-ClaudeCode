@@ -5,7 +5,7 @@
 | 範疇根 | atom 數 | 深入 |
 |--------|---------|------|
 | CC與原子記憶契約 | 1 | `_AIDocs/_atoms/CC與原子記憶契約/codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated.md` |
-| MemDev | 55 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
+| MemDev | 56 | `_AIDocs/_atoms/MemDev/_INDEX.md` |
 | OS | 2 | `_AIDocs/_atoms/OS/_INDEX.md` |
 | Tools | 9 | `_AIDocs/_atoms/Tools/_INDEX.md` |
 | Vision | 1 | `_AIDocs/_atoms/Vision/jarvis-企業-ai-平台發想文件指標.md` |

@@ -176,3 +176,4 @@
 | coding-style掃碼重構sop-量化掃加獨立第二意見-特徵測試先行-純重構以自測報告逐行相同為證 | memory/工作流/重構/coding-style掃碼重構sop-量化掃加獨立第二意見-特徵測試先行-純重構以自測報告逐行相同為證.md | 掃碼, 重構, coding-style, 優化重構, 重災區, 零行為變更, characterization, 特徵測試, 自測報告 diff, 拆 partial, 純重構, 行為修正分 commit | global |
 | feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff | memory/Failures/版控/feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff.md | 上GIT, commit, push, 拆 commit, 先 commit 再問 push, git 異動, 看 diff, 進度切點 | global |
 | 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音 | _AIDocs/_atoms/MemDev/規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音.md | 行為偏移, 契約偏移, 規則衝突, SyncReminder, 先 commit 再 push, 必載檔, core.md 修剪, 200 token, 知識段截斷, USER.md 死連結, 為什麼以前會現在不會 | global |
+| hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟 | _AIDocs/_atoms/MemDev/hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟.md | hook 生效, 下個 session 才生效, 新 session 才生效, hook 改動, PreToolUse 生效, Stop hook 生效, 重啟生效, MCP 重啟, reload window | global |

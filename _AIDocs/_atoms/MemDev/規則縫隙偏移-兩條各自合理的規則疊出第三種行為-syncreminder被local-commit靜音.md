@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 行為偏移, 契約偏移, 規則衝突, SyncReminder, 先 commit 再 push, 必載檔, core.md 修剪, 200 token, 知識段截斷, USER.md 死連結, 為什麼以前會現在不會
 - Created-at: 2026-09-04
-- Related: feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff, 團隊產出上傳前先問人-記憶庫自動做滿, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產
+- Related: feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff, 團隊產出上傳前先問人-記憶庫自動做滿, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產, hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟
 
 ## 知識
 

@@ -1,0 +1,44 @@
+{
+  "_doc": "必載檔硬契約登記表。live＝每 session 一定進 context 的檔；template＝版控中的來源。SessionStart 檢 live 缺句→告警；run_verify 檢 template 缺句→紅。修剪必載檔前先看這裡：登記在此的句子不得只搬去 atom（atom 靠 trigger 命中、有預算上限、會被截斷）。",
+  "contracts": [
+    {
+      "id": "上GIT＝commit+push一氣-口令前不碰git",
+      "live": "USER.md",
+      "template": "templates/USER.template.md",
+      "must_contain": [
+        "上GIT",
+        "一氣做完",
+        "不碰 git"
+      ],
+      "why": "2026-09-04 契約偏移：定義只在 preferences atom（被 200 token 截掉）＋core.md 同步段被修剪，模型改成先 commit 等 push",
+      "fix": "把 USER-{user}.md 的「縮寫指令」行改成 templates/USER.template.md 的版本"
+    },
+    {
+      "id": "IDENTITY-自主行為契約",
+      "live": "IDENTITY.md",
+      "template": "templates/IDENTITY.template.md",
+      "must_contain": [
+        "自主行為契約",
+        "反退避契約",
+        "動手前預告",
+        "收尾誠實",
+        "退縮歸屬"
+      ],
+      "why": "IDENTITY 被覆寫成 stub 或修剪掉契約段時，Stop 閘的三選一失去事前依據",
+      "fix": "比對 templates/IDENTITY.template.md 回復"
+    },
+    {
+      "id": "core-治理與記憶鐵律",
+      "live": "rules/core.md",
+      "template": "rules/core.md",
+      "must_contain": [
+        "根層只在根層改",
+        "可觀測性鐵律",
+        "atom_write",
+        "禁憑記憶改碼"
+      ],
+      "why": "沒有程式閘的事前規則只能住必載檔",
+      "fix": "git log -S <句子> -- rules/core.md 找回被刪句"
+    }
+  ]
+}

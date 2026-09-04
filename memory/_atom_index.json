@@ -2979,6 +2979,22 @@
         "為什麼以前會現在不會"
       ],
       "scope": "global"
+    },
+    {
+      "name": "hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟",
+      "path": "_AIDocs/_atoms/MemDev/hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟.md",
+      "triggers": [
+        "hook 生效",
+        "下個 session 才生效",
+        "新 session 才生效",
+        "hook 改動",
+        "PreToolUse 生效",
+        "Stop hook 生效",
+        "重啟生效",
+        "MCP 重啟",
+        "reload window"
+      ],
+      "scope": "global"
     }
   ]
 }
