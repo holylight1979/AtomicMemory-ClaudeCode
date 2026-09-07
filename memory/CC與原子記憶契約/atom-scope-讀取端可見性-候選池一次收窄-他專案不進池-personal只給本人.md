@@ -6,7 +6,7 @@
 - Trigger: scope 可見性, 跨專案注入, personal 洩漏, 候選池, filter_visible, scope_from_rel_path, cross-project, alias 帶入, layers 白名單, 他專案 atom, scope 過濾
 - Status: Phase 1 讀取端已封閉；Phase 2 本人跨專案 personal 層、Phase 3 寫入端路由與存量分流待做
 - Created-at: 2026-09-01
-- Related: realm-範疇分區機制-v5, scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房
+- Related: realm-範疇分區機制-v5, scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房, 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫
 
 ## 知識
 

@@ -422,3 +422,19 @@ def test_cli_pick_without_display_gives_alternative(tree, monkeypatch):
     r = subprocess.run([sys.executable, str(CLI), "--cwd", str(tree / "TSLG" / "Client"), "pick"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=60)
     assert r.returncode != 0 and "claim --root" in (r.stdout + r.stderr)
+
+
+# ─── 從子專案 dry_run 寫入：落點在根層，且不留空目錄 ───────────────────────
+
+
+def test_dry_run_from_sub_lands_at_root_without_creating_dirs(tree):
+    cwd = tree / "TSLG" / "Server" / "scripts"
+    res = atom_io.write_atom(
+        title="dryrun-落點驗證", scope="shared", confidence="[臨]", triggers=["dryrun-落點"],
+        knowledge=["[臨] 驗證用"], mode="create", source="mcp", project_cwd=str(cwd),
+        domain="工作流", dry_run=True,
+    )
+    assert res.ok, res.error
+    assert Path(res.path).resolve().parent == (tree / "TSLG" / ".claude" / "memory" / "shared" / "工作流").resolve()
+    assert not (tree / "TSLG" / ".claude" / "memory" / "shared" / "工作流").exists()
+    assert not (tree / "TSLG" / "Server" / ".claude" / "memory").exists()

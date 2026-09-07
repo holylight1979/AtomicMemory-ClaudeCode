@@ -179,3 +179,4 @@
 | feedback-動手前不要找理由縮小範圍 | memory/personal/holylight/feedback-動手前不要找理由縮小範圍.md | 退縮, 撤退, 找理由, over-thinking, 推測沒驗證, 範圍縮小, 推小範圍, 工程過大, 風險高, 丟給使用者, prompt 漏給, 追蹤承諾, token 過期, auth error | personal:holylight |
 | gdoc-harvester | _AIDocs/_atoms/Tools/gdoc-harvester.md | harvester, 收割, Google Docs, Google Sheets | global |
 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 | _AIDocs/_atoms/MemDev/子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫.md | 專案根, 子專案, project-tree, project_root, find_project_root, 尋根, subs, root_abs, standalone, ProjectRoot, 宣告檔, claim, pick, 認領, 根層記憶, 分叉 | global |
+| atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 | _AIDocs/_atoms/MemDev/atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用.md | dry_run, dry-run, 空目錄, 空資料夾, mkdir, _resolve_target, 落點預覽, 副作用, svn status 多了資料夾, 預覽不落檔 | global |

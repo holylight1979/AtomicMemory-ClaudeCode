@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: resolve_failures_dir, memory/failures, 舊址重生, get_project_memory_dir, 根層分支, failure_writeback, 流浪檔, 路徑遷移, cwd 在 ~/.claude, FailureDetect
 - Created-at: 2026-08-26
-- Related: hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威, 歸因早停-找到合理嫌疑機制就停止驗證, realm-範疇分區機制-v5
+- Related: hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威, 歸因早停-找到合理嫌疑機制就停止驗證, realm-範疇分區機制-v5, 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫
 
 ## 知識
 

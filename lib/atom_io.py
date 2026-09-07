@@ -179,7 +179,46 @@ def _find_project_root(cwd: Optional[str]) -> Optional[Path]:
     return resolve_project_root(str(Path(cwd).resolve())).path
 
 
+def _dirs_under(root: Path) -> set:
+    try:
+        return {p for p in root.rglob("*") if p.is_dir()}
+    except OSError:
+        return set()
+
+
 def _resolve_target(
+    scope: str,
+    project_cwd: Optional[str],
+    role: Optional[str],
+    user: Optional[str],
+    audience: Optional[List[str]],
+    force_global: bool,
+    create_dirs: bool = True,
+    **kw,
+) -> Dict[str, Any]:
+    """落點裁決入口。create_dirs=False（dry_run）：算完落點後把途中新建的空目錄收回，
+    否則預覽會在專案樹留下空的範疇資料夾（落點計算沿途的 *_target helper 都會 mkdir-p）。"""
+    if create_dirs:
+        return _resolve_target_impl(scope, project_cwd, role, user, audience, force_global, **kw)
+    roots = [GLOBAL_MEMORY_DIR, CLAUDE_DIR / "_AIDocs" / "_atoms"]
+    proj_root = _find_project_root(project_cwd)
+    if proj_root is not None:
+        roots.append(proj_root / ".claude")
+    before = {r: (_dirs_under(r) if r.is_dir() else None) for r in roots}
+    result = _resolve_target_impl(scope, project_cwd, role, user, audience, force_global, **kw)
+    for r, had in before.items():
+        if not r.is_dir():
+            continue
+        created = [r] + list(_dirs_under(r)) if had is None else [p for p in _dirs_under(r) if p not in had]
+        for d in sorted(created, key=lambda p: len(p.parts), reverse=True):
+            try:
+                d.rmdir()          # 只刪空目錄；非空代表本來就有東西，rmdir 會失敗、略過
+            except OSError:
+                pass
+    return result
+
+
+def _resolve_target_impl(
     scope: str,
     project_cwd: Optional[str],
     role: Optional[str],
@@ -847,7 +886,7 @@ def write_atom(
     resolved = _resolve_target(scope, project_cwd, role, user, audience, force_global,
                                title=title, realm=realm, domain=domain, subdir=subdir,
                                mode=mode, allow_new_category=allow_new_category,
-                               cross_project=cross_project)
+                               cross_project=cross_project, create_dirs=not dry_run)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
     mem_dir = resolved["dir"]

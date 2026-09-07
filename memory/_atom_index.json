@@ -3038,6 +3038,23 @@
         "分叉"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用",
+      "path": "_AIDocs/_atoms/MemDev/atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用.md",
+      "triggers": [
+        "dry_run",
+        "dry-run",
+        "空目錄",
+        "空資料夾",
+        "mkdir",
+        "_resolve_target",
+        "落點預覽",
+        "副作用",
+        "svn status 多了資料夾",
+        "預覽不落檔"
+      ],
+      "scope": "global"
     }
   ]
 }
