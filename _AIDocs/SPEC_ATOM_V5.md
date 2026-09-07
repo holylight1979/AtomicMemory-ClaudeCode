@@ -39,6 +39,8 @@ V4 的三層 scope 機制不變：
 | `personal:{user}` | 個人在該專案的偏好/筆記 | `{proj}/.claude/memory/personal/{user}/`（gitignore） |
 | `personal:{user}`（跨專案） | 本人在**所有**專案都適用的偏好 | `~/.claude/memory/personal/{user}/`（gitignore；索引在全域 `_atom_index.json`，path 前綴 `memory/personal/{user}/`；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 呼叫即落此） |
 
+**`{proj}` 是哪一層（子專案 cwd 歸根層）**：`{proj}` 不一定是 Claude 開啟的資料夾。核心根層（放 `.claude/memory/` 的那層，如 `C:\TSLG`）與子專案（`C:\TSLG\Server`）各可放 `.claude/project-tree.json`：根層 `{"subs": ["Server", …]}`、子層 `{"root": ".."}`，任一方宣告即成立，cwd 在子專案底下任意深度都歸根層。`root_abs` 為本機絕對覆寫（目錄不存在就忽略），`standalone: true` 表本層獨立。沒有宣告 → 舊規則（最近 `.claude/memory/MEMORY.md`／`_AIDocs`／`.git`／`.svn`，最多 4 層）。單一來源 `lib/project_root.py`；讀取端只讀，宣告的增刪改走 `tools/project-tree.py`。
+
 personal 兩種都視為**敏感**：只給本人、不進 MEMORY.md 目錄、不進 realm 自動搬移、向量層獨立標籤（`personal:global:{user}` / `personal:{slug}:{user}`）。
 
 **personal vs shared 的分界與異議規則**：內容是「針對專案的規則」（提到專案專名／此專案／上傳／發布／必須／禁止…）就不是個人偏好——落 `shared` 並以 `Author:` 記下**提出此規則的使用者**（自動萃取 `user-extract-worker` 亦同：Author=使用者，來源標記走知識段 `<!-- src: turn -->`）。日後他人對該規則有異議 → 找 Author 對齊；管理職可覆寫（`shared/_pending_review/` 流程）。personal 只留真正的個人偏好與未公開假設。

@@ -178,3 +178,4 @@
 | 多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完 | memory/工作流/多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完.md | 驗收規格, acceptance, 驗收裁判, 分phase, 分階段, 多session, phase標籤, 收尾被擋, plan-mode 驗收 | global |
 | feedback-動手前不要找理由縮小範圍 | memory/personal/holylight/feedback-動手前不要找理由縮小範圍.md | 退縮, 撤退, 找理由, over-thinking, 推測沒驗證, 範圍縮小, 推小範圍, 工程過大, 風險高, 丟給使用者, prompt 漏給, 追蹤承諾, token 過期, auth error | personal:holylight |
 | gdoc-harvester | _AIDocs/_atoms/Tools/gdoc-harvester.md | harvester, 收割, Google Docs, Google Sheets | global |
+| 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 | _AIDocs/_atoms/MemDev/子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫.md | 專案根, 子專案, project-tree, project_root, find_project_root, 尋根, subs, root_abs, standalone, ProjectRoot, 宣告檔, claim, pick, 認領, 根層記憶, 分叉 | global |

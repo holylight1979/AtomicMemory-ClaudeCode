@@ -14,6 +14,7 @@
 - [臨] 設計原理：`get_project_memory_dir` 回 MEMORY_DIR 給根層是為了讓 scope 解析、索引定位在 ~/.claude 內也有「專案記憶目錄」可用；`resolve_failures_dir` 借用它時沿用了「有專案 memory → <mem>/failures」的專案佈局，沒意識到根層的失敗家族有自己的目錄規則。
 - [臨] 運作邏輯：Stop hook 偵測失敗回報 → 背景 extract-worker `_failure_writeback(ctx.cwd)` → `resolve_failures_dir(cwd)` → cwd=~/.claude → 專案分支 mkdir `memory/failures/` → `_create_failure_atom` 落檔 → 下次全域健檢把它當 atom 掃到。斷點在 resolve 的分支選擇，不在寫檔模板。
 - [臨] 防再犯：改任何「依 cwd 解析目錄」的函式時，測三種 cwd——外部專案、非專案目錄、**~/.claude 本身及其子目錄**；用 audit log（memory/_meta/atom_io_audit.jsonl 的 op/source/path）追寫手而非猜；被 git rm 的目錄若再出現，先查 audit log 的 ts/source 再動手。已加回歸測試 tools/verify/verify_project_layer_smoke.py（cwd=~/.claude → memory/Failures）。
+- [臨] 2026-09-05 後尋根只剩一份：`lib/project_root.py`（宣告認領優先、無宣告退舊規則），wg_core／atom_io 的四份 has_marker 複本已集中 `has_project_marker`。第四種必測 cwd：家目錄直下（`~/.claude/memory/MEMORY.md` 也是標記，舊碼會把 ~/Downloads 判成家目錄專案）。詳見 [[子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫]]。
 
 ## 行動
 

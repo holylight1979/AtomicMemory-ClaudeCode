@@ -31,6 +31,7 @@ from wg_core import (
     iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
     find_vcs_root, memory_dir_candidates,
+    resolve_project_root,
 )
 from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
@@ -641,10 +642,62 @@ def _personal_sync_advisory(project_mem_dir, user: str) -> list:
         return []
 
 
+_ROOT_ASK_CMD = "python ~/.claude/tools/project-tree.py"
+
+
+def _project_root_notice(res, cwd: str) -> List[str]:
+    """專案根宣告行（📍 認領／info、⚠️ 警告、❓ 引導）。沒宣告也沒候選 → 空清單，外部專案零 token。"""
+    if res is None:
+        return []
+    lines: List[str] = []
+    if res.declared and res.path is not None:
+        from project_root import CLAIM_LABEL
+        label = CLAIM_LABEL.get(res.claimed_by, res.claimed_by)
+        if res.claimed_by != "self":
+            lines.append(
+                f"📍 [Guardian:ProjectRoot] {cwd} 屬 {res.path} 的子專案（宣告：{label} @ {res.via}）"
+                f"→ 記憶歸 {res.path / '.claude' / 'memory'}")
+    for info in res.infos:
+        lines.append(f"📍 [Guardian:ProjectRoot] {info}")
+    for warn in res.warnings:
+        lines.append(f"⚠️ [Guardian:ProjectRoot] {warn}")
+    if res.claimed_by in ("nearest", "none") and res.candidates and not res.standalone:
+        cands = "、".join(str(c) for c in res.candidates)
+        best = res.candidates[0]
+        lines.append(
+            f"❓ [Guardian:ProjectRoot] 上層 {cands} 有記憶層但未宣告與本層（{cwd}）的關係。"
+            f"第一則回覆前先用 AskUserQuestion 問使用者，四選一："
+            f"(1) 認領 {best}（推薦）→ 執行 `{_ROOT_ASK_CMD} claim --root \"{best}\" --cwd \"{cwd}\"`；"
+            f"(2) 本層獨立 → `{_ROOT_ASK_CMD} standalone on --cwd \"{cwd}\"`；"
+            f"(3) 瀏覽選別的資料夾 → `{_ROOT_ASK_CMD} pick --cwd \"{cwd}\"`；"
+            f"(4) 這次先不決定（不寫檔，下次再問）。選定後由你執行指令，並告知「重開 session 生效」。")
+    return lines
+
+
+def _root_fingerprint_matches(existing: Dict[str, Any], res) -> bool:
+    """resume/compact 能沿用舊 state 的前提：專案根指紋沒變（舊 state 沒指紋＝不符 → 重建）。"""
+    if res is None:
+        return True
+    return (existing.get("atom_index") or {}).get("project_root_fingerprint") == res.fingerprint
+
+
+_CARRY_ON_REBUILD = (
+    "modified_files", "accessed_files", "vcs_queries", "knowledge_queue", "sync_pending",
+    "stop_blocked_count", "topic_tracker", "session_context_injected",
+)
+
+
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
     source = input_data.get("source", "startup")
+    root_res = None
+    root_lines: List[str] = []
+    try:
+        root_res = resolve_project_root(cwd) if (resolve_project_root and cwd) else None
+        root_lines = _project_root_notice(root_res, cwd)
+    except Exception as e:
+        _atom_debug_error("session_start:project_root", e)
 
     # log rotation — prevent runaway log bloat
     try:
@@ -664,8 +717,13 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             redirect_state = new_state(session_id, cwd, source)
             redirect_state["merged_into"] = sibling["session"]["id"]
             redirect_state["phase"] = "merged"
+            if root_res is not None:
+                redirect_state["atom_index"] = {
+                    "project_root": str(root_res.path) if root_res.path else "",
+                    "project_root_fingerprint": root_res.fingerprint,
+                }
             write_state(session_id, redirect_state)
-            lines = [f"[Workflow Guardian] Session merged ({source})."]
+            lines = [f"[Workflow Guardian] Session merged ({source}).", *root_lines]
             print(json.dumps({
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",
@@ -675,11 +733,13 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             sys.exit(0)
 
     existing = read_state(session_id)
-    if existing and source in ("compact", "resume"):
-        # V5+ realm 閘門已知限制：compact/resume 複用舊 state 的 atom_index 快取，
-        # 不重建候選。故若 session 於 ~/.claude 啟動（local 在快取）後跨環境 resume
-        # 到外部專案 cwd，殘留的 local 候選不會被重濾（極低頻：同一 session id 跨
-        # 機器/跨根 resume）。重啟（source=startup/新 session）即走上方重建分支正確過濾。
+    root_rebuilt = False
+    if existing and source in ("compact", "resume") and not _root_fingerprint_matches(existing, root_res):
+        # 專案根指紋變了（cwd 換了、宣告檔改了、或舊 state 還沒有指紋）→ 走下方重建分支重算
+        # atom_index / aidocs，session 脈絡（修改檔、知識佇列…）照搬
+        root_rebuilt = True
+    if existing and source in ("compact", "resume") and not root_rebuilt:
+        # compact/resume 複用舊 state 的 atom_index 快取（指紋相同才走到這裡）
         state = existing
         prev_atoms = state.get("injected_atoms", [])
         state["injected_atoms"] = []
@@ -689,6 +749,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines = [
             f"[Workflow Guardian] Session resumed ({source}). Phase: {phase}.",
             f"Modified files: {mod_count}. Knowledge queue: {kq_count}.",
+            *root_lines,
         ]
         if mod_count > 0:
             files = [m["path"].rsplit("/", 1)[-1] for m in state["modified_files"][-5:]]
@@ -707,6 +768,11 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             lines.append(f"[Atom Recovery] 壓縮前已載入: {atom_names}")
     else:
         state = new_state(session_id, cwd, source)
+        if root_rebuilt and existing:
+            for key in _CARRY_ON_REBUILD:
+                if key in existing:
+                    state[key] = existing[key]
+            state["phase"] = existing.get("phase", "working")
         if sibling and source == "startup":
             state["_skip_vector_init"] = True
 
@@ -785,11 +851,13 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "project": [(n, p, t) for n, p, t in project_atoms_merged],
             "project_memory_dir": str(project_mem_dir) if project_mem_dir else "",
             "project_root": str(project_root) if project_root else "",
+            "project_root_fingerprint": root_res.fingerprint if root_res else "",
             "project_slug": project_slug,
             "scopes": atom_scopes,
         }
         state["injected_atoms"] = []
-        state["phase"] = "working"
+        if not root_rebuilt:
+            state["phase"] = "working"
 
         if v4_layout_active and v4_user:
             _regenerate_role_filtered_memory_index(
@@ -807,8 +875,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         g_names = [n for n, _, _ in global_atoms]
         p_names = [n for n, _, _ in project_atoms_merged]
         lines = [
-            "[Workflow Guardian] Active.",
+            "[Workflow Guardian] Active." if not root_rebuilt
+            else f"[Workflow Guardian] Session resumed ({source}); 專案根變更，atom index 已重建.",
             f"Global: {len(g_names)} atoms. Project: {len(p_names)}.",
+            *root_lines,
         ]
 
         # ── 全域 index 解析 fail-loud ──

@@ -5,6 +5,11 @@
 
 ---
 
+## 2026-09-05 子專案 cwd 自動歸核心根層——`.claude/project-tree.json` 雙向宣告 + `lib/project_root.py` 單一尋根
+- 同事把 Claude 開在 `C:\TSLG\Server\scripts`，根層 `C:\TSLG\.claude\memory`（103 顆）完全不注入、寫入在 `Server\.claude\memory` 長出第二套（本機已分叉 2 顆）。根因：`wg_core.find_project_root` 與 `atom_io._find_project_root` 兩份「往上 4 層、四標記同等優先、遇第一個就停」，子專案有自己的版控目錄就被截住。**修**：新模組 `lib/project_root.py`——沿字面路徑往上讀各層 `.claude/project-tree.json`（根層 `subs` 列子專案／子層 `root` 指根層／`root_abs` 本機覆寫／`standalone` 獨立），優先序 standalone → 本層 root → 本層即根 → 祖先 subs，**無宣告退回舊規則零行為變化**；家目錄、`~/.claude`、磁碟根永不當根；壞 JSON 只警告不當標記；兩份舊函式改委派，四份 has_marker 複本集中 `has_project_marker`；宣告認領的根 `get_project_memory_dir` 直接回 `root/.claude/memory`（可尚未存在）。SessionStart 三分支印 `📍 [Guardian:ProjectRoot]` 宣告行、上層有記憶層沒宣告 → `❓` 引導 AI 用 AskUserQuestion 問一次（認領／獨立／pick 視窗／先不決定），分叉 → `⚠️ N 顆 + atom_move`；resume/compact 帶 `project_root_fingerprint`，不符走重建分支（session 脈絡照搬）。hook 只讀不寫，增刪改一律 `tools/project-tree.py`（show/explain/set-root/unset-root/add-sub/remove-sub/standalone/claim/pick，`--dry-run`、保留未知鍵、tmp+replace）。計畫經 Codex 對抗式審查（10 條，7 併入、3 判主題外砍掉）。測試 `hooks/verify/verify_project_root_claim.py` 26 支（狀況總表 A～T、鐵律 hook 不寫宣告檔、CLI）。 | `lib/project_root.py`, `tools/project-tree.py`, `hooks/wg_core.py`, `lib/atom_io.py`, `hooks/handlers/session_start.py`, `TECH.md`, `Install-forAI.md`, `SPEC_ATOM_V5.md`, `DocIndex-System.md`
+
+---
+
 ## 2026-09-04 遺忘政策收斂為一套——memory-audit `--enforce` 與降級候選改委派 selective forget
 - 使用者拍板「留 config 那套並把 audit 的 --enforce 改成呼叫它」。原本兩套並存：audit 用 `STALENESS_THRESHOLDS` 30/60/90 天 × Type 乘數硬移 `_distant/<yyyy_mm>/`、[觀] 另標 pending-review；hook 的 selective forget 用 score = 0.5·recency + 0.5·usage < `archive_score_threshold`（0.3）且非核心保護，預設 dry-run 只寫候選。**修**：公式抽成 `wg_atoms.archive_score`（純函式，`_self_iterate_atoms` 改呼叫它）；audit `check_staleness` 與 `enforce_decay` 都走同一判定，`--enforce` 以 `enabled=True, dry_run=--dry-run` 覆寫 config 後呼叫 `apply_selective_forget`，隔離後同步刪 `_atom_index.json` 條目；`apply_selective_forget` 隔離位置改「原範疇資料夾下的 `_distant/`」（原本落 `memory/_distant/` 根，`--restore` 會拉回 memory/ 根平鋪、下次健檢即 layout error）；`_distant` 計數／搜尋同時認 `_distant/*.md` 與 `_distant/<ym>/*.md`。刪 `STALENESS_THRESHOLDS`／`TYPE_DECAY_MULTIPLIER`／pending-review 標記路徑。實測：降級候選 65 → 10（天數門檻誤判的全消失），全域層 `--enforce --dry-run` 零候選。 | `hooks/wg_atoms.py`, `tools/memory-audit.py`, `TECH.md`
 

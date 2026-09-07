@@ -3015,6 +3015,29 @@
         "Google Sheets"
       ],
       "scope": "global"
+    },
+    {
+      "name": "子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫",
+      "path": "_AIDocs/_atoms/MemDev/子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫.md",
+      "triggers": [
+        "專案根",
+        "子專案",
+        "project-tree",
+        "project_root",
+        "find_project_root",
+        "尋根",
+        "subs",
+        "root_abs",
+        "standalone",
+        "ProjectRoot",
+        "宣告檔",
+        "claim",
+        "pick",
+        "認領",
+        "根層記憶",
+        "分叉"
+      ],
+      "scope": "global"
     }
   ]
 }

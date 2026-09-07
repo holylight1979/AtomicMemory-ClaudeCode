@@ -262,6 +262,37 @@ python tools/merge-atom-index.py --resolve   # git／svn 已停在索引三檔�
 
 - 原理、stage 方向矩陣、失敗模式與 SOP、不在保證範圍見 `_AIDocs/MultiMachineMemorySync.md`；驗證 `tools/verify/verify_merge_atom_index.py`、`hooks/verify/verify_merge_driver_gate.py`。
 
+### Step 7：多子專案佈局（選配）——子專案 cwd 自動歸專案根
+
+專案根（放 `.claude/memory/` 的那層，例 `C:\TSLG`）底下有多個可單獨開啟的子專案（`Client/`、`Server/`、`Tools/`…）時，隊友只把 Claude 開在 `C:\TSLG\Server\scripts` 也要接上根層記憶。做法是各層放一份 `.claude/project-tree.json`（進版控），任一方宣告即成立：
+
+```jsonc
+// C:\TSLG\.claude\project-tree.json（根層列子專案）
+{ "subs": ["Server", "Client", "Tools"] }
+// C:\TSLG\Server\.claude\project-tree.json（子層指回根層；可再列自己的子層）
+{ "root": "..", "subs": ["scripts"], "root_abs": "C:\\TSLG" }
+```
+
+| 欄位 | 意思 |
+|---|---|
+| `root` | 相對本層的根層路徑，**只准指祖先** |
+| `root_abs` | 選填、本機用的絕對路徑；目錄存在時優先，不存在就忽略（多機磁碟代號不同也不報錯） |
+| `subs` | 相對本層的子專案前綴；`"*"` 表底下全部 |
+| `standalone` | `true` ＝ 本層獨立，不認任何上層、也不再提問 |
+
+**怎麼設**（不要手刻也可以）：在子專案目錄執行
+`python ~/.claude/tools/project-tree.py claim --root C:\TSLG` —— 一次寫好根層 `subs` 與子層 `root`（子層沒有 `.claude/` 就只寫根層，不散落新目錄；`--both` 強制）。其他：`show`（看生效結果）、`explain <cwd>`、`set-root`／`unset-root`、`add-sub`／`remove-sub`、`standalone on|off`、`pick`（彈資料夾視窗選根層）；都支援 `--dry-run`。hook 只讀這些檔，永不自動寫。
+
+**開 session 會看到什麼**：
+- 認到根層 → `📍 [Guardian:ProjectRoot] <cwd> 屬 <根層> 的子專案（宣告：…）→ 記憶歸 <根層>\.claude\memory`。
+- 上層有記憶層但沒宣告關係 → `❓ [Guardian:ProjectRoot] …`，AI 會用選單問你一次：認領（推薦）／本層獨立／瀏覽選別的資料夾／這次先不決定。選定後由 AI 跑上面的指令，**重開 session 生效**。
+- 只 checkout 了子專案（上層沒有 `.claude/`）→ `📍 … 上層未 checkout，記憶留本層`，不是錯誤。
+- 宣告檔壞掉／指錯 → `⚠️ …`，退回沒宣告的行為（最近的 `.claude/memory`／`_AIDocs`／`.git`／`.svn`，最多往上 4 層）。
+- 子專案底下已經長出自己的 `.claude/memory`（分叉）→ `⚠️ … N 顆分叉 atom`，用 MCP `atom_move` 併回根層。
+- 沒有宣告、上層也沒有記憶層 → 一個字都不印，與過去完全相同。
+
+**注意**：宣告檔要跟著專案版控走（git 專案若 `.gitignore` 排除了 `.claude/`，要放行 `.claude/project-tree.json`；SVN 專案 `svn add`）。專案根的 `_taxonomy.json`、`_roles.md`、`project_hooks.py` 從此對子專案 session 一併生效；personal 記憶落根層的 `personal/<user>/`。子專案 session 的 `.claude/settings.json` 仍只讀 git root 那份（Claude Code 原生規則），本系統不橋接。
+
 ---
 
 ## 4. Ollama + Vector Service

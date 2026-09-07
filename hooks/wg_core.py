@@ -50,6 +50,15 @@ except ImportError:
     is_cross_project_local = None
     iter_realm_category_dirs = None
     FAILURES_DIR = CLAUDE_DIR / "memory" / "Failures"
+# 專案根判定單一來源（宣告認領 + 舊四標記 fallback）；import 失敗 → 下方 find_project_root 走內建舊規則
+try:
+    from project_root import (
+        resolve_project_root, has_project_marker, DECLARED_KINDS as _ROOT_DECLARED_KINDS,
+    )
+except ImportError:
+    resolve_project_root = None
+    has_project_marker = None
+    _ROOT_DECLARED_KINDS = ()
 
 # ─── Token budget 單一來源─────────────────────────
 # 三個 budget 概念各司其職，數值不互相推導：
@@ -282,23 +291,38 @@ def cwd_to_project_slug(cwd: str) -> str:
     return slug.lower()
 
 
+def _has_project_marker(root: Path) -> bool:
+    if has_project_marker is not None:
+        return has_project_marker(root)
+    return (
+        (root / ".claude" / "memory" / MEMORY_INDEX).exists()
+        or (root / "_AIDocs").is_dir()
+        or (root / ".git").exists() or (root / ".svn").exists()
+    )
+
+
 def find_project_root(cwd: str) -> Optional[Path]:
-    """Walk up from CWD to find project root via .claude/memory/MEMORY.md / _AIDocs / .git / .svn."""
+    """cwd 所屬的專案根（lib/project_root：宣告認領優先，否則最近標記）。找不到回 Path(cwd)。"""
     if not cwd:
         return None
+    if resolve_project_root is not None:
+        return resolve_project_root(cwd).path or Path(cwd)
     p = Path(cwd)
     for _ in range(4):
-        if (p / ".claude" / "memory" / MEMORY_INDEX).exists():
-            return p
-        if (p / "_AIDocs").is_dir():
-            return p
-        if (p / ".git").exists() or (p / ".svn").exists():
+        if _has_project_marker(p):
             return p
         parent = p.parent
         if parent == p:
             break
         p = parent
     return Path(cwd)
+
+
+def _root_is_declared(cwd: str) -> bool:
+    """cwd 的專案根是否來自宣告認領（此時記憶目錄可以尚未存在）。"""
+    if resolve_project_root is None:
+        return False
+    return resolve_project_root(cwd).claimed_by in _ROOT_DECLARED_KINDS
 
 
 def _is_under_claude_dir(cwd: str) -> bool:
@@ -331,6 +355,9 @@ def get_project_memory_dir(cwd: str) -> Optional[Path]:
         except OSError:
             pass
         new_mem = root / ".claude" / "memory"
+        if _root_is_declared(cwd):
+            # 宣告認領的根：記憶目錄可能還沒建（只 pull 到宣告檔）；讀者對空目錄回空、寫者寫入時才 mkdir
+            return new_mem
         if new_mem.is_dir():
             if (new_mem / MEMORY_INDEX).exists():
                 return new_mem
@@ -369,13 +396,7 @@ def get_scope_dir(
             return None
     except OSError:
         pass
-    has_marker = (
-        (root / ".claude" / "memory" / MEMORY_INDEX).exists()
-        or (root / "_AIDocs").is_dir()
-        or (root / ".git").exists()
-        or (root / ".svn").exists()
-    )
-    if not has_marker:
+    if not _has_project_marker(root):
         return None
 
     base = root / ".claude" / "memory"
@@ -423,7 +444,7 @@ def resolve_failures_dir(cwd: str) -> Path:
             is_root_layer = mem == MEMORY_DIR
         if not is_root_layer:
             d = mem / "failures"
-            d.mkdir(exist_ok=True)
+            d.mkdir(parents=True, exist_ok=True)   # 宣告認領的根層 memory 可能還沒建
             return d
         # cwd 在 ~/.claude 本身：get_project_memory_dir 回 MEMORY_DIR，但根層失敗家族不走
         # 專案佈局（memory/failures/ 小寫舊址），要落全域家族目錄。
@@ -522,13 +543,7 @@ def register_project(cwd: str) -> None:
             return
     except OSError:
         pass
-    has_marker = (
-        (root / ".claude" / "memory" / MEMORY_INDEX).exists()
-        or (root / "_AIDocs").is_dir()
-        or (root / ".git").exists()
-        or (root / ".svn").exists()
-    )
-    if not has_marker:
+    if not _has_project_marker(root):
         return
     slug = cwd_to_project_slug(str(root))
     reg = _load_registry()

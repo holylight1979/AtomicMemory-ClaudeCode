@@ -36,6 +36,7 @@ from .atom_locations import (
     find_separator_variant, classify_realm,
 )
 from .atom_taxonomy import gate_enabled as _taxonomy_gate_enabled
+from .project_root import resolve_project_root
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -172,22 +173,10 @@ _atomic_write = write_text_lf  # 既有呼叫名（atom_access、changelog-roll 
 
 
 def _find_project_root(cwd: Optional[str]) -> Optional[Path]:
-    """對拍 wg_paths.find_project_root / server.js findProjectRoot。"""
+    """cwd 所屬的專案根（單一來源 lib/project_root，與 wg_core.find_project_root 同規則）。找不到回 None。"""
     if not cwd:
         return None
-    p = Path(cwd).resolve()
-    for _ in range(4):
-        if (p / ".claude" / "memory" / MEMORY_INDEX).exists():
-            return p
-        if (p / "_AIDocs").is_dir():
-            return p
-        if (p / ".git").exists() or (p / ".svn").exists():
-            return p
-        parent = p.parent
-        if parent == p:
-            break
-        p = parent
-    return None
+    return resolve_project_root(str(Path(cwd).resolve())).path
 
 
 def _resolve_target(
