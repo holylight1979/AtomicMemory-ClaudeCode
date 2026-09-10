@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: codex exec, codex, 派 codex, 第二觀點, second opinion, 大師會議
 - Created-at: 2026-09-03
-- Related: feedback-tooling-reliability
+- Related: feedback-tooling-reliability, codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空
 
 ## 知識
 

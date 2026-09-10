@@ -6,7 +6,7 @@
 - Trigger: 專案根, 子專案, project-tree, project_root, find_project_root, 尋根, subs, root_abs, standalone, ProjectRoot, 宣告檔, claim, pick, 認領, 根層記憶, 分叉
 - Status: 已上線 2026-09-05；本機 C:\TSLG 首例落地中
 - Created-at: 2026-09-05
-- Related: 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址, realm-範疇分區機制-v5, atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人
+- Related: 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址, realm-範疇分區機制-v5, atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人, atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用
 
 ## 知識
 
