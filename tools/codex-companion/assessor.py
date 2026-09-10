@@ -240,6 +240,8 @@ def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str,
             "--skip-git-repo-check",
             "-o", output_file,
         ]
+        # 機器層附加旗標（如停用裁判用不到的 MCP server，免每次啟動連線重試）
+        cmd += [str(a) for a in (config.get("codex_extra_args") or [])]
 
         # Read prompt from stdin (via file)
         _log(f"Running: {' '.join(cmd[:6])}... (timeout={timeout}s)")
@@ -250,6 +252,8 @@ def _run_codex(prompt_text: str, cwd: str, config: Dict[str, Any]) -> tuple[str,
                 stdin=pf,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 cwd=cwd if cwd and os.path.isdir(cwd) else None,
                 env={**os.environ, "NO_COLOR": "1"},

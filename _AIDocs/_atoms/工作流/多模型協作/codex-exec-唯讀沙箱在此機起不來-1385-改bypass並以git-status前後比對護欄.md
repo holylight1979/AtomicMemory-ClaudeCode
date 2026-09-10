@@ -6,6 +6,8 @@
 - Trigger: codex exec, codex 沙箱, read-only sandbox, CreateProcessWithLogonW, 1385, 第二意見, 獨立掃碼, codex 報告, --output-last-message
 - Created-at: 2026-09-03
 
+- Related: codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空
+
 ## 知識
 
 - [臨] 本機 `codex exec -s read-only` 連 Get-Location 都跑不了：Windows 沙箱回 `CreateProcessWithLogonW failed: 1385`（登入型別未授權），Codex 誠實回報無法讀碼、不出報告。可用做法：`codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral -o <報告檔> - < <prompt檔>`，前後各存一份 `git status --porcelain` 做 diff 當「它沒動檔」的證據。
@@ -13,6 +15,7 @@
 - [臨] stdout 會夾 `codex_models_manager` 的 cache 錯誤（missing field base_instructions），不影響執行，最後訊息以 -o 檔為準。
 - [臨] Codex 跟我共用同一個工作樹：它在讀碼期間我若同時改檔／ commit，它會偵測到「外部 Git 變更」並重讀，報告裡的行號與判斷會混到兩個版本（2026-09-03 地圖那輪它對我改到一半的 MapPilot 評論）。要不就等它跑完再動手，要不就給它 `git worktree` 獨立工作樹（`--cd`）。
 - [臨] Codex 這類靈時獨立審查的價值在正確性缺陷，不在可讀性：地圖那輪它抓到 FindPath 不穩定邊誤擋、JSON 載入丟失字典 comparer、存檔非原子，三項都是我量化縮排掃不到的。給它的 prompt 可以明講「重點在正確性與邊界」。
+- [臨] 2026-09-10 實測 Codex CLI 0.154.0：`codex exec --skip-git-repo-check -s read-only "Reply CODEX_OK"` 直接回 CODEX_OK，1385 不再出現；升級後先試 read-only，bypass 只留給舊版。
 
 ## 行動
 

@@ -9,7 +9,7 @@ Protocol:
   stdout — DEVNULL (assessment result written via state.write_assessment)
   stderr — log lines tagged "[audit HH:MM:SS] ..."
 
-Lifetime: bounded by codex CLI assessment_timeout (default 60s) + retry.
+Lifetime: bounded by codex CLI assessment_timeout (config 120s) + retry.
 """
 from __future__ import annotations
 

@@ -8,6 +8,7 @@
 |------|------|
 | cc-能力查證反編譯實跑-binary | CC 能力查證：反編譯實跑 binary |
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
+| codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空 | codex裁判停用個別mcp用-c-mcp_servers名.enabled=false-mcp_servers空表是合併不是清空 |
 | electron-uia-automation | Electron app UI 自動化三層障礙 |
 | gdoc-harvester | gdoc-harvester — Web Harvester 收割工具經驗 |
 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑 | heredoc反斜線三連踩post-mortem-含反斜線的腳本一律Write成檔再跑 |
