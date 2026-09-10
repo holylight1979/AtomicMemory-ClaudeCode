@@ -288,30 +288,58 @@ function updateBanner() {
   }
 }
 
+function applyReports(data) {
+  reports = (data && data.reports) || [];
+  document.getElementById("poll-txt").textContent =
+    reports.length ? (reports.length + " 筆 · 最新 t" + reports[0].turn_seq) : "尚無報告";
+  if (activeKey === null && reports.length) { renderCard(reports[0]); }
+  renderGrid();
+  updateBanner();
+  // 殘檔面板跟著目前顯示的卡片所屬 session（點了歷史格就跟那格）。
+  var curSid = activeKey !== null ? String(activeKey).split("|")[0]
+                                  : (reports.length ? reports[0].session_id : "");
+  pollTemp(curSid);
+}
+function pollFailed() { document.getElementById("poll-txt").textContent = "連線中斷"; }
 function poll() {
   fetch("/api/aec/reports")
     .then(function (res) { return res.ok ? res.json() : { reports: [] }; })
-    .then(function (data) {
-      reports = (data && data.reports) || [];
-      document.getElementById("poll-txt").textContent =
-        reports.length ? (reports.length + " 筆 · 最新 t" + reports[0].turn_seq) : "尚無報告";
-      if (activeKey === null && reports.length) { renderCard(reports[0]); }
-      renderGrid();
-      updateBanner();
-      // 殘檔面板跟著目前顯示的卡片所屬 session（點了歷史格就跟那格）。
-      var curSid = activeKey !== null ? String(activeKey).split("|")[0]
-                                      : (reports.length ? reports[0].session_id : "");
-      pollTemp(curSid);
-    })
-    .catch(function () {
-      document.getElementById("poll-txt").textContent = "連線中斷";
-    });
+    .then(function (data) { applyReports(data); ackBeat(); })
+    .catch(pollFailed);
 }
-function beat() { fetch("/api/aec/beat").catch(function () {}); }
-
-poll(); beat();
-setInterval(poll, POLL_MS);
-setInterval(beat, BEAT_MS);
+// 心跳＝主執行緒剛把報告畫上去（證明使用者看得到），最多每 BEAT_MS 一拍。
+var lastBeatAt = 0;
+function ackBeat() {
+  var now = Date.now();
+  if (now - lastBeatAt < BEAT_MS) return;
+  lastBeatAt = now;
+  fetch("/api/aec/beat").catch(function () {});
+}
+// 輪詢排程跑在 Web Worker：Chromium 對「隱藏/被遮住 ≥5 分鐘」的頁面把主執行緒 setInterval 節流成
+// 每分鐘一次，HUD 躲在 VS Code 後面時心跳會變 60s、hook 判窗死。Worker 的計時器不受該節流；
+// 主執行緒只在收到 Worker 訊息時渲染＋回心跳（事件驅動，不是計時器）。建不出 Worker 才退回主執行緒。
+var fallbackStarted = false;
+function startMainLoop() {
+  if (fallbackStarted) return;
+  fallbackStarted = true;
+  poll(); setInterval(poll, POLL_MS);
+}
+function startLoop() {
+  var src = "var u=" + JSON.stringify(location.origin + "/api/aec/reports") + ";" +
+    "function p(){fetch(u).then(function(r){return r.ok?r.json():{reports:[]};})" +
+    ".then(function(d){postMessage({ok:true,data:d});}).catch(function(){postMessage({ok:false});});}" +
+    "p();setInterval(p," + POLL_MS + ");";
+  try {
+    var w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    w.onmessage = function (e) {
+      if (e.data && e.data.ok) { applyReports(e.data.data); ackBeat(); } else { pollFailed(); }
+    };
+    w.onerror = function () { try { w.terminate(); } catch (e2) {} startMainLoop(); };
+  } catch (e) {
+    startMainLoop();
+  }
+}
+startLoop();
 </script>
 </body>
 </html>`;

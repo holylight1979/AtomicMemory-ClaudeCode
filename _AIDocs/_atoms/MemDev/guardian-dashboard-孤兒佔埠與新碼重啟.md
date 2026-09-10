@@ -21,6 +21,7 @@
 - [觀] 踩雷：交棒初版走 execFile powershell → detached spawn EPERM + 卡巴斯基封鎖 → 改純 http 協作、零 spawn。
 - [觀] runtime 重綁已實證：啟動 probe + 每 15s heartbeat，持埠者暴斃 ~15s 內自動重綁；「只在啟動搶埠」為錯誤假說。
 - [觀] 「0 listener + 多個活 node」：playwright/excel 等 MCP 也是 node.exe；guardian 全滅時 0 listener 屬正常，開新 session 自癒。
+- [臨] 2026-09-10 起交棒版本改為 codeMtime()＝server.js＋lib/*.js 最新 mtime：改 lib（HUD 頁等）也會讓下一個新 session 的 guardian 要求舊持有者交棒；且 reclaimStaleOrphan 加 guard「只有自己開機版本==當下版本才可要求交棒」，執行中編輯檔案不再連鎖殺舊行程（舊碼行程無此 guard，改 server.js 後仍要立刻 touch -d 還原 mtime）。細節見 [[hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編server.js前先顧relinquish的mtime契約]]。
 
 ## 行動
 

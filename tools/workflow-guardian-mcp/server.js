@@ -44,9 +44,21 @@ const DASHBOARD_PORT = Number(process.env.WG_DASHBOARD_PORT) || loadConfig().das
 // whose file mtime is greater because server.js was edited after we booted —
 // uses this (exposed via /api/whoami · /api/relinquish) to recognize us as
 // stale code and ask us to hand off the port. See the port-binding section.
-const SELF_MTIME_AT_BOOT = (() => {
-  try { return fs.statSync(__filename).mtimeMs; } catch { return 0; }
-})();
+// Code version = newest mtime across server.js and lib/*.js, so an edit to a lib
+// module (HUD page, atom rules) also counts as "newer code" for the port hand-off.
+function codeMtime() {
+  let m = 0;
+  try { m = fs.statSync(__filename).mtimeMs; } catch {}
+  try {
+    const libDir = path.join(__dirname, "lib");
+    for (const f of fs.readdirSync(libDir)) {
+      if (!f.endsWith(".js")) continue;
+      try { m = Math.max(m, fs.statSync(path.join(libDir, f)).mtimeMs); } catch {}
+    }
+  } catch {}
+  return m;
+}
+const SELF_MTIME_AT_BOOT = codeMtime();
 
 const httpServer = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${DASHBOARD_PORT}`);
@@ -313,9 +325,13 @@ function reclaimStaleOrphan() {
   _reclaiming = true;
   const done = () => { _reclaiming = false; };
 
-  let currentMtime;
-  try { currentMtime = fs.statSync(__filename).mtimeMs; }
-  catch { return done(); }
+  const currentMtime = codeMtime();
+  if (!currentMtime) return done();
+  // Only an instance that itself booted on the CURRENT file may ask. Without this,
+  // editing server.js under live sessions makes every old instance (fresh stat >
+  // its own boot mtime) ask the holder to exit, the next old binder gets asked in
+  // turn, and the cascade kills every live session's MCP server but one.
+  if (currentMtime !== SELF_MTIME_AT_BOOT) return done();
 
   const payload = JSON.stringify({ requesterMtime: currentMtime, requesterFile: __filename });
   const req = http.request(

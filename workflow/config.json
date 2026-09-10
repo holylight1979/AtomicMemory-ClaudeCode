@@ -384,7 +384,8 @@
     "enabled": true
   },
   "aec": {
-    "_doc": "Anti-Evasion HUD：hud_autospawn=true → notable/real-evasion 報告且窗死時自動 spawn Edge --app HUD 窗（否則 fallback 回 chat）。hud_stale_s=心跳新鮮度門檻秒（預設 30）。",
+    "_doc": "Anti-Evasion HUD：hud_autospawn=true → notable/real-evasion 報告且窗死時自動 spawn Edge --app HUD 窗（否則 fallback 回 chat）。hud_stale_s=心跳新鮮度門檻秒。HUD 頁心跳 10s 跑在 Web Worker（不受 Chromium 隱藏頁節流）；尚未換到新頁碼的舊 HUD 被遮住時心跳會退成 60s，75 給舊頁留餘裕、新頁等於容忍 7 次漏跳。",
+    "hud_stale_s": 75,
     "hud_autospawn": true
   },
   "coordination": {

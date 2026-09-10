@@ -1384,7 +1384,9 @@
         "批改多檔",
         "git status 多出檔",
         "autocrlf",
-        "機械式取代"
+        "機械式取代",
+        "perl -pi",
+        "LF 變 CRLF"
       ],
       "scope": "global"
     },
@@ -3053,6 +3055,78 @@
         "副作用",
         "svn status 多了資料夾",
         "預覽不落檔"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫",
+      "path": "memory/OS-Windows/unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫.md",
+      "triggers": [
+        "EditorPrefs",
+        "Unity Editor 5.x",
+        "registry",
+        "_h",
+        "hash 尾碼",
+        "djb2",
+        "mcp-for-unity",
+        "UnityMCP port",
+        "MCPForUnity.HttpUrl",
+        "AutoStartOnLoad",
+        "8080 衝突",
+        "Editor 沒開改設定"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "dotnet-pack-在-generatepackageonbuild-專案不重建-nuspec-新版號包舊-dll",
+      "path": "memory/dotnet/dotnet-pack-在-generatepackageonbuild-專案不重建-nuspec-新版號包舊-dll.md",
+      "triggers": [
+        "dotnet pack",
+        "nupkg",
+        "GeneratePackageOnBuild",
+        "NU5026",
+        "版號",
+        "AssemblyVersion",
+        "pack 舊 dll",
+        "nuspec"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空",
+      "path": "_AIDocs/_atoms/Tools/codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空.md",
+      "triggers": [
+        "codex exec",
+        "codex companion",
+        "rmcp",
+        "8090",
+        "unityMCP",
+        "MCP 連線失敗",
+        "mcp_servers",
+        "--ignore-user-config",
+        "codex_extra_args",
+        "plan_review 逾時",
+        "assessment_timeout"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約",
+      "path": "_AIDocs/_atoms/MemDev/hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約.md",
+      "triggers": [
+        "HUD 未開",
+        "HUD 心跳",
+        "beat-status",
+        "hud_stale_s",
+        "aec_hud_fallback",
+        "setInterval 節流",
+        "intensive throttling",
+        "Web Worker",
+        "relinquish",
+        "SELF_MTIME_AT_BOOT",
+        "server.js mtime",
+        "港口持有者",
+        "連鎖退位"
       ],
       "scope": "global"
     }
