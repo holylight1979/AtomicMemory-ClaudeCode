@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 等秒數, sleep, 超時處理, 等待時間, 輪詢, debounce, 固定模式, 事件驅動, timeout 當主要手段, 等一下再送
 - Created-at: 2026-08-25
-- Related: feedback-workflow-discipline, goal-driven-verify-loopkarpathy-吸收
+- Related: feedback-workflow-discipline, goal-driven-verify-loopkarpathy-吸收, 常駐每幀回呼vs按需短命協程-判準與mec實證
 
 ## 知識
 

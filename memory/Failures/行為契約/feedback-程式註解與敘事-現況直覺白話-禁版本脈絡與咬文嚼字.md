@@ -5,7 +5,7 @@
 - Confidence: [固]
 - Trigger: 註解, comment, summary, 敘事, 版本標記, 階段標記, 咬文嚼字, LLM污染, 現況導向, 白話, code comment, 可讀性, 寫code
 - Created-at: 2026-07-09
-- Related: feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, feedback-workflow-discipline, feedback-收尾報告使用者視角四要素-白話綜觀非片段細節
+- Related: feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔, feedback-workflow-discipline, feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, feedback-動手前先給預期外清單-使用者用一句話重述概念核對落差-順帶發現一起修
 
 ## 知識
 
@@ -14,6 +14,7 @@
 - [固] 禁「咬文嚼字 / LLM 污染」風格：生造詞、一句塞三層轉折、堆術語求精確卻犧牲直覺。密度高但難讀＝壞味道。
 - [固] 實例（我自己的破口）：sgi_server/PlayerDbServer 的 CharModule 系列註解（PlayerDbService.cs / PlayerDbService.Db.cs / CharModuleDbFactory.cs）即此病典型——S3.3 §D 過渡碼清理須一併改乾淨。
 - [固] Why：不直覺的註解讓每次閱讀都要花力氣解碼，久了把清晰思路一點點磨掉、汙染後續所有溝通與設計。user 2026-07 明確拉高為「核心問題、要非常重視、記起來」。
+- [固] 使用者指正（2026-09-18，音效頻道註解案）：註解要「綜觀式、人性化」，不要「讀 code 然後照翻」——逐行複述程式在做什麼（清 X、fade=0 當場停…）是 AI 生硬感的來源。人寫的註解講的是心智模型與理由：檔頭用敘事講「這東西是什麼、為什麼這樣設計、讀碼前要先放進腦袋的幾件事」；方法只在「為什麼」不自明時才留一兩句（例：淡出中但有排隊也算忙，不然這條會被挑走、排隊的那首就丟了）；getter/setter、明顯的 Init、一眼看懂的 helper 不加註解。
 
 ## 行動
 

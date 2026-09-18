@@ -6,7 +6,7 @@
 - Trigger: svn, svn-update, TortoiseSVN
 - Created: 2026-03-18
 - Tags: svn, vcs
-- Related: workflow-rules, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合
+- Related: workflow-rules, git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉, 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合, pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess
 
 ## 知識
 

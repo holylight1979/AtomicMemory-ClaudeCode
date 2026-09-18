@@ -7,6 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | cc-能力查證反編譯實跑-binary | CC 能力查證：反編譯實跑 binary |
+| codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測 | codegraph與agent-retro評估結論-codegraph只當專案local-MCP不進記憶-agent-retro只拆量測 |
 | codex-log-bloat-analytics | codex-log-bloat-analytics |
 | codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空 | codex裁判停用個別mcp用-c-mcp_servers名.enabled=false-mcp_servers空表是合併不是清空 |
 | electron-uia-automation | Electron app UI 自動化三層障礙 |

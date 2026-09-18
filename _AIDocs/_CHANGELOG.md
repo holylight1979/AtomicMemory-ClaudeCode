@@ -5,6 +5,11 @@
 
 ---
 
+## 2026-09-18 動手前預告契約對齊閘門——查讀回合也要報、預告單獨一則再呼叫工具
+- 使用者反映常見 PreActionNotice 提醒、感覺 AI 不先講要做什麼。閘門 log 133 回合對回 transcript：26 回合沒預告全是純查讀（sed/awk/svn info/heredoc）被攔，根因是 IDENTITY.md 契約寫「首次修改動作前」比閘門「首次非唯讀工具前」窄；另 33 回合預告與 tool call 同一則、text block 未落盤致連刷提醒。修契約不修閘門：IDENTITY.md 改為「第一次呼叫工具前就報、預告單獨一則」，並落 feedback atom。
+
+---
+
 ## 2026-09-10 HUD「視窗未開啟」誤報根治——心跳改跑 Web Worker + relinquish 防連鎖 guard
 - HUD 明明開著，Stop 仍印「HUD 視窗未開啟」。實證：`curl /api/aec/beat-status` 取樣 70 秒，age_s 每 60 秒才歸零；HUD 頁 `setInterval(beat, 10s)` 在 Edge --app 視窗被 VS Code 遮住 ≥5 分鐘後被 Chromium intensive wake-up throttling 對齊成每分鐘一次，門檻 30 秒 → 一半時間判窗死（97 個 transcript 都中過）。**修**：`aec-hud-html.js` 輪詢排程移進 Blob Web Worker（Worker 計時器不受頁面隱藏節流），主執行緒收到 Worker 訊息才渲染並回一拍心跳——心跳語意從「頁面還在」變成「報告已畫上去」（Codex 對抗式審查建議：頁面被凍結時 Worker 也凍、無心跳即 fallback 回 chat，正確）；建不出 Worker 才退回主執行緒 setInterval。Playwright 於測試 port 3877 實測：Worker 路徑生效、57 筆報告渲染、每 10s 一拍；`config.json` hud_stale_s 30→75（舊頁面 F5 前仍 60s）；`stop.py` 訊息改「HUD 心跳逾時（視窗未開／頁面被凍結）」。**順修 + 事故**：`server.js` reclaimStaleOrphan 只比「檔案當下 mtime > 持有者開機 mtime」，多 session 執行中一編輯 server.js，舊行程就輪流要求持有者退位自殺、連鎖殺到剩一個——本次 touch -r 誤把 mtime 設成較新檔，20 秒內殺掉 3 個 guardian 行程（受害 session 的 MCP 工具失效，需重啟 session）；已加 guard「只有自己開機版本 == 檔案當下版本的行程才可要求退位」，版本改為 server.js + lib/*.js 最新 mtime（改 HUD 頁也算新碼，舊碼只看 server.js 故不會再連鎖），server.js mtime 已還原原值。新碼上線時機：下一個新 session 的 guardian 開機版本較新 → 要求舊持有者退位接手 3848，HUD 頁 F5 即吃到新 JS。verify_aec_emission_gate 51 passed。 | `tools/workflow-guardian-mcp/lib/aec-hud-html.js`, `tools/workflow-guardian-mcp/server.js`, `hooks/handlers/stop.py`, `workflow/config.json`
 

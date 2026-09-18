@@ -28,10 +28,12 @@
 | hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定 | hook 內呼叫外部工具的四個坑-HOME覆寫下CLAUDE_DIR指錯-pythonw無stdio-5秒預算-探針要隔離global設定 |
 | hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約 | hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編server.js前先顧relinquish的mtime契約 |
 | hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 | HUD暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 |
+| hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次 | hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec_hud-stop再查一次 |
 | mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原 | MCP js 改動後未重啟-lazy-require 新舊模組混載-tool 回 undefined 類錯誤不是 bug-Reload Window 即復原 |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | OTEL 遙測評估結論-不實作-兩目標指標皆測不到 |
 | pan-hermes不移植部件與vscode-text-block不落盤實測 | pan-hermes不移植部件與vscode-text-block不落盤實測 |
+| posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位 | PostToolUse的tool_response不等於模型看到的結果-Edit帶整份originalFile-量context浪費要按工具取可見欄位 |
 | repo-全面-lf-決策與守衛鏈 | repo-全面-LF-決策與守衛鏈 |
 | scope-shared-無主題子夾路由-專案靠-project-hooks-sweep-分層 | scope-shared-無主題子夾路由-專案靠-project_hooks-sweep-分層 |
 | svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出 | svn測試與hook的三個實測事實-diff3相鄰改動自合-整WC status爆預算-只信xml輸出 |

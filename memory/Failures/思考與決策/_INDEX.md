@@ -9,5 +9,6 @@
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） |
 | feedback-complexity-origin-trace | feedback-complexity-origin-trace |
 | feedback-rigor-standards | feedback-rigor-standards |
+| feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙 | feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙 |
 | feedback-模糊裁示不硬化先深問-決策選項含使用到再問 | feedback-模糊裁示不硬化先深問-決策選項含使用到再問 |
 | wrong-assumptions-思考與決策 | 假設錯誤（Wrong Assumptions） |

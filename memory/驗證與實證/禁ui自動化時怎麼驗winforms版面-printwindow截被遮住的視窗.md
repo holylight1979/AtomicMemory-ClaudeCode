@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 截圖驗證, PrintWindow, CopyFromScreen, WinForms 版面, FlowLayoutPanel, 被遮住的視窗, GUI 驗收, 禁 UI 自動化
 - Created-at: 2026-08-21
-- Related: winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用, designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰
+- Related: winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用, designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰, winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii
 
 ## 知識
 
