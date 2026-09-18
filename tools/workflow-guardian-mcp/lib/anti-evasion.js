@@ -19,7 +19,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { WORKFLOW_DIR } = require("./paths");
 
-// HUD 頁心跳（記憶體，港口持有者持有）；apiAecBeat 更新、apiAecBeatStatus 回 age_s。
+// HUD 頁心跳（記憶體，港口持有者持有）；apiAecBeat 更新、apiAecBeatStatus 回 age_s + clients。
 let lastHudBeat = 0;
 
 const REPORT_DIR = path.join(WORKFLOW_DIR, "aec-report");  // per-turn 報告檔子夾（檔名 <sid>-t<turn>.json）
@@ -148,16 +148,44 @@ function apiAecReport(req, res, sid, turn) {
   }
 }
 
-// GET /api/aec/beat — HUD 頁心跳（開著時每 Ns 打）。
+// GET /api/aec/beat — HUD 頁心跳（主執行緒剛把報告畫上去才打；頁被瀏覽器凍結/節流時會停）。
 function apiAecBeat(req, res) {
   lastHudBeat = Date.now();
   _json(res, 200, { ok: true });
 }
 
-// GET /api/aec/beat-status — 回 age_s（Python _maybe_spawn_hud 判窗死用）。
+// GET /api/aec/stream — HUD 頁常駐連線（SSE，內容不走這條、只當存在證明）。
+// 窗開著＝連線在：Edge --app 視窗被遮住久了瀏覽器會休眠/凍結頁面、心跳全停，但 TCP 連線
+// 仍掛著；視窗關閉／分頁丟棄才斷。hudClients.size 是 Python 判「窗開著」的主證據，心跳為輔。
+const hudClients = new Set();
+let hudPing = null;
+function apiAecStream(req, res) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+  });
+  res.write(": hud\n\n");
+  hudClients.add(res);
+  const drop = () => { hudClients.delete(res); };
+  res.on("close", drop);
+  res.on("error", drop);   // 對端消失後的寫入錯誤：剔除，不得 unhandled 'error' 炸掉行程
+  if (!hudPing) {
+    // 15s 註解 ping：對端死掉（瀏覽器崩潰、機器休眠）時寫入失敗 → close → 剔除，連線數不虛高
+    hudPing = setInterval(() => {
+      for (const c of hudClients) {
+        try { c.write(": ping\n\n"); } catch { hudClients.delete(c); }
+      }
+      if (!hudClients.size) { clearInterval(hudPing); hudPing = null; }
+    }, 15000);
+    hudPing.unref();
+  }
+}
+
+// GET /api/aec/beat-status — Python _hud_alive 判窗用：clients（HUD 頁連線數）為主、age_s 為輔。
 function apiAecBeatStatus(req, res) {
   const age_s = lastHudBeat ? Math.round((Date.now() - lastHudBeat) / 1000) : 999999;
-  _json(res, 200, { age_s });
+  _json(res, 200, { age_s, clients: hudClients.size });
 }
 
 // ─── 殘檔帳本讀端（Python 寫 aec-tempfiles/<sid>.jsonl / Node 讀 + exists() 過濾）────────
@@ -265,7 +293,7 @@ function apiAecDecisionPost(req, res) {
 module.exports = {
   aecBlank, aecSeverity, aecPendingItems,
   toolAntiEvasionReport,
-  apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus,
+  apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, readLedgerAlive,
   apiAecDecisionPost,
 };

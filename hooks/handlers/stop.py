@@ -29,6 +29,7 @@ from wg_evasion import (
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
 from handlers._shared import (
+    _hud_alive,
     _maybe_spawn_user_extract_worker,
     DOCDRIFT_AVAILABLE,
 )
@@ -819,29 +820,42 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # HUD 不可達且本回合 emit 為 notable/real-evasion → 大聲 fallback 回 chat（可觀測性鐵律：
     # push 不到窗不得 fail-silent）。post_tool_use 標旗，此處消費一次（新 emit 再標則再補，
-    # 不永久靜音 real-evasion）。Node tool chip 是 emit 當下的主要 UX 面；本 fallback 是
-    # Python 端獨立的觀測保證，不倚賴窗是否渲染。emit 閘本身已放行（見上），此處不再擋 emit。
+    # 不永久靜音 real-evasion）。消費前**再查一次**：emit 當下不可達可能是暫時的（Node 剛換手、
+    # HUD 頁重連中），現在窗活著就不吵 chat；兩次判定都落 guard-aec_hud.jsonl 可稽核。
+    # Node tool chip 是 emit 當下的主要 UX 面；本 fallback 是 Python 端獨立的觀測保證，
+    # 不倚賴窗是否渲染。emit 閘本身已放行（見上），此處不再擋 emit。
     if state.get("aec_hud_fallback"):
         state["aec_hud_fallback"] = False  # 消費，避免重播
-        state["stop_blocked_count"] = stop_count + 1
         sev = aec.get("severity", "notable")
-        fb = [
-            f"[Guardian:AEC] HUD 心跳逾時（視窗未開／頁面被凍結），{sev} 收尾檢核改回 chat 呈現（不 fail-silent）："
-        ]
-        for _k, _label in (("a", "(a) 缺失修補"), ("b", "(b) 逃避通報")):
-            _v = (aec.get(_k) or "").strip()
-            if _v and _v != "無":
-                fb.append(f"  {_label}：{_v}")
-        # cross-check 升級：模型自評 (b)=無但 hook 實測退避 → 附 hook 證據（不信自評）
-        if aec.get("severity_upgraded_by"):
-            fb.append("  ⚠ severity 由 hook cross-check 升級——(b) 自評「無」與 hook 實測不符：")
-            for _e in (aec.get("hook_evidence") or [])[:3]:
-                fb.append(
-                    f"    - turn {_e.get('turn_seq', '?')}: 退避語『{_e.get('phrase', '')}』"
-                )
-        write_state(session_id, state)
-        output_block(_piggyback("\n".join(fb)))
-        return
+        _aec_cfg = config.get("aec", {}) or {}
+        alive, info = _hud_alive(
+            int(config.get("dashboard_port", 3848)), int(_aec_cfg.get("hud_stale_s", 30))
+        )
+        append_guard_log("aec_hud", {
+            "where": "stop", "session_id": session_id, "severity": sev, "alive": alive, **info,
+        })
+        if alive:
+            write_state(session_id, state)
+        else:
+            state["stop_blocked_count"] = stop_count + 1
+            _why = info.get("reason") or f"age_s={info.get('age_s')} clients={info.get('clients')}"
+            fb = [
+                f"[Guardian:AEC] HUD 不可達（{_why}），{sev} 收尾檢核改回 chat 呈現（不 fail-silent）："
+            ]
+            for _k, _label in (("a", "(a) 缺失修補"), ("b", "(b) 逃避通報")):
+                _v = (aec.get(_k) or "").strip()
+                if _v and _v != "無":
+                    fb.append(f"  {_label}：{_v}")
+            # cross-check 升級：模型自評 (b)=無但 hook 實測退避 → 附 hook 證據（不信自評）
+            if aec.get("severity_upgraded_by"):
+                fb.append("  ⚠ severity 由 hook cross-check 升級——(b) 自評「無」與 hook 實測不符：")
+                for _e in (aec.get("hook_evidence") or [])[:3]:
+                    fb.append(
+                        f"    - turn {_e.get('turn_seq', '?')}: 退避語『{_e.get('phrase', '')}』"
+                    )
+            write_state(session_id, state)
+            output_block(_piggyback("\n".join(fb)))
+            return
 
     # ── Sync Reminder Gate ──────────────────────────────────────
     sr_config = config.get("sync_reminder", {}) or {}

@@ -9,7 +9,7 @@ Windows 上 Python 文字模式寫檔，沒給 newline= 就會把 `\\n` 翻成 `
 結果由 `python tools/normalize-eol.py --root --check` 掃。
 
 規則：遞迴掃 hooks/、lib/、tools/、skills/ 下 *.py（排除路徑含 verify、__pycache__、node_modules、
-_archived、_archive、v4-archive），以下呼叫若為文字模式且沒帶合格 newline= 即列為問題：
+_archived、_archive、v4-archive、synced），以下呼叫若為文字模式且沒帶合格 newline= 即列為問題：
   - open(...) / io.open(...) / <任何>.open(...)：mode（第 2 個位置引數或 mode=）為常數字串且
     含 w/a/x/+ 之一、不含 b → 文字寫入；mode 省略視為 "r" 不算；mode 非常數 → 無法證明安全，算問題
     （os.open 是 fd 層、沒有文字模式，不在此列）
@@ -28,7 +28,8 @@ from pathlib import Path
 
 CLAUDE = Path(__file__).resolve().parents[2]
 SCAN_DIRS = [CLAUDE / "hooks", CLAUDE / "lib", CLAUDE / "tools", CLAUDE / "skills"]
-EXCLUDE_PARTS = {"verify", "__pycache__", "node_modules", "_archived", "_archive", "v4-archive"}
+EXCLUDE_PARTS = {"verify", "__pycache__", "node_modules", "_archived", "_archive", "v4-archive",
+                 "synced"}  # skills/synced/ 是 Claude Code 同步下來的外部 skill，不是本 repo 程式碼
 TEMPFILE_FUNCS = {"NamedTemporaryFile", "TemporaryFile", "SpooledTemporaryFile"}
 OPEN_TEXT_WRITE_CHARS = set("wax+")
 TEMPFILE_TEXT_CHARS = set("wa+")

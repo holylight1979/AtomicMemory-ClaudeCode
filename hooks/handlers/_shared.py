@@ -19,7 +19,7 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     CLAUDE_DIR, WORKFLOW_DIR,
@@ -73,6 +73,38 @@ except ImportError:
     resolve_doc_update = None
     build_drift_advisory = None
     prune_committed_entries = None
+
+
+# ─── AEC HUD 活性判定（post_tool_use 標旗 / stop 再查一次，兩端共用）─────────────
+
+
+def _hud_alive(port: int, threshold_s: int) -> Tuple[bool, Dict[str, Any]]:
+    """GET /api/aec/beat-status → HUD 窗活著？回 (alive, info)。
+
+    活著 = clients ≥ 1（HUD 頁的 SSE 常駐連線在：視窗開著，即使頁面被瀏覽器凍結/節流）
+        或 age_s < threshold（心跳新；舊版 Node 無 clients 欄時的退路）。
+    心跳是「頁面正在渲染」的證據，Edge --app 視窗被遮住久了會停（瀏覽器休眠/凍結隱藏頁；現場實證窗開著 age 仍上百秒），
+    單靠它會把開著的窗判死；連線才是「窗開著」的直接證據。
+    info 一律帶實際用的 port/threshold/耗時、查到的 age_s/clients、失敗原因——呼叫端落 guard log
+    （可觀測性鐵律：不可達的原因不得吞掉）。不可達 / 舊碼 404 / 逾時 → (False, info)。"""
+    import urllib.request
+    info: Dict[str, Any] = {"port": port, "threshold_s": threshold_s}
+    t0 = time.perf_counter()
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/aec/beat-status", timeout=0.6
+        ) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        age = int(data.get("age_s", 10 ** 9))
+        clients = int(data.get("clients", 0))
+        info.update(age_s=age, clients=clients)
+        alive = clients >= 1 or age < threshold_s
+        info["reason"] = "" if alive else "no_hud_client_and_beat_stale"
+    except Exception as e:  # 逾時 / 連線拒絕 / 404 / 非 JSON：全記原因，不分類吞掉
+        alive = False
+        info["reason"] = f"{type(e).__name__}: {e}"[:200]
+    info["elapsed_ms"] = round((time.perf_counter() - t0) * 1000)
+    return alive, info
 
 
 # ─── Path helpers ────────────────────────────────────────────────────────────

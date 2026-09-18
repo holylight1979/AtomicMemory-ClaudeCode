@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
-    _atom_debug_error, WORKFLOW_DIR,
+    _atom_debug_error, append_guard_log, WORKFLOW_DIR,
 )
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
@@ -27,6 +27,7 @@ from wg_atoms import _trigger_incremental_index
 from wg_extraction import is_plan_filename
 from handlers import aec_ledger
 from handlers._shared import (
+    _hud_alive,
     _is_ephemeral_path,
     WISDOM_AVAILABLE, wisdom_track_retry,
     DOCDRIFT_AVAILABLE, check_source_drift, resolve_doc_update, prune_committed_entries,
@@ -220,19 +221,6 @@ def _collect_aec_evidence(
     return evidence
 
 
-def _hud_beat_fresh(port: int, threshold_s: int) -> bool:
-    """GET /api/aec/beat-status → age_s < threshold？不可達 / 舊碼(404) / 逾時 → False（窗死）。"""
-    try:
-        import urllib.request
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/api/aec/beat-status", timeout=0.6
-        ) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        return int(data.get("age_s", 10 ** 9)) < threshold_s
-    except Exception:
-        return False
-
-
 def _find_edge() -> str:
     """定位 msedge 執行檔（僅 Windows 主環境；找不到回 ""）。"""
     if sys.platform == "win32":
@@ -267,17 +255,22 @@ def _spawn_hud_edge(port: int) -> None:
         _atom_debug_error("post_tool_use:aec_spawn_edge", e)
 
 
-def _maybe_spawn_hud(sev: str, state: Dict[str, Any], config: Dict[str, Any]) -> None:
-    """窗活著（心跳新）→ 會輪詢渲染、無需 fallback。窗死：config.aec.hud_autospawn 才嘗試
-    spawn Edge（預設關）；且 sev∈{notable,real-evasion} → 標 aec_hud_fallback 供 Stop 大聲
-    補 chat（可觀測性鐵律：push 不到窗不得 fail-silent）。routine 窗死只落 disk（無退避訊號、
-    可事後由歷史格瀏覽，非違反可觀測性）。Fail-open。"""
+def _maybe_spawn_hud(sev: str, state: Dict[str, Any], config: Dict[str, Any],
+                     session_id: str = "") -> None:
+    """窗活著（HUD 頁連線在，或心跳新）→ 會輪詢渲染、無需 fallback。窗死：config.aec.hud_autospawn
+    才嘗試 spawn Edge（預設關）；且 sev∈{notable,real-evasion} → 標 aec_hud_fallback 供 Stop
+    再查一次後大聲補 chat（可觀測性鐵律：push 不到窗不得 fail-silent）。routine 窗死只落 disk
+    （無退避訊號、可事後由歷史格瀏覽，非違反可觀測性）。判死原因一律落 guard-aec_hud.jsonl。Fail-open。"""
     try:
         aec_cfg = (config or {}).get("aec", {}) or {}
         port = int((config or {}).get("dashboard_port", 3848))
         threshold = int(aec_cfg.get("hud_stale_s", 30))
-        if _hud_beat_fresh(port, threshold):
+        alive, info = _hud_alive(port, threshold)
+        if alive:
             return
+        append_guard_log("aec_hud", {
+            "where": "post_tool_use", "session_id": session_id, "severity": sev, **info,
+        })
         # B：只有 notable/real-evasion 才彈窗（routine 靜默入 disk、不打擾）。
         if aec_cfg.get("hud_autospawn", False) and sev in ("notable", "real-evasion"):
             _spawn_hud_edge(port)
@@ -584,7 +577,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 )
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_collect", e)
-        _maybe_spawn_hud(sev, state, config)
+        _maybe_spawn_hud(sev, state, config, session_id)
         dirty = True
 
     if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):

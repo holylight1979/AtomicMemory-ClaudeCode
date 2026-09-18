@@ -44,6 +44,8 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "_attribute_usefulness", lambda *a, **k: None)
     monkeypatch.setattr(st, "_detect_uncommitted_files", lambda mf: [])
     monkeypatch.setattr(st, "_maybe_spawn_user_extract_worker", lambda *a, **k: None)
+    monkeypatch.setattr(st, "_hud_alive", lambda *a, **k: (False, {"reason": "test"}))  # Stop 再查：仍死
+    monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
 
     def drive(modified_files, capsys, **extra):
         state = {
@@ -216,7 +218,8 @@ def _drive_ptu(monkeypatch, tmp_path, tool_input, turn_seq=7, session_id=_SID):
     monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
-    monkeypatch.setattr(pt, "_hud_beat_fresh", lambda *a, **k: False)  # HUD 死
+    monkeypatch.setattr(pt, "_hud_alive", lambda *a, **k: (False, {"reason": "test"}))  # HUD 死
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
     monkeypatch.setattr(pt, "_spawn_hud_edge", lambda *a, **k: None)
     inp = {
         "session_id": session_id,

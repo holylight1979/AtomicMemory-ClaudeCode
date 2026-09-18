@@ -339,7 +339,14 @@ function startLoop() {
     startMainLoop();
   }
 }
+// 存在證明：對 Node 開一條 SSE 常駐連線（/api/aec/stream）。頁被瀏覽器凍結時心跳會停、連線仍在；
+// 視窗關了才斷，hook 據此判「窗開著」不吵 chat。內容不走這條（仍由 Worker 輪詢），斷線瀏覽器自動重連。
+var presence = null;
+function openPresence() {
+  try { presence = new EventSource("/api/aec/stream"); } catch (e) { presence = null; }
+}
 startLoop();
+openPresence();
 </script>
 </body>
 </html>`;
