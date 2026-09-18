@@ -488,8 +488,11 @@ def _should_deep_postmortem(
     """是否要在本 Stop 注入「深寫 post-mortem」指令。
 
     觸發＝(effort 訊號任一) AND (真失敗訊號任一)：
-      effort：wisdom_retry_count>=2 ∨ fix_escalation_triggered
-      real_failure：failing_tests 非空 ∨ evasion_flag ∨ 未宣告完成（not claims_done）
+      effort：wisdom_retry_count>=2 ∨ fix_escalation_triggered ∨ friction
+      real_failure：failing_tests 非空 ∨ evasion_flag ∨ 未宣告完成（not claims_done）∨ friction
+      friction：使用者糾正次數 ≥ config.friction.min_hits（wg_friction）——測試全綠、
+      工作也宣告完成，但人一路在糾正方向，這是原本三個訊號都抓不到的失敗型態，
+      故同時算 effort 與真失敗。
     為何 AND：疊一個真失敗訊號，才把「高 effort 成功」與「反覆修不好」區分開。
     effort 只採 retry / fix_escalation——兩者都已在 track_retry 層以 failing_tests
     error-gate，是誠實的「失敗中反覆」訊號。不採同檔 edit 次數：它未 failure-gate、
@@ -510,14 +513,18 @@ def _should_deep_postmortem(
         return False
     if state.get("deep_postmortem_done"):  # 一次性即獨立預算＝1，anti-loop 由此保證
         return False
+    from wg_friction import friction_triggered
+    friction = friction_triggered(state, config)
     effort = (
         int(state.get("wisdom_retry_count", 0) or 0) >= 2
         or bool(state.get("fix_escalation_triggered"))
+        or friction
     )
     real_failure = (
         bool(state.get("failing_tests"))
         or bool(state.get("evasion_flag"))
         or not claims_done
+        or friction
     )
     return effort and real_failure
 
@@ -532,9 +539,25 @@ def _dpm_marker(session_id: str) -> Path:
     return WORKFLOW_DIR / "dpm-done" / f"{session_id}.flag"
 
 
+def _dpm_trigger_text(state: Dict[str, Any], config: Dict[str, Any]) -> str:
+    """DPM 指令開頭那句「為什麼觸發」：retry/fix-escalation 走原句；只靠使用者糾正
+    觸發時改說糾正幾次、命中哪些詞，讓 Claude 知道要寫的是「方向被糾正」不是「測試修不好」。"""
+    from wg_friction import friction_summary, friction_triggered
+    parts: List[str] = []
+    if int(state.get("wisdom_retry_count", 0) or 0) >= 2 or state.get("fix_escalation_triggered"):
+        parts.append("失敗中反覆重試 / fix-escalation")
+    if friction_triggered(state, config):
+        parts.append(friction_summary(state))
+    return "、".join(parts) or "高 effort 失敗"
+
+
+def _dpm_instruction(state: Dict[str, Any], config: Dict[str, Any]) -> str:
+    return _DEEP_POSTMORTEM_INSTRUCTION.replace("{trigger}", _dpm_trigger_text(state, config))
+
+
 _DEEP_POSTMORTEM_INSTRUCTION = (
-    "[Guardian:DeepPostMortem] 偵測到高 effort 失敗訊號（失敗中反覆重試 /"
-    " fix-escalation）。失敗骨架已由 hook 自動落地，但根因與設計脈絡只有你知道。\n"
+    "[Guardian:DeepPostMortem] 偵測到高 effort 失敗訊號（{trigger}）。"
+    "失敗骨架已由 hook 自動落地，但根因與設計脈絡只有你知道。\n"
     "結束前請用 atom_write 補一條完整 post-mortem（寫入既有 failure atom，或"
     " realm=local、domain 視主題新建），涵蓋：\n"
     "  - 始末：觸發場景 → 錯誤行為 → 最終正確做法\n"
@@ -949,7 +972,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         except OSError:
             pass
         state["stop_blocked_count"] = stop_count + 1
-        reason = _piggyback(_DEEP_POSTMORTEM_INSTRUCTION)
+        reason = _piggyback(_dpm_instruction(state, config))
         write_state(session_id, state)
         output_block(reason)
         return

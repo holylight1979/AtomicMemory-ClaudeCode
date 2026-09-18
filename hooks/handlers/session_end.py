@@ -456,6 +456,20 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
             print(f"[recall-miss] error: {e}", file=sys.stderr)
             _atom_debug_error("session_end:recall_miss", e)
 
+    # ── 工具結果體積：整場 per-tool 次數／總量／最大值聚合成一筆
+    # Logs/guard-tool-result-stats.jsonl，per-session 暫存檔聚合後刪。純本地、fail-open。
+    try:
+        from wg_friction import flush_tool_result_stats
+        _trs = flush_tool_result_stats(session_id, state)
+        if _trs and _trs.get("oversized_n"):
+            print(
+                f"[tool-result] {_trs['calls']} 次呼叫共 {_trs['total_chars'] // 1000}K 字元，"
+                f"超門檻 {_trs['oversized_n']} 筆佔 {_trs['oversized_chars'] // 1000}K",
+                file=sys.stderr,
+            )
+    except Exception as e:
+        _atom_debug_error("session_end:tool_result_stats", e)
+
     if state.get("review_due"):
         try:
             total = sum(1 for _ in EPISODIC_DIR.glob("episodic-*.md")) if EPISODIC_DIR.exists() else 0

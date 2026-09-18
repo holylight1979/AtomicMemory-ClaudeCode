@@ -315,6 +315,13 @@ def handle_user_prompt_submit(
         session_id, state, config, clean_prompt, lines
     )
 
+    # 使用者糾正訊號：跨 turn 計數（wg_friction），達門檻由 Stop 的 Deep Post-Mortem 消費
+    try:
+        from wg_friction import record_correction
+        record_correction(state, session_id, clean_prompt, config)
+    except Exception as e:
+        _atom_debug_error("ups:friction", e)
+
     # Topic tracking
     _update_topic_tracker(state, prompt, intent, newly_injected)
 

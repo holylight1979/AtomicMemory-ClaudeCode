@@ -308,6 +308,19 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     except Exception as e:
         print(f"rescue check error: {e}", file=sys.stderr)
 
+    # ─── 工具結果體積：每筆量長度落 per-session 檔（不進 state）；單筆超門檻 → advisory ───
+    try:
+        from wg_friction import record_tool_result
+        _trs_adv = record_tool_result(
+            state, session_id, tool_name, tool_input, input_data.get("tool_response"), config,
+            base_dir=WORKFLOW_DIR,
+        )
+        if _trs_adv:
+            state["_tool_result_advisory"] = _trs_adv
+            dirty = True
+    except Exception as e:
+        print(f"tool result size error: {e}", file=sys.stderr)
+
     # ─── sub-agent 注入歸因記錄 ───────────────────────────────
     # PostToolUse 對 Agent/Task 自足：tool_response 含 agentId / content / prompt
     # （注入後的完整 prompt）。從 blob marker 回推注入清單 + 擷取輸出摘要，
@@ -595,6 +608,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             ("_aidocs_advisory", "[Guardian:AIDocs]"),
             ("_staging_advisory", "[Guardian:StagingName]"),
             ("_docdrift_advisory", "[Guardian:DocDrift]"),
+            ("_tool_result_advisory", "[Guardian:ToolResultSize]"),
         ]:
             val = state.get(key)
             if val:

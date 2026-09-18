@@ -13,6 +13,7 @@ file-history/
 ide/
 plans/
 plugins/
+skills/synced/
 projects/
 session-env/
 shell-snapshots/
@@ -35,6 +36,7 @@ workflow/world-dev.json
 workflow/_*.log
 workflow/guardian-crash.log
 workflow/extract-worker.log
+workflow/tool-results/
 workflow/cross-project-index-cache.json
 workflow/hot_cache.json
 workflow/vector_ready.flag

@@ -383,6 +383,17 @@
     "_doc": "Stage 3：高 effort 失敗（wisdom_retry_count>=2 / fix_escalation_triggered，AND 真失敗訊號 failing_tests/evasion/未宣告完成）時，Stop gate 注入指令要 Claude 用 atom_write 補完整 post-mortem（始末/根因/設計原理/運作邏輯/防再犯）。effort 只採 retry/fix_esc（均於 track_retry 層 error-gate，僅測試/lint 失敗未解時才計），不採同檔 edit 次數。deep_postmortem_done 一次性即獨立預算＝1，不共用 stop_gate_max_blocks（曾共用會被 Sync+TestFail 吃光預算而餓死）。enabled=false 一鍵關。",
     "enabled": true
   },
+  "friction": {
+    "_doc": "使用者糾正訊號（wg_friction）：UserPromptSubmit 比對「你做錯方向」類關鍵字（不對／我說過／重來／改回來…；bug／測試失敗詞另在 response_capture.failure_extraction），跨 turn 累計 state.user_correction_count，每次命中落 Logs/guard-friction.jsonl。達 min_hits → Stop 的 Deep Post-Mortem 把「測試全綠但一路被糾正」視為 effort＋真失敗同時成立。keywords 省略＝用模組內建表。enabled=false 一鍵關。",
+    "enabled": true,
+    "min_hits": 2
+  },
+  "tool_result_waste": {
+    "_doc": "工具結果體積（wg_friction）：PostToolUse 每筆 tool_response 量字元數 append 到 workflow/tool-results/<sid>.jsonl（不進 state）；單筆 ≥ oversized_chars → 一行 [Guardian:ToolResultSize] advisory（每 session 至多 max_advisories_per_session 次）+ Logs/guard-tool-result-size.jsonl；SessionEnd 聚合成一筆 Logs/guard-tool-result-stats.jsonl 後刪暫存檔。enabled=false 一鍵關。",
+    "enabled": true,
+    "oversized_chars": 20000,
+    "max_advisories_per_session": 3
+  },
   "aec": {
     "_doc": "Anti-Evasion HUD：hud_autospawn=true → notable/real-evasion 報告且窗死時自動 spawn Edge --app HUD 窗（否則 fallback 回 chat）。窗活著＝HUD 頁對 Node 的 SSE 常駐連線在（beat-status.clients ≥ 1；頁被瀏覽器凍結時連線仍在、視窗關了才斷），或心跳 age_s < hud_stale_s（退路：舊版 Node 無 clients 欄）。判死原因落 Logs/guard-aec_hud.jsonl；Stop 消費旗標前再查一次。",
     "hud_stale_s": 75,
