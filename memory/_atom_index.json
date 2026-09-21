@@ -3382,6 +3382,29 @@
         "窗活性"
       ],
       "scope": "global"
+    },
+    {
+      "name": "自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入",
+      "path": "memory/驗證與實證/自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入.md",
+      "triggers": [
+        "claude.ai",
+        "用量截圖",
+        "usage snapshot",
+        "Cloudflare",
+        "headless",
+        "launch_persistent_context",
+        "channel chrome",
+        "Chrome profile",
+        "Cookies WinError 32",
+        "Register-ScheduledTask",
+        "WakeToRun",
+        "SC_MONITORPOWER",
+        "LockWorkStation",
+        "SeShutdownPrivilege",
+        "SetSuspendState",
+        "powercfg /requests"
+      ],
+      "scope": "global"
     }
   ]
 }

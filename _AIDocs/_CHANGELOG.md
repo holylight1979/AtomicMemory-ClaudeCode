@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-09-21 全面檢視（對照 CC 2026-09 生態）——Phase 0/1a：歸因回合身分、harness prompt 過濾、episodic 健檢語意、hint 停寫
+- 5 支 Claude ＋ 7 支 Codex（gpt-6-astra）共讀一份簡報並行審查（官方變更／記憶演算法／社群 skill／精簡／檢索內審／萃取內審／遙測），再兩輪 Codex 審計畫與拍板；報告與定案 `memory/_staging/next-phase-全面檢視-2026-09-21.md`，證據 `DevHistory/全面檢視-2026-09-21/`。結論：系統不是過重，是量測與記帳失真——注入記帳在裁切前提交、排序被 activation 乘數支配（離線重播 gain=0 R@1 41.7→80.0）、效用歸因自我命中（Agent prompt 夾 atom 原文）與跨回合污染、Supersedes 被 Related 帶回、回歸評估器不是線上管線；官方新功能無可取代自製部件；外部演算法只做離線驗證。**本次落碼（Phase 0/1a）**：糾正偵測與失敗萃取對 `<task-notification>` 等 harness prompt 短路（本 session 現場誤觸 DeepPostMortem／FailureDetect，並捏造一顆 Failures atom，已刪）；`get_current_turn_text` 跳過 Agent/Task 的 prompt 欄；`subagent_injections` 記 turn_seq、Stop 只結算本輪、同 atom 多來源先收齊再寫一筆、結果衝突 → unknown 不動 α/β；outcome 的 retry 訊號改本回合增量（UPS 快照 `wisdom_retry_turn_base`）；recall-miss 字串型 queue 護欄（08-26～09-18 炸 16 次）；forget 保護改共用 `is_core_protected_name`；episodic 新增 skipped／generated／failed 事件 log（`Logs/guard-episodic.jsonl`），健檢產物看根層＋所有專案層並依事件分級（09-18「停擺」實為專案層產出＋唯讀 session 正常跳過）；SessionStart unpushed／personal_sync 內部錯誤改回一行 ⚠；`wg_core.logs_dir()` 讓 pytest 寫暫存目錄不污染正式 Logs；UPS 停寫 `hint` 稽核列（90 天 1,286/1,372 列噪音，ReadHits 保留）；worker 起訖帳 `Logs/guard-worker-runs.jsonl`；TECH 校正全量萃取「未啟動」、SessionEnd 逾時可到 60s、always-load 估算 ~5,459。新 verify 12 案例，受影響 9 檔 110 passed。 | `hooks/wg_core.py`, `hooks/wg_friction.py`, `hooks/wg_extraction.py`, `hooks/wg_evasion.py`, `hooks/wg_atoms.py`, `hooks/wg_episodic.py`, `hooks/wg_recall_miss.py`, `hooks/extract-worker.py`, `hooks/handlers/{stop,user_prompt_submit,ups_inject,post_tool_use,session_start}.py`, `tools/health-weekly.py`, `TECH.md`, `hooks/verify/verify_attribution_turn_identity.py`, `hooks/verify/verify_harness_prompt_guard.py`
+
+---
+
+## 2026-09-21 週用量截圖工具——每週二 03:30 用量刷新前自動截 claude.ai 用量頁
+- 新增 `tools/usage-snapshot/usage_snapshot.py`（Playwright 1.58 + 本機 Chrome，`channel="chrome"` persistent context）：專屬 profile `browser-data/`（`--login` 一次登入，gitignore）；開 claude.ai/settings/usage 等 `% used` 出現截全頁 → 公司共享 `\\192.168.100.100\暫存區\==公司人員==\holylight\CC-usage\usage-YYYYMMDD-<帳號>.png`（帳號＝ACCOUNT 常數 uj_claudeai_5；共享寫不進退本機 `workflow/usage-snapshots/`、last-run 標 share_error），同時把 % / Resets 行寫本機 `usage-log.jsonl`、`usage-last-run.json`；失敗（未登入／逾時／被擋）留 `*-FAILED.png` 不靜默。`--register` 用 Register-ScheduledTask 建 `Claude-Usage-WeeklySnapshot`（週二 03:30，WakeToRun + StartWhenAvailable，pythonw 靜默）。實證：headless Edge 與 headless Chrome（已登入 profile）都撞 Cloudflare「驗證您是人類」（title=請稍候...），有頭 Chrome 自動放行，所以預設有頭、`--headless` 只留作再試；日常 Chrome profile 被鎖（Cookies WinError 32）且新版 Chrome 拒絕在預設 profile 自動化，故不借用。 | `tools/usage-snapshot/usage_snapshot.py`, `.gitignore`, `TECH.md`, `_AIDocs/DocIndex-System.md`, `_AIDocs/Tools/_INDEX.md`
+
+---
+
 ## 2026-09-18 動手前預告契約對齊閘門——查讀回合也要報、預告單獨一則再呼叫工具
 - 使用者反映常見 PreActionNotice 提醒、感覺 AI 不先講要做什麼。閘門 log 133 回合對回 transcript：26 回合沒預告全是純查讀（sed/awk/svn info/heredoc）被攔，根因是 IDENTITY.md 契約寫「首次修改動作前」比閘門「首次非唯讀工具前」窄；另 33 回合預告與 tool call 同一則、text block 未落盤致連刷提醒。修契約不修閘門：IDENTITY.md 改為「第一次呼叫工具前就報、預告單獨一則」，並落 feedback atom。
 

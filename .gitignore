@@ -163,3 +163,7 @@ workflow/aec-tempfiles/
 chrome/
 history.jsonl
 journals/
+
+# usage-snapshot 專屬 Chrome profile（含 claude.ai 登入 cookie）與截圖產出
+tools/usage-snapshot/browser-data/
+workflow/usage-snapshots/

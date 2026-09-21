@@ -13,5 +13,6 @@
 | 插入到方法結尾的edit要驗錨點所在方法-build綠燈不代表插對地方 | 插入到方法結尾的edit要驗錨點所在方法-build綠燈不代表插對地方 |
 | 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗 | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
 | 背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾 | 背景驗證未收就結束回合-Stop閘裁判只看當下事證不看未來承諾 |
+| 自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入 | 自動化開claude-ai用量頁-headless-Edge撞Cloudflare人類驗證-日常Chrome-profile被鎖不可借用-改專屬Chrome-profile一次登入 |
 | 離線測試過但實機不過-先排除實機跑的不是這份程式碼 | 離線測試過但實機不過-先排除實機跑的不是這份程式碼 |
 | 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 | 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過 |
