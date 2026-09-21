@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: codex exec, codex, 派 codex, 第二觀點, second opinion, 大師會議
 - Created-at: 2026-09-03
-- Related: feedback-tooling-reliability, codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空
+- Related: feedback-tooling-reliability, codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空, codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測
 
 ## 知識
 

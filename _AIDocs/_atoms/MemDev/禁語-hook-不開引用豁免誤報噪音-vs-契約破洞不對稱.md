@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 禁語, 退避語, evasion hook, wg_evasion, 誤報, false positive, 引用豁免, detect_evasion, forbidden-phrases
 - Created-at: 2026-07-29
-- Related: feedback-workflow-discipline, feedback-rigor-standards
+- Related: feedback-workflow-discipline, feedback-rigor-standards, feedback-動手前預告含查讀回合-第一次工具呼叫前就報-單獨一則再呼叫工具
 
 ## 知識
 

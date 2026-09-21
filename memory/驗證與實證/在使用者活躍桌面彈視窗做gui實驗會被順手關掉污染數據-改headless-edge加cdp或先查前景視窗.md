@@ -6,6 +6,8 @@
 - Trigger: GUI 實驗, 彈窗, Edge --app, msedge, 實驗污染, headless, CDP, Page.setWebLifecycleState, playwright-core, EnumWindows, 前景視窗, 使用者在線
 - Created-at: 2026-09-18
 
+- Related: hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次, 自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入
+
 ## 知識
 
 - [臨] 在使用者正在用的桌面上 spawn Edge --app 視窗做長時間觀測（心跳/連線存活），三次實驗視窗都在 4 秒～4 分鐘內「消失」——不是瀏覽器凍結，是使用者順手把彈出的視窗關了（EnumWindows 事後找不到任何 HUD 視窗、VS Code 在前景）。連線與心跳同時歸零＝視窗被關，不是頁面被節流。
