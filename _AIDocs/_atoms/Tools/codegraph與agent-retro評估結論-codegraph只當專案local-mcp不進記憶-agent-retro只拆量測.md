@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: codegraph, agent-retro, code graph, session retro, retrospective, 外部工具評估, 拆入記憶系統, tool_result_sizes, friction, MCP 外掛, prompt hook 疊加
 - Created-at: 2026-09-18
-- Related: codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated, feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費
+- Related: codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated, feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費, 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem
 
 ## 知識
 

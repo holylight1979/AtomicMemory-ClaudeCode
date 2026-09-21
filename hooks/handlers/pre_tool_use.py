@@ -692,7 +692,9 @@ def check_git_commit_order(
                 pass
             return None
         keywords = cfg.get("keywords") or list(_COMMIT_ORDER_DEFAULT_KEYWORDS)
-        if _commit_order_keyword_hit(prompts[-1], keywords):
+        # 整回合的使用者原話（含 mid-turn 排隊訊息）都算；舊 state 沒有 turn_prompts 時退回只看最後一句。
+        turn_prompts = state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else None
+        if any(_commit_order_keyword_hit(p, keywords) for p in (turn_prompts or prompts[-1:])):
             return None
         return (
             "[Guardian:CommitOrder] 本回合使用者原話沒有版控口令（上GIT／上乾淨／全上／執P…），"
@@ -1035,15 +1037,24 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             from wg_atoms import build_injection_blob
 
             orig_prompt = tool_input.get("prompt", "") or ""
+            # fork 子代理（CC 2.1.232 起）繼承父對話與 prompt cache：父對話已注入的 atom 它看得到，
+            # 只補父 context 沒有的。一般子代理開全新 context、不繼承 → already_injected 不能套。
+            subagent_type = str(tool_input.get("subagent_type") or "")
+            already: List[str] = []
+            if subagent_type == "fork":
+                sid = input_data.get("session_id", "") or ""
+                state = read_state(sid) if sid else None
+                already = list((state or {}).get("injected_atoms") or [])
             blob, injected = build_injection_blob(
-                orig_prompt, budget=_SUBAGENT_INJECT_BUDGET,
+                orig_prompt, budget=_SUBAGENT_INJECT_BUDGET, already_injected=already,
             )
             if blob and injected:
                 new_input = dict(tool_input)
                 new_input["prompt"] = f"{blob}\n\n{orig_prompt}"
                 _atom_debug_log(
                     "SubagentInject",
-                    f"tool={tool_name} injected={injected} "
+                    f"tool={tool_name} type={subagent_type or '-'} injected={injected} "
+                    f"parent_already={len(already)} "
                     f"blob_tokens=~{len(blob) // 4} prompt_head={orig_prompt[:60]!r}",
                     config,
                 )

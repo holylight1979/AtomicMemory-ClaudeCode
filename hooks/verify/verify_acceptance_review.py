@@ -315,27 +315,117 @@ def test_append_and_read_audit(sandbox):
     assert recs[1]["human_label"] is None                   # 標註欄預留
 
 
-def test_promotion_stats_thresholds():
-    def mk(verdict, label=None):
-        return {"verdict": verdict, "human_label": label}
+def _mk(verdict, label=None, binding="bound", **extra):
+    return {"verdict": verdict, "human_label": label, "binding": binding, **extra}
 
-    # 20 筆、fail 全標 true_hit、uncertain 4 筆（20%）→ ready
-    recs = ([mk("pass")] * 10 + [mk("fail", "true_hit")] * 6 + [mk("uncertain")] * 4)
-    s = acc.promotion_stats(recs)
-    assert s["samples"] == 20 and s["precision"] == 1.0
+
+def _legacy_placeholder():
+    """舊寫入端的未綁定佔位列：verdict=uncertain、score=-1、binding≠bound。"""
+    return {"verdict": "uncertain", "score": -1, "binding": acc.BINDING_OTHER_SESSION,
+            "human_label": None}
+
+
+def _labeled_ready_set():
+    """20 筆標註、三類各 ≥5、fail 全真命中、無理由棄權 0 → 唯一應該 ready 的形狀。"""
+    return ([_mk("pass", "known_good")] * 6
+            + [_mk("fail", "known_defect")] * 8
+            + [_mk("uncertain", "insufficient_evidence")] * 6)
+
+
+def test_promotion_stats_thresholds():
+    s = acc.promotion_stats(_labeled_ready_set())
+    assert s["samples"] == 20 and s["labeled"] == 20 and s["precision"] == 1.0
+    assert s["labeled_by_class"] == {"known_good": 6, "known_defect": 8,
+                                     "insufficient_evidence": 6}
+    assert s["miss_rate"] == 0.0 and s["unwarranted_uncertain_rate"] == 0.0
     assert s["promotion_ready"] and not s["kill_switch"]
 
     # 未標註的 fail 不計入 precision，也不 ready
-    s2 = acc.promotion_stats([mk("pass")] * 14 + [mk("fail")] * 6)
+    s2 = acc.promotion_stats([_mk("pass")] * 14 + [_mk("fail")] * 6)
     assert s2["precision"] is None and not s2["promotion_ready"]
-    assert s2["unlabeled_fails"] == 6
+    assert s2["unlabeled_fails"] == 6 and s2["labeled"] == 0
 
-    # 標註後 precision < 50%（≥10 筆標註）→ 殺閘
+    # 舊標籤 true_hit/false_alarm 仍認得；precision < 50%（≥10 筆 fail 標註）→ 殺閘
     s3 = acc.promotion_stats(
-        [mk("fail", "false_alarm")] * 6 + [mk("fail", "true_hit")] * 4
-        + [mk("pass")] * 10
+        [_mk("fail", "false_alarm")] * 6 + [_mk("fail", "true_hit")] * 4
+        + [_mk("pass")] * 10
     )
+    assert s3["fail_labeled"] == 10 and s3["precision"] == 0.4
     assert s3["kill_switch"]
+    assert s3["labeled_by_class"]["known_good"] == 6
+
+
+def test_promotion_stats_placeholders_not_in_denominator():
+    """佔位列不進分母：Codex #7 的合成——181 舊佔位＋裁判列，統計須與只有裁判列時完全相同。"""
+    judged = _labeled_ready_set()
+    with_placeholders = [_legacy_placeholder()] * 181 + judged
+    a = acc.promotion_stats(judged)
+    b = acc.promotion_stats(with_placeholders)
+    for k in ("samples", "uncertain", "uncertain_rate", "precision", "labeled",
+              "promotion_ready", "kill_switch"):
+        assert a[k] == b[k], k
+    assert b["samples"] == 20 and b["uncertain_rate"] == 0.3
+    assert b["promotion_ready"]
+    # 佔位列只進綁定覆蓋率
+    assert b["binding_unbound"] == 181 and b["binding_events"] == 201
+    assert abs(b["binding_coverage"] - 20 / 201) < 1e-9
+    assert b["unbound_by_reason"] == {acc.BINDING_OTHER_SESSION: 181}
+    assert a["binding_unbound"] == 0 and a["binding_coverage"] == 1.0
+
+    # 新寫入端的綁定列（record=unbound、無 verdict）同樣只算覆蓋率
+    slim = {"record": "unbound", "binding": acc.BINDING_AMBIGUOUS, "trigger": "stop_enforce"}
+    c = acc.promotion_stats([slim] * 5 + judged)
+    assert c["samples"] == 20 and c["binding_unbound"] == 5
+    assert c["unbound_by_reason"] == {acc.BINDING_AMBIGUOUS: 5}
+
+
+def test_promotion_requires_labeled_three_classes():
+    """轉正分母是人工標註：總列數再多、沒標滿 20 且三類各 ≥5 就不 ready。"""
+    # 200 筆 bound 列全未標 → 不 ready（舊條件「總樣本 ≥20」在此會過）
+    s0 = acc.promotion_stats([_mk("pass")] * 200)
+    assert s0["samples"] == 200 and not s0["labeled_enough"] and not s0["promotion_ready"]
+
+    # 19 筆標註 → 不 ready
+    s1 = acc.promotion_stats(_labeled_ready_set()[:-1])
+    assert s1["labeled"] == 19 and not s1["labeled_enough"] and not s1["promotion_ready"]
+
+    # 20 筆但 insufficient_evidence 只有 4 → 不 ready
+    skewed = ([_mk("pass", "known_good")] * 7 + [_mk("fail", "known_defect")] * 9
+              + [_mk("uncertain", "insufficient_evidence")] * 4)
+    s2 = acc.promotion_stats(skewed)
+    assert s2["labeled"] == 20 and s2["labeled_by_class"]["insufficient_evidence"] == 4
+    assert not s2["labeled_enough"] and not s2["promotion_ready"]
+
+    # 標夠但無理由棄權 > 30%（known_good/known_defect 案被判 uncertain）→ 不 ready
+    abstain = ([_mk("uncertain", "known_good")] * 5 + [_mk("pass", "known_good")] * 1
+               + [_mk("fail", "known_defect")] * 8
+               + [_mk("uncertain", "insufficient_evidence")] * 6)
+    s3 = acc.promotion_stats(abstain)
+    assert s3["labeled_enough"]
+    assert abs(s3["unwarranted_uncertain_rate"] - 5 / 14) < 1e-9
+    assert not s3["promotion_ready"]
+
+    # 漏放率：known_defect 被判 pass/uncertain
+    leak = _labeled_ready_set() + [_mk("pass", "known_defect")] * 2
+    s4 = acc.promotion_stats(leak)
+    assert abs(s4["miss_rate"] - 2 / 10) < 1e-9
+
+
+def test_label_cli_writes_only_unique_bound_row(sandbox):
+    acc.append_audit({"session_id": "abcdefgh-1", "turn_index": 3, "binding": "bound",
+                      "verdict": "fail", "severity": "high"})
+    acc.append_audit({"record": "unbound", "session_id": "abcdefgh-1", "turn_index": 4,
+                      "binding": acc.BINDING_OTHER_SESSION})
+    rid = acc.record_id({"session_id": "abcdefgh-1", "turn_index": 3})
+    assert rid == "abcdefgh#3"
+    assert "→ known_defect" in acc.label_audit(rid, "known_defect")
+    recs = acc.read_audits()
+    labeled = [r for r in recs if r.get("turn_index") == 3]
+    assert labeled[0]["human_label"] == "known_defect" and labeled[0]["human_label_at"]
+    # 綁定列不可標；未知類別拒收；對不到唯一列不寫
+    assert "0 筆" in acc.label_audit("abcdefgh#4", "known_good")
+    assert "必須是" in acc.label_audit(rid, "true_hit")
+    assert acc.promotion_stats(recs)["labeled_by_class"]["known_defect"] == 1
 
 
 # ─── 6. hook 觸發 ────────────────────────────────────────────────────────────
@@ -385,8 +475,13 @@ def test_ambiguous_writes_uncertain_audit_no_spawn(sandbox, monkeypatch):
     assert spawned == []                       # 不猜最新一份、不發審計
     recs = acc.read_audits()
     assert len(recs) == 1
-    assert recs[0]["verdict"] == "uncertain"
+    # 綁定列：只記綁不到，不冒充裁判 verdict（佔位列曾灌爆 promotion_stats 分母）
+    assert recs[0]["record"] == "unbound"
+    assert "verdict" not in recs[0] and "score" not in recs[0]
     assert recs[0]["binding"] == acc.BINDING_AMBIGUOUS
+    assert "task-a" in recs[0]["uncertain_reason"]
+    assert not acc.is_bound_record(recs[0]) and acc.is_unbound_record(recs[0])
+    assert acc.promotion_stats(recs)["samples"] == 0
 
 
 def test_binding_none_silent_no_audit_noise(sandbox, monkeypatch):
@@ -426,7 +521,8 @@ def test_spec_done_hint_other_session_uncertain(sandbox, monkeypatch):
     )
     assert spawned == []
     recs = acc.read_audits()
-    assert len(recs) == 1 and recs[0]["verdict"] == "uncertain"
+    assert len(recs) == 1 and recs[0]["record"] == "unbound"
+    assert "verdict" not in recs[0]
     assert recs[0]["binding"] == acc.BINDING_OTHER_SESSION
 
 

@@ -1,4 +1,5 @@
-"""version_guard.py — 版本操作脈絡殘留 warn hook（standalone PostToolUse hook）。
+"""version_guard.py — 版本操作脈絡殘留 warn（PostToolUse；由 guardian handlers/post_tool_use.py
+呼叫 run()，同程序不另起 Python；保留 __main__ 可獨跑＝回滾路徑）。
 
 問題：live 檔（.py/.js/config）與 atom 應只寫 timeless 現況，但開發中易埋入版本
 操作脈絡（V5 P3 里程碑 / [vN] stderr 前綴 / [Fxx] spec 錨 / 方案代號…）＝浪費
@@ -13,7 +14,7 @@ _CHANGELOG / TECH / Architecture / SPEC / plans / verify / _staging）豁免。
 
 規則：rules/core.md「版本與文件治理」；pattern/KEEP 邊界 single source＝atom
 [[feedback-live-檔與記憶不留版本操作脈絡歷史歸專門檔]]。config: workflow/config.json
-→ version_guard。standalone，仿 hooks/lang_guard.py。never-crash 降級靜默。
+→ version_guard。never-crash 降級靜默（guardian 端 try/except 隔離、錯誤只進 debug log）。
 """
 
 from __future__ import annotations
@@ -125,39 +126,41 @@ def extract_written_text(tool_name: str, tool_input: Dict[str, Any]) -> str:
     return ""
 
 
-# ─── PostToolUse handler ───────────────────────────────────────────────────────
+# ─── PostToolUse 判定（純函式：不讀 stdin、不 print、不 exit）──────────────────
 
 
-def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+def run(input_data: Dict[str, Any], config: Dict[str, Any]) -> List[str]:
+    """回傳要發出的警示訊息（0 或 1 則）。config＝config.json 的 version_guard 區塊，
+    enabled／mode 開關在此判定，standalone main 與 guardian PostToolUse 併入共用同一路徑。
+    例外不在此攔——由呼叫端隔離（standalone：stderr；guardian：debug log）。"""
+    if not config.get("enabled", False) or config.get("mode", "warn") == "off":
+        return []
+
     tool_name = input_data.get("tool_name", "")
     if tool_name not in ("Write", "Edit", "MultiEdit"):
-        sys.exit(0)
+        return []
 
     tool_input = input_data.get("tool_input", {})
     file_path = tool_input.get("file_path", "") if isinstance(tool_input, dict) else ""
     if not is_scannable_path(file_path):
-        sys.exit(0)
+        return []
 
     text = extract_written_text(tool_name, tool_input)
     remnants = find_version_remnants(text)
     min_matches = int(config.get("min_matches", 1))
     if len(remnants) < min_matches:
-        sys.exit(0)
+        return []
 
     shown = ", ".join(remnants[:5])
     name = Path(file_path.replace("\\", "/")).name
-    msg = (
+    return [(
         f"[版本守衛] `{name}` 疑含版本操作脈絡殘留：{shown}。"
         f"live 檔/atom 只寫 timeless 現況——版本演進歸 _CHANGELOG，非埋進碼。"
         f"（規則 rules/core.md「版本與文件治理」；誤判可調 config.version_guard）"
-    )
-    # 可觀測性：systemMessage（可見+注入下輪）+ stderr（保底信號，不阻斷）
-    sys.stderr.write(msg + "\n")
-    print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
-    sys.exit(0)
+    )]
 
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+# ─── Main（standalone 入口；平時由 guardian PostToolUse 呼叫 run()，本入口供獨跑／回滾）──
 
 
 def main() -> None:
@@ -171,10 +174,6 @@ def main() -> None:
                 stream.reconfigure(encoding="utf-8")
 
     config = _load_config()
-    if not config.get("enabled", False):  # fast path: disabled → 退出
-        sys.exit(0)
-    if config.get("mode", "warn") == "off":
-        sys.exit(0)
 
     try:
         raw = sys.stdin.buffer.read()
@@ -186,12 +185,17 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        handle_post_tool_use(input_data, config)
-    except SystemExit:
-        raise
+        msgs = run(input_data, config)
     except Exception as e:  # never crash — 降級靜默
         sys.stderr.write(f"[version_guard] {type(e).__name__}: {e}\n")
         sys.exit(0)
+
+    if msgs:
+        # 可觀測性：systemMessage（可見+注入下輪）+ stderr（保底信號，不阻斷）
+        for msg in msgs:
+            sys.stderr.write(msg + "\n")
+        print(json.dumps({"systemMessage": "\n".join(msgs)}, ensure_ascii=False))
+    sys.exit(0)
 
 
 if __name__ == "__main__":

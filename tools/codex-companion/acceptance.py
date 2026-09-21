@@ -14,7 +14,10 @@
    看的是節錄而非「作者沒寫」（INV-EVIDENCE-PIPE-HONESTY）。
 
 3. **稽核落盤**（`append_audit`）——影子期唯一的數據來源，
-   `workflow/acceptance-audit.jsonl`，含 `human_label` 供事後標註精確率。
+   `workflow/acceptance-audit.jsonl`。兩種列：裁判列（binding=bound，有 verdict）
+   與綁定列（record=unbound，只記綁不到）。`promotion_stats` 只以裁判列算品質、
+   綁定列算覆蓋率；`human_label` 三類（known_good / known_defect /
+   insufficient_evidence）由 `python acceptance.py --list-unlabeled` → `--label` 標註。
 
 裁判永不授權副作用；本模組純讀取 + append-only 落盤。
 """
@@ -474,42 +477,199 @@ def read_audits(limit: Optional[int] = None) -> List[Dict[str, Any]]:
     return out
 
 
-def promotion_stats(records: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """Q5 轉正門檻統計（N≥20 / precision≥60% / uncertain≤30%）。
+# ─── Q5 人工標註與轉正統計 ────────────────────────────────────────────────────
+#
+# jsonl 裡有兩種列，統計端必須分開：
+#   裁判列  binding=bound 且 verdict∈{pass,fail,uncertain}——真的送審過，才算裁判品質樣本
+#   綁定列  record=unbound（新）或 binding∈{ambiguous_multiple,other_session}（舊佔位，
+#           verdict 寫 uncertain、score -1）——只說明「這次收尾綁不到規格檔」，
+#           不是裁判說了什麼；只進「綁定覆蓋率」，不進裁判分母
+#
+# human_label 標的是「案子的真相」，不是裁判說了什麼：
+#   known_good             任務其實已合格   → fail＝誤擋、uncertain＝多餘保留
+#   known_defect           任務確有缺陷     → fail＝真命中、pass/uncertain＝漏放
+#   insufficient_evidence  案卷本身不足以判 → uncertain＝正確棄權
+# 舊值 true_hit / false_alarm（只標在 fail 列）分別等同 known_defect / known_good。
+#
+# 轉正條件（人工標註為分母，不再是「總列數 ≥20」）：
+#   標註 ≥ PROMOTION_MIN_LABELED 且三類各 ≥ PROMOTION_MIN_PER_CLASS
+#   ∧ precision（fail 列中 known_defect 佔比）≥ 0.60
+#   ∧ 無理由棄權率（known_good/known_defect 案被判 uncertain）≤ 0.30
+# 20/5 的理由：現有 bound 列 56 筆（fail 30、uncertain 26、pass 0），一輪回顧就標得滿 20；
+# 每類少於 5 筆時，一筆標錯就讓該類比例跳 >20 點，門檻失去意義。原始 uncertain≤30%
+# 改算「無理由棄權」：證據不足案回 uncertain 是契約要求的正確行為，不該計入懲罰。
 
-    precision 只算已人工標註（human_label ∈ {true_hit, false_alarm}）的 fail 判定；
-    未標註的不猜（沒標＝沒數據，不是通過）。
+HUMAN_LABELS = ("known_good", "known_defect", "insufficient_evidence")
+_LEGACY_LABEL_MAP = {"true_hit": "known_defect", "false_alarm": "known_good"}
+_JUDGE_VERDICTS = ("pass", "fail", "uncertain")
+PROMOTION_MIN_LABELED = 20
+PROMOTION_MIN_PER_CLASS = 5
+PROMOTION_MIN_PRECISION = 0.60
+PROMOTION_MAX_UNWARRANTED_UNCERTAIN = 0.30
+KILL_MIN_FAIL_LABELED = 10
+KILL_PRECISION = 0.50
+
+
+def normalize_label(raw: Any) -> str:
+    """human_label → 三類之一；未標／未知值回 ""。"""
+    s = str(raw or "").strip()
+    return s if s in HUMAN_LABELS else _LEGACY_LABEL_MAP.get(s, "")
+
+
+def is_bound_record(r: Dict[str, Any]) -> bool:
+    return r.get("binding") == BINDING_BOUND and r.get("verdict") in _JUDGE_VERDICTS
+
+
+def is_unbound_record(r: Dict[str, Any]) -> bool:
+    return (r.get("record") == "unbound"
+            or r.get("binding") in (BINDING_AMBIGUOUS, BINDING_OTHER_SESSION))
+
+
+def promotion_stats(records: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Q5 轉正統計：裁判品質只算 bound 列；綁定列另算覆蓋率；轉正看人工標註量與三類分布。
+
+    未標註的不猜（沒標＝沒數據，不是通過）。回傳鍵沿用舊名（samples/uncertain_rate/
+    precision/promotion_ready/kill_switch）但語意全部改為「bound 列」。
     """
     recs = records if records is not None else read_audits()
-    effective = [r for r in recs if r.get("verdict") in ("pass", "fail", "uncertain")]
-    n_eff = len(effective)
-    n_uncertain = sum(1 for r in effective if r.get("verdict") == "uncertain")
-    labeled = [r for r in effective
-               if r.get("verdict") == "fail"
-               and r.get("human_label") in ("true_hit", "false_alarm")]
-    n_true = sum(1 for r in labeled if r["human_label"] == "true_hit")
-    precision = (n_true / len(labeled)) if labeled else None
-    uncertain_rate = (n_uncertain / n_eff) if n_eff else None
+    bound = [r for r in recs if is_bound_record(r)]
+    unbound = [r for r in recs if is_unbound_record(r) and not is_bound_record(r)]
+    n_eff = len(bound)
+    n_uncertain = sum(1 for r in bound if r.get("verdict") == "uncertain")
 
-    ready = bool(
-        n_eff >= 20
-        and precision is not None and precision >= 0.60
-        and uncertain_rate is not None and uncertain_rate <= 0.30
+    labeled = [(r, normalize_label(r.get("human_label"))) for r in bound]
+    labeled = [(r, lbl) for r, lbl in labeled if lbl]
+    by_class = {c: sum(1 for _, lbl in labeled if lbl == c) for c in HUMAN_LABELS}
+
+    fail_labeled = [lbl for r, lbl in labeled
+                    if r.get("verdict") == "fail" and lbl in ("known_good", "known_defect")]
+    n_true = sum(1 for lbl in fail_labeled if lbl == "known_defect")
+    precision = (n_true / len(fail_labeled)) if fail_labeled else None
+
+    defects = [r for r, lbl in labeled if lbl == "known_defect"]
+    n_missed = sum(1 for r in defects if r.get("verdict") != "fail")
+    miss_rate = (n_missed / len(defects)) if defects else None
+
+    decidable = [r for r, lbl in labeled if lbl in ("known_good", "known_defect")]
+    n_unwarranted = sum(1 for r in decidable if r.get("verdict") == "uncertain")
+    unwarranted_rate = (n_unwarranted / len(decidable)) if decidable else None
+
+    labeled_enough = bool(
+        len(labeled) >= PROMOTION_MIN_LABELED
+        and all(by_class[c] >= PROMOTION_MIN_PER_CLASS for c in HUMAN_LABELS)
     )
-    kill = bool(precision is not None and len(labeled) >= 10 and precision < 0.50)
+    ready = bool(
+        labeled_enough
+        and precision is not None and precision >= PROMOTION_MIN_PRECISION
+        and unwarranted_rate is not None
+        and unwarranted_rate <= PROMOTION_MAX_UNWARRANTED_UNCERTAIN
+    )
+    kill = bool(precision is not None and len(fail_labeled) >= KILL_MIN_FAIL_LABELED
+                and precision < KILL_PRECISION)
+
+    unbound_by_reason: Dict[str, int] = {}
+    for r in unbound:
+        k = str(r.get("binding") or "unknown")
+        unbound_by_reason[k] = unbound_by_reason.get(k, 0) + 1
+    n_binding_events = n_eff + len(unbound)
     return {
+        # 裁判品質（bound 列）
         "samples": n_eff,
         "uncertain": n_uncertain,
-        "uncertain_rate": uncertain_rate,
-        "fail_labeled": len(labeled),
+        "uncertain_rate": (n_uncertain / n_eff) if n_eff else None,
+        "fail_labeled": len(fail_labeled),
         "true_hits": n_true,
         "precision": precision,
-        "unlabeled_fails": sum(1 for r in effective
+        "miss_rate": miss_rate,
+        "unwarranted_uncertain_rate": unwarranted_rate,
+        "unlabeled_fails": sum(1 for r in bound
                                if r.get("verdict") == "fail"
-                               and r.get("human_label") not in ("true_hit", "false_alarm")),
+                               and not normalize_label(r.get("human_label"))),
+        # 人工標註量
+        "labeled": len(labeled),
+        "labeled_by_class": by_class,
+        "labeled_enough": labeled_enough,
+        # 綁定覆蓋率（bound ÷ 所有收尾綁定事件）
+        "binding_events": n_binding_events,
+        "binding_unbound": len(unbound),
+        "binding_coverage": (n_eff / n_binding_events) if n_binding_events else None,
+        "unbound_by_reason": unbound_by_reason,
         "promotion_ready": ready,
         "kill_switch": kill,
     }
+
+
+# ─── 標註 CLI（python acceptance.py --stats | --list-unlabeled [N] | --label ID CLASS） ──
+
+
+def record_id(r: Dict[str, Any]) -> str:
+    """列的人讀識別：{session_id 前 8}#{turn_index}。"""
+    return f"{str(r.get('session_id', ''))[:8]}#{r.get('turn_index', '')}"
+
+
+def label_audit(rec_id: str, label: str) -> str:
+    """把 human_label 寫回 jsonl 中唯一符合 rec_id 的 bound 列（原地重寫、atomic）。回覆訊息。"""
+    if label not in HUMAN_LABELS:
+        return f"label 必須是 {'/'.join(HUMAN_LABELS)}，收到 {label!r}"
+    try:
+        lines = AUDIT_JSONL.read_text(encoding="utf-8").splitlines()
+    except OSError as e:
+        return f"讀不到 {AUDIT_JSONL}：{e}"
+    hits = []
+    for i, raw in enumerate(lines):
+        try:
+            r = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if is_bound_record(r) and record_id(r) == rec_id:
+            hits.append(i)
+    if len(hits) != 1:
+        return f"{rec_id} 對到 {len(hits)} 筆 bound 列（需唯一），未寫入"
+    r = json.loads(lines[hits[0]])
+    old = r.get("human_label")
+    r["human_label"] = label
+    r["human_label_at"] = _now_iso()
+    lines[hits[0]] = json.dumps(r, ensure_ascii=False)
+    tmp = AUDIT_JSONL.with_suffix(".jsonl.tmp")
+    try:
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        tmp.replace(AUDIT_JSONL)
+    except OSError as e:
+        return f"寫回失敗：{e}"
+    return f"{rec_id}: {old} → {label}"
+
+
+def _cli(argv: List[str]) -> int:
+    args = list(argv)
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__.strip().splitlines()[0])
+        print("  --stats                 promotion_stats() JSON（bound 裁判品質 + 綁定覆蓋率 + 標註量）")
+        print("  --list-unlabeled [N]    列出最近 N 筆（預設 30）未標註的 bound 列：ID verdict/severity 摘要")
+        print(f"  --label ID CLASS        標註；CLASS ∈ {'/'.join(HUMAN_LABELS)}；ID 取自 --list-unlabeled")
+        return 0
+    if args[0] == "--stats":
+        print(json.dumps(promotion_stats(), ensure_ascii=False, indent=2))
+        return 0
+    if args[0] == "--list-unlabeled":
+        n = int(args[1]) if len(args) > 1 else 30
+        shown = 0
+        for r in read_audits():
+            if not is_bound_record(r) or normalize_label(r.get("human_label")):
+                continue
+            print(f"{record_id(r)}  {str(r.get('ts', ''))[:10]}  {r.get('verdict')}/{r.get('severity', '-')}"
+                  f"  {r.get('task_slug', '')}  {str(r.get('summary', ''))[:70]}")
+            shown += 1
+            if shown >= n:
+                break
+        if not shown:
+            print("（沒有未標註的 bound 列）")
+        return 0
+    if args[0] == "--label" and len(args) == 3:
+        msg = label_audit(args[1], args[2])
+        print(msg)
+        return 0 if "→" in msg else 1
+    print(f"不認得的參數：{' '.join(args)}（--help 看用法）")
+    return 2
 
 
 # ─── 材料採樣（供 assessor 組 prompt） ────────────────────────────────────────
@@ -521,3 +681,7 @@ def sample_spec(text: str) -> str:
 
 def sample_goal(text: str) -> str:
     return _sample(text, GOAL_HEAD, GOAL_TAIL, "需求原話")
+
+
+if __name__ == "__main__":
+    sys.exit(_cli(sys.argv[1:]))

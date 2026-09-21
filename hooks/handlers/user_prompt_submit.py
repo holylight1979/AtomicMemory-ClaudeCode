@@ -37,7 +37,7 @@ from wg_extraction import _maybe_spawn_failure_extraction
 from handlers.ups_gates import run_pre_gates
 from handlers.ups_context import build_context
 from handlers.ups_search import collect_matched_atoms
-from handlers.ups_inject import assemble_injection
+from handlers.ups_inject import assemble_injection, reconcile_injection_after_trim
 
 
 def _write_decision_file(p: Path, data: Dict[str, Any]) -> None:
@@ -253,10 +253,13 @@ def handle_user_prompt_submit(
     )
 
     # ─── Context build 段：session context / wisdom / parallel / AIDocs / JIT
-    budget = compute_token_budget(prompt)
-    budget = build_context(
+    # budget_total 是整包 additionalContext 的上限；build_context 回傳的是扣掉它自己塞進
+    # lines 的保留量後的餘額（只供它內部的 JIT 判斷）。最終裁切量的是整包 lines，所以要用
+    # 總額——以前拿餘額當上限，episodic/JIT 等於被扣兩次。
+    budget_total = compute_token_budget(prompt)
+    build_context(
         session_id, state, config, prompt, clean_prompt, prompt_lower,
-        budget, lines,
+        budget_total, lines,
     )
 
     # ─── Search pipeline 段：候選收集（trigger/BM25/vector）+ supersedes + ACT-R 排序
@@ -274,7 +277,7 @@ def handle_user_prompt_submit(
         session_id, state, config,
         matched_with_dir, all_atoms, already_injected,
         atom_source, section_hints, lines,
-        caches=caches,
+        caches=caches, prompt=clean_prompt,
     )
 
     # Fix Escalation Protocol
@@ -345,16 +348,23 @@ def handle_user_prompt_submit(
     # 週期性「N files modified」提醒不進 chat——statusline（tools/statusline.py）
     # 常駐顯示改檔/佇列數（零 token）；模型端 enforcement 由 Stop SyncReminder 閘兜底。
 
-    # per-turn 注入記錄（每 turn 覆寫）。
-    # injected_atoms 是 session 累積（line 582 合併後 per-turn delta 遺失），
-    # 無法精準歸因；turn_injected 只存「本 turn 注入」清單 + atom 檔路徑，
-    # 供 Stop 做注入→使用→結果 (α,β) 歸因。無注入 turn → 覆寫為 []（清上一 turn）。
+    # ─── 最終裁切 → 以「實際送出」結算注入記帳 ───
+    # 所有 lines 生產者都在上面；這裡裁切一次，之後不再動 lines。
+    if lines:
+        lines = _truncate_context_by_activation(lines, budget_total, atom_source_dirs, config)
+    delivered = reconcile_injection_after_trim(session_id, state, config, lines)
+
+    # per-turn 注入記錄（每 turn 覆寫）：只存「本 turn 實際送出」的 atom + 檔路徑，
+    # 供 Stop 做注入→使用→結果 (α,β) 歸因。被最終裁切丟掉的不算注入。
+    # 無注入 turn → 覆寫為 []（清上一 turn）。
     state["turn_injected"] = [
         {"name": nm, "path": str(atom_source_dirs[nm] / f"{nm}.md")}
-        for nm in newly_injected if nm in atom_source_dirs
+        for nm in delivered if nm in atom_source_dirs
     ]
     # 單調遞增 turn 序號 → Stop 端 per-turn 一次性歸因守門（防 blocked turn 重複計）。
     state["turn_seq"] = int(state.get("turn_seq", 0)) + 1
+    # turn 起點的重試計數快照：Stop 的 outcome 只看本 turn 增量（累計值留給 FixEscalation）。
+    state["wisdom_retry_turn_base"] = int(state.get("wisdom_retry_count", 0) or 0)
 
     write_state(session_id, state)
 
@@ -395,7 +405,6 @@ def handle_user_prompt_submit(
     _ups_sentinel_clear(session_id)
 
     if lines:
-        lines = _truncate_context_by_activation(lines, budget, atom_source_dirs, config)
         output_json({
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",

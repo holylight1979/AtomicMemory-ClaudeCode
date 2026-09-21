@@ -107,7 +107,11 @@ $ARGUMENTS
 
 ### 2.4 Memory Atoms
 
-**這是最關鍵的比對**，需要細緻處理：
+**現行流程（V5：atom 住 `memory/<範疇>/`、索引為 `_atom_index.json`）**：atom 不手工合併。來源有、現有無 → 讀來源內容用 MCP `atom_write`（`mode=create`，一律 `[臨]`、必給 `domain`）寫入；同名有差異 → `mode=append` 補缺失段落；改範疇用 `atom_move`（或 `python ~/.claude/tools/atom-move.py`）、改 metadata 用 `atom_edit_meta`；索引與 MEMORY.md catalog 由 `python ~/.claude/tools/sync-memory-index.py --write` 重生，**不手改 MEMORY.md、不直接 cp atom 檔**。
+
+以下逐 atom 比對表、Step 3 計畫模板的 Phase 2／5／6、Step 5 的「歷史遷移配方」段，只在來源是 **V4（平鋪 `memory/*.md`＋手寫 MEMORY.md 索引）** 時才用。
+
+#### 歷史遷移（V4→V5 才用）
 
 1. 讀取雙方 `memory/MEMORY.md` 的 Atom Index
 2. 對每個 atom 做以下判斷：
@@ -203,7 +207,7 @@ cp -r ~/.claude/ ~/.claude-backup-{版本}-{日期}/
 ### Phase 1：複製新增檔案（零風險）
 {具體 cp 指令}
 
-### Phase 2：Atom 改名與合併
+### Phase 2：Atom 改名與合併（V4 來源才有；V5 改走 atom_write／atom_move）
 {具體操作 + 編輯指引}
 
 ### Phase 3：替換檔案
@@ -216,10 +220,10 @@ cp -r ~/.claude/ ~/.claude-backup-{版本}-{日期}/
 ### Phase 4：手動合併（settings.json 等）
 {具體修改描述}
 
-### Phase 5：更新 MEMORY.md
+### Phase 5：更新 MEMORY.md（V4 來源才有；V5 用 sync-memory-index.py --write 重生）
 {索引更新內容}
 
-### Phase 6：合併 decisions.md
+### Phase 6：合併 decisions.md（V4 來源才有；V5 的決策已是獨立 atom，走 atom_write append）
 {追加段落描述}
 
 ### Phase 7：帳號名稱替換
@@ -276,10 +280,8 @@ rm -rf ~/.claude/ && cp -r ~/.claude-backup-{版本}-{日期}/ ~/.claude/
 ### 執行原則
 
 1. **Phase 0 備份必做**，不可跳過
-2. **Phase 1 新增檔案**：直接 cp，零風險
-3. **Phase 2 Atom 改名**：
-   - cp 舊檔為新名 → 編輯更新 Trigger/元資料 → 從來源合併缺失段落
-   - 舊檔移入 `memory/_distant/`（不刪除）
+2. **Phase 1 新增檔案**：直接 cp，零風險（**atom 檔除外**——atom 走 2.4 現行流程的 `atom_write`，不 cp）
+3. **Phase 2 Atom 改名**：V5 來源 → `atom_move`／`atom_edit_meta`；V4 來源 → 見下方「歷史遷移配方」
 4. **Phase 3 替換**：直接 cp 覆蓋，涵蓋四類：
    - 程式碼/腳本：hooks、tools（有本地改進的保留現有，標注差異）
    - 系統文件：README.md、Install-forAI.md（版號/特性/安裝步驟須與程式碼一致）
@@ -289,14 +291,8 @@ rm -rf ~/.claude/ && cp -r ~/.claude-backup-{版本}-{日期}/ ~/.claude/
    - 只做差異部分的 surgical edit（不整檔替換）
    - 保留使用者的 permissions、additionalDirectories、effortLevel
    - 重點：SessionStart hooks 順序、PostToolUse matcher 擴展
-6. **Phase 5 更新 MEMORY.md**：
-   - 更新 Atom Index 表格（新增/改名的條目）
-   - 更新高頻事實的版本號
-7. **Phase 6 合併 decisions.md**：
-   - 保留現有內容（高確認數）
-   - 追加來源有但現有缺少的知識段落
-   - 更新核心架構行的版本號
-   - 追加演化日誌條目
+6. **Phase 5 索引**：`python ~/.claude/tools/sync-memory-index.py --write`（V4 來源的手寫索引配方見下方）
+7. **Phase 6 決策 atom**：來源有、現有缺的決策段 → 對應 atom `atom_write mode=append`（V4 `decisions.md` 單檔合併配方見下方）
 8. **Phase 7 帳號替換**：
    - `grep -r "{來源帳號}" ~/.claude/` 找出所有殘留
    - 逐檔判斷：路徑引用 → 替換；URL/來源備註 → 保留
@@ -307,6 +303,12 @@ rm -rf ~/.claude/ && cp -r ~/.claude-backup-{版本}-{日期}/ ~/.claude/
    - 驗證：`curl -s http://127.0.0.1:3849/stats`（確認 atom 數量 + 層數）
    - 格式驗證：`python ~/.claude/tools/memory-audit.py`
 
+#### 歷史遷移配方（V4→V5 才用；V5 起不適用）
+
+- **Phase 2 Atom 改名**：cp 舊檔為新名 → 編輯更新 Trigger/元資料 → 從來源合併缺失段落；舊檔移入 `memory/_distant/`（不刪除）
+- **Phase 5 更新 MEMORY.md**：更新 Atom Index 表格（新增/改名的條目）；更新高頻事實的版本號
+- **Phase 6 合併 decisions.md**：保留現有內容（高確認數）；追加來源有但現有缺少的知識段落；更新核心架構行的版本號；追加演化日誌條目
+
 ---
 
 ## Step 6: 驗證
@@ -316,7 +318,7 @@ rm -rf ~/.claude/ && cp -r ~/.claude-backup-{版本}-{日期}/ ~/.claude/
 1. **帳號殘留檢查**：`grep -r "{來源帳號}" ~/.claude/` → 判斷是否為合理殘留（URL）或需修正
 2. **Vector DB 狀態**：確認 atom 數量、層數、chunk 數量合理
 3. **memory-audit 格式驗證**：確認所有 atom 格式正確
-4. **MEMORY.md 索引一致性**：索引的 atom 都有對應檔案存在
+4. **索引一致性**：`memory-audit.py` 報告的「索引一致性」區塊無問題（`_atom_index.json`／MEMORY.md catalog 與檔案對得上）
 
 ---
 

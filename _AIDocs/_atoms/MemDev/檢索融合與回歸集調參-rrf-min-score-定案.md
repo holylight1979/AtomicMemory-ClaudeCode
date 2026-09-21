@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: RRF, 融合檢索, min_score 調參, memory-eval, 回歸集, 誤注入率, Recall@3, 檢索品質
 - Created-at: 2026-07-25
-- Related: atom-usefulness-loop, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證, 佛法三缺口工程化-失念壞滅緣了義
+- Related: atom-usefulness-loop, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證, 佛法三缺口工程化-失念壞滅緣了義, act-r-activation-增益乘進-rrf-會壓過相關性-gain-0250-讓-r1-4581-排序權重一律先過對齊評估器
 
 ## 知識
 

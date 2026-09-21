@@ -214,11 +214,24 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
 # harness 注入標籤（IDE 開檔/選取、system-reminder、skill 展開）——成對或未閉合
 # （截斷）皆吃到閉合標或字串尾。用於把「使用者訊息」清成「使用者實際打的字」。
 _HARNESS_TAG_RE = re.compile(
-    r"<(system-reminder|ide_opened_file|ide_selection|ide_diagnostics|"
+    r"<(system-reminder|task-notification|ide_opened_file|ide_selection|ide_diagnostics|"
     r"command-name|command-message|command-args|local-command-stdout)\b[^>]*>"
     r".*?(?:</\1>|\Z)",
     re.DOTALL | re.IGNORECASE,
 )
+# harness 代替使用者送進 UserPromptSubmit 的整則訊息（背景 agent/task 完成通知）。
+# 內容是 sub-agent 的回報原文，不是使用者打的字——糾正偵測、失敗萃取都不該吃它。
+_HARNESS_PROMPT_PREFIXES = ("<task-notification", "[SYSTEM NOTIFICATION")
+
+
+def is_harness_generated_prompt(text: str) -> bool:
+    """整則 prompt 是否由 harness 生成（task-notification / 系統通知），而非使用者輸入。"""
+    if not text:
+        return False
+    head = text.lstrip()[:40]
+    if head.startswith(_HARNESS_PROMPT_PREFIXES):
+        return True
+    return not sanitize_harness_noise(text)
 # hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] 等
 # additionalContext 前綴）——整行剔除。
 _HOOK_RESIDUE_LINE_RE = re.compile(
@@ -367,55 +380,6 @@ def get_project_memory_dir(cwd: str) -> Optional[Path]:
     old_mem = CLAUDE_DIR / "projects" / slug / "memory"
     if old_mem.exists():
         return old_mem
-    return None
-
-
-def get_scope_dir(
-    scope: str,
-    cwd: str,
-    user: Optional[str] = None,
-    role: Optional[str] = None,
-) -> Optional[Path]:
-    """V4: 回傳指定 scope 的目錄，必要時自動建立。"""
-    if scope == "global":
-        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        return MEMORY_DIR
-
-    if scope == "role" and not role:
-        return None
-    if scope == "personal" and not user:
-        return None
-    if scope not in ("shared", "role", "personal"):
-        return None
-
-    root = find_project_root(cwd)
-    if not root:
-        return None
-    try:
-        if root.resolve() == CLAUDE_DIR.resolve():
-            return None
-    except OSError:
-        pass
-    if not _has_project_marker(root):
-        return None
-
-    base = root / ".claude" / "memory"
-    if scope == "shared":
-        target = base / "shared"
-    elif scope == "role":
-        target = base / "roles" / role
-    else:
-        target = base / "personal" / user
-    target.mkdir(parents=True, exist_ok=True)
-    return target
-
-
-def get_project_claude_dir(cwd: str) -> Optional[Path]:
-    root = find_project_root(cwd)
-    if root:
-        d = root / ".claude"
-        if d.is_dir() and (d / "memory" / MEMORY_INDEX).exists():
-            return d
     return None
 
 
@@ -831,14 +795,25 @@ def state_path(session_id: str) -> Path:
 
 
 def read_state(session_id: str) -> Optional[Dict[str, Any]]:
+    """讀 state；檔不存在或讀壞都回 None（呼叫端要分辨請用 read_state_status）。"""
+    return read_state_status(session_id)[0]
+
+
+def read_state_status(session_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """回 (state, status)：status ∈ {"ok", "missing", "error"}。
+
+    Windows 上 tmp+replace 的瞬間、或另一支 hook 正持有檔案時，read 會拋 PermissionError／
+    sharing violation——那是「暫時讀不到」不是「檔不見了」。以前一律回 None，_ensure_state 就
+    把它當遺失、建 fallback state 覆蓋掉真的 state（本 session 實證：turn 15 的歷史整個歸零）。
+    """
     path = state_path(session_id)
     if not path.exists():
-        return None
+        return None, "missing"
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            return json.load(f), "ok"
     except (json.JSONDecodeError, OSError):
-        return None
+        return None, "error"
 
 
 def write_state(session_id: str, state: Dict[str, Any]) -> None:
@@ -999,8 +974,26 @@ def _rebuild_min_atom_index(cwd: str) -> Dict[str, Any]:
 def _ensure_state(
     session_id: str, input_data: Dict[str, Any], config: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
-    """Read state; if missing (SessionStart was skipped), auto-create one."""
-    state = read_state(session_id)
+    """Read state; if missing (SessionStart was skipped), auto-create one.
+
+    讀取失敗（檔在、但 JSON 壞或被另一支 hook 短暫鎖住）≠ 遺失：重試三次，仍失敗就**這一次
+    hook 呼叫放棄**（回 None，呼叫端 output_nothing），絕不建 fallback 覆蓋既有 state。
+    多支 sub-agent 與主 session 共用同一 session_id、同時跑 PostToolUse 時最容易撞到。"""
+    state, status = read_state_status(session_id)
+    if status == "error":
+        for _ in range(3):
+            time.sleep(0.03)
+            state, status = read_state_status(session_id)
+            if status != "error":
+                break
+        if status == "error":
+            _atom_debug_log(
+                "ERROR",
+                f"[state:unreadable] {session_id[:12]}… state 檔存在但讀不到（鎖住或 JSON 壞），"
+                "本次 hook 跳過、不建 fallback 覆蓋",
+                config,
+            )
+            return None
     if state:
         merged_into = state.get("merged_into")
         if merged_into:
@@ -1110,7 +1103,23 @@ def log_promotion_heartbeat(scanned: int, min_gap_hours: float = 20.0) -> None:
 
 # ─── Guard Trigger Log（可觀測性：各護欄觸發計數 JSONL）─────────────────────
 
-GUARD_LOG_DIR = Path.home() / ".claude" / "Logs"
+_DEFAULT_LOGS_DIR = Path.home() / ".claude" / "Logs"
+GUARD_LOG_DIR = _DEFAULT_LOGS_DIR
+
+
+def logs_dir() -> Path:
+    """正式 Logs/ 目錄；pytest 內（PYTEST_CURRENT_TEST）或 WG_TEST_LOGS_DIR 指定時改寫到
+    暫存目錄——測試 fixture 曾把 session_id="sid" 的假資料寫進正式 guard log，污染遙測統計。
+    測試以 monkeypatch 改 GUARD_LOG_DIR 時（≠ 預設）尊重該值。"""
+    if GUARD_LOG_DIR != _DEFAULT_LOGS_DIR:
+        return GUARD_LOG_DIR
+    override = os.environ.get("WG_TEST_LOGS_DIR")
+    if override:
+        return Path(override)
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        import tempfile
+        return Path(tempfile.gettempdir()) / "wg-test-logs"
+    return GUARD_LOG_DIR
 
 
 def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
@@ -1120,8 +1129,9 @@ def append_guard_log(guard: str, payload: Dict[str, Any]) -> None:
     stderr（不可稽核），本 log 供事後統計觸發頻率與內容分布。
     每護欄獨立檔＝多 Stop hook 並行時無同檔競寫。fail-open。"""
     try:
-        GUARD_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        log_path = GUARD_LOG_DIR / f"guard-{guard}.jsonl"
+        log_dir = logs_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"guard-{guard}.jsonl"
         rotate_log_if_oversized(log_path, max_mb=5, keep=2)
         entry = {"at": _now_iso()}
         entry.update(payload)
@@ -1141,7 +1151,7 @@ def _atom_debug_log(tag: str, content: str, config: Dict[str, Any] = None) -> No
     if not content or not content.strip():
         return
     try:
-        log_dir = Path.home() / ".claude" / "Logs"
+        log_dir = logs_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"atom-debug-{datetime.now().strftime('%Y-%m-%d_%H')}.log"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

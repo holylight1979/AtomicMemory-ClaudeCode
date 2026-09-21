@@ -1,7 +1,7 @@
 ---
 name: <skill-name>
 description: <30+ 字。例：「任何要走 X→Y→Z 多階段流程、且每階段需驗證才能進下一階段的場合都該觸發」>
-userInvocable: true
+user-invocable: true
 triggers: <關鍵字1>, <關鍵字2>, <關鍵字3>, <關鍵字4>, <關鍵字5>
 pattern: pipeline
 ---

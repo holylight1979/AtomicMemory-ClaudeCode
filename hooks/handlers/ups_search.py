@@ -35,7 +35,27 @@ from wg_atoms import (
     bm25_match, BM25_MIN_SCORE_DEFAULT,
     read_atom_text, rrf_fuse, RRF_ACTIVATION_GAIN,
 )
+import re
+
 from handlers._shared import _SUPERSEDES_RE
+from wg_atoms import collect_superseded_names
+
+# 歷史查詢：使用者「明確要查閱／比較舊做法」→ Supersedes 過濾放行，讓舊卡可被查到。
+# 只有「舊版」兩個字不算（Codex #8 反例：「不要用以前的部署流程」「舊版已被取代，只要現行做法」
+# 都在否定舊版，放行反而把舊卡送回去）。要同時滿足：有歷史詞、有查閱／比較動詞、且歷史詞前面沒有否定。
+_HISTORY_TERM = r"(?:以前|舊版|舊的|舊做法|歷史上|之前|原本|當初|被取代前|取代前|supersed\w*)"
+_HISTORY_ASK = r"(?:怎麼做|是怎樣|是什麼|是如何|做法|為什麼|比較|差在哪|差異|對照|查一下|看一下|看看|列出|回顧|翻一下|show|compare|what was|how did)"
+_HISTORY_QUERY_RE = re.compile(_HISTORY_TERM + r"[^。；;\n]{0,20}?" + _HISTORY_ASK, re.IGNORECASE)
+_HISTORY_NEG_RE = re.compile(r"(?:不要|別|不用|不採用|不再|勿|避免|不照|不依|不是要)\s*(?:用|照|依|按|沿用|參考)?\s*" + _HISTORY_TERM, re.IGNORECASE)
+
+
+def _is_history_query(prompt: str) -> bool:
+    """明確要看舊做法才 True；「不要用舊的」「舊版已被取代」這類否定舊版的句子 False。"""
+    if not prompt:
+        return False
+    if _HISTORY_NEG_RE.search(prompt):
+        return False
+    return _HISTORY_QUERY_RE.search(prompt) is not None
 
 # 跨專案 alias 快取：每 prompt 都是新進程，免每次重讀最多 20 個專案的 MEMORY.md
 # alias 行。以該檔 mtime_ns 為鍵；變動即重讀。fail-open：快取壞掉就照舊逐檔讀。
@@ -174,6 +194,19 @@ def collect_matched_atoms(
                 base = proj_parent
             all_atoms.append(((name, rel_path, triggers), base))
 
+    # Supersedes 全路徑有效性：候選池先去掉被取代的舊卡（trigger/BM25/vector/Related/裁切共用同一池）。
+    # 集合每 session 算一次 stash 在 atom_index（SessionStart 建；舊 state 沒有就在這裡補算一次）。
+    # 使用者明說要看舊的（歷史查詢）→ 不過濾，讓舊卡可被查到。
+    history_mode = _is_history_query(prompt or "")
+    superseded: set = set(atom_index.get("superseded") or [])
+    if "superseded" not in atom_index:
+        superseded = collect_superseded_names(all_atoms, content_cache)
+        atom_index["superseded"] = sorted(superseded)
+    if superseded and not history_mode:
+        all_atoms = [e for e in all_atoms if e[0][0] not in superseded]
+    elif superseded and history_mode:
+        _atom_debug_log("SUPERSEDES", f"history query → keep {len(superseded)} superseded atoms in pool", config)
+
     matched_with_dir: List[Tuple[AtomEntry, Path]] = []
     atom_source: Dict[str, str] = {}
     alias_injected_projects: set = set()
@@ -225,7 +258,11 @@ def collect_matched_atoms(
     # Only run if no/few trigger hits (≤2). Project layer still uses vector below.
     vs_cfg = config.get("vector_search", {})
     bm25_route: List[str] = []  # RRF bm25 路（bm25_match 已依分數排序、min_score 已過濾）
-    if vs_cfg.get("global_layer", "bm25") == "bm25" and len(matched_with_dir) <= 2:
+    # BM25 只在 trigger 命中 ≤N 顆時補位（預設 2）。config vector_search.bm25_gate_max_trigger_hits
+    # 可調：設很大＝每輪都跑（≈10ms），讓 BM25 當獨立排序證據進 RRF 而非只補位——
+    # 對齊評估器分開量它的收益後再決定預設值。
+    bm25_gate = int(vs_cfg.get("bm25_gate_max_trigger_hits", 2))
+    if vs_cfg.get("global_layer", "bm25") == "bm25" and len(matched_with_dir) <= bm25_gate:
         global_atoms = [e for e in all_atoms if e[1] == MEMORY_DIR.parent]
         if global_atoms:
             global_entries = [e[0] for e in global_atoms]
@@ -305,7 +342,8 @@ def collect_matched_atoms(
                 old = old.strip()
                 if old:
                     superseded_names.add(old)
-    if superseded_names:
+    # 候選層第二道（補池過濾之後才寫進來的取代聲明；歷史查詢不濾）
+    if superseded_names and not history_mode:
         matched_with_dir = [
             entry for entry in matched_with_dir
             if entry[0][0] not in superseded_names
@@ -329,11 +367,14 @@ def collect_matched_atoms(
             "vector": vector_route,
         })
 
+        # activation 乘數增益可由 config（vector_search.rrf_activation_gain）覆寫：
+        # 離線重播顯示 0.25 時 activation 差 0.065 就能翻轉相鄰名次（k=60 的 RRF 相鄰比僅 1.016），
+        # 對齊評估器要能分開測 0.25／0／限幅，所以先把旋鈕拉出來，預設值不變。
+        gain = float(vs_cfg.get("rrf_activation_gain", RRF_ACTIVATION_GAIN))
+
         def _fused_key(entry) -> float:
             name = entry[0][0]
-            return rrf_scores.get(name, 0.0) * math.exp(
-                RRF_ACTIVATION_GAIN * _rank_of(entry)
-            )
+            return rrf_scores.get(name, 0.0) * math.exp(gain * _rank_of(entry))
 
         matched_with_dir.sort(key=_fused_key, reverse=True)
     else:

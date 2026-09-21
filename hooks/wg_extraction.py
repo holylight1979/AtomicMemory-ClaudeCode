@@ -121,6 +121,16 @@ def _spawn_extract_worker(ctx_dict: dict) -> int:
         proc.stdin.write(json_ctx.encode("utf-8"))
         proc.stdin.close()
         worker_log_fh.close()
+        # 起訖帳：spawn 在這裡、finish/crash 由 worker 自己記，健檢比對 spawn 與 finish 數
+        try:
+            from wg_core import append_guard_log
+            append_guard_log("worker-runs", {
+                "event": "spawn", "pid": proc.pid,
+                "mode": ctx_dict.get("mode", "session_end"),
+                "session_id": ctx_dict.get("session_id", ""),
+            })
+        except Exception:
+            pass
         return proc.pid
     except Exception as e:
         _atom_debug_error("萃取:_spawn_extract_worker", e)
@@ -154,6 +164,10 @@ def _maybe_spawn_failure_extraction(
     clean_prompt: str, lines: list,
 ) -> None:
     """偵測失敗關鍵字 → spawn extract-worker failure mode。"""
+    from wg_core import is_harness_generated_prompt
+    # sub-agent 完成通知不是使用者回報失敗；其內文的失敗詞不觸發萃取
+    if is_harness_generated_prompt(clean_prompt):
+        return
     if not _detect_failure_keywords(clean_prompt, config):
         return
 

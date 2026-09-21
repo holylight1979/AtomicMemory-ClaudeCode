@@ -1,6 +1,7 @@
 ---
 name: journal
 description: 工作日誌產出：從 atoms + git log + transcript 聚合產出日誌
+disable-model-invocation: true
 ---
 
 # /journal — 工作日誌產出

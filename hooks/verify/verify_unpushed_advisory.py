@@ -95,7 +95,9 @@ def test_is_read_only(repo):
 
 def test_internal_error_does_not_raise(monkeypatch):
     monkeypatch.setattr(ss, "CLAUDE_DIR", None)  # 觸發 AttributeError
-    assert ss._unpushed_advisory() == []
+    # fail-open 但要告知：內部錯誤回一行可見警告，不吞掉（曾靜默 crash 三週沒人知道）
+    out = ss._unpushed_advisory()
+    assert len(out) == 1 and "⚠" in out[0] and "[Guardian:Sync]" in out[0]
 
 
 def test_wired_into_session_start():

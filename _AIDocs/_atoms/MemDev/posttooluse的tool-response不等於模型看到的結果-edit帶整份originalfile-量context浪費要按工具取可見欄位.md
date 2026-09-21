@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: tool_response, PostToolUse, tool result size, 工具結果體積, context 浪費, originalFile, ToolResultSize, wg_friction, token 浪費量測, 誤報
 - Created-at: 2026-09-18
-- Related: codegraph與agent-retro評估結論-codegraph只當專案local-MCP不進記憶-agent-retro只拆量測
+- Related: codegraph與agent-retro評估結論-codegraph只當專案local-MCP不進記憶-agent-retro只拆量測, 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem
 
 ## 知識
 

@@ -1,0 +1,16 @@
+{
+  "recall_at_1": 0.8114285714285714,
+  "recall_at_3": 0.9314285714285714,
+  "mrr": 0.8704761904761905,
+  "delivered_full_rate": 0.88,
+  "delivered_pointer_rate": 0.05714285714285714,
+  "delivered_missing_rate": 0.06285714285714286,
+  "avg_extra_delivered": 4.382857142857143,
+  "neg_candidate_rate": 0.045454545454545456,
+  "neg_delivered_rate": 0.045454545454545456,
+  "n_direct": 175,
+  "n_negative": 22,
+  "generated_at": "2026-09-21T17:12:36",
+  "overrides": {},
+  "frozen_time": 1789981315.0
+}

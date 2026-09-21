@@ -156,9 +156,12 @@ def _call_project_hook(project_root: Path, action: str, context: Dict[str, Any])
 # ─── State file TTL cleanup (was _cleanup_old_states in workflow-guardian) ───
 
 
+_ACTIVE_WORKING_TTL_S = 6 * 3600  # 有 prompt 的 working state 的孤兒兜底 TTL
+
+
 def _cleanup_old_states() -> None:
     """V3/2.2A: Tiered TTL cleanup for state files.
-    age < 600s keep; merged_into → 10min; empty working → 1h; working >30min;
+    age < 600s keep; merged_into → 10min; empty working → 1h; working（有 prompt）> 6h；
     done synced > 1h; done pending > 4h; anything > 7d.
 
     empty working 取 1h：idle session（開著沒下 prompt）state 被清後，
@@ -188,7 +191,11 @@ def _cleanup_old_states() -> None:
                 f.unlink(missing_ok=True)
             elif prompt_count == 0 and phase == "working" and age > 3600:
                 f.unlink(missing_ok=True)
-            elif prompt_count > 0 and phase == "working" and age > 1800:
+            elif prompt_count > 0 and phase == "working" and age > _ACTIVE_WORKING_TTL_S:
+                # 有 prompt 的活躍 session：以前 30 分鐘沒寫 state 就刪——使用者在想、或在等
+                # 長時間背景任務時就會中招，下一個 hook 只能建 fallback、整場歷史歸零
+                #（2026-09-21 本 session turn 15 實證）。CC 真正結束會走 SessionEnd 標 done，
+                # 這條只是兜底孤兒，放寬到 6 小時。
                 f.unlink(missing_ok=True)
             elif phase == "done" and not sync_pending and age > 3600:
                 f.unlink(missing_ok=True)

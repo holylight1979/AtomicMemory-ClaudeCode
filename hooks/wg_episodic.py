@@ -39,11 +39,32 @@ from lib.atom_access import move_atom_pair  # noqa: E402
 # ─── Episodic Gate ────────────────────────────────────────────────────────────
 
 
-def _should_generate_episodic(state: Dict[str, Any], config: Dict[str, Any]) -> bool:
-    """Check if this session warrants an episodic atom."""
+def log_episodic_event(kind: str, state: Dict[str, Any], reason: str = "",
+                       extra: Optional[Dict[str, Any]] = None) -> None:
+    """episodic 生成事件（generated / skipped / failed）落 Logs/guard-episodic.jsonl。
+
+    不受 atom_debug 開關影響——週健檢靠它分辨「正常跳過」「符合資格但失敗」「根本沒被呼叫」，
+    以前跳過原因只在記憶體裡、state 被清後無從鑑識。fail-open。"""
+    try:
+        from wg_core import append_guard_log
+        sess = state.get("session", {}) or {}
+        payload: Dict[str, Any] = {
+            "event": kind, "session_id": sess.get("id", ""), "cwd": sess.get("cwd", ""),
+        }
+        if reason:
+            payload["reason"] = reason
+        if extra:
+            payload.update(extra)
+        append_guard_log("episodic", payload)
+    except Exception:
+        pass
+
+
+def _episodic_skip_reason(state: Dict[str, Any], config: Dict[str, Any]) -> Optional[str]:
+    """回 None＝該產 episodic；否則回一句跳過原因（供事件 log 與健檢分類）。"""
     ep_cfg = config.get("episodic", {})
     if not ep_cfg.get("auto_generate", True):
-        return False
+        return "disabled"
 
     mod_count = len(state.get("modified_files", []))
     read_count = len(state.get("accessed_files", []))
@@ -52,7 +73,7 @@ def _should_generate_episodic(state: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # Pure-read sessions (≥5 files) also warrant episodic atoms
     if mod_count < min_files and kq_count == 0 and read_count < 5:
-        return False
+        return f"no_activity(mod={mod_count},read={read_count},kq={kq_count})"
 
     # Skip very short sessions (< 2 minutes)
     started = state.get("session", {}).get("started_at", "")
@@ -61,12 +82,18 @@ def _should_generate_episodic(state: Dict[str, Any], config: Dict[str, Any]) -> 
         try:
             t0 = datetime.fromisoformat(started.replace("Z", "+00:00"))
             t1 = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-            if (t1 - t0).total_seconds() < ep_cfg.get("min_duration_seconds", 120):
-                return False
+            secs = (t1 - t0).total_seconds()
+            if secs < ep_cfg.get("min_duration_seconds", 120):
+                return f"too_short({int(secs)}s)"
         except (ValueError, TypeError):
             pass
 
-    return True
+    return None
+
+
+def _should_generate_episodic(state: Dict[str, Any], config: Dict[str, Any]) -> bool:
+    """Check if this session warrants an episodic atom."""
+    return _episodic_skip_reason(state, config) is None
 
 
 # ─── Path & Filename Helpers ─────────────────────────────────────────────────
@@ -437,10 +464,24 @@ def _generate_episodic_atom(
 
     Returns the filename of the generated atom, or None if skipped.
     Project-scoped: if CWD maps to a known project, episodic goes to project layer.
+    每次決定都落事件 log：skipped（附原因）/ generated / failed（例外照樣往上拋）。
     """
-    if not _should_generate_episodic(state, config):
+    reason = _episodic_skip_reason(state, config)
+    if reason is not None:
+        log_episodic_event("skipped", state, reason)
         return None
+    try:
+        atom_name = _generate_episodic_atom_impl(session_id, state, config)
+    except Exception as e:
+        log_episodic_event("failed", state, f"{type(e).__name__}: {e}"[:200])
+        raise
+    log_episodic_event("generated", state, extra={"atom": atom_name})
+    return atom_name
 
+
+def _generate_episodic_atom_impl(
+    session_id: str, state: Dict[str, Any], config: Dict[str, Any]
+) -> str:
     summary = _build_episodic_summary(state)
     slug = _derive_short_summary(summary["primary_area"])
     today = datetime.now().strftime("%Y-%m-%d")

@@ -285,16 +285,23 @@ def test_resolve_before_commit_on_conflicted_merge(isolated_git, tmp_path, monke
     assert priv and "[Guardian:GitPrivacy]" in priv and "_atom_index.json" in priv
 
 
-def test_resolver_fits_hook_budget(isolated_git, tmp_path):
+def test_resolver_fits_hook_budget(isolated_git, tmp_path, monkeypatch):
     """真實預算題：hook 總時限 2.5s（整條 PreToolUse 鏈只有 5s），--resolve 在「未裝驅動＋三檔全衝突」
     的最差常見情境必須跑得完；跑不完 = 使用者每次都只會看到 ⚠ 逾時、自動化形同虛設。
-    失敗時是 tools/merge-atom-index.py 的 git 呼叫次數問題（每次 spawn 在 Windows 約 0.1s），非 hook 邏輯。"""
+    失敗時是 tools/merge-atom-index.py 的 git 子行程序列長度問題（每次 spawn 在 Windows 約 0.15～0.3s，
+    彼此獨立的要併行），非 hook 邏輯。"""
     import time
     # 量兩次取最快（機器同時在跑別的東西時單次會被拖慢），兩次都超過才算真的太慢
     best, last_msg = 99.0, ""
     for n in range(2):
         sub = tmp_path / f"run{n}"
         sub.mkdir()
+        # 每輪各自的 global git config／attributes：上一輪 resolver 順手 --install 成功後，同一份 config 下
+        # 這輪的 merge 會被驅動直接合掉、不再衝突（量的就不是「未裝驅動」最差情境，_conflicted_merge 也會 assert）
+        gcfg = sub / "gitconfig"
+        gcfg.write_text("", encoding="utf-8")
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gcfg))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(sub / "xdg"))
         repo = _conflicted_merge(sub)
         t0 = time.monotonic()
         msg = check_merge_driver("Bash", {"command": "git commit -m x"}, str(repo), CFG_ON)

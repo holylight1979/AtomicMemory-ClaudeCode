@@ -543,9 +543,13 @@ def _record_unbound(
     session_id: str, turn_index: int, cwd: str, binding_info: Dict[str, Any],
     trigger: str,
 ) -> None:
-    """綁不到規格檔 → 不發裁判，直接落一筆 uncertain。
+    """綁不到規格檔 → 不發裁判，落一筆「綁定列」（record=unbound）。
 
-    INV-CASE-BINDING-OR-UNCERTAIN：不得用「最新一份」猜案卷。
+    INV-CASE-BINDING-OR-UNCERTAIN：不得用「最新一份」猜案卷；收尾閘視同 uncertain 放行。
+    綁定列**沒有 verdict/score**：它只說「這次收尾綁不到規格」，不是裁判判了 uncertain。
+    舊版寫 verdict=uncertain/score=-1 佔位，讓 promotion_stats 的裁判分母被 89% 佔位列
+    灌爆（30 天 206 列 182 列佔位）；現在 acceptance.promotion_stats 只以 bound 列算裁判
+    品質，綁定列只進「綁定覆蓋率」。
     只在 ambiguous/other_session 落筆（`none` 代表本任務不在分級線上，
     每次收尾都記等於噪音）。
     """
@@ -554,13 +558,10 @@ def _record_unbound(
     if binding_info.get("binding") == acceptance.BINDING_NONE:
         return
     acceptance.append_audit({
+        "record": "unbound",
         "session_id": session_id, "turn_index": turn_index, "cwd": cwd,
-        "spec_path": "", "task_slug": "",
         "binding": binding_info.get("binding", ""),
         "trigger": trigger,
-        "verdict": "uncertain", "score": -1,
-        "problems": [], "problems_count": 0,
-        "summary": "案卷未組（任務與驗收規格檔無法唯一對應）",
         "uncertain_reason": binding_info.get("uncertain_reason", ""),
         "candidates": binding_info.get("candidates", [])[:10],
     })

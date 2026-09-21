@@ -3,9 +3,9 @@
 - Scope: global
 - Author: holylight
 - Confidence: [固]
-- Trigger: 幫我搜索, 幫我查, 搜索, 搜尋, 查詢, 我想知道, 想了解, 研究一下, 調查一下, 關鍵字擴充, 知識檢索, research fanout, 多 agent 搜尋, 最佳實踐
+- Trigger: 幫我搜索, 幫我查, 搜索, 搜尋, 研究一下, 調查一下, 關鍵字擴充, 知識檢索, research fanout, 多 agent 搜尋, 最佳實踐, 幫我研究, 查資料
 - Created-at: 2026-08-11
-- Related: workflow-parallel-agents, workflow-rules, decisions, 歸因早停-找到合理嫌疑機制就停止驗證
+- Related: workflow-parallel-agents, workflow-rules, decisions, 歸因早停-找到合理嫌疑機制就停止驗證, 多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地
 
 ## 知識
 

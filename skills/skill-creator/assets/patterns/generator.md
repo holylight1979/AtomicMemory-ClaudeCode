@@ -1,7 +1,7 @@
 ---
 name: <skill-name>
 description: <30+ 字。例：「任何要產出 X 報告 / X 文件 / X 程式碼骨架的場合都該觸發，避免格式漂移」>
-userInvocable: true
+user-invocable: true
 triggers: <關鍵字1>, <關鍵字2>, <關鍵字3>, <關鍵字4>, <關鍵字5>
 pattern: generator
 ---

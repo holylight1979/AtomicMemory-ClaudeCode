@@ -1,11 +1,11 @@
 ---
 name: read-project
-description: 專案文件閱讀與知識截錄：跨檔讀懂專案並提取重點到 atom
+description: 專案文件閱讀與知識截錄：跨檔讀懂專案，導覽目錄寫成 _AIDocs/DocIndex 文件，不可再生的決策與踩坑才寫 atom
 ---
 
 # /read-project — 專案文件閱讀與知識截錄
 
-> 系統性閱讀指定目錄或文件，產出 doc-index atom 供未來 session 檢索。
+> 系統性閱讀指定目錄或文件：導覽目錄寫成 `_AIDocs/DocIndex-*.md`（可再生、不進 atom），只有讀不出來的決策／踩坑才走 `atom_write`。
 > 全域 Skill，適用任何專案。
 
 ---
@@ -75,70 +75,35 @@ description: 專案文件閱讀與知識截錄：跨檔讀懂專案並提取重�
 
 進度回報：每 10 份或每個子目錄完成時簡短回報進度。
 
-### Step 3: 產出 doc-index atom
+### Step 3: 導覽目錄寫成文件（唯一一份）
 
-寫入專案層 memory（若無專案層則寫全域層）。
+導覽目錄（哪個檔在哪、做什麼）是**可再生內容**——原檔還在就能重讀出來，不進 atom，只寫一份人讀文件：
 
-檔案路徑：`memory/doc-index-{名稱}.md`
+1. **建立/更新** `_AIDocs/DocIndex-{名稱}.md`（專案根無 `_AIDocs/` 就建目錄；目標不在專案內或不可寫 → 改放專案層 `.claude/memory/_staging/DocIndex-{名稱}.md`，無專案層則全域 `~/.claude/memory/_staging/`）：
+   - 標題：`# {目錄名稱} 文件索引`；首行寫來源目錄與產出日期
+   - 分類檔案列表：`路徑/檔案.ext` — 摘要（1-2 句）；依深度模式補用途／核心邏輯／對外介面／依賴
+   - 底部「速查」段落：常見問題 → 對應檔案
+   - 超過 300 行 → 按分類拆 `DocIndex-{名稱}-{分類}.md`，主檔只留分類連結
+2. **更新 `_AIDocs/_INDEX.md`**（若在 `_AIDocs/`）：文件清單表格加一列 `| N+1 | DocIndex-{名稱}.md | 文件索引 — {來源目錄簡述} |`
+3. **追加 `_AIDocs/_CHANGELOG.md`**（若在 `_AIDocs/`）：`| {日期} | **read-project**: 新增 DocIndex-{名稱}.md（{N} 份文件索引） | DocIndex-{名稱}.md |`
+4. 回報時**純文字絕對路徑先行**（外擴報備）。
 
-格式範例：
+### Step 4: 不可再生的知識才進 atom
 
-```markdown
-# {目錄名稱} 文件索引
+閱讀過程中若發現**從檔案本身讀不出來、之後會重查或重犯**的東西——例如：文件之間互相矛盾、註解與實作不一致、隱含的架構決策與理由、會踩的坑、過時但仍被引用的檔案——每項一顆／一段，走 MCP `atom_write`：
 
-- Scope: project
-- Confidence: [臨]
-- Type: semantic
-- Trigger: {從內容萃取 3-8 個關鍵詞}
-- Last-used: {今日日期}
-- Created: {今日日期}
-- Confirmations: 0
+- `scope=shared`（專案規則／事實；專案有 `.claude/memory/` 時）、必給 `domain`；新建一律 `[臨]`
+- 知識段第一行放檔案錨點：`見 _AIDocs/DocIndex-{名稱}.md §{分類}`，不重抄清單
+- 已有同主題 atom → `mode=append`，不新建
+- 沒發現這類知識就**不寫 atom**；導覽目錄本身不是 atom 的理由
 
-## 知識
-
-### {分類 A}
-- `路徑/檔案1.ext` — 摘要（1-2 句）
-- `路徑/檔案2.ext` — 摘要（1-2 句）
-
-### {分類 B}
-- `路徑/檔案3.ext` — 摘要（1-2 句）
-
-## 行動
-
-- 需要詳細內容時 Read 原檔
-- 開發相關工具時以此索引為起點
-```
-
-若內容超過 200 行 → 按分類拆分為 `doc-index-{名稱}-01.md`, `-02.md`...
-
-### Step 3.5: 寫入 _AIDocs（若存在）
-
-若專案根目錄有 `_AIDocs/`，同步產出人讀版文件：
-
-1. **建立/更新** `_AIDocs/DocIndex-{名稱}.md`：
-   - 標題：`# {目錄名稱} 文件索引`
-   - **不含** atom metadata（無 Trigger/Confidence/Last-used 等）
-   - 與 atom 相同的分類檔案列表，但使用完整描述
-   - 底部加「速查」段落，將常見問題對應到檔案
-
-2. **更新 `_AIDocs/_INDEX.md`**：在文件清單表格加一列
-   `| N+1 | DocIndex-{名稱}.md | 文件索引 — {來源目錄簡述} |`
-
-3. **追加 `_AIDocs/_CHANGELOG.md`**：
-   `| {日期} | **read-project**: 新增 DocIndex-{名稱}.md（{N} 份文件索引） | DocIndex-{名稱}.md |`
-
-若無 `_AIDocs/` → 跳過此步驟，僅寫 atom。
-
-### Step 4: 更新索引
-
-1. 將新 atom 加入對應層的 MEMORY.md 索引表
-2. 向量索引由 PostToolUse hook 自動觸發，無需手動處理
+索引（MEMORY.md／`_atom_index.json`／向量）由 `atom_write` 與 hook 自動維護，不手動補。
 
 ### Step 5: 回報結果
 
 向使用者彙報：
 - 閱讀了多少份文件
-- 產出了哪些 atom（含路徑）
+- DocIndex 文件絕對路徑；寫了哪些 atom（含路徑）或「無不可再生知識、未寫 atom」
 - 關鍵發現摘要
 - 建議後續可深入閱讀的方向
 
@@ -149,5 +114,5 @@ description: 專案文件閱讀與知識截錄：跨檔讀懂專案並提取重�
 - 不修改原始文件，只讀取和記錄
 - 大型目錄（100+ 檔案）建議分批執行，或用「只看目錄結構」模式先總覽再挑重點
 - 二進位檔案自動跳過
-- 產出的 atom 為 [臨]，經後續 session 使用確認後依正常流程晉升
-- 同一目錄重複執行時，更新既有 atom 而非建立新的（檢查是否已有同名 doc-index atom）
+- 同一目錄重複執行時，更新既有 `DocIndex-{名稱}.md` 而非另建；atom 用 `mode=append`
+- 描述文件內容時只寫讀到的事實；沒讀完整的檔案標「（僅讀前 N 行）」，不補推測

@@ -1,4 +1,5 @@
-"""acceptance_spec.py — 驗收規格工件 hook（standalone PostToolUse）。
+"""acceptance_spec.py — 驗收規格工件（PostToolUse；由 guardian handlers/post_tool_use.py
+呼叫 run()，同程序不另起 Python；保留 __main__ 可獨跑＝回滾路徑）。
 
 問題：任務的「做完的定義」只活在對話與 plan 文字裡，session 結束即蒸發；
 收尾自核與獨立裁判（Codex acceptance_review 接線點）手上沒有這個任務的
@@ -17,7 +18,7 @@
 advisory-only 不阻斷；hook 只發指令，規格內容由模型生成（hook 無 LLM）。
 裁判無授權副作用；規格檔與任務無法唯一對應時消費端必回 uncertain 不得 block。
 config: workflow/config.json → acceptance_spec；enabled=false 一鍵關。
-standalone 仿 version_guard.py；never-crash 降級靜默。
+never-crash 降級靜默（guardian 端 try/except 隔離、錯誤只進 debug log）。
 """
 
 from __future__ import annotations
@@ -168,34 +169,34 @@ def build_multifile_advisory(session_id: str, cwd: str, n_files: int) -> str:
     )
 
 
-# ─── PostToolUse handler ─────────────────────────────────────────────────────
+# ─── PostToolUse 判定（不讀 stdin、不 print、不 exit；sidecar 讀寫順序照舊）─────
 
 
-def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+def run(input_data: Dict[str, Any], config: Dict[str, Any]) -> List[str]:
+    """回傳要注入的 advisory（0 或 1 則）。config＝config.json 的 acceptance_spec 區塊，
+    enabled 開關在此判定，standalone main 與 guardian PostToolUse 併入共用同一路徑。
+    例外不在此攔——由呼叫端隔離（standalone：stderr；guardian：debug log）。"""
+    if not config.get("enabled", False):
+        return []
+
     session_id = input_data.get("session_id", "")
     tool_name = input_data.get("tool_name", "")
     cwd = input_data.get("cwd", "")
     if not session_id:
-        sys.exit(0)
+        return []
 
     if tool_name == "ExitPlanMode":
         if plan_looks_rejected(input_data.get("tool_response", "")):
-            sys.exit(0)
+            return []
         sc = read_sidecar(session_id)
         if sc.get("plan_prompted"):
-            sys.exit(0)
+            return []
         sc["plan_prompted"] = True
         write_sidecar(session_id, sc)
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": build_plan_advisory(session_id, cwd),
-            }
-        }, ensure_ascii=False))
-        sys.exit(0)
+        return [build_plan_advisory(session_id, cwd)]
 
     if tool_name not in _WRITE_TOOLS:
-        sys.exit(0)
+        return []
 
     tool_input = input_data.get("tool_input", {})
     file_path = ""
@@ -210,29 +211,23 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if norm not in paths:
             paths.append(norm)
             write_sidecar(session_id, sc)
-        sys.exit(0)
+        return []
 
     # (2) 多檔任務一次性建議（plan 型已提醒過 / 已有規格檔 / 已建議過 → 不再提）
     sc = read_sidecar(session_id)
     if sc.get("plan_prompted") or sc.get("multifile_advised") or sc.get("spec_paths"):
-        sys.exit(0)
+        return []
     min_files = int(config.get("min_files_trigger", 3))
     excludes = config.get("count_exclude_substrings", []) or []
     n = count_session_modified_files(session_id, excludes)
     if n < min_files:
-        sys.exit(0)
+        return []
     sc["multifile_advised"] = True
     write_sidecar(session_id, sc)
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": build_multifile_advisory(session_id, cwd, n),
-        }
-    }, ensure_ascii=False))
-    sys.exit(0)
+    return [build_multifile_advisory(session_id, cwd, n)]
 
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+# ─── Main（standalone 入口；平時由 guardian PostToolUse 呼叫 run()，本入口供獨跑／回滾）──
 
 
 def main() -> None:
@@ -246,8 +241,6 @@ def main() -> None:
                 stream.reconfigure(encoding="utf-8")
 
     config = _load_config()
-    if not config.get("enabled", False):
-        sys.exit(0)
 
     try:
         input_data = json.loads(sys.stdin.buffer.read())
@@ -258,12 +251,19 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        handle_post_tool_use(input_data, config)
-    except SystemExit:
-        raise
+        msgs = run(input_data, config)
     except Exception as e:  # never crash — 降級靜默
         sys.stderr.write(f"[acceptance_spec] {type(e).__name__}: {e}\n")
         sys.exit(0)
+
+    if msgs:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "\n".join(msgs),
+            }
+        }, ensure_ascii=False))
+    sys.exit(0)
 
 
 if __name__ == "__main__":

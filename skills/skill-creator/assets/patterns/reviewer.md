@@ -1,7 +1,7 @@
 ---
 name: <skill-name>
 description: <30+ 字。例：「任何要審查 X / 檢查 X 品質 / 驗證 X 是否符合規範的場合都該觸發」>
-userInvocable: true
+user-invocable: true
 triggers: <關鍵字1>, <關鍵字2>, <關鍵字3>, <關鍵字4>, <關鍵字5>
 pattern: reviewer
 ---

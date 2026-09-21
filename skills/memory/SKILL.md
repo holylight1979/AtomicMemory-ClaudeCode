@@ -5,7 +5,7 @@ description: 原子記憶系統綜合工具 — health/review/score 三主力 + 
 
 # /memory — 記憶系統綜合工具
 
-> 單一 skill 統整 health / peek / undo / review / score 五個 subcommand
+> 單一 skill 統整 health / peek / undo / review / score / classify 六個 subcommand
 > （peek/undo 僅查自動萃取歷史殘留）。全域 Skill，適用任何專案。
 
 ---
@@ -22,7 +22,7 @@ description: 原子記憶系統綜合工具 — health/review/score 三主力 + 
 ```
 
 第一個 token 為 subcommand。從 `$ARGUMENTS` 解析。
-若無 subcommand → 預設 `health`。
+**無 subcommand → 直接跑 `health`**（不列選單、不反問）；要其他 subcommand 請明示。
 
 ---
 
@@ -134,9 +134,16 @@ python ~/.claude/tools/memory-undo.py $ARGS
 
 手動觸發記憶系統自我迭代：衰減掃描、晉升候選、震盪偵測、覆轍偵測、episodic 回顧。
 
+自動的自我迭代（晉升／降級／衰減）由 SessionEnd hook 的 `_self_iterate_atoms` 跑，沒有 `--self-iterate` 這種 CLI 選項；手動 review 是把同樣的判定「只看不動」地跑一遍：
+
 1. 偵測專案記憶目錄（同 health Step 1）。
-2. 跑 `python ~/.claude/tools/memory-audit.py --self-iterate [--project-dir $PROJECT_MEM_DIR]`（若工具支援；否則改跑 health 全套）。
-3. 列出晉升候選 / 衰減候選 / 震盪 atom / 覆轍模式。
+2. **晉升／降級候選**：`python ~/.claude/tools/memory-audit.py [--project-dir $PROJECT_MEM_DIR]`，轉述報告的「晉升降級」與「過期」區塊（confirmations 主軌＋usefulness Wilson 下界軌，與 hook 同源）。
+3. **衰減／封存候選**：`python ~/.claude/tools/memory-audit.py --enforce --dry-run [--project-dir $PROJECT_MEM_DIR]`（selective forget 只列候選，不搬；要真搬去掉 `--dry-run`，先問使用者）。
+4. **效用面**：`python ~/.claude/tools/memory-effect-report.py`（有用／高曝光零使用／零曝光三清單）。
+5. **episodic 回顧**：列 `memory/episodic/`（專案層在 `.claude/memory/episodic/`）最近 3 份，摘一句主題。
+6. 彙整成一張表：atom｜建議動作（晉升／降級／封存／收斂 trigger）｜依據；**只建議不執行**，使用者點頭後用 MCP `atom_promote`／`atom_edit_meta` 或上述工具去掉 `--dry-run`。
+
+震盪（同一 atom 反覆晉降）與覆轍（同類失敗重現）偵測在 hook 內自動跑（SessionStart／Stop 注入提示），無獨立手動入口。
 
 ### score → Session 評分檢視
 
@@ -150,6 +157,4 @@ python ~/.claude/tools/memory-session-score.py $ARGS
 
 ## 預設行為
 
-`$ARGUMENTS` 為空時：
-- 列出 5 個 subcommand 摘要
-- 詢問使用者要跑哪個（推薦 `health`）
+`$ARGUMENTS` 為空時：直接跑 `health`（等同 `/memory health`）。不列選單、不反問。

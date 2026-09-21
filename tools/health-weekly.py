@@ -93,6 +93,52 @@ def _newest_mtime(pattern_dir: Path, glob: str) -> datetime | None:
         return None
 
 
+def _episodic_status(fresh_cut: datetime) -> tuple[datetime | None, dict]:
+    """episodic 產物最新 mtime（根層＋各專案層）＋近窗事件計數（Logs/guard-episodic.jsonl）。"""
+    from collections import Counter
+    dirs = [MEMORY / "episodic"]
+    try:
+        hooks_dir = str(CLAUDE_DIR / "hooks")
+        if hooks_dir not in sys.path:
+            sys.path.insert(0, hooks_dir)
+        from wg_core import discover_all_project_memory_dirs  # noqa: WPS433
+        dirs += [mem_dir / "episodic" for _slug, mem_dir in discover_all_project_memory_dirs()]
+    except Exception:
+        pass
+    mtimes = [m for m in (_newest_mtime(d, "episodic-*.md") for d in dirs) if m is not None]
+    newest = max(mtimes) if mtimes else None
+
+    # 以 session 為單位計（同場 pre_compact/session_end 可能各記一次、失敗重試會累加）：
+    # 一場只算一種結果，優先序 generated > failed > skipped。
+    per_session: Dict[str, str] = {}
+    reasons: Counter = Counter()
+    rank = {"generated": 3, "failed": 2, "skipped": 1}
+    log_path = CLAUDE_DIR / "Logs" / "guard-episodic.jsonl"
+    try:
+        for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                rec = json.loads(line)
+                at = datetime.fromisoformat(rec["at"]).replace(tzinfo=None)
+            except (ValueError, KeyError, TypeError):
+                continue
+            if at < fresh_cut:
+                continue
+            ev = rec.get("event", "")
+            if ev not in rank:
+                continue
+            sid = str(rec.get("session_id") or f"?{rec.get('at')}")
+            if rank[ev] > rank.get(per_session.get(sid, ""), 0):
+                per_session[sid] = ev
+            if ev == "skipped":
+                reasons[str(rec.get("reason", "")).split("(")[0]] += 1
+    except OSError:
+        pass
+    counts = Counter({"generated": 0, "skipped": 0, "failed": 0})
+    for ev in per_session.values():
+        counts[ev] += 1
+    return newest, {"counts": counts, "reasons": reasons}
+
+
 def _promotion_last_ts() -> datetime | None:
     """_promotion_audit.jsonl 最後一筆 ts（append-only，讀尾 4KB 即可）。"""
     p = MEMORY / "_promotion_audit.jsonl"
@@ -224,8 +270,7 @@ def collect() -> dict:
     last_session = _newest_mtime(WORKFLOW, "state-*.json")
     sessions_active = last_session is not None and last_session > fresh_cut
     checks = {
-        "promotion audit（confirmations 流）": _promotion_last_ts(),
-        "episodic 生成": _newest_mtime(MEMORY / "episodic", "episodic-*.md"),
+        "promotion audit（heartbeat / 晉升事件）": _promotion_last_ts(),
     }
     for label, ts in checks.items():
         if ts is None or ts < fresh_cut:
@@ -234,6 +279,32 @@ def collect() -> dict:
                 red.append(f"{label} 停擺（{age}，但近 {FRESH_DAYS} 天有 session）——疑管線靜默失效")
             else:
                 info.append(f"{label} {age}；近 {FRESH_DAYS} 天無 session，屬預期")
+
+    # 6b. episodic：產物看根層＋各專案層；沒產物時用事件 log 分辨「正常跳過／失敗／沒被呼叫」。
+    #     以前只掃 memory/episodic 且一律判停擺——09-18 的產出其實在專案層，唯讀 session 本來就跳過。
+    ep_newest, ep_events = _episodic_status(fresh_cut)
+    ep_counts = ep_events["counts"]
+    ep_summary = (f"近 {FRESH_DAYS} 天（按 session）generated {ep_counts['generated']} / "
+                  f"skipped {ep_counts['skipped']} / failed {ep_counts['failed']}")
+    # 失敗告警獨立判斷：別的專案有近期產物不代表這場沒失敗
+    if ep_counts["failed"] > 0:
+        red.append(f"episodic 生成失敗 {ep_counts['failed']} 場（Logs/guard-episodic.jsonl）；{ep_summary}")
+    if ep_newest is not None and ep_newest > fresh_cut:
+        info.append(f"episodic 生成 最後 {ep_newest:%Y-%m-%d}（含專案層）；{ep_summary}")
+    elif not sessions_active:
+        info.append(f"episodic 生成 無新產物；近 {FRESH_DAYS} 天無 session，屬預期")
+    elif ep_counts["failed"] > 0:
+        pass  # 已在上面獨立報紅
+    elif ep_counts["skipped"] > 0 and ep_counts["generated"] == 0:
+        reasons = ", ".join(f"{k}×{v}" for k, v in ep_events["reasons"].most_common(3))
+        info.append(f"episodic 近 {FRESH_DAYS} 天無產物：全部為正常跳過（{reasons}）——非故障")
+    elif sum(ep_counts.values()) == 0:
+        yellow.append(
+            f"episodic 近 {FRESH_DAYS} 天無產物也無事件紀錄（含專案層）——"
+            "事件 log 自 2026-09-21 起才有；下週仍空＝生成端未被呼叫，需查 session_end/pre_compact"
+        )
+    else:
+        red.append(f"episodic 有 generated 事件但找不到近期產物——寫檔或路徑異常；{ep_summary}")
 
     return {"at": now.isoformat(timespec="seconds"), "red": red,
             "yellow": yellow, "info": info,

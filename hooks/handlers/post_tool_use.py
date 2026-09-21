@@ -89,6 +89,7 @@ def _record_subagent_injection(state: Dict[str, Any], input_data: Dict[str, Any]
         "status": tr.get("status", "") or "",
         "output_summary": _extract_agent_output_summary(tr),
         "tool_use_id": input_data.get("tool_use_id", "") or "",
+        "turn_seq": int(state.get("turn_seq", 0) or 0),  # 來源回合：Stop 只結算本輪的紀錄
         "at": _now_iso(),
     }
     injections = state.setdefault("subagent_injections", [])
@@ -280,11 +281,98 @@ def _maybe_spawn_hud(sev: str, state: Dict[str, Any], config: Dict[str, Any],
         _atom_debug_error("post_tool_use:aec_maybe_spawn_hud", e)
 
 
+def _run_companion_hooks(input_data: Dict[str, Any], config: Dict[str, Any]):
+    """原 standalone PostToolUse hook（version_guard / acceptance_spec）併入本程序，省每次
+    Edit/Write 多起兩支 Python。各自 try/except 隔離，錯誤只進 debug log、不影響 guardian 主流程。
+    回 (systemMessage 訊息, additionalContext 訊息)；兩檔仍保留 __main__ 可獨跑——
+    回滾＝settings.json 的 PostToolUse 加回那兩行。"""
+    sys_msgs: List[str] = []
+    ctx_msgs: List[str] = []
+    try:
+        import version_guard
+        sys_msgs = list(version_guard.run(input_data, config.get("version_guard", {})))
+    except Exception as e:
+        _atom_debug_error("post_tool_use:version_guard", e)
+    try:
+        import acceptance_spec
+        ctx_msgs = list(acceptance_spec.run(input_data, config.get("acceptance_spec", {})))
+    except Exception as e:
+        _atom_debug_error("post_tool_use:acceptance_spec", e)
+    return sys_msgs, ctx_msgs
+
+
+def _emit_post_tool_output(advisories: List[str], sys_msgs: List[str]) -> None:
+    """單一出口：additionalContext（給模型）＋ systemMessage／stderr（給使用者，version_guard 原格式）。"""
+    for m in sys_msgs:
+        print(m, file=sys.stderr)
+    out: Dict[str, Any] = {}
+    if sys_msgs:
+        out["systemMessage"] = "\n".join(sys_msgs)
+    if advisories:
+        out["hookSpecificOutput"] = {
+            "hookEventName": "PostToolUse",
+            "additionalContext": "\n".join(advisories),
+        }
+    if out:
+        output_json(out)
+    else:
+        output_nothing()
+
+
+def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str) -> bool:
+    """Bash 測試指令 → 記／清 state.failing_tests；回傳是否動到 state。
+    子代理（hook 輸入帶 agent_id）自己迭代中的紅測不記進主 session，也不替主 session 清帳；
+    否則子代理跑到一半的紅測會讓主 session 的 Stop 被 TestFailGate 擋。"""
+    if not is_test_command(command) or input_data.get("agent_id"):
+        return False
+    tr = input_data.get("tool_response", {}) or {}
+    if isinstance(tr, dict):
+        stdout = tr.get("stdout", "") or ""
+        stderr = tr.get("stderr", "") or ""
+        interrupted = bool(tr.get("interrupted", False))
+    else:
+        stdout, stderr, interrupted = str(tr), "", False
+    failure = detect_test_failure(stdout, stderr, interrupted)
+    if failure:
+        state.setdefault("failing_tests", []).append({
+            "tool": "Bash",
+            "cmd": command[:200],
+            # cmd 截 200 字會把串在後段的 pytest 截掉 → 綠的 pytest 對不上、永遠清不掉；
+            # 記錄時就用全文判定一次
+            "pytest": "pytest" in command.lower(),
+            "summary": failure,
+            "at": _now_iso(),
+            # 供 Stop 端 outcome 歸因「只認本 turn 失敗」（sync/test-fail
+            # gate 等其他消費者仍看全量清單，語意不變）
+            "turn_seq": int(state.get("turn_seq", 0)),
+        })
+        return True
+    if not state.get("failing_tests"):
+        return False
+    cmd_prefix = command[:80].strip()
+    is_pytest_success = "pytest" in command.lower()
+    before = state["failing_tests"]
+    after = [
+        f for f in before
+        if not f.get("cmd", "").startswith(cmd_prefix[:40])
+        and not (is_pytest_success and (
+            f.get("pytest")
+            or "pytest" in f.get("cmd", "").lower()
+            or "short test summary" in f.get("summary", "")   # legacy 無 flag 者看 pytest 輸出特徵
+        ))
+    ]
+    if len(after) == len(before):
+        return False
+    state["failing_tests"] = after
+    return True
+
+
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
     if not state:
-        output_nothing()
+        sys_msgs, ctx_msgs = _run_companion_hooks(input_data, config)
+        _emit_post_tool_output(ctx_msgs, sys_msgs)
         return
 
     tool_name = input_data.get("tool_name", "")
@@ -476,47 +564,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
             dirty = True
 
-        if is_test_command(command):
-            tr = input_data.get("tool_response", {}) or {}
-            if isinstance(tr, dict):
-                stdout = tr.get("stdout", "") or ""
-                stderr = tr.get("stderr", "") or ""
-                interrupted = bool(tr.get("interrupted", False))
-            else:
-                stdout, stderr, interrupted = str(tr), "", False
-            failure = detect_test_failure(stdout, stderr, interrupted)
-            if failure:
-                ft = state.setdefault("failing_tests", [])
-                ft.append({
-                    "tool": "Bash",
-                    "cmd": command[:200],
-                    # cmd 截 200 字會把串在後段的 pytest 截掉 → 綠的 pytest 對不上、永遠清不掉；
-                    # 記錄時就用全文判定一次
-                    "pytest": "pytest" in command.lower(),
-                    "summary": failure,
-                    "at": _now_iso(),
-                    # 供 Stop 端 outcome 歸因「只認本 turn 失敗」（sync/test-fail
-                    # gate 等其他消費者仍看全量清單，語意不變）
-                    "turn_seq": int(state.get("turn_seq", 0)),
-                })
-                dirty = True
-            elif state.get("failing_tests"):
-                cmd_prefix = command[:80].strip()
-                cmd_lower = command.lower()
-                is_pytest_success = "pytest" in cmd_lower
-                before = state["failing_tests"]
-                after = [
-                    f for f in before
-                    if not f.get("cmd", "").startswith(cmd_prefix[:40])
-                    and not (is_pytest_success and (
-                        f.get("pytest")
-                        or "pytest" in f.get("cmd", "").lower()
-                        or "short test summary" in f.get("summary", "")   # legacy 無 flag 者看 pytest 輸出特徵
-                    ))
-                ]
-                if len(after) != len(before):
-                    state["failing_tests"] = after
-                    dirty = True
+        if _track_test_result(state, input_data, command):
+            dirty = True
 
     elif tool_name.endswith("anti_evasion_report"):
         # MCP 結構化收尾 emit（one-writer spine）：MCP tool 只回 chip、不碰 state；
@@ -647,12 +696,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             _atom_debug_error("post_tool_use:late_collision", e)
 
-    if advisories:
-        output_json({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": "\n".join(advisories),
-            }
-        })
-    else:
-        output_nothing()
+    # 併入的兩支輕檢查放在 write_state 之後：acceptance_spec 從磁碟讀 state 數修改檔，
+    # 讓本次事件的檔已入帳（原本兩程序並行時先後不定）
+    sys_msgs, ctx_msgs = _run_companion_hooks(input_data, config)
+    advisories.extend(ctx_msgs)
+    _emit_post_tool_output(advisories, sys_msgs)

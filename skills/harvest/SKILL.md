@@ -1,6 +1,7 @@
 ---
 name: harvest
 description: 網頁收割工具：Playwright + cookie 從 Google Docs/Sheets/網頁抓內容
+disable-model-invocation: true
 ---
 
 # /harvest — 網頁收割工具

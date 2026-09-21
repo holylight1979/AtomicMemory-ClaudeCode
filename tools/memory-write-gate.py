@@ -107,6 +107,49 @@ EXPLICIT_TRIGGERS = [
     "remember", "from now on", "以後",
 ]
 
+# 可再生內容（Compound Engineering 反事實）：能從最終程式碼／測試／既有文件直接讀出的
+# 內容不該進 atom——拿掉它，未來不會重犯、也不用付昂貴重查成本。只加警告訊息，不進分數。
+REGENERABLE_LINE_PATTERNS = {
+    # `path/file.ext` — 摘要   （檔案索引／導覽目錄）
+    "file_listing": re.compile(r"^\s*(?:[-*|]\s*)?`[^`\n]+\.[A-Za-z0-9]{1,5}`\s*(?:—|–|-|:|：|\|)", re.MULTILINE),
+    # - `--flag` / `-x`：說明     （CLI 參數逐項）
+    "option_listing": re.compile(r"^\s*(?:[-*|]\s*)?`?--?[A-Za-z][\w-]*`?\s*(?::|：|\|)", re.MULTILINE),
+    # def foo(...) / function bar(...) / class Baz  （簽名清單）
+    "signature_listing": re.compile(r"^\s*(?:[-*|]\s*)?`?(?:def|function|func|class|fn|public|private|static)\s+[A-Za-z_]\w*", re.MULTILINE),
+}
+REGENERABLE_LINE_MIN = 3
+REGENERABLE_TITLE_WORDS = re.compile(
+    r"(?:文件索引|目錄結構|檔案清單|檔案索引|函式清單|函數清單|參數一覽|參數說明|API 一覽|欄位說明|doc[- ]?index|file list|directory tree)",
+    re.IGNORECASE,
+)
+REGENERABLE_CODE_FENCE_LINES = 8
+REGENERABLE_HINT = (
+    "能從最終程式碼／測試／既有文件直接讀出的內容不收——反事實自問：拿掉這顆 atom，"
+    "未來會重犯或付昂貴重查成本嗎？不會 → 改寫成文件路徑一行＋只留結論／決策／踩坑"
+)
+
+
+def regenerable_signals(content: str) -> List[str]:
+    """回可再生內容的訊號名清單（空＝沒命中）。純啟發式，只用來出警告，不擋。"""
+    signals: List[str] = []
+    for name, pat in REGENERABLE_LINE_PATTERNS.items():
+        n = len(pat.findall(content))
+        if n >= REGENERABLE_LINE_MIN:
+            signals.append(f"{name}x{n}")
+    if REGENERABLE_TITLE_WORDS.search(content):
+        signals.append("index_title")
+    fenced = 0
+    in_fence = False
+    for line in content.split("\n"):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            fenced += 1
+    if fenced >= REGENERABLE_CODE_FENCE_LINES:
+        signals.append(f"code_dump_{fenced}l")
+    return signals
+
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -343,12 +386,18 @@ def evaluate(
             ),
         }
 
-    # 內容樣式軟警（不擋，附掛在放行結果上；caller 端轉述給寫入者）
-    style_warns = _style_warnings(content)
+    # 內容樣式軟警 + 可再生內容判準（都不擋、不進分數，附掛在放行結果上；caller 端轉述給寫入者）
+    style_warns = list(_style_warnings(content))
+    regen = regenerable_signals(content)
+    soft_warns = style_warns + (
+        [f"可再生內容疑似（{', '.join(regen)}）：{REGENERABLE_HINT}"] if regen else []
+    )
 
     def _with_warnings(result: Dict[str, Any]) -> Dict[str, Any]:
-        if style_warns and result.get("action") in ("add", "ask"):
-            result["warnings"] = style_warns
+        if soft_warns and result.get("action") in ("add", "ask"):
+            result["warnings"] = soft_warns
+        if regen:
+            result["regenerable_signals"] = regen
         return result
 
     # Fast path: explicit user trigger → always add

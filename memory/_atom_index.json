@@ -1432,16 +1432,15 @@
         "幫我查",
         "搜索",
         "搜尋",
-        "查詢",
-        "我想知道",
-        "想了解",
         "研究一下",
         "調查一下",
         "關鍵字擴充",
         "知識檢索",
         "research fanout",
         "多 agent 搜尋",
-        "最佳實踐"
+        "最佳實踐",
+        "幫我研究",
+        "查資料"
       ],
       "scope": "global"
     },
@@ -3384,6 +3383,24 @@
       "scope": "global"
     },
     {
+      "name": "糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem",
+      "path": "_AIDocs/_atoms/MemDev/糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem.md",
+      "triggers": [
+        "task-notification",
+        "DeepPostMortem 誤觸",
+        "糾正訊號誤報",
+        "wg_friction",
+        "user_correction_count",
+        "FailureDetect 誤觸",
+        "sub-agent 回報",
+        "harness 生成 prompt",
+        "is_harness_generated_prompt",
+        "sanitize_harness_noise",
+        "假糾正"
+      ],
+      "scope": "global"
+    },
+    {
       "name": "自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入",
       "path": "memory/驗證與實證/自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入.md",
       "triggers": [
@@ -3403,6 +3420,232 @@
         "SeShutdownPrivilege",
         "SetSuspendState",
         "powercfg /requests"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "所有決策和報告必須提供清晰的問題-數據佐證-並以易懂的白話形式-指出錯誤-優化點",
+      "path": "memory/行為契約/所有決策和報告必須提供清晰的問題-數據佐證-並以易懂的白話形式-指出錯誤-優化點.md",
+      "triggers": [
+        "拍板項目",
+        "問題與數據的佐證",
+        "白話重點說明",
+        "CC原子記憶"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-建檔或改名後回報一律給絕對路徑-相對連結與中途改名讓使用者找不到報告",
+      "path": "memory/Failures/行為契約/feedback-建檔或改名後回報一律給絕對路徑-相對連結與中途改名讓使用者找不到報告.md",
+      "triggers": [
+        "絕對路徑",
+        "報告檔案",
+        "找不到檔案",
+        "完整路徑",
+        "改名",
+        "next-phase",
+        "_staging",
+        "外擴報備",
+        "相對連結",
+        "markdown link",
+        "親和",
+        "報備路徑"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "時間預算類測試量測時同回合不得並行其他重負載工具呼叫-否則數字被自己污染",
+      "path": "memory/驗證與實證/時間預算類測試量測時同回合不得並行其他重負載工具呼叫-否則數字被自己污染.md",
+      "triggers": [
+        "時間預算",
+        "hook 預算",
+        "timing test",
+        "量測污染",
+        "並行工具呼叫",
+        "spawn 成本",
+        "subprocess 耗時"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-暫時偵錯碼插進被外部程序持續執行的-live-檔案前後必-py-compile-一次語法錯誤讓使用者-statusline-整個失效",
+      "path": "memory/Failures/工作流/feedback-暫時偵錯碼插進被外部程序持續執行的-live-檔案前後必-py-compile-一次語法錯誤讓使用者-statusline-整個失效.md",
+      "triggers": [
+        "暫時偵錯碼",
+        "TEMP dump",
+        "statusline",
+        "live 檔案",
+        "py_compile",
+        "插碼",
+        "stdin dump",
+        "臨時 instrumentation"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞",
+      "path": "_AIDocs/_atoms/MemDev/活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞.md",
+      "triggers": [
+        "state 已重建",
+        "fallback state",
+        "state 遺失",
+        "turn_seq 歸零",
+        "read_state",
+        "_ensure_state",
+        "_cleanup_old_states",
+        "state TTL",
+        "歷史歸零",
+        "sub-agent 共用 session_id",
+        "PermissionError state",
+        "read_state_status"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "act-r-activation-增益乘進-rrf-會壓過相關性-gain-0250-讓-r1-4581-排序權重一律先過對齊評估器",
+      "path": "_AIDocs/_atoms/MemDev/act-r-activation-增益乘進-rrf-會壓過相關性-gain-0250-讓-r1-4581-排序權重一律先過對齊評估器.md",
+      "triggers": [
+        "rrf_activation_gain",
+        "activation 增益",
+        "ACT-R 重排",
+        "排序調參",
+        "R@1",
+        "MRR",
+        "memory-eval --online",
+        "對齊評估器",
+        "檢索排序",
+        "誤注入率",
+        "bm25 停用詞",
+        "related query gate"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地",
+      "path": "_AIDocs/_atoms/工作流/協作與並行/多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地.md",
+      "triggers": [
+        "多開 agent",
+        "Codex 審查",
+        "交叉審查",
+        "多模型",
+        "不被帶偏",
+        "BLOCK/WARN",
+        "審查簡報",
+        "fan-out 審查",
+        "gpt-6-astra",
+        "全面檢視",
+        "reply_review",
+        "裁決紀錄"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "裁判-precision-高不等於有眼力-先看真陽性的類型分布-被簡單案例撐起的分數不能當轉正依據",
+      "path": "memory/驗證與實證/裁判-precision-高不等於有眼力-先看真陽性的類型分布-被簡單案例撐起的分數不能當轉正依據.md",
+      "triggers": [
+        "precision",
+        "轉正條件",
+        "裁判評估",
+        "假陽性分布",
+        "標註集",
+        "promotion_ready",
+        "acceptance 裁判",
+        "分類器評估",
+        "指標被撐起",
+        "等待回合",
+        "awaiting"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "判有沒有採用不能只靠詞彙重疊-否定與轉述會把拒絕全判成採用-行動證據優先且先建標註集再改判準",
+      "path": "memory/驗證與實證/判有沒有採用不能只靠詞彙重疊-否定與轉述會把拒絕全判成採用-行動證據優先且先建標註集再改判準.md",
+      "triggers": [
+        "detect_atom_use",
+        "判用",
+        "採用偵測",
+        "詞彙重疊",
+        "usefulness attribution",
+        "否定線索",
+        "轉述句",
+        "行動證據",
+        "標註集校準",
+        "usage_labels",
+        "P/R",
+        "啟發式校準"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-問題清單每條附為什麼會寫成這樣-給人看的報告寬深要適人腦且目的明說-收尾講使用感受上調了什麼",
+      "path": "memory/Failures/行為契約/feedback-問題清單每條附為什麼會寫成這樣-給人看的報告寬深要適人腦且目的明說-收尾講使用感受上調了什麼.md",
+      "triggers": [
+        "為什麼會寫成這樣",
+        "根因猜測",
+        "報告太技術",
+        "人腦難吸收",
+        "使用感受",
+        "調了什麼",
+        "審查報告",
+        "問題清單",
+        "白話重點",
+        "拍板文件",
+        "報告目的",
+        "LLM 寫錯"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "壓縮後根層-claudemd-由磁碟重讀不需自製-constraint-pinning-真正會丟的是對話中的計畫脈絡-用-staging-計畫檔加-sessionstart-resume-指標接續",
+      "path": "memory/CC與原子記憶契約/壓縮後根層-claudemd-由磁碟重讀不需自製-constraint-pinning-真正會丟的是對話中的計畫脈絡-用-staging-計畫檔加-sessionstart-resume-指標接續.md",
+      "triggers": [
+        "compact",
+        "壓縮失真",
+        "constraint pinning",
+        "PreCompact",
+        "/continue",
+        "接續",
+        "next-phase",
+        "Guardian:Resume",
+        "context 耗盡",
+        "壓縮後接續",
+        "CLAUDE.md 重讀",
+        "計畫脈絡遺失"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "windows-每支-hook-子程序啟動約-150ms-同事件多支-standalone-hook-先量再併-過-100ms-且等價回放全過才合",
+      "path": "_AIDocs/_atoms/MemDev/windows-每支-hook-子程序啟動約-150ms-同事件多支-standalone-hook-先量再併-過-100ms-且等價回放全過才合.md",
+      "triggers": [
+        "standalone hook",
+        "hook 合併",
+        "PostToolUse 延遲",
+        "python 啟動成本",
+        "settings.json hooks",
+        "hook 數量",
+        "version_guard",
+        "acceptance_spec",
+        "事件等價回放",
+        "hook 效能"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "注入記帳以送達為準-裁切後才算-injected-宣稱送出但被總額砍掉的-atom-不得計曝光與效用",
+      "path": "_AIDocs/_atoms/MemDev/注入記帳以送達為準-裁切後才算-injected-宣稱送出但被總額砍掉的-atom-不得計曝光與效用.md",
+      "triggers": [
+        "injected_atoms",
+        "dropped_trim",
+        "pointer_trim",
+        "reconcile_injection",
+        "總額裁切",
+        "曝光記帳",
+        "usefulness 分母",
+        "1200 tok 硬頂",
+        "送達 vs 送出",
+        "injection-turns.jsonl",
+        "rescue watch"
       ],
       "scope": "global"
     }

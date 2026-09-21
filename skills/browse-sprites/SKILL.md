@@ -1,6 +1,7 @@
 ---
 name: browse-sprites
 description: 批次圖片預覽：拼貼縮圖 + 大張原圖讓 AI 同時看清整體與細節
+disable-model-invocation: true
 ---
 
 # /browse-sprites — 批次圖片預覽

@@ -584,7 +584,13 @@ def _is_real_user_prompt(content: Any) -> bool:
     return False
 
 
-def _flatten_tool_input(inp: Any, cap: int = 2000) -> str:
+# 派工工具的 prompt 欄會夾帶 [WG:SubagentMemory] 注入的 atom 原文；拿它比對 atom
+# 等於 atom 自己命中自己。與 wg_rescue 同一排除規則。
+_DELEGATION_TOOLS = frozenset({"Agent", "Task"})
+_DELEGATION_SKIP_KEYS = frozenset({"prompt"})
+
+
+def _flatten_tool_input(inp: Any, cap: int = 2000, skip_keys: frozenset = frozenset()) -> str:
     """攤平 tool_use input 的所有字串值（file_path/command/content/old/new/pattern…）。"""
     out: List[str] = []
 
@@ -592,7 +598,9 @@ def _flatten_tool_input(inp: Any, cap: int = 2000) -> str:
         if isinstance(v, str):
             out.append(v)
         elif isinstance(v, dict):
-            for vv in v.values():
+            for k, vv in v.items():
+                if k in skip_keys:
+                    continue
                 _walk(vv)
         elif isinstance(v, list):
             for vv in v:
@@ -650,7 +658,9 @@ def get_current_turn_text(
             if bt == "text":
                 s = block.get("text", "") or ""
             elif bt == "tool_use":
-                s = (block.get("name", "") or "") + " " + _flatten_tool_input(block.get("input", {}))
+                tname = block.get("name", "") or ""
+                skip = _DELEGATION_SKIP_KEYS if tname in _DELEGATION_TOOLS else frozenset()
+                s = tname + " " + _flatten_tool_input(block.get("input", {}), skip_keys=skip)
             else:
                 continue
             if s:

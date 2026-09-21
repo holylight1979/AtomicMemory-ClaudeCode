@@ -6,6 +6,7 @@
   - vector_ready.flag 有/無 → vec✓ / vec✗
   - aec-report 取本 session 最大 turn 的 severity；無報告 → 不顯示
   - stdin 壞 JSON → 印最小降級行、不拋例外
+  - prompt_cache 有欄 → cacheNN%（warm 綠／冷 dim）；缺欄或 hit_ratio 非數字 → 不顯示
 
 對應：tools/statusline.py（資料源 workflow/state-<sid>.json / vector_ready.flag /
 aec-report/<sid>-t*.json）。
@@ -93,3 +94,31 @@ def test_bad_stdin_degrades(sl, monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", io.StringIO("not-json"))
     sl.main()
     assert "no input" in capsys.readouterr().out
+
+
+def test_prompt_cache_segment_present(sl):
+    warm = sl._cache_segment({"prompt_cache": {"hit_ratio": 0.914, "warm": True}})
+    assert "cache91%" in warm and sl.GREEN in warm
+    cold = sl._cache_segment({"prompt_cache": {"hit_ratio": 0.5, "warm": False}})
+    assert "cache50%" in cold and sl.DIM in cold
+
+
+def test_prompt_cache_segment_absent(sl):
+    assert sl._cache_segment({}) == ""  # 首次 API 回應前 CC 不給這欄
+    assert sl._cache_segment({"prompt_cache": {}}) == ""
+    assert sl._cache_segment({"prompt_cache": {"hit_ratio": "n/a", "warm": True}}) == ""
+    assert sl._cache_segment({"prompt_cache": {"hit_ratio": True}}) == ""
+
+
+def test_main_renders_cache_between_ctx_and_guardian(sl, tmp_path, monkeypatch, capsys):
+    _write_state(tmp_path)
+    payload = {"session_id": _SID, "model": {"display_name": "M"},
+               "context_window": {"used_percentage": 12}, "prompt_cache": {"hit_ratio": 0.8, "warm": True}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    sl.main()
+    out = capsys.readouterr().out
+    assert out.index("ctx12%") < out.index("cache80%") < out.index("改1")
+    del payload["prompt_cache"]
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    sl.main()
+    assert "cache" not in capsys.readouterr().out

@@ -51,16 +51,19 @@ def _write_state(workflow: Path, paths, sid=SID):
 
 
 def _run(input_data, config=None, capsys=None):
-    """跑 handler，回 (exit_code, parsed_stdout_or_None)。"""
+    """跑 run()，回 (0, 模擬 standalone stdout 的 dict 或 None)。
+    run() 不 print 不 exit：有訊息 → 包成 hookSpecificOutput（與 main() 同形），無 → None。"""
     cfg = {"enabled": True, "min_files_trigger": 3,
            "count_exclude_substrings": ["/memory/", "/_staging/"]}
     if config:
         cfg.update(config)
-    with pytest.raises(SystemExit) as ei:
-        asp.handle_post_tool_use(input_data, cfg)
-    out = capsys.readouterr().out if capsys else ""
-    parsed = json.loads(out) if out.strip() else None
-    return ei.value.code, parsed
+    msgs = asp.run(input_data, cfg)
+    if capsys:
+        assert capsys.readouterr().out == "", "run() 不得直接 print"
+    if not msgs:
+        return 0, None
+    return 0, {"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                                      "additionalContext": "\n".join(msgs)}}
 
 
 def _ctx(parsed):

@@ -1,7 +1,7 @@
 ---
 name: refile
 description: 拖入非 _AIDocs/_atoms/ 下的任意 .md 檔，先過輸入護欄與核心/設定檔辨識護欄，再用 realm 分類引擎提議歸檔位置，互動確認後移檔並掃描需同步的說明文件引用
-userInvocable: true
+user-invocable: true
 triggers: refile, 歸檔, 手動歸檔, 重新歸位, 歸到應在的地方, 這檔案該放哪, atom 歸類, 移檔歸位, realm 歸檔, 把這個 md 歸位
 pattern: pipeline
 ---

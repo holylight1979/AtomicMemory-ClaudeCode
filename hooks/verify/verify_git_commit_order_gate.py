@@ -52,8 +52,30 @@ def test_english_commit_word_allowed_case_insensitive():
     assert _check(state=_state("please COMMIT this")) is None
 
 
-def test_only_last_prompt_counts():
+def test_legacy_state_only_last_prompt_counts():
+    # 舊 state（無 turn_prompts）退回只看最後一句
     msg = _check(state=_state("上GIT", "再幫我改一個地方"))
+    assert msg and "[Guardian:CommitOrder]" in msg
+
+
+def test_mid_turn_message_does_not_erase_keyword():
+    # 同回合：「上GIT」後使用者又排隊補一句 → 口令仍有效
+    st = {"recent_user_prompts": ["上GIT", "計畫檔沒價值就刪掉"],
+          "turn_prompts": ["上GIT", "計畫檔沒價值就刪掉"], "turn_open": True}
+    assert _check(state=st) is None
+
+
+def test_new_turn_resets_turn_prompts():
+    from handlers.ups_gates import track_turn_prompts
+    st = {"recent_user_prompts": []}
+    track_turn_prompts(st, "上GIT")
+    track_turn_prompts(st, "順便刪計畫檔")          # mid-turn 追加
+    assert st["turn_prompts"] == ["上GIT", "順便刪計畫檔"]
+    st["turn_open"] = False                           # Stop 關回合
+    track_turn_prompts(st, "再幫我改一個地方")        # 新回合第一句
+    assert st["turn_prompts"] == ["再幫我改一個地方"]
+    st["recent_user_prompts"] = ["上GIT", "順便刪計畫檔", "再幫我改一個地方"]
+    msg = _check(state=st)
     assert msg and "[Guardian:CommitOrder]" in msg
 
 

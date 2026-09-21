@@ -70,7 +70,7 @@ Session Ready
 |------|------|
 | core.md | 治理原則 + 知識庫 + 記憶寫入/Realm/Scope + 對話（只留事前規則；Sync/並行/研究 fan-out/domain/版本 warn 已由 hook・MCP 強制，不重述） |
 
-## 4. Hook 系統（dispatcher + 9 事件 handlers + 13 wg_* + 5 standalone hook）
+## 4. Hook 系統（dispatcher + 9 事件 handlers + 14 wg_* + 3 standalone hook + 2 PostToolUse 併入模組）
 
 | 檔案 | 行數 | 職責 |
 |------|------|------|
@@ -80,7 +80,7 @@ Session Ready
 | handlers/aec_ledger.py | — | per-session 殘檔帳本唯一 writer（`workflow/aec-tempfiles/<sid>.jsonl`）：tempdir 寫入 / (d) 一行一路徑解析 / scratchpad 掃描；HUD 讀端以 exists() 判尚存。`protected_reason()` 拒收正式檔（VCS 追蹤 / `memory`、`_AIDocs` 下 / 索引、CHANGELOG、核心 md），(d) 拒收回告模型、drain 對其刪除決策注入 ⛔ |
 | handlers/session_start.py | — | init state + 去重 + bootstrap + Vector bg subprocess + 各式 advisory（含 `_index_conflict_advisory`：repo 卡在 rebase/merge 且索引三檔未合併 → 一行提示） |
 | handlers/user_prompt_submit.py | — | UPS orchestrator：串聯 ups_* 四段 + 收尾（2026-06-12 拆分）+ UPS 被 kill 哨兵（`workflow/ups-sentinel/`，殘留→告警）+ AEC (d) 刪除決策後驗（exists() 實查→重注入/告警） |
-| handlers/ups_gates.py | — | UPS detect 段：evasion 追蹤 + V4.1 + long_die + hot cache + atom-write guard |
+| handlers/ups_gates.py | — | UPS detect 段：evasion 追蹤 + V4.1 + long_die + atom-write guard |
 | handlers/ups_context.py | — | UPS context 段：session context + wisdom + parallel + AIDocs + JIT |
 | handlers/ups_search.py | — | UPS search 段：RECALL（trigger → BM25 → Vector〔全空 fallback / 專案層 enrichment：trigger 命中 <3 才打〕）+ supersedes + RRF 三路融合 × ACT-R 個別化 decay（`fusion:"legacy"` 可回退；含分心懲罰 `compute_injection_rank`，Memory Governance A） |
 | handlers/ups_inject.py | — | UPS inject 段：hot/cold + budget + related spread（含 `_filter_related_by_relevance` 最小集裁切，Memory Governance C）+ 效用晉升提示 |
@@ -103,8 +103,8 @@ Session Ready
 | wg_coordination.py | — | 跨 session 衝突預警（同檔互寫 warn / git add -A 收尾預警 / late-collision）→ `Logs/session-coordination/` |
 | wg_parallel.py | — | 多 agent 並行訊號計分 → `[Parallel:Suggest]` 注入 |
 | wg_research.py | — | 知識檢索型請求偵測 → 兩階段 fan-out 提示（命中時抑制 Parallel 建議） |
-| version_guard.py | — | live 檔版本操作脈絡殘留掃描（standalone PostToolUse，warn-only） |
-| acceptance_spec.py | — | 驗收規格工件分級啟動（standalone PostToolUse，advisory） |
+| version_guard.py | — | live 檔版本操作脈絡殘留掃描（guardian PostToolUse 同程序呼叫 `run()`，warn-only） |
+| acceptance_spec.py | — | 驗收規格工件分級啟動（guardian PostToolUse 同程序呼叫 `run()`，advisory） |
 | run-hidden.py / run-bash-hidden.py | — | Windows 下不閃視窗地 spawn 子程序 / 跑 .sh hook |
 | wg_rescue.py | — | 救援日誌：注入 atom 高特異 token watch + 工具呼叫命中 → `Logs/rescue-log.jsonl`（純字串比對） |
 | wg_recall_miss.py | — | 失念偵測（recall-miss）：SessionEnd 比對「失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
@@ -135,7 +135,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /handoff | skills/handoff/SKILL.md | 跨 Session Handoff Prompt Builder | 無 |
 | /harvest | skills/harvest/SKILL.md | Playwright 網頁收割→Markdown | Playwright |
 | ~~/init-roles~~ | skills/_archived/init-roles/SKILL.md | 多職務模式啟用引導 **P8a archived·dormant** | wg_roles + git |
-| /memory | skills/memory/SKILL.md | 5 合 1：health / peek / undo / review / session-score（subcmd 分派） | 無 |
+| /memory | skills/memory/SKILL.md | 六 subcommand：health（無參數預設）/ review / score / classify / peek / undo | 無 |
 | /read-project | skills/read-project/SKILL.md | 系統性閱讀→doc-index atom | 無 |
 | /upgrade | skills/upgrade/SKILL.md | 環境升級（diff + merge + rebuild） | 無 |
 | /vector | skills/vector/SKILL.md | 向量服務管理 | Vector Service |
@@ -245,7 +245,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->193<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->208<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2

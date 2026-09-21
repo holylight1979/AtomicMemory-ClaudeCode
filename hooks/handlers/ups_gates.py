@@ -28,6 +28,19 @@ except ImportError:
     OllamaClient = None
 
 
+def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
+    """本回合使用者原話清單：Stop 關回合（turn_open=False）後第一則重開，
+    同回合內排隊送進來的 mid-turn 訊息追加。口令閘看整回合而非只看最後一句
+    （否則「上GIT」之後補一句別的話就會把口令蓋掉）。Stop 被 block 後續送的
+    mid-turn 訊息會誤判為新回合——閘只會多擋一次、要求重下口令，fail-safe。"""
+    entry = clean_prompt[:500]
+    if state.get("turn_open") and isinstance(state.get("turn_prompts"), list):
+        state["turn_prompts"] = (state["turn_prompts"] + [entry])[-5:]
+    else:
+        state["turn_prompts"] = [entry]
+    state["turn_open"] = True
+
+
 def run_pre_gates(
     session_id: str,
     state: Dict[str, Any],
@@ -42,6 +55,7 @@ def run_pre_gates(
     rup.append(clean_prompt[:500])
     if len(rup) > 5:
         state["recent_user_prompts"] = rup[-5:]
+    track_turn_prompts(state, clean_prompt)
 
     if state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
         state["failing_tests"] = []

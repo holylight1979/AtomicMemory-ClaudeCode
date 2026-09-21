@@ -12,6 +12,7 @@ Survives hook timeout — runs ~60s on GTX 1050 Ti.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -86,22 +87,31 @@ def _empty_result() -> Dict[str, Any]:
 # ─── Transcript helpers ──────────────────────────────────────────────────────
 
 
-def _extract_all_assistant_texts(
+def _read_assistant_segments(
     transcript_path: Path, max_chars: int = 20000, byte_offset: int = 0
 ) -> tuple:
-    """Read assistant text blocks from JSONL transcript.
+    """Read assistant text blocks from JSONL transcript, keeping each block's origin.
 
-    Returns (texts: list[str], final_byte_offset: int).
+    Returns (segments: list[{"text", "uuid", "ts"}], final_byte_offset: int).
+    `uuid`/`ts` are the transcript record's own `uuid`/`timestamp` fields (stable
+    identifiers; a line number would be wrong after a byte_offset seek, so none
+    is derived). Missing fields stay "" — callers must treat that as "no source".
     When byte_offset > 0, seeks to that position first (incremental read).
     """
-    texts = []
+    segments = []
     total = 0
     final_offset = byte_offset
     try:
         with open(transcript_path, "r", encoding="utf-8") as f:
             if byte_offset > 0:
                 f.seek(byte_offset)
-            for raw_line in f:
+            # readline() 而非 for-in：文字檔在 for 迭代中 f.tell() 會拋
+            # 「telling position disabled by next() call」，原本 max_chars 中斷後
+            # final_offset 永遠退回傳入值（per_turn 增量讀每次重讀同一段）。
+            while True:
+                raw_line = f.readline()
+                if not raw_line:
+                    break
                 try:
                     obj = json.loads(raw_line)
                 except json.JSONDecodeError:
@@ -111,11 +121,13 @@ def _extract_all_assistant_texts(
                 content = obj.get("message", {}).get("content", [])
                 if not isinstance(content, list):
                     continue
+                uuid = str(obj.get("uuid") or "")
+                ts = str(obj.get("timestamp") or "")
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "text":
                         t = block.get("text", "")
                         if t and len(t) > 30:
-                            texts.append(t)
+                            segments.append({"text": t, "uuid": uuid, "ts": ts})
                             total += len(t)
                 if total >= max_chars:
                     break
@@ -123,7 +135,98 @@ def _extract_all_assistant_texts(
     except (OSError, UnicodeDecodeError) as e:
         _atom_debug_error("extract_worker:transcript_read", e)
         pass
-    return texts, final_offset
+    return segments, final_offset
+
+
+def _extract_all_assistant_texts(
+    transcript_path: Path, max_chars: int = 20000, byte_offset: int = 0
+) -> tuple:
+    """Text-only view of _read_assistant_segments: (texts: list[str], final_byte_offset)."""
+    segments, final_offset = _read_assistant_segments(
+        transcript_path, max_chars=max_chars, byte_offset=byte_offset)
+    return [s["text"] for s in segments], final_offset
+
+
+# ─── Failure provenance（萃取項 → 來源訊息對回） ───────────────────────────────
+#
+# LLM 回的失敗項不帶出處；這裡用注入端同一把 extract_distinctive_tokens 把每項
+# 對回「LLM 實際看到的那幾段」中重疊最大的段，取該段 transcript 紀錄的 uuid 當
+# 來源。對不回就不寫來源（禁止補造）；由骨架端明示「未對回原句」。
+
+_SEGMENT_SEP = "\n---\n"
+_SRC_MIN_SHARED = 3        # 至少共享 3 個識別 token（單一 bigram 巧合太多）
+_SRC_MIN_RATIO = 0.20      # 且覆蓋萃取項 token 的 20%（短段偶中長項不算）
+_SRC_MAX_PER_ITEM = 2      # 跨段結論最多引兩段
+_SRC_SECONDARY_RATIO = 0.5  # 第二來源的重疊數須達最佳段的一半，否則只是同話題殘影
+
+
+def _visible_segments(segments: List[dict], limit: int) -> List[tuple]:
+    """依 run_extraction 的 combined[:limit] 切法，還原每段實際進 prompt 的部分。
+
+    Returns [(segment, visible_text)]；完全被截掉的段不列（LLM 沒看過，不可當來源）。
+    """
+    out = []
+    used = 0
+    for i, seg in enumerate(segments):
+        if i:
+            used += len(_SEGMENT_SEP)
+        if used >= limit:
+            break
+        text = seg.get("text", "")
+        vis = text[:limit - used]
+        used += len(text)
+        if vis.strip():
+            out.append((seg, vis))
+    return out
+
+
+def _match_failure_sources(content: str, visible: List[tuple]) -> List[str]:
+    """回傳與 content 重疊達門檻的段的 uuid（重疊多者在前，去重，最多 _SRC_MAX_PER_ITEM）。"""
+    try:
+        from wg_atoms import extract_distinctive_tokens
+    except Exception as e:  # noqa: BLE001 — 對不回＝無來源，不擋寫入
+        _atom_debug_error("failure_provenance:import", e)
+        return []
+    item_toks = extract_distinctive_tokens(content)
+    if not item_toks:
+        return []
+    scored = []
+    for seg, vis in visible:
+        uuid = seg.get("uuid", "")
+        if not uuid:
+            continue
+        shared = len(item_toks & extract_distinctive_tokens(vis))
+        if shared >= _SRC_MIN_SHARED and shared / len(item_toks) >= _SRC_MIN_RATIO:
+            scored.append((shared, uuid))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    uuids: List[str] = []
+    for shared, u in scored:
+        if uuids and shared < scored[0][0] * _SRC_SECONDARY_RATIO:
+            break
+        if u not in uuids:
+            uuids.append(u)
+    return uuids[:_SRC_MAX_PER_ITEM]
+
+
+def _attach_failure_sources(
+    items: List[dict], segments: List[dict], session_id: str, limit: int,
+    config: dict = None,
+) -> None:
+    """就地為每個失敗項補 `sources`（["{sid8}#{uuid8}", …]，對不回為 []）與 `source_session`。"""
+    visible = _visible_segments(segments, limit)
+    sid8 = (session_id or "")[:8]
+    prefix = f"{sid8}#" if sid8 else ""
+    for it in items:
+        uuids = _match_failure_sources(it.get("content", ""), visible)
+        it["sources"] = [f"{prefix}{u[:8]}" for u in uuids]
+        it["source_session"] = sid8
+        if not uuids:
+            _atom_debug_log(
+                "failure_provenance",
+                f"unresolved source ({len(visible)} visible segments): "
+                f"{it.get('content', '')[:80]}",
+                config,
+            )
 
 
 # ─── Prompt templates ─────────────────────────────────────────────────────────
@@ -355,13 +458,14 @@ def run_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
         max_chars = rc.get("session_end_max_chars", 20000)
         max_items = rc.get("session_end_max_items", 5)
 
-    texts, final_offset = _extract_all_assistant_texts(
+    segments, final_offset = _read_assistant_segments(
         transcript, max_chars=max_chars, byte_offset=byte_offset
     )
+    texts = [s["text"] for s in segments]
     if not texts:
         return _empty_result()
 
-    combined = "\n---\n".join(texts)
+    combined = _SEGMENT_SEP.join(texts)
     if len(combined) < 50:
         return _empty_result()
 
@@ -400,6 +504,9 @@ def run_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     source_tag = "failure" if is_failure else ("per-turn" if is_per_turn else "session-end")
     for item in items:
         item["source"] = source_tag
+    if is_failure:
+        # LLM 只看到 combined[:3000]（見上方 prompt 組裝）；對回時用同一個上限
+        _attach_failure_sources(items, segments, session_id, 3000, config)
 
     # Pattern aggregation
     aggregation = _check_trigger_overlap(items)
@@ -668,21 +775,38 @@ def _split_root_cause(content: str) -> tuple:
     return content, ""
 
 
-def _build_failure_skeleton(content: str, tags: list, now: str) -> str:
-    """組多區塊失敗骨架。始末填 LLM 敘事；能拆出根因就填，其餘留待補。"""
+def _build_failure_skeleton(
+    content: str, tags: list, now: str,
+    sources: list = None, source_session: str = "",
+) -> str:
+    """組多區塊失敗骨架。始末填 LLM 敘事；能拆出根因就填，其餘留待補。
+
+    來源註解沿用 user-extract 的 `<!-- src: … -->` 慣例，緊接始末行：
+      sources 有值 → `<!-- src: {sid8}#{uuid8} … -->`（transcript 紀錄 uuid，可 grep 回查）
+      sources 為 [] 且知 session → `<!-- src: {sid8}#unresolved 未對回原句 -->`（明示缺來源）
+      sources 為 None（呼叫端沒做對回）→ 不寫任何來源行
+    註解行不是 `- ` 開頭：索引／節錄 parser 與 _failure_dedup_hit 都不會把它當知識條目。
+    """
     narrative, root = _split_root_cause(content)
     tag_str = "  " + " ".join(f"#{t}" for t in tags) if tags else ""
     # 標題取觸發場景（→ 前段）首 40 字，純供人眼掃讀
     title = (narrative.split("→")[0].strip() or narrative)[:40]
-    return "\n".join([
+    lines = [
         f"### [臨] {title}{tag_str}  ({now})",
         "",
         f"- **始末**：{narrative}",
+    ]
+    if sources:
+        lines.append(f"  <!-- src: {' '.join(sources)} -->")
+    elif sources is not None and source_session:
+        lines.append(f"  <!-- src: {source_session}#unresolved 未對回原句 -->")
+    lines += [
         f"- **根因**：{root or _FAILURE_TODO_MARK}",
         f"- **設計原理**：{_FAILURE_TODO_MARK}",
         f"- **運作邏輯**：{_FAILURE_TODO_MARK}",
         f"- **防再犯**：{_FAILURE_TODO_MARK}",
-    ])
+    ]
+    return "\n".join(lines)
 
 
 def _failure_dedup_hit(existing_text: str, content: str) -> bool:
@@ -792,7 +916,9 @@ def _failure_writeback(ctx: dict, items: list) -> None:
 
         # 組多區塊骨架（始末/根因/設計原理/運作邏輯/防再犯）
         now = datetime.now().strftime("%Y-%m-%d")
-        entry_block = _build_failure_skeleton(content, tags, now)
+        entry_block = _build_failure_skeleton(
+            content, tags, now,
+            sources=item.get("sources"), source_session=item.get("source_session", ""))
 
         # 走 atom_io.write_raw funnel（保留原 marker fallback 行為，
         # 但統一經過 audit log + PreToolUse 強制門禁放行）
@@ -893,11 +1019,27 @@ def _create_failure_atom(path: Path, ftype: str, first_block: str) -> None:
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 
+def _log_worker_run(event: str, ctx: Dict[str, Any], **extra: Any) -> None:
+    """worker 起訖帳（Logs/guard-worker-runs.jsonl）；spawn 端由 wg_extraction 記。fail-open。"""
+    try:
+        from wg_core import append_guard_log
+        payload = {"event": event, "pid": os.getpid(),
+                   "mode": (ctx or {}).get("mode", "session_end"),
+                   "session_id": (ctx or {}).get("session_id", "")}
+        payload.update(extra)
+        append_guard_log("worker-runs", payload)
+    except Exception:
+        pass
+
+
 def main():
+    ctx: Dict[str, Any] = {}
+    t_start = time.monotonic()
     try:
         # New interface: read JSON from stdin
         raw_input = sys.stdin.read()
         ctx = json.loads(raw_input)
+        _log_worker_run("start", ctx)
         result = run_extraction(ctx)
 
         # atom-debug: log extraction results (human-readable)
@@ -933,6 +1075,8 @@ def main():
             _per_turn_writeback(ctx, result)
         else:  # session_end (default) — flush queue + fresh extraction → [臨] atoms
             _session_end_writeback(ctx, result)
+        _log_worker_run("finish", ctx, items=len(items),
+                        elapsed_s=round(time.monotonic() - t_start, 1))
 
         sys.stdout.write(json.dumps(result, ensure_ascii=False))
     except Exception as e:
@@ -996,4 +1140,5 @@ if __name__ == "__main__":
             main()
     except Exception as e:
         _atom_debug_error("extract_worker:entry", e)
-        pass  # Silent failure — never block Claude Code
+        _log_worker_run("crash", {}, error=f"{type(e).__name__}: {e}"[:200])
+        pass  # never block Claude Code；crash 仍留一筆帳，健檢才分得出「沒跑完」與「沒被叫」

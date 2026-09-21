@@ -57,7 +57,9 @@
     "global_layer": "bm25",
     "bm25_min_score": 7.0,
     "bm25_top_k": 3,
-    "fusion": "rrf"
+    "fusion": "rrf",
+    "rrf_activation_gain": 0,
+    "bm25_gate_max_trigger_hits": 999
   },
   "write_gate": {
     "enabled": true,
@@ -108,6 +110,9 @@
     }
   },
   "usefulness": {
+    "attribution_policy": "v2",
+    "v2_shared_min": 6,
+    "v2_containment_min": 0.0,
     "_doc": "Phase 2 (#2) 注入→使用→結果 閉環效用：Beta-Bernoulli (α,β) + Wilson 下界 + 慢衰減。py↔js 鏡像門檻 (promote_lb/min_n/wilson_z) 與 lib/atom_access.py、server.js SYNC。",
     "enabled": true,
     "lexical_overlap_min": 0.18,
@@ -135,6 +140,8 @@
   "injection": {
     "_doc": "Task 2 Phase C 注入端 relevance gate（context governance 落地）。related_gate 只裁切 related-edge spreading（非 prompt 命中、純連結擴散＝最易成 distractor），主迴圈 trigger/bm25/vector 命中者完全不碰，故不誤殺 prompt 相關或新 atom。憲法 Context Confusion 對策。",
     "related_gate": {
+      "query_gate": "bm25",
+      "query_gate_min": 5,
       "enabled": true,
       "skip_demoted": true,
       "max_related": 6
@@ -278,7 +285,7 @@
     "min_lang_chars": 40
   },
   "version_guard": {
-    "_doc": "版本操作脈絡殘留 warn hook（hooks/version_guard.py，standalone PostToolUse）。Write/Edit 後掃剛寫入的 ~/.claude 內檔，命中高精度版本 pattern（V5 Pxx/Sprint/Wave/方案代號/[vN]·[phaseN] 前綴/[Fxx] 錨）→ warn-only(systemMessage+stderr)，不阻斷。寧漏報不誤報：模糊 pattern（裸 Phase N/日期/v2.x/變更敘事）刻意不收。正位檔(DevHistory/_CHANGELOG/TECH/Architecture/SPEC/plans/verify/_staging)+功能 token(_migrate_v/SCHEMA_VERSION/protocolVersion)豁免。規則 rules/core.md「版本與文件治理」；pattern single source＝atom feedback-live-…。一鍵關=enabled:false 或 mode:off；min_matches=命中幾項才提醒。",
+    "_doc": "版本操作脈絡殘留 warn hook（hooks/version_guard.py，由 guardian PostToolUse 同程序呼叫 run()）。Write/Edit 後掃剛寫入的 ~/.claude 內檔，命中高精度版本 pattern（V5 Pxx/Sprint/Wave/方案代號/[vN]·[phaseN] 前綴/[Fxx] 錨）→ warn-only(systemMessage+stderr)，不阻斷。寧漏報不誤報：模糊 pattern（裸 Phase N/日期/v2.x/變更敘事）刻意不收。正位檔(DevHistory/_CHANGELOG/TECH/Architecture/SPEC/plans/verify/_staging)+功能 token(_migrate_v/SCHEMA_VERSION/protocolVersion)豁免。規則 rules/core.md「版本與文件治理」；pattern single source＝atom feedback-live-…。一鍵關=enabled:false 或 mode:off；min_matches=命中幾項才提醒。",
     "enabled": true,
     "mode": "warn",
     "min_matches": 1
@@ -334,7 +341,6 @@
     "backend": "ollama",
     "max_concurrent": 1,
     "agent_timeout_ms": 180000,
-    "run_full_verify": false,
     "_comment": "記憶自癒(腦內世界 P3)：backend=ollama 本地免費序列；改 cloud + max_concurrent>1 可雲端並行(需接 adapter)"
   },
   "realm": {
@@ -345,26 +351,6 @@
       "max_per_session": 5,
       "min_confidence": 0.7,
       "_comment": "SessionEnd sweep 對詞庫 miss 的 unknown-core atom 喚本地 LLM 判 realm+階層 domain。基礎設施失敗→defer 留原地(不誤降級)；unsure/低信心→Else；local≥min_confidence→搬+學詞。protected 永不喚 LLM。enabled=false 則只跑 deterministic 詞庫(含 learned)。"
-    }
-  },
-  "world_dev": {
-    "_doc": "腦內世界環境演化引擎旋鈕（宣告鏡像）。引擎在前端 world.html(ENGINE 常數)為運行時源，純前端免重啟；mode 經 world-dev.json 持久、?fast=1 / 指令台 worlddev 覆寫。改此處需同步 world.html ENGINE。",
-    "mode": "slow",
-    "direction_gate": 35,
-    "consensus_min": 3,
-    "style2_unlock": 60,
-    "done_at": 80,
-    "modes": {
-      "slow": {
-        "env_chance": 0.01,
-        "pair_chance": 0.05,
-        "dev_step": 1.2
-      },
-      "fast": {
-        "env_chance": 0.55,
-        "pair_chance": 0.75,
-        "dev_step": 6.0
-      }
     }
   },
   "auto_handoff": {
@@ -407,7 +393,7 @@
     "max_scan_files": 20
   },
   "acceptance_spec": {
-    "_doc": "驗收規格工件 hook（hooks/acceptance_spec.py，standalone PostToolUse）。分級啟動：ExitPlanMode（plan 獲同意）→ 注入指示落 <專案根>/.claude/verify/acceptance-<slug>.md（frontmatter 綁定 + 必須發生/禁止發生/驗證指令三段）；無 plan 但同 session 修改 ≥min_files_trigger 檔 → 一次性建議。小任務零打擾。advisory-only 不阻斷；sidecar workflow/acceptance-spec/<sid>.json 保證每 session 每型至多提醒一次。count_exclude_substrings=計檔數時排除的路徑片段（記憶/暫存寫入不算任務檔）。一鍵關=enabled:false。",
+    "_doc": "驗收規格工件 hook（hooks/acceptance_spec.py，由 guardian PostToolUse 同程序呼叫 run()）。分級啟動：ExitPlanMode（plan 獲同意）→ 注入指示落 <專案根>/.claude/verify/acceptance-<slug>.md（frontmatter 綁定 + 必須發生/禁止發生/驗證指令三段）；無 plan 但同 session 修改 ≥min_files_trigger 檔 → 一次性建議。小任務零打擾。advisory-only 不阻斷；sidecar workflow/acceptance-spec/<sid>.json 保證每 session 每型至多提醒一次。count_exclude_substrings=計檔數時排除的路徑片段（記憶/暫存寫入不算任務檔）。一鍵關=enabled:false。",
     "enabled": true,
     "min_files_trigger": 3,
     "count_exclude_substrings": [

@@ -52,7 +52,7 @@ import re
 import subprocess
 import sys
 import tempfile
-import xml.etree.ElementTree as ET
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -562,10 +562,11 @@ def is_installed(cwd: Optional[Path] = None) -> bool:
         return False
 
 
-def install(quiet: bool = False) -> Dict[str, Any]:
-    """各機一次。先寫 attributes 再寫 config（config 存在 ⇒ attributes 已成功），冪等。"""
+def install(quiet: bool = False, attr_info: Optional[Tuple[Path, bool]] = None) -> Dict[str, Any]:
+    """各機一次。先寫 attributes 再寫 config（config 存在 ⇒ attributes 已成功），冪等。
+    attr_info＝已查好的 attributes_file()（--resolve 把讀取階段提前並行，省一個 git 子行程）。"""
     rep: Dict[str, Any] = {"installed": False, "driver": driver_command(), "attributes": "", "error": None}
-    attr, was_set = attributes_file()
+    attr, was_set = attr_info or attributes_file()
     rep["attributes"] = str(attr)
     try:
         attr.parent.mkdir(parents=True, exist_ok=True)
@@ -708,21 +709,45 @@ def _blobs_batch(root: Path, shas: List[str]) -> Dict[str, str]:
     return out
 
 
-def _driver_config_ok() -> bool:
-    """比 is_installed 便宜的安裝判定（一個 git 子行程）：config 有驅動、引號內路徑存在、attributes 標記在。"""
+def _driver_config_ok(drv: str, attr_info: Tuple[Path, bool]) -> bool:
+    """比 is_installed 便宜的安裝判定（零子行程，兩個輸入由 caller 先查）：config 有驅動、引號內路徑存在、attributes 標記在。"""
+    paths = _driver_paths(drv) if drv else []
+    if len(paths) < 2 or not all(Path(p).exists() for p in paths):
+        return False
+    attr, _ = attr_info
+    return attr.exists() and ATTR_MARK in attr.read_text(encoding="utf-8", errors="replace")
+
+
+def _driver_get() -> str:
+    return _git("config", "--global", "--get", f"merge.{DRIVER_NAME}.driver", timeout=2).stdout.strip()
+
+
+def _installed_now() -> bool:
+    """只查現況不裝（2 個 git 子行程），任何錯都當未裝。"""
     try:
-        drv = _git("config", "--global", "--get", f"merge.{DRIVER_NAME}.driver", timeout=2).stdout.strip()
-        paths = _driver_paths(drv) if drv else []
-        if len(paths) < 2 or not all(Path(p).exists() for p in paths):
-            return False
-        attr, _ = attributes_file()
-        return attr.exists() and ATTR_MARK in attr.read_text(encoding="utf-8", errors="replace")
+        return _driver_config_ok(_driver_get(), attributes_file())
     except Exception:
         return False
 
 
+def _finish_install(drv_f: Future, attr_f: Future) -> bool:
+    """順手 install 的寫入階段：先拿只讀階段（兩個並行的 git config --get）結果判已裝，未裝才 install
+    （3 個 git config 寫入）。install 自吞例外；只讀階段炸了就當未裝、讓 install 自己再查。"""
+    try:
+        attr_info: Optional[Tuple[Path, bool]] = attr_f.result()
+        if _driver_config_ok(drv_f.result(), attr_info):
+            return True
+    except Exception:
+        attr_info = None
+    return bool(install(quiet=True, attr_info=attr_info).get("installed"))
+
+
 def _resolve_git(root: Path, rep: Dict[str, Any]) -> None:
-    """git：把驅動套在索引三檔的 unmerged stage 上，寫回工作樹並 git add；順手 install。"""
+    """git：把驅動套在索引三檔的 unmerged stage 上，寫回工作樹並 git add；順手 install。
+    hook 預算 2.5s、Windows 每個 git 子行程約 0.15～0.3s，序列跑 14 個會超時 → 彼此獨立的子行程丟執行緒池同時跑：
+    ls-files →〔check-attr ∥ cat-file 批次 ∥ install 只讀階段〕→〔install 寫入 ∥ 三檔原始衝突輸出重建 ∥ 驅動逐檔合併〕
+    → git add。install 寫入只碰全域 config／attributes，在 check-attr 回來後才起、add 之前收攏：
+    全域 attributes 的寫入不得改變本輪 check-attr 的篩選，add 看到的 attributes 也要是確定的。主執行緒不等只讀階段。"""
     to_add: List[str] = []
     ls = _git_bytes("ls-files", "-u", "-z", cwd=root)
     stages: Dict[str, Dict[int, str]] = {}
@@ -733,52 +758,63 @@ def _resolve_git(root: Path, rep: Dict[str, Any]) -> None:
         mode, sha, stage = meta.decode().split()
         stages.setdefault(path.decode("utf-8", "surrogateescape"), {})[int(stage)] = sha
     targets = [p for p in stages if Path(p).name in RESOLVE_FILES and _path_ok(p)]
-    if targets:
-        chk = _git("check-attr", "merge", "--", *targets, cwd=root)
-        ok_paths = {ln.split(": merge: ")[0] for ln in chk.stdout.splitlines() if ln.endswith(": merge: atomindex")}
-        targets = [p for p in targets if p in ok_paths]
-    blobs = _blobs_batch(root, sorted({sha for p in targets for sha in stages[p].values()}))
-    for rel in targets:
-        st = stages[rel]
-        if 2 not in st or 3 not in st:
-            rep["skipped"].append({"path": rel, "reason": "一側刪除了此檔（缺 stage 2 或 3），請人工決定去留"})
-            rep["remaining"].append(rel)
-            continue
-        base = blobs.get(st[1], "") if 1 in st else ""
-        ours, theirs = blobs.get(st[2], ""), blobs.get(st[3], "")
-        fp = root / rel
-        wt = fp.read_bytes().decode("utf-8-sig", errors="replace").replace("\r\n", "\n") if fp.exists() else None
-        merged, conflicts = _driver_on_texts(base, ours, theirs, rel)
-        untouched = wt is None
-        if wt is not None:
-            wt_n = _strip_marker_labels(wt)
-            # git 原始衝突輸出：依工作樹的標記風格只算需要的那種（有 ||||||| 才算 diff3/zdiff3）
-            styles = ("--diff3", "--zdiff3") if "|||||||" in wt else ("",)
-            candidates = [merged]  # 驅動自己上一輪留下的結果（表格已合、手寫段留標記）
-            for style in styles:
-                try:
-                    candidates.append(textual_merge(base, ours, theirs, style)[0])
-                except Exception:
-                    pass
-            untouched = any(wt_n == _strip_marker_labels(c) for c in candidates)
-        if untouched:
-            _write(str(fp), merged)
-            if conflicts == 0:
-                to_add.append(rel)
-                rep["resolved"].append(rel)
-            else:  # 表格已語意合併、手寫段兩側同改留標記；不 add，交 CC 判斷
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        blobs_f = pool.submit(_blobs_batch, root, sorted({sha for p in targets for sha in stages[p].values()}))
+        drv_f, attr_f = pool.submit(_driver_get), pool.submit(attributes_file)
+        if targets:
+            chk = _git("check-attr", "merge", "--", *targets, cwd=root)
+            ok_paths = {ln.split(": merge: ")[0] for ln in chk.stdout.splitlines() if ln.endswith(": merge: atomindex")}
+            targets = [p for p in targets if p in ok_paths]
+        installed_f = pool.submit(_finish_install, drv_f, attr_f)
+        blobs = blobs_f.result()
+        work: List[Tuple[str, str, str, str, Optional[str]]] = []  # (rel, base, ours, theirs, 工作樹文字)
+        for rel in targets:
+            st = stages[rel]
+            if 2 not in st or 3 not in st:
+                rep["skipped"].append({"path": rel, "reason": "一側刪除了此檔（缺 stage 2 或 3），請人工決定去留"})
                 rep["remaining"].append(rel)
-                rep["skipped"].append({"path": rel, "reason": "表格已合併，表外手寫文字兩側同改，已留 <<<<<<< 標記待判斷"})
-        elif "<<<<<<<" not in wt:
-            if _valid_format(rel, wt):
-                to_add.append(rel)
-                rep["staged_user_version"].append(rel)
+                continue
+            base = blobs.get(st[1], "") if 1 in st else ""
+            fp = root / rel
+            wt = fp.read_bytes().decode("utf-8-sig", errors="replace").replace("\r\n", "\n") if fp.exists() else None
+            work.append((rel, base, blobs.get(st[2], ""), blobs.get(st[3], ""), wt))
+        # git 原始衝突輸出：依工作樹的標記風格只算需要的那種（有 ||||||| 才算 diff3/zdiff3）；
+        # 先全部丟進池，驅動逐檔合併時同時在跑
+        originals = {rel: [pool.submit(textual_merge, base, ours, theirs, style)
+                           for style in (("--diff3", "--zdiff3") if "|||||||" in wt else ("",))]
+                     for rel, base, ours, theirs, wt in work if wt is not None}
+        for rel, base, ours, theirs, wt in work:
+            fp = root / rel
+            merged, conflicts = _driver_on_texts(base, ours, theirs, rel)
+            untouched = wt is None
+            if wt is not None:
+                wt_n = _strip_marker_labels(wt)
+                candidates = [merged]  # 驅動自己上一輪留下的結果（表格已合、手寫段留標記）
+                for f in originals[rel]:
+                    try:
+                        candidates.append(f.result()[0])
+                    except Exception:
+                        pass
+                untouched = any(wt_n == _strip_marker_labels(c) for c in candidates)
+            if untouched:
+                _write(str(fp), merged)
+                if conflicts == 0:
+                    to_add.append(rel)
+                    rep["resolved"].append(rel)
+                else:  # 表格已語意合併、手寫段兩側同改留標記；不 add，交 CC 判斷
+                    rep["remaining"].append(rel)
+                    rep["skipped"].append({"path": rel, "reason": "表格已合併，表外手寫文字兩側同改，已留 <<<<<<< 標記待判斷"})
+            elif "<<<<<<<" not in wt:
+                if _valid_format(rel, wt):
+                    to_add.append(rel)
+                    rep["staged_user_version"].append(rel)
+                else:
+                    rep["remaining"].append(rel)
+                    rep["skipped"].append({"path": rel, "reason": "工作樹版本無標記但格式不合法，未 stage"})
             else:
                 rep["remaining"].append(rel)
-                rep["skipped"].append({"path": rel, "reason": "工作樹版本無標記但格式不合法，未 stage"})
-        else:
-            rep["remaining"].append(rel)
-            rep["skipped"].append({"path": rel, "reason": "工作樹已被手動改過且仍有衝突標記，不覆蓋"})
+                rep["skipped"].append({"path": rel, "reason": "工作樹已被手動改過且仍有衝突標記，不覆蓋"})
+        installed = installed_f.result()
     if to_add:
         add = _git("add", "--", *to_add, cwd=root)
         if add.returncode:
@@ -786,7 +822,7 @@ def _resolve_git(root: Path, rep: Dict[str, Any]) -> None:
             for p in to_add:
                 rep["remaining"].append(p)
             rep["resolved"], rep["staged_user_version"] = [], []
-    rep["installed"] = _driver_config_ok() or bool(install(quiet=True).get("installed"))
+    rep["installed"] = installed
 
 
 # ─── SVN 工作副本：update 停在索引三檔衝突後，套同一套驅動 ─────────────────────
@@ -818,6 +854,7 @@ def _svn_err(r: subprocess.CompletedProcess) -> str:
 
 
 def _svn_entries(r: subprocess.CompletedProcess):
+    import xml.etree.ElementTree as ET  # 只有 svn 路徑用；git 路徑省下 import（hook 預算內每毫秒都算）
     return ET.fromstring(r.stdout).iter("entry") if r.stdout.strip() else iter(())
 
 
@@ -861,41 +898,43 @@ def _svn_conflict_sources(root: Path, rels: List[str]) -> Dict[str, Tuple[str, s
 
 
 def _resolve_svn(root: Path, start: Path, rep: Dict[str, Any]) -> None:
-    dirs = _wg_core().memory_dir_candidates(start, root)
-    targets = _svn_conflicted_index_files(root, dirs) if dirs else []
-    sources = _svn_conflict_sources(root, targets) if targets else {}
-    to_resolve: List[str] = []
-    for rel in targets:
-        src = sources.get(rel)
-        if not src or not all(Path(p).exists() for p in src):
-            rep["skipped"].append({"path": rel, "reason": "非文字衝突或衝突來源檔（.mine/.rN）已不在，請人工處理"})
-            rep["remaining"].append(rel)
-            continue
-        mine, base, theirs = (_read(p) for p in src)
-        fp = root / rel
-        wt = _read(str(fp)) if fp.exists() else None
-        merged, conflicts = _driver_on_texts(base, mine, theirs, rel)
-        if wt is None or "<<<<<<<" in wt:
-            _write(str(fp), merged)
-            if conflicts == 0:
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        installed_f = pool.submit(_installed_now)  # 只讀 git 全域 config、與 svn 工作無關 → 一開始就併行（省 2 個子行程的等待）
+        dirs = _wg_core().memory_dir_candidates(start, root)
+        targets = _svn_conflicted_index_files(root, dirs) if dirs else []
+        sources = _svn_conflict_sources(root, targets) if targets else {}
+        to_resolve: List[str] = []
+        for rel in targets:
+            src = sources.get(rel)
+            if not src or not all(Path(p).exists() for p in src):
+                rep["skipped"].append({"path": rel, "reason": "非文字衝突或衝突來源檔（.mine/.rN）已不在，請人工處理"})
+                rep["remaining"].append(rel)
+                continue
+            mine, base, theirs = (_read(p) for p in src)
+            fp = root / rel
+            wt = _read(str(fp)) if fp.exists() else None
+            merged, conflicts = _driver_on_texts(base, mine, theirs, rel)
+            if wt is None or "<<<<<<<" in wt:
+                _write(str(fp), merged)
+                if conflicts == 0:
+                    to_resolve.append(rel)
+                    rep["resolved"].append(rel)
+                else:
+                    rep["remaining"].append(rel)
+                    rep["skipped"].append({"path": rel, "reason": "表格已合併，表外手寫文字兩側同改，已留 <<<<<<< 標記待判斷"})
+            elif _valid_format(rel, wt):
                 to_resolve.append(rel)
-                rep["resolved"].append(rel)
+                rep["staged_user_version"].append(rel)
             else:
                 rep["remaining"].append(rel)
-                rep["skipped"].append({"path": rel, "reason": "表格已合併，表外手寫文字兩側同改，已留 <<<<<<< 標記待判斷"})
-        elif _valid_format(rel, wt):
-            to_resolve.append(rel)
-            rep["staged_user_version"].append(rel)
-        else:
-            rep["remaining"].append(rel)
-            rep["skipped"].append({"path": rel, "reason": "工作副本版本無標記但格式不合法，未標記 resolved"})
-    if to_resolve:
-        r = _svn("resolve", "--accept", "working", "--", *to_resolve, cwd=root)
-        if r.returncode:
-            rep["error"] = f"svn resolve 失敗：{_svn_err(r)}"
-            rep["remaining"].extend(to_resolve)
-            rep["resolved"], rep["staged_user_version"] = [], []
-    rep["installed"] = _driver_config_ok()  # svn 無驅動可裝；只回報 git 端現況
+                rep["skipped"].append({"path": rel, "reason": "工作副本版本無標記但格式不合法，未標記 resolved"})
+        if to_resolve:
+            r = _svn("resolve", "--accept", "working", "--", *to_resolve, cwd=root)
+            if r.returncode:
+                rep["error"] = f"svn resolve 失敗：{_svn_err(r)}"
+                rep["remaining"].extend(to_resolve)
+                rep["resolved"], rep["staged_user_version"] = [], []
+    rep["installed"] = installed_f.result()  # svn 無驅動可裝；只回報 git 端現況
 
 
 def resolve(cwd: Path, quiet: bool = False) -> Tuple[Dict[str, Any], int]:
@@ -909,11 +948,7 @@ def resolve(cwd: Path, quiet: bool = False) -> Tuple[Dict[str, Any], int]:
         if vcs[0] == "svn":
             _resolve_svn(vcs[1], cwd, rep)
         else:
-            top = _git("rev-parse", "--show-toplevel", cwd=cwd)
-            if top.returncode:
-                rep["error"] = "不在 git repo 內"
-                return rep, 1
-            _resolve_git(Path(top.stdout.strip()), rep)
+            _resolve_git(vcs[1], rep)  # find_vcs_root 找到的 .git 所在層＝rev-parse --show-toplevel，省一個子行程
     except subprocess.TimeoutExpired as e:
         rep["error"] = f"git/svn 逾時：{e}"
     except Exception as e:  # noqa: BLE001

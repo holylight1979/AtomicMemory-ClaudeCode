@@ -1,0 +1,70 @@
+
+======== A. 效用率（去 Laplace prior 後） ========
+live sidecar(非 _distant): 227  distant: 409
+從未被注入(read_hits=0 且無 timestamps): 22/227 = 9.7%
+有效用樣本 n>0: 164/227；n>=3 且 succ=0: 1 [('驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase.access', 3.0)]
+useful 率分布(去 prior): {'0': 13, '<.75': 68, '<=1': 51, '<.5': 22, '<.25': 10}
+近 30 天有注入 timestamps: 191/227 = 84.1%
+
+======== B. [臨] >60 天且效用樣本 n<3 ========
+[臨] first_seen >60 天: 31；其中效用樣本 n<3（升不了門）: 17；樣本: [('feedback-atom-write-initial-confidence', '2026-05-28', 1.4, 34), ('給予的技術回饋必須具備高可行動性-聚焦於流程與思考過程-如-為什麼這樣設計-並', '2026-06-23', 1.4, 6), ('windows-python-write-text-缺-newline-把-lf', '2026-07-01', 1.3, 3), ('anti-evasion-hud-設計脊柱與強化前必讀', '2026-07-06', 0.4, 2), ('atom-move-v5-sot-correct-化與半遷移工具辨識', '2026-06-26', 0.4, 3), ('atom-usefulness-loop', '2026-06-01', 1.7, 16), ('atom-元資料編輯與晉升閘真相', '2026-06-02', 1.6, 39), ('auto-capture碎片sweep污染詞庫-defer根治', '2026-06-24', 1.8, 6)]
+
+======== C. PAN 閘週趨勢 (guard-pre-action-notice) ========
+  2026-W32: total  194 pass 29.4% warn 34.5% force_release  8.8% fail_open 9
+  2026-W33: total  327 pass 27.5% warn 52.0% force_release 15.9% fail_open 15
+  2026-W34: total  284 pass 43.3% warn 46.1% force_release  9.5% fail_open 3
+  2026-W35: total  400 pass 30.2% warn 54.2% force_release 14.8% fail_open 3
+  2026-W36: total  432 pass 34.3% warn 46.8% force_release 14.8% fail_open 18
+  2026-W37: total  247 pass 40.1% warn 48.6% force_release 10.9% fail_open 1
+  2026-W38: total  172 pass 55.8% warn 37.8% force_release  6.4% fail_open 0
+  2026-W39: total   17 pass 41.2% warn 41.2% force_release 17.6% fail_open 0
+  turn 數 1141：第一次工具呼叫就 pass 498 (44%)；先 warn 後補到 pass 237；warn 到底沒補 378
+
+======== D. git 首次加入日期：各目錄近 30/60/90 天新增檔數（ctime 不可信，改 git） ========
+  Failures           累計加入   35  近30/60/90: 35/35/35
+  episodic(global)   累計加入    1  近30/60/90: 0/0/0
+  global atoms       累計加入  168  近30/60/90: 39/62/66
+  local atoms        累計加入   86  近30/60/90: 35/49/70
+  現存 Failures 依首次 commit 訊息: [('feat(memory): 核心記憶分類階層化 S3 遷移——memory/ 平鋪→範疇資料夾、Failures 家族進', 26), ('chore(memory): 動手前預告契約對齊閘門——查讀回合也要報、預告單獨一則；他 session 13 顆 at', 2), ('fix(contract): 「上GIT＝commit+push」契約偏移根治——USER 縮寫指令寫成完整契約、pre', 1), ('chore(memory): 收尾記憶——git 合併與換行實證事實、強迫選擇即退避／自動化承諾、hook 呼叫外部工具', 1), ('fix(memory): atom scope 讀取端封閉（Phase 1）— 他專案 atom 不進候選池、perso', 1), ('fix(memory): 注入變弱根治——per-turn 硬頂 500→1200 + 降級版保留知識節錄 + 效果量測', 1), ('feat(guardian): Stop DeferralGate——退縮歸屬程式化擋回（主任務完工且 context ', 1), ('feat(memory): 核心記憶分類階層化 S4 寫入閘——create 先分類再落地、自動分類器、JS 快速失敗、', 1)]
+
+======== E. skill 被 hook/tool 程式碼引用（程式化觸發，不經 Skill tool） ========
+  /atom-debug             hook引用 3 檔 ['hooks/handlers/session_start.py', 'hooks/handlers/user_prompt_submit.py']  | 目錄 1 檔 1KB
+  /browse-sprites         hook引用 0 檔 []  | 目錄 1 檔 4KB
+  /changelog-debug        hook引用 0 檔 []  | 目錄 1 檔 1KB
+  /codex-companion        hook引用 2 檔 ['hooks/codex_companion.py', 'tools/codex-companion/backtest_acceptance.py']  | 目錄 1 檔 2KB
+  /conflict               hook引用 5 檔 ['tools/conflict-review.py', 'tools/journal-aggregate.py']  | 目錄 1 檔 4KB
+  /consciousness-stream   hook引用 0 檔 []  | 目錄 1 檔 4KB
+  /continue               hook引用 7 檔 ['hooks/codex_companion.py', 'hooks/handlers/post_tool_batch.py']  | 目錄 1 檔 3KB
+  /extract                hook引用 3 檔 ['tools/cleanup-projects-residue.py', 'tools/memory-vector-service/service.py']  | 目錄 1 檔 3KB
+  /fix-escalation         hook引用 2 檔 ['hooks/handlers/stop.py', 'hooks/handlers/user_prompt_submit.py']  | 目錄 1 檔 6KB
+  /generate-episodic      hook引用 0 檔 []  | 目錄 1 檔 1KB
+  /handoff                hook引用 6 檔 ['hooks/codex_companion.py', 'hooks/handlers/user_prompt_submit.py']  | 目錄 1 檔 7KB
+  /harvest                hook引用 0 檔 []  | 目錄 1 檔 5KB
+  /heal-review            hook引用 2 檔 ['tools/heal-review.py', 'tools/workflow-guardian-mcp/server.js']  | 目錄 1 檔 3KB
+  /journal                hook引用 0 檔 []  | 目錄 1 檔 3KB
+  /karpathy-guidelines    hook引用 0 檔 []  | 目錄 1 檔 2KB
+  /memory                 hook引用 34 檔 ['hooks/handlers/post_tool_use.py', 'hooks/handlers/pre_tool_use.py']  | 目錄 1 檔 8KB
+  /read-project           hook引用 0 檔 []  | 目錄 1 檔 5KB
+  /refile                 hook引用 1 檔 ['tools/realm_llm_classify.py']  | 目錄 4 檔 34KB
+  /skill-creator          hook引用 0 檔 []  | 目錄 14 檔 64KB
+  /synced                 hook引用 0 檔 []  | 目錄 207 檔 3650KB
+  /upgrade                hook引用 0 檔 []  | 目錄 1 檔 13KB
+  /vector                 hook引用 10 檔 ['hooks/handlers/session_end.py', 'hooks/handlers/session_start.py']  | 目錄 1 檔 2KB
+
+======== F. atom-debug ERROR 爆發分析（同秒多筆＝pytest 產生的噪音） ========
+  session_end:recall_miss                  總  336 不同秒 105 爆發秒(>=3筆)  79 單筆秒  16 最早 2026-08-26 最晚 2026-09-18
+  session_start:unpushed_advisory          總   89 不同秒  89 爆發秒(>=3筆)   0 單筆秒  89 最早 2026-08-26 最晚 2026-09-18
+  session_start:health_advisory            總   84 不同秒  84 爆發秒(>=3筆)   0 單筆秒  84 最早 2026-08-26 最晚 2026-09-18
+  guard_log:evasion                        總   81 不同秒  81 爆發秒(>=3筆)   0 單筆秒  81 最早 2026-08-26 最晚 2026-09-18
+  usefulness:embed_cosine                  總   45 不同秒  45 爆發秒(>=3筆)   0 單筆秒  45 最早 2026-08-24 最晚 2026-09-17
+  post_tool_use:docdrift_prune             總   44 不同秒  44 爆發秒(>=3筆)   0 單筆秒  44 最早 2026-09-18 最晚 2026-09-18
+  episodic:purge_one                       總   31 不同秒   3 爆發秒(>=3筆)   3 單筆秒   0 最早 2026-08-28 最晚 2026-08-28
+  session_start:personal_sync_advisory     總   30 不同秒  30 爆發秒(>=3筆)   0 單筆秒  30 最早 2026-09-01 最晚 2026-09-18
+  注入:_search_episodic_context              總   14 不同秒  14 爆發秒(>=3筆)   0 單筆秒  14 最早 2026-08-24 最晚 2026-09-05
+  workflow-guardian:PostToolUse            總    9 不同秒   8 爆發秒(>=3筆)   0 單筆秒   7 最早 2026-09-03 最晚 2026-09-03
+  workflow-guardian:SessionStart           總    8 不同秒   8 爆發秒(>=3筆)   0 單筆秒   8 最早 2026-08-24 最晚 2026-09-17
+  extract_worker:transcript_read           總    8 不同秒   8 爆發秒(>=3筆)   0 單筆秒   8 最早 2026-08-24 最晚 2026-09-14
+
+======== G. session 規模 ========
+近 30 天有 PAN 記錄的 session: 99
+近 30 天 transcript 檔: 183  依專案: [('subagents', 80), ('c--users-holylight--claude', 41), ('c--projects', 35), ('d--AI-PLAY-MudClient-withAI', 9), ('c--Users-holylight--grok', 5), ('c--TSLG', 4)]

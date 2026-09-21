@@ -142,6 +142,46 @@ def _scan_text_for_tool(tool_name: str, tool_input: Dict[str, Any]) -> str:
     return "\n".join(parts)[:_SCAN_TEXT_CAP]
 
 
+_state_for_turn_lookup: Dict[str, Dict[str, Any]] = {}  # 由 rescue_hits_for_turn_from_state 注入
+
+
+def rescue_hits_for_turn_from_state(state: Dict[str, Any], turn_seq: int) -> Dict[str, List[str]]:
+    """直接從 state 取本 turn 命中（Stop 端已有 state 物件時用這個，不讀 log）。"""
+    by_turn = (state.get("rescue_hits_by_turn") or {}).get(str(int(turn_seq))) or {}
+    return {a: list(toks) for a, toks in by_turn.items()}
+
+
+def rescue_hits_for_turn(
+    session_id: str, turn_seq: int, *, log_path: Optional[Path] = None, tail_bytes: int = 256_000,
+) -> Dict[str, List[str]]:
+    """本 session 本 turn 的 rescue 命中：atom → [token…]（供 Stop 判用 v2 當行動證據）。
+
+    優先讀 state 內的 `rescue_hits_by_turn`（check_rescue_hits 每次命中同步寫，不受共享 log 大小影響）；
+    沒有（升級前 in-flight）才退回讀 log 尾段。fail-open 回 {}。"""
+    out: Dict[str, List[str]] = {}
+    state = _state_for_turn_lookup.get(session_id) if isinstance(_state_for_turn_lookup, dict) else None
+    if state is not None:
+        by_turn = (state.get("rescue_hits_by_turn") or {}).get(str(int(turn_seq)))
+        if by_turn:
+            return {a: list(toks) for a, toks in by_turn.items()}
+    lp = log_path or RESCUE_LOG
+    try:
+        with open(lp, "rb") as f:
+            f.seek(max(0, lp.stat().st_size - tail_bytes))
+            chunk = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return out
+    for line in chunk.splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if rec.get("session_id") != session_id or int(rec.get("turn_seq", -1)) != int(turn_seq):
+            continue
+        out.setdefault(str(rec.get("atom", "")), []).append(str(rec.get("token", "")))
+    return out
+
+
 def check_rescue_hits(
     state: Dict[str, Any],
     session_id: str,
@@ -185,6 +225,11 @@ def check_rescue_hits(
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             hit_keys.append(dedupe)
             written += 1
+            # 同步進 state（本 turn 的判用證據）：只留最近 3 個 turn，避免 state 膨脹
+            by_turn = state.setdefault("rescue_hits_by_turn", {})
+            by_turn.setdefault(str(rec["turn_seq"]), {}).setdefault(atom_name, []).append(tok)
+            for old in sorted(by_turn.keys(), key=lambda k: int(k) if str(k).isdigit() else -1)[:-3]:
+                by_turn.pop(old, None)
         except Exception as e:
             _atom_debug_error("rescue:write", e)
     return written

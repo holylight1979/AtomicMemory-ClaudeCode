@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: Opus, 雙 Claude, 監工, 主力寫碼, 交叉驗證, 分工提案, 無人值守, 夜班, 預先 ok, 實機一輪, to-opus, to-fable, 雙 session
 - Created-at: 2026-08-26
-- Related: grok協作實戰認知-特質與監工分工手感, 並行llm即時通訊-inbox機制, 混改檔hunk級選擇性staging, 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過, 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源, 實驗性改動的復原要驗回快照-送一次指令不算復原
+- Related: grok協作實戰認知-特質與監工分工手感, 並行llm即時通訊-inbox機制, 混改檔hunk級選擇性staging, 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過, 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源, 實驗性改動的復原要驗回快照-送一次指令不算復原, 多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地
 
 ## 知識
 

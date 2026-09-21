@@ -469,7 +469,8 @@ def _unpushed_advisory() -> list:
         ]
     except Exception as e:
         _atom_debug_error("session_start:unpushed_advisory", e)
-        return []
+        # fail-open 但要告知：這個檢查曾靜默 crash 三週沒人知道
+        return [f"[Guardian:Sync] ⚠ 未 push 檢查失敗（{type(e).__name__}）——見 atom-debug log；手動 git status 確認。"]
 
 
 def _index_conflict_advisory(cwd: str) -> list:
@@ -639,7 +640,7 @@ def _personal_sync_advisory(project_mem_dir, user: str) -> list:
         return out
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("session_start:personal_sync_advisory", e)
-        return []
+        return [f"[Guardian:PersonalSync] ⚠ personal 同步檢查失敗（{type(e).__name__}）——見 atom-debug log。"]
 
 
 _ROOT_ASK_CMD = "python ~/.claude/tools/project-tree.py"
@@ -685,6 +686,38 @@ _CARRY_ON_REBUILD = (
     "modified_files", "accessed_files", "vcs_queries", "knowledge_queue", "sync_pending",
     "stop_blocked_count", "topic_tracker", "session_context_injected",
 )
+
+
+def _next_phase_pointer(cwd: str, source: str) -> list:
+    """壓縮／恢復後的接續指標：找最新的 `_staging/next-phase-*.md`（專案層優先，其次根層），
+    一行叫模型先 Read 它並覆述現狀＋下一步。壓縮會丟掉對話裡的計畫脈絡；這個檔是單一權威狀態，
+    不靠模型記得「該去讀」。找不到就不吵。fail-open。"""
+    try:
+        from wg_core import resolve_staging_dir
+        cands = []
+        dirs = []
+        try:
+            dirs.append(resolve_staging_dir(cwd))
+        except Exception:
+            pass
+        dirs.append(MEMORY_DIR / "_staging")
+        seen = set()
+        for d in dirs:
+            if not d or str(d) in seen or not Path(d).is_dir():
+                continue
+            seen.add(str(d))
+            cands += [p for p in Path(d).glob("next-phase-*.md") if p.is_file()]
+        if not cands:
+            return []
+        newest = max(cands, key=lambda p: p.stat().st_mtime)
+        why = "context 剛壓縮" if source == "compact" else "session 恢復"
+        return [
+            f"[Guardian:Resume] {why}：對話裡的計畫脈絡可能已失真 → 先 `Read {newest.as_posix()}`"
+            "（最新交接檔），用一句話覆述現狀＋下一步再動工。"
+        ]
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("session_start:next_phase_pointer", e)
+        return []
 
 
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -750,6 +783,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             f"[Workflow Guardian] Session resumed ({source}). Phase: {phase}.",
             f"Modified files: {mod_count}. Knowledge queue: {kq_count}.",
             *root_lines,
+            *_next_phase_pointer(cwd, source),
         ]
         if mod_count > 0:
             files = [m["path"].rsplit("/", 1)[-1] for m in state["modified_files"][-5:]]
@@ -846,6 +880,21 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except OSError:
                 project_slug = cwd_to_project_slug(str(project_root))
 
+        # 被取代（Supersedes）的舊卡名單：每 session 算一次，UPS 候選池／Related／子代理注入共用
+        try:
+            from wg_atoms import collect_superseded_names
+            _pool = [((n, p, t), MEMORY_DIR.parent) for n, p, t in global_atoms]
+            if project_mem_dir:
+                # base 規則與 ups_search.collect_matched_atoms 一致：`_AIAtoms/` 相對專案根，其餘相對 .claude
+                _proj_parent = Path(project_mem_dir).parent
+                for n, p, t in project_atoms_merged:
+                    _base = project_root if (p.startswith("_AIAtoms/") and project_root) else _proj_parent
+                    _pool.append(((n, p, t), Path(_base)))
+            superseded_names = sorted(collect_superseded_names(_pool))
+        except Exception as e:
+            _atom_debug_error("session_start:superseded", e)
+            superseded_names = []
+
         state["atom_index"] = {
             "global": [(n, p, t) for n, p, t in global_atoms],
             "project": [(n, p, t) for n, p, t in project_atoms_merged],
@@ -854,6 +903,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "project_root_fingerprint": root_res.fingerprint if root_res else "",
             "project_slug": project_slug,
             "scopes": atom_scopes,
+            "superseded": superseded_names,
         }
         state["injected_atoms"] = []
         if not root_rebuilt:

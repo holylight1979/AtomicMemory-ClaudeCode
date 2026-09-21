@@ -32,7 +32,7 @@ from pathlib import Path
 for _name in ("stdout", "stderr"):
     _s = getattr(sys, _name)
     if _s is None:
-        setattr(sys, _name, open(os.devnull, "w", encoding="utf-8"))
+        setattr(sys, _name, open(os.devnull, "w", encoding="utf-8", newline="\n"))
     else:
         _s.reconfigure(encoding="utf-8", errors="replace")
 
@@ -159,7 +159,7 @@ def _pick_save_dir(result: dict) -> Path:
 
 def _finish(result: dict) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    LAST_RUN.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    LAST_RUN.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
     with LOG.open("a", encoding="utf-8") as f:
         f.write(json.dumps(result, ensure_ascii=False) + "\n")
     if result["ok"]:

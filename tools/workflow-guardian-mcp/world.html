@@ -978,7 +978,7 @@ const ENGINE = {
   CROSS_MAX: 2,                  // 同時最多幾隻在外串門子
   VISIT_TTL: 26,                 // 單次串門子壽命（秒，rAF 時鐘；逾時強制歸位）
   VISIT_STAY_SLOW: 8, VISIT_STAY_FAST: 4,   // 到站後作客停留秒數
-  modes: {                       // 雙軌倍率（config.json world_dev 為宣告鏡像，前端為運行時源；純前端免重啟）
+  modes: {                       // 雙軌倍率（此處為唯一來源；config.json 不鏡像，純前端免重啟）
     //   ★活動驅動·慢：dev 累加「只」靠生物行為——蓋房子(maybeBuild 走工地) / 同區對談(contributeEnv) / 串門子(crossInject)。
     //     engineTick 不再呼 RNG diffuse（閒置≈凍結、每一步都看得到是哪隻生物造成）。env_chance 只決定「何時種下要蓋什麼」的提案。
     //     pair_chance 保留欄位但已不驅動 dev（=0）。fast 只加快蓋房子頻率/種子，不動 LLM 節奏。

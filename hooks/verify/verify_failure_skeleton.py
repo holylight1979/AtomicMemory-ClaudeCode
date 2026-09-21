@@ -157,3 +157,115 @@ def test_writeback_dedup_second_time(patched_dir):
     target = patched_dir / "驗證與實證" / "silent-failures-驗證與實證.md"
     text = target.read_text(encoding="utf-8")
     assert text.count("**始末**") == 1
+
+
+# ─── provenance：reader 保留來源識別、萃取項對回原段、骨架寫 src 註解 ─────────
+
+import json as _json
+
+_SID = "127e56a5-eba1-4a53-bdc2-2b960666ddf5"
+_SEG_A = ("PreToolUse 閘門把 tools/usage-snapshot 的 LF 檢查誤判成 CRLF 違規，"
+          "因為 verify_lf_writes 讀的是 git index 而不是工作樹內容，重跑 run_verify 就會浮出。")
+_SEG_B = ("Ollama 向量服務啟動時 LanceDB 的 schema 版本不合，vector_service 會靜默退回純 BM25，"
+          "統計裡 vector_hits 恆 0 卻沒有任何警告訊號。")
+
+
+def _write_transcript(tmp_path, rows):
+    p = tmp_path / "t.jsonl"
+    p.write_text("\n".join(_json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+                 encoding="utf-8")
+    return p
+
+
+def _assistant(text, uuid="", ts="2026-09-21T06:42:45.711Z"):
+    row = {"type": "assistant", "timestamp": ts,
+           "message": {"content": [{"type": "text", "text": text}]}}
+    if uuid:
+        row["uuid"] = uuid
+    return row
+
+
+def test_reader_keeps_record_uuid_and_offset(tmp_path):
+    """每段帶 transcript 紀錄 uuid/ts；user 列、短文字跳過；缺 uuid 留空不補造；
+    max_chars 中斷後 final_offset 仍前進（舊版 for-in 迭代中 tell() 會炸、offset 退回原值）。"""
+    rows = [
+        {"type": "user", "uuid": "u-1", "message": {"content": "使用者說了一段夠長的話但不是 assistant 不該被讀進來"}},
+        _assistant(_SEG_A, uuid="aaaaaaaa-1111"),
+        _assistant("短", uuid="bbbbbbbb-2222"),
+        _assistant(_SEG_B),  # 無 uuid
+        _assistant("第三段夠長的 assistant 文字，用來確認 max_chars 中斷後 offset 有前進。" * 2,
+                   uuid="cccccccc-3333"),
+    ]
+    p = _write_transcript(tmp_path, rows)
+    segs, off = ew._read_assistant_segments(p)
+    assert [s["uuid"] for s in segs] == ["aaaaaaaa-1111", "", "cccccccc-3333"]
+    assert segs[0]["ts"].startswith("2026-09-21") and segs[0]["text"] == _SEG_A
+    assert off == p.stat().st_size
+    # 舊介面仍是純文字清單
+    texts, off2 = ew._extract_all_assistant_texts(p)
+    assert texts == [s["text"] for s in segs] and off2 == off
+    # max_chars 命中即停：offset 要落在第二段之後、檔尾之前，且能從該處續讀到第三段
+    segs_cut, off_cut = ew._read_assistant_segments(p, max_chars=len(_SEG_A) + 10)
+    assert [s["uuid"] for s in segs_cut] == ["aaaaaaaa-1111", ""]
+    assert 0 < off_cut < p.stat().st_size
+    rest, _ = ew._read_assistant_segments(p, byte_offset=off_cut)
+    assert [s["uuid"] for s in rest] == ["cccccccc-3333"]
+
+
+def test_attach_sources_resolves_or_leaves_empty():
+    """對得回 → sources=[sid8#uuid8]；對不回 → []（不補造）；LLM 沒看到的段不可當來源。"""
+    segs = [{"text": _SEG_A, "uuid": "aaaaaaaa-1111", "ts": ""},
+            {"text": _SEG_B, "uuid": "bbbbbbbb-2222", "ts": ""}]
+    items = [
+        {"content": "verify_lf_writes 讀 git index 不讀工作樹 → tools/usage-snapshot LF 被誤判 CRLF 違規 → 改讀工作樹（根因: PreToolUse 閘門資料來源錯）"},
+        {"content": "LanceDB schema 版本不合 → vector_service 靜默退回 BM25、vector_hits 恆 0 → 啟動時檢查 schema 並告警（根因: 無警告訊號）"},
+        {"content": "煮雞湯火候太大 → 湯變濁 → 轉小火慢燉（根因: 沸騰過度）"},
+    ]
+    ew._attach_failure_sources(items, segs, _SID, 3000)
+    assert items[0]["sources"] == ["127e56a5#aaaaaaaa"]
+    assert items[1]["sources"] == ["127e56a5#bbbbbbbb"]
+    assert items[2]["sources"] == [] and items[2]["source_session"] == "127e56a5"
+    # 第二段在 3000 字窗之外（LLM 沒看到）→ 不得成為來源
+    far = [{"text": "x" * 3100, "uuid": "ffffffff-0000", "ts": ""}] + segs
+    items2 = [{"content": items[1]["content"]}]
+    ew._attach_failure_sources(items2, far, _SID, 3000)
+    assert items2[0]["sources"] == []
+    # 段缺 uuid → 沒有識別可引用，不得寫出「#」空殼
+    nouuid = [{"text": _SEG_B, "uuid": "", "ts": ""}]
+    items3 = [{"content": items[1]["content"]}]
+    ew._attach_failure_sources(items3, nouuid, _SID, 3000)
+    assert items3[0]["sources"] == []
+
+
+def test_skeleton_src_comment_modes():
+    """有來源 → `<!-- src: … -->`；對不回 → 明示 unresolved；呼叫端沒做對回 → 無來源行。
+    註解行不是 `- ` 開頭、不干擾 _failure_dedup_hit。"""
+    with_src = ew._build_failure_skeleton("A → B → C", [], "2026-09-21",
+                                          sources=["127e56a5#aaaaaaaa"], source_session="127e56a5")
+    lines = with_src.split("\n")
+    i = next(i for i, ln in enumerate(lines) if "**始末**" in ln)
+    assert lines[i + 1].strip() == "<!-- src: 127e56a5#aaaaaaaa -->"
+    assert not lines[i + 1].lstrip().startswith("- ")
+    unresolved = ew._build_failure_skeleton("A → B → C", [], "2026-09-21",
+                                            sources=[], source_session="127e56a5")
+    assert "<!-- src: 127e56a5#unresolved 未對回原句 -->" in unresolved
+    plain = ew._build_failure_skeleton("A → B → C", [], "2026-09-21")
+    assert "<!--" not in plain
+    # 沒 session 也沒來源 → 不寫任何 src 行（沒有可核對的東西就不寫）
+    assert "<!--" not in ew._build_failure_skeleton("A → B → C", [], "2026-09-21", sources=[])
+    assert ew._failure_dedup_hit(with_src, "A → B → C")
+
+
+def test_writeback_persists_src_and_still_dedups(patched_dir):
+    item = {
+        "content": "改 hook 沒清 pyc → 跑到舊碼 → 清 __pycache__（根因: import 快取）",
+        "failure_type": "env", "domain_tags": ["hooks"],
+        "sources": ["127e56a5#aaaaaaaa"], "source_session": "127e56a5",
+    }
+    ctx = {"cwd": "", "config": {}}
+    ew._failure_writeback(ctx, [item])
+    ew._failure_writeback(ctx, [item])
+    target = patched_dir / "OS-Windows" / "env-traps-os-windows.md"
+    text = target.read_text(encoding="utf-8")
+    assert text.count("<!-- src: 127e56a5#aaaaaaaa -->") == 1
+    assert text.count("**始末**") == 1

@@ -41,12 +41,12 @@
     {
       "name": "extract",
       "dir": "extract",
-      "description": "手動知識萃取：從當前對話抽取 atom（補 LLM 自動萃取漏網）"
+      "description": "手動知識萃取：從當前對話整理值得留的知識，逐項確認後走 atom_write 寫入"
     },
     {
       "name": "fix-escalation",
       "dir": "fix-escalation",
-      "description": "精確修正升級協議（Fix Escalation Protocol）— 反覆修不好時升級到更深層分析"
+      "description": "精確修正升級協議（Fix Escalation Protocol）— 反覆修不好時先根因調查＋獨立驗證，證據矛盾才擴大到多代理會議"
     },
     {
       "name": "generate-episodic",
@@ -86,7 +86,7 @@
     {
       "name": "read-project",
       "dir": "read-project",
-      "description": "專案文件閱讀與知識截錄：跨檔讀懂專案並提取重點到 atom"
+      "description": "專案文件閱讀與知識截錄：跨檔讀懂專案，導覽目錄寫成 _AIDocs/DocIndex 文件，不可再生的決策與踩坑才寫 atom"
     },
     {
       "name": "refile",

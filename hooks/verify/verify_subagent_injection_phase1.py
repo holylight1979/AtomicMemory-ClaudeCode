@@ -8,7 +8,8 @@
 4. PostToolUse `_record_subagent_injection` 從注入後 prompt 無狀態回推 atom 清單，
    keyed by agentId，擷取 content 摘要（capped）；無 marker → 不記錄。
 5. 端到端 round-trip：build → 模擬 tool_response → record 回推一致。
-6. 結構守門：PreToolUse 有 Agent/Task 分支且用 updatedInput（CC 版本相依欄位，probe 已驗）；
+6. fork 子代理（繼承父對話）只補父 context 沒有的 atom；一般子代理不繼承 → 不套 already_injected。
+7. 結構守門：PreToolUse 有 Agent/Task 分支且用 updatedInput（CC 版本相依欄位，probe 已驗）；
    settings.json Pre+Post matcher 含 Agent|Task。
 
 純函式 + 受控 tmp 索引，不依賴磁碟既有 atom。
@@ -17,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -28,6 +30,7 @@ sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(CLAUDE / "lib"))
 
 import wg_atoms  # noqa: E402
+import handlers.pre_tool_use as ptu  # noqa: E402
 from handlers.post_tool_use import (  # noqa: E402
     _record_subagent_injection,
     _extract_agent_output_summary,
@@ -236,6 +239,59 @@ def test_roundtrip_build_then_record(patched_memory):
     state: dict = {}
     _record_subagent_injection(state, _fake_input(sub_agent_prompt, agent_id="rt1"))
     assert state["subagent_injections"][0]["atoms"] == injected
+
+
+# ─── PreToolUse handler：fork 子代理去重（只 fork，不套一般子代理）────────────
+
+
+def _run_pretool(monkeypatch, tool_input: dict, parent_injected: list[str]):
+    """跑 handle_pre_tool_use 的 Agent 分支；回 (updatedInput 的 prompt 或 None, read_state 被查的 sid 清單)。"""
+    outs: list[dict] = []
+    reads: list[str] = []
+    monkeypatch.setattr(ptu, "output_json", lambda d: outs.append(d))
+    monkeypatch.setattr(ptu, "output_nothing", lambda: None)
+
+    def _read_state(sid):
+        reads.append(sid)
+        return {"injected_atoms": list(parent_injected)}
+
+    monkeypatch.setattr(ptu, "read_state", _read_state)
+    ptu.handle_pre_tool_use({"session_id": "sid-fork", "tool_name": "Agent", "tool_input": tool_input}, {})
+    prompt = outs[0]["hookSpecificOutput"]["updatedInput"]["prompt"] if outs else None
+    return prompt, reads
+
+
+def _injected_names(prompt: str) -> list[str]:
+    m = re.search(r"atoms=(\S+)", prompt)
+    return m.group(1).split(",") if m else []
+
+
+def test_fork_does_not_reinject_parent_atoms(patched_memory, monkeypatch):
+    """fork 繼承父對話：父已注入 alpha → fork prompt 只命中 alpha 時不再 prepend（updatedInput 不出）。"""
+    prompt, reads = _run_pretool(
+        monkeypatch, {"subagent_type": "fork", "prompt": "處理 alphakeyword"}, ["alpha-atom"])
+    assert prompt is None
+    assert reads == ["sid-fork"], "fork 必須讀 state 拿父 context 已注入清單"
+
+
+def test_fork_still_injects_new_atoms(patched_memory, monkeypatch):
+    """fork 仍要補父 context 沒有的：父已注入 alpha，prompt 命中 alpha+beta → 只注 beta。"""
+    prompt, _reads = _run_pretool(
+        monkeypatch, {"subagent_type": "fork", "prompt": "處理 alphakeyword 與 betakeyword"}, ["alpha-atom"])
+    assert prompt is not None
+    assert _injected_names(prompt) == ["beta-atom"]
+    assert prompt.endswith("處理 alphakeyword 與 betakeyword")
+
+
+def test_non_fork_subagent_ignores_parent_injected(patched_memory, monkeypatch):
+    """一般子代理開全新 context、不繼承：父已注入 alpha 也照注 alpha，且不讀 state。"""
+    for sub_type in ("general-purpose", None):
+        tool_input = {"prompt": "處理 alphakeyword"}
+        if sub_type:
+            tool_input["subagent_type"] = sub_type
+        prompt, reads = _run_pretool(monkeypatch, tool_input, ["alpha-atom"])
+        assert prompt is not None and _injected_names(prompt) == ["alpha-atom"], sub_type
+        assert reads == [], f"非 fork 不該讀 state（{sub_type}）"
 
 
 # ─── 結構守門（版本相依 / 配置回歸）────────────────────────────────────────

@@ -22,7 +22,7 @@
 | 層 | 內容 | 載入時機 | 建議行數 | 估 token | 預算佔比 |
 |---|------|---------|---------|---------|---------|
 | 1 | frontmatter | 常駐（router 階段） | 5~15 | ~50~150 | ≤ 1% |
-| 2 | SKILL.md body | 觸發後完整載入 | ≤ 200（硬 500） | ~1k~2k（硬 ~3k~5k） | 5~15% |
+| 2 | SKILL.md body | 觸發後完整載入 | ≤ 200（官方 Tip 上限 500） | ~1k~2k（上限 ~3k~5k） | 5~15% |
 | 3a | references/ 單檔（按需 Read） | LLM 主動讀取 | ≤ 300（>300 加 TOC） | ~2k~3k | 每檔 ≤ 15%，多檔同載 ≤ 30% |
 | 3b | assets/template | LLM 主動讀取 | ≤ 150 | ~1k~1.5k | ≤ 10% |
 | 4 | scripts/ | **不進 prompt**，執行後只有 stdout 計入 | — | — | 0%（stdout 視操作而定） |
@@ -47,8 +47,8 @@ Skill 在 Claude Code 內部的載入時機：
 
 | 層 | 內容 | 何時載入 | 目標大小 |
 |---|------|---------|---------|
-| 1. Metadata | YAML frontmatter（name / description / triggers） | **常駐**：router 決策階段就讀 | ≤ 100 字 |
-| 2. SKILL.md body | 觸發後完整載入 prompt | **觸發時** | ≤ 200 行（軟上限 500） |
+| 1. Metadata | YAML frontmatter（官方 name / description；本機自訂 triggers / pattern，harness 不讀） | **常駐**：router 決策階段就讀 | ≤ 100 字 |
+| 2. SKILL.md body | 觸發後完整載入 prompt | **觸發時** | ≤ 200 行（官方 Tip 上限 500） |
 | 3. Bundled resources | scripts / references / assets | **按需**：Skill 內指引或 Agent 自行 Read | 無限制 |
 
 **為什麼**：常駐 metadata 必須極簡，否則每個 session 都付這個 token；觸發層放真正會用到的流程；按需層放長尾資訊（領域知識 / 大模板 / 機械腳本）。違反此分層 → token 浪費或觸發失敗。

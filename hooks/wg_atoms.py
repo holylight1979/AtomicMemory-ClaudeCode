@@ -149,15 +149,6 @@ def _parse_trigger_table(text: str) -> List[AtomEntry]:
     return atoms
 
 
-def _parse_atom_index_file(file_path: Path) -> List[AtomEntry]:
-    """Parse a standalone atom index file."""
-    try:
-        text = file_path.read_text(encoding="utf-8-sig")
-    except (OSError, UnicodeDecodeError):
-        return []
-    return _parse_trigger_table(text)
-
-
 def parse_project_aliases(memory_dir: Path) -> List[str]:
     """Parse > Project-Aliases: line from MEMORY.md."""
     index_path = memory_dir / MEMORY_INDEX
@@ -336,6 +327,74 @@ def spread_related(
     return result
 
 
+# ─── Supersedes：全路徑有效性 ────────────────────────────────────────────────
+# 以前只在 UPS 對「當次命中的候選」掃 `- Supersedes:`，被取代的舊 atom 仍留在 all_atoms 池裡，
+# Related 擴散、子代理注入都會把它帶回來；新 atom 沒命中時取代聲明更是讀不到。
+# 改成：候選池建好就先算「被誰取代」集合（每 session 一次，stash 在 state.atom_index.superseded），
+# 所有取候選的路都從去掉舊卡的池取。歷史查詢（使用者明說要看舊的）例外。
+
+_SUPERSEDES_LINE_RE = re.compile(r"^- Supersedes:\s*(.+)", re.MULTILINE)
+
+
+def collect_superseded_names(
+    all_atoms: List[Tuple[AtomEntry, Path]],
+    content_cache: Optional[Dict[str, str]] = None,
+) -> set:
+    """掃池內每顆 atom 的 `- Supersedes:` 行，回被取代者名字集合（鏈式：A→B、B→C 都在集合）。
+    只讀；讀過的內文進 content_cache 供後段續用。fail-open（讀不到的略過）。"""
+    out: set = set()
+    for (name, rel_path, _t), base_dir in all_atoms:
+        atom_path = (base_dir / rel_path) if rel_path else (base_dir / "memory" / f"{name}.md")
+        try:
+            if not atom_path.exists():
+                continue
+            text = read_atom_text(atom_path, content_cache)
+        except (OSError, ValueError):
+            continue
+        if not text:
+            continue
+        m = _SUPERSEDES_LINE_RE.search(text)
+        if not m:
+            continue
+        for old in m.group(1).split(","):
+            old = old.strip()
+            if old and old != name:
+                out.add(old)
+    return out
+
+
+_SUPERSEDED_CACHE: Dict[str, Tuple[float, set]] = {}
+
+
+def superseded_names_cached(memory_dir: Path) -> set:
+    """子代理注入等沒有 session state 的路徑用：以 _atom_index.json mtime 為 key 快取一份。"""
+    try:
+        idx = memory_dir / ATOM_INDEX_JSON
+        key = str(memory_dir)
+        entries = parse_memory_index(memory_dir)
+        # 快取 key 同時看索引 mtime 與 atom 檔最新 mtime：只改 atom metadata（加 Supersedes）
+        # 索引不會動，單看索引 mtime 會回舊集合（Codex #8 反例）。stat 275 個檔約 5ms。
+        newest_atom = 0.0
+        for n, p, _t in entries:
+            ap = (memory_dir.parent / p) if p else (memory_dir / f"{n}.md")
+            try:
+                m = ap.stat().st_mtime
+                if m > newest_atom:
+                    newest_atom = m
+            except OSError:
+                continue
+        sig = (idx.stat().st_mtime if idx.exists() else 0.0, newest_atom)
+        hit = _SUPERSEDED_CACHE.get(key)
+        if hit and hit[0] == sig:
+            return hit[1]
+        pool = [((n, p, list(t)), memory_dir.parent) for n, p, t in entries]
+        names = collect_superseded_names(pool)
+        _SUPERSEDED_CACHE[key] = (sig, names)
+        return names
+    except Exception:
+        return set()
+
+
 # 個別化 decay 旋鈕預設（config usefulness.stability_gamma；0=關閉退回固定 d=0.5）
 _STABILITY_GAMMA_DEFAULT = 0.3
 _DECAY_D_MIN = 0.3
@@ -493,8 +552,18 @@ _BM25_B = 0.75
 BM25_MIN_SCORE_DEFAULT = 7.0
 
 
+# 請求框架詞的中文 bigram：只表達「我在請你做事」，不帶主題。它們在 atom 文本裡罕見 → IDF 高，
+# 兩個就能越過 min_score 7.0（實測「幫我想三個晚餐菜色」命中 workflow-research-fanout、
+# 「請你幫我列出五種室內植物」命中 feedback-能自動化實跑…）。查詢與文件兩側都剔除。
+_BM25_CJK_STOP = frozenset({
+    "幫我", "我想", "請你", "你幫", "幫忙", "麻煩", "請問", "一下", "可以", "可不", "能不", "不能",
+    "能夠", "是否", "有沒", "沒有", "怎麼", "什麼", "如何", "這個", "那個", "這樣", "那樣", "我們",
+    "你們", "需要", "知道", "想要", "要不", "不要", "應該", "一個", "幾個", "比較", "想知",
+})
+
+
 def _bm25_tokenize(text: str) -> List[str]:
-    """Tokenize: ASCII words + Chinese char-bigrams."""
+    """Tokenize: ASCII words + Chinese char-bigrams（剔除請求框架 bigram）."""
     text = text.lower()
     tokens: List[str] = re.findall(r"[a-z0-9]+", text)
     # Chinese char bigrams (CJK Unified)
@@ -504,7 +573,9 @@ def _bm25_tokenize(text: str) -> List[str]:
             tokens.append(run)
         else:
             for i in range(len(run) - 1):
-                tokens.append(run[i:i + 2])
+                bg = run[i:i + 2]
+                if bg not in _BM25_CJK_STOP:
+                    tokens.append(bg)
     return tokens
 
 
@@ -958,6 +1029,10 @@ def build_injection_blob(
     entries = parse_memory_index(MEMORY_DIR)
     if not entries:
         return "", []
+    # 被取代的舊卡不進子代理注入池（與 UPS 同一條有效性規則）
+    superseded = superseded_names_cached(MEMORY_DIR)
+    if superseded:
+        entries = [e for e in entries if e[0] not in superseded]
     base_dir = MEMORY_DIR.parent  # rel_path 相對 ~/.claude（含 memory/ 與 _AIDocs/ 前綴）
 
     # 1) trigger 關鍵字匹配
@@ -1157,6 +1232,201 @@ def detect_atom_use(
             "method": "lexical"}
 
 
+# ─── 判用 v2：行動證據優先、路徑噪音剔除、否定線索 ──────────────────────────────
+# 標註集（tools/memory-eval/usage_labels.jsonl，57 筆）實測 v1 詞彙重疊：precision 0.18、
+# 12 組門檻全在 0.17–0.22，rejected／cited 在所有設定下 9/9 判 used——門檻是死路。
+# FP 主因：路標／cold 行的路徑片段（users/holylight/claude/tools…）幾乎每輪工具參數都有；
+# 全文 atom 則是泛雙字。否定與引用靠共享 token 必中，要獨立規則。
+
+_ATTR_PATH_NOISE = frozenset({
+    "users", "holylight", "claude", "tools", "aidocs", "memory", "hooks", "workflow", "atoms",
+    "memdev", "scratchpad", "appdata", "local", "temp", "python", "utf8", "verify", "handlers",
+    "logs", "json", "jsonl", "config", "state", "session", "prompt", "atom", "read", "write",
+    "edit", "bash", "file", "path", "line", "lines", "test", "tests", "user", "claude.md",
+})
+# 否定要「綁定到這顆 atom」才算拒用，不是附近有否定詞就算（Codex #8 反例：「遵照 X 完成部署，不要用舊指令」
+# 不是拒用 X）。兩種句型：前綴型「不要用／忽略 ＋ ≤15 字 ＋ 錨點」、述語型「錨點 ＋ ≤20 字 ＋ 已過時／被取代／不適用」。
+_ATTR_NEG_PREFIX = r"(?:不要用|不用|別用|不採用|不套用|不照|不依|不需要|不能用|忽略|跳過|don'?t use|do not use|skip (?:it|this|that))"
+_ATTR_NEG_PRED = r"(?:已過時|過時|已被取代|被取代|不適用|不合用|無關|不對|用不到|deprecated|not applicable|is outdated|superseded)"
+_ATTR_DEMONSTRATIVE = r"(?:那|這)(?:顆|條|張|個)\s*(?:atom|卡|規則|條目|記憶)?"
+_ATTR_CITE_CUE = r"(?:講的是|說的是|指的是|意思是|內容是|是在說|describes|is about)"
+_RESCUE_GENERIC = frozenset({"git push", "git status", "git commit", "git diff", "git log", "git add"})
+
+
+def _attr_clean_tokens(tokens: set) -> set:
+    """去路徑噪音：純路徑段字、含斜線／反斜線／以 ~ 開頭的 token。"""
+    out = set()
+    for t in tokens:
+        tl = t.lower()
+        if tl in _ATTR_PATH_NOISE:
+            continue
+        if "/" in tl or "\\" in tl or tl.startswith("~"):
+            continue
+        if tl.endswith((".md", ".py", ".js", ".json")) and tl.count(".") == 1 and len(tl) <= 12:
+            continue
+        out.add(t)
+    return out
+
+
+_ATTR_NAME_PIECE_STOP = frozenset({
+    "feedback", "atom", "memory", "workflow", "decisions", "rules", "check", "stdin", "deploy",
+    "guard", "index", "config", "state", "hooks", "tools", "skip", "exec", "repo", "mode", "using",
+})
+
+
+def _attr_name_pieces(atom_name: str) -> List[str]:
+    """atom slug 拆成可當錨點的片段：使用者常只講「codex-exec 那顆」「上git 那條」。
+    片段要 ≥5 字且不在泛詞表——`skip`／`check`／`exec` 這種指令參數常見字當錨點會讓
+    `--skip-git-repo-check` 自己命中自己的「否定」規則（實測 5 個測試因此翻紅）。"""
+    out: List[str] = []
+    for piece in re.split(r"[-_]+", atom_name or ""):
+        p = piece.strip().lower()
+        if len(p) >= 5 and p not in _ATTR_NAME_PIECE_STOP:
+            out.append(p)
+    return out
+
+
+def _rescue_specific(tokens: Optional[List[str]]) -> List[str]:
+    """rescue 命中裡「夠特異」的 token：≥8 字、不是路徑（含 / 或 \\ 或磁碟機字母）、非泛 git 指令。
+    路徑一律不算：`memory/foo.md`、`C:\\x\\y`、`~/.claude` 每輪工具參數都會出現，不是採用證據。"""
+    out: List[str] = []
+    for t in tokens or []:
+        tl = str(t).strip().lower()
+        if len(tl) < 8 or tl in _RESCUE_GENERIC:
+            continue
+        if "/" in tl or "\\" in tl or re.match(r"^[a-z]:", tl) or tl.startswith("~"):
+            continue
+        out.append(t)
+    return out
+
+
+_ATTR_SENT_SPLIT_RE = re.compile(r"[。！？!?；;\n]+")
+
+
+def _attr_anchor_res(atom_name: str) -> List[str]:
+    """這顆 atom 的錨點 regex 片段：[Atom:name]、全名、slug 片段（≥4 字）。"""
+    parts = [re.escape(f"[atom:{atom_name.lower()}]"), re.escape(atom_name.lower())] if atom_name else []
+    parts += [re.escape(p) for p in _attr_name_pieces(atom_name)]
+    return [p for p in parts if p]
+
+
+def _attr_rejected(turn_text: str, atom_name: str, rare_clean: set) -> bool:
+    """否定綁定到這顆 atom：
+    前綴型  不要用／忽略 …(≤15 字)… 錨點
+    述語型  錨點 …(≤20 字)… 已過時／被取代／不適用
+    錨點＝[Atom:name]／全名／slug 片段；「那顆 atom／這條」指示詞只在同一句還有 ≥2 個 atom 專屬 token 時才算錨點。"""
+    if not turn_text:
+        return False
+    text_l = turn_text.lower()
+    anchors = _attr_anchor_res(atom_name)
+    for sent in _ATTR_SENT_SPLIT_RE.split(text_l):
+        if not sent.strip():
+            continue
+        sent_anchors = list(anchors)
+        if rare_clean:
+            sent_toks = _attr_clean_tokens(extract_distinctive_tokens(sent))
+            if len(sent_toks & {t.lower() for t in rare_clean}) >= 2:
+                sent_anchors.append(_ATTR_DEMONSTRATIVE)
+        if not sent_anchors:
+            continue
+        anchor_alt = "(?:" + "|".join(sent_anchors) + ")"
+        if re.search(_ATTR_NEG_PREFIX + r"[^。；;\n]{0,15}?" + anchor_alt, sent):
+            return True
+        if re.search(anchor_alt + r"[^。；;\n]{0,20}?" + _ATTR_NEG_PRED, sent):
+            return True
+    return False
+
+
+def _attr_cited_sentences(turn_text: str, atom_name: str, rare_clean: set) -> List[str]:
+    """回「只是在轉述這顆 atom 內容」的句子（錨點 …(≤12 字)… 講的是／指的是）。"""
+    if not turn_text:
+        return []
+    anchors = _attr_anchor_res(atom_name)
+    out: List[str] = []
+    for sent in _ATTR_SENT_SPLIT_RE.split(turn_text):
+        s_l = sent.lower()
+        sent_anchors = list(anchors)
+        if rare_clean:
+            sent_toks = _attr_clean_tokens(extract_distinctive_tokens(s_l))
+            if len(sent_toks & {t.lower() for t in rare_clean}) >= 2:
+                sent_anchors.append(_ATTR_DEMONSTRATIVE)
+        if not sent_anchors:
+            continue
+        anchor_alt = "(?:" + "|".join(sent_anchors) + ")"
+        if re.search(anchor_alt + r"[^。；;\n]{0,12}?" + _ATTR_CITE_CUE, s_l):
+            out.append(sent)
+    return out
+
+
+_READ_EVIDENCE_TMPL = r"(?m)^(?:Read|Bash|Grep|Glob)\s[^\n]*{name}\.md"
+
+
+def _attr_read_evidence(turn_text: str, atom_name: str) -> bool:
+    """本輪真的 Read／cat 過 atom 檔：只認 get_current_turn_text 渲染的工具行（行首 `Read <path>`），
+    散文裡提到 `name.md` 不算（Codex #8 反例）。"""
+    if not (turn_text and atom_name):
+        return False
+    return re.search(_READ_EVIDENCE_TMPL.format(name=re.escape(atom_name)), turn_text) is not None
+
+
+def detect_atom_use_v2(
+    atom_content: str,
+    turn_text: str,
+    *,
+    atom_name: str = "",
+    form: str = "ok",
+    rescue_tokens: Optional[List[str]] = None,
+    df_map: Optional[Counter] = None,
+    n_docs: int = 0,
+    max_df_ratio: float = 0.5,
+    shared_min: int = 3,
+    containment_min: float = 0.25,
+) -> Dict[str, Any]:
+    """判定 atom 是否在本 turn 被「採用」。回 {used, method, shared, containment}。
+
+    順序：① 否定線索（atom 名附近有「不要用／已過時／被取代」等）→ rejected，不算 used。
+    ② rescue 特異 token 命中（工具參數真的用了 atom 專屬識別）→ used（強證據）。
+    ③ 只送一行路標／cold 行且回合沒 Read 該 atom 檔 → 不算 used（沒看到內容不可能採用）。
+    ④ 詞彙比對：去路徑噪音與 DF 過泛 token 後，共享 ≥shared_min **且** containment ≥containment_min
+       才算；有 Read 過 atom 檔則放寬為共享 ≥2。
+    """
+    rare_all = extract_distinctive_tokens(atom_content)
+    rare_clean_all = _attr_clean_tokens(rare_all)
+    if _attr_rejected(turn_text, atom_name, rare_clean_all):
+        return {"used": False, "method": "rejected", "shared": 0, "containment": 0.0}
+    read_atom = _attr_read_evidence(turn_text, atom_name)
+    # 只送路標／cold 行且沒真的 Read 該檔：沒看到內容就不可能採用；rescue 也不算
+    #（pointer 化後的 watch token 來自沒送出的全文，Codex #8 反例）。
+    if form in ("skip", "cold", "pointer_trim") and not read_atom:
+        return {"used": False, "method": "pointer_unread", "shared": 0, "containment": 0.0}
+    specific = _rescue_specific(rescue_tokens)
+    if specific:
+        return {"used": True, "method": "rescue", "shared": len(specific), "containment": 1.0,
+                "tokens": specific[:3]}
+    # 轉述句（「那顆 atom 講的是…」）不算採用，但轉述之後若有採用證據仍算：把轉述句拿掉再比對
+    cited_sents = _attr_cited_sentences(turn_text, atom_name, rare_clean_all)
+    text_for_lex = turn_text or ""
+    if cited_sents:
+        for s in cited_sents:
+            text_for_lex = text_for_lex.replace(s, " ")
+    rare = set(rare_clean_all)
+    if df_map is not None and n_docs > 0 and max_df_ratio < 1.0:
+        cutoff = max_df_ratio * n_docs
+        rare = {t for t in rare if df_map.get(t, 0) <= cutoff}
+    if not rare:
+        return {"used": False, "method": ("cited" if cited_sents else "no_rare"), "shared": 0, "containment": 0.0}
+    turn_tokens = _attr_clean_tokens(extract_distinctive_tokens(text_for_lex))
+    shared = rare & turn_tokens
+    n_shared = len(shared)
+    containment = n_shared / len(rare)
+    need = 2 if read_atom else shared_min
+    used = n_shared >= need and (containment >= containment_min or read_atom)
+    if not used and cited_sents:
+        return {"used": False, "method": "cited", "shared": n_shared, "containment": round(containment, 3)}
+    return {"used": bool(used), "method": ("read+lexical" if read_atom else "lexical"),
+            "shared": n_shared, "containment": round(containment, 3)}
+
+
 def make_embed_tiebreak_fn(config: Dict[str, Any]):
     """構造 fail-safe 的 embedding cosine tiebreak callable（或 None）。
 
@@ -1248,27 +1518,22 @@ def _truncate_context_by_activation(
         lines.append(f"[Context budget: {used}/{limit} tokens]")
         return lines
 
+    # 每個 atom 區塊就是 lines 裡的一個元素（assemble_injection 以一整段字串 append）；
+    # 以前把「下一個 [Atom: 標頭之前的所有元素」都算進同一區塊，尾端的 Guardian 訊息
+    # 會被當成最後一顆 atom 的一部分一起裁掉。
     ATOM_LINE_RE = re.compile(r"^\[Atom:(\S+)\]")
     atom_blocks: List[dict] = []
-    i = 0
-    while i < len(lines):
-        m = ATOM_LINE_RE.match(lines[i])
-        if m:
-            name = m.group(1)
-            end = i + 1
-            while end < len(lines) and not ATOM_LINE_RE.match(lines[end]):
-                end += 1
-            block_text = "\n".join(lines[i:end])
-            atom_blocks.append({
-                "name": name,
-                "start": i,
-                "end": end,
-                "tokens": _estimate_tokens(block_text),
-                "first_line": lines[i].split("\n", 1)[0] if "\n" in lines[i] else lines[i],
-            })
-            i = end
-        else:
-            i += 1
+    for i, entry in enumerate(lines):
+        m = ATOM_LINE_RE.match(entry)
+        if not m:
+            continue
+        atom_blocks.append({
+            "name": m.group(1),
+            "start": i,
+            "end": i + 1,
+            "tokens": _estimate_tokens(entry),
+            "first_line": entry.split("\n", 1)[0],
+        })
 
     if not atom_blocks:
         lines.append(f"[Context budget: {used}/{limit} tokens (over)]")
@@ -2128,19 +2393,21 @@ def select_forget_candidates(archive_candidates, config):
     """Phase D selective forgetting：從封存候選篩出可隔離者（憲法 Forgetting 對策）。
 
     規則：score < isolate_threshold 且 atom 名不在核心保護清單
-    （LOCAL_REALM_CORE_PROTECTED_EXACT）。純函式、可測。
+    （lib.atom_locations.is_core_protected_name：EXACT 名單＋前綴名單，與
+    distraction penalty 那側同一判定）。純函式、可測。
     """
     fcfg = ((config or {}).get("self_iteration") or {}).get("forget") or {}
     threshold = float(fcfg.get("isolate_threshold", 0.3))
     try:
-        from lib.atom_locations import LOCAL_REALM_CORE_PROTECTED_EXACT as _protected
+        from lib.atom_locations import is_core_protected_name as _is_protected
     except Exception:
-        _protected = frozenset()
+        def _is_protected(_name: str) -> bool:
+            return False
     out = []
     for c in (archive_candidates or []):
         if float(c.get("score", 1.0)) >= threshold:
             continue
-        if c.get("atom") in _protected:
+        if _is_protected(str(c.get("atom", ""))):
             continue
         out.append(c)
     return out

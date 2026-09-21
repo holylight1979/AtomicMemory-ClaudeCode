@@ -30,6 +30,7 @@
 | 20 | memory-system-review-2026-08.md | 原子記憶系統 × CC 原生記憶 × 業界主流三方比對評估（as-built 管線逐檔核對＋優缺點／可補強／該修正各標已處理／待辦＋修前後數據＋單一決策點：積累端 provenance＋週期整併） | 三方比對, 記憶系統評估, RRF, ACT-R, 注入預算, provenance, cross-encoder, 積累端, CC auto-memory, 業界主流, 2026-08 |
 | 21 | injection-budget-investigation-2026-08.md | 注入變弱調查編年（三假設證偽：MEMORY.md 瘦身／分類閘／中文檔名 → 根因 TURN_BUDGET_LIMIT 縮量未回調 → 五次修正各附證據／修法／驗證／commit → 未做與理由 → 回訪四指標 → 教訓） | 注入變弱, TURN_BUDGET_LIMIT, 裁切回填, compute_token_budget, token 分級, 同題去冗, redundancy_gate, 橋接檔 slug, 回訪機制, followup-check, injection-turns.jsonl, 全文率 |
 | 22 | taxonomy-engine-半統一設計-2026-06.md | 分類／去蕪統一引擎設計與執行紀錄（半統一裁決：`score_by_lexicon` 單一計分源 + Realm／Taxonomy adapter 並存；Phase A 核心落地、晉升閘與跨 realm 逃逸閘；DedupStage 已於 `755ce07` 停產；Phase B/C 專案端 thin shim 未執行） | taxonomy, classify, score_by_lexicon, atom_classify, 半統一, adapter, RealmStrategy, TaxonomyStrategy, 逃逸閘, DedupStage, Phase B, thin shim, classify-project-atoms |
+| 23 | 全面檢視-2026-09-21/ | 2026-09-21 對照 CC 生態的全面檢視證據：共同簡報、5 支 Claude 審查摘要、5 支 Codex 摘要＋全文、兩輪 Codex 計畫審查與拍板全文、遙測統計腳本與輸出、[AI] 獨立評分稿；定案、§1b 為什麼會寫成這樣、§11 提交清單與剩餘三項在同資料夾 plan-and-decisions.md | 全面檢視, 審查, codex, 記帳失真, activation, 效用歸因, Supersedes, 評估器, episodic, hint, 精簡 |
 
 > 2026-05-27 Wave 5 Session 2 已歸檔（移至 `memory/_distant/2026_05_v5_overhaul/`，git 不再追蹤）：`session-logs/` / `memory-cleanup-2026-04/` / `atomic-memory-evolution/` / `ab-test-gemma4/` / `atom-v4/` / `atom-v4-phases/` / `changelog-roll/` / `v41-handoffs/` / `v41-p4-simulation/` / `wg-docdrift/`
 

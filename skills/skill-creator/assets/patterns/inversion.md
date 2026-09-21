@@ -1,7 +1,7 @@
 ---
 name: <skill-name>
 description: <30+ 字。例：「任何要規劃 X / 設計 X / 啟動 X 流程的場合都該觸發，先把需求問清楚再執行」>
-userInvocable: true
+user-invocable: true
 triggers: <關鍵字1>, <關鍵字2>, <關鍵字3>, <關鍵字4>, <關鍵字5>
 pattern: inversion
 ---

@@ -146,7 +146,7 @@ def _git_dirty_files(project_root: str) -> Optional[set]:
         return None
 
     dirty = set()
-    for line in result.stdout.splitlines():
+    for line in (result.stdout or "").splitlines():
         if len(line) < 4:
             continue
         # Format: "XY path" or "XY orig -> path" (rename)

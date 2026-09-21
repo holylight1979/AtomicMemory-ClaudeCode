@@ -363,7 +363,12 @@ def _detect_turn_outcome(state: Dict[str, Any], last_text: str) -> Optional[bool
         if int((f or {}).get("turn_seq", turn_seq)) == turn_seq
     ]
     evasion = bool(state.get("evasion_flag"))
-    retry = int(state.get("wisdom_retry_count", 0) or 0)
+    # wisdom_retry_count 是 session 累計（FixEscalation 等消費者要它累計）；
+    # outcome 只看本 turn 的增量——UPS 在 turn 起點快照 base。沒有 base（升級前
+    # in-flight session）→ 沿用累計值，不漏 fail 訊號。
+    retry_total = int(state.get("wisdom_retry_count", 0) or 0)
+    base = state.get("wisdom_retry_turn_base")
+    retry = retry_total - int(base) if base is not None else retry_total
     if failing or evasion or retry >= 2:
         return False
     if last_text and claims_completion(last_text):
@@ -403,11 +408,18 @@ def _attribute_usefulness(
             return  # 本 turn 已歸因
 
         from lib.atom_access import record_usefulness
-        from wg_atoms import detect_atom_use, resolve_atom_path, make_embed_tiebreak_fn
+        from wg_atoms import (
+            detect_atom_use, detect_atom_use_v2, resolve_atom_path, make_embed_tiebreak_fn,
+        )
 
         rare_min = int(uconf.get("rare_token_min", 2))
         overlap_min = float(uconf.get("lexical_overlap_min", 0.18))
         embed_fn = _budgeted_embed_fn(make_embed_tiebreak_fn(config), uconf)
+        # 判用政策：v2＝行動證據（rescue 命中）優先、否定線索、路標未讀不算、去路徑噪音後
+        # 共享 ≥6 才算（標註集 57 筆：precision 0.35→0.57、recall 0.84）；v1＝舊詞彙重疊（回滾用）。
+        policy = str(uconf.get("attribution_policy", "v2"))
+        v2_shared_min = int(uconf.get("v2_shared_min", 6))
+        v2_containment_min = float(uconf.get("v2_containment_min", 0.0))
 
         turn_text = (
             get_current_turn_text(transcript, text=transcript_text)
@@ -416,25 +428,53 @@ def _attribute_usefulness(
         outcome = _detect_turn_outcome(state, last_text)
         _bump_outcome_stats(state, outcome)
 
+        turn_seq_now = int(state.get("turn_seq", 0))
+        rescue_map: Dict[str, List[str]] = {}
+        form_map: Dict[str, str] = {}
+        if policy == "v2":
+            try:
+                from wg_rescue import rescue_hits_for_turn, rescue_hits_for_turn_from_state
+                rescue_map = rescue_hits_for_turn_from_state(state, turn_seq_now)
+                if not rescue_map and "rescue_hits_by_turn" not in state:
+                    rescue_map = rescue_hits_for_turn(session_id, turn_seq_now)  # 升級前 in-flight：退回讀 log
+            except Exception as e:
+                _atom_debug_error("usefulness:rescue_map", e)
+            for rec in (state.get("injection_log") or []):
+                if int(rec.get("turn_seq", -1) or -1) == turn_seq_now:
+                    form_map[rec.get("name", "")] = rec.get("form_final") or rec.get("form", "ok")
+
         def _read(path_str: str) -> str:
             try:
                 return Path(path_str).read_text(encoding="utf-8-sig")
             except (OSError, UnicodeDecodeError, ValueError):
                 return ""
 
-        def _record(path_str: str, content: str, match_text: str, decided: Optional[bool]) -> Optional[bool]:
-            if decided is None or not content or not match_text:
-                return None
-            det = detect_atom_use(
-                content, match_text,
-                rare_token_min=rare_min, overlap_min=overlap_min, embed_fn=embed_fn,
-            )
-            if not det.get("used"):
-                return None
-            record_usefulness(Path(path_str), used=True, success=decided, source="hook:usefulness")
-            return decided
+        # 同一顆 atom 同一 turn 只寫一筆：先收齊各來源（主回合 / 子代理）的判定，
+        # 結果一致才寫；父成功子失敗這種衝突 → unknown、不動 α/β、只留紀錄。
+        pending: Dict[str, Dict[str, Any]] = {}
 
-        attributed = []  # (atom, success) for telemetry
+        def _consider(name: str, path_str: str, content: str, match_text: str,
+                      decided: Optional[bool], *, origin: str = "parent") -> None:
+            if decided is None or not content or not match_text:
+                return
+            if policy == "v2":
+                # 子代理只用自己的產出判用：不借父回合文字、不借父回合 rescue（那是父的工具）；
+                # 子代理拿到的是緊湊全文 blob，form 視為 ok。
+                det = detect_atom_use_v2(
+                    content, match_text, atom_name=name,
+                    form=(form_map.get(name, "ok") if origin == "parent" else "ok"),
+                    rescue_tokens=(rescue_map.get(name) if origin == "parent" else None),
+                    shared_min=v2_shared_min, containment_min=v2_containment_min,
+                )
+            else:
+                det = detect_atom_use(
+                    content, match_text,
+                    rare_token_min=rare_min, overlap_min=overlap_min, embed_fn=embed_fn,
+                )
+            if not det.get("used"):
+                return
+            slot = pending.setdefault(name, {"path": path_str, "outcomes": set()})
+            slot["outcomes"].add(bool(decided))
 
         # 1) UPS per-turn 注入（turn_injected）— 比對本 turn assistant 活動文字
         for entry in (state.get("turn_injected") or []):
@@ -442,38 +482,61 @@ def _attribute_usefulness(
             path_str = entry.get("path", "")
             if not name or not path_str:
                 continue
-            res = _record(path_str, _read(path_str), turn_text, outcome)
-            if res is not None:
-                attributed.append((name, res))
+            _consider(name, path_str, _read(path_str), turn_text, outcome)
 
         # 2) 本 turn sub-agent 注入（state["subagent_injections"]）
+        #    只結算本 turn 的紀錄（turn_seq 相符）；更早 turn 殘留的紀錄標過期不套當輪 outcome。
         #    use 偵測比對該 agent 的 output_summary（其實際產物）；outcome 疊 agent 狀態。
         for rec in (state.get("subagent_injections") or []):
             if rec.get("attributed"):
+                continue
+            rec_turn = rec.get("turn_seq")
+            if rec_turn is not None and turn_seq and int(rec_turn) != turn_seq:
+                if int(rec_turn) < turn_seq:
+                    rec["attributed"] = True
+                    rec["skipped"] = "stale_turn"
                 continue
             status = str(rec.get("status", "") or "").lower()
             sub_outcome = outcome
             if any(k in status for k in ("error", "fail", "abort", "cancel")):
                 sub_outcome = False  # agent 出錯 → fail（覆寫 turn outcome）
-            match_text = (rec.get("output_summary", "") or "") + "\n" + turn_text
+            # 只看子代理自己的產出；接上父回合全文會讓「父採用、子沒採用」變成假的結果衝突（Codex #8 反例）。
+            # v1 政策維持舊行為（父文字併入）供回滾。
+            sub_text = rec.get("output_summary", "") or ""
+            match_text = sub_text if policy == "v2" else (sub_text + "\n" + turn_text)
+            if not match_text.strip():
+                rec["attributed"] = True
+                rec["skipped"] = "no_output"
+                continue
             for aname in (rec.get("atoms") or []):
                 p = resolve_atom_path(aname)
                 if p is None:
                     continue
-                res = _record(str(p), _read(str(p)), match_text, sub_outcome)
-                if res is not None:
-                    attributed.append((aname, res))
+                _consider(aname, str(p), _read(str(p)), match_text, sub_outcome, origin="subagent")
             rec["attributed"] = True  # 本 turn 已處理（含 no-op，避免下 turn 重算）
+
+        attributed = []  # (atom, success) for telemetry
+        conflicted: List[str] = []
+        for name, slot in pending.items():
+            if len(slot["outcomes"]) != 1:
+                conflicted.append(name)
+                continue
+            decided = next(iter(slot["outcomes"]))
+            record_usefulness(Path(slot["path"]), used=True, success=decided, source="hook:usefulness")
+            attributed.append((name, decided))
 
         if turn_seq:
             state["usefulness_attributed_seq"] = turn_seq
-        if attributed:
-            state.setdefault("usefulness_log", []).append({
+        if attributed or conflicted:
+            entry = {
                 "turn_seq": turn_seq,
                 "outcome": ("+1" if outcome is True else "0" if outcome is False else "unknown"),
                 "atoms": [{"atom": a, "success": s} for a, s in attributed],
                 "at": _now_iso(),
-            })
+            }
+            if conflicted:
+                entry["conflicted"] = conflicted
+            state.setdefault("usefulness_log", []).append(entry)
             state["usefulness_log"] = state["usefulness_log"][-50:]
     except Exception as e:
         print(f"usefulness attribution error: {e}", file=sys.stderr)
@@ -646,7 +709,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     last_text = get_last_assistant_text(transcript, text=transcript_text)
     # accessed_files 回收（取代 per-Read PostToolUse hook）——先寫進 state，
     # 後續任何 gate 的 write_state 也會一併固化；此處立即寫防走到不寫 state 的路徑。
-    if _harvest_accessed_files(state, transcript_text):
+    # 關回合：下一則 UserPromptSubmit 才是新回合的第一句（turn_prompts 重開，見 ups_gates.track_turn_prompts）。
+    turn_was_open = bool(state.get("turn_open"))
+    state["turn_open"] = False
+    if _harvest_accessed_files(state, transcript_text) or turn_was_open:
         write_state(session_id, state)
     # 殘檔帳本：每次 Stop 掃一次 session scratchpad 進帳（模型沒 emit 報告也不漏）。fail-open。
     try:

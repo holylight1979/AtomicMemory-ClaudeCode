@@ -1,0 +1,135 @@
+
+======== 1. atom 曝光與效用 (access sidecars) ========
+sidecar 總數: 636
+依 realm: {'global': 148, 'distant': 398, 'local': 90}
+從未被注入(read_hits=0 且無 timestamps 且 n=0): 22 / 636 = 3.5%  依realm={'distant': 22}
+曝光 n>=5 但 useful_hits=0: 0
+有效用樣本(n>0) 顆數: 590
+useful 率分布: {'0-0.25': 1, '0.25-0.5': 49, '0.5-0.75': 532, '0.75-1': 8}
+useful 率中位數 0.50  平均 0.52
+最近 30 天有被注入: 259 (40.7%)，其中 useful_hits>0: 259
+useful=0 且 n>=3 (前 15): []
+
+======== 2. 晉升迴路 (_promotion_audit.jsonl) ========
+總筆數: 1411
+近 30 天: 522 筆
+    ('hint', '[觀]', '[固]', 'usefulness') 399
+    ('hint', '[臨]', '[觀]', 'usefulness') 88
+    ('manual_promote', '[觀]', '[固]', 'usefulness') 16
+    ('auto_observe', None, None, 'usefulness') 15
+    ('heartbeat', None, None, None) 4
+   distinct atoms: 51
+   distinct sessions: 185
+近 90 天: 1372 筆
+    ('hint', '[觀]', '[固]', 'usefulness') 1042
+    ('hint', '[臨]', '[觀]', 'usefulness') 244
+    ('auto_observe', None, None, 'usefulness') 53
+    ('manual_promote', '[觀]', '[固]', 'usefulness') 21
+    ('manual_promote', '[臨]', '[觀]', 'usefulness') 5
+    ('heartbeat', None, None, None) 4
+    ('auto_observe', None, None, 'confirmations') 2
+    ('manual_promote', '[觀]', '[固]', 'confirmations') 1
+   distinct atoms: 74
+   distinct sessions: 488
+   重複 hint 最多的 atom: [('feedback-completion-gates', 192), ('git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉', 154), ('併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a', 129), ('feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字', 93), ('技術調查必須以數據和具體程式碼路徑為依據-避免猜測-懷疑-並著重於找出問題', 68), ('handoff-綜觀品質與抗失真寫法', 53), ('程式註解撰寫規範-功能流程導向與角色標記', 53), ('feedback-tooling-reliability', 51)]
+
+======== 2b. [臨] 存在 >60 天且從未晉升 ========
+Confidence 分布(含 atom md): {'臨': 147, '固': 35, '觀': 18}
+[臨] 存在 >60 天: 31 / 147
+   其中 n=0(從未有效用樣本): 0
+   樣本: [('escalation-hook-在-edit-count-proxy-上-false-fire-的辨', '2026-06-25', 10.3), ('feedback-atom-write-initial-confidence', '2026-05-28', 3.4), ('feedback-complexity-origin-trace', '2026-06-18', 7.5), ('feedback-rigor-standards', '2026-05-26', 9.6), ('atoms-的納入流程必須由-cc-透過全域-靜默-定期的機制-如-cron-在', '2026-06-30', 9.1), ('feedback-動手前不要找理由縮小範圍', '2026-05-21', 5.2), ('給予的技術回饋必須具備高可行動性-聚焦於流程與思考過程-如-為什麼這樣設計-並', '2026-06-23', 3.4), ('要求ai助手以清晰-白話-條列的方式溝通-並主動提供session-prompt', '2026-07-06', 8.1), ('workflow-parallel-agents', '2026-05-28', 9.7), ('windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔', '2026-07-01', 3.3)]
+
+======== 3. 自動萃取產出 ========
+Failures: 總 34, 新增 30/60/90 天 = 31/31/32
+   最新檔: feedback-原子記憶核心理念-知識經驗全積累分門別類-高精準零token浪費.md 2026-09-18
+episodic(global): 總 33, 新增 30/60/90 天 = 33/33/33
+   最新檔: episodic-20260921-guardian.md 2026-09-21
+_staging: 總 3, 新增 30/60/90 天 = 1/2/2
+   最新檔: archive-candidates.md 2026-09-21
+_distant: 總 588, 新增 30/60/90 天 = 36/303/355
+   最新檔: v5-overhaul-audit-2026-05.md 2026-09-03
+episodic 依月份: {'episodi': 33}
+episodic 檔名日期最後: episodic-20260921-guardian.md
+專案 episodic C:\Projects\.claude\memory\episodic: 113 最後 episodic-20260916-projects-tools.md
+專案 episodic D:\AI-PLAY\AI-gen-projs\.claude\memory\episodic: 54 最後 episodic-20260826-ai-play-s4-md.md
+專案 episodic D:\AI-PLAY\MudClient-withAI\.claude\memory\episodic: 3 最後 episodic-20260904-ai-play-mudclient-with
+專案 episodic C:\TSLG\.claude\memory\episodic: 2 最後 episodic-20260918-tslg-client.md
+專案 episodic C:\TSLG\Server\.claude\memory\episodic: 14 最後 episodic-20260904-projects-tslg-serverco
+專案 episodic C:\TSLG\Server\.claude\memory._quarantine-20260905\episodic: 12 最後 episodic-20260825-projects-tslg.md
+extract-worker.log 行數: 186 mtime 2026-09-15 16:11:21.039689
+   行型態: [('[vN.N] Filtered N plan-type items from extraction', 157), ('[rdchat-direct] TimeoutError: timed out', 14), ('[rdchat] HTTP N: /api/chat', 9), ('Filtered N plan-type items from extraction', 4), ('[rdchat-direct] URLError: <urlopen error [WinError N] 連線嘗試失敗', 1), ('[rdchat-direct] HTTP N: /api/chat', 1)]
+Failures source 欄分布: [('(無source欄)', 35)]
+
+======== 4. 守門閘觸發率 (近 30 天) ========
+guard-aec_hud.jsonl: 總 4, 近30天 4, sessions(30d) 2
+guard-aec_pending.jsonl: 總 11, 近30天 11, sessions(30d) 1
+guard-deferral.jsonl: 總 18, 近30天 18, sessions(30d) 17
+guard-docdrift.jsonl: 總 1784, 近30天 215, sessions(30d) 1
+   doc: [('DocIndex-System.md', 91), ('Architecture.md', 77), ('Design/DesignTool_Luban.md', 9), ('Client/Client_Monitor_System.md', 9), ('_archive/TCSM/System_Battle.md', 9)]
+   source: [('hooks/wg_core.py', 12), ('hooks/handlers/session_start.py', 10), ('hooks/wg_atoms.py', 8), ('hooks/handlers/pre_tool_use.py', 7), ('tools/verify/verify_project_layer_smoke.py', 7)]
+guard-evasion.jsonl: 總 177, 近30天 71, sessions(30d) 40
+guard-friction.jsonl: 總 1, 近30天 1, sessions(30d) 1
+guard-lang.jsonl: 總 613, 近30天 212, sessions(30d) 62
+guard-pre-action-notice.jsonl: 總 2065, 近30天 1262, sessions(30d) 99
+   outcome×mode: [(('warn', 'warn'), 608), (('warn', 'pass'), 469), (('warn', 'force_release'), 163), (('warn', 'fail_open_no_state'), 22)]
+   fail_code: [('no_goal_label', 713), ('no_est_label', 58)]
+guard-tool-result-size.jsonl: 總 1, 近30天 1, sessions(30d) 1
+guard-tool-result-stats.jsonl: 總 3, 近30天 3, sessions(30d) 3
+workflow/aec-report: 總 23, 近30天 23
+   severity: {'real-evasion': 3, 'notable': 20} hook 升級數: 2
+workflow/aec-decision: 總 1, 近30天 1
+workflow/pan-deny: 總 43, 近30天 43
+   deny count 分布(3=強制放行): {2: 7, 1: 25, 3: 11}
+workflow/pan-pass: 總 97, 近30天 97
+workflow/dpm-done: 總 5, 近30天 5
+workflow/acceptance-spec: 總 107, 近30天 43
+workflow/aec-tempfiles: 總 21, 近30天 21
+acceptance-audit: 總 438, 近30天 203
+   verdict(全): [('uncertain', 409), ('fail', 29)]
+   verdict(30d): [('uncertain', 186), ('fail', 17)]
+   trigger(30d): [('stop_enforce', 201), ('spec_done', 2)]
+   judge_backend(30d): [(None, 181), ('codex', 22)]
+companion-metrics 彙總(9 檔): {'audits_skipped_by_score': 150, 'acceptance_reviews_spawned': 2, 'quality_gap_advises': 1, 'acceptance_unbound': 17}
+outcome_stats: 50 近30天 50 平均 unknown ratio 0.41
+injection-turns: 總 509, 近30天 509
+   ok 1163 skip 767 cold 1008 fallback 137 redundant 50; 平均 used_tokens 857/limit; 撞頂(used>=limit*0.95) 155
+   skip 率(被 budget 砍): 39.7%
+
+======== 5. skill 使用 (近 60 天 transcript) ========
+skill 數: 21 ['atom-debug', 'browse-sprites', 'changelog-debug', 'codex-companion', 'conflict', 'consciousness-stream', 'continue', 'extract', 'fix-escalation', 'generate-episodic', 'handoff', 'harvest', 'heal-review', 'journal', 'karpathy-guidelines', 'memory', 'read-project', 'refile', 'skill-creator', 'upgrade', 'vector']
+transcript 檔數(60d): 190
+Skill tool 呼叫: [('handoff', 6), ('memory', 4), ('vector', 2), ('sgi-gm', 1)]
+<command-name> 出現: [('model', 12), ('memory', 3), ('continue', 2), ('compact', 1), ('effort', 1), ('config', 1)]
+0 次使用的 skill (17): ['atom-debug', 'browse-sprites', 'changelog-debug', 'codex-companion', 'conflict', 'consciousness-stream', 'extract', 'fix-escalation', 'generate-episodic', 'harvest', 'heal-review', 'journal', 'karpathy-guidelines', 'read-project', 'refile', 'skill-creator', 'upgrade']
+有使用的 skill → (tool+slash, sessions): {'continue': (2, 2), 'handoff': (6, 6), 'memory': (7, 7), 'vector': (2, 2)}
+
+======== 6. recall-miss / rescue-log ========
+recall-miss: 總 19, 近30天 8; source: [('failure_kw', 12), ('evasion', 6), ('failing_tests', 1)]
+   涉及 atom: [('mudclient-地圖建房判準是格子不是方向', 3), ('feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個', 3), ('單一來源抽方法-刪原副本以完整方法群為粒度-反向compilelink同源-s2', 2), ('gm自驗踩坑-勿在server啟動路徑嵌可崩潰診斷碼-char模組比對複用com', 2), ('codexcs-codex核心庫', 1), ('jarvis-專案全貌與分層', 1)]
+rescue-log: 總 638, 近30天 417; sessions(30d) 75; distinct atoms(30d) 86
+   top atoms(30d): [('併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a', 65), ('toolchain', 25), ('decisions', 24), ('feedback-memory-system-doc-sync', 22), ('feedback-completion-gates', 18), ('git-已push-commit-勿改寫-雙-push-url-gitlab-main-f', 17)]
+   tool: [('Bash', 281), ('Write', 92), ('Edit', 30), ('mcp__workflow-guardian__anti_evasion_report', 14)]
+  提及 guard-lang: 2 檔 → ['hooks\\lang_guard.py', 'hooks\\verify\\verify_guard_trigger_log.py']
+  提及 _promotion_audit: 8 檔 → ['hooks\\wg_atoms.py', 'hooks\\wg_core.py', 'hooks\\handlers\\ups_inject.py', 'hooks\\verify\\verify_health_weekly.py', 'hooks\\verify\\verify_promotion_heartbeat.py', 'tools\\check-bypass.py', 'tools\\health-weekly.py', 'tools\\workflow-guardian-mcp\\lib\\atom-tools.js']
+  提及 outcome_stats: 4 檔 → ['hooks\\wg_evasion.py', 'hooks\\handlers\\session_end.py', 'hooks\\handlers\\stop.py', 'hooks\\verify\\verify_outcome_watch.py']
+  提及 recall-miss.jsonl: 7 檔 → ['hooks\\wg_recall_miss.py', 'hooks\\handlers\\session_end.py', 'hooks\\verify\\verify_effect_report.py', 'hooks\\verify\\verify_health_weekly.py', 'hooks\\verify\\verify_recall_miss.py', 'tools\\health-weekly.py', 'tools\\memory-effect-report.py']
+  提及 recall_miss: 8 檔 → ['hooks\\wg_recall_miss.py', 'hooks\\handlers\\session_end.py', 'hooks\\verify\\verify_effect_report.py', 'hooks\\verify\\verify_health_weekly.py', 'hooks\\verify\\verify_recall_miss.py', 'tools\\health-weekly.py', 'tools\\memory-effect-report.py', 'tools\\codex-companion\\backtest_acceptance.py']
+  提及 rescue-log.jsonl: 3 檔 → ['hooks\\wg_rescue.py', 'hooks\\verify\\verify_effect_report.py', 'tools\\memory-effect-report.py']
+  提及 acceptance-audit: 4 檔 → ['hooks\\handlers\\stop.py', 'hooks\\verify\\verify_acceptance_regression_hint.py', 'hooks\\verify\\verify_acceptance_review.py', 'tools\\codex-companion\\acceptance.py']
+  提及 injection-turns: 5 檔 → ['hooks\\handlers\\ups_inject.py', 'tools\\followup-check.py', 'tools\\memory-effect-report.py', 'tools\\verify\\verify_followup_check.py', 'tools\\verify\\verify_project_layer_smoke.py']
+  提及 guard-docdrift: 1 檔 → ['hooks\\verify\\verify_guard_trigger_log.py']
+  提及 guard-evasion: 1 檔 → ['hooks\\verify\\verify_guard_trigger_log.py']
+  提及 rescue_log: 1 檔 → ['hooks\\verify\\verify_rescue_log.py']
+  提及 companion-metrics: 1 檔 → ['tools\\codex-companion\\state.py']
+atom 內文提及 recall-miss/rescue-log 顆數: 1
+
+======== 7. always-load 大小 ========
+  IDENTITY.md                              bytes=  4180 chars= 1750 cjk= 1185 ~tok=  1919
+  USER.md                                  bytes=  1844 chars=  906 cjk=  461 ~tok=   803
+  memory\MEMORY.md                         bytes=   940 chars=  704 cjk=  117 ~tok=   322
+  (缺) _local_catalog.md
+  CLAUDE.md                                bytes=    55 chars=   47 cjk=    4 ~tok=    17
+  rules\coding-style.md                    bytes=  3262 chars= 1316 cjk=  970 ~tok=  1542
+  rules\core.md                            bytes=  2913 chars= 1583 cjk=  648 ~tok=  1206
+  合計 ~5808 tok
+  auto-memory MEMORY.md ~tok 36

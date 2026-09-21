@@ -175,7 +175,10 @@ def test_turn_text_empty_on_missing():
 
 # ─── 4. 端到端 _attribute_usefulness ─────────────────────────────────────────
 
-CONFIG = {"usefulness": {"enabled": True, "rare_token_min": 2, "lexical_overlap_min": 0.18}}
+# 本檔守的是閉環骨架（once-per-turn、outcome 三值、sub-agent 歸因），用 v1 詞彙判用固定語意；
+# v2 判用政策的契約在 verify_attribution_v2.py
+CONFIG = {"usefulness": {"enabled": True, "rare_token_min": 2, "lexical_overlap_min": 0.18,
+                         "attribution_policy": "v1"}}
 
 
 def _state(atom_md, **extra):
@@ -293,14 +296,15 @@ def test_hint_tier_pure_exposure_none():
 # ─── 6. UPS 注入晉升提示：效用導向，ReadHits 退場 ─────────────────────────────
 
 
-def test_ups_hint_is_usefulness_driven():
-    """UPS 注入提示改由效用 Wilson 下界驅動；stale ReadHits 晉升提示須完全退場。
+def test_ups_exposure_only_no_hint_audit():
+    """UPS 注入端只記曝光（ReadHits++）；不寫 hint 稽核列、也無 stale ReadHits 晉升提示。
 
-    注入段位於 handlers/ups_inject.py，orchestrator 一併掃描
-    確認 stale 邏輯沒有殘留在任何一邊。
+    hint 列曾佔 _promotion_audit.jsonl 94%（90 天 1,286/1,372）且無業務讀者，2026-09-21 停寫；
+    晉升由 SessionEnd 程式化路徑執行，健檢活性看 log_promotion_heartbeat。
     """
     src = (CLAUDE / "hooks" / "handlers" / "ups_inject.py").read_text(encoding="utf-8")
     src += (CLAUDE / "hooks" / "handlers" / "user_prompt_submit.py").read_text(encoding="utf-8")
-    assert "usefulness_hint_tier" in src, "UPS 未接 usefulness_hint_tier"
+    assert "increment_read_hits" in src, "UPS 曝光記帳（ReadHits++）不可移除"
+    assert '"hint"' not in src, "UPS 不得再寫 hint 稽核列"
     assert "READHIT_THRESHOLDS" not in src, "UPS 應移除 ReadHits 晉升提示門檻字典"
     assert "ReadHits 已達" not in src, "UPS 應移除 stale ReadHits 晉升提示語"

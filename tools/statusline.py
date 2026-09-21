@@ -2,7 +2,8 @@
 """statusline.py — Claude Code statusLine 渲染器（Guardian 常駐可觀測層）。
 
 settings.json `statusLine` 指到本檔：stdin 吃 CC 的 status JSON（session_id /
-model / context_window…），stdout 回一行 ANSI 上色狀態列。chat 內純資訊性注入
+model / context_window / prompt_cache…），stdout 回一行 ANSI 上色狀態列。
+prompt_cache（CC ≥2.1.251）只取 hit_ratio＋warm 顯示 `cache91%`，首次回應前缺欄不顯示。chat 內純資訊性注入
 （UPS [Guardian] Reminder）由此取代——零 token 常駐可見。
 
 資料源（全部本地檔讀取、無 subprocess、pure stdlib）：
@@ -42,6 +43,17 @@ def _ctx_segment(data: dict) -> str:
         return ""
     color = GREEN if pct < 60 else (YELLOW if pct < 85 else RED)
     return f"{color}ctx{pct:.0f}%{RESET}"
+
+
+def _cache_segment(data: dict) -> str:
+    """`prompt_cache`（CC ≥2.1.251；主對話首次 API 回應前沒有這欄）→ `cache91%`：
+    hit_ratio 百分比，warm 綠、冷（TTL 已過）dim。缺欄或 hit_ratio 不是數字 → 空字串不顯示。"""
+    pc = data.get("prompt_cache") or {}
+    ratio = pc.get("hit_ratio")
+    if not isinstance(ratio, (int, float)) or isinstance(ratio, bool):
+        return ""
+    color = GREEN if pc.get("warm") else DIM
+    return f"{color}cache{ratio * 100:.0f}%{RESET}"
 
 
 def _guardian_segments(session_id: str) -> list[str]:
@@ -97,9 +109,9 @@ def main() -> None:
     model = (data.get("model") or {}).get("display_name")
     if model:
         parts.append(f"{CYAN}{model}{RESET}")
-    ctx = _ctx_segment(data)
-    if ctx:
-        parts.append(ctx)
+    for seg in (_ctx_segment(data), _cache_segment(data)):
+        if seg:
+            parts.append(seg)
     parts.extend(_guardian_segments(data.get("session_id") or ""))
     print(f" {DIM}·{RESET} ".join(parts))
 

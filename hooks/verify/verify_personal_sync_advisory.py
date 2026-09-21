@@ -137,7 +137,9 @@ def test_is_read_only(repo):
 
 
 def test_internal_error_does_not_raise():
-    assert ss._personal_sync_advisory(object(), USER) == []
+    # fail-open 但要告知：內部錯誤回一行可見警告，不吞掉（曾靜默 crash 三週沒人知道）
+    out = ss._personal_sync_advisory(object(), USER)
+    assert len(out) == 1 and "⚠" in out[0] and "[Guardian:PersonalSync]" in out[0]
 
 
 def test_wired_into_session_start():

@@ -1,7 +1,7 @@
 ---
 name: skill-creator
 description: 建立、改造、稽核 Claude Code skill 的標準作業。確保每個 skill 遵循 Anthropic Progressive Disclosure 三層架構與 5 大設計模式，避免 agent 腦補亂寫。**任何要寫新 skill、改既有 skill、或評估 skill 品質的場合都該觸發。**
-userInvocable: true
+user-invocable: true
 triggers: 寫 skill, 建立 skill, 新增 skill, 改造 skill, audit skill, 檢查 skill, 評估 skill, skill 設計, skill 結構, skill 重構, skill 優化
 pattern: pipeline
 ---
@@ -27,12 +27,12 @@ pattern: pipeline
 
 ## 三條工作流（依需求選一）
 
-### A. 建立新 skill（**必須走 Inversion 訪談，不准跳**）
+### A. 建立新 skill（四項資訊齊了才動手，缺什麼問什麼）
 
-**Step 1：訪談使用者 4 個核心問題**（一次一題，等回答才下一題）
+**Step 1：填齊 4 項核心資訊**——先從對話已有內容自行填入，列出「已知／缺口」表給使用者過目，**只問缺口**（一次一題）；四項都能從對話推得就直接進 Step 2，不為儀式重問。
 
 1. **做什麼**：這個 skill 要讓 Claude 完成什麼任務？（一句話）
-2. **何時觸發**：使用者會用什麼措辭召喚？（列 ≥ 5 個變體）
+2. **何時觸發**：使用者會用什麼措辭召喚？（列 ≥ 5 個變體；能從對話措辭推出前 2-3 個）
 3. **產出格式**：成功的輸出長什麼樣？（檔案 / 報告 / 訊息 / 副作用）
 4. **是否需要客觀驗證**：產出能 grep/diff 判定對錯，還是主觀（如風格）？
 
@@ -98,15 +98,16 @@ python scripts/audit-skill.py <path> --scope <global|project>
 ## 反模式自查（命中任一 → 不准交付）
 
 - ❌ **能用邏輯（grep / regex / 行數 / schema）判定的事，寫成 LLM 自查條目** — 該寫成 script（見 [principles.md「邏輯優先於語意」](references/principles.md#邏輯優先於語意)）
-- ❌ SKILL.md > 500 行（軟上限；硬性目標 ≤ 200）
+- ❌ SKILL.md > 500 行（官方 Tip 上限，audit 報 warning；本機目標 ≤ 200）
 - ❌ 同一條規則在 SKILL.md 寫兩次以上
 - ❌ inline 整段大模板 / SOP（應抽 references/ 或 assets/）
 - ❌ scripts/*.py 缺 UTF-8 stdout 強制處理（Windows 中文必亂）
 - ❌ 全域 skill 內出現絕對路徑（Windows `[盤符]:\...` / Unix home 路徑）→ 應改 `<project>` / `~/` 佔位符
-- ❌ frontmatter 缺 description / triggers / pattern 任一
+- ❌ frontmatter 缺 `description`（官方自動觸發唯一依據，audit 判 fail）；`triggers` / `pattern` 是本機自訂欄位，缺了是 warning 不是錯
+- ❌ 非官方拼法 `userInvocable`（官方 `user-invocable`；harness 不讀舊拼法）
 - ❌ description < 30 字 或 triggers < 3 個（undertrigger 風險）
 - ❌ pattern 欄位不在 5 模式白名單（tool-wrapper / generator / reviewer / inversion / pipeline）
-- ❌ 跳過 Inversion 訪談直接呼叫 new-skill.py（會繼承腦補風險）
+- ❌ 四項核心資訊沒齊就呼叫 new-skill.py（會繼承腦補風險）
 - ❌ references/ 檔 ≥ 300 行卻沒有 TOC
 
 ## 標準目錄結構
@@ -121,25 +122,30 @@ python scripts/audit-skill.py <path> --scope <global|project>
 
 ## audit-skill.py 檢查規則
 
-分兩級：**Fail**（exit ≠ 0，硬擋）/ **Warning**（exit = 0 但回報）。
-`--strict` 旗標可把 warning 升為 fail。`--scope global|project` 控專案 hardcode 是否檢。
+分兩級：**Fail**（exit ≠ 0，真格式問題）/ **Warning**（exit = 0 但回報）。每筆附 `src`：`official`（官方文件依據）或 `local`（本機建議）。
+`--strict` 旗標可把 warning 升為 fail。`--scope project` 不檢絕對路徑與 evals。frontmatter 用 YAML 解析（多行 description、list 型 triggers 都吃）。
 
-### Fail（客觀可判定，違規必擋）
-
-| 檢查項 | 規則 |
-|--------|------|
-| frontmatter 必要欄位 | 缺 `name` / `description` / `triggers` 任一即 fail |
-| SKILL.md 行數 | > 500 行即 fail（Anthropic 紅線） |
-| 專案 hardcode | 全域 skill 內 grep 命中 `TSLG / catclaw / Projects\\` 等關鍵字（`--scope global` 時生效） |
-
-### Warning（語意難精準，列示請人審）
+### Fail（官方格式，違規必擋）
 
 | 檢查項 | 規則 |
 |--------|------|
-| SKILL.md 行數 200~500 | 軟上限提醒，可考慮抽 references/ |
-| description 字數 | < 30 字 → 警告（可能 undertrigger） |
-| triggers 數量 | < 3 個 → 警告（覆蓋面不足） |
-| **pattern 欄位** | 缺 / 不在 5 模式白名單 → 警告（從起點就標模式，audit 與 new-skill 都能用） |
+| SKILL.md 存在 | 不存在即 fail |
+| frontmatter 可解析 | YAML 解析失敗 / 不是 key: value 映射 → fail |
+| `description` | 缺即 fail（官方 recommended，但它是自動觸發唯一依據，本機列硬性） |
+
+官方 frontmatter 沒有任何欄位是「必填」：`name` 預設目錄名，缺了只 warning。
+
+### Warning（官方 Tip 與本機建議，列示請人審）
+
+| 檢查項 | src | 規則 |
+|--------|-----|------|
+| `name` | official | 缺 / 與目錄名不同 → 警告 |
+| 拼法 | official | `userInvocable` 等非官方拼法 → 警告（harness 等同未設定）；非官方非本機欄位 → 警告（建議放 `metadata:`） |
+| SKILL.md 行數 | official / local | > 500 行 → 警告（官方 Tip）；200~500 → 警告（本機目標） |
+| 絕對路徑 | local | 全域 skill 含 Windows 盤符路徑或 Unix home 路徑 → 警告，建議佔位符 |
+| description 字數 | local | < 30 字 → 警告（可能 undertrigger） |
+| **triggers 欄位** | local | 缺 / < 3 個 → 警告（本機自訂，harness 不讀；供 skill-creator 列措辭變體） |
+| **pattern 欄位** | local | 缺 / 不在 5 模式白名單 → 警告（從起點就標模式，audit 與 new-skill 都能用） |
 | **目錄結構** | SKILL.md > 200 行但無 scripts/references/assets 任一 → 警告（該抽分層） |
 | **evals/triggers.json**（global） | 缺檔 / 查詢 < 10 / 仍含佔位符 → 警告（無法驗證觸發精準度） |
 | 疑似重複規則 | 列出短語重複次數 ≥ 3 的段落請人審（regex 抓不準語意） |

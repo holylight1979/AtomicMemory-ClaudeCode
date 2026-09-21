@@ -221,3 +221,11 @@
 {"q": "我在寫程式碼時，怎麼讓註解和輸出的文字敘述都更白話、像聊天一樣？", "expect": "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字", "cls": "direct", "gen": "llm"}
 {"q": "能不能幫我優化一下我的 code comment，讓它語氣比較接近現況的直覺描述，而不是太過學術化？", "expect": "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字", "cls": "direct", "gen": "llm"}
 {"q": "這部分邏輯需要加上 summary 說明，但不能帶有版本標記或過於咬文嚼字的說法，要夠口語化。", "expect": "feedback-程式註解與敘事-現況直覺白話-禁版本脈絡與咬文嚼字", "cls": "direct", "gen": "llm"}
+{"q": "幫我想三個週末可以去的景點", "expect": null, "cls": "negative", "gen": "manual-request-phrasing-2026-09-21"}
+{"q": "我想知道今天晚餐要煮什麼比較快", "expect": null, "cls": "negative", "gen": "manual-request-phrasing-2026-09-21"}
+{"q": "請你幫我列出五種常見的室內植物", "expect": null, "cls": "negative", "gen": "manual-request-phrasing-2026-09-21"}
+{"q": "可以幫我算一下 128 乘以 47 是多少嗎", "expect": null, "cls": "negative", "gen": "manual-request-phrasing-2026-09-21"}
+{"q": "我想寫一封生日祝福給朋友，給我三個開頭", "expect": null, "cls": "negative", "gen": "manual-request-phrasing-2026-09-21"}
+{"q": "幫我查一下明天台北會不會下雨", "expect": null, "cls": "negative", "gen": "manual-request-phrasing-2026-09-21"}
+{"q": "是否能推薦幾本適合入門的日文文法書", "expect": null, "cls": "negative", "gen": "manual-request-phrasing-2026-09-21"}
+{"q": "我想了解咖啡豆烘焙深淺的差別", "expect": null, "cls": "negative", "gen": "manual-request-phrasing-2026-09-21"}
