@@ -18,7 +18,7 @@ import os
 import re
 import secrets
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -26,7 +26,8 @@ from typing import Any, Dict, Iterable, List, Optional
 from .atom_spec import (
     SKIP_DIRS, MEMORY_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
     build_atom_content, slugify, validate_atom_content, render_knowledge_lines,
-    knowledge_sections_bytes, knowledge_budget_error, has_conflict_markers,
+    knowledge_sections_bytes, knowledge_budget_error, knowledge_budget_warning,
+    knowledge_task_list_error, has_conflict_markers,
 )
 from .atom_locations import (
     CLAUDE_DIR, GLOBAL_MEMORY_DIR, FAILURES_DIR,
@@ -661,17 +662,30 @@ def append_atom_file(
     if err:
         return WriteResult(ok=False, audit_id=audit_id,
                            error=f"Validation failed after append: {err}")
+    # 形狀硬拒排在大小之前：清單從第一條就註定是清單，不必等它長到超額
+    shape_err = knowledge_task_list_error(content)
+    if shape_err:
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"Shape rejected after append: {shape_err}")
     # 大小預算硬拒（append 是 atom 肥大化的實際路徑：一次一點、累積成山）。
     # 以「拼接後」的 knowledge 區總量計——existing 已超額者任何 append 都會被拒，
     # 逼迫先瘦身（結論留 atom、個案敘事外移文件）再追加。
     from .atom_spec import KNOWLEDGE_BUDGET_BYTES
     from .hub_card import budget_limit_for   # 導讀卡（標題含導讀或五段 ≥4）用 4096，其餘 KNOWLEDGE_BUDGET_BYTES
-    budget_err = knowledge_budget_error(knowledge_sections_bytes(content),
-                                        budget_limit_for(existing, KNOWLEDGE_BUDGET_BYTES))
+    nbytes = knowledge_sections_bytes(content)
+    budget = budget_limit_for(existing, KNOWLEDGE_BUDGET_BYTES)
+    budget_err = knowledge_budget_error(nbytes, budget)
     if budget_err:
         return WriteResult(ok=False, audit_id=audit_id,
                            error=f"Budget rejected after append: {budget_err}")
-    return write_raw(fp, content, source=source, op=op)
+    res = write_raw(fp, content, source=source, op=op)
+    # 接近上限時提前講，讓呼叫端還有餘裕換形狀，而不是撞牆後只能刪既有內容
+    warn = knowledge_budget_warning(nbytes, budget)
+    if res.ok and warn:
+        extra = dict(res.extra or {})
+        extra["budget_warning"] = warn
+        res = replace(res, extra=extra)
+    return res
 
 
 _META_KV_LINE_RE = re.compile(r"^-\s+[\w-]+:\s*.*$")

@@ -96,6 +96,13 @@ PROJECT_INDEX_MAX_LINES = 150  # 專案層 MEMORY.md 上限：專案層不生成
 # 得下正常結論型 atom；超過即代表在堆個案敘事而非結論。
 KNOWLEDGE_BUDGET_BYTES = 3072
 
+# 達預算此比例即預警：撞牆才發現要重整時，選項只剩「刪既有內容」
+KNOWLEDGE_BUDGET_WARN_RATIO = 0.8
+
+# 清單型內容的硬拒門檻（待辦標記數）。清單會一直長大，放 atom 必然撞預算，
+# 且知識段注入上限 200 tok 會先把它截掉——第一次寫入就擋，不等它長到上限。
+TASK_LIST_MIN_ITEMS = 3
+
 # 內容樣式軟警門檻（逐筆表格列數 / 含路徑行數）
 STYLE_TABLE_MIN_ROWS = 6
 STYLE_PATH_MIN_LINES = 8
@@ -429,7 +436,51 @@ def knowledge_budget_error(nbytes: int, budget: int = KNOWLEDGE_BUDGET_BYTES) ->
     return (
         f"knowledge 區 {nbytes} bytes 超過預算 {budget} bytes——"
         "個案事實移文件；atom 只留結論/判斷/教訓/現況/檔案錨點"
-        "（大段逐筆內容改為文件路徑一行）"
+        "（大段逐筆內容改為文件路徑一行）。"
+        "注入端知識段上限約 200 tok，放寬本預算也不會讓內容送達"
+    )
+
+
+def knowledge_budget_warning(nbytes: int, budget: int = KNOWLEDGE_BUDGET_BYTES,
+                             ratio: float = KNOWLEDGE_BUDGET_WARN_RATIO) -> Optional[str]:
+    """已達預算 ratio 但未超額 → 預警訊息；否則 None。budget<=0 停用。"""
+    if budget <= 0 or nbytes > budget or nbytes < int(budget * ratio):
+        return None
+    return (
+        f"knowledge 區 {nbytes} bytes 已達預算 {budget} bytes 的 {int(ratio * 100)}%——"
+        "接近上限；先分辨這是結論還是清單："
+        "清單型改為正本進 memory/_staging/、atom 留指標，別等撞牆才刪既有內容"
+    )
+
+
+# 清單型的訊號＝待辦標記。不能用「條列多」當判準——atom 本來就通篇條列
+_TASK_ITEM_RE = re.compile(r"^[ \t]*[-*][ \t]+\[[ xX]\]", re.MULTILINE)
+
+
+def knowledge_task_list_error(content: str,
+                              min_items: int = TASK_LIST_MIN_ITEMS) -> Optional[str]:
+    """knowledge 區是待辦清單（待辦標記 >= min_items）→ 錯誤訊息；否則 None。min_items<=0 停用。
+
+    清單會持續長大，而 atom 每次 trigger 整顆注入：越完整越貴，且知識段注入上限約
+    200 tok 會先把它截斷——長清單放 atom 根本到不了模型眼前。故於第一次寫入即擋。
+    """
+    if min_items <= 0:
+        return None
+    items = 0
+    for sec in KNOWLEDGE_SECTIONS:
+        m = re.search(
+            r"^##[ \t]+" + re.escape(sec) + r"[ \t]*\n([\s\S]*?)(?=^## |\Z)",
+            content, re.MULTILINE,
+        )
+        if m:
+            items += len(_TASK_ITEM_RE.findall(m.group(1)))
+    if items < min_items:
+        return None
+    return (
+        f"knowledge 區有 {items} 個待辦標記（`- [ ]`／`- [x]`）＝清單型內容——"
+        "清單正本請寫 memory/_staging/<主題>.md，atom 只留指標"
+        "（正本在哪／怎麼改／什麼不寫這裡）。"
+        "理由：atom 隨 trigger 整顆注入、知識段上限約 200 tok，長清單會被截斷"
     )
 
 

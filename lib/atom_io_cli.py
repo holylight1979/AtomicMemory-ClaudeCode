@@ -60,7 +60,7 @@ from .atom_io import (
 from .atom_access import init_access
 from .atom_spec import (
     build_atom_content, validate_atom_content,
-    knowledge_sections_bytes, knowledge_budget_error, KNOWLEDGE_BUDGET_BYTES,
+    knowledge_sections_bytes, knowledge_budget_error, knowledge_task_list_error, KNOWLEDGE_BUDGET_BYTES,
     render_knowledge_lines,
 )
 from .hub_card import budget_limit_for, is_hub_card, route_doc_for, depends_paths
@@ -141,6 +141,14 @@ def _canonical_build_params(build_params: dict):
     return {**build_params, "supersedes": canonical}, canonical, None
 
 
+def _shape_check(content: str):
+    """形狀硬拒：清單型內容不進 atom（create/replace；append 在 atom_io 內檢）。
+
+    排在大小預算之前——清單從第一條就註定是清單，不必等它長到超額。
+    """
+    return knowledge_task_list_error(content)
+
+
 def _core_layout_gate_error(base_dir: Path, rel_path: str):
     """核心層 create 落點後盾：gate 開且 index 在全域 memory/ 時，rel_path 必須帶範疇段。
     回錯誤字串或 None。專案層 index（非全域）不在此檢。"""
@@ -219,6 +227,9 @@ def create_atom(payload: dict) -> WriteResult:
     err = validate_atom_content(content) or narrative_date_error(card_body_lines(content))
     if err is not None:
         return WriteResult(ok=False, error=f"validate: {err}")
+    shape_err = _shape_check(content)
+    if shape_err is not None:
+        return WriteResult(ok=False, error=f"shape: {shape_err}")
     budget_err = _budget_check(content, depends_paths(build_params.get("depends")) + [str(file_path)],
                                kind_hint=payload.get("kind_hint"))
     if budget_err is not None:
