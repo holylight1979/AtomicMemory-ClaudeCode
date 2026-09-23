@@ -484,7 +484,7 @@ def superseded_names_cached(memory_dir: Path) -> set:
 def _collect_v4_role_atoms(
     project_mem_dir: Optional[Path], user: str, roles: List[str],
 ) -> List[AtomEntry]:
-    """列出使用者可見的 V4 sub-layer atoms（SPEC §8.1）：shared/ 全部、roles/<持有> 、personal/<本人>。"""
+    """列出使用者可見的 V4 sub-layer atoms（SPEC §8.1）：shared/ 與 failures/ 全部、roles/<持有> 、personal/<本人>。"""
     if not project_mem_dir or not project_mem_dir.is_dir():
         return []
     from handlers._shared import _V4_TRIGGER_LINE_RE
@@ -496,6 +496,11 @@ def _collect_v4_role_atoms(
     shared = project_mem_dir / "shared"
     if shared.is_dir():
         scan_targets.append(shared)
+    # failures/ 與 shared/ 同級、同樣人人可見（失敗家族 atom）。漏掃它，那些 atom 就只剩
+    # 索引一條路；而 v4 layout 下索引讀來的那份會被整份丟棄 ＝ 它們永遠不會被注入。
+    failures = project_mem_dir / "failures"
+    if failures.is_dir():
+        scan_targets.append(failures)
     roles_root = project_mem_dir / "roles"
     for r in roles:
         rd = roles_root / r

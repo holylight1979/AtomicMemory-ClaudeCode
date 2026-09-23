@@ -454,6 +454,11 @@
 ## 2026-10-01 專案記憶庫衍生檔退出版控（第 1 步，純加法）——init 即設 ignore、已版控只告警、缺檔重建含 mirror
 - 多人 SVN 共享的專案記憶庫裡，`_atom_index.json`／`_ATOM_INDEX.md` 是純衍生索引（每筆全來自 atom 檔頭、缺檔可重建），入版控只會每次 update 都衝（SVN 沒有 client merge driver）；而 `svn:ignore`／`.gitignore` 對「已經在版控裡」的檔無效。新增 `lib/vcs_ignore.py`：SessionStart 偵測到專案記憶庫、或索引首次落檔（`save_atom_index_json`）時，svn 工作副本 `svn propset svn:ignore`（併入既有值）、git 補 `{mem}/.gitignore`，五項＝索引兩檔＋`_staging`／`episodic`／`vector-db`；偵測到衍生檔已被版控 → `[Guardian:VcsIgnore]` 告警一次（marker `workflow/vcs-ignore.json`）附確切 `svn rm --keep-local --force`／`git rm --cached` 指令、隊友端 resolve 說明與舊版手動 `--rebuild` 救法，絕不自動執行。記憶庫目錄尚未 svn add → 跳過、下次再試；無 VCS 零子行程；根層 `~/.claude/memory` 不在範圍。
 - `_rebuild_index_if_missing`：`_ATOM_INDEX.md` 缺檔也重生（JSON 在就就地重生、不起子行程），重建失敗訊息附後果與手動指令。SVN `[Guardian:IndexConflict]`（SessionStart 與 PreToolUse 自動解）改成先指出衍生檔正解是退出版控、自動合併列為暫時處置。atom 格式、索引 schema、MEMORY.md 不動；MEMORY.md 衍生表瘦身與 changelog 改制留第 2、3 步。`verify_vcs_ignore_derived.py` 15 案（含 svnadmin 真工作副本）。 | `lib/vcs_ignore.py`, `lib/atom_index_json.py`, `hooks/handlers/{session_start,pre_tool_use}.py`, `hooks/verify/verify_vcs_ignore_derived.py`
+## 2026-09-23 v4 佈局的掃描根漏了 failures/，那層 atom 永遠不會被注入
+- `_collect_v4_role_atoms` 的 scan_targets 只有 `shared/`／`roles/<職務>/`／`personal/<本人>/`；而 v4 分支（memory 下有這三者任一即成立）會把索引讀來的 `project_atoms` 整份丟棄、只用掃描結果 → `failures/` 底下的 atom 整層從候選池消失。索引裡有它、檔案也在，只是永遠不被帶出來。實測某專案兩顆中招，其中一顆是「SVN 上傳必經明確授權」——本該擋不可逆動作的安全契約，實際上是暗的。`verify_scope_visibility` 檔頭 SPEC 本就寫「候選池 = global + P/shared(+failures) + …」，屬實作漏掉。 | `hooks/wg_atoms.py`, `hooks/verify/verify_scope_visibility.py`
+
+---
+
 ## 2026-09-23 清單型內容寫入閘 + 預算預警與注入端事實
 - 待辦／backlog 這類會一直長大的清單本來就不該進 atom：知識段注入上限約 200 tok，長清單會被截斷，等於記了卻送不到模型眼前，放寬寫入預算解不了。新增 `knowledge_task_list_error`：knowledge 區待辦標記（`- [ ]`／`- [x]`）達 3 個即硬拒，訊息指向正解（正本寫 `memory/_staging/<主題>.md`、atom 只留指標）；create/replace 與 append 兩個寫入端都擋，且排在大小預算之前。判準用待辦標記而非「條列多」——atom 本來就通篇條列。
 - `knowledge_budget_error` 訊息補注入端事實；新增 `knowledge_budget_warning`（append 後達 80% 即回預警，讓呼叫端還有餘裕換形狀）；`rules/core.md` 補兩條規範。`verify_knowledge_shape.py` 11 案含「一般條列 atom 不得被誤判」防線。 | `lib/atom_io.py`, `lib/atom_io_cli.py`, `lib/atom_spec.py`, `lib/verify/verify_knowledge_shape.py`, `rules/core.md`

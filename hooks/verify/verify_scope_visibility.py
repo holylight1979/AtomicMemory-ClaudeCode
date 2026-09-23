@@ -309,3 +309,35 @@ def test_ups_search_has_no_cross_project_atom_scan():
     src = (HOOKS_DIR / "handlers" / "ups_search.py").read_text(encoding="utf-8")
     assert "parse_memory_index" not in src, "ups_search 不得再讀他專案的 atom 索引"
     assert "count_trigger_hits(triggers, prompt_lower) >= 2" not in src
+
+
+# ─── v4 佈局的掃描根：failures/ 不得漏 ───────────────────────────────────────
+
+def test_v4_scan_covers_failures_layer(tmp_path):
+    """候選池含 P/shared(+failures)（見本檔頂 SPEC）。v4 佈局下（memory 有 shared/roles/
+    personal 任一）索引讀來的那份會被整份丟棄，掃描根漏了 failures/ 等於那些 atom
+    永遠不會被注入——而且沒有任何錯誤訊號，只表現成「這顆 atom 好像沒在運作」。"""
+    from wg_atoms import _collect_v4_role_atoms
+
+    mem = tmp_path / ".claude" / "memory"
+
+    def atom(path, name, trig):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"""# {name}
+
+- Scope: shared
+- Trigger: {trig}
+
+## 知識
+
+- [臨] x
+""", encoding="utf-8")
+
+    atom(mem / "shared" / "架構" / "a.md", "a", "alpha")
+    atom(mem / "failures" / "版控" / "b.md", "b", "beta")
+    atom(mem / "personal" / "u" / "c.md", "c", "gamma")
+
+    got = {n: (p, t) for n, p, t in _collect_v4_role_atoms(mem, "u", ["programmer"])}
+    assert set(got) == {"a", "b", "c"}, set(got)
+    assert got["b"][0] == "memory/failures/版控/b.md", got["b"]
+    assert got["b"][1] == ["beta"], got["b"]
