@@ -448,6 +448,12 @@
 
 ---
 
+## 2026-09-23 清掉版控程式裡殘留的作者帳號字面量
+- `get_current_user` 是「CLAUDE_USER → OS 登入帳號 → 中性預設值」一條鏈，但 `user-extract-worker` 的 `ctx.get("user", …)` 與 `handlers/_shared` 的 `user_id.get("user", …)` 拿不到身分時回固定字串、不走這條鏈——同事機器上 personal atom 歸屬與 PersonalSync 目標目錄會靜默指到錯的帳號下。改問 `get_current_user()`。
+- 同類另兩處：`wg_atoms._ATTR_PATH_NOISE` 把作者帳號寫死成路徑噪音詞（判用 v2 要剔除的是「家目錄那一段」，隨機器而異，寫死只對作者那台有效），與其對應測試，都改成取用時問當前使用者。`health-weekly` 的 schtasks 註冊範例註解改用 `%USERPROFILE%`。 | `hooks/user-extract-worker.py`, `hooks/handlers/_shared.py`, `hooks/wg_atoms.py`, `hooks/wg_roles.py`, `hooks/verify/verify_attribution_v2.py`, `tools/health-weekly.py`
+
+---
+
 ## 2026-09-21 收尾檢查兩修——口令閘看整回合原話、子代理紅測不進主 session
 - **CommitOrder 口令閘**：只看 `recent_user_prompts[-1]`，使用者「上GIT」後排隊補一句別的話就把口令蓋掉（本日實踩，閘誤擋一次）。改為 `ups_gates.track_turn_prompts` 維護 `state.turn_prompts`（Stop 入口設 `turn_open=False` 關回合、下一則重開），閘看整回合；舊 state 無欄位退回只看最後一句。已知邊界：Stop 被 block 後的 mid-turn 訊息會被當新回合，只多擋一次。
 - **子代理紅測隔離**：sub-agent 跑 `run_verify` 的 2 筆紅測進了主 session `failing_tests`，主 session 的 Stop 被 TestFailGate 擋（本日實踩兩次）。`post_tool_use._track_test_result`：hook 輸入帶 `agent_id`（官方 Common input fields，子代理內才有）時不記也不清主 session 帳。`verify_failing_tests_subagent_isolation.py` 5 案。

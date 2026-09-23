@@ -27,6 +27,7 @@ from wg_core import (
     write_state,
 )
 from wg_extraction import _is_lease_valid, _set_lease
+from wg_roles import get_current_user
 
 # Windows: 外呼 python/git 等 console 程式時若不帶此 flag，無主控台的 hook 父行程會被配一個可見 console 視窗
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -575,7 +576,7 @@ def _maybe_spawn_user_extract_worker(
 
     cwd = state.get("session", {}).get("cwd", "")
     user_id = state.get("user_identity", {})
-    user = user_id.get("user", "unknown")
+    user = user_id.get("user") or get_current_user()
 
     worker_ctx = {
         "session_id": session_id,

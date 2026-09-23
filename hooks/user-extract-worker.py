@@ -39,6 +39,7 @@ from wg_core import (
     cwd_to_project_slug, get_transcript_path, find_project_root,
     _is_under_claude_dir, user_typed_text,
 )
+from wg_roles import get_current_user
 
 _CLAUDE_ROOT = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 if _CLAUDE_ROOT not in sys.path:
@@ -588,7 +589,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     session_id = ctx.get("session_id", "")
     cwd = ctx.get("cwd", "")
     config = ctx.get("config", {})
-    user = ctx.get("user", "holylight")
+    user = ctx.get("user") or get_current_user()
 
     ue_config = config.get("userExtraction", {})
     token_budget = ue_config.get("tokenBudget", 240)

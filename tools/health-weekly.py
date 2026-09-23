@@ -643,8 +643,8 @@ def main() -> int:
 
 # REGISTER（一次性，已由安裝流程執行；重灌時照抄）：
 #   schtasks /Create /TN "Claude-Memory-WeeklyHealth" /SC WEEKLY /D MON /ST 09:00
-#     /TR "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe
-#          C:/Users/holylight/.claude/tools/health-weekly.py"
+#     /TR "%USERPROFILE%/AppData/Local/Python/bin/pythonw.exe
+#          %USERPROFILE%/.claude/tools/health-weekly.py"
 # 錯過排程（關機）→ 下次開機由 Task Scheduler 設定補跑；SessionStart 死人開關兜底。
 if __name__ == "__main__":
     sys.exit(main())
