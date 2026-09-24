@@ -3648,6 +3648,28 @@
         "rescue watch"
       ],
       "scope": "global"
+    },
+    {
+      "name": "vscode-c-devkit對unity-assets內csproj做design-time-build-產obj被unity編進去cs0579-用directorybuildprops改obj",
+      "path": "memory/dotnet/vscode-c-devkit對unity-assets內csproj做design-time-build-產obj被unity編進去cs0579-用directorybuildprops改obj.md",
+      "triggers": [
+        "CS0579",
+        "Duplicate Attribute",
+        "AssemblyInfo.cs",
+        "obj/Debug",
+        "C# Dev Kit",
+        "csdevkit",
+        "design-time build",
+        "projectsystem-buildhost",
+        "Directory.Build.props",
+        "BaseIntermediateOutputPath",
+        "obj~",
+        "Unity 編譯失敗",
+        "Assets 內 csproj",
+        "Unity 忽略資料夾",
+        "~ 結尾"
+      ],
+      "scope": "global"
     }
   ]
 }

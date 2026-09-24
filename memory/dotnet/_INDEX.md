@@ -9,6 +9,7 @@
 | class-finalizer-讓實例多活一輪gc-純計數或清欄位的解構子一律不寫 | class-finalizer-讓實例多活一輪gc-純計數或清欄位的解構子一律不寫 |
 | dotnet-pack-在-generatepackageonbuild-專案不重建-nuspec-新版號包舊-dll | dotnet pack 在 GeneratePackageOnBuild 專案不重建-nuspec 新版號包舊 dll |
 | msbuild-17x-重導向-stdout-輸出-utf-8-net-framework-用-encodingdefault-讀會亂碼 | MSBuild 17.x 重導向 stdout 輸出 UTF-8-net-framework-用-Encoding.Default-讀會亂碼 |
+| vscode-c-devkit對unity-assets內csproj做design-time-build-產obj被unity編進去cs0579-用directorybuildprops改obj | VSCode-C#-DevKit對Unity-Assets內csproj做design-time-build-產obj被Unity編進去CS0579-用Directory.Build.props改obj~ |
 
 ## 子層
 

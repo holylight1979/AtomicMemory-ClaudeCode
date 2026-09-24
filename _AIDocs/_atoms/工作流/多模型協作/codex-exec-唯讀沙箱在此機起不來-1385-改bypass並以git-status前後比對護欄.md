@@ -16,6 +16,8 @@
 - [臨] Codex 跟我共用同一個工作樹：它在讀碼期間我若同時改檔／ commit，它會偵測到「外部 Git 變更」並重讀，報告裡的行號與判斷會混到兩個版本（2026-09-03 地圖那輪它對我改到一半的 MapPilot 評論）。要不就等它跑完再動手，要不就給它 `git worktree` 獨立工作樹（`--cd`）。
 - [臨] Codex 這類靈時獨立審查的價值在正確性缺陷，不在可讀性：地圖那輪它抓到 FindPath 不穩定邊誤擋、JSON 載入丟失字典 comparer、存檔非原子，三項都是我量化縮排掃不到的。給它的 prompt 可以明講「重點在正確性與邊界」。
 - [臨] 2026-09-10 實測 Codex CLI 0.154.0：`codex exec --skip-git-repo-check -s read-only "Reply CODEX_OK"` 直接回 CODEX_OK，1385 不再出現；升級後先試 read-only，bypass 只留給舊版。
+- [臨] 2026-09-22 另一条保持 read-only 的路：純審查任務不必 bypass。把 prompt + `cat -n 完整檔` + `svn diff`/`git diff` + plumbing 片段全部組成一份 md，`codex exec --skip-git-repo-check --sandbox read-only - < prompt.md`，並在 prompt 明寫「你的 sandbox 無法 spawn 程序，不要跑指令」。Codex 當純推理器照样給帶行號的具體 finding（650 行素材約 3 萬 token），靈零寫檔風險。SVN 工作副本必加 `--skip-git-repo-check`，否則直接印 `Not inside a trusted directory` 退出。
+- [臨] 對抗審查 prompt 有效結構：①改了什麼 ②逐消費端列舊行為（從 diff 的 - 行整理）③列 6~8 個專攻面（幀一致性、狀態機邊界、行為漂移、平台差異、熱重載、過度設計）④要求輸出「檔:行 / 輸入序列→錯誤結果 / bug|drift|nit / 一行修法 / ship或fix-first」。它會把有意的行為統一也列成 drift，要自己判接受並寫進收尾報告。實測一輪抓到 2 個確定 bug + 3 個值得補的洞。
 
 ## 行動
 

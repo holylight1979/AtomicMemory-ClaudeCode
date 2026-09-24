@@ -8,7 +8,7 @@
 | 工作流 | 16 | `memory/工作流/_INDEX.md` |
 | 思考與決策 | 3 | `memory/思考與決策/_INDEX.md` |
 | 驗證與實證 | 13 | `memory/驗證與實證/_INDEX.md` |
-| dotnet | 14 | `memory/dotnet/_INDEX.md` |
+| dotnet | 15 | `memory/dotnet/_INDEX.md` |
 | OS-Windows | 6 | `memory/OS-Windows/_INDEX.md` |
 | 文字與格式 | 6 | `memory/文字與格式/_INDEX.md` |
 | 設計通則 | 3 | `memory/設計通則/_INDEX.md` |
