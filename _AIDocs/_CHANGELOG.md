@@ -448,6 +448,12 @@
 
 ---
 
+## 2026-09-24 巢狀 SVN 工作副本會蓋掉真正的專案根；判定收斂成一份
+- `_legacy_nearest` 把裸 `.svn` 與 `.git`／`_AIDocs`／memory index 放同一趟取最近者 → 子目錄自己是工作副本時專案根就停在子目錄，記憶被切成第二棵殘缺的 `.claude` 樹，且無任何錯誤訊號（症狀只是「atom 都讀不到」「pending 佇列是空的」）。拆出 `has_strong_project_marker`（不含裸 `.svn`），`_legacy_nearest` 改兩趟：強標記掃滿整條鏈才輪到 `.svn`；`has_project_marker` 維持原義。
+- `wg_core.find_project_root` 原本在無宣告認領時自己再掃一次＝同一判定兩份實作、無編譯期關聯，改為取 `Resolution.nearest` 委派。**順帶修好 MCP 側**：`atom_write`／`atom_promote` 的落點走 `atom_io.locate_atom → resolve_project_root`，先前與 hook 側不同步，從子目錄呼叫得顯式帶 `project_cwd` 才不會落錯。`verify_project_root_claim` 27→29 條（`test_T` 的 legacy 參照同步改兩趟）。 | `lib/project_root.py`, `hooks/wg_core.py`, `hooks/verify/verify_project_root_claim.py`
+
+---
+
 ## 2026-09-23 清掉版控程式裡殘留的作者帳號字面量
 - `get_current_user` 是「CLAUDE_USER → OS 登入帳號 → 中性預設值」一條鏈，但 `user-extract-worker` 的 `ctx.get("user", …)` 與 `handlers/_shared` 的 `user_id.get("user", …)` 拿不到身分時回固定字串、不走這條鏈——同事機器上 personal atom 歸屬與 PersonalSync 目標目錄會靜默指到錯的帳號下。改問 `get_current_user()`。
 - 同類另兩處：`wg_atoms._ATTR_PATH_NOISE` 把作者帳號寫死成路徑噪音詞（判用 v2 要剔除的是「家目錄那一段」，隨機器而異，寫死只對作者那台有效），與其對應測試，都改成取用時問當前使用者。`health-weekly` 的 schtasks 註冊範例註解改用 `%USERPROFILE%`。 | `hooks/user-extract-worker.py`, `hooks/handlers/_shared.py`, `hooks/wg_atoms.py`, `hooks/wg_roles.py`, `hooks/verify/verify_attribution_v2.py`, `tools/health-weekly.py`

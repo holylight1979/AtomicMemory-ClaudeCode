@@ -372,11 +372,18 @@ def _has_project_marker(root: Path) -> bool:
 
 
 def find_project_root(cwd: str) -> Optional[Path]:
-    """cwd 所屬的專案根（lib/project_root：宣告認領優先，否則最近標記）。找不到回 Path(cwd)。"""
+    """cwd 所屬的專案根（lib/project_root：宣告認領優先，否則最近標記）。找不到回 Path(cwd)。
+
+    無宣告認領時取 `Resolution.nearest`——判定只有 lib/project_root._legacy_nearest 一份，
+    這裡不再自己掃一次。兩份各自實作沒有編譯期關聯，改一邊忘了另一邊就會靜默分岔。
+    """
     if not cwd:
         return None
     if resolve_project_root is not None:
-        return resolve_project_root(cwd).path or Path(cwd)
+        res = resolve_project_root(cwd)
+        if res.claimed_by in _ROOT_DECLARED_KINDS and res.path:
+            return res.path
+        return res.nearest or res.path or Path(cwd)
     p = Path(cwd)
     for _ in range(4):
         if _has_project_marker(p):

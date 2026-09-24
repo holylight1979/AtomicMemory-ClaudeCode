@@ -273,16 +273,22 @@ def test_R_S_root_abs_rules(tree, tmp_path):
 
 
 def test_T_no_declaration_equals_legacy(tmp_path):
-    """無宣告時逐案與舊規則等值：最近四標記、最多 4 層、找不到回 None。"""
+    """無宣告時逐案與規則等值：最多 4 層、強標記先掃滿整條鏈才輪到裸 .svn、找不到回 None。"""
     def legacy(cwd: Path):
+        chain = []
         p = cwd
         for _ in range(4):
-            if (p / ".claude" / "memory" / "MEMORY.md").exists() or (p / "_AIDocs").is_dir() \
-                    or (p / ".git").exists() or (p / ".svn").exists():
-                return p
+            chain.append(p)
             if p.parent == p:
                 break
             p = p.parent
+        for q in chain:
+            if (q / ".claude" / "memory" / "MEMORY.md").exists() or (q / "_AIDocs").is_dir() \
+                    or (q / ".git").exists():
+                return q
+        for q in chain:
+            if (q / ".svn").exists():
+                return q
         return None
     cases = []
     g = tmp_path / "g" / "a" / "b"
@@ -299,6 +305,46 @@ def test_T_no_declaration_equals_legacy(tmp_path):
         assert (r.path is None) == (exp is None) and (exp is None or same(r.path, exp)), c
         assert r.claimed_by in ("nearest", "none") and not r.warnings and not r.infos
         assert wg_core.find_project_root(str(c)) == (exp or c)
+
+
+def test_nested_svn_does_not_shadow_the_real_root(tmp_path):
+    """子目錄自己是一個 SVN 工作副本時，不得蓋掉帶強標記的真正專案根。
+
+    一趟掃描（裸 .svn 與 .git／_AIDocs／memory index 同級、取最近者）會停在那個子目錄，
+    專案記憶於是被切成第二棵殘缺的 .claude 樹——而且沒有任何錯誤訊號。
+    hook 側（wg_core.find_project_root）與 MCP 側（resolve_project_root）走同一份判定，
+    兩邊必須給同一個答案。
+    """
+    root = tmp_path / "proj"
+    _memory(root)                       # 強標記：.claude/memory/MEMORY.md
+    (root / ".svn").mkdir()             # 根自己也是工作副本
+    sub = root / "Client"
+    (sub / ".svn").mkdir(parents=True)  # 子層只有裸 .svn
+    deep = sub / "Hotfix"
+    deep.mkdir()
+
+    for cwd in (sub, deep):
+        res = R(cwd)
+        assert same(res.path, root), f"{cwd}: MCP 側落在 {res.path}"
+        assert same(res.nearest, root), f"{cwd}: nearest 落在 {res.nearest}"
+        assert same(wg_core.find_project_root(str(cwd)), root), f"{cwd}: hook 側不一致"
+
+    # 全鏈都只有裸 .svn 時仍取最近者（沒有強標記可選，行為不變）
+    only = tmp_path / "onlysvn"
+    (only / ".svn").mkdir(parents=True)
+    inner = only / "inner"
+    (inner / ".svn").mkdir(parents=True)
+    assert same(R(inner).path, inner)
+
+
+def test_strong_marker_excludes_bare_svn(tmp_path):
+    """has_strong_project_marker 不認裸 .svn；has_project_marker（含 .svn）維持原義。"""
+    d = tmp_path / "s"
+    (d / ".svn").mkdir(parents=True)
+    assert not pr.has_strong_project_marker(d)
+    assert pr.has_project_marker(d)
+    (d / ".git").mkdir()
+    assert pr.has_strong_project_marker(d)
 
 
 # ─── 指紋 / resume ────────────────────────────────────────────────────────────

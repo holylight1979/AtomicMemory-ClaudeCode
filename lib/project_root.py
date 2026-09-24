@@ -270,27 +270,47 @@ def _fork_atom_count(layer: Path) -> int:
 # ─── 舊規則（無宣告時的 fallback）─────────────────────────────────────────────
 
 
-def has_project_marker(root: Path) -> bool:
-    """四標記 ∪ 有效宣告檔。取代 wg_core / atom_io 各自複製的判斷。"""
+def has_strong_project_marker(root: Path) -> bool:
+    """強標記：memory index / _AIDocs / .git / 有效宣告檔。**不含裸 .svn**。
+
+    子目錄自己是一個 SVN 工作副本很常見（把 repo 的某一層單獨 checkout 出來用）。
+    裸 .svn 與其他標記同級時，「最近標記」會停在那個子目錄，真正的專案根被蓋掉。
+    """
     if (root / ".claude" / "memory" / MEMORY_INDEX).exists():
         return True
     if (root / "_AIDocs").is_dir():
         return True
-    if (root / ".git").exists() or (root / ".svn").exists():
+    if (root / ".git").exists():
         return True
     d = load_declaration(root)
     return bool(d and d.valid)
 
 
+def has_project_marker(root: Path) -> bool:
+    """四標記 ∪ 有效宣告檔。取代 wg_core / atom_io 各自複製的判斷。"""
+    return has_strong_project_marker(root) or (root / ".svn").exists()
+
+
 def _legacy_nearest(start: Path) -> Optional[Path]:
-    """舊規則：最近四標記、最多 4 層。家目錄與磁碟根永不當專案根（~/.claude 本身仍可，核心層語意）。"""
+    """無宣告認領時的專案根：最多 4 層，家目錄與磁碟根永不當專案根
+    （~/.claude 本身仍可，核心層語意）。
+
+    兩趟：強標記先掃滿整條鏈，掃不到才考慮裸 .svn。一趟掃描會讓巢狀的 SVN 工作副本
+    蓋掉真正的專案根——專案記憶被切成第二棵殘缺的 .claude 樹，而且不會有任何錯誤訊號。
+    """
+    chain: List[Path] = []
     p = start
     for _ in range(LEGACY_MAX_LEVELS):
         if _norm(p) == _norm(HOME) or p.parent == p:
             break
-        if has_project_marker(p):
-            return p
+        chain.append(p)
         p = p.parent
+    for q in chain:
+        if has_strong_project_marker(q):
+            return q
+    for q in chain:
+        if (q / ".svn").exists():
+            return q
     return None
 
 
