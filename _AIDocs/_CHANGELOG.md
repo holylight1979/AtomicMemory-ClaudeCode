@@ -448,6 +448,11 @@
 
 ---
 
+## 2026-09-24 knowledge_queue 混純字串的防護補回歸測試
+- `collect_problem_texts` 在 SessionEnd 路徑上，queue 混進非 dict 會讓整段收尾炸掉。守衛本來就在但沒測試釘住，重構時容易被當成多餘的型別檢查拿掉。順帶把註解改成只陳述可驗證的事（原本「舊格式」與「extract-worker 的 extracted_items」都指向特定生產者，但查不到證據）。 | `hooks/wg_recall_miss.py`, `hooks/verify/verify_recall_miss.py`
+
+---
+
 ## 2026-09-24 巢狀 SVN 工作副本會蓋掉真正的專案根；判定收斂成一份
 - `_legacy_nearest` 把裸 `.svn` 與 `.git`／`_AIDocs`／memory index 放同一趟取最近者 → 子目錄自己是工作副本時專案根就停在子目錄，記憶被切成第二棵殘缺的 `.claude` 樹，且無任何錯誤訊號（症狀只是「atom 都讀不到」「pending 佇列是空的」）。拆出 `has_strong_project_marker`（不含裸 `.svn`），`_legacy_nearest` 改兩趟：強標記掃滿整條鏈才輪到 `.svn`；`has_project_marker` 維持原義。
 - `wg_core.find_project_root` 原本在無宣告認領時自己再掃一次＝同一判定兩份實作、無編譯期關聯，改為取 `Resolution.nearest` 委派。**順帶修好 MCP 側**：`atom_write`／`atom_promote` 的落點走 `atom_io.locate_atom → resolve_project_root`，先前與 hook 側不同步，從子目錄呼叫得顯式帶 `project_cwd` 才不會落錯。`verify_project_root_claim` 27→29 條（`test_T` 的 legacy 參照同步改兩趟）。 | `lib/project_root.py`, `hooks/wg_core.py`, `hooks/verify/verify_project_root_claim.py`

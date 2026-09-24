@@ -52,6 +52,12 @@ def test_texts_from_failing_tests():
     assert texts == [("failing_tests", "svn checkin hooks/foo.py E155036 工作副本 upgrade required")]
 
 
+def test_texts_knowledge_queue_str_items_ignored():
+    """queue 混有純字串時只跳過、不 crash（collect_problem_texts 在 SessionEnd 路徑上）。"""
+    state = {"knowledge_queue": ["純字串項", {"type": "pitfall", "content": "svn 工作副本鎖住"}]}
+    assert collect_problem_texts(state) == [("failure_kw", "svn 工作副本鎖住")]
+
+
 def test_texts_from_evasion_and_flag():
     state = {
         "evasion_events": [{"phrase": "先跳過", "turn_seq": 2, "at": "t"}],
