@@ -13,6 +13,7 @@
 - [臨] **hook 警告的字級／顏色無 API 可控**。警告走 hook 輸出的 `systemMessage` 欄位，harness 拿到後怎麼渲染（VSCode 擴充是固定淡色小字區）由它自己決定，hook 端只能給純文字。提高辨識度**只能從訊息內容下手**：emoji／框線／全形字等純 unicode 手段任何渲染器都吃；markdown 粗體不保證。
 - [臨] **前綴分流（使用者 2026-08-06 裁決）**：不是「所有警告用同一個標記」，而是**依類型分流、一眼區分**：PAN 預告閘門（`config.deny_template` + `pre_tool_use._PAN_FALLBACK_DENY`，warn／deny 共用）用 **⛔**；跨 session 衝突預警（`wg_coordination.py` 三處：`format_conflict_warning`／`format_late_collision`／`check_bash_git_finalize`）用 **⚠️**。
 - [臨] 實模板與 fallback 模板必須同步帶前綴（config 壞掉時走 fallback，漏加會退回無標記版）。兩套 verify 釘住：`verify_pre_action_notice.py::test_messages_carry_alert_emoji_prefix`（直讀真實 config.json）與 `verify_session_coordination.py::test_warning_texts_carry_alert_emoji_prefix`。
+- [臨] 2026-10-01 PAN 閘連同 verify_pre_action_notice.py 一起拆除；⛔ 前綴釘子只剩 verify_session_coordination.py::test_warning_texts_carry_alert_emoji_prefix。
 
 ## 行動
 
