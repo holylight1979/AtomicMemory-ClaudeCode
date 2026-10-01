@@ -6,7 +6,7 @@
 - Trigger: anti-evasion, AEC, AEC HUD, 收尾檢核 HUD, anti_evasion_report, one-writer, sibling 隔離, aec_severity, autospawn, 彈窗, 強化 AEC, 改 AEC HUD, 記憶系統開發, d_pending, AEC-Pending, 尚未寫, 見下一動
 - Created-at: 2026-07-06
 
-- Related: feedback-memory-system-doc-sync, guardian-dashboard-孤兒佔埠與新碼重啟
+- Related: feedback-memory-system-doc-sync, guardian-dashboard-孤兒佔埠與新碼重啟, knowledge-harvest-階段收割與vcs-sync機制指標與踩坑
 
 ## 知識
 
