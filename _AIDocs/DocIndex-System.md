@@ -205,6 +205,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - memory_search.py — 讀取端 `search()`（候選池 → trigger/BM25/vector → RRF，`schema_version=1`；MCP `memory_search`／cli `search`／`tools/memory-search.py` 三入口共用；`default_identity` 取現用身份）
 - realm_gate.py — 「專案專屬內容不得落 global」realm 閘：`project_terms(root)` 機械化推導專名（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 / repo-paths {代號}）+ 專案絕對路徑 + 「此專案」字面＋本機已登記專案名與專案路徑（`known_project_names`／`known_project_roots`，讀 registry，不寫死任何專案名）；`check_global_write` 命中即拒並附去專案化原則與落點；cwd∈~/.claude 或無 cwd 時只掃已登記專案名；`anonymize_projects` 給根層卡片自動 Quote 去專案化
 - atom_index_json.py — `_atom_index.json` JSON SoT API（load / save / upsert / delete / regenerate_md / migrate / validate）
+- vcs_ignore.py — 專案記憶庫衍生檔退出版控：`ensure_ignore`（svn:ignore 併入／`{mem}/.gitignore` 補行）、`tracked_derived`（已版控偵測）、`advisory_lines`（SessionStart 一次性告警＋marker）、`derived_exit_hint`（IndexConflict 共用措辭）；`python -m lib.vcs_ignore <mem>` 唯讀報告
 - ollama_extract_core.py — 萃取共用核心 + SessionBudgetTracker（240 tok/session, CJK-aware）
 
 ### 記憶品質

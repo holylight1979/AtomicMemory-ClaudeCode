@@ -448,6 +448,12 @@
 
 ---
 
+## 2026-10-01 專案記憶庫衍生檔退出版控（第 1 步，純加法）——init 即設 ignore、已版控只告警、缺檔重建含 mirror
+- 多人 SVN 共享的專案記憶庫裡，`_atom_index.json`／`_ATOM_INDEX.md` 是純衍生索引（每筆全來自 atom 檔頭、缺檔可重建），入版控只會每次 update 都衝（SVN 沒有 client merge driver）；而 `svn:ignore`／`.gitignore` 對「已經在版控裡」的檔無效。新增 `lib/vcs_ignore.py`：SessionStart 偵測到專案記憶庫、或索引首次落檔（`save_atom_index_json`）時，svn 工作副本 `svn propset svn:ignore`（併入既有值）、git 補 `{mem}/.gitignore`，五項＝索引兩檔＋`_staging`／`episodic`／`vector-db`；偵測到衍生檔已被版控 → `[Guardian:VcsIgnore]` 告警一次（marker `workflow/vcs-ignore.json`）附確切 `svn rm --keep-local --force`／`git rm --cached` 指令、隊友端 resolve 說明與舊版手動 `--rebuild` 救法，絕不自動執行。記憶庫目錄尚未 svn add → 跳過、下次再試；無 VCS 零子行程；根層 `~/.claude/memory` 不在範圍。
+- `_rebuild_index_if_missing`：`_ATOM_INDEX.md` 缺檔也重生（JSON 在就就地重生、不起子行程），重建失敗訊息附後果與手動指令。SVN `[Guardian:IndexConflict]`（SessionStart 與 PreToolUse 自動解）改成先指出衍生檔正解是退出版控、自動合併列為暫時處置。atom 格式、索引 schema、MEMORY.md 不動；MEMORY.md 衍生表瘦身與 changelog 改制留第 2、3 步。`verify_vcs_ignore_derived.py` 15 案（含 svnadmin 真工作副本）。 | `lib/vcs_ignore.py`, `lib/atom_index_json.py`, `hooks/handlers/{session_start,pre_tool_use}.py`, `hooks/verify/verify_vcs_ignore_derived.py`
+
+---
+
 ## 2026-09-23 git 疊 svn 的同層雙版控：svn 側衝突不再被略過
 - `find_vcs_root` 在同一層同時有 `.git` 與 `.svn` 時回 git，所有只靠它找根的 svn 處理（SessionStart 的索引衝突 advisory、PreToolUse 在 `svn commit`／`resolve` 前的自動解、`merge-atom-index --resolve`）在這種目錄下永遠看不到 svn 那一側，卻回報成功。新增零子行程的 `wg_core.find_svn_root`，svn 側一律用它獨立找根；`--resolve` 改兩側都看（`--vcs git|svn` 只處理一側，PreToolUse 依觸發指令帶入），沒有衝突的一側不動。SessionStart 把 svn 的 atom 衝突與索引三檔分開報：索引三檔 hook 會自動解，atom 衝突要人判斷。 | `hooks/wg_core.py`, `hooks/handlers/{session_start,pre_tool_use}.py`, `tools/merge-atom-index.py`, `hooks/verify/verify_dual_vcs_conflict_detection.py`
 

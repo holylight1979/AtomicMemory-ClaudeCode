@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -100,10 +101,33 @@ def load_atom_index_json(mem_dir: Path) -> Dict[str, Any]:
 
 def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:
     p = mem_dir / ATOM_INDEX_JSON
+    born = not p.exists()
     p.parent.mkdir(parents=True, exist_ok=True)
     _write_text_lf(
         p, json.dumps(data, ensure_ascii=False, indent=2, sort_keys=False)
     )
+    if born:
+        _on_index_born(mem_dir)
+
+
+def _on_index_born(mem_dir: Path) -> None:
+    """索引首次落檔＝衍生檔誕生的那一刻：順手把它排除在專案版控外（svn:ignore／.gitignore）。
+
+    只對專案記憶庫（~/.claude 自己的記憶由根層 repo 規則管）；無 VCS 零子行程；fail-open，失敗只 stderr。
+    「已被版控」的告警交 SessionStart（lib/vcs_ignore.advisory_lines）。
+    """
+    try:
+        try:
+            from .vcs_ignore import ensure_ignore, under_claude_dir
+        except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+            from vcs_ignore import ensure_ignore, under_claude_dir
+        if under_claude_dir(mem_dir):
+            return
+        for rep in ensure_ignore(mem_dir):
+            if rep.get("error") and rep.get("skipped") != "no-cli":
+                print(f"[atom_index_json] {rep['vcs']} ignore 未設：{rep['error']}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"[atom_index_json] vcs ignore skipped: {e}", file=sys.stderr)
 
 
 def dedup_triggers(triggers, *, lower: bool = False) -> List[str]:

@@ -948,6 +948,23 @@ def _is_svn_resolve_trigger(tokens: List[str]) -> bool:
     return True
 
 
+def _svn_derived_exit_hint(run_cwd: str, rels: List[str]) -> str:
+    """svn 索引自動合併只是暫時處置：_atom_index.json／_ATOM_INDEX.md 是衍生檔，正解是退出版控。
+    把確切指令附在同一行（措辭與 lib/vcs_ignore 同源；SessionStart 的 [Guardian:VcsIgnore] 也會提）。
+    rels＝相對 WC 根的路徑；沒有衍生檔或 lib 不在 → 空字串。"""
+    try:
+        from vcs_ignore import DERIVED_FILES, derived_exit_hint
+    except ImportError:
+        return ""
+    root = find_svn_root(Path(run_cwd))
+    if root is None:
+        return ""
+    paths = [root / rel for rel in rels if Path(rel).name in DERIVED_FILES]
+    if not paths:
+        return ""
+    return "自動合併只是暫時處置——" + derived_exit_hint("svn", paths)
+
+
 def _svn_unmerged_index_files(run_cwd: str, timeout: float) -> Optional[List[str]]:
     """svn 工作副本裡 update 後仍衝突的索引三檔（相對 WC 根）。
     純檔案系統先找 .svn（不是 svn WC → None、零子行程），再只對 memory dir 候選跑 `svn status --xml`
@@ -1084,6 +1101,10 @@ def check_merge_driver(
                     parts.append(f"已{'stage' if is_git else '標記 resolved'} 你解好的版本：{', '.join(staged)}")
                 if not parts:
                     parts.append("索引三檔已無未合併項")
+                if not is_git:
+                    hint = _svn_derived_exit_hint(run_cwd, resolved + staged)
+                    if hint:
+                        parts.append(hint)
                 return "[Guardian:IndexConflict] " + "；".join(parts)
 
         # (A) 合併類 git 指令 → 本機未裝驅動就自動 --install（只對第一個命中段做一次；svn 無驅動可裝）
