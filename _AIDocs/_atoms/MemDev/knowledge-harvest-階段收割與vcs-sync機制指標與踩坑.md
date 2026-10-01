@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: knowledge_harvest_report, KnowledgeHarvest, 收割, Harvest-Pending, atom_retire, supersedes, receipt, vcs-sync, vcs_sync, wg_harvest, wg_vcs_sync, push 守門, 記憶自動 commit, 退役 atom
 - Created-at: 2026-10-01
-- Related: anti-evasion-hud-設計脊柱與強化前必讀, 團隊產出上傳前先問人-記憶庫自動做滿, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 自動萃取層淨值審查-調整式拔除-2026-07
+- Related: anti-evasion-hud-設計脊柱與強化前必讀, 團隊產出上傳前先問人-記憶庫自動做滿, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 自動萃取層淨值審查-調整式拔除-2026-07, vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻
 
 ## 知識
 
