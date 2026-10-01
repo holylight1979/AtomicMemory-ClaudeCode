@@ -3737,6 +3737,41 @@
         "Stop says"
       ],
       "scope": "global"
+    },
+    {
+      "name": "vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻",
+      "path": "_AIDocs/_atoms/MemDev/vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻.md",
+      "triggers": [
+        "vcs-sync 拉取",
+        "_git_pull",
+        "隔離 worktree",
+        "recover.json",
+        ".behind",
+        "pull_error",
+        "_git_new_edits",
+        "pull 冷卻",
+        "記憶層落後",
+        "自動拉取",
+        "update-ref CAS",
+        "restore --source"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑",
+      "path": "memory/驗證與實證/全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑.md",
+      "triggers": [
+        "run_verify",
+        "全量驗證",
+        "flake",
+        "假失敗",
+        "並行 pytest",
+        "agent 跑測試",
+        "跑序相依",
+        "單跑會過",
+        "共用 tmp"
+      ],
+      "scope": "global"
     }
   ]
 }

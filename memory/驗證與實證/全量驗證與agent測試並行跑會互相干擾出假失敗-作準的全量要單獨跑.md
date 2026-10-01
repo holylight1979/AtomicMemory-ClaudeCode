@@ -1,0 +1,18 @@
+# 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑
+
+- Scope: global
+- Author: holylight
+- Confidence: [臨]
+- Trigger: run_verify, 全量驗證, flake, 假失敗, 並行 pytest, agent 跑測試, 跑序相依, 單跑會過, 共用 tmp
+- Created-at: 2026-10-01
+- Related: feedback-completion-gates, 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源
+
+## 知識
+
+- [臨] 2026-10-01 兩次全量 run_verify 各失敗 1 案（tools/verify/verify_atom_categorize、verify_merge_atom_index 不同案），單跑、整檔跑、整目錄跑全過；共同點是當時有 sub-agent 在同一個 repo 同時跑 pytest。等 agent 全部收工後單獨跑一次 → 2167 passed 零失敗。
+- [臨] 判法：全量失敗案單跑就過、且每次失敗的是不同案 → 先疑並行干擾（共用 %TEMP%、共用全域 git 設定、共用 workflow/ 執行期檔、index.lock），不要先去改測試或程式。作準的全量驗證一律在沒有其他 agent 跑測試時單獨跑。
+
+## 行動
+
+- 派了會跑 pytest 的 agent 時，不要同時跑 run_verify；等全部回報再單獨跑一次作準
+- 全量有失敗案：先單跑該案與該檔，都過就記為並行干擾，不改碼
