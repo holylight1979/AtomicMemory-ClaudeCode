@@ -3818,6 +3818,63 @@
         "sync-memory-index --check"
       ],
       "scope": "global"
+    },
+    {
+      "name": "vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add",
+      "path": "_AIDocs/_atoms/MemDev/vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add.md",
+      "triggers": [
+        "vcs-sync",
+        "git add 失敗",
+        "did not match any files",
+        "paths are ignored",
+        "memory/personal",
+        "role.md",
+        "wg_vcs_sync",
+        "已 staged",
+        "unpushed 標記",
+        "背景 commit 卡住"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "svn中文路徑實證-cp950內中文走worker安全-cp950外字元best-fit成亂碼讓add-parents建亂碼目錄-targets檔無效",
+      "path": "memory/版控/SVN/svn中文路徑實證-cp950內中文走worker安全-cp950外字元best-fit成亂碼讓add-parents建亂碼目錄-targets檔無效.md",
+      "triggers": [
+        "svn 亂碼",
+        "svn add 中文",
+        "UIºt¥X",
+        "亂碼資料夾",
+        "cp950",
+        "best-fit",
+        "--targets",
+        "svn argv 編碼",
+        "GetACP",
+        "中文路徑 svn",
+        "SvnEncoding"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "身份與職能自動來自ad-帳號即get-current-user-職能由whoami群組對映-查不到就空不預設programmer-裁決名單review-deciders",
+      "path": "memory/CC與原子記憶契約/身份與職能自動來自ad-帳號即get-current-user-職能由whoami群組對映-查不到就空不預設programmer-裁決名單review-deciders.md",
+      "triggers": [
+        "身份",
+        "AD 帳號",
+        "職能",
+        "roles",
+        "role.md",
+        "wg_roles",
+        "init-roles",
+        "管理職",
+        "is_management",
+        "review.deciders",
+        "ad_group_map",
+        "whoami /groups",
+        "待審裁決",
+        "pending review",
+        "看不到 role atom"
+      ],
+      "scope": "global"
     }
   ]
 }
