@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-10-01 拆除 PAN 動手前預告閘門
+- **緣由**：使用者截圖「⛔ [Guardian:PreActionNotice] …工具呼叫已暫擋」每回合跳，裁決「沒有真正作用就去掉」。查證：mode 一直是 warn，工具照跑、「已暫擋」失實；`Logs/guard-pre-action-notice.jsonl` 2336 筆 warn 1088＋force_release 291 vs pass 861（miss 62%）。結構根因：模型的預告文字與回合首個 tool call 必在同一則 assistant 訊息，閘門讀 transcript 時 text block 多半未落盤，IDENTITY 要求的「預告單獨成一則」在 harness 上做不到。
+- **拆**：`pre_tool_use.py` PAN 區塊（約 330 行）與呼叫點、`config.json` `guard.pre_action_notice` 段、`verify_pre_action_notice.py`、`session_start.py` GC 的 pan-pass/pan-deny 條目與目錄；TECH §7.3 改為拆除記錄＋日落表、hook 註冊表／流程圖／config 總表、Architecture、Install-forAI 同步。IDENTITY.md 預告契約保留，刪「單獨成一則」句。 | `hooks/handlers/pre_tool_use.py`, `hooks/handlers/session_start.py`, `workflow/config.json`, `TECH.md`, `_AIDocs/Architecture.md`, `Install-forAI.md`
+
+---
+
+## 2026-10-01 Plan Mode 彈窗根治：家族 allow 規則 + plan_bash_guard deny 閘
+- **緣由**：Plan Mode 一直彈權限視窗，按「不再詢問」後 settings.json 不斷長出整條指令／機器專屬路徑的精準規則。拆 claude.exe 與 debug log 實證三個根因：①Read 工具 `Read(*)` 只蓋 cwd 相對路徑，讀 `C:/Projects`、`C:/TSLG` 或 IDE 傳小寫 `c:` 時的 `~/.claude` 都算工作目錄外；②CC 內建只把 `sed -n 'N,Mp'` 當唯讀，正則位址（`/## x/,$p`）當寫入，路徑含 `.claude` 片段列為敏感檔 → safety check，allow 規則與 hook allow 都壓不過（`Hook returned 'allow' … safety check requires full permission pipeline`）；③`cd /c/...` MSYS 路徑被判工作目錄外，同屬 safety check。CC 自動寫入的精準規則對②③完全無效，所以永遠彈。
+- **修**：settings.json allow 改家族規則（`Read(//**)`、`Bash(python *)`），刪 8 條 `Read(//c/...)`、3 條整條指令規則、機器專屬 `additionalDirectories`；新增 `hooks/plan_bash_guard.py`（PreToolUse Bash，只在 plan 模式）對 cd／sed 非列印腳本觸及 `.claude`／寫入指令回 deny＋改用 Read/Grep 的提示；`-p --permission-mode plan` 實跑：Read 外部路徑不彈、sed 正則位址得到提示後改 Read 取得內容、`sed -i` 仍被擋。 | `settings.json`, `hooks/plan_bash_guard.py`, `hooks/verify/verify_plan_bash_guard.py`, `TECH.md`, `_AIDocs/Architecture.md`
+
+---
+
 ## 2026-10-01 語言守衛改為模型讀得到的回饋（additionalContext）
 - **緣由**：使用者從他 session 截圖發現「Stop says: [語言守衛]」跳了，下一則仍全英文再跳一次。查證：`lang_guard.py` 用 `systemMessage` 輸出，官方文件定義該欄位只「shown to the user」，模型從未讀到；`Logs/guard-lang.jsonl` 同 session 觸發 15 次、連續 8 次英文佔比 100% 零校正。檔頭與 config `_doc` 寫的「注入下一輪」是誤解。
 - **修**：改出 `hookSpecificOutput.additionalContext`（Stop 事件支援：回合結尾注入、對話續跑一回合用繁中重答）；`stop_hook_active=true` 回合不觸發防迴圈；拿掉 systemMessage（VS Code「Stop says」行消失，靜默但有效）。verify 補 handle_stop 三案（欄位契約／防迴圈／中文靜默），23 passed。 | `hooks/lang_guard.py`, `hooks/verify/verify_lang_guard.py`, `workflow/config.json`

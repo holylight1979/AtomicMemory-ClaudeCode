@@ -2,12 +2,10 @@
   "env": {},
   "permissions": {
     "allow": [
-      "Bash(python ~/.claude/tools/*)",
-      "Bash(python C:/Users/holylight/.claude/tools/*)",
-      "Bash(python C:\\Users\\holylight\\.claude\\tools\\*)",
+      "Bash(python *)",
       "Edit(*)",
       "Write(*)",
-      "Read(*)",
+      "Read(//**)",
       "Glob(*)",
       "Grep(*)",
       "WebSearch",
@@ -37,14 +35,12 @@
       "Bash(ls *)",
       "Bash(find *)",
       "Bash(wc *)",
-      "Bash(python -c *)",
       "Bash(codex exec *)",
       "Bash(codex --version)",
-      "Bash(grep -rhoi \"gpt-6[a-z0-9.-]*\\\\|gpt-5[.0-9]*-[a-z0-9-]*\" ~/.codex/config.toml ~/.codex/*.config.toml tools/codex-companion/*.py workflow/config.json Logs/codex-audit.log _AIDocs/_atoms/工作流/多模型協作/*.md 2>/dev/null | sort | uniq -c | sort -rn | head -15; echo ==== models cache; ls ~/.codex 2>/dev/null | head; grep -rhoi '\"slug\": *\"[^\"]*\"' ~/.codex/models_cache.json 2>/dev/null | sort -u | head -30; echo ==== 唯讀沙箱 atom; sed -n '/^## 知識/,/^## 行動/p' \"_AIDocs/_atoms/工作流/多模型協作/codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄.md\")",
-      "Read(//c/Users/holylight/.codex/**)"
-    ],
-    "additionalDirectories": [
-      "C:\\Users\\holylight\\.claude\\_AIDocs\\_atoms\\工作流\\多模型協作"
+      "Bash(svn ls *)",
+      "Bash(svn status *)",
+      "Bash(svn info *)",
+      "Bash(env)"
     ]
   },
   "model": "claude-fable-5-1[1m]",
@@ -99,6 +95,16 @@
             "type": "command",
             "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe \"C:/Users/holylight/.claude/hooks/run-bash-hidden.py\" webfetch-guard.sh",
             "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/plan_bash_guard.py'),run_name='__main__')\"",
+            "timeout": 5
           }
         ]
       },

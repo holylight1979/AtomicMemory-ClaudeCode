@@ -85,7 +85,8 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | SessionStart | — | `user-init.sh`(5) → `workflow-guardian.py`(8) → `ensure-mcp.py`(5) → `codex_companion.py`(5) | 還原 USER/IDENTITY、state 建立、讀索引前 spawn vcs-sync worker 拉取（`_spawn_pull_sync`，`reason=pull`，detached 不等；§6.3）、索引完整性哨兵、vector 啟動器、advisory（健檢／回訪／未 push〔`_unpushed_advisory` 查 `workflow/vcs-sync/roots.json` 全部 root：領先 upstream 或有 `.unpushed` 標記〕／拉取〔`_pull_advisory_lines`：上次拉入 N 筆、候選池以本次載入快照為準；`.behind` 標記或 `pull_error` → 理由〕／裁判後端） |
 | UserPromptSubmit | — | guardian(8)、codex(3) | **記憶注入主路徑**（§5）+ 各種 guard 提醒 |
 | PreToolUse | `WebFetch` | `webfetch-guard.sh`(20) | 抓網頁前置護欄 |
-| PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | PAN 預告閘門、跨 session 同檔互寫預警、git commit 隱私硬閘、git commit 口令閘、subagent 記憶注入 |
+| PreToolUse | `Bash` | `plan_bash_guard.py`(5) | Plan Mode 彈窗攔截：必彈窗寫法 deny＋改寫提示（§7.5） |
+| PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | 跨 session 同檔互寫預警、git commit 隱私硬閘、git commit 口令閘、subagent 記憶注入 |
 | PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|Bash\|Agent\|Task\|ExitPlanMode\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
 | PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom |
@@ -127,7 +128,7 @@ sequenceDiagram
     C->>F: Write / Edit / Bash …
     rect rgba(255,200,100,0.1)
         note over G,F: PreToolUse → PostToolUse
-        G->>G: PAN 預告閘門（warn）、同檔互寫預警
+        G->>G: 同檔互寫預警
         G->>G: 記錄 modified_files、docdrift、AEC 證據、rescue 命中
     end
 
@@ -452,9 +453,9 @@ sequenceDiagram
 | 刪除後驗 | 下輪 UPS `exists()` 實查 | 沒刪 → 重注入一次／告警結案 |
 | 遙測 | `Logs/guard-evasion.jsonl`、`workflow/outcome_stats.jsonl`（unknown 比率連續 3 session >0.7 → advisory） | 誤攔率可量測；完成語 regex 失配不會靜默拖垮晉升軌 |
 
-### 7.3 PAN 動手前預告閘門
+### 7.3 PAN 動手前預告閘門（已拆除）
 
-`hooks/handlers/pre_tool_use.py _check_pre_action_notice`：每回合**首次**動手工具（Write/Edit/NotebookEdit/非唯讀 Bash/PowerShell）前，本 turn 可見文字須含「執行目標」+「預估」+實質內容。唯讀分類器 `pan_is_readonly_bash`（白名單前綴；heredoc、非 null 重導、複合段未命中一律視為動手）。mode **永久 warn**（deny 已否決：VSCode 下 text block 落盤延遲 + subagent 無 transcript，漏偵率 14–33% 遠超 5% 門檻；證據 `_AIDocs/DevHistory/pan-deny-judgement-2026-08-06.md`）。通過寫 `workflow/pan-pass/{sid}-t{turn}.flag`；compaction continuation 整回合豁免；`exempt_path_substrings`（plans / _staging / scratchpad / workflow）；log `Logs/guard-pre-action-notice.jsonl`。
+2026-10-01 整個拆掉（程式、config 段、verify、`workflow/pan-pass|pan-deny`）。動手前預告仍是 IDENTITY.md 的行為契約，但不再有程式閘：預告文字與回合首個 tool call 結構上必在同一則 assistant 訊息，閘門讀 transcript 時 text block 多半未落盤，`Logs/guard-pre-action-notice.jsonl` 2336 筆中 warn 1088＋force_release 291、pass 861（miss 62%），且 warn 模式工具照跑、提醒文案「已暫擋」與事實不符——純噪音。歷史見 §14 日落表與 `_AIDocs/DevHistory/pan-deny-judgement-2026-08-06.md`。
 
 ### 7.4 驗收裁判：AI 審查 AI 產出（四段閉環）
 
@@ -474,6 +475,7 @@ sequenceDiagram
 | 機制 | 位置 | 要點 |
 |------|------|------|
 | lang_guard | `hooks/lang_guard.py`（Stop） | 終版訊息英文佔比 >0.5（≥40 語言字元）→ systemMessage 繁中提醒；stateless；`Logs/guard-lang.jsonl` |
+| plan_bash_guard | `hooks/plan_bash_guard.py`（PreToolUse Bash） | 只在 `permission_mode=plan` 動作。CC 原生只把 `sed -n 'N,Mp'` 當唯讀，正則位址一律當寫入；路徑含 `.claude` 片段屬敏感檔 → safety check，allow 規則與 hook allow 都壓不過（debug：`Hook returned 'allow' … safety check requires full permission pipeline`）；`cd /c/...` 同屬 safety check。故對 cd／sed 非列印腳本觸及 `.claude`／rm-mv-cp-touch-mkdir-chmod／未引號 `>` 回 deny＋改用 Read/Grep 的提示；其餘不表態。stateless |
 | version_guard | `hooks/version_guard.py`（由 guardian PostToolUse 同程序呼叫 `run()`；`__main__` 仍可獨跑） | live 檔埋版本／日期／階段敘事 → warn-only |
 | 跨 session 衝突預警 | `hooks/wg_coordination.py` | PreToolUse 同檔互寫 warn（entry 級 session_id 歸屬、mtime <30min、同檔 10min 抑制）；Bash `git add -A`/`reset --hard`/`clean -f` 同 cwd 預警（引號解包、dry-run 排除）；PostToolUse 60s late-collision。純檔案不依賴 daemon；first-write race 無法消除（advisory 非鎖）；`Logs/session-coordination/<sid>.jsonl`；4 週零命中 → 提降級 |
 | Codex Companion | `hooks/codex_companion.py` + `tools/codex-companion/` | in-process state + spawn `audit.py` 短命子程序；Silent Advisory / Score Gate（7）/ Dedup / 每 session 上限 30；審計類（`assessor.py`）：plan_review（ExitPlanMode 計畫審）/ turn_audit（回合完成證據）/ architecture_review（預設關）/ handoff_review（交接文件第二意見）/ acceptance_review（驗收裁判，§7.4） |
@@ -712,7 +714,6 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 | `codex_companion.acceptance_review.enforce` / `enforce_severity_threshold` | true / high | 驗收裁判硬閘 |
 | `codex_companion.audit_quota.acceptance_review_min/max` | 6 / 8 | 配額分桶 |
 | `acceptance_spec.min_files_trigger` | 3 | 規格工件建議門檻 |
-| `guard.pre_action_notice.mode` / `lenient_first_miss` | warn / true | PAN |
 | `deferral_gate.max_context_ratio` / `min_object_chars` | 0.75 / 6 | DeferralGate |
 | `lang_guard.english_ratio_threshold` / `min_lang_chars` | 0.5 / 40 | 英文漂移 |
 | `version_guard.mode` | warn | 版本脈絡殘留 |
@@ -785,7 +786,7 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 | UPS 週期 `[Guardian] Reminder` 注入 | 每次佔 token；改 statusline 零 token 常駐 | 無（config 鍵已移除） | §8 |
 | MCP 內部 IPC 4 tool（workflow_signal/status、memory_queue_add/flush） | Stop gate 內化偵測 | 無 | `_AIDocs/DevHistory/v5-overhaul-2026-05/` |
 | commands/*.md | 官方併入 skills | 無 | 同上 |
-| PAN deny 模式 | text block 落盤延遲 + subagent 無 transcript，漏偵率 14–33% | `guard.pre_action_notice.mode=deny`（不建議） | `_AIDocs/DevHistory/pan-deny-judgement-2026-08-06.md` |
+| PAN 預告閘門（整個） | deny 已因漏偵率 14–33% 否決；warn 模式 2336 筆 miss 62%、工具照跑、文案「已暫擋」失實，預告與首個 tool call 同一則訊息閘門結構上測不到 → 2026-10-01 拆除，預告只留 IDENTITY 行為契約 | 無（§7.3） | `_AIDocs/DevHistory/pan-deny-judgement-2026-08-06.md` |
 | Realm LLM fallback 分類 | 保確定性，只跑詞庫 | `realm.llm_fallback.enabled=true` | `_AIDocs/DevHistory/核心記憶分類階層化-2026-08.md` |
 | ReadHits 助晉升 | 曝光≠有用；退為純計數 | 無 | §6.4 |
 | `wg_atom_observation.py` shim | 觀察採樣已移除，檔案已刪 | 無 | — |

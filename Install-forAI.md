@@ -448,7 +448,6 @@ SessionStart 主路徑 50–200 ms（向量與 MCP 檢查皆背景）。每 prom
 | `codex_companion.enabled` | AI 裁判（驗收審查／計畫審查／handoff 自檢） |
 | `codex_companion.fallback.enabled` | 無 codex 時不退 `claude -p`，直接 heuristics-only |
 | `coordination.enabled` | 多 session 同檔改動預警 |
-| `guard.pre_action_notice.enabled` | 動手前預告閘（`mode` 可 observe / warn / deny） |
 | `guard.cross_realm_write.enabled` | 外部專案 session 不得寫入 `~/.claude` 核心層（hooks/lib/tools/skills/rules 與根層設定檔）的 deny 閘；「專案專屬內容不得落 global」的 realm 閘在 `lib/realm_gate.py`，無開關 |
 | `injection.redundancy_gate.enabled` | 同題去冗（trigger 重疊 ≥3 只留節錄） |
 | `injection.related_gate.enabled` | related atom 擴散注入 |

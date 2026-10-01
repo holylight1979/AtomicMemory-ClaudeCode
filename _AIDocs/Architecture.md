@@ -13,7 +13,7 @@
 |------|-----------|--------|---------|
 | `SessionStart` | `handlers/session_start.py` | init state + 去重 + 讀索引前 `_spawn_pull_sync`（vcs-sync worker `reason=pull`，detached 不等；拉入的 atom 下一 session 才進候選池）+ 候選池／supersedes 集合 + vector 啟動器 + advisory（健檢死人開關／未 push〔`_unpushed_advisory` 查 `workflow/vcs-sync/roots.json` 全部 root 的領先 upstream 或 `.unpushed` 標記〕／拉取〔`_pull_advisory_lines`：`last_pull`／`pulled_commits`、`.behind` 標記或 `pull_error` 理由〕／回訪／personal 同步／索引三檔衝突／ProjectRoot） | TECH §3.1、§6.3、§8 |
 | `UserPromptSubmit` | `handlers/user_prompt_submit.py`（orchestrator）→ `ups_gates.py`（detect：evasion 追蹤、使用者決策 L0、long_die、Atom-Write Guard）→ `ups_context.py`（episodic、wisdom、parallel／research 建議、_AIDocs 指標、JIT）→ `ups_search.py`（找）→ `ups_inject.py`（裝） | 記憶注入主路徑 + guard 提醒；UPS 被 kill 哨兵；AEC 刪除決策後驗 | TECH §5、§5.7 |
-| `PreToolUse` | `handlers/pre_tool_use.py` | 寫入守門（下節）+ PAN + 跨 session 同檔預警 + 索引三檔合併閘 + git 隱私閘 + commit 口令閘 + subagent 記憶注入 | TECH §7.3、§7.5、§4.5、§12 |
+| `PreToolUse` | `handlers/pre_tool_use.py` | 寫入守門（下節）+ 跨 session 同檔預警 + 索引三檔合併閘 + git 隱私閘 + commit 口令閘 + subagent 記憶注入 | TECH §7.5、§4.5、§12 |
 | `PostToolUse` | `handlers/post_tool_use.py`（末段同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`） | 改檔追蹤 + 增量索引 + test-fail 偵測 + changelog auto-roll + AEC one-writer + late-collision + **收割 one-writer**（`atom_write`／`atom_retire` receipt → `state.atom_ops[sid]`；`knowledge_harvest_report` items ↔ receipt 核對 → `state.knowledge_harvest[sid]` + `workflow/harvest-ledger/<sid>.jsonl`，validated 時清同 turn AEC d_pending 並 `spawn_vcs_sync(reason="harvest")`；純函式在 `wg_harvest.py`） | TECH §6.3、§7.2、§7.4、§7.5 |
 | `PreCompact`／`PostCompact`／`PostToolBatch` | `handlers/pre_compact.py`／`post_compact.py`／`post_tool_batch.py` | 壓縮前快照 state + `injected_atoms` + handoff stub；壓縮後 stash 緊湊內文 + `pending_reinjection`；下一批工具一次性重注入 + stub 補全提示 | 本檔 Auto-Handoff 節 |
 | `Stop` | `handlers/stop.py`；standalone `codex_companion.py`／`lang_guard.py` | 閘序：TestFail → Evasion／DeferralGate → KnowledgeHarvest → Harvest-Pending → ScanReport → AEC-Pending → HUD fallback → 同步閘（root 有 vcs-sync 活鎖跳過該 root）→ AtomAudit → Deep Post-Mortem → 驗收裁判 enforce（獨立 hook）→ 迴歸提示；效用歸因；token 預警 piggyback；退避偵測（`detect_evasion` 對 last assistant text 於此執行）；transcript 單次 tail-read 供各消費者共用 | TECH §7.1、§6.4 |
@@ -44,6 +44,7 @@
 | `extract-worker.py`／`user-extract-worker.py` | detached workers：失敗深記 `_failure_writeback`（→ `Failures/<主題>/`，永不拒寫）／使用者決策 L1→L2；共用 `lib/ollama_extract_core.py` |
 | `vcs-sync-worker.py` | detached worker（stdin JSON `{session_id, cwd, reason, retired_paths}`；`reason=pull` 來自 SessionStart）：git pathspec add＋commit → 拉（`vcs_sync.pull.enabled`）→ push 守門（待推歷史含非記憶 commit 不推）；svn `--xml` add／delete（只認 retire receipt 的 old_path）／update／commit；每 root 回 `{commit, pull, push}` 三段結果，請求 ack 只看 commit＋push（pull 失敗只落 `.behind` 不阻 ack）；stderr → `Logs/vcs-sync.log`、起訖帳 `guard-worker-runs`；行為表 TECH §8 |
 | `lang_guard.py` | standalone Stop hook（TECH §7.5） |
+| `plan_bash_guard.py` | standalone PreToolUse(Bash) hook：Plan Mode 下必彈窗且 allow 壓不過的寫法（cd、sed 非 `N,Mp`、寫入）直接 deny＋改寫提示（TECH §7.5） |
 | `version_guard.py`／`acceptance_spec.py` | 模組：`run(input_data, config) -> list[str]`，由 guardian PostToolUse 呼叫（TECH §7.5） |
 | `run-hidden.py`／`run-bash-hidden.py`／`ensure-mcp.py`／`user-init.sh`／`post-git-pull.sh`／`webfetch-guard.sh` | 不閃窗 spawn／MCP 可用性／USER.md 初始化／pull 後審計／WebFetch 護欄 |
 
