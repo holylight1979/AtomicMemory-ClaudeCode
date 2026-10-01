@@ -171,3 +171,7 @@ journals/
 # usage-snapshot 專屬 Chrome profile（含 claude.ai 登入 cookie）與截圖產出
 tools/usage-snapshot/browser-data/
 workflow/usage-snapshots/
+
+# 知識收割帳本與 vcs-sync worker 執行期檔（鎖/dirty/roots/標記）
+workflow/harvest-ledger/
+workflow/vcs-sync/

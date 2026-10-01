@@ -792,6 +792,128 @@ def edit_metadata(
 # ─── Main entry ───────────────────────────────────────────────────────────────
 
 
+# ─── Supersedes（本顆取代舊顆；被取代者不再注入、檔案保留） ─────────────────
+
+_SUPERSEDES_LINE_RE = re.compile(r"^- Supersedes:\s*(.+)$", re.MULTILINE)
+
+
+def read_supersedes(text: str) -> List[str]:
+    """從 atom 檔頭讀 `- Supersedes: a, b` → ["a", "b"]；無行 → []。"""
+    m = _SUPERSEDES_LINE_RE.search(text)
+    if not m:
+        return []
+    return [t.strip() for t in m.group(1).split(",") if t.strip()]
+
+
+def _supersedes_search_roots(index_dir: Path, search_roots: Optional[Iterable[Path]]) -> List[Path]:
+    roots = [Path(r) for r in (search_roots or [])]
+    if roots:
+        return roots
+    try:
+        if Path(index_dir).resolve() == GLOBAL_MEMORY_DIR.resolve():
+            return atom_search_roots()
+    except OSError:
+        pass
+    return [Path(index_dir)]
+
+
+def _resolve_supersedes_target(slug: str, *, index_dir: Path, index_root: Path,
+                               search_roots: List[Path]) -> Optional[Path]:
+    """可見索引解析：先同層（index_dir + search_roots），再退全域層（專案 atom 可取代全域 atom）。"""
+    found, _err = locate_existing_atom(slug, index_dir=index_dir, index_root=index_root,
+                                       search_roots=search_roots)
+    if found:
+        return found
+    try:
+        same_as_global = Path(index_dir).resolve() == GLOBAL_MEMORY_DIR.resolve()
+    except OSError:
+        same_as_global = False
+    if same_as_global:
+        return None
+    found, _err = locate_existing_atom(slug, index_dir=GLOBAL_MEMORY_DIR, index_root=CLAUDE_DIR,
+                                       search_roots=atom_search_roots())
+    return found
+
+
+def _canonical_supersedes(targets: Iterable[str]) -> List[str]:
+    """寫入前把 Supersedes 目標轉 canonical slug；空字串保留原樣讓 check_supersedes 報錯
+    （slugify("") 會變 "untitled"，不能先轉）。"""
+    out: List[str] = []
+    for raw in targets:
+        t = str(raw or "").strip()
+        out.append(slugify(t) if t else "")
+    return out
+
+
+def check_supersedes(
+    targets: Iterable[str],
+    *,
+    self_slug: str,
+    index_dir: Path,
+    index_root: Optional[Path] = None,
+    search_roots: Optional[Iterable[Path]] = None,
+) -> Optional[str]:
+    """Supersedes 寫前檢查（py 單源；js 不自算）。回錯誤文字或 None。
+
+    每個目標須：在可見索引（同層 → 全域）解析得到實體檔；≠ 自身；非核心保護名
+    （is_core_protected_name：核心 atom 只能 append，不得被取代後失去注入）；
+    沿目標既有 Supersedes 鏈遞迴不得回到自身（互相取代會讓兩顆都不注入＝互滅）。
+    """
+    from .atom_locations import core_protected_source, is_core_protected_name
+    if core_protected_source() != "json":
+        # fallback 清單只是最小子集，判「非核心」不可信；取代是破壞性（舊顆停止注入）→ 拒
+        return ("supersedes: core-protected list not loaded (realm-lexicon.json unavailable; "
+                "running on built-in fallback subset) — refusing to supersede; fix the JSON first")
+    index_dir = Path(index_dir)
+    index_root = Path(index_root) if index_root else index_dir.parent
+    roots = _supersedes_search_roots(index_dir, search_roots)
+    self_key = slugify(self_slug)
+    seen_targets = set()
+    for raw in targets:
+        if not str(raw or "").strip():
+            return "supersedes: empty target name"
+        target = slugify(str(raw).strip())
+        if target in seen_targets:
+            continue
+        seen_targets.add(target)
+        if target == self_key:
+            return f"supersedes: {target!r} is the atom itself (self-reference)"
+        if is_core_protected_name(target):
+            return (f"supersedes: {target!r} is a core-protected atom — it cannot be superseded; "
+                    "append to it instead")
+        path = _resolve_supersedes_target(target, index_dir=index_dir, index_root=index_root,
+                                          search_roots=roots)
+        if path is None:
+            return (f"supersedes: target {target!r} not found in the visible index "
+                    f"(index_dir={index_dir}) — write it first or fix the name")
+        # 沿既有鏈走：target → 它的 Supersedes → … 回到自身即循環
+        chain = [target]
+        visited = {target}
+        frontier = [path]
+        while frontier:
+            p = frontier.pop()
+            try:
+                nxt = read_supersedes(p.read_text(encoding="utf-8-sig"))
+            except (OSError, UnicodeDecodeError) as e:
+                # 讀不到就無法證明不成環；跳過等於放行未驗證的鏈 → 拒
+                return (f"supersedes: cannot read {p} while walking the chain "
+                        f"{' → '.join(chain)} ({e}) — fix the file or the chain first")
+            for n in nxt:
+                n_key = slugify(n)
+                if n_key == self_key:
+                    return (f"supersedes: cycle — {' → '.join(chain + [n_key])} → {self_key} "
+                            "(mutual supersession would silence both atoms)")
+                if n_key in visited:
+                    continue
+                visited.add(n_key)
+                np = _resolve_supersedes_target(n_key, index_dir=index_dir, index_root=index_root,
+                                                search_roots=roots)
+                if np is not None:
+                    chain.append(n_key)
+                    frontier.append(np)
+    return None
+
+
 def write_atom(
     *,
     title: str,
@@ -820,6 +942,7 @@ def write_atom(
     subdir: Optional[str] = None,
     allow_new_category: bool = False,
     cross_project: bool = False,
+    supersedes: Optional[List[str]] = None,
 ) -> WriteResult:
     """寫入 atom 的唯一入口。對拍 server.js:1065 toolAtomWrite byte-identical。
 
@@ -831,6 +954,8 @@ def write_atom(
     本函式永不自動分類（source 為 mcp 時 AI 必給；程式寫手在呼叫前自行 classify_category）。
     append/replace 忽略 domain（既有檔由 index 定位），給了只 stderr 提示不阻斷。
     subdir（選填，僅 scope=shared）：create 分區根改 `<memory root>/<subdir>/`，範疇落其下。
+    supersedes（create/replace）三態：None → replace 保留既有檔頭的 Supersedes 行（create 不輸出）；
+    [] → 清除；非空 → 經 check_supersedes（可解析／非自指／無循環／非核心保護名）後替換。
     """
     audit_id = _gen_audit_id()
 
@@ -930,11 +1055,21 @@ def write_atom(
         if file_path.exists():
             return WriteResult(ok=False, audit_id=audit_id,
                                error=f"Atom already exists: {slug}.md (use mode=append/replace)")
+        # 寫入／receipt 一律 canonical slug（check_supersedes 也是 slug 比對；原字串寫入會讓
+        # 檔內名與索引名對不上，收割核對與退役引用掃描都比不到）
+        supersedes_final = _canonical_supersedes(supersedes or [])
+        if supersedes_final:
+            sup_err = check_supersedes(
+                supersedes_final, self_slug=slug, index_dir=resolved["index_dir"],
+                index_root=index_root, search_roots=resolved.get("search_roots") or [],
+            )
+            if sup_err:
+                return WriteResult(ok=False, audit_id=audit_id, error=sup_err)
         content = build_atom_content(
             title=title, scope=scope_label, confidence=confidence, triggers=triggers,
             knowledge=knowledge, actions=actions, related=related, audience=audience,
             author=author, pending_review_by=pending_by, merge_strategy=merge_strategy,
-            today=today,
+            today=today, supersedes=supersedes_final,
         )
     elif mode == "append":
         if not file_path.exists():
@@ -947,11 +1082,14 @@ def write_atom(
                                error=f"Atom {slug}.md has no ## 行動 section")
         # Last-used 不再寫 .md；append 後由下方 atom_access.write_access_field 刷
         content = _build_append_content(existing, knowledge)
+        supersedes_final = read_supersedes(existing)
     elif mode == "replace":
         # Confirmations/ReadHits 在 access.json，replace 不需保留（檔本就分離）
         # Author/Created-at 仍從舊 atom .md 抽（屬知識性 metadata）
+        # Supersedes 三態：None 保留原行、[] 清除、非空替換（替換前走 check_supersedes）
         prev_author = author
         prev_created = today or datetime.now(timezone.utc).date().isoformat()
+        prev_supersedes: List[str] = []
         if file_path.exists():
             old = file_path.read_text(encoding="utf-8-sig")
             am = re.search(r"^- Author:\s*(.+)$", old, re.MULTILINE)
@@ -960,11 +1098,22 @@ def write_atom(
             cmm = re.search(r"^- Created-at:\s*(.+)$", old, re.MULTILINE)
             if cmm:
                 prev_created = cmm.group(1).strip()
+            prev_supersedes = read_supersedes(old)
+        if supersedes is None:
+            supersedes_final = prev_supersedes
+        else:
+            supersedes_final = _canonical_supersedes(supersedes)
+            sup_err = check_supersedes(
+                supersedes_final, self_slug=slug, index_dir=resolved["index_dir"],
+                index_root=index_root, search_roots=resolved.get("search_roots") or [],
+            )
+            if sup_err:
+                return WriteResult(ok=False, audit_id=audit_id, error=sup_err)
         content = build_atom_content(
             title=title, scope=scope_label, confidence=confidence, triggers=triggers,
             knowledge=knowledge, actions=actions, related=related, audience=audience,
             author=prev_author, pending_review_by=pending_by, merge_strategy=merge_strategy,
-            created_at=prev_created, today=today,
+            created_at=prev_created, today=today, supersedes=supersedes_final,
         )
     else:
         return WriteResult(ok=False, audit_id=audit_id,
@@ -980,7 +1129,9 @@ def write_atom(
         return WriteResult(ok=True, audit_id=audit_id, path=file_path,
                            routed_to_pending=routed_to_pending, skip_gate=skip_gate,
                            extra={"content": content, "rel_path": rel_path,
-                                  "scope_label": scope_label, "dry_run": True})
+                                  "scope_label": scope_label, "dry_run": True,
+                                  "op": mode, "atom": slug, "path": str(file_path),
+                                  "index_ok": None, "supersedes": supersedes_final})
 
     # ── Write file ──
     _atomic_write(file_path, content)
@@ -1006,9 +1157,12 @@ def write_atom(
     # ── Update index ──
     # scope：create 傳 scope_label（與 frontmatter 一致）；replace 傳 None（沿用索引
     # 既有值，不得把專案層 scope 重設回 global）。
+    index_ok: Optional[bool] = None  # append 不動索引 → None
+    index_error: Optional[str] = None
     if mode in ("create", "replace"):
-        write_index(resolved["index_dir"], slug, rel_path, triggers, source,
-                    scope=scope_label if mode == "create" else None)
+        ir = write_index(resolved["index_dir"], slug, rel_path, triggers, source,
+                         scope=scope_label if mode == "create" else None)
+        index_ok, index_error = ir.ok, ir.error
 
     # ── Audit log ──
     _audit_log({
@@ -1018,9 +1172,13 @@ def write_atom(
         "routed_to_pending": routed_to_pending, "skip_gate": skip_gate,
     })
 
+    # receipt 欄位（PostToolUse 記進 state 供收割核對）：op/atom/path/index_ok/supersedes
     return WriteResult(ok=True, audit_id=audit_id, path=file_path,
                        routed_to_pending=routed_to_pending, skip_gate=skip_gate,
-                       extra={"category": resolved.get("category")})
+                       extra={"category": resolved.get("category"),
+                              "op": mode, "atom": slug, "path": str(file_path),
+                              "index_ok": index_ok, "index_error": index_error,
+                              "supersedes": supersedes_final})
 
 
 def locate_atom(

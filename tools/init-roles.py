@@ -322,9 +322,10 @@ def action_privacy_check(root: Path, user: str) -> Dict[str, Any]:
                 )
                 break
 
-    # Check .gitignore for personal/
+    # 專案層 personal/ 的契約是「進版控、僅本人可搜」（SPEC_ATOM_V5 §2；session_start._personal_sync_advisory
+    # 同一方向）：索引三檔跟著 repo 走，personal 檔被 ignore 會讓他機索引懸空。這裡只警告「被排除」。
     gitignore = root / ".gitignore"
-    gitignore_ok = False
+    gitignore_ignores_personal = False
     if gitignore.is_file():
         try:
             gi_text = gitignore.read_text(encoding="utf-8")
@@ -335,14 +336,15 @@ def action_privacy_check(root: Path, user: str) -> Dict[str, Any]:
                     ".claude/memory/personal",
                     "personal/",
                 ):
-                    gitignore_ok = True
+                    gitignore_ignores_personal = True
                     break
         except (OSError, UnicodeDecodeError):
             pass
-    if not gitignore_ok:
+    if gitignore_ignores_personal:
         warnings.append(
-            ".gitignore 尚未包含 .claude/memory/personal/，"
-            "個人 atom 可能被 git 追蹤。建議加入排除。"
+            ".gitignore 排除了 .claude/memory/personal/，"
+            "個人 atom 不會跟著 repo 同步到其他機器（索引會懸空）。建議移除該行；"
+            "注入過濾只決定模型搜不搜得到、不是保密，敏感內容不要放 personal。"
         )
 
     # Check SVN svn:ignore (if SVN repo)
@@ -356,9 +358,9 @@ def action_privacy_check(root: Path, user: str) -> Dict[str, Any]:
             )
             if result.returncode == 0:
                 svn_ignores = result.stdout.strip().splitlines()
-                if not any("personal" in line for line in svn_ignores):
+                if any("personal" in line for line in svn_ignores):
                     warnings.append(
-                        "SVN svn:ignore 尚未排除 personal/，個人 atom 可能被 SVN 追蹤。"
+                        "SVN svn:ignore 排除了 personal/，個人 atom 不會跟著 repo 同步到其他機器。建議移除。"
                     )
         except Exception:
             pass  # svn not available or timeout
@@ -369,7 +371,7 @@ def action_privacy_check(root: Path, user: str) -> Dict[str, Any]:
         "personal_path": str(personal_dir),
         "warnings": warnings,
         "warning_count": len(warnings),
-        "gitignore_has_personal": gitignore_ok,
+        "gitignore_has_personal": gitignore_ignores_personal,
     }
 
 

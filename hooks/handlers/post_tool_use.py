@@ -25,6 +25,14 @@ from wg_evasion import (
 )
 from wg_atoms import _trigger_incremental_index
 from wg_extraction import is_plan_filename
+from wg_harvest import (
+    parse_receipt, record_atom_op, apply_report, append_ledger, validated_this_turn,
+    is_error_response,
+)
+try:
+    from wg_vcs_sync import spawn_vcs_sync  # 收割 validated 後背景 commit/push 記憶目錄
+except ImportError:
+    spawn_vcs_sync = None
 from handlers import aec_ledger
 from handlers._shared import (
     _hud_alive,
@@ -612,7 +620,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # (d)/(h) pending：把「記憶寫入」推到之後（尚未寫／見下一動／下一動＝寫 atom）。
         # 報告是收尾檢核，不是待辦清單——落 d_pending 供 HUD 標紅，並回告模型當回合補寫；
         # Stop 端讀 d_pending 擋一次（AEC-Pending Gate），逼 atom_write 後重新 emit。
-        pending = aec_pending_items(vals["d"], vals["h"])
+        # 本 turn 已有 validated 收割 → (d) 的記憶收錄帳已由收割核對過，不再判 d_pending；(h) 照舊。
+        hv_done = validated_this_turn(state, session_id, turn_seq)
+        pending = aec_pending_items("" if hv_done else vals["d"], vals["h"])
         if pending:
             report["d_pending"] = pending
             aec_reject_msgs.append(
@@ -641,6 +651,59 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _atom_debug_error("post_tool_use:aec_ledger_collect", e)
         _maybe_spawn_hud(sev, state, config, session_id)
         dirty = True
+
+    elif tool_name.endswith("atom_write") or tool_name.endswith("atom_retire"):
+        # atom 工具成功時結果最後一行 `receipt: {json}`（失敗呼叫沒有 receipt → 不記）。
+        # 入帳 state["atom_ops"][sid]，收割回報用它逐項核對（exists()/全域 resolver 驗不出
+        # 專案層 atom、append 是否真發生、索引是否成功；receipt 可以）。
+        receipt = parse_receipt(input_data.get("tool_response"))
+        if receipt:
+            record_atom_op(state, session_id, int(state.get("turn_seq", 0)), receipt)
+            dirty = True
+
+    elif tool_name.endswith("knowledge_harvest_report"):
+        # 收割回報（one-writer）：items ↔ 本 session 自上次 validated 收割以來的 receipts 逐項核對，
+        # 落本 session 分區 + ledger；核不過 → pending（Stop 的 Harvest-Pending 閘擋一次要求補）。
+        # MCP 端已拒收（isError）的呼叫不是回報：不核對、不落分區、不 spawn，否則拒收的 items
+        # 會被當成 validated 放行。
+        if is_error_response(input_data.get("tool_response")):
+            print("[Guardian:Harvest] knowledge_harvest_report 被 MCP 拒收，本次不核對", file=sys.stderr)
+        else:
+            turn_seq = int(state.get("turn_seq", 0))
+            sec = apply_report(state, session_id, turn_seq, tool_input.get("items"), tool_input.get("note", ""))
+            append_ledger(session_id, {
+                "at": sec["at"], "session_id": session_id, "turn_seq": turn_seq,
+                "validated": sec["validated"], "items": sec["items"], "pending": sec["pending"],
+                "retired_paths": sec["retired_paths"], "note": sec["note"],
+            }, base_dir=WORKFLOW_DIR)
+            if sec["validated"]:
+                # 同 turn 先 emit 的 AEC 報告：(d) 的記憶收錄帳已由收割核對過 → 用 (h) 重算 d_pending。
+                # (d)/(h) 共用 d_pending，整個 pop 會把 (h)「下一動＝寫 atom」一起放掉。
+                aec = state.get("anti_evasion_report") or {}
+                if aec.get("session_id") == session_id and aec.get("turn_seq") == turn_seq and aec.get("d_pending"):
+                    still = aec_pending_items("", aec.get("h", ""))
+                    if still:
+                        aec["d_pending"] = still
+                    else:
+                        aec.pop("d_pending", None)
+                    _write_aec_report_file(session_id, turn_seq, aec)
+                _cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
+                if spawn_vcs_sync is None:
+                    print("[Guardian:Harvest] wg_vcs_sync 不可用，記憶目錄未背景上版控（fail-open）", file=sys.stderr)
+                else:
+                    # retired_paths 只帶本次 validated 且有 ok:true retire receipt 的退役檔（apply_report 算好）。
+                    try:
+                        spawn_vcs_sync(session_id, _cwd, reason="harvest", retired_paths=sec["retired_paths"])
+                    except Exception as e:
+                        print(f"[Guardian:Harvest] spawn_vcs_sync failed (fail-open): {e}", file=sys.stderr)
+            else:
+                aec_reject_msgs.append(
+                    f"[Guardian:Harvest-Pending] 收割回報有 {len(sec['pending'])} 項核不過："
+                    + "".join("\n  ✗ " + x for x in sec["pending"][:6])
+                    + "\n先用 atom_write／atom_retire 真的做完（或改 action=skip 附 reason），"
+                    "再重新呼叫 knowledge_harvest_report；否則 Stop 會擋。"
+                )
+            dirty = True
 
     if DOCDRIFT_AVAILABLE and config.get("docdrift", {}).get("enabled", True):
         try:

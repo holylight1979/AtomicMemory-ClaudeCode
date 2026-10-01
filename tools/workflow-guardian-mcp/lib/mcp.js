@@ -162,6 +162,10 @@ const TOOL_DEFINITIONS = [
           type: "array", items: { type: "string" },
           description: "Related atom names (optional)",
         },
+        supersedes: {
+          type: "array", items: { type: "string" },
+          description: "本顆取代的舊 atom 名（create/replace）。replace 時：不給＝保留原 Supersedes；[]＝清除；非空＝替換。被取代者不再注入但檔案保留。py 端拒：自指、沿既有鏈循環、目標為核心保護名、目標不存在。append 忽略。",
+        },
         status: {
           type: "string",
           description: "Optional one-line current status (e.g. '案結 2026-07-29'). Shown alongside cold/one-line injections so the pointer carries minimal state. Current-state ONLY — no version history / change narrative.",
@@ -289,13 +293,90 @@ const TOOL_DEFINITIONS = [
       required: ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
     },
   },
+  {
+    name: "knowledge_harvest_report",
+    description:
+      "階段完工知識收割回報：宣告完成時由 Stop 閘（KnowledgeHarvest）要求呼叫。" +
+      "順序：先把本場值得留的知識用 atom_write（create/append/replace、supersedes）寫完、無用 atom 用 atom_retire 退役，" +
+      "再呼叫本 tool 列出每一項盤點結果。掃六個來源：①使用者指正/退回/重申 ②重試≥2 次或查了才懂的機制/坑 " +
+      "③外查事實（帶日期）④我做的取捨/契約/偏好 ⑤既有 atom 被證錯或要補 ⑥本場證實無用且無人引用的 atom。" +
+      "判準：只寫「從程式碼/文件讀不出來、之後會重查或重犯」的；一次性事實不寫（action=skip 附 reason 留痕）。" +
+      "action≠skip 必填 atom 與 path，path 必須是 atom_write/atom_retire 結果最後一行 receipt 的絕對路徑（retired 填退役前路徑）；" +
+      "items=[] 表示本場無值得寫的（照樣要呼叫）。" +
+      "本 tool 只回 chip、不寫 state（one-writer：items 與本 session receipt 的逐項核對、state/ledger 由 Python PostToolUse 獨佔；核不過會以 Harvest-Pending 擋一次要求補）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "盤點清單；本場無值得寫的給 []。",
+          items: {
+            type: "object",
+            properties: {
+              source: {
+                type: "string",
+                enum: ["correction", "mechanism", "external_fact", "decision", "atom_fix", "atom_retire"],
+                description: "知識來源：correction=使用者指正；mechanism=機制/踩坑；external_fact=外查事實；decision=取捨/契約/偏好；atom_fix=既有 atom 修正；atom_retire=退役",
+              },
+              summary: { type: "string", description: "一句話說這條知識是什麼" },
+              action: {
+                type: "string",
+                enum: ["created", "appended", "replaced", "superseded", "retired", "skip"],
+                description: "已做的動作（呼叫本 tool 前已完成）；skip=判定不寫",
+              },
+              atom: { type: "string", description: "atom 名（action≠skip 必填）" },
+              path: { type: "string", description: "receipt 回的絕對路徑（action≠skip 必填；retired 填 old_path）" },
+              scope: { type: "string", enum: ["global", "shared", "personal", "role", "local"], description: "落點層" },
+              reason: { type: "string", description: "action=skip 必填：一句為何不寫" },
+            },
+            required: ["source", "summary", "action"],
+          },
+        },
+        note: { type: "string", description: "選填：整場補充說明" },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "atom_retire",
+    description:
+      "退役一顆無用／錯誤且無人引用的 atom：連同 _atom_index.json 條目、向量索引、MEMORY.md 目錄列一起清掉，" +
+      "檔案搬到 _distant/<yyyy_mm>/（可還原：memory-audit --restore）。" +
+      "護欄全在任何異動之前（py 單源）：[固] 拒（改用 atom_write supersedes 取代）；核心保護名拒（保護清單載入失敗也拒）；" +
+      "被其他 atom 的 Related/Supersedes 引用拒（掃描含 personal 層）；不存在 → 明確錯誤不算成功。" +
+      "索引／向量／搬移任一步失敗 → 回錯誤並列已完成與未完成步驟。" +
+      "結果最後一行為 receipt（op=retire、old_path、new_path、index_ok），knowledge_harvest_report 的 retired 項填其 old_path。" +
+      "本 tool 不寫 state（one-writer：receipt 由 Python PostToolUse 記帳）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        atom_name: { type: "string", description: "Atom 檔名（不含 .md）" },
+        scope: {
+          type: "string", enum: ["global", "shared", "personal", "role", "local"],
+          description: "atom 所在層：global=~/.claude/memory/（含 Failures/）；local=~/.claude/_AIDocs/_atoms/；shared/personal/role=專案層（需 project_cwd）",
+        },
+        project_cwd: { type: "string", description: "專案根（scope=shared/personal/role 必填）" },
+        role: { type: "string", description: "scope=role 的角色子夾" },
+        user: { type: "string", description: "scope=personal 的擁有者（預設現用 OS 使用者）" },
+        reason: { type: "string", description: "必填：為何退役（寫進 audit／merge history）" },
+        dry_run: { type: "boolean", description: "只跑護欄與定位、不異動；回預計搬移路徑" },
+      },
+      required: ["atom_name", "scope", "reason"],
+    },
+  },
 ];
 
 // ─── Tool Handlers ──────────────────────────────────────────────────────────
 
 function handleToolCall(id, toolName, args) {
-  const { toolAtomWrite, toolAtomPromote, toolAtomMove, toolAtomEditMeta } = require("./atom-tools");
+  const { toolAtomWrite, toolAtomPromote, toolAtomMove, toolAtomEditMeta, toolAtomRetire } = require("./atom-tools");
   switch (toolName) {
+    case "atom_retire":
+      return toolAtomRetire(id, args).catch(e => sendToolResult(id, `atom_retire error: ${e.message}`, true));
+    case "knowledge_harvest_report":
+      // one-writer：只驗 schema、回 chip；receipt 核對／state／ledger 由 Python PostToolUse 獨佔。
+      return require("./harvest").toolKnowledgeHarvestReport(id, args)
+        .catch(e => sendToolResult(id, `knowledge_harvest_report error: ${e.message}`, true));
     case "atom_write":
       return toolAtomWrite(id, args).catch(e => sendToolResult(id, `atom_write error: ${e.message}`, true));
     case "atom_promote":

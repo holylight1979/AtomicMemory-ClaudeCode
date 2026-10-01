@@ -343,20 +343,23 @@ def build_atom_content(
     created_at: Optional[str] = None,
     today: Optional[str] = None,
     status: Optional[str] = None,
+    supersedes: Optional[Iterable[str]] = None,
 ) -> str:
     """從結構化參數構造 atom 檔內容。
 
     對拍 server.js:669-721 buildAtomContent —— byte-identical 等價契約。
     SPEC §4 metadata 順序：Scope → Audience → Author → Confidence → Trigger →
     Status → Last-used → Confirmations → ReadHits → Pending-review-by →
-    Merge-strategy → Created-at → Related。空值欄位省略（status 未給時輸出
-    與既有 parity fixture byte-identical）。
+    Merge-strategy → Created-at → Related → Supersedes。空值欄位省略（status /
+    supersedes 未給時輸出與既有 parity fixture byte-identical）。
+    supersedes：本顆取代的舊 atom（被取代者不再注入、檔案保留）；None 或空 → 不輸出。
     """
     today = today or date.today().isoformat()
     triggers_list = list(triggers)
     knowledge_list = list(knowledge)
     actions_list = list(actions) if actions else []
     related_list = list(related) if related else []
+    supersedes_list = list(supersedes) if supersedes else []
     audience_list = list(audience) if audience else []
 
     lines: List[str] = [f"# {title}", ""]
@@ -377,6 +380,8 @@ def build_atom_content(
     lines.append(f"- Created-at: {created_at or today}")
     if related_list:
         lines.append(f"- Related: {', '.join(related_list)}")
+    if supersedes_list:
+        lines.append(f"- Supersedes: {', '.join(supersedes_list)}")
     lines.extend(["", "## 知識", ""])
     lines.extend(render_knowledge_lines(knowledge_list))
     lines.extend(["", "## 行動", ""])

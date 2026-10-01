@@ -442,31 +442,89 @@ def _followup_advisory() -> list:
 
 
 def _unpushed_advisory() -> list:
-    """本地有已 commit 未 push 的東西 → advisory 行（無則回 []，不佔 context）。
+    """本地有已 commit 未 push／worker 留下 `.unpushed` 標記的 root → advisory 行（無則回 []）。
 
-    存在理由：SessionEnd 的晉升自動提交把 push 丟到背景（30s 預算內不等網路），
-    push 掛掉時 commit 只留在本地、當下沒人看得到。這裡在下個 session 開頭補上
+    存在理由：vcs-sync worker 在背景 commit+push 記憶庫，push 守門擋下（本地有未發布程式碼
+    commit）或 push／svn commit 失敗時只留標記與 log、當下沒人看得到。這裡在下個 session 開頭補上
     可見性，讓「背景 fail-open」不變成「永遠沒人發現」（可觀測性鐵律）。
 
-    只讀 git 不寫，任何失敗回 []——沒有 upstream / 不是 repo / git 不在都算正常。
+    範圍：workflow/vcs-sync/roots.json 列出的每個 root（根層 + 專案）；roots.json 尚無根層時退回
+    只查 ~/.claude。每 root 依序看：git `rev-list --count @{u}..HEAD`、`.unpushed` 標記（查詢成功且
+    ahead=0 → 已沒有東西待推，不論使用者是補推原 HEAD 還是另開 commit，都算已解決：刪標記並清 roots.json
+    的 last_error；查詢失敗 rc≠0 不得當 ahead=0——那是「不知道」，標記照報、不刪）、roots.json 的
+    last_error（skip／索引失敗／spawn 失敗）、`.req/` 內無人消費的請求（含 inflight 殘留：worker 沒起或中途死）。
+    除了清已解決的標記／last_error 外只讀不寫；單一 root 失敗不影響其他 root——沒有 upstream / 不是 repo /
+    git 不在都算正常（查不到 ahead 就不報 ahead）。
     """
     try:
         import subprocess
-        if not (CLAUDE_DIR / ".git").exists():
-            return []
-        r = subprocess.run(
-            ["git", "-C", str(CLAUDE_DIR), "rev-list", "--count", "@{u}..HEAD"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=5, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        if r.returncode != 0:  # 無 upstream / detached HEAD → 不是異常，不吵
-            return []
-        ahead = int((r.stdout or "0").strip() or 0)
-        if ahead <= 0:
-            return []
-        return [
-            f"[Guardian:Sync] ⚠ ~/.claude 本地有 {ahead} 筆 commit 未 push"
-            f"（背景 push 可能失敗，見 Logs/auto-commit.log）→ 跑 git push 補推。"
-        ]
+        from pathlib import Path as _P
+        try:
+            import wg_vcs_sync as _vs
+            roots = _vs.load_roots()
+        except Exception as e:
+            _atom_debug_error("session_start:unpushed_advisory:roots", e)
+            _vs, roots = None, {}
+        entries = [(_P(k), v or {}) for k, v in roots.items()]
+        if not any(r.resolve() == CLAUDE_DIR.resolve() for r, _ in entries) and (CLAUDE_DIR / ".git").exists():
+            entries.insert(0, (CLAUDE_DIR, {}))
+
+        def _git(root: _P, *args: str):
+            """回 (成功?, stdout)。失敗（無 upstream／不是 repo／git 不在）與「0」必須分得開。"""
+            r = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=5, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return r.returncode == 0, (r.stdout or "").strip()
+
+        lines = []
+        for root, info in entries:
+            vcs = info.get("vcs", "git")
+            last_error = info.get("last_error")
+            label = "~/.claude" if root.resolve() == CLAUDE_DIR.resolve() else root.as_posix()
+            try:
+                rec = _vs.read_unpushed_record(root) if _vs else None
+                is_git = vcs == "git" and (root / ".git").exists()
+                ahead, ahead_known = 0, False
+                if is_git:
+                    ok, out = _git(root, "rev-list", "--count", "@{u}..HEAD")
+                    if ok and out.isdigit():
+                        ahead, ahead_known = int(out), True
+                if rec and ahead_known and ahead == 0:
+                    # 查詢成功且沒有東西待推 → 已解決（使用者補推原 HEAD 也算）。先清 roots.json 的
+                    # last_error（可能因 roots.lock 逾時失敗），成功才刪標記；失敗就留著下次再清，
+                    # 否則標記沒了、last_error 卻永遠清不掉。
+                    cleared = True
+                    if last_error:
+                        cleared = bool(_vs.update_root_record(
+                            _vs.SyncTarget(vcs, root, list(info.get("pathspecs") or [])), last_error=None))
+                        if cleared:
+                            last_error = None
+                    if cleared:
+                        _vs.clear_unpushed(root)
+                        rec = None
+                pending = _vs.pending_requests(root, include_inflight=True) if _vs else 0
+                orphan = pending > 0 and _vs is not None and not _vs.lock_is_live(root)
+            except Exception as e:
+                _atom_debug_error("session_start:unpushed_advisory:root", e)
+                lines.append(f"[Guardian:Sync] ⚠ {label} 未 push 檢查失敗（{type(e).__name__}）——見 atom-debug log。")
+                continue
+            reason = (rec or {}).get("reason")
+            if ahead > 0:
+                lines.append(
+                    f"[Guardian:Sync] ⚠ {label} 本地有 {ahead} 筆 commit 未 push"
+                    f"（背景 vcs-sync 守門或 push 失敗，見 Logs/vcs-sync.log）→ 確認後 git push 補推。")
+            elif reason:
+                lines.append(
+                    f"[Guardian:Sync] ⚠ {label} 記憶庫未上版控：{reason[:80]}（見 Logs/vcs-sync.log）")
+            elif last_error:
+                lines.append(
+                    f"[Guardian:Sync] ⚠ {label} 上次背景同步未完成：{str(last_error)[:80]}（見 Logs/vcs-sync.log）")
+            if orphan:
+                lines.append(
+                    f"[Guardian:Sync] ⚠ {label} 有 {pending} 筆同步請求無人處理（worker 未起或中斷）"
+                    "→ 下次收割／SessionEnd 會自動補跑；急的話手動 python hooks/vcs-sync-worker.py。")
+        return lines
     except Exception as e:
         _atom_debug_error("session_start:unpushed_advisory", e)
         # fail-open 但要告知：這個檢查曾靜默 crash 三週沒人知道

@@ -51,8 +51,8 @@ from lib.atom_spec import (
     parse_depends, resolve_depends_path, depends_warnings, evidence_warning,
 )
 from lib.atom_locations import (
-    GLOBAL_MEMORY_DIR, FAILURES_DIR, LEGACY_FAILURES_DIR,
-    failures_atom_stems, iter_atom_files_multi,
+    GLOBAL_MEMORY_DIR, FAILURES_DIR, LEGACY_FAILURES_DIR, LOCAL_ATOMS_DIR,
+    atom_search_roots, failures_atom_stems, iter_atom_files_multi,
 )
 # 晉升判定權威來源（server.js 的 py 鏡像）：confirmations 主軌 + usefulness Wilson 下界軌。
 # ReadHits 已退役（純曝光、不參與晉升）。
@@ -544,7 +544,7 @@ def _archive_candidate(atom: AtomMetadata, today: date, config: Dict[str, Any]) 
     try:
         from wg_atoms import archive_score
     except ImportError:
-        _hooks = CLAUDE_DIR / "hooks"
+        _hooks = Path(__file__).resolve().parent.parent / "hooks"  # 測試會把 CLAUDE_DIR 指到 tmp，hooks 以本檔位置定位
         if str(_hooks) not in sys.path:
             sys.path.insert(0, str(_hooks))
         from wg_atoms import archive_score
@@ -984,190 +984,416 @@ def compact_evolution_logs(
     return f"COMPACTED: {rel} — merged {merge_count} entries ({earliest}~{latest})"
 
 
-def delete_atom(
-    atom_name: str, layer: str = "global", purge: bool = False, dry_run: bool = False
-) -> Tuple[bool, str]:
-    """Delete an atom with full chain propagation.
-
-    Steps:
-    1. Locate atom file
-    2. LanceDB: delete all chunks for this atom
-    3. Scan Related references in other atoms → remove
-    4. Update MEMORY.md index → remove row
-    5. Move to _distant/ (or permanent delete if purge)
-    6. Trigger incremental re-index
-    7. Write audit.log
-    """
-    import urllib.request
-    import urllib.error
-
-    # 1. Locate atom file
-    layers = discover_layers()
-    atom_path = None
-    mem_dir = None
-    for layer_name, mdir in layers:
-        if layer_name == layer:
-            # atom 住在範疇資料夾（memory/<範疇>/…），不在層根；以 stem 遍歷整層找
-            for candidate in iter_atom_files(mdir):
-                if candidate.stem == atom_name:
-                    atom_path = candidate
-                    mem_dir = mdir
-                    break
-            break
-
-    if atom_path is None:
-        return False, f"Atom '{atom_name}' not found in layer '{layer}'"
-
-    actions = []
-    mode = "PURGE" if purge else "DELETE"
-
-    if dry_run:
-        actions.append(f"[DRY-RUN] Would {mode.lower()} atom: {atom_name} (layer: {layer})")
-    else:
-        actions.append(f"[{mode}] Processing atom: {atom_name} (layer: {layer})")
-
-    # 2. LanceDB cleanup
+def _atom_confidence(atom_path: Path) -> Optional[str]:
+    """讀 atom 檔頭 `- Confidence: [x]`；無此行回空字串、檔讀不到回 None
+    （None ≠ ""：讀不到不能當「非 [固]」放行退役）。"""
     try:
-        VECTORDB_DIR = CLAUDE_DIR / "memory" / "_vectordb"
-        if VECTORDB_DIR.exists():
-            import lancedb
-            db = lancedb.connect(str(VECTORDB_DIR))
-            try:
-                table = db.open_table("atom_chunks")
-                if dry_run:
-                    # Count rows that would be deleted
-                    rows = table.search().select(["atom_name", "layer"]).limit(10000).to_list()
-                    count = sum(1 for r in rows if r.get("atom_name") == atom_name and r.get("layer") == layer)
-                    actions.append(f"  [DRY-RUN] Would delete {count} LanceDB chunks")
-                else:
-                    table.delete(f"atom_name = '{atom_name}' AND layer = '{layer}'")
-                    actions.append("  LanceDB chunks deleted")
-            except Exception as e:
-                actions.append(f"  LanceDB: {e}")
-    except ImportError:
-        actions.append("  LanceDB: not installed (skipped)")
+        text = atom_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return None
+    m = re.search(r"^- Confidence:\s*(\[(?:固|觀|臨)\])", text, re.MULTILINE)
+    return m.group(1) if m else ""
 
-    # 3. Scan Related references in other atoms → remove
-    related_cleaned = 0
+
+def _scan_references(atom_name: str, layers: List[Tuple[str, Path]],
+                     exclude: Path) -> Tuple[List[str], List[str]]:
+    """掃所有層（iter_atom_files 含 personal/<user>/）其他 atom 的 Related / Supersedes 引用。
+    回 (["<layer>/<stem> (Related)", ...], ["<layer>/<stem>: <err>", ...])；第二項是讀不到的檔
+    ——讀不到的檔可能正引用著目標，caller 必須拒而不是當「無引用」。"""
+    refs: List[str] = []
+    unreadable: List[str] = []
     for layer_name, mdir in layers:
         for md_file in iter_atom_files(mdir):
-            if md_file == atom_path:
+            if md_file == exclude:
+                continue
+            try:
+                text = md_file.read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeDecodeError) as e:
+                unreadable.append(f"{layer_name}/{md_file.stem}: {e}")
+                continue
+            for field_name in ("Related", "Supersedes"):
+                m = re.search(rf"^- {field_name}:\s*(.+)$", text, re.MULTILINE)
+                if not m:
+                    continue
+                names = [r.strip() for r in m.group(1).split(",")]
+                if atom_name in names:
+                    refs.append(f"{layer_name}/{md_file.stem} ({field_name})")
+    return refs, unreadable
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _project_slug_for(mem_dir: Path) -> Optional[str]:
+    """專案記憶目錄 → 向量層標籤用的專案 slug（與 indexer 同源：wg_core.discover_all_project_memory_dirs）。"""
+    try:
+        _hooks = Path(__file__).resolve().parent.parent / "hooks"
+        if str(_hooks) not in sys.path:
+            sys.path.insert(0, str(_hooks))
+        from wg_core import discover_all_project_memory_dirs  # noqa: E402
+        for slug, d in discover_all_project_memory_dirs():
+            if _is_under(d, mem_dir) and _is_under(mem_dir, d):
+                return slug
+    except Exception:  # noqa: BLE001 — 判定器不可用 → 無法推導，由 caller 拒
+        return None
+    return None
+
+
+def _vector_layer_label(atom_path: Path, layer: str, mem_dir: Path) -> Optional[str]:
+    """由定位路徑推導該 atom 在向量庫的 layer 標籤（對拍 tools/memory-vector-service/indexer.py
+    discover_layers 與 hooks/wg_core.discover_v4_sublayers 的命名）：
+      global 層：_AIDocs/_atoms/ → extra:local-atoms；memory/Failures/ 或舊址 _AIDocs/Failures/ →
+      extra:failures；memory/personal/<user>/ → personal:global:<user>；其餘 memory/ → global
+      專案層：roles/<r>/ → role:<slug>:<r>；personal/<u>/ → personal:<slug>:<u>；其餘（shared/、
+      failures/、flat-legacy）→ shared:<slug>
+    推導不出（專案未登記／路徑不在層下）回 None。"""
+    if layer == "global":
+        if _is_under(atom_path, LOCAL_ATOMS_DIR):
+            return "extra:local-atoms"
+        if _is_under(atom_path, FAILURES_DIR) or _is_under(atom_path, LEGACY_FAILURES_DIR):
+            return "extra:failures"
+        personal_root = GLOBAL_MEMORY_DIR / "personal"
+        if _is_under(atom_path, personal_root):
+            rel = atom_path.resolve().relative_to(personal_root.resolve()).parts
+            return f"personal:global:{rel[0]}" if len(rel) > 1 else None
+        return "global" if _is_under(atom_path, GLOBAL_MEMORY_DIR) else None
+    if not _is_under(atom_path, mem_dir):
+        return None
+    slug = _project_slug_for(mem_dir)
+    if slug is None:
+        return None
+    rel = atom_path.resolve().relative_to(mem_dir.resolve()).parts
+    if len(rel) > 2 and rel[0] == "roles":
+        return f"role:{slug}:{rel[1]}"
+    if len(rel) > 2 and rel[0] == "personal":
+        return f"personal:{slug}:{rel[1]}"
+    return f"shared:{slug}"
+
+
+# lancedb open_table 對「表不存在」的兩種訊息開頭（新版 ValueError／舊版 FileNotFoundError）；
+# 只有這兩種算冪等成功，其他 FileNotFoundError（庫目錄壞、權限）都是真失敗
+_LANCE_TABLE_MISSING_MSG = ("Table 'atom_chunks' was not found", "Table atom_chunks does not exist")
+
+
+def _vector_delete_chunks(atom_name: str, layer_label: Optional[str]) -> Tuple[bool, str]:
+    """LanceDB 直刪該 atom 在**一個** layer 的 chunks（layer_label 由 _vector_layer_label 推導）。
+    冪等成功只限：無庫目錄、表不存在（訊息精確比對 _LANCE_TABLE_MISSING_MSG）、無列。
+    庫目錄存在但 lancedb import 失敗 → False：庫裡可能真有 chunks，跳過會留下指向已退役 atom 的
+    向量殘留。connect／open_table 其他例外、label 推不出、delete 拋例外 → False
+    （caller 阻斷後續不可逆步驟）。"""
+    vectordb_dir = CLAUDE_DIR / "memory" / "_vectordb"
+    if not vectordb_dir.exists():
+        return True, "LanceDB: no vectordb (skipped)"
+    try:
+        import lancedb
+    except ImportError as e:
+        return False, f"LanceDB: vectordb exists but lancedb import failed ({e}); chunks cannot be deleted"
+    if layer_label is None:
+        return False, "LanceDB: cannot derive layer label from atom path (project not registered?)"
+    try:
+        db = lancedb.connect(str(vectordb_dir))
+    except Exception as e:  # noqa: BLE001 — 連不上 ≠ 無 chunks
+        return False, f"LanceDB connect failed: {e}"
+    try:
+        table = db.open_table("atom_chunks")
+    except Exception as e:  # noqa: BLE001 — 只有 lancedb 自己的「表不存在」訊息是冪等成功
+        if str(e).strip().startswith(_LANCE_TABLE_MISSING_MSG):
+            return True, f"LanceDB: table not found ({e}) (skipped)"
+        return False, f"LanceDB open_table failed: {e}"
+    safe_name = atom_name.replace("'", "''")
+    safe_layer = layer_label.replace("'", "''")
+    try:
+        table.delete(f"atom_name = '{safe_name}' AND layer = '{safe_layer}'")
+    except Exception as e:  # noqa: BLE001 — 刪除失敗必須阻斷後續不可逆步驟
+        return False, f"LanceDB delete failed: {e}"
+    return True, f"LanceDB chunks deleted (layer={layer_label})"
+
+
+def _clean_related_refs(atom_name: str, layers: List[Tuple[str, Path]], exclude: Path) -> Tuple[bool, str]:
+    """移除其他 atom `- Related:` 中對 atom_name 的引用（冪等：無引用＝完成）。
+    護欄已先拒絕被引用的退役，本步為競態／外部改檔的兜底。"""
+    cleaned = 0
+    for _layer_name, mdir in layers:
+        for md_file in iter_atom_files(mdir):
+            if md_file == exclude:
                 continue
             try:
                 text = md_file.read_text(encoding="utf-8-sig")
             except (OSError, UnicodeDecodeError):
                 continue
-            changed = False
             new_lines = []
+            changed = False
             for line in text.splitlines():
-                if line.strip().startswith("- Related:"):
-                    m = re.match(r"^(- Related:\s*)(.+)$", line)
-                    if m:
-                        related_list = [r.strip() for r in m.group(2).split(",")]
-                        filtered = [r for r in related_list if r and r != atom_name]
-                        if len(filtered) != len(related_list):
-                            changed = True
-                            related_cleaned += 1
-                            if filtered:
-                                new_lines.append(f"- Related: {', '.join(filtered)}")
-                            # else: remove the line entirely
-                            continue
-                if line.strip().startswith("- Supersedes:"):
-                    m = re.match(r"^(- Supersedes:\s*)(.+)$", line)
-                    if m:
-                        sup_list = [s.strip() for s in m.group(2).split(",")]
-                        if atom_name in sup_list:
-                            actions.append(f"  WARNING: {md_file.stem} supersedes deleted atom {atom_name}")
-                new_lines.append(line)
-            if changed and not dry_run:
-                # 走 funnel：EOL-preserving + audit（裸 write_text 會翻整檔行尾且無稽核）
-                _r = write_raw(md_file, "\n".join(new_lines),
-                               source=_AUDIT_SOURCE, op="audit_related_clean")
-                if not _r.ok:
-                    actions.append(f"  Related cleanup FAILED for {md_file.stem}: {_r.error}")
-    if related_cleaned:
-        actions.append(f"  Related references cleaned: {related_cleaned} atom(s)")
-
-    # 4. Update MEMORY.md index
-    if mem_dir:
-        index_path = mem_dir / "MEMORY.md"
-        if index_path.exists():
-            try:
-                idx_text = index_path.read_text(encoding="utf-8-sig")
-                new_idx_lines = []
-                removed = False
-                for line in idx_text.splitlines():
-                    # Match table row containing atom name
-                    if line.strip().startswith("|") and f"| {atom_name} " in line:
-                        removed = True
+                m = re.match(r"^- Related:\s*(.+)$", line)
+                if m:
+                    names = [r.strip() for r in m.group(1).split(",")]
+                    kept = [r for r in names if r and r != atom_name]
+                    if len(kept) != len(names):
+                        changed = True
+                        if kept:
+                            new_lines.append(f"- Related: {', '.join(kept)}")
                         continue
-                    new_idx_lines.append(line)
-                if removed:
-                    if dry_run:
-                        actions.append("  [DRY-RUN] Would remove MEMORY.md index row")
-                    else:
-                        # 走 funnel（索引整檔覆寫入口）：EOL-preserving + audit
-                        _r = write_index_full(index_path, "\n".join(new_idx_lines),
-                                              source=_AUDIT_SOURCE)
-                        if not _r.ok:
-                            actions.append(f"  MEMORY.md update failed: {_r.error}")
-                        else:
-                            actions.append("  MEMORY.md index row removed")
-            except (OSError, UnicodeDecodeError) as e:
-                actions.append(f"  MEMORY.md update failed: {e}")
+                new_lines.append(line)
+            if not changed:
+                continue
+            r = write_raw(md_file, "\n".join(new_lines), source=_AUDIT_SOURCE, op="audit_related_clean")
+            if not r.ok:
+                return False, f"Related cleanup failed for {md_file.stem}: {r.error}"
+            cleaned += 1
+    return True, f"Related references cleaned: {cleaned} atom(s)"
 
-    # 5. Move/remove file
-    if not dry_run:
-        _append_evolution_entry(atom_path, f"{'永久刪除' if purge else '刪除移入 _distant/'}", "memory-audit --delete")
-        if purge:
-            try:
-                os.remove(str(atom_path))
-                actions.append(f"  File permanently deleted: {atom_path.name}")
-            except OSError as e:
-                actions.append(f"  File delete failed: {e}")
-                return False, "\n".join(actions)
+
+def _same_file(a: Path, b: Path) -> bool:
+    """同一實體檔？resolve 後 normcase 比對（Windows 大小寫不敏感），不存在的路徑也能比。"""
+    try:
+        return os.path.normcase(str(a.resolve(strict=False))) == os.path.normcase(str(b.resolve(strict=False)))
+    except OSError:
+        return False
+
+
+_MD_PATH_REF_RE = re.compile(r"[`(]([^`()\s|]+\.md)[`)]")
+
+
+def _memory_row_removable(line: str, atom_name: str, atom_path: Path, mem_dir: Path,
+                          name_unique: bool) -> Optional[bool]:
+    """MEMORY.md 一列對這顆 atom 的判定：True=這顆的列、可刪；None=不是它的列、留著；
+    False=同名但判不出是誰的（沒 path 又有同名他顆）→ 不猜，caller 拒。
+    列裡的 path 參照（`memory/x/a.md`、(../memory/x/a.md)、裸 a.md）相對 MEMORY.md 所在層或
+    index root 解析：指到這顆 → True；指到另一個存在的檔 → 是別顆的列 → None；指到不存在的檔
+    （陳舊列）或根本沒 path → 只有這顆同名時 True，否則 False。"""
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return None
+    cells = [c.strip() for c in stripped.strip("|").split("|")]
+    if not cells or cells[0] != atom_name:
+        return None
+    refs = _MD_PATH_REF_RE.findall(line) + [c for c in cells[1:] if c.endswith(".md") and " " not in c]
+    points_elsewhere = False
+    for ref in refs:
+        rel = ref.replace("\\", "/")
+        # 保留相對路徑語意（../ 一律相對 MEMORY.md 所在層或 index root 解析），不剝父目錄片段猜歸屬
+        for base in (mem_dir, mem_dir.parent):
+            if _same_file(base / rel, atom_path):
+                return True
+            if (base / rel).is_file():
+                points_elsewhere = True
+    if points_elsewhere:
+        return None
+    return True if name_unique else False
+
+
+def _remove_index_entries(mem_dir: Path, atom_name: str, atom_path: Path,
+                          *, name_unique: bool) -> Tuple[bool, str]:
+    """MEMORY.md 列 + _atom_index.json 條目移除，只動指向 atom_path 這顆的（冪等：無列／無條目＝完成）。
+
+    同名 atom 可跨層共存（shared/dup.md 與 personal/u/dup.md），索引條目與 MEMORY.md 列
+    都要拿 path 比對才知道是誰的：path 相符才刪；同名但 path 不符 → 不動；索引條目沒有 path
+    欄位、或 MEMORY.md 列沒 path 又有同名他顆（name_unique=False）→ 無法判定，回 False
+    由 caller 拒搬檔；MEMORY.md 列的 path 指到別顆 → 那是別顆的列，留著。任一寫入失敗 → False。
+    索引 path 相對 index root（mem_dir 上一層）。"""
+    notes: List[str] = []
+    index_path = mem_dir / "MEMORY.md"
+    if index_path.exists():
+        try:
+            idx_text = index_path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as e:
+            return False, f"MEMORY.md read failed: {e}"
+        lines = idx_text.splitlines()
+        verdicts = [_memory_row_removable(ln, atom_name, atom_path, mem_dir, name_unique) for ln in lines]
+        if any(v is False for v in verdicts):
+            return False, (f"MEMORY.md: row '| {atom_name} |' has no path and another same-name atom "
+                           f"exists; cannot tell whether it is {atom_path}; refusing")
+        kept = [ln for ln, v in zip(lines, verdicts) if v is not True]
+        if len(kept) != len(lines):
+            r = write_index_full(index_path, "\n".join(kept), source=_AUDIT_SOURCE)
+            if not r.ok:
+                return False, f"MEMORY.md update failed: {r.error}"
+            notes.append("MEMORY.md row removed")
         else:
-            ok, msg = move_to_distant(atom_path)
-            actions.append(f"  {msg}")
-            if not ok:
-                return False, "\n".join(actions)
-
-    # 5b. _atom_index.json SoT 同步（唯一機器源；含 _ATOM_INDEX.md mirror 自動 regen）
-    if dry_run:
-        actions.append("  [DRY-RUN] Would remove _atom_index.json entry")
-    else:
+            notes.append("MEMORY.md: no row (unchanged)")
+    idx_file = mem_dir / "_atom_index.json"
+    if idx_file.exists():
         try:
-            if index_delete_atom(mem_dir, atom_name):
-                actions.append("  _atom_index.json entry removed (mirror regenerated)")
-            else:
-                actions.append("  _atom_index.json: no entry found (unchanged)")
+            json.loads(idx_file.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
-            actions.append(f"  _atom_index.json update FAILED: {e}")
+            # 讀不到／壞 JSON 不是「沒有條目」：分不清就不搬檔
+            return False, f"_atom_index.json unreadable ({e}); refusing"
+    try:
+        same_name = [a for a in load_atom_index_json(mem_dir).get("atoms", [])
+                     if a.get("name") == atom_name]
+        if any(not isinstance(a.get("path"), str) or not a.get("path") for a in same_name):
+            return False, f"_atom_index.json: entry '{atom_name}' has no path to compare; refusing"
+        mine = [a["path"] for a in same_name if _same_file(mem_dir.parent / a["path"], atom_path)]
+        others = len(same_name) - len(mine)
+        removed = any([index_delete_atom(mem_dir, atom_name, path=p) for p in mine])
+        if removed:
+            notes.append("_atom_index.json entry removed")
+        else:
+            notes.append("_atom_index.json: no entry (unchanged)")
+        if others:
+            notes.append(f"_atom_index.json: {others} same-name entry(ies) at other path kept")
+    except Exception as e:  # noqa: BLE001 — 索引寫入任何例外都算失敗（不可逆步驟前必停）
+        return False, f"_atom_index.json update failed: {e}"
+    return True, "; ".join(notes)
 
-    # 6. Trigger incremental re-index
-    if not dry_run:
+
+def delete_atom(
+    atom_name: str, layer: str = "global", purge: bool = False, dry_run: bool = False,
+    *, project_dir: Optional[Path] = None, reason: str = "", atom_path: Optional[Path] = None,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """退役 atom（移入 _distant/；purge=True 永久刪）。回 (ok, msg, info)。
+
+    info：{atom, layer, old_path, new_path, index_ok, steps_done, steps_failed, references}。
+    layer="project" 須給 project_dir（該專案 .claude/memory/），一路傳到 discover_layers。
+    atom_path：caller（atom_io_cli retire）已用 locate_atom 定位時直接傳入，不再遍歷整層取
+    第一個同名檔——shared 與 personal/<u> 同名時遍歷會退役錯顆。給了就驗：存在、stem==atom_name、
+    落在該層根之下（global 層根 = atom_search_roots()；project 層根 = project_dir），不符即拒。
+
+    順序固定（不可逆步驟放最後；①–④ 冪等，目標不存在視為已完成；任一步失敗即停、不搬檔）：
+      ① 全部護欄：找不到拒；Confidence 讀不到拒；[固] 拒（改用 Supersedes 取代）；核心保護名拒
+         （清單載入失敗或退到 fallback 子集也拒）；被其他 atom Related/Supersedes 引用拒
+         （掃所有層含 personal；任一檔讀不到也拒並列出）
+      ② 向量 chunks 刪除
+      ③ 其他 atom 的 Related 清理
+      ④ MEMORY.md 列 + _atom_index.json 條目移除
+      ⑤ 搬檔到 _distant/<yyyy_mm>/（或 purge）→ 演化日誌寫 reason → 觸發增量重索引 → audit.log
+    失敗時檔案仍在原位、定位走檔案系統 → 重跑同一退役可從頭成功。
+    """
+    import urllib.request
+
+    info: Dict[str, Any] = {
+        "atom": atom_name, "layer": layer, "old_path": None, "new_path": None,
+        "index_ok": None, "steps_done": [], "steps_failed": [], "references": [],
+    }
+    done: List[str] = info["steps_done"]
+    failed: List[str] = info["steps_failed"]
+
+    def _fail(step: str, msg: str) -> Tuple[bool, str, Dict[str, Any]]:
+        failed.append(f"{step}: {msg}")
+        return False, msg, info
+
+    # ① 護欄（全部在任何異動之前）
+    layers = discover_layers(project_dir=project_dir)
+    mem_dir: Optional[Path] = next((mdir for name, mdir in layers if name == layer), None)
+    if mem_dir is None:
+        hint = " (layer=project requires project_dir)" if layer == "project" and not project_dir else ""
+        return _fail("locate", f"Atom '{atom_name}' not found in layer '{layer}'{hint}")
+    layer_roots = atom_search_roots() if layer == "global" else [mem_dir]
+    if atom_path is not None:
+        atom_path = Path(atom_path)
+        if atom_path.stem != atom_name:
+            return _fail("locate", f"atom_path stem {atom_path.stem!r} != atom_name {atom_name!r}; refusing")
+        if not atom_path.is_file():
+            return _fail("locate", f"atom_path does not exist: {atom_path}")
+        if not any(_is_under(atom_path, r) for r in layer_roots):
+            return _fail("locate", f"atom_path {atom_path} is not under layer '{layer}' roots; refusing")
+    else:
+        # 無定位路徑（CLI --delete）：atom 住在範疇資料夾（memory/<範疇>/…），以 stem 遍歷整層找
+        atom_path = next((c for c in iter_atom_files(mem_dir) if c.stem == atom_name), None)
+        if atom_path is None:
+            return _fail("locate", f"Atom '{atom_name}' not found in layer '{layer}'")
+    info["old_path"] = str(atom_path)
+
+    confidence = _atom_confidence(atom_path)
+    if confidence is None:
+        return _fail("guard", f"cannot read {atom_path} to check Confidence; refusing to retire")
+    if confidence == "[固]":
+        return _fail("guard", f"Atom '{atom_name}' is [固] — 用 Supersedes 取代而非退役"
+                              "（atom_write mode=create/replace 帶 supersedes）")
+    try:
+        from lib.atom_locations import core_protected_source, is_core_protected_name
+    except ImportError as e:
+        return _fail("guard", f"core-protected list unavailable ({e}); refusing to retire")
+    if core_protected_source() != "json":
+        return _fail("guard", "core-protected list not loaded (realm-lexicon.json unavailable; "
+                              "running on built-in fallback subset) — refusing to retire; fix the JSON first")
+    if is_core_protected_name(atom_name):
+        return _fail("guard", f"Atom '{atom_name}' is core-protected — cannot be retired")
+    refs, unreadable = _scan_references(atom_name, layers, atom_path)
+    info["references"] = refs
+    if unreadable:
+        return _fail("guard", "reference scan incomplete — unreadable atom files: "
+                              + ", ".join(unreadable) + " — fix them first")
+    if refs:
+        return _fail("guard", f"Atom '{atom_name}' is referenced by: " + ", ".join(refs)
+                              + " — remove those references first (atom_edit_meta related)")
+    done.append("guards")
+
+    mode = "purge" if purge else "retire"
+    if dry_run:
+        plan = [f"[DRY-RUN] Would {mode} atom: {atom_name} (layer: {layer})",
+                f"  from: {atom_path}",
+                "  steps: vector delete → Related cleanup → index removal → "
+                + ("permanent delete" if purge else "move to _distant/<yyyy_mm>/")]
+        return True, "\n".join(plan), info
+
+    actions = [f"[{mode.upper()}] {atom_name} (layer: {layer})"]
+
+    # ② 向量（只刪該 atom 在定位路徑所屬那一個 layer 的 chunks）
+    ok, msg = _vector_delete_chunks(atom_name, _vector_layer_label(atom_path, layer, mem_dir))
+    actions.append(f"  {msg}")
+    if not ok:
+        return _fail("vector", "\n".join(actions))
+    done.append("vector")
+
+    # ③ Related 清理
+    ok, msg = _clean_related_refs(atom_name, layers, atom_path)
+    actions.append(f"  {msg}")
+    if not ok:
+        return _fail("related", "\n".join(actions))
+    done.append("related")
+
+    # ④ 索引（帶實體 path：同名跨層只清這顆的條目；name_unique 給 MEMORY.md 無 path 列用）
+    name_unique = sum(1 for r in layer_roots for c in iter_atom_files(r) if c.stem == atom_name) <= 1
+    ok, msg = _remove_index_entries(mem_dir, atom_name, atom_path, name_unique=name_unique)
+    actions.append(f"  {msg}")
+    info["index_ok"] = ok
+    if not ok:
+        return _fail("index", "\n".join(actions))
+    done.append("index")
+
+    # ⑤ 搬檔／永久刪（不可逆，最後）
+    if purge:
         try:
-            req = urllib.request.Request(
-                "http://127.0.0.1:3849/index/incremental",
-                data=b"{}",
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=2)
-            actions.append("  Incremental re-index triggered")
-        except Exception:
-            actions.append("  Incremental re-index: service not available (skipped)")
+            sidecar = atom_path.with_suffix(".access.json")
+            os.remove(str(atom_path))
+            if sidecar.exists():
+                os.remove(str(sidecar))
+            actions.append(f"  File permanently deleted: {atom_path.name}")
+        except OSError as e:
+            actions.append(f"  File delete failed: {e}")
+            return _fail("move", "\n".join(actions))
+    else:
+        ok, msg = move_to_distant(atom_path)
+        actions.append(f"  {msg}")
+        if not ok:
+            return _fail("move", "\n".join(actions))
+        new_path = _distant_dest(atom_path)
+        info["new_path"] = str(new_path)
+        _append_evolution_entry(new_path, f"退役移入 _distant/：{reason or '(no reason)'}",
+                                "memory-audit --delete")
+    done.append("move")
 
-    # 7. Audit log
-    if not dry_run:
-        _write_audit_entry({
-            "action": "purge" if purge else "delete",
-            "atom": atom_name,
-            "layer": layer,
-        })
-        actions.append("  Audit log entry written")
+    # 增量重索引（best effort；向量已在 ② 刪，服務離線不算失敗）
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:3849/index/incremental", data=b"{}",
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        urllib.request.urlopen(req, timeout=2)
+        actions.append("  Incremental re-index triggered")
+    except Exception:  # noqa: BLE001 — 服務不在線屬預期
+        actions.append("  Incremental re-index: service not available (skipped)")
 
-    return True, "\n".join(actions)
+    _write_audit_entry({"action": mode, "atom": atom_name, "layer": layer,
+                        "reason": reason, "old_path": info["old_path"], "new_path": info["new_path"]})
+    actions.append("  Audit log entry written")
+    return True, "\n".join(actions), info
 
 
 def _project_dir_from_args(args: argparse.Namespace) -> Optional[Path]:
@@ -1186,7 +1412,7 @@ def enforce_decay(args: argparse.Namespace) -> None:
     try:
         from wg_atoms import apply_selective_forget
     except ImportError:
-        _hooks = CLAUDE_DIR / "hooks"
+        _hooks = Path(__file__).resolve().parent.parent / "hooks"  # 測試會把 CLAUDE_DIR 指到 tmp，hooks 以本檔位置定位
         if str(_hooks) not in sys.path:
             sys.path.insert(0, str(_hooks))
         from wg_atoms import apply_selective_forget
@@ -1241,18 +1467,19 @@ def enforce_decay(args: argparse.Namespace) -> None:
         print("No archive candidates (score >= threshold or no activity signal).")
 
 
+def _distant_dest(atom_path: Path) -> Path:
+    """退役落點：原範疇資料夾下 _distant/{year}_{month}/<name>（move_to_distant 與 delete_atom 共用）。"""
+    today = date.today()
+    return atom_path.parent / DISTANT_DIR / f"{today.year}_{today.month:02d}" / atom_path.name
+
+
 def move_to_distant(atom_path: Path) -> Tuple[bool, str]:
     """Move an active atom to _distant/{year}_{month}/."""
     if not atom_path.exists():
         return False, f"檔案不存在: {atom_path}"
 
-    memory_dir = atom_path.parent
-    today = date.today()
-    year_month = f"{today.year}_{today.month:02d}"
-    distant_target = memory_dir / DISTANT_DIR / year_month
-
-    distant_target.mkdir(parents=True, exist_ok=True)
-    dest = distant_target / atom_path.name
+    dest = _distant_dest(atom_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
 
     if dest.exists():
         return False, f"遙遠記憶已有同名檔案: {dest}"
@@ -1358,7 +1585,7 @@ def discover_layers(
     # registry 優先 + projects/ 舊址須有 atom 索引標記）。自掃 projects/*/memory 會把
     # CC harness 原生 auto-memory 目錄（grok / hermes / Temp 測試夾）誤當記憶層。
     try:
-        _hooks = CLAUDE_DIR / "hooks"
+        _hooks = Path(__file__).resolve().parent.parent / "hooks"  # 測試會把 CLAUDE_DIR 指到 tmp，hooks 以本檔位置定位
         if str(_hooks) not in sys.path:
             sys.path.insert(0, str(_hooks))
         from wg_core import discover_all_project_memory_dirs  # noqa: E402
@@ -1708,8 +1935,10 @@ def main():
                         help="刪除 atom（移入 _distant/），全鏈清除 LanceDB + Related 引用 + MEMORY.md 索引")
     parser.add_argument("--purge", type=str, metavar="ATOM_NAME",
                         help="永久刪除 atom（不移入 _distant/），全鏈清除")
+    parser.add_argument("--reason", type=str, default="",
+                        help="搭配 --delete/--purge：退役理由（寫入演化日誌與 audit.log）")
     parser.add_argument("--layer", type=str, default="global",
-                        help="搭配 --delete/--purge 指定層（default: global）")
+                        help="搭配 --delete/--purge 指定層（default: global；project 須同時給 --project-dir）")
 
     # Distant memory operations
     parser.add_argument("--search-distant", type=str, metavar="KEYWORD", help="搜尋遙遠記憶區")
@@ -1722,8 +1951,11 @@ def main():
     if args.delete or args.purge:
         atom_name = args.delete or args.purge
         purge = bool(args.purge)
-        ok, msg = delete_atom(atom_name, args.layer, purge=purge, dry_run=args.dry_run)
+        ok, msg, info = delete_atom(atom_name, args.layer, purge=purge, dry_run=args.dry_run,
+                                    project_dir=_project_dir_from_args(args), reason=args.reason or "")
         print(msg)
+        if not ok and (info.get("steps_done") or info.get("steps_failed")):
+            print(f"steps done: {info['steps_done']}; failed: {info['steps_failed']}")
         sys.exit(0 if ok else 1)
 
     # Handle distant memory operations

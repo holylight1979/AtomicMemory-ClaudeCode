@@ -59,13 +59,13 @@
 - 降級：沒 Python → hook 指令執行失敗 → Claude Code 視為 hook 錯誤放行，原生功能完全不受影響；記憶系統整個不啟動。
 
 **Node.js**（≥ 18，零 npm 依賴）
-- 用途：只有兩處——MCP server `tools/workflow-guardian-mcp/server.js`（5 個 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `anti_evasion_report`）與同進程的 Dashboard / HUD 網頁。
-- 替代：atom 仍可經 Python 寫入——`lib/atom_io_cli.py` 是 stdin JSON 橋接（不是 argparse），在 `~/.claude` 下跑 `python -m lib.atom_io_cli`，stdin 餵 `{"action": "...", ...}`，action 有 `locate`（算落點）/ `build`（只組內容驗證，不落檔）/ `create_atom`（build→落檔→access→索引；`dry_run: true` 只預覽）/ `append` / `write_raw`。實務上建議直接用 `skills/memory` 與 `tools/` 內的 Python 腳本，或安裝 Node 後走 MCP。
-- 降級：`hooks/ensure-mcp.py` 在 SessionStart 找不到 node → 寫 `workflow/mcp-needs-node.flag` 並結束，不註冊 MCP；`anti_evasion_report` 收尾檢核因 MCP tool 不存在而無法提交（Stop 閘為 fail-open，會放行）。hooks、注入、萃取全部照常。
+- 用途：只有兩處——MCP server `tools/workflow-guardian-mcp/server.js`（7 個 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report`）與同進程的 Dashboard / HUD 網頁。
+- 替代：atom 仍可經 Python 寫入——`lib/atom_io_cli.py` 是 stdin JSON 橋接（不是 argparse），在 `~/.claude` 下跑 `python -m lib.atom_io_cli`，stdin 餵 `{"action": "...", ...}`，action 有 `locate`（算落點）/ `build`（只組內容驗證，不落檔）/ `create_atom`（build→落檔→access→索引；`dry_run: true` 只預覽）/ `append` / `write_raw` / `check_supersedes` / `retire`（退役）。實務上建議直接用 `skills/memory` 與 `tools/` 內的 Python 腳本，或安裝 Node 後走 MCP。
+- 降級：`hooks/ensure-mcp.py` 在 SessionStart 找不到 node → 寫 `workflow/mcp-needs-node.flag` 並結束，不註冊 MCP；`anti_evasion_report` 收尾檢核與 `knowledge_harvest_report` 階段收割回報因 MCP tool 不存在而無法提交（Stop 閘為 fail-open，會放行）。hooks、注入、萃取全部照常。
 
 **Git**
-- 用途：Stop 同步閘（`hooks/handlers/stop.py` `_detect_uncommitted_files`）、SessionStart 未 push advisory、晉升自動 commit（`self_iteration.auto_commit_promotions`）、`hooks/post-git-pull.sh` pull 後稽核。
-- 替代：SVN 工作區同樣被同步閘辨識（`.svn` 目錄）。
+- 用途：Stop 同步閘（`hooks/handlers/stop.py` `_detect_uncommitted_files`）、SessionStart 未 push advisory（`workflow/vcs-sync/roots.json` 全部 root）、記憶庫背景上版控 worker（`hooks/vcs-sync-worker.py`：收割 validated／SessionEnd 後對 `memory`、`_AIDocs/_atoms`、專案 `.claude/memory` 做 pathspec add+commit，待推歷史全是記憶 commit 才 push；config `vcs_sync.*`）、`hooks/post-git-pull.sh` pull 後稽核。
+- 替代：SVN 工作區同樣被同步閘辨識（`.svn` 目錄）；vcs-sync worker 對 svn 走 `--xml` 逐檔 add／commit。
 - 降級：`_detect_uncommitted_files` 對非 git/svn 目錄回 `None`＝**整個同步閘跳過**（不提醒也不阻斷）；git 執行檔不存在時 `git status` 拋 `FileNotFoundError` → 該組回 `None` → 同樣跳過。其餘閘門不受影響。
 
 **Ollama（本地 daemon `http://127.0.0.1:11434`）**
@@ -185,10 +185,8 @@ rsync -a "$SRC/_AIDocs/" "$DST/_AIDocs/"
 | UserPromptSubmit | — | `workflow-guardian.py`(8)、`codex_companion.py`(3) |
 | PreToolUse | `WebFetch` | `run-bash-hidden.py webfetch-guard.sh`(20) |
 | PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | `workflow-guardian.py`(5) |
-| PostToolUse | `Edit\|Write\|NotebookEdit\|Bash\|Agent\|Task\|mcp__workflow-guardian__anti_evasion_report` | `workflow-guardian.py`(5) |
+| PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|ExitPlanMode\|Bash\|Agent\|Task\|mcp__workflow-guardian__anti_evasion_report\|mcp__workflow-guardian__atom_write\|mcp__workflow-guardian__atom_retire\|mcp__workflow-guardian__knowledge_harvest_report` | `workflow-guardian.py`(5)（同程序內含 `version_guard`／`acceptance_spec`，不另掛） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | `codex_companion.py`(3) |
-| PostToolUse | `Write\|Edit\|MultiEdit` | `version_guard.py`(5) |
-| PostToolUse | `Write\|Edit\|NotebookEdit\|ExitPlanMode` | `acceptance_spec.py`(5) |
 | PreCompact / PostCompact / PostToolBatch | — | `workflow-guardian.py`(5) |
 | Stop | — | `workflow-guardian.py`(10)、`codex_companion.py`(150)、`lang_guard.py`(5) |
 | SessionEnd | — | `workflow-guardian.py`(30)、`codex_companion.py`(5) |
@@ -370,7 +368,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | 8 | 索引一致 | `python tools/sync-memory-index.py --check` | 無差異 |
 | 9 | Skills | Claude Code 內按 `/` | `/memory` `/handoff` `/continue` `/vector` 可見 |
 | 10 | MCP servers | `~/.claude.json` 的 `mcpServers` | 至少含 `workflow-guardian` |
-| 11 | MCP 5 tool | 問 Claude「列出 workflow-guardian MCP 工具」 | `atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `anti_evasion_report` |
+| 11 | MCP 7 tool | 問 Claude「列出 workflow-guardian MCP 工具」 | `atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report` |
 | 12 | 整合 | 開新 session | 看到 `[Workflow Guardian] Active`；statusline 無 `WG:?` |
 | 13 | Dashboard | 開 `http://127.0.0.1:3848/` | 有頁面 |
 | 14 | 索引合併驅動 | `python tools/merge-atom-index.py --status` | 末行「已安裝」（hook 會在首次合併類 git 指令前自動裝；此處手動確認） |
@@ -394,13 +392,13 @@ python tools/merge-atom-index.py --install # 可選：不跑也行——下一�
 
 - [ ] `version.json` 為 `atom_memory: "5.1"` / `guardian: "5.1.0"`
 - [ ] `hooks/dispatcher.py` 存在；`hooks/handlers/` 有 **9** 個事件 handler（session_start / session_end / user_prompt_submit / pre_tool_use / post_tool_use / stop / pre_compact / post_compact / post_tool_batch）+ `ups_*.py` 四段 + `_shared.py` + `aec_ledger.py`
-- [ ] `hooks/wg_*.py` 為：wg_atoms / wg_coordination / wg_core / wg_docdrift / wg_episodic / wg_evasion / wg_extraction / wg_friction / wg_handoff / wg_parallel / wg_recall_miss / wg_rescue / wg_research / wg_roles（shim 只有 wg_roles）
+- [ ] `hooks/wg_*.py` 為：wg_atoms / wg_coordination / wg_core / wg_docdrift / wg_episodic / wg_evasion / wg_extraction / wg_friction / wg_handoff / wg_harvest / wg_parallel / wg_recall_miss / wg_rescue / wg_research / wg_roles / wg_vcs_sync（shim 只有 wg_roles）；detached worker 有 extract-worker / user-extract-worker / vcs-sync-worker
 - [ ] `hooks/` 內**沒有** `quick-extract.py`、`wg_atom_observation.py`（已刪）；`commands/` 已刪（併入 `skills/`）
 - [ ] `skills/` 有 <!-- skill-count -->21<!-- /skill-count --> 個 active skill；`skills/_archived/` 放 dormant 的 init-roles / conflict-review
 - [ ] `lib/atom_index_json.py` + `memory/_atom_index.json` 存在；`memory/_meta/taxonomy.json` + `forbidden-phrases.json` 存在
 - [ ] 核心 atom 已階層化在 `memory/<範疇>/`，`memory/` 根目錄無平鋪 atom；`taxonomy.gate_enabled=true`
 - [ ] `workflow/config.json`：`vector_search.global_layer="bm25"`、`bm25_min_score=7.0`、`fusion="rrf"`；無 `codex_companion.subprocess_timeout` 死鍵；`ollama_backends` 在 `vector_search` 底下
-- [ ] `tools/workflow-guardian-mcp/server.js` 暴露 5 tool（§6 #11）
+- [ ] `tools/workflow-guardian-mcp/server.js` 暴露 7 tool（§6 #11）；`workflow/config.json` 有 `harvest` 與 `vcs_sync` 區段（舊鍵 `self_iteration.auto_commit_promotions/auto_push_promotions` 由 `vcs_sync` 接管）
 - [ ] `tools/codex-companion/judge_backend.py` 存在；無 codex CLI 的環境確認 `claude` 可被找到（備援裁判）
 - [ ] Stop hook 只掛 guardian / codex_companion / lang_guard（無 quick-extract）
 

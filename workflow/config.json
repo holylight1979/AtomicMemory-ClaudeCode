@@ -86,7 +86,7 @@
     "promote_confirmations_threshold": 4,
     "promote_min_confirmations": 20,
     "archive_score_threshold": 0.3,
-    "_doc_auto_commit": "SessionEnd 晉升 sweep 改到的 atom 當場 git commit（pathspec 形式，不碰 index → 併發 session 安全）+ 背景 push（輸出落 Logs/auto-commit.log）。關掉則改動留在工作樹等人收。",
+    "_doc_auto_commit": "舊鍵 auto_commit_promotions / auto_push_promotions 已由 vcs_sync.enabled / vcs_sync.push 接管（晉升 sweep 後改 spawn vcs-sync worker）；鍵保留供相容讀取，實際開關以 vcs_sync 為準。",
     "auto_commit_promotions": true,
     "auto_push_promotions": true,
     "oscillation_window": 3,
@@ -241,7 +241,10 @@
     "codex_binary": "C:/Users/holylight/AppData/Roaming/npm/codex.cmd",
     "model": "gpt-5.6-sol",
     "assessment_timeout": 120,
-    "codex_extra_args": ["-c", "mcp_servers.unityMCP.enabled=false"],
+    "codex_extra_args": [
+      "-c",
+      "mcp_servers.unityMCP.enabled=false"
+    ],
     "_doc_codex_extra_args": "原樣附加到 codex exec 的旗標（機器層）。本機 ~/.codex/config.toml 註冊的 unityMCP(127.0.0.1:8090) 只在 Unity Editor 開著時存在，裁判用不到卻每次啟動連線重試 3 次，故只對裁判停用；Codex 桌面版仍可用。",
     "score_threshold": 7,
     "max_audits_per_session": 30,
@@ -530,9 +533,33 @@
     "auto_normalize_project": true
   },
   "sync_reminder": {
-    "_doc": "Stop 同步閘。unpushed=true：本 session 改的檔已 commit 但 repo 領先 upstream 也擋（上GIT＝commit+push 一氣）。",
+    "_doc": "Stop 同步閘。unpushed=true：本 session 改的檔已 commit 但 repo 領先 upstream 也擋（上GIT＝commit+push 一氣）。vcs-sync worker 持活鎖的 root 跳過 unpushed 判定。",
     "enabled": true,
     "max_reminders": 1,
     "unpushed": true
+  },
+  "harvest": {
+    "_doc": "階段完工知識收割 Stop 閘。宣告完成 ∧ 有實質活動（turn_seq≥min_turns ∨ 本 session 有改檔 ∨ accessed_files≥min_accessed）∧ 距上次 validated 收割 ≥min_turns_between turn → 要求呼叫 knowledge_harvest_report。缺本區段＝整個機制關。",
+    "enabled": true,
+    "min_turns": 3,
+    "min_accessed": 5,
+    "min_turns_between": 3
+  },
+  "vcs_sync": {
+    "_doc": "記憶目錄背景靜默上版控（hooks/vcs-sync-worker.py）。觸發：收割 validated、SessionEnd。root_pathspecs 相對 ~/.claude、project_pathspecs 相對專案根；git 只 add/commit 這些 pathspec，待推歷史含非記憶 commit 則不 push 留標記；svn 逐檔 add 套 exclude 後 commit。；exclude 含 memory/_meta/**：taxonomy／forbidden-phrases 等設定檔不走記憶自動提交，隨程式碼上GIT",
+    "enabled": true,
+    "push": true,
+    "root_pathspecs": [
+      "memory",
+      "_AIDocs/_atoms"
+    ],
+    "project_pathspecs": [
+      ".claude/memory"
+    ],
+    "exclude": [
+      "**/*.access.json",
+      "memory/_meta/**"
+    ],
+    "timeout_s": 60
   }
 }

@@ -11,7 +11,7 @@ Schema:
 責任：
 - load_atom_index_json(mem_dir) -> {atoms: [...]}
 - upsert_atom(mem_dir, name, path, triggers, scope) -> bool
-- delete_atom(mem_dir, name) -> bool
+- delete_atom(mem_dir, name, path=None) -> bool（給 path 時只刪 name+path 都相符的條目）
 - regenerate_atom_index_md(mem_dir) -> 同步重生 _ATOM_INDEX.md 作為人類可讀 deprecated view
 
 舊 _ATOM_INDEX.md 仍由本模組生成（保留人類可讀視圖過渡期），
@@ -161,11 +161,31 @@ def upsert_atom(
     return True
 
 
-def delete_atom(mem_dir: Path, name: str) -> bool:
+def _norm_index_path(p: object) -> str:
+    """索引 path 比對用：分隔符統一 /、去掉開頭 ./；非字串回空字串（視為無 path）。"""
+    if not isinstance(p, str):
+        return ""
+    s = p.strip().replace("\\", "/")
+    while s.startswith("./"):
+        s = s[2:]
+    return s
+
+
+def delete_atom(mem_dir: Path, name: str, path: Optional[str] = None) -> bool:
+    """刪索引條目。path=None → 刪所有同名條目（搬移／重建索引等 caller 自己已確認唯一）；
+    給 path → 只刪 name 與 path 都相符的條目：shared/dup.md 與 personal/u/dup.md 同名共存時，
+    退役其中一顆不能把另一顆的索引條目一起抹掉。"""
     data = load_atom_index_json(mem_dir)
     atoms = data["atoms"]
     before = len(atoms)
-    data["atoms"] = [a for a in atoms if a.get("name") != name]
+    want = _norm_index_path(path) if path is not None else None
+
+    def _hit(a: Dict[str, Any]) -> bool:
+        if a.get("name") != name:
+            return False
+        return want is None or _norm_index_path(a.get("path")) == want
+
+    data["atoms"] = [a for a in atoms if not _hit(a)]
     if len(data["atoms"]) == before:
         return False
     save_atom_index_json(mem_dir, data)

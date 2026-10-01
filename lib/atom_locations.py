@@ -102,10 +102,12 @@ _FALLBACK_CORE_PROTECTED_EXACT = frozenset({"preferences", "cognitive-patterns"}
 
 
 def _load_realm_lexicon():
-    """讀 realm-lexicon.json → (prefixes, exact, lexicon, name_w, trig_w)。模組載入時執行一次（快取）。
+    """讀 realm-lexicon.json → (prefixes, exact, lexicon, name_w, trig_w, source)。模組載入時執行一次（快取）。
 
     fail-open：缺失/損毀/缺鍵 → 內建最小保護清單 + 空詞庫（安全預設 core，分類不阻斷）
-    ＋ stderr 浮訊號（可觀測性鐵律：降級不阻斷但要告知）。
+    ＋ stderr 浮訊號（可觀測性鐵律：降級不阻斷但要告知）。source="json"|"fallback" 讓
+    破壞性動作（retire／supersedes）能查出清單是否完整——fallback 清單只是最小子集，
+    不能拿來放行「不是核心」的判定。
     """
     try:
         data = json.loads(REALM_LEXICON_PATH.read_text(encoding="utf-8"))
@@ -115,14 +117,15 @@ def _load_realm_lexicon():
         name_w, trig_w = int(data["name_weight"]), int(data["trigger_weight"])
         if not (prefixes and exact and lexicon):
             raise ValueError("empty section")
-        return prefixes, exact, lexicon, name_w, trig_w
+        return prefixes, exact, lexicon, name_w, trig_w, "json"
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
         print(
             f"[atom_locations] realm-lexicon.json unavailable ({e!r}); "
             "fallback to built-in minimal core-protected list; lexicon disabled (all->core)",
             file=sys.stderr,
         )
-        return _FALLBACK_CORE_PROTECTED_PREFIXES, _FALLBACK_CORE_PROTECTED_EXACT, {}, 10, 1
+        return (_FALLBACK_CORE_PROTECTED_PREFIXES, _FALLBACK_CORE_PROTECTED_EXACT, {}, 10, 1,
+                "fallback")
 
 
 (LOCAL_REALM_CORE_PROTECTED_PREFIXES,
@@ -130,7 +133,17 @@ def _load_realm_lexicon():
  LOCAL_REALM_LEXICON,
  # name 命中權重 > trigger 命中權重（domain 消歧用；見 classify_realm）
  LOCAL_REALM_NAME_WEIGHT,
- LOCAL_REALM_TRIGGER_WEIGHT) = _load_realm_lexicon()
+ LOCAL_REALM_TRIGGER_WEIGHT,
+ _CORE_PROTECTED_SOURCE) = _load_realm_lexicon()
+
+
+def core_protected_source() -> str:
+    """核心保護清單來源："json"（完整清單）或 "fallback"（JSON 載入失敗的內建最小子集）。
+
+    分類（classify_realm）可容忍 fallback；退役與 Supersedes 不可——子集判「非核心」不可信，
+    呼叫端在 fallback 時一律拒。
+    """
+    return _CORE_PROTECTED_SOURCE
 
 # wg_core 既有白名單 base（原 wg_core._WHITELIST_DIR_SEGMENTS 主體搬入）
 # 注意：含 V4 **按需建立** 目錄（_pending_review=敏感待審路由、personal/_archived/_rejected=

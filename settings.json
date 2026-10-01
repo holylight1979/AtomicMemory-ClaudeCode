@@ -39,7 +39,12 @@
       "Bash(wc *)",
       "Bash(python -c *)",
       "Bash(codex exec *)",
-      "Bash(codex --version)"
+      "Bash(codex --version)",
+      "Bash(grep -rhoi \"gpt-6[a-z0-9.-]*\\\\|gpt-5[.0-9]*-[a-z0-9-]*\" ~/.codex/config.toml ~/.codex/*.config.toml tools/codex-companion/*.py workflow/config.json Logs/codex-audit.log _AIDocs/_atoms/工作流/多模型協作/*.md 2>/dev/null | sort | uniq -c | sort -rn | head -15; echo ==== models cache; ls ~/.codex 2>/dev/null | head; grep -rhoi '\"slug\": *\"[^\"]*\"' ~/.codex/models_cache.json 2>/dev/null | sort -u | head -30; echo ==== 唯讀沙箱 atom; sed -n '/^## 知識/,/^## 行動/p' \"_AIDocs/_atoms/工作流/多模型協作/codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄.md\")",
+      "Read(//c/Users/holylight/.codex/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\holylight\\.claude\\_AIDocs\\_atoms\\工作流\\多模型協作"
     ]
   },
   "model": "claude-fable-5-1[1m]",
@@ -110,7 +115,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|ExitPlanMode|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|ExitPlanMode|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report|mcp__workflow-guardian__atom_write|mcp__workflow-guardian__atom_retire|mcp__workflow-guardian__knowledge_harvest_report",
         "hooks": [
           {
             "type": "command",

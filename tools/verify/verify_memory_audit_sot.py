@@ -109,7 +109,7 @@ def test_delete_atom_removes_index_entry(isolated_delete_env):
     mem = isolated_delete_env
     from lib.atom_index_json import load_atom_index_json
     assert any(a["name"] == "bar" for a in load_atom_index_json(mem)["atoms"])
-    ok, msg = MA.delete_atom("bar", layer="global")
+    ok, msg, _info = MA.delete_atom("bar", layer="global")
     assert ok, msg
     assert "_atom_index.json entry removed" in msg
     assert not any(a["name"] == "bar"
@@ -121,7 +121,7 @@ def test_delete_atom_removes_index_entry(isolated_delete_env):
 def test_delete_atom_dry_run_keeps_index(isolated_delete_env):
     mem = isolated_delete_env
     from lib.atom_index_json import load_atom_index_json
-    ok, msg = MA.delete_atom("bar", layer="global", dry_run=True)
+    ok, msg, _info = MA.delete_atom("bar", layer="global", dry_run=True)
     assert ok
     assert any(a["name"] == "bar" for a in load_atom_index_json(mem)["atoms"])
     assert (mem / "bar.md").exists()

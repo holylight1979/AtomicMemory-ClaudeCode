@@ -11,13 +11,13 @@
 
 | 事件 | handler 檔 | 一句話 | 機制細節 |
 |------|-----------|--------|---------|
-| `SessionStart` | `handlers/session_start.py` | init state + 去重 + 候選池／supersedes 集合 + vector 啟動器 + advisory（健檢死人開關／未 push／回訪／personal 同步／索引三檔衝突／ProjectRoot） | TECH §3.1、§8 |
+| `SessionStart` | `handlers/session_start.py` | init state + 去重 + 候選池／supersedes 集合 + vector 啟動器 + advisory（健檢死人開關／未 push〔`_unpushed_advisory` 查 `workflow/vcs-sync/roots.json` 全部 root 的領先 upstream 或 `.unpushed` 標記〕／回訪／personal 同步／索引三檔衝突／ProjectRoot） | TECH §3.1、§8 |
 | `UserPromptSubmit` | `handlers/user_prompt_submit.py`（orchestrator）→ `ups_gates.py`（detect：evasion 追蹤、使用者決策 L0、long_die、Atom-Write Guard）→ `ups_context.py`（episodic、wisdom、parallel／research 建議、_AIDocs 指標、JIT）→ `ups_search.py`（找）→ `ups_inject.py`（裝） | 記憶注入主路徑 + guard 提醒；UPS 被 kill 哨兵；AEC 刪除決策後驗 | TECH §5、§5.7 |
 | `PreToolUse` | `handlers/pre_tool_use.py` | 寫入守門（下節）+ PAN + 跨 session 同檔預警 + 索引三檔合併閘 + git 隱私閘 + commit 口令閘 + subagent 記憶注入 | TECH §7.3、§7.5、§4.5、§12 |
-| `PostToolUse` | `handlers/post_tool_use.py`（末段同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`） | 改檔追蹤 + 增量索引 + test-fail 偵測 + changelog auto-roll + AEC one-writer + late-collision | TECH §7.2、§7.4、§7.5 |
+| `PostToolUse` | `handlers/post_tool_use.py`（末段同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`） | 改檔追蹤 + 增量索引 + test-fail 偵測 + changelog auto-roll + AEC one-writer + late-collision + **收割 one-writer**（`atom_write`／`atom_retire` receipt → `state.atom_ops[sid]`；`knowledge_harvest_report` items ↔ receipt 核對 → `state.knowledge_harvest[sid]` + `workflow/harvest-ledger/<sid>.jsonl`，validated 時清同 turn AEC d_pending 並 `spawn_vcs_sync(reason="harvest")`；純函式在 `wg_harvest.py`） | TECH §6.3、§7.2、§7.4、§7.5 |
 | `PreCompact`／`PostCompact`／`PostToolBatch` | `handlers/pre_compact.py`／`post_compact.py`／`post_tool_batch.py` | 壓縮前快照 state + `injected_atoms` + handoff stub；壓縮後 stash 緊湊內文 + `pending_reinjection`；下一批工具一次性重注入 + stub 補全提示 | 本檔 Auto-Handoff 節 |
-| `Stop` | `handlers/stop.py`；standalone `codex_companion.py`／`lang_guard.py` | 閘序：同步閘 → DeferralGate → ScanReport → AEC-Pending → 驗收裁判 enforce → Deep Post-Mortem → 迴歸提示；效用歸因；token 預警 piggyback；退避偵測（`detect_evasion` 對 last assistant text 於此執行）；transcript 單次 tail-read 供各消費者共用 | TECH §7.1、§6.4 |
-| `SessionEnd` | `handlers/session_end.py` | episodic 生成 + 使用者決策萃取 spawn + decay 每日護欄 + selective forget（預設 dry-run）+ recall-miss + 晉升自動 commit／push + outcome 遙測 + GC（SessionEnd 全量萃取**未啟動**） | TECH §6.3、§6.4、§8 |
+| `Stop` | `handlers/stop.py`；standalone `codex_companion.py`／`lang_guard.py` | 閘序：TestFail → Evasion／DeferralGate → KnowledgeHarvest → Harvest-Pending → ScanReport → AEC-Pending → HUD fallback → 同步閘（root 有 vcs-sync 活鎖跳過該 root）→ AtomAudit → Deep Post-Mortem → 驗收裁判 enforce（獨立 hook）→ 迴歸提示；效用歸因；token 預警 piggyback；退避偵測（`detect_evasion` 對 last assistant text 於此執行）；transcript 單次 tail-read 供各消費者共用 | TECH §7.1、§6.4 |
+| `SessionEnd` | `handlers/session_end.py` | episodic 生成 + 使用者決策萃取 spawn + decay 每日護欄 + selective forget（預設 dry-run）+ recall-miss + 晉升 sweep + outcome 遙測 + GC；增量索引之後 `spawn_vcs_sync(reason="promotion"|"session_end")` 一次（舊 `_auto_commit_promotions` 已移除，TECH §14.2）（SessionEnd 全量萃取**未啟動**） | TECH §6.3、§6.4、§8 |
 
 ### 模組職責（一行）
 
@@ -35,11 +35,14 @@
 | `wg_rescue.py` | 救援日誌：注入 atom 高特異 token → 後續工具呼叫命中＝「真被用上」 |
 | `wg_recall_miss.py` | 失念偵測：失敗證據 × 庫中未注入 atom trigger |
 | `wg_friction.py` | 工具結果體積 + 使用者糾正訊號 → Deep Post-Mortem |
+| `wg_harvest.py` | 階段收割純函式：`harvest_gate_reason`／`pending_gate_reason`（Stop）、`parse_receipt`／`record_atom_op`／`validate_items`／`append_ledger`（PostToolUse one-writer）、`vcs_sync_lock_active`；state 按 session_id 分區、不落盤 |
+| `wg_vcs_sync.py` | 記憶庫上版控：`collect_sync_targets`（根層 + 專案、各找最近 VCS root）、OS 互斥鎖＋`.req/` 請求檔合併、`.unpushed` 標記、`roots.json`、`spawn_vcs_sync`；主邏輯 `sync_targets_inline` worker 與測試共用 |
 | `wg_parallel.py`／`wg_research.py` | 並行 agent 建議／研究 fan-out 提示（後者命中時抑制前者） |
 | `wg_roles.py` | 多職務雙向認證 shim（保留能力） |
 | `wisdom_engine.py` | 反思引擎 + Fix Escalation |
 | `codex_companion.py` | Codex Companion hook：in-process state + spawn `tools/codex-companion/audit.py`；五類審計與裁判後端鏈見 TECH §7.4、§7.5 |
 | `extract-worker.py`／`user-extract-worker.py` | detached workers：失敗深記 `_failure_writeback`（→ `Failures/<主題>/`，永不拒寫）／使用者決策 L1→L2；共用 `lib/ollama_extract_core.py` |
+| `vcs-sync-worker.py` | detached worker（stdin JSON `{session_id, cwd, reason, retired_paths}`）：git pathspec add＋commit、push 守門（待推歷史含非記憶 commit 不推）；svn `--xml` add／delete（只認 retire receipt 的 old_path）／commit；stderr → `Logs/vcs-sync.log`、起訖帳 `guard-worker-runs`；行為表 TECH §8 |
 | `lang_guard.py` | standalone Stop hook（TECH §7.5） |
 | `version_guard.py`／`acceptance_spec.py` | 模組：`run(input_data, config) -> list[str]`，由 guardian PostToolUse 呼叫（TECH §7.5） |
 | `run-hidden.py`／`run-bash-hidden.py`／`ensure-mcp.py`／`user-init.sh`／`post-git-pull.sh`／`webfetch-guard.sh` | 不閃窗 spawn／MCP 可用性／USER.md 初始化／pull 後審計／WebFetch 護欄 |
@@ -139,7 +142,7 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 - `lib/atom_io.py` — funnel 入口：`write_atom()`（build+validate+atomic write+index+audit log）／`write_raw()`（escape hatch：failures／episodic）／`write_index_full()`（整檔重組）／`edit_metadata()`（只改 Trigger／Related／Tags 行、byte-stable；triggers 變更先寫 `_atom_index.json` 再寫 frontmatter）／`locate_atom()`（落點單一裁決）。
 - `lib/atom_access.py` — 遙測 funnel：`<atom>.access.json` 讀寫單一通道（read_hits／α β／Wilson／decay／promotion）；CLI `python -m lib.atom_access` 給 MCP spawn。
 - `lib/realm_gate.py` — 「專案專屬內容不得落 global」閘（TECH §6.1）。
-- `lib/atom_io_cli.py` — stdin JSON → `write_*`／`build`／`append`／`locate`／`realm_check` → stdout JSON，供 MCP server.js spawn（內容構造 py 單一實作，js 不再自組）。
+- `lib/atom_io_cli.py` — stdin JSON → `write_*`／`build`／`append`／`locate`／`realm_check`／`check_supersedes`／`retire` → stdout JSON，供 MCP server.js spawn（內容構造 py 單一實作，js 不再自組；`retire`＝locate → `memory-audit.delete_atom(project_dir)`，extra 帶 receipt 欄位）。
 
 **Knowledge 區大小預算**（本段為唯一來源）：`lib/atom_spec.KNOWLEDGE_BUDGET_BYTES`（3072）——write-gate 排最前硬拒（explicit_user／pitfall 不豁免；config `write_gate.knowledge_budget_bytes` 可調／停用）＋落檔端 floor（`atom_io_cli` build／create 覆蓋 create／replace、`atom_io.append_atom_file` 覆蓋 append，以拼接後總量計；`skip_gate` 繞不過）。`write_raw` 豁免；validate（讀取／heal 路徑）不檢大小＝存量肥 atom 不回溯整改。另有樣式軟警（逐筆表格／路徑清單 → 建議收斂為文件錨點一行）。
 
@@ -149,6 +152,7 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 |---|---|---|
 | MCP server.js（toolAtomWrite／Promote） | `mcp` | `spawnAtomCli("build"/"append")` + `funnelWriteRaw()` + `funnelWriteIndexFull()` + `spawnAtomAccess()` |
 | MCP server.js（toolAtomEditMeta） | `mcp` | spawn python → `lib.atom_io.edit_metadata`（改全域 server 需重啟生效） |
+| MCP server.js（toolAtomRetire） | `mcp` | `spawnAtomCli("retire")` → `lib.atom_io.locate_atom` 定位 → `tools/memory-audit.delete_atom(project_dir=, reason=)`；js 只轉述 + receipt + 專案層 `syncMemoryIndex` |
 | `hooks/handlers/ups_inject.py`／`ups_context.py`（atom 注入曝光計數） | `hook:atom-inject` | `atom_access.increment_read_hits` |
 | `hooks/extract-worker.py`（failure atom） | `hook:extract-worker` | `_failure_writeback` + `_create_failure_atom` |
 | `hooks/wg_episodic.py`（cross-session confirm） | `hook:episodic-confirm` | `atom_access.increment_confirmation`（資料源停產，TECH §14.2） |
@@ -168,11 +172,11 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 
 檔案地圖：`lib/atom_locations.classify_realm`（+ server.js mirror，base-only 保 parity）、`tools/atom-set-realm.py`（`_AIDocs/_atoms/` path 唯一寫者，連 `.access.json` sidecar 原子搬、Scope 保 global、`--to-core` 可逆，不走 `atom-move`）、`tools/realm_llm_classify.py`（SessionEnd sweep 用，`realm.llm_fallback.enabled` 預設 false）、`memory/_local_catalog.md`（local 目錄，僅 `~/.claude` 注入）、`skills/refile/`（手動歸檔前端）。守門：`lib/verify/verify_atom_io_equivalence.py`（分類器零誤判／py↔js parity／canon／深度閘／自學）、`lib/verify/verify_realm_injection_gate.py`、`tools/verify/verify_realm_llm_classify.py`、`hooks/verify/verify_realm_sweep.py`、`tools/verify/verify_local_catalog_split.py`。
 
-## MCP Server（5 tool：atom_write／atom_promote／atom_move／atom_edit_meta／anti_evasion_report）
+## MCP Server（7 tool：atom_write／atom_promote／atom_move／atom_edit_meta／atom_retire／anti_evasion_report／knowledge_harvest_report）
 
-服務表與不在時行為：TECH §9；`atom_write` 閘門序：TECH §6.1；scope 落點：TECH §4.4；晉升條件（只走效用 Wilson 軌、ReadHits 純曝光）：TECH §6.4；`atom_edit_meta` 契約：SPEC §3.4；create／append／replace 落點 vs 定位分離：SPEC §2.3；砍掉的 4 個內部 IPC tool：TECH §14.2。
+服務表與不在時行為：TECH §9；`atom_write` 閘門序：TECH §6.1；scope 落點：TECH §4.4；晉升條件（只走效用 Wilson 軌、ReadHits 純曝光）：TECH §6.4；`atom_edit_meta` 契約：SPEC §3.4；`atom_write(supersedes=)` 三態／receipt 格式／`atom_retire` 退役步驟：SPEC §3.5；create／append／replace 落點 vs 定位分離：SPEC §2.3；`knowledge_harvest_report` 的 items 核對（one-writer，Python PostToolUse）：TECH §6.3；砍掉的 4 個內部 IPC tool：TECH §14.2。
 
-檔案地圖：`tools/workflow-guardian-mcp/server.js`（stdio MCP + `:3848` dashboard + `/aec/hud` 同進程）、`lib/mcp.js`（tool 註冊）、`lib/atom-tools.js`（每 tool 先 `spawnAtomCli("locate")` 再照用回傳路徑）、`lib/funnel.js`、`lib/anti-evasion.js`、`lib/aec-hud-html.js`／`dashboard-html.js`、`lib/http-api.js`、`lib/realm.js`（只剩 `getCurrentUser`／`dedupLayersFor`）、`lib/atom-access.js`、`lib/paths.js`、`lib/state.js`；模組對照 `lib/_MAP.md`。
+檔案地圖：`tools/workflow-guardian-mcp/server.js`（stdio MCP + `:3848` dashboard + `/aec/hud` 同進程）、`lib/mcp.js`（tool 註冊）、`lib/atom-tools.js`（每 tool 先 `spawnAtomCli("locate")` 再照用回傳路徑；`atom_write`／`atom_retire` 結果最後一行 `receipt: {json}`）、`lib/harvest.js`（`knowledge_harvest_report`：驗 items schema、只回 chip）、`lib/funnel.js`、`lib/anti-evasion.js`、`lib/aec-hud-html.js`／`dashboard-html.js`、`lib/http-api.js`、`lib/realm.js`（只剩 `getCurrentUser`／`dedupLayersFor`）、`lib/atom-access.js`、`lib/paths.js`、`lib/state.js`；模組對照 `lib/_MAP.md`；stdio 介面 smoke `verify/smoke_mcp_stdio.js`（隔離埠，手動跑）。
 
 TECH 未收的行為（本段為唯一來源）：
 - `atom_write` 選填 `status` → `- Status:` 現況一行（cold／skip 一行注入時附帶；只寫現況、禁版本敘事）；`scope=project`（legacy）透明轉 `shared` + stderr deprecation hint。

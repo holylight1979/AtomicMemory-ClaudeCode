@@ -36,12 +36,12 @@ V4 的三層 scope 機制不變：
 | `global` | 跨專案通用知識 | `~/.claude/memory/` |
 | `shared` | 專案內全員共享 | `{proj}/.claude/memory/shared/` |
 | `role:{name}` | 特定職務組共享 | `{proj}/.claude/memory/roles/{name}/` |
-| `personal:{user}` | 個人在該專案的偏好/筆記 | `{proj}/.claude/memory/personal/{user}/`（gitignore） |
-| `personal:{user}`（跨專案） | 本人在**所有**專案都適用的偏好 | `~/.claude/memory/personal/{user}/`（gitignore；索引在全域 `_atom_index.json`，path 前綴 `memory/personal/{user}/`；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 呼叫即落此） |
+| `personal:{user}` | 個人在該專案的偏好/筆記 | `{proj}/.claude/memory/personal/{user}/`（**進專案版控**：索引三檔跟著 repo 走，personal 檔不進會讓他機索引懸空；`session_start._personal_sync_advisory` 見被 .gitignore 擋或未 commit 會提示；vcs-sync worker 對 personal 不特別處理，以各 repo 的 ignore 規則為準） |
+| `personal:{user}`（跨專案） | 本人在**所有**專案都適用的偏好 | `~/.claude/memory/personal/{user}/`（根層 **gitignore**，不跨機；索引在全域 `_atom_index.json`，path 前綴 `memory/personal/{user}/`；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 呼叫即落此） |
 
 **`{proj}` 是哪一層（子專案 cwd 歸根層）**：`{proj}` 不一定是 Claude 開啟的資料夾。核心根層（放 `.claude/memory/` 的那層，如 `C:\TSLG`）與子專案（`C:\TSLG\Server`）各可放 `.claude/project-tree.json`：根層 `{"subs": ["Server", …]}`、子層 `{"root": ".."}`，任一方宣告即成立，cwd 在子專案底下任意深度都歸根層。`root_abs` 為本機絕對覆寫（目錄不存在就忽略），`standalone: true` 表本層獨立。沒有宣告 → 舊規則（最近 `.claude/memory/MEMORY.md`／`_AIDocs`／`.git`／`.svn`，最多 4 層）。單一來源 `lib/project_root.py`；讀取端只讀，宣告的增刪改走 `tools/project-tree.py`。
 
-personal 兩種都視為**敏感**：只給本人、不進 MEMORY.md 目錄、不進 realm 自動搬移、向量層獨立標籤（`personal:global:{user}` / `personal:{slug}:{user}`）。
+personal 兩種都視為**敏感**：只給本人、不進 MEMORY.md 目錄、不進 realm 自動搬移、向量層獨立標籤（`personal:global:{user}` / `personal:{slug}:{user}`）。**注入過濾不是保密**：專案層 personal 進了 repo，任何能讀該 repo 的人都能直接開檔與歷史；若專案 repo 有他人，personal 不放敏感內容（已被追蹤的檔不受日後新增的 ignore 規則影響）。
 
 **personal vs shared 的分界與異議規則**：內容是「針對專案的規則」（提到專案專名／此專案／上傳／發布／必須／禁止…）就不是個人偏好——落 `shared` 並以 `Author:` 記下**提出此規則的使用者**（自動萃取 `user-extract-worker` 亦同：Author=使用者，來源標記走知識段 `<!-- src: turn -->`）。日後他人對該規則有異議 → 找 Author 對齊；管理職可覆寫（`shared/_pending_review/` 流程）。personal 只留真正的個人偏好與未公開假設。
 
@@ -202,6 +202,21 @@ atom 已建立後要動 frontmatter 的 `Trigger`/`Related`/`Tags`，不重建�
 | source 規範 | 須在 `VALID_SOURCES`（預設 `mcp`）|
 
 取代：被 PreToolUse guard 擋的「直 Edit/Write atom .md」、以及會重建整檔知識區的「`atom_write` mode=replace」。
+
+### 3.5 Supersedes 寫入口、receipt、`atom_retire` 退役生命週期
+
+atom 的三種「汰換」入口（實作 py 單源，js 只轉述）：
+
+| 情境 | 入口 | 規則 |
+|---|---|---|
+| 舊 atom 被證錯但仍有歷史價值 | `atom_write(mode=create\|replace, supersedes=[...])` | 檔頭 `- Supersedes: a, b`（Related 之後；`lib/atom_spec.build_atom_content(supersedes=)` ↔ `lib/atom-render.js buildAtomContent` byte-parity，缺省不輸出任何行）。被取代者不再注入（SessionStart `atom_index.superseded` 集合、候選池／Related／子代理注入共用），檔案保留 |
+| replace 的三態 | 同上 | `supersedes` **未給**＝保留原 `- Supersedes:` 行（js 讀舊檔回填）；`[]`＝明確清除；非空＝替換並重驗 |
+| 寫前檢查 | `lib/atom_io.check_supersedes`（CLI action `check_supersedes`） | 目標可解析（同層或可見層索引）、非自指、沿既有鏈無循環、目標非核心保護名（`lib/atom_locations.is_core_protected_name`）；不過即拒寫 |
+| 無用／錯誤且無人引用 | MCP `atom_retire(atom_name, scope, reason, project_cwd?, dry_run?)` → CLI action `retire` → `lib/atom_io.locate_atom` 定位 → `tools/memory-audit.delete_atom(..., project_dir=, reason=) -> (ok, msg, info)` | 護欄全在任何異動**之前**：`[固]` 拒（回「用 Supersedes 取代」）、核心保護名拒（保護清單載入失敗也拒）、被其他 atom `Related`/`Supersedes` 引用拒（掃描含 personal 層）、不存在算失敗。步驟固定 ①護欄 ②向量 ③Related 反向清理 ④索引（JSON SoT + MEMORY.md 列；專案層 catalog 同步）⑤搬檔 `_distant/<yyyy_mm>/`（不可逆最後）；①–④ 冪等可重跑，任一步失敗 `ok=false` 列出已完成／未完成步驟、不搬檔。可還原 `memory-audit --restore` |
+
+**receipt（一行機器可讀收據）**：`atom_write`／`atom_retire` 成功時結果文字**最後一行**固定 `receipt: {"op":"create|append|replace|retire","ok":true,"atom":...,"path":<絕對路徑>,"index_ok":bool,"supersedes":[...]}`；retire 另帶 `old_path`／`new_path`，失敗亦回 `ok:false` + `steps_done`／`steps_failed`。消費端只有 Python PostToolUse（`hooks/wg_harvest.parse_receipt` → `state.atom_ops[<sid>]`，保留最近 200 筆），階段收割回報 `knowledge_harvest_report` 的每個 item 以 `path`＋`op` 對帳（retired 填 `old_path`）——不用 `exists()`／全域 resolver，因為那驗不出 append 是否發生、索引是否成功、專案層 atom 是否存在。流程與閘：TECH §6.3、§7.1。
+
+守門：`lib/verify/verify_atom_io_equivalence.py`（supersedes 缺省／空值／多目標 parity）、`lib/verify/verify_atom_retire.py`（護欄前置、故障注入不搬檔）、`tools/verify/verify_memory_audit_sot.py`、`hooks/verify/verify_knowledge_harvest_gate.py`（receipt 核對）、`tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js`（js 層契約）。
 
 ---
 
@@ -381,7 +396,7 @@ V5 抽出為 `memory/_meta/forbidden-phrases.json` 為 single source；`IDENTITY
 ## 9. MCP server.js 砍 4 內部 tool（V5 P2，2026-05-26）
 
 V4 暴露 7 個 tool：3 個合理（atom_write / atom_move / atom_promote）+ 4 個內部 IPC（workflow_signal / workflow_status / memory_queue_add / memory_queue_flush）。
-V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續（2026-06-02）加回 `atom_edit_meta`（元資料外科編輯，§3.4）→ 現役 4 個業務 tool。改全域 server.js 須重啟 MCP server 生效。
+V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續加回 `atom_edit_meta`（元資料外科編輯，§3.4）與 `atom_retire`（退役，§3.5）→ 現役 5 個 atom 業務 tool，另有 `anti_evasion_report`、`knowledge_harvest_report` 兩個只回 chip 的回報 tool（state 由 Python PostToolUse one-writer 寫），共 7 tool（清單 SoT `tools/workflow-guardian-mcp/lib/mcp.js` TOOL_DEFINITIONS）。改全域 server.js 須重啟 MCP server 生效。
 
 ---
 

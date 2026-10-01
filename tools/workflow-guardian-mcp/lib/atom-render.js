@@ -35,6 +35,7 @@ function buildAtomContent({
   knowledge,
   actions,
   related,
+  supersedes,
   audience,
   author,
   pendingReviewBy,
@@ -63,6 +64,10 @@ function buildAtomContent({
   lines.push(`- Created-at: ${createdAt || _today}`);
   if (related && related.length > 0) {
     lines.push(`- Related: ${related.join(", ")}`);
+  }
+  // Supersedes：本顆取代的舊 atom（被取代者不再注入、檔案保留）。未給／空陣列不輸出。
+  if (supersedes && supersedes.length > 0) {
+    lines.push(`- Supersedes: ${supersedes.join(", ")}`);
   }
   lines.push("", "## 知識", "");
   for (const line of renderKnowledgeLines(knowledge)) {

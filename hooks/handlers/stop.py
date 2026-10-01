@@ -1,11 +1,12 @@
 """
 handlers/stop.py — Stop hook handler
 
-四個 gate：
+閘序：
 1. Test-Fail Gate（測試未綠 + 宣告完成 → 硬阻）
-2. Evasion 偵測（軟糾正）
-3. Scan-Report Gate（宣告完成但缺掃描報告 → 硬阻）
-4. Sync Reminder Gate（modified_files>0 仍未 commit → 軟阻）
+2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
+3. KnowledgeHarvest Gate（宣告完成 → 要求 knowledge_harvest_report；Harvest-Pending 擋核不過的 item）
+4. Scan-Report Gate（宣告完成但缺 anti_evasion_report emit → 硬阻）
+5. Sync Reminder Gate（modified_files>0 仍未 commit/push → 軟阻；vcs-sync worker 活鎖中的 root 跳過）
 + 一般 sync block 邏輯
 """
 
@@ -28,6 +29,7 @@ from wg_evasion import (
 )
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
+from wg_harvest import harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active
 from handlers._shared import (
     _hud_alive,
     _maybe_spawn_user_extract_worker,
@@ -160,6 +162,9 @@ def _git_unpushed_roots(modified_files: List[Dict[str, Any]]) -> List[str]:
         roots.append(found[1])
     unpushed: List[str] = []
     for root in roots:
+        # vcs-sync worker 正持鎖對該 root commit/push 中：領先數此刻是中間狀態，不拿來提醒
+        if vcs_sync_lock_active(root):
+            continue
         try:
             r = subprocess.run(
                 ["git", "-C", str(root), "rev-list", "--count", "@{u}..HEAD"],
@@ -740,6 +745,32 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             reason = reason + _accept_hint
         return reason
 
+    # ── 各閘共用前置變數 ─────────────────────────────────────────
+    mod_files_all = state.get("modified_files", []) or []
+    # 只認「本 session 自己 Edit/Write 的檔」——共用工作樹/merged state 下，他 session
+    # 改的 core 檔（session_id 不符）不得誤觸發本 session 的收尾檢核。未標記 session_id
+    # 的 legacy entry 保守視為本 session（fail-open，不漏防退避）。
+    own_mod_files = [
+        m for m in mod_files_all
+        if (m or {}).get("session_id", session_id) == session_id
+    ]
+    # 純 VCS commit turn 豁免收尾檢核：本 turn 已把工作寫進 VCS 歷史（可稽核＝與「藏」相反），
+    # anti-evasion 目的在 commit 那刻消解。不開後門——豁免綁「本 turn 真的 commit 了」
+    # （post_tool_use 記的 last_commit_turn_seq），而非「本 turn 沒 Edit」；光宣告完成不 commit
+    # 仍被擋。未 commit 就 commit 的檔仍由 SyncReminder / 一般 block 兜底。
+    turn_seq = int(state.get("turn_seq", 0))
+    committed_this_turn = bool(turn_seq) and state.get("last_commit_turn_seq") == turn_seq
+    # emit 滿足＝本回合有呼叫 anti_evasion_report。★雙鍵（turn_seq **且** session_id）為硬性：
+    # merged/sibling session 共用同一實體 state 檔且共用同一 turn_seq 計數器，唯 session_id 能
+    # 區辨——否則隔壁 session 的 emit 會誤放行本 session（重演 own_mod_files 要防的洩漏）。
+    # bool(turn_seq) 護欄：防 turn_seq==0 的 fallback state 以 0==0 假滿足。
+    aec = state.get("anti_evasion_report") or {}
+    emitted_this_turn = (
+        bool(turn_seq)
+        and aec.get("turn_seq") == turn_seq
+        and aec.get("session_id") == session_id
+    )
+
     if failing and claims_completion(last_text):
         state["stop_blocked_count"] = stop_count + 1
         reason = _piggyback(
@@ -824,33 +855,40 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             output_block(_piggyback(dg))
             return
 
+    # ── KnowledgeHarvest Gate（階段完工知識收割）────────────────
+    # 宣告完成＝階段完工 → 要求呼叫 knowledge_harvest_report（items=[] 也要）。判定在
+    # wg_harvest.harvest_gate_reason（活動門檻、冷卻只認 validated、dismiss 詞表重用 wg_evasion）。
+    # 不吃 stop_gate_max_blocks 共用預算、每 turn 最多擋一次（harvest_gate_turn[sid]）；
+    # state 全按 session_id 分區——隔壁 session 的收割不放行本 session。
+    hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq)
+    if hv_reason:
+        state.setdefault("harvest_gate_turn", {})[session_id] = turn_seq
+        append_guard_log("knowledge_harvest", {
+            "session_id": session_id, "turn_seq": turn_seq,
+            "own_mod_files": len(own_mod_files),
+            "accessed": len(state.get("accessed_files") or []),
+        })
+        write_state(session_id, state)
+        output_block(_piggyback(hv_reason))
+        return
+
+    # ── Harvest-Pending Gate：收割回報有 item 對不上 receipt ──────
+    # post_tool_use 核對落 knowledge_harvest[sid].pending；此處每 turn 擋一次要求真做完再重報。
+    # 本則是中途狀態句（仍在等 agent 回報…）→ 不擋，等真收尾再擋（wg_harvest.in_progress_text）。
+    hp_reason = pending_gate_reason(state, session_id, turn_seq, last_text)
+    if hp_reason:
+        state.setdefault("harvest_pending_gate_turn", {})[session_id] = turn_seq
+        append_guard_log("harvest_pending", {
+            "session_id": session_id, "turn_seq": turn_seq,
+            "items": (state.get("knowledge_harvest", {}).get(session_id) or {}).get("pending", [])[:5],
+        })
+        write_state(session_id, state)
+        output_block(_piggyback(hp_reason))
+        return
+
     # ── Scan-Report Gate ────────────────────────────────────────
     # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
     # 純單檔/文件小改不觸發（避免過度觸發成儀式性負擔，非防退避）。
-    mod_files_all = state.get("modified_files", []) or []
-    # 只認「本 session 自己 Edit/Write 的檔」——共用工作樹/merged state 下，他 session
-    # 改的 core 檔（session_id 不符）不得誤觸發本 session 的收尾檢核。未標記 session_id
-    # 的 legacy entry 保守視為本 session（fail-open，不漏防退避）。
-    own_mod_files = [
-        m for m in mod_files_all
-        if (m or {}).get("session_id", session_id) == session_id
-    ]
-    # 純 VCS commit turn 豁免收尾檢核：本 turn 已把工作寫進 VCS 歷史（可稽核＝與「藏」相反），
-    # anti-evasion 目的在 commit 那刻消解。不開後門——豁免綁「本 turn 真的 commit 了」
-    # （post_tool_use 記的 last_commit_turn_seq），而非「本 turn 沒 Edit」；光宣告完成不 commit
-    # 仍被擋。未 commit 就 commit 的檔仍由 SyncReminder / 一般 block 兜底。
-    turn_seq = int(state.get("turn_seq", 0))
-    committed_this_turn = bool(turn_seq) and state.get("last_commit_turn_seq") == turn_seq
-    # emit 滿足＝本回合有呼叫 anti_evasion_report。★雙鍵（turn_seq **且** session_id）為硬性：
-    # merged/sibling session 共用同一實體 state 檔且共用同一 turn_seq 計數器，唯 session_id 能
-    # 區辨——否則隔壁 session 的 emit 會誤放行本 session（重演 own_mod_files 要防的洩漏）。
-    # bool(turn_seq) 護欄：防 turn_seq==0 的 fallback state 以 0==0 假滿足。
-    aec = state.get("anti_evasion_report") or {}
-    emitted_this_turn = (
-        bool(turn_seq)
-        and aec.get("turn_seq") == turn_seq
-        and aec.get("session_id") == session_id
-    )
     if own_mod_files and not state.get("scan_report_warned") and not committed_this_turn:
         recent_prompts = state.get("recent_user_prompts", []) or []
         sr_min_files = int(config.get("min_files_to_block", 2))

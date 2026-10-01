@@ -1,151 +1,73 @@
-"""verify_auto_commit_promotions.py — 晉升 sweep 的自動提交。
+"""verify_auto_commit_promotions.py — 晉升 sweep 的上版控已整併進 vcs-sync worker。
 
 不變式：
-1. 用 `git commit -- <paths>` pathspec 形式，**不下 git add**——別的 session 已
-   stage 的檔案必須原封不動（共用工作樹安全性的核心）。
-2. 只提交 sweep 自己回報的路徑；樹外 / 不存在的路徑濾掉。
-3. config 開關關閉 → 完全不動 git。
-4. 目標路徑無實際改動 → 不產生空 commit。
-5. index.lock 競態 → 短重試；持續失敗只印 stderr、不 raise（不阻斷 SessionEnd）。
-6. 任何 git 失敗都 fail-open 且**出聲**（可觀測性鐵律），改動留在工作樹。
+1. session_end 不再有 `_auto_commit_promotions`（舊路徑：只做根層、不 add 新檔、push 寫死 origin main）。
+2. SessionEnd 只 spawn 一次 `spawn_vcs_sync`（同 root 的請求落 `.req/` 由持鎖者合併消費，兩次 spawn 只多一個立刻退出的行程），
+   且包在 try 內——worker 起不來絕不拖垮 SessionEnd。
+3. 有晉升時 reason 標 promotion、否則 session_end。
+4. config 相容：`vcs_sync` 缺省時讀舊鍵 self_iteration.auto_commit_promotions / auto_push_promotions；
+   `vcs_sync` 存在則舊鍵無效。
+5. 關閉／無目標時 spawn 回 0 且不起子行程。
 """
 
 from __future__ import annotations
 
-import subprocess
+import ast
 import sys
 from pathlib import Path
-
-import pytest
 
 CLAUDE = Path(__file__).resolve().parent.parent.parent  # hooks/verify/ → ~/.claude
 sys.path.insert(0, str(CLAUDE / "hooks"))
 
 from handlers import session_end as se  # noqa: E402
+import wg_vcs_sync as vs  # noqa: E402
+
+SE_SRC = (CLAUDE / "hooks" / "handlers" / "session_end.py").read_text(encoding="utf-8")
 
 
-def _git(repo: Path, *args):
-    return subprocess.run(["git", "-C", str(repo), *args],
-                          capture_output=True, text=True, encoding="utf-8")
+def test_old_auto_commit_path_removed():
+    assert not hasattr(se, "_auto_commit_promotions")
+    assert "auto-commit.log" not in SE_SRC
+    assert "auto_commit_promotions" not in SE_SRC
 
 
-@pytest.fixture
-def repo(tmp_path, monkeypatch):
-    """建一個真的 git repo 當 CLAUDE_DIR，內含兩顆 atom。"""
-    _git(tmp_path, "init", "-b", "main")
-    _git(tmp_path, "config", "user.email", "t@t")
-    _git(tmp_path, "config", "user.name", "t")
-    (tmp_path / "memory").mkdir()
-    for n in ("alpha", "beta"):
-        (tmp_path / "memory" / f"{n}.md").write_text(
-            f"# {n}\n\n- Confidence: [臨]\n", encoding="utf-8")
-    (tmp_path / "other.txt").write_text("untouched\n", encoding="utf-8")
-    _git(tmp_path, "add", "-A")
-    _git(tmp_path, "commit", "-m", "seed")
-    monkeypatch.setattr(se, "CLAUDE_DIR", tmp_path)
-    return tmp_path
+def test_session_end_spawns_vcs_sync_once_inside_try():
+    tree = ast.parse(SE_SRC)
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "spawn_vcs_sync"]
+    assert len(calls) == 1, "SessionEnd 應只 spawn 一次 vcs-sync"
+    call = calls[0]
+    guarded = any(isinstance(n, ast.Try) and any(call in ast.walk(stmt) for stmt in n.body)
+                  for n in ast.walk(tree))
+    assert guarded, "spawn_vcs_sync 必須包在 try 內（fail-open）"
+    kw = {k.arg: k.value for k in call.keywords}
+    assert isinstance(kw["reason"], ast.Name) and kw["reason"].id == "vcs_sync_reason"
 
 
-def _promote(repo: Path, name: str):
-    p = repo / "memory" / f"{name}.md"
-    p.write_text(p.read_text(encoding="utf-8").replace("[臨]", "[觀]"), encoding="utf-8")
-    return {"atom": name, "path": str(p), "items": ["x"]}
+def test_reason_marks_promotion():
+    assert 'vcs_sync_reason = "session_end"' in SE_SRC
+    assert 'vcs_sync_reason = "promotion"' in SE_SRC
+    assert SE_SRC.index('vcs_sync_reason = "promotion"') < SE_SRC.index("spawn_vcs_sync(session_id")
 
 
-CFG_ON = {"self_iteration": {"auto_commit_promotions": True,
-                             "auto_push_promotions": False}}
+def test_legacy_keys_alias_when_vcs_sync_missing():
+    cfg = vs.vcs_sync_config({"self_iteration": {"auto_commit_promotions": False,
+                                                 "auto_push_promotions": False}})
+    assert cfg["enabled"] is False and cfg["push"] is False
+    assert cfg["root_pathspecs"] == ["memory", "_AIDocs/_atoms"]
+    cfg = vs.vcs_sync_config({"self_iteration": {"auto_commit_promotions": False},
+                              "vcs_sync": {"enabled": True, "push": False}})
+    assert cfg["enabled"] is True and cfg["push"] is False
+    assert vs.vcs_sync_config({})["enabled"] is True
 
 
-def test_commits_only_reported_paths(repo):
-    entry = _promote(repo, "alpha")
-    _promote(repo, "beta")  # 改了但**不**回報 → 不該被提交
-    se._auto_commit_promotions([entry], CFG_ON)
-    assert _git(repo, "status", "--porcelain").stdout.splitlines() == [" M memory/beta.md"]
-    assert "[觀]" in _git(repo, "show", "HEAD:memory/alpha.md").stdout
+def test_spawn_disabled_or_no_targets_returns_zero(monkeypatch, tmp_path):
+    import subprocess
 
-
-def test_does_not_touch_index_of_other_session(repo):
-    """別的 session 已 stage 的檔案不得被夾帶進 commit，且須維持 staged。"""
-    (repo / "other.txt").write_text("other session edit\n", encoding="utf-8")
-    _git(repo, "add", "other.txt")
-    entry = _promote(repo, "alpha")
-    se._auto_commit_promotions([entry], CFG_ON)
-    head = _git(repo, "show", "--name-only", "--format=", "HEAD").stdout.split()
-    assert head == ["memory/alpha.md"], head
-    assert _git(repo, "status", "--porcelain").stdout.strip() == "M  other.txt"
-
-
-def test_disabled_switch_does_nothing(repo):
-    entry = _promote(repo, "alpha")
-    before = _git(repo, "rev-parse", "HEAD").stdout
-    se._auto_commit_promotions(
-        [entry], {"self_iteration": {"auto_commit_promotions": False}})
-    assert _git(repo, "rev-parse", "HEAD").stdout == before
-    assert " M memory/alpha.md" in _git(repo, "status", "--porcelain").stdout
-
-
-def test_no_change_makes_no_empty_commit(repo):
-    entry = {"atom": "alpha", "path": str(repo / "memory" / "alpha.md"), "items": []}
-    before = _git(repo, "rev-parse", "HEAD").stdout
-    se._auto_commit_promotions([entry], CFG_ON)
-    assert _git(repo, "rev-parse", "HEAD").stdout == before
-
-
-def test_paths_outside_tree_are_dropped(repo, tmp_path):
-    outside = tmp_path.parent / "stray.md"
-    outside.write_text("# stray\n", encoding="utf-8")
-    before = _git(repo, "rev-parse", "HEAD").stdout
-    se._auto_commit_promotions(
-        [{"atom": "stray", "path": str(outside), "items": []}], CFG_ON)
-    assert _git(repo, "rev-parse", "HEAD").stdout == before
-
-
-def test_missing_file_is_dropped(repo):
-    before = _git(repo, "rev-parse", "HEAD").stdout
-    se._auto_commit_promotions(
-        [{"atom": "ghost", "path": str(repo / "memory" / "ghost.md"), "items": []}],
-        CFG_ON)
-    assert _git(repo, "rev-parse", "HEAD").stdout == before
-
-
-def test_non_git_dir_is_noop(tmp_path, monkeypatch):
-    monkeypatch.setattr(se, "CLAUDE_DIR", tmp_path)
-    (tmp_path / "memory").mkdir()
-    f = tmp_path / "memory" / "a.md"
-    f.write_text("x", encoding="utf-8")
-    se._auto_commit_promotions([{"atom": "a", "path": str(f), "items": []}], CFG_ON)
-    # 沒有 .git → 直接返回，不 raise
-
-
-def test_index_lock_retries_then_gives_up(repo, capsys, monkeypatch):
-    _promote(repo, "alpha")
-    entry = {"atom": "alpha", "path": str(repo / "memory" / "alpha.md"), "items": []}
-    monkeypatch.setattr("time.sleep", lambda s: None)
-    (repo / ".git" / "index.lock").write_text("", encoding="utf-8")
-    try:
-        se._auto_commit_promotions([entry], CFG_ON)
-    finally:
-        (repo / ".git" / "index.lock").unlink()
-    err = capsys.readouterr().err
-    assert "index.lock" in err
-    assert " M memory/alpha.md" in _git(repo, "status", "--porcelain").stdout
-
-
-def test_commit_failure_is_reported_not_raised(repo, capsys, monkeypatch):
-    entry = _promote(repo, "alpha")
-    _git(repo, "config", "user.email", "")
-    _git(repo, "config", "user.name", "")
-    monkeypatch.setenv("GIT_AUTHOR_NAME", "")
-    monkeypatch.setenv("GIT_COMMITTER_NAME", "")
-    se._auto_commit_promotions([entry], CFG_ON)  # 不得 raise
-    # 失敗必出聲（可觀測性鐵律）或成功提交；兩者皆可，但絕不靜默失敗
-    out = capsys.readouterr().err
-    assert "auto-commit" in out
-
-
-def test_sweep_result_carries_path():
-    """wg_atoms 的 promoted 條目要帶 path，否則本函式無從定位檔案。"""
-    src = (CLAUDE / "hooks" / "wg_atoms.py").read_text(encoding="utf-8")
-    idx = src.find('results["promoted"].append({')
-    assert idx > 0
-    assert '"path": str(md_file)' in src[idx:idx + 400]
+    def boom(*a, **k):
+        raise AssertionError("不得起子行程")
+    monkeypatch.setattr(subprocess, "Popen", boom)
+    assert vs.spawn_vcs_sync("sid", str(tmp_path), "test",
+                             config={"vcs_sync": {"enabled": False}}) == 0
+    monkeypatch.setattr(vs, "collect_sync_targets", lambda cwd, cfg, claude_dir=None: [])
+    assert vs.spawn_vcs_sync("sid", str(tmp_path), "test", config={"vcs_sync": {"enabled": True}}) == 0

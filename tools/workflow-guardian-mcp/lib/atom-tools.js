@@ -1,5 +1,7 @@
-// atom-tools.js — atom_write / atom_promote / atom_edit_meta / atom_move 四個 MCP tool 業務邏輯。
+// atom-tools.js — atom_write / atom_promote / atom_edit_meta / atom_move / atom_retire 五個 MCP tool 業務邏輯。
 // sendToolResult 來自 mcp.js（循環相依：mcp.handleToolCall lazy-require 本檔，故本檔載入時 mcp 已就緒）。
+// atom_write／atom_retire 每次落檔成功，結果文字最後一行固定 `receipt: {...}`（機器可讀收據）；
+// Python PostToolUse 解析進 state.atom_ops，knowledge_harvest_report 的逐項核對以它為準（one-writer：本檔不寫 state）。
 const fs = require("fs");
 const path = require("path");
 const { CLAUDE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, PYTHON_EXE } = require("./paths");
@@ -14,10 +16,23 @@ const TRIGGER_MAX_LEN = 30;
 const { parseAtomMeta, readAtomAccess, spawnAtomAccess, usefulnessStats } = require("./atom-access");
 const {
   execConflictDetector, appendMergeHistory, buildConflictReport, execWriteGate,
-  appendToIndex, triggerVectorReindex, syncMemoryIndex, spawnAtomCli,
+  triggerVectorReindex, syncMemoryIndex, spawnAtomCli,
   funnelWriteRaw,
 } = require("./funnel");
 const { sendToolResult } = require("./mcp");
+
+/** receipt 行：固定格式 `receipt: {json}`，單行、鍵序固定，供 Python PostToolUse 以
+ *  最後一行解析。path 一律是實際落點（conflict reroute 到 _pending_review 亦然）。 */
+function receiptLine(obj) {
+  return `receipt: ${JSON.stringify(obj)}`;
+}
+
+/** 從既有 atom 檔頭讀 `- Supersedes:` 清單（replace 未給 supersedes 時保留原行用）；無此行回 null。 */
+function readSupersedesLine(content) {
+  const m = content.match(/^- Supersedes:\s*(.+)$/m);
+  if (!m) return null;
+  return m[1].split(",").map((s) => s.trim()).filter(Boolean);
+}
 
 // ─── Atom Write Handler ────────────────────────────────────────────────────
 
@@ -27,8 +42,12 @@ async function toolAtomWrite(id, args) {
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
     realm, domain, status, subdir, allow_new_category, dry_run, cross_project,
+    supersedes,
   } = args;
   dry_run = !!dry_run;
+  if (supersedes !== undefined && !Array.isArray(supersedes)) {
+    return sendToolResult(id, "supersedes must be an array of atom names (omit to keep, [] to clear)", true);
+  }
 
   // Validate core required fields (scope now optional, defaults to shared)
   if (!title || !confidence || !triggers || !knowledge || !mode) {
@@ -93,6 +112,11 @@ async function toolAtomWrite(id, args) {
   }
   let pendingReviewBy = pending_review_by || null;
   if (loc.routed_to_pending && !pendingReviewBy) pendingReviewBy = "management";
+
+  // Supersedes 自指在 js 先擋（slug 已知）；目標存在／循環／核心保護由 py build 單源裁決。
+  if (Array.isArray(supersedes) && supersedes.includes(slug)) {
+    return sendToolResult(id, `supersedes rejected: atom "${slug}" cannot supersede itself`, true);
+  }
 
   // memDir/filePath/relPath 可能在 conflict-detector reroute 後重算
   let memDir = loc.target_dir;
@@ -187,11 +211,13 @@ async function toolAtomWrite(id, args) {
     // write_raw → access.json(init + set last_used) → write_index，一次 Python 冷啟跑完整條
     // 管線。落檔 .md / .access.json / index byte-identical（守 verify_atom_io_equivalence
     // 對拍）。build/validate/write_raw 失敗致命；index 失敗非致命（crashLog-only）。
+    // supersedes 只在呼叫者有給時才進 build kwargs（未給＝不帶鍵，py 輸出 byte 不變）。
     const cr = await spawnAtomCli("create_atom", {
       build: {
         title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
         audience, author, pending_review_by: pendingReviewBy, merge_strategy, created_at: today,
         status,
+        ...(Array.isArray(supersedes) && { supersedes }),
       },
       file_path: filePath,
       today,
@@ -222,6 +248,7 @@ async function toolAtomWrite(id, args) {
     if (scopeLabel === "global" || loc.personal_global) syncMemoryIndex();
     else if (scope === "shared" && !pendingReviewBy) syncMemoryIndex(baseDir);
 
+    const crx = cr.extra || {};
     return sendToolResult(id,
       `Created atom: ${slug}.md (${confidence}, scope=${scopeLabel})\n` +
       `Path: ${filePath}\n` +
@@ -230,7 +257,12 @@ async function toolAtomWrite(id, args) {
       (pendingReviewBy ? `Pending-review-by: ${pendingReviewBy} (sensitive audience auto-routed)\n` : "") +
       `Triggers: ${triggers.join(", ")}\n` +
       `MEMORY.md index updated.` +
-      (gateWarnings.length ? `\n[write-gate 樣式警告] ${gateWarnings.join("；")}` : "")
+      (gateWarnings.length ? `\n[write-gate 樣式警告] ${gateWarnings.join("；")}` : "") +
+      "\n" + receiptLine({
+        op: "create", ok: true, atom: slug, path: filePath,
+        index_ok: crx.index_ok !== false,
+        supersedes: Array.isArray(crx.supersedes) ? crx.supersedes : (supersedes || []),
+      })
     );
   }
 
@@ -259,9 +291,11 @@ async function toolAtomWrite(id, args) {
 
     triggerVectorReindex();
 
+    // append 不動索引 → index_ok 恆 true；supersedes 對 append 無意義，收據固定 []。
     return sendToolResult(id,
       `Appended ${knowledge.length} knowledge lines to ${slug}.md\n` +
-      `Last-used updated.`
+      `Last-used updated.\n` +
+      receiptLine({ op: "append", ok: true, atom: slug, path: filePath, index_ok: true, supersedes: [] })
     );
   }
 
@@ -282,8 +316,10 @@ async function toolAtomWrite(id, args) {
     }
     // Confirmations / ReadHits 在 access.json，replace 不需保留（檔本就分離）
     // 仍保留 Author / Created-at（屬知識性 metadata）
+    // Supersedes 三態：未給＝保留原行；[]＝清除；非空＝替換。
     let prevAuthor = author;
     let prevCreatedAt = today;
+    let prevSupersedes = null;
     if (fs.existsSync(filePath)) {
       try {
         const old = fs.readFileSync(filePath, "utf-8");
@@ -291,23 +327,41 @@ async function toolAtomWrite(id, args) {
         if (am) prevAuthor = am[1].trim();
         const cm = old.match(/^- Created-at:\s*(.+)$/m);
         if (cm) prevCreatedAt = cm[1].trim();
+        prevSupersedes = readSupersedesLine(old);
       } catch {}
     }
+    const supersedesFinal = Array.isArray(supersedes) ? supersedes : (prevSupersedes || []);
+    // 呼叫者明給新清單才重驗（自指／循環／核心保護／可解析，py 單源）；保留原行的不重驗，
+    // 原行寫入當時已驗過，且其目標之後若被退役也不該讓這次 replace 失敗。
+    if (Array.isArray(supersedes) && supersedes.length) {
+      const sc = await spawnAtomCli("check_supersedes", {
+        targets: supersedes, self_slug: slug, index_dir: indexDir, index_root: indexRoot,
+      });
+      if (!sc.ok) return sendToolResult(id, `supersedes rejected: ${sc.error}`, true);
+    }
 
-    // 同 create，內容構造 spawn py funnel "build"（含 validate）
+    // 同 create，內容構造 spawn py funnel "build"（含 validate）。supersedes 只在有值
+    // （呼叫者給、或原檔有行）時進 kwargs，無則不帶鍵（輸出 byte 不變）。
     const br = await spawnAtomCli("build", {
       title, scope: scopeLabel, confidence, triggers, knowledge, actions, related,
       audience, author: prevAuthor, pending_review_by: pendingReviewBy,
       merge_strategy, created_at: prevCreatedAt, status,
+      ...((Array.isArray(supersedes) || prevSupersedes) && { supersedes: supersedesFinal }),
     });
     if (!br.ok) {
       return sendToolResult(id, `Validation failed: ${br.error}`, true);
     }
     const content = (br.extra || {}).content;
+    // 落檔用的是 py 正規化後的 slug 清單（build 回傳），receipt 與 dry-run 文字都用它，
+    // 收割核對才對得上檔頭的 Supersedes 行。
+    const canonSup = (br.extra || {}).supersedes;
+    const supersedesOut = Array.isArray(canonSup) ? canonSup : supersedesFinal;
     if (dry_run) {
       return sendToolResult(id,
         `DRY-RUN (nothing written): would replace ${filePath} (build+validate passed; ` +
-        `author=${prevAuthor}, created-at=${prevCreatedAt} preserved)`);
+        `author=${prevAuthor}, created-at=${prevCreatedAt} preserved` +
+        (Array.isArray(supersedes) ? `, supersedes=[${supersedesOut.join(", ")}]`
+          : prevSupersedes ? `, supersedes kept=[${supersedesOut.join(", ")}]` : "") + ")");
     }
 
     fs.mkdirSync(memDir, { recursive: true });
@@ -321,7 +375,11 @@ async function toolAtomWrite(id, args) {
     await spawnAtomAccess("set", [filePath, "--field", "last_used",
                                   "--value", today, "--source", "mcp"]);
 
-    await appendToIndex(indexDir, slug, relPath, triggers);
+    // 索引 upsert 直接走 funnel 取回 ok（receipt 要 index_ok；失敗非致命、crashLog 留訊號）
+    const ir = await spawnAtomCli("write_index", {
+      base_dir: indexDir, slug, rel_path: relPath, triggers, source: "mcp",
+    });
+    if (!ir.ok) crashLog("appendToIndex funnel (json)", ir.error);
     triggerVectorReindex();
     if (scopeLabel === "global" || loc.personal_global) syncMemoryIndex();
     else if (scope === "shared" && !pendingReviewBy) syncMemoryIndex(baseDir);
@@ -330,7 +388,8 @@ async function toolAtomWrite(id, args) {
     const accAfter = readAtomAccess(filePath);
     return sendToolResult(id,
       `Replaced atom: ${slug}.md (${confidence}, preserved conf=${accAfter.confirmations || 0} rh=${accAfter.readhits || 0}, author=${prevAuthor})\n` +
-      `MEMORY.md index updated.`
+      `MEMORY.md index updated.\n` +
+      receiptLine({ op: "replace", ok: true, atom: slug, path: filePath, index_ok: !!ir.ok, supersedes: supersedesOut })
     );
   }
 
@@ -821,6 +880,71 @@ function formatAtomMoveReport(raw) {
   return lines.join("\n");
 }
 
+// ─── Atom Retire Handler ───────────────────────────────────────────────────
+
+/** 退役：定位＋護欄＋索引/向量/搬移全由 py `atom_io_cli` action=retire 單源執行
+ *  （locate → memory-audit.delete_atom(project_dir)）。js 只組 payload、轉述結果、
+ *  附 receipt、專案層成功後刷該專案 MEMORY.md catalog。 */
+async function toolAtomRetire(id, args) {
+  let { atom_name, scope, project_cwd, role, user, reason, dry_run } = args;
+  if (!atom_name || !scope) {
+    return sendToolResult(id, "atom_retire: atom_name and scope are required", true);
+  }
+  if (!String(reason || "").trim()) {
+    return sendToolResult(id, "atom_retire: reason is required (why this atom is retired)", true);
+  }
+  if (scope === "personal" && !user) user = getCurrentUser();
+  dry_run = !!dry_run;
+
+  const r = await spawnAtomCli("retire", {
+    atom_name, scope, project_cwd, role, user, reason, dry_run,
+  });
+  // py extra 契約：{op:"retire", atom, old_path, new_path, index_ok, steps_done:[], steps_failed:[]}
+  // 缺欄位以已知值補齊（op/atom 由本側、path 取 r.path）。
+  const ex = r.extra || {};
+  const oldPath = ex.old_path || r.path || null;
+  const newPath = ex.new_path || null;
+  const stepsDone = Array.isArray(ex.steps_done) ? ex.steps_done : [];
+  const stepsFailed = Array.isArray(ex.steps_failed) ? ex.steps_failed : [];
+
+  if (!r.ok) {
+    return sendToolResult(id,
+      `atom_retire failed: ${r.error || "(unknown error)"}\n` +
+      (stepsDone.length ? `steps done: ${stepsDone.join(", ")}\n` : "") +
+      (stepsFailed.length ? `steps failed: ${stepsFailed.join(", ")}\n` : "") +
+      receiptLine({ op: "retire", ok: false, atom: atom_name, old_path: oldPath,
+                    steps_done: stepsDone, steps_failed: stepsFailed }),
+      true);
+  }
+  if (dry_run) {
+    return sendToolResult(id,
+      `DRY-RUN (nothing changed): would retire ${atom_name}.md\n` +
+      `From: ${oldPath}\n` + (newPath ? `To: ${newPath}\n` : "") +
+      `Guards passed: [固] / core-protected / referenced-by.`);
+  }
+
+  triggerVectorReindex();
+  // catalog 同步：global/local → memory/MEMORY.md；專案層 → 該專案 MEMORY.md marker 區塊。
+  // 專案 memory 根優先取 py 回的 base_dir/index_root，否則依 project_cwd 組。
+  if (scope === "global" || scope === "local") {
+    syncMemoryIndex();
+  } else {
+    const memRoot = ex.base_dir || ex.index_root ||
+      path.join(project_cwd || process.cwd(), ".claude", "memory");
+    if (fs.existsSync(memRoot)) syncMemoryIndex(memRoot);
+  }
+
+  return sendToolResult(id,
+    `Retired atom: ${atom_name}.md (scope=${scope})\n` +
+    `From: ${oldPath}\n` +
+    (newPath ? `To: ${newPath}（可還原：memory-audit --restore）\n` : "") +
+    `Reason: ${reason}\n` +
+    (stepsDone.length ? `Steps: ${stepsDone.join(", ")}\n` : "") +
+    receiptLine({ op: "retire", ok: true, atom: atom_name, path: oldPath,
+                  old_path: oldPath, new_path: newPath, index_ok: ex.index_ok !== false })
+  );
+}
+
 function extractKnowledgeLines(content) {
   // 從 atom 檔抓「## 知識」到下個 `## ` 或 EOF 之間，保留以 `- ` 開頭的行（去掉 `- ` 前綴）
   const m = content.match(/^##\s*知識\s*$([\s\S]*?)(?=^##\s|\Z)/m);
@@ -833,4 +957,4 @@ function extractKnowledgeLines(content) {
     .filter(Boolean);
 }
 
-module.exports = { toolAtomWrite, toolAtomPromote, toolAtomEditMeta, toolAtomMove };
+module.exports = { toolAtomWrite, toolAtomPromote, toolAtomEditMeta, toolAtomMove, toolAtomRetire };

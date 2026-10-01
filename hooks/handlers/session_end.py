@@ -4,7 +4,7 @@ handlers/session_end.py — SessionEnd hook handler
 收尾：DocDrift summary / state cleanup / extract worker / user-extract worker /
 session evaluator / iteration metrics / oscillation / self-iterate atoms /
 wisdom reflect / staging reminder / conflict detection / atom health fix /
-episodic gen / review marker / vector reindex。
+episodic gen / review marker / vector reindex / vcs-sync worker spawn（記憶庫上版控）。
 """
 
 import json
@@ -37,109 +37,6 @@ from handlers._shared import (
     WISDOM_AVAILABLE, wisdom_reflect,
     DOCDRIFT_AVAILABLE, build_drift_advisory,
 )
-
-
-def _auto_commit_promotions(promoted, config: Dict[str, Any]) -> None:
-    """晉升 sweep 改到的 atom 當場提交（選擇性 pathspec，fail-open）。
-
-    為何自動提交：sweep 是**程式**改檔，改動面完全可預測（只有 `- Confidence:`
-    行與知識行的 `[臨]` 前綴），內容不動、不需人審。不當場提交就留在工作樹，
-    而使用者常多 session 共用同一 git 工作樹 → 這些改動會被別的 session 收尾時
-    誤夾帶進不相干的 commit（見 atom 併發-session-共用工作樹-收尾選擇性-staging）。
-
-    為何用 `git commit -- <paths>` 而非 `git add` + commit：pathspec 形式只提交
-    指定路徑的工作樹內容，**完全不碰 index**——別的 session 已 stage 的東西原封
-    不動。共用工作樹下這是唯一安全的提交形式。
-
-    push 走背景 detached（SessionEnd 只有 30s 預算，網路不可控），輸出落
-    `Logs/auto-commit.log`；push 失敗時 commit 仍在本地，下次 `git status -sb`
-    的 ahead 數會顯示。任何一步失敗只印 stderr、不阻斷 SessionEnd。
-    """
-    import subprocess
-    from pathlib import Path
-
-    si_config = config.get("self_iteration", {}) or {}
-    if not si_config.get("auto_commit_promotions", True):
-        return
-    if not (CLAUDE_DIR / ".git").exists():
-        return
-
-    paths = []
-    for p in promoted:
-        raw = p.get("path")
-        if not raw:
-            continue
-        f = Path(raw)
-        try:
-            rel = f.resolve().relative_to(CLAUDE_DIR.resolve())
-        except (OSError, ValueError):
-            continue  # 樹外的檔不碰（理論上不會有，晉升掃描面全在 ~/.claude）
-        if f.exists():
-            paths.append(rel.as_posix())
-    if not paths:
-        return
-
-    def _git(*args, **kw):
-        return subprocess.run(
-            ["git", "-C", str(CLAUDE_DIR), *args],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", **kw)
-
-    try:
-        st = _git("status", "--porcelain", "--", *paths, timeout=10)
-        if st.returncode != 0 or not st.stdout.strip():
-            return  # 沒有實際改動（例如別的 session 已提交）→ 什麼都不做
-    except (OSError, subprocess.SubprocessError) as e:
-        print(f"[auto-commit] git status 失敗，晉升改動留在工作樹: {e}", file=sys.stderr)
-        return
-
-    names = ", ".join(p.get("atom", "?") for p in promoted[:5])
-    if len(promoted) > 5:
-        names += f" 等 {len(promoted)} 顆"
-    msg = (f"chore(memory): atom 信心 [臨]→[觀] 晉升\n\n"
-           f"{names}\n\n"
-           f"SessionEnd 晉升 sweep 自動提交（僅 Confidence 與知識行前綴，內容未動）。\n")
-
-    # index.lock 競態：別的 session 正在 commit → 短重試，仍失敗就放手
-    committed = False
-    for attempt in range(3):
-        try:
-            r = _git("commit", "-m", msg, "--", *paths, timeout=20)
-        except (OSError, subprocess.SubprocessError) as e:
-            print(f"[auto-commit] git commit 例外: {e}", file=sys.stderr)
-            return
-        if r.returncode == 0:
-            committed = True
-            break
-        if "index.lock" not in (r.stderr or ""):
-            print(f"[auto-commit] git commit 失敗，晉升改動留在工作樹: "
-                  f"{(r.stderr or r.stdout).strip()[:200]}", file=sys.stderr)
-            return
-        if attempt < 2:
-            import time
-            time.sleep(1)
-    if not committed:
-        print("[auto-commit] index.lock 持續被占用（他 session 正在提交），"
-              "晉升改動留在工作樹待下次", file=sys.stderr)
-        return
-
-    print(f"[auto-commit] 已提交 {len(paths)} 顆晉升 atom", file=sys.stderr)
-
-    if not si_config.get("auto_push_promotions", True):
-        return
-    try:
-        log_path = CLAUDE_DIR / "Logs" / "auto-commit.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        logf = open(log_path, "a", encoding="utf-8", newline="\n")
-        logf.write(f"\n=== {_now_iso()} push {len(paths)} promoted atoms ===\n")
-        logf.flush()
-        # origin 掛兩個 push URL（GitHub + GitLab），一次 push 同一份歷史到兩邊
-        subprocess.Popen(
-            ["git", "-C", str(CLAUDE_DIR), "push", "--quiet", "origin", "main"],
-            stdout=logf, stderr=subprocess.STDOUT,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (OSError, ValueError) as e:
-        print(f"[auto-commit] 背景 push 起不來（commit 已在本地）: {e}", file=sys.stderr)
 
 
 def _se_sentinel_path(session_id: str):
@@ -275,6 +172,7 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     except Exception as e:
         print(f"Self-iteration metrics error: {e}", file=sys.stderr)
 
+    vcs_sync_reason = "session_end"
     try:
         si_results = _self_iterate_atoms(state, config)
         if si_results.get("promoted"):
@@ -284,12 +182,7 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
                     f"{len(p['items'])} items",
                     file=sys.stderr,
                 )
-            try:
-                _auto_commit_promotions(si_results["promoted"], config)
-            except Exception as e:
-                # 提交失敗絕不能拖垮 SessionEnd；改動留在工作樹等人處理
-                print(f"[auto-commit] 未預期錯誤，晉升改動留在工作樹: {e}",
-                      file=sys.stderr)
+            vcs_sync_reason = "promotion"
         if si_results.get("archive_candidates"):
             _fr = si_results.get("forget") or {}
             if _fr.get("mode") == "isolated" and _fr.get("forgotten"):
@@ -492,6 +385,18 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     )
     if has_atom_changes or episodic_generated or purged_count:
         _trigger_incremental_index(config)
+
+    # 記憶庫上版控：晉升 sweep／realm 搬移／episodic 生成與淘汰全在上面跑完，這裡只 spawn 一次
+    # （同 root 的 worker 以鎖＋dirty 合併請求，分兩次 spawn 只會多一個立刻退出的行程）。
+    # reason 標 promotion 時代表本次含晉升改動；worker 不區分流程，只影響 log 與起訖帳。
+    try:
+        from wg_vcs_sync import spawn_vcs_sync
+        _vs_pid = spawn_vcs_sync(session_id, cwd, reason=vcs_sync_reason)
+        if _vs_pid:
+            print(f"vcs-sync worker spawned (pid={_vs_pid}, reason={vcs_sync_reason})", file=sys.stderr)
+    except Exception as e:
+        # spawn 失敗絕不能拖垮 SessionEnd；改動留在工作樹，下個 SessionStart advisory 會浮出
+        print(f"[vcs-sync] worker 起不來，記憶改動留在工作樹: {e}", file=sys.stderr)
 
     # 走到這裡＝收尾完整跑完 → 拆哨兵（timeout 砍掉時到不了這行，哨兵殘留告警）
     _se_sentinel_clear(session_id)
