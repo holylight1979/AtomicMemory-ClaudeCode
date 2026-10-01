@@ -111,7 +111,7 @@ def test_mixed_candidates_write_one_report_per_library(tmp_path, monkeypatch):
 
 def test_forget_isolates_by_candidate_path(tmp_path, monkeypatch):
     claude, mem = _fake_claude(tmp_path, monkeypatch)
-    monkeypatch.setattr(wg_atoms, "_trigger_sync_memory_index", lambda: None)
+    monkeypatch.setattr(wg_atoms, "_trigger_sync_memory_index", lambda *a, **k: None)
     md = _stale_atom(mem / "OS-Windows", "deep")
     cfg = {"self_iteration": {"forget": {"enabled": True, "dry_run": False, "isolate_threshold": 0.3}}}
     res = wg_atoms.apply_selective_forget(

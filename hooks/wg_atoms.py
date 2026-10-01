@@ -11,6 +11,7 @@ wg_atoms.py — Atom 索引解析 / Trigger / Intent / Vector search / Activatio
 import json
 import logging
 import math
+import os
 import re
 import sys
 import time
@@ -35,10 +36,12 @@ from wg_core import (
 # prefer _atom_index.json (machine source of truth)
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 try:
-    from atom_index_json import load_atom_index_json, to_atom_entries, ATOM_INDEX_JSON
+    from atom_index_json import (load_atom_index_json, to_atom_entries, ATOM_INDEX_JSON,
+                                 delete_atom as index_delete_atom)
 except ImportError:
     load_atom_index_json = None
     to_atom_entries = None
+    index_delete_atom = None
     ATOM_INDEX_JSON = "_atom_index.json"
 
 try:
@@ -2371,22 +2374,39 @@ def _autocapture_unconfirmed_from_text(text: str) -> bool:
     return author == "auto-captured" and conf == "[臨]"
 
 
-def _trigger_sync_memory_index() -> None:
-    """搬移後 fire-and-forget 重產 MEMORY.md / _local_catalog.md / per-level _INDEX.md。
+def _trigger_sync_memory_index(memory_dir: Optional[Path] = None) -> Optional[str]:
+    """搬移後同步重產 MEMORY.md / _local_catalog.md / per-level _INDEX.md，回錯誤字串（None=成功）。
 
-    set_realm 只改 _atom_index.json，不重產 catalog；故搬移後須補觸發（對拍 server.js 行為）。
+    set_realm / delete_atom 只改 _atom_index.json，不重產 catalog；故搬移後須補觸發（對拍
+    server.js 行為）。memory_dir 給哪個記憶根就重產哪個根（專案層 `<proj>/.claude/memory`），
+    不給 → 根層 memory/。同步等結果（timeout 60s）：rc≠0 / timeout / 起不來都回字串，
+    呼叫者決定怎麼浮出，不靜默。
     """
+    import subprocess
+    cmd = [sys.executable, str(CLAUDE_DIR / "tools" / "sync-memory-index.py"), "--write"]
+    if memory_dir is not None:
+        cmd += ["--memory-dir", str(memory_dir)]
+    # Windows: 不帶 CREATE_NO_WINDOW 會讓子行程另開可見 console 視窗
+    _no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     try:
-        import subprocess
-        # Windows: 不帶 CREATE_NO_WINDOW 會讓 fire-and-forget 子行程另開可見 console 視窗
-        _no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        subprocess.Popen(
-            [sys.executable, str(CLAUDE_DIR / "tools" / "sync-memory-index.py"), "--write"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(CLAUDE_DIR),
-            creationflags=_no_window,
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(CLAUDE_DIR), timeout=60, creationflags=_no_window, env=env,
         )
+    except subprocess.TimeoutExpired:
+        err = "sync-memory-index timeout (60s)"
+        _atom_debug_log("ERROR", f"[realm:sync_index] {err}")
+        return err
     except Exception as e:
         _atom_debug_error("realm:sync_index", e)
+        return f"sync-memory-index failed to start: {type(e).__name__}: {e}"
+    if proc.returncode == 0:
+        return None
+    tail = (proc.stderr or "").strip().splitlines()[-3:]
+    err = f"sync-memory-index rc={proc.returncode}: {' | '.join(tail) or '(no stderr)'}"
+    _atom_debug_log("ERROR", f"[realm:sync_index] {err}")
+    return err
 
 
 def select_forget_candidates(archive_candidates, config):
@@ -2413,14 +2433,92 @@ def select_forget_candidates(archive_candidates, config):
     return out
 
 
+def _same_file(a: Path, b: Path) -> bool:
+    """同一實體檔？resolve 後 normcase 比對（Windows 大小寫不敏感），不存在的路徑也能比。"""
+    try:
+        return os.path.normcase(str(a.resolve(strict=False))) == os.path.normcase(str(b.resolve(strict=False)))
+    except OSError:
+        return False
+
+
+def _forget_load_index_strict(mem_dir: Path) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+    """搬檔前讀 `_atom_index.json`：回 (entries, error)。
+
+    無索引檔 → ([], None)（裸 atoms 夾，正常）；壞 JSON / 讀失敗 / 結構不對 / 任一條目不是
+    {name: 非空字串, path: 非空字串} 的 dict → (None, 原因)，呼叫者本輪不搬任何檔——索引壞掉時
+    搬檔會讓檔案與索引脫鉤，先停住比較安全。條目型別也嚴驗：後續刪條目按 path 比對、按 name
+    交給 delete_atom，壞條目混進去會讓搬了的顆刪不到條目。
+    不走 load_atom_index_json：它遇壞檔靜默回空索引，這裡要分得出「沒有」與「壞了」。
+    """
+    p = mem_dir / ATOM_INDEX_JSON
+    if not p.exists():
+        return [], None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return None, f"index unreadable: {type(e).__name__}: {e}"
+    if not isinstance(data, dict) or not isinstance(data.get("atoms"), list):
+        return None, "index unreadable: malformed structure (expected {atoms: [...]})"
+    for i, a in enumerate(data["atoms"]):
+        if not isinstance(a, dict):
+            return None, f"index unreadable: entry #{i} malformed (expected dict, got {type(a).__name__})"
+        for key in ("name", "path"):
+            v = a.get(key)
+            if not isinstance(v, str) or not v:
+                return None, f"index unreadable: entry #{i} malformed ({key} must be non-empty str)"
+    return data["atoms"], None
+
+
+def _forget_drop_index_entries(mem_dir: Path, entries: List[Dict[str, Any]],
+                               moved: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """搬完後刪 `_atom_index.json` 條目：只看 path，不看名字。
+
+    條目 path 相對 index root（mem_dir 上一層），用 _same_file 比到 src_path 才算這顆；
+    命中條目用**它自己的 name＋path** 交給 delete_atom（條目名與檔名 stem 不同也刪得到），
+    同名他顆的條目不碰。每筆 moved 標 `index`：removed / none（無條目）/ error（刪除失敗；
+    條目留著，由下次重建索引收斂）。回 index_errors 清單。
+    """
+    errors: List[Dict[str, str]] = []
+    todo = [m for m in moved if m.get("ok")]
+    if not todo or index_delete_atom is None:
+        return errors
+
+    def _fail(m: Dict[str, Any], why: str) -> None:
+        m["index"] = "error"
+        m["index_error"] = why
+        errors.append({"atom": m["atom"], "src_path": m["src_path"], "error": why})
+        _atom_debug_log("ERROR", f"[forget:index] {m['atom']} ({m['src_path']}): {why}")
+
+    root = mem_dir.parent
+    located = [(a, a["path"]) for a in entries if isinstance(a.get("path"), str) and a.get("path")]
+    for m in todo:
+        src = Path(m["src_path"])
+        mine = [(a.get("name"), p) for a, p in located if _same_file(root / p, src)]
+        if not mine:
+            m["index"] = "none"
+            continue
+        try:
+            removed = any([index_delete_atom(mem_dir, n, path=p) for n, p in mine])
+            m["index"] = "removed" if removed else "none"
+        except Exception as e:
+            _atom_debug_error("forget:index", e)
+            _fail(m, f"delete failed: {e}")
+    return errors
+
+
 def apply_selective_forget(archive_candidates, config, *, atoms_dir=None,
                            staging_dir=None):
     """Phase D selective forgetting：stale+低用+非保護 atom 隔離到 `_distant/`。
 
     `_distant/` 已被 sync-atom-index EXCLUDED_DIR_PARTS 排除 → 搬入即不入索引/不注入、
-    且可逆（搬回即復原），無需手改 index row。**預設 dry-run**（forget.enabled=false
+    且可逆（搬回即復原）。流程：先嚴格讀 atoms_dir 的 `_atom_index.json`（壞掉 → 本輪
+    不搬，moved 全標 error）→ 逐顆搬 MD 與 .access.json sidecar（分開記錄）→ MD 已搬走
+    的顆按 path 刪索引條目（同名跨層不誤刪；sidecar 失敗只記 error 不擋索引清理）→
+    同步重產該記憶根的 catalog，失敗寫 catalog_error。**預設 dry-run**（forget.enabled=false
     或 dry_run=true）→ 只寫候選清單到 _staging、不搬。憲法 selective forgetting 對策。
-    回 {mode, candidates, forgotten, skipped}。
+    回 {mode, candidates, forgotten, skipped, moved, index_errors, catalog_error}；moved 逐檔
+    {atom, src_path, dst_path, ok, md_moved, sidecar_moved, error, index, index_error?}，
+    ok = MD 搬成功；forgotten/skipped 是其 slug 投影。
     """
     atoms_dir = atoms_dir or MEMORY_DIR
     fcfg = ((config or {}).get("self_iteration") or {}).get("forget") or {}
@@ -2437,31 +2535,58 @@ def apply_selective_forget(archive_candidates, config, *, atoms_dir=None,
             _atom_debug_error("forget:write_candidates", e)
     cand_names = [c.get("atom") for c in cands]
     if not bool(fcfg.get("enabled", False)) or bool(fcfg.get("dry_run", True)):
-        return {"mode": "dry_run", "candidates": cand_names, "forgotten": [], "skipped": []}
+        return {"mode": "dry_run", "candidates": cand_names, "forgotten": [], "skipped": [],
+                "moved": [], "index_errors": [], "catalog_error": None}
     import shutil
-    forgotten, skipped = [], []
+    entries, index_err = _forget_load_index_strict(atoms_dir)
+    moved: List[Dict[str, Any]] = []
+    index_errors: List[Dict[str, str]] = []
     for c in cands:
         slug = c.get("atom")
         md = Path(c["path"]) if c.get("path") else atoms_dir / f"{slug}.md"
-        if not md.exists():
-            skipped.append(slug)
-            continue
         # 隔離到「原範疇資料夾」下的 _distant/：restore 時直接回原範疇，不會落回 memory/ 根平鋪
         distant = md.parent / "_distant"
+        item = {"atom": slug, "src_path": str(md), "dst_path": str(distant / md.name),
+                "ok": False, "md_moved": False, "sidecar_moved": False, "error": ""}
+        moved.append(item)
+        if index_err is not None:
+            item["error"] = index_err
+            item["index"] = "error"
+            item["index_error"] = index_err
+            index_errors.append({"atom": slug, "src_path": str(md), "error": index_err})
+            continue
+        if not md.exists():
+            item["error"] = "not found"
+            continue
         try:
             distant.mkdir(parents=True, exist_ok=True)
             shutil.move(str(md), str(distant / md.name))
-            acc = resolve_access_json(slug, md)  # sidecar 與 md 同目錄
-            if acc.exists():
-                shutil.move(str(acc), str(distant / acc.name))
-            forgotten.append(slug)
+            item["md_moved"] = True
+            item["ok"] = True
         except OSError as e:
             _atom_debug_error("forget:isolate", e)
-            skipped.append(slug)
+            item["error"] = f"{type(e).__name__}: {e}"
+            continue
+        acc = resolve_access_json(slug, md)  # sidecar 與 md 同目錄
+        if not acc.exists():
+            continue
+        try:
+            shutil.move(str(acc), str(distant / acc.name))
+            item["sidecar_moved"] = True
+        except OSError as e:
+            _atom_debug_error("forget:isolate_sidecar", e)
+            item["error"] = f"sidecar: {type(e).__name__}: {e}"  # MD 已走，索引照刪
+    if index_err is not None:
+        _atom_debug_log("ERROR", f"[forget:index] {atoms_dir}: {index_err}; nothing moved")
+    else:
+        index_errors += _forget_drop_index_entries(atoms_dir, entries, moved)
+    forgotten = [m["atom"] for m in moved if m["ok"]]
+    catalog_error = None
     if forgotten:
-        _trigger_sync_memory_index()  # 重產索引/catalog（_distant 已排除，移除其列）
-    return {"mode": "isolated", "candidates": cand_names,
-            "forgotten": forgotten, "skipped": skipped}
+        catalog_error = _trigger_sync_memory_index(atoms_dir)  # 重產該記憶根的 catalog（條目已刪，_distant 不入索引）
+    return {"mode": "isolated", "candidates": cand_names, "forgotten": forgotten,
+            "skipped": [m["atom"] for m in moved if not m["ok"]],
+            "moved": moved, "index_errors": index_errors, "catalog_error": catalog_error}
 
 
 def _is_atom_physical_rel(rel: str) -> bool:
@@ -2847,7 +2972,8 @@ def _self_iterate_atoms(
                                   {"archive_candidates": [], "demote_candidates": []})
             g[kind].append(c)
     results["reports"] = []
-    forget_all = {"mode": "dry_run", "candidates": [], "forgotten": [], "skipped": []}
+    forget_all = {"mode": "dry_run", "candidates": [], "forgotten": [], "skipped": [],
+                  "moved": [], "index_errors": [], "catalog_errors": []}
     for staging, g in groups.items():
         staging.mkdir(parents=True, exist_ok=True)
         out_lines = [
@@ -2877,10 +3003,12 @@ def _self_iterate_atoms(
             fr = apply_selective_forget(
                 g["archive_candidates"], config,
                 atoms_dir=staging.parent, staging_dir=staging)
-            for k in ("candidates", "forgotten", "skipped"):
+            for k in ("candidates", "forgotten", "skipped", "moved", "index_errors"):
                 forget_all[k] += fr[k]
             if fr["mode"] == "isolated":
                 forget_all["mode"] = "isolated"
+            if fr.get("catalog_error"):
+                forget_all["catalog_errors"].append(f"{staging.parent}: {fr['catalog_error']}")
         except Exception as e:
             _atom_debug_error("forget:apply", e)
     if groups:

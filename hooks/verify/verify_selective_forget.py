@@ -35,7 +35,7 @@ CFG_ISOLATE = {"self_iteration": {"forget": {"enabled": True, "dry_run": False, 
 @pytest.fixture(autouse=True)
 def _no_sync(monkeypatch):
     # 隔離測試不真觸發 sync-memory-index 子程序
-    monkeypatch.setattr(wg_atoms, "_trigger_sync_memory_index", lambda: None)
+    monkeypatch.setattr(wg_atoms, "_trigger_sync_memory_index", lambda *a, **k: None)
 
 
 def _cand(atom, score, last_used="2026-01-01"):
@@ -88,6 +88,10 @@ def test_isolate_moves_to_distant(tmp_path):
     _make_atom(atoms, "stale")
     res = apply_selective_forget([_cand("stale", 0.1)], CFG_ISOLATE, atoms_dir=atoms)
     assert res["mode"] == "isolated" and res["forgotten"] == ["stale"]
+    m = res["moved"][0]  # 逐檔路徑身分：caller 據此刪索引條目
+    assert m["atom"] == "stale" and m["ok"] is True and Path(m["src_path"]) == atoms / "stale.md"
+    assert Path(m["dst_path"]) == atoms / "_distant" / "stale.md"
+    assert m["index"] == "none" and res["index_errors"] == []  # 裸 atoms 夾無索引檔
     assert not (atoms / "stale.md").exists()  # 原處已移走
     assert (atoms / "_distant" / "stale.md").exists()  # 隔離到 _distant
     assert (atoms / "_distant" / "stale.access.json").exists()  # access 一併搬（可逆）

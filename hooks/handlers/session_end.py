@@ -201,6 +201,12 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
                         f"dry-run → {rp}, forget-candidates.md 同目錄)",
                         file=sys.stderr,
                     )
+            # 隔離後的索引／catalog 收尾若失敗，檔已搬走但索引或 catalog 還指著舊位置——
+            # 不能無聲吞掉（可觀測性鐵律），逐條浮到 stderr 讓下個 session 看得到。
+            for ie in _fr.get("index_errors") or []:
+                print(f"Selective-forget index cleanup FAILED: {ie}", file=sys.stderr)
+            for ce in _fr.get("catalog_errors") or []:
+                print(f"Selective-forget catalog regen FAILED: {ce}", file=sys.stderr)
     except Exception as e:
         print(f"Self-iteration error: {e}", file=sys.stderr)
 

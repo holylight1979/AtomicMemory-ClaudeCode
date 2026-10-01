@@ -1405,7 +1405,8 @@ def _project_dir_from_args(args: argparse.Namespace) -> Optional[Path]:
 def enforce_decay(args: argparse.Namespace) -> None:
     """--enforce：呼叫 hooks/wg_atoms.apply_selective_forget（唯一遺忘機制）。
     候選 = 封存分數 < archive_score_threshold 且不在核心保護清單；隔離到原範疇資料夾下的
-    _distant/（含 .access.json sidecar），索引同步移除條目。--dry-run 只列候選不搬。"""
+    _distant/（含 .access.json sidecar），索引條目按 path 刪（同名跨層不誤刪）、該記憶根
+    catalog 重產。逐檔結果走 moved（src_path 身分），不按名字對照。--dry-run 只列候選不搬。"""
     today = date.today()
     dry_run = bool(args.dry_run)
     config = _forget_config()
@@ -1423,6 +1424,10 @@ def enforce_decay(args: argparse.Namespace) -> None:
         **(run_cfg["self_iteration"].get("forget") or {}),
         "enabled": True, "dry_run": dry_run,
     }
+    index_lines = {
+        "removed": "  _atom_index.json entry removed: {name}",
+        "none": "  _atom_index.json: no entry for {name} (unchanged)",
+    }
 
     layers = discover_layers(global_only=args.global_only, project_filter=args.project,
                              project_dir=_project_dir_from_args(args))
@@ -1437,29 +1442,32 @@ def enforce_decay(args: argparse.Namespace) -> None:
         if not cands:
             continue
         fr = apply_selective_forget(cands, run_cfg, atoms_dir=mem_dir, staging_dir=None)
-        by_name = {c["atom"]: c for c in cands}
+        selected = set(fr["candidates"])
+        by_path = {c["path"]: c for c in cands}
         if fr["mode"] == "dry_run":
-            for name in fr["candidates"]:
-                c = by_name[name]
-                actions.append(f"[DRY-RUN] Would isolate {_rel_path(Path(c['path']))} "
-                               f"(score {c['score']} < {c['threshold']}, {c['days_since']}d)")
+            for c in cands:
+                if c["atom"] in selected:
+                    actions.append(f"[DRY-RUN] Would isolate {_rel_path(Path(c['path']))} "
+                                   f"(score {c['score']} < {c['threshold']}, {c['days_since']}d)")
             continue
-        for name in fr["forgotten"]:
-            c = by_name[name]
-            actions.append(f"OK: 已隔離 {_rel_path(Path(c['path']))} → {Path(c['path']).parent.name}/_distant/ "
+        for m in fr["moved"]:
+            c = by_path[m["src_path"]]
+            src = Path(m["src_path"])
+            if not m["ok"]:
+                actions.append(f"SKIP: {_rel_path(src)}（{m['error']}）")
+                continue
+            actions.append(f"OK: 已隔離 {_rel_path(src)} → {src.parent.name}/_distant/ "
                            f"(score {c['score']}, {c['days_since']}d)")
-            try:
-                if index_delete_atom(mem_dir, name):
-                    actions.append(f"  _atom_index.json entry removed: {name}")
-            except (OSError, ValueError) as e:
-                actions.append(f"  _atom_index.json update FAILED: {name} — {e}")
-            _write_audit_entry({"action": "decay", "atom": name, "layer": layer_name,
-                                "score": c["score"], "days_stale": c["days_since"]})
-        for name in fr["skipped"]:
-            actions.append(f"SKIP: {name}（檔不存在或搬移失敗，見 hook debug log）")
-        protected = [n for n in by_name if n not in fr["candidates"]]
-        for name in protected:
-            actions.append(f"PROTECTED: {name}（核心保護清單，不隔離）")
+            idx = m.get("index", "none")
+            if idx == "error":
+                actions.append(f"  _atom_index.json update FAILED: {m['atom']} — {m.get('index_error', '')}")
+            else:
+                actions.append(index_lines[idx].format(name=m["atom"]))
+            _write_audit_entry({"action": "decay", "atom": m["atom"], "layer": layer_name,
+                                "path": _rel_path(src), "score": c["score"], "days_stale": c["days_since"]})
+        for c in cands:
+            if c["atom"] not in selected:
+                actions.append(f"PROTECTED: {_rel_path(Path(c['path']))}（核心保護清單，不隔離）")
 
     if actions:
         print("\n".join(actions))

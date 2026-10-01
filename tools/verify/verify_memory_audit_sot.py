@@ -322,7 +322,7 @@ def _enforce(mem, monkeypatch, dry_run: bool, capsys):
                         lambda: {"self_iteration": {"decay_half_life_days": 30,
                                                     "archive_score_threshold": 0.3,
                                                     "forget": {"enabled": False, "dry_run": True}}})
-    monkeypatch.setattr(wg_atoms, "_trigger_sync_memory_index", lambda: None)
+    monkeypatch.setattr(wg_atoms, "_trigger_sync_memory_index", lambda *a, **k: None)
     MA.enforce_decay(argparse.Namespace(dry_run=dry_run, global_only=True, project=None, project_dir=None))
     return capsys.readouterr().out
 
