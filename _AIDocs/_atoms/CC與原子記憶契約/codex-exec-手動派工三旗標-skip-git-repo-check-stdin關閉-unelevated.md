@@ -11,6 +11,8 @@
 
 - [臨] 從 Bash tool 手動派 `codex exec`（非 companion）必帶三件：`--skip-git-repo-check`（cwd 在 scratchpad 等非 git 目錄會拒跑）、`</dev/null`（stdin 非 TTY 時 codex 等 EOF，背景任務卡死）、`-c 'windows.sandbox="unelevated"'`。
 - [臨] 缺任一件的症狀都一樣：reply 檔 0 byte 但 exit 0，錯因只在 stderr 檔尾。派完先 `wc -c` 回覆檔 + `tail` stderr 再讀內容，別把 exit 0 當成功。
+- [臨] 模型名以 `~/.codex/models_cache.json` 的 slug 為準：`gpt-6-astra`（無 `-900K` 後綴；帶後綴的名稱 API 回 400「not supported when using Codex with a ChatGPT account」，症狀同樣是 -o 檔不存在、錯因在 stderr 尾）。計畫審查用 `-s read-only -C <repo> --ephemeral -o <回覆檔>`，gpt-6-astra 實讀 20 檔約 17 萬 token、5 分鐘，8 BLOCK 全部站得住。
+- [臨] 審查簡報有效寫法：列「必讀檔＋行號」要它真開檔核對、列「禁區契約」逐條核對、要求 BLOCK 只給「不修就會錯」且附 file:line，最後附「核對表」讓它逐條回證實／推翻／部分——它會主動把我計畫裡過度絕對的措辭降級成「部分」，比只問「有沒有問題」有用得多。
 
 ## 行動
 

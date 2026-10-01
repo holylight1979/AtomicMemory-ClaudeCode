@@ -3687,6 +3687,43 @@
         "彈窗變多"
       ],
       "scope": "global"
+    },
+    {
+      "name": "knowledge-harvest-階段收割與vcs-sync機制指標與踩坑",
+      "path": "_AIDocs/_atoms/MemDev/knowledge-harvest-階段收割與vcs-sync機制指標與踩坑.md",
+      "triggers": [
+        "knowledge_harvest_report",
+        "KnowledgeHarvest",
+        "收割",
+        "Harvest-Pending",
+        "atom_retire",
+        "supersedes",
+        "receipt",
+        "vcs-sync",
+        "vcs_sync",
+        "wg_harvest",
+        "wg_vcs_sync",
+        "push 守門",
+        "記憶自動 commit",
+        "退役 atom"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用sendmessage喚醒",
+      "path": "memory/工作流/協作與並行/派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用sendmessage喚醒.md",
+      "triggers": [
+        "sub-agent",
+        "並行 agent",
+        "預告",
+        "agent 停了",
+        "0 tool uses",
+        "SendMessage",
+        "喚醒 agent",
+        "介面契約",
+        "共用檔唯一寫者"
+      ],
+      "scope": "global"
     }
   ]
 }

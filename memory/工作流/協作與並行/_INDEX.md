@@ -13,4 +13,5 @@
 | 並行agent產出併入交付物必須標驗證強度分層 | 並行agent產出併入交付物必須標驗證強度分層 |
 | 並行llm即時通訊-inbox機制 | 並行llm即時通訊-inbox機制 |
 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 |
+| 派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用sendmessage喚醒 | 派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用SendMessage喚醒 |
 | 雙claude協作實戰認知-fable監工opus主力的分工手感 | 雙claude協作實戰認知-fable監工opus主力的分工手感 |
