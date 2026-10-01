@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-10-01 settings.json 去機器專屬路徑（$LOCALAPPDATA／$HOME）
+- **緣由**：使用者發現上版控的 settings.json 每條 hook 指令與 statusLine 都寫死 `C:/Users/holylight/...`。實測（臨時 `--settings` hook echo）：Claude Code 在 Windows 用 Git Bash 跑 hook 指令，`$LOCALAPPDATA`／`$HOME`／`~`／`$CLAUDE_PROJECT_DIR` 會展開，`%VAR%` 不會。
+- **改**：19 條 pythonw 指令、2 條 run-bash-hidden、statusLine 全改 `"$LOCALAPPDATA/Python/bin/pythonw.exe"`＋`"$HOME/.claude/..."`，檔內零機器路徑；`tools/fix-hook-python.py` 認得並展開 `$VAR` 形式做存在檢查，改寫時落在 LOCALAPPDATA／家目錄下的直譯器也以 `$VAR/…` 寫回、一律加引號；Install-forAI、TECH §3.1 同步。新 session `--debug` 驗 hook 正常啟動。
+- **順帶全檔檢修**（官方 settings schema 驗 0 錯）：刪舊 session 寫入的整條 `PowerShell("whoami…")` 規則、已不存在的 `mcp__MCPControl__get_screen_size`、空 `env`、PostToolUse matcher 的已下架 `MultiEdit`；`WebFetch(*)` 改合法的 `WebFetch`；`.gitignore` 加 `settings.json.bak`（fix-hook-python 的備份不進版控）。 | `settings.json`, `tools/fix-hook-python.py`, `Install-forAI.md`, `TECH.md`, `.gitignore`
+
+---
+
 ## 2026-10-01 拆除 PAN 動手前預告閘門
 - **緣由**：使用者截圖「⛔ [Guardian:PreActionNotice] …工具呼叫已暫擋」每回合跳，裁決「沒有真正作用就去掉」。查證：mode 一直是 warn，工具照跑、「已暫擋」失實；`Logs/guard-pre-action-notice.jsonl` 2336 筆 warn 1088＋force_release 291 vs pass 861（miss 62%）。結構根因：模型的預告文字與回合首個 tool call 必在同一則 assistant 訊息，閘門讀 transcript 時 text block 多半未落盤，IDENTITY 要求的「預告單獨成一則」在 harness 上做不到。
 - **拆**：`pre_tool_use.py` PAN 區塊（約 330 行）與呼叫點、`config.json` `guard.pre_action_notice` 段、`verify_pre_action_notice.py`、`session_start.py` GC 的 pan-pass/pan-deny 條目與目錄；TECH §7.3 改為拆除記錄＋日落表、hook 註冊表／流程圖／config 總表、Architecture、Install-forAI 同步。IDENTITY.md 預告契約保留，刪「單獨成一則」句。 | `hooks/handlers/pre_tool_use.py`, `hooks/handlers/session_start.py`, `workflow/config.json`, `TECH.md`, `_AIDocs/Architecture.md`, `Install-forAI.md`

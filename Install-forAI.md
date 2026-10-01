@@ -90,8 +90,8 @@
 - 降級：codex 與 claude 都找不到 → heuristics-only，**SessionStart 揭露一次**（`[Codex Companion] 已停用：…`，每台機器一次）；本地 heuristics 軟閘與其餘 guardian 機制正常。不想要整個功能：`codex_companion.enabled=false`。
 
 **Hook 直譯器路徑**
-- 用途：`settings.json` 每條 hook 指令開頭都是**絕對路徑**的 Python（Windows 用 `pythonw.exe` 避免閃 console）。repo 內帶的是原作者機器的路徑。
-- 替代：`python tools/fix-hook-python.py --write` 用「跑這行的這支 python」改寫全部 hook 與 statusLine 指令（備份 `settings.json.bak`）；`--use <path>` 指定他支。
+- 用途：`settings.json` 每條 hook 指令開頭都指名直譯器（Windows 用 `pythonw.exe` 避免閃 console）。repo 內寫的是可攜形式 `"$LOCALAPPDATA/Python/bin/pythonw.exe"`（python.org 安裝管理員的預設位置）；Claude Code 在 Windows 用 Git Bash 跑 hook，`$LOCALAPPDATA`／`$HOME` 會展開（`%VAR%` 不會）。
+- 替代：Python 不在那個位置 → `python tools/fix-hook-python.py --write` 用「跑這行的這支 python」改寫全部 hook 與 statusLine 指令（備份 `settings.json.bak`；落在 LOCALAPPDATA／家目錄下仍以 `$VAR/…` 形式寫入）；`--use <path>` 指定他支。
 - 降級：不校正 → 全部 hook 起不來 → 回到原生 Claude Code，無任何記憶功能，但也不會壞。**不要自作主張改成裸 `python`**：PATH 首位未必是預期那支。
 
 ---
@@ -191,10 +191,10 @@ rsync -a "$SRC/_AIDocs/" "$DST/_AIDocs/"
 | Stop | — | `workflow-guardian.py`(10)、`codex_companion.py`(150)、`lang_guard.py`(5) |
 | SessionEnd | — | `workflow-guardian.py`(30)、`codex_companion.py`(5) |
 
-> `workflow-guardian.py` 是 1 行 shim → `hooks/dispatcher.py` → `hooks/handlers/{event}.py`。指令型式為 `<絕對路徑 pythonw.exe> -c "import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/xxx.py'),run_name='__main__')"`，bash 類 hook 經 `run-bash-hidden.py` 包一層。
+> `workflow-guardian.py` 是 1 行 shim → `hooks/dispatcher.py` → `hooks/handlers/{event}.py`。指令型式為 `"$LOCALAPPDATA/Python/bin/pythonw.exe" -c "import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/xxx.py'),run_name='__main__')"`，bash 類 hook 經 `"$HOME/.claude/hooks/run-bash-hidden.py"` 包一層。
 > `statusLine` 也由 repo `settings.json` 提供（`tools/statusline.py`）；使用者已有 statusLine 時保留使用者的。
 
-**合併後必做**：校正直譯器路徑（repo 內是原作者機器的絕對路徑）。
+**合併後必做**：確認直譯器路徑（repo 內是 `$LOCALAPPDATA/Python/bin/pythonw.exe`；Python 裝在別處才需改寫）。
 
 ```bash
 cd ~/.claude

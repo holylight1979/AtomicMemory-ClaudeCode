@@ -1,5 +1,4 @@
 {
-  "env": {},
   "permissions": {
     "allow": [
       "Bash(python *)",
@@ -9,12 +8,11 @@
       "Glob(*)",
       "Grep(*)",
       "WebSearch",
-      "WebFetch(*)",
+      "WebFetch",
       "mcp__workflow-guardian__atom_write",
       "mcp__workflow-guardian__atom_move",
       "mcp__workflow-guardian__atom_promote",
       "mcp__MCPControl__computer",
-      "mcp__MCPControl__get_screen_size",
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_snapshot",
       "mcp__playwright__browser_take_screenshot",
@@ -50,22 +48,22 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe \"C:/Users/holylight/.claude/hooks/run-bash-hidden.py\" user-init.sh",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" \"$HOME/.claude/hooks/run-bash-hidden.py\" user-init.sh",
             "timeout": 12
           },
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 20
           },
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/ensure-mcp.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/ensure-mcp.py'),run_name='__main__')\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -76,12 +74,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 8
           },
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
             "timeout": 3
           }
         ]
@@ -93,7 +91,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe \"C:/Users/holylight/.claude/hooks/run-bash-hidden.py\" webfetch-guard.sh",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" \"$HOME/.claude/hooks/run-bash-hidden.py\" webfetch-guard.sh",
             "timeout": 20
           }
         ]
@@ -103,7 +101,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/plan_bash_guard.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/plan_bash_guard.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -113,7 +111,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -121,11 +119,11 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|ExitPlanMode|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report|mcp__workflow-guardian__atom_write|mcp__workflow-guardian__atom_retire|mcp__workflow-guardian__knowledge_harvest_report",
+        "matcher": "Edit|Write|NotebookEdit|ExitPlanMode|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report|mcp__workflow-guardian__atom_write|mcp__workflow-guardian__atom_retire|mcp__workflow-guardian__knowledge_harvest_report",
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -135,7 +133,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
             "timeout": 3
           }
         ]
@@ -146,7 +144,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -157,7 +155,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -168,7 +166,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -179,17 +177,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
             "timeout": 150
           },
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/lang_guard.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/lang_guard.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -200,12 +198,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/workflow-guardian.py'),run_name='__main__')\"",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "C:/Users/holylight/AppData/Local/Python/bin/pythonw.exe -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
+            "command": "\"$LOCALAPPDATA/Python/bin/pythonw.exe\" -c \"import runpy,pathlib;runpy.run_path(str(pathlib.Path.home()/'.claude/hooks/codex_companion.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]
@@ -214,7 +212,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "C:/Users/holylight/AppData/Local/Python/bin/python.exe C:/Users/holylight/.claude/tools/statusline.py",
+    "command": "\"$LOCALAPPDATA/Python/bin/python.exe\" \"$HOME/.claude/tools/statusline.py\"",
     "padding": 0,
     "refreshInterval": 10
   },

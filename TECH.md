@@ -78,7 +78,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 
 ### 3.1 settings.json 九事件
 
-指令型式一律 `<pythonw.exe 絕對路徑> -c "import runpy...run_path(~/.claude/hooks/xxx.py)"`；安裝後必跑 `python tools/fix-hook-python.py --write` 把直譯器路徑改成本機。
+指令型式一律 `"$LOCALAPPDATA/Python/bin/pythonw.exe" -c "import runpy...run_path(~/.claude/hooks/xxx.py)"`——Claude Code 在 Windows 用 Git Bash 跑 hook 與 statusLine 指令，`$VAR`／`~` 展開、`%VAR%` 不展開（實測），settings.json 因此不帶機器專屬路徑；Python 不在該位置的機器跑 `python tools/fix-hook-python.py --write`（仍以 `$LOCALAPPDATA/…`／`$HOME/…` 形式寫入）。
 
 | 事件 | matcher | 掛的 hook（timeout 秒） | 職責 |
 |------|---------|------|------|
@@ -87,7 +87,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | PreToolUse | `WebFetch` | `webfetch-guard.sh`(20) | 抓網頁前置護欄 |
 | PreToolUse | `Bash` | `plan_bash_guard.py`(5) | Plan Mode 彈窗攔截：必彈窗寫法 deny＋改寫提示（§7.5） |
 | PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | 跨 session 同檔互寫預警、git commit 隱私硬閘、git commit 口令閘、subagent 記憶注入 |
-| PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|Bash\|Agent\|Task\|ExitPlanMode\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
+| PostToolUse | `Edit\|Write\|NotebookEdit\|ExitPlanMode\|Bash\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
 | PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom |
 | Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Deferral、KnowledgeHarvest／Harvest-Pending、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
@@ -218,7 +218,7 @@ sequenceDiagram
   細節（stage 方向矩陣、CLI 契約、失敗模式 SOP、不在保證範圍）→ `_AIDocs/MultiMachineMemorySync.md`。
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
-- 現況計數：<!-- atom-breakdown -->215 atoms：core 99 + feedback 28 + 失敗模式 2 + local 86〔Tools11/MemDev69/OS2/CC與原子記憶契約1/Vision1/工作流2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->216 atoms：core 100 + feedback 28 + 失敗模式 2 + local 86〔Tools11/MemDev69/OS2/CC與原子記憶契約1/Vision1/工作流2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -261,7 +261,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->215<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->216<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 

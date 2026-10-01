@@ -1,7 +1,11 @@
-"""fix-hook-python.py — 把 settings.json 內寫死的 Python 直譯器路徑校正成本機可用的一支。
+"""fix-hook-python.py — 把 settings.json 內的 Python 直譯器路徑校正成本機可用的一支。
 
 為什麼需要：hook 指令必須指名一個直譯器，而 settings.json 進 git。
-別台機器沿用原作者的絕對路徑 → 全部 hook 起不來（14 處指令一起死）。
+repo 內寫的是可攜形式 `"$LOCALAPPDATA/Python/bin/pythonw.exe"`（python.org 安裝管理員
+的預設位置；Claude Code 在 Windows 用 Git Bash 跑 hook 指令，`$VAR` 會展開）。
+Python 不在那裡的機器 → 全部 hook 起不來（14 處指令一起死），要用本工具校正。
+改寫時仍以 `$LOCALAPPDATA/…`、`$HOME/…` 形式寫入（落在這兩個目錄下的話），
+settings.json 不帶機器專屬路徑。
 
 為什麼不直接寫裸 `python`：PATH 上的 `python` 未必是你想要的那支
 （實例：某機 PATH 首位是某 venv 的 3.11，而 hook 原本跑 3.14）。
@@ -19,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -66,11 +71,31 @@ def current_interpreters(settings: dict) -> List[Tuple[str, str]]:
     return found
 
 
+def expand(path: str) -> str:
+    """展開 $HOME／$VAR／%VAR%（hook 經 Git Bash 執行時 bash 會做同樣的事）。"""
+    home = Path.home().as_posix()
+    return os.path.expandvars(path.replace("${HOME}", home).replace("$HOME", home))
+
+
+def portable(path: str) -> str:
+    """絕對路徑落在 LOCALAPPDATA／家目錄下 → 改寫成 $LOCALAPPDATA/…／$HOME/… 形式。"""
+    p = Path(path).resolve()
+    for var, base in (("LOCALAPPDATA", os.environ.get("LOCALAPPDATA")), ("HOME", str(Path.home()))):
+        if not base:
+            continue
+        try:
+            rel = p.relative_to(Path(base).resolve())
+        except ValueError:
+            continue
+        return f"${var}/{rel.as_posix()}"
+    return p.as_posix()
+
+
 def verify_interpreter(path: str) -> Tuple[bool, str]:
     """實跑候選直譯器確認版本，不靠檔名猜。"""
     try:
         out = subprocess.run(
-            [path, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
+            [expand(path), "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
             capture_output=True, text=True, timeout=20,
         )
     except (OSError, subprocess.SubprocessError) as e:
@@ -99,6 +124,7 @@ def windowless_sibling(path: str) -> str:
 def rewrite(settings: dict, new_interp: str) -> List[Tuple[str, str, str]]:
     """就地改寫所有指令開頭的直譯器。回 [(欄位, 舊, 新)]。"""
     changes = []
+    new_interp = expand(new_interp)
     win_variant = windowless_sibling(new_interp)
     for desc, holder, key in iter_command_slots(settings):
         cmd = holder[key]
@@ -107,10 +133,10 @@ def rewrite(settings: dict, new_interp: str) -> List[Tuple[str, str, str]]:
             continue
         old = m.group("path")
         # 原本用 pythonw（不彈 console 視窗）→ 換成對應的 w 版，維持原意圖
-        target = win_variant if m.group("name").endswith("w") else new_interp
+        target = portable(win_variant if m.group("name").endswith("w") else new_interp)
         if old == target:
             continue
-        quoted = f'"{target}"' if " " in target else target
+        quoted = f'"{target}"'  # 一律加引號：$VAR 展開後可能含空白
         holder[key] = cmd.strip().replace(m.group(0), quoted, 1)
         changes.append((desc, old, target))
     return changes
@@ -130,7 +156,8 @@ def main() -> int:
     print(f"settings.json：{SETTINGS}")
     broken = 0
     for desc, path in current_interpreters(settings):
-        exists = Path(path).is_file() or shutil.which(path) is not None
+        real = expand(path)
+        exists = Path(real).is_file() or shutil.which(real) is not None
         mark = "OK " if exists else "缺失"
         if not exists:
             broken += 1

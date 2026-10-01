@@ -3772,6 +3772,24 @@
         "共用 tmp"
       ],
       "scope": "global"
+    },
+    {
+      "name": "cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑",
+      "path": "memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md",
+      "triggers": [
+        "hook 指令",
+        "settings.json 路徑",
+        "機器專屬路徑",
+        "LOCALAPPDATA",
+        "$HOME",
+        "pythonw 路徑",
+        "statusLine",
+        "hook shell",
+        "Git Bash",
+        "可攜路徑",
+        "fix-hook-python"
+      ],
+      "scope": "global"
     }
   ]
 }
