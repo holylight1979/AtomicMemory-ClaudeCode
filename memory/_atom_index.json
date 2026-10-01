@@ -3790,6 +3790,34 @@
         "fix-hook-python"
       ],
       "scope": "global"
+    },
+    {
+      "name": "whoami-輸出走-oem-碼頁-cp950-非-utf-8-中文群組名用-utf-8-解碼會靜默變亂碼",
+      "path": "memory/OS-Windows/whoami-輸出走-oem-碼頁-cp950-非-utf-8-中文群組名用-utf-8-解碼會靜默變亂碼.md",
+      "triggers": [
+        "whoami",
+        "OEM 碼頁",
+        "cp950",
+        "GetOEMCP",
+        "subprocess 中文亂碼",
+        "AD 群組",
+        "console 編碼",
+        "mbcs"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1",
+      "path": "_AIDocs/_atoms/MemDev/org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1.md",
+      "triggers": [
+        "org-memory",
+        "公司層記憶",
+        "org_memory",
+        "scope=org",
+        "空索引 exit 1",
+        "sync-memory-index --check"
+      ],
+      "scope": "global"
     }
   ]
 }

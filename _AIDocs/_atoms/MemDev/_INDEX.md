@@ -33,6 +33,7 @@
 | knowledge-harvest-階段收割與vcs-sync機制指標與踩坑 | knowledge-harvest-階段收割與vcs-sync機制指標與踩坑 |
 | mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原 | MCP js 改動後未重啟-lazy-require 新舊模組混載-tool 回 undefined 類錯誤不是 bug-Reload Window 即復原 |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
+| org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1 | org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1 |
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | OTEL 遙測評估結論-不實作-兩目標指標皆測不到 |
 | pan-hermes不移植部件與vscode-text-block不落盤實測 | pan-hermes不移植部件與vscode-text-block不落盤實測 |
 | posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位 | PostToolUse的tool_response不等於模型看到的結果-Edit帶整份originalFile-量context浪費要按工具取可見欄位 |
