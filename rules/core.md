@@ -21,4 +21,5 @@
 ## 對話
 - 「用識流…」→ /consciousness-stream；/resume → /continue。
 - 獨立子任務可新開對話，拆分前確保知識已存入；Context 壓縮即將發生 → 提醒開新 session。
+- **Plan Mode 查讀**一律用 Read / Grep / Glob 工具，不用 Bash 的 cat/grep/sed 替代（Plan Mode 暫停 bypass，Bash 要過唯讀判定會彈窗）；Bash 指令不加 `cd /c/...` 前綴，直接寫絕對路徑。
 - 並行 sub-agent／知識檢索 fan-out：hook 命中會提示，但**未命中而明顯受益**（多個互不衝突切面／幫我查・研究一下型請求）仍主動評估；判準 [[workflow-parallel-agents]]、[[workflow-research-fanout]]。

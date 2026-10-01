@@ -26,9 +26,23 @@
       "mcp__playwright__browser_select_option",
       "mcp__playwright__browser_fill_form",
       "mcp__playwright__browser_network_requests",
-      "mcp__playwright__browser_evaluate"
+      "mcp__playwright__browser_evaluate",
+      "Bash(git config *)",
+      "Bash(cd *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(sed -n *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(wc *)",
+      "Bash(python -c *)",
+      "Bash(codex exec *)",
+      "Bash(codex --version)"
     ]
   },
+  "model": "claude-fable-5-1[1m]",
   "hooks": {
     "SessionStart": [
       {
@@ -198,6 +212,5 @@
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "light",
-  "switchModelsOnFlag": false,
-  "model": "claude-fable-5-1[1m]"
+  "switchModelsOnFlag": false
 }

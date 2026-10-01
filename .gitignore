@@ -1,5 +1,9 @@
 # ─── Credentials & Auth (NEVER commit) ───────────────────
 .credentials.json
+# CC 執行期檔（鎖檔／遠端設定快取／MCP 探測裁決）
+.credentials.lock
+remote-settings.json
+state/
 mcp-needs-auth-cache.json
 workflow/.rdchat_password
 workflow/.rdchat_token.json

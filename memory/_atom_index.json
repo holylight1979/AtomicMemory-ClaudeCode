@@ -3670,6 +3670,23 @@
         "~ 結尾"
       ],
       "scope": "global"
+    },
+    {
+      "name": "plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法",
+      "path": "memory/CC與原子記憶契約/plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法.md",
+      "triggers": [
+        "plan mode",
+        "權限詢問",
+        "permission prompt",
+        "bypass",
+        "bypassPermissions",
+        "cd /c/",
+        "Read(//c/",
+        "settings.json allow",
+        "useAutoModeDuringPlan",
+        "彈窗變多"
+      ],
+      "scope": "global"
     }
   ]
 }
