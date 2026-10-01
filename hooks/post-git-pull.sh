@@ -35,12 +35,32 @@ mkdir -p "$LOG_DIR"
 if command -v curl >/dev/null 2>&1; then
   curl -sS -m 3 -X POST http://127.0.0.1:3849/index/incremental \
     >/dev/null 2>>"$LOG_DIR/_pull_audit.err.log" || true
-  # 等待增量索引收斂（輪詢狀態，最多 12s；平均新檔 ~2s/個）
+  # 等待增量索引收斂（輪詢 /status 的 index_job.running，最多 12s；平均新檔 ~2s/個）。
+  # /status 沒有 index_job（服務起來後還沒跑過索引）、服務不可達、index_job.error 三種都直接停，不空等到上限。
   for i in 1 2 3 4 5 6; do
     sleep 2
-    STATUS="$(curl -sS -m 2 http://127.0.0.1:3849/status 2>/dev/null | \
-              python -c "import json,sys; d=json.load(sys.stdin); print(d.get('indexing',True))" 2>/dev/null)"
-    [ "$STATUS" = "False" ] && break
+    RAW="$(curl -sS -m 2 http://127.0.0.1:3849/status 2>/dev/null)" || { echo "[atom-v4] vector service unreachable; skip wait" >&2; break; }
+    STATE="$(printf '%s' "$RAW" | python -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('unreadable'); sys.exit()
+job = d.get('index_job')
+if not isinstance(job, dict):
+    print('none')
+elif job.get('error'):
+    print('error:' + str(job['error'])[:80])
+else:
+    print('running' if job.get('running') else 'done')
+" 2>/dev/null)"
+    case "$STATE" in
+      running) ;;
+      done) break ;;
+      none) break ;;
+      error:*) echo "[atom-v4] vector index job failed: ${STATE#error:}" >&2; break ;;
+      *) echo "[atom-v4] /status unreadable; skip wait" >&2; break ;;
+    esac
   done
 fi
 

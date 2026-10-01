@@ -141,10 +141,37 @@ git add <三檔>
 
 根層 `<dir>`＝`~/.claude/memory`（local 範疇另在 `_AIDocs/_atoms/`，`sync-memory-index.py --write` 不帶 `--memory-dir` 即兩根都重生）；專案 `<dir>`＝`{proj}/.claude/memory`。
 
+## 自動拉取（vcs-sync worker 拉段）
+
+程式：`hooks/wg_vcs_sync.py`（`_git_pull`／`_git_isolated_rebase`／`svn_update_targets`，檔頭「拉」段有設計理由）；觸發：SessionStart `handlers/session_start.py::_spawn_pull_sync`（讀索引前 spawn，`reason=pull`，不等）＋ worker 每輪 git 順序 commit → 拉 → push；開關 `workflow/config.json` `vcs_sync.pull.{enabled, fetch_timeout_s}`，與 `vcs_sync.push` 獨立。
+
+流程（git）：
+1. `fetch`（`fetch_timeout_s`）；失敗只落 `.behind`（理由 fetch 失敗），push 段照跑。
+2. 一次固定 H（本地分支）／U（FETCH_HEAD），`behind`／`ahead` 用 rev-list 算；behind=0 → 清 `.behind` 結束。
+3. incoming 逐 commit 分類：全部路徑在記憶 pathspec 內且不被 `vcs_sync.exclude` 才是「純記憶」（merge commit 一律非純）。
+4. 三條路：
+   - **ahead=0 ∧ 純記憶** → 「ref＋pathspec 同步」：記憶路徑乾淨才 `update-ref`（CAS）＋ `restore --source=U --staged --worktree -- <pathspecs>`；主工作樹只有記憶路徑的 index／工作樹被對齊，程式碼路徑零觸碰（用 restore 而非 `checkout U -- <pathspecs>`：checkout 不會刪上游已刪的檔）。
+   - **ahead=0 ∧ 含程式碼** → 整樹乾淨（`status --porcelain -uno` 空）才 `merge --ff-only`（顯式關 `merge.autoStash`）。
+   - **ahead>0（分叉）** → 本地 ahead 純記憶 ∧ incoming 純記憶 ∧ 記憶路徑乾淨才在**隔離暫時 worktree** `rebase U`（主工作樹不 rebase：鎖只互斥 worker、擋不住他 session 同時寫檔，autostash 也不是完整交易）；衝突迴圈有界（≤ ahead 次）、只接受 `check-attr merge=atomindex` 的索引檔並交 `merge-atom-index.py --resolve`（檢查返回碼／`error`／`remaining`／`ls-files -u`），任何其他衝突或 resolver 失敗 → `rebase --abort` + `worktree remove`。成功後主 repo 只 `update-ref`（CAS）＋記憶 pathspec restore。
+5. 拉成功：向量增量索引（fail-open）＋ `sync-atom-index --check`（漂移只記 log）；roots.json `last_pull`／`pulled_commits`、`pull_error=None`；清 `.behind`。push 段**重新**取 H 再守門。
+
+主工作樹寫入的三道保險：① `update-ref` 之前重驗 symbolic HEAD 仍在該分支且 HEAD==H（`_git_on_branch`），整合期間別人切了分支就放棄本輪；② `update-ref` 之前先落 `workflow/vcs-sync/<hash>.recover.json`（branch／from／to／pathspecs），restore 成功才刪——restore 中途失敗（index.lock 等）時下一輪 `_git_recover` 先重做 restore，做不成就本輪**不 commit、不 push**（否則會把「相對新 HEAD 缺的上游新檔」當本地刪除提交出去）；②-b restore 之前逐檔比對工作樹／index 與 from 樹及目標樹（`_git_new_edits`）：兩者皆不符＝有人在恢復或整合期間編輯了記憶檔 → 不覆蓋、保留 recover、`.behind` 留人；HEAD 已是目標的後代（別人又在同分支 commit）→ 改以 HEAD 為 restore 來源；③ 隔離 worktree 的建立與清理都在 try/finally，remove 重試、prune、驗證無殘留，殘留即 `.behind`。純 pull 請求有冷卻（`vcs_sync.pull.cooldown_s`，預設 600 秒）：記憶路徑無本地變更且上次拉取在冷卻內就跳過拉段；advisory 的「拉入 N 筆」靠 roots.json `pull_reported_at` 只報一次。
+
+什麼情況留 `.behind`（`workflow/vcs-sync/<root-hash>.behind`，JSON `reason/at`；roots.json `pull_error` 同值；下個 SessionStart `_pull_advisory_lines` 浮出一行）→ 人手 `git pull --rebase`（三層防線接手索引三檔）：fetch 失敗／逾時；incoming 含程式碼 commit 且本地有未提交改動；分叉但本地 ahead 含程式碼 commit、或 incoming 含程式碼、或記憶路徑不乾淨；隔離 rebase 遇到索引檔以外的衝突（atom 本文兩側同改）或 resolver 解不開；CAS 失敗（整合期間分支被別人動了，本輪放棄）。`.behind` 與 push 側的 `.unpushed`／`last_error` 分欄、互不清除；請求 ack 只看 commit＋push 段。
+
+svn（`svn_update_targets`，取代舊 out-of-date 重試）：先把 validated 退役且 `missing` 的檔 `svn delete`（schedule），其他 `missing` 存在 → 本輪不 update、`.behind`（理由列路徑；update 會把檔補回）；`svn update --accept postpone -- <memory paths>` 後 `status --xml` 看 text／property（`props`）／tree 衝突：只有索引三檔 text 衝突 → `--resolve --cwd`；其餘衝突 → `.behind` 並停止本輪（不 commit）。**mixed-revision 工作副本可接受**（只 update 記憶 pathspec）。
+
+既定策略與限制：
+- **索引 scalar 兩側異改取 ours**（`merge_scalar`：兩側同→取、單側改→取改的、異改→ours）；隔離 rebase 裡 ours＝上游（見「stage 方向矩陣」），所以 `MEMORY.md`／`_atom_index.json` 單值欄（caption、Confidence 等）兩機同改會無聲取上游值且 rebase 報成功——不改策略，撞到時以上游為準再補寫。
+- **拉入的 atom 下一個 session 才進候選池**：候選池 SessionStart 建一次，advisory 只報「上次拉入 N 筆、候選池以本次載入快照為準」，不宣稱本 session 已載入；不做啟動時同步等待的快速路徑。
+- 主工作樹的不可逆面只有 `update-ref`（CAS，reflog 可回）與記憶 pathspec restore；rebase 全在暫時 worktree，失敗即丟棄。
+- `hooks/post-git-pull.sh`（post-merge 樣板）根層不裝：worker 已負責拉；它是專案 `shared/` 的 pull-audit，`/status` 讀 `index_job.running`，缺 `index_job`／服務不可達／`index_job.error` 各自提早結束。
+- 驗證：`hooks/verify/verify_vcs_sync_worker.py`（純記憶 ff 在髒程式碼樹成功且程式碼檔未動、含程式碼 incoming 髒樹 → 標記、分叉純記憶隔離 rebase 且主樹其他 staged 檔原封不動、索引三檔衝突自動解、atom 本文衝突 → abort＋標記＋tmp worktree 清掉、fetch timeout → 標記且 push 段仍跑、svn retired missing 先 delete 再 update、其他 missing 不 update、property conflict 判定）。
+
 ## 不在保證範圍
 
 - **尚未 pull 到含本版 hook 的 checkout**：帶來新 hook 的那次 pull 跑的還是舊 hook。上線一次性步驟：`cd ~/.claude && git pull` 後跑一次 `python tools/merge-atom-index.py --install`；那次 pull 若本身卡在三檔，`--resolve` 可解。
-- **CC 以外的 pull**（Fork、裸終端）：驅動裝好前會停一次；裝好後 Fork 也受益（驅動在 git 本身的 global config）。不為 Fork 另補自動安裝。
+- **CC 以外的 pull**（Fork、裸終端）：驅動裝好前會停一次；裝好後 Fork 也受益（驅動在 git 本身的 global config）。不為 Fork 另補自動安裝。vcs-sync worker 的隔離 rebase 不依賴驅動是否已裝（直接呼叫 resolver）。
 - **git plumbing 寫入**（`hash-object`／`update-index` 直寫 blob）繞過 `.gitattributes` 正規化。
 - **他機 repo-local attributes 覆寫**：`.git/info/attributes` 或更靠近檔案的 `.gitattributes` 可以蓋掉 `merge=atomindex`／`eol=lf`；只能靠 `--status`／`normalize-eol --check` 事後發現。
 - **第三方程式寫檔**、**沒有 CI／伺服器端檢查**：LF 保證是本機層（守衛＋巡檢），不是遠端強制。

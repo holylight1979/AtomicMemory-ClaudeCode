@@ -560,6 +560,11 @@
       "**/*.access.json",
       "memory/_meta/**"
     ],
-    "timeout_s": 60
+    "timeout_s": 60,
+    "pull": {
+      "enabled": true,
+      "fetch_timeout_s": 20,
+      "_doc": "記憶層自動拉取（worker 內 commit 之後、push 之前）：fetch → 純記憶 incoming 走 ref+pathspec 同步；含程式碼只在整樹乾淨時 ff-only；分叉在隔離 worktree rebase（索引三檔由 merge driver 自動解）。不受 push 開關影響。"
+    }
   }
 }

@@ -46,7 +46,7 @@ Session Ready
 [PreCompact] → state snapshot + injected_atoms 快照
 [PostCompact] → stash 壓縮前 atom 緊湊內文 + pending_reinjection flag（不注入）
 [PostToolBatch] → 見 flag 一次性重注入壓縮前 atom 內文（閉 mid-turn auto-compact 缺口；選配 #4）
-[SessionEnd] → episodic 生成 + LLM 萃取 + 跨 session 鞏固 + Wisdom 反思 + audit-reconcile + spawn vcs-sync worker（記憶目錄背景 commit/push）
+[SessionEnd] → episodic 生成 + LLM 萃取 + 跨 session 鞏固 + Wisdom 反思 + audit-reconcile + spawn vcs-sync worker（記憶目錄背景 commit → 拉 → push；SessionStart 另 spawn 一次 `reason=pull`）
 ```
 
 ## 2. 設定檔層
@@ -108,8 +108,8 @@ Session Ready
 | run-hidden.py / run-bash-hidden.py | — | Windows 下不閃視窗地 spawn 子程序 / 跑 .sh hook |
 | wg_rescue.py | — | 救援日誌：注入 atom 高特異 token watch + 工具呼叫命中 → `Logs/rescue-log.jsonl`（純字串比對） |
 | wg_harvest.py | — | 階段收割純函式：Stop 閘判定（`harvest_gate_reason`／`pending_gate_reason`）、receipt 解析入帳、items 核對、ledger append、`vcs_sync_lock_active`；state 按 session_id 分區 |
-| wg_vcs_sync.py | — | 記憶庫背景上版控：目標集（根層 `memory`+`_AIDocs/_atoms`、專案 `.claude/memory`，各找最近 VCS root）、OS 互斥鎖＋`.req/` 請求檔合併、`.unpushed` 標記、`workflow/vcs-sync/roots.json`、`spawn_vcs_sync`、主邏輯 `sync_targets_inline` |
-| vcs-sync-worker.py | — | detached worker：git pathspec add＋commit、push 守門（待推歷史含非記憶 commit 不推）；svn `--xml` add／delete／commit；stderr → `Logs/vcs-sync.log` |
+| wg_vcs_sync.py | — | 記憶庫背景上版控：目標集（根層 `memory`+`_AIDocs/_atoms`、專案 `.claude/memory`，各找最近 VCS root）、OS 互斥鎖＋`.req/` 請求檔合併、`.unpushed`／`.behind` 標記、`workflow/vcs-sync/roots.json`（含拉側 `last_pull`／`pulled_commits`／`pull_error`）、`spawn_vcs_sync`、主邏輯 `sync_targets_inline`；拉段 `_git_pull`（incoming 分類、ref＋pathspec restore、ff-only）／`_git_isolated_rebase`（隔離 worktree）／svn `svn_update_targets`；行為 TECH §6.3、`MultiMachineMemorySync.md` 自動拉取節 |
+| vcs-sync-worker.py | — | detached worker：git pathspec add＋commit → 拉（`vcs_sync.pull.enabled`）→ push 守門（待推歷史含非記憶 commit 不推）；svn `--xml` add／delete／update／commit；stderr → `Logs/vcs-sync.log` |
 | wg_recall_miss.py | — | 失念偵測（recall-miss）：SessionEnd 比對「失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |
 | extract-worker.py | — | SessionEnd 萃取子程序 |
@@ -249,7 +249,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->212<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->215<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2

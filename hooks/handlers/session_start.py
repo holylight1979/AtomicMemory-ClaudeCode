@@ -441,8 +441,24 @@ def _followup_advisory() -> list:
         return ["[Guardian:Followup] ⚠ 回訪檢查器執行失敗（見 atom-debug log）——手動跑 python tools/followup-check.py --run"]
 
 
+def _spawn_pull_sync(session_id: str, cwd: str, config: Dict[str, Any]) -> int:
+    """SessionStart 的拉取觸發：`vcs_sync.enabled` 且 `vcs_sync.pull.enabled` 才 spawn（reason="pull"）。
+    fail-open：任何失敗只進 atom-debug log（spawn 自己會留 `.unpushed`／last_error 給 advisory）。回 pid（0＝未起）。"""
+    try:
+        import wg_vcs_sync as _vs
+        vs = _vs.vcs_sync_config(config or {})
+        if not vs.get("enabled", True) or not (vs.get("pull") or {}).get("enabled", True):
+            return 0
+        return _vs.spawn_vcs_sync(session_id, cwd, reason="pull", config=config)
+    except Exception as e:
+        _atom_debug_error("session_start:spawn_pull_sync", e)
+        return 0
+
+
 def _unpushed_advisory() -> list:
     """本地有已 commit 未 push／worker 留下 `.unpushed` 標記的 root → advisory 行（無則回 []）。
+    拉側（roots.json 的 last_pull／pulled_commits／pull_error 與 `.behind` 標記）也在這裡報：拉入 N 筆 → 一行提醒
+    候選池以本次載入快照為準；`.behind` → 一行理由。pull 欄位與 push 的 last_error 分欄，解除 `.unpushed` 的邏輯不碰它們。
 
     存在理由：vcs-sync worker 在背景 commit+push 記憶庫，push 守門擋下（本地有未發布程式碼
     commit）或 push／svn commit 失敗時只留標記與 log、當下沒人看得到。這裡在下個 session 開頭補上
@@ -524,11 +540,40 @@ def _unpushed_advisory() -> list:
                 lines.append(
                     f"[Guardian:Sync] ⚠ {label} 有 {pending} 筆同步請求無人處理（worker 未起或中斷）"
                     "→ 下次收割／SessionEnd 會自動補跑；急的話手動 python hooks/vcs-sync-worker.py。")
+            lines.extend(_pull_advisory_lines(_vs, root, label, info))
         return lines
     except Exception as e:
         _atom_debug_error("session_start:unpushed_advisory", e)
         # fail-open 但要告知：這個檢查曾靜默 crash 三週沒人知道
         return [f"[Guardian:Sync] ⚠ 未 push 檢查失敗（{type(e).__name__}）——見 atom-debug log；手動 git status 確認。"]
+
+
+def _pull_advisory_lines(_vs, root, label: str, info: Dict[str, Any]) -> list:
+    """拉側兩行（各自可缺）：上次拉入 N>0 筆 → 提醒候選池是本次載入快照；`.behind` 標記（或只剩 pull_error）→ 理由。
+    「拉入 N 筆」一次性：報過就把 last_pull 記進 roots.json pull_reported_at，同一次 last_pull 不再報（cooldown 內
+    的 reason=pull 請求不會覆寫 last_pull，沒有這個欄位會每個 session 重複報）。"""
+    try:
+        lines = []
+        pulled = info.get("pulled_commits") or 0
+        last_pull = info.get("last_pull")
+        if last_pull and pulled > 0 and info.get("pull_reported_at") != last_pull:
+            lines.append(
+                f"[Guardian:Sync] {label} 記憶層上次同步拉入 {pulled} 筆 commit（{str(last_pull)[:19]}）；"
+                "候選池以本次載入快照為準。")
+            # 「只報一次」盡力而為：寫 pull_reported_at 失敗（roots.lock 逾時，回 False、已進 atom-debug log）就不算
+            # 已報，下個 session 會再報同一次拉入；兩個 session 同時讀到同一份快照也會各報一次。重報一行提醒無害，
+            # 不為此在讀→判→寫之間加鎖。
+            if _vs:
+                _vs.update_root_record(_vs.SyncTarget(info.get("vcs", "git"), root, list(info.get("pathspecs") or [])),
+                                       pull_reported_at=last_pull)
+        rec = _vs.read_behind_record(root) if _vs else None
+        reason = (rec or {}).get("reason") or info.get("pull_error")
+        if reason:
+            lines.append(f"[Guardian:Sync] ⚠ {label} 記憶層落後未併入：{str(reason)[:100]}（見 Logs/vcs-sync.log）")
+        return lines
+    except Exception as e:
+        _atom_debug_error("session_start:pull_advisory", e)
+        return [f"[Guardian:Sync] ⚠ {label} 拉取狀態檢查失敗（{type(e).__name__}）——見 atom-debug log。"]
 
 
 def _index_conflict_advisory(cwd: str) -> list:
@@ -867,6 +912,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             state["phase"] = existing.get("phase", "working")
         if sibling and source == "startup":
             state["_skip_vector_init"] = True
+
+        # ── 記憶層背景「拉」：在首次讀索引之前 detached 起 vcs-sync worker（秒回、不等）。
+        # 趕不趕得上本次候選池隨緣——拉入的 atom 下一個 session 才一定進候選池，advisory 只報同步事實。
+        _spawn_pull_sync(session_id, cwd, config)
 
         global_atoms = parse_memory_index(MEMORY_DIR)
         # ── V5+ realm 注入閘門（範疇限定）──────────────────────────────────────

@@ -3,6 +3,7 @@
 
 由 wg_vcs_sync.spawn_vcs_sync 起（pythonw、stderr → Logs/vcs-sync.log）。
 stdin JSON：{session_id, cwd, reason, retired_paths, config, targets?, enqueued?}
+  - reason：harvest／session-end／pull（SessionStart 起的拉取；同一條主邏輯 commit → 拉 → push）
   - targets 缺省時依 cwd 重算（collect_sync_targets）
   - retired_paths 由 spawn 端合併 ledger（只採 validated 紀錄）後帶入，請求檔也已帶同一份
   - enqueued=true 表示 spawn 端已把請求落 `.req/`，這裡不再重複落檔；缺省（手動跑）則由主邏輯落檔
@@ -64,7 +65,7 @@ def main() -> int:
         results = sync_targets_inline(targets, config, retired_paths=retired, log=_log, pre_sync=True,
                                       reason=reason, session_id=session_id,
                                       enqueue=not ctx.get("enqueued"))
-        summary = {r["root"]: r.get("status") for r in results}
+        summary = {r["root"]: (r.get("status"), (r.get("pull") or {}).get("status")) for r in results}
         _log(f"finish {summary}")
         _account("finish", ctx, results=results)
         return 0

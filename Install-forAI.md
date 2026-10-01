@@ -64,8 +64,8 @@
 - 降級：`hooks/ensure-mcp.py` 在 SessionStart 找不到 node → 寫 `workflow/mcp-needs-node.flag` 並結束，不註冊 MCP；`anti_evasion_report` 收尾檢核與 `knowledge_harvest_report` 階段收割回報因 MCP tool 不存在而無法提交（Stop 閘為 fail-open，會放行）。hooks、注入、萃取全部照常。
 
 **Git**
-- 用途：Stop 同步閘（`hooks/handlers/stop.py` `_detect_uncommitted_files`）、SessionStart 未 push advisory（`workflow/vcs-sync/roots.json` 全部 root）、記憶庫背景上版控 worker（`hooks/vcs-sync-worker.py`：收割 validated／SessionEnd 後對 `memory`、`_AIDocs/_atoms`、專案 `.claude/memory` 做 pathspec add+commit，待推歷史全是記憶 commit 才 push；config `vcs_sync.*`）、`hooks/post-git-pull.sh` pull 後稽核。
-- 替代：SVN 工作區同樣被同步閘辨識（`.svn` 目錄）；vcs-sync worker 對 svn 走 `--xml` 逐檔 add／commit。
+- 用途：Stop 同步閘（`hooks/handlers/stop.py` `_detect_uncommitted_files`）、SessionStart 未 push advisory（`workflow/vcs-sync/roots.json` 全部 root）、記憶庫背景上版控 worker（`hooks/vcs-sync-worker.py`：SessionStart（`reason=pull`）／收割 validated／SessionEnd 後對 `memory`、`_AIDocs/_atoms`、專案 `.claude/memory` 做 pathspec add+commit → 拉（fetch 後純記憶 incoming 走 ref+pathspec restore、含程式碼只在整樹乾淨 ff-only、分叉純記憶在隔離 worktree rebase；不能併入落 `workflow/vcs-sync/<hash>.behind` + roots.json `pull_error`，SessionStart advisory 提示人手 `git pull --rebase`）→ 待推歷史全是記憶 commit 才 push；config `vcs_sync.*`／`vcs_sync.pull.*`；roots.json 每 root 記 `last_sync`／`last_error`（推）與 `last_pull`／`pulled_commits`／`pull_error`（拉）；流程 `_AIDocs/MultiMachineMemorySync.md` 自動拉取節）、`hooks/post-git-pull.sh` pull 後稽核（post-merge 樣板，手動裝到**專案** repo；**根層不裝**——worker 已負責拉）。
+- 替代：SVN 工作區同樣被同步閘辨識（`.svn` 目錄）；vcs-sync worker 對 svn 走 `--xml` 逐檔 add／update／commit（update 前先 schedule-delete 已驗證退役的 missing 檔，其他 missing 不自動 update）。
 - 降級：`_detect_uncommitted_files` 對非 git/svn 目錄回 `None`＝**整個同步閘跳過**（不提醒也不阻斷）；git 執行檔不存在時 `git status` 拋 `FileNotFoundError` → 該組回 `None` → 同樣跳過。其餘閘門不受影響。
 
 **Ollama（本地 daemon `http://127.0.0.1:11434`）**
