@@ -6,7 +6,10 @@ tool output / 檔名術語），「用繁中回應」的 salience 逐輪衰減 �
 
 機制：Stop hook 量測 assistant 終版訊息「英文語言字元佔比」，先剝除 code
 fence / inline code / URL（政策 B：只管 user-facing 對話輸出，不管碼），超門檻
-→ systemMessage 提醒繁中（可見、非阻斷；同時注入下一輪 → 模型自我修正）。
+→ 以 hookSpecificOutput.additionalContext 回饋模型（Stop 事件支援：回合結尾注入、
+對話續跑一回合讓模型用繁中重答）。不用 systemMessage——該欄位只顯示給使用者，
+模型讀不到，等於零效果。stop_hook_active=true（本回合已是 Stop 續跑）→ 不再
+觸發，避免模型再度英文時無限續跑。
 
 Design: plans/kind-marinating-lerdorf.md（P8b）。standalone，仿 codex_companion
 模式，不 import 共用 state 邏輯。config: workflow/config.json → lang_guard。
@@ -164,6 +167,10 @@ def _get_last_assistant_text(input_data: Dict[str, Any]) -> str:
 
 
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    # 已是 Stop hook 續跑的回合 → 不再觸發（最多提醒一次，防迴圈）
+    if input_data.get("stop_hook_active"):
+        sys.exit(0)
+
     text = _get_last_assistant_text(input_data)
     if not text:
         sys.exit(0)
@@ -188,7 +195,12 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         f"[語言守衛] 本次回應英文佔比 {pct}%（門檻 {th_pct}%），"
         f"偏好繁中對話；請改用繁體中文回應（code/註解/路徑不受此限）。"
     )
-    print(json.dumps({"systemMessage": msg}, ensure_ascii=False))
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "Stop",
+            "additionalContext": msg,
+        },
+    }, ensure_ascii=False))
     sys.exit(0)
 
 

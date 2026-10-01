@@ -3724,6 +3724,19 @@
         "共用檔唯一寫者"
       ],
       "scope": "global"
+    },
+    {
+      "name": "hook-systemmessage-只給使用者看-模型讀不到-要回饋模型用additionalcontext或deny-reason",
+      "path": "memory/CC與原子記憶契約/hook-systemmessage-只給使用者看-模型讀不到-要回饋模型用additionalcontext或deny-reason.md",
+      "triggers": [
+        "systemMessage",
+        "additionalContext",
+        "hook 輸出",
+        "Stop hook 回饋模型",
+        "hook 提醒無效",
+        "Stop says"
+      ],
+      "scope": "global"
     }
   ]
 }

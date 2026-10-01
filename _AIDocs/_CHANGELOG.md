@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-10-01 語言守衛改為模型讀得到的回饋（additionalContext）
+- **緣由**：使用者從他 session 截圖發現「Stop says: [語言守衛]」跳了，下一則仍全英文再跳一次。查證：`lang_guard.py` 用 `systemMessage` 輸出，官方文件定義該欄位只「shown to the user」，模型從未讀到；`Logs/guard-lang.jsonl` 同 session 觸發 15 次、連續 8 次英文佔比 100% 零校正。檔頭與 config `_doc` 寫的「注入下一輪」是誤解。
+- **修**：改出 `hookSpecificOutput.additionalContext`（Stop 事件支援：回合結尾注入、對話續跑一回合用繁中重答）；`stop_hook_active=true` 回合不觸發防迴圈；拿掉 systemMessage（VS Code「Stop says」行消失，靜默但有效）。verify 補 handle_stop 三案（欄位契約／防迴圈／中文靜默），23 passed。 | `hooks/lang_guard.py`, `hooks/verify/verify_lang_guard.py`, `workflow/config.json`
+
+---
+
+## 2026-10-01 記憶庫自動「拉」（vcs-sync 拉段）+ decay 索引按路徑刪
+- **緣由**：Phase 1 落地後記憶層是「推實時、拉手動」——worker 會 commit+push，另一台機器要看到新 atom 仍得自己 pull／svn update，SessionStart 沒有 fetch；使用者裁決「補」。順帶修 Phase 1 收尾列的小尾巴：decay 按名字刪索引（跨層同名誤刪）、SessionEnd 自動 forget 只重產根層 catalog 不刪 JSON 條目、`post-git-pull.sh` 輪詢 `/status` 用了不存在的 `indexing` 鍵。
+- **拉段（git，`_git_sync_body`：commit → 拉 → push；獨立開關 `vcs_sync.pull.enabled`，不受 `push` 影響）**：fetch 後一次固定 H／U，incoming 逐 commit 分類（全部路徑在記憶 pathspec 內且不被 exclude 才是純記憶，merge commit 一律非純）。ahead=0 ∧ 純記憶 → 記憶路徑乾淨才 `update-ref`（CAS）＋ `restore --source=U --staged --worktree -- <pathspecs>`（主工作樹只動記憶路徑）；ahead=0 ∧ 含程式碼 → 整樹乾淨才 `merge --ff-only`（顯式關 autoStash）；ahead>0 → 本地 ahead 純記憶 ∧ incoming 純記憶 ∧ 記憶路徑乾淨才在隔離暫時 worktree rebase，衝突只接受 `merge=atomindex` 的索引檔並交 `merge-atom-index.py --resolve`，否則 abort 丟棄。任何不能自動併入的情況落 `workflow/vcs-sync/<hash>.behind` + roots.json `pull_error`（與 push 的 `last_error` 分欄），fetch 失敗局部處理不影響 push 段。拉成功後向量增量索引＋`sync-atom-index --check`、roots.json 記 `last_pull/pulled_commits`。svn：`svn_update_targets` 先 schedule-delete 已驗證退役的 missing，其他 missing 不自動 update；update 後只有索引檔 text 衝突交 resolver，property／tree／其他衝突停止本輪。
+- **SessionStart**：讀索引前 `_spawn_pull_sync`（`reason="pull"`，detached 不等）；`_pull_advisory_lines` 報「上次拉入 N 筆（候選池以本次載入快照為準）」／「落後：<理由>」。拉入的 atom 下一個 session 才進候選池（不做同步快速路徑）。
+- **decay**：`wg_atoms.apply_selective_forget` 回逐檔 `moved[{atom,src_path,dst_path,ok,index}]` + `index_errors`，`_forget_drop_index_entries` 以 `src_path` 刪正確 `atoms_dir` 的 `_atom_index.json` 條目後 `_trigger_sync_memory_index(atoms_dir)` 重產該根 catalog；`memory-audit.py enforce_decay` 改吃逐檔結果、不經 `by_name`。`post-git-pull.sh` 改讀 `index_job.running`，缺 `index_job`／服務不可達／`index_job.error` 三種各自提早結束。
+- **Codex 計畫審查（gpt-6-astra）6 BLOCK／5 WARN 全採**：共用工作樹不可 autostash/rebase（→ 隔離 worktree＋主樹只做記憶 pathspec restore）、ff-only 會拉程式碼（→ incoming 分類）、`remaining=[]` 不等於全 repo 無衝突（→ 白名單衝突檔＋`ls-files -u` 有界迴圈）、svn 先 update 會補回退役檔（→ 先 schedule-delete）、decay `by_name` 丟路徑身分、自動 forget 不刪 JSON；WARN：固定 OID、pull 不受 push 開關影響、fetch 失敗局部處理、索引 scalar 兩側異改取 ours（rebase 時＝上游）仍報成功（文件明訂、不改策略）、svn property conflict 判定、pull／push／ack／advisory 分欄；第 11 條「本 session 可見」快速路徑不採。 | `hooks/wg_vcs_sync.py`, `hooks/vcs-sync-worker.py`, `hooks/handlers/session_start.py`, `hooks/post-git-pull.sh`, `hooks/wg_atoms.py`, `tools/memory-audit.py`, `hooks/verify/{verify_vcs_sync_worker,verify_selective_forget,verify_selective_forget_index,verify_self_iterate_staging_routing}.py`, `tools/verify/verify_memory_audit_sot.py`, `workflow/config.json`, `TECH.md`, `_AIDocs/{Architecture,DocIndex-System,MultiMachineMemorySync}.md`, `Install-forAI.md`
+
+---
+- **Codex 實作審查兩輪（gpt-6-astra）**：第一輪 5 BLOCK／4 WARN 全採——主樹 update-ref 前落 `.recover.json`、restore 失敗下一輪先恢復否則不 commit/push；update-ref／restore／ff-only 前重驗 symbolic HEAD；worktree 建立與清理納入 try/finally 並驗無殘留；`ls-files -u` rc 必查；decay 搬前嚴格驗索引、條目只按 src_path 定位、MD／sidecar 分開記錄、catalog 重產同步回收 rc 並由 SessionEnd 浮出；pull 冷卻 `cooldown_s`、advisory `pull_reported_at` 一次性、svn update 錯誤進 `pull_error`、`check-attr -z`、scalar 雙側改測試。
+
+## 2026-10-01 TECH.md 部署現況修正——shared／personal 已在多人專案實戰
+- 評估「中台」缺口時查證 SGI（git，2 人以上）與 TSLG（svn，4～5 人）記憶目錄，發現 `TECH.md` §4.4／§13.1 仍寫「單人部署、shared/roles 為保留能力」→ 改為現況：shared／personal 多人實戰中，僅 roles 層與 `_roles.md` 未啟用。Vision 指標 atom append 一條中台缺口結論。 | `TECH.md`, `_AIDocs/_atoms/Vision/jarvis-企業-ai-平台發想文件指標.md`
+
+---
+
 ## 2026-10-01 階段完工知識收割（KnowledgeHarvest）+ 記憶庫背景靜默上版控（vcs-sync）
 - **緣由**：使用者裁決「階段完工時 AI 主動盤點本場認知寫成 atom／修舊 atom／退役無用 atom，寫完自動 commit+push 讓多機實時同步；絕不重啟全量自動萃取」。盤點前三個缺口：atom_write 寫出的檔不進 Stop SyncReminder、Supersedes 無結構化寫入口（replace 還會丟舊 Supersedes 行）、退役只有 CLI 且專案層定位不通；既有晉升自動 commit 只做根層、不 add 新檔。計畫經 Codex（gpt-6-astra）兩輪審查 8 BLOCK／10 WARN 全採（暫存 index 反向 staged、push 連帶發布程式碼 commit、exists() 驗不出 append／索引失敗 → 改真 index pathspec add+commit、push 守門、receipt 核對）。
 - **Stop 新閘**：`KnowledgeHarvest`（宣告完成 ∧ 有實質活動 ∧ 冷卻已過 → 要求呼叫 MCP `knowledge_harvest_report`，items=[] 也要）與 `Harvest-Pending`（回報 item 對不上 receipt → 每 turn 擋一次）插在 Deferral 之後、ScanReport 之前；不吃 `stop_gate_max_blocks`、state 按 session_id 分區、冷卻只認 validated。SyncReminder 遇 root 有 worker 活鎖跳過該 root 的 unpushed 判定。已知特性：觸發沿用 `claims_completion` 詞表，對「待補做」類中途訊息也會命中。

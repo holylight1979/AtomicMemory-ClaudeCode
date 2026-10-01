@@ -282,7 +282,7 @@
     }
   },
   "lang_guard": {
-    "_doc": "P8b 英文回應漂移攔截（hooks/lang_guard.py，standalone Stop hook）。量測 assistant 終版訊息英文語言字元佔比（先剝 code fence/inline/URL/link 目標，政策B只管 user-facing 對話輸出），超門檻→systemMessage 提醒繁中（可見+注入下一輪，模型自我修正）。stateless 每輪自校正、無 flag。一鍵關=enabled:false；english_ratio_threshold=英文佔比門檻(0~1，英文字母/(英文字母+CJK))；min_lang_chars=低於此語言字元數不判(濾短訊如 Done.)。",
+    "_doc": "P8b 英文回應漂移攔截（hooks/lang_guard.py，standalone Stop hook）。量測 assistant 終版訊息英文語言字元佔比（先剝 code fence/inline/URL/link 目標，政策B只管 user-facing 對話輸出），超門檻→hookSpecificOutput.additionalContext 回饋模型（Stop 事件支援：回合結尾注入、對話續跑一回合用繁中重答；stop_hook_active 回合不再觸發防迴圈）。不用 systemMessage：那只顯示給使用者、模型讀不到。stateless、無 flag。一鍵關=enabled:false；english_ratio_threshold=英文佔比門檻(0~1，英文字母/(英文字母+CJK))；min_lang_chars=低於此語言字元數不判(濾短訊如 Done.)。",
     "enabled": true,
     "english_ratio_threshold": 0.5,
     "min_lang_chars": 40

@@ -141,3 +141,41 @@ def test_threshold_boundary_above():
     # ratio 0.5 < 門檻 0.51 → 不提醒
     need, _, _ = LG.should_remind("abcde一二三四五", threshold=0.51, min_lang_chars=1)
     assert need is False
+
+
+# ─── handle_stop 輸出契約（模型讀得到 + 防迴圈）────────────────────────────
+
+_EN = "This is a long english sentence that clearly exceeds the minimum language chars. " * 2
+_CFG = {"english_ratio_threshold": 0.5, "min_lang_chars": 40}
+
+
+def _run_stop(data, capsys, monkeypatch, tmp_path):
+    monkeypatch.setattr(LG, "TRIGGER_LOG_PATH", tmp_path / "guard-lang.jsonl")
+    with pytest.raises(SystemExit) as ex:
+        LG.handle_stop(data, _CFG)
+    assert ex.value.code == 0
+    return capsys.readouterr().out.strip()
+
+
+def test_handle_stop_emits_additional_context_not_system_message(capsys, monkeypatch, tmp_path):
+    # 模型只讀 hookSpecificOutput.additionalContext；systemMessage 只給使用者看
+    import json
+    out = _run_stop({"last_assistant_message": _EN}, capsys, monkeypatch, tmp_path)
+    obj = json.loads(out)
+    assert "systemMessage" not in obj
+    hso = obj["hookSpecificOutput"]
+    assert hso["hookEventName"] == "Stop"
+    assert "[語言守衛]" in hso["additionalContext"]
+
+
+def test_handle_stop_silent_when_stop_hook_active(capsys, monkeypatch, tmp_path):
+    # Stop 續跑回合不再觸發 → 最多提醒一次、不迴圈
+    out = _run_stop(
+        {"last_assistant_message": _EN, "stop_hook_active": True}, capsys, monkeypatch, tmp_path
+    )
+    assert out == ""
+
+
+def test_handle_stop_silent_for_chinese(capsys, monkeypatch, tmp_path):
+    out = _run_stop({"last_assistant_message": "這是一段足夠長的繁體中文回應，" * 5}, capsys, monkeypatch, tmp_path)
+    assert out == ""
