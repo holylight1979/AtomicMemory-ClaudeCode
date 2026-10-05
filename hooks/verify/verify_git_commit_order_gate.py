@@ -2,7 +2,9 @@
 
 驗證 handlers/pre_tool_use.check_git_commit_order（USER.md 縮寫指令契約的程式化版本）：
   - 本回合使用者原話無版控口令 → deny；有「上GIT／上乾淨／執P／commit…」任一 → 放行
-  - 只看最近一則 user prompt（前幾則有口令不算）
+  - 看整回合的使用者原話（state.turn_prompts）；上一回合的口令不算
+  - 背景通知（task-notification）開的回合＝上一回合的延續：使用者原話沿用、通知內文不算口令、
+    口令之後已 commit 過就不沿用
   - 非 commit 子指令（git log --grep commit）、非 Bash/PowerShell 工具 → 不觸發
   - state 缺失／無 prompt 紀錄 → fail-open 放行
   - config guard.commit_order.enabled=false / keywords 自訂
@@ -77,6 +79,83 @@ def test_new_turn_resets_turn_prompts():
     st["recent_user_prompts"] = ["上GIT", "順便刪計畫檔", "再幫我改一個地方"]
     msg = _check(state=st)
     assert msg and "[Guardian:CommitOrder]" in msg
+
+
+# ─── 背景通知開的回合：使用者原話沿用、通知內文不算口令、用掉的口令不沿用 ─────────
+
+_NOTIFY = ("<task-notification>\n<task-id>abe1</task-id>\n<status>completed</status>\n"
+           "<summary>Agent \"工具卡掃描器\" finished</summary>\n</task-notification>")
+_NOTIFY_WITH_WORDS = _NOTIFY.replace("</summary>", "</summary>\n<result>未 commit、未 push、未改文件</result>")
+
+
+def _ups(st, prompt):
+    """UserPromptSubmit 收一則（與 ups_gates.run_pre_gates＋UPS 收尾同序：滑窗、回合清單、turn_seq+1）。"""
+    from handlers.ups_gates import track_turn_prompts
+    st.setdefault("recent_user_prompts", []).append(prompt)
+    track_turn_prompts(st, prompt)
+    st["turn_seq"] = int(st.get("turn_seq", 0)) + 1
+
+
+def _stop(st):
+    st["turn_open"] = False
+
+
+def test_standing_order_survives_notification_turns():
+    # 實錄重放：回合中途送「完工後直接上GIT」（有進 UserPromptSubmit）→ Stop 關回合 →
+    # 背景 agent 完成通知以 prompt 形式開新回合（兩次）→ 這時的 commit 不得被擋。
+    st = {}
+    _ups(st, "你會繼續推進到全部完工吧?")
+    _ups(st, "我先給授權：你全部完工、自己驗證無誤、清理暫存 之後，就直接 上GIT 。")
+    _stop(st)
+    _ups(st, _NOTIFY)
+    _stop(st)
+    _ups(st, _NOTIFY)
+    assert _check(state=st) is None
+    assert _NOTIFY not in st["turn_prompts"]
+
+
+def test_user_message_during_notification_turn_appends():
+    st = {}
+    _ups(st, "完工後直接上GIT")
+    _stop(st)
+    _ups(st, _NOTIFY)
+    _ups(st, "計畫檔沒價值就順便刪掉")          # 通知回合進行中使用者補一句 → 追加，不重開
+    assert st["turn_prompts"] == ["完工後直接上GIT", "計畫檔沒價值就順便刪掉"]
+    assert _check(state=st) is None
+
+
+def test_notification_text_is_never_an_order():
+    # 通知內文含 commit／push 字樣（sub-agent 回報原文）不是使用者口令：開新回合或回合中途排進來都一樣
+    st = {}
+    _ups(st, "幫我把這個 bug 修好")
+    _stop(st)
+    _ups(st, _NOTIFY_WITH_WORDS)
+    msg = _check(state=st)
+    assert msg and "[Guardian:CommitOrder]" in msg
+
+    st = {}
+    _ups(st, "幫我把這個 bug 修好")
+    _ups(st, _NOTIFY_WITH_WORDS)
+    msg = _check(state=st)
+    assert msg and "[Guardian:CommitOrder]" in msg
+
+    st = {}                                       # session 第一則就是通知：沒有任何使用者原話
+    _ups(st, _NOTIFY_WITH_WORDS)
+    msg = _check(state=st)
+    assert msg and "[Guardian:CommitOrder]" in msg
+
+
+def test_spent_order_is_not_reused_by_notification_turn():
+    # 「上GIT」那回合已經 commit 過 → 之後背景通知開的回合要再 commit，得有新口令
+    st = {}
+    _ups(st, "上GIT")
+    st["last_commit_turn_seq"] = st["turn_seq"]   # post_tool_use 記的「本回合跑過 commit」
+    _stop(st)
+    _ups(st, _NOTIFY)
+    msg = _check(state=st)
+    assert msg and "[Guardian:CommitOrder]" in msg
+    _ups(st, "這批也上GIT")                       # 使用者重下 → 放行
+    assert _check(state=st) is None
 
 
 # ─── 不觸發 ─────────────────────────────────────────────────────

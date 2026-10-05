@@ -5,6 +5,14 @@
 
 ---
 
+## 2026-10-05 公司層接入狀態移出共用 config：各機自己記、未接上只邀請一次
+- **緣由**：`workflow/config.json` 進版控卻帶著某一台機器的公司層路徑與 `enabled:true`——同事更新後、接上前每次啟動都被提示；`--join`／`--init` 又會改寫這個共用檔，各機路徑不同就互相覆蓋。
+- **做法**：「這台接上沒、根在哪」改存 `workflow/org-memory.local.json`（`.gitignore`），同名鍵蓋過共用 `org_memory` 區段；共用區段只留 `repo_url`＋新增 `default_root`（`--join` 沒給路徑時的落點）、`enabled:false`／`roots:[]`。py `wg_core.load_org_local`／`save_org_local`／`org_memory_root` 與 js `paths.loadOrgLocal`／`realm.orgMemoryRoot(cfg, local)` 同規則；`org-memory.py` `register_in_config` → `register_local`（共用 config 不再被寫）。SessionStart `_org_advisory`：沒接上且有 `repo_url` → 邀請一行並在本機檔記 `advised`，整台只出一次；接過但 checkout 不見仍每次警告。 | `hooks/wg_core.py`, `hooks/handlers/session_start.py`, `tools/org-memory.py`, `tools/workflow-guardian-mcp/lib/{paths,realm,atom-tools}.js`, `tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js`, `workflow/config.json`, `.gitignore`, `skills/org/SKILL.md`, verify：`hooks/verify/verify_org_layer.py`, `tools/verify/verify_tool_cards.py`
+
+## 2026-10-05 口令閘：背景通知開的回合沿用使用者原話、通知內文不再被當成口令
+- **根因**（對話紀錄實證，原先兩個猜測都不成立）：回合中途送的使用者訊息有進 UserPromptSubmit、有進 `turn_prompts`；口令是在 Stop 關回合後，被「背景 agent／task 完成通知」這種以 prompt 形式進來的 harness 訊息重開回合時洗掉的。同一路徑的反向漏洞：通知內文（sub-agent 回報原文）含 commit／push 字樣會被當成使用者口令放行。
+- **做法**：`ups_gates.track_turn_prompts` 用 `wg_core.is_harness_generated_prompt` 分流——通知內文永不進 `turn_prompts`；回合關閉後進來的通知＝上一回合的延續，原話沿用，但那之後已 commit 過（`last_commit_turn_seq` ≥ `turn_prompts_seq`）就清空、要新口令。閘端空清單＝擋，只有舊 state 沒有 `turn_prompts` 才退回看最後一句。 | `hooks/handlers/ups_gates.py`, `hooks/handlers/pre_tool_use.py`, verify：`hooks/verify/verify_git_commit_order_gate.py`
+
 ## 2026-10-01 中台地基 Phase A+B：memory_search 讀取端、公司層 org、AD 職能與裁決設定鍵、Source/Depends 欄、編碼硬化
 - **緣由**：主管定的「公司共用中台」三要件查證後，shared／personal 分層已在 SGI／TSLG 實戰，缺的是「其他 AI 與腳本的讀取端」「公司層落點」「來源可追溯」「跨機編碼硬化」。計畫經 Codex 對抗審查／缺漏獵手／身份嚴審／地基辯方多輪（`plans/prancy-marinating-kay.md`），方針「留最小接縫，不現在蓋」：拿掉管理職概念改一個設定鍵、身份直接用 AD 帳號、`org` 不進 VALID_SCOPES 改語法糖、搜尋結果契約只留 `schema_version`＋四欄。
 - **讀取端 memory_search**：`lib/memory_search.search()` 把 UPS 同一條管線（候選池→trigger/BM25/vector→RRF）包成函式，回 `schema_version=1` 的 `{mode, warnings, results[{name,path,rel_path,scope,source,score,excerpt,author,audience,tags,status}]}`；BM25 對整池、`use_vector=False` 零觸碰向量、`user=None/unknown` 不讀 personal、同名跨層 project > org > global 被遮蔽者進 warnings。候選池抽成 `wg_atoms.build_candidate_pool` 純函式（SessionStart 改呼叫，守門字面行保留）。三入口：MCP 第 8 個 tool `memory_search`（`query/cwd?/top_k?/format: table|json`，無 receipt）、`atom_io_cli` action `search`、`tools/memory-search.py`；settings.json allow 加 `mcp__workflow-guardian__memory_search`。其他 AI 客戶端註冊同一 server 即得；非 CC 人員裝 `~/.claude` 後用 memory-search.py。

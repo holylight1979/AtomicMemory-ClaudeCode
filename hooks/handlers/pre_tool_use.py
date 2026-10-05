@@ -355,9 +355,10 @@ def check_git_commit_order(
                 pass
             return None
         keywords = cfg.get("keywords") or list(_COMMIT_ORDER_DEFAULT_KEYWORDS)
-        # 整回合的使用者原話（含 mid-turn 排隊訊息）都算；舊 state 沒有 turn_prompts 時退回只看最後一句。
-        turn_prompts = state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else None
-        if any(_commit_order_keyword_hit(p, keywords) for p in (turn_prompts or prompts[-1:])):
+        # 整回合的使用者原話（含 mid-turn 排隊訊息；背景通知內文不在內，見 ups_gates.track_turn_prompts）都算。
+        # 空清單＝本回合沒有使用者原話（通知開的回合且口令已用掉）→ 擋；舊 state 沒有 turn_prompts 才退回只看最後一句。
+        turn_prompts = state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else prompts[-1:]
+        if any(_commit_order_keyword_hit(p, keywords) for p in turn_prompts):
             return None
         return (
             "[Guardian:CommitOrder] 本回合使用者原話沒有版控口令（上GIT／上乾淨／全上／執P…），"

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from wg_core import _now_iso, _atom_debug_log, _atom_debug_error
+from wg_core import _now_iso, _atom_debug_log, _atom_debug_error, is_harness_generated_prompt
 from wg_extraction import detect_signal
 from wg_evasion import is_dismiss_prompt
 
@@ -32,12 +32,21 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
     """本回合使用者原話清單：Stop 關回合（turn_open=False）後第一則重開，
     同回合內排隊送進來的 mid-turn 訊息追加。口令閘看整回合而非只看最後一句
     （否則「上GIT」之後補一句別的話就會把口令蓋掉）。Stop 被 block 後續送的
-    mid-turn 訊息會誤判為新回合——閘只會多擋一次、要求重下口令，fail-safe。"""
-    entry = clean_prompt[:500]
-    if state.get("turn_open") and isinstance(state.get("turn_prompts"), list):
-        state["turn_prompts"] = (state["turn_prompts"] + [entry])[-5:]
+    mid-turn 訊息會誤判為新回合——閘只會多擋一次、要求重下口令，fail-safe。
+
+    背景通知（task-notification）也走 UserPromptSubmit，但它不是使用者說的話：內文永不進清單；
+    它在回合關閉後進來＝使用者上一回合的延續，原話沿用（「完工後直接上GIT」跨得過背景等待），
+    除非那之後已經 commit 過（口令用掉了）→ 清空，再 commit 要新口令。"""
+    has_list = isinstance(state.get("turn_prompts"), list)
+    if is_harness_generated_prompt(clean_prompt):
+        spent = int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0))
+        if not has_list or (not state.get("turn_open") and spent):
+            state["turn_prompts"] = []
+    elif state.get("turn_open") and has_list:
+        state["turn_prompts"] = (state["turn_prompts"] + [clean_prompt[:500]])[-5:]
     else:
-        state["turn_prompts"] = [entry]
+        state["turn_prompts"] = [clean_prompt[:500]]
+        state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1   # 本則 UPS 收尾後的 turn_seq
     state["turn_open"] = True
 
 
