@@ -4036,6 +4036,24 @@
         "tmp home"
       ],
       "scope": "global"
+    },
+    {
+      "name": "sessionstart的提示只有模型看得到-要使用者做決定就寫成叫模型用askuserquestion問的指示-問到有答案為止不要只提示一次",
+      "path": "memory/CC與原子記憶契約/sessionstart的提示只有模型看得到-要使用者做決定就寫成叫模型用askuserquestion問的指示-問到有答案為止不要只提示一次.md",
+      "triggers": [
+        "SessionStart 提示",
+        "只提示一次",
+        "只邀請一次",
+        "AskUserQuestion",
+        "advisory",
+        "使用者沒被問到",
+        "首次設定",
+        "尚未接上",
+        "需要使用者決定",
+        "onboarding 提示",
+        "declined"
+      ],
+      "scope": "global"
     }
   ]
 }
