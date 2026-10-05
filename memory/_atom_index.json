@@ -3875,6 +3875,22 @@
         "看不到 role atom"
       ],
       "scope": "global"
+    },
+    {
+      "name": "程式批量產生的atom觸發詞不得含日常字與種類單字-一句話就把整批拉進注入吃光預算-只放專名與名稱加種類片語",
+      "path": "_AIDocs/_atoms/MemDev/程式批量產生的atom觸發詞不得含日常字與種類單字-一句話就把整批拉進注入吃光預算-只放專名與名稱加種類片語.md",
+      "triggers": [
+        "工具卡觸發詞",
+        "批量產生 atom",
+        "觸發詞擾民",
+        "注入預算被吃光",
+        "scan-tools",
+        "_card_triggers",
+        "泛詞 trigger",
+        "trigger 設計",
+        "refresh_legacy_triggers"
+      ],
+      "scope": "global"
     }
   ]
 }
