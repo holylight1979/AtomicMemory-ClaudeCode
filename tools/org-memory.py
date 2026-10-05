@@ -56,6 +56,7 @@ TAXONOMY = {
     },
 }
 SEED_NAME = "org-memory"
+ACCESS_IGNORE = "**/*.access.json"
 SEED_REL = f"memory/shared/工具/{SEED_NAME}.md"
 SEED_TRIGGERS = ["org-memory", "公司層記憶", "org 初始化", "scope=org"]
 
@@ -95,6 +96,14 @@ def init_tree(root: Path, user: str) -> List[str]:
     if not decl.exists():
         _write_lf(decl, json.dumps({"standalone": True}, ensure_ascii=False, indent=2) + "\n")
         done.append(f"建 {decl}")
+
+    # access sidecar 是各機自己的使用遙測（vcs-sync 也排除它）；進版控只會讓 repo 永遠髒、多機互撞
+    ignore = root / ".gitignore"
+    ignore_text = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
+    if ACCESS_IGNORE not in ignore_text.splitlines():
+        _write_lf(ignore, ignore_text + ("" if not ignore_text or ignore_text.endswith(chr(10)) else chr(10))
+                  + ACCESS_IGNORE + chr(10))
+        done.append(f"寫 {ignore}（{ACCESS_IGNORE}）")
 
     tax = mem / "shared" / "_taxonomy.json"
     if not tax.exists():

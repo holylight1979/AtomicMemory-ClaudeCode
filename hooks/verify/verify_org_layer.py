@@ -286,3 +286,15 @@ def test_js_org_sugar_mirrors_python(world):
     assert off is None
     assert one == "c:/Company/Mem"
     assert layers == ["global", f"shared:{wg_core.cwd_to_project_slug('c:/Company/Mem')}"]
+
+
+def test_init_tree_ignores_access_sidecars(tmp_path):
+    """公司 repo 不追蹤 *.access.json（各機遙測）；既有 .gitignore 內容保留、重跑不重複加。"""
+    om = _load_org_memory_module()
+    root = tmp_path / "company"
+    root.mkdir()
+    (root / ".gitignore").write_text("node_modules/\n", encoding="utf-8", newline="\n")
+    om.init_tree(root, "tester")
+    om.init_tree(root, "tester")
+    lines = (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert lines == ["node_modules/", "**/*.access.json"]
