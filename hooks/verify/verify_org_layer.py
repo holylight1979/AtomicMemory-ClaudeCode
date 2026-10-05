@@ -145,13 +145,15 @@ def test_collect_sync_targets_includes_org_root(world, monkeypatch):
     cfg = {"vcs_sync": {"enabled": True, "push": True}}
     targets = vs.collect_sync_targets(str(world["proj"]), cfg, claude_dir=world["claude"])
     by_root = {t.root: t for t in targets}
-    assert by_root[world["org"].resolve()].pathspecs == [".claude/memory"]
+    org_t = by_root[world["org"].resolve()]
+    assert org_t.pathspecs == [".claude/memory", "usage-snapshots"]   # 截圖路徑只進 pathspec
+    assert org_t.mem_dirs == [(world["org"] / ".claude" / "memory").resolve()]
     assert by_root[world["proj"].resolve()].pathspecs == [".claude/memory"]
 
     # cwd 就是 org 根：同一根只出現一次
     targets = vs.collect_sync_targets(str(world["org"]), cfg, claude_dir=world["claude"])
     assert [t.root for t in targets].count(world["org"].resolve()) == 1
-    assert by_root[world["org"].resolve()].pathspecs == [".claude/memory"]
+    assert targets[[t.root for t in targets].index(world["org"].resolve())].pathspecs == [".claude/memory", "usage-snapshots"]
 
 
 # ─── ④ --init 後 sync-memory-index --check exit 0；config／registry 條目 ───────

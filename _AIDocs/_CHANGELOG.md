@@ -5,6 +5,10 @@
 
 ---
 
+## 2026-10-05 週用量截圖去個人化：帳號自動偵測、落點改公司記憶庫
+- **緣由**：`usage_snapshot.py` 把帳號（`uj_claudeai_5`）與落點（某人的個人共享資料夾）寫死在進版控的程式碼裡——別台同步後檔名掛錯帳號、各機手改又成了長期本地改動。
+- **做法**：帳號改讀這台 Claude Code 登入信箱（`~/.claude.json`），讀不到報錯不截；截圖改存公司記憶庫 `usage-snapshots/`，存完直接呼叫 `wg_vcs_sync.sync_targets_inline` commit／拉／push。`vcs_sync.org_extra_pathspecs`（預設 `[usage-snapshots]`）讓公司層 repo 的同步目標多收這個路徑（只進 pathspec、不進 mem_dirs），截圖 commit 因此算「純記憶」、不會卡住別台的記憶自動拉取；`_git_restore_mem` 略過 src 與 index 都沒檔的 pathspec（尚無人放過截圖的 repo 不會 restore 失敗）。失敗圖只留本機。
+
 ## 2026-10-05 公司層接入狀態移出共用 config：各機自己記、未接上只邀請一次
 - **緣由**：`workflow/config.json` 進版控卻帶著某一台機器的公司層路徑與 `enabled:true`——同事更新後、接上前每次啟動都被提示；`--join`／`--init` 又會改寫這個共用檔，各機路徑不同就互相覆蓋。
 - **做法**：「這台接上沒、根在哪」改存 `workflow/org-memory.local.json`（`.gitignore`），同名鍵蓋過共用 `org_memory` 區段；共用區段只留 `repo_url`＋新增 `default_root`（`--join` 沒給路徑時的落點）、`enabled:false`／`roots:[]`。py `wg_core.load_org_local`／`save_org_local`／`org_memory_root` 與 js `paths.loadOrgLocal`／`realm.orgMemoryRoot(cfg, local)` 同規則；`org-memory.py` `register_in_config` → `register_local`（共用 config 不再被寫）。SessionStart `_org_advisory`：沒接上且有 `repo_url` → 邀請一行並在本機檔記 `advised`，整台只出一次；接過但 checkout 不見仍每次警告。 | `hooks/wg_core.py`, `hooks/handlers/session_start.py`, `tools/org-memory.py`, `tools/workflow-guardian-mcp/lib/{paths,realm,atom-tools}.js`, `tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js`, `workflow/config.json`, `.gitignore`, `skills/org/SKILL.md`, verify：`hooks/verify/verify_org_layer.py`, `tools/verify/verify_tool_cards.py`

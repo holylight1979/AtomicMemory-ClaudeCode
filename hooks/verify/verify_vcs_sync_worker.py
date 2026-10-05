@@ -453,6 +453,30 @@ def test_pull_pure_memory_into_dirty_code_tree_syncs_ref_and_pathspec(tmp_path, 
     assert vector_calls == [CFG]
 
 
+def test_pull_with_extra_pathspec_absent_then_added_upstream(tmp_path, repo_with_remote):
+    """公司層的非記憶 pathspec（usage-snapshots）：兩邊都還沒有這個目錄時拉取照常；上游放進檔後算純記憶 commit，
+    本地程式碼樹髒也拉得進來。"""
+    repo, bare = repo_with_remote
+    target = vs.SyncTarget("git", repo.resolve(), ["memory", "usage-snapshots"], [(repo / "memory").resolve()])
+    other = _clone(tmp_path, bare)
+    (other / "memory" / "theirs.md").write_text("# theirs\n", encoding="utf-8")
+    _push_from_other(other, "theirs")
+    (repo / "code.py").write_text("print(2)\n", encoding="utf-8")
+    logs, log = _logs()
+    res = vs.sync_targets_inline([target], CFG, log=log)
+    assert res[0]["status"] == "ok" and res[0]["pull"]["status"] == "pulled", (res, logs)
+    assert (repo / "memory" / "theirs.md").exists()
+
+    (other / "usage-snapshots").mkdir()
+    (other / "usage-snapshots" / "usage-20260101-a.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    remote_head = _push_from_other(other, "snapshot")
+    res = vs.sync_targets_inline([target], CFG, log=log)
+    assert res[0]["status"] == "ok" and res[0]["pull"]["status"] == "pulled", (res, logs)
+    assert _git(repo, "rev-parse", "HEAD").stdout.strip() == remote_head
+    assert (repo / "usage-snapshots" / "usage-20260101-a.png").read_bytes() == b"\x89PNG\r\n\x1a\n"
+    assert _status_set(repo) == {" M code.py"}
+
+
 def test_pull_code_commit_into_dirty_tree_marks_behind_head_unchanged(tmp_path, repo_with_remote, vector_calls):
     repo, bare = repo_with_remote
     other = _clone(tmp_path, bare)

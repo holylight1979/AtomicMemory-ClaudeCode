@@ -73,6 +73,7 @@ DEFAULTS: Dict[str, Any] = {
     "push": True,
     "root_pathspecs": ["memory", "_AIDocs/_atoms"],
     "project_pathspecs": [".claude/memory"],
+    "org_extra_pathspecs": ["usage-snapshots"],
     "exclude": ["**/*.access.json"],
     "timeout_s": 60,
     "pull": {"enabled": True, "fetch_timeout_s": 20, "cooldown_s": 600},
@@ -159,6 +160,13 @@ def collect_sync_targets(cwd: str, config: Dict[str, Any],
             if rel not in t.pathspecs:
                 t.pathspecs.append(rel)
                 t.mem_dirs.append(mem_dir.resolve())
+    # 公司層 repo 另收非記憶路徑（週用量截圖）：只進 pathspec（算純記憶 commit、一起自動推拉），不進 mem_dirs（無索引）。
+    # git 不要求本機已有該目錄（上游先有時要能拉進來）；svn 對不存在的路徑會報錯，目錄在才收。
+    org_t = targets.get(org.resolve().as_posix().lower()) if org and org.is_dir() else None
+    if org_t:
+        for spec in vs["org_extra_pathspecs"]:
+            if spec not in org_t.pathspecs and (org_t.vcs == "git" or (org_t.root / spec).is_dir()):
+                org_t.pathspecs.append(spec)
     return list(targets.values())
 
 
@@ -887,7 +895,12 @@ def _git_restore_mem(git, branch: str, frm: str, to: str, specs: Sequence[str]) 
             return "git diff 失敗，無法確認記憶路徑有無未提交編輯"
         if edits:
             return f"記憶路徑有未提交編輯（{edits[0]}），待人處理"
-        r = git("restore", f"--source={src}", "--staged", "--worktree", "--", *specs)
+        # src 與 index 都沒有檔的 pathspec（如尚無人放過截圖的 usage-snapshots）：restore 會 rc≠0「did not match」，無事可做故略過
+        live = [s for s in specs if (git("ls-tree", "--name-only", src, "--", s).stdout or "").strip()
+                or (git("ls-files", "--", s).stdout or "").strip()]
+        if not live:
+            return None
+        r = git("restore", f"--source={src}", "--staged", "--worktree", "--", *live)
         if r.returncode == 0:
             return None
         if "index.lock" not in (r.stderr or ""):

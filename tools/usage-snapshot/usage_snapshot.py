@@ -5,10 +5,11 @@
   用本工具專屬的 Chrome profile（browser-data/，只登入 claude.ai；日常 Chrome 的 profile 被 Chrome 鎖住、
   且 Chrome 136+ 拒絕在預設 profile 上被自動化，所以不能直接借用）
   開有頭 Chrome 視窗（headless 會被 Cloudflare 人類驗證擋下）到 https://claude.ai/settings/usage，
-  等用量條渲染完 → 截圖存到公司共享 SHARE_DIR（//192.168.100.100/暫存區/==公司人員==/holylight/CC-usage）
-  的 usage-YYYYMMDD-<帳號>.png（帳號見 ACCOUNT 常數，每台機器一個帳號）；共享連不上就退存本機 workflow/usage-snapshots/ 並在結果標記。
-  頁面上的 % / Resets 文字追記到本機 usage-log.jsonl，usage-last-run.json 記最近一次結果（成功／失敗原因）。
-  失敗（未登入、逾時、被擋）也會留一張 usage-YYYYMMDD-<帳號>-FAILED.png 供診斷，不靜默。
+  等用量條渲染完 → 截圖存到公司記憶庫（workflow/config.json org_memory 那個 repo）的 usage-snapshots/usage-YYYYMMDD-<帳號>.png，
+  隨即 commit／push（走記憶庫同一套背景上版控 wg_vcs_sync）。帳號＝這台 Claude Code 登入信箱 @ 前那段（~/.claude.json），讀不到就報錯不截。
+  這台沒接上公司記憶庫（先跑 tools/org-memory.py --join）或推不上去 → 截圖留本機／留在 clone 內，結果標 repo_error。
+  頁面上的 % / Resets 文字追記到本機 workflow/usage-snapshots/usage-log.jsonl，usage-last-run.json 記最近一次結果（成功／失敗原因）。
+  失敗（未登入、逾時、被擋）也會在本機留一張 usage-YYYYMMDD-<帳號>-FAILED.png 供診斷，不靜默。
 
 怎麼跑：
   python tools/usage-snapshot/usage_snapshot.py --login     首次：開有頭視窗，手動登入 claude.ai，登入成功自動關閉
@@ -37,19 +38,32 @@ for _name in ("stdout", "stderr"):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
 TOOL_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(TOOL_DIR.parents[1] / "hooks"))
+from wg_core import load_config, org_memory_root  # noqa: E402
+from wg_vcs_sync import collect_sync_targets, sync_targets_inline  # noqa: E402
+
 PROFILE_DIR = TOOL_DIR / "browser-data"
-OUT_DIR = Path.home() / ".claude" / "workflow" / "usage-snapshots"  # 本機：log / last-run / 共享連不上時的截圖退路
-SHARE_DIR = Path(r"\\192.168.100.100\暫存區\==公司人員==\holylight\CC-usage")  # 截圖正式落點
+OUT_DIR = Path.home() / ".claude" / "workflow" / "usage-snapshots"  # 本機：log / last-run / FAILED 圖 / 沒接公司記憶庫時的截圖退路
+REPO_SUBDIR = "usage-snapshots"  # 公司記憶庫內的截圖目錄（wg_vcs_sync org_extra_pathspecs 同名）
 LAST_RUN = OUT_DIR / "usage-last-run.json"
 LOG = OUT_DIR / "usage-log.jsonl"
 USAGE_URL = "https://claude.ai/settings/usage"
 TASK_NAME = "Claude-Usage-WeeklySnapshot"
-ACCOUNT = "uj_claudeai_5"  # 這台機器登入 claude.ai 的帳號，進檔名
 USAGE_TEXT = re.compile(r"\d+%\s*(used|已使用)", re.I)
 
 
 def log(msg: str) -> None:
     print(f"[usage-snapshot] {msg}", flush=True)
+
+
+def detect_account() -> str:
+    """這台 Claude Code 登入信箱 @ 前那段（進檔名）；讀不到回空字串。"""
+    try:
+        data = json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8"))
+        email = (data.get("oauthAccount") or {}).get("emailAddress") or ""
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return ""
+    return re.sub(r"[^\w.-]", "_", email.split("@")[0])
 
 
 def launch(headed: bool):
@@ -102,9 +116,13 @@ def do_login(timeout_min: int) -> int:
 def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
-    stamp = now.strftime("%Y%m%d") + "-" + ACCOUNT
     result = {"at": now.isoformat(timespec="seconds"), "ok": False, "file": None, "error": None}
-    save_dir = _pick_save_dir(result)
+    account = detect_account()
+    if not account:
+        result["error"] = "讀不到 Claude Code 登入帳號（~/.claude.json oauthAccount.emailAddress）：先在這台登入 Claude Code"
+        _finish(result)
+        return 1
+    stamp = now.strftime("%Y%m%d") + "-" + account
     if not PROFILE_DIR.exists():
         result["error"] = "profile 不存在：先跑 --login"
         _finish(result)
@@ -123,8 +141,10 @@ def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
                 result["error"] = f"未登入（導到 {url}）：重跑 --login"
             else:
                 result["error"] = f"45 秒內沒等到用量文字（url={url}, title={page.title()!r}）"
-        suffix = "" if result["error"] is None else "-FAILED"
-        out = save_dir / f"usage-{stamp}{suffix}.png"
+        if result["error"] is None:
+            out = _pick_save_dir(result) / f"usage-{stamp}.png"
+        else:
+            out = OUT_DIR / f"usage-{stamp}-FAILED.png"
         page.screenshot(path=str(out), full_page=True)
         result["file"] = str(out)
         if result["error"] is None:
@@ -140,21 +160,38 @@ def do_snapshot(headed: bool) -> int:  # headed=False 實測被 Cloudflare 擋
             ctx.close()
         finally:
             p.stop()
+    if result["ok"] and not result.get("repo_error"):
+        _push_to_repo(result)
     _finish(result)
     return 0 if result["ok"] else 1
 
 
 def _pick_save_dir(result: dict) -> Path:
-    """共享可寫就用共享；不行退本機並把原因記進 result["share_error"]（不靜默）。"""
-    try:
-        SHARE_DIR.mkdir(parents=True, exist_ok=True)
-        probe = SHARE_DIR / ".write-test"
-        probe.touch()
-        probe.unlink()
-        return SHARE_DIR
-    except OSError as e:
-        result["share_error"] = f"共享寫不進（{e.strerror or e}），退存本機 {OUT_DIR}"
+    """接上公司記憶庫就存它的 usage-snapshots/；沒接上退本機並把原因記進 result["repo_error"]（不靜默）。"""
+    root = org_memory_root()
+    if root is None or not root.is_dir():
+        result["repo_error"] = f"這台沒接上公司記憶庫（先跑 tools/org-memory.py --join），退存本機 {OUT_DIR}"
         return OUT_DIR
+    save_dir = root / REPO_SUBDIR
+    save_dir.mkdir(exist_ok=True)
+    return save_dir
+
+
+def _push_to_repo(result: dict) -> None:
+    """把公司記憶庫 commit／拉／push 一輪（wg_vcs_sync 主邏輯）；沒推上去記進 result["repo_error"]。
+    他 worker 持鎖（locked）不算錯：請求已落檔，由持鎖者補跑。"""
+    config = load_config()
+    root = org_memory_root().resolve()
+    targets = [t for t in collect_sync_targets("", config) if t.root == root]
+    if not targets:
+        result["repo_error"] = f"{root} 不是版控工作目錄，截圖只留在本機該目錄"
+        return
+    res = sync_targets_inline(targets, config, reason="usage-snapshot", log=log)[0]
+    result["repo_sync"] = res.get("status")
+    if res.get("status") == "locked" or (res.get("status") == "ok" and res.get("pushed")):
+        return
+    pull_reason = (res.get("pull") or {}).get("reason")
+    result["repo_error"] = f"截圖沒推上公司記憶庫（{res.get('status')}）：{res.get('reason') or pull_reason or '未 push'}"
 
 
 def _finish(result: dict) -> None:
@@ -164,8 +201,8 @@ def _finish(result: dict) -> None:
         f.write(json.dumps(result, ensure_ascii=False) + "\n")
     if result["ok"]:
         log(f"OK → {result['file']}")
-        if result.get("share_error"):
-            log(f"WARN: {result['share_error']}")
+        if result.get("repo_error"):
+            log(f"WARN: {result['repo_error']}")
         for ln in result.get("lines", []):
             log(f"  {ln}")
     else:
