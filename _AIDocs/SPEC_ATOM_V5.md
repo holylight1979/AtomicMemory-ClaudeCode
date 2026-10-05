@@ -35,7 +35,7 @@ V4 的三層 scope 機制不變：
 |---|---|---|
 | `global` | 跨專案通用知識 | `~/.claude/memory/` |
 | `shared` | 專案內全員共享 | `{proj}/.claude/memory/shared/` |
-| `org` | 公司層：所有專案看得到、能寫 | `<org_root>/.claude/memory/shared/`（`workflow/config.json` `org_memory.roots[0].root`，單根、>1 停用）。MCP／CLI **語法糖**＝「該根的 shared」：js 改寫成 `scope=shared + project_cwd=org_root`，檔內仍 `Scope: shared`、不進 `VALID_SCOPES`；候選池順序 global → org → project，同名 project > org > global；向量層 `shared:<org slug>`；初始化 `tools/org-memory.py --init` |
+| `org` | 公司層：所有專案看得到、能寫 | `<org_root>/.claude/memory/shared/`（`workflow/config.json` `org_memory.roots[0].root`，單根、>1 停用）。MCP／CLI **語法糖**＝「該根的 shared」：js 改寫成 `scope=shared + project_cwd=org_root`，檔內仍 `Scope: shared`、不進 `VALID_SCOPES`；候選池順序 global → org → project，同名 project > org > global；向量層 `shared:<org slug>`；使用者入口 `/org` skill，腳本 `tools/org-memory.py --join`／`--status`／`--init`／`--scan-tools` |
 | `role:{name}` | 特定職務組共享 | `{proj}/.claude/memory/roles/{name}/`（職能由 AD 群組自動解析，見下「身份與職能解析」） |
 | `personal:{user}` | 個人在該專案的偏好/筆記 | `{proj}/.claude/memory/personal/{user}/`（**進專案版控**：索引三檔跟著 repo 走，personal 檔不進會讓他機索引懸空；`session_start._personal_sync_advisory` 見被 .gitignore 擋或未 commit 會提示；vcs-sync worker 對 personal 不特別處理，以各 repo 的 ignore 規則為準） |
 | `personal:{user}`（跨專案） | 本人在**所有**專案都適用的偏好 | `~/.claude/memory/personal/{user}/`（根層 **gitignore**，不跨機；索引在全域 `_atom_index.json`，path 前綴 `memory/personal/{user}/`；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 呼叫即落此） |

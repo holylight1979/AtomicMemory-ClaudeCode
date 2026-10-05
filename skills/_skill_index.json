@@ -1,7 +1,7 @@
 {
   "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
   "generated_from": "skills/*/SKILL.md",
-  "count": 21,
+  "count": 22,
   "skills": [
     {
       "name": "atom-debug",
@@ -82,6 +82,11 @@
       "name": "memory",
       "dir": "memory",
       "description": "原子記憶系統綜合工具 — health/review/score 三主力 + classify（專案記憶 scope 分層整理，SessionStart 出 [Guardian:ScopeLayout] 或使用者說「整理記憶分類」時用）+ peek/undo（僅查自動萃取歷史殘留）。用於檢查記憶健康、自我迭代、Session 評分。"
+    },
+    {
+      "name": "org",
+      "dir": "org",
+      "description": "公司層共用記憶（org）一站式入口：接上公司記憶 repo、查看接入與身份職能狀態、把知識寫到公司層、把 skills／MCP／專案工具登記成工具卡。使用者說「接上公司記憶」「記到公司層」「登記工具」「我現在是什麼職能」時用。"
     },
     {
       "name": "read-project",

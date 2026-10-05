@@ -598,8 +598,7 @@ def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:
         return []
     root = Path(org_root)
     if not (root / ".claude" / "memory").is_dir():
-        return [f"[Org] 公司層記憶未就緒：{root} 下無 .claude/memory（未 checkout？或先跑 "
-                f"python ~/.claude/tools/org-memory.py --init {root}）"]
+        return [f"[Org] 公司層記憶尚未接上（{root} 下無 .claude/memory）→ 對我說「接上公司記憶」或 /org join"]
     if not pool.get("org_base"):
         return []
     if not (Path(pool["org_base"]) / "memory" / "_atom_index.json").is_file():

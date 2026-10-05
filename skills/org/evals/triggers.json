@@ -1,0 +1,22 @@
+{
+  "_comment": "觸發評估查詢：應觸發 8 + 不應觸發 8",
+  "skill_name": "org",
+  "queries": [
+    {"query": "幫我接上公司記憶", "should_trigger": true, "note": "新機器接入"},
+    {"query": "/org status", "should_trigger": true, "note": "明確呼叫"},
+    {"query": "啟動時說 [Org] 公司層記憶尚未接上，怎麼處理", "should_trigger": true, "note": "SessionStart 提示承接"},
+    {"query": "把這條踩坑記到公司層，全公司都該知道", "should_trigger": true, "note": "寫公司知識"},
+    {"query": "掃一下工具登記到公司層", "should_trigger": true, "note": "工具卡"},
+    {"query": "我現在被認成什麼職能", "should_trigger": true, "note": "身份職能對帳"},
+    {"query": "公司層現在有幾顆、同步了嗎", "should_trigger": true, "note": "狀態"},
+    {"query": "公司有沒有現成的向量搜尋工具可以用", "should_trigger": true, "note": "查公司層工具卡"},
+    {"query": "把這條記到專案記憶", "should_trigger": false, "note": "專案層 shared，非公司層"},
+    {"query": "檢查記憶健康", "should_trigger": false, "note": "/memory health"},
+    {"query": "重建向量索引", "should_trigger": false, "note": "/vector"},
+    {"query": "這顆 atom 跟另一顆衝突了", "should_trigger": false, "note": "/conflict"},
+    {"query": "幫我整理記憶分類", "should_trigger": false, "note": "/memory classify"},
+    {"query": "公司請假流程是什麼", "should_trigger": false, "note": "一般提問，含『公司』但與記憶層無關"},
+    {"query": "organize 這個資料夾的檔案", "should_trigger": false, "note": "字面含 org 但無關"},
+    {"query": "寫一個新的 skill", "should_trigger": false, "note": "/skill-creator"}
+  ]
+}

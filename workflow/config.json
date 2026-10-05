@@ -21,6 +21,7 @@
     }
   },
   "org_memory": {
+    "repo_url": "https://gitlab.uj.com.tw/open-data-prog/companyatomsmem.git",
     "_doc": "公司層記憶 repo（所有專案看得到、能寫）。tools/org-memory.py --init <root> 會填好；程式只讀 roots[0]，>1 個拒絕並停用 org。寫公司知識：atom_write scope=org。",
     "enabled": true,
     "roots": [

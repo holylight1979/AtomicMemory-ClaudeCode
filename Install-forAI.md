@@ -153,7 +153,7 @@ cp "$SRC/version.json" "$DST/version.json"
 # 核心模組（整資料夾覆蓋；不含個人 atom 與 runtime state）
 rsync -a --delete "$SRC/hooks/" "$DST/hooks/"      # dispatcher + handlers/（9 事件）+ wg_*.py + 獨立 hook
 rsync -a --delete "$SRC/lib/" "$DST/lib/"          # atom_io / atom_spec / atom_locations / atom_index_json / atom_access / realm_gate …
-rsync -a --delete "$SRC/skills/" "$DST/skills/"    # <!-- skill-count -->21<!-- /skill-count --> 個 active skill + _archived/
+rsync -a --delete "$SRC/skills/" "$DST/skills/"    # <!-- skill-count -->22<!-- /skill-count --> 個 active skill + _archived/
 rsync -a --delete "$SRC/rules/" "$DST/rules/"
 rsync -a "$SRC/tools/" "$DST/tools/"               # 保留 user 自加
 
@@ -249,7 +249,7 @@ template 內三個 server：
 - `memory/MEMORY.md`（Lv1 範疇目錄，由 `tools/sync-memory-index.py --write` 生成，不手編）與 `memory/_atom_index.json`（索引單一來源）若缺，Step 2 已補骨架。
 - 首次寫 atom 一律走 MCP `atom_write(mode=create)` 並給 `domain`（Lv1 閉合清單在 `memory/_meta/taxonomy.json`）；分不出範疇的知識不寫。
 - 執行 `python tools/sync-memory-index.py --check` 確認索引與檔案一致（不一致再 `--write`）。
-- **公司層記憶（org，選配）**：公司記憶 repo checkout 後跑一次 `python tools/org-memory.py --init <repo 根>`——佈 `<root>/.claude/memory`（含一張工具卡）、寫 `workflow/config.json org_memory` 與 registry，冪等。之後任何專案的 SessionStart 多一行 `[Org] 公司層 N 顆（<root>）`；寫公司知識用 `atom_write(scope=org)`（TECH §4.4）。工具登記：`python tools/org-memory.py --scan-tools`（skills／MCP 自動成 `shared/工具/` 的 `skill-`／`mcp-` 卡；`--project <專案根>` 另掃該專案 `.claude/tools/*.py`），查 `memory-search.py "<工具名>"`。
+- **公司層記憶（org，選配）**：使用者入口是 `/org` skill（`/org join`／`status`／`scan`，或直接用講的：「接上公司記憶」）。新機器一步接上：`python tools/org-memory.py --join [<本機路徑>]`——根不存在就從 `workflow/config.json` `org_memory.repo_url` clone，再做下述 `--init`；對帳：`python tools/org-memory.py --status`（接上沒、顆數、git 同步、身份與職能、裁決名單）。已自行 checkout 者跑一次 `python tools/org-memory.py --init <repo 根>`——佈 `<root>/.claude/memory`（含一張工具卡）、寫 `workflow/config.json org_memory` 與 registry，冪等。之後任何專案的 SessionStart 多一行 `[Org] 公司層 N 顆（<root>）`；寫公司知識用 `atom_write(scope=org)`（TECH §4.4）。工具登記：`python tools/org-memory.py --scan-tools`（skills／MCP 自動成 `shared/工具/` 的 `skill-`／`mcp-` 卡；`--project <專案根>` 另掃該專案 `.claude/tools/*.py`），查 `memory-search.py "<工具名>"`。
 
 ### Step 6：索引三檔合併驅動（git hook 自動安裝／svn hook 自動解；手動 `--install` 選配）
 
@@ -386,7 +386,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | 13 | Dashboard | 開 `http://127.0.0.1:3848/` | 有頁面 |
 | 14 | 索引合併驅動 | `python tools/merge-atom-index.py --status` | 末行「已安裝」（hook 會在首次合併類 git 指令前自動裝；此處手動確認） |
 | 15 | memory_search | `python tools/memory-search.py "git commit" --no-vector --json`（或問 Claude「用 memory_search 查 git commit」） | 輸出含 `"schema_version": 1` 且 `results` 非空 |
-| 16 | 公司層 org（選配） | 已 `org-memory.py --init` 的機器開新 session | SessionStart 有 `[Org] 公司層 N 顆（<root>）`；未啟用則無此行、也無警告 |
+| 16 | 公司層 org（選配） | 已 `org-memory.py --join`／`--init` 的機器開新 session；另跑 `org-memory.py --status` | SessionStart 有 `[Org] 公司層 N 顆（<root>）`；config 指了根但本機沒 checkout → `[Org] 公司層記憶尚未接上…→ 對我說「接上公司記憶」或 /org join`；未啟用則無此行、也無警告。`--status` 的 `ready` 為 true |
 
 完整回歸：`python run_verify.py`（基線全數 passed，數字見該腳本輸出）。
 
@@ -409,7 +409,7 @@ python tools/merge-atom-index.py --install # 可選：不跑也行——下一�
 - [ ] `hooks/dispatcher.py` 存在；`hooks/handlers/` 有 **9** 個事件 handler（session_start / session_end / user_prompt_submit / pre_tool_use / post_tool_use / stop / pre_compact / post_compact / post_tool_batch）+ `ups_*.py` 四段 + `_shared.py` + `aec_ledger.py`
 - [ ] `hooks/wg_*.py` 為：wg_atoms / wg_coordination / wg_core / wg_docdrift / wg_episodic / wg_evasion / wg_extraction / wg_friction / wg_handoff / wg_harvest / wg_parallel / wg_recall_miss / wg_rescue / wg_research / wg_roles / wg_vcs_sync（wg_roles＝身份／職能／裁決，不再是 shim）；detached worker 有 extract-worker / user-extract-worker / vcs-sync-worker
 - [ ] `hooks/` 內**沒有** `quick-extract.py`、`wg_atom_observation.py`（已刪）；`commands/` 已刪（併入 `skills/`）
-- [ ] `skills/` 有 <!-- skill-count -->21<!-- /skill-count --> 個 active skill；`skills/_archived/` 放 dormant 的 init-roles / conflict-review
+- [ ] `skills/` 有 <!-- skill-count -->22<!-- /skill-count --> 個 active skill；`skills/_archived/` 放 dormant 的 init-roles / conflict-review
 - [ ] `lib/atom_index_json.py` + `memory/_atom_index.json` 存在；`memory/_meta/taxonomy.json` + `forbidden-phrases.json` 存在
 - [ ] 核心 atom 已階層化在 `memory/<範疇>/`，`memory/` 根目錄無平鋪 atom；`taxonomy.gate_enabled=true`
 - [ ] `workflow/config.json`：`vector_search.global_layer="bm25"`、`bm25_min_score=7.0`、`fusion="rrf"`；無 `codex_companion.subprocess_timeout` 死鍵；`ollama_backends` 在 `vector_search` 底下

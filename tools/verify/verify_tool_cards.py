@@ -148,7 +148,7 @@ def test_scan_twice_is_idempotent(world, capsys):
     assert "- [臨] zzqtool.py — 測試工具：把 A 轉成 B。" in cards["zzqtool"].read_text(encoding="utf-8")
     org_idx = json.loads((world["omem"] / "_atom_index.json").read_text(encoding="utf-8"))
     assert sorted(a["name"] for a in org_idx["atoms"]) == ["mcp-zzqlocal", "mcp-zzqmcp", "org-memory", "skill-zzqskill"]
-    assert "- Trigger: skill-zzqskill, zzqskill, skill, " in cards["zzqskill"].read_text(encoding="utf-8")
+    assert "- Trigger: skill-zzqskill, zzqskill skill, 工具卡 zzqskill" in cards["zzqskill"].read_text(encoding="utf-8")
 
     before = _snapshot(world["omem"], world["pmem"])
     capsys.readouterr()
@@ -255,7 +255,7 @@ def test_memory_skill_gets_prefix_and_bare_project_tool_is_skipped(world, capsys
     captured = capsys.readouterr()
     card = world["omem"] / "shared" / "工具" / "skill-memory.md"
     assert card.is_file()
-    assert "- Trigger: skill-memory, memory, skill, " in card.read_text(encoding="utf-8")
+    assert "- Trigger: skill-memory, memory skill, 工具卡 memory" in card.read_text(encoding="utf-8")
     assert "略過 memory：" in captured.out and "略過 memory：" in captured.err
     assert not (world["pmem"] / "shared" / "工具" / "memory.md").exists()
 
@@ -266,3 +266,89 @@ def test_no_target_exits_2(world, monkeypatch, capsys):
     monkeypatch.setattr(wg_core, "load_config", lambda: {"org_memory": {"enabled": False, "roots": []}})
     assert _scan(world, project=False) == 2
     assert "沒有可掃的落點" in capsys.readouterr().err
+
+
+# ─── ⑧ 觸發詞不擾民：只提到種類字或日常字（skill／memory）不得把工具卡拉進來；講卡名才命中 ───────────
+
+def test_tool_card_triggers_do_not_fire_on_generic_words(world):
+    om = world["om"]
+    for name, kind in (("memory", "skill"), ("handoff", "skill"), ("playwright", "mcp"), ("zzqtool", om.TOOL_DOMAIN)):
+        trig = om._card_triggers(name, kind)
+        assert name not in trig and kind not in trig, trig
+        assert len(trig) >= 3
+    trig = om._card_triggers("memory", "skill")
+    for prompt in ("那就補 org skill 吧", "檢查一下 memory 用量", "這個 mcp 連不上"):
+        assert not wg_atoms.any_trigger_hit(trig, prompt.lower()), prompt
+    assert wg_atoms.any_trigger_hit(trig, "skill-memory 是做什麼的")
+    assert wg_atoms.any_trigger_hit(trig, "有 memory skill 可以用嗎")
+
+
+# ─── ⑨ 舊世代卡（觸發詞含種類單字）再掃一次 → 只換 Trigger 行與索引；人工改過觸發詞的卡不動 ────────────
+
+def test_legacy_triggers_are_refreshed_but_manual_ones_are_kept(world):
+    om = world["om"]
+    assert _scan(world) == 0
+    cards = _cards(world)
+    from lib.atom_io import edit_metadata
+    legacy = ["skill-zzqskill", "zzqskill", "skill", "測試技能"]
+    assert edit_metadata(cards["zzqskill"], triggers=legacy, source=om.SCAN_SOURCE).ok
+    manual = ["我自己取的觸發詞", "瀏覽器自動化", "mcp-zzqmcp"]
+    assert edit_metadata(cards["zzqmcp"], triggers=manual, source=om.SCAN_SOURCE).ok
+    body_before = cards["zzqskill"].read_text(encoding="utf-8").split("## 知識", 1)[1]
+
+    assert _scan(world) == 0
+    text = cards["zzqskill"].read_text(encoding="utf-8")
+    assert "- Trigger: skill-zzqskill, zzqskill skill, 工具卡 zzqskill" in text
+    assert text.split("## 知識", 1)[1] == body_before          # 正文一字不動
+    assert "- Trigger: 我自己取的觸發詞, 瀏覽器自動化, mcp-zzqmcp" in cards["zzqmcp"].read_text(encoding="utf-8")
+    idx = {a["name"]: a["triggers"] for a in json.loads(
+        (world["omem"] / "_atom_index.json").read_text(encoding="utf-8"))["atoms"]}
+    assert idx["skill-zzqskill"] == ["skill-zzqskill", "zzqskill skill", "工具卡 zzqskill"]
+    assert idx["mcp-zzqmcp"] == manual
+
+
+# ─── ⑩ --status：一份 JSON 對完帳（接上沒／顆數／同步／身份職能／裁決名單）──────────────────────────
+
+def test_status_reports_org_and_identity(world, tmp_path, monkeypatch, capsys):
+    om = world["om"]
+    assert _scan(world, project=False) == 0
+    cfg_path = tmp_path / "config.json"
+    _lf(cfg_path, json.dumps({"org_memory": {"enabled": True, "repo_url": "https://example.invalid/x.git",
+                                             "roots": [{"id": "org", "root": str(world["org"])}]}}))
+    monkeypatch.setattr(om, "CONFIG_PATH", cfg_path)
+    import wg_roles
+    monkeypatch.setattr(wg_roles, "load_user_role", lambda cwd, user: {"roles": ["art"], "source": "ad"})
+    monkeypatch.setattr(wg_roles, "load_management_roster", lambda cwd="": [])
+    capsys.readouterr()
+    assert om.cmd_status() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["ready"] is True and out["root"] == str(world["org"])
+    assert out["atoms"] == 4 and out["tool_cards"] == 4          # org-memory 種子 + skill + 2 mcp
+    assert out["repo_url"] == "https://example.invalid/x.git"
+    assert out["roles"] == ["art"] and out["roles_source"] == "ad" and out["deciders"] == "全員"
+
+
+# ─── ⑪ --join：根不存在 → 從 config repo_url clone 後 init；沒有 repo_url 也沒路徑 → exit 2 有訊息 ────────
+
+def test_join_clones_from_repo_url_then_inits(world, tmp_path, monkeypatch, capsys):
+    om = world["om"]
+    bare = tmp_path / "company.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True, capture_output=True)
+    target = tmp_path / "joined"
+    cfg_path = tmp_path / "config.json"
+    _lf(cfg_path, json.dumps({"org_memory": {"enabled": False, "repo_url": bare.as_posix(), "roots": []}}))
+    monkeypatch.setattr(om, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(om, "register_in_registry", lambda root: "registry stub")
+    assert om.cmd_join(str(target)) == 0
+    assert (target / ".git").exists()
+    assert (target / ".claude" / "memory" / "_atom_index.json").is_file()
+    org_cfg = json.loads(cfg_path.read_text(encoding="utf-8"))["org_memory"]
+    assert org_cfg["enabled"] is True and org_cfg["roots"][0]["root"] == str(target.resolve())
+    assert org_cfg["repo_url"] == bare.as_posix()               # 既有鍵原位保留
+
+    _lf(cfg_path, json.dumps({"org_memory": {"enabled": False, "roots": []}}))
+    capsys.readouterr()
+    assert om.cmd_join(None) == 2
+    assert "沒有本機路徑" in capsys.readouterr().err
+    assert om.cmd_join(str(tmp_path / "nowhere")) == 2
+    assert "repo_url 未設" in capsys.readouterr().err

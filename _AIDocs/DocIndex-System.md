@@ -119,7 +119,7 @@ Session Ready
 | user-init.sh | — | 多人 USER.md 初始化 |
 | webfetch-guard.sh | — | WebFetch 安全護欄 |
 
-## 5. Skills（<!-- skill-count -->21<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
+## 5. Skills（<!-- skill-count -->22<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
 
 V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 全刪除。
 
@@ -142,6 +142,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /read-project | skills/read-project/SKILL.md | 系統性閱讀→doc-index atom | 無 |
 | /upgrade | skills/upgrade/SKILL.md | 環境升級（diff + merge + rebuild） | 無 |
 | /vector | skills/vector/SKILL.md | 向量服務管理 | Vector Service |
+| /org | skills/org/SKILL.md | 公司層共用記憶一站式入口：join（接上）／status（對帳）／scan（工具卡）＋寫公司知識的判準 | tools/org-memory.py、atom_write scope=org |
 | /journal | skills/journal/SKILL.md | 工作日誌產出 | 無 |
 | /browse-sprites | skills/browse-sprites/SKILL.md | 批次圖片預覽 | 無 |
 | /skill-creator | skills/skill-creator/SKILL.md | **新增 meta-skill**：寫/改/審 skill（三層架構 + 5 設計模式 + audit/new-skill/cost-measure） | 無 |
@@ -225,7 +226,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 ### 遷移 / 維護
 - init-roles.py — 職能人工覆寫 `--me <roles>`（寫 personal/<u>/role.md，冪等）與 `--status` 三層對帳（role.md／AD 群組對映／deciders）；`--bootstrap-personal`＝`--me programmer`
 - memory-search.py — 命令列一句話查記憶（`lib/memory_search`；非 CC 人員／腳本用；與 rag-engine.py 純向量分工）
-- org-memory.py — 公司層 org 初始化 `--init <root>`（佈 `<root>/.claude/memory` 記憶樹＋`shared/_taxonomy.json` Lv1「工具」＋`project-tree.json standalone`、種工具卡 `shared/工具/org-memory.md`、寫 config `org_memory` 與 registry；冪等）
+- org-memory.py — 公司層 org：`--join [<root>]`（根不存在就從 config `org_memory.repo_url` clone 再 init）、`--status`（接上沒／顆數／git 同步／身份職能／裁決名單，JSON）、`--scan-tools`（skills／MCP／專案 tools → 工具卡；舊世代卡的觸發詞自動換成現行規則）；初始化 `--init <root>`（佈 `<root>/.claude/memory` 記憶樹＋`shared/_taxonomy.json` Lv1「工具」＋`project-tree.json standalone`、種工具卡 `shared/工具/org-memory.md`、寫 config `org_memory` 與 registry；冪等）
 - memory-peek.py / memory-undo.py / memory-session-score.py — `/memory` 子命令後端
 - changelog-roll.py — _CHANGELOG.md 自動滾動（PostToolUse hook 偵測寫入 → detached subprocess 觸發）
 - cleanup-old-files.py — 環境清理
@@ -253,7 +254,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->221<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->222<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2

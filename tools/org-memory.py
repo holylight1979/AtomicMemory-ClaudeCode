@@ -13,7 +13,11 @@
   卡的進入點（Depends: path:）消失 → 把 Status 改 deprecated，不刪卡。
   卡名：skill → skill-<name>、MCP server → mcp-<name>（一眼看出種類、避開索引檔 MEMORY.md 撞名）、
   專案 tools/*.py → 檔名去副檔名（與 --init 種的 org-memory 一致）。
+--join：新機器一步接上——根目錄不存在就從 config org_memory.repo_url clone，再跑 --init。
+--status：對帳——公司層根、是否就緒、atom 與工具卡數、git 同步狀態、目前身份與職能、裁決名單。
 怎麼跑：
+  python ~/.claude/tools/org-memory.py --join [<本機路徑>]      # 省略路徑用 config 既有 roots[0].root
+  python ~/.claude/tools/org-memory.py --status
   python ~/.claude/tools/org-memory.py --init <公司記憶 repo 根>
   python ~/.claude/tools/org-memory.py --scan-tools [--project <專案根>] [--owner <AD 帳號>] [--dry-run]
   完整參數以 --help 為準。
@@ -36,9 +40,9 @@ sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
 import wg_core  # noqa: E402
 from wg_roles import get_current_user  # noqa: E402
 from lib import atom_access  # noqa: E402
-from lib.atom_io import locate_atom, write_index, write_raw  # noqa: E402
+from lib.atom_io import edit_metadata, locate_atom, write_index, write_raw  # noqa: E402
 from lib.atom_spec import (  # noqa: E402
-    TRIGGER_MIN, build_atom_content, parse_depends, resolve_depends_path, validate_atom_content,
+    TRIGGER_MIN, build_atom_content, parse_depends, resolve_depends_path, slugify, validate_atom_content,
 )
 from lib.atom_index_json import load_atom_index_json, upsert_atom  # noqa: E402
 
@@ -176,29 +180,23 @@ def cmd_init(root_arg: str) -> int:
 
 # ─── --scan-tools：來源 → 卡片規格 ────────────────────────────────────────────
 
-def _keywords(desc: str) -> List[str]:
-    """說明文字按標點切段，取最多 3 段 2～20 字的片段當觸發關鍵字。"""
-    out: List[str] = []
-    for tok in re.split(r"[，,、/／（）()：:—;；\s\[\]「」。]+", desc or ""):
-        tok = tok.strip()
-        if 2 <= len(tok) <= 20 and tok not in out:
-            out.append(tok)
-        if len(out) == 3:
-            break
-    return out
+def _card_triggers(name: str, kind: str) -> List[str]:
+    """工具卡的觸發詞只放「卡名」與「名稱＋種類」片語，不放裸名、種類單字與說明關鍵字。
+    工具名多是 memory／handoff／continue 這類日常字，種類字（skill／mcp）更是句句會出現——
+    放了每句話都把整批工具卡注入、吃光注入預算。用工具名查仍找得到：memory_search 的 BM25 以卡名與觸發詞斷詞。"""
+    if kind == TOOL_DOMAIN:
+        return [f"{name}.py", f"{name} 工具", f"工具卡 {name}"]
+    return [f"{kind}-{name}", f"{name} {kind}", f"工具卡 {name}"]
 
 
 def _card(name: str, kind: str, desc: str, *, entry: str, has_path: bool, run: str) -> Dict[str, object]:
-    """卡名＝kind 前綴＋名稱（kind 為「工具」的專案腳本不加前綴）；觸發詞保留裸名，搜尋仍以工具名命中。"""
+    """卡名＝kind 前綴＋名稱（kind 為「工具」的專案腳本不加前綴）。"""
     card_name = name if kind == TOOL_DOMAIN else f"{kind}-{name}"
-    triggers = [card_name, name, kind]
-    triggers = [t for i, t in enumerate(triggers) if t not in triggers[:i]]
-    triggers += [k for k in _keywords(desc) if k not in triggers]
-    while len(triggers) < TRIGGER_MIN:
-        triggers.append("工具卡")
+    triggers = _card_triggers(name, kind)
+    assert len(triggers) >= TRIGGER_MIN
     return {
         "name": card_name, "entry": entry, "has_path": has_path, "triggers": triggers,
-        "desc": desc or "（來源未附說明）", "run": run,
+        "desc": desc or "（來源未附說明）", "run": run, "kind": kind,
     }
 
 
@@ -336,6 +334,24 @@ def deprecate_missing(mem_dir: Path, *, dry_run: bool) -> List[str]:
     return msgs
 
 
+def refresh_legacy_triggers(mem_dir: Path, cards: List[Dict[str, object]], *, dry_run: bool) -> List[str]:
+    """舊世代工具卡的觸發詞含種類單字（skill／mcp／工具）→ 換成現行規則（只動 Trigger 行與索引）。
+    判準是「索引裡的觸發詞含種類單字」：那只可能是掃描器早期產生的；人工改過觸發詞的卡不會命中、不動。"""
+    by_name = {str(e.get("name")): e for e in load_atom_index_json(mem_dir).get("atoms", [])}
+    msgs: List[str] = []
+    for card in cards:
+        e = by_name.get(slugify(str(card["name"])))   # 索引名是 slug（小寫），卡名可能含大寫
+        if not e or str(card["kind"]) not in (e.get("triggers") or []):
+            continue
+        if dry_run:
+            msgs.append(f"[dry-run] 將更新觸發詞：{card['name']}")
+            continue
+        path = mem_dir.parent / str(e.get("path") or "").replace(chr(92), "/")
+        res = edit_metadata(path, triggers=list(card["triggers"]), source=SCAN_SOURCE)  # type: ignore[arg-type]
+        msgs.append(f"更新觸發詞：{card['name']}" if res.ok else f"失敗 {card['name']}：觸發詞 {res.error}")
+    return msgs
+
+
 def cmd_scan_tools(project_arg: Optional[str], owner: Optional[str], dry_run: bool) -> int:
     owner = owner or get_current_user()
     jobs = []  # (標籤, 落點 root, 卡片清單)
@@ -361,12 +377,13 @@ def cmd_scan_tools(project_arg: Optional[str], owner: Optional[str], dry_run: bo
         print(f"[org-memory] scan-tools → {label} {root}（來源 {len(cards)} 個；owner={owner}{tag}）")
         msgs = [write_card(c, project_cwd=root, owner=owner, dry_run=dry_run) for c in cards]
         msgs += deprecate_missing(root / ".claude" / "memory", dry_run=dry_run)
+        msgs += refresh_legacy_triggers(root / ".claude" / "memory", cards, dry_run=dry_run)
         for m in msgs:
             print(f"  - {m}")
             if m.startswith("略過"):
                 print(f"[org-memory] {m}", file=sys.stderr)
         failed += sum(1 for m in msgs if m.startswith("失敗"))
-        changed = any(m.startswith(("建立", "退役")) for m in msgs)
+        changed = any(m.startswith(("建立", "退役", "更新觸發詞")) for m in msgs)
         if changed:
             try:
                 print(f"  - {_sync_catalog(root / '.claude' / 'memory')}")
@@ -379,11 +396,81 @@ def cmd_scan_tools(project_arg: Optional[str], owner: Optional[str], dry_run: bo
     return 0
 
 
+def _org_cfg() -> Dict[str, object]:
+    cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    org = cfg.get("org_memory")
+    return org if isinstance(org, dict) else {}
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=120,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def cmd_join(root_arg: Optional[str]) -> int:
+    """新機器一步接上：根目錄不存在 → 從 config org_memory.repo_url clone；之後跑 --init（冪等）。"""
+    org = _org_cfg()
+    roots = org.get("roots") or []
+    cfg_root = roots[0].get("root") if roots and isinstance(roots[0], dict) else None  # type: ignore[index,union-attr]
+    target = root_arg or cfg_root
+    if not target:
+        print("[org-memory] 沒有本機路徑：請給 --join <路徑>（config org_memory.roots 也是空的）", file=sys.stderr)
+        return 2
+    root = Path(str(target)).expanduser()
+    if not root.exists():
+        url = str(org.get("repo_url") or "")
+        if not url:
+            print(f"[org-memory] {root} 不存在，且 config org_memory.repo_url 未設，無從 clone", file=sys.stderr)
+            return 2
+        print(f"[org-memory] clone {url} → {root}")
+        r = subprocess.run(["git", "clone", url, str(root)], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=300,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            print(f"[org-memory] clone 失敗：{(r.stderr or r.stdout).strip()[-300:]}", file=sys.stderr)
+            return 1
+    return cmd_init(str(root))
+
+
+def cmd_status() -> int:
+    """對帳：公司層接上沒、裡面有什麼、同步狀態、我是誰／什麼職能／誰能裁決。印 JSON。"""
+    from wg_roles import load_management_roster, load_user_role
+    org = _org_cfg()
+    root = wg_core.org_memory_root()
+    out: Dict[str, object] = {"enabled": bool(org.get("enabled")), "repo_url": org.get("repo_url") or None,
+                              "root": str(root) if root else None, "ready": False}
+    if root is not None and (root / ".claude" / "memory").is_dir():
+        mem = root / ".claude" / "memory"
+        atoms = load_atom_index_json(mem).get("atoms", [])
+        out["ready"] = True
+        out["atoms"] = len(atoms)
+        out["tool_cards"] = sum(
+            1 for e in atoms if f"/{TOOL_DOMAIN}/" in str(e.get("path") or "").replace(chr(92), "/"))
+        st = _git(root, "status", "--porcelain", "--", ".claude/memory")
+        ab = _git(root, "rev-list", "--left-right", "--count", "@{u}...HEAD")
+        out["uncommitted"] = (len([ln for ln in (st.stdout or "").splitlines() if ln.strip()])
+                              if st.returncode == 0 else None)
+        if ab.returncode == 0 and len(ab.stdout.split()) == 2:
+            out["behind"], out["ahead"] = (int(x) for x in ab.stdout.split())
+    user = get_current_user()
+    role = load_user_role(str(Path.cwd()), user)
+    out["user"] = user
+    out["roles"] = role.get("roles")
+    out["roles_source"] = role.get("source")
+    out["deciders"] = load_management_roster(str(Path.cwd())) or "全員"
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="公司層記憶（org）初始化與工具卡掃描；完整參數以 --help 為準")
+    ap.add_argument("--join", nargs="?", const="", metavar="ROOT",
+                    help="新機器一步接上：ROOT 不存在就從 config org_memory.repo_url clone，再 --init；省略 ROOT 用 config 既有路徑")
+    ap.add_argument("--status", action="store_true", help="對帳：公司層是否就緒、atom／工具卡數、git 同步、身份與職能、裁決名單")
     ap.add_argument("--init", metavar="ROOT", help="把 ROOT（已 checkout 的公司記憶 repo 根）佈成公司層記憶並寫入 config／registry")
     ap.add_argument("--scan-tools", action="store_true",
                     help="掃 skills 索引與 MCP 樣板，缺的工具卡建到 org shared/工具/；進入點消失的卡標 deprecated")
@@ -391,6 +478,10 @@ def main() -> int:
     ap.add_argument("--owner", metavar="USER", help="（搭 --scan-tools）卡的負責人 Author；預設目前登入的 AD 帳號")
     ap.add_argument("--dry-run", action="store_true", help="（搭 --scan-tools）只印會建／會退役哪些卡，不寫檔")
     args = ap.parse_args()
+    if args.join is not None:
+        return cmd_join(args.join or None)
+    if args.status:
+        return cmd_status()
     if args.init:
         return cmd_init(args.init)
     if args.scan_tools:
