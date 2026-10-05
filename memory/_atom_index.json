@@ -4054,6 +4054,21 @@
         "declined"
       ],
       "scope": "global"
+    },
+    {
+      "name": "gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-identity-星號md誤傷identity開頭的atom",
+      "path": "memory/版控/Git/gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-identity-星號md誤傷identity開頭的atom.md",
+      "triggers": [
+        "gitignore",
+        "core.ignorecase",
+        "被忽略的 atom",
+        "索引有檔案沒有",
+        "broken_refs",
+        "_INDEX.md drift",
+        "乾淨 clone 索引不一致",
+        "check-ignore"
+      ],
+      "scope": "global"
     }
   ]
 }
