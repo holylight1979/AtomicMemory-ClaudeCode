@@ -62,7 +62,7 @@ Session Ready
 | version.json | 版本標識（guardian / atom_memory / release_date / release_theme）+ 三個網頁介面位置（web.dashboard / anti_evasion_hud / brain_world）；程式只讀 guardian、atom_memory（paths.js） | Dashboard 標題 + 文件用 | 共用 |
 | workflow/config.json | Guardian / Vector / Decay / Capture 全參數 | hook 每次讀取 | 共用 |
 | memory/_meta/forbidden-phrases.json | 禁語 single source | IDENTITY + wg_evasion 共用 | 共用 |
-| mcp-servers.template.json | MCP server 清單（Install-forAI 用） | 安裝時讀 | 共用 |
+| mcp-servers.template.json | MCP server 清單（`hooks/ensure-mcp.py` 讀；TECH §9.3） | 每次 SessionStart | 共用 |
 
 ## 3. 規則模組（rules/）
 
@@ -224,6 +224,8 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - native-memory-bridge.py — 核心 atom 索引 → CC 原生 memory 指標鏡像（harness 清單格式，掃描不誤納；`--create` 首次建目錄）
 
 ### 遷移 / 維護
+- install.py — 安裝器（單檔、純標準函式庫）：`--check` 安裝前自檢、`--apply` 原地接上版控＋備份＋覆蓋檔（`settings.json`／`workflow/config.json`）合併與 skip-worktree、`--upgrade` 升級並重新合併覆蓋檔、`--verify` 安裝後驗證；機制 TECH §9.5、操作步驟 `Install-forAI.md`；守門 `tools/verify/verify_install.py`
+- fix-hook-python.py — 校正 `settings.json` 各 hook 與 statusLine 的直譯器路徑（只檢查／`--write`／`--use <path>`；install.py 會呼叫；TECH §9.2）
 - init-roles.py — 職能人工覆寫 `--me <roles>`（寫 personal/<u>/role.md，冪等）與 `--status` 三層對帳（role.md／AD 群組對映／deciders）；`--bootstrap-personal`＝`--me programmer`
 - memory-search.py — 命令列一句話查記憶（`lib/memory_search`；非 CC 人員／腳本用；與 rag-engine.py 純向量分工）
 - ai-client-setup.py — 其他 AI 客戶端輕量安裝（只註冊 workflow-guardian MCP、不裝 hooks）：檢查 Node → `git pull --ff-only` → `org-memory.py --join` → 寫 Codex `~/.codex/config.toml`／Gemini CLI `~/.gemini/settings.json`（已註冊不動、既有設定保留；偵測不到就印片段）；`--dry-run`／`--client`／`--no-update`／`--no-join`
@@ -255,7 +257,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->229<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->232<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2
@@ -290,7 +292,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 - README.md — 人讀入口：是什麼 / 平常在做什麼 / 核心理念 + 與原生 CC 差異（零技術名詞）
 - Install.md — 人讀安裝指南：版控庫網址、在 ~/.claude 貼 prompt 由 AI 代跑、驗證、專案 3 步、啟動檔維護
-- Install-forAI.md — AI 代跑安裝指南：前置需求逐項附替代方案與降級邏輯、合併安裝、驗證、升級、FAQ、網頁介面
+- Install-forAI.md — AI 安裝 runbook：執行守則、`tools/install.py` 指令序與每步判讀、回報方式、選配項指向、升級、移除（依賴降級／MCP 註冊／功能開關／疑難排解在 TECH.md §9、§12）
 - TECH.md — 技術深度文件（按現況排章：理念 / 差異 / 一回合流程 / 資料層 / 檢索注入 / 寫入積累 / 守門收尾 / 可觀測 / 服務與網頁 / 目錄樹 / 設定 / 版本歷史；以代碼為真源）
 - version.json — 版本標識 + 網頁介面位置
 - _AIDocs/ — 知識庫（Architecture / context-memory-governance / SPEC_ATOM_V5 / SPEC_ATOM_V4 / DevHistory / Research / ClaudeCodeInternals / Tools；失敗家族 atom 在 memory/Failures/）

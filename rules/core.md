@@ -2,6 +2,14 @@
 
 > 已由 hook／MCP 程式化強制的事（Sync 提醒、並行建議、研究 fan-out、domain 拒寫、版本脈絡 warn、_INDEX 提示）不在此重述；本檔只留「事前就要知道」與「沒有程式閘」的規則。
 
+## 系統自我認知
+- **核心目標**：每一次的知識與經驗全部積累、分門別類，並在需要的那一刻精準送到眼前——該想起的要完整送到，不相關的一行都不佔 token。記憶系統的取捨兩題都要過。
+- **記憶三層**（寫入時的 scope）：
+  - 根層 `~/.claude/memory/`：跨專案通用知識，隨本系統 repo 同步 → `global`
+  - 公司層（`/org` 接上的公司記憶 repo）：所有專案共用的公司知識與工具卡 → `org`
+  - 專案層 `{專案}/.claude/memory/`：該專案的決策與踩坑，隨專案版控 → `shared`／`personal`
+- 哪層接上沒、裝得完不完整 → `python ~/.claude/tools/install.py --verify`。
+
 ## 治理原則
 - **Native-first**：原生機制（CLAUDE.md / skills / memory / resume）優先；自製只做原生做不到的「結構化 · 可稽核 · 跨-session 高價值」。過度工程的正解是誠實化＋修剪，非推倒重來。
 - **根層只在根層改**：`~/.claude` 核心（hooks/lib/tools/skills/rules、根層設定與文件、根層 repo 版控）只在 `~/.claude` session 改；專案 session 遇到 → 不動手，把需求寫成可貼上的 prompt 交給使用者（閘門會擋，擋下訊息附替代做法）。跑根層工具不算改：`python ~/.claude/tools/<tool>.py …`，不 `cd` 進去。
@@ -15,7 +23,7 @@
 ## 記憶
 - 寫入一律走 atom_write MCP（自動驗證去重索引），禁直接 Edit atom .md；已記錄事實直接引用；不寫臨時嘗試/未確認猜測。**新 atom 一律 [臨] 起跳**（系統拒收新建 [固]/[觀]），晉升靠使用或 append。
 - **Realm**：跨專案通用 → `memory/<範疇>/`（失敗家族 `memory/Failures/<主題>/`）；只在 ~/.claude 內有用 → `realm=local`（`_AIDocs/_atoms/`）。判定三問見 [[realm-範疇分區機制-v5]]。
-- **Scope**（問「遷就專案還是遷就人？」）：專案的規則／決策 → `shared`；只關於這個人 → `personal`；本人跨專案偏好 → `personal, cross_project=true`。
+- **Scope**（問「遷就專案還是遷就人？」）：專案的規則／決策 → `shared`；只關於這個人 → `personal`；本人跨專案偏好 → `personal, cross_project=true`；全公司所有專案都該知道 → `org`。
 - create 必給 `domain`（Lv1 閉合清單 `memory/_meta/taxonomy.json`），不確定落點先 `dry_run`；分不出範疇的知識不寫。
 
 ## 對話

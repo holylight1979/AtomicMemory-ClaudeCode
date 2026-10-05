@@ -1,5 +1,5 @@
 {
-  "_doc": "版本標識檔。guardian＝Workflow Guardian（hooks + MCP server）版本，Dashboard 標題與 MCP serverInfo 顯示；atom_memory＝原子記憶系統版本；release_date＝此版本正式發布日；release_theme＝此版本主題一句話。web＝三個網頁介面的位置（純說明，程式不讀）。程式讀者只有 tools/workflow-guardian-mcp/lib/paths.js（只取 guardian / atom_memory）；文件讀者 Install-forAI.md 與 TECH.md。",
+  "_doc": "版本標識檔。guardian＝Workflow Guardian（hooks + MCP server）版本，Dashboard 標題與 MCP serverInfo 顯示；atom_memory＝原子記憶系統版本；release_date＝此版本正式發布日；release_theme＝此版本主題一句話。web＝三個網頁介面的位置（純說明，程式不讀）。程式讀者：tools/workflow-guardian-mcp/lib/paths.js（只取 guardian / atom_memory）與 tools/install.py --verify（確認本檔可讀）；文件讀者 TECH.md。",
   "guardian": "5.1.0",
   "atom_memory": "5.1",
   "release_date": "2026-07-25",

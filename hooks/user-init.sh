@@ -10,7 +10,10 @@ USER_FILE="$CLAUDE_DIR/USER-${USERNAME}.md"
 USER_TEMPLATE="$CLAUDE_DIR/templates/USER.template.md"
 USER_TARGET="$CLAUDE_DIR/USER.md"
 
-if [ ! -f "$USER_FILE" ] && [ -f "$USER_TEMPLATE" ]; then
+# 編輯點不存在時：已有 USER.md 就以它為準（保住使用者內容），否則才從模板建。
+if [ ! -f "$USER_FILE" ] && [ -f "$USER_TARGET" ]; then
+  cp "$USER_TARGET" "$USER_FILE"
+elif [ ! -f "$USER_FILE" ] && [ -f "$USER_TEMPLATE" ]; then
   cp "$USER_TEMPLATE" "$USER_FILE"
 fi
 if [ -f "$USER_FILE" ]; then

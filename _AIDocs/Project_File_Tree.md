@@ -10,7 +10,7 @@
 | `lib/` | atom 規則/IO 單一源（`atom_spec` / `atom_locations` / `atom_io` / `atom_access` + 讀取端 `memory_search` + `verify/`） | 手寫 |
 | `hooks/` | Hook 腳本（`workflow-guardian.py` + `wg_*.py` + `wisdom_engine.py` + `handlers/` + lib） | 手寫 |
 | `skills/` | V5 全域 skills（2026-05-27 取代 `commands/`） | 手寫 |
-| `tools/` `scripts/` | 工具腳本 / 一次性遷移（含 `workflow-guardian-mcp/`：MCP server.js + Dashboard :3848 + world.html 腦內世界；`memory-vector-service/` :3849；`memory-search.py` 命令列查記憶；`org-memory.py` 公司層初始化） | 手寫 |
+| `tools/` `scripts/` | 工具腳本 / 一次性遷移（含 `workflow-guardian-mcp/`：MCP server.js + Dashboard :3848 + world.html 腦內世界；`memory-vector-service/` :3849；`memory-search.py` 命令列查記憶；`org-memory.py` 公司層初始化；`install.py` 安裝／升級／驗證） | 手寫 |
 | `workflow/` | Guardian runtime 狀態 + `config.json`（多數 gitignore） | hook |
 | `_AIDocs/` | 長期參考知識（`Architecture` / `SPEC_*` / `DevHistory/` 演進史 / `Research/` 業界調查 / `ClaudeCodeInternals/` CC 原生規格 / `_atoms/` local 範疇 atom） | 手寫 + auto-roll |
 | `plans/` | 進行中規劃；完成搬 `_AIDocs/DevHistory/` | 手寫 |

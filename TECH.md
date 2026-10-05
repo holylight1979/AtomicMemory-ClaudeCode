@@ -82,16 +82,18 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 
 | 事件 | matcher | 掛的 hook（timeout 秒） | 職責 |
 |------|---------|------|------|
-| SessionStart | — | `user-init.sh`(5) → `workflow-guardian.py`(8) → `ensure-mcp.py`(5) → `codex_companion.py`(5) | 還原 USER/IDENTITY、state 建立、讀索引前 spawn vcs-sync worker 拉取（`_spawn_pull_sync`，`reason=pull`，detached 不等；§6.3）、索引完整性哨兵、vector 啟動器、advisory（健檢／回訪／未 push〔`_unpushed_advisory` 查 `workflow/vcs-sync/roots.json` 全部 root：領先 upstream 或有 `.unpushed` 標記〕／拉取〔`_pull_advisory_lines`：上次拉入 N 筆、候選池以本次載入快照為準；`.behind` 標記或 `pull_error` → 理由〕／裁判後端） |
+| SessionStart | — | `user-init.sh`(12，經 `run-bash-hidden.py`) → `workflow-guardian.py`(20) → `ensure-mcp.py`(5) → `codex_companion.py`(5) | 還原 USER/IDENTITY、state 建立、讀索引前 spawn vcs-sync worker 拉取（`_spawn_pull_sync`，`reason=pull`，detached 不等；§6.3）、索引完整性哨兵、vector 啟動器、advisory（健檢／回訪／未 push〔`_unpushed_advisory` 查 `workflow/vcs-sync/roots.json` 全部 root：領先 upstream 或有 `.unpushed` 標記〕／拉取〔`_pull_advisory_lines`：上次拉入 N 筆、候選池以本次載入快照為準；`.behind` 標記或 `pull_error` → 理由〕／裁判後端） |
 | UserPromptSubmit | — | guardian(8)、codex(3) | **記憶注入主路徑**（§5）+ 各種 guard 提醒 |
 | PreToolUse | `WebFetch` | `webfetch-guard.sh`(20) | 抓網頁前置護欄 |
 | PreToolUse | `Bash` | `plan_bash_guard.py`(5) | Plan Mode 彈窗攔截：必彈窗寫法 deny＋改寫提示（§7.5） |
 | PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | 跨 session 同檔互寫預警、git commit 隱私硬閘、git commit 口令閘、`svn add` 中文路徑 SvnEncoding advisory（§7.5）、subagent 記憶注入 |
-| PostToolUse | `Edit\|Write\|NotebookEdit\|ExitPlanMode\|Bash\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
+| PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|ExitPlanMode\|Bash\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
 | PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom |
 | Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Deferral、KnowledgeHarvest／Harvest-Pending、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
 | SessionEnd | — | guardian(30)、codex(5) | spawn 萃取 worker、episodic 生成、decay、晉升 sweep、recall-miss、log GC；最後 spawn 一次 vcs-sync worker（`reason=promotion|session_end`，§6.3 階段收割） |
+
+本表的真源是 `settings.json` 的 `hooks` 區塊；`workflow-guardian.py` 是 1 行 shim → `hooks/dispatcher.py` → `hooks/handlers/{event}.py`，bash 類 hook 經 `hooks/run-bash-hidden.py` 包一層。安裝時由 `tools/install.py` 把這段合併進使用者的 `settings.json`（§9.5）。
 
 ### 3.2 序列圖
 
@@ -209,6 +211,8 @@ sequenceDiagram
 | `personal:{user}` | 只自己 | 個人 scratch、未公開假設 | `{project}/.claude/memory/personal/<user>/`（**進專案版控**，多機才同步；注入過濾只決定模型搜不搜得到、不是保密——repo 任何讀者都能開檔，敏感內容不放；SessionStart `_personal_sync_advisory` 見被 ignore／未 commit 會提示） |
 | `personal:{user}`（跨專案） | 只自己，但每個專案都看得到 | 本人跨專案偏好 | `~/.claude/memory/personal/<user>/`（gitignore；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 寫入即落此） |
 
+**公司層的日常操作**：已自行 checkout 公司記憶 repo 的機器跑一次 `python tools/org-memory.py --init <repo 根>`（佈 `<root>/.claude/memory` 含一張工具卡、寫本機狀態檔與 registry，冪等）；`--scan-tools --project <專案根>` 另掃該專案 `.claude/tools/*.py`；查工具卡 `python tools/memory-search.py "<工具名>"`。SessionStart 的三種訊息：已接上 → `[Org] 公司層 N 顆（<root>）`；沒接上且共用 config 有 `repo_url` → 整台只出現一次 `[Org] 公司有一層所有專案共用的記憶，這台機器還沒接上 → 對我說「接上公司記憶」或 /org join`；接過但本機 checkout 不見 → 每次 `[Org] 公司層記憶尚未接上…`。對帳看 `--status` 的 `ready`。
+
 **personal 與 shared 的分界**：內容是「針對專案的規則」（專名／此專案／上傳／發布／必須／禁止…）就落 shared，`Author:` 記提出者（自動萃取亦同）；有異議找 Author；待審草稿（`shared/_pending_review/`）由裁決者核准／退回（config `review.deciders`，空＝全員）。personal 只留真正的個人偏好。
 
 **讀取端候選池**（`wg_atoms.build_candidate_pool(cwd, user, roles, org_root=)` 純函式；SessionStart 建一次存 state、`lib/memory_search` 同用；UPS 的 trigger / BM25 / vector / related / AtomAudit 共用）：global + 本人跨專案 personal + 公司層 org（config 啟用且 cwd 的專案根不是 org 根時）+ 本專案 shared（含 failures）+ 本人 roles + 本人 personal。他專案任何層都不進池；他人 personal / role 不進池；`user=unknown` 不進任何 personal。scope 由索引 path 推導（`personal/<u>/`、`roles/<r>/`；org 組由分組推導回 `org`），不信 index 的 scope 欄。同名跨層 project > org > global 先到先贏（`memory_search` 把被遮蔽者列進 `warnings`）。向量路帶同一套 layers 白名單（org 以 `visible_vector_layers(extra_layers=["shared:<org slug>"])` 附加），裁決者不豁免。
@@ -223,14 +227,42 @@ sequenceDiagram
   細節（stage 方向矩陣、CLI 契約、失敗模式 SOP、不在保證範圍）→ `_AIDocs/MultiMachineMemorySync.md`。
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
-- 現況計數：<!-- atom-breakdown -->229 atoms：core 107 + feedback 31 + 失敗模式 2 + local 89〔Tools11/MemDev72/OS2/CC與原子記憶契約1/Vision1/工作流2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->232 atoms：core 110 + feedback 31 + 失敗模式 2 + local 89〔Tools11/MemDev72/OS2/CC與原子記憶契約1/Vision1/工作流2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
 - `{project}/.claude/memory/`：`shared/<Lv1>/`、`failures/<主題>/`、`personal/<user>/`、`roles/<role>/`、`episodic/`、`_staging/`；專案 `MEMORY.md` 只 upsert `<!-- atom-catalog -->` 區塊，區塊外逐 byte 不動。
 - 專案層判定**單一來源** `wg_core.discover_all_project_memory_dirs`（`memory/project-registry.json` 優先）；memory-audit / conflict-detector / 向量索引都問它，不自掃 `projects/*/memory`——那是 CC 原生 auto-memory 目錄，不是記憶層。
 - 專案自訂 Lv1：`shared/_taxonomy.json`（唯一擴充入口）。
-- **子專案 cwd 歸根層**：Claude 開在 `C:\TSLG\Server\scripts` 這種子專案時，記憶要歸 `C:\TSLG\.claude\memory`，靠各層 `.claude/project-tree.json` 宣告——根層列 `subs`、子層指 `root`（任一方宣告即成立；`root_abs` 本機覆寫、`standalone` 表獨立）。尋根單一來源 `lib/project_root.py`（`wg_core.find_project_root` 與 `atom_io._find_project_root` 都委派）：沿字面路徑往上讀宣告，優先序 standalone → 本層 root → 本層即根 → 祖先 subs；**沒有任何宣告時退回舊規則「最近四標記、最多 4 層」，行為不變**；家目錄、`~/.claude`、磁碟根永不當專案根。宣告認領的根 `get_project_memory_dir` 直接回 `root/.claude/memory`（可尚未存在，寫入時才建）。SessionStart 印 `📍 [Guardian:ProjectRoot]` 宣告行；上層有記憶層但沒宣告 → `❓` 引導 AI 用 AskUserQuestion 問使用者（認領／獨立／瀏覽選資料夾／先不決定）；hook 只讀宣告檔，增刪改一律 `tools/project-tree.py`（show / explain / set-root / add-sub / standalone / claim / pick）。resume 時專案根指紋不符 → atom index 重建。狀況總表見 `Install-forAI.md` 多子專案佈局。
+- **子專案 cwd 歸根層**：Claude 開在 `C:\TSLG\Server\scripts` 這種子專案時，記憶要歸 `C:\TSLG\.claude\memory`，靠各層 `.claude/project-tree.json` 宣告——根層列 `subs`、子層指 `root`（任一方宣告即成立；`root_abs` 本機覆寫、`standalone` 表獨立）。尋根單一來源 `lib/project_root.py`（`wg_core.find_project_root` 與 `atom_io._find_project_root` 都委派）：沿字面路徑往上讀宣告，優先序 standalone → 本層 root → 本層即根 → 祖先 subs；**沒有任何宣告時退回舊規則「最近四標記、最多 4 層」，行為不變**；家目錄、`~/.claude`、磁碟根永不當專案根。宣告認領的根 `get_project_memory_dir` 直接回 `root/.claude/memory`（可尚未存在，寫入時才建）。SessionStart 印 `📍 [Guardian:ProjectRoot]` 宣告行；上層有記憶層但沒宣告 → `❓` 引導 AI 用 AskUserQuestion 問使用者（認領／獨立／瀏覽選資料夾／先不決定）；hook 只讀宣告檔，增刪改一律 `tools/project-tree.py`（show / explain / set-root / add-sub / standalone / claim / pick）。resume 時專案根指紋不符 → atom index 重建。宣告檔寫法與狀況總表見下方「多子專案佈局」。
+
+**多子專案佈局（選配）**：專案根（放 `.claude/memory/` 的那層，例 `C:\TSLG`）底下有多個可單獨開啟的子專案（`Client/`、`Server/`、`Tools/`…）時，各層放一份 `.claude/project-tree.json`（進版控），任一方宣告即成立：
+
+```jsonc
+// C:\TSLG\.claude\project-tree.json（根層列子專案）
+{ "subs": ["Server", "Client", "Tools"] }
+// C:\TSLG\Server\.claude\project-tree.json（子層指回根層；可再列自己的子層）
+{ "root": "..", "subs": ["scripts"], "root_abs": "C:\\TSLG" }
+```
+
+| 欄位 | 意思 |
+|---|---|
+| `root` | 相對本層的根層路徑，**只准指祖先** |
+| `root_abs` | 選填、本機用的絕對路徑；目錄存在時優先，不存在就忽略（多機磁碟代號不同也不報錯） |
+| `subs` | 相對本層的子專案前綴；`"*"` 表底下全部 |
+| `standalone` | `true` ＝ 本層獨立，不認任何上層、也不再提問 |
+
+- **怎麼設**：在子專案目錄執行 `python ~/.claude/tools/project-tree.py claim --root C:\TSLG`，一次寫好根層 `subs` 與子層 `root`（子層沒有 `.claude/` 就只寫根層，不散落新目錄；`--both` 強制）。其他子指令：`show`（看生效結果）、`explain <cwd>`、`set-root`／`unset-root`、`add-sub`／`remove-sub`、`standalone on|off`、`pick`（彈資料夾視窗選根層）；都支援 `--dry-run`。hook 只讀這些檔，永不自動寫。
+- **開 session 會看到什麼**：
+  - 認到根層 → `📍 [Guardian:ProjectRoot] <cwd> 屬 <根層> 的子專案（宣告：…）→ 記憶歸 <根層>\.claude\memory`。
+  - 上層有記憶層但沒宣告關係 → `❓ [Guardian:ProjectRoot] …`，AI 用選單問一次：認領（推薦）／本層獨立／瀏覽選別的資料夾／這次先不決定。選定後由 AI 跑上面的指令，**重開 session 生效**。
+  - 只 checkout 了子專案（上層沒有 `.claude/`）→ `📍 … 上層未 checkout，記憶留本層`，不是錯誤。
+  - 宣告檔壞掉／指錯 → `⚠️ …`，退回沒宣告的行為（最近的 `.claude/memory`／`_AIDocs`／`.git`／`.svn`，最多往上 4 層）。
+  - 子專案底下已經長出自己的 `.claude/memory`（分叉）→ `⚠️ … N 顆分叉 atom`，用 MCP `atom_move` 併回根層。
+  - 沒有宣告、上層也沒有記憶層 → 一個字都不印。
+- **注意**：宣告檔要跟著專案版控走（git 專案若 `.gitignore` 排除了 `.claude/`，要放行 `.claude/project-tree.json`；SVN 專案 `svn add`）。專案根的 `_taxonomy.json`、`_roles.md`、`project_hooks.py` 對子專案 session 一併生效；personal 記憶落根層的 `personal/<user>/`。子專案 session 的 `.claude/settings.json` 仍只讀 git root 那份（Claude Code 原生規則），本系統不橋接。
+
+**存量專案的 scope 整理**：記憶可見性是「personal 只給本人、針對專案的規則進 shared 並以 Author 記提出者、他專案的 atom 不注入」（`_AIDocs/SPEC_ATOM_V5.md` §2），但既有專案的存量（過去自動萃取全落 personal、索引 scope 欄錯標）不會自己歸位。打開尚未整理的專案，SessionStart 出 `[Guardian:ScopeLayout]` 提示；使用者說「整理記憶分類」，AI 走 `/memory classify`（`tools/classify-project-scope.py plan → 使用者確認 personal 去向 → apply`），完成後打上 `_atom_index.json.layout="scope-v2"` 標記，並把 `.claude/memory/` 變動上該專案版控。「已整理」判定＝上述標記，或專案已有 `shared/_taxonomy.json`。只想先修程式能判的部分（索引 scope、懸空條目），可從 `~/.claude` 一次掃全部登記專案：`python tools/sync-atom-index.py --all-projects --fix-scope-from-path`。
 
 ### 4.7 原生記憶橋接
 
@@ -266,7 +298,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->229<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->232<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -350,6 +382,23 @@ sequenceDiagram
 | `lib/atom_io_cli.py` action `search` | stdin `{query, cwd?, user?, roles?, top_k?, use_vector?}` | MCP 走這條；user／roles 缺省以現用身份補 |
 
 回傳契約 `schema_version=1`：`{mode, warnings, results[{name, path, rel_path, scope, source, score, excerpt, author, audience, tags, status}]}`；`scope` ∈ global／shared／org／personal:<u>／role:<r>（由池分組推導，不讀檔欄）；`source`＝命中的檢索路；四個 frontmatter 欄與摘要從命中檔同一次讀取。與 hook 注入的差異：BM25 對整池跑（不受 hook 預算）、`use_vector=False` 零觸碰向量服務（不 rekick）。身份：`user=None`／`unknown` 不讀任何 personal、`roles=None` 不讀 role 層；入口預設以現用身份查（`default_identity`）。守門 `lib/verify/verify_memory_search.py`。
+
+**其他 AI 客戶端輕量安裝（Codex／Gemini CLI，只接 MCP、不裝 hooks）**：給不用 Claude Code 的人（企劃／美術）。需要 git、Node.js、Python。把下面這段貼給自己的 AI 工具，它會代跑：
+
+```
+請幫我接上公司記憶：
+1. 如果 ~/.claude 不存在，執行 git clone <原子記憶 repo 網址> ~/.claude
+2. 執行 python ~/.claude/tools/ai-client-setup.py
+3. 把輸出的「結果」原樣告訴我；有「失敗」就停下來，不要自己想辦法繞過
+```
+
+`tools/ai-client-setup.py` 做四件事、可重跑：檢查 Node → 更新 `~/.claude`（`git pull --ff-only`）→ 接上公司層（`org-memory.py --join`）→ 把 workflow-guardian 寫進偵測到的客戶端設定（Codex `~/.codex/config.toml`、Gemini CLI `~/.gemini/settings.json`；已註冊不動，既有設定不改）。偵測不到客戶端就印出 TOML／JSON 片段供其他支援 MCP 的客戶端（Cursor…）手貼；`--dry-run` 只說會做什麼。裝完重開 AI 工具，用講的：「查公司記憶：〈問題〉」（`memory_search`）、「把這條記到公司層：〈內容〉」（`atom_write scope=org`）。
+
+- 沒有 hooks 就沒有「每句話自動帶入記憶」，要主動說「查記憶」。
+- 身份＝登入 Windows 的 AD 帳號；查不到身份（`unknown`）時不讀任何人的 personal。
+- 公司層目前只有「工具」一個範疇；企劃／美術的知識不屬於它時，AI 會在寫入時開新範疇（`allow_new_category`）並回報開了什麼。
+- 網頁版 AI（例如瀏覽器裡的 Gemini）碰不到本機工具，這條路接不上。
+- 連 MCP 客戶端都沒有的人：`~/.claude` 有了、有 Python 即可（不需 Node），直接跑上表的 `tools/memory-search.py`；這是現階段非 CC 人員的門，不是對外 HTTP 服務。
 
 ---
 
@@ -563,6 +612,98 @@ sequenceDiagram
 
 Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜態停用：`ollama_backends.<name>.enabled=false`。
 
+加遠端 backend：編輯 `workflow/config.json` → `vector_search.ollama_backends`（不是頂層），priority 小者優先：
+
+```jsonc
+"vector_search": {
+  "ollama_backends": {
+    "rdchat-direct": { "base_url": "http://<gpu-server>:11434", "llm_model": "gemma4:e4b",
+                       "embedding_model": "qwen3-embedding:latest", "priority": 1, "enabled": true },
+    "local":         { "base_url": "http://127.0.0.1:11434", "llm_model": "qwen3:1.7b",
+                       "embedding_model": "qwen3-embedding", "priority": 3 }
+  }
+}
+```
+
+連通自檢 `curl -s <base_url>/api/tags`。認證型 backend（OAuth / LDAP / bearer）的 `auth` 區塊私下取得範本，憑證走 gitignored 路徑。沒 GPU 也能跑本地 Ollama（CPU 下 embedding 約 200–500 ms、qwen3:1.7b 約 1–3 s），有遠端 GPU backend 較佳。
+
+### 9.2 外部依賴：用途、替代、缺了會怎樣
+
+總則：所有 hook **fail-open**（自身出錯、逾時、依賴缺席 → 放行工具呼叫並浮出訊號，不阻斷 Claude Code）；Claude Code 本體零修改，系統只靠 `settings.json` 的 `hooks`／`statusLine` 與 `~/.claude.json` 的 `mcpServers` 掛進去，拔掉就回到原生。最壞情況（只有 Claude Code + Python）＝原生 Claude Code 多一行 `[Workflow Guardian] Active` 與 trigger/BM25 純文字記憶注入；沒有向量搜尋、MCP 寫入工具、Dashboard、LLM 萃取與 AI 裁判。降級的可見訊號：statusline（`WG:?` 紅字＝Guardian state 壞、`vec✗`＝向量服務未就緒）、SessionStart 的 `[Guardian:*]`／`[Codex Companion]`／`[MCP]` advisory、`Logs/vector-service.log`。逐項現況由 `python tools/install.py --check`（安裝前）／`--verify`（安裝後）當場列出。
+
+| 依賴 | 系統哪部分靠它 | 替代 | 完全沒有時 |
+|------|----------------|------|-----------|
+| Claude Code | 宿主；hooks / MCP / skills 全掛在它身上 | 無（讀取端另有 §5.8 給其他 AI 客戶端） | 不適用 |
+| Python 3.10+（hook 純標準函式庫） | 全部 hook、`lib/`、`tools/`、statusline | 無，唯一硬依賴。`tools/fix-hook-python.py` 實跑候選直譯器驗版本，下限 3.9（`MIN_VERSION`）；安裝門檻以 3.10 為準 | hook 指令執行失敗 → Claude Code 視為 hook 錯誤放行，原生功能不受影響；記憶系統整個不啟動 |
+| Node.js ≥ 18（零 npm 依賴） | 只有 MCP server 與同進程的 Dashboard / HUD（§9 表） | atom 仍可經 Python 寫入：在 `~/.claude` 下跑 `python -m lib.atom_io_cli`，stdin 餵 `{"action": "...", ...}`（stdin JSON 橋接，不是 argparse）；action 有 `locate`（算落點）/ `build`（只組內容驗證）/ `create_atom`（`dry_run: true` 只預覽）/ `append` / `write_raw` / `check_supersedes` / `retire` / `search`（§5.8） | `hooks/ensure-mcp.py` 找不到 node → 寫 `workflow/mcp-needs-node.flag` 並結束，不註冊 MCP；`anti_evasion_report`／`knowledge_harvest_report` 無法提交（Stop 閘 fail-open 放行）；網頁介面皆不可用。hooks、注入、萃取照常 |
+| Git | Stop 同步閘、未 push advisory、記憶庫背景上版控（§8 vcs-sync）；`hooks/post-git-pull.sh` 是 pull 後稽核的 post-merge 樣板，手動裝到**專案** repo，根層不裝（worker 已負責拉） | SVN 工作區同樣被同步閘辨識（`.svn`），vcs-sync 對 svn 走 `--xml` 逐檔 | `stop.py _detect_uncommitted_files` 對非 git/svn 目錄回 `None`＝整個同步閘跳過（不提醒也不阻斷）；git 執行檔不存在時 `FileNotFoundError` → 同樣跳過。其餘閘門不受影響 |
+| Ollama（本地 daemon） | 向量嵌入與所有 LLM 萃取；**全域層檢索不用它** | ① 遠端 backend（§9.1）② 嵌入改走本地 `sentence-transformers` + `BAAI/bge-m3`（config 已預設 `fallback_backend`；冷啟動可到分鐘級） | `indexer.create_embedder` 拋 `RuntimeError`，向量服務起不來（連續 3 session 未就緒 SessionStart 出 `[Guardian:Vector⚠]`）；專案層檢索只剩 trigger/BM25；萃取器跳過並落 atom-debug log / audit。顯式 `atom_write` 不受影響（§5.5） |
+| 模型 `qwen3-embedding` | 向量嵌入 | bge-m3 fallback | 向量層跳過 |
+| 模型 `qwen3:1.7b` | 本地快篩 LLM（使用者決策萃取 L1、失敗分類） | 該 backend 進退避、改試其他 backend | 該類萃取跳過 |
+| 模型 `gemma4:e4b` | 主萃取 LLM（決策萃取 L2、SessionEnd 全量萃取） | 同上 | 只剩 Claude 顯式寫入與失敗關鍵字偵測 |
+| `lancedb`（需 CPU AVX2） | 向量 DB `memory/_vectordb/` | 無（`fallback_backend` 只管 embedder） | `service.py` 起不來 → `Logs/vector-service.log`、statusline `vec✗`、SessionStart advisory；trigger/BM25 照常 |
+| `sentence-transformers` | 無 Ollama 時的本地嵌入 | Ollama | 同 Ollama 列 |
+| Codex CLI 與其授權 | 驗收裁判、計畫審查、handoff 自檢（§7.4） | 自動退 headless `claude -p`（預設只有 advisory 權）；授權失敗抑制 24h | heuristics-only，SessionStart 揭露一次 `[Codex Companion] 已停用：…`（每台機器一次）；整個不要：`codex_companion.enabled=false` |
+| Hook 直譯器路徑 | `settings.json` 每條 hook 指令開頭指名直譯器（§3.1） | `python tools/fix-hook-python.py`（只檢查）／`--write`（用跑這行的這支 python 改寫全部 hook 與 statusLine 指令，備份 `settings.json.bak`）／`--use <path>`；`pythonw` 維持 w 版，已全部存在則零改動，Windows 以外沒有 `pythonw` 就改成同一支 `python` | 全部 hook 起不來 → 回到原生，不會壞。**不要改成裸 `python`**：PATH 首位未必是預期那支 |
+
+pip 套件一次裝：`pip install -r tools/memory-vector-service/requirements.txt`；沒 admin 權限用 `--user`（Python / Node.js / Ollama 也都有 user-local 安裝）。
+
+### 9.3 MCP 註冊（`hooks/ensure-mcp.py`）
+
+每次 SessionStart 自動：找 node → 讀 `mcp-servers.template.json` → JS 入口存在的 server 合併進 `~/.claude.json` 的 `mcpServers`（缺整塊才補；已存在且 template `_version` 沒升則不動）→ npm 套件不在磁碟的 server 背景 `npm i -g`（下次 session 才寫入 config）→ 每 7 天背景 `npm outdated/update`。正常情況開兩次 session 就齊。它**不會建立** `~/.claude.json`（Claude Code 首次啟動自己建），檔案不存在時直接結束。
+
+| 名稱 | 來源 | 入口 |
+|------|------|------|
+| `workflow-guardian` | repo 內建（`npm_package: null`） | `{claude_dir}/tools/workflow-guardian-mcp/server.js` |
+| `MCPControl` | npm `computer-use-mcp` | `<npm 全域>/node_modules/computer-use-mcp/dist/main.js` |
+| `playwright` | npm `@playwright/mcp` | `<npm 全域>/node_modules/@playwright/mcp/cli.js` |
+
+- 手動合併（要立刻可用、不等下個 session）：entry 形式 `{"type":"stdio","command":"<node 絕對路徑>","args":["<入口絕對路徑>"]}`，**全域安裝 + 絕對路徑**，不要 `cmd /c npx`；npm 全域位置 Windows `%APPDATA%\npm\node_modules\{pkg}`、Unix `$(npm root -g)/{pkg}`；已有同名 server 不覆蓋。
+- MCP server 變更（含新增 tool）要 VS Code **Reload Window** 或重啟 `claude` 才生效。
+- **MCP 再 spawn Python**：`lib/paths.js resolvePythonExe()` 依序找 `WG_PYTHON` 環境變數 → 常見安裝路徑 → 裸 `python`（並在 stderr 留 WARN）。症狀「`atom_write` 回 `cli parse fail: Unexpected end of JSON input`、stderr 空白」＝裸 `python` 被 Windows 的 Microsoft Store 佔位 `python.exe`（`%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe`，零輸出 exit 9009）攔走；在 `~/.claude.json` 的 `mcpServers.workflow-guardian.env` 加 `"WG_PYTHON": "<與 hooks 相同的 python.exe 絕對路徑>"` 後 Reload Window。
+
+### 9.4 Vector Service 的啟動與手動操作
+
+不需手動常駐：每次 SessionStart 由 `hooks/handlers/session_start.py` 背景 spawn `tools/memory-vector-service/starter.py --phase sessionstart`（職責見 §8「vector 啟動器」），就緒後寫 `workflow/vector_ready.flag`，結果一行 JSON 落 `Logs/vector-observation-probe.log`。手動：
+
+```bash
+curl -s http://127.0.0.1:3849/health        # 預期 {"status":"ok", ...}
+curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N, "chunks":M}
+```
+
+或在 Claude Code 內用 `/vector`。
+
+### 9.5 安裝與升級（`tools/install.py`）
+
+單檔、純標準函式庫；目標固定是 `~/.claude`，來源是腳本所在的 git clone（不是 git clone 就報錯）。操作步驟寫在 `Install-forAI.md`，此處只記它對系統做了什麼。
+
+| 子指令 | 做什麼 | exit code |
+|--------|--------|-----------|
+| `--check` | 安裝前自檢（唯讀）：上表各依賴逐項 `OK` 或「缺：少什麼功能＋補裝指令」 | 0；Python < 3.10 或缺 git 回 2 |
+| `--apply` | 安裝，冪等可重跑、可從中斷處續跑 | 0；3＝`~/.claude` 是別的 repo（零改動）；1＝其他失敗 |
+| `--upgrade` | 已安裝機器升級 | 0／1 |
+| `--verify` | 安裝後驗證（唯讀）：每項 `PASS`／`DEGRADED`／`FAIL`，末尾印三層記憶現況 | 0＝無 FAIL |
+
+- **原地接上版控（接管）**：既有、非 git 的 `~/.claude`（不存在就先建立空的）不搬不覆蓋，直接在原地 `git init` → 從真正的遠端 fetch → `reset --mixed`（工作目錄零改動）→ 備份 → `git checkout -- .`。個人檔與 ignored 檔原樣保留；進度記在 `.git/atom-install-state.json`。
+- **備份**：`~/.claude/backups/install-<時間戳>/`。與版控檔同名但內容不同的檔複製進去；型別衝突（同名的目錄、擋路的檔）整個移進去，指向檔案的 symlink 存其實際內容；`USER.md`、`IDENTITY.md` 與兩個覆蓋檔無條件備份。使用者的覆蓋檔若不是合法 JSON，在任何改動之前就中止。
+- **覆蓋檔合併**（`settings.json`、`workflow/config.json`）：`settings.json` 的 `hooks` 取系統整段、使用者原有且不屬於本系統的 hook 保留（屬於本系統＝指向家目錄 `.claude/hooks|tools/` 下的版控追蹤檔，或已不存在的舊檔；別的專案的 hook 與使用者自己放的腳本都保留，被丟掉的逐條印出），`statusLine` 使用者有就用使用者的，其餘頂層鍵只用使用者的——使用者原本沒有 `settings.json` 時只帶入 `hooks` 與 `statusLine`，不帶入 repo 內的 `permissions`／`model`／預設權限模式。`workflow/config.json` 深度合併，使用者值優先、新鍵補系統預設。
+- **skip-worktree**：接管的機器對兩個覆蓋檔下 `git update-index --skip-worktree`，本機合併結果不算「已修改」，背景記憶同步（§8 vcs-sync）才不會因整樹不乾淨而卡住。已是本系統 clone 的 `~/.claude`（開發機、已安裝機器）走就地模式：不碰覆蓋檔、不下標記。
+- **`--upgrade`**：帶標記的覆蓋檔先存進 `backups/upgrade-<時間戳>/` → 取消標記、還原成版控版 → `git pull --rebase` → 重新合併（`workflow/config.json` 走三方合併：只有使用者改過的鍵壓過新預設）→ 重新下標記；失敗時把存檔寫回，被強制中斷的升級在下次 `--upgrade` 開頭先還原。有未提交的版控檔修改時不動任何東西直接中止。沒有標記的機器等同 `git pull --rebase` 後校正直譯器。
+- 不自動 `pip install`／`npm i`／`ollama pull`，不呼叫 `ensure-mcp.py`（MCP 註冊留給下次 SessionStart，§9.3）。守門 `tools/verify/verify_install.py`。
+
+### 9.6 疑難排解與手動抽查
+
+| 症狀 | 看哪裡 |
+|------|--------|
+| 沒看到 `[Workflow Guardian] Active` | `python tools/fix-hook-python.py` 看直譯器路徑；再確認 `settings.json` 有 `hooks` 區塊。手動驗 hook：`echo '{"hook_event_name":"SessionStart","session_id":"install-test","cwd":"'"$HOME"'"}' \| python ~/.claude/hooks/workflow-guardian.py`，預期輸出 JSON 含 `hookSpecificOutput.additionalContext` |
+| Vector Service 起不來 | `Logs/vector-service.log`。常見：`lancedb` 未裝或無 AVX2；Ollama 與 sentence-transformers 都不可用（`No embedding backend available`）；port 3849 被佔（改 `vector_search.service_port`）。全域層不依賴它 |
+| Ollama embedding timeout | 模型首次載入 5–10 秒。確認 `ollama list` 有模型；daemon 沒回應查 `systemctl status ollama` 或 Windows 工作管理員。遠端 backend 連續失敗會進 Long DIE（§9.1） |
+| hook 有跑但 atom 沒注入 | 確認 `memory/_atom_index.json` 的 triggers 含 prompt 關鍵字（ASCII 整詞、CJK 子字串）；開 `/atom-debug` 看注入 log；每次注入尾行 `[Context budget: x/y \| trim: …]` 顯示預算裁切 |
+| MCP `atom_write` 回 `cli parse fail` | §9.3 `WG_PYTHON` |
+| 啟動或每句變慢 | 預期值見 §11.1 |
+
+`install.py --verify` 之外可手動抽查的項目：`python tools/memory-audit.py --global-only` 無 ERROR；Claude Code 內按 `/` 看得到 `/memory` `/handoff` `/continue` `/vector`；問 Claude「列出 workflow-guardian MCP 工具」對得上 §9 表；開新 session statusline 無 `WG:?`；Dashboard 開得起來；`python tools/merge-atom-index.py --status` 末行「已安裝」；`python tools/memory-search.py "git commit" --no-vector --json` 輸出含 `"schema_version": 1` 且 `results` 非空。
+
 ---
 
 ## 10. 架構目錄樹
@@ -622,7 +763,9 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 │   ├── memory-search.py / org-memory.py     ← 命令列查記憶 / 公司層 org：接上（--join）、對帳（--status）、初始化（--init）、工具卡掃描（--scan-tools）；使用者入口 /org skill
 │   ├── conflict-review.py / init-roles.py / heal-review.py   ← 待審裁決 / 職能覆寫與對帳（--me / --status）/ 自癒退件
 │   ├── realm_llm_classify.py / skill-index.py / changelog-roll.py / journal-aggregate.py
-│   ├── fix-hook-python.py                   ← 安裝後修 hook 直譯器路徑
+│   ├── install.py                           ← 安裝器：--check / --apply / --upgrade / --verify（§9.5；操作步驟 Install-forAI.md）
+│   ├── fix-hook-python.py                   ← 校正 hook 直譯器路徑（install.py 會呼叫）
+│   ├── ai-client-setup.py                   ← 其他 AI 客戶端輕量安裝：只註冊 MCP、不裝 hooks（§5.8）
 │   ├── memory-eval/                         ← 223 條回歸集
 │   ├── memory-vector-service/               ← service.py / starter.py / indexer.py
 │   ├── codex-companion/                     ← assessor / acceptance / judge_backend / audit.py / backtest
@@ -756,6 +899,44 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 | `parallel_agents.*` / `research_fanout.*` | enabled | 多 agent 拆分／研究 fan-out 判準注入 |
 | `docdrift.path_mappings` | hooks→Architecture.md、skills/rules/tools→DocIndex-System.md | 文件漂移提醒 |
 | `atom_debug` | false | 檢索除錯 log |
+
+### 12.1 功能開關（不想要某個功能時逐鍵關）
+
+除另註明外，值設 `false` 即關。
+
+| 鍵 | 關了少什麼 |
+|----|-----------|
+| `enabled` | 整個 Guardian（所有 hook 直接放行） |
+| `vector_search.enabled` | 語意搜尋（保留 trigger + BM25） |
+| `vector_search.global_layer` | 值 `"bm25"`（預設）或 `"vector"`；全域層改走向量 |
+| `vector_search.auto_start_service` | SessionStart 不再自動起向量服務 |
+| `response_capture.enabled` | 全部自動萃取（SessionEnd 全量、失敗萃取） |
+| `response_capture.failure_extraction.enabled` | 只關失敗關鍵字萃取 |
+| `response_capture.per_turn.enabled` / `response_capture.session_end_flush.enabled` | 預設 false，已停產，值保留供回滾（§14.2） |
+| `userExtraction.enabled` | 使用者決策萃取（L0→L1→L2）；只想降負擔改 `userExtraction.tokenBudget` |
+| `deep_postmortem.enabled` | 高 effort 失敗時要求 Claude 深寫 post-mortem 的 Stop 閘 |
+| `cross_session.enabled` | 跨 session 去重／衝突偵測 |
+| `docdrift.enabled` | 改碼後提醒對應文件的漂移偵測 |
+| `codex_companion.enabled` | AI 裁判（驗收審查／計畫審查／handoff 自檢） |
+| `codex_companion.fallback.enabled` | 無 codex 時不退 `claude -p`，直接 heuristics-only |
+| `coordination.enabled` | 多 session 同檔改動預警 |
+| `guard.cross_realm_write.enabled` | 外部專案 session 不得寫入 `~/.claude` 核心層（hooks/lib/tools/skills/rules 與根層設定檔）的 deny 閘；「專案專屬內容不得落 global」的 realm 閘在 `lib/realm_gate.py`，無開關 |
+| `injection.redundancy_gate.enabled` | 同題去冗 |
+| `injection.related_gate.enabled` | related atom 擴散注入 |
+| `taxonomy.gate_enabled` | atom 必須帶範疇才能寫入的閘 |
+| `realm.llm_fallback.enabled` | 預設 false；開了會用本地 LLM 判定 unknown atom 的 realm |
+| `lang_guard.enabled` | 回應英文比例過高時的繁中提醒 |
+| `version_guard.enabled` | 檔內版本操作脈絡殘留的 warn（`mode` warn / off） |
+| `acceptance_spec.enabled` | 多檔改動要求驗收規格 |
+| `deferral_gate.enabled` | Stop 閘攔「推給下個 session」的退縮歸屬 |
+| `auto_handoff.enabled` | 壓縮前／token 逼近時自動產 handoff 交接稿 |
+| `parallel_agents.enabled` / `research_fanout.enabled` | 多 agent 拆分／研究 fan-out 建議 |
+| `aec.hud_autospawn` | 收尾檢核時自動開 HUD |
+| `privacy.enabled` | git commit 前隱私檔硬閘（staged 比對 `deny_globs`） |
+| `merge_driver.auto_install` / `merge_driver.auto_resolve` | 索引三檔合併驅動的自動安裝／自動解衝突（`_AIDocs/MultiMachineMemorySync.md`） |
+| `eol.auto_normalize_project` | 專案記憶樹自動轉 LF 與寫 VCS 屬性 |
+| `heal.enabled` | `/heal-review` 自動修復 |
+| `episodic.auto_generate` | session 結束自動生成 episodic 摘要 |
 
 ---
 

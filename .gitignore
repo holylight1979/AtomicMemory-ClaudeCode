@@ -119,11 +119,11 @@ memory/_distant/
 
 # ─── User-specific config (per-user, auto-generated) ──────
 # IDENTITY.md / USER.md 為個人實例（從 IDENTITY.template / USER.template 拷出）；模板 tracked, 實例 ignored
-USER.md
-USER-*.md
-!prompts/user-decision-*.md
-IDENTITY.md
-IDENTITY-*.md
+# 開頭的 / 把規則釘在根層：不分大小寫的檔案系統上，未釘的 IDENTITY-*.md／USER-*.md 會吃掉同名開頭的 atom 與 prompt 檔
+/USER.md
+/USER-*.md
+/IDENTITY.md
+/IDENTITY-*.md
 
 # ─── User-specific atoms (hardware, local env) ────────────
 memory/hardware.md

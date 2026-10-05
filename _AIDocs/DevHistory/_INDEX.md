@@ -6,7 +6,7 @@
 | # | 文件名稱 | 說明 | keywords |
 |---|---------|------|----------|
 | 1 | atom-evolution.md | 各 atom 演化日誌彙整 | 演化, 版本, changelog, 日期, 變更記錄 |
-| 2 | version-migrations.md | 原子記憶 V2.18~V2.21 版本遷移敘述 | V2.18, V2.19, V2.20, V2.21, 遷移, migration, Phase |
+| 2 | version-migrations.md | 原子記憶版本遷移敘述：V2.18~V2.21 遷移 + 4.x→5.1 升級後確認清單 | V2.18, V2.19, V2.20, V2.21, 4.x, 5.1, 升級清單, 遷移, migration, Phase |
 | 3 | ab-test-ollama.md | Ollama Dual-Backend A/B 萃取品質實測數據（qwen3.5 vs qwen3:1.7b） | A/B, 萃取品質, qwen3, rdchat, 實測, benchmark |
 | 4 | ab-test-gemma4.md | Gemma 4 vs Qwen 3.5 三輪 A/B 測試（V3.4 模型切換決策依據） | gemma4, qwen3.5, A/B, 萃取, 溫度, format bug |
 | 5 | v41-journey.md | V4.1 圓桌設計與 GA 歷程 + §10 Runtime 架構（user-extract + P4 評價） | V4.1, user-extract, L0, L1, L2, session_score, evaluator |

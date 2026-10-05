@@ -5,16 +5,23 @@
 
 ---
 
+## 2026-10-05 防閃窗檢查器納入 `tools/`，補齊 14 個漏帶壓窗旗標的啟動點
+- 檢查器 `verify_no_window_spawn` 原本只掃 hooks/lib 頂層，`tools/` 沒人守；改掃 hooks/lib/tools 含子目錄。補 `tools/` 13 個 Python 啟動點的 `CREATE_NO_WINDOW`、1 個 POSIX 分支豁免註記，MCP dashboard（`http-api.js`）4 個 `exec` 補 `windowsHide`。當下實測無閃窗，屬預防。
+
+---
+
 ## 2026-10-05 公司層未接上改成 AI 主動問路徑，問到有答案為止
 - **緣由**：同事更新後回報「`C:\CompanyAtomsMem` 不會自動建立、也沒被問」。原設計是 SessionStart 出一行「對我說『接上公司記憶』」且整台機器只出一次——但 SessionStart 的輸出只有模型看得到、使用者看不到，那一行又只是說明不是指示，模型不會主動做；出過一次就記 `advised` 永不再提。
 - **修**：未接上且使用者沒回答過 → 每個 session 都給模型一行 `❓ [Org]` 指示，要它第一則回覆前用 AskUserQuestion 問：放預設路徑／指定路徑／先不接，再照答案執行 `org-memory.py --join [路徑]`（資料夾不存在會自動 clone）或新的 `--decline`。答案只記在該機器的 `workflow/org-memory.local.json`（`enabled`＋`roots` 或 `declined`）；舊鍵 `advised` 不再讀，所以先前只被提示過一次、沒接上的機器會被重新問到。`--status` 多回 `declined`。 | `hooks/handlers/session_start.py`, `hooks/wg_core.py`, `tools/org-memory.py`, `skills/org/SKILL.md`, `hooks/verify/verify_org_layer.py`, `TECH.md`
 
 ---
 
-## 2026-10-05 防閃窗檢查器納入 `tools/`，補齊 14 個漏帶壓窗旗標的啟動點
-- 檢查器 `verify_no_window_spawn` 原本只掃 hooks/lib 頂層，`tools/` 沒人守；改掃 hooks/lib/tools 含子目錄。補 `tools/` 13 個 Python 啟動點的 `CREATE_NO_WINDOW`、1 個 POSIX 分支豁免註記，MCP dashboard（`http-api.js`）4 個 `exec` 補 `windowsHide`。當下實測無閃窗，屬預防。
-
----
+## 2026-10-05 安裝一鍵化（`tools/install.py`）＋ 系統自我認知進必載檔
+- **緣由**：舊安裝流程（`Install-forAI.md` 的「合併安裝」）現在就壞三處——靠 `rsync`（Git for Windows 沒有）、根層共享 atom 沒被複製進去、合併後的 `~/.claude` 不是 git repo（升級與背景記憶同步都靠 repo）。另一個缺口：必載檔沒寫系統核心目標，也完全沒提公司層。
+- **安裝器**：新增 `tools/install.py`（單檔、純標準函式庫；`--check`／`--apply`／`--upgrade`／`--verify`）。`--apply` 在既有、非 git 的 `~/.claude`（不存在就先建立，新機器只有這一條路線）**原地接上版控**（`git init` → 從真正的遠端 fetch → `reset --mixed` → 備份 → `checkout`），進度記 `.git/atom-install-state.json`、中斷可續跑；**備份**到 `backups/install-<時間戳>/`（內容不同的檔複製、型別衝突的整個移入）；**覆蓋檔合併**——`settings.json` 取系統 `hooks`、保留使用者其餘鍵與不屬於本系統的 hook（別的專案的 hook、使用者自己放的腳本都留，被丟掉的逐條印出；使用者原本沒有此檔時不帶入 repo 的 `permissions`／預設權限模式），`workflow/config.json` 深度合併使用者值優先；兩檔下 **skip-worktree**，背景同步不因「已修改」分叉卡住。`--upgrade` 存檔 → 取消標記 → `pull --rebase` → 重新合併（config 走三方）→ 重下標記，失敗還原、被強制中斷的下次開頭先還原、有未提交修改時零改動中止。不自動裝套件、不呼叫 `ensure-mcp.py`。
+- **文件**：`Install-forAI.md` 從 506 行的逐步手作指南改成約 140 行 runbook（守則 → 指令序與每步判讀 → 回報 → 選配項指向 → 升級 → 移除）；移出的內容落 `TECH.md`——§4.4 公司層訊息、§4.6 多子專案佈局與存量 scope 整理、§5.8 其他 AI 客戶端輕量安裝、§9.1 遠端 backend 範例、§9.2 外部依賴降級對照、§9.3 MCP 註冊、§9.4 Vector Service 手動操作、§9.5 安裝器機制、§9.6 疑難排解、§12.1 功能開關；「從 4.x 升級」清單移 `DevHistory/version-migrations.md`。`Install.md` 的 prompt 改成新流程（只 clone、驗證與更新各一段 prompt）。TECH §3.1 hook 表對齊 `settings.json`（SessionStart timeout 12／20、PostToolUse matcher 含 `MultiEdit`）；`_AIDocs/_INDEX.md` 摘要拿掉過時的「Hook 6 主模組／MCP 5 tool」改指真源。
+- **自我認知**：`rules/core.md` 新增「系統自我認知」段（核心目標＋記憶三層對應的 scope＋`install.py --verify` 查現況），Scope 行補 `org`；`memory/_meta/always-load-contracts.json` 的 core 契約 `must_contain` 加 `系統自我認知`、`公司層`。
+- **順修**：`hooks/user-init.sh` 在 `USER-{帳號}.md` 不存在而 `USER.md` 已存在時，先把 `USER.md` 拷成編輯點——只有自訂 `USER.md` 的使用者內容不再被模板蓋掉。`.gitignore` 的 `USER*.md`／`IDENTITY*.md` 規則釘在根層：未釘時在不分大小寫的檔案系統上會吃掉檔名以 identity- 開頭的 atom（索引有、檔案進不了版控，其他機器的索引因此對不上）。 | `tools/install.py`, `tools/verify/verify_install.py`, `Install-forAI.md`, `Install.md`, `TECH.md`, `README.md`, `rules/core.md`, `memory/_meta/always-load-contracts.json`, `hooks/user-init.sh`, `.gitignore`, `version.json`, `skills/upgrade/SKILL.md`, `_AIDocs/{_INDEX,DocIndex-System,Project_File_Tree}.md`, `_AIDocs/Tools/_INDEX.md`, `_AIDocs/DevHistory/{_INDEX,version-migrations}.md`
 
 ## 2026-10-05 週用量截圖去個人化：帳號自動偵測、落點改公司記憶庫
 - **緣由**：`usage_snapshot.py` 把帳號（`uj_claudeai_5`）與落點（某人的個人共享資料夾）寫死在進版控的程式碼裡——別台同步後檔名掛錯帳號、各機手改又成了長期本地改動。

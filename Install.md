@@ -1,6 +1,6 @@
 # 安裝 — 由 AI 全程代跑
 
-你不用手動裝任何東西：把本套件放到 `~/.claude/`，把一段 prompt 貼給 Claude Code，剩下的它自己做。
+你不用手動裝任何東西：把一段 prompt 貼給 Claude Code，它會用 git 取得本套件、跑安裝器，剩下的它自己做。
 
 > **先分清兩個範圍**：知識庫有「根層」與「專案層」兩個不同的範圍限定，各自有各自的版控庫。
 >
@@ -28,25 +28,36 @@
 把版控庫的 clone 網址換進 `[版控庫]`，整段貼給 Claude Code：
 
 ```
-1. 請把 [版控庫] 這套原子記憶系統（Atomic Memory）git clone 或下載到 ~/.claude/；
-   ~/.claude/ 已有內容的話，先 clone 到暫存資料夾再合併，不要覆蓋我現有的個人檔案。
-2. 先讀 ~/.claude/Install-forAI.md 完整流程；
-3. 檢查我環境的必備套件是否齊全（Python / Node.js / Ollama / Git / 向量 DB 套件），列出缺項告訴我怎麼補；
-4. 照 Install-forAI.md 的 AI 執行流程合併安裝（不覆蓋我現有的 settings.json permissions）；
-5. 最後跑驗證 checklist 並回報「安裝完成 / 尚缺 X」。
+請幫我安裝原子記憶系統（Atomic Memory），版控庫網址：[版控庫]
+1. 用 git clone -c core.longpaths=true 取得（不要下載壓縮檔），clone 到家目錄下的 atomic-memory-src 資料夾，不要直接動 ~/.claude。
+2. 讀 clone 下來的 Install-forAI.md，照它的步驟一步一步做，不要自己加步驟。
+3. 缺什麼套件只列給我看、告訴我怎麼補，不要自己安裝。
+4. 做完照 Install-forAI.md 的方式回報；需要我重開 Claude Code 時明確告訴我。
 ```
 
-* AI 讀 `Install-forAI.md` 時會逐項檢查需要哪些東西、缺了怎麼辦，你基本上不用自己查。
-* AI 會自己走完檔案合併 + npm 套件 + MCP 設定 + Ollama 模型 + Vector Service + 驗證；缺套件會主動列給你去補，不會硬裝。
+* 安裝器會先檢查環境（Python / Node.js / Git / Ollama / 向量套件），缺的項目會寫明「少了什麼功能、怎麼補」；缺項不影響安裝，之後再補即可。
+* 你原有的 `settings.json`（權限等設定）、個人檔案都會保留；被更新的檔案先備份到 `~/.claude/backups/`，AI 會告訴你備份位置。
+* 原本的 `~/.claude/CLAUDE.md` 會換成本系統的版本；裡面有想保留的內容，請貼進 `USER-{你的帳號}.md`（見下方「啟動檔維護」）。
+* 裝完 AI 會請你**重開 Claude Code**，再做下一節的驗證。
 
 ---
 
 ## 驗證安裝
 
-同樣在 `~/.claude/` 下開一個**新的** session，貼這段請 AI 自檢：
+重開 Claude Code 後，同樣在 `~/.claude/` 下開一個**新的** session，貼這段請 AI 自檢：
 
 ```
-請確認我電腦下 ~/.claude/ 的原子記憶系統已正確安裝（hooks、Vector Service、Ollama 模型、Skills）。
+請執行 python ~/.claude/tools/install.py --verify，把結果逐項告訴我。
+```
+
+結果每項是 `PASS`（正常）、`DEGRADED`（能用，但少了某個功能，會寫怎麼補）或 `FAIL`（要修，會寫怎麼修）。沒有 `FAIL` 就是裝好了。
+
+## 之後要更新
+
+貼這段給 Claude Code：
+
+```
+請執行 python ~/.claude/tools/install.py --upgrade，把結果告訴我；成功的話提醒我重開 Claude Code。
 ```
 
 ---
@@ -78,6 +89,6 @@
 
 - **第一個使用者**想先讓 AI 預載某部分知識：`/read-project <目錄> <方向>` → 掃描並寫入知識庫，之後也記得上傳 GIT / SVN。
 - **接續使用者**：從版控 pull 專案的 `.claude/memory/` 即可直接接上團隊記憶。
-- **多台機器／多人同時寫記憶**：各自新增 atom 後 pull 會在索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）衝突。不必手動裝任何東西：Claude Code 裡第一次跑 pull／merge／rebase 時，hook 自動把合併驅動寫進這台機器的 git 設定，之後索引三檔自動合併；git 真的停住時，`git rebase --continue` 前 hook 也會先自動解掉這三檔。**已裝過舊版的機器不必預先做什麼**：`cd ~/.claude && git pull` 之後，下一次在 Claude Code 裡跑 pull／merge／rebase 時 hook 就會自動裝；連那次 pull 本身若停在索引三檔，`git rebase --continue` 前新 hook 也會先自動解掉。想立刻確認可手動跑 `python tools/merge-atom-index.py --install`（可選）。自檢 `python tools/merge-atom-index.py --status`。**SVN 專案**：update 停在索引三檔衝突後，回 Claude Code 下 `svn commit` 前 hook 自動解。**專案記憶樹的換行（LF）**也在每次寫入記憶後自動統一（git 寫 `.gitattributes` 區塊、SVN 設 `svn:eol-style`），不需要到專案 session 貼任何 prompt。說明見 [README](README.md)「多台電腦／多人同時寫記憶」。
+- **多台機器／多人同時寫記憶**：各自新增 atom 後 pull 會在索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）衝突。不必手動裝任何東西：Claude Code 裡第一次跑 pull／merge／rebase 時，hook 自動把合併驅動寫進這台機器的 git 設定，之後索引三檔自動合併；git 真的停住時，`git rebase --continue` 前 hook 也會先自動解掉這三檔。**已裝過舊版的機器不必預先做什麼**：更新（見上方「之後要更新」）之後，下一次在 Claude Code 裡跑 pull／merge／rebase 時 hook 就會自動裝；連更新當下若停在索引三檔，`git rebase --continue` 前新 hook 也會先自動解掉。想立刻確認可手動跑 `python tools/merge-atom-index.py --install`（可選）。自檢 `python tools/merge-atom-index.py --status`。**SVN 專案**：update 停在索引三檔衝突後，回 Claude Code 下 `svn commit` 前 hook 自動解。**專案記憶樹的換行（LF）**也在每次寫入記憶後自動統一（git 寫 `.gitattributes` 區塊、SVN 設 `svn:eol-style`），不需要到專案 session 貼任何 prompt。說明見 [README](README.md)「多台電腦／多人同時寫記憶」。
 - 兩個重要縮寫：**「執P」**（分階段執行＋驗證＋上 GIT＋給下階段 prompt）、**「上GIT」**（把當次異動一次推上 GIT / SVN）——直接問 AI 會解釋，也會照規則執行。
-- 深入技術 → [TECH.md](TECH.md)；給 AI 看的安裝細節與降級邏輯 → [Install-forAI.md](Install-forAI.md)。
+- 深入技術（含各依賴缺了會怎樣、疑難排解）→ [TECH.md](TECH.md)；給 AI 照著跑的安裝步驟 → [Install-forAI.md](Install-forAI.md)。
