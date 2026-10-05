@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
@@ -86,6 +87,25 @@ MEMORY_DIR = Path.home() / ".claude" / "memory"
 MEMORY_INDEX_NAME = "MEMORY.md"
 LOCAL_CATALOG_NAME = "_local_catalog.md"  # 本地範疇側檔（hook 僅核心環境注入）
 FLAT_ATOM_MSG = "[sync-memory-index] flat atom under memory/: {slug}"
+
+# 亂碼名稱：名稱含 U+0080–U+00FF（Big5 位元組被當 cp1252 解碼的典型，如 `UIºt¥X`＝`UI演出`）。
+# 寫入端（lib/atom_spec slugify、atom_locations _clean_segment）本就拒收這段字元，樹上出現必是外部工具
+# （手動 svn add 等）帶進來的：目錄與索引列都只警告、跳過，不嘗試修。
+_MOJIBAKE_RE = re.compile(r"[\u0080-\u00ff]")
+
+
+def drop_mojibake_rows(memory_dir: Path, rows: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
+    """磁碟上名稱疑似亂碼的檔／夾各 stderr 一行；索引列路徑含亂碼段者同樣一行並剔除。"""
+    for p in memory_dir.rglob("*"):
+        if _MOJIBAKE_RE.search(p.name):
+            print(f"⚠ 疑似亂碼名稱: {p}", file=sys.stderr)
+    kept: List[Tuple[str, str, str]] = []
+    for row in rows:
+        if _MOJIBAKE_RE.search(row[1]):
+            print(f"⚠ 疑似亂碼名稱: {row[1]}", file=sys.stderr)
+            continue
+        kept.append(row)
+    return kept
 
 
 def resolve_hierarchical(hierarchical: Optional[bool]) -> bool:
@@ -678,7 +698,7 @@ def main() -> int:
     local_catalog_path = memory_dir / LOCAL_CATALOG_NAME
     hierarchical = resolve_hierarchical(args.hierarchical)
 
-    rows = parse_atom_index(memory_dir)
+    rows = drop_mojibake_rows(memory_dir, parse_atom_index(memory_dir))
     if not rows:
         print("[sync-memory-index] _atom_index.json empty or missing", file=sys.stderr)
         return 1

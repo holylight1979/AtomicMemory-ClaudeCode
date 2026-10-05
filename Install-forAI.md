@@ -59,8 +59,8 @@
 - 降級：沒 Python → hook 指令執行失敗 → Claude Code 視為 hook 錯誤放行，原生功能完全不受影響；記憶系統整個不啟動。
 
 **Node.js**（≥ 18，零 npm 依賴）
-- 用途：只有兩處——MCP server `tools/workflow-guardian-mcp/server.js`（7 個 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report`）與同進程的 Dashboard / HUD 網頁。
-- 替代：atom 仍可經 Python 寫入——`lib/atom_io_cli.py` 是 stdin JSON 橋接（不是 argparse），在 `~/.claude` 下跑 `python -m lib.atom_io_cli`，stdin 餵 `{"action": "...", ...}`，action 有 `locate`（算落點）/ `build`（只組內容驗證，不落檔）/ `create_atom`（build→落檔→access→索引；`dry_run: true` 只預覽）/ `append` / `write_raw` / `check_supersedes` / `retire`（退役）。實務上建議直接用 `skills/memory` 與 `tools/` 內的 Python 腳本，或安裝 Node 後走 MCP。
+- 用途：只有兩處——MCP server `tools/workflow-guardian-mcp/server.js`（8 個 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report` / `memory_search`）與同進程的 Dashboard / HUD 網頁。
+- 替代：atom 仍可經 Python 寫入——`lib/atom_io_cli.py` 是 stdin JSON 橋接（不是 argparse），在 `~/.claude` 下跑 `python -m lib.atom_io_cli`，stdin 餵 `{"action": "...", ...}`，action 有 `locate`（算落點）/ `build`（只組內容驗證，不落檔）/ `create_atom`（build→落檔→access→索引；`dry_run: true` 只預覽）/ `append` / `write_raw` / `check_supersedes` / `retire`（退役）/ `search`（唯讀查記憶，TECH §5.8）。實務上建議直接用 `skills/memory` 與 `tools/` 內的 Python 腳本，或安裝 Node 後走 MCP。
 - 降級：`hooks/ensure-mcp.py` 在 SessionStart 找不到 node → 寫 `workflow/mcp-needs-node.flag` 並結束，不註冊 MCP；`anti_evasion_report` 收尾檢核與 `knowledge_harvest_report` 階段收割回報因 MCP tool 不存在而無法提交（Stop 閘為 fail-open，會放行）。hooks、注入、萃取全部照常。
 
 **Git**
@@ -228,15 +228,28 @@ template 內三個 server：
 - 已有同名 server 不覆蓋，跳過並回報。
 - `ensure-mcp.py` **不會建立** `~/.claude.json`（Claude Code 首次啟動自己建）；檔案不存在時它直接結束。
 
-驗證：`python -c "import json,io;print(list(json.load(io.open('$HOME/.claude.json',encoding='utf-8'))['mcpServers']))"` 含 `workflow-guardian`。MCP server 變更需 VS Code **Reload Window**（或重啟 `claude`）才生效。
+驗證：`python -c "import json,io;print(list(json.load(io.open('$HOME/.claude.json',encoding='utf-8'))['mcpServers']))"` 含 `workflow-guardian`。MCP server 變更需 VS Code **Reload Window**（或重啟 `claude`）才生效；新增的 tool（例如 `memory_search`）同樣要重啟後 tools/list 才看得到。
 
 > MCP server 自己會再 spawn Python（`lib/paths.js` `resolvePythonExe()`：`WG_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python3xx`／`%LOCALAPPDATA%\Pythonin`／`C:\Python3xx`／`C:\Program Files\Python3xx` → 裸 `python`）。Python 裝在非標準位置時，把 `"env": {"WG_PYTHON": "<與 hooks 相同的 python.exe 絕對路徑>"}` 加進該 server 的設定；退回裸 `python` 會在 MCP stderr 印 WARN。
+
+### Step 4b：其他 AI 客戶端與非 Claude Code 人員怎麼查記憶
+
+- **其他 MCP 客戶端**（Codex／Cursor…）：註冊同一個 workflow-guardian server 即得唯讀的 `memory_search`（契約 TECH §5.8）。Codex 範例（`~/.codex/config.toml`）：
+
+  ```toml
+  [mcp_servers.workflow-guardian]
+  command = "node"
+  args = ["<HOME>/.claude/tools/workflow-guardian-mcp/server.js"]
+  ```
+
+- **沒有 Claude Code 的人**：裝好 `~/.claude`（Step 1–2，有 Python 即可，不需 Node）後直接跑 `python ~/.claude/tools/memory-search.py "問題" [--cwd <專案> --json --no-vector]`；結果與 MCP 相同（`schema_version=1`）。這是現階段非 CC 人員的門，不是對外 HTTP 服務。
 
 ### Step 5：初始化個人記憶層
 
 - `memory/MEMORY.md`（Lv1 範疇目錄，由 `tools/sync-memory-index.py --write` 生成，不手編）與 `memory/_atom_index.json`（索引單一來源）若缺，Step 2 已補骨架。
 - 首次寫 atom 一律走 MCP `atom_write(mode=create)` 並給 `domain`（Lv1 閉合清單在 `memory/_meta/taxonomy.json`）；分不出範疇的知識不寫。
 - 執行 `python tools/sync-memory-index.py --check` 確認索引與檔案一致（不一致再 `--write`）。
+- **公司層記憶（org，選配）**：公司記憶 repo checkout 後跑一次 `python tools/org-memory.py --init <repo 根>`——佈 `<root>/.claude/memory`（含一張工具卡）、寫 `workflow/config.json org_memory` 與 registry，冪等。之後任何專案的 SessionStart 多一行 `[Org] 公司層 N 顆（<root>）`；寫公司知識用 `atom_write(scope=org)`（TECH §4.4）。工具登記：`python tools/org-memory.py --scan-tools`（skills／MCP 自動成 `shared/工具/` 的 `skill-`／`mcp-` 卡；`--project <專案根>` 另掃該專案 `.claude/tools/*.py`），查 `memory-search.py "<工具名>"`。
 
 ### Step 6：索引三檔合併驅動（git hook 自動安裝／svn hook 自動解；手動 `--install` 選配）
 
@@ -368,10 +381,12 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | 8 | 索引一致 | `python tools/sync-memory-index.py --check` | 無差異 |
 | 9 | Skills | Claude Code 內按 `/` | `/memory` `/handoff` `/continue` `/vector` 可見 |
 | 10 | MCP servers | `~/.claude.json` 的 `mcpServers` | 至少含 `workflow-guardian` |
-| 11 | MCP 7 tool | 問 Claude「列出 workflow-guardian MCP 工具」 | `atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report` |
+| 11 | MCP 8 tool | 問 Claude「列出 workflow-guardian MCP 工具」 | `atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report` / `memory_search` |
 | 12 | 整合 | 開新 session | 看到 `[Workflow Guardian] Active`；statusline 無 `WG:?` |
 | 13 | Dashboard | 開 `http://127.0.0.1:3848/` | 有頁面 |
 | 14 | 索引合併驅動 | `python tools/merge-atom-index.py --status` | 末行「已安裝」（hook 會在首次合併類 git 指令前自動裝；此處手動確認） |
+| 15 | memory_search | `python tools/memory-search.py "git commit" --no-vector --json`（或問 Claude「用 memory_search 查 git commit」） | 輸出含 `"schema_version": 1` 且 `results` 非空 |
+| 16 | 公司層 org（選配） | 已 `org-memory.py --init` 的機器開新 session | SessionStart 有 `[Org] 公司層 N 顆（<root>）`；未啟用則無此行、也無警告 |
 
 完整回歸：`python run_verify.py`（基線全數 passed，數字見該腳本輸出）。
 
@@ -392,13 +407,13 @@ python tools/merge-atom-index.py --install # 可選：不跑也行——下一�
 
 - [ ] `version.json` 為 `atom_memory: "5.1"` / `guardian: "5.1.0"`
 - [ ] `hooks/dispatcher.py` 存在；`hooks/handlers/` 有 **9** 個事件 handler（session_start / session_end / user_prompt_submit / pre_tool_use / post_tool_use / stop / pre_compact / post_compact / post_tool_batch）+ `ups_*.py` 四段 + `_shared.py` + `aec_ledger.py`
-- [ ] `hooks/wg_*.py` 為：wg_atoms / wg_coordination / wg_core / wg_docdrift / wg_episodic / wg_evasion / wg_extraction / wg_friction / wg_handoff / wg_harvest / wg_parallel / wg_recall_miss / wg_rescue / wg_research / wg_roles / wg_vcs_sync（shim 只有 wg_roles）；detached worker 有 extract-worker / user-extract-worker / vcs-sync-worker
+- [ ] `hooks/wg_*.py` 為：wg_atoms / wg_coordination / wg_core / wg_docdrift / wg_episodic / wg_evasion / wg_extraction / wg_friction / wg_handoff / wg_harvest / wg_parallel / wg_recall_miss / wg_rescue / wg_research / wg_roles / wg_vcs_sync（wg_roles＝身份／職能／裁決，不再是 shim）；detached worker 有 extract-worker / user-extract-worker / vcs-sync-worker
 - [ ] `hooks/` 內**沒有** `quick-extract.py`、`wg_atom_observation.py`（已刪）；`commands/` 已刪（併入 `skills/`）
 - [ ] `skills/` 有 <!-- skill-count -->21<!-- /skill-count --> 個 active skill；`skills/_archived/` 放 dormant 的 init-roles / conflict-review
 - [ ] `lib/atom_index_json.py` + `memory/_atom_index.json` 存在；`memory/_meta/taxonomy.json` + `forbidden-phrases.json` 存在
 - [ ] 核心 atom 已階層化在 `memory/<範疇>/`，`memory/` 根目錄無平鋪 atom；`taxonomy.gate_enabled=true`
 - [ ] `workflow/config.json`：`vector_search.global_layer="bm25"`、`bm25_min_score=7.0`、`fusion="rrf"`；無 `codex_companion.subprocess_timeout` 死鍵；`ollama_backends` 在 `vector_search` 底下
-- [ ] `tools/workflow-guardian-mcp/server.js` 暴露 7 tool（§6 #11）；`workflow/config.json` 有 `harvest` 與 `vcs_sync` 區段（舊鍵 `self_iteration.auto_commit_promotions/auto_push_promotions` 由 `vcs_sync` 接管）
+- [ ] `tools/workflow-guardian-mcp/server.js` 暴露 8 tool（§6 #11）；`workflow/config.json` 有 `harvest`、`vcs_sync`、`review`、`roles.ad_group_map`、`org_memory` 區段（舊鍵 `self_iteration.auto_commit_promotions/auto_push_promotions` 由 `vcs_sync` 接管）
 - [ ] `tools/codex-companion/judge_backend.py` 存在；無 codex CLI 的環境確認 `claude` 可被找到（備援裁判）
 - [ ] Stop hook 只掛 guardian / codex_companion / lang_guard（無 quick-extract）
 
@@ -410,7 +425,7 @@ python tools/merge-atom-index.py --install # 可選：不跑也行——下一�
 - 「已整理」判定：上述標記，或專案已有 `shared/_taxonomy.json`。
 - 只想先修程式能判的部分（索引 scope、懸空條目），可從 `~/.claude` 一次掃全部登記專案：`python tools/sync-atom-index.py --all-projects --fix-scope-from-path`。
 
-> 多職務團隊：從 `skills/_archived/` 復原 init-roles / conflict-review，專案執行 `/init-roles` 建 `memory/shared/_roles.md` + `memory/roles/<role>/`（`tools/init-roles.py`、`tools/conflict-review.py` 仍在）。單人環境不需要。
+> 多職務團隊：職能自動來自 AD 群組（`hooks/wg_roles.py`，config `roles.ad_group_map`），什麼都不用填；例外時人工覆寫 `python tools/init-roles.py --project-cwd <根> --me art`，`--status` 對帳三層（role.md／AD 群組／deciders）。待審草稿預設人人可裁決，要限制時在 `workflow/config.json` `review.deciders` 填 AD 帳號名單。`/init-roles`、`/conflict-review` skill 仍在 `skills/_archived/`（`tools/` 版可直接跑）。
 
 ---
 

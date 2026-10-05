@@ -23,6 +23,8 @@ import sys
 import threading
 import time
 import urllib.request
+
+import pytest
 from pathlib import Path
 
 CLAUDE_DIR = Path(__file__).resolve().parent.parent.parent  # tools/verify/ → ~/.claude/
@@ -264,6 +266,68 @@ def test_delete_stale_keys_layer_label_with_colon():
 def test_build_index_incremental_wires_stale_cleanup():
     src = inspect.getsource(indexer.build_index)
     assert "_delete_stale_keys" in src, "增量索引須順帶清 stale"
+
+
+class _FakeDB:
+    def __init__(self, names, table=None):
+        self._names = list(names)
+        self._table = table
+        self.created = []
+
+    def table_names(self):
+        return list(self._names)
+
+    def open_table(self, name):
+        return self._table
+
+    def create_table(self, name, records, mode=None):
+        self.created.append((name, mode, len(records)))
+
+
+class _ExplodingTable(_FakeTable):
+    def add(self, records):
+        raise RuntimeError("disk full")
+
+
+class _AddingTable(_FakeTable):
+    def add(self, records):
+        self._rows.extend(records)
+
+
+def test_write_records_incremental_error_does_not_overwrite(capsys):
+    # B8：增量寫入途中任何例外（非 table-not-found）不得退成 create_table(mode=overwrite)
+    #（會把其他層整表清掉且無人知）→ raise 並 stderr 一行
+    table = _ExplodingTable([{"layer": "global", "atom_name": "keep"}])
+    db = _FakeDB([indexer.TABLE_NAME], table)
+    recs = [{"layer": "shared:c--org", "atom_name": "new"}]
+    with pytest.raises(RuntimeError, match="disk full"):
+        indexer._write_records(db, recs, incremental=True)
+    assert db.created == []
+    assert "incremental write failed" in capsys.readouterr().err
+    assert table.count_rows() == 1  # 既有列仍在
+
+
+def test_write_records_creates_table_only_when_missing():
+    db = _FakeDB([])
+    recs = [{"layer": "global", "atom_name": "a"}]
+    indexer._write_records(db, recs, incremental=True)
+    assert db.created == [(indexer.TABLE_NAME, "overwrite", 1)]
+
+    table = _AddingTable([{"layer": "global", "atom_name": "a"}, {"layer": "global", "atom_name": "b"}])
+    db2 = _FakeDB([indexer.TABLE_NAME], table)
+    indexer._write_records(db2, [{"layer": "global", "atom_name": "a"}], incremental=True)
+    assert db2.created == []
+    assert table.count_rows() == 2  # 刪 a 再加 a：b 不受影響
+    assert any("atom_name = 'a'" in w for w in table.deleted)
+
+    db3 = _FakeDB([indexer.TABLE_NAME], table)
+    indexer._write_records(db3, recs, incremental=False)
+    assert db3.created == [(indexer.TABLE_NAME, "overwrite", 1)]
+
+
+def test_build_index_uses_write_records():
+    src = inspect.getsource(indexer.build_index)
+    assert "_write_records(" in src and "mode=\"overwrite\"" not in src
 
 
 # ─── 6. contextual prefix（embed 輸入前置脈絡行）─────────────────────────────

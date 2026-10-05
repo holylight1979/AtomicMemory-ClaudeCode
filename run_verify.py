@@ -12,6 +12,11 @@ import sys
 import subprocess
 from pathlib import Path
 
+# 測試訊息含非 cp950 字元（如 ⚠）時 --json 會在 Windows 主控台炸掉，統一走 UTF-8
+for _s in (sys.stdout, sys.stderr):
+    if hasattr(_s, "reconfigure"):
+        _s.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parent
 fixed = [
     ROOT / "hooks" / "verify",

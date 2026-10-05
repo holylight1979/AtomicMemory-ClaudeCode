@@ -46,7 +46,14 @@ def repo(tmp_path, monkeypatch):
     _git(work, "remote", "add", "origin", str(bare))
     _git(work, "push", "-u", "origin", "main")
     monkeypatch.setattr(ss, "CLAUDE_DIR", work)
+    _isolate_roots(monkeypatch)
     return work
+
+
+def _isolate_roots(monkeypatch):
+    """advisory 會掃 workflow/vcs-sync/roots.json 列的每個 root；測試只看 tmp repo，不得讀到本機真實標記。"""
+    import wg_vcs_sync
+    monkeypatch.setattr(wg_vcs_sync, "load_roots", lambda: {})
 
 
 def test_synced_repo_is_silent(repo):
@@ -74,11 +81,13 @@ def test_no_upstream_is_silent(tmp_path, monkeypatch):
     _git(work, "add", "-A")
     _git(work, "commit", "-m", "seed")
     monkeypatch.setattr(ss, "CLAUDE_DIR", work)
+    _isolate_roots(monkeypatch)
     assert ss._unpushed_advisory() == []
 
 
 def test_non_git_dir_is_silent(tmp_path, monkeypatch):
     monkeypatch.setattr(ss, "CLAUDE_DIR", tmp_path)
+    _isolate_roots(monkeypatch)
     assert ss._unpushed_advisory() == []
 
 

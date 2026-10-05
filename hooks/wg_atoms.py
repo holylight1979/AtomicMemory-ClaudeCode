@@ -28,7 +28,9 @@ from wg_core import (
     compute_token_budget,  # re-export：budget 單一來源在 wg_core，舊 caller 仍從本模組 import
     _estimate_tokens,  # CJK-aware 估算器（單一口徑，中文 ~1.5 tok/字）
     discover_all_project_memory_dirs, resolve_access_json,
-    get_project_memory_dir, log_promotion_audit, log_promotion_heartbeat,
+    get_project_memory_dir, find_project_root, cwd_to_project_slug,
+    _is_under_claude_dir, is_cross_project_local,
+    log_promotion_audit, log_promotion_heartbeat,
     _atom_debug_log, _atom_debug_error,
     sanitize_harness_noise,
 )
@@ -258,7 +260,8 @@ def entry_visible(rel_path: str, user: Optional[str], roles: Optional[List[str]]
     """personal 只給本人、role 只給持有者；shared / global 對全員可見。"""
     label = scope_from_rel_path(rel_path)
     if label.startswith("personal:"):
-        return bool(user) and label[len("personal:"):] == user
+        # "unknown" 是身份取不到時的哨兵值，不得冒領任何人的 personal
+        return bool(user) and user != "unknown" and label[len("personal:"):] == user
     if label.startswith("role:"):
         return label[len("role:"):] in set(roles or ())
     return True
@@ -272,10 +275,11 @@ def filter_visible(
 
 def visible_vector_layers(
     project_slug: str, user: Optional[str], roles: Optional[List[str]],
-    include_local: bool = False,
+    include_local: bool = False, extra_layers: Optional[List[str]] = None,
 ) -> List[str]:
     """向量服務 layer 標籤白名單，與候選池同一套可見性（indexer 標籤：global /
-    extra:local-atoms / shared:<slug> / role:<slug>:<r> / personal:<slug>:<u>）。"""
+    extra:local-atoms / shared:<slug> / role:<slug>:<r> / personal:<slug>:<u>）。
+    extra_layers：呼叫端另算好的層（公司層 shared:<org slug>），原樣附在尾端；不傳清單不變。"""
     layers = ["global"]
     if include_local:
         layers.append("extra:local-atoms")
@@ -287,6 +291,9 @@ def visible_vector_layers(
             layers.append(f"role:{project_slug}:{r}")
         if user:
             layers.append(f"personal:{project_slug}:{user}")
+    for layer in extra_layers or ():
+        if layer not in layers:
+            layers.append(layer)
     return layers
 
 
@@ -396,6 +403,166 @@ def superseded_names_cached(memory_dir: Path) -> set:
         return names
     except Exception:
         return set()
+
+
+# ─── 候選池（SessionStart 快取與 memory_search 共用）─────────────────────────
+
+
+def _collect_v4_role_atoms(
+    project_mem_dir: Optional[Path], user: str, roles: List[str],
+) -> List[AtomEntry]:
+    """列出使用者可見的 V4 sub-layer atoms（SPEC §8.1）：shared/ 全部、roles/<持有> 、personal/<本人>。"""
+    if not project_mem_dir or not project_mem_dir.is_dir():
+        return []
+    from handlers._shared import _V4_TRIGGER_LINE_RE
+
+    out: List[AtomEntry] = []
+    mem_dir_name = project_mem_dir.name
+
+    scan_targets: List[Path] = []
+    shared = project_mem_dir / "shared"
+    if shared.is_dir():
+        scan_targets.append(shared)
+    roles_root = project_mem_dir / "roles"
+    for r in roles:
+        rd = roles_root / r
+        if rd.is_dir():
+            scan_targets.append(rd)
+    personal_dir = project_mem_dir / "personal" / user
+    if personal_dir.is_dir():
+        scan_targets.append(personal_dir)
+
+    for base in scan_targets:
+        for md in sorted(base.glob("**/*.md")):
+            rel_parts = md.relative_to(base).parts
+            if any(p.startswith("_") for p in rel_parts[:-1]):
+                continue
+            if md.name in (MEMORY_INDEX, "_ATOM_INDEX.md"):
+                continue
+            if md.name.startswith("_") or md.name.startswith("SPEC_"):
+                continue
+            try:
+                text = md.read_text(encoding="utf-8-sig")
+            except (OSError, UnicodeDecodeError):
+                continue
+            tm = _V4_TRIGGER_LINE_RE.search(text)
+            triggers: List[str] = []
+            if tm:
+                triggers = [t.strip().lower() for t in tm.group(1).split(",") if t.strip()]
+            layer_rel = md.relative_to(project_mem_dir)
+            rel_path = f"{mem_dir_name}/{layer_rel.as_posix()}"
+            out.append((md.stem, rel_path, triggers))
+    return out
+
+
+def _org_memory_dir(org_root: Optional[str], project_root: Optional[Path]) -> Optional[Path]:
+    """公司層記憶目錄 `<org_root>/.claude/memory`（resolve 後，slug 與 registry 一致）；
+    未設定、cwd 專案根＝org 根、或目錄不存在（未 checkout）→ None。"""
+    if not org_root:
+        return None
+    root = Path(org_root)
+    try:
+        root = root.resolve()
+        if project_root and project_root.resolve() == root:
+            return None
+    except OSError:
+        return None
+    mem = root / ".claude" / "memory"
+    return mem if mem.is_dir() else None
+
+
+def build_candidate_pool(
+    cwd: str, user: Optional[str], roles: Optional[List[str]], *,
+    org_root: Optional[str] = None,
+    global_atoms: Optional[List[AtomEntry]] = None,
+) -> Dict[str, Any]:
+    """本人在 cwd 看得到的 atom 候選池（純函式：不註冊專案、不建目錄、不寫檔）。
+
+    回 {global, project, org, scopes, superseded, project_slug, project_memory_dir, project_root, org_base}。
+    scope 可見性只在這裡收窄一次（personal 只給本人、role 只給持有者），下游檢索路不再各自過濾。
+    global_atoms 未給就讀全域索引。
+    org_root（wg_core.org_memory_root）給了就讀 `<org_root>/.claude/memory/_atom_index.json` 成 org 組
+    （org_base=`<org_root>/.claude`）；cwd 的專案根就是 org 根時跳過（同一樹不重複進池）。
+    """
+    user = user or ""
+    roles = list(roles or [])
+    if global_atoms is None:
+        global_atoms = parse_memory_index(MEMORY_DIR)
+    # 外部專案（cwd ∉ ~/.claude）濾掉 local-realm atom，跨專案 local 例外保留；
+    # is_local_realm_path 為 None（lib import 失敗）→ 不過濾（fail-open 全注入）。
+    if is_local_realm_path is not None and not _is_under_claude_dir(cwd):
+        global_atoms = [
+            (n, p, t) for (n, p, t) in global_atoms
+            if not is_local_realm_path(p) or is_cross_project_local(p)
+        ]
+    project_mem_dir = get_project_memory_dir(cwd)
+    project_atoms = parse_memory_index(project_mem_dir) if project_mem_dir else []
+    project_root = find_project_root(cwd)
+
+    v4_entries: List[AtomEntry] = []
+    try:
+        v4_entries = _collect_v4_role_atoms(project_mem_dir, user, roles)
+    except Exception as e:
+        _atom_debug_error("candidate_pool:v4_entries", e)
+
+    v4_layout_active = bool(project_mem_dir) and any(
+        (project_mem_dir / d).is_dir() for d in ("shared", "roles", "personal")
+    )
+    if v4_layout_active:
+        project_merged = list(v4_entries)
+    else:
+        project_merged = list(project_atoms)
+        existing_names = {n for n, _p, _t in project_merged}
+        for name, rel_path, triggers in v4_entries:
+            if name in existing_names:
+                continue
+            project_merged.append((name, rel_path, triggers))
+            existing_names.add(name)
+
+    org_mem_dir = _org_memory_dir(org_root, project_root)
+    org_atoms = parse_memory_index(org_mem_dir) if org_mem_dir else []
+
+    global_atoms = filter_visible(global_atoms, user, roles)
+    project_merged = filter_visible(project_merged, user, roles)
+    org_atoms = filter_visible(org_atoms, user, roles)
+    # 同名跨層 project > org > global：後 update 者勝
+    scopes = {n: scope_from_rel_path(p, "global") for n, p, _t in global_atoms}
+    scopes.update({n: scope_from_rel_path(p, "org") for n, p, _t in org_atoms})
+    scopes.update({n: scope_from_rel_path(p, "shared") for n, p, _t in project_merged})
+
+    project_slug = ""
+    if project_root:
+        try:
+            project_slug = cwd_to_project_slug(str(project_root.resolve()))
+        except OSError:
+            project_slug = cwd_to_project_slug(str(project_root))
+
+    # 被取代（Supersedes）的舊卡名單；base 規則與 ups_search 一致：`_AIAtoms/` 相對專案根，其餘相對 .claude
+    pool = [((n, p, t), MEMORY_DIR.parent) for n, p, t in global_atoms]
+    if project_mem_dir:
+        proj_parent = Path(project_mem_dir).parent
+        for n, p, t in project_merged:
+            base = project_root if (p.startswith("_AIAtoms/") and project_root) else proj_parent
+            pool.append(((n, p, t), Path(base)))
+    if org_mem_dir:
+        pool.extend(((n, p, t), org_mem_dir.parent) for n, p, t in org_atoms)
+    try:
+        superseded = sorted(collect_superseded_names(pool))
+    except Exception as e:
+        _atom_debug_error("candidate_pool:superseded", e)
+        superseded = []
+
+    return {
+        "global": [(n, p, t) for n, p, t in global_atoms],
+        "project": [(n, p, t) for n, p, t in project_merged],
+        "org": [(n, p, t) for n, p, t in org_atoms],
+        "scopes": scopes,
+        "superseded": superseded,
+        "project_slug": project_slug,
+        "project_memory_dir": str(project_mem_dir) if project_mem_dir else "",
+        "project_root": str(project_root) if project_root else "",
+        "org_base": str(org_mem_dir.parent) if org_mem_dir else None,
+    }
 
 
 # 個別化 decay 旋鈕預設（config usefulness.stability_gamma；0=關閉退回固定 d=0.5）

@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Tuple
 from wg_core import (
     MEMORY_DIR, MEMORY_INDEX,
     discover_all_project_memory_dirs, _is_under_claude_dir,
-    _atom_debug_log,
+    _atom_debug_log, cwd_to_project_slug,
 )
 import math
 
@@ -193,6 +193,13 @@ def collect_matched_atoms(
             else:
                 base = proj_parent
             all_atoms.append(((name, rel_path, triggers), base))
+    # 公司層（SessionStart 由 config org_memory 建池）：rel_path 相對 `<org_root>/.claude`
+    org_base_str = atom_index.get("org_base") or ""
+    if org_base_str:
+        org_base = Path(org_base_str)
+        for entry in atom_index.get("org", []):
+            name, rel_path, triggers = entry
+            all_atoms.append(((name, rel_path, triggers), org_base))
 
     # Supersedes 全路徑有效性：候選池先去掉被取代的舊卡（trigger/BM25/vector/Related/裁切共用同一池）。
     # 集合每 session 算一次 stash 在 atom_index（SessionStart 建；舊 state 沒有就在這裡補算一次）。
@@ -284,9 +291,12 @@ def collect_matched_atoms(
     _v4_user = _v4_id.get("user") or None
     _v4_roles = _v4_id.get("roles") or None
     _sess_cwd = str((state.get("session") or {}).get("cwd") or "")
+    # 公司層向量標籤 shared:<org slug>（indexer 經 registry 以 org 根 slug 建層）
+    _org_layers = [f"shared:{cwd_to_project_slug(str(Path(org_base_str).parent))}"] if org_base_str else None
     _vis_layers = visible_vector_layers(
         atom_index.get("project_slug", ""), _v4_user, _v4_roles,
         include_local=bool(_sess_cwd) and _is_under_claude_dir(_sess_cwd),
+        extra_layers=_org_layers,
     )
     # Vector 兩用途：hits=0 → 全層 fallback；hits>0 → 專案層 enrichment
     #（trigger/BM25 只擅長全域層關鍵詞，專案層語意近似仍值得補充；

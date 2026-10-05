@@ -1,4 +1,4 @@
-// atom-tools.js — atom_write / atom_promote / atom_edit_meta / atom_move / atom_retire 五個 MCP tool 業務邏輯。
+// atom-tools.js — atom_write / atom_promote / atom_edit_meta / atom_move / atom_retire / memory_search 六個 MCP tool 業務邏輯。
 // sendToolResult 來自 mcp.js（循環相依：mcp.handleToolCall lazy-require 本檔，故本檔載入時 mcp 已就緒）。
 // atom_write／atom_retire 每次落檔成功，結果文字最後一行固定 `receipt: {...}`（機器可讀收據）；
 // Python PostToolUse 解析進 state.atom_ops，knowledge_harvest_report 的逐項核對以它為準（one-writer：本檔不寫 state）。
@@ -8,7 +8,7 @@ const { CLAUDE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, PYTHON_EXE } = require(".
 const { crashLog } = require("./log");
 // 落點／定位／路由全部由 py lib/atom_io.locate_atom 裁決（spawnAtomCli("locate")），
 // js 只採用回傳的路徑；realm.js 只剩 js 自己真的需要的（使用者名、去重層清單）。
-const { getCurrentUser, dedupLayersFor } = require("./realm");
+const { getCurrentUser, dedupLayersFor, orgMemoryRoot } = require("./realm");
 
 // SYNC: lib/atom_index_json.py TRIGGER_MAX_LEN — 超長 trigger 在寫入當下即拒，
 // 不留給後續 validate_index / atom_move 才爆（exit 2）。
@@ -27,6 +27,19 @@ function receiptLine(obj) {
   return `receipt: ${JSON.stringify(obj)}`;
 }
 
+/** 從既有 atom 檔頭讀 `- Source:`（provenance）字串；無此行回 null。 */
+function readSourceLine(content) {
+  const m = content.match(/^- Source:\s*(.+)$/m);
+  return m ? m[1].trim() : null;
+}
+
+/** 從既有 atom 檔頭讀 `- Depends:` 清單；無此行回 null。 */
+function readDependsLine(content) {
+  const m = content.match(/^- Depends:\s*(.+)$/m);
+  if (!m) return null;
+  return m[1].split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 /** 從既有 atom 檔頭讀 `- Supersedes:` 清單（replace 未給 supersedes 時保留原行用）；無此行回 null。 */
 function readSupersedesLine(content) {
   const m = content.match(/^- Supersedes:\s*(.+)$/m);
@@ -42,11 +55,17 @@ async function toolAtomWrite(id, args) {
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
     realm, domain, status, subdir, allow_new_category, dry_run, cross_project,
-    supersedes,
+    supersedes, provenance, depends,
   } = args;
   dry_run = !!dry_run;
   if (supersedes !== undefined && !Array.isArray(supersedes)) {
     return sendToolResult(id, "supersedes must be an array of atom names (omit to keep, [] to clear)", true);
+  }
+  if (depends !== undefined && !Array.isArray(depends)) {
+    return sendToolResult(id, "depends must be an array of strings like path:<abs path> (omit to keep, [] to clear)", true);
+  }
+  if (provenance !== undefined && typeof provenance !== "string") {
+    return sendToolResult(id, "provenance must be a string (source path / URL / commit)", true);
   }
 
   // Validate core required fields (scope now optional, defaults to shared)
@@ -71,6 +90,18 @@ async function toolAtomWrite(id, args) {
   if (scope === "project") {
     try { process.stderr.write(`[atom_write] scope=project is deprecated; mapped to shared\n`); } catch {}
     scope = "shared";
+  }
+  // org＝語法糖：公司層就是「config org_memory 指定的那個專案根」的 shared 層（py 落點零改）
+  const isOrg = scope === "org";
+  if (isOrg) {
+    const orgRoot = orgMemoryRoot();
+    if (!orgRoot) {
+      return sendToolResult(id,
+        "atom_write: scope=org 但 workflow/config.json org_memory 未啟用（需 enabled=true 且 roots 恰 1 個；" +
+        "初始化：python ~/.claude/tools/org-memory.py --init <公司記憶 repo 根>）", true);
+    }
+    scope = "shared";
+    project_cwd = orgRoot;
   }
 
   // V4 personal default user
@@ -149,7 +180,7 @@ async function toolAtomWrite(id, args) {
     if (!skip_gate) {
       // 去重只比「寫入者能 append 到」的層：global + ~/.claude 本地 atom + 當前專案
       // 自己的 shared／role／personal。不限層會撞到別的專案、別人 personal 的 atom。
-      const gateLayers = dedupLayersFor(scope, baseDir, { role, user, personalGlobal: !!loc.personal_global });
+      const gateLayers = dedupLayersFor(isOrg ? "org" : scope, baseDir, { role, user, personalGlobal: !!loc.personal_global });
       const gateResult = await execWriteGate(knowledge.join("\n"), confidence, gateLayers);
       if (gateResult.action === "skip") {
         return sendToolResult(id, `Write-gate rejected: ${gateResult.reason}`, true);
@@ -218,6 +249,8 @@ async function toolAtomWrite(id, args) {
         audience, author, pending_review_by: pendingReviewBy, merge_strategy, created_at: today,
         status,
         ...(Array.isArray(supersedes) && { supersedes }),
+        ...(typeof provenance === "string" && { provenance }),
+        ...(Array.isArray(depends) && { depends }),
       },
       file_path: filePath,
       today,
@@ -320,6 +353,8 @@ async function toolAtomWrite(id, args) {
     let prevAuthor = author;
     let prevCreatedAt = today;
     let prevSupersedes = null;
+    let prevProvenance = null;
+    let prevDepends = null;
     if (fs.existsSync(filePath)) {
       try {
         const old = fs.readFileSync(filePath, "utf-8");
@@ -328,8 +363,13 @@ async function toolAtomWrite(id, args) {
         const cm = old.match(/^- Created-at:\s*(.+)$/m);
         if (cm) prevCreatedAt = cm[1].trim();
         prevSupersedes = readSupersedesLine(old);
+        prevProvenance = readSourceLine(old);
+        prevDepends = readDependsLine(old);
       } catch {}
     }
+    // Source / Depends 三態同 Supersedes：未給＝保留原行；""／[]＝清除；非空＝替換。
+    const provenanceFinal = typeof provenance === "string" ? provenance : prevProvenance;
+    const dependsFinal = Array.isArray(depends) ? depends : prevDepends;
     const supersedesFinal = Array.isArray(supersedes) ? supersedes : (prevSupersedes || []);
     // 呼叫者明給新清單才重驗（自指／循環／核心保護／可解析，py 單源）；保留原行的不重驗，
     // 原行寫入當時已驗過，且其目標之後若被退役也不該讓這次 replace 失敗。
@@ -347,6 +387,8 @@ async function toolAtomWrite(id, args) {
       audience, author: prevAuthor, pending_review_by: pendingReviewBy,
       merge_strategy, created_at: prevCreatedAt, status,
       ...((Array.isArray(supersedes) || prevSupersedes) && { supersedes: supersedesFinal }),
+      ...(provenanceFinal !== null && { provenance: provenanceFinal }),
+      ...(dependsFinal !== null && { depends: dependsFinal }),
     });
     if (!br.ok) {
       return sendToolResult(id, `Validation failed: ${br.error}`, true);
@@ -894,6 +936,15 @@ async function toolAtomRetire(id, args) {
     return sendToolResult(id, "atom_retire: reason is required (why this atom is retired)", true);
   }
   if (scope === "personal" && !user) user = getCurrentUser();
+  if (scope === "org") {
+    const orgRoot = orgMemoryRoot();
+    if (!orgRoot) {
+      return sendToolResult(id,
+        "atom_retire: scope=org 但 workflow/config.json org_memory 未啟用（需 enabled=true 且 roots 恰 1 個）", true);
+    }
+    scope = "shared";
+    project_cwd = orgRoot;
+  }
   dry_run = !!dry_run;
 
   const r = await spawnAtomCli("retire", {
@@ -945,6 +996,36 @@ async function toolAtomRetire(id, args) {
   );
 }
 
+// ─── Memory Search Handler ─────────────────────────────────────────────────
+
+/** 唯讀查詢：檢索全在 py lib/memory_search（atom_io_cli action=search）；js 只組 payload、排版。
+ *  warnings 併入回覆文字；不寫 state、不附 receipt。 */
+async function toolMemorySearch(id, args) {
+  const { query, cwd, top_k, format } = args;
+  if (!String(query || "").trim()) {
+    return sendToolResult(id, "memory_search: query is required", true);
+  }
+  const r = await spawnAtomCli("search", {
+    query, cwd: cwd || process.cwd(), top_k: top_k || 8,
+  });
+  if (!r.ok) {
+    return sendToolResult(id, `memory_search failed: ${r.error || "(unknown error)"}`, true);
+  }
+  const res = r.extra || {};
+  if (format === "json") {
+    return sendToolResult(id, JSON.stringify(res, null, 2));
+  }
+  const results = res.results || [];
+  const lines = [`[memory_search] mode=${res.mode} hits=${results.length}`];
+  for (const w of res.warnings || []) lines.push(`⚠ ${w}`);
+  lines.push("name | scope | source | score | excerpt");
+  for (const x of results) {
+    lines.push(`${x.name} | ${x.scope} | ${x.source} | ${Number(x.score).toFixed(4)} | ${x.excerpt}`);
+    lines.push(`    ${x.path}`);
+  }
+  return sendToolResult(id, lines.join("\n"));
+}
+
 function extractKnowledgeLines(content) {
   // 從 atom 檔抓「## 知識」到下個 `## ` 或 EOF 之間，保留以 `- ` 開頭的行（去掉 `- ` 前綴）
   const m = content.match(/^##\s*知識\s*$([\s\S]*?)(?=^##\s|\Z)/m);
@@ -957,4 +1038,4 @@ function extractKnowledgeLines(content) {
     .filter(Boolean);
 }
 
-module.exports = { toolAtomWrite, toolAtomPromote, toolAtomEditMeta, toolAtomMove, toolAtomRetire };
+module.exports = { toolAtomWrite, toolAtomPromote, toolAtomEditMeta, toolAtomMove, toolAtomRetire, toolMemorySearch };

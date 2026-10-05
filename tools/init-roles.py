@@ -2,23 +2,24 @@
 """
 init-roles.py — /init-roles backend
 
-SPEC_ATOM_V4.md §6、§9：專案首次啟用 V4 多職務模式時的引導工作。
+職能預設自動來自 AD 群組（hooks/wg_roles.py 三層解析鏈：role.md 人工覆寫 → AD 群組 → 空）；
+本工具只做例外覆寫與對帳。裁決名單在 workflow/config.json review.deciders（空＝人人可裁決）。
 
 動作（依參數執行，單次 call 可組合）：
-  --bootstrap-personal      呼叫 wg_roles.bootstrap_personal_dir（建 personal/{user}/role.md + .gitignore）
-  --scaffold-roles          在 memory/_roles.md 建 roster 樣板（SPEC §3：成員 + 管理職白名單；與 wg_roles 實際讀取位置一致）
+  --me ROLES                人工覆寫職能：寫 <專案或 ~/.claude>/memory/personal/{user}/role.md（逗號分隔，例 art 或 programmer,art）
+  --bootstrap-personal      ＝ --me programmer（舊名相容）
+  --scaffold-roles          在 memory/_roles.md 建成員表樣板（純登記，程式不讀）
   --add-member USER:ROLES   增/改一筆成員（ROLES 逗號分隔）
-  --promote-mgmt USER       將 USER 加入 Management 白名單
   --install-hook            將 ~/.claude/hooks/post-git-pull.sh 複製到 .git/hooks/post-merge 並 chmod +x
-  --status                  只回報現況（JSON），不做變動
+  --status                  對帳（JSON）：role.md／AD 群組對映／最終 roles 三層各自解析到什麼＋deciders，不做變動
 
 所有動作均冪等。對每項動作回 JSON：
   {"action": "...", "ok": bool, "changed": bool, "path": "...", ...}
 
 典型呼叫：
-  python init-roles.py --project-cwd PATH --bootstrap-personal --scaffold-roles
+  python init-roles.py --project-cwd PATH --status
+  python init-roles.py --project-cwd PATH --me art
   python init-roles.py --project-cwd PATH --add-member alice:art
-  python init-roles.py --project-cwd PATH --promote-mgmt holylight1979
   python init-roles.py --project-cwd PATH --install-hook
 """
 
@@ -32,30 +33,24 @@ from typing import Any, Dict, List, Optional
 
 HOOKS_DIR = Path.home() / ".claude" / "hooks"
 sys.path.insert(0, str(HOOKS_DIR))
-from wg_core import find_project_root  # noqa: E402
+from wg_core import find_project_root, get_project_memory_dir  # noqa: E402
 from wg_roles import (  # noqa: E402
-    bootstrap_personal_dir,
     get_current_user,
     is_management,
     load_management_roster,
-    load_user_role,
+    resolve_roles_detail,
 )
 
 HOOK_SOURCE = HOOKS_DIR / "post-git-pull.sh"
 
 ROLES_TEMPLATE = """# Project Role Registry
 
-> V4 多職務共享記憶 — 專案成員與角色登記。入版控，管理職雙向認證的白名單端。
+> 專案成員與角色登記（純登記供人看，程式不讀；職能實際來自 AD 群組或 personal/<user>/role.md）。
 
 ## 成員
 
 | User | Roles |
 |---|---|
-
-## Management 白名單
-
-<!-- 加入此白名單的 user，若同時在自己 personal/role.md 也宣告 management，
-     才會通過 is_management() 雙向認證，可裁決衝突。 -->
 
 ## 角色說明
 
@@ -64,7 +59,6 @@ ROLES_TEMPLATE = """# Project Role Registry
 - planner: 服務於企劃工作場景 — 設計規格、流程、需求、平衡
 - pm: 專案管理（預設未啟用，依 team 需要開通）
 - qa: 測試（預設未啟用）
-- management: 管理職（裁決事實衝突，需白名單 + personal 宣告雙認）
 """
 
 def _resolve_root(proj_cwd: str) -> Optional[Path]:
@@ -75,11 +69,12 @@ def _resolve_root(proj_cwd: str) -> Optional[Path]:
 
 
 def _proj_memory_base(root: Path) -> Path:
-    return root / ".claude" / "memory"
+    """專案記憶目錄；root 是 ~/.claude 本身時就是全域 memory/。"""
+    return get_project_memory_dir(str(root)) or (root / ".claude" / "memory")
 
 
 def _roster_path(root: Path) -> Path:
-    """SPEC §3: roster 檔在 memory/_roles.md（與 wg_roles.load_management_roster 一致）。"""
+    """成員表在 memory/_roles.md（純登記）。"""
     return _proj_memory_base(root) / "_roles.md"
 
 
@@ -89,20 +84,33 @@ def _roster_path(root: Path) -> Path:
 def action_status(root: Path, user: str) -> Dict[str, Any]:
     mem = _proj_memory_base(root)
     personal = mem / "personal" / user
-    role_md = personal / "role.md"
     roster_md = _roster_path(root)
     gi = root / ".gitignore"
     hook_dst = root / ".git" / "hooks" / "post-merge"
 
-    roster = load_management_roster(str(root))
-    role_info = load_user_role(str(root), user)
-
+    detail = resolve_roles_detail(str(root), user, full=True)
+    role_md = detail["role_md"]
+    ad = detail["ad"]
     return {
         "project_root": str(root),
         "user": user,
         "mem_dir": str(mem),
         "personal_dir_exists": personal.is_dir(),
-        "role_md_exists": role_md.is_file(),
+        "layer1_role_md": {
+            "candidates": role_md["candidates"],
+            "hit_path": role_md["path"],
+            "roles": role_md["roles"],
+        },
+        "layer2_ad": {
+            "available": ad["available"],
+            "project_code": ad["project_code"],
+            "groups": [g for g in ad["groups"] if "\\" in g],
+            "roles": ad["roles"],
+        },
+        "roles": detail["roles"],
+        "roles_source": detail["source"],
+        "deciders": load_management_roster(str(root)),
+        "can_decide": is_management(str(root), user),
         "roster_md_exists": roster_md.is_file(),
         "roster_md_path": str(roster_md),
         "gitignore_has_personal": (
@@ -111,24 +119,23 @@ def action_status(root: Path, user: str) -> Dict[str, Any]:
                 for ln in gi.read_text(encoding="utf-8").splitlines())
         ),
         "post_merge_hook_installed": hook_dst.is_file(),
-        "management_roster": roster,
-        "current_user_roles": role_info.get("roles", []),
-        "current_user_management_self_declared": role_info.get("management", False),
-        "current_user_is_management_effective": is_management(str(root), user),
     }
 
 
-def action_bootstrap_personal(root: Path, user: str) -> Dict[str, Any]:
-    personal = bootstrap_personal_dir(str(root), user)
-    if not personal:
-        return {"action": "bootstrap-personal", "ok": False,
-                "error": "root lacks V4 markers"}
-    return {
-        "action": "bootstrap-personal",
-        "ok": True,
-        "path": str(personal),
-        "role_md": str(personal / "role.md"),
-    }
+def action_me(root: Path, user: str, roles: List[str]) -> Dict[str, Any]:
+    """寫 personal/<user>/role.md 人工覆寫職能（冪等）。"""
+    personal = _proj_memory_base(root) / "personal" / user
+    personal.mkdir(parents=True, exist_ok=True)
+    f = personal / "role.md"
+    text = (
+        f"- User: {user}\n"
+        f"- Role: {', '.join(roles)}\n"
+        "<!-- 人工覆寫；留空檔或刪檔即回到 AD 群組解析 -->\n"
+    )
+    changed = not (f.is_file() and f.read_text(encoding="utf-8") == text)
+    if changed:
+        f.write_text(text, encoding="utf-8", newline="\n")
+    return {"action": "me", "ok": True, "changed": changed, "path": str(f), "roles": roles}
 
 
 def action_scaffold_roles(root: Path) -> Dict[str, Any]:
@@ -225,69 +232,6 @@ def action_add_member(root: Path, user: str, roles: List[str]) -> Dict[str, Any]
     result["action"] = "add-member"
     result["user"] = user
     result["roles"] = roles
-    return result
-
-
-def _update_mgmt_whitelist(text: str, user: str) -> str:
-    """在「## Management 白名單」下冪等 append `- user`。"""
-    lines = text.splitlines()
-    out: List[str] = []
-    in_section = False
-    inserted = False
-    seen = False
-    section_found = False
-
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if re.match(r"^##\s+Management", stripped, re.IGNORECASE):
-            in_section = True
-            section_found = True
-            out.append(line)
-            continue
-        if in_section and stripped.startswith("## "):
-            if not seen:
-                # 回找結束前最後一個列表項位置
-                insert_at = len(out)
-                while insert_at > 0 and out[insert_at - 1].strip() == "":
-                    insert_at -= 1
-                out.insert(insert_at, f"- {user}")
-                inserted = True
-            in_section = False
-            out.append(line)
-            continue
-        if in_section:
-            m = re.match(r"^-\s+(\S+)", stripped)
-            if m and m.group(1).strip() == user:
-                seen = True
-        out.append(line)
-
-    if in_section and not seen:
-        insert_at = len(out)
-        while insert_at > 0 and out[insert_at - 1].strip() == "":
-            insert_at -= 1
-        out.insert(insert_at, f"- {user}")
-        inserted = True
-
-    if not section_found:
-        out.append("")
-        out.append("## Management 白名單")
-        out.append("")
-        out.append(f"- {user}")
-        inserted = True
-
-    text_out = "\n".join(out)
-    if not text_out.endswith("\n"):
-        text_out += "\n"
-    return text_out if (inserted or seen) else text
-
-
-def action_promote_mgmt(root: Path, user: str) -> Dict[str, Any]:
-    path = _roster_path(root)
-    if not path.is_file():
-        action_scaffold_roles(root)
-    result = _edit_roles_md(path, lambda t: _update_mgmt_whitelist(t, user))
-    result["action"] = "promote-mgmt"
-    result["user"] = user
     return result
 
 
@@ -410,16 +354,20 @@ def action_install_hook(root: Path) -> Dict[str, Any]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="V4 /init-roles backend")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    ap = argparse.ArgumentParser(description="職能覆寫與對帳（職能預設自動來自 AD 群組）")
     ap.add_argument("--project-cwd", required=True)
     ap.add_argument("--user", default=None,
                     help="Override current user (defaults to CLAUDE_USER/os login)")
-    ap.add_argument("--bootstrap-personal", action="store_true")
+    ap.add_argument("--me", metavar="ROLES", default=None,
+                    help="人工覆寫職能，寫 personal/<user>/role.md；逗號分隔，例 art 或 programmer,art")
+    ap.add_argument("--bootstrap-personal", action="store_true",
+                    help="= --me programmer（舊名相容）")
     ap.add_argument("--scaffold-roles", action="store_true",
-                    help="Create memory/_roles.md with member/whitelist template")
+                    help="Create memory/_roles.md member table template")
     ap.add_argument("--add-member", metavar="USER:ROLES", default=None,
-                    help="逗號分隔 roles，例 alice:art 或 bob:programmer,management")
-    ap.add_argument("--promote-mgmt", metavar="USER", default=None)
+                    help="逗號分隔 roles，例 alice:art 或 bob:programmer,art")
     ap.add_argument("--install-hook", action="store_true")
     ap.add_argument("--privacy-check", action="store_true",
                     help="Scan cloud-sync paths, .gitignore, SVN ignore for personal/")
@@ -439,8 +387,13 @@ def main() -> None:
         print(json.dumps(action_status(root, user), ensure_ascii=False, indent=2))
         return
 
-    if args.bootstrap_personal:
-        results.append(action_bootstrap_personal(root, user))
+    me_roles = args.me if args.me is not None else ("programmer" if args.bootstrap_personal else None)
+    if me_roles is not None:
+        roles = [r.strip() for r in me_roles.split(",") if r.strip()]
+        if not roles:
+            results.append({"action": "me", "ok": False, "error": "ROLES 不得為空"})
+        else:
+            results.append(action_me(root, user, roles))
     if args.scaffold_roles:
         results.append(action_scaffold_roles(root))
     if args.add_member:
@@ -451,15 +404,13 @@ def main() -> None:
             u, roles_str = args.add_member.split(":", 1)
             roles = [r.strip() for r in roles_str.split(",") if r.strip()]
             results.append(action_add_member(root, u.strip(), roles))
-    if args.promote_mgmt:
-        results.append(action_promote_mgmt(root, args.promote_mgmt.strip()))
     if args.install_hook:
         results.append(action_install_hook(root))
     if args.privacy_check:
         results.append(action_privacy_check(root, user))
 
     # auto-run privacy check when bootstrapping (last step of init flow)
-    if args.bootstrap_personal and not args.privacy_check:
+    if me_roles is not None and not args.privacy_check:
         results.append(action_privacy_check(root, user))
 
     if not results:

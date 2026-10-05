@@ -35,7 +35,8 @@ V4 的三層 scope 機制不變：
 |---|---|---|
 | `global` | 跨專案通用知識 | `~/.claude/memory/` |
 | `shared` | 專案內全員共享 | `{proj}/.claude/memory/shared/` |
-| `role:{name}` | 特定職務組共享 | `{proj}/.claude/memory/roles/{name}/` |
+| `org` | 公司層：所有專案看得到、能寫 | `<org_root>/.claude/memory/shared/`（`workflow/config.json` `org_memory.roots[0].root`，單根、>1 停用）。MCP／CLI **語法糖**＝「該根的 shared」：js 改寫成 `scope=shared + project_cwd=org_root`，檔內仍 `Scope: shared`、不進 `VALID_SCOPES`；候選池順序 global → org → project，同名 project > org > global；向量層 `shared:<org slug>`；初始化 `tools/org-memory.py --init` |
+| `role:{name}` | 特定職務組共享 | `{proj}/.claude/memory/roles/{name}/`（職能由 AD 群組自動解析，見下「身份與職能解析」） |
 | `personal:{user}` | 個人在該專案的偏好/筆記 | `{proj}/.claude/memory/personal/{user}/`（**進專案版控**：索引三檔跟著 repo 走，personal 檔不進會讓他機索引懸空；`session_start._personal_sync_advisory` 見被 .gitignore 擋或未 commit 會提示；vcs-sync worker 對 personal 不特別處理，以各 repo 的 ignore 規則為準） |
 | `personal:{user}`（跨專案） | 本人在**所有**專案都適用的偏好 | `~/.claude/memory/personal/{user}/`（根層 **gitignore**，不跨機；索引在全域 `_atom_index.json`，path 前綴 `memory/personal/{user}/`；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 呼叫即落此） |
 
@@ -47,7 +48,11 @@ personal 兩種都視為**敏感**：只給本人、不進 MEMORY.md 目錄、�
 
 詳細 schema / 衝突偵測 / JIT 注入規則：見 [SPEC_ATOM_V4.md §2–§10](SPEC_ATOM_V4.md)。本 SPEC 只記 V5 增量。
 
-**讀取端可見性（V4 §8.1 的實作落點）**：session 在專案 P、使用者 U 的候選池 = `global` + `~/.claude/memory/personal/U`（本人跨專案）+ `P/shared`（含 `failures/`、根層 flat-legacy）+ `P/roles/{U 持有}` + `P/personal/U`。候選池在 SessionStart 建一次（`wg_atoms.filter_visible`），trigger / BM25 / vector / related / AtomAudit 共用，不各自過濾。**他專案任何層不進池**——他專案只在 prompt 命中其 `Project-Aliases` 時帶入該專案 MEMORY.md 目錄（去表格列、去 `personal/` `roles/` 行）。scope 由索引 `path` 推導（`scope_from_rel_path`），不信 index 的 `scope` 欄；管理職不豁免（管理職多的是待審清單，不是他人 personal）。向量路以 `layers` 白名單（`visible_vector_layers`）表達同一套規則。守門測試 `hooks/verify/verify_scope_visibility.py`。
+**讀取端可見性（V4 §8.1 的實作落點）**：session 在專案 P、使用者 U 的候選池 = `global` + `~/.claude/memory/personal/U`（本人跨專案）+ org（公司層 `<org_root>/.claude/memory`，config 啟用且 P 不是 org 根時）+ `P/shared`（含 `failures/`、根層 flat-legacy）+ `P/roles/{U 持有}` + `P/personal/U`。候選池由 `wg_atoms.build_candidate_pool(cwd, user, roles, org_root=)` 純函式建（SessionStart 建一次存 state；`lib/memory_search` 讀取端同用；`filter_visible` 在其中），trigger / BM25 / vector / related / AtomAudit 共用，不各自過濾。**他專案任何層不進池**——他專案只在 prompt 命中其 `Project-Aliases` 時帶入該專案 MEMORY.md 目錄（去表格列、去 `personal/` `roles/` 行）。scope 由索引 `path` 推導（`scope_from_rel_path`），不信 index 的 `scope` 欄；裁決者不豁免（裁決者多的是待審清單，不是他人 personal）。向量路以 `layers` 白名單（`visible_vector_layers`，org 經 `extra_layers`）表達同一套規則。守門測試 `hooks/verify/verify_scope_visibility.py`、`lib/verify/verify_memory_search.py`、`hooks/verify/verify_org_layer.py`。
+
+**身份與職能解析**（`hooks/wg_roles.py`）：U＝`get_current_user()`（`CLAUDE_USER` → OS 登入帳號＝AD 帳號去網域；取不到＝`unknown`，`entry_visible` 對它不開任何 personal）。roles＝`load_user_role` 三層、任一層失敗 fail-open 走下一層並 stderr：① `personal/<U>/role.md`（專案層 → 全域；只看 `- Role: a, b`；`tools/init-roles.py --me` 寫）→ ② AD 群組（`whoami /groups` OEM 碼頁解碼、行程內查一次；群組名 `<網域>\<專案代碼>_<序號>_<職能名>` 依 config `roles.ad_group_map` 職能名子字串對映、先比長鍵；專案 `MEMORY.md` `> Project-Code: XXX` 限定只取該專案群組）→ ③ `[]`（不預設 programmer）。裁決資格 `is_management(cwd, user)`＝config `review.deciders`（空＝全員；config 壞 → True＋stderr）；管理職雙向認證（`_roles.md` 白名單）已除役。守門 `hooks/verify/verify_roles_from_file.py`。
+
+**讀取端 `memory_search`**：同一條管線包成 `lib/memory_search.search(prompt, cwd, *, user, roles, top_k, use_vector)`，回 `schema_version=1`：`{mode, warnings, results[{name, path, rel_path, scope, source, score, excerpt, author, audience, tags, status}]}`；入口 MCP `memory_search`（`format: table|json`）、`atom_io_cli` action `search`、`tools/memory-search.py`。契約細節 TECH §5.8。
 
 ### 2.1 核心層物理佈局：範疇資料夾 + 失敗家族
 
@@ -284,7 +289,7 @@ V4.1 的 16 個 `wg_*.py` + 2651 行 `workflow-guardian.py` dispatcher 整併為
 
 | 模組 | 用途 |
 |------|------|
-| `wg_roles.py` | V4 sub-layer 探勘的 thin wrapper（保留） |
+| `wg_roles.py` | 身份／職能／裁決（AD 帳號、三層職能解析、`review.deciders`；不再是 shim，見 §2「身份與職能解析」） |
 
 > Wave 5 Session 6 砍 `wg_atom_observation.py`（REG-005 觀察任務 2026-04 結束 + 零活躍引用）。
 
@@ -396,7 +401,7 @@ V5 抽出為 `memory/_meta/forbidden-phrases.json` 為 single source；`IDENTITY
 ## 9. MCP server.js 砍 4 內部 tool（V5 P2，2026-05-26）
 
 V4 暴露 7 個 tool：3 個合理（atom_write / atom_move / atom_promote）+ 4 個內部 IPC（workflow_signal / workflow_status / memory_queue_add / memory_queue_flush）。
-V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續加回 `atom_edit_meta`（元資料外科編輯，§3.4）與 `atom_retire`（退役，§3.5）→ 現役 5 個 atom 業務 tool，另有 `anti_evasion_report`、`knowledge_harvest_report` 兩個只回 chip 的回報 tool（state 由 Python PostToolUse one-writer 寫），共 7 tool（清單 SoT `tools/workflow-guardian-mcp/lib/mcp.js` TOOL_DEFINITIONS）。改全域 server.js 須重啟 MCP server 生效。
+V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續加回 `atom_edit_meta`（元資料外科編輯，§3.4）與 `atom_retire`（退役，§3.5）→ 現役 5 個 atom 業務 tool，另有 `anti_evasion_report`、`knowledge_harvest_report` 兩個只回 chip 的回報 tool（state 由 Python PostToolUse one-writer 寫），加上唯讀的 `memory_search`（§2 讀取端），共 8 tool（清單 SoT `tools/workflow-guardian-mcp/lib/mcp.js` TOOL_DEFINITIONS）。改全域 server.js 須重啟 MCP server 生效。
 
 ---
 
@@ -443,9 +448,9 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續�
 - **旋鈕**：`workflow/config.json` `usefulness.{lexical_overlap_min,rare_token_min,wilson_z,promote_lb,demote_lb,demote_min_n,min_n,decay_lambda,stability_gamma,embedding_tiebreak}`。
 - **守門**：`lib/verify/verify_usefulness_access_phase2.py` + `hooks/verify/verify_usefulness_loop_phase2.py` + `verify_promotion_gate_phase0.py`（效用驅動）+ `verify_subagent_injection_phase1.py` + `hooks/verify/verify_stability_decay.py`（個別化 decay + 每日護欄）。
 
-## 13. Optional metadata：Depends（壞滅緣）/ Evidence（證據等級）
+## 13. Optional metadata：Depends（壞滅緣）/ Evidence（證據等級）/ Source（來源）
 
-兩個 optional frontmatter 欄位（`lib/atom_spec.py` `OPTIONAL_METADATA`）。**向後相容鐵則：既有 atom 缺欄一律靜默通過**；欄值非法僅 warning 級（不 fail validate）。
+Optional frontmatter 欄位（`lib/atom_spec.py` `OPTIONAL_METADATA`）。**向後相容鐵則：既有 atom 缺欄一律靜默通過**；欄值非法僅 warning 級（不 fail validate）。
 
 ### 13.1 `- Depends:` — 壞滅緣（validity conditions）
 
@@ -457,6 +462,7 @@ atom 標「依何條件而為真」——decay 是時間函數，這是**真值�
 | 自由文字型 | 如 `decision:xxx`、版本描述 | 不可驗，僅展示 |
 
 - 實作：`atom_spec.parse_depends` / `resolve_depends_path` / `depends_warnings`（缺路徑值等格式警告）。
+- 寫入：`atom_write(depends=["path:<絕對路徑>", …])` → `build_atom_content(depends=)` 渲染 `- Depends:`（Created-at 後、Related 前；js `atom-render.js` byte parity）；replace 三態：未給＝保留原行、`[]`＝清除、非空＝替換；append 不動檔頭。工具卡用絕對路徑（相對路徑以 `~/.claude` 為根）。
 
 ### 13.2 `- Evidence:` — 證據等級（了義裁決）
 
@@ -466,7 +472,11 @@ atom 標「依何條件而為真」——decay 是時間函數，這是**真值�
 - **衝突裁決優先序**：證據等級 → recency →（原有規則），取代純「新勝舊」——依了義不依不了義。
 - **fast-refute 快速否證通道**（`fast_refute_check`）：CONTRADICT 且新側 `Evidence=實證`、舊側 `[固]/[觀]` → 置頂高優先裁決浮出，**不等 Wilson 統計窗**——單一強矛盾實證即觸發 review。
 
-守門：`lib/verify/verify_atom_spec_depends_evidence.py` + `tools/verify/verify_stale_deps.py` + `tools/verify/verify_conflict_evidence.py`。
+### 13.3 `- Source:` — 來源（provenance）
+
+來源路徑／URL／commit／session id，純展示、不驗。寫入參數名 `provenance`（`write_atom(source=)` 是稽核白名單，故另名）：`atom_write(provenance=)` → `build_atom_content(provenance=)` 渲染在 Author 後；replace 三態同 Depends（未給＝保留、`""`＝清除、非空＝替換）。工具卡慣例：`Author`＝負責人、`Source`＝進入點、`Status`＝production|deprecated、`Depends: path:<進入點>`（健檢自動 stale）。
+
+守門：`lib/verify/verify_atom_spec_depends_evidence.py` + `tools/verify/verify_stale_deps.py` + `tools/verify/verify_conflict_evidence.py` + `lib/verify/verify_atom_io_equivalence.py` test_31–33（Source／Depends py↔js parity、replace 三態）。
 
 ## 14. 檢索融合：RRF × ACT-R 個別化 decay
 
@@ -483,6 +493,7 @@ atom 標「依何條件而為真」——decay 是時間函數，這是**真值�
 
 | 日期 | 版本 | 變更 |
 |---|---|---|
+| 2026-10-01 | V5.2 | **中台地基**：讀取端 `memory_search`（§2）；公司層 `org` 語法糖（§2）；身份＝AD 帳號／職能＝AD 群組三層解析／裁決 `review.deciders`（§2，管理職雙向認證除役）；`Source`／`Depends` 由 `atom_write(provenance=, depends=)` 渲染（§13）；編碼硬化（svn argv ACP 守門、亂碼名稱偵測、`[Guardian:SvnEncoding]` advisory） |
 | 2026-07-25 | V5.1 | **檢索融合（§14）+ Optional metadata（§13）+ 效用校準（§12.2）**：RRF 三路融合（k=60）× ACT-R 個別化 decay（γ=0.3）＋ `tools/memory-eval/` 回歸集 223 條定參（bm25_min_score 3.5→7.0）；atom optional `Depends`/`Evidence` 欄 + stale_deps 檢查 + 衝突裁決證據優先序 + fast-refute；wilson_z 1.96→1.28、`demote_min_n=5`、decay 每日護欄（`last_decay_date`）；失念偵測 recall-miss（SessionEnd → `Logs/recall-miss.jsonl`） |
 | 2026-06-03 | V5+ S1–S3 | **Realm 範疇分區（§2.2）**：core vs local 由 index path 前綴推導（不存欄位）；local 住 `_AIDocs/_atoms/<domain>/`、scope 仍 global、只在 cwd∈~/.claude 注入。注入閘門（session_start）+ 分類器（`classify_realm` 安全預設 core+核心保護硬擋）+ 搬遷工具 `atom-set-realm.py`（sidecar 原子搬、`_atoms/` path 唯一寫者）+ 8 顆既有 local atom 遷移 + MEMORY.md「本地範疇」段 + py↔js parity（test_14–17）+ `verify_realm_injection_gate.py` |
 | 2026-06-02 | V5+ | `edit_metadata` 元資料外科編輯入口（§3.4）+ MCP `atom_edit_meta`；memory-audit 晉升建議改對齊線上 usefulness Wilson 閘；atom-health-check 計數改讀 `.access.json` sidecar；funnel 寫入紀律延伸（health-check / sync-atom-index 裸 write_text → write_raw） |

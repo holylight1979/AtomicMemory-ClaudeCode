@@ -23,19 +23,19 @@ from wg_core import (
     CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, EPISODIC_DIR,
     MEMORY_INDEX,
     _now_iso, _atom_debug_error,
-    cwd_to_project_slug, get_project_memory_dir, find_project_root,
+    get_project_memory_dir, find_project_root,
     register_project,
     read_state, write_state, new_state, _find_active_sibling_state,
     _check_mcp_servers,
-    _is_under_claude_dir, is_local_realm_path, is_cross_project_local,
+    _is_under_claude_dir,
     iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
     find_vcs_root, memory_dir_candidates,
-    resolve_project_root,
+    resolve_project_root, org_memory_root,
 )
 from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
-    filter_visible, scope_from_rel_path,
+    build_candidate_pool,
 )
 from wg_evasion import (
     _load_oscillation_warnings, _detect_rut_patterns, _check_periodic_review_due,
@@ -44,7 +44,7 @@ from wg_roles import (
     get_current_user, load_user_role, is_management, bootstrap_personal_dir,
 )
 from handlers._shared import (
-    _MEMORY_MD_AUTO_HEADER, _V4_TRIGGER_LINE_RE,
+    _MEMORY_MD_AUTO_HEADER,
     _call_project_hook, _cleanup_old_states,
     WISDOM_AVAILABLE, get_reflection_summary,
 )
@@ -119,52 +119,6 @@ def wg_core_workflow_dir() -> Path:
     """取 wg_core.WORKFLOW_DIR 的即時值（測試 monkeypatch wg_core 後仍生效）。"""
     import wg_core
     return wg_core.WORKFLOW_DIR
-
-
-def _collect_v4_role_atoms(
-    project_mem_dir: Optional[Path], user: str, roles: List[str],
-) -> List[Tuple[str, str, List[str]]]:
-    """列出使用者可見的 V4 sub-layer atoms（SPEC §8.1）。"""
-    if not project_mem_dir or not project_mem_dir.is_dir():
-        return []
-
-    out: List[Tuple[str, str, List[str]]] = []
-    mem_dir_name = project_mem_dir.name
-
-    scan_targets: List[Path] = []
-    shared = project_mem_dir / "shared"
-    if shared.is_dir():
-        scan_targets.append(shared)
-    roles_root = project_mem_dir / "roles"
-    for r in roles:
-        rd = roles_root / r
-        if rd.is_dir():
-            scan_targets.append(rd)
-    personal_dir = project_mem_dir / "personal" / user
-    if personal_dir.is_dir():
-        scan_targets.append(personal_dir)
-
-    for base in scan_targets:
-        for md in sorted(base.glob("**/*.md")):
-            rel_parts = md.relative_to(base).parts
-            if any(p.startswith("_") for p in rel_parts[:-1]):
-                continue
-            if md.name in (MEMORY_INDEX, "_ATOM_INDEX.md"):
-                continue
-            if md.name.startswith("_") or md.name.startswith("SPEC_"):
-                continue
-            try:
-                text = md.read_text(encoding="utf-8-sig")
-            except (OSError, UnicodeDecodeError):
-                continue
-            tm = _V4_TRIGGER_LINE_RE.search(text)
-            triggers: List[str] = []
-            if tm:
-                triggers = [t.strip().lower() for t in tm.group(1).split(",") if t.strip()]
-            layer_rel = md.relative_to(project_mem_dir)
-            rel_path = f"{mem_dir_name}/{layer_rel.as_posix()}"
-            out.append((md.stem, rel_path, triggers))
-    return out
 
 
 def _regenerate_role_filtered_memory_index(
@@ -637,6 +591,22 @@ def _svn_index_conflict_advisory(cwd: str, root: Path) -> list:
     ]
 
 
+def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:
+    """公司層一行：`[Org] 公司層 N 顆（<root>）`；config 未啟用零 context。
+    根未 checkout／索引缺 → 警告一行（fail-open 必浮訊號）。cwd 就是 org 根時池不另列 org 組，不報。"""
+    if org_root is None:
+        return []
+    root = Path(org_root)
+    if not (root / ".claude" / "memory").is_dir():
+        return [f"[Org] 公司層記憶未就緒：{root} 下無 .claude/memory（未 checkout？或先跑 "
+                f"python ~/.claude/tools/org-memory.py --init {root}）"]
+    if not pool.get("org_base"):
+        return []
+    if not (Path(pool["org_base"]) / "memory" / "_atom_index.json").is_file():
+        return [f"[Org] 公司層索引缺檔：{root}/.claude/memory/_atom_index.json（請在該 repo 跑 sync-atom-index）"]
+    return [f"[Org] 公司層 {len(pool.get('org') or [])} 顆（{root}）"]
+
+
 def _personal_sync_advisory(project_mem_dir, user: str) -> list:
     """本人 personal atom 的版控同步狀態 → 開場最多三行（無事零 context）。
 
@@ -915,22 +885,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _spawn_pull_sync(session_id, cwd, config)
 
         global_atoms = parse_memory_index(MEMORY_DIR)
-        # ── V5+ realm 注入閘門（範疇限定）──────────────────────────────────────
-        # 此處為「新 session 候選快取建立處」——user_prompt_submit 只讀此快取做
-        # trigger 比對注入，故閘門落點在此、非注入迴圈。外部專案（cwd∉~/.claude）
-        # 濾掉 local-realm atom（index path 前綴 _AIDocs/_atoms/）；core（含 feedback-*
-        # 所在的 _AIDocs/Failures/）不受影響。**例外**：is_cross_project_local 為真者
-        # （storage 在 _atoms 但屬 CROSS_PROJECT_LOCAL_DOMAINS；清單目前為空、機制保留）保留——
-        # 解開「儲存位置綁死注入範圍」，對偶 feedback-*。直接用既有 3-tuple 的 path 過濾，
-        # 不查 realm map、不改 tuple 形狀。is_local_realm_path 為 None（lib import 失敗）→
-        # 不過濾（fail-open 回退至 pre-S2 全注入，安全）。
-        if is_local_realm_path is not None and not _is_under_claude_dir(cwd):
-            global_atoms = [
-                (n, p, t) for (n, p, t) in global_atoms
-                if not is_local_realm_path(p) or is_cross_project_local(p)
-            ]
         project_mem_dir = get_project_memory_dir(cwd)
-        project_atoms = parse_memory_index(project_mem_dir) if project_mem_dir else []
         project_root = find_project_root(cwd)
 
         register_project(cwd)
@@ -938,15 +893,12 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         v4_user = ""
         v4_roles: List[str] = []
         v4_mgmt = False
-        v4_entries: List[Tuple[str, str, List[str]]] = []
         try:
             v4_user = get_current_user()
             bootstrap_personal_dir(cwd, v4_user)
             role_info = load_user_role(cwd, v4_user)
-            v4_roles = role_info.get("roles") or ["programmer"]
+            v4_roles = list(role_info.get("roles") or [])  # 查不到職能＝[]，不預設 programmer
             v4_mgmt = is_management(cwd, v4_user)
-            if project_mem_dir:
-                v4_entries = _collect_v4_role_atoms(project_mem_dir, v4_user, v4_roles)
         except Exception as e:
             _atom_debug_error("role_bootstrap", e)
 
@@ -956,58 +908,32 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "management": v4_mgmt,
         }
 
+        # 候選池單源（wg_atoms.build_candidate_pool，memory_search 同用）：local-realm 閘門、
+        # scope 可見性（SPEC §8.1：personal 只給本人、role 只給持有者）、Supersedes 名單都在裡面收窄一次；
+        # UPS 六條檢索路全從此池取，不再各自過濾。副作用（註冊、bootstrap、MEMORY.md 重生）留在本檔。
+        org_root = org_memory_root()
+        pool = build_candidate_pool(
+            cwd, v4_user, v4_roles,
+            org_root=str(org_root) if org_root else None, global_atoms=global_atoms,
+        )
+        global_atoms = pool["global"]
+        project_atoms_merged = pool["project"]
+
         v4_layout_active = bool(project_mem_dir) and any(
             (project_mem_dir / d).is_dir() for d in ("shared", "roles", "personal")
         )
 
-        if v4_layout_active:
-            project_atoms_merged = list(v4_entries)
-        else:
-            project_atoms_merged = list(project_atoms)
-            existing_names = {n for n, _p, _t in project_atoms_merged}
-            for name, rel_path, triggers in v4_entries:
-                if name in existing_names:
-                    continue
-                project_atoms_merged.append((name, rel_path, triggers))
-                existing_names.add(name)
-
-        # scope 可見性（SPEC §8.1）：候選池只留本人看得到的——personal 只給本人、
-        # role 只給持有者；V3 / V4 佈局一視同仁。UPS 六條檢索路全從此池取，不再各自過濾。
-        global_atoms = filter_visible(global_atoms, v4_user, v4_roles)
-        project_atoms_merged = filter_visible(project_atoms_merged, v4_user, v4_roles)
-        atom_scopes = {n: scope_from_rel_path(p, "global") for n, p, _t in global_atoms}
-        atom_scopes.update({n: scope_from_rel_path(p, "shared") for n, p, _t in project_atoms_merged})
-        project_slug = ""
-        if project_root:
-            try:
-                project_slug = cwd_to_project_slug(str(project_root.resolve()))
-            except OSError:
-                project_slug = cwd_to_project_slug(str(project_root))
-
-        # 被取代（Supersedes）的舊卡名單：每 session 算一次，UPS 候選池／Related／子代理注入共用
-        try:
-            from wg_atoms import collect_superseded_names
-            _pool = [((n, p, t), MEMORY_DIR.parent) for n, p, t in global_atoms]
-            if project_mem_dir:
-                # base 規則與 ups_search.collect_matched_atoms 一致：`_AIAtoms/` 相對專案根，其餘相對 .claude
-                _proj_parent = Path(project_mem_dir).parent
-                for n, p, t in project_atoms_merged:
-                    _base = project_root if (p.startswith("_AIAtoms/") and project_root) else _proj_parent
-                    _pool.append(((n, p, t), Path(_base)))
-            superseded_names = sorted(collect_superseded_names(_pool))
-        except Exception as e:
-            _atom_debug_error("session_start:superseded", e)
-            superseded_names = []
-
         state["atom_index"] = {
-            "global": [(n, p, t) for n, p, t in global_atoms],
-            "project": [(n, p, t) for n, p, t in project_atoms_merged],
-            "project_memory_dir": str(project_mem_dir) if project_mem_dir else "",
-            "project_root": str(project_root) if project_root else "",
+            "global": pool["global"],
+            "project": pool["project"],
+            "org": pool["org"],
+            "org_base": pool["org_base"],
+            "project_memory_dir": pool["project_memory_dir"],
+            "project_root": pool["project_root"],
             "project_root_fingerprint": root_res.fingerprint if root_res else "",
-            "project_slug": project_slug,
-            "scopes": atom_scopes,
-            "superseded": superseded_names,
+            "project_slug": pool["project_slug"],
+            "scopes": pool["scopes"],
+            "superseded": pool["superseded"],
         }
         state["injected_atoms"] = []
         if not root_rebuilt:
@@ -1015,7 +941,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
         if v4_layout_active and v4_user:
             _regenerate_role_filtered_memory_index(
-                project_mem_dir, v4_user, v4_roles, v4_mgmt, v4_entries,
+                project_mem_dir, v4_user, v4_roles, v4_mgmt, project_atoms_merged,
             )
 
         aidocs_entries = parse_aidocs_index(project_root) if project_root else []
@@ -1140,15 +1066,16 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_followup_advisory())
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
+        lines.extend(_org_advisory(org_root, pool))
 
         if v4_user:
             lines.append(
-                f"[Role] user={v4_user} roles={','.join(v4_roles) or 'programmer'} mgmt={v4_mgmt}"
+                f"[Role] user={v4_user} roles={','.join(v4_roles) or '-'} mgmt={v4_mgmt}"
             )
-            if v4_mgmt:
-                pending = _count_pending_review(project_mem_dir)
-                if pending > 0:
-                    lines.append(f"[Pending Review] {pending} 件待裁決（shared/_pending_review/）")
+            # 待審草稿對所有人顯示（裁決資格另由 config review.deciders 決定）
+            pending = _count_pending_review(project_mem_dir)
+            if pending > 0:
+                lines.append(f"[Pending Review] {pending} 件待裁決（shared/_pending_review/）")
 
         if v4_user and config.get("userExtraction", {}).get("enabled", False):
             try:

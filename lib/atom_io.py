@@ -943,6 +943,8 @@ def write_atom(
     allow_new_category: bool = False,
     cross_project: bool = False,
     supersedes: Optional[List[str]] = None,
+    provenance: Optional[str] = None,
+    depends: Optional[List[str]] = None,
 ) -> WriteResult:
     """寫入 atom 的唯一入口。對拍 server.js:1065 toolAtomWrite byte-identical。
 
@@ -956,6 +958,8 @@ def write_atom(
     subdir（選填，僅 scope=shared）：create 分區根改 `<memory root>/<subdir>/`，範疇落其下。
     supersedes（create/replace）三態：None → replace 保留既有檔頭的 Supersedes 行（create 不輸出）；
     [] → 清除；非空 → 經 check_supersedes（可解析／非自指／無循環／非核心保護名）後替換。
+    provenance（渲染 `- Source:`）／depends（渲染 `- Depends:`）：create 給了才輸出；
+    replace None → 保留既有檔頭該行（同 Author 規則），給了（含空）→ 替換；append 不動檔頭。
     """
     audit_id = _gen_audit_id()
 
@@ -1070,6 +1074,7 @@ def write_atom(
             knowledge=knowledge, actions=actions, related=related, audience=audience,
             author=author, pending_review_by=pending_by, merge_strategy=merge_strategy,
             today=today, supersedes=supersedes_final,
+            provenance=provenance, depends=depends,
         )
     elif mode == "append":
         if not file_path.exists():
@@ -1090,6 +1095,8 @@ def write_atom(
         prev_author = author
         prev_created = today or datetime.now(timezone.utc).date().isoformat()
         prev_supersedes: List[str] = []
+        prev_provenance = provenance
+        prev_depends = depends
         if file_path.exists():
             old = file_path.read_text(encoding="utf-8-sig")
             am = re.search(r"^- Author:\s*(.+)$", old, re.MULTILINE)
@@ -1099,6 +1106,13 @@ def write_atom(
             if cmm:
                 prev_created = cmm.group(1).strip()
             prev_supersedes = read_supersedes(old)
+            # Source／Depends：呼叫者未給（None）→ 保留舊行；給了（含空）→ 以呼叫者為準
+            if provenance is None:
+                sm = re.search(r"^- Source:\s*(.+)$", old, re.MULTILINE)
+                prev_provenance = sm.group(1).strip() if sm else None
+            if depends is None:
+                dm = re.search(r"^- Depends:\s*(.+)$", old, re.MULTILINE)
+                prev_depends = [t.strip() for t in dm.group(1).split(",") if t.strip()] if dm else None
         if supersedes is None:
             supersedes_final = prev_supersedes
         else:
@@ -1114,6 +1128,7 @@ def write_atom(
             knowledge=knowledge, actions=actions, related=related, audience=audience,
             author=prev_author, pending_review_by=pending_by, merge_strategy=merge_strategy,
             created_at=prev_created, today=today, supersedes=supersedes_final,
+            provenance=prev_provenance, depends=prev_depends,
         )
     else:
         return WriteResult(ok=False, audit_id=audit_id,

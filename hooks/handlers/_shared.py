@@ -264,7 +264,7 @@ def _maybe_spawn_user_extract_worker(
 
     cwd = state.get("session", {}).get("cwd", "")
     user_id = state.get("user_identity", {})
-    user = user_id.get("user", "holylight")
+    user = user_id.get("user", "unknown")
 
     worker_ctx = {
         "session_id": session_id,

@@ -67,7 +67,8 @@ def test_rewrite_replaces_only_the_interpreter(tmp_path):
     # 指令主體（-c 的整串）必須原封不動
     cmd = s["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     assert "runpy.run_path" in cmd and FOREIGN not in cmd
-    assert cmd.startswith(str(fake).replace("python.exe", "python"))
+    # rewrite 一律寫成可攜形式（$LOCALAPPDATA/…）並加引號
+    assert cmd.startswith(f'"{fhp.portable(str(fake))}"')
     # statusLine 的腳本參數也要保留
     assert "statusline.py" in s["statusLine"]["command"]
 
@@ -80,16 +81,18 @@ def test_pythonw_stays_windowless(tmp_path):
     fhp.rewrite(s, str(tmp_path / "python.exe"))
 
     assert s["hooks"]["Stop"][0]["hooks"][0]["command"].startswith(
-        str(tmp_path / "pythonw.exe"))
+        f'"{fhp.portable(str(tmp_path / "pythonw.exe"))}"')
     # statusLine 原本就是 python（需要 stdout）→ 維持非 w 版
-    assert s["statusLine"]["command"].startswith(str(tmp_path / "python.exe"))
+    assert s["statusLine"]["command"].startswith(
+        f'"{fhp.portable(str(tmp_path / "python.exe"))}"')
 
 
 def test_no_change_when_already_correct(tmp_path):
     fake = tmp_path / "pythonw.exe"
     fake.write_text("", encoding="utf-8")
+    # 已是可攜形式（rewrite 的輸出格式）→ 不得再被改寫
     s = {"hooks": {"Stop": [{"hooks": [
-        {"type": "command", "command": f'{fake} -c "pass"'}]}]}}
+        {"type": "command", "command": f'"{fhp.portable(str(fake))}" -c "pass"'}]}]}}
     assert fhp.rewrite(s, str(fake)) == []
 
 

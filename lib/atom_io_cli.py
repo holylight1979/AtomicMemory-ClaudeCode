@@ -29,6 +29,9 @@ retire：{atom_name, scope, project_cwd, role, user, reason, dry_run}
    steps_done, steps_failed, index_root, base_dir}}。先 locate_atom（與 atom_write 同契約）
 取實體檔與 memory root，再呼叫 tools/memory-audit.py delete_atom(project_dir=…)。
 
+search：{query, cwd?, user?, roles?, top_k?, use_vector?} → {ok, extra: <lib/memory_search.search 回傳>}。
+唯讀；user/roles 缺省以現用身份（wg_roles）補；query 空 → error。
+
 update_atom_field action 已移除（計數類欄位改走 lib/atom_access.py CLI
 入口 `python -m lib.atom_access ...`，不再透過此 bridge）。
 """
@@ -250,6 +253,23 @@ def retire_atom(payload: dict) -> WriteResult:
     return WriteResult(ok=ok, path=loc.path, error=None if ok else msg, extra=base_extra)
 
 
+def search_atoms(payload: dict) -> WriteResult:
+    """唯讀查詢（lib/memory_search 單源）；身份缺省取現用 OS 帳號與職能。"""
+    from .memory_search import search, default_identity
+    cwd = payload.get("cwd") or str(Path.cwd())
+    user, roles = payload.get("user"), payload.get("roles")
+    if user is None and roles is None:
+        user, roles = default_identity(cwd)
+    try:
+        result = search(
+            payload.get("query", ""), cwd, user=user, roles=roles,
+            top_k=int(payload.get("top_k") or 8), use_vector=bool(payload.get("use_vector", True)),
+        )
+    except ValueError as e:
+        return WriteResult(ok=False, error=str(e))
+    return WriteResult(ok=True, extra=result)
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read())
@@ -304,6 +324,8 @@ def main() -> int:
                 triggers=payload.get("triggers"), knowledge=payload.get("knowledge"),
                 actions=payload.get("actions"), domain=payload.get("domain"))
             result = WriteResult(ok=gate_err is None, error=gate_err)
+        elif action == "search":
+            result = search_atoms(payload)
         else:
             result = WriteResult(ok=False, error=f"unknown action: {action}")
     except TypeError as e:

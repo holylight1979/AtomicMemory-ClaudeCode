@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 > `atom-heal.py` 自動修壞掉的記憶（L1 機械補反向連結 / L2 LLM 判斷修死連結），
 > 修不好（驗證不過 / needs_human）時在 `memory/_heal_review/<atom>.json` 留診斷卡，轉人工。
-> 本 skill 引導裁決：已修好→`resolve` 清卡；決定不修→`dismiss`。resolve/dismiss 需 management 角色。
+> 本 skill 引導裁決：已修好→`resolve` 清卡；決定不修→`dismiss`。resolve/dismiss 的裁決資格由 `workflow/config.json` `review.deciders` 決定（空＝人人可裁決）。
 
 ---
 
@@ -66,6 +66,6 @@ python ~/.claude/tools/heal-review.py dismiss <atom> --json   # 決定不修
 ---
 
 ## 注意
-- resolve/dismiss 需 management 角色：單人環境 `wg_roles.is_management()` 恆真、永不擋；回多人協作才走雙向認證（後端見 `skills/_archived/conflict-review`）。
+- resolve/dismiss 的裁決資格：`wg_roles.is_management()` 讀 `review.deciders`，空清單＝人人可裁決；要限制時填 AD 帳號名單即可，不需任何宣告檔。
 - 診斷卡是 JSON（非 atom 格式），不走 atom funnel；清卡＝刪除該 JSON。
 - 自癒機制細節見 atom [[guardian-dashboard-孤兒佔埠與新碼重啟]] 同族的腦內世界 P3 文件與 `tools/atom-heal.py`。

@@ -582,6 +582,25 @@ def _resolve_json(stdout: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+_NON_ASCII_RE = re.compile(r"[^\x00-\x7f]")
+_SVN_ENCODING_WARN = ("[Guardian:SvnEncoding] 中文路徑的 svn add 請交給 vcs-sync 背景提交"
+                      "（手動 add 曾產生亂碼資料夾）")
+
+
+def check_svn_encoding(tool_name: str, tool_input: Dict[str, Any]) -> Optional[str]:
+    """Bash／PowerShell 的 `svn add` 帶非 ASCII 路徑 → 提醒改走 vcs-sync。只警告、零子行程、永不 deny。
+    （TSLG 的 `shared/UIºt¥X` 就是 session 內手動 svn add 中文路徑，位元組經 shell 轉碼後進了工作副本。）"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return None
+    command = tool_input.get("command", "") or ""
+    if "svn" not in command.lower():
+        return None
+    for _cd, tokens in _svn_segments(command, {"add"}):
+        if any(_NON_ASCII_RE.search(t) for t in tokens[1:]):
+            return _SVN_ENCODING_WARN
+    return None
+
+
 def check_merge_driver(
     tool_name: str, tool_input: Dict[str, Any], cwd: str, config: Dict[str, Any]
 ) -> Optional[str]:
@@ -843,6 +862,14 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         except OSError:
             pass
 
+    # svn add 中文路徑提醒（advisory-only；同樣先落 stderr，後面 deny 時不消失）
+    svn_enc_warn = check_svn_encoding(tool_name, tool_input)
+    if svn_enc_warn:
+        try:
+            sys.stderr.write(svn_enc_warn + "\n")
+        except OSError:
+            pass
+
     # git commit 口令閘（本回合使用者原話無版控口令 → deny；fail-open）
     _co_sid = input_data.get("session_id", "") or ""
     _co_state = read_state(_co_sid) if _co_sid else None
@@ -871,7 +898,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
     # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）
-    warn_msgs = [m for m in (coord_warn, merge_warn) if m]
+    warn_msgs = [m for m in (coord_warn, merge_warn, svn_enc_warn) if m]
     if warn_msgs:
         if coord_warn and coord_warn_fp:
             try:

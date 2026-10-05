@@ -95,6 +95,32 @@ def find_atoms(root: Path) -> dict[str, Path]:
     return atoms
 
 
+# 亂碼名稱：名稱含 U+0080–U+00FF（Big5 位元組被當 cp1252 解碼的典型，如 `UIºt¥X`＝`UI演出`）。
+# 寫入端（lib/atom_spec slugify、atom_locations _clean_segment）本就拒收這段字元，所以樹上一旦出現必是
+# 外部工具（手動 svn add 等）帶進來的，只警告、跳過，不嘗試修。
+_MOJIBAKE_RE = re.compile(r"[\u0080-\u00ff]")
+
+
+def mojibake_names(root: Path) -> list[Path]:
+    """root 下名稱疑似亂碼的檔／夾；每項 stderr 一行警告。"""
+    out = [p for p in root.rglob("*") if _MOJIBAKE_RE.search(p.name)]
+    for p in out:
+        print(f"⚠ 疑似亂碼名稱: {p}", file=sys.stderr)
+    return out
+
+
+def _under_mojibake(path: Path, root: Path) -> bool:
+    """只看 root（或舊址根 ~/.claude）以下的路徑段，使用者家目錄本身含 Latin-1 字不算。"""
+    rel = Path(path.name)
+    for base in (root, Path.home() / ".claude"):
+        try:
+            rel = path.relative_to(base)
+            break
+        except ValueError:
+            continue
+    return any(_MOJIBAKE_RE.search(part) for part in rel.parts)
+
+
 def parse_frontmatter(path: Path) -> dict:
     """Parse atom frontmatter fields into a dict."""
     text = path.read_text(encoding="utf-8")
@@ -483,7 +509,8 @@ def detect_shadow_atoms(
 
 
 def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
-                shadow_atoms: list[dict] | None = None) -> dict:
+                shadow_atoms: list[dict] | None = None,
+                mojibake: list[Path] | None = None) -> dict:
     """Generate complete health report."""
     aliases = aliases or {}
     report = {
@@ -496,6 +523,7 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
         "stale_atoms": stale_check(atoms),
         "stale_deps": check_stale_deps(atoms),
         "shadow_atoms": shadow_atoms or [],
+        "mojibake_names": [str(p) for p in (mojibake or [])],
     }
 
     for name, path in sorted(atoms.items()):
@@ -627,6 +655,15 @@ def print_text_report(report: dict):
     else:
         print("── 壞滅緣（Stale Depends）: None ✅ ──\n")
 
+    # 疑似亂碼名稱（warning 級、不計入 issues_count；修法：svn revert／改名，見 vcs-sync）
+    if report.get("mojibake_names"):
+        print("── 疑似亂碼名稱（U+0080–U+00FF）──")
+        for p in report["mojibake_names"]:
+            print(f"  ⚠️ {p}")
+        print()
+    else:
+        print("── 疑似亂碼名稱: None ✅ ──\n")
+
     # Shadow atoms (warning level — does NOT count toward issues_count)
     if report.get("shadow_atoms"):
         print("── Shadow Atoms (vs _AIDocs) ──")
@@ -698,6 +735,8 @@ def main():
         pass
 
     atoms = find_atoms(MEMORY_ROOT)
+    mojibake = mojibake_names(MEMORY_ROOT)
+    atoms = {k: v for k, v in atoms.items() if not _under_mojibake(v, MEMORY_ROOT)}
     aliases = parse_memory_index(MEMORY_ROOT)
 
     if not any([args.validate_refs, args.fix_refs, args.auto_fix_broken,
@@ -837,7 +876,7 @@ def main():
             shadow = detect_shadow_atoms(atoms, AIDOCS_ROOT,
                                          threshold=args.shadow_threshold,
                                          dry_run=args.shadow_dry_run)
-        report = full_report(atoms, aliases, shadow_atoms=shadow)
+        report = full_report(atoms, aliases, shadow_atoms=shadow, mojibake=mojibake)
         if args.json:
             print(json.dumps(report, indent=2, ensure_ascii=False))
         else:

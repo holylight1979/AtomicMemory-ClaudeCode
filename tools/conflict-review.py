@@ -235,7 +235,7 @@ def action_approve(proj_cwd: str, target: str, user: str,
 
     if not is_management(proj_cwd, user):
         return {"error": "not authorized as management",
-                "hint": "check personal role.md + shared _roles.md Management 白名單"}
+                "hint": "裁決名單在 workflow/config.json review.deciders（空＝人人可裁決）"}
 
     pdir = _pending_dir(mem)
     sdir = _shared_dir(mem)

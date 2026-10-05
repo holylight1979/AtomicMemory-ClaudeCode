@@ -4,6 +4,32 @@
   "stop_gate_max_blocks": 2,
   "min_files_to_block": 2,
   "dashboard_port": 3848,
+  "review": {
+    "_doc": "待審草稿裁決名單（AD 帳號）；空＝人人可裁決",
+    "deciders": []
+  },
+  "roles": {
+    "_doc": "AD 群組名 → 職能；鍵為職能名子字串，群組格式 <網域>\\<專案代碼>_<序號>_<職能名>",
+    "ad_group_map": {
+      "核心程式": "programmer",
+      "伺服器程式": "programmer",
+      "程式": "programmer",
+      "美術": "art",
+      "企劃": "planner",
+      "QA": "qa",
+      "PM": "pm"
+    }
+  },
+  "org_memory": {
+    "_doc": "公司層記憶 repo（所有專案看得到、能寫）。tools/org-memory.py --init <root> 會填好；程式只讀 roots[0]，>1 個拒絕並停用 org。寫公司知識：atom_write scope=org。",
+    "enabled": true,
+    "roots": [
+      {
+        "id": "org",
+        "root": "C:\\CompanyAtomsMem"
+      }
+    ]
+  },
   "taxonomy": {
     "_doc": "核心層範疇寫入閘。gate_enabled=false：遷移期（memory/ 仍有散檔）關閉硬規則與拒寫；遷移完成改 true。",
     "gate_enabled": true,

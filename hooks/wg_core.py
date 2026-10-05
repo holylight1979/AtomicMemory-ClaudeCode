@@ -178,6 +178,33 @@ def load_config() -> Dict[str, Any]:
     return config
 
 
+def org_memory_root() -> Optional[Path]:
+    """公司層記憶 repo 根（workflow/config.json `org_memory`）的單一來源。
+
+    enabled 且 roots 恰 1 個 → Path(roots[0].root)；關閉 → None（正常狀態，不出聲）。
+    缺鍵／config 壞／roots 空或 >1 → None 且 stderr 一行（fail-open 必浮訊號）。
+    """
+    config = load_config()
+    if config.get("_config_parse_failed"):
+        print("[org_memory] workflow/config.json 解析失敗，已停用 org", file=sys.stderr)
+        return None
+    org = config.get("org_memory")
+    if not isinstance(org, dict):
+        print("[org_memory] workflow/config.json 缺 org_memory 鍵，已停用 org", file=sys.stderr)
+        return None
+    if not org.get("enabled"):
+        return None
+    roots = org.get("roots") or []
+    if len(roots) > 1:
+        print("[org_memory] org_memory.roots 只支援 1 個，已停用 org", file=sys.stderr)
+        return None
+    root = (roots[0] or {}).get("root") if roots else ""
+    if not root:
+        print("[org_memory] org_memory.enabled=true 但 roots 為空，已停用 org", file=sys.stderr)
+        return None
+    return Path(root)
+
+
 # ─── Utility ─────────────────────────────────────────────────────────────────
 
 

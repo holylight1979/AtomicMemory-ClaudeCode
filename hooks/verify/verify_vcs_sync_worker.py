@@ -227,6 +227,36 @@ def test_git_deleted_and_cjk_paths_committed(repo):
     assert "中文 atom[1].md" in _git(repo, "ls-files").stdout
 
 
+def test_git_tracked_but_ignored_file_deleted_is_committed(repo):
+    """已追蹤但路徑被 .gitignore 蓋到的檔（memory/personal/ 下 role.md）刪除後仍能 add+commit；
+    沒有 -f 時 git add 回 rc≠0「paths are ignored」，worker 會整輪停住。"""
+    (repo / "memory" / "personal" / "u").mkdir(parents=True)
+    (repo / "memory" / "personal" / "u" / "role.md").write_text("- Role: programmer\n", encoding="utf-8")
+    _git(repo, "add", "-f", "memory/personal/u/role.md")
+    (repo / ".gitignore").write_text("memory/personal/\n", encoding="utf-8")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-q", "-m", "track ignored role.md")
+    (repo / "memory" / "personal" / "u" / "role.md").unlink()
+    (repo / "memory" / "personal" / "u" / "scratch.md").write_text("# ignored untracked\n", encoding="utf-8")
+    res = vs.sync_targets_inline([_target(repo)], CFG_NOPUSH, log=lambda m: None)
+    assert res[0]["status"] == "ok" and res[0]["committed"] == 1, res
+    assert "memory/personal/u/role.md" not in _git(repo, "ls-files").stdout
+    # -f 只作用在 status 列出的變更檔；被忽略的未追蹤檔不得被順手加進來
+    assert "scratch.md" not in _git(repo, "ls-files").stdout
+
+
+def test_git_already_staged_deletion_is_committed(repo):
+    """前一輪 add 已把刪除 stage 進 index 後 _Stop（path 不在工作樹也不在 index）→ 這輪不得再 add 它，
+    直接進 commit pathspec。"""
+    _git(repo, "rm", "-q", "--cached", "memory/seed.md")
+    (repo / "memory" / "seed.md").unlink()
+    (repo / "memory" / "new.md").write_text("# new" + chr(10), encoding="utf-8")
+    res = vs.sync_targets_inline([_target(repo)], CFG_NOPUSH, log=lambda m: None)
+    assert res[0]["status"] == "ok" and res[0]["committed"] == 2, res
+    assert "memory/seed.md" not in _git(repo, "ls-files").stdout
+    assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+
+
 def test_git_other_path_staged_is_untouched(repo):
     (repo / "code.py").write_text("print(2)\n", encoding="utf-8")
     _git(repo, "add", "code.py")

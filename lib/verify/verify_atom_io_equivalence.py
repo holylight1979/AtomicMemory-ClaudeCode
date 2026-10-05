@@ -1083,3 +1083,68 @@ def test_30_supersedes_written_as_canonical_slug(isolated_claude):
     assert read_supersedes(r.path.read_text(encoding="utf-8")) == ["old-atom"]
     r = write_atom(title="Newer Atom", mode="replace", supersedes=[""], **common)
     assert not r.ok and "empty target" in r.error
+
+
+# ─── 31. Source／Depends parity（py↔js buildAtomContent：provenance／depends） ───
+
+
+def test_31_provenance_py_js_byte_parity(tmp_path):
+    """provenance → `- Source:` 緊接 Author 之後、Confidence 之前；py↔js byte-identical。"""
+    py_out = build_atom_content(**_SUP_BASE_PY, author="alice", provenance="tools/x.py")
+    js_out = _js_build(tmp_path, _SUP_BASE_JS + ",author:'alice',provenance:'tools/x.py'", "prov")
+    assert js_out == py_out, f"DRIFT[prov]\nPY:\n{py_out!r}\nJS:\n{js_out!r}"
+    assert "- Author: alice\n- Source: tools/x.py\n- Confidence: [臨]\n" in py_out
+    # 未給／空字串 → 不輸出，與既有輸出 byte 相同
+    assert build_atom_content(**_SUP_BASE_PY, provenance="") == build_atom_content(**_SUP_BASE_PY)
+    assert "Source" not in build_atom_content(**_SUP_BASE_PY)
+
+
+def test_32_depends_py_js_byte_parity(tmp_path):
+    """depends → `- Depends:` 逗號清單，位於 Created-at 之後、Related 之前；py↔js byte-identical。"""
+    deps = ["path:tools/x.py", "decision:abc"]
+    py_out = build_atom_content(**_SUP_BASE_PY, depends=deps)
+    js_out = _js_build(tmp_path, _SUP_BASE_JS + ",depends:['path:tools/x.py','decision:abc']", "deps")
+    assert js_out == py_out, f"DRIFT[deps]\nPY:\n{py_out!r}\nJS:\n{js_out!r}"
+    assert f"- Created-at: {FIXED_TODAY}\n- Depends: path:tools/x.py, decision:abc\n- Related: r1\n" in py_out
+    # 未給／[] → 不輸出；js [] 同
+    assert build_atom_content(**_SUP_BASE_PY, depends=[]) == build_atom_content(**_SUP_BASE_PY)
+    assert _js_build(tmp_path, _SUP_BASE_JS + ",depends:[]", "deps_empty") == build_atom_content(**_SUP_BASE_PY)
+    assert "Depends" not in build_atom_content(**_SUP_BASE_PY)
+
+
+def test_33_replace_preserves_source_and_depends(isolated_claude):
+    """replace 未給 provenance／depends → 保留既有檔頭 Source／Depends 行（同 Author 規則）；
+    給了 → 替換；給空 → 清除；append 不動檔頭。"""
+    common = dict(scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+                  knowledge=["k"], source="test", skip_gate=True, today=FIXED_TODAY)
+    r = write_atom(title="Prov Atom", domain="設計通則", mode="create", author="alice",
+                   provenance="tools/x.py", depends=["path:tools/x.py"], **common)
+    assert r.ok, r.error
+    text = r.path.read_text(encoding="utf-8")
+    assert "- Author: alice\n- Source: tools/x.py\n" in text
+    assert "- Depends: path:tools/x.py\n" in text
+    # 未給 → 保留
+    r = write_atom(title="Prov Atom", mode="replace", knowledge=["k2"],
+                   **{k: v for k, v in common.items() if k != "knowledge"})
+    assert r.ok, r.error
+    text = r.path.read_text(encoding="utf-8")
+    assert "- Source: tools/x.py\n" in text and "- Depends: path:tools/x.py\n" in text
+    assert "- k2" in text and "- k\n" not in text
+    # append 不動檔頭
+    r = write_atom(title="Prov Atom", mode="append", **common)
+    assert r.ok, r.error
+    text = r.path.read_text(encoding="utf-8")
+    assert "- Source: tools/x.py\n" in text and "- Depends: path:tools/x.py\n" in text
+    # 給了 → 替換
+    r = write_atom(title="Prov Atom", mode="replace", provenance="https://example/commit/1",
+                   depends=["path:tools/y.py", "decision:z"], **common)
+    assert r.ok, r.error
+    text = r.path.read_text(encoding="utf-8")
+    assert "- Source: https://example/commit/1\n" in text
+    assert "- Depends: path:tools/y.py, decision:z\n" in text
+    assert "tools/x.py" not in text
+    # 給空 → 清除
+    r = write_atom(title="Prov Atom", mode="replace", provenance="", depends=[], **common)
+    assert r.ok, r.error
+    text = r.path.read_text(encoding="utf-8")
+    assert "Source" not in text and "Depends" not in text

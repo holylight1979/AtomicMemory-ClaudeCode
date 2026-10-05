@@ -1,6 +1,5 @@
 {
   "permissions": {
-    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(python *)",
       "Edit(*)",
@@ -13,6 +12,7 @@
       "mcp__workflow-guardian__atom_write",
       "mcp__workflow-guardian__atom_move",
       "mcp__workflow-guardian__atom_promote",
+      "mcp__workflow-guardian__memory_search",
       "mcp__MCPControl__computer",
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_snapshot",
@@ -40,7 +40,8 @@
       "Bash(svn status *)",
       "Bash(svn info *)",
       "Bash(env)"
-    ]
+    ],
+    "defaultMode": "bypassPermissions"
   },
   "model": "claude-fable-5-1[1m]",
   "hooks": {
@@ -120,7 +121,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|NotebookEdit|ExitPlanMode|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report|mcp__workflow-guardian__atom_write|mcp__workflow-guardian__atom_retire|mcp__workflow-guardian__knowledge_harvest_report",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|ExitPlanMode|Bash|Agent|Task|mcp__workflow-guardian__anti_evasion_report|mcp__workflow-guardian__atom_write|mcp__workflow-guardian__atom_retire|mcp__workflow-guardian__knowledge_harvest_report",
         "hooks": [
           {
             "type": "command",
@@ -222,5 +223,6 @@
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "light",
-  "switchModelsOnFlag": false
+  "switchModelsOnFlag": false,
+  "agentPushNotifEnabled": true
 }

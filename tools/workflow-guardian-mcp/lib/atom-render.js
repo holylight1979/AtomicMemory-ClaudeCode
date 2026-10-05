@@ -42,6 +42,8 @@ function buildAtomContent({
   mergeStrategy,
   createdAt,
   today,
+  provenance,
+  depends,
 }) {
   const _today = today || new Date().toISOString().slice(0, 10);
   const lines = [`# ${title}`, ""];
@@ -51,6 +53,10 @@ function buildAtomContent({
   }
   if (author) {
     lines.push(`- Author: ${author}`);
+  }
+  // Source：來源（路徑／URL／commit）；參數名 provenance 與 py 一致（source 是稽核白名單）。
+  if (provenance) {
+    lines.push(`- Source: ${provenance}`);
   }
   lines.push(`- Confidence: ${confidence}`);
   lines.push(`- Trigger: ${triggers.join(", ")}`);
@@ -62,6 +68,10 @@ function buildAtomContent({
     lines.push(`- Merge-strategy: ${mergeStrategy}`);
   }
   lines.push(`- Created-at: ${createdAt || _today}`);
+  // Depends：壞滅緣條目（path:<路徑> 或自由文字）逗號清單；未給／空陣列不輸出。
+  if (depends && depends.length > 0) {
+    lines.push(`- Depends: ${depends.join(", ")}`);
+  }
   if (related && related.length > 0) {
     lines.push(`- Related: ${related.join(", ")}`);
   }

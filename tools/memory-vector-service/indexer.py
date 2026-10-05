@@ -684,19 +684,7 @@ def build_index(
 
     # Write to LanceDB
     if records:
-        if incremental:
-            # Delete changed atoms first, then add new
-            try:
-                table = db.open_table(TABLE_NAME)
-                changed_atoms = {(r["layer"], r["atom_name"]) for r in records}
-                for layer_val, atom_val in changed_atoms:
-                    _delete_atom_rows(table, layer_val, atom_val)
-                table.add(records)
-            except Exception:
-                # Table doesn't exist or other error → full write
-                db.create_table(TABLE_NAME, records, mode="overwrite")
-        else:
-            db.create_table(TABLE_NAME, records, mode="overwrite")
+        _write_records(db, records, incremental)
 
     elif not incremental:
         # No records and full rebuild → create empty-ish table or skip
@@ -733,6 +721,24 @@ def build_index(
         print(f"[indexer] Done: {total_chunks} chunks from {len(atoms) - skipped} atoms in {elapsed:.1f}s")
 
     return stats
+
+
+def _write_records(db, records: List[Dict[str, Any]], incremental: bool) -> None:
+    """記錄落 LanceDB。增量：表不存在才建表；表存在就刪改過的 atom 再 add，
+    其間任何例外 stderr 一行後 raise——不得退成 overwrite 整表（會把其他層全部清掉且無人知）。"""
+    if not incremental or TABLE_NAME not in db.table_names():
+        db.create_table(TABLE_NAME, records, mode="overwrite")
+        return
+    try:
+        table = db.open_table(TABLE_NAME)
+        changed_atoms = {(r["layer"], r["atom_name"]) for r in records}
+        for layer_val, atom_val in changed_atoms:
+            _delete_atom_rows(table, layer_val, atom_val)
+        table.add(records)
+    except Exception as e:
+        print(f"[indexer] incremental write failed ({type(e).__name__}: {e}); table kept, no overwrite",
+              file=sys.stderr)
+        raise
 
 
 def _delete_atom_rows(table, layer_val: str, atom_val: str) -> int:

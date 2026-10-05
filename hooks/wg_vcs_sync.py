@@ -46,6 +46,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import locale
 import os
 import re
 import subprocess
@@ -60,7 +61,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from wg_core import (
     CLAUDE_DIR, WORKFLOW_DIR, _now_iso, _atom_debug_error,
-    append_guard_log, find_project_root, find_vcs_root, load_config,
+    append_guard_log, find_project_root, find_vcs_root, load_config, org_memory_root,
 )
 
 SYNC_DIR = WORKFLOW_DIR / "vcs-sync"
@@ -134,6 +135,10 @@ def collect_sync_targets(cwd: str, config: Dict[str, Any],
     proj = find_project_root(cwd) if cwd else None
     if proj and proj.resolve() != base_root.resolve():
         bases.append((proj, vs["project_pathspecs"]))
+    # 公司層記憶 repo（config org_memory）：與專案層同 pathspec；已是當前專案根就不重複
+    org = org_memory_root()
+    if org and org.is_dir() and all(org.resolve() != b.resolve() for b, _s in bases):
+        bases.append((org, vs["project_pathspecs"]))
 
     targets: Dict[str, SyncTarget] = {}
     for base, specs in bases:
@@ -770,20 +775,26 @@ def _parse_porcelain_z(out: str) -> List[Tuple[str, str]]:
     return res
 
 
-def _git_changed_files(git, t: SyncTarget, exclude: Sequence[str]) -> List[str]:
-    """pathspec 內實際變更檔（含 untracked；-uall 展開目錄）過濾 exclude 與 ignored → add/commit 共用的允許集合。"""
+def _git_changed_files(git, t: SyncTarget, exclude: Sequence[str]) -> List[Tuple[str, str]]:
+    """pathspec 內實際變更檔（含 untracked；-uall 展開目錄）過濾 exclude 與 ignored → add/commit 共用的允許集合。
+    回 [(xy, path)]：xy 是 porcelain 兩欄狀態（X＝index 對 HEAD、Y＝工作樹對 index），add 段靠它分辨
+    「已 staged、工作樹乾淨」的項（如前一輪 add 已 stage 的刪除）——那種 path 已不在工作樹也不在 index，
+    再 add 會 rc=128「did not match any files」，只能直接進 commit pathspec。"""
     r = git("status", "--porcelain", "-z", "-uall", "--", *t.pathspecs)
     if r.returncode != 0:
         raise _Stop(f"git status 失敗: {(r.stderr or '').strip()[:200]}")
-    files: List[str] = []
+    entries: List[Tuple[str, str]] = []
+    seen: set = set()
     for xy, path in _parse_porcelain_z(r.stdout or ""):
         if xy == "!!" or not path:
             continue
         if not _under_pathspecs(path, t.pathspecs) or _excluded(path, exclude):
             continue
-        if path not in files:
-            files.append(path)
-    return files
+        if path in seen:
+            continue
+        seen.add(path)
+        entries.append((xy, path))
+    return entries
 
 
 def _git_retry_lock(git):
@@ -1264,14 +1275,21 @@ def _git_sync_body(t: SyncTarget, vs: Dict[str, Any], git, git_retry_lock, log: 
     root = t.root
     exclude = vs.get("exclude", [])
     # ── add + commit：同一份允許路徑集合（`:(literal)` 防路徑被當 glob）──
-    files = _git_changed_files(git, t, exclude)
+    entries = _git_changed_files(git, t, exclude)
+    files = [path for _, path in entries]
     specs = [f":(literal){f}" for f in files]
+    # 只 add 工作樹仍與 index 不同的項（Y 欄非空白）；已 staged 的直接進 commit pathspec
+    add_specs = [f":(literal){path}" for xy, path in entries if (xy + " ")[1] != " "]
     result: Dict[str, Any] = {"vcs": "git", "root": root.as_posix(), "committed": 0, "pushed": False,
                               "pull": {"status": "disabled", "pulled_commits": 0, "reason": None}}
-    if files:
-        r = git_retry_lock("add", "-A", "--", *specs)
+    if add_specs:
+        # -f：已追蹤但路徑被 .gitignore 蓋到的檔（如 memory/personal/ 下的 role.md）被刪除時，
+        # 沒有 -f 的 add 會 rc≠0「paths are ignored」；add_specs 只含 status 列出的變更檔（!! 已濾），
+        # 不會順手把被忽略的未追蹤檔加進來。
+        r = git_retry_lock("add", "-A", "-f", "--", *add_specs)
         if r.returncode != 0:
             raise _Stop(f"git add 失敗: {(r.stderr or r.stdout).strip()[:200]}")
+    if files:
         msg = f"chore(memory): knowledge harvest {date.today().isoformat()}（{len(files)} 檔）"
         r = git_retry_lock("commit", "-q", "-m", msg, "--", *specs)
         if r.returncode != 0:
@@ -1389,6 +1407,28 @@ def _svn_codes(stderr: bytes) -> set:
     return set(m.decode() for m in re.findall(rb"E\d{6}", stderr or b""))
 
 
+def _svn_argv_encoding() -> str:
+    """svn.exe 收 argv 用的 ANSI code page（GetACP；Python 的 UTF-8 mode 會讓 locale 回 utf-8，不能信）。"""
+    if sys.platform != "win32":
+        return "utf-8"
+    try:
+        import ctypes
+        return f"cp{ctypes.windll.kernel32.GetACP()}"
+    except (AttributeError, OSError):
+        return locale.getpreferredencoding(False)
+
+
+_SVN_ARGV_ENCODING = _svn_argv_encoding()
+
+
+def _svn_argv_encodable(arg: str) -> bool:
+    try:
+        arg.encode(_SVN_ARGV_ENCODING)
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
 class _Svn:
     """單 root 的 svn 呼叫包裝（_svn_check 與 _svn_sync 共用）。"""
 
@@ -1399,11 +1439,22 @@ class _Svn:
         self.env = env
 
     def run(self, *args: str) -> subprocess.CompletedProcess:
+        # Windows 的 svn.exe 以 ANSI code page 收 argv（`--targets` 檔同樣走原生編碼）：code page 外的字元會被
+        # best-fit 成別的字（é→e）或 `?`，`add --parents` 便據此在磁碟建出亂碼目錄、delete 可能刪錯鄰居。
+        # 編不出來的路徑不交給 svn，直接停並留下可讀理由（落 last_error／.unpushed，SessionStart advisory 浮出）。
+        bad = next((a for a in args if not _svn_argv_encodable(a)), None)
+        if bad is not None:
+            raise _Stop(f"svn 無法定址（路徑含 {_SVN_ARGV_ENCODING} 外字元，請手動處理）: {bad}")
         return _run([self.exe, "--non-interactive", *args], self.root, self.timeout, self.env, text=False)
 
     @staticmethod
     def err(r: subprocess.CompletedProcess) -> str:
-        lines = (r.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        raw = r.stderr or b""
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:   # svn.exe 的錯誤訊息走 ANSI code page（中文系統 cp950）
+            text = raw.decode(_SVN_ARGV_ENCODING, "replace")
+        lines = text.strip().splitlines()
         return lines[-1][:200] if lines else f"rc={r.returncode}"
 
     def status(self, paths: Sequence[str], depth: Optional[str] = None):

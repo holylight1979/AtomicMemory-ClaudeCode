@@ -1,16 +1,19 @@
 // smoke_mcp_stdio.js — 以 stdio JSON-RPC 真起 server.js，驗 MCP tool 面：
-//   tools/list 含 7 個 tool；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
-//   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_retire 缺 reason 拒。
+//   tools/list 含 8 個 tool；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
+//   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_retire 缺 reason 拒；
+//   atom_write scope=org dry_run：config org_memory 啟用 → Path 落 <org_root>/.claude/memory/shared/；未啟用 → 明確拒絕。
 // 怎麼跑：node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js
 // 隔離埠 WG_DASHBOARD_PORT=38499（不撞 3848 的 live guardian）；dry_run 不落檔、不動索引。
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 const { spawn } = require("child_process");
 
 const SERVER = path.join(__dirname, "..", "server.js");
 const PORT = process.env.WG_SMOKE_PORT || "38499";
 const EXPECTED_TOOLS = [
   "atom_write", "atom_promote", "atom_move", "atom_edit_meta",
-  "anti_evasion_report", "knowledge_harvest_report", "atom_retire",
+  "anti_evasion_report", "knowledge_harvest_report", "atom_retire", "memory_search",
 ];
 
 const cp = spawn(process.execPath, [SERVER], {
@@ -64,7 +67,7 @@ function check(cond, label, detail) {
   // 1. tools/list
   const list = await rpc("tools/list", {});
   const names = (list.result.tools || []).map((t) => t.name);
-  check(names.length === 7, `tools/list has 7 tools (got ${names.length})`, names.join(","));
+  check(names.length === 8, `tools/list has 8 tools (got ${names.length})`, names.join(","));
   for (const n of EXPECTED_TOOLS) check(names.includes(n), `tools/list includes ${n}`);
   const aw = (list.result.tools || []).find((t) => t.name === "atom_write");
   check(aw && aw.inputSchema.properties.supersedes && aw.inputSchema.properties.supersedes.type === "array",
@@ -111,9 +114,41 @@ function check(cond, label, detail) {
   check(wSelf.result.isError === true && /cannot supersede itself/.test(textOf(wSelf)),
         "atom_write rejects self-supersede", textOf(wSelf));
 
-  // 4. atom_retire 缺 reason → 拒（不 spawn py）
+  // 4. memory_search 真查一次（唯讀；cwd=~/.claude；table 預設回表格標頭，json 回 schema_version）
+  const ms = await callTool("memory_search", { query: "atom_write 初次寫", cwd: path.resolve(__dirname, "..", "..", ".."), top_k: 2 });
+  check(!ms.result.isError && /name \| scope \| source \| score/.test(textOf(ms)), "memory_search table has header", textOf(ms));
+  const msj = await callTool("memory_search", { query: "atom_write 初次寫", cwd: path.resolve(__dirname, "..", "..", ".."), top_k: 2, format: "json" });
+  check(!msj.result.isError && /"schema_version":\s*1/.test(textOf(msj)), "memory_search json has schema_version", textOf(msj));
+  const ms0 = await callTool("memory_search", { query: "  " });
+  check(ms0.result.isError === true && /query is required/.test(textOf(ms0)), "memory_search rejects empty query", textOf(ms0));
+
+  // 5. atom_retire 缺 reason → 拒（不 spawn py）
   const r0 = await callTool("atom_retire", { atom_name: "nope", scope: "global" });
   check(r0.result.isError === true && /reason is required/.test(textOf(r0)), "atom_retire requires reason", textOf(r0));
+
+  // 6. scope=org 語法糖（js 只改寫成 shared + project_cwd=org 根；落點仍由 py locate 裁決）
+  const norm = (x) => String(x).replace(/[\\/]+/g, "/").toLowerCase();
+  let orgRoot = null;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude", "workflow", "config.json"), "utf-8"));
+    const om = cfg.org_memory || {};
+    if (om.enabled && Array.isArray(om.roots) && om.roots.length === 1) orgRoot = String(om.roots[0].root);
+  } catch {}
+  const wo = await callTool("atom_write", {
+    title: "smoke-org-dry-run-不落檔", scope: "org", domain: "工具",
+    confidence: "[臨]", triggers: ["smoke"], knowledge: ["[臨] smoke only"], mode: "create",
+    dry_run: true, skip_gate: true,
+  });
+  const wot = textOf(wo);
+  if (orgRoot) {
+    const want = norm(path.join(orgRoot, ".claude", "memory", "shared")) + "/";
+    check(!wo.result.isError && /^DRY-RUN/.test(wot) && norm(wot).includes("path: " + want),
+          `atom_write scope=org dry_run lands under ${want}`, wot);
+  } else {
+    check(wo.result.isError === true && /org_memory/.test(wot),
+          "atom_write scope=org refused while config org_memory disabled", wot);
+  }
+  console.log("       atom_write scope=org →", wot.split("\n")[0].slice(0, 160));
 
   cp.stdin.end();
   await new Promise((res) => { cp.on("exit", res); setTimeout(() => { try { cp.kill(); } catch {} res(); }, 5000); });
