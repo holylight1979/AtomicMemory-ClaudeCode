@@ -4005,6 +4005,37 @@
         "指認 session"
       ],
       "scope": "global"
+    },
+    {
+      "name": "既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-m-本機覆蓋檔用skip-worktree",
+      "path": "memory/版控/Git/既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-m-本機覆蓋檔用skip-worktree.md",
+      "triggers": [
+        "原地接版控",
+        "git init 既有目錄",
+        "reset --mixed",
+        "skip-worktree",
+        "diff-filter",
+        "安裝器",
+        "install.py",
+        "接管既有目錄",
+        "untracked would be overwritten"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "假家目錄測試要同時設home與userprofile-windows的pathhome看userprofile而bash看home",
+      "path": "memory/驗證與實證/假家目錄測試要同時設home與userprofile-windows的pathhome看userprofile而bash看home.md",
+      "triggers": [
+        "假家目錄",
+        "fake home",
+        "USERPROFILE",
+        "Path.home",
+        "隔離測試",
+        "HOME 環境變數",
+        "測試打到真家",
+        "tmp home"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -13,5 +13,6 @@
 | sed-i-在-crlf-repo-會整檔改換行 | sed -i 在 CRLF repo 會整檔改換行 |
 | 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | 併發 session 共用工作樹-收尾選擇性 staging 勿 git add -A |
 | 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 | 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 |
+| 既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-m-本機覆蓋檔用skip-worktree | 既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-M-本機覆蓋檔用skip-worktree |
 | 混改檔hunk級選擇性staging | 混改檔hunk級選擇性staging |
 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 |
