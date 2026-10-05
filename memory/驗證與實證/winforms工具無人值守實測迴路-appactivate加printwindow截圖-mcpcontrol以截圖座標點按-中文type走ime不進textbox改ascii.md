@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: WinForms 實測, GUI 自動化, MCPControl, PrintWindow, AppActivate, SetForegroundWindow 失效, 截圖座標, 注音 IME, type 中文, 無人值守驗證, 驗 GUI, 選圖驗版面
 - Created-at: 2026-09-16
-- Related: 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗, feedback-能自動化実跑的驗證不准推給使用者-離線模擬不算驗證
+- Related: 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗, feedback-能自動化實跑的驗證不准推給使用者-離線模擬不算驗證
 
 ## 知識
 

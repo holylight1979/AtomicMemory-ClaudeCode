@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: HUD 不可達, HUD 心跳逾時, beat-status, clients, /api/aec/stream, EventSource, SSE, _hud_alive, aec_hud_fallback, guard-aec_hud, hud_stale_s, 窗活性
 - Created-at: 2026-09-18
-- Related: hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編server.js前先顧relinquish的mtime契約, 在使用者活躍桌面彈視窗做gui實驗會被順手關掉污染數據-改headless-edge加cdp或先查前景視窗
+- Related: hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約, 在使用者活躍桌面彈視窗做gui實驗會被順手關掉污染數據-改headless-edge加cdp或先查前景視窗
 
 ## 知識
 

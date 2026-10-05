@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 常駐 Update, 每幀回呼, 每幀輪詢, Tick 浪費, 按需協程, 短命協程, 協程自滅, Timing.RunCoroutine, MEC, WaitForSeconds 成本, RealtimeUpdate, CoroutineHandle, 過渡, 淡入淡出, 等播完, Unity 無播完事件
 - Created-at: 2026-09-18
-- Related: hotfix-migration-rules, feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理
+- Related: feedback-等秒數是次等方法-固定模式資訊要事件驅動主動處理
 
 ## 知識
 

@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: HUD 未開, HUD 心跳, beat-status, hud_stale_s, aec_hud_fallback, setInterval 節流, intensive throttling, Web Worker, relinquish, SELF_MTIME_AT_BOOT, server.js mtime, 港口持有者, 連鎖退位
 - Created-at: 2026-09-10
-- Related: codex裁判停用個別mcp用-c-mcp_servers名.enabled=false-mcp_servers空表是合併不是清空, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證
+- Related: codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證
 
 ## 知識
 
