@@ -68,29 +68,52 @@ def test_gemini_merges_keeps_other_servers_and_is_idempotent(acs, tmp_path):
     entry = acs.server_entry(NODE)
 
     before = path.read_text(encoding="utf-8")
-    assert "會在" in acs.register_gemini(path, entry, dry_run=True)
+    assert "會在" in acs.register_json("Gemini", path,entry, dry_run=True)
     assert path.read_text(encoding="utf-8") == before
 
-    assert "已寫入" in acs.register_gemini(path, entry, dry_run=False)
+    assert "已寫入" in acs.register_json("Gemini", path,entry, dry_run=False)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["theme"] == "dark" and data["mcpServers"]["unityMCP"] == {"httpUrl": "http://x"}
     assert data["mcpServers"]["workflow-guardian"] == entry
 
     text = path.read_text(encoding="utf-8")
-    assert "已註冊" in acs.register_gemini(path, entry, dry_run=False)
+    assert "已註冊" in acs.register_json("Gemini", path,entry, dry_run=False)
     assert path.read_text(encoding="utf-8") == text
 
 
 def test_gemini_broken_json_is_left_alone_and_reported(acs, tmp_path):
     path = tmp_path / "settings.json"
     path.write_text("{ 壞掉的 json", encoding="utf-8")
-    msg = acs.register_gemini(path, acs.server_entry(NODE), dry_run=False)
+    msg = acs.register_json("Gemini", path,acs.server_entry(NODE), dry_run=False)
     assert msg.startswith("失敗") and path.read_text(encoding="utf-8") == "{ 壞掉的 json"
+
+
+def test_antigravity_shares_json_shape_and_is_detected_apart_from_gemini_cli(acs, tmp_path, monkeypatch):
+    cfg = tmp_path / "config" / "mcp_config.json"
+    cfg.parent.mkdir()
+    cfg.write_text(json.dumps({"mcpServers": {"unityMCP": {"serverUrl": "http://x", "disabled": True}}}), encoding="utf-8")
+    assert acs.register_json("Antigravity", cfg, acs.server_entry(NODE), dry_run=False).startswith("Antigravity：已寫入")
+    data = json.loads(cfg.read_text(encoding="utf-8"))
+    assert data["mcpServers"]["unityMCP"] == {"serverUrl": "http://x", "disabled": True}
+    assert data["mcpServers"]["workflow-guardian"]["command"] == NODE
+
+    # ~/.gemini 兩者共用：只裝 Antigravity 的機器不該被當成也裝了 Gemini CLI
+    monkeypatch.setattr(acs.shutil, "which", lambda name: None)
+    monkeypatch.setattr(acs, "CODEX_CONFIG", tmp_path / "nocodex" / "config.toml")
+    monkeypatch.setattr(acs, "GEMINI_SETTINGS", tmp_path / "settings.json")
+    monkeypatch.setattr(acs, "ANTIGRAVITY_DIR", tmp_path / "antigravity")
+    assert acs.detect_clients() == []
+    (tmp_path / "settings.json").write_text("{}", encoding="utf-8")
+    assert acs.detect_clients() == ["gemini"]
+    (tmp_path / "antigravity").mkdir()
+    assert acs.detect_clients() == ["antigravity"]
+    monkeypatch.setattr(acs.shutil, "which", lambda name: "x" if name == "gemini" else None)
+    assert acs.detect_clients() == ["gemini", "antigravity"]
 
 
 def test_snippets_are_valid_toml_and_json(acs):
     out = acs.snippets(acs.server_entry(NODE))
-    toml_part, json_part = out.split("—— Gemini CLI 與其他吃 mcpServers JSON 的客戶端 ——\n")
+    toml_part, json_part = out.split("—— Gemini CLI、Antigravity 與其他吃 mcpServers JSON 的客戶端 ——\n")
     toml_part = toml_part.split("——\n", 1)[1]
     assert tomllib.loads(toml_part)["mcp_servers"]["workflow-guardian"]["command"] == NODE
     assert json.loads(json_part)["mcpServers"]["workflow-guardian"]["args"] == [str(acs.SERVER_JS)]

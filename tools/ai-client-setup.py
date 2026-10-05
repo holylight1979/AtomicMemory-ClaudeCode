@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""ai-client-setup.py — 其他 AI 客戶端（Codex／Gemini CLI）輕量接上公司記憶：只註冊 workflow-guardian MCP，不裝 hooks。
+"""ai-client-setup.py — 其他 AI 客戶端（Codex／Gemini CLI／Antigravity）輕量接上公司記憶：只註冊 workflow-guardian MCP，不裝 hooks。
 
 做什麼：給不用 Claude Code 的人（企劃／美術）。四步，全部可重跑：
   1. 檢查 Node（MCP server 用 node 跑；Python 就是跑本腳本的這一個）
   2. 更新 ~/.claude（git pull --ff-only；工作樹有改動或拉不下來就略過並說明）
   3. 接上公司層記憶（org-memory.py --join；已接上就跳過）
   4. 把 workflow-guardian MCP 寫進偵測到的客戶端設定：
-     Codex → ~/.codex/config.toml；Gemini CLI → ~/.gemini/settings.json
+     Codex → ~/.codex/config.toml；Gemini CLI → ~/.gemini/settings.json；
+     Antigravity → ~/.gemini/config/mcp_config.json
      已註冊就不動；偵測不到客戶端就印出片段讓人自己貼
 裝完重開該 AI，用講的：「查公司記憶：<問題>」（memory_search）、「把這條記到公司層」（atom_write scope=org）。
 沒有 hooks 就沒有「每句話自動帶入記憶」，要主動說「查記憶」。網頁版 AI 接不到本機工具，不在本腳本範圍。
@@ -36,6 +37,8 @@ SERVER_JS = CLAUDE_DIR / "tools" / "workflow-guardian-mcp" / "server.js"
 ORG_MEMORY = CLAUDE_DIR / "tools" / "org-memory.py"
 CODEX_CONFIG = Path.home() / ".codex" / "config.toml"
 GEMINI_SETTINGS = Path.home() / ".gemini" / "settings.json"
+ANTIGRAVITY_DIR = Path.home() / ".gemini" / "antigravity"
+ANTIGRAVITY_CONFIG = Path.home() / ".gemini" / "config" / "mcp_config.json"
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
@@ -81,40 +84,45 @@ def register_codex(path: Path, entry: Dict[str, object], *, dry_run: bool) -> st
     return f"Codex：已寫入 {path}"
 
 
-def register_gemini(path: Path, entry: Dict[str, object], *, dry_run: bool) -> str:
-    """settings.json 的 mcpServers 缺 workflow-guardian 才加；其他鍵原樣保留。壞檔不碰，回「失敗」。"""
+def register_json(label: str, path: Path, entry: Dict[str, object], *, dry_run: bool) -> str:
+    """JSON 設定檔（Gemini CLI settings.json、Antigravity mcp_config.json）的 mcpServers 缺 workflow-guardian 才加；
+    其他鍵原樣保留。壞檔不碰，回「失敗」。"""
     data: Dict[str, object] = {}
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            return f"失敗 Gemini：{path} 不是合法 JSON（{e}），沒有動它；請手動貼下面的片段"
+            return f"失敗 {label}：{path} 不是合法 JSON（{e}），沒有動它；請手動貼下面的片段"
         if not isinstance(data, dict):
-            return f"失敗 Gemini：{path} 最外層不是物件，沒有動它；請手動貼下面的片段"
+            return f"失敗 {label}：{path} 最外層不是物件，沒有動它；請手動貼下面的片段"
     servers = data.setdefault("mcpServers", {})
     if not isinstance(servers, dict):
-        return f"失敗 Gemini：{path} 的 mcpServers 不是物件，沒有動它；請手動貼下面的片段"
+        return f"失敗 {label}：{path} 的 mcpServers 不是物件，沒有動它；請手動貼下面的片段"
     if SERVER_NAME in servers:
-        return f"Gemini：已註冊，不動（{path}）"
+        return f"{label}：已註冊，不動（{path}）"
     if dry_run:
-        return f"[dry-run] Gemini：會在 {path} 的 mcpServers 加上 {SERVER_NAME}"
+        return f"[dry-run] {label}：會在 {path} 的 mcpServers 加上 {SERVER_NAME}"
     servers[SERVER_NAME] = entry
     _write_lf(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
-    return f"Gemini：已寫入 {path}"
+    return f"{label}：已寫入 {path}"
 
 
 def detect_clients() -> List[str]:
+    """~/.gemini 是 Gemini CLI 與 Antigravity 共用的家：有 antigravity 子目錄算 Antigravity，
+    Gemini CLI 則要執行檔在 PATH 上，或有 settings.json 且這台沒裝 Antigravity。"""
     found = []
     if CODEX_CONFIG.parent.is_dir() or shutil.which("codex"):
         found.append("codex")
-    if GEMINI_SETTINGS.parent.is_dir() or shutil.which("gemini"):
+    if shutil.which("gemini") or (GEMINI_SETTINGS.exists() and not ANTIGRAVITY_DIR.is_dir()):
         found.append("gemini")
+    if ANTIGRAVITY_DIR.is_dir():
+        found.append("antigravity")
     return found
 
 
 def snippets(entry: Dict[str, object]) -> str:
     return ("—— Codex（~/.codex/config.toml）——\n" + codex_block(entry)
-            + "\n—— Gemini CLI 與其他吃 mcpServers JSON 的客戶端 ——\n"
+            + "\n—— Gemini CLI、Antigravity 與其他吃 mcpServers JSON 的客戶端 ——\n"
             + json.dumps({"mcpServers": {SERVER_NAME: entry}}, ensure_ascii=False, indent=2))
 
 
@@ -157,7 +165,7 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="其他 AI 客戶端輕量接上公司記憶（只註冊 MCP，不裝 hooks）；完整參數以 --help 為準")
-    ap.add_argument("--client", choices=["codex", "gemini"], action="append",
+    ap.add_argument("--client", choices=["codex", "gemini", "antigravity"], action="append",
                     help="指定要註冊的客戶端（可重複）；省略＝自動偵測這台裝了哪些")
     ap.add_argument("--dry-run", action="store_true", help="只說會做什麼，不寫任何檔、不 pull、不 join")
     ap.add_argument("--no-update", action="store_true", help="不更新 ~/.claude")
@@ -179,14 +187,16 @@ def main() -> int:
     if "codex" in clients:
         msgs.append(register_codex(CODEX_CONFIG, entry, dry_run=args.dry_run))
     if "gemini" in clients:
-        msgs.append(register_gemini(GEMINI_SETTINGS, entry, dry_run=args.dry_run))
+        msgs.append(register_json("Gemini", GEMINI_SETTINGS, entry, dry_run=args.dry_run))
+    if "antigravity" in clients:
+        msgs.append(register_json("Antigravity", ANTIGRAVITY_CONFIG, entry, dry_run=args.dry_run))
 
     print("[ai-client-setup] 結果：")
     for m in msgs:
         print(f"  - {m}")
     failed = [m for m in msgs if m.startswith("失敗")]
     if not clients:
-        print("這台沒偵測到 Codex 或 Gemini CLI。用別的客戶端的話，把下面片段貼進它的 MCP 設定：")
+        print("這台沒偵測到 Codex、Gemini CLI 或 Antigravity。用別的客戶端的話，把下面片段貼進它的 MCP 設定：")
     if not clients or failed:
         print(snippets(entry))
     if failed:
