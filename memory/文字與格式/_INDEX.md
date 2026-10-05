@@ -8,6 +8,7 @@
 |------|------|
 | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
 | identity-變動需同步更新-identity-template-且所有文件 | identity-變動需同步更新-identity-template-且所有文件 |
+| markdown文件裡角括號佔位符要包反引號-裸寫u會被當成底線標籤把後半份文件全畫線 | markdown文件裡角括號佔位符要包反引號-裸寫u會被當成底線標籤把後半份文件全畫線 |
 | powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
 | toolchain | 工具鏈實戰記憶 |
 | windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff | Windows Python write_text 缺 newline 把 LF 翻 CRLF 整檔假 diff |

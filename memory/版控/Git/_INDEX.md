@@ -12,5 +12,6 @@
 | git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉 | git 已push commit 勿改寫 — 雙 push-url + GitLab main force 保護致遠端分叉 |
 | sed-i-在-crlf-repo-會整檔改換行 | sed -i 在 CRLF repo 會整檔改換行 |
 | 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | 併發 session 共用工作樹-收尾選擇性 staging 勿 git add -A |
+| 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 | 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 |
 | 混改檔hunk級選擇性staging | 混改檔hunk級選擇性staging |
 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 |

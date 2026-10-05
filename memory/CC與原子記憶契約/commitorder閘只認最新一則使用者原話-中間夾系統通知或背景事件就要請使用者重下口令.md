@@ -11,6 +11,7 @@
 - [臨] Guardian 的 CommitOrder 閘判定「本回合使用者原話」只看最新一則來自使用者的訊息；若使用者說了「上GIT」但之後先進了系統通知（Monitor 事件、背景工作完成），到 commit 時會被擋「本回合原話沒有版控口令」。正解：收到口令就先 commit+push，不要先去做別的；被擋了就引用原話請使用者重打一次，不要繞閘。另：bash 裡 `cat > file` 沒給 stdin 會讓工具背景卡死，提交訊息用 `git commit -F -` 搭 heredoc。
 - [臨] 2026-09-21 根因已修，上面「請使用者重下口令」只剩舊 state 退路：閘改看整回合原話 state.turn_prompts（ups_gates.track_turn_prompts 維護；Stop 入口設 turn_open=False 關回合，下一則 prompt 重開），使用者先說「上GIT」再排隊補一句別的話不再被擋。觸發情境：使用者「好，上GIT」後 mid-turn 補「計畫檔沒價值就刪」，閘只看 recent_user_prompts[-1] 就否決。為什麼會寫成這樣：recent_user_prompts 是 Evasion Guard 的滑窗，口令閘借用時假設一回合只有一句，連測試都把這個錯前提寫成規格。已知邊界：Stop 被 block 後再來的 mid-turn 訊息會被當新回合，只多擋一次。
 - [臨] 另一種漏收（2026-10-01）：使用者在我回合進行中送的訊息（harness 以「The user sent a new message while you were working」夾在工具結果裡送達）不走 UserPromptSubmit、不進 `state.turn_prompts`，所以中途給的「…就直接上GIT」授權仍被擋。對策同上：不繞閘（也不用 python subprocess 包 git commit 洗白；記憶庫 vcs-sync worker 是使用者裁決的例外，程式碼 repo 不是），收尾請使用者單獨再送一則。根治候選：讓 turn_prompts 也收 mid-turn user 訊息（待做）。
+- [臨] 更正上一條的根因猜測（2026-10-05 讀碼後）：`hooks/handlers/pre_tool_use.py:358-360` 的註解明寫「整回合的使用者原話（含 mid-turn 排隊訊息）都算」，資料來自 `state["turn_prompts"]`。所以「中途訊息不走 UserPromptSubmit」只是候選之一；另一個候選是該 session 多次出現 `[Guardian] state 已重建（原 state 遺失/被 TTL 清除）`，`turn_prompts` 隨 state 遺失後退回只看最後一句。兩者都**未驗證**，修之前先寫能分辨的最小重現（看 hook 輸入與 state 檔）。
 
 ## 行動
 
