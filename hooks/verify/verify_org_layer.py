@@ -215,7 +215,8 @@ def test_init_registers_local_state_and_registry(tmp_path, monkeypatch):
 
     assert cfg_path.read_bytes() == shared_before
     local = json.loads((wf / "org-memory.local.json").read_text(encoding="utf-8"))
-    assert local == {"advised": True, "enabled": True, "roots": [{"id": "org", "root": str(root)}]}  # 既有鍵保留
+    assert local == {"advised": True, "enabled": True, "roots": [{"id": "org", "root": str(root)}],
+                     "declined": False}  # 既有鍵保留；接上時清掉「先不接」
     reg = json.loads(reg_path.read_text(encoding="utf-8"))
     slug = wg_core.cwd_to_project_slug(str(root))
     assert reg["projects"][slug]["root"] == str(root)
@@ -242,17 +243,39 @@ def test_local_state_overrides_shared_and_bad_file_is_loud(world, monkeypatch, c
     assert "讀取失敗" in capsys.readouterr().err
 
 
-# ─── ④b SessionStart：沒接上的機器只邀請一次；沒 repo_url 不出聲；已接上照舊報顆數 ──────────
+# ─── ④b SessionStart：沒接上且沒答過 → 每次都要 AI 去問使用者，直到接上或 --decline；沒 repo_url 不出聲 ─────
 
-def test_unjoined_machine_is_invited_exactly_once(world, monkeypatch):
+def test_unjoined_machine_is_asked_until_answered(world, monkeypatch, capsys):
     import session_start as ss
-    shared = {"org_memory": {"repo_url": "https://example.invalid/x.git", "enabled": False, "roots": []}}
+    om = _load_org_memory_module()
+    shared = {"org_memory": {"repo_url": "https://example.invalid/x.git", "default_root": "D:/CompanyMem",
+                             "enabled": False, "roots": []}}
     monkeypatch.setattr(ss, "load_config", lambda: shared)
     first = ss._org_advisory(None, {})
-    assert len(first) == 1 and "接上公司記憶" in first[0] and "只出現這一次" in first[0]
-    assert json.loads((world["wf"] / "org-memory.local.json").read_text(encoding="utf-8")) == {"advised": True}
+    assert len(first) == 1
+    line = first[0]
+    assert "AskUserQuestion" in line and "D:/CompanyMem" in line and "--join" in line and "--decline" in line
+    assert "org-memory.local.json" in line                      # 路徑記在本機，話要講明
+    assert not (world["wf"] / "org-memory.local.json").exists()   # 問本身不留標記
+    assert ss._org_advisory(None, {}) == first                    # 沒答案 → 下個 session 照問
+
+    wg_core.save_org_local(advised=True)                          # 舊版留下的「提示過一次」不算答案
+    assert ss._org_advisory(None, {}) == first
+
+    assert om.cmd_decline() == 0                                  # 答「先不接」→ 不再問
     assert ss._org_advisory(None, {}) == []
-    assert ss._org_advisory(None, {}) == []
+    assert json.loads((world["wf"] / "org-memory.local.json").read_text(encoding="utf-8"))["declined"] is True
+
+    om.register_local(world["org"])                               # 之後改變主意接上 → declined 清掉
+    local = json.loads((world["wf"] / "org-memory.local.json").read_text(encoding="utf-8"))
+    assert local["enabled"] is True and local["declined"] is False
+
+
+def test_ask_line_omits_default_option_when_no_default_root(world, monkeypatch):
+    import session_start as ss
+    monkeypatch.setattr(ss, "load_config", lambda: {"org_memory": {"repo_url": "u", "enabled": False, "roots": []}})
+    line = ss._org_advisory(None, {})[0]
+    assert "預設路徑" not in line and "指定的資料夾" in line and "--decline" in line
 
 
 def test_no_invite_without_repo_url_and_joined_machine_unchanged(world, monkeypatch):

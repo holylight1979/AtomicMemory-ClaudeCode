@@ -28,7 +28,9 @@ pattern: tool-wrapper
 
 | 使用者說 | 做什麼 |
 |---|---|
-| 接上公司記憶／公司層怎麼沒有／`[Org] …還沒接上`／`[Org] 尚未接上` | `python ~/.claude/tools/org-memory.py --join [路徑]` |
+| 啟動行有 `❓ [Org] …還沒接上，使用者也還沒被問過` | 第一則回覆前用 AskUserQuestion 問：放預設路徑／指定路徑／先不接，再照答案跑 `--join [路徑]` 或 `--decline` |
+| 接上公司記憶／公司層怎麼沒有／`[Org] 尚未接上` | `python ~/.claude/tools/org-memory.py --join [路徑]` |
+| 這台先不要接公司層／不要再問我 | `python ~/.claude/tools/org-memory.py --decline` |
 | 公司層狀態／我現在是什麼職能／誰能裁決 | `python ~/.claude/tools/org-memory.py --status` |
 | 把這條記到公司層／全公司都該知道 | `atom_write(scope="org", domain=<Lv1>, …)` |
 | 登記工具／掃工具卡 | `python ~/.claude/tools/org-memory.py --scan-tools [--project <專案根>]` |

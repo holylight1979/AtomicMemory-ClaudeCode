@@ -17,6 +17,7 @@
 --status：對帳——公司層根、是否就緒、atom 與工具卡數、git 同步狀態、目前身份與職能、裁決名單。
 怎麼跑：
   python ~/.claude/tools/org-memory.py --join [<本機路徑>]      # 省略路徑：本機已記的根 → config org_memory.default_root
+  python ~/.claude/tools/org-memory.py --decline                 # 這台先不接；啟動時不再詢問
   python ~/.claude/tools/org-memory.py --status
   python ~/.claude/tools/org-memory.py --init <公司記憶 repo 根>
   python ~/.claude/tools/org-memory.py --scan-tools [--project <專案根>] [--owner <AD 帳號>] [--dry-run]
@@ -147,7 +148,7 @@ def init_tree(root: Path, user: str) -> List[str]:
 
 def register_local(root: Path) -> str:
     """本機狀態檔（不進版控）← enabled=true, roots=[{id:org, root}]；共用 config.json 不動。"""
-    wg_core.save_org_local(enabled=True, roots=[{"id": "org", "root": str(root)}])
+    wg_core.save_org_local(enabled=True, roots=[{"id": "org", "root": str(root)}], declined=False)
     return f"{wg_core.org_local_path().name} enabled=true roots=[{root}]"
 
 
@@ -441,13 +442,21 @@ def cmd_join(root_arg: Optional[str]) -> int:
     return cmd_init(str(root))
 
 
+def cmd_decline() -> int:
+    """使用者答「先不接」：記在本機狀態檔，SessionStart 不再問；之後 --join 仍可接上。"""
+    wg_core.save_org_local(declined=True)
+    print(f"[org-memory] 已記下這台機器先不接公司層（{wg_core.org_local_path()}）。之後想接：說「接上公司記憶」或跑 --join。")
+    return 0
+
+
 def cmd_status() -> int:
     """對帳：公司層接上沒、裡面有什麼、同步狀態、我是誰／什麼職能／誰能裁決。印 JSON。"""
     from wg_roles import load_management_roster, load_user_role
     org = _org_cfg()
     root = wg_core.org_memory_root()
     out: Dict[str, object] = {"enabled": bool(org.get("enabled")), "repo_url": org.get("repo_url") or None,
-                              "root": str(root) if root else None, "ready": False}
+                              "root": str(root) if root else None, "ready": False,
+                              "declined": bool(org.get("declined"))}
     if root is not None and (root / ".claude" / "memory").is_dir():
         mem = root / ".claude" / "memory"
         atoms = load_atom_index_json(mem).get("atoms", [])
@@ -478,6 +487,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="公司層記憶（org）初始化與工具卡掃描；完整參數以 --help 為準")
     ap.add_argument("--join", nargs="?", const="", metavar="ROOT",
                     help="新機器一步接上：ROOT 不存在就從 config org_memory.repo_url clone，再 --init；省略 ROOT 用本機已記的根，再退 config default_root")
+    ap.add_argument("--decline", action="store_true", help="這台機器先不接公司層：記在本機狀態檔，啟動時不再詢問（之後仍可 --join）")
     ap.add_argument("--status", action="store_true", help="對帳：公司層是否就緒、atom／工具卡數、git 同步、身份與職能、裁決名單")
     ap.add_argument("--init", metavar="ROOT", help="把 ROOT（已 checkout 的公司記憶 repo 根）佈成公司層記憶並寫入本機狀態檔／registry")
     ap.add_argument("--scan-tools", action="store_true",
@@ -488,6 +498,8 @@ def main() -> int:
     args = ap.parse_args()
     if args.join is not None:
         return cmd_join(args.join or None)
+    if args.decline:
+        return cmd_decline()
     if args.status:
         return cmd_status()
     if args.init:

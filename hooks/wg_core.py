@@ -188,7 +188,8 @@ def org_local_path() -> Path:
 def load_org_local() -> Dict[str, Any]:
     """這台機器專屬的公司層狀態（workflow/org-memory.local.json，不進版控）。
 
-    鍵：enabled／roots（這台接上沒、根在哪，形狀同 config `org_memory`）、advised（未接上提示已出過）。
+    鍵：enabled／roots（這台接上沒、根在哪，形狀同 config `org_memory`）、declined（使用者答過「先不接」，
+    SessionStart 不再問）。舊鍵 advised 已不讀（曾表示「提示出過一次」，留著無害）。
     沒檔 → {}（未接上，正常狀態）；壞檔 → {} 且 stderr 一行。
     """
     path = org_local_path()

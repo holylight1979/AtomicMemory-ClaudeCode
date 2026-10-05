@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-10-05 公司層未接上改成 AI 主動問路徑，問到有答案為止
+- **緣由**：同事更新後回報「`C:\CompanyAtomsMem` 不會自動建立、也沒被問」。原設計是 SessionStart 出一行「對我說『接上公司記憶』」且整台機器只出一次——但 SessionStart 的輸出只有模型看得到、使用者看不到，那一行又只是說明不是指示，模型不會主動做；出過一次就記 `advised` 永不再提。
+- **修**：未接上且使用者沒回答過 → 每個 session 都給模型一行 `❓ [Org]` 指示，要它第一則回覆前用 AskUserQuestion 問：放預設路徑／指定路徑／先不接，再照答案執行 `org-memory.py --join [路徑]`（資料夾不存在會自動 clone）或新的 `--decline`。答案只記在該機器的 `workflow/org-memory.local.json`（`enabled`＋`roots` 或 `declined`）；舊鍵 `advised` 不再讀，所以先前只被提示過一次、沒接上的機器會被重新問到。`--status` 多回 `declined`。 | `hooks/handlers/session_start.py`, `hooks/wg_core.py`, `tools/org-memory.py`, `skills/org/SKILL.md`, `hooks/verify/verify_org_layer.py`, `TECH.md`
+
+---
+
 ## 2026-10-05 防閃窗檢查器納入 `tools/`，補齊 14 個漏帶壓窗旗標的啟動點
 - 檢查器 `verify_no_window_spawn` 原本只掃 hooks/lib 頂層，`tools/` 沒人守；改掃 hooks/lib/tools 含子目錄。補 `tools/` 13 個 Python 啟動點的 `CREATE_NO_WINDOW`、1 個 POSIX 分支豁免註記，MCP dashboard（`http-api.js`）4 個 `exec` 補 `windowsHide`。當下實測無閃窗，屬預防。
 

@@ -31,7 +31,7 @@ from wg_core import (
     iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
     find_vcs_root, memory_dir_candidates,
-    resolve_project_root, org_memory_root, load_config, load_org_local, save_org_local,
+    resolve_project_root, org_memory_root, load_config, load_org_local,
 )
 from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
@@ -592,19 +592,27 @@ def _svn_index_conflict_advisory(cwd: str, root: Path) -> list:
 
 
 def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:
-    """公司層一行：`[Org] 公司層 N 顆（<root>）`。這台沒接上且共用 config 有 repo_url → 邀請一行，
-    整台機器只出一次（本機狀態檔記 advised）；沒 repo_url 零 context。
-    根未 checkout／索引缺 → 警告一行（fail-open 必浮訊號）。cwd 就是 org 根時池不另列 org 組，不報。"""
+    """公司層一行：`[Org] 公司層 N 顆（<root>）`。
+    這台沒接上、使用者也還沒回答過（本機狀態檔沒有 enabled／declined）且共用 config 有 repo_url →
+    要 AI 用 AskUserQuestion 問使用者放哪裡；**每個 session 都出，直到有答案**（接上或 --decline）。
+    這幾行是給模型看的指示，不是給人看的通知：SessionStart 的輸出使用者看不到，只寫「對我說…」等於沒人會做。
+    沒 repo_url 零 context。根未 checkout／索引缺 → 警告一行（fail-open 必浮訊號）。cwd 就是 org 根時池不另列 org 組，不報。"""
     if org_root is None:
         shared = load_config().get("org_memory")
         local = load_org_local()
-        if not isinstance(shared, dict) or not shared.get("repo_url") or local.get("enabled") or local.get("advised"):
+        if not isinstance(shared, dict) or not shared.get("repo_url") or local.get("enabled") or local.get("declined"):
             return []
-        try:
-            save_org_local(advised=True)
-        except OSError as e:
-            print(f"[org_memory] 寫不進本機狀態檔，提示下次還會出現：{e}", file=sys.stderr)
-        return ["[Org] 公司有一層所有專案共用的記憶，這台機器還沒接上 → 對我說「接上公司記憶」或 /org join（本提示只出現這一次）"]
+        cmd = "python ~/.claude/tools/org-memory.py"
+        default_root = str(shared.get("default_root") or "")
+        opt_default = (f"(1) 接上，放在預設路徑 {default_root}（推薦）→ 執行 `{cmd} --join`；" if default_root else "")
+        return [
+            f"❓ [Org] 公司有一層所有專案共用的記憶（{shared.get('repo_url')}），這台機器還沒接上，使用者也還沒被問過。"
+            f"第一則回覆前先用 AskUserQuestion 問使用者：{opt_default}"
+            f"(2) 接上，放在使用者指定的資料夾（請他給完整路徑）→ `{cmd} --join \"<路徑>\"`；"
+            f"(3) 先不接 → `{cmd} --decline`（之後不再問；想接時說「接上公司記憶」）。"
+            f"選定後由你執行指令：資料夾不存在會自動從公司 repo 下載建立，路徑只記在這台機器的 "
+            f"workflow/org-memory.local.json（不進版控）；接上後告知「重開 session 生效」。"
+        ]
     root = Path(org_root)
     if not (root / ".claude" / "memory").is_dir():
         return [f"[Org] 公司層記憶尚未接上（{root} 下無 .claude/memory）→ 對我說「接上公司記憶」或 /org join"]
