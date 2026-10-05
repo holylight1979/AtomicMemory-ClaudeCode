@@ -1,12 +1,10 @@
 // smoke_mcp_stdio.js — 以 stdio JSON-RPC 真起 server.js，驗 MCP tool 面：
 //   tools/list 含 8 個 tool；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
 //   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_retire 缺 reason 拒；
-//   atom_write scope=org dry_run：config org_memory 啟用 → Path 落 <org_root>/.claude/memory/shared/；未啟用 → 明確拒絕。
+//   atom_write scope=org dry_run：這台已接上公司層 → Path 落 <org_root>/.claude/memory/shared/；未接上 → 明確拒絕。
 // 怎麼跑：node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js
 // 隔離埠 WG_DASHBOARD_PORT=38499（不撞 3848 的 live guardian）；dry_run 不落檔、不動索引。
 const path = require("path");
-const fs = require("fs");
-const os = require("os");
 const { spawn } = require("child_process");
 
 const SERVER = path.join(__dirname, "..", "server.js");
@@ -128,12 +126,7 @@ function check(cond, label, detail) {
 
   // 6. scope=org 語法糖（js 只改寫成 shared + project_cwd=org 根；落點仍由 py locate 裁決）
   const norm = (x) => String(x).replace(/[\\/]+/g, "/").toLowerCase();
-  let orgRoot = null;
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude", "workflow", "config.json"), "utf-8"));
-    const om = cfg.org_memory || {};
-    if (om.enabled && Array.isArray(om.roots) && om.roots.length === 1) orgRoot = String(om.roots[0].root);
-  } catch {}
+  const orgRoot = require("../lib/realm").orgMemoryRoot();
   const wo = await callTool("atom_write", {
     title: "smoke-org-dry-run-不落檔", scope: "org", domain: "工具",
     confidence: "[臨]", triggers: ["smoke"], knowledge: ["[臨] smoke only"], mode: "create",
@@ -146,7 +139,7 @@ function check(cond, label, detail) {
           `atom_write scope=org dry_run lands under ${want}`, wot);
   } else {
     check(wo.result.isError === true && /org_memory/.test(wot),
-          "atom_write scope=org refused while config org_memory disabled", wot);
+          "atom_write scope=org refused while this machine has not joined org_memory", wot);
   }
   console.log("       atom_write scope=org →", wot.split("\n")[0].slice(0, 160));
 

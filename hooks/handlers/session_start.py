@@ -31,7 +31,7 @@ from wg_core import (
     iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
     find_vcs_root, memory_dir_candidates,
-    resolve_project_root, org_memory_root,
+    resolve_project_root, org_memory_root, load_config, load_org_local, save_org_local,
 )
 from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
@@ -592,10 +592,19 @@ def _svn_index_conflict_advisory(cwd: str, root: Path) -> list:
 
 
 def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:
-    """公司層一行：`[Org] 公司層 N 顆（<root>）`；config 未啟用零 context。
+    """公司層一行：`[Org] 公司層 N 顆（<root>）`。這台沒接上且共用 config 有 repo_url → 邀請一行，
+    整台機器只出一次（本機狀態檔記 advised）；沒 repo_url 零 context。
     根未 checkout／索引缺 → 警告一行（fail-open 必浮訊號）。cwd 就是 org 根時池不另列 org 組，不報。"""
     if org_root is None:
-        return []
+        shared = load_config().get("org_memory")
+        local = load_org_local()
+        if not isinstance(shared, dict) or not shared.get("repo_url") or local.get("enabled") or local.get("advised"):
+            return []
+        try:
+            save_org_local(advised=True)
+        except OSError as e:
+            print(f"[org_memory] 寫不進本機狀態檔，提示下次還會出現：{e}", file=sys.stderr)
+        return ["[Org] 公司有一層所有專案共用的記憶，這台機器還沒接上 → 對我說「接上公司記憶」或 /org join（本提示只出現這一次）"]
     root = Path(org_root)
     if not (root / ".claude" / "memory").is_dir():
         return [f"[Org] 公司層記憶尚未接上（{root} 下無 .claude/memory）→ 對我說「接上公司記憶」或 /org join"]

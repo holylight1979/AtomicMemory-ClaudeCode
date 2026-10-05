@@ -46,6 +46,25 @@ function loadConfig() {
   }
 }
 
+// MIRROR: hooks/wg_core.py:load_org_local — 這台機器專屬的公司層狀態（不進版控）；沒檔 → {}，壞檔 → {} 且 stderr 一行。
+const ORG_LOCAL_PATH = path.join(WORKFLOW_DIR, "org-memory.local.json");
+function loadOrgLocal() {
+  let raw;
+  try { raw = fs.readFileSync(ORG_LOCAL_PATH, "utf-8"); } catch (e) {
+    if (e.code !== "ENOENT") {
+      try { process.stderr.write(`[org_memory] ${ORG_LOCAL_PATH} 讀取失敗，視為未接上：${e.message}\n`); } catch {}
+    }
+    return {};
+  }
+  try {
+    const data = JSON.parse(raw);
+    return data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  } catch (e) {
+    try { process.stderr.write(`[org_memory] ${ORG_LOCAL_PATH} 讀取失敗，視為未接上：${e.message}\n`); } catch {}
+    return {};
+  }
+}
+
 // ── Python 直譯器解析 ──────────────────────────────────────────────────────
 // Windows 裸 spawn "python" 會被 PATH 順位上的 Microsoft Store 佔位程式攔走
 // （零輸出、exit 9009）→ 下游 JSON 解析炸 "Unexpected end of JSON input" 且
@@ -85,6 +104,6 @@ if (PYTHON_EXE_FALLBACK) {
 
 module.exports = {
   CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, CONFIG_PATH, REGISTRY_PATH, VERSION_PATH,
-  loadVersions, VERSIONS, loadRegistry, getRegistryMemDirs, loadConfig,
+  loadVersions, VERSIONS, loadRegistry, getRegistryMemDirs, loadConfig, loadOrgLocal,
   resolvePythonExe, PYTHON_EXE, PYTHON_EXE_FALLBACK,
 };

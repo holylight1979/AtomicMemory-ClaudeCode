@@ -178,9 +178,42 @@ def load_config() -> Dict[str, Any]:
     return config
 
 
-def org_memory_root() -> Optional[Path]:
-    """公司層記憶 repo 根（workflow/config.json `org_memory`）的單一來源。
+ORG_LOCAL_NAME = "org-memory.local.json"
 
+
+def org_local_path() -> Path:
+    return WORKFLOW_DIR / ORG_LOCAL_NAME
+
+
+def load_org_local() -> Dict[str, Any]:
+    """這台機器專屬的公司層狀態（workflow/org-memory.local.json，不進版控）。
+
+    鍵：enabled／roots（這台接上沒、根在哪，形狀同 config `org_memory`）、advised（未接上提示已出過）。
+    沒檔 → {}（未接上，正常狀態）；壞檔 → {} 且 stderr 一行。
+    """
+    path = org_local_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[org_memory] {path} 讀取失敗，視為未接上：{e}", file=sys.stderr)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_org_local(**changes: Any) -> None:
+    """把 changes 併進本機公司層狀態檔（其他鍵保留）。"""
+    data = {**load_org_local(), **changes}
+    path = org_local_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
+def org_memory_root() -> Optional[Path]:
+    """公司層記憶 repo 根的單一來源：共用 workflow/config.json `org_memory` 被本機狀態檔同名鍵蓋過。
+
+    共用 config 只帶 repo_url／default_root（全公司相同）；「這台接上沒、根在哪」在本機檔（load_org_local）。
     enabled 且 roots 恰 1 個 → Path(roots[0].root)；關閉 → None（正常狀態，不出聲）。
     缺鍵／config 壞／roots 空或 >1 → None 且 stderr 一行（fail-open 必浮訊號）。
     """
@@ -192,6 +225,7 @@ def org_memory_root() -> Optional[Path]:
     if not isinstance(org, dict):
         print("[org_memory] workflow/config.json 缺 org_memory 鍵，已停用 org", file=sys.stderr)
         return None
+    org = {**org, **load_org_local()}
     if not org.get("enabled"):
         return None
     roots = org.get("roots") or []

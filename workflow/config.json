@@ -22,14 +22,10 @@
   },
   "org_memory": {
     "repo_url": "https://gitlab.uj.com.tw/open-data-prog/companyatomsmem.git",
-    "_doc": "公司層記憶 repo（所有專案看得到、能寫）。tools/org-memory.py --init <root> 會填好；程式只讀 roots[0]，>1 個拒絕並停用 org。寫公司知識：atom_write scope=org。",
-    "enabled": true,
-    "roots": [
-      {
-        "id": "org",
-        "root": "C:\\CompanyAtomsMem"
-      }
-    ]
+    "default_root": "C:\\CompanyAtomsMem",
+    "_doc": "公司層記憶 repo（所有專案看得到、能寫）。本檔只放全公司相同的值：repo_url、default_root（--join 沒給路徑時 clone 到哪）。「這台機器接上沒、根在哪」寫在 workflow/org-memory.local.json（不進版控，tools/org-memory.py --join／--init 會填；同名鍵蓋過本區段）；enabled／roots 在此保持 false／[]。程式只讀 roots[0]，>1 個拒絕並停用 org。寫公司知識：atom_write scope=org。",
+    "enabled": false,
+    "roots": []
   },
   "taxonomy": {
     "_doc": "核心層範疇寫入閘。gate_enabled=false：遷移期（memory/ 仍有散檔）關閉硬規則與拒寫；遷移完成改 true。",

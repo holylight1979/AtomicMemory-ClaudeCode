@@ -91,14 +91,14 @@ async function toolAtomWrite(id, args) {
     try { process.stderr.write(`[atom_write] scope=project is deprecated; mapped to shared\n`); } catch {}
     scope = "shared";
   }
-  // org＝語法糖：公司層就是「config org_memory 指定的那個專案根」的 shared 層（py 落點零改）
+  // org＝語法糖：公司層就是「orgMemoryRoot() 那個專案根」的 shared 層（py 落點零改）
   const isOrg = scope === "org";
   if (isOrg) {
     const orgRoot = orgMemoryRoot();
     if (!orgRoot) {
       return sendToolResult(id,
-        "atom_write: scope=org 但 workflow/config.json org_memory 未啟用（需 enabled=true 且 roots 恰 1 個；" +
-        "初始化：python ~/.claude/tools/org-memory.py --init <公司記憶 repo 根>）", true);
+        "atom_write: scope=org 但這台機器尚未接上公司層記憶（org_memory）；" +
+        "接上：python ~/.claude/tools/org-memory.py --join [<本機路徑>]", true);
     }
     scope = "shared";
     project_cwd = orgRoot;
@@ -940,7 +940,8 @@ async function toolAtomRetire(id, args) {
     const orgRoot = orgMemoryRoot();
     if (!orgRoot) {
       return sendToolResult(id,
-        "atom_retire: scope=org 但 workflow/config.json org_memory 未啟用（需 enabled=true 且 roots 恰 1 個）", true);
+        "atom_retire: scope=org 但這台機器尚未接上公司層記憶（org_memory）；" +
+        "接上：python ~/.claude/tools/org-memory.py --join [<本機路徑>]", true);
     }
     scope = "shared";
     project_cwd = orgRoot;

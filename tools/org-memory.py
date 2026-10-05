@@ -5,7 +5,7 @@
   <root>/.claude/memory/{MEMORY.md（含 atom-catalog 區塊）, _atom_index.json, shared/, shared/_taxonomy.json}
   <root>/.claude/project-tree.json {"standalone": true}（專案往上尋根到此為止）
   種一顆工具卡 shared/工具/org-memory.md（索引非空，sync-memory-index --check 才能過）
-  ~/.claude/workflow/config.json org_memory.enabled=true, roots=[{"id":"org","root":<root>}]
+  ~/.claude/workflow/org-memory.local.json（本機專屬、不進版控）enabled=true, roots=[{"id":"org","root":<root>}]
   ~/.claude/memory/project-registry.json 登錄條目（向量 indexer 據此建層 shared:<slug>）
 全部冪等：已存在的檔不覆寫。
 --scan-tools：把 skills/_skill_index.json、mcp-servers.template.json 的每個工具登記成 org shared/工具/ 一張卡
@@ -16,7 +16,7 @@
 --join：新機器一步接上——根目錄不存在就從 config org_memory.repo_url clone，再跑 --init。
 --status：對帳——公司層根、是否就緒、atom 與工具卡數、git 同步狀態、目前身份與職能、裁決名單。
 怎麼跑：
-  python ~/.claude/tools/org-memory.py --join [<本機路徑>]      # 省略路徑用 config 既有 roots[0].root
+  python ~/.claude/tools/org-memory.py --join [<本機路徑>]      # 省略路徑：本機已記的根 → config org_memory.default_root
   python ~/.claude/tools/org-memory.py --status
   python ~/.claude/tools/org-memory.py --init <公司記憶 repo 根>
   python ~/.claude/tools/org-memory.py --scan-tools [--project <專案根>] [--owner <AD 帳號>] [--dry-run]
@@ -144,15 +144,10 @@ def init_tree(root: Path, user: str) -> List[str]:
     return done
 
 
-def register_in_config(root: Path) -> str:
-    """config.json org_memory ← enabled=true, roots=[{id:org, root}]（其他鍵原位不動）。"""
-    cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    org = cfg.get("org_memory") if isinstance(cfg.get("org_memory"), dict) else {}
-    org["enabled"] = True
-    org["roots"] = [{"id": "org", "root": str(root)}]
-    cfg["org_memory"] = org
-    _write_lf(CONFIG_PATH, json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
-    return f"config.json org_memory.enabled=true roots=[{root}]"
+def register_local(root: Path) -> str:
+    """本機狀態檔（不進版控）← enabled=true, roots=[{id:org, root}]；共用 config.json 不動。"""
+    wg_core.save_org_local(enabled=True, roots=[{"id": "org", "root": str(root)}])
+    return f"{wg_core.org_local_path().name} enabled=true roots=[{root}]"
 
 
 def register_in_registry(root: Path) -> str:
@@ -175,7 +170,7 @@ def cmd_init(root_arg: str) -> int:
         print(f"[org-memory] 警告：{root} 不在任何 git/svn 工作區內，記憶不會被 vcs-sync 自動上版控", file=sys.stderr)
     user = get_current_user()
     msgs = init_tree(root, user)
-    msgs.append(register_in_config(root))
+    msgs.append(register_local(root))
     msgs.append(register_in_registry(root))
     print("[org-memory] 完成：")
     for m in msgs:
@@ -377,7 +372,7 @@ def cmd_scan_tools(project_arg: Optional[str], owner: Optional[str], dry_run: bo
             return 2
         jobs.append(("project", project, collect_project_cards(project)))
     if not jobs:
-        print("[org-memory] 沒有可掃的落點：config 未啟用 org_memory，也沒給 --project", file=sys.stderr)
+        print("[org-memory] 沒有可掃的落點：這台機器尚未接上公司層（--join），也沒給 --project", file=sys.stderr)
         return 2
 
     failed = 0
@@ -406,9 +401,10 @@ def cmd_scan_tools(project_arg: Optional[str], owner: Optional[str], dry_run: bo
 
 
 def _org_cfg() -> Dict[str, object]:
+    """共用 config 的 org_memory（repo_url／default_root）被本機狀態檔（enabled／roots）蓋過後的結果。"""
     cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     org = cfg.get("org_memory")
-    return org if isinstance(org, dict) else {}
+    return {**(org if isinstance(org, dict) else {}), **wg_core.load_org_local()}
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
@@ -418,13 +414,15 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def cmd_join(root_arg: Optional[str]) -> int:
-    """新機器一步接上：根目錄不存在 → 從 config org_memory.repo_url clone；之後跑 --init（冪等）。"""
+    """新機器一步接上：根目錄不存在 → 從 config org_memory.repo_url clone；之後跑 --init（冪等）。
+    路徑順位：參數 → 本機已記的根 → 共用 config org_memory.default_root。"""
     org = _org_cfg()
     roots = org.get("roots") or []
     cfg_root = roots[0].get("root") if roots and isinstance(roots[0], dict) else None  # type: ignore[index,union-attr]
-    target = root_arg or cfg_root
+    target = root_arg or cfg_root or org.get("default_root")
     if not target:
-        print("[org-memory] 沒有本機路徑：請給 --join <路徑>（config org_memory.roots 也是空的）", file=sys.stderr)
+        print("[org-memory] 沒有本機路徑：請給 --join <路徑>（本機沒接過，config org_memory.default_root 也未設）",
+              file=sys.stderr)
         return 2
     root = Path(str(target)).expanduser()
     if not root.exists():
@@ -478,9 +476,9 @@ def main() -> int:
         sys.stderr.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="公司層記憶（org）初始化與工具卡掃描；完整參數以 --help 為準")
     ap.add_argument("--join", nargs="?", const="", metavar="ROOT",
-                    help="新機器一步接上：ROOT 不存在就從 config org_memory.repo_url clone，再 --init；省略 ROOT 用 config 既有路徑")
+                    help="新機器一步接上：ROOT 不存在就從 config org_memory.repo_url clone，再 --init；省略 ROOT 用本機已記的根，再退 config default_root")
     ap.add_argument("--status", action="store_true", help="對帳：公司層是否就緒、atom／工具卡數、git 同步、身份與職能、裁決名單")
-    ap.add_argument("--init", metavar="ROOT", help="把 ROOT（已 checkout 的公司記憶 repo 根）佈成公司層記憶並寫入 config／registry")
+    ap.add_argument("--init", metavar="ROOT", help="把 ROOT（已 checkout 的公司記憶 repo 根）佈成公司層記憶並寫入本機狀態檔／registry")
     ap.add_argument("--scan-tools", action="store_true",
                     help="掃 skills 索引與 MCP 樣板，缺的工具卡建到 org shared/工具/；進入點消失的卡標 deprecated")
     ap.add_argument("--project", metavar="ROOT", help="（搭 --scan-tools）另掃 ROOT/.claude/tools/*.py，卡落該專案 shared/工具/")

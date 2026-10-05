@@ -190,28 +190,78 @@ def test_init_tree_then_sync_check_passes(tmp_path):
     assert {p: p.read_bytes() for p in mem.rglob("*") if p.is_file()} == before
 
 
-def test_init_registers_config_and_registry(tmp_path, monkeypatch):
+def test_init_registers_local_state_and_registry(tmp_path, monkeypatch):
+    """接上只寫本機狀態檔；進版控的共用 config 一個位元組都不動。"""
     om = _load_org_memory_module()
     root = _git_init(tmp_path / "company")
-    cfg_path = tmp_path / "config.json"
-    cfg_path.write_text(json.dumps({"enabled": True, "org_memory": {"_doc": "d", "enabled": False, "roots": []},
+    wf = tmp_path / "wf"
+    wf.mkdir()
+    cfg_path = wf / "config.json"
+    cfg_path.write_text(json.dumps({"enabled": True, "org_memory": {"_doc": "d", "repo_url": "u", "enabled": False,
+                                                                    "roots": []},
                                     "zz": 1}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    shared_before = cfg_path.read_bytes()
     reg_path = tmp_path / "project-registry.json"
     monkeypatch.setattr(om, "CONFIG_PATH", cfg_path)
     monkeypatch.setattr(wg_core, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(wg_core, "WORKFLOW_DIR", wf)
     monkeypatch.setattr(wg_core, "REGISTRY_PATH", reg_path)
+    wg_core.save_org_local(advised=True)
 
-    om.register_in_config(root)
+    om.register_local(root)
     om.register_in_registry(root)
 
-    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    assert list(cfg) == ["enabled", "org_memory", "zz"]  # 原鍵序不動
-    assert cfg["org_memory"] == {"_doc": "d", "enabled": True, "roots": [{"id": "org", "root": str(root)}]}
+    assert cfg_path.read_bytes() == shared_before
+    local = json.loads((wf / "org-memory.local.json").read_text(encoding="utf-8"))
+    assert local == {"advised": True, "enabled": True, "roots": [{"id": "org", "root": str(root)}]}  # 既有鍵保留
     reg = json.loads(reg_path.read_text(encoding="utf-8"))
     slug = wg_core.cwd_to_project_slug(str(root))
     assert reg["projects"][slug]["root"] == str(root)
-    # 單一來源函式讀同一份 config 就能回這個根
+    # 單一來源函式：共用 config 關著，本機檔蓋過後回這個根
     assert wg_core.org_memory_root() == root
+
+
+def test_local_state_overrides_shared_and_bad_file_is_loud(world, monkeypatch, capsys):
+    """本機檔同名鍵蓋過共用 config；沒檔＝照共用；壞檔＝當沒接上且 stderr 有訊息。"""
+    monkeypatch.setattr(wg_core, "load_config", lambda: {"org_memory": {"repo_url": "u", "enabled": False, "roots": []}})
+    assert wg_core.org_memory_root() is None and capsys.readouterr().err == ""
+
+    wg_core.save_org_local(enabled=True, roots=[{"id": "org", "root": str(world["org"])}])
+    assert wg_core.org_memory_root() == world["org"]
+
+    wg_core.save_org_local(enabled=False)   # 本機明確關掉，就算共用 config 開著也不接
+    monkeypatch.setattr(wg_core, "load_config", lambda: _org_cfg([world["proj"]]))
+    assert wg_core.org_memory_root() is None
+
+    (world["wf"] / "org-memory.local.json").write_text("{壞", encoding="utf-8")
+    monkeypatch.setattr(wg_core, "load_config", lambda: {"org_memory": {"enabled": False, "roots": []}})
+    capsys.readouterr()
+    assert wg_core.org_memory_root() is None
+    assert "讀取失敗" in capsys.readouterr().err
+
+
+# ─── ④b SessionStart：沒接上的機器只邀請一次；沒 repo_url 不出聲；已接上照舊報顆數 ──────────
+
+def test_unjoined_machine_is_invited_exactly_once(world, monkeypatch):
+    import session_start as ss
+    shared = {"org_memory": {"repo_url": "https://example.invalid/x.git", "enabled": False, "roots": []}}
+    monkeypatch.setattr(ss, "load_config", lambda: shared)
+    first = ss._org_advisory(None, {})
+    assert len(first) == 1 and "接上公司記憶" in first[0] and "只出現這一次" in first[0]
+    assert json.loads((world["wf"] / "org-memory.local.json").read_text(encoding="utf-8")) == {"advised": True}
+    assert ss._org_advisory(None, {}) == []
+    assert ss._org_advisory(None, {}) == []
+
+
+def test_no_invite_without_repo_url_and_joined_machine_unchanged(world, monkeypatch):
+    import session_start as ss
+    monkeypatch.setattr(ss, "load_config", lambda: {"org_memory": {"enabled": False, "roots": []}})
+    assert ss._org_advisory(None, {}) == []
+    assert not (world["wf"] / "org-memory.local.json").exists()   # 沒提示就不留標記
+
+    pool = build_candidate_pool(str(world["proj"]), USER, [], org_root=str(world["org"]))
+    assert ss._org_advisory(world["org"], pool) == [f"[Org] 公司層 {len(pool['org'])} 顆（{world['org']}）"]
+    assert "尚未接上" in ss._org_advisory(world["wf"] / "nowhere", pool)[0]   # 接過但 checkout 不見 → 每次都警告
 
 
 # ─── ⑤ org_memory_root：關閉不出聲；多根／缺鍵拒絕且 stderr 有訊息 ─────────────
@@ -274,17 +324,22 @@ def test_js_org_sugar_mirrors_python(world):
     script = (
         "const r=require(process.argv[1]);"
         "console.log(JSON.stringify(["
-        "r.orgMemoryRoot({org_memory:{enabled:true,roots:[{id:'a',root:'C:/A'},{id:'b',root:'C:/B'}]}}),"
-        "r.orgMemoryRoot({org_memory:{enabled:false,roots:[{id:'a',root:'C:/A'}]}}),"
-        "r.orgMemoryRoot({org_memory:{enabled:true,roots:[{id:'a',root:'c:/Company/Mem'}]}}),"
+        "r.orgMemoryRoot({org_memory:{enabled:true,roots:[{id:'a',root:'C:/A'},{id:'b',root:'C:/B'}]}},{}),"
+        "r.orgMemoryRoot({org_memory:{enabled:false,roots:[{id:'a',root:'C:/A'}]}},{}),"
+        "r.orgMemoryRoot({org_memory:{enabled:true,roots:[{id:'a',root:'c:/Company/Mem'}]}},{}),"
         "r.dedupLayersFor('org','c:/Company/Mem/.claude/memory'),"
+        # 本機狀態（第二參數）同名鍵蓋過共用 config：共用關、本機開 → 本機根；共用開、本機關 → null
+        "r.orgMemoryRoot({org_memory:{repo_url:'u',enabled:false,roots:[]}},{enabled:true,roots:[{id:'org',root:'D:/Mine'}]}),"
+        "r.orgMemoryRoot({org_memory:{enabled:true,roots:[{id:'a',root:'C:/A'}]}},{enabled:false}),"
+        "r.orgMemoryRoot({org_memory:{repo_url:'u',enabled:false,roots:[]}},{advised:true}),"
         "]))"
     )
     r = subprocess.run(["node", "-e", script, lib], capture_output=True, text=True, encoding="utf-8", check=True)
-    two, off, one, layers = json.loads(r.stdout)
+    two, off, one, layers, local_on, local_off, advised_only = json.loads(r.stdout)
     assert two is None and "只支援 1 個" in r.stderr
     assert off is None
     assert one == "c:/Company/Mem"
+    assert local_on == "D:/Mine" and local_off is None and advised_only is None
     assert layers == ["global", f"shared:{wg_core.cwd_to_project_slug('c:/Company/Mem')}"]
 
 

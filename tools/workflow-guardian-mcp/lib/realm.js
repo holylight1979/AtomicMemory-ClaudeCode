@@ -4,7 +4,7 @@
 // 一律由 py lib/atom_io.locate_atom 裁決（atom-tools.js 經 spawnAtomCli("locate") 取用）。
 // 本檔不得再長出第二套路由或分類邏輯（verify_atom_io_equivalence test_14/17 守此不變式）。
 const path = require("path");
-const { loadConfig } = require("./paths");
+const { loadConfig, loadOrgLocal } = require("./paths");
 
 // Mirrors wg_roles.get_current_user (env override + os user).
 function getCurrentUser() {
@@ -13,14 +13,16 @@ function getCurrentUser() {
 }
 
 // ─── 公司層（org）根 ──────────────────────────────────────────────────────
-// MIRROR: hooks/wg_core.py:org_memory_root — workflow/config.json org_memory：enabled 且 roots 恰 1 個
+// MIRROR: hooks/wg_core.py:org_memory_root — 共用 workflow/config.json org_memory 被本機狀態檔
+// （paths.loadOrgLocal）同名鍵蓋過後：enabled 且 roots 恰 1 個
 // → roots[0].root；關閉 → null（不出聲）；缺鍵／roots 空／>1 → null 且 stderr 一行。
-function orgMemoryRoot(cfg = loadConfig()) {
-  const org = cfg.org_memory;
-  if (!org || typeof org !== "object") {
+function orgMemoryRoot(cfg = loadConfig(), local = loadOrgLocal()) {
+  const shared = cfg.org_memory;
+  if (!shared || typeof shared !== "object") {
     try { process.stderr.write("[org_memory] workflow/config.json 缺 org_memory 鍵，已停用 org\n"); } catch {}
     return null;
   }
+  const org = { ...shared, ...local };
   if (!org.enabled) return null;
   const roots = Array.isArray(org.roots) ? org.roots : [];
   if (roots.length > 1) {

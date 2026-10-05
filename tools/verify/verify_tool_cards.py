@@ -342,10 +342,22 @@ def test_join_clones_from_repo_url_then_inits(world, tmp_path, monkeypatch, caps
     assert om.cmd_join(str(target)) == 0
     assert (target / ".git").exists()
     assert (target / ".claude" / "memory" / "_atom_index.json").is_file()
-    org_cfg = json.loads(cfg_path.read_text(encoding="utf-8"))["org_memory"]
-    assert org_cfg["enabled"] is True and org_cfg["roots"][0]["root"] == str(target.resolve())
-    assert org_cfg["repo_url"] == bare.as_posix()               # 既有鍵原位保留
+    local_path = wg_core.org_local_path()
+    local = json.loads(local_path.read_text(encoding="utf-8"))
+    assert local["enabled"] is True and local["roots"][0]["root"] == str(target.resolve())
+    # 進版控的共用 config 不被接上動作改寫
+    assert json.loads(cfg_path.read_text(encoding="utf-8"))["org_memory"] == {
+        "enabled": False, "repo_url": bare.as_posix(), "roots": []}
 
+    # 沒給路徑、本機沒接過 → 用共用 config 的 default_root
+    local_path.unlink()
+    target2 = tmp_path / "joined-default"
+    _lf(cfg_path, json.dumps({"org_memory": {"enabled": False, "repo_url": bare.as_posix(), "roots": [],
+                                             "default_root": str(target2)}}))
+    assert om.cmd_join(None) == 0
+    assert json.loads(local_path.read_text(encoding="utf-8"))["roots"][0]["root"] == str(target2.resolve())
+
+    local_path.unlink()
     _lf(cfg_path, json.dumps({"org_memory": {"enabled": False, "roots": []}}))
     capsys.readouterr()
     assert om.cmd_join(None) == 2

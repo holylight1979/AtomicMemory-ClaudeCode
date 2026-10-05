@@ -24,7 +24,7 @@
 | 模組 | 職責 |
 |------|------|
 | `handlers/_shared.py`／`aec_ledger.py` | 跨 handler 共用 helper（含 HUD 窗活性 `_hud_alive`、GC）／AEC 殘檔帳本唯一 writer |
-| `wg_core.py` | 路徑唯一真相（專案根委派 `lib/project_root.py`）+ config／state IO + token budget 常數單一來源 + 覆轍白名單 + log rotation + PreToolUse guards + `org_memory_root()`（公司層根單一來源；js `realm.orgMemoryRoot` 鏡像） |
+| `wg_core.py` | 路徑唯一真相（專案根委派 `lib/project_root.py`）+ config／state IO + token budget 常數單一來源 + 覆轍白名單 + log rotation + PreToolUse guards + `org_memory_root()`（公司層根單一來源：共用 config `org_memory` 被本機 `workflow/org-memory.local.json` 蓋過；js `realm.orgMemoryRoot` 鏡像） |
 | `wg_atoms.py` | atom index 解析 + trigger／BM25／vector client／RRF／ACT-R + 晉升 + 最終裁切（回填）+ 判用 v2 `detect_atom_use_v2` + `build_candidate_pool`（候選池純函式：scope 可見性／org 組／Supersedes，SessionStart 與 `lib/memory_search` 共用） |
 | `wg_extraction.py` | 失敗關鍵字萃取 + worker spawn + user-extract L0 + content classify |
 | `wg_episodic.py` | episodic 生成 + 衝突偵測 + 品質回饋（harness 噪音清洗、覆轍白名單） |

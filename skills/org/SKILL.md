@@ -28,7 +28,7 @@ pattern: tool-wrapper
 
 | 使用者說 | 做什麼 |
 |---|---|
-| 接上公司記憶／公司層怎麼沒有／`[Org] 尚未接上` | `python ~/.claude/tools/org-memory.py --join [路徑]` |
+| 接上公司記憶／公司層怎麼沒有／`[Org] …還沒接上`／`[Org] 尚未接上` | `python ~/.claude/tools/org-memory.py --join [路徑]` |
 | 公司層狀態／我現在是什麼職能／誰能裁決 | `python ~/.claude/tools/org-memory.py --status` |
 | 把這條記到公司層／全公司都該知道 | `atom_write(scope="org", domain=<Lv1>, …)` |
 | 登記工具／掃工具卡 | `python ~/.claude/tools/org-memory.py --scan-tools [--project <專案根>]` |
@@ -38,7 +38,8 @@ pattern: tool-wrapper
 
 ### join
 - 成功：輸出含 `[org-memory] 完成：`，exit 0。回報一句「已接上，重啟 Claude Code 後啟動行會有 `[Org] 公司層 N 顆`」。
-- exit 2「無從 clone」：config 沒有 `org_memory.repo_url` 也沒給路徑 → 問使用者公司記憶 repo 的網址或本機路徑，只問這一件。
+- 不給路徑即可：落點用共用 config 的 `org_memory.default_root`；接上狀態寫在本機 `workflow/org-memory.local.json`（不進版控），不會弄髒 `~/.claude` 工作樹。
+- exit 2「沒有本機路徑」／「無從 clone」：config 沒有 `default_root`／`repo_url` 也沒給路徑 → 問使用者公司記憶 repo 的網址或本機路徑，只問這一件。
 - exit 1「clone 失敗」：把 stderr 末段原樣回報（多半是 GitLab 權限或網路），不改用別的方式硬接。
 
 ### status
