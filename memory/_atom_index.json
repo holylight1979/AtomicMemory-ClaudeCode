@@ -3987,6 +3987,24 @@
         "叫停 agent"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-說不是我的改動時要指認是哪個session-給標題與編號說可能是它的-查不到才說查不到",
+      "path": "memory/Failures/行為契約/feedback-說不是我的改動時要指認是哪個session-給標題與編號說可能是它的-查不到才說查不到.md",
+      "triggers": [
+        "不是我的",
+        "那不是我的",
+        "其他 session",
+        "未提交的檔",
+        "歸屬",
+        "誰改的",
+        "aiTitle",
+        "session 標題",
+        "併發 session",
+        "非我造成",
+        "指認 session"
+      ],
+      "scope": "global"
     }
   ]
 }

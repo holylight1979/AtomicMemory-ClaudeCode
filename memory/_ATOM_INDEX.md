@@ -233,3 +233,4 @@
 | feedback-列給使用者的待辦要先對環境事實核對-已經發生的事不得再列成待辦 | memory/Failures/驗證與實證/feedback-列給使用者的待辦要先對環境事實核對-已經發生的事不得再列成待辦.md | 待辦清單, 需你動手, 你這邊要做, 重啟 Claude Code, 已經重啟, 交接檔待辦, 部署現況, 單人部署, 斷言現況 | global |
 | 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 | memory/版控/Git/新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控.md | 新 repo, 第一次提交, gitignore, access.json, git rm --cached, 整包加入, 公司記憶 repo, repo 永遠髒, 誤提交 | global |
 | 並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次 | memory/工作流/協作與並行/並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次.md | 並行實作, 派工簡報, 全量驗證, run_verify 並行, 多線同改一檔, 主持人整合, sub-agent 卡在等驗證, 叫停 agent | global |
+| feedback-說不是我的改動時要指認是哪個session-給標題與編號說可能是它的-查不到才說查不到 | memory/Failures/行為契約/feedback-說不是我的改動時要指認是哪個session-給標題與編號說可能是它的-查不到才說查不到.md | 不是我的, 那不是我的, 其他 session, 未提交的檔, 歸屬, 誰改的, aiTitle, session 標題, 併發 session, 非我造成, 指認 session | global |
