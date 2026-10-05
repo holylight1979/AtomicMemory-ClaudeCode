@@ -974,6 +974,7 @@ def _resolve_author(repo_root: Path, vcs: str) -> str:
             r = subprocess.run(
                 ["git", "-C", str(repo_root), "config", "user.name"],
                 capture_output=True, timeout=VCS_TIMEOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if r.returncode == 0:
                 name = r.stdout.decode("utf-8", errors="replace").strip()
@@ -991,6 +992,7 @@ def _git_commits(repo_root: Path, date: str, author: str) -> list[tuple[str, str
              f"--since={date} 00:00:00", f"--until={date} 23:59:59",
              f"--author={author}", "--pretty=format:%h|%s"],
             capture_output=True, timeout=VCS_TIMEOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if r.returncode != 0:
             return []
@@ -1010,6 +1012,7 @@ def _svn_commits(repo_root: Path, date: str, author: str) -> list[tuple[str, str
             ["svn", "log", "--xml", "--non-interactive",
              "-r", f"{{{prev_day}}}:{{{next_day}T23:59:59Z}}"],
             capture_output=True, timeout=VCS_TIMEOUT, cwd=str(repo_root),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if r.returncode != 0:
             return []

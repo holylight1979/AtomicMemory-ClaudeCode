@@ -299,6 +299,7 @@ def action_privacy_check(root: Path, user: str) -> Dict[str, Any]:
             result = subprocess.run(
                 ["svn", "propget", "svn:ignore", str(mem), "--non-interactive"],
                 capture_output=True, text=True, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if result.returncode == 0:
                 svn_ignores = result.stdout.strip().splitlines()

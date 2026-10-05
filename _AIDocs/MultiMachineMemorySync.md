@@ -106,7 +106,7 @@
 
 ## Windows 約束
 
-- hook 在 `pythonw.exe` 下跑：`sys.stdout`／`sys.stderr` 可能是 `None`，所有輸出走 `_out()` 類 helper；子行程一律 `capture_output`、UTF-8、`errors="replace"`、`creationflags=CREATE_NO_WINDOW`（否則閃 console 窗，守衛 `hooks/verify/verify_no_window_spawn.py`）。
+- hook 在 `pythonw.exe` 下跑：`sys.stdout`／`sys.stderr` 可能是 `None`，所有輸出走 `_out()` 類 helper；子行程一律 `capture_output`、UTF-8、`errors="replace"`、`creationflags=CREATE_NO_WINDOW`（否則閃 console 窗，守衛 `hooks/verify/verify_no_window_spawn.py`，掃 hooks/lib/tools）。
 - 時限：settings.json PreToolUse hook 預算 5 秒（整鏈共用）；`check_merge_driver` 總預算 2.5 秒，內部 `ls-files -u` 1s、`is_installed` 每次 git 呼叫 0.5s、`--install` 1.5s、`--resolve` 2.5s，帶絕對 deadline；逾時＝fail-open（放行、不出訊息、落 log）。
 - 驅動 command 內的直譯器記絕對路徑；`pythonw.exe` 換成 `python.exe`（驅動要 stdout）。venv 內安裝取底層真 Python。
 - `git check-attr` 與 attributes 路徑：`~/.config/git/attributes`（`core.attributesFile` 有設則依 git 規則對 home 解析）。

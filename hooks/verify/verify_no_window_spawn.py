@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""verify_no_window_spawn — hooks/lib 內 subprocess 呼叫必須帶壓窗參數。
+"""verify_no_window_spawn — hooks/lib/tools 內 subprocess 呼叫必須帶壓窗參數。
 
 背景：hook 行程是 GUI pythonw（無 console）。它 spawn 任何 console 程式（git/svn/python…）
 若不帶 creationflags=CREATE_NO_WINDOW（或 startupinfo），Windows 會彈可見 console 宿主窗（閃窗）。
 本掃描把「漏帶旗標」變成 verify 失敗，防止新增程式碼再引入閃窗。
+tools 也掃：工具會被 hook、MCP server、排程（pythonw）叫起來，一樣沒有 console。
 
-規則：掃 hooks/*.py、hooks/handlers/*.py、lib/*.py（排除 verify/ 測試碼）中所有
+規則：掃 hooks/、lib/、tools/ 含子目錄的 *.py（排除 verify/ 測試碼）中所有
 subprocess.run/Popen/check_output/check_call/call 呼叫（含 import 別名），
 呼叫必須滿足其一：
   - keyword 帶 creationflags= 或 startupinfo=
   - keyword 帶 **kwargs 展開（旗標由呼叫端組裝，如 _shared 的 spawn helper）
-  - 呼叫行上方或同行有 `# no-window-exempt: <理由>` 註記（POSIX-only 分支等）
+  - 呼叫行上方或同行有 `# no-window-exempt: <理由>` 註記（POSIX-only 分支、
+    子行程要直接印到終端機等）
 """
 from __future__ import annotations
 
@@ -19,7 +21,8 @@ import sys
 from pathlib import Path
 
 CLAUDE = Path(__file__).resolve().parents[2]
-SCAN_DIRS = [CLAUDE / "hooks", CLAUDE / "hooks" / "handlers", CLAUDE / "lib"]
+SCAN_DIRS = [CLAUDE / "hooks", CLAUDE / "lib", CLAUDE / "tools"]
+SKIP_PARTS = {"verify", "node_modules", "__pycache__"}
 SPAWN_FUNCS = {"run", "Popen", "check_output", "check_call", "call"}
 EXEMPT_MARK = "no-window-exempt:"
 
@@ -39,7 +42,7 @@ def check_file(path: Path) -> list:
     try:
         tree = ast.parse(src)
     except SyntaxError as e:
-        return [f"{path.name}: SyntaxError {e}"]
+        return [f"{path.relative_to(CLAUDE).as_posix()}: SyntaxError {e}"]
     aliases = subprocess_aliases(tree)
     if not aliases:
         return []
@@ -58,7 +61,7 @@ def check_file(path: Path) -> list:
         ctx = "\n".join(lines[max(0, node.lineno - 2): node.lineno])
         if EXEMPT_MARK in ctx:
             continue
-        problems.append(f"{path.relative_to(CLAUDE)}:{node.lineno} subprocess.{f.attr} 未帶 creationflags/startupinfo")
+        problems.append(f"{path.relative_to(CLAUDE).as_posix()}:{node.lineno} subprocess.{f.attr} 未帶 creationflags/startupinfo")
     return problems
 
 
@@ -67,8 +70,8 @@ def main() -> int:
     for d in SCAN_DIRS:
         if not d.is_dir():
             continue
-        for p in sorted(d.glob("*.py")):
-            if p in seen or "verify" in p.parts:
+        for p in sorted(d.rglob("*.py")):
+            if p in seen or SKIP_PARTS & set(p.parts):
                 continue
             seen.add(p)
             problems += check_file(p)

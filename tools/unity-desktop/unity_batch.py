@@ -130,7 +130,8 @@ def main():
     print(f"[INFO] Command: {' '.join(cmd)}", file=sys.stderr)
 
     try:
-        result = subprocess.run(cmd, timeout=args.timeout, capture_output=True, text=True)
+        result = subprocess.run(cmd, timeout=args.timeout, capture_output=True, text=True,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         exit_code = result.returncode
     except subprocess.TimeoutExpired:
         print(f"[ERROR] Unity timed out after {args.timeout}s", file=sys.stderr)

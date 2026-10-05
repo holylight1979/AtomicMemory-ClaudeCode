@@ -81,6 +81,7 @@ def _sync_catalog(mem: Path) -> str:
     r = subprocess.run(
         [sys.executable, str(SYNC_INDEX), "--write", "--memory-dir", str(mem)],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if r.returncode != 0:
         raise RuntimeError(f"sync-memory-index --write 失敗（exit {r.returncode}）：{r.stderr.strip()}")

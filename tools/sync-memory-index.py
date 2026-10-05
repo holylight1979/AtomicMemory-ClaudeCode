@@ -800,6 +800,7 @@ def main() -> int:
             r = subprocess.run(
                 [sys.executable, str(Path(claude_root) / "tools" / "native-memory-bridge.py")],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if r.returncode != 0:
                 print(f"[native-memory-bridge] exit {r.returncode}: {(r.stderr or r.stdout)[-200:]}",

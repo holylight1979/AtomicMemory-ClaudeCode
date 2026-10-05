@@ -56,7 +56,8 @@ def list_cards():
 def rescan(atom):
     try:
         r = subprocess.run([sys.executable, str(TOOLS / "atom-health-check.py"), "--atom", atom, "--json"],
-                           capture_output=True, text=True, encoding="utf-8", timeout=60)
+                           capture_output=True, text=True, encoding="utf-8", timeout=60,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         h = json.loads(r.stdout)
         n = len(h.get("broken_refs") or []) + len(h.get("missing_reverse_refs") or [])
         return n, h

@@ -40,7 +40,8 @@
 - `hooks/handlers/pre_tool_use.py` 隱私硬閘 `_git_lines`——**每次 git commit 必閃**（＝「上GIT 閃」主犯）
 - `hooks/handlers/session_start.py` 未push檢查（git rev-list）＋ followup 檢查（console python）——**每次開 session 跑**（開場閃的自家成分）
 - `hooks/handlers/aec_ledger.py` vcs_tracked、`hooks/extract-worker.py` catalog sync——同類
-- 以上全數補 `creationflags=CREATE_NO_WINDOW` 修畢；防回歸掃描 `hooks/verify/verify_no_window_spawn.py`（AST 掃 hooks/lib 全部 subprocess 呼叫，漏帶即 FAIL，豁免註記 `# no-window-exempt:`）
+- 以上全數補 `creationflags=CREATE_NO_WINDOW` 修畢；防回歸掃描 `hooks/verify/verify_no_window_spawn.py`（AST 掃 hooks/lib/tools 含子目錄的全部 subprocess 呼叫，漏帶即 FAIL，豁免註記 `# no-window-exempt:`）
+- `tools/` 也在掃描範圍：工具會被 hook、MCP server、排程（pythonw）叫起來，一樣沒有 console；MCP server 的 JS `exec`／`spawn` 一律帶 `windowsHide: true`
 
 **更正記事**：同日稍早曾誤判主因為「PowerShell 工具生成 pwsh 實例」——兩次閃窗時間與 pwsh 啟動巧合，實為同一時刻 PreToolUse 隱私閘 spawn git；「純 pwsh 不含 git 的 probe 不閃」即已否證，據此建的「版控走 Bash tool」core atom 已刪除。教訓：歸因勿靠時間巧合，要靠對照實驗（含/不含嫌疑動作）＋修復後驗證。
 

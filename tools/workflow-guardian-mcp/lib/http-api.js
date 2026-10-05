@@ -123,12 +123,12 @@ function apiHealth(req, res, forceRefresh) {
     healthCache = { data: merged, timestamp: Date.now() };
     jsonRes(res, 200, merged);
   };
-  exec(pyCmd(auditScript, "--json"), { timeout: 30000 }, (err, stdout) => {
+  exec(pyCmd(auditScript, "--json"), { timeout: 30000, windowsHide: true }, (err, stdout) => {
     if (stdout) { try { auditData = JSON.parse(stdout); } catch {} }
     auditDone = true;
     tryMerge();
   });
-  exec(pyCmd(healthScript, "--report --json"), { timeout: 30000 }, (err, stdout) => {
+  exec(pyCmd(healthScript, "--report --json"), { timeout: 30000, windowsHide: true }, (err, stdout) => {
     if (stdout) { try { healthData = JSON.parse(stdout); } catch {} }
     healthDone = true;
     tryMerge();
@@ -165,7 +165,7 @@ function makeJobRunner({ maxConcurrent = 1, ttlMs = 300000 } = {}) {
 // 註：腳本測試失敗仍輸出合法 JSON → 視為 completed（保留原 testJobs「非零退出仍解析」語意）
 function execJson(cmd, opts = {}) {
   return new Promise((resolve, reject) => {
-    exec(cmd, opts, (err, stdout, stderr) => {
+    exec(cmd, { windowsHide: true, ...opts }, (err, stdout, stderr) => {
       if (stdout) { try { return resolve(JSON.parse(stdout)); } catch { /* fall through */ } }
       if (err) return reject(new Error(err.message + (stderr ? " | " + String(stderr).slice(0, 500) : "")));
       reject(new Error("empty output" + (stderr ? " | " + String(stderr).slice(0, 500) : "")));
@@ -316,7 +316,7 @@ function apiHealStart(req, res, atom, auto) {
 }
 function apiHealAll(req, res) {
   if (healCfg().enabled === false) return jsonRes(res, 503, { error: "heal disabled" });
-  exec(pyCmd(path.join(TOOLS_DIR, "atom-health-check.py"), "--report --json"), { timeout: 30000 }, (err, stdout) => {
+  exec(pyCmd(path.join(TOOLS_DIR, "atom-health-check.py"), "--report --json"), { timeout: 30000, windowsHide: true }, (err, stdout) => {
     const names = new Set();
     try {
       const h = JSON.parse(stdout);

@@ -220,6 +220,7 @@ def cmd_start(args):
             stderr=open(VECTORDB_DIR / "service.log", "a"),  # lf-exempt: fd 交給子行程寫 log，Python 端不寫入
         )
     else:
+        # no-window-exempt: POSIX 分支，沒有 console 視窗問題
         subprocess.Popen(
             [sys.executable, str(service_py)],
             stdout=subprocess.DEVNULL,

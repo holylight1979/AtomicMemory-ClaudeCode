@@ -16,6 +16,7 @@
 - [臨] 改 settings.json hook 指令後必端到端真跑一條驗 hookSpecificOutput（曾因丟空格 hooks 全滅 3 天零報錯）。
 - [臨] 2026-09-02 定案（修後同場景 trace 零事件實證）：「上GIT/開 session 閃窗」真因＝自家 hook 裸 spawn git/python——主犯 pre_tool_use 隱私閘（每次 git commit）、session_start 未push檢查/followup（每次開 session）、aec_ledger、extract-worker；全補 creationflags 已修。**曾誤寫主因**：「PowerShell 工具生 pwsh 會閃」——閃窗時間與 pwsh 啟動巧合，實為同刻 PreToolUse 閘 spawn git；純 pwsh 不含 git 的 probe 不閃即否證。歸因靠對照實驗/修後驗證，勿靠時間巧合。CC 本體 shell snapshot 漏 windowsHide 的官方 issue 仍在，使用者定案無視。
 - [臨] 防回歸：`hooks/verify/verify_no_window_spawn.py`（AST 掃 hooks/lib 全部 subprocess 呼叫，漏帶旗標即 FAIL；豁免註記 `# no-window-exempt:`）。診斷：`tools/console-window-trace.ps1`。完整案卷：`_AIDocs/ClaudeCodeInternals/console-window-forensics.md`。
+- [臨] `verify_no_window_spawn` 掃描範圍＝hooks/、lib/、tools/ 含子目錄（排除 verify/）。tools 也要守：工具會被 hook、MCP server、排程 pythonw 叫起來，同樣沒有 console。加旗標前先看子行程輸出有沒有被接管（capture_output／導檔）：沒接管、要直接印到終端機的，加 CREATE_NO_WINDOW 會吃掉輸出，改用 `# no-window-exempt:` 註記。MCP server 的 JS `exec`／`spawn` 對應寫法是 `windowsHide: true`（檢查器不掃 JS，靠人工）。
 
 ## 行動
 

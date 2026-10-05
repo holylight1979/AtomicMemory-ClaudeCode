@@ -731,7 +731,7 @@ def _git(args: List[str], cwd: Path) -> Tuple[int, str, str]:
         proc = subprocess.run(
             ["git", "-C", str(cwd)] + args,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=30,
+            timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return proc.returncode, proc.stdout or "", proc.stderr or ""
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:

@@ -5,6 +5,11 @@
 
 ---
 
+## 2026-10-05 防閃窗檢查器納入 `tools/`，補齊 14 個漏帶壓窗旗標的啟動點
+- 檢查器 `verify_no_window_spawn` 原本只掃 hooks/lib 頂層，`tools/` 沒人守；改掃 hooks/lib/tools 含子目錄。補 `tools/` 13 個 Python 啟動點的 `CREATE_NO_WINDOW`、1 個 POSIX 分支豁免註記，MCP dashboard（`http-api.js`）4 個 `exec` 補 `windowsHide`。當下實測無閃窗，屬預防。
+
+---
+
 ## 2026-10-05 週用量截圖去個人化：帳號自動偵測、落點改公司記憶庫
 - **緣由**：`usage_snapshot.py` 把帳號（`uj_claudeai_5`）與落點（某人的個人共享資料夾）寫死在進版控的程式碼裡——別台同步後檔名掛錯帳號、各機手改又成了長期本地改動。
 - **做法**：帳號改讀這台 Claude Code 登入信箱（`~/.claude.json`），讀不到報錯不截；截圖改存公司記憶庫 `usage-snapshots/`，存完直接呼叫 `wg_vcs_sync.sync_targets_inline` commit／拉／push。`vcs_sync.org_extra_pathspecs`（預設 `[usage-snapshots]`）讓公司層 repo 的同步目標多收這個路徑（只進 pathspec、不進 mem_dirs），截圖 commit 因此算「純記憶」、不會卡住別台的記憶自動拉取；`_git_restore_mem` 略過 src 與 index 都沒檔的 pathspec（尚無人放過截圖的 repo 不會 restore 失敗）。失敗圖只留本機。

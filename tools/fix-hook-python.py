@@ -97,6 +97,7 @@ def verify_interpreter(path: str) -> Tuple[bool, str]:
         out = subprocess.run(
             [expand(path), "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
             capture_output=True, text=True, timeout=20,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError) as e:
         return False, f"無法執行：{type(e).__name__}: {e}"

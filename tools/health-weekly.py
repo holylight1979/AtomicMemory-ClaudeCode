@@ -64,6 +64,7 @@ def _run_json(args: list[str], timeout: int = 300) -> dict | None:
         r = subprocess.run(
             [PY, *args], capture_output=True, text=True, encoding="utf-8",
             timeout=timeout, cwd=str(CLAUDE_DIR),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return json.loads(r.stdout)
     except Exception:
@@ -76,6 +77,7 @@ def _run_check(args: list[str], timeout: int = 120) -> tuple[bool, str]:
         r = subprocess.run(
             [PY, *args], capture_output=True, text=True, encoding="utf-8",
             timeout=timeout, cwd=str(CLAUDE_DIR),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         tail = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
         return r.returncode == 0, (tail[-1] if tail else "")

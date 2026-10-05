@@ -247,7 +247,8 @@ def catalog_sync(index_dir: Path) -> Dict[str, Any]:
         argv += ["--memory-dir", str(index_dir)]
     try:
         cp = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
-                            errors="replace", cwd=str(CLAUDE_DIR), timeout=120)
+                            errors="replace", cwd=str(CLAUDE_DIR), timeout=120,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.TimeoutExpired) as e:
         return {"ok": False, "error": str(e)}
     if cp.returncode != 0:

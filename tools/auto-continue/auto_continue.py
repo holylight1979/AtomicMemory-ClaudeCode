@@ -198,6 +198,7 @@ def spawn_continue(target_cwd: str, config: Dict[str, Any], log: Callable[[str],
             cmd, cwd=target_cwd, stdin=subprocess.DEVNULL,
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=config["spawn_timeout_sec"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return {"exit": proc.returncode, "data": parse_result_json(proc.stdout),
                 "stdout": proc.stdout, "stderr": proc.stderr}
