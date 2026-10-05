@@ -226,6 +226,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 ### 遷移 / 維護
 - init-roles.py — 職能人工覆寫 `--me <roles>`（寫 personal/<u>/role.md，冪等）與 `--status` 三層對帳（role.md／AD 群組對映／deciders）；`--bootstrap-personal`＝`--me programmer`
 - memory-search.py — 命令列一句話查記憶（`lib/memory_search`；非 CC 人員／腳本用；與 rag-engine.py 純向量分工）
+- ai-client-setup.py — 其他 AI 客戶端輕量安裝（只註冊 workflow-guardian MCP、不裝 hooks）：檢查 Node → `git pull --ff-only` → `org-memory.py --join` → 寫 Codex `~/.codex/config.toml`／Gemini CLI `~/.gemini/settings.json`（已註冊不動、既有設定保留；偵測不到就印片段）；`--dry-run`／`--client`／`--no-update`／`--no-join`
 - org-memory.py — 公司層 org：`--join [<root>]`（省略路徑用 config `org_memory.default_root`；根不存在就從 `org_memory.repo_url` clone 再 init）、`--status`（接上沒／顆數／git 同步／身份職能／裁決名單，JSON）、`--scan-tools`（skills／MCP／專案 tools → 工具卡；舊世代卡的觸發詞自動換成現行規則）；初始化 `--init <root>`（佈 `<root>/.claude/memory` 記憶樹＋`shared/_taxonomy.json` Lv1「工具」＋`project-tree.json standalone`、種工具卡 `shared/工具/org-memory.md`、寫本機狀態檔 `workflow/org-memory.local.json`（不進版控）與 registry；冪等）
 - memory-peek.py / memory-undo.py / memory-session-score.py — `/memory` 子命令後端
 - changelog-roll.py — _CHANGELOG.md 自動滾動（PostToolUse hook 偵測寫入 → detached subprocess 觸發）

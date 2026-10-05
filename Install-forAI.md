@@ -234,13 +234,20 @@ template 內三個 server：
 
 ### Step 4b：其他 AI 客戶端與非 Claude Code 人員怎麼查記憶
 
-- **其他 MCP 客戶端**（Codex／Cursor…）：註冊同一個 workflow-guardian server 即得唯讀的 `memory_search`（契約 TECH §5.8）。Codex 範例（`~/.codex/config.toml`）：
+- **不用 Claude Code 的人（企劃／美術，用 Codex 或 Gemini CLI）——輕量安裝，只接 MCP、不裝 hooks**：需要 git、Node.js、Python。把下面這段貼給自己的 AI 工具，它會代跑：
 
-  ```toml
-  [mcp_servers.workflow-guardian]
-  command = "node"
-  args = ["<HOME>/.claude/tools/workflow-guardian-mcp/server.js"]
   ```
+  請幫我接上公司記憶：
+  1. 如果 ~/.claude 不存在，執行 git clone <原子記憶 repo 網址> ~/.claude
+  2. 執行 python ~/.claude/tools/ai-client-setup.py
+  3. 把輸出的「結果」原樣告訴我；有「失敗」就停下來，不要自己想辦法繞過
+  ```
+
+  `tools/ai-client-setup.py` 做四件事、可重跑：檢查 Node → 更新 `~/.claude`（`git pull --ff-only`）→ 接上公司層（`org-memory.py --join`）→ 把 workflow-guardian 寫進偵測到的客戶端設定（Codex `~/.codex/config.toml`、Gemini CLI `~/.gemini/settings.json`；已註冊不動，既有設定不改）。偵測不到客戶端就印出 TOML／JSON 片段供其他支援 MCP 的客戶端（Cursor…）手貼。`--dry-run` 只說會做什麼。裝完重開 AI 工具，用講的：「查公司記憶：〈問題〉」（`memory_search`，契約 TECH §5.8）、「把這條記到公司層：〈內容〉」（`atom_write scope=org`）。
+  - 沒有 hooks 就沒有「每句話自動帶入記憶」，要主動說「查記憶」。
+  - 身份＝登入 Windows 的 AD 帳號；查不到身份（`unknown`）時不讀任何人的 personal。
+  - 公司層目前只有「工具」一個範疇；企劃／美術的知識不屬於它時，AI 會在寫入時開新範疇（`allow_new_category`）並回報開了什麼。
+  - 網頁版 AI（例如瀏覽器裡的 Gemini）碰不到本機工具，這條路接不上。
 
 - **沒有 Claude Code 的人**：裝好 `~/.claude`（Step 1–2，有 Python 即可，不需 Node）後直接跑 `python ~/.claude/tools/memory-search.py "問題" [--cwd <專案> --json --no-vector]`；結果與 MCP 相同（`schema_version=1`）。這是現階段非 CC 人員的門，不是對外 HTTP 服務。
 
