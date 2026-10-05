@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: codex exec, codex companion, rmcp, 8090, unityMCP, MCP 連線失敗, mcp_servers, --ignore-user-config, codex_extra_args, plan_review 逾時, assessment_timeout
 - Created-at: 2026-09-10
-- Related: codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄, feedback-tooling-reliability, codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated
+- Related: codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄, feedback-tooling-reliability, codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated, hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約
 
 ## 知識
 
