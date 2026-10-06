@@ -51,6 +51,14 @@ def test_sanitize_fail_open():
     assert sanitize_harness_noise("普通文字") == "普通文字"
 
 
+def test_strips_browser_instruction_block_so_commit_keyword_survives():
+    # Claude in Chrome 連著時 harness 把 ~2900 字的 <browser_instruction> 塞在使用者訊息前面；
+    # 口令閘只存清理後前 500 字，沒剝掉的話「上GIT」會被截掉（2026-10-06 實際擋錯一次）
+    blk = ("<browser_instruction># Claude in Chrome browser automation" + chr(10)
+           + "x" * 2800 + chr(10) + "</browser_instruction>上GIT")
+    assert sanitize_harness_noise(blk) == "上GIT"
+
+
 # ─── 2. topic tracker 記錄端 ─────────────────────────────────────────
 
 

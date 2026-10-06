@@ -273,11 +273,11 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
     return text[:lo]
 
 
-# harness 注入標籤（IDE 開檔/選取、system-reminder、skill 展開）——成對或未閉合
+# harness 注入標籤（IDE 開檔/選取、system-reminder、skill 展開、Claude in Chrome 的 browser_instruction）——成對或未閉合
 # （截斷）皆吃到閉合標或字串尾。用於把「使用者訊息」清成「使用者實際打的字」。
 _HARNESS_TAG_RE = re.compile(
     r"<(system-reminder|task-notification|ide_opened_file|ide_selection|ide_diagnostics|"
-    r"command-name|command-message|command-args|local-command-stdout)\b[^>]*>"
+    r"command-name|command-message|command-args|local-command-stdout|browser_instruction)\b[^>]*>"
     r".*?(?:</\1>|\Z)",
     re.DOTALL | re.IGNORECASE,
 )
