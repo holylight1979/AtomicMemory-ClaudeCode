@@ -4103,6 +4103,20 @@
         "capabilities"
       ],
       "scope": "global"
+    },
+    {
+      "name": "verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改namedtuple",
+      "path": "_AIDocs/_atoms/MemDev/verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改namedtuple.md",
+      "triggers": [
+        "importlib",
+        "spec_from_file_location",
+        "dataclass",
+        "future annotations",
+        "verify 載入",
+        "NoneType __dict__",
+        "tools/verify"
+      ],
+      "scope": "global"
     }
   ]
 }
