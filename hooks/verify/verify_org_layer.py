@@ -259,6 +259,11 @@ def test_unjoined_machine_is_asked_until_answered(world, monkeypatch, capsys):
     assert not (world["wf"] / "org-memory.local.json").exists()   # 問本身不留標記
     assert ss._org_advisory(None, {}) == first                    # 沒答案 → 下個 session 照問
 
+    shared["org_memory"]["default_root"] = "~/CompanyMem"         # 共用 config 寫 ~ 相對路徑 → 問人時展開成真路徑
+    tilde_line = ss._org_advisory(None, {})[0]
+    assert str(Path("~/CompanyMem").expanduser()) in tilde_line and "~/CompanyMem" not in tilde_line
+    shared["org_memory"]["default_root"] = "D:/CompanyMem"
+
     wg_core.save_org_local(advised=True)                          # 舊版留下的「提示過一次」不算答案
     assert ss._org_advisory(None, {}) == first
 

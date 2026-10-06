@@ -243,3 +243,4 @@
 | verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改namedtuple | _AIDocs/_atoms/MemDev/verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改namedtuple.md | importlib, spec_from_file_location, dataclass, future annotations, verify 載入, NoneType __dict__, tools/verify | global |
 | 會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama | memory/工作流/會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama.md | 會議, 會議錄音, 會議音檔, 錄音轉文字, 語音轉文字, 逐字稿, 會議摘要, 會議記錄, 整理這場會議, meeting, transcribe, /meeting | global |
 | feedback-人讀文件只寫使用者直接體驗到的-技術細節一律指tech-贅述與過時段落剔除 | memory/Failures/文字與格式/feedback-人讀文件只寫使用者直接體驗到的-技術細節一律指tech-贅述與過時段落剔除.md | README, Install.md, 人讀文件, 使用者文件, 說明文件, 文件更新, 協作體驗, 贅述, 過度技術, 版控段落, 使用者視角文件 | global |
+| feedback-亂碼與絕對路徑類缺陷直接修不等拍板-共用設定與人讀文件不寫磁碟代號 | memory/Failures/行為契約/feedback-亂碼與絕對路徑類缺陷直接修不等拍板-共用設定與人讀文件不寫磁碟代號.md | 亂碼, mojibake, 等拍板, 待拍板, 絕對路徑, 磁碟代號, default_root, 共用設定, 人讀文件路徑, 多機通用, 收尾單一決策點 | global |

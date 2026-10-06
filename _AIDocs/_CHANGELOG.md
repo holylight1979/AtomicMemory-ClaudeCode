@@ -9,7 +9,8 @@
 - **緣由**：公司層（`scope=org`、`/org`）已實作並寫進 TECH §4.4／`rules/core.md`，但人讀入口 `README.md` 開頭與 `Install.md` 範圍表仍只講根層與專案層；README 另混了設計理念、合併驅動細節、rebase 方向等技術導向段落，使用者指正「人必讀文件要剔除多餘、過時、過度技術的內容；版控段落贅述太多，寫使用者直接體驗到的就好」。
 - **README.md**（118 → 90 行）：三層記憶一張表（放什麼／在哪／怎麼拿到）＋大家的／我的分界＋與 CC 原生自動記憶的關係（不取代、放指標）；開始用 3 步；平常替你做什麼 6 點；「你會對它說的話」口令表（接上公司記憶／初始化／整理記憶分類／整理這場會議／上GIT／執P／handoff／memory health／conflict pending）；版控收成三點（卡片自己上、程式碼等口令且不偷推、多機索引自動合）；看得見的介面；不用 CC 的同事。移除：核心設計理念段（TECH §1）、與原生差異表（TECH §2.1）、合併驅動／rebase 方向／Fork／SVN／LF 細節（`MultiMachineMemorySync.md` 已全涵蓋）。
 - **Install.md**（107 → 92 行）：開頭改一句「本檔只裝根層，公司層／專案層不用裝」指 README 三層表；新增「接上公司層 — 每台機器一次」一節（啟動主動問路徑、`[Org]` 訊息）；STEP C 補「之後自動、程式碼仍等口令」；子專案歸根與 `/read-project` 併入專案節一句；砍掉與 README 重複的多機合併長段與縮寫說明。
-- **連動**：`DocIndex-System.md` 兩檔描述同步。 | `README.md`, `Install.md`, `_AIDocs/{DocIndex-System,_CHANGELOG}.md`
+- **連動**：`DocIndex-System.md` 兩檔描述同步。
+- **順修**：共用 `workflow/config.json` `org_memory.default_root` 從 `C:\CompanyAtomsMem` 改 `~/CompanyAtomsMem`（使用者指出共用設定與人讀文件不該出現磁碟代號絕對路徑；`org-memory.py --join` 本就 `expanduser`，已接上的機器讀本機檔不受影響）；SessionStart 的 `❓ [Org]` 選項改印展開後的路徑；README 表不再寫路徑、Install 改「家目錄下的 CompanyAtomsMem」。 | `README.md`, `Install.md`, `workflow/config.json`, `hooks/handlers/session_start.py`, `_AIDocs/{DocIndex-System,_CHANGELOG}.md`
 
 ---
 

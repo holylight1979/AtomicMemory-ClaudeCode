@@ -604,6 +604,8 @@ def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:
             return []
         cmd = "python ~/.claude/tools/org-memory.py"
         default_root = str(shared.get("default_root") or "")
+        if default_root.startswith("~"):
+            default_root = str(Path(default_root).expanduser())  # config 寫家目錄相對路徑，問人時給展開後的真路徑
         opt_default = (f"(1) 接上，放在預設路徑 {default_root}（推薦）→ 執行 `{cmd} --join`；" if default_root else "")
         return [
             f"❓ [Org] 公司有一層所有專案共用的記憶（{shared.get('repo_url')}），這台機器還沒接上，使用者也還沒被問過。"
