@@ -4139,6 +4139,24 @@
         "/meeting"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-人讀文件只寫使用者直接體驗到的-技術細節一律指tech-贅述與過時段落剔除",
+      "path": "memory/Failures/文字與格式/feedback-人讀文件只寫使用者直接體驗到的-技術細節一律指tech-贅述與過時段落剔除.md",
+      "triggers": [
+        "README",
+        "Install.md",
+        "人讀文件",
+        "使用者文件",
+        "說明文件",
+        "文件更新",
+        "協作體驗",
+        "贅述",
+        "過度技術",
+        "版控段落",
+        "使用者視角文件"
+      ],
+      "scope": "global"
     }
   ]
 }

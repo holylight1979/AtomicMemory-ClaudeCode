@@ -2,14 +2,8 @@
 
 你不用手動裝任何東西：把一段 prompt 貼給 Claude Code，它會用 git 取得本套件、跑安裝器，剩下的它自己做。
 
-> **先分清兩個範圍**：知識庫有「根層」與「專案層」兩個不同的範圍限定，各自有各自的版控庫。
->
-> | 範圍 | 在哪裡 | 裝什麼／記什麼 | 版控庫 |
-> |------|------|------|------|
-> | **根層** | `~/.claude/` | 原子記憶系統本身 + 跨專案通用的根本知識（通則、工具踩坑） | **原子記憶系統自己的版控庫**（下面 §0）——全員共用同一個庫，根層知識隨 pull / push 同步；只有個人啟動檔（`USER-{帳號}.md`、`IDENTITY-{帳號}.md`）不進版控 |
-> | **專案層** | `{專案}/.claude/memory/` | 這個專案的決策、踩坑、共識 | **專案自己的 GIT / SVN**——跟著專案 pull，不需安裝 |
->
-> 本檔只講「根層」的安裝。專案層見最後的「在專案裡使用」。
+> 本檔裝的是**根層**（`~/.claude/`：系統本身＋跨專案通則），來自本系統自己的版控庫，全員共用；只有個人啟動檔（`USER-{帳號}.md`、`IDENTITY-{帳號}.md`）不進版控。
+> **公司層**（公司記憶庫）與**專案層**（`{專案}/.claude/memory/`）不用安裝，見下方「接上公司層」「在專案裡使用」；三層分工見 [README.md](README.md)。
 
 ---
 
@@ -62,13 +56,21 @@
 
 ---
 
+## 接上「公司層」— 每台機器一次
+
+公司記憶庫是全公司、所有專案共用的一份記憶，自己一個 git／svn repo（網址已寫在系統設定裡）。根層裝好後第一次啟動 Claude Code，AI 會問你要放哪（預設 `C:\CompanyAtomsMem`／自己指定／先不接）；回答後它自己 clone、接上，「先不接」會記住、不再問。之後對 AI 說「接上公司記憶」可補接、「公司記憶接上沒」可查狀態。啟動訊息有一行 `[Org] 公司層 N 顆（路徑）` 就是接上了。
+
+---
+
 ## 在「專案」裡使用 — 3 步到底
 
-上面裝的是**根層**（原子記憶系統本身；全員共用同一個版控庫，根層知識隨它同步）。**專案層**是另一個範圍：`{專案}/.claude/memory/` 跟著專案自己的 GIT / SVN 走，隊友 pull 專案就接上，**不需要再安裝任何東西**。
+專案層 `{專案}/.claude/memory/` 跟著專案自己的 GIT / SVN 走，隊友 pull 專案就接上，**不需要再安裝任何東西**。
 
 - **STEP A**：在專案根目錄開啟 VS Code（或在專案目錄啟動 Claude Code CLI）。
 - **STEP B**（首次）：告訴 AI「初始化原子記憶庫，並且立即將知識分類、分層存儲」——AI 會建立 `{專案}/.claude/memory/MEMORY.md` 與分類結構，系統從此認得這個專案。
-- **STEP C**：把 `{專案}/.claude/memory/` 上傳 GIT / SVN 讓團隊共享。到這就完成了，照你原本 Claude Code 的方式繼續使用——系統在背景自動運作。
+- **STEP C**：把 `{專案}/.claude/memory/` 上傳 GIT / SVN 讓團隊共享。這一次之後不用再手動——新卡片由背景同步自動上傳，程式碼仍等你說「上GIT」（分界見 [README.md](README.md)）。
+
+專案根底下有多個可單獨開啟的子專案（Client／Server／tools…）時，AI 開在子專案會問你一次「記憶歸哪個根」，選定後重開 session 生效；第一個使用者想先讓 AI 預載某部分知識：`/read-project <目錄> <方向>`。
 
 ---
 
@@ -85,10 +87,6 @@
 
 ---
 
-## 更順手的補充
+## 深入
 
-- **第一個使用者**想先讓 AI 預載某部分知識：`/read-project <目錄> <方向>` → 掃描並寫入知識庫，之後也記得上傳 GIT / SVN。
-- **接續使用者**：從版控 pull 專案的 `.claude/memory/` 即可直接接上團隊記憶。
-- **多台機器／多人同時寫記憶**：各自新增 atom 後 pull 會在索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）衝突。不必手動裝任何東西：Claude Code 裡第一次跑 pull／merge／rebase 時，hook 自動把合併驅動寫進這台機器的 git 設定，之後索引三檔自動合併；git 真的停住時，`git rebase --continue` 前 hook 也會先自動解掉這三檔。**已裝過舊版的機器不必預先做什麼**：更新（見上方「之後要更新」）之後，下一次在 Claude Code 裡跑 pull／merge／rebase 時 hook 就會自動裝；連更新當下若停在索引三檔，`git rebase --continue` 前新 hook 也會先自動解掉。想立刻確認可手動跑 `python tools/merge-atom-index.py --install`（可選）。自檢 `python tools/merge-atom-index.py --status`。**SVN 專案**：update 停在索引三檔衝突後，回 Claude Code 下 `svn commit` 前 hook 自動解。**專案記憶樹的換行（LF）**也在每次寫入記憶後自動統一（git 寫 `.gitattributes` 區塊、SVN 設 `svn:eol-style`），不需要到專案 session 貼任何 prompt。說明見 [README](README.md)「多台電腦／多人同時寫記憶」。
-- 兩個重要縮寫：**「執P」**（分階段執行＋驗證＋上 GIT＋給下階段 prompt）、**「上GIT」**（把當次異動一次推上 GIT / SVN）——直接問 AI 會解釋，也會照規則執行。
-- 深入技術（含各依賴缺了會怎樣、疑難排解）→ [TECH.md](TECH.md)；給 AI 照著跑的安裝步驟 → [Install-forAI.md](Install-forAI.md)。
+各依賴缺了會怎樣、疑難排解 → [TECH.md](TECH.md)；給 AI 照著跑的安裝步驟 → [Install-forAI.md](Install-forAI.md)。

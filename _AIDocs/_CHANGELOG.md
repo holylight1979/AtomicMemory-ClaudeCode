@@ -5,6 +5,14 @@
 
 ---
 
+## 2026-10-06 README／Install.md 重寫成純使用者視角：三層記憶、口令表、版控三點
+- **緣由**：公司層（`scope=org`、`/org`）已實作並寫進 TECH §4.4／`rules/core.md`，但人讀入口 `README.md` 開頭與 `Install.md` 範圍表仍只講根層與專案層；README 另混了設計理念、合併驅動細節、rebase 方向等技術導向段落，使用者指正「人必讀文件要剔除多餘、過時、過度技術的內容；版控段落贅述太多，寫使用者直接體驗到的就好」。
+- **README.md**（118 → 90 行）：三層記憶一張表（放什麼／在哪／怎麼拿到）＋大家的／我的分界＋與 CC 原生自動記憶的關係（不取代、放指標）；開始用 3 步；平常替你做什麼 6 點；「你會對它說的話」口令表（接上公司記憶／初始化／整理記憶分類／整理這場會議／上GIT／執P／handoff／memory health／conflict pending）；版控收成三點（卡片自己上、程式碼等口令且不偷推、多機索引自動合）；看得見的介面；不用 CC 的同事。移除：核心設計理念段（TECH §1）、與原生差異表（TECH §2.1）、合併驅動／rebase 方向／Fork／SVN／LF 細節（`MultiMachineMemorySync.md` 已全涵蓋）。
+- **Install.md**（107 → 92 行）：開頭改一句「本檔只裝根層，公司層／專案層不用裝」指 README 三層表；新增「接上公司層 — 每台機器一次」一節（啟動主動問路徑、`[Org]` 訊息）；STEP C 補「之後自動、程式碼仍等口令」；子專案歸根與 `/read-project` 併入專案節一句；砍掉與 README 重複的多機合併長段與縮寫說明。
+- **連動**：`DocIndex-System.md` 兩檔描述同步。 | `README.md`, `Install.md`, `_AIDocs/{DocIndex-System,_CHANGELOG}.md`
+
+---
+
 ## 2026-10-06 會議會後轉錄：音檔 → 逐字稿 → 三段摘要 → 決議入專案記憶（`/meeting`）
 - **緣由**：公司共用中台第三件事「會議會後轉錄」（只做會後、不做即時與月誌）。使用者定：音檔輸入（m4a／mp3／wav）、辨識跑 192.168.199.130 的顯卡、摘要存專案 `shared`。
 - **做法**：`tools/meeting-transcribe.py`——ffmpeg 轉 16k wav、靜音切段（≤180s）、每段 base64 走 Ollama `/api/chat` 的 `images` 欄位給 `gemma4:e4b`（Ollama 0.30 的 `/api/show` 標 `audio`，API 文件未寫；實測 `audio`／`files` 欄位模型看不到、`images` 看得到；5 分鐘合成會議 13s 全文無漏），backend 依 config 優先序挑第一個有 audio 能力者、本機無顯卡也能跑；逐字稿落 `<專案>/.claude/memory/_staging/meetings/`；同 backend 文字模型出固定 JSON 三段摘要；每條決議 `write_atom(scope=shared, source=tool:meeting-transcribe)`，範疇由專案 `_taxonomy.json`（含 desc）∪ 核心 Lv1 選，選不出走 `audience=decision` 既有待審路由。`skills/meeting/`（「整理這場會議」）；`lib/atom_io.py` `VALID_SOURCES` 加 `tool:meeting-transcribe`。沒走 SSH 裝 faster-whisper：130 的 22 port 開著但 banner 逾時，且 Ollama 已有音訊模型、零安裝。
