@@ -8,6 +8,7 @@
 - Created-at: 2026-10-06
 - Depends: path:C:/Users/holylight/.claude/tools/meeting-transcribe.py, path:C:/Users/holylight/.claude/skills/meeting/SKILL.md
 - Related: ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測
+- Quote: 「atoms 起來.. 索引應該要有 會議、錄音轉文字、會議錄音、會議音檔 這些.. 吧?? 另外我也想知道在專案層也能進行嗎? 能不能做成全域都能使用的 skill ??」
 
 ## 知識
 

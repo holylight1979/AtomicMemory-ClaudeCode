@@ -7,6 +7,7 @@
 - Created: 2026-03-19
 - Tags: workflow, icld, sprint
 - Related: workflow-rules, goal-driven-verify-loopkarpathy-吸收
+- Source: commit:29ef962 2026-03-19（原對話已逾保留期）
 
 ## 知識
 

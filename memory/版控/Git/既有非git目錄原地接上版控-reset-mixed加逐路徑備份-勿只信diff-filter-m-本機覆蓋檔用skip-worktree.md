@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: 原地接版控, git init 既有目錄, reset --mixed, skip-worktree, diff-filter, 安裝器, install.py, 接管既有目錄, untracked would be overwritten
 - Created-at: 2026-10-05
+- Source: session:46e124e0#6449dbac 2026-10-05
+- Quote: 「好。開工吧，請盡量多開agent高速完工，並且也要派Codex+你自己的agent 進行 從項目計畫開始的審查。」
 
 ## 知識
 

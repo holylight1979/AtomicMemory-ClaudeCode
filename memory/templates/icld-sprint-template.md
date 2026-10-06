@@ -7,6 +7,7 @@
 - Confirmations: 0
 - ReadHits: 0
 - Related: workflow-icld
+- Source: commit:e0f24be 2026-03-17（原對話已逾保留期）
 
 > **ICLD** = Incremental Closed-Loop Development（增量式閉環開發）
 > 每個 Sprint 是一個可獨立驗證的功能切片。通過閘門才往下走。

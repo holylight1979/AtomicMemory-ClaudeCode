@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: gh, gh cli, pull request, PR, 合併 PR, github api, merge, 審 PR
 - Created-at: 2026-09-02
+- Source: commit:3d5dc27 2026-09-02（原對話已逾保留期）
 
 ## 知識
 

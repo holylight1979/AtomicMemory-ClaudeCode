@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: core.md 太肥, 修剪規則, always-load, CLAUDE.md 瘦身, IDENTITY.md 精簡, rules/core.md, 重複規則, hook 已強制, 事前規則, 事後諸葛
 - Created-at: 2026-09-01
+- Source: commit:0c2fc24 2026-09-01（原對話已逾保留期）
 
 ## 知識
 

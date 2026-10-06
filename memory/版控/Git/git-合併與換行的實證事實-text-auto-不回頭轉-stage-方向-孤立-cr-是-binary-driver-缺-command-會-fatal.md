@@ -6,6 +6,7 @@
 - Trigger: text=auto, eol=lf, renormalize, gitattributes, merge driver, stage 2, stage 3, ls-files -u, rebase ours theirs, cherry-pick 衝突, 孤立 CR, lone CR, ignore-cr-at-eol, lacks command line, add/add, stash pop 衝突, MERGE_HEAD
 - Created-at: 2026-09-03
 - Related: 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合, sed-i-在-crlf-repo-會整檔改換行
+- Source: commit:549fccd 2026-09-03（原對話已逾保留期）
 
 ## 知識
 

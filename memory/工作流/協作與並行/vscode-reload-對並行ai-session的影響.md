@@ -6,6 +6,7 @@
 - Trigger: VSCode Reload, Reload Window, 雙 sessionstart, monitor 重掛, 並行 session, 面板 MCP
 - Created-at: 2026-08-24
 - Related: 並行llm即時通訊-inbox機制
+- Source: commit:d823a10 2026-08-24（原對話已逾保留期）
 
 ## 知識
 

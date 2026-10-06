@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: atom_edit_meta, atom-heal, broken_refs, 專案層 atom, trigger 編輯, file not under, L2 自癒, 死連結修復, sync-atom-index, --fix, --memory-dir, mirror 重生
 - Created-at: 2026-08-04
+- Source: commit:954b85f 2026-08-04（原對話已逾保留期）
 
 - Related: realm-範疇分區機制-v5, 取用端稽核與瘦身規範-atomaudit與3kb預算
 

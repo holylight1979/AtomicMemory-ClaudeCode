@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: gitignore, core.ignorecase, 被忽略的 atom, 索引有檔案沒有, broken_refs, _INDEX.md drift, 乾淨 clone 索引不一致, check-ignore
 - Created-at: 2026-10-05
+- Source: session:46e124e0#fd4030ce 2026-10-05
+- Quote: 「<browser_instruction>[Browser disconnected: The browser connection has been closed. Browser tools are no longer available.]</browser_instruction> 還沒完? 該上GIT就上喔。」
 
 ## 知識
 

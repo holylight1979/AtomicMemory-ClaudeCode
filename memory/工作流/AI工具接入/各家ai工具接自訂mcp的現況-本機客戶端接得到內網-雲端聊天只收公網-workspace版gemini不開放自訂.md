@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 自訂 MCP, 其他 AI 客戶端, Antigravity, Gemini CLI, 網頁版 Gemini, ChatGPT connector, 公司記憶怎麼接, 中台主機 MCP, 內網 MCP, mcp_config.json, ai-client-setup
 - Created-at: 2026-10-06
+- Quote: 「<browser_instruction># Claude in Chrome browser automation You have access to browser automation tools (mcp__claude-in-chrome__*) for interacting with web pages in Chrome. Follow these guidelines for…」
 
 ## 知識
 

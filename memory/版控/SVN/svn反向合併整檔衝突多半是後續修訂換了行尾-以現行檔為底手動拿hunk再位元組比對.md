@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: svn merge -c, 反向合併, reverse merge, 整檔衝突, 行尾, CRLF, LF, 退版, svn revert 修訂, tree conflict, 退回舊版
 - Created-at: 2026-09-14
+- Source: session:c5b0a814#4105e090 2026-09-14
+- Quote: 「OK」
 
 ## 知識
 

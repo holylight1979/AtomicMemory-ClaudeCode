@@ -6,6 +6,7 @@
 - Trigger: PowerShell, $null, NullString, 反射呼叫, LoadFrom, optional 參數, 空字串, 診斷誤報
 - Created-at: 2026-08-21
 - Related: 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測, 否證假說前先確認樣本涵蓋待測狀態的變化-受控實驗勝過觀察性交叉比對
+- Source: commit:fa0a90e 2026-08-21（原對話已逾保留期）
 
 ## 知識
 

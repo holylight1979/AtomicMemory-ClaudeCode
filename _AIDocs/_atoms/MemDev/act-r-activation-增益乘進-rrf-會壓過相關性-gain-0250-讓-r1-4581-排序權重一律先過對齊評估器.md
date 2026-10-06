@@ -6,6 +6,8 @@
 - Trigger: rrf_activation_gain, activation 增益, ACT-R 重排, 排序調參, R@1, MRR, memory-eval --online, 對齊評估器, 檢索排序, 誤注入率, bm25 停用詞, related query gate
 - Created-at: 2026-09-21
 - Related: 檢索融合與回歸集調參-rrf-min-score-定案, activation負值不是負相關-act-r對數尺度天然跨零-注入噪音修門檻與顯示勿過濾分數
+- Source: session:127e56a5#cb0c2912 2026-09-21
+- Quote: 「好，上GIT。 請也把學習到的知識、經驗、智慧，能收錄的都收錄到 atoms 內，那些也要 上GIT。 然後，把暫存檔都清乾淨後，再開始檢查"改壞了什麼"。」
 
 ## 知識
 

@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: precision, 轉正條件, 裁判評估, 假陽性分布, 標註集, promotion_ready, acceptance 裁判, 分類器評估, 指標被撐起, 等待回合, awaiting
 - Created-at: 2026-09-21
+- Source: session:127e56a5#cb0c2912 2026-09-21
+- Quote: 「好，上GIT。 請也把學習到的知識、經驗、智慧，能收錄的都收錄到 atoms 內，那些也要 上GIT。 然後，把暫存檔都清乾淨後，再開始檢查"改壞了什麼"。」
 
 ## 知識
 

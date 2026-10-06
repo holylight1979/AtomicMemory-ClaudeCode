@@ -6,6 +6,8 @@
 - Trigger: sub-agent, 並行 agent, 預告, agent 停了, 0 tool uses, SendMessage, 喚醒 agent, 介面契約, 共用檔唯一寫者
 - Created-at: 2026-10-01
 - Related: workflow-parallel-agents, 並行agent產出併入交付物必須標驗證強度分層
+- Source: session:a7ac6c34#f799d45f 2026-10-01
+- Quote: 「計畫請考慮盡可能 多開agent分工、以高速進行」
 
 ## 知識
 

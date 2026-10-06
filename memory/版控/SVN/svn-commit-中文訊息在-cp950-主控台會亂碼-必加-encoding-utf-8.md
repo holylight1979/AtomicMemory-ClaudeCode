@@ -6,6 +6,8 @@
 - Trigger: svn commit, svn 上版, commit 訊息, 亂碼, 中文亂碼, encoding, cp950, Big5, svn log, revprop, pre-revprop-change, 上版訊息
 - Created-at: 2026-08-28
 - Related: commit-前必須核對-staged-清單而非只信自己-add-了什麼, msbuild-17x-重導向-stdout-輸出-utf-8-net-framework-用-encodingdefault-讀會亂碼, pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess
+- Source: session:29eed69f#5a139e4b 2026-08-28
+- Quote: 「commit msg 的中文變成截圖那樣了，這能直接修改嗎?」
 
 ## 知識
 

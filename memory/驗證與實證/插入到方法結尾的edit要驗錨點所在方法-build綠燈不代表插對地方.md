@@ -6,6 +6,8 @@
 - Trigger: Edit 錯位, 插入點, 方法結尾, 錫點, old_string, 插錯方法, 看不出效果, build 綠燈但沒效果, 插入後驗證, 尾端呼叫
 - Created-at: 2026-09-17
 - Related: 離線測試過但實機不過-先排除實機跑的不是這份程式碼, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長
+- Source: session:4a1365f5#4fafeb0d 2026-09-17
+- Quote: 「看不出效果..」
 
 ## 知識
 

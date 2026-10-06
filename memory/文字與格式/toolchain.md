@@ -6,6 +6,7 @@
 - Type: procedural
 - Tags: toolchain, environment, commands
 - Related: toolchain-ollama, decisions, cc-能力查證反編譯實跑-binary, codex-log-bloat-analytics, guardian-dashboard-孤兒佔埠與新碼重啟, wsl2-0x80070569-gpo鎖診斷繞法vhdx救援移除, bash-呼叫-msbuild-用-dash-參數, windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff, winget-升不動-powershell-msi-與-msix-通道分裂, atom-write-global必須省略project-cwd
+- Source: commit:f916780 2026-03-11（原對話已逾保留期）
 
 ## 知識
 

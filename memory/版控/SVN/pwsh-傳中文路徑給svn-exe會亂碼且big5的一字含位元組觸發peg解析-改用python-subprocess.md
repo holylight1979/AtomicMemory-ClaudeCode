@@ -6,6 +6,8 @@
 - Trigger: svn 中文路徑, svn add 亂碼, peg revision is not allowed, E200009, E020024, Error resolving case, pwsh svn, PowerShell svn 亂碼, svn add --parents 建錯目錄, cp950 路徑, 一 a440, svn 路徑含 @, subprocess svn
 - Created-at: 2026-09-18
 - Related: svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8, workflow-svn
+- Source: session:61b4ad85#a01c48cd 2026-09-18
+- Quote: 「Audio的改動我目前沒法細測.. 但就先幫我上SVN吧，svn log 記得不要寫太多技術廢話，或許可以簡單說 "拔掉常駐Update、改為按需協同".. 之類的就好..。 然後再把這專案的知識、我的選擇讓你產生的 決策經驗.. 進階知識.. 該atom就atoms起來。」
 
 ## 知識
 

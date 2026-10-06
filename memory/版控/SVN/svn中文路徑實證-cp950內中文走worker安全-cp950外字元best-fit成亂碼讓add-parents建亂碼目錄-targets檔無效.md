@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: svn 亂碼, svn add 中文, UIºt¥X, 亂碼資料夾, cp950, best-fit, --targets, svn argv 編碼, GetACP, 中文路徑 svn, SvnEncoding
 - Created-at: 2026-10-01
+- Source: session:d892b7c9#160556c3 2026-10-01
+- Quote: 「你會繼續推進到全部完工吧?」
 
 ## 知識
 

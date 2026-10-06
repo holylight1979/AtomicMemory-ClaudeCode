@@ -6,6 +6,7 @@
 - Trigger: 偏好, 執P, 執驗上P, 上GIT, 上傳GIT, commit, push
 - Created-at: 2026-09-04
 - Related: feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff, feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, workflow-rules, a執p-自執驗上p-自動完工協議, feedback-workflow-discipline, feedback-rigor-standards, 專案等級-mcpskillhookslog-不放全域根層
+- Source: commit:7deb043 2026-09-04（原對話已逾保留期）
 
 ## 知識
 

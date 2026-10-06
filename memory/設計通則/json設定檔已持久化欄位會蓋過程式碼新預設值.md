@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: 設定檔, 預設值, 改預設沒生效, 持久化, 反序列化, 黑名單, 白名單, 遷移, settings.json
 - Created-at: 2026-08-18
+- Source: commit:51d66c8 2026-08-18（原對話已逾保留期）
 
 - Related: 弱訊號自動推導的狀態寫入必須只補不降級-不得覆蓋強訊號既有值
 

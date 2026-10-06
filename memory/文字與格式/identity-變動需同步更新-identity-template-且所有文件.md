@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: identity, identity.template, LF格式, 統一LF
 - Created-at: 2026-09-03
+- Source: commit:d0358a2 2026-09-03（原對話已逾保留期）
 
 ## 知識
 

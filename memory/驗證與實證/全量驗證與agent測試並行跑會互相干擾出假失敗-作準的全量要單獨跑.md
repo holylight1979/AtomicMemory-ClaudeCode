@@ -6,6 +6,8 @@
 - Trigger: run_verify, 全量驗證, flake, 假失敗, 並行 pytest, agent 跑測試, 跑序相依, 單跑會過, 共用 tmp
 - Created-at: 2026-10-01
 - Related: feedback-completion-gates, 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源
+- Source: session:a7ac6c34#b5e73654 2026-10-01
+- Quote: 「反正你也閒著(?XD) 可以上GIT的就先上。」
 
 ## 知識
 

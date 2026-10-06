@@ -6,6 +6,8 @@
 - Trigger: 驗收規格, acceptance, 驗收裁判, 分phase, 分階段, 多session, phase標籤, 收尾被擋, plan-mode 驗收
 - Created-at: 2026-09-04
 - Related: feedback-completion-gates, workflow-rules
+- Source: session:836a43f1#87da2d46 2026-09-04
+- Quote: 「上GIT」
 
 ## 知識
 

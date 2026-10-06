@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: 底線, 文件被畫底線, 角括號佔位符, markdown 渲染, 計畫檔格式, 未關閉標籤, 反引號, 佔位符 personal:<u>
 - Created-at: 2026-10-05
+- Source: session:d892b7c9#abfefecb 2026-10-05
+- Quote: 「本session經歷的經驗、蒐集的知識，有沒有還要atoms起來的?」
 
 ## 知識
 

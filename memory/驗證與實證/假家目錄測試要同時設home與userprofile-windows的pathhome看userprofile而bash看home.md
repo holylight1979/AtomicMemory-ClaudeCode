@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: 假家目錄, fake home, USERPROFILE, Path.home, 隔離測試, HOME 環境變數, 測試打到真家, tmp home
 - Created-at: 2026-10-05
+- Source: session:46e124e0#6449dbac 2026-10-05
+- Quote: 「好。開工吧，請盡量多開agent高速完工，並且也要派Codex+你自己的agent 進行 從項目計畫開始的審查。」
 
 ## 知識
 

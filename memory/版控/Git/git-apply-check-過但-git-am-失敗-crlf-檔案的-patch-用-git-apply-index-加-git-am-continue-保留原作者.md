@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: git am, git apply, patch does not apply, format-patch, 同事 patch, 審核 patch, CRLF patch, git am --continue, 保留作者, 無 push 權
 - Created-at: 2026-09-01
+- Source: commit:0c2fc24 2026-09-01（原對話已逾保留期）
 
 ## 知識
 

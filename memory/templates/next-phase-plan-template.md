@@ -4,6 +4,7 @@
 - Confidence: [臨]
 - Trigger: next-phase 模板, 計畫檔模板, 階段計畫骨架, staging 計畫, 六欄白話, 交接計畫格式
 - Related: handoff-綜觀品質與抗失真寫法, workflow-icld
+- Source: commit:0d6b6d0 2026-08-05（原對話已逾保留期）
 
 > 用法：寫任何 `memory/_staging/next-phase-<主題>.md` 時照本骨架填。
 > 只定「要回答哪些問題」，不預填答案；不適用的段落明寫「不適用＋一句理由」，勿默刪。

@@ -6,6 +6,8 @@
 - Trigger: 新 repo, 第一次提交, gitignore, access.json, git rm --cached, 整包加入, 公司記憶 repo, repo 永遠髒, 誤提交
 - Created-at: 2026-10-05
 - Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a
+- Source: session:d892b7c9#abfefecb 2026-10-05
+- Quote: 「本session經歷的經驗、蒐集的知識，有沒有還要atoms起來的?」
 
 ## 知識
 

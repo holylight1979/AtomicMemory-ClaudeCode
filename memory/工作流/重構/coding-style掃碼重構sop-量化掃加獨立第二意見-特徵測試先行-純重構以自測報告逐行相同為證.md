@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: 掃碼, 重構, coding-style, 優化重構, 重災區, 零行為變更, characterization, 特徵測試, 自測報告 diff, 拆 partial, 純重構, 行為修正分 commit
 - Created-at: 2026-09-03
+- Source: commit:0ef3546 2026-09-03（原對話已逾保留期）
 
 ## 知識
 

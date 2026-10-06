@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: 汰舊, 刪除腳本, 清理舊檔, 死連結, deprecate, 移除檔案, 檔案改名
 - Created-at: 2026-08-16
+- Source: commit:b932da2 2026-08-16（原對話已逾保留期）
 
 ## 知識
 

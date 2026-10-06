@@ -6,6 +6,8 @@
 - Trigger: claude.ai, 用量截圖, usage snapshot, Cloudflare, headless, launch_persistent_context, channel chrome, Chrome profile, Cookies WinError 32, Register-ScheduledTask, WakeToRun, SC_MONITORPOWER, LockWorkStation, SeShutdownPrivilege, SetSuspendState, powercfg /requests
 - Created-at: 2026-09-21
 - Related: 在使用者活躍桌面彈視窗做gui實驗會被順手關掉污染數據-改headless-edge加cdp或先查前景視窗
+- Source: session:918286a5#a211000c 2026-09-21
+- Quote: 「我想要有一個工具，可以每個禮拜固定在此 CC 帳號的 "token 用量刷新 (目前觀察是每周二的凌晨4:00或5:00)以前"，將使用量 usage 進行"截圖"，不論是開啟 web 來拍圖或用 vs code 的 cc 插件來拍都可以，就像截圖那樣。」
 
 ## 知識
 
