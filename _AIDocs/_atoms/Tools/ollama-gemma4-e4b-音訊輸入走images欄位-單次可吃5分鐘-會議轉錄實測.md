@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: Ollama 音訊, audio, 語音辨識, 錄音轉文字, 會議錄音, 會議音檔, gemma4:e4b, images 欄位, 會議轉錄, meeting-transcribe, whisper, capabilities
 - Created-at: 2026-10-06
-- Related: toolchain-ollama
+- Related: toolchain-ollama, 會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama
 
 ## 知識
 
