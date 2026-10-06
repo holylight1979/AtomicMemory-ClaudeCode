@@ -6,7 +6,7 @@
 - Created: 2026-03-19
 - Type: procedural
 - Tags: ollama, dual-backend, extraction
-- Related: toolchain, decisions-architecture, decisions
+- Related: toolchain, decisions-architecture, decisions, ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測
 
 ## 知識
 

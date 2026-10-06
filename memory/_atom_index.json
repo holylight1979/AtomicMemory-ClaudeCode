@@ -4087,6 +4087,22 @@
         "ai-client-setup"
       ],
       "scope": "global"
+    },
+    {
+      "name": "ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測",
+      "path": "_AIDocs/_atoms/Tools/ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測.md",
+      "triggers": [
+        "Ollama 音訊",
+        "audio",
+        "語音辨識",
+        "gemma4:e4b",
+        "images 欄位",
+        "會議轉錄",
+        "meeting-transcribe",
+        "whisper",
+        "capabilities"
+      ],
+      "scope": "global"
     }
   ]
 }
