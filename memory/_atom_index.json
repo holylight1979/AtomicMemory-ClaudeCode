@@ -4175,6 +4175,23 @@
         "收尾單一決策點"
       ],
       "scope": "global"
+    },
+    {
+      "name": "atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引api刪舊登新再sync",
+      "path": "_AIDocs/_atoms/MemDev/atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引api刪舊登新再sync.md",
+      "triggers": [
+        "atom 改名",
+        "atom rename",
+        "標題錯字",
+        "core-protected",
+        "cannot be retired",
+        "feedback 前綴保護",
+        "upsert_atom",
+        "delete_atom",
+        "atom_index_json",
+        "索引重登"
+      ],
+      "scope": "global"
     }
   ]
 }

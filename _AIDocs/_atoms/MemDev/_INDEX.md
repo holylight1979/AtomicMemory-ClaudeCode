@@ -16,6 +16,7 @@
 | atom-usefulness-loop | 注入→使用→結果 閉環效用 (α,β)：use 偵測 + Wilson 晉升 + 慢衰減（Phase 2，#2） |
 | atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 | atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 |
 | atom-元資料編輯與晉升閘真相 | atom 元資料編輯與晉升閘真相 |
+| atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引api刪舊登新再sync | atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引API刪舊登新再sync |
 | auto-capture碎片sweep污染詞庫-defer根治 | auto-capture碎片sweep污染詞庫-defer根治 |
 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 |
 | confirmations-已退役-phase2-usefulness-接管晉升 | confirmations-已退役-Phase2-usefulness-接管晉升 |
