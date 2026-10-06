@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: MCP 重啟, Reload Window, Received undefined, spawn failed, atom_write 壞, lazy-require, 模組混載, 改 js 後, paths.js
 - Created-at: 2026-09-01
+- Source: commit:0c2fc24 2026-09-01（原對話已逾保留期）
 
 ## 知識
 

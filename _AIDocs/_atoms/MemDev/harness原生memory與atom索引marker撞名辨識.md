@@ -6,6 +6,7 @@
 - Trigger: discover_all_project, memory_dirs 掃描, harness memory, file-based memory, MEMORY.md 撞名, cross-project 掃描, marker, projects/ memory, flat-legacy, 誤納
 - Created-at: 2026-06-12
 - Related: realm-範疇分區機制-v5
+- Source: commit:7a72023 2026-06-12（原對話已逾保留期）
 
 ## 知識
 

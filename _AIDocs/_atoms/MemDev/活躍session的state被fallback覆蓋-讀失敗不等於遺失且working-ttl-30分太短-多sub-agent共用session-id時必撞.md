@@ -6,6 +6,8 @@
 - Trigger: state 已重建, fallback state, state 遺失, turn_seq 歸零, read_state, _ensure_state, _cleanup_old_states, state TTL, 歷史歸零, sub-agent 共用 session_id, PermissionError state, read_state_status
 - Created-at: 2026-09-21
 - Related: memory-pipeline-silent-failure-2026-05, 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a
+- Source: session:127e56a5#a473bc0c 2026-09-21
+- Quote: 「OK我看到了。但你們不能照我剛才說的這些規則，繼續把所有 phase 推進到完工、驗證無誤、清除暫存?」
 
 ## 知識
 

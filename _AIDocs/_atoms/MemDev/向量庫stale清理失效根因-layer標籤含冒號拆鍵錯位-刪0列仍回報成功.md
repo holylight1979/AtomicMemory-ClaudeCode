@@ -6,6 +6,7 @@
 - Trigger: 向量庫, vector, reindex, stale, 孤兒, orphan, LanceDB, indexer.py, _delete_stale_keys, write-gate, dedup, similar to existing atom, 幽靈 atom, rag-engine, 重複 chunk, dedupLayersFor, layers
 - Created-at: 2026-08-28
 - Related: memory-pipeline-silent-failure-2026-05, realm-範疇分區機制-v5, pythonw-下-stdout-為-none-排程腳本秒死陷阱
+- Source: commit:a47a61f 2026-08-28（原對話已逾保留期）
 
 ## 知識
 

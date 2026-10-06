@@ -6,6 +6,7 @@
 - Trigger: memory health, memory-audit, 缺少必要欄位, health error, dashboard 問題, 解析器誤報, Decided-by, 跨層掃描, discover_layers, health-weekly, 為什麼會錯那麼多
 - Created-at: 2026-09-04
 - Related: 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點, usefulness晉升軌兩級同門檻-同日連跳觀到固的假晉升
+- Source: commit:f74d466 2026-09-04（原對話已逾保留期）
 
 ## 知識
 

@@ -5,6 +5,7 @@
 - Confidence: [觀]
 - Trigger: guardian, server.js, 3848, dashboard, 重啟, 孤兒, stdin, EOF, EADDRINUSE, 新路由 404, relinquish, world.html, WG_DASHBOARD_PORT, 隔離埠, lib 改動
 - Created-at: 2026-06-02
+- Source: commit:55be297 2026-06-02（原對話已逾保留期）
 
 - Related: toolchain, feedback-tooling-reliability, anti-evasion-hud-設計脊柱與強化前必讀, dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房, 巨檔純機械拆分-carve腳本與驗證盲點, 跨session協調-衝突預警機制與cc原生現況
 

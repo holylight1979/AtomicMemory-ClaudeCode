@@ -6,6 +6,7 @@
 - Trigger: WSL, WSL2, WSL1, 0x80070569, ERROR_LOGON_TYPE_NOT_GRANTED, 以服務方式登入, SeServiceLogonRight, Log on as a service, S-1-5-83-0, 網域GPO, vhdx, ext4, 7z救援, OOBE卡住, Provisioning卡住, wsl移除, unregister, Remove-Item hook
 - Created-at: 2026-06-04
 - Related: toolchain
+- Source: commit:5dee32c 2026-06-04（原對話已逾保留期）
 
 ## 知識
 

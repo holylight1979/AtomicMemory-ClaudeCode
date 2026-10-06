@@ -4,6 +4,7 @@
 - Confidence: [觀]
 - Trigger: 架構決策, hooks 架構, pipeline, guardian, SessionStart, extract-worker, vector service, dispatcher
 - Related: decisions, toolchain-ollama, feedback-memory-system-doc-sync, realm-範疇分區機制-v5
+- Source: commit:7deb043 2026-03-02（原對話已逾保留期）
 
 ## 印象
 

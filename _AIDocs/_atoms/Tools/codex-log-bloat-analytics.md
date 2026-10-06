@@ -6,6 +6,7 @@
 - Trigger: codex, logs_2.sqlite, 日誌暴量, analytics, OTEL, app-server, codex 崩潰, codex 卡頓, --analytics-default-enabled
 - Created-at: 2026-06-01
 - Related: feedback-tooling-reliability, toolchain
+- Source: commit:65a9692 2026-06-01（原對話已逾保留期）
 
 ## 知識
 

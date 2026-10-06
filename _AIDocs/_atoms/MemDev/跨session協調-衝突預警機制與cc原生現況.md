@@ -7,6 +7,7 @@
 - Status: Stage 0+1 已上線；Stage 2/3 defer 待數據
 - Created-at: 2026-07-31
 - Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 跨session資訊失真機制與對策, guardian-dashboard-孤兒佔埠與新碼重啟, guardian-警告訊息辨識度-emoji-前綴分流
+- Source: commit:2d0c95b 2026-07-31（原對話已逾保留期）
 
 ## 知識
 

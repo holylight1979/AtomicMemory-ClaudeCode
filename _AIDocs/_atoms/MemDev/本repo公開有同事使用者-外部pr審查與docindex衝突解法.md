@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: pull request, PR, 外部貢獻, 同事, DocIndex, 衝突, 向後相容, journal
 - Created-at: 2026-09-02
+- Source: commit:3d5dc27 2026-09-02（原對話已逾保留期）
 
 ## 知識
 

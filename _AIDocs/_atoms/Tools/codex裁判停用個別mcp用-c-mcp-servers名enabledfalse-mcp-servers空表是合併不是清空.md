@@ -6,6 +6,8 @@
 - Trigger: codex exec, codex companion, rmcp, 8090, unityMCP, MCP 連線失敗, mcp_servers, --ignore-user-config, codex_extra_args, plan_review 逾時, assessment_timeout
 - Created-at: 2026-09-10
 - Related: codex-exec-唯讀沙箱在此機起不來-1385-改bypass並以git-status前後比對護欄, feedback-tooling-reliability, codex-exec-手動派工三旗標-skip-git-repo-check-stdin關閉-unelevated, hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約
+- Source: session:90bda33d#1ba89a07 2026-09-10
+- Quote: 「Codex companion 健檢後修三項（本機已實證：CLI 0.144.1 跑 gpt-6-astra 被拒「需更新版」；plan_review 最近 7 次有 6 次 60s 雙逾時退 heuristics-only；assessor.py subprocess.run text=True 無 encoding 在 cp950 主控台炸 UnicodeDecodeError；codex…」
 
 ## 知識
 

@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: standalone hook, hook 合併, PostToolUse 延遲, python 啟動成本, settings.json hooks, hook 數量, version_guard, acceptance_spec, 事件等價回放, hook 效能
 - Created-at: 2026-09-21
+- Source: session:127e56a5#cb0c2912 2026-09-21
+- Quote: 「好，上GIT。 請也把學習到的知識、經驗、智慧，能收錄的都收錄到 atoms 內，那些也要 上GIT。 然後，把暫存檔都清乾淨後，再開始檢查"改壞了什麼"。」
 
 ## 知識
 

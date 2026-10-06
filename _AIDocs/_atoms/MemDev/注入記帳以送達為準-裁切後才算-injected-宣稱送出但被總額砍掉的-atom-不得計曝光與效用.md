@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: injected_atoms, dropped_trim, pointer_trim, reconcile_injection, 總額裁切, 曝光記帳, usefulness 分母, 1200 tok 硬頂, 送達 vs 送出, injection-turns.jsonl, rescue watch
 - Created-at: 2026-09-21
+- Source: session:127e56a5#cb0c2912 2026-09-21
+- Quote: 「好，上GIT。 請也把學習到的知識、經驗、智慧，能收錄的都收錄到 atoms 內，那些也要 上GIT。 然後，把暫存檔都清乾淨後，再開始檢查"改壞了什麼"。」
 
 ## 知識
 

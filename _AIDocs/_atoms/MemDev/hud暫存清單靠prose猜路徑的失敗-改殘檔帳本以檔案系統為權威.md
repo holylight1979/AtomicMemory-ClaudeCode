@@ -7,6 +7,7 @@
 - Status: 帳本 + HUD 面板已落地 2026-08-25，待新 session 肉眼驗面板流程
 - Created-at: 2026-08-25
 - Related: feedback-completion-gates, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 歸因早停-找到合理嫌疑機制就停止驗證, 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址, 刪除候選清單的進入條件要有正向資格判定-只驗exists會讓正式檔進hud刪除鈕
+- Source: commit:f637b7c 2026-08-25（原對話已逾保留期）
 
 ## 知識
 

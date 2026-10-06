@@ -5,6 +5,7 @@
 - Confidence: [固]
 - Trigger: JARVIS, 企業平台, AI 協作平台, 編排核心, 願景, 前瞻設計, vision-doc, 平台發想, 記憶系統當核心缺什麼
 - Created-at: 2026-06-26
+- Source: commit:cfad382 2026-06-26（原對話已逾保留期）
 
 ## 知識
 

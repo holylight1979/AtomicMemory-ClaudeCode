@@ -7,6 +7,7 @@
 - Status: 已上線（PAN ⛔ / CoordWarn ⚠️），verify 釘住
 - Created-at: 2026-08-06
 - Related: pan-hermes不移植部件與vscode-text-block不落盤實測, 跨session協調-衝突預警機制與cc原生現況
+- Source: commit:9aca950 2026-08-06（原對話已逾保留期）
 
 ## 知識
 

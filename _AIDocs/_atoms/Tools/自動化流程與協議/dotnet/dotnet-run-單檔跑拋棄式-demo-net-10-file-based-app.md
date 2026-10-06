@@ -5,6 +5,7 @@
 - Confidence: [固]
 - Trigger: dotnet run 單檔, file-based app, C# 單檔, 拋棄式 demo, C# script, 驗證 C# 語意
 - Created-at: 2026-06-10
+- Source: commit:1c697be 2026-06-10（原對話已逾保留期）
 
 ## 知識
 

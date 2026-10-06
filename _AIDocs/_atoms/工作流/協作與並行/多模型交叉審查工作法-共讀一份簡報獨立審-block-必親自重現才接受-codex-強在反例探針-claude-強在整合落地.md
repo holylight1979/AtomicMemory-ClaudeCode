@@ -6,6 +6,8 @@
 - Trigger: 多開 agent, Codex 審查, 交叉審查, 多模型, 不被帶偏, BLOCK/WARN, 審查簡報, fan-out 審查, gpt-6-astra, 全面檢視, reply_review, 裁決紀錄
 - Created-at: 2026-09-21
 - Related: workflow-research-fanout, workflow-parallel-agents, 雙claude協作實戰認知-fable監工opus主力的分工手感
+- Source: session:127e56a5#cb0c2912 2026-09-21
+- Quote: 「好，上GIT。 請也把學習到的知識、經驗、智慧，能收錄的都收錄到 atoms 內，那些也要 上GIT。 然後，把暫存檔都清乾淨後，再開始檢查"改壞了什麼"。」
 
 ## 知識
 

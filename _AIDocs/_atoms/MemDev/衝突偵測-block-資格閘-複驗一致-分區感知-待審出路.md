@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: conflict detector, 衝突偵測, CONTRADICT, write-check, _pending_review, 待審, conflict-review, /conflict pending, 跨專案誤報, 偵測不穩定, skip_conflict_check, 分區感知
 - Created-at: 2026-08-07
+- Source: commit:5faf5d4 2026-08-07（原對話已逾保留期）
 
 ## 知識
 

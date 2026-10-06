@@ -6,6 +6,7 @@
 - Trigger: atom-move, atom 搬移, 資料夾搬移, 記憶系統工具, SoT 損壞, 半遷移工具, sidecar 搬移
 - Created-at: 2026-06-26
 - Related: write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值, feedback-memory-system-doc-sync, decisions-architecture
+- Source: commit:b4f038d 2026-06-26（原對話已逾保留期）
 
 ## 知識
 

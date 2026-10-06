@@ -6,6 +6,7 @@
 - Trigger: 拆檔, server.js 拆分, 純機械拆分, carve, 模組拆分, split module, depgraph, 循環相依, live MCP 測試汙染, byte-identical 搬移
 - Created-at: 2026-07-02
 - Related: guardian-dashboard-孤兒佔埠與新碼重啟, feedback-completion-gates
+- Source: commit:3564a58 2026-07-02（原對話已逾保留期）
 
 ## 知識
 

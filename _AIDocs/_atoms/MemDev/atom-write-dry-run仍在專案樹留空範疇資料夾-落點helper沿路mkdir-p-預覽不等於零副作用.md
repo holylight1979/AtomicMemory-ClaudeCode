@@ -7,6 +7,8 @@
 - Status: 已修（lib/atom_io._resolve_target create_dirs）＋回歸測試；待上 GIT
 - Created-at: 2026-09-07
 - Related: 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫, 驗證腳本判準要錨結果句不能錨系統有反應-catch-all關鍵字等於自動通過
+- Source: session:085afd9b#d50d40e0 2026-09-07
+- Quote: 「我還是要先確認，你在TSLG動到的都是原子記憶相關的，沒有動到專案內容吧?」
 
 ## 知識
 

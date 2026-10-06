@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: TestFailGate, 測試未綠, failing_tests, 不得宣告完成, 重複觸發, Stop 閘, node --check, heredoc
 - Created-at: 2026-09-01
+- Source: commit:cc1283b 2026-09-01（原對話已逾保留期）
 
 ## 知識
 

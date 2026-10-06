@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: sync-memory-index, cp950, UnicodeEncodeError, PYTHONIOENCODING, catalog 重生, _local_catalog, sync_doc_counts, 索引重生
 - Created-at: 2026-09-01
+- Source: commit:84ea68c 2026-09-01（原對話已逾保留期）
 
 ## 知識
 

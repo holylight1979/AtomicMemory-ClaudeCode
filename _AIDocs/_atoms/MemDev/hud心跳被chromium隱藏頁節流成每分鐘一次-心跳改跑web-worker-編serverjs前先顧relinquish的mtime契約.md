@@ -6,6 +6,8 @@
 - Trigger: HUD 未開, HUD 心跳, beat-status, hud_stale_s, aec_hud_fallback, setInterval 節流, intensive throttling, Web Worker, relinquish, SELF_MTIME_AT_BOOT, server.js mtime, 港口持有者, 連鎖退位
 - Created-at: 2026-09-10
 - Related: codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空, 原子記憶審查總結-好機制被小故障卡死非過重-拔前先實證, hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次
+- Source: session:90bda33d#c7657e75 2026-09-10
+- Quote: 「根本修正為主，你也可以上網蒐看看有沒有更好的做法。」
 
 ## 知識
 

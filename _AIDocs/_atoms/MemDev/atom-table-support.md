@@ -6,6 +6,7 @@
 - Trigger: atom_write, 表格, table, markdown 表格, code fence, 程式碼 fence, knowledge block, block 渲染, dogfood
 - Created-at: 2026-05-29
 - Related: workflow-rules, feedback-tooling-reliability, feedback-memory-system-doc-sync, memory-index-caption-regen, atom-usefulness-loop
+- Source: commit:c0cb459 2026-05-29（原對話已逾保留期）
 
 ## 知識
 

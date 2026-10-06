@@ -6,6 +6,7 @@
 - Trigger: 驗收裁判, acceptance_review, 收尾被擋, 多階段, 戰役, 等待回合, 強制放行, 規格檔, 長任務, 事件驅動監工
 - Created-at: 2026-08-25
 - Related: 專案工作驗收裁判的分級啟動與殺閘設計, commit-前必須核對-staged-清單而非只信自己-add-了什麼
+- Source: commit:d823a10 2026-08-25（原對話已逾保留期）
 
 ## 知識
 

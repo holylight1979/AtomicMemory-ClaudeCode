@@ -5,6 +5,7 @@
 - Confidence: [觀]
 - Trigger: OTEL, OpenTelemetry, 遙測, telemetry, hook 延遲量測, token 稅量測, CLAUDE_CODE_ENABLE_TELEMETRY
 - Created-at: 2026-07-08
+- Source: commit:130db54 2026-07-08（原對話已逾保留期）
 
 ## 知識
 

@@ -6,6 +6,7 @@
 - Trigger: msbuild, dotnet build, MSYS2, git bash, MSB1008, 編譯參數, 斜線參數, dash flag, bash 編譯, /t:Build
 - Created-at: 2026-06-17
 - Related: toolchain
+- Source: commit:4a9d981 2026-06-17（原對話已逾保留期）
 
 ## 知識
 

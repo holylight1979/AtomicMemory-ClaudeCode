@@ -6,6 +6,7 @@
 - Trigger: svn 測試, svnadmin, svn status 耗時, svn diff3, Text conflicts, svn --xml, svn fixture, memory_dir_candidates
 - Created-at: 2026-09-03
 - Related: 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合, hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定, 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源
+- Source: commit:7b54ade 2026-09-03（原對話已逾保留期）
 
 ## 知識
 

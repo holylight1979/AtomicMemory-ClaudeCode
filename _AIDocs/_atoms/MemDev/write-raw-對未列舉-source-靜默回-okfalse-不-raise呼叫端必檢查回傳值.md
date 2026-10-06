@@ -6,6 +6,7 @@
 - Trigger: write_raw, atom_io, VALID_SOURCES, source 白名單, 靜默失敗, ok=False, WriteResult, 腳本寫 atom, funnel 寫入, 一次性整理腳本, 代理訊號, fail-soft, 未檢回傳值, 批次寫入驗收, post-mortem
 - Created-at: 2026-06-25
 - Related: atom-元資料編輯與晉升閘真相, feedback-tooling-reliability, atom-move-v5-sot-correct-化與半遷移工具辨識, goal-driven-verify-loopkarpathy-吸收, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造
+- Source: commit:55d94f6 2026-06-25（原對話已逾保留期）
 
 ## 知識
 

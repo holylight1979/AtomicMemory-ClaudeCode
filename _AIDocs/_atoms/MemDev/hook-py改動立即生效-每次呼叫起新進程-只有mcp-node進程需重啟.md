@@ -6,6 +6,7 @@
 - Trigger: hook 生效, 下個 session 才生效, 新 session 才生效, hook 改動, PreToolUse 生效, Stop hook 生效, 重啟生效, MCP 重啟, reload window
 - Created-at: 2026-09-04
 - Related: 規則縫隙偏移-兩條各自合理的規則疊出第三種行為-syncreminder被local-commit靜音, 背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾
+- Source: commit:6016e07 2026-09-04（原對話已逾保留期）
 
 ## 知識
 

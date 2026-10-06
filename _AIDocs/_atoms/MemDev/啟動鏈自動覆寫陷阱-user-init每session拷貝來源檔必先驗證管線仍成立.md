@@ -6,6 +6,7 @@
 - Trigger: user-init, IDENTITY.md 被覆寫, 啟動鏈, SessionStart 覆寫, 雙檔 pipeline, 檔案自動覆蓋, stub 覆寫, 契約檔損毀
 - Created-at: 2026-07-08
 - Related: 模型行為移植-fable行為契約必載檔
+- Source: commit:d56e4bc 2026-07-08（原對話已逾保留期）
 
 ## 知識
 

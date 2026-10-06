@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: codex exec, codex 沙箱, read-only sandbox, CreateProcessWithLogonW, 1385, 第二意見, 獨立掃碼, codex 報告, --output-last-message
 - Created-at: 2026-09-03
+- Source: commit:0ef3546 2026-09-03（原對話已逾保留期）
 
 - Related: codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空
 

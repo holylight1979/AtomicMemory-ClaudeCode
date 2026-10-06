@@ -6,6 +6,7 @@
 - Trigger: confirmations, confirmation_events, 恒 0, 零增, 晋升判定, wilson, usefulness, 記憶健檢, 静默失效誤報
 - Created-at: 2026-06-12
 - Related: memory-pipeline-silent-failure-2026-05, atom-usefulness-loop, atom-元資料編輯與晉升閘真相
+- Source: commit:63dc0f9 2026-06-12（原對話已逾保留期）
 
 ## 知識
 

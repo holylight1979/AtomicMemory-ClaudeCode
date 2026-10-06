@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: LF, CRLF, 換行, eol, gitattributes, write_text_lf, normalize-eol, verify_lf_writes, newline
 - Created-at: 2026-09-03
+- Source: commit:a8f5122 2026-09-03（原對話已逾保留期）
 
 - Related: 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合, hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定
 

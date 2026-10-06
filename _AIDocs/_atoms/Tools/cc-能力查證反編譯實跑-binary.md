@@ -6,6 +6,7 @@
 - Trigger: CC 版本, hook event, 查證, 反編譯, claude binary, docs 幻覺, 版本分裂, WebFetch, capability, PostCompact, PostToolBatch
 - Created-at: 2026-06-01
 - Related: toolchain, feedback-tooling-reliability, cognitive-patterns, windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags
+- Source: commit:c3375a1 2026-06-01（原對話已逾保留期）
 
 ## 知識
 

@@ -6,6 +6,7 @@
 - Trigger: CrossRealmBashBlock, 2>&1, fd 複製, hook_cancelled, SessionStart 逾時, timedOut, 開場提醒沒出, ScopeLayout 沒出, 一律被擋, 冷啟動
 - Created-at: 2026-09-01
 - Related: realm-範疇分區機制-v5, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長
+- Source: commit:76c88a8 2026-09-01（原對話已逾保留期）
 
 ## 知識
 

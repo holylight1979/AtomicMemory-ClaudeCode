@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: org-memory, 公司層記憶, org_memory, scope=org, 空索引 exit 1, sync-memory-index --check
 - Created-at: 2026-10-01
+- Source: commit:3a3c3d0 2026-10-01（原對話已逾保留期）
 
 ## 知識
 

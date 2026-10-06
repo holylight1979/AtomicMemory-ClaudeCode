@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: atom 改名, atom rename, 標題錯字, core-protected, cannot be retired, feedback 前綴保護, upsert_atom, delete_atom, atom_index_json, 索引重登
 - Created-at: 2026-10-06
+- Quote: 「你不要草草了事，應該要把說明文件 "根據最新現況(包含CC最新原生狀態)" 都針對使用者可以知道的訊息，建立清楚(而且也要跟TECH.md有說的部份避免不必要的重疊)，給人讀的文件應該要力求精確、簡潔、易懂。」
 
 ## 知識
 

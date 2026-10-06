@@ -6,6 +6,8 @@
 - Trigger: vcs-sync 拉取, _git_pull, 隔離 worktree, recover.json, .behind, pull_error, _git_new_edits, pull 冷卻, 記憶層落後, 自動拉取, update-ref CAS, restore --source
 - Created-at: 2026-10-01
 - Related: knowledge-harvest-階段收割與vcs-sync機制指標與踩坑, 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a
+- Source: session:a7ac6c34#b5e73654 2026-10-01
+- Quote: 「反正你也閒著(?XD) 可以上GIT的就先上。」
 
 ## 知識
 

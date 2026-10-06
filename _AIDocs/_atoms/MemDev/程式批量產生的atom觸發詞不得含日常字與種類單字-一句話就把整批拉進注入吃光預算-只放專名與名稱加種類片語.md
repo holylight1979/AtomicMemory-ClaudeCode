@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: 工具卡觸發詞, 批量產生 atom, 觸發詞擾民, 注入預算被吃光, scan-tools, _card_triggers, 泛詞 trigger, trigger 設計, refresh_legacy_triggers
 - Created-at: 2026-10-05
+- Source: session:d892b7c9#67e1307f 2026-10-05
+- Quote: 「OK，那就補 Org skill 吧」
 
 ## 知識
 

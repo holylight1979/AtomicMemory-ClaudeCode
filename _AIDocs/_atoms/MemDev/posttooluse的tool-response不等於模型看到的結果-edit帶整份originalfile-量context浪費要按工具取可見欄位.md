@@ -6,6 +6,8 @@
 - Trigger: tool_response, PostToolUse, tool result size, 工具結果體積, context 浪費, originalFile, ToolResultSize, wg_friction, token 浪費量測, 誤報
 - Created-at: 2026-09-18
 - Related: codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測, 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem
+- Source: session:094f7ab1#c9f42291 2026-09-18
+- Quote: 「現在就動手做 A+B：OK verify 你也直接做掉，做完該刪掉的就請刪掉。」
 
 ## 知識
 

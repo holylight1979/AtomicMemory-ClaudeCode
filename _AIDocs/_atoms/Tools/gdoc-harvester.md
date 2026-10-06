@@ -3,6 +3,7 @@
 - Scope: global
 - Confidence: [臨]
 - Trigger: harvester, 收割, Google Docs, Google Sheets
+- Source: commit:fbe5aef 2026-03-12（原對話已逾保留期）
 
 ## 知識
 
