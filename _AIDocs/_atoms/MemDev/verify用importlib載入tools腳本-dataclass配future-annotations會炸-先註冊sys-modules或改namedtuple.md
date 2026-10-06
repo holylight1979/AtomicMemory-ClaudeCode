@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: importlib, spec_from_file_location, dataclass, future annotations, verify 載入, NoneType __dict__, tools/verify
 - Created-at: 2026-10-06
+- Quote: 「<pasted_content id="45f0"> /continue 讀 C:\Users\holylight\.claude\memory\_staging\next-phase-meeting-transcription.md 並依序執行。 開工前先問我 Step 0 的三題（錄音來源／跑語音辨識的顯卡在哪台／摘要存哪一層），一次問完。 順帶補上 Install-forAI.md Ste…」
 
 ## 知識
 

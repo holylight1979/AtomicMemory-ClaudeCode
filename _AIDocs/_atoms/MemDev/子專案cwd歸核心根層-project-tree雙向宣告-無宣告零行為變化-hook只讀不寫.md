@@ -7,6 +7,8 @@
 - Status: 已上線 2026-09-05；本機 C:\TSLG 首例落地中
 - Created-at: 2026-09-05
 - Related: 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址, realm-範疇分區機制-v5, atom-scope-讀取端可見性-候選池一次收窄-他專案不進池-personal只給本人, atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用
+- Source: session:085afd9b#4d3c6bb6 2026-09-05
+- Quote: 「我跟你想的有接進，不過會想記錄採用「雙向」，子專案如果有 .claude 也可以記下他的根.. 像是: WhoAmI: `C:\TSLG\Server\` MyRoot: `C:\TSLG\` MySub: { `C:\TSLG\Server\script\`, `C:\TSLG\Server\GameCore\`, ..」
 
 ## 知識
 

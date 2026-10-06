@@ -6,6 +6,8 @@
 - Trigger: SessionStart 提示, 只提示一次, 只邀請一次, AskUserQuestion, advisory, 使用者沒被問到, 首次設定, 尚未接上, 需要使用者決定, onboarding 提示, declined
 - Created-at: 2026-10-05
 - Related: hook-systemmessage-只給使用者看-模型讀不到-要回饋模型用additionalcontext或deny-reason
+- Source: session:d892b7c9#6f79784c 2026-10-05
+- Quote: 「同事反映： 更新了新版原子記憶系統後.. `C:\CompanyAtomsMem 資料夾` 不會主動建立、也可能不會提出詢問。 這應該要解決才對，至少要提出詢問確切路徑，並且在成員自己的電腦環境下記下該路徑?」
 
 ## 知識
 

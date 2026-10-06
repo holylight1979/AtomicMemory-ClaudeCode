@@ -7,6 +7,7 @@
 - Trigger: Ollama 音訊, audio, 語音辨識, 錄音轉文字, 會議錄音, 會議音檔, gemma4:e4b, images 欄位, 會議轉錄, meeting-transcribe, whisper, capabilities
 - Created-at: 2026-10-06
 - Related: toolchain-ollama, 會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama
+- Quote: 「<pasted_content id="45f0"> /continue 讀 C:\Users\holylight\.claude\memory\_staging\next-phase-meeting-transcription.md 並依序執行。 開工前先問我 Step 0 的三題（錄音來源／跑語音辨識的顯卡在哪台／摘要存哪一層），一次問完。 順帶補上 Install-forAI.md Ste…」
 
 ## 知識
 

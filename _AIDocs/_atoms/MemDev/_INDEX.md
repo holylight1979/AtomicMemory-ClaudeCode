@@ -16,12 +16,14 @@
 | atom-usefulness-loop | 注入→使用→結果 閉環效用 (α,β)：use 偵測 + Wilson 晉升 + 慢衰減（Phase 2，#2） |
 | atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 | atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 |
 | atom-元資料編輯與晉升閘真相 | atom 元資料編輯與晉升閘真相 |
+| atom來源回看閉環-provenance機制指標與設計決策-自動填在posttooluse不在mcp-不做弱匹配-注入零增量 | atom來源回看閉環-provenance機制指標與設計決策-自動填在PostToolUse不在MCP-不做弱匹配-注入零增量 |
 | atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引api刪舊登新再sync | atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引API刪舊登新再sync |
 | auto-capture碎片sweep污染詞庫-defer根治 | auto-capture碎片sweep污染詞庫-defer根治 |
 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 |
 | confirmations-已退役-phase2-usefulness-接管晉升 | confirmations-已退役-Phase2-usefulness-接管晉升 |
 | dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房 | dashboard apiAtoms 專案 shared 範疇被 frontmatter Scope 覆寫誤歸核心房 |
 | decisions-architecture | 架構決策 |
+| edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-windows路徑或引述值一律用函式替換 | edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-Windows路徑或引述值一律用函式替換 |
 | feedback-memory-system-doc-sync | feedback-memory-system-doc-sync |
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
 | guardian-警告訊息辨識度-emoji-前綴分流 | guardian 警告訊息辨識度-emoji 前綴分流 |

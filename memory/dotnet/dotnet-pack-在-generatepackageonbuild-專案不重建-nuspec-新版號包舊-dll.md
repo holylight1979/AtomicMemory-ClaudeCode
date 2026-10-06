@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: dotnet pack, nupkg, GeneratePackageOnBuild, NU5026, 版號, AssemblyVersion, pack 舊 dll, nuspec
 - Created-at: 2026-09-07
+- Source: session:f6a65504#bf19f4cb 2026-09-07
+- Quote: 「你是 worker-B 執行 session，主控台在另一個 session，全部靠檔案信箱溝通，不靠人腦記。 信箱：c:\Projects\.claude\inbox\worker-B\（協定 ..\PROTOCOL.md 與本槽 PROTOCOL.md，先讀）。 開工順序： 1. 讀 to-worker\ 內所有 to-console\ 尚無 re 指向的信（現在是 001-task-B1-…」
 
 ## 知識
 

@@ -4192,6 +4192,40 @@
         "索引重登"
       ],
       "scope": "global"
+    },
+    {
+      "name": "edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-windows路徑或引述值一律用函式替換",
+      "path": "_AIDocs/_atoms/MemDev/edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-windows路徑或引述值一律用函式替換.md",
+      "triggers": [
+        "bad escape",
+        "re.subn",
+        "re.sub 替換字串",
+        "edit_metadata",
+        "反斜線跳脫",
+        "Quote 寫入失敗",
+        "provenance-backfill error",
+        "regex replacement template"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "atom來源回看閉環-provenance機制指標與設計決策-自動填在posttooluse不在mcp-不做弱匹配-注入零增量",
+      "path": "_AIDocs/_atoms/MemDev/atom來源回看閉環-provenance機制指標與設計決策-自動填在posttooluse不在mcp-不做弱匹配-注入零增量.md",
+      "triggers": [
+        "provenance",
+        "Quote 欄",
+        "Source 欄",
+        "atom_source",
+        "atom-source",
+        "來源回看",
+        "這張卡片哪來的",
+        "provenance-backfill",
+        "wg_provenance",
+        "回填原句",
+        "A 級 B 級",
+        "原對話已逾保留期"
+      ],
+      "scope": "global"
     }
   ]
 }
