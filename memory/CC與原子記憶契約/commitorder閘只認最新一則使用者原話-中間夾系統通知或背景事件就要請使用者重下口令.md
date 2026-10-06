@@ -13,6 +13,7 @@
 - [臨] 仍會被擋的已知邊界（都是多擋一次、fail-safe）：Stop 被 block 後使用者才補的訊息會被當新回合；同回合 commit 過之後才補的預先授權，跨到通知回合不沿用。被擋就引用原話請使用者重下，不繞閘（不用 python subprocess 包 git commit；記憶庫 vcs-sync worker 是使用者裁決的例外）。
 - [臨] 查這類「閘漏收」先翻 session 對話紀錄 jsonl 的事件順序（queued_command／hook_additional_context／task-notification 的時間線），不要只從閘的讀取端與 harness 顯示文案推測——先前兩個候選根因（中途訊息不走 UserPromptSubmit、state 重建丟失）都被紀錄否定。守門：hooks/verify/verify_git_commit_order_gate.py。
 - [臨] bash 裡 `cat > file` 沒給 stdin 會讓工具背景卡死，提交訊息用 `git commit -F -` 搭 heredoc。
+- [臨] 同家族第三案（2026-10-06）：Claude in Chrome「Enabled by default」開著時，harness 把約 2900 字的 `<browser_instruction>` 區塊塞在使用者訊息前面（本機最近 4 場 16 則中 7 則有）；sanitize_harness_noise 沒列這個標籤，而口令闘只存清理後前 500 字，尾端的「上GIT」被截掉 → 誤擋。修：`_HARNESS_TAG_RE` 加 `browser_instruction`（hooks/wg_core.py），測試在 verify_episodic_noise_filter。根因通則：任何新的 harness 注入標籤都要進 `_HARNESS_TAG_RE`，否則 500 字截斷會吞掉口令。
 
 ## 行動
 
