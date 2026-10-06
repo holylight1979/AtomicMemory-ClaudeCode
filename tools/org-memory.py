@@ -171,6 +171,7 @@ def cmd_init(root_arg: str) -> int:
     if wg_core.find_vcs_root(root) is None:
         print(f"[org-memory] 警告：{root} 不在任何 git/svn 工作區內，記憶不會被 vcs-sync 自動上版控", file=sys.stderr)
     user = get_current_user()
+    had_index = (root / ".claude" / "memory" / "_atom_index.json").is_file()   # 現成公司層（--join clone 下來）還是這台新佈的
     msgs = init_tree(root, user)
     msgs.append(register_local(root))
     msgs.append(register_in_registry(root))
@@ -178,7 +179,10 @@ def cmd_init(root_arg: str) -> int:
     for m in msgs:
         print(f"  - {m}")
     print("下一步：")
-    print(f"  1. 把 {root / '.claude'} 提交上版控，其他同事 checkout 後各自跑同一行 --init")
+    if had_index:
+        print("  1. 公司層已是現成內容，不需提交；其他同事說「接上公司記憶」即可")
+    else:
+        print(f"  1. 把 {root / '.claude'} 提交上版控，其他同事 checkout 後各自跑同一行 --init")
     print("  2. 重啟 Claude Code（MCP 重載）；SessionStart 會多一行 [Org] 公司層 N 顆")
     print("  3. 寫公司知識：atom_write scope=org domain=<Lv1>；查：python ~/.claude/tools/memory-search.py \"關鍵字\"")
     return 0
