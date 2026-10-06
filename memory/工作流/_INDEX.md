@@ -7,6 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | 多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完 | 多phase計畫的驗收規格要一開始就標phase-否則分session收尾會被裁判當全案未完 |
+| 會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama | 會議錄音轉文字與摘要入庫-用meeting-skill-任何專案都能跑-辨識在內網ollama |
 
 ## 子層
 

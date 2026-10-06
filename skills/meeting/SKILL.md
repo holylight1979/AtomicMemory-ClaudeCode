@@ -2,7 +2,7 @@
 name: meeting
 description: 會議錄音整理：音檔 → 逐字稿 → 決議／待辦／未決三段摘要 → 決議寫進專案記憶（shared）。使用者說「整理這場會議」「會議錄音」「轉錄」「做會議摘要」時用。
 user-invocable: true
-triggers: 整理這場會議, 會議錄音, 會議摘要, 轉錄, 逐字稿, 會議記錄, meeting
+triggers: 整理這場會議, 會議, 會議錄音, 會議音檔, 錄音轉文字, 語音轉文字, 會議摘要, 轉錄, 逐字稿, 會議記錄, meeting
 pattern: tool-wrapper
 ---
 

@@ -4,7 +4,7 @@
 - Author: holylight
 - Source: tools/meeting-transcribe.py；session a380adef 實測
 - Confidence: [臨]
-- Trigger: Ollama 音訊, audio, 語音辨識, gemma4:e4b, images 欄位, 會議轉錄, meeting-transcribe, whisper, capabilities
+- Trigger: Ollama 音訊, audio, 語音辨識, 錄音轉文字, 會議錄音, 會議音檔, gemma4:e4b, images 欄位, 會議轉錄, meeting-transcribe, whisper, capabilities
 - Created-at: 2026-10-06
 - Related: toolchain-ollama
 
