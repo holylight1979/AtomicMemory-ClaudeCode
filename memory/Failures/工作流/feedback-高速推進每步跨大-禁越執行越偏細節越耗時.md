@@ -6,6 +6,7 @@
 - Trigger: 推進速度, 跨大步, 過度細節, 越做越細, 耗時, 節奏, 監工節奏, 多階段戰役, 派工粒度, 退修門檻
 - Created-at: 2026-08-25
 - Related: workflow-parallel-agents, feedback-workflow-discipline, 並行llm即時通訊-inbox機制, feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向
+- Source: commit:d823a10 2026-08-25（原對話已逾保留期）
 
 ## 知識
 

@@ -6,6 +6,7 @@
 - Trigger: graceful shutdown, 關閉卡住, ShutdownTimeout, RequestAborted, ApplicationStopping, WebSocket, CloseAsync, Kestrel, StopAsync, IHostApplicationLifetime, 關閉逾時, in-flight request
 - Created-at: 2026-08-11
 - Related: feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長, 歸因早停-找到合理嫌疑機制就停止驗證
+- Source: commit:23a7d5c 2026-08-11（原對話已逾保留期）
 
 ## 知識
 

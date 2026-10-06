@@ -6,6 +6,7 @@
 - Trigger: MSB3026, MSB3027, 檔案鎖定, being used by another process, dotnet build, OutputPath, Add-Type, 自測, 驗證證據, app 執行中
 - Created-at: 2026-08-21
 - Related: 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源, 離線測試過但實機不過-先排除實機跑的不是這份程式碼, powershell傳null給dotnet-string參數會變空字串-nullstring才是真null
+- Source: commit:fa0a90e 2026-08-21（原對話已逾保留期）
 
 ## 知識
 

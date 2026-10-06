@@ -5,6 +5,7 @@
 - Trigger: Microsoft Store, WindowsApps, python.exe, exit 9009, App Execution Alias, spawn python, 裸 python, Unexpected end of JSON input, WG_PYTHON, resolvePythonExe, 新機安裝, PATH 順位
 - Created-at: 2026-09-01
 - Related: winget-升不動-powershell-msi-與-msix-通道分裂
+- Source: commit:a1094c3 2026-09-01（原對話已逾保留期）
 
 ## 知識
 

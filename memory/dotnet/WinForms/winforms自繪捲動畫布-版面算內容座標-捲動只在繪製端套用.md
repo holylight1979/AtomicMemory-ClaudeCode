@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: WinForms, AutoScrollPosition, AutoScrollMinSize, 自繪, Paint, 捲動, scroll, 畫布, isometric, 等距, 命中測試, hit test, 捲到某物
 - Created-at: 2026-08-18
+- Source: commit:51d66c8 2026-08-18（原對話已逾保留期）
 
 - Related: 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗
 

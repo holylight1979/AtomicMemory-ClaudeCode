@@ -6,6 +6,8 @@
 - Trigger: 不是我的, 那不是我的, 其他 session, 未提交的檔, 歸屬, 誰改的, aiTitle, session 標題, 併發 session, 非我造成, 指認 session
 - Created-at: 2026-10-05
 - Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a
+- Source: session:d892b7c9#bd449d53 2026-10-05
+- Quote: 「有關你回答 "那不是我的" 可能會被 hook 質疑，我建議你也用atom記下: 如果你"能"知道目前正在開啟的 session 以及其可能關聯性，你可以回應 該session的title、或者是session對你而言的編號ID，說"可能是他的"。」
 
 ## 知識
 

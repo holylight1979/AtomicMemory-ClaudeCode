@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: 你現在怎麼用, 指令清單, 用講的, 自然語言入口, 使用說明, 要去 cmd 下指令, 收尾報告的用法, 新功能交付, skill 入口, 化繁為簡
 - Created-at: 2026-10-05
+- Source: session:d892b7c9#abfefecb 2026-10-05
+- Quote: 「本session經歷的經驗、蒐集的知識，有沒有還要atoms起來的?」
 
 ## 知識
 

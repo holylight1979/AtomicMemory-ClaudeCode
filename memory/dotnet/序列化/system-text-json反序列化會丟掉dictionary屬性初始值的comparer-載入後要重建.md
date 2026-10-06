@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: System.Text.Json, JsonSerializer.Deserialize, Dictionary comparer, OrdinalIgnoreCase, 大小寫不分, 反序列化, 載入後查不到, StringComparer
 - Created-at: 2026-09-03
+- Source: commit:0ef3546 2026-09-03（原對話已逾保留期）
 
 ## 知識
 

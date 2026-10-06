@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: 沒有回應, UI凍死, UpdateFocusedControl, SplitContainer, Focus(), Enter事件, ActiveControl, 焦點迴圈, dotnet-stack, WmSetFocus
 - Created-at: 2026-08-21
+- Source: commit:fa0a90e 2026-08-21（原對話已逾保留期）
 
 ## 知識
 

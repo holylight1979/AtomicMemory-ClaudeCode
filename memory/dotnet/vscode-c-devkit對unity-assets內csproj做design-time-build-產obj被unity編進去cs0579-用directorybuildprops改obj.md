@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: CS0579, Duplicate Attribute, AssemblyInfo.cs, obj/Debug, C# Dev Kit, csdevkit, design-time build, projectsystem-buildhost, Directory.Build.props, BaseIntermediateOutputPath, obj~, Unity 編譯失敗, Assets 內 csproj, Unity 忽略資料夾, ~ 結尾
 - Created-at: 2026-09-23
+- Source: session:f2113298#e9e04c77 2026-09-23
+- Quote: 「go」
 
 ## 知識
 

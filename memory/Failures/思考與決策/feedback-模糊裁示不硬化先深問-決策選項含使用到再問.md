@@ -6,6 +6,7 @@
 - Trigger: 模糊裁示, 硬化, 深問, 使用到的時候才提問, 遞延裁決, 詮釋飄移, 逐字原話, 裁決選項
 - Created-at: 2026-08-13
 - Related: feedback-workflow-discipline, 自己flag的維護動作直接做完不要反問, handoff-綜觀品質與抗失真寫法, feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙
+- Source: commit:23a7d5c 2026-08-13（原對話已逾保留期）
 
 ## 知識
 

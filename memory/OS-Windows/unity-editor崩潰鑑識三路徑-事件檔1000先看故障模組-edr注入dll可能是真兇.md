@@ -6,6 +6,7 @@
 - Trigger: Unity crash, Unity 崩潰, Editor 閃退, Native Crash Reporting, Got a UNKNOWN, InProcessClient64.dll, SentinelOne, EDR, Application Error 1000, CrashDumps, Editor-prev.log, c0000005, WER
 - Created-at: 2026-09-02
 - Related: (none)
+- Source: commit:a8f5122 2026-09-02（原對話已逾保留期）
 
 ## 知識
 

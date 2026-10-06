@@ -6,6 +6,7 @@
 - Trigger: 下一步, 請你挑, 選一個, 候選, AskUserQuestion, 選單, 複選, multiSelect, 收尾問題, 範圍取捨, 拍板
 - Created-at: 2026-08-26
 - Related: feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, 自己flag的維護動作直接做完不要反問
+- Source: commit:4bb187f 2026-08-26（原對話已逾保留期）
 
 ## 知識
 

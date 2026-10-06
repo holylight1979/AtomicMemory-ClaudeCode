@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: 待辦清單, 需你動手, 你這邊要做, 重啟 Claude Code, 已經重啟, 交接檔待辦, 部署現況, 單人部署, 斷言現況
 - Created-at: 2026-10-05
+- Source: session:d892b7c9#abfefecb 2026-10-05
+- Quote: 「本session經歷的經驗、蒐集的知識，有沒有還要atoms起來的?」
 
 ## 知識
 

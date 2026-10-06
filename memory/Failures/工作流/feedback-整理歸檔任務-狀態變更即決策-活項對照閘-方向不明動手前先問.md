@@ -6,6 +6,7 @@
 - Trigger: 整理, 歸檔, 搬移, 歷史搬移, 瘦身, 封存, 刪檔, 長期追蹤, 擱置, watch, 非本波, 機械執行, 錯點搬移, 去留, 合併文件, 推託
 - Created-at: 2026-08-04
 - Related: feedback-workflow-discipline, handoff-綜觀品質與抗失真寫法, 跨session資訊失真機制與對策
+- Source: commit:954b85f 2026-08-04（原對話已逾保留期）
 
 ## 知識
 

@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: EditorPrefs, Unity Editor 5.x, registry, _h, hash 尾碼, djb2, mcp-for-unity, UnityMCP port, MCPForUnity.HttpUrl, AutoStartOnLoad, 8080 衝突, Editor 沒開改設定
 - Created-at: 2026-09-07
+- Source: session:eea1dda8#dbb4a35e 2026-09-07
+- Quote: 「不知道為啥 vs code 的 CC 視窗都被關掉了.. 請確認一下 session 間 inbox 的溝通有啟動喔。」
 
 ## 知識
 

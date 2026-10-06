@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: atom_write, 初次寫, 信心度, [固], [臨], [觀], confidence, knowledge 行, 隨手寫 [固]
 - Created-at: 2026-05-28
+- Source: commit:9e3d54c 2026-05-28（原對話已逾保留期）
 
 - Related: realm-範疇分區機制-v5
 

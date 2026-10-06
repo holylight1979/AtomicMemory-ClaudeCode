@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: finalizer, 解構子, ~ClassName, 終結器, GC 多一輪, FInstCount, 實例計數, finalization queue, f-reachable, IL2CPP GC, Boehm
 - Created-at: 2026-09-18
+- Source: session:61b4ad85#a01c48cd 2026-09-18
+- Quote: 「Audio的改動我目前沒法細測.. 但就先幫我上SVN吧，svn log 記得不要寫太多技術廢話，或許可以簡單說 "拔掉常駐Update、改為按需協同".. 之類的就好..。 然後再把這專案的知識、我的選擇讓你產生的 決策經驗.. 進階知識.. 該atom就atoms起來。」
 
 ## 知識
 

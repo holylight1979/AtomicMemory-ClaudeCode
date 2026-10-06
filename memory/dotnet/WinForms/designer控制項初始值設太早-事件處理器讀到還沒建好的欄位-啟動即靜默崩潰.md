@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: WinForms, Designer, InitializeComponent, SelectedIndex, SelectedIndexChanged, 建構式, 啟動就崩潰, exe 起不來, NullReference, 事件處理器, 初始化順序
 - Created-at: 2026-08-18
+- Source: commit:51d66c8 2026-08-18（原對話已逾保留期）
 
 - Related: 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗
 

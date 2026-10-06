@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: systemMessage, additionalContext, hook 輸出, Stop hook 回饋模型, hook 提醒無效, Stop says
 - Created-at: 2026-10-01
+- Source: session:97005647#db45aec6 2026-10-01
+- Quote: 「改。」
 
 - Related: sessionstart的提示只有模型看得到-要使用者做決定就寫成叫模型用askuserquestion問的指示-問到有答案為止不要只提示一次
 

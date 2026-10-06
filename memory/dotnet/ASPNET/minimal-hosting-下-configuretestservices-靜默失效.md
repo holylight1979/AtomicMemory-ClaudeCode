@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: ConfigureTestServices, WebApplicationFactory, TestServer, ConfigureWebHostBuilder, GenericWebHostBuilder, minimal hosting, UseTestServer, builder.WebHost, 測試 override 沒生效, ASP.NET Core 整合測試
 - Created-at: 2026-08-07
+- Source: commit:e15269f 2026-08-07（原對話已逾保留期）
 
 ## 知識
 

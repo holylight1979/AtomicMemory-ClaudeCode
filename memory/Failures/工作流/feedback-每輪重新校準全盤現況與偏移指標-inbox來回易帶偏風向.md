@@ -6,6 +6,7 @@
 - Trigger: 每輪校準, 偏移指標, 帶偏風向, inbox 來回, 無止盡自檢, 雞肋驗證, 過度研擬, 全盤現況, 監工回合, 重新對齊
 - Created-at: 2026-08-25
 - Related: feedback-高速推進每步跨大-禁越執行越偏細節越耗時, 目標展開與收斂-立體菱形體思考模型, workflow-parallel-agents
+- Source: commit:d823a10 2026-08-25（原對話已逾保留期）
 
 ## 知識
 

@@ -6,6 +6,7 @@
 - Trigger: MSBuild, 亂碼, StandardOutputEncoding, Encoding.Default, Big5, cp950, RedirectStandardOutput, 編譯 log, ProcessStartInfo, UTF-8
 - Created-at: 2026-08-28
 - Related: svn-commit-中文訊息在-cp950-主控台會亂碼-必加-encoding-utf-8
+- Source: commit:bf22d6f 2026-08-28（原對話已逾保留期）
 
 ## 知識
 

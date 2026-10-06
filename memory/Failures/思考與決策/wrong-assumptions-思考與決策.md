@@ -5,6 +5,7 @@
 - Trigger: 假設錯誤, 誤判, 直覺假設, wrong assumption, 前提錯
 - Type: procedural
 - Created: 2026-09-01
+- Source: commit:f332f2f 2026-08-28（原對話已逾保留期）
 
 ## 知識
 

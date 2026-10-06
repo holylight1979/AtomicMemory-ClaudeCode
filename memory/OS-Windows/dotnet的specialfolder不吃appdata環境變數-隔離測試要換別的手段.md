@@ -5,6 +5,7 @@
 - Confidence: [固]
 - Trigger: APPDATA, SpecialFolder, ApplicationData, 隱離測試, 第二個實例, 不動使用者設定, 環境變數, profile目錄, dotnet, 沙箱
 - Created-at: 2026-08-20
+- Source: commit:fa0a90e 2026-08-20（原對話已逾保留期）
 
 ## 知識
 

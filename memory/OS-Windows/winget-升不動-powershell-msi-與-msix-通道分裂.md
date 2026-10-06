@@ -6,6 +6,7 @@
 - Trigger: winget, pwsh, PowerShell 升級, powershell update, msix, exit 43, UPDATE_NOT_APPLICABLE, winget upgrade, winget list, Package Cache, Windows PowerShell 5.1
 - Created-at: 2026-07-30
 - Related: toolchain, windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑
+- Source: commit:9f8e638 2026-07-30（原對話已逾保留期）
 
 ## 知識
 

@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: whoami, OEM 碼頁, cp950, GetOEMCP, subprocess 中文亂碼, AD 群組, console 編碼, mbcs
 - Created-at: 2026-10-01
+- Source: commit:3a3c3d0 2026-10-01（原對話已逾保留期）
 
 ## 知識
 

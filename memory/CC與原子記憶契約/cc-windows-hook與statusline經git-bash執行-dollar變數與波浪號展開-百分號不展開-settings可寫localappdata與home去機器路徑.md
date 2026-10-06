@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: hook 指令, settings.json 路徑, 機器專屬路徑, LOCALAPPDATA, $HOME, pythonw 路徑, statusLine, hook shell, Git Bash, 可攜路徑, fix-hook-python
 - Created-at: 2026-10-01
+- Source: session:87d79838#ef4d737c 2026-10-01
+- Quote: 「我注意到上船的 setting.json 裡面有我電腦的路徑。這是不應該發生的啊.. 不能改成 相對路徑嗎!?!?!」
 
 ## 知識
 

@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: 暫時偵錯碼, TEMP dump, statusline, live 檔案, py_compile, 插碼, stdin dump, 臨時 instrumentation
 - Created-at: 2026-09-21
+- Source: commit:9bf9710 2026-09-21（原對話已逾保留期）
 
 ## 知識
 

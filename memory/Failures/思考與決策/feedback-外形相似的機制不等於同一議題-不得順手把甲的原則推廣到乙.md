@@ -6,6 +6,8 @@
 - Trigger: 順手推廣, 同一類問題, 同一型態, 外形相似, 連帶改, 順便改, 判斷力有問題, 不要亂動, 多維考量, 類比推論, 這也一樣
 - Created-at: 2026-09-18
 - Related: cognitive-patterns, feedback-模糊裁示不硬化先深問-決策選項含使用到再問, feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長
+- Source: session:4a1365f5#fe317c53 2026-09-18
+- Quote: 「一樣該紀錄的記喔，SVN我上了。」
 
 ## 知識
 

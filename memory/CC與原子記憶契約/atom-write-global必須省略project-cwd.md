@@ -6,6 +6,7 @@
 - Trigger: atom_write, scope=global, project_cwd, force_global, global 寫入被拒
 - Created-at: 2026-08-13
 - Related: feedback-tooling-reliability, toolchain, memory-index-caption-regen, realm-範疇分區機制-v5
+- Source: commit:23a7d5c 2026-08-13（原對話已逾保留期）
 
 ## 知識
 

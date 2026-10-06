@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: CommitOrder, 本回合使用者原話沒有版控口令, 上GIT 被擋, git commit 被 hook 擋, 重下口令, 背景事件後 commit
 - Created-at: 2026-09-14
+- Source: session:c5b0a814#c9c2cf0f 2026-09-14
+- Quote: 「此session的經驗與知識，需要記憶的就atoms記起來吧。都記好以後 上GIT 、上乾淨。」
 
 ## 知識
 

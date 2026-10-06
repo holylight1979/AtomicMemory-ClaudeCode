@@ -6,6 +6,8 @@
 - Trigger: 絕對路徑, 報告檔案, 找不到檔案, 完整路徑, 改名, next-phase, _staging, 外擴報備, 相對連結, markdown link, 親和, 報備路徑
 - Created-at: 2026-09-21
 - Related: feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, handoff-綜觀品質與抗失真寫法
+- Source: session:127e56a5#a1a3cd2b 2026-09-21
+- Quote: 「我找不到你的報告檔案，完整路徑是什麼? (低級錯誤，為什麼會發生? 這樣我怎麼相信你的改動是 有親和使用者特性 的呢?)」
 
 ## 知識
 

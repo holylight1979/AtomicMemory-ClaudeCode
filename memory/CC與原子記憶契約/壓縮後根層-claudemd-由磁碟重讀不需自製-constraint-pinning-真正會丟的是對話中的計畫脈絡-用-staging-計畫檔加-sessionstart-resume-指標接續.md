@@ -6,6 +6,8 @@
 - Trigger: compact, 壓縮失真, constraint pinning, PreCompact, /continue, 接續, next-phase, Guardian:Resume, context 耗盡, 壓縮後接續, CLAUDE.md 重讀, 計畫脈絡遺失
 - Created-at: 2026-09-21
 - Related: 跨session資訊失真機制與對策
+- Source: session:127e56a5#cb0c2912 2026-09-21
+- Quote: 「好，上GIT。 請也把學習到的知識、經驗、智慧，能收錄的都收錄到 atoms 內，那些也要 上GIT。 然後，把暫存檔都清乾淨後，再開始檢查"改壞了什麼"。」
 
 ## 知識
 

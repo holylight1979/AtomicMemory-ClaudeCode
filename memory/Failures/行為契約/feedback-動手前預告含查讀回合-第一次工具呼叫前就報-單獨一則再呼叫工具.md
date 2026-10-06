@@ -6,6 +6,8 @@
 - Trigger: 動手前預告, 執行目標, 預估, PreActionNotice, pre-action-notice, PAN, 查讀不用報, 落盤時差, text_blocks
 - Created-at: 2026-09-18
 - Related: 禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱, feedback-workflow-discipline
+- Source: session:e22cb182#8ba11e6c 2026-09-18
+- Quote: 「我看不像 "誤報"，反而覺得可能LLM根本不知道要報 ? 不然為什麼像是截圖那樣.. 思考以後.. 沒預告就 tool calls.. ?」
 
 ## 知識
 

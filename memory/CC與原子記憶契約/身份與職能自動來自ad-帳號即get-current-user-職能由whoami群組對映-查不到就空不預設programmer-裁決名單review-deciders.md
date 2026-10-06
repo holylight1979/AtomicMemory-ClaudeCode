@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: 身份, AD 帳號, 職能, roles, role.md, wg_roles, init-roles, 管理職, is_management, review.deciders, ad_group_map, whoami /groups, 待審裁決, pending review, 看不到 role atom
 - Created-at: 2026-10-01
+- Source: session:d892b7c9#160556c3 2026-10-01
+- Quote: 「你會繼續推進到全部完工吧?」
 
 ## 知識
 

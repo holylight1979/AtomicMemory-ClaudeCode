@@ -6,6 +6,7 @@
 - Trigger: 拍板, 問使用者, 清單, 展開, 決策點, 業務取捨, 問錯問題, 範圍
 - Created-at: 2026-08-20
 - Related: feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, feedback-workflow-discipline
+- Source: commit:e07b080 2026-08-20（原對話已逾保留期）
 
 ## 知識
 

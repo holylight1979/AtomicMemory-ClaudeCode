@@ -4,6 +4,7 @@
 - Confidence: [固]
 - Trigger: 決策, 記憶系統, 原子記憶, 架構細節, context budget
 - Related: decisions-architecture, toolchain, toolchain-ollama
+- Source: commit:7deb043 2026-03-02（原對話已逾保留期）
 
 ## 知識
 

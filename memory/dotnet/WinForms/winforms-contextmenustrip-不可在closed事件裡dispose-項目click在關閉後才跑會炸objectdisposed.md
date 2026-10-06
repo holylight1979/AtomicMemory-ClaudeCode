@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: ContextMenuStrip, ObjectDisposedException, Closed 事件, Dispose, 右鍵選單, ToolStripMenuItem Click, WinForms 釋放, GDI 洩漏, CreateHandle
 - Created-at: 2026-09-03
+- Source: commit:0ef3546 2026-09-03（原對話已逾保留期）
 
 ## 知識
 

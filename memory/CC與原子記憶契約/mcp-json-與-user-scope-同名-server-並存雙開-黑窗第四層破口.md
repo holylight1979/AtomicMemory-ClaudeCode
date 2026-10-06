@@ -6,6 +6,7 @@
 - Trigger: mcp.json, MCP 雙開, MCP 行程重複, scope 優先序, user scope, project scope, 黑窗, 閃 console, claude mcp add
 - Created-at: 2026-08-10
 - Related: windows-cc-hook-閃-console-pythonw-修-layer-1勿只補巢狀-creationflags
+- Source: commit:391d8ef 2026-08-10（原對話已逾保留期）
 
 ## 知識
 

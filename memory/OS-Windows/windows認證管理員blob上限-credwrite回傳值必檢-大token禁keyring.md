@@ -5,6 +5,7 @@
 - Confidence: [臨]
 - Trigger: CredWrite, Credential Manager, 認證管理員, keyring, DPAPI, token 儲存, OAuth token, 保險庫, vault, ProtectedData, 靜默失敗, WindowsCredentialStorage
 - Created-at: 2026-08-12
+- Source: commit:23a7d5c 2026-08-12（原對話已逾保留期）
 
 ## 知識
 

@@ -6,6 +6,7 @@
 - Trigger: vendor, 雜湊不一致, SHA-256, lock 檔, 外部 dll, deterministic build, BaseIntermediateOutputPath, OutputPath, 鎖定檔, 建置可重現
 - Created-at: 2026-08-11
 - Related: commit-前必須核對-staged-清單而非只信自己-add-了什麼
+- Source: commit:23a7d5c 2026-08-11（原對話已逾保留期）
 
 ## 知識
 

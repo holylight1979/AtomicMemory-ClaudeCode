@@ -7,6 +7,7 @@
 - Trigger: FolderBrowserDialog, Multiselect, 多選資料夾, IFileOpenDialog, WinForms, net8.0-windows, 資料夾選擇
 - Created-at: 2026-08-07
 - Related: feedback-未實證先別斷言-從根源驗證-先證再修-反退避反冗長
+- Source: commit:5faf5d4 2026-08-07（原對話已逾保留期）
 
 ## 知識
 

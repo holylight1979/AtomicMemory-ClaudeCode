@@ -5,6 +5,8 @@
 - Confidence: [臨]
 - Trigger: plan mode, 權限詢問, permission prompt, bypass, bypassPermissions, cd /c/, Read(//c/, settings.json allow, useAutoModeDuringPlan, 彈窗變多
 - Created-at: 2026-10-01
+- Source: session:b7d8ada0#099440a9 2026-10-01
+- Quote: 「套用」
 
 ## 知識
 
