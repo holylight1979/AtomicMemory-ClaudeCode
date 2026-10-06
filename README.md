@@ -50,6 +50,7 @@ Claude Code 原生的自動記憶照舊運作，本系統不取代它、不互�
 | `/handoff`、`/continue` | 產出跨 session 交接 prompt／接續上個 session |
 | `/memory health` | 記憶庫健檢報告 |
 | `/conflict pending` | 檢視、核准或退回待審的卡片 |
+| 「這張卡片哪來的」「誰說的」「你哪裡看到的」 | 回這張卡片的來源：日期＋當時的原話＋前後文；原對話已清掉就回落檔時留的原句或「已逾保留期」 |
 
 不經 Claude、直接查一句：`python ~/.claude/tools/memory-search.py "問題"`。
 

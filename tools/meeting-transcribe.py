@@ -63,7 +63,8 @@ ECHO_MARK = TRANSCRIBE_PROMPT[:10]   # 模型偶爾在段尾把指令重複一�
 SUMMARY_SYSTEM = """你是會議記錄員。根據逐字稿輸出 JSON（只輸出 JSON，不加說明、不加 code fence）：
 {
   "decisions": [{"title": "一句話決議（≤30字）", "detail": "決議內容與理由（1–3句）", "owner": "負責人或空字串",
-                  "domain": "從候選範疇挑最貼切的一個，都不合就空字串", "triggers": ["3–6個關鍵詞"]}],
+                  "domain": "從候選範疇挑最貼切的一個，都不合就空字串", "triggers": ["3–6個關鍵詞"],
+                  "quote": "逐字稿中直接說出這個決議的那一句原話（≤60字，照抄不改寫），找不到就空字串"}],
   "todos": [{"item": "待辦事項", "owner": "負責人或空字串", "due": "期限或空字串"}],
   "open_questions": [{"question": "未決問題", "note": "何時／依什麼決定，沒有就空字串"}]
 }
@@ -318,6 +319,13 @@ def ingest_decisions(project: Path, meta: dict, decisions: List[dict], domains: 
             project_cwd=str(project), mode="create", source=SOURCE, dry_run=dry_run,
             provenance=meta["transcript"],
         )
+        # Quote：逐字稿裡說出這條決議的原句（模型照抄；沒有就不寫），transcript 檔搬走後仍可回看
+        quote_raw = d.get("quote") if isinstance(d.get("quote"), str) else ""
+        if quote_raw.strip():
+            from lib.provenance import format_quote, sanitize_quote
+            q = sanitize_quote(quote_raw)
+            if q:
+                kw["quote"] = format_quote(q)
         if classified:
             kw["domain"] = domain
             kw["audience"] = ["meeting"]

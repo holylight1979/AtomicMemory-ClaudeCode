@@ -52,7 +52,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | 檢索 | 無 | trigger → BM25 → vector → RRF 融合 × 活化 | 模型不必自己想起要去讀哪個檔 |
 | 品質分級 | 無 | [臨]/[觀]/[固] + Wilson 效用晉升 | 未驗證的猜測不會和已驗證的事實平起平坐 |
 | 回饋迴路 | 無 | access sidecar、rescue-log、recall-miss、效果報表、回訪 | 知道「哪顆記憶真的被用到」 |
-| 接點 | — | `tools/native-memory-bridge.py` 把核心 atom 索引鏡像成 `projects/<slug>/memory/atom-index-bridge.md`（只有指標） | 原生路徑也找得到 atom，且不違反 200 行硬牆 |
+| 接點 | — | `tools/native-memory-bridge.py` 把核心 atom 索引鏡像成 `projects/<slug>/memory/atom-index-bridge.md`（只有指標）；反向：atom 的 `- Source:` 指回原生 transcript（`session:<sid8>#<uuid8>`），`atom_source` 撈出原句與前後文（§5.8） | 原生路徑找得到 atom、atom 也指得回原對話，且不違反 200 行硬牆 |
 | Hook 硬牆 | UserPromptSubmit 預設 30s；SessionEnd 全部 hook 預設共 1.5s（settings 設較長 per-hook timeout 可把預算提高到最多 60s——官方規格，本機未實跑） | UPS 實設 8s；SessionEnd 的 LLM 萃取（~60s）仍走 detached worker | 60s 上限貼著本地 LLM 耗時，detached 才不受預算左右 |
 
 原生規格查證版：`_AIDocs/ClaudeCodeInternals/cc-native-memory-hooks-mcp.md`。
@@ -61,10 +61,10 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 
 | 面向 | 業界主流 | 原子記憶系統 | 評語 |
 |------|------|------|------|
-| 檢索 | hybrid BM25+vector+RRF 為共識；cross-encoder rerank 再進一步 | 同款三路 RRF；無 rerank | 方向一致；rerank 是可補強項 |
+| 檢索 | hybrid BM25+vector+RRF 為共識；cross-encoder rerank 再進一步 | 同款三路 RRF；rerank 只有離線路徑（`tools/memory-vector-service/reranker.py`，Ollama 逐條打分），hook 檢索鏈不呼叫；本機無 cross-encoder（無 sentence-transformers） | 方向一致；每回合 rerank 仍是可補強項 |
 | 新鮮度 | 決定性規則（timestamp）勝 LLM 判斷（82% vs 18%） | `supersedes` 規則式過濾；衝突裁決先看證據等級再看 recency | 符合 |
 | 注入 | 每 prompt ≤6 條、SessionStart ~1,200 tok；單一干擾項即傷精度 | per-turn 硬頂 1200 tok、同題去冗、總額分級 | 符合 |
-| 積累 | 原文勝萃取物；入場閘以內容型別先驗最有效 | 顯式策展 `atom_write` 為主，自動萃取為輔；atom 尚無 provenance 指標 | 弱點：萃取物指不回原文 |
+| 積累 | 原文勝萃取物；入場閘以內容型別先驗最有效 | 顯式策展 `atom_write` 為主，自動萃取為輔；每顆 atom 帶 `- Source:`（session 指標）與 `- Quote:`（使用者原話 ≤200 字）：寫入當下 PostToolUse 自動填、舊顆由回填 worker 補；`atom_source` 回讀原對話（§5.8） | 已補：原文可回看——transcript 還在就撈原句前後文，30 天後被清掉仍有 Quote 留住原句 |
 | 信任 | 多數產品無分級 | 三級 + Wilson | 領先 |
 | 回饋 | 多數只有「存了多少」 | 有「用了多少」（rescue-log / useful / used_fail） | 領先 |
 | 部署 | 多數雲端 API | 全本地：Ollama + LanceDB | 無 OAuth／連線故障類問題 |
@@ -163,7 +163,8 @@ sequenceDiagram
 | `Confidence` | 是 | `[固]` / `[觀]` / `[臨]` | 信任等級；注入時 [固]/[觀] 優先保留 |
 | `Trigger` | 是 | 逗號分隔關鍵字 | 檢索主路（§5.1）；ASCII 整詞邊界、CJK 子字串 |
 | `Author` | 否 | 提出者帳號 | `wg_roles.get_current_user()`（AD 帳號；§13.1） |
-| `Source` | 否 | 來源路徑／URL／commit／session id | 來源可追溯；`atom_write(provenance=)`，渲染在 Author 後 |
+| `Source` | 否 | 標準格式三態：`session:<sid8>#<uuid8> <YYYY-MM-DD>`（uuid 可缺；寫入時自動填）／B 級 `commit:<hash7> <日期>（原對話已逾保留期）` 或 `unknown <日期>（原對話已逾保留期）`（回填補）／自由值（檔案路徑、URL、會議逐字稿路徑） | 來源可追溯；`atom_write(provenance=)`，渲染在 Author 後；`lib/provenance.parse_source` 解析 |
+| `Quote` | 否 | 觸發這張卡片的使用者原話：單行 ≤200 字（`provenance.quote_max_chars`），消毒後以「」包住；AI 自動萃取的顆寫「AI：…」 | transcript 被清掉後仍留得住原句；`atom_write(quote=)`、PostToolUse 自動填（§8）、回填 worker 補舊顆；渲染在 Source 後、Confidence 前；不注入（`_FRONTMATTER_KEEP_RE` 不含 Source／Quote，每回合 token 增量 0） |
 | `Related` | 否 | 其他 atom 名 | related spread（depth 1）與 broken_refs 健檢 |
 | `Supersedes` | 否 | 被取代的 atom 名 | 規則式過濾舊版，不交 LLM 判 |
 | `Depends` | 否 | `path:<路徑>` 或自由文字 | **壞滅緣**：path 型可機器驗存在性，指向消失 → 標 stale；`atom_write(depends=)`，渲染在 Created-at 後、Related 前 |
@@ -171,7 +172,7 @@ sequenceDiagram
 | `Expires-at` / `Tags` / `Quality` | 否 | — | 輔助 |
 | access sidecar | 自動 | `<atom>.access.json` | read_hits（純曝光）、useful/used_fail（α/β）、Wilson 下界、decay、last_decay_date |
 
-**Source／Depends 的 replace 三態**（與 Supersedes 同）：未給＝保留原行、`""`／`[]`＝清除、非空＝替換；append 不動檔頭。渲染順序與 py↔js byte parity 的單一來源：`lib/atom_spec.build_atom_content` ↔ `atom-render.js buildAtomContent`（`verify_atom_io_equivalence.py` test_31–33）。
+**Source／Quote／Depends 的 replace 三態**（與 Supersedes 同）：未給＝保留原行、`""`／`[]`＝清除、非空＝替換；append 不動檔頭。渲染順序與 py↔js byte parity 的單一來源：`lib/atom_spec.build_atom_content` ↔ `atom-render.js buildAtomContent`（`verify_atom_io_equivalence.py` test_31–33）。
 
 **為什麼 Depends 與 Evidence 都是 optional**：向後相容鐵則——既有 atom 缺欄靜默通過。**為什麼 access 是 sidecar 不是 frontmatter**：計數每回合都在變，寫回 atom 本體會讓 git diff 全是噪音、也會和人手編輯互撞。
 
@@ -206,7 +207,7 @@ sequenceDiagram
 |----|--------|------|---------|
 | `global` | 跨專案、跨人 | 個人偏好、通用工具決策 | `~/.claude/memory/<範疇>/`（+ local realm） |
 | `shared` | 同專案全員 | 專案共識、架構決策、踩坑 | `{project}/.claude/memory/shared/<Lv1>/`；feedback-* 落 `failures/<主題>/` |
-| `org` | 公司全員、所有專案 | 公司級工具卡、跨專案共識 | `<org_root>/.claude/memory/shared/<Lv1>/`——`org_root`＝本機狀態檔 `workflow/org-memory.local.json`（不進版控）的 `roots[0].root`（只認一根，>1 停用並 stderr）：共用 `workflow/config.json` `org_memory` 只放全公司相同的 `repo_url`／`default_root`，「這台接上沒、根在哪」各機自己記，本機檔同名鍵蓋過共用區段（py `wg_core.org_memory_root`／js `realm.orgMemoryRoot` 同規則）；沒接上且使用者沒回答過的機器，SessionStart 每次都給模型一行 `❓ [Org]` 指示，要它用 AskUserQuestion 問使用者放哪裡（預設路徑／指定路徑／先不接），照答案跑 `--join [路徑]` 或 `--decline`，答案記在本機檔（`declined`＝不再問）。`org` 是 MCP／CLI **語法糖**＝「指定根的 shared」：js 改寫成 `scope=shared + project_cwd=org_root`，檔內仍 `Scope: shared`、不進 `VALID_SCOPES`、py 落點零改；使用者入口 `/org` skill（join／status／scan，或直接用講的）；新機器 `python tools/org-memory.py --join [<root>]`（省略路徑用 `org_memory.default_root`；根不存在就從 `org_memory.repo_url` clone，再 `--init`）、對帳 `--status`；工具卡 `--scan-tools`（skills／MCP → `shared/工具/skill-<name>`／`mcp-<name>`，Author＝負責人、Source＝進入點、Depends: path:進入點，進入點消失自動 `Status: deprecated`；觸發詞只放卡名與「名稱＋種類」片語，不放裸名與種類單字——工具名多是 memory／handoff 這類日常字，放了每句話都會把整批工具卡注入）；vcs-sync 目標集含此根 |
+| `org` | 公司全員、所有專案 | 公司級工具卡、跨專案共識 | `<org_root>/.claude/memory/shared/<Lv1>/`——`org_root`＝本機狀態檔 `workflow/org-memory.local.json`（不進版控）的 `roots[0].root`（只認一根，>1 停用並 stderr）：共用 `workflow/config.json` `org_memory` 只放全公司相同的 `repo_url`／`default_root`，「這台接上沒、根在哪」各機自己記，本機檔同名鍵蓋過共用區段（py `wg_core.org_memory_root`／js `realm.orgMemoryRoot` 同規則）；沒接上且使用者沒回答過的機器，SessionStart 每次都給模型一行 `❓ [Org]` 指示，要它用 AskUserQuestion 問使用者放哪裡（預設路徑／指定路徑／先不接），照答案跑 `--join [路徑]` 或 `--decline`，答案記在本機檔（`declined`＝不再問）。`org` 是 MCP／CLI **語法糖**＝「指定根的 shared」：js 改寫成 `scope=shared + project_cwd=org_root`，檔內仍 `Scope: shared`、不進 `VALID_SCOPES`、py 落點零改；使用者入口 `/org` skill（join／status／scan，或直接用講的）；新機器 `python tools/org-memory.py --join [<root>]`（省略路徑用 `org_memory.default_root`＝`~/CompanyAtomsMem`——家目錄相對、不寫磁碟代號，`--join` 自己 expanduser；根不存在就從 `org_memory.repo_url` clone，再 `--init`）、對帳 `--status`；工具卡 `--scan-tools`（skills／MCP → `shared/工具/skill-<name>`／`mcp-<name>`，Author＝負責人、Source＝進入點、Depends: path:進入點，進入點消失自動 `Status: deprecated`；觸發詞只放卡名與「名稱＋種類」片語，不放裸名與種類單字——工具名多是 memory／handoff 這類日常字，放了每句話都會把整批工具卡注入）；vcs-sync 目標集含此根 |
 | `role:{name}` | 同職務者 | 職務專有規範 | `{project}/.claude/memory/roles/<role>/`（職能由 AD 群組自動解析，§13.1） |
 | `personal:{user}` | 只自己 | 個人 scratch、未公開假設 | `{project}/.claude/memory/personal/<user>/`（**進專案版控**，多機才同步；注入過濾只決定模型搜不搜得到、不是保密——repo 任何讀者都能開檔，敏感內容不放；SessionStart `_personal_sync_advisory` 見被 ignore／未 commit 會提示） |
 | `personal:{user}`（跨專案） | 只自己，但每個專案都看得到 | 本人跨專案偏好 | `~/.claude/memory/personal/<user>/`（gitignore；`atom_write(scope=personal, cross_project=true)` 或從 ~/.claude 寫入即落此） |
@@ -227,7 +228,7 @@ sequenceDiagram
   細節（stage 方向矩陣、CLI 契約、失敗模式 SOP、不在保證範圍）→ `_AIDocs/MultiMachineMemorySync.md`。
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
-- 現況計數：<!-- atom-breakdown -->239 atoms：core 113 + feedback 33 + 失敗模式 2 + local 91〔Tools12/MemDev73/OS2/CC與原子記憶契約1/Vision1/工作流2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->242 atoms：core 113 + feedback 33 + 失敗模式 2 + local 94〔Tools12/MemDev76/OS2/CC與原子記憶契約1/Vision1/工作流2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -298,7 +299,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->239<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->242<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -371,7 +372,7 @@ sequenceDiagram
 - **subagent 記憶**：PreToolUse `Agent|Task` 時把相關 atom 緊湊版塞進子 agent prompt（`[WG:SubagentMemory]`）。
 - **guard 訊息**：上輪退避舉證要求、handoff 六區塊提醒、sync 關鍵字提醒、HUD 刪除決策後驗。
 
-### 5.8 讀取端 `memory_search`（給其他 AI 與腳本）
+### 5.8 讀取端 `memory_search` 與 `atom_source`（給其他 AI 與腳本）
 
 同一條管線（§5.1 第 1–7 段：候選池 → trigger / BM25 / vector → RRF）包成可呼叫函式 `lib/memory_search.search(prompt, cwd, *, user=None, roles=None, top_k=8, use_vector=True)`，三個入口共用、只讀不寫：
 
@@ -380,8 +381,13 @@ sequenceDiagram
 | MCP `memory_search` | `query`、`cwd?`、`top_k?`、`format: table\|json` | 任何註冊 workflow-guardian server 的 MCP 客戶端（Codex／Cursor…）都拿得到；不寫 state、無 receipt；新 tool 要重啟 Claude Code 才看得到 |
 | `python tools/memory-search.py "問題" [--cwd --json --no-vector --top-k --user]` | 非 Claude Code 人員：裝好 `~/.claude`（Python 即可）直接跑 | 與 `rag-engine.py search`（純向量、不看可見性、不融合）分工 |
 | `lib/atom_io_cli.py` action `search` | stdin `{query, cwd?, user?, roles?, top_k?, use_vector?}` | MCP 走這條；user／roles 缺省以現用身份補 |
+| MCP `atom_source` | `atom`、`cwd?` | 卡片來源回看（下文「來源回看三態」）；唯讀 |
+| `python tools/atom-source.py <atom> [--cwd --json]` | 命令列回看來源 | 與 `lib/atom_io_cli.py` action `source`（MCP 走這條）同一函式 `lib/provenance.atom_source` |
+| skill `skills/atom-source/SKILL.md` | 使用者說「這張卡片哪來的」「誰說的」「你哪裡看到的」「這條記憶的來源」 | 模型呼叫 MCP `atom_source` 後白話回報 |
 
-回傳契約 `schema_version=1`：`{mode, warnings, results[{name, path, rel_path, scope, source, score, excerpt, author, audience, tags, status}]}`；`scope` ∈ global／shared／org／personal:<u>／role:<r>（由池分組推導，不讀檔欄）；`source`＝命中的檢索路；四個 frontmatter 欄與摘要從命中檔同一次讀取。與 hook 注入的差異：BM25 對整池跑（不受 hook 預算）、`use_vector=False` 零觸碰向量服務（不 rekick）。身份：`user=None`／`unknown` 不讀任何 personal、`roles=None` 不讀 role 層；入口預設以現用身份查（`default_identity`）。守門 `lib/verify/verify_memory_search.py`。
+回傳契約 `schema_version=1`：`{mode, warnings, results[{name, path, rel_path, scope, source, provenance, score, excerpt, author, audience, tags, status}]}`；`scope` ∈ global／shared／org／personal:<u>／role:<r>（由池分組推導，不讀檔欄）；`source`＝命中的檢索路；`provenance`＝atom `- Source:` 原值（空字串＝無）；四個 frontmatter 欄與摘要從命中檔同一次讀取。與 hook 注入的差異：BM25 對整池跑（不受 hook 預算）、`use_vector=False` 零觸碰向量服務（不 rekick）。身份：`user=None`／`unknown` 不讀任何 personal、`roles=None` 不讀 role 層；入口預設以現用身份查（`default_identity`）。守門 `lib/verify/verify_memory_search.py`。
+
+**來源回看三態**（`lib/provenance.atom_source`；回 `{atom, path, source, quote, state, context[{role, ts, text}], warnings}`）：`live`＝Source 是 session 指標且 `projects/*/<sid>.jsonl` 還在 → 撈該 uuid 那則與前後各 1 則進 `context`；`quote_only`＝transcript 已被清（原生保留 30 天）→ 只剩落檔時留的 Quote；`unrecoverable`＝連 Quote 都沒有（`commit:`／`unknown` 這類 B 級 Source）。原句真源是 transcript，Quote 是它的防腐副本——所以寫入當下就填、不等人問。
 
 **其他 AI 客戶端輕量安裝（Codex／Gemini CLI／Antigravity，只接 MCP、不裝 hooks）**：給不用 Claude Code 的人（企劃／美術）。需要 git、Node.js、Python。把下面這段貼給自己的 AI 工具，它會代跑：
 
@@ -415,7 +421,7 @@ sequenceDiagram
 | cwd-scope | 專案 cwd 禁寫 global；~/.claude 子樹禁寫 shared/roles/personal | 防跨層誤寫 |
 | 落點裁決 | `atom_io.locate_atom` 回完整路由（target_dir / index_dir / scope_label / slug / routed_to_failures\|pending\|local / realm / domain） | 見下 |
 | supersedes 檢查 | create／replace 給 `supersedes` 時 `atom_io.check_supersedes`：目標可解析、非自指、無循環、非核心保護名；replace 未給＝保留原行、`[]`＝清除（SPEC §3.5） | 取代鏈不能互滅、不能指到不存在的顆 |
-| Source／Depends | 選填 `provenance`（來源路徑／URL／commit）→ `- Source:`；`depends`（`["path:<絕對路徑>", …]`）→ `- Depends:`；replace 三態同 Supersedes（§4.1） | 工具卡與壞滅緣的地基；不強制、workers 不寫 |
+| Source／Quote／Depends | 選填 `provenance`（來源路徑／URL／commit／`session:<sid8>#<uuid8> <日期>`）→ `- Source:`；`quote`（使用者原話，單行 ≤200 字）→ `- Quote:`；`depends`（`["path:<絕對路徑>", …]`）→ `- Depends:`；replace 三態同 Supersedes（§4.1）；`edit_metadata` 另有 `provenance`／`quote` 兩 label；`VALID_SOURCES` 含 `hook:provenance`／`tool:provenance-backfill` | 工具卡與壞滅緣的地基；呼叫者沒給 Source／Quote 時由 PostToolUse `wg_provenance.autofill_from_receipt` 補（§8），MCP 進程不知道 session id，自動填只能放 hook 端 |
 | write gate | `tools/memory-write-gate.py` 品質評分 + 去重 | 見 6.2 |
 | 敏感 pending | `Audience: architecture/decision` 寫 shared → 進 `shared/_pending_review/`，不直接生效 | 架構決策需人裁決（`review.deciders`，空＝全員可裁決） |
 | 索引同步 | upsert JSON → sync-memory-index → 向量增量 → 橋接檔重產 | 單一真相 |
@@ -449,9 +455,9 @@ sequenceDiagram
 | 階段收割（KnowledgeHarvest） | **在跑** | Stop：宣告完成 ∧ 有實質活動（`turn_seq≥harvest.min_turns` ∨ 本 session 有改檔 ∨ accessed_files≥`min_accessed`）∧ 距上次 validated 收割 ≥`min_turns_between`（判定 `hooks/wg_harvest.harvest_gate_reason`） | **模型本人**盤點六來源（指正／機制坑／外查事實／取捨契約／舊 atom 補正或 Supersedes／無用 atom 退役）→ `atom_write`／`atom_retire` → MCP `knowledge_harvest_report(items)`；PostToolUse 逐 item 核對 receipt（`validate_items`），不符落 `pending` 由 Harvest-Pending 閘擋 | atom 落各自 scope；帳本 `workflow/harvest-ledger/<sid>.jsonl`；validated → spawn vcs-sync worker 背景 commit／push（§8） |
 | 記憶庫拉取（vcs-sync 拉段） | **在跑** | SessionStart `_spawn_pull_sync`（讀索引前，`reason=pull`）；worker 每輪 git 順序 commit → **拉** → push（`vcs_sync.pull.enabled`，與 `push` 開關獨立） | `hooks/wg_vcs_sync._git_pull`：fetch 後一次固定 H／U，incoming 逐 commit 分類（全部路徑在記憶 pathspec 內且不被 exclude＝純記憶；merge commit 一律非純）→ ahead=0 ∧ 純記憶：記憶路徑乾淨才 `update-ref`（CAS）＋ `restore --source=U --staged --worktree -- <pathspecs>`（主工作樹只動記憶路徑）；ahead=0 ∧ 含程式碼：整樹乾淨才 `merge --ff-only`（關 autoStash）；ahead>0：本地 ahead 純記憶 ∧ incoming 純記憶 ∧ 記憶路徑乾淨才 `_git_isolated_rebase`（隔離暫時 worktree，衝突只接受 `merge=atomindex` 索引檔交 `merge-atom-index.py --resolve`，否則 abort 丟棄）；svn `svn_update_targets`（先 schedule-delete 已驗證退役的 missing、其他 missing 不 update；只有索引檔 text 衝突交 resolver） | 拉成功：向量增量索引＋`sync-atom-index --check`、roots.json `last_pull/pulled_commits`、清 `.behind`；不能自動併入：`<hash>.behind` + `pull_error`（§8），人手 pull --rebase；**拉入的 atom 下一個 session 才進候選池**；流程細節 `_AIDocs/MultiMachineMemorySync.md` 自動拉取節 |
 | 失敗關鍵字萃取 | **在跑** | UPS 偵測 strong/weak 失敗詞（cooldown 180s、max 2 items） | `wg_extraction._check_failure_patterns` → detached worker | `Failures/<主題>/`，永不拒寫（`failure_type_fallback`） |
-| SessionEnd 全量萃取 | **未啟動**（`response_capture.session_end_flush.enabled=false`，`session_end.py` 不 spawn；連帶 `cross_session` 觀察也是死路） | SessionEnd | 啟用時：`hooks/run-hidden.py` spawn `extract-worker.py`（gemma4:e4b；transcript ≤20000 chars、max 5 items、[臨]） | 停產原因見 §14.2 |
+| SessionEnd 全量萃取 | **未啟動**（`response_capture.session_end_flush.enabled=false`，`session_end.py` 不 spawn；連帶 `cross_session` 觀察也是死路） | SessionEnd | 啟用時：`hooks/run-hidden.py` spawn `extract-worker.py`（gemma4:e4b；transcript ≤20000 chars、max 5 items、[臨]）；失敗骨架 atom 知識段留 `<!-- src: sid8#uuid8 -->`（AI 片段、無使用者原話，不寫 Quote；注入時 `wg_atoms._extract_named_section` 剝掉 HTML 註解） | 停產原因見 §14.2 |
 | episodic 摘要 | **在跑** | SessionEnd（≥1 改檔、≥120s） | worker 內 `wg_episodic` | `memory/episodic/`，TTL 24d |
-| 使用者決策萃取 | **在跑** | UPS L0 規則偵測 score ≥0.4 → SessionEnd spawn | `user-extract-worker.py`：L1 qwen3 yes/no → L2 gemma4 結構化；budget 240 tok/session（>220 切 L1-only） | conf ≥0.92 直寫／0.70–0.92 `_pending.candidates.md`／<0.70 丟 |
+| 使用者決策萃取 | **在跑** | UPS L0 規則偵測 score ≥0.4 → SessionEnd spawn | `user-extract-worker.py`：L1 qwen3 yes/no → L2 gemma4 結構化；budget 240 tok/session（>220 切 L1-only） | conf ≥0.92 直寫／0.70–0.92 `_pending.candidates.md`／<0.70 丟；候選帶使用者原文 `prompt` 進 confirmed，`write_atom(provenance="session:<sid8> <日期>", quote=原話)` |
 | per-turn 逐輪萃取 | 已停產 | — | `response_capture.per_turn.enabled=false` | — |
 | SessionEnd 草稿 flush | 已停產 | — | `session_end_flush.enabled=false` | — |
 | quick-extract 快篩 | 已除役 | — | 腳本已刪 | — |
@@ -495,8 +501,8 @@ sequenceDiagram
 
 1. **轉檔與切段**：ffmpeg 把任何音檔轉 16kHz 單聲道 wav，`silencedetect` 找靜音，在靜音中點切成 ≤180s 的段（不切在句子中間；實測 gemma4:e4b 單次 284s 全文無漏，180s 是留餘裕）。
 2. **逐字稿**：每段 base64 丟 Ollama `/api/chat`，模型用 `--audio-model`（預設 `gemma4:e4b`）。backend 依 `workflow/config.json` `ollama_backends` 優先序挑第一個「`/api/show` 有該模型且 `capabilities` 含 `audio`」的（本機沒顯卡也能跑，現況是 `rdchat-direct` 192.168.199.130）；帶 `auth` 的 backend 不支援、略過。音訊走 `images` 欄位（Ollama 0.30 的 API 文件沒寫 audio，實測 `audio`／`files` 欄位模型看不到、`images` 看得到）。`--glossary a,b` 把人名術語放進提示，辨識與摘要都用它校正同音錯字。模型偶爾在段尾回音指令文字，`clean_transcript` 截掉。產出 `<專案>/.claude/memory/_staging/meetings/<日期-標題>/transcript.md`（含時間戳；`_staging` 不進索引、不注入、不進版控）。
-3. **摘要**：逐字稿交同一 backend 的 `llm_model`，固定 JSON 三段——決議（標題／內容／負責人／範疇／觸發詞）、待辦（事項／負責人／期限）、未決問題；容忍 code fence，不是 JSON 就失敗、不補。寫 `summary.md`。
-4. **入庫**：每條決議一顆 `[臨]` atom，`write_atom(scope=shared, source=tool:meeting-transcribe)`。範疇候選＝專案 `shared/_taxonomy.json` 的 Lv1（含 desc，優先）∪ 核心 Lv1；摘要模型選得出 → `shared/<Lv1>/`；選不出 → 以 `audience=decision` 走既有的 `_pending_review` 待審路由（§7.4），使用者 `/conflict pending` 核可。逐字稿只記在 atom 的 `Source:` 行。不 commit，記憶層由背景 vcs-sync 同步。
+3. **摘要**：逐字稿交同一 backend 的 `llm_model`，固定 JSON 三段——決議（標題／內容／負責人／範疇／觸發詞／`quote`＝逐字稿裡直接說出該決議的原句，找不到留空）、待辦（事項／負責人／期限）、未決問題；容忍 code fence，不是 JSON 就失敗、不補。寫 `summary.md`。
+4. **入庫**：每條決議一顆 `[臨]` atom，`write_atom(scope=shared, source=tool:meeting-transcribe)`。範疇候選＝專案 `shared/_taxonomy.json` 的 Lv1（含 desc，優先）∪ 核心 Lv1；摘要模型選得出 → `shared/<Lv1>/`；選不出 → 以 `audience=decision` 走既有的 `_pending_review` 待審路由（§7.4），使用者 `/conflict pending` 核可。逐字稿路徑記在 atom 的 `Source:` 行，`quote` 非空就寫 `- Quote:`（逐字稿原句，消毒規則同 §4.1）。不 commit，記憶層由背景 vcs-sync 同步。
 
 `--check` 查 ffmpeg 與音訊 backend；`--dry-run` 全跑但 atom 只預覽；`--no-ingest` 只要逐字稿與摘要；`--json` 給 skill 讀。失敗一律 exit 1 + stderr 原因。驗證 `tools/verify/verify_meeting_transcribe.py`（mock 辨識與摘要，不碰 GPU）。不做即時轉錄；音檔不離開內網。
 
@@ -585,10 +591,12 @@ sequenceDiagram
 | 使用者糾正訊號 | `hooks/wg_friction.py`（UserPromptSubmit → Stop） | 比對「你做錯方向」類詞（不對／我說過／重來／改回來…，「對不對？」提問先剔除；bug／測試詞另屬失敗萃取）→ `user_correction_count` 跨 turn 累計；≥ `friction.min_hits`（2）→ Deep Post-Mortem 視為 effort＋真失敗同時成立——補上「測試全綠、已宣告完成、但人一路在糾正」這種原本三個訊號都抓不到的失敗 | `Logs/guard-friction.jsonl`；DPM 指令句寫出糾正次數與關鍵字 |
 | 記憶庫上版控（vcs-sync） | `hooks/wg_vcs_sync.py`（目標集／鎖／標記／拉段／spawn）+ `hooks/vcs-sync-worker.py`（detached；pythonw、`GIT_TERMINAL_PROMPT=0`）；觸發：SessionStart（`reason=pull`）、收割 validated、SessionEnd | 目標集＝根層 `vcs_sync.root_pathspecs` + 專案 `project_pathspecs`，各以記憶目錄找最近 VCS root，寫 `workflow/vcs-sync/roots.json`；同 root 以 `<hash>.lock`（OS 互斥）+`.req/<uuid>.json` 請求檔合併（持鎖者消費）；git 真 index pathspec add＋commit（會把同 repo 其他 session 對記憶路徑的未提交改動一起帶上，記憶目錄由系統擁有屬可接受）、**push 守門**：待推歷史任一 commit 觸及記憶 pathspec 以外路徑 → 不 push 留 `.unpushed`（程式碼等使用者上GIT）；svn `--xml` 逐檔 add 套 `exclude`、retire old_path 才 delete、`commit --encoding UTF-8`；拒跑：merge/rebase/cherry-pick 中、detached HEAD、unborn；首版不支援 sparse checkout／submodule 內記憶目錄；`vcs_sync.exclude` 含 `memory/_meta/**`（設定檔隨程式碼上GIT）；atom 寫入連帶更新的 `_AIDocs/_INDEX.md`／`DocIndex-System.md` 計數標記在 pathspec 外，留到下次上GIT；git 每輪 commit → **拉** → push（拉段 §6.3：`_git_pull`／`_git_isolated_rebase`／svn `svn_update_targets`），roots.json 拉側欄位 `last_pull`／`pulled_commits`／`pull_error` 與推側 `last_sync`／`last_error` 分欄互不清除 | `Logs/vcs-sync.log`（stderr）、`Logs/guard-worker-runs.jsonl` 起訖帳、`<hash>.unpushed` 標記 → 下個 SessionStart `_unpushed_advisory`；`<hash>.behind` 標記（JSON：reason/at，`write_behind`／`clear_behind`／`read_behind_record`）+ `pull_error` → `_pull_advisory_lines`；守門 `hooks/verify/verify_vcs_sync_worker.py` |
 | 收割帳本 | `workflow/harvest-ledger/<sid>.jsonl`（gitignore；PostToolUse 唯一寫者） | 每次 `knowledge_harvest_report` 核對結果一筆（items／pending／validated）；worker 讀其中 `action=retired` 的 path 決定 svn delete 清單 | `Logs/guard-knowledge_harvest.jsonl`／`guard-harvest_pending.jsonl`（閘觸發） |
+| 來源自動填 | `hooks/wg_provenance.py autofill_from_receipt`（PostToolUse，`atom_write` receipt 入帳後） | op∈{create,replace} 且 ok、檔內無 Quote 才填：Quote＝`state.turn_prompts[-1]` 經 `lib/provenance.sanitize_quote`；Source＝hook input 的 session_id + transcript 尾端最後一則真人訊息 uuid（`session:<sid8>#<uuid8> <日期>`）；呼叫者已給 Source 只補 Quote；`provenance.enabled=false` 全停 | 失敗落 `Logs/guard-provenance.jsonl`，不阻斷寫入 |
+| 來源回填 worker | `tools/atom-provenance-backfill.py`（預設 dry-run；`--apply` / `--json` / `--layer root\|aidocs\|project\|org\|all` / `--only <glob>` / `--quiet`）；SessionStart `_maybe_spawn_provenance_backfill` 見有比 marker 更新的 transcript 才 detached 跑 `--apply --quiet`（`wg_vcs_sync._gui_python`＋CREATE_NO_WINDOW）；週健檢 `_provenance_anti_rot` 對 Source 為 session、距今 ≥`provenance.anti_rot_days`、無 Quote、transcript 仍在的顆再跑一次 `backfill(apply=True, only=[…])` | 一趟掃 `projects/*/*.jsonl` 建索引（atom_write tool_use ↔ 成功 tool_result 的 path；沿 parentUuid 回溯最近真人訊息；sidechain 退同 session 主線）；每顆：有 Quote → skip；title／檔名 stem 命中且 basename 相同 → A（既有 Source 非空只補 Quote）；同 basename 多層且無精確路徑命中 → ambiguous 不寫；`<!-- src -->` 自動萃取顆 → A_ai（Quote 寫「AI：…」）；無命中 → B（日期序：Created-at → `memory/_meta/atom_io_audit.jsonl` → git 首 commit → mtime）；不做同日最近訊息弱匹配；改動由既有 vcs-sync 背景 commit／push | `Logs/provenance-backfill.log`；鎖 `Logs/provenance-backfill.lock`（>1h 視殘留）；marker `workflow/provenance-backfill-last.json`（記最新 transcript mtime）；週健檢 info |
 | 回訪機制 | `tools/followup-check.py` + `workflow/followups.json` | 「改了東西、一週後看數據」程式化：到期日、檢查名、通過線、**零記憶交接**；SessionStart 到期自動跑，INSUFFICIENT 只說明、FAIL 每日一次附交接、PASS 自動結案 | SessionStart advisory；CLI `--list/--run/--done/--add` |
 | 注入回合日誌 | `hooks/handlers/ups_inject.py` | 每回合 ok/fallback/skip/cold/redundant 計數與 token | `Logs/injection-turns.jsonl` |
 | atom-debug | `Logs/atom-debug-*.log` | 檢索過程、盲點（無命中）、錯誤 | config `atom_debug` |
-| guard JSONL | `Logs/guard-{evasion,docdrift,lang,pre-action-notice,friction,tool-result-size,tool-result-stats,knowledge_harvest,harvest_pending,worker-runs}.jsonl` | 每個護欄觸發一筆 | 誤攔率可量測 |
+| guard JSONL | `Logs/guard-{evasion,docdrift,lang,pre-action-notice,friction,tool-result-size,tool-result-stats,knowledge_harvest,harvest_pending,worker-runs,provenance}.jsonl` | 每個護欄觸發一筆 | 誤攔率可量測 |
 | log rotation | `wg_core.rotate_log_if_oversized`（預設 10MB 保 3 份；extract-worker.log 5MB 保 2） | guardian-crash.log 曾爆 114GB | — |
 | vector 啟動器 | `tools/memory-vector-service/starter.py` | stdout/stderr 落 `Logs/vector-service.log`；health timeout + port 被占 → kill 舊 pid 重啟；等待窗 120s；spawn lock 防多 session 重複載 | log + statusline |
 | 索引完整性哨兵 | `handlers/session_start.py` | 索引空／截斷、skill 數與 `_skill_index.json` 不符、IDENTITY 被截 | advisory |
@@ -602,7 +610,7 @@ sequenceDiagram
 
 | 服務 | 位址／入口 | 職責 | 不在時 |
 |------|-----------|------|--------|
-| MCP server | `tools/workflow-guardian-mcp/server.js`（stdio；Node 18+，零 npm deps） | 8 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report`（這兩者只回 chip，state 由 Python PostToolUse 寫）/ `memory_search`（唯讀，§5.8） | hooks 照常；atom 可經 `python lib/atom_io_cli.py` 寫 |
+| MCP server | `tools/workflow-guardian-mcp/server.js`（stdio；Node 18+，零 npm deps） | 9 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report`（這兩者只回 chip，state 由 Python PostToolUse 寫）/ `memory_search` / `atom_source`（後兩者唯讀，§5.8） | hooks 照常；atom 可經 `python lib/atom_io_cli.py` 寫 |
 | Dashboard | `http://127.0.0.1:3848/`（同一 server.js；port 取 `WG_DASHBOARD_PORT` → config `dashboard_port` → 3848） | session 狀態、記憶自癒（`tools/atom-heal.py`）、API | — |
 | AEC HUD | `http://127.0.0.1:3848/aec/hud` | 反退避收尾報告、殘檔帳本、刪除決策 | — |
 | 腦內世界 | `tools/workflow-guardian-mcp/world.html`——**靜態檔，用瀏覽器直接開檔**；頁面自己輪詢 `http://127.0.0.1:3848/api/*` | 記憶可視化 | — |
@@ -711,6 +719,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | Ollama embedding timeout | 模型首次載入 5–10 秒。確認 `ollama list` 有模型；daemon 沒回應查 `systemctl status ollama` 或 Windows 工作管理員。遠端 backend 連續失敗會進 Long DIE（§9.1） |
 | hook 有跑但 atom 沒注入 | 確認 `memory/_atom_index.json` 的 triggers 含 prompt 關鍵字（ASCII 整詞、CJK 子字串）；開 `/atom-debug` 看注入 log；每次注入尾行 `[Context budget: x/y \| trim: …]` 顯示預算裁切 |
 | MCP `atom_write` 回 `cli parse fail` | §9.3 `WG_PYTHON` |
+| 問卡片來源回 `unrecoverable` | 正常結果，不是故障：該顆 Source 是 B 級（`commit:`／`unknown`＋「原對話已逾保留期」）且無 Quote——落檔當時沒有自動填，回填時 transcript 也已被清。看 `source` 欄的日期與 `warnings`；要補只能人工 `atom_edit_meta(label=quote)`。若 Source 明明是 `session:` 卻回 `unrecoverable`，查 `projects/*/<sid>.jsonl` 是否存在、`Logs/guard-provenance.jsonl` 有無當時的自動填失敗 |
 | 啟動或每句變慢 | 預期值見 §11.1 |
 
 `install.py --verify` 之外可手動抽查的項目：`python tools/memory-audit.py --global-only` 無 ERROR；Claude Code 內按 `/` 看得到 `/memory` `/handoff` `/continue` `/vector`；問 Claude「列出 workflow-guardian MCP 工具」對得上 §9 表；開新 session statusline 無 `WG:?`；Dashboard 開得起來；`python tools/merge-atom-index.py --status` 末行「已安裝」；`python tools/memory-search.py "git commit" --no-vector --json` 輸出含 `"schema_version": 1` 且 `results` 非空。
@@ -746,6 +755,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── wg_docdrift.py / wg_handoff.py / wg_rescue.py / wg_recall_miss.py
 │   ├── wg_friction.py                       ← 工具結果體積（浪費）+ 使用者糾正訊號 → DPM
 │   ├── wg_harvest.py                        ← 階段收割：閘判定 / receipt 入帳 / items 核對 / ledger（純函式，不落盤）
+│   ├── wg_provenance.py                     ← 來源自動填：atom_write receipt → 補 Source（session 指標）/ Quote（使用者原話）
 │   ├── wg_vcs_sync.py                       ← 記憶庫上版控：目標集 / OS 互斥鎖 / .req 請求檔 / .unpushed・.behind 標記 / 拉段（ref+pathspec restore、ff-only、隔離 worktree rebase、svn update）/ roots.json / spawn
 │   ├── wg_coordination.py / wg_parallel.py / wg_research.py
 │   ├── wg_roles.py                          ← 身份（AD 帳號）/ 職能三層解析（role.md → AD 群組 → 空）/ 裁決資格 review.deciders
@@ -762,6 +772,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── atom_spec.py / atom_taxonomy.py      ← 合法性規範 / Lv1 閉合清單 + classify_category
 │   ├── atom_index_json.py / atom_access.py  ← JSON SoT API / access sidecar + Wilson
 │   ├── realm_gate.py                        ← 專案專屬內容不得落 global
+│   ├── provenance.py                        ← 來源回看：sanitize_quote / format_source_session / parse_source / find_transcript / resolve_context / atom_source（三態）
 │   ├── ollama_extract_core.py               ← 共享萃取核心 + SessionBudgetTracker
 │   └── verify/
 │
@@ -771,6 +782,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── memory-peek.py / memory-undo.py / memory-session-score.py
 │   ├── sync-atom-index.py / sync-memory-index.py / sync_doc_counts.py / native-memory-bridge.py / merge-atom-index.py
 │   ├── atom-move.py / atom-categorize.py / atom-set-realm.py / atom-heal.py / atom-health-check.py
+│   ├── atom-source.py / atom-provenance-backfill.py   ← 命令列回看卡片來源（§5.8）/ 舊 atom 補 Source・Quote 的回填 worker（§8）
 │   ├── memory-search.py / org-memory.py     ← 命令列查記憶 / 公司層 org：接上（--join）、對帳（--status）、初始化（--init）、工具卡掃描（--scan-tools）；使用者入口 /org skill
 │   ├── conflict-review.py / init-roles.py / heal-review.py   ← 待審裁決 / 職能覆寫與對帳（--me / --status）/ 自癒退件
 │   ├── realm_llm_classify.py / skill-index.py / changelog-roll.py / journal-aggregate.py
@@ -785,8 +797,8 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── auto-continue/ / gdoc-harvester/ / unity-desktop/ / usage-snapshot/
 │   └── verify/
 │
-├── skills/                                  ← <!-- skill-count -->23<!-- /skill-count --> 個 active
-│   ├── atom-debug / browse-sprites / changelog-debug / codex-companion / conflict
+├── skills/                                  ← <!-- skill-count -->24<!-- /skill-count --> 個 active
+│   ├── atom-debug / atom-source / browse-sprites / changelog-debug / codex-companion / conflict
 │   ├── consciousness-stream / continue / extract / fix-escalation / generate-episodic
 │   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / memory
 │   ├── read-project / refile / skill-creator / upgrade / vector
@@ -866,7 +878,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | `dashboard_port` | 3848 | Dashboard + HUD |
 | `review.deciders` | `[]` | 待審草稿裁決名單（AD 帳號）；空＝人人可裁決；config 壞 → fail-open True + stderr |
 | `roles.ad_group_map` | 核心程式／伺服器程式／程式→programmer、美術→art、企劃→planner、QA→qa、PM→pm | AD 群組名 `<網域>\<專案代碼>_<序號>_<職能名>` 的職能名子字串對映（先比長鍵）；專案 MEMORY.md `> Project-Code: XXX` 可限定只取該專案群組 |
-| `org_memory.repo_url` / `default_root` | — / — | 公司層記憶 repo（§4.4）全公司相同的值：`repo_url` 供 `--join` 在本機沒 checkout 時 clone，`default_root` 是 `--join` 沒給路徑時的落點 |
+| `org_memory.repo_url` / `default_root` | — / `~/CompanyAtomsMem` | 公司層記憶 repo（§4.4）全公司相同的值：`repo_url` 供 `--join` 在本機沒 checkout 時 clone，`default_root` 是 `--join` 沒給路徑時的落點 |
 | `org_memory.enabled` / `roots` | false / `[]` | 共用 config 內保持預設；實際值在本機 `workflow/org-memory.local.json`（不進版控，同名鍵蓋過，`tools/org-memory.py --join`／`--init <root>` 填寫）。只讀 `roots[0].root`，>1 停用並 stderr；本機檔另有 `declined`（使用者答過先不接，啟動不再問；舊鍵 `advised` 已不讀） |
 | `taxonomy.gate_enabled` | true | create 缺 domain 拒寫 |
 | `taxonomy.llm_fallback.enabled` / `realm.llm_fallback.enabled` | false / false | 分類只跑決定性詞庫 |
@@ -910,6 +922,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | `sync_reminder.{enabled,max_reminders,unpushed}` | true / 1 / true | Stop 同步閘；unpushed=true 時已 commit 未 push 也擋 |
 | `parallel_agents.*` / `research_fanout.*` | enabled | 多 agent 拆分／研究 fan-out 判準注入 |
 | `docdrift.path_mappings` | hooks→Architecture.md、skills/rules/tools→DocIndex-System.md | 文件漂移提醒 |
+| `provenance.enabled` / `quote_max_chars` / `anti_rot_days` / `backfill.enabled` | true / 200 / 25 / true | 卡片來源（§4.1 Source／Quote、§8 來源自動填與回填 worker）：總開關、Quote 上限字數、週健檢防腐天數（session 來源距今超過此天數仍無 Quote 就補）、SessionStart 回填 worker 開關；缺整段＝全開 |
 | `atom_debug` | false | 檢索除錯 log |
 
 ### 12.1 功能開關（不想要某個功能時逐鍵關）
@@ -980,23 +993,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 
 ### 14.1 版本表
 
-| 版本 | 日期 | 白話 | 核心變更 |
-|------|------|------|---------|
-| V1.0 | 2026-03-02 | 三層可信度 + 格式健檢 | `[固]/[觀]/[臨]` + memory-audit |
-| V2.0 | 2026-03-03 | 語意搜尋上線 | Hybrid RECALL（keyword + vector + rerank） |
-| V2.1 | 2026-03-04 | 品質閘門擋垃圾 | Write Gate + intent classifier + 衝突偵測 + decay |
-| V2.4 | 2026-03-05 | AI 回答自動存 + 跨 session 升級 | 回應萃取 + 向量鞏固 + 兩層分類 |
-| V2.5–2.10 | 2026-03-06~11 | 萃取 + 反思 + 閱讀軌跡 | JSON 強制 / Wisdom Engine / Read Tracking |
-| V2.11–2.18 | 2026-03-13~24 | Dual-Backend + 失敗自動化 + Section-Level | 三階段退避 + Fix Escalation + Token Diet |
-| V2.20–2.21 | 2026-03-27 | 路徑集中化 + 專案自治層 | `wg_paths.py` + `{project}/.claude/memory/` |
-| V3.0–3.4 | 2026-04-02~09 | 三層即時管線 + Gemma 4 萃取 | Hot Cache + DocDrift + gemma4:e4b |
-| V4.0 | 2026-04-15 | 多職務團隊知識分層 | 四層 scope + `_roles.md` 雙向認證 + 三時段衝突 + pending review |
-| V4.1 | 2026-04-16 | 使用者決策自動寫成記憶 | L0→L1→L2 + 240 tok budget + `/memory-*` |
-| V5 GA | 2026-05-27 | 對齊原生 + JSON SoT + Subprocess + BM25 | log rotation；hook 16 模組→6+shim；MCP 7→3 tool；commands→skills；JSON SoT；BM25 全域層；Codex daemon→subprocess；workflow 114GB→329K |
-| audit | 2026-07-01 | 誠實化 + 修剪 | vector 復活（靜默死 26.7d）+ 可觀測告警；dispatcher 惰性 import；死碼清理；BM25 min_score 1.0→3.5；Realm 停 LLM；per-turn／session_end flush 停產；FixEscalation 改 error-based；USER 單人化；多人層 archive；lang_guard；治理原則入 rules |
-| V5.1 | 2026-07-25 | 檢索精準化 + 記憶完備性 | RRF 三路融合 × 個別化 decay；memory-eval 223 條（R@1 34→53.6%、MRR 0.584→0.709；bm25_min_score 3.5→7.0）；wilson_z 1.28 + demote n≥5 + decay 每日護欄；recall-miss；Depends/Evidence + fast-refute；向量服務修復；token 口徑統一；新 atom activation 0.0；UPS 90→16ms |
-| 5.1 後續 | 2026-07-31~08-06 | 協作與驗收 | 跨 session 衝突預警（純檔案）；PAN 預告閘門（終局 warn）；驗收裁判四段閉環 + 裁判後端鏈 |
-| 5.1 後續 | 2026-08-25~31 | 分類階層化 + 注入根治 + 落點單源 | 核心 atom 進 `memory/<範疇>/`、MEMORY.md 目錄化、寫入閘 domain 必填；AEC 殘檔帳本；DeferralGate；per-turn 硬頂 500→1200、裁切回填、分級依 token、同題去冗；write-gate 去重限層；realm 閘；橋接檔重產；回訪機制；跨專案索引快取；專案層判定單源；atom 落點單一裁決（js 鏡像全拔）；退避偵測引號內不觸發 |
+版本表見 `_AIDocs/DevHistory/version-migrations.md`「版本表」節。
 
 編年細節：`_AIDocs/_CHANGELOG.md`；V5 升版全紀錄 `_AIDocs/DevHistory/v5-overhaul-2026-05/`。
 

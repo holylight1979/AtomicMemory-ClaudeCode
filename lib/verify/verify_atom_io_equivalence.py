@@ -1148,3 +1148,75 @@ def test_33_replace_preserves_source_and_depends(isolated_claude):
     assert r.ok, r.error
     text = r.path.read_text(encoding="utf-8")
     assert "Source" not in text and "Depends" not in text
+
+
+# ─── 34. Quote parity（py↔js buildAtomContent：quote 緊接 Source 之後、Confidence 之前） ───
+
+
+def test_34_quote_py_js_byte_parity(tmp_path):
+    """quote → `- Quote:` 位於 Source 之後、Confidence 之前；無 Source 時位於 Author 之後；py↔js byte-identical。"""
+    q = "「上GIT 是 commit 加 push 一體」"
+    py_out = build_atom_content(**_SUP_BASE_PY, author="alice", provenance="session:abcdef12#11223344 2026-10-06", quote=q)
+    js_out = _js_build(tmp_path, _SUP_BASE_JS + ",author:'alice',provenance:'session:abcdef12#11223344 2026-10-06',quote:'" + q + "'", "quote")
+    assert js_out == py_out, f"DRIFT[quote]\nPY:\n{py_out!r}\nJS:\n{js_out!r}"
+    assert f"- Author: alice\n- Source: session:abcdef12#11223344 2026-10-06\n- Quote: {q}\n- Confidence: [臨]\n" in py_out
+    # 無 Source 時 Quote 直接接在 Author 後
+    py2 = build_atom_content(**_SUP_BASE_PY, author="alice", quote=q)
+    js2 = _js_build(tmp_path, _SUP_BASE_JS + ",author:'alice',quote:'" + q + "'", "quote2")
+    assert js2 == py2
+    assert f"- Author: alice\n- Quote: {q}\n- Confidence: [臨]\n" in py2
+    # 未給／空 → 不輸出
+    assert build_atom_content(**_SUP_BASE_PY, quote="") == build_atom_content(**_SUP_BASE_PY)
+    assert "Quote" not in build_atom_content(**_SUP_BASE_PY)
+
+
+def test_35_replace_preserves_quote(isolated_claude):
+    """replace 未給 quote → 保留；給了 → 替換；給空 → 清除；append 不動；edit_metadata 可補 Source／Quote。"""
+    from lib.atom_io import edit_metadata
+    common = dict(scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+                  knowledge=["k"], source="test", skip_gate=True, today=FIXED_TODAY)
+    r = write_atom(title="Quote Atom", domain="設計通則", mode="create", author="alice",
+                   provenance="session:abcdef12 2026-10-06", quote="「原句一」", **common)
+    assert r.ok, r.error
+    text = r.path.read_text(encoding="utf-8")
+    assert "- Source: session:abcdef12 2026-10-06\n- Quote: 「原句一」\n- Confidence" in text
+    r = write_atom(title="Quote Atom", mode="replace", knowledge=["k2"],
+                   **{k: v for k, v in common.items() if k != "knowledge"})
+    assert r.ok, r.error
+    assert "- Quote: 「原句一」\n" in r.path.read_text(encoding="utf-8")
+    r = write_atom(title="Quote Atom", mode="append", **common)
+    assert r.ok, r.error
+    assert "- Quote: 「原句一」\n" in r.path.read_text(encoding="utf-8")
+    r = write_atom(title="Quote Atom", mode="replace", quote="「原句二」", **common)
+    assert r.ok, r.error
+    text = r.path.read_text(encoding="utf-8")
+    assert "- Quote: 「原句二」\n" in text and "原句一" not in text
+    r = write_atom(title="Quote Atom", mode="replace", quote="", **common)
+    assert r.ok, r.error
+    assert "- Quote:" not in r.path.read_text(encoding="utf-8")
+    # edit_metadata 補回（無該行 → 插 metadata 末；有 → 整行替換）
+    res = edit_metadata(r.path, quote="「原句三」", provenance="commit:abc1234 2026-01-01（原對話已逾保留期）", source="test")
+    assert res.ok, res.error
+    text = r.path.read_text(encoding="utf-8")
+    assert "- Quote: 「原句三」\n" in text and "- Source: commit:abc1234 2026-01-01（原對話已逾保留期）\n" in text
+    res = edit_metadata(r.path, quote="「原句四」", source="test")
+    assert res.ok and "- Quote: 「原句四」\n" in r.path.read_text(encoding="utf-8")
+    assert r.path.read_text(encoding="utf-8").count("- Quote:") == 1
+
+
+def test_36_edit_metadata_value_with_backslash(isolated_claude):
+    """Quote／Source 值含反斜線（Windows 路徑）不得被當 regex 跳脫吃掉或炸 bad escape。"""
+    from lib.atom_io import edit_metadata
+    BS = chr(92)
+    common = dict(scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+                  knowledge=["k"], source="test", skip_gate=True, today=FIXED_TODAY)
+    r = write_atom(title="Backslash Atom", domain="設計通則", mode="create", **common)
+    assert r.ok, r.error
+    q = "「路徑在 C:" + BS + "Users" + BS + "x" + BS + "CompanyAtomsMem 而且 " + BS + "P " + BS + "U 要原樣」"
+    src = "C:" + BS + "x" + BS + "transcript.md"
+    res = edit_metadata(r.path, quote=q, provenance=src, source="test")
+    assert res.ok, res.error
+    text = r.path.read_text(encoding="utf-8")
+    assert ("- Quote: " + q + chr(10)) in text and ("- Source: " + src + chr(10)) in text
+    res = edit_metadata(r.path, quote=q.replace("x", "y"), source="test")
+    assert res.ok and ("C:" + BS + "Users" + BS + "y" + BS + "CompanyAtomsMem") in r.path.read_text(encoding="utf-8")

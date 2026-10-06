@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-10-06 atom 來源回看閉環：Quote 欄、PostToolUse 自動填、atom_source、舊 atom 回填與防腐
+- **緣由**：TECH §2.2 列的弱點「萃取物指不回原文」實證為真：顯式寫入 181 顆只有 4 顆有 Source、萃取 atom 的 `<!-- src -->` 指標沒有讀取端、transcript 30 天清掉後指標腐爛。使用者要的體驗：被問「這是誰、什麼時候說的？」能一句回日期＋原句。
+- **契約**：atom metadata 新增 `- Quote: 「使用者原話 ≤200 字」`（Source 後、Confidence 前；py `lib/atom_spec.py`↔js `atom-render.js` byte-identical）；`- Source:` 標準三態 `session:<sid8>#<uuid8> <日期>`／`commit:<hash7> <日期>（原對話已逾保留期）`／`unknown …`。`atom_write`／`write_atom` 選填 `quote`，replace 未給保留；`edit_metadata` 加 `provenance`／`quote` label（並修掉 `re.subn` 字串替換把值內反斜線當跳脫的 bug）。
+- **寫入端自動填**：`hooks/wg_provenance.py autofill_from_receipt`，由 PostToolUse 在 atom_write receipt 入帳後呼叫（MCP 進程不知道 session id，所以不在 js 端）：Quote 取 `state.turn_prompts[-1]` 消毒，uuid 取 transcript 尾端最後一則真人訊息。`user-extract-worker` 帶使用者原文寫 Quote；`meeting-transcribe` 摘要加 `quote` 欄。注入端剝知識段 HTML 註解；Source／Quote 不注入（每回合 token 增量 0）。
+- **讀取端**：`lib/provenance.py`、CLI `tools/atom-source.py`、`atom_io_cli` action `source`、MCP tool `atom_source`（8→9）、`memory_search` 結果加 `provenance` 欄、skill `skills/atom-source/`（「這張卡片哪來的」）。
+- **回填與防腐**：`tools/atom-provenance-backfill.py`（dry-run 預設、A／A_ai／B 分級、同檔名多層 ambiguous 不寫、不做弱匹配、鎖＋marker）；SessionStart 見新 transcript 才 detached 跑；`health-weekly` 對快到 25 天的 session 來源補 Quote；config 新段 `provenance`。本機實跑三層 920 顆：A=136、B=746、其餘 skip（含 1 份非 atom 文件）。
+- **文件**：TECH 逐節對帳（§2.1／2.2／4.1／4.4／5.8／6.1／6.3／6.6／8／9／10／12／14，§14.1 版本表移 `DevHistory/version-migrations.md`）；SPEC §13.3 加 Quote；Architecture／_INDEX／DocIndex／README 口令表。驗證：`verify_atom_io_equivalence` test_34–36、`verify_provenance_autofill`、`verify_atom_source`、`verify_memory_search`、`verify_provenance_backfill`、MCP smoke 9 tool。 | `lib/{atom_spec,atom_io,atom_io_cli,provenance,memory_search}.py`, `hooks/{wg_provenance,wg_atoms,user-extract-worker}.py`, `hooks/handlers/{post_tool_use,session_start}.py`, `tools/{atom-source,atom-provenance-backfill,health-weekly,meeting-transcribe}.py`, `tools/workflow-guardian-mcp/lib/{mcp,atom-tools,atom-render}.js`, `skills/atom-source/SKILL.md`, `workflow/config.json`, `TECH.md`, `README.md`, `_AIDocs/*`
+
+---
+
 ## 2026-10-06 README／Install.md 重寫成純使用者視角：三層記憶、口令表、版控三點
 - **緣由**：公司層（`scope=org`、`/org`）已實作並寫進 TECH §4.4／`rules/core.md`，但人讀入口 `README.md` 開頭與 `Install.md` 範圍表仍只講根層與專案層；README 另混了設計理念、合併驅動細節、rebase 方向等技術導向段落，使用者指正「人必讀文件要剔除多餘、過時、過度技術的內容；版控段落贅述太多，寫使用者直接體驗到的就好」。
 - **README.md**（118 → 90 行）：三層記憶一張表（放什麼／在哪／怎麼拿到）＋大家的／我的分界＋與 CC 原生自動記憶的關係（不取代、放指標）；開始用 3 步；平常替你做什麼 6 點；「你會對它說的話」口令表（接上公司記憶／初始化／整理記憶分類／整理這場會議／上GIT／執P／handoff／memory health／conflict pending）；版控收成三點（卡片自己上、程式碼等口令且不偷推、多機索引自動合）；看得見的介面；不用 CC 的同事。移除：核心設計理念段（TECH §1）、與原生差異表（TECH §2.1）、合併驅動／rebase 方向／Fork／SVN／LF 細節（`MultiMachineMemorySync.md` 已全涵蓋）。

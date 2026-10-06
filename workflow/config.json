@@ -488,6 +488,15 @@
     "min_accessed": 5,
     "min_turns_between": 3
   },
+  "provenance": {
+    "_doc": "atom 來源回看：PostToolUse 對剛寫入的 atom 自動補 `- Source:`（session 指標）與 `- Quote:`（使用者原話 ≤quote_max_chars 字）；backfill＝SessionStart 見到新 transcript 就 detached 跑 tools/atom-provenance-backfill.py --apply 補舊 atom（A 級補原句、B 級補出處）；anti_rot_days＝週健檢對 session 來源距今超過此天數仍無 Quote 的 atom 搶在 transcript 被清前補原句。缺本區段＝全開。",
+    "enabled": true,
+    "quote_max_chars": 200,
+    "anti_rot_days": 25,
+    "backfill": {
+      "enabled": true
+    }
+  },
   "vcs_sync": {
     "_doc": "記憶目錄背景靜默上版控（hooks/vcs-sync-worker.py）。觸發：收割 validated、SessionEnd。root_pathspecs 相對 ~/.claude、project_pathspecs 相對專案根；org_extra_pathspecs 相對公司層 repo 根（非記憶但一起自動推拉的路徑，如週用量截圖）；git 只 add/commit 這些 pathspec，待推歷史含非記憶 commit 則不 push 留標記；svn 逐檔 add 套 exclude 後 commit。；exclude 含 memory/_meta/**：taxonomy／forbidden-phrases 等設定檔不走記憶自動提交，隨程式碼上GIT",
     "enabled": true,

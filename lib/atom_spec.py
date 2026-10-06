@@ -49,6 +49,7 @@ OPTIONAL_METADATA = frozenset({
     "Decided-by",  # conflict-review 核可 shared atom 時寫入（核可者）
     "Depends", "Evidence",  # 壞滅緣（validity conditions）/ 證據等級（了義裁決）
     "Status",  # 選填現況一行（如「案結 2026-07-29」）；cold/skip 一行注入時附帶。
+    "Quote",  # 觸發這張卡片的使用者原話引述（單行 ≤200 字）；PostToolUse 自動填、回填腳本補
                # 只寫現況，禁歷史敘事/版本脈絡（feedback-live-檔與記憶不留版本操作脈絡）
 })
 
@@ -346,17 +347,19 @@ def build_atom_content(
     supersedes: Optional[Iterable[str]] = None,
     provenance: Optional[str] = None,
     depends: Optional[Iterable[str]] = None,
+    quote: Optional[str] = None,
 ) -> str:
     """從結構化參數構造 atom 檔內容。
 
     對拍 tools/workflow-guardian-mcp/lib/atom-render.js buildAtomContent —— byte-identical 等價契約。
-    SPEC §4 metadata 順序：Scope → Audience → Author → Source → Confidence → Trigger →
+    SPEC §4 metadata 順序：Scope → Audience → Author → Source → Quote → Confidence → Trigger →
     Status → Last-used → Confirmations → ReadHits → Pending-review-by →
     Merge-strategy → Created-at → Depends → Related → Supersedes。空值欄位省略（status /
     supersedes / provenance / depends 未給時輸出與既有 parity fixture byte-identical）。
     supersedes：本顆取代的舊 atom（被取代者不再注入、檔案保留）；None 或空 → 不輸出。
     provenance：來源（路徑／URL／commit），渲染為 `- Source:`（write_atom 的 source 是稽核白名單，故另名）。
     depends：壞滅緣條目（`path:<路徑>` 或自由文字），渲染為逗號清單 `- Depends:`。
+    quote：觸發寫入的使用者原話（已消毒單行），渲染為 `- Quote:`，緊接 Source 之後。
     """
     today = today or date.today().isoformat()
     triggers_list = list(triggers)
@@ -375,6 +378,8 @@ def build_atom_content(
         lines.append(f"- Author: {author}")
     if provenance:
         lines.append(f"- Source: {provenance}")
+    if quote:
+        lines.append(f"- Quote: {quote}")
     lines.append(f"- Confidence: {confidence}")
     lines.append(f"- Trigger: {', '.join(triggers_list)}")
     if status:

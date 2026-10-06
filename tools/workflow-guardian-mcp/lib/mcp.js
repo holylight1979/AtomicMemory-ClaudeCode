@@ -174,6 +174,10 @@ const TOOL_DEFINITIONS = [
           type: "array", items: { type: "string" },
           description: "Optional validity dependencies, e.g. [\"path:C:/abs/entrypoint.py\"]. Rendered as `- Depends:`; path: entries are machine-checked by health-check (missing → stale). replace: omit=keep, []=clear.",
         },
+        quote: {
+          type: "string",
+          description: "觸發這張卡片的使用者原話，單行 ≤200 字；通常由 PostToolUse 自動填，呼叫者不必給。Rendered as `- Quote:`（Source 之後）。replace: omit=keep, \"\"=clear, non-empty=replace.",
+        },
         status: {
           type: "string",
           description: "Optional one-line current status (e.g. '案結 2026-07-29'). Shown alongside cold/one-line injections so the pointer carries minimal state. Current-state ONLY — no version history / change narrative.",
@@ -377,7 +381,8 @@ const TOOL_DEFINITIONS = [
     description:
       "一句話查原子記憶（唯讀）。走與 hook 注入同一條檢索管線：候選池（global + 本專案 shared + 本人 role/personal，" +
       "scope 可見性已收窄）→ trigger / BM25 / vector → RRF 融合排序。回 schema_version=1 的穩定結構：" +
-      "results[{name, path, rel_path, scope, source, score, excerpt, author, audience, tags, status}] 與 warnings（同名跨層遮蔽、向量路關閉等）。" +
+      "results[{name, path, rel_path, scope, source, score, excerpt, author, audience, tags, status, provenance}] 與 warnings（同名跨層遮蔽、向量路關閉等）；" +
+      "provenance＝該 atom 的 `- Source:` 行原值（空字串表示無）。" +
       "format=table（預設，人讀）| json（給程式／其他 AI）。不寫 state、不留 receipt。",
     inputSchema: {
       type: "object",
@@ -390,15 +395,32 @@ const TOOL_DEFINITIONS = [
       required: ["query"],
     },
   },
+  {
+    name: "atom_source",
+    description:
+      "查一張 atom 的來源：Source 指標＋Quote 原句；transcript 還在則回該 uuid 前後各 1 則原文（state=live），" +
+      "否則回 Quote（quote_only），都沒有回出處與『原對話已逾保留期』（unrecoverable）。唯讀，不寫 state、不留 receipt。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        atom: { type: "string", description: "atom 名（不含 .md）或絕對路徑（必填）" },
+        cwd: { type: "string", description: "專案根，用於定位專案層 atom；預設 server 行程 cwd" },
+        format: { type: "string", enum: ["table", "json"], description: "回覆格式：table（預設）或 json（原始 JSON 字串）" },
+      },
+      required: ["atom"],
+    },
+  },
 ];
 
 // ─── Tool Handlers ──────────────────────────────────────────────────────────
 
 function handleToolCall(id, toolName, args) {
-  const { toolAtomWrite, toolAtomPromote, toolAtomMove, toolAtomEditMeta, toolAtomRetire, toolMemorySearch } = require("./atom-tools");
+  const { toolAtomWrite, toolAtomPromote, toolAtomMove, toolAtomEditMeta, toolAtomRetire, toolMemorySearch, toolAtomSource } = require("./atom-tools");
   switch (toolName) {
     case "memory_search":
       return toolMemorySearch(id, args).catch(e => sendToolResult(id, `memory_search error: ${e.message}`, true));
+    case "atom_source":
+      return toolAtomSource(id, args).catch(e => sendToolResult(id, `atom_source error: ${e.message}`, true));
     case "atom_retire":
       return toolAtomRetire(id, args).catch(e => sendToolResult(id, `atom_retire error: ${e.message}`, true));
     case "knowledge_harvest_report":

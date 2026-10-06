@@ -87,7 +87,7 @@ Bash／PowerShell：
 
 statusline／週健檢／效果報表／救援日誌／失念偵測／回訪／guard JSONL：TECH §8。取捨：週健檢用 Windows Task Scheduler 而非 CC 原生 CronCreate／Routines——後者為雲端 agent，碰不到本機 `~/.claude`；OTEL export 不做（TECH §8 末段）。
 
-## Skills（全域 <!-- skill-count -->23<!-- /skill-count --> 個 active）
+## Skills（全域 <!-- skill-count -->24<!-- /skill-count --> 個 active）
 
 逐 skill 檔案與用途：DocIndex-System §5。`init-roles`／`conflict-review` 單人環境 dormant → `skills/_archived/`（不計入）；V5 從 `commands/*.md` 遷移與已刪除清單：SPEC §4。
 
@@ -175,7 +175,7 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 
 檔案地圖：`lib/atom_locations.classify_realm`（+ server.js mirror，base-only 保 parity）、`tools/atom-set-realm.py`（`_AIDocs/_atoms/` path 唯一寫者，連 `.access.json` sidecar 原子搬、Scope 保 global、`--to-core` 可逆，不走 `atom-move`）、`tools/realm_llm_classify.py`（SessionEnd sweep 用，`realm.llm_fallback.enabled` 預設 false）、`memory/_local_catalog.md`（local 目錄，僅 `~/.claude` 注入）、`skills/refile/`（手動歸檔前端）。守門：`lib/verify/verify_atom_io_equivalence.py`（分類器零誤判／py↔js parity／canon／深度閘／自學）、`lib/verify/verify_realm_injection_gate.py`、`tools/verify/verify_realm_llm_classify.py`、`hooks/verify/verify_realm_sweep.py`、`tools/verify/verify_local_catalog_split.py`。
 
-## MCP Server（8 tool：atom_write／atom_promote／atom_move／atom_edit_meta／atom_retire／anti_evasion_report／knowledge_harvest_report／memory_search）
+## MCP Server（9 tool：atom_write／atom_promote／atom_move／atom_edit_meta／atom_retire／anti_evasion_report／knowledge_harvest_report／memory_search／atom_source）
 
 服務表與不在時行為：TECH §9；`atom_write` 閘門序：TECH §6.1；scope 落點：TECH §4.4；晉升條件（只走效用 Wilson 軌、ReadHits 純曝光）：TECH §6.4；`atom_edit_meta` 契約：SPEC §3.4；`atom_write(supersedes=)` 三態／receipt 格式／`atom_retire` 退役步驟：SPEC §3.5；create／append／replace 落點 vs 定位分離：SPEC §2.3；`knowledge_harvest_report` 的 items 核對（one-writer，Python PostToolUse）：TECH §6.3；砍掉的 4 個內部 IPC tool：TECH §14.2；`memory_search` 讀取端契約與三入口：TECH §5.8；`scope=org` 語法糖：TECH §4.4／§6.1。
 
@@ -184,6 +184,8 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 TECH 未收的行為（本段為唯一來源）：
 - `atom_write` 選填 `status` → `- Status:` 現況一行（cold／skip 一行注入時附帶；只寫現況、禁版本敘事）；`scope=project`（legacy）透明轉 `shared` + stderr deprecation hint。
 - `atom_write` 選填 `provenance`／`depends` → `- Source:`（Author 後）／`- Depends:`（Created-at 後、Related 前）；replace 三態同 supersedes（未給＝保留、`""`／`[]`＝清除、非空＝替換；js 讀舊檔回填）；`atom-render.js` 與 py byte parity。
+- `atom_write` 選填 `quote` → `- Quote:`（Source 後、Confidence 前；單行 ≤200 字「」包住）；replace 三態同 Source；**通常不必給**：`hooks/wg_provenance.py autofill_from_receipt` 在 PostToolUse 以 receipt 路徑＋`state.turn_prompts[-1]`＋transcript 尾端真人訊息 uuid 自動補 `- Source: session:<sid8>#<uuid8> <日期>` 與 Quote（已有 Quote 不動、呼叫者已給 Source 只補 Quote；失敗記 `Logs/guard-provenance.jsonl`）。MCP 進程不知道 session id，故自動填不在 js 端。
+- `atom_source`（讀取端）：`lib/provenance.atom_source` → `{atom, path, source, quote, state: live|quote_only|unrecoverable, context[], warnings}`；CLI `tools/atom-source.py`、skill `skills/atom-source/`。舊 atom 回填 `tools/atom-provenance-backfill.py`（SessionStart `_maybe_spawn_provenance_backfill` 見新 transcript 才 detached 跑；A 級補原句、B 級補出處「原對話已逾保留期」；不做弱匹配）；週健檢 `_provenance_anti_rot` 搶在 transcript 清掉前補 Quote。注入端剝 HTML 註解、不注入 Source／Quote（每回合 token 增量 0）。
 - `atom_promote merge_to_preferences=true`（global only，[觀]→[固] 時）：把「## 知識」合併到 `preferences.md`、原 atom 搬 `memory/_archived/`。
 - 改 `server.js` 或全域 MCP 設定需重啟才生效；重啟 SOP 見 atom `guardian-dashboard-孤兒佔埠與新碼重啟`。孤兒 server 由 **stdin-EOF 自行退出**預防（父 CC client 一斷線即隨之退出、釋放埠），協作式交棒為 abrupt-kill／新舊碼升級的兜底。
 
@@ -203,7 +205,7 @@ hooks/verify/                 ← hook 守衛（atom／evasion／extract／wisdo
 tools/verify/                 ← check_bypass／memory_eval／stale_deps／vector_service／merge_atom_index／normalize_eol／doc_counts…
 tools/codex-companion/verify/ ← assessor／scorer／heuristics／handoff_review／artifact_sampling／prompt_input_integrity（smoke_plan_review.py 手動冒煙不被收集）
 tools/auto-continue/verify/
-lib/verify/                   ← atom_io_equivalence contract／edit_metadata／atom_spec_depends_evidence／usefulness_access／locate_single_authority／realm_injection_gate…
+lib/verify/                   ← atom_io_equivalence contract／edit_metadata／atom_spec_depends_evidence／usefulness_access／locate_single_authority／realm_injection_gate／provenance_backfill…
 skills/<name>/verify/         ← skill 自帶守衛
 ```
 

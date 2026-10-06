@@ -32,6 +32,9 @@ retire：{atom_name, scope, project_cwd, role, user, reason, dry_run}
 search：{query, cwd?, user?, roles?, top_k?, use_vector?} → {ok, extra: <lib/memory_search.search 回傳>}。
 唯讀；user/roles 缺省以現用身份（wg_roles）補；query 空 → error。
 
+source：{atom, cwd?} → {ok, extra: <lib/provenance.atom_source 回傳>}。唯讀；
+atom 找不到 → ok=False、error 同 extra.error。
+
 update_atom_field action 已移除（計數類欄位改走 lib/atom_access.py CLI
 入口 `python -m lib.atom_access ...`，不再透過此 bridge）。
 """
@@ -326,6 +329,10 @@ def main() -> int:
             result = WriteResult(ok=gate_err is None, error=gate_err)
         elif action == "search":
             result = search_atoms(payload)
+        elif action == "source":
+            from .provenance import atom_source
+            src = atom_source(payload.get("atom", ""), cwd=payload.get("cwd"))
+            result = WriteResult(ok="error" not in src, error=src.get("error"), extra=src)
         else:
             result = WriteResult(ok=False, error=f"unknown action: {action}")
     except TypeError as e:

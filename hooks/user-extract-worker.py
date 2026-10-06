@@ -464,6 +464,19 @@ def _write_atom_via_mcp(
                   file=sys.stderr)
             write_scope = "personal"
 
+    # 來源：Source 指到 session（turn_id 非 transcript uuid，故只記 session＋日期）；
+    # Quote 存使用者原話（消毒單行 ≤200 字），transcript 清掉後仍回得出原句。
+    provenance = None
+    quote_line = None
+    try:
+        from lib.provenance import format_quote, format_source_session, sanitize_quote
+        from datetime import date as _date
+        if session_id:
+            provenance = format_source_session(session_id, None, _date.today().isoformat())
+        q = sanitize_quote(candidate.get("prompt", "") or "")
+        quote_line = format_quote(q) if q else None
+    except Exception as e:
+        _atom_debug_error("user-extract:provenance", e)
     try:
         result = write_atom(
             title=slug,
@@ -479,6 +492,8 @@ def _write_atom_via_mcp(
             author=user,  # 提出此規則的使用者；來源標記走知識段的 <!-- src: turn --> 與 audit source
             domain=domain,
             realm=realm,
+            provenance=provenance,
+            quote=quote_line,
         )
     except Exception as e:
         _atom_debug_error("user-extract:_write_atom", e)
@@ -722,6 +737,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
             "conf": conf,
             "turn_id": candidate.get("turn_id", ""),
             "cwd": cwd,
+            "prompt": candidate.get("prompt", ""),  # 使用者原話 → atom `- Quote:`
         })
         processed_indices.append(idx)
         stats["confirmed"] += 1

@@ -1,6 +1,6 @@
 # 原子記憶系統 — 全檔案索引
 
-> 最近同步：2026-08-31（對外四文件改寫；hook 表補齊 wg_parallel/wg_research/wg_coordination/wg_handoff/version_guard/acceptance_spec；拔已刪的 quick-extract.py、notification.py）
+> 最近同步：2026-10-06（atom 來源回看：Quote 欄、PostToolUse 自動填、atom_source、回填與防腐；MCP 9 tool）；前次 2026-08-31（對外四文件改寫；hook 表補齊 wg_parallel/wg_research/wg_coordination/wg_handoff/version_guard/acceptance_spec；拔已刪的 quick-extract.py、notification.py）
 > 目標：讓 Claude Code AI 能了解自己，以利後續升級、迭代、進化
 > V5 概覽：[`SPEC_ATOM_V5.md`](SPEC_ATOM_V5.md)
 
@@ -109,6 +109,7 @@ Session Ready
 | wg_rescue.py | — | 救援日誌：注入 atom 高特異 token watch + 工具呼叫命中 → `Logs/rescue-log.jsonl`（純字串比對） |
 | wg_harvest.py | — | 階段收割純函式：Stop 閘判定（`harvest_gate_reason`／`pending_gate_reason`）、receipt 解析入帳、items 核對、ledger append、`vcs_sync_lock_active`；state 按 session_id 分區 |
 | wg_vcs_sync.py | — | 記憶庫背景上版控：目標集（根層 `memory`+`_AIDocs/_atoms`、專案 `.claude/memory`，各找最近 VCS root）、OS 互斥鎖＋`.req/` 請求檔合併、`.unpushed`／`.behind` 標記、`workflow/vcs-sync/roots.json`（含拉側 `last_pull`／`pulled_commits`／`pull_error`）、`spawn_vcs_sync`、主邏輯 `sync_targets_inline`；拉段 `_git_pull`（incoming 分類、ref＋pathspec restore、ff-only）／`_git_isolated_rebase`（隔離 worktree）／svn `svn_update_targets`；行為 TECH §6.3、`MultiMachineMemorySync.md` 自動拉取節；目標集含 config org 根；svn argv 編碼守門（ACP 外字元 → `_Stop`） |
+| wg_provenance.py | — | 來源自動填：PostToolUse 對 atom_write receipt（create／replace）補 `- Source: session:<sid8>#<uuid8> <日期>` 與 `- Quote:`（`state.turn_prompts[-1]` 經 `lib/provenance.sanitize_quote`；已有 Quote 不動、呼叫者已給 Source 只補 Quote）；失敗記 `Logs/guard-provenance.jsonl` 不阻斷 |
 | vcs-sync-worker.py | — | detached worker：git pathspec add＋commit → 拉（`vcs_sync.pull.enabled`）→ push 守門（待推歷史含非記憶 commit 不推）；svn `--xml` add／delete／update／commit；stderr → `Logs/vcs-sync.log` |
 | wg_recall_miss.py | — | 失念偵測（recall-miss）：SessionEnd 比對「失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |
@@ -119,7 +120,7 @@ Session Ready
 | user-init.sh | — | 多人 USER.md 初始化 |
 | webfetch-guard.sh | — | WebFetch 安全護欄 |
 
-## 5. Skills（<!-- skill-count -->23<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
+## 5. Skills（<!-- skill-count -->24<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
 
 V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 全刪除。
 
@@ -192,6 +193,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - atom_io.py — 知識內容寫入 funnel（`write_atom` / `write_raw` / `write_index_full`），對拍 server.js byte-identical
 - atom_access.py — 遙測 funnel（`<atom>.access.json` 旁路檔，schema atom-access-v2）；`init_access` / `increment_read_hits` / `increment_confirmation` / `record_promotion` / `bulk_read`
 - atom_io_cli.py — thin CLI bridge（stdin JSON → write_* → stdout WriteResult）給 MCP server.js spawn；action `realm_check` 供 atom_write 對 scope=global 先問 realm 閘；`check_supersedes`（可解析／非自指／無循環／非核心保護）、`retire`（locate → `memory-audit.delete_atom(project_dir)`，extra 帶 receipt 欄位）、`search`（唯讀查記憶 → `lib/memory_search`）
+- provenance.py — 來源讀寫共用：sanitize_quote／format_source_session／parse_source／find_transcript／last_human_record／resolve_context／atom_source
 - memory_search.py — 讀取端 `search()`（候選池 → trigger/BM25/vector → RRF，`schema_version=1`；MCP `memory_search`／cli `search`／`tools/memory-search.py` 三入口共用；`default_identity` 取現用身份）
 - realm_gate.py — 「專案專屬內容不得落 global」realm 閘：`project_terms(root)` 機械化推導專名（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 / repo-paths {代號}）+ 專案絕對路徑 + 「此專案」字面；`check_global_write` 命中即拒並附 `scope=shared, project_cwd` 修正與落點；cwd∈~/.claude 或無 cwd 不啟動
 - atom_index_json.py — `_atom_index.json` JSON SoT API（load / save / upsert / delete / regenerate_md / migrate / validate）
@@ -227,7 +229,9 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - install.py — 安裝器（單檔、純標準函式庫）：`--check` 安裝前自檢、`--apply` 原地接上版控＋備份＋覆蓋檔（`settings.json`／`workflow/config.json`）合併與 skip-worktree、`--upgrade` 升級並重新合併覆蓋檔、`--verify` 安裝後驗證；機制 TECH §9.5、操作步驟 `Install-forAI.md`；守門 `tools/verify/verify_install.py`
 - fix-hook-python.py — 校正 `settings.json` 各 hook 與 statusLine 的直譯器路徑（只檢查／`--write`／`--use <path>`；install.py 會呼叫；TECH §9.2）
 - init-roles.py — 職能人工覆寫 `--me <roles>`（寫 personal/<u>/role.md，冪等）與 `--status` 三層對帳（role.md／AD 群組對映／deciders）；`--bootstrap-personal`＝`--me programmer`
-- memory-search.py — 命令列一句話查記憶（`lib/memory_search`；非 CC 人員／腳本用；與 rag-engine.py 純向量分工）
+- memory-search.py — 命令列一句話查記憶（`lib/memory_search`；非 CC 人員／腳本用；與 rag-engine.py 純向量分工；結果含 `provenance` 欄）
+- atom-source.py — 查一張 atom 的來源：Source／Quote，transcript 還在撈前後文（`lib/provenance.atom_source`；三態 live／quote_only／unrecoverable；MCP `atom_source`、skill `atom-source` 同後端）
+- atom-provenance-backfill.py — 舊 atom 一次性回填 Source／Quote（掃 `projects/*/*.jsonl` 配 atom_write；A 級補原句、B 級補出處；預設 dry-run；SessionStart 見新 transcript 自動 detached 跑；週健檢防腐）
 - ai-client-setup.py — 其他 AI 客戶端輕量安裝（只註冊 workflow-guardian MCP、不裝 hooks）：檢查 Node → `git pull --ff-only` → `org-memory.py --join` → 寫 Codex `~/.codex/config.toml`／Gemini CLI `~/.gemini/settings.json`／Antigravity `~/.gemini/config/mcp_config.json`（已註冊不動、既有設定保留；偵測不到就印片段）；`--dry-run`／`--client`／`--no-update`／`--no-join`
 - org-memory.py — 公司層 org：`--join [<root>]`（省略路徑用 config `org_memory.default_root`；根不存在就從 `org_memory.repo_url` clone 再 init）、`--status`（接上沒／顆數／git 同步／身份職能／裁決名單，JSON）、`--scan-tools`（skills／MCP／專案 tools → 工具卡；舊世代卡的觸發詞自動換成現行規則）；初始化 `--init <root>`（佈 `<root>/.claude/memory` 記憶樹＋`shared/_taxonomy.json` Lv1「工具」＋`project-tree.json standalone`、種工具卡 `shared/工具/org-memory.md`、寫本機狀態檔 `workflow/org-memory.local.json`（不進版控）與 registry；冪等）
 - memory-peek.py / memory-undo.py / memory-session-score.py — `/memory` 子命令後端
@@ -258,7 +262,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 - **MEMORY.md**（always loaded via @import，**core-only**）— core atom 主表（人類可讀）+ 末尾一行指標；本地範疇段已抽出（2026-06-04 catalog 層 realm 拆分）
 - **_local_catalog.md**（`memory/`，`_` 前綴非 atom）— 本地範疇 catalog；**V6 階層化**：always-load 只列 Lv1 根（World/Tools/MemDev/OS/Else）+ 遞迴計數 + drill 指標，深層走各層按需 `_INDEX.md`（O(根數) 不隨 atom 量膨脹）。僅核心環境由 SessionStart hook 注入，外部專案零負擔。由 `sync-memory-index.py` 與 MEMORY.md 同步雙輸出
-- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->239<!-- /atom-total --> atoms 完整索引
+- **_atom_index.json**（JSON SoT）— 機器源真相，<!-- atom-total -->242<!-- /atom-total --> atoms 完整索引
 - **_ATOM_INDEX.md**（自動生成 mirror）— 人類可讀備援 parser
 - **全域 Atoms** = **core**（住 `memory/<範疇>/[<Lv2>/]`，Lv1 閉合清單 `memory/_meta/taxonomy.json`：版控／工作流／思考與決策／驗證與實證／dotnet／OS-Windows／文字與格式／設計通則／行為契約／CC與原子記憶契約）+ **失敗家族**（feedback-* / cognitive-patterns / memory-pipeline-* 等，住 `memory/Failures/<主題>/`，主題同一套 Lv1；參考文件在 `memory/Failures/_reference/`）+ **local**（realm=local，住 `_AIDocs/_atoms/<domain 多段階層>/`，只在 cwd∈~/.claude 注入；MemDev / World / Vision / Tools / OS）。各房實際計數以 `_atom_index.json` path 前綴為準（勿在此複製數字）。memory/ 根下不容平鋪 atom（`sync-memory-index --check`／`memory-audit` layout error 守）；寫入一律先分類再落地（`atom_write` `domain` 必填）
 - **_AIDocs/_atoms/**（realm=local）— 非核心範疇 atom（多段階層 domain，如 `OS/Windows/WSL/`）；scope 仍 global、外部專案不注入（`CROSS_PROJECT_LOCAL_DOMAINS` 現為空集合，機制保留）。各層按需 `_INDEX.md`（`_` 前綴非 atom）。見 SPEC_ATOM_V5 §2.2

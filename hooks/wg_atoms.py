@@ -864,6 +864,8 @@ _FRONTMATTER_KEEP_RE = re.compile(
     re.MULTILINE,
 )
 
+_HTML_COMMENT_RE = re.compile(r"^[ \t]*<!--.*?-->[ \t]*\n?", re.MULTILINE | re.DOTALL)
+
 _KNOWLEDGE_CAP_TOKENS_DEFAULT = 200
 
 
@@ -877,7 +879,8 @@ def _extract_named_section(
     m = pattern.search(content)
     if not m:
         return None
-    body = m.group(1).rstrip()
+    # HTML 註解（`<!-- src: sid#uuid -->` 來源指標等）是給 atom-source 讀的，不進注入（省 token）
+    body = _HTML_COMMENT_RE.sub("", m.group(1)).rstrip()
     full = f"## {section_title}\n{body}"
 
     if max_tokens is None:

@@ -1,12 +1,17 @@
 {
   "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
   "generated_from": "skills/*/SKILL.md",
-  "count": 23,
+  "count": 24,
   "skills": [
     {
       "name": "atom-debug",
       "dir": "atom-debug",
       "description": "切換原子記憶系統的注入/萃取 debug log（寫入 ~/.claude/Logs/atom-debug-*.log）"
+    },
+    {
+      "name": "atom-source",
+      "dir": "atom-source",
+      "description": "卡片來源回看：讀 atom 的 Source／Quote，原對話還在就撈出原句與前後文，不在就只報落檔時留的原句或「已逾保留期」。使用者說「這張卡片哪來的」「誰說的」「你哪裡看到的」「這條記憶的來源」時用。"
     },
     {
       "name": "browse-sprites",

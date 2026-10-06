@@ -3,7 +3,7 @@
 
 /** Build atom file content from structured parameters.
  *  V4: scopeLabel may be plain "shared"/"global" or composite "role:art"/"personal:alice".
- *  Optional metadata (audience/author/pending_review_by/merge_strategy/created_at)
+ *  Optional metadata (audience/author/provenance/quote/pending_review_by/merge_strategy/created_at)
  *  written only when present, in SPEC §4 order. */
 function isBlockKnowledge(item) {
   // 表格列（| 開頭）或程式碼 fence（三反引號開頭）→ 原樣輸出 block。對拍 atom_spec.py
@@ -44,6 +44,7 @@ function buildAtomContent({
   today,
   provenance,
   depends,
+  quote,
 }) {
   const _today = today || new Date().toISOString().slice(0, 10);
   const lines = [`# ${title}`, ""];
@@ -57,6 +58,10 @@ function buildAtomContent({
   // Source：來源（路徑／URL／commit）；參數名 provenance 與 py 一致（source 是稽核白名單）。
   if (provenance) {
     lines.push(`- Source: ${provenance}`);
+  }
+  // Quote：觸發這張卡片的使用者原話（單行 ≤200 字）；緊接 Source 之後（Source 缺時仍佔此位）。
+  if (quote) {
+    lines.push(`- Quote: ${quote}`);
   }
   lines.push(`- Confidence: ${confidence}`);
   lines.push(`- Trigger: ${triggers.join(", ")}`);

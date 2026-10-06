@@ -6,7 +6,7 @@
 ③ 他人 personal 不出現；user="unknown" 不出現任何 personal（entry_visible 同規則）
 ④ use_vector=False 不建 vector_rekick.marker
 ⑤ 同名跨層取 project 且 warnings 有遮蔽紀錄；同一實體檔從兩層看到不警告
-⑥ 回傳含 schema_version 與 author／audience／tags／status 四欄；cli action=search 走通
+⑥ 回傳含 schema_version 與 author／audience／tags／status／provenance 五欄（provenance＝atom 的 Source 值）；cli action=search 走通
 """
 from __future__ import annotations
 
@@ -75,7 +75,8 @@ def world(tmp_path, monkeypatch):
     (pmem / "MEMORY.md").write_text("# p\n", encoding="utf-8")
     _atom(pmem / "shared" / "dup-card.md", "dup-card", "zzzdup", knowledge="project 版")
     _atom(pmem / "shared" / "p-one.md", "p-one", "zzzpone",
-          extra_meta="- Audience: programmer\n- Tags: t1, t2\n- Status: production\n")
+          extra_meta="- Audience: programmer\n- Tags: t1, t2\n- Status: production\n"
+                     "- Source: session:0123abcd#89abcdef 2026-10-06\n")
     _atom(pmem / "personal" / USER / "mine-proj.md", "mine-proj", "zzzmine")
     _atom(pmem / "personal" / "bob" / "bob-proj.md", "bob-proj", "zzzmine")
     _atom(pmem / "roles" / "programmer" / "role-prog.md", "role-prog", "zzzrole")
@@ -310,12 +311,14 @@ def test_contract_fields(world):
     assert res["schema_version"] == 1 and isinstance(res["warnings"], list)
     r = res["results"][0]
     assert set(r) == {"name", "path", "rel_path", "scope", "source", "score", "excerpt",
-                      "author", "audience", "tags", "status"}
+                      "author", "audience", "tags", "status", "provenance"}
     assert (r["author"], r["audience"], r["tags"], r["status"]) == (USER, "programmer", "t1, t2", "production")
     assert r["excerpt"] == "[臨] 知識第一條" and r["rel_path"] == "memory/shared/p-one.md"
+    # provenance＝atom 的 `- Source:` 值；既有 source 欄仍是檢索路，兩者不混
+    assert r["provenance"] == "session:0123abcd#89abcdef 2026-10-06" and r["source"] == "trigger"
     # 缺欄靜默回空字串
     g = search("zzzalpha", str(world["proj"]), user=USER, roles=ROLES, use_vector=False)["results"][0]
-    assert (g["audience"], g["tags"], g["status"]) == ("", "", "")
+    assert (g["audience"], g["tags"], g["status"], g["provenance"]) == ("", "", "", "")
 
 
 def test_empty_query_rejected(world):

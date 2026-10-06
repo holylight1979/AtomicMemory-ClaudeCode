@@ -1,5 +1,5 @@
 // smoke_mcp_stdio.js — 以 stdio JSON-RPC 真起 server.js，驗 MCP tool 面：
-//   tools/list 含 8 個 tool；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
+//   tools/list 含 9 個 tool；atom_source 缺 atom 拒（不 spawn py）；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
 //   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_retire 缺 reason 拒；
 //   atom_write scope=org dry_run：這台已接上公司層 → Path 落 <org_root>/.claude/memory/shared/；未接上 → 明確拒絕。
 // 怎麼跑：node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js
@@ -11,7 +11,7 @@ const SERVER = path.join(__dirname, "..", "server.js");
 const PORT = process.env.WG_SMOKE_PORT || "38499";
 const EXPECTED_TOOLS = [
   "atom_write", "atom_promote", "atom_move", "atom_edit_meta",
-  "anti_evasion_report", "knowledge_harvest_report", "atom_retire", "memory_search",
+  "anti_evasion_report", "knowledge_harvest_report", "atom_retire", "memory_search", "atom_source",
 ];
 
 const cp = spawn(process.execPath, [SERVER], {
@@ -65,7 +65,7 @@ function check(cond, label, detail) {
   // 1. tools/list
   const list = await rpc("tools/list", {});
   const names = (list.result.tools || []).map((t) => t.name);
-  check(names.length === 8, `tools/list has 8 tools (got ${names.length})`, names.join(","));
+  check(names.length === 9, `tools/list has 9 tools (got ${names.length})`, names.join(","));
   for (const n of EXPECTED_TOOLS) check(names.includes(n), `tools/list includes ${n}`);
   const aw = (list.result.tools || []).find((t) => t.name === "atom_write");
   check(aw && aw.inputSchema.properties.supersedes && aw.inputSchema.properties.supersedes.type === "array",
@@ -123,6 +123,12 @@ function check(cond, label, detail) {
   // 5. atom_retire 缺 reason → 拒（不 spawn py）
   const r0 = await callTool("atom_retire", { atom_name: "nope", scope: "global" });
   check(r0.result.isError === true && /reason is required/.test(textOf(r0)), "atom_retire requires reason", textOf(r0));
+
+  // 5b. atom_source 缺 atom → 拒（不 spawn py）；schema 有 quote
+  const s0 = await callTool("atom_source", { atom: "  " });
+  check(s0.result.isError === true && /atom is required/.test(textOf(s0)), "atom_source requires atom", textOf(s0));
+  check(aw && aw.inputSchema.properties.quote && aw.inputSchema.properties.quote.type === "string",
+        "atom_write schema has quote:string");
 
   // 6. scope=org 語法糖（js 只改寫成 shared + project_cwd=org 根；落點仍由 py locate 裁決）
   const norm = (x) => String(x).replace(/[\\/]+/g, "/").toLowerCase();

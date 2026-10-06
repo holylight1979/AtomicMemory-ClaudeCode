@@ -1,4 +1,4 @@
-// atom-tools.js — atom_write / atom_promote / atom_edit_meta / atom_move / atom_retire / memory_search 六個 MCP tool 業務邏輯。
+// atom-tools.js — atom_write / atom_promote / atom_edit_meta / atom_move / atom_retire / memory_search / atom_source 七個 MCP tool 業務邏輯。
 // sendToolResult 來自 mcp.js（循環相依：mcp.handleToolCall lazy-require 本檔，故本檔載入時 mcp 已就緒）。
 // atom_write／atom_retire 每次落檔成功，結果文字最後一行固定 `receipt: {...}`（機器可讀收據）；
 // Python PostToolUse 解析進 state.atom_ops，knowledge_harvest_report 的逐項核對以它為準（one-writer：本檔不寫 state）。
@@ -33,6 +33,12 @@ function readSourceLine(content) {
   return m ? m[1].trim() : null;
 }
 
+/** 從既有 atom 檔頭讀 `- Quote:` 原句；無此行回 null。 */
+function readQuoteLine(content) {
+  const m = content.match(/^- Quote:\s*(.+)$/m);
+  return m ? m[1].trim() : null;
+}
+
 /** 從既有 atom 檔頭讀 `- Depends:` 清單；無此行回 null。 */
 function readDependsLine(content) {
   const m = content.match(/^- Depends:\s*(.+)$/m);
@@ -55,7 +61,7 @@ async function toolAtomWrite(id, args) {
     project_cwd, skip_gate, skip_conflict_check,
     role, user, audience, pending_review_by, merge_strategy,
     realm, domain, status, subdir, allow_new_category, dry_run, cross_project,
-    supersedes, provenance, depends,
+    supersedes, provenance, depends, quote,
   } = args;
   dry_run = !!dry_run;
   if (supersedes !== undefined && !Array.isArray(supersedes)) {
@@ -66,6 +72,9 @@ async function toolAtomWrite(id, args) {
   }
   if (provenance !== undefined && typeof provenance !== "string") {
     return sendToolResult(id, "provenance must be a string (source path / URL / commit)", true);
+  }
+  if (quote !== undefined && typeof quote !== "string") {
+    return sendToolResult(id, "quote must be a string (single-line user quote, ≤200 chars)", true);
   }
 
   // Validate core required fields (scope now optional, defaults to shared)
@@ -250,6 +259,7 @@ async function toolAtomWrite(id, args) {
         status,
         ...(Array.isArray(supersedes) && { supersedes }),
         ...(typeof provenance === "string" && { provenance }),
+        ...(typeof quote === "string" && { quote }),
         ...(Array.isArray(depends) && { depends }),
       },
       file_path: filePath,
@@ -354,6 +364,7 @@ async function toolAtomWrite(id, args) {
     let prevCreatedAt = today;
     let prevSupersedes = null;
     let prevProvenance = null;
+    let prevQuote = null;
     let prevDepends = null;
     if (fs.existsSync(filePath)) {
       try {
@@ -364,11 +375,13 @@ async function toolAtomWrite(id, args) {
         if (cm) prevCreatedAt = cm[1].trim();
         prevSupersedes = readSupersedesLine(old);
         prevProvenance = readSourceLine(old);
+        prevQuote = readQuoteLine(old);
         prevDepends = readDependsLine(old);
       } catch {}
     }
-    // Source / Depends 三態同 Supersedes：未給＝保留原行；""／[]＝清除；非空＝替換。
+    // Source / Quote / Depends 三態同 Supersedes：未給＝保留原行；""／[]＝清除；非空＝替換。
     const provenanceFinal = typeof provenance === "string" ? provenance : prevProvenance;
+    const quoteFinal = typeof quote === "string" ? quote : prevQuote;
     const dependsFinal = Array.isArray(depends) ? depends : prevDepends;
     const supersedesFinal = Array.isArray(supersedes) ? supersedes : (prevSupersedes || []);
     // 呼叫者明給新清單才重驗（自指／循環／核心保護／可解析，py 單源）；保留原行的不重驗，
@@ -388,6 +401,7 @@ async function toolAtomWrite(id, args) {
       merge_strategy, created_at: prevCreatedAt, status,
       ...((Array.isArray(supersedes) || prevSupersedes) && { supersedes: supersedesFinal }),
       ...(provenanceFinal !== null && { provenance: provenanceFinal }),
+      ...(quoteFinal !== null && { quote: quoteFinal }),
       ...(dependsFinal !== null && { depends: dependsFinal }),
     });
     if (!br.ok) {
@@ -1027,6 +1041,37 @@ async function toolMemorySearch(id, args) {
   return sendToolResult(id, lines.join("\n"));
 }
 
+// ─── Atom Source Handler ───────────────────────────────────────────────────
+
+/** 唯讀：查一張 atom 的來源（Source 指標＋Quote 原句＋transcript 前後文）。定位與 transcript
+ *  回讀全在 py `atom_io_cli` action=source；js 只組 payload、排版。
+ *  py extra 契約：{atom, path, source, quote, state: "live"|"quote_only"|"unrecoverable",
+ *  context: [{role, ts, text}], warnings: []}。不寫 state、無 receipt。 */
+async function toolAtomSource(id, args) {
+  const { atom, cwd, format } = args;
+  if (!String(atom || "").trim()) {
+    return sendToolResult(id, "atom_source: atom is required (atom name or absolute path)", true);
+  }
+  const r = await spawnAtomCli("source", { atom, cwd: cwd || process.cwd() });
+  if (!r.ok) {
+    return sendToolResult(id, `atom_source failed: ${r.error || "(unknown error)"}`, true);
+  }
+  const res = r.extra || {};
+  if (format === "json") {
+    return sendToolResult(id, JSON.stringify(res, null, 2));
+  }
+  const lines = [`${res.atom || atom} — ${res.state || "?"}`];
+  for (const w of res.warnings || []) lines.push(`⚠ ${w}`);
+  lines.push(`Source: ${res.source || "(none)"}`);
+  lines.push(`Quote: ${res.quote || "(none)"}`);
+  if (res.state === "unrecoverable") lines.push("原對話已逾保留期");
+  for (const c of res.context || []) {
+    const text = String(c.text || "").replace(/\s*\n\s*/g, " ");
+    lines.push(`[${c.role || "?"} ${c.ts || "?"}] ${[...text].slice(0, 300).join("")}`);
+  }
+  return sendToolResult(id, lines.join("\n"));
+}
+
 function extractKnowledgeLines(content) {
   // 從 atom 檔抓「## 知識」到下個 `## ` 或 EOF 之間，保留以 `- ` 開頭的行（去掉 `- ` 前綴）
   const m = content.match(/^##\s*知識\s*$([\s\S]*?)(?=^##\s|\Z)/m);
@@ -1039,4 +1084,4 @@ function extractKnowledgeLines(content) {
     .filter(Boolean);
 }
 
-module.exports = { toolAtomWrite, toolAtomPromote, toolAtomEditMeta, toolAtomMove, toolAtomRetire, toolMemorySearch };
+module.exports = { toolAtomWrite, toolAtomPromote, toolAtomEditMeta, toolAtomMove, toolAtomRetire, toolMemorySearch, toolAtomSource };

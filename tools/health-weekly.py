@@ -71,6 +71,55 @@ def _run_json(args: list[str], timeout: int = 300) -> dict | None:
         return None
 
 
+def _load_config() -> dict:
+    try:
+        return json.loads((WORKFLOW / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _provenance_anti_rot(now: datetime, days: int) -> tuple[int, int, str]:
+    """回 (補成功數, 候選數, 錯誤訊息)。候選＝Source 為 session:… 且日期距今 ≥days、無 Quote、該 session transcript 仍在。"""
+    import importlib.util
+    import re
+    tool = TOOLS / "atom-provenance-backfill.py"
+    if not tool.exists():
+        return 0, 0, "tools/atom-provenance-backfill.py 不存在"
+    spec = importlib.util.spec_from_file_location("atom_provenance_backfill", tool)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    sys.modules["atom_provenance_backfill"] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    from lib.provenance import find_transcript, parse_source
+    src_re = re.compile(r"^- Source:\s*(\S.*)$", re.M)
+    quote_re = re.compile(r"^- Quote:\s*\S", re.M)
+    cands: list[str] = []
+    for _layer, path in mod.collect_atoms("all"):
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except OSError:
+            continue
+        if quote_re.search(text):
+            continue
+        m = src_re.search(text)
+        if not m:
+            continue
+        ps = parse_source(m.group(1).strip())
+        if ps.get("kind") != "session" or not ps.get("date"):
+            continue
+        try:
+            age = (now.date() - datetime.strptime(ps["date"], "%Y-%m-%d").date()).days
+        except ValueError:
+            continue
+        if age < days or not find_transcript(ps["sid8"]):
+            continue
+        cands.append(str(path).replace("\\", "/"))
+    if not cands:
+        return 0, 0, ""
+    rep = mod.backfill(apply=True, only=cands)
+    fixed = sum(1 for r in rep["results"] if r.get("written"))
+    return fixed, len(cands), ""
+
+
 def _run_check(args: list[str], timeout: int = 120) -> tuple[bool, str]:
     """跑 --check 型工具；回 (通過, 摘要輸出)。"""
     try:
@@ -307,6 +356,18 @@ def collect() -> dict:
         )
     else:
         red.append(f"episodic 有 generated 事件但找不到近期產物——寫檔或路徑異常；{ep_summary}")
+
+    # 7. 來源防腐：Source 指到 session、transcript 還在、距今 ≥ anti_rot_days、尚無 Quote → 搶在 transcript 清掉前補原句
+    try:
+        prov_cfg = (_load_config().get("provenance") or {})
+        if prov_cfg.get("enabled", True):
+            n_fixed, n_cand, err = _provenance_anti_rot(now, int(prov_cfg.get("anti_rot_days", 25)))
+            if err:
+                yellow.append(f"來源防腐執行失敗：{err[:200]}")
+            elif n_cand:
+                info.append(f"來源防腐：{n_cand} 顆快到期的 session 來源補原句，成功 {n_fixed}")
+    except Exception as e:
+        yellow.append(f"來源防腐例外：{type(e).__name__}: {e}")
 
     return {"at": now.isoformat(timespec="seconds"), "red": red,
             "yellow": yellow, "info": info,

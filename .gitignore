@@ -42,6 +42,7 @@ workflow/guardian-crash.log
 workflow/extract-worker.log
 workflow/tool-results/
 workflow/cross-project-index-cache.json
+workflow/provenance-backfill-last.json
 workflow/hot_cache.json
 workflow/vector_ready.flag
 workflow/vector_rekick.marker

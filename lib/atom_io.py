@@ -61,6 +61,8 @@ VALID_SOURCES = frozenset({
     "tool:memory-audit",  # memory-audit demote/compact/log_evolution 修補
     "tool:memory-cleanup",  # 一次性根目錄整理（merge-orphan-access）
     "tool:meeting-transcribe",  # 會議轉錄：決議 → 專案 shared atom（tools/meeting-transcribe.py）
+    "hook:provenance",  # PostToolUse 對剛寫入的 atom 自動補 Source／Quote（hooks/wg_provenance.py）
+    "tool:provenance-backfill",  # 舊 atom 一次性回填 Source／Quote（tools/atom-provenance-backfill.py）
     "tool:migrate",
     "tool:sync-atom-index",
     "tool:sync-memory-index",
@@ -74,7 +76,10 @@ SENSITIVE_AUDIENCE = frozenset({"architecture", "decision"})
 # edit_metadata 參數欄名 → frontmatter 標籤（參數複數、frontmatter 單數）。
 # 行比對 regex 就地建於 edit_metadata 內（per-label），嚴禁 import tools/
 # （sync-atom-index.py 含 '-' 無法 import，且 lib 反依賴 tools 為架構倒掛）。
-_META_FIELD_LABEL = {"triggers": "Trigger", "related": "Related", "tags": "Tags"}
+_META_FIELD_LABEL = {
+    "triggers": "Trigger", "related": "Related", "tags": "Tags",
+    "provenance": "Source", "quote": "Quote",  # 字串欄（非 list）；provenance 另名避開 audit 的 source 參數
+}
 
 
 # ─── Result type ──────────────────────────────────────────────────────────────
@@ -682,9 +687,11 @@ def edit_metadata(
     triggers: Optional[List[str]] = None,
     related: Optional[List[str]] = None,
     tags: Optional[List[str]] = None,
+    provenance: Optional[str] = None,
+    quote: Optional[str] = None,
     source: str = "mcp",
 ) -> WriteResult:
-    """atom 元資料外科編輯 — 只替換 frontmatter 的 Trigger/Related/Tags 行。
+    """atom 元資料外科編輯 — 只替換 frontmatter 的 Trigger/Related/Tags/Source/Quote 行。
 
     取代直接 Write/Edit atom .md（會被 Guardian guard 擋）與整檔 atom_write replace
     （重建知識區、風險高）。byte-stable：**只改目標那幾行**，其餘行原樣保留。
@@ -696,6 +703,8 @@ def edit_metadata(
     Args:
         file_path: atom .md 絕對路徑（global memory 或 _AIDocs/Failures/ 皆可）
         triggers/related/tags: list[str]，None 表不動該欄位
+        provenance/quote: str，渲染為 `- Source:`／`- Quote:` 整行；None 表不動；
+            空字串表清成空（不刪行）。quote 由呼叫端先 lib.provenance.sanitize_quote
         source: audit source（須在 VALID_SOURCES；預設 "mcp"）
     """
     audit_id = _gen_audit_id()
@@ -714,17 +723,19 @@ def edit_metadata(
     # ── Surgical replace（每個非 None 欄位，只改那一行，count=1）；欄位行不存在則
     #    插到 metadata 區塊（H1 後連續 `- Key: value` 行）末尾——舊模板生的檔常缺
     #    Trigger 行，拒寫會讓它永遠補不齊。沒有 metadata 區塊才回 error。 ──
-    fields = {"triggers": triggers, "related": related, "tags": tags}
+    fields = {"triggers": triggers, "related": related, "tags": tags,
+              "provenance": provenance, "quote": quote}
     new_text = text
     for field_name, values in fields.items():
         if values is None:
             continue
         label = _META_FIELD_LABEL[field_name]
-        value_str = ", ".join(values)
+        value_str = values if isinstance(values, str) else ", ".join(values)
         replacement = f"- {label}: {value_str}"
         # per-label regex 收斂到「該欄位那一行」（就地定義，不依賴 tools/）
         line_re = re.compile(rf"^-\s*{label}:\s*.*$", re.MULTILINE)
-        new_text, n = line_re.subn(replacement, new_text, count=1)
+        # 以函式回傳替換字串：值含反斜線（Windows 路徑、Quote 原話）時不得被當成 regex 跳脫
+        new_text, n = line_re.subn(lambda _m: replacement, new_text, count=1)
         if n == 0:
             inserted = _insert_meta_line(new_text, replacement)
             if inserted is None:
@@ -946,6 +957,7 @@ def write_atom(
     supersedes: Optional[List[str]] = None,
     provenance: Optional[str] = None,
     depends: Optional[List[str]] = None,
+    quote: Optional[str] = None,
 ) -> WriteResult:
     """寫入 atom 的唯一入口。對拍 server.js:1065 toolAtomWrite byte-identical。
 
@@ -1075,7 +1087,7 @@ def write_atom(
             knowledge=knowledge, actions=actions, related=related, audience=audience,
             author=author, pending_review_by=pending_by, merge_strategy=merge_strategy,
             today=today, supersedes=supersedes_final,
-            provenance=provenance, depends=depends,
+            provenance=provenance, depends=depends, quote=quote,
         )
     elif mode == "append":
         if not file_path.exists():
@@ -1098,6 +1110,7 @@ def write_atom(
         prev_supersedes: List[str] = []
         prev_provenance = provenance
         prev_depends = depends
+        prev_quote = quote
         if file_path.exists():
             old = file_path.read_text(encoding="utf-8-sig")
             am = re.search(r"^- Author:\s*(.+)$", old, re.MULTILINE)
@@ -1114,6 +1127,9 @@ def write_atom(
             if depends is None:
                 dm = re.search(r"^- Depends:\s*(.+)$", old, re.MULTILINE)
                 prev_depends = [t.strip() for t in dm.group(1).split(",") if t.strip()] if dm else None
+            if quote is None:
+                qm = re.search(r"^- Quote:\s*(.+)$", old, re.MULTILINE)
+                prev_quote = qm.group(1).strip() if qm else None
         if supersedes is None:
             supersedes_final = prev_supersedes
         else:
@@ -1129,7 +1145,7 @@ def write_atom(
             knowledge=knowledge, actions=actions, related=related, audience=audience,
             author=prev_author, pending_review_by=pending_by, merge_strategy=merge_strategy,
             created_at=prev_created, today=today, supersedes=supersedes_final,
-            provenance=prev_provenance, depends=prev_depends,
+            provenance=prev_provenance, depends=prev_depends, quote=prev_quote,
         )
     else:
         return WriteResult(ok=False, audit_id=audit_id,

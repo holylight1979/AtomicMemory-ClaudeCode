@@ -448,7 +448,7 @@ V5 砍 4 個 IPC tool，改由 Stop gate 自動偵測（hook 內化）。後續�
 - **旋鈕**：`workflow/config.json` `usefulness.{lexical_overlap_min,rare_token_min,wilson_z,promote_lb,demote_lb,demote_min_n,min_n,decay_lambda,stability_gamma,embedding_tiebreak}`。
 - **守門**：`lib/verify/verify_usefulness_access_phase2.py` + `hooks/verify/verify_usefulness_loop_phase2.py` + `verify_promotion_gate_phase0.py`（效用驅動）+ `verify_subagent_injection_phase1.py` + `hooks/verify/verify_stability_decay.py`（個別化 decay + 每日護欄）。
 
-## 13. Optional metadata：Depends（壞滅緣）/ Evidence（證據等級）/ Source（來源）
+## 13. Optional metadata：Depends（壞滅緣）/ Evidence（證據等級）/ Source（來源）/ Quote（原話）
 
 Optional frontmatter 欄位（`lib/atom_spec.py` `OPTIONAL_METADATA`）。**向後相容鐵則：既有 atom 缺欄一律靜默通過**；欄值非法僅 warning 級（不 fail validate）。
 
@@ -472,7 +472,11 @@ atom 標「依何條件而為真」——decay 是時間函數，這是**真值�
 - **衝突裁決優先序**：證據等級 → recency →（原有規則），取代純「新勝舊」——依了義不依不了義。
 - **fast-refute 快速否證通道**（`fast_refute_check`）：CONTRADICT 且新側 `Evidence=實證`、舊側 `[固]/[觀]` → 置頂高優先裁決浮出，**不等 Wilson 統計窗**——單一強矛盾實證即觸發 review。
 
-### 13.3 `- Source:` — 來源（provenance）
+### 13.3 `- Source:` — 來源（provenance）與 `- Quote:` — 原話引述
+
+`- Source:` 標準值三態：`session:<sid8>#<uuid8> <YYYY-MM-DD>`（uuid 可缺；transcript 還在就能回看前後文）、`commit:<hash7> <日期>（原對話已逾保留期）`／`unknown <日期>（原對話已逾保留期）`（回填時原對話已清）、其他自由字串（如會議逐字稿路徑）。`- Quote:` 是觸發這張卡片的使用者原話（`lib/provenance.sanitize_quote`：剝 system-reminder 等區塊、折單行、≤200 字、以「」包住；自動萃取的 AI 片段以「AI：」前綴標示），渲染於 Source 後、Confidence 前；寫入參數 `quote`，replace 三態同 Source；一般由 PostToolUse 自動補（`hooks/wg_provenance.py`），讀取端 `lib/provenance.atom_source`（live／quote_only／unrecoverable 三態）。守門 `lib/verify/verify_atom_io_equivalence.py` test_34–36、`hooks/verify/verify_provenance_autofill.py`、`tools/verify/verify_atom_source.py`、`lib/verify/verify_provenance_backfill.py`。
+
+原 Source 說明：
 
 來源路徑／URL／commit／session id，純展示、不驗。寫入參數名 `provenance`（`write_atom(source=)` 是稽核白名單，故另名）：`atom_write(provenance=)` → `build_atom_content(provenance=)` 渲染在 Author 後；replace 三態同 Depends（未給＝保留、`""`＝清除、非空＝替換）。工具卡慣例：`Author`＝負責人、`Source`＝進入點、`Status`＝production|deprecated、`Depends: path:<進入點>`（健檢自動 stale）。
 

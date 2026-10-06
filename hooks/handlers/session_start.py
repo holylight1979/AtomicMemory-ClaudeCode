@@ -406,6 +406,41 @@ def _spawn_pull_sync(session_id: str, cwd: str, config: Dict[str, Any]) -> int:
         return 0
 
 
+def _maybe_spawn_provenance_backfill(config: Dict[str, Any]) -> int:
+    """舊 atom 來源回填：有比上次更新的 transcript 才 detached 跑 `tools/atom-provenance-backfill.py --apply --quiet`。
+    判定只比 mtime（<50ms）；config `provenance.backfill.enabled=false` 關。fail-open：失敗只進 atom-debug log。回 pid（0＝未起）。"""
+    try:
+        prov = (config or {}).get("provenance") or {}
+        if not prov.get("enabled", True) or not (prov.get("backfill") or {}).get("enabled", True):
+            return 0
+        import importlib.util
+        tool = CLAUDE_DIR / "tools" / "atom-provenance-backfill.py"
+        if not tool.exists():
+            return 0
+        spec = importlib.util.spec_from_file_location("atom_provenance_backfill", tool)
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        sys.modules["atom_provenance_backfill"] = mod
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        if not mod.needs_run():
+            return 0
+        import subprocess as _sp
+        import wg_vcs_sync as _vs
+        kwargs: Dict[str, Any] = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = _sp.CREATE_NO_WINDOW | _sp.DETACHED_PROCESS
+        else:
+            kwargs["start_new_session"] = True
+        mod.LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(mod.LOG_PATH, "a", encoding="utf-8", newline="\n") as log_fh:
+            proc = _sp.Popen([_vs._gui_python(), str(tool), "--apply", "--quiet"],
+                             stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=log_fh,
+                             env=_vs.worker_env(), **kwargs)
+        return int(proc.pid or 0)
+    except Exception as e:
+        _atom_debug_error("session_start:provenance_backfill", e)
+        return 0
+
+
 def _unpushed_advisory() -> list:
     """本地有已 commit 未 push／worker 留下 `.unpushed` 標記的 root → advisory 行（無則回 []）。
     拉側（roots.json 的 last_pull／pulled_commits／pull_error 與 `.behind` 標記）也在這裡報：拉入 N 筆 → 一行提醒
@@ -1085,6 +1120,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
         lines.extend(_org_advisory(org_root, pool))
+        _maybe_spawn_provenance_backfill(config)
 
         if v4_user:
             lines.append(

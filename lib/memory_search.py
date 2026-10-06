@@ -10,8 +10,9 @@ RRF 融合）包成可呼叫的函式，給 MCP `memory_search`、`atom_io_cli s
     "mode": "trigger+bm25" | "trigger+bm25+vector",
     "warnings": [str, ...],          # 同名遮蔽、向量路關閉、身份缺席等 fail-open 訊號
     "results": [{name, path, rel_path, scope, source, score, excerpt,
-                 author, audience, tags, status}, ...],
+                 author, audience, tags, status, provenance}, ...],
   }
+  source=檢索路（trigger/bm25/vector）；provenance=atom 的 `- Source:` 值（來源回看用，缺欄 ""）。
 身份：user=None 或 "unknown" → 不讀任何 personal；roles=None → 不讀任何 role 層。
 入口要「以現用身份查」時用 default_identity(cwd) 取 (user, roles) 再傳入。
 同名跨層：project > org > global 先到先贏，被遮蔽者進 warnings。
@@ -38,7 +39,7 @@ from wg_atoms import AtomEntry  # noqa: E402
 
 SCHEMA_VERSION = 1
 EXCERPT_CHARS = 120
-_FRONTMATTER_KEYS = ("Author", "Audience", "Tags", "Status")
+_FRONTMATTER_KEYS = ("Author", "Audience", "Tags", "Status", "Source")
 _META_RE = re.compile(r"^-\s+(\w[\w-]*):\s*(.+)$")
 
 
@@ -56,7 +57,7 @@ def _atom_path(entry: AtomEntry, base_dir: Path) -> Path:
 
 
 def _parse_hit_file(text: Optional[str]) -> Dict[str, str]:
-    """命中檔一次讀：frontmatter 四欄（對拍 indexer META_RE 樣式）＋ `## 知識` 第一條摘要。缺欄回空字串。"""
+    """命中檔一次讀：frontmatter 五欄（對拍 indexer META_RE 樣式）＋ `## 知識` 第一條摘要。缺欄回空字串。"""
     out = {k.lower(): "" for k in _FRONTMATTER_KEYS}
     out["excerpt"] = ""
     if not text:
@@ -207,6 +208,7 @@ def search(
             "audience": meta["audience"],
             "tags": meta["tags"],
             "status": meta["status"],
+            "provenance": meta["source"],
         })
 
     mode = "trigger+bm25" + ("+vector" if vs.get("enabled", True) else "")

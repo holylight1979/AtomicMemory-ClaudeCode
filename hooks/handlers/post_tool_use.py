@@ -660,6 +660,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if receipt:
             record_atom_op(state, session_id, int(state.get("turn_seq", 0)), receipt)
             dirty = True
+            if tool_name.endswith("atom_write"):
+                # 來源自動填：剛建／改的 atom 補 Source／Quote（失敗只記 log，不阻斷）
+                from wg_provenance import autofill_from_receipt
+                autofill_from_receipt(receipt, input_data, state)
 
     elif tool_name.endswith("knowledge_harvest_report"):
         # 收割回報（one-writer）：items ↔ 本 session 自上次 validated 收割以來的 receipts 逐項核對，
