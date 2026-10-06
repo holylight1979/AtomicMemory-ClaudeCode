@@ -60,6 +60,7 @@ VALID_SOURCES = frozenset({
     "tool:changelog-roll",
     "tool:memory-audit",  # memory-audit demote/compact/log_evolution 修補
     "tool:memory-cleanup",  # 一次性根目錄整理（merge-orphan-access）
+    "tool:meeting-transcribe",  # 會議轉錄：決議 → 專案 shared atom（tools/meeting-transcribe.py）
     "tool:migrate",
     "tool:sync-atom-index",
     "tool:sync-memory-index",

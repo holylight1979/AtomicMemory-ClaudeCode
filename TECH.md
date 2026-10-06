@@ -227,7 +227,7 @@ sequenceDiagram
   細節（stage 方向矩陣、CLI 契約、失敗模式 SOP、不在保證範圍）→ `_AIDocs/MultiMachineMemorySync.md`。
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
-- 現況計數：<!-- atom-breakdown -->233 atoms：core 111 + feedback 31 + 失敗模式 2 + local 89〔Tools11/MemDev72/OS2/CC與原子記憶契約1/Vision1/工作流2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->236 atoms：core 112 + feedback 31 + 失敗模式 2 + local 91〔Tools12/MemDev73/OS2/CC與原子記憶契約1/Vision1/工作流2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -298,7 +298,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->233<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->236<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -383,7 +383,7 @@ sequenceDiagram
 
 回傳契約 `schema_version=1`：`{mode, warnings, results[{name, path, rel_path, scope, source, score, excerpt, author, audience, tags, status}]}`；`scope` ∈ global／shared／org／personal:<u>／role:<r>（由池分組推導，不讀檔欄）；`source`＝命中的檢索路；四個 frontmatter 欄與摘要從命中檔同一次讀取。與 hook 注入的差異：BM25 對整池跑（不受 hook 預算）、`use_vector=False` 零觸碰向量服務（不 rekick）。身份：`user=None`／`unknown` 不讀任何 personal、`roles=None` 不讀 role 層；入口預設以現用身份查（`default_identity`）。守門 `lib/verify/verify_memory_search.py`。
 
-**其他 AI 客戶端輕量安裝（Codex／Gemini CLI，只接 MCP、不裝 hooks）**：給不用 Claude Code 的人（企劃／美術）。需要 git、Node.js、Python。把下面這段貼給自己的 AI 工具，它會代跑：
+**其他 AI 客戶端輕量安裝（Codex／Gemini CLI／Antigravity，只接 MCP、不裝 hooks）**：給不用 Claude Code 的人（企劃／美術）。需要 git、Node.js、Python。把下面這段貼給自己的 AI 工具，它會代跑：
 
 ```
 請幫我接上公司記憶：
@@ -392,7 +392,7 @@ sequenceDiagram
 3. 把輸出的「結果」原樣告訴我；有「失敗」就停下來，不要自己想辦法繞過
 ```
 
-`tools/ai-client-setup.py` 做四件事、可重跑：檢查 Node → 更新 `~/.claude`（`git pull --ff-only`）→ 接上公司層（`org-memory.py --join`）→ 把 workflow-guardian 寫進偵測到的客戶端設定（Codex `~/.codex/config.toml`、Gemini CLI `~/.gemini/settings.json`；已註冊不動，既有設定不改）。偵測不到客戶端就印出 TOML／JSON 片段供其他支援 MCP 的客戶端（Cursor…）手貼；`--dry-run` 只說會做什麼。裝完重開 AI 工具，用講的：「查公司記憶：〈問題〉」（`memory_search`）、「把這條記到公司層：〈內容〉」（`atom_write scope=org`）。
+`tools/ai-client-setup.py` 做四件事、可重跑：檢查 Node → 更新 `~/.claude`（`git pull --ff-only`）→ 接上公司層（`org-memory.py --join`）→ 把 workflow-guardian 寫進偵測到的客戶端設定（Codex `~/.codex/config.toml`、Gemini CLI `~/.gemini/settings.json`、Antigravity `~/.gemini/config/mcp_config.json`；`~/.gemini` 兩者共用，有 `antigravity/` 子目錄算 Antigravity；已註冊不動，既有設定不改）。偵測不到客戶端就印出 TOML／JSON 片段供其他支援 MCP 的客戶端（Cursor…）手貼；`--dry-run` 只說會做什麼。裝完重開 AI 工具，用講的：「查公司記憶：〈問題〉」（`memory_search`）、「把這條記到公司層：〈內容〉」（`atom_write scope=org`）。
 
 - 沒有 hooks 就沒有「每句話自動帶入記憶」，要主動說「查記憶」。
 - 身份＝登入 Windows 的 AD 帳號；查不到身份（`unknown`）時不讀任何人的 personal。
@@ -488,6 +488,17 @@ sequenceDiagram
 - 三時段：write-time（atom_write）、pull-time（`hooks/post-git-pull.sh --mode=pull-audit`）、startup-drift（dispatcher `_ensure_state` self-heal）。
 
 ---
+
+### 6.6 會議轉錄入庫：`tools/meeting-transcribe.py`
+
+會後把錄音整理成記憶，用講的：「整理這場會議 `<音檔>`」（`/meeting`）。流程四步、全在內網：
+
+1. **轉檔與切段**：ffmpeg 把任何音檔轉 16kHz 單聲道 wav，`silencedetect` 找靜音，在靜音中點切成 ≤180s 的段（不切在句子中間；實測 gemma4:e4b 單次 284s 全文無漏，180s 是留餘裕）。
+2. **逐字稿**：每段 base64 丟 Ollama `/api/chat`，模型用 `--audio-model`（預設 `gemma4:e4b`）。backend 依 `workflow/config.json` `ollama_backends` 優先序挑第一個「`/api/show` 有該模型且 `capabilities` 含 `audio`」的（本機沒顯卡也能跑，現況是 `rdchat-direct` 192.168.199.130）；帶 `auth` 的 backend 不支援、略過。音訊走 `images` 欄位（Ollama 0.30 的 API 文件沒寫 audio，實測 `audio`／`files` 欄位模型看不到、`images` 看得到）。`--glossary a,b` 把人名術語放進提示，辨識與摘要都用它校正同音錯字。模型偶爾在段尾回音指令文字，`clean_transcript` 截掉。產出 `<專案>/.claude/memory/_staging/meetings/<日期-標題>/transcript.md`（含時間戳；`_staging` 不進索引、不注入、不進版控）。
+3. **摘要**：逐字稿交同一 backend 的 `llm_model`，固定 JSON 三段——決議（標題／內容／負責人／範疇／觸發詞）、待辦（事項／負責人／期限）、未決問題；容忍 code fence，不是 JSON 就失敗、不補。寫 `summary.md`。
+4. **入庫**：每條決議一顆 `[臨]` atom，`write_atom(scope=shared, source=tool:meeting-transcribe)`。範疇候選＝專案 `shared/_taxonomy.json` 的 Lv1（含 desc，優先）∪ 核心 Lv1；摘要模型選得出 → `shared/<Lv1>/`；選不出 → 以 `audience=decision` 走既有的 `_pending_review` 待審路由（§7.4），使用者 `/conflict pending` 核可。逐字稿只記在 atom 的 `Source:` 行。不 commit，記憶層由背景 vcs-sync 同步。
+
+`--check` 查 ffmpeg 與音訊 backend；`--dry-run` 全跑但 atom 只預覽；`--no-ingest` 只要逐字稿與摘要；`--json` 給 skill 讀。失敗一律 exit 1 + stderr 原因。驗證 `tools/verify/verify_meeting_transcribe.py`（mock 辨識與摘要，不碰 GPU）。不做即時轉錄；音檔不離開內網。
 
 ## 7. 守門與收尾
 
@@ -766,6 +777,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── install.py                           ← 安裝器：--check / --apply / --upgrade / --verify（§9.5；操作步驟 Install-forAI.md）
 │   ├── fix-hook-python.py                   ← 校正 hook 直譯器路徑（install.py 會呼叫）
 │   ├── ai-client-setup.py                   ← 其他 AI 客戶端輕量安裝：只註冊 MCP、不裝 hooks（§5.8）
+│   ├── meeting-transcribe.py                ← 會議錄音 → 逐字稿 → 摘要 → 決議入專案 shared（§6.6）
 │   ├── memory-eval/                         ← 223 條回歸集
 │   ├── memory-vector-service/               ← service.py / starter.py / indexer.py
 │   ├── codex-companion/                     ← assessor / acceptance / judge_backend / audit.py / backtest
@@ -773,7 +785,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── auto-continue/ / gdoc-harvester/ / unity-desktop/ / usage-snapshot/
 │   └── verify/
 │
-├── skills/                                  ← <!-- skill-count -->22<!-- /skill-count --> 個 active
+├── skills/                                  ← <!-- skill-count -->23<!-- /skill-count --> 個 active
 │   ├── atom-debug / browse-sprites / changelog-debug / codex-companion / conflict
 │   ├── consciousness-stream / continue / extract / fix-escalation / generate-episodic
 │   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / memory

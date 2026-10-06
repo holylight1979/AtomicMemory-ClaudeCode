@@ -78,7 +78,7 @@ python "$HOME/.claude/tools/install.py" --verify
 - **向量套件**：指令以 `--apply`／`--check` 輸出為準（要裝進 hook 用的那支 Python，輸出會寫出完整指令），請使用者自己跑。
 - **公司層記憶**：請使用者對 Claude Code 說「接上公司記憶」（`/org` skill）。說明 → [TECH.md](TECH.md) §4.4。
 - **多子專案佈局**（把 Claude 開在子專案也接上專案根的記憶）：`python ~/.claude/tools/project-tree.py claim --root <專案根>`。說明 → TECH.md §4.6。
-- **其他 AI 客戶端查記憶**（Codex／Gemini CLI，不裝 hooks）：`python ~/.claude/tools/ai-client-setup.py`。說明 → TECH.md §5.8。
+- **其他 AI 客戶端查記憶**（Codex／Gemini CLI／Antigravity，不裝 hooks）：`python ~/.claude/tools/ai-client-setup.py`。說明 → TECH.md §5.8。
 - **遠端 Ollama backend、MCP 註冊細節、各依賴缺了會怎樣、疑難排解** → TECH.md §9。
 - **關掉某個功能** → TECH.md §12「功能開關」。
 - **多台電腦／多人同時寫記憶的索引合併**（自動，不需安裝）→ [_AIDocs/MultiMachineMemorySync.md](_AIDocs/MultiMachineMemorySync.md)。

@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-10-06 會議會後轉錄：音檔 → 逐字稿 → 三段摘要 → 決議入專案記憶（`/meeting`）
+- **緣由**：公司共用中台第三件事「會議會後轉錄」（只做會後、不做即時與月誌）。使用者定：音檔輸入（m4a／mp3／wav）、辨識跑 192.168.199.130 的顯卡、摘要存專案 `shared`。
+- **做法**：`tools/meeting-transcribe.py`——ffmpeg 轉 16k wav、靜音切段（≤180s）、每段 base64 走 Ollama `/api/chat` 的 `images` 欄位給 `gemma4:e4b`（Ollama 0.30 的 `/api/show` 標 `audio`，API 文件未寫；實測 `audio`／`files` 欄位模型看不到、`images` 看得到；5 分鐘合成會議 13s 全文無漏），backend 依 config 優先序挑第一個有 audio 能力者、本機無顯卡也能跑；逐字稿落 `<專案>/.claude/memory/_staging/meetings/`；同 backend 文字模型出固定 JSON 三段摘要；每條決議 `write_atom(scope=shared, source=tool:meeting-transcribe)`，範疇由專案 `_taxonomy.json`（含 desc）∪ 核心 Lv1 選，選不出走 `audience=decision` 既有待審路由。`skills/meeting/`（「整理這場會議」）；`lib/atom_io.py` `VALID_SOURCES` 加 `tool:meeting-transcribe`。沒走 SSH 裝 faster-whisper：130 的 22 port 開著但 banner 逾時，且 Ollama 已有音訊模型、零安裝。
+- **順補**：`Install-forAI.md`／`DocIndex-System.md`／`TECH.md` §5.8／`README.md` 的其他 AI 客戶端補上 Antigravity（`c79323a` 只上了程式）。 | `tools/meeting-transcribe.py`, `tools/verify/verify_meeting_transcribe.py`, `skills/meeting/SKILL.md`, `lib/atom_io.py`, `TECH.md`, `README.md`, `Install-forAI.md`, `_AIDocs/{DocIndex-System,_CHANGELOG}.md`
+
+---
+
 ## 2026-10-05 防閃窗檢查器納入 `tools/`，補齊 14 個漏帶壓窗旗標的啟動點
 - 檢查器 `verify_no_window_spawn` 原本只掃 hooks/lib 頂層，`tools/` 沒人守；改掃 hooks/lib/tools 含子目錄。補 `tools/` 13 個 Python 啟動點的 `CREATE_NO_WINDOW`、1 個 POSIX 分支豁免註記，MCP dashboard（`http-api.js`）4 個 `exec` 補 `windowsHide`。當下實測無閃窗，屬預防。
 

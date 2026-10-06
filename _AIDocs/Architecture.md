@@ -87,7 +87,7 @@ Bash／PowerShell：
 
 statusline／週健檢／效果報表／救援日誌／失念偵測／回訪／guard JSONL：TECH §8。取捨：週健檢用 Windows Task Scheduler 而非 CC 原生 CronCreate／Routines——後者為雲端 agent，碰不到本機 `~/.claude`；OTEL export 不做（TECH §8 末段）。
 
-## Skills（全域 <!-- skill-count -->22<!-- /skill-count --> 個 active）
+## Skills（全域 <!-- skill-count -->23<!-- /skill-count --> 個 active）
 
 逐 skill 檔案與用途：DocIndex-System §5。`init-roles`／`conflict-review` 單人環境 dormant → `skills/_archived/`（不計入）；V5 從 `commands/*.md` 遷移與已刪除清單：SPEC §4。
 

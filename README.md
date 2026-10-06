@@ -25,7 +25,8 @@
 - 每個階段做完，AI 會先盤點這場學到什麼：該記的寫成卡片、舊卡片錯了就修正或取代、沒用的卡片退役；寫完的卡片在背景自動提交到版控（git 會順便 push；本地若有你還沒上傳的程式碼 commit 就先不 push，等你「上GIT」一起），多台電腦的記憶庫自己保持同步。
 - 卡片用過有效會加分升級，久沒用會淡出，記憶庫不會越長越亂。
 - 回合收尾時檢查 AI 有沒有敷衍、有沒有把該做的事推給「下次再說」。
-- 想直接問記憶庫一句話（不經 Claude 注入）：`python ~/.claude/tools/memory-search.py "問題"`；其他 AI 工具（Codex、Cursor…）接上同一個 MCP server 也有 `memory_search` 可用，回的是同一套穩定 JSON。不用 Claude Code 的同事（Codex／Gemini CLI）跑一次 `python ~/.claude/tools/ai-client-setup.py` 就接上公司記憶，不裝 hooks（做法見 TECH.md §5.8）。
+- 想直接問記憶庫一句話（不經 Claude 注入）：`python ~/.claude/tools/memory-search.py "問題"`；其他 AI 工具（Codex、Cursor…）接上同一個 MCP server 也有 `memory_search` 可用，回的是同一套穩定 JSON。不用 Claude Code 的同事（Codex／Gemini CLI／Antigravity）跑一次 `python ~/.claude/tools/ai-client-setup.py` 就接上公司記憶，不裝 hooks（做法見 TECH.md §5.8）。
+- 會議錄完丟給它：「整理這場會議 `<音檔>`」→ 逐字稿、決議／待辦／未決摘要，決議自動寫進專案記憶；辨識在內網的 Ollama 主機跑，音檔不出門（TECH.md §6.6）。
 - 想看記憶狀態（需 Claude Code 開著才有資料）：
   1. Dashboard：打開 `http://127.0.0.1:3848/`；
   2. 更生動的「腦內世界」視覺化：用瀏覽器直接開 `tools/workflow-guardian-mcp/world.html`。
