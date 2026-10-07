@@ -4317,6 +4317,22 @@
         "自動上傳"
       ],
       "scope": "global"
+    },
+    {
+      "name": "專案層tool事件閘要用原生hooks-根層只轉送sessionstart給project-hooks",
+      "path": "memory/CC與原子記憶契約/專案層tool事件閘要用原生hooks-根層只轉送sessionstart給project-hooks.md",
+      "triggers": [
+        "project_hooks.py",
+        "專案 hook",
+        "PreToolUse",
+        "PostToolUse",
+        "專案層閘",
+        "原生 hooks",
+        "settings.json hooks",
+        "_call_project_hook",
+        "tool 事件轉送"
+      ],
+      "scope": "global"
     }
   ]
 }
