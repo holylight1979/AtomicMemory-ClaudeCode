@@ -935,17 +935,20 @@ _RULE_DOTTED_KEY_RE = re.compile(r"(?<![\w./\\-])[a-z][a-z0-9_]*(?:\.[a-z][a-z0-
 
 def rule_atom_style_violation(file_path: Path, knowledge: Optional[List[str]]) -> Optional[str]:
     """規則型 atom 的知識行含日期戳或 dotted config 鍵名 → 回錯誤字串；否則 None。
-    判定只看落點路徑（行為契約／工作流，排除 Failures）與本次傳入的 knowledge 行；skip_gate 不能繞過。"""
+    規則型＝落點在行為契約／工作流（不含 Failures）的 atom，或任何 feedback-* atom（使用者指正本身就是規則）。
+    日期戳兩者都擋；config 鍵名只擋前者（feedback 可能描述技術踩坑）。只看本次傳入的 knowledge 行；skip_gate 不能繞過。"""
     p = str(file_path).replace("\\", "/")
-    if "/Failures/" in p or not any(m in p for m in _RULE_ATOM_DIR_MARKS):
+    rule_dir = "/Failures/" not in p and any(m in p for m in _RULE_ATOM_DIR_MARKS)
+    feedback = p.rsplit("/", 1)[-1].startswith("feedback-")
+    if not (rule_dir or feedback):
         return None
     for line in knowledge or []:
         if not isinstance(line, str):
             continue
         if _RULE_DATE_RE.search(line):
-            return ("rule-atom style: 規則型 atom（行為契約／工作流）的知識行不得帶日期戳——"
-                    "寫現況句，緣由與時間點歸 _AIDocs/_CHANGELOG.md；違規行：" + line[:80])
-        m = _RULE_DOTTED_KEY_RE.search(line)
+            return ("rule-atom style: 規則型／feedback atom 的知識行不得帶日期戳——"
+                    "atom 收的是知識與經驗，不是某個當下；日期只留 metadata，緣由歸 _AIDocs/_CHANGELOG.md；違規行：" + line[:80])
+        m = _RULE_DOTTED_KEY_RE.search(line) if rule_dir else None
         if m:
             return ("rule-atom style: 規則型 atom 的知識行不得埋 config 鍵名／程式識別字（"
                     f"{m.group(0)}）——用白話描述行為，實作細節歸 TECH.md；違規行：" + line[:80])

@@ -423,7 +423,7 @@ sequenceDiagram
 | supersedes 檢查 | create／replace 給 `supersedes` 時 `atom_io.check_supersedes`：目標可解析、非自指、無循環、非核心保護名；replace 未給＝保留原行、`[]`＝清除（SPEC §3.5） | 取代鏈不能互滅、不能指到不存在的顆 |
 | Source／Quote／Depends | 選填 `provenance`（來源路徑／URL／commit／`session:<sid8>#<uuid8> <日期>`）→ `- Source:`；`quote`（使用者原話，單行 ≤200 字）→ `- Quote:`；`depends`（`["path:<絕對路徑>", …]`）→ `- Depends:`；replace 三態同 Supersedes（§4.1）；`edit_metadata` 另有 `provenance`／`quote` 兩 label；`VALID_SOURCES` 含 `hook:provenance`／`tool:provenance-backfill` | 工具卡與壞滅緣的地基；呼叫者沒給 Source／Quote 時由 PostToolUse `wg_provenance.autofill_from_receipt` 補（§8），MCP 進程不知道 session id，自動填只能放 hook 端 |
 | write gate | `tools/memory-write-gate.py` 品質評分 + 去重 | 見 6.2 |
-| 規則型樣式閘 | `lib/atom_io.rule_atom_style_violation`：落點在 `memory/行為契約/`／`memory/工作流/`（不含 Failures）的 atom，知識行含日期戳或 dotted config 鍵名 → 拒寫；`skip_gate` 不能繞 | 規則卡片只寫現況白話句；緣由歸 _CHANGELOG、實作細節歸 TECH |
+| 規則型樣式閘 | `lib/atom_io.rule_atom_style_violation`：落點在 `memory/行為契約/`／`memory/工作流/`（不含 Failures）的 atom 與任何 `feedback-*` atom，知識行含日期戳 → 拒寫；dotted config 鍵名只擋前者；`skip_gate` 不能繞。存量由 `tools/atom-date-lint.py` 掃（`--fix` 清、`--check` 給驗證），`tools/verify/verify_atom_date_lint.py` 活體守門索引內 atom 零敘事型日期（episodic／_distant 不掃） | atom 收的是知識與經驗，不是某個當下；日期只留 metadata 或日期本身就是知識（EOL、發布日） |
 | 敏感 pending | `Audience: architecture/decision` 寫 shared → 進 `shared/_pending_review/`，不直接生效 | 架構決策需人裁決（`review.deciders`，空＝全員可裁決） |
 | 索引同步 | upsert JSON → sync-memory-index → 向量增量 → 橋接檔重產 | 單一真相 |
 | receipt | 成功時結果最後一行 `receipt: {op, atom, path, index_ok, supersedes}`；PostToolUse 入帳 `state.atom_ops[sid]` 供階段收割核對（§6.3） | 寫沒寫成、索引有沒有進，用收據對帳而不是 `exists()` |

@@ -39,8 +39,14 @@ def test_urls_paths_and_versions_not_false_positive():
     assert viol(RULE, ["檔案 lib/atom_io.py 的 write_atom"]) is None
 
 
-def test_failures_and_other_domains_exempt():
-    assert viol(FAIL, ["[臨] 始末（2026-10-06）：…guard.commit_order.keywords"]) is None
+def test_feedback_atoms_reject_dates_but_allow_config_keys():
+    assert viol(FAIL, ["[臨] 使用者指正（2026-10-06）：亂碼直接修"]) is not None
+    assert viol(FAIL, ["[臨] 使用者指正：亂碼直接修；閘見 guard.commit_order.keywords"]) is None
+
+
+def test_failure_story_and_other_domains_exempt():
+    story = Path(r"C:\x\.claude\memory\Failures\版控\某踩坑.md")
+    assert viol(story, ["[臨] 始末（2026-10-06）：…guard.commit_order.keywords"]) is None
     assert viol(OTHER, ["[固] 2026-09-21 實測 R@1 81%"]) is None
 
 

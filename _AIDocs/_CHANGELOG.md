@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-10-07 atom 知識行剝敘事型日期：存量清 122 顆、feedback-* 納入樣式閘、活體守門
+- **緣由**：使用者看到我剛 append 的 feedback atom 帶「2026-10-07 正例」，問「是不是該全掃一遍」，並定調：atom 收的是知識與經驗，不是「只是闡述某一個當下」；非得用實例解說也不帶時間戳（每次注入都在浪費 token）。掃索引內 atom（episodic／_distant 不掃）：122 顆／165 行帶「使用者指正（日期）」「實踩（日期）」這類敘事型日期。
+- **做法**：`tools/atom-date-lint.py`——只動正文（metadata／code span／標題不碰），敘事型日期連黏著的括號與分隔符一起拿、中文鄰字不留空白；日期是參照點（自／約／建於…後／起）或日期本身是知識（EOL／支援到／issue／發布）整行不動；舊式 `- Created:` 行與變更記錄表格列整行刪。`rule_atom_style_violation` 日期規則擴到任何 `feedback-*` atom（config 鍵名規則維持只擋行為契約／工作流）。`tools/verify/verify_atom_date_lint.py` 剝日期規則 6 案＋活體守門 1 案（索引內 atom 零敘事型日期）。
+- **結果**：`--fix` 後 `--check` 0 行、sync-atom-index／sync-memory-index 無 drift、verify_rule_atom_style_gate 7 案綠。 | `tools/atom-date-lint.py`, `tools/verify/verify_atom_date_lint.py`, `lib/atom_io.py`, `lib/verify/verify_rule_atom_style_gate.py`, `TECH.md`, `_AIDocs/_CHANGELOG.md`, 122 顆 atom
+
+---
+
 ## 2026-10-07 atom 寫入連動的文件計數標記檔納入 vcs-sync 自動上傳
 - **緣由**：使用者在專案層 session 看到 ~/.claude 有 9 個未上傳異動問「為什麼會出現、為什麼沒主動上傳」。查明：另一 session 的 `atom_write` 寫了一顆 global atom，`sync_doc_counts` 連動改 TECH.md／_AIDocs/_INDEX.md／DocIndex-System.md 的計數標記；記憶與索引 6 檔在下個 session 邊界由 worker 自動 commit，但這 3 個文件檔不在 `root_pathspecs`，永遠留髒檔等人手動補 commit（同日 14:03 已手動補過一次）。順帶：公司層記憶 repo 本就在 worker 目標集，專案層 session 想手動 commit 它是誤讀「記憶相關直上」，口令閘擋得對；deny 訊息補一句說明。
 - **修**：`vcs_sync.root_extra_pathspecs`（預設三個計數標記檔）比照 `org_extra_pathspecs` 只進根層 pathspec、不進 mem_dirs，抽共用 `_add_extra_pathspecs`；config／TECH §12 同步；`verify_vcs_sync_worker` 加 1 案並更新預設期望。 | `hooks/wg_vcs_sync.py`, `hooks/handlers/pre_tool_use.py`, `hooks/verify/verify_vcs_sync_worker.py`, `workflow/config.json`, `TECH.md`, `_AIDocs/_CHANGELOG.md`
