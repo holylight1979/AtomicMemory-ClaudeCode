@@ -61,7 +61,7 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 
 | 面向 | 業界主流 | 原子記憶系統 | 評語 |
 |------|------|------|------|
-| 檢索 | hybrid BM25+vector+RRF 為共識；cross-encoder rerank 再進一步 | 同款三路 RRF；rerank 只有離線路徑（`tools/memory-vector-service/reranker.py`，Ollama 逐條打分），hook 檢索鏈不呼叫；本機實測（2026-10，175 題回歸集）cross-encoder 只抬 R@1 +3.4 點、R@3 反降、每句 +1.2 s，判定不進 hook、只作讀取端可選項——評估全文 `_AIDocs/DevHistory/rerank-cross-encoder-evaluation-2026-10.md`。hook 直譯器已有 sentence-transformers＋torch CPU（vector service 的 bge-m3 fallback 用），fastembed 未裝 | 方向一致；每回合 rerank 仍是可補強項 |
+| 檢索 | hybrid BM25+vector+RRF 為共識；cross-encoder rerank 再進一步 | 同款三路 RRF；rerank 只有離線路徑（`tools/memory-vector-service/reranker.py`，Ollama 逐條打分），hook 檢索鏈不呼叫；本機實測（2026-10，175 題回歸集）cross-encoder 只抬 R@1 +3.4 點、R@3 反降、每句 +1.2 s，判定不進 hook、只作讀取端可選項——評估全文 `_AIDocs/DevHistory/rerank-cross-encoder-evaluation-2026-10.md`。hook 直譯器已有 sentence-transformers＋torch CPU（vector service 的 bge-m3 fallback 用），fastembed 未裝 | 方向一致；每回合 rerank 實測後判定不做（收益在前三名內換序、每句 +1.2 s），讀取端可選 |
 | 新鮮度 | 決定性規則（timestamp）勝 LLM 判斷（82% vs 18%） | `supersedes` 規則式過濾；衝突裁決先看證據等級再看 recency | 符合 |
 | 注入 | 每 prompt ≤6 條、SessionStart ~1,200 tok；單一干擾項即傷精度 | per-turn 硬頂 1200 tok、同題去冗、總額分級 | 符合 |
 | 積累 | 原文勝萃取物；入場閘以內容型別先驗最有效 | 顯式策展 `atom_write` 為主，自動萃取為輔；每顆 atom 帶 `- Source:`（session 指標）與 `- Quote:`（使用者原話 ≤200 字）：寫入當下 PostToolUse 自動填、舊顆由回填 worker 補；`atom_source` 回讀原對話（§5.8） | 已補：原文可回看——transcript 還在就撈原句前後文，30 天後被清掉仍有 Quote 留住原句 |
@@ -918,7 +918,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | `friction.enabled` / `min_hits` / `keywords` | true / 2 / 省略＝模組內建表 | 使用者糾正訊號 → DPM |
 | `tool_result_waste.enabled` / `oversized_chars` / `max_advisories_per_session` | true / 20000 / 3 | 工具結果體積量測與提醒 |
 | `privacy.enabled` / `deny_globs` | true / []（追加） | git commit 隱私硬閘 |
-| `guard.commit_order.{enabled,keywords}` | true / 上GIT、上乾淨、全上、執P、commit… | git commit 口令閘：本回合使用者原話（`state.turn_prompts`，含 mid-turn 排隊訊息；Stop 關回合）無任一口令 → deny；背景通知（task-notification）開的回合視為上一回合的延續——使用者原話沿用、通知內文不算口令、口令之後已 commit 過就不沿用（USER.md 縮寫指令契約的程式化版本；state 缺失 fail-open） |
+| `guard.commit_order.{enabled,keywords,exempt_cwd_under_claude_dir}` | true / 上GIT、上乾淨、全上、執P、commit… / true | git commit 口令閘：本回合使用者原話（`state.turn_prompts`，含 mid-turn 排隊訊息；Stop 關回合）無任一口令 → deny；背景通知（task-notification）開的回合視為上一回合的延續——使用者原話沿用、通知內文不算口令、口令之後已 commit 過就不沿用（USER.md 縮寫指令契約的程式化版本；state 缺失 fail-open） |
 | `sync_reminder.{enabled,max_reminders,unpushed}` | true / 1 / true | Stop 同步閘；unpushed=true 時已 commit 未 push 也擋 |
 | `parallel_agents.*` / `research_fanout.*` | enabled | 多 agent 拆分／研究 fan-out 判準注入 |
 | `docdrift.path_mappings` | hooks→Architecture.md、skills/rules/tools→DocIndex-System.md | 文件漂移提醒 |

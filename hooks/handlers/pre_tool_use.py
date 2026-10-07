@@ -331,6 +331,13 @@ def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
     return None
 
 
+def _under_claude_dir(cwd: str) -> bool:
+    try:
+        return Path(cwd).resolve() == Path(CLAUDE_DIR).resolve() or Path(CLAUDE_DIR).resolve() in Path(cwd).resolve().parents
+    except OSError:
+        return False
+
+
 def check_git_commit_order(
     tool_name: str, tool_input: Dict[str, Any], config: Dict[str, Any],
     state: Optional[Dict[str, Any]],
@@ -347,6 +354,11 @@ def check_git_commit_order(
     try:
         if not _git_commit_segments(_strip_heredoc_bodies(command)):
             return None
+        # 記憶系統 repo 本身（session cwd 在 ~/.claude 內）不等口令：驗證過就直接上版控（USER.md 例外條）
+        if cfg.get("exempt_cwd_under_claude_dir", True):
+            cwd = str(((state or {}).get("session") or {}).get("cwd") or "")
+            if cwd and _under_claude_dir(cwd):
+                return None
         prompts = (state or {}).get("recent_user_prompts") or []
         if not prompts:
             try:

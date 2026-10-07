@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-10-07 記憶系統 repo 內改動不等「上GIT」口令：閘門放行＋USER 例外條
+- **緣由**：使用者問「為什麼一直要我給上GIT」——常設契約「口令前不碰 git」與他對記憶系統「改完驗過就直接上」的期待打架，commit_order 閘只認本回合原話，AI 每回合回頭要口令。使用者定：記憶相關的不用問直上版控，USER.md 要寫清楚並參照 atom 規則。
+- **修**：`guard.commit_order.exempt_cwd_under_claude_dir`（預設 true）：session cwd 在 ~/.claude 內 → `check_git_commit_order` 放行；其他專案照擋。USER-holylight.md／USER.md 縮寫指令加「例外——記憶系統本身不用問」一條；atom `preferences` append 同一規則；TECH §12 設定列；verify_git_commit_order_gate 加三斷言案。 | `hooks/handlers/pre_tool_use.py`, `hooks/verify/verify_git_commit_order_gate.py`, `workflow/config.json`, `USER-holylight.md`, `USER.md`, `TECH.md`, `_AIDocs/_CHANGELOG.md`
+
+---
+
 ## 2026-10-07 rerank／sentence-transformers 必要性評估：實測後判定不進注入鏈
 - **緣由**：TECH §2.2 把 rerank 列為可補強項，使用者要深入知道 cross-encoder 與 sentence-transformers 對本系統的必要性、優缺點與長期協作體驗差異，並與 Codex 一起探索。
 - **做法**：用回歸集 175 題跑含向量路的線上回放取候選，隔離 venv（fastembed ONNX，不裝 torch）對 bge-reranker-base／jina-v2／MiniLM 重排量 R@1／R@3／MRR 與 CPU 延遲；外部文獻代理調查（附 URL）；Codex gpt-6-astra 開 repo 獨立審一輪，三方不一致處親自重現裁決。

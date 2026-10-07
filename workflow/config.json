@@ -442,8 +442,9 @@
       "allowlist": []
     },
     "commit_order": {
-      "_doc": "PreToolUse git commit 口令閘：本回合使用者原話無任何 keywords → deny。USER.md 縮寫指令契約的程式化版本。",
+      "_doc": "PreToolUse git commit 口令閘：本回合使用者原話無任何 keywords → deny。USER.md 縮寫指令契約的程式化版本。exempt_cwd_under_claude_dir＝session cwd 在 ~/.claude（原子記憶系統 repo）內時放行——記憶系統本身的改動驗證過就直接上版控，不等口令（USER.md 例外條）。",
       "enabled": true,
+      "exempt_cwd_under_claude_dir": true,
       "keywords": [
         "上GIT",
         "上 GIT",

@@ -207,3 +207,16 @@ def test_custom_keywords_replace_default():
     assert _check(state=_state("發布吧"), config=cfg) is None
     msg = _check(state=_state("上GIT"), config=cfg)
     assert msg and "[Guardian:CommitOrder]" in msg
+
+
+def test_claude_dir_cwd_exempt_and_other_cwd_still_gated(tmp_path):
+    """session cwd 在 ~/.claude 內 → 不等口令放行（記憶系統 repo 例外）；別的專案 cwd 照擋；關掉 exempt 鍵則一律照擋。"""
+    from handlers import pre_tool_use as ptu
+    inside = {"recent_user_prompts": ["改好了"], "turn_prompts": ["改好了"],
+              "session": {"cwd": str(Path(ptu.CLAUDE_DIR) / "hooks")}}
+    outside = {"recent_user_prompts": ["改好了"], "turn_prompts": ["改好了"],
+               "session": {"cwd": str(tmp_path)}}
+    assert _check(state=inside) is None
+    assert _check(state=outside) is not None
+    cfg = {"guard": {"commit_order": {"exempt_cwd_under_claude_dir": False}}}
+    assert _check(state=inside, config=cfg) is not None
