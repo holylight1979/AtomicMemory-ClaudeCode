@@ -4248,6 +4248,23 @@
         "要不要加 rerank"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-規則型卡片只寫現況白話句-判準寫改的是什麼不是session在哪-規則本體進憲法層必載檔不只住atom",
+      "path": "memory/Failures/行為契約/feedback-規則型卡片只寫現況白話句-判準寫改的是什麼不是session在哪-規則本體進憲法層必載檔不只住atom.md",
+      "triggers": [
+        "規則型 atom",
+        "技術臭味",
+        "日期進 atom",
+        "憲法等級",
+        "必載契約",
+        "always-load-contracts",
+        "判準",
+        "寫規則",
+        "preferences 改寫",
+        "路徑揭露"
+      ],
+      "scope": "global"
     }
   ]
 }
