@@ -15,6 +15,7 @@
 | atom-table-support | atom_write 知識區表格/程式碼 fence block 渲染用法（dogfood） |
 | atom-usefulness-loop | 注入→使用→結果 閉環效用 (α,β)：use 偵測 + Wilson 晉升 + 慢衰減（Phase 2，#2） |
 | atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 | atom-write-dry-run仍在專案樹留空範疇資料夾-落點helper沿路mkdir-p-預覽不等於零副作用 |
+| atom-write-replace-對舊格式卡片會丟-confirmations-與-last-used | atom-write-replace-對舊格式卡片會丟-confirmations-與-last-used |
 | atom-元資料編輯與晉升閘真相 | atom 元資料編輯與晉升閘真相 |
 | atom來源回看閉環-provenance機制指標與設計決策-自動填在posttooluse不在mcp-不做弱匹配-注入零增量 | atom來源回看閉環-provenance機制指標與設計決策-自動填在PostToolUse不在MCP-不做弱匹配-注入零增量 |
 | atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引api刪舊登新再sync | atom建錯名後改名程序-feedback前綴受核心保護無法retire-手動mv加索引API刪舊登新再sync |

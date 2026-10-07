@@ -4282,6 +4282,20 @@
         "browser cleanup"
       ],
       "scope": "personal:holylight"
+    },
+    {
+      "name": "atom-write-replace-對舊格式卡片會丟-confirmations-與-last-used",
+      "path": "_AIDocs/_atoms/MemDev/atom-write-replace-對舊格式卡片會丟-confirmations-與-last-used.md",
+      "triggers": [
+        "atom_write replace",
+        "Confirmations 歸零",
+        "舊格式 atom",
+        "Last-used 丟失",
+        "preserved conf=0",
+        "裁剪 atom",
+        "超預算 append 被拒"
+      ],
+      "scope": "global"
     }
   ]
 }
