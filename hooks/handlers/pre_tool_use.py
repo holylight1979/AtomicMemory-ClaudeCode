@@ -378,6 +378,8 @@ def check_git_commit_order(
             "已擋下 git commit。\n"
             "契約（USER.md 縮寫指令）：口令前不碰 git——先在收尾報告列「改了哪些檔＋驗了什麼／沒驗什麼」，"
             "等使用者看過 diff 下「上GIT」，再 commit → push 一氣做完；不得先 commit 再等 push。\n"
+            "記憶目錄（根層／專案層／公司層）不適用「記憶相關直上」手動 commit：vcs-sync worker 會在收割與 session 結束時"
+            "自動 commit＋push，AI 不碰也不問。\n"
             "確為使用者本回合要求：引用其原話請他重下口令；長期口令調整 workflow/config.json "
             "guard.commit_order.keywords（enabled=false 停用本閘）。"
         )
