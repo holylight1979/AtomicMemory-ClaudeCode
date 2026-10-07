@@ -4,7 +4,7 @@
 - Author: holylight
 - Quote: 你們討論了啥，沒條列給我看? 白話一點.. / 我沒看很懂..。所以根層的你，是負責落地什麼?
 - Confidence: [臨]
-- Trigger: 多方討論, 信箱, 跨 session 討論, 誰販責落地, 討論了啥, 沒看懂, 增量回報, 三方討論, tri-link, root-link
+- Trigger: 多方討論, 信箱, 跨 session 討論, 誰負責落地, 討論了啥, 沒看懂, 增量回報, 三方討論, tri-link, root-link
 - Created-at: 2026-10-07
 - Related: feedback-收尾報告使用者視角四要素-白話綜觀非片段細節
 
