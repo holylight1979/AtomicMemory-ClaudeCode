@@ -4832,6 +4832,36 @@
         "衝突審核"
       ],
       "scope": "global"
+    },
+    {
+      "name": "導讀卡寫入受knowledge區3072bytes預算擋-skip-gate跳不過funnel-矛盾偵測先於預算跑",
+      "path": "_AIDocs/_atoms/MemDev/導讀卡寫入受knowledge區3072bytes預算擋-skip-gate跳不過funnel-矛盾偵測先於預算跑.md",
+      "triggers": [
+        "atom_write 被擋",
+        "3072",
+        "knowledge 區預算",
+        "導讀卡太長",
+        "hub 卡預算",
+        "skip_gate 無效",
+        "funnel failed: budget",
+        "矛盾偵測先跑",
+        "指標卡被擋"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "codex-exec在非git目錄要加skip-git-repo-check-否則不報錯只在stderr一行且輸出空檔",
+      "path": "_AIDocs/_atoms/工作流/codex-exec在非git目錄要加skip-git-repo-check-否則不報錯只在stderr一行且輸出空檔.md",
+      "triggers": [
+        "codex exec",
+        "codex 輸出空",
+        "Not inside a trusted directory",
+        "skip-git-repo-check",
+        "codex -C",
+        "svn 專案跑 codex",
+        "codex 唯讀審稿"
+      ],
+      "scope": "global"
     }
   ]
 }

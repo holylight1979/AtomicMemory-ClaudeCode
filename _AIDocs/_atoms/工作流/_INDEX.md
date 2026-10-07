@@ -2,6 +2,12 @@
 
 > 階層範疇索引（自動生成，`_` 前綴非 atom）。機制見 [[realm-範疇分區機制-v5]]。
 
+## 本層 atom
+
+| Atom | 說明 |
+|------|------|
+| codex-exec在非git目錄要加skip-git-repo-check-否則不報錯只在stderr一行且輸出空檔 | codex-exec在非git目錄要加skip-git-repo-check-否則不報錯只在stderr一行且輸出空檔 |
+
 ## 子層
 
 | 子層 | atom 數 | 深入 |
