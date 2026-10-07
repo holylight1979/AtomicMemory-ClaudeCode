@@ -4862,6 +4862,22 @@
         "codex 唯讀審稿"
       ],
       "scope": "global"
+    },
+    {
+      "name": "測試收尾不清共用的live量測檔-多session同機共用claude時truncate會刪掉別人的真實資料-測試用monkeypatch改路徑",
+      "path": "memory/驗證與實證/測試收尾不清共用的live量測檔-多session同機共用claude時truncate會刪掉別人的真實資料-測試用monkeypatch改路徑.md",
+      "triggers": [
+        "清 log",
+        "truncate",
+        "測試殘留",
+        "共用檔",
+        "多 session",
+        "E2E 收尾",
+        "量測 log",
+        "monkeypatch LOG_PATH",
+        "別的 session 的資料"
+      ],
+      "scope": "global"
     }
   ]
 }
