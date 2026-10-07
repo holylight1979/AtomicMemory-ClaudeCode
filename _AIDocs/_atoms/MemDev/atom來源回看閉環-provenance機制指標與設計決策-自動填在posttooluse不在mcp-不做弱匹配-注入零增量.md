@@ -14,6 +14,7 @@
 - [臨] **為什麼自動填在 PostToolUse 不在 MCP js**：MCP server 進程只有 process.cwd()，不知道 session id；state.turn_prompts 是純字串無 uuid；只有 PostToolUse hook input 同時有 session_id、transcript_path 與 receipt 路徑。
 - [臨] **回填不做弱匹配**（同日最近訊息配 atom）：配錯原句會以 session: 格式永久固化、日後無法與真配區分；寧可 B 級「原對話已逾保留期」。同檔名多層且無精確路徑命中 → ambiguous 不寫。本機實跑 920 顆：A 136、B 746。
 - [臨] **每回合 token 增量 0**：注入端 `_FRONTMATTER_KEEP_RE` 只留 Confidence／Trigger／Last-used／Status，Source／Quote 不進注入；知識段 HTML 註解（`<!-- src -->`）也剔掉。固定前綴只多一個 MCP tool schema 與一個 skill 描述。
+- [臨] 已知限制：自動填的 Quote 是「atom_write 發生那一回合的最後一則使用者訊息」。收割時才寫的 feedback 卡片，Quote 會是收尾問句（例：「可以關 session 了？」）而不是當初的指正原話。要留正確原話：寫 feedback 卡片時自己把指正句放進 quote 參數（呼叫者給了就不自動覆蓋），或在指正發生的那一回合就寫。
 
 ## 行動
 
