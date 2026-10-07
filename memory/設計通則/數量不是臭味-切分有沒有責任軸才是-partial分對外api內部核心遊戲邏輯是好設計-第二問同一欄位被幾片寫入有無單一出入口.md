@@ -1,0 +1,20 @@
+# 數量不是臭味-切分有沒有責任軸才是-partial分對外API內部核心遊戲邏輯是好設計-第二問同一欄位被幾片寫入有無單一出入口
+
+- Scope: global
+- Author: holylight
+- Quote: partial "不一定是問題"，只要是 適度的配置檔案的內容，可能就沒有什麼問題；像是假設 資產控管，分成 public api 的 partial、內部運作核心的 partial、以及 遊戲邏輯相關的 partial
+- Confidence: [臨]
+- Trigger: partial, partial class, 檔案數, 方法數, public 成員數, 檔案行數, 責任軸, 職責切分, god class, 數量型指標, 狀態所有權, 單一出入口
+- Created-at: 2026-10-07
+- Related: 機器規則要錨到現在還痛的優先清單-規則卡三要素-風格契約與品質假說分開驗收-合規與設計品質是兩個維度
+
+## 知識
+
+- [臨] 使用者裁示：partial 不一定是問題，適度配置就沒問題；例如資產控管分成對外 API 一片、內部運作核心一片、遊戲邏輯一片。數量不是臭味，切分有沒有責任軸才是；數量型指標（partial 數、方法數、public 成員數、行數）只當「值得看一眼」的線索，進 LLM 語意審提問，不進計數規則。
+- [臨] 語意審要問兩句，第二句才是重點：①每片檔名能不能對到一個職責；②同一個可變欄位被幾片寫入、寫入點有沒有收在單一出入口。實證：TSLG FakeMapServer 59 片檔名軸一致、單看檔名會判好，但 45 個 per-uid 容器的增刪散在多片，每片都「合法地」改同一組狀態，才漏掉脫戰倒數；SGI GuildManager 23 片在拆出子 Manager 前後計數相同，計數器抓不到。
+- [臨] 對照語料：好＝SGI EntityCastle 9 片各一個名詞、TSLG McpManager 7 片各一領域只向 registry 註冊；壞＝GuildManager 23 片功能、機制、生命週期三種軸混雜。處置不是減片數，是把寫入點收回單一 Begin／End（TSLG CS-54）。
+
+## 行動
+
+- 審 partial 或大型別：先問軸再問欄位寫入點，不報數量
+- 設計規則時看到「數量」型指標→只列報表，轉成 LLM 提問
