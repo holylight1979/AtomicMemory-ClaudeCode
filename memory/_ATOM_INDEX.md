@@ -260,3 +260,4 @@
 | 根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox | memory/工作流/協作與並行/根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox.md | root-link, tri-link, 三方討論, 根層專案層溝通, 跨session對齊, 跟根層談, 信箱摩槽, 兩個session討論同題 | global |
 | feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌 | memory/Failures/工作流/feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌.md | 多方討論, 信箱, 跨 session 討論, 誰負責落地, 討論了啥, 沒看懂, 增量回報, 三方討論, tri-link, root-link | global |
 | feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決 | memory/personal/holylight/feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決.md | 加派 codex, 等價認知, 第二腦, 獨立審查, 分歧裁決, 討論回信, 三方討論, codex exec, 反面意見 | personal:holylight |
+| feedback-全貌未對齊前不要一直要使用者拍板-先弄懂他要的全貌-再讓他看懂我們構思的全貌 | memory/Failures/行為契約/feedback-全貌未對齊前不要一直要使用者拍板-先弄懂他要的全貌-再讓他看懂我們構思的全貌.md | 拍板, 拍版, 待拍板, 請使用者決定, 全貌, 尚未拍板, 決策點, 多方討論, 信箱, 綁要 | global |
