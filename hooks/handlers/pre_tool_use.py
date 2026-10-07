@@ -919,10 +919,10 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
             from wg_overview import on_edit as _hub_on_edit
             _hub_fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
             _hub_state = _co_state if _co_state is not None else {}
-            hub_warn, hub_deny = _hub_on_edit(
+            hub_warn, hub_deny, hub_changed = _hub_on_edit(
                 _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
             )
-            if _co_sid and _co_state is not None and (hub_warn or hub_deny):
+            if _co_sid and _co_state is not None and hub_changed:   # 放行也要落盤（located／edits）
                 from wg_core import write_state as _ws
                 _ws(_co_sid, _co_state)
             if hub_deny:

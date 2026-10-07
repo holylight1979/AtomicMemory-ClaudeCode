@@ -73,8 +73,13 @@ def _key(root: Path, row: Dict[str, Any]) -> str:
 
 def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
             hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any]) -> str:
-    card_path = resolve_card(root, row["card"]) if row["status"] in ("有", "部分", "索引") else None
-    text = build_injection(row, card_path, hit_path, int(cfg["max_card_chars"]))
+    card_paths: List[Path] = []
+    if row["status"] in ("有", "部分", "索引"):
+        card_paths = [cp for cp in (resolve_card(root, c) for c in row["cards"]) if cp]
+    card_path = card_paths[0] if card_paths else None
+    template = cfg.get("locate_template") if isinstance(cfg.get("locate_template"), list) else None
+    extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
+    text = build_injection(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra)
     hub = state.setdefault("overview_hub", {})
     hub[_key(root, row)] = {
         "injected_turn": int(state.get("turn_seq", 0)),
@@ -83,6 +88,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "reads_after": [],
         "located": False,
         "edits": 0,
+        "locate_template": template or [],
     }
     _log("inject", session_id, part=row["part_short"], status=row["status"], via=via,
          path=hit_path, card=str(card_path) if card_path else None, chars=len(text))
@@ -96,18 +102,19 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
     if not cfg["enabled"]:
         return None
     for p in read_paths_from_tool(tool_name, tool_input, cwd):
+        # 注入後讀的每個檔都記到所有已注入的部位（跨部位探索正是綜觀，不能只記命中的那一個）
+        for rec in (state.get("overview_hub") or {}).values():
+            if p not in rec["reads_after"]:
+                rec["reads_after"].append(p)
         hit = _lookup(p)
         if not hit:
             continue
         root, row = hit
-        rec = (state.get("overview_hub") or {}).get(_key(root, row))
-        if rec is None:
+        if (state.get("overview_hub") or {}).get(_key(root, row)) is None:
             cfg = _cfg(config, root)
             if not cfg["enabled"]:
                 return None
             return _inject(state, session_id, root, row, p, tool_name.lower(), transcript_path, cfg)
-        if p not in rec["reads_after"]:
-            rec["reads_after"].append(p)
     return None
 
 
@@ -132,42 +139,49 @@ def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_pa
 
 
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
-            config: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    """PreToolUse（Edit／Write）：回 (警告文字, deny 理由)。dry_run 時 deny 恆 None。"""
+            config: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], bool]:
+    """PreToolUse（Edit／Write）：回 (警告文字, deny 理由, state 有沒有變)。dry_run 時 deny 恆 None。
+
+    deny 理由帶整張卡（模型只看得到 permissionDecisionReason）；transcript 讀不到時不擋但要提醒。
+    """
     cfg = _cfg(config)
     if not cfg["enabled"] or not file_path:
-        return (None, None)
+        return (None, None, False)
     hit = _lookup(file_path)
     if not hit:
-        return (None, None)
+        return (None, None, False)
     root, row = hit
     cfg = _cfg(config, root)
     if not cfg["enabled"]:
-        return (None, None)
+        return (None, None, False)
     key = _key(root, row)
     rec = (state.get("overview_hub") or {}).get(key)
+    # 專案可只對某幾個部位開擋（deny_parts），其他部位維持 dry_run
+    dry = bool(cfg["dry_run"]) and row["part_short"] not in (cfg.get("deny_parts") or [])
+    cfg = dict(cfg, dry_run=dry)
     if rec is None:
         text = _inject(state, session_id, root, row, file_path, "edit", transcript_path, cfg)
         msg = (f"[Guardian:OverviewHub] 要改【{row['part_short']}】部位的檔但本 session 還沒看過這個部位的導讀卡——"
                f"卡片現在才注入（下面）。先讀完、在回覆交出定位三行，再改。\n{text}")
         _log("edit_before_inject", session_id, part=row["part_short"], path=file_path)
-        return (msg, None if cfg["dry_run"] else msg.split("\n", 1)[0])
+        return (msg, None if cfg["dry_run"] else msg, True)
     rec["edits"] = int(rec.get("edits", 0)) + 1
     reads = rec.get("reads_after", [])
     dirs = sorted({top_dir(p, root) for p in reads})
-    if not rec.get("located"):
+    verifiable = transcript_size(transcript_path) > 0   # transcript 讀得到就可驗；讀得到但沒文字＝沒交
+    if not rec.get("located") and verifiable:
         text = assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)))
-        rec["located"] = locate_present(text, row["part_short"]) if text else False
-        verifiable = transcript_size(transcript_path) > 0   # transcript 讀得到就可驗；沒文字＝沒交
-    else:
-        verifiable = True
+        rec["located"] = locate_present(text, row["part_short"], rec.get("locate_template"))
     _log("edit", session_id, part=row["part_short"], path=file_path, located=rec["located"],
          verifiable=verifiable, reads_after_inject=len(reads), dirs_after_inject=len(dirs),
          edits=rec["edits"], dry_run=cfg["dry_run"])
-    if rec["located"] or not verifiable:
-        return (None, None)
+    if rec["located"]:
+        return (None, None, True)
+    if not verifiable:
+        return (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）：讀不到 transcript，"
+                f"查不了有沒有交定位三行，這次放行；請確認回覆裡有寫。", None, True)
     msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前還沒交出定位三行"
            f"（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。"
            f"請先在回覆寫：定位｜部位：…／定位｜根因層：…／定位｜前例：…"
            + ("（目前 dry-run，只提醒不擋）" if cfg["dry_run"] else ""))
-    return (msg, None if cfg["dry_run"] else msg)
+    return (msg, None if cfg["dry_run"] else msg, True)

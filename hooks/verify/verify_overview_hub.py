@@ -140,13 +140,13 @@ def test_state_flow_inject_once_then_warn_then_locate(proj, tmp_path, monkeypatc
     assert wo.on_read(state, "sess", "Read", {"file_path": f2}, str(proj), tp, cfg) is None  # 第二次不再注入
     assert wo.on_read(state, "sess", "Bash", {"command": f'cat "{f1}"'}, str(proj), tp, cfg) is None
 
-    warn, deny = wo.on_edit(state, "sess", f1, tp, cfg)                 # 沒交定位 → 警告、dry_run 不擋
-    assert warn and "定位三行" in warn and "讀了 2 個檔" in warn and deny is None
+    warn, deny, changed = wo.on_edit(state, "sess", f1, tp, cfg)        # 沒交定位 → 警告、dry_run 不擋
+    assert warn and "定位三行" in warn and "讀了 2 個檔" in warn and deny is None and changed
 
-    with open(tp, "a", encoding="utf-8") as f:                           # 交了定位三行 → 放行
+    with open(tp, "a", encoding="utf-8") as f:                           # 交了定位三行 → 放行，state 仍標 changed
         f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
                 "text": "定位｜部位：戰鬥——A.cs\n定位｜根因層：根因在邏輯層\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
-    assert wo.on_edit(state, "sess", f1, tp, cfg) == (None, None)
+    assert wo.on_edit(state, "sess", f1, tp, cfg) == (None, None, True)
 
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     assert [e["event"] for e in log] == ["inject", "edit", "edit"]
@@ -157,10 +157,10 @@ def test_edit_without_prior_read_injects_now_and_deny_when_not_dry_run(proj, tmp
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     tp = _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    warn, deny = wo.on_edit({}, "s", f1, tp, {"overview_hub": {"dry_run": True}})
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {"overview_hub": {"dry_run": True}})
     assert warn and "還沒看過" in warn and deny is None
-    warn, deny = wo.on_edit({}, "s", f1, tp, {"overview_hub": {"dry_run": False}})
-    assert deny and "還沒看過" in deny
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {"overview_hub": {"dry_run": False}})
+    assert deny and "還沒看過" in deny and "戰鬥導讀" in deny      # B1：deny 理由要帶整張卡，模型才看得到
 
 
 def test_no_card_row_still_asks_for_locate(proj, tmp_path, monkeypatch):
@@ -181,7 +181,7 @@ def test_prompt_mention_injects(proj, tmp_path, monkeypatch):
 def test_outside_any_project_is_silent(tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     assert wo.on_read({}, "s", "Read", {"file_path": str(tmp_path / "lonely.cs")}, "", "", {}) is None
-    assert wo.on_edit({}, "s", str(tmp_path / "lonely.cs"), "", {}) == (None, None)
+    assert wo.on_edit({}, "s", str(tmp_path / "lonely.cs"), "", {}) == (None, None, False)
     assert wo.on_read({}, "s", "Read", {"file_path": "x"}, "", "", {"overview_hub": {"enabled": False}}) is None
 
 
@@ -190,8 +190,82 @@ def test_project_override_file_wins(proj, tmp_path, monkeypatch):
     (proj / ".claude" / "overview-hub.json").write_text('{"dry_run": false}', encoding="utf-8")
     tp = _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
-    warn, deny = wo.on_edit({}, "s", f1, tp, {"overview_hub": {"dry_run": True}})   # 根層 dry_run，專案覆蓋成擋
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {"overview_hub": {"dry_run": True}})   # 根層 dry_run，專案覆蓋成擋
     assert deny
     (proj / ".claude" / "overview-hub.json").write_text('{"enabled": false}', encoding="utf-8")
-    assert wo.on_edit({}, "s", f1, tp, {}) == (None, None)
+    assert wo.on_edit({}, "s", f1, tp, {}) == (None, None, False)
     assert wo.on_read({}, "s", "Read", {"file_path": f1}, str(proj), tp, {}) is None
+
+
+# ─── Codex 審查指出的五點（B1 在上面、B2／B5／W1／W2／B4 在這）────────────
+
+def test_locate_two_parts_in_one_reply_both_count():                    # B2：兩部位各一組，不互相覆蓋
+    text = ("定位｜部位：戰鬥——A\n定位｜根因層：邏輯層\n定位｜前例：共用字典\n"
+            "定位｜部位：UI 演出——B\n定位｜根因層：展演層\n定位｜前例：事件沒解掛")
+    assert oh.locate_present(text, "戰鬥") and oh.locate_present(text, "UI 演出")
+
+
+def test_locate_rejects_copied_template():                                # W1：照抄注入範本的佔位句不算交
+    text = "定位｜部位：戰鬥——這次改的是哪一塊\n定位｜根因層：修根因還是症狀；根因在哪層\n定位｜前例：這個部位以前摔過什麼"
+    assert not oh.locate_present(text, "戰鬥")
+
+
+def test_glob_anchored_beats_shorter_prefix():                            # B5：錨在根的 glob 不被短前綴搶走
+    rows = oh.parse_map("| `Assets\\` | 資產 | `a` | 有 |\n| `Assets\\Game\\design\\dat\\*.bytes` | 設計表 | `b` | 有 |\n")
+    assert oh.match_row("C:/T/Assets/Game/design/dat/x.bytes", Path("C:/T"), rows)["part_short"] == "設計表"
+
+
+def test_reads_after_counts_cross_part_and_untabled_files(proj, tmp_path, monkeypatch):   # W2
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Orbit" / "o.cs")}, str(proj), tp, {})     # 另一部位
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "README.md")}, str(proj), tp, {})          # 表外檔
+    rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
+    assert len(rec["reads_after"]) == 2
+
+
+def test_bash_vcs_reads_count_as_reads():                                 # SGI 覆蓋提案 #4
+    got = oh.read_paths_from_tool("Bash", {"command": 'svn cat "c:/P/sgi_server/A.cs" ; git show HEAD~1:hooks/x.py | head -5'}, "c:/P")
+    assert got[0] == "c:/P/sgi_server/A.cs" and got[1].replace("\\", "/") == "c:/P/hooks/x.py"
+
+
+def test_project_locate_template_override(proj, tmp_path, monkeypatch):   # SGI 覆蓋提案 #3
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    (proj / ".claude" / "overview-hub.json").write_text(
+        '{"locate_template": ["改哪一塊", "根因在哪層", "對得上控制塔哪個 H 編號或 §9 第幾列"]}', encoding="utf-8")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "定位｜前例：對得上控制塔哪個 H 編號或 §9 第幾列" in txt
+    with open(tp, "a", encoding="utf-8") as f:                              # 照抄專案自訂範本也不算交
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
+                "text": "定位｜部位：戰鬥——改哪一塊\n定位｜根因層：根因在哪層\n定位｜前例：對得上控制塔哪個 H 編號或 §9 第幾列"}]}}, ensure_ascii=False) + "\n")
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
+    assert warn and "定位三行" in warn
+
+
+def test_row_with_two_cards_injects_both_and_deny_parts(proj, tmp_path, monkeypatch):   # TSLG 提案 1、3、4
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥根因層.md").write_text("# 根因層\n共用字典", encoding="utf-8")
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        "| `Game\\Battle\\` | 戰鬥 | `戰鬥知識導讀-hub索引`；根因層另有 `戰鬥根因層` | 有 |\n", encoding="utf-8")
+    (proj / ".claude" / "overview-hub.json").write_text(
+        '{"deny_parts": ["戰鬥"], "locate_extra": {"戰鬥": "跑的是哪份 DLL"}}', encoding="utf-8")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and "共用字典" in txt and "定位｜加問：跑的是哪份 DLL" in txt
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {"overview_hub": {"dry_run": True}})   # 全域 dry_run，但戰鬥列開擋
+    assert deny and "定位三行" in deny
+
+
+def test_missing_transcript_warns_instead_of_silent_allow(proj, tmp_path, monkeypatch):   # B4
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    state = {}
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), "", {})
+    warn, deny, changed = wo.on_edit(state, "s", f1, str(tmp_path / "nope.jsonl"), {"overview_hub": {"dry_run": False}})
+    assert deny is None and warn and "讀不到 transcript" in warn and changed

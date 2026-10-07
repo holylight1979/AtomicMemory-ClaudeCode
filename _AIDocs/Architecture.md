@@ -32,7 +32,7 @@
 | `wg_docdrift.py` | src → `_AIDocs` 映射 drift 提醒 |
 | `wg_handoff.py` | Auto-Handoff：stub 六區塊 + token 預警純函式 |
 | `wg_coordination.py` | 跨 session 同檔互寫預警 + git 收尾指令預警（純檔案、warn-only） |
-| `wg_overview.py` | OverviewHub state 層：一 session 一部位只注入一次、Edit 前查定位三行、量測 jsonl `workflow/_overview-hub.log`、專案覆蓋檔 `<專案根>/.claude/overview-hub.json`；純函式（讀表、最長前綴命中、定位偵測、Bash 讀檔擷取）在 `lib/overview_hub.py`；表由專案寫在 `<專案根>/.claude/overview-map.md` |
+| `wg_overview.py` | OverviewHub state 層：一 session 一部位只注入一次、Edit 前查定位三行、量測 jsonl `workflow/_overview-hub.log`、專案覆蓋檔 `<專案根>/.claude/overview-hub.json`（`enabled`／`dry_run`／`deny_parts` 逐部位開擋／`max_card_chars`／`locate_template` 三行問法／`locate_extra` 部位加問）；一列多卡全注；Bash 的 cat/head/tail/sed -n/svn cat/git show 都算讀檔；純函式（讀表、最長前綴命中、定位偵測、Bash 讀檔擷取）在 `lib/overview_hub.py`；表由專案寫在 `<專案根>/.claude/overview-map.md` |
 | `wg_rescue.py` | 救援日誌：注入 atom 高特異 token → 後續工具呼叫命中＝「真被用上」 |
 | `wg_recall_miss.py` | 失念偵測：失敗證據 × 庫中未注入 atom trigger |
 | `wg_friction.py` | 工具結果體積 + 使用者糾正訊號 → Deep Post-Mortem |

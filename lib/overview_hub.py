@@ -28,7 +28,8 @@ _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
 _STATUS_HEADS = ("有", "部分", "索引", "無")
 # bypass 模式下讀檔走 Bash：cat / head / tail / sed -n / less 後面的路徑也算 Read
 _BASH_READ_RE = re.compile(
-    r'(?:^|[;&|(]\s*)(?:cat|head|tail|less|sed\s+-n\s+\S+)\s+(?:-[a-zA-Z0-9]+\s+)*"?([^"\s;|&)]+)"?'
+    r'(?:^|[;&|(]\s*)(?:cat|head|tail|less|sed\s+-n\s+\S+|svn\s+cat|svn\s+diff|git\s+show|git\s+diff)'
+    r'\s+(?:-[a-zA-Z0-9=]+\s+)*(?:[0-9a-f]{7,40}:|HEAD[~^0-9]*:)?"?([^"\s;|&)]+)"?'
 )
 
 
@@ -92,29 +93,27 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
         part = cells[prefix_idx + 1] if prefix_idx + 1 < len(cells) else ""
         part = part.replace("（", "(").split("(")[0].strip()
         part_short = re.split(r"[／/]", part)[0].strip() or part
-        card: Optional[str] = None
+        cards: List[str] = []          # 一列可掛多張卡（如大地圖列＝導讀卡＋根因層卡），全注
         status = ""
         for i, c in enumerate(cells):
             if i == prefix_idx:
                 continue
-            if card is None:
-                for t in _BACKTICK_RE.findall(c):
-                    if _is_card_token(t):
-                        card = t.replace("…", "*")
-                        break
-                if card is None:
+            if not cards:
+                cards = [t.replace("…", "*") for t in _BACKTICK_RE.findall(c) if _is_card_token(t)]
+                if not cards:
                     m = _SAME_ROW_RE.search(c)
                     if m and 0 < int(m.group(1)) <= len(rows):
-                        card = rows[int(m.group(1)) - 1]["card"]
+                        cards = list(rows[int(m.group(1)) - 1]["cards"])
                     elif c.startswith("同上") and rows:
-                        card = rows[-1]["card"]
+                        cards = list(rows[-1]["cards"])
             if not status and c.startswith(_STATUS_HEADS) and len(c) <= 24:
                 status = c[:2] if c.startswith(("部分", "索引")) else c[0]
         rows.append({
             "prefixes": [p for p in prefixes if p],
             "part": part,
             "part_short": part_short,
-            "card": card,
+            "card": cards[0] if cards else None,
+            "cards": cards,
             "status": status,
             "line": line.strip(),
         })
@@ -131,7 +130,12 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
     for row in rows:
         for pre in row["prefixes"]:
             if "*" in pre:
-                score = len(pre) if fnmatch.fnmatch(p, "*/" + pre) else -1
+                if fnmatch.fnmatch(p, r + "/" + pre):
+                    score = 1000 + len(pre)      # glob 錨在專案根，跟一般前綴同權重
+                elif fnmatch.fnmatch(p, "*/" + pre):
+                    score = len(pre)
+                else:
+                    score = -1
             elif p.startswith(r + "/" + pre + "/") or p == r + "/" + pre:
                 score = 1000 + len(pre)
             elif ("/" + pre + "/") in p or p.endswith("/" + pre):
@@ -160,39 +164,68 @@ def resolve_card(root: Path, card: Optional[str]) -> Optional[Path]:
     return None
 
 
-def build_injection(row: Dict[str, Any], card_path: Optional[Path], hit_path: str, max_chars: int) -> str:
+DEFAULT_LOCATE_TEMPLATE = [
+    "這次改的是哪一塊",
+    "修根因還是症狀；根因在哪層",
+    "這個部位以前摔過什麼（卡片病灶段對得上哪條）",
+]
+
+
+def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
+                    locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None) -> str:
+    """card_paths：該列所有找得到的卡（可多張，全注）。locate_template：專案換定位三行問法（順序＝部位／根因層／前例）。
+    locate_extra：專案對這個部位的第四問（只提醒，不納入三行檢查）。"""
     part = row["part"] or row["part_short"]
+    t = list(locate_template or [])
+    t = (t + DEFAULT_LOCATE_TEMPLATE[len(t):])[:3]
     head = (
         f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
         f"改這個部位的檔之前先把下面的導讀卡讀完，並在回覆裡交出定位三行（三行都要，格式照抄）：\n"
-        f"定位｜部位：{row['part_short']}——這次改的是哪一塊\n"
-        f"定位｜根因層：修根因還是症狀；根因在哪層\n"
-        f"定位｜前例：這個部位以前摔過什麼（卡片病灶段對得上哪條）"
+        f"定位｜部位：{row['part_short']}——{t[0]}\n"
+        f"定位｜根因層：{t[1]}\n"
+        f"定位｜前例：{t[2]}"
+        + (f"\n定位｜加問：{locate_extra}" if locate_extra else "")
     )
-    if card_path is None:
-        why = f"卡片狀態「{row['status'] or '未標'}」" if row["card"] else "表上沒有卡"
+    if not card_paths:
+        why = f"卡片狀態「{row['status'] or '未標'}」" if row["cards"] else "表上沒有卡"
         return f"{head}\n---- 此部位目前沒有可注入的導讀卡（{why}）；表列原文：{row['line']} ----"
-    try:
-        body = card_path.read_text(encoding="utf-8", errors="replace")
-    except OSError as e:
-        return f"{head}\n---- 導讀卡讀取失敗：{card_path}（{e}）----"
-    if len(body) > max_chars:
-        body = body[:max_chars] + f"\n…（超過 {max_chars} 字截斷，整張見 {card_path}）"
     note = "" if row["status"] == "有" else f"（注意：表上標此卡狀態「{row['status']}」，不是完整導讀，注入前專案要求先補驗）"
-    return f"{head}\n---- 導讀卡{note}：{row['card']}（{card_path}）----\n{body}"
+    parts = [head]
+    for cp in card_paths:
+        try:
+            body = cp.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            parts.append(f"---- 導讀卡讀取失敗：{cp}（{e}）----")
+            continue
+        if len(body) > max_chars:
+            body = body[:max_chars] + f"\n…（超過 {max_chars} 字截斷，整張見 {cp}）"
+        parts.append(f"---- 導讀卡{note}：{cp.stem}（{cp}）----\n{body}")
+    return "\n".join(parts)
 
 
 # ─── 定位三行 ───────────────────────────────────────────────────────
 
-def locate_present(text: str, part_short: str) -> bool:
-    """text 裡有沒有完整的定位三行（部位／根因／前例），且部位那行提到這個部位。"""
-    found: Dict[str, str] = {}
+_TEMPLATE_PHRASES = ("這次改的是哪一塊", "修根因還是症狀；根因在哪層", "這個部位以前摔過什麼")
+
+
+def locate_present(text: str, part_short: str, template: Optional[List[str]] = None) -> bool:
+    """text 裡有沒有完整的定位三行（部位／根因／前例），且部位那行提到這個部位。
+
+    每遇到「部位」行就開一組，同一回覆交兩個部位各一組都算；照抄注入範本的佔位句（預設或專案自訂）不算交。
+    """
+    phrases = tuple(_TEMPLATE_PHRASES) + tuple(s for s in (template or []) if s)
+    groups: List[Dict[str, str]] = []
     for m in LOCATE_RE.finditer(text):
-        key = m.group(1)[:2]
-        found[key] = m.group(2)
-    if not {"部位", "根因", "前例"} <= set(found):
-        return False
-    return part_short.lower() in found["部位"].lower()
+        key, val = m.group(1)[:2], m.group(2).strip()
+        if any(t in val for t in phrases):
+            continue
+        if key == "部位" or not groups:
+            groups.append({})
+        groups[-1][key] = val
+    return any(
+        {"部位", "根因", "前例"} <= set(g) and part_short.lower() in g["部位"].lower()
+        for g in groups
+    )
 
 
 def assistant_text_after(transcript_path: str, byte_offset: int) -> str:
