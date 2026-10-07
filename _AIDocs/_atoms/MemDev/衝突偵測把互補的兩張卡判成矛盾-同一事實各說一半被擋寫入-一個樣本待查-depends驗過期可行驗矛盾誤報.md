@@ -6,6 +6,7 @@
 - Trigger: 衝突偵測, 誤判矛盾, 互補卡片, 導讀卡被擋, conflict, _pending_review, 衝突審核
 - Created-at: 2026-10-07
 - Source: session:3e106167#28e84fef 2026-10-07
+- Quote: 「"實驗設計被抓到三次洩題": 發現問題，要想辦法從根源解決；無法解決也要記下來LLM有這種問題、日後要持續追蹤解法啊。」
 
 ## 知識
 

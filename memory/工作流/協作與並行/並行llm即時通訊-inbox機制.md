@@ -6,7 +6,7 @@
 - Trigger: inbox機制, 並行LLM, 即時通訊, 跨session通訊, 檔案當信箱, 並行分工, grok協作, ai-inbox, 斷線喚回, monitor喚醒, compat hooks
 - Status: 通道運作中；面板 guardian 定調不依賴走 CLI；PostCompact 未驗
 - Created-at: 2026-08-24
-- Related: workflow-parallel-agents, handoff-綜觀品質與抗失真寫法, 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源, 跨session資訊失真機制與對策, 歸因早停-找到合理嫌疑機制就停止驗證, vscode-reload-對並行ai-session的影響, grok協作實戰認知-特質與監工分工手感, feedback-高速推進每步跨大-禁越執行越偏細節越耗時, 雙claude協作實戰認知-fable監工opus主力的分工手感
+- Related: workflow-parallel-agents, handoff-綜觀品質與抗失真寫法, 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源, 跨session資訊失真機制與對策, 歸因早停-找到合理嫌疑機制就停止驗證, vscode-reload-對並行ai-session的影響, grok協作實戰認知-特質與監工分工手感, feedback-高速推進每步跨大-禁越執行越偏細節越耗時, 雙claude協作實戰認知-fable監工opus主力的分工手感, feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整, 根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox
 - Source: commit:d823a10 2026-08-24（原對話已逾保留期）
 
 ## 知識

@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: 多方討論, 信箱, 跨 session 討論, 誰負責落地, 討論了啥, 沒看懂, 增量回報, 三方討論, tri-link, root-link
 - Created-at: 2026-10-07
-- Related: feedback-收尾報告使用者視角四要素-白話綜觀非片段細節
+- Related: feedback-收尾報告使用者視角四要素-白話綜觀非片段細節, feedback-整份文件與回應都要更白話-自創名詞與代號不裸用-術語首次出現附一句白話-陌生人五分鐘看懂, feedback-全貌未對齊前不要一直要使用者拍板-先弄懂他要的全貌-再讓他看懂我們構思的全貌, feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整
 
 ## 知識
 

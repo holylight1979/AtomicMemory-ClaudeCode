@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: wg_friction, detect_correction, 糾正偵測, user_correction_count, guard-friction, 成效指標, 糾正次數, 關鍵字天花板
 - Created-at: 2026-10-07
-- Related: 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem
+- Related: 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem, 成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同
 - Source: session:3e106167#158b8da6 2026-10-07
 - Quote: 「不是有該驗的要驗嗎?」
 

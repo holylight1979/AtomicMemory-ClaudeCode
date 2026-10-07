@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: task-notification, DeepPostMortem 誤觸, 糾正訊號誤報, wg_friction, user_correction_count, FailureDetect 誤觸, sub-agent 回報, harness 生成 prompt, is_harness_generated_prompt, sanitize_harness_noise, 假糾正
 - Created-at: 2026-09-21
-- Related: codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位, 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞
+- Related: codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位, 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞, wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報
 - Source: session:127e56a5#775963c8 2026-09-21
 - Quote: 「要請你針對最新版 Claude Code (含上網蒐集官方發布與非官方各種討論)，以及目前多人推薦、或設計理念非常特別的 skill，找出目前原子記憶系統(含子系統) 可以補強、或新增、或精簡 的，先出一份報告、若確實存在則推進計畫到執行；原則是 可以不用硬找或硬加，過於雞肋的也不用考慮，若有很hack的"演算法"或特定設計，可以多研究。」
 
