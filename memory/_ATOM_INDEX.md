@@ -259,3 +259,4 @@
 | tslg的rule-check-roslyn檢查器可攜實測-net8單檔06秒-json含行號-分區與selftest對齊是核心耦合 | memory/dotnet/tslg的rule-check-roslyn檢查器可攜實測-net8單檔06秒-json含行號-分區與selftest對齊是核心耦合.md | rule_check, Roslyn, 異味檢查, C# lint, 寫碼守門, smell_gate, 語法樹規則, bad.cs, good.cs, AnonymousFunction, 引擎共用, TSLG CodeReview | global |
 | 根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox | memory/工作流/協作與並行/根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox.md | root-link, tri-link, 三方討論, 根層專案層溝通, 跨session對齊, 跟根層談, 信箱摩槽, 兩個session討論同題 | global |
 | feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌 | memory/Failures/工作流/feedback-多方信箱討論收斂時要給全場綜觀與我負責落地什麼-增量回報累積不成全貌.md | 多方討論, 信箱, 跨 session 討論, 誰負責落地, 討論了啥, 沒看懂, 增量回報, 三方討論, tri-link, root-link | global |
+| feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決 | memory/personal/holylight/feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決.md | 加派 codex, 等價認知, 第二腦, 獨立審查, 分歧裁決, 討論回信, 三方討論, codex exec, 反面意見 | personal:holylight |

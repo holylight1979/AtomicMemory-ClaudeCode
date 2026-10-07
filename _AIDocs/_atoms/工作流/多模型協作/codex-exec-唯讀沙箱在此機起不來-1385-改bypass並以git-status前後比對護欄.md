@@ -19,6 +19,7 @@
 - [臨] 實測 Codex CLI 0.154.0：`codex exec --skip-git-repo-check -s read-only "Reply CODEX_OK"` 直接回 CODEX_OK，1385 不再出現；升級後先試 read-only，bypass 只留給舊版。
 - [臨] 另一条保持 read-only 的路：純審查任務不必 bypass。把 prompt + `cat -n 完整檔` + `svn diff`/`git diff` + plumbing 片段全部組成一份 md，`codex exec --skip-git-repo-check --sandbox read-only - < prompt.md`，並在 prompt 明寫「你的 sandbox 無法 spawn 程序，不要跑指令」。Codex 當純推理器照样給帶行號的具體 finding（650 行素材約 3 萬 token），靈零寫檔風險。SVN 工作副本必加 `--skip-git-repo-check`，否則直接印 `Not inside a trusted directory` 退出。
 - [臨] 對抗審查 prompt 有效結構：①改了什麼 ②逐消費端列舊行為（從 diff 的 - 行整理）③列 6~8 個專攻面（幀一致性、狀態機邊界、行為漂移、平台差異、熱重載、過度設計）④要求輸出「檔:行 / 輸入序列→錯誤結果 / bug|drift|nit / 一行修法 / ship或fix-first」。它會把有意的行為統一也列成 drift，要自己判接受並寫進收尾報告。實測一輪抓到 2 個確定 bug + 3 個值得補的洞。
+- [臨] 只要它「審」時免 bypass：材料全內嵌經 stdin（`- < prompt.md`，60KB OK）並明寫禁用工具，回「未讀任何檔」先查 log 1385。
 
 ## 行動
 

@@ -4434,6 +4434,22 @@
         "root-link"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決",
+      "path": "memory/personal/holylight/feedback-session內思考與討論務必加派codex等價認知-同材料獨立答再列分歧裁決.md",
+      "triggers": [
+        "加派 codex",
+        "等價認知",
+        "第二腦",
+        "獨立審查",
+        "分歧裁決",
+        "討論回信",
+        "三方討論",
+        "codex exec",
+        "反面意見"
+      ],
+      "scope": "personal:holylight"
     }
   ]
 }
