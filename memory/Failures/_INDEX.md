@@ -11,5 +11,5 @@
 | 思考與決策 | 7 | `memory/Failures/思考與決策/_INDEX.md` |
 | 文字與格式 | 2 | `memory/Failures/文字與格式/_INDEX.md` |
 | 版控 | 1 | `memory/Failures/版控/feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff.md` |
-| 行為契約 | 15 | `memory/Failures/行為契約/_INDEX.md` |
-| 驗證與實證 | 8 | `memory/Failures/驗證與實證/_INDEX.md` |
+| 行為契約 | 16 | `memory/Failures/行為契約/_INDEX.md` |
+| 驗證與實證 | 9 | `memory/Failures/驗證與實證/_INDEX.md` |

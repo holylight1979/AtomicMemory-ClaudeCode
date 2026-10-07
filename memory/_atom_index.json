@@ -4720,6 +4720,71 @@
         "非 bug 缺陷"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-回放實驗洩題三型-出題者把答案寫進回覆-材料指到真工作副本-提示詞催被測行為-前兩型用replay-guard擋-第三型程式擋不了持續追蹤",
+      "path": "memory/Failures/驗證與實證/feedback-回放實驗洩題三型-出題者把答案寫進回覆-材料指到真工作副本-提示詞催被測行為-前兩型用replay-guard擋-第三型程式擋不了持續追蹤.md",
+      "triggers": [
+        "洩題",
+        "回放實驗",
+        "對照組",
+        "封存答案",
+        "replay-guard",
+        "實驗設計",
+        "汙染",
+        "工作副本",
+        "合成案例",
+        "提示詞偏誤",
+        "Codex 記憶"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整",
+      "path": "memory/Failures/行為契約/feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整.md",
+      "triggers": [
+        "總控端",
+        "主持",
+        "派工",
+        "問進度",
+        "分工寫文件",
+        "多 session",
+        "三方討論",
+        "信箱",
+        "待命",
+        "無待答項",
+        "彙整"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同",
+      "path": "memory/驗證與實證/成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同.md",
+      "triggers": [
+        "成效指標",
+        "修了又修",
+        "死胡同指標",
+        "重複修",
+        "fix 提交",
+        "git log 指標",
+        "糾正次數替代",
+        "守門有沒有用"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "多session信箱討論時monitor持續重掛-到期就重掛-直到使用者說可以關或要開新session接續",
+      "path": "memory/personal/holylight/多session信箱討論時monitor持續重掛-到期就重掛-直到使用者說可以關或要開新session接續.md",
+      "triggers": [
+        "Monitor",
+        "信箱",
+        "重掛",
+        "到期",
+        "tri-link",
+        "多 session",
+        "盯信"
+      ],
+      "scope": "personal:holylight"
     }
   ]
 }
