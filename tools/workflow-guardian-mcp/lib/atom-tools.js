@@ -190,7 +190,7 @@ async function toolAtomWrite(id, args) {
       // 去重只比「寫入者能 append 到」的層：global + ~/.claude 本地 atom + 當前專案
       // 自己的 shared／role／personal。不限層會撞到別的專案、別人 personal 的 atom。
       const gateLayers = dedupLayersFor(isOrg ? "org" : scope, baseDir, { role, user, personalGlobal: !!loc.personal_global });
-      const gateResult = await execWriteGate(knowledge.join("\n"), confidence, gateLayers);
+      const gateResult = await execWriteGate(knowledge.join("\n"), confidence, gateLayers, title);   // title：指標卡去重門檻提高
       if (gateResult.action === "skip") {
         return sendToolResult(id, `Write-gate rejected: ${gateResult.reason}`, true);
       }

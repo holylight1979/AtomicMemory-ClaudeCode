@@ -181,6 +181,19 @@ def vector_search(query: str, top_k: int = 10, min_score: float = 0.40) -> List[
 
 # ─── LLM Conflict Classification ─────────────────────────────────────────────
 
+_LABELS = ("CONTRADICT", "EXTEND", "AGREE", "UNRELATED")
+
+
+def parse_label(text: str) -> str:
+    """LLM 回覆 → 四類之一。整句就是一個標籤時直接用；否則取回覆裡**最早出現**的那個標籤
+    （舊版固定先找 CONTRADICT，模型只要提到這個詞就被當矛盾——互補卡誤判的來源之一）。"""
+    t = (text or "").strip().upper()
+    if t in _LABELS:
+        return t
+    hits = [(t.find(l), l) for l in _LABELS if l in t]
+    return min(hits)[1] if hits else "UNRELATED"
+
+
 def ollama_classify(fact_a: str, atom_a: str, conf_a: str,
                     fact_b: str, atom_b: str, conf_b: str) -> str:
     """Ask LLM to classify relationship. Returns AGREE/CONTRADICT/EXTEND/UNRELATED."""
@@ -188,6 +201,12 @@ def ollama_classify(fact_a: str, atom_a: str, conf_a: str,
         f"Classify the relationship between two knowledge facts from a memory system.\n\n"
         f"Fact A (from {atom_a}, confidence {conf_a}):\n{fact_a}\n\n"
         f"Fact B (from {atom_b}, confidence {conf_b}):\n{fact_b}\n\n"
+        f"Definitions:\n"
+        f"- CONTRADICT: both cannot be true at the same time about the same thing.\n"
+        f"- EXTEND: same subject, but one adds detail, covers a different part, scope, layer or case, "
+        f"or is an index/pointer to the other. Two facts each describing half of one mechanism are EXTEND, not CONTRADICT.\n"
+        f"- AGREE: they state the same thing.\n"
+        f"- UNRELATED: different subjects.\n"
         f"Reply with exactly one word: AGREE, CONTRADICT, EXTEND, or UNRELATED.\n"
         f"/no_think"
     )
@@ -197,11 +216,8 @@ def ollama_classify(fact_a: str, atom_a: str, conf_a: str,
             [{"role": "user", "content": prompt}],
             system="You classify memory relationships. Reply with exactly one word.",
             timeout=30,
-        ).strip().upper()
-        for label in ("CONTRADICT", "EXTEND", "AGREE", "UNRELATED"):
-            if label in text:
-                return label
-        return "UNRELATED"
+        )
+        return parse_label(text)
     except Exception as e:
         print(f"  [LLM error] {e}", file=sys.stderr)
         return "ERROR"
@@ -512,6 +528,24 @@ def _incoming_evidence(content: str) -> Optional[str]:
 FAST_REFUTE_NOTE = "新側 Evidence=實證、舊側為 [固]/[觀] — 高優先裁決（不自動降級，裁決權在人）"
 
 
+def match_full_text(match: Dict[str, Any], cap: int = 1500) -> str:
+    """舊卡給模型看的文字：有檔就讀整段「## 知識」（新卡給 1500 字全文，舊卡只給命中的那一塊
+    會讓「各說一半」被讀成「說法不同」）；讀不到就退回命中片段。"""
+    fp = match.get("file_path") or ""
+    try:
+        if fp and os.path.isfile(fp):
+            body = open(fp, encoding="utf-8", errors="replace").read()
+            i = body.find("## 知識")
+            if i >= 0:
+                j = body.find("\n## ", i + 5)
+                sec = body[i:j if j > 0 else None].strip()
+                if sec:
+                    return sec[:cap]
+    except OSError:
+        pass
+    return (match.get("text", "") or "")[:cap]
+
+
 def _classify_match(content: str, match: Dict[str, Any]) -> str:
     """Wrap ollama_classify for write-time/pull-time pairs.
 
@@ -521,7 +555,7 @@ def _classify_match(content: str, match: Dict[str, Any]) -> str:
         fact_a=content[:1500],
         atom_a="<incoming>",
         conf_a="[臨]",
-        fact_b=match.get("text", "")[:1500],
+        fact_b=match_full_text(match),
         atom_b=match.get("atom_name", ""),
         conf_b=match.get("confidence", ""),
     )

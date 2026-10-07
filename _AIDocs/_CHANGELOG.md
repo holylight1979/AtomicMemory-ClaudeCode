@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-10-08 R6：衝突偵測與去重閘對「互補卡／指標卡」的誤判修法
+- **緣由**：三方守門討論三個樣本——TSLG 戰鬥卡被判與大地圖卡 CONTRADICT（兩張各說同一事實一半）、網路卡對 login-chain 誤判 CONTRADICT、設計表導讀卡（指標型）被去重閘判與管線內容卡相似 0.816。探查：偵測器提示詞只有四個詞沒定義、解析固定先找 CONTRADICT（回覆裡提到就算）、舊卡只給命中片段而新卡給 1500 字全文；去重閘純向量、每塊前綴標題與層，分不出索引卡與本體卡。
+- **修**：`tools/memory-conflict-detector.py` 提示詞加四類定義（「各說一半＝EXTEND 不是 CONTRADICT」「索引／指標＝EXTEND」）、`parse_label` 取回覆裡最早出現的標籤、`match_full_text` 舊卡有檔就給整段「## 知識」；`tools/memory-write-gate.py` 加 `is_pointer_title`／`dedup_threshold_for`：標題含 導讀／hub索引／指標卡／索引卡／知識地圖（config `write_gate.pointer_markers`）→ 門檻用 `dedup_pointer_score`（預設 0.95，只擋真重複）；MCP `atom-tools.js`→`funnel.js` stdin JSON 多傳 `title`。
+- **驗證**：`lib/verify/verify_conflict_complement.py` 3 案、`lib/verify/verify_write_gate_pointer.py` 3 案（0.816 命中：內容卡 similar、指標卡放行）；既有衝突／去重守門全綠；`node --check` 兩檔。LLM 端的提示詞效果（gemma4 是否真把互補判 EXTEND）未實跑，待下一張導讀卡寫入時看。 | `tools/memory-conflict-detector.py`, `tools/memory-write-gate.py`, `tools/workflow-guardian-mcp/lib/funnel.js`, `tools/workflow-guardian-mcp/lib/atom-tools.js`, `lib/verify/verify_conflict_complement.py`, `lib/verify/verify_write_gate_pointer.py`, `_AIDocs/_CHANGELOG.md`
+
+---
+
 ## 2026-10-08 OverviewHub：第一次改某部位的檔之前整張注入該部位導讀卡，改檔前要交定位三行（dry-run 上線）
 - **緣由**：三方守門討論的結論：守門機制全在症狀層，核心要靠「動手前先看完」；回放證明乾淨條件下模型自己會看，失敗來自 live session 條件（每輪要交改動、前文縮視野）。兩個專案各寫了部位導讀卡與「路徑前綴→導讀卡」表，根層接閘。
 - **做法**：專案在 `<專案根>/.claude/overview-map.md` 放表（專案寫、根層只讀，兩種表格寫法都吃、「同上／同第 N 列」沿用）。同 session 第一次碰到某部位的檔（Read、Bash cat/sed 讀、提示詞提到絕對路徑、或直接 Edit）→ 整張導讀卡經 additionalContext 注入；Edit/Write 前掃 transcript 看回覆有沒有「定位｜部位／根因層／前例」三行，沒有就警告（`dry_run=true`）或 deny。每事件落一行 `workflow/_overview-hub.log`（注入後讀幾個檔、跨幾個目錄、有沒有定位）當量尺。專案可用 `.claude/overview-hub.json` 覆蓋 `enabled`／`dry_run`／`max_card_chars`。

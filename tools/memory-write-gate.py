@@ -246,15 +246,34 @@ def compute_quality_score(
 # ─── Dedup Check ─────────────────────────────────────────────────────────────
 
 
+_POINTER_MARKERS_DEFAULT = ["導讀", "hub索引", "指標卡", "索引卡", "知識地圖"]
+
+
+def is_pointer_title(title: str, config: Dict[str, Any]) -> bool:
+    """指標卡（導讀／hub 索引／知識地圖）：只列位置與必問、不複述本體，跟內容卡的詞彙天生重疊。"""
+    markers = config.get("pointer_markers") or _POINTER_MARKERS_DEFAULT
+    t = (title or "").lower()
+    return any(m.lower() in t for m in markers)
+
+
+def dedup_threshold_for(config: Dict[str, Any], title: str = "") -> float:
+    """一般卡用 dedup_score（0.80）；指標卡用 dedup_pointer_score（0.95，只擋真重複）。"""
+    if is_pointer_title(title, config):
+        return float(config.get("dedup_pointer_score", 0.95))
+    return float(config.get("dedup_score", 0.80))
+
+
 def check_dedup(
     content: str,
     config: Dict[str, Any],
     layers: Optional[List[str]] = None,
+    title: str = "",
 ) -> Optional[Dict[str, Any]]:
     """Check for duplicate knowledge via Vector Service. Returns match info or None.
 
     layers：只跟這幾層比（global + 當前專案自己的層）。不傳 = 全庫比對，會撞到
     別的專案／別人 personal 層的 atom（寫入者根本不能 append 到那裡）。
+    title：指標卡（見 is_pointer_title）門檻提高，避免導讀卡撞內容卡。
     """
     try:
         port = 3849
@@ -267,7 +286,7 @@ def check_dedup(
     except Exception:
         pass
 
-    dedup_threshold = config.get("dedup_score", 0.80)
+    dedup_threshold = dedup_threshold_for(config, title)
 
     try:
         query: Dict[str, Any] = {"q": content, "top_k": 3, "min_score": dedup_threshold}
@@ -357,10 +376,11 @@ def evaluate(
     explicit_user: bool = False,
     config: Optional[Dict[str, Any]] = None,
     layers: Optional[List[str]] = None,
+    title: str = "",
 ) -> Dict[str, Any]:
     """Main Write Gate evaluation. Returns decision dict.
 
-    layers：去重只比這幾層（見 check_dedup）。
+    layers：去重只比這幾層（見 check_dedup）。title：指標卡去重門檻提高。
     """
     if config is None:
         config = load_config()
@@ -412,7 +432,7 @@ def evaluate(
 
     # Dedup check（先於 pitfall 捷徑：pitfall 只豁免品質評分，不豁免去重——
     # 重複的坑知識 >0.95 仍 skip、相似仍建議 update）
-    dedup = check_dedup(content, config, layers)
+    dedup = check_dedup(content, config, layers, title)
     if dedup:
         if dedup["verdict"] == "duplicate":
             write_audit_log("skip", content, 0, reason="duplicate", dedup_match=dedup["atom_name"])
@@ -529,6 +549,7 @@ def main():
                     explicit_user=item.get("explicit_user", False),
                     config=config,
                     layers=item.get("layers") or None,
+                    title=item.get("title", "") or "",
                 )
                 print(json.dumps(result, ensure_ascii=False, indent=2))
             except json.JSONDecodeError:
