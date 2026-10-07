@@ -180,7 +180,8 @@ def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, 
     t = (t + DEFAULT_LOCATE_TEMPLATE[len(t):])[:3]
     head = (
         f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-        f"改這個部位的檔之前先把下面的導讀卡讀完，並在回覆裡交出定位三行（三行都要，格式照抄）：\n"
+        f"改這個部位的檔之前先把下面的導讀卡讀完，並在**回覆文字**裡交出定位三行（寫在給使用者看的文字，"
+        f"不是思考、不是工具輸入；三行都要，格式照抄）：\n"
         f"定位｜部位：{row['part_short']}——{t[0]}\n"
         f"定位｜根因層：{t[1]}\n"
         f"定位｜前例：{t[2]}"

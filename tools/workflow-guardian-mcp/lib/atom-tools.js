@@ -215,6 +215,12 @@ async function toolAtomWrite(id, args) {
       if (Array.isArray(cr.warnings) && cr.warnings.length) {
         gateWarnings = gateWarnings.concat(cr.warnings.map(w => `[conflict-detector] ${w}`));
       }
+      // 有鄰居但沒擋（AGREE／EXTEND／UNRELATED）也要浮出判定與分數——可觀測性鐵律：
+      // 寫入者才分得出「判了 EXTEND 放行」和「根本沒命中鄰居」（R6 實測時分不出）。
+      if (Array.isArray(cr.matches) && cr.matches.length && cr.verdict !== "contradict") {
+        const m0 = cr.matches[0] || {};
+        gateWarnings.push(`[conflict-detector] ${cr.verdict || "ok"}：${m0.classification || "?"} vs "${m0.atom_name || "?"}" sim=${(m0.similarity || 0).toFixed(3)}`);
+      }
       if (cr.verdict === "contradict") {
         const pendingDir = path.join(baseDir, "shared", "_pending_review");
         fs.mkdirSync(pendingDir, { recursive: true });
