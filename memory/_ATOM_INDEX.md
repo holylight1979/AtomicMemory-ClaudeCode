@@ -279,3 +279,4 @@
 | feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整 | memory/Failures/行為契約/feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整.md | 總控端, 主持, 派工, 問進度, 分工寫文件, 多 session, 三方討論, 信箱, 待命, 無待答項, 彙整 | global |
 | 成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同 | memory/驗證與實證/成效指標改用提交紀錄算修了又修-同一程式檔14天內被兩筆以上fix改到-不靠關鍵字-根層自己60天40檔兩條死胡同.md | 成效指標, 修了又修, 死胡同指標, 重複修, fix 提交, git log 指標, 糾正次數替代, 守門有沒有用 | global |
 | 多session信箱討論時monitor持續重掛-到期就重掛-直到使用者說可以關或要開新session接續 | memory/personal/holylight/多session信箱討論時monitor持續重掛-到期就重掛-直到使用者說可以關或要開新session接續.md | Monitor, 信箱, 重掛, 到期, tri-link, 多 session, 盯信 | personal:holylight |
+| feedback-找到解法要改碼驗證並回報且進專案文件-不是只寫在信件或記憶卡-解法就是交付物 | memory/personal/holylight/feedback-找到解法要改碼驗證並回報且進專案文件-不是只寫在信件或記憶卡-解法就是交付物.md | 解法進文件, 找到解法, 只寫在信件, 修法回報, _AIDocs 進文件, 解決方法要回報, 討論完沒落地, 趣機掃視, 沒事幹 | personal:holylight |

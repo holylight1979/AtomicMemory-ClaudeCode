@@ -4785,6 +4785,22 @@
         "盯信"
       ],
       "scope": "personal:holylight"
+    },
+    {
+      "name": "feedback-找到解法要改碼驗證並回報且進專案文件-不是只寫在信件或記憶卡-解法就是交付物",
+      "path": "memory/personal/holylight/feedback-找到解法要改碼驗證並回報且進專案文件-不是只寫在信件或記憶卡-解法就是交付物.md",
+      "triggers": [
+        "解法進文件",
+        "找到解法",
+        "只寫在信件",
+        "修法回報",
+        "_AIDocs 進文件",
+        "解決方法要回報",
+        "討論完沒落地",
+        "趣機掃視",
+        "沒事幹"
+      ],
+      "scope": "personal:holylight"
     }
   ]
 }
