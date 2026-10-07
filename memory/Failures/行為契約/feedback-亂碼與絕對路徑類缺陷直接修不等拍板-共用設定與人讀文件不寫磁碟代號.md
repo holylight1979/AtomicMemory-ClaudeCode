@@ -2,10 +2,11 @@
 
 - Scope: global
 - Author: holylight
-- Source: session 2026-10-06 ~/.claude README 重寫
+- Source: session:f1e8b9d8 2026-10-06
 - Confidence: [臨]
 - Trigger: 亂碼, mojibake, 等拍板, 待拍板, 絕對路徑, 磁碟代號, default_root, 共用設定, 人讀文件路徑, 多機通用, 收尾單一決策點
 - Created-at: 2026-10-06
+- Quote: 「亂碼的部分只要會影響運作、或者人讀導向會影響閱讀，那就當然要修正，這種不應該還要等使用者拍板才對 (也請記下)。」
 
 ## 知識
 
