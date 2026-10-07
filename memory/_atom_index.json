@@ -143,7 +143,9 @@
         "上GIT",
         "上傳GIT",
         "commit",
-        "push"
+        "push",
+        "自動上版控",
+        "記憶相關不用問"
       ],
       "scope": "global"
     },

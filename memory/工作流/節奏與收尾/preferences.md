@@ -2,11 +2,11 @@
 
 - Scope: global
 - Author: holylight
-- Confidence: [固]
-- Trigger: 偏好, 執P, 執驗上P, 上GIT, 上傳GIT, commit, push
-- Created-at: 2026-09-04
-- Related: feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff, feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, workflow-rules, a執p-自執驗上p-自動完工協議, feedback-workflow-discipline, feedback-rigor-standards, 專案等級-mcpskillhookslog-不放全域根層
 - Source: commit:7deb043 2026-09-04（原對話已逾保留期）
+- Confidence: [固]
+- Trigger: 偏好, 執P, 執驗上P, 上GIT, 上傳GIT, commit, push, 自動上版控, 記憶相關不用問
+- Created-at: 2026-09-04
+- Quote: 「你寫 preferences.md 內，看起來像是 針對 "在~/.claude 內的改動".. 你是不是搞錯了什麼? 原子記憶系統 記憶相關的，不論是在專案層、根層，都應該是自動上傳的範疇。 這部分如果我有漏掉什麼分類、細節沒設定到，也查不到過去相關規則或記憶，就請你直接發問。」
 
 ## 知識
 
@@ -14,9 +14,11 @@
 - [固] 「執驗上P」/「執P」: 縮寫指令，等同「由 AI 考量拆分 session 接續處理，單一階段執行完畢，且驗證、單元測試、整體測試都無誤後，上傳 GIT 或者上傳 SVN（如有可上傳的 repo），再給使用者下一階段接續用的 prompt；此規則延伸到本項目全數完成」
 - [固] 專案知識庫深度運用: 處理專案程式邏輯、架構、結構、踩坑經驗等，都要系統性記錄到專案 _AIDocs 內（不重複前提下）；同時確保寫入向量記憶庫供後續語意檢索。目標：專案知識被智慧儲存→精準注入→高效協助
 - [固] 框架觀: 薄框架，開發者要能理解底層運作
+- [臨] 「上GIT」口令的例外（2026-10-07 使用者定）：**原子記憶系統相關的不用問，直上版控**。判準是「改的是什麼」不是 session 在哪：①記憶內容（根層／公司層／專案層的卡片與索引）由背景 vcs-sync 自動 commit＋push，AI 不碰也不問；②原子記憶系統自己的程式與文件（~/.claude repo 的 hooks／lib／tools／skills／TECH／README／_AIDocs）驗證過（測試綠、文件同步）就由 AI 直接 commit＋push，不等口令、不反問——commit_order 閥對「session 在 ~/.claude 內」放行（config `guard.commit_order.exempt_cwd_under_claude_dir`）；③其他專案的程式碼與文件是團隊共有物，仍等使用者看 diff 下口令。緣由：常設契約「口令前不碰 git」與使用者對記憶系統「改完驗過就上」的期待打架，AI 每回合都回頭要口令。
 
 ## 行動
 
 - 收到「上GIT」：git add <本批檔案> → commit → push 一氣做完，不停在 commit 等 push
-- 沒有口令：改完只報告改了哪些檔＋驗證結果，不動 git
+- 沒有口令且改的是其他專案的程式碼：改完只報告改了哪些檔＋驗證結果，不動 git
+- 改的是原子記憶系統自己的程式／文件：驗證過就直接 commit＋push，不問；記憶內容交給 vcs-sync，不自己 commit
 - 處理專案程式碼後，將邏輯/架構/結構/經驗寫入 _AIDocs（去重）+ 向量記憶庫，確保知識可被檢索與注入
