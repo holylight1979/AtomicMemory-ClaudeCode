@@ -926,6 +926,32 @@ def check_supersedes(
     return None
 
 
+# 規則型 atom（行為契約／工作流範疇，不含 Failures 失敗家族）的知識行是給人與模型讀的契約句，
+# 不准埋日期戳（版本脈絡）與 config 鍵名／程式識別字（技術臭味）；緣由與實作細節歸 _CHANGELOG／TECH。
+_RULE_ATOM_DIR_MARKS = ("/memory/行為契約/", "/memory/工作流/")
+_RULE_DATE_RE = re.compile(r"(?<!\d)20\d\d-\d\d-\d\d(?!\d)")
+_RULE_DOTTED_KEY_RE = re.compile(r"(?<![\w./\\-])[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]+){2,}(?![\w/\\])")
+
+
+def rule_atom_style_violation(file_path: Path, knowledge: Optional[List[str]]) -> Optional[str]:
+    """規則型 atom 的知識行含日期戳或 dotted config 鍵名 → 回錯誤字串；否則 None。
+    判定只看落點路徑（行為契約／工作流，排除 Failures）與本次傳入的 knowledge 行；skip_gate 不能繞過。"""
+    p = str(file_path).replace("\\", "/")
+    if "/Failures/" in p or not any(m in p for m in _RULE_ATOM_DIR_MARKS):
+        return None
+    for line in knowledge or []:
+        if not isinstance(line, str):
+            continue
+        if _RULE_DATE_RE.search(line):
+            return ("rule-atom style: 規則型 atom（行為契約／工作流）的知識行不得帶日期戳——"
+                    "寫現況句，緣由與時間點歸 _AIDocs/_CHANGELOG.md；違規行：" + line[:80])
+        m = _RULE_DOTTED_KEY_RE.search(line)
+        if m:
+            return ("rule-atom style: 規則型 atom 的知識行不得埋 config 鍵名／程式識別字（"
+                    f"{m.group(0)}）——用白話描述行為，實作細節歸 TECH.md；違規行：" + line[:80])
+    return None
+
+
 def write_atom(
     *,
     title: str,
@@ -1155,6 +1181,9 @@ def write_atom(
     err = validate_atom_content(content)
     if err:
         return WriteResult(ok=False, audit_id=audit_id, error=f"Validation failed: {err}")
+    err = rule_atom_style_violation(file_path, knowledge)
+    if err:
+        return WriteResult(ok=False, audit_id=audit_id, error=err)
 
     # ── Dry-run short-circuit ──
     if dry_run:

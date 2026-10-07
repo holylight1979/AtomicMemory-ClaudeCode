@@ -6,7 +6,7 @@
 ---
 
 ## 2026-10-07 記憶系統 repo 內改動不等「上GIT」口令：閘門放行＋USER 例外條
-- **緣由**：使用者問「為什麼一直要我給上GIT」——常設契約「口令前不碰 git」與他對記憶系統「改完驗過就直接上」的期待打架，commit_order 閘只認本回合原話，AI 每回合回頭要口令。使用者定：原子記憶系統相關的不用問直上版控——判準是「改的是什麼」不是 session 在哪：①記憶內容三層由 vcs-sync 自動；②系統自己的程式與文件驗證後由 AI 直接 commit＋push；③其他專案程式碼仍等口令。規則本體提到憲法層 `rules/core.md`「版控」段並登記 `always-load-contracts.json`（SessionStart／run_verify 守缺句）；USER 三檔與 atom `preferences` 只留白話一句指向它（第一版寫成「cwd 在 ~/.claude」且帶路徑清單與日期，使用者指正：判準錯、技術臭味、日期不進 atom）。
+- **緣由**：使用者問「為什麼一直要我給上GIT」——常設契約「口令前不碰 git」與他對記憶系統「改完驗過就直接上」的期待打架，commit_order 閘只認本回合原話，AI 每回合回頭要口令。使用者定：原子記憶系統相關的不用問直上版控——判準是「改的是什麼」不是 session 在哪：①記憶內容三層由 vcs-sync 自動；②系統自己的程式與文件驗證後由 AI 直接 commit＋push；③其他專案程式碼仍等口令。規則本體提到憲法層 `rules/core.md`「版控」段並登記 `always-load-contracts.json`（SessionStart／run_verify 守缺句）；根治再加一道程式閘 `lib/atom_io.rule_atom_style_violation`：行為契約／工作流範疇（不含 Failures）的 atom 知識行含日期戳或 config 鍵名一律拒寫、skip_gate 不能繞（`lib/verify/verify_rule_atom_style_gate.py` 6 案，既有規則型 atom 全數通過）；USER 三檔與 atom `preferences` 只留白話一句指向它（第一版寫成「cwd 在 ~/.claude」且帶路徑清單與日期，使用者指正：判準錯、技術臭味、日期不進 atom）。
 - **修**：`guard.commit_order.exempt_cwd_under_claude_dir`（預設 true）：session cwd 在 ~/.claude 內 → `check_git_commit_order` 放行；其他專案照擋。USER-holylight.md／USER.md 縮寫指令加「例外——記憶系統本身不用問」一條；atom `preferences` append 同一規則；TECH §12 設定列；verify_git_commit_order_gate 加三斷言案。 | `hooks/handlers/pre_tool_use.py`, `hooks/verify/verify_git_commit_order_gate.py`, `workflow/config.json`, `USER-holylight.md`, `USER.md`, `TECH.md`, `_AIDocs/_CHANGELOG.md`
 
 ---
