@@ -4226,6 +4226,25 @@
         "原對話已逾保留期"
       ],
       "scope": "global"
+    },
+    {
+      "name": "cross-encoder-rerank實測不進注入鏈-bge-base只抬r1三點r3反降每句加1秒-13題池外rerank碰不到-讀取端可選",
+      "path": "_AIDocs/_atoms/MemDev/cross-encoder-rerank實測不進注入鏈-bge-base只抬r1三點r3反降每句加1秒-13題池外rerank碰不到-讀取端可選.md",
+      "triggers": [
+        "rerank",
+        "reranker",
+        "cross-encoder",
+        "sentence-transformers",
+        "fastembed",
+        "bge-reranker",
+        "jina-reranker",
+        "重排",
+        "檢索精度",
+        "R@1",
+        "memory-eval 對照",
+        "要不要加 rerank"
+      ],
+      "scope": "global"
     }
   ]
 }
