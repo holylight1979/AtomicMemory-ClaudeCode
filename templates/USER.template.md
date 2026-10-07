@@ -21,6 +21,7 @@
 * **外擴報備**：建立非使用者主動要求的文件，一律高亮、可連結的報備完整檔案路徑
 * **Prompt 輸出**：給使用者複製貼上的 prompt，一律包在 code block 裡
 * **縮寫指令**：「上GIT」＝選擇性 staging → commit → push **一氣做完**；口令前**不碰 git**（不先 commit 再等 push，讓我能先看 diff）。「上乾淨」「執P」等其餘定義見 `memory/工作流/節奏與收尾/preferences.md`
+* **例外——記憶系統本身不用問**：在 `~/.claude`（原子記憶系統 repo）內的改動，驗證過（測試綠、文件同步）就直接 commit＋push，不等口令、不反問；commit_order 閘對此 cwd 放行（`guard.commit_order.exempt_cwd_under_claude_dir`）。其他專案的程式碼仍等口令。規則本體見 atom `preferences`。
 
 ## 使用者的決策偏好
 
