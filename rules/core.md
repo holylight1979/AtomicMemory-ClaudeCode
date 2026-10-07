@@ -26,6 +26,10 @@
 - **Scope**（問「遷就專案還是遷就人？」）：專案的規則／決策 → `shared`；只關於這個人 → `personal`；本人跨專案偏好 → `personal, cross_project=true`；全公司所有專案都該知道 → `org`。
 - create 必給 `domain`（Lv1 閉合清單 `memory/_meta/taxonomy.json`），不確定落點先 `dry_run`；分不出範疇的知識不寫。
 
+## 版控
+- **原子記憶系統相關的不用問、直上版控**（判準是「改的是什麼」）：記憶卡片與索引（三層）由系統背景自動上傳，AI 不碰也不問；原子記憶系統本身的程式與文件驗證過（測試綠、文件同步）就直接 commit＋push，不等口令、不反問。
+- **其他專案的程式碼與文件等口令**（團隊共有物，上傳等於替別人做決定）：改完只報告改了什麼、驗了什麼，等使用者看 diff 下「上GIT」，再 commit → push 一氣做完。
+
 ## 對話
 - 「用識流…」→ /consciousness-stream；/resume → /continue。
 - 獨立子任務可新開對話，拆分前確保知識已存入；Context 壓縮即將發生 → 提醒開新 session。
