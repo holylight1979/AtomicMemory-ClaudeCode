@@ -54,6 +54,13 @@ def test_legacy_created_lines_and_changelog_rows_dropped():
     assert strip("| 2026-03-13 | 初始建立 | manual |") is None
 
 
+def test_headings_and_date_fact_table_rows_kept():
+    # Codex 審真實 commit 020be33 抓到：標題會被改、日期開頭的事實表格列會被整行刪
+    assert strip("## 2026-05-14 升版紀錄") == "## 2026-05-14 升版紀錄"
+    assert strip("| 2024-11-12 | .NET 6 EOL |") == "| 2024-11-12 | .NET 6 EOL |"
+    assert strip("| 2028-11-14 | 7.6 支援到 |") == "| 2028-11-14 | 7.6 支援到 |"
+
+
 def test_indexed_atoms_have_no_narrative_dates():
     """活體守門：索引內 atom 知識行零敘事型日期。失敗就跑 python tools/atom-date-lint.py 看是哪幾行，--fix 清掉。"""
     dirty = [(p, ch) for p in _mod.indexed_atoms() for ch, _ in [_mod.process(p)] if ch]

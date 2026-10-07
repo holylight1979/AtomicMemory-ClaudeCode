@@ -99,11 +99,13 @@ def _join(a: str, b: str) -> str:
 def _fix_line(line: str, in_fence: bool) -> tuple[str | None, bool]:
     """回 (新行 or None=刪除, 是否改動)。"""
     s = line.strip()
-    if in_fence or not s or s.startswith(META_PREFIX) or s.startswith("<!--"):
+    if in_fence or not s or s.startswith(META_PREFIX) or s.startswith("<!--") or s.startswith("#"):
+        return line, False
+    if KEEP_LINE.search(line):
         return line, False
     if DROP_LINE.match(line):
         return None, True
-    if not DATE_TOKEN.search(line) or KEEP_LINE.search(line):
+    if not DATE_TOKEN.search(line):
         return line, False
     new = _strip_dates(line)
     return new, new != line

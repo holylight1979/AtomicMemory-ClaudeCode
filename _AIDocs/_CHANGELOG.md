@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-10-08 atom-date-lint 修兩個真缺陷：標題會被改、日期開頭的事實表格列會被整行刪
+- **緣由**：三方守門討論用 Codex 審根層真實 commit 020be33 當「三面鏡 vs 現行提問」的樣本，兩組都指出 `--fix` 與工具自述（標題不碰、日期是知識的句子保留）矛盾。實跑 `_fix_line`：`## 2026-05-14 升版紀錄` 變 `## 升版紀錄`；`| 2024-11-12 | .NET 6 EOL |` 整行刪。兩點成立。
+- **修**：`_fix_line` 標題行直接放行；`KEEP_LINE` 判定移到 `DROP_LINE` 之前。`verify_atom_date_lint` 加 1 案 3 斷言；`--fix` 順帶清掉當日新 atom 的 7 檔 9 行敘事日期。8 案綠。 | `tools/atom-date-lint.py`, `tools/verify/verify_atom_date_lint.py`, `_AIDocs/_CHANGELOG.md`
+
+---
+
 ## 2026-10-07 使用者明說確認 atom → 記一筆 confirmation（user:confirm），晉升門檻不變
 - **緣由**：使用者對兩顆 feedback atom 說「NICE，可以提升信任等級」。實查晉升閘要 Confirmations ≥4 或 usefulness lb ≥0.6（兩顆 0/4、lb 0.44／0.23），而且沒有「人明說確認」的記錄路徑（confirmation 只來自 hook 萃取命中）。使用者選：人為確認只記一筆、晉升照舊閘。
 - **修**：`ACCESS_VALID_SOURCES`／`VALID_SOURCES` 加 `user:confirm`，走既有 `increment-confirmation` CLI（event 帶 `by=user` 與原話）；Architecture caller 表加列。本次對「退縮歸屬」「自己flag的維護動作直接做完」各記 1 筆。 | `lib/atom_access.py`, `lib/atom_io.py`, `_AIDocs/Architecture.md`, `_AIDocs/_CHANGELOG.md`
