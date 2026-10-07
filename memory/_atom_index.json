@@ -4366,6 +4366,57 @@
         "second opinion"
       ],
       "scope": "global"
+    },
+    {
+      "name": "範本與規則文字沒有機器定期量就會爛-守門的零件是封定與重量不是範本本身",
+      "path": "memory/設計通則/範本與規則文字沒有機器定期量就會爛-守門的零件是封定與重量不是範本本身.md",
+      "triggers": [
+        "範本檔",
+        "golden sample",
+        "程式範本",
+        "規則文字",
+        "寫碼風格",
+        "技術臭味",
+        "AI 被舊碼帶歪",
+        "守門",
+        "機器閘",
+        "文字規則打不過範例"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "tslg的rule-check-roslyn檢查器可攜實測-net8單檔06秒-json含行號-分區與selftest對齊是核心耦合",
+      "path": "memory/dotnet/tslg的rule-check-roslyn檢查器可攜實測-net8單檔06秒-json含行號-分區與selftest對齊是核心耦合.md",
+      "triggers": [
+        "rule_check",
+        "Roslyn",
+        "異味檢查",
+        "C# lint",
+        "寫碼守門",
+        "smell_gate",
+        "語法樹規則",
+        "bad.cs",
+        "good.cs",
+        "AnonymousFunction",
+        "引擎共用",
+        "TSLG CodeReview"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox",
+      "path": "memory/工作流/協作與並行/根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox.md",
+      "triggers": [
+        "root-link",
+        "tri-link",
+        "三方討論",
+        "根層專案層溝通",
+        "跨session對齊",
+        "跟根層談",
+        "信箱摩槽",
+        "兩個session討論同題"
+      ],
+      "scope": "global"
     }
   ]
 }
