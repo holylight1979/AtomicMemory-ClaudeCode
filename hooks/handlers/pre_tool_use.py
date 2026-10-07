@@ -354,7 +354,8 @@ def check_git_commit_order(
     try:
         if not _git_commit_segments(_strip_heredoc_bodies(command)):
             return None
-        # 記憶系統 repo 本身（session cwd 在 ~/.claude 內）不等口令：驗證過就直接上版控（USER.md 例外條）
+        # 原子記憶系統自己的程式與文件（session 在 ~/.claude repo 內）不等口令：驗證過就直接上版控（USER.md 例外條）；
+        # 記憶內容三層由 vcs-sync worker 自動提交，不經此閘
         if cfg.get("exempt_cwd_under_claude_dir", True):
             cwd = str(((state or {}).get("session") or {}).get("cwd") or "")
             if cwd and _under_claude_dir(cwd):
