@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-10-07 rerank／sentence-transformers 必要性評估：實測後判定不進注入鏈
+- **緣由**：TECH §2.2 把 rerank 列為可補強項，使用者要深入知道 cross-encoder 與 sentence-transformers 對本系統的必要性、優缺點與長期協作體驗差異，並與 Codex 一起探索。
+- **做法**：用回歸集 175 題跑含向量路的線上回放取候選，隔離 venv（fastembed ONNX，不裝 torch）對 bge-reranker-base／jina-v2／MiniLM 重排量 R@1／R@3／MRR 與 CPU 延遲；外部文獻代理調查（附 URL）；Codex gpt-6-astra 開 repo 獨立審一輪，三方不一致處親自重現裁決。
+- **結果**：可商用的 bge-base R@1 81.7→85.1%、R@3 92.6→92.0%、每句 p50 +1.2 s／p95 +2.4 s；13 題期望卡不在池內、13 題池內只一顆，rerank 碰不到；使用者看得到的只有延遲。判定：不進 hook，讀取端（memory_search／atom_source）與離線評估可加可選 reranker。順修 TECH §2.2 誤句（hook 直譯器其實已有 sentence-transformers＋torch CPU）。 | `_AIDocs/DevHistory/rerank-cross-encoder-evaluation-2026-10.md`, `_AIDocs/DevHistory/_INDEX.md`, `TECH.md`, `_AIDocs/_CHANGELOG.md`
+
+---
+
 ## 2026-10-06 atom 來源回看閉環：Quote 欄、PostToolUse 自動填、atom_source、舊 atom 回填與防腐
 - **緣由**：TECH §2.2 列的弱點「萃取物指不回原文」實證為真：顯式寫入 181 顆只有 4 顆有 Source、萃取 atom 的 `<!-- src -->` 指標沒有讀取端、transcript 30 天清掉後指標腐爛。使用者要的體驗：被問「這是誰、什麼時候說的？」能一句回日期＋原句。
 - **契約**：atom metadata 新增 `- Quote: 「使用者原話 ≤200 字」`（Source 後、Confidence 前；py `lib/atom_spec.py`↔js `atom-render.js` byte-identical）；`- Source:` 標準三態 `session:<sid8>#<uuid8> <日期>`／`commit:<hash7> <日期>（原對話已逾保留期）`／`unknown …`。`atom_write`／`write_atom` 選填 `quote`，replace 未給保留；`edit_metadata` 加 `provenance`／`quote` label（並修掉 `re.subn` 字串替換把值內反斜線當跳脫的 bug）。

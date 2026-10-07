@@ -32,6 +32,7 @@
 | 22 | taxonomy-engine-半統一設計-2026-06.md | 分類／去蕪統一引擎設計與執行紀錄（半統一裁決：`score_by_lexicon` 單一計分源 + Realm／Taxonomy adapter 並存；Phase A 核心落地、晉升閘與跨 realm 逃逸閘；DedupStage 已於 `755ce07` 停產；Phase B/C 專案端 thin shim 未執行） | taxonomy, classify, score_by_lexicon, atom_classify, 半統一, adapter, RealmStrategy, TaxonomyStrategy, 逃逸閘, DedupStage, Phase B, thin shim, classify-project-atoms |
 | 23 | 全面檢視-2026-09-21/ | 2026-09-21 對照 CC 生態的全面檢視證據：共同簡報、5 支 Claude 審查摘要、5 支 Codex 摘要＋全文、兩輪 Codex 計畫審查與拍板全文、遙測統計腳本與輸出、[AI] 獨立評分稿；定案、§1b 為什麼會寫成這樣、§11 提交清單與剩餘三項在同資料夾 plan-and-decisions.md | 全面檢視, 審查, codex, 記帳失真, activation, 效用歸因, Supersedes, 評估器, episodic, hint, 精簡 |
 
+| 24 | rerank-cross-encoder-evaluation-2026-10.md | cross-encoder rerank／sentence-transformers 要不要進注入鏈：本機回歸集對照實驗（bge-base R@1 +3.4、R@3 −0.6、每句 +1.2 s）＋外部文獻＋Codex 審；判定不進 hook、讀取端可選 | rerank, cross-encoder, fastembed, bge-reranker, memory-eval, 檢索精度 |
 > 2026-05-27 Wave 5 Session 2 已歸檔（移至 `memory/_distant/2026_05_v5_overhaul/`，git 不再追蹤）：`session-logs/` / `memory-cleanup-2026-04/` / `atomic-memory-evolution/` / `ab-test-gemma4/` / `atom-v4/` / `atom-v4-phases/` / `changelog-roll/` / `v41-handoffs/` / `v41-p4-simulation/` / `wg-docdrift/`
 
 > 2026-05-28 Session α/β（commits `082f791` / `89ccb2d` / `6772049`）：feedback-* atoms 5 個 + cognitive-patterns + memory-pipeline-silent-failure-2026-05 物理搬遷至 `_AIDocs/Failures/`，`lib/atom_locations.py` 為單一規則來源；sync-atom-index / vector indexer 多根掃描；SPEC_ATOM_V5 §2.1 章節記錄。完整紀錄詳見上方 v5-overhaul-2026-05/ 及主 [_AIDocs/_CHANGELOG.md](../_CHANGELOG.md) 對應條目。
