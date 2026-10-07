@@ -49,6 +49,7 @@ VALID_SOURCES = frozenset({
     "hook:atom-inject",  # workflow-guardian.py 注入 atom 時走 atom_access
     "hook:episodic",
     "hook:episodic-confirm",  # wg_episodic L367 cross-session 加計
+    "user:confirm",  # 使用者明說確認：atom_access.increment_confirmation（event by=user）
     "hook:user-extract",
     "hook:extract-worker",
     "tool:atom-move",

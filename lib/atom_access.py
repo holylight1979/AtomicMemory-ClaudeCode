@@ -37,6 +37,7 @@ CLI 入口（給 tools/workflow-guardian-mcp/server.js 透過子程序呼叫）�
   python -m lib.atom_access init <path> --first-seen YYYY-MM-DD --source mcp
   python -m lib.atom_access increment-read-hits <path> --source hook:atom-inject
   python -m lib.atom_access increment-confirmation <path> --source hook:episodic-confirm [--event-json '{...}']
+  python -m lib.atom_access increment-confirmation <path> --source user:confirm --event-json '{"by":"user","note":"原話"}'  # 使用者明說確認
   python -m lib.atom_access record-usefulness <path> --used true --success true|false|unknown --source hook:usefulness
   python -m lib.atom_access decay-usefulness <path> --lambda 0.97 --source hook:atom-decay
   python -m lib.atom_access record-promotion <path> --target [固] --source mcp
@@ -65,6 +66,7 @@ ACCESS_VALID_SOURCES = frozenset({
     "hook:atom-inject",          # workflow-guardian.py atom 注入時 increment_read_hits
     "hook:episodic",             # episodic atom 建立時 init_access
     "hook:episodic-confirm",     # cross-session confirmation
+    "user:confirm",              # 使用者明說「對、記下來」：記一筆 confirmation（event 帶 by=user），晉升門檻不變
     "hook:usefulness",           # stop.py 注入→使用→結果 α/β 更新
     "hook:atom-decay",           # SessionEnd _self_iterate_atoms 慢衰減
     "hook:user-extract",

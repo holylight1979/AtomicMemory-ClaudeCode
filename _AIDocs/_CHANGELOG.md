@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-10-07 使用者明說確認 atom → 記一筆 confirmation（user:confirm），晉升門檻不變
+- **緣由**：使用者對兩顆 feedback atom 說「NICE，可以提升信任等級」。實查晉升閘要 Confirmations ≥4 或 usefulness lb ≥0.6（兩顆 0/4、lb 0.44／0.23），而且沒有「人明說確認」的記錄路徑（confirmation 只來自 hook 萃取命中）。使用者選：人為確認只記一筆、晉升照舊閘。
+- **修**：`ACCESS_VALID_SOURCES`／`VALID_SOURCES` 加 `user:confirm`，走既有 `increment-confirmation` CLI（event 帶 `by=user` 與原話）；Architecture caller 表加列。本次對「退縮歸屬」「自己flag的維護動作直接做完」各記 1 筆。 | `lib/atom_access.py`, `lib/atom_io.py`, `_AIDocs/Architecture.md`, `_AIDocs/_CHANGELOG.md`
+
+---
+
 ## 2026-10-07 atom 知識行剝敘事型日期：存量清 122 顆、feedback-* 納入樣式閘、活體守門
 - **緣由**：使用者看到我剛 append 的 feedback atom 帶「2026-10-07 正例」，問「是不是該全掃一遍」，並定調：atom 收的是知識與經驗，不是「只是闡述某一個當下」；非得用實例解說也不帶時間戳（每次注入都在浪費 token）。掃索引內 atom（episodic／_distant 不掃）：122 顆／165 行帶「使用者指正（日期）」「實踩（日期）」這類敘事型日期。
 - **做法**：`tools/atom-date-lint.py`——只動正文（metadata／code span／標題不碰），敘事型日期連黏著的括號與分隔符一起拿、中文鄰字不留空白；日期是參照點（自／約／建於…後／起）或日期本身是知識（EOL／支援到／issue／發布）整行不動；舊式 `- Created:` 行與變更記錄表格列整行刪。`rule_atom_style_violation` 日期規則擴到任何 `feedback-*` atom（config 鍵名規則維持只擋行為契約／工作流）。`tools/verify/verify_atom_date_lint.py` 剝日期規則 6 案＋活體守門 1 案（索引內 atom 零敘事型日期）。

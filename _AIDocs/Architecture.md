@@ -159,6 +159,7 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 | `hooks/handlers/ups_inject.py`／`ups_context.py`（atom 注入曝光計數） | `hook:atom-inject` | `atom_access.increment_read_hits` |
 | `hooks/extract-worker.py`（failure atom） | `hook:extract-worker` | `_failure_writeback` + `_create_failure_atom` |
 | `hooks/wg_episodic.py`（cross-session confirm） | `hook:episodic-confirm` | `atom_access.increment_confirmation`（資料源停產，TECH §14.2） |
+| 使用者明說「對、記下來」（AI 在 session 內手動記） | `user:confirm` | `python -m lib.atom_access increment-confirmation <path> --source user:confirm --event-json '{"by":"user","note":"原話"}'`：confirmation +1、事件標 by=user；晉升門檻不變（≥4 或 usefulness lb≥0.6），只是讓人為確認有據可查 |
 | `hooks/wg_episodic.py`（episodic atom） | `hook:episodic` | `write_raw` + `atom_access.init_access` |
 | `hooks/user-extract-worker.py` | `hook:user-extract` | L1／L2 決策萃取落地；落點三分：`~/.claude` → global／專案規則（`_is_project_rule`）→ shared＋`Author=使用者`／其餘 → 本人×專案 personal |
 | `tools/memory-undo.py` | `tool:undo` | `write_raw` reject footer |
