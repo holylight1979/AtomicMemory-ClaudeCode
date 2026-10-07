@@ -1064,7 +1064,7 @@ async function toolAtomSource(id, args) {
   for (const w of res.warnings || []) lines.push(`⚠ ${w}`);
   lines.push(`Source: ${res.source || "(none)"}`);
   lines.push(`Quote: ${res.quote || "(none)"}`);
-  if (res.state === "unrecoverable") lines.push("原對話已逾保留期");
+  // 狀態原因由 py 的 warnings 帶（B 級「已逾保留期」／非標準 Source／無 Source），不在此硬寫
   for (const c of res.context || []) {
     const text = String(c.text || "").replace(/\s*\n\s*/g, " ");
     lines.push(`[${c.role || "?"} ${c.ts || "?"}] ${[...text].slice(0, 300).join("")}`);

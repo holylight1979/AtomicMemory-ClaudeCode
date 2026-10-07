@@ -337,7 +337,9 @@ def atom_source(atom: str, cwd: Optional[str] = None) -> Dict[str, Any]:
                 warnings.append(f"transcript 內找不到 uuid {uuid8}（{transcript.name}）")
     elif parsed["kind"] in ("commit", "unknown"):
         warnings.append("原對話已逾保留期（B 級 Source）")
-    elif not source and not comment:
+    elif source:
+        warnings.append("Source 非標準格式（無 session 指標），無法對回 transcript；可用 edit_metadata 改成 session:<sid8>#<uuid8> <日期>")
+    elif not comment:
         warnings.append("atom 無 Source 行")
 
     state = "live" if context else ("quote_only" if quote else "unrecoverable")
