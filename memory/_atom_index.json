@@ -4565,6 +4565,36 @@
         "最短路徑"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-自己列的還沒證不要等別人-能自己取樣就當場驗-真實diff從自己repo取-穩定度自己重跑",
+      "path": "memory/Failures/驗證與實證/feedback-自己列的還沒證不要等別人-能自己取樣就當場驗-真實diff從自己repo取-穩定度自己重跑.md",
+      "triggers": [
+        "還沒證",
+        "待驗",
+        "等真實 diff",
+        "穩定度",
+        "該驗的要驗",
+        "等對方",
+        "沙箱測",
+        "自己測"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報",
+      "path": "_AIDocs/_atoms/MemDev/wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報.md",
+      "triggers": [
+        "wg_friction",
+        "detect_correction",
+        "糾正偵測",
+        "user_correction_count",
+        "guard-friction",
+        "成效指標",
+        "糾正次數",
+        "關鍵字天花板"
+      ],
+      "scope": "global"
     }
   ]
 }

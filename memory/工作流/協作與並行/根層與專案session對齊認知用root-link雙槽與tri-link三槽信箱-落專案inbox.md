@@ -11,7 +11,7 @@
 
 ## 知識
 
-- [臨]（2026-10-07 實跑）根層 ~/.claude session 與專案 session 討論同一題目時，用專案 `.claude/inbox/` 下的信箱對齊：雙槽 `root-link/`（`to-root/` 專案寫、`to-project/` 根層寫），三槽 `tri-link/`（每槽一個出向 `from-<slug>/`，`re: <槽>/<seq>`）。落專案目錄的理由：根層寫專案目錄不受保護閘影響，反向會被 CrossRealmBashBlock 擋。
+- [臨]（實跑）根層 ~/.claude session 與專案 session 討論同一題目時，用專案 `.claude/inbox/` 下的信箱對齊：雙槽 `root-link/`（`to-root/` 專案寫、`to-project/` 根層寫），三槽 `tri-link/`（每槽一個出向 `from-<slug>/`，`re: <槽>/<seq>`）。落專案目錄的理由：根層寫專案目錄不受保護閘影響，反向會被 CrossRealmBashBlock 擋。
 - [臨] 有效模式：首封「我是誰＋綱要正本路徑＋一句摘要＋四題」，對方一封一題回、每封附已驗證路徑或實測數字；分工定案用一句收束同步寫進雙方綱要；三方約 20 封就收斂到「各自向使用者要拍板」。Monitor 要排除自己的出向目錄，換監控先 TaskStop 舊的免雙報。
 
 ## 行動

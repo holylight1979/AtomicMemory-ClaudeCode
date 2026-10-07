@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨]（2026-10-07 根層 session 對碼驗證，`hooks/handlers/pre_tool_use.py:784` 註解）PreToolUse 回的 additionalContext 是隨工具結果進下一輪，不是寫前攝截：Edit/Write 的 payload 在 hook 觸發前已生成，「寫碼前先看範本」這種提醒只能影響下一次編輯，效果等同 PostToolUse。要真正擋寫入只有 deny；要影響寫法就放 PostToolUse 命中時順帶印，少一條 hook。
+- [臨]（根層 session 對碼驗證，`hooks/handlers/pre_tool_use.py:784` 註解）PreToolUse 回的 additionalContext 是隨工具結果進下一輪，不是寫前攝截：Edit/Write 的 payload 在 hook 觸發前已生成，「寫碼前先看範本」這種提醒只能影響下一次編輯，效果等同 PostToolUse。要真正擋寫入只有 deny；要影響寫法就放 PostToolUse 命中時順帶印，少一條 hook。
 
 ## 行動
 

@@ -51,6 +51,7 @@
 | vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻 | vcs-sync拉取側機制指標與踩坑-隔離worktree-recover持久化-新編輯保護-冷卻 |
 | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add | vcs-sync的git-add兩個真實環境失敗-已追蹤但被gitignore蓋到的檔刪除要加-f-前一輪已stage的刪除不得再add |
 | verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改namedtuple | verify用importlib載入tools腳本-dataclass配future-annotations會炸-先註冊sys-modules或改NamedTuple |
+| wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報 | wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報 |
 | windows-每支-hook-子程序啟動約-150ms-同事件多支-standalone-hook-先量再併-過-100ms-且等價回放全過才合 | Windows 每支 hook 子程序啟動約 150ms-同事件多支 standalone hook 先量再併-過 100ms 且等價回放全過才合 |
 | write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值 | write_raw 對未列舉 source 靜默回 ok=False 不 raise（呼叫端必檢查回傳值） |
 | 佛法三缺口工程化-失念壞滅緣了義 | 佛法三缺口工程化-失念壞滅緣了義 |
