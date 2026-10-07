@@ -73,6 +73,8 @@ DEFAULTS: Dict[str, Any] = {
     "push": True,
     "root_pathspecs": ["memory", "_AIDocs/_atoms"],
     "project_pathspecs": [".claude/memory"],
+    # 根層非記憶但隨 atom 寫入連動的檔（sync_doc_counts 的計數標記）：只進 pathspec、不進 mem_dirs
+    "root_extra_pathspecs": ["TECH.md", "_AIDocs/_INDEX.md", "_AIDocs/DocIndex-System.md"],
     "org_extra_pathspecs": ["usage-snapshots"],
     "exclude": ["**/*.access.json"],
     "timeout_s": 60,
@@ -160,14 +162,27 @@ def collect_sync_targets(cwd: str, config: Dict[str, Any],
             if rel not in t.pathspecs:
                 t.pathspecs.append(rel)
                 t.mem_dirs.append(mem_dir.resolve())
-    # 公司層 repo 另收非記憶路徑（週用量截圖）：只進 pathspec（算純記憶 commit、一起自動推拉），不進 mem_dirs（無索引）。
-    # git 不要求本機已有該目錄（上游先有時要能拉進來）；svn 對不存在的路徑會報錯，目錄在才收。
+    # 公司層 repo 另收非記憶路徑（週用量截圖）
     org_t = targets.get(org.resolve().as_posix().lower()) if org and org.is_dir() else None
-    if org_t:
-        for spec in vs["org_extra_pathspecs"]:
-            if spec not in org_t.pathspecs and (org_t.vcs == "git" or (org_t.root / spec).is_dir()):
-                org_t.pathspecs.append(spec)
+    _add_extra_pathspecs(org_t, vs["org_extra_pathspecs"])
+    # 根層同理：atom 寫入連動的文件計數標記（TECH.md 等）跟索引一起自動上，否則每寫一顆 atom 留髒檔等人手動 commit
+    _add_extra_pathspecs(_root_target(targets, base_root), vs["root_extra_pathspecs"])
     return list(targets.values())
+
+
+def _root_target(targets: Dict[str, SyncTarget], base_root: Path) -> Optional[SyncTarget]:
+    vcs = find_vcs_root(Path(base_root))
+    return targets.get(vcs[1].resolve().as_posix().lower()) if vcs else None
+
+
+def _add_extra_pathspecs(t: Optional[SyncTarget], specs: Sequence[str]) -> None:
+    """非記憶路徑只進 pathspec（算純記憶 commit、一起推拉），不進 mem_dirs（無索引）。
+    git 不要求本機已有該路徑（上游先有時要能拉進來）；svn 對不存在的路徑會報錯，存在才收。"""
+    if not t:
+        return
+    for spec in specs:
+        if spec not in t.pathspecs and (t.vcs == "git" or (t.root / spec).exists()):
+            t.pathspecs.append(spec)
 
 
 # ─── 鎖（OS 互斥） ───────────────────────────────────────────────────────────

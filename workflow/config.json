@@ -499,7 +499,7 @@
     }
   },
   "vcs_sync": {
-    "_doc": "記憶目錄背景靜默上版控（hooks/vcs-sync-worker.py）。觸發：收割 validated、SessionEnd。root_pathspecs 相對 ~/.claude、project_pathspecs 相對專案根；org_extra_pathspecs 相對公司層 repo 根（非記憶但一起自動推拉的路徑，如週用量截圖）；git 只 add/commit 這些 pathspec，待推歷史含非記憶 commit 則不 push 留標記；svn 逐檔 add 套 exclude 後 commit。；exclude 含 memory/_meta/**：taxonomy／forbidden-phrases 等設定檔不走記憶自動提交，隨程式碼上GIT",
+    "_doc": "記憶目錄背景靜默上版控（hooks/vcs-sync-worker.py）。觸發：收割 validated、SessionEnd。root_pathspecs 相對 ~/.claude、project_pathspecs 相對專案根；root_extra_pathspecs（TECH.md 等 atom 寫入連動的計數標記檔）／org_extra_pathspecs（公司層 repo 根，如週用量截圖）為非記憶但一起自動推拉的路徑；git 只 add/commit 這些 pathspec，待推歷史含非記憶 commit 則不 push 留標記；svn 逐檔 add 套 exclude 後 commit。；exclude 含 memory/_meta/**：taxonomy／forbidden-phrases 等設定檔不走記憶自動提交，隨程式碼上GIT",
     "enabled": true,
     "push": true,
     "root_pathspecs": [
@@ -508,6 +508,11 @@
     ],
     "project_pathspecs": [
       ".claude/memory"
+    ],
+    "root_extra_pathspecs": [
+      "TECH.md",
+      "_AIDocs/_INDEX.md",
+      "_AIDocs/DocIndex-System.md"
     ],
     "org_extra_pathspecs": [
       "usage-snapshots"

@@ -901,7 +901,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | `userExtraction.tokenBudget` | 240 | 使用者決策萃取每 session 預算 |
 | `episodic.auto_generate` / `min_files` / `min_duration_seconds` | true / 1 / 120 | episodic 生成 |
 | `harvest.enabled` / `min_turns` / `min_accessed` / `min_turns_between` | true / 3 / 5 / 3 | 階段收割 Stop 閘（§6.3）：活動門檻與冷卻；缺整段＝機制關 |
-| `vcs_sync.enabled` / `push` / `root_pathspecs` / `project_pathspecs` / `org_extra_pathspecs` / `exclude` / `timeout_s` | true / true / [memory, _AIDocs/_atoms] / [.claude/memory] / [usage-snapshots] / [**/*.access.json, memory/_meta/**] / 60 | 記憶庫背景上版控 worker（§8）：根層 pathspec 相對 ~/.claude、專案相對專案根；`org_extra_pathspecs` 相對公司層 repo 根（非記憶但一起自動推拉的路徑，如週用量截圖）；每步 git/svn 指令逾時 |
+| `vcs_sync.enabled` / `push` / `root_pathspecs` / `project_pathspecs` / `root_extra_pathspecs` / `org_extra_pathspecs` / `exclude` / `timeout_s` | true / true / [memory, _AIDocs/_atoms] / [.claude/memory] / [TECH.md, _AIDocs/_INDEX.md, _AIDocs/DocIndex-System.md] / [usage-snapshots] / [**/*.access.json, memory/_meta/**] / 60 | 記憶庫背景上版控 worker（§8）：根層 pathspec 相對 ~/.claude、專案相對專案根；`root_extra_pathspecs`（atom 寫入連動的文件計數標記檔）／`org_extra_pathspecs`（公司層 repo 根，如週用量截圖）為非記憶但一起自動推拉的路徑，只進 pathspec 不進 mem_dirs；每步 git/svn 指令逾時 |
 | `vcs_sync.pull.enabled` / `fetch_timeout_s` / `cooldown_s` | true / 20 / 600 | 記憶層自動拉取（§6.3 拉段）：worker 每輪 commit 之後、push 之前 fetch 並併入純記憶 incoming；與 `push` 開關獨立；fetch 逾時只落 `.behind`、不影響 push 段 |
 | `self_iteration.auto_commit_promotions` / `auto_push_promotions` | true / true | **舊鍵，已由 `vcs_sync.enabled` / `push` 接管**（晉升 sweep 後改 spawn vcs-sync worker）；鍵保留供相容讀取，實際開關以 vcs_sync 為準 |
 | `self_iteration.forget.enabled` / `dry_run` | false / true | selective forgetting |

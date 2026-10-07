@@ -1259,7 +1259,24 @@ def test_collect_targets_groups_by_vcs_root(tmp_path, monkeypatch):
     monkeypatch.setattr(wg_core, "resolve_project_root", None)
     targets = vs.collect_sync_targets(str(proj), CFG, claude_dir=claude)
     by_root = {t.root: t for t in targets}
-    assert by_root[claude.resolve()].pathspecs == ["memory", "_AIDocs/_atoms"]
+    # 預設 root_extra_pathspecs（計數標記檔）接在記憶 pathspec 之後；git 不要求檔案已存在
+    assert by_root[claude.resolve()].pathspecs == [
+        "memory", "_AIDocs/_atoms", "TECH.md", "_AIDocs/_INDEX.md", "_AIDocs/DocIndex-System.md"]
+    assert by_root[proj.resolve()].pathspecs == [".claude/memory"]
+
+
+def test_collect_targets_root_extra_pathspecs_join_root_target_only(tmp_path, monkeypatch):
+    """根層計數標記檔（TECH.md 等）進根層 pathspec、不進 mem_dirs；git 不要求檔案已存在；專案層不受影響。"""
+    claude = _git_repo(tmp_path / "claude")
+    proj = _git_repo(tmp_path / "proj")
+    (proj / ".claude" / "memory").mkdir(parents=True)
+    import wg_core
+    monkeypatch.setattr(wg_core, "resolve_project_root", None)
+    cfg = {"vcs_sync": {**CFG["vcs_sync"], "root_extra_pathspecs": ["TECH.md", "_AIDocs/_INDEX.md"]}}
+    by_root = {t.root: t for t in vs.collect_sync_targets(str(proj), cfg, claude_dir=claude)}
+    root_t = by_root[claude.resolve()]
+    assert root_t.pathspecs == ["memory", "TECH.md", "_AIDocs/_INDEX.md"]
+    assert [p.name for p in root_t.mem_dirs] == ["memory"]
     assert by_root[proj.resolve()].pathspecs == [".claude/memory"]
 
 
