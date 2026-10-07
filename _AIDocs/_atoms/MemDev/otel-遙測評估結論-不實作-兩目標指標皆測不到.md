@@ -9,7 +9,7 @@
 
 ## 知識
 
-- [觀] 評估結論（2026-07 C12）：不實作 OTEL export（CLAUDE_CODE_ENABLE_TELEMETRY=1）。原始目標「hook 延遲 / 注入 token 稅真實分布」兩者 OTEL 都測不到——官方匯出面（metrics: session/token.usage/cost/lines_of_code/commit…；events: user_prompt/api_request/tool_result…）無 per-hook execution latency；api_request 只有整段 input tokens，無法歸因到個別注入源
+- [觀] 評估結論（C12）：不實作 OTEL export（CLAUDE_CODE_ENABLE_TELEMETRY=1）。原始目標「hook 延遲 / 注入 token 稅真實分布」兩者 OTEL 都測不到——官方匯出面（metrics: session/token.usage/cost/lines_of_code/commit…；events: user_prompt/api_request/tool_result…）無 per-hook execution latency；api_request 只有整段 input tokens，無法歸因到個別注入源
 - [觀] 成本面：需常駐 OTLP collector/Prometheus + 儲存 + 查詢面板，單人單機違反 Native-first 輕量原則；效益面：僅得 per-request token/cost 分布（已有 Context budget 自報 + injection budget 粗覆蓋）
 - [觀] 若未來真需 hook 延遲分布：dispatcher 入口計時落 JSONL（~20 行、零依賴）即可，比 OTEL 便宜兩個數量級；重評門檻 = 需要跨機聚合或多人環境時
 

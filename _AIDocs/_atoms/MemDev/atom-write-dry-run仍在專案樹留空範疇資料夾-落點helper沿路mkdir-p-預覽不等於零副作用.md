@@ -12,7 +12,7 @@
 
 ## 知識
 
-- [臨] 始末：2026-09-05 在 C:\TSLG\Server\scripts 用 `atom_write dry_run=true` 驗證 shared 落點，回報「nothing written」，但兩天後 svn status 在 `C:\TSLG\.claude\memory\shared\` 多了一個空的 `工作流` 資料夾（mtime 正是 dry_run 那刻）。正解：`_resolve_target(create_dirs=False)` 在 dry_run 時算完落點，把途中新建的空目錄收回；空殼已手動 rmdir。
+- [臨] 始末：在 C:\TSLG\Server\scripts 用 `atom_write dry_run=true` 驗證 shared 落點，回報「nothing written」，但兩天後 svn status 在 `C:\TSLG\.claude\memory\shared\` 多了一個空的 `工作流` 資料夾（mtime 正是 dry_run 那刻）。正解：`_resolve_target(create_dirs=False)` 在 dry_run 時算完落點，把途中新建的空目錄收回；空殼已手動 rmdir。
 - [臨] 根因：`write_atom` 的 dry_run 判斷在落點解析**之後**（先 `_resolve_target` 再 `if dry_run: return`），而落點解析沿路呼叫的 `project_category_target`／`project_subdir_target`／`failures_write_target`／`core_write_target`／`local_write_target` 五個 helper 都 `mkdir(parents=True)`——「算路徑」和「建目錄」綑在同一步，預覽自然有副作用。我在做落點驗證時只看回報訊息，沒去看檔案系統。
 - [臨] 設計原理：helper 們 mkdir-p 是為了讓真正寫入時 `write_text` 不用再管父目錄存在與否（一路 mkdir 到底、寫入端零判斷）；`_resolve_target` docstring 也自述「唯讀；只 mkdir 落點」，把 mkdir 當成無害。dry_run 是後來加的預覽功能，沒回頭檢視這個假設。
 - [臨] 運作邏輯：`write_atom(dry_run=True)` → `_resolve_target` → helper mkdir-p 建出 `<root>/.claude/memory/shared/<Lv1>/`（此時目錄已落地）→ 回 `dir` → `if dry_run: return WriteResult(ok, path=預計路徑)`。斷點在第二步：目錄已建、回報卻說 nothing written。在專案樹（進版控）上尤其明顯——svn/git 立刻多一個未版控資料夾。

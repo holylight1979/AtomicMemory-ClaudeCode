@@ -11,7 +11,7 @@
 
 ## 知識
 
-- [臨] 實踩（2026-10-05）：新建的公司記憶 repo 沒有 `.gitignore`，我以「這是系統自有的 repo、整包加沒關係」為由兩次用 `git add -A` 提交，把 25 個各機使用遙測檔 `*.access.json` 掃進版控。背景 vcs-sync 又排除這類檔（`vcs_sync.exclude`），結果 repo 永遠有未提交變更、多機會互撞；事後另開 commit `git ls-files -z -- '*.access.json' | xargs -0 git rm -q --cached --` 補救（本機檔保留）。
+- [臨] 實踩：新建的公司記憶 repo 沒有 `.gitignore`，我以「這是系統自有的 repo、整包加沒關係」為由兩次用 `git add -A` 提交，把 25 個各機使用遙測檔 `*.access.json` 掃進版控。背景 vcs-sync 又排除這類檔（`vcs_sync.exclude`），結果 repo 永遠有未提交變更、多機會互撞；事後另開 commit `git ls-files -z -- '*.access.json' | xargs -0 git rm -q --cached --` 補救（本機檔保留）。
 - [臨] 規則：「勿整包加入」不分 repo 歸屬。新 repo 第一次提交前先做兩件事：① 放好 `.gitignore`（記憶 repo 至少 `**/*.access.json`；`tools/org-memory.py --init` 現已自動寫入，守門 `verify_org_layer::test_init_tree_ignores_access_sidecars`）；② 看 `git status --porcelain` 的副檔名分布，有非預期類型就先處理。慢點的對照法：看同類型的既有 repo 追蹤了什麼（SGI 專案 0 個 access.json 被追蹤）。
 
 ## 行動

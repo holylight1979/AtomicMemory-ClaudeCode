@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] 始末（2026-10-06 回填 920 顆 atom）：16 顆寫入失敗 `bad escape \\P at position 71`——`lib/atom_io.edit_metadata` 用 `line_re.subn(replacement, text)`，replacement 是字串時 re 會把裡面的 `\\U`、`\\P`當 regex 跳脫解析；以前只寫 Trigger/Related/Tags（無反斜線）所以沒爆，一裝 Quote（使用者原話含 Windows 路徑）就炸。
+- [臨] 始末（回填 920 顆 atom）：16 顆寫入失敗 `bad escape \\P at position 71`——`lib/atom_io.edit_metadata` 用 `line_re.subn(replacement, text)`，replacement 是字串時 re 會把裡面的 `\\U`、`\\P`當 regex 跳脫解析；以前只寫 Trigger/Related/Tags（無反斜線）所以沒爆，一裝 Quote（使用者原話含 Windows 路徑）就炸。
 - [臨] 正解：替換字串改傳函式 `line_re.subn(lambda _m: replacement, text)`，函式回傳值不走 template 解析；測試要放含 `\\U`、`\\P` 的值（寫測試源碼時用 chr(92) 拼，免得源碼自己被 unicode escape 吃掉）。
 
 ## 行動

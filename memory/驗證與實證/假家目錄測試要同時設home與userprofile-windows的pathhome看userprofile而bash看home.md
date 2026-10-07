@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] Windows 上用環境變數把家目錄指到暫存夾做隔離測試（實測 2026-10-05）：只設 `HOME` → Python `Path.home()` 仍回真家（它看 `USERPROFILE`）；只設 `USERPROFILE` → Git Bash 的 `$HOME` 仍是真家。兩個必須同時設，否則會改到真實家目錄。
+- [臨] Windows 上用環境變數把家目錄指到暫存夾做隔離測試（實測）：只設 `HOME` → Python `Path.home()` 仍回真家（它看 `USERPROFILE`）；只設 `USERPROFILE` → Git Bash 的 `$HOME` 仍是真家。兩個必須同時設，否則會改到真實家目錄。
 - [臨] 環境變數隔離不了三種東西：用 `__file__` 定位資料的腳本（改的是腳本所在那棵樹）、讀 `APPDATA`／npm 全域 prefix 的工具、會 spawn 背景安裝程序的 hook。測試要呼叫目標樹內那份腳本，並跳過或攔住會背景安裝的步驟。
 
 ## 行動

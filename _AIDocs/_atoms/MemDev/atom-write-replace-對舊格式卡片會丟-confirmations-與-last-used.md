@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] 2026-10-07 實測：對舊格式專案 atom（標題行為中文「# eHRM 加班單自動化」、檔名 ehrm-overtime.md、`- Scope: project`、有 `- Last-used: 2026-04-23` / `- Confirmations: 10`）做 `atom_write mode=replace`，回訊「preserved conf=0 rh=0」，結果標題被改成檔名、Confirmations 與 Last-used 行消失、Created-at 變成當天；歸因候選：replace 路徑的中繼資料讀取沒容忍舊格式（標題≠檔名或 Scope=project）。附帶：knowledge 區超 3072 bytes 的舊卡 append 必被預算擋，只能 replace，所以這個丟失會在「裁剪舊卡」時必然觸發。
+- [臨] 實測：對舊格式專案 atom（標題行為中文「# eHRM 加班單自動化」、檔名 ehrm-overtime.md、`- Scope: project`、有 `- Last-used: 2026-04-23` / `- Confirmations: 10`）做 `atom_write mode=replace`，回訊「preserved conf=0 rh=0」，結果標題被改成檔名、Confirmations 與 Last-used 行消失、Created-at 變成當天；歸因候選：replace 路徑的中繼資料讀取沒容忍舊格式（標題≠檔名或 Scope=project）。附帶：knowledge 區超 3072 bytes 的舊卡 append 必被預算擋，只能 replace，所以這個丟失會在「裁剪舊卡」時必然觸發。
 
 ## 行動
 

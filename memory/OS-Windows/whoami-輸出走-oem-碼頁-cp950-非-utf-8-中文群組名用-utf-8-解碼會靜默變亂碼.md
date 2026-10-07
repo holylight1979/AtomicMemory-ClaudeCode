@@ -9,7 +9,7 @@
 
 ## 知識
 
-- [臨] 2026-10-01 實測：`whoami.exe /groups /fo csv` 的 stdout 位元組是主控台 OEM 碼頁（本機 cp950），不是 utf-8——`decode("utf-8")` 直接 UnicodeDecodeError、`errors="replace"` 則中文群組名（核心程式／美術）全變 U+FFFD，子字串對映靜默落空、職能解析退成空。正解：`ctypes.windll.kernel32.GetOEMCP()` 取碼頁 → `decode(f"cp{n}", errors="replace")`，失敗退 `mbcs`（hooks/wg_roles.py `_oem_encoding`）。
+- [臨] 實測：`whoami.exe /groups /fo csv` 的 stdout 位元組是主控台 OEM 碼頁（本機 cp950），不是 utf-8——`decode("utf-8")` 直接 UnicodeDecodeError、`errors="replace"` 則中文群組名（核心程式／美術）全變 U+FFFD，子字串對映靜默落空、職能解析退成空。正解：`ctypes.windll.kernel32.GetOEMCP()` 取碼頁 → `decode(f"cp{n}", errors="replace")`，失敗退 `mbcs`（hooks/wg_roles.py `_oem_encoding`）。
 - [臨] 同類 Windows 主控台工具（whoami、net、wmic、tasklist）都走 OEM 碼頁；`locale.getpreferredencoding()` 回的是 ANSI 碼頁（zh-TW 兩者同為 950，其他語系可能不同），不能當 console 輸出的依據。
 - [臨] MSYS bash 裡的 `whoami` 是 GNU coreutils 版、不認 `/groups`；要取 AD 群組必須呼叫 `%SystemRoot%/System32/whoami.exe` 的絕對路徑。
 

@@ -11,13 +11,13 @@
 ## 知識
 
 - [臨] 併發 session 共用的不只是 git 工作樹，**還包括正在跑的應用程式行程、它的連線與進行中的長工作**。「編新版 → Stop-Process 關舊 → 啟新」這種標準部署循環在單 session 是安全的，在併發下會**直接砸掉另一個 session 正在跑的任務**。
-- [臨] 實例（2026-08-19 MudClient-withAI）：我為了驗證自己的改動，兩次 `Stop-Process -Name <app> -Force` 重啟 client，而另一個 session 正在同一個 client 上跑需要數十分鐘的資料抓取。那個功能有續傳所以資料沒壞，但對方的迴圈停在半路。**Guardian 的 CoordWarn 只提醒檔案衝突，不會提醒行程衝突**。
+- [臨] 實例（MudClient-withAI）：我為了驗證自己的改動，兩次 `Stop-Process -Name <app> -Force` 重啟 client，而另一個 session 正在同一個 client 上跑需要數十分鐘的資料抓取。那個功能有續傳所以資料沒壞，但對方的迴圈停在半路。**Guardian 的 CoordWarn 只提醒檔案衝突，不會提醒行程衝突**。
 - [臨] 辨識訊號：畫面／日誌裡出現**你沒送過的指令或請求**（本例是逐條 `sattr xxx`），就代表這個行程同時被別人驅動。別當雜訊忽略。
 - **Why:** 行程重啟不可逆，且影響的是別人進行中的工作，不是自己的檔案——事後無法像 hunk 那樣拆回來。
 - **How to apply:** 重啟共用行程前先看一眼它現在在做什麼（畫面／狀態端點）；確定有別人在用就改用不殺行程的驗證手段（純函式測試、另起一個埠的實例），非重啟不可則在收尾報告明說打斷了什麼、對方要怎麼接回去。 [[併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a]]
-- [觀] ⚠ **2026-08-20 又犯一次（這條 atom 當時已經被注入）**：MudClient 任務裡我先好好地每次 kill 前都先 `curl /status` 確認未連線，但最後一次「只是補個測試而已」的小改動就把這道檢查省掉，`taskkill` 直接下去——使用者正在用該程式玩遊戲（斷線後角色 link-dead 留在遊戲裡）。**進度到尾聲、改動看起來很小、先前幾次都沒事——這三個條件同時成立時最容易省掉守門。**
+- [觀] ⚠ **又犯一次（這條 atom 當時已經被注入）**：MudClient 任務裡我先好好地每次 kill 前都先 `curl /status` 確認未連線，但最後一次「只是補個測試而已」的小改動就把這道檢查省掉，`taskkill` 直接下去——使用者正在用該程式玩遊戲（斷線後角色 link-dead 留在遊戲裡）。**進度到尾聲、改動看起來很小、先前幾次都沒事——這三個條件同時成立時最容易省掉守門。**
 - [觀] 機械化防線：把「確認沒人在用」**串在同一行指令裡**，不要當成另一步。例：`curl -s $STATUS | grep -q '"connected":false' && taskkill /F /IM app.exe`——連線中就自動不執行，不靠我記得要檢查。
-- [臨] 2026-09-14 實踩：使用者用 launcher 自己起了 21 服，我的 sandbox.py startall 同時起第二套（搜 port 10048），接著依 sandbox_state 的 pid 清單 Stop-Process 把使用者那套一起強制關掉。規則：tasklist 看到 Game.* 已在跑就停手問誰起的（wmic 查父行程：SGIServerLauncher.exe 就是使用者的），不起第二套、不用 pid 清單關人；要驗證就借他那套（bot 連 21102）並先知會。
+- [臨] 實踩：使用者用 launcher 自己起了 21 服，我的 sandbox.py startall 同時起第二套（搜 port 10048），接著依 sandbox_state 的 pid 清單 Stop-Process 把使用者那套一起強制關掉。規則：tasklist 看到 Game.* 已在跑就停手問誰起的（wmic 查父行程：SGIServerLauncher.exe 就是使用者的），不起第二套、不用 pid 清單關人；要驗證就借他那套（bot 連 21102）並先知會。
 
 ## 行動
 

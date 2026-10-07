@@ -3,7 +3,6 @@
 - Scope: global
 - Confidence: [固]
 - Trigger: ollama, dual-backend, rdchat, qwen3, embedding, 萃取品質, thinking, Open WebUI
-- Created: 2026-03-19
 - Type: procedural
 - Tags: ollama, dual-backend, extraction
 - Related: toolchain, decisions-architecture, decisions, ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測

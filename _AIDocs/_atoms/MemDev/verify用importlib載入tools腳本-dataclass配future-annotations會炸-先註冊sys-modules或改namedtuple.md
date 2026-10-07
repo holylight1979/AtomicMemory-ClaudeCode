@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] tools/verify 慶例用 `importlib.util.spec_from_file_location` 載入 `tools/<name>.py`（檔名帶 `-` 無法 import）；若該腳本同時有 `from __future__ import annotations` 與 `@dataclass`，沒先 `sys.modules[name] = module` 就 `exec_module` 會在 dataclass 定義時炸 `AttributeError: 'NoneType' object has no attribute '__dict__'`（dataclasses 用 `sys.modules.get(cls.__module__)` 解析字串型別註解）。2026-10-06 meeting-transcribe 踩到。
+- [臨] tools/verify 慶例用 `importlib.util.spec_from_file_location` 載入 `tools/<name>.py`（檔名帶 `-` 無法 import）；若該腳本同時有 `from __future__ import annotations` 與 `@dataclass`，沒先 `sys.modules[name] = module` 就 `exec_module` 會在 dataclass 定義時炸 `AttributeError: 'NoneType' object has no attribute '__dict__'`（dataclasses 用 `sys.modules.get(cls.__module__)` 解析字串型別註解）。 meeting-transcribe 踩到。
 - [臨] 解法二擇一：載入端先註冊 `sys.modules`（verify_meeting_transcribe 做法）；或腳本端改 `typing.NamedTuple`／普通 class，不用 dataclass。兩邊都做最穩。
 
 ## 行動

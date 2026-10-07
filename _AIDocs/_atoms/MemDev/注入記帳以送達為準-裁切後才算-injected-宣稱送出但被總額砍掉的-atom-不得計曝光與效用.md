@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] 2026-09-21 發現：assemble_injection 先把 atom 記進 injected_atoms／曝光／rescue watch，之後總額裁切（_truncate_context_by_activation）才發生，被砍掉的 atom 仍算「已注入」→ Stop 效用歸因分母灌水、Wilson 晉升偏低、rescue 誤報「注入了你沒用」。離線重播 175 例有 133 例超過 1,200 tok 名義硬頂，等於硬頂只是裝飾。
+- [臨] 發現：assemble_injection 先把 atom 記進 injected_atoms／曝光／rescue watch，之後總額裁切（_truncate_context_by_activation）才發生，被砍掉的 atom 仍算「已注入」→ Stop 效用歸因分母灌水、Wilson 晉升偏低、rescue 誤報「注入了你沒用」。離線重播 175 例有 133 例超過 1,200 tok 名義硬頂，等於硬頂只是裝飾。
 - [臨] 判斷為什麼會寫成這樣：注入與裁切是兩個時期分別加的功能，各自正確、沒人回頭對齊「記帳點」；LLM 寫增量功能時傾向在自己新加的函式內記帳，而不是在管線終點記。
 - [臨] 修法契約：記帳點放在管線最後一步之後（reconcile_injection_after_trim 回傳 survivors），dropped_trim 撤 injected／watch／曝光，pointer_trim 撤 watch 但保留路標曝光；三態（full／pointer／dropped）全計費，塞不下就記 dropped 不送，硬頂變真硬頂。任何遙測「事件發生」的定義必須是使用者實際看得到的那一刻。
 
