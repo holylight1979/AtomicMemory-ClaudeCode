@@ -8,6 +8,8 @@
 - Trigger: 偏好, 執P, 執驗上P, 上GIT, 上傳GIT, 上SVN, commit, push, 直上版控, 記憶相關不用問
 - Created-at: 2026-09-04
 
+- Related: feedback-workflow-discipline, feedback-收尾工作樹要上乾淨-該上就上-用不到就刪-不反問, feedback-rigor-standards, feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff, workflow-rules, 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a, 專案等級-mcpskillhookslog-不放全域根層, a執p-自執驗上p-自動完工協議
+
 ## 知識
 
 - [固] 「上GIT」/「上傳GIT」: 縮寫指令，針對當次批量作業（單一或多 session）所異動的範圍執行 選擇性 staging → commit → push **一氣做完**。口令下達前**不碰 git**（不得先 commit 再等使用者說 push；使用者要先看 diff 再下令）。若沒有當次異動，須向使用者確認是否要查詢所有異動來執行。若專案屬於 SVN，則此縮寫也代表 commit 到 SVN repo，完成後主動報備「已上傳 SVN repo」。
