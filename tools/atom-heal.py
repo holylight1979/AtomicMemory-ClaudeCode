@@ -2,18 +2,15 @@
 """atom-heal.py — 記憶自癒（單一來源；腦內世界 P3）
 
 分級修復一個壞掉的 atom，腳本主導、判斷才呼 LLM、修完即驗證：
-  L1 missing_reverse_refs → 機械補反向連結（免 LLM，零成本）
   L2 broken_refs / 格式錯  → 呼 LLM 出「結構化修復提案」→ 腳本經 funnel 套用 → 驗證
   L3 stale (>60d)         → 非真壞，回 wake（不修）
   修不好（驗證不過 / needs_human）→ fixed=False + needs_human=True，由 caller 退回人工審查
 
-L1 與 SessionEnd 重疊，dedup 契約：反向連結（L1）SessionEnd 已跑 atom-health-check
-  --fix-refs 全庫機械補齊。故「背景/批次」呼叫者（server.js /api/heal-all）只餵 broken_refs
-  的 atom（→ 分級 L2，僅治死連結，不碰 reverse），別對純 L1 的 atom 重覆跑。單一 atom 的
-  L1 仍由診所 /api/heal/:atom 按需觸發（世界 UI 用，非批次）。
+單向連結不是缺陷：A → B 就代表兩顆相連，反向由索引在注入時反轉（`wg_atoms.load_link_graph`），
+  不寫進 B 的檔——那是別人的檔，多人共用同一個版控庫時必衝突。
 
 重用（不重寫）：
-  tools/atom-health-check.py  偵測(single_atom_report) + reverse 修復邏輯（importlib 載入）
+  tools/atom-health-check.py  偵測(single_atom_report)（importlib 載入）
   lib/atom_io.edit_metadata   改 Related（byte-stable + audit，source=tool:atom-heal）
   lib/atom_spec.validate_atom_content  格式驗證
   tools/ollama_client.get_client      本地 LLM 判斷（預設 backend；雲端為選配）
@@ -80,43 +77,14 @@ def scan(name, atoms, aliases):
 
 def classify(report):
     broken = report.get("broken_refs") or []
-    reverse = report.get("missing_reverse_refs") or []
     stale = report.get("stale_atoms") or []
     path = atom_file(report.get("atom"))
     fmt_err = validate_atom_content(path.read_text(encoding="utf-8")) if path and path.exists() else None
     if broken or fmt_err:
         return "L2", fmt_err
-    if reverse:
-        return "L1", None
     if stale:
         return "L3", None
     return "noop", None
-
-
-# ── L1：機械補反向連結（免 LLM）──────────────────────────────────────────────
-def heal_L1(name, report, atoms, aliases, apply):
-    rev = report.get("missing_reverse_refs") or []
-    # reverse 項：atom_a → atom_b 存在，但 atom_b → atom_a 缺 → 需把 atom_a 加進 atom_b 的 Related
-    plans = [{"add_to": r["atom_b"], "ref": r["atom_a"]} for r in rev]
-    if not apply:
-        return {"level": "L1", "action": "reverse_ref_fix", "applied": False,
-                "plans": plans, "fixed": False, "needs_human": False, "note": "dry-run"}
-    applied = []
-    for pl in plans:
-        tpath = atoms.get(pl["add_to"]) or atom_file(pl["add_to"])
-        if not tpath:
-            applied.append({**pl, "ok": False, "err": "目標 atom 檔不存在"}); continue
-        related = related_of(tpath)
-        if pl["ref"] in related:
-            applied.append({**pl, "ok": True, "skipped": "已存在"}); continue
-        related.append(pl["ref"])
-        res = edit_metadata(tpath, related=related, source=HEAL_SOURCE)
-        applied.append({**pl, "ok": bool(getattr(res, "ok", False)), "err": getattr(res, "error", None)})
-    after = scan(name, atoms, aliases)
-    ok = len(after.get("missing_reverse_refs") or []) == 0
-    return {"level": "L1", "action": "reverse_ref_fix", "applied": True, "fixes": applied,
-            "verification": {"reverse_after": after.get("missing_reverse_refs") or []},
-            "fixed": ok, "needs_human": not ok}
 
 
 # ── L2：死連結 / 格式 → LLM 出提案，腳本套用安全提案 ─────────────────────────
@@ -235,7 +203,7 @@ def main():
     ap = argparse.ArgumentParser(description="記憶自癒：分級修復單一 atom")
     ap.add_argument("--atom", required=True, help="要修復的 atom 名")
     ap.add_argument("--apply", action="store_true", help="實際套用修復（預設 dry-run 只診斷）")
-    ap.add_argument("--auto", action="store_true", help="自主模式：只跑免費 L1/L3，L2 改回報 needs_manual（不呼 LLM、不改內容）")
+    ap.add_argument("--auto", action="store_true", help="自主模式：只跑免費 L3，L2 改回報 needs_manual（不呼 LLM、不改內容）")
     ap.add_argument("--backend", default="ollama", choices=["ollama", "cloud", "none"],
                     help="L2 判斷後端（預設本地 ollama 免費；cloud 選配；none 全交人工）")
     ap.add_argument("--json", action="store_true", help="JSON 輸出")
@@ -250,11 +218,9 @@ def main():
                "fixed": False, "needs_human": True, "reason": "找不到此 atom"}
     else:
         level, fmt_err = classify(report)
-        if level == "L1":
-            out = heal_L1(a.atom, report, atoms, aliases, a.apply)
-        elif level == "L2" and a.auto:
+        if level == "L2" and a.auto:
             out = {"level": "L2", "action": "needs_manual", "fixed": False, "needs_human": False,
-                   "note": "L2（死連結/格式）需手動觸發；自主只跑免費 L1", "broken_refs": report.get("broken_refs")}
+                   "note": "L2（死連結/格式）需手動觸發；自主只跑免費 L3", "broken_refs": report.get("broken_refs")}
         elif level == "L2":
             out = heal_L2(a.atom, report, atoms, aliases, a.apply, a.backend)
         elif level == "L3":
@@ -264,13 +230,12 @@ def main():
                    "needs_human": False, "note": "此 atom 目前健康，無需修復"}
         out["atom"] = a.atom
         out["backend"] = a.backend
-        # 修不好（驗證不過）→ 寫 _heal_review 退人工審查（僅 L1/L2 實修失敗）
-        if a.apply and out.get("needs_human") and out.get("level") in ("L1", "L2"):
+        # 修不好（驗證不過）→ 寫 _heal_review 退人工審查（僅 L2 實修失敗）
+        if a.apply and out.get("needs_human") and out.get("level") == "L2":
             out["heal_review_card"] = write_heal_review(a.atom, out)
 
     out["health_before"] = {
         "broken": len(report.get("broken_refs") or []),
-        "reverse": len(report.get("missing_reverse_refs") or []),
         "stale": len(report.get("stale_atoms") or []),
     }
     print(json.dumps(out, ensure_ascii=False, **({} if a.json else {"indent": 2})))

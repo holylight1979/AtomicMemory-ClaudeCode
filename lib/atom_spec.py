@@ -56,6 +56,8 @@ OPTIONAL_METADATA = frozenset({
     "Expires-at", "Tags", "Related", "Supersedes", "Quality",
     "Audience", "Author", "Pending-review-by", "Merge-strategy", "Created-at",
     "Decided-by",  # conflict-review 核可 shared atom 時寫入（核可者）
+    "Aka",  # 這顆 atom 用過的舊檔名（逗號分隔）；索引把它登錄成指向同一顆的鍵，
+            # 改名後舊 Related 仍解析得到，不必去改所有連進來的檔（那些是別人的檔）
     "Depends", "Evidence",  # 壞滅緣（validity conditions）/ 證據等級（了義裁決）
     "Status",  # 選填現況一行（如「案結 2026-07-29」）；cold/skip 一行注入時附帶。
     "Quote",  # 觸發這張卡片的使用者原話引述（單行 ≤200 字）；PostToolUse 自動填、回填腳本補
@@ -158,7 +160,7 @@ def is_personal_atom_rel_parts(rel_parts) -> bool:
     return parts[-1] != "role.md"
 
 
-_META_LINE_RE = re.compile(r"^-\s+([\w-]+):\s*(.+)$")
+_META_LINE_RE = re.compile(r"^-\s+([\w-]+):[ \t]*(.*)$")
 
 
 def parse_frontmatter(content: str) -> Dict[str, str]:
@@ -166,6 +168,7 @@ def parse_frontmatter(content: str) -> Dict[str, str]:
 
     從 # 標題後的 `- Key: Value` 區塊抽 metadata；空行不結束區塊（conflict-review 核可會在
     標題下插 `- Decided-by:` 再接空行），第一個非空、非 `- Key:` 的行（通常 `## 知識`）才結束。
+    值為空的欄位（如 `- Related:`）仍屬區塊、但不放進 dict，呼叫端的 `.get(k, 預設)` 照常生效。
     支援 BOM。回傳 dict（無 `_format` key — atom_spec 不關心 Claude-native YAML）。
     """
     if content.startswith("﻿"):
@@ -177,11 +180,72 @@ def parse_frontmatter(content: str) -> Dict[str, str]:
             continue
         m = _META_LINE_RE.match(line) if line.startswith("- ") else None
         if m:
-            fm[m.group(1)] = m.group(2).strip()
+            value = m.group(2).strip()
+            if value:
+                fm[m.group(1)] = value
             in_meta = True
         elif in_meta:
             break
     return fm
+
+
+# `- Related:` 行。冒號後只吃同行空白：`\s*` 會跨過換行，值為空時把下一行（通常 `## 知識`）
+# 當成值——讀的一方會拿標題當連結名，寫的一方會把連結接到標題後面。
+RELATED_LINE_RE = re.compile(r"^- Related:[ \t]*(.*)$", re.MULTILINE)
+AKA_LINE_RE = re.compile(r"^- Aka:[ \t]*(.*)$", re.MULTILINE)
+_SECTION_START_RE = re.compile(r"^## ", re.MULTILINE)
+
+
+def _find_meta_line(text: str, pattern: "re.Pattern[str]") -> Optional["re.Match[str]"]:
+    """metadata 區塊內第一個符合的行（第一個 `## ` 標題之前）；沒有回 None。"""
+    section = _SECTION_START_RE.search(text)
+    return pattern.search(text, 0, section.start() if section else len(text))
+
+
+def find_related_line(text: str) -> Optional["re.Match[str]"]:
+    """metadata 區塊的 `- Related:` 行。
+
+    讀寫都以這一行為準。檔內留有版控衝突區段時會同時存在多行 Related，
+    只要讀與寫定位到不同行，去重判斷就擋不住重複追加。
+    """
+    return _find_meta_line(text, RELATED_LINE_RE)
+
+
+def find_aka_line(text: str) -> Optional["re.Match[str]"]:
+    """metadata 區塊的 `- Aka:` 行（改名前用過的檔名）。"""
+    return _find_meta_line(text, AKA_LINE_RE)
+
+
+def split_related(value: str) -> List[str]:
+    """逗號分隔的名稱欄（Related / Aka）→ 名稱清單；空值與 `(none)` 都是零項。"""
+    if not value or value.strip() == "(none)":
+        return []
+    return [n.strip().removesuffix(".md") for n in value.split(",") if n.strip()]
+
+
+_CONFLICT_OPEN_RE = re.compile(r"^<{7}(?: |$)")
+_CONFLICT_CLOSE_RE = re.compile(r"^>{7}(?: |$)")
+
+
+def has_conflict_markers(text: str) -> bool:
+    """內容含未解的版控衝突區段：先有 `<<<<<<<` 起頭行、後有 `>>>>>>>` 收尾行。
+
+    git merge-file / diff3 / svn 產生的標記同形。``` 區塊內的不算——談衝突處理的 atom
+    會在範例裡放標記，那是內容不是衝突。
+    """
+    in_fence = False
+    opened = False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if _CONFLICT_OPEN_RE.match(line):
+            opened = True
+        elif opened and _CONFLICT_CLOSE_RE.match(line):
+            return True
+    return False
 
 
 def parse_depends(raw: Optional[str]) -> List[Dict[str, str]]:

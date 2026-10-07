@@ -52,7 +52,8 @@ from lib.atom_index_json import (  # noqa: E402
 from lib.atom_access import (  # noqa: E402
     move_atom_pair, access_sidecar_path, prune_empty_parents,
 )
-from lib.atom_io import write_raw, _audit_log, _gen_audit_id  # noqa: E402
+from lib.atom_io import write_raw, edit_metadata, _audit_log, _gen_audit_id  # noqa: E402
+from lib.atom_spec import find_aka_line, find_related_line, slugify, split_related  # noqa: E402
 from lib.atom_locations import (  # noqa: E402
     FAILURES_ROOT_NAME, core_write_target, unclassified_error, validate_category_path,
 )
@@ -325,15 +326,15 @@ def all_index_dirs() -> List[Path]:
 def remove_inbound_ref(atom_path: Path, slug: str) -> bool:
     """從 atom_path 的 `- Related:` 移除 slug（走 write_raw funnel）。回是否實際改動。"""
     text = atom_path.read_text(encoding="utf-8")
-    m = re.search(r"^- Related:\s*(.+)$", text, re.MULTILINE)
+    m = find_related_line(text)
     if not m:
         return False
-    items = [i.strip() for i in m.group(1).split(",") if i.strip()]
+    items = split_related(m.group(1))
     new_items = [i for i in items if i != slug]
     if len(new_items) == len(items):
         return False
     new_line = f"- Related: {', '.join(new_items) if new_items else '(none)'}"
-    text = text.replace(m.group(0), new_line, 1)
+    text = text[:m.start()] + new_line + text[m.end():]
     res = write_raw(atom_path, text, source=_SOURCE, op="atom_move_related")
     return bool(getattr(res, "ok", False))
 
@@ -542,6 +543,65 @@ def cmd_reconcile(args):
         sys.exit(2)
 
 
+def cmd_rename(args):
+    """改名：檔名換掉、舊名寫進自己的 `- Aka:`、索引換條目。**不碰任何別的檔。**
+
+    連結以檔名為鍵，所以改名本來要去改每一顆連進來的 atom——那些是別人的檔，
+    多人共用同一個版控庫時必衝突。改成別名之後，連進來的舊名在建索引時解析回現名，
+    連結照樣走得到，正名的成本只剩自己這一顆。
+    """
+    slug, new_slug = args.atom, args.to
+    if new_slug == slug:
+        _fail("new name is the same as the old one")
+    if new_slug != slugify(new_slug):
+        _fail(f"invalid atom name: {new_slug!r}（期望 slug 形狀：{slugify(new_slug)!r}）")
+
+    index_dir = find_index_dir(Path(args.src)) if args.src else None
+    if not index_dir:
+        _fail(f"no {ATOM_INDEX_JSON} at/above --from: {args.src}")
+    entry = find_entry(index_dir, slug)
+    src_md = locate_md(index_dir, slug, entry)
+    if not src_md or not src_md.exists():
+        _fail(f"atom '{slug}' not found under {index_dir}")
+    if find_entry(index_dir, new_slug):
+        _fail(f"'{new_slug}' already exists in the index")
+    dst_md = src_md.with_name(f"{new_slug}.md")
+    if dst_md.exists():
+        _fail(f"target file already exists: {dst_md}")
+
+    text = src_md.read_text(encoding="utf-8-sig")
+    am = find_aka_line(text)
+    aka = split_related(am.group(1)) if am else []
+    if slug not in aka:
+        aka.append(slug)          # 連鎖改名：每個用過的名字都留著
+
+    report = {"action": "rename", "atom": slug, "to": new_slug,
+              "file": str(src_md), "aka": aka, "index_dir": str(index_dir)}
+    if args.dry_run:
+        report["dry_run"] = True
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+
+    res = edit_metadata(src_md, aka=aka, source=_SOURCE)
+    if not getattr(res, "ok", False):
+        _fail(f"failed to write Aka: {getattr(res, 'error', '')}")
+    src_md.rename(dst_md)
+    src_side = access_sidecar_path(src_md)
+    if src_side.exists():
+        src_side.rename(access_sidecar_path(dst_md))
+
+    claude_root = index_dir.parent
+    new_rel = str(dst_md.relative_to(claude_root)).replace("\\", "/")
+    triggers = (entry or {}).get("triggers", [])
+    upsert_atom(index_dir, new_slug, new_rel, triggers,
+                scope=(entry or {}).get("scope", "global"),
+                related=list((entry or {}).get("related", [])), aka=aka)
+    delete_atom(index_dir, slug)
+    report["new_path"] = new_rel
+    report["index_errors"] = validate_index(index_dir)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
 def main():
     p = argparse.ArgumentParser(description="V5 SoT-correct atom move (JSON index + sidecar)")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -554,6 +614,13 @@ def main():
                     help="explicitly set index scope (default: preserve existing)")
     mv.add_argument("--dry-run", action="store_true")
     mv.set_defaults(func=cmd_move)
+
+    rn = sub.add_parser("rename", help="Rename atom in place: file + `- Aka:` + index (touches no other file)")
+    rn.add_argument("atom")
+    rn.add_argument("--to", required=True, help="new slug (filename stem)")
+    rn.add_argument("--from", dest="src", required=True, help="dir at/under the memory root")
+    rn.add_argument("--dry-run", action="store_true")
+    rn.set_defaults(func=cmd_rename)
 
     rc = sub.add_parser("reconcile", help="Atom already moved to --at; fix JSON index + inbound refs")
     rc.add_argument("atom")

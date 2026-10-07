@@ -35,10 +35,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from lib.atom_spec import find_aka_line, find_related_line, split_related  # noqa: E402
 from lib.atom_index_json import (  # noqa: E402
+    SCHEMA_VERSION,
     dedup_triggers,
     delete_atom,
     load_atom_index_json,
+    regenerate_atom_index_md,
+    save_atom_index_json,
     upsert_atom,
 )
 from lib.atom_locations import (  # noqa: E402  V5+ 多根掃描 + Failures filter
@@ -70,6 +74,8 @@ class IndexRow:
     triggers: List[str]
     scope: str = "global"
     depends: Optional[List[str]] = None   # None＝索引條目沒有 depends 鍵
+    related: List[str] = field(default_factory=list)
+    aka: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -80,6 +86,8 @@ class AtomFile:
     triggers: List[str]
     scope: str
     depends: Optional[List[str]] = None   # None＝frontmatter 沒有 Depends 行（存量）；[]／清單＝有行
+    related: List[str] = field(default_factory=list)  # 作者寫的正向連結；反向由注入端反轉，不存檔
+    aka: List[str] = field(default_factory=list)      # 用過的舊檔名；連結以檔名為鍵，改名靠它讓舊連結續存
 
 
 @dataclass
@@ -190,10 +198,14 @@ def scan_atom_files(memory_dir: Path, claude_root: Path) -> Dict[str, AtomFile]:
         if triggers is None:
             continue
         scope = parse_frontmatter_scope(text)
+        rm = find_related_line(text)
+        related = split_related(rm.group(1)) if rm else []
+        am = find_aka_line(text)
+        aka = split_related(am.group(1)) if am else []
         slug = md.stem
         rel = str(md.relative_to(claude_root)).replace("\\", "/")
         out[rel] = AtomFile(name=slug, path=md, rel_path=rel,
-                            triggers=triggers, scope=scope,
+                            triggers=triggers, scope=scope, related=related, aka=aka,
                             depends=parse_frontmatter_depends(text))
     return out
 
@@ -210,6 +222,8 @@ def load_index_rows(memory_dir: Path) -> List[IndexRow]:
             triggers=dedup_triggers(a.get("triggers", [])),
             scope=a.get("scope", "global"),
             depends=[d for d in deps if isinstance(d, str)] if isinstance(deps, list) else None,
+            related=list(a.get("related", [])),
+            aka=list(a.get("aka", [])),
         ))
     return rows
 
@@ -298,11 +312,21 @@ def fix_frontmatter_from_index(atoms_by_path: Dict[str, AtomFile],
 def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
                                   index_rows: List[IndexRow],
                                   memory_dir: Path) -> List[str]:
-    """V5: 走 upsert_atom（JSON SoT，自動回寫 MD mirror）."""
-    indexed = {r.path for r in index_rows}
+    """V5: 走 upsert_atom（JSON SoT，自動回寫 MD mirror）。
+
+    順帶把索引的 `related`（正向連結）對齊 atom 檔——反向連結不存檔、由注入端反轉，
+    所以索引這份正向連結就是連結圖的唯一來源，必須跟著 atom 檔走。
+    """
+    by_path = {r.path: r for r in index_rows}
     added: List[str] = []
     for rel_path, atom in atoms_by_path.items():
-        if rel_path in indexed:
+        row = by_path.get(rel_path)
+        if row is not None:
+            if row.related == atom.related and row.aka == atom.aka:
+                continue
+            upsert_atom(memory_dir, name=atom.name, path=rel_path,
+                        triggers=row.triggers, scope=row.scope,
+                        related=atom.related, aka=atom.aka)
             continue
         ok = upsert_atom(
             memory_dir,
@@ -311,6 +335,8 @@ def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
             triggers=atom.triggers,
             scope=atom.scope,
             depends=atom.depends,   # None＝frontmatter 無行＝不登；有行就連 depends 一起進索引
+            related=atom.related,
+            aka=atom.aka,
         )
         if ok:
             added.append(atom.name)
@@ -318,6 +344,92 @@ def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
 
 
 _SCOPE_HEADER_RE = re.compile(r"^- Scope:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def scanned_root_prefixes(memory_dir: Path, claude_root: Path) -> List[str]:
+    """`scan_atom_files` 這一趟真正走過的根，表示成 rel_path 前綴。
+
+    全域索引不只 `memory/` 一個根（還有 `_AIDocs/_atoms/` 的 local realm、
+    `_AIDocs/Failures/`），而多根只在 memory_dir 正好是本機 `~/.claude/memory` 時才啟用
+    （與 scan_atom_files 同一判準）。副本、別台機器、測試樹都走單根，
+    掃不到那些檔——重建索引時若對它們下刪除結論，那些 atom 會從索引消失且不再被注入。
+    """
+    multi = memory_dir.resolve() == MEMORY_DIR.resolve()
+    roots = atom_search_roots() if multi else [memory_dir]
+    out: List[str] = []
+    for r in roots:
+        try:
+            out.append(str(Path(r).resolve().relative_to(claude_root.resolve())).replace("\\", "/"))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def rebuild_index(memory_dir: Path, claude_root: Path,
+                  atoms_by_path: Dict[str, AtomFile]) -> Dict[str, int]:
+    """整份索引從磁碟重生，一次寫入（不逐顆 upsert，那是 O(n²) 重寫）。
+
+    索引是衍生檔：磁碟上的 atom 才是原始資料。能隨時重生，索引就不必入版控，
+    也就不會出現「兩個人各加一顆 atom ＝ 同一區塊各插一列 ＝ 衝突」，
+    更不會因為索引登錄了尚未上傳的 atom 而綁死「只上傳一部分」。
+
+    兩條界線：
+    - **只對掃過的範圍下刪除結論**：path 落在本趟掃描根之外的條目原樣保留。
+    - **不改 scope**：既有條目沿用原值，只有新條目由 path 推導。scope 回正是
+      `--fix-scope-from-path` 的職責，兩件事混在一起會讓副本上的一次重建把全庫標錯層。
+
+    last_used 不在 .md 裡，從舊索引沿用。回傳各段筆數。
+    """
+    layer = "global" if memory_dir.resolve() == MEMORY_DIR.resolve() else "shared"
+    prev_index = load_atom_index_json(memory_dir)
+    prev_list = prev_index.get("atoms", [])
+    prev = {a.get("name"): a for a in prev_list}
+    covered = scanned_root_prefixes(memory_dir, claude_root)
+
+    def droppable(rel_path: str) -> bool:
+        """只有「在本趟掃描根之下、而檔案真的不存在」才算懸空可刪。
+
+        掃描器另有排除規則（_reference/_staging/templates…），那些目錄裡的既有條目
+        掃不到卻檔案還在——那是排除規則與索引的分歧，不該由重建工具靜默裁決成刪除。
+        """
+        rel_path = (rel_path or "").replace("\\", "/")
+        if not rel_path:
+            return False
+        inside = any(rel_path == c or rel_path.startswith(c + "/") for c in covered)
+        return inside and not (claude_root / rel_path).exists()
+
+    scanned_names = {af.name for af in atoms_by_path.values()}
+    kept = [a for a in prev_list
+            if a.get("name") not in scanned_names and not droppable(a.get("path", ""))]
+    atoms: List[Dict] = list(kept)
+    for rel_path, af in atoms_by_path.items():
+        old_entry = prev.get(af.name) or {}
+        entry: Dict = {
+            "name": af.name,
+            "path": rel_path,
+            "triggers": dedup_triggers(af.triggers),
+            "scope": old_entry.get("scope") or scope_from_index_path(rel_path, layer),
+        }
+        if af.related:
+            entry["related"] = list(dict.fromkeys(af.related))
+        if af.aka:
+            entry["aka"] = list(dict.fromkeys(af.aka))
+        if old_entry.get("last_used"):
+            entry["last_used"] = old_entry["last_used"]
+        atoms.append(entry)
+    # 既有條目維持舊索引的順序，新條目接在尾端（新條目之間以 path 排序求可重現）。
+    # 索引是入版控的檔：重排會讓整檔變成一次重寫（實測 8000 行 diff 有 57% 純粹是位移），
+    # 人看不出真正改了什麼，三檔合併驅動也失去「同區塊各多一列」這個前提。
+    order = {a.get("name"): i for i, a in enumerate(prev_list)}
+    tail = len(order)
+    atoms.sort(key=lambda a: (order.get(a.get("name"), tail), a.get("path", "")))
+    # 重生只負責 version 與 atoms。其餘頂層鍵是別的工具寫的狀態（classify-project-scope
+    # 的 layout="scope-v2" 判「這個專案的記憶已整理過」），這裡不認得、也不該吃掉——原樣帶過去。
+    carried = {k: v for k, v in prev_index.items() if k not in ("version", "atoms")}
+    save_atom_index_json(
+        memory_dir, {"version": SCHEMA_VERSION, "atoms": atoms, **carried})
+    regenerate_atom_index_md(memory_dir)
+    return {"scanned": len(atoms_by_path), "kept_outside_scan": len(kept), "total": len(atoms)}
 
 
 def fix_index_scope_from_path(memory_dir: Path, claude_root: Path,
@@ -378,6 +490,8 @@ def main() -> int:
                         help="rewrite index scope from path (personal/roles/layer), drop dangling entries, align .md Scope header")
     parser.add_argument("--sync-depends", action="store_true",
                         help="write frontmatter Depends into _atom_index.json depends (frontmatter is truth; atoms without a Depends line untouched)")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="整份索引從磁碟重生（衍生檔，可隨時重建；不動任何 .md）")
     parser.add_argument("--check", action="store_true",
                         help="quiet drift check (exit 1 if drift, for PreCommit)")
     parser.add_argument("--memory-dir", type=Path, default=MEMORY_DIR)
@@ -424,6 +538,11 @@ def _run_one(memory_dir: Path, args, *, quiet: bool = False,
     index_rows = load_index_rows(memory_dir)
 
     actions_taken: List[str] = []
+
+    if getattr(args, "rebuild", False):   # 程式化呼叫端（測試/工具）自組 Namespace，不一定帶這旗標
+        stat = rebuild_index(memory_dir, claude_root, atoms_by_path)
+        actions_taken.append(f"index rebuilt from disk: {stat}")
+        index_rows = load_index_rows(memory_dir)
 
     if args.add_from_frontmatter:
         added = add_to_index_from_frontmatter(atoms_by_path, index_rows, memory_dir)

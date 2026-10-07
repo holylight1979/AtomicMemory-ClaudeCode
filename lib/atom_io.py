@@ -26,7 +26,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from .atom_spec import (
     SKIP_DIRS, MEMORY_INDEX, VALID_CONFIDENCE, VALID_SCOPES,
     build_atom_content, slugify, validate_atom_content, render_knowledge_lines,
-    knowledge_sections_bytes, knowledge_budget_error,
+    knowledge_sections_bytes, knowledge_budget_error, has_conflict_markers,
 )
 from .atom_locations import (
     CLAUDE_DIR, GLOBAL_MEMORY_DIR, FAILURES_DIR,
@@ -82,7 +82,7 @@ SENSITIVE_AUDIENCE = frozenset({"architecture", "decision"})
 # 行比對 regex 就地建於 edit_metadata 內（per-label），嚴禁 import tools/
 # （sync-atom-index.py 含 '-' 無法 import，且 lib 反依賴 tools 為架構倒掛）。
 _META_FIELD_LABEL = {
-    "triggers": "Trigger", "related": "Related", "tags": "Tags",
+    "triggers": "Trigger", "related": "Related", "tags": "Tags", "aka": "Aka",
     "provenance": "Source", "quote": "Quote",  # 字串欄（非 list）；provenance 另名避開 audit 的 source 參數
 }
 
@@ -154,13 +154,25 @@ def normalize_lf(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+class ConflictMarkerError(OSError):
+    """要寫出的內容含未解的版控衝突區段。
+
+    繼承 OSError：既有呼叫端的 `except OSError` 會把它當寫入失敗回報，不必逐一改寫。
+    """
+
+
 def write_text_lf(path: Path, content: str) -> None:
     """tmp + rename 落檔，內容一律 LF、UTF-8。
 
     本 repo 全部 LF（.gitattributes eol=lf）。newline="" 關掉平台轉譯，寫出的位元組就是
     content 正規化後的樣子；Windows 預設 newline=None 會把 \\n 翻成 \\r\\n，這裡不允許。
     tmp 後綴帶 PID+TID：併發 session 寫同一檔不互踩（固定 .tmp 會 truncate 競態成半空檔）。
+
+    內容含衝突標記 → 拋 ConflictMarkerError、不落檔：讀進衝突檔再整份寫回的工具，
+    會在標記區段裡改到錯的那一側（且每次重跑再改一次）。解衝突的工具寫出的是已無標記的內容，不受影響。
     """
+    if has_conflict_markers(content):
+        raise ConflictMarkerError(f"refusing to write unresolved conflict markers: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     body = normalize_lf(content)
     import threading as _threading
@@ -499,6 +511,21 @@ def write_index(
             scope = scope_from_index_path(rel_path, _layer)
         except (ImportError, OSError):
             scope = "global"
+    # 連結欄直接讀剛落檔的 atom：寫入端不必逐一補傳，改 Related 的路徑（edit_metadata）
+    # 也自動跟上。讀不到檔（純索引呼叫）→ None＝沿用既有值。
+    related = aka = None
+    md_path = (base_dir.parent / rel_path) if rel_path else None
+    if md_path is not None and md_path.exists():
+        try:
+            text = md_path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        if text:
+            from .atom_spec import find_aka_line, find_related_line, split_related
+            rm = find_related_line(text)
+            am = find_aka_line(text)
+            related = split_related(rm.group(1)) if rm else []
+            aka = split_related(am.group(1)) if am else []
     upsert_atom(
         mem_dir=base_dir,
         name=slug,
@@ -506,6 +533,8 @@ def write_index(
         triggers=triggers_list,
         scope=scope,
         depends=depends,
+        related=related,
+        aka=aka,
     )
     index_path = base_dir / "_atom_index.json"
     _audit_log({
@@ -674,7 +703,7 @@ def _insert_meta_line(text: str, line: str) -> Optional[str]:
 
 def _scope_from_frontmatter(text: str) -> Optional[str]:
     """frontmatter `- Scope:` → VALID_SCOPES 值；legacy `project` 對映 `shared`；缺/非法 → None。"""
-    m = re.search(r"^-\s*Scope:\s*(\S+)", text, re.MULTILINE)
+    m = re.search(r"^-[ \t]*Scope:[ \t]*(\S+)", text, re.MULTILINE)
     if not m:
         return None
     val = m.group(1).strip().lower()
@@ -697,11 +726,12 @@ def edit_metadata(
     triggers: Optional[List[str]] = None,
     related: Optional[List[str]] = None,
     tags: Optional[List[str]] = None,
+    aka: Optional[List[str]] = None,
     provenance: Optional[str] = None,
     quote: Optional[str] = None,
     source: str = "mcp",
 ) -> WriteResult:
-    """atom 元資料外科編輯 — 只替換 frontmatter 的 Trigger/Related/Tags/Source/Quote 行。
+    """atom 元資料外科編輯 — 只替換 frontmatter 的 Trigger/Related/Tags/Aka/Source/Quote 行。
 
     取代直接 Write/Edit atom .md（會被 Guardian guard 擋）與整檔 atom_write replace
     （重建知識區、風險高）。byte-stable：**只改目標那幾行**，其餘行原樣保留。
@@ -712,7 +742,8 @@ def edit_metadata(
 
     Args:
         file_path: atom .md 絕對路徑（global memory 或 _AIDocs/Failures/ 皆可）
-        triggers/related/tags: list[str]，None 表不動該欄位
+        triggers/related/tags/aka: list[str]，None 表不動該欄位
+                （aka＝這顆用過的舊檔名；改名時寫在自己這顆，舊連結靠它續存）
         provenance/quote: str，渲染為 `- Source:`／`- Quote:` 整行；None 表不動；
             空字串表清成空（不刪行）。quote 由呼叫端先 lib.provenance.sanitize_quote
         source: audit source（須在 VALID_SOURCES；預設 "mcp"）
@@ -729,11 +760,15 @@ def edit_metadata(
         return WriteResult(ok=False, audit_id=audit_id, error=f"read failed: {e}")
     had_bom = raw.startswith(b"\xef\xbb\xbf")
     text = raw.decode("utf-8-sig")
+    # 在 index 寫入之前擋：落檔層也會拒，但那時 index 已經改了
+    if has_conflict_markers(text):
+        return WriteResult(ok=False, audit_id=audit_id,
+                           error=f"atom has unresolved conflict markers: {file_path}")
 
     # ── Surgical replace（每個非 None 欄位，只改那一行，count=1）；欄位行不存在則
     #    插到 metadata 區塊（H1 後連續 `- Key: value` 行）末尾——舊模板生的檔常缺
     #    Trigger 行，拒寫會讓它永遠補不齊。沒有 metadata 區塊才回 error。 ──
-    fields = {"triggers": triggers, "related": related, "tags": tags,
+    fields = {"triggers": triggers, "related": related, "tags": tags, "aka": aka,
               "provenance": provenance, "quote": quote}
     new_text = text
     for field_name, values in fields.items():
@@ -742,8 +777,9 @@ def edit_metadata(
         label = _META_FIELD_LABEL[field_name]
         value_str = values if isinstance(values, str) else ", ".join(values)
         replacement = f"- {label}: {value_str}"
-        # per-label regex 收斂到「該欄位那一行」（就地定義，不依賴 tools/）
-        line_re = re.compile(rf"^-\s*{label}:\s*.*$", re.MULTILINE)
+        # per-label regex 收斂到「該欄位那一行」（就地定義，不依賴 tools/）。
+        # 只吃同行空白：`\s*` 遇到空值欄位會跨行，把下一行（通常 `## 知識`）一併替換掉。
+        line_re = re.compile(rf"^-[ \t]*{label}:[ \t]*.*$", re.MULTILINE)
         # 以函式回傳替換字串：值含反斜線（Windows 路徑、Quote 原話）時不得被當成 regex 跳脫
         new_text, n = line_re.subn(lambda _m: replacement, new_text, count=1)
         if n == 0:
@@ -1311,7 +1347,10 @@ def write_atom(
                                   "index_ok": None, "supersedes": supersedes_final})
 
     # ── Write file ──
-    _atomic_write(file_path, content)
+    try:
+        _atomic_write(file_path, content)
+    except ConflictMarkerError as e:
+        return WriteResult(ok=False, audit_id=audit_id, error=str(e))
 
     # ── 同步維護 <atom>.access.json 旁路檔 ──
     # 延遲 import 避免 atom_io ↔ atom_access 環依（atom_access import atom_io 的 audit infra）

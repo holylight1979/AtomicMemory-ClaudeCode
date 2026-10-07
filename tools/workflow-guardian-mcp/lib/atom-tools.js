@@ -939,13 +939,18 @@ function toolAtomMove(id, args) {
   if (dry_run) argv.push("--dry-run");
 
   return new Promise((resolve) => {
-    const cp = require("child_process").spawn(PYTHON_EXE, argv, { windowsHide: true });
-    let out = "", err = "";
+    const cp = require("child_process").spawn(PYTHON_EXE, argv, {
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+    });
+    const outChunks = [], errChunks = [];
     const timer = setTimeout(() => { try { cp.kill(); } catch {} }, 30000);
-    cp.stdout.on("data", d => { out += d.toString(); });
-    cp.stderr.on("data", d => { err += d.toString(); });
+    cp.stdout.on("data", d => { outChunks.push(d); });
+    cp.stderr.on("data", d => { errChunks.push(d); });
     cp.on("close", (code) => {
       clearTimeout(timer);
+      const out = Buffer.concat(outChunks).toString("utf-8");
+      const err = Buffer.concat(errChunks).toString("utf-8");
       const combined = (out || "") + (err ? ("\n[stderr]\n" + err) : "");
       if (code !== 0) {
         sendToolResult(id, `atom_move exited ${code}\n${combined}`, true);

@@ -300,6 +300,59 @@ def visible_vector_layers(
 # ─── Atom Matching & Activation ──────────────────────────────────────────────
 
 
+# 冒號後只吃同行空白：Related 為空值時 \s* 會跨行，把下一行標題當成連結名
+_RELATED_RE = re.compile(r"^- Related:[ \t]*(.+)", re.MULTILINE)
+
+_LINK_GRAPH_CACHE: Dict[Tuple[str, ...], Tuple[Dict[str, List[str]], Dict[str, str], set]] = {}
+
+
+def load_link_graph(
+    memory_dirs: List[Path],
+) -> Tuple[Dict[str, List[str]], Dict[str, str], set]:
+    """讀索引的正向連結，在記憶體反轉成雙向鄰接表。
+
+    回傳 (adj, alias, covered)：
+      adj[name]    與它相連的名字（自己寫的正向 ＋ 別人連進來的反向），去重保序
+      alias[舊名]  現名——來自 atom 的 `- Aka:` 行，改名後舊連結靠它續存
+      covered      索引答得出連結的 atom 名；其餘退回讀檔解析（舊索引沒有 related 欄）
+
+    反向連結只存在記憶體裡。落檔的話，新增一顆連到 hub 的 atom 就得去改 hub 那個檔，
+    而那是別人的檔——多人共用同一個版控庫時必衝突。
+    """
+    key = tuple(sorted(str(d) for d in memory_dirs))
+    hit = _LINK_GRAPH_CACHE.get(key)
+    if hit is not None:
+        return hit
+
+    adj: Dict[str, List[str]] = {}
+    alias: Dict[str, str] = {}
+    covered: set = set()
+    if load_atom_index_json is not None:
+        datas = [load_atom_index_json(d) for d in memory_dirs if (d / ATOM_INDEX_JSON).exists()]
+        names = {a.get("name") for d in datas for a in d.get("atoms", [])}
+        for data in datas:
+            for a in data.get("atoms", []):
+                for old_name in a.get("aka", []) or []:
+                    if old_name and old_name not in names:
+                        alias.setdefault(old_name, a.get("name", ""))
+        for data in datas:
+            atoms = data.get("atoms", [])
+            if not any("related" in a for a in atoms):
+                continue  # 這份索引還沒同步過連結欄 → 整份走讀檔 fallback
+            for a in atoms:
+                name = a.get("name", "")
+                covered.add(name)
+                for target in a.get("related", []) or []:
+                    target = alias.get(target, target)
+                    if not target or target == name:
+                        continue
+                    adj.setdefault(name, []).append(target)
+                    adj.setdefault(target, []).append(name)  # 反向：只在記憶體
+    graph = ({k: list(dict.fromkeys(v)) for k, v in adj.items()}, alias, covered)
+    _LINK_GRAPH_CACHE[key] = graph
+    return graph
+
+
 def spread_related(
     matched_names: set,
     all_atoms: List[Tuple[AtomEntry, Path]],
@@ -307,8 +360,15 @@ def spread_related(
     max_depth: int = 1,
     content_cache: Optional[Dict[str, Optional[str]]] = None,
 ) -> List[Tuple[AtomEntry, Path]]:
-    """沿 Related 邊擴散，回傳尚未匹配的相關 atoms (depth-limited BFS)."""
-    _RELATED_RE = re.compile(r"^- Related:\s*(.+)", re.MULTILINE)
+    """沿連結擴散，回傳尚未匹配的相關 atoms (depth-limited BFS)。
+
+    邊以索引為準（正向 ＋ 記憶體反轉的反向）；索引沒收錄的 atom 才讀檔解析 `- Related:`。
+    """
+    adj, alias, covered = load_link_graph([bd / "memory" for _, bd in all_atoms])
+    by_name: Dict[str, Tuple[AtomEntry, Path]] = {}
+    for entry_tuple in all_atoms:
+        by_name.setdefault(entry_tuple[0][0], entry_tuple)
+
     visited = set(matched_names) | set(already_injected)
     wave = list(matched_names)
     result: List[Tuple[AtomEntry, Path]] = []
@@ -316,25 +376,38 @@ def spread_related(
     for _depth in range(max_depth):
         next_wave: List[str] = []
         for name in wave:
-            atom_path = _find_atom_path(name, all_atoms)
-            if not atom_path or not atom_path.exists():
-                continue
-            text = read_atom_text(atom_path, content_cache)
-            if text is None:
-                continue
-            rm = _RELATED_RE.search(text)
-            if not rm:
-                continue
-            for rn in (r.strip() for r in rm.group(1).split(",") if r.strip()):
-                if rn not in visited:
-                    visited.add(rn)
-                    for entry_tuple in all_atoms:
-                        if entry_tuple[0][0] == rn:
-                            result.append(entry_tuple)
-                            next_wave.append(rn)
-                            break
+            neighbours = list(adj.get(name, ()))
+            if name not in covered:
+                neighbours += _related_from_file(name, all_atoms, content_cache)
+            for rn in neighbours:
+                rn = alias.get(rn, rn)
+                if rn in visited:
+                    continue
+                visited.add(rn)
+                entry_tuple = by_name.get(rn)
+                if entry_tuple is not None:
+                    result.append(entry_tuple)
+                    next_wave.append(rn)
         wave = next_wave
     return result
+
+
+def _related_from_file(
+    name: str,
+    all_atoms: List[Tuple[AtomEntry, Path]],
+    content_cache: Optional[Dict[str, Optional[str]]],
+) -> List[str]:
+    """索引還沒收錄連結時的後路：直接讀該 atom 的 `- Related:` 行。"""
+    atom_path = _find_atom_path(name, all_atoms)
+    if not atom_path or not atom_path.exists():
+        return []
+    text = read_atom_text(atom_path, content_cache)
+    if text is None:
+        return []
+    rm = _RELATED_RE.search(text)
+    if not rm:
+        return []
+    return [r.strip() for r in rm.group(1).split(",") if r.strip()]
 
 
 # ─── Supersedes：全路徑有效性 ────────────────────────────────────────────────
@@ -1835,7 +1908,7 @@ def _truncate_context_by_activation(
 SECTION_INJECT_THRESHOLD = 200
 
 _SECTION_HEADER_RE = re.compile(r"^(#{2,3})\s+(.+)", re.MULTILINE)
-_RELATED_LINE_RE = re.compile(r"^- Related:\s*.+", re.MULTILINE)
+_RELATED_LINE_RE = re.compile(r"^- Related:[ \t]*.+", re.MULTILINE)
 
 
 def _extract_sections(

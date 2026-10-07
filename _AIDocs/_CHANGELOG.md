@@ -448,6 +448,12 @@
 
 ---
 
+## 2026-09-23 反向連結不落檔、索引可從磁碟重建——治本多人共用記憶庫的版控衝突
+- 衝突的來源不是兩個人改同一份知識，是兩類設計：把可推導的關係實體化成「要寫進別人檔案的欄位」，以及把衍生檔當成原始檔入版控。**反向連結**：索引加 `related` 欄（作者自己寫的正向連結），注入端 `load_link_graph` 讀進來在記憶體反轉，不再把反向寫進被連的那顆檔；`--fix-refs` 改無動作、SessionEnd 不再背景跑、atom-heal 的 L1 整級移除。**改名**：atom 加 `- Aka:`，索引把舊名登錄成同一顆的鍵，改名者只動自己那一顆。**索引可重建**：`--rebuild` 整份從磁碟重生、只刪「掃描根底下且檔案真的不存在」者、不改既有 scope、原樣帶過 `layout` 等未知頂層鍵，且維持既有條目順序、新條目接尾端（索引是入版控的共用檔，無條件排序會讓整檔變成一次重寫）；SessionStart 索引不在即自動重建並報條目數。
+- 同批修掉：`Related` 行讀寫定位到同一行、寫入 funnel 拒寫含衝突標記的內容、空值 `Related` 不再接到下一行標題、MCP 子行程以 utf-8 收 stdout。相容舊版：schema 維持 1.0 只加欄位；舊版可讀新格式，但舊版 `--fix-refs` 仍會把反向連結寫回被連的檔——要全隊更新才根治。 | `hooks/wg_atoms.py`, `hooks/handlers/{session_start,session_end}.py`, `lib/{atom_index_json,atom_io,atom_spec}.py`, `tools/{sync-atom-index,atom-move,atom-heal,atom-health-check}.py`, `tools/workflow-guardian-mcp/lib/{atom-tools,funnel}.js`
+
+---
+
 ## 2026-09-21 收尾檢查兩修——口令閘看整回合原話、子代理紅測不進主 session
 - **CommitOrder 口令閘**：只看 `recent_user_prompts[-1]`，使用者「上GIT」後排隊補一句別的話就把口令蓋掉（本日實踩，閘誤擋一次）。改為 `ups_gates.track_turn_prompts` 維護 `state.turn_prompts`（Stop 入口設 `turn_open=False` 關回合、下一則重開），閘看整回合；舊 state 無欄位退回只看最後一句。已知邊界：Stop 被 block 後的 mid-turn 訊息會被當新回合，只多擋一次。
 - **子代理紅測隔離**：sub-agent 跑 `run_verify` 的 2 筆紅測進了主 session `failing_tests`，主 session 的 Stop 被 TestFailGate 擋（本日實踩兩次）。`post_tool_use._track_test_result`：hook 輸入帶 `agent_id`（官方 Common input fields，子代理內才有）時不記也不清主 session 帳。`verify_failing_tests_subagent_isolation.py` 5 案。

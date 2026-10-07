@@ -142,6 +142,41 @@ def wg_core_workflow_dir() -> Path:
     return wg_core.WORKFLOW_DIR
 
 
+def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
+    """索引檔不在（沒入版控／被清掉／新 clone）但磁碟上有 atom → 就地重建。
+
+    索引是衍生檔，本來就該能從 atom 重生；能重生才敢不入版控，
+    不入版控才不會「兩個人各加一顆 atom ＝ 同一區塊各插一列 ＝ 衝突」。
+    回傳要顯示的一行（沒事做回空字串）。
+    """
+    if not memory_dir or not memory_dir.is_dir():
+        return ""
+    if (memory_dir / "_atom_index.json").exists():
+        return ""
+    if not any(memory_dir.rglob("*.md")):
+        return ""
+    import subprocess as _sp
+    cmd = [sys.executable, str(CLAUDE_DIR / "tools" / "sync-atom-index.py"),
+           "--memory-dir", str(memory_dir), "--rebuild"]
+    try:
+        r = _sp.run(cmd, capture_output=True, text=True, timeout=120)
+    except (OSError, _sp.SubprocessError) as e:
+        return f"[Guardian:Index] ⚠ 索引不在且重建失敗（{e}）——trigger 注入這輪會是空的。"
+    index_path = memory_dir / "_atom_index.json"
+    if not index_path.exists():
+        return f"[Guardian:Index] ⚠ 索引不在且重建沒產出檔案：{(r.stderr or '').strip()[:200]}"
+    # 帶上條目數：從零重建只收「磁碟掃得到的 atom」，舊索引若登記過非 atom 檔
+    #（_reference/ 下的參考文、沒有元資料的敘事文），重建後條目會變少。
+    # 不報數字的話那個落差是隱形的。
+    try:
+        import json as _json
+        n = len(_json.loads(index_path.read_text(encoding="utf-8")).get("atoms") or [])
+        count = f"，共 {n} 筆"
+    except (OSError, ValueError):
+        count = ""
+    return f"[Guardian:Index] 索引不在 → 已從磁碟重建（{memory_dir}）{count}。"
+
+
 def _regenerate_role_filtered_memory_index(
     project_mem_dir: Path, user: str, roles: List[str], management: bool,
     v4_entries: List[Tuple[str, str, List[str]]],
@@ -938,6 +973,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             sys.exit(0)
 
     existing = read_state(session_id)
+    _index_rebuild_notes: List[str] = []   # resume 分支不重建，仍要有值供收尾組訊息
     root_rebuilt = False
     if existing and source in ("compact", "resume") and not _root_fingerprint_matches(existing, root_res):
         # 專案根指紋變了（cwd 換了、宣告檔改了、或舊 state 還沒有指紋）→ 走下方重建分支重算
@@ -997,8 +1033,10 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 趕不趕得上本次候選池隨緣——拉入的 atom 下一個 session 才一定進候選池，advisory 只報同步事實。
         _spawn_pull_sync(session_id, cwd, config)
 
+        _index_rebuild_notes.append(_rebuild_index_if_missing(MEMORY_DIR))
         global_atoms = parse_memory_index(MEMORY_DIR)
         project_mem_dir = get_project_memory_dir(cwd)
+        _index_rebuild_notes.append(_rebuild_index_if_missing(project_mem_dir))
         project_root = find_project_root(cwd)
 
         register_project(cwd)
@@ -1071,6 +1109,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             "[Workflow Guardian] Active." if not root_rebuilt
             else f"[Workflow Guardian] Session resumed ({source}); 專案根變更，atom index 已重建.",
             f"Global: {len(g_names)} atoms. Project: {len(p_names)}.",
+            *[n for n in _index_rebuild_notes if n],
             *root_lines,
         ]
 
