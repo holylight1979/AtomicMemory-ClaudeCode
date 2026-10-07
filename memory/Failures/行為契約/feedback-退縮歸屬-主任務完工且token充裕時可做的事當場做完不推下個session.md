@@ -14,6 +14,7 @@
 - [臨] 判準（使用者定）：**主任務已完工或即將完工 ∧ context 用量 ≤ 1M 的 75% ∧ 處理後不會飄移主任務認知** → 當場做掉；不能做只有三種理由（不可逆／需使用者拍板業務取捨／會飄移），要一句話明寫；或使用者已明示延後（引原話）。「任務單範圍外」不是理由——可逆且屬自然延伸的維護動作本就該直接做（[[自己flag的維護動作直接做完不要反問]]）。
 - [臨] 程式化：Stop 閘 `DeferralGate`（`hooks/handlers/stop.py`，純函式 `wg_evasion.deferral_gate_reason`），詞表 `memory/_meta/forbidden-phrases.json` 類別 `deferral-attribution`，門檻 `workflow/config.json deferral_gate`（max_context_ratio 0.75、min_object_chars 6）。擋回三選一 (a) 做掉 (b) 一句不能做的理由 (c) 使用者原話。使用者命令式延後語（`deferral_user_ok`）為逃生門；使用者「質問為何要新開 session」不算放行。
 - [臨] 「分階段執行」≠「每階段換 session」。使用者連問兩次「Phase 2/3 此 session 不適合做嗎？」（2026-09-01 scope 三階段）：context 健康、程式脈絡與定案都在手上時，換 session 反而是飄移來源。接續 prompt 只當備援（context 快滿、或使用者要收工時才用），預設直接續做下一階段。
+- [臨] 2026-10-07 正例：收尾把「vcs-sync 納入 3 個計數標記檔」寫成待拍板，DeferralGate 擋回三選一，我選 (a) 當場做掉（含測試、文件、commit＋push、附 revert 法），使用者回「NICE」並要求把這種自己推進的做法寫進記憶。結論：閘擋回時，可逆且屬原請求延伸的一律選 (a)，不選 (b) 找理由；(b) 只留給真正不可逆或業務取捨。
 
 ## 行動
 
