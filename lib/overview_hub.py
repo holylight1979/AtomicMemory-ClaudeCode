@@ -22,7 +22,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 MAP_REL = ".claude/overview-map.md"
-LOCATE_RE = re.compile(r"^\s*定位\s*[｜|]\s*(部位|根因層?|前例)\s*[:：]\s*(.+)$", re.MULTILINE)
+LOCATE_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）
+    r"^\s*(?:#+\s*|//\s*)?定位\s*[｜|]\s*(部位|根因層?|前例)\s*[:：]\s*(.+?)\s*[\"']?,?$", re.MULTILINE
+)
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
 _STATUS_HEADS = ("有", "部分", "索引", "無")
@@ -180,8 +182,8 @@ def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, 
     t = (t + DEFAULT_LOCATE_TEMPLATE[len(t):])[:3]
     head = (
         f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-        f"改這個部位的檔之前先把下面的導讀卡讀完，並在**回覆文字**裡交出定位三行（寫在給使用者看的文字，"
-        f"不是思考、不是工具輸入；三行都要，格式照抄）：\n"
+        f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字最好，"
+        f"但本機 transcript 偶爾會掉「先文字再呼叫工具」那段，保險做法是同時放進下一個工具呼叫的參數，例如 Bash 開頭的註解）：\n"
         f"定位｜部位：{row['part_short']}——{t[0]}\n"
         f"定位｜根因層：{t[1]}\n"
         f"定位｜前例：{t[2]}"
@@ -229,8 +231,16 @@ def locate_present(text: str, part_short: str, template: Optional[List[str]] = N
     )
 
 
-def assistant_text_after(transcript_path: str, byte_offset: int) -> str:
-    """transcript（jsonl）從 byte_offset 之後的所有 assistant 文字塊，串成一段。fail-open 回 ""。"""
+LOCATE_CHANNELS = ("text", "tool_input", "thinking")
+
+
+def assistant_text_after(transcript_path: str, byte_offset: int, channel: str = "text") -> str:
+    """transcript（jsonl）從 byte_offset 之後的 assistant 內容，串成一段。fail-open 回 ""。
+
+    channel：text＝回覆文字塊；tool_input＝工具呼叫的參數（字串化）；thinking＝思考塊。
+    harness 偶爾不把「先文字、再呼叫工具」那段文字寫進 transcript（根層與 TSLG 各自驗到），
+    所以定位三行要三個管道都認，記下是哪個管道。
+    """
     if not transcript_path:
         return ""
     try:
@@ -248,9 +258,36 @@ def assistant_text_after(transcript_path: str, byte_offset: int) -> str:
         if not isinstance(obj, dict) or obj.get("type") != "assistant":
             continue
         for block in obj.get("message", {}).get("content", []) or []:
-            if isinstance(block, dict) and block.get("type") == "text":
+            if not isinstance(block, dict):
+                continue
+            bt = block.get("type")
+            if channel == "text" and bt == "text":
                 out.append(block.get("text", ""))
+            elif channel == "thinking" and bt == "thinking":
+                out.append(block.get("thinking", ""))
+            elif channel == "tool_input" and bt == "tool_use":
+                out.extend(_string_values(block.get("input", {})))
     return "\n".join(out)
+
+
+def _string_values(obj: Any) -> List[str]:
+    """工具參數裡所有字串值（遞迴），每個自成一段，行首就是內容（json.dumps 會把鍵名黏在行首）。"""
+    if isinstance(obj, str):
+        return [obj]
+    if isinstance(obj, dict):
+        return [s for v in obj.values() for s in _string_values(v)]
+    if isinstance(obj, list):
+        return [s for v in obj for s in _string_values(v)]
+    return []
+
+
+def locate_channel(transcript_path: str, byte_offset: int, part_short: str,
+                   template: Optional[List[str]] = None) -> Optional[str]:
+    """定位三行在哪個管道交的：依 LOCATE_CHANNELS 順序找，找到回管道名，都沒有回 None。"""
+    for ch in LOCATE_CHANNELS:
+        if locate_present(assistant_text_after(transcript_path, byte_offset, ch), part_short, template):
+            return ch
+    return None
 
 
 def transcript_size(transcript_path: str) -> int:

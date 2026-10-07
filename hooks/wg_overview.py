@@ -21,7 +21,7 @@ from wg_core import CLAUDE_DIR
 
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 from overview_hub import (  # noqa: E402
-    assistant_text_after, build_injection, find_map, locate_present, match_row,
+    build_injection, find_map, locate_channel, match_row,
     parse_map, read_paths_from_tool, resolve_card, top_dir, transcript_size,
 )
 
@@ -168,13 +168,15 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     rec["edits"] = int(rec.get("edits", 0)) + 1
     reads = rec.get("reads_after", [])
     dirs = sorted({top_dir(p, root) for p in reads})
-    verifiable = transcript_size(transcript_path) > 0   # transcript 讀得到就可驗；讀得到但沒文字＝沒交
+    verifiable = transcript_size(transcript_path) > 0   # transcript 讀得到就可驗；讀得到但沒內容＝沒交
     if not rec.get("located") and verifiable:
-        text = assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)))
-        rec["located"] = locate_present(text, row["part_short"], rec.get("locate_template"))
+        ch = locate_channel(transcript_path, int(rec.get("transcript_offset", 0)),
+                            row["part_short"], rec.get("locate_template"))
+        rec["located"] = ch is not None
+        rec["located_via"] = ch
     _log("edit", session_id, part=row["part_short"], path=file_path, located=rec["located"],
-         verifiable=verifiable, reads_after_inject=len(reads), dirs_after_inject=len(dirs),
-         edits=rec["edits"], dry_run=cfg["dry_run"])
+         located_via=rec.get("located_via"), verifiable=verifiable, reads_after_inject=len(reads),
+         dirs_after_inject=len(dirs), edits=rec["edits"], dry_run=cfg["dry_run"])
     if rec["located"]:
         return (None, None, True)
     if not verifiable:

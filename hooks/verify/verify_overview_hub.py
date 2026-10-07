@@ -262,6 +262,29 @@ def test_row_with_two_cards_injects_both_and_deny_parts(proj, tmp_path, monkeypa
     assert deny and "定位三行" in deny
 
 
+def test_locate_accepted_from_tool_input_and_thinking(proj, tmp_path, monkeypatch):   # harness 掉字後的三管道
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = tmp_path / "t.jsonl"
+    lines = "定位｜部位：戰鬥——A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"
+    def entry(block):
+        return json.dumps({"type": "assistant", "message": {"content": [block]}}, ensure_ascii=False) + "\n"
+    tp.write_text(entry({"type": "text", "text": "x"}), encoding="utf-8")
+    state = {}
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), str(tp), {})
+    with open(tp, "a", encoding="utf-8") as f:                                    # 三行只在 Bash 參數裡
+        f.write(entry({"type": "tool_use", "name": "Bash", "input": {"command": "# " + lines.replace("\n", "\n# ") + "\nsed -n 1,5p A.cs"}}))
+    assert wo.on_edit(state, "s", f1, str(tp), {}) == (None, None, True)
+    assert list(state["overview_hub"].values())[0]["located_via"] == "tool_input"
+    assert oh.locate_channel(str(tp), 0, "戰鬥") == "tool_input"
+    with open(tp, "a", encoding="utf-8") as f:                                    # 文字塊優先
+        f.write(entry({"type": "text", "text": lines}))
+    assert oh.locate_channel(str(tp), 0, "戰鬥") == "text"
+    tp.write_text(entry({"type": "thinking", "thinking": lines}), encoding="utf-8")
+    assert oh.locate_channel(str(tp), 0, "戰鬥") == "thinking"
+    assert oh.locate_channel(str(tp), 0, "Server") is None
+
+
 def test_missing_transcript_warns_instead_of_silent_allow(proj, tmp_path, monkeypatch):   # B4
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     state = {}
