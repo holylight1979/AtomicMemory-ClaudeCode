@@ -4895,6 +4895,37 @@
         "jsonl 找不到文字"
       ],
       "scope": "global"
+    },
+    {
+      "name": "mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效",
+      "path": "_AIDocs/_atoms/MemDev/mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效.md",
+      "triggers": [
+        "MCP 舊碼",
+        "atom-tools.js",
+        "funnel.js",
+        "改了沒生效",
+        "重起 MCP",
+        "新 session 才載",
+        "write-gate title",
+        "去重閘沒吃到"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "ai自主模式下以為寫了回覆其實只有工具呼叫-想了沒說-要交給使用者看的宣告必須落在文字塊-閘用transcript文字塊判不用自報",
+      "path": "memory/行為契約/ai自主模式下以為寫了回覆其實只有工具呼叫-想了沒說-要交給使用者看的宣告必須落在文字塊-閘用transcript文字塊判不用自報.md",
+      "triggers": [
+        "想了沒說",
+        "以為寫了",
+        "定位三行",
+        "located=false",
+        "文字塊",
+        "thinking 不算",
+        "自主模式",
+        "自報不可信",
+        "transcript 驗"
+      ],
+      "scope": "global"
     }
   ]
 }
