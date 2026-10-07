@@ -31,7 +31,7 @@ from wg_core import (
     _is_under_claude_dir,
     iter_realm_category_dirs,
     REALM_AUTOMOVE_MARKER,
-    find_vcs_root, memory_dir_candidates,
+    find_vcs_root, find_svn_root, memory_dir_candidates,
     resolve_project_root, org_memory_root, load_config, load_org_local,
 )
 from wg_atoms import (
@@ -615,60 +615,79 @@ def _index_conflict_advisory(cwd: str) -> list:
     唯讀 git；非 repo／git 不在／任何失敗 → []。PreToolUse 的 check_merge_driver 會在下一個
     `rebase --continue`／`commit` 前自動 --resolve，這行只是讓人先知道現況。
     """
+    lines: list = []
     try:
         if not cwd or not Path(cwd).is_dir():
             return []
-        vcs = find_vcs_root(Path(cwd))  # 零子行程：非工作區直接零行；svn WC（含住在 git repo 裡的）走 svn 分支
-        if vcs is None:
-            return []
-        if vcs[0] == "svn":
-            return _svn_index_conflict_advisory(cwd, vcs[1])
+        # svn 側獨立找：git 疊在 svn 上（同層兩個都有）時 find_vcs_root 回 git，svn 衝突會被略過
+        svn_root = find_svn_root(Path(cwd))
+        if svn_root is not None:
+            lines += _svn_index_conflict_advisory(cwd, svn_root)
+        vcs = find_vcs_root(Path(cwd))  # 零子行程：非工作區直接零行
+        if vcs is None or vcs[0] != "git":
+            return lines
         r = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=2, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
-            return []
+            return lines
         gitdir = Path((r.stdout or "").strip())
         if not gitdir.is_absolute():
             gitdir = Path(cwd) / gitdir
         if not any((gitdir / n).exists()
                    for n in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply")):
-            return []
+            return lines
         r = subprocess.run(
             ["git", "ls-files", "-u", "-z"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=2, cwd=cwd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
-            return []
+            return lines
         index_names = {"MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json", "_INDEX.md", "_local_catalog.md"}
         names = sorted({
             entry.split("\t", 1)[1].rsplit("/", 1)[-1]
             for entry in (r.stdout or "").split("\0") if "\t" in entry
         } & index_names)
-        if not names:
-            return []
-        return [
-            f"[Guardian:IndexConflict] ⚠ 索引三檔尚未合併（{', '.join(names)}）"
-            "→ python ~/.claude/tools/merge-atom-index.py --resolve 後 git rebase --continue"
-        ]
+        if names:
+            lines.append(
+                f"[Guardian:IndexConflict] ⚠ 索引三檔尚未合併（{', '.join(names)}）"
+                "→ python ~/.claude/tools/merge-atom-index.py --resolve 後 git rebase --continue")
+        return lines
     except Exception as e:
         _atom_debug_error("session_start:index_conflict_advisory", e)
-        return []
+        return lines
+
+
+_SVN_INDEX_NAMES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
 
 
 def _svn_index_conflict_advisory(cwd: str, root: Path) -> list:
-    """SVN 工作副本：update 停在索引三檔衝突會留下 <檔>.mine；memory dir 候選裡有就提示一行（零子行程）。"""
-    names = sorted({
-        n for d in memory_dir_candidates(Path(cwd), root)
-        for n in ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json") if (d / f"{n}.mine").exists()
-    })
-    if not names:
-        return []
-    return [
-        f"[Guardian:IndexConflict] ⚠ SVN 索引三檔尚未解（{', '.join(names)}）"
-        "→ 在 CC 下 svn commit 前 hook 會自動解，或手動 python ~/.claude/tools/merge-atom-index.py --resolve"
-    ]
+    """SVN 工作副本：update 衝突會在原檔旁留下 <檔>.mine。memory dir 候選裡有就提示（零子行程）。
+
+    索引三檔與 atom 分開講：索引三檔 svn commit 前 hook 會自動解；atom 衝突要人判斷，
+    而且在解完之前 SessionEnd 的反向連結修補會跳過它們——放著不解，連結就一直補不上。
+    """
+    index_names: set = set()
+    atoms: list = []
+    for d in memory_dir_candidates(Path(cwd), root):
+        for mine in d.rglob("*.mine"):
+            original = mine.name[:-len(".mine")]
+            if original in _SVN_INDEX_NAMES:
+                index_names.add(original)
+            elif original.endswith(".md"):
+                atoms.append(original[:-3])
+    out = []
+    if index_names:
+        out.append(
+            f"[Guardian:IndexConflict] ⚠ SVN 索引三檔尚未解（{', '.join(sorted(index_names))}）"
+            "→ 在 CC 下 svn commit 前 hook 會自動解，或手動 python ~/.claude/tools/merge-atom-index.py --resolve")
+    if atoms:
+        shown = "、".join(sorted(atoms)[:3]) + ("…" if len(atoms) > 3 else "")
+        out.append(
+            f"[Guardian:IndexConflict] ⚠ SVN 有 {len(atoms)} 顆 atom 衝突未解（{shown}）"
+            "→ 先解衝突再收工；未解期間自動修補會跳過這些檔")
+    return out
 
 
 def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:

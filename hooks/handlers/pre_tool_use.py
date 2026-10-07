@@ -22,7 +22,7 @@ from wg_core import (
     check_cross_realm_write, check_cross_realm_mcp_cmd, check_cross_realm_bash,
     read_state, read_state_status,
     _atom_debug_log,
-    find_vcs_root, memory_dir_candidates,
+    find_vcs_root, find_svn_root, memory_dir_candidates,
     user_typed_prompts,
 )
 
@@ -954,10 +954,9 @@ def _svn_unmerged_index_files(run_cwd: str, timeout: float) -> Optional[List[str
     （整個 WC 的 status 要 3～6 秒，超出預算）。None＝查不到；[]＝沒有。"""
     if not run_cwd or not os.path.isdir(run_cwd):
         return None
-    vcs = find_vcs_root(Path(run_cwd))
-    if not vcs or vcs[0] != "svn":
+    root = find_svn_root(Path(run_cwd))  # git 疊在 svn 上時 find_vcs_root 回 git，svn 側要另找
+    if root is None:
         return None
-    root = vcs[1]
     dirs = memory_dir_candidates(Path(run_cwd), root)
     if not dirs:
         return []
@@ -1059,7 +1058,7 @@ def check_merge_driver(
                     continue
                 try:
                     r = _run_capture(
-                        [interp, str(_MERGE_TOOL), "--resolve", "--cwd", run_cwd, "--quiet"],
+                        [interp, str(_MERGE_TOOL), "--resolve", "--vcs", kind, "--cwd", run_cwd, "--quiet"],
                         run_cwd, _left(_MERGE_GATE_BUDGET_S),
                     )
                 except subprocess.TimeoutExpired:

@@ -448,6 +448,11 @@
 
 ---
 
+## 2026-09-23 git 疊 svn 的同層雙版控：svn 側衝突不再被略過
+- `find_vcs_root` 在同一層同時有 `.git` 與 `.svn` 時回 git，所有只靠它找根的 svn 處理（SessionStart 的索引衝突 advisory、PreToolUse 在 `svn commit`／`resolve` 前的自動解、`merge-atom-index --resolve`）在這種目錄下永遠看不到 svn 那一側，卻回報成功。新增零子行程的 `wg_core.find_svn_root`，svn 側一律用它獨立找根；`--resolve` 改兩側都看（`--vcs git|svn` 只處理一側，PreToolUse 依觸發指令帶入），沒有衝突的一側不動。SessionStart 把 svn 的 atom 衝突與索引三檔分開報：索引三檔 hook 會自動解，atom 衝突要人判斷。 | `hooks/wg_core.py`, `hooks/handlers/{session_start,pre_tool_use}.py`, `tools/merge-atom-index.py`, `hooks/verify/verify_dual_vcs_conflict_detection.py`
+
+---
+
 ## 2026-09-23 反向連結不落檔、索引可從磁碟重建——治本多人共用記憶庫的版控衝突
 - 衝突的來源不是兩個人改同一份知識，是兩類設計：把可推導的關係實體化成「要寫進別人檔案的欄位」，以及把衍生檔當成原始檔入版控。**反向連結**：索引加 `related` 欄（作者自己寫的正向連結），注入端 `load_link_graph` 讀進來在記憶體反轉，不再把反向寫進被連的那顆檔；`--fix-refs` 改無動作、SessionEnd 不再背景跑、atom-heal 的 L1 整級移除。**改名**：atom 加 `- Aka:`，索引把舊名登錄成同一顆的鍵，改名者只動自己那一顆。**索引可重建**：`--rebuild` 整份從磁碟重生、只刪「掃描根底下且檔案真的不存在」者、不改既有 scope、原樣帶過 `layout` 等未知頂層鍵，且維持既有條目順序、新條目接尾端（索引是入版控的共用檔，無條件排序會讓整檔變成一次重寫）；SessionStart 索引不在即自動重建並報條目數。
 - 同批修掉：`Related` 行讀寫定位到同一行、寫入 funnel 拒寫含衝突標記的內容、空值 `Related` 不再接到下一行標題、MCP 子行程以 utf-8 收 stdout。相容舊版：schema 維持 1.0 只加欄位；舊版可讀新格式，但舊版 `--fix-refs` 仍會把反向連結寫回被連的檔——要全隊更新才根治。 | `hooks/wg_atoms.py`, `hooks/handlers/{session_start,session_end}.py`, `lib/{atom_index_json,atom_io,atom_spec}.py`, `tools/{sync-atom-index,atom-move,atom-heal,atom-health-check}.py`, `tools/workflow-guardian-mcp/lib/{atom-tools,funnel}.js`
