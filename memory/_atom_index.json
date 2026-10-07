@@ -4333,6 +4333,39 @@
         "tool 事件轉送"
       ],
       "scope": "global"
+    },
+    {
+      "name": "pretooluse的additionalcontext不是寫前攔截-edit-payload已生成-提醒只影響下一次",
+      "path": "memory/CC與原子記憶契約/pretooluse的additionalcontext不是寫前攔截-edit-payload已生成-提醒只影響下一次.md",
+      "triggers": [
+        "PreToolUse",
+        "additionalContext",
+        "寫前提醒",
+        "寫碼前注入",
+        "範本提醒",
+        "hook 注入時序",
+        "PostToolUse 等效"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "第二視角設計原則-同模型文字規則不夠-獨立context加行為痕跡才算第三人稱-即時層是數字加節流校準行",
+      "path": "memory/思考與決策/第二視角設計原則-同模型文字規則不夠-獨立context加行為痕跡才算第三人稱-即時層是數字加節流校準行.md",
+      "triggers": [
+        "第二視角",
+        "第三人稱",
+        "自我批判",
+        "綜觀視角",
+        "過度工程",
+        "飄移",
+        "瞎掰",
+        "critic",
+        "Companion 三面鏡",
+        "自我監看",
+        "反省機制",
+        "second opinion"
+      ],
+      "scope": "global"
     }
   ]
 }
