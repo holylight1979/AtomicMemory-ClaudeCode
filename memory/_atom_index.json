@@ -4265,6 +4265,23 @@
         "路徑揭露"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-自動化腳本收尾精準關閉自己開的瀏覽器分頁-借用的只還原不關",
+      "path": "memory/personal/holylight/feedback-自動化腳本收尾精準關閉自己開的瀏覽器分頁-借用的只還原不關.md",
+      "triggers": [
+        "精準關閉",
+        "收尾關閉",
+        "自動化腳本",
+        "Playwright",
+        "CDP",
+        "Chrome Debug",
+        "瀏覽器分頁",
+        "查詢工具",
+        "開啟的網頁",
+        "browser cleanup"
+      ],
+      "scope": "personal:holylight"
     }
   ]
 }
