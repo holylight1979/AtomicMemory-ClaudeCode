@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-10-08 新增 tools/replay-guard.py：回放實驗洩題守門（跑前查提示詞與材料、跑後掃執行紀錄）
+- **緣由**：三方守門討論用 Codex 做回放與盲審，連被抓到三次洩題（出題者把答案寫進回覆、材料指到真工作副本讓它讀到修正版文件與記憶卡片、提示詞本身催被測行為）。使用者指正：發現問題要從根源解，解不了也要記下來持續追蹤。
+- **做法**：`pre`：提示詞不得含封存答案關鍵字、不得指到暫存目錄以外、Codex 持久記憶不得含案例字樣；`post`：只看 codex stderr 裡的指令行，讀到 inbox／.claude\memory／_atoms、跑 svn／git 查詢、或暫存目錄以外路徑即 FAIL。8.3 短路徑用 realpath 展開；`Program Files` 截斷與工具路徑放行。印 `REPLAY_GUARD_CHECK PASS|FAIL`。第三型（提示詞催行為）程式擋不了，記 atom 持續追蹤，緩解＝必帶最素提示對照組。
+- **驗證**：三次真洩題材料全 FAIL、六個乾淨回放全 PASS。 | `tools/replay-guard.py`, `_AIDocs/_CHANGELOG.md`
+
+---
+
 ## 2026-10-08 atom-date-lint 修兩個真缺陷：標題會被改、日期開頭的事實表格列會被整行刪
 - **緣由**：三方守門討論用 Codex 審根層真實 commit 020be33 當「三面鏡 vs 現行提問」的樣本，兩組都指出 `--fix` 與工具自述（標題不碰、日期是知識的句子保留）矛盾。實跑 `_fix_line`：`## 2026-05-14 升版紀錄` 變 `## 升版紀錄`；`| 2024-11-12 | .NET 6 EOL |` 整行刪。兩點成立。
 - **修**：`_fix_line` 標題行直接放行；`KEEP_LINE` 判定移到 `DROP_LINE` 之前。`verify_atom_date_lint` 加 1 案 3 斷言；`--fix` 順帶清掉當日新 atom 的 7 檔 9 行敘事日期。8 案綠。 | `tools/atom-date-lint.py`, `tools/verify/verify_atom_date_lint.py`, `_AIDocs/_CHANGELOG.md`
