@@ -262,6 +262,17 @@ def handle_user_prompt_submit(
         budget_total, lines,
     )
 
+    # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 整張注入導讀卡（fail-open）
+    try:
+        from wg_overview import on_prompt as _hub_on_prompt
+        _hub_txt = _hub_on_prompt(
+            state, session_id, clean_prompt, input_data.get("transcript_path", "") or "", config,
+        )
+        if _hub_txt:
+            lines.append(_hub_txt)
+    except Exception as e:
+        _atom_debug_error("ups:overview_hub", e)
+
     # ─── Search pipeline 段：候選收集（trigger/BM25/vector）+ supersedes + ACT-R 排序
     already_injected = state.get("injected_atoms", [])
     (

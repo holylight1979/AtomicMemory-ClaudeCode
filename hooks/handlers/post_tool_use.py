@@ -717,7 +717,22 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _atom_debug_error("post_tool_use:docdrift_prune", e)
             pass
 
+    # OverviewHub：Read／Bash 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
+    hub_ctx = None
+    if tool_name in ("Read", "Bash"):
+        try:
+            from wg_overview import on_read as _hub_on_read
+            hub_ctx = _hub_on_read(
+                state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "",
+                input_data.get("transcript_path", "") or "", config,
+            )
+            dirty = True   # reads_after 也要落盤
+        except Exception as e:
+            print(f"overview hub read error: {e}", file=sys.stderr)
+
     advisories = list(aec_reject_msgs)
+    if hub_ctx:
+        advisories.append(hub_ctx)
     if state:
         for key, prefix in [
             ("_path_enforcement_advisory", "[Guardian:PathEnforce]"),

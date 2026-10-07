@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-10-08 OverviewHub：第一次改某部位的檔之前整張注入該部位導讀卡，改檔前要交定位三行（dry-run 上線）
+- **緣由**：三方守門討論的結論：守門機制全在症狀層，核心要靠「動手前先看完」；回放證明乾淨條件下模型自己會看，失敗來自 live session 條件（每輪要交改動、前文縮視野）。兩個專案各寫了部位導讀卡與「路徑前綴→導讀卡」表，根層接閘。
+- **做法**：專案在 `<專案根>/.claude/overview-map.md` 放表（專案寫、根層只讀，兩種表格寫法都吃、「同上／同第 N 列」沿用）。同 session 第一次碰到某部位的檔（Read、Bash cat/sed 讀、提示詞提到絕對路徑、或直接 Edit）→ 整張導讀卡經 additionalContext 注入；Edit/Write 前掃 transcript 看回覆有沒有「定位｜部位／根因層／前例」三行，沒有就警告（`dry_run=true`）或 deny。每事件落一行 `workflow/_overview-hub.log`（注入後讀幾個檔、跨幾個目錄、有沒有定位）當量尺。專案可用 `.claude/overview-hub.json` 覆蓋 `enabled`／`dry_run`／`max_card_chars`。
+- **驗證**：`verify_overview_hub` 19 案（兩張真表格式、最長前綴、glob、定位三行、Bash 讀檔、state 流程、覆蓋檔）；用真 handler 入口＋真專案路徑模擬四步（注入→無定位警告→補定位放行→TSLG 戰鬥檔 Bash cat 命中）；整套 hooks verify 777 綠。基線（R4）：三邊最近 10 場首改前平均讀 10 檔、跨 4 個頂層目錄；注入後數據待真改程式的 session。 | `lib/overview_hub.py`, `hooks/wg_overview.py`, `hooks/handlers/pre_tool_use.py`, `hooks/handlers/post_tool_use.py`, `hooks/handlers/user_prompt_submit.py`, `hooks/verify/verify_overview_hub.py`, `workflow/config.json`, `_AIDocs/Architecture.md`
+
+---
+
 ## 2026-10-08 新增 tools/replay-guard.py：回放實驗洩題守門（跑前查提示詞與材料、跑後掃執行紀錄）
 - **緣由**：三方守門討論用 Codex 做回放與盲審，連被抓到三次洩題（出題者把答案寫進回覆、材料指到真工作副本讓它讀到修正版文件與記憶卡片、提示詞本身催被測行為）。使用者指正：發現問題要從根源解，解不了也要記下來持續追蹤。
 - **做法**：`pre`：提示詞不得含封存答案關鍵字、不得指到暫存目錄以外、Codex 持久記憶不得含案例字樣；`post`：只看 codex stderr 裡的指令行，讀到 inbox／.claude\memory／_atoms、跑 svn／git 查詢、或暫存目錄以外路徑即 FAIL。8.3 短路徑用 realpath 展開；`Program Files` 截斷與工具路徑放行。印 `REPLAY_GUARD_CHECK PASS|FAIL`。第三型（提示詞催行為）程式擋不了，記 atom 持續追蹤，緩解＝必帶最素提示對照組。

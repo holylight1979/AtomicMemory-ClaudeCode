@@ -912,9 +912,37 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
+    # OverviewHub：第一次改某部位的檔前要先看過導讀卡並交定位三行（dry_run 只警告；fail-open）
+    hub_warn = None
+    if tool_name in ("Write", "Edit", "NotebookEdit"):
+        try:
+            from wg_overview import on_edit as _hub_on_edit
+            _hub_fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+            _hub_state = _co_state if _co_state is not None else {}
+            hub_warn, hub_deny = _hub_on_edit(
+                _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
+            )
+            if _co_sid and _co_state is not None and (hub_warn or hub_deny):
+                from wg_core import write_state as _ws
+                _ws(_co_sid, _co_state)
+            if hub_deny:
+                output_json({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": hub_deny,
+                    }
+                })
+                return
+        except Exception as e:
+            try:
+                sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 檢查異常（fail-open）：{e}\n")
+            except OSError:
+                pass
+
     # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
     # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）
-    warn_msgs = [m for m in (coord_warn, merge_warn, svn_enc_warn) if m]
+    warn_msgs = [m for m in (coord_warn, merge_warn, svn_enc_warn, hub_warn) if m]
     if warn_msgs:
         if coord_warn and coord_warn_fp:
             try:

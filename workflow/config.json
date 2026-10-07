@@ -527,5 +527,11 @@
       "fetch_timeout_s": 20,
       "_doc": "記憶層自動拉取（worker 內 commit 之後、push 之前）：fetch → 純記憶 incoming 走 ref+pathspec 同步；含程式碼只在整樹乾淨時 ff-only；分叉在隔離 worktree rebase（索引三檔由 merge driver 自動解）。不受 push 開關影響。"
     }
+  },
+  "overview_hub": {
+    "_doc": "OverviewHub：專案在 <專案根>/.claude/overview-map.md 放「路徑前綴→部位→導讀卡」表（專案寫、根層只讀）。同 session 第一次碰到某部位的檔（Read／Bash 讀、提示詞提到、或直接 Edit）→ 整張注入該部位導讀卡；Edit 前查回覆有沒有「定位｜部位／根因層／前例」三行。dry_run=true 只警告並落 workflow/overview-hub.log 量測；false 才 deny。max_card_chars 超過截斷附整張路徑。",
+    "enabled": true,
+    "dry_run": true,
+    "max_card_chars": 6000
   }
 }
