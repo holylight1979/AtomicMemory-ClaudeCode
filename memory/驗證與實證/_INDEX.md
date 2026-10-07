@@ -8,6 +8,7 @@
 |------|------|
 | goal-driven-verify-loopkarpathy-吸收 | goal-driven-verify-loop（karpathy 吸收） |
 | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |
+| 不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案 | 不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案 |
 | 假家目錄測試要同時設home與userprofile-windows的pathhome看userprofile而bash看home | 假家目錄測試要同時設HOME與USERPROFILE-Windows的Path.home看USERPROFILE而bash看HOME |
 | 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑 | 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑 |
 | 判有沒有採用不能只靠詞彙重疊-否定與轉述會把拒絕全判成採用-行動證據優先且先建標註集再改判準 | 判「有沒有採用」不能只靠詞彙重疊-否定與轉述會把拒絕全判成採用-行動證據優先且先建標註集再改判準 |
