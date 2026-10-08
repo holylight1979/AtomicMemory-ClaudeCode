@@ -64,7 +64,9 @@ def _find_func(tree: ast.Module, func: str) -> ast.FunctionDef:
 
 
 def _strip_docstring(stmts: list) -> list:
-    if stmts and isinstance(stmts[0], ast.Expr) and isinstance(stmts[0].value, ast.Constant)             and isinstance(stmts[0].value.value, str):
+    is_doc = (stmts and isinstance(stmts[0], ast.Expr) and isinstance(stmts[0].value, ast.Constant)
+              and isinstance(stmts[0].value.value, str))
+    if is_doc:
         return stmts[1:]
     return stmts
 
@@ -98,18 +100,22 @@ def _branch_body(stmts: list, func: str, effect: str) -> tuple:
 
 
 def parse_expected_source(text: str, func: str, order_func: str, effect: str) -> dict:
-    """Python 源碼走 ast：目標函式體＝一條頂層 if/elif 鏈（可加 else 或鏈後一個 return 當預設）。字串與註解不在分支節點裡。"""
+    """Python 源碼走 ast：目標函式體＝一條頂層 if/elif 鏈；預設值來自終端 else，或（沒有 else 時）鏈後恰一個 `return 常數`。
+    鏈後任何其他敘述、有 else 時鏈後還有敘述（不可達碼）、重複 key，都拒收並印行號。字串與註解不在分支節點裡。"""
     tree = ast.parse(text)
     body = _strip_docstring(_find_func(tree, func).body)
-    if not body or not isinstance(body[0], ast.If) or len(body) > 2             or (len(body) == 2 and not (isinstance(body[1], ast.Return) and isinstance(body[1].value, ast.Constant))):
-        raise Reject(f"舊源碼 {func} 函式體必須是一條 if/elif 鏈（可接一個 `return 常數` 當預設），"
-                     f"否則無法證明全枚舉（第 {body[0].lineno if body else '?'} 行起）")
-    values, effects, default = {}, {}, None
+    if not body or not isinstance(body[0], ast.If):
+        raise Reject(f"舊源碼 {func} 函式體必須以 if/elif 鏈開頭，否則無法證明全枚舉（第 {body[0].lineno if body else '?'} 行）")
+    values, effects, default, has_else, key_lines = {}, {}, None, False, {}
     node = body[0]
     while True:
         key = _key_of(node.test, func)
+        if key in key_lines:
+            raise Reject(f"舊源碼 {func} 第 {node.lineno} 行與第 {key_lines[key]} 行重複 case {key!r}，後者不可達，"
+                         f"無法證明等值（先整理舊碼或解析成 .json）")
+        key_lines[key] = node.lineno
         val, effs = _branch_body(node.body, func, effect)
-        values.setdefault(key, val)
+        values[key] = val
         if effs:
             effects[key] = effs
         orelse = node.orelse
@@ -119,13 +125,18 @@ def parse_expected_source(text: str, func: str, order_func: str, effect: str) ->
             node = orelse[0]
             continue
         default, effs = _branch_body(orelse, func, effect)
+        has_else = True
         if effs:
             raise Reject(f"舊源碼 {func} 的 else 分支有副作用呼叫，預設值分支的副作用不在證法範圍（第 {orelse[0].lineno} 行）")
         break
-    if len(body) == 2:
-        if default is not None:
-            raise Reject(f"舊源碼 {func} 同時有 else 與鏈後 return，預設值不唯一（第 {body[1].lineno} 行）")
-        default = body[1].value.value
+    tail = body[1:]
+    if has_else and tail:
+        raise Reject(f"舊源碼 {func} 第 {tail[0].lineno} 行在終端 else 之後，不可達碼不能證明等值")
+    if not has_else:
+        if len(tail) != 1 or not isinstance(tail[0], ast.Return) or not isinstance(tail[0].value, ast.Constant):
+            raise Reject(f"舊源碼 {func} 的 if/elif 鏈沒有 else，鏈後必須恰有一個 `return 常數` 當預設"
+                         f"（第 {tail[0].lineno if tail else body[0].lineno} 行）")
+        default = tail[0].value.value
     order = None
     if order_func:
         obody = _strip_docstring(_find_func(tree, order_func).body)

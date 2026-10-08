@@ -164,3 +164,46 @@ def test_non_python_source_rejected(tmp_path):
     cs.write_text("int Grade(int s){ switch(s){ case 1: return 1; default: return 0; } }\n", encoding="utf-8", newline="\n")
     code, tail, out = run("new_ok.py", "boundary", expected=cs)
     assert (code, tail) == (2, "PRESERVE_CHECK FAIL") and ".json" in out
+
+
+# ─── 003 退回的兩條 BLOCK 反例 ──────────────────────────────────────
+
+def _pair(tmp_path, old_src: str, new_src: str, mutation: str, extra=()) -> tuple:
+    old, new = tmp_path / "old_x.py", tmp_path / "new_x.py"
+    old.write_text(old_src, encoding="utf-8", newline="\n")
+    new.write_text(new_src, encoding="utf-8", newline="\n")
+    cmd = [sys.executable, "-X", "utf8", str(SCRIPT), "--expected-from", str(old), "--actual-from", str(new),
+           "--mutation", mutation, "--func", "grade", "--order-func", "merit_order", *extra]
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    tail = [ln for ln in p.stdout.splitlines() if ln.strip()][-1]
+    return p.returncode, tail, p.stdout
+
+
+def test_unreachable_tail_after_else_rejected(tmp_path):
+    """BLOCK 1：`else: return None` 後接不可達 `return "WRONG"`，不得把 WRONG 當預設；要拒收並印行號。"""
+    old = 'def grade(x):\n    if x == 1:\n        return "A"\n    else:\n        return None\n    return "WRONG"\n\n\ndef merit_order():\n    return [1]\n'
+    new = 'def grade(x):\n    return "A" if x == 1 else "WRONG"\n\n\ndef merit_order():\n    return [1]\n'
+    for mutation in ("boundary", "side_effect"):
+        code, tail, out = _pair(tmp_path, old, new, mutation)
+        assert (code, tail) == (2, "PRESERVE_CHECK FAIL"), out
+        assert "第 6 行" in out and "不可達" in out
+
+
+def test_duplicate_key_rejected(tmp_path):
+    """BLOCK 2：重複 `elif x == 1` 的第二分支不可達，不得拿它的副作用當預期；要拒收並印兩個行號。"""
+    old = ('def log(*args):\n    pass\n\n\ndef grade(x):\n    if x == 1:\n        log("first")\n        return "A"\n'
+           '    elif x == 1:\n        log("unreachable")\n        return "A"\n    else:\n        return "?"\n\n\ndef merit_order():\n    return [1]\n')
+    new = ('def log(*args):\n    pass\n\n\ndef grade(x):\n    if x == 1:\n        log("unreachable")\n        return "A"\n    return "?"\n\n\n'
+           'def merit_order():\n    return [1]\n')
+    for mutation in PC.MUTATIONS:
+        code, tail, out = _pair(tmp_path, old, new, mutation)
+        assert (code, tail) == (2, "PRESERVE_CHECK FAIL"), out
+        assert "第 9 行" in out and "第 6 行" in out and "重複 case" in out
+
+
+def test_else_returning_none_is_a_real_default(tmp_path):
+    """None 是合法預設值：舊 else 回 None、新碼也回 None 要 PASS，不能把 None 當「沒設」。"""
+    old = 'def grade(x):\n    if x == 1:\n        return "A"\n    else:\n        return None\n\n\ndef merit_order():\n    return [1]\n'
+    new = 'def grade(x):\n    return {1: "A"}.get(x)\n\n\ndef merit_order():\n    return [1]\n'
+    code, tail, out = _pair(tmp_path, old, new, "boundary")
+    assert (code, tail) == (0, "PRESERVE_CHECK PASS"), out
