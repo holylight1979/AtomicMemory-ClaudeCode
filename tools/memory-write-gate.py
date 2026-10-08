@@ -60,7 +60,7 @@ except Exception as _e:  # pragma: no cover
 try:
     from lib.hub_card import (
         HUB_CARD_BUDGET, HUB_STANDARD_NAMES, check_hub_card_sections, is_hub_card, missing_labels,
-        depends_paths, route_doc_for, ROUTE_FALLBACK,
+        depends_paths, route_doc_for, ROUTE_FALLBACK, budget_limit_for,
     )
 except Exception as _e:  # pragma: no cover
     print(f"[write-gate] lib.hub_card unavailable, kind detection degraded ({_e})",
@@ -74,6 +74,9 @@ except Exception as _e:  # pragma: no cover
 
     def is_hub_card(text, title="", kind_hint=None):
         return kind_hint == "hub"
+
+    def budget_limit_for(text, default_limit, title="", kind_hint=None):
+        return HUB_CARD_BUDGET if kind_hint == "hub" else int(default_limit)
 
     def missing_labels(keys):
         return list(keys)
@@ -271,7 +274,7 @@ def classify_kind(
         kind = "complement"
     else:
         kind = hint or "plain"
-    return {"kind": kind, "hub": hub, "ledger": ledger, "existing_hub": existing_hub}
+    return {"kind": kind, "hub": hub, "ledger": ledger, "existing_hub": existing_hub, "scan": scan}
 
 
 # ─── Config ──────────────────────────────────────────────────────────────────
@@ -528,7 +531,11 @@ def evaluate(
         budget = int(config.get("knowledge_budget_bytes", _BUDGET_DEFAULT))
     except (TypeError, ValueError):
         budget = _BUDGET_DEFAULT
-    limit = HUB_CARD_BUDGET if (kind == "hub" or cls["existing_hub"]) else budget
+    # 預算上限與落檔端同源（lib/hub_card.budget_limit_for）：append 看既有卡全文（H1 含導讀／五段齊），
+    # create／replace 看新內容＋標題＋kind_hint
+    hint = kind_hint if kind_hint in KINDS else None
+    limit = (budget_limit_for(existing, budget) if mode == "append"
+             else budget_limit_for(cls["scan"], budget, title, hint))
     nbytes = len(content.encode("utf-8"))
     existing_bytes = _knowledge_bytes(existing) if (mode == "append" and existing) else 0
     total = nbytes + existing_bytes
@@ -575,7 +582,7 @@ def evaluate(
                         bytes=total, budget=limit, kind=kind, route_to=route_to)
         detail = (f"（既有 {existing_bytes}＋新增 {nbytes}）" if existing_bytes else "")
         hub_hint = (
-            f"。若這是導讀卡：標題用五段標準名（{HUB_STANDARD_NAMES}）或帶 kind_hint=hub"
+            f"。若這是導讀卡：補齊五段標準名（{HUB_STANDARD_NAMES}）或帶 kind_hint=hub"
             if kind == "plain" else ""
         )
         return _kinded({

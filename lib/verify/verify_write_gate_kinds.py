@@ -72,11 +72,11 @@ def test_12_real_hub_cards_section_mapping_matches_precheck():
         assert r["missing"] == card["expected_missing"], card["id"]
         # 12 張標題都含「導讀」→ 全是 hub；只靠段落名要 found ≥ 4（c07 found=3 單憑段落名不算）
         assert is_hub_card(content, title="x知識導讀"), card["id"]
-        assert is_hub_card(content) == (len(r["found"]) >= 4), card["id"]
+        assert is_hub_card(content) == (len(r["found"]) == 5), card["id"]
     # 12 張裡 8 張五段齊、4 張缺段（缺的也是 hub，只是寫入時會被要求補齊）
     full = [c["id"] for c in data["cards"] if not c["expected_missing"]]
     assert len(full) == 8
-    assert sum(1 for c in data["cards"] if len(c["expected_found"]) == 3) == 1   # c07：靠標題才是 hub
+    assert sum(1 for c in data["cards"] if len(c["expected_found"]) < 5) == 4   # 4 張靠標題才是 hub
 
 
 def test_plain_card_is_not_hub():
@@ -246,7 +246,7 @@ def test_nonstandard_headings_with_kind_hint_hub_pass():
     assert res["action"] == "skip" and res["kind"] == "hub" and len(res["missing_sections"]) == 5
     # plain 超預算時提示「若這是導讀卡」
     big = mwg.evaluate(_filler(3500), config=CFG, skip_gate=True)
-    assert big["kind"] == "plain" and "若這是導讀卡" in big["reason"] and "kind_hint=hub" in big["reason"]
+    assert big["kind"] == "plain" and "若這是導讀卡：補齊五段標準名" in big["reason"] and "kind_hint=hub" in big["reason"]
 
 
 def test_found_three_without_signal_is_plain_but_title_marker_is_hub():
@@ -271,3 +271,34 @@ def test_ledger_ignores_numbers_inside_tech_terms():
     # 單位型（ms／%）也算；版本號不算
     assert mwg.ledger_signals("2026-10-01 p95 120 ms\n2026-10-02 p95 95 ms\n2026-10-03 p95 80 ms") == ["dated_rows x3"]
     assert mwg.ledger_signals("2026-10-01 升到 v1.2.3\n2026-10-02 升到 v1.3.0\n2026-10-03 升到 v2.0.0") == []
+
+
+def test_four_common_sections_plain_card_passes():
+    """002-returned BLOCK 1：四段（做什麼／權威／病灶／驗法）、標題「重試教訓」、無 kind_hint → plain 通過，不當不完整 hub。"""
+    four = "\n".join(f"[臨] **{h}**：{'內容' * 10}" for h in ("做什麼", "權威", "病灶", "驗法"))
+    assert len(check_hub_card_sections(four)["found"]) == 4 and not is_hub_card(four)
+    res = mwg.evaluate(four, title="重試教訓", config=CFG, skip_gate=True)
+    assert res["action"] == "add" and res["kind"] == "plain" and res["budget"]["limit"] == 3072
+    # 同內容：標題含導讀 → hub 要補段；kind_hint=hub → hub 要補段；五段齊 → hub 通過
+    assert mwg.evaluate(four, title="x部位導讀", config=CFG, depends=["path:C:/x.py"], skip_gate=True)["kind"] == "hub"
+    assert mwg.evaluate(four, title="重試教訓", config=CFG, depends=["path:C:/x.py"], skip_gate=True, kind_hint="hub")["action"] == "skip"
+    five = four + "\n[臨] **動手前必問**：z"
+    ok = mwg.evaluate(five, title="重試教訓", config=CFG, depends=["path:C:/x.py"], skip_gate=True)
+    assert ok["action"] == "add" and ok["kind"] == "hub" and ok["budget"]["limit"] == HUB_CARD_BUDGET
+
+
+def test_gate_limit_same_source_as_file_end(tmp_path):
+    """002-returned WARN：gate 的上限選擇走 lib/hub_card.budget_limit_for（與 atom_io_cli／atom_io 同源）。
+    既有卡 H1 含導讀但內容只有兩段 → append 上限仍是 4096；H1 無導讀四段 → 3072。"""
+    from lib.hub_card import budget_limit_for
+    hub = tmp_path / "hub.md"
+    hub.write_text("# x部位導讀\n\n- Confidence: [臨]\n\n## 知識\n\n- [臨] **做什麼**：a\n- [臨] **驗法**：b\n\n## 行動\n\n- c\n",
+                   encoding="utf-8", newline="\n")
+    res = mwg.evaluate("[臨] 補一行", mode="append", existing_path=str(hub), config=CFG)
+    assert res["budget"]["limit"] == budget_limit_for(hub.read_text(encoding="utf-8"), 3072) == HUB_CARD_BUDGET
+    plain = tmp_path / "plain.md"
+    plain.write_text("# 重試教訓\n\n- Confidence: [臨]\n\n## 知識\n\n" + "\n".join(
+        f"- [臨] **{h}**：z" for h in ("做什麼", "權威", "病灶", "驗法")) + "\n\n## 行動\n\n- c\n",
+        encoding="utf-8", newline="\n")
+    res = mwg.evaluate("[臨] 補一行", mode="append", existing_path=str(plain), config=CFG)
+    assert res["budget"]["limit"] == budget_limit_for(plain.read_text(encoding="utf-8"), 3072) == 3072

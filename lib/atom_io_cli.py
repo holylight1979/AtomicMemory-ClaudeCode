@@ -6,6 +6,9 @@
 Schema:
   stdin:  {"action": "write_atom"|"write_index"|"write_index_full"|"write_raw"
                     |"build"|"append"|"locate"|"check_supersedes"|"retire"|"realm_check"|"scrub", ...kwargs}
+  預算：create（create_atom／build）走 _budget_check、append 走 _append_budget_check＋atom_io.append_atom_file；
+  replace 走 build 的 _budget_check。直接呼叫 lib.atom_io.write_atom(mode="replace") 沒有預算檢查（既有差異，
+  CLI／js 路徑都已預檢）。
   realm_check：{scope?, project_cwd, title, triggers, knowledge, actions, domain} → scope=org 走 check_org_write，
   shared 直接放行，其餘走 check_global_write。scrub：{text} → extra.text（去專案名／路徑／「此專案」）。
   stdout: WriteResult.to_dict()  (single-line JSON)

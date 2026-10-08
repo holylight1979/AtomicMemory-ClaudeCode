@@ -128,8 +128,9 @@ def test_block_message_two_states_and_route():
 def test_tracking_slug_injection_rejected(tmp_path):
     """BLOCK 5：slug 只許 [A-Za-z0-9_-]；../ 與磁碟根會指到 tracking 外，一律 ValueError 且不建檔。"""
     entries = wh.tracking_entries(_SID, 1, "x")
-    for bad in ("../escaped", "C:/escaped", "a/b", "", "slug with space", "slug.jsonl"):
+    for bad in ("../escaped", "C:/escaped", "a/b", "", "slug with space", "slug.jsonl", "ok\n", "\nok", "a" * 65):
         with pytest.raises(ValueError):
             wh.append_tracking(bad, entries, base_dir=tmp_path)
     assert not (tmp_path / "tracking").exists() and not (tmp_path / "escaped.jsonl").exists()
     assert wh.append_tracking("c--users-x--proj_1", entries, base_dir=tmp_path).name == "c--users-x--proj_1.jsonl"
+    assert wh.append_tracking("a" * 64, entries, base_dir=tmp_path).name == "a" * 64 + ".jsonl"

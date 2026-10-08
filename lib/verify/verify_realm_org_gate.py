@@ -109,15 +109,14 @@ def test_manual_project_name_case_insensitive(monkeypatch):
     assert rg.scrub_project_details("bargame 的合服") == "某專案 的合服"
 
 
-def test_generic_manual_name_whole_word_only_and_not_scrubbed(monkeypatch):
-    monkeypatch.setattr(rg, "_load_registry", lambda: {"projects": {}, "project_names": ["Game", "Qux"]})
-    # 泛詞 Game：普通句（小寫／子字串）不擋、不 scrub
-    sentence = "遊戲 game design 要先定 schema；GameZone 無關"
-    assert rg.check_org_write(sentence) == []
-    assert rg.scrub_project_details(sentence) == sentence
-    # 原樣整詞命中才擋，但泛詞不進 scrub（換掉會把普通句改壞）
-    assert rg.check_org_write("Game 的 schema 規則")
-    assert rg.scrub_project_details("Game 的 schema 規則") == "Game 的 schema 規則"
-    # 短名（≤4）非泛詞：原樣整詞比對（QUX 不擋），命中時照舊 scrub（沿用 verify_realm_project_term_gate 既有案）
+def test_generic_manual_name_fully_ignored_short_name_unchanged(monkeypatch):
+    """002-returned BLOCK 2：泛詞表內的手列名完全不參與（不擋、不 scrub，不會變死路）；
+    非泛詞不分大小寫整詞；短名 Qux 維持既有（整詞、原大小寫）。"""
+    monkeypatch.setattr(rg, "_load_registry", lambda: {"projects": {}, "project_names": ["Game", "Qux", "BarGame"]})
+    assert [n for n, _s, _ci in rg.known_project_names()] == ["Qux", "BarGame"]
+    for text in ("Game design 要先定 schema", "遊戲 game design；GameZone 無關", "Game 的 schema 規則"):
+        assert rg.check_org_write(text) == [], text
+        assert rg.scrub_project_details(text) == text
+    assert rg.check_org_write("BarGame 合服") and rg.check_org_write("bargame 合服")
     assert rg.check_org_write("QUX 協定解析") == [] and rg.check_org_write("Qux 戰役")
     assert rg.scrub_project_details("Qux 戰役") == "某專案 戰役"

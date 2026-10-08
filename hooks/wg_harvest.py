@@ -370,14 +370,14 @@ def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[s
     return out
 
 
-_TRACK_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_TRACK_SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def append_tracking(slug: str, entries: List[Dict[str, Any]], base_dir: Optional[Path] = None) -> Optional[Path]:
     """workflow/tracking/<slug>.jsonl 逐行追加（LF、一行一筆；執行期檔，.gitignore 收）。
-    slug 只許 [A-Za-z0-9_-]（否則 ValueError：../ 或磁碟根會指到 tracking 外）。
+    slug 必須 fullmatch [A-Za-z0-9_-]{1,64}（否則 ValueError：../、磁碟根、尾端換行都會指到 tracking 外或建怪檔）。
     entries 空 → 不建檔、回 None。寫入失敗浮 stderr（fail-open）。回帳本路徑。"""
-    if not _TRACK_SLUG_RE.match(str(slug or "")):
+    if not _TRACK_SLUG_RE.fullmatch(str(slug or "")):
         raise ValueError(f"tracking slug must match [A-Za-z0-9_-]+ (got {slug!r})")
     if not entries:
         return None

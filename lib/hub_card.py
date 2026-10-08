@@ -7,7 +7,7 @@ write-gate（tools/memory-write-gate.py）、落檔端（lib/atom_io_cli）與�
 
 段落的認法：每一行先剝 `- `／`[臨]` 前綴，取 `**粗體**` 或 `## 標題` 當段落名；沒有粗體／標題的行
 只認「≤12 字的標籤：」。段落名含同義詞即算命中；一段命中多次只算一段。
-hub 判定三訊號：kind_hint=hub／標題（或 H1）含「導讀」／found ≥ 4；標題含導讀但一段都沒有的是指標卡（write-gate 判 pointer）。
+hub 判定三訊號：kind_hint=hub／標題（或 H1）含「導讀」／五段全齊（found==5）；標題含導讀但一段都沒有的是指標卡（write-gate 判 pointer）。
 
 怎麼跑：python -X utf8 -m pytest -q lib/verify/verify_write_gate_kinds.py
 """
@@ -39,7 +39,7 @@ HUB_SECTION_SYNONYMS: Dict[str, tuple] = {
 }
 
 HUB_CARD_BUDGET = 4096   # 根層固定；config 不覆蓋（五段導讀卡約 1300 CJK 字）
-HUB_MIN_FOUND = 4        # 只靠段落名認 hub 要 found ≥ 4；三段以下的普通卡（驗法／病灶／權威常見）不當 hub
+HUB_MIN_FOUND = 5        # 只靠段落名認 hub 要五段全齊；3～4 段無其他訊號的是普通卡（做什麼／權威／病灶／驗法常見）
 HUB_TITLE_MARKER = "導讀"  # 標題含此字＝宣告導讀卡（found 不足也算 hub，寫入時仍要求五段齊）
 HUB_STANDARD_NAMES = "做什麼／部位與權威／動手前必問／已知病灶／驗法"
 
@@ -98,8 +98,8 @@ def h1_title(content: str) -> str:
 
 
 def is_hub_card(content: str, title: str = "", kind_hint: Optional[str] = None) -> bool:
-    """導讀卡判定（三訊號任一）：kind_hint=="hub"／標題（或全文 H1）含「導讀」／五段命中 ≥ HUB_MIN_FOUND。
-    found==3 且無其他訊號不是 hub（普通卡常同時有驗法、病灶、權威三段）。"""
+    """導讀卡判定（三訊號任一）：kind_hint=="hub"／標題（或全文 H1）含「導讀」／五段全齊（found==5）。
+    found 3～4 且無其他訊號不是 hub（普通卡常同時有做什麼、權威、病灶、驗法）。"""
     if kind_hint == "hub":
         return True
     if HUB_TITLE_MARKER in (title or "") or HUB_TITLE_MARKER in h1_title(content):

@@ -228,19 +228,12 @@ def known_project_names() -> List[Tuple[str, str, bool]]:
             if _registry_name_ok(c.strip()):
                 add(c, "已登記專案", True)
     for name in reg.get("project_names") or []:
-        if str(name).strip():
-            # 手列名單不分大小寫；短名（≤4）或泛詞只做整詞＋大小寫原樣比對（Game／Qux 這類字普通句也會出現）
-            add(str(name), "本機專案名單", not _is_short_or_generic(str(name).strip()))
+        name = str(name).strip()
+        if not name or name.lower() in _GENERIC_NAMES:
+            continue   # 泛詞（Game／Server／Tool…）完全不參與：擋了會變死路（scrub 不動、再送仍擋）
+        # 非泛詞手列名不分大小寫整詞比對；短名（≤4，如 Qux）維持既有：整詞、原大小寫
+        add(name, "本機專案名單", len(name) > 4)
     return out
-
-
-def _is_short_or_generic(name: str) -> bool:
-    return len(name) <= 4 or name.lower() in _GENERIC_NAMES
-
-
-def scrub_project_names() -> List[Tuple[str, str, bool]]:
-    """進 scrub（換成「某專案」）的名字：泛詞表內的手列名不換（換了會把普通句改壞）。"""
-    return [(n, s, ci) for n, s, ci in known_project_names() if n.lower() not in _GENERIC_NAMES]
 
 
 def known_project_roots() -> List[str]:
@@ -269,7 +262,7 @@ def anonymize_projects(text: str) -> str:
         return "<專案路徑>" if any(cand == r or cand.startswith(r + "/") for r in roots) else m.group(0)
 
     out = _ABS_PATH_RE.sub(_path, text)
-    for name, _src, ci in sorted(scrub_project_names(), key=lambda t: -len(t[0])):
+    for name, _src, ci in sorted(known_project_names(), key=lambda t: -len(t[0])):
         out = _name_pattern(name, ci).sub("某專案", out)
     return out
 
