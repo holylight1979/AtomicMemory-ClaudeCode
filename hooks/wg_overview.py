@@ -71,19 +71,18 @@ def _warn_once(key: str, msg: str) -> None:
     sys.stderr.write(f"[Guardian:OverviewHub] {msg}\n")
 
 
-def _read_override(path: Path, label: str) -> Dict[str, Any]:
-    """<層根>/.claude/overview-hub.json；沒檔回 {}；壞檔回 {} 且 stderr 一行（fail-open 必浮訊號）。"""
+def _read_override(path: Path, label: str) -> Tuple[Dict[str, Any], List[str]]:
+    """<層根>/.claude/overview-hub.json → (資料, 錯誤)。沒檔 ({}, [])；讀不到／壞 JSON／頂層不是物件 → ({}, [一條錯誤])，
+    呼叫端把錯誤併進 `_errors`（設定壞了整層不可信，Edit 要擋，不是略過）。"""
     try:
         if not path.is_file():
-            return {}
+            return {}, []
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        sys.stderr.write(f"[Guardian:OverviewHub] {label}覆蓋檔讀取失敗（略過此層）：{path}：{e}\n")
-        return {}
+        return {}, [f"{label}覆蓋檔讀取失敗：{path}：{e}"]
     if not isinstance(data, dict):
-        sys.stderr.write(f"[Guardian:OverviewHub] {label}覆蓋檔頂層不是物件（略過此層）：{path}\n")
-        return {}
-    return data
+        return {}, [f"{label}覆蓋檔頂層不是物件：{path}"]
+    return data, []
 
 
 def _same_dir(a: Path, b: Path) -> bool:
@@ -103,7 +102,7 @@ def _encoding_ok(name: Any) -> bool:
     try:
         codecs.lookup(name)
         return True
-    except LookupError:
+    except (LookupError, ValueError, TypeError):   # 查不到、含 NUL（ValueError）、怪型別都算壞編碼，不往外拋
         return False
 
 
@@ -141,7 +140,7 @@ def _validate_cfg(c: Dict[str, Any], root: Optional[Path]) -> List[str]:
         if key.startswith("_") or key in _KNOWN_KEYS:
             continue
         if key in _RETIRED_KEYS:
-            _warn_once(f"retired:{key}", f"設定鍵「{key}」已退役（閘一律擋），請從 overview-hub.json／config.json 移除")
+            _warn_once(f"retired:{key}", f"設定鍵「{key}」已退役（預設即擋；track-a1 A4.1 後明寫也不再放行），請從 overview-hub.json／config.json 移除")
             continue
         errors.append(f"未知的設定鍵「{key}」")
     if not isinstance(c.get("enabled"), bool):
@@ -173,13 +172,25 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
     root＝公司根時第四層跳過（同一檔不併兩次）。回傳必帶 `_errors`（驗證錯誤清單，非空時 on_edit deny）
     與 `_layer`（root／org／project_mapped／project_unmapped／none）。
     """
-    c = _deep_merge(_DEFAULT, config.get("overview_hub") or {})
+    errors: List[str] = []
+    section = config.get("overview_hub")
+    if section is None:
+        section = {}
+    elif not isinstance(section, dict):
+        errors.append(f"config.json 的 overview_hub 段必須是物件，現在是 {type(section).__name__}")
+        section = {}
+    c = _deep_merge(_DEFAULT, section)
     org = _org_root()
     if org is not None:
-        c = _deep_merge(c, _read_override(org / HUB_REL, "公司層"))
+        over, errs = _read_override(org / HUB_REL, "公司層")
+        c, errors = _deep_merge(c, over), errors + errs
     if root is not None and not (org is not None and _same_dir(root, org)):
-        c = _deep_merge(c, _read_override(root / HUB_REL, "專案層"))
-    errors = _validate_cfg(c, root)
+        over, errs = _read_override(root / HUB_REL, "專案層")
+        c, errors = _deep_merge(c, over), errors + errs
+    try:
+        errors += _validate_cfg(c, root)
+    except Exception as e:   # 驗證器自己炸也不能 fail-open：當成設定錯誤，Edit 會擋且訊息帶原因
+        errors.append(f"設定驗證失敗：{type(e).__name__}: {e}")
     for e in errors:
         _warn_once(f"error:{root}:{e}", f"設定錯誤（{root or '根層'}）：{e}")
     c["_errors"] = errors
@@ -284,27 +295,44 @@ def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_pa
     return None
 
 
+def _cfg_error_deny(cfg: Dict[str, Any], session_id: str, file_path: str,
+                    row: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, bool]]:
+    """`_errors` 非空 → (訊息, deny 理由, False)，訊息列全部錯誤；沒錯誤回 None。"""
+    if not cfg["_errors"]:
+        return None
+    where = f"改【{row['part_short']}】部位的檔（{file_path}）" if row else f"改 {file_path}"
+    msg = (f"[Guardian:OverviewHub] {where}前，這一層的 OverviewHub 設定有錯（{cfg['_layer']}），閘無法判定，先修設定："
+           + "；".join(cfg["_errors"]))
+    _log("edit_cfg_error", session_id, part=row["part_short"] if row else None, path=file_path,
+         layer=cfg["_layer"], errors=cfg["_errors"])
+    return (msg, msg, False)
+
+
 def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_path: str,
             config: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], bool]:
     """PreToolUse（Edit／Write）：回 (警告文字, deny 理由, state 有沒有變)。dry_run 時 deny 恆 None。
 
     deny 理由帶整張卡（模型只看得到 permissionDecisionReason）；transcript 讀不到時不擋但要提醒。
     """
+    if not file_path:
+        return (None, None, False)
+    # 設定錯誤先於 enabled／命中判定：設定壞了（含 enabled 不是 bool）整層都不可信，一律 deny，沒命中部位表的檔也擋
     cfg = _cfg(config)
-    if not cfg["enabled"] or not file_path:
+    denied = _cfg_error_deny(cfg, session_id, file_path, None)
+    if denied:
+        return denied
+    if not cfg["enabled"]:
         return (None, None, False)
     hit = _lookup(file_path)
     if not hit:
         return (None, None, False)
     root, row = hit
     cfg = _cfg(config, root)
+    denied = _cfg_error_deny(cfg, session_id, file_path, row)
+    if denied:
+        return denied
     if not cfg["enabled"]:
         return (None, None, False)
-    if cfg["_errors"]:
-        msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前，這一層的 overview-hub.json 設定有錯，"
-               f"閘無法判定，先修設定：" + "；".join(cfg["_errors"]))
-        _log("edit_cfg_error", session_id, part=row["part_short"], path=file_path, errors=cfg["_errors"])
-        return (msg, msg, False)
     key = _key(root, row)
     rec = (state.get("overview_hub") or {}).get(key)
     # 專案可只對某幾個部位開擋（deny_parts），其他部位維持 dry_run

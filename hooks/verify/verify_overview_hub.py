@@ -432,8 +432,68 @@ def test_bad_company_file_is_loud_and_skipped(proj, tmp_path, monkeypatch, capsy
     monkeypatch.setattr(wo, "org_memory_root", lambda: org)
     monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
     c = wo._cfg({}, proj)
-    assert c["max_card_chars"] == 6000 and c["_errors"] == []
+    assert c["max_card_chars"] == 6000 and c["_layer"] == "project_mapped"
+    assert len(c["_errors"]) == 1 and "公司層覆蓋檔讀取失敗" in c["_errors"][0]   # 壞檔＝設定錯誤，不是略過
     assert "公司層覆蓋檔讀取失敗" in capsys.readouterr().err
+
+
+# ─── 退回 001 的兩條 BLOCK：設定錯誤必擋（順序）、無效設定不拋例外 ─────────────────
+
+def _hub(proj, text):
+    (proj / ".claude" / "overview-hub.json").write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("hub_text", ['{"enabled": false, "foo": 1}', '{"enabled": null, "foo": 1}'])
+def test_cfg_errors_deny_even_when_disabled_or_enabled_not_bool(proj, tmp_path, monkeypatch, hub_text):   # BLOCK 1
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _hub(proj, hub_text)
+    tp = _transcript(tmp_path, ["x"])
+    warn, deny, changed = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})
+    assert deny and "未知的設定鍵「foo」" in deny and not changed
+    if "null" in hub_text:
+        assert "enabled 必須是" in deny
+    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert log[-1]["event"] == "edit_cfg_error" and log[-1]["layer"] == "project_mapped"
+
+
+def test_root_level_cfg_error_denies_file_outside_any_table(tmp_path, monkeypatch):   # BLOCK 1：沒命中表的檔也擋
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    bad = {"overview_hub": {"enabled": False, "bogus": 1}}
+    warn, deny, changed = wo.on_edit({}, "s", str(tmp_path / "lonely.cs"), "", bad)
+    assert deny and "未知的設定鍵「bogus」" in deny and "none" in deny and not changed
+    assert wo.on_edit({}, "s", "", "", bad) == (None, None, False)      # 沒 file_path 沒東西可擋
+
+
+def test_invalid_config_shapes_become_errors_not_exceptions(proj):   # BLOCK 2
+    for section in (True, [1], "x", 3):
+        c = wo._cfg({"overview_hub": section}, proj)
+        assert c["_layer"] == "project_mapped" and c["max_card_chars"] == 6000
+        assert any("overview_hub 段必須是物件" in e for e in c["_errors"]), section
+    assert wo._cfg({"overview_hub": None}, proj)["_errors"] == []       # null 當沒設
+    _hub(proj, "[1, 2]")
+    c = wo._cfg({}, proj)
+    assert len(c["_errors"]) == 1 and "頂層不是物件" in c["_errors"][0]
+    _hub(proj, "{壞")
+    assert "專案層覆蓋檔讀取失敗" in wo._cfg({}, proj)["_errors"][0]
+
+
+def test_encoding_with_nul_is_error_not_valueerror():   # BLOCK 2
+    for bad in ("utf\u0000-8", "", None, 5, ["utf-8"]):
+        assert wo._encoding_ok(bad) is False
+    errs = wo._validate_cfg(dict(wo._DEFAULT, commit_encoding="utf\u0000-8", source_encodings=["utf\u0000-8"],
+                                PYTHONIOENCODING=["utf-8"]), None)
+    assert len(errs) == 3 and all("編碼" in e for e in errs)
+
+
+def test_invalid_shapes_deny_on_edit_instead_of_raising(proj, tmp_path, monkeypatch):   # BLOCK 2 端到端
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {"overview_hub": [1]})
+    assert deny and "overview_hub 段必須是物件" in deny
+    _hub(proj, '{"commit_encoding": "utf\\u0000-8"}')
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})
+    assert deny and "commit_encoding" in deny and "編碼" in deny
 
 
 def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):

@@ -461,7 +461,8 @@ def _layer_kind_for_root(root: Path, org: Optional[Path]) -> str:
 
 def _layer_of(cwd: str) -> LayerInfo:
     """cwd 屬於哪一層。根層與公司層的 root 是該層的根；專案層的 root 走 resolve_project_root；
-    cwd 空、解析不到專案根（家目錄、磁碟根、無四標記）→ none。"""
+    cwd 空、解析不到專案根（家目錄、磁碟根、無四標記）、路徑碰不得（UNC 權限等 OSError）→ none。
+    只做路徑包含比對與標記檔存在性檢查，不驗 cwd 本身存在、不讀 transcript、不叫模型。"""
     if not cwd:
         return _LAYER_NONE
     try:
@@ -476,7 +477,10 @@ def _layer_of(cwd: str) -> LayerInfo:
         return LayerInfo("org", org, _map_path_of(org))
     if resolve_project_root is None:
         return _LAYER_NONE
-    root = resolve_project_root(cwd).path
+    try:
+        root = resolve_project_root(cwd).path
+    except OSError:
+        return _LAYER_NONE
     if root is None:
         return _LAYER_NONE
     mp = _map_path_of(root)

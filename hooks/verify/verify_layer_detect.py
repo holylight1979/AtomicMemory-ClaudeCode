@@ -117,3 +117,12 @@ def test_layer_kind_for_root_matches_layer_of(tmp_path, monkeypatch):
     assert wg_core._layer_kind_for_root(proj, org) == "project_unmapped"
     _write_map(proj)
     assert wg_core._layer_kind_for_root(proj, org) == "project_mapped"
+
+
+def test_inaccessible_path_during_root_resolution_is_none(tmp_path, monkeypatch):
+    """退回 001 的 B5：resolve_project_root 對碰不得的路徑（UNC 權限）拋 OSError → none，不外洩例外。"""
+    def _denied(cwd):
+        raise PermissionError(5, "Access is denied", cwd)
+    monkeypatch.setattr(wg_core, "resolve_project_root", _denied)
+    assert wg_core._layer_of(r"\localhost\nx-share-xyz\dir") == ("none", None, None)
+    assert wg_core._layer_of(str(tmp_path / "proj")) == ("none", None, None)
