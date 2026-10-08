@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: root-link, tri-link, 三方討論, 根層專案層溝通, 跨session對齊, 跟根層談, 信箱摩槽, 兩個session討論同題
 - Created-at: 2026-10-07
-- Related: 並行llm即時通訊-inbox機制
+- Related: 並行llm即時通訊-inbox機制, feedback-多專案改進只動根基帶變量-參與專案只給思路不再動手-根層負責吸收轉化定角色開變量處理奇耙設定
 - Source: session:16da96f2#f1e3cffa 2026-10-07
 - Quote: 「開一個跨session溝通的 inbox monitor.. 我想讓你與根層 直接溝通 看看，那個session也在討論類似的議題，只是 你的似乎更接地氣 (?)。 好了以後給我 prompt 讓我去在根層的CC貼上；僅限 先溝通。」
 
