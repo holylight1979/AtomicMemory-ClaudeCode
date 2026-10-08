@@ -100,6 +100,7 @@ def env(tmp_path, monkeypatch):
                 e = plan["exec"]
                 self._timeout = e["timeout"]
                 stderr.write(e["stderr"].encode("utf-8"))
+                stdout.write(e.get("stdout", "").encode("utf-8"))
                 if not self._timeout and "-o" in self.cmd:
                     out = Path(self.cmd[self.cmd.index("-o") + 1])
                     out.write_text(e["reply"], encoding="utf-8", newline="\n")
@@ -358,3 +359,79 @@ def test_prepare_cli_prints_three_lines(env, capsys, tmp_path):
     assert rc == 0
     assert out[0].startswith("job_id: ") and out[1].startswith("hash: ") and out[2] == "status: started"
     assert any(l.startswith("job_dir: ") for l in out)
+
+
+# ─── 退回修正（總控台 BLOCK 2／3）：狀態機與整份掃描 ─────────────────────────
+
+
+def test_probe_spawn_oserror_writes_failed(env):
+    """探針的 Popen 直接拋 OSError（codex 路徑錯／權限）→ status 必 failed、stage=probe，不得留 running。"""
+    def boom(*a, **k):
+        raise OSError(5, "codex.cmd: access denied")
+    import subprocess as sp
+    sp.Popen = boom
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and st["stage"] == "probe" and "OSError" in st["reason"]
+    on_disk = json.loads((Path(res["job_dir"]) / "status.json").read_text(encoding="utf-8"))
+    assert on_disk["status"] == "failed", "status.json 不可卡在 running"
+
+
+def test_terminal_status_not_overwritten(env):
+    """failed／blocked／done 之後任何 write_status 都不寫：並行 execute 的 A 寫 failed、B 不能蓋成 done。"""
+    res = _prepare(env)
+    job = Path(res["job_dir"])
+    run.write_status(job, "failed", stage="probe", reason="A 探針失敗")
+    after = run.write_status(job, "done", stage="done", reason="")
+    assert after["status"] == "failed" and "不可覆寫" in after["rejected_write"]
+    on_disk = json.loads((job / "status.json").read_text(encoding="utf-8"))
+    assert on_disk["status"] == "failed" and on_disk["reason"] == "A 探針失敗" and "rejected_write" not in on_disk
+    # 同終態重寫允許（補 reason 之類），不同終態互蓋不允許
+    same = run.write_status(job, "failed", reason="A 探針失敗（補充）")
+    assert same["status"] == "failed" and same["reason"].endswith("（補充）")
+    env["plan"]["pre"] = "FAIL"
+    blocked = _prepare(env, session_id="bbbbbbbb")
+    assert run.write_status(Path(blocked["job_dir"]), "done")["status"] == "blocked"
+
+
+def test_second_execute_on_same_job_rejected(env):
+    """同一 job 已有 executor（execute.lock 存在）→ 第二個 execute 直接拒、不 spawn、不改 status。"""
+    res = _prepare(env)
+    job = Path(res["job_dir"])
+    assert run._acquire_executor_lock(job) is True, "第一個 executor 拿鎖"
+    st = _execute(env, str(job))
+    assert "已有 executor" in st.get("rejected_execute", "") and st["status"] == "started"
+    assert env["plan"]["popen"] == [], "被拒的 execute 不得啟動任何子程序"
+    on_disk = json.loads((job / "status.json").read_text(encoding="utf-8"))
+    assert on_disk["status"] == "started" and "rejected_execute" not in on_disk
+    # 正常單一 executor 拿鎖後整段跑完 → done，且 lock 檔留著（一次性 job）
+    res2 = _prepare(env, session_id="cccccccc")
+    st2 = _execute(env, res2["job_dir"])
+    assert st2["status"] == "done" and (Path(res2["job_dir"]) / "execute.lock").is_file()
+
+
+def test_post_no_cmd_scan_sees_early_outside_read(env):
+    """反例（codex 構造）：stderr 無指令行；stdout 前段有一次成功的出界讀取，後接一千萬個換行。整檔掃描要抓到 → failed。"""
+    env["plan"]["post"] = "FAIL"
+    env["plan"]["post_reasons"] = ["紀錄裡找不到任何指令行（格式變了？），無法判定"]
+    env["plan"]["exec"]["stderr"] = "model: gpt-6-astra\n"
+    env["plan"]["exec"]["stdout"] = (
+        'exec\n"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "Get-Content C:\\outside\\secret.txt" in C:\\jobs\\job1\n'
+        " succeeded in 12ms:\n外部檔案的實際內容\n" + "\n" * 10_000_001)
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and st["stage"] == "post-guard" and "outside" in st["reason"].lower()
+    assert not (Path(res["job_dir"]) / "reply.md").exists()
+
+
+def test_post_oversize_log_is_failed(env, monkeypatch):
+    """紀錄合計超過上限 → 直接 failed「過大無法判定」，不掃尾段、不放行。"""
+    monkeypatch.setattr(run, "MAX_LOG_BYTES", 1000)
+    env["plan"]["post"] = "FAIL"
+    env["plan"]["post_reasons"] = ["紀錄裡找不到任何指令行（格式變了？），無法判定"]
+    env["plan"]["exec"]["stderr"] = "model: gpt-6-astra\n"
+    env["plan"]["exec"]["stdout"] = "clean\n" * 400  # 2400 bytes，內容乾淨但超過上限
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and "過大" in st["reason"]
+    assert not (Path(res["job_dir"]) / "reply.md").exists()

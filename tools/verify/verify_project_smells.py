@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -157,3 +158,17 @@ def test_main_sentinel_and_json(tmp_path, capsys):
     rc2 = ps.main(["--cwd", str(root), "--part", "排程器"])
     text = capsys.readouterr().out.rstrip("\n").splitlines()
     assert rc2 == 0 and text[-1] == "PROJECT_SMELLS DONE n=5" and text[0].startswith("part=")
+
+
+def test_split_cmd_windows_quoted_path_with_space():
+    """退回修正（BLOCK 4）：Windows 引號可在 token 中段，引號內空白不切、引號去掉、反斜線照字面。"""
+    assert ps._split_windows(r'python gen_smells.py --root="C:\Work Space\src" --json') == \
+        ["python", "gen_smells.py", r"--root=C:\Work Space\src", "--json"]
+    assert ps._split_windows('"C:\\Program Files\\Py\\python.exe" gen.py  --x=\'a b\'') == \
+        [r"C:\Program Files\Py\python.exe", "gen.py", "--x=a b"]
+    assert ps._split_windows("") == [] and ps._split_windows("   ") == []
+    with pytest.raises(ps.SmellsError):
+        ps._split_windows(r'python x.py --root="C:\Work Space')
+    assert ps._split_cmd(["python", "a b.py"]) == ["python", "a b.py"], "陣列原樣不切"
+    if os.name == "nt":
+        assert ps._split_cmd(r'python gen_smells.py --root="C:\Work Space\src" --json')[2] == r"--root=C:\Work Space\src"

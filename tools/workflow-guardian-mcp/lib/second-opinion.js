@@ -72,7 +72,10 @@ function spawnPrepare(requestJson) {
   });
 }
 
-/** 分離子程序跑 execute（codex 跑 60～300 s，MCP 不等）；輸出落 job_dir/execute.log；失敗 crashLog。 */
+/** 分離子程序跑 execute（codex 跑 60～300 s，MCP 不等）；輸出落 job_dir/execute.log；失敗 crashLog。
+ *  刻意沒有 setTimeout／kill（detached，MCP 回應不等它）：上限在 py 側三處（run_guard 60 s、探針 wait(timeout)+kill、
+ *  正式 codex wait(timeout)+kill）加 js readResult 逾 timeout_s+90 s 回 failed；hardening verify 的 SPAWN_TIMEOUT_EXEMPT 登記同句。
+ *  execute.log 是子程序 stdout/stderr 的導向檔（由 MCP 建立），不是 state、不是 job 結果檔；job 結果檔全由 py 寫。 */
 function spawnExecute(jobDir) {
   let logFd = null;
   try { logFd = fs.openSync(path.join(jobDir, "execute.log"), "a"); } catch {}

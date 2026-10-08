@@ -101,8 +101,18 @@ def _read_json(path: Path) -> Dict[str, Any]:
         return {}
 
 
+TERMINAL = ("done", "failed", "blocked")
+MAX_LOG_BYTES = 20 * 1024 * 1024  # post_guard 整份掃描的上限；超過直接 failed「紀錄過大無法判定」，不掃尾段
+
+
 def write_status(job_dir: Path, status: str, **kw: Any) -> Dict[str, Any]:
+    """寫 status.json。終態保護：現況已是 done／failed／blocked 而新狀態不同 → 不寫、回現況（附 rejected_write），
+    stderr 一行。並行 execute 的 A 寫 failed 後 B 不能再蓋成 done。"""
     cur = _read_json(job_dir / "status.json")
+    if cur.get("status") in TERMINAL and status != cur.get("status"):
+        cur["rejected_write"] = f"終態 {cur.get('status')} 不可覆寫為 {status}"
+        sys.stderr.write(f"[second-opinion] {job_dir.name}: {cur['rejected_write']}\n")
+        return cur
     cur.update(kw)
     cur["status"] = status
     cur["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -120,6 +130,21 @@ def _tail(path: Path, n: int = 1200) -> str:
         return path.read_text(encoding="utf-8", errors="replace")[-n:]
     except OSError:
         return ""
+
+
+def _read_all(path: Path) -> str:
+    """整檔讀，不切（post_guard 的整份掃描與回覆解析用；大小上限由呼叫端先檢查）。"""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
 
 
 def _sentinel(out: str) -> Tuple[str, List[str]]:
@@ -308,8 +333,12 @@ def post_guard(job_dir: Path) -> Tuple[bool, str]:
     if verdict == "PASS":
         return True, ""
     if verdict == "FAIL" and len(reasons) == 1 and _NO_CMD_LINE_REASON in reasons[0]:
+        stdout_log = job_dir / "codex.stdout.log"
+        total = _size(log) + _size(stdout_log)
+        if total > MAX_LOG_BYTES:
+            return False, f"replay-guard post FAIL（無指令行）且紀錄過大無法判定：{total} bytes > {MAX_LOG_BYTES}"
         g = _guard_module()
-        full = _tail(log, 10_000_000) + _tail(job_dir / "codex.stdout.log", 10_000_000)
+        full = _read_all(log) + "\n" + _read_all(stdout_log)  # 整檔、不切；前段的出界讀取也掃得到
         hits = [p for p in g.FORBIDDEN_IN_LOG if re.search(p, full, flags=re.IGNORECASE)]
         outside = g.paths_outside(full, job_dir)
         if not hits and not outside:
@@ -318,18 +347,27 @@ def post_guard(job_dir: Path) -> Tuple[bool, str]:
     return False, f"replay-guard post {verdict}：" + ("；".join(reasons) or "無理由行")
 
 
-def execute(job_dir: Path, so_cfg: Dict[str, Any], cc_cfg: Dict[str, Any]) -> Dict[str, Any]:
-    st = _read_json(job_dir / "status.json")
-    if st.get("status") != "started":
-        return write_status(job_dir, st.get("status") or "failed",
-                            reason=f"execute 只接 started 的 job（現為 {st.get('status')!r}）")
-    slug = str(st.get("model") or "")
-    write_status(job_dir, "running", stage="probe")
+def _acquire_executor_lock(job_dir: Path) -> bool:
+    """`execute.lock` 以 O_CREAT|O_EXCL 建立：同一 job 只能有一個 executor。拿不到回 False（不刪、不等）。"""
+    try:
+        fd = os.open(str(job_dir / "execute.lock"), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(f"pid={os.getpid()} at={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    return True
 
+
+def _execute_body(job_dir: Path, so_cfg: Dict[str, Any], cc_cfg: Dict[str, Any], stage: List[str]) -> Dict[str, Any]:
+    st = _read_json(job_dir / "status.json")
+    slug = str(st.get("model") or "")
+    stage[0] = "probe"
+    write_status(job_dir, "running", stage="probe")
     ok, why = probe_codex(job_dir, slug, so_cfg, cc_cfg)
     if not ok:
         return write_status(job_dir, "failed", stage="probe", reason=why)
 
+    stage[0] = "codex"
     write_status(job_dir, "running", stage="codex")
     codex_bin = judge_backend.resolve_codex_bin(cc_cfg) or "codex"
     reply_raw = job_dir / "reply.raw.md"
@@ -347,19 +385,39 @@ def execute(job_dir: Path, so_cfg: Dict[str, Any], cc_cfg: Dict[str, Any]) -> Di
         return write_status(job_dir, "failed", stage="codex",
                             reason=f"codex exec exit={rc}；stderr 尾：{_tail(job_dir / 'codex.stderr.log', 400)}")
 
+    stage[0] = "post-guard"
     write_status(job_dir, "running", stage="post-guard")
     ok, note = post_guard(job_dir)
     if not ok:
         return write_status(job_dir, "failed", stage="post-guard", reason=note)
 
-    raw = _tail(reply_raw, 10_000_000)
-    sections = so_prompts.parse_three_sections(raw)
+    stage[0] = "parse"
+    if _size(reply_raw) > MAX_LOG_BYTES:
+        return write_status(job_dir, "failed", stage="parse", reason=f"reply.raw.md 過大（{_size(reply_raw)} bytes）無法解析")
+    sections = so_prompts.parse_three_sections(_read_all(reply_raw))
     if not sections:
         return write_status(job_dir, "failed", stage="parse",
                             reason="回覆缺段（要恰好 ## 結論／## 證據／## 反例或未解 三段）；原文在 reply.raw.md")
     (job_dir / "reply.md").write_text(so_prompts.render_reply(sections), encoding="utf-8", newline="\n")
     extra = {"guard_note": note} if note else {}
     return write_status(job_dir, "done", stage="done", reason="", **extra)
+
+
+def execute(job_dir: Path, so_cfg: Dict[str, Any], cc_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """探針→codex→post guard→解析。任何例外都收成 failed（status 不會卡在 running）；同 job 第二個 executor 直接拒。"""
+    st = _read_json(job_dir / "status.json")
+    if st.get("status") != "started":
+        return write_status(job_dir, st.get("status") or "failed",
+                            reason=f"execute 只接 started 的 job（現為 {st.get('status')!r}）")
+    if not _acquire_executor_lock(job_dir):
+        st["rejected_execute"] = "已有 executor（execute.lock 存在）；要重跑先確認 status 與該 lock 再手動刪"
+        sys.stderr.write(f"[second-opinion] {job_dir.name}: {st['rejected_execute']}\n")
+        return st
+    stage = ["start"]
+    try:
+        return _execute_body(job_dir, so_cfg, cc_cfg, stage)
+    except Exception as e:  # noqa: BLE001  任何啟動／IO 例外都要落 failed，不能留 running
+        return write_status(job_dir, "failed", stage=stage[0], reason=f"execute 例外（stage={stage[0]}）：{e!r}")
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────

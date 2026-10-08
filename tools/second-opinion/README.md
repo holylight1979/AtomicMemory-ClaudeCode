@@ -24,7 +24,16 @@ execute  探針 codex exec --skip-git-repo-check -s read-only -m <slug> "Reply C
 
 job 目錄 `~/.claude/workflow/second-opinion/<yyyymmdd-HHMMSS>-<sid8>-<kind>/`：
 `request.json` `materials/` `manifest.json` `prompt.md` `codex.stderr.log` `reply.raw.md` `reply.md` `status.json`
-（另有除錯用 `codex.stdout.log`、`probe.*.log`、`guard.*.log`、`execute.log`）。封存關鍵字放 `<job_root>/_sealed/<job_id>.txt`，不放 job 目錄裡。
+
+| 其他檔 | 誰寫 | 是什麼 |
+|---|---|---|
+| `codex.stdout.log`、`probe.stdout.log`、`probe.stderr.log`、`guard.pre.log`、`guard.post.log` | py | 子程序輸出與 guard 原文（除錯用） |
+| `execute.log` | **MCP（js）建立**，子程序 stdout/stderr 導向進去 | 不是 state、不是 job 結果；`run.py execute` 自己的 print 與 traceback 落這裡 |
+| `execute.lock` | py，`O_CREAT\|O_EXCL` | 同一 job 只允許一個 executor；第二個 execute 直接拒。要重跑先看 status.json 再手動刪 |
+
+status.json 的終態（done／failed／blocked）不可被覆寫：之後任何 `write_status` 都不寫、回現況並附 `rejected_write`。execute 全程 try/except，任何啟動／IO 例外都落 `failed`（stage 記當時階段），不會卡在 running。
+封存關鍵字放 `<job_root>/_sealed/<job_id>.txt`，不放 job 目錄裡。`draft` 空字串或全空白視為「沒帶」（independent 放行、review 拒）。
+js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/guardian-crash.log`（gitignored）；只在 spawn 本身失敗時用。
 
 ## 材料與雜湊（`pack.py`）
 
@@ -51,7 +60,7 @@ job 目錄 `~/.claude/workflow/second-opinion/<yyyymmdd-HHMMSS>-<sid8>-<kind>/`�
 
 ## 保留裁決（總控台審）
 
-`replay-guard post` 在紀錄裡找不到任何指令行時回 FAIL「無法判定」。codex 若純推理（材料已全文內嵌）就會這樣。本工具只在**這一種** FAIL 時，改以 guard 自己的禁區樣式與出界路徑規則掃整份 stderr＋stdout；全乾淨才算 PASS 並在 status 留 `guard_note`；有任何命中仍 failed。其他 FAIL 一律 failed。
+`replay-guard post` 在紀錄裡找不到任何指令行時回 FAIL「無法判定」。codex 若純推理（材料已全文內嵌）就會這樣。本工具只在**這一種** FAIL 時，改以 guard 自己的禁區樣式與出界路徑規則掃**整檔**（不切頭尾）的 stderr＋stdout；兩檔合計超過 20 MB 直接 failed「紀錄過大無法判定」，不掃尾段；全乾淨才算 PASS 並在 status 留 `guard_note`；有任何命中仍 failed。其他 FAIL 一律 failed。總控台裁決：接受（條件＝整檔掃描＋過大即 failed，已做）。
 
 ## 驗證
 

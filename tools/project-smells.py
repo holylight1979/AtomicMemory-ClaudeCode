@@ -9,6 +9,7 @@
   smells_report  報告檔（JSON：list 或 {rows|items|smells:[...]}；每列 path／category|kind／reason／score?／part?）
                  超過 smells_max_age_days（預設 7）只在表頭加一行 stale，資料照回
   smells_cmd     沒報告（或報告不存在）就跑這條指令，stdout 要是同格式 JSON；逾時 smells_timeout_s（預設 20）回錯誤附指示
+                 可給陣列（建議）或字串；字串在 Windows 以自家切法處理：引號可在 token 中段（--root="C:\\A B\\src"）、引號內空白不切
   builtin        都沒有：檔案大小 ＋ 近 60 天 git fix 提交熱點（T2 重修量尺接上前的暫代）
 分類只收 hotspot|size|complexity|duplication|coupling|stale|custom；其他名稱要在 smells_category_map 映射，
 沒映射的列丟棄並回報 unknown_categories；沒 reason 的列丟棄並計 dropped。
@@ -105,11 +106,44 @@ def read_report(path: Path, max_age_days: int) -> Tuple[List[Dict[str, Any]], in
     return _rows_of(data), age_days, age_days > int(max_age_days)
 
 
+def _split_windows(cmd: str) -> List[str]:
+    """Windows 用：引號可出現在 token 任何位置（`--root="C:\\Work Space\\src"`），引號內的空白不切、引號本身去掉；
+    反斜線照字面保留（不當跳脫）。shlex 非 POSIX 模式只認 token 開頭的引號，會把這種參數切成兩段。"""
+    out: List[str] = []
+    buf: List[str] = []
+    quote = ""
+    in_token = False
+    for ch in cmd:
+        if quote:
+            if ch == quote:
+                quote = ""
+            else:
+                buf.append(ch)
+            continue
+        if ch in "\"'":
+            quote = ch
+            in_token = True
+            continue
+        if ch.isspace():
+            if in_token:
+                out.append("".join(buf))
+                buf, in_token = [], False
+            continue
+        buf.append(ch)
+        in_token = True
+    if quote:
+        raise SmellsError(f"smells_cmd 引號沒關：{cmd}")
+    if in_token:
+        out.append("".join(buf))
+    return out
+
+
 def _split_cmd(cmd: Any) -> List[str]:
     if isinstance(cmd, list):
         return [str(c) for c in cmd]
-    parts = shlex.split(str(cmd), posix=(os.name != "nt"))
-    return [p[1:-1] if len(p) >= 2 and p[0] == p[-1] and p[0] in "\"'" else p for p in parts]
+    if os.name == "nt":
+        return _split_windows(str(cmd))
+    return shlex.split(str(cmd))
 
 
 def run_smells_cmd(cmd: Any, cwd: Path, timeout_s: int) -> List[Dict[str, Any]]:
