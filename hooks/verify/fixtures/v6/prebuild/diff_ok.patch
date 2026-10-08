@@ -1,0 +1,12 @@
+diff --git a/src/app.py b/src/app.py
+--- a/src/app.py
++++ b/src/app.py
+@@ -1,4 +1,6 @@
+ def load():
+-    try:
+-        return read()
+-    except: pass
++    return read()
++
++def pick(xs):
++    return sorted(xs, key=second)

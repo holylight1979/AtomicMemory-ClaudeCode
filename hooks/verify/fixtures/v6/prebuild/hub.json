@@ -1,0 +1,8 @@
+{
+  "prebuild_checks": [
+    {"name": "unit", "cmd": "python -X utf8 -c \"print('step 1 ok'); print('UNIT_CHECK PASS')\"", "expect": "PASS"},
+    {"name": "measure", "cmd": "python -X utf8 -c \"print('SMELLS DONE files=3 smells=0')\"", "expect": "DONE"},
+    {"name": "legacy", "cmd": "python -X utf8 -c \"print('ALL GOOD')\"", "expect": "PASS", "sentinel_regex": "^ALL GOOD$"}
+  ],
+  "defects_doc": "defects.md"
+}
