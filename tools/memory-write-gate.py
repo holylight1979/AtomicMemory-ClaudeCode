@@ -589,9 +589,9 @@ def evaluate(
             "action": "skip",
             "quality_score": 0,
             "reason": (
-                f"knowledge 區 {total} bytes{detail} 超過預算 {limit} bytes；"
-                f"不截斷：個案細節寫進 {route_to}；atom 只留結論/判斷/教訓/檔案錨點"
-                "（大段逐筆內容改為文件路徑一行）" + hub_hint
+                f"knowledge 區 {total} bytes{detail} 超過預算 {limit} bytes；個案事實移文件"
+                f"（不截斷：個案細節寫進 {route_to}；atom 只留結論/判斷/教訓/檔案錨點，"
+                "大段逐筆內容改為文件路徑一行）" + hub_hint
             ),
         })
 
