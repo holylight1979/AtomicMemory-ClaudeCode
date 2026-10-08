@@ -5,6 +5,13 @@
 
 ---
 
+## 2026-10-08 新增 Research/code-smells：何謂壞味道參考文件（閱讀樹＋九分支＋513 條索引）
+- **緣由**：使用者要一份日後 LLM 隨時可讀的「何謂壞味道」總文件，含上網蒐集、分類、閱讀樹，client/server 與 C# 多著墨。
+- **做法**：九個研究 agent 平行蒐集（經典目錄、設計與架構、C#／.NET、Client/Server、並行效能資源、測試資料設定、可讀性與度量、AI 寫碼與演化、本機案例）；根檔 README 放分類樹、症狀路由、C# client/server 閱讀路線、重疊對照、證據等級；00-index.md 從分支抽「標題＋定義」成一句話索引；global atom 當指標讓其他專案也找得到。
+- **驗證**：主 session 逐字核對 5 項（Sonar 門檻 15 由來、testsmells.org 19 種、Fowler 改版說明、CA2007 預設與適用、NDepend 欄位寫入規則存在）；其餘標為 agent 查證；內部連結全數可解析。 | `_AIDocs/Research/code-smells/`, `_AIDocs/Research/_INDEX.md`, `_AIDocs/_CHANGELOG.md`
+
+---
+
 ## 2026-10-08 R6：衝突偵測與去重閘對「互補卡／指標卡」的誤判修法
 - **緣由**：三方守門討論三個樣本——TSLG 戰鬥卡被判與大地圖卡 CONTRADICT（兩張各說同一事實一半）、網路卡對 login-chain 誤判 CONTRADICT、設計表導讀卡（指標型）被去重閘判與管線內容卡相似 0.816。探查：偵測器提示詞只有四個詞沒定義、解析固定先找 CONTRADICT（回覆裡提到就算）、舊卡只給命中片段而新卡給 1500 字全文；去重閘純向量、每塊前綴標題與層，分不出索引卡與本體卡。
 - **修**：`tools/memory-conflict-detector.py` 提示詞加四類定義（「各說一半＝EXTEND 不是 CONTRADICT」「索引／指標＝EXTEND」）、`parse_label` 取回覆裡最早出現的標籤、`match_full_text` 舊卡有檔就給整段「## 知識」；`tools/memory-write-gate.py` 加 `is_pointer_title`／`dedup_threshold_for`：標題含 導讀／hub索引／指標卡／索引卡／知識地圖（config `write_gate.pointer_markers`）→ 門檻用 `dedup_pointer_score`（預設 0.95，只擋真重複）；MCP `atom-tools.js`→`funnel.js` stdin JSON 多傳 `title`。
