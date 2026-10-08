@@ -115,6 +115,10 @@ def test_health_block_two_lines_both_states(wdir):
     (wdir / "scorecard" / "candidates.json").write_text("{bad", encoding="utf-8", newline="\n")
     lines = scb.health_block()
     assert len(lines) == 2 and "讀不出來" in lines[0]
+    for bad in ("[]", "null", '{"top": [1, "x"], "below_baseline": "no", "baseline_s1": "n/a"}'):
+        (wdir / "scorecard" / "candidates.json").write_text(bad, encoding="utf-8", newline="\n")
+        lines = scb.health_block()
+        assert len(lines) == 2 and lines[1].startswith("下一張該寫的卡："), bad
 
 
 # ─── session_end 掛點位置 ─────────────────────────────────────────

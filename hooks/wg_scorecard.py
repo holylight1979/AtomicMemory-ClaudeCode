@@ -4,7 +4,8 @@
 算三個比例，單次 append 一行（<100 ms；無 state 不寫；沒注入過任何部位也不寫，沒東西可量）。
 報表與候選卡由 `tools/scorecard-report.py` 另算；本模組不讀報表、不讀 candidates.json（回路單向：M4 讀候選，候選不回餵量尺）。
 
-S1＝有改的部位裡，改之前（本 session 內）至少讀過一個檔的比例（預計畫附錄 C「首改前有沒有讀卡」的 state 近似）。
+S1＝有改的部位裡，導讀卡注入後曾讀過至少一個檔的比例（state 的 `reads_after` 只記「注入後」，不分改前改後；
+預計畫附錄 C「首改前有沒有讀卡」要等 wg_overview 凍結 reads_before_edit 才量得準）。
 S3＝有改的部位裡，交出定位三行的比例（`located`）。
 S5＝被注入的部位裡，之後讀過卡片檔（memory／_atoms 下的 .md）的比例。
 分母為零 → None（不是 0）。
@@ -105,9 +106,13 @@ def health_block() -> List[str]:
         return [f"scorecard：尚無報表（跑 {REPORT_CMD}）", "下一張該寫的卡：無資料（先產報表）"]
     except (OSError, ValueError) as e:
         return [f"scorecard：candidates.json 讀不出來（{e}）→ 重跑 {REPORT_CMD}", "下一張該寫的卡：無資料"]
+    if not isinstance(data, dict):
+        return [f"scorecard：candidates.json 不是物件（{type(data).__name__}）→ 重跑 {REPORT_CMD}", "下一張該寫的卡：無資料"]
     base, recent = data.get("baseline_s1"), data.get("recent_s1")
-    below = data.get("below_baseline") or []
-    top = data.get("top") or []
+    base = base if isinstance(base, (int, float)) else None
+    recent = recent if isinstance(recent, (int, float)) else None
+    below = [b for b in (data.get("below_baseline") or []) if isinstance(b, dict)]
+    top = [t for t in (data.get("top") or []) if isinstance(t, dict)]
     fmt = lambda v: "無" if v is None else f"{v:.2f}"  # noqa: E731
     line1 = (f"scorecard：{str(data.get('generated_at', ''))[:10]} 基線 S1 {fmt(base)}／近週 S1 {fmt(recent)}，"
              f"低於基線部位 {len(below)}" + (f"（{'、'.join(str(b.get('part', '')) for b in below[:3])}）" if below else ""))

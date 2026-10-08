@@ -2,7 +2,9 @@
 """overview-map-scaffold.py：從零掃出專案部位表骨架與五段佔位卡；對帳表與卡（G14）。
 
 做什麼：掃 `--cwd` 的頂層目錄當部位、fix 熱點排前、每列一張 [臨] 骨架卡，產 `<專案>/.claude/overview-map.md`。
-預設 dry-run：只印表與卡的落點，不落檔；加 `--write` 才寫。表已存在一律拒寫，`--merge-missing` 只補缺列。
+預設 dry-run：只印表與卡的落點（每張卡先 dry-run 預驗），不落檔；加 `--write` 才寫：先寫全部卡、全過才寫表，
+任一張卡失敗就撤回已寫的卡、不寫表、exit 1。表已存在一律拒寫，`--merge-missing` 只補缺列與「表有列但卡檔不在」的卡。
+卡落哪層自動判：~/.claude → 根層（global＋realm local＋MemDev）；公司根 → 公司層；其他 → 專案 shared。
 
 怎麼跑：
   python ~/.claude/tools/overview-map-scaffold.py --cwd <專案根>                 # 預覽（不落檔）
@@ -10,7 +12,7 @@
   python ~/.claude/tools/overview-map-scaffold.py --cwd <專案根> --write --merge-missing   # 只補表上沒有的目錄
   python ~/.claude/tools/overview-map-scaffold.py check --cwd <專案根>           # 表卡對帳
 尾行：掃表 `OVERVIEW_SCAFFOLD DONE rows=<n>`；對帳 `OVERVIEW_SCAFFOLD CHECK PASS|FAIL issues=<n>`。
-exit：0 完成；1 對帳有問題或有卡寫失敗；2 參數／Lv1／根目錄錯；3 表已存在被拒。
+exit：0 完成；1 對帳有問題或有卡寫失敗（表未寫）；2 參數／Lv1／根目錄錯；3 表已存在被拒。
 設定：`workflow/config.json` 的 `overview_scaffold`（scaffold_ignore、layers、scaffold_default_lv1）與 `refix_churn`（refix_*）。
 完整參數以 --help 為準。
 """
@@ -45,7 +47,7 @@ def load_sections() -> tuple:
 
 
 def cmd_scaffold(args) -> int:
-    root = Path(args.cwd).resolve()
+    root = Path(args.cwd).expanduser().resolve()
     sc_cfg, rc_cfg = load_sections()
     cfg = sc.merge_cfg(sc_cfg)
     try:
@@ -54,9 +56,16 @@ def cmd_scaffold(args) -> int:
         if warn:
             print(f"[overview-map-scaffold] {warn}", file=sys.stderr)
         rows = sc.draft_rows(dirs, hot, cfg["layers"], args.top_n)
-        lv1 = sc.map_lv1(root, args.lv1 or cfg["scaffold_default_lv1"])
+        layer = sc.detect_layer(root)
+        lv1 = sc.ROOT_DOMAIN if layer[0] == sc.LAYER_ROOT else sc.map_lv1(root, args.lv1 or cfg["scaffold_default_lv1"])
         result = sc.write_scaffold(root, rows, lv1, write=args.write, merge_missing=args.merge_missing,
-                                   root_label=root.name)
+                                   root_label=root.name, layer=layer)
+    except sc.CardWriteError as e:
+        print(f"[overview-map-scaffold] {e}", file=sys.stderr)
+        for c in e.cards:
+            print(f"  {'OK ' if c['ok'] else 'ERR'} {c['card']} → {c['path'] or c['error']}", file=sys.stderr)
+        print("OVERVIEW_SCAFFOLD DONE rows=0")
+        return 1
     except sc.ScaffoldError as e:
         print(f"[overview-map-scaffold] {e}", file=sys.stderr)
         return 3 if "不覆寫" in str(e) else 2
@@ -65,18 +74,24 @@ def cmd_scaffold(args) -> int:
     else:
         print(result["table"], end="")
         print()
-        mode = "已落檔" if result["written"] else "dry-run，未落檔；加 --write 才寫"
-        print(f"表：{result['map']}（{mode}{'，merge-missing 只補缺列' if result['merged'] else ''}）")
-        print(f"卡：Lv1「{lv1}」，{len(result['cards'])} 張")
+        if result["written"]:
+            mode = "已落檔"
+        elif args.write:
+            mode = "表沒有新列，未改"
+        else:
+            mode = "dry-run，未落檔；加 --write 才寫"
+        print(f"表：{result['map']}（{mode}{'，merge-missing 只補缺列與缺卡' if result['merged'] else ''}）")
+        where = "根層 _AIDocs/_atoms/MemDev" if result["layer"] == sc.LAYER_ROOT else f"{result['layer']} 層 Lv1「{lv1}」"
+        print(f"卡：{where}，{len(result['cards'])} 張（{'已寫' if args.write else '預驗通過'}）")
         for c in result["cards"]:
-            print(f"  {'OK ' if c['ok'] else 'ERR'} {c['card']} → {c['path'] or c['error']}")
-    failed = [c for c in result["cards"] if not c["ok"]]
+            tag = 'OK ' if c['ok'] else 'ERR'
+            print(f"  {tag} {c['card']} → {c['path'] or c['error']}{'（既有，沿用）' if c.get('reused') else ''}")
     print(f"OVERVIEW_SCAFFOLD DONE rows={result['rows']}")
-    return 1 if failed else 0
+    return 0
 
 
 def cmd_check(args) -> int:
-    root = Path(args.cwd).resolve()
+    root = Path(args.cwd).expanduser().resolve()
     issues = sc.check_consistency(root)
     for msg in issues:
         print(f"- {msg}")

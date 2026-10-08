@@ -1,13 +1,15 @@
 """refix_churn：「同一個檔在短期內被兩筆以上 fix 類提交改到」的量尺（純函式；git／svn 都吃）。
 
-做什麼：讀 VCS 歷史，挑出訊息像在修東西的提交（fix／修／bug／壞／錯），按檔統計 fix 提交數
+做什麼：讀 VCS 歷史，挑出訊息像在修東西的提交（fix／bugfix／hotfix／bug／修正／修復／修好／修補／壞了／壞掉／錯誤，
+詞級比對，「修改排版」「錯位動畫」不算），按檔統計 fix 提交數
 （主尺 fix_commits）與「window 天內兩筆 fix 配對數」（副尺 pairs_in_window）。修了又修的檔＝可能在修症狀，
 這是預計畫 S2 的代理量、也是從零掃表的熱點來源。
 
 邊界：
 - 同一個 commit 裡同一檔只算一次（refix_same_commit_pairs=False 預設），所以配對一定是兩個不同 commit。
 - 跨檔重修不算：A 修 X、B 修 Y，X 與 Y 各只有一筆 fix，都不列。
-- 記憶目錄、索引三檔、部位表預設排除；收割提交（knowledge harvest／[memory]／atom）預設排除。
+- 記憶目錄（`.claude/memory/`、根層 `memory/`、`_AIDocs/_atoms/`）、索引三檔、部位表預設排除；收割提交（knowledge harvest／[memory]／atom）預設排除。
+- 日期口徑：git 用 `--date=short`、svn 取 ISO 日期前十字（UTC），兩邊都只到「日」；window 是日曆天差，不看時區與時分。
 - VCS 讀不到（沒裝、不是工作副本、逾時）丟 VcsError，由呼叫端決定要停還是降級（不靜默）。
 
 輸入來源三種：read_git(root)、read_svn(root)、parse_svn_xml(text)（svn log --xml 的輸出，供 fixture）。
@@ -24,12 +26,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DEFAULTS: Dict[str, Any] = {
-    "fix_patterns": [r"\bfix(?:e[sd]|ing)?\b", r"\bbugfix\b", r"\bhotfix\b", r"\bbug\b", "修", "壞", "錯"],
+    "fix_patterns": [r"\bfix(?:e[sd]|ing)?\b", r"\bbugfix\b", r"\bhotfix\b", r"\bbug\b",
+                     "修正", "修復", "修好", "修補", "壞了", "壞掉", "錯誤"],
     "refix_window_days": 14,
     "refix_since_days": 60,
     "refix_min_fixes": 2,
-    "refix_exclude": [r"(^|/)\.claude/memory/", r"_ATOM_INDEX\.md$", r"_atom_index\.json$", r"(^|/)MEMORY\.md$",
-                      r"(^|/)_INDEX\.md$", r"(^|/)_local_catalog\.md$", r"overview-map\.md$", r"overview-hub\.json$"],
+    "refix_exclude": [r"(^|/)\.claude/memory/", r"^memory/", r"(^|/)_AIDocs/_atoms/", r"_ATOM_INDEX\.md$",
+                      r"_atom_index\.json$", r"(^|/)MEMORY\.md$", r"(^|/)_INDEX\.md$", r"(^|/)_local_catalog\.md$",
+                      r"overview-map\.md$", r"overview-hub\.json$"],
     "refix_exclude_msg": [r"knowledge harvest", r"\[memory\]", r"\batom\b"],
     "refix_same_commit_pairs": False,
 }
@@ -85,7 +89,8 @@ def _since_date(since_days: int, now: Optional[datetime] = None) -> str:
 
 
 def read_git(root: Path, since_days: int = 60, now: Optional[datetime] = None) -> List[Commit]:
-    cmd = ["git", "-C", str(root), "log", f"--since={_since_date(since_days, now)}", "--date=short", "--name-only",
+    cmd = ["git", "-C", str(root), "-c", "core.quotepath=off", "log", f"--since={_since_date(since_days, now)}",
+           "--date=short", "--name-only",
            f"--pretty=format:{_RS}%h{_US}%ad{_US}%s"]
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=VCS_TIMEOUT, creationflags=_NO_WINDOW)

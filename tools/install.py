@@ -773,7 +773,8 @@ def verify_merge_driver() -> Tuple[str, str]:
 
 def verify_overview_map() -> Tuple[str, str]:
     """根層部位表 ~/.claude/.claude/overview-map.md 三態：表在且 parse_map 讀得出列＝PASS；表在但讀不出＝FAIL；表不在＝DEGRADED。
-    只讀檔；解析器取已安裝的 ~/.claude/lib/overview_hub.py（hook 實際用的那份），沒有才退本 clone 的；不實跑 hook。"""
+    只讀檔；解析器取已安裝的 ~/.claude/lib/overview_hub.py（hook 實際用的那份），沒有才退本 clone 的；不實跑 hook。
+    TARGET 固定 Path.home()/.claude、不看 WG_CLAUDE_DIR：這是「已安裝版本」的驗證，worktree 的表由 verify 自己建假家測。"""
     path = TARGET / ".claude" / "overview-map.md"
     if not path.is_file():
         return "DEGRADED", (f"根層部位表不存在（{path}），改根層的檔不會先注入導讀卡 → "

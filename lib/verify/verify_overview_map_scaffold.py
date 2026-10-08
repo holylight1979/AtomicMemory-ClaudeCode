@@ -3,6 +3,9 @@
 正例：tree.json 掃出的表與 expected-table.md 一字相同；表過 parse_map roundtrip（狀態「骨架」、層「單層」、擴欄空）；
 fix 熱點排前；無 VCS 仍產；dry-run 不落任何檔；表存在拒覆寫、內容不變；--merge-missing 只補缺列、舊列一字不動；
 Lv1 只映射（專案 _taxonomy → 核心 → 預設），不開新；骨架卡五段齊、source=tool:overview-map-scaffold、[臨]；
+寫卡先於寫表（每次 write_atom 當下表都還不在）；卡預驗失敗或真寫失敗 → 不寫表、已寫的卡撤回（CardWriteError）；
+分層選 scope（根層 global＋realm local＋MemDev、公司層／專案層 shared＋project_cwd）；merge-missing 也補「表有列卡檔不在」的卡；
+撞名目錄（a-b／a_b）各自一張卡、title＝表上的避撞名；
 check 三種不一致各一訊息；first_session_hint 兩態；CLI 哨兵尾行與 exit code。
 反例：骨架卡全空仍有提示（卡檔不存在也提示）；表存在被覆寫＝FAIL（write 必丟 ScaffoldError 且檔雜湊不變）。
 怎麼跑：python -X utf8 -m pytest -q lib/verify/verify_overview_map_scaffold.py
@@ -20,6 +23,7 @@ from pathlib import Path
 import pytest
 
 CLAUDE = Path(__file__).resolve().parents[2]
+os.environ.setdefault("WG_CLAUDE_DIR", str(CLAUDE))   # detect_layer 走 wg_core：worktree 內跑時根層＝本樹
 sys.path.insert(0, str(CLAUDE))
 FIX = CLAUDE / "hooks" / "verify" / "fixtures" / "v6" / "scaffold"
 TOOL = CLAUDE / "tools" / "overview-map-scaffold.py"
@@ -260,3 +264,142 @@ def test_cli_dry_run_write_refuse_check(tmp_path, fake_home):
     assert not list((fake_home / ".claude" / "memory").rglob("*.jsonl")) or True   # audit 落 tmp 家，不在 live
     assert not (CLAUDE / "memory" / "_meta" / "atom_io_audit.jsonl").exists() or \
         str(root) not in (CLAUDE / "memory" / "_meta" / "atom_io_audit.jsonl").read_text(encoding="utf-8", errors="replace")
+
+
+# ─── 002：分層、順序、撤回、補卡、撞名 ────────────────────────────
+
+class _FakeWriter:
+    """假 write_atom：記錄每次參數與「呼叫當下表在不在」；real 模式照 fail_on 決定哪張失敗，成功就真的落一個檔。"""
+
+    def __init__(self, root: Path, fail_on=(), fail_stage="real"):
+        self.root, self.fail_on, self.fail_stage, self.calls = root, set(fail_on), fail_stage, []
+
+    def __call__(self, **kw):
+        self.calls.append({**kw, "_map_exists": (self.root / ".claude" / "overview-map.md").exists()})
+        title = kw["title"]
+        path = self.root / ".claude" / "memory" / "shared" / "x" / f"{title}.md"
+        stage = "dry" if kw.get("dry_run") else "real"
+        if title in self.fail_on and (self.fail_stage == stage or self.fail_stage == "both"):
+            return atom_io.WriteResult(ok=False, error="閘拒：測試注入")
+        if stage == "real":
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# {title}\n", encoding="utf-8", newline="\n")
+        return atom_io.WriteResult(ok=True, path=path)
+
+
+def test_detect_layer_and_kwargs(tmp_path):
+    root = _mk_project(tmp_path)
+    assert sc.detect_layer(root) == (sc.LAYER_PROJECT, root)
+    assert sc.detect_layer(CLAUDE / "lib") == (sc.LAYER_ROOT, CLAUDE)            # WG_CLAUDE_DIR 指本樹＝根層
+    kw = sc.card_write_kwargs(sc.LAYER_ROOT, CLAUDE, "設計通則")
+    assert kw == {"scope": "global", "realm": "local", "domain": "MemDev"} and "project_cwd" not in kw
+    assert sc.card_write_kwargs(sc.LAYER_ORG, Path("C:/Org"), "設計通則") == {"scope": "shared", "project_cwd": "C:\\Org", "domain": "設計通則"}
+    assert sc.card_write_kwargs(sc.LAYER_PROJECT, root, "設計通則")["project_cwd"] == str(root)
+    assert sc.card_dirs(sc.LAYER_ROOT, CLAUDE) == [CLAUDE / "memory", CLAUDE / "_AIDocs" / "_atoms"]
+    assert sc.card_dirs(sc.LAYER_PROJECT, root) == [root / ".claude" / "memory"]
+
+
+def test_root_layer_uses_global_local_scope(tmp_path, monkeypatch):
+    root = _mk_project(tmp_path)
+    fake = _FakeWriter(root)
+    monkeypatch.setattr(sc, "write_atom", fake)
+    res = sc.write_scaffold(root, _rows(root), sc.ROOT_DOMAIN, write=True, layer=(sc.LAYER_ROOT, root))
+    assert res["layer"] == "root" and res["written"] and len(fake.calls) == 6          # 3 預驗＋3 真寫
+    for c in fake.calls:
+        assert (c["scope"], c["realm"], c["domain"]) == ("global", "local", "MemDev") and "project_cwd" not in c
+        assert c["source"] == "tool:overview-map-scaffold" and c["confidence"] == "[臨]" and c["mode"] == "create"
+    assert [c["title"] for c in fake.calls[3:]] == ["server部位導讀", "client部位導讀", "docs部位導讀"]
+
+
+def test_cards_written_before_table(tmp_path, monkeypatch):
+    root = _mk_project(tmp_path)
+    fake = _FakeWriter(root)
+    monkeypatch.setattr(sc, "write_atom", fake)
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["written"] and (root / ".claude" / "overview-map.md").is_file()
+    assert all(c["_map_exists"] is False for c in fake.calls)                          # 每次寫卡當下表都還不在
+    assert [c["dry_run"] for c in fake.calls] == [True] * 3 + [False] * 3
+
+
+def test_card_failure_leaves_no_table(tmp_path, monkeypatch):
+    root = _mk_project(tmp_path)
+    map_path = root / ".claude" / "overview-map.md"
+    # 預驗就擋：一張卡 dry-run 回 ok=False → 不真寫、不寫表、什麼檔都沒多
+    fake = _FakeWriter(root, fail_on={"client部位導讀"}, fail_stage="dry")
+    monkeypatch.setattr(sc, "write_atom", fake)
+    before = _snapshot(root)
+    with pytest.raises(sc.CardWriteError, match="預驗") as ei:
+        sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert [c["card"] for c in ei.value.cards if not c["ok"]] == ["client部位導讀"]
+    assert all(c["dry_run"] for c in fake.calls) and not map_path.exists() and _snapshot(root) == before
+    # 真寫途中第二張失敗：第一張撤回、不寫表
+    fake = _FakeWriter(root, fail_on={"client部位導讀"}, fail_stage="real")
+    monkeypatch.setattr(sc, "write_atom", fake)
+    with pytest.raises(sc.CardWriteError, match="真寫") as ei:
+        sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert not map_path.exists()
+    assert not (root / ".claude/memory/shared/x/server部位導讀.md").exists()           # 已寫的第一張被撤回
+    assert _snapshot(root) == before
+    failed = [c for c in ei.value.cards if not c["ok"]]
+    assert failed[0]["card"] == "client部位導讀" and "閘拒" in failed[0]["error"]
+    # 重跑（修好閘後）要能從零成功，不是 exit 3 也不是 rows=0
+    monkeypatch.setattr(sc, "write_atom", _FakeWriter(root))
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["written"] and res["rows"] == 3 and map_path.is_file()
+
+
+def test_merge_missing_rewrites_missing_cards(tmp_path):
+    root = _mk_project(tmp_path)
+    sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    map_path = root / ".claude" / "overview-map.md"
+    digest = _sha(map_path)
+    gone = root / ".claude/memory/shared/設計通則/client部位導讀.md"
+    gone.unlink()
+    (root / ".claude/memory/shared/設計通則/client部位導讀.access.json").unlink(missing_ok=True)
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True, merge_missing=True)
+    assert res["rows"] == 0 and res["written"] is False and _sha(map_path) == digest   # 表沒變
+    assert [c["card"] for c in res["cards"]] == ["client部位導讀"] and res["cards"][0]["reused"] is False
+    assert gone.is_file() and sc.check_consistency(root) == []
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True, merge_missing=True)
+    assert res["cards"] == [] and res["rows"] == 0                                      # 都齊了就什麼都不做
+
+
+def test_existing_card_is_reused_not_rejected(tmp_path):
+    """上次卡寫成了但表沒寫成（或人先手寫了卡）→ 重跑沿用既有卡、表照寫，不會被 create 的既有保護擋死。"""
+    root = _mk_project(tmp_path)
+    rows = _rows(root)
+    sc.write_skeleton_cards(rows[:1], sc.card_write_kwargs(sc.LAYER_PROJECT, root, "設計通則"), [], dry_run=False)
+    assert (root / ".claude/memory/shared/設計通則/server部位導讀.md").is_file()
+    res = sc.write_scaffold(root, rows, "設計通則", write=True)
+    assert res["written"] and res["cards"][0] == {"card": "server部位導讀", "ok": True,
+                                                   "path": str(root / ".claude/memory/shared/設計通則/server部位導讀.md"),
+                                                   "error": None, "reused": True}
+    assert sc.check_consistency(root) == []
+
+
+def test_colliding_dir_names_get_distinct_cards(tmp_path):
+    root = tmp_path / "coll"
+    for d in ("a-b", "a_b"):
+        (root / d).mkdir(parents=True)
+        (root / d / "f.txt").write_text("x", encoding="utf-8", newline="\n")
+    (root / ".claude" / "memory").mkdir(parents=True)
+    (root / ".claude" / "memory" / "MEMORY.md").write_text("# idx\n", encoding="utf-8", newline="\n")
+    rows = sc.draft_rows(sc.scan_top_dirs(root))
+    assert [r["card"] for r in rows] == ["a-b部位導讀", "a-b部位導讀-2"]
+    assert [sc.skeleton_card(r)["title"] for r in rows] == ["a-b部位導讀", "a-b部位導讀-2"]
+    res = sc.write_scaffold(root, rows, "設計通則", write=True)
+    assert res["written"] and all(c["ok"] for c in res["cards"])
+    files = sorted(p.name for p in (root / ".claude/memory/shared/設計通則").glob("*部位導讀*.md"))
+    assert files == ["a-b部位導讀-2.md", "a-b部位導讀.md"]
+    parsed = parse_map((root / ".claude/overview-map.md").read_text(encoding="utf-8"))
+    assert [r["card"] for r in parsed] == ["a-b部位導讀", "a-b部位導讀-2"]
+    assert sc.check_consistency(root) == []
+    assert "a-b部位導讀-2" in (root / ".claude/memory/shared/設計通則/a-b部位導讀-2.md").read_text(encoding="utf-8").splitlines()[0]
+
+
+def test_scan_unreadable_root_returns_empty(tmp_path, monkeypatch, capsys):
+    def boom(*_a, **_k):
+        raise PermissionError("denied")
+    monkeypatch.setattr(sc.os, "scandir", boom)
+    assert sc.scan_top_dirs(tmp_path) == []
+    assert "讀不到" in capsys.readouterr().err

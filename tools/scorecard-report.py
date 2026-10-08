@@ -145,7 +145,8 @@ def next_card_candidates(lines: List[Dict[str, Any]], top_n: int = 5) -> List[Di
         no_read = s["sessions"] - s["read_sessions"]
         no_locate = s["sessions"] - s["located_sessions"]
         score = s["edits"] * (1 + no_read + no_locate)
-        reason = f"改 {s['edits']} 次／{s['sessions']} session；沒讀檔 {no_read}、沒交定位 {no_locate}、讀過卡 {s['card_read_sessions']}"
+        reason = (f"改 {s['edits']} 次／{s['sessions']} session；注入後沒讀檔 {no_read}、沒交定位 {no_locate}、"
+                  f"注入後讀過卡 {s['card_read_sessions']}")
         out.append({"key": s["key"], "root": s["root"], "part": s["part"], "edits": s["edits"],
                     "sessions": s["sessions"], "score": score, "reason": reason})
     out.sort(key=lambda c: (-c["score"], -c["edits"], c["part"]))
@@ -169,6 +170,7 @@ def render_report(r: Dict[str, Any]) -> str:
     lines = [f"# scorecard 報表 {r['generated_at']}", "",
              f"- 視窗：{r['weeks']} 週，{r['lines']} 個 session 有量",
              f"- 基線（中位數）：S1 {fmt(r['baseline_s1'])}／S3 {fmt(r['baseline_s3'])}／S5 {fmt(r['baseline_s5'])}；近 7 天 S1 {fmt(r['recent_s1'])}",
+             "- 語意：S1＝有改的部位裡「導讀卡注入後曾讀檔」的比例；S3＝交出定位三行的比例；S5＝注入後讀過卡片檔的比例",
              "", f"## 低於基線的部位（{len(r['below_baseline'])}）"]
     lines += [f"- {s['part']}（{s['root']}）：S1 {fmt(s['s1'])}，改 {s['edits']} 次／{s['sessions']} session → 建議把導讀卡升級"
               for s in r["below_baseline"]] or ["- ✓ 無"]

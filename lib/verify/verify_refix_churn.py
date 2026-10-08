@@ -58,8 +58,9 @@ def _svn_commits():
 
 @pytest.mark.parametrize("msg,ok", [
     ("fix: login crash", True), ("Fixed the thing", True), ("hotfix prod", True), ("Bugfix #12", True),
-    ("修正登入", True), ("壞掉的按鈕", True), ("錯誤訊息", True), ("a bug in x", True),
+    ("修正登入", True), ("壞掉的按鈕", True), ("錯誤訊息", True), ("a bug in x", True), ("修好了", True), ("按鈕壞了", True),
     ("docs: add readme", False), ("feat: prefix search", False), ("refactor suffix", False),
+    ("修改文件排版", False), ("feat: 新增錯位動畫", False), ("docs: 改壞字", False),   # 單字「修／壞／錯」不算
 ])
 def test_is_fix(msg, ok):
     assert rc.is_fix(msg) is ok
@@ -171,3 +172,12 @@ def test_cli_sentinel_three_states(repo, tmp_path):
     r = _run("--cwd", str(plain))
     assert r.returncode == 2 and "不是 git 工作樹" in r.stderr
     assert r.stdout.rstrip().endswith("REFIX_CHURN DONE vcs=none commits=0 fix=0 files_refixed=0")
+
+
+def test_root_memory_and_local_atoms_excluded():
+    mem = [rc.Commit("1", datetime(2026, 9, 1), "fix: card", ["memory/工作流/a.md", "_AIDocs/_atoms/MemDev/b.md", "lib/x.py"]),
+           rc.Commit("2", datetime(2026, 9, 2), "fix: card again", ["memory/工作流/a.md", "_AIDocs/_atoms/MemDev/b.md", "lib/x.py"])]
+    r = rc.rank_refixed(mem)
+    assert [f["file"] for f in r["files"]] == ["lib/x.py"]                      # 根層 memory/ 與 _AIDocs/_atoms/ 不算熱點
+    assert rc.rank_refixed([rc.Commit("1", datetime(2026, 9, 1), "fix", ["src/memory/pool.cs"]),
+                            rc.Commit("2", datetime(2026, 9, 2), "fix", ["src/memory/pool.cs"])])["files_refixed"] == 1  # 專案裡叫 memory 的子目錄不受影響
