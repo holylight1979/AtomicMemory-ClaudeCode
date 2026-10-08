@@ -23,7 +23,9 @@
   --actual-cmd：改用外部指令，{key} 代入，取 stdout 最後一個非空行當值；order 取全部非空行；
   side_effect 在這個執行器不支援（會明說並 FAIL）。
 
-輸出：差異逐條列出，尾行 `PRESERVE_CHECK PASS` 或 `PRESERVE_CHECK FAIL`。exit 0 相同、1 有差異、2 拒收（同路徑、缺函式、不支援）。
+輸出：差異逐條列出，尾行 `PRESERVE_CHECK PASS` 或 `PRESERVE_CHECK FAIL`。exit 0 相同、1 有差異、2 拒收。
+拒收（不是行為差異、但也不放行）：同路徑；預期表零 case；舊源碼函式體裡有解析器不認的分支寫法（`if x in …`、`match`、巢狀條件）；
+外部執行器任一次非零 exit；--actual-cmd 跑 side_effect。
 """
 from __future__ import annotations
 
@@ -46,6 +48,7 @@ _DEFAULT_RE = re.compile(r"^\s*(?:else|default)\s*:")
 _RETURN_RE = re.compile(r"^\s*return\s+(.+?)\s*;?\s*$")
 _DEF_RE = re.compile(r"^(\s*)(?:def\s+|(?:public|private|static|internal|protected|override|\s)*\w+\s+)(\w+)\s*\(")
 _SEQ_RE = re.compile(r"return\s+(\[.*?\]|\(.*?\))\s*;?\s*$", re.DOTALL)
+_BRANCH_RE = re.compile(r"^\s*(?:if|elif|else if|case|match)\b")
 
 
 class Reject(Exception):
@@ -90,6 +93,8 @@ def parse_expected_source(text: str, func: str, order_func: str, effect: str) ->
         if _DEFAULT_RE.match(line):
             cur = "__default__"
             continue
+        if _BRANCH_RE.match(line):
+            raise Reject(f"舊源碼 {func} 有解析器不認的分支寫法，不能宣稱全枚舉：{line.strip()!r}（先用專案工具解析成 .json 再餵）")
         m = effect_re.search(line)
         if m and cur is not None and cur != "__default__":
             effects.setdefault(cur, []).append(_lit(m.group(1)))
@@ -107,8 +112,6 @@ def parse_expected_source(text: str, func: str, order_func: str, effect: str) ->
         if not m:
             raise Reject(f"舊源碼 {order_func} 裡找不到 return [...] 序列")
         order = list(_lit(m.group(1)))
-    if not values:
-        raise Reject(f"舊源碼 {func} 裡解析不到任何 case→值")
     return {"values": values, "default": default, "effects": effects, "order": order}
 
 
@@ -116,9 +119,13 @@ def load_expected(path: Path, func: str, order_func: str, effect: str) -> dict:
     text = path.read_text(encoding="utf-8")
     if path.suffix.lower() == ".json":
         d = json.loads(text)
-        return {"values": dict(d.get("values", {})), "default": d.get("default"),
-                "effects": {k: list(v) for k, v in (d.get("effects") or {}).items()}, "order": d.get("order")}
-    return parse_expected_source(text, func, order_func, effect)
+        table = {"values": dict(d.get("values", {})), "default": d.get("default"),
+                 "effects": {k: list(v) for k, v in (d.get("effects") or {}).items()}, "order": d.get("order")}
+    else:
+        table = parse_expected_source(text, func, order_func, effect)
+    if not table["values"]:
+        raise Reject(f"預期表 {path.name} 裡沒有任何 case→值（零 case 不能當證明）")
+    return table
 
 
 def boundary_probes(keys: list) -> list:
@@ -162,6 +169,8 @@ class CmdRunner:
     def _run(self, key) -> list:
         proc = subprocess.run(self.cmd.replace("{key}", str(key)), shell=True, cwd=str(self.cwd),
                               capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if proc.returncode != 0:
+            raise Reject(f"外部執行器 key={key!r} exit {proc.returncode}，結果不可信：{proc.stderr.strip()[-200:]}")
         return [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
 
     def value(self, key):

@@ -90,3 +90,28 @@ def test_executor_replaceable_cmd():
     assert (code, tail) == (1, "PRESERVE_CHECK FAIL") and "邊界不同" in out
     code, _, out = run("new_boundary.py", "side_effect", extra=("--actual-cmd", cmd))
     assert code == 2 and "不支援" in out
+
+
+# ─── 001 退回的三條 BLOCK 反例 ──────────────────────────────────────
+
+def test_json_without_cases_rejected():
+    """BLOCK 1：.json 預期表零 case 不能 PASS，要拒收 exit 2。"""
+    hub = FIX.parents[0] / "prebuild" / "hub.json"
+    code, tail, out = run("new_ok.py", "side_effect", expected=hub)
+    assert (code, tail) == (2, "PRESERVE_CHECK FAIL") and "沒有任何 case" in out
+
+
+def test_cmd_runner_nonzero_exit_rejected():
+    """BLOCK 2：外部執行器先印對的值再非零 exit，不得當成功。"""
+    cmd = f'"{sys.executable}" -X utf8 -c "import sys; sys.path.insert(0, r\'{FIX}\'); import new_ok as m; print(m.grade(int(sys.argv[1]))); sys.exit(7)" {{key}}'
+    code, tail, out = run("new_ok.py", "boundary", extra=("--actual-cmd", cmd))
+    assert (code, tail) == (2, "PRESERVE_CHECK FAIL") and "exit 7" in out
+
+
+def test_unparsed_branch_form_rejected(tmp_path):
+    """WARN：函式體裡有解析器不認的分支寫法（`if x in …`）→ 拒收，不靜默略過。"""
+    old = tmp_path / "old_in.py"
+    old.write_text("def grade(score):\n    if score == 1:\n        return 'D'\n    if score in (2, 3):\n        return 'C'\n    else:\n        return '?'\n",
+                   encoding="utf-8", newline="\n")
+    code, tail, out = run("new_ok.py", "boundary", expected=old)
+    assert (code, tail) == (2, "PRESERVE_CHECK FAIL") and "不認的分支寫法" in out

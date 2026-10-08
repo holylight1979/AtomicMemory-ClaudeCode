@@ -163,3 +163,20 @@ def test_end_to_end_real_git_stage(tmp_path):
     p = subprocess.run([sys.executable, "-X", "utf8", str(TEMPLATE), "--root", str(root)],
                        capture_output=True, text=True, encoding="utf-8")
     assert p.returncode == 0 and p.stdout.rstrip().splitlines()[-1] == "PREBUILD_CHECK PASS", p.stdout
+
+
+# ─── 001 退回的 BLOCK 3 與 WARN 反例 ────────────────────────────────
+
+def test_added_lines_keeps_plus_plus_lines_and_drops_headers():
+    """BLOCK 3：hunk 裡的 `++counter;` 是合法新增行要掃；hunk 前的 `+++ b/x` 是檔頭要丟。"""
+    diff = "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n@@ -1 +1,2 @@\n foo;\n+++counter;\n+bar;\n"
+    assert PB.added_lines(diff) == ["++counter;", "bar;"]
+    two = diff + "diff --git a/y.c b/y.c\n--- /dev/null\n+++ b/y.c\n@@ -0,0 +1 @@\n+baz;\n"
+    assert PB.added_lines(two) == ["++counter;", "bar;", "baz;"]
+
+
+def test_main_missing_hub_fails(tmp_path, capsys):
+    """WARN：--root 指錯（沒有 overview-hub.json）不得零檢查 PASS。"""
+    assert PB.main(["--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert out.rstrip().splitlines()[-1] == "PREBUILD_CHECK FAIL" and "overview-hub.json" in out

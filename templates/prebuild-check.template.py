@@ -22,6 +22,7 @@ overview-hub.json 要有的鍵：
   - expect "PASS"：輸出最後一個非空行必須完整符合 `^[A-Z][A-Z0-9_]*_CHECK PASS$`；只印 `X_CHECK` 缺字尾不算。
   - expect "DONE"：最後一個非空行必須完整符合 `^[A-Z][A-Z0-9_]* DONE( \\w+=\\S+)*$`（量測類，數字是尺不是判決）。
   - 有 sentinel_regex：改用它判最後一個非空行（既有工具尾行格式不同時用，不改工具）。
+  - overview-hub.json 不存在 → FAIL 並印原因（零檢查不算 PASS）。
   - 內建項 defect_shape（不用登記，defects_doc 有設就跑）：把病灶文件裡每條 `shape:` 當 regex，掃 `git diff --cached`
     的新增行（去掉行首 +），任一命中 → FAIL 並列出命中行；defects_doc 指的檔不存在 → FAIL（不靜默）。
 """
@@ -50,7 +51,7 @@ _ROW_SPLIT = re.compile(r"(?<!\\)\|")
 def load_hub(root: Path) -> dict:
     p = root / HUB_REL
     if not p.is_file():
-        return {}
+        raise RuntimeError(f"找不到 {p}：--root 指錯或專案還沒放 overview-hub.json，零檢查不算 PASS")
     return json.loads(p.read_text(encoding="utf-8"))
 
 
@@ -106,7 +107,18 @@ def parse_shapes(defects_text: str) -> list:
 
 
 def added_lines(diff_text: str) -> list:
-    return [ln[1:] for ln in diff_text.splitlines() if ln.startswith("+") and not ln.startswith("+++")]
+    """只收 hunk（`@@` 之後）裡的 `+` 行；hunk 前的 `+++ b/x` 是檔頭，hunk 裡的 `+++counter;` 是合法新增行。"""
+    out, in_hunk = [], False
+    for ln in diff_text.splitlines():
+        if ln.startswith("diff ") or ln.startswith("--- ") and not in_hunk:
+            in_hunk = False
+            continue
+        if ln.startswith("@@"):
+            in_hunk = True
+            continue
+        if in_hunk and ln.startswith("+"):
+            out.append(ln[1:])
+    return out
 
 
 def staged_diff(root: Path) -> str:
