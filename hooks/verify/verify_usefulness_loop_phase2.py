@@ -205,10 +205,20 @@ def test_attr_unused_no_change(tmp_path, atom_md):
 
 def test_attr_used_fail_increments_beta(tmp_path, atom_md):
     tr = _write_transcript(tmp_path, [_user("修 atom_write"), _assistant(USED_TURN)])
-    state = _state(atom_md, failing_tests=[{"cmd": "pytest"}])
+    # failing_tests 條目自 v6 起蓋 session_id；效用歸因與 TestFailGate 同一條 own-session 過濾，沒蓋 sid 的視為他人
+    state = _state(atom_md, failing_tests=[{"cmd": "pytest", "session_id": "sess"}])
     _attribute_usefulness(state, CONFIG, "sess", tr, "已完成")
     acc = A.read_access(atom_md)
     assert acc["useful_hits"] == 1 and acc["used_fail"] == 2
+
+
+def test_attr_other_session_failing_tests_not_counted(tmp_path, atom_md):
+    """隔壁 session 的紅測（session_id 不符）不算本 session 的 fail 訊號 → 宣告完成算 success。"""
+    tr = _write_transcript(tmp_path, [_user("修 atom_write"), _assistant(USED_TURN)])
+    state = _state(atom_md, failing_tests=[{"cmd": "pytest", "session_id": "other"}])
+    _attribute_usefulness(state, CONFIG, "sess", tr, "已完成")
+    acc = A.read_access(atom_md)
+    assert acc["useful_hits"] == 2 and acc["used_fail"] == 1
 
 
 def test_attr_unknown_outcome_no_change(tmp_path, atom_md):
