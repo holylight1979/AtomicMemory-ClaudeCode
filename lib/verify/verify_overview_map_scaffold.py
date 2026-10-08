@@ -4,7 +4,8 @@
 fix 熱點排前；無 VCS 仍產；dry-run 不落任何檔；表存在拒覆寫、內容不變；--merge-missing 只補缺列、舊列一字不動；
 Lv1 只映射（專案 _taxonomy → 核心 → 預設），不開新；骨架卡五段齊、source=tool:overview-map-scaffold、[臨]；
 寫卡先於寫表（每次 write_atom 當下表都還不在）；卡預驗失敗、真寫失敗或拋例外 → 結構化結果（ok=False、written／failed／skipped）、
-不寫表、不刪任何東西、重跑接續（部位一致的既有卡沿用、不一致改名避撞）；
+不寫表、不刪任何東西、重跑接續；同名卡沿用條件＝部位行相符或 Source 是掃表產物（部位行被刪仍沿用、卡數不變），
+同名人手寫卡 → 停、failed_card、不改名；沿用前核對 _atom_index.json 有條目、缺就補、補不進去 → 停；預驗失敗其餘全進 skipped；
 分層選 scope（根層 global＋realm local＋MemDev、公司層／專案層 shared＋project_cwd）；merge-missing 也補「表有列卡檔不在」的卡；
 撞名目錄（a-b／a_b）各自一張卡、title＝表上的避撞名；
 check 三種不一致各一訊息；first_session_hint 兩態；CLI 哨兵尾行與 exit code。
@@ -33,6 +34,7 @@ NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 from lib import atom_io  # noqa: E402
 from lib import overview_scaffold as sc  # noqa: E402
 from lib.overview_hub import parse_map  # noqa: E402
+from lib.atom_index_json import load_atom_index_json  # noqa: E402
 
 CORE = ["版控", "工作流", "設計通則", "驗證與實證"]
 
@@ -287,7 +289,7 @@ class _FakeWriter:
         if stage == "real":
             path.parent.mkdir(parents=True, exist_ok=True)
             body = "\n".join(f"- {k}" for k in kw["knowledge"])
-            path.write_text(f"# {title}\n\n{body}\n", encoding="utf-8", newline="\n")
+            path.write_text(f"# {title}\n\n- Source: {kw['provenance']}\n\n## 知識\n\n{body}\n", encoding="utf-8", newline="\n")
         return atom_io.WriteResult(ok=True, path=path)
 
 
@@ -384,6 +386,7 @@ def test_card_failure_stops_before_table_and_rerun_completes(tmp_path, monkeypat
     assert res["error"] == "已寫 1 張、第 2 張（`client部位導讀`）真寫失敗：閘拒：測試注入；表未寫；重跑同一指令會接續補完"
     assert (root / ".claude/memory/shared/x/server部位導讀.md").is_file()                # 第一張留著，不刪
     assert [c["ok"] for c in res["cards"]] == [True, False, False] and res["cards"][2]["error"].startswith("未寫")
+    assert res["cards"][1]["path"] is None                                           # 真寫失敗那張沒有路徑
     # 第二次（閘修好）：第一張沿用、其餘補完、表最後寫
     fake2 = _FakeWriter(root)
     monkeypatch.setattr(sc, "write_atom", fake2)
@@ -410,27 +413,9 @@ def test_card_write_exception_is_structured_failure(tmp_path, monkeypatch):
     fake = _FakeWriter(root, fail_on={"docs部位導讀"}, fail_stage="dry")
     monkeypatch.setattr(sc, "write_atom", fake)
     res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
-    assert res["ok"] is False and res["failed_card"]["stage"] == "預驗" and res["skipped_cards"] == []
+    assert res["ok"] is False and res["failed_card"]["stage"] == "預驗" and res["skipped_cards"] == ["client部位導讀"]  # 預驗失敗其餘全進 skipped
     assert all(c["dry_run"] for c in fake.calls)                                      # 沒有任何真寫
     assert res["reused_cards"] == ["server部位導讀"] and res["written_cards"] == []
-
-
-def test_reuse_requires_matching_part_line(tmp_path):
-    """既有同名卡但部位不同（或沒部位行）→ 不沿用、改名避撞；部位相同 → 沿用。"""
-    root = _mk_project(tmp_path)
-    mem = root / ".claude" / "memory" / "shared" / "設計通則"
-    mem.mkdir(parents=True)
-    (mem / "server部位導讀.md").write_text("# server部位導讀\n\n- 部位與權威：部位 `Gateway`（前綴 `Gateway/`）\n",
-                                          encoding="utf-8", newline="\n")
-    (mem / "docs部位導讀.md").write_text("# docs部位導讀\n\n- 手寫卡沒有部位行\n", encoding="utf-8", newline="\n")
-    rows = sc.resolve_card_names(_rows(root), [root / ".claude" / "memory"])
-    assert [(r["card"], r["reused"]) for r in rows] == [("server部位導讀-2", False), ("client部位導讀", False), ("docs部位導讀-2", False)]
-    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
-    assert res["ok"] and res["written_cards"] == ["server部位導讀-2", "client部位導讀", "docs部位導讀-2"]
-    parsed = parse_map((root / ".claude/overview-map.md").read_text(encoding="utf-8"))
-    assert [r["card"] for r in parsed] == ["server部位導讀-2", "client部位導讀", "docs部位導讀-2"]
-    issues = sc.check_consistency(root)
-    assert len(issues) == 1 and issues[0].startswith("卡有表無：卡 `server部位導讀`")       # 別人的 Gateway 卡被點名，不是被沿用
 
 
 def test_merge_missing_keeps_existing_pairing_and_avoids_collision(tmp_path):
@@ -458,3 +443,88 @@ def test_merge_missing_keeps_existing_pairing_and_avoids_collision(tmp_path):
     assert sc.check_consistency(root) == []
     res = sc.write_scaffold(root, sc.draft_rows(sc.scan_top_dirs(root)), "設計通則", write=True, merge_missing=True)
     assert res["ok"] and res["rows"] == 0 and res["cards"] == []                        # 再跑一次什麼都不動
+
+
+# ─── 004：沿用判定（部位行或 Source）、索引核對 ──────────────────────
+
+def _card_file(root: Path, name: str) -> Path:
+    return root / ".claude" / "memory" / "shared" / "設計通則" / f"{name}.md"
+
+
+def _card_count(root: Path) -> int:
+    return len(list((root / ".claude" / "memory").rglob("*部位導讀*.md")))
+
+
+def test_reuse_by_part_line_or_source_else_stop(tmp_path):
+    root = _mk_project(tmp_path)
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["ok"] and _card_count(root) == 3
+    card = _card_file(root, "server部位導讀")
+    text = card.read_text(encoding="utf-8")
+    assert "- Source: tool:overview-map-scaffold" in text.split("## 知識")[0]            # 掃表產物有身分
+    # 人把部位行刪掉 → 重跑仍沿用（Source 是掃表），卡數不變、不另建 -2
+    card.write_text("\n".join(l for l in text.splitlines() if "部位與權威" not in l) + "\n", encoding="utf-8", newline="\n")
+    (root / ".claude" / "overview-map.md").unlink()
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["ok"] and res["reused_cards"] == ["server部位導讀", "client部位導讀", "docs部位導讀"]
+    assert _card_count(root) == 3 and not _card_file(root, "server部位導讀-2").exists()
+    assert [r["card"] for r in parse_map((root / ".claude" / "overview-map.md").read_text(encoding="utf-8"))][0] == "server部位導讀"
+    # 同名人手寫卡（沒 Source、部位不符）→ 停、failed_card、不寫表、不自動改名
+    root2 = _mk_project(tmp_path, "proj2")
+    hand = _card_file(root2, "client部位導讀")
+    hand.parent.mkdir(parents=True)
+    hand.write_text("# client部位導讀\n\n- Scope: shared\n\n## 知識\n\n- 部位與權威：部位 `Gateway`（前綴 `Gateway/`）\n",
+                    encoding="utf-8", newline="\n")
+    res = sc.write_scaffold(root2, _rows(root2), "設計通則", write=True)
+    assert res["ok"] is False and res["written"] is False and not (root2 / ".claude" / "overview-map.md").exists()
+    assert res["failed_card"]["name"] == "client部位導讀" and res["failed_card"]["stage"] == "定名"
+    assert res["failed_card"]["error"] == f"既有同名卡非掃表產物且部位不符：{hand}，請改名或刪除後重跑"
+    assert res["written_cards"] == [] and _card_count(root2) == 1 and not _card_file(root2, "client部位導讀-2").exists()
+    # 同名人手寫卡但部位行相符 → 沿用（不是掃表產物也行）
+    hand.write_text(hand.read_text(encoding="utf-8").replace("`Gateway`（前綴 `Gateway/`）", "`Client`（前綴 `Client/`）"),
+                    encoding="utf-8", newline="\n")
+    res = sc.write_scaffold(root2, _rows(root2), "設計通則", write=True)
+    assert res["ok"] and res["reused_cards"] == ["client部位導讀"] and res["written"]
+    # 避撞改名仍只在本次新列之間與既有表卡名：a-b／a_b 案不受影響（test_colliding_dir_names_get_distinct_cards）
+
+
+def test_resolve_names_collide_only_with_table_and_this_run(tmp_path):
+    root = _mk_project(tmp_path)
+    rows, failed = sc.resolve_card_names(_rows(root), [root / ".claude" / "memory"], taken={"server部位導讀"})
+    assert failed is None and [r["card"] for r in rows] == ["server部位導讀-2", "client部位導讀", "docs部位導讀"]
+    assert all(r["reused"] is False for r in rows)
+
+
+def test_index_missing_is_repaired_on_rerun(tmp_path, monkeypatch):
+    """卡檔寫成、索引寫入拋例外 → 本次失敗；重跑：沿用前發現索引缺條目 → 補索引成功、表寫出、索引含該卡；補索引也失敗 → 停。"""
+    root = _mk_project(tmp_path)
+    mem = root / ".claude" / "memory"
+    real_write_index = atom_io.write_index
+
+    def boom(*_a, **_k):
+        raise OSError(5, "index disk error")
+
+    monkeypatch.setattr(atom_io, "write_index", boom)                                 # write_atom 內部呼叫的是模組全域
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["ok"] is False and res["failed_card"]["name"] == "server部位導讀" and "index disk error" in res["failed_card"]["error"]
+    assert _card_file(root, "server部位導讀").is_file()                                   # 卡在磁碟
+    assert not (root / ".claude" / "overview-map.md").exists()
+    assert "server部位導讀" not in {a["name"] for a in load_atom_index_json(mem)["atoms"]}  # 索引缺
+    # 補索引也失敗 → 停、不寫表（sc.write_index 是 sc 自己匯入的名字）
+    monkeypatch.setattr(atom_io, "write_index", real_write_index)
+    monkeypatch.setattr(sc, "write_index", boom)
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["ok"] is False and res["failed_card"]["stage"] == "索引核對"
+    assert res["failed_card"]["error"].startswith(f"卡在磁碟但不在索引：{_card_file(root, 'server部位導讀')}")
+    assert res["skipped_cards"] == ["client部位導讀", "docs部位導讀"] and not (root / ".claude" / "overview-map.md").exists()
+    assert _card_count(root) == 1                                                        # 沒多寫任何卡
+    # 索引修好 → 重跑：補索引、補其餘卡、寫表
+    monkeypatch.setattr(sc, "write_index", real_write_index)
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["ok"] and res["written"] and res["reused_cards"] == ["server部位導讀"]
+    assert res["written_cards"] == ["client部位導讀", "docs部位導讀"]
+    names = {a["name"]: a["path"] for a in load_atom_index_json(mem)["atoms"]}
+    assert names["server部位導讀"] == "memory/shared/設計通則/server部位導讀.md" and "docs部位導讀" in names
+    assert sc.check_consistency(root) == []
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True, merge_missing=True)
+    assert res["ok"] and res["cards"] == []                                              # 已齊，什麼都不做

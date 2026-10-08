@@ -85,7 +85,7 @@ def test_git_ranking_real_repo(repo):
     assert [f["file"] for f in ranked["files"]] == ["Server/a.cs"]           # b.cs 一筆、c.cs 一筆不列
     assert ranked["files"][0]["fix_commits"] == 3 and ranked["files"][0]["pairs_in_window"] == 3
     assert rc.hotspots_by_dir(ranked) == {"Server": 3}
-    assert rc.read_git(repo, since_days=1, now=datetime(2026, 9, 10)) == []  # since 之外無資料
+    assert rc.read_git(repo, since_days=0, now=datetime(2026, 9, 10)) == []  # since 之外無資料（最後一筆是 09-09）
 
 
 def test_git_fails_loudly_outside_repo(tmp_path):

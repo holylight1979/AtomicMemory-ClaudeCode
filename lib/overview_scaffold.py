@@ -1,21 +1,23 @@
 """overview_scaffold：從零掃出 `<專案>/.claude/overview-map.md` 骨架表與每部位五段佔位卡（純函式）。
 
 做什麼：任何專案第一次就有表。掃頂層目錄（扣掉 scaffold_ignore）當部位、用 lib/refix_churn 算 fix 熱點排前、
-層由 layers 指定（預設全部「單層」）、Lv1 只映射既有清單絕不開新、每列一張 [臨] 骨架卡（五段各一行佔位句）。
-產出的表必須過 `overview_hub.parse_map`；狀態欄一律「骨架」。
+層由 layers 指定（預設全部「單層」）、Lv1 只映射既有清單絕不開新、每列一張 [臨] 骨架卡（五段各一行佔位句，
+frontmatter `Source: tool:overview-map-scaffold` 當身分）。產出的表必須過 `overview_hub.parse_map`；狀態欄一律「骨架」。
 
 落檔順序（不撤回、可重入；表是最後一步）：
-1. 先定卡名：列的卡名撞到既有卡檔時，卡內「部位與權威」行的部位等於列部位 → 沿用（reused）；不等 → 改名避撞（-2、-3…，
-   避開既有表全部卡名、既有卡檔名、本次已用名）。
-2. 逐張寫卡：先全部 dry-run 預驗，再逐張真寫；任一張失敗或拋例外 → 立刻停、不寫表、不刪任何東西，結果結構化回
-   written_cards／failed_card／skipped_cards，呼叫端 exit 1。重跑同一指令：已寫的卡部位一致就沿用，只補缺的卡，最後寫表。
-3. 全部卡都在了才寫表。
+1. 先定卡名：卡名只在「本次新列之間」或「與既有表卡名」撞時加 -2、-3…。候選名已有卡檔時，**沿用條件＝卡內部位行等於列部位，
+   或 frontmatter Source 是 tool:overview-map-scaffold**（掃表自己產的卡，名字就是身分）；兩者都不成立（同名的人手寫別張卡）
+   → 停，failed_card「既有同名卡非掃表產物且部位不符：<路徑>，請改名或刪除後重跑」，不自動改名。
+2. 沿用的卡先核對 `_atom_index.json` 有條目；沒有 → 用 atom_io.write_index 補進索引；補不進去 → failed_card「卡在磁碟但不在索引」。
+3. 逐張寫卡：先全部 dry-run 預驗（任一張失敗 → 其餘全部進 skipped_cards），再逐張真寫；任一張失敗或拋例外 → 立刻停、不寫表、
+   不刪任何東西，結構化回 written_cards／reused_cards／failed_card／skipped_cards／error，呼叫端 exit 1。
+4. 全部卡都在且都在索引裡才寫表。重跑同一指令：已寫的卡沿用、只補缺的，最後寫表。
 表存在時拒寫（ScaffoldError）；`merge_missing=True` 以既有表的「前綴→卡名」配對為準（既有列一字不動），只補表上沒有的前綴列
 （卡名避開既有表全部卡名）與「表有列但卡檔不在」的卡。
 
 卡落哪一層由 `detect_layer(root)` 決定（hooks/wg_core._layer_of 單源；lib 不硬依賴 hooks，載不到就退路徑判斷）：
-根層（~/.claude）→ scope=global、realm=local、domain=MemDev（_AIDocs/_atoms/MemDev/）；公司根 → shared＋project_cwd=公司根
-（與 atom-tools.js 的 org 對映相同；py 端沒有 org scope）；專案 → shared＋project_cwd=專案根。
+根層（~/.claude）→ scope=global、realm=local、domain=MemDev（_AIDocs/_atoms/MemDev/，索引在 ~/.claude/memory）；
+公司根 → shared＋project_cwd=公司根（與 atom-tools.js 的 org 對映相同；py 端沒有 org scope）；專案 → shared＋project_cwd=專案根。
 """
 
 from __future__ import annotations
@@ -32,14 +34,16 @@ try:
     from .atom_spec import slugify
     from .atom_taxonomy import TaxonomyUnavailable, core_categories, match_lv1
     from .atom_locations import project_taxonomy_lv1
-    from .atom_io import write_atom, write_text_lf
+    from .atom_io import write_atom, write_index, write_text_lf
+    from .atom_index_json import load_atom_index_json
     from . import refix_churn as rc
 except ImportError:  # 以 ~/.claude 為 sys.path 根時（tools／verify）：atom_io 只能以套件匯入
     from lib.overview_hub import MAP_REL, parse_map
     from lib.atom_spec import slugify
     from lib.atom_taxonomy import TaxonomyUnavailable, core_categories, match_lv1
     from lib.atom_locations import project_taxonomy_lv1
-    from lib.atom_io import write_atom, write_text_lf
+    from lib.atom_io import write_atom, write_index, write_text_lf
+    from lib.atom_index_json import load_atom_index_json
     from lib import refix_churn as rc
 
 CLAUDE_DIR = Path(__file__).resolve().parents[1]
@@ -58,6 +62,7 @@ PLACEHOLDER = "（待填）"
 FILE_COUNT_CAP = 5000
 SCAFFOLD_CMD = "python ~/.claude/tools/overview-map-scaffold.py --cwd <專案根> --write"
 _PART_LINE_RE = re.compile(r"部位與權威：部位\s*`([^`]+)`")
+_SOURCE_LINE_RE = re.compile(r"^- Source:\s*(.+?)\s*$", re.M)
 
 
 class ScaffoldError(RuntimeError):
@@ -112,6 +117,11 @@ def card_dirs(layer: str, layer_root: Path) -> List[Path]:
     if layer == LAYER_ROOT:
         return [layer_root / "memory", layer_root / "_AIDocs" / "_atoms"]
     return [layer_root / ".claude" / "memory"]
+
+
+def index_dir_for(layer: str, layer_root: Path) -> Path:
+    """各層 `_atom_index.json` 所在的 memory 根（索引 path 相對它的上一層）。"""
+    return layer_root / "memory" if layer == LAYER_ROOT else layer_root / ".claude" / "memory"
 
 
 # ─── 掃目錄 ──────────────────────────────────────────────────────────
@@ -214,8 +224,8 @@ def render_row(r: Dict[str, Any]) -> str:
 # ─── 骨架卡 ──────────────────────────────────────────────────────────
 
 def skeleton_card(row: Dict[str, Any]) -> Dict[str, Any]:
-    """write_atom 的參數（title／triggers／knowledge／actions）；title＝row["card"]（避撞後的名字，與表引用一致），
-    五段各一行佔位句，第二段帶部位名供對帳與重跑沿用判定。"""
+    """write_atom 的參數（title／triggers／knowledge／actions／provenance）；title＝row["card"]（避撞後的名字，與表引用一致），
+    五段各一行佔位句，第二段帶部位名供對帳；provenance 渲染成 frontmatter `Source: tool:overview-map-scaffold`＝掃表產物的身分。"""
     part, prefix = row["part"], row["prefix"]
     knowledge = [
         f"做什麼：{PLACEHOLDER}這個部位負責什麼、主要入口在哪",
@@ -229,6 +239,7 @@ def skeleton_card(row: Dict[str, Any]) -> Dict[str, Any]:
         "triggers": [part, prefix.rstrip("/"), CARD_SUFFIX, "定位三行"],
         "knowledge": knowledge,
         "actions": [f"改 {prefix} 之前先把本卡五段填完，狀態欄從「骨架」改「有」"],
+        "provenance": SOURCE,
     }
 
 
@@ -265,76 +276,114 @@ def map_lv1(root: Path, preferred: Optional[str] = None, core: Optional[List[str
 
 def card_part(path: Path) -> Optional[str]:
     """卡檔的「部位與權威」行寫的部位；沒有這行回 None。"""
+    return card_identity(path)[0]
+
+
+def card_identity(path: Path) -> Tuple[Optional[str], bool]:
+    """→ (部位行的部位 | None, frontmatter Source 是不是掃表產物)。讀不到 → (None, False)。"""
     try:
-        m = _PART_LINE_RE.search(path.read_text(encoding="utf-8", errors="replace"))
+        text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return None
-    return m.group(1).strip() if m else None
+        return None, False
+    m = _PART_LINE_RE.search(text)
+    head = text.split("\n## ", 1)[0]
+    s = _SOURCE_LINE_RE.search(head)
+    return (m.group(1).strip() if m else None), bool(s and SOURCE in s.group(1))
 
 
-def resolve_card_names(rows: List[Dict[str, Any]], dirs: List[Path], taken: Optional[Set[str]] = None) -> List[Dict[str, Any]]:
-    """每列定最終卡名（就地改 row["card"]、加 reused／path）：
-    候選從 base（slugify(部位＋部位導讀)）起，-2、-3… 往後找；候選在 taken（既有表全部卡名）或本次已用 → 跳過；
-    候選已有卡檔：卡內部位行等於列部位 → 沿用（reused=True，不重寫）；不等（含沒有部位行）→ 跳過改名；候選沒檔 → 用它新寫。"""
+def resolve_card_names(rows: List[Dict[str, Any]], dirs: List[Path],
+                       taken: Optional[Set[str]] = None) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, str]]]:
+    """每列定最終卡名（就地改 row["card"]、加 reused／path）→ (rows, failed_card|None)。
+    候選從 base 起，只在撞到 taken（既有表全部卡名）或本次已用名時 -2、-3…；候選已有卡檔：部位行等於列部位、或 Source 是掃表
+    → 沿用（reused=True）；兩者都不是（同名的人手寫別張卡）→ 停、回 failed_card，不自動改名。"""
     used: Set[str] = set(taken or ())
     for r in rows:
         base = card_name(r["part"])
         n = 1
-        while True:
-            cand = base if n == 1 else f"{base}-{n}"
+        cand = base
+        while cand in used:
             n += 1
-            if cand in used:
-                continue
-            hits = _find_card(dirs, cand)
-            if hits and card_part(hits[0]) != r["part"]:
-                continue
-            r["card"], r["reused"], r["path"] = cand, bool(hits), (str(hits[0]) if hits else None)
-            break
-        used.add(r["card"])
-    return rows
+            cand = f"{base}-{n}"
+        hits = _find_card(dirs, cand)
+        if hits:
+            part, is_scaffold = card_identity(hits[0])
+            if part != r["part"] and not is_scaffold:
+                return rows, {"name": cand, "stage": "定名",
+                              "error": f"既有同名卡非掃表產物且部位不符：{hits[0]}，請改名或刪除後重跑"}
+        r["card"], r["reused"], r["path"] = cand, bool(hits), (str(hits[0]) if hits else None)
+        used.add(cand)
+    return rows, None
+
+
+def ensure_indexed(row: Dict[str, Any], index_dir: Path) -> Optional[str]:
+    """沿用的卡要在 `_atom_index.json` 有條目；沒有就用 write_index 補；補不進去回錯誤訊息（None＝已在索引）。"""
+    path = Path(row["path"])
+    try:
+        atoms = load_atom_index_json(index_dir).get("atoms", [])
+        if any(a.get("name") == row["card"] for a in atoms if isinstance(a, dict)):
+            return None
+        rel = path.resolve().relative_to(index_dir.parent.resolve()).as_posix()
+        res = write_index(index_dir, row["card"], rel, skeleton_card(row)["triggers"], SOURCE)
+        if not res.ok:
+            return f"卡在磁碟但不在索引：{path}（補索引失敗：{res.error}）"
+        atoms = load_atom_index_json(index_dir).get("atoms", [])
+        if not any(a.get("name") == row["card"] for a in atoms if isinstance(a, dict)):
+            return f"卡在磁碟但不在索引：{path}（補索引後仍查無條目）"
+        return None
+    except Exception as e:  # noqa: BLE001  索引層任何例外都要變成結構化失敗
+        return f"卡在磁碟但不在索引：{path}（補索引失敗：{type(e).__name__}: {e}）"
 
 
 def _try_write(kwargs: Dict[str, Any], row: Dict[str, Any], dry_run: bool) -> Tuple[bool, Optional[str], Optional[str]]:
-    """一張卡 → (ok, path, error)；write_atom 拋例外也收成失敗，不往外冒。"""
+    """一張卡 → (ok, path, error)；write_atom 拋例外也收成失敗，不往外冒；真寫成功但索引沒寫進去也算失敗。"""
     try:
         res = write_atom(confidence="[臨]", mode="create", source=SOURCE, dry_run=dry_run, **kwargs, **skeleton_card(row))
     except Exception as e:  # noqa: BLE001  寫卡端任何例外都要變成結構化失敗
         return False, None, f"{type(e).__name__}: {e}"
-    return bool(res.ok), (str(res.path) if res.path else None), (None if res.ok else (res.error or "write_atom 回 ok=False 無訊息"))
+    if not res.ok:
+        return False, None, res.error or "write_atom 回 ok=False 無訊息"
+    if not dry_run and (res.extra or {}).get("index_ok") is False:
+        return False, (str(res.path) if res.path else None), f"卡在磁碟但不在索引：{res.path}（{(res.extra or {}).get('index_error')}）"
+    return True, (str(res.path) if res.path else None), None
 
 
-def write_cards(rows: List[Dict[str, Any]], kwargs: Dict[str, Any], write: bool) -> Dict[str, Any]:
-    """逐張寫卡（不撤回、可重入）：reused 的跳過不寫；先全部 dry-run 預驗，再逐張真寫；任一張失敗或拋例外 → 立刻停。
-    回 {ok, cards:[{card, ok, path, error, reused}], written_cards, reused_cards, failed_card, skipped_cards, error}。"""
+def write_cards(rows: List[Dict[str, Any]], kwargs: Dict[str, Any], write: bool, index_dir: Path) -> Dict[str, Any]:
+    """逐張寫卡（不撤回、可重入）：沿用的先核對索引（缺就補）；其餘先全部 dry-run 預驗（任一張失敗 → 其餘全進 skipped），
+    再逐張真寫；任一張失敗或拋例外 → 立刻停。回 {ok, cards, written_cards, reused_cards, failed_card, skipped_cards, error}。"""
     out: Dict[str, Any] = {"ok": True, "cards": [], "written_cards": [], "reused_cards": [], "failed_card": None,
                            "skipped_cards": [], "error": None}
+    reused = [r for r in rows if r.get("reused")]
     todo = [r for r in rows if not r.get("reused")]
-    out["reused_cards"] = [r["card"] for r in rows if r.get("reused")]
-    out["cards"] = [{"card": r["card"], "ok": True, "path": r.get("path"), "error": None, "reused": True}
-                    for r in rows if r.get("reused")]
 
-    def _fail(idx: int, row: Dict[str, Any], err: str, stage: str) -> Dict[str, Any]:
+    def _fail(row: Dict[str, Any], err: str, stage: str, skipped: List[Dict[str, Any]], ordinal: int) -> Dict[str, Any]:
         out["ok"] = False
         out["failed_card"] = {"name": row["card"], "error": err, "stage": stage}
-        out["skipped_cards"] = [r["card"] for r in todo[idx + 1:]]
-        out["cards"].append({"card": row["card"], "ok": False, "path": None, "error": err, "reused": False})
+        out["skipped_cards"] = [r["card"] for r in skipped]
+        out["cards"].append({"card": row["card"], "ok": False, "path": row.get("path"), "error": err, "reused": bool(row.get("reused"))})
         out["cards"] += [{"card": r["card"], "ok": False, "path": None, "error": "未寫（前一張失敗即停）", "reused": False}
-                         for r in todo[idx + 1:]]
-        out["error"] = (f"已寫 {len(out['written_cards'])} 張、第 {idx + 1} 張（`{row['card']}`）{stage}失敗：{err}；"
+                         for r in skipped]
+        out["error"] = (f"已寫 {len(out['written_cards'])} 張、第 {ordinal} 張（`{row['card']}`）{stage}失敗：{err}；"
                         f"表未寫；重跑同一指令會接續補完")
         return out
 
-    for i, r in enumerate(todo):                      # 預驗：全部 dry-run
+    for i, r in enumerate(reused):                    # 沿用：核對索引、缺就補
+        err = ensure_indexed(r, index_dir)
+        if err:
+            return _fail(r, err, "索引核對", reused[i + 1:] + todo, i + 1)
+        out["reused_cards"].append(r["card"])
+        out["cards"].append({"card": r["card"], "ok": True, "path": r.get("path"), "error": None, "reused": True})
+    for i, r in enumerate(todo):                      # 預驗：全部 dry-run；失敗 → 其餘全部 skipped
         ok, _p, err = _try_write(kwargs, r, dry_run=True)
         if not ok:
-            return _fail(i, r, err or "預驗失敗", "預驗")
+            return _fail(r, err or "預驗失敗", "預驗", [x for x in todo if x is not r], i + 1)
     if not write:
         out["cards"] += [{"card": r["card"], "ok": True, "path": None, "error": None, "reused": False} for r in todo]
         return out
     for i, r in enumerate(todo):                      # 真寫：逐張，失敗即停、不刪已寫的
         ok, p, err = _try_write(kwargs, r, dry_run=False)
         if not ok:
-            return _fail(i, r, err or "真寫失敗", "真寫")
+            r["path"] = p
+            return _fail(r, err or "真寫失敗", "真寫", todo[i + 1:], i + 1)
         out["written_cards"].append(r["card"])
         out["cards"].append({"card": r["card"], "ok": True, "path": p, "error": None, "reused": False})
     return out
@@ -367,15 +416,22 @@ def rows_missing_cards(existing_text: str, dirs: List[Path]) -> List[Dict[str, A
     return out
 
 
+def _failed_result(map_path: Path, kind: str, layer_root: Path, exists: bool, text: str, failed: Dict[str, str]) -> Dict[str, Any]:
+    return {"map": str(map_path), "layer": kind, "layer_root": str(layer_root), "merged": exists, "rows": 0,
+            "cards_planned": 0, "table": text, "written": False, "ok": False, "cards": [], "written_cards": [],
+            "reused_cards": [], "failed_card": failed, "skipped_cards": [],
+            "error": f"第 1 張（`{failed['name']}`）{failed['stage']}失敗：{failed['error']}；表未寫"}
+
+
 def write_scaffold(root: Path, rows: List[Dict[str, Any]], lv1: Optional[str], *, write: bool = False,
                    merge_missing: bool = False, root_label: str = "",
                    layer: Optional[Tuple[str, Path]] = None) -> Dict[str, Any]:
     """write=False（預設）只定名＋預驗不落檔。表存在且非 merge_missing → ScaffoldError（永不覆寫）。
-    順序：定卡名（沿用／避撞）→ 逐張寫卡（失敗即停、不撤回、result["ok"]=False）→ 全部卡在了才寫表。"""
+    順序：定卡名（沿用／撞名避開／同名人手卡即停）→ 沿用卡核對索引 → 逐張寫卡（失敗即停、不撤回）→ 全部在了才寫表。"""
     root = Path(root)
     map_path = root / MAP_REL
     kind, layer_root = layer or detect_layer(root)
-    kwargs, dirs = card_write_kwargs(kind, layer_root, lv1), card_dirs(kind, layer_root)
+    kwargs, dirs, index_dir = card_write_kwargs(kind, layer_root, lv1), card_dirs(kind, layer_root), index_dir_for(kind, layer_root)
     exists = map_path.is_file()
     if exists and not merge_missing:
         raise ScaffoldError(f"部位表已存在，不覆寫：{map_path}（只補缺列用 --merge-missing）")
@@ -383,17 +439,21 @@ def write_scaffold(root: Path, rows: List[Dict[str, Any]], lv1: Optional[str], *
         old = map_path.read_text(encoding="utf-8")
         taken = {c for r in parse_map(old) for c in r["cards"]}
         have = {p for r in parse_map(old) for p in r["prefixes"]}
-        added = resolve_card_names([r for r in rows if r["prefix"].rstrip("/").lower() not in have], dirs, taken)
+        added, failed = resolve_card_names([r for r in rows if r["prefix"].rstrip("/").lower() not in have], dirs, taken)
+        if failed:
+            return _failed_result(map_path, kind, layer_root, exists, old, failed)
         text, added = merge_missing_rows(old, added)
         missing = rows_missing_cards(old, dirs)
         card_rows = added + [m for m in missing if m["card"] not in {a["card"] for a in added}]
         old_rows = len(parse_map(old))
     else:
-        added = resolve_card_names(list(rows), dirs)
+        added, failed = resolve_card_names(list(rows), dirs)
+        if failed:
+            return _failed_result(map_path, kind, layer_root, exists, "", failed)
         text, card_rows, old_rows = render_table(added, root_label or root.name), added, 0
     if len(parse_map(text)) < old_rows + len(added):
         raise ScaffoldError("渲染出的表讀不回（parse_map 列數少於草稿），不落檔")
-    cards = write_cards(card_rows, kwargs, write)
+    cards = write_cards(card_rows, kwargs, write, index_dir)
     result = {"map": str(map_path), "layer": kind, "layer_root": str(layer_root), "merged": exists,
               "rows": len(added), "cards_planned": len(card_rows), "table": text, "written": False, **cards}
     if not cards["ok"] or not write:
