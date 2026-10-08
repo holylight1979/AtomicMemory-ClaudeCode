@@ -21,11 +21,13 @@ import sys
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 # ─── 全域路徑常數 ────────────────────────────────────────────────────────────
 
-CLAUDE_DIR = Path.home() / ".claude"
+# WG_CLAUDE_DIR：worktree 內跑 verify 時指到 worktree 根，lib 與 workflow 都跟著走；未設＝家目錄 ~/.claude（行為不變）
+_CLAUDE_DIR_OVERRIDE = os.environ.get("WG_CLAUDE_DIR", "").strip()
+CLAUDE_DIR = Path(_CLAUDE_DIR_OVERRIDE) if _CLAUDE_DIR_OVERRIDE else Path.home() / ".claude"
 MEMORY_DIR = CLAUDE_DIR / "memory"
 EPISODIC_DIR = MEMORY_DIR / "episodic"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
@@ -416,6 +418,82 @@ def _is_under_claude_dir(cwd: str) -> bool:
     except (OSError, ValueError):
         return False
     return c == cd or cd in c.parents
+
+
+# ─── 判層（H9）：只看 cwd 與設定，不讀 transcript、不叫模型 ─────────────────────
+
+class LayerInfo(NamedTuple):
+    """kind ∈ {root, org, project_mapped, project_unmapped, none}；root＝該層的根目錄；map_path＝該層的
+    <root>/.claude/overview-map.md（不存在為 None）。"""
+    kind: str
+    root: Optional[Path]
+    map_path: Optional[Path]
+
+
+_LAYER_NONE = LayerInfo("none", None, None)
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    """path 在 root（含本身）之下；用 resolve 後的 parents 比對，旁系目錄（~/.claude-foo）不算。"""
+    try:
+        p, r = path.resolve(), root.resolve()
+    except (OSError, ValueError):
+        return False
+    return p == r or r in p.parents
+
+
+def _map_path_of(root: Path) -> Optional[Path]:
+    mp = root / ".claude" / "overview-map.md"
+    try:
+        return mp if mp.is_file() else None
+    except OSError:
+        return None
+
+
+def _layer_kind_for_root(root: Path, org: Optional[Path]) -> str:
+    """已知根目錄 → 層名。根層＝~/.claude 之下；公司層＝公司記憶 repo 根之下；其餘依有沒有表分兩個狀態。"""
+    if _is_under(root, CLAUDE_DIR):
+        return "root"
+    if org is not None and _is_under(root, org):
+        return "org"
+    return "project_mapped" if _map_path_of(root) else "project_unmapped"
+
+
+def _layer_of(cwd: str) -> LayerInfo:
+    """cwd 屬於哪一層。根層與公司層的 root 是該層的根；專案層的 root 走 resolve_project_root；
+    cwd 空、解析不到專案根（家目錄、磁碟根、無四標記）、路徑碰不得（UNC 權限等 OSError）→ none。
+    只做路徑包含比對與標記檔存在性檢查，不驗 cwd 本身存在、不讀 transcript、不叫模型。"""
+    if not cwd:
+        return _LAYER_NONE
+    try:
+        c = Path(cwd)
+        c.resolve()
+    except (OSError, ValueError):
+        return _LAYER_NONE
+    if _is_under(c, CLAUDE_DIR):
+        return LayerInfo("root", CLAUDE_DIR, _map_path_of(CLAUDE_DIR))
+    org = org_memory_root()
+    if org is not None and _is_under(c, org):
+        return LayerInfo("org", org, _map_path_of(org))
+    if resolve_project_root is None:
+        return _LAYER_NONE
+    try:
+        root = resolve_project_root(cwd).path
+    except OSError:
+        return _LAYER_NONE
+    if root is None:
+        return _LAYER_NONE
+    mp = _map_path_of(root)
+    return LayerInfo("project_mapped" if mp else "project_unmapped", root, mp)
+
+
+def _deep_merge(base: Dict[str, Any], over: Dict[str, Any]) -> Dict[str, Any]:
+    """over 疊在 base 上：兩邊都是 dict 才往下併，其餘（含 list）整個取 over；不改 base。"""
+    out = dict(base)
+    for key, value in over.items():
+        both_dict = isinstance(value, dict) and isinstance(out.get(key), dict)
+        out[key] = _deep_merge(out[key], value) if both_dict else value
+    return out
 
 
 def get_project_memory_dir(cwd: str) -> Optional[Path]:

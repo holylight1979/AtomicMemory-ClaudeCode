@@ -7,17 +7,27 @@ state 層：wg_overview.on_read / on_prompt / on_edit（用 tmp_path 造一個�
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
 HOOKS_DIR = Path(__file__).resolve().parent.parent
+os.environ.setdefault("WG_CLAUDE_DIR", str(HOOKS_DIR.parent))   # worktree 內跑：wg_core 的 lib／workflow 指本樹
 sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
 import overview_hub as oh  # noqa: E402
 import wg_overview as wo  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_org(monkeypatch):
+    """預設不接公司層：不讀本機真設定（org-memory.local.json）；要公司層的案自己再 setattr。"""
+    monkeypatch.setattr(wo, "org_memory_root", lambda: None)
+    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
+    monkeypatch.setattr(wo, "_WARNED", set())
 
 APPB_TABLE = """
 | 順序 | 路徑前綴 | 部位 | 導讀卡（atom 名） | 狀態 |
@@ -303,3 +313,343 @@ def test_missing_transcript_warns_instead_of_silent_allow(proj, tmp_path, monkey
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), "", {})
     warn, deny, changed = wo.on_edit(state, "s", f1, str(tmp_path / "nope.jsonl"), {"overview_hub": {"dry_run": False}})
     assert deny is None and warn and "讀不到 transcript" in warn and changed
+
+
+# ─── 軌 0：四層深合併 / find_map 界線 / _validate_cfg ─────────────────────────
+
+def _org_world(tmp_path, monkeypatch, hub_json):
+    org = tmp_path / "company"
+    (org / ".claude").mkdir(parents=True)
+    (org / ".claude" / "overview-hub.json").write_text(json.dumps(hub_json, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(wo, "org_memory_root", lambda: org)
+    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
+    return org
+
+
+def test_cfg_org_layer_overrides_config_and_project_wins(proj, tmp_path, monkeypatch):
+    org = _org_world(tmp_path, monkeypatch, {"max_card_chars": 100, "locate_extra": {"戰鬥": "公司問", "UI": "公司UI問"}})
+    config = {"overview_hub": {"max_card_chars": 50, "root_cause_triggers": ["根層詞"]}}
+    c = wo._cfg(config, proj)
+    assert c["max_card_chars"] == 100                                   # 公司層蓋過 config.json
+    assert c["locate_extra"] == {"戰鬥": "公司問", "UI": "公司UI問"} and c["_errors"] == []
+    (proj / ".claude" / "overview-hub.json").write_text(
+        '{"max_card_chars": 20, "locate_extra": {"戰鬥": "專案問"}, "root_cause_triggers": ["專案詞"]}', encoding="utf-8")
+    c = wo._cfg(config, proj)
+    assert c["max_card_chars"] == 20                                    # 專案層勝
+    assert c["locate_extra"] == {"戰鬥": "專案問", "UI": "公司UI問"}      # 巢狀 dict 深合併
+    assert c["root_cause_triggers"] == ["專案詞"]                         # list 整個取覆蓋方
+    assert c["_layer"] == "project_mapped"
+    at_org = wo._cfg(config, org)                                       # root＝公司根 → 第四層跳過，只併一次
+    assert at_org["max_card_chars"] == 100 and at_org["_layer"] == "org"
+
+
+def test_cfg_without_org_ignores_company_file(proj, tmp_path):
+    c = wo._cfg({}, proj)
+    assert c["max_card_chars"] == 6000 and c["_errors"] == [] and c["_layer"] == "project_mapped"
+    assert wo._cfg({}, None)["_layer"] == "none"
+
+
+def test_deep_merge_nested_dict_list_replaced_base_untouched():
+    from wg_core import _deep_merge
+    base = {"a": {"x": 1, "y": 2}, "l": [1, 2], "k": 1}
+    over = {"a": {"y": 3, "z": 4}, "l": [9], "n": {"m": 1}}
+    out = _deep_merge(base, over)
+    assert out == {"a": {"x": 1, "y": 3, "z": 4}, "l": [9], "k": 1, "n": {"m": 1}}
+    assert base == {"a": {"x": 1, "y": 2}, "l": [1, 2], "k": 1}
+
+
+def test_find_map_stops_at_stop_at_and_nested_tables(tmp_path):
+    outer = tmp_path / "outer"
+    inner = outer / "inner"
+    for d in (outer, inner):
+        (d / ".claude").mkdir(parents=True)
+        (d / ".claude" / "overview-map.md").write_text("| `src/` | 部位 | `卡` | 有 |\n", encoding="utf-8")
+    src = inner / "src"
+    src.mkdir()
+    f = str(src / "x.cs")
+    assert oh.find_map(f)[0] == inner                                   # 最近的表
+    assert oh.find_map(f, stop_at=inner)[0] == inner                    # stop_at 那層仍檢查
+    assert oh.find_map(f, stop_at=src) is None                          # 到 stop_at 停，不再往上
+    (inner / ".claude" / "overview-map.md").unlink()
+    assert oh.find_map(f)[0] == outer
+    assert oh.find_map(f, stop_at=inner) is None
+
+
+def test_find_map_never_checks_home_or_drive_root(tmp_path, monkeypatch):
+    assert oh.find_map(str(tmp_path / "lonely.cs")) is None             # tmp 在家目錄下，往上到家目錄就停
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "overview-map.md").write_text("| `a/` | 部位 | `卡` | 有 |\n", encoding="utf-8")
+    (tmp_path / "a").mkdir()
+    assert oh.find_map(str(tmp_path / "a" / "x.cs"))[0] == tmp_path
+    monkeypatch.setattr(oh, "_home", lambda: tmp_path)                 # 把 tmp 當家目錄：那層不檢查
+    assert oh.find_map(str(tmp_path / "a" / "x.cs")) is None
+    assert oh.find_map(str(Path(tmp_path.anchor) / "nope.cs")) is None  # 磁碟根
+
+
+def test_validate_cfg_default_passes_and_three_counterexamples(tmp_path):
+    assert wo._validate_cfg(dict(wo._DEFAULT), None) == []
+    assert wo._validate_cfg(dict(wo._DEFAULT), tmp_path) == []
+    (tmp_path / "src" / "sub").mkdir(parents=True)
+    amb = wo._validate_cfg(dict(wo._DEFAULT, path_bases=["src", "src/sub"]), tmp_path)
+    assert len(amb) == 1 and "歧義" in amb[0]                            # 反例一：互相包含的基準
+    missing = wo._validate_cfg(dict(wo._DEFAULT, path_bases=["nope"]), tmp_path)
+    assert len(missing) == 1 and "不是存在的目錄" in missing[0]
+    bad_enc = wo._validate_cfg(dict(wo._DEFAULT, commit_encoding="no-such-enc", source_encodings=["utf-8", "x-bogus"]), None)
+    assert len(bad_enc) == 2 and all("編碼" in e for e in bad_enc)       # 反例二：壞編碼
+    unknown = wo._validate_cfg(dict(wo._DEFAULT, foo=1), None)
+    assert unknown == ["未知的設定鍵「foo」"]                              # 反例三：未知鍵
+    assert wo._validate_cfg(dict(wo._DEFAULT, _doc="說明"), None) == []  # 底線鍵不算未知
+    assert any("eol_policy" in e for e in wo._validate_cfg(dict(wo._DEFAULT, eol_policy="mixed"), None))
+
+
+def test_retired_keys_warn_once_not_error(capsys):
+    cfg = {"overview_hub": {"dry_run": True, "deny_parts": ["x"]}}
+    c = wo._cfg(cfg)
+    assert c["_errors"] == [] and c["dry_run"] is True                  # 值保留給 on_edit 既有邏輯，不報錯
+    err = capsys.readouterr().err
+    assert err.count("已退役") == 2
+    wo._cfg(cfg)
+    assert capsys.readouterr().err == ""                                # 第二次不再警告
+
+
+def test_cfg_errors_make_on_edit_deny(proj, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    (proj / ".claude" / "overview-hub.json").write_text('{"foo": 1, "eol_policy": "mixed"}', encoding="utf-8")
+    tp = _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    warn, deny, changed = wo.on_edit({}, "s", f1, tp, {})
+    assert deny and "設定有錯" in deny and "未知的設定鍵「foo」" in deny and "eol_policy" in deny and not changed
+    assert "設定錯誤" in capsys.readouterr().err
+    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert log[-1]["event"] == "edit_cfg_error"
+    assert wo.on_read({}, "s", "Read", {"file_path": f1}, str(proj), tp, {})   # 讀仍注入（錯誤只擋改）
+
+
+def test_bad_company_file_is_loud_and_skipped(proj, tmp_path, monkeypatch, capsys):
+    org = tmp_path / "company"
+    (org / ".claude").mkdir(parents=True)
+    (org / ".claude" / "overview-hub.json").write_text("{壞", encoding="utf-8")
+    monkeypatch.setattr(wo, "org_memory_root", lambda: org)
+    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
+    c = wo._cfg({}, proj)
+    assert c["max_card_chars"] == 6000 and c["_layer"] == "project_mapped"
+    assert len(c["_errors"]) == 1 and "公司層覆蓋檔讀取失敗" in c["_errors"][0]   # 壞檔＝設定錯誤，不是略過
+    assert "公司層覆蓋檔讀取失敗" in capsys.readouterr().err
+
+
+# ─── 退回 001 的兩條 BLOCK：設定錯誤必擋（順序）、無效設定不拋例外 ─────────────────
+
+def _hub(proj, text):
+    (proj / ".claude" / "overview-hub.json").write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("hub_text", ['{"enabled": false, "foo": 1}', '{"enabled": null, "foo": 1}'])
+def test_cfg_errors_deny_even_when_disabled_or_enabled_not_bool(proj, tmp_path, monkeypatch, hub_text):   # BLOCK 1
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _hub(proj, hub_text)
+    tp = _transcript(tmp_path, ["x"])
+    warn, deny, changed = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})
+    assert deny and "未知的設定鍵「foo」" in deny and not changed
+    if "null" in hub_text:
+        assert "enabled 必須是" in deny
+    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert log[-1]["event"] == "edit_cfg_error" and log[-1]["layer"] == "project_mapped"
+
+
+def test_root_level_cfg_error_denies_file_outside_any_table(tmp_path, monkeypatch):   # BLOCK 1：沒命中表的檔也擋
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    bad = {"overview_hub": {"enabled": False, "bogus": 1}}
+    warn, deny, changed = wo.on_edit({}, "s", str(tmp_path / "lonely.cs"), "", bad)
+    assert deny and "未知的設定鍵「bogus」" in deny and "none" in deny and not changed
+    assert wo.on_edit({}, "s", "", "", bad) == (None, None, False)      # 沒 file_path 沒東西可擋
+
+
+def test_invalid_config_shapes_become_errors_not_exceptions(proj):   # BLOCK 2
+    for section in (True, [1], "x", 3):
+        c = wo._cfg({"overview_hub": section}, proj)
+        assert c["_layer"] == "project_mapped" and c["max_card_chars"] == 6000
+        assert any("overview_hub 段必須是物件" in e for e in c["_errors"]), section
+    assert wo._cfg({"overview_hub": None}, proj)["_errors"] == []       # null 當沒設
+    _hub(proj, "[1, 2]")
+    c = wo._cfg({}, proj)
+    assert len(c["_errors"]) == 1 and "頂層不是物件" in c["_errors"][0]
+    _hub(proj, "{壞")
+    assert "專案層覆蓋檔讀取失敗" in wo._cfg({}, proj)["_errors"][0]
+
+
+def test_encoding_with_nul_is_error_not_valueerror():   # BLOCK 2
+    for bad in ("utf\u0000-8", "", None, 5, ["utf-8"]):
+        assert wo._encoding_ok(bad) is False
+    errs = wo._validate_cfg(dict(wo._DEFAULT, commit_encoding="utf\u0000-8", source_encodings=["utf\u0000-8"],
+                                PYTHONIOENCODING=["utf-8"]), None)
+    assert len(errs) == 3 and all("編碼" in e for e in errs)
+
+
+def test_invalid_shapes_deny_on_edit_instead_of_raising(proj, tmp_path, monkeypatch):   # BLOCK 2 端到端
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {"overview_hub": [1]})
+    assert deny and "overview_hub 段必須是物件" in deny
+    _hub(proj, '{"commit_encoding": "utf\\u0000-8"}')
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})
+    assert deny and "commit_encoding" in deny and "編碼" in deny
+
+
+def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):
+    """根層自己的表放 <CLAUDE_DIR>/.claude/overview-map.md，卡在 <CLAUDE_DIR>/memory（不是 .claude/memory）。"""
+    fake = tmp_path / "claude"
+    (fake / ".claude").mkdir(parents=True)
+    (fake / "hooks").mkdir()
+    (fake / "memory" / "CC").mkdir(parents=True)
+    (fake / "memory" / "CC" / "hooks導讀.md").write_text("# hooks 導讀\n病灶：pythonw 無 stdio", encoding="utf-8")
+    (fake / ".claude" / "overview-map.md").write_text("| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n", encoding="utf-8")
+    monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    import wg_core
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
+    assert wo._cfg({}, fake)["_layer"] == "root"
+    txt = wo.on_read({}, "s", "Read", {"file_path": str(fake / "hooks" / "x.py")}, str(fake), "", {})
+    assert txt and "pythonw 無 stdio" in txt
+    assert oh.resolve_card(fake, "hooks導讀") is None                   # 預設位置找不到
+    assert oh.resolve_card(fake, "hooks導讀", fake / "memory").name == "hooks導讀.md"
+
+
+# ─── 退回 002 的 BLOCK：設定錯誤不得封鎖設定檔自身的修復 ───────────────────────
+
+def test_cfg_error_still_allows_editing_the_config_files_themselves(proj, tmp_path, monkeypatch):
+    import wg_core
+    fake = tmp_path / "claude"
+    (fake / ".claude").mkdir(parents=True)
+    (fake / "workflow").mkdir()
+    cfg_path = fake / "workflow" / "config.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+    root_hub = fake / ".claude" / "overview-hub.json"
+    root_hub.write_text('{"bogus": 1}', encoding="utf-8")
+    monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wo, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    bad = {"overview_hub": {"enabled": False, "bogus": 1}}
+
+    warn, deny, changed = wo.on_edit({}, "s", str(cfg_path), tp, bad)                  # ① 根層 config.json：放行＋警告
+    assert deny is None and not changed and warn and "放行以便修復" in warn and "未知的設定鍵「bogus」" in warn
+    warn, deny, _ = wo.on_edit({}, "s", str(root_hub), tp, bad)                        # ② 根層 .claude/overview-hub.json
+    assert deny is None and warn and "bogus" in warn
+    _hub(proj, '{"foo": 1}')
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / ".claude" / "overview-hub.json"), tp, {})   # ③ 專案 hub.json
+    assert deny is None and warn and "未知的設定鍵「foo」" in warn
+
+    warn, deny, _ = wo.on_edit({}, "s", str(fake / "workflow" / "other.json"), tp, bad)   # 同目錄他檔仍擋（比路徑不比檔名）
+    assert deny and "bogus" in deny
+    warn, deny, _ = wo.on_edit({}, "s", str(fake / "workflow" / "config.json.bak"), tp, bad)
+    assert deny
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})                                      # 專案 hub 壞 → 部位檔仍擋
+    assert deny and "foo" in deny
+
+    _hub(proj, "{}")                                                                     # 修好 → 下一次 Edit 走正常注入分支
+    warn, deny, changed = wo.on_edit({}, "s", f1, tp, {})
+    assert changed and deny and "還沒看過" in deny and "戰鬥導讀" in deny
+    assert wo.on_edit({}, "s", str(proj / ".claude" / "overview-hub.json"), tp, {}) == (None, None, False)   # 設定沒錯：自家設定檔靜默放行
+    events = [json.loads(l)["event"] for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert events.count("edit_own_config") == 3 and "edit_cfg_error" in events and events[-1] == "edit_before_inject"
+
+
+def test_validator_internal_error_still_denies_and_logs_traceback(proj, monkeypatch, capsys):   # 退回 002 的 WARN
+    seen = []
+    monkeypatch.setattr(wo, "_atom_debug_error", lambda src, exc: seen.append((src, type(exc).__name__)))
+
+    def _bug(bases, root):
+        raise RuntimeError("validator-bug")
+    monkeypatch.setattr(wo, "_validate_path_bases", _bug)
+    c = wo._cfg({}, proj)
+    assert len(c["_errors"]) == 1 and "內部錯誤" in c["_errors"][0] and "validator-bug" in c["_errors"][0]
+    assert seen == [("overview_hub:validate", "RuntimeError")]
+    assert "內部錯誤" in capsys.readouterr().err
+
+
+def test_cfg_error_still_allows_editing_the_map_itself(proj, tmp_path, monkeypatch):   # 003 複審裁定：表本身也能自救
+    import wg_core
+    fake = tmp_path / "claude"
+    (fake / ".claude").mkdir(parents=True)
+    root_map = fake / ".claude" / "overview-map.md"
+    root_map.write_text("| `hooks/` | hook 層 | `打錯的卡名` | 有 |\n", encoding="utf-8")
+    monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    bad = {"overview_hub": {"enabled": False, "bogus": 1}}
+
+    warn, deny, changed = wo.on_edit({}, "s", str(root_map), tp, bad)                  # 根層表：放行＋警告
+    assert deny is None and not changed and warn and "放行以便修復" in warn and "bogus" in warn
+    _hub(proj, '{"foo": 1}')
+    proj_map = proj / ".claude" / "overview-map.md"
+    warn, deny, _ = wo.on_edit({}, "s", str(proj_map), tp, {})                         # 專案表：放行＋警告列專案層錯誤
+    assert deny is None and warn and "未知的設定鍵「foo」" in warn
+    warn, deny, _ = wo.on_edit({}, "s", str(fake / ".claude" / "overview-map.md.bak"), tp, bad)   # 同目錄他檔仍擋（比路徑不比檔名）
+    assert deny and "bogus" in deny
+    warn, deny, _ = wo.on_edit({}, "s", str(fake / ".claude" / "notes.md"), tp, bad)
+    assert deny and "bogus" in deny
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})          # 專案表壞設定下部位檔仍擋
+    assert deny and "foo" in deny
+    _hub(proj, "{}")
+    assert wo.on_edit({}, "s", str(proj_map), tp, {}) == (None, None, False)          # 設定沒錯：表靜默放行
+    events = [json.loads(l)["event"] for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert events.count("edit_own_config") == 2 and events.count("edit_cfg_error") == 3
+
+
+# ─── 退回 003 的兩條 BLOCK：extended-length 前綴、磁碟目錄實際大小寫／symlink 不得漏判自家檔 ───────
+
+def test_own_config_matches_with_extended_prefix(proj, tmp_path, monkeypatch):
+    import wg_core
+    fake = tmp_path / "claude"
+    (fake / "workflow").mkdir(parents=True)
+    cfg_path = fake / "workflow" / "config.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wo, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    bad = {"overview_hub": {"enabled": False, "bogus": 1}}
+    assert wo._strip_extended("\\\\?\\C:\\x\\y") == "C:\\x\\y"
+    assert wo._strip_extended("\\\\?\\UNC\\srv\\share\\y") == "\\\\srv\\share\\y"
+    assert wo._strip_extended("C:\\x") == "C:\\x"
+
+    ext = "\\\\?\\" + str(cfg_path)
+    assert wo._own_config_layer(ext) == (True, None)
+    warn, deny, _ = wo.on_edit({}, "s", ext, tp, bad)                                    # 前綴版 config.json：放行＋警告
+    assert deny is None and warn and "bogus" in warn
+    _hub(proj, '{"foo": 1}')
+    ext_hub = "\\\\?\\" + str(proj / ".claude" / "overview-hub.json")
+    assert wo._own_config_layer(ext_hub) == (True, proj)
+    warn, deny, _ = wo.on_edit({}, "s", ext_hub, tp, {})                                 # 前綴版專案 hub.json
+    assert deny is None and warn and "foo" in warn
+    warn, deny, _ = wo.on_edit({}, "s", "\\\\?\\" + str(fake / "workflow" / "other.json"), tp, bad)   # 前綴版他檔仍擋
+    assert deny and "bogus" in deny
+
+
+def test_own_config_matches_when_dir_case_differs(tmp_path, monkeypatch):
+    """磁碟目錄實際是 .CLAUDE（resolve 回大寫）、表把 .claude/ 列成部位、hub 有錯 → 仍是自家檔，放行＋警告。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = tmp_path / "proj2"
+    (root / ".CLAUDE").mkdir(parents=True)
+    (root / ".CLAUDE" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        "| `.claude/` | 設定 | 無 | 無 |\n| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8")
+    (root / ".CLAUDE" / "overview-hub.json").write_text('{"foo": 1}', encoding="utf-8")
+    (root / "src").mkdir()
+    tp = _transcript(tmp_path, ["x"])
+    hub_lower = str(root / ".claude" / "overview-hub.json")                              # 呼叫端給小寫
+    assert Path(hub_lower).resolve().parent.name == ".CLAUDE"                            # 前提：resolve 還原磁碟實際大小寫
+    assert wo._own_config_layer(hub_lower)[0] is True
+    warn, deny, _ = wo.on_edit({}, "s", hub_lower, tp, {})
+    assert deny is None and warn and "未知的設定鍵「foo」" in warn
+    warn, deny, _ = wo.on_edit({}, "s", str(root / ".CLAUDE" / "OVERVIEW-MAP.MD"), tp, {})   # 表本身、全大寫寫法
+    assert deny is None and warn and "foo" in warn
+    warn, deny, _ = wo.on_edit({}, "s", str(root / ".CLAUDE" / "notes.md"), tp, {})      # 同目錄他檔命中「設定」部位 → 仍擋
+    assert deny and "foo" in deny
+    warn, deny, _ = wo.on_edit({}, "s", str(root / "src" / "a.py"), tp, {})
+    assert deny and "foo" in deny

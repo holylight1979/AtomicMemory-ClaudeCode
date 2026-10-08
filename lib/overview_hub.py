@@ -27,7 +27,19 @@ LOCATE_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Ba
 )
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
-_STATUS_HEADS = ("有", "部分", "索引", "無")
+_STATUS_HEADS = ("有", "部分", "索引", "骨架", "無")
+_TWO_CHAR_STATUS = ("部分", "索引", "骨架")
+# 擴欄：表頭關鍵字 → row 鍵；只認表頭，沒表頭的舊四欄表這些鍵全空
+_EXTRA_COLUMNS = (
+    ("病灶", "defects_doc"), ("量尺", "measure"), ("檢查器", "checkers"), ("讀路徑", "sample_paths"),
+    ("第四問", "extra_q"), ("權威", "authority"), ("上游", "upstream"), ("下游", "downstream"), ("層", "layer"),
+)
+_EMPTY_EXTRA: Dict[str, Any] = {
+    "defects_doc": "", "measure": {}, "checkers": [], "sample_paths": "", "extra_q": "",
+    "layer": "", "authority": "", "upstream": "", "downstream": "",
+}
+_MEASURE_SPLIT_RE = re.compile(r"\s*[｜]\s*")
+_LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
 # bypass 模式下讀檔走 Bash：cat / head / tail / sed -n / less 後面的路徑也算 Read
 _BASH_READ_RE = re.compile(
     r'(?:^|[;&|(]\s*)(?:cat|head|tail|less|sed\s+-n\s+\S+|svn\s+cat|svn\s+diff|git\s+show|git\s+diff)'
@@ -41,8 +53,24 @@ def _norm(p: str) -> str:
 
 # ─── 找表 ───────────────────────────────────────────────────────────
 
-def find_map(path: str) -> Optional[Tuple[Path, Path]]:
-    """從 path 往上找最近的 `<root>/.claude/overview-map.md`；回 (root, map_path)，沒有回 None。"""
+def _home() -> Path:
+    """家目錄（獨立成函式讓 verify 能 monkeypatch 成 tmp，證明界線不越過家目錄）。"""
+    return Path.home()
+
+
+def _same_dir(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except (OSError, ValueError):
+        return _norm(str(a)) == _norm(str(b))
+
+
+def find_map(path: str, stop_at: Optional[Path] = None) -> Optional[Tuple[Path, Path]]:
+    """從 path 往上找最近的 `<root>/.claude/overview-map.md`；回 (root, map_path)，沒有回 None。
+
+    界線：走到家目錄或磁碟根直接回 None（那一層不檢查，所以根層自己的表要放 ~/.claude/.claude/、
+    pytest 的 tmp 永遠找不到家目錄下的東西）；給 stop_at 時檢查完 stop_at 那層就停。
+    """
     if not path:
         return None
     try:
@@ -52,14 +80,17 @@ def find_map(path: str) -> Optional[Tuple[Path, Path]]:
         cur = cur if cur.is_dir() else cur.parent
     except OSError:
         return None
+    home = _home()
     while True:
+        if cur.parent == cur or _same_dir(cur, home):
+            return None
         cand = cur / MAP_REL
         try:
             if cand.is_file():
                 return (cur, cand)
         except OSError:
             return None
-        if cur.parent == cur:
+        if stop_at is not None and _same_dir(cur, stop_at):
             return None
         cur = cur.parent
 
@@ -74,9 +105,71 @@ def _is_card_token(tok: str) -> bool:
     return not _is_path_token(tok) and "*" not in tok and not tok.endswith((".cs", ".ps1", ".md", ".json"))
 
 
+def _header_columns(cells: List[str]) -> Dict[str, int]:
+    """表頭格 → {row 鍵: 欄索引}；一格只配第一個命中的關鍵字，「層」只配整格就是「層」或以「層」開頭的格。"""
+    out: Dict[str, int] = {}
+    for i, h in enumerate(cells):
+        for kw, key in _EXTRA_COLUMNS:
+            if key in out:
+                continue
+            hit = (h == kw or h.startswith(kw)) if kw == "層" else kw in h
+            if hit:
+                out[key] = i
+                break
+    return out
+
+
+def _cell_text(cell: str) -> str:
+    return "" if cell in ("", "無") else cell
+
+
+def _first_backtick_or_text(cell: str) -> str:
+    toks = _BACKTICK_RE.findall(cell)
+    return toks[0] if toks else _cell_text(cell)
+
+
+def _parse_measure(cell: str) -> Dict[str, str]:
+    """量尺格「量法｜`指令`｜門檻」以全形豎線切；空格或「無」回 {}。"""
+    cell = _cell_text(cell)
+    if not cell:
+        return {}
+    parts = _MEASURE_SPLIT_RE.split(cell) + ["", "", ""]
+    return {"method": parts[0], "cmd": _first_backtick_or_text(parts[1]), "threshold": parts[2]}
+
+
+def _parse_list(cell: str) -> List[str]:
+    """清單格：有反引號就取每個反引號；沒有就用 ;／、／, 切。"""
+    cell = _cell_text(cell)
+    if not cell:
+        return []
+    toks = _BACKTICK_RE.findall(cell)
+    return toks if toks else [t for t in _LIST_SPLIT_RE.split(cell) if t]
+
+
+def _extra_fields(cells: List[str], cols: Dict[str, int]) -> Dict[str, Any]:
+    out: Dict[str, Any] = dict(_EMPTY_EXTRA)
+    for key, idx in cols.items():
+        cell = cells[idx] if idx < len(cells) else ""
+        if key == "measure":
+            out[key] = _parse_measure(cell)
+        elif key == "checkers":
+            out[key] = _parse_list(cell)
+        elif key in ("defects_doc", "authority"):
+            out[key] = _first_backtick_or_text(cell)
+        else:
+            out[key] = _cell_text(cell)
+    return out
+
+
 def parse_map(text: str) -> List[Dict[str, Any]]:
-    """表 → rows：[{prefixes, part, part_short, card, status, line}]。前綴已正規化（小寫、/、去尾斜線）。"""
+    """表 → rows：[{prefixes, part, part_short, card, cards, status, line, defects_doc, measure, checkers,
+    sample_paths, extra_q, layer, authority, upstream, downstream}]。前綴已正規化（小寫、/、去尾斜線）。
+
+    前四欄（前綴／部位／導讀卡／狀態）照位置解析；擴欄照表頭關鍵字定位（_EXTRA_COLUMNS），
+    沒表頭時擴欄全為空值（""／{}／[]）。
+    """
     rows: List[Dict[str, Any]] = []
+    cols: Dict[str, int] = {}
     for line in text.splitlines():
         if not line.lstrip().startswith("|"):
             continue
@@ -88,6 +181,8 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
             None,
         )
         if prefix_idx is None:
+            if not rows and not cols:
+                cols = _header_columns(cells)      # 第一個沒路徑的表列＝表頭
             continue
         prefixes = [
             _norm(t).rstrip("/") for t in _BACKTICK_RE.findall(cells[prefix_idx]) if _is_path_token(t)
@@ -109,7 +204,7 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
         status = ""
         status_cell = cells[prefix_idx + 3] if prefix_idx + 3 < len(cells) else ""
         if status_cell.startswith(_STATUS_HEADS) and len(status_cell) <= 24:
-            status = status_cell[:2] if status_cell.startswith(("部分", "索引")) else status_cell[0]
+            status = status_cell[:2] if status_cell.startswith(_TWO_CHAR_STATUS) else status_cell[0]
         rows.append({
             "prefixes": [p for p in prefixes if p],
             "part": part,
@@ -118,6 +213,7 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
             "cards": cards,
             "status": status,
             "line": line.strip(),
+            **_extra_fields(cells, cols),
         })
     return rows
 
@@ -151,11 +247,12 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
 
 # ─── 卡片 ───────────────────────────────────────────────────────────
 
-def resolve_card(root: Path, card: Optional[str]) -> Optional[Path]:
-    """卡名 → `<root>/.claude/memory/**/<卡名>.md`；某些專案卡名的底線會被索引正規化成連字號，兩種都試。"""
+def resolve_card(root: Path, card: Optional[str], mem_dir: Optional[Path] = None) -> Optional[Path]:
+    """卡名 → `<mem_dir>/**/<卡名>.md`，mem_dir 預設 `<root>/.claude/memory`（根層自己的表傳 ~/.claude/memory）；
+    某些專案卡名的底線會被索引正規化成連字號，兩種都試。"""
     if not card:
         return None
-    mem = root / ".claude" / "memory"
+    mem = mem_dir if mem_dir is not None else root / ".claude" / "memory"
     try:
         for name in (card, card.replace("_", "-")):
             hits = sorted(mem.rglob(name + ".md"))
