@@ -70,10 +70,13 @@ def test_12_real_hub_cards_section_mapping_matches_precheck():
         assert r["found"] == card["expected_found"], card["id"]
         assert len(r["found"]) == card["precheck_found_count"], card["id"]
         assert r["missing"] == card["expected_missing"], card["id"]
-        assert is_hub_card(content), card["id"]
+        # 12 張標題都含「導讀」→ 全是 hub；只靠段落名要 found ≥ 4（c07 found=3 單憑段落名不算）
+        assert is_hub_card(content, title="x知識導讀"), card["id"]
+        assert is_hub_card(content) == (len(r["found"]) >= 4), card["id"]
     # 12 張裡 8 張五段齊、4 張缺段（缺的也是 hub，只是寫入時會被要求補齊）
     full = [c["id"] for c in data["cards"] if not c["expected_missing"]]
     assert len(full) == 8
+    assert sum(1 for c in data["cards"] if len(c["expected_found"]) == 3) == 1   # c07：靠標題才是 hub
 
 
 def test_plain_card_is_not_hub():
@@ -205,3 +208,66 @@ def test_old_keys_unchanged_on_add():
     for k in ("kind", "route_to", "budget", "missing_sections", "depends_missing", "how"):
         assert k in res
     assert res["kind"] == "plain"
+
+
+# ─── 4. 退回信 BLOCK 2／3／4 ────────────────────────────────────────────────
+
+
+def test_replace_hub_with_empty_depends_rejected(tmp_path):
+    """BLOCK 2：replace 明給 depends=[] 要當清空 → hub 無 Depends skip；None 才沿用舊檔的 Depends 行。"""
+    existing = tmp_path / "hub.md"
+    existing.write_text("# x部位導讀\n\n- Confidence: [臨]\n- Depends: path:C:/x/y.py\n\n## 知識\n\n- [臨] a\n\n## 行動\n\n- b\n",
+                        encoding="utf-8", newline="\n")
+    body = _fix("hub_full.md")
+    kept = mwg.evaluate(body, title="x部位導讀", mode="replace", existing_path=str(existing), config=CFG, depends=None)
+    assert kept["action"] == "add" and kept["depends_missing"] is False
+    cleared = mwg.evaluate(body, title="x部位導讀", mode="replace", existing_path=str(existing), config=CFG, depends=[])
+    assert cleared["action"] == "skip" and cleared["kind"] == "hub" and cleared["depends_missing"] is True
+    assert "Depends" in cleared["reason"]
+
+
+def test_three_common_sections_plain_card_passes():
+    """BLOCK 3 反例：只有驗法／病灶／權威三段的普通卡（113 bytes）不是 hub，不得被要求補五段。"""
+    three = "[臨] **驗法**：跑 verify\n[臨] **病灶**：x\n[臨] **權威**：y"
+    assert not is_hub_card(three) and len(check_hub_card_sections(three)["found"]) == 3
+    res = mwg.evaluate(three, title="一般卡", config=CFG, skip_gate=True)
+    assert res["action"] == "add" and res["kind"] == "plain" and res["budget"]["limit"] == 3072
+
+
+def test_nonstandard_headings_with_kind_hint_hub_pass():
+    """BLOCK 3：表外五段名（職責邊界／真相來源／修改前提問／已知缺陷／測試步驟）→ 同義詞認得；kind_hint=hub 也算 hub。"""
+    alt = "\n".join(f"[臨] **{h}**：{'內容' * 60}" for h in ("職責邊界", "真相來源", "修改前提問", "已知缺陷", "測試步驟"))
+    assert check_hub_card_sections(alt)["found"] == list(HUB_SECTIONS)
+    res = mwg.evaluate(alt, title="一般標題", config=CFG, depends=["path:C:/x/y.py"], skip_gate=True)
+    assert res["action"] == "add" and res["kind"] == "hub" and res["budget"]["limit"] == HUB_CARD_BUDGET
+    # 完全認不出的段落名＋kind_hint=hub：當 hub 檢查（缺段列出來），不是當 plain 以 3072 擋
+    weird = "\n".join(f"[臨] **第{i}節**：{'內容' * 60}" for i in range(5))
+    res = mwg.evaluate(weird, title="一般標題", config=CFG, depends=["path:C:/x/y.py"], skip_gate=True, kind_hint="hub")
+    assert res["action"] == "skip" and res["kind"] == "hub" and len(res["missing_sections"]) == 5
+    # plain 超預算時提示「若這是導讀卡」
+    big = mwg.evaluate(_filler(3500), config=CFG, skip_gate=True)
+    assert big["kind"] == "plain" and "若這是導讀卡" in big["reason"] and "kind_hint=hub" in big["reason"]
+
+
+def test_found_three_without_signal_is_plain_but_title_marker_is_hub():
+    """BLOCK 3：found==3 無訊號 → plain；同內容標題含「導讀」→ hub（寫入時要求補段）。"""
+    three = "\n".join(f"[臨] **{h}**：z" for h in ("做什麼", "權威在哪", "已知病灶"))
+    assert mwg.evaluate(three, title="一般", config=CFG, skip_gate=True)["kind"] == "plain"
+    res = mwg.evaluate(three, title="x部位導讀", config=CFG, depends=["path:C:/x/y.py"], skip_gate=True)
+    assert res["kind"] == "hub" and res["action"] == "skip" and len(res["missing_sections"]) == 2
+
+
+def test_ledger_ignores_numbers_inside_tech_terms():
+    """BLOCK 4：日期後只有 HTTP 429／UTF-8／TLS 1.2 這類技術名詞的數字 → 不是帳目；數字＋量詞才算。"""
+    lessons = ("2026-01-01：HTTP 429 尊重 Retry-After\n"
+               "2026-01-02：UTF-8 處理 BOM\n"
+               "2026-01-03：TLS 1.2 檢查憑證鏈")
+    assert mwg.ledger_signals(lessons) == []
+    res = mwg.evaluate(lessons, config=CFG, skip_gate=True)
+    assert res["action"] == "add" and res["kind"] == "plain"
+    real = "2026-10-01 漂移 12 筆\n2026-10-02 漂移 9 筆\n2026-10-03 漂移 4 筆"
+    assert mwg.ledger_signals(real) == ["dated_rows x3"]
+    assert mwg.evaluate(real, config=CFG, skip_gate=True)["kind"] == "ledger"
+    # 單位型（ms／%）也算；版本號不算
+    assert mwg.ledger_signals("2026-10-01 p95 120 ms\n2026-10-02 p95 95 ms\n2026-10-03 p95 80 ms") == ["dated_rows x3"]
+    assert mwg.ledger_signals("2026-10-01 升到 v1.2.3\n2026-10-02 升到 v1.3.0\n2026-10-03 升到 v2.0.0") == []

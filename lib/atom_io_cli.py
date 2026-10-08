@@ -61,10 +61,20 @@ from .atom_spec import (
 from .hub_card import budget_limit_for, is_hub_card, route_doc_for, depends_paths
 
 
-def _budget_check(content: str, route_paths=None):
+def _index_kwargs(index: dict) -> dict:
+    """write_index 的選填鍵：depends 只在 write_index 簽名已收（track-a2 接欄）時傳，否則不傳不丟錯。"""
+    import inspect
+    out = {}
+    if index.get("depends") is not None and "depends" in inspect.signature(write_index).parameters:
+        out["depends"] = list(index["depends"])
+    return out
+
+
+def _budget_check(content: str, route_paths=None, kind_hint=None):
     """build 產物的 knowledge 區大小預算（create/replace 共用硬拒；append 走 _append_budget_check）。
-    導讀卡（五段 ≥3）用 HUB_CARD_BUDGET，其餘 KNOWLEDGE_BUDGET_BYTES。超額回錯誤字串（附 kind／route_to），否則 None。"""
-    limit = budget_limit_for(content, KNOWLEDGE_BUDGET_BYTES)
+    導讀卡（標題含導讀／kind_hint=hub／五段 ≥4）用 HUB_CARD_BUDGET，其餘 KNOWLEDGE_BUDGET_BYTES。
+    超額回錯誤字串（附 kind／route_to），否則 None。"""
+    limit = budget_limit_for(content, KNOWLEDGE_BUDGET_BYTES, kind_hint=kind_hint)
     err = knowledge_budget_error(knowledge_sections_bytes(content), limit)
     if err is None:
         return None
@@ -204,7 +214,8 @@ def create_atom(payload: dict) -> WriteResult:
     err = validate_atom_content(content)
     if err is not None:
         return WriteResult(ok=False, error=f"validate: {err}")
-    budget_err = _budget_check(content, depends_paths(build_params.get("depends")) + [str(file_path)])
+    budget_err = _budget_check(content, depends_paths(build_params.get("depends")) + [str(file_path)],
+                               kind_hint=payload.get("kind_hint"))
     if budget_err is not None:
         return WriteResult(ok=False, error=f"budget: {budget_err}")
     if payload.get("dry_run"):
@@ -226,7 +237,7 @@ def create_atom(payload: dict) -> WriteResult:
     ir = write_index(
         base_dir=Path(index["base_dir"]), slug=index["slug"],
         rel_path=index["rel_path"], triggers=list(index["triggers"]), source="mcp",
-        scope=index.get("scope"),
+        scope=index.get("scope"), **_index_kwargs(index),
     )
     return WriteResult(
         ok=True, path=file_path,
@@ -335,7 +346,8 @@ def main() -> int:
             result = write_atom(**payload)
         elif action == "write_index":
             payload["base_dir"] = Path(payload["base_dir"])
-            result = write_index(**payload)
+            depends = payload.pop("depends", None)
+            result = write_index(**payload, **_index_kwargs({"depends": depends}))
         elif action == "write_index_full":
             # JSON 不能傳 Path，caller 用 str；轉成 Path
             payload["index_path"] = Path(payload["index_path"])

@@ -59,20 +59,21 @@ except Exception as _e:  # pragma: no cover
 # import 失敗時退最小 fallback（沒有 hub 判定＝全部當一般卡、預算照舊），但訊號必浮出。
 try:
     from lib.hub_card import (
-        HUB_CARD_BUDGET, check_hub_card_sections, is_hub_card, missing_labels,
+        HUB_CARD_BUDGET, HUB_STANDARD_NAMES, check_hub_card_sections, is_hub_card, missing_labels,
         depends_paths, route_doc_for, ROUTE_FALLBACK,
     )
 except Exception as _e:  # pragma: no cover
     print(f"[write-gate] lib.hub_card unavailable, kind detection degraded ({_e})",
           file=sys.stderr)
     HUB_CARD_BUDGET = 4096
+    HUB_STANDARD_NAMES = "做什麼／部位與權威／動手前必問／已知病灶／驗法"
     ROUTE_FALLBACK = "_AIDocs"
 
     def check_hub_card_sections(text):
         return {"found": [], "missing": [], "headings": []}
 
-    def is_hub_card(text):
-        return False
+    def is_hub_card(text, title="", kind_hint=None):
+        return kind_hint == "hub"
 
     def missing_labels(keys):
         return list(keys)
@@ -195,7 +196,13 @@ KINDS = ("pointer", "complement", "ledger", "hub", "plain")
 MODES = ("create", "append", "replace")
 
 _LEDGER_DATE_RE = re.compile(r"\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}/\d{1,2}\b")
-_LEDGER_NUM_RE = re.compile(r"\d+(?:\.\d+)?%?")
+# 帳目數字＝「數字＋量詞或單位」；純技術名詞裡的數字（HTTP 429、UTF-8、TLS 1.2、v1.2.3）不算
+_LEDGER_QTY_RE = re.compile(
+    r"\d+(?:\.\d+)?\s*(?:筆|次|個|項|行|檔|張|顆|條|件|列|人|天|日|週|月|年|萬|倍|分鐘|小時|秒|"
+    r"%|％|ms|s|m|h|KB|MB|GB|k|K|px|tok|tokens?|errors?|warnings?|fails?|failed|pass(?:ed)?|tests?|cases?)"
+    r"(?![A-Za-z0-9.])",
+    re.IGNORECASE,
+)
 _LEDGER_HEADER_RE = re.compile(r"^\s*\|[^\n]*(?:現況|狀態|進度|日期|結果|完成度)[^\n]*\|", re.MULTILINE)
 LEDGER_MIN_ROWS = 3
 
@@ -209,13 +216,14 @@ HOW_BY_KIND = {
 
 
 def ledger_signals(content: str) -> List[str]:
-    """現況帳訊號：≥LEDGER_MIN_ROWS 行「日期＋數字對」或現況表頭；空＝不是帳。"""
+    """現況帳訊號：≥LEDGER_MIN_ROWS 行「日期＋（數字＋量詞／單位）」、或表格列、或現況表頭；空＝不是帳。
+    日期去掉後只剩技術名詞裡的數字（HTTP 429、UTF-8、TLS 1.2）不算帳目行。"""
     rows = 0
     for line in (content or "").splitlines():
         if not _LEDGER_DATE_RE.search(line):
             continue
         rest = _LEDGER_DATE_RE.sub(" ", line)
-        if _LEDGER_NUM_RE.search(rest):
+        if line.lstrip().startswith("|") or _LEDGER_QTY_RE.search(rest):
             rows += 1
     out: List[str] = []
     if rows >= LEDGER_MIN_ROWS:
@@ -244,7 +252,7 @@ def classify_kind(
     actions: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """回 {kind, hub:{found,missing}, ledger:[訊號], existing_hub:bool}。
-    優先序：hub > ledger > pointer > complement（append）> plain。kind_hint 只在合法時採用，
+    優先序：pointer（明給或指標標題且無段）> hub > ledger > complement（append）> plain。kind_hint 只在合法時採用，
     且 hub 仍要過五段檢查（hint 不能把缺段卡變成合格 hub）。"""
     config = config or {}
     hint = kind_hint if kind_hint in KINDS else None
@@ -252,12 +260,13 @@ def classify_kind(
     hub = check_hub_card_sections(scan)
     existing_hub = bool(existing_content) and is_hub_card(existing_content)
     ledger = ledger_signals(content)
-    if mode != "append" and (hint == "hub" or len(hub["found"]) >= 3):
+    # 指標卡優先：明給 kind_hint=pointer，或標題帶指標詞（導讀／hub索引…）且內容一段都沒有（一行指標）
+    if hint == "pointer" or (mode != "append" and is_pointer_title(title, config) and not hub["found"]):
+        kind = "pointer"
+    elif mode != "append" and is_hub_card(scan, title, hint):
         kind = "hub"
     elif ledger or hint == "ledger":
         kind = "ledger"
-    elif hint == "pointer" or is_pointer_title(title, config):
-        kind = "pointer"
     elif mode == "append" or hint == "complement":
         kind = "complement"
     else:
@@ -526,7 +535,12 @@ def evaluate(
     route_paths = depends_paths(depends) + ([existing_path] if existing_path else [])
     route_to = route_doc_for(route_paths)
     missing = missing_labels(hub_check["missing"]) if kind == "hub" else []
-    depends_missing = kind == "hub" and not depends_paths(depends) and not _existing_depends(existing)
+    # Depends 三態：None＝未提供（replace 沿用舊檔的 Depends 行）；[]＝明給清空（視為沒有）；非空＝用新的
+    if depends is None:
+        has_depends = _existing_depends(existing)
+    else:
+        has_depends = bool(depends_paths(depends))
+    depends_missing = kind == "hub" and not has_depends
 
     def _kinded(result: Dict[str, Any]) -> Dict[str, Any]:
         result.update({
@@ -560,13 +574,17 @@ def evaluate(
         write_audit_log("skip", content, 0, reason="over_budget",
                         bytes=total, budget=limit, kind=kind, route_to=route_to)
         detail = (f"（既有 {existing_bytes}＋新增 {nbytes}）" if existing_bytes else "")
+        hub_hint = (
+            f"。若這是導讀卡：標題用五段標準名（{HUB_STANDARD_NAMES}）或帶 kind_hint=hub"
+            if kind == "plain" else ""
+        )
         return _kinded({
             "action": "skip",
             "quality_score": 0,
             "reason": (
                 f"knowledge 區 {total} bytes{detail} 超過預算 {limit} bytes；"
                 f"不截斷：個案細節寫進 {route_to}；atom 只留結論/判斷/教訓/檔案錨點"
-                "（大段逐筆內容改為文件路徑一行）"
+                "（大段逐筆內容改為文件路徑一行）" + hub_hint
             ),
         })
 

@@ -370,9 +370,15 @@ def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[s
     return out
 
 
+_TRACK_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
 def append_tracking(slug: str, entries: List[Dict[str, Any]], base_dir: Optional[Path] = None) -> Optional[Path]:
     """workflow/tracking/<slug>.jsonl 逐行追加（LF、一行一筆；執行期檔，.gitignore 收）。
-    entries 空 → 不建檔、回 None。失敗浮 stderr（fail-open）。回帳本路徑。"""
+    slug 只許 [A-Za-z0-9_-]（否則 ValueError：../ 或磁碟根會指到 tracking 外）。
+    entries 空 → 不建檔、回 None。寫入失敗浮 stderr（fail-open）。回帳本路徑。"""
+    if not _TRACK_SLUG_RE.match(str(slug or "")):
+        raise ValueError(f"tracking slug must match [A-Za-z0-9_-]+ (got {slug!r})")
     if not entries:
         return None
     try:
@@ -444,7 +450,10 @@ def harvest_gate_reason(
     return harvest_block_message()
 
 
-def harvest_block_message() -> str:
+def harvest_block_message(tracking_written: bool = False) -> str:
+    """tracking_written：本 turn 的 AEC 追蹤項（k）已由 append_tracking 入帳（掛點在 post_tool_use，track-b 接）。"""
+    tracking = ("追蹤項已入帳，有部位的同時寫進病灶文件。" if tracking_written
+                else "追蹤項請填進收尾檢核 k 欄。")
     src = "\n".join(f"  {s}" for s in _HARVEST_SOURCES)
     return (
         "[Guardian:KnowledgeHarvest] 宣告完成＝階段完工，收尾前先盤點本場學到的東西，"
@@ -457,7 +466,7 @@ def harvest_block_message() -> str:
         "retired 要 retire receipt 的 old_path 相符；對不上會被擋回補。"
         "items 欄位：source / summary / action(created|appended|replaced|superseded|retired|skip) / atom / path / scope / reason(skip 必填)"
         " / route(part_doc|global|org|local|shared|candidate_global，選填；part_doc 必帶 part；global／candidate_global 的 summary 不帶專案名) / candidate_global / part。"
-        "追蹤項已入帳，有部位的同時寫進病灶文件。"
+        + tracking +
         "無東西 → items=[] 照樣呼叫。"
     )
 

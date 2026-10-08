@@ -224,10 +224,10 @@ async function toolAtomWrite(id, args) {
         return sendToolResult(id, gateRejectText(gateResult), true);
       }
       if (gateResult.action === "update" && gateResult.dedup_match) {
+        // 轉述 py reason（similar to <atom> (score=…), suggest update）；js 只補搜尋層與欄位 echo
         return sendToolResult(id,
-          `Write-gate: similar to existing atom "${gateResult.dedup_match.atom_name}" ` +
-          `(score=${gateResult.dedup_match.score}, searched layers: ${gateLayers.join(", ")}). ` +
-          `Use mode=append on that atom instead.`, true);
+          `Write-gate: ${gateResult.reason} (searched layers: ${gateLayers.join(", ")})` +
+          (gateLines(gateResult) ? `\n${gateLines(gateResult)}` : ""), true);
       }
       // 樣式軟警（逐筆表格/路徑清單）：不擋，附在成功訊息尾端轉述給寫入者
       if (Array.isArray(gateResult.warnings) && gateResult.warnings.length) {
@@ -302,7 +302,10 @@ async function toolAtomWrite(id, args) {
       today,
       // index scope 傳 scopeLabel（與 frontmatter 一致）——不再由 py 端預設 global
       // 蹍掉專案層 scope。
-      index: { base_dir: indexDir, slug, rel_path: relPath, triggers, scope: scopeLabel },
+      // depends 透傳給 index（欄位名固定 depends；py write_index 簽名收了才落 index，track-a2 接）
+      index: { base_dir: indexDir, slug, rel_path: relPath, triggers, scope: scopeLabel,
+               ...(Array.isArray(depends) && { depends }) },
+      kind_hint,
       dry_run,
     });
     if (!cr.ok) {
@@ -488,6 +491,7 @@ async function toolAtomWrite(id, args) {
     // 索引 upsert 直接走 funnel 取回 ok（receipt 要 index_ok；失敗非致命、crashLog 留訊號）
     const ir = await spawnAtomCli("write_index", {
       base_dir: indexDir, slug, rel_path: relPath, triggers, source: "mcp",
+      ...(Array.isArray(dependsFinal) && { depends: dependsFinal }),
     });
     if (!ir.ok) crashLog("appendToIndex funnel (json)", ir.error);
     triggerVectorReindex();

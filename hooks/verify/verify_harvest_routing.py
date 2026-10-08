@@ -116,7 +116,20 @@ def test_tracking_k_none_writes_nothing(tmp_path):
     assert not (tmp_path / "tracking").exists()
 
 
-def test_block_message_mentions_tracking_and_route():
-    msg = wh.harvest_block_message()
-    assert "追蹤項已入帳，有部位的同時寫進病灶文件" in msg
-    assert "route(part_doc|global|org|local|shared|candidate_global" in msg
+def test_block_message_two_states_and_route():
+    """BLOCK 5：追蹤項那句條件式：入帳了才說「已入帳」，沒接線時叫人填 k 欄。"""
+    off = wh.harvest_block_message()
+    assert "追蹤項請填進收尾檢核 k 欄" in off and "追蹤項已入帳" not in off
+    on = wh.harvest_block_message(tracking_written=True)
+    assert "追蹤項已入帳，有部位的同時寫進病灶文件" in on and "請填進收尾檢核 k 欄" not in on
+    assert "route(part_doc|global|org|local|shared|candidate_global" in off
+
+
+def test_tracking_slug_injection_rejected(tmp_path):
+    """BLOCK 5：slug 只許 [A-Za-z0-9_-]；../ 與磁碟根會指到 tracking 外，一律 ValueError 且不建檔。"""
+    entries = wh.tracking_entries(_SID, 1, "x")
+    for bad in ("../escaped", "C:/escaped", "a/b", "", "slug with space", "slug.jsonl"):
+        with pytest.raises(ValueError):
+            wh.append_tracking(bad, entries, base_dir=tmp_path)
+    assert not (tmp_path / "tracking").exists() and not (tmp_path / "escaped.jsonl").exists()
+    assert wh.append_tracking("c--users-x--proj_1", entries, base_dir=tmp_path).name == "c--users-x--proj_1.jsonl"

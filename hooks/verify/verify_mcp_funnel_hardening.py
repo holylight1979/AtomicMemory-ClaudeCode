@@ -164,3 +164,14 @@ def test_no_spawn_site_without_timeout():
             if name.endswith("syncMemoryIndex") and "unref()" in body:
                 continue
             assert "setTimeout" in body and "kill()" in body, f"{rel}:{name} 缺 timeout+kill"
+
+
+def test_update_branch_relays_py_reason_and_index_payload_carries_depends():
+    """WARN：update 分支轉述 py reason（不自組句）；create_atom index 與 replace write_index payload 帶 depends（a2 接）。"""
+    tools = _read(f"{MCP_LIB}/atom-tools.js")
+    assert "similar to existing atom" not in tools
+    assert "`Write-gate: ${gateResult.reason}" in tools
+    assert "...(Array.isArray(depends) && { depends })" in tools.split("// ── Mode: append ──")[0]
+    assert "...(Array.isArray(dependsFinal) && { depends: dependsFinal })" in tools
+    cli = _read("lib/atom_io_cli.py")
+    assert "_index_kwargs" in cli and 'inspect.signature(write_index).parameters' in cli

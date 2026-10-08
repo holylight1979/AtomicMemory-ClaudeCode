@@ -6,7 +6,8 @@ write-gate（tools/memory-write-gate.py）、落檔端（lib/atom_io_cli）與�
 不得各自另抄詞表。
 
 段落的認法：每一行先剝 `- `／`[臨]` 前綴，取 `**粗體**` 或 `## 標題` 當段落名；沒有粗體／標題的行
-取冒號前的短句。段落名含同義詞即算命中；一段命中多次只算一段。
+只認「≤12 字的標籤：」。段落名含同義詞即算命中；一段命中多次只算一段。
+hub 判定三訊號：kind_hint=hub／標題（或 H1）含「導讀」／found ≥ 4；標題含導讀但一段都沒有的是指標卡（write-gate 判 pointer）。
 
 怎麼跑：python -X utf8 -m pytest -q lib/verify/verify_write_gate_kinds.py
 """
@@ -30,15 +31,17 @@ HUB_SECTION_LABELS: Dict[str, str] = {
 
 # 段落鍵 → 同義詞（抄自 12 張真卡的段落名；子字串比對、先長後短）
 HUB_SECTION_SYNONYMS: Dict[str, tuple] = {
-    "what": ("這個部位做什麼", "做什麼", "導讀入口", "導航入口", "部位與邊界", "上下游是誰"),
-    "authority": ("上下游與權威", "部位與權威", "權威與入口", "權威在哪", "權威地圖", "權威"),
-    "ask": ("動手前必問", "動碼前必讀", "動手前必讀", "動手前"),
-    "defects": ("已知病灶", "病灶"),
-    "verify": ("最近驗證與驗法", "最近驗證", "驗證方式", "驗證日期", "驗法", "怎麼驗"),
+    "what": ("這個部位做什麼", "做什麼", "導讀入口", "導航入口", "部位與邊界", "上下游是誰", "職責邊界"),
+    "authority": ("上下游與權威", "部位與權威", "權威與入口", "權威在哪", "權威地圖", "權威", "真相來源"),
+    "ask": ("動手前必問", "動碼前必讀", "動手前必讀", "動手前", "修改前提問"),
+    "defects": ("已知病灶", "病灶", "已知缺陷"),
+    "verify": ("最近驗證與驗法", "最近驗證", "驗證方式", "驗證日期", "驗法", "怎麼驗", "測試步驟"),
 }
 
 HUB_CARD_BUDGET = 4096   # 根層固定；config 不覆蓋（五段導讀卡約 1300 CJK 字）
-HUB_MIN_FOUND = 3        # found ≥ 3 段即視為導讀卡（寫入時仍要求五段齊）
+HUB_MIN_FOUND = 4        # 只靠段落名認 hub 要 found ≥ 4；三段以下的普通卡（驗法／病灶／權威常見）不當 hub
+HUB_TITLE_MARKER = "導讀"  # 標題含此字＝宣告導讀卡（found 不足也算 hub，寫入時仍要求五段齊）
+HUB_STANDARD_NAMES = "做什麼／部位與權威／動手前必問／已知病灶／驗法"
 
 # 超預算／現況帳找不到部位文件時的落點（層名，不是路徑）
 ROUTE_FALLBACK = "_AIDocs"
@@ -46,7 +49,7 @@ ROUTE_FALLBACK = "_AIDocs"
 _LINE_PREFIX_RE = re.compile(r"^\s*(?:[-*]\s+)?(?:\[(?:固|觀|臨)\]\s*)?")
 _BOLD_RE = re.compile(r"^\*\*(.+?)\*\*")
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$")
-_SHORT_HEAD_RE = re.compile(r"^(.{1,40}?)(?:[：:]|$)")
+_SHORT_HEAD_RE = re.compile(r"^(.{1,12}?)[：:]")   # 非粗體行只認「短標籤：」（≤12 字），整句不算段落名
 _DEPENDS_PATH_RE = re.compile(r"path:\s*([^,\n]+)")
 
 
@@ -85,14 +88,28 @@ def check_hub_card_sections(content: str) -> Dict[str, List[str]]:
     }
 
 
-def is_hub_card(content: str) -> bool:
-    """五段命中 ≥ HUB_MIN_FOUND 即為導讀卡（普通卡最多偶然命中 1～2 段）。"""
+_H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+
+
+def h1_title(content: str) -> str:
+    """atom 全文的 H1 標題（沒有回空字串）；落檔端只有全文沒有 title 參數時用。"""
+    m = _H1_RE.search(content or "")
+    return m.group(1) if m else ""
+
+
+def is_hub_card(content: str, title: str = "", kind_hint: Optional[str] = None) -> bool:
+    """導讀卡判定（三訊號任一）：kind_hint=="hub"／標題（或全文 H1）含「導讀」／五段命中 ≥ HUB_MIN_FOUND。
+    found==3 且無其他訊號不是 hub（普通卡常同時有驗法、病灶、權威三段）。"""
+    if kind_hint == "hub":
+        return True
+    if HUB_TITLE_MARKER in (title or "") or HUB_TITLE_MARKER in h1_title(content):
+        return True
     return len(check_hub_card_sections(content)["found"]) >= HUB_MIN_FOUND
 
 
-def budget_limit_for(content: str, default_limit: int) -> int:
+def budget_limit_for(content: str, default_limit: int, title: str = "", kind_hint: Optional[str] = None) -> int:
     """落檔端選預算：導讀卡用 HUB_CARD_BUDGET，其餘用呼叫端的預設。"""
-    return HUB_CARD_BUDGET if is_hub_card(content) else int(default_limit)
+    return HUB_CARD_BUDGET if is_hub_card(content, title, kind_hint) else int(default_limit)
 
 
 def missing_labels(missing: Iterable[str]) -> List[str]:
