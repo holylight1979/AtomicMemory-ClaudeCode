@@ -12,7 +12,7 @@
 
 - [臨] `lib/atom_io.write_raw(path, content, *, source, op)`：source 不在 VALID_SOURCES（atom_io.py:46）時回傳 `WriteResult(ok=False, error="invalid source")`、**不 raise**（atom_io.py:409-411），`_atomic_write` 沒被呼叫。這與同函式的 OSError 路徑（414-415 也回 ok=False）一致——write_raw 統一用 WriteResult 回報錯誤、從不 raise。呼叫端不檢查 `res.ok` 就會靜默不寫還以為成功。
 - [臨] 真正的坑是「文件說謊 + 呼叫端沒檢查」，非回傳式本身：atom_io.py:45 原註解寫「未列舉值會 raise ValueError」與實作矛盾、誤導讀者去 try/except。**已修正註解為回傳 ok=False**（保留統一 WriteResult 契約——因 atom_io_cli.py:68-71 只 catch TypeError/KeyError，raise ValueError 會穿透破壞 MCP funnel 的 JSON 回報）。
-- [臨] 實例（C:\Projects shared atom 去重合併）：用非白名單 source="tool:dedup-phase-b" 附加合併 bullet，write_raw 靜默 no-op、而合併源檔已先 unlink，差點丟 3 條知識；搬完讀檔驗證才抓到，改用合法 source="tool:memory-cleanup" 重補。
+- [臨] 實例（某專案 shared atom 去重合併）：用非白名單 source="tool:dedup-phase-b" 附加合併 bullet，write_raw 靜默 no-op、而合併源檔已先 unlink，差點丟 3 條知識；搬完讀檔驗證才抓到，改用合法 source="tool:memory-cleanup" 重補。
 - [臨] 防再犯：(a) 一次性腳本走 funnel 用既有合法 source（VALID_SOURCES 見 atom_io.py:46-65，如 tool:memory-cleanup）；(b) 寫入後必驗 `res.ok`，False 即拋；(c) 破壞性步驟（unlink/覆寫）前先讀檔確認寫入成功，不信沒檢查回傳的「OK」。
 - [臨] **代理訊號≠真副作用**：勿拿「中間代理訊號」（in-memory 字串替換成功、`new != txt` diff 非空、腳本自印 OK）當「已落檔」的證據——source 檢查在 `_atomic_write` 之前即 return，整個落檔被跳過，記憶體內的成功與磁碟無關。實例（scope drift 修復批次）：腳本以 `new != txt` 判定並印「FIX」，檔案實際沒變，事後 `sync-atom-index.py --check` 仍報該顆 drift 才抓到。
 - [臨] **部分成功更易掩蓋單點靜默失敗**：同批次 index 端 `upsert_atom` source 合法正常落地、只有 write_raw 那條被擋，整體看似成功。批次記憶寫入以**獨立 end-state 驗證**（如 `sync-atom-index.py --check` 0 drift）為唯一驗收，不信腳本自報。

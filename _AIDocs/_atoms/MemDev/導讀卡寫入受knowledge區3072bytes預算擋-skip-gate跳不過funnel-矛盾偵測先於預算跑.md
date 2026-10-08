@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: atom_write 被擋, 3072, knowledge 區預算, 導讀卡太長, hub 卡預算, skip_gate 無效, funnel failed: budget, 矛盾偵測先跑, 指標卡被擋
 - Created-at: 2026-10-07
-- Quote: 「/continue C:\TSLG\.claude\memory\_staging\next-phase-tri-link-tslg.md 記得掛 monitor」
+- Quote: 「/continue <專案路徑>\.claude\memory\_staging\next-phase-tri-link-某專案.md 記得掛 monitor」
 
 ## 知識
 

@@ -6,7 +6,7 @@
 - Trigger: GUI 實驗, 彈窗, Edge --app, msedge, 實驗污染, headless, CDP, Page.setWebLifecycleState, playwright-core, EnumWindows, 前景視窗, 使用者在線
 - Created-at: 2026-09-18
 - Source: session:51e58273#96750703 2026-09-18
-- Quote: 「徹查 Anti-Evasion HUD「心跳逾時」誤判（根層 hook 問題，請在本 ~/.claude session 處理） 症狀： - 專案 session 4a1365f5-b3d5-402e-850d-853ad5aec8df（c:\TSLG，2026-09-17～18）每次呼叫 anti_evasion_report 且 severity=notable，Stop 閘都輸出「[Gua…」
+- Quote: 「徹查 Anti-Evasion HUD「心跳逾時」誤判（根層 hook 問題，請在本 ~/.claude session 處理） 症狀： - 專案 session 4a1365f5-b3d5-402e-850d-853ad5aec8df（<專案路徑>，2026-09-17～18）每次呼叫 anti_evasion_report 且 severity=notable，Stop 閘都輸出「[Gua…」
 
 - Related: hud窗活性改看sse連線數不看心跳-心跳只證明正在渲染-判死原因落guard-aec-hud-stop再查一次, 自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入
 

@@ -22,7 +22,7 @@
 - [臨] 踩坑1：`--screenshot` 輸出路徑/檔名含**中文(CJK)** → Chrome 寫檔 `access denied (0x5)`。解法：先輸出 ASCII 檔名，再用 bash `mv` 改回中文名（bash 寫 CJK 檔名正常）。
 - [臨] 踩坑2：不加 `--no-sandbox` 時 `--screenshot` 首次失敗；加上即可。`--force-device-scale-factor=2` 得 2x 高解析。
 - [臨] SVG 內嵌 CJK 字型用 `font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif` 可正常渲染。讀回 PNG（Read 工具）即可目視驗證渲染結果。
-- [臨] 環境事實：網路 share `\\server01\TSLG\...` 對本帳號(holylight) **唯讀**（Write/cp 皆 EPERM/Permission denied）→ 產物需改寫本機（如 `C:\Users\holylight\...`）再回報路徑。
+- [臨] 環境事實：某專案的網路 share（`\\<伺服器>\<專案>\...`）對本帳號(holylight) **唯讀**（Write/cp 皆 EPERM/Permission denied）→ 產物需改寫本機（如 `C:\Users\holylight\...`）再回報路徑。
 
 ## 行動
 

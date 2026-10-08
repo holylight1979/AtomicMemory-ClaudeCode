@@ -195,7 +195,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - atom_io_cli.py — thin CLI bridge（stdin JSON → write_* → stdout WriteResult）給 MCP server.js spawn；action `realm_check` 供 atom_write 對 scope=global 先問 realm 閘；`check_supersedes`（可解析／非自指／無循環／非核心保護）、`retire`（locate → `memory-audit.delete_atom(project_dir)`，extra 帶 receipt 欄位）、`search`（唯讀查記憶 → `lib/memory_search`）
 - provenance.py — 來源讀寫共用：sanitize_quote／format_source_session／parse_source／find_transcript／last_human_record／resolve_context／atom_source
 - memory_search.py — 讀取端 `search()`（候選池 → trigger/BM25/vector → RRF，`schema_version=1`；MCP `memory_search`／cli `search`／`tools/memory-search.py` 三入口共用；`default_identity` 取現用身份）
-- realm_gate.py — 「專案專屬內容不得落 global」realm 閘：`project_terms(root)` 機械化推導專名（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 / repo-paths {代號}）+ 專案絕對路徑 + 「此專案」字面；`check_global_write` 命中即拒並附 `scope=shared, project_cwd` 修正與落點；cwd∈~/.claude 或無 cwd 不啟動
+- realm_gate.py — 「專案專屬內容不得落 global」realm 閘：`project_terms(root)` 機械化推導專名（頂層資料夾 / CLAUDE.md、Workspace_Map 成員表 / repo-paths {代號}）+ 專案絕對路徑 + 「此專案」字面＋本機已登記專案名與專案路徑（`known_project_names`／`known_project_roots`，讀 registry，不寫死任何專案名）；`check_global_write` 命中即拒並附去專案化原則與落點；cwd∈~/.claude 或無 cwd 時只掃已登記專案名；`anonymize_projects` 給根層卡片自動 Quote 去專案化
 - atom_index_json.py — `_atom_index.json` JSON SoT API（load / save / upsert / delete / regenerate_md / migrate / validate）
 - ollama_extract_core.py — 萃取共用核心 + SessionBudgetTracker（240 tok/session, CJK-aware）
 

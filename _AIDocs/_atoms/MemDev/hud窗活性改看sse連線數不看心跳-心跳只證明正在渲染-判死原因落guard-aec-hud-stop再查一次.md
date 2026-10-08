@@ -7,7 +7,7 @@
 - Created-at: 2026-09-18
 - Related: hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約, 在使用者活躍桌面彈視窗做gui實驗會被順手關掉污染數據-改headless-edge加cdp或先查前景視窗
 - Source: session:51e58273#96750703 2026-09-18
-- Quote: 「徹查 Anti-Evasion HUD「心跳逾時」誤判（根層 hook 問題，請在本 ~/.claude session 處理） 症狀： - 專案 session 4a1365f5-b3d5-402e-850d-853ad5aec8df（c:\TSLG，2026-09-17～18）每次呼叫 anti_evasion_report 且 severity=notable，Stop 閘都輸出「[Gua…」
+- Quote: 「徹查 Anti-Evasion HUD「心跳逾時」誤判（根層 hook 問題，請在本 ~/.claude session 處理） 症狀： - 專案 session 4a1365f5-b3d5-402e-850d-853ad5aec8df（<專案路徑>，2026-09-17～18）每次呼叫 anti_evasion_report 且 severity=notable，Stop 閘都輸出「[Gua…」
 
 ## 知識
 

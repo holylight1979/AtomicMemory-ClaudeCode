@@ -1532,8 +1532,7 @@
         "保險庫",
         "vault",
         "ProtectedData",
-        "靜默失敗",
-        "WindowsCredentialStorage"
+        "靜默失敗"
       ],
       "scope": "global"
     },

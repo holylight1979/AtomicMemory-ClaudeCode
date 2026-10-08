@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: c:/Projects/.claude/inbox/root-link/to-project/003-five-parts-verdict.md
+- Source: <專案路徑>/.claude/inbox/root-link/to-project/003-five-parts-verdict.md
 - Confidence: [臨]
 - Trigger: PreToolUse, additionalContext, 寫前提醒, 寫碼前注入, 範本提醒, hook 注入時序, PostToolUse 等效
 - Created-at: 2026-10-07

@@ -218,7 +218,7 @@ sequenceDiagram
 
 **讀取端候選池**（`wg_atoms.build_candidate_pool(cwd, user, roles, org_root=)` 純函式；SessionStart 建一次存 state、`lib/memory_search` 同用；UPS 的 trigger / BM25 / vector / related / AtomAudit 共用）：global + 本人跨專案 personal + 公司層 org（config 啟用且 cwd 的專案根不是 org 根時）+ 本專案 shared（含 failures）+ 本人 roles + 本人 personal。他專案任何層都不進池；他人 personal / role 不進池；`user=unknown` 不進任何 personal。scope 由索引 path 推導（`personal/<u>/`、`roles/<r>/`；org 組由分組推導回 `org`），不信 index 的 scope 欄。同名跨層 project > org > global 先到先贏（`memory_search` 把被遮蔽者列進 `warnings`）。向量路帶同一套 layers 白名單（org 以 `visible_vector_layers(extra_layers=["shared:<org slug>"])` 附加），裁決者不豁免。
 
-現況：global / shared / personal 三層已在多人專案實戰（SGI git 庫 2 人以上、TSLG svn 庫 4～5 人各自寫 shared 與 personal atom，Author 記提出者）；roles 層靠 AD 群組自動解析（§13.1），尚無專案放 `roles/<r>/` atom；`_roles.md` 純登記、程式不讀。**身份契約**：`Author`＝`wg_roles.get_current_user()`（`CLAUDE_USER` → OS／AD 帳號；取不到＝`unknown`，不讀任何 personal）；裁決資格＝config `review.deciders`，空即全員。
+現況：global / shared / personal 三層已在多人專案實戰（一個 git 庫 2 人以上、一個 svn 庫 4～5 人，各自寫 shared 與 personal atom，Author 記提出者）；roles 層靠 AD 群組自動解析（§13.1），尚無專案放 `roles/<r>/` atom；`_roles.md` 純登記、程式不讀。**身份契約**：`Author`＝`wg_roles.get_current_user()`（`CLAUDE_USER` → OS／AD 帳號；取不到＝`unknown`，不讀任何 personal）；裁決資格＝config `review.deciders`，空即全員。
 
 ### 4.5 索引：JSON 單一真相
 
@@ -235,15 +235,15 @@ sequenceDiagram
 - `{project}/.claude/memory/`：`shared/<Lv1>/`、`failures/<主題>/`、`personal/<user>/`、`roles/<role>/`、`episodic/`、`_staging/`；專案 `MEMORY.md` 只 upsert `<!-- atom-catalog -->` 區塊，區塊外逐 byte 不動。
 - 專案層判定**單一來源** `wg_core.discover_all_project_memory_dirs`（`memory/project-registry.json` 優先）；memory-audit / conflict-detector / 向量索引都問它，不自掃 `projects/*/memory`——那是 CC 原生 auto-memory 目錄，不是記憶層。
 - 專案自訂 Lv1：`shared/_taxonomy.json`（唯一擴充入口）。
-- **子專案 cwd 歸根層**：Claude 開在 `C:\TSLG\Server\scripts` 這種子專案時，記憶要歸 `C:\TSLG\.claude\memory`，靠各層 `.claude/project-tree.json` 宣告——根層列 `subs`、子層指 `root`（任一方宣告即成立；`root_abs` 本機覆寫、`standalone` 表獨立）。尋根單一來源 `lib/project_root.py`（`wg_core.find_project_root` 與 `atom_io._find_project_root` 都委派）：沿字面路徑往上讀宣告，優先序 standalone → 本層 root → 本層即根 → 祖先 subs；**沒有任何宣告時退回舊規則「最近四標記、最多 4 層」，行為不變**；家目錄、`~/.claude`、磁碟根永不當專案根。宣告認領的根 `get_project_memory_dir` 直接回 `root/.claude/memory`（可尚未存在，寫入時才建）。SessionStart 印 `📍 [Guardian:ProjectRoot]` 宣告行；上層有記憶層但沒宣告 → `❓` 引導 AI 用 AskUserQuestion 問使用者（認領／獨立／瀏覽選資料夾／先不決定）；hook 只讀宣告檔，增刪改一律 `tools/project-tree.py`（show / explain / set-root / add-sub / standalone / claim / pick）。resume 時專案根指紋不符 → atom index 重建。宣告檔寫法與狀況總表見下方「多子專案佈局」。
+- **子專案 cwd 歸根層**：Claude 開在 `C:\GameA\Server\scripts` 這種子專案時，記憶要歸 `C:\GameA\.claude\memory`，靠各層 `.claude/project-tree.json` 宣告——根層列 `subs`、子層指 `root`（任一方宣告即成立；`root_abs` 本機覆寫、`standalone` 表獨立）。尋根單一來源 `lib/project_root.py`（`wg_core.find_project_root` 與 `atom_io._find_project_root` 都委派）：沿字面路徑往上讀宣告，優先序 standalone → 本層 root → 本層即根 → 祖先 subs；**沒有任何宣告時退回舊規則「最近四標記、最多 4 層」，行為不變**；家目錄、`~/.claude`、磁碟根永不當專案根。宣告認領的根 `get_project_memory_dir` 直接回 `root/.claude/memory`（可尚未存在，寫入時才建）。SessionStart 印 `📍 [Guardian:ProjectRoot]` 宣告行；上層有記憶層但沒宣告 → `❓` 引導 AI 用 AskUserQuestion 問使用者（認領／獨立／瀏覽選資料夾／先不決定）；hook 只讀宣告檔，增刪改一律 `tools/project-tree.py`（show / explain / set-root / add-sub / standalone / claim / pick）。resume 時專案根指紋不符 → atom index 重建。宣告檔寫法與狀況總表見下方「多子專案佈局」。
 
-**多子專案佈局（選配）**：專案根（放 `.claude/memory/` 的那層，例 `C:\TSLG`）底下有多個可單獨開啟的子專案（`Client/`、`Server/`、`Tools/`…）時，各層放一份 `.claude/project-tree.json`（進版控），任一方宣告即成立：
+**多子專案佈局（選配）**：專案根（放 `.claude/memory/` 的那層，例 `C:\GameA`）底下有多個可單獨開啟的子專案（`Client/`、`Server/`、`Tools/`…）時，各層放一份 `.claude/project-tree.json`（進版控），任一方宣告即成立：
 
 ```jsonc
-// C:\TSLG\.claude\project-tree.json（根層列子專案）
+// C:\GameA\.claude\project-tree.json（根層列子專案）
 { "subs": ["Server", "Client", "Tools"] }
-// C:\TSLG\Server\.claude\project-tree.json（子層指回根層；可再列自己的子層）
-{ "root": "..", "subs": ["scripts"], "root_abs": "C:\\TSLG" }
+// C:\GameA\Server\.claude\project-tree.json（子層指回根層；可再列自己的子層）
+{ "root": "..", "subs": ["scripts"], "root_abs": "C:\\GameA" }
 ```
 
 | 欄位 | 意思 |
@@ -253,7 +253,7 @@ sequenceDiagram
 | `subs` | 相對本層的子專案前綴；`"*"` 表底下全部 |
 | `standalone` | `true` ＝ 本層獨立，不認任何上層、也不再提問 |
 
-- **怎麼設**：在子專案目錄執行 `python ~/.claude/tools/project-tree.py claim --root C:\TSLG`，一次寫好根層 `subs` 與子層 `root`（子層沒有 `.claude/` 就只寫根層，不散落新目錄；`--both` 強制）。其他子指令：`show`（看生效結果）、`explain <cwd>`、`set-root`／`unset-root`、`add-sub`／`remove-sub`、`standalone on|off`、`pick`（彈資料夾視窗選根層）；都支援 `--dry-run`。hook 只讀這些檔，永不自動寫。
+- **怎麼設**：在子專案目錄執行 `python ~/.claude/tools/project-tree.py claim --root C:\GameA`，一次寫好根層 `subs` 與子層 `root`（子層沒有 `.claude/` 就只寫根層，不散落新目錄；`--both` 強制）。其他子指令：`show`（看生效結果）、`explain <cwd>`、`set-root`／`unset-root`、`add-sub`／`remove-sub`、`standalone on|off`、`pick`（彈資料夾視窗選根層）；都支援 `--dry-run`。hook 只讀這些檔，永不自動寫。
 - **開 session 會看到什麼**：
   - 認到根層 → `📍 [Guardian:ProjectRoot] <cwd> 屬 <根層> 的子專案（宣告：…）→ 記憶歸 <根層>\.claude\memory`。
   - 上層有記憶層但沒宣告關係 → `❓ [Guardian:ProjectRoot] …`，AI 用選單問一次：認領（推薦）／本層獨立／瀏覽選別的資料夾／這次先不決定。選定後由 AI 跑上面的指令，**重開 session 生效**。
@@ -417,7 +417,7 @@ sequenceDiagram
 | 閘 | 規則 | 為什麼 |
 |----|------|--------|
 | domain 必填 | `mode=create` 對 global／feedback-*／shared 一律給 `<Lv1>[/<Lv2>]`；缺或未知 Lv1 → 拒並列全部 Lv1；`allow_new_category` 才准開新類；`dry_run` 預覽落點 | 沒有未分類桶（§4.2） |
-| realm 閘 | `lib/realm_gate.py`：scope=global 時掃 title/triggers/knowledge/actions，命中從 cwd 專案 root 機械化推導的專名（頂層資料夾、Workspace_Map 成員、repo-paths 代號、專案絕對路徑、「此專案」字面）→ 拒並附 `scope=shared, project_cwd` 修正；`skip_gate` 跳不過 | 專案專屬內容落 global 會汙染所有專案 |
+| realm 閘 | `lib/realm_gate.py`：根層寫入（scope=global、本人跨專案 personal）時掃 title/triggers/knowledge/actions。兩類專名：①從 cwd 專案 root 機械化推導（頂層資料夾、Workspace_Map 成員、repo-paths 代號、專案絕對路徑、「此專案」字面）；②本機已登記專案名（`memory/project-registry.json` 的專案根資料夾名、ASCII 別名、`project_names` 手列名單，加上已登記專案根底下的絕對路徑），根層 cwd 也掃。命中即拒，訊息附去專案化四原則與改寫落點；`skip_gate` 跳不過。自動補的 Quote 寫進根層卡片前也經 `anonymize_projects` 換掉專案名與路徑 | 根層只放跨專案經驗；專案名進根層會被每個專案注入，也讓根層版控檔帶上專案資訊 |
 | cwd-scope | 專案 cwd 禁寫 global；~/.claude 子樹禁寫 shared/roles/personal | 防跨層誤寫 |
 | 落點裁決 | `atom_io.locate_atom` 回完整路由（target_dir / index_dir / scope_label / slug / routed_to_failures\|pending\|local / realm / domain） | 見下 |
 | supersedes 檢查 | create／replace 給 `supersedes` 時 `atom_io.check_supersedes`：目標可解析、非自指、無循環、非核心保護名；replace 未給＝保留原行、`[]`＝清除（SPEC §3.5） | 取代鏈不能互滅、不能指到不存在的顆 |
@@ -563,7 +563,7 @@ sequenceDiagram
 |------|------|------|
 | lang_guard | `hooks/lang_guard.py`（Stop） | 終版訊息英文佔比 >0.5（≥40 語言字元）→ systemMessage 繁中提醒；stateless；`Logs/guard-lang.jsonl` |
 | plan_bash_guard | `hooks/plan_bash_guard.py`（PreToolUse Bash） | 只在 `permission_mode=plan` 動作。CC 原生只把 `sed -n 'N,Mp'` 當唯讀，正則位址一律當寫入；路徑含 `.claude` 片段屬敏感檔 → safety check，allow 規則與 hook allow 都壓不過（debug：`Hook returned 'allow' … safety check requires full permission pipeline`）；`cd /c/...` 同屬 safety check。故對 cd／sed 非列印腳本觸及 `.claude`／rm-mv-cp-touch-mkdir-chmod／未引號 `>` 回 deny＋改用 Read/Grep 的提示；其餘不表態。stateless |
-| SvnEncoding | `hooks/handlers/pre_tool_use.py check_svn_encoding`（PreToolUse Bash／PowerShell） | `svn add` 帶非 ASCII 路徑 → `[Guardian:SvnEncoding]` 一行提醒改交 vcs-sync 背景提交（advisory，零子行程、不 deny）。背景：svn.exe 以 ANSI code page 收 argv，code page 外字元被 best-fit 成別字，`add --parents` 會在磁碟建出亂碼目錄（TSLG `shared/UIºt¥X`＝`UI演出`）；cp950 內中文走 worker 安全、`--targets` 無效。worker 端 `wg_vcs_sync._Svn.run` 對編不進 ACP（`GetACP`）的 argv 直接 `_Stop`、不呼叫 svn（落 last_error／.unpushed），`_Svn.err` 解碼 utf-8 失敗退 ACP；偵測端見 §8 亂碼名稱；守門 `hooks/verify/verify_svn_unicode_paths.py`、`lib/verify/verify_encoding_guard.py` |
+| SvnEncoding | `hooks/handlers/pre_tool_use.py check_svn_encoding`（PreToolUse Bash／PowerShell） | `svn add` 帶非 ASCII 路徑 → `[Guardian:SvnEncoding]` 一行提醒改交 vcs-sync 背景提交（advisory，零子行程、不 deny）。背景：svn.exe 以 ANSI code page 收 argv，code page 外字元被 best-fit 成別字，`add --parents` 會在磁碟建出亂碼目錄（某專案 `shared/UIºt¥X`＝`UI演出`）；cp950 內中文走 worker 安全、`--targets` 無效。worker 端 `wg_vcs_sync._Svn.run` 對編不進 ACP（`GetACP`）的 argv 直接 `_Stop`、不呼叫 svn（落 last_error／.unpushed），`_Svn.err` 解碼 utf-8 失敗退 ACP；偵測端見 §8 亂碼名稱；守門 `hooks/verify/verify_svn_unicode_paths.py`、`lib/verify/verify_encoding_guard.py` |
 | version_guard | `hooks/version_guard.py`（由 guardian PostToolUse 同程序呼叫 `run()`；`__main__` 仍可獨跑） | live 檔埋版本／日期／階段敘事 → warn-only |
 | 跨 session 衝突預警 | `hooks/wg_coordination.py` | PreToolUse 同檔互寫 warn（entry 級 session_id 歸屬、mtime <30min、同檔 10min 抑制）；Bash `git add -A`/`reset --hard`/`clean -f` 同 cwd 預警（引號解包、dry-run 排除）；PostToolUse 60s late-collision。純檔案不依賴 daemon；first-write race 無法消除（advisory 非鎖）；`Logs/session-coordination/<sid>.jsonl`；4 週零命中 → 提降級 |
 | Codex Companion | `hooks/codex_companion.py` + `tools/codex-companion/` | in-process state + spawn `audit.py` 短命子程序；Silent Advisory / Score Gate（7）/ Dedup / 每 session 上限 30；審計類（`assessor.py`）：plan_review（ExitPlanMode 計畫審）/ turn_audit（回合完成證據）/ architecture_review（預設關）/ handoff_review（交接文件第二意見）/ acceptance_review（驗收裁判，§7.4） |
@@ -972,7 +972,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 
 `CLAUDE.md` 只 `@IDENTITY.md`（AI 行為契約，直接維護的單一真相；`templates/IDENTITY.template.md` 為 tracked 還原源，需手動同步）、`@USER.md`（每 SessionStart 由 `USER-{user}.md` 拷出；不存在時從 template 建）、`@memory/MEMORY.md`。多人 onboard = 共用 CLAUDE.md + IDENTITY.md，每人一份 USER-{user}.md；`CLAUDE_USER` 環境變數可切帳號。
 
-**現況**：shared / personal 分層已在 SGI（git）與 TSLG（svn）兩個多人專案實戰運轉。
+**現況**：shared / personal 分層已在兩個多人專案（一個 git、一個 svn）實戰運轉。
 
 - **身份＝AD 帳號**：`wg_roles.get_current_user()`（`CLAUDE_USER` → OS 登入帳號＝AD 帳號去網域；取不到＝`unknown`，不讀任何 personal、不得冒名）。零新建、零成員表、不做 SSO／簽章。
 - **職能＝AD 群組**（`load_user_role` 三層解析，任一層失敗 fail-open 走下一層並 stderr）：① `personal/<u>/role.md` 人工覆寫（專案層 → `~/.claude` 全域；只看 `- Role: a, b`；`python tools/init-roles.py --project-cwd <根> --me art` 寫入）→ ② `whoami /groups`（Windows 且有 USERDOMAIN 才跑、行程內查一次；OEM 碼頁解碼；群組名 `<網域>\<專案代碼>_<序號>_<職能名>` 依 config `roles.ad_group_map` 子字串對映；專案 `MEMORY.md` `> Project-Code: XXX` 限定只取該專案群組）→ ③ `[]`（**不預設 programmer**——查不到職能只看 shared／org／global，不擴大 role 層可見範圍）。`--status` 印三層各自解析到什麼。

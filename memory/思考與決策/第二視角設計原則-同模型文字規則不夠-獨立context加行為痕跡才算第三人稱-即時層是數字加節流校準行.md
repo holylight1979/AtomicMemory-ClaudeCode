@@ -2,7 +2,7 @@
 
 - Scope: global
 - Author: holylight
-- Source: C:/Users/holylight/.claude/memory/_staging/next-phase-第二視角-Companion三面鏡.md；三方信箱 c:/Projects/.claude/inbox/tri-link/
+- Source: C:/Users/holylight/.claude/memory/_staging/next-phase-第二視角-Companion三面鏡.md；三方信箱 <專案路徑>/.claude/inbox/tri-link/
 - Confidence: [臨]
 - Trigger: 第二視角, 第三人稱, 自我批判, 綜觀視角, 過度工程, 飄移, 瞎掰, critic, Companion 三面鏡, 自我監看, 反省機制, second opinion
 - Created-at: 2026-10-07

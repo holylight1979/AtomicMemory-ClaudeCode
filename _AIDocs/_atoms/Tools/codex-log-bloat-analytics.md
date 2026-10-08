@@ -16,7 +16,7 @@
 - [觀] 出口封頂：寫進已受信任的 Stop hook(context_watch.py)，超 50MB 就 trim 到最近 N 列 + wal_checkpoint(TRUNCATE) + incremental_vacuum；改 .py 內文不動 hooks.json → 不觸發重新信任(trusted_hash 鍵在 hooks.json 條目非 .py 內容)
 - [觀] 診斷術：logs_2.sqlite 的 process_uuid 欄=寫入進程 pid，比對運行中 codex.exe 即坐實兇手；砍進程後看 WAL 是否停止增長=活體確認
 - [觀] ⚠真正重災源（靈 logs_2.sqlite analytics，是另一條）：把 Claude 的 workflow-guardian-mcp/server.js 掛進 Codex 當 MCP。Codex 以 stdio 啟動 node → 協議不相容每 tick throw → server.js uncaughtException handler 「記 log 却不 exit」→ ~95% CPU 自旋迴圈狂 append guardian-crash.log → 114GB(2026-05) 壞軌 / 2.2GB(本次)
-- [觀] 證據：C:\Projects\.codex\perf-samples\samples_foreground_*.csv 錄到 Codex 跨跨 server.js 持續 95% CPU。Python 端 10MB rotation 只在 Claude SessionStart 跑、Codex 不觸發 → 攛不住
+- [觀] 證據：某專案下的 `.codex\perf-samples\samples_foreground_*.csv` 錄到 Codex 跨跨 server.js 持續 95% CPU。Python 端 10MB rotation 只在 Claude SessionStart 跑、Codex 不觸發 → 攛不住
 - [觀] 修法(server.js:22-67)：crashLog 加 5MB 硬上限(超限 truncate 非 append) + uncaughtException/unhandledRejection 改走 onFatal，同進程累計 20 次 fatal 就 process.exit(1) 斷自旋 + SIGTERM/SIGINT 改為真正 exit（原本只記 log 不死→遗留殺不掉的孤兒 node）
 - [觀] 通則：寫給外部 host(Codex) 啟動的 node 崩潰 handler 必須 (1)有檔大小上限 (2)崩潰後 exit 交給 supervisor，不可 log-and-continue；不能依賴 Claude-only 的 SessionStart rotation
 - [觀] ⚠隱藏地雷：config.toml 頂層 legacy `profile="x"` + `[profiles.*]` 區段在 Codex 0.134+ 會讓**整份 config 載入失敗**、fallback 預設→所有設定（含 model/sandbox/mcp_servers/[analytics]）全被忽略。後果：先前加的 analytics 關閉「看似有改」其實根本沒生效

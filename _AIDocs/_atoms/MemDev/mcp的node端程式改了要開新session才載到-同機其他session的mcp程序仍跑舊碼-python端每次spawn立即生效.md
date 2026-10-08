@@ -2,11 +2,11 @@
 
 - Scope: global
 - Author: holylight
-- Source: session e40bc31f，tri-link projects/057／root/065
+- Source: session e40bc31f，tri-link 某專案/057／root/065
 - Confidence: [臨]
 - Trigger: MCP 舊碼, atom-tools.js, funnel.js, 改了沒生效, 重起 MCP, 新 session 才載, write-gate title, 去重閘沒吃到
 - Created-at: 2026-10-07
-- Quote: 「接手「AI 寫碼守門三方討論」的根層總控端。先讀 C:\Users\holylight\.claude\memory\_staging\next-phase-AI寫碼守門三方討論.md 全文，照「下一步」做：重掛 Monitor 盯 c:\Projects\.claude\inbox\tri-link\ 的 from-projects 與 from-tslg、對帳信箱、做 R4 與 R5、每 6…」
+- Quote: 「接手「AI 寫碼守門三方討論」的根層總控端。先讀 C:\Users\holylight\.claude\memory\_staging\next-phase-AI寫碼守門三方討論.md 全文，照「下一步」做：重掛 Monitor 盯 <專案路徑>\.claude\inbox\tri-link\ 的 from-某專案 與 from-另一專案、對帳信箱、做 R4 與 R5、每 6…」
 
 ## 知識
 
