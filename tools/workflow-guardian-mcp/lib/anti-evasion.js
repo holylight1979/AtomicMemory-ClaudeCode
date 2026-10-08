@@ -68,6 +68,25 @@ function aecPendingItems(d, h) {
   return out;
 }
 
+// ─── (j) 證據持久路徑／(k) 追蹤項（純函式；MIRROR hooks/wg_verify_ledger.py aec_evidence_missing /
+// aec_followups_missing；keep in sync）。Node 端不知道本 session 有沒有驗證收據（state 是 Python 的），
+// receiptsNonEmpty 由 caller 給；tool handler 只能警告 j 空白、擋的判定在 Python Stop。
+function aecEvidenceMissing(j, receiptsNonEmpty) {
+  if (!receiptsNonEmpty) return false;
+  if (aecBlank(j)) return true;
+  for (const raw of String(j == null ? "" : j).split("\n")) {
+    const p = raw.trim().split(" \u2014 ")[0].split(" - ")[0].trim().replace(/^`|`$/g, "");
+    if (!p) continue;
+    let ok = false;
+    try { ok = fs.existsSync(p.replace(/^~(?=[\\/]|$)/, require("os").homedir())); } catch { ok = false; }
+    if (!ok) return true;
+  }
+  return false;
+}
+function aecFollowupsMissing(k) {
+  return String(k == null ? "" : k).trim() === "";
+}
+
 // 摘取欄位前 n 個非空行（notable/real chip 短展開用）。
 function firstLines(v, n) {
   const lines = String(v || "").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -93,6 +112,12 @@ async function toolAntiEvasionReport(id, args) {
     if (!aecBlank(a)) lines.push("  (a) 缺失修補：" + firstLines(a, 3));
     if (!aecBlank(b)) lines.push("  (b) 逃避通報：" + firstLines(b, 3));
     text = lines.join("\n");
+  }
+  if (aecFollowupsMissing(args && args.k_followups)) {
+    text += "\n⛔ (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。";
+  }
+  if (aecBlank(args && args.j_evidence_path)) {
+    text += "\n(j) 證據持久路徑未填：本 session 跑過哨兵驗證（有收據）時 Stop 會擋，請填 workflow/verify-ledger/<sid>.jsonl 或驗證輸出檔。";
   }
   if (pending.length) {
     // 報告是收尾檢核不是待辦清單：記憶寫入推到之後 → 當下回告（Python Stop 另擋一次）。
@@ -291,7 +316,7 @@ function apiAecDecisionPost(req, res) {
 }
 
 module.exports = {
-  aecBlank, aecSeverity, aecPendingItems,
+  aecBlank, aecSeverity, aecPendingItems, aecEvidenceMissing, aecFollowupsMissing,
   toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, readLedgerAlive,

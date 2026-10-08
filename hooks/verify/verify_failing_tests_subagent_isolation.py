@@ -58,3 +58,20 @@ def test_main_green_clears():
 def test_non_test_command_untouched():
     st = {"turn_seq": 7}
     assert _track_test_result(st, {"tool_response": _RED}, "git status") is False
+
+
+def test_powershell_red_recorded_with_tool_and_exit_code():
+    """B4：PowerShell 也記；tool 欄＝PowerShell；exit code 從實機字串 "Error: Exit code 1" 抓。"""
+    st = {"turn_seq": 7}
+    ev = {"tool_name": "PowerShell", "tool_input": {"command": _CMD},
+          "tool_response": "Error: Exit code 1\n" + _RED["stdout"]}
+    assert _track_test_result(st, ev, _CMD, "PowerShell") is True
+    rec = st["failing_tests"][0]
+    assert rec["tool"] == "PowerShell" and rec["exit_code"] == 1 and rec["turn_seq"] == 7
+
+
+def test_dict_response_without_exit_field_records_none():
+    """實機成功回應是 dict 無 exit 欄 → exit_code=None（不當零也不當非零）。"""
+    st = {"turn_seq": 7}
+    _track_test_result(st, _ev(_RED), _CMD)
+    assert st["failing_tests"][0]["exit_code"] is None and st["failing_tests"][0]["tool"] == "Bash"

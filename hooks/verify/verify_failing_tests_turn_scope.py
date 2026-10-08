@@ -52,3 +52,14 @@ def test_legacy_entry_without_turn_seq_treated_as_current():
 def test_no_failures_completion_is_success():
     state = {"turn_seq": 5, "failing_tests": []}
     assert _detect_turn_outcome(state, "完成") is True
+
+
+def test_entry_with_tool_and_exit_code_fields_still_scoped_by_turn():
+    """B4 新欄（tool／exit_code）不改變 turn 歸因語意。"""
+    state = {"turn_seq": 5, "failing_tests": [
+        {"cmd": "pytest", "turn_seq": 3, "tool": "PowerShell", "exit_code": 1},
+        {"cmd": "pytest", "turn_seq": 5, "tool": "Bash", "exit_code": None},
+    ]}
+    assert _detect_turn_outcome(state, "完成") is False
+    state["failing_tests"].pop()
+    assert _detect_turn_outcome(state, "完成") is True

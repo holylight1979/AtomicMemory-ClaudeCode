@@ -87,17 +87,53 @@ _FALLBACK_COMPLETION_EXCLUDE = [
     r"(?:完成|做完|解決|收尾|搞定|完工|結案)[^，。！？\n]{0,6}(?:尚未|還沒|還未|未完|沒完|未滿足|沒做完|未達|待補|待修)",
     r"待(?:補|修|辦|處理|確認|完善)",
 ]
+# 收尾對帳（wg_verify_ledger）用的三類宣稱：說「修好」要對 PASS、說「量了」要對 DONE、說「試過」要對執行工具。
+# 詞表單一來源 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim（各帶 exclude_patterns）；缺段退回這裡。
+_FALLBACK_FIXED_CLAIM = [
+    r"修好", r"已修復", r"修復(?:完成|了|好)", r"修正(?:完成|了|好)", r"已修正", r"修掉了", r"補好了", r"\bfixed\b",
+]
+_FALLBACK_FIXED_EXCLUDE = [
+    r"(?:還沒|還未|尚未|沒有?|未|無法|不能|不會|不算|不是|沒能)[^，。！？\n]{0,6}(?:修好|修復|修正|修掉|補好)",
+    r"(?:修好|修復|修正)[^，。！？\n]{0,4}(?:之前|前|嗎|沒|了沒)",
+    r"(?:要|該|怎麼|如何|待|請|先|再|去)\s*(?:修好|修復|修正)",
+]
+_FALLBACK_MEASURED_CLAIM = [
+    r"量了", r"量過", r"量測(?:完|過|了|完成)", r"已量", r"量尺(?:跑|量)(?:過|了)", r"實測(?:了|過|結果|數據)",
+    r"\bmeasured\b", r"\bbenchmark(?:ed)?\b",
+]
+_FALLBACK_MEASURED_EXCLUDE = [
+    r"(?:還沒|還未|尚未|沒有?|未|無法|不能|沒能)[^，。！？\n]{0,6}(?:量|測)",
+    r"(?:要|該|再|先|請|去|會)\s*(?:量|實測)",
+]
+_FALLBACK_TRIED_CLAIM = [
+    r"【試過】", r"試過", r"試了", r"試跑(?:了|過)?", r"跑(?:了|過)", r"執行(?:了|過)", r"實跑(?:了|過)",
+    r"\btried\b", r"\bran\s+(?:it|the|them)\b",
+]
+_FALLBACK_TRIED_EXCLUDE = [
+    r"(?:還沒|還未|尚未|沒有?|未|不曾|無法|不能|沒能)[^，。！？\n]{0,4}(?:試|跑|執行)",
+    r"(?:試|跑|執行)[^，。！？\n]{0,3}(?:之前|前|看看|嗎|了沒)",
+    r"(?:要|該|再|先|會|請|建議|去)\s*(?:試|跑|執行)",
+]
+_CLAIM_KINDS = (
+    ("fixed", "fixed_claim", _FALLBACK_FIXED_CLAIM, _FALLBACK_FIXED_EXCLUDE),
+    ("measured", "measured_claim", _FALLBACK_MEASURED_CLAIM, _FALLBACK_MEASURED_EXCLUDE),
+    ("tried", "tried_claim", _FALLBACK_TRIED_CLAIM, _FALLBACK_TRIED_EXCLUDE),
+)
 
 
-def _load_phrases() -> Dict[str, List[str]]:
-    """Read forbidden-phrases.json → {evasion, dismiss, scan_report, completion} pattern lists.
+def _load_phrases(path: Optional[Path] = None) -> Dict[str, List[str]]:
+    """Read forbidden-phrases.json → {evasion, dismiss, scan_report, completion, fixed, measured, tried…} pattern lists.
 
     Any read/parse error → empty dict (caller falls back to hardcoded constants).
     """
     try:
-        data = json.loads(_PHRASES_JSON.read_text(encoding="utf-8"))
+        data = json.loads((path or _PHRASES_JSON).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+    return _extract_phrases(data)
+
+
+def _extract_phrases(data: Dict[str, Any]) -> Dict[str, List[str]]:
     evasion: List[str] = []
     deferral: List[str] = []
     for cat in data.get("categories", []) or []:
@@ -114,7 +150,7 @@ def _load_phrases() -> Dict[str, List[str]]:
     completion_exclude = list(
         (completion_claim.get("exclude_patterns", {}) or {}).get("patterns", []) or []
     )
-    return {
+    out = {
         "evasion": evasion or _FALLBACK_EVASION_PATTERNS,
         "dismiss": dismiss or _FALLBACK_DISMISS_PATTERNS,
         "scan_report": scan_report or _FALLBACK_SCAN_REPORT_PATTERNS,
@@ -123,6 +159,13 @@ def _load_phrases() -> Dict[str, List[str]]:
         "deferral": deferral or _FALLBACK_DEFERRAL_PATTERNS,
         "deferral_user_ok": deferral_user_ok or _FALLBACK_DEFERRAL_USER_OK_PATTERNS,
     }
+    for kind, section, fb_pos, fb_neg in _CLAIM_KINDS:
+        sec = data.get(section) or {}
+        pos = list(sec.get("patterns", []) or []) if isinstance(sec, dict) else []
+        neg = list(((sec.get("exclude_patterns") or {}) if isinstance(sec, dict) else {}).get("patterns", []) or [])
+        out[kind] = pos or fb_pos
+        out[f"{kind}_exclude"] = neg or fb_neg
+    return out
 
 
 def _compile_union(patterns: List[str], flags: int = 0) -> Pattern:
@@ -153,6 +196,23 @@ _DEFERRAL_RE = _compile_union(
 _DEFERRAL_USER_OK_RE = _compile_union(
     _phrases.get("deferral_user_ok") or _FALLBACK_DEFERRAL_USER_OK_PATTERNS, re.IGNORECASE
 )
+
+
+def _claim_regexes(ph: Dict[str, List[str]]) -> Dict[str, Pattern]:
+    out: Dict[str, Pattern] = {}
+    for kind, _section, fb_pos, fb_neg in _CLAIM_KINDS:
+        out[kind] = _compile_union(ph.get(kind) or fb_pos, re.IGNORECASE)
+        out[f"{kind}_exclude"] = _compile_union(ph.get(f"{kind}_exclude") or fb_neg, re.IGNORECASE)
+    return out
+
+
+def compile_claim_phrases(path: Optional[Path] = None) -> Dict[str, Pattern]:
+    """fixed／measured／tried 三類宣稱 regex（含 exclude）。path 給 fixture 詞表檔；None 用模組載入的詞表。"""
+    return _claim_regexes(_load_phrases(path) if path else _phrases)
+
+
+# wg_verify_ledger.claims_fixed／claims_measured／claims_tried 的預設詞表
+CLAIM_RES: Dict[str, Pattern] = _claim_regexes(_phrases)
 
 
 def is_test_command(cmd: str) -> bool:
@@ -768,6 +828,7 @@ def get_current_turn_visible_text(
         probe["text_blocks"] = text_blocks
         probe["tooluse_blocks"] = tooluse_blocks
         probe["turn_tool_names"] = tool_names[-8:]
+        probe["turn_tool_names_all"] = tool_names      # 對帳閘「試過」判定用全量，不吃尾 8 截斷
         joined = "\n".join(parts)
         if len(joined) > max_chars:
             half = max_chars // 2

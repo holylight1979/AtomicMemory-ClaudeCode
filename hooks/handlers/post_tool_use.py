@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -29,6 +30,16 @@ from wg_harvest import (
     parse_receipt, record_atom_op, apply_report, append_ledger, validated_this_turn,
     is_error_response,
 )
+from wg_verify_ledger import (
+    compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
+    append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn,
+    aec_evidence_missing, aec_followups_missing,
+)
+try:
+    # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
+    from wg_core import write_paths_from_tool as _write_paths_from_tool
+except ImportError:
+    _write_paths_from_tool = None
 try:
     from wg_vcs_sync import spawn_vcs_sync  # 收割 validated 後背景 commit/push 記憶目錄
 except ImportError:
@@ -327,10 +338,12 @@ def _emit_post_tool_output(advisories: List[str], sys_msgs: List[str]) -> None:
         output_nothing()
 
 
-def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str) -> bool:
-    """Bash 測試指令 → 記／清 state.failing_tests；回傳是否動到 state。
+def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str,
+                       tool: str = "Bash") -> bool:
+    """Bash／PowerShell 測試指令 → 記／清 state.failing_tests；回傳是否動到 state。
     子代理（hook 輸入帶 agent_id）自己迭代中的紅測不記進主 session，也不替主 session 清帳；
-    否則子代理跑到一半的紅測會讓主 session 的 Stop 被 TestFailGate 擋。"""
+    否則子代理跑到一半的紅測會讓主 session 的 Stop 被 TestFailGate 擋。
+    exit_code 三來源（wg_verify_ledger.exit_code_of）：tool_response 欄位 → 文字 `Exit code N` → None。"""
     if not is_test_command(command) or input_data.get("agent_id"):
         return False
     tr = input_data.get("tool_response", {}) or {}
@@ -343,7 +356,8 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     failure = detect_test_failure(stdout, stderr, interrupted)
     if failure:
         state.setdefault("failing_tests", []).append({
-            "tool": "Bash",
+            "tool": tool,
+            "exit_code": exit_code_of(tr),
             "cmd": command[:200],
             # cmd 截 200 字會把串在後段的 pytest 截掉 → 綠的 pytest 對不上、永遠清不掉；
             # 記錄時就用全文判定一次
@@ -372,6 +386,93 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     if len(after) == len(before):
         return False
     state["failing_tests"] = after
+    return True
+
+
+def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str) -> None:
+    """modified_files 以 (path, session_id) 去重：重複編輯只累加 count、刷 at／tool／last_turn_seq，
+    不無限累積 entry。turn_seq＝第一次改的回合、last_turn_seq＝最近一次改的回合（對帳閘「本 turn 改了哪些」用）。
+    消費端計「編輯次數」者（wisdom track_retry / episodic 工作區統計）讀 count 欄（legacy 無 count → 預設 1）。"""
+    turn = int(state.get("turn_seq", 0))
+    mods = state.setdefault("modified_files", [])
+    for m in mods:
+        if (
+            isinstance(m, dict)
+            and m.get("path") == file_path
+            and m.get("session_id", session_id) == session_id
+        ):
+            m["count"] = int(m.get("count", 1)) + 1
+            m["at"] = _now_iso()
+            m["tool"] = tool_name
+            m["last_turn_seq"] = turn
+            m.setdefault("turn_seq", turn)
+            break
+    else:
+        mods.append({
+            "path": file_path,
+            "tool": tool_name,
+            "session_id": session_id,
+            "at": _now_iso(),
+            "count": 1,
+            "turn_seq": turn,
+            "last_turn_seq": turn,
+        })
+    state["sync_pending"] = True
+
+
+def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command: str, tool_name: str,
+                     config: Dict[str, Any], session_id: str) -> bool:
+    """Bash／PowerShell 輸出的哨兵（`<NAME>_CHECK PASS|FAIL|DONE`、`<NAME> DONE k=v`）與 exit code → 驗證帳本
+    workflow/verify-ledger/<sid>.jsonl ＋ state["verify_receipts"][sid]（cap 50）。只在有哨兵或是測試指令時落帳。
+    子代理（agent_id 非空）不入主帳：另落 <sid>.agents.jsonl、不進 state 收據。總耗時進 guard log（[verify-ledger] ms）。"""
+    cfg = config.get("verify_ledger") or {}
+    if not cfg.get("enabled", True):
+        return False
+    t0 = time.monotonic()
+    tr = input_data.get("tool_response")
+    sentinels = parse_sentinels(response_text(tr), compile_sentinel_rules(cfg.get("sentinel_regex")))
+    if not sentinels and not is_test_command(command):
+        return False
+    turn_seq = int(state.get("turn_seq", 0))
+    agent_id = str(input_data.get("agent_id") or "")
+    cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+    own = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
+    mod_turn = modified_this_turn(own, turn_seq)
+    project_root = ""
+    try:
+        from project_root import resolve_project_root
+        project_root = str(resolve_project_root(cwd).path or "") if cwd else ""
+    except Exception:
+        project_root = ""
+    exit_code = exit_code_of(tr)
+    record = {
+        "at": _now_iso(),
+        "session_id": session_id,
+        "agent_id": agent_id,
+        "turn_seq": turn_seq,
+        "tool": tool_name,
+        "cmd": command[:500],
+        "cwd": cwd,
+        "project_root": project_root,
+        "sentinels": [{"name": s["name"], "verdict": s["verdict"], "line": s["line"]} for s in sentinels],
+        "exit_code": exit_code,
+        "vcs": vcs_snapshot(cwd, mod_turn, state, float(cfg.get("vcs_budget_s", 1.5))),
+        "modified_files_turn": mod_turn,
+        "spec": spec_paths_of(session_id, WORKFLOW_DIR),
+    }
+    append_verify_ledger(session_id, record, base_dir=WORKFLOW_DIR, suffix=".agents" if agent_id else "")
+    if not agent_id:
+        record_receipt(state, session_id, {
+            "at": record["at"], "turn_seq": turn_seq, "tool": tool_name, "cmd": command[:200],
+            "sentinels": [{"name": s["name"], "verdict": s["verdict"]} for s in sentinels],
+            "exit_code": exit_code, "cwd": cwd,
+        })
+    ms = int((time.monotonic() - t0) * 1000)
+    append_guard_log("verify_ledger", {
+        "session_id": session_id, "turn_seq": turn_seq, "tool": tool_name, "ms": ms,
+        "sentinels": len(sentinels), "exit_code": exit_code, "agent": bool(agent_id),
+        "truncated": any(v.get("truncated") for v in record["vcs"]),
+    })
     return True
 
 
@@ -440,33 +541,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _atom_debug_error("post_tool_use:aec_ledger_write", e)
 
     if (
-        tool_name in ("Edit", "Write", "NotebookEdit")
+        tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit")
         and file_path
         and not _is_ephemeral_path(file_path)
     ):
-        # modified_files 以 (path, session_id) 去重：重複編輯只累加 count + 刷 at，
-        # 不無限累積 entry。消費端計「編輯次數」者（wisdom track_retry / episodic
-        # 工作區統計）改讀 count 欄（legacy 重複 entry 無 count → 預設 1，語意不變）。
-        mods = state.setdefault("modified_files", [])
-        for m in mods:
-            if (
-                isinstance(m, dict)
-                and m.get("path") == file_path
-                and m.get("session_id", session_id) == session_id
-            ):
-                m["count"] = int(m.get("count", 1)) + 1
-                m["at"] = _now_iso()
-                m["tool"] = tool_name
-                break
-        else:
-            mods.append({
-                "path": file_path,
-                "tool": tool_name,
-                "session_id": session_id,
-                "at": _now_iso(),
-                "count": 1,
-            })
-        state["sync_pending"] = True
+        _note_modified(state, session_id, file_path, tool_name)
 
         edit_counts = state.setdefault("edit_counts", {})
         edit_counts[file_path] = edit_counts.get(file_path, 0) + 1
@@ -559,7 +638,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except Exception as e:
                 print(f"DocDrift error: {e}", file=sys.stderr)
 
-    elif tool_name == "Bash":
+    elif tool_name in ("Bash", "PowerShell"):
         command = tool_input.get("command", "")
         if re.search(r"\b(git\s+(log|blame|show|diff)|svn\s+(log|blame|diff))\b", command):
             vcs = state.setdefault("vcs_queries", [])
@@ -572,8 +651,26 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
             dirty = True
 
-        if _track_test_result(state, input_data, command):
+        # Bash／PowerShell 改檔目標（>、>>、tee、sed -i、cp、mv、Set-Content…）也進 modified_files；
+        # 先記目標再落帳，帳本的 modified_files_turn 才含本次寫入
+        if _write_paths_from_tool is not None:
+            try:
+                _cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+                for _p in _write_paths_from_tool(tool_name, tool_input, _cwd) or []:
+                    if _p and not _is_ephemeral_path(_p):
+                        _note_modified(state, session_id, _p, tool_name)
+                        dirty = True
+            except Exception as e:
+                _atom_debug_error("post_tool_use:write_paths_from_tool", e)
+
+        if _track_test_result(state, input_data, command, tool_name):
             dirty = True
+        try:
+            if _track_sentinels(state, input_data, command, tool_name, config, session_id):
+                dirty = True
+        except Exception as e:
+            print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
+            _atom_debug_error("post_tool_use:verify_ledger", e)
 
     elif tool_name.endswith("anti_evasion_report"):
         # MCP 結構化收尾 emit（one-writer spine）：MCP tool 只回 chip、不碰 state；
@@ -581,7 +678,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # session_id 用原始 input_data["session_id"]（與 modified_files 的 session_id 戳
         # 同源）＝sibling 隔離關鍵：Stop 閘以 turn_seq+session_id 雙鍵讀，隔壁 session 的
         # emit 不誤放行本 session。turn_seq 由 UserPromptSubmit 每真 prompt +1。
-        _AEC_KEYS = ("a", "b", "c", "d", "e", "f", "g", "h", "i")
+        _AEC_KEYS = ("a", "b", "c", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups")
         vals = {k: str(tool_input.get(k, "") or "") for k in _AEC_KEYS}
         a, b = vals["a"], vals["b"]
         # (i) 是給使用者裁決的路徑清單：「無（…括號解釋…）」一律正規化成「無」，
@@ -631,6 +728,29 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 + "\n值得寫就現在 atom_write 寫完，再重新呼叫 anti_evasion_report 把該項改成"
                 "「→ 已寫入 atom <名>」（或「→ 不寫（理由）」）；否則 Stop 會擋。"
             )
+        # (j) 證據持久路徑：本 session 有驗證收據時必須給真存在的路徑；(k) 追蹤項：空字串不收（「無」可）。
+        # 判定落 report 供 HUD 標紅；Stop 的對帳閘 (e) 以同一對函式擋。
+        report["j_missing"] = aec_evidence_missing(vals["j_evidence_path"], bool(receipts_of(state, session_id)))
+        report["k_missing"] = aec_followups_missing(vals["k_followups"])
+        if report["j_missing"]:
+            aec_reject_msgs.append(
+                "[Guardian:AEC-Evidence] (j) 證據持久路徑缺或不存在，但本 session 有驗證收據。"
+                f"填帳本路徑 workflow/verify-ledger/{session_id}.jsonl 或其他真存在的證據檔，再重新 emit；否則 Stop 會擋。"
+            )
+        if report["k_missing"]:
+            aec_reject_msgs.append("[Guardian:AEC-Followups] (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。")
+        # (k) 追蹤項 → workflow/tracking/<slug>.jsonl（track-c C8：k=「無」不寫；slug 用專案 slug，根層 session 用 "root"）
+        try:
+            from wg_harvest import tracking_entries, append_tracking
+            from wg_core import cwd_to_project_slug
+            _k_entries = tracking_entries(session_id, turn_seq, vals["k_followups"])
+            if _k_entries:
+                _k_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
+                append_tracking(cwd_to_project_slug(_k_cwd) if _k_cwd else "root", _k_entries)
+        except ImportError:
+            print("[Guardian:AEC] wg_harvest.tracking_entries 尚未合併（track-c），(k) 追蹤項本次不入 workflow/tracking", file=sys.stderr)
+        except Exception as e:
+            _atom_debug_error("post_tool_use:aec_tracking", e)
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         # 殘檔帳本：(i) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。

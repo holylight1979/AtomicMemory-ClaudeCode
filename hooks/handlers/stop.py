@@ -3,6 +3,8 @@ handlers/stop.py — Stop hook handler
 
 閘序：
 1. Test-Fail Gate（測試未綠 + 宣告完成 → 硬阻）
+1b. Reconcile Gate（收尾宣稱 vs 驗證收據：說修好要 PASS、說量了要 DONE、說試過要有執行、改碼要有 case 或 PASS、AEC 要 j／k）
+    ＋ Measure Gate（改到有量尺的部位、宣告完成前要有那把尺的 DONE；先 runtime_gate）；獨立預算 reconcile_gate.max_blocks_per_turn
 2. Evasion 偵測（軟糾正）／Deferral Gate（退縮歸屬）
 3. KnowledgeHarvest Gate（宣告完成 → 要求 knowledge_harvest_report；Harvest-Pending 擋核不過的 item）
 4. Scan-Report Gate（宣告完成但缺 anti_evasion_report emit → 硬阻）
@@ -25,7 +27,10 @@ from wg_core import (
 from wg_evasion import (
     claims_completion, detect_evasion, deferral_gate_reason,
     get_last_assistant_text, detect_missing_aec_emission,
-    get_current_turn_text, read_transcript_tail,
+    get_current_turn_text, read_transcript_tail, get_current_turn_visible_text,
+)
+from wg_verify_ledger import (
+    receipts_of, reconcile_cfg, reconcile_gate_reason, measure_cfg, measure_gate_reason, measure_advisory,
 )
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
@@ -693,6 +698,47 @@ def _acceptance_regression_hint(
         return None
 
 
+def _verify_gates(
+    state: Dict[str, Any], session_id: str, turn_seq: int, last_text: str,
+    transcript, transcript_text: str, own_mod_files: List[Dict[str, Any]],
+    rg_cfg: Dict[str, Any], mg_cfg: Dict[str, Any], aec: Dict[str, Any], aec_emitted: bool,
+) -> tuple:
+    """對帳閘＋量尺閘的判定。回 (擋訊息或 None, 種類 reconcile／measure／"", 無量尺提醒或 None)。
+    判定本身出錯 → stderr 浮訊號、該閘當次不擋（判定器 bug 不該讓人卡死；transcript 缺＝last_text 空＝無宣稱可對）。"""
+    receipts = receipts_of(state, session_id)
+    reason: Optional[str] = None
+    kind = ""
+    advice: Optional[str] = None
+    if rg_cfg.get("enabled", True):
+        try:
+            _, probe = get_current_turn_visible_text(transcript, text=transcript_text)
+            names = probe.get("turn_tool_names_all") or probe.get("turn_tool_names") or []
+            reason = reconcile_gate_reason(
+                last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
+                aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
+            )
+            kind = "reconcile" if reason else ""
+        except Exception as e:
+            print(f"[Guardian:ReconcileGate] 判定錯誤（本次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+            append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
+    if mg_cfg.get("enabled", True) and own_mod_files and claims_completion(last_text):
+        try:
+            from wg_overview import _lookup
+            m_reason, no_measure = measure_gate_reason(own_mod_files, receipts, turn_seq, _lookup, mg_cfg)
+            if m_reason:
+                reason = f"{reason}\n{m_reason}" if reason else m_reason
+                kind = kind or "measure"
+            advised = state.setdefault("measure_advised", {}).setdefault(session_id, [])
+            fresh = [p for p in no_measure if p not in advised]
+            if fresh:
+                advised.extend(fresh)
+                advice = measure_advisory(fresh)
+        except Exception as e:
+            print(f"[Guardian:MeasureGate] 判定錯誤（本次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+            append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
+    return reason, kind, advice
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -787,6 +833,49 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         write_state(session_id, state)
         output_block(reason)
         return
+
+    # ── Reconcile Gate（收尾宣稱 vs 驗證收據）＋ Measure Gate（量尺）──────────
+    # 緊接 TestFailGate 之後、evasion 偵測之前（correctness 閘優先）。不吃共用 stop_gate_max_blocks：
+    # 獨立預算 reconcile_gate.max_blocks_per_turn（state reconcile_gate_turn[sid]={turn,count}）；
+    # 用完那次放行要可見：guard_log reconcile_overflow ＋ state reconcile_overflow[sid]（健檢列 red）。
+    # 無量尺的部位只提醒（stderr；擋時併進 reason），每部位每 session 一次（measure_advised）。
+    _rg_cfg = reconcile_cfg(config)
+    _mg_cfg = measure_cfg(config)
+    if last_text and (_rg_cfg.get("enabled", True) or _mg_cfg.get("enabled", True)):
+        _vg_reason, _vg_kind, _vg_advice = _verify_gates(
+            state, session_id, turn_seq, last_text, transcript, transcript_text, own_mod_files,
+            _rg_cfg, _mg_cfg, aec, emitted_this_turn,
+        )
+        if _vg_advice:
+            print(_vg_advice, file=sys.stderr)
+            append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "advisory": _vg_advice[:200]})
+        if _vg_reason:
+            _budget = state.setdefault("reconcile_gate_turn", {})
+            _rec = _budget.get(session_id) if isinstance(_budget.get(session_id), dict) else None
+            _count = int(_rec.get("count", 0)) if _rec and int(_rec.get("turn", -1)) == turn_seq else 0
+            _max = int(_rg_cfg.get("max_blocks_per_turn", 2))
+            if _count >= _max:
+                state.setdefault("reconcile_overflow", {})[session_id] = {
+                    "turn": turn_seq, "at": _now_iso(), "kind": _vg_kind, "reason": _vg_reason[:300],
+                }
+                append_guard_log("reconcile_overflow", {
+                    "session_id": session_id, "turn_seq": turn_seq, "kind": _vg_kind, "count": _count,
+                    "reason": _vg_reason[:300],
+                })
+                print(f"[Guardian:ReconcileGate] 本回合已擋 {_count} 次，這次放行但記 reconcile_overflow（健檢列 red）",
+                      file=sys.stderr)
+                write_state(session_id, state)
+            else:
+                _budget[session_id] = {"turn": turn_seq, "count": _count + 1}
+                append_guard_log("reconcile", {
+                    "session_id": session_id, "turn_seq": turn_seq, "kind": _vg_kind, "count": _count + 1,
+                    "excerpt": _vg_reason.split("\n")[1][:160] if "\n" in _vg_reason else _vg_reason[:160],
+                })
+                write_state(session_id, state)
+                output_block(_piggyback(_vg_reason + (f"\n{_vg_advice}" if _vg_advice else "")))
+                return
+        elif _vg_advice:
+            write_state(session_id, state)
 
     if not state.get("evasion_flag"):
         recent_prompts = state.get("recent_user_prompts", []) or []
@@ -914,7 +1003,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 "  (g) 版控收尾：哪些已 commit、哪些未上及理由（併發進度/待拍板/隱私）；無改動則「無」\n"
                 "  (h) 收尾判定：單句——「可關閉」或「下一動＝…」（只列使用者要做的事；寫 atom/補測試/commit 是你自己能做的，先做完）。**必寫**\n"
                 "  (i) 衍生暫存清單：**一行一路徑** `<路徑> — <備註>`（絕對或相對 cwd，可 glob）；只列「此刻尚存、留給使用者裁決」的，已刪的不列、純說明不列（預設完工即刪）；**必寫**，無則「無」\n"
-                "九參都 required、未發生填「無」。不得用 prose「不在範圍 / 留給未來」籠統帶過。"
+                "  (j) 證據持久路徑：本回合驗證收據的持久位置（通常是 `workflow/verify-ledger/<sid>.jsonl`，或驗證輸出檔）；"
+                "本 session 跑過哨兵驗證就**必填真存在的路徑**（Stop 對帳閘會查 exists），沒有收據才填「無」\n"
+                "  (k) 追蹤項：還沒做完、要追的事一行一項（會進 workflow/tracking 帳本）；沒有寫「無」，**不接受空字串**\n"
+                "十一參都 required、未發生填「無」。不得用 prose「不在範圍 / 留給未來」籠統帶過。"
             )
             write_state(session_id, state)
             output_block(reason)

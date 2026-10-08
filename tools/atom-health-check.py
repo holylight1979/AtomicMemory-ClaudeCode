@@ -389,6 +389,68 @@ def check_stale_deps(atoms: dict[str, Path]) -> list[dict]:
     return issues
 
 
+_VERIFIED_FIELDS = ("Verified-at", "Last-verified", "驗證日期", "Created-at")
+_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def _atom_verified_date(fm: dict, path: Path) -> tuple[datetime, str]:
+    """atom 的「最近驗證」日期：Verified-at → Last-verified → 驗證日期 → Created-at（取欄位裡第一個 YYYY-MM-DD），
+    都沒有退檔案 mtime。回 (日期, 來源欄名)。"""
+    for key in _VERIFIED_FIELDS:
+        m = _DATE_RE.search(str(fm.get(key, "") or ""))
+        if m:
+            try:
+                return datetime.strptime(m.group(1), "%Y-%m-%d"), key
+            except ValueError:
+                continue
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime), "mtime"
+    except OSError:
+        return datetime.now(), "now"
+
+
+def check_depends_mtime(atoms: dict[str, Path]) -> list[dict]:
+    """壞滅緣第二型：path 型 Depends 指向的檔比 atom 最近驗證日期還新 → 這張卡可能過期（依賴改了、卡沒重驗）。
+    只看存在的路徑（不存在的歸 check_stale_deps）；目錄取目錄本身 mtime；無 Depends 靜默。"""
+    issues = []
+    for name, path in sorted(atoms.items()):
+        fm = parse_frontmatter(path)
+        raw = fm.get("Depends", "")
+        if not raw:
+            continue
+        verified, src = _atom_verified_date(fm, path)
+        for e in parse_depends(raw):
+            if e["type"] != "path" or not e["value"]:
+                continue
+            resolved = resolve_depends_path(e["value"])
+            try:
+                dep_mtime = datetime.fromtimestamp(resolved.stat().st_mtime)
+            except OSError:
+                continue
+            if dep_mtime.date() > verified.date():
+                issues.append({
+                    "atom": name,
+                    "dep": e["value"],
+                    "resolved": str(resolved),
+                    "dep_mtime": dep_mtime.strftime("%Y-%m-%d"),
+                    "verified_at": verified.strftime("%Y-%m-%d"),
+                    "verified_source": src,
+                    "file": str(path),
+                })
+    return issues
+
+
+def depends_coverage(atoms: dict[str, Path]) -> dict:
+    """Depends 覆蓋率：有 path 型 Depends 的 atom 數／總數（過程數字，只進健檢報表）。"""
+    total = len(atoms)
+    with_dep = 0
+    for _name, path in atoms.items():
+        raw = parse_frontmatter(path).get("Depends", "")
+        if raw and any(e["type"] == "path" and e["value"] for e in parse_depends(raw)):
+            with_dep += 1
+    return {"with_depends": with_dep, "total": total, "ratio": round(with_dep / total, 4) if total else 0.0}
+
+
 def _strip_noise_lines(text: str) -> str:
     """Remove pointer / @import / pure-path lines so they don't inflate ratios."""
     kept = []
@@ -522,6 +584,8 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
         "missing_reverse_refs": check_reverse_refs(atoms, aliases),
         "stale_atoms": stale_check(atoms),
         "stale_deps": check_stale_deps(atoms),
+        "stale_mtime_deps": check_depends_mtime(atoms),
+        "depends_coverage": depends_coverage(atoms),
         "shadow_atoms": shadow_atoms or [],
         "mojibake_names": [str(p) for p in (mojibake or [])],
     }
@@ -589,6 +653,7 @@ def single_atom_report(name: str, atoms: dict[str, Path],
 
     # stale_deps: NAME 的壞滅緣觸發（path 型 Depends 指向已消失路徑）
     deps = [d for d in check_stale_deps(atoms) if d["atom"] == name]
+    mtime_deps = [d for d in check_depends_mtime(atoms) if d["atom"] == name]
 
     return {
         "generated": datetime.now().isoformat(),
@@ -598,6 +663,7 @@ def single_atom_report(name: str, atoms: dict[str, Path],
         "missing_reverse_refs": reverse,
         "stale_atoms": stale,
         "stale_deps": deps,
+        "stale_mtime_deps": mtime_deps,
     }
 
 
@@ -830,13 +896,19 @@ def main():
 
     elif args.deps_check:
         deps = check_stale_deps(atoms)
+        mtime_deps = check_depends_mtime(atoms)
         if args.json:
-            print(json.dumps(deps, indent=2, ensure_ascii=False))
-        elif deps:
+            print(json.dumps({"stale_deps": deps, "stale_mtime_deps": mtime_deps,
+                              "depends_coverage": depends_coverage(atoms)}, indent=2, ensure_ascii=False))
+        else:
             for d in deps:
                 print(f"⚠️ 壞滅緣觸發：atom {d['atom']} 依賴 {d['dep']} 已不存在")
-        else:
-            print("✅ No stale depends（所有 path 型 Depends 路徑存在）.")
+            for d in mtime_deps:
+                print(f"🕐 依賴比卡新：atom {d['atom']} 依賴 {d['dep']} 改於 {d['dep_mtime']}，卡最近驗證 {d['verified_at']}（{d['verified_source']}）")
+            cov = depends_coverage(atoms)
+            print(f"Depends 覆蓋率 {cov['with_depends']}/{cov['total']} = {cov['ratio']:.1%}")
+            if not deps and not mtime_deps:
+                print("✅ No stale depends.")
 
     elif args.shadow_check:
         shadow = detect_shadow_atoms(

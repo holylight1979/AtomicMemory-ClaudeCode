@@ -284,8 +284,8 @@ const TOOL_DEFINITIONS = [
   {
     name: "anti_evasion_report",
     description:
-      "結構化提交收尾檢核 (a)–(i)；內容走 Anti-Evasion HUD、chat 只留折疊 chip。" +
-      "動 core 檔並宣告完成時由 Stop 閘要求。九參都 required；未發生填「無」。" +
+      "結構化提交收尾檢核 (a)–(k)；內容走 Anti-Evasion HUD、chat 只留折疊 chip。" +
+      "動 core 檔並宣告完成時由 Stop 閘要求。十一參都 required；未發生填「無」（(k) 不接受空字串）。" +
       "順序：先把值得留的知識 atom_write 寫完、再呼叫本 tool——報告是收尾檢核不是待辦清單，" +
       "(d)「尚未寫／見下一動」或 (h)「下一動＝寫 atom」會被 Stop 擋回、要求補寫後重新提交。" +
       "本 tool 只回 chip、不寫 state（one-writer：state/持久化由 Python PostToolUse 獨佔）。",
@@ -301,8 +301,10 @@ const TOOL_DEFINITIONS = [
         g: { type: "string", description: "版控收尾：本 session 改動哪些已 commit（hash 一句）、哪些未上及理由（併發 session 進度／待拍板／隱私）。無改動則「無」" },
         h: { type: "string", description: "收尾判定：單句——「可關閉」或「下一動＝…」。下一動只列使用者要做的事（重啟驗證、拍板）；寫 atom／補測試／commit 是你自己能做的，先做完再提交。必寫" },
         i: { type: "string", description: "衍生暫存清單：一行一路徑 `<路徑> — <備註>`（絕對或相對 cwd，可 glob）。只列「你自己產生的暫存／中間產物、此刻尚存、留給使用者裁決」的（scratchpad 腳本、.bak、一次性 log、undo 檔）；已刪的不列、純說明不列（預設完工即刪）。⛔ 絕不列正式產出：改了還沒 commit 的 code／doc／atom／索引／CHANGELOG 屬 (a)(b)/(g) 未同步事項，不是暫存——這些路徑會被拒收並回警。Python 端解析進 per-session 殘檔帳本，HUD 以 exists() 列尚存者供保留/刪除。無則「無」。必寫" },
+        j_evidence_path: { type: "string", description: "證據持久路徑：本回合驗證收據的持久位置，一行一路徑（通常是 `workflow/verify-ledger/<sid>.jsonl`，或驗證輸出檔／報告檔）。本 session 跑過哨兵驗證（Bash／PowerShell 輸出 `<NAME>_CHECK PASS|FAIL|DONE`）就必填真存在的路徑；Stop 對帳閘會查 exists()；缺或不存在會擋；沒有任何收據才填「無」。必寫" },
+        k_followups: { type: "string", description: "追蹤項：還沒做完、之後要追的事，一行一項 `[<部位>] <要追什麼>` 或 `<部位>｜<要追什麼>`（Python 端寫進 workflow/tracking/<slug>.jsonl；有部位的同時寫進該部位病灶文件）。沒有寫「無」；⛔ 不接受空字串（Stop 會擋）。必寫" },
       },
-      required: ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
+      required: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups"],
     },
   },
   {

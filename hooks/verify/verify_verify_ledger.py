@@ -1,0 +1,266 @@
+"""verify_verify_ledger.py：驗證帳本（H6 B1～B4）：哨兵解析、exit code 三來源、VCS 快照、帳本落檔、收據 cap、子代理不入主帳。
+
+怎麼跑：set WG_CLAUDE_DIR=<worktree> && python -X utf8 -m pytest -q hooks/verify/verify_verify_ledger.py
+固定輸入：hooks/verify/fixtures/v6/q6/（四種 Bash 輸出＋fixture 詞表）。
+反例：小寫 `x_check pass`／散文「測試通過」／`PASSED` 字尾不命中；exit≠0 的 PASS 落帳 verdict=PASS exit=1（對帳閘不認）；
+      agent_id 非空只落 <sid>.agents.jsonl、不進 state 收據；非 VCS 目錄快照回空。
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+HOOKS_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(HOOKS_DIR))
+sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
+
+import wg_verify_ledger as vl  # noqa: E402
+import wg_evasion as ev  # noqa: E402
+from handlers import post_tool_use as pt  # noqa: E402
+
+FIX = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q6"
+_SID = "sid-ledger"
+
+
+def _fx(name: str) -> str:
+    return (FIX / name).read_text(encoding="utf-8")
+
+
+# ─── B1 哨兵：三種 verdict、自訂 regex、反例 ─────────────────────────────
+
+def test_default_regex_matches_existing_replay_guard_output():
+    """REPLAY_GUARD_CHECK 既有輸出直接命中（B1 完成條件）。"""
+    got = vl.parse_sentinels(_fx("pass_exit0.txt"))
+    assert got == [{"name": "REPLAY_GUARD_CHECK", "verdict": "PASS", "line": "REPLAY_GUARD_CHECK PASS", "kv": {}}]
+
+
+def test_three_verdicts_and_measure_done_kv():
+    text = "A_CHECK PASS\nB_CHECK FAIL\nC_CHECK DONE\n" + _fx("done_measure.txt")
+    got = vl.parse_sentinels(text)
+    assert [(s["name"], s["verdict"]) for s in got] == [
+        ("A_CHECK", "PASS"), ("B_CHECK", "FAIL"), ("C_CHECK", "DONE"), ("REFIX_CHURN", "DONE")]
+    assert got[3]["kv"] == {"vcs": "git", "commits": "40", "fix": "7", "files_refixed": "2"}
+
+
+def test_custom_regex_maps_pytest_summary():
+    rules = vl.compile_sentinel_rules([
+        {"regex": r"^(?P<verdict>\d+ (?:passed|failed))", "name": "PYTEST",
+         "verdict_map": {"passed": "PASS", "failed": "FAIL"}},
+        {"regex": "([unclosed", "name": "BAD"},   # 壞 regex 跳過不炸
+    ])
+    assert len(rules) == 1
+    assert [(s["name"], s["verdict"]) for s in vl.parse_sentinels("3 passed in 0.12s\n", rules)] == [("PYTEST", "PASS")]
+    assert [(s["name"], s["verdict"]) for s in vl.parse_sentinels("2 failed, 1 passed in 0.5s\n", rules)] == [("PYTEST", "FAIL")]
+
+
+def test_counterexamples_lowercase_prose_passed_suffix_do_not_match():
+    """反例：小寫、散文、`PASSED` 字尾、句中出現都不算哨兵。"""
+    assert vl.parse_sentinels(_fx("no_sentinel.txt")) == []
+    assert vl.parse_sentinels("note: FOO_CHECK PASS mid-line\n") == []
+    assert vl.parse_sentinels("") == []
+
+
+def test_same_line_only_once():
+    assert len(vl.parse_sentinels("X_CHECK PASS\nX_CHECK PASS\n")) == 1
+
+
+# ─── exit code 三來源 ──────────────────────────────────────────────────
+
+@pytest.mark.parametrize("resp,expected", [
+    ({"stdout": "ok", "exit_code": 2}, 2),
+    ({"stdout": "ok", "returncode": "3"}, 3),
+    ("Error: Exit code 1\nFOO_CHECK PASS\n", 1),            # 實機非零 exit：整包字串
+    ({"stdout": "ok", "stderr": "", "interrupted": False}, None),  # 實機成功：dict 無 exit 欄 → None（不當零）
+    ({"stdout": "Exit code 127\n", "stderr": ""}, 127),
+    (None, None),
+])
+def test_exit_code_three_sources(resp, expected):
+    assert vl.exit_code_of(resp) == expected
+
+
+def test_response_text_handles_dict_and_str():
+    assert "FOO_CHECK PASS" in vl.response_text(_fx("pass_exit1.txt"))
+    assert vl.response_text({"stdout": "a", "stderr": "b"}) == "a\nb"
+
+
+# ─── B2 VCS 快照 ────────────────────────────────────────────────────────
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+@pytest.fixture()
+def repo(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "t@t")
+    _git(root, "config", "user.name", "t")
+    (root / "a.py").write_text("x=1\n", encoding="utf-8", newline="\n")
+    _git(root, "add", ".")
+    _git(root, "commit", "-q", "-m", "init")
+    return root
+
+
+def test_snapshot_rev_matches_git_and_dirty_hash_tracks_stat(repo):
+    state: dict = {}
+    f = str(repo / "a.py")
+    snap = vl.vcs_snapshot(str(repo), [f], state)
+    assert len(snap) == 1 and snap[0]["kind"] == "git" and snap[0]["truncated"] is False
+    assert snap[0]["rev"] == _git(repo, "rev-parse", "--short", "HEAD")
+    h1 = snap[0]["dirty"]
+    assert h1 and h1 == vl.dirty_hash(repo, [f])
+    time.sleep(0.02)
+    (repo / "a.py").write_text("x=22\n", encoding="utf-8", newline="\n")
+    assert vl.dirty_hash(repo, [f]) != h1
+    assert vl.dirty_hash(repo, []) == ""
+
+
+def test_snapshot_uses_rev_cache_within_60s(repo):
+    state: dict = {}
+    calls = []
+
+    def fake_rev(kind, root, timeout):
+        calls.append(kind)
+        return "abc1234"
+
+    vl.vcs_snapshot(str(repo), [], state, _rev=fake_rev)
+    vl.vcs_snapshot(str(repo), [], state, _rev=fake_rev)
+    assert calls == ["git"]
+    assert state["vcs_rev_cache"][str(repo).replace("\\", "/")]["rev"] == "abc1234"
+
+
+def test_snapshot_marks_truncated_when_rev_sleeps_past_budget(repo):
+    clock = [0.0]
+
+    def fake_rev(kind, root, timeout):
+        clock[0] += 2.0            # 模擬子行程睡 2 s（超過 1.5 s 預算）
+        return "deadbee"
+
+    snap = vl.vcs_snapshot(str(repo), [], {}, budget_s=1.5, _rev=fake_rev, _clock=lambda: clock[0])
+    assert snap[0]["truncated"] is True and snap[0]["rev"] == "deadbee"
+
+
+def test_snapshot_non_vcs_dir_is_empty(tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert vl.vcs_snapshot(str(plain), [str(plain / "x.txt")], {}) == []
+
+
+# ─── B3 帳本與收據 ───────────────────────────────────────────────────────
+
+def test_append_ledger_writes_lf_jsonl(tmp_path):
+    p = vl.append_verify_ledger(_SID, {"a": 1, "中": "文"}, base_dir=tmp_path)
+    assert p == tmp_path / "verify-ledger" / f"{_SID}.jsonl"
+    raw = p.read_bytes()
+    assert b"\r\n" not in raw and json.loads(raw.decode("utf-8")) == {"a": 1, "中": "文"}
+
+
+def test_receipt_cap_50_and_turn_filter():
+    state: dict = {}
+    for i in range(60):
+        vl.record_receipt(state, _SID, {"turn_seq": i % 7, "sentinels": [], "exit_code": None})
+    assert len(state["verify_receipts"][_SID]) == 50
+    assert state["verify_receipts"][_SID][0]["turn_seq"] == 10 % 7
+    this = vl.ledger_entries_this_turn(state, _SID, 3)
+    assert this and all(r["turn_seq"] == 3 for r in this)
+    assert vl.ledger_entries_this_turn(state, "other", 3) == []
+
+
+# ─── B4 post_tool_use：Bash／PowerShell 落帳、PASS 且 exit≠0、子代理不入主帳 ──
+
+def _drive(monkeypatch, tmp_path, tool_name, command, resp, agent_id="", turn_seq=4):
+    state = {"turn_seq": turn_seq, "session": {"cwd": str(tmp_path)}}
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    inp = {"session_id": _SID, "tool_name": tool_name, "tool_input": {"command": command},
+           "tool_response": resp, "cwd": str(tmp_path)}
+    if agent_id:
+        inp["agent_id"] = agent_id
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use(inp, {"docdrift": {"enabled": False}})
+    return state
+
+
+def test_powershell_sentinel_lands_in_ledger_and_state(monkeypatch, tmp_path):
+    state = _drive(monkeypatch, tmp_path, "PowerShell", "python x.py", _fx("pass_exit0.txt"))
+    rec = state["verify_receipts"][_SID][0]
+    assert rec["tool"] == "PowerShell" and rec["turn_seq"] == 4
+    assert rec["sentinels"] == [{"name": "REPLAY_GUARD_CHECK", "verdict": "PASS"}] and rec["exit_code"] is None
+    line = json.loads((tmp_path / "verify-ledger" / f"{_SID}.jsonl").read_text(encoding="utf-8"))
+    for key in ("at", "session_id", "agent_id", "turn_seq", "tool", "cmd", "cwd", "project_root",
+                "sentinels", "exit_code", "vcs", "modified_files_turn", "spec"):
+        assert key in line
+    assert line["vcs"] == [] and line["agent_id"] == ""
+
+
+def test_pass_with_nonzero_exit_recorded_as_pass_exit1(monkeypatch, tmp_path):
+    """B4 完成條件：PASS 且 exit≠0 落帳 verdict=PASS exit=1（對帳閘那邊不認）。"""
+    state = _drive(monkeypatch, tmp_path, "Bash", "python x.py", _fx("pass_exit1.txt"))
+    rec = state["verify_receipts"][_SID][0]
+    assert rec["exit_code"] == 1 and rec["sentinels"][0]["verdict"] == "PASS"
+    assert vl.pass_receipts([rec]) == []
+
+
+def test_bash_without_sentinel_and_not_test_cmd_writes_nothing(monkeypatch, tmp_path):
+    state = _drive(monkeypatch, tmp_path, "Bash", "ls -la", {"stdout": "a.py\n", "stderr": ""})
+    assert "verify_receipts" not in state
+    assert not (tmp_path / "verify-ledger").exists()
+
+
+def test_subagent_receipt_not_in_main_ledger(monkeypatch, tmp_path):
+    state = _drive(monkeypatch, tmp_path, "Bash", "python x.py", _fx("pass_exit0.txt"), agent_id="agent-1")
+    assert "verify_receipts" not in state
+    assert not (tmp_path / "verify-ledger" / f"{_SID}.jsonl").exists()
+    side = tmp_path / "verify-ledger" / f"{_SID}.agents.jsonl"
+    assert side.exists() and json.loads(side.read_text(encoding="utf-8"))["agent_id"] == "agent-1"
+
+
+def test_ledger_disabled_by_config(monkeypatch, tmp_path):
+    state = {"turn_seq": 1}
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
+    assert pt._track_sentinels(state, {"tool_response": _fx("pass_exit0.txt")}, "python x.py", "Bash",
+                               {"verify_ledger": {"enabled": False}}, _SID) is False
+
+
+# ─── 宣稱詞表（fixture 詞表）────────────────────────────────────────────
+
+@pytest.fixture()
+def phrases():
+    return ev.compile_claim_phrases(FIX / "phrases.json")
+
+
+@pytest.mark.parametrize("text,fixed,measured,tried", [
+    ("閘的問題修好了，三案綠。", True, False, False),
+    ("還沒修好，先記下。", False, False, False),
+    ("要怎麼修好這個？", False, False, False),
+    ("我量了三次，平均 120 ms。", False, True, False),
+    ("還沒量，下一步再量。", False, False, False),
+    ("我跑了 pytest，全綠。", False, False, True),
+    ("請你跑一次看看。", False, False, False),
+    ("hook 回「修好」這個詞時要擋", False, False, False),   # 引號內不算宣稱
+])
+def test_claim_detection_with_fixture_phrases(phrases, text, fixed, measured, tried):
+    assert vl.claims_fixed(text, phrases) is fixed
+    assert vl.claims_measured(text, phrases) is measured
+    assert vl.claims_tried(text, phrases) is tried
+
+
+def test_default_claim_phrases_fallback_present():
+    assert set(ev.CLAIM_RES) >= {"fixed", "fixed_exclude", "measured", "measured_exclude", "tried", "tried_exclude"}
+    assert vl.claims_fixed("已修復")
+
+
+def test_tried_claim_without_exec_accepts_tool_names_or_receipts(phrases):
+    txt = "我跑了測試"
+    assert vl.tried_claim_without_exec(txt, [], ["Bash", "PowerShell"], (), phrases) is True
+    assert vl.tried_claim_without_exec(txt, ["Read", "Bash"], ["Bash", "PowerShell"], (), phrases) is False
+    assert vl.tried_claim_without_exec(txt, [], ["Bash"], [{"turn_seq": 1}], phrases) is False
+    assert vl.tried_claim_without_exec("還沒跑", [], ["Bash"], (), phrases) is False

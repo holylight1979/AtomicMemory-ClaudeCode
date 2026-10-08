@@ -1,0 +1,4 @@
+collected 3 items
+...
+3 passed in 0.12s
+REPLAY_GUARD_CHECK PASS

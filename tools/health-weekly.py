@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
+import time
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -229,11 +231,120 @@ def _recall_miss_counts(days: int) -> dict[str, int]:
     return counts
 
 
+def _hooks_on_path() -> None:
+    hooks_dir = str(CLAUDE_DIR / "hooks")
+    if hooks_dir not in sys.path:
+        sys.path.insert(0, hooks_dir)
+
+
+def _run_selftest(st: dict, cwd: Path) -> dict:
+    """跑一筆 tool_selftests {name, cmd, expected(PASS|FAIL|DONE), sentinel?, runtime_gate, timeout_s}。
+    runtime_gate 非 0 → skipped（環境未就緒屬預期，不算紅）；cmd 輸出經 parse_sentinels，只認**最後一行哨兵**
+    （規矩：哨兵是尾行；接錯線時前面印別的工具的 PASS 不能算），有給 sentinel 名就連名字一起比。"""
+    _hooks_on_path()
+    from wg_verify_ledger import parse_sentinels  # noqa: WPS433
+    name = str(st.get("name") or st.get("cmd") or "?")
+    expected = str(st.get("expected") or "PASS").upper()
+    timeout = float(st.get("timeout_s") or 60)
+    res = {"name": name, "expected": expected, "got": [], "ok": False, "status": "ran", "ms": 0, "detail": ""}
+    gate = str(st.get("runtime_gate") or "").strip()
+    try:
+        if gate:
+            g = subprocess.run(shlex.split(gate.replace("\\", "/")), capture_output=True, text=True,
+                               timeout=timeout, cwd=str(cwd),
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if g.returncode != 0:
+                res.update(status="skipped", detail=f"runtime_gate exit {g.returncode}")
+                return res
+        t0 = time.monotonic()
+        r = subprocess.run(shlex.split(str(st.get("cmd") or "").replace("\\", "/")), capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=timeout, cwd=str(cwd),
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        res["ms"] = int((time.monotonic() - t0) * 1000)
+        sent = parse_sentinels((r.stdout or "") + "\n" + (r.stderr or ""))
+        res["got"] = [f"{s['name']} {s['verdict']}" for s in sent]
+        res["exit_code"] = r.returncode
+        want_name = str(st.get("sentinel") or "").strip()
+        last = sent[-1] if sent else None
+        res["ok"] = bool(last) and last["verdict"] == expected and (not want_name or last["name"] == want_name)
+        if not res["ok"]:
+            tail = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
+            res["detail"] = (tail[-1] if tail else "（無輸出）")[:160]
+    except subprocess.TimeoutExpired:
+        res.update(status="timeout", detail=f"逾時 {timeout}s")
+    except (OSError, ValueError) as e:
+        res.update(status="error", detail=f"{type(e).__name__}: {e}"[:160])
+    return res
+
+
+def _selftests_block(selftests: list, cwd: Path) -> tuple[list[str], list[str], list[dict]]:
+    """H7：登記的工具自測逐筆跑；哨兵不符 expected（含壞依賴沒輸出、壞接線印別的名、壞哨兵小寫）→ 紅。
+    回 (red, info, results)。"""
+    red: list[str] = []
+    info: list[str] = []
+    results: list[dict] = []
+    for st in selftests or []:
+        if not isinstance(st, dict) or not st.get("cmd"):
+            continue
+        r = _run_selftest(st, cwd)
+        results.append(r)
+        if r["status"] == "skipped":
+            info.append(f"selftest {r['name']}：跳過（{r['detail']}）")
+        elif r["ok"]:
+            info.append(f"selftest {r['name']}：{r['expected']} 如預期（{r['ms']} ms）")
+        else:
+            got = "、".join(r["got"]) if r["got"] else "沒有任何哨兵"
+            red.append(f"selftest {r['name']} 預期 {r['expected']}，實得 {got}（{r['status']}；{r['detail']}）"
+                       "；工具自身壞掉或哨兵格式不合 `<NAME>_CHECK PASS|FAIL`")
+    return red, info, results
+
+
+def _depends_block(hc: dict, coverage_min: float) -> tuple[list[str], list[str]]:
+    """H7：Depends 壞滅緣（路徑消失）黃、依賴比卡新黃、覆蓋率 info（低於 depends_coverage_min 黃）。回 (yellow, info)。"""
+    yellow: list[str] = []
+    info: list[str] = []
+    n_stale = len(hc.get("stale_deps") or [])
+    if n_stale:
+        yellow.append(f"stale_deps {n_stale} 筆：Depends 指向的路徑已不存在（atom-health-check.py --deps-check）")
+    mt = hc.get("stale_mtime_deps") or []
+    if mt:
+        names = ", ".join(f"{d.get('atom')}←{Path(str(d.get('dep', ''))).name}" for d in mt[:5])
+        yellow.append(f"依賴比卡新 {len(mt)} 筆（Depends 檔改於卡最近驗證日之後，卡可能過期）：{names}")
+    cov = hc.get("depends_coverage") or {}
+    if cov:
+        ratio = float(cov.get("ratio") or 0.0)
+        info.append(f"Depends 覆蓋率 {cov.get('with_depends', 0)}/{cov.get('total', 0)} = {ratio:.1%}")
+        if ratio < float(coverage_min or 0):
+            yellow.append(f"Depends 覆蓋率 {ratio:.1%} 低於 depends_coverage_min {float(coverage_min):.1%}")
+    return yellow, info
+
+
+def _reconcile_overflow_block(days: int) -> list[str]:
+    """對帳閘預算用完放行（guard-reconcile_overflow.jsonl）近 N 天有事件 → 紅（放行要可見）。"""
+    p = CLAUDE_DIR / "Logs" / "guard-reconcile_overflow.jsonl"
+    cut = datetime.now().astimezone() - timedelta(days=days)
+    n = 0
+    try:
+        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                at = datetime.fromisoformat(str(json.loads(line).get("at", "")))
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+            if at.tzinfo is None:
+                at = at.astimezone()
+            if at >= cut:
+                n += 1
+    except OSError:
+        return []
+    return [f"對帳閘預算用完放行 {n} 次（近 {days} 天；Logs/guard-reconcile_overflow.jsonl）；收尾宣稱連續對不上收據"] if n else []
+
+
 def collect() -> dict:
     now = datetime.now()
     red: list[str] = []      # 需處理
     yellow: list[str] = []   # 需留意
     info: list[str] = []     # 純資訊
+    selftests: list[dict] = []
 
     # 1. memory-audit
     ma = _run_json([str(TOOLS / "memory-audit.py"), "--json", "--global-only"])
@@ -256,6 +367,29 @@ def collect() -> dict:
             n = len(hc.get(k) or [])
             if n:
                 yellow.append(f"{k} {n} 筆")
+        # 2b. Depends：壞滅緣（路徑消失）、依賴比卡新、覆蓋率
+        dy, di = _depends_block(hc, float(_load_config().get("depends_coverage_min", 0) or 0))
+        yellow.extend(dy)
+        info.extend(di)
+
+    # 2c. 工具自測（config tool_selftests[]）：壞依賴／壞接線／壞哨兵都要在一週內浮出
+    sr, si, selftests = _selftests_block(_load_config().get("tool_selftests") or [], CLAUDE_DIR)
+    red.extend(sr)
+    info.extend(si)
+    # 2d. 對帳閘預算用完放行
+    red.extend(_reconcile_overflow_block(FRESH_DAYS))
+    # 2e. scorecard（track-d2 的 hooks/wg_scorecard.health_block；沒有就印一行跳過）
+    try:
+        _hooks_on_path()
+        from wg_scorecard import health_block  # noqa: WPS433
+        sb = health_block() or {}
+        red.extend(sb.get("red") or [])
+        yellow.extend(sb.get("yellow") or [])
+        info.extend(sb.get("info") or [])
+    except ImportError:
+        info.append("scorecard 區塊跳過：hooks/wg_scorecard.health_block 尚未就緒")
+    except Exception as e:
+        yellow.append(f"scorecard 區塊執行失敗：{type(e).__name__}: {e}"[:200])
 
     # 3/4. 索引一致性
     for name, args in (
@@ -370,7 +504,7 @@ def collect() -> dict:
         yellow.append(f"來源防腐例外：{type(e).__name__}: {e}")
 
     return {"at": now.isoformat(timespec="seconds"), "red": red,
-            "yellow": yellow, "info": info,
+            "yellow": yellow, "info": info, "selftests": selftests,
             "last_session": last_session.isoformat(timespec="seconds") if last_session else None}
 
 
@@ -401,6 +535,7 @@ def main() -> int:
     LAST_RUN.write_text(json.dumps({
         "at": result["at"], "red": len(result["red"]),
         "yellow": len(result["yellow"]),
+        "selftests_failed": sum(1 for s in result.get("selftests") or [] if s.get("status") != "skipped" and not s.get("ok")),
         "report": str(report),
     }, ensure_ascii=False), encoding="utf-8", newline="\n")
     if "--json" in sys.argv:
