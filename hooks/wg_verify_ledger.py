@@ -523,7 +523,7 @@ def is_verify_case(path: str, globs: Iterable[str]) -> bool:
 
 
 def aec_blank(v: Any) -> bool:
-    s = re.sub(r"[\s。．.,，、；;：:!！?？~～\-—…]+$", "", str("" if v is None else v).strip())
+    s = re.sub(r"[\s。．.,，、；;：:!！?？~～\-\u2014…]+$", "", str("" if v is None else v).strip())
     return s == "" or re.match(r"^[無无]\s*(?:[（(][^）)]*[）)])?$", s) is not None
 
 
@@ -536,7 +536,7 @@ def aec_evidence_missing(j: Any, receipts_non_empty: bool,
     if aec_blank(j):
         return True
     for line in str(j).splitlines():
-        p = line.strip().split(" — ")[0].split(" - ")[0].strip().strip("`")
+        p = line.strip().split(" \u2014 ")[0].split(" - ")[0].strip().strip("`")
         if not p:
             continue
         if not _exists(os.path.expanduser(p)):
