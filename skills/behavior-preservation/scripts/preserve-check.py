@@ -13,8 +13,11 @@
   boundary     沒列在舊碼 case 裡的值（整數鍵取 min-1、max+1；字串鍵取 "" 與 "__unlisted__"）必須落到同一個預設值。
 
 預期表怎麼來（不手抄）：
-  .py／.cs 等源碼：regex 解析 --func 函式體的 `if/elif/case X == K:`／`case K:`／`else:`／`default:` 與其下的
-  `return V`、`--effect(...)` 呼叫；--order-func 函式體的 `return [...]`。源碼只被讀，不被執行。
+  .py 源碼：用 ast 解析 --func 函式體，只接受「一條頂層 if/elif 鏈，每個條件 `名稱 == 常數`，每個分支零或多個
+  --effect(常數…) 呼叫接 `return 常數`，else 或鏈後一個 `return 常數` 當預設」；--order-func 函式體只能是
+  `return [常數, …]`。巢狀 if、in、and/or、迴圈、賦值任一出現就拒收並印行號；docstring 與註解不在分支節點裡、不影響判定。
+  源碼只被解析，不被執行。
+  .cs 等非 Python 源碼：先用專案工具（roslyn、regex）解析成 .json 再餵，本腳本不猜。
   .json：{"values": {key: value}, "default": value, "effects": {key: [args]}, "order": [...]}（別的工具解析好的表，
   例如從 roslyn 或 svn BASE 產出；json 的 key 一律字串，比對時用 str() 對齊）。
 
@@ -24,7 +27,7 @@
   side_effect 在這個執行器不支援（會明說並 FAIL）。
 
 輸出：差異逐條列出，尾行 `PRESERVE_CHECK PASS` 或 `PRESERVE_CHECK FAIL`。exit 0 相同、1 有差異、2 拒收。
-拒收（不是行為差異、但也不放行）：同路徑；預期表零 case；舊源碼函式體裡有解析器不認的分支寫法（`if x in …`、`match`、巢狀條件）；
+拒收（不是行為差異、但也不放行）：同路徑；預期表零 case；舊源碼不是 .py 也不是 .json；函式體不是平面 if/elif 鏈（巢狀、in、and/or…）；
 外部執行器任一次非零 exit；--actual-cmd 跑 side_effect。
 """
 from __future__ import annotations
@@ -34,7 +37,6 @@ import ast
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -43,14 +45,6 @@ sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
 MUTATIONS = ("order", "side_effect", "boundary")
-_KEY_RE = re.compile(r"^\s*(?:if|elif|else if|case)\b[^:]*?==\s*([^\s:]+)\s*:|^\s*case\s+([^\s:]+)\s*:")
-_DEFAULT_RE = re.compile(r"^\s*(?:else|default)\s*:")
-_RETURN_RE = re.compile(r"^\s*return\s+(.+?)\s*;?\s*$")
-_DEF_RE = re.compile(r"^(\s*)(?:def\s+|(?:public|private|static|internal|protected|override|\s)*\w+\s+)(\w+)\s*\(")
-_SEQ_RE = re.compile(r"return\s+(\[.*?\]|\(.*?\))\s*;?\s*$", re.DOTALL)
-_BRANCH_RE = re.compile(r"^\s*(?:if|elif|else if|case|match)\b")
-
-
 class Reject(Exception):
     """拒收：用法或材料不合，不是行為差異。"""
 
@@ -62,56 +56,84 @@ def _lit(s: str):
         return s.strip().strip(";")
 
 
-def _body(lines: list, func: str) -> list:
-    """取 func 的函式體行（到下一個同層或更外層的函式定義為止）。"""
-    start, indent = None, ""
-    for i, line in enumerate(lines):
-        m = _DEF_RE.match(line)
-        if m and m.group(2) == func:
-            start, indent = i + 1, m.group(1)
-            break
-    if start is None:
-        raise Reject(f"舊源碼裡找不到函式 {func}")
-    body = []
-    for line in lines[start:]:
-        m = _DEF_RE.match(line)
-        if m and len(m.group(1)) <= len(indent):
-            break
-        body.append(line)
-    return body
+def _find_func(tree: ast.Module, func: str) -> ast.FunctionDef:
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == func:
+            return node
+    raise Reject(f"舊源碼裡找不到頂層函式 {func}")
+
+
+def _strip_docstring(stmts: list) -> list:
+    if stmts and isinstance(stmts[0], ast.Expr) and isinstance(stmts[0].value, ast.Constant)             and isinstance(stmts[0].value.value, str):
+        return stmts[1:]
+    return stmts
+
+
+def _key_of(test: ast.expr, func: str):
+    """分支條件只接受 `<名稱> == <常數>`；其他寫法（in、and/or、巢狀、呼叫）一律拒收並印行號。"""
+    ok = (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq)
+          and isinstance(test.left, ast.Name) and isinstance(test.comparators[0], ast.Constant))
+    if not ok:
+        raise Reject(f"舊源碼 {func} 第 {test.lineno} 行有解析器不認的分支寫法（只認 `名稱 == 常數`），"
+                     f"不能宣稱全枚舉：{ast.unparse(test)!r}（先用專案工具解析成 .json 再餵）")
+    return test.comparators[0].value
+
+
+def _branch_body(stmts: list, func: str, effect: str) -> tuple:
+    """一個分支只能是「零或多個 effect(常數…) 呼叫」接「return 常數」；巢狀 if、迴圈、賦值都拒收並印行號。"""
+    effs = []
+    for i, st in enumerate(stmts):
+        is_last = i == len(stmts) - 1
+        if is_last and isinstance(st, ast.Return) and isinstance(st.value, ast.Constant):
+            return st.value.value, effs
+        call = st.value if isinstance(st, ast.Expr) else None
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == effect
+                and all(isinstance(a, ast.Constant) for a in call.args) and not call.keywords):
+            vals = [a.value for a in call.args]
+            effs.append(vals[0] if len(vals) == 1 else tuple(vals))
+            continue
+        raise Reject(f"舊源碼 {func} 第 {st.lineno} 行不是平面分支能收的敘述（{type(st).__name__}），"
+                     f"巢狀條件或其他邏輯無法證明全枚舉：{ast.unparse(st).splitlines()[0]!r}（先用專案工具解析成 .json 再餵）")
+    raise Reject(f"舊源碼 {func} 有分支沒有 `return 常數` 結尾")
 
 
 def parse_expected_source(text: str, func: str, order_func: str, effect: str) -> dict:
-    lines = text.splitlines()
-    values, effects, default, cur = {}, {}, None, None
-    effect_re = re.compile(r"\b" + re.escape(effect) + r"\((.*)\)")
-    for line in _body(lines, func):
-        m = _KEY_RE.match(line)
-        if m:
-            cur = _lit(m.group(1) or m.group(2))
+    """Python 源碼走 ast：目標函式體＝一條頂層 if/elif 鏈（可加 else 或鏈後一個 return 當預設）。字串與註解不在分支節點裡。"""
+    tree = ast.parse(text)
+    body = _strip_docstring(_find_func(tree, func).body)
+    if not body or not isinstance(body[0], ast.If) or len(body) > 2             or (len(body) == 2 and not (isinstance(body[1], ast.Return) and isinstance(body[1].value, ast.Constant))):
+        raise Reject(f"舊源碼 {func} 函式體必須是一條 if/elif 鏈（可接一個 `return 常數` 當預設），"
+                     f"否則無法證明全枚舉（第 {body[0].lineno if body else '?'} 行起）")
+    values, effects, default = {}, {}, None
+    node = body[0]
+    while True:
+        key = _key_of(node.test, func)
+        val, effs = _branch_body(node.body, func, effect)
+        values.setdefault(key, val)
+        if effs:
+            effects[key] = effs
+        orelse = node.orelse
+        if not orelse:
+            break
+        if len(orelse) == 1 and isinstance(orelse[0], ast.If):
+            node = orelse[0]
             continue
-        if _DEFAULT_RE.match(line):
-            cur = "__default__"
-            continue
-        if _BRANCH_RE.match(line):
-            raise Reject(f"舊源碼 {func} 有解析器不認的分支寫法，不能宣稱全枚舉：{line.strip()!r}（先用專案工具解析成 .json 再餵）")
-        m = effect_re.search(line)
-        if m and cur is not None and cur != "__default__":
-            effects.setdefault(cur, []).append(_lit(m.group(1)))
-            continue
-        m = _RETURN_RE.match(line)
-        if m and cur is not None:
-            if cur == "__default__":
-                default = _lit(m.group(1))
-            else:
-                values.setdefault(cur, _lit(m.group(1)))
-            cur = None
+        default, effs = _branch_body(orelse, func, effect)
+        if effs:
+            raise Reject(f"舊源碼 {func} 的 else 分支有副作用呼叫，預設值分支的副作用不在證法範圍（第 {orelse[0].lineno} 行）")
+        break
+    if len(body) == 2:
+        if default is not None:
+            raise Reject(f"舊源碼 {func} 同時有 else 與鏈後 return，預設值不唯一（第 {body[1].lineno} 行）")
+        default = body[1].value.value
     order = None
     if order_func:
-        m = _SEQ_RE.search("\n".join(_body(lines, order_func)))
-        if not m:
-            raise Reject(f"舊源碼 {order_func} 裡找不到 return [...] 序列")
-        order = list(_lit(m.group(1)))
+        obody = _strip_docstring(_find_func(tree, order_func).body)
+        ok = (len(obody) == 1 and isinstance(obody[0], ast.Return) and isinstance(obody[0].value, (ast.List, ast.Tuple))
+              and all(isinstance(e, ast.Constant) for e in obody[0].value.elts))
+        if not ok:
+            raise Reject(f"舊源碼 {order_func} 函式體必須只有一個 `return [常數, …]`")
+        order = [e.value for e in obody[0].value.elts]
     return {"values": values, "default": default, "effects": effects, "order": order}
 
 
@@ -121,8 +143,10 @@ def load_expected(path: Path, func: str, order_func: str, effect: str) -> dict:
         d = json.loads(text)
         table = {"values": dict(d.get("values", {})), "default": d.get("default"),
                  "effects": {k: list(v) for k, v in (d.get("effects") or {}).items()}, "order": d.get("order")}
-    else:
+    elif path.suffix.lower() == ".py":
         table = parse_expected_source(text, func, order_func, effect)
+    else:
+        raise Reject(f"{path.name} 不是 Python 源碼也不是 .json：非 Python 舊碼請先用專案工具解析成 .json 預期表再餵")
     if not table["values"]:
         raise Reject(f"預期表 {path.name} 裡沒有任何 case→值（零 case 不能當證明）")
     return table

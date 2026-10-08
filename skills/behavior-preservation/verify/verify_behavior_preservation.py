@@ -111,7 +111,56 @@ def test_cmd_runner_nonzero_exit_rejected():
 def test_unparsed_branch_form_rejected(tmp_path):
     """WARN：函式體裡有解析器不認的分支寫法（`if x in …`）→ 拒收，不靜默略過。"""
     old = tmp_path / "old_in.py"
-    old.write_text("def grade(score):\n    if score == 1:\n        return 'D'\n    if score in (2, 3):\n        return 'C'\n    else:\n        return '?'\n",
+    old.write_text("def grade(score):\n    if score == 1:\n        return 'D'\n    elif score in (2, 3):\n        return 'C'\n    else:\n        return '?'\n",
                    encoding="utf-8", newline="\n")
     code, tail, out = run("new_ok.py", "boundary", expected=old)
     assert (code, tail) == (2, "PRESERVE_CHECK FAIL") and "不認的分支寫法" in out
+
+
+# ─── 002 退回的兩條 BLOCK 反例（解析器改走 ast） ───────────────────
+
+NESTED_OLD = '''def grade(score):
+    if score == 1:
+        return "D"
+    elif score == 2:
+        if score == 3:
+            return "B"
+        return "C"
+    else:
+        return "?"
+'''
+NESTED_NEW = '''def grade(score):
+    return {1: "D", 3: "B"}.get(score, "?")
+'''
+
+
+def test_nested_branch_rejected(tmp_path):
+    """BLOCK 1：巢狀 if 不能被當平面表收進去（舊 score=2 回 C、新回 ?，若收進去會錯誤 PASS）；要拒收並印行號。"""
+    old, new = tmp_path / "old_nested.py", tmp_path / "new_flat.py"
+    old.write_text(NESTED_OLD, encoding="utf-8", newline="\n")
+    new.write_text(NESTED_NEW, encoding="utf-8", newline="\n")
+    cmd = [sys.executable, "-X", "utf8", str(SCRIPT), "--expected-from", str(old), "--actual-from", str(new),
+           "--mutation", "boundary", "--func", "grade"]
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    tail = [ln for ln in p.stdout.splitlines() if ln.strip()][-1]
+    assert (p.returncode, tail) == (2, "PRESERVE_CHECK FAIL"), p.stdout
+    assert "第 5 行" in p.stdout and "巢狀" in p.stdout
+
+
+def test_docstring_branch_text_ignored(tmp_path):
+    """BLOCK 2：docstring 裡寫 `if score in (2, 3): example only` 不是分支，不得誤拒收；對 new_ok 要 PASS。"""
+    src = (FIX / "old.py").read_text(encoding="utf-8").replace(
+        "def grade(score):\n", 'def grade(score):\n    """\n    if score in (2, 3): example only\n    """\n', 1)
+    old = tmp_path / "old_doc.py"
+    old.write_text(src, encoding="utf-8", newline="\n")
+    for mutation in PC.MUTATIONS:
+        code, tail, out = run("new_ok.py", mutation, expected=old)
+        assert (code, tail) == (0, "PRESERVE_CHECK PASS"), out
+
+
+def test_non_python_source_rejected(tmp_path):
+    """非 Python 源碼不猜：要先解析成 .json。"""
+    cs = tmp_path / "Old.cs"
+    cs.write_text("int Grade(int s){ switch(s){ case 1: return 1; default: return 0; } }\n", encoding="utf-8", newline="\n")
+    code, tail, out = run("new_ok.py", "boundary", expected=cs)
+    assert (code, tail) == (2, "PRESERVE_CHECK FAIL") and ".json" in out

@@ -34,7 +34,7 @@ python scripts/preserve-check.py --expected-from <舊源碼或 .json> --actual-f
 ```
 
 - 尾行哨兵 `PRESERVE_CHECK PASS|FAIL`；exit 0 相同、1 有差異、2 拒收。三次輸出貼進收尾報告，不貼就不算驗過。
-- 預期來源換法：舊碼不是 Python 也行，regex 只認 `if/elif/case X == K:`、`case K:`、`else`／`default` 與同塊的 `return V`、副作用呼叫；函式體裡出現它不認的分支（`if x in …`、`match`、巢狀條件）就拒收 exit 2，不會略過一部分還說全枚舉。認不到就先用自己的工具解析成 `.json`（格式見腳本檔頭；零 case 也拒收）再餵。
+- 預期來源換法：Python 舊碼走 ast，只接受「一條頂層 if/elif 鏈、條件 `名稱 == 常數`、分支只有副作用呼叫與 `return 常數`、else 或鏈後 `return 常數` 當預設」；巢狀 if、`in`、`and/or`、迴圈任一出現就拒收 exit 2 並印行號，不會略過一部分還說全枚舉；docstring 與註解不影響判定。非 Python 舊碼（C#、Lua…）本腳本不猜，先用專案工具（roslyn、regex）解析成 `.json`（格式見腳本檔頭；零 case 也拒收）再餵。
 - 執行器換法：`--actual-cmd "<指令> {key}"` 用外部程式當執行器（例如 dotnet 小程式反射跑 dll）；它看不到副作用，`side_effect` 會明說不支援並 FAIL，該類要另寫執行器。
 - 證不到的要明寫：時序、執行緒、live 狀態不在此證法內。
 
