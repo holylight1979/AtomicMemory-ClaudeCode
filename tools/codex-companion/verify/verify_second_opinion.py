@@ -491,6 +491,81 @@ def test_post_fallback_subprocess_timeout_is_failed(env, monkeypatch):
     assert not (Path(res["job_dir"]) / "reply.md").exists()
 
 
+def _scan_returns(monkeypatch, rc: int, stdout: str):
+    """讓 scan 子行程回指定 (rc, stdout)；其他指令照 fixture 的假 run。"""
+    import subprocess as sp
+    inner = sp.run
+
+    class CP:
+        def __init__(self):
+            self.returncode, self.stdout, self.stderr = rc, stdout, ""
+
+    def fake(cmd, **kw):
+        if "scan" in cmd and "--job" in cmd:
+            return CP()
+        return inner(cmd, **kw)
+    monkeypatch.setattr(sp, "run", fake)
+
+
+@pytest.mark.parametrize("rc,stdout,label", [
+    (0, '{"outside":[]}\nSCAN_CHECK PASS\n', "缺 hits 鍵"),
+    (1, '{"hits":[],"outside":[]}\nSCAN_CHECK FAIL\n', "明示 FAIL 但皆空且 rc 1"),
+    (0, '{}\nSCAN_CHECK UNKNOWN\n', "未知裁決"),
+    (0, '[]\nSCAN_CHECK PASS\n', "JSON 是陣列"),
+    (0, '', "stdout 空"),
+])
+def test_scan_output_protocol_mismatch_is_failed(env, monkeypatch, rc, stdout, label):
+    """退回修正第五輪：子行程 JSON／哨兵／exit 任一不一致 → failed「掃描結果不可信」，不放行。"""
+    _scan_returns(monkeypatch, rc, stdout)
+    _no_cmd_fallback(env, "clean\n")
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and st["stage"] == "post-guard" and "不可信" in st["reason"], (label, st)
+    assert not (Path(res["job_dir"]) / "reply.md").exists()
+
+
+@pytest.mark.parametrize("rc,stdout,expect_status,needle", [
+    (0, '{"hits":[],"outside":[]}\nSCAN_CHECK PASS\n', "done", "純推理"),
+    (1, '{"hits":["\\\\.claude[/\\\\\\\\]memory"],"outside":[]}\nSCAN_CHECK FAIL\n', "failed", "整份紀錄命中"),
+])
+def test_scan_output_protocol_ok(env, monkeypatch, rc, stdout, expect_status, needle):
+    """正常 PASS → done＋guard_note；正常 FAIL（rc 1、非空）→ failed 且列命中。"""
+    _scan_returns(monkeypatch, rc, stdout)
+    _no_cmd_fallback(env, "clean\n")
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == expect_status, st
+    assert needle in (st.get("guard_note") or st.get("reason") or ""), st
+
+
+def test_parse_scan_output_consistency_matrix():
+    """_parse_scan_output 的一致性規則直接驗：PASS⇔rc0⇔皆空；FAIL⇔rc1⇔非空；型別錯誤回 None。"""
+    ok = '{"hits":[],"outside":[]}\nSCAN_CHECK PASS\n'
+    assert run._parse_scan_output(0, ok)[0] == ([], [])
+    assert run._parse_scan_output(1, ok)[0] is None, "PASS 但 rc 1"
+    assert run._parse_scan_output(0, '{"hits":["x"],"outside":[]}\nSCAN_CHECK PASS\n')[0] is None, "PASS 但非空"
+    bad = '{"hits":["x"],"outside":[]}\nSCAN_CHECK FAIL\n'
+    assert run._parse_scan_output(1, bad)[0] == (["x"], [])
+    assert run._parse_scan_output(0, bad)[0] is None, "FAIL 但 rc 0"
+    assert run._parse_scan_output(2, bad)[0] is None, "FAIL 但 rc 2"
+    assert run._parse_scan_output(0, '{"hits":"x","outside":[]}\nSCAN_CHECK PASS\n')[0] is None, "hits 不是陣列"
+    assert run._parse_scan_output(1, '{"hits":[1],"outside":[]}\nSCAN_CHECK FAIL\n')[0] is None, "元素不是字串"
+    assert run._parse_scan_output(0, 'warning: x\n{"hits":[],"outside":[]}\nSCAN_CHECK PASS\n')[0] is None, "JSON 前多雜訊"
+    assert run._parse_scan_output(0, '{"hits":[],"outside":[]}\n SCAN_CHECK PASS \n')[0] == ([], []), "尾行允許前後空白（strip）"
+    assert run._parse_scan_output(0, '{"hits":[],"outside":[]}\nSCAN_CHECK PASSED\n')[0] is None, "尾行要恰為 PASS"
+
+
+def test_scan_subcommand_oversize_is_fail(env, monkeypatch):
+    """scan 子命令被當獨立工具用：紀錄超過上限 → 一條 oversize hit＋SCAN_CHECK FAIL＋exit 1（協定一致），不讀全文。"""
+    monkeypatch.setattr(run, "MAX_LOG_BYTES", 10)
+    res = _prepare(env)
+    job = Path(res["job_dir"])
+    (job / "codex.stderr.log").write_text("x" * 50, encoding="utf-8", newline="\n")
+    (job / "codex.stdout.log").write_text("clean\n", encoding="utf-8", newline="\n")
+    rc = run.main(["scan", "--job", str(job)])
+    assert rc == 1
+
+
 def test_post_fallback_10mb_payload_under_5s(env):
     """總控台的 10 MB 重複路徑 payload（`C:\\x ` × 2,000,000）：整份掃描要在 5 s 內回、且仍判出界 → failed。"""
     import time as _t

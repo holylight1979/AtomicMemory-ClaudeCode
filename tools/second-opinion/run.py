@@ -348,15 +348,42 @@ def run_scan_subprocess(job_dir: Path) -> Tuple[Optional[Dict[str, List[str]]], 
         return None, f"整份掃描逾時（>{SCAN_DEADLINE_S}s）無法判定（子行程已 kill）"
     except OSError as e:
         return None, f"掃描子行程起不來：{e}"
-    lines = [l for l in (r.stdout or "").splitlines() if l.strip()]
-    sentinel = lines[-1].strip() if lines else ""
-    if r.returncode not in (0, 1) or not sentinel.startswith("SCAN_CHECK "):
-        return None, f"掃描子行程異常 exit={r.returncode}；stderr 尾：{(r.stderr or '')[-300:]}"
+    parsed, why = _parse_scan_output(r.returncode, r.stdout or "")
+    if parsed is None:
+        return None, f"掃描結果不可信：{why}；exit={r.returncode}；stderr 尾：{(r.stderr or '')[-300:]}"
+    return {"hits": parsed[0], "outside": parsed[1]}, ""
+
+
+def _str_list(v: Any) -> bool:
+    return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+
+def _parse_scan_output(rc: Optional[int], stdout: str) -> Tuple[Optional[Tuple[List[str], List[str]]], str]:
+    """子行程協定核對，任一不符回 (None, 原因)：
+    尾行恰為 `SCAN_CHECK PASS`／`SCAN_CHECK FAIL`；尾行前是單一 JSON 物件，`hits`／`outside` 兩鍵都在且都是字串陣列；
+    一致性：PASS ⇔ rc==0 ⇔ 兩陣列皆空；FAIL ⇔ rc==1 ⇔ 至少一個非空。"""
+    lines = [l for l in stdout.splitlines() if l.strip()]
+    if not lines:
+        return None, "stdout 空"
+    sentinel = lines[-1].strip()
+    if sentinel not in ("SCAN_CHECK PASS", "SCAN_CHECK FAIL"):
+        return None, f"尾行不是 SCAN_CHECK PASS|FAIL：{sentinel[:80]!r}"
     try:
         data = json.loads("\n".join(lines[:-1]))
-        return {"hits": list(data.get("hits") or []), "outside": list(data.get("outside") or [])}, ""
     except ValueError as e:
-        return None, f"掃描子行程輸出不是 JSON：{e}"
+        return None, f"JSON 解析失敗：{e}"
+    if not isinstance(data, dict) or "hits" not in data or "outside" not in data:
+        return None, "JSON 不是物件或缺 hits／outside 鍵"
+    hits, outside = data["hits"], data["outside"]
+    if not _str_list(hits) or not _str_list(outside):
+        return None, "hits／outside 不是字串陣列"
+    is_pass = sentinel.endswith("PASS")
+    empty = not hits and not outside
+    if is_pass and (rc != 0 or not empty):
+        return None, f"PASS 但 rc={rc}、hits={len(hits)}、outside={len(outside)}（應 rc 0 且皆空）"
+    if not is_pass and (rc != 1 or empty):
+        return None, f"FAIL 但 rc={rc}、hits={len(hits)}、outside={len(outside)}（應 rc 1 且至少一個非空）"
+    return (list(hits), list(outside)), ""
 
 
 def post_guard(job_dir: Path) -> Tuple[bool, str]:
@@ -492,7 +519,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "scan":
-        res = scan_log(Path(args.job))
+        job = Path(args.job)
+        total = _size(job / "codex.stderr.log") + _size(job / "codex.stdout.log")
+        if total > MAX_LOG_BYTES:  # 被當獨立工具用時也不吃光記憶體；協定上以一條 hit 表達，FAIL／rc 1／非空一致
+            res = {"hits": [f"oversize: 紀錄 {total} bytes > {MAX_LOG_BYTES}，無法判定"], "outside": []}
+        else:
+            res = scan_log(job)
         print(json.dumps(res, ensure_ascii=False))
         ok = not res["hits"] and not res["outside"]
         print("SCAN_CHECK " + ("PASS" if ok else "FAIL"))
