@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-08 v6.0 P1 track-d1 合併：第二意見工具（M3）與候選池工具（M4）
+- **緣由**：v6.0 P1 三軌之一；讓總控台與工作 session 能把材料打包給獨立模型審、把專案病灶候選排成表。
+- **做法**：MCP 加 `second_opinion_start`／`second_opinion_result`／`project_smells`（9→12 個工具）；`tools/second-opinion/`（pack 雜湊不受行尾與順序影響、prompts 獨立／審閱兩模板、run.py prepare→probe→execute→post-guard→parse 狀態機，終態保護、executor lock、無指令行例外走子行程整檔掃描＋協定嚴格核對）；`tools/project-smells.py`（報告／指令／內建三來源、七類別白名單、Windows 字串指令交 CommandLineToArgvW）；`lib/codex_models.py` 模型 slug 精確比對 cache；config 加 `second_opinion` 段、`codex_companion.model` 統一為 gpt-6-astra；`.gitignore` 加 `workflow/second-opinion/`。
+- **驗證**：目標 verify 87 案綠、smoke 35 ok；codex 六輪第二意見共 13 條 BLOCK 逐條親自重現後退回修正（分塊掃描方案被兩次反例推翻，改子行程整檔）。js 改動以全新 MCP 行程 smoke 驗 tools/list＝12。
+
 ## 2026-10-08 v6.0 P1 track-0 合併：變量骨架與判層、設定錯誤一律擋、根層部位表上線
 - **緣由**：v6.0 P1 三軌之一；後續 P2 四軌（a1／b／c／d2）都建在它的 `_cfg` 四層深合併、`_layer_of` 判層、`parse_map` 擴欄之上。
 - **做法**：`WG_CLAUDE_DIR` 環境變數覆蓋根層目錄（verify 在 worktree 不再測到 live lib）；`_cfg` 深合併 根層預設 < config.json < 公司 hub.json < 專案 hub.json 並回 `_errors`／`_layer`；`_validate_cfg` 未知鍵／型別／編碼／eol 驗證，設定錯誤一律 deny（OverviewHub 自家設定檔與部位表豁免、路徑比對剝 `\?\` 與 normcase）；`find_map` 不越家目錄與磁碟根；`parse_map` 十三欄；`dry_run`／`deny_parts` 退役（預設即擋）；修 UPS `_atom_debug_error` NameError。根層部位表 `.claude/overview-map.md` 與 `.claude/overview-hub.json` 上線（八個部位、索引三檔唯讀）。config.json `overview_hub` 段換新預設。
