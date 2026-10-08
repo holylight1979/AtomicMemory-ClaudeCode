@@ -325,6 +325,33 @@ def _guard_module():
     return mod
 
 
+SCAN_CHUNK_CHARS = 1_000_000
+SCAN_OVERLAP_CHARS = 4096  # 樣式都是行內短樣式（路徑到空白為止、git/svn 子命令），重疊 4K 足以蓋住跨塊的匹配
+
+
+def _scan_fallback(full: str, sandbox: Path, g: Any, deadline: float) -> Optional[Tuple[List[str], List[str]]]:
+    """整份文字分塊掃（每塊 1M 字＋4K 重疊），塊與塊之間查 deadline；超時回 None。
+    出界路徑：每塊先用 guard 的 ABS_PATH 抽 token 去重，再餵 paths_outside（它逐筆 realpath，10 MB 重複路徑不去重要跑 30 s＋）。
+    結果與整檔一次掃等價或更保守：短樣式不會因分塊漏掉，跨塊被切斷的超長 token 仍以前綴命中。"""
+    hits: set = set()
+    outside: set = set()
+    pos = 0
+    while True:
+        if time.monotonic() > deadline:
+            return None
+        chunk = full[pos:pos + SCAN_CHUNK_CHARS + SCAN_OVERLAP_CHARS]
+        for pat in g.FORBIDDEN_IN_LOG:
+            if pat not in hits and re.search(pat, chunk, flags=re.IGNORECASE):
+                hits.add(pat)
+        toks = sorted(set(g.ABS_PATH.findall(chunk)))
+        if toks:
+            outside.update(g.paths_outside("\n".join(toks), sandbox))
+        pos += SCAN_CHUNK_CHARS
+        if pos >= len(full):
+            break
+    return sorted(hits), sorted(outside)
+
+
 def post_guard(job_dir: Path) -> Tuple[bool, str]:
     """replay-guard post；FAIL → False。唯一例外：FAIL 只因「找不到指令行」（codex 純推理沒跑指令）時，
     改以 guard 的禁區樣式與出界路徑規則掃**整份** stderr＋stdout；掃不到才算 PASS 並留 note。"""
@@ -340,16 +367,10 @@ def post_guard(job_dir: Path) -> Tuple[bool, str]:
             return False, f"replay-guard post FAIL（無指令行）且紀錄過大無法判定：{total} bytes > {MAX_LOG_BYTES}"
         g = _guard_module()
         full = _read_all(log) + "\n" + _read_all(stdout_log)  # 整檔、不切；前段的出界讀取也掃得到
-        deadline = time.monotonic() + SCAN_DEADLINE_S
-        hits: List[str] = []
-        for pat in g.FORBIDDEN_IN_LOG:
-            if time.monotonic() > deadline:
-                return False, f"replay-guard post FAIL（無指令行）且整份掃描逾時（>{SCAN_DEADLINE_S}s）無法判定"
-            if re.search(pat, full, flags=re.IGNORECASE):
-                hits.append(pat)
-        outside = g.paths_outside(full, job_dir)
-        if time.monotonic() > deadline:
+        scanned = _scan_fallback(full, job_dir, g, time.monotonic() + SCAN_DEADLINE_S)
+        if scanned is None:
             return False, f"replay-guard post FAIL（無指令行）且整份掃描逾時（>{SCAN_DEADLINE_S}s）無法判定"
+        hits, outside = scanned
         if not hits and not outside:
             return True, "post：codex 未執行任何指令（純推理），整份紀錄無禁區樣式與出界路徑"
         return False, "replay-guard post FAIL（無指令行，但整份紀錄命中）：" + "；".join(hits + outside[:5])

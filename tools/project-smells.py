@@ -111,7 +111,8 @@ def _split_windows(cmd: str) -> List[str]:
     """Windows 用：交給系統原生 `CommandLineToArgvW`（與 shell／CreateProcess 同一套語意：`--root="C:\\A B"` 一個 token、
     `a\\"` 的反斜線保護引號、不認單引號）。不自己寫切法：shlex 非 POSIX 只認 token 開頭的引號，自家狀態機又會把
     `a\\" --json b\\"` 吞成一個 token。"""
-    if not cmd.strip():
+    cmd = cmd.strip()  # 前導空白會讓 API 回空的 argv[0]（官方明載），先去掉
+    if not cmd:
         return []
     import ctypes
     from ctypes import wintypes
@@ -126,9 +127,12 @@ def _split_windows(cmd: str) -> List[str]:
     if not p:
         raise SmellsError(f"smells_cmd 切參數失敗（CommandLineToArgvW 回 NULL）：{cmd}")
     try:
-        return [p[i] for i in range(n.value)]
+        argv = [p[i] for i in range(n.value)]
     finally:
         kernel32.LocalFree(p)
+    if argv and argv[0] == "":  # 再保險一層：空 argv[0] 到 subprocess 是 WinError 87
+        argv = argv[1:]
+    return argv
 
 
 def _split_cmd(cmd: Any) -> List[str]:

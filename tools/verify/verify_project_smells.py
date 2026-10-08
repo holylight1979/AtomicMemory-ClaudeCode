@@ -181,3 +181,13 @@ def test_split_cmd_windows_escaped_quote_keeps_tokens():
     assert len(got) == 5 and "--json" in got
     assert ps._split_windows('python x.py "" tail') == ["python", "x.py", "", "tail"], "空引號保留空 token"
     assert ps._split_windows('python x.py a"b c"d') == ["python", "x.py", "ab cd"], "token 中段引號合併"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="CommandLineToArgvW 只在 Windows")
+def test_split_cmd_windows_leading_whitespace():
+    """退回修正第三輪（BLOCK 1）：前導空白不得產生空 argv[0]（API 官方行為），尾空白、tab 同。"""
+    assert ps._split_windows("  python x.py") == ["python", "x.py"]
+    assert ps._split_windows("\t python x.py \t") == ["python", "x.py"]
+    assert ps._split_cmd("   python gen.py --json") == ["python", "gen.py", "--json"]
+    got = ps._split_windows("   ")
+    assert got == [] and all(t != "" for t in ps._split_windows(" x"))

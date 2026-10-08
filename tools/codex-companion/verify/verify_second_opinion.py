@@ -416,6 +416,72 @@ def test_execute_on_terminal_job_keeps_original_reason(env):
     raw_b = bb.read_bytes()
     rb = _execute(env, b["job_dir"])
     assert rb["status"] == "blocked" and bb.read_bytes() == raw_b
+    # running／done 兩態同樣只回傳不寫（手動把 status 設成該態）
+    for state in ("running", "done"):
+        env["plan"]["pre"] = "PASS"
+        c = _prepare(env, session_id=f"{state[:4]}0000")
+        cp = Path(c["job_dir"]) / "status.json"
+        d = json.loads(cp.read_text(encoding="utf-8"))
+        d["status"] = state
+        d["reason"] = f"原始 {state} 原因"
+        cp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8", newline="\n")
+        raw_c = cp.read_bytes()
+        rc = _execute(env, c["job_dir"])
+        assert rc["status"] == state and rc["reason"] == f"原始 {state} 原因" and cp.read_bytes() == raw_c, state
+
+
+def test_post_fallback_scan_deadline_enforced(env, monkeypatch):
+    """退回修正第三輪（BLOCK 2）：掃描分塊、塊間查 deadline；paths_outside 很慢時也要在 deadline＋5 s 內回 failed「掃描逾時」。"""
+    import time as _t
+    real = run._guard_module()
+
+    class SlowGuard:
+        FORBIDDEN_IN_LOG = real.FORBIDDEN_IN_LOG
+        ABS_PATH = real.ABS_PATH
+
+        @staticmethod
+        def paths_outside(text, sandbox):
+            _t.sleep(0.25)
+            return real.paths_outside(text, sandbox)
+    monkeypatch.setattr(run, "_guard_module", lambda: SlowGuard)
+    monkeypatch.setattr(run, "SCAN_DEADLINE_S", 0.5)
+    monkeypatch.setattr(run, "SCAN_CHUNK_CHARS", 200_000)
+    env["plan"]["post"] = "FAIL"
+    env["plan"]["post_reasons"] = ["紀錄裡找不到任何指令行（格式變了？），無法判定"]
+    env["plan"]["exec"]["stderr"] = "model: gpt-6-astra\n"
+    env["plan"]["exec"]["stdout"] = "C:\\x " * 400_000  # 2,000,000 字元 → 10 塊，每塊 0.25 s，第 3 塊前超過 0.5 s
+    res = _prepare(env)
+    t0 = _t.monotonic()
+    st = _execute(env, res["job_dir"])
+    elapsed = _t.monotonic() - t0
+    assert st["status"] == "failed" and "掃描逾時" in st["reason"], st
+    assert elapsed <= 0.5 + 5, f"deadline 沒有生效：{elapsed:.1f}s"
+    assert not (Path(res["job_dir"]) / "reply.md").exists()
+
+
+def test_post_fallback_chunked_scan_equivalent_to_whole(env):
+    """分塊掃描與整檔一次掃結果相同：跨塊邊界的出界路徑與 git 子命令都抓得到；乾淨的大紀錄仍 PASS。"""
+    g = run._guard_module()
+    job = env["tmp"] / "sandbox"
+    job.mkdir()
+    filler = "clean line\n" * 100
+    text = filler * 1000 + 'read C:\\outside\\a.txt and git log --oneline\n' + filler * 1000
+    orig_chunk = run.SCAN_CHUNK_CHARS
+    try:
+        run.SCAN_CHUNK_CHARS = 50_000  # 多塊，邊界落在填充段中
+        chunked = run._scan_fallback(text, job, g, _deadline_far())
+    finally:
+        run.SCAN_CHUNK_CHARS = orig_chunk
+    whole = run._scan_fallback(text, job, g, _deadline_far())
+    assert chunked == whole and chunked is not None
+    hits, outside = chunked
+    assert any("git" in h for h in hits) and any("outside" in o.lower() for o in outside)
+    assert run._scan_fallback(filler * 3000, job, g, _deadline_far()) == ([], [])
+
+
+def _deadline_far():
+    import time as _t
+    return _t.monotonic() + 60
 
 
 def test_second_execute_on_same_job_rejected(env):
