@@ -108,7 +108,10 @@ function buildConflictReport({ slug, incomingTitle, incomingContent, matches, de
  *  Payload goes over stdin (script's no-args pipe mode) — no shell, no escaping
  *  surface. Fail-open on any infra error, but crashLog so the degradation is
  *  visible (可觀測性鐵律). */
-function execWriteGate(content, classification, layers, title) {
+const GATE_OPT_KEYS = ["mode", "existing_path", "actions", "depends", "kind_hint", "skip_gate"];
+
+/** opts：v6 分型（mode/existing_path/actions/depends/kind_hint/skip_gate）；只送有給的鍵，py stdin 讀同名鍵。 */
+function execWriteGate(content, classification, layers, title, opts) {
   return new Promise((resolve) => {
     const scriptPath = path.join(TOOLS_DIR, "memory-write-gate.py");
     if (!fs.existsSync(scriptPath)) {
@@ -152,7 +155,11 @@ function execWriteGate(content, classification, layers, title) {
     });
     try {
       // layers：去重只比這幾層（global + 當前專案自己的層）；不傳 = 全庫比對
-      cp.stdin.write(JSON.stringify({ content, classification, layers: layers || null, title: title || "" }));
+      const payload = { content, classification, layers: layers || null, title: title || "" };
+      for (const k of GATE_OPT_KEYS) {
+        if (opts && opts[k] !== undefined && opts[k] !== null) payload[k] = opts[k];
+      }
+      cp.stdin.write(JSON.stringify(payload));
       cp.stdin.end();
     } catch {} // close handler resolves either way
   });

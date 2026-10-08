@@ -1220,3 +1220,96 @@ def test_36_edit_metadata_value_with_backslash(isolated_claude):
     assert ("- Quote: " + q + chr(10)) in text and ("- Source: " + src + chr(10)) in text
     res = edit_metadata(r.path, quote=q.replace("x", "y"), source="test")
     assert res.ok and ("C:" + BS + "Users" + BS + "y" + BS + "CompanyAtomsMem") in r.path.read_text(encoding="utf-8")
+
+
+# ─── 37. 導讀卡預算 4096：py 落檔端與 write-gate 同卡同判；js 不寫死預算數字 ─────────
+
+
+def test_37_hub_card_budget_4096_py_same_verdict_js_no_hardcode(isolated_claude):
+    import importlib.util as _ilu
+    from lib import atom_io_cli as _cli
+    from lib.hub_card import HUB_CARD_BUDGET
+    _sp = _ilu.spec_from_file_location("mwg_eq", LIB_PARENT / "tools" / "memory-write-gate.py")
+    _m = _ilu.module_from_spec(_sp)
+    _sp.loader.exec_module(_m)
+    _m.check_dedup = lambda *a, **k: None
+    _m.write_audit_log = lambda *a, **k: None
+    cfg = {"knowledge_budget_bytes": 3072, "dedup_score": 0.8}
+    pad = "這段是部位的真相與邊界說明" * 18          # 每段約 700 bytes → 五段約 3.5KB（>3072、<4096）
+    heads = ("做什麼", "權威在哪", "動手前必問", "已知病灶", "最近驗證")
+    hub_lines = [f"**{h}**：{pad}" for h in heads]
+    plain_lines = [f"結論{i}：{pad}" for i in range(5)]
+    hub_content = build_atom_content(
+        title="x部位導讀", scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+        knowledge=hub_lines, actions=["動手前先讀"], created_at=FIXED_TODAY, depends=["path:C:/x/y.py"],
+    )
+    plain_content = build_atom_content(
+        title="x一般卡", scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+        knowledge=plain_lines, actions=["動手前先讀"], created_at=FIXED_TODAY,
+    )
+    assert 3072 < len("\n".join(hub_lines).encode("utf-8")) < HUB_CARD_BUDGET
+    # 落檔端：hub 過（4096）、一般卡擋（3072）且訊息附 kind／route_to
+    assert _cli._budget_check(hub_content) is None
+    plain_err = _cli._budget_check(plain_content)
+    assert plain_err and "超過預算 3072" in plain_err and "kind=plain" in plain_err and "route_to=" in plain_err
+    # 寫入閘：同卡同判
+    g_hub = _m.evaluate("\n".join(hub_lines), title="x部位導讀", config=cfg, depends=["path:C:/x/y.py"], skip_gate=True)
+    g_plain = _m.evaluate("\n".join(plain_lines), title="x一般卡", config=cfg, skip_gate=True)
+    assert g_hub["action"] == "add" and g_hub["kind"] == "hub" and g_hub["budget"]["limit"] == HUB_CARD_BUDGET
+    assert g_plain["action"] == "skip" and g_plain["budget"]["limit"] == 3072
+    # append 預檢：既有 hub 卡在 3072～4096 之間仍可補一行；一般卡同量級被擋
+    hub_file = isolated_claude["memory"] / "hub.md"
+    hub_file.write_text(hub_content, encoding="utf-8", newline="\n")
+    assert _cli._append_budget_check(hub_content, ["補一行"], str(hub_file)) is None
+    err = _cli._append_budget_check(plain_content, ["補一行"], str(hub_file))
+    assert err and "kind=complement" in err and "route_to=" in err and "不截斷" in err
+    # js 端不寫死預算數字：limit／kind 只從 py 回傳欄位 echo
+    js = (LIB_PARENT / "tools" / "workflow-guardian-mcp" / "lib" / "atom-tools.js").read_text(encoding="utf-8")
+    assert "3072" not in js and "4096" not in js
+    assert "b.limit" in js and "g.kind" in js
+
+
+# ─── 38. BLOCK 1：真 hub 卡 knowledge 3.3 KB 實際 append 成功落檔（不只預檢） ─────────
+
+
+def test_38_real_hub_card_3300_bytes_append_succeeds_end_to_end(isolated_claude, monkeypatch, capsys):
+    import io as _io
+    import json as _json
+    from lib import atom_io_cli as _cli
+    from lib.atom_io import append_atom_file
+    from lib.atom_spec import knowledge_sections_bytes
+    pad = "這段是部位的真相與邊界說明" * 17          # 五段約 3.3 KB
+    heads = ("做什麼", "權威在哪", "動手前必問", "已知病灶", "最近驗證")
+    hub_content = build_atom_content(
+        title="x部位導讀", scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+        knowledge=[f"**{h}**：{pad}" for h in heads], actions=["動手前先讀"],
+        created_at=FIXED_TODAY, depends=["path:C:/x/y.py"],
+    )
+    kb = knowledge_sections_bytes(hub_content)
+    assert 3200 < kb < 3500, kb
+    hub_file = isolated_claude["memory"] / "設計通則" / "x部位導讀.md"
+    hub_file.parent.mkdir(parents=True, exist_ok=True)
+    hub_file.write_text(hub_content, encoding="utf-8", newline="\n")
+    # ① 直接呼叫 append_atom_file：4096 上限 → 成功落檔
+    r = append_atom_file(hub_file, ["[臨] 補一條：驗法改用 pytest -q"], source="test")
+    assert r.ok, r.error
+    after = hub_file.read_text(encoding="utf-8")
+    assert "- [臨] 補一條：驗法改用 pytest -q" in after and after.index("補一條") < after.index("## 行動")
+    assert 3072 < knowledge_sections_bytes(after) < 4096
+    # ② 走 CLI action=append（預檢＋append_atom_file 同一條路）再補一行
+    monkeypatch.setattr(sys, "stdin", _io.StringIO(_json.dumps({
+        "action": "append", "file_path": str(hub_file), "knowledge": ["[臨] 再補一條"], "source": "mcp",
+    })))
+    rc = _cli.main()
+    out = _json.loads(capsys.readouterr().out.strip())
+    assert rc == 0 and out["ok"] is True, out
+    assert "- [臨] 再補一條" in hub_file.read_text(encoding="utf-8")
+    # ③ 一般卡同量級：append_atom_file 仍以 3072 拒（hub 判定只看標題／段落）
+    plain_content = build_atom_content(
+        title="x一般卡", scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+        knowledge=[f"結論{i}：{pad}" for i in range(5)], actions=["動手前先讀"], created_at=FIXED_TODAY,
+    )
+    plain_file = isolated_claude["memory"] / "設計通則" / "x一般卡.md"
+    plain_file.write_text(plain_content, encoding="utf-8", newline="\n")
+    rp = append_atom_file(plain_file, ["[臨] 補一條"], source="test")
+    assert not rp.ok and "超過預算 3072" in rp.error

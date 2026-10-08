@@ -228,8 +228,11 @@ def known_project_names() -> List[Tuple[str, str, bool]]:
             if _registry_name_ok(c.strip()):
                 add(c, "已登記專案", True)
     for name in reg.get("project_names") or []:
-        if str(name).strip():
-            add(str(name), "本機專案名單", False)
+        name = str(name).strip()
+        if not name or name.lower() in _GENERIC_NAMES:
+            continue   # 泛詞（Game／Server／Tool…）完全不參與：擋了會變死路（scrub 不動、再送仍擋）
+        # 非泛詞手列名不分大小寫整詞比對；短名（≤4，如 Qux）維持既有：整詞、原大小寫
+        add(name, "本機專案名單", len(name) > 4)
     return out
 
 
@@ -419,3 +422,41 @@ def check_global_write(
     lines += ["（本閘不受 skip_gate 影響；append/replace 帶專名的新內容同樣擋。）",
               f"[gate cwd={project_cwd}]"]
     return "\n".join(lines)
+
+
+# ─── 公司層（org）寫入閘與去專案細節（v6 M2）─────────────────────────────────
+
+def scrub_project_details(text: str) -> str:
+    """去專案細節：已登記專案根底下的絕對路徑 → 「<專案路徑>」、專案名 → 「某專案」（包 anonymize_projects），
+    再把字面「此專案／本專案／這個專案／這專案」改成「某專案」。給 candidate_global／org 改寫用。"""
+    if not text:
+        return text
+    out = anonymize_projects(text)
+    for lit in PROJECT_LITERALS:
+        out = out.replace(lit, "某專案")
+    return out
+
+
+def check_org_write(text_or_fields) -> List[str]:
+    """公司層（scope=org）寫入前的範疇閘：內容含本機已登記專案名／專案根底下絕對路徑／字面專案指涉 → 回錯誤列
+    （空列＝放行）。公司層給所有專案共用，專案細節要先 scrub（atom_io_cli action=scrub）再寫。
+    接受純文字或 {title, triggers, knowledge, actions} 欄位 dict。"""
+    if isinstance(text_or_fields, dict):
+        fields = text_or_fields
+    else:
+        fields = {"knowledge": [str(text_or_fields or "")]}
+    hits = scan_known_projects(fields)
+    for field_name, text in _iter_field_texts(fields):
+        for lit in PROJECT_LITERALS:
+            if lit in text:
+                hits.append({"field": field_name, "term": lit, "source": "字面專案指涉",
+                             "excerpt": text.strip()[:80]})
+    if not hits:
+        return []
+    errors = [
+        "realm gate: scope=org rejected：公司層只放全公司共用的知識，不得帶專案名、專案路徑或「此專案」指涉。",
+    ]
+    errors += [f"命中：{h['field']}『{h['term']}』({h['source']})" for h in hits[:6]]
+    errors.append("改寫：先 scrub（atom_io_cli action=scrub 或 realm_gate.scrub_project_details）去專案細節，"
+                  "事實描述不走樣再寫；真屬單一專案的知識改 scope=shared＋該專案 project_cwd。")
+    return errors

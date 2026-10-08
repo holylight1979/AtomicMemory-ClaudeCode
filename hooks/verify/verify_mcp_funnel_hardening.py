@@ -137,3 +137,70 @@ def test_dedup_layers_for_matches_indexer_layer_labels():
     assert p == ["global", "extra:local-atoms", "shared:c--gamea", "personal:c--gamea:holylight"]
     assert ro == ["global", "extra:local-atoms", "shared:d--work-area-demo-projs-appbviewer",
                   "role:d--work-area-demo-projs-appbviewer:programmer"]
+
+
+# ─── v6 M1／M2：寫入閘分型 payload、append/replace 叫閘、org realm 先於改寫 ─────────
+
+
+def test_write_gate_payload_has_v6_keys():
+    """funnel.execWriteGate(..., opts) 把 mode/existing_path/actions/depends/kind_hint 透傳給 py stdin（同名鍵）。"""
+    funnel = _read(f"{MCP_LIB}/funnel.js")
+    body = _fn_body(funnel, "function execWriteGate")
+    assert "opts" in body and "GATE_OPT_KEYS" in funnel
+    for k in ("mode", "existing_path", "actions", "depends", "kind_hint"):
+        assert f'"{k}"' in funnel, f"GATE_OPT_KEYS 缺 {k}"
+    assert "stdin.write(JSON.stringify(payload))" in body
+
+
+def test_atom_tools_append_and_replace_call_write_gate():
+    """create／append／replace 三分支都叫閘（mode 各自標明）；拒寫句子只來自 py reason（gateRejectText 單點）。"""
+    tools = _read(f"{MCP_LIB}/atom-tools.js")
+    create = tools[tools.index("// ── Mode: create ──"):tools.index("// ── Mode: append ──")]
+    append_ = tools[tools.index("// ── Mode: append ──"):tools.index("// ── Mode: replace ──")]
+    replace = tools[tools.index("// ── Mode: replace ──"):]
+    assert 'mode: "create"' in create and "execWriteGate(" in create
+    assert 'mode: "append"' in append_ and "execWriteGate(" in append_ and "existing_path: filePath" in append_
+    assert 'mode: "replace"' in replace and "execWriteGate(" in replace and "existing_path: filePath" in replace
+    # append 的閘在 dry_run 回傳之前（閘一律擋、沒有 dry_run 豁免）
+    assert append_.index("execWriteGate(") < append_.index("if (dry_run)")
+    # js 不另寫拒寫句：Write-gate rejected 只出現在 gateRejectText 一處
+    assert tools.count("Write-gate rejected:") == 1 and "function gateRejectText" in tools
+    assert "gateRejectText(" in create and "gateRejectText(" in append_ and "gateRejectText(" in replace
+    # skip_gate 不再整段跳過閘（只透傳給 py 跳 dedup/quality）
+    assert "if (!skip_gate) {" not in create and "skip_gate: !!skip_gate" in create
+
+
+def test_org_realm_check_runs_before_rewrite_to_shared():
+    tools = _read(f"{MCP_LIB}/atom-tools.js")
+    org_check = tools.index('scope: "org", project_cwd: project_cwd || process.cwd()')
+    rewrite = tools.index('    scope = "shared";\n    project_cwd = orgRoot;')
+    assert org_check < rewrite, "org realm 檢查必須在 org→shared 改寫之前"
+    assert tools.index('spawnAtomCli("realm_check", {\n      scope: "org"') < rewrite
+
+
+def test_no_spawn_site_without_timeout():
+    """新加的 spawn 也要有 timeout+kill：掃 funnel.js／atom-tools.js 所有含 .spawn( 的函式。"""
+    for rel in (f"{MCP_LIB}/funnel.js", f"{MCP_LIB}/atom-tools.js"):
+        src = _read(rel)
+        starts = [m.start() for m in re.finditer(r"^(?:async )?function \w+\(", src, re.MULTILINE)]
+        for i, st in enumerate(starts):
+            end = starts[i + 1] if i + 1 < len(starts) else len(src)
+            body = src[st:end]
+            if ".spawn(" not in body:
+                continue
+            name = body[:body.index("(")]
+            # 既有 fire-and-forget（detached + unref，背景重產目錄）不在此列；新加的 spawn 一律要 timeout
+            if name.endswith("syncMemoryIndex") and "unref()" in body:
+                continue
+            assert "setTimeout" in body and "kill()" in body, f"{rel}:{name} 缺 timeout+kill"
+
+
+def test_update_branch_relays_py_reason_and_index_payload_carries_depends():
+    """WARN：update 分支轉述 py reason（不自組句）；create_atom index 與 replace write_index payload 帶 depends（a2 接）。"""
+    tools = _read(f"{MCP_LIB}/atom-tools.js")
+    assert "similar to existing atom" not in tools
+    assert "`Write-gate: ${gateResult.reason}" in tools
+    assert "...(Array.isArray(depends) && { depends })" in tools.split("// ── Mode: append ──")[0]
+    assert "...(Array.isArray(dependsFinal) && { depends: dependsFinal })" in tools
+    cli = _read("lib/atom_io_cli.py")
+    assert "_index_kwargs" in cli and 'inspect.signature(write_index).parameters' in cli

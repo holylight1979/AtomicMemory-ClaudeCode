@@ -639,7 +639,10 @@ def append_atom_file(
     # 大小預算硬拒（append 是 atom 肥大化的實際路徑：一次一點、累積成山）。
     # 以「拼接後」的 knowledge 區總量計——existing 已超額者任何 append 都會被拒，
     # 逼迫先瘦身（結論留 atom、個案敘事外移文件）再追加。
-    budget_err = knowledge_budget_error(knowledge_sections_bytes(content))
+    from .atom_spec import KNOWLEDGE_BUDGET_BYTES
+    from .hub_card import budget_limit_for   # 導讀卡（標題含導讀或五段 ≥4）用 4096，其餘 KNOWLEDGE_BUDGET_BYTES
+    budget_err = knowledge_budget_error(knowledge_sections_bytes(content),
+                                        budget_limit_for(existing, KNOWLEDGE_BUDGET_BYTES))
     if budget_err:
         return WriteResult(ok=False, audit_id=audit_id,
                            error=f"Budget rejected after append: {budget_err}")

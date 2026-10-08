@@ -5,7 +5,12 @@
 
 Schema:
   stdin:  {"action": "write_atom"|"write_index"|"write_index_full"|"write_raw"
-                    |"build"|"append"|"locate"|"check_supersedes"|"retire", ...kwargs}
+                    |"build"|"append"|"locate"|"check_supersedes"|"retire"|"realm_check"|"scrub", ...kwargs}
+  預算：create（create_atom／build）走 _budget_check、append 走 _append_budget_check＋atom_io.append_atom_file；
+  replace 走 build 的 _budget_check。直接呼叫 lib.atom_io.write_atom(mode="replace") 沒有預算檢查（既有差異，
+  CLI／js 路徑都已預檢）。
+  realm_check：{scope?, project_cwd, title, triggers, knowledge, actions, domain} → scope=org 走 check_org_write，
+  shared 直接放行，其餘走 check_global_write。scrub：{text} → extra.text（去專案名／路徑／「此專案」）。
   stdout: WriteResult.to_dict()  (single-line JSON)
   exit code: 0=ok, 1=error
 
@@ -53,14 +58,71 @@ from .atom_io import (
 from .atom_access import init_access
 from .atom_spec import (
     build_atom_content, validate_atom_content,
-    knowledge_sections_bytes, knowledge_budget_error,
+    knowledge_sections_bytes, knowledge_budget_error, KNOWLEDGE_BUDGET_BYTES,
+    render_knowledge_lines,
 )
+from .hub_card import budget_limit_for, is_hub_card, route_doc_for, depends_paths
 
 
-def _budget_check(content: str):
-    """build 產物的 knowledge 區大小預算（create/replace 共用硬拒；append 在
-    atom_io.append_atom_file 內檢）。超額回錯誤字串，否則 None。"""
-    return knowledge_budget_error(knowledge_sections_bytes(content))
+def _index_kwargs(index: dict) -> dict:
+    """write_index 的選填鍵：depends 只在 write_index 簽名已收（track-a2 接欄）時傳，否則不傳不丟錯。"""
+    import inspect
+    out = {}
+    if index.get("depends") is not None and "depends" in inspect.signature(write_index).parameters:
+        out["depends"] = list(index["depends"])
+    return out
+
+
+def _budget_check(content: str, route_paths=None, kind_hint=None):
+    """build 產物的 knowledge 區大小預算（create/replace 共用硬拒；append 走 _append_budget_check）。
+    導讀卡（標題含導讀／kind_hint=hub／五段 ≥4）用 HUB_CARD_BUDGET，其餘 KNOWLEDGE_BUDGET_BYTES。
+    超額回錯誤字串（附 kind／route_to），否則 None。"""
+    limit = budget_limit_for(content, KNOWLEDGE_BUDGET_BYTES, kind_hint=kind_hint)
+    err = knowledge_budget_error(knowledge_sections_bytes(content), limit)
+    if err is None:
+        return None
+    kind = "hub" if limit != KNOWLEDGE_BUDGET_BYTES else "plain"
+    return f"{err}｜kind={kind} route_to={route_doc_for(route_paths or [])}"
+
+
+def _append_budget_check(existing: str, knowledge, file_path: str):
+    """append 預檢：既有 knowledge 區＋新增行（render 後）≤ 既有卡的預算（hub 卡 4096、其餘 3072）。
+    超額回錯誤字串（kind=complement、route_to 部位文件），否則 None。不截斷、不改內容。"""
+    limit = budget_limit_for(existing, KNOWLEDGE_BUDGET_BYTES)
+    existing_bytes = knowledge_sections_bytes(existing)
+    rendered = "\n".join(render_knowledge_lines(list(knowledge or []))) + "\n"
+    new_bytes = len(rendered.encode("utf-8"))
+    total = existing_bytes + new_bytes
+    if total <= limit:
+        return None
+    route = route_doc_for(depends_paths(_depends_of(existing)) + [file_path])
+    return (f"knowledge 區 {total} bytes（既有 {existing_bytes}＋新增 {new_bytes}）超過預算 {limit} bytes；"
+            f"不截斷：個案細節寫進 {route}；atom 只留結論一行＋路徑｜kind=complement route_to={route}")
+
+
+def _depends_of(content: str):
+    import re as _re
+    m = _re.search(r"^- Depends:\s*(.+)$", content or "", _re.MULTILINE)
+    return [x.strip() for x in m.group(1).split(",")] if m else []
+
+
+def _realm_check(payload: dict):
+    """realm_check 依 scope 分派：org → check_org_write（公司層不得帶專案名／路徑）；
+    其餘（global／personal 跨專案）→ check_global_write；shared 不在此閘（專案層本來就能寫專名）。"""
+    scope = str(payload.get("scope") or "global")
+    fields = {"title": payload.get("title", ""), "triggers": payload.get("triggers"),
+              "knowledge": payload.get("knowledge"), "actions": payload.get("actions")}
+    if scope == "shared":
+        return None
+    if scope == "org":
+        from .realm_gate import check_org_write
+        errs = check_org_write(fields)
+        return "\n".join(errs) if errs else None
+    from .realm_gate import check_global_write
+    return check_global_write(
+        payload.get("project_cwd"), title=payload.get("title", ""),
+        triggers=payload.get("triggers"), knowledge=payload.get("knowledge"),
+        actions=payload.get("actions"), domain=payload.get("domain"))
 
 
 def _canonical_build_params(build_params: dict):
@@ -155,7 +217,8 @@ def create_atom(payload: dict) -> WriteResult:
     err = validate_atom_content(content)
     if err is not None:
         return WriteResult(ok=False, error=f"validate: {err}")
-    budget_err = _budget_check(content)
+    budget_err = _budget_check(content, depends_paths(build_params.get("depends")) + [str(file_path)],
+                               kind_hint=payload.get("kind_hint"))
     if budget_err is not None:
         return WriteResult(ok=False, error=f"budget: {budget_err}")
     if payload.get("dry_run"):
@@ -177,7 +240,7 @@ def create_atom(payload: dict) -> WriteResult:
     ir = write_index(
         base_dir=Path(index["base_dir"]), slug=index["slug"],
         rel_path=index["rel_path"], triggers=list(index["triggers"]), source="mcp",
-        scope=index.get("scope"),
+        scope=index.get("scope"), **_index_kwargs(index),
     )
     return WriteResult(
         ok=True, path=file_path,
@@ -286,7 +349,8 @@ def main() -> int:
             result = write_atom(**payload)
         elif action == "write_index":
             payload["base_dir"] = Path(payload["base_dir"])
-            result = write_index(**payload)
+            depends = payload.pop("depends", None)
+            result = write_index(**payload, **_index_kwargs({"depends": depends}))
         elif action == "write_index_full":
             # JSON 不能傳 Path，caller 用 str；轉成 Path
             payload["index_path"] = Path(payload["index_path"])
@@ -304,7 +368,14 @@ def main() -> int:
                                  extra={"content": content, "supersedes": sup})
         elif action == "append":
             payload["file_path"] = Path(payload["file_path"])
-            result = append_atom_file(**payload)
+            # 預算預檢（hub 卡 4096／其餘 3072；超額附 kind／route_to），再交 append_atom_file 拼接落檔
+            try:
+                existing = payload["file_path"].read_text(encoding="utf-8-sig")
+            except OSError:
+                existing = ""
+            budget_err = _append_budget_check(existing, payload.get("knowledge"), str(payload["file_path"])) if existing else None
+            result = (WriteResult(ok=False, error=f"budget: {budget_err}") if budget_err
+                      else append_atom_file(**payload))
         elif action == "create_atom":
             result = create_atom(payload)
         elif action == "locate":
@@ -319,14 +390,14 @@ def main() -> int:
         elif action == "retire":
             result = retire_atom(payload)
         elif action == "realm_check":
-            # 專案專屬內容不得落 global（lib/realm_gate.py 單源）。MCP js 對 scope=global
-            # 的所有 mode 先問這裡；不受 skip_gate 影響。
-            from lib.realm_gate import check_global_write
-            gate_err = check_global_write(
-                payload.get("project_cwd"), title=payload.get("title", ""),
-                triggers=payload.get("triggers"), knowledge=payload.get("knowledge"),
-                actions=payload.get("actions"), domain=payload.get("domain"))
+            # 專案專屬內容不得落 global／org（lib/realm_gate.py 單源）。MCP js 對 scope=global
+            # 與 scope=org（改寫成 shared 之前）的所有 mode 先問這裡；不受 skip_gate 影響。
+            gate_err = _realm_check(payload)
             result = WriteResult(ok=gate_err is None, error=gate_err)
+        elif action == "scrub":
+            # 去專案細節：{text} → {extra:{text}}；candidate_global／org 改寫前用
+            from .realm_gate import scrub_project_details
+            result = WriteResult(ok=True, extra={"text": scrub_project_details(str(payload.get("text") or ""))})
         elif action == "search":
             result = search_atoms(payload)
         elif action == "source":
