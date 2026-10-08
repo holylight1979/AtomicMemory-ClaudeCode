@@ -177,7 +177,7 @@ PostToolUse 偵測 `_CHANGELOG.md` 寫入 → 行數 > `config.changelog_auto_ro
 
 檔案地圖：`lib/atom_locations.classify_realm`（+ server.js mirror，base-only 保 parity）、`tools/atom-set-realm.py`（`_AIDocs/_atoms/` path 唯一寫者，連 `.access.json` sidecar 原子搬、Scope 保 global、`--to-core` 可逆，不走 `atom-move`）、`tools/realm_llm_classify.py`（SessionEnd sweep 用，`realm.llm_fallback.enabled` 預設 false）、`memory/_local_catalog.md`（local 目錄，僅 `~/.claude` 注入）、`skills/refile/`（手動歸檔前端）。守門：`lib/verify/verify_atom_io_equivalence.py`（分類器零誤判／py↔js parity／canon／深度閘／自學）、`lib/verify/verify_realm_injection_gate.py`、`tools/verify/verify_realm_llm_classify.py`、`hooks/verify/verify_realm_sweep.py`、`tools/verify/verify_local_catalog_split.py`。
 
-## MCP Server（9 tool：atom_write／atom_promote／atom_move／atom_edit_meta／atom_retire／anti_evasion_report／knowledge_harvest_report／memory_search／atom_source）
+## MCP Server（12 tool：atom_write／atom_promote／atom_move／atom_edit_meta／atom_retire／anti_evasion_report／knowledge_harvest_report／memory_search／atom_source／second_opinion_start／second_opinion_result／project_smells）
 
 服務表與不在時行為：TECH §9；`atom_write` 閘門序：TECH §6.1；scope 落點：TECH §4.4；晉升條件（只走效用 Wilson 軌、ReadHits 純曝光）：TECH §6.4；`atom_edit_meta` 契約：SPEC §3.4；`atom_write(supersedes=)` 三態／receipt 格式／`atom_retire` 退役步驟：SPEC §3.5；create／append／replace 落點 vs 定位分離：SPEC §2.3；`knowledge_harvest_report` 的 items 核對（one-writer，Python PostToolUse）：TECH §6.3；砍掉的 4 個內部 IPC tool：TECH §14.2；`memory_search` 讀取端契約與三入口：TECH §5.8；`scope=org` 語法糖：TECH §4.4／§6.1。
 
