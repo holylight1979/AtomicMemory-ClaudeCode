@@ -34,7 +34,8 @@ def _load(name: str, path: Path):
 
 
 os.environ.pop("WG_CLAUDE_DIR", None)  # run.py 以檔案相對位置定 CLAUDE_DIR（＝本 repo 根），不吃 live 覆蓋
-_REAL_RUN = subprocess.run  # env fixture 會把 subprocess.run 換成假的；真 spawn 的案用這個
+_REAL_RUN = subprocess.run  # env fixture 會把 subprocess.run／Popen 換成假的；真 spawn 的案用這兩個
+_REAL_POPEN = subprocess.Popen
 run = _load("so_run", RUN_PY)
 pack = run.pack
 so_prompts = run.so_prompts
@@ -502,11 +503,12 @@ def test_post_fallback_10mb_payload_under_5s(env):
     assert elapsed <= 5, f"10 MB payload 掃了 {elapsed:.1f}s"
 
 
-def test_scan_subcommand_real_subprocess(env):
+def test_scan_subcommand_real_subprocess(env, monkeypatch):
     """真的 spawn 一次 `run.py scan --job`（不經 fake）：JSON＋尾行哨兵、exit 0/1 對應 PASS/FAIL。
-    env fixture 已把 subprocess.run/Popen 換成假的，所以這裡用模組載入時存下的真 subprocess.run。"""
+    env fixture 已把 subprocess.run/Popen 換成假的，所以 prepare 之後把真 Popen 換回來、用真 run。"""
     res = _prepare(env)
     job = Path(res["job_dir"])
+    monkeypatch.setattr(subprocess, "Popen", _REAL_POPEN)
     (job / "codex.stderr.log").write_text("model: x\n", encoding="utf-8", newline="\n")
     (job / "codex.stdout.log").write_text("clean\n", encoding="utf-8", newline="\n")
     cmd = [sys.executable, "-X", "utf8", str(RUN_PY), "scan", "--job", str(job)]
