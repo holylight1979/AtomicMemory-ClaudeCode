@@ -1,0 +1,13 @@
+{
+  "rows": [
+    {"path": "src/sched/queue.py", "category": "hotspot", "reason": "近 30 天 4 次 fix 提交，同檔雙 fix 2 對", "score": 9.1, "part": "排程器"},
+    {"path": "src/sched/plan.py", "category": "complexity", "reason": "巢狀四層、函式 160 行", "score": 8.2, "part": "排程器"},
+    {"path": "src/sched/returns.py", "kind": "god-class", "reason": "一個類別 23 個公開方法、同時管寫回與重試", "score": 7.5, "part": "排程器"},
+    {"path": "src/sched/legacy.py", "category": "stale", "reason": "180 天無提交但仍被 3 處 import", "score": 6.0, "part": "排程器"},
+    {"path": "src/sched/util.py", "category": "duplication", "reason": "與 src/common/util.py 重複 3 段", "score": 5.5, "part": "排程器"},
+    {"path": "src/sched/io.py", "category": "coupling", "reason": "import 7 個上層模組", "score": 5.0, "part": "排程器"},
+    {"path": "src/sched/noreason.py", "category": "size", "score": 4.0, "part": "排程器"},
+    {"path": "src/sched/weird.py", "category": "mystery", "reason": "分類名不在白名單也沒映射", "score": 3.0, "part": "排程器"},
+    {"path": "src/ui/panel.py", "category": "size", "reason": "別的部位", "score": 9.9, "part": "介面"}
+  ]
+}
