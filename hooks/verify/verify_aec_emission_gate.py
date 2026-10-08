@@ -380,6 +380,20 @@ def test_ptu_emit_j_missing_when_receipts_exist(monkeypatch, tmp_path):
     assert state["anti_evasion_report"]["j_missing"] is False
 
 
+def test_ptu_legacy_emit_without_jk_keys_is_exempt(monkeypatch, tmp_path, driven, capsys):
+    """舊格式呼叫（a～i，沒有 j／k 鍵）：報告不寫 j／k、不標 k_missing；Stop 對帳閘 (e) 不拿缺鍵當空字串擋（只有明給空字串才擋）。"""
+    receipts = {"verify_receipts": {_SID: [{"turn_seq": 7, "sentinels": [{"name": "X_CHECK", "verdict": "PASS"}], "exit_code": None}]}}
+    legacy_input = {k: "無" for k in "abcdefghi"}
+    legacy_input["h"] = "可關閉"
+    state = _drive_ptu(monkeypatch, tmp_path, legacy_input, **receipts)
+    aec = state["anti_evasion_report"]
+    assert "j_evidence_path" not in aec and "k_followups" not in aec
+    assert "j_missing" not in aec and "k_missing" not in aec
+    rec = {**aec, "turn_seq": 5}
+    out = driven([_mf(_CORE)], capsys, turn_seq=5, anti_evasion_report=rec, verify_receipts=receipts["verify_receipts"])
+    assert "ReconcileGate" not in out and "空字串" not in out
+
+
 def test_scan_report_message_lists_j_and_k(driven, capsys):
     out = driven([_mf(_CORE)], capsys, turn_seq=5)
     assert "(j) 證據持久路徑" in out and "(k) 追蹤項" in out and "十一參" in out

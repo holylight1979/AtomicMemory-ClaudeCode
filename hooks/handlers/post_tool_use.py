@@ -698,8 +698,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # session_id 用原始 input_data["session_id"]（與 modified_files 的 session_id 戳
         # 同源）＝sibling 隔離關鍵：Stop 閘以 turn_seq+session_id 雙鍵讀，隔壁 session 的
         # emit 不誤放行本 session。turn_seq 由 UserPromptSubmit 每真 prompt +1。
-        _AEC_KEYS = ("a", "b", "c", "d", "e", "f", "g", "h", "i", "j_evidence_path", "k_followups")
+        _AEC_KEYS = ("a", "b", "c", "d", "e", "f", "g", "h", "i")
         vals = {k: str(tool_input.get(k, "") or "") for k in _AEC_KEYS}
+        # (j)(k)：鍵不存在＝舊格式呼叫（MCP 還沒載到新 schema），不寫進報告、Stop 也不拿它擋；明給空字串才擋
+        for _k in ("j_evidence_path", "k_followups"):
+            if _k in tool_input:
+                vals[_k] = str(tool_input.get(_k) or "")
         a, b = vals["a"], vals["b"]
         # (i) 是給使用者裁決的路徑清單：「無（…括號解釋…）」一律正規化成「無」，
         # 模型的多嘴說明（執行期狀態檔、已刪了什麼）不得變成 HUD 上要人裁決的一列。
@@ -750,20 +754,22 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             )
         # (j) 證據持久路徑：本 session 有驗證收據時必須給真存在的路徑；(k) 追蹤項：空字串不收（「無」可）。
         # 判定落 report 供 HUD 標紅；Stop 的對帳閘 (e) 以同一對函式擋。
-        report["j_missing"] = aec_evidence_missing(vals["j_evidence_path"], bool(receipts_of(state, session_id)))
-        report["k_missing"] = aec_followups_missing(vals["k_followups"])
-        if report["j_missing"]:
+        if "j_evidence_path" in vals:
+            report["j_missing"] = aec_evidence_missing(vals["j_evidence_path"], bool(receipts_of(state, session_id)))
+        if "k_followups" in vals:
+            report["k_missing"] = aec_followups_missing(vals["k_followups"])
+        if report.get("j_missing"):
             aec_reject_msgs.append(
                 "[Guardian:AEC-Evidence] (j) 證據持久路徑缺或不存在，但本 session 有驗證收據。"
                 f"填帳本路徑 workflow/verify-ledger/{session_id}.jsonl 或其他真存在的證據檔，再重新 emit；否則 Stop 會擋。"
             )
-        if report["k_missing"]:
+        if report.get("k_missing"):
             aec_reject_msgs.append("[Guardian:AEC-Followups] (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。")
         # (k) 追蹤項 → workflow/tracking/<slug>.jsonl（track-c C8：k=「無」不寫；slug 用專案 slug，根層 session 用 "root"）
         try:
             from wg_harvest import tracking_entries, append_tracking
             from wg_core import cwd_to_project_slug
-            _k_entries = tracking_entries(session_id, turn_seq, vals["k_followups"])
+            _k_entries = tracking_entries(session_id, turn_seq, vals.get("k_followups", ""))
             if _k_entries:
                 _k_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
                 append_tracking(cwd_to_project_slug(_k_cwd) if _k_cwd else "root", _k_entries)
