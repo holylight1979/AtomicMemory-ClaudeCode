@@ -7,7 +7,8 @@
    不得用 `echo ${手工轉義} | python` shell 管線；fail-open 放行但 crashLog 記
    gate unavailable。
 3. **spawn 皆有 timeout**：spawnAtomCli / spawnAtomAccess / spawnEditMetadata /
-   spawnIndexDelete / execWriteGate 都要有 setTimeout + kill 護欄（無 timeout 的
+   spawnIndexDelete / execWriteGate / spawnPrepare（second-opinion.js）/ spawnSmells
+   （project-smells.js）都要有 setTimeout + kill 護欄（無 timeout 的
    python 子程序卡死 = MCP tool call 永久 pending）。
 
 純檔案讀取 + regex，無重依賴。
@@ -64,12 +65,16 @@ def test_spawn_sites_have_timeout():
     funnel = _read(f"{MCP_LIB}/funnel.js")
     access = _read(f"{MCP_LIB}/atom-access.js")
     tools = _read(f"{MCP_LIB}/atom-tools.js")
+    second = _read(f"{MCP_LIB}/second-opinion.js")
+    smells = _read(f"{MCP_LIB}/project-smells.js")
     for src, marker in [
         (funnel, "function spawnAtomCli"),
         (funnel, "function execWriteGate"),
         (access, "function spawnAtomAccess"),
         (tools, "function spawnEditMetadata"),
         (tools, "function spawnIndexDelete"),
+        (second, "function spawnPrepare"),
+        (smells, "function spawnSmells"),
     ]:
         body = _fn_body(src, marker)
         assert "setTimeout" in body and "kill()" in body, f"{marker} 缺 timeout+kill 護欄"

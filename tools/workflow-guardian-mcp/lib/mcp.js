@@ -410,6 +410,60 @@ const TOOL_DEFINITIONS = [
       required: ["atom"],
     },
   },
+  {
+    name: "second_opinion_start",
+    description:
+      "啟動第二意見（另一家模型 Codex 拿同材料獨立作答）。同步打包材料→雜湊→replay-guard pre，20 秒內回三行 " +
+      "`job_id: <id>` / `hash: <sha256>` / `status: started|blocked|failed`；started 才在背景跑 codex（60～300 s），" +
+      "之後用 second_opinion_result({job_id}) 取結果。mode=independent 不收 draft（獨立作答不能看到己方答案，帶了直接拒）；" +
+      "mode=review 必須帶 draft（拿目標逐段評草稿：是這裡／不是這段）。replay-guard pre 非 PASS → blocked 不 spawn；" +
+      "codex 探針起不來 → failed、不退 claude。模型名經 ~/.codex/models_cache.json 精確比對（預設 gpt-6-astra）。" +
+      "不碰 state；job 目錄 workflow/second-opinion/<ts>-<sid8>-<kind>/。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["diagnose", "evaluate", "stage-review"], description: "diagnose=診斷根因與風險；evaluate=評估做法是否達標／有無更簡單等價寫法；stage-review=階段交付審查" },
+        part: { type: "string", description: "部位名（對 <root>/.claude/overview-map.md 的部位欄；找部位卡與病灶文件用）" },
+        cwd: { type: "string", description: "專案內路徑（取 diff、找表、找帳本的起點）" },
+        mode: { type: "string", enum: ["independent", "review"], description: "independent=同材料獨立作答（不給 draft）；review=拿目標逐段評草稿（必給 draft）" },
+        question: { type: "string", description: "要它回答的問題或要達成的目標（必填）" },
+        draft: { type: "string", description: "我方草稿／結論。只有 mode=review 收；independent 帶了直接拒" },
+        sealed: { type: "array", items: { type: "string" }, description: "選填：封存答案關鍵字（回放實驗用）；提示詞或材料含任一個 → blocked" },
+      },
+      required: ["kind", "part", "cwd", "mode", "question"],
+    },
+  },
+  {
+    name: "second_opinion_result",
+    description:
+      "取第二意見結果：`status: running|done|failed|blocked`＋done 時三段「結論／證據／反例或未解」（超 20KB 截斷並附完整路徑）。" +
+      "running 超過 timeout_s＋90 s 仍無更新 → 回 failed（背景子程序中斷不會永遠 running）。唯讀、不碰 state。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        job_id: { type: "string", description: "second_opinion_start 回的 job_id（必填）" },
+      },
+      required: ["job_id"],
+    },
+  },
+  {
+    name: "project_smells",
+    description:
+      "專案壞味道候選池：回前 N 筆 [{rank, path, category, reason, source, age_days}]，category 只收 " +
+      "hotspot|size|complexity|duplication|coupling|stale|custom。來源讀 <專案根>/.claude/overview-hub.json：" +
+      "smells_report（報告檔；超過 smells_max_age_days 預設 7 只在表頭加一行 stale、資料照回）→ smells_cmd（逾時 smells_timeout_s 預設 20 回錯誤附指示）" +
+      "→ 都沒有走 builtin（檔案大小＋近 60 天 git fix 熱點，代理量非判決）。無 reason 的列丟棄並回 dropped 數；" +
+      "未知類別要在 smells_category_map 映射，沒映射的列丟棄並列出名稱。唯讀、不碰 state；回應 ≤25KB。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        part: { type: "string", description: "部位名（過濾報告的 part 欄；builtin 以 <root>/<part> 為掃描範圍）（必填）" },
+        cwd: { type: "string", description: "專案內路徑，往上找 .claude/overview-hub.json（必填）" },
+        top_n: { type: "integer", description: "最多回幾筆（預設 overview-hub.json 的 candidate_top_n，再預設 5）" },
+      },
+      required: ["part", "cwd"],
+    },
+  },
 ];
 
 // ─── Tool Handlers ──────────────────────────────────────────────────────────
@@ -427,6 +481,17 @@ function handleToolCall(id, toolName, args) {
       // one-writer：只驗 schema、回 chip；receipt 核對／state／ledger 由 Python PostToolUse 獨佔。
       return require("./harvest").toolKnowledgeHarvestReport(id, args)
         .catch(e => sendToolResult(id, `knowledge_harvest_report error: ${e.message}`, true));
+    case "second_opinion_start":
+      // 不碰 state；同步 spawn prepare（20 s）→ started 才 detached 跑 execute（codex）。
+      return require("./second-opinion").toolSecondOpinionStart(id, args)
+        .catch(e => sendToolResult(id, `second_opinion_start error: ${e.message}`, true));
+    case "second_opinion_result":
+      return require("./second-opinion").toolSecondOpinionResult(id, args)
+        .catch(e => sendToolResult(id, `second_opinion_result error: ${e.message}`, true));
+    case "project_smells":
+      // 唯讀：spawn tools/project-smells.py --json（25 s timeout+kill）。
+      return require("./project-smells").toolProjectSmells(id, args)
+        .catch(e => sendToolResult(id, `project_smells error: ${e.message}`, true));
     case "atom_write":
       return toolAtomWrite(id, args).catch(e => sendToolResult(id, `atom_write error: ${e.message}`, true));
     case "atom_promote":

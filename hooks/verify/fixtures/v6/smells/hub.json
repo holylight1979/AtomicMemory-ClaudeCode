@@ -1,0 +1,7 @@
+{
+  "smells_report": "smells.json",
+  "smells_max_age_days": 7,
+  "smells_timeout_s": 2,
+  "smells_category_map": {"god-class": "complexity"},
+  "candidate_top_n": 5
+}

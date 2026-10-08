@@ -1,5 +1,6 @@
 // smoke_mcp_stdio.js — 以 stdio JSON-RPC 真起 server.js，驗 MCP tool 面：
-//   tools/list 含 9 個 tool；atom_source 缺 atom 拒（不 spawn py）；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
+//   tools/list 含 12 個 tool；atom_source 缺 atom 拒（不 spawn py）；
+//   second_opinion_start independent 帶 draft 拒、second_opinion_result 缺 job_id 拒、project_smells 缺 part 拒（都不 spawn py）；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
 //   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_retire 缺 reason 拒；
 //   atom_write scope=org dry_run：這台已接上公司層 → Path 落 <org_root>/.claude/memory/shared/；未接上 → 明確拒絕。
 // 怎麼跑：node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js
@@ -12,6 +13,7 @@ const PORT = process.env.WG_SMOKE_PORT || "38499";
 const EXPECTED_TOOLS = [
   "atom_write", "atom_promote", "atom_move", "atom_edit_meta",
   "anti_evasion_report", "knowledge_harvest_report", "atom_retire", "memory_search", "atom_source",
+  "second_opinion_start", "second_opinion_result", "project_smells",
 ];
 
 const cp = spawn(process.execPath, [SERVER], {
@@ -65,8 +67,32 @@ function check(cond, label, detail) {
   // 1. tools/list
   const list = await rpc("tools/list", {});
   const names = (list.result.tools || []).map((t) => t.name);
-  check(names.length === 9, `tools/list has 9 tools (got ${names.length})`, names.join(","));
+  check(names.length === 12, `tools/list has 12 tools (got ${names.length})`, names.join(","));
   for (const n of EXPECTED_TOOLS) check(names.includes(n), `tools/list includes ${n}`);
+  const sos = (list.result.tools || []).find((t) => t.name === "second_opinion_start");
+  check(sos && sos.inputSchema.required.includes("mode") && sos.inputSchema.properties.mode.enum.includes("independent"),
+        "second_opinion_start schema requires mode with independent|review");
+  const ps = (list.result.tools || []).find((t) => t.name === "project_smells");
+  check(ps && ps.inputSchema.required.includes("part") && ps.inputSchema.required.includes("cwd"),
+        "project_smells schema requires part+cwd");
+
+  // 1b. 第二意見／候選池：js 層拒收（不 spawn py）
+  const so0 = await callTool("second_opinion_start", {
+    kind: "diagnose", part: "x", cwd: path.resolve(__dirname), mode: "independent", question: "q", draft: "我方結論",
+  });
+  check(so0.result.isError === true && /independent/.test(textOf(so0)) && /draft/.test(textOf(so0)),
+        "second_opinion_start independent+draft rejected", textOf(so0));
+  const so1 = await callTool("second_opinion_start", {
+    kind: "diagnose", part: "x", cwd: path.resolve(__dirname), mode: "review", question: "q",
+  });
+  check(so1.result.isError === true && /review/.test(textOf(so1)) && /draft/.test(textOf(so1)),
+        "second_opinion_start review w/o draft rejected", textOf(so1));
+  const so2 = await callTool("second_opinion_result", { job_id: "  " });
+  check(so2.result.isError === true && /job_id/.test(textOf(so2)), "second_opinion_result requires job_id", textOf(so2));
+  const so3 = await callTool("second_opinion_result", { job_id: "../../etc" });
+  check(so3.result.isError === true && /格式/.test(textOf(so3)), "second_opinion_result rejects bad job_id format", textOf(so3));
+  const ps0 = await callTool("project_smells", { cwd: path.resolve(__dirname) });
+  check(ps0.result.isError === true && /part/.test(textOf(ps0)), "project_smells requires part", textOf(ps0));
   const aw = (list.result.tools || []).find((t) => t.name === "atom_write");
   check(aw && aw.inputSchema.properties.supersedes && aw.inputSchema.properties.supersedes.type === "array",
         "atom_write schema has supersedes:array");

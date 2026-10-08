@@ -1,0 +1,8 @@
+{
+  "generated_at": "2020-01-01T00:00:00",
+  "rows": [
+    {"path": "src/sched/queue.py", "category": "hotspot", "reason": "舊報告：近 30 天 4 次 fix 提交", "score": 9.1},
+    {"path": "src/sched/plan.py", "category": "complexity", "reason": "舊報告：巢狀四層", "score": 8.2},
+    {"path": "src/sched/returns.py", "category": "god-class", "reason": "舊報告：類別過大", "score": 7.5}
+  ]
+}
