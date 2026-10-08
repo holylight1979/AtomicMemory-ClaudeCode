@@ -246,6 +246,10 @@ def phrases():
     ("A 已修好，B 尚未修好。", True, False, False),            # BLOCK 2：否定只取消同子句
     ("codex 顯示已修復，但我覺得還沒。", False, False, False),  # BLOCK 2：轉述＋否定
     ("這條我修好了；那條 not fixed", True, False, False),      # BLOCK 2：子句各自判
+    ("還沒修好但 B 已修好", True, False, False),                # 003-1：轉折詞後另起子句
+    ("我請 codex 跑了測試後已修正", True, False, True),         # 003-1：有「我」→ 自己的宣稱（修好＋試過都算）
+    ("codex 跑了測試", False, False, False),                   # 003-1：第三方開頭、無我／本／已 → 轉述
+    ("使用者說已修正", False, False, False),                   # 003-1：仍 False
     ("還沒修好，先記下。", False, False, False),
     ("要怎麼修好這個？", False, False, False),
     ("我量了三次，平均 120 ms。", False, True, False),
@@ -350,11 +354,43 @@ def test_run_verify_fail_output_creates_failing_entry(monkeypatch, tmp_path):
 
 # ─── BLOCK 3：PASS 收據要對得上改的檔／verify glob／量尺指令 ─────────────────────────
 
-def test_receipt_relates_by_basename_glob_or_measure():
+def test_receipt_relates_rules_fixed_in_002_returned():
+    """003-2「對得上」定死：stem 整詞／test_<stem>／整體驗證／量尺／verify 目錄算；verify glob 單獨、子字串、含 cd 不算。"""
     globs = vl.RECONCILE_DEFAULTS["verify_case_globs"]
+    a = [r"c:\proj\src\a.py"]
+    assert vl.receipt_relates({"cmd": "pytest tests/test_a.py"}, a, globs) is True              # (b) test_<stem>
+    assert vl.receipt_relates({"cmd": "pytest tests/test_b.py"}, a, globs) is False             # verify glob 單獨不算
+    assert vl.receipt_relates({"cmd": "python check_beta.py"}, a, globs) is False               # 子字串不算
+    assert vl.receipt_relates({"cmd": "pytest -q"}, a, globs) is True                           # (c) 無檔名 pytest
+    assert vl.receipt_relates({"cmd": "python -m pytest -q -p no:cacheprovider"}, a, globs) is True
+    assert vl.receipt_relates({"cmd": "python -X utf8 run_verify.py --json"}, a, globs) is True  # (c) run_verify
+    assert vl.receipt_relates({"cmd": "python measure.py"}, a, globs, ["python measure.py"]) is True   # (c) 量尺
+    assert vl.receipt_relates({"cmd": "python tools/replay-guard.py pre"}, a, globs) is False
+    assert vl.receipt_relates({"cmd": "cd other; python -m pytest -q"}, a, globs) is False      # 003-4 含 cd 不算
+    assert vl.receipt_relates({"cmd": "pytest -q", "root_uncertain": True}, a, globs) is False
     mods = [r"c:\proj\hooks\wg_x.py"]
-    assert vl.receipt_relates({"cmd": "python -m pytest hooks/verify/verify_wg_x.py"}, mods, globs, []) is True   # stem
-    assert vl.receipt_relates({"cmd": "python -m pytest c:/proj/hooks/verify/verify_other.py"}, [], globs, []) is True  # verify glob
-    assert vl.receipt_relates({"cmd": "python -X utf8 run_verify.py"}, [], globs, ["python -X utf8 run_verify.py"]) is True  # 量尺
-    assert vl.receipt_relates({"cmd": "python tools/replay-guard.py pre"}, mods, globs, []) is False
-    assert vl.receipt_relates({"cmd": "python -m pytest hooks/x.py"}, mods, globs, [], root=r"c:\proj") is True   # 頂層目錄 hooks
+    assert vl.receipt_relates({"cmd": "python -m pytest hooks/verify/verify_wg_x.py"}, mods, globs) is True   # (b) verify_<stem>
+    assert vl.receipt_relates({"cmd": "python -m pytest hooks/verify/verify_other.py"}, mods, globs) is True  # (d) 改檔所在的 verify 目錄
+    assert vl.receipt_relates({"cmd": "python -m pytest lib/verify/verify_other.py"}, mods, globs) is False
+    assert vl.receipt_relates({"cmd": "python tools/wg_x.py --check"}, mods, globs) is True        # (a) stem 整詞
+    assert vl.receipt_relates({"cmd": "python tools/wg_xy.py --check"}, mods, globs) is False      # 整詞邊界
+    assert vl.has_cd("cd /c && pytest") and vl.has_cd("pushd x; pytest") and vl.has_cd("Set-Location x; pytest")
+    assert not vl.has_cd("python cdx.py") and not vl.has_cd("pytest --cd-flag")
+
+# ─── 003-3：at 同秒比 seq；不同時區 offset 先轉 UTC ─────────────────────────────
+
+def test_receipt_after_same_second_uses_seq_and_normalizes_tz():
+    edit_at = "2026-10-08T10:00:05+08:00"
+    assert vl._receipt_after({"at": edit_at, "seq": 7}, edit_at, 6, 5) is True
+    assert vl._receipt_after({"at": edit_at, "seq": 5}, edit_at, 6, 5) is False
+    assert vl._receipt_after({"at": edit_at}, edit_at, 6, 5) is False                       # 同秒無 seq → 不算晚於
+    assert vl._receipt_after({"at": "2026-10-08T02:00:06+00:00"}, edit_at, None, 5) is True   # UTC 02:00:06 ＝ +08 10:00:06
+    assert vl._receipt_after({"at": "2026-10-08T02:00:04Z"}, edit_at, None, 5) is False
+
+
+def test_ledger_marks_root_uncertain_when_cmd_has_cd(monkeypatch, tmp_path):
+    state = _drive(monkeypatch, tmp_path, "Bash", "cd /c && python -X utf8 run_verify.py", _fx("done_measure.txt"))
+    rec = state["verify_receipts"][_SID][0]
+    assert rec["root_uncertain"] is True
+    line = json.loads((tmp_path / "verify-ledger" / f"{_SID}.jsonl").read_text(encoding="utf-8"))
+    assert line["root_uncertain"] is True

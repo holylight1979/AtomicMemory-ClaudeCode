@@ -328,26 +328,34 @@ def modified_this_turn(own_mod_files: Iterable[Dict[str, Any]], turn_seq: int) -
 
 
 # ─── 宣稱偵測（詞表 wg_evasion.CLAIM_RES：fixed／measured／tried 各配 exclude）────
-# 子句切在 ，；,;。！!與換行；問號留在子句裡給 exclude（`[?？]\s*$`）判疑問
-_CLAUSE_SPLIT_RE = re.compile(r"[，；,;。！!\n]+")
-# 第三方主語：同子句內、宣稱詞前 ≤8 字出現這些主語 → 是轉述不是自己的宣稱
-_THIRD_PARTY_RE = re.compile(
-    r"(?:使用者|對方|同事|codex|它|他|她|log|輸出|顯示)[^，。；！？\n]{0,8}$", re.IGNORECASE
+# 子句切在 ，；,;。！!與換行，再加轉折詞（但／不過／而／然而／只是／可是）之後另起子句；
+# 問號留在子句裡給 exclude（`[?？]\s*$`）判疑問
+_CLAUSE_SPLIT_RE = re.compile(r"[，；,;。！!\n]+|但|不過|而|然而|只是|可是")
+# 第三方主語只在「第三方名詞是子句開頭主語（子句前 4 字內）」且「宣稱詞前沒有 我／本／已」時才算轉述
+_THIRD_PARTY_HEAD_RE = re.compile(
+    r"^[^，。；！？\n]{0,4}?(?:使用者|對方|同事|codex|它|他|她|log|輸出|顯示)", re.IGNORECASE
 )
+_OWN_MARK_RE = re.compile(r"[我本已]")
+
+
+def _third_party_said(head: str) -> bool:
+    """head＝子句裡宣稱詞之前的文字。第三方在子句開頭且沒有「我／本／已」→ 轉述。"""
+    return bool(_THIRD_PARTY_HEAD_RE.search(head)) and not _OWN_MARK_RE.search(head)
 
 
 def _claims(text: str, kind: str, phrases: Optional[Dict[str, Pattern]] = None) -> bool:
-    """逐子句判：子句命中 <kind> 詞、同子句無 <kind>_exclude 詞（否定／疑問只取消同子句）、宣稱詞前沒有第三方主語；
-    引號／code span 內容先剝掉（引用閘文字不算宣稱）。"""
+    """逐子句判：子句命中 <kind> 詞、同子句無 <kind>_exclude 詞（否定／疑問只取消同子句；轉折詞後另起子句）、
+    不是第三方轉述（第三方名詞在子句開頭且宣稱詞前沒有我／本／已）；引號／code span 內容先剝掉（引用閘文字不算宣稱）。"""
     if not text:
         return False
     ph = phrases or CLAIM_RES
     pos, neg = ph[kind], ph[f"{kind}_exclude"]
     for clause in _CLAUSE_SPLIT_RE.split(strip_quoted_spans(text[-3000:])):
+        clause = clause.strip()
         m = pos.search(clause)
         if not m or neg.search(clause):
             continue
-        if _THIRD_PARTY_RE.search(clause[:m.start()]):
+        if _third_party_said(clause[:m.start()]):
             continue
         return True
     return False
@@ -386,41 +394,54 @@ def _norm_path(p: str) -> str:
     return str(p).replace("\\", "/").rstrip("/").lower()
 
 
-def _path_tokens(path: str, root: Optional[str] = None) -> List[str]:
-    """一個改過的檔 → 收據 cmd 裡能對上的字樣：basename、stem、相對 root 的頂層目錄（沒 root 用上層目錄名）。"""
-    norm = _norm_path(path)
-    name = norm.rsplit("/", 1)[-1]
-    toks = [name]
-    stem = name.rsplit(".", 1)[0] if "." in name else name
-    if len(stem) >= 3:
-        toks.append(stem)
-    top = ""
-    if root and norm.startswith(_norm_path(root) + "/"):
-        rel = norm[len(_norm_path(root)) + 1:]
-        top = rel.split("/")[0] if "/" in rel else ""
-    if not top and "/" in norm:
-        top = norm.rsplit("/", 2)[-2]
-    if top and len(top) >= 3:
-        toks.append(top)
-    return toks
+_CD_RE = re.compile(r"(?:^|[\s;&|(])(?:cd|pushd|set-location)(?:\s|$)", re.IGNORECASE)
+_PYTEST_RE = re.compile(r"(?:^|\s)(?:python(?:\d(?:\.\d+)?)?\s+(?:-\S+\s+)*-m\s+)?pytest(?:\s|$)", re.IGNORECASE)
+_FILE_ARG_RE = re.compile(r"(?:^|\s)[^\s-][^\s]*(?:\.py|/)[^\s]*", re.IGNORECASE)
 
 
-def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_globs: Iterable[str],
-                    measure_cmds: Iterable[str], root: Optional[str] = None) -> bool:
-    """PASS 收據要「對得上」才能背書：cmd 提到改過的檔（basename／stem／頂層目錄）、或 cmd 裡有命中 verify_case_globs 的路徑、
-    或 cmd 含部位量尺指令。"""
-    cmd = _norm_path(str(receipt.get("cmd", "")))
-    if not cmd:
+def has_cd(cmd: str) -> bool:
+    """cmd 任何位置含 cd／pushd／Set-Location token → 收據的 cwd 不可信（root_uncertain）。"""
+    return bool(_CD_RE.search(str(cmd or "")))
+
+
+def _is_whole_verification(cmd: str) -> bool:
+    """run_verify.py 或「沒帶檔名參數的 pytest」＝整體驗證，對所有改檔都算對得上。"""
+    if "run_verify.py" in cmd:
+        return True
+    if not _PYTEST_RE.search(cmd):
         return False
-    for p in mod_paths or []:
-        if any(t in cmd for t in _path_tokens(p, root)):
-            return True
-    for tok in re.split(r"[\s\"'`;&|()]+", cmd):
-        if ("/" in tok or tok.endswith(".py")) and is_verify_case(tok, verify_globs):
-            return True
+    tail = cmd[_PYTEST_RE.search(cmd).end():]
+    return not _FILE_ARG_RE.search(" " + tail)
+
+
+def _stem_of(path: str) -> str:
+    name = _norm_path(path).rsplit("/", 1)[-1]
+    return name.rsplit(".", 1)[0] if "." in name else name
+
+
+def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_globs: Iterable[str] = (),
+                    measure_cmds: Iterable[str] = (), root: Optional[str] = None) -> bool:
+    """PASS 收據「對得上」改檔＝下列任一（verify glob 單獨不算；含 cd 的收據一律不算）：
+    (a) cmd 含修改檔 stem 作整詞（stem ≥3 字）；(b) cmd 含 test_<stem>／verify_<stem>／<stem>_test；
+    (c) cmd 是部位量尺指令，或 run_verify.py／無檔名參數的 pytest（整體驗證）；(d) cmd 含修改檔所在的 verify 目錄 `<dir>/verify/`。"""
+    raw = str(receipt.get("cmd", ""))
+    if not raw or receipt.get("root_uncertain") or has_cd(raw):
+        return False
+    cmd = " ".join(_norm_path(raw).split())
+    if _is_whole_verification(cmd):
+        return True
     for mc in measure_cmds or []:
         want = " ".join(str(mc).split()).lower()
-        if want and want in " ".join(cmd.split()):
+        if want and want in cmd:
+            return True
+    for p in mod_paths or []:
+        stem = _stem_of(p).lower()
+        if len(stem) >= 3 and re.search(r"(?<![a-z0-9_])" + re.escape(stem) + r"(?![a-z0-9_])", cmd):
+            return True
+        if stem and any(t in cmd for t in (f"test_{stem}", f"verify_{stem}", f"{stem}_test")):
+            return True
+        d = _norm_path(p).rsplit("/", 1)[0] if "/" in _norm_path(p) else ""
+        if d and (d + "/verify/" in cmd or (d.rsplit("/", 1)[-1] + "/verify/") in cmd):
             return True
     return False
 
@@ -469,11 +490,26 @@ def _root_match(receipt: Dict[str, Any], root: Optional[str]) -> bool:
     return False
 
 
+def _to_utc(s: str):
+    from datetime import datetime, timezone
+    try:
+        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 def _receipt_after(receipt: Dict[str, Any], edit_at: Optional[str], edit_seq: Optional[int], edit_turn: int) -> bool:
-    """收據要在該部位最後一次修改之後：先比 at（同一 _now_iso 時鐘的 ISO 字串），沒有 at 比 session 內序號，再沒有退回比 turn。"""
+    """收據要在該部位最後一次修改之後：先比 at（fromisoformat 轉 UTC 再比，不同時區 offset 也對）；at 同秒（精度到秒）比 session 內序號
+    receipt.seq > edit.seq；沒有 at 直接比序號；都沒有退回比 turn。"""
     r_at, r_seq = str(receipt.get("at") or ""), receipt.get("seq")
-    if edit_at and r_at:
-        return r_at > str(edit_at)
+    ra, ea = (_to_utc(r_at) if r_at else None), (_to_utc(edit_at) if edit_at else None)
+    if ra is not None and ea is not None:
+        if ra != ea:
+            return ra > ea
+        if edit_seq is not None and r_seq is not None:
+            return int(r_seq) > int(edit_seq)
+        return False
     if edit_seq is not None and r_seq is not None:
         return int(r_seq) > int(edit_seq)
     return int(receipt.get("turn_seq", -1)) >= int(edit_turn)
@@ -495,6 +531,8 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
             continue
         if "DONE" not in _verdicts(r):
             continue
+        if require_ok and (r.get("root_uncertain") or has_cd(str(r.get("cmd", "")))):
+            continue          # 含 cd 的收據不知道量的是哪個專案
         if require_ok and (r.get("exit_code") not in (None, 0) or not _failed_kv_ok(r)):
             continue
         if want and want not in " ".join(str(r.get("cmd", "")).split()).lower():
@@ -627,8 +665,8 @@ def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_s
     if not hits:
         return None
     note = ""
-    if any(r.get("exit_unknown") for r in related):
-        note = "\n註：有 PASS 收據的 exit 未知（dict 回應沒有 exit 欄），只憑哨兵認定。"
+    if any(r.get("exit_unknown") for r in related) or any(r.get("exit_unknown") for r in unrelated):
+        note = "\n註：有 PASS 收據的 exit 未知（exit 未知＝dict 回應沒有 exit 欄），只憑哨兵認定。"
     return ("[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據：\n"
             + "\n".join("  ✗ " + h for h in hits)
             + "\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
@@ -751,7 +789,9 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             last = any_done[-1]
             failed = next(((s.get("kv") or {}).get("failed") for s in last.get("sentinels") or []
                            if isinstance(s, dict) and (s.get("kv") or {}).get("failed") is not None), None)
-            if last.get("exit_code") not in (None, 0) or (failed is not None and str(failed) != "0"):
+            if last.get("root_uncertain") or has_cd(str(last.get("cmd", ""))):
+                why = "最近一次跑尺的指令含 cd，無法確認量測目標；請在專案根直接跑尺"
+            elif last.get("exit_code") not in (None, 0) or (failed is not None and str(failed) != "0"):
                 why = f"最近一次跑尺 exit={last.get('exit_code')} failed={failed}，尺沒過"
             elif not _root_match(last, str(root)):
                 why = f"最近一次跑尺的 cwd／project_root（{last.get('project_root') or last.get('cwd')}）不是這個部位的 root"

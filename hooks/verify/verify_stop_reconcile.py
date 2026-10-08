@@ -89,7 +89,7 @@ def driven(monkeypatch):
 # ─── Q6 (a) 說修好 ───────────────────────────────────────────────────────
 
 def test_fixed_claim_with_pass_this_turn_passes(driven, capsys):
-    out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(5)]})
+    out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py")]})
     assert "ReconcileGate" not in out
 
 
@@ -162,6 +162,26 @@ def test_mixed_sentence_still_claims(driven, capsys):
     """BLOCK 2：「A 已修好，B 尚未修好」否定只取消同子句，A 的宣稱仍要對收據。"""
     out, _, _ = driven("A 已修好，B 尚未修好，完成。", capsys)
     assert "ReconcileGate" in out and "(a)" in out
+
+
+@pytest.mark.parametrize("text", ["還沒修好但 B 已修好，完成。", "我請 codex 跑了測試後已修正，完成。"])
+def test_turn_word_and_own_mark_sentences_still_claim(driven, capsys, text):
+    """003-1：轉折詞後另起子句；有「我」的句子即使提到 codex 也是自己的宣稱 → 沒收據就擋。"""
+    out, _, _ = driven(text, capsys, tool_names=["Bash"])
+    assert "ReconcileGate" in out and "(a)" in out
+
+
+def test_unrelated_test_file_cannot_vouch(driven, capsys):
+    """003-2：改 a.py，PASS 來自 tests/test_b.py 或 check_beta.py → 不算；tests/test_a.py 或 pytest -q 算。"""
+    a = r"c:\proj\src\a.py"
+    for bad in ("pytest tests/test_b.py", "python check_beta.py"):
+        out, _, _ = driven("a 修好了，完成。", capsys, modified_files=[_mf(a, 5)],
+                           verify_receipts={_SID: [_rcpt(5, cmd=bad)]}, anti_evasion_report=_aec(5, j=__file__, k="無"))
+        assert "ReconcileGate" in out and "對不上" in out, bad
+    for good in ("pytest tests/test_a.py", "pytest -q", MEASURE_CMD):
+        out, _, _ = driven("a 修好了，完成。", capsys, modified_files=[_mf(a, 5)],
+                           verify_receipts={_SID: [_rcpt(5, cmd=good)]}, anti_evasion_report=_aec(5, j=__file__, k="無"))
+        assert "ReconcileGate" not in out, good
 
 
 # ─── Q6 (b) 說量了 ───────────────────────────────────────────────────────
@@ -404,6 +424,33 @@ def test_measure_before_edit_in_same_turn_blocks(driven, capsys, monkeypatch):
     assert "MeasureGate" in out
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 5, last_at=early)],
                        verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=late)]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" not in out
+
+
+def test_measure_same_second_receipt_uses_seq(driven, capsys, monkeypatch):
+    """003-3：at 同秒：收據 seq 大於修改 seq → 放；小於 → 擋。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    same = "2026-10-08T10:00:05+08:00"
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 5, last_at=same, last_seq=3)],
+                       verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=same, seq=4)]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" not in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 5, last_at=same, last_seq=4)],
+                       verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=same, seq=3)]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" in out and "先量後改" in out
+
+
+def test_measure_receipt_with_cd_not_used(driven, capsys, monkeypatch):
+    """003-4：cmd 含 cd 的 DONE 不算，訊息說含 cd；不含的算。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)],
+                       verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd="cd c:/other && " + MEASURE_CMD)]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" in out and "含 cd" in out and "專案根直接跑尺" in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)],
+                       verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD)]},
                        anti_evasion_report=_aec(5, "無", "無"))
     assert "MeasureGate" not in out
 

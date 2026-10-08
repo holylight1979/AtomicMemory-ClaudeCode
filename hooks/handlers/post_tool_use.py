@@ -33,7 +33,7 @@ from wg_harvest import (
 from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn,
-    aec_evidence_missing, aec_followups_missing, next_event_seq,
+    aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd,
 )
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -475,6 +475,8 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "vcs": vcs_snapshot(cwd, mod_turn, state, float(cfg.get("vcs_budget_s", 1.5))),
         "modified_files_turn": mod_turn,
         "spec": spec_paths_of(session_id, WORKFLOW_DIR),
+        # 指令裡有 cd／pushd／Set-Location → 真正的 cwd 不是 hook 給的 cwd，量尺閘與「對得上」不採用這筆
+        "root_uncertain": has_cd(command),
     }
     append_verify_ledger(session_id, record, base_dir=WORKFLOW_DIR, suffix=".agents" if agent_id else "")
     if not agent_id:
@@ -483,6 +485,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
             "cmd": command[:200],
             "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
             "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
+            "root_uncertain": record["root_uncertain"],
         })
     ms = int((time.monotonic() - t0) * 1000)
     append_guard_log("verify_ledger", {
