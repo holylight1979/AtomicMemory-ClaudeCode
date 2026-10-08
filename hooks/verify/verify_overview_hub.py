@@ -598,3 +598,58 @@ def test_cfg_error_still_allows_editing_the_map_itself(proj, tmp_path, monkeypat
     assert wo.on_edit({}, "s", str(proj_map), tp, {}) == (None, None, False)          # 設定沒錯：表靜默放行
     events = [json.loads(l)["event"] for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     assert events.count("edit_own_config") == 2 and events.count("edit_cfg_error") == 3
+
+
+# ─── 退回 003 的兩條 BLOCK：extended-length 前綴、磁碟目錄實際大小寫／symlink 不得漏判自家檔 ───────
+
+def test_own_config_matches_with_extended_prefix(proj, tmp_path, monkeypatch):
+    import wg_core
+    fake = tmp_path / "claude"
+    (fake / "workflow").mkdir(parents=True)
+    cfg_path = fake / "workflow" / "config.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wo, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    bad = {"overview_hub": {"enabled": False, "bogus": 1}}
+    assert wo._strip_extended("\\\\?\\C:\\x\\y") == "C:\\x\\y"
+    assert wo._strip_extended("\\\\?\\UNC\\srv\\share\\y") == "\\\\srv\\share\\y"
+    assert wo._strip_extended("C:\\x") == "C:\\x"
+
+    ext = "\\\\?\\" + str(cfg_path)
+    assert wo._own_config_layer(ext) == (True, None)
+    warn, deny, _ = wo.on_edit({}, "s", ext, tp, bad)                                    # 前綴版 config.json：放行＋警告
+    assert deny is None and warn and "bogus" in warn
+    _hub(proj, '{"foo": 1}')
+    ext_hub = "\\\\?\\" + str(proj / ".claude" / "overview-hub.json")
+    assert wo._own_config_layer(ext_hub) == (True, proj)
+    warn, deny, _ = wo.on_edit({}, "s", ext_hub, tp, {})                                 # 前綴版專案 hub.json
+    assert deny is None and warn and "foo" in warn
+    warn, deny, _ = wo.on_edit({}, "s", "\\\\?\\" + str(fake / "workflow" / "other.json"), tp, bad)   # 前綴版他檔仍擋
+    assert deny and "bogus" in deny
+
+
+def test_own_config_matches_when_dir_case_differs(tmp_path, monkeypatch):
+    """磁碟目錄實際是 .CLAUDE（resolve 回大寫）、表把 .claude/ 列成部位、hub 有錯 → 仍是自家檔，放行＋警告。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = tmp_path / "proj2"
+    (root / ".CLAUDE").mkdir(parents=True)
+    (root / ".CLAUDE" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        "| `.claude/` | 設定 | 無 | 無 |\n| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8")
+    (root / ".CLAUDE" / "overview-hub.json").write_text('{"foo": 1}', encoding="utf-8")
+    (root / "src").mkdir()
+    tp = _transcript(tmp_path, ["x"])
+    hub_lower = str(root / ".claude" / "overview-hub.json")                              # 呼叫端給小寫
+    assert Path(hub_lower).resolve().parent.name == ".CLAUDE"                            # 前提：resolve 還原磁碟實際大小寫
+    assert wo._own_config_layer(hub_lower)[0] is True
+    warn, deny, _ = wo.on_edit({}, "s", hub_lower, tp, {})
+    assert deny is None and warn and "未知的設定鍵「foo」" in warn
+    warn, deny, _ = wo.on_edit({}, "s", str(root / ".CLAUDE" / "OVERVIEW-MAP.MD"), tp, {})   # 表本身、全大寫寫法
+    assert deny is None and warn and "foo" in warn
+    warn, deny, _ = wo.on_edit({}, "s", str(root / ".CLAUDE" / "notes.md"), tp, {})      # 同目錄他檔命中「設定」部位 → 仍擋
+    assert deny and "foo" in deny
+    warn, deny, _ = wo.on_edit({}, "s", str(root / "src" / "a.py"), tp, {})
+    assert deny and "foo" in deny

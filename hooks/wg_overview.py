@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import codecs
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -296,30 +297,48 @@ def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_pa
     return None
 
 
-def _resolved(p: Path) -> Optional[Path]:
+_EXT_UNC_PREFIX = "\\\\?\\UNC\\"
+_EXT_PREFIX = "\\\\?\\"
+
+
+def _strip_extended(path: str) -> str:
+    """剝 Windows extended-length 前綴：`\\\\?\\C:\\x` → `C:\\x`、`\\\\?\\UNC\\srv\\share\\x` → `\\\\srv\\share\\x`。"""
+    if path.startswith(_EXT_UNC_PREFIX):
+        return "\\\\" + path[len(_EXT_UNC_PREFIX):]
+    if path.startswith(_EXT_PREFIX):
+        return path[len(_EXT_PREFIX):]
+    return path
+
+
+def _path_key(p: Path) -> Optional[str]:
+    """路徑相等比對用的鍵：resolve（跟 symlink、還原磁碟實際大小寫）→ 剝 `\\\\?\\` → normpath → normcase（Windows 不分大小寫）。"""
     try:
-        return p.resolve()
+        s = str(p.resolve())
     except (OSError, ValueError, RuntimeError):
         return None
+    return os.path.normcase(os.path.normpath(_strip_extended(s)))
 
 
 def _own_config_layer(file_path: str) -> Tuple[bool, Optional[Path]]:
-    """file_path 是不是 OverviewHub 自己讀的設定檔或部位表（精確比對 resolve 後路徑，不是比檔名）：
-    根層 workflow/config.json；根層／公司根／該檔所屬專案根（find_map 找到的那個根）的 .claude/overview-hub.json
-    與 .claude/overview-map.md（表寫壞、卡名打錯時模型得能改表）。回 (是不是, 該檔所屬層的 root；config.json 回 None)。"""
-    fp = _resolved(Path(file_path))
-    if fp is None:
+    """file_path 是不是 OverviewHub 自己讀的設定檔或部位表；是 → 整個 on_edit 不走 OverviewHub 流程（有錯只回警告）。
+
+    候選（精確比對 _path_key，不比檔名、不預篩）：根層 workflow/config.json；根層／公司根／該檔所屬專案根的
+    .claude/overview-hub.json 與 .claude/overview-map.md。專案根＝find_map 從該檔往上找到的那個根：無表專案的
+    hub.json 不算（那一層設定本來就不會被載入，沒有它造成的錯誤要修；若根層／公司層另有錯仍照一般檔被擋）。
+    回 (是不是, 該檔所屬層的 root；config.json 回 None)。"""
+    plain = _strip_extended(file_path)
+    fk = _path_key(Path(plain))
+    if fk is None:
         return (False, None)
-    if fp == _resolved(CONFIG_PATH):
+    if fk == _path_key(CONFIG_PATH):
         return (True, None)
     own_rels = (HUB_REL, Path(MAP_REL))
     for layer_root in (CLAUDE_DIR, _org_root()):
-        if layer_root is not None and any(fp == _resolved(layer_root / rel) for rel in own_rels):
+        if layer_root is not None and any(fk == _path_key(layer_root / rel) for rel in own_rels):
             return (True, layer_root)
-    if fp.parent.name == HUB_REL.parent.name and fp.name in (HUB_REL.name, Path(MAP_REL).name):
-        found = find_map(file_path)
-        if found and any(fp == _resolved(found[0] / rel) for rel in own_rels):
-            return (True, found[0])
+    found = find_map(plain)
+    if found and any(fk == _path_key(found[0] / rel) for rel in own_rels):
+        return (True, found[0])
     return (False, None)
 
 
@@ -344,7 +363,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     """
     if not file_path:
         return (None, None, False)
-    # 改的是 OverviewHub 自己的設定檔 → 跳過本閘（否則設定寫錯一個鍵就再也改不回來）；有錯仍回警告列出來讓模型知道在修什麼
+    # 改的是 OverviewHub 自己的設定檔／部位表 → 不走 OverviewHub 流程（否則設定寫錯一個鍵就再也改不回來）；有錯仍回警告列出來讓模型知道在修什麼
     own, own_root = _own_config_layer(file_path)
     if own:
         errors = _cfg(config, own_root)["_errors"]
