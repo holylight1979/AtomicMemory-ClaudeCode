@@ -1,7 +1,7 @@
 {
   "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
   "generated_from": "skills/*/SKILL.md",
-  "count": 24,
+  "count": 25,
   "skills": [
     {
       "name": "atom-debug",
@@ -12,6 +12,11 @@
       "name": "atom-source",
       "dir": "atom-source",
       "description": "卡片來源回看：讀 atom 的 Source／Quote，原對話還在就撈出原句與前後文，不在就只報落檔時留的原句或「已逾保留期」。使用者說「這張卡片哪來的」「誰說的」「你哪裡看到的」「這條記憶的來源」時用。"
+    },
+    {
+      "name": "behavior-preservation",
+      "dir": "behavior-preservation",
+      "description": "行為保持重構的等值證法：預期值來自舊源碼或舊產物、實際值來自新產物，兩邊來源必不同；order／side_effect／boundary 三類變異各要證。被要求「改寫法但結果完全相同」「重構後行為不變」「等值證明」時觸發。"
     },
     {
       "name": "browse-sprites",

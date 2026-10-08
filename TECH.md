@@ -798,7 +798,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── auto-continue/ / gdoc-harvester/ / unity-desktop/ / usage-snapshot/
 │   └── verify/
 │
-├── skills/                                  ← <!-- skill-count -->24<!-- /skill-count --> 個 active
+├── skills/                                  ← <!-- skill-count -->25<!-- /skill-count --> 個 active
 │   ├── atom-debug / atom-source / browse-sprites / changelog-debug / codex-companion / conflict
 │   ├── consciousness-stream / continue / extract / fix-escalation / generate-episodic
 │   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / memory

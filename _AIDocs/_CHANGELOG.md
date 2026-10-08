@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-08 v6.0 P1 track-r 合併：哨兵規矩、打包前檢查樣板、病灶文件樣板、behavior-preservation skill
+- **緣由**：v6.0 執行計畫 P1 三軌之一（規矩、樣板、skill）；工作 session 在 worktree 做、總控台對帳＋第二意見＋合併。
+- **做法**：`rules/coding-style.md` 自檢段加哨兵三行；`templates/prebuild-check.template.py`（讀 overview-hub.json 的 prebuild_checks、內建 defect_shape 掃 staged diff 新增行）與 `templates/defects.template.md`（七欄病灶表）；新 skill `behavior-preservation`（preserve-check 三類變異、Python 舊碼走 ast、不可達碼與重複 case 拒收）。
+- **驗證**：目標 verify 47 案綠、audit 0/0；codex 四輪第二意見共 9 條 BLOCK 逐條親自重現後退回修正，末輪 BLOCK：無；skill 索引 24→25。
+
 
 ## 2026-10-08 v6.0（寫程式碼的進化）開題：預計畫定稿、開發歷史資料夾建立
 - **緣由**：前一波三方討論證明「有東西可看＋在對的時機送到眼前＋動手前被要求先看」缺一不可；原設計者定名 v6.0，要求把側觀經驗轉成根層、公司層、專案層都能用的帶變量機制，參與專案不再調整。
