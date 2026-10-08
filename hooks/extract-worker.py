@@ -240,7 +240,7 @@ _FORMAT_SPEC = (
     "輸出 JSON array: [{\"content\": \"精簡事實，最多150字\", "
     "\"type\": \"factual|procedural|architectural|pitfall|decision\"}]\n\n"
     "範例（值得萃取）:\n"
-    '  {"content": "rdchat Open WebUI LDAP 端點是 /api/v1/auths/ldap，用 user 欄位（非 email）", "type": "factual"}\n'
+    '  {"content": "某 Open WebUI 的 LDAP 端點是 /api/v1/auths/ldap，用 user 欄位（非 email）", "type": "factual"}\n'
     '  {"content": "GTX 1050 Ti 跑 qwen3:1.7b generate 約 30s，qwen3-embedding embed 約 5s", "type": "factual"}\n'
     '  {"content": "LanceDB search 用 cosine metric，min_score 0.65 以下多為噪音", "type": "architectural"}\n\n'
     "範例（不要萃取）:\n"

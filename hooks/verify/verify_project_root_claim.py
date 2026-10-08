@@ -1,7 +1,7 @@
 """verify_project_root_claim.py — 子專案 cwd 認領核心根層（lib/project_root + wg_core 委派 + SessionStart 宣告 + CLI）。
 
 怎麼跑：python -m pytest hooks/verify/verify_project_root_claim.py -q
-佈局：tmp 下建 TSLG 型樹（根層 .claude/memory + 宣告；Server 子層有自己的宣告；Client 只有 .git）。
+佈局：tmp 下建多層專案樹（根層 .claude/memory + 宣告；Server 子層有自己的宣告；Client 只有 .git）。
 狀況總表 A～T 見 plans/resilient-orbiting-lark.md §2b；本檔每列一個 case。
 """
 from __future__ import annotations
@@ -53,14 +53,14 @@ def _fresh_cache():
 
 @pytest.fixture
 def tree(tmp_path) -> Path:
-    """T/TSLG（根，subs=[Server]）；T/TSLG/Server（root=..）；T/TSLG/Client（.git）；深層 scripts/lua/quest/npc。"""
+    """T/GameA（根，subs=[Server]）；T/GameA/Server（root=..）；T/GameA/Client（.git）；深層 scripts/lua/quest/npc。"""
     t = tmp_path / "T"
-    _memory(t / "TSLG")
-    _decl(t / "TSLG", subs=["Server"])
-    _decl(t / "TSLG" / "Server", root="..", subs=["scripts"])
-    (t / "TSLG" / "Server" / "scripts" / "lua" / "quest" / "npc").mkdir(parents=True)
-    (t / "TSLG" / "Client" / ".git").mkdir(parents=True)
-    (t / "TSLG" / "Server2" / "x").mkdir(parents=True)
+    _memory(t / "GameA")
+    _decl(t / "GameA", subs=["Server"])
+    _decl(t / "GameA" / "Server", root="..", subs=["scripts"])
+    (t / "GameA" / "Server" / "scripts" / "lua" / "quest" / "npc").mkdir(parents=True)
+    (t / "GameA" / "Client" / ".git").mkdir(parents=True)
+    (t / "GameA" / "Server2" / "x").mkdir(parents=True)
     return t
 
 
@@ -109,13 +109,13 @@ def test_C_D_no_declaration_no_candidate(tmp_path):
 
 
 def test_E_H_candidate_without_declaration_asks(tree):
-    r = R(tree / "TSLG" / "Client")
-    assert same(r.path, tree / "TSLG" / "Client") and r.claimed_by == "nearest"
-    assert [c.resolve() for c in r.candidates] == [(tree / "TSLG").resolve()]
-    lines = _project_root_notice(r, str(tree / "TSLG" / "Client"))
+    r = R(tree / "GameA" / "Client")
+    assert same(r.path, tree / "GameA" / "Client") and r.claimed_by == "nearest"
+    assert [c.resolve() for c in r.candidates] == [(tree / "GameA").resolve()]
+    lines = _project_root_notice(r, str(tree / "GameA" / "Client"))
     ask = [l for l in lines if l.startswith("❓ [Guardian:ProjectRoot]")]
     assert len(ask) == 1
-    assert str(tree / "TSLG") in ask[0] and "claim --root" in ask[0] and "standalone on" in ask[0] \
+    assert str(tree / "GameA") in ask[0] and "claim --root" in ask[0] and "standalone on" in ask[0] \
         and "pick" in ask[0] and "這次先不決定" in ask[0]
 
 
@@ -131,37 +131,37 @@ def test_F_multiple_candidates_lists_all(tmp_path):
 
 
 def test_G_ancestor_subs_claims_deep_cwd(tree):
-    cwd = tree / "TSLG" / "Server" / "scripts" / "lua" / "quest" / "npc"
+    cwd = tree / "GameA" / "Server" / "scripts" / "lua" / "quest" / "npc"
     r = R(cwd)
-    assert same(r.path, tree / "TSLG") and r.claimed_by == "ancestor-root"   # Server 層的 root 先命中
-    assert same(wg_core.find_project_root(str(cwd)), tree / "TSLG")
-    assert same(atom_io._find_project_root(str(cwd)), tree / "TSLG")
-    (tree / "TSLG" / "Server" / ".claude" / pr.DECL_NAME).unlink()
+    assert same(r.path, tree / "GameA") and r.claimed_by == "ancestor-root"   # Server 層的 root 先命中
+    assert same(wg_core.find_project_root(str(cwd)), tree / "GameA")
+    assert same(atom_io._find_project_root(str(cwd)), tree / "GameA")
+    (tree / "GameA" / "Server" / ".claude" / pr.DECL_NAME).unlink()
     pr.clear_cache()
     r = R(cwd)
-    assert same(r.path, tree / "TSLG") and r.claimed_by == "ancestor-subs"   # 只剩根層 subs 也認得到
+    assert same(r.path, tree / "GameA") and r.claimed_by == "ancestor-subs"   # 只剩根層 subs 也認得到
     line = _project_root_notice(r, str(cwd))[0]
     assert line.startswith("📍 [Guardian:ProjectRoot]")
-    assert f"{cwd} 屬 {tree / 'TSLG'} 的子專案（宣告：根層 subs @ {tree / 'TSLG'}）" in line
-    assert f"記憶歸 {tree / 'TSLG' / '.claude' / 'memory'}" in line
+    assert f"{cwd} 屬 {tree / 'GameA'} 的子專案（宣告：根層 subs @ {tree / 'GameA'}）" in line
+    assert f"記憶歸 {tree / 'GameA' / '.claude' / 'memory'}" in line
 
 
 def test_H_subs_not_listing_cwd_prefix_exact(tree):
-    r = R(tree / "TSLG" / "Server2" / "x")            # Server ≠ Server2
-    assert r.claimed_by == "nearest" and same(r.path, tree / "TSLG")   # 4 層內舊規則本來就到 TSLG
+    r = R(tree / "GameA" / "Server2" / "x")            # Server ≠ Server2
+    assert r.claimed_by == "nearest" and same(r.path, tree / "GameA")   # 4 層內舊規則本來就到 GameA
     assert not r.candidates                            # 生效根＝候選 → 沒什麼可問
-    lines = _project_root_notice(r, str(tree / "TSLG" / "Server2" / "x"))
+    lines = _project_root_notice(r, str(tree / "GameA" / "Server2" / "x"))
     assert not any(l.startswith("❓") for l in lines)
 
 
 def test_I_Iprime_own_root_wins_over_self(tree):
-    r = R(tree / "TSLG" / "Server")
-    assert same(r.path, tree / "TSLG") and r.claimed_by == "own-root"
+    r = R(tree / "GameA" / "Server")
+    assert same(r.path, tree / "GameA") and r.claimed_by == "own-root"
     assert not r.warnings                              # 根層 subs 有列 Server
-    _decl(tree / "TSLG", subs=["Client"])              # 根層改成沒列 Server → ⚠️ 提示 add-sub
+    _decl(tree / "GameA", subs=["Client"])              # 根層改成沒列 Server → ⚠️ 提示 add-sub
     pr.clear_cache()
-    r = R(tree / "TSLG" / "Server")
-    assert same(r.path, tree / "TSLG") and any("未列本層" in w and "add-sub" in w for w in r.warnings)
+    r = R(tree / "GameA" / "Server")
+    assert same(r.path, tree / "GameA") and any("未列本層" in w and "add-sub" in w for w in r.warnings)
 
 
 def test_J_root_parent_without_claude_dir_is_info(tmp_path):
@@ -211,9 +211,9 @@ def test_M_invalid_json_is_warning_not_marker(tmp_path):
 
 
 def test_N_fork_detected_with_count(tree):
-    _memory(tree / "TSLG" / "Server", atoms=2)
-    r = R(tree / "TSLG" / "Server" / "scripts")
-    assert same(r.path, tree / "TSLG") and r.fork_atoms == 2
+    _memory(tree / "GameA" / "Server", atoms=2)
+    r = R(tree / "GameA" / "Server" / "scripts")
+    assert same(r.path, tree / "GameA") and r.fork_atoms == 2
     assert any("2 顆分叉 atom" in w and "atom_move" in w for w in r.warnings)
 
 
@@ -235,9 +235,9 @@ def test_O_root_chain_cycle_and_hop_limit(tmp_path):
 
 
 def test_P_root_itself_is_self(tree):
-    r = R(tree / "TSLG")
-    assert same(r.path, tree / "TSLG") and r.claimed_by == "self"
-    assert _project_root_notice(r, str(tree / "TSLG")) == []
+    r = R(tree / "GameA")
+    assert same(r.path, tree / "GameA") and r.claimed_by == "self"
+    assert _project_root_notice(r, str(tree / "GameA")) == []
 
 
 def test_Q_declared_root_without_memory_yet(tmp_path):
@@ -257,11 +257,11 @@ def test_Q_declared_root_without_memory_yet(tmp_path):
 
 
 def test_R_S_root_abs_rules(tree, tmp_path):
-    server = tree / "TSLG" / "Server"
+    server = tree / "GameA" / "Server"
     # root_abs 目錄不存在 → 忽略、用 root
     _decl(server, root="..", root_abs=str(tmp_path / "nope"))
     r = R(server)
-    assert same(r.path, tree / "TSLG") and not r.warnings
+    assert same(r.path, tree / "GameA") and not r.warnings
     # root_abs 存在且與 root 不同 → 採 root_abs 並警告
     other = tmp_path / "Other"
     _memory(other)
@@ -304,19 +304,19 @@ def test_T_no_declaration_equals_legacy(tmp_path):
 
 
 def test_fingerprint_changes_with_declaration_and_matches_state(tree):
-    cwd = tree / "TSLG" / "Server" / "scripts"
+    cwd = tree / "GameA" / "Server" / "scripts"
     fp1 = R(cwd).fingerprint
     assert _root_fingerprint_matches({"atom_index": {"project_root_fingerprint": fp1}}, R(cwd))
     assert not _root_fingerprint_matches({"atom_index": {}}, R(cwd))       # 舊 state 無指紋 → 重建
-    _decl(tree / "TSLG", subs=["Server", "Client"])
+    _decl(tree / "GameA", subs=["Server", "Client"])
     pr.clear_cache()
     assert R(cwd).fingerprint != fp1
 
 
 def test_cache_invalidates_on_declaration_mtime(tree):
-    cwd = tree / "TSLG" / "Client"
+    cwd = tree / "GameA" / "Client"
     assert R(cwd).claimed_by == "nearest"
-    p = _decl(tree / "TSLG", subs=["Server", "Client"])
+    p = _decl(tree / "GameA", subs=["Server", "Client"])
     os.utime(p, (p.stat().st_atime, p.stat().st_mtime + 5))
     assert R(cwd).claimed_by == "ancestor-subs"       # 沒 clear_cache 也要看到新宣告
 
@@ -325,8 +325,8 @@ def test_cache_invalidates_on_declaration_mtime(tree):
 
 
 def test_hooks_never_write_declaration(tree):
-    cwd = tree / "TSLG" / "Server" / "scripts"
-    decls = [tree / "TSLG" / ".claude" / pr.DECL_NAME, tree / "TSLG" / "Server" / ".claude" / pr.DECL_NAME]
+    cwd = tree / "GameA" / "Server" / "scripts"
+    decls = [tree / "GameA" / ".claude" / pr.DECL_NAME, tree / "GameA" / "Server" / ".claude" / pr.DECL_NAME]
     before = [(p.read_bytes(), p.stat().st_mtime) for p in decls]
     guardian = CLAUDE_DIR / "hooks" / "workflow-guardian.py"
     sid = "ptclaim-" + os.urandom(4).hex()
@@ -368,34 +368,34 @@ def _raw(layer: Path) -> dict:
 
 
 def test_cli_claim_is_idempotent_and_skips_sub_without_claude(tree):
-    client = tree / "TSLG" / "Client"
-    out = _cli("claim", "--root", str(tree / "TSLG"), cwd=client)
+    client = tree / "GameA" / "Client"
+    out = _cli("claim", "--root", str(tree / "GameA"), cwd=client)
     assert "沒有 .claude/" in out and not (client / ".claude").exists()
-    assert _raw(tree / "TSLG")["subs"] == ["Server", "Client"]
-    _cli("claim", "--root", str(tree / "TSLG"), cwd=client)
-    assert _raw(tree / "TSLG")["subs"] == ["Server", "Client"]          # 冪等
-    _cli("claim", "--root", str(tree / "TSLG"), "--both", cwd=client)
+    assert _raw(tree / "GameA")["subs"] == ["Server", "Client"]
+    _cli("claim", "--root", str(tree / "GameA"), cwd=client)
+    assert _raw(tree / "GameA")["subs"] == ["Server", "Client"]          # 冪等
+    _cli("claim", "--root", str(tree / "GameA"), "--both", cwd=client)
     assert _raw(client) == {"root": ".."}
     assert R(client).claimed_by == "own-root"
 
 
 def test_cli_dry_run_and_unknown_keys_preserved(tree):
-    p = _decl(tree / "TSLG", subs=["Server"], note="keep me")
+    p = _decl(tree / "GameA", subs=["Server"], note="keep me")
     before = p.read_text(encoding="utf-8")
-    _cli("--dry-run", "add-sub", "Client", cwd=tree / "TSLG")
+    _cli("--dry-run", "add-sub", "Client", cwd=tree / "GameA")
     assert p.read_text(encoding="utf-8") == before
-    _cli("add-sub", "Client", "Client", cwd=tree / "TSLG")
-    raw = _raw(tree / "TSLG")
+    _cli("add-sub", "Client", "Client", cwd=tree / "GameA")
+    raw = _raw(tree / "GameA")
     assert raw["subs"] == ["Server", "Client"] and raw["note"] == "keep me"
-    _cli("remove-sub", "Server", cwd=tree / "TSLG")
-    assert _raw(tree / "TSLG")["subs"] == ["Client"]
+    _cli("remove-sub", "Server", cwd=tree / "GameA")
+    assert _raw(tree / "GameA")["subs"] == ["Client"]
 
 
 def test_cli_set_root_unset_root_standalone(tree, tmp_path):
-    server = tree / "TSLG" / "Server"
-    _cli("set-root", str(tree / "TSLG"), "--abs", cwd=server)
+    server = tree / "GameA" / "Server"
+    _cli("set-root", str(tree / "GameA"), "--abs", cwd=server)
     raw = _raw(server)
-    assert raw["root"] == ".." and Path(raw["root_abs"]).resolve() == (tree / "TSLG").resolve()
+    assert raw["root"] == ".." and Path(raw["root_abs"]).resolve() == (tree / "GameA").resolve()
     other = tmp_path / "Other"
     other.mkdir()
     out = _cli("set-root", str(other), cwd=server, expect_fail=True)
@@ -410,16 +410,16 @@ def test_cli_set_root_unset_root_standalone(tree, tmp_path):
 
 
 def test_cli_explain_json_and_show(tree):
-    out = _cli("explain", str(tree / "TSLG" / "Server" / "scripts"), "--json")
+    out = _cli("explain", str(tree / "GameA" / "Server" / "scripts"), "--json")
     data = json.loads(out)
-    assert Path(data["root"]).resolve() == (tree / "TSLG").resolve() and data["claimed_by"] == "ancestor-root"
-    out = _cli("show", cwd=tree / "TSLG" / "Server" / "scripts")
+    assert Path(data["root"]).resolve() == (tree / "GameA").resolve() and data["claimed_by"] == "ancestor-root"
+    out = _cli("show", cwd=tree / "GameA" / "Server" / "scripts")
     assert "WhoAmI" in out and "[有效]" in out and "目前生效" in out
 
 
 def test_cli_pick_without_display_gives_alternative(tree, monkeypatch):
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PROJECT_TREE_NO_GUI="1")
-    r = subprocess.run([sys.executable, str(CLI), "--cwd", str(tree / "TSLG" / "Client"), "pick"],
+    r = subprocess.run([sys.executable, str(CLI), "--cwd", str(tree / "GameA" / "Client"), "pick"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=60)
     assert r.returncode != 0 and "claim --root" in (r.stdout + r.stderr)
 
@@ -428,13 +428,13 @@ def test_cli_pick_without_display_gives_alternative(tree, monkeypatch):
 
 
 def test_dry_run_from_sub_lands_at_root_without_creating_dirs(tree):
-    cwd = tree / "TSLG" / "Server" / "scripts"
+    cwd = tree / "GameA" / "Server" / "scripts"
     res = atom_io.write_atom(
         title="dryrun-落點驗證", scope="shared", confidence="[臨]", triggers=["dryrun-落點"],
         knowledge=["[臨] 驗證用"], mode="create", source="mcp", project_cwd=str(cwd),
         domain="工作流", dry_run=True,
     )
     assert res.ok, res.error
-    assert Path(res.path).resolve().parent == (tree / "TSLG" / ".claude" / "memory" / "shared" / "工作流").resolve()
-    assert not (tree / "TSLG" / ".claude" / "memory" / "shared" / "工作流").exists()
-    assert not (tree / "TSLG" / "Server" / ".claude" / "memory").exists()
+    assert Path(res.path).resolve().parent == (tree / "GameA" / ".claude" / "memory" / "shared" / "工作流").resolve()
+    assert not (tree / "GameA" / ".claude" / "memory" / "shared" / "工作流").exists()
+    assert not (tree / "GameA" / "Server" / ".claude" / "memory").exists()

@@ -103,7 +103,7 @@
 | r-corr-01 | corrected | ok | real | 12 | 0.13 | commit verify 回合 完成 成後 收尾 最終 測試 結果 自動 裁判 驗證 |
 | r-corr-02 | corrected | ok | real | 15 | 0.082 | feedback prompt session 專案 我的 拍板 既有 有真 案層 每個 決策 的需 真的 自己 還沒 |
 | r-corr-03 | corrected | ok | real | 4 | 0.138 | prompt session 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 13 | 0.116 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 13 | 0.116 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 6 | 0.032 | trigger 一次 不是 假設 測試 自動 |
 | r-cite-01 | cited | skip | real | 17 | 0.68 | aidocs claude users 先實 制被 前先 卡死 好機 實證 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 10 | 0.075 | commit staging 了哪 前不 口令 哪些 報告 工作 發現 驗證 |
@@ -159,7 +159,7 @@
 | r-corr-01 | corrected | ok | real | 12 | 0.135 | commit verify 回合 完成 成後 收尾 最終 測試 結果 自動 裁判 驗證 |
 | r-corr-02 | corrected | ok | real | 15 | 0.084 | feedback prompt session 專案 我的 拍板 既有 有真 案層 每個 決策 的需 真的 自己 還沒 |
 | r-corr-03 | corrected | ok | real | 4 | 0.154 | prompt session 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 13 | 0.119 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 13 | 0.119 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 5 | 0.027 | 一次 不是 假設 測試 自動 |
 | r-cite-01 | cited | skip | real | 16 | 0.667 | aidocs users 先實 制被 前先 卡死 好機 實證 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 10 | 0.077 | commit staging 了哪 前不 口令 哪些 報告 工作 發現 驗證 |
@@ -214,7 +214,7 @@
 | r-corr-01 | corrected | ok | real | 7 | 0.09 | verify 回合 完成 成後 最終 結果 裁判 |
 | r-corr-02 | corrected | ok | real | 10 | 0.062 | 我的 拍板 既有 有真 案層 每個 決策 的需 真的 還沒 |
 | r-corr-03 | corrected | ok | real | 2 | 0.091 | 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 12 | 0.118 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 12 | 0.118 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 2 | 0.012 | 不是 假設 |
 | r-cite-01 | cited | skip | real | 12 | 0.632 | 先實 制被 卡死 好機 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 6 | 0.059 | staging 了哪 前不 哪些 報告 發現 |
@@ -265,7 +265,7 @@
 | r-corr-01 | corrected | ok | real | 12 | 0.13 | commit verify 回合 完成 成後 收尾 最終 測試 結果 自動 裁判 驗證 |
 | r-corr-02 | corrected | ok | real | 15 | 0.082 | feedback prompt session 專案 我的 拍板 既有 有真 案層 每個 決策 的需 真的 自己 還沒 |
 | r-corr-03 | corrected | ok | real | 4 | 0.138 | prompt session 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 13 | 0.116 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 13 | 0.116 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 6 | 0.032 | trigger 一次 不是 假設 測試 自動 |
 | r-cite-01 | cited | skip | real | 17 | 0.68 | aidocs claude users 先實 制被 前先 卡死 好機 實證 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 10 | 0.075 | commit staging 了哪 前不 口令 哪些 報告 工作 發現 驗證 |
@@ -321,7 +321,7 @@
 | r-corr-01 | corrected | ok | real | 12 | 0.135 | commit verify 回合 完成 成後 收尾 最終 測試 結果 自動 裁判 驗證 |
 | r-corr-02 | corrected | ok | real | 15 | 0.084 | feedback prompt session 專案 我的 拍板 既有 有真 案層 每個 決策 的需 真的 自己 還沒 |
 | r-corr-03 | corrected | ok | real | 4 | 0.154 | prompt session 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 13 | 0.119 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 13 | 0.119 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 5 | 0.027 | 一次 不是 假設 測試 自動 |
 | r-cite-01 | cited | skip | real | 16 | 0.667 | aidocs users 先實 制被 前先 卡死 好機 實證 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 10 | 0.077 | commit staging 了哪 前不 口令 哪些 報告 工作 發現 驗證 |
@@ -376,7 +376,7 @@
 | r-corr-01 | corrected | ok | real | 7 | 0.09 | verify 回合 完成 成後 最終 結果 裁判 |
 | r-corr-02 | corrected | ok | real | 10 | 0.062 | 我的 拍板 既有 有真 案層 每個 決策 的需 真的 還沒 |
 | r-corr-03 | corrected | ok | real | 2 | 0.091 | 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 12 | 0.118 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 12 | 0.118 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 2 | 0.012 | 不是 假設 |
 | r-cite-01 | cited | skip | real | 12 | 0.632 | 先實 制被 卡死 好機 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 6 | 0.059 | staging 了哪 前不 哪些 報告 發現 |
@@ -426,7 +426,7 @@
 | r-corr-01 | corrected | ok | real | 12 | 0.13 | commit verify 回合 完成 成後 收尾 最終 測試 結果 自動 裁判 驗證 |
 | r-corr-02 | corrected | ok | real | 15 | 0.082 | feedback prompt session 專案 我的 拍板 既有 有真 案層 每個 決策 的需 真的 自己 還沒 |
 | r-corr-03 | corrected | ok | real | 4 | 0.138 | prompt session 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 13 | 0.116 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 13 | 0.116 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 6 | 0.032 | trigger 一次 不是 假設 測試 自動 |
 | r-cite-01 | cited | skip | real | 17 | 0.68 | aidocs claude users 先實 制被 前先 卡死 好機 實證 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 10 | 0.075 | commit staging 了哪 前不 口令 哪些 報告 工作 發現 驗證 |
@@ -481,7 +481,7 @@
 | r-corr-01 | corrected | ok | real | 12 | 0.135 | commit verify 回合 完成 成後 收尾 最終 測試 結果 自動 裁判 驗證 |
 | r-corr-02 | corrected | ok | real | 15 | 0.084 | feedback prompt session 專案 我的 拍板 既有 有真 案層 每個 決策 的需 真的 自己 還沒 |
 | r-corr-03 | corrected | ok | real | 4 | 0.154 | prompt session 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 13 | 0.119 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 13 | 0.119 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 5 | 0.027 | 一次 不是 假設 測試 自動 |
 | r-cite-01 | cited | skip | real | 16 | 0.667 | aidocs users 先實 制被 前先 卡死 好機 實證 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 10 | 0.077 | commit staging 了哪 前不 口令 哪些 報告 工作 發現 驗證 |
@@ -534,7 +534,7 @@
 |---|---|---|---|---|---|---|
 | r-corr-01 | corrected | ok | real | 7 | 0.09 | verify 回合 完成 成後 最終 結果 裁判 |
 | r-corr-02 | corrected | ok | real | 10 | 0.062 | 我的 拍板 既有 有真 案層 每個 決策 的需 真的 還沒 |
-| r-corr-04 | corrected | ok | real | 12 | 0.118 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 12 | 0.118 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 能新 貼圖 |
 | r-cite-01 | cited | skip | real | 12 | 0.632 | 先實 制被 卡死 好機 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 6 | 0.059 | staging 了哪 前不 哪些 報告 發現 |
 | r-cite-03 | cited | ok | real | 4 | 0.026 | class gameobject hotfix hotfix-migration-rules |
@@ -583,7 +583,7 @@
 | r-corr-01 | corrected | ok | real | 12 | 0.13 | commit verify 回合 完成 成後 收尾 最終 測試 結果 自動 裁判 驗證 |
 | r-corr-02 | corrected | ok | real | 15 | 0.082 | feedback prompt session 專案 我的 拍板 既有 有真 案層 每個 決策 的需 真的 自己 還沒 |
 | r-corr-03 | corrected | ok | real | 4 | 0.138 | prompt session 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 13 | 0.116 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 13 | 0.116 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 6 | 0.032 | trigger 一次 不是 假設 測試 自動 |
 | r-cite-01 | cited | skip | real | 17 | 0.68 | aidocs claude users 先實 制被 前先 卡死 好機 實證 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 10 | 0.075 | commit staging 了哪 前不 口令 哪些 報告 工作 發現 驗證 |
@@ -638,7 +638,7 @@
 | r-corr-01 | corrected | ok | real | 12 | 0.135 | commit verify 回合 完成 成後 收尾 最終 測試 結果 自動 裁判 驗證 |
 | r-corr-02 | corrected | ok | real | 15 | 0.084 | feedback prompt session 專案 我的 拍板 既有 有真 案層 每個 決策 的需 真的 自己 還沒 |
 | r-corr-03 | corrected | ok | real | 4 | 0.154 | prompt session 判斷 動提 |
-| r-corr-04 | corrected | ok | real | 13 | 0.119 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 13 | 0.119 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 程式 能新 貼圖 |
 | r-corr-05 | corrected | ok | real | 5 | 0.027 | 一次 不是 假設 測試 自動 |
 | r-cite-01 | cited | skip | real | 16 | 0.667 | aidocs users 先實 制被 前先 卡死 好機 實證 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 10 | 0.077 | commit staging 了哪 前不 口令 哪些 報告 工作 發現 驗證 |
@@ -691,7 +691,7 @@
 |---|---|---|---|---|---|---|
 | r-corr-01 | corrected | ok | real | 7 | 0.09 | verify 回合 完成 成後 最終 結果 裁判 |
 | r-corr-02 | corrected | ok | real | 10 | 0.062 | 我的 拍板 既有 有真 案層 每個 決策 的需 真的 還沒 |
-| r-corr-04 | corrected | ok | real | 12 | 0.118 | hotfix runtime shader tslg_hotfix 不能 修側 復用 新增 既有 熱修 能新 貼圖 |
+| r-corr-04 | corrected | ok | real | 12 | 0.118 | hotfix runtime shader 某專案_hotfix 不能 修側 復用 新增 既有 熱修 能新 貼圖 |
 | r-cite-01 | cited | skip | real | 12 | 0.632 | 先實 制被 卡死 好機 審查 小故 拔前 故障 機制 被小 過重 障卡 |
 | r-cite-02 | cited | ok | real | 6 | 0.059 | staging 了哪 前不 哪些 報告 發現 |
 | r-cite-03 | cited | ok | real | 4 | 0.026 | class gameobject hotfix hotfix-migration-rules |

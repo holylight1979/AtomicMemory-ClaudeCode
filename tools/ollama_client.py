@@ -44,7 +44,7 @@ TIME_BOUNDARIES = [0, 6, 12, 18]
 @dataclass
 class OllamaBackend:
     name: str
-    base_url: str  # e.g. "https://rdchat.uj.com.tw/ollama" or "http://127.0.0.1:11434"
+    base_url: str  # e.g. "https://llm.example.com/ollama" or "http://127.0.0.1:11434"
     auth: Optional[Dict[str, str]] = None  # {"type", "login_url", "user", ...}
     llm_model: Optional[str] = None
     embedding_model: Optional[str] = None

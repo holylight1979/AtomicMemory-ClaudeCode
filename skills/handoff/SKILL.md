@@ -27,7 +27,7 @@ description: 跨 Session Handoff Prompt Builder — 強制 6 區塊 self-suffici
 ## 必填 6 區塊（缺一拒絕完成）
 
 ### 1.【前置脈絡】
-- 專案根目錄絕對路徑（例：`c:/projects/.claude/`）
+- 專案根目錄絕對路徑（例：`D:/work/acme-shop/.claude/`）
 - 工作分支 / 工作目錄
 - 為什麼做這件事（**含 why**，不只 what）
 
@@ -90,42 +90,42 @@ description: 跨 Session Handoff Prompt Builder — 強制 6 區塊 self-suffici
 
 ## 範例對照
 
-### ❌ 反例（截圖事件 2026-04，FcgiHandler）
+### ❌ 反例（截圖事件 2026-04，ApiHandler）
 ```
-繼續 FcgiHandler 知識庫建置 Phase 2：phpUjAdmin 後台交叉對應。
+繼續 ApiHandler 知識庫建置 Phase 2：AcmeAdmin 後台交叉對應。
 ```
-→ 下個 Claude 不知道：專案在哪、Phase 1 做了什麼、權威來源在哪、phpUjAdmin 怎麼進
+→ 下個 Claude 不知道：專案在哪、Phase 1 做了什麼、權威來源在哪、AcmeAdmin 怎麼進
 
 ### ✅ 正例（self-sufficient 版）
 ```
 【前置脈絡】
-- 專案：c:/projects/.claude/（SGI Server，team memory repo）
-- 任務：FcgiHandler 知識庫建置 Phase 2 — phpUjAdmin 後台交叉對應
-- Why：team 同事 wellstseng 之前在 ba3bc84 補齊了 92 路由參數，需與後台路由對齊
+- 專案：D:/work/acme-shop/.claude/（acme-shop 伺服器，team memory repo）
+- 任務：ApiHandler 知識庫建置 Phase 2 — AcmeAdmin 後台交叉對應
+- Why：team 同事 alice 之前在 a1b2c3d 補齊了 92 路由參數，需與後台路由對齊
 
 【已完成】
-- Phase 1：commit d33b896 已 push origin/master
+- Phase 1：commit e4f5a6b 已 push origin/master
 - 權威來源：_AIDocs/API_Endpoints_Report.md（92 路由完整參數）
-- Phase 1 產出：c:/projects/.claude/memory/fcgi-api-directory.md（98 路由 §1-4 + §5 phpUjAdmin 占位）
+- Phase 1 產出：D:/work/acme-shop/.claude/memory/api-directory.md（98 路由 §1-4 + §5 AcmeAdmin 占位）
 
 【權威來源】
-- 後台路由：BackendServer 92 路由（fcgi-api-directory.md §1-4）
-- 同事補齊：commit ba3bc84
+- 後台路由：BackendServer 92 路由（api-directory.md §1-4）
+- 同事補齊：commit a1b2c3d
 
 【產出位置】
-- 既有：fcgi-api-directory.md §5 phpUjAdmin 占位
-- 接下來：phpujadmin-route-map.md（新檔）→ 回寫 §5
+- 既有：api-directory.md §5 AcmeAdmin 占位
+- 接下來：acmeadmin-route-map.md（新檔）→ 回寫 §5
 
 【做法】
 1. 從本機直接連內網後台（不開瀏覽器，省 Playwright 開銷）
 2. 用 curl 逐頁抓 HTML，比對 BackendServer 92 路由
 3. curl 抓不下來的頁才改用瀏覽器補
-4. 產出 phpujadmin-route-map.md → 回寫 §5 → commit + push
+4. 產出 acmeadmin-route-map.md → 回寫 §5 → commit + push
 
 【決策依據】
 - 為什麼用 curl：本機背景連內網夠用，不需開視窗（之前討論結論）
 - 為什麼不全用 Playwright：開銷大且非必要；只在 curl 失敗時 fallback
-- 已知坑：phpUjAdmin 帳密在 c:/projects/.claude/secrets/（git ignore），讀檔取
+- 已知坑：AcmeAdmin 帳密在 D:/work/acme-shop/.claude/secrets/（git ignore），讀檔取
 ```
 
 ---

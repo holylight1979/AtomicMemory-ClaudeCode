@@ -26,6 +26,15 @@ _QUOTE_LINE_RE = re.compile(r"^- Quote:\s*\S", re.MULTILINE)
 _SOURCE_LINE_RE = re.compile(r"^- Source:\s*(\S.*)$", re.MULTILINE)
 
 
+def _is_root_layer(path: Path) -> bool:
+    """卡片落在根層（~/.claude 底下：全域、本人跨專案、根層專用）。"""
+    try:
+        p, home = path.resolve(), CLAUDE_DIR.resolve()
+    except OSError:
+        return False
+    return home in p.parents
+
+
 def _last_turn_prompt(state: Dict[str, Any]) -> str:
     prompts = state.get("turn_prompts") or []
     if not isinstance(prompts, list) or not prompts:
@@ -82,6 +91,10 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
 
         session_id = str(input_data.get("session_id") or state.get("session", {}).get("id") or "")
         quote_raw = _last_turn_prompt(state)
+        if _is_root_layer(path):
+            # 根層卡片不帶專案名與專案路徑；原話照抄會把它們帶進來
+            from lib.realm_gate import anonymize_projects
+            quote_raw = anonymize_projects(quote_raw)
         quote_clean = sanitize_quote(quote_raw)
         quote_line = format_quote(quote_clean) if quote_clean else None
 

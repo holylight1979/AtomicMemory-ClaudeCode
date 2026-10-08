@@ -26,8 +26,8 @@ def test_paren_only_date_removed_with_parens():
 
 
 def test_date_at_paren_edges_leaves_rest():
-    assert strip("- [臨]（2026-08-13 Proj-JARVIS T8d 實例）給契約加欄位") == "- [臨]（Proj-JARVIS T8d 實例）給契約加欄位"
-    assert strip("- [觀] 同型再現（MudClient 2026-08-25）：") == "- [觀] 同型再現（MudClient）："
+    assert strip("- [臨]（2026-08-13 AppB T8d 實例）給契約加欄位") == "- [臨]（AppB T8d 實例）給契約加欄位"
+    assert strip("- [觀] 同型再現（GameA 2026-08-25）：") == "- [觀] 同型再現（GameA）："
     assert strip("- [固] 覆轍實例（Realm S1–S3，2026-06）：") == "- [固] 覆轍實例（Realm S1–S3）："
 
 

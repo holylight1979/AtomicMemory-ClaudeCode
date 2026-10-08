@@ -1,6 +1,6 @@
-"""verify_mojibake_detect.py — 亂碼名稱（U+0080–U+00FF，如 TSLG 的 `shared/UIºt¥X`）偵測守門。
+"""verify_mojibake_detect.py — 亂碼名稱（U+0080–U+00FF，如某專案的 `shared/UIºt¥X`）偵測守門。
 
-tmp 記憶樹含 `UIºt¥X` 資料夾（空、同 TSLG 現場）與一顆落在裡面的 atom：
+tmp 記憶樹含 `UIºt¥X` 資料夾（空、同該專案現場）與一顆落在裡面的 atom：
   - atom-health-check --report：只對該名稱出一行 `⚠ 疑似亂碼名稱: <path>` 警告、exit 0、報告多一個
     `mojibake_names` 檢查項、裡面的 atom 不計入 total；正常 atom 照常計入。
   - sync-memory-index --check：全域樹與專案樹都不炸（exit 0／1 皆可，不得 traceback），stderr 同樣一行警告，

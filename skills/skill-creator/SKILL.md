@@ -23,7 +23,7 @@ pattern: pipeline
 1. **Progressive Disclosure 三層**：metadata（恒載）→ SKILL.md（觸發載）→ scripts/references/assets（按需載）
 2. **Lean Instructions**：規則只寫一次，重複即罪
 3. **Lack of Surprise**：description 必須準確涵蓋觸發場景，不能掛羊頭賣狗肉
-4. **零專案耦合**：全域 skill 內**禁止** hardcode 任何專案路徑（TSLG / catclaw 等）
+4. **零專案耦合**：全域 skill 內**禁止** hardcode 任何專案名或專案路徑
 
 ## 三條工作流（依需求選一）
 

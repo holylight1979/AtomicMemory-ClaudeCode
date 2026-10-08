@@ -106,7 +106,7 @@ def save_atom_index_json(mem_dir: Path, data: Dict[str, Any]) -> None:
 def dedup_triggers(triggers, *, lower: bool = False) -> List[str]:
     """strip + 去空 + 大小寫不敏感保序去重（首見者勝）；lower=True 時輸出一律小寫。
 
-    讀寫兩側共用：索引若同時含 "linemate" 與 "LineMate"，讀取側 .lower() 後會變成
+    讀寫兩側共用：索引若同時含 "foobar" 與 "FooBar"，讀取側 .lower() 後會變成
     兩顆相同 trigger，count_trigger_hits 對單字回 2 而灌水越過跨專案 >=2 門檻。
     """
     out: List[str] = []

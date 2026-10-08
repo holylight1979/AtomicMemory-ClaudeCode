@@ -713,7 +713,7 @@ function apiAtoms(req, res) {
     // 路徑即權威：專案 memory 目錄下的 atom 一律歸該 slug。
     // pushAtomFromFile 解析 frontmatter 時會用 bare `Scope:`（project/shared/personal/role:x）
     // 覆寫掉 path-derived 的 composite scope，導致 shared/ 子層 atom 被誤歸 "core" 房
-    // （c--projects 全在 shared/ → 整個房間消失）。兩段掃描後統一補正回 project:<slug>[:subscope]。
+    // （某專案的 atom 全在 shared/ → 整個房間消失）。兩段掃描後統一補正回 project:<slug>[:subscope]。
     for (let i = before; i < atoms.length; i++) {
       const sc = atoms[i].scope || "";
       if (sc === "project:" + slug || sc.startsWith("project:" + slug + ":")) continue;

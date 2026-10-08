@@ -67,4 +67,4 @@ useful 率分布(去 prior): {'0': 13, '<.75': 68, '<=1': 51, '<.5': 22, '<.25':
 
 ======== G. session 規模 ========
 近 30 天有 PAN 記錄的 session: 99
-近 30 天 transcript 檔: 183  依專案: [('subagents', 80), ('c--users-holylight--claude', 41), ('c--projects', 35), ('d--AI-PLAY-MudClient-withAI', 9), ('c--Users-holylight--grok', 5), ('c--TSLG', 4)]
+近 30 天 transcript 檔: 183  依專案: [('subagents', 80), ('c--users-holylight--claude', 41), ('<專案甲>', 35), ('<專案丁>', 9), ('c--Users-holylight--grok', 5), ('<專案乙>', 4)]

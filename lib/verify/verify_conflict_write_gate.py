@@ -57,10 +57,10 @@ def test_double_confirmed_contradict_still_blocks(monkeypatch):
 
 def test_cross_partition_contradict_warns_not_blocks(monkeypatch):
     out = _run(monkeypatch,
-               [_hit("jarvis-policy", 0.92,
-                     "/repo/.claude/memory/projects/Proj-JARVIS/jarvis-policy.md")],
+               [_hit("appb-policy", 0.92,
+                     "/repo/.claude/memory/projects/AppB/appb-policy.md")],
                ["CONTRADICT", "CONTRADICT"],  # 即使穩定矛盾
-               subdir="projects/ChatGPT-codex-CS")
+               subdir="projects/GameA")
     assert out["verdict"] != "contradict", out
     assert any("cross-partition" in w for w in out["warnings"]), out
 
@@ -68,9 +68,9 @@ def test_cross_partition_contradict_warns_not_blocks(monkeypatch):
 def test_same_partition_contradict_still_blocks(monkeypatch):
     out = _run(monkeypatch,
                [_hit("cfg", 0.92,
-                     "/repo/.claude/memory/projects/Proj-JARVIS/cfg.md")],
+                     "/repo/.claude/memory/projects/AppB/cfg.md")],
                ["CONTRADICT", "CONTRADICT"],
-               subdir="projects/Proj-JARVIS")
+               subdir="projects/AppB")
     assert out["verdict"] == "contradict", out
 
 

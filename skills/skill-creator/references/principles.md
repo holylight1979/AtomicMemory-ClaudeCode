@@ -97,7 +97,7 @@ Skill 在 Claude Code 內部的載入時機：
 
 **規則**：全域 skill（`~/.claude/skills/`）內嚴禁 hardcode 任何專案路徑、專案名稱、團隊內部術語。
 
-**為什麼**：全域 skill 給所有 agent 用。一個 catclaw 專用詞跑進去，其他 agent 看到就會誤判（「這 skill 是給 catclaw 的，我不該用」）或誤套（在錯的專案執行錯的指令）。
+**為什麼**：全域 skill 給所有 agent 用。一個專案專用詞跑進去，其他 agent 看到就會誤判（「這 skill 是給某專案的，我不該用」）或誤套（在錯的專案執行錯的指令）。
 
 **判定**：
 - grep skill 內所有檔案，搜尋常見專案關鍵字

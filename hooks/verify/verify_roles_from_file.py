@@ -124,7 +124,7 @@ def test_role_md_multi_role_and_global_fallback(world):
 
 def test_role_md_empty_file_falls_through_to_ad(world, monkeypatch):
     (world["pmem"] / "personal" / USER / "role.md").write_text("", encoding="utf-8")
-    _stub_ad(monkeypatch, _csv(r"UJ\PJA146_TSLG_02_核心程式"))
+    _stub_ad(monkeypatch, _csv(r"CORP\PRJ001_GAMEA_02_核心程式"))
     info = wg_roles.load_user_role(str(world["proj"]), USER)
     assert info["roles"] == ["programmer"] and info["source"] == "ad"
 
@@ -132,7 +132,7 @@ def test_role_md_empty_file_falls_through_to_ad(world, monkeypatch):
 # ─── 第 2 層 AD 群組 ──────────────────────────────────────────────────────────
 
 def test_ad_core_programmer_group_maps_and_enters_pool(world, monkeypatch):
-    _stub_ad(monkeypatch, _csv("BUILTIN\\Users", r"UJ\PJA146_TSLG_02_核心程式", r"UJ\AkamaiEAA_SGI"))
+    _stub_ad(monkeypatch, _csv("BUILTIN\\Users", r"CORP\PRJ001_GAMEA_02_核心程式", r"CORP\VpnAccess_APPB"))
     info = wg_roles.load_user_role(str(world["proj"]), USER)
     assert info["roles"] == ["programmer"] and info["source"] == "ad"
     names = _pool_names(world["proj"], USER, info["roles"])
@@ -140,12 +140,12 @@ def test_ad_core_programmer_group_maps_and_enters_pool(world, monkeypatch):
 
 
 def test_ad_art_group_maps_to_art(world, monkeypatch):
-    _stub_ad(monkeypatch, _csv(r"UJ\X_01_美術"))
+    _stub_ad(monkeypatch, _csv(r"CORP\X_01_美術"))
     assert wg_roles.load_user_role(str(world["proj"]), USER)["roles"] == ["art"]
 
 
 def test_ad_no_matching_group_gives_empty_and_no_role_atoms(world, monkeypatch):
-    _stub_ad(monkeypatch, _csv("BUILTIN\\Users", r"UJ\B105事務部_各專案相關R", r"UJ\AkamaiEAA_SGI"))
+    _stub_ad(monkeypatch, _csv("BUILTIN\\Users", r"CORP\D100行政部_各專案相關R", r"CORP\VpnAccess_APPB"))
     info = wg_roles.load_user_role(str(world["proj"]), USER)
     assert info["roles"] == [] and info["source"] == "none"
     names = _pool_names(world["proj"], USER, info["roles"])
@@ -164,10 +164,10 @@ def test_ad_whoami_failure_gives_empty_and_stderr(world, monkeypatch, capsys):
 
 
 def test_ad_project_code_filters_to_declared_project(world, monkeypatch):
-    groups = _csv(r"UJ\PJA146_TSLG_02_核心程式", r"UJ\PJA999_OTHER_05_美術")
+    groups = _csv(r"CORP\PRJ001_GAMEA_02_核心程式", r"CORP\PRJ999_OTHER_05_美術")
     _stub_ad(monkeypatch, groups)
     assert wg_roles.load_user_role(str(world["proj"]), USER)["roles"] == ["programmer", "art"]
-    (world["pmem"] / "MEMORY.md").write_text("> Project-Code: PJA999\n# p\n", encoding="utf-8")
+    (world["pmem"] / "MEMORY.md").write_text("> Project-Code: PRJ999\n# p\n", encoding="utf-8")
     monkeypatch.setattr(wg_roles, "_ad_groups_cache", None)
     assert wg_roles.load_user_role(str(world["proj"]), USER)["roles"] == ["art"]
 
@@ -176,7 +176,7 @@ def test_ad_query_cached_once_per_process(world, monkeypatch):
     calls = []
     monkeypatch.setattr(wg_roles, "_ad_groups_cache", None)
     monkeypatch.setattr(wg_roles, "ad_available", lambda: True)
-    monkeypatch.setattr(wg_roles, "_whoami_groups", lambda: calls.append(1) or [r"UJ\A_01_程式"])
+    monkeypatch.setattr(wg_roles, "_whoami_groups", lambda: calls.append(1) or [r"CORP\A_01_程式"])
     wg_roles.load_user_role(str(world["proj"]), USER)
     wg_roles.load_user_role("", USER)
     assert len(calls) == 1
@@ -184,7 +184,7 @@ def test_ad_query_cached_once_per_process(world, monkeypatch):
 
 def test_map_groups_longest_key_first_and_dedupe():
     roles = wg_roles.map_groups_to_roles(
-        [r"UJ\P_01_伺服器程式", r"UJ\P_02_核心程式", "nodomain_程式", r"UJ\P_03_QA"], AD_MAP)
+        [r"CORP\P_01_伺服器程式", r"CORP\P_02_核心程式", "nodomain_程式", r"CORP\P_03_QA"], AD_MAP)
     assert roles == ["programmer", "qa"]
 
 
@@ -216,7 +216,7 @@ def test_config_broken_fails_open_with_stderr(world, monkeypatch, capsys):
 
 def test_load_user_role_when_pool_builder_consumes_it(world, monkeypatch):
     """SessionStart 路徑：load_user_role 回的 roles 直接餵 build_candidate_pool，不經任何預設補齊。"""
-    _stub_ad(monkeypatch, _csv(r"UJ\PJA110_SGI_02_核心程式"))
+    _stub_ad(monkeypatch, _csv(r"CORP\PRJ002_APPB_02_核心程式"))
     src = (HOOKS_DIR / "handlers" / "session_start.py").read_text(encoding="utf-8")
     assert 'or ["programmer"]' not in src
     assert "if v4_mgmt:" not in src

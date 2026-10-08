@@ -31,7 +31,7 @@ disable-model-invocation: true
 
 > staging 在 `{project_root}/.claude/memory/_staging/`（專案自治層）。
 > 未遷移的舊專案：`~/.claude/projects/{slug}/memory/_staging/next-phase*.md`
-> 例：CWD `C:\Projects` → 優先掃描 `C:\Projects\.claude\memory\_staging\next-phase*.md`
+> 例：CWD `<專案根>` → 優先掃描 `<專案根>\.claude\memory\_staging\next-phase*.md`
 
 每個專案有獨立的 staging 區，確保不同專案的續接互不干擾。
 

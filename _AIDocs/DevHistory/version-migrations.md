@@ -47,7 +47,7 @@
 - `migrate-v221.py`（tools/）：_AIAtoms/*.md + 個人 memory/*.md 合併 → {project_root}/.claude/memory/
 - 舊 MEMORY.md 改指標型（Status: migrated-v2.21）
 - project-registry.json 自動更新
-- 已遷移：SGI / 加班系統 / FastSVNViewer
+- 已遷移：三個專案（各自的專案層）
 
 ## V2.21 Phase 3：專案自治層建置
 - `init-project` skill Step 6 建立 `.claude/` 結構（memory/, hooks/, .gitignore, MEMORY.md 模板, project_hooks.py delegate 模板）

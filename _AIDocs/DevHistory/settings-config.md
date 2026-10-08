@@ -7,7 +7,7 @@
 
 - **Bash**：powershell, python, ls, wc, du, git, gh, ollama, curl, echo, grep, find
 - **Read**：`C:\Users\**`, `C:\OpenClawWorkspace\**`
-- **Edit/Write**：`.claude/**`、`C:/tmp/docs-progg/.claude/**`
+- **Edit/Write**：`.claude/**`、某專案的 `.claude/**`
 - **MCP**：workflow-guardian (workflow_signal, workflow_status)
 - **PostToolUse matcher**：`Edit|Write|Bash`（2026-04-17 加 Bash 以支援 Evasion Guard Test-Fail 偵測 + _CHANGELOG auto-roll）
 

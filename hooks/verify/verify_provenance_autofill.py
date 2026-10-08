@@ -132,6 +132,32 @@ def test_autofill_empty_prompt_still_writes_source(tmp_path):
     assert "- Source: session:f1e8b9d8" in text and "- Quote:" not in text
 
 
+def test_autofill_quote_anonymized_only_in_root_layer(tmp_path, monkeypatch):
+    """根層卡片的 Quote 換掉已登記專案名與專案路徑；專案層卡片原話照抄。"""
+    from lib import realm_gate
+    reg = tmp_path / "project-registry.json"
+    reg.write_text(json.dumps({"projects": {"g": {"root": str(tmp_path / "GameZ")}}}), encoding="utf-8")
+    monkeypatch.setattr(realm_gate, "REGISTRY_PATH", reg)
+    prompt = f"/continue {tmp_path / 'GameZ' / 'next.md'} 照 GameZ 的做法記下來"
+    state = {"session": {"id": SID}, "turn_prompts": [prompt]}
+
+    root_layer = tmp_path / "claude_home"
+    monkeypatch.setattr(wg_provenance, "CLAUDE_DIR", root_layer)
+    p = root_layer / "memory" / "設計通則" / "測試卡片.md"
+    p.parent.mkdir(parents=True)
+    p.write_text(ATOM, encoding="utf-8", newline="\n")
+    assert wg_provenance.autofill_from_receipt(_receipt(p), {"session_id": SID}, state)["done"]
+    q = [l for l in p.read_text(encoding="utf-8").splitlines() if l.startswith("- Quote:")][0]
+    assert "<專案路徑>" in q and "照 某專案 的做法" in q and "GameZ" not in q
+
+    proj_atom = tmp_path / "GameZ" / ".claude" / "memory" / "shared" / "測試卡片.md"
+    proj_atom.parent.mkdir(parents=True)
+    proj_atom.write_text(ATOM, encoding="utf-8", newline="\n")
+    assert wg_provenance.autofill_from_receipt(_receipt(proj_atom), {"session_id": SID}, state)["done"]
+    q2 = [l for l in proj_atom.read_text(encoding="utf-8").splitlines() if l.startswith("- Quote:")][0]
+    assert "照 GameZ 的做法" in q2
+
+
 def test_injection_strips_html_comments():
     sec = _extract_named_section(ATOM, "知識")
     assert sec is not None

@@ -32,7 +32,7 @@ def _w(path) -> dict:
 
 def test_project_session_write_tools_denied():
     msg = check_cross_realm_write(
-        "Write", _w(HOME_CLAUDE / "tools" / "sgi-introspect-ui.cs"), PROJ, CFG_ON)
+        "Write", _w(HOME_CLAUDE / "tools" / "gamea-introspect-ui.cs"), PROJ, CFG_ON)
     assert msg and "CrossRealmWriteBlock" in msg
 
 
@@ -79,9 +79,9 @@ def test_disabled_config_allows():
 
 def test_allowlist_substring_allows():
     cfg = {"guard": {"cross_realm_write": {
-        "enabled": True, "allowlist": ["tools/sgi-"]}}}
+        "enabled": True, "allowlist": ["tools/gamea-"]}}}
     assert check_cross_realm_write(
-        "Write", _w(HOME_CLAUDE / "tools" / "sgi-x.cs"), PROJ, cfg) is None
+        "Write", _w(HOME_CLAUDE / "tools" / "gamea-x.cs"), PROJ, cfg) is None
     # allowlist 未命中者仍擋
     assert check_cross_realm_write(
         "Write", _w(HOME_CLAUDE / "tools" / "other.cs"), PROJ, cfg) is not None

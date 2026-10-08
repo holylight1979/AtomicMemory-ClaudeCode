@@ -195,7 +195,7 @@ svn（`svn_update_targets`，取代舊 out-of-date 重試）：先把 validated 
 - **為何全 repo LF 而非只釘三檔**：混合行尾的來源是寫檔工具的平台預設，只釘三檔擋不住下一個被寫成 CRLF 的檔；統一規則後 `--check` 一條命令就能巡完。
 - **為何專案樹 LF 掛在 atom 寫入漏斗尾端而不是 pull 前或 SessionStart**：pull 前製造未提交變更會讓 `git pull --rebase` 拒絕（unstaged changes）；SessionStart 每次都付成本且與「合併時才需要」無關；掛在寫入後，第一次動整棵樹、之後為零，改動跟著本來就要提交的記憶批次走，使用者零動作。
 - **為何 SVN 用 `svn info --xml` 取三份輸入而不猜 `.rN` 檔名**：版號不需解析、TortoiseSVN 或未來 svn 版本改命名也不受影響；一次呼叫可帶多個 target，仍在 hook 預算內（實測 memory dir 的 status 0.2s＋info 0.2s＋resolve 0.1s）。
-- **為何 SVN 只掃 memory dir 候選**：`svn status` 對整個工作副本是 O(檔數)，本機 d:\MyDev 要 5.6 秒、c:\Projects\Tools 2.9 秒，直接爆掉 2.5 秒預算；索引三檔只會在記憶樹裡。
+- **為何 SVN 只掃 memory dir 候選**：`svn status` 對整個工作副本是 O(檔數)，本機某個 svn 工作副本要 5.6 秒、另一個（某專案的 Tools 目錄）2.9 秒，直接爆掉 2.5 秒預算；索引三檔只會在記憶樹裡。
 
 ## 驗證方法
 

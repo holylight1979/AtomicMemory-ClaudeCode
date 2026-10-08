@@ -15,10 +15,10 @@
   _staging 不進索引、不注入、不進版控（.gitignore）。
 
 怎麼跑：
-  python ~/.claude/tools/meeting-transcribe.py 會議.m4a --project C:/TSLG --title 專案週會
+  python ~/.claude/tools/meeting-transcribe.py 會議.m4a --project <專案根> --title 專案週會
   python ~/.claude/tools/meeting-transcribe.py --check            # 只檢查 ffmpeg 與音訊 backend
-  python ~/.claude/tools/meeting-transcribe.py 會議.m4a --project C:/TSLG --no-ingest   # 只出逐字稿與摘要
-  python ~/.claude/tools/meeting-transcribe.py 會議.m4a --project C:/TSLG --dry-run     # 全跑但 atom 只預覽
+  python ~/.claude/tools/meeting-transcribe.py 會議.m4a --project <專案根> --no-ingest   # 只出逐字稿與摘要
+  python ~/.claude/tools/meeting-transcribe.py 會議.m4a --project <專案根> --dry-run     # 全跑但 atom 只預覽
   完整參數以 --help 為準。
 失敗一律 exit 1 並把原因印到 stderr，不靜默。
 """

@@ -13,8 +13,8 @@
 
 | Tool | Path | 用途 |
 |------|------|------|
-| unity-yaml-tool.py | `C:\Projects\.claude\tools\unity-yaml-tool.py` | generate-ui-prefab / validate / generate-meta |
-| ClaudeEditorHelper.cs | `sgi_client/client/Assets/Editor/ClaudeEditorHelper.cs` | AutoGenUICode / ValidatePrefab (batch mode) |
+| unity-yaml-tool.py | `<專案根>\.claude\tools\unity-yaml-tool.py` | generate-ui-prefab / validate / generate-meta |
+| ClaudeEditorHelper.cs | `<Unity專案路徑>/Assets/Editor/ClaudeEditorHelper.cs` | AutoGenUICode / ValidatePrefab (batch mode) |
 | unity_batch.py | `~/.claude/tools/unity-desktop/unity_batch.py` | 執行 Unity batch method |
 
 ### Step 1: 設計 JSON Spec
@@ -58,14 +58,14 @@ python unity-yaml-tool.py validate Assets/Res/UI/WndForm/WndForm_XXX.prefab
 
 **方法 B — Unity Editor 關閉時（batch mode）**：
 ```bash
-python unity_batch.py -p sgi_client/client -m ClaudeEditorHelper.RefreshAssets
-python unity_batch.py -p sgi_client/client -m ClaudeEditorHelper.ValidatePrefab --extra-args "-prefab Assets/Res/UI/WndForm/WndForm_XXX.prefab"
+python unity_batch.py -p <Unity專案路徑> -m ClaudeEditorHelper.RefreshAssets
+python unity_batch.py -p <Unity專案路徑> -m ClaudeEditorHelper.ValidatePrefab --extra-args "-prefab Assets/Res/UI/WndForm/WndForm_XXX.prefab"
 ```
 
 ### Step 5: AutoGenUICode
 
 ```bash
-python unity_batch.py -p sgi_client/client -m ClaudeEditorHelper.AutoGenUICode --extra-args "-prefab Assets/Res/UI/WndForm/WndForm_XXX.prefab"
+python unity_batch.py -p <Unity專案路徑> -m ClaudeEditorHelper.AutoGenUICode --extra-args "-prefab Assets/Res/UI/WndForm/WndForm_XXX.prefab"
 ```
 
 產出：InitComp.cs + UIEvent.cs

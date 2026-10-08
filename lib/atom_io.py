@@ -186,6 +186,14 @@ def _find_project_root(cwd: Optional[str]) -> Optional[Path]:
     return resolve_project_root(str(Path(cwd).resolve())).path
 
 
+def _is_under(path: Path, root: Path) -> bool:
+    try:
+        p, r = Path(path).resolve(), Path(root).resolve()
+    except OSError:
+        return False
+    return p == r or r in p.parents
+
+
 def _dirs_under(root: Path) -> set:
     try:
         return {p for p in root.rglob("*") if p.is_dir()}
@@ -1061,6 +1069,13 @@ def write_atom(
                                cross_project=cross_project, create_dirs=not dry_run)
     if resolved.get("error"):
         return WriteResult(ok=False, audit_id=audit_id, error=resolved["error"])
+    # 本人跨專案 personal 也住根層（~/.claude/memory/personal/），同受 realm gate
+    if scope == "personal" and not force_global and _is_under(resolved["dir"], GLOBAL_MEMORY_DIR):
+        from .realm_gate import check_global_write
+        gate_err = check_global_write(project_cwd, title=title, triggers=triggers,
+                                      knowledge=knowledge, actions=actions, domain=domain)
+        if gate_err:
+            return WriteResult(ok=False, audit_id=audit_id, error=gate_err)
     mem_dir = resolved["dir"]
     scope_label = resolved["scope_label"]
     routed_to_pending = resolved["routed_to_pending"]

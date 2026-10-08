@@ -1,6 +1,6 @@
 """verify_encoding_guard.py — 亂碼名稱的寫入端守門 + svn add 提醒閘。
 
-已知亂碼案例：TSLG 的 `shared/UIºt¥X`＝`UI演出` 的 Big5 位元組被當 cp1252 解碼。鎖住既有行為：
+已知亂碼案例：某專案的 `shared/UIºt¥X`＝`UI演出` 的 Big5 位元組被當 cp1252 解碼。鎖住既有行為：
   - `slugify("UIºt¥X")` 結果不含 U+0080–U+00FF（亂碼字元被剝掉，不會成為 atom 檔名）
   - `_clean_segment("UIºt¥X")` 拒收（回空字串，不會成為範疇資料夾名）
   - 正常中文／ASCII 名稱不受影響（不是把所有 Latin-1 都當亂碼——只鎖這個案例）
@@ -48,7 +48,7 @@ def test_svn_add_non_ascii_path_warns_without_subprocess(monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("子行程")))
     msg = check_svn_encoding("Bash", {"command": 'svn add "memory/shared/UI演出"'})
     assert msg and msg.startswith("[Guardian:SvnEncoding]"), msg
-    assert check_svn_encoding("PowerShell", {"command": "cd C:\\TSLG; svn add .claude/memory/shared/UI演出"}) == msg
+    assert check_svn_encoding("PowerShell", {"command": "cd C:\\Work\\GameA; svn add .claude/memory/shared/UI演出"}) == msg
     assert check_svn_encoding("Bash", {"command": "svn add --parents memory/x/UI演出/a.md"}) == msg
 
 

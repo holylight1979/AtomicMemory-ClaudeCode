@@ -44,7 +44,7 @@
 |------|------|------|
 | 2026-03-06 | 建立為 [固]（使用者明確要求） | session:SVN 工作流規則建立 |
 | 2026-03-13 | 合併來源 V2.10 的大型計畫/GIT/同步判斷段落 + 擴展 Trigger | session:選擇性 cherry-pick |
-| 2026-03-17 | 合併 wellstseng V2.11：新增 ICLD 製程 + 製程選擇 + AI 主動建議規則 | session:wellstseng merge |
+| 2026-03-17 | 合併同事版 V2.11：新增 ICLD 製程 + 製程選擇 + AI 主動建議規則 | session:同事版合併 |
 | 2026-03-18 | 拆分 SVN 規則至 workflow-svn.md，移除 SVN triggers | atom-debug 精準化 |
 | 2026-03-19 | 拆分 ICLD 至 workflow-icld.md，移除 ICLD/Sprint/功能拆解 triggers | atom-debug 精準化 |
 
@@ -52,7 +52,7 @@
 
 | 日期 | 變更 | 來源 |
 |------|------|------|
-| 2026-03-17 | 原始建立（含在 workflow-rules.md） | session:wellstseng merge |
+| 2026-03-17 | 原始建立（含在 workflow-rules.md） | session:同事版合併 |
 | 2026-03-19 | 從 workflow-rules.md 拆分為獨立 atom | atom-debug 精準化 |
 
 ## workflow-svn.md

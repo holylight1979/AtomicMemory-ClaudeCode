@@ -620,7 +620,7 @@ def find_vcs_root(start: Path) -> Optional[Tuple[str, Path]]:
     """從 start 往上找最近的 VCS 根：.git（dir 或 worktree/submodule 的 file）或 .svn 目錄。
 
     純檔案系統 walk-up、零 subprocess。回 ("git"|"svn", root)；非工作區回 None。
-    巢狀時取最近的那個（svn WC 住在 git repo 裡，如 c:/Projects/Tools 在 c:/Projects 之下）。
+    巢狀時取最近的那個（svn WC 住在 git repo 裡，如 svn 工作副本 <repo>/Tools 在 git repo <repo> 之下）。
     """
     cur = Path(start)
     while True:

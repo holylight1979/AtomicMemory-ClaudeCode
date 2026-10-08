@@ -10,7 +10,7 @@ Gate：零幻覺／錯誤零容忍——「錯哪裡」必須有檔:行或實跑
 | D3 | retry 計數差分 | 一場 session 重試數 ≥2 之後，每個回合都被判「失敗」，所有被判用的 atom 一起扣分 | `_detect_turn_outcome` 用本回合增量 | β 不再整場連帶灌爆 | 3 | 3 | 3 | 2 | 3 | 2.8 | 做 |
 | D4 | 主／子代理重複計數去重 | 同一 atom 同一回合被主回合與子代理各記一次 → n 虛胖、同 session 三回合就達晉升門檻 | Stop 端以 (atom, turn) 去重；不改統計單位 | n 恢復真實；晉升不再靠一場 session 刷出來 | 2 | 3 | 3 | 1 | 3 | 2.45 | 做 |
 | D5 | forget 保護共用判定 | 遺忘候選只保護兩個名字，decisions*/workflow-*/feedback-* 前綴沒擋；目前 dry-run 所以還沒誤殺 | `select_forget_candidates` 改用 `is_core_protected_name()` | 未來開啟 forget 不會殺核心卡 | 1 | 2 | 3 | 1 | 3 | 1.75 | 做（一行，順手） |
-| D6 | 健檢 episodic 掃專案層＋heartbeat＋跳過原因 | 週報說 episodic 停擺，實際 09-18 產出在 TSLG 專案層、C:\Projects 有 113 檔；唯讀 session 跳過原因沒 log，事後查不到 | health-weekly 併計專案層；活性讀既有 promotion heartbeat；跳過原因寫不受 debug 開關吞的紀錄 | 週報不再誤報；下次真停擺能查 | 3 | 1 | 3 | 3 | 3 | 2.55 | 做 |
+| D6 | 健檢 episodic 掃專案層＋heartbeat＋跳過原因 | 週報說 episodic 停擺，實際 09-18 產出在專案乙專案層、專案甲有 113 檔；唯讀 session 跳過原因沒 log，事後查不到 | health-weekly 併計專案層；活性讀既有 promotion heartbeat；跳過原因寫不受 debug 開關吞的紀錄 | 週報不再誤報；下次真停擺能查 | 3 | 1 | 3 | 3 | 3 | 2.55 | 做 |
 | D7 | SessionStart 例外浮出＋測試 Logs 隔離 | 三個啟動提醒 crash 三週沒人看見（只進 debug log）；pytest 把假資料寫進正式 Logs，統計全被污染 | 例外印 stderr／statusline；verify 用 tmp Logs | 可觀測性鐵律歸位；遙測可信 | 2 | 1 | 3 | 3 | 3 | 2.3 | 做 |
 | D8 | hint 停寫／佔位列改計數／cross_session 關 | 晉升稽核檔 94% 是沒人讀的 hint；裁判紀錄 89% 是「案卷未組」佔位；cross_session 軌 90 天 3 筆但開關還開 | 只停 hint 支線（同函式的 ReadHits 保留）；佔位改計數；config 關 | 稽核檔只剩真事件；讀報表的人不被噪音淹 | 2 | 1 | 3 | 3 | 3 | 2.3 | 做（cross_session 在版控 config，其他機器 pull 即同步，無需問） |
 | D9 | 文件三處修正 | TECH 說全量萃取在跑（沒跑）、說 SessionEnd 不可調（可到 60s）、說 always-load 1,500–2,000（估 ~5,459） | 改 TECH §2.1/§6.3/§11、Architecture 矛盾段 | 下次診斷不走錯路 | 2 | 0 | 3 | 3 | 3 | 1.95 | 做（低成本、零風險） |

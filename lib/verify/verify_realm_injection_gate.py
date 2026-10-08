@@ -47,7 +47,7 @@ ATOMS = [
 
 def test_gate_external_project_filters_local(monkeypatch):
     monkeypatch.setattr(atom_locations, "CROSS_PROJECT_LOCAL_DOMAINS", CROSS)
-    out = _apply_gate(ATOMS, r"C:\Projects\SomeApp")
+    out = _apply_gate(ATOMS, r"C:\Work\SomeApp")
     names = {n for n, _, _ in out}
     assert "decisions" in names           # core 保留
     assert "feedback-x" in names          # _AIDocs/Failures/ core 保留（不誤殺）
@@ -59,7 +59,7 @@ def test_gate_external_project_filters_local(monkeypatch):
 def test_gate_external_project_live_list_empty_filters_all_local():
     # live 清單為空（跨專案知識一律住 core）→ 外部專案 local 全濾，含 Continuity 路徑
     assert atom_locations.CROSS_PROJECT_LOCAL_DOMAINS == frozenset()
-    out = _apply_gate(ATOMS, r"C:\Projects\SomeApp")
+    out = _apply_gate(ATOMS, r"C:\Work\SomeApp")
     assert {n for n, _, _ in out} == {"decisions", "feedback-x"}
 
 
@@ -97,7 +97,7 @@ def test_gate_external_project_cwd_keeps_category_core(tmp_path):
 def test_is_under_claude_dir_predicate():
     assert _is_under_claude_dir(str(CLAUDE)) is True
     assert _is_under_claude_dir(str(CLAUDE / "tools")) is True
-    assert _is_under_claude_dir(r"C:\Projects\X") is False
+    assert _is_under_claude_dir(r"C:\Work\X") is False
     assert _is_under_claude_dir("") is False
     # 旁系路徑 ~/.claude-foo 必不算內部（parents 比對，非 startswith）
     assert _is_under_claude_dir(str(CLAUDE.parent / (CLAUDE.name + "-foo"))) is False

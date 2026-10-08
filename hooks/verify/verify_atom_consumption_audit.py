@@ -229,7 +229,7 @@ def test_assemble_injection_cold_line_absolute(tmp_path):
 def test_audit_message_uses_absolute_path():
     rec = _rec(
         "pitfalls",
-        path="C:\\Projects\\.claude\\memory\\shared\\ProjectWorkflow\\pitfalls.md",
+        path="C:\\Work\\GameA\\.claude\\memory\\shared\\ProjectWorkflow\\pitfalls.md",
         rel="memory/shared/ProjectWorkflow/pitfalls.md",
     )
     out = _audit_pointer_atom_consumption(_state([rec]))

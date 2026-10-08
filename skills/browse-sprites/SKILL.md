@@ -32,12 +32,14 @@ disable-model-invocation: true
 
 以下情境應**主動**使用本工具（不需使用者明確要求）：
 
-- 要修改 prefab 的 sprite 引用，但 Catalog 裡沒有對應圖素
+- 要修改 prefab 的 sprite 引用，但專案的圖素索引裡沒有對應圖素
 - 要在功能專用目錄（如 `UITextures/Guild/`）選圖
 - 使用者提供了設計稿/描述，需要從陌生目錄找匹配圖素
 - 遇到 sprite Missing 需要找替代圖
 
 ## 常用路徑速查
+
+> 各 Unity 專案的圖素目錄習慣不同。下表是某 Unity 專案的分法，僅供參考；先查當前專案自己的圖素索引或目錄說明，以它為準。
 
 | 目的 | 路徑 |
 |------|------|
@@ -48,7 +50,7 @@ disable-model-invocation: true
 | 功能動態 | `Assets/Res/UIDynamic/{功能名}/` |
 | 小圖標 | `Assets/Res/UISimpleIcon/{類型}/` |
 
-> 完整圖素索引見 `_AIDocs/Client_UI_Sprite_Catalog.md`
+> 專案若有圖素索引文件（常見放在專案的 `_AIDocs/`），先讀它
 
 ## 內嵌備用腳本
 
@@ -94,6 +96,6 @@ make_sheet(sys.argv[1], sys.argv[2] if len(sys.argv)>2 else "c:/tmp/contact_shee
 ## 範例
 
 ```
-/browse-sprites C:\Projects\sgi_client\client\Assets\Res\UITextures\Guild
-/browse-sprites C:\Projects\sgi_client\client\Assets\Res\UIDynamic\Common --filter Btn_,Scrollbar_
+/browse-sprites <Unity專案根>\Assets\Res\UITextures\Guild
+/browse-sprites <Unity專案根>\Assets\Res\UIDynamic\Common --filter Btn_,Scrollbar_
 ```

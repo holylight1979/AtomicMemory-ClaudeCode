@@ -132,7 +132,7 @@ dates = collections.Counter(f.name[:7] for f in ep)
 p("episodic 依月份:", dict(sorted(dates.items())))
 p("episodic 檔名日期最後:", ep[-1].name if ep else None)
 # 專案層 episodic
-for proj in ["C:/Projects", "D:/AI-PLAY", "C:/TSLG"]:
+for proj in ["<專案甲>", "<專案丙與專案丁的上層資料夾>", "<專案乙>"]:
     for d in Path(proj).rglob("episodic") if Path(proj).exists() else []:
         if ".claude" in str(d) and d.is_dir():
             fs = sorted(d.glob("*.md"))

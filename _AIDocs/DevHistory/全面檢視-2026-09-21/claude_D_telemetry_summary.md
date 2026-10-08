@@ -17,7 +17,7 @@
 - **cross_session confirmations 軌**：config 仍 enabled、90 天 3 筆 → 關。
 - **recall-miss**：全期 19 筆／30 天 8 筆；`kq.get` 對字串 knowledge_queue 拋 AttributeError，08-26～09-18 真實 session 16 個時刻 crash → 修一行。
 - **rescue-log**：30 天 417 筆／75 session／86 顆 atom，全系統精度最高的「真被用到」證據，只被報表讀 → 接進 α/β。
-- **health-weekly episodic 判定**：只看 memory/episodic/；C:\Projects\.claude\memory\episodic 113 檔（最後 09-16）、TSLG 09-18；09-18 三個 ~/.claude session 確實 0 產出（一個改 11 檔跑 2 小時），跳過路徑無 log。
+- **health-weekly episodic 判定**：只看 memory/episodic/；專案甲 `.claude\memory\episodic` 113 檔（最後 09-16）、專案乙 09-18；09-18 三個 ~/.claude session 確實 0 產出（一個改 11 檔跑 2 小時），跳過路徑無 log。
 - **測試污染 Logs + SessionStart 三個 advisory 08-26 起每次啟動 crash（unpushed 89、health 84、personal_sync 30），09-18 commit 後無再現——health dead-man switch 靜默死 3 週**，訊號只進 debug log。
 
 ## 數據顯示有效、不要動

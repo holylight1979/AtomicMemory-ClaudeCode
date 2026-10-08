@@ -1,8 +1,8 @@
 """Execute Unity in batch mode and return exit code + log output.
 
 Usage:
-    python unity_batch.py --project "c:/Projects/sgi_client/client" --method "ClaudeEditorHelper.RefreshAssets"
-    python unity_batch.py --project "c:/Projects/sgi_client/client" --method "ClaudeEditorHelper.DuplicatePrefab" --extra-args "-src Assets/Prefabs/a.prefab -dst Assets/Prefabs/b.prefab"
+    python unity_batch.py --project "<unity_project_root>" --method "ClaudeEditorHelper.RefreshAssets"
+    python unity_batch.py --project "<unity_project_root>" --method "ClaudeEditorHelper.DuplicatePrefab" --extra-args "-src Assets/Prefabs/a.prefab -dst Assets/Prefabs/b.prefab"
 """
 import argparse
 import subprocess

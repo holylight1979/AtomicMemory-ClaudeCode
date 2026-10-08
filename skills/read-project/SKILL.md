@@ -20,7 +20,7 @@ description: 專案文件閱讀與知識截錄：跨檔讀懂專案，導覽目�
 
 | 參數 | 必填 | 說明 | 範例 |
 |------|------|------|------|
-| 目標 | 是 | 目錄路徑、檔案路徑、或描述關鍵詞 | `{sgi_client}/DesignDoc/` |
+| 目標 | 是 | 目錄路徑、檔案路徑、或描述關鍵詞 | `{client}/DesignDoc/` |
 
 ### 選項（自然語言附加在參數後）
 
@@ -31,9 +31,9 @@ description: 專案文件閱讀與知識截錄：跨檔讀懂專案，導覽目�
 ### 使用範例
 
 ```
-/read-project {sgi_client}/DesignDoc/
-/read-project {sgi_server}/MapServer/ 只看 .cs 詳細閱讀
-/read-project {sgi_client}/DesignDoc/ 前 10 份 存為 combat-specs
+/read-project {client}/DesignDoc/
+/read-project {server}/MapServer/ 只看 .cs 詳細閱讀
+/read-project {client}/DesignDoc/ 前 10 份 存為 combat-specs
 ```
 
 ### 錯誤處理

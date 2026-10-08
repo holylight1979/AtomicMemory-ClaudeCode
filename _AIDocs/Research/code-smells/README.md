@@ -65,7 +65,7 @@
 | [06-test-data-config.md](06-test-data-config.md) | 測試、SQL、設定與建置、註解 | 89 | §0 分類與原始分類對照 |
 | [07-readability-metrics.md](07-readability-metrics.md) | 可讀性、認知負荷、度量門檻、工具 | 39 | §0 分類、I 數字不是判決、度量—門檻—出處總表 |
 | [08-ai-and-evolution.md](08-ai-and-evolution.md) | LLM 寫碼特有味道、變更歷史味道 | 23 | 一、分類與背景數據；三、機器可擋對照；四、自檢清單 |
-| [09-local-knowledge.md](09-local-knowledge.md) | 本機真實專案案例與使用者原則 | 48 | 0 專案代號、B 判斷原則、C 經典對照、D 現有工具 |
+| [09-local-knowledge.md](09-local-knowledge.md) | 本機真實專案案例與使用者原則 | 48 | 0 案例出處、B 判斷原則、C 經典對照、D 現有工具 |
 | [00-index.md](00-index.md) | 全條目一句話索引 | 513 | 用搜尋，不必通讀 |
 
 ---
@@ -108,7 +108,7 @@
 2. **再看語言陷阱**：[03](03-csharp-dotnet.md) 依序讀 A 非同步、B 資源與生命週期、C 例外、G 執行緒；Unity 用戶端加讀 H。
 3. **補並行原理**：[05](05-concurrency-perf-resource.md) A 節講語言中立的原理。附錄 D 的研究數據指出：105 個真實並行 bug 裡有 101 個只牽涉兩條以內的執行緒，所以審查時推演「兩條執行緒、兩個存取點」就能抓到大多數問題。
 4. **機器先掃一輪**：[04](04-client-server.md) 附錄 3 是可直接 grep 的程式碼字樣；[03](03-csharp-dotnet.md) §2 是規則編號反查表。很多 CA 規則在 .NET 10 預設沒開，要手動打開才抓得到。
-5. **對照真實案例**：[09](09-local-knowledge.md) A 節收了 SGI 與 TSLG 兩個遊戲專案的實例，例如狀態寫入點散落、雙存、樣板地獄、空 catch、async void、事件不退訂。
+5. **對照真實案例**：[09](09-local-knowledge.md) A 節收了使用者兩個遊戲專案的實例，例如狀態寫入點散落、雙存、樣板地獄、空 catch、async void、事件不退訂。
 6. **審查與處置**：按 [09](09-local-knowledge.md) B 節的原則判斷與修整，搭配 [07](07-readability-metrics.md) C 節的狀態所有權量法。
 
 ---

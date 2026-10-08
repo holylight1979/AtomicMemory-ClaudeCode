@@ -5,7 +5,7 @@
 給非 Claude Code 人員／腳本用：裝好 ~/.claude 後直接跑。
 怎麼跑：
   python ~/.claude/tools/memory-search.py "git commit 前要看 diff"
-  python ~/.claude/tools/memory-search.py "問題" --cwd C:/Projects/X --json --no-vector --top-k 5
+  python ~/.claude/tools/memory-search.py "問題" --cwd <專案根> --json --no-vector --top-k 5
 與 rag-engine.py search 的分工：rag-engine 是純向量相似度（直接打向量服務、不看 scope 可見性、不融合
 trigger/BM25）；本工具是記憶系統的正式讀取端（可見性收窄、三路融合、穩定 schema），日常查記憶用這支。
 """

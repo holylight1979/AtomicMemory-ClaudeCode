@@ -27,7 +27,7 @@ MEMORY_DIR = ew.MEMORY_DIR
 
 def test_project_session_routes_to_shared():
     """有 project root 且非 ~/.claude → scope=shared、落專案 shared 層、project_cwd=cwd。"""
-    proj = Path("C:/Projects/SomeGame") if sys.platform == "win32" else Path("/projects/somegame")
+    proj = Path("C:/Work/SomeGame") if sys.platform == "win32" else Path("/work/somegame")
     scope, pcwd, dedup = ew._flush_route(str(proj / "src"), _find_root=lambda c: proj)
     assert scope == "shared"
     assert pcwd == str(proj / "src")

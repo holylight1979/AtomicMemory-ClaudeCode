@@ -27,7 +27,7 @@ def wdir(tmp_path, monkeypatch):
 
 def test_cwd_slug_matches_claude_code_convention():
     assert L._cwd_slug(r"c:\Users\x\.claude") == "c--Users-x--claude"
-    assert L._cwd_slug(r"d:\AI-PLAY\AI-gen-projs\MudClient-withAI") == "d--AI-PLAY-AI-gen-projs-MudClient-withAI"
+    assert L._cwd_slug(r"d:\WORK-AREA\demo-projs\AppB-withAI") == "d--WORK-AREA-demo-projs-AppB-withAI"
 
 
 def test_scan_scratchpad_lists_top_level_only(wdir, monkeypatch):

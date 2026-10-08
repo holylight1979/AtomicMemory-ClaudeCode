@@ -344,7 +344,10 @@ def _is_project_rule(statement: str, slug: str, triggers: List[str], cwd: str, l
         return True
     if cwd:
         try:
-            from lib.realm_gate import check_global_write
+            from lib.realm_gate import check_global_write, is_core_root, project_root_of
+            # 只認「目前所在專案」的專名；根層 cwd 提到別的專案不代表是那個專案的規則
+            if is_core_root(project_root_of(cwd)):
+                return False
             if check_global_write(cwd, title=slug, triggers=triggers, knowledge=[text]):
                 return True
         except Exception as e:  # noqa: BLE001 — 專名推導失敗只失去這一路訊號

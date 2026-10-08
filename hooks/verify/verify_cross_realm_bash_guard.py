@@ -75,7 +75,7 @@ def test_running_root_tools_without_cd_allowed():
 
 
 def test_root_tool_plus_project_memory_write_allowed():
-    """實錄（專案 session cwd=C:\\Projects 刪錯誤 atom）：一條命令跑根層索引工具＋動自己專案的
+    """實錄（某專案 session 刪錯誤 atom）：一條命令跑根層索引工具＋動自己專案的
     .claude/memory，整條被當成改根層誤擋。跑根層工具不算根層上下文。"""
     # grep 樣式的衝突標記 `<<<<<<<` 不是 heredoc
     assert not _denied("ls ~/.claude/tools/*.py 2>/dev/null | grep -i index; "

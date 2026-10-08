@@ -151,9 +151,9 @@ def test_flush_routes_global_when_no_cwd(patched):
 
 def test_flush_routes_shared_for_project_cwd(patched, monkeypatch):
     """專案 session（cwd 有非 ~/.claude 的 project root）→ 落點 shared、不污染 global core。"""
-    monkeypatch.setattr(ew, "find_project_root", lambda c: Path("C:/Projects/Game"))
+    monkeypatch.setattr(ew, "find_project_root", lambda c: Path("C:/Work/Game"))
     queue = [_item(_DISTINCT[0])]
     ctx = _ctx(queue)
-    ctx["cwd"] = "C:/Projects/Game/src"
+    ctx["cwd"] = "C:/Work/Game/src"
     ew._session_end_writeback(ctx, {"extracted_items": []})
     assert patched["scopes"] == ["shared"]

@@ -605,7 +605,7 @@ _SVN_ENCODING_WARN = ("[Guardian:SvnEncoding] 中文路徑的 svn add 請交給 
 
 def check_svn_encoding(tool_name: str, tool_input: Dict[str, Any]) -> Optional[str]:
     """Bash／PowerShell 的 `svn add` 帶非 ASCII 路徑 → 提醒改走 vcs-sync。只警告、零子行程、永不 deny。
-    （TSLG 的 `shared/UIºt¥X` 就是 session 內手動 svn add 中文路徑，位元組經 shell 轉碼後進了工作副本。）"""
+    （某專案的 `shared/UIºt¥X` 就是 session 內手動 svn add 中文路徑，位元組經 shell 轉碼後進了工作副本。）"""
     if tool_name not in ("Bash", "PowerShell"):
         return None
     command = tool_input.get("command", "") or ""

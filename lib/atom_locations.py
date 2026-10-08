@@ -1206,20 +1206,35 @@ _LEXICON_TOKEN_SPLIT_RE = re.compile(r"[\s\-_/]+")
 # 的葉夾（trigger 標籤被當分類維度）。三類絕不該成為實例分類詞：
 #   - 系統 trigger 標籤（auto-capture/auto-captured/觸發詞）：extract-worker 預設標籤，非實例詞。
 #   - realm 自名（memdev/world/tools/continuity）：分類『維度』本身，不該回頭當分類『詞』。
-#   - 已知外部專案（sgi/uba…）：其知識屬專案層、非 ~/.claude-local；**新外部專案在此擴充**。
+#   - 已知外部專案：其知識屬專案層、非 ~/.claude-local。名單取自本機已登記專案名
+#     （lib.realm_gate.known_project_names，registry 不進版控），程式裡不寫任何專案名。
 # 主防線是 SessionEnd sweep 對 auto-captured 碎片整體 defer（wg_atoms._is_unconfirmed_autocapture，
 # 斷『學詞』來源）；本集合為 sink 端 belt-and-suspenders，蓋非 auto-capture 途徑寫入的詞。
 _RESERVED_LEXICON_TERMS = frozenset({
     "auto-capture", "auto-captured", "觸發詞",
     "memdev", "world", "tools", "continuity",
-    "sgi", "uba",
 })
+
+
+def _known_project_terms() -> frozenset:
+    """本機已登記專案名（小寫）。取不到就空集合（fail-safe，不擋寫入）。"""
+    try:
+        from .realm_gate import known_project_names
+    except ImportError:
+        try:
+            from realm_gate import known_project_names  # type: ignore
+        except ImportError:
+            return frozenset()
+    try:
+        return frozenset(name.lower() for name, _src, _ci in known_project_names())
+    except Exception:  # noqa: BLE001 — 詞庫守門的輔助訊號，壞了只少一層防線
+        return frozenset()
 
 
 def is_generic_lexicon_term(term: str) -> bool:
     """term 是否泛用詞 / 保留標籤（不具實例辨識度）→ 詞庫拒收。空字串視為泛用。"""
     tl = (term or "").strip().lower()
-    if tl in _RESERVED_LEXICON_TERMS:
+    if tl in _RESERVED_LEXICON_TERMS or tl in _known_project_terms():
         return True  # 保留標籤 / realm 自名 / 已知外部專案：絕不收
     tokens = [t for t in _LEXICON_TOKEN_SPLIT_RE.split(tl) if t]
     return not tokens or all(t in _LEXICON_GENERIC_TOKENS for t in tokens)

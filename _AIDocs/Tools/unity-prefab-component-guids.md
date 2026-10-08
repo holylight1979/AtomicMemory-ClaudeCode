@@ -7,9 +7,9 @@
 - Confirmations: 5
 - Related: unity-prefab-workflow
 
-## UI Component Script GUIDs (SGI Client, Unity 2022.3.62f2)
+## UI Component Script GUIDs（某 Unity 專案用戶端, Unity 2022.3.62f2）
 
-> **專案專屬**：這些 GUID 來自 SGI Client 專案的 .cs.meta / .dll.meta，不同 Unity 專案的 GUID 完全不同。
+> **專案專屬**：這些 GUID 只對產生它們的那一個 Unity 專案用戶端有效，不同 Unity 專案的 GUID 完全不同；用在任何專案前，先拿該專案對應的 .cs.meta / .dll.meta 核對 guid，不符以 meta 為準。
 > 用途：程式化建立/修改 .prefab YAML 時，MonoBehaviour 的 m_Script 欄位需要正確的 GUID。
 
 ### 核心 UI 框架

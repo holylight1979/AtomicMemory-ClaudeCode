@@ -102,7 +102,7 @@ v2 approved → 動工。
 
 V4.1 原始 phase 定義為線性 dependency（P1 → P2 → P3 → P4），但盤點後發現：
 
-- **V4 收尾**（漸進遷移 + init-roles + CONTRADICT 模擬）操作的是**各專案 `.claude/`**（如 `c:\tmp\docs-progg`）
+- **V4 收尾**（漸進遷移 + init-roles + CONTRADICT 模擬）操作的是**各專案 `.claude/`**（如某文件專案）
 - **V4.1 P1**（L0 detector）碰 `hooks/wg_user_extract.py` + `settings.json` + `workflow-guardian.py`
 - **V4.1 P2 前置**（prompts + lib refactor）碰 `prompts/` + `lib/ollama_extract_core.py` + `extract-worker.py`
 
@@ -111,7 +111,7 @@ V4.1 原始 phase 定義為線性 dependency（P1 → P2 → P3 → P4），但�
 ### 3.2 結果
 
 三線同日完成，git 無衝突：
-- Session A (V4 收尾) → `c:\tmp\docs-progg` V4 啟用成功
+- Session A (V4 收尾) → 某文件專案 V4 啟用成功
 - Session B (V4.1 P1) → tag `v4.1.0-alpha1`（81 pytest cases pass）
 - Session C (V4.1 P2 前置) → lib refactor + prompts 產出
 
@@ -127,13 +127,13 @@ V4.1 原始 phase 定義為線性 dependency（P1 → P2 → P3 → P4），但�
 |---|---|---|
 | D | `v4.1.0-beta1` | `user-extract-worker.py` + Stop spawn + 整合測 framework |
 | E | `v4.1.0-rc1` | `/memory-peek` + `/memory-undo` + 每日推送 + 隱私體檢 |
-| F | `v4.1.0-rc2` | session evaluator (5 維度加權) + agent 多 role 模擬（sgi 專案） |
+| F | `v4.1.0-rc2` | session evaluator (5 維度加權) + agent 多 role 模擬（某專案） |
 
 ### 4.1 Session F 的 scope 擴大
 
 原 plan v2 §6 P4 = 「歷史回填 + 試用 + 驗收」。使用者在 P4 拍板階段丟了兩個創新選項：
 
-- **Q2 (d)**：用 Agent 扮演 programmer + planner 雙 role 試用（取代真人盲測）— sgi 專案已有程式碼 + 企劃規格文件，agent 可基於真實內容模擬
+- **Q2 (d)**：用 Agent 扮演 programmer + planner 雙 role 試用（取代真人盲測）— 某專案已有程式碼 + 企劃規格文件，agent 可基於真實內容模擬
 - **Q3 (d)**：先做 **Session 重點評價機制** 再決定回填範圍
 
 Q3(d) 是意外好設計 — 原本只是「跑個試用 + 抽樣 P/R」，現在多了**可量化的 session 價值**作為：

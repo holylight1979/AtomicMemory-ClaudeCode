@@ -1,9 +1,9 @@
 """verify_svn_unicode_paths.py — vcs-sync worker 的 svn 通道對非 ASCII 路徑的重現矩陣。
 
-背景：TSLG 工作副本曾出現 `shared/UIºt¥X`（＝`UI演出` 的 Big5 位元組被當 cp1252 解碼）。
+背景：某專案的工作副本曾出現 `shared/UIºt¥X`（＝`UI演出` 的 Big5 位元組被當 cp1252 解碼）。
 本檔用 tmp 的 `svnadmin create` 實倉，讓 wg_vcs_sync 的 svn 路徑（`_Svn.run` → add --parents → commit -F）
 對含非 ASCII 名字的目錄提交 .md，矩陣三格：
-  - `UI演出`（ANSI code page 內的中文，TSLG 實際出事的名字）：全程通過——磁碟名不變、`svn status --xml -v`
+  - `UI演出`（ANSI code page 內的中文，該專案實際出事的名字）：全程通過——磁碟名不變、`svn status --xml -v`
     與 `svn ls --xml` 回原名、第二個 checkout 拿到原名。
   - `ゔ外字`（U+3094，cp950 外；注意「ヴ」U+30F4 其實在 cp950 內）與 `é外字`（best-fit 會被 svn 改成 `e外字`）：
     svn.exe 以 ANSI code page 收 argv，`--targets` 檔也走原生編碼，兩者都定址不到真正的路徑；

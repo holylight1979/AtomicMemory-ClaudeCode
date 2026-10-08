@@ -21,12 +21,12 @@ disable-model-invocation: true
 
 | 參數 | 必填 | 說明 | 範例 |
 |------|------|------|------|
-| source_folder | 是 | 升級來源資料夾路徑（含完整原子記憶環境） | `C:\Users\wellstseng\ClaudeCode-AtomMemory` |
+| source_folder | 是 | 升級來源資料夾路徑（含完整原子記憶環境） | `C:\Users\alice\ClaudeCode-AtomMemory` |
 
 ### 使用範例
 
 ```
-/upgrade C:\Users\wellstseng\ClaudeCode-AtomMemory
+/upgrade C:\Users\alice\ClaudeCode-AtomMemory
 /upgrade D:\backup\claude-env-v3
 ```
 
@@ -49,7 +49,7 @@ $ARGUMENTS
 1. 確認 `$ARGUMENTS`（source_folder）存在且包含 `CLAUDE.md`
 2. 確認 `~/.claude/` 存在且包含 `CLAUDE.md`
 3. 偵測來源帳號名稱：從 source_folder 路徑或檔案內容中提取使用者帳號（如 `holylight`）
-4. 取得目前帳號名稱：`$USER` 或從 `~/.claude/USER.md` 提取（如 `wellstseng`）
+4. 取得目前帳號名稱：`$USER` 或從 `~/.claude/USER.md` 提取（如 `alice`）
 5. 讀取雙方的 `memory/MEMORY.md` 以了解各自的 atom 結構
 
 ---

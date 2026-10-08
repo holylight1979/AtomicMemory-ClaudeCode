@@ -3,14 +3,14 @@
 > **歸檔狀態（2026-09-03 自 `memory/_staging/next-phase-draft-taxonomy-engine.md` 移入）**：
 > - 核心側已落地且仍在用：`lib/atom_classify.py`（`score_by_lexicon` 單一計分源 + `classify_taxonomy` + `classify_project_atom` 逃逸閘）、`lib/atom_locations.py::is_core_protected_name` 單源、晉升閘 `ea5ab32`。
 > - 已停產：DedupStage 去蕪引擎（§3／§9）於 commit `755ce07`「自動萃取層淨值審查」整套拔除（write-only 死路）；§11 Q1／Q2 隨之作廢。
-> - 未執行、屬專案 session：Phase B（`c:/Projects/.claude/tools/classify-project-atoms.py` 227 行退 thin shim 呼核心）與 Phase C（其他專案複本）；Q4（realm sweep LLM fallback 誤降）未根治。要做時以本檔 §2／§7／§11 為設計依據，在專案 session 開工。
+> - 未執行、屬專案 session：Phase B（專案甲 `.claude/tools/classify-project-atoms.py` 227 行退 thin shim 呼核心）與 Phase C（其他專案複本）；Q4（realm sweep LLM fallback 誤降）未根治。要做時以本檔 §2／§7／§11 為設計依據，在專案 session 開工。
 > - 以下為原文，內含的「待做」「本 session」等時態一律以上述狀態為準。
 
 ---
 
 # 階段計畫：分類/去蕪＝核心通用邏輯（統一引擎 + 多層 taxonomy + 去蕪）
 
-> 來源：2026-06-30 多輪設計 + 4 個工作流 + 對抗性壓測 + SGI 真實記憶實證。
+> 來源：2026-06-30 多輪設計 + 4 個工作流 + 對抗性壓測 + 專案甲真實記憶實證。
 > 狀態：**架構定案（有條件可行/半統一）；Step 0 + Phase A（classify_realm 退核心）+ 兩個必修核心地基（晉升閘 `ea5ab32` / 跨 realm 逃逸閘核心地基 `c8ec0f4`）+ DedupStage 去蕪引擎與 core SessionEnd 接線（§3，core live hook ✅ 已接、project 端未接）已落地；Phase B/C 專案端遷移待做**。本檔為跨 session 執行 SoT，自足。
 > 範疇：local realm / MemDev。**舊版（game_taxonomy 為主 + 三路 jury）已被本版取代，勿據舊版。**
 
@@ -30,10 +30,10 @@
 
 | 項目 | 早期口徑 | 實測真值 |
 |---|---|---|
-| SGI draft 池 | 142 | **75**（142 含已分類歷史口徑）|
+| 專案甲 draft 池 | 142 | **75**（142 含已分類歷史口徑）|
 | draft 品質 | 「不是垃圾」（我憑 excerpt 誤判）| **40% 截斷損壞或近重複**（讀完整內容實證；GM Blocker 5 份、RebuildBlobAsync 4 份）|
 | 去蕪真問題 | is_real 低價值 | **截斷 + 近重複**（確定性可測），非主觀價值 |
-| SGI scope | 概念風險 | **曾爆發 42 顆 shared 誤標 global，已修** |
+| 專案甲 scope | 概念風險 | **曾爆發 42 顆 shared 誤標 global，已修** |
 | 主記憶近重複 | — | **0**（84/88 curated atom 零重複 → 去重不作用於主記憶）|
 | 分類邏輯 | — | **N 份專案複本各自漂移**（classify-project-atoms.py），bug 根源 |
 
@@ -103,18 +103,18 @@
 > **狀態（2026-06-30）✅ 兩項核心地基已落地**：晉升閘漏洞 commit `ea5ab32`（晉升掃描面串 `_autocapture_unconfirmed_from_text`）；跨 realm 逃逸閘**核心地基** commit `c8ec0f4`（`is_core_protected_name` 單源 + `classify_project_atom` 注入式閘，**專案端 /refile 接線仍 Phase B**）。下列為原始問題描述，保留供溯源。
 
 - **晉升閘漏洞（去蕪上線前必堵）**：實證 `_self_iterate_atoms`（[hooks/wg_atoms.py:1948](hooks/wg_atoms.py#L1948)）晉升掃描面以 `confirmations>=threshold` 晉升、**無 `_is_unconfirmed_autocapture` 過濾**（該過濾只在 line 1768 sweep 路徑）→ 14 顆佔位符 auto-capture 碎片已被算晉升。修：晉升掃描面加該過濾 + relocate 凍結 Confidence。
-- **跨 realm 逃逸閘（遷移前必補）**：SGI `_unclassified/` 躺著 feedback-* 跨專案規則 atom、MemoryMeta self-admit 誤捕。專案層無保護→誤捕固化。修：跨 realm 邊界比對核心 PROTECTED_PREFIXES（feedback-/atom-/decisions/workflow-），命中送人工 /refile 而非歸業務夾。
+- **跨 realm 逃逸閘（遷移前必補）**：專案甲 `_unclassified/` 躺著 feedback-* 跨專案規則 atom、MemoryMeta self-admit 誤捕。專案層無保護→誤捕固化。修：跨 realm 邊界比對核心 PROTECTED_PREFIXES（feedback-/atom-/decisions/workflow-），命中送人工 /refile 而非歸業務夾。
 
 ---
 
-## 5. 分階段遷移（每階段執驗上P、不破 SGI 活躍 repo + 其他專案）
+## 5. 分階段遷移（每階段執驗上P、不破專案甲活躍 repo + 其他專案）
 
 > **狀態（2026-06-30）**：Phase 0.5 + Phase A ✅ 已落地；Phase B/C/D + DedupStage 待做。
 
 - **Phase 0.5**（前置）✅：Phase 0/1 牢籠檔（`lib/game_taxonomy.py`/`lib/taxonomy_jury.py`/`lib/taxonomy_classify.py` + `verify_taxonomy_caging.py`/`verify_taxonomy_classify.py`）**已 git-tracked/committed**（核實 2026-06-30，原「仍 ??」已解：皆 tracked）。
-- **Phase A**（零行為改變、純抽取）✅ commit `208344b`：`lib/atom_classify.py` 已建（`score_by_lexicon` + `classify_taxonomy` + `classify_project_atom`）；`classify_realm` 退薄包裝委派 `score_by_lexicon`。**verify byte-equal 對拍**：核心 lexicon == classify_realm（hand-rolled oracle）、**server.js base 子集 py↔js 真 node parity**（test_17/22）、SGI 全 atom == 舊輸出（test_taxonomy_byte_equal_all_sgi_atoms，SGI 在機才跑）。SGI 零感知。**注**：`classify-project-atoms.classify` 退薄包裝屬 Phase B（專案 repo，未動）。
-- **Phase B**（治本，刪漂移源）：`classify-project-atoms.py` 266 行→~12 行 thin shim 呼核心；`project_hooks._auto_classify_shared_atoms` import 核心。SGI 先 dry-run 比對 by-domain==舊輸出才 --apply。**短詞命中(s21/h-7/bag/present/fresh-d)逐 atom 人工抽查**（子字串無 word-boundary）。每 Phase 留還原路徑。
-- **Phase C**（deprecate）：掃所有專案複本→全換 thin shim/直接 import；各專案只剩 `_taxonomy.json`。先 SGI（有人盯）→觀察→滾其他。無 _taxonomy.json 專案=no-op。
+- **Phase A**（零行為改變、純抽取）✅ commit `208344b`：`lib/atom_classify.py` 已建（`score_by_lexicon` + `classify_taxonomy` + `classify_project_atom`）；`classify_realm` 退薄包裝委派 `score_by_lexicon`。**verify byte-equal 對拍**：核心 lexicon == classify_realm（hand-rolled oracle）、**server.js base 子集 py↔js 真 node parity**（test_17/22）、專案甲全 atom == 舊輸出（對應的 byte-equal 測試只在專案甲在本機時才跑）。專案甲零感知。**注**：`classify-project-atoms.classify` 退薄包裝屬 Phase B（專案 repo，未動）。
+- **Phase B**（治本，刪漂移源）：`classify-project-atoms.py` 266 行→~12 行 thin shim 呼核心；`project_hooks._auto_classify_shared_atoms` import 核心。專案甲先 dry-run 比對 by-domain==舊輸出才 --apply。**短詞命中(s21/h-7/bag/present/fresh-d)逐 atom 人工抽查**（子字串無 word-boundary）。每 Phase 留還原路徑。
+- **Phase C**（deprecate）：掃所有專案複本→全換 thin shim/直接 import；各專案只剩 `_taxonomy.json`。先專案甲（有人盯）→觀察→滾其他。無 _taxonomy.json 專案=no-op。
 - **Phase X**（獨立並行）：晉升閘漏洞 + 跨 realm 逃逸閘。
 - **Phase D**（延後、user 認可才推）：生命週期收斂（project SessionStart→SessionEnd）——可感知行為改變 + failsafe 可見度降，不在治本同時疊加。
 
@@ -159,7 +159,7 @@
   - **§9-vs-§1 真相釐清（接手 session 免再查）**：`lib/taxonomy_jury.py`(cage_assert/_drafts_root/relocate_within_cage) + `lib/game_taxonomy.py`(seed slugs/TAXONOMY_CATCHALL) = **Phase 0 牢籠地基，保留複用**（DedupStage 直接 import）。§1「已取代」指的是**舊『atom 分類』走 game_taxonomy-為主 + 三路 jury** → 已被 `lib/atom_classify.py::score_by_lexicon`（確定性）取代；`lib/taxonomy_classify.py`（單後端 LLM jury）是 by-class 分類雛形，**DedupStage 不用它**（去蕪純確定性、禁 LLM）。三者正交。
   - `hooks/verify/verify_dedup_stage.py`（新）：**26 verify 綠**——截斷真/假陽性（含 2 份真實 draft fixture：`跨層引用缺陷`真截斷、`task-23-pitfall`未閉但非連接符收尾→不判）、soft-delete 可逆 byte-identical、cage_assert fail-closed、14 天閘、file-lock skip、per-env 策略、subsumption 零損失、CI grep 禁索引/詞庫符號、sweep 不碰索引/詞庫。
   - 驗證基線：`run_verify.py` **651→677 passed**。working tree 乾淨基線上建。
-  - **⚑ 未接線（刻意，待 user 認可）**：`sweep_drafts` 未掛任何 live SessionEnd hook（會對 SGI+他專案活躍 repo 產生可感知行為改變＝Phase D 性質，§5/§7.3 已定「延後、user 認可才推」）。接線時一行 wire-up 即可；接線前先在 SGI dry-run（`dry_run=True` 只算不搬）比對。
+  - **⚑ 未接線（刻意，待 user 認可）**：`sweep_drafts` 未掛任何 live SessionEnd hook（會對專案甲＋他專案活躍 repo 產生可感知行為改變＝Phase D 性質，§5/§7.3 已定「延後、user 認可才推」）。接線時一行 wire-up 即可；接線前先在專案甲 dry-run（`dry_run=True` 只算不搬）比對。
   - **⚑ 首版範圍誠實標記**：cluster_dedup 只收 **literal substring 冗餘**，§0「41% 實證可省」的 paraphrase 級語意去重**未達成**（安全優先、禁 LLM）→ 列後續可選增強。
 - **本 session（2026-06-30）核心側三治本（core，已 push 雙 remote）**：
   - **Phase A：classify_realm 退核心**（commit `208344b`）：`lib/atom_locations.py::classify_realm` 內聯計分 → 委派 `score_by_lexicon`（realm/taxonomy 共用單一計分源，INV-LOGIC-SINGLE-PY-SOURCE）；決策語意（無命中=core / sorted tiebreak / 段 guard）仍 RealmStrategy；**server.js 零改**（py 單源 + js 手寫 mirror，parity test_17 守）。`verify_atom_classify.py::reconstruct_realm` 翻 hand-rolled 獨立 oracle（不呼 score_by_lexicon）→ byte-equal 對拍維持真 oracle。
@@ -171,7 +171,7 @@
   - **② 詞庫污染已清 + 補漏（本機實證為真，非虛驚）**：working-tree `realm-lexicon-learned.json` 確多學 5 概念詞（excerpt/截斷/品質判定/源根驗證/post-mortem，HEAD 37→working 42）→ 退回 HEAD 37 + `_LEXICON_GENERIC_TOKENS` 補這些概念詞 sink 端拒收。（⚠ user 在另一 read-only session 看到「只有 1 詞」與本機 working-tree 對不上，疑不同環境/branch/checkout 落差；本機已逐 key 實證污染存在並清除——若你那邊真只有 1 詞，請反查兩環境是否同步。）
   - **③ confirmations=38 cognitive-patterns**：確認**合法**（真確認 atom 非漏洞），撤出待辦。
   - **⚑ 未解問題（廣義 bug，本 session 僅護 family、未根治）**：realm sweep 的 **LLM fallback 會把「作者置於 core 的跨專案 meta/認知/紀律 atom」系統性誤判 local**（非 auto-captured、作者 realm 意圖未被尊重）；本月已反覆（goal-driven/自己flag/記憶汙染/品質完整性判定/escalation-hook…逐顆補 `PROTECTED_EXACT` = 打地鼠）。**根治方向待議**：(i) LLM classify prompt 補「meta/cognitive/discipline atom core-bias」；(ii) 對 holylight-authored 且詞庫零實例命中的 [臨] atom 預設 defer 不搬（尊重作者 realm 意圖）；(iii) PROTECTED 升級為「family 規則判定」而非逐顆 exact 名單。
-- **Step 0（scope bug 治本）**：`classify-project-atoms.py:152` scope 改 body single-source（SGI commit `2bf3d75`）+ SGI 42 顆 scope global→shared（資料修正，未 commit、在你 working tree）。
+- **Step 0（scope bug 治本）**：`classify-project-atoms.py:152` scope 改 body single-source（專案甲 commit `2bf3d75`）+ 專案甲 42 顆 scope global→shared（資料修正，未 commit、在你 working tree）。
 - **Phase 0（牢籠安全地基）**：`lib/game_taxonomy.py`+`lib/taxonomy_jury.py`+`verify_taxonomy_caging.py`（core commit `741f84a`，10 verify 綠）。
 - **Phase 1 雛形**：`lib/taxonomy_classify.py`+`verify_taxonomy_classify.py`（8 verify 綠，待 commit）。
 - **核心 drift**：`_distant` 補進 EXCLUDED_DIR_PARTS（sync-atom-index.py）。
@@ -195,10 +195,10 @@
 
 | # | 問句（待決/待做） | 涉及檔 | 已驗狀態 | 禁止假設 / 先驗 |
 |---|---|---|---|---|
-| Q1 | **DedupStage project 端要不要接線？** project SessionEnd 接 `sweep_drafts(env="project")` 啟動截斷清除**+叢集去重**。| `<project>/.claude/.../project_hooks.py`（**SGI 在 c:\Projects**，**非 ~/.claude，須 project session 做**；CrossRealmWriteBlock 擋跨域）| core 側已完成可參照；project 側 0% | 動前先 SGI `dry_run=True` 比對；⚠ cluster 首版只收 literal substring，paraphrase 近重複抓不到（實證 0 redundant）——**先答 Q2 再決定要不要接** |
+| Q1 | **DedupStage project 端要不要接線？** project SessionEnd 接 `sweep_drafts(env="project")` 啟動截斷清除**+叢集去重**。| `<project>/.claude/.../project_hooks.py`（**專案甲在它自己的工作區**，**非 ~/.claude，須 project session 做**；CrossRealmWriteBlock 擋跨域）| core 側已完成可參照；project 側 0% | 動前先在專案甲 `dry_run=True` 比對；⚠ cluster 首版只收 literal substring，paraphrase 近重複抓不到（實證 0 redundant）——**先答 Q2 再決定要不要接** |
 | Q2 | **要不要補 paraphrase 語意叢集？**（atom-move×3 等換句近重複，substring 抓不到）| `lib/taxonomy_classify.py`（已有單後端 LLM jury 雛形）+ 新隔離模組 | 雛形存在、未接 dedup | 必與確定性主路**物理隔離**、仍 soft-delete 可逆、禁寫索引/詞庫（同 DedupStage 牢籠約束）；別把 LLM 判斷混進確定性 classify 入口 |
-| Q3 | **Phase B 治本（刪漂移源）何時做？** `classify-project-atoms.py` 266行→~12行 thin shim 呼核心；`project_hooks._auto_classify_shared_atoms` import 核心 | **project repo**（c:\Projects 等）| core 引擎 `lib/atom_classify` 已備（Phase A `208344b`）；project shim 0% | **須 project session**；SGI 先 dry-run 比對 by-domain==舊輸出才 --apply；短詞命中(s21/h-7/bag…)逐 atom 人工抽查 |
+| Q3 | **Phase B 治本（刪漂移源）何時做？** `classify-project-atoms.py` 266行→~12行 thin shim 呼核心；`project_hooks._auto_classify_shared_atoms` import 核心 | **project repo**（專案甲等）| core 引擎 `lib/atom_classify` 已備（Phase A `208344b`）；project shim 0% | **須 project session**；專案甲先 dry-run 比對 by-domain==舊輸出才 --apply；短詞命中(s21/h-7/bag…)逐 atom 人工抽查 |
 | Q4 | **廣義 realm-sweep bug 要走哪個方向根治？**（LLM fallback 系統性誤降跨專案 meta/認知/紀律 atom，本月逐顆打地鼠）| `hooks/wg_atoms.py`(sweep ~1629-1641 / 1768)、`lib/atom_locations.py`(realm classify) | 已護 family（PROTECTED_EXACT），未根治；⚠ **並行 session 正改這些檔** | 架構級→先 Plan；三方向擇一/組合：(i) LLM prompt 補 meta core-bias (ii) holylight-authored 且詞庫零命中 [臨] 預設 defer 不搬 (iii) PROTECTED 升 family 規則判定。**動前確認並行 session 未同時改 wg_atoms/atom_locations** |
-| Q5 | **Phase C/D**（deprecate 專案複本 / 生命週期收斂）| 各專案 repo | 未開始 | Phase D 明列「user 認可才推」；Phase C 先 SGI→觀察→滾其他 |
+| Q5 | **Phase C/D**（deprecate 專案複本 / 生命週期收斂）| 各專案 repo | 未開始 | Phase D 明列「user 認可才推」；Phase C 先專案甲→觀察→滾其他 |
 
 **本 session（2026-06-30）已 100% 完成**：DedupStage 引擎 + verify(26) + core SessionEnd 全生命週期接線(sweep+purge) + verify(8) + atom + changelog，run_verify **651→691**，5 commit 雙 remote。**未做的全部是 project 側（跨域做不了）或需 user 決策方向（Q2/Q4）或並行衝突高風險（Q4）**。

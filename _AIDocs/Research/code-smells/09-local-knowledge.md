@@ -4,35 +4,35 @@
 
 > 切面：本機知識（不上網），給總文件掛真實案例用。萃取日 2026-10-08，只讀不改。
 > 規則：只寫檔案裡真的有的數字；同一件事在不同檔數字不一致時兩個都列、各註出處，不擇一。
-> 證據等級沿用來源標記：【試過】＝有人實跑出數字；【讀碼】＝翻程式或提交紀錄看到；【文件】＝分析報告記載（SGI 2026-02／03 的報告自述「均已讀取原始碼驗證」，本次未重驗）；【推論】＝本檔整理者推的。
+> 證據等級沿用來源標記：【試過】＝有人實跑出數字；【讀碼】＝翻程式或提交紀錄看到；【文件】＝分析報告記載（遊戲專案甲 2026-02／03 的報告自述「均已讀取原始碼驗證」，本次未重驗）；【推論】＝本檔整理者推的。
 
-## 0. 專案代號與來源縮寫
+## 0. 案例出處與來源縮寫
 
-**專案代號（白話）**
-- **SGI**：Unity 遊戲專案，工作區 `c:\Projects`。`sgi_server`＝C# 伺服器（約 3,726 檔、29.8 萬行）；`sgi_client`＝Unity 客戶端（Main 主工程 2,357 檔＋ILRuntime 熱修工程 4,354 檔＋生成碼 1,370 檔）。ILRuntime＝讓 C# 業務邏輯不重新上架就能更新的直譯層，因此有「Main 與 IL 兩邊跨界呼叫」這類特有味道。
-- **TSLG**：另一個 Unity 遊戲專案，`C:\TSLG`。`FakeMapServer`＝客戶端內模擬的大地圖伺服器（partial 59 片）；「熱修分區」＝可熱更新的 C# 碼。
-- **根層**：`C:\Users\holylight\.claude`，使用者自建的 AI 記憶系統（Python hooks 與工具）。
-- 零星案例：Proj-JARVIS、MudClient、MUD 地圖、Audio 系統——都只出現在單張記憶卡。
+**案例出處（白話）**：案例來自使用者的兩個 Unity 線上遊戲專案與記憶系統本身。本檔不寫專案名稱與路徑，兩個遊戲專案用固定代稱區分。
+- **遊戲專案甲**：C# 伺服器＋Unity 用戶端。伺服器約 3,726 檔、29.8 萬行；用戶端分 Main 主工程 2,357 檔＋ILRuntime 熱修工程 4,354 檔＋生成碼 1,370 檔。ILRuntime＝讓 C# 業務邏輯不重新上架就能更新的直譯層，因此有「Main 與 IL 兩邊跨界呼叫」這類特有味道。伺服器端有一台地圖伺服器（下文簡稱「地圖伺服器」）。
+- **遊戲專案乙**：帶熱更新層的 Unity 專案。用戶端內有一個模擬大地圖伺服器的類別（下文稱「大地圖模擬伺服器」，partial 59 片）；「熱修分區」＝可熱更新的 C# 碼。
+- **根層**：使用者自建的 AI 記憶系統（Python hooks 與工具），也就是本檔所在的系統。
+- 零星案例：另有幾個只出現在單張記憶卡的案例（一個 AI 助理專案、一個 MUD 文字遊戲用戶端、某專案的音效系統），文中寫「某專案」或「某 MUD 文字遊戲用戶端」。
 
-**來源縮寫**（記憶卡路徑相對 `C:\Users\holylight\.claude\memory\`）
+**來源縮寫**（記憶卡路徑相對 `C:\Users\holylight\.claude\memory\`；專案內文件只寫是哪一類文件，不寫路徑）
 
-| 縮寫 | 完整路徑 |
+| 縮寫 | 來源 |
 |---|---|
-| [SS] | `C:\Projects\_AIDocs\Server_Code_Smells.md` |
-| [SR] | `C:\Projects\_AIDocs\Server_Code_Smells_Remediation.md` |
-| [CS] | `C:\Projects\_AIDocs\Client_Code_Smells.md` |
-| [CR] | `C:\Projects\_AIDocs\Client_Code_Smells_Remediation.md` |
-| [CI] | `C:\Projects\_AIDocs\Client_Code_Issues.md` |
-| [RA] | `C:\Projects\_AIDocs\Client_Risk_Audit.md` |
-| [PM] | `C:\Projects\_AIDocs\Client_Performance_Memory_Analysis.md` |
-| [OE] | `C:\Projects\_AIDocs\Overengineering_Analysis.md` |
+| [SS] | 遊戲專案甲的伺服器壞味道分析報告 |
+| [SR] | 遊戲專案甲的伺服器壞味道整改文件 |
+| [CS] | 遊戲專案甲的用戶端壞味道分析報告 |
+| [CR] | 遊戲專案甲的用戶端壞味道整改文件 |
+| [CI] | 遊戲專案甲的用戶端程式問題清單 |
+| [RA] | 遊戲專案甲的用戶端風險稽核報告 |
+| [PM] | 遊戲專案甲的用戶端效能與記憶體分析 |
+| [OE] | 遊戲專案甲的過度工程分析 |
 | [全貌] | `C:\Users\holylight\.claude\memory\_staging\全貌-AI寫碼守門三方討論.md` |
-| [README] | `C:\Projects\.claude\inbox\tri-link\attachments\smells\README.md` |
-| [掃SGI] | `C:\Projects\.claude\inbox\tri-link\attachments\smells_sgi_mapserver_GuildManager_all.txt`（smells 掃描器對 SGI MapServer 的實跑輸出） |
-| [協定] | `C:\Projects\.claude\inbox\tri-link\attachments\protocol_wiring_sgi.txt` |
-| [T缺陷] | `C:\TSLG\_AIDocs\Client\WorldMap\WorldMap_Verified_Defects_And_Fixes.md` |
-| [T規則] | `C:\TSLG\_AIDocs\Rules\Coding_Style_Rules.md` |
-| [T-RC] | `C:\TSLG\Tools\CodeReview\rule_check\rules\<規則>\Rule.cs` |
+| [README] | smells 掃描器的說明檔（放在遊戲專案甲的三方討論附件裡） |
+| [掃甲] | smells 掃描器對遊戲專案甲地圖伺服器的實跑輸出（三方討論附件） |
+| [協定] | 協定兩端對照工具對遊戲專案甲的實跑輸出（三方討論附件） |
+| [乙缺陷] | 遊戲專案乙的大地圖「已驗證缺陷與修法」文件 |
+| [乙規則] | 遊戲專案乙的寫碼風格規則文件 |
+| [乙RC] | 遊戲專案乙 rule_check 檢查器裡各條規則的 `Rule.cs` |
 | [寫碼傾向] | `C:\Users\holylight\.claude\rules\coding-style.md` |
 | [卡四指標] | `驗證與實證\不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案.md` |
 | [卡三彎] | `思考與決策\單一構想的完成邏輯拐超過三個彎就是壞味道-腳本如此llm思考也如此-超過三個拐彎極可能跑偏或想錯-繼續推只會更偏.md` |
@@ -41,7 +41,7 @@
 | [卡修證] | `personal\holylight\feedback-找到壞味道不是描述打分-要當場高速修整並證明結果完全相同-使用者2026-10-08你跩什麼.md` |
 | [卡數量] | `設計通則\數量不是臭味-切分有沒有責任軸才是-partial分對外api內部核心遊戲邏輯是好設計-第二問同一欄位被幾片寫入有無單一出入口.md` |
 | [卡範本] | `設計通則\範本與規則文字沒有機器定期量就會爛-守門的零件是封定與重量不是範本本身.md` |
-| [卡RC] | `dotnet\tslg的rule-check-roslyn檢查器可攜實測-net8單檔06秒-json含行號-分區與selftest對齊是核心耦合.md` |
+| [卡RC] | 公司層記憶 `C:\CompanyAtomsMem\.claude\memory\shared\工具\` 裡「rule-check Roslyn 檢查器可攜實測（net8 單檔 0.6 秒、json 含行號、分區與 selftest 對齊是核心耦合）」那張卡 |
 | [卡SOP] | `工作流\重構\coding-style掃碼重構sop-量化掃加獨立第二意見-特徵測試先行-純重構以自測報告逐行相同為證.md` |
 | [卡等值] | `驗證與實證\行為保持重構的高速等值證法-舊原始碼解析出預期表-新dll反射實跑全枚舉值比對-副作用守衛文字相等.md` |
 | [卡映射] | `dotnet\建置\契約加欄位必查手寫映射點-單元綠不代表wire存活.md` |
@@ -55,7 +55,7 @@
 | [卡綜觀] | `Failures\思考與決策\feedback-處理眼前需求時要同時適度綜觀專案-缺這個過程才會繞同一死胡同與修症狀亂改-守門規則都是怎麼擋這條是為何擋不住.md` |
 | [卡接縫] | `設計通則\砍雞肋時留最小接縫-沒有消費者的功能不蓋但要留三十分鐘內能接上的口-過度貼合當前環境要另派辯方檢查.md` |
 
-`C:\CompanyAtomsMem\` 用同組關鍵字搜尋 0 命中（目前只有 README 與 usage-snapshots）。
+`C:\CompanyAtomsMem\` 用同組關鍵字搜尋，只命中上面 [卡RC] 那一張，沒有其他壞味道案例。
 
 ---
 
@@ -67,130 +67,130 @@
 
 **A-01 狀態所有權散落（同一組狀態多處改，沒有單一出入口）**
 - 定義：一個 private 容器（Dictionary／HashSet／List）的增刪改點散在多個檔、多個方法；每處都「合法地」改同一組狀態，漏改一側不報錯、不出訊號，只在下游長出無法回推的行為。
-- 指標：改動點（Add／Remove／Clear／索引賦值）≥3 檔或 ≥6 處即標記；partial 類別先依名稱合併再數，否則會漏。修法目標：容器只在一支 `BeginXxx` 與一支 `EndXxx(reason)` 裡被寫（TSLG 規則 CS-54）。判準問句：「這幾個容器是不是在回答同一個問題？」
-- 案例：TSLG `FakeMapServer` 198 個 private 容器中 15 個被標，`_burning` 7 處 4 檔、`_returning` 10 處 2 檔【試過】；燃燒六個出口收成 `EndBurning(uid, reason)` 後 7 處 4 檔 → 3 處 1 檔（改 25 行）；三群收口累計標記 15 → 7【試過】。TSLG「敵方打不死」：`_engagements` 三條移除路徑只有一條會對雙方開脫戰倒數，NPC 把旁邊的玩家判成已脫離、返巢回滿血。SGI MapServer 1,370 檔掃出 7 個：`Spawner._spawnPositions` 8 處 5 檔（五種實體模組共改一張生成表）、`NpcAttackCastleManager._guildScoreById` 6 處 3 檔【試過】。
-- 來源：[卡四指標]、[README]、[T缺陷]、[T規則] CS-54、[全貌] §5 §8、[掃SGI]
+- 指標：改動點（Add／Remove／Clear／索引賦值）≥3 檔或 ≥6 處即標記；partial 類別先依名稱合併再數，否則會漏。修法目標：容器只在一支 `BeginXxx` 與一支 `EndXxx(reason)` 裡被寫（遊戲專案乙規則 CS-54）。判準問句：「這幾個容器是不是在回答同一個問題？」
+- 案例：遊戲專案乙大地圖模擬伺服器 198 個 private 容器中 15 個被標，燃燒狀態容器 7 處 4 檔、返回狀態容器 10 處 2 檔【試過】；燃燒六個出口收成單一 `EndXxx(uid, reason)` 後 7 處 4 檔 → 3 處 1 檔（改 25 行）；三群收口累計標記 15 → 7【試過】。遊戲專案乙「敵方打不死」：交戰紀錄容器三條移除路徑只有一條會對雙方開脫戰倒數，NPC 把旁邊的玩家判成已脫離、返巢回滿血。遊戲專案甲地圖伺服器 1,370 檔掃出 7 個：生成器的生成位置表 8 處 5 檔（五種實體模組共改一張生成表）、NPC 攻打城堡管理類別的軍團分數表 6 處 3 檔【試過】。
+- 來源：[卡四指標]、[README]、[乙缺陷]、[乙規則] CS-54、[全貌] §5 §8、[掃甲]
 
 **A-02 同一事實存兩份（衍生值另存／雙存）**
 - 定義：同一份資料、或可由別的資料算出的值，被另外存一份；某條更新路徑只改其中一份。
 - 指標：無機器指標，用 A-01 的判準問句。
-- 案例：TSLG「野怪永遠不掉血」卡三輪、每輪請使用者重跑遊戲：兵力由兵種編成算出，回滿路徑直接把兵力寫成上限、沒還原編成，扣兵函式一兵都扣不到【讀碼】。SGI server `ActivityFishingManager` 排行榜用 List＋Dictionary 雙存（4 個集合存 2 份資料），`ActivityFangActiveManager` 5+ 個互相重疊的集合【文件】；整改文件的修法：依「查詢多還是排序多」選主存儲，另一份改成按需產生的 getter。
+- 案例：遊戲專案乙「野怪永遠不掉血」卡三輪、每輪請使用者重跑遊戲：兵力由兵種編成算出，回滿路徑直接把兵力寫成上限、沒還原編成，扣兵函式一兵都扣不到【讀碼】。遊戲專案甲伺服器某個釣魚活動管理類別的排行榜用 List＋Dictionary 雙存（4 個集合存 2 份資料），另一個活動管理類別 5+ 個互相重疊的集合【文件】；整改文件的修法：依「查詢多還是排序多」選主存儲，另一份改成按需產生的 getter。
 - 來源：[全貌] §2、[SS] #9、[SR] Fix #9
 
 **A-03 共用可變參考被當成私有狀態改**
-- 案例：TSLG 野怪案第二根因：同種野怪共用設計表快取的那本字典，打 A 隻、B 隻跟著掉血【試過：回放實驗找到，TSLG 核真】。
+- 案例：遊戲專案乙野怪案第二根因：同種野怪共用設計表快取的那本字典，打 A 隻、B 隻跟著掉血【試過：回放實驗找到，遊戲專案乙核真】。
 - 來源：[全貌] §2 §3
 
 **A-04 內部可變集合直接外漏**
 - 定義：回傳內部集合的直接引用，呼叫方可以增刪；對方迭代時被改會丟例外。
-- 案例：SGI client `ModuleQueryAdapter` 165 個方法中回傳集合的一律直接引用（例 `GetMyTroopList`、`GetZoneNpcInfos`），零防禦拷貝【文件，CRITICAL-14】；修法：`IReadOnlyList`／`AsReadOnly()` 或淺拷貝。
+- 案例：遊戲專案甲用戶端的模組查詢轉接類別 165 個方法中回傳集合的一律直接引用（例：取自己部隊清單、取區域 NPC 資訊兩個方法），零防禦拷貝【文件，CRITICAL-14】；修法：`IReadOnlyList`／`AsReadOnly()` 或淺拷貝。
 - 來源：[CI]
 
 **A-05 static 狀態跨生命週期殘留**
-- 案例：SGI client `UISupplySingleQuickUseData.cs:311-312` 兩個 static Dictionary 在登出／換角時不清（實例 `Clear()` 不碰 static），舊 session 物件無法回收【文件，HIGH-10】。TSLG 把它寫成機器規則 CS-46：可變 static 快取沒在同檔登記 `BRHotfix.AddStaticClear` 就擋。
-- 來源：[CI]、[T-RC] CS-46
+- 案例：遊戲專案甲用戶端某個補給快捷使用資料類別的兩個 static Dictionary 在登出／換角時不清（實例 `Clear()` 不碰 static），舊 session 物件無法回收【文件，HIGH-10】。遊戲專案乙把它寫成機器規則 CS-46：可變 static 快取沒在同檔登記到專案的靜態清理註冊點就擋。
+- 來源：[CI]、[乙RC] CS-46
 
 **A-06 多份手列「全清清單」**
 - 定義：同一組容器的清空在兩處以上各自逐個 `Clear()`，新增容器要每處都記得。
-- 案例：TSLG `FakeMapServer.MapProgress.cs` 換圖段與 `FakeMapServer.cs` reset 段各自逐容器 `Clear()`，缺陷文件建議收成一支 `ClearPerUidState()` 共用【讀碼】。另一筆同形狀：TSLG 第三群收口把「換圖與離場兩份隨世界消滅的暫態清單」收成單一入口 `ClearWorldTransient()`，換圖實跑交戰 3 → 0、實體 66 → 61 重建、無例外【試過】（兩筆是否同一組清單，來源沒寫明）。
-- 來源：[T缺陷] §二、[全貌] §8
+- 案例：遊戲專案乙大地圖模擬伺服器的換圖段與 reset 段（在兩個不同檔）各自逐容器 `Clear()`，缺陷文件建議收成一支「清掉每個 uid 狀態」的共用方法【讀碼】。另一筆同形狀：遊戲專案乙第三群收口把「換圖與離場兩份隨世界消滅的暫態清單」收成單一清理入口，換圖實跑交戰 3 → 0、實體 66 → 61 重建、無例外【試過】（兩筆是否同一組清單，來源沒寫明）。
+- 來源：[乙缺陷] §二、[全貌] §8
 
 **A-07 同一欄位粗細兩來源互相覆寫**
 - 定義：一個精確但偶發、一個粗略但高頻的來源都無條件寫同一欄位，粗略的把精確的洗掉；值都合法，所以不報錯。
 - 判別：看到「推導出來的值直接 assign 到持久狀態」就問兩句：這欄位還有別的來源嗎？那個來源比較精確嗎？兩句都是 → 粗略來源只補不降級（狀態定成有序枚舉，只在更嚴格時套用）。
-- 案例：MUD 地圖的門狀態——「撞門訊息」分得出關著／上鎖／魔法鎖，「出口顏色」只分得出過不過得去；顏色無條件寫入時，「要先找鑰匙」每看一次房就消失一次。
+- 案例：某 MUD 文字遊戲用戶端的地圖門狀態——「撞門訊息」分得出關著／上鎖／魔法鎖，「出口顏色」只分得出過不過得去；顏色無條件寫入時，「要先找鑰匙」每看一次房就消失一次。
 - 來源：[卡弱訊號]
 
 **A-08 兩份「同源」定義靠人工同步（鏡像檔、手工翻譯、生成碼手改）**
 - 案例：
-  - SGI client SharedScript 16 檔在 Main 與 IL 兩側靠手動＋檔頭 10 行驚嘆號警告維持同步；報告原話：「10 行驚嘆號警告本身就是壞味道的信號」【文件】。後來實掃兩份同源常數檔：協定編號 7 個值不同、錯誤碼 2 個不同（主程式集目前沒用到所以沒出事）【試過】。
-  - SGI server「兩台 server 兩套列舉手工翻譯」七段 switch，收成七張靜態對照表：`GuildRecruitManager` +86／−137 行，舊碼解析 36 條預期、新 dll 反射全跑 44/44 相同、副作用 4/4，約 10 分鐘【試過】。
-  - SGI client FormV2 企劃表定義 `auto_generate` 210 檔＋手改 `copyfix` 212 檔雙軌；Protobuf Main 206＋IL 536 訊息檔雙版本，漏生一側即 runtime crash【文件】。TSLG 規則 CR-020：手改生成檔直接擋。
-- 來源：[CS] #4 #9 #10 #16、[全貌] §5 §6、[卡等值]、[T-RC] CR-020
+  - 遊戲專案甲用戶端的共用腳本 16 檔在 Main 與 IL 兩側靠手動＋檔頭 10 行驚嘆號警告維持同步；報告原話：「10 行驚嘆號警告本身就是壞味道的信號」【文件】。後來實掃兩份同源常數檔：協定編號 7 個值不同、錯誤碼 2 個不同（主程式集目前沒用到所以沒出事）【試過】。
+  - 遊戲專案甲伺服器「兩台 server 兩套列舉手工翻譯」七段 switch，收成七張靜態對照表：軍團招募管理類別 +86／−137 行，舊碼解析 36 條預期、新 dll 反射全跑 44/44 相同、副作用 4/4，約 10 分鐘【試過】。
+  - 遊戲專案甲用戶端的企劃表定義有自動生成 210 檔＋手改修補 212 檔雙軌；Protobuf Main 206＋IL 536 訊息檔雙版本，漏生一側即 runtime crash【文件】。遊戲專案乙規則 CR-020：手改生成檔直接擋。
+- 來源：[CS] #4 #9 #10 #16、[全貌] §5 §6、[卡等值]、[乙RC] CR-020
 
 **A-09 手寫逐欄映射漏接新欄位**
-- 案例：Proj-JARVIS 給 `MemorySummaryItem` 加 `content` 欄，接收端 `MemoryWireParser.TryParseItem` 手寫逐欄重建漏接；單元／整合測試全綠（測的是物件層），真線路上欄位全空，靠真 server 的端對端探針才現形。
+- 案例：某專案給一個傳輸用的摘要資料物件加 `content` 欄，接收端解析器手寫逐欄重建、漏接這一欄；單元／整合測試全綠（測的是物件層），真線路上欄位全空，靠真 server 的端對端探針才現形。
 - 防線：改契約後 grep 型別名找出所有手寫映射點；新欄位補「序列化 → parser → 斷言」來回測試。
 - 來源：[卡映射]
 
 ### A2 失敗沒有訊號
 
 **A-10 靜默失敗／空 catch 吞例外**
-- 案例：SGI client 空 catch 6 項 P0，含 `ConnectorBase.cs` 6 處（網路層錯誤完全靜默）、`ENTRY.cs:84` 空 catch 旁註解「// 應該不需處理啥..?」【文件】。根層：JSON 結構升級後 `setdefault()` 拿到舊結構不報錯、後續 KeyError 被外層 try/except 吞掉（卡片標 [固]）。TSLG 規則 CR-013：empty catch 直接擋（實測：「盡力清理、stderr 已壞」的刻意吞也會被報，要逃生註解慣例）。
+- 案例：遊戲專案甲用戶端空 catch 6 項 P0，含網路連線基底類別 6 處（網路層錯誤完全靜默）、程式進入點檔裡一處空 catch 旁註解「// 應該不需處理啥..?」【文件】。根層：JSON 結構升級後 `setdefault()` 拿到舊結構不報錯、後續 KeyError 被外層 try/except 吞掉（卡片標 [固]）。遊戲專案乙規則 CR-013：empty catch 直接擋（實測：「盡力清理、stderr 已壞」的刻意吞也會被報，要逃生註解慣例）。
 - 使用者原則：極簡不砍可觀測性，禁止靜默失敗（見 B-11）。
-- 來源：[RA] Stream 1、[卡靜默]、[T-RC] CR-013、[卡RC]
+- 來源：[RA] Stream 1、[卡靜默]、[乙RC] CR-013、[卡RC]
 
 **A-11 把正常中間狀態當失敗，而且全部靜默**
-- 案例：TSLG「部隊停死在半路」五個誤判逐個修、修一個冒一個；病根一個：把正常的中間狀態當失敗，且全部靜默【讀碼】。三方歸納 TSLG 兩案共同形狀：「狀態所有權散在多處、失敗沒有訊號」。
+- 案例：遊戲專案乙「部隊停死在半路」五個誤判逐個修、修一個冒一個；病根一個：把正常的中間狀態當失敗，且全部靜默【讀碼】。三方歸納遊戲專案乙兩案共同形狀：「狀態所有權散在多處、失敗沒有訊號」。
 - 來源：[全貌] §2
 
 **A-12 狀態消失不出聲，或原因用字串**
 - 定義：Remove／Cancel／End／Clear 類 API 不帶原因、不留紀錄；或原因用字串，錯字靜默分裂成不同去重 key。
-- 規則：TSLG CS-54②——簽名必帶 reason，用 enum 不用字串；收口處去重 log（key 帶 uid 與 reason）。
+- 規則：遊戲專案乙 CS-54②——簽名必帶 reason，用 enum 不用字串；收口處去重 log（key 帶 uid 與 reason）。
 - 案例：字串版落地前就已出現兩組同義不同寫法（「實體移除」對「實體離場清理」、「玩家下移動令」對「玩家下移動令(逃離)」），同一個原因被記成兩件事。
-- 來源：[T規則] CS-54
+- 來源：[乙規則] CS-54
 
 **A-13 安全機制被註解掉**
-- 案例：SGI client `NetSystem.cs:82-139` 的 `Update()` 外層 try-catch 被整段註解，每幀入口 `Instance.Run()` 與 `_moduleManager.DoUpdate()` 完全裸露，任何網路例外即整個 client crash【文件，CRITICAL-1】。報告特別區分：這不只是死碼，是安全機制被停用。
+- 案例：遊戲專案甲用戶端網路系統類別的 `Update()` 外層 try-catch 被整段註解，每幀入口（網路執行與模組管理器更新兩個呼叫）完全裸露，任何網路例外即整個 client crash【文件，CRITICAL-1】。報告特別區分：這不只是死碼，是安全機制被停用。
 - 來源：[CI]、[CS] #11
 
 **A-14 async void**
-- 案例：SGI client 35 項 P0，含 HotFixSystem、UISystem、MapSystem、BuildingManager 等核心系統（例外無法被 await 捕捉 → 靜默崩潰）【文件】。TSLG 規則 CR-003：async void 直接擋。
-- 來源：[RA] Stream 2、[T-RC] CR-003
+- 案例：遊戲專案甲用戶端 35 項 P0，含熱修、UI、地圖、建築管理等核心系統（例外無法被 await 捕捉 → 靜默崩潰）【文件】。遊戲專案乙規則 CR-003：async void 直接擋。
+- 來源：[RA] Stream 2、[乙RC] CR-003
 
 ### A3 生命週期與資源
 
 **A-15 事件訂閱不退訂**
 - 指標：`+=` 與 `-=` 配對數；Unity MonoBehaviour 要有 OnDestroy 保底退訂。
-- 案例：SGI server 10+ 處、相關檔 0 個 `-=`（`MapModule.cs:168-176` 一口氣 7 個訂閱）【文件】；專案自己已有正確範例 `NpcAttackCityManager.Event.cs:387-393`（旗標記錄、活動結束時退訂）。SGI client Main 約 5 處、IL 約 300+ 處；`UnitRoot.cs:133` 訂閱後從不退訂且無 OnDestroy；`WndForm_Lobby` 的 OnColliderChanged、OnPointerDown/Up 有 `+=` 無 `-=`，同一視窗要理解三套訂閱機制【文件】。TSLG 規則 CS-40：onClick 直綁要改用 UIButtonCtrl 並在關閉時 Dispose。
-- 來源：[SS] #8、[SR] Fix #8、[CS] #3 #7、[CI] 章節 HIGH-4、HIGH-9（該檔總覽表與章節編號不一致，以章節為準）、[T-RC] CS-40
+- 案例：遊戲專案甲伺服器 10+ 處、相關檔 0 個 `-=`（地圖模組一口氣 7 個訂閱）【文件】；專案自己已有正確範例：NPC 攻城活動管理類別的事件檔（旗標記錄、活動結束時退訂）。遊戲專案甲用戶端 Main 約 5 處、IL 約 300+ 處；某個單位根物件類別訂閱後從不退訂且無 OnDestroy；大廳視窗的 UI 碰撞區變更事件、OnPointerDown/Up 有 `+=` 無 `-=`，同一視窗要理解三套訂閱機制【文件】。遊戲專案乙規則 CS-40：onClick 直綁要改用專案的按鈕控制元件並在關閉時 Dispose。
+- 來源：[SS] #8、[SR] Fix #8、[CS] #3 #7、[CI] 章節 HIGH-4、HIGH-9（該檔總覽表與章節編號不一致，以章節為準）、[乙RC] CS-40
 
 **A-16 隱性初始化時序耦合**
 - 定義：初始化有先後順序，但順序沒寫在讀者會經過的地方；或 Refresh 類方法被某個 Init 提早呼叫，讀到還沒建好的欄位。
-- 案例：WinForms 建構式設 Designer 控制項初始值會立刻觸發 Changed，處理器讀還沒建的欄位 → 啟動即崩、畫面全無、build 0 錯；MudClient `InitFlowUi()` 尾端呼叫 `RefreshFlowUi()` → 讀到要到 `InitAutoCombat()` 才建、宣告成 `= null!` 的 `_autoCombat`。SGI 資料模組初始化順序 10 跳 8 檔，順序靠存檔鍵、裝備模組因鍵是 0 才排最前，沒寫在任何讀者會經過的地方【讀碼】。
+- 案例：WinForms 建構式設 Designer 控制項初始值會立刻觸發 Changed，處理器讀還沒建的欄位 → 啟動即崩、畫面全無、build 0 錯；某 MUD 文字遊戲用戶端的流程 UI 初始化方法尾端呼叫流程 UI 刷新方法 → 讀到要到自動戰鬥初始化才建、宣告成 `= null!` 的自動戰鬥欄位。遊戲專案甲資料模組初始化順序 10 跳 8 檔，順序靠存檔鍵、裝備模組因鍵是 0 才排最前，沒寫在任何讀者會經過的地方【讀碼】。
 - 判準：「Init 系列有先後，Refresh 系列沒有」→ Refresh 開頭寫守衛，比排 Init 順序耐放。
 - 來源：[卡初始化]、[全貌] §4
 
 **A-17 常駐每幀回呼（用輪詢代替事件）**
 - 定義：物件大多時間閒著、只在短段「過渡」有事，卻註冊常駐 Update／Tick。把 N 條常駐收成 1 條 Tick 仍是輪詢，使用者不算解。
 - 判準：協程只在「有事必須在『之後』發生」時存在；先列出有哪幾種過渡，清單外的協程就是 bug。
-- 案例：Audio 系統「拔掉常駐 Update、改為按需協同」（MEC 短命協程）。TSLG 靜態掃描每幀型方法 126 個，17 個本體含配置型寫法（`foreach` 8、字串拼接 6、`new` 參考型別 3；標明「17 是上限不是結論」）【試過】。TSLG 規則 CS-58：熱修禁 MonoBehaviour，改走 `BR.RegProxyUpdate`／`Timing.RunCoroutine`。
-- 來源：[卡每幀]、[全貌] §9.3、[T-RC] CS-58
+- 案例：某專案的音效系統「拔掉常駐 Update、改為按需協同」（MEC 短命協程）。遊戲專案乙靜態掃描每幀型方法 126 個，17 個本體含配置型寫法（`foreach` 8、字串拼接 6、`new` 參考型別 3；標明「17 是上限不是結論」）【試過】。遊戲專案乙規則 CS-58：熱修禁 MonoBehaviour，改走專案自己的 Update 代理註冊或 MEC 協程（`Timing.RunCoroutine`）。
+- 來源：[卡每幀]、[全貌] §9.3、[乙RC] CS-58
 
 ### A4 結構膨脹
 
 **A-18 巨型類別（God Class）**
-- 指標：SGI 報告用「>1,000 行」與 public 方法數；但使用者原則：行數／方法數只當「值得看一眼」的線索，不進計數規則（見 B-01）。
-- 案例：SGI server 9 個類別 >1,000 行，最大 `StageController.cs` 1,622 行（約 53 個 public 方法）；`MailController.cs` 1,600 行、72 方法＋4 內部類別＋15+ 私有集合，混了信箱查詢、發送、附件、批量、冷卻；`HeroDataModule.cs` 2,336 行。SGI client `NetSystem` 一個 `Update()` 承擔連線、分發、重連、命令四職責，一個子職責丟例外拖垮全部；UIWnd 287 檔、單檔 300–800 行，`WndForm_Lobby` 混了元件初始化、24 個 RegisterObserver、18 個 AttachChangeEvent、排程、網路、UI 狀態【文件】。
+- 指標：遊戲專案甲報告用「>1,000 行」與 public 方法數；但使用者原則：行數／方法數只當「值得看一眼」的線索，不進計數規則（見 B-01）。
+- 案例：遊戲專案甲伺服器 9 個類別 >1,000 行，最大的關卡控制類別 1,622 行（約 53 個 public 方法）；郵件控制類別 1,600 行、72 方法＋4 內部類別＋15+ 私有集合，混了信箱查詢、發送、附件、批量、冷卻；武將資料模組 2,336 行。遊戲專案甲用戶端網路系統類別一個 `Update()` 承擔連線、分發、重連、命令四職責，一個子職責丟例外拖垮全部；UI 視窗類 287 檔、單檔 300–800 行，大廳視窗混了元件初始化、24 個觀察者註冊、18 個變更事件綁定、排程、網路、UI 狀態【文件】。
 - 來源：[SS] #2、[OE] §三、[CS] #2 #7
 
 **A-19 近乎複製的平行類別**
-- 案例：`ActivityAllFightingManager`（1,503 行）與 `ActivityCrossServerAllFightingManager`（1,304 行）「幾乎複製」，差異僅資料來源，合計 2,807 行；整改優先提取共用基類【文件】。
+- 案例：某個全服對戰活動管理類別（1,503 行）與它的跨服版本（1,304 行）「幾乎複製」，差異僅資料來源，合計 2,807 行；整改優先提取共用基類【文件】。
 - 來源：[SS] #2、[SR] Fix #2
 
 **A-20 樣板地獄（Handler／PackHandler）**
-- 案例：SGI server 500+ 個 `[MapServerHandler]` 中 98.8% 同一結構（反序列化 → 呼叫 Manager → 判錯誤碼回覆），37 檔約 10,796 行；已觀察到複製貼上漏改 OpCode 或型別。同一件事其他檔的數字：[OE] 記 577 個 Handler；協定對照工具數到 C2M handler 494 個。新增一個功能要碰 5 處，業務 3–5 行配 50+ 行管道碼。SGI client IL 66 個 PackHandler，64 個（97%）沒有 try-catch【文件】。
+- 案例：遊戲專案甲伺服器 500+ 個地圖伺服器 handler（以 attribute 標記）中 98.8% 同一結構（反序列化 → 呼叫 Manager → 判錯誤碼回覆），37 檔約 10,796 行；已觀察到複製貼上漏改 OpCode 或型別。同一件事其他檔的數字：[OE] 記 577 個 Handler；協定對照工具數到 C2M（用戶端送往地圖伺服器）handler 494 個。新增一個功能要碰 5 處，業務 3–5 行配 50+ 行管道碼。遊戲專案甲用戶端 IL 66 個封包處理器（PackHandler），64 個（97%）沒有 try-catch【文件】。
 - 使用者判定：lambda 泛型 helper 把 handler 壓成 1–3 行的方案 Pilot 6 個後**永久放棄、全部還原**（理由：新手容易寫出記憶體洩漏或難追蹤的碼）；改走「標準模板＋命名規範＋驗證腳本」，不動既有 500 個。Client 側不改 66 檔，只在分發入口統一包一層 try-catch。
 - 來源：[SS] #1、[SR] Fix #1、[OE] §四 §六、[CS] #6、[CR] Fix #6、[協定]
 
 **A-21 參數爆炸＋資料泥團**
-- 案例：SGI server 28+ 個方法 ≥6 參數；`HeroAttrCalculator.GetHeroEnhanceAttr` 11 參數、`ItemManager.AddReward` 9 參數；同一組審計參數 `(Reason, Role, fromId, comment)` 在 AddReward／CostReward／CostItem／CostResource／GetDropReward 重複出現 → 提成 `ItemLogContext`（9 → 5 參數）【文件】。
+- 案例：遊戲專案甲伺服器 28+ 個方法 ≥6 參數；武將強化屬性計算方法 11 參數、道具管理類別的發獎方法 9 參數；同一組審計參數（原因、角色、來源 ID、備註）在發獎、扣獎、扣道具、扣資源、取掉落獎勵五個方法重複出現 → 提成一個審計上下文物件（9 → 5 參數）【文件】。
 - 來源：[SS] #4、[SR] Fix #4
 
 **A-22 原始型別執念**
-- 案例：SGI server 型別安全 ID 0 個，characterId／guildId／itemId／playerId 全是 `uint`，三個 uint 參數傳錯順序編譯不報；Protobuf int／uint 間大量 `(uint)` 轉型【文件】。整改：不全面換（沒測試），只在最易混淆的 API 邊界引入 `readonly struct`（CharacterId／HeroId／GuildId），先 Pilot 一個 Manager。
+- 案例：遊戲專案甲伺服器型別安全 ID 0 個，characterId／guildId／itemId／playerId 全是 `uint`，三個 uint 參數傳錯順序編譯不報；Protobuf int／uint 間大量 `(uint)` 轉型【文件】。整改：不全面換（沒測試），只在最易混淆的 API 邊界引入 `readonly struct`（CharacterId／HeroId／GuildId），先 Pilot 一個 Manager。
 - 來源：[SS] #5、[SR] Fix #5
 
 **A-23 Manager 蛛網耦合**
-- 案例：`ActivityCrossServerAllFightingManager` 透過 `Server.XxxMgr` 依賴 27 個 Manager、`ActivityAllFightingManager` 26 個；修改一個 Manager 介面可能影響 26 個依賴者【文件】。整改：新功能用事件，舊的不大改。
+- 案例：A-19 那對活動管理類別，跨服版透過 `Server.XxxMgr` 依賴 27 個 Manager、本服版 26 個；修改一個 Manager 介面可能影響 26 個依賴者【文件】。整改：新功能用事件，舊的不大改。
 - 來源：[SS] #6、[SR] Fix #6
 
 **A-24 過度泛型／被迫寫空殼**
-- 案例：SGI server 每個 DataModule 繼承 5 型態參數泛型基類，前 3 個在全部 Module 完全一樣；306 個 DataModule 檔中 43+ 個為了符合約束塞 `EmptyDataModuleMainData` 空佔位【文件】；已建 4＋4 個中介基類、144 檔批量替換完成。三方討論把「DataModule 六層泛型」列為「繼承太多」的案例【讀碼】。
+- 案例：遊戲專案甲伺服器每個 DataModule 繼承 5 型態參數泛型基類，前 3 個在全部 Module 完全一樣；306 個 DataModule 檔中 43+ 個為了符合約束塞一個空的主資料佔位類別【文件】；已建 4＋4 個中介基類、144 檔批量替換完成。三方討論把「DataModule 六層泛型」列為「繼承太多」的案例【讀碼】。
 - 來源：[OE] §二 §六、[全貌] §9.2
 
 **A-25 只改一欄卻整包推送**
-- 案例：SGI `HeroDataModule.OnSubDataDirty` 每次組 20+ 欄位的 `M2CHeroSubData` 整包推給 client，只改 `Level` 也一樣；Vip／PlayerCache／Package 同模式；根因是框架一個 dirty flag 標整筆【文件】。處置延後，先量頻寬。
+- 案例：遊戲專案甲武將資料模組的「子資料變髒」回呼，每次組 20+ 欄位的武將子資料封包整包推給 client，只改等級一欄也一樣；VIP、玩家快取、背包模組同模式；根因是框架一個 dirty flag 標整筆【文件】。處置延後，先量頻寬。
 - 來源：[OE] §三
 
 ### A5 讀路徑與可讀性
@@ -205,122 +205,122 @@
 - 定義：程式沒錯、測試會過，但讀者要開四五個檔、穿過介面／工廠／基類才懂。使用者原話：「你們只針對了實際發生的 BUG 寫出測試，但是沒有寫出『人讀的時候就要跳超過 3 層、以及腦袋必須拐彎超多次』這種狀況。」
 - 指標（掃描器 B）：public 方法沿同類別委派鏈最深一條的「委派跳數＋條件巢狀深度」，≤3 綠、4–6 看一眼、>6 標；含 ≥8 段 switch 的分派型方法另標、不進分布。人工量法：檔數、型別數、間接次數，要跨檔。
 - 案例：
-  - SGI MapServer：分布 ≤3：2,203、4–6：253、>6：265【試過】；最深 `CaravanManager.FinishPersonTruck` bends=23（委派 11、巢狀 12）、`BagDataModule.BuyItem` 22（委派 7、巢狀 15）；分派型 `MapModule.NotifyPlayerEntities` 巢狀 17 層要另標。（[全貌] §5 摘要寫「最深在商隊與建築管理器，委派 10 跳加巢狀 10 層」，與掃描輸出檔數字不同，兩者並列。）
-  - TSLG 935 檔：[全貌] §5 記 192 個 >6 彎；§9.3 重跑、排除分派型 2 個後記 194（≤3：1,063、4–6：140）。
-  - 人工讀路徑：TSLG 燃燒狀態 13 步 8 檔；SGI 邀請入團協定 14 檔、3 個 repo、2 台 server，一個參數追到企劃表那格 5 跳【讀碼】。審查者三題都沒因「沒錯」放行，燃燒那段還挖出三個真缺陷（他公會可滅我方火、擊破任務在建築沒毀就計分、城堡回滿同步順序反）。
-- 來源：[卡四指標]、[卡跳層]、[README]、[掃SGI]、[全貌] §4 §5 §9
+  - 遊戲專案甲地圖伺服器：分布 ≤3：2,203、4–6：253、>6：265【試過】；最深是商隊管理類別裡「結束個人貨車」的方法 bends=23（委派 11、巢狀 12）、背包資料模組的購買道具方法 22（委派 7、巢狀 15）；分派型的地圖模組「通知玩家實體」方法巢狀 17 層要另標。（[全貌] §5 摘要寫「最深在商隊與建築管理器，委派 10 跳加巢狀 10 層」，與掃描輸出檔數字不同，兩者並列。）
+  - 遊戲專案乙 935 檔：[全貌] §5 記 192 個 >6 彎；§9.3 重跑、排除分派型 2 個後記 194（≤3：1,063、4–6：140）。
+  - 人工讀路徑：遊戲專案乙燃燒狀態 13 步 8 檔；遊戲專案甲邀請入團協定 14 檔、3 個 repo、2 台 server，一個參數追到企劃表那格 5 跳【讀碼】。審查者三題都沒因「沒錯」放行，燃燒那段還挖出三個真缺陷（他公會可滅我方火、擊破任務在建築沒毀就計分、城堡回滿同步順序反）。
+- 來源：[卡四指標]、[卡跳層]、[README]、[掃甲]、[全貌] §4 §5 §9
 
 **A-28 巢狀過深**
 - 門檻：≤2 免談；=3 是審查線（三層各守一個獨立條件 → 必須壓平；只是同一個局部決策、仍能直線追蹤 → 可留）；≥4 一律重構。
-- 案例：見 A-27 的巢狀分量（`BagDataModule.BuyItem` 巢狀 15、`MapModule.NotifyPlayerEntities` 17）。掃碼重構 SOP 用「縮排深度＋方法行數」量化挑重災區。
+- 案例：見 A-27 的巢狀分量（背包購買道具方法巢狀 15、地圖模組通知玩家實體方法 17）。掃碼重構 SOP 用「縮排深度＋方法行數」量化挑重災區。
 - 來源：[寫碼傾向]、[卡SOP]
 
 **A-29 純轉接（一行原樣轉呼叫）**
 - 定義：方法體只有一行呼叫、引數原樣傳過去（override 不算）。
 - 判讀：只列清單給人判，約一半是合理包裝；三方拿它當「分太細」的代理量，但「哪些分層多餘」沒有可重現判準。
-- 案例：SGI MapServer 4,150 個，前 15 筆全是跨伺服器 Agent 收包轉 Manager 的刻意分層（例 `BattlefieldAgent.OnBattleFieldState → BattleFieldMgr.SetBattleFieldState`），其餘 4,135 筆未分類；TSLG 320 個，約一半合理【試過】。
-- 來源：[卡四指標]、[掃SGI]、[全貌] §5 §9
+- 案例：遊戲專案甲地圖伺服器 4,150 個，前 15 筆全是跨伺服器 Agent 收包轉 Manager 的刻意分層（例：戰場 Agent 收到戰場狀態 → 原樣轉給戰場 Manager 設定狀態），其餘 4,135 筆未分類；遊戲專案乙 320 個，約一半合理【試過】。
+- 來源：[卡四指標]、[掃甲]、[全貌] §5 §9
 
 **A-30 partial 切分軸混雜**
 - 定義：同一型別切成多片，但切法混了功能、機制、生命週期等多種軸；或每片都改同一組可變狀態。
 - 指標：不數片數，問兩句：①每片檔名能否對到一個職責；②同一可變欄位被幾片寫入、有沒有收在單一出入口——第二句才是重點。
-- 案例：好例 SGI `EntityCastle` 9 片各一個名詞、TSLG `McpManager` 7 片各一領域只向 registry 註冊。壞例 SGI `GuildManager` 23 片三種軸混雜（拆出子 Manager 前後片數相同，計數器抓不到）；TSLG `FakeMapServer` 59 片檔名軸一致、單看檔名會判好，但 45 個 per-uid 容器的增刪散在多片，漏掉脫戰倒數。SGI server 報告原列「Partial Class 碎片化」（GameClient 37 檔合計 10,796 行、BackendClient 27 檔 9,043 行），整改文件判「症狀不是原因」。
+- 案例：好例：遊戲專案甲的城堡實體類別 9 片各一個名詞、遊戲專案乙的 MCP 管理類別 7 片各一領域只向 registry 註冊。壞例：遊戲專案甲的軍團管理類別 23 片三種軸混雜（拆出子 Manager 前後片數相同，計數器抓不到）；遊戲專案乙大地圖模擬伺服器 59 片檔名軸一致、單看檔名會判好，但 45 個 per-uid 容器的增刪散在多片，漏掉脫戰倒數。遊戲專案甲伺服器報告原列「Partial Class 碎片化」（遊戲用戶端連線類別 37 檔合計 10,796 行、後台連線類別 27 檔 9,043 行），整改文件判「症狀不是原因」。
 - 來源：[卡數量]、[SS] #3、[SR] Fix #3
 
 **A-31 方法名藏副作用**
-- 案例：SGI `CaravanManager` 同步鏈（`SendFullDataToClient > SendGuildDataToClient > ReconcileGuildOnLoad > ReconcileGuildTrucks > ClearStaleGuildTruck > BroadcastGuildData`）經盲測驗證是刻意設計、守衛齊全、不是缺陷，只剩「讀路徑名字藏副作用」的可讀性問題——名叫「送資料給 client」的方法一路走到「清掉過期公會商隊」【試過】。
-- 來源：[全貌] §9.2 後續更新、[掃SGI]
+- 案例：遊戲專案甲商隊管理類別的同步鏈（送完整資料給 client → 送軍團資料給 client → 載入時對帳軍團 → 對帳軍團貨車 → 清掉過期軍團貨車 → 廣播軍團資料，六個方法一路呼叫）經盲測驗證是刻意設計、守衛齊全、不是缺陷，只剩「讀路徑名字藏副作用」的可讀性問題——名叫「送資料給 client」的方法一路走到「清掉過期軍團貨車」【試過】。
+- 來源：[全貌] §9.2 後續更新、[掃甲]
 
 **A-32 public 但只有自己用**
-- 案例：SGI `GuildManager` 187 個 public 入口中 16 個類別外無人呼叫（例 `CheckLeaderTimeUp`、`SetClientDirty`）【試過】；[全貌] 歸在「分太細」。
-- 來源：[掃SGI] D 段、[全貌] §9.2
+- 案例：遊戲專案甲軍團管理類別 187 個 public 入口中 16 個類別外無人呼叫（例：檢查團長到期、標記 client 資料待同步）【試過】；[全貌] 歸在「分太細」。
+- 來源：[掃甲] D 段、[全貌] §9.2
 
 **A-33 註解污染**
 - 定義：註解埋版本／階段標記、日期戳、事件敘事；生造詞、一句塞三層轉折；逐行把程式照翻一遍（使用者指為 AI 生硬感的來源）。
-- 案例：`sgi_server/PlayerDbServer` 的 CharModule 系列註解（`PlayerDbService.cs`、`PlayerDbService.Db.cs`、`CharModuleDbFactory.cs`）被卡片點名為「此病典型」，是 AI 自己寫出來的（卡片標 [固]）；SGI server 個人備註留在碼裡「//2024/03/05 wei 先只管關口的之後有其他的需求再說」【文件】。
+- 案例：遊戲專案甲伺服器玩家資料庫服務裡角色模組那一系列檔（服務本體、資料庫 partial、角色模組資料庫工廠，共三檔）的註解被卡片點名為「此病典型」，是 AI 自己寫出來的（卡片標 [固]）；遊戲專案甲伺服器有個人備註留在碼裡「//2024/03/05 <人名> 先只管關口的之後有其他的需求再說」【文件】。
 - 來源：[卡註解]、[SS] #7
 
 **A-34 命名不一致與拼錯傳播**
-- 案例：`QueryHistroyLeaderboard` 同一拼錯出現在兩個檔（複製貼上傳播）；`OnReceiveWayOfKing_GetChes`；handler 命名混底線與 PascalCase；常數混 UPPER_CASE 與 PascalCase；static 欄位混 `_` 與 `s_` 前綴；GmServer handler 少 `Receive` 前綴【文件】。
+- 案例：查歷史排行榜的方法名把 History 拼成 Histroy，同一拼錯出現在兩個檔（複製貼上傳播）；另一個 handler 名稱把 Chest 拼成 Ches；handler 命名混底線與 PascalCase；常數混 UPPER_CASE 與 PascalCase；static 欄位混 `_` 與 `s_` 前綴；GM 伺服器的 handler 少 `Receive` 前綴【文件】。
 - 來源：[SS] #11
 
 **A-35 魔術數字**
-- 案例：SGI server 150+ 處（`SEND_PACK_WARNING_BYTE = 4096` 無註解、`new AreaFacade(..., 10)`、`_CAPACITY_BATTLE_REPORT = _CAPACITY_FAVORITE + 20`）；client `BeginInvoke` 的 `PushReference(0)`／`(1)` 索引也是魔術數字【文件】。整改原則：企劃表的值走 `DesignForms` 查表（專案已有正確範例），程式常數提 const 加註解。
+- 案例：遊戲專案甲伺服器 150+ 處（送包警告門檻常數直接 `= 4096` 無註解、建構區域物件時直接傳 `10`、戰報容量常數寫成「收藏容量 `+ 20`」）；client `BeginInvoke` 的 `PushReference(0)`／`(1)` 索引也是魔術數字【文件】。整改原則：企劃表的值走專案的設計表查表（專案已有正確範例），程式常數提 const 加註解。
 - 來源：[SS] #10、[SR] Fix #10、[CS] #5 #15
 
 ### A6 死碼與半成品
 
 **A-36 死碼與註解碼累積**
-- 案例：SGI server 註解碼 1,051 處／176 檔、`#if false` 41 處／32 檔、TODO／FIXME／HACK／XXX 等約 219 處，合計約 1,271 處、約 200 檔；`EntityRally.cs` 101 行整段舊邏輯被註解【文件】。整改：純刪除、近零風險；TODO 分「刪／保留加日期／轉 Issue」。
+- 案例：遊戲專案甲伺服器註解碼 1,051 處／176 檔、`#if false` 41 處／32 檔、TODO／FIXME／HACK／XXX 等約 219 處，合計約 1,271 處、約 200 檔；集結實體類別裡 101 行整段舊邏輯被註解【文件】。整改：純刪除、近零風險；TODO 分「刪／保留加日期／轉 Issue」。
 - 來源：[SS] #7、[SR] Fix #7
 
 **A-37 入口沒接（功能做了一半）**
 - 定義：伺服器端入口寫好了，但只有測試指令（或沒人）能呼叫，玩家按不到。
 - 指標（掃描器 D）：入口方法分五類——直接已接／間接已接（被已接入口在類別內呼叫，算傳遞閉包）／只有測試路徑／只被類別內部非入口方法呼叫／沒人呼叫。坑：只看直接呼叫端會把經已接入口分派出去的算成「沒接」，一次實例 31 → 25 是高估修正。
-- 案例：TSLG `FakeMapServer` 44 個 `Req*` 入口：13 個接到玩家 RPC、6 個經 `ReqDispatchTroop` 間接可達、25 個只有 MCP 測試指令能呼叫（氏族建築建造、滅火、計謀、成就領取…），「之前沒人數過」【試過】。
-- 來源：[卡四指標]、[README]、[T缺陷]、[全貌] §5
+- 案例：遊戲專案乙大地圖模擬伺服器 44 個 `Req*` 入口：13 個接到玩家 RPC、6 個經派兵入口間接可達、25 個只有 MCP 測試指令能呼叫（氏族建築建造、滅火、計謀、成就領取…），「之前沒人數過」【試過】。
+- 來源：[卡四指標]、[README]、[乙缺陷]、[全貌] §5
 
 **A-38 協定兩端沒對上**
-- 案例：SGI MapServer（C2M：server handler 494、client 發送 492）——server 有 handler 但 client 從沒發送 8 個（裝備合成／分解、軍團 Boss 三個查詢、武將隨從兩個、查實體位置）；client 有發送但沒有任何伺服器處理的正式路徑 4 個（排行榜版本、首儲、分享偵查報告、VIP 禮包；補 grep 全部 20 個服務 4/4 都沒有處理碼，玩家按了就是沒反應），另 2 筆只有測試 UI 在發【試過】。既有的協定對照文件從沒做過全量比對，這 8＋4 都沒標。
+- 案例：遊戲專案甲地圖伺服器（C2M＝用戶端送往地圖伺服器：server handler 494、client 發送 492）——server 有 handler 但 client 從沒發送 8 個（裝備合成／分解、軍團 Boss 三個查詢、武將隨從兩個、查實體位置）；client 有發送但沒有任何伺服器處理的正式路徑 4 個（排行榜版本、首儲、分享偵查報告、VIP 禮包；補 grep 全部 20 個服務 4/4 都沒有處理碼，玩家按了就是沒反應），另 2 筆只有測試 UI 在發【試過】。既有的協定對照文件從沒做過全量比對，這 8＋4 都沒標。
 - 來源：[全貌] §5、[協定]
 
 ### A7 跨邊界與效能
 
 **A-39 字串型反射橋接**
-- 案例：SGI client `ModuleQueryAdapter` 165 個方法全用字串方法名反射呼叫 IL 側；`HotFixSystem.Invoke(string, string, …)` 估計 42+ 個呼叫點；IL 側改名，Main 側編譯期不報、IDE 找不到參考【文件】。TSLG 規則 CS-37：正式路徑禁用反射。
-- 來源：[CS] #12、[T-RC] CS-37
+- 案例：遊戲專案甲用戶端的模組查詢轉接類別 165 個方法全用字串方法名反射呼叫 IL 側；熱修系統的 `Invoke(string, string, …)` 估計 42+ 個呼叫點；IL 側改名，Main 側編譯期不報、IDE 找不到參考【文件】。遊戲專案乙規則 CS-37：正式路徑禁用反射。
+- 來源：[CS] #12、[乙RC] CS-37
 
 **A-40 熱路徑反射零快取**
-- 案例：`ModuleQueryAdapter` 每次呼叫都完整走 `GetMethod` 反射鏈，沒有任何快取；報告估 0.5–1 ms/幀（估計值，未見實測）【文件】。
+- 案例：模組查詢轉接類別每次呼叫都完整走 `GetMethod` 反射鏈，沒有任何快取；報告估 0.5–1 ms/幀（估計值，未見實測）【文件】。
 - 來源：[CS] #13、[CI] HIGH-15
 
 **A-41 跨界過度交互（chatty 查詢）**
-- 案例：CharacterID（session 內不變）、CharacterName（只在改名時變）與 Gold 共用同一條無快取的反射路徑，每幀多次跨 Main → IL；修法：本地快取＋dirty flag，借既有 `ModuleNotifyEvent` 失效通知【文件】。
+- 案例：CharacterID（session 內不變）、CharacterName（只在改名時變）與 Gold 共用同一條無快取的反射路徑，每幀多次跨 Main → IL；修法：本地快取＋dirty flag，借既有的模組通知事件做失效通知【文件】。
 - 來源：[CS] #14、[CR] 附錄 C
 
 **A-42 手動推棧呼叫**
-- 案例：SGI client `BuildingManager` 6 個方法用 `BeginInvoke`＋`PushObject／PushInteger／PushReference` 呼叫 IL 方法，推棧順序必須與 IL 簽名完全一致、無編譯檢查；IL 側改參數順序，Main 側靜默讀到錯值【文件，CRITICAL-13】。
+- 案例：遊戲專案甲用戶端的建築管理類別 6 個方法用 `BeginInvoke`＋`PushObject／PushInteger／PushReference` 呼叫 IL 方法，推棧順序必須與 IL 簽名完全一致、無編譯檢查；IL 側改參數順序，Main 側靜默讀到錯值【文件，CRITICAL-13】。
 - 來源：[CS] #15、[CI]
 
 **A-43 熱路徑線性搜尋／每幀多餘工作**
-- 案例：`ChatFriendListPanel.cs` 10 處 `List.Find／FindIndex`，每次聊天更新都線性掃好友列表【文件】；`Debug.Log` 未條件編譯 2,182 處（[RA]；[PM] 另記 1,864 處，兩數並列）；TSLG `StrategyMapCameraController.LateUpdate` 每幀對缺的元件 `GetComponent`（Editor 每幀組 null 錯誤字串），Profiler 300 幀 GC 配置排第三，被標「真壞味道」【試過】。TSLG 規則 CS-23：設計表全表掃描只准在 `DesignXxxUtil`，查詢表要在解析時建好。
-- 來源：[RA] Stream 3 Stream 8、[PM]、[全貌] §9.4、[T-RC] CS-23
+- 案例：聊天好友列表面板 10 處 `List.Find／FindIndex`，每次聊天更新都線性掃好友列表【文件】；`Debug.Log` 未條件編譯 2,182 處（[RA]；[PM] 另記 1,864 處，兩數並列）；遊戲專案乙戰略地圖鏡頭控制器的 `LateUpdate` 每幀對缺的元件 `GetComponent`（Editor 每幀組 null 錯誤字串），Profiler 300 幀 GC 配置排第三，被標「真壞味道」【試過】。遊戲專案乙規則 CS-23：設計表全表掃描只准在 `DesignXxxUtil`，查詢表要在解析時建好。
+- 來源：[RA] Stream 3 Stream 8、[PM]、[全貌] §9.4、[乙RC] CS-23
 
 **A-44 第三方框架肥大**
-- 案例：SGI client `Framework/ThirdParty` 942 檔，佔 Main 工程 40%；違反使用者「框架層應薄」的偏好【文件】。判定：成本不對稱，不修（見 A-附）。
+- 案例：遊戲專案甲用戶端的第三方套件資料夾 942 檔，佔 Main 工程 40%；違反使用者「框架層應薄」的偏好【文件】。判定：成本不對稱，不修（見 A-附）。
 - 來源：[CS] #1、[CR]
 
 ### A8 專案層
 
 **A-45 沒有自動化測試**
-- 案例：SGI server、client 都是 0 個測試專案；唯一「測試」是黑盒壓測機器人 StressBot。報告把它列為核心根因：「缺乏自動化測試 → 不敢重構 → 技術債越堆越高」【文件】。
+- 案例：遊戲專案甲 server、client 都是 0 個測試專案；唯一「測試」是一支黑盒壓測機器人。報告把它列為核心根因：「缺乏自動化測試 → 不敢重構 → 技術債越堆越高」【文件】。
 - 來源：[SS] #12 與附錄
 
 **A-46 跨工程沒有一致性驗證**
-- 案例：SGI 的 MapServerOpCode／ErrorCode／CommonDefine 要在 Server＋Main＋IL 三方同步，全靠手動；出錯時是 enum 值偏移 → 封包路由到錯的 handler → 業務異常而不是 crash，極難除錯【文件】。後來做成檢查器 `shared_enum_sync_check.py`（見 D）。
+- 案例：遊戲專案甲的協定編號、錯誤碼、通用定義三組常數要在 Server＋Main＋IL 三方同步，全靠手動；出錯時是 enum 值偏移 → 封包路由到錯的 handler → 業務異常而不是 crash，極難除錯【文件】。後來做成檢查器 `shared_enum_sync_check.py`（見 D）。
 - 來源：[CS] #16
 
 **A-47 條件編譯裡混遊戲邏輯**
-- 案例：`ChatEditableTextView.cs` 7 處 `#if UNITY_EDITOR || UNITY_STANDALONE`、`ChatNetManager.cs` 的 `#if UNITY_EDITOR` 內有邏輯——Editor／PC 測試正常、行動裝置實機行為不同【文件，P0】。
+- 案例：聊天可編輯文字元件 7 處 `#if UNITY_EDITOR || UNITY_STANDALONE`、聊天網路管理類別的 `#if UNITY_EDITOR` 內有邏輯——Editor／PC 測試正常、行動裝置實機行為不同【文件，P0】。
 - 來源：[RA] Stream 8
 
 **A-48 修了又修的熱點檔**
 - 指標：同一程式檔 14 天內被兩筆以上 fix 提交改到＝可能在修症狀。
 - 案例：根層 60 天 320 筆提交中 49 筆是 fix、40 個檔 14 天內被 ≥2 筆 fix 改到；記憶注入一週三筆 fix（第三筆標「根治」）、HUD 誤報三筆（第二筆標「根治」、第三筆標「二修」）【試過】。三方另判「使用者糾正次數」當成效指標壞掉（18 句真糾正 0 命中），改用此量法。
-- 來源：[全貌] §2 §7、`c:\Projects\_tools\refix_churn.py` 檔頭
+- 來源：[全貌] §2 §7、refix_churn.py 檔頭（工具放在遊戲專案甲的工具目錄）
 
 ### A-附 看起來像壞味道、但使用者或專案判定「不是」或「不處理」
 
 | # | 現象 | 判定 | 來源 |
 |---|---|---|---|
-| N-1 | partial 檔數多（GameClient 37 檔） | 症狀不是原因，隨 God Class 改善，不單獨處理；適度配置的 partial（對外 API／內部核心／遊戲邏輯各一片）是好設計 | [SR] Fix #3、[卡數量] |
-| N-2 | UIWidget 582＋UIScroller 561＝1,143 個小檔 | 結構性需求，不修；真問題是缺共同基類與相似 Widget 複製貼上 | [CS] #8、[CR] |
-| N-3 | ThirdParty 942 檔 | 成本不對稱（Asset Store 套件，移除要大規模重寫 UI），評估不做 | [CR] |
+| N-1 | partial 檔數多（遊戲用戶端連線類別 37 檔） | 症狀不是原因，隨 God Class 改善，不單獨處理；適度配置的 partial（對外 API／內部核心／遊戲邏輯各一片）是好設計 | [SR] Fix #3、[卡數量] |
+| N-2 | UI 小元件 582＋捲動清單元件 561＝1,143 個小檔 | 結構性需求，不修；真問題是缺共同基類與相似 Widget 複製貼上 | [CS] #8、[CR] |
+| N-3 | 第三方套件資料夾 942 檔 | 成本不對稱（Asset Store 套件，移除要大規模重寫 UI），評估不做 | [CR] |
 | N-4 | 純轉接中的跨服 Agent 層 | 刻意分層（server → RPC → store → 展演每跳有理由），不該壓 | [卡四指標]、[全貌] §5 |
-| N-5 | CaravanManager 深同步鏈 | 刻意設計、守衛齊全，非缺陷（只剩 A-31 的命名問題） | [全貌] §9.2 |
+| N-5 | 商隊管理類別的深同步鏈 | 刻意設計、守衛齊全，非缺陷（只剩 A-31 的命名問題） | [全貌] §9.2 |
 | N-6 | 「整個玩家資料庫是一坨 blob」 | 立案隔天被讀碼推翻（九十個模組早就分表、痛點資料不在 blob），案子沒縮反而升級，三個月後整案退回——假壞味道的代價 | [全貌] §2 §3 |
 | N-7 | Handler 樣板重複 | 味道是真的，但「用 lambda helper 壓行數」這帖藥被判比病更糟，永久放棄 | [OE] §六 |
-| N-8 | TSLG 收口後剩的 7 個散落容器 | 各屬自己子系統的清理時機，照判準不併，該線收案 | [全貌] §8 |
+| N-8 | 遊戲專案乙收口後剩的 7 個散落容器 | 各屬自己子系統的清理時機，照判準不併，該線收案 | [全貌] §8 |
 
 ---
 
@@ -334,19 +334,19 @@
 - **B-05 巢狀門檻：≤2 免談、=3 審查線、≥4 一律重構。** 構件偏好序：直線 > guard clause／early return > 有界迭代 > 單層分支 > 無界迴圈 > 遞迴 > 高階抽象／metaprogramming。壓平三步：先踢例外讓主路徑不縮排 → 複雜條件命名、長 if 鏈查表 → 重複搜尋造成的巢狀改預建索引。——[寫碼傾向]
 - **B-06 扁平化不過頭。** 抽函式要 ≥2 處呼叫、或能用一個名詞命名且有實質內容；不為壓層數造一次性小函式；comprehension 只准一層 for 一層 if。——[寫碼傾向]
 - **B-07 重複的判準是「必須同步變更的知識」，不是文字相似。** 第 2 次出現才抽共用。——[寫碼傾向]
-- **B-08 審 partial 的第二問才是重點：同一可變欄位被幾片寫入、有沒有單一出入口。** 處置不是減片數，是把寫入點收回單一 Begin／End。——[卡數量]、[T規則] CS-54
+- **B-08 審 partial 的第二問才是重點：同一可變欄位被幾片寫入、有沒有單一出入口。** 處置不是減片數，是把寫入點收回單一 Begin／End。——[卡數量]、[乙規則] CS-54
 - **B-09 複雜本身是設計矛盾的味道。** 使用者說「太複雜、看不懂、敘述太長」時不補解釋，先追起源——通常是兩個本該正交的東西被實作綁死（實例：根層 realm 的「儲存角色」被綁死了「注入範圍」），用一句話講矛盾本體。——[卡複雜]
 - **B-10 驗證要涵蓋「沒 bug 但難讀」。** 審查／守門的驗證案例要分「真 bug」與「沒 bug 但人讀要跳超過三層」兩組，缺一組就只測了一半；案例只從提交紀錄挑會天然漏掉第二組（提交紀錄只記 bug）；數彎要跨檔。——[卡跳層]
 
 **寫碼與修碼的取捨**
 - **B-11 極簡不砍可觀測性，禁止靜默失敗。** 錯誤訊號、日誌、資源釋放、資安檢查不刪；fail-open 必須告知。——[寫碼傾向]、`C:\Users\holylight\.claude\rules\core.md`「可觀測性鐵律」
 - **B-12 不加沒被要求的參數、設定、抽象、預防性分支**；但地基必備的功能留「最小接縫」（≤30 分鐘、只加選填欄位／參數位／設定形狀；要新概念或第二份真相檔的算走私設計）。——[寫碼傾向]、[卡接縫]
-- **B-13 輕量、不加框架、不過度工程。** SGI 兩份整改文件開宗明義；例：Handler 樣板寧可展開寫也不用 lambda helper（團隊可推廣性 > 壓行數）；PackHandler 不改 66 檔，只在分發入口包一層。——[SR]、[CR]、[OE] §六
-- **B-14 先分症狀與原因。** Partial 碎片化是 God Class 的症狀，不單獨處理；成本不對稱的不修（ThirdParty）；結構性需求不修（UIWidget）。——[SR] Fix #3、[CR] 附錄 A
-- **B-15 專案裡已有正確範例就照抄。** 例：事件退訂照 `NpcAttackCityManager.Event.cs`、魔術數字照 `DesignForms` 查表。——[SR] Fix #8 Fix #10
+- **B-13 輕量、不加框架、不過度工程。** 遊戲專案甲兩份整改文件開宗明義；例：Handler 樣板寧可展開寫也不用 lambda helper（團隊可推廣性 > 壓行數）；PackHandler 不改 66 檔，只在分發入口包一層。——[SR]、[CR]、[OE] §六
+- **B-14 先分症狀與原因。** Partial 碎片化是 God Class 的症狀，不單獨處理；成本不對稱的不修（第三方套件資料夾）；結構性需求不修（UI 小元件）。——[SR] Fix #3、[CR] 附錄 A
+- **B-15 專案裡已有正確範例就照抄。** 例：事件退訂照 NPC 攻城活動管理類別的事件檔、魔術數字照專案的設計表查表。——[SR] Fix #8 Fix #10
 - **B-16 狀態兩來源時，粗略來源只補不降級。**——[卡弱訊號]
 - **B-17 常駐每幀回呼只留給真的每幀都有事的系統；N 條收成 1 條 Tick 仍是輪詢，不算解。**——[卡每幀]
-- **B-18 狀態消失要出聲：移除類 API 帶 reason enum、去重 log；用 enum 不用字串。**——[T規則] CS-54
+- **B-18 狀態消失要出聲：移除類 API 帶 reason enum、去重 log；用 enum 不用字串。**——[乙規則] CS-54
 - **B-19 註解：現況、白話、一句一義**；禁版本／階段標記、日期戳、事件敘事；不逐行照翻程式，講心智模型與理由；getter／setter／明顯的 Init 不加註解。——[卡註解]
 
 **找到之後怎麼做**
@@ -357,12 +357,12 @@
 - **B-24 修症狀不如先綜觀：** 動手前先寫定位三行（部位與上下游／根因還是症狀、在哪一層／這裡以前摔過什麼）；「適度」修飾範圍，不是讀檔上限（使用者：「誰說不能讀更多檔？地圖有缺塊、隨時都該補」）。候選要從病灶清單出發，不從「最大的檔」出發。——[卡綜觀]、[全貌] §2
 
 **機器規則怎麼設**
-- **B-25 機器規則要錨到「現在還痛或會重犯」的優先清單才准開**；沒有清單的專案第一步是列清單、不是裝檢查器。實證：TSLG 全掃 2,806 筆命中，兩條可讀性偏好 Warning 佔 83%。——[卡錨定]
+- **B-25 機器規則要錨到「現在還痛或會重犯」的優先清單才准開**；沒有清單的專案第一步是列清單、不是裝檢查器。實證：遊戲專案乙全掃 2,806 筆命中，兩條可讀性偏好 Warning 佔 83%。——[卡錨定]
 - **B-26 規則卡三要素，缺一不開：** 命中代表什麼風險／怎麼確認／確認後做什麼；「怎麼確認」填不出比「人去看」更具體的，就只進報表不進警告。——[卡錨定]
 - **B-27 規則分兩類驗收：** 風格契約（使用者明定，他說關才關）與品質假說（抽樣看命中與糾正有沒有關聯，無效就關）；錨分「防回歸」與「當前優先」。命中很多但糾正次數沒降＝在數噪音。——[卡錨定]
 - **B-28 規則合規與設計品質是兩個維度：** 零語法命中仍可能耦合嚴重；語法規則只保證「新碼不再往同一個坑加」；存量另立 baseline，寫碼當下只回注 Block 級。——[卡錨定]
-- **B-29 文字規則與範本沒有機器定期量就會爛：** 守門的零件是「只量新增行的計數＋範本封定條件（計數器 0 命中才封）＋定期重量」。實證：TSLG 58 條風格規則多條自述「踩過再加」、730 行範本集所指的範本檔已不存在。另：「只看新增行」對拆分型重構會把搬家的舊碼當新碼（H-6 搬移行 79.7%），解耦型幾乎沒有（H-3 0.4%）。——[卡範本]、[卡RC]
-- **B-30 效能味道門檻目前只有提案、未定案：** TSLG 提「P90 > 1.3 倍幀預算標黃、單一 tick stage > 10% 幀預算、託管配置 > 1 MB/s 找來源」；SGI 只有閒置基線（GC heap 171 MB、working set 240 MB、LOH 85 MB）。三方結論：「太慢／太吃記憶體」三邊都只到量過一次、門檻沒定。——[全貌] §9
+- **B-29 文字規則與範本沒有機器定期量就會爛：** 守門的零件是「只量新增行的計數＋範本封定條件（計數器 0 命中才封）＋定期重量」。實證：遊戲專案乙 58 條風格規則多條自述「踩過再加」、730 行範本集所指的範本檔已不存在。另：「只看新增行」對拆分型重構會把搬家的舊碼當新碼（某次拆分型重構的搬移行佔 79.7%），解耦型幾乎沒有（某次解耦型重構 0.4%）。——[卡範本]、[卡RC]
+- **B-30 效能味道門檻目前只有提案、未定案：** 遊戲專案乙提「P90 > 1.3 倍幀預算標黃、單一 tick stage > 10% 幀預算、託管配置 > 1 MB/s 找來源」；遊戲專案甲只有閒置基線（GC heap 171 MB、working set 240 MB、LOH 85 MB）。三方結論：「太慢／太吃記憶體」三邊都只到量過一次、門檻沒定。——[全貌] §9
 
 ---
 
@@ -434,16 +434,16 @@
 
 | 工具 | 位置 | 技術 | 抓什麼 | 實測與限制 |
 |---|---|---|---|---|
-| **smells v2** 四指標掃描器 | 本體 `C:\TSLG\Tools\CodeReview\smells\`；副本 `C:\Projects\.claude\inbox\tri-link\attachments\smells\`（`Program.cs` 220 行） | C# Roslyn 純語法樹，唯一套件 `Microsoft.CodeAnalysis.CSharp 4.1.0` | A 狀態所有權散落（A-01）、B 讀路徑長度（A-27／A-28，分派型另標）、C 純轉接（A-29）、D 入口可達性五分類（A-37）；partial 先合併 | TSLG 935 檔約 8 秒、SGI 1,370 檔約 9 秒【試過】。不產 PASS/FAIL、無哨兵行。限制：無語意模型，同名方法以第一個宣告為準、介面跳只認同檔、跨類別呼叫不追；D 的間接已接只追同類別。跑法見 [README] |
-| **rule_check** 規則檢查器 | `C:\TSLG\Tools\CodeReview\rule_check\` | C# Roslyn，net8.0，`check --root <repo> --json`，有 `selftest` | 14 條規則（下表） | 單檔 1,400–3,000 行約 0.5–0.6 秒；跨專案借用要把分區前綴與 selftest 虛擬路徑參數化；CS-53 對「guard 內設兩欄位再 return」12/12 誤報；CR-013 會報刻意吞——[卡RC] |
-| **protocol_wiring_check.py** | `c:\Projects\_tools\` | Python 純文字比對 | 協定兩端沒對上（A-38）：有 handler 無 client 發送、client 發送無 handler、server 送了 client 沒引用、client 登記了 server 沒送 | 只掃 MapServer，其他伺服器送的 M2C 會被誤列；尾行 `PROTOCOL_WIRING_CHECK PASS／FAIL` |
-| **shared_enum_sync_check.py** | `c:\Projects\_tools\` | Python | 同源常數檔分歧（A-08、A-46）：熱更層與主程式集兩份 MapServerOpCode／CommonSettingsDefine／ErrorCode 同名不同值 | 首跑 FAIL（協定編號 7＋錯誤碼 2）；尾行 `SHARED_ENUM_SYNC_CHECK PASS／FAIL` |
-| **refix_churn.py** | `c:\Projects\_tools\` | Python，git／svn 自動判 | 修了又修的熱點（A-48）：同一檔 N 天內被兩筆以上 fix 改到 | fix 判定＝訊息首行 fix／bugfix／hotfix 或含「修正／修復／修補」；尾行 `REFIX_CHURN DONE …` |
-| **equiv_proof** 等值證明 | `c:\Projects\_tools\equiv_proof\` | net8 反射小程式＋Python 比對 | 不抓味道，是修味道後的行為不變證明（B-20／B-21） | GuildRecruitManager 首例 44/44；哨兵 `GUILD_RECRUIT_EQUIV_CHECK PASS／FAIL`；證不到時序與執行緒 |
-| **prebuild_check.py** | `c:\Projects\_tools\` | Python | 串上面 enum、wiring、equiv 三支，任一 FAIL 就 exit 1 | 第一天實跑 FAIL（已知 9 分歧＋4 缺口）；是否接打包流程待使用者拍板——[全貌] §8 |
-| 效能現成尺（SGI） | 框架 `Orbit-Serverbase/CoreModule/Common/HandlerHelper.Wrapper.cs:280`（每 handler 記 `LogMetric.LogOneshotTime`）；`Shared/Utility/Util.cs` 的 `Memwatch` | dotnet-counters 讀 EventSource `AppBase` | 「太慢／太吃記憶體」（A-43 類） | `Memwatch` 全 repo 0 使用者；閒置 60 秒基線量過一次，門檻未定——[全貌] §9.2 |
-| 效能現成尺（TSLG） | `Game/map/FakeServer/FakeMapServer.TickProfiler.cs`；Unity Profiler | 每 tick stage 累計 ms／佔比 | 每幀成本、每秒配置、熱點 call site | Editor Play Mode 286 秒：avg 16.67 ms、P90 21.4 ms、配置 1.5 MB/s；實機要 Release APK 再量——[全貌] §9.4 |
-| 文件中的提案腳本 | [SR] Fix #1（handler 方法名與 OpCode 不匹配 grep）、Fix #8 驗法（`+=` 每個都有對應 `-=`）；[CR] Fix #4 `verify_shared_scripts.sh` | bash／grep | A-20 漏改 OpCode、A-15 不退訂、A-08 鏡像不同步 | 本次未查是否已實作；SharedScript 這項後來由 `shared_enum_sync_check.py` 承接【推論】 |
+| **smells v2** 四指標掃描器 | 本體在遊戲專案乙的程式審查工具目錄；副本在遊戲專案甲的三方討論附件（`Program.cs` 220 行） | C# Roslyn 純語法樹，唯一套件 `Microsoft.CodeAnalysis.CSharp 4.1.0` | A 狀態所有權散落（A-01）、B 讀路徑長度（A-27／A-28，分派型另標）、C 純轉接（A-29）、D 入口可達性五分類（A-37）；partial 先合併 | 遊戲專案乙 935 檔約 8 秒、遊戲專案甲 1,370 檔約 9 秒【試過】。不產 PASS/FAIL、無哨兵行。限制：無語意模型，同名方法以第一個宣告為準、介面跳只認同檔、跨類別呼叫不追；D 的間接已接只追同類別。跑法見 [README] |
+| **rule_check** 規則檢查器 | 遊戲專案乙的程式審查工具目錄 | C# Roslyn，net8.0，`check --root <repo> --json`，有 `selftest` | 14 條規則（下表） | 單檔 1,400–3,000 行約 0.5–0.6 秒；跨專案借用要把分區前綴與 selftest 虛擬路徑參數化；CS-53 對「guard 內設兩欄位再 return」12/12 誤報；CR-013 會報刻意吞——[卡RC] |
+| **protocol_wiring_check.py** | 遊戲專案甲的工具目錄 | Python 純文字比對 | 協定兩端沒對上（A-38）：有 handler 無 client 發送、client 發送無 handler、server 送了 client 沒引用、client 登記了 server 沒送 | 只掃 MapServer，其他伺服器送的 M2C 會被誤列；尾行 `PROTOCOL_WIRING_CHECK PASS／FAIL` |
+| **shared_enum_sync_check.py** | 遊戲專案甲的工具目錄 | Python | 同源常數檔分歧（A-08、A-46）：熱更層與主程式集兩份協定編號／通用設定常數／錯誤碼列舉同名不同值 | 首跑 FAIL（協定編號 7＋錯誤碼 2）；尾行 `SHARED_ENUM_SYNC_CHECK PASS／FAIL` |
+| **refix_churn.py** | 遊戲專案甲的工具目錄 | Python，git／svn 自動判 | 修了又修的熱點（A-48）：同一檔 N 天內被兩筆以上 fix 改到 | fix 判定＝訊息首行 fix／bugfix／hotfix 或含「修正／修復／修補」；尾行 `REFIX_CHURN DONE …` |
+| **equiv_proof** 等值證明 | 遊戲專案甲的工具目錄（子資料夾 equiv_proof） | net8 反射小程式＋Python 比對 | 不抓味道，是修味道後的行為不變證明（B-20／B-21） | 首例（A-08 的軍團招募管理類別）44/44；哨兵行 `…_EQUIV_CHECK PASS／FAIL`；證不到時序與執行緒 |
+| **prebuild_check.py** | 遊戲專案甲的工具目錄 | Python | 串上面 enum、wiring、equiv 三支，任一 FAIL 就 exit 1 | 第一天實跑 FAIL（已知 9 分歧＋4 缺口）；是否接打包流程待使用者拍板——[全貌] §8 |
+| 效能現成尺（遊戲專案甲） | 伺服器框架的 handler 包裝層（每個 handler 記一次執行耗時 metric）；共用工具裡的記憶體監看函式 | dotnet-counters 讀框架自訂的 EventSource | 「太慢／太吃記憶體」（A-43 類） | 記憶體監看函式全 repo 0 處使用；閒置 60 秒基線量過一次，門檻未定——[全貌] §9.2 |
+| 效能現成尺（遊戲專案乙） | 大地圖模擬伺服器的 tick 分段計時器；Unity Profiler | 每 tick stage 累計 ms／佔比 | 每幀成本、每秒配置、熱點 call site | Editor Play Mode 286 秒：avg 16.67 ms、P90 21.4 ms、配置 1.5 MB/s；實機要 Release APK 再量——[全貌] §9.4 |
+| 文件中的提案腳本 | [SR] Fix #1（handler 方法名與 OpCode 不匹配 grep）、Fix #8 驗法（`+=` 每個都有對應 `-=`）；[CR] Fix #4 `verify_shared_scripts.sh` | bash／grep | A-20 漏改 OpCode、A-15 不退訂、A-08 鏡像不同步 | 本次未查是否已實作；共用腳本這項後來由 `shared_enum_sync_check.py` 承接【推論】 |
 
 **rule_check 的 14 條規則**（標題取自各 `Rule.cs`，整理者中譯；Block＝擋、Warning＝警告）
 
@@ -458,12 +458,12 @@
 | CS-23 | Block | `DesignXxxUtil` 以外對設計表 AllRows 全表掃描；查詢表在解析時建 | A-43 |
 | CS-28 | Block | 宣告 struct；改宣告 class | 專案風格契約 |
 | CS-37 | Block | 正式路徑用反射；改公開成員 | A-39 |
-| CS-40 | Block | onClick 直綁；用 UIButtonCtrl 並在關閉時 Dispose | A-15 |
+| CS-40 | Block | onClick 直綁；用專案的按鈕控制元件並在關閉時 Dispose | A-15 |
 | CS-44 | Warning | runtime log／例外訊息含非 ASCII；寫英文 ASCII | 可觀測性（log 可 grep） |
-| CS-46 | Block | 可變 static 快取沒在同檔登記 `BRHotfix.AddStaticClear` | A-05 |
+| CS-46 | Block | 可變 static 快取沒在同檔登記到專案的靜態清理註冊點 | A-05 |
 | CS-53 | Warning | if 內做事後 return、後面還有碼；寫明確 if/else | A-28 相關（讀路徑） |
-| CS-58 | Block | 熱修用 MonoBehaviour；改純類別＋`BR.RegProxyUpdate`／`Timing.RunCoroutine` | A-17 |
+| CS-58 | Block | 熱修用 MonoBehaviour；改純類別＋專案自己的 Update 代理註冊或 MEC 協程（`Timing.RunCoroutine`） | A-17 |
 
-另：TSLG 規則文件 `C:\TSLG\_AIDocs\Rules\Coding_Style_Rules.md`（[全貌] §9.3 記「CS 規則 58 條（A 類 14 條 Roslyn）」；rule_check 的 14 個規則資料夾裡含 4 條 CR- 開頭，兩者如何對應來源沒寫明）有一條沒做成機器規則但最常被引用的 **CS-54**（生命週期狀態走單一 Begin／End、移除類 API 帶 reason enum 並去重出聲），是 A-01／A-12 的修法標準。
+另：遊戲專案乙的寫碼風格規則文件（[乙規則]；[全貌] §9.3 記「CS 規則 58 條（A 類 14 條 Roslyn）」；rule_check 的 14 個規則資料夾裡含 4 條 CR- 開頭，兩者如何對應來源沒寫明）有一條沒做成機器規則但最常被引用的 **CS-54**（生命週期狀態走單一 Begin／End、移除類 API 帶 reason enum 並去重出聲），是 A-01／A-12 的修法標準。
 
 **目前工具抓不到、只能靠人或 LLM 判的**（[全貌] §9 對帳結論）：繼承太多（沒有掃描器級計數，只有人工一題）；「哪些分層多餘」（純轉接只列不判）；構想層的拐彎數（只靠自報）；太慢／太吃記憶體的門檻（量過一次、沒定）。

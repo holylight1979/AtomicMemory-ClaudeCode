@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] 症狀：腦內世界網頁某專案房間空的（如 c--projects 0 顆），但磁碟 <root>/.claude/memory/shared/ 明明有 atom。根因不在收集，在 scope 標記：atom 被誤貼到「核心」房藏起來了。
+- [臨] 症狀：腦內世界網頁某專案房間空的（如某專案房間 0 顆），但磁碟 <root>/.claude/memory/shared/ 明明有 atom。根因不在收集，在 scope 標記：atom 被誤貼到「核心」房藏起來了。
 - [臨] 機制：server.js apiAtoms 的 pushAtomFromFile 解析 frontmatter 時 `case "scope": atom.scope = val` 會用檔案裡的 bare `Scope: shared` 覆寫掉由路徑推導的權威 composite scope（project:<slug>:shared）。world.html buildModel 以 `sc.startsWith("project:")` 分房，scope 變 "shared" → 落 core 房。
 - [臨] 為何只中 shared/：scanProjMemDir 原本的補正迴圈只認字面值 "project"（扁平層 V4 SPEC 值）、且跑在 scanV4ScopeDirs 之前，完全沒蓋到 shared/personal/role 子層。扁平 atom（Scope: project）正常、shared/ 全滅。
 - [臨] 修法（路徑即權威）：scanProjMemDir 改成兩段掃描後統一補正——bare scope（project/shared/personal/role:x）一律補回 project:<slug>[:subscope]。fix 落在 apiAtoms 權威層，所有消費者（world.html 等）自動正確，勿在 buildModel 端補。

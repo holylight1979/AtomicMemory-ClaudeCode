@@ -52,11 +52,11 @@ ID＝`session_id 前 8 碼#turn_index`。「型」欄是我加的補充分類：
 | ID | 裁判 | 型 | 證據位置與關鍵句 | 理由 |
 |---|---|---|---|---|
 | 094f7ab1#3 | fail/medium | 等待 | transcript 09-18 18:12 assistant：「全套 run_verify 尚在跑（78%）…留到結果回來那一刻一併提交」 | 收尾當下驗證未跑完、SessionEnd 未驗，完成定義未達 |
-| 836a43f1#16 | fail/high | 範圍 | transcript 09-04 14:54 assistant：「Phase 0 完成，Phase 1（寫 PHP）可以開工」「sgi_server、sgi_client 未動」；規格檔當時涵蓋全案 6 phase | 依當時規格，PHP／MapServer／登入／Client 條目確實未做；代理人隨後才把規格改成分 phase |
+| 836a43f1#16 | fail/high | 範圍 | transcript 09-04 14:54 assistant：「Phase 0 完成，Phase 1（寫 PHP）可以開工」「伺服器、用戶端兩個子專案未動」；規格檔當時涵蓋全案 6 phase | 依當時規格，PHP／MapServer／登入／Client 條目確實未做；代理人隨後才把規格改成分 phase |
 | f08d5873#1 | fail/high | 等待 | transcript 09-03 15:16 assistant：「run_verify 全套正在背景跑…跑完會自動接續收尾（staging → commit → push → 移 done/）」 | 驗證與收尾條目自承未做 |
 | 879c4c60#12 | fail/high | 等待 | transcript 09-03 11:29 assistant：「現在等兩個 sub-agent 回報…回來後跑真 hook 探針與全套 verify，再做 Commit 3」 | Commit 3 條目自承未完成 |
 | 879c4c60#13 | fail/high | 等待 | transcript 09-03 11:30 assistant：「裁判判定正確，這不是收尾：Commit 3 還在進行中」；同刻 TestFailGate 另報 1 項測試失敗 | 代理人自認判定正確 |
-| d25915c6#0 | fail/medium | 實缺 | audit problems：DocIndex 可見變更含「沒走過的邊不跨區接（使用者定調 2026-08-31）」；MudClient repo `git log -S"使用者定調 2026-08-31"` 無命中＝該字串在 16:41 commit `ec46ba5` 前已被拿掉；專案 atom 在 `ec46ba5` 才入 commit | live 文件埋日期敘事違反 core.md；裁判抓到後被修掉，屬真命中（輕） |
+| d25915c6#0 | fail/medium | 實缺 | audit problems：DocIndex 可見變更含「沒走過的邊不跨區接（使用者定調 2026-08-31）」；專案丁 repo `git log -S"使用者定調 2026-08-31"` 無命中＝該字串在 16:41 commit `ec46ba5` 前已被拿掉；專案 atom 在 `ec46ba5` 才入 commit | live 文件埋日期敘事違反 core.md；裁判抓到後被修掉，屬真命中（輕） |
 | 5e547646#2 | fail/high | 等待 | transcript 08-28 15:23 assistant：「全量 reindex 仍在跑…完成後接著做：盤點孤兒→反查→寫根因 atom」 | 四條核心條目自承未做 |
 | 5e547646#3 | fail/high | 等待 | transcript 08-28 15:24 assistant：「收尾被擋是對的——reindex 還沒完」 | 代理人自認判定正確 |
 | 625b1550#8 | uncertain/low | 實缺 | transcript 08-25 16:06 user 貼 HUD 截圖：「紅框框起來的檔案我不知道到底是什麼…同一行涵蓋『已刪除』+『未刪除』是不是寫錯了?」；16:07 assistant：「兩點都是我的錯」，(d) 欄違反自訂契約塞了說明文字，改程式正規化 | HUD 殘檔帳本輸出有真缺陷，裁判棄權＝漏放 |

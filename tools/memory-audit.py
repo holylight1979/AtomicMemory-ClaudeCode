@@ -8,7 +8,7 @@ memory-audit.py — Atomic Memory System Health Checker
 Usage:
     python memory-audit.py
     python memory-audit.py --global-only
-    python memory-audit.py --project c--Projects
+    python memory-audit.py --project <專案 slug，如 d--repo-app>
     python memory-audit.py --search-distant handler
     python memory-audit.py --restore path/to/atom.md
     python memory-audit.py --move-distant path/to/atom.md

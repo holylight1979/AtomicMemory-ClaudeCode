@@ -19,32 +19,32 @@ sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 import overview_hub as oh  # noqa: E402
 import wg_overview as wo  # noqa: E402
 
-SGI_TABLE = """
+APPB_TABLE = """
 | 順序 | 路徑前綴 | 部位 | 導讀卡（atom 名） | 狀態 |
 |---|---|---|---|---|
-| 1 | `sgi_server/MapServer/Guild/` | Server／軍團域（六子 Manager） | `server部位導讀-x` | 有（2026-10-08） |
-| 2 | `sgi_server/MapServer/` | Server／主邏輯（Handler） | 同上 | 有 |
-| 3 | `sgi_server/ServerTools/Merge/` | 合服工具（四模式） | `合服部位導讀-y`（`shared/合服/`） | 有 |
+| 1 | `appb_server/WorldServer/Clan/` | Server／氏族域（子 Manager 群） | `server部位導讀-x` | 有（2026-10-08） |
+| 2 | `appb_server/WorldServer/` | Server／主邏輯（Handler） | 同上 | 有 |
+| 3 | `appb_server/ServerTools/Merge/` | 合服工具（多模式） | `合服部位導讀-y`（`shared/合服/`） | 有 |
 | 4 | `Tools/` | 工具鏈（SVN） | `工具鏈導讀-z` | 有 |
 | 5 | `_tools/` | 外部輕量腳本 | 同第 4 列 | 有 |
-| 6 | `Orbit-Serverbase/` | 框架源碼 | 無；病灶見 Server 卡 | 無 |
+| 6 | `Vendor-Framework/` | 框架源碼 | 無；病灶見 Server 卡 | 無 |
 """
 
-TSLG_TABLE = """
+GAMEA_TABLE = """
 | 路徑前綴 | 範疇 | 導讀卡（卡名） | 狀態 | 備註 |
 |---|---|---|---|---|
 | `Game\\ui\\Map\\`、`Game\\player\\map\\` | 大地圖（面板） | `大地圖知識導讀-hub索引` | 有 | 文件 `_AIDocs/x.md` |
-| `Game\\ui\\`（上列以外） | UI 演出 | `ui演出知識導讀-hub索引` | 有（T8） | 25 張 |
-| `Assets\\Game\\design\\dat\\*.bytes` | 設計表 | `設計表知識導讀-hub索引` | 有（T9） | 含 `GoldenMaster.ps1` |
-| `rpc\\` | 網路登入 | `tslg-wire-protocols` | 部分 | 12 張 |
-| `Assets\\Game\\scripts\\` | 主程式集 | `doc-index-client-scripts` | 索引 | CS-58 |
+| `Game\\ui\\`（上列以外） | UI 演出 | `ui演出知識導讀-hub索引` | 有（第二批） | 20 張 |
+| `Assets\\Game\\config\\tables\\*.bytes` | 設計表 | `設計表知識導讀-hub索引` | 有（第三批） | 含 `BuildTables.ps1` |
+| `rpc\\` | 網路登入 | `gamea-wire-protocols` | 部分 | 10 張 |
+| `Assets\\Game\\scripts\\` | 主程式集 | `doc-index-client-scripts` | 索引 | CS-01 |
 """
 
 
 # ─── 讀表 ──────────────────────────────────────────────────────────
 
-def test_parse_sgi_table_inherits_and_status():
-    rows = oh.parse_map(SGI_TABLE)
+def test_parse_appb_table_inherits_and_status():
+    rows = oh.parse_map(APPB_TABLE)
     assert [r["part_short"] for r in rows] == ["Server", "Server", "合服工具", "工具鏈", "外部輕量腳本", "框架源碼"]
     assert rows[1]["card"] == "server部位導讀-x"          # 同上
     assert rows[4]["card"] == "工具鏈導讀-z"              # 同第 4 列
@@ -53,38 +53,38 @@ def test_parse_sgi_table_inherits_and_status():
     assert rows[0]["status"] == "有"
 
 
-def test_parse_tslg_table_backslash_glob_and_partial_status():
-    rows = oh.parse_map(TSLG_TABLE)
+def test_parse_gamea_table_backslash_glob_and_partial_status():
+    rows = oh.parse_map(GAMEA_TABLE)
     assert rows[0]["prefixes"] == ["game/ui/map", "game/player/map"]
-    assert rows[2]["prefixes"] == ["assets/game/design/dat/*.bytes"]
-    assert rows[2]["card"] == "設計表知識導讀-hub索引"     # GoldenMaster.ps1 不是卡名
+    assert rows[2]["prefixes"] == ["assets/game/config/tables/*.bytes"]
+    assert rows[2]["card"] == "設計表知識導讀-hub索引"     # BuildTables.ps1 不是卡名
     assert [r["status"] for r in rows] == ["有", "有", "有", "部分", "索引"]
 
 
 # ─── 命中 ──────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("path,part", [
-    ("c:/Projects/sgi_server/MapServer/Guild/GuildManager.cs", "Server"),
-    ("c:/Projects/sgi_server/ServerTools/Merge/Step1.cs", "合服工具"),
-    ("c:/Projects/Tools/ExcelToData/a.cs", "工具鏈"),
-    ("c:/Projects/_tools/x.py", "外部輕量腳本"),
-    ("c:/Projects/_AIDocs/x.md", None),
+    ("c:/Work/AppB/appb_server/WorldServer/Clan/ClanManager.cs", "Server"),
+    ("c:/Work/AppB/appb_server/ServerTools/Merge/Step1.cs", "合服工具"),
+    ("c:/Work/AppB/Tools/ExcelToData/a.cs", "工具鏈"),
+    ("c:/Work/AppB/_tools/x.py", "外部輕量腳本"),
+    ("c:/Work/AppB/_AIDocs/x.md", None),
 ])
-def test_match_sgi_longest_prefix(path, part):
-    rows = oh.parse_map(SGI_TABLE)
-    m = oh.match_row(path, Path("c:/Projects"), rows)
+def test_match_appb_longest_prefix(path, part):
+    rows = oh.parse_map(APPB_TABLE)
+    m = oh.match_row(path, Path("c:/Work/AppB"), rows)
     assert (m["part_short"] if m else None) == part
 
 
 @pytest.mark.parametrize("path,part", [
-    ("C:/TSLG/Client/TSLG_Hotfix/Game/ui/Map/MapPanel.cs", "大地圖"),   # 比 Game\ui\ 長 → 大地圖
-    ("C:/TSLG/Client/TSLG_Hotfix/Game/ui/common/Btn.cs", "UI 演出"),
-    ("C:/TSLG/Client/Assets/Game/design/dat/hero.bytes", "設計表"),     # glob
-    ("C:/TSLG/Client/TSLG_Hotfix/rpc/x.cs", "網路登入"),
+    ("C:/Work/GameA/Client/GameA_Hotfix/Game/ui/Map/MapPanel.cs", "大地圖"),   # 比 Game\ui\ 長 → 大地圖
+    ("C:/Work/GameA/Client/GameA_Hotfix/Game/ui/common/Btn.cs", "UI 演出"),
+    ("C:/Work/GameA/Client/Assets/Game/config/tables/hero.bytes", "設計表"),     # glob
+    ("C:/Work/GameA/Client/GameA_Hotfix/rpc/x.cs", "網路登入"),
 ])
-def test_match_tslg_substring_prefix(path, part):
-    rows = oh.parse_map(TSLG_TABLE)
-    assert oh.match_row(path, Path("C:/TSLG"), rows)["part_short"] == part
+def test_match_gamea_substring_prefix(path, part):
+    rows = oh.parse_map(GAMEA_TABLE)
+    assert oh.match_row(path, Path("C:/Work/GameA"), rows)["part_short"] == part
 
 
 # ─── 定位三行 / Bash 讀檔 ───────────────────────────────────────────
@@ -113,10 +113,10 @@ def proj(tmp_path):
     (root / ".claude" / "overview-map.md").write_text(
         "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
         "| `Game\\Battle\\` | 戰鬥 | `戰鬥知識導讀-hub索引` | 有 |\n"
-        "| `Orbit/` | 框架 | 無 | 無 |\n", encoding="utf-8")
+        "| `Vendor/` | 框架 | 無 | 無 |\n", encoding="utf-8")
     (root / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥知識導讀-hub索引.md").write_text("# 戰鬥導讀\n病灶：共用字典", encoding="utf-8")
     (root / "Game" / "Battle").mkdir(parents=True)
-    (root / "Orbit").mkdir()
+    (root / "Vendor").mkdir()
     return root
 
 
@@ -166,7 +166,7 @@ def test_edit_without_prior_read_injects_now_and_deny_when_not_dry_run(proj, tmp
 def test_no_card_row_still_asks_for_locate(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     state = {}
-    txt = wo.on_read(state, "s", "Read", {"file_path": str(proj / "Orbit" / "x.cs")}, str(proj), "", {})
+    txt = wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "x.cs")}, str(proj), "", {})
     assert txt and "沒有可注入的導讀卡" in txt and "定位｜前例" in txt
 
 
@@ -222,8 +222,8 @@ def test_extended_profile_columns_do_not_steal_card_or_status():      # 擴欄�
 
 
 def test_glob_anchored_beats_shorter_prefix():                            # B5：錨在根的 glob 不被短前綴搶走
-    rows = oh.parse_map("| `Assets\\` | 資產 | `a` | 有 |\n| `Assets\\Game\\design\\dat\\*.bytes` | 設計表 | `b` | 有 |\n")
-    assert oh.match_row("C:/T/Assets/Game/design/dat/x.bytes", Path("C:/T"), rows)["part_short"] == "設計表"
+    rows = oh.parse_map("| `Assets\\` | 資產 | `a` | 有 |\n| `Assets\\Game\\config\\tables\\*.bytes` | 設計表 | `b` | 有 |\n")
+    assert oh.match_row("C:/T/Assets/Game/config/tables/x.bytes", Path("C:/T"), rows)["part_short"] == "設計表"
 
 
 def test_reads_after_counts_cross_part_and_untabled_files(proj, tmp_path, monkeypatch):   # W2
@@ -231,33 +231,33 @@ def test_reads_after_counts_cross_part_and_untabled_files(proj, tmp_path, monkey
     state, tp = {}, _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Orbit" / "o.cs")}, str(proj), tp, {})     # 另一部位
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "o.cs")}, str(proj), tp, {})     # 另一部位
     wo.on_read(state, "s", "Read", {"file_path": str(proj / "README.md")}, str(proj), tp, {})          # 表外檔
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
     assert len(rec["reads_after"]) == 2
 
 
-def test_bash_vcs_reads_count_as_reads():                                 # SGI 覆蓋提案 #4
-    got = oh.read_paths_from_tool("Bash", {"command": 'svn cat "c:/P/sgi_server/A.cs" ; git show HEAD~1:hooks/x.py | head -5'}, "c:/P")
-    assert got[0] == "c:/P/sgi_server/A.cs" and got[1].replace("\\", "/") == "c:/P/hooks/x.py"
+def test_bash_vcs_reads_count_as_reads():                                 # 專案覆蓋提案 #4
+    got = oh.read_paths_from_tool("Bash", {"command": 'svn cat "c:/P/appb_server/A.cs" ; git show HEAD~1:hooks/x.py | head -5'}, "c:/P")
+    assert got[0] == "c:/P/appb_server/A.cs" and got[1].replace("\\", "/") == "c:/P/hooks/x.py"
 
 
-def test_project_locate_template_override(proj, tmp_path, monkeypatch):   # SGI 覆蓋提案 #3
+def test_project_locate_template_override(proj, tmp_path, monkeypatch):   # 專案覆蓋提案 #3
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     (proj / ".claude" / "overview-hub.json").write_text(
-        '{"locate_template": ["改哪一塊", "根因在哪層", "對得上控制塔哪個 H 編號或 §9 第幾列"]}', encoding="utf-8")
+        '{"locate_template": ["改哪一塊", "根因在哪層", "對得上規格書哪個 R 編號或 §3 第幾列"]}', encoding="utf-8")
     state, tp = {}, _transcript(tmp_path, ["x"])
     f1 = str(proj / "Game" / "Battle" / "A.cs")
     txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
-    assert "定位｜前例：對得上控制塔哪個 H 編號或 §9 第幾列" in txt
+    assert "定位｜前例：對得上規格書哪個 R 編號或 §3 第幾列" in txt
     with open(tp, "a", encoding="utf-8") as f:                              # 照抄專案自訂範本也不算交
         f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
-                "text": "定位｜部位：戰鬥——改哪一塊\n定位｜根因層：根因在哪層\n定位｜前例：對得上控制塔哪個 H 編號或 §9 第幾列"}]}}, ensure_ascii=False) + "\n")
+                "text": "定位｜部位：戰鬥——改哪一塊\n定位｜根因層：根因在哪層\n定位｜前例：對得上規格書哪個 R 編號或 §3 第幾列"}]}}, ensure_ascii=False) + "\n")
     warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
     assert warn and "定位三行" in warn
 
 
-def test_row_with_two_cards_injects_both_and_deny_parts(proj, tmp_path, monkeypatch):   # TSLG 提案 1、3、4
+def test_row_with_two_cards_injects_both_and_deny_parts(proj, tmp_path, monkeypatch):   # 另一專案提案 1、3、4
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥根因層.md").write_text("# 根因層\n共用字典", encoding="utf-8")
     (proj / ".claude" / "overview-map.md").write_text(

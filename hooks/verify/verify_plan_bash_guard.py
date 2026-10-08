@@ -22,7 +22,7 @@ PASS = {
     "sed N,Mp": "sed -n 1,5p _AIDocs/README.md",
     "sed 多段 p": "sed -n '3p;7p' _AIDocs/README.md",
     "sed 合併旗標": "sed -nE '1,5p' _AIDocs/README.md",
-    "sed 正則但不在 .claude": "sed -n '/a/,$p' /c/Projects/README.md",
+    "sed 正則但不在 .claude": "sed -n '/a/,$p' /c/Work/README.md",
     "grep 管線": "grep -n foo /c/Users/holylight/.claude/hooks/wg_core.py | head",
     "引號內的分隔符不切段": "grep -n 'a;b>c' hooks/wg_core.py",
 }

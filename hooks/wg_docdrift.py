@@ -4,7 +4,7 @@ wg_docdrift.py — DocDrift Detection Module (V3.3)
 Detects when source files are modified without updating corresponding _AIDocs.
 Integrates into PostToolUse handler via check_source_drift / resolve_doc_update.
 
-Inspired by PR #1 (@wellstseng).
+Inspired by PR #1.
 """
 
 import fnmatch

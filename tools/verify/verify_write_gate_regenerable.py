@@ -52,7 +52,7 @@ CONCLUSION = (
 
 
 def _no_dedup(monkeypatch):
-    monkeypatch.setattr(WG, "check_dedup", lambda content, config, layers=None: None)
+    monkeypatch.setattr(WG, "check_dedup", lambda content, config, layers=None, title=None: None)
     monkeypatch.setattr(WG, "write_audit_log", lambda *a, **k: None)
 
 

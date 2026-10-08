@@ -40,7 +40,7 @@ function orgMemoryRoot(cfg = loadConfig(), local = loadOrgLocal()) {
 // ─── Write-gate 去重層清單 ─────────────────────────────────────────────────
 
 /** 專案記憶根（<root>/.claude/memory）→ 向量庫 layer 標籤用的專案 slug。
- *  MIRROR: hooks/wg_core.py:cwd_to_project_slug（: \ / . → -，全小寫；c:\Projects → c--projects）。 */
+ *  MIRROR: hooks/wg_core.py:cwd_to_project_slug（: \ / . → -，全小寫；d:\Repo\App → d--repo-app）。 */
 function projectSlugOf(memBase) {
   const root = path.dirname(path.dirname(memBase));
   return root.replace(/[:\\/.]/g, "-").toLowerCase();

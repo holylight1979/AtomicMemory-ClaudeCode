@@ -105,7 +105,7 @@ def test_not_scannable_whitelisted_or_nontext(path):
 
 
 def test_not_scannable_outside_claude():
-    assert VG.is_scannable_path("C:/Projects/game/enemy_wave.py") is False
+    assert VG.is_scannable_path("C:/Work/game/enemy_wave.py") is False
     assert VG.is_scannable_path("/home/user/proj/src/main.py") is False
 
 

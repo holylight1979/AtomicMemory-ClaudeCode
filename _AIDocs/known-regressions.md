@@ -25,7 +25,7 @@ memory/preferences.md
 memory/workflow-icld.md
 memory/workflow-rules.md
 memory/workflow-svn.md
-c:\Projects\.claude\memory\architecture.md
+<某專案>\.claude\memory\architecture.md
 ```
 
 ### 根因（已查證）

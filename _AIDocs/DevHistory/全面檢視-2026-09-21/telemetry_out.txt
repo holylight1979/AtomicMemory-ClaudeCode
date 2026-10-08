@@ -50,12 +50,12 @@ _distant: 總 588, 新增 30/60/90 天 = 36/303/355
    最新檔: v5-overhaul-audit-2026-05.md 2026-09-03
 episodic 依月份: {'episodi': 33}
 episodic 檔名日期最後: episodic-20260921-guardian.md
-專案 episodic C:\Projects\.claude\memory\episodic: 113 最後 episodic-20260916-projects-tools.md
-專案 episodic D:\AI-PLAY\AI-gen-projs\.claude\memory\episodic: 54 最後 episodic-20260826-ai-play-s4-md.md
-專案 episodic D:\AI-PLAY\MudClient-withAI\.claude\memory\episodic: 3 最後 episodic-20260904-ai-play-mudclient-with
-專案 episodic C:\TSLG\.claude\memory\episodic: 2 最後 episodic-20260918-tslg-client.md
-專案 episodic C:\TSLG\Server\.claude\memory\episodic: 14 最後 episodic-20260904-projects-tslg-serverco
-專案 episodic C:\TSLG\Server\.claude\memory._quarantine-20260905\episodic: 12 最後 episodic-20260825-projects-tslg.md
+專案 episodic <專案甲>\.claude\memory\episodic: 113 最後 episodic-20260916-<專案甲>-tools.md
+專案 episodic <專案丙>\.claude\memory\episodic: 54 最後 episodic-20260826-<專案丙>-s4-md.md
+專案 episodic <專案丁>\.claude\memory\episodic: 3 最後 episodic-20260904-<專案丁>
+專案 episodic <專案乙>\.claude\memory\episodic: 2 最後 episodic-20260918-<專案乙>-client.md
+專案 episodic <專案乙>\Server\.claude\memory\episodic: 14 最後 episodic-20260904-<專案乙>-serverco
+專案 episodic <專案乙>\Server\.claude\memory._quarantine-20260905\episodic: 12 最後 episodic-20260825-<專案乙>.md
 extract-worker.log 行數: 186 mtime 2026-09-15 16:11:21.039689
    行型態: [('[vN.N] Filtered N plan-type items from extraction', 157), ('[rdchat-direct] TimeoutError: timed out', 14), ('[rdchat] HTTP N: /api/chat', 9), ('Filtered N plan-type items from extraction', 4), ('[rdchat-direct] URLError: <urlopen error [WinError N] 連線嘗試失敗', 1), ('[rdchat-direct] HTTP N: /api/chat', 1)]
 Failures source 欄分布: [('(無source欄)', 35)]
@@ -65,7 +65,7 @@ guard-aec_hud.jsonl: 總 4, 近30天 4, sessions(30d) 2
 guard-aec_pending.jsonl: 總 11, 近30天 11, sessions(30d) 1
 guard-deferral.jsonl: 總 18, 近30天 18, sessions(30d) 17
 guard-docdrift.jsonl: 總 1784, 近30天 215, sessions(30d) 1
-   doc: [('DocIndex-System.md', 91), ('Architecture.md', 77), ('Design/DesignTool_Luban.md', 9), ('Client/Client_Monitor_System.md', 9), ('_archive/TCSM/System_Battle.md', 9)]
+   doc: [('DocIndex-System.md', 91), ('Architecture.md', 77), ('Design/DesignTool_Luban.md', 9), ('Client/Client_Monitor_System.md', 9), ('_archive/<舊專案>/System_Battle.md', 9)]
    source: [('hooks/wg_core.py', 12), ('hooks/handlers/session_start.py', 10), ('hooks/wg_atoms.py', 8), ('hooks/handlers/pre_tool_use.py', 7), ('tools/verify/verify_project_layer_smoke.py', 7)]
 guard-evasion.jsonl: 總 177, 近30天 71, sessions(30d) 40
 guard-friction.jsonl: 總 1, 近30天 1, sessions(30d) 1
@@ -98,14 +98,14 @@ injection-turns: 總 509, 近30天 509
 ======== 5. skill 使用 (近 60 天 transcript) ========
 skill 數: 21 ['atom-debug', 'browse-sprites', 'changelog-debug', 'codex-companion', 'conflict', 'consciousness-stream', 'continue', 'extract', 'fix-escalation', 'generate-episodic', 'handoff', 'harvest', 'heal-review', 'journal', 'karpathy-guidelines', 'memory', 'read-project', 'refile', 'skill-creator', 'upgrade', 'vector']
 transcript 檔數(60d): 190
-Skill tool 呼叫: [('handoff', 6), ('memory', 4), ('vector', 2), ('sgi-gm', 1)]
+Skill tool 呼叫: [('handoff', 6), ('memory', 4), ('vector', 2), ('<專案甲的 GM skill>', 1)]
 <command-name> 出現: [('model', 12), ('memory', 3), ('continue', 2), ('compact', 1), ('effort', 1), ('config', 1)]
 0 次使用的 skill (17): ['atom-debug', 'browse-sprites', 'changelog-debug', 'codex-companion', 'conflict', 'consciousness-stream', 'extract', 'fix-escalation', 'generate-episodic', 'harvest', 'heal-review', 'journal', 'karpathy-guidelines', 'read-project', 'refile', 'skill-creator', 'upgrade']
 有使用的 skill → (tool+slash, sessions): {'continue': (2, 2), 'handoff': (6, 6), 'memory': (7, 7), 'vector': (2, 2)}
 
 ======== 6. recall-miss / rescue-log ========
 recall-miss: 總 19, 近30天 8; source: [('failure_kw', 12), ('evasion', 6), ('failing_tests', 1)]
-   涉及 atom: [('mudclient-地圖建房判準是格子不是方向', 3), ('feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個', 3), ('單一來源抽方法-刪原副本以完整方法群為粒度-反向compilelink同源-s2', 2), ('gm自驗踩坑-勿在server啟動路徑嵌可崩潰診斷碼-char模組比對複用com', 2), ('codexcs-codex核心庫', 1), ('jarvis-專案全貌與分層', 1)]
+   涉及 atom: [('<專案丁>-地圖建房判準是格子不是方向', 3), ('feedback-退縮歸屬-主任務完工且token充裕時可做的事當場做完不推下個', 3), ('單一來源抽方法-刪原副本以完整方法群為粒度-反向compilelink同源-s2', 2), ('gm自驗踩坑-勿在server啟動路徑嵌可崩潰診斷碼-char模組比對複用com', 2), ('<某專案>-codex核心庫', 1), ('<某專案>-專案全貌與分層', 1)]
 rescue-log: 總 638, 近30天 417; sessions(30d) 75; distinct atoms(30d) 86
    top atoms(30d): [('併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a', 65), ('toolchain', 25), ('decisions', 24), ('feedback-memory-system-doc-sync', 22), ('feedback-completion-gates', 18), ('git-已push-commit-勿改寫-雙-push-url-gitlab-main-f', 17)]
    tool: [('Bash', 281), ('Write', 92), ('Edit', 30), ('mcp__workflow-guardian__anti_evasion_report', 14)]

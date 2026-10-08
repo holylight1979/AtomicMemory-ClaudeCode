@@ -10,7 +10,7 @@
 3. **晉升門檻與 decay 時序耦合**（wg_atoms.py:2454-2466）：SessionEnd 先 decay（α←1+0.97(α−1)）再判 n≥3 → 3 勝當日首次 SessionEnd n=2.91 不升，隔天更少，除非第 4 勝；`record_usefulness` 無 per-(atom, session) 去重 → 同 session 三 turn 即達 3。Wilson：3/3→0.647 ✔、4/5→0.514 ✘、6/7→0.623 ✔（只有連勝能升）。同日連跳殘留：未見。
 4. **episodic「停擺」根因（非管線失效）**：
    - 程式 09-03 後未變；無 generation failed 例外。
-   - 09-18 兩場 cwd=C:\TSLG → episodic 寫到 **C:/TSLG/.claude/memory/episodic/**；`health-weekly.py:228` 只算 ~/.claude/memory/episodic → 專案層產出不計。
+   - 09-18 兩場 cwd=<專案乙> → episodic 寫到 **<專案乙>/.claude/memory/episodic/**；`health-weekly.py:228` 只算 ~/.claude/memory/episodic → 專案層產出不計。
    - 今日 094f7ab1 正常產出 memory/episodic/episodic-20260921-guardian.md → 管線活著。
    - 今日 8 個 state 中 6 個 modified=0 且 accessed=0（sub-agent／唯讀）→ `_should_generate_episodic`（wg_episodic.py:54）False；`accessed_files` 只從 Read tool_use 回收，bypass 模式用 cat 讀檔 → 恆 0 → 唯讀研究 session 永不產 episodic。
    - 長壽 session（09-18 開 09-21 關）SessionEnd 稀少；skip 原因沒落 log；舊 state 已被 `_cleanup_old_states` 清掉無法鑑識。

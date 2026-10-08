@@ -32,7 +32,7 @@ PITFALL_CONTENT = "這是一個坑：Windows 下 Path.write_text 會翻整檔行
 
 
 def _dedup_stub(verdict: str, score: float):
-    def stub(content, config, layers=None):
+    def stub(content, config, layers=None, title=None):
         return {
             "atom_name": "existing-atom", "score": score,
             "text_preview": "preview", "verdict": verdict,
@@ -56,7 +56,7 @@ def test_pitfall_similar_still_suggests_update(monkeypatch):
 
 
 def test_pitfall_without_dedup_hit_auto_adds(monkeypatch):
-    monkeypatch.setattr(WG, "check_dedup", lambda content, config, layers=None: None)
+    monkeypatch.setattr(WG, "check_dedup", lambda content, config, layers=None, title=None: None)
     monkeypatch.setattr(WG, "write_audit_log", lambda *a, **k: None)
     r = WG.evaluate(PITFALL_CONTENT, config=CONFIG)
     assert r["action"] == "add"
@@ -67,7 +67,7 @@ def test_pitfall_without_dedup_hit_auto_adds(monkeypatch):
 def test_explicit_user_fast_path_precedes_dedup(monkeypatch):
     called = []
     monkeypatch.setattr(WG, "check_dedup",
-                        lambda content, config, layers=None: called.append(1) or None)
+                        lambda content, config, layers=None, title=None: called.append(1) or None)
     monkeypatch.setattr(WG, "write_audit_log", lambda *a, **k: None)
     r = WG.evaluate("記住這個", explicit_user=True, config=CONFIG)
     assert r["action"] == "add" and not called

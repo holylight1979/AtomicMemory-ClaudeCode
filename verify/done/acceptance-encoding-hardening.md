@@ -6,7 +6,7 @@ source: multifile
 status: done
 ---
 ## 目標
-亂碼資料夾（TSLG `shared/UIºt¥X`＝`UI演出` 的 Big5 位元組被當 cp1252 解碼）會被健檢抓到；worker 不會再把 svn.exe 定址不到的路徑交給 svn 建出亂碼目錄；手動 `svn add` 中文路徑會被提醒。先重現、再定刀。
+亂碼資料夾（某專案的 `shared/UIºt¥X`＝`UI演出` 的 Big5 位元組被當 cp1252 解碼）會被健檢抓到；worker 不會再把 svn.exe 定址不到的路徑交給 svn 建出亂碼目錄；手動 `svn add` 中文路徑會被提醒。先重現、再定刀。
 
 ## 必須發生
 - 重現矩陣（tmp `svnadmin create` 實倉，非 win32 skip）→ `hooks/verify/verify_svn_unicode_paths.py`：
@@ -26,4 +26,4 @@ status: done
 
 ## 驗證指令
 - python -m pytest hooks/verify/verify_svn_unicode_paths.py lib/verify/verify_encoding_guard.py tools/verify/verify_mojibake_detect.py -q
-- TSLG 清理（使用者自己跑）：svn revert "C:\TSLG\.claude\memory\shared\UIºt¥X"
+- 某專案清理（使用者自己跑）：svn revert "<專案根>\.claude\memory\shared\UIºt¥X"

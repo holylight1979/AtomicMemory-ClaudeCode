@@ -94,7 +94,7 @@ _WEEKDAY_NAMES = ["一", "二", "三", "四", "五", "六", "日"]
 # Episodic 知識行中屬於統計類的 pattern（日誌中跳過）
 _STAT_PATTERNS = ("閱讀 ", "閱讀區域", "版控查詢", "覆轍信號", "引用 atoms")
 
-# HTML/XML 標籤 + 註解（避免 catclaw_cli_bridge 訊息標頭未閉合 tag 汙染 markdown 渲染）
+# HTML/XML 標籤 + 註解（避免某 CLI 橋接程式的訊息標頭帶未閉合 tag 汙染 markdown 渲染）
 _HTML_RE = re.compile(r"<!--.*?-->|<[^>]+>", re.DOTALL)
 
 # 「我的增補」heading：重產時整段內容（heading 之後到下一個 heading 之前）保留

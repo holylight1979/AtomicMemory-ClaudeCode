@@ -78,7 +78,7 @@ def _strip_dates_segment(seg: str) -> str:
         if head_stripped.endswith(("（", "(")) and tail_stripped.startswith(("）", ")")):
             out = _join(head_stripped[:-1], tail_stripped[1:])
             continue
-        # 括號開頭／結尾是日期 → 只拿日期：（2026-08-13 Proj-JARVIS 實例）→（Proj-JARVIS 實例）
+        # 括號開頭／結尾是日期 → 只拿日期：（2026-08-13 某專案實例）→（某專案實例）
         if head_stripped.endswith(("（", "(")) or tail_stripped.startswith(("）", ")")):
             out = head_stripped.rstrip("，,、") + tail_stripped
             continue

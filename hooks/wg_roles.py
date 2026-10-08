@@ -9,7 +9,7 @@ wg_roles.py — 身份、職能、裁決資格（多機共享、零宣告）
      只看 `- Role: a, b` 一行（tools/init-roles.py --me 寫入；留空檔或刪檔即回到 AD）。
   2. AD 群組：whoami /groups（Windows 且有 USERDOMAIN 才跑，每個行程只 spawn 一次），群組名格式
      <網域>\\<專案代碼>_<序號>_<職能名>，依 config roles.ad_group_map 以「職能名子字串」對映
-     （先比長鍵）；專案 MEMORY.md 有 `> Project-Code: PJA146` 只取該專案的群組，沒宣告取聯集。
+     （先比長鍵）；專案 MEMORY.md 有 `> Project-Code: PRJ001` 只取該專案的群組，沒宣告取聯集。
   3. 都沒有 → []：只看 shared／org／global，不預設 programmer（「不知道」不能被當成「是程式」擴大可見範圍）。
 
 裁決資格＝config review.deciders（AD 帳號清單）；空＝人人可裁決。config 讀壞 → True 並 stderr。
