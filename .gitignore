@@ -178,3 +178,8 @@ workflow/usage-snapshots/
 workflow/harvest-ledger/
 workflow/vcs-sync/
 settings.json.bak
+
+# v6.0 執行期：總控台信箱與根層自己的部位表
+workflow/v6-inbox/
+!.claude/overview-map.md
+!.claude/overview-hub.json
