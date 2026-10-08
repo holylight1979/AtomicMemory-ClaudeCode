@@ -69,6 +69,7 @@
 | 專案等級-mcpskillhookslog-不放全域根層 | 專案等級 mcp/skill/hooks/log 不放全域根層 |
 | 導讀卡寫入受knowledge區3072bytes預算擋-skip-gate跳不過funnel-矛盾偵測先於預算跑 | 導讀卡寫入受knowledge區3072bytes預算擋-skip_gate跳不過funnel-矛盾偵測先於預算跑 |
 | 巨檔純機械拆分-carve腳本與驗證盲點 | 巨檔純機械拆分-carve腳本與驗證盲點 |
+| 批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write-raw-tool-migrate-寫後補向量增量索引 | 批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write_raw-tool-migrate-寫後補向量增量索引 |
 | 本repo公開有同事使用者-外部pr審查與docindex衝突解法 | 本repo公開有同事使用者-外部PR審查與DocIndex衝突解法 |
 | 模型行為移植-fable行為契約必載檔 | 模型行為移植-Fable行為契約必載檔 |
 | 檢索融合與回歸集調參-rrf-min-score-定案 | 檢索融合與回歸集調參-rrf-min-score-定案 |

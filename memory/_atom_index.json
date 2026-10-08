@@ -5054,6 +5054,40 @@
         "屬性當實體"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-根層不放專案名-非必要就拔只寫要點-指涉用某專案-代稱優於路徑-拔名不得讓事實走樣",
+      "path": "memory/Failures/行為契約/feedback-根層不放專案名-非必要就拔只寫要點-指涉用某專案-代稱優於路徑-拔名不得讓事實走樣.md",
+      "triggers": [
+        "根層",
+        "專案名",
+        "某專案",
+        "去專案化",
+        "寫卡片",
+        "寫根層文件",
+        "全域 skill",
+        "跨專案知識",
+        "專案路徑",
+        "舉例"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write-raw-tool-migrate-寫後補向量增量索引",
+      "path": "_AIDocs/_atoms/MemDev/批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write-raw-tool-migrate-寫後補向量增量索引.md",
+      "triggers": [
+        "批次改卡片",
+        "大量 atom",
+        "多 agent 寫 atom",
+        "atom_write 並行",
+        "索引互蓋",
+        "write_raw",
+        "tool:migrate",
+        "atom_write replace 重建",
+        "向量增量索引",
+        "批次遷移"
+      ],
+      "scope": "global"
     }
   ]
 }
