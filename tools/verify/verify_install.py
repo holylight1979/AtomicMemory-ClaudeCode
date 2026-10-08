@@ -651,6 +651,7 @@ def test_verify_exit_code_on_installed_home(adopted):
         assert "PASS     hook 啟動紀錄" in result.stdout and "有 1 個 session" in result.stdout
         assert "記憶三層現況" in result.stdout and "公司層" in result.stdout
         assert "DEGRADED MCP 註冊" in result.stdout  # 假家沒有 ~/.claude.json
+        assert "PASS     根層部位表" in result.stdout  # 假家是本 repo 的 clone，.claude/overview-map.md 跟著來
         (claude / "USER.md").unlink()
         broken = run_install(home, script, "--verify")
         assert broken.returncode == 1 and "FAIL     個人啟動檔" in broken.stdout
@@ -658,3 +659,23 @@ def test_verify_exit_code_on_installed_home(adopted):
         (claude / "USER.md").write_bytes(user_md)
         stale.unlink(missing_ok=True)
         opened.unlink(missing_ok=True)
+
+
+def test_verify_overview_map_three_states(tmp_path, monkeypatch):
+    """根層部位表三態：表不在 DEGRADED（附 scaffold 指令）；表在且 parse_map 讀得出列 PASS；表在但讀不出列 FAIL。"""
+    target = tmp_path / "home" / ".claude"
+    (target / ".claude").mkdir(parents=True)
+    monkeypatch.setattr(install, "TARGET", target)
+    level, detail = install.verify_overview_map()
+    assert level == "DEGRADED" and "overview-map-scaffold.py" in detail and str(target) in detail
+    table = target / ".claude" / "overview-map.md"
+    table.write_text((REPO / ".claude" / "overview-map.md").read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+    level, detail = install.verify_overview_map()
+    assert level == "PASS" and "個部位" in detail, detail
+    table.write_text("# 只有標題，沒有表\n\n隨便寫的字\n", encoding="utf-8", newline="\n")
+    level, detail = install.verify_overview_map()
+    assert level == "FAIL" and "沒有任何可解析的列" in detail
+    table.write_text("| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n| 沒有反引號路徑 | x | y | 有 |\n",
+                     encoding="utf-8", newline="\n")
+    assert install.verify_overview_map()[0] == "FAIL"
+    assert any(name == "根層部位表" and fn is install.verify_overview_map for name, fn in install.VERIFY_ITEMS)

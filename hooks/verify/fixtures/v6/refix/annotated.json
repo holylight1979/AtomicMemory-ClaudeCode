@@ -1,0 +1,12 @@
+{
+  "_doc": "人工標註：svn-log.xml 以預設設定（window 14 天、min_fixes 2、同 commit 不配對、排除記憶與收割）排名的前三與各檔數字。r14／r15 是收割提交與記憶索引（必排除）；r17 不是 fix；r18 同一 commit 同一檔列兩次（預設只算一次）。",
+  "top3": ["trunk/Server/Login.cs", "trunk/Client/UI/Login.cs", "trunk/Server/Dup.cs"],
+  "files": {
+    "trunk/Server/Login.cs": {"fix_commits": 3, "pairs_in_window": 3, "revs": ["10", "11", "12"]},
+    "trunk/Client/UI/Login.cs": {"fix_commits": 2, "pairs_in_window": 1, "revs": ["12", "13"]},
+    "trunk/Server/Dup.cs": {"fix_commits": 2, "pairs_in_window": 1, "revs": ["18", "19"]},
+    "trunk/Server/Session.cs": {"fix_commits": 2, "pairs_in_window": 1, "revs": ["10", "16"]}
+  },
+  "excluded": ["trunk/.claude/memory/x.md", "trunk/.claude/memory/_atom_index.json"],
+  "totals": {"commits": 10, "fix_commits": 7, "files_refixed": 4}
+}
