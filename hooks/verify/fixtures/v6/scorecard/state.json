@@ -1,0 +1,15 @@
+{
+  "_doc": "scorecard fixture：state 的 overview_hub 三個部位（Server 改 2 次、讀過卡、交了定位；Client 改 1 次沒讀沒交；Docs 只注入沒改）與 3 個 modified_files。預期 S1 0.5、S3 0.5、S5 0.333。",
+  "session": {"id": "sid-fixture", "cwd": "C:/p"},
+  "overview_hub": {
+    "C:/p|Server": {"injected_turn": 2, "reads_after": ["C:/p/Server/a.cs", "C:/p/.claude/memory/shared/設計通則/server部位導讀.md"], "located": true, "located_via": "tool_input", "edits": 2},
+    "C:/p|Client": {"injected_turn": 5, "reads_after": [], "located": false, "edits": 1},
+    "C:/p|Docs": {"injected_turn": 7, "reads_after": ["C:/p/Docs/r.md"], "located": false, "edits": 0}
+  },
+  "modified_files": [
+    {"path": "C:/p/Server/a.cs", "tool": "Edit", "session_id": "sid-fixture", "count": 2},
+    {"path": "C:/p/Server/b.cs", "tool": "Write", "session_id": "sid-fixture", "count": 1},
+    {"path": "C:/p/Client/x.cs", "tool": "Edit", "session_id": "sid-fixture", "count": 1}
+  ],
+  "candidates": [{"part": "Docs", "score": 999}]
+}

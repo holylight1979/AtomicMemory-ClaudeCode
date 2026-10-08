@@ -771,6 +771,31 @@ def verify_merge_driver() -> Tuple[str, str]:
     return "PASS", "已安裝"
 
 
+def verify_overview_map() -> Tuple[str, str]:
+    """根層部位表 ~/.claude/.claude/overview-map.md 三態：表在且 parse_map 讀得出列＝PASS；表在但讀不出＝FAIL；表不在＝DEGRADED。
+    只讀檔；解析器取已安裝的 ~/.claude/lib/overview_hub.py（hook 實際用的那份），沒有才退本 clone 的；不實跑 hook。
+    TARGET 固定 Path.home()/.claude、不看 WG_CLAUDE_DIR：這是「已安裝版本」的驗證，worktree 的表由 verify 自己建假家測。"""
+    path = TARGET / ".claude" / "overview-map.md"
+    if not path.is_file():
+        return "DEGRADED", (f"根層部位表不存在（{path}），改根層的檔不會先注入導讀卡 → "
+                            "python ~/.claude/tools/overview-map-scaffold.py --cwd ~/.claude --write（預覽先不帶 --write）")
+    try:
+        import importlib.util
+        hub_py = next(p for p in (TARGET / "lib" / "overview_hub.py", SOURCE / "lib" / "overview_hub.py") if p.is_file())
+        spec = importlib.util.spec_from_file_location("overview_hub_for_verify", hub_py)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        rows = mod.parse_map(path.read_text(encoding="utf-8"))
+    except Exception as e:  # 解析器自己炸也算表壞：要修表或修解析器，不能當沒事
+        return "FAIL", f"根層部位表讀不出來（{e}）→ 對照 lib/overview_hub.py parse_map 的表格式修 {path}"
+    if not rows:
+        return "FAIL", f"根層部位表沒有任何可解析的列（每列至少一格含反引號路徑前綴）→ 修 {path}"
+    missing = [r["part"] for r in rows if not r["prefixes"] or not r["part"]]
+    if missing:
+        return "FAIL", f"根層部位表有 {len(missing)} 列缺前綴或部位名 → 修 {path}"
+    return "PASS", f"{len(rows)} 個部位（{path}）"
+
+
 def org_root() -> Optional[str]:
     """公司層接上的根目錄；未接上 → None。"""
     try:
@@ -797,6 +822,7 @@ VERIFY_ITEMS = [
     ("記憶檢索", verify_search),
     ("MCP 註冊", verify_mcp),
     ("索引合併驅動", verify_merge_driver),
+    ("根層部位表", verify_overview_map),
 ]
 
 

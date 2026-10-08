@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- refix fixture：svn log 詳細 xml 樣本；人工標註與各 revision 的用意見 annotated.json -->
+<log>
+<logentry revision="10"><author>a</author><date>2026-09-01T10:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/Server/Login.cs</path><path kind="file" action="M">/trunk/Server/Session.cs</path></paths>
+<msg>fix: login crash</msg></logentry>
+<logentry revision="11"><author>a</author><date>2026-09-03T10:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/Server/Login.cs</path></paths>
+<msg>fix login again</msg></logentry>
+<logentry revision="12"><author>b</author><date>2026-09-05T10:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/Server/Login.cs</path><path kind="file" action="M">/trunk/Client/UI/Login.cs</path></paths>
+<msg>修正 登入 timeout</msg></logentry>
+<logentry revision="13"><author>b</author><date>2026-09-06T10:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/Client/UI/Login.cs</path><path kind="dir" action="M">/trunk/Client/UI</path></paths>
+<msg>fix: client ui</msg></logentry>
+<logentry revision="14"><author>bot</author><date>2026-09-07T10:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/.claude/memory/x.md</path><path kind="file" action="M">/trunk/Server/Login.cs</path></paths>
+<msg>chore(memory): knowledge harvest 2026-09-07 fix index</msg></logentry>
+<logentry revision="15"><author>bot</author><date>2026-09-08T10:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/.claude/memory/_atom_index.json</path></paths>
+<msg>fix memory atom</msg></logentry>
+<logentry revision="16"><author>a</author><date>2026-09-09T10:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/Server/Session.cs</path></paths>
+<msg>fix: session</msg></logentry>
+<logentry revision="17"><author>a</author><date>2026-09-10T10:00:00.000000Z</date>
+<paths><path kind="file" action="A">/trunk/Server/New.cs</path></paths>
+<msg>feat: new</msg></logentry>
+<logentry revision="18"><author>c</author><date>2026-09-10T11:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/Server/Dup.cs</path><path kind="file" action="R">/trunk/Server/Dup.cs</path></paths>
+<msg>fix dup path in one commit</msg></logentry>
+<logentry revision="19"><author>c</author><date>2026-09-12T10:00:00.000000Z</date>
+<paths><path kind="file" action="M">/trunk/Server/Dup.cs</path></paths>
+<msg>fix dup again</msg></logentry>
+</log>

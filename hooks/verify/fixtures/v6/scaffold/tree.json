@@ -1,0 +1,14 @@
+{
+  "_doc": "從零掃表 fixture：dirs＝頂層目錄→裡面的檔（相對該目錄）；hotspots＝假定 VCS 算出的 fix 熱度（無 VCS 時由測試直接餵）；被 scaffold_ignore 擋掉的目錄（node_modules、.git、obj、_AIDocs）不得成列。",
+  "root_label": "fixture",
+  "dirs": {
+    "Server": ["Core/a.cs", "Core/b.cs", "Net/c.cs"],
+    "Client": ["UI/x.cs"],
+    "Docs": ["readme.md"],
+    "node_modules": ["x/y.js"],
+    ".git": ["HEAD"],
+    "obj": ["a.o"],
+    "_AIDocs": ["Architecture.md"]
+  },
+  "hotspots": {"Server": 3, "Client": 1}
+}
