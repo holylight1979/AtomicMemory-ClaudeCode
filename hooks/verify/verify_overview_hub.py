@@ -210,6 +210,17 @@ def test_locate_rejects_copied_template():                                # W1�
     assert not oh.locate_present(text, "戰鬥")
 
 
+def test_extended_profile_columns_do_not_steal_card_or_status():      # 擴欄（病灶清單、量尺、檢查器…）：骨架列導讀卡空就是空
+    rows = oh.parse_map(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 病灶清單 | 量尺 | 檢查器清單 | 第四問 |\n"
+        "|---|---|---|---|---|---|---|---|\n"
+        "| `Server/Map/` | 大地圖（world） | `大地圖知識導讀-hub索引`、`大地圖根因層` | 有 | `_AIDocs/d.md` | P90｜`dotnet run tick`｜25ms | `a.py`;`b.py` | 幾份存法？ |\n"
+        "| `Server/Battle/` | 戰鬥 |  |  | `_AIDocs/d.md` | P90｜`dotnet run tick`｜25ms | `check.py` | 無 |\n"
+    )
+    assert rows[0]["cards"] == ["大地圖知識導讀-hub索引", "大地圖根因層"] and rows[0]["status"] == "有"
+    assert rows[1]["cards"] == [] and rows[1]["status"] == ""
+
+
 def test_glob_anchored_beats_shorter_prefix():                            # B5：錨在根的 glob 不被短前綴搶走
     rows = oh.parse_map("| `Assets\\` | 資產 | `a` | 有 |\n| `Assets\\Game\\design\\dat\\*.bytes` | 設計表 | `b` | 有 |\n")
     assert oh.match_row("C:/T/Assets/Game/design/dat/x.bytes", Path("C:/T"), rows)["part_short"] == "設計表"

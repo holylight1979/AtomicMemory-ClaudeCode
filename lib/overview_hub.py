@@ -95,21 +95,21 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
         part = cells[prefix_idx + 1] if prefix_idx + 1 < len(cells) else ""
         part = part.replace("（", "(").split("(")[0].strip()
         part_short = re.split(r"[／/]", part)[0].strip() or part
+        # 欄位固定：前綴｜部位｜導讀卡｜狀態｜（之後可擴欄：病灶清單、量尺、檢查器…）
+        # 卡只從「導讀卡」欄取，擴欄裡的 `指令` 反引號不會被誤當卡名
         cards: List[str] = []          # 一列可掛多張卡（如大地圖列＝導讀卡＋根因層卡），全注
+        card_cell = cells[prefix_idx + 2] if prefix_idx + 2 < len(cells) else ""
+        cards = [t.replace("…", "*") for t in _BACKTICK_RE.findall(card_cell) if _is_card_token(t)]
+        if not cards:
+            m = _SAME_ROW_RE.search(card_cell)
+            if m and 0 < int(m.group(1)) <= len(rows):
+                cards = list(rows[int(m.group(1)) - 1]["cards"])
+            elif card_cell.startswith("同上") and rows:
+                cards = list(rows[-1]["cards"])
         status = ""
-        for i, c in enumerate(cells):
-            if i == prefix_idx:
-                continue
-            if not cards:
-                cards = [t.replace("…", "*") for t in _BACKTICK_RE.findall(c) if _is_card_token(t)]
-                if not cards:
-                    m = _SAME_ROW_RE.search(c)
-                    if m and 0 < int(m.group(1)) <= len(rows):
-                        cards = list(rows[int(m.group(1)) - 1]["cards"])
-                    elif c.startswith("同上") and rows:
-                        cards = list(rows[-1]["cards"])
-            if not status and c.startswith(_STATUS_HEADS) and len(c) <= 24:
-                status = c[:2] if c.startswith(("部分", "索引")) else c[0]
+        status_cell = cells[prefix_idx + 3] if prefix_idx + 3 < len(cells) else ""
+        if status_cell.startswith(_STATUS_HEADS) and len(status_cell) <= 24:
+            status = status_cell[:2] if status_cell.startswith(("部分", "索引")) else status_cell[0]
         rows.append({
             "prefixes": [p for p in prefixes if p],
             "part": part,
