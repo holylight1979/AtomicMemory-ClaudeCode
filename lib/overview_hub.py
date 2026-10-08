@@ -301,7 +301,8 @@ def split_card_sections(body: str) -> Dict[str, Any]:
     """卡片原文 → {"head": 首段（標題與 meta 列）, "slices": {片名: 原文}, "others": {標題: 原文}}。
 
     段的邊界：##／### 標題，或 ## 知識 之下的每個頂層 bullet（`- [臨] **標籤**：…`，子 bullet／表格跟著上一段）。
-    標籤（標題文字、或 bullet 的粗體標籤；沒粗體取前 20 字）經同義詞映射到五片，對不上的進 others；同片多段串接。
+    標籤（標題文字、或 bullet 的粗體標籤）經同義詞映射到五片；對不上、或 bullet 沒粗體標籤的進 others（鍵＝標題或前 20 字）；
+    同片多段串接。
     ## 知識／## 印象 是 atom 結構標題，不算段；## 行動 當一段進 others。沒有任何段 → slices 與 others 皆空、全文在 head。
     """
     head: List[str] = []
@@ -319,8 +320,7 @@ def split_card_sections(body: str) -> Dict[str, Any]:
             continue
         bm = _BULLET_RE.match(line) if in_knowledge else None
         if bm:
-            label = bm.group(1) or bm.group(2).strip()[:20] or None
-            segs.append((label, [line]))
+            segs.append((bm.group(1), [line]))        # 沒粗體標籤的 bullet 不映射片（label None → others）
             continue
         (segs[-1][1] if segs else head).append(line)
     slices: Dict[str, str] = {}
@@ -333,7 +333,7 @@ def split_card_sections(body: str) -> Dict[str, Any]:
         if name:
             slices[name] = f"{slices[name]}\n{text}" if name in slices else text
         else:
-            others[label or f"段{len(others) + 1}"] = text
+            others[label or text.lstrip("- ").lstrip("[臨觀固] ")[:20]] = text
     return {"head": "\n".join(head).strip(), "slices": slices, "others": others}
 
 
