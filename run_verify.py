@@ -42,16 +42,9 @@ if not paths:
         print("No verify/ directories found.")
     sys.exit(0)
 
-if not as_json:
-    print("verify paths:")
-    for p in paths:
-        print(f"  {p}")
-    # stdout 為 pipe 時 print 是 block-buffered，不 flush 會排到子行程 pytest 輸出之後
-    sys.stdout.flush()
-    result = subprocess.run([sys.executable, "-m", "pytest", *paths, "-v", "--tb=short"])
-    sys.exit(result.returncode)
-
-# --json：in-process pytest + 收集 plugin；pytest 的 terminal 輸出導入緩衝，stdout 只留 JSON
+# 兩種模式都 in-process 跑 pytest 收案數，結尾印量尺哨兵：全綠 `VERIFY_CHECK DONE cases=<n> failed=0`，
+# 有紅／錯 `VERIFY_CHECK FAIL cases=<n> failed=<k>` 且 exit 1（根層部位表 hooks/ 的量尺指令；
+# 人讀模式印 stdout，--json 模式印 stderr 讓 stdout 仍是純 JSON）
 import io
 import json
 import time
@@ -86,8 +79,15 @@ class _Collector:
 
 collector = _Collector()
 started = time.time()
-with redirect_stdout(io.StringIO()):
-    exit_code = int(pytest.main([*paths, "-q", "--tb=short"], plugins=[collector]))
+if as_json:
+    with redirect_stdout(io.StringIO()):
+        exit_code = int(pytest.main([*paths, "-q", "--tb=short"], plugins=[collector]))
+else:
+    print("verify paths:")
+    for p in paths:
+        print(f"  {p}")
+    sys.stdout.flush()
+    exit_code = int(pytest.main([*paths, "-v", "--tb=short"], plugins=[collector]))
 duration = round(time.time() - started, 2)
 
 counts = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0}
@@ -101,12 +101,21 @@ for c in collector.cases:
     else:  # setup/teardown 失敗 = error
         counts["errors"] += 1
 
-print(json.dumps({
-    "exit_code": exit_code,
-    "total": len(collector.cases),
-    **counts,
-    "duration_s": duration,
-    "paths": paths,
-    "cases": collector.cases,
-}, ensure_ascii=False))
+n_failed = counts["failed"] + counts["errors"]
+verdict = "DONE" if exit_code == 0 and n_failed == 0 else "FAIL"
+sentinel = f"VERIFY_CHECK {verdict} cases={len(collector.cases)} failed={n_failed}"
+if verdict == "FAIL" and exit_code == 0:
+    exit_code = 1
+if as_json:
+    print(json.dumps({
+        "exit_code": exit_code,
+        "total": len(collector.cases),
+        **counts,
+        "duration_s": duration,
+        "paths": paths,
+        "cases": collector.cases,
+    }, ensure_ascii=False))
+    print(sentinel, file=sys.stderr)
+else:
+    print(sentinel)
 sys.exit(exit_code)

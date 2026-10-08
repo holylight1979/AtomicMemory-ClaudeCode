@@ -1,0 +1,4 @@
+x_check pass
+測試通過了，看起來 PASS
+something_CHECK PASSED
+Everything ok

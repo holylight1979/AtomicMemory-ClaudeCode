@@ -213,8 +213,8 @@ def test_detect_dismiss_prompt_not_blocked():
 
 # ─── one-writer：post_tool_use 收 MCP emit → 獨佔寫 state + 落報告檔 ──────
 
-def _drive_ptu(monkeypatch, tmp_path, tool_input, turn_seq=7, session_id=_SID):
-    state = {"turn_seq": turn_seq}
+def _drive_ptu(monkeypatch, tmp_path, tool_input, turn_seq=7, session_id=_SID, **extra):
+    state = {"turn_seq": turn_seq, **extra}
     monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
@@ -348,6 +348,88 @@ def test_stop_pending_blocks_once(driven, capsys):
     out2 = driven([_mf(_CORE)], capsys, turn_seq=5, anti_evasion_report=rec,
                   aec_pending_gate_turn=5)
     assert "AEC-Pending" not in out2
+
+
+# ─── B7：收尾欄 (j) 證據持久路徑／(k) 追蹤項 ─────────────────────────────────
+
+def _full_input(**over):
+    base = {"a": "無", "b": "無", "c": "無", "d": "無", "e": "無", "f": "無", "g": "無", "h": "可關閉", "i": "無",
+            "j_evidence_path": "無", "k_followups": "無"}
+    base.update(over)
+    return base
+
+
+def test_ptu_emit_stores_j_k_and_missing_flags(monkeypatch, tmp_path):
+    """無收據：j「無」合法（j_missing False）；k 空字串 → k_missing True 並回告。"""
+    state = _drive_ptu(monkeypatch, tmp_path, _full_input(k_followups=""))
+    aec = state["anti_evasion_report"]
+    assert aec["j_evidence_path"] == "無" and aec["k_followups"] == ""
+    assert aec["j_missing"] is False and aec["k_missing"] is True
+    data = json.loads((tmp_path / "aec-report" / f"{_SID}-t7.json").read_text(encoding="utf-8"))
+    assert data["k_missing"] is True
+
+
+def test_ptu_emit_j_missing_when_receipts_exist(monkeypatch, tmp_path):
+    """本 session 有驗證收據而 j「無」→ j_missing True；j 指到真存在的檔 → False。"""
+    receipts = {"verify_receipts": {_SID: [{"turn_seq": 7, "sentinels": [{"name": "X_CHECK", "verdict": "PASS"}], "exit_code": None}]}}
+    state = _drive_ptu(monkeypatch, tmp_path, _full_input(), **receipts)
+    assert state["anti_evasion_report"]["j_missing"] is True
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_text("{}\n", encoding="utf-8", newline="\n")
+    state = _drive_ptu(monkeypatch, tmp_path, _full_input(j_evidence_path=str(ledger)), **receipts)
+    assert state["anti_evasion_report"]["j_missing"] is False
+
+
+def test_scan_report_message_lists_j_and_k(driven, capsys):
+    out = driven([_mf(_CORE)], capsys, turn_seq=5)
+    assert "(j) 證據持久路徑" in out and "(k) 追蹤項" in out and "十一參" in out
+
+
+def test_ptu_k_followups_tracking_hook(monkeypatch, tmp_path):
+    """(k)≠「無」→ 呼叫 wg_harvest.append_tracking（track-c C8）；k=「無」不呼叫。wg_harvest 的兩函式以 monkeypatch 提供。"""
+    import wg_harvest
+    calls = []
+    monkeypatch.setattr(wg_harvest, "tracking_entries",
+                        lambda sid, turn, k: [] if str(k).strip() in ("", "無") else [{"text": k, "turn_seq": turn}],
+                        raising=False)
+    monkeypatch.setattr(wg_harvest, "append_tracking", lambda slug, entries: calls.append((slug, entries)), raising=False)
+    _drive_ptu(monkeypatch, tmp_path, _full_input(k_followups="[hooks] 補 PowerShell 案"))
+    assert len(calls) == 1 and calls[0][0] == "root" and calls[0][1][0]["text"] == "[hooks] 補 PowerShell 案"
+    _drive_ptu(monkeypatch, tmp_path, _full_input(k_followups="無"))
+    assert len(calls) == 1
+
+
+@pytest.mark.skipif(not __import__("shutil").which("node"), reason="node not available")
+def test_aec_evidence_py_js_parity(tmp_path):
+    """MIRROR：aecEvidenceMissing／aecFollowupsMissing 與 Python 同結果。"""
+    import subprocess
+    from wg_verify_ledger import aec_evidence_missing, aec_followups_missing
+    exists = tmp_path / "e.txt"
+    exists.write_text("x", encoding="utf-8", newline="\n")
+    cases = [["無", True], ["無", False], ["", True], [str(exists), True], [str(tmp_path / "nope"), True],
+             [f"{exists} \u2014 帳本", True], [f"{exists}\n{tmp_path / 'nope'}", True]]
+    ks = ["", "  ", "無", "x \u2014 y"]
+    js = HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "anti-evasion.js"
+    script = ("const ae=require(process.argv[1]);const c=JSON.parse(process.argv[2]);const k=JSON.parse(process.argv[3]);"
+              "console.log(JSON.stringify([c.map(([j,r])=>ae.aecEvidenceMissing(j,r)),k.map(x=>ae.aecFollowupsMissing(x))]));")
+    res = subprocess.run(["node", "-e", script, str(js), json.dumps(cases, ensure_ascii=False), json.dumps(ks, ensure_ascii=False)],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+    assert res.returncode == 0, res.stderr
+    got_j, got_k = json.loads(res.stdout)
+    assert got_j == [aec_evidence_missing(j, r) for j, r in cases]
+    assert got_k == [aec_followups_missing(k) for k in ks]
+
+
+@pytest.mark.skipif(not __import__("shutil").which("node"), reason="node not available")
+def test_mcp_schema_requires_j_k():
+    import subprocess
+    js = HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "mcp.js"
+    script = ("const m=require(process.argv[1]);const t=m.TOOL_DEFINITIONS.find(x=>x.name==='anti_evasion_report');"
+              "console.log(JSON.stringify(t.inputSchema.required));")
+    res = subprocess.run(["node", "-e", script, str(js)], capture_output=True, text=True, encoding="utf-8")
+    assert res.returncode == 0, res.stderr
+    req = json.loads(res.stdout)
+    assert req[-2:] == ["j_evidence_path", "k_followups"] and len(req) == 11
 
 
 def test_stop_pending_sibling_not_blocked(driven, capsys):

@@ -129,3 +129,21 @@ def test_recall_miss_counts_window_filter(hw, tmp_path, monkeypatch):
 def test_recall_miss_counts_missing_log_zero(hw, tmp_path, monkeypatch):
     monkeypatch.setattr(hw, "RECALL_MISS_LOG", tmp_path / "nope.jsonl")
     assert hw._recall_miss_counts(14) == {}
+
+
+# ─── H7 Depends 區塊（stale_deps 黃、依賴比卡新黃、覆蓋率 info／低於門檻黃）────
+
+
+def test_depends_block_yellow_and_info(hw):
+    hc = {"stale_deps": [{"atom": "a", "dep": "x"}, {"atom": "b", "dep": "y"}],
+          "stale_mtime_deps": [{"atom": "c", "dep": "C:/p/q.py", "dep_mtime": "2026-10-02", "verified_at": "2026-09-01"}],
+          "depends_coverage": {"with_depends": 3, "total": 10, "ratio": 0.3}}
+    yellow, info = hw._depends_block(hc, 0.0)
+    assert any("stale_deps 2 筆" in y for y in yellow) and any("依賴比卡新 1 筆" in y and "c←q.py" in y for y in yellow)
+    assert info == ["Depends 覆蓋率 3/10 = 30.0%"] and not any("低於" in y for y in yellow)
+    yellow2, _ = hw._depends_block(hc, 0.5)
+    assert any("低於 depends_coverage_min 50.0%" in y for y in yellow2)
+
+
+def test_depends_block_silent_without_data(hw):
+    assert hw._depends_block({}, 0.0) == ([], [])
