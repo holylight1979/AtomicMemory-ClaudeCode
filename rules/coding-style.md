@@ -38,3 +38,6 @@
 - 證據與預期不符：不替原方案辯護、不擴大修改；先更新假設，再做能區分候選原因的最小檢查。
 - 交付前必實跑；回報分清已驗證事實、推論、未知，不用自信語氣填補證據缺口。
 - 以陌生維護者視角順資料流重讀；無法連續解釋的段落就要整理，但不因此自動拆分重寫。
+- 驗證腳本結尾印一行哨兵 `<NAME>_CHECK PASS` 或 `<NAME>_CHECK FAIL`（格式 `^[A-Z][A-Z0-9_]*_CHECK (PASS|FAIL)$`），exit 0／1 對應；只印 `<NAME>_CHECK` 缺字尾不算 PASS。
+- 量測類腳本結尾印 `<NAME> DONE k=v k=v`（格式 `^[A-Z][A-Z0-9_]* DONE( \w+=\S+)*$`），數字是尺不是判決，不印 PASS。
+- 既有工具尾行格式不同時不改工具，在專案 `.claude/overview-hub.json` 的 `prebuild_checks[]` 該項加 `sentinel_regex` 映射成上面兩種之一。

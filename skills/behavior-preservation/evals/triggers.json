@@ -1,0 +1,20 @@
+{
+  "_comment": "behavior-preservation 的觸發評估查詢：應觸發（行為保持／等值證明）與不應觸發（一般重構、測試、效能）。",
+  "skill_name": "behavior-preservation",
+  "queries": [
+    {"query": "把這七段 switch 改成查表，結果要跟原本完全一樣，怎麼證明", "should_trigger": true, "note": "明確要等值證明"},
+    {"query": "重構後行為不變，幫我做證據", "should_trigger": true, "note": "行為不變"},
+    {"query": "這次收口有沒有改到結果？要證給我看", "should_trigger": true, "note": "結果一樣的證明"},
+    {"query": "跑一下 preserve-check 看三類變異", "should_trigger": true, "note": "直接點名腳本"},
+    {"query": "舊碼解析預期表、新 dll 反射實跑，幫我照那套做", "should_trigger": true, "note": "引用證法本身"},
+    {"query": "特徵測試怎麼寫才能確定我沒改壞 else 的預設值", "should_trigger": true, "note": "boundary 類"},
+    {"query": "log 會不會因為我抽純函數跑到別的 case 去", "should_trigger": true, "note": "side_effect 類"},
+    {"query": "我把 list 換成 dict，順序會不會變？要怎麼證", "should_trigger": true, "note": "order 類"},
+    {"query": "幫我把這個函式重構得短一點", "should_trigger": false, "note": "一般重構，沒要證明"},
+    {"query": "幫我寫這個 API 的單元測試", "should_trigger": false, "note": "一般測試"},
+    {"query": "這段程式跑太慢，怎麼最佳化", "should_trigger": false, "note": "效能"},
+    {"query": "git 怎麼看舊版的檔案", "should_trigger": false, "note": "版控操作"},
+    {"query": "這個 switch 看起來好醜", "should_trigger": false, "note": "只是感想，沒要改也沒要證"},
+    {"query": "幫我做 code review", "should_trigger": false, "note": "走 /code-review"}
+  ]
+}
