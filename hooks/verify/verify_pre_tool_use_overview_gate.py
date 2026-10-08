@@ -129,6 +129,24 @@ def test_gate_internal_error_denies(world, monkeypatch):            # 退回 001
     assert '"event": "gate_error"' in log and '"deny_reason": "gate_error"' in log
 
 
+def test_write_state_failure_denies(world, monkeypatch):            # 退回 002 第 7 條：寫不進 state 就擋
+    proj, outputs, tp = world
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    assert _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))          # 正常：注入＋建檔
+    state = _state()
+    wo.on_read(state, SID, "Read", {"file_path": f1}, str(proj), tp, {})
+    wg_core.write_state(SID, state)
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
+                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"}]}}, ensure_ascii=False) + "\n")
+    with pytest.MonkeyPatch.context() as mp:                                   # 模擬 write_state 吞掉 OSError 沒寫進去
+        mp.setattr(wg_core, "write_state", lambda sid, st: None)
+        out = _run("Edit", {"file_path": f1}, proj, tp, outputs)
+    assert _deny(out) and "state 無法持久化" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert '"deny_reason": "state_unpersisted"' in (proj.parent / "hub.log").read_text(encoding="utf-8")
+    assert not _deny(_run("Edit", {"file_path": f1}, proj, tp, outputs))      # 寫得進去就放行
+
+
 def test_unknown_write_target_is_denied_end_to_end(world):           # 退回 001 BLOCK 4：解析不出 → fail-closed
     proj, outputs, tp = world
     out = _run("Bash", {"command": "echo x > $OUT/a.txt"}, proj, tp, outputs)

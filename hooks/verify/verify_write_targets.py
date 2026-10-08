@@ -111,6 +111,7 @@ def test_write_targets_cp_into_directory():
     assert _n(write_paths_from_tool("Bash", {"command": "cp src.py dest/"}, CWD)) == ["C:/Work/Proj/dest/src.py"]
     assert _n(write_paths_from_tool("Bash", {"command": "mv a.py b.py c/"}, CWD)) == ["C:/Work/Proj/c/a.py", "C:/Work/Proj/c/b.py"]
     assert _n(write_paths_from_tool("Bash", {"command": "cp -t dest a.py b.py"}, CWD)) == ["C:/Work/Proj/dest/a.py", "C:/Work/Proj/dest/b.py"]
+    assert _n(write_paths_from_tool("Bash", {"command": "cp --target-directory=dest a.py"}, CWD)) == ["C:/Work/Proj/dest/a.py"]
 
 
 def test_write_targets_cp_into_existing_directory(tmp_path):
@@ -130,9 +131,12 @@ def test_write_targets_quoted_gt_is_not_redirect():
 
 
 def test_write_targets_heredoc_body_is_not_scanned():
-    assert write_paths_from_tool("Bash", {"command": "python - <<EOF\nprint(1 > 0)\nEOF"}, CWD) == []
+    assert write_paths_from_tool("Bash", {"command": "cat <<EOF\nprint(1 > 0)\nEOF"}, CWD) == []
+    assert write_paths_from_tool("Bash", {"command": "git commit -F - <<'EOF'\nmsg > x\nEOF"}, CWD) == []
     got = _n(write_paths_from_tool("Bash", {"command": "cat > n.txt <<'EOT'\nhello > z\nEOT"}, CWD))
     assert got == ["C:/Work/Proj/n.txt"]                                                   # 標記行本身的 > 仍算
+    got = write_paths_from_tool("Bash", {"command": "python - <<EOF\nprint(1 > 0)\nEOF"}, CWD)
+    assert got == ["UNKNOWN:python -"]                                                      # R4：直譯器吃 stdin 碼 → UNKNOWN
 
 
 def test_write_targets_tee_to_devnull_has_no_phantom():
@@ -143,14 +147,173 @@ def test_write_targets_tee_to_devnull_has_no_phantom():
 @pytest.mark.parametrize("cmd", [
     "echo x > $OUT/a",                 # 展不開的變數
     "echo x > %TEMP%/a",               # Windows 變數
-    "eval echo x > a",                 # eval
-    "cd - && echo x > a",              # cd -
+    'eval "echo x > a"',               # eval 裡含寫入
+    "cd - && echo x > a",              # cd - 之後的相對目標
+    "cd $DIR && echo x > a",           # cd 到變數之後的相對目標
     "echo x >",                        # 孤兒重導向
     "Set-Content -Path $env:TEMP/a -Value x",
 ])
 def test_write_targets_unparseable_is_unknown(cmd):
     got = write_paths_from_tool("Bash", {"command": cmd}, CWD)
     assert len(got) == 1 and got[0].startswith("UNKNOWN:"), got
+
+
+# ─── 退回 002 R0～R5：每條指令一案 ─────────────────────────────────────────────
+
+def _bash(cmd):
+    return _n(write_paths_from_tool("Bash", {"command": cmd}, CWD))
+
+
+def _unknown(cmd):
+    got = write_paths_from_tool("Bash", {"command": cmd}, CWD)
+    return len(got) == 1 and got[0].startswith("UNKNOWN:")
+
+
+# BLOCK 1（R2 重導向黏連）
+def test_r2_ampersand_gt():
+    assert _bash("echo x &> a.py") == ["C:/Work/Proj/a.py"]
+
+
+def test_r2_glued_gt():
+    assert _bash("echo x>a.py") == ["C:/Work/Proj/a.py"]
+
+
+def test_r2_glued_append():
+    assert _bash("echo x>>a.py") == ["C:/Work/Proj/a.py"]
+
+
+def test_r2_gt_quoted_target():
+    assert _bash('echo x >"a.py"') == ["C:/Work/Proj/a.py"]
+
+
+def test_r2_clobber_pipe_is_redirect_not_unknown():
+    assert _bash("echo x >| a.py") == ["C:/Work/Proj/a.py"]
+
+
+def test_r2_fd_dup_and_nulls_are_not_targets():
+    assert _bash("cmd 2>&1 | grep err") == [] and _bash("echo x >&2") == [] and _bash("echo x 1>&2") == []
+    assert _bash("python x.py > /dev/null 2>&1") == [] and _bash("echo x > NUL") == []
+
+
+# BLOCK 2（R3 寫檔命令表／R4 直譯器）
+def test_r3_dd_of():
+    assert _bash("dd if=/dev/zero of=x bs=1") == ["C:/Work/Proj/x"]
+
+
+def test_r3_install_with_mode():
+    assert _bash("install -m 644 a b") == ["C:/Work/Proj/b"]
+
+
+def test_r3_rsync_into_dir():
+    assert _bash("rsync a b/") == ["C:/Work/Proj/b/a"]
+
+
+def test_r3_ln_symlink():
+    assert _bash("ln -sf a b") == ["C:/Work/Proj/b"]
+
+
+def test_r3_sed_glued_expression_flag():
+    assert _bash("sed -i -es/a/b/ a.py") == ["C:/Work/Proj/a.py"]
+    assert _bash("sed -es/i/x/ a.py") == []                                        # expression 裡的 i 不是 -i
+
+
+def test_r3_sed_w_command_writes_file():
+    assert _bash('sed -n "w a.py" b.py') == ["C:/Work/Proj/a.py"]
+    assert _bash("sed -n 's/a/b/w out.txt' in.txt") == ["C:/Work/Proj/out.txt"]
+
+
+def test_r3_touch_mkdir_rm_truncate_sort():
+    assert _bash("touch a b") == ["C:/Work/Proj/a", "C:/Work/Proj/b"]
+    assert _bash("mkdir -p out/sub") == ["C:/Work/Proj/out/sub"]
+    assert _bash("rm -rf build") == ["C:/Work/Proj/build"]
+    assert _bash("truncate -s 0 log.txt") == ["C:/Work/Proj/log.txt"]
+    assert _bash("sort -o out.txt in.txt") == ["C:/Work/Proj/out.txt"] and _bash("sort in.txt") == []
+
+
+def test_r3_env_assignment_and_wrapper_skipped():
+    assert _bash("FOO=1 tee a.py") == ["C:/Work/Proj/a.py"] and _bash("sudo cp a b") == ["C:/Work/Proj/b"]
+
+
+def test_r4_python_inline_code_is_unknown():
+    assert _unknown("python -c \"open('x','w').write('1')\"")
+    assert _unknown("python3 -c 'print(1)'") and _unknown("node -e \"fs.writeFileSync('x','1')\"")
+    assert _unknown("pwsh -Command \"Set-Content a b\"")
+    assert _bash("python x.py --out a.py") == []                                    # 跑腳本不是內嵌碼
+
+
+def test_r4_iofile_static_call_is_unknown():
+    got = write_paths_from_tool("PowerShell", {"command": "[IO.File]::WriteAllText('x','y')"}, CWD)
+    assert len(got) == 1 and got[0].startswith("UNKNOWN:")
+
+
+# BLOCK 3（R4 子 shell／替換；R5 作用域）
+def test_r5_subshell_targets_counted():
+    assert _bash("(tee a.py)") == ["C:/Work/Proj/a.py"]
+
+
+def test_r4_command_substitution_with_write_is_unknown():
+    assert _unknown("echo $(tee a.py)") and _unknown("echo `tee a.py`")
+    assert _bash("echo $(pwd)") == [] and _bash("echo `date` > a.py") == ["C:/Work/Proj/a.py"]
+
+
+def test_r4_cd_then_pipe_is_unknown():
+    assert _unknown("cd src | cat; echo x > a.py")
+
+
+def test_r4_cd_then_or_is_unknown():
+    assert _unknown("cd src || echo x > a.py")
+
+
+def test_r5_subshell_cd_does_not_leak():
+    assert _bash("(cd src; echo x > a.py); echo y > b.py") == ["C:/Work/Proj/src/a.py", "C:/Work/Proj/b.py"]
+    assert _bash("(cd src); echo x > a.py") == ["C:/Work/Proj/a.py"]
+
+
+def test_r5_cd_applies_after_semicolon_and_and():
+    assert _bash("cd src; echo x > a.py") == ["C:/Work/Proj/src/a.py"]
+    assert _bash("cd src && echo x > a.py") == ["C:/Work/Proj/src/a.py"]
+    assert _bash("cd src\necho x > a.py") == ["C:/Work/Proj/src/a.py"]
+
+
+def test_r5_cd_on_right_of_or_or_pipe_does_not_leak():
+    assert _bash("true || cd src; echo x > a.py") == ["C:/Work/Proj/a.py"]
+    assert _bash("cat f | cd src; echo x > a.py") == ["C:/Work/Proj/a.py"]
+
+
+# BLOCK 4／5（R1 前處理）
+def test_r1_quoted_heredoc_marker_is_not_heredoc():
+    assert _bash('echo "<<EOF"; echo x > a.py') == ["C:/Work/Proj/a.py"]
+    assert _bash("echo '<<EOF' > a.py") == ["C:/Work/Proj/a.py"]
+
+
+def test_r1_line_continuation_joins_target():
+    assert _bash("echo x > \\\na.py") == ["C:/Work/Proj/a.py"]
+
+
+def test_r1_comment_stripped_before_scan():
+    assert _bash("echo ok # > $x\necho y > b.py") == ["C:/Work/Proj/b.py"]
+    assert _bash("echo a#b > c.py") == ["C:/Work/Proj/c.py"]                     # 字中間的 # 不是註解
+
+
+# BLOCK 6（R0 沒有寫入訊號一律 []）
+def test_r0_cd_var_then_ls_is_empty():
+    assert _bash("cd $DIR && ls") == []
+
+
+def test_r0_cd_dash_is_empty():
+    assert _bash("cd -") == []
+
+
+def test_r0_eval_without_write_is_empty():
+    assert _bash('eval "pwd"') == []
+
+
+def test_r0_comment_with_redirect_is_empty():
+    assert _bash("echo ok # > $x") == []
+
+
+def test_r0_readonly_commands_with_gt_in_quotes_are_empty():
+    assert _bash("ls | grep '>'") == [] and _bash("git log --format='%H > %s'") == []
 
 
 def test_unknown_target_is_denied(tmp_path, monkeypatch):

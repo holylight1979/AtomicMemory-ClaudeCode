@@ -1604,114 +1604,270 @@ _BASH_WRITE_OP_RE = re.compile(
 
 # ─── 工具呼叫的寫入目標（OverviewHub 閘逐目標 on_edit；track-b 的 post_tool_use try-import）─────────
 # 介面凍結：write_paths_from_tool(tool_name, tool_input) -> List[str]，只回絕對路徑。
-# Bash／PowerShell：先剝 heredoc 本文，逐段（; | && || & 換行；引號內不切）處理，段內 `cd X` 更新之後的 cwd；
-# 取 `>`／`>>`（引號內的不算）、tee、sed -i（含 -ni／-i.bak）、cp／mv（目標是目錄 → 目錄/來源檔名）、
-# Set-Content／Out-File／Add-Content 的目標；/dev/null、$null、NUL、>&1／>&2 不算目標。
-# $HOME／~ 展成家目錄；其他 $VAR／%VAR%、eval、cd -、解析不出的段 → fail-closed 回 ["UNKNOWN:<該段前 40 字>"]，
-# on_edit 收到 UNKNOWN 一律 deny（改用 Edit／Write）。相對路徑以 cwd（未給時用行程 cwd）補成絕對。
-_BASH_WRITE_TARGET_RE = re.compile(r"^(\d*)(>>|>\||>)(.*)$")        # 一個 token 是不是輸出重導向；group(3)＝黏在後面的目標
-_FD_REDIRECT_RE = re.compile(r"^\d*>{1,2}&\d+$")                   # 2>&1／>&2：fd 間轉接，不是檔
-_HEREDOC_RE = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+# 規則（總控台定死 R0～R5）：
+#   R0 整條沒有寫入訊號（重導向／寫檔命令／直譯器內嵌碼／子 shell 或替換裡的寫入）一律回 []，不回 UNKNOWN。
+#   R1 先接 `\`＋換行續行；剝引號外的 # 註解；heredoc 只認引號外、token 開頭的 <<，本文整段跳過；引號內容是一個 token。
+#   R2 `>`／`>>`／`>|`／`&>`／`&>>` 黏連也算；fd 複製（2>&1、>&2）與 /dev/null、$null、NUL 不算目標。
+#   R3 寫檔命令表（第一個非 env 賦值 token）：tee／cp／mv／install／rsync／ln／dd of=／touch／mkdir／rm／truncate／
+#      sed（旗標含 i，或 expression 的 w 指令）／sort -o／Set-Content／Out-File／Add-Content／Copy-Item／Move-Item／New-Item／Remove-Item；
+#      cp 家族目標是目錄（尾 / 或既存目錄、或多來源）→ 目錄/basename(src)。
+#   R4 UNKNOWN 只在「有寫入訊號但算不出目標」：目標含展不開的變數（$HOME／~ 除外）、$(…)／反引號／eval 裡含寫入、
+#      直譯器內嵌碼（python -c／python -／node -e／pwsh -Command／[IO.File]::／open(…,'w')／fs.writeFile）、
+#      cd 之後用 |／|| 接寫入、cd 到變數或 cd - 之後的相對目標。回 ["UNKNOWN:<該段前 40 字>"]，on_edit 一律 deny。
+#   R5 `;`／`&&`／換行的 cd 生效到後段；||／| 右側的 cd 不外溢；(…) 子 shell 的 cd 不外溢，裡面的目標照算。
+_WRITE_CMDS = frozenset({
+    "tee", "cp", "mv", "install", "rsync", "ln", "dd", "touch", "mkdir", "rm", "truncate", "sed", "sort",
+    "set-content", "out-file", "add-content", "copy-item", "move-item", "new-item", "remove-item",
+})
+_COPY_CMDS = frozenset({"cp", "mv", "install", "rsync", "ln", "copy-item", "move-item"})
+_COPY_VALUE_FLAGS = frozenset({"-m", "-o", "-g", "-t", "-e", "--mode", "--owner", "--group", "--target-directory", "--suffix", "-S"})
+_PS_VALUE_PARAMS = frozenset({
+    "-value", "-encoding", "-itemtype", "-filter", "-include", "-exclude", "-destination", "-path", "-literalpath",
+    "-filepath", "-name", "-width", "-stream", "-delimiter",
+})
+_PS_PATH_PARAMS = frozenset({"-path", "-literalpath", "-filepath", "-destination"})
+_INTERPRETERS = {
+    "python": ("-c", "-"), "python3": ("-c", "-"), "py": ("-c", "-"), "pythonw": ("-c", "-"),
+    "node": ("-e", "--eval", "-p", "--print"), "nodejs": ("-e", "--eval", "-p", "--print"),
+    "pwsh": ("-command", "-c", "-encodedcommand", "-e", "-ec"), "powershell": ("-command", "-c", "-encodedcommand", "-e", "-ec"),
+}
+_INLINE_CODE_RE = re.compile(r"\[IO\.File\]::|\bopen\([^)]*['\"][wa]\+?['\"]|fs\.write(?:File|FileSync)\b", re.IGNORECASE)
+_SED_W_RE = re.compile(r"(?:^|[;{\n]\s*|/)w\s+(\S+)")
+_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_WRAPPERS = frozenset({"sudo", "exec", "nohup", "command", "builtin", "time"})
 _WRITE_TARGET_NULLS = frozenset({"/dev/null", "$null", "nul"})
 _WRITE_TARGET_UNKNOWN = "UNKNOWN"
-_PS_WRITE_CMDLETS = frozenset({"set-content", "add-content", "out-file"})
-_PS_PATH_PARAMS = frozenset({"-path", "-literalpath", "-filepath"})
-_PS_SWITCH_PARAMS = frozenset({
-    "-force", "-nonewline", "-append", "-passthru", "-noclobber", "-confirm", "-whatif",
-    "-asbytestream", "-usetransaction",
-})
+_HEREDOC_TAG_RE = re.compile(r"^-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
-def _strip_heredocs(cmd: str) -> str:
-    """去掉 heredoc 本文（`<<[-]['"]TAG` 那行之後到 TAG 行），本文裡的 `>` 不是重導向。"""
-    lines = cmd.split("\n")
-    out: List[str] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        out.append(line)
-        i += 1
-        m = _HEREDOC_RE.search(line)
-        if not m:
-            continue
-        tag = m.group(2)
-        while i < len(lines) and lines[i].strip() != tag:
-            i += 1
-        i += 1
-    return "\n".join(out)
+class _Tok:
+    """lexer 的一個 token。kind：W（字）／OUT（輸出重導向）／DUP（fd 複製，跳過）／IN（輸入重導向，跳過下一字）／
+    SEP（; && || | & 換行）／LP／RP。W 的 quoted＝任一部分被引號包過；subst＝字裡 $(…) 與反引號的內文。"""
+    __slots__ = ("kind", "text", "quoted", "subst")
+
+    def __init__(self, kind: str, text: str = "", quoted: bool = False, subst: Optional[List[str]] = None) -> None:
+        self.kind, self.text, self.quoted, self.subst = kind, text, quoted, subst or []
 
 
-def _split_shell(cmd: str) -> List[str]:
-    """依未加引號的 ; 換行 | || && & 切子段；`>&`／`&>`／`<&` 裡的 & 是重導向的一部分不切。"""
-    segs: List[str] = []
-    buf: List[str] = []
-    quote = ""
-    i, n = 0, len(cmd)
-    while i < n:
-        c = cmd[i]
-        if quote:
-            buf.append(c)
-            if c == "\\" and quote == '"' and i + 1 < n:
-                buf.append(cmd[i + 1])
-                i += 1
-            elif c == quote:
-                quote = ""
-        elif c in "'\"":
-            quote = c
-            buf.append(c)
-        elif c in ";\n":
-            segs.append("".join(buf))
-            buf = []
-        elif c == "|":
-            segs.append("".join(buf))
-            buf = []
-            if i + 1 < n and cmd[i + 1] == "|":
-                i += 1
-        elif c == "&":
-            prev = cmd[i - 1] if i > 0 else ""
-            nxt = cmd[i + 1] if i + 1 < n else ""
-            if prev in "<>" or nxt == ">":
-                buf.append(c)
-            else:
-                segs.append("".join(buf))
-                buf = []
-                if nxt == "&":
-                    i += 1
-        else:
-            buf.append(c)
-        i += 1
-    segs.append("".join(buf))
-    return [s.strip() for s in segs if s.strip()]
-
-
-def _shell_words(seg: str) -> List[Tuple[str, bool]]:
-    """quote-aware 切詞 → [(文字, 有沒有被引號包過)]；引號剝掉、引號內空白保留；不解跳脫。"""
-    out: List[Tuple[str, bool]] = []
+def _lex_shell(cmd: str) -> List[_Tok]:
+    """R1／R2 的詞法：續行、註解、heredoc、引號、$(…)／反引號、重導向運算子黏連、( ) 子 shell。"""
+    cmd = cmd.replace("\\\n", " ")
+    toks: List[_Tok] = []
     buf: List[str] = []
     quoted = False
-    quote = ""
-    for ch in seg:
-        if quote:
-            if ch == quote:
-                quote = ""
-            else:
-                buf.append(ch)
-        elif ch in "'\"":
-            quote = ch
+    subst: List[str] = []
+    pending_heredocs: List[str] = []
+    depth = 0
+    i, n = 0, len(cmd)
+
+    def flush() -> None:
+        nonlocal buf, quoted, subst
+        if buf or quoted:
+            toks.append(_Tok("W", "".join(buf), quoted, subst))
+        buf, quoted, subst = [], False, []
+
+    def read_subst(start: int, open_ch: str, close_ch: str) -> int:
+        """從 start（指在 $( 的 ( 或反引號後）讀到配對結束，回結束位置（含結尾字元）。"""
+        lvl = 1
+        j = start
+        while j < n:
+            c = cmd[j]
+            if open_ch != "`" and c == open_ch:
+                lvl += 1
+            elif c == close_ch:
+                lvl -= 1
+                if lvl == 0:
+                    return j
+            j += 1
+        return n - 1
+
+    while i < n:
+        c = cmd[i]
+        at_token_start = not buf and not quoted
+        if c == "'":
+            j = cmd.find("'", i + 1)
+            j = n if j < 0 else j
+            buf.append(cmd[i + 1:j])
             quoted = True
-        elif ch.isspace():
-            if buf or quoted:
-                out.append(("".join(buf), quoted))
-                buf, quoted = [], False
-        else:
-            buf.append(ch)
-    if buf or quoted:
-        out.append(("".join(buf), quoted))
-    return out
+            i = j + 1
+            continue
+        if c == '"':
+            j = i + 1
+            while j < n and cmd[j] != '"':
+                if cmd[j] == "\\" and j + 1 < n and cmd[j + 1] in '"$`\\':   # 雙引號內只有這幾個字元被跳脫；Windows 路徑的 \ 原樣保留
+                    buf.append(cmd[j + 1])
+                    j += 2
+                    continue
+                if cmd[j] == "$" and j + 1 < n and cmd[j + 1] == "(":
+                    k = read_subst(j + 2, "(", ")")
+                    subst.append(cmd[j + 2:k])
+                    buf.append(cmd[j:k + 1])
+                    j = k + 1
+                    continue
+                buf.append(cmd[j])
+                j += 1
+            quoted = True
+            i = j + 1
+            continue
+        if c == "`":
+            k = read_subst(i + 1, "`", "`")
+            subst.append(cmd[i + 1:k])
+            buf.append(cmd[i:k + 1])
+            i = k + 1
+            continue
+        if c == "$" and i + 1 < n and cmd[i + 1] == "(":
+            k = read_subst(i + 2, "(", ")")
+            subst.append(cmd[i + 2:k])
+            buf.append(cmd[i:k + 1])
+            i = k + 1
+            continue
+        if c == "#" and at_token_start:
+            j = cmd.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if c == "\n":
+            flush()
+            if pending_heredocs:
+                lines = cmd[i + 1:].split("\n")
+                skip = 0
+                for tag in pending_heredocs:
+                    while skip < len(lines) and lines[skip].strip() != tag:
+                        skip += 1
+                    skip += 1
+                pending_heredocs = []
+                consumed = sum(len(l) + 1 for l in lines[:skip])
+                i += 1 + consumed
+                toks.append(_Tok("SEP", "\n"))
+                continue
+            toks.append(_Tok("SEP", "\n"))
+            i += 1
+            continue
+        if c.isspace():
+            flush()
+            i += 1
+            continue
+        if c == ";":
+            flush()
+            toks.append(_Tok("SEP", ";"))
+            i += 1
+            continue
+        if c == "|":
+            flush()
+            if i + 1 < n and cmd[i + 1] == "|":
+                toks.append(_Tok("SEP", "||"))
+                i += 2
+            else:
+                toks.append(_Tok("SEP", "|"))
+                i += 1
+            continue
+        if c == "&":
+            nxt = cmd[i + 1] if i + 1 < n else ""
+            if nxt == ">":
+                flush()
+                if i + 2 < n and cmd[i + 2] == ">":
+                    toks.append(_Tok("OUT", "&>>"))
+                    i += 3
+                else:
+                    toks.append(_Tok("OUT", "&>"))
+                    i += 2
+                continue
+            flush()
+            if nxt == "&":
+                toks.append(_Tok("SEP", "&&"))
+                i += 2
+            else:
+                toks.append(_Tok("SEP", "&"))
+                i += 1
+            continue
+        if c == ">":
+            fd_prefix = bool(buf) and not quoted and "".join(buf).isdigit()
+            if fd_prefix:
+                buf = []
+            flush()
+            op = ">"
+            j = i + 1
+            if j < n and cmd[j] == ">":
+                op = ">>"
+                j += 1
+            elif j < n and cmd[j] == "|":
+                op = ">|"
+                j += 1
+            if j < n and cmd[j] == "&":
+                k = j + 1
+                while k < n and cmd[k].isdigit():
+                    k += 1
+                if k > j + 1 or (k < n and cmd[k] == "-"):
+                    toks.append(_Tok("DUP", cmd[i:k + 1]))
+                    i = k + (1 if k < n and cmd[k] == "-" else 0)
+                    continue
+                j += 1                                  # `>&file`：兩路都導到檔
+            toks.append(_Tok("OUT", op))
+            i = j
+            continue
+        if c == "<":
+            fd_prefix = bool(buf) and not quoted and "".join(buf).isdigit()
+            if fd_prefix:
+                buf = []
+            j = i + 1
+            if j < n and cmd[j] == "<":
+                j += 1
+                if j < n and cmd[j] == "<":
+                    flush()
+                    toks.append(_Tok("IN", "<<<"))
+                    i = j + 1
+                    continue
+                if at_token_start or fd_prefix:
+                    m = _HEREDOC_TAG_RE.match(cmd[j:])
+                    if m:
+                        flush()
+                        pending_heredocs.append(m.group(2))
+                        i = j + m.end()
+                        continue
+                flush()
+                toks.append(_Tok("IN", "<<"))
+                i = j
+                continue
+            if j < n and cmd[j] == "&":
+                flush()
+                k = j + 1
+                while k < n and cmd[k].isdigit():
+                    k += 1
+                toks.append(_Tok("DUP", cmd[i:k]))
+                i = k
+                continue
+            flush()
+            toks.append(_Tok("IN", "<"))
+            i = j
+            continue
+        if c == "(" and at_token_start:
+            toks.append(_Tok("LP"))
+            depth += 1
+            i += 1
+            continue
+        if c == ")" and depth > 0:
+            flush()
+            toks.append(_Tok("RP"))
+            depth -= 1
+            i += 1
+            continue
+        buf.append(c)
+        i += 1
+    flush()
+    return toks
 
 
-def _write_target_abs(tok: str, cwd: str) -> Optional[str]:
-    """寫入目標 token → 絕對路徑；fd／空裝置／旗標回 None；展不開的變數回 "UNKNOWN"。MSYS `/c/x` 轉 `C:/x`。"""
+class _Scan:
+    """一次解析的累積結果：targets（絕對路徑）、signal（有沒有寫入訊號）、unknown（算不出目標的那段文字）。"""
+    __slots__ = ("targets", "signal", "unknown")
+
+    def __init__(self) -> None:
+        self.targets: List[str] = []
+        self.signal = False
+        self.unknown: Optional[str] = None
+
+
+def _write_target_abs(tok: str, cwd: Optional[str]) -> Optional[str]:
+    """目標 token → 絕對路徑；fd／空裝置／旗標回 None；展不開的變數、或 cwd 不確定時的相對路徑回 "UNKNOWN"。MSYS `/c/x` 轉 `C:/x`。"""
     tok = tok.strip()
     if not tok or tok.startswith(("&", "-")) or tok.lower() in _WRITE_TARGET_NULLS:
         return None
@@ -1719,18 +1875,20 @@ def _write_target_abs(tok: str, cwd: str) -> Optional[str]:
     tok = tok.replace("${HOME}", home).replace("$HOME", home)
     if tok.startswith("~"):
         tok = os.path.expanduser(tok)
-    if "$" in tok or "%" in tok:
+    if "$" in tok or "%" in tok or "`" in tok:
         return _WRITE_TARGET_UNKNOWN
     m = re.match(r"^/([A-Za-z])/(.*)$", tok)
     if m:
         tok = f"{m.group(1).upper()}:/{m.group(2)}"
     if not (re.match(r"^[A-Za-z]:[\\/]", tok) or tok.startswith(("/", "\\\\"))):
+        if cwd is None:
+            return _WRITE_TARGET_UNKNOWN
         tok = os.path.join(cwd, tok)
     return os.path.normpath(tok)
 
 
-def _copy_targets(srcs: List[str], dst: str, cwd: str) -> List[Optional[str]]:
-    """cp／mv：目標以 / 結尾、是既存目錄、或來源多於一個 → 目錄/來源檔名；否則就是那個檔。"""
+def _copy_targets(srcs: List[str], dst: str, cwd: Optional[str]) -> List[Optional[str]]:
+    """cp 家族：目標以 / 結尾、是既存目錄、或來源多於一個 → 目錄/來源檔名；否則就是那個檔。"""
     d = _write_target_abs(dst, cwd)
     if d is None or d == _WRITE_TARGET_UNKNOWN:
         return [d]
@@ -1739,109 +1897,254 @@ def _copy_targets(srcs: List[str], dst: str, cwd: str) -> List[Optional[str]]:
     return [d]
 
 
-def _segment_write_targets(seg: str, cwd: str) -> Tuple[List[str], str, bool]:
-    """一個子段 → (寫入目標絕對路徑, 之後的 cwd, 解析不出)。解析不出＝有 UNKNOWN、eval、cd -、孤兒重導向。"""
-    words: List[Tuple[str, bool]] = []
-    raw_targets: List[str] = []
-    toks = _shell_words(seg)
+def _sed_targets(args: List[str]) -> Tuple[bool, List[str], List[str]]:
+    """sed 參數 → (就地改, 檔案清單, expression 裡 w 指令寫的檔)。短旗標串：i 在 e／f 之前才算 -i（-es/i/x/ 的 i 是 expression）。"""
+    inplace = False
+    scripts: List[str] = []
+    files: List[str] = []
+    skip = False
+    for a in args:
+        if skip:
+            scripts.append(a)
+            skip = False
+            continue
+        if a.startswith("--"):
+            if a == "--in-place" or a.startswith("--in-place="):
+                inplace = True
+            elif a.startswith(("--expression=", "--file=")):
+                scripts.append(a.split("=", 1)[1])
+            elif a in ("--expression", "--file"):
+                skip = True
+            continue
+        if a.startswith("-") and len(a) > 1:
+            for idx, ch in enumerate(a[1:]):
+                if ch == "i":
+                    inplace = True
+                    break
+                if ch in "ef":
+                    rest = a[idx + 2:]
+                    if rest:
+                        scripts.append(rest)
+                    else:
+                        skip = True
+                    break
+            continue
+        files.append(a)
+    if not scripts and files:
+        scripts, files = [files[0]], files[1:]
+    w_files = [m.group(1) for s in scripts for m in _SED_W_RE.finditer(s)]
+    return inplace, files, w_files
+
+
+def _ps_targets(name: str, args: List[str]) -> List[str]:
+    """PowerShell 寫檔 cmdlet 的目標：-Path／-LiteralPath／-FilePath／-Destination，否則位置參數（Copy／Move 取第二個，其餘第一個）。"""
+    named: Dict[str, str] = {}
+    positional: List[str] = []
+    j = 0
+    while j < len(args):
+        a = args[j]
+        low = a.lower()
+        if a.startswith("-"):
+            if low in _PS_VALUE_PARAMS and j + 1 < len(args):
+                named[low] = args[j + 1]
+                j += 2
+            else:
+                j += 1
+            continue
+        positional.append(a)
+        j += 1
+    if name in ("copy-item", "move-item"):
+        dst = named.get("-destination") or (positional[1] if len(positional) > 1 else "")
+        src = named.get("-path") or named.get("-literalpath") or (positional[0] if positional else "")
+        return [f"{dst}\x00{src}"] if dst else []
+    for key in ("-path", "-literalpath", "-filepath"):
+        if key in named:
+            path = named[key]
+            return [os.path.join(path, named["-name"]) if name == "new-item" and "-name" in named else path]
+    return positional[:1]
+
+
+def _scan_tokens(toks: List[_Tok], cwd: Optional[str], out: _Scan) -> Optional[str]:
+    """逐段掃 token（R3／R4／R5）；回最後的 cwd（None＝不確定）。子 shell 遞迴、不外溢 cwd。"""
+    seg: List[_Tok] = []
+    prev_sep = ""
     i = 0
     while i < len(toks):
-        t, q = toks[i]
-        if not q:
-            if _FD_REDIRECT_RE.match(t):
-                i += 1
-                continue
-            m = _BASH_WRITE_TARGET_RE.match(t)
-            if m:
-                rest = m.group(3)
-                if rest.startswith("&"):
-                    i += 1
-                    continue
-                if not rest:
-                    i += 1
-                    if i >= len(toks):
-                        return [], cwd, True
-                    rest = toks[i][0]
-                raw_targets.append(rest)
-                i += 1
-                continue
-            if t.startswith("<"):
-                if t in ("<", "<<", "<<<"):
-                    i += 1
-                i += 1
-                continue
-        words.append((t, q))
-        i += 1
-    out: List[Optional[str]] = [_write_target_abs(r, cwd) for r in raw_targets]
-    if words:
-        name = words[0][0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
-        args = [w for w, _ in words[1:]]
-        positional = [a for a in args if not a.startswith("-")]
-        if name == "eval":
-            return [], cwd, True
-        if name in ("cd", "pushd"):
-            if not args:
-                cwd = str(Path.home())
-            elif args[0] == "-":
-                return [], cwd, True
-            else:
-                nxt = _write_target_abs(args[0], cwd)
-                if nxt is None or nxt == _WRITE_TARGET_UNKNOWN:
-                    return [], cwd, True
-                cwd = nxt
-        elif name == "tee":
-            out += [_write_target_abs(a, cwd) for a in positional]
-        elif name == "sed":
-            inplace = any((a.startswith("-") and not a.startswith("--") and "i" in a[1:]) or a == "--in-place"
-                          or a.startswith("--in-place=") for a in args)
-            if inplace:
-                files: List[str] = []
-                skip = saw_script_flag = False
-                for a in args:
-                    if skip:
-                        skip = False
-                        continue
-                    if a in ("-e", "--expression", "-f", "--file"):
-                        skip = saw_script_flag = True
-                        continue
-                    if a.startswith("--expression=") or a.startswith("--file="):
-                        saw_script_flag = True
-                        continue
-                    if a.startswith("-"):
-                        continue
-                    files.append(a)
-                out += [_write_target_abs(f, cwd) for f in (files if saw_script_flag else files[1:])]
-        elif name in ("cp", "mv"):
-            if "-t" in args and args.index("-t") + 1 < len(args):
-                d = args[args.index("-t") + 1]
-                out += _copy_targets([p for p in positional if p != d], d + "/", cwd)
-            elif len(positional) >= 2:
-                out += _copy_targets(positional[:-1], positional[-1], cwd)
-        elif name in _PS_WRITE_CMDLETS:
-            target = None
-            j = 0
-            while j < len(args):
-                a = args[j]
-                low = a.lower()
-                if low in _PS_PATH_PARAMS and j + 1 < len(args):
-                    target = args[j + 1]
-                    break
-                if a.startswith("-"):
-                    j += 1 if low in _PS_SWITCH_PARAMS else 2
-                    continue
-                if target is None:
-                    target = a
+        t = toks[i]
+        if t.kind == "LP":
+            lvl, j = 1, i + 1
+            while j < len(toks) and lvl:
+                lvl += {"LP": 1, "RP": -1}.get(toks[j].kind, 0)
                 j += 1
-            if target:
-                out.append(_write_target_abs(target, cwd))
-    if any(p == _WRITE_TARGET_UNKNOWN for p in out):
-        return [], cwd, True
-    return [p for p in out if p], cwd, False
+            _scan_tokens(toks[i + 1:j - 1], cwd, out)
+            i = j
+            continue
+        if t.kind == "SEP":
+            cwd = _scan_segment(seg, cwd, prev_sep, t.text, out)
+            seg, prev_sep = [], t.text
+            i += 1
+            continue
+        seg.append(t)
+        i += 1
+    return _scan_segment(seg, cwd, prev_sep, "", out)
+
+
+def _mark_unknown(out: _Scan, seg: List[_Tok]) -> None:
+    out.signal = True
+    if out.unknown is None:
+        out.unknown = " ".join(t.text for t in seg if t.text)
+
+
+def _add(out: _Scan, seg: List[_Tok], resolved: Optional[str]) -> None:
+    if resolved == _WRITE_TARGET_UNKNOWN:
+        _mark_unknown(out, seg)
+    elif resolved and resolved not in out.targets:
+        out.targets.append(resolved)
+
+
+def _inner_has_signal(text: str, cwd: Optional[str]) -> bool:
+    inner = _Scan()
+    _scan_tokens(_lex_shell(text), cwd, inner)
+    return inner.signal
+
+
+def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: str, out: _Scan) -> Optional[str]:
+    """一個子段：先收重導向目標，再看第一個命令字是不是寫檔命令／直譯器／eval／cd。回之後的 cwd。"""
+    if not seg:
+        return cwd
+    words: List[_Tok] = []
+    i = 0
+    while i < len(seg):
+        t = seg[i]
+        if t.kind == "OUT":
+            out.signal = True
+            if i + 1 >= len(seg) or seg[i + 1].kind != "W":
+                _mark_unknown(out, seg)
+                return cwd
+            tgt = seg[i + 1]
+            _add(out, seg, _WRITE_TARGET_UNKNOWN if tgt.subst else _write_target_abs(tgt.text, cwd))
+            i += 2
+            continue
+        if t.kind == "IN":
+            i += 2
+            continue
+        if t.kind == "DUP":
+            i += 1
+            continue
+        words.append(t)
+        i += 1
+    for w in words:
+        if w.subst and any(_inner_has_signal(s, cwd) for s in w.subst):
+            _mark_unknown(out, seg)
+            return cwd
+        if _INLINE_CODE_RE.search(w.text):
+            _mark_unknown(out, seg)
+            return cwd
+    k = 0
+    while k < len(words) and (_ENV_ASSIGN_RE.match(words[k].text) or words[k].text.lower() in _WRAPPERS):
+        k += 1
+    if k >= len(words):
+        return cwd
+    name = words[k].text.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+    if name.endswith(".exe"):
+        name = name[:-4]
+    args = [w.text for w in words[k + 1:]]
+    lows = [a.lower() for a in args]
+    if name in _INTERPRETERS and any(a in _INTERPRETERS[name] for a in lows):
+        _mark_unknown(out, seg)
+        return cwd
+    if name == "eval":
+        if _inner_has_signal(" ".join(args), cwd):
+            _mark_unknown(out, seg)
+        return cwd
+    if name in ("cd", "pushd"):
+        if prev_sep in ("|", "||"):
+            return cwd                                   # ||／| 右側的 cd 不外溢
+        if not args:
+            new = str(Path.home())
+        elif args[0] == "-":
+            new = None
+        else:
+            r = _write_target_abs(args[0], cwd)
+            new = None if r in (None, _WRITE_TARGET_UNKNOWN) else r
+        return None if next_sep in ("|", "||") else new    # cd 之後接 |／||：成功與否不確定
+    if name not in _WRITE_CMDS:
+        return cwd
+    out.signal = True
+    positional = [a for a in args if not a.startswith("-")]
+    if name == "tee":
+        for a in positional:
+            _add(out, seg, _write_target_abs(a, cwd))
+    elif name in ("touch", "mkdir", "rm", "truncate"):
+        skip = False
+        for a in args:
+            if skip:
+                skip = False
+                continue
+            if a in ("-s", "--size", "-r", "--reference", "-m", "-d", "--date", "-t"):
+                skip = True
+                continue
+            if not a.startswith("-"):
+                _add(out, seg, _write_target_abs(a, cwd))
+    elif name == "dd":
+        for a in args:
+            if a.startswith("of="):
+                _add(out, seg, _write_target_abs(a[3:], cwd))
+    elif name == "sort":
+        for j, a in enumerate(args):
+            if a == "-o" and j + 1 < len(args):
+                _add(out, seg, _write_target_abs(args[j + 1], cwd))
+            elif a.startswith("--output="):
+                _add(out, seg, _write_target_abs(a.split("=", 1)[1], cwd))
+            elif a.startswith("-o") and len(a) > 2:
+                _add(out, seg, _write_target_abs(a[2:], cwd))
+    elif name == "sed":
+        inplace, files, w_files = _sed_targets(args)
+        for f in (files if inplace else []) + w_files:
+            _add(out, seg, _write_target_abs(f, cwd))
+    elif name in _COPY_CMDS and name in ("cp", "mv", "install", "rsync", "ln"):
+        pos: List[str] = []
+        tdir = ""
+        skip = False
+        for a in args:
+            if skip:
+                skip = False
+                continue
+            if a in ("-t", "--target-directory"):
+                tdir = "\x01"                        # 下一個字就是目標目錄
+                continue
+            if a.startswith("--target-directory="):
+                tdir = a.split("=", 1)[1]
+                continue
+            if a in _COPY_VALUE_FLAGS:
+                skip = True
+                continue
+            if a.startswith("-"):
+                continue
+            if tdir == "\x01":
+                tdir = a
+                continue
+            pos.append(a)
+        if tdir:
+            for p in _copy_targets(pos, tdir + "/", cwd):
+                _add(out, seg, p)
+        elif len(pos) >= 2:
+            for p in _copy_targets(pos[:-1], pos[-1], cwd):
+                _add(out, seg, p)
+    else:
+        for item in _ps_targets(name, args):
+            if "\x00" in item:
+                dst, src = item.split("\x00", 1)
+                for p in _copy_targets([src] if src else ["x"], dst, cwd):
+                    _add(out, seg, p)
+            else:
+                _add(out, seg, _write_target_abs(item, cwd))
+    return cwd
 
 
 def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optional[str] = None) -> List[str]:
     """工具呼叫會寫到哪些檔（絕對路徑、去重、保序）。Edit／Write／NotebookEdit／MultiEdit 取 file_path（相對以 cwd 補）；
-    Bash／PowerShell 取指令裡的寫入目標，任何一段解析不出就只回 ["UNKNOWN:<該段前 40 字>"]（fail-closed）；其他工具回 []。"""
+    Bash／PowerShell 依 R0～R5：沒有寫入訊號回 []；有訊號但算不出目標回 ["UNKNOWN:<該段前 40 字>"]（fail-closed）；其他工具回 []。"""
     base = cwd or os.getcwd()
     if tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit"):
         fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "") or ""
@@ -1851,14 +2154,13 @@ def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optio
         return [p if p and p != _WRITE_TARGET_UNKNOWN else f"{_WRITE_TARGET_UNKNOWN}:{fp[:40]}"]
     if tool_name not in ("Bash", "PowerShell"):
         return []
-    out: List[str] = []
-    cur = base
-    for seg in _split_shell(_strip_heredocs(tool_input.get("command", "") or "")):
-        targets, cur, unknown = _segment_write_targets(seg, cur)
-        if unknown:
-            return [f"{_WRITE_TARGET_UNKNOWN}:{seg[:40]}"]
-        out += [p for p in targets if p not in out]
-    return out
+    out = _Scan()
+    _scan_tokens(_lex_shell(tool_input.get("command", "") or ""), base, out)
+    if not out.signal:
+        return []
+    if out.unknown is not None:
+        return [f"{_WRITE_TARGET_UNKNOWN}:{out.unknown[:40]}"]
+    return out.targets
 
 
 def check_cross_realm_bash(

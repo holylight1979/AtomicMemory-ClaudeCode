@@ -944,6 +944,14 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         break
                 if _hub_persist and hub_changed:   # 放行也要落盤（located／edits／part_files_read）
                     _ws(_co_sid, _hub_state)
+                    # write_state 失敗只吞 OSError 不回報：回讀磁碟核對，寫不進去就擋（否則下一次 Edit 又被當第一次）
+                    _cid = (_hub_state.get("session") or {}).get("id") or _co_sid
+                    _disk, _dst = read_state_status(_cid)
+                    if _dst != "ok" or (_disk or {}).get("overview_hub") != _hub_state.get("overview_hub"):
+                        hub_deny = (f"[Guardian:OverviewHub] state 無法持久化（{_dst}；workflow/state-{_cid[:8]}….json）："
+                                    f"注入與定位紀錄寫不進 state 檔，閘無法累積證據，一律擋。修好 workflow/ 目錄的寫入再改。")
+                        from wg_overview import _log as _hub_log
+                        _hub_log("state_persist_failed", _co_sid, tool=tool_name, status=_dst, deny_reason="state_unpersisted")
                 hub_warn = "\n".join(_hub_warns) or None
         except Exception as e:
             # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝不知道該不該擋 → 一律擋，不 fail-open；traceback 進 stderr 與 hub log
