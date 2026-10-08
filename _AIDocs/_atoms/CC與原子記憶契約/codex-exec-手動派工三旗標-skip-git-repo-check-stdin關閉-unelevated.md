@@ -16,6 +16,8 @@
 - [臨] 審查簡報有效寫法：列「必讀檔＋行號」要它真開檔核對、列「禁區契約」逐條核對、要求 BLOCK 只給「不修就會錯」且附 file:line，最後附「核對表」讓它逐條回證實／推翻／部分——它會主動把我計畫裡過度絕對的措辭降級成「部分」，比只問「有沒有問題」有用得多。
 - [臨] Plan Mode 下派 Codex 審查要用 **PowerShell 工具**（實測）：Bash 工具會被 `plan_bash_guard` 擋下——它把重導向（`> reply.md`、`</dev/null`）、`mkdir`、`cd` 都當成寫檔。PowerShell 工具的 stdin 本來就接空裝置（不會卡 EOF），提示詞用單引號 here-string 放變數再當參數傳、輸出用 `-o <絕對路徑>`，其餘旗標同上（`-s read-only -C <repo> --ephemeral -m gpt-6-astra`）。同理，Plan Mode 裡的 Bash 指令要寫成無重導向、無 `cd`，讀 log 改用 Grep／Read 工具。
 - [臨] 兩輪審查的分工手感：第一輪給「必讀檔＋行號、禁區契約、輸出 BLOCK／WARN／雞肋／衝突／時間／核對表」，回 8 條 BLOCK 親自對碼全成立；第二輪可換立場（例「地基辩方」）要它先自己否決過度設計部分，結論會收斂成「只准加回三件事」。
+- [臨] `-s read-only` 下 codex 會自己跑 pytest 但把「要寫暫存檔／建 git repo」的案 deselect（實例：36 案報 30 passed、6 deselected），它回報的通過數不等於全套；總控台必須自己在 worktree 跑完整目標 verify，不拿 codex 的計數當證據。
+- [臨] 契約核對表式簡報對「作者自測全綠」的分支仍有效：18 檔、174 秒、4 萬 token，回 3 條 BLOCK 附 file:line 與重現法，親自重現 3/3 成立（零 case 放行、執行器 return code 被忽略、`+++` 排檔頭誤殺 `++x` 行）——都是作者自己寫 verify 時不會想到的反例，第二意見的價值在找「測試作者的盲點」而非重跑測試。
 
 ## 行動
 
