@@ -1,0 +1,78 @@
+C2M: server handlers=494 client sends=492 handler-without-client-send=8 client-send-without-handler=6
+M2C: server sends=754 client registered=645 client any-ref=792 server-send-client-never-refs=17 client-registered-server-never-sends=39
+
+-- C2M: handler exists, no client send --
+  C2M_ActivityGuildBoss_QueryActData  @ sgi_server/MapServer/GameServer/GameClient.Handler.Activity.cs
+  C2M_ActivityGuildBoss_QueryFightData  @ sgi_server/MapServer/GameServer/GameClient.Handler.Activity.cs
+  C2M_ActivityGuildBoss_QueryGuildData  @ sgi_server/MapServer/GameServer/GameClient.Handler.Activity.cs
+  C2M_EquipComposite  @ sgi_server/MapServer/Module/DataModule/Character/Item/EquipDataModule.Handler.cs
+  C2M_EquipDismantle  @ sgi_server/MapServer/Module/DataModule/Character/Item/EquipDataModule.Handler.cs
+  C2M_HeroAutoFollower  @ sgi_server/MapServer/GameServer/GameClient.Handler.Follower.cs
+  C2M_HeroRemoveAllFollower  @ sgi_server/MapServer/GameServer/GameClient.Handler.Follower.cs
+  C2M_QueryEntityLocation  @ sgi_server/MapServer/GameServer/GameClient.Handler.cs
+-- C2M: client sends, no handler in MapServer --
+  C2M_ActivityRank_QueryLeaderboardVersion  @ sgi_client/client/Assets/ILRuntimeScripts/ILScript~/NetworkModule/SendHandler/ILNetSystem.ActivityModule.cs
+  C2M_CastleSendTroop  @ sgi_client/client/Assets/MainScripts/RuntimeEditor/Map/TroopEditorUnitController.cs
+  C2M_GetFirstStored  @ sgi_client/client/Assets/ILRuntimeScripts/ILScript~/NetworkModule/SendHandler/ILNetSystem.ClientPlayerModule.cs
+  C2M_ShareScoutReport  @ sgi_client/client/Assets/ILRuntimeScripts/ILScript~/NetworkModule/SendHandler/ILNetSystem.MailModule.cs
+  C2M_VipBuyGift  @ sgi_client/client/Assets/ILRuntimeScripts/ILScript~/NetworkModule/SendHandler/ILNetSystem.VipDataModule.cs
+  C2M_WorldCityDataList  @ sgi_client/client/Assets/MainScripts/TestCode/UISimpletTest.TerritoryMap.cs
+-- M2C: server sends, client never references --
+  M2C_ActivityFangActive_QuerySelfData  @ sgi_server/MapServer/Module/Manager/ActivityFangActiveManager.cs
+  M2C_ActivityFangActive_RankListData  @ sgi_server/MapServer/Module/Manager/ActivityFangActiveManager.cs
+  M2C_BattleStratagem_SetShowOnMap  @ sgi_server/MapServer/GameServer/GameClient.Handler.BattleStratagem.cs
+  M2C_Battlefield_SendTroop  @ sgi_server/MapServer/Module/Manager/ClientController/BattlefieldZoneClientController.cs
+  M2C_Caravan_JoinGuardian  @ sgi_server/MapServer/GameServer/GameClient.Handler.Caravan.cs
+  M2C_CreateCharacter  @ sgi_server/MapServer/GameServer/GameServer.cs
+  M2C_EquipDismantleReply  @ sgi_server/MapServer/Module/DataModule/Character/Item/EquipDataModule.Handler.cs
+  M2C_GMInstruction  @ sgi_server/MapServer/Module/GM/GMInstructionModule.cs
+  M2C_HeartBeat  @ sgi_server/MapServer/EntryServer/EntryServer.Handler.cs
+  M2C_HeroAutoFollower  @ sgi_server/MapServer/GameServer/GameClient.Handler.Follower.cs
+  M2C_MailDeleteRead  @ sgi_server/MapServer/Module/Manager/ClientController/MailController.cs
+  M2C_QueryEntityLocation  @ sgi_server/MapServer/GameServer/GameClient.Handler.cs
+  M2C_SaveCharacterSettingNotfiy  @ sgi_server/MapServer/GameServer/GameClient.Handler.cs
+  M2C_ScoutBack  @ sgi_server/MapServer/Module/DataModule/World/Block/MapModule.Handler.cs
+  M2C_ScoutChangeTarget  @ sgi_server/MapServer/Module/DataModule/World/Block/MapModule.Handler.cs
+  M2C_SendFCMToken  @ sgi_server/MapServer/GameServer/GameClient.Handler.cs
+  M2C_ZoneStageSendTroop  @ sgi_server/MapServer/GameServer/GameClient.Handler.ZoneStage.cs
+-- M2C: client registered, MapServer never sends (may be sent by other servers) --
+  M2C_BattleStratagem_CancelArrange
+  M2C_BattlefieldRallyCloseNotify
+  M2C_BattlefieldRallyCreateNotify
+  M2C_BattlefieldRallyError
+  M2C_BattlefieldRallyPathUpdate
+  M2C_BattlefieldRallySoldierUpdate
+  M2C_BattlefieldRallyStatusNotify
+  M2C_BattlefieldRallyTroopArriveNotify
+  M2C_BattlefieldRallyTroopJoinNotify
+  M2C_BattlefieldRallyTroopLeaveNotify
+  M2C_BattlefieldRallyTroopUpdate
+  M2C_Battlefield_CityDataUpdate
+  M2C_Battlefield_CityLeaderUpdate
+  M2C_Battlefield_CityReinforceUpdate
+  M2C_Battlefield_CitySoldierUpdate
+  M2C_Battlefield_SyncInBattlefieldHero
+  M2C_Battlefield_ZoneSyncCombatant
+  M2C_Battlefield_ZoneSyncKillPoint
+  M2C_Battlefield_ZoneSyncScore
+  M2C_BuildingUpgradeFinished
+  M2C_ChangeGuild
+  M2C_CharacterArmySetting
+  M2C_DeleteCharacterArmySetting
+  M2C_EditorNetCommand
+  M2C_GetFirstStored
+  M2C_GuildDataRequest
+  M2C_GuildRallyCreateJoin
+  M2C_GuildReturnDefend
+  M2C_Logout
+  M2C_MailDelete
+  M2C_MailGetAllReward
+  M2C_MailRead
+  M2C_MailReply
+  M2C_MailSetFavorite
+  M2C_MilestoneUpdateReward
+  M2C_QuestChapterGetAllData
+  M2C_QuestResetStage
+  M2C_SaveCharacterArmySetting
+  M2C_ServerKickClient
+PROTOCOL_WIRING_CHECK FAIL

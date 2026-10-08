@@ -1,0 +1,14 @@
+[22:14:26] self castle: (1001, 'PlayerCastle', 'Neutral', 1)
+[22:14:28] dispatch P: dispatch troop#1068 (3000) soul#13 -> attack #1033
+[22:14:42] return P: return 1068
+[22:14:48] dispatch Q->P: dispatch troop#1069 (3000) soul#13 -> attack #1068
+[22:15:10] Q#1069 cannot-be-engaged after 20s: 0
+[22:15:12] stop Q: stop 1069
+[22:15:17] attack Q->P again: attack 1069 -> 1068
+[22:15:39] Q#1069 cannot-be-engaged after re-attack: 0
+    22:15:12.537 [Server] [Combat] 交戰 #1057 vs #1069 移除（Garrison，由 #1069 觸發）
+    22:15:12.537 [Server] [Combat] 交戰 #1058 vs #1069 移除（Garrison，由 #1069 觸發）
+    22:15:12.538 [Server] [Combat] 交戰 #1056 vs #1069 移除（Garrison，由 #1069 觸發）
+    22:15:17.568 [Server] [Attack] 部隊#1069 攻#1068 遭擋下：目標實體不存在（已被移除？）。指令未執行。
+[22:15:41] P/Q state: {1069: (False, True)} engagements: [[1056, 1069], [1057, 1069], [1058, 1069]]
+RESULT2 {"first": 0, "after_reattack": 0}

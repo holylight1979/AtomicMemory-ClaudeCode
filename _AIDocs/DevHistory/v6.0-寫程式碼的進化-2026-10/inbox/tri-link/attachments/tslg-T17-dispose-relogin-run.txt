@@ -1,0 +1,32 @@
+[22:28:14] login: clicked Button_Confirm
+[22:28:31] map: clicked Button_Map
+[22:28:56] dispatch: dispatch troop#1066 (3000) soul#13 -> attack #1056
+[22:29:05] before leave: entities 66 engagements 3
+[22:29:07] MapTickPerf before: frames 2709
+[22:29:09] switch_scene final: switching to final
+[22:29:18] info after restart: {'status': 'ok', 'playing': True, 'scene': None, 'mapReady': False}
+[22:29:36] login: clicked Button_Confirm
+[22:29:53] map: clicked Button_Map
+RESULT {
+ "before_leave": {
+  "entities": 66,
+  "engagements": 3
+ },
+ "after_relogin": {
+  "entities": 65,
+  "engagements": 0
+ },
+ "MapTickPerf_frames_before": 2709,
+ "MapTickPerf_frames_after_relogin": 2100,
+ "tick_report_head": "window=40.8s frames=2100 tickTotal=173.2ms tickPerSec=4.24ms/s\n  Engagements 68.91ms x2100 (1.69ms/s, 39.8%)\n  ResourceL",
+ "exceptions": [
+  "[React] load rejected id=900017: field 'entry.index' must be an int >= 1",
+  "偵測到遺失的資源關聯 !! 看到此Error請通知程式處理 !!\r\n資源:<color=yellow>art/fx/grape/str_gfx_hero_00004_a01.prefab</color>遺失使用者:\r\n<color=red>[MapWorldRoot]/[MapFx] (-303708)</color>",
+  "[React] load rejected id=900017: field 'entry.index' must be an int >= 1"
+ ],
+ "release_msgs": [
+  "[ThemeManager] Released",
+  "[HybridCLR] ReleaseALL() completed (reload)"
+ ],
+ "log_entries": 234
+}

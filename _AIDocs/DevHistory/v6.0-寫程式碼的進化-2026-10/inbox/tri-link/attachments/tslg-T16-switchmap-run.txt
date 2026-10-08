@@ -1,0 +1,27 @@
+[22:22:46] login: clicked Button_Confirm
+[22:23:03] map: clicked Button_Map
+[22:23:25] before: entities 65 engagements 0 guild 1 zones 1
+[22:23:27] dispatch: dispatch troop#1066 (3000) soul#13 -> attack #1056
+[22:23:37] pre-switch: entities 66 engagements 3
+[22:23:39] progress before: {"GuildId":1,"Track":"Gve","CurrentMapId":1,"CurrentMapName":"試煉之地","ClanAgeDays":0.7897169,"MapElapsedSec":47.3830147,"ClearProgress":0,"ClearNeed":1,"ClearedMaps":[],"NextMapId":2,"NextUnlockClanDay
+[22:23:43] set_founded_time: set founded time clan 1 -> 30 days ago
+[22:23:45] force_clear: force clear current map (clan 1)
+[22:23:56] progress after: {"GuildId":1,"Track":"Gve","CurrentMapId":2,"CurrentMapName":"荒野獵場","ClanAgeDays":30.22411,"MapElapsedSec":11.3873978,"ClearProgress":0,"ClearNeed":3,"ClearedMaps":[1],"NextMapId":3,"NextUnlockClanDay
+RESULT {
+ "before": {
+  "entities": 66,
+  "engagements": 3
+ },
+ "after": {
+  "entities": 61,
+  "engagements": 0,
+  "rebuilt": true
+ },
+ "teardown_msgs": [],
+ "exceptions": [
+  "[HxStrategyMapLoader] map[2] cannot resolve background: f_strategy_map[2] missing in #strategy_map, skip terrain load"
+ ],
+ "log_entries": 38,
+ "frameMsP90": 19.89,
+ "frames": 3977
+}

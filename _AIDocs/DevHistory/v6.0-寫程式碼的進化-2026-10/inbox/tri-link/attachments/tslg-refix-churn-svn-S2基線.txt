@@ -1,0 +1,51 @@
+# TSLG Client S2 基線（refix_churn_svn.py，2026-10-08）
+
+path=C:/TSLG/Client since=2026-08-09 window=14d ext=.cs
+commits=1847 fix_commits=199 files_touched_by_fix=600 files_refixed=105
+pairs fixes  file
+  143    20  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/BattleManager.cs  r1895,r2614,r2617,r2618,r2830,r2918,r3029,r3052,r3076,r3081,r3107,r3126,r3183,r3641,r3698,r3705,r3728,r3729,r3814,r3816
+   91    17  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/Simulator/DemoModel.cs  r2003,r2105,r2182,r2254,r2616,r2617,r2618,r2830,r3027,r3029,r3075,r3081,r3150,r3183,r3322,r3422,r3698
+   57    17  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Entry/HxMapEntry.cs  r1841,r1895,r1902,r2013,r2014,r2016,r2211,r2289,r2890,r3044,r3108,r3126,r3410,r3611,r3667,r3744,r3823
+   51    12  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/MapExplore/View/GridMapView.cs  r2028,r2779,r2793,r2871,r2924,r3409,r3410,r3465,r3547,r3559,r3562,r4061
+   48    16  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/FakeServer/FakeMapServer.cs  r1841,r1864,r1895,r1902,r2211,r2274,r2302,r2684,r2830,r3044,r3126,r3174,r3303,r3410,r3667,r3744
+   39    13  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/MapExplore/MapExploreFlow.cs  r2164,r2331,r2386,r2779,r2924,r2971,r3108,r3224,r3409,r3707,r3809,r4061,r4170
+   28     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Unit/UnitBase.cs  r2289,r3044,r3126,r3184,r3611,r3635,r3641,r3744,r3851
+   27    11  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/Simulator/Skill/SkillLogicBase.cs  r1991,r2003,r2044,r2574,r2616,r2618,r2823,r3027,r3283,r3284,r3814
+   26    11  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/defines/Define.battle.cs  r1895,r1991,r2105,r2182,r2617,r3150,r3183,r3322,r3698,r3814,r3816
+   22     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Unit/NpcUnit.cs  r2274,r2289,r3044,r3052,r3126,r3184,r3611,r3667,r3851
+   21     7  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/ui/Battle/UIBattle.cs  r2614,r2617,r2716,r2830,r3076,r3081,r3107
+   16     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Design/DesignEnums.cs  r1864,r1895,r2003,r2028,r2044,r2618,r2823,r3027,r3081
+   15     6  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/Simulator/0.Systems/DropSystem.cs  r2619,r3075,r3081,r3150,r3338,r3422
+   14     7  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Unit/TroopUnit.cs  r2289,r2890,r3044,r3052,r3126,r3184,r3851
+    9     5  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/BattleManager.Debug.cs  r2823,r3027,r3081,r3323,r3844
+    6     7  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/player/map/PlayerMap.cs  r1841,r1895,r2302,r2498,r3126,r3410,r3635
+    6     6  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Entry/HxMapUIController.cs  r2211,r2289,r2498,r3417,r3444,r3823
+    6     4  /DevTeamShare/Develop/Client/TSLG_Hotfix/2_Res/GBundleLogic.cs  r2349,r2408,r2426,r2591
+    5     5  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Hud/MapHudItemBase.cs  r2211,r2498,r2890,r3611,r3612
+    5     4  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/Simulator/Skill/ProjectileSkillLogic.cs  r2618,r3027,r3323,r3814
+REFIX_CHURN_SVN DONE commits=1847 fix=199 files_refixed=105
+
+path=C:/TSLG/Client since=2026-06-01 window=14d ext=.cs
+commits=2345 fix_commits=273 files_touched_by_fix=854 files_refixed=143
+pairs fixes  file
+  151    28  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/BattleManager.cs  r1102,r1110,r1127,r1130,r1316,r1319,r1516,r1741,r1895,r2614,r2617,r2618,r2830,r2918,r3029,r3052,r3076,r3081,r3107,r3126,r3183,r3641,r3698,r3705,r3728,r3729,r3814,r3816
+   94    21  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/Simulator/DemoModel.cs  r1102,r1127,r1130,r1741,r2003,r2105,r2182,r2254,r2616,r2617,r2618,r2830,r3027,r3029,r3075,r3081,r3150,r3183,r3322,r3422,r3698
+   84    27  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/FakeServer/FakeMapServer.cs  r1396,r1415,r1419,r1423,r1456,r1472,r1482,r1535,r1577,r1638,r1741,r1841,r1864,r1895,r1902,r2211,r2274,r2302,r2684,r2830,r3044,r3126,r3174,r3303,r3410,r3667,r3744
+   64    22  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Entry/HxMapEntry.cs  r1396,r1419,r1472,r1535,r1741,r1841,r1895,r1902,r2013,r2014,r2016,r2211,r2289,r2890,r3044,r3108,r3126,r3410,r3611,r3667,r3744,r3823
+   52    15  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/MapExplore/View/GridMapView.cs  r1190,r1660,r1775,r2028,r2779,r2793,r2871,r2924,r3409,r3410,r3465,r3547,r3559,r3562,r4061
+   39    15  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/MapExplore/MapExploreFlow.cs  r1190,r1660,r2164,r2331,r2386,r2779,r2924,r2971,r3108,r3224,r3409,r3707,r3809,r4061,r4170
+   32    17  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/defines/Define.battle.cs  r1102,r1127,r1130,r1516,r1741,r1743,r1895,r1991,r2105,r2182,r2617,r3150,r3183,r3322,r3698,r3814,r3816
+   30    16  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/Simulator/Skill/SkillLogicBase.cs  r1127,r1130,r1516,r1626,r1741,r1991,r2003,r2044,r2574,r2616,r2618,r2823,r3027,r3283,r3284,r3814
+   28     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Unit/UnitBase.cs  r2289,r3044,r3126,r3184,r3611,r3635,r3641,r3744,r3851
+   22    10  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Unit/NpcUnit.cs  r1419,r2274,r2289,r3044,r3052,r3126,r3184,r3611,r3667,r3851
+   21     8  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/ui/Battle/UIBattle.cs  r1518,r2614,r2617,r2716,r2830,r3076,r3081,r3107
+   18    10  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Design/DesignEnums.cs  r1743,r1864,r1895,r2003,r2028,r2044,r2618,r2823,r3027,r3081
+   15     7  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/Simulator/0.Systems/DropSystem.cs  r1102,r2619,r3075,r3081,r3150,r3338,r3422
+   14     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Unit/TroopUnit.cs  r1456,r1741,r2289,r2890,r3044,r3052,r3126,r3184,r3851
+   12     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/BattleManager.Debug.cs  r1102,r1127,r1130,r1741,r2823,r3027,r3081,r3323,r3844
+    9     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Unit/UnitDefinitions.cs  r1396,r1456,r1482,r1577,r1741,r1895,r3126,r3635,r3744
+    9     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/MCP/McpManager.WorldMap.cs  r1423,r1456,r1472,r1535,r1577,r1864,r1895,r3410,r3635
+    6     9  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/player/map/PlayerMap.cs  r1396,r1535,r1841,r1895,r2302,r2498,r3126,r3410,r3635
+    6     8  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/map/Entry/HxMapUIController.cs  r1396,r1741,r2211,r2289,r2498,r3417,r3444,r3823
+    6     6  /DevTeamShare/Develop/Client/TSLG_Hotfix/Game/Battle/Simulator/Skill/ProjectileSkillLogic.cs  r1127,r1130,r2618,r3027,r3323,r3814
+REFIX_CHURN_SVN DONE commits=2345 fix=273 files_refixed=143

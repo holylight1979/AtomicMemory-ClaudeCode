@@ -1,0 +1,26 @@
+frames=300 span=2714..3013
+rank | avg bytes/frame | total KB | path (inclusive GC alloc)
+1 | 2291 | 671.1 | PlayerLoop
+2 | 1555 | 455.5 | PlayerLoop/UpdateScene
+3 | 901 | 263.9 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate
+4 | 901 | 263.9 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate
+5 | 900 | 263.7 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate/Assembly-CSharp.dll!::_BR.Update() [Invoke]
+6 | 888 | 260.2 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate/Assembly-CSharp.dll!::_BR.Update() [Invoke]/GC.Alloc
+7 | 736 | 215.6 | PlayerLoop/RenderPlayModeViewCameras/UnityEngine.CoreModule.dll!UnityEngine.Rendering::RenderPipelineManager.DoRenderLoop_Internal() [Invoke]/Inl_UniversalRenderTotal
+8 | 736 | 215.6 | PlayerLoop/RenderPlayModeViewCameras/UnityEngine.CoreModule.dll!UnityEngine.Rendering::RenderPipelineManager.DoRenderLoop_Internal() [Invoke]
+9 | 736 | 215.6 | PlayerLoop/RenderPlayModeViewCameras
+10 | 736 | 215.6 | PlayerLoop/RenderPlayModeViewCameras/UnityEngine.CoreModule.dll!UnityEngine.Rendering::RenderPipelineManager.DoRenderLoop_Internal() [Invoke]/Inl_UniversalRenderTotal/Inl_RenderCameraStack/Inl_ScriptableRenderContext.Submit/UniversalRenderPipeline.RenderSingleCameraInternal: Camera
+11 | 736 | 215.6 | PlayerLoop/RenderPlayModeViewCameras/UnityEngine.CoreModule.dll!UnityEngine.Rendering::RenderPipelineManager.DoRenderLoop_Internal() [Invoke]/Inl_UniversalRenderTotal/Inl_RenderCameraStack/Inl_ScriptableRenderContext.Submit
+12 | 736 | 215.6 | PlayerLoop/RenderPlayModeViewCameras/UnityEngine.CoreModule.dll!UnityEngine.Rendering::RenderPipelineManager.DoRenderLoop_Internal() [Invoke]/Inl_UniversalRenderTotal/Inl_RenderCameraStack
+13 | 654 | 191.6 | PlayerLoop/UpdateScene/PreLateUpdate.ScriptRunBehaviourLateUpdate/LateBehaviourUpdate
+14 | 654 | 191.6 | PlayerLoop/UpdateScene/PreLateUpdate.ScriptRunBehaviourLateUpdate
+15 | 654 | 191.6 | PlayerLoop/UpdateScene/PreLateUpdate.ScriptRunBehaviourLateUpdate/LateBehaviourUpdate/Assembly-CSharp.dll!Prototype.CameraControl::StrategyMapCameraController.LateUpdate() [Invoke]
+16 | 598 | 175.2 | PlayerLoop/UpdateScene/PreLateUpdate.ScriptRunBehaviourLateUpdate/LateBehaviourUpdate/Assembly-CSharp.dll!Prototype.CameraControl::StrategyMapCameraController.LateUpdate() [Invoke]/GetComponentNullErrorMessage
+17 | 598 | 175.2 | PlayerLoop/UpdateScene/PreLateUpdate.ScriptRunBehaviourLateUpdate/LateBehaviourUpdate/Assembly-CSharp.dll!Prototype.CameraControl::StrategyMapCameraController.LateUpdate() [Invoke]/GetComponentNullErrorMessage/GC.Alloc
+18 | 56 | 16.4 | PlayerLoop/UpdateScene/PreLateUpdate.ScriptRunBehaviourLateUpdate/LateBehaviourUpdate/Assembly-CSharp.dll!Prototype.CameraControl::StrategyMapCameraController.LateUpdate() [Invoke]/GC.Alloc
+19 | 11 | 3.1 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate/Assembly-CSharp.dll!::_BR.Update() [Invoke]/Tick
+20 | 11 | 3.1 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate/Assembly-CSharp.dll!::_BR.Update() [Invoke]/Tick/GC.Alloc
+21 | 2 | 0.4 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate/Assembly-CSharp.dll!::_BR.Update() [Invoke]/TSLG.Hotfix.Game.UI.UIMainButtons
+22 | 2 | 0.4 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate/Assembly-CSharp.dll!::_BR.Update() [Invoke]/TSLG.Hotfix.Game.UI.UIMainButtons/GC.Alloc
+23 | 1 | 0.2 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate/Assembly-CSharp.dll!MEC::Timing.Update() [Invoke]
+24 | 1 | 0.2 | PlayerLoop/UpdateScene/Update.ScriptRunBehaviourUpdate/BehaviourUpdate/Assembly-CSharp.dll!MEC::Timing.Update() [Invoke]/GC.Alloc

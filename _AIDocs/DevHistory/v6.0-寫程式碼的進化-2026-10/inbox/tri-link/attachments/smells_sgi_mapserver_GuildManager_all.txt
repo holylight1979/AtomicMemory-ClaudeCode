@@ -1,0 +1,89 @@
+files parsed: 1370
+
+=== A. container fields whose mutation sites spread across files (top 25; flag: files>=3 or sites>=6) ===
+container fields in partial classes: 208  flagged: 7
+  Spawner._spawnPositions              sites=  8 files=5 methods=3  [CaveEntityModule.cs,CollectEntityModule.cs,FortressEntityModule.cs,MapNpcEntityModule.cs,ResourceEntityModule.cs]
+  SpawnArea._spawners                    sites=  5 files=5 methods=1  [CaveEntityModule.cs,CollectEntityModule.cs,FortressEntityModule.cs,MapNpcEntityModule.cs,ResourceEntityModule.cs]
+  NpcAttackCastleManager._guildScoreById              sites=  6 files=3 methods=6  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Guild.cs,NpcAttackCastleManager.Message.cs]
+  NpcAttackCastleManager._nearestFrotressByPlayerId   sites=  5 files=2 methods=5  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Guild.cs]
+  NpcAttackCastleManager._canJoinPlayerIds            sites=  4 files=2 methods=3  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Guild.cs]
+  CaravanManager._startingHeroIdsByPlayer     sites=  3 files=2 methods=3  [CaravanManager.Cooldown.cs,CaravanManager.cs]
+  NpcAttackCastleManager._personalScoreById           sites=  3 files=2 methods=3  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Personal.cs]
+  NpcAttackCastleManager._requestGuildDataTimeByPlayerId sites=  3 files=2 methods=3  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Message.cs]
+  Spawner._resources                   sites=  2 files=2 methods=1  [CaveEntityModule.cs,ResourceEntityModule.cs]
+  CrossServerPVPManager._recordUidToRecordCacheDict  sites=  2 files=2 methods=2  [CrossServerPVPManager.cs,CrossServerPVPManager.Match.cs]
+  NpcAttackCastleManager._activePlayerIdsByGuildId    sites=  2 files=2 methods=2  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Guild.cs]
+  NpcAttackCastleManager._guildRankById               sites=  2 files=2 methods=2  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Reward.cs]
+  NpcAttackCastleManager._personalRankById            sites=  2 files=2 methods=2  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Reward.cs]
+  NpcAttackCastleManager._requestPersonalDataTimeByPlayerId sites=  2 files=2 methods=2  [NpcAttackCastleManager.cs,NpcAttackCastleManager.Message.cs]
+  BattleFieldManager._giftList                    sites=  8 files=1 methods=4  [BattleFieldManager.cs]
+  TerritoryManager._passNode                    sites=  8 files=1 methods=7  [TerritoryManager.CheckNode.cs]
+  TerritoryManager._failedNode                  sites=  7 files=1 methods=4  [TerritoryManager.CheckNode.cs]
+  BuildingManager._tempcountList               sites=  6 files=1 methods=1  [BuildingManager.MilitaryCampV2.cs]
+  GuildManager._guildIdByPlayerId           sites=  5 files=1 methods=5  [GuildManager.cs]
+  NpcAttackCastleManager._areaGroupIdByAreaId         sites=  5 files=1 methods=5  [NpcAttackCastleManager.cs]
+  TerritoryManager._tempAreaIndexSet            sites=  5 files=1 methods=5  [TerritoryManager.cs]
+  TerritoryManager._removeSameGuildIdNode       sites=  5 files=1 methods=2  [TerritoryManager.cs]
+  TerritoryManager._cacheNeighbotSet            sites=  5 files=1 methods=1  [TerritoryManager.cs]
+  TriggerPackageManager._backendPackageEventDic      sites=  5 files=1 methods=4  [TriggerPackageManager.Backend.cs]
+  WorldBossManager._killDataDirtyPlayers        sites=  5 files=1 methods=4  [WorldBossManager.Activity.cs]
+
+=== B. deepest delegation path per public/internal method, across partials (top 20) ===
+  CaravanManager.FinishPersonTruck              bends=23 (deleg 11, nest 12)  FinishPersonTruck>ClearStaleTruck>SendFullDataToClient>SendGuildDataToClient>ReconcileGuildOnLoad>ReconcileGuildTrucks>ClearStaleGuildTruck>BroadcastGuildData
+  CaravanManager.GMArriveTruck                  bends=22 (deleg 11, nest 11)  GMArriveTruck>GMArrivePersonTruck>SendFullDataToClient>SendGuildDataToClient>ReconcileGuildOnLoad>ReconcileGuildTrucks>ClearStaleGuildTruck>BroadcastGuildData
+  BagDataModule.BuyItem                        bends=22 (deleg 7, nest 15)  BuyItem>UseItem>CostItem>RemoveCanStackItem>NewSubData>GetNewDataId>GetSubData
+  CaravanManager.OnLogin                        bends=21 (deleg 11, nest 10)  OnLogin>CheckFullData>SendFullDataToClient>SendGuildDataToClient>ReconcileGuildOnLoad>ReconcileGuildTrucks>ClearStaleGuildTruck>BroadcastGuildData
+  CaravanManager.GMResetAllPlayer               bends=21 (deleg 11, nest 10)  GMResetAllPlayer>ResetPlayerDaily>SendFullDataToClient>SendGuildDataToClient>ReconcileGuildOnLoad>ReconcileGuildTrucks>ClearStaleGuildTruck>BroadcastGuildData
+  BuildingManager.OnUpdate                       bends=20 (deleg 7, nest 13)  OnUpdate>ProcessBuildingSchedule>CompleteSchedule>CompleteBuildEvent>SetBuildingLv>BuildingReachLevel>MarketProductionReCaculate>TryGetCharacter
+  BuildingManager.SkipDraftSoldierTimeV2         bends=20 (deleg 7, nest 13)  SkipDraftSoldierTimeV2>Accelerate>CompleteSchedule>CompleteBuildEvent>SetBuildingLv>BuildingReachLevel>MarketProductionReCaculate>TryGetCharacter
+  CaravanManager.OnBuyPayGold                   bends=20 (deleg 10, nest 10)  OnBuyPayGold>SendFullDataToClient>SendGuildDataToClient>ReconcileGuildOnLoad>ReconcileGuildTrucks>ClearStaleGuildTruck>BroadcastGuildData>GenGuildDataMessageWithProfile
+  CaravanManager.ResetPlayerDaily               bends=20 (deleg 10, nest 10)  ResetPlayerDaily>SendFullDataToClient>SendGuildDataToClient>ReconcileGuildOnLoad>ReconcileGuildTrucks>ClearStaleGuildTruck>BroadcastGuildData>GenGuildDataMessageWithProfile
+  CaravanManager.CheckFullData                  bends=20 (deleg 10, nest 10)  CheckFullData>SendFullDataToClient>SendGuildDataToClient>ReconcileGuildOnLoad>ReconcileGuildTrucks>ClearStaleGuildTruck>BroadcastGuildData>GenGuildDataMessageWithProfile
+  CaravanManager.RecordGuildTicketPackageBuy    bends=20 (deleg 10, nest 10)  RecordGuildTicketPackageBuy>SendFullDataToClient>SendGuildDataToClient>ReconcileGuildOnLoad>ReconcileGuildTrucks>ClearStaleGuildTruck>BroadcastGuildData>GenGuildDataMessageWithProfile
+  BuildingManager.AccelerateNowTeching           bends=19 (deleg 7, nest 12)  AccelerateNowTeching>Accelerate>CompleteSchedule>CompleteBuildEvent>SetBuildingLv>BuildingReachLevel>MarketProductionReCaculate>TryGetCharacter
+  BuildingManager.AccelerateProduceSoldierV2     bends=19 (deleg 7, nest 12)  AccelerateProduceSoldierV2>Accelerate>CompleteSchedule>CompleteBuildEvent>SetBuildingLv>BuildingReachLevel>MarketProductionReCaculate>TryGetCharacter
+  NpcAttackCastleManager.OnUpdate                       bends=19 (deleg 9, nest 10)  OnUpdate>CheckNextWaveTimeUp>CreateArmyAttackGuildMember>CheckPlayerGameOver>OnGuildMemberOver>CheckGuildGameOver>OnGuildOver>SendActivityGuildDataToAllMember
+  BuildingManager.Accelerate                     bends=18 (deleg 6, nest 12)  Accelerate>CompleteSchedule>CompleteBuildEvent>SetBuildingLv>BuildingReachLevel>MarketProductionReCaculate>TryGetCharacter
+  TriggerPackageManager.BackendCloseTriggerPackage     bends=18 (deleg 6, nest 12)  BackendCloseTriggerPackage>CloseBackendTriggerPackage>StartBackendPackageEvent>OnBackendPackageTimeUp>UpdateBackendPackage>UpdateBackendPackageEvent>AddBackendPackageEvent
+  EntityTroop.RestoreToTargetBehavior        bends=18 (deleg 4, nest 14)  RestoreToTargetBehavior>Recall>SetTargetEntity>LeftHolder>GetHolder
+  EntityTroop.SetGuildConfig                 bends=18 (deleg 5, nest 13)  SetGuildConfig>CheckHolderGuildValid>Recall>SetTargetEntity>LeftHolder>GetHolder
+  BagDataModule.UseItem                        bends=18 (deleg 6, nest 12)  UseItem>CostItem>RemoveCanStackItem>NewSubData>GetNewDataId>GetSubData
+  MapModule.NotifyPlayerEntities           bends=18 (deleg 1, nest 17)  NotifyPlayerEntities>InsertDataToEntityAreaMsg
+  distribution: 4-6:253  <=3:2203  >6:265
+
+=== C. pure forwarding methods (body = single call) ===
+count: 4150
+  Agent/BattlefieldAgent.cs:97 OnBattleFieldState -> BattleFieldMgr.SetBattleFieldState
+  Agent/BattlefieldAgent.cs:102 OnUpdateLobbyInfo -> BattleFieldMgr.SendBattleFieldLobbyInfo
+  Agent/BattlefieldAgent.cs:107 OnUpdateLobbyGuildData -> BattleFieldMgr.SendBattleFieldGuildData
+  Agent/BattlefieldAgent.cs:112 OnReceiveSignUpReply -> BattleFieldMgr.SendSignUpReplyToClient
+  Agent/BattlefieldAgent.cs:337 OnUpdateLobbyHistoryData -> BattleFieldMgr.SendBattleFieldLobbyHistoryData
+  Agent/BattlefieldAgent.cs:342 OnTurnRewardData -> BattleFieldMgr.SendTurnReward
+  Agent/BattlefieldAgent.cs:370 OnReceiveScheduleData -> BattleFieldMgr.OnReceiveScheduleData
+  Agent/BattlefieldAgent.cs:460 OnReceiveSeasonHistoryData -> BattleFieldMgr.UpdateSeasonData
+  Agent/BattlefieldAgent.cs:465 OnReceiveSeasonHistoryRemove -> BattleFieldMgr.RemoveSeasonData
+  Agent/ChatManagerAgent.cs:224 GetDefaultString -> RandomUtility.GetNowTimeRandomString
+  Agent/CrossServerPVPServerAgent.cs:99 OnReceiveCaravanBePlundered -> CaravanMgr.OnBePlundered
+  Agent/CrossServerPVPServerAgent.cs:125 OnReceiveCaravanGuildTruckState -> CaravanMgr.OnGuildTruckStateChanged
+  Agent/CrossServerPVPServerAgent.cs:179 OnUpdateActivityData -> CrossServerPVPMgr.OnUpdateActivityData
+  Agent/CrossServerPVPServerAgent.cs:184 OnUpdateMatchData -> CrossServerPVPMgr.OnUpdateMatchData
+  Agent/CrossServerPVPServerAgent.cs:189 OnUpdateMatchTeamPower -> CrossServerPVPMgr.OnUpdateMatchTeamPower
+
+=== D. GuildManager.* public methods and where they are called from ===
+entry methods: 187  with no caller outside MCP/Editor/Test: 16
+  CheckLeaderTimeUp            callers outside class: NONE
+  FillMemberData               callers outside class: NONE
+  GenFullSendGuildData         callers outside class: NONE
+  GenGuildConfig               callers outside class: NONE
+  GenMemberData                callers outside class: NONE
+  GetJobCount                  callers outside class: NONE
+  SendGuildAchievementData     callers outside class: NONE
+  SendGuildDataToAllMember     callers outside class: NONE
+  SendGuildMissionData         callers outside class: NONE
+  SendGuildNotifyToChat        callers outside class: NONE
+  SendMissionReward            callers outside class: NONE
+  SendResourceUpdateToAllMembers callers outside class: NONE
+  SetClientAutoInviteQuitTimerOn callers outside class: NONE
+  SetClientAutoInviteResetTimerOff callers outside class: NONE
+  SetClientDirty               callers outside class: NONE
+  TryGetAutoInviteGuilds       callers outside class: NONE

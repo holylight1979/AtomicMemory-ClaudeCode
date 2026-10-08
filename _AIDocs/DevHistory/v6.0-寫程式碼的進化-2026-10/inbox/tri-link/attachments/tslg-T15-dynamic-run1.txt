@@ -1,0 +1,26 @@
+[22:09:14] login: clicked Button_Confirm
+[22:09:31] map: clicked Button_Map
+[22:09:53] entities: 65 engagements: 0
+[22:09:53] system castles: [(1002, 'BMCity_101', 'Neutral'), (1003, 'BMCity_102', 'Neutral'), (1004, 'BMCity_103', 'Neutral'), (1005, 'BMCity_104', 'Neutral'), (1006, 'BMCity_105', 'Neutral'), (1007, 'BMCity_106', 'Neutral'), (1008, 'BMCity_107', 'Neutral'), (1009, 'BMCity_115', 'Neutral')]
+[22:09:53] shield target: (1002, 'BMCity_101') | enemy: (1056, 'BMNpc_32011', 'Npc')
+[22:09:57] dispatch A: dispatch troop#1066 (5000) soul#13 -> attack #1002
+[22:10:25] troop#1066 cannot-be-engaged count after 25s: 0
+[22:10:27] stop: stop 1066
+[22:10:32] attack again: attack 1066 -> 1002
+[22:10:59] troop#1066 cannot-be-engaged count after re-attack: 0
+[22:11:01] return: return 1066
+[22:11:03] dispatch B: dispatch troop#1067 (5000) soul#13 -> attack #1056
+[22:12:04] TIMEOUT engaged
+[22:12:16] troop#1067 engaged=False; ExplainNoEngagement warnings: 0
+RESULT {
+ "unattackable_first": 0,
+ "unattackable_after_reattack": 0,
+ "unattackable_msgs": [],
+ "engaged": false,
+ "no_engage_warn_after_engage": 0,
+ "sample_msgs_B": [],
+ "engagements_now": 3,
+ "AttackPursue": "19.44ms x10578",
+ "frameMsP90": 22.14,
+ "allocKBPerSec": 1710.2
+}
