@@ -103,7 +103,7 @@ def _read_json(path: Path) -> Dict[str, Any]:
 
 TERMINAL = ("done", "failed", "blocked")
 MAX_LOG_BYTES = 20 * 1024 * 1024  # post_guard 整份掃描的上限；超過直接 failed「紀錄過大無法判定」，不掃尾段
-SCAN_DEADLINE_S = 30  # 整份掃描（regex＋paths_outside）的時間上限；超過 failed「掃描逾時無法判定」
+SCAN_DEADLINE_S = 30  # 整份掃描跑在子行程，subprocess.run(timeout=…)；逾時 kill → failed「掃描逾時無法判定」
 
 
 def write_status(job_dir: Path, status: str, **kw: Any) -> Dict[str, Any]:
@@ -325,31 +325,38 @@ def _guard_module():
     return mod
 
 
-SCAN_CHUNK_CHARS = 1_000_000
-SCAN_OVERLAP_CHARS = 4096  # 樣式都是行內短樣式（路徑到空白為止、git/svn 子命令），重疊 4K 足以蓋住跨塊的匹配
+def scan_log(job_dir: Path) -> Dict[str, List[str]]:
+    """fallback 掃描本體（跑在子行程裡）：stderr＋stdout **整份**文字，用 guard 原本的 FORBIDDEN_IN_LOG 逐條 re.search 全文、
+    paths_outside 判出界。不切塊、不截斷。唯一的加速：先用 guard 同一條 ABS_PATH 把路徑 token 抽出來、**保留完整 token** 去重，
+    再交給 paths_outside（它逐筆 realpath，10 MB 重複路徑不去重要跑 30 s＋）；token 集合相同，結果與直接餵全文等價。"""
+    g = _guard_module()
+    full = _read_all(job_dir / "codex.stderr.log") + "\n" + _read_all(job_dir / "codex.stdout.log")
+    hits = [pat for pat in g.FORBIDDEN_IN_LOG if re.search(pat, full, flags=re.IGNORECASE)]
+    toks = sorted(set(m.group(0) for m in g.ABS_PATH.finditer(full)))
+    outside = g.paths_outside("\n".join(toks), job_dir) if toks else []
+    return {"hits": hits, "outside": outside}
 
 
-def _scan_fallback(full: str, sandbox: Path, g: Any, deadline: float) -> Optional[Tuple[List[str], List[str]]]:
-    """整份文字分塊掃（每塊 1M 字＋4K 重疊），塊與塊之間查 deadline；超時回 None。
-    出界路徑：每塊先用 guard 的 ABS_PATH 抽 token 去重，再餵 paths_outside（它逐筆 realpath，10 MB 重複路徑不去重要跑 30 s＋）。
-    結果與整檔一次掃等價或更保守：短樣式不會因分塊漏掉，跨塊被切斷的超長 token 仍以前綴命中。"""
-    hits: set = set()
-    outside: set = set()
-    pos = 0
-    while True:
-        if time.monotonic() > deadline:
-            return None
-        chunk = full[pos:pos + SCAN_CHUNK_CHARS + SCAN_OVERLAP_CHARS]
-        for pat in g.FORBIDDEN_IN_LOG:
-            if pat not in hits and re.search(pat, chunk, flags=re.IGNORECASE):
-                hits.add(pat)
-        toks = sorted(set(g.ABS_PATH.findall(chunk)))
-        if toks:
-            outside.update(g.paths_outside("\n".join(toks), sandbox))
-        pos += SCAN_CHUNK_CHARS
-        if pos >= len(full):
-            break
-    return sorted(hits), sorted(outside)
+def run_scan_subprocess(job_dir: Path) -> Tuple[Optional[Dict[str, List[str]]], str]:
+    """在子行程跑 `run.py scan --job <dir>`，`subprocess.run(timeout=SCAN_DEADLINE_S)`；逾時 kill → (None, 原因)。
+    回 (結果, "") 或 (None, 原因)。子行程非零 exit（非 0／1）或 JSON 解析失敗也算無法判定。"""
+    cmd = [sys.executable, "-X", "utf8", str(Path(__file__).resolve()), "scan", "--job", str(job_dir)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=SCAN_DEADLINE_S, creationflags=_NO_WINDOW)
+    except subprocess.TimeoutExpired:
+        return None, f"整份掃描逾時（>{SCAN_DEADLINE_S}s）無法判定（子行程已 kill）"
+    except OSError as e:
+        return None, f"掃描子行程起不來：{e}"
+    lines = [l for l in (r.stdout or "").splitlines() if l.strip()]
+    sentinel = lines[-1].strip() if lines else ""
+    if r.returncode not in (0, 1) or not sentinel.startswith("SCAN_CHECK "):
+        return None, f"掃描子行程異常 exit={r.returncode}；stderr 尾：{(r.stderr or '')[-300:]}"
+    try:
+        data = json.loads("\n".join(lines[:-1]))
+        return {"hits": list(data.get("hits") or []), "outside": list(data.get("outside") or [])}, ""
+    except ValueError as e:
+        return None, f"掃描子行程輸出不是 JSON：{e}"
 
 
 def post_guard(job_dir: Path) -> Tuple[bool, str]:
@@ -365,12 +372,10 @@ def post_guard(job_dir: Path) -> Tuple[bool, str]:
         total = _size(log) + _size(stdout_log)
         if total > MAX_LOG_BYTES:
             return False, f"replay-guard post FAIL（無指令行）且紀錄過大無法判定：{total} bytes > {MAX_LOG_BYTES}"
-        g = _guard_module()
-        full = _read_all(log) + "\n" + _read_all(stdout_log)  # 整檔、不切；前段的出界讀取也掃得到
-        scanned = _scan_fallback(full, job_dir, g, time.monotonic() + SCAN_DEADLINE_S)
+        scanned, why = run_scan_subprocess(job_dir)  # 子行程整份掃描；逾時／異常都算無法判定 → failed
         if scanned is None:
-            return False, f"replay-guard post FAIL（無指令行）且整份掃描逾時（>{SCAN_DEADLINE_S}s）無法判定"
-        hits, outside = scanned
+            return False, f"replay-guard post FAIL（無指令行）且{why}"
+        hits, outside = scanned["hits"], scanned["outside"]
         if not hits and not outside:
             return True, "post：codex 未執行任何指令（純推理），整份紀錄無禁區樣式與出界路徑"
         return False, "replay-guard post FAIL（無指令行，但整份紀錄命中）：" + "；".join(hits + outside[:5])
@@ -482,7 +487,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub.add_parser("probe", help="只探 codex（Reply CODEX_OK）")
     s = sub.add_parser("status", help="印 status.json 與 reply.md")
     s.add_argument("--job", required=True)
+    sc = sub.add_parser("scan", help="（post_guard 內部用）整份掃 codex.stderr.log＋codex.stdout.log；印 JSON＋尾行 SCAN_CHECK PASS|FAIL")
+    sc.add_argument("--job", required=True)
     args = ap.parse_args(argv)
+
+    if args.cmd == "scan":
+        res = scan_log(Path(args.job))
+        print(json.dumps(res, ensure_ascii=False))
+        ok = not res["hits"] and not res["outside"]
+        print("SCAN_CHECK " + ("PASS" if ok else "FAIL"))
+        return 0 if ok else 1
 
     so_cfg, cc_cfg = load_config()
     if args.cmd == "prepare":

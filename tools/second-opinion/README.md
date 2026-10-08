@@ -60,7 +60,7 @@ js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/gua
 
 ## 保留裁決（總控台審）
 
-`replay-guard post` 在紀錄裡找不到任何指令行時回 FAIL「無法判定」。codex 若純推理（材料已全文內嵌）就會這樣。本工具只在**這一種** FAIL 時，改以 guard 自己的禁區樣式與出界路徑規則掃**整檔**（不切頭尾）的 stderr＋stdout；兩檔合計超過 20 MB 直接 failed「紀錄過大無法判定」，不掃尾段；掃描分塊進行（每塊 1M 字＋4K 重疊、出界路徑先去重再查），塊間查 deadline，超過 30 s 就 failed「掃描逾時無法判定」；全乾淨才算 PASS 並在 status 留 `guard_note`；有任何命中仍 failed。其他 FAIL 一律 failed。總控台裁決：接受（條件＝整檔掃描＋過大即 failed，已做）。
+`replay-guard post` 在紀錄裡找不到任何指令行時回 FAIL「無法判定」。codex 若純推理（材料已全文內嵌）就會這樣。本工具只在**這一種** FAIL 時，改以 guard 自己的禁區樣式與出界路徑規則掃**整檔**（不切、不截）的 stderr＋stdout；兩檔合計超過 20 MB 直接 failed「紀錄過大無法判定」；掃描跑在**子行程**（`run.py scan --job <dir>`，印 JSON＋尾行 `SCAN_CHECK PASS|FAIL`），`subprocess.run(timeout=30)` 逾時 kill → failed「掃描逾時無法判定」，子行程異常或輸出壞掉也 failed；唯一加速是路徑 token 以 guard 同一條 regex 抽出、保留完整 token 去重後再逐筆判定（與餵全文等價）；全乾淨才算 PASS 並在 status 留 `guard_note`；有任何命中仍 failed。其他 FAIL 一律 failed。總控台裁決：接受（條件＝整檔掃描＋過大即 failed，已做）。
 
 ## 驗證
 

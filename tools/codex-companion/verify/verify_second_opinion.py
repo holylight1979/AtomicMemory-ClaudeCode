@@ -34,6 +34,7 @@ def _load(name: str, path: Path):
 
 
 os.environ.pop("WG_CLAUDE_DIR", None)  # run.py 以檔案相對位置定 CLAUDE_DIR（＝本 repo 根），不吃 live 覆蓋
+_REAL_RUN = subprocess.run  # env fixture 會把 subprocess.run 換成假的；真 spawn 的案用這個
 run = _load("so_run", RUN_PY)
 pack = run.pack
 so_prompts = run.so_prompts
@@ -72,6 +73,14 @@ def env(tmp_path, monkeypatch):
     def fake_run(cmd, **kw):
         plan.setdefault("runs", []).append(list(cmd))
         joined = " ".join(str(c) for c in cmd)
+        if "scan" in cmd and "--job" in cmd:
+            # 子行程掃描：在測試行程內跑真的 scan_log（同一份 guard 規則），只是省掉真 spawn；逾時案另外 monkeypatch
+            assert kw.get("timeout") == run.SCAN_DEADLINE_S, "scan 子行程必須帶 SCAN_DEADLINE_S 的 timeout"
+            plan.setdefault("scan_calls", 0)
+            plan["scan_calls"] += 1
+            res = run.scan_log(Path(cmd[cmd.index("--job") + 1]))
+            ok = not res["hits"] and not res["outside"]
+            return CP(stdout=json.dumps(res, ensure_ascii=False) + "\n" + f"SCAN_CHECK {'PASS' if ok else 'FAIL'}\n", rc=0 if ok else 1)
         if "replay-guard.py" in joined:
             which = "pre" if " pre " in f" {joined} " else "post"
             verdict = plan[which]
@@ -430,58 +439,84 @@ def test_execute_on_terminal_job_keeps_original_reason(env):
         assert rc["status"] == state and rc["reason"] == f"原始 {state} 原因" and cp.read_bytes() == raw_c, state
 
 
-def test_post_fallback_scan_deadline_enforced(env, monkeypatch):
-    """退回修正第三輪（BLOCK 2）：掃描分塊、塊間查 deadline；paths_outside 很慢時也要在 deadline＋5 s 內回 failed「掃描逾時」。"""
-    import time as _t
-    real = run._guard_module()
-
-    class SlowGuard:
-        FORBIDDEN_IN_LOG = real.FORBIDDEN_IN_LOG
-        ABS_PATH = real.ABS_PATH
-
-        @staticmethod
-        def paths_outside(text, sandbox):
-            _t.sleep(0.25)
-            return real.paths_outside(text, sandbox)
-    monkeypatch.setattr(run, "_guard_module", lambda: SlowGuard)
-    monkeypatch.setattr(run, "SCAN_DEADLINE_S", 0.5)
-    monkeypatch.setattr(run, "SCAN_CHUNK_CHARS", 200_000)
+def _no_cmd_fallback(env, stdout: str) -> None:
     env["plan"]["post"] = "FAIL"
     env["plan"]["post_reasons"] = ["紀錄裡找不到任何指令行（格式變了？），無法判定"]
     env["plan"]["exec"]["stderr"] = "model: gpt-6-astra\n"
-    env["plan"]["exec"]["stdout"] = "C:\\x " * 400_000  # 2,000,000 字元 → 10 塊，每塊 0.25 s，第 3 塊前超過 0.5 s
+    env["plan"]["exec"]["stdout"] = stdout
+
+
+def test_post_fallback_crossline_pattern_caught(env):
+    """退回修正第四輪：跨行禁區樣式（`git` ＋ 5000 個換行 ＋ `log`）整檔掃描要命中 → failed。分塊時被塊邊界切開而漏放。"""
+    _no_cmd_fallback(env, "." * 999_900 + " git" + "\n" * 5000 + "log ")
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and st["stage"] == "post-guard" and "git" in st["reason"], st
+    assert not (Path(res["job_dir"]) / "reply.md").exists()
+
+
+def test_post_fallback_long_path_caught(env):
+    """退回修正第四輪：`<job>/a/×3000/../×3100/outside.txt` 完整 realpath 爬到磁碟根 `C:/outside.txt` 出界；截斷前綴會在沙箱內而漏放。
+    整檔不截 → failed。（`../` 要爬出整個 job 路徑：guard 把 ~/AppData 底下全當工具安裝路徑豁免，pytest 的 tmp 就在那裡，
+    所以只爬一層到 jobs/ 不會被判出界；這是 guard 既有規則，不是本工具的洞。）"""
+    res = _prepare(env)
+    job = Path(res["job_dir"])
+    path = str(job).replace("\\", "/") + "/" + "a/" * 3000 + "../" * 3100 + "outside.txt"
+    _no_cmd_fallback(env, "." * 999_900 + " " + path + " ")
+    st = _execute(env, str(job))
+    assert st["status"] == "failed" and st["stage"] == "post-guard" and "outside.txt" in st["reason"], st
+    # 對照：同長度但 realpath 落在沙箱內的路徑 → 乾淨 → done
+    res3 = _prepare(env, session_id="inside11")
+    inside3 = str(Path(res3["job_dir"])).replace("\\", "/") + "/" + "a/" * 3000 + "../" * 3000 + "materials/card.md"
+    _no_cmd_fallback(env, "." * 999_900 + " " + inside3 + " ")
+    st3 = _execute(env, res3["job_dir"])
+    assert st3["status"] == "done" and "純推理" in st3["guard_note"], st3
+
+
+def test_post_fallback_subprocess_timeout_is_failed(env, monkeypatch):
+    """退回修正第四輪：掃描子行程逾時（subprocess.run 拋 TimeoutExpired）→ failed 且訊息含逾時；不放行。"""
+    import subprocess as sp
+    orig_run = sp.run
+
+    def timeout_on_scan(cmd, **kw):
+        if "scan" in cmd and "--job" in cmd:
+            raise sp.TimeoutExpired(cmd, kw.get("timeout"))
+        return orig_run(cmd, **kw)
+    monkeypatch.setattr(sp, "run", timeout_on_scan)
+    _no_cmd_fallback(env, "clean\n" * 10)
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and st["stage"] == "post-guard" and "逾時" in st["reason"], st
+    assert not (Path(res["job_dir"]) / "reply.md").exists()
+
+
+def test_post_fallback_10mb_payload_under_5s(env):
+    """總控台的 10 MB 重複路徑 payload（`C:\\x ` × 2,000,000）：整份掃描要在 5 s 內回、且仍判出界 → failed。"""
+    import time as _t
+    _no_cmd_fallback(env, ("C:" + chr(92) + "x ") * 2_000_000)
     res = _prepare(env)
     t0 = _t.monotonic()
     st = _execute(env, res["job_dir"])
     elapsed = _t.monotonic() - t0
-    assert st["status"] == "failed" and "掃描逾時" in st["reason"], st
-    assert elapsed <= 0.5 + 5, f"deadline 沒有生效：{elapsed:.1f}s"
-    assert not (Path(res["job_dir"]) / "reply.md").exists()
+    assert st["status"] == "failed" and "C:" in st["reason"], st
+    assert elapsed <= 5, f"10 MB payload 掃了 {elapsed:.1f}s"
 
 
-def test_post_fallback_chunked_scan_equivalent_to_whole(env):
-    """分塊掃描與整檔一次掃結果相同：跨塊邊界的出界路徑與 git 子命令都抓得到；乾淨的大紀錄仍 PASS。"""
-    g = run._guard_module()
-    job = env["tmp"] / "sandbox"
-    job.mkdir()
-    filler = "clean line\n" * 100
-    text = filler * 1000 + 'read C:\\outside\\a.txt and git log --oneline\n' + filler * 1000
-    orig_chunk = run.SCAN_CHUNK_CHARS
-    try:
-        run.SCAN_CHUNK_CHARS = 50_000  # 多塊，邊界落在填充段中
-        chunked = run._scan_fallback(text, job, g, _deadline_far())
-    finally:
-        run.SCAN_CHUNK_CHARS = orig_chunk
-    whole = run._scan_fallback(text, job, g, _deadline_far())
-    assert chunked == whole and chunked is not None
-    hits, outside = chunked
-    assert any("git" in h for h in hits) and any("outside" in o.lower() for o in outside)
-    assert run._scan_fallback(filler * 3000, job, g, _deadline_far()) == ([], [])
-
-
-def _deadline_far():
-    import time as _t
-    return _t.monotonic() + 60
+def test_scan_subcommand_real_subprocess(env):
+    """真的 spawn 一次 `run.py scan --job`（不經 fake）：JSON＋尾行哨兵、exit 0/1 對應 PASS/FAIL。
+    env fixture 已把 subprocess.run/Popen 換成假的，所以這裡用模組載入時存下的真 subprocess.run。"""
+    res = _prepare(env)
+    job = Path(res["job_dir"])
+    (job / "codex.stderr.log").write_text("model: x\n", encoding="utf-8", newline="\n")
+    (job / "codex.stdout.log").write_text("clean\n", encoding="utf-8", newline="\n")
+    cmd = [sys.executable, "-X", "utf8", str(RUN_PY), "scan", "--job", str(job)]
+    r = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    lines = r.stdout.strip().splitlines()
+    assert r.returncode == 0 and lines[-1] == "SCAN_CHECK PASS" and json.loads(lines[0]) == {"hits": [], "outside": []}, r.stderr
+    (job / "codex.stdout.log").write_text("read C:\\outside\\secret.txt\n", encoding="utf-8", newline="\n")
+    r2 = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    lines2 = r2.stdout.strip().splitlines()
+    assert r2.returncode == 1 and lines2[-1] == "SCAN_CHECK FAIL" and json.loads(lines2[0])["outside"], r2.stderr
 
 
 def test_second_execute_on_same_job_rejected(env):
