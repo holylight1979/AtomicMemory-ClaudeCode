@@ -1,4 +1,4 @@
-"""verify_overview_map_columns.py — overview-map.md 擴欄解析（lib/overview_hub.parse_map）。
+"""verify_overview_map_columns.py：overview-map.md 擴欄解析（lib/overview_hub.parse_map）。
 
 正例：十三欄表（前綴｜部位｜導讀卡｜狀態｜病灶清單｜量尺｜檢查器清單｜讀路徑樣本｜第四問｜層｜權威地圖｜上游｜下游）
 解析齊；狀態「骨架」可讀；表頭多一欄「順序」時擴欄仍照表頭定位。

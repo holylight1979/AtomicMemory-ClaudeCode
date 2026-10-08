@@ -1,4 +1,4 @@
-"""verify_ups_overview_wiring.py — UPS handler 對 OverviewHub 的接線：fail-open 真的 fail-open。
+"""verify_ups_overview_wiring.py：UPS handler 對 OverviewHub 的接線：fail-open 真的 fail-open。
 
 修的 bug：user_prompt_submit.py 呼叫 _atom_debug_error 但沒 import，on_prompt 一丟例外就 NameError，
 整個 UPS 掛掉。正例：handler 有 _atom_debug_error 且就是 wg_core 的那個；on_prompt raise 時 handler

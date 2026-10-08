@@ -1,4 +1,4 @@
-"""verify_layer_detect.py — 判層 H9：wg_core._layer_of(cwd) 只看 cwd 與設定。
+"""verify_layer_detect.py：判層 H9：wg_core._layer_of(cwd) 只看 cwd 與設定。
 
 正例：<CLAUDE_DIR>/hooks/handlers＝root、tmp 公司根下＝org、tmp 專案有表＝project_mapped、
 tmp 專案無表＝project_unmapped、家目錄＝none。

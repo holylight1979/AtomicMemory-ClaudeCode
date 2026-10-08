@@ -1,4 +1,4 @@
-"""verify_claude_dir_override.py — WG_CLAUDE_DIR 環境變數覆蓋 wg_core.CLAUDE_DIR 與 lib 的 sys.path 來源。
+"""verify_claude_dir_override.py：WG_CLAUDE_DIR 環境變數覆蓋 wg_core.CLAUDE_DIR 與 lib 的 sys.path 來源。
 
 正例：設 WG_CLAUDE_DIR 後 CLAUDE_DIR／MEMORY_DIR／WORKFLOW_DIR 跟著走、lib 路徑進 sys.path、
 wg_overview 載到的 overview_hub 是該樹的；反例：未設（或空白）時等於家目錄 ~/.claude。
