@@ -173,7 +173,8 @@ def test_dpm_not_starved_by_shared_budget(monkeypatch, capsys, tmp_path):
 
     state = {
         "phase": "working", "wisdom_retry_count": 3,
-        "failing_tests": [{"cmd": "pytest", "summary": "boom"}],
+        # failing_tests 條目自 v6 起蓋 session_id；TestFailGate 只認本 session（"sid"）的條目，沒蓋 sid 的視為他人
+        "failing_tests": [{"cmd": "pytest", "summary": "boom", "session_id": "sid"}],
         "modified_files": [{"path": "hooks/foo.py"}, {"path": "hooks/bar.py"}],
         "stop_blocked_count": 0, "recent_user_prompts": [],
     }
