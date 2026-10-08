@@ -21,7 +21,7 @@ from wg_core import (
 from wg_episodic import _check_output_quality
 from wg_extraction import _is_lease_valid  # noqa: F401
 from wg_evasion import (
-    is_test_command, detect_test_failure, aec_severity, crosscheck_aec_severity,
+    is_test_command, detect_test_failure, tail_lines, aec_severity, crosscheck_aec_severity,
     _aec_blank, aec_pending_items,
 )
 from wg_atoms import _trigger_incremental_index
@@ -33,7 +33,7 @@ from wg_harvest import (
 from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn,
-    aec_evidence_missing, aec_followups_missing,
+    aec_evidence_missing, aec_followups_missing, next_event_seq,
 )
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -341,11 +341,14 @@ def _emit_post_tool_output(advisories: List[str], sys_msgs: List[str]) -> None:
 def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str,
                        tool: str = "Bash") -> bool:
     """Bash／PowerShell 測試指令 → 記／清 state.failing_tests；回傳是否動到 state。
-    子代理（hook 輸入帶 agent_id）自己迭代中的紅測不記進主 session，也不替主 session 清帳；
-    否則子代理跑到一半的紅測會讓主 session 的 Stop 被 TestFailGate 擋。
-    exit_code 三來源（wg_verify_ledger.exit_code_of）：tool_response 欄位 → 文字 `Exit code N` → None。"""
+    條目蓋 session_id：共用 state／merged state 下 Stop 與清帳只認自己的（隔壁 session 的紅測不擋本 session、
+    本 session 的綠測不清隔壁的；沒蓋 sid 的舊條目視為他人，不擋不清）。
+    子代理（hook 輸入帶 agent_id）自己迭代中的紅測不記進主 session，也不替主 session 清帳。
+    exit_code 三來源（wg_verify_ledger.exit_code_of）：tool_response 欄位 → 文字 `Exit code N` → None；
+    非零 exit 一律建紅測（哨兵 FAIL 也算失敗樣式）；清帳只在 exit 為 0／None 且無失敗樣式時。"""
     if not is_test_command(command) or input_data.get("agent_id"):
         return False
+    sid = str(input_data.get("session_id") or state.get("session", {}).get("id") or "")
     tr = input_data.get("tool_response", {}) or {}
     if isinstance(tr, dict):
         stdout = tr.get("stdout", "") or ""
@@ -353,11 +356,16 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
         interrupted = bool(tr.get("interrupted", False))
     else:
         stdout, stderr, interrupted = str(tr), "", False
+    exit_code = exit_code_of(tr)
     failure = detect_test_failure(stdout, stderr, interrupted)
+    if failure is None and exit_code not in (None, 0):
+        failure = tail_lines(stdout + "\n" + stderr, 20) or f"(exit code {exit_code}, no output)"
     if failure:
         state.setdefault("failing_tests", []).append({
             "tool": tool,
-            "exit_code": exit_code_of(tr),
+            "session_id": sid,
+            "agent_id": str(input_data.get("agent_id") or ""),
+            "exit_code": exit_code,
             "cmd": command[:200],
             # cmd 截 200 字會把串在後段的 pytest 截掉 → 綠的 pytest 對不上、永遠清不掉；
             # 記錄時就用全文判定一次
@@ -376,12 +384,15 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     before = state["failing_tests"]
     after = [
         f for f in before
-        if not f.get("cmd", "").startswith(cmd_prefix[:40])
-        and not (is_pytest_success and (
-            f.get("pytest")
-            or "pytest" in f.get("cmd", "").lower()
-            or "short test summary" in f.get("summary", "")   # legacy 無 flag 者看 pytest 輸出特徵
-        ))
+        if f.get("session_id") != sid          # 只清自己的；沒蓋 sid 的舊條目不是自己的
+        or (
+            not f.get("cmd", "").startswith(cmd_prefix[:40])
+            and not (is_pytest_success and (
+                f.get("pytest")
+                or "pytest" in f.get("cmd", "").lower()
+                or "short test summary" in f.get("summary", "")   # legacy 無 flag 者看 pytest 輸出特徵
+            ))
+        )
     ]
     if len(after) == len(before):
         return False
@@ -403,16 +414,21 @@ def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_
         ):
             m["count"] = int(m.get("count", 1)) + 1
             m["at"] = _now_iso()
+            m["last_at"] = m["at"]
+            m["last_seq"] = next_event_seq(state)
             m["tool"] = tool_name
             m["last_turn_seq"] = turn
             m.setdefault("turn_seq", turn)
             break
     else:
+        now = _now_iso()
         mods.append({
             "path": file_path,
             "tool": tool_name,
             "session_id": session_id,
-            "at": _now_iso(),
+            "at": now,
+            "last_at": now,
+            "last_seq": next_event_seq(state),
             "count": 1,
             "turn_seq": turn,
             "last_turn_seq": turn,
@@ -463,9 +479,10 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
     append_verify_ledger(session_id, record, base_dir=WORKFLOW_DIR, suffix=".agents" if agent_id else "")
     if not agent_id:
         record_receipt(state, session_id, {
-            "at": record["at"], "turn_seq": turn_seq, "tool": tool_name, "cmd": command[:200],
-            "sentinels": [{"name": s["name"], "verdict": s["verdict"]} for s in sentinels],
-            "exit_code": exit_code, "cwd": cwd,
+            "at": record["at"], "seq": next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
+            "cmd": command[:200],
+            "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
+            "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
         })
     ms = int((time.monotonic() - t0) * 1000)
     append_guard_log("verify_ledger", {

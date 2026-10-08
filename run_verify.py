@@ -42,8 +42,9 @@ if not paths:
         print("No verify/ directories found.")
     sys.exit(0)
 
-# 兩種模式都 in-process 跑 pytest 收案數，結尾印量尺哨兵 `VERIFY_CHECK DONE cases=<n> failed=<k>`
-# （根層部位表 hooks/ 的量尺指令；人讀模式印 stdout，--json 模式印 stderr 讓 stdout 仍是純 JSON）
+# 兩種模式都 in-process 跑 pytest 收案數，結尾印量尺哨兵：全綠 `VERIFY_CHECK DONE cases=<n> failed=0`，
+# 有紅／錯 `VERIFY_CHECK FAIL cases=<n> failed=<k>` 且 exit 1（根層部位表 hooks/ 的量尺指令；
+# 人讀模式印 stdout，--json 模式印 stderr 讓 stdout 仍是純 JSON）
 import io
 import json
 import time
@@ -100,7 +101,11 @@ for c in collector.cases:
     else:  # setup/teardown 失敗 = error
         counts["errors"] += 1
 
-sentinel = f"VERIFY_CHECK DONE cases={len(collector.cases)} failed={counts['failed'] + counts['errors']}"
+n_failed = counts["failed"] + counts["errors"]
+verdict = "DONE" if exit_code == 0 and n_failed == 0 else "FAIL"
+sentinel = f"VERIFY_CHECK {verdict} cases={len(collector.cases)} failed={n_failed}"
+if verdict == "FAIL" and exit_code == 0:
+    exit_code = 1
 if as_json:
     print(json.dumps({
         "exit_code": exit_code,

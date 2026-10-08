@@ -32,13 +32,25 @@ _CASE = r"c:\proj\hooks\verify\verify_x.py"
 PHRASES = ev.compile_claim_phrases(FIX / "q6" / "phrases.json")
 
 
-def _rcpt(turn, verdict="PASS", exit_code=None, cmd="python x.py"):
-    return {"turn_seq": turn, "tool": "Bash", "cmd": cmd, "sentinels": [{"name": "X_CHECK", "verdict": verdict}],
-            "exit_code": exit_code, "at": "now"}
+ROOT = Path(r"c:\proj")
+_RELATED_CMD = "python -m pytest hooks/verify/verify_x.py"
 
 
-def _mf(path, turn, session_id=_SID):
-    return {"path": path, "tool": "Edit", "session_id": session_id, "turn_seq": turn, "last_turn_seq": turn}
+def _rcpt(turn, verdict="PASS", exit_code=None, cmd=_RELATED_CMD, at="", seq=None, kv=None):
+    r = {"turn_seq": turn, "tool": "Bash", "cmd": cmd, "sentinels": [{"name": "X_CHECK", "verdict": verdict, "kv": kv or {}}],
+         "exit_code": exit_code, "at": at, "project_root": str(ROOT), "cwd": str(ROOT)}
+    if seq is not None:
+        r["seq"] = seq
+    return r
+
+
+def _mf(path, turn, session_id=_SID, last_at="", last_seq=None):
+    m = {"path": path, "tool": "Edit", "session_id": session_id, "turn_seq": turn, "last_turn_seq": turn}
+    if last_at:
+        m["last_at"] = last_at
+    if last_seq is not None:
+        m["last_seq"] = last_seq
+    return m
 
 
 @pytest.fixture()
@@ -77,12 +89,18 @@ def driven(monkeypatch):
 # ─── Q6 (a) 說修好 ───────────────────────────────────────────────────────
 
 def test_fixed_claim_with_pass_this_turn_passes(driven, capsys):
-    out, _, _ = driven("閘修好了。", capsys, verify_receipts={_SID: [_rcpt(5)]})
+    out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(5)]})
+    assert "ReconcileGate" not in out
+
+
+def test_fixed_claim_without_completion_not_gated(driven, capsys):
+    """BLOCK 2 ④：沒宣告完成的回覆（純審查／中途）不進閘。"""
+    out, _, _ = driven("閘修好了，接著看下一段。", capsys)
     assert "ReconcileGate" not in out
 
 
 def test_fixed_claim_without_any_pass_blocks(driven, capsys):
-    out, state, logs = driven("閘修好了。", capsys)
+    out, state, logs = driven("閘修好了，完成。", capsys)
     assert "[Guardian:ReconcileGate]" in out and "(a)" in out and "沒有任何 PASS" in out
     assert state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 1}
     assert logs and logs[-1][0] == "reconcile"
@@ -90,36 +108,71 @@ def test_fixed_claim_without_any_pass_blocks(driven, capsys):
 
 def test_unrelated_pass_from_sibling_session_blocks(driven, capsys):
     """反例一：無關 PASS：隔壁 session 的收據不放行本 session。"""
-    out, _, _ = driven("閘修好了。", capsys, verify_receipts={"other": [_rcpt(5)]})
+    out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts={"other": [_rcpt(5)]})
     assert "ReconcileGate" in out and "(a)" in out
+
+
+def test_unrelated_pass_in_same_session_does_not_count(driven, capsys):
+    """BLOCK 3：同回合有 PASS 但驗的是別的東西（cmd 沒提到改的檔、不是 verify 路徑、不是量尺）→ 不能背書。"""
+    out, _, _ = driven("閘修好了，完成。", capsys, modified_files=[_mf(_CODE, 5)],
+                       verify_receipts={_SID: [_rcpt(5, cmd="python tools/replay-guard.py pre --prompt p.md --sandbox s")]})
+    assert "ReconcileGate" in out and "驗的是" in out and "改的是 x.py" in out
+    out, _, _ = driven("閘修好了，完成。", capsys, modified_files=[_mf(_CODE, 5)],
+                       verify_receipts={_SID: [_rcpt(5, cmd="python -m pytest hooks/verify/verify_x_gate.py")]},
+                       anti_evasion_report=_aec(5, j=__file__, k="無"))
+    assert "ReconcileGate" not in out
 
 
 def test_stale_turn_pass_blocks(driven, capsys):
     """反例二：改完後的舊 PASS（turn 3）不算本回合證據。"""
-    out, _, _ = driven("閘修好了。", capsys, verify_receipts={_SID: [_rcpt(3)]})
+    out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(3)]})
     assert "ReconcileGate" in out and "舊回合的 PASS" in out
 
 
 def test_pass_with_nonzero_exit_blocks(driven, capsys):
     """反例三：PASS 但 exit≠0。"""
-    out, _, _ = driven("閘修好了。", capsys, verify_receipts={_SID: [_rcpt(5, exit_code=1)]})
+    out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(5, exit_code=1)]})
     assert "ReconcileGate" in out and "exit≠0" in out
 
 
+def test_pass_with_unknown_exit_passes_with_note(driven, capsys):
+    """BLOCK 6：exit=None 的 PASS 放行，但擋訊息（若有其他命中）附註 exit 未知；純放行時不出訊息。"""
+    out, _, _ = driven("閘修好了，我量了，完成。", capsys, verify_receipts={_SID: [_rcpt(5)]})
+    assert "ReconcileGate" in out and "(b)" in out and "exit 未知" in out
+
+
 def test_fixed_claim_negated_not_blocked(driven, capsys):
-    out, _, _ = driven("還沒修好，先記下原因。", capsys)
+    out, _, _ = driven("還沒修好，先記下原因，完成。", capsys)
     assert "ReconcileGate" not in out
+
+
+@pytest.mark.parametrize("text", [
+    "使用者說已修正，完成。",
+    "log 顯示 not fixed，完成。",
+    "量過了嗎？完成。",
+    "codex 說它修好了，完成。",
+])
+def test_claim_sentences_from_return_letter_not_blocked(driven, capsys, text):
+    """BLOCK 2：轉述／英文否定／疑問不擋。"""
+    out, _, _ = driven(text, capsys)
+    assert "ReconcileGate" not in out
+
+
+def test_mixed_sentence_still_claims(driven, capsys):
+    """BLOCK 2：「A 已修好，B 尚未修好」否定只取消同子句，A 的宣稱仍要對收據。"""
+    out, _, _ = driven("A 已修好，B 尚未修好，完成。", capsys)
+    assert "ReconcileGate" in out and "(a)" in out
 
 
 # ─── Q6 (b) 說量了 ───────────────────────────────────────────────────────
 
 def test_measured_claim_without_done_blocks(driven, capsys):
-    out, _, _ = driven("我量了，平均 120 ms。", capsys, verify_receipts={_SID: [_rcpt(5, "PASS")]})
+    out, _, _ = driven("我量了，平均 120 ms，完成。", capsys, verify_receipts={_SID: [_rcpt(5, "PASS")]})
     assert "ReconcileGate" in out and "(b)" in out
 
 
 def test_measured_claim_with_done_passes(driven, capsys):
-    out, _, _ = driven("我量了，平均 120 ms。", capsys, verify_receipts={_SID: [_rcpt(5, "DONE")]})
+    out, _, _ = driven("我量了，平均 120 ms，完成。", capsys, verify_receipts={_SID: [_rcpt(5, "DONE")]})
     assert "ReconcileGate" not in out
 
 
@@ -127,18 +180,18 @@ def test_measured_claim_with_done_passes(driven, capsys):
 
 def test_tried_claim_without_exec_tool_blocks(driven, capsys):
     """反例四：標試過但本回合只有 Read／Edit。"""
-    out, _, _ = driven("我跑了測試，看起來正常。", capsys, tool_names=["Read", "Edit"])
+    out, _, _ = driven("我跑了測試，完成。", capsys, tool_names=["Read", "Edit"])
     assert "ReconcileGate" in out and "(c)" in out
 
 
 def test_tried_claim_with_bash_in_turn_passes(driven, capsys):
-    out, _, _ = driven("我跑了測試，看起來正常。", capsys, tool_names=["Read", "Bash", "Edit"])
+    out, _, _ = driven("我跑了測試，完成。", capsys, tool_names=["Read", "Bash", "Edit"])
     assert "ReconcileGate" not in out
 
 
 def test_tried_claim_with_receipt_but_tool_names_lost_passes(driven, capsys):
     """transcript 掉段時工具名為空，但帳本有本回合收據 → 不擋（收據是更強的證據）。"""
-    out, _, _ = driven("我跑了測試。", capsys, tool_names=[], verify_receipts={_SID: [_rcpt(5, "FAIL", 1)]})
+    out, _, _ = driven("我跑了測試，完成。", capsys, tool_names=[], verify_receipts={_SID: [_rcpt(5, "FAIL", 1)]})
     assert "ReconcileGate" not in out
 
 
@@ -262,32 +315,45 @@ def test_aec_evidence_missing_pure_function(tmp_path):
 # ─── 預算：同 turn 第 3 次放行寫 guard_log＋overflow ─────────────────────────
 
 def test_third_block_in_same_turn_passes_with_overflow(driven, capsys):
-    out, state, logs = driven("閘修好了。", capsys, reconcile_gate_turn={_SID: {"turn": 5, "count": 2}})
+    out, state, logs = driven("閘修好了，完成。", capsys, reconcile_gate_turn={_SID: {"turn": 5, "count": 2}})
     assert "ReconcileGate" not in out
     assert state["reconcile_overflow"][_SID]["turn"] == 5 and state["reconcile_overflow"][_SID]["kind"] == "reconcile"
     assert [g for g, _ in logs] == ["reconcile_overflow"]
 
 
 def test_budget_resets_on_new_turn(driven, capsys):
-    out, state, _ = driven("閘修好了。", capsys, reconcile_gate_turn={_SID: {"turn": 4, "count": 2}})
+    out, state, _ = driven("閘修好了，完成。", capsys, reconcile_gate_turn={_SID: {"turn": 4, "count": 2}})
     assert "ReconcileGate" in out and state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 1}
 
 
 def test_gate_not_consuming_shared_stop_budget(driven, capsys):
-    _, state, _ = driven("閘修好了。", capsys)
+    _, state, _ = driven("閘修好了，完成。", capsys)
     assert state["stop_blocked_count"] == 0
 
 
 def test_gate_disabled_by_config(monkeypatch, driven, capsys):
     monkeypatch.setattr(st, "reconcile_cfg", lambda c: {**vl.RECONCILE_DEFAULTS, "enabled": False})
-    out, _, _ = driven("閘修好了。", capsys)
+    out, _, _ = driven("閘修好了，完成。", capsys)
     assert "ReconcileGate" not in out
+
+
+# ─── BLOCK 1：TestFailGate 只認本 session 的 failing_tests ───────────────────────────
+
+def test_failing_tests_isolated_between_sibling_sessions(driven, capsys):
+    """A 的紅測（session_id=A）不擋 B 的 Stop；B 自己的紅測才擋；沒蓋 sid 的舊條目不擋。"""
+    red_a = {"cmd": "python -m pytest x.py", "summary": "1 failed", "turn_seq": 5, "session_id": "A", "pytest": True}
+    legacy = {"cmd": "python -m pytest y.py", "summary": "1 failed", "turn_seq": 5}
+    out, _, _ = driven("全部完成了。", capsys, failing_tests=[red_a, legacy], modified_files=[_mf(_CASE, 5)],
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "TestFailGate" not in out
+    red_b = {**red_a, "session_id": _SID}
+    out, _, _ = driven("全部完成了。", capsys, failing_tests=[red_a, red_b], modified_files=[_mf(_CASE, 5)])
+    assert "TestFailGate" in out and "1 項失敗" in out
 
 
 # ─── Q8 量尺閘 ────────────────────────────────────────────────────────────
 
 ROWS = parse_map((FIX / "q6" / "overview-map.md").read_text(encoding="utf-8"))
-ROOT = Path(r"c:\proj")
 MEASURE_CMD = "python -X utf8 run_verify.py"
 
 
@@ -321,7 +387,50 @@ def test_measure_done_before_last_edit_blocks(driven, capsys, monkeypatch):
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 4)],
                        verify_receipts={_SID: [_rcpt(2, "DONE", 0, cmd=MEASURE_CMD)]},
                        anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" in out and "先量後改" in out
+
+
+def test_measure_before_edit_in_same_turn_blocks(driven, capsys, monkeypatch):
+    """BLOCK 4：同回合先量後改：收據 at 早於部位最後修改 at → 擋；at 缺時比 session 內序號；順序對了才放。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    early, late = "2026-10-08T10:00:00+08:00", "2026-10-08T10:00:05+08:00"
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 5, last_at=late)],
+                       verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=early)]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" in out and "先量後改" in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 5, last_seq=2)],
+                       verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, seq=1)]},
+                       anti_evasion_report=_aec(5, "無", "無"))
     assert "MeasureGate" in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 5, last_at=early)],
+                       verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=late)]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" not in out
+
+
+def test_measure_receipt_from_other_root_blocks(driven, capsys, monkeypatch):
+    """BLOCK 4：收據的 cwd／project_root 不是該部位的 root → 不算。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    r = _rcpt(5, "DONE", 0, cmd=MEASURE_CMD)
+    r["project_root"], r["cwd"] = r"c:\other", r"c:\other"
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)], verify_receipts={_SID: [r]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" in out and "不是這個部位的 root" in out
+
+
+def test_measure_failed_run_blocks(driven, capsys, monkeypatch):
+    """BLOCK 5：run_verify 失敗輸出（FAIL 或 DONE failed=2 或 exit 1）不能過量尺閘。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    for r in (_rcpt(5, "FAIL", 1, cmd=MEASURE_CMD, kv={"cases": "10", "failed": "2"}),
+              _rcpt(5, "DONE", 0, cmd=MEASURE_CMD, kv={"cases": "10", "failed": "2"}),
+              _rcpt(5, "DONE", 1, cmd=MEASURE_CMD, kv={"cases": "10", "failed": "0"})):
+        out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)], verify_receipts={_SID: [r]},
+                           anti_evasion_report=_aec(5, "無", "無"))
+        assert "MeasureGate" in out, r
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)],
+                       verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, kv={"cases": "10", "failed": "0"})]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" not in out
 
 
 def test_no_measure_part_only_advises(driven, capsys, monkeypatch):

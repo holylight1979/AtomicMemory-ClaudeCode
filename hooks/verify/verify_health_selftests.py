@@ -57,7 +57,7 @@ def test_expected_fail_selftest_is_green(hw, tmp_path):
 def test_bad_dependency_turns_red(hw, tmp_path):
     red, _, results = hw._selftests_block([_st("dep", "bad_dependency.py")], tmp_path)
     assert len(red) == 1 and "dep" in red[0] and "沒有任何哨兵" in red[0]
-    assert results[0]["ok"] is False and "ModuleNotFoundError" in results[0]["detail"]
+    assert results[0]["ok"] is False and "exit 1" in results[0]["detail"] and "ModuleNotFoundError" in results[0]["detail"]
 
 
 def test_bad_wiring_turns_red(hw, tmp_path):
@@ -193,3 +193,25 @@ def test_depends_coverage_and_full_report_keys(tmp_path, monkeypatch):
     assert "stale_mtime_deps" in rep and rep["depends_coverage"] == cov
     single = HC.single_atom_report("a", {"a": a})
     assert "stale_mtime_deps" in single
+
+# ─── BLOCK 8：先 PASS 後崩潰／雜訊／DONE 後 FAIL 都紅（取最後非空行；exit 非零紅）────
+
+def test_pass_then_crash_turns_red(hw, tmp_path):
+    red, _, results = hw._selftests_block([_st("crash", "pass_then_crash.py")], tmp_path)
+    assert len(red) == 1 and results[0]["exit_code"] == 1 and "exit 1" in results[0]["detail"]
+
+
+def test_pass_then_noise_turns_red(hw, tmp_path):
+    red, _, results = hw._selftests_block([_st("noise", "pass_then_noise.py")], tmp_path)
+    assert len(red) == 1 and "cleanup" in results[0]["last_line"] and "不是 PASS 哨兵" in results[0]["detail"]
+
+
+def test_done_then_fail_turns_red(hw, tmp_path):
+    red, _, results = hw._selftests_block([_st("df", "done_then_fail.py", "DONE")], tmp_path)
+    assert len(red) == 1 and results[0]["last_line"] == "SELF_CHECK FAIL"
+
+
+def test_expected_fail_accepts_nonzero_exit(hw, tmp_path):
+    """expected FAIL：exit 1 仍綠（selftest_expect_fail.py）。"""
+    red, _, results = hw._selftests_block([_st("ef", "selftest_expect_fail.py", "FAIL")], tmp_path)
+    assert red == [] and results[0]["ok"] is True and results[0]["exit_code"] == 1

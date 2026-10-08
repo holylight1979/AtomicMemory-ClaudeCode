@@ -31,6 +31,7 @@ from wg_evasion import (
 )
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_reason, measure_cfg, measure_gate_reason, measure_advisory,
+    measure_cmds_of,
 )
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
@@ -354,7 +355,12 @@ def _budgeted_embed_fn(raw_embed_fn, uconf: Dict[str, Any]):
     return _fn
 
 
-def _detect_turn_outcome(state: Dict[str, Any], last_text: str) -> Optional[bool]:
+def _own_failing_tests(state: Dict[str, Any], session_id: str) -> List[Dict[str, Any]]:
+    """failing_tests 裡 session_id == 本 session 的條目（沒蓋 sid 的舊條目不算自己的）。"""
+    return [f for f in (state.get("failing_tests") or []) if isinstance(f, dict) and f.get("session_id") == session_id]
+
+
+def _detect_turn_outcome(state: Dict[str, Any], last_text: str, session_id: Optional[str] = None) -> Optional[bool]:
     """3 值 success 偵測（複用既有訊號）。回 True(+1)/False(0)/None(unknown=no-op)。
 
       - 0（fail）：**本 turn** failing_tests 非空 / 本 turn evasion_flag /
@@ -368,8 +374,9 @@ def _detect_turn_outcome(state: Dict[str, Any], last_text: str) -> Optional[bool
     TestFailGate 等其他消費者維持全量語意不變。
     """
     turn_seq = int(state.get("turn_seq", 0))
+    pool = _own_failing_tests(state, session_id) if session_id else (state.get("failing_tests") or [])
     failing = [
-        f for f in (state.get("failing_tests") or [])
+        f for f in pool
         if int((f or {}).get("turn_seq", turn_seq)) == turn_seq
     ]
     evasion = bool(state.get("evasion_flag"))
@@ -435,7 +442,7 @@ def _attribute_usefulness(
             get_current_turn_text(transcript, text=transcript_text)
             if (transcript or transcript_text) else ""
         )
-        outcome = _detect_turn_outcome(state, last_text)
+        outcome = _detect_turn_outcome(state, last_text, session_id)
         _bump_outcome_stats(state, outcome)
 
         turn_seq_now = int(state.get("turn_seq", 0))
@@ -713,9 +720,15 @@ def _verify_gates(
         try:
             _, probe = get_current_turn_visible_text(transcript, text=transcript_text)
             names = probe.get("turn_tool_names_all") or probe.get("turn_tool_names") or []
+            try:
+                from wg_overview import _lookup as _lk
+                mcmds = measure_cmds_of(own_mod_files, _lk)
+            except Exception:
+                mcmds = []
             reason = reconcile_gate_reason(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
+                measure_cmds=mcmds,
             )
             kind = "reconcile" if reason else ""
         except Exception as e:
@@ -751,7 +764,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     phase = state.get("phase", "working")
 
     # ── Test-Fail Gate ────────────────────────────────────────────
-    failing = state.get("failing_tests") or []
+    # 只認本 session 自己的條目（共用／merged state 下隔壁 session 的紅測不擋本 session；沒蓋 sid 的舊條目視為他人）
+    failing = _own_failing_tests(state, session_id)
     cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
     transcript = _find_session_transcript(session_id, cwd) if cwd else None
     # 單次 tail-read：本函式所有 transcript 消費者（last_text / token 預警 /

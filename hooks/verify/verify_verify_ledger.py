@@ -114,11 +114,11 @@ def test_snapshot_rev_matches_git_and_dirty_hash_tracks_stat(repo):
     assert len(snap) == 1 and snap[0]["kind"] == "git" and snap[0]["truncated"] is False
     assert snap[0]["rev"] == _git(repo, "rev-parse", "--short", "HEAD")
     h1 = snap[0]["dirty"]
-    assert h1 and h1 == vl.dirty_hash(repo, [f])
+    assert h1 and h1 == vl.dirty_hash(repo, [f])[0]
     time.sleep(0.02)
     (repo / "a.py").write_text("x=22\n", encoding="utf-8", newline="\n")
-    assert vl.dirty_hash(repo, [f]) != h1
-    assert vl.dirty_hash(repo, []) == ""
+    assert vl.dirty_hash(repo, [f])[0] != h1
+    assert vl.dirty_hash(repo, []) == ("", False)
 
 
 def test_snapshot_uses_rev_cache_within_60s(repo):
@@ -193,7 +193,8 @@ def test_powershell_sentinel_lands_in_ledger_and_state(monkeypatch, tmp_path):
     state = _drive(monkeypatch, tmp_path, "PowerShell", "python x.py", _fx("pass_exit0.txt"))
     rec = state["verify_receipts"][_SID][0]
     assert rec["tool"] == "PowerShell" and rec["turn_seq"] == 4
-    assert rec["sentinels"] == [{"name": "REPLAY_GUARD_CHECK", "verdict": "PASS"}] and rec["exit_code"] is None
+    assert rec["sentinels"] == [{"name": "REPLAY_GUARD_CHECK", "verdict": "PASS", "kv": {}}] and rec["exit_code"] is None
+    assert rec["seq"] == 1 and rec["project_root"] == ""
     line = json.loads((tmp_path / "verify-ledger" / f"{_SID}.jsonl").read_text(encoding="utf-8"))
     for key in ("at", "session_id", "agent_id", "turn_seq", "tool", "cmd", "cwd", "project_root",
                 "sentinels", "exit_code", "vcs", "modified_files_turn", "spec"):
@@ -239,6 +240,12 @@ def phrases():
 
 @pytest.mark.parametrize("text,fixed,measured,tried", [
     ("閘的問題修好了，三案綠。", True, False, False),
+    ("使用者說已修正，我沒驗。", False, False, False),        # BLOCK 2：第三方主語（轉述）不算
+    ("it is not fixed yet", False, False, False),            # BLOCK 2：英文否定
+    ("量過了嗎？", False, False, False),                     # BLOCK 2：疑問
+    ("A 已修好，B 尚未修好。", True, False, False),            # BLOCK 2：否定只取消同子句
+    ("codex 顯示已修復，但我覺得還沒。", False, False, False),  # BLOCK 2：轉述＋否定
+    ("這條我修好了；那條 not fixed", True, False, False),      # BLOCK 2：子句各自判
     ("還沒修好，先記下。", False, False, False),
     ("要怎麼修好這個？", False, False, False),
     ("我量了三次，平均 120 ms。", False, True, False),
@@ -264,3 +271,90 @@ def test_tried_claim_without_exec_accepts_tool_names_or_receipts(phrases):
     assert vl.tried_claim_without_exec(txt, ["Read", "Bash"], ["Bash", "PowerShell"], (), phrases) is False
     assert vl.tried_claim_without_exec(txt, [], ["Bash"], [{"turn_seq": 1}], phrases) is False
     assert vl.tried_claim_without_exec("還沒跑", [], ["Bash"], (), phrases) is False
+
+# ─── BLOCK 7：vcs_snapshot 整體 deadline（找 root、子行程、stat 迴圈都受管；檔數上限 200）────
+
+def test_snapshot_deadline_covers_slow_stat(repo):
+    """注入 55 ms stat 延遲×100 檔：總耗時 < 2 s 且 truncated（1.5 s 預算在 stat 迴圈內就停）。"""
+    files = []
+    for i in range(100):
+        p = repo / f"f{i}.py"
+        p.write_text("x\n", encoding="utf-8", newline="\n")
+        files.append(str(p))
+
+    def slow_stat(path):
+        time.sleep(0.055)
+        return __import__("os").stat(path)
+
+    t0 = time.monotonic()
+    snap = vl.vcs_snapshot(str(repo), files, {}, budget_s=1.5, _rev=lambda k, r, t: "abc1234", _stat=slow_stat)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 2.0, elapsed
+    assert snap and snap[0]["truncated"] is True
+
+
+def test_snapshot_file_cap_200(repo):
+    files = [str(repo / f"g{i}.py") for i in range(250)]
+    h, trunc = vl.dirty_hash(repo, files)
+    assert trunc is True and h
+
+
+def test_snapshot_subprocess_timeout_is_remaining_budget(repo):
+    seen = []
+
+    def fake_rev(kind, root, timeout):
+        seen.append(timeout)
+        return "abc"
+
+    clock = [0.0]
+    vl.vcs_snapshot(str(repo), [], {}, budget_s=1.5, _rev=fake_rev, _clock=lambda: clock[0])
+    assert seen == [1.0]
+    clock = [0.0]
+
+    def tick():
+        clock[0] += 0.6       # 每次看錶走 0.6 s：deadline 起於第一次看錶，子行程前剩 0.9 → timeout 要 ≤ 剩餘
+        return clock[0]
+
+    seen.clear()
+    vl.vcs_snapshot(str(repo), [], {}, budget_s=1.5, _rev=fake_rev, _clock=tick)
+    assert seen and seen[0] < 1.0
+
+
+# ─── BLOCK 5：run_verify.py 失敗印 FAIL 且 exit 1；量尺閘看 exit 與 failed= ─────────────
+
+def test_run_verify_source_prints_fail_and_exit_1():
+    src = (HOOKS_DIR.parent / "run_verify.py").read_text(encoding="utf-8")
+    assert 'verdict = "DONE" if exit_code == 0 and n_failed == 0 else "FAIL"' in src
+    assert 'if verdict == "FAIL" and exit_code == 0:\n    exit_code = 1' in src
+    assert ev.is_test_command("python -X utf8 run_verify.py") and ev.is_test_command("python run_verify.py --json")
+
+
+def test_done_receipt_with_failed_count_or_nonzero_exit_not_ok():
+    good = {"turn_seq": 5, "cmd": "python -X utf8 run_verify.py", "exit_code": 0,
+            "sentinels": [{"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "10", "failed": "0"}}]}
+    bad_kv = {**good, "sentinels": [{"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "10", "failed": "2"}}]}
+    bad_exit = {**good, "exit_code": 1}
+    fail_verdict = {**good, "sentinels": [{"name": "VERIFY_CHECK", "verdict": "FAIL", "kv": {"failed": "2"}}]}
+    assert vl.done_receipts([good]) == [good]
+    assert vl.done_receipts([bad_kv]) == [] and vl.done_receipts([bad_exit]) == [] and vl.done_receipts([fail_verdict]) == []
+    assert vl.done_receipts([bad_kv], require_ok=False) == [bad_kv]
+
+
+def test_run_verify_fail_output_creates_failing_entry(monkeypatch, tmp_path):
+    """run_verify 失敗輸出（哨兵 FAIL、dict 無 exit 欄）→ TestFailGate 建紅測。"""
+    state = _drive(monkeypatch, tmp_path, "Bash", "python -X utf8 run_verify.py",
+                   {"stdout": "....F\nVERIFY_CHECK FAIL cases=10 failed=1\n", "stderr": "", "interrupted": False})
+    assert state["failing_tests"] and state["failing_tests"][0]["session_id"] == _SID
+    assert state["verify_receipts"][_SID][0]["sentinels"][0]["kv"] == {"cases": "10", "failed": "1"}
+
+
+# ─── BLOCK 3：PASS 收據要對得上改的檔／verify glob／量尺指令 ─────────────────────────
+
+def test_receipt_relates_by_basename_glob_or_measure():
+    globs = vl.RECONCILE_DEFAULTS["verify_case_globs"]
+    mods = [r"c:\proj\hooks\wg_x.py"]
+    assert vl.receipt_relates({"cmd": "python -m pytest hooks/verify/verify_wg_x.py"}, mods, globs, []) is True   # stem
+    assert vl.receipt_relates({"cmd": "python -m pytest c:/proj/hooks/verify/verify_other.py"}, [], globs, []) is True  # verify glob
+    assert vl.receipt_relates({"cmd": "python -X utf8 run_verify.py"}, [], globs, ["python -X utf8 run_verify.py"]) is True  # 量尺
+    assert vl.receipt_relates({"cmd": "python tools/replay-guard.py pre"}, mods, globs, []) is False
+    assert vl.receipt_relates({"cmd": "python -m pytest hooks/x.py"}, mods, globs, [], root=r"c:\proj") is True   # 頂層目錄 hooks

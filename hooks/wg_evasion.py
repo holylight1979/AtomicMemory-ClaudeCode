@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 _TEST_CMD_RE = re.compile(
     r"(?:^|\s)(?:pytest|python\s+-m\s+pytest|npm\s+(?:run\s+)?test|jest|node\s+--check|tsc|go\s+test|cargo\s+test)(?:\s|$)"
+    r"|run_verify\.py"
 )
 
 _FAILURE_PATTERNS = [
@@ -31,6 +32,7 @@ _FAILURE_PATTERNS = [
     re.compile(r"Tests:\s+\d+\s+failed"),
     re.compile(r"^---\s+FAIL:", re.MULTILINE),
     re.compile(r"test result:\s+FAILED"),
+    re.compile(r"^[A-Z][A-Z0-9_]*_CHECK FAIL\b", re.MULTILINE),   # 哨兵規矩：<NAME>_CHECK FAIL 就是失敗
 ]
 
 
@@ -92,10 +94,16 @@ _FALLBACK_COMPLETION_EXCLUDE = [
 _FALLBACK_FIXED_CLAIM = [
     r"修好", r"已修復", r"修復(?:完成|了|好)", r"修正(?:完成|了|好)", r"已修正", r"修掉了", r"補好了", r"\bfixed\b",
 ]
+# 否定／疑問只取消同一子句（wg_verify_ledger._claims 以子句為單位）；英文否定與問號也算
+_CLAIM_EXCLUDE_COMMON = [
+    r"\bnot\b", r"\bisn't\b", r"\bhasn't\b", r"\bwasn't\b", r"\bnever\b", r"\bunfixed\b",
+    r"[?？]\s*$", r"嗎",
+]
 _FALLBACK_FIXED_EXCLUDE = [
     r"(?:還沒|還未|尚未|沒有?|未|無法|不能|不會|不算|不是|沒能)[^，。！？\n]{0,6}(?:修好|修復|修正|修掉|補好)",
     r"(?:修好|修復|修正)[^，。！？\n]{0,4}(?:之前|前|嗎|沒|了沒)",
     r"(?:要|該|怎麼|如何|待|請|先|再|去)\s*(?:修好|修復|修正)",
+    *_CLAIM_EXCLUDE_COMMON,
 ]
 _FALLBACK_MEASURED_CLAIM = [
     r"量了", r"量過", r"量測(?:完|過|了|完成)", r"已量", r"量尺(?:跑|量)(?:過|了)", r"實測(?:了|過|結果|數據)",
@@ -104,6 +112,7 @@ _FALLBACK_MEASURED_CLAIM = [
 _FALLBACK_MEASURED_EXCLUDE = [
     r"(?:還沒|還未|尚未|沒有?|未|無法|不能|沒能)[^，。！？\n]{0,6}(?:量|測)",
     r"(?:要|該|再|先|請|去|會)\s*(?:量|實測)",
+    *_CLAIM_EXCLUDE_COMMON,
 ]
 _FALLBACK_TRIED_CLAIM = [
     r"【試過】", r"試過", r"試了", r"試跑(?:了|過)?", r"跑(?:了|過)", r"執行(?:了|過)", r"實跑(?:了|過)",
@@ -113,6 +122,7 @@ _FALLBACK_TRIED_EXCLUDE = [
     r"(?:還沒|還未|尚未|沒有?|未|不曾|無法|不能|沒能)[^，。！？\n]{0,4}(?:試|跑|執行)",
     r"(?:試|跑|執行)[^，。！？\n]{0,3}(?:之前|前|看看|嗎|了沒)",
     r"(?:要|該|再|先|會|請|建議|去)\s*(?:試|跑|執行)",
+    *_CLAIM_EXCLUDE_COMMON,
 ]
 _CLAIM_KINDS = (
     ("fixed", "fixed_claim", _FALLBACK_FIXED_CLAIM, _FALLBACK_FIXED_EXCLUDE),

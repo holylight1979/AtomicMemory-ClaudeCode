@@ -239,8 +239,10 @@ def _hooks_on_path() -> None:
 
 def _run_selftest(st: dict, cwd: Path) -> dict:
     """跑一筆 tool_selftests {name, cmd, expected(PASS|FAIL|DONE), sentinel?, runtime_gate, timeout_s}。
-    runtime_gate 非 0 → skipped（環境未就緒屬預期，不算紅）；cmd 輸出經 parse_sentinels，只認**最後一行哨兵**
-    （規矩：哨兵是尾行；接錯線時前面印別的工具的 PASS 不能算），有給 sentinel 名就連名字一起比。"""
+    runtime_gate 非 0 → skipped（環境未就緒屬預期，不算紅）。判定：取 stdout 的**最後一個非空行**當哨兵行
+    （規矩：哨兵是尾行；先 PASS 後 traceback／雜訊就不是尾行），有給 sentinel 名就連名字一起比；
+    stderr 非空視為可疑：expected PASS／DONE 時紅。exit 非零：expected PASS／DONE 一律紅，expected FAIL 可綠。
+    subprocess 的 stdout／stderr 是分開收的（沒有時間順序），所以用「stdout 尾行＋stderr 非空」這個近似。"""
     _hooks_on_path()
     from wg_verify_ledger import parse_sentinels  # noqa: WPS433
     name = str(st.get("name") or st.get("cmd") or "?")
@@ -261,15 +263,29 @@ def _run_selftest(st: dict, cwd: Path) -> dict:
                            text=True, encoding="utf-8", errors="replace", timeout=timeout, cwd=str(cwd),
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         res["ms"] = int((time.monotonic() - t0) * 1000)
-        sent = parse_sentinels((r.stdout or "") + "\n" + (r.stderr or ""))
-        res["got"] = [f"{s['name']} {s['verdict']}" for s in sent]
+        out_lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
+        last_line = out_lines[-1] if out_lines else ""
+        sent = parse_sentinels(last_line)
+        res["got"] = [f"{s['name']} {s['verdict']}" for s in parse_sentinels((r.stdout or "") + "\n" + (r.stderr or ""))]
         res["exit_code"] = r.returncode
+        res["last_line"] = last_line[:160]
         want_name = str(st.get("sentinel") or "").strip()
         last = sent[-1] if sent else None
-        res["ok"] = bool(last) and last["verdict"] == expected and (not want_name or last["name"] == want_name)
-        if not res["ok"]:
-            tail = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
-            res["detail"] = (tail[-1] if tail else "（無輸出）")[:160]
+        ok = bool(last) and last["verdict"] == expected and (not want_name or last["name"] == want_name)
+        stderr_text = (r.stderr or "").strip()
+        if expected in ("PASS", "DONE"):
+            if r.returncode != 0:
+                ok = False
+                err_tail = stderr_text.splitlines()[-1][:120] if stderr_text else ""
+                res["detail"] = f"exit {r.returncode}（expected {expected} 不接受非零 exit）{'：' + err_tail if err_tail else ''}"
+            elif stderr_text:
+                ok = False
+                res["detail"] = "stderr 有輸出（可疑）：" + stderr_text.splitlines()[-1][:120]
+        if not ok and not res["detail"]:
+            res["detail"] = (f"尾行「{last_line[:100]}」不是 {expected} 哨兵" if out_lines else "（無輸出）")
+            if stderr_text and not out_lines:
+                res["detail"] = stderr_text.splitlines()[-1][:160]
+        res["ok"] = ok
     except subprocess.TimeoutExpired:
         res.update(status="timeout", detail=f"逾時 {timeout}s")
     except (OSError, ValueError) as e:
