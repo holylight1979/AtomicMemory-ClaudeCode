@@ -568,3 +568,33 @@ def test_validator_internal_error_still_denies_and_logs_traceback(proj, monkeypa
     assert len(c["_errors"]) == 1 and "內部錯誤" in c["_errors"][0] and "validator-bug" in c["_errors"][0]
     assert seen == [("overview_hub:validate", "RuntimeError")]
     assert "內部錯誤" in capsys.readouterr().err
+
+
+def test_cfg_error_still_allows_editing_the_map_itself(proj, tmp_path, monkeypatch):   # 003 複審裁定：表本身也能自救
+    import wg_core
+    fake = tmp_path / "claude"
+    (fake / ".claude").mkdir(parents=True)
+    root_map = fake / ".claude" / "overview-map.md"
+    root_map.write_text("| `hooks/` | hook 層 | `打錯的卡名` | 有 |\n", encoding="utf-8")
+    monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    bad = {"overview_hub": {"enabled": False, "bogus": 1}}
+
+    warn, deny, changed = wo.on_edit({}, "s", str(root_map), tp, bad)                  # 根層表：放行＋警告
+    assert deny is None and not changed and warn and "放行以便修復" in warn and "bogus" in warn
+    _hub(proj, '{"foo": 1}')
+    proj_map = proj / ".claude" / "overview-map.md"
+    warn, deny, _ = wo.on_edit({}, "s", str(proj_map), tp, {})                         # 專案表：放行＋警告列專案層錯誤
+    assert deny is None and warn and "未知的設定鍵「foo」" in warn
+    warn, deny, _ = wo.on_edit({}, "s", str(fake / ".claude" / "overview-map.md.bak"), tp, bad)   # 同目錄他檔仍擋（比路徑不比檔名）
+    assert deny and "bogus" in deny
+    warn, deny, _ = wo.on_edit({}, "s", str(fake / ".claude" / "notes.md"), tp, bad)
+    assert deny and "bogus" in deny
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})          # 專案表壞設定下部位檔仍擋
+    assert deny and "foo" in deny
+    _hub(proj, "{}")
+    assert wo.on_edit({}, "s", str(proj_map), tp, {}) == (None, None, False)          # 設定沒錯：表靜默放行
+    events = [json.loads(l)["event"] for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert events.count("edit_own_config") == 2 and events.count("edit_cfg_error") == 3

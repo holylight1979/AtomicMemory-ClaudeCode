@@ -22,7 +22,7 @@ from wg_core import CLAUDE_DIR, CONFIG_PATH, _atom_debug_error, _deep_merge, _la
 
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 from overview_hub import (  # noqa: E402
-    build_injection, find_map, locate_channel, match_row,
+    MAP_REL, build_injection, find_map, locate_channel, match_row,
     parse_map, read_paths_from_tool, resolve_card, top_dir, transcript_size,
 )
 
@@ -304,20 +304,21 @@ def _resolved(p: Path) -> Optional[Path]:
 
 
 def _own_config_layer(file_path: str) -> Tuple[bool, Optional[Path]]:
-    """file_path 是不是 OverviewHub 自己讀的設定檔（精確比對 resolve 後路徑，不是比檔名）：
-    根層 workflow/config.json、根層／公司根／該檔所屬專案根（find_map 找到的那個根）的 .claude/overview-hub.json。
-    回 (是不是, 該設定檔所屬層的 root；config.json 回 None)。"""
+    """file_path 是不是 OverviewHub 自己讀的設定檔或部位表（精確比對 resolve 後路徑，不是比檔名）：
+    根層 workflow/config.json；根層／公司根／該檔所屬專案根（find_map 找到的那個根）的 .claude/overview-hub.json
+    與 .claude/overview-map.md（表寫壞、卡名打錯時模型得能改表）。回 (是不是, 該檔所屬層的 root；config.json 回 None)。"""
     fp = _resolved(Path(file_path))
     if fp is None:
         return (False, None)
     if fp == _resolved(CONFIG_PATH):
         return (True, None)
+    own_rels = (HUB_REL, Path(MAP_REL))
     for layer_root in (CLAUDE_DIR, _org_root()):
-        if layer_root is not None and fp == _resolved(layer_root / HUB_REL):
+        if layer_root is not None and any(fp == _resolved(layer_root / rel) for rel in own_rels):
             return (True, layer_root)
-    if fp.name == HUB_REL.name and fp.parent.name == HUB_REL.parent.name:
+    if fp.parent.name == HUB_REL.parent.name and fp.name in (HUB_REL.name, Path(MAP_REL).name):
         found = find_map(file_path)
-        if found and fp == _resolved(found[0] / HUB_REL):
+        if found and any(fp == _resolved(found[0] / rel) for rel in own_rels):
             return (True, found[0])
     return (False, None)
 
