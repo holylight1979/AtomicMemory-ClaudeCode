@@ -160,15 +160,24 @@ def test_main_sentinel_and_json(tmp_path, capsys):
     assert rc2 == 0 and text[-1] == "PROJECT_SMELLS DONE n=5" and text[0].startswith("part=")
 
 
+@pytest.mark.skipif(os.name != "nt", reason="CommandLineToArgvW 只在 Windows")
 def test_split_cmd_windows_quoted_path_with_space():
-    """退回修正（BLOCK 4）：Windows 引號可在 token 中段，引號內空白不切、引號去掉、反斜線照字面。"""
+    """退回修正（BLOCK 4）：Windows 引號可在 token 中段（--root="C:\\Work Space\\src" 一個 token）、引號去掉、不認單引號。"""
     assert ps._split_windows(r'python gen_smells.py --root="C:\Work Space\src" --json') == \
         ["python", "gen_smells.py", r"--root=C:\Work Space\src", "--json"]
-    assert ps._split_windows('"C:\\Program Files\\Py\\python.exe" gen.py  --x=\'a b\'') == \
+    assert ps._split_windows('"C:\\Program Files\\Py\\python.exe" gen.py  --x="a b"') == \
         [r"C:\Program Files\Py\python.exe", "gen.py", "--x=a b"]
     assert ps._split_windows("") == [] and ps._split_windows("   ") == []
-    with pytest.raises(ps.SmellsError):
-        ps._split_windows(r'python x.py --root="C:\Work Space')
+    assert ps._split_windows(r'python x.py --root="C:\Work Space') == ["python", "x.py", r"--root=C:\Work Space"], "沒關的引號吃到結尾，與 shell 同"
     assert ps._split_cmd(["python", "a b.py"]) == ["python", "a b.py"], "陣列原樣不切"
-    if os.name == "nt":
-        assert ps._split_cmd(r'python gen_smells.py --root="C:\Work Space\src" --json')[2] == r"--root=C:\Work Space\src"
+    assert ps._split_cmd(r'python gen_smells.py --root="C:\Work Space\src" --json')[2] == r"--root=C:\Work Space\src"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="CommandLineToArgvW 只在 Windows")
+def test_split_cmd_windows_escaped_quote_keeps_tokens():
+    """退回修正第二輪（BLOCK 1）：`a\\" --json b\\"` 要切成 5 個 token、--json 獨立（自家狀態機曾吞成一個 token）。"""
+    got = ps._split_windows(r'python x.py a\" --json b\"')
+    assert got == ["python", "x.py", 'a"', "--json", 'b"'], got
+    assert len(got) == 5 and "--json" in got
+    assert ps._split_windows('python x.py "" tail') == ["python", "x.py", "", "tail"], "空引號保留空 token"
+    assert ps._split_windows('python x.py a"b c"d') == ["python", "x.py", "ab cd"], "token 中段引號合併"

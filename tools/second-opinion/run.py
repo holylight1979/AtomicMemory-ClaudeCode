@@ -103,6 +103,7 @@ def _read_json(path: Path) -> Dict[str, Any]:
 
 TERMINAL = ("done", "failed", "blocked")
 MAX_LOG_BYTES = 20 * 1024 * 1024  # post_guard 整份掃描的上限；超過直接 failed「紀錄過大無法判定」，不掃尾段
+SCAN_DEADLINE_S = 30  # 整份掃描（regex＋paths_outside）的時間上限；超過 failed「掃描逾時無法判定」
 
 
 def write_status(job_dir: Path, status: str, **kw: Any) -> Dict[str, Any]:
@@ -339,8 +340,16 @@ def post_guard(job_dir: Path) -> Tuple[bool, str]:
             return False, f"replay-guard post FAIL（無指令行）且紀錄過大無法判定：{total} bytes > {MAX_LOG_BYTES}"
         g = _guard_module()
         full = _read_all(log) + "\n" + _read_all(stdout_log)  # 整檔、不切；前段的出界讀取也掃得到
-        hits = [p for p in g.FORBIDDEN_IN_LOG if re.search(p, full, flags=re.IGNORECASE)]
+        deadline = time.monotonic() + SCAN_DEADLINE_S
+        hits: List[str] = []
+        for pat in g.FORBIDDEN_IN_LOG:
+            if time.monotonic() > deadline:
+                return False, f"replay-guard post FAIL（無指令行）且整份掃描逾時（>{SCAN_DEADLINE_S}s）無法判定"
+            if re.search(pat, full, flags=re.IGNORECASE):
+                hits.append(pat)
         outside = g.paths_outside(full, job_dir)
+        if time.monotonic() > deadline:
+            return False, f"replay-guard post FAIL（無指令行）且整份掃描逾時（>{SCAN_DEADLINE_S}s）無法判定"
         if not hits and not outside:
             return True, "post：codex 未執行任何指令（純推理），整份紀錄無禁區樣式與出界路徑"
         return False, "replay-guard post FAIL（無指令行，但整份紀錄命中）：" + "；".join(hits + outside[:5])
@@ -407,17 +416,24 @@ def execute(job_dir: Path, so_cfg: Dict[str, Any], cc_cfg: Dict[str, Any]) -> Di
     """探針→codex→post guard→解析。任何例外都收成 failed（status 不會卡在 running）；同 job 第二個 executor 直接拒。"""
     st = _read_json(job_dir / "status.json")
     if st.get("status") != "started":
-        return write_status(job_dir, st.get("status") or "failed",
-                            reason=f"execute 只接 started 的 job（現為 {st.get('status')!r}）")
+        # 拒絕路徑只回傳、不寫檔：failed job 的原始 reason／updated_at 是診斷證據，不能被「只接 started」那句蓋掉
+        rejected = dict(st, rejected_execute=f"execute 只接 started 的 job（現為 {st.get('status')!r}）；要重跑請重新 prepare 建新 job")
+        sys.stderr.write(f"[second-opinion] {job_dir.name}: {rejected['rejected_execute']}\n")
+        return rejected
     if not _acquire_executor_lock(job_dir):
-        st["rejected_execute"] = "已有 executor（execute.lock 存在）；要重跑先確認 status 與該 lock 再手動刪"
-        sys.stderr.write(f"[second-opinion] {job_dir.name}: {st['rejected_execute']}\n")
-        return st
+        rejected = dict(st, rejected_execute="已有 executor（execute.lock 存在）；要重跑請重新 prepare 建新 job")
+        sys.stderr.write(f"[second-opinion] {job_dir.name}: {rejected['rejected_execute']}\n")
+        return rejected
     stage = ["start"]
     try:
         return _execute_body(job_dir, so_cfg, cc_cfg, stage)
     except Exception as e:  # noqa: BLE001  任何啟動／IO 例外都要落 failed，不能留 running
-        return write_status(job_dir, "failed", stage=stage[0], reason=f"execute 例外（stage={stage[0]}）：{e!r}")
+        reason = f"execute 例外（stage={stage[0]}）：{e!r}"
+        try:
+            return write_status(job_dir, "failed", stage=stage[0], reason=reason)
+        except Exception as e2:  # noqa: BLE001  連 status.json 都寫不進去：stderr 留痕，回記憶體狀態
+            sys.stderr.write(f"[second-opinion] {job_dir.name}: 寫 failed 狀態也失敗：{e2!r}；原因：{reason}\n")
+            return {"status": "failed", "stage": stage[0], "reason": reason, "status_write_error": repr(e2)}
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────

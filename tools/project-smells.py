@@ -9,7 +9,8 @@
   smells_report  報告檔（JSON：list 或 {rows|items|smells:[...]}；每列 path／category|kind／reason／score?／part?）
                  超過 smells_max_age_days（預設 7）只在表頭加一行 stale，資料照回
   smells_cmd     沒報告（或報告不存在）就跑這條指令，stdout 要是同格式 JSON；逾時 smells_timeout_s（預設 20）回錯誤附指示
-                 可給陣列（建議）或字串；字串在 Windows 以自家切法處理：引號可在 token 中段（--root="C:\\A B\\src"）、引號內空白不切
+                 可給陣列（建議）或字串；字串在 Windows 交 CommandLineToArgvW 切（與 shell 同語意：--root="C:\\A B\\src" 一個 token、
+                 a\\" 保護引號、不認單引號），非 Windows 走 shlex.split
   builtin        都沒有：檔案大小 ＋ 近 60 天 git fix 提交熱點（T2 重修量尺接上前的暫代）
 分類只收 hotspot|size|complexity|duplication|coupling|stale|custom；其他名稱要在 smells_category_map 映射，
 沒映射的列丟棄並回報 unknown_categories；沒 reason 的列丟棄並計 dropped。
@@ -107,35 +108,27 @@ def read_report(path: Path, max_age_days: int) -> Tuple[List[Dict[str, Any]], in
 
 
 def _split_windows(cmd: str) -> List[str]:
-    """Windows 用：引號可出現在 token 任何位置（`--root="C:\\Work Space\\src"`），引號內的空白不切、引號本身去掉；
-    反斜線照字面保留（不當跳脫）。shlex 非 POSIX 模式只認 token 開頭的引號，會把這種參數切成兩段。"""
-    out: List[str] = []
-    buf: List[str] = []
-    quote = ""
-    in_token = False
-    for ch in cmd:
-        if quote:
-            if ch == quote:
-                quote = ""
-            else:
-                buf.append(ch)
-            continue
-        if ch in "\"'":
-            quote = ch
-            in_token = True
-            continue
-        if ch.isspace():
-            if in_token:
-                out.append("".join(buf))
-                buf, in_token = [], False
-            continue
-        buf.append(ch)
-        in_token = True
-    if quote:
-        raise SmellsError(f"smells_cmd 引號沒關：{cmd}")
-    if in_token:
-        out.append("".join(buf))
-    return out
+    """Windows 用：交給系統原生 `CommandLineToArgvW`（與 shell／CreateProcess 同一套語意：`--root="C:\\A B"` 一個 token、
+    `a\\"` 的反斜線保護引號、不認單引號）。不自己寫切法：shlex 非 POSIX 只認 token 開頭的引號，自家狀態機又會把
+    `a\\" --json b\\"` 吞成一個 token。"""
+    if not cmd.strip():
+        return []
+    import ctypes
+    from ctypes import wintypes
+    shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(wintypes.LPWSTR)
+    shell32.CommandLineToArgvW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+    kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
+    kernel32.LocalFree.restype = wintypes.HLOCAL
+    n = ctypes.c_int(0)
+    p = shell32.CommandLineToArgvW(cmd, ctypes.byref(n))
+    if not p:
+        raise SmellsError(f"smells_cmd 切參數失敗（CommandLineToArgvW 回 NULL）：{cmd}")
+    try:
+        return [p[i] for i in range(n.value)]
+    finally:
+        kernel32.LocalFree(p)
 
 
 def _split_cmd(cmd: Any) -> List[str]:

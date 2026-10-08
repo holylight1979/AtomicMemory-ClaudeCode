@@ -29,9 +29,9 @@ job 目錄 `~/.claude/workflow/second-opinion/<yyyymmdd-HHMMSS>-<sid8>-<kind>/`�
 |---|---|---|
 | `codex.stdout.log`、`probe.stdout.log`、`probe.stderr.log`、`guard.pre.log`、`guard.post.log` | py | 子程序輸出與 guard 原文（除錯用） |
 | `execute.log` | **MCP（js）建立**，子程序 stdout/stderr 導向進去 | 不是 state、不是 job 結果；`run.py execute` 自己的 print 與 traceback 落這裡 |
-| `execute.lock` | py，`O_CREAT\|O_EXCL` | 同一 job 只允許一個 executor；第二個 execute 直接拒。要重跑先看 status.json 再手動刪 |
+| `execute.lock` | py，`O_CREAT\|O_EXCL` | 同一 job 只允許一個 executor；第二個 execute 直接拒。不自動清。**要重跑一律重新 `second_opinion_start`（prepare 建新 job）**，刪 lock 沒用：非 started 的 job 會被狀態檢查擋 |
 
-status.json 的終態（done／failed／blocked）不可被覆寫：之後任何 `write_status` 都不寫、回現況並附 `rejected_write`。execute 全程 try/except，任何啟動／IO 例外都落 `failed`（stage 記當時階段），不會卡在 running。
+status.json 的終態（done／failed／blocked）之間不可互蓋：之後寫**不同**狀態的 `write_status` 不寫檔、回現況並附 `rejected_write`；寫**同一**終態可補欄位（後寫者贏）。非 started 的 job 再被 execute：只回傳、不寫檔，原始 reason 與 updated_at 原樣保留。execute 全程 try/except，任何啟動／IO 例外都落 `failed`（stage 記當時階段），不會卡在 running；連 status.json 都寫不進去時 stderr 留痕並回記憶體狀態。被硬殺的 executor（status 留 running）：`second_opinion_result` 逾 timeout_s＋90 s 回 failed 並指向 execute.log，status.json 不會被改。
 封存關鍵字放 `<job_root>/_sealed/<job_id>.txt`，不放 job 目錄裡。`draft` 空字串或全空白視為「沒帶」（independent 放行、review 拒）。
 js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/guardian-crash.log`（gitignored）；只在 spawn 本身失敗時用。
 
@@ -60,7 +60,7 @@ js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/gua
 
 ## 保留裁決（總控台審）
 
-`replay-guard post` 在紀錄裡找不到任何指令行時回 FAIL「無法判定」。codex 若純推理（材料已全文內嵌）就會這樣。本工具只在**這一種** FAIL 時，改以 guard 自己的禁區樣式與出界路徑規則掃**整檔**（不切頭尾）的 stderr＋stdout；兩檔合計超過 20 MB 直接 failed「紀錄過大無法判定」，不掃尾段；全乾淨才算 PASS 並在 status 留 `guard_note`；有任何命中仍 failed。其他 FAIL 一律 failed。總控台裁決：接受（條件＝整檔掃描＋過大即 failed，已做）。
+`replay-guard post` 在紀錄裡找不到任何指令行時回 FAIL「無法判定」。codex 若純推理（材料已全文內嵌）就會這樣。本工具只在**這一種** FAIL 時，改以 guard 自己的禁區樣式與出界路徑規則掃**整檔**（不切頭尾）的 stderr＋stdout；兩檔合計超過 20 MB 直接 failed「紀錄過大無法判定」，不掃尾段；掃描本身超過 30 s 也 failed「掃描逾時無法判定」；全乾淨才算 PASS 並在 status 留 `guard_note`；有任何命中仍 failed。其他 FAIL 一律 failed。總控台裁決：接受（條件＝整檔掃描＋過大即 failed，已做）。
 
 ## 驗證
 

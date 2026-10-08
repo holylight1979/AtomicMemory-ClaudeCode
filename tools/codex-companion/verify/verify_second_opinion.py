@@ -394,6 +394,30 @@ def test_terminal_status_not_overwritten(env):
     assert run.write_status(Path(blocked["job_dir"]), "done")["status"] == "blocked"
 
 
+def test_execute_on_terminal_job_keeps_original_reason(env):
+    """退回修正第二輪（BLOCK 2）：failed／blocked／done／running 的 job 再 execute → 只回傳不寫檔，原始 reason 與 updated_at 原樣。"""
+    env["plan"]["probe"] = {"stdout": "", "stderr": "CreateProcessWithLogonW failed: 1385\n", "rc": 1}
+    res = _prepare(env)
+    job = Path(res["job_dir"])
+    first = _execute(env, str(job))
+    assert first["status"] == "failed" and "沙箱" in first["reason"]
+    before = (job / "status.json").read_bytes()
+    import time as _t
+    _t.sleep(1.1)  # 讓 updated_at 若被重寫一定會變
+    again = _execute(env, str(job))
+    assert again["status"] == "failed" and again["reason"] == first["reason"]
+    assert "只接 started" in again["rejected_execute"] and "重新 prepare" in again["rejected_execute"]
+    assert (job / "status.json").read_bytes() == before, "拒絕路徑不得動 status.json（reason／updated_at 都要原樣）"
+    assert len([c for c in env["plan"]["popen"]]) == 1, "拒絕路徑不 spawn"
+    # blocked 的 job 同樣只回傳不寫
+    env["plan"]["pre"] = "FAIL"
+    b = _prepare(env, session_id="bbbbbbbb")
+    bb = Path(b["job_dir"]) / "status.json"
+    raw_b = bb.read_bytes()
+    rb = _execute(env, b["job_dir"])
+    assert rb["status"] == "blocked" and bb.read_bytes() == raw_b
+
+
 def test_second_execute_on_same_job_rejected(env):
     """同一 job 已有 executor（execute.lock 存在）→ 第二個 execute 直接拒、不 spawn、不改 status。"""
     res = _prepare(env)
