@@ -4998,6 +4998,39 @@
         "文件飄移"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-預計畫文件的三種退避形態-dry-run出廠-登記延後-一槓空格-補什麼要標閘注入工具規矩-怎麼驗要標題組機器數字第二家模型看人看",
+      "path": "memory/Failures/行為契約/feedback-預計畫文件的三種退避形態-dry-run出廠-登記延後-一槓空格-補什麼要標閘注入工具規矩-怎麼驗要標題組機器數字第二家模型看人看.md",
+      "triggers": [
+        "退避形態",
+        "dry_run 出廠",
+        "登記延後",
+        "一槓",
+        "預計畫",
+        "補什麼類型",
+        "怎麼驗類型",
+        "闸注入工具規矩",
+        "題組機器數字",
+        "後門",
+        "角色分工判層",
+        "系統怎麼知道現在是哪層"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-預計畫文件先改到使用者認可才進planmode定執行細節-不是收到校正就馬上進planmode",
+      "path": "memory/personal/holylight/feedback-預計畫文件先改到使用者認可才進planmode定執行細節-不是收到校正就馬上進planmode.md",
+      "triggers": [
+        "預計畫",
+        "PlanMode 時機",
+        "先改文件",
+        "使用者認可",
+        "計畫之前的文件",
+        "多 agent 參與",
+        "執行細節"
+      ],
+      "scope": "personal:holylight"
     }
   ]
 }

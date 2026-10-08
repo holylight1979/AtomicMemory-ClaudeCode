@@ -14,6 +14,6 @@
 | 設計通則 | 7 | `memory/設計通則/_INDEX.md` |
 | 行為契約 | 5 | `memory/行為契約/_INDEX.md` |
 | CC與原子記憶契約 | 15 | `memory/CC與原子記憶契約/_INDEX.md` |
-| Failures | 48 | `memory/Failures/_INDEX.md` |
+| Failures | 49 | `memory/Failures/_INDEX.md` |
 
 > 本地範疇（僅 ~/.claude 注入）Lv1 根索引見 `_local_catalog.md`，深層 drill 各層 `_INDEX.md`。
