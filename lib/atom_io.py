@@ -65,6 +65,8 @@ VALID_SOURCES = frozenset({
     "hook:provenance",  # PostToolUse 對剛寫入的 atom 自動補 Source／Quote（hooks/wg_provenance.py）
     "tool:provenance-backfill",  # 舊 atom 一次性回填 Source／Quote（tools/atom-provenance-backfill.py）
     "tool:migrate",
+    "tool:overview-map-scaffold",  # 從零掃表：產 <專案>/.claude/overview-map.md 草稿與導讀卡骨架
+    "tool:scorecard",  # scorecard：每 session 一行過程量、榜單候選卡
     "tool:sync-atom-index",
     "tool:sync-memory-index",
     "tool:undo",

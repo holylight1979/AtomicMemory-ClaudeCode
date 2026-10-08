@@ -26,7 +26,7 @@ from handlers import aec_ledger
 from wg_core import (
     _ensure_state, _estimate_tokens, _now_iso, write_state,
     output_json, output_nothing,
-    _atom_debug_log, WORKFLOW_DIR,
+    _atom_debug_log, _atom_debug_error, WORKFLOW_DIR,
 )
 from wg_atoms import (
     compute_token_budget,
