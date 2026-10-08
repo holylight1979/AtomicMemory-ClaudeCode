@@ -182,6 +182,11 @@ const TOOL_DEFINITIONS = [
           type: "string",
           description: "Optional one-line current status (e.g. '案結 2026-07-29'). Shown alongside cold/one-line injections so the pointer carries minimal state. Current-state ONLY — no version history / change narrative.",
         },
+        kind_hint: {
+          type: "string",
+          enum: ["pointer", "complement", "ledger", "hub", "plain"],
+          description: "選填。宣告這張卡的型：pointer 指標／complement 互補／ledger 現況帳／hub 導讀卡／plain 一般。py 端仍會自判（hub＝kind_hint=hub 或標題含「導讀」或五段齊、ledger 日期數字對），hint 不能讓缺段卡過",
+        },
         mode: {
           type: "string", enum: ["create", "append", "replace"],
           description: "create=new atom, append=add knowledge lines, replace=overwrite knowledge section",
@@ -342,6 +347,13 @@ const TOOL_DEFINITIONS = [
               path: { type: "string", description: "receipt 回的絕對路徑（action≠skip 必填；retired 填 old_path）" },
               scope: { type: "string", enum: ["global", "shared", "personal", "role", "local", "org"], description: "落點層" },
               reason: { type: "string", description: "action=skip 必填：一句為何不寫" },
+              route: {
+                type: "string",
+                enum: ["part_doc", "global", "org", "local", "shared", "candidate_global"],
+                description: "選填。萃取路由：part_doc=有部位→該部位病灶文件＋卡一行指標（必帶 part）；global=去專案細節後跨專案；org=全公司；local=只在記憶系統；shared=專案；candidate_global=realm 拒後先落 shared 標候選全域。global／candidate_global 的 summary 不得帶專案名（先 atom_io_cli action=scrub）",
+              },
+              candidate_global: { type: "boolean", description: "選填。這條其實是跨專案通則、只因 realm 閘先落 shared" },
+              part: { type: "string", description: "選填。部位名（route=part_doc 必填）" },
             },
             required: ["source", "summary", "action"],
           },

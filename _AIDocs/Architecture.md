@@ -16,7 +16,7 @@
 | `PreToolUse` | `handlers/pre_tool_use.py` | 寫入守門（下節）+ 跨 session 同檔預警 + 索引三檔合併閘 + git 隱私閘 + commit 口令閘 + subagent 記憶注入 + **OverviewHub**（Edit/Write 命中專案 `.claude/overview-map.md` 的部位：未注入過 → 現場整張注入導讀卡並警告；已注入但回覆沒有「定位｜部位／根因層／前例」三行 → dry_run 警告、否則 deny） | TECH §7.5、§4.5、§12 |
 | `PostToolUse` | `handlers/post_tool_use.py`（末段同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`） | 改檔追蹤 + 增量索引 + test-fail 偵測 + changelog auto-roll + AEC one-writer + late-collision + OverviewHub（Read／Bash 讀檔第一次碰到某部位 → 整張注入導讀卡；之後記注入後讀檔數） + **收割 one-writer**（`atom_write`／`atom_retire` receipt → `state.atom_ops[sid]`；`knowledge_harvest_report` items ↔ receipt 核對 → `state.knowledge_harvest[sid]` + `workflow/harvest-ledger/<sid>.jsonl`，validated 時清同 turn AEC d_pending 並 `spawn_vcs_sync(reason="harvest")`；純函式在 `wg_harvest.py`） | TECH §6.3、§7.2、§7.4、§7.5 |
 | `PreCompact`／`PostCompact`／`PostToolBatch` | `handlers/pre_compact.py`／`post_compact.py`／`post_tool_batch.py` | 壓縮前快照 state + `injected_atoms` + handoff stub；壓縮後 stash 緊湊內文 + `pending_reinjection`；下一批工具一次性重注入 + stub 補全提示 | 本檔 Auto-Handoff 節 |
-| `Stop` | `handlers/stop.py`；standalone `codex_companion.py`／`lang_guard.py` | 閘序：TestFail → Evasion／DeferralGate → KnowledgeHarvest → Harvest-Pending → ScanReport → AEC-Pending → HUD fallback → 同步閘（root 有 vcs-sync 活鎖跳過該 root）→ AtomAudit → Deep Post-Mortem → 驗收裁判 enforce（獨立 hook）→ 迴歸提示；效用歸因；token 預警 piggyback；退避偵測（`detect_evasion` 對 last assistant text 於此執行）；transcript 單次 tail-read 供各消費者共用 | TECH §7.1、§6.4 |
+| `Stop` | `handlers/stop.py`；standalone `codex_companion.py`／`lang_guard.py` | 閘序：TestFail → Reconcile／Measure（`wg_verify_ledger`：收尾宣稱對帳本收據、量尺 DONE）→ Evasion／DeferralGate → KnowledgeHarvest → Harvest-Pending → ScanReport → AEC-Pending → HUD fallback → 同步閘（root 有 vcs-sync 活鎖跳過該 root）→ AtomAudit → Deep Post-Mortem → 驗收裁判 enforce（獨立 hook）→ 迴歸提示；效用歸因；token 預警 piggyback；退避偵測（`detect_evasion` 對 last assistant text 於此執行）；transcript 單次 tail-read 供各消費者共用 | TECH §7.1、§6.4 |
 | `SessionEnd` | `handlers/session_end.py` | episodic 生成 + 使用者決策萃取 spawn + decay 每日護欄 + selective forget（預設 dry-run）+ recall-miss + 晉升 sweep + outcome 遙測 + GC；增量索引之後 `spawn_vcs_sync(reason="promotion"|"session_end")` 一次（舊 `_auto_commit_promotions` 已移除，TECH §14.2）（SessionEnd 全量萃取**未啟動**） | TECH §6.3、§6.4、§8 |
 
 ### 模組職責（一行）
@@ -98,7 +98,7 @@ statusline／週健檢／效果報表／救援日誌／失念偵測／回訪／g
 
 ### 反退避：Evasion Guard／Test-Fail Gate／ScanReport（`wg_evasion.py`）
 
-程式碼強固 LLM「錯誤的迴避」行為——不依賴模型自律。Stop 閘序、禁語單一來源、九欄報告、one-writer cross-check、殘檔帳本受保護路徑、刪除後驗、AEC-Pending、遙測：TECH §7.1、§7.2。以下為 TECH 未收的判定細節（本段為唯一來源）：
+程式碼強固 LLM「錯誤的迴避」行為——不依賴模型自律。Stop 閘序、禁語單一來源（含三類宣稱）、十一欄報告 (a)–(k)、one-writer cross-check、殘檔帳本受保護路徑、刪除後驗、AEC-Pending、遙測：TECH §7.1、§7.2。以下為 TECH 未收的判定細節（本段為唯一來源）：
 
 - **Test-Fail Gate 資料流**：PostToolUse(Bash) 解析測試指令（pytest／tsc／node --check／jest／go test／cargo test）stdout+stderr → 失敗尾 20 行寫 `state["failing_tests"][]`；同 cmd 重跑成功即清舊紀錄。Stop 見 `failing_tests` 非空 + last assistant text 命中完成宣告 → block，要求 (a)修復 (b)標為 regression (c)降級任務。使用者放行詞（先這樣／跳過／known regression）清 `failing_tests`；近 3 則 user prompt 有放行詞 → 不掛 evasion flag。
 - **退避偵測時點**：Stop 對 last assistant text 跑 `detect_evasion`（禁語表 `memory/_meta/forbidden-phrases.json`）→ `evasion_flag` + `evasion_events` 證據暫存（不受 UPS 清旗影響，供 AEC (b) cross-check）→ 下輪 UPS 注入 `[Guardian:Evasion]` 舉證要求後清旗。

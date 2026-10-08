@@ -89,7 +89,9 @@
     "auto_threshold": 0.5,
     "ask_threshold": 0.3,
     "dedup_score": 0.8,
-    "skip_on_explicit_user": true
+    "skip_on_explicit_user": true,
+    "hub_card_budget": 4096,
+    "_doc_hub_card_budget": "導讀卡（kind_hint=hub、標題含「導讀」或五段齊）knowledge 區預算 bytes；根層固定 4096，值住 lib/hub_card.py HUB_CARD_BUDGET，改這裡不生效，改 py。一般卡仍用 knowledge_budget_bytes（預設 3072）。"
   },
   "episodic": {
     "auto_generate": true,
@@ -538,19 +540,208 @@
     }
   },
   "overview_hub": {
-    "_doc": "OverviewHub 變量（預計畫附錄 D）。合併順序 根層預設 < 本段 < <公司根>/.claude/overview-hub.json < <專案根>/.claude/overview-hub.json，巢狀物件深合併、陣列整取。未知鍵報錯（Edit 一律擋；OverviewHub 自己的設定檔與部位表除外，放行附警告）；dry_run／deny_parts 已退役。path_bases 每項要是存在目錄且彼此不包含；eol_policy ∈ lf／crlf／per-file-head；編碼鍵要過 codecs.lookup。加新鍵要同時加進 hooks/wg_overview.py 的 _DEFAULT。",
+    "_doc": "OverviewHub 變量（預計畫附錄 D）。合併順序 根層預設 < 本段 < <公司根>/.claude/overview-hub.json < <專案根>/.claude/overview-hub.json，巢狀物件深合併、陣列整取。未知鍵報錯（Edit 一律擋；OverviewHub 自己的設定檔與部位表除外，放行附警告）；dry_run／deny_parts 已退役，明寫也不放行。閘：改部位檔前三項證據缺一即擋（導讀卡已注入且 min_overview_evidence.card 不可關、注入後讀過該部位檔 ≥part_files、交了定位三行；depends_files＝讀過卡片裡指到的檔數）；transcript 讀不到視為環境異常也擋；readonly_paths（相對該層根的 glob，**/ 也配零層）命中一律擋不注入；沒有部位表或表上沒列的檔只要求同頂層目錄讀過 ≥part_files 個檔；部位表有「層」欄時根因層行必須指明其中一層。Bash／PowerShell 的 >、>>、tee、sed -i、cp、mv、Set-Content、Out-File、Add-Content 目標也走閘。goal_weights：意圖（debug／feature／refactor／perf／new_project／build／design／recall／handoff／general）→ 先送導讀卡哪幾片（what／authority／ask／defects／verify）、視角、先問哪題；空陣列＝整卡原序；卡切不出任何選中片退整卡。verify_chains：{部位: {runtime_gate, pre, run, collect, cleanup}} 給量尺閘；path_bases 每項要是存在目錄且彼此不包含；eol_policy ∈ lf／crlf／per-file-head；編碼鍵要過 codecs.lookup。加新鍵要同時加進 hooks/wg_overview.py 的 _DEFAULT。",
     "enabled": true,
     "max_card_chars": 6000,
     "path_bases": [],
     "vcs_roots": [],
     "commit_encoding": "utf-8",
-    "source_encodings": ["utf-8"],
+    "source_encodings": [
+      "utf-8"
+    ],
     "eol_policy": "per-file-head",
     "PYTHONIOENCODING": "utf-8",
     "readonly_paths": [],
-    "min_overview_evidence": {"card": true, "part_files": 1, "depends_files": 0},
+    "min_overview_evidence": {
+      "card": true,
+      "part_files": 1,
+      "depends_files": 0
+    },
     "candidate_top_n": 5,
-    "root_cause_triggers": ["根因", "治本", "為什麼又", "又壞", "重複發生", "老問題", "root cause", "again"],
-    "goal_weights": {}
-  }
+    "root_cause_triggers": [
+      "根因",
+      "治本",
+      "為什麼又",
+      "又壞",
+      "重複發生",
+      "老問題",
+      "root cause",
+      "again"
+    ],
+    "goal_weights": {
+      "debug": {
+        "slices": [
+          "defects",
+          "verify",
+          "authority"
+        ],
+        "lens": "目標視角",
+        "ask_first": "幾份存法、有無訊號"
+      },
+      "new_project": {
+        "slices": [
+          "authority",
+          "what",
+          "ask"
+        ],
+        "lens": "目標視角",
+        "ask_first": "資料到底存哪"
+      },
+      "feature": {
+        "slices": [
+          "what",
+          "authority",
+          "verify"
+        ],
+        "lens": "理解視角",
+        "ask_first": "上游誰餵下游誰吃"
+      },
+      "refactor": {
+        "slices": [
+          "what",
+          "verify",
+          "defects"
+        ],
+        "lens": "數彎視角",
+        "ask_first": "這條路拐幾個彎"
+      },
+      "perf": {
+        "slices": [
+          "verify",
+          "defects",
+          "what"
+        ],
+        "lens": "目標視角",
+        "ask_first": "量尺在哪門檻多少"
+      },
+      "build": {
+        "slices": [
+          "authority",
+          "verify"
+        ],
+        "lens": "目標視角",
+        "ask_first": ""
+      },
+      "design": {
+        "slices": [
+          "authority",
+          "what"
+        ],
+        "lens": "理解視角",
+        "ask_first": ""
+      },
+      "recall": {
+        "slices": [],
+        "lens": "",
+        "ask_first": ""
+      },
+      "handoff": {
+        "slices": [],
+        "lens": "",
+        "ask_first": ""
+      },
+      "general": {
+        "slices": [],
+        "lens": "",
+        "ask_first": ""
+      }
+    },
+    "verify_chains": {}
+  },
+  "overview_scaffold": {
+    "_doc": "從零掃表（tools/overview-map-scaffold.py）。scaffold_ignore：頂層目錄不成列的名單；layers：{層名: [目錄名或 glob]}，空＝全部「單層」；scaffold_default_lv1：骨架卡的 Lv1，必須是核心或專案既有 Lv1，工具絕不開新。預設 dry-run，--write 落檔；卡先寫、表最後寫；失敗不撤回、重跑接續補完。",
+    "scaffold_ignore": [
+      ".git",
+      ".svn",
+      "node_modules",
+      "obj",
+      "bin",
+      "Library",
+      "Temp",
+      "__pycache__",
+      ".claude",
+      "_AIDocs"
+    ],
+    "layers": {},
+    "scaffold_default_lv1": "設計通則"
+  },
+  "refix_churn": {
+    "_doc": "同檔反覆 fix 量尺（lib/refix_churn.py；tools/refix-churn.py 與掃表熱點共用）。fix_patterns：訊息任一行命中即算 fix（regex，不分大小寫；中文詞級、問句不算）；refix_window_days：配對天數窗；refix_since_days：回看天數；refix_min_fixes：至少幾筆才列；refix_exclude：路徑 regex（記憶、索引、表）；refix_exclude_msg：訊息 regex（收割與記憶提交）；refix_same_commit_pairs：同一 commit 同檔列兩次算不算兩次。",
+    "fix_patterns": [
+      "\\bfix(?:e[sd]|ing)?\\b",
+      "\\bbugfix\\b",
+      "\\bhotfix\\b",
+      "\\bbug\\b",
+      "修正(?![^。；;！!\n]*[嗎？?])",
+      "修復(?![^。；;！!\n]*[嗎？?])",
+      "修好(?![^。；;！!\n]*[嗎？?])",
+      "修補(?![^。；;！!\n]*[嗎？?])",
+      "壞了(?![^。；;！!\n]*[嗎？?])",
+      "壞掉(?![^。；;！!\n]*[嗎？?])",
+      "錯誤(?![^。；;！!\n]*[嗎？?])"
+    ],
+    "refix_window_days": 14,
+    "refix_since_days": 60,
+    "refix_min_fixes": 2,
+    "refix_exclude": [
+      "(^|/)\\.claude/memory/",
+      "^memory/",
+      "(^|/)_AIDocs/_atoms/",
+      "_ATOM_INDEX\\.md$",
+      "_atom_index\\.json$",
+      "(^|/)MEMORY\\.md$",
+      "(^|/)_INDEX\\.md$",
+      "(^|/)_local_catalog\\.md$",
+      "overview-map\\.md$",
+      "overview-hub\\.json$"
+    ],
+    "refix_exclude_msg": [
+      "knowledge harvest",
+      "\\[memory\\]",
+      "\\batom\\b"
+    ],
+    "refix_same_commit_pairs": false
+  },
+  "scorecard": {
+    "_doc": "每 session 一行過程量（hooks/wg_scorecard.py 寫 workflow/scorecard/<yyyymm>.jsonl；S1＝有改的部位裡注入後讀過檔的比例、S3＝located 比例、S5＝注入後讀過卡片檔的比例）與報表（tools/scorecard-report.py → health-reports/scorecard-<date>.md、scorecard/candidates.json）。scorecard_baseline_weeks：S1 中位數基線視窗；scorecard_top_n：下一張該寫的卡取前幾個。",
+    "scorecard_baseline_weeks": 4,
+    "scorecard_top_n": 5
+  },
+  "verify_ledger": {
+    "_doc": "驗證帳本（hooks/wg_verify_ledger.py）：PostToolUse 收 Bash／PowerShell 輸出的哨兵（<NAME>_CHECK PASS|FAIL|DONE、量測類 <NAME> DONE k=v）與 exit code，落 workflow/verify-ledger/<sid>.jsonl（gitignore）並進 state verify_receipts[sid]（cap 50）；只在有哨兵或是測試指令時落帳；子代理（agent_id）另落 <sid>.agents.jsonl 不入主帳。sentinel_regex 讓既有工具不改輸出就能映射：每項 {regex（MULTILINE；可帶 (?P<verdict>) 具名群組）, name, verdict_map{子字串: PASS|FAIL|DONE}}。vcs_budget_s 是 vcs_snapshot 整體 deadline（每個子行程 ≤1 s、rev 每 root 60 s 快取、未提交雜湊只用 os.stat、每 10 檔查一次、上限 200 檔）。ledger_sources 保留（v6.0 不讀）。一鍵關＝enabled:false。",
+    "enabled": true,
+    "sentinel_regex": [],
+    "vcs_budget_s": 1.5,
+    "ledger_sources": []
+  },
+  "reconcile_gate": {
+    "_doc": "Stop 對帳閘（緊接 TestFailGate；只在本回合宣告完成時啟用）：收尾宣稱 vs 本回合驗證收據，宣稱以子句判（轉折詞另起子句、否定／疑問排除、第三方是子句主語且無「我／本／已」才算轉述）。(a) 說修好要本 turn 對得上的 PASS（exit 0 或無 exit；舊 turn、exit≠0 不算）；對得上＝收據 cmd 含修改檔 stem 整詞、或 test_<stem>／verify_<stem>／<stem>_test、或整體驗證（run_verify.py／無檔名 pytest／部位量尺指令）、或修改檔所在 verify 目錄；verify glob 單獨不算；指令含 cd 的收據不採用。(b) 說量了要 DONE (c) 說試過要本 turn 有 exec_tools 呼叫或收據 (d) 宣告完成且改了 code_exts 檔、沒改 verify_case_globs 檔、無 PASS→擋「改了碼沒驗證 case」(e) AEC 已 emit：有收據而 (j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。不吃 stop_gate_max_blocks：每 turn 最多擋 max_blocks_per_turn 次，再來放行並寫 Logs/guard-reconcile_overflow.jsonl＋state reconcile_overflow[sid]（週健檢列 red）。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
+    "enabled": true,
+    "max_blocks_per_turn": 2,
+    "exec_tools": [
+      "Bash",
+      "PowerShell"
+    ],
+    "code_exts": [
+      ".py",
+      ".js",
+      ".cs",
+      ".ts",
+      ".lua"
+    ],
+    "verify_case_globs": [
+      "**/verify/**",
+      "**/tests/**",
+      "**/*test*"
+    ]
+  },
+  "measure_gate": {
+    "_doc": "量尺閘（緊接對帳閘，共用其預算）：宣告完成時，本 session 改過的檔命中部位表某列且該列有量尺欄（量法｜`指令`｜門檻）→ 先跑 <專案根>/.claude/overview-hub.json 的 verify_chains[部位].runtime_gate（runtime_gate_timeout_s 秒，非 0＝環境未就緒→擋並說原因）→ 找「最後一次改該部位之後」（at 晚於修改；同秒比序號；同 root；指令含 cd 不採用）的 DONE 收據（exit 0 或無 exit；解析到 failed=k 必須 k==0）且 cmd 含量尺指令，沒有→擋。無量尺的部位只提醒補（stderr＋Logs/guard-measure.jsonl，每部位每 session 一次）。根層自己的表給 hooks 部位的尺是 python -X utf8 run_verify.py（成功尾行 VERIFY_CHECK DONE cases= failed=0，失敗 VERIFY_CHECK FAIL 且 exit 1）。一鍵關＝enabled:false。",
+    "enabled": true,
+    "runtime_gate_timeout_s": 2
+  },
+  "tool_selftests": [],
+  "_doc_tool_selftests": "週健檢（tools/health-weekly.py）逐筆跑的工具自測：每項 {name, cmd, expected: PASS|FAIL|DONE, sentinel?: 哨兵名, runtime_gate?: 指令, timeout_s?}。只認輸出的最後非空行哨兵；exit 非零時 expected PASS／DONE 一律紅、expected=FAIL 才綠；runtime_gate 非 0 → 跳過不紅。cmd 用 shlex 切、反斜線先換正斜線。例：{\"name\": \"replay-guard\", \"cmd\": \"python -X utf8 tools/replay-guard.py pre --prompt hooks/verify/fixtures/v6/q7/selftest_pass.py --sandbox workflow\", \"expected\": \"PASS\", \"timeout_s\": 30}",
+  "depends_coverage_min": 0,
+  "_doc_depends_coverage_min": "週健檢 Depends 覆蓋率門檻（有 path 型 Depends 的 atom 數／總數）；低於門檻黃燈。0＝只進報表不判。"
 }

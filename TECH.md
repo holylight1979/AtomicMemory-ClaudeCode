@@ -515,11 +515,13 @@ sequenceDiagram
 
 | 閘 | 條件 | 動作 |
 |----|------|------|
-| TestFailGate | 本 session 有未轉綠的失敗測試（子代理內的紅測不記主 session） | block 要求修到綠或明說跳過 |
+| TestFailGate | 本 session 有未轉綠的失敗測試（只認本 session 的條目；子代理內的紅測不記主 session） | block 要求修到綠或明說跳過 |
+| ReconcileGate | 宣告完成時收尾宣稱對不上本回合驗證收據（`wg_verify_ledger`）：說修好無對得上的 PASS／說量了無 DONE／說試過無執行工具／改了碼沒驗證 case 也沒 PASS／AEC (j) 證據路徑缺或不存在、(k) 空字串 | block 列出命中的規則；獨立預算 `reconcile_gate.max_blocks_per_turn` 2，第 3 次放行並寫 guard-reconcile_overflow（健檢 red） |
+| MeasureGate | 宣告完成且改到部位表有量尺的部位：runtime_gate 未就緒、或最後一次改檔後沒有該量尺的 DONE 收據（exit 0 且 failed=0） | block 說哪把尺沒跑；無量尺部位只提醒補欄（stderr＋guard-measure） |
 | Evasion 偵測／DeferralGate | 退避詞命中（軟糾正）；主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤0.75（讀 transcript 真實 usage），收尾把帶受詞的可做之事推給「下個 session／獨立議題／非我造成」 | 擋回三選一：做掉／一句話不能做的理由／使用者明示延後；使用者命令式延後語為逃生門 |
 | KnowledgeHarvest | 宣告完成 ∧ 有實質活動 ∧ 冷卻已過（§6.3 階段收割；`wg_harvest.harvest_gate_reason`） | 要求先 `atom_write`／`atom_retire` 再呼叫 MCP `knowledge_harvest_report`（沒東西也要 `items=[]`）；**不增 `stop_blocked_count`**、每 turn 一次（`harvest_gate_turn[sid]`） |
 | Harvest-Pending | 本 session 收割回報有 item 對不上 receipt（`knowledge_harvest[sid].pending` 非空） | 每 turn 擋一次：真做完或改 `action=skip` 附 reason 再重報 |
-| ScanReport | 宣告完成且動 core 檔或多檔 | 要求以 MCP `anti_evasion_report` 提交九欄收尾檢核 (a)–(i) |
+| ScanReport | 宣告完成且動 core 檔或多檔 | 要求以 MCP `anti_evasion_report` 提交十一欄收尾檢核 (a)–(k) |
 | AEC-Pending | 本回合 emit 的報告 (d) 有「尚未寫／見下一動」或 (h)「下一動＝寫 atom」；本 turn 已 validated 收割時 (d) 不再判 | 每 turn 擋一次：先 atom_write 再重新 emit（記憶寫入不得留給下一回合） |
 | HUD fallback | HUD 不可達且本回合 emit 為 notable/real-evasion | 不 block；收尾檢核改回 chat 呈現（可觀測性鐵律） |
 | 同步閘（SyncReminder） | 有未 commit 修改且 ≥`min_files_to_block` 2；或已 commit 但 repo 領先 upstream 未 push。root 有 vcs-sync worker 活鎖（`wg_harvest.vcs_sync_lock_active`）時跳過該 root 的 unpushed 判定 | block，訊息瘦身不列檔案清單；上GIT＝commit+push 一氣，local commit 不算同步；git/svn clean 且 push 後自動標 `sync_completed`（`sync_reminder.unpushed` 可關） |
@@ -532,9 +534,9 @@ sequenceDiagram
 
 | 部件 | 位置 | 做什麼 |
 |------|------|--------|
-| 禁語清單 | `memory/_meta/forbidden-phrases.json`（single source；IDENTITY.md 與 `wg_evasion.py` 都讀它） | 六類：scope-evasion / time-deferral / precedent-drift / capability-evasion / scope-impact-dismiss / deferral-attribution |
+| 禁語清單 | `memory/_meta/forbidden-phrases.json`（single source；IDENTITY.md 與 `wg_evasion.py` 都讀它） | 六類：scope-evasion / time-deferral / precedent-drift / capability-evasion / scope-impact-dismiss / deferral-attribution；＋三類宣稱（fixed_claim／measured_claim／tried_claim，對帳閘用） |
 | 偵測 | Stop `wg_evasion.detect_evasion`（對本輪最後一段 assistant 文字）；引號「」『』與反引號 span 先換等長空白（引用 hook 判定原文不誤觸） | 命中 → `evasion_flag`，下輪 UPS 注入舉證要求 (a)/(b)；PostToolUse 只讀旗標做 AEC cross-check |
-| 收尾報告 | MCP `anti_evasion_report` 九欄 (a)–(i)：a 缺失修補 / b 逃避通報 / c Token警示 / d 記憶收錄帳 / e 未告知決策＋假設 / f 靜默狀態改變 / g 版控收尾 / h 收尾判定 / i 衍生暫存清單；severity 仍只看 a/b，其餘資訊性；Node chip 純內容判定 | Python one-writer cross-check：hook 實測退避而模型自評「無」→ 升 real-evasion 並把證據寫進 (b) |
+| 收尾報告 | MCP `anti_evasion_report` 十一欄 (a)–(k)：a 缺失修補 / b 逃避通報 / c Token警示 / d 記憶收錄帳 / e 未告知決策＋假設 / f 靜默狀態改變 / g 版控收尾 / h 收尾判定 / i 衍生暫存清單 / j 證據持久路徑（有驗證收據時必填且須存在） / k 追蹤項（「無」或逐行；≠無 寫 `workflow/tracking/<slug>.jsonl`）；severity 仍只看 a/b，其餘資訊性；Node chip 純內容判定 | Python one-writer cross-check：hook 實測退避而模型自評「無」→ 升 real-evasion 並把證據寫進 (b) |
 | HUD | `http://127.0.0.1:3848/aec/hud` | 顯示報告、殘檔帳本、刪除決策 |
 | 殘檔帳本 | `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py`） | 以檔案系統為權威；受保護路徑（memory/_AIDocs/_INDEX/_CHANGELOG/CLAUDE/…/vcs tracked）拒收 |
 | 刪除後驗 | 下輪 UPS `exists()` 實查 | 沒刪 → 重注入一次／告警結案 |

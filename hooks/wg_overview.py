@@ -76,12 +76,14 @@ _DEFAULT: Dict[str, Any] = {
         "handoff": {"slices": [], "lens": "", "ask_first": ""},
         "general": {"slices": [], "lens": "", "ask_first": ""},
     },
+    # 量尺閘（wg_verify_ledger）讀 <root>/.claude/overview-hub.json 的 verify_chains[部位]={runtime_gate,pre,run,collect,cleanup}
+    "verify_chains": {},
 }
 _KNOWN_KEYS = frozenset(_DEFAULT)
 _RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告一次，不報錯
 _EOL_POLICIES = ("lf", "crlf", "per-file-head")
 _LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "root_cause_triggers", "locate_template", "source_encodings")
-_DICT_KEYS = ("locate_extra", "min_overview_evidence", "goal_weights")
+_DICT_KEYS = ("locate_extra", "min_overview_evidence", "goal_weights", "verify_chains")
 _ENCODING_KEYS = ("commit_encoding", "PYTHONIOENCODING")
 _LAYER_SPLIT_RE = re.compile(r"[／/、,，;；]")
 _WARNED: set = set()                               # 行程內只警告一次的鍵

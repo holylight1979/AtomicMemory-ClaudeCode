@@ -118,6 +118,25 @@ function check(cond, label, detail) {
   check(h2.result.isError === true && /reason/.test(textOf(h2)) && /path/.test(textOf(h2)),
         "harvest rejects skip w/o reason + created w/o path", textOf(h2));
 
+  // 2b. harvest route 欄：part_doc 無 part 拒；帶 route 的 chip 有 route 計數
+  const h3 = await callTool("knowledge_harvest_report", { items: [
+    { source: "decision", summary: "x", action: "skip", reason: "r", route: "part_doc" },
+  ] });
+  check(h3.result.isError === true && /part/.test(textOf(h3)), "harvest rejects route=part_doc without part", textOf(h3));
+  const h4 = await callTool("knowledge_harvest_report", { items: [
+    { source: "decision", summary: "x", action: "skip", reason: "r", route: "part_doc", part: "lib" },
+    { source: "mechanism", summary: "y", action: "skip", reason: "r", route: "global" },
+  ] });
+  check(/route: part_doc 1, global 1/.test(textOf(h4)) && !h4.result.isError, "harvest chip counts routes", textOf(h4));
+
+  // 3b. atom_write dry_run 的閘回分型（kind= 來自 py；skip_gate 只跳 dedup/quality）
+  const wk = await callTool("atom_write", {
+    title: "smoke-kind-plain-不落檔", scope: "global", realm: "local", domain: "MemDev",
+    confidence: "[臨]", triggers: ["smoke"], knowledge: ["[臨] smoke only"], mode: "create",
+    dry_run: true, skip_gate: true,
+  });
+  check(/\[write-gate\] kind=plain bytes=\d+\/\d+/.test(textOf(wk)), "atom_write dry_run echoes gate kind/bytes/limit", textOf(wk));
+
   // 3. atom_write dry_run 帶 supersedes：不得被 schema/參數層拒（py build 若尚未支援 supersedes
   //    會回 bad params，那是 py 側契約，不是 js schema 錯）。
   const w = await callTool("atom_write", {

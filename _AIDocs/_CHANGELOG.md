@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-09 v6.0 P2 四軌整批合併：意圖分片注入與閘一律擋（a1）、寫入閘分型與路由（c）、掃表／refix／scorecard（d2）、驗證帳本與對帳／量尺閘（b）
+- **緣由**：v6.0 執行計畫 P2；四軌各在 worktree 做、總控台對帳＋codex 第二意見逐輪退回（a1 四輪、c 三輪、d2 四輪、b 三輪，BLOCK 都親自重現才退）、收斂後整批 merge --no-ff（a1→c→d2→b）。
+- **做法**：UPS 先算 `turn_intent` 十類，導讀卡依 `goal_weights` 選片注入；on_edit 三項證據缺一即 deny、readonly、transcript 讀不到即擋、Bash／PowerShell 寫入目標解析（R0～R5，算不出回 UNKNOWN 由閘擋）、state 缺檔即建；寫入閘回 kind／route_to／budget／missing_sections，hub 卡 4096、org 寫入過 realm 閘、萃取 item 帶 route、追蹤項落 `workflow/tracking/`；`overview-map-scaffold.py`（不撤回、可重入）、`refix-churn.py`、`wg_scorecard`＋`scorecard-report.py`、install 根層表三態；`wg_verify_ledger` 帳本（哨兵＋exit code＋vcs 快照）、Stop ReconcileGate／MeasureGate（宣稱子句判、PASS 要對得上、收據晚於修改、含 cd 不採用）、failing_tests 按 session 隔離、非零 exit 必紅、健檢工具自測、AEC 加 j／k。共用檔：config.json 九段、settings PostToolUse matcher 加 `PowerShell|Read`、.gitignore 三行、禁語三類宣稱、mcp.js 兩 schema、smoke 兩案、HUD j／k、文件兩列與十一欄。
+- **驗證**：四軌目標 verify 合計 718 案綠（merge main 後各自複跑）；合併後全量單獨跑、live 全新 MCP 行程 smoke（見下一段 commit 訊息）。
+
 ## 2026-10-08 v6.0 P1 track-d1 合併：第二意見工具（M3）與候選池工具（M4）
 - **緣由**：v6.0 P1 三軌之一；讓總控台與工作 session 能把材料打包給獨立模型審、把專案病灶候選排成表。
 - **做法**：MCP 加 `second_opinion_start`／`second_opinion_result`／`project_smells`（9→12 個工具）；`tools/second-opinion/`（pack 雜湊不受行尾與順序影響、prompts 獨立／審閱兩模板、run.py prepare→probe→execute→post-guard→parse 狀態機，終態保護、executor lock、無指令行例外走子行程整檔掃描＋協定嚴格核對）；`tools/project-smells.py`（報告／指令／內建三來源、七類別白名單、Windows 字串指令交 CommandLineToArgvW）；`lib/codex_models.py` 模型 slug 精確比對 cache；config 加 `second_opinion` 段、`codex_companion.model` 統一為 gpt-6-astra；`.gitignore` 加 `workflow/second-opinion/`。

@@ -213,7 +213,10 @@ function renderCard(r) {
         sectionHtml("f", "靜默狀態改變", r.f) +
         sectionHtml("g", "版控收尾", r.g) +
         sectionHtml("h", "收尾判定", r.h) +
-        sectionHtml("i", "衍生暫存清單（宣告；實際尚存者見下方殘檔面板）", r.i)) +
+        sectionHtml("i", "衍生暫存清單（宣告；實際尚存者見下方殘檔面板）", r.i) +
+        (r.j == null ? "" :
+          sectionHtml("j", "證據持久路徑" + (r.j_missing ? ' <span class="badge real">缺或不存在</span>' : ""), r.j) +
+          sectionHtml("k", "追蹤項" + (r.k_missing ? ' <span class="badge real">空字串</span>' : ""), r.k))) +
   "</div>";
   slot.innerHTML = html;
 }
