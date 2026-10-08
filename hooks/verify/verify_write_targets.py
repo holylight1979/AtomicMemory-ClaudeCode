@@ -1,0 +1,88 @@
+"""verify_write_targets.py：wg_core.write_paths_from_tool（OverviewHub 閘的寫入目標擷取，A4.4）。
+
+正例：Bash `>`／`>>`／tee／sed -i／cp／mv；PowerShell Set-Content／Out-File／Add-Content；Edit／Write／NotebookEdit 的 file_path。
+反例：`/dev/null`／`$null`／`2>&1`／`>&2` 不算目標；相對路徑補成絕對；非寫入工具回 []。
+怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_write_targets.py
+"""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+HOOKS_DIR = Path(__file__).resolve().parent.parent
+os.environ.setdefault("WG_CLAUDE_DIR", str(HOOKS_DIR.parent))
+sys.path.insert(0, str(HOOKS_DIR))
+sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
+
+from wg_core import write_paths_from_tool  # noqa: E402
+
+CWD = "C:/Work/Proj"
+
+
+def _n(paths):
+    return [p.replace("\\", "/") for p in paths]
+
+
+@pytest.mark.parametrize("cmd,expected", [
+    ('echo hi > "C:/Work/Proj/src/a.txt"', ["C:/Work/Proj/src/a.txt"]),
+    ("echo hi >> C:/Work/Proj/src/a.txt", ["C:/Work/Proj/src/a.txt"]),
+    ("cat x | tee C:/Work/Proj/out.log C:/Work/Proj/out2.log", ["C:/Work/Proj/out.log", "C:/Work/Proj/out2.log"]),
+    ("sed -i 's/a/b/' C:/Work/Proj/src/a.py C:/Work/Proj/src/b.py", ["C:/Work/Proj/src/a.py", "C:/Work/Proj/src/b.py"]),
+    ("sed -i -e 's/a/b/' C:/Work/Proj/src/a.py", ["C:/Work/Proj/src/a.py"]),
+    ("cp C:/Work/Proj/src/a.py C:/Work/Proj/src/c.py", ["C:/Work/Proj/src/c.py"]),
+    ("mv -f C:/Work/Proj/src/a.py C:/Work/Proj/src/d.py", ["C:/Work/Proj/src/d.py"]),
+    ("cat > C:/Work/Proj/n.txt <<'EOF'\nhello\nEOF", ["C:/Work/Proj/n.txt"]),
+])
+def test_bash_write_targets(cmd, expected):
+    assert _n(write_paths_from_tool("Bash", {"command": cmd}, CWD)) == expected
+
+
+@pytest.mark.parametrize("cmd,expected", [
+    ('Set-Content -Path "C:/Work/Proj/a.txt" -Value "x"', ["C:/Work/Proj/a.txt"]),
+    ("Set-Content C:/Work/Proj/a.txt -Value x -Encoding utf8", ["C:/Work/Proj/a.txt"]),
+    ("Get-Content x | Out-File -FilePath C:/Work/Proj/b.txt -Append", ["C:/Work/Proj/b.txt"]),
+    ("Add-Content -LiteralPath C:/Work/Proj/c.txt -Value y -NoNewline", ["C:/Work/Proj/c.txt"]),
+    ('"abc" > C:/Work/Proj/d.txt', ["C:/Work/Proj/d.txt"]),
+])
+def test_powershell_write_targets(cmd, expected):
+    assert _n(write_paths_from_tool("PowerShell", {"command": cmd}, CWD)) == expected
+
+
+@pytest.mark.parametrize("cmd", [
+    "python x.py > /dev/null 2>&1",
+    "cmd 2>&1 | grep err",
+    "echo x >&2",
+    "Set-Content -Path $null -Value x",
+    "echo x > NUL",
+    "sed -n 1,5p C:/Work/Proj/src/a.py",      # 唯讀 sed
+    "cp onlyone",                               # 只有一個位置參數不是複製
+    "git commit -m 'x'",                        # 不是檔案寫入
+])
+def test_bash_non_targets(cmd):
+    assert write_paths_from_tool("Bash", {"command": cmd}, CWD) == []
+
+
+def test_relative_paths_resolve_against_cwd():
+    got = _n(write_paths_from_tool("Bash", {"command": "echo a > src/a.txt; tee logs/x.log"}, CWD))
+    assert got == ["C:/Work/Proj/src/a.txt", "C:/Work/Proj/logs/x.log"]
+    got = _n(write_paths_from_tool("Bash", {"command": "echo a > /c/Work/Proj/m.txt"}, CWD))   # MSYS 路徑
+    assert got == ["C:/Work/Proj/m.txt"]
+    for p in write_paths_from_tool("Bash", {"command": "echo a > rel.txt"}):                    # 沒給 cwd 用行程 cwd
+        assert Path(p).is_absolute()
+
+
+def test_edit_write_notebook_and_other_tools():
+    assert write_paths_from_tool("Edit", {"file_path": "C:/Work/Proj/a.py"}) == ["C:/Work/Proj/a.py"]
+    assert write_paths_from_tool("Write", {"file_path": "C:/Work/Proj/a.py"}) == ["C:/Work/Proj/a.py"]
+    assert write_paths_from_tool("NotebookEdit", {"notebook_path": "C:/Work/Proj/n.ipynb"}) == ["C:/Work/Proj/n.ipynb"]
+    assert write_paths_from_tool("Read", {"file_path": "C:/Work/Proj/a.py"}) == []
+    assert write_paths_from_tool("Grep", {"pattern": "x"}) == []
+    assert write_paths_from_tool("Edit", {}) == []
+
+
+def test_dedup_and_variables_skipped():
+    got = _n(write_paths_from_tool("Bash", {"command": "echo a > C:/Work/Proj/a.txt && echo b >> C:/Work/Proj/a.txt; echo c > $OUT"}, CWD))
+    assert got == ["C:/Work/Proj/a.txt"]

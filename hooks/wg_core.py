@@ -1602,6 +1602,109 @@ _BASH_WRITE_OP_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ─── 工具呼叫的寫入目標（OverviewHub 閘逐目標 on_edit；track-b 的 post_tool_use try-import）─────────
+# 介面凍結：write_paths_from_tool(tool_name, tool_input) -> List[str]，只回絕對路徑。
+# Bash／PowerShell 取 `>`／`>>`／tee／sed -i／cp／mv／Set-Content／Out-File／Add-Content 的目標；
+# 排除 /dev/null、$null、NUL、&1（重導向到 fd）。相對路徑以 cwd（未給時用行程 cwd）補成絕對。
+_BASH_WRITE_TARGET_RE = re.compile(
+    r"(?<![<>])>{1,2}\s*(?!&)(?:\"([^\"]+)\"|'([^']+)'|([^\s\"'|;&<>]+))"
+)
+_WRITE_TARGET_NULLS = frozenset({"/dev/null", "$null", "nul"})
+_PS_WRITE_CMDLETS = frozenset({"set-content", "add-content", "out-file"})
+_PS_PATH_PARAMS = frozenset({"-path", "-literalpath", "-filepath"})
+_PS_SWITCH_PARAMS = frozenset({
+    "-force", "-nonewline", "-append", "-passthru", "-noclobber", "-confirm", "-whatif",
+    "-asbytestream", "-usetransaction",
+})
+
+
+def _write_target_abs(tok: str, cwd: str) -> Optional[str]:
+    """寫入目標 token → 絕對路徑；變數／fd／旗標／空裝置回 None。MSYS `/c/x` 轉 `C:/x`。"""
+    tok = tok.strip().strip("\"'")
+    if not tok or tok.startswith(("$", "&", "-")) or tok.lower() in _WRITE_TARGET_NULLS:
+        return None
+    m = re.match(r"^/([A-Za-z])/(.*)$", tok)
+    if m:
+        tok = f"{m.group(1).upper()}:/{m.group(2)}"
+    if tok.startswith("~"):
+        tok = os.path.expanduser(tok)
+    if not (re.match(r"^[A-Za-z]:[\\/]", tok) or tok.startswith(("/", "\\\\"))):
+        tok = os.path.join(cwd or os.getcwd(), tok)
+    return os.path.normpath(tok)
+
+
+def _segment_write_targets(seg: str) -> List[str]:
+    """一個 shell 子段（已按 ; | & 切開）裡的寫入目標 token（未補絕對路徑）。"""
+    import shlex
+    out: List[str] = [next(g for g in m.groups() if g) for m in _BASH_WRITE_TARGET_RE.finditer(seg)]
+    try:
+        tokens = shlex.split(seg, posix=False)
+    except ValueError:
+        return out
+    if not tokens:
+        return out
+    name = tokens[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+    args = tokens[1:]
+    positional = [a for a in args if not a.startswith("-")]
+    if name == "tee":
+        out += positional
+    elif name == "sed":
+        if any(a.startswith("-i") or a == "--in-place" for a in args):
+            files: List[str] = []
+            skip = False
+            saw_script_flag = False
+            for a in args:
+                if skip:
+                    skip = False
+                    continue
+                if a in ("-e", "--expression", "-f", "--file"):
+                    skip = saw_script_flag = True
+                    continue
+                if a.startswith("-"):
+                    continue
+                files.append(a)
+            out += files if saw_script_flag else files[1:]
+    elif name in ("cp", "mv"):
+        if len(positional) >= 2:
+            out.append(positional[-1])
+    elif name in _PS_WRITE_CMDLETS:
+        target = None
+        i = 0
+        while i < len(args):
+            a = args[i]
+            low = a.lower()
+            if low in _PS_PATH_PARAMS and i + 1 < len(args):
+                target = args[i + 1]
+                break
+            if a.startswith("-"):
+                i += 1 if low in _PS_SWITCH_PARAMS else 2
+                continue
+            if target is None:
+                target = a
+            i += 1
+        if target:
+            out.append(target)
+    return out
+
+
+def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optional[str] = None) -> List[str]:
+    """工具呼叫會寫到哪些檔（絕對路徑、去重、保序）。Edit／Write／NotebookEdit／MultiEdit 取 file_path；
+    Bash／PowerShell 取指令裡的寫入目標；其他工具回 []。"""
+    if tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit"):
+        fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "") or ""
+        return [fp] if fp else []
+    if tool_name not in ("Bash", "PowerShell"):
+        return []
+    from plan_bash_guard import split_segments
+    base = cwd or os.getcwd()
+    out: List[str] = []
+    for seg in split_segments(tool_input.get("command", "") or ""):
+        for tok in _segment_write_targets(seg):
+            p = _write_target_abs(tok, base)
+            if p and p not in out:
+                out.append(p)
+    return out
+
 
 def check_cross_realm_bash(
     tool_name: str, tool_input: Dict[str, Any], cwd: str,

@@ -2011,13 +2011,21 @@ def extract_aidocs_keywords(entries: List[AiDocsEntry]) -> Dict[str, List[str]]:
 
 # ─── Intent Classifier (was wg_intent.classify_intent) ──────────────────────
 
+# 十個 intent 鍵固定（介面凍結；wg_overview.INTENT_KEYS 對拍）：debug 最前，平手取先鍵（max 取插入序第一個）
 INTENT_PATTERNS = {
     "debug": ["crash", "error", "bug", "失敗", "壞", "exception", "為什麼",
-              "why", "問題", "traceback", "報錯", "修復", "fix"],
+              "why", "問題", "traceback", "報錯", "修復", "fix", "不掉血", "沒反應", "閃退"],
+    "feature": ["新增", "加功能", "新功能", "加一個", "feature", "實作", "implement",
+                "支援", "加上", "擴充", "新加", "多一個"],
+    "refactor": ["重構", "refactor", "整理", "抽出", "拆開", "搬到", "改寫法", "去重",
+                 "簡化", "cleanup", "rename", "改名", "合併成"],
+    "perf": ["效能", "太慢", "很慢", "卡頓", "優化", "perf", "performance", "latency",
+             "記憶體", "memory leak", "吃 cpu", "耗時", "加速", "快一點", "fps"],
+    "new_project": ["立案", "新專案", "從零", "起專案", "開新專案", "new project",
+                    "scaffold", "bootstrap", "初始化專案", "建專案", "新開一個專案"],
     "build": ["build", "deploy", "建置", "部署", "安裝", "install", "啟動",
               "setup", "config", "設定", "配置", "環境"],
-    "design": ["設計", "架構", "design", "architecture", "重構", "refactor",
-               "新增", "planning", "實作", "implement", "方案"],
+    "design": ["設計", "架構", "design", "architecture", "planning", "方案"],
     "recall": ["之前", "上次", "記得", "決策", "決定", "為什麼選",
                "remember", "previous", "history"],
     "handoff": ["下 session", "下次繼續", "交接", "續接", "下一個 session",
