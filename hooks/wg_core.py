@@ -1604,12 +1604,16 @@ _BASH_WRITE_OP_RE = re.compile(
 
 # ─── 工具呼叫的寫入目標（OverviewHub 閘逐目標 on_edit；track-b 的 post_tool_use try-import）─────────
 # 介面凍結：write_paths_from_tool(tool_name, tool_input) -> List[str]，只回絕對路徑。
-# Bash／PowerShell 取 `>`／`>>`／tee／sed -i／cp／mv／Set-Content／Out-File／Add-Content 的目標；
-# 排除 /dev/null、$null、NUL、&1（重導向到 fd）。相對路徑以 cwd（未給時用行程 cwd）補成絕對。
-_BASH_WRITE_TARGET_RE = re.compile(
-    r"(?<![<>])>{1,2}\s*(?!&)(?:\"([^\"]+)\"|'([^']+)'|([^\s\"'|;&<>]+))"
-)
+# Bash／PowerShell：先剝 heredoc 本文，逐段（; | && || & 換行；引號內不切）處理，段內 `cd X` 更新之後的 cwd；
+# 取 `>`／`>>`（引號內的不算）、tee、sed -i（含 -ni／-i.bak）、cp／mv（目標是目錄 → 目錄/來源檔名）、
+# Set-Content／Out-File／Add-Content 的目標；/dev/null、$null、NUL、>&1／>&2 不算目標。
+# $HOME／~ 展成家目錄；其他 $VAR／%VAR%、eval、cd -、解析不出的段 → fail-closed 回 ["UNKNOWN:<該段前 40 字>"]，
+# on_edit 收到 UNKNOWN 一律 deny（改用 Edit／Write）。相對路徑以 cwd（未給時用行程 cwd）補成絕對。
+_BASH_WRITE_TARGET_RE = re.compile(r"^(\d*)(>>|>\||>)(.*)$")        # 一個 token 是不是輸出重導向；group(3)＝黏在後面的目標
+_FD_REDIRECT_RE = re.compile(r"^\d*>{1,2}&\d+$")                   # 2>&1／>&2：fd 間轉接，不是檔
+_HEREDOC_RE = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 _WRITE_TARGET_NULLS = frozenset({"/dev/null", "$null", "nul"})
+_WRITE_TARGET_UNKNOWN = "UNKNOWN"
 _PS_WRITE_CMDLETS = frozenset({"set-content", "add-content", "out-file"})
 _PS_PATH_PARAMS = frozenset({"-path", "-literalpath", "-filepath"})
 _PS_SWITCH_PARAMS = frozenset({
@@ -1618,91 +1622,242 @@ _PS_SWITCH_PARAMS = frozenset({
 })
 
 
-def _write_target_abs(tok: str, cwd: str) -> Optional[str]:
-    """寫入目標 token → 絕對路徑；變數／fd／旗標／空裝置回 None。MSYS `/c/x` 轉 `C:/x`。"""
-    tok = tok.strip().strip("\"'")
-    if not tok or tok.startswith(("$", "&", "-")) or tok.lower() in _WRITE_TARGET_NULLS:
-        return None
-    m = re.match(r"^/([A-Za-z])/(.*)$", tok)
-    if m:
-        tok = f"{m.group(1).upper()}:/{m.group(2)}"
-    if tok.startswith("~"):
-        tok = os.path.expanduser(tok)
-    if not (re.match(r"^[A-Za-z]:[\\/]", tok) or tok.startswith(("/", "\\\\"))):
-        tok = os.path.join(cwd or os.getcwd(), tok)
-    return os.path.normpath(tok)
-
-
-def _segment_write_targets(seg: str) -> List[str]:
-    """一個 shell 子段（已按 ; | & 切開）裡的寫入目標 token（未補絕對路徑）。"""
-    import shlex
-    out: List[str] = [next(g for g in m.groups() if g) for m in _BASH_WRITE_TARGET_RE.finditer(seg)]
-    try:
-        tokens = shlex.split(seg, posix=False)
-    except ValueError:
-        return out
-    if not tokens:
-        return out
-    name = tokens[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
-    args = tokens[1:]
-    positional = [a for a in args if not a.startswith("-")]
-    if name == "tee":
-        out += positional
-    elif name == "sed":
-        if any(a.startswith("-i") or a == "--in-place" for a in args):
-            files: List[str] = []
-            skip = False
-            saw_script_flag = False
-            for a in args:
-                if skip:
-                    skip = False
-                    continue
-                if a in ("-e", "--expression", "-f", "--file"):
-                    skip = saw_script_flag = True
-                    continue
-                if a.startswith("-"):
-                    continue
-                files.append(a)
-            out += files if saw_script_flag else files[1:]
-    elif name in ("cp", "mv"):
-        if len(positional) >= 2:
-            out.append(positional[-1])
-    elif name in _PS_WRITE_CMDLETS:
-        target = None
-        i = 0
-        while i < len(args):
-            a = args[i]
-            low = a.lower()
-            if low in _PS_PATH_PARAMS and i + 1 < len(args):
-                target = args[i + 1]
-                break
-            if a.startswith("-"):
-                i += 1 if low in _PS_SWITCH_PARAMS else 2
-                continue
-            if target is None:
-                target = a
+def _strip_heredocs(cmd: str) -> str:
+    """去掉 heredoc 本文（`<<[-]['"]TAG` 那行之後到 TAG 行），本文裡的 `>` 不是重導向。"""
+    lines = cmd.split("\n")
+    out: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        m = _HEREDOC_RE.search(line)
+        if not m:
+            continue
+        tag = m.group(2)
+        while i < len(lines) and lines[i].strip() != tag:
             i += 1
-        if target:
-            out.append(target)
+        i += 1
+    return "\n".join(out)
+
+
+def _split_shell(cmd: str) -> List[str]:
+    """依未加引號的 ; 換行 | || && & 切子段；`>&`／`&>`／`<&` 裡的 & 是重導向的一部分不切。"""
+    segs: List[str] = []
+    buf: List[str] = []
+    quote = ""
+    i, n = 0, len(cmd)
+    while i < n:
+        c = cmd[i]
+        if quote:
+            buf.append(c)
+            if c == "\\" and quote == '"' and i + 1 < n:
+                buf.append(cmd[i + 1])
+                i += 1
+            elif c == quote:
+                quote = ""
+        elif c in "'\"":
+            quote = c
+            buf.append(c)
+        elif c in ";\n":
+            segs.append("".join(buf))
+            buf = []
+        elif c == "|":
+            segs.append("".join(buf))
+            buf = []
+            if i + 1 < n and cmd[i + 1] == "|":
+                i += 1
+        elif c == "&":
+            prev = cmd[i - 1] if i > 0 else ""
+            nxt = cmd[i + 1] if i + 1 < n else ""
+            if prev in "<>" or nxt == ">":
+                buf.append(c)
+            else:
+                segs.append("".join(buf))
+                buf = []
+                if nxt == "&":
+                    i += 1
+        else:
+            buf.append(c)
+        i += 1
+    segs.append("".join(buf))
+    return [s.strip() for s in segs if s.strip()]
+
+
+def _shell_words(seg: str) -> List[Tuple[str, bool]]:
+    """quote-aware 切詞 → [(文字, 有沒有被引號包過)]；引號剝掉、引號內空白保留；不解跳脫。"""
+    out: List[Tuple[str, bool]] = []
+    buf: List[str] = []
+    quoted = False
+    quote = ""
+    for ch in seg:
+        if quote:
+            if ch == quote:
+                quote = ""
+            else:
+                buf.append(ch)
+        elif ch in "'\"":
+            quote = ch
+            quoted = True
+        elif ch.isspace():
+            if buf or quoted:
+                out.append(("".join(buf), quoted))
+                buf, quoted = [], False
+        else:
+            buf.append(ch)
+    if buf or quoted:
+        out.append(("".join(buf), quoted))
     return out
 
 
+def _write_target_abs(tok: str, cwd: str) -> Optional[str]:
+    """寫入目標 token → 絕對路徑；fd／空裝置／旗標回 None；展不開的變數回 "UNKNOWN"。MSYS `/c/x` 轉 `C:/x`。"""
+    tok = tok.strip()
+    if not tok or tok.startswith(("&", "-")) or tok.lower() in _WRITE_TARGET_NULLS:
+        return None
+    home = str(Path.home())
+    tok = tok.replace("${HOME}", home).replace("$HOME", home)
+    if tok.startswith("~"):
+        tok = os.path.expanduser(tok)
+    if "$" in tok or "%" in tok:
+        return _WRITE_TARGET_UNKNOWN
+    m = re.match(r"^/([A-Za-z])/(.*)$", tok)
+    if m:
+        tok = f"{m.group(1).upper()}:/{m.group(2)}"
+    if not (re.match(r"^[A-Za-z]:[\\/]", tok) or tok.startswith(("/", "\\\\"))):
+        tok = os.path.join(cwd, tok)
+    return os.path.normpath(tok)
+
+
+def _copy_targets(srcs: List[str], dst: str, cwd: str) -> List[Optional[str]]:
+    """cp／mv：目標以 / 結尾、是既存目錄、或來源多於一個 → 目錄/來源檔名；否則就是那個檔。"""
+    d = _write_target_abs(dst, cwd)
+    if d is None or d == _WRITE_TARGET_UNKNOWN:
+        return [d]
+    if dst.endswith(("/", "\\")) or os.path.isdir(d) or len(srcs) > 1:
+        return [os.path.join(d, os.path.basename(s.rstrip("/\\"))) for s in srcs]
+    return [d]
+
+
+def _segment_write_targets(seg: str, cwd: str) -> Tuple[List[str], str, bool]:
+    """一個子段 → (寫入目標絕對路徑, 之後的 cwd, 解析不出)。解析不出＝有 UNKNOWN、eval、cd -、孤兒重導向。"""
+    words: List[Tuple[str, bool]] = []
+    raw_targets: List[str] = []
+    toks = _shell_words(seg)
+    i = 0
+    while i < len(toks):
+        t, q = toks[i]
+        if not q:
+            if _FD_REDIRECT_RE.match(t):
+                i += 1
+                continue
+            m = _BASH_WRITE_TARGET_RE.match(t)
+            if m:
+                rest = m.group(3)
+                if rest.startswith("&"):
+                    i += 1
+                    continue
+                if not rest:
+                    i += 1
+                    if i >= len(toks):
+                        return [], cwd, True
+                    rest = toks[i][0]
+                raw_targets.append(rest)
+                i += 1
+                continue
+            if t.startswith("<"):
+                if t in ("<", "<<", "<<<"):
+                    i += 1
+                i += 1
+                continue
+        words.append((t, q))
+        i += 1
+    out: List[Optional[str]] = [_write_target_abs(r, cwd) for r in raw_targets]
+    if words:
+        name = words[0][0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+        args = [w for w, _ in words[1:]]
+        positional = [a for a in args if not a.startswith("-")]
+        if name == "eval":
+            return [], cwd, True
+        if name in ("cd", "pushd"):
+            if not args:
+                cwd = str(Path.home())
+            elif args[0] == "-":
+                return [], cwd, True
+            else:
+                nxt = _write_target_abs(args[0], cwd)
+                if nxt is None or nxt == _WRITE_TARGET_UNKNOWN:
+                    return [], cwd, True
+                cwd = nxt
+        elif name == "tee":
+            out += [_write_target_abs(a, cwd) for a in positional]
+        elif name == "sed":
+            inplace = any((a.startswith("-") and not a.startswith("--") and "i" in a[1:]) or a == "--in-place"
+                          or a.startswith("--in-place=") for a in args)
+            if inplace:
+                files: List[str] = []
+                skip = saw_script_flag = False
+                for a in args:
+                    if skip:
+                        skip = False
+                        continue
+                    if a in ("-e", "--expression", "-f", "--file"):
+                        skip = saw_script_flag = True
+                        continue
+                    if a.startswith("--expression=") or a.startswith("--file="):
+                        saw_script_flag = True
+                        continue
+                    if a.startswith("-"):
+                        continue
+                    files.append(a)
+                out += [_write_target_abs(f, cwd) for f in (files if saw_script_flag else files[1:])]
+        elif name in ("cp", "mv"):
+            if "-t" in args and args.index("-t") + 1 < len(args):
+                d = args[args.index("-t") + 1]
+                out += _copy_targets([p for p in positional if p != d], d + "/", cwd)
+            elif len(positional) >= 2:
+                out += _copy_targets(positional[:-1], positional[-1], cwd)
+        elif name in _PS_WRITE_CMDLETS:
+            target = None
+            j = 0
+            while j < len(args):
+                a = args[j]
+                low = a.lower()
+                if low in _PS_PATH_PARAMS and j + 1 < len(args):
+                    target = args[j + 1]
+                    break
+                if a.startswith("-"):
+                    j += 1 if low in _PS_SWITCH_PARAMS else 2
+                    continue
+                if target is None:
+                    target = a
+                j += 1
+            if target:
+                out.append(_write_target_abs(target, cwd))
+    if any(p == _WRITE_TARGET_UNKNOWN for p in out):
+        return [], cwd, True
+    return [p for p in out if p], cwd, False
+
+
 def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optional[str] = None) -> List[str]:
-    """工具呼叫會寫到哪些檔（絕對路徑、去重、保序）。Edit／Write／NotebookEdit／MultiEdit 取 file_path；
-    Bash／PowerShell 取指令裡的寫入目標；其他工具回 []。"""
+    """工具呼叫會寫到哪些檔（絕對路徑、去重、保序）。Edit／Write／NotebookEdit／MultiEdit 取 file_path（相對以 cwd 補）；
+    Bash／PowerShell 取指令裡的寫入目標，任何一段解析不出就只回 ["UNKNOWN:<該段前 40 字>"]（fail-closed）；其他工具回 []。"""
+    base = cwd or os.getcwd()
     if tool_name in ("Edit", "Write", "NotebookEdit", "MultiEdit"):
         fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "") or ""
-        return [fp] if fp else []
+        if not fp:
+            return []
+        p = _write_target_abs(fp, base)
+        return [p if p and p != _WRITE_TARGET_UNKNOWN else f"{_WRITE_TARGET_UNKNOWN}:{fp[:40]}"]
     if tool_name not in ("Bash", "PowerShell"):
         return []
-    from plan_bash_guard import split_segments
-    base = cwd or os.getcwd()
     out: List[str] = []
-    for seg in split_segments(tool_input.get("command", "") or ""):
-        for tok in _segment_write_targets(seg):
-            p = _write_target_abs(tok, base)
-            if p and p not in out:
-                out.append(p)
+    cur = base
+    for seg in _split_shell(_strip_heredocs(tool_input.get("command", "") or "")):
+        targets, cur, unknown = _segment_write_targets(seg, cur)
+        if unknown:
+            return [f"{_WRITE_TARGET_UNKNOWN}:{seg[:40]}"]
+        out += [p for p in targets if p not in out]
     return out
 
 

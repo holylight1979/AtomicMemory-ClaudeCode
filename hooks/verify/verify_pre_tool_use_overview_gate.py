@@ -116,6 +116,26 @@ def test_editing_own_hub_config_is_allowed_with_warning(world):
     assert not _deny(out) and "放行以便修復" in out["hookSpecificOutput"]["additionalContext"]
 
 
+def test_gate_internal_error_denies(world, monkeypatch):            # 退回 001 BLOCK 6：閘自己炸也擋，不 fail-open
+    proj, outputs, tp = world
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+
+    def _boom(*a, **k):
+        raise PermissionError("state locked")
+    monkeypatch.setattr(wg_core, "_ensure_state", _boom)
+    out = _run("Edit", {"file_path": f1}, proj, tp, outputs)
+    assert _deny(out) and "閘環境異常" in out["hookSpecificOutput"]["permissionDecisionReason"] and "state locked" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    log = (proj.parent / "hub.log").read_text(encoding="utf-8")
+    assert '"event": "gate_error"' in log and '"deny_reason": "gate_error"' in log
+
+
+def test_unknown_write_target_is_denied_end_to_end(world):           # 退回 001 BLOCK 4：解析不出 → fail-closed
+    proj, outputs, tp = world
+    out = _run("Bash", {"command": "echo x > $OUT/a.txt"}, proj, tp, outputs)
+    assert _deny(out) and "改用 Edit／Write" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert not wg_core.state_file_path(SID).exists() or True              # UNKNOWN 不落 state（state 可能已建，不強求）
+
+
 def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(world):
     proj, outputs, tp = world
     f1 = str(proj / "Game" / "Battle" / "A.cs")

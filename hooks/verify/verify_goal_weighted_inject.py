@@ -2,7 +2,7 @@
 
 固定輸入 `hooks/verify/fixtures/v6/q0/<case>/`：overview-map.md（表）、hub.json（專案覆蓋）、cards/*.md（導讀卡）、
 prompt.txt（{root} 佔位）、steps.jsonl（read／reply／edit 逐步）、expected.json（意圖、注入片序、最終 rec、log）。
-三個歷史案例用化名（debug 不掉血、feature 存檔加欄位、refactor 工具鏈數彎）；反例一：定位三行格式全對但層填錯 → deny；
+三個歷史案例用化名（debug 不掉血、feature 存檔加欄位、refactor 工具鏈數彎）；反例一：定位三行格式全對但層填錯 → deny；反例三：填錯層後補交正確一組 → 放行；
 反例二：前例填「無」且卡沒有病灶段 → 放行且 located_quality=none。以目錄參數化驅動 on_prompt／on_read／on_edit，不讀 live。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_goal_weighted_inject.py
 """
@@ -110,7 +110,7 @@ def test_q0_replay(case, tmp_path, monkeypatch):
             assert last.get(k) == v, (k, last.get(k), v)
 
 
-def test_q0_has_three_replays_and_two_counterexamples():
+def test_q0_has_three_replays_and_three_counterexamples():
     names = {c.name for c in CASES}
-    assert len([n for n in names if n.startswith("counter-")]) == 2
+    assert {n for n in names if n.startswith("counter-")} == {"counter-wrong-layer", "counter-no-precedent", "counter-wrong-layer-then-fixed"}
     assert len([n for n in names if not n.startswith("counter-")]) == 3

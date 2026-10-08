@@ -34,8 +34,8 @@ from wg_core import (
 
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 from overview_hub import (  # noqa: E402
-    MAP_REL, SLICE_NAMES, assistant_text_after, build_injection_ex, find_map, locate_channel, locate_quality,
-    locate_values, match_row, parse_map, read_paths_from_tool, resolve_card, top_dir, transcript_size,
+    LOCATE_CHANNELS, MAP_REL, SLICE_NAMES, assistant_text_after, build_injection_ex, find_map, locate_quality,
+    locate_values, match_row, parse_map, read_paths_from_tool, resolve_card, top_dir, transcript_readable, transcript_size,
 )
 
 LOG_PATH = CLAUDE_DIR / "workflow" / "_overview-hub.log"   # _*.log 不進版控
@@ -329,8 +329,22 @@ def _rel_to_root(path: str, root: Path) -> Optional[str]:
     return p[len(r) + 1:] if p.startswith(r + "/") else None
 
 
+def _migrate_rec(rec: Dict[str, Any]) -> Dict[str, Any]:
+    """main 時代寫出的 rec 只有 reads_after／located／edits；升級後既有 session 的 state 直接用會 KeyError。入口補齊新欄。"""
+    rec.setdefault("part_files_read", [])
+    rec.setdefault("depends_files_read", [])
+    rec.setdefault("slices", [])
+    rec.setdefault("intent", "general")
+    rec.setdefault("card_paths", [])
+    rec.setdefault("reads_after", [])
+    rec.setdefault("edits", 0)
+    return rec
+
+
 def _is_readonly(path: str, root: Path, cfg: Dict[str, Any]) -> Optional[str]:
-    """readonly_paths（相對專案根的 glob）命中 → 回命中的樣式；不命中回 None。`**/` 也配零層。"""
+    """readonly_paths（glob）命中 → 回命中的樣式；不命中回 None。`**/` 也配零層。
+    基準 root＝這次命中的部位表所在根（無表專案＝resolve_project_root 的根），不是宣告那條 pattern 的設定檔所在層：
+    根層 hub.json 的 pattern 經四層合併後，對專案檔也是以專案根相對路徑比對。"""
     rel = _rel_to_root(path, root)
     if rel is None:
         return None
@@ -394,8 +408,11 @@ def _record_read(state: Dict[str, Any], p: str, hit: Optional[Tuple[Path, Dict[s
     """注入後讀的每個檔都記到所有已注入的部位（跨部位探索正是綜觀）；命中部位的檔另記 part_files_read；
     路徑字面出現在該部位卡片裡的檔記 depends_files_read；沒表列但在專案內的檔記到無表 key。"""
     hub = state.get("overview_hub") or {}
-    for rec in hub.values():
-        if "reads_after" in rec and p not in rec["reads_after"]:
+    for key, rec in hub.items():
+        if "(unmapped)" in key:
+            continue
+        _migrate_rec(rec)
+        if p not in rec["reads_after"]:
             rec["reads_after"].append(p)
     if hit:
         rec = hub.get(_key(*hit))
@@ -495,8 +512,9 @@ def _own_config_layer(file_path: str) -> Tuple[bool, Optional[Path]]:
         if layer_root is not None and any(fk == _path_key(layer_root / rel) for rel in own_rels):
             return (True, layer_root)
     found = find_map(plain)
-    if found and any(fk == _path_key(found[0] / rel) for rel in own_rels):
-        return (True, found[0])
+    root = found[0] if found else _project_root_of(plain)      # 無表專案的 hub.json 也要能自救（新流程會載入它）
+    if root is not None and any(fk == _path_key(root / rel) for rel in own_rels):
+        return (True, root)
     return (False, None)
 
 
@@ -550,6 +568,12 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     """
     if not file_path:
         return (None, None, False)
+    if file_path.startswith("UNKNOWN:"):
+        # write_paths_from_tool 解析不出寫入目標（變數路徑、eval、cd -、heredoc 以外的怪寫法）：不知道改哪個檔就不能判，一律擋
+        msg = (f"[Guardian:OverviewHub] 無法判定這段指令的寫入目標（{file_path[8:]}…）：路徑含展不開的變數、eval、cd - 或"
+               f"解析不出的重導向。改用 Edit／Write 工具，或把路徑寫成字面絕對路徑。")
+        _log("edit_unknown_target", session_id, path=file_path, deny_reason="unknown_target")
+        return (msg, msg, False)
     # 改的是 OverviewHub 自己的設定檔／部位表 → 不走 OverviewHub 流程（否則設定寫錯一個鍵就再也改不回來）；有錯仍回警告列出來讓模型知道在修什麼
     own, own_root = _own_config_layer(file_path)
     if own:
@@ -598,43 +622,55 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         _log("edit_before_inject", session_id, part=row["part_short"], path=file_path, deny_reason="not_injected",
              intent=_intent_of(state), layer=cfg.get("_layer"))
         return (msg, msg, True)
+    _migrate_rec(rec)
     rec["edits"] = int(rec.get("edits", 0)) + 1
-    reads = rec.get("reads_after", [])
+    reads = rec["reads_after"]
     dirs = sorted({top_dir(p, root) for p in reads})
-    part_files = rec.get("part_files_read", [])
-    depends_files = rec.get("depends_files_read", [])
+    part_files = rec["part_files_read"]
+    depends_files = rec["depends_files_read"]
     ev = cfg["min_overview_evidence"]
     missing: List[str] = []
     deny_reason: Optional[str] = None
     warn: Optional[str] = None
-    if transcript_size(transcript_path) <= 0:
-        # D4：讀不到 transcript 就驗不了定位三行；環境異常也擋（fail-closed）
+    readable, why = transcript_readable(transcript_path)
+    if not readable:
+        # D4：讀不到 transcript 就驗不了定位三行（已 located 也一樣，環境異常先擋）；真開檔，不只 stat
         deny_reason = "transcript_missing"
-        missing.append(f"讀不到 transcript（{transcript_path or '路徑為空'}），環境異常，閘無法驗定位三行；"
-                       f"請確認 hook 收到的 transcript_path 存在且非空")
+        missing.append({
+            "empty_path": "hook 沒收到 transcript_path（欄位為空）",
+            "missing": f"transcript 檔不存在（{transcript_path}）",
+            "unreadable": f"transcript 檔存在但開不了（{transcript_path}；鎖住或無權限）",
+            "empty": f"transcript 檔存在但是空的（{transcript_path}）",
+        }[why] + "：環境異常，閘無法驗定位三行，一律擋")
     if len(part_files) < int(ev["part_files"]):
         missing.append(f"注入導讀卡後還沒讀過這個部位的檔（要 ≥{ev['part_files']} 個，目前 {len(part_files)} 個；"
                        f"表外檔讀了 {len(reads) - len(part_files)} 個不算）")
     if len(depends_files) < int(ev["depends_files"]):
         missing.append(f"還沒讀過卡片指到的檔（要 ≥{ev['depends_files']} 個，目前 {len(depends_files)} 個）")
     if deny_reason is None and not rec.get("located"):
-        ch = locate_channel(transcript_path, int(rec.get("transcript_offset", 0)), row["part_short"], rec.get("locate_template"))
-        if ch is not None:
-            vals = locate_values(assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch),
-                                 row["part_short"], rec.get("locate_template")) or {}
-            bad_layer = _layer_mismatch(row, vals)
-            if bad_layer:
-                missing.append(bad_layer)
-                deny_reason = "wrong_layer"
-            else:
-                rec["located"] = True
-                rec["located_via"] = ch
-                rec["located_quality"] = locate_quality(
-                    assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch),
-                    row["part_short"], _card_texts(rec), rec.get("locate_template"))
-                if ch == "thinking":
-                    warn = (f"[Guardian:OverviewHub] 【{row['part_short']}】的定位三行只在 thinking 裡，模型下回合與人都看不到；"
-                            f"這次放行，請改放回覆文字或下一個工具呼叫的參數（Bash 開頭的註解）。")
+        # 三管道各取「最後一組」三行（被擋後補交的那組才是現行）；任一管道那組通過層檢查即 located
+        found_ch, bad_layer, text = None, None, ""
+        for ch in LOCATE_CHANNELS:
+            text = assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch)
+            vals = locate_values(text, row["part_short"], rec.get("locate_template"))
+            if not vals:
+                continue
+            bad = _layer_mismatch(row, vals)
+            if bad:
+                bad_layer = bad
+                continue
+            found_ch = ch
+            break
+        if found_ch is not None:
+            rec["located"] = True
+            rec["located_via"] = found_ch
+            rec["located_quality"] = locate_quality(text, row["part_short"], _card_texts(rec), rec.get("locate_template"))
+            if found_ch == "thinking":
+                warn = (f"[Guardian:OverviewHub] 【{row['part_short']}】的定位三行只在 thinking 裡，模型下回合與人都看不到；"
+                        f"這次放行，請改放回覆文字或下一個工具呼叫的參數（Bash 開頭的註解）。")
+        elif bad_layer:
+            missing.append(bad_layer + "；補交一組正確的三行即可（取最後一組）")
+            deny_reason = "wrong_layer"
         else:
             missing.append(f"還沒交出定位三行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。"
                            f"請先在回覆寫：定位｜部位：…／定位｜根因層：…／定位｜前例：…")

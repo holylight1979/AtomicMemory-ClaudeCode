@@ -352,7 +352,8 @@ def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: st
     """同 build_injection，另回實際送出的片名（依 slices 順序、只含卡裡切得出的片；沒選片或沒命中回 []）。
 
     slices：依意圖要先送的片；命中就「選中片全文＋其餘段標題清單」，整張切不出任何選中片就退回整卡（不得注得更少）。
-    lens／ask_first：視角與先問的那一題，加在 head。max_chars 對每張卡的最終文字仍是上限。
+    lens／ask_first：視角與先問的那一題，加在 head。max_chars 只截**每張卡的正文**（選片後或整卡），
+    head（定位三行說明）與卡片分隔行不計入；整段注入文字＝head＋每張卡各 ≤ max_chars。
     """
     part = row["part"] or row["part_short"]
     t = list(locate_template or [])
@@ -425,8 +426,8 @@ def locate_groups(text: str, template: Optional[List[str]] = None) -> List[Dict[
 
 
 def locate_values(text: str, part_short: str, template: Optional[List[str]] = None) -> Optional[Dict[str, str]]:
-    """這個部位的那一組完整定位三行（部位行提到 part_short）；沒交或缺行回 None。"""
-    for g in locate_groups(text, template):
+    """這個部位**最後一組**完整定位三行（部位行提到 part_short；被擋後補交的那組才是現行）；沒交或缺行回 None。"""
+    for g in reversed(locate_groups(text, template)):
         if {"部位", "根因", "前例"} <= set(g) and part_short.lower() in g["部位"].lower():
             return g
     return None
@@ -515,6 +516,22 @@ def transcript_size(transcript_path: str) -> int:
         return Path(transcript_path).stat().st_size if transcript_path else 0
     except OSError:
         return 0
+
+
+def transcript_readable(transcript_path: str) -> Tuple[bool, str]:
+    """transcript 真的讀得到嗎：真開檔讀 1 byte。回 (讀得到, 原因)；原因 ∈ empty_path／missing／unreadable／empty。
+    只 stat 不夠：檔在但被鎖或無權限時 stat 正常、open 才炸。"""
+    if not transcript_path:
+        return False, "empty_path"
+    p = Path(transcript_path)
+    try:
+        if not p.exists():
+            return False, "missing"
+        with open(p, "rb") as f:
+            head = f.read(1)
+    except OSError:
+        return False, "unreadable"
+    return (True, "") if head else (False, "empty")
 
 
 # ─── 工具呼叫裡的讀檔路徑 ──────────────────────────────────────────

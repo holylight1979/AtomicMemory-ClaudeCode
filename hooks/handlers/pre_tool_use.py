@@ -918,6 +918,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # 檔在但讀不到（鎖住／JSON 壞）不建 fallback 覆蓋，本次用空 state 判（仍會擋，只是不落盤）。
     hub_warn = None
     if tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
+        hub_deny = None
         try:
             from wg_core import _ensure_state as _hub_ensure_state, write_paths_from_tool, write_state as _ws
             from wg_overview import on_edit as _hub_on_edit
@@ -930,7 +931,6 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 if _hub_state is None:
                     _hub_state = {}
                 _hub_warns: List[str] = []
-                hub_deny = None
                 hub_changed = False
                 for _hub_fp in _hub_targets:
                     _w, _d, _c = _hub_on_edit(
@@ -944,21 +944,26 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                         break
                 if _hub_persist and hub_changed:   # 放行也要落盤（located／edits／part_files_read）
                     _ws(_co_sid, _hub_state)
-                if hub_deny:
-                    output_json({
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": hub_deny,
-                        }
-                    })
-                    return
                 hub_warn = "\n".join(_hub_warns) or None
         except Exception as e:
+            # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝不知道該不該擋 → 一律擋，不 fail-open；traceback 進 stderr 與 hub log
+            hub_deny = (f"[Guardian:OverviewHub] 閘環境異常，無法判定，一律擋：{type(e).__name__}: {e}。"
+                        f"修好環境（state 檔／hook 依賴）再改；先用 Read 查原因。")
             try:
-                sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 檢查異常（fail-open）：{e}\n")
-            except OSError:
+                sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 閘內部錯誤（已 deny）：{type(e).__name__}: {e}\n")
+                from wg_overview import _log as _hub_log
+                _hub_log("gate_error", _co_sid, tool=tool_name, error=f"{type(e).__name__}: {e}", deny_reason="gate_error")
+            except Exception:
                 pass
+        if hub_deny:
+            output_json({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": hub_deny,
+                }
+            })
+            return
 
     # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
     # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）
