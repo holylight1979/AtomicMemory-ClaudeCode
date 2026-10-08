@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨]（實跑 2026-10-08）`atom_write` 的 knowledge 區預算 3072 bytes（`tools/memory-write-gate.py` `_BUDGET_DEFAULT`）在 create funnel 裡再檢一次，`skip_gate=true` 只跳 QUALITY/DEDUP，跳不過預算；錯訊兩種字樣（`Write-gate rejected` vs `funnel failed: budget`）指同一道關。預算數的是每行加 `- ` 前綴後的 UTF-8 bytes，CJK 一字 3 bytes，導讀卡五段大約只能容 1000 字。
+- [臨]（實跑）`atom_write` 的 knowledge 區預算 3072 bytes（`tools/memory-write-gate.py` `_BUDGET_DEFAULT`）在 create funnel 裡再檢一次，`skip_gate=true` 只跳 QUALITY/DEDUP，跳不過預算；錯訊兩種字樣（`Write-gate rejected` vs `funnel failed: budget`）指同一道關。預算數的是每行加 `- ` 前綴後的 UTF-8 bytes，CJK 一字 3 bytes，導讀卡五段大約只能容 1000 字。
 - [臨] 寫入順序：shared scope 的矛盾偵測（gemma）排在預算之前——同一張卡可能先被 CONTRADICT 擋、reject 誤報後再被預算擋。先用 python 量 bytes（`len(('\n'.join('- '+k for k in ks)+'\n').encode())`）再送，省兩輪。指標型卡被判 CONTRADICT 多半是轉述舊卡的矛盾待決項，核對後 `conflict-review.py --action reject` 再 `skip_conflict_check` 重送。
 
 ## 行動
