@@ -5,6 +5,11 @@
 
 ---
 
+## 2026-10-08 三份專案專屬的 Unity prefab 文件移出根層
+- **做法**：UI 元件 GUID 對照表、prefab 程式化建立 SOP、WndForm YAML 模板都是單一專案的資料與工具流程，原版內容移到該專案 `_AIDocs`（專案端待使用者提交）；根層刪除三份，`Tools/unity-yaml.md` 改寫成通用做法（m_Script guid 從目標腳本 .cs.meta 取、專案自己的對照表放專案 `_AIDocs`），並拿掉指向專案工具的步驟與同事名。 | `_AIDocs/Tools/`, `_AIDocs/_CHANGELOG.md`
+
+---
+
 ## 2026-10-08 根層去專案化：realm 閘認得已登記專案名、根層 cwd 也檢查；卡片、skill、程式、測試、文件拔掉專案名
 - **緣由**：使用者指出根層（跨專案共享、多機同步）不該出現專案宣告；盤點發現全域卡片約四分之一寫了專案名，skill 範例直接寫專案路徑，測試含公司 AD 群組名。根因是 realm 閘不認專案自己的名字、根層 cwd 寫入時完全不啟動。使用者訂四原則：專案名非必要就拔、指涉用「某專案」、代稱優於路徑、拔名不得讓事實走樣。
 - **做法**：`lib/realm_gate.py` 加已登記專案名比對（registry 專案根資料夾名、ASCII 別名、本機 `project_names` 手列名單；泛名與公司層 repo 名排除）與專案根底下路徑比對，根層 cwd 也啟動；`lib/atom_io.py` 本人跨專案 personal 同受此閘；`hooks/wg_provenance.py` 根層卡片的自動 Quote 先經 `anonymize_projects`；`lib/atom_locations.py` 詞庫保留詞改從 registry 取，不寫死專案名；`hooks/user-extract-worker.py` 根層 cwd 不以別的專案名判定專案規則。內容面：63 張全域與根層卡片以逐字替換改寫（`write_raw` source=tool:migrate，經兩位獨立審查員核對事實，修正 9 筆），整張講某專案工具的卡片移到公司層，skill 範例、程式註解、測試假資料、文件改成代稱或虛構值。

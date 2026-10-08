@@ -5,7 +5,7 @@
 - Trigger: Unity YAML detail, 序列化格式, PrefabInstance, m_Modifications, ScriptableObject, AnimationClip, AnimatorController, Merge 衝突, fileID, YAML 1.1
 - Last-used: 2026-03-25
 - Confirmations: 0
-- Related: unity-yaml, unity-prefab-workflow
+- Related: unity-yaml
 
 > 版本：Unity 2022.3.x
 > 建立：2026-03-10

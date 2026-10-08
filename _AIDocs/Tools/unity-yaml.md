@@ -7,12 +7,12 @@
 - Confirmations: 19
 - Type: semantic
 - Tags: unity, yaml, serialization, prefab, guid
-- Related: unity-prefab-workflow, unity-yaml-detail
+- Related: unity-yaml-detail
 
 ## 知識
 
 ### 文件位置
-完整知識在 [memory/unity/unity-yaml-detail.md](~/.claude/memory/unity/unity-yaml-detail.md)（全域）
+完整知識在同資料夾的 [unity-yaml-detail.md](unity-yaml-detail.md)
 版本：Unity 2022.3.x
 
 ### 核心概念速查
@@ -61,16 +61,15 @@ grep -r "m_Script: {fileID: 0}" Assets/ --include="*.prefab"
 
 ## 行動
 
-- 遇到 Unity YAML 問題先查 `~/.claude/memory/unity/unity-yaml-detail.md`（全域）
+- 遇到 Unity YAML 問題先查同資料夾的 `unity-yaml-detail.md`
 - Missing Script 修復：換 `m_Script` 的 guid，fileID=11500000，type=3
 - 手改 YAML 前先 SVN commit 作為回滾點，縮排用空格不用 Tab
-- 操作型需求使用 `/unity-yaml` skill（parse/generate/modify/template）
-- **建立 WndForm prefab**：使用 `generate-ui-prefab` 命令 + JSON spec → 自動建 root 6 元件 + RefDb（見 `unity-prefab-workflow` atom）
-- **驗證 prefab**：使用 `validate` 命令檢查 fileID 交叉引用 + m_Script 非零
+- 程式化建立或修改 prefab 時，MonoBehaviour 的 `m_Script` guid 一律從目標腳本的 `.cs.meta`（DLL 內類別則讀 `.dll.meta` 加對應 fileID）取得；GUID 各專案不同，專案自己的 GUID 對照表與 prefab 產生工具放在該專案的 `_AIDocs`
+- 改完 prefab 先驗：fileID 交叉引用都找得到、`m_Script` 沒有 `{fileID: 0}`
 
 ## 演化日誌
 
 | 日期 | 變更 |
 |------|------|
-| 2026-03-11 | 從 Wells V2.5 fork 合併至 V2.10，修正路徑，補充 /unity-yaml skill 連結 |
-| 2026-03-24 | 補充 generate-ui-prefab / validate 命令、CLASS_IDS 擴充（222-225）、UI_GUIDS 對照表、Anchor presets |
+| 2026-03-11 | 從同事的分支版本合併，修正路徑 |
+| 2026-03-24 | CLASS_IDS 擴充（222-225）、Anchor presets |
