@@ -1,7 +1,7 @@
 """refix_churn：「同一個檔在短期內被兩筆以上 fix 類提交改到」的量尺（純函式；git／svn 都吃）。
 
 做什麼：讀 VCS 歷史，挑出訊息像在修東西的提交（fix／bugfix／hotfix／bug／修正／修復／修好／修補／壞了／壞掉／錯誤，
-詞級比對，「修改排版」「錯位動畫」不算），按檔統計 fix 提交數
+詞級比對，「修改排版」「錯位動畫」不算；中文詞後面同一子句若以「嗎／？」收尾是問句也不算），按檔統計 fix 提交數
 （主尺 fix_commits）與「window 天內兩筆 fix 配對數」（副尺 pairs_in_window）。修了又修的檔＝可能在修症狀，
 這是預計畫 S2 的代理量、也是從零掃表的熱點來源。
 
@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 
 DEFAULTS: Dict[str, Any] = {
     "fix_patterns": [r"\bfix(?:e[sd]|ing)?\b", r"\bbugfix\b", r"\bhotfix\b", r"\bbug\b",
-                     "修正", "修復", "修好", "修補", "壞了", "壞掉", "錯誤"],
+                     *(f"{w}(?![^。；;！!\n]*[嗎？?])" for w in ("修正", "修復", "修好", "修補", "壞了", "壞掉", "錯誤"))],
     "refix_window_days": 14,
     "refix_since_days": 60,
     "refix_min_fixes": 2,

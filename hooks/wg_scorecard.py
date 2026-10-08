@@ -111,8 +111,9 @@ def health_block() -> List[str]:
     base, recent = data.get("baseline_s1"), data.get("recent_s1")
     base = base if isinstance(base, (int, float)) else None
     recent = recent if isinstance(recent, (int, float)) else None
-    below = [b for b in (data.get("below_baseline") or []) if isinstance(b, dict)]
-    top = [t for t in (data.get("top") or []) if isinstance(t, dict)]
+    raw_below, raw_top = data.get("below_baseline"), data.get("top")
+    below = [b for b in (raw_below if isinstance(raw_below, list) else []) if isinstance(b, dict)]
+    top = [t for t in (raw_top if isinstance(raw_top, list) else []) if isinstance(t, dict)]
     fmt = lambda v: "無" if v is None else f"{v:.2f}"  # noqa: E731
     line1 = (f"scorecard：{str(data.get('generated_at', ''))[:10]} 基線 S1 {fmt(base)}／近週 S1 {fmt(recent)}，"
              f"低於基線部位 {len(below)}" + (f"（{'、'.join(str(b.get('part', '')) for b in below[:3])}）" if below else ""))

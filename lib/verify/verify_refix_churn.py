@@ -61,6 +61,8 @@ def _svn_commits():
     ("修正登入", True), ("壞掉的按鈕", True), ("錯誤訊息", True), ("a bug in x", True), ("修好了", True), ("按鈕壞了", True),
     ("docs: add readme", False), ("feat: prefix search", False), ("refactor suffix", False),
     ("修改文件排版", False), ("feat: 新增錯位動畫", False), ("docs: 改壞字", False),   # 單字「修／壞／錯」不算
+    ("壞了嗎", False), ("這樣修正可以嗎？", False), ("是錯誤嗎?", False),                 # 問句不算
+    ("修正了。可以嗎？", True), ("壞了！先修正", True),                                   # 詞在前一子句仍算
 ])
 def test_is_fix(msg, ok):
     assert rc.is_fix(msg) is ok

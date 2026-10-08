@@ -3,7 +3,8 @@
 正例：tree.json 掃出的表與 expected-table.md 一字相同；表過 parse_map roundtrip（狀態「骨架」、層「單層」、擴欄空）；
 fix 熱點排前；無 VCS 仍產；dry-run 不落任何檔；表存在拒覆寫、內容不變；--merge-missing 只補缺列、舊列一字不動；
 Lv1 只映射（專案 _taxonomy → 核心 → 預設），不開新；骨架卡五段齊、source=tool:overview-map-scaffold、[臨]；
-寫卡先於寫表（每次 write_atom 當下表都還不在）；卡預驗失敗或真寫失敗 → 不寫表、已寫的卡撤回（CardWriteError）；
+寫卡先於寫表（每次 write_atom 當下表都還不在）；卡預驗失敗、真寫失敗或拋例外 → 結構化結果（ok=False、written／failed／skipped）、
+不寫表、不刪任何東西、重跑接續（部位一致的既有卡沿用、不一致改名避撞）；
 分層選 scope（根層 global＋realm local＋MemDev、公司層／專案層 shared＋project_cwd）；merge-missing 也補「表有列卡檔不在」的卡；
 撞名目錄（a-b／a_b）各自一張卡、title＝表上的避撞名；
 check 三種不一致各一訊息；first_session_hint 兩態；CLI 哨兵尾行與 exit code。
@@ -281,9 +282,12 @@ class _FakeWriter:
         stage = "dry" if kw.get("dry_run") else "real"
         if title in self.fail_on and (self.fail_stage == stage or self.fail_stage == "both"):
             return atom_io.WriteResult(ok=False, error="閘拒：測試注入")
+        if title in self.fail_on and self.fail_stage == "raise" and stage == "real":
+            raise OSError(28, "No space left on device")
         if stage == "real":
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"# {title}\n", encoding="utf-8", newline="\n")
+            body = "\n".join(f"- {k}" for k in kw["knowledge"])
+            path.write_text(f"# {title}\n\n{body}\n", encoding="utf-8", newline="\n")
         return atom_io.WriteResult(ok=True, path=path)
 
 
@@ -304,7 +308,7 @@ def test_root_layer_uses_global_local_scope(tmp_path, monkeypatch):
     fake = _FakeWriter(root)
     monkeypatch.setattr(sc, "write_atom", fake)
     res = sc.write_scaffold(root, _rows(root), sc.ROOT_DOMAIN, write=True, layer=(sc.LAYER_ROOT, root))
-    assert res["layer"] == "root" and res["written"] and len(fake.calls) == 6          # 3 預驗＋3 真寫
+    assert res["ok"] and res["layer"] == "root" and res["written"] and len(fake.calls) == 6          # 3 預驗＋3 真寫
     for c in fake.calls:
         assert (c["scope"], c["realm"], c["domain"]) == ("global", "local", "MemDev") and "project_cwd" not in c
         assert c["source"] == "tool:overview-map-scaffold" and c["confidence"] == "[臨]" and c["mode"] == "create"
@@ -321,33 +325,6 @@ def test_cards_written_before_table(tmp_path, monkeypatch):
     assert [c["dry_run"] for c in fake.calls] == [True] * 3 + [False] * 3
 
 
-def test_card_failure_leaves_no_table(tmp_path, monkeypatch):
-    root = _mk_project(tmp_path)
-    map_path = root / ".claude" / "overview-map.md"
-    # 預驗就擋：一張卡 dry-run 回 ok=False → 不真寫、不寫表、什麼檔都沒多
-    fake = _FakeWriter(root, fail_on={"client部位導讀"}, fail_stage="dry")
-    monkeypatch.setattr(sc, "write_atom", fake)
-    before = _snapshot(root)
-    with pytest.raises(sc.CardWriteError, match="預驗") as ei:
-        sc.write_scaffold(root, _rows(root), "設計通則", write=True)
-    assert [c["card"] for c in ei.value.cards if not c["ok"]] == ["client部位導讀"]
-    assert all(c["dry_run"] for c in fake.calls) and not map_path.exists() and _snapshot(root) == before
-    # 真寫途中第二張失敗：第一張撤回、不寫表
-    fake = _FakeWriter(root, fail_on={"client部位導讀"}, fail_stage="real")
-    monkeypatch.setattr(sc, "write_atom", fake)
-    with pytest.raises(sc.CardWriteError, match="真寫") as ei:
-        sc.write_scaffold(root, _rows(root), "設計通則", write=True)
-    assert not map_path.exists()
-    assert not (root / ".claude/memory/shared/x/server部位導讀.md").exists()           # 已寫的第一張被撤回
-    assert _snapshot(root) == before
-    failed = [c for c in ei.value.cards if not c["ok"]]
-    assert failed[0]["card"] == "client部位導讀" and "閘拒" in failed[0]["error"]
-    # 重跑（修好閘後）要能從零成功，不是 exit 3 也不是 rows=0
-    monkeypatch.setattr(sc, "write_atom", _FakeWriter(root))
-    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
-    assert res["written"] and res["rows"] == 3 and map_path.is_file()
-
-
 def test_merge_missing_rewrites_missing_cards(tmp_path):
     root = _mk_project(tmp_path)
     sc.write_scaffold(root, _rows(root), "設計通則", write=True)
@@ -358,23 +335,10 @@ def test_merge_missing_rewrites_missing_cards(tmp_path):
     (root / ".claude/memory/shared/設計通則/client部位導讀.access.json").unlink(missing_ok=True)
     res = sc.write_scaffold(root, _rows(root), "設計通則", write=True, merge_missing=True)
     assert res["rows"] == 0 and res["written"] is False and _sha(map_path) == digest   # 表沒變
-    assert [c["card"] for c in res["cards"]] == ["client部位導讀"] and res["cards"][0]["reused"] is False
+    assert res["ok"] and res["written_cards"] == ["client部位導讀"] and res["reused_cards"] == []
     assert gone.is_file() and sc.check_consistency(root) == []
     res = sc.write_scaffold(root, _rows(root), "設計通則", write=True, merge_missing=True)
-    assert res["cards"] == [] and res["rows"] == 0                                      # 都齊了就什麼都不做
-
-
-def test_existing_card_is_reused_not_rejected(tmp_path):
-    """上次卡寫成了但表沒寫成（或人先手寫了卡）→ 重跑沿用既有卡、表照寫，不會被 create 的既有保護擋死。"""
-    root = _mk_project(tmp_path)
-    rows = _rows(root)
-    sc.write_skeleton_cards(rows[:1], sc.card_write_kwargs(sc.LAYER_PROJECT, root, "設計通則"), [], dry_run=False)
-    assert (root / ".claude/memory/shared/設計通則/server部位導讀.md").is_file()
-    res = sc.write_scaffold(root, rows, "設計通則", write=True)
-    assert res["written"] and res["cards"][0] == {"card": "server部位導讀", "ok": True,
-                                                   "path": str(root / ".claude/memory/shared/設計通則/server部位導讀.md"),
-                                                   "error": None, "reused": True}
-    assert sc.check_consistency(root) == []
+    assert res["ok"] and res["cards"] == [] and res["rows"] == 0                        # 都齊了就什麼都不做
 
 
 def test_colliding_dir_names_get_distinct_cards(tmp_path):
@@ -403,3 +367,94 @@ def test_scan_unreadable_root_returns_empty(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sc.os, "scandir", boom)
     assert sc.scan_top_dirs(tmp_path) == []
     assert "讀不到" in capsys.readouterr().err
+
+
+# ─── 003：不撤回、可重入；merge 配對 ──────────────────────────────
+
+def test_card_failure_stops_before_table_and_rerun_completes(tmp_path, monkeypatch):
+    root = _mk_project(tmp_path)
+    map_path = root / ".claude" / "overview-map.md"
+    rows = _rows(root)                                                                # Server、Client、Docs
+    fake = _FakeWriter(root, fail_on={"client部位導讀"}, fail_stage="real")
+    monkeypatch.setattr(sc, "write_atom", fake)
+    res = sc.write_scaffold(root, rows, "設計通則", write=True)
+    assert res["ok"] is False and res["written"] is False and not map_path.exists()
+    assert res["written_cards"] == ["server部位導讀"] and res["skipped_cards"] == ["docs部位導讀"]
+    assert res["failed_card"] == {"name": "client部位導讀", "error": "閘拒：測試注入", "stage": "真寫"}
+    assert res["error"] == "已寫 1 張、第 2 張（`client部位導讀`）真寫失敗：閘拒：測試注入；表未寫；重跑同一指令會接續補完"
+    assert (root / ".claude/memory/shared/x/server部位導讀.md").is_file()                # 第一張留著，不刪
+    assert [c["ok"] for c in res["cards"]] == [True, False, False] and res["cards"][2]["error"].startswith("未寫")
+    # 第二次（閘修好）：第一張沿用、其餘補完、表最後寫
+    fake2 = _FakeWriter(root)
+    monkeypatch.setattr(sc, "write_atom", fake2)
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["ok"] and res["written"] and map_path.is_file()
+    assert res["reused_cards"] == ["server部位導讀"] and res["written_cards"] == ["client部位導讀", "docs部位導讀"]
+    assert [c["title"] for c in fake2.calls] == ["client部位導讀", "docs部位導讀"] * 2    # 沿用的不再呼叫 write_atom
+    assert all(c["_map_exists"] is False for c in fake2.calls)
+    parsed = parse_map(map_path.read_text(encoding="utf-8"))
+    assert [r["card"] for r in parsed] == ["server部位導讀", "client部位導讀", "docs部位導讀"]
+    assert sc.check_consistency(root, mem_dir=root / ".claude" / "memory") == []
+
+
+def test_card_write_exception_is_structured_failure(tmp_path, monkeypatch):
+    root = _mk_project(tmp_path)
+    fake = _FakeWriter(root, fail_on={"client部位導讀"}, fail_stage="raise")
+    monkeypatch.setattr(sc, "write_atom", fake)
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)              # 不冒例外
+    assert res["ok"] is False and not (root / ".claude" / "overview-map.md").exists()
+    assert res["written_cards"] == ["server部位導讀"] and res["skipped_cards"] == ["docs部位導讀"]
+    assert res["failed_card"]["name"] == "client部位導讀" and res["failed_card"]["error"].startswith("OSError:")
+    assert "No space left" in res["error"] and "重跑同一指令會接續補完" in res["error"]
+    # 預驗階段失敗：連第一張都不真寫
+    fake = _FakeWriter(root, fail_on={"docs部位導讀"}, fail_stage="dry")
+    monkeypatch.setattr(sc, "write_atom", fake)
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["ok"] is False and res["failed_card"]["stage"] == "預驗" and res["skipped_cards"] == []
+    assert all(c["dry_run"] for c in fake.calls)                                      # 沒有任何真寫
+    assert res["reused_cards"] == ["server部位導讀"] and res["written_cards"] == []
+
+
+def test_reuse_requires_matching_part_line(tmp_path):
+    """既有同名卡但部位不同（或沒部位行）→ 不沿用、改名避撞；部位相同 → 沿用。"""
+    root = _mk_project(tmp_path)
+    mem = root / ".claude" / "memory" / "shared" / "設計通則"
+    mem.mkdir(parents=True)
+    (mem / "server部位導讀.md").write_text("# server部位導讀\n\n- 部位與權威：部位 `Gateway`（前綴 `Gateway/`）\n",
+                                          encoding="utf-8", newline="\n")
+    (mem / "docs部位導讀.md").write_text("# docs部位導讀\n\n- 手寫卡沒有部位行\n", encoding="utf-8", newline="\n")
+    rows = sc.resolve_card_names(_rows(root), [root / ".claude" / "memory"])
+    assert [(r["card"], r["reused"]) for r in rows] == [("server部位導讀-2", False), ("client部位導讀", False), ("docs部位導讀-2", False)]
+    res = sc.write_scaffold(root, _rows(root), "設計通則", write=True)
+    assert res["ok"] and res["written_cards"] == ["server部位導讀-2", "client部位導讀", "docs部位導讀-2"]
+    parsed = parse_map((root / ".claude/overview-map.md").read_text(encoding="utf-8"))
+    assert [r["card"] for r in parsed] == ["server部位導讀-2", "client部位導讀", "docs部位導讀-2"]
+    issues = sc.check_consistency(root)
+    assert len(issues) == 1 and issues[0].startswith("卡有表無：卡 `server部位導讀`")       # 別人的 Gateway 卡被點名，不是被沿用
+
+
+def test_merge_missing_keeps_existing_pairing_and_avoids_collision(tmp_path):
+    """先只有 a_b/ → 既有表 `a_b/`→`a-b部位導讀`；再加 a-b/ 重掃（排序會把 a-b 排前）→ 既有列不變、新列拿 -2、零不符。"""
+    root = tmp_path / "pair"
+    (root / "a_b").mkdir(parents=True)
+    (root / "a_b" / "f.txt").write_text("x", encoding="utf-8", newline="\n")
+    (root / ".claude" / "memory").mkdir(parents=True)
+    (root / ".claude" / "memory" / "MEMORY.md").write_text("# idx\n", encoding="utf-8", newline="\n")
+    res = sc.write_scaffold(root, sc.draft_rows(sc.scan_top_dirs(root)), "設計通則", write=True)
+    assert res["ok"] and res["written_cards"] == ["a-b部位導讀"]
+    map_path = root / ".claude" / "overview-map.md"
+    before = map_path.read_text(encoding="utf-8")
+    (root / "a-b").mkdir()
+    (root / "a-b" / "g.txt").write_text("x", encoding="utf-8", newline="\n")
+    rows = sc.draft_rows(sc.scan_top_dirs(root))
+    assert [r["card"] for r in rows] == ["a-b部位導讀", "a-b部位導讀-2"] and rows[0]["part"] == "a-b"   # 重掃時 a-b 搶到 base 名
+    res = sc.write_scaffold(root, rows, "設計通則", write=True, merge_missing=True)
+    assert res["ok"] and res["rows"] == 1 and res["written_cards"] == ["a-b部位導讀-2"] and res["reused_cards"] == []
+    after = map_path.read_text(encoding="utf-8")
+    assert after.startswith(before.rstrip("\n"))                                        # 既有列一字不動
+    parsed = parse_map(after)
+    assert [(r["part"], r["card"]) for r in parsed] == [("a_b", "a-b部位導讀"), ("a-b", "a-b部位導讀-2")]
+    assert sc.card_part(root / ".claude/memory/shared/設計通則/a-b部位導讀-2.md") == "a-b"
+    assert sc.check_consistency(root) == []
+    res = sc.write_scaffold(root, sc.draft_rows(sc.scan_top_dirs(root)), "設計通則", write=True, merge_missing=True)
+    assert res["ok"] and res["rows"] == 0 and res["cards"] == []                        # 再跑一次什麼都不動
