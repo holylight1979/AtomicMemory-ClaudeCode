@@ -67,7 +67,13 @@ def detect_account() -> str:
 
 
 def launch(headed: bool):
-    from playwright.sync_api import sync_playwright
+    try:
+        from playwright.sync_api import sync_playwright
+    except ModuleNotFoundError:
+        raise SystemExit(
+            f"[usage-snapshot] 這個 Python 沒裝 playwright：{sys.executable}\n"
+            "  改用排程登記的那個 Python 跑（PowerShell：(Get-ScheduledTask Claude-Usage-WeeklySnapshot).Actions.Execute，"
+            "把 pythonw.exe 換成 python.exe），或先 pip install playwright 再 playwright install chromium")
 
     p = sync_playwright().start()
     ctx = p.chromium.launch_persistent_context(
