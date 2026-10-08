@@ -157,7 +157,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 
 ## 6. 工具鏈（tools/）
 
-### MCP Server（8 tool）
+### MCP Server（12 tool）
 - `workflow-guardian-mcp/server.js`（+ 14 lib 模組，原 4394 行單檔純機械拆分；對照 `lib/_MAP.md`）— stdio MCP + dashboard port 3848
   - `atom_write` / `atom_move` / `atom_promote` / `atom_edit_meta` / `atom_retire`（5 個 atom 業務 tool；`atom_edit_meta`=元資料外科編輯 → [SPEC_ATOM_V5 §3.4](SPEC_ATOM_V5.md)；`atom_write(supersedes=)` 三態、`atom_retire` 退役步驟與 receipt → [SPEC_ATOM_V5 §3.5](SPEC_ATOM_V5.md)）
   - `knowledge_harvest_report`（階段收割回報：items 結構化、只回 chip `[Harvest] N 寫入／M 退役／K 不寫`；核對與 state／ledger 由 Python `post_tool_use` 寫 → TECH §6.3；`lib/harvest.js`）
@@ -165,6 +165,8 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
   - `anti_evasion_report`（收尾檢核九欄 (a)–(i) emit → Anti-Evasion HUD；**one-writer**：MCP tool 只回 chip，Python `post_tool_use` 獨佔寫 state + 落 `workflow/aec-report/`；HUD 頁 `lib/{anti-evasion,aec-hud-html}.js` 服）
     - 殘檔帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一 writer：tempdir 寫入 / (d) 一行一路徑 / Stop 掃 scratchpad 三來源進帳）；HUD「本 session 尚存殘檔」面板走 `GET /api/aec/tempfiles/<sid>`（Node 讀帳本 + 當下 exists() 過濾，檔案系統為權威、不做 TTL）；保留/刪除決策檔 `aec-decision/<sid>-p<pathhash>.json` 帶 `path` 供 drain 後驗；受保護路徑（`aec_ledger.protected_reason()`：tempdir 放行 → `memory`/`_AIDocs` 段 → 索引／CHANGELOG／核心 md 檔名 → VCS 追蹤）三道拒收：(d) 解析拒收並 additionalContext 回告、`ledger_append` 末道、drain 刪除決策改注入 ⛔ 拒絕
   - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
+  - `second_opinion_start` / `second_opinion_result`（v6.0 第二意見：打包部位卡＋病灶＋diff＋帳本尾成 job，replay-guard pre 守門後分離子程序叫 codex，result 純讀 `workflow/second-opinion/<job>/`；handler `lib/second-opinion.js` → py `tools/second-opinion/run.py`；規格 `tools/second-opinion/README.md`）
+  - `project_smells`（v6.0 候選池：讀 `<專案根>/.claude/overview-hub.json` 的 `smells_report`／`smells_cmd`，都沒有走內建熱點＋大小；七類別白名單、無理由列丟棄；handler `lib/project-smells.js` → py `tools/project-smells.py`）
   - 內部 IPC 4 個（`workflow_signal` / `workflow_status` / `memory_queue_add` / `memory_queue_flush`）已內化為 Stop gate hook 自動偵測
 
 ### 發布

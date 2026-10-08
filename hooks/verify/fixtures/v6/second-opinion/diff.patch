@@ -1,0 +1,16 @@
+diff --git a/src/sched/queue.py b/src/sched/queue.py
+index 3f2a1c0..9b8d7e1 100644
+--- a/src/sched/queue.py
++++ b/src/sched/queue.py
+@@ -38,7 +38,7 @@ class Scheduler:
+     def enqueue(self, job):
+-        if len(self.slots) > self.cap:
++        if len(self.slots) >= self.cap:
+             raise Full(job.id)
+         self.slots.append(job)
+         return len(self.slots)
+@@ -85,6 +85,8 @@ class Scheduler:
+     def last(self):
++        if not self.slots:
++            return None
+         return self.slots[-1]
