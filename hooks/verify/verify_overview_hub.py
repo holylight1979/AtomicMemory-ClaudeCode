@@ -513,3 +513,58 @@ def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):
     assert txt and "pythonw 無 stdio" in txt
     assert oh.resolve_card(fake, "hooks導讀") is None                   # 預設位置找不到
     assert oh.resolve_card(fake, "hooks導讀", fake / "memory").name == "hooks導讀.md"
+
+
+# ─── 退回 002 的 BLOCK：設定錯誤不得封鎖設定檔自身的修復 ───────────────────────
+
+def test_cfg_error_still_allows_editing_the_config_files_themselves(proj, tmp_path, monkeypatch):
+    import wg_core
+    fake = tmp_path / "claude"
+    (fake / ".claude").mkdir(parents=True)
+    (fake / "workflow").mkdir()
+    cfg_path = fake / "workflow" / "config.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+    root_hub = fake / ".claude" / "overview-hub.json"
+    root_hub.write_text('{"bogus": 1}', encoding="utf-8")
+    monkeypatch.setattr(wo, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(wo, "CONFIG_PATH", cfg_path)
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    bad = {"overview_hub": {"enabled": False, "bogus": 1}}
+
+    warn, deny, changed = wo.on_edit({}, "s", str(cfg_path), tp, bad)                  # ① 根層 config.json：放行＋警告
+    assert deny is None and not changed and warn and "放行以便修復" in warn and "未知的設定鍵「bogus」" in warn
+    warn, deny, _ = wo.on_edit({}, "s", str(root_hub), tp, bad)                        # ② 根層 .claude/overview-hub.json
+    assert deny is None and warn and "bogus" in warn
+    _hub(proj, '{"foo": 1}')
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / ".claude" / "overview-hub.json"), tp, {})   # ③ 專案 hub.json
+    assert deny is None and warn and "未知的設定鍵「foo」" in warn
+
+    warn, deny, _ = wo.on_edit({}, "s", str(fake / "workflow" / "other.json"), tp, bad)   # 同目錄他檔仍擋（比路徑不比檔名）
+    assert deny and "bogus" in deny
+    warn, deny, _ = wo.on_edit({}, "s", str(fake / "workflow" / "config.json.bak"), tp, bad)
+    assert deny
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})                                      # 專案 hub 壞 → 部位檔仍擋
+    assert deny and "foo" in deny
+
+    _hub(proj, "{}")                                                                     # 修好 → 下一次 Edit 走正常注入分支
+    warn, deny, changed = wo.on_edit({}, "s", f1, tp, {})
+    assert changed and deny and "還沒看過" in deny and "戰鬥導讀" in deny
+    assert wo.on_edit({}, "s", str(proj / ".claude" / "overview-hub.json"), tp, {}) == (None, None, False)   # 設定沒錯：自家設定檔靜默放行
+    events = [json.loads(l)["event"] for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert events.count("edit_own_config") == 3 and "edit_cfg_error" in events and events[-1] == "edit_before_inject"
+
+
+def test_validator_internal_error_still_denies_and_logs_traceback(proj, monkeypatch, capsys):   # 退回 002 的 WARN
+    seen = []
+    monkeypatch.setattr(wo, "_atom_debug_error", lambda src, exc: seen.append((src, type(exc).__name__)))
+
+    def _bug(bases, root):
+        raise RuntimeError("validator-bug")
+    monkeypatch.setattr(wo, "_validate_path_bases", _bug)
+    c = wo._cfg({}, proj)
+    assert len(c["_errors"]) == 1 and "內部錯誤" in c["_errors"][0] and "validator-bug" in c["_errors"][0]
+    assert seen == [("overview_hub:validate", "RuntimeError")]
+    assert "內部錯誤" in capsys.readouterr().err

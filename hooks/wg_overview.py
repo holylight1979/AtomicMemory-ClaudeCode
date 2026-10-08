@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_core import CLAUDE_DIR, _deep_merge, _layer_kind_for_root, org_memory_root
+from wg_core import CLAUDE_DIR, CONFIG_PATH, _atom_debug_error, _deep_merge, _layer_kind_for_root, org_memory_root
 
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 from overview_hub import (  # noqa: E402
@@ -189,8 +189,9 @@ def _cfg(config: Dict[str, Any], root: Optional[Path] = None) -> Dict[str, Any]:
         c, errors = _deep_merge(c, over), errors + errs
     try:
         errors += _validate_cfg(c, root)
-    except Exception as e:   # 驗證器自己炸也不能 fail-open：當成設定錯誤，Edit 會擋且訊息帶原因
-        errors.append(f"設定驗證失敗：{type(e).__name__}: {e}")
+    except Exception as e:   # 驗證器自己炸也不能 fail-open：仍擋，但標成內部錯誤、traceback 進 atom-debug log
+        _atom_debug_error("overview_hub:validate", e)
+        errors.append(f"設定驗證內部錯誤（不是設定寫錯，是驗證器 bug，traceback 在 atom-debug log）：{type(e).__name__}: {e}")
     for e in errors:
         _warn_once(f"error:{root}:{e}", f"設定錯誤（{root or '根層'}）：{e}")
     c["_errors"] = errors
@@ -295,6 +296,32 @@ def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_pa
     return None
 
 
+def _resolved(p: Path) -> Optional[Path]:
+    try:
+        return p.resolve()
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def _own_config_layer(file_path: str) -> Tuple[bool, Optional[Path]]:
+    """file_path 是不是 OverviewHub 自己讀的設定檔（精確比對 resolve 後路徑，不是比檔名）：
+    根層 workflow/config.json、根層／公司根／該檔所屬專案根（find_map 找到的那個根）的 .claude/overview-hub.json。
+    回 (是不是, 該設定檔所屬層的 root；config.json 回 None)。"""
+    fp = _resolved(Path(file_path))
+    if fp is None:
+        return (False, None)
+    if fp == _resolved(CONFIG_PATH):
+        return (True, None)
+    for layer_root in (CLAUDE_DIR, _org_root()):
+        if layer_root is not None and fp == _resolved(layer_root / HUB_REL):
+            return (True, layer_root)
+    if fp.name == HUB_REL.name and fp.parent.name == HUB_REL.parent.name:
+        found = find_map(file_path)
+        if found and fp == _resolved(found[0] / HUB_REL):
+            return (True, found[0])
+    return (False, None)
+
+
 def _cfg_error_deny(cfg: Dict[str, Any], session_id: str, file_path: str,
                     row: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str, bool]]:
     """`_errors` 非空 → (訊息, deny 理由, False)，訊息列全部錯誤；沒錯誤回 None。"""
@@ -316,6 +343,16 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     """
     if not file_path:
         return (None, None, False)
+    # 改的是 OverviewHub 自己的設定檔 → 跳過本閘（否則設定寫錯一個鍵就再也改不回來）；有錯仍回警告列出來讓模型知道在修什麼
+    own, own_root = _own_config_layer(file_path)
+    if own:
+        errors = _cfg(config, own_root)["_errors"]
+        if not errors:
+            return (None, None, False)
+        msg = (f"[Guardian:OverviewHub] 正在改 OverviewHub 自己的設定檔（{file_path}），放行以便修復。目前的設定錯誤："
+               + "；".join(errors))
+        _log("edit_own_config", session_id, path=file_path, errors=errors)
+        return (msg, None, False)
     # 設定錯誤先於 enabled／命中判定：設定壞了（含 enabled 不是 bool）整層都不可信，一律 deny，沒命中部位表的檔也擋
     cfg = _cfg(config)
     denied = _cfg_error_deny(cfg, session_id, file_path, None)
