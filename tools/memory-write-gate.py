@@ -9,7 +9,8 @@ Usage:
     python memory-write-gate.py --content "知識" --explicit-user
     python memory-write-gate.py --batch items.jsonl
 
-Output: JSON {action, quality_score, reason, dedup_match?}
+Output: JSON {action, quality_score, reason, dedup_match?, kind, route_to, budget, missing_sections, depends_missing, how}
+stdin JSON 另收 mode/existing_path/actions/depends/kind_hint/skip_gate（v6 分型；舊呼叫端不給＝create 全檢）
 
 Requirements: Python 3.8+. Vector dedup needs Memory Vector Service @ port 3849.
 """
@@ -34,11 +35,14 @@ AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 
 # 大小預算 + 樣式警告：規則單一來源 lib/atom_spec；import 失敗時退最小 fallback
 # （預算常數內建、樣式警告停用）並照舊放行其餘檢查——本 gate 不因依賴缺失而更擋人。
+# lib 一律從本腳本所在 repo 根載入（worktree 內跑 verify 不得撈到 live 的 lib）；CLAUDE_DIR 只管 config／audit 落點
+_SELF_ROOT = Path(__file__).resolve().parent.parent
 try:
-    sys.path.insert(0, str(CLAUDE_DIR))
+    sys.path.insert(0, str(_SELF_ROOT))
     from lib.atom_spec import (
         KNOWLEDGE_BUDGET_BYTES as _BUDGET_DEFAULT,
         knowledge_style_warnings as _style_warnings,
+        knowledge_sections_bytes as _knowledge_bytes,
     )
 except Exception as _e:  # pragma: no cover
     print(f"[write-gate] lib.atom_spec unavailable, minimal fallback ({_e})",
@@ -47,6 +51,37 @@ except Exception as _e:  # pragma: no cover
 
     def _style_warnings(text):
         return []
+
+    def _knowledge_bytes(text):
+        return len((text or "").encode("utf-8"))
+
+# 分型（指標／互補／現況帳／導讀／一般）的五段表與 hub 預算：lib/hub_card 單一來源。
+# import 失敗時退最小 fallback（沒有 hub 判定＝全部當一般卡、預算照舊），但訊號必浮出。
+try:
+    from lib.hub_card import (
+        HUB_CARD_BUDGET, check_hub_card_sections, is_hub_card, missing_labels,
+        depends_paths, route_doc_for, ROUTE_FALLBACK,
+    )
+except Exception as _e:  # pragma: no cover
+    print(f"[write-gate] lib.hub_card unavailable, kind detection degraded ({_e})",
+          file=sys.stderr)
+    HUB_CARD_BUDGET = 4096
+    ROUTE_FALLBACK = "_AIDocs"
+
+    def check_hub_card_sections(text):
+        return {"found": [], "missing": [], "headings": []}
+
+    def is_hub_card(text):
+        return False
+
+    def missing_labels(keys):
+        return list(keys)
+
+    def depends_paths(depends):
+        return [str(d) for d in (depends or [])]
+
+    def route_doc_for(paths):
+        return ROUTE_FALLBACK
 
 # Quality score components
 QUALITY_RULES = {
@@ -149,6 +184,85 @@ def regenerable_signals(content: str) -> List[str]:
     if fenced >= REGENERABLE_CODE_FENCE_LINES:
         signals.append(f"code_dump_{fenced}l")
     return signals
+
+
+# ─── 分型（v6 M1：寫進去的東西要有用）─────────────────────────────────────────
+# kind ∈ pointer（指標卡：只留一行指標）／complement（互補：append 前算預算）／
+# ledger（現況帳：放文件）／hub（導讀卡：五段齊＋Depends、預算 4096）／plain（一般）。
+# 超預算不截斷內容，改告訴寫入者該去哪（route_to）、缺哪段（missing_sections）。
+
+KINDS = ("pointer", "complement", "ledger", "hub", "plain")
+MODES = ("create", "append", "replace")
+
+_LEDGER_DATE_RE = re.compile(r"\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}/\d{1,2}\b")
+_LEDGER_NUM_RE = re.compile(r"\d+(?:\.\d+)?%?")
+_LEDGER_HEADER_RE = re.compile(r"^\s*\|[^\n]*(?:現況|狀態|進度|日期|結果|完成度)[^\n]*\|", re.MULTILINE)
+LEDGER_MIN_ROWS = 3
+
+HOW_BY_KIND = {
+    "pointer": "指標卡只留一行指標：位置＋動手前必問，不複述本體；本體住內容卡或文件",
+    "complement": "互補卡 append 前先算預算（既有＋新增 ≤ 上限）；超了把個案細節寫進 route_to 的文件，卡只留結論一行＋路徑",
+    "ledger": "現況帳（逐筆日期／數字、狀態表）放 route_to 的文件；卡只留「現況見 <路徑>」一行",
+    "hub": "導讀卡五段必齊（做什麼／權威在哪／動手前必問／已知病灶／驗法）＋ Depends 指主要檔；預算 4096 bytes",
+    "plain": "一般卡：結論／判斷／教訓一行一條；個案事實與逐筆清單移文件，卡留路徑一行",
+}
+
+
+def ledger_signals(content: str) -> List[str]:
+    """現況帳訊號：≥LEDGER_MIN_ROWS 行「日期＋數字對」或現況表頭；空＝不是帳。"""
+    rows = 0
+    for line in (content or "").splitlines():
+        if not _LEDGER_DATE_RE.search(line):
+            continue
+        rest = _LEDGER_DATE_RE.sub(" ", line)
+        if _LEDGER_NUM_RE.search(rest):
+            rows += 1
+    out: List[str] = []
+    if rows >= LEDGER_MIN_ROWS:
+        out.append(f"dated_rows x{rows}")
+    if _LEDGER_HEADER_RE.search(content or ""):
+        out.append("status_table")
+    return out
+
+
+def _read_existing(existing_path: Optional[str]) -> str:
+    if not existing_path:
+        return ""
+    try:
+        return Path(existing_path).read_text(encoding="utf-8-sig")
+    except (OSError, ValueError):
+        return ""
+
+
+def classify_kind(
+    content: str,
+    title: str = "",
+    mode: str = "create",
+    existing_content: str = "",
+    kind_hint: Optional[str] = None,
+    config: Optional[Dict[str, Any]] = None,
+    actions: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """回 {kind, hub:{found,missing}, ledger:[訊號], existing_hub:bool}。
+    優先序：hub > ledger > pointer > complement（append）> plain。kind_hint 只在合法時採用，
+    且 hub 仍要過五段檢查（hint 不能把缺段卡變成合格 hub）。"""
+    config = config or {}
+    hint = kind_hint if kind_hint in KINDS else None
+    scan = content + ("\n" + "\n".join(str(a) for a in (actions or [])) if actions else "")
+    hub = check_hub_card_sections(scan)
+    existing_hub = bool(existing_content) and is_hub_card(existing_content)
+    ledger = ledger_signals(content)
+    if mode != "append" and (hint == "hub" or len(hub["found"]) >= 3):
+        kind = "hub"
+    elif ledger or hint == "ledger":
+        kind = "ledger"
+    elif hint == "pointer" or is_pointer_title(title, config):
+        kind = "pointer"
+    elif mode == "append" or hint == "complement":
+        kind = "complement"
+    else:
+        kind = hint or "plain"
+    return {"kind": kind, "hub": hub, "ledger": ledger, "existing_hub": existing_hub}
 
 
 # ─── Config ──────────────────────────────────────────────────────────────────
@@ -377,34 +491,108 @@ def evaluate(
     config: Optional[Dict[str, Any]] = None,
     layers: Optional[List[str]] = None,
     title: str = "",
+    mode: str = "create",
+    existing_path: Optional[str] = None,
+    actions: Optional[List[str]] = None,
+    depends: Optional[List[str]] = None,
+    kind_hint: Optional[str] = None,
+    skip_gate: bool = False,
 ) -> Dict[str, Any]:
     """Main Write Gate evaluation. Returns decision dict.
 
+    舊鍵不變：action／quality_score／reason／dedup_match?／warnings?／regenerable_signals?。
+    新鍵（每次都回）：kind ∈ KINDS、route_to（部位文件路徑或層名）、budget{bytes,limit,existing_bytes}、
+    missing_sections[]（hub 缺段白話名）、depends_missing（hub 無 Depends）、how（一句怎麼做）。
     layers：去重只比這幾層（見 check_dedup）。title：指標卡去重門檻提高。
+    mode≠create 或 skip_gate：跳 dedup／quality，只做預算與分型（append 預算＝既有 knowledge 區＋新增）。
     """
     if config is None:
         config = load_config()
+    mode = mode if mode in MODES else "create"
+    existing = _read_existing(existing_path) if mode != "create" else ""
+    cls = classify_kind(content, title, mode, existing, kind_hint, config, actions)
+    kind = cls["kind"]
+    hub_check = cls["hub"]
 
-    # 大小預算硬拒 — 排最前：explicit_user / pitfall 捷徑皆不豁免（「記住」不等於
-    # 可以把個案敘事整坨塞進 atom）。落檔端 lib/atom_io_cli 另有同源 floor 檢查
-    # （skip_gate 繞過本 gate 時仍會被攔）。
+    # 預算：hub（或 append 到既有 hub 卡）用 HUB_CARD_BUDGET（根層固定）；其餘用 config。
     try:
         budget = int(config.get("knowledge_budget_bytes", _BUDGET_DEFAULT))
     except (TypeError, ValueError):
         budget = _BUDGET_DEFAULT
+    limit = HUB_CARD_BUDGET if (kind == "hub" or cls["existing_hub"]) else budget
     nbytes = len(content.encode("utf-8"))
-    if 0 < budget < nbytes:
-        write_audit_log("skip", content, 0, reason="over_budget",
-                        bytes=nbytes, budget=budget)
-        return {
+    existing_bytes = _knowledge_bytes(existing) if (mode == "append" and existing) else 0
+    total = nbytes + existing_bytes
+    route_paths = depends_paths(depends) + ([existing_path] if existing_path else [])
+    route_to = route_doc_for(route_paths)
+    missing = missing_labels(hub_check["missing"]) if kind == "hub" else []
+    depends_missing = kind == "hub" and not depends_paths(depends) and not _existing_depends(existing)
+
+    def _kinded(result: Dict[str, Any]) -> Dict[str, Any]:
+        result.update({
+            "kind": kind,
+            "route_to": route_to,
+            "budget": {"bytes": nbytes, "limit": limit, "existing_bytes": existing_bytes},
+            "missing_sections": missing,
+            "depends_missing": bool(depends_missing),
+            "how": HOW_BY_KIND[kind],
+        })
+        return result
+
+    # 現況帳：不進 atom，路由到文件（不看預算、不看 explicit_user）
+    if kind == "ledger":
+        write_audit_log("skip", content, 0, reason="ledger", signals=cls["ledger"], route_to=route_to)
+        return _kinded({
             "action": "skip",
             "quality_score": 0,
             "reason": (
-                f"knowledge 區 {nbytes} bytes 超過預算 {budget} bytes——"
-                "個案事實移文件；atom 只留結論/判斷/教訓/現況/檔案錨點"
+                f"現況帳（{', '.join(cls['ledger']) or kind_hint}）不進 atom；放文件 {route_to}；"
+                f"卡只留「現況見 {route_to}」一行"
+            ),
+        })
+
+    # 大小預算硬拒：排最前：explicit_user / pitfall 捷徑皆不豁免（「記住」不等於
+    # 可以把個案敘事整坨塞進 atom）。不截斷內容：告訴寫入者該去哪、剩多少。
+    # 落檔端 lib/atom_io_cli 另有同源 floor 檢查（skip_gate 繞過本 gate 時仍會被攔）。
+    if 0 < limit < total:
+        if mode == "append":
+            kind = "complement"
+        write_audit_log("skip", content, 0, reason="over_budget",
+                        bytes=total, budget=limit, kind=kind, route_to=route_to)
+        detail = (f"（既有 {existing_bytes}＋新增 {nbytes}）" if existing_bytes else "")
+        return _kinded({
+            "action": "skip",
+            "quality_score": 0,
+            "reason": (
+                f"knowledge 區 {total} bytes{detail} 超過預算 {limit} bytes；"
+                f"不截斷：個案細節寫進 {route_to}；atom 只留結論/判斷/教訓/檔案錨點"
                 "（大段逐筆內容改為文件路徑一行）"
             ),
-        }
+        })
+
+    # 導讀卡：五段齊＋Depends 必填（缺的列出來，不放行）
+    if kind == "hub" and (missing or depends_missing):
+        parts = []
+        if missing:
+            parts.append(f"五段缺 {len(missing)} 段：{'、'.join(missing)}")
+        if depends_missing:
+            parts.append("缺 Depends（path:<主要檔>，健檢靠它驗過期）")
+        write_audit_log("skip", content, 0, reason="hub_incomplete",
+                        missing=hub_check["missing"], depends_missing=bool(depends_missing))
+        return _kinded({
+            "action": "skip",
+            "quality_score": 0,
+            "reason": "導讀卡不合格；" + "；".join(parts) + "；補齊再寫（不截斷、不代填）",
+        })
+
+    # mode≠create／skip_gate：只做預算與分型，不跑 dedup／quality
+    if mode != "create" or skip_gate:
+        write_audit_log("add", content, 1.0, reason=f"{mode}_budget_only", kind=kind)
+        return _kinded({
+            "action": "add",
+            "quality_score": 1.0,
+            "reason": f"{mode}: budget {total}/{limit} ok, kind={kind}",
+        })
 
     # 內容樣式軟警 + 可再生內容判準（都不擋、不進分數，附掛在放行結果上；caller 端轉述給寫入者）
     style_warns = list(_style_warnings(content))
@@ -418,7 +606,7 @@ def evaluate(
             result["warnings"] = soft_warns
         if regen:
             result["regenerable_signals"] = regen
-        return result
+        return _kinded(result)
 
     # Fast path: explicit user trigger → always add
     # Note: [固] no longer fast-paths here — 移除反向激勵，[固] 也需過 dedup/quality
@@ -436,21 +624,21 @@ def evaluate(
     if dedup:
         if dedup["verdict"] == "duplicate":
             write_audit_log("skip", content, 0, reason="duplicate", dedup_match=dedup["atom_name"])
-            return {
+            return _kinded({
                 "action": "skip",
                 "quality_score": 0,
                 "reason": f"duplicate of {dedup['atom_name']} (score={dedup['score']})",
                 "dedup_match": dedup,
-            }
+            })
         else:
             # Similar but not identical → suggest update
             write_audit_log("update", content, 0.6, dedup_match=dedup["atom_name"])
-            return {
+            return _kinded({
                 "action": "update",
                 "quality_score": 0.6,
                 "reason": f"similar to {dedup['atom_name']} (score={dedup['score']}), suggest update",
                 "dedup_match": dedup,
-            }
+            })
 
     # Pitfall/trap detection → add with [觀]（僅豁免品質評分；dedup 已在上方跑過）
     pitfall_keywords = ["陷阱", "坑", "pitfall", "gotcha", "注意", "caution", "bug", "重入"]
@@ -483,6 +671,27 @@ def evaluate(
         "quality_score": round(quality, 2),
         "reason": f"quality={quality:.2f} ({'>=auto' if action == 'add' else 'ask' if action == 'ask' else '<skip'} threshold), factors: {', '.join(reasons)}",
     })
+
+
+_DEPENDS_LINE_RE = re.compile(r"^- Depends:\s*(.+)$", re.MULTILINE)
+
+
+def _existing_depends(existing: str) -> bool:
+    """既有卡檔頭已有 `- Depends:` 行（replace 未給 depends 時沿用原行，不算缺）。"""
+    m = _DEPENDS_LINE_RE.search(existing or "")
+    return bool(m and m.group(1).strip())
+
+
+_GATE_OPT_KEYS = ("mode", "existing_path", "actions", "depends", "kind_hint", "skip_gate")
+
+
+def _gate_opts(item: Dict[str, Any]) -> Dict[str, Any]:
+    """stdin／batch 的分型選項：只取有給的鍵（舊呼叫端不給＝create 全檢，行為不變）。"""
+    out: Dict[str, Any] = {}
+    for k in _GATE_OPT_KEYS:
+        if item.get(k) is not None:
+            out[k] = item[k]
+    return out
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
@@ -522,6 +731,8 @@ def main():
                         explicit_user=item.get("explicit_user", False),
                         config=config,
                         layers=item.get("layers") or None,
+                        title=item.get("title", "") or "",
+                        **_gate_opts(item),
                     )
                     print(json.dumps(result, ensure_ascii=False))
         except (OSError, json.JSONDecodeError) as e:
@@ -550,6 +761,7 @@ def main():
                     config=config,
                     layers=item.get("layers") or None,
                     title=item.get("title", "") or "",
+                    **_gate_opts(item),
                 )
                 print(json.dumps(result, ensure_ascii=False, indent=2))
             except json.JSONDecodeError:

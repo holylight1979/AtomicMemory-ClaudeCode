@@ -42,6 +42,8 @@ _HARVEST_SOURCES = (
 # items 欄位契約（與 harvest.js validateItems 同一份規則；Python 端自驗，不信 Node 端已擋）
 _ITEM_SOURCES = ("correction", "mechanism", "external_fact", "decision", "atom_fix", "atom_retire")
 _ITEM_ACTIONS = ("created", "appended", "replaced", "superseded", "retired", "skip")
+# 萃取路由（與 harvest.js ROUTES 同一份）：皆選填；part_doc 必帶 part；candidate_global 不得帶專案名（先 scrub）
+_ITEM_ROUTES = ("part_doc", "global", "org", "local", "shared", "candidate_global")
 
 
 # ─── config ──────────────────────────────────────────────────────
@@ -197,12 +199,43 @@ def _item_fields_bad(item: Dict[str, Any]) -> Optional[str]:
         return f"{tag}: 欄位不合格——source={item.get('source')!r} 不在 {'|'.join(_ITEM_SOURCES)}"
     if not str(item.get("summary", "") or "").strip():
         return f"{tag}: 欄位不合格——summary 必填（與 harvest.js 同一套必填清單）"
+    route_bad = _item_route_bad(item, tag)
+    if route_bad:
+        return route_bad
     if action == "skip":
         if not str(item.get("reason", "") or "").strip():
             return f"{tag}: 欄位不合格——action=skip 必填 reason"
         return None
     if not atom or not str(item.get("path", "") or "").strip():
         return f"{tag}: 欄位不合格——action={action} 必填 atom 與 path"
+    return None
+
+
+def _project_terms_in(text: str) -> List[str]:
+    """文字裡的本機已登記專案名／專案根底下絕對路徑（lib/realm_gate 單源；import 失敗＝不擋但浮訊號）。"""
+    try:
+        from realm_gate import scan_known_projects  # wg_core 已把 ~/.claude/lib 放進 sys.path
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Harvest] realm_gate unavailable, route scan skipped: {e}", file=sys.stderr)
+        return []
+    return [h["term"] for h in scan_known_projects({"knowledge": [text]})]
+
+
+def _item_route_bad(item: Dict[str, Any], tag: str) -> Optional[str]:
+    """route 欄（選填）：enum 內；part_doc 必帶 part；candidate_global／global 的 summary 不得帶專案名（先 scrub）。"""
+    route = item.get("route")
+    if route is None:
+        return None
+    route = str(route or "")
+    if route not in _ITEM_ROUTES:
+        return f"{tag}: 欄位不合格；route={route!r} 不在 {'|'.join(_ITEM_ROUTES)}"
+    if route == "part_doc" and not str(item.get("part", "") or "").strip():
+        return f"{tag}: 欄位不合格；route=part_doc 必填 part（部位名；有部位的知識寫進該部位病灶文件＋卡一行指標）"
+    if route in ("candidate_global", "global"):
+        terms = _project_terms_in(str(item.get("summary", "") or ""))
+        if terms:
+            return (f"{tag}: route={route} 但 summary 含專案名／路徑『{'、'.join(terms[:3])}』；"
+                    "先 scrub（atom_io_cli action=scrub）去專案細節再報")
     return None
 
 
@@ -310,8 +343,54 @@ def apply_report(
     return sec
 
 
+# ─── AEC 追蹤項帳本（v6 G13：收尾誠實）─────────────────────────────────
+
+_TRACK_PART_RE = re.compile(r"^(?:\[(?P<p1>[^\]]+)\]|(?P<p2>[^｜|：:]{1,20})[｜|])\s*(?P<rest>.+)$")
+
+
+def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[str] = None) -> List[Dict[str, Any]]:
+    """AEC 的 (k) 追蹤項文字 → 帳本列：一行一筆 {session_id, turn_seq, at, part, text, status}。
+    「無」／空白 → []。行首 `[部位]` 或 `部位｜` 當 part，沒有就空字串；status 一律 open。"""
+    text = str(k_text or "").strip()
+    if not text or text in ("無", "none", "None", "N/A"):
+        return []
+    out: List[Dict[str, Any]] = []
+    stamp = at or _now_iso()
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("-•*").strip()
+        if not line or line in ("無",):
+            continue
+        part, body = "", line
+        m = _TRACK_PART_RE.match(line)
+        if m:
+            part = (m.group("p1") or m.group("p2") or "").strip()
+            body = m.group("rest").strip()
+        out.append({"session_id": session_id, "turn_seq": int(turn_seq or 0), "at": stamp,
+                    "part": part, "text": body, "status": "open"})
+    return out
+
+
+def append_tracking(slug: str, entries: List[Dict[str, Any]], base_dir: Optional[Path] = None) -> Optional[Path]:
+    """workflow/tracking/<slug>.jsonl 逐行追加（LF、一行一筆；執行期檔，.gitignore 收）。
+    entries 空 → 不建檔、回 None。失敗浮 stderr（fail-open）。回帳本路徑。"""
+    if not entries:
+        return None
+    try:
+        d = (base_dir or WORKFLOW_DIR) / "tracking"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{slug}.jsonl"
+        with open(p, "a", encoding="utf-8", newline="\n") as fh:
+            for e in entries:
+                fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+        return p
+    except OSError as e:
+        print(f"[Guardian:AEC] tracking ledger write failed (fail-open): {e}", file=sys.stderr)
+        return None
+
+
 def append_ledger(sid: str, record: Dict[str, Any], base_dir: Optional[Path] = None) -> None:
-    """workflow/harvest-ledger/<sid>.jsonl 追加一筆（執行期檔，.gitignore 收）。失敗浮 stderr。"""
+    """workflow/harvest-ledger/<sid>.jsonl 追加一筆（執行期檔，.gitignore 收）。失敗浮 stderr。
+    items 原樣入帳（含選填的 route／candidate_global／part），不改寫、不補欄。"""
     try:
         d = (base_dir or WORKFLOW_DIR) / "harvest-ledger"
         d.mkdir(parents=True, exist_ok=True)
@@ -376,7 +455,9 @@ def harvest_block_message() -> str:
         "atom_write／atom_retire 必在呼叫 knowledge_harvest_report **之前**做完——每個 item 用工具回的 receipt 核對："
         "created/appended/replaced 要同 path 同 op 且 index_ok；superseded 要 receipt.supersedes 含該 atom；"
         "retired 要 retire receipt 的 old_path 相符；對不上會被擋回補。"
-        "items 欄位：source / summary / action(created|appended|replaced|superseded|retired|skip) / atom / path / scope / reason(skip 必填)。"
+        "items 欄位：source / summary / action(created|appended|replaced|superseded|retired|skip) / atom / path / scope / reason(skip 必填)"
+        " / route(part_doc|global|org|local|shared|candidate_global，選填；part_doc 必帶 part；global／candidate_global 的 summary 不帶專案名) / candidate_global / part。"
+        "追蹤項已入帳，有部位的同時寫進病灶文件。"
         "無東西 → items=[] 照樣呼叫。"
     )
 

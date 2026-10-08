@@ -62,3 +62,14 @@ def test_check_dedup_uses_pointer_threshold(monkeypatch):
     assert hit and hit["verdict"] == "similar"
     assert mwg.check_dedup("knowledge", cfg, None, "設計表知識導讀-hub索引") is None
     assert "min_score=0.95" in seen["url"]
+
+
+def test_evaluate_reports_pointer_kind(monkeypatch):
+    """v6 分型：標題帶指標詞 → kind=pointer（how 說只留一行指標）；一般標題 → plain。"""
+    monkeypatch.setattr(mwg, "check_dedup", lambda *a, **k: None)
+    monkeypatch.setattr(mwg, "write_audit_log", lambda *a, **k: None)
+    cfg = {"dedup_score": 0.8, "knowledge_budget_bytes": 3072}
+    res = mwg.evaluate("[臨] 本體見 memory/shared/設計表/", title="設計表知識導讀-hub索引", config=cfg, skip_gate=True)
+    assert res["kind"] == "pointer" and "一行指標" in res["how"]
+    res = mwg.evaluate("[臨] 本體見 memory/shared/設計表/", title="設計表產出-補充", config=cfg, skip_gate=True)
+    assert res["kind"] == "plain"
