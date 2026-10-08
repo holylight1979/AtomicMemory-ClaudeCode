@@ -47,6 +47,23 @@ _BASH_READ_RE = re.compile(
 )
 
 
+# 分片（預計畫第二節）：導讀卡五片；標籤同義詞依優先序 authority > ask > defects > verify > what 映射
+SLICE_NAMES = ("what", "authority", "ask", "defects", "verify")
+SLICE_LABELS = {"what": "做什麼與上下游", "authority": "權威在哪", "ask": "動手前必問", "defects": "已知病灶", "verify": "驗法"}
+_SLICE_SYNONYMS = (
+    ("authority", ("權威", "真相", "正本", "存哪", "誰說了算", "資料源")),
+    ("ask", ("必問", "先問", "動手前", "第四問", "改前")),
+    ("defects", ("病灶", "踩坑", "前例", "病徵", "壞味道", "教訓")),
+    ("verify", ("驗法", "驗證", "量尺", "怎麼驗", "測試", "檢查器", "驗收")),
+    ("what", ("做什麼", "導讀入口", "本卡是", "導航入口", "邊界", "上下游", "上游", "下游", "讀路徑", "閱讀序",
+              "分支", "先分清", "概觀", "全貌", "結構", "入口")),
+)
+_STRUCTURAL_HEADINGS = ("知識", "印象", "知識（節錄）")      # atom 結構標題，不是卡片的段
+_HEADING_RE = re.compile(r"^(#{2,4})\s+(.+?)\s*$")
+_BULLET_RE = re.compile(r"^- (?:\[[臨觀固]\]\s*)?(?:\*\*(.+?)\*\*)?(.*)$")
+ROOT_CAUSE_SENTENCE = "找到第一個根因後再找第二個；找不到就寫為什麼不存在"
+
+
 def _norm(p: str) -> str:
     return p.replace("\\", "/").strip().lower()
 
@@ -270,10 +287,74 @@ DEFAULT_LOCATE_TEMPLATE = [
 ]
 
 
-def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
-                    locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None) -> str:
-    """card_paths：該列所有找得到的卡（可多張，全注）。locate_template：專案換定位三行問法（順序＝部位／根因層／前例）。
-    locate_extra：專案對這個部位的第四問（只提醒，不納入三行檢查）。"""
+# ─── 分片 ───────────────────────────────────────────────────────────
+
+def slice_of_label(label: str) -> Optional[str]:
+    """段標籤 → 片名；依 _SLICE_SYNONYMS 優先序，對不上回 None。"""
+    for name, words in _SLICE_SYNONYMS:
+        if any(w in label for w in words):
+            return name
+    return None
+
+
+def split_card_sections(body: str) -> Dict[str, Any]:
+    """卡片原文 → {"head": 首段（標題與 meta 列）, "slices": {片名: 原文}, "others": {標題: 原文}}。
+
+    段的邊界：##／### 標題，或 ## 知識 之下的每個頂層 bullet（`- [臨] **標籤**：…`，子 bullet／表格跟著上一段）。
+    標籤（標題文字、或 bullet 的粗體標籤）經同義詞映射到五片；對不上、或 bullet 沒粗體標籤的進 others（鍵＝標題或前 20 字）；
+    同片多段串接。
+    ## 知識／## 印象 是 atom 結構標題，不算段；## 行動 當一段進 others。沒有任何段 → slices 與 others 皆空、全文在 head。
+    """
+    head: List[str] = []
+    segs: List[Tuple[Optional[str], List[str]]] = []
+    in_knowledge = False
+    for line in body.splitlines():
+        hm = _HEADING_RE.match(line)
+        if hm:
+            title = hm.group(2)
+            if title in _STRUCTURAL_HEADINGS:
+                in_knowledge = True
+                continue
+            in_knowledge = False
+            segs.append((title, [line]))
+            continue
+        bm = _BULLET_RE.match(line) if in_knowledge else None
+        if bm:
+            segs.append((bm.group(1), [line]))        # 沒粗體標籤的 bullet 不映射片（label None → others）
+            continue
+        (segs[-1][1] if segs else head).append(line)
+    slices: Dict[str, str] = {}
+    others: Dict[str, str] = {}
+    for label, lines in segs:
+        text = "\n".join(lines).strip()
+        if not text:
+            continue
+        name = slice_of_label(label) if label else None
+        if name:
+            slices[name] = f"{slices[name]}\n{text}" if name in slices else text
+        else:
+            others[label or text.lstrip("- ").lstrip("[臨觀固] ")[:20]] = text
+    return {"head": "\n".join(head).strip(), "slices": slices, "others": others}
+
+
+def _card_body_for(parsed: Dict[str, Any], used: List[str], cp: Path) -> str:
+    """選中的片全文、其餘段只列標題（整張路徑附上），讓模型知道還有什麼沒送。"""
+    rest = [SLICE_LABELS[s] for s in SLICE_NAMES if s in parsed["slices"] and s not in used] + list(parsed["others"])
+    out = [parsed["head"]] + [f"[{SLICE_LABELS[s]}]\n{parsed['slices'][s]}" for s in used]
+    if rest:
+        out.append(f"其餘段落只列標題（整張見 {cp}）：" + "；".join(rest))
+    return "\n".join(x for x in out if x)
+
+
+def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
+                       locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None,
+                       slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "") -> Tuple[str, List[str]]:
+    """同 build_injection，另回實際送出的片名（依 slices 順序、只含卡裡切得出的片；沒選片或沒命中回 []）。
+
+    slices：依意圖要先送的片；命中就「選中片全文＋其餘段標題清單」，整張切不出任何選中片就退回整卡（不得注得更少）。
+    lens／ask_first：視角與先問的那一題，加在 head。max_chars 只截**每張卡的正文**（選片後或整卡），
+    head（定位三行說明）與卡片分隔行不計入；整段注入文字＝head＋每張卡各 ≤ max_chars。
+    """
     part = row["part"] or row["part_short"]
     t = list(locate_template or [])
     t = (t + DEFAULT_LOCATE_TEMPLATE[len(t):])[:3]
@@ -282,37 +363,56 @@ def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, 
         f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字最好，"
         f"但本機 transcript 偶爾會掉「先文字再呼叫工具」那段，保險做法是同時放進下一個工具呼叫的參數，例如 Bash 開頭的註解）：\n"
         f"定位｜部位：{row['part_short']}——{t[0]}\n"
-        f"定位｜根因層：{t[1]}\n"
+        f"定位｜根因層：{t[1]}；{ROOT_CAUSE_SENTENCE}\n"
         f"定位｜前例：{t[2]}"
         + (f"\n定位｜加問：{locate_extra}" if locate_extra else "")
+        + (f"\n視角：{lens}" if lens else "")
+        + (f"\n先問：{ask_first}" if ask_first else "")
     )
     if not card_paths:
         why = f"卡片狀態「{row['status'] or '未標'}」" if row["cards"] else "表上沒有卡"
-        return f"{head}\n---- 此部位目前沒有可注入的導讀卡（{why}）；表列原文：{row['line']} ----"
+        return f"{head}\n---- 此部位目前沒有可注入的導讀卡（{why}）；表列原文：{row['line']} ----", []
     note = "" if row["status"] == "有" else f"（注意：表上標此卡狀態「{row['status']}」，不是完整導讀，注入前專案要求先補驗）"
     parts = [head]
+    used_all: List[str] = []
     for cp in card_paths:
         try:
             body = cp.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
             parts.append(f"---- 導讀卡讀取失敗：{cp}（{e}）----")
             continue
+        used: List[str] = []
+        if slices:
+            parsed = split_card_sections(body)
+            used = [s for s in slices if s in parsed["slices"]]
+            if used:
+                body = _card_body_for(parsed, used, cp)
+                used_all.extend(s for s in used if s not in used_all)
         if len(body) > max_chars:
             body = body[:max_chars] + f"\n…（超過 {max_chars} 字截斷，整張見 {cp}）"
-        parts.append(f"---- 導讀卡{note}：{cp.stem}（{cp}）----\n{body}")
-    return "\n".join(parts)
+        tag = f"（依意圖先送：{'、'.join(SLICE_LABELS[s] for s in used)}）" if used else ""
+        parts.append(f"---- 導讀卡{note}{tag}：{cp.stem}（{cp}）----\n{body}")
+    return "\n".join(parts), used_all
+
+
+def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
+                    locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None,
+                    slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "") -> str:
+    """card_paths：該列所有找得到的卡（可多張，全注）。locate_template：專案換定位三行問法（順序＝部位／根因層／前例）。
+    locate_extra：專案對這個部位的第四問（只提醒，不納入三行檢查）。slices／lens／ask_first 見 build_injection_ex。"""
+    return build_injection_ex(row, card_paths, hit_path, max_chars, locate_template, locate_extra, slices, lens, ask_first)[0]
 
 
 # ─── 定位三行 ───────────────────────────────────────────────────────
 
-_TEMPLATE_PHRASES = ("這次改的是哪一塊", "修根因還是症狀；根因在哪層", "這個部位以前摔過什麼")
+_TEMPLATE_PHRASES = ("這次改的是哪一塊", "修根因還是症狀；根因在哪層", "這個部位以前摔過什麼", ROOT_CAUSE_SENTENCE)
+_NONE_PRECEDENT_RE = re.compile(r"^(?:無|沒有|none|n/?a)(?:[\s，。；;,:：（(].*)?$", re.IGNORECASE | re.DOTALL)
+_PRECEDENT_SPLIT_RE = re.compile(r"[\s，。；、,;:：()（）\[\]【】「」『』→/／-]+")
 
 
-def locate_present(text: str, part_short: str, template: Optional[List[str]] = None) -> bool:
-    """text 裡有沒有完整的定位三行（部位／根因／前例），且部位那行提到這個部位。
-
-    每遇到「部位」行就開一組，同一回覆交兩個部位各一組都算；照抄注入範本的佔位句（預設或專案自訂）不算交。
-    """
+def locate_groups(text: str, template: Optional[List[str]] = None) -> List[Dict[str, str]]:
+    """text 裡的定位三行分組：每遇到「部位」行就開一組，同一回覆交兩個部位各一組都算；
+    照抄注入範本的佔位句（預設、固定句或專案自訂）那一行不算交。鍵＝部位／根因／前例。"""
     phrases = tuple(_TEMPLATE_PHRASES) + tuple(s for s in (template or []) if s)
     groups: List[Dict[str, str]] = []
     for m in LOCATE_RE.finditer(text):
@@ -322,10 +422,34 @@ def locate_present(text: str, part_short: str, template: Optional[List[str]] = N
         if key == "部位" or not groups:
             groups.append({})
         groups[-1][key] = val
-    return any(
-        {"部位", "根因", "前例"} <= set(g) and part_short.lower() in g["部位"].lower()
-        for g in groups
-    )
+    return groups
+
+
+def locate_values(text: str, part_short: str, template: Optional[List[str]] = None) -> Optional[Dict[str, str]]:
+    """這個部位**最後一組**完整定位三行（部位行提到 part_short；被擋後補交的那組才是現行）；沒交或缺行回 None。"""
+    for g in reversed(locate_groups(text, template)):
+        if {"部位", "根因", "前例"} <= set(g) and part_short.lower() in g["部位"].lower():
+            return g
+    return None
+
+
+def locate_present(text: str, part_short: str, template: Optional[List[str]] = None) -> bool:
+    """text 裡有沒有完整的定位三行（部位／根因／前例），且部位那行提到這個部位。"""
+    return locate_values(text, part_short, template) is not None
+
+
+def locate_quality(text: str, part_short: str, cards: List[str], template: Optional[List[str]] = None) -> str:
+    """前例那行填的品質：none＝寫「無」；card＝對得上卡片原文（值裡任一 ≥4 字片段出現在任一張卡）；free＝自由文字。沒交也回 free。"""
+    g = locate_values(text, part_short, template)
+    if not g:
+        return "free"
+    val = g["前例"].strip()
+    if _NONE_PRECEDENT_RE.match(val):
+        return "none"
+    chunks = [c for c in _PRECEDENT_SPLIT_RE.split(val) if len(c) >= 4]
+    if any(c in card for c in chunks for card in cards):
+        return "card"
+    return "free"
 
 
 LOCATE_CHANNELS = ("text", "tool_input", "thinking")
@@ -392,6 +516,22 @@ def transcript_size(transcript_path: str) -> int:
         return Path(transcript_path).stat().st_size if transcript_path else 0
     except OSError:
         return 0
+
+
+def transcript_readable(transcript_path: str) -> Tuple[bool, str]:
+    """transcript 真的讀得到嗎：真開檔讀 1 byte。回 (讀得到, 原因)；原因 ∈ empty_path／missing／unreadable／empty。
+    只 stat 不夠：檔在但被鎖或無權限時 stat 正常、open 才炸。"""
+    if not transcript_path:
+        return False, "empty_path"
+    p = Path(transcript_path)
+    try:
+        if not p.exists():
+            return False, "missing"
+        with open(p, "rb") as f:
+            head = f.read(1)
+    except OSError:
+        return False, "unreadable"
+    return (True, "") if head else (False, "empty")
 
 
 # ─── 工具呼叫裡的讀檔路徑 ──────────────────────────────────────────

@@ -29,6 +29,7 @@ from wg_core import (
     _atom_debug_log, _atom_debug_error, WORKFLOW_DIR,
 )
 from wg_atoms import (
+    classify_intent,
     compute_token_budget,
     _truncate_context_by_activation,
     _update_topic_tracker,
@@ -262,11 +263,16 @@ def handle_user_prompt_submit(
         budget_total, lines,
     )
 
-    # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 整張注入導讀卡（fail-open）
+    # 意圖前移（A0.1）：注入前就知道這回合要做什麼，OverviewHub 依 goal_weights 選片；十鍵見 wg_atoms.INTENT_PATTERNS
+    turn_intent = classify_intent(clean_prompt)
+    state["turn_intent"] = turn_intent
+
+    # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 依意圖選片注入導讀卡（fail-open）
     try:
         from wg_overview import on_prompt as _hub_on_prompt
         _hub_txt = _hub_on_prompt(
             state, session_id, clean_prompt, input_data.get("transcript_path", "") or "", config,
+            intent=turn_intent,
         )
         if _hub_txt:
             lines.append(_hub_txt)

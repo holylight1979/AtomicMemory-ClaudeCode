@@ -1,0 +1,5 @@
+{"op": "read", "path": "Tools/Export/ExportTable.cs"}
+{"op": "edit", "path": "Tools/Export/ExportTable.cs", "expect": {"deny": true, "contains": ["要 ≥2 個，目前 1 個"]}}
+{"op": "read", "path": "Tools/Export/Common.cs"}
+{"op": "reply", "text": "定位｜部位：工具鏈：ExportTable 的路徑判斷\n定位｜根因層：根因在工具層的路徑組合；第二個根因是兩支工具各自解析同一張表\n定位｜前例：輸出路徑寫死在三層 if 裡", "channel": "tool_input"}
+{"op": "edit", "path": "Tools/Export/ExportTable.cs", "expect": {"deny": false}}

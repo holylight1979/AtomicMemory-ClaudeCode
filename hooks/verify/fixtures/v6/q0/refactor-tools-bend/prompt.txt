@@ -1,0 +1,1 @@
+重構 {root}/Tools/Export/ExportTable.cs，把三層 if 抽出來簡化

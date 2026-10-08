@@ -20,7 +20,7 @@ from wg_core import (
     output_json, output_nothing,
     check_memory_path_block, check_svn_test_block,
     check_cross_realm_write, check_cross_realm_mcp_cmd, check_cross_realm_bash,
-    read_state,
+    read_state, read_state_status,
     _atom_debug_log,
     find_vcs_root, memory_dir_candidates,
 )
@@ -888,7 +888,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     # git commit 口令閘（本回合使用者原話無版控口令 → deny；fail-open）
     _co_sid = input_data.get("session_id", "") or ""
-    _co_state = read_state(_co_sid) if _co_sid else None
+    _co_state, _co_status = read_state_status(_co_sid) if _co_sid else (None, "missing")
     deny_reason = check_git_commit_order(tool_name, tool_input, config, _co_state)
     if deny_reason:
         output_json({
@@ -912,33 +912,66 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
-    # OverviewHub：第一次改某部位的檔前要先看過導讀卡並交定位三行（dry_run 只警告；fail-open）
+    # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足一律 deny。
+    # 五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 on_edit。
+    # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，注入紀錄才落得了盤；
+    # 檔在但讀不到（鎖住／JSON 壞）不建 fallback 覆蓋，本次用空 state 判（仍會擋，只是不落盤）。
     hub_warn = None
-    if tool_name in ("Write", "Edit", "NotebookEdit"):
+    if tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
+        hub_deny = None
         try:
+            from wg_core import _ensure_state as _hub_ensure_state, write_paths_from_tool, write_state as _ws
             from wg_overview import on_edit as _hub_on_edit
-            _hub_fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
-            _hub_state = _co_state if _co_state is not None else {}
-            hub_warn, hub_deny, hub_changed = _hub_on_edit(
-                _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
-            )
-            if _co_sid and _co_state is not None and hub_changed:   # 放行也要落盤（located／edits）
-                from wg_core import write_state as _ws
-                _ws(_co_sid, _co_state)
-            if hub_deny:
-                output_json({
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": hub_deny,
-                    }
-                })
-                return
+            _hub_targets = write_paths_from_tool(tool_name, tool_input, _cwd)
+            if _hub_targets:
+                _hub_state = _co_state
+                if _hub_state is None and _co_sid and _co_status == "missing":
+                    _hub_state = _hub_ensure_state(_co_sid, input_data, config)
+                _hub_persist = _hub_state is not None and bool(_co_sid)
+                if _hub_state is None:
+                    _hub_state = {}
+                _hub_warns: List[str] = []
+                hub_changed = False
+                for _hub_fp in _hub_targets:
+                    _w, _d, _c = _hub_on_edit(
+                        _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
+                    )
+                    hub_changed = hub_changed or _c
+                    if _w:
+                        _hub_warns.append(_w)
+                    if _d:
+                        hub_deny = _d
+                        break
+                if _hub_persist and hub_changed:   # 放行也要落盤（located／edits／part_files_read）
+                    _ws(_co_sid, _hub_state)
+                    # write_state 失敗只吞 OSError 不回報：回讀磁碟核對，寫不進去就擋（否則下一次 Edit 又被當第一次）
+                    _cid = (_hub_state.get("session") or {}).get("id") or _co_sid
+                    _disk, _dst = read_state_status(_cid)
+                    if _dst != "ok" or (_disk or {}).get("overview_hub") != _hub_state.get("overview_hub"):
+                        hub_deny = (f"[Guardian:OverviewHub] state 無法持久化（{_dst}；workflow/state-{_cid[:8]}….json）："
+                                    f"注入與定位紀錄寫不進 state 檔，閘無法累積證據，一律擋。修好 workflow/ 目錄的寫入再改。")
+                        from wg_overview import _log as _hub_log
+                        _hub_log("state_persist_failed", _co_sid, tool=tool_name, status=_dst, deny_reason="state_unpersisted")
+                hub_warn = "\n".join(_hub_warns) or None
         except Exception as e:
+            # 閘自己炸（state 檔鎖住、import 壞、解析例外）＝不知道該不該擋 → 一律擋，不 fail-open；traceback 進 stderr 與 hub log
+            hub_deny = (f"[Guardian:OverviewHub] 閘環境異常，無法判定，一律擋：{type(e).__name__}: {e}。"
+                        f"修好環境（state 檔／hook 依賴）再改；先用 Read 查原因。")
             try:
-                sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 檢查異常（fail-open）：{e}\n")
-            except OSError:
+                sys.stderr.write(f"[Guardian:OverviewHub] pre_tool_use 閘內部錯誤（已 deny）：{type(e).__name__}: {e}\n")
+                from wg_overview import _log as _hub_log
+                _hub_log("gate_error", _co_sid, tool=tool_name, error=f"{type(e).__name__}: {e}", deny_reason="gate_error")
+            except Exception:
                 pass
+        if hub_deny:
+            output_json({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": hub_deny,
+                }
+            })
+            return
 
     # 無 deny 才輸出警告（stdout 恆單一 JSON；不帶 permissionDecision——
     # "allow" 會自動核准繞過權限系統，advisory 不得改變放行行為）
