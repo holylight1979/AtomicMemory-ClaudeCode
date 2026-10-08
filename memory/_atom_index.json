@@ -5088,6 +5088,21 @@
         "批次遷移"
       ],
       "scope": "global"
+    },
+    {
+      "name": "vscode-claude-code-空分頁由總控台用剪貼簿貼開工句啟動-enter只換行要點送出鈕-中文走set-clipboard不走type",
+      "path": "_AIDocs/_atoms/Tools/vscode-claude-code-空分頁由總控台用剪貼簿貼開工句啟動-enter只換行要點送出鈕-中文走set-clipboard不走type.md",
+      "triggers": [
+        "開新 session",
+        "空分頁",
+        "貼 prompt",
+        "Set-Clipboard",
+        "MCPControl",
+        "總控台派工",
+        "多 session 啟動",
+        "VS Code Claude Code 分頁"
+      ],
+      "scope": "global"
     }
   ]
 }
