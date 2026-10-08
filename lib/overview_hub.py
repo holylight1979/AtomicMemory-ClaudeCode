@@ -152,7 +152,7 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
 # ─── 卡片 ───────────────────────────────────────────────────────────
 
 def resolve_card(root: Path, card: Optional[str]) -> Optional[Path]:
-    """卡名 → `<root>/.claude/memory/**/<卡名>.md`；SGI 的底線會被索引正規化成連字號，兩種都試。"""
+    """卡名 → `<root>/.claude/memory/**/<卡名>.md`；某些專案卡名的底線會被索引正規化成連字號，兩種都試。"""
     if not card:
         return None
     mem = root / ".claude" / "memory"
@@ -238,7 +238,7 @@ def assistant_text_after(transcript_path: str, byte_offset: int, channel: str = 
     """transcript（jsonl）從 byte_offset 之後的 assistant 內容，串成一段。fail-open 回 ""。
 
     channel：text＝回覆文字塊；tool_input＝工具呼叫的參數（字串化）；thinking＝思考塊。
-    harness 偶爾不把「先文字、再呼叫工具」那段文字寫進 transcript（根層與 TSLG 各自驗到），
+    harness 偶爾不把「先文字、再呼叫工具」那段文字寫進 transcript（根層與某專案各自驗到），
     所以定位三行要三個管道都認，記下是哪個管道。
     """
     if not transcript_path:
