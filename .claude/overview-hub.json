@@ -1,0 +1,9 @@
+{
+  "_doc": "根層（~/.claude）自己的 OverviewHub 覆蓋檔；落點 ~/.claude/.claude/overview-hub.json。只放跟根層預設不同的值：索引三檔與各層 _INDEX.md 是程式產物，一律唯讀；repo 全 LF。",
+  "readonly_paths": [
+    "memory/_ATOM_INDEX.md",
+    "memory/_atom_index.json",
+    "memory/**/_INDEX.md"
+  ],
+  "eol_policy": "lf"
+}

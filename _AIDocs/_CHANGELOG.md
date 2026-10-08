@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-08 v6.0 P1 track-0 合併：變量骨架與判層、設定錯誤一律擋、根層部位表上線
+- **緣由**：v6.0 P1 三軌之一；後續 P2 四軌（a1／b／c／d2）都建在它的 `_cfg` 四層深合併、`_layer_of` 判層、`parse_map` 擴欄之上。
+- **做法**：`WG_CLAUDE_DIR` 環境變數覆蓋根層目錄（verify 在 worktree 不再測到 live lib）；`_cfg` 深合併 根層預設 < config.json < 公司 hub.json < 專案 hub.json 並回 `_errors`／`_layer`；`_validate_cfg` 未知鍵／型別／編碼／eol 驗證，設定錯誤一律 deny（OverviewHub 自家設定檔與部位表豁免、路徑比對剝 `\?\` 與 normcase）；`find_map` 不越家目錄與磁碟根；`parse_map` 十三欄；`dry_run`／`deny_parts` 退役（預設即擋）；修 UPS `_atom_debug_error` NameError。根層部位表 `.claude/overview-map.md` 與 `.claude/overview-hub.json` 上線（八個部位、索引三檔唯讀）。config.json `overview_hub` 段換新預設。
+- **驗證**：目標 verify 74 案＋org_layer 15 案綠；codex 五輪第二意見 BLOCK 逐條親自重現後退回修正，末輪 BLOCK：無。settings.json PostToolUse matcher 加 `Read|PowerShell` 留到 track-b 合併時一起改（Read 快路徑在 b 的所有權）。
+
 ## 2026-10-08 v6.0 P1 track-r 合併：哨兵規矩、打包前檢查樣板、病灶文件樣板、behavior-preservation skill
 - **緣由**：v6.0 執行計畫 P1 三軌之一（規矩、樣板、skill）；工作 session 在 worktree 做、總控台對帳＋第二意見＋合併。
 - **做法**：`rules/coding-style.md` 自檢段加哨兵三行；`templates/prebuild-check.template.py`（讀 overview-hub.json 的 prebuild_checks、內建 defect_shape 掃 staged diff 新增行）與 `templates/defects.template.md`（七欄病灶表）；新 skill `behavior-preservation`（preserve-check 三類變異、Python 舊碼走 ast、不可達碼與重複 case 拒收）。

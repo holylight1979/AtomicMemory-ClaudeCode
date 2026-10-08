@@ -529,9 +529,19 @@
     }
   },
   "overview_hub": {
-    "_doc": "OverviewHub：專案在 <專案根>/.claude/overview-map.md 放「路徑前綴→部位→導讀卡」表（專案寫、根層只讀）。同 session 第一次碰到某部位的檔（Read／Bash 讀、提示詞提到、或直接 Edit）→ 整張注入該部位導讀卡；Edit 前查回覆有沒有「定位｜部位／根因層／前例」三行。dry_run=true 只警告並落 workflow/_overview-hub.log 量測；false 才 deny。max_card_chars 超過截斷附整張路徑。",
+    "_doc": "OverviewHub 變量（預計畫附錄 D）。合併順序 根層預設 < 本段 < <公司根>/.claude/overview-hub.json < <專案根>/.claude/overview-hub.json，巢狀物件深合併、陣列整取。未知鍵報錯（Edit 一律擋；OverviewHub 自己的設定檔與部位表除外，放行附警告）；dry_run／deny_parts 已退役。path_bases 每項要是存在目錄且彼此不包含；eol_policy ∈ lf／crlf／per-file-head；編碼鍵要過 codecs.lookup。加新鍵要同時加進 hooks/wg_overview.py 的 _DEFAULT。",
     "enabled": true,
-    "dry_run": true,
-    "max_card_chars": 6000
+    "max_card_chars": 6000,
+    "path_bases": [],
+    "vcs_roots": [],
+    "commit_encoding": "utf-8",
+    "source_encodings": ["utf-8"],
+    "eol_policy": "per-file-head",
+    "PYTHONIOENCODING": "utf-8",
+    "readonly_paths": [],
+    "min_overview_evidence": {"card": true, "part_files": 1, "depends_files": 0},
+    "candidate_top_n": 5,
+    "root_cause_triggers": ["根因", "治本", "為什麼又", "又壞", "重複發生", "老問題", "root cause", "again"],
+    "goal_weights": {}
   }
 }
