@@ -494,7 +494,7 @@ _SCOPED_FLAGS_RE = re.compile(r"\(\?([aiLmsux]*)(?:-([imsx]*))?:")
 def _drop_anchors(pat: str, verbose: bool = False) -> Optional[str]:
     """regex 裡所有錨點（字元類 [...] 以外、沒跳脫的 ^ $，以及 \\A \\Z \\z）拿掉，在旗標後、群組裡的也拿：
     `(?i)^X_OK$`、`^(?:X_OK$)` 都變成只找 X_OK 這串字。註解先拿掉：`(?#…)` 一律是註解；verbose（`(?x)` 或編譯旗標，由
-    verbose 傳入）時字元類以外、沒跳脫的 `#` 到行尾是註解（註解裡的 `[`、`^` 不能當成字元類或錨點）。
+    verbose 傳入）時字元類以外、沒跳脫的 `#` 到行尾是註解（註解裡的 `[`、`^` 不能當成字元類或錨點）；`(?#…)` 到第一個沒跳脫的 `)`。
     只對某一段開關 verbose 的 `(?x:…)`／`(?-x:…)` 判不出哪段的 `#` 是註解，`(?#` 沒閉合 → None（呼叫端拒用並說明）；
     註解與字元類裡的 `(?x:` 字樣不是旗標群組。字元類 `[` 或 `[^` 後面緊接的 `]` 是字面字元，之後的 `]` 才關閉（`[a[]` 是 a 或 [）。"""
     out: List[str] = []
@@ -510,9 +510,11 @@ def _drop_anchors(pat: str, verbose: bool = False) -> Optional[str]:
             if c == "]" and len(out) > class_at:
                 class_at = -1
             out.append(c)
-        elif pat.startswith("(?#", i):
-            j = pat.find(")", i)
-            if j < 0:
+        elif pat.startswith("(?#", i):            # 註解到第一個沒跳脫的 )：Python 的斷詞把 `\)` 當一個字元
+            j = i + 3
+            while j < len(pat) and pat[j] != ")":
+                j += 2 if pat[j] == "\\" else 1
+            if j >= len(pat):
                 return None
             i = j + 1
             continue
@@ -630,9 +632,9 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         if _prints_sentinel(raw, sh):
             return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
                     "哨兵只能由被執行的程式印出。")
-        envs = _self_receipt.cmd_scope_env(raw, sh)
-        if envs and (any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers)
-                     or _self_receipt.whole_run_shape(raw, sh, _cwd_of(r))):
+        envs = (next((d for d in (_self_receipt.ruler_env_diff(mc, raw, sh, _cwd_of(r)) for mc in rulers) if d), [])
+                or (_self_receipt.cmd_scope_env(raw, sh) if _self_receipt.whole_run_shape(raw, sh, _cwd_of(r)) else []))
+        if envs:                  # 結構上就是量尺或整體驗證，只差環境：講真正原因，不說「前後接了別的指令」
             return f"這條指令 {head} {_scope_env_why(envs)}"
         if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
             return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"

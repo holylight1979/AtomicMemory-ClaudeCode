@@ -2118,6 +2118,10 @@ def _pytest_row():
     ("$env:PYTHONOPTIMIZE=' '; python -m pytest -q", "PowerShell", True, False),      # 空白也是值，不修剪
     ("$env:PYTEST_ADDOPTS='-k x'; $env:PYTEST_ADDOPTS=''; python -m pytest -q", "PowerShell", True, True),  # 照順序：啟動時已清空
     ("export PYTEST_ADDOPTS='-k x'; PYTEST_ADDOPTS='' python -m pytest -q", "Bash", True, True),
+    ("export PYTEST_ADDOPTS='-k x' && PYTEST_ADDOPTS='' && python -m pytest -q", "Bash", True, True),
+    ("export PYTEST_ADDOPTS='-k x' || PYTEST_ADDOPTS=''; python -m pytest -q", "Bash", True, False),  # || 右邊不會跑
+    ("export PYTEST_ADDOPTS='-k x'; PYTEST_ADDOPTS='' | X=1; python -m pytest -q", "Bash", True, False),  # 管線子 shell
+    ("declare -x PYTEST_ADDOPTS=''; python -m pytest -q", "Bash", True, False),  # declare 不在 022 規則 2 的前置設定白名單
 ])
 def test_024_1_scope_env_counts_only_child_env_with_value(monkeypatch, cmd, tool, fold, counts):
     """024 規則 1：只有真的進到子程式環境（bash 行內前綴／export、PowerShell 只有 $env:）而且值非空的 PYTEST_ADDOPTS／
@@ -2138,9 +2142,12 @@ def test_024_1_ruler_with_scope_env_compares_values():
 
 
 def test_024_1_scope_env_block_message_names_variable_and_fix():
-    """024 規則 1：被環境選項擋下時，訊息說是哪個環境設定、怎麼改，不是「量尺前後接了別的指令」。"""
+    """024 規則 1：被環境選項擋下時，訊息說是哪個環境設定、怎麼改，不是「量尺前後接了別的指令」；多段量尺的第一段帶了也一樣。"""
     reason = _gate("PYTEST_ADDOPTS='-k x' python -m pytest -q", row=_pytest_row())
     assert reason and "PYTEST_ADDOPTS" in reason and "拿掉這個設定" in reason and "前後接了別的指令" not in reason
+    row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q && python check.py"}}
+    reason = _gate("PYTEST_ADDOPTS='-k x' python -m pytest -q && python check.py", row=row)
+    assert reason and "PYTEST_ADDOPTS" in reason and "前後接了別的指令" not in reason
 
 
 def test_024_2_self_receipt_with_scope_env_does_not_settle_part(tmp_path, monkeypatch):
@@ -2181,7 +2188,8 @@ def test_024_3_verbose_comment_in_config_sentinel(monkeypatch, capsys):
     assert vl._prints_sentinel("NOTE='CUSTOM_OK'; " + MEASURE_CMD, "bash")                # (?#…) 註解任何模式都拿掉
     for regex, arg in (("(?x)^[a[] # metadata\nCUSTOM_OK$", "[CUSTOM_OK trailing"),       # [a[] 是 a 或 [，之後的 ] 才關閉
                        ("(?x)# (?x: metadata\n^CUSTOM_OK$", "CUSTOM_OK"),                  # 註解裡的 (?x: 不是旗標群組
-                       ("^[a(?x:)]CUSTOM_OK$", "aCUSTOM_OK")):                             # 字元類裡的 (?x: 也不是
+                       ("^[a(?x:)]CUSTOM_OK$", "aCUSTOM_OK"),                              # 字元類裡的 (?x: 也不是
+                       ("(?#note\\) [)^CUSTOM_OK$", "CUSTOM_OK")):                         # (?#…) 裡的 \) 不是註解終點
         rule = {"regex": regex, "name": "CUSTOM", "verdict_map": {"CUSTOM_OK": "DONE"}}
         assert vl.parse_sentinels(arg.split()[0] + "\n", vl.compile_sentinel_rules([rule])), regex   # 輸出端認得到
         monkeypatch.setattr(wg_core, "load_config", lambda rule=rule: {"verify_ledger": {"sentinel_regex": [rule]}})

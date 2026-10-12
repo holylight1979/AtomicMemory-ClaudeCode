@@ -156,7 +156,7 @@ def scope_env(pairs: Iterable[Tuple[str, Any]]) -> List[str]:
 def _child_env(words: List[str], raws: List[str], ps: bool) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
     """這個指令對子程式環境的指定 → (之後的指令都看得到的, 只給這個指令的)，各是 [(變數名, 值)]（值是去掉引號後的字，不修剪）。
     bash：接在程式前面的 `X=值` 是行內前綴，只給這個指令；單獨一段的 `X=值`（若該變數本來就在繼承的環境裡，之後的程式都看得到，
-    收據看不出來，照算）、export 與 declare／typeset -x 的 `X=值` 之後都看得到。PowerShell：只有 `$env:X=值`（`$X=`、`$global:X=`
+    收據看不出來，照算）、export 的 `X=值` 之後都看得到。PowerShell：只有 `$env:X=值`（`$X=`、`$global:X=`
     是 PowerShell 自己的變數，不進子程式環境），之後都看得到；值是沒加引號的 `$null` 等於刪掉，算空（`'$null'` 是字串）。"""
     if ps:
         m = re.match(r"^\$env:([A-Za-z_]\w*)(?:=(.*))?$", words[0], re.IGNORECASE | re.DOTALL) if words else None
@@ -175,8 +175,7 @@ def _child_env(words: List[str], raws: List[str], ps: bool) -> Tuple[List[Tuple[
     prefix = [(w.split("=", 1)[0], w.split("=", 1)[1]) for w in words[:len(words) - len(rest)]]
     if not rest:
         return prefix, []
-    exports = _prog(rest[0]) == "export" or (_prog(rest[0]) in ("declare", "typeset")
-                                             and any(t.startswith("-") and "x" in t for t in rest[1:]))
+    exports = _prog(rest[0]) == "export"
     lasting = [(w.split("=", 1)[0], w.split("=", 1)[1]) for w in rest[1:] if _ENV_ASSIGN_RE.match(w)] if exports else []
     return lasting, prefix
 
@@ -526,8 +525,9 @@ def _is_setup(st: Step) -> bool:
 
 
 def _reachable(steps: List[Step], start: int) -> bool:
-    """steps[start] 一定會執行、輸出就是它的：接在開頭／;／換行／&& 之後（|| 可能沒跑、| 是把輸入給它），前面只有 cd 與環境設定。"""
-    return start == 0 or (steps[start].op in (";", "&&") and all(_is_setup(s) for s in steps[:start]))
+    """steps[start] 一定會執行、輸出就是它的：接在開頭／;／換行／&& 之後（|| 可能沒跑、| 是把輸入給它），前面只有 cd 與環境設定，
+    而且前置設定彼此也只用 ;／換行／&& 串（`export X=… || X=''` 的右邊不會跑、`X='' | …` 在管線子 shell 裡，都改不到程式的環境）。"""
+    return start == 0 or (all(s.op in (";", "&&") for s in steps[1:start + 1]) and all(_is_setup(s) for s in steps[:start]))
 
 
 def final_step(cmd: Argv, shell: str = "bash", root: str = "") -> Optional[Step]:
@@ -607,18 +607,32 @@ def match_span(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = ""
     """cmd_matches 對上的量尺片段在 cmd 裡是第幾到第幾個指令（[start, end)，與 split_shell 斷出的指令一一對應）；對不上 → None。
     呼叫端要知道哪一段是量尺本身（量尺自帶的 `&& echo … DONE` 不算寫了假哨兵，其餘位置都算）。
     片段每一段啟動當下會縮小驗證範圍的有效環境（_scope_maps，連值）要和表上那段相同：從環境多塞或改了選項＝跑的不是表上那組。"""
+    return next((span for span, diff in _ruler_spans(measure_cmd, cmd, shell, root, measure_root) if not diff), None)
+
+
+def ruler_env_diff(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "", measure_root: str = "") -> List[str]:
+    """量尺鏈結構上對上了、卻因為有效環境和表上不同而不算時，差在哪些環境設定（名稱照寫法）；給擋訊息講真正原因。其餘 → []。"""
+    spans = list(_ruler_spans(measure_cmd, cmd, shell, root, measure_root))
+    return [] if any(not d for _, d in spans) else next((d for _, d in spans), [])
+
+
+def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_root: str):
+    """結構上對上量尺的候選片段（照 end 由前到後）→ ((start, end), 片段裡和表上不同的有效環境名稱)。"""
     m = parse_cmds(measure_cmd, root=measure_root or root)
     e = parse_cmds(cmd, shell, root or measure_root)
     if not m:
-        return None
+        return
     m_env, e_env = _scope_maps(measure_cmd), _scope_maps(cmd, shell)
     tail_ok = len(m) == 1 or _prog(m[-1].words[0] if m[-1].words else "") in _ECHO_PROGS
     for end in range(_first_filter(e), len(e) + 1):
         start = end - len(m)
-        if (start >= 0 and (end == len(e) or tail_ok) and _reachable(e, start) and _chain_at(m, e, start)
-                and all(_scope_vals(e_env[start + j]) == _scope_vals(m_env[j]) for j in range(len(m)))):
-            return start, end
-    return None
+        if start >= 0 and (end == len(e) or tail_ok) and _reachable(e, start) and _chain_at(m, e, start):
+            diff: List[str] = []
+            for j in range(len(m)):
+                here, want = e_env[start + j], m_env[j]
+                diff += [nv[0] for k, nv in {**want, **here}.items()
+                         if _scope_vals(here).get(k) != _scope_vals(want).get(k) and nv[0] not in diff]
+            yield (start, end), diff
 
 
 def _chain_at(m: List[Step], e: List[Step], start: int) -> bool:
