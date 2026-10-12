@@ -5138,6 +5138,21 @@
         "repair_state"
       ],
       "scope": "global"
+    },
+    {
+      "name": "fail-closed閘裡的附加輸出要隔離例外-否則附加資訊炸掉會被當閘異常擋住放行",
+      "path": "memory/設計通則/fail-closed閘裡的附加輸出要隔離例外-否則附加資訊炸掉會被當閘異常擋住放行.md",
+      "triggers": [
+        "fail-closed",
+        "閘環境異常",
+        "except Exception deny",
+        "附加輸出",
+        "候選填空",
+        "閘內例外",
+        "外部報告解析",
+        "OverflowError mktime"
+      ],
+      "scope": "global"
     }
   ]
 }
