@@ -28,6 +28,7 @@ from wg_core import (
     output_json, output_nothing,
     _atom_debug_log, _atom_debug_error, WORKFLOW_DIR,
 )
+from harness_text import IDE_TAG_NAMES, strip_harness_blocks  # lib/（wg_core 已把它放進 sys.path）
 from wg_atoms import (
     classify_intent,
     compute_token_budget,
@@ -223,7 +224,8 @@ def handle_user_prompt_submit(
         return
 
     prompt = input_data.get("prompt", "")
-    clean_prompt = re.sub(r'<ide_\w+>.*?</ide_\w+>', '', prompt, flags=re.DOTALL).strip()
+    # 只剔 IDE 區塊（其餘內容留給檢索與注入）；和權威判斷的 user_typed_text 用同一支清理器，巢狀不會漏出半截
+    clean_prompt = strip_harness_blocks(prompt, repl="", names=IDE_TAG_NAMES).strip()
     prompt_lower = clean_prompt.lower()
     lines: List[str] = []
 

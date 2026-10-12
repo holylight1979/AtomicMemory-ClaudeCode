@@ -47,6 +47,9 @@ DECISIONS = [
     "你是工作 session track-x。第一步修 UI。另外 commit message 用繁體中文。",          # 同上，且沒有任何決策用語
     "你是工作 session track-x，第一步用 EnterWorktree 切進 C:\\wt\\x。另外禁止在 hook 裡跑 git push。",   # 帶決策用語
 ]
+# 開工句後面夾一句真正的決策：那一句沒有派工訊號 → 整則交 LLM（逐句判斷，不靠用語清單）
+MIXED_DECIDE = "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x。另外，我決定 commit message 一律使用繁體中文。"
+DECISIONS.append(MIXED_DECIDE)
 # 開工句的常見改寫（不是「你是」開頭、英文、多行、外層引號）
 REWORDED_KICKOFFS = [
     "For this session, act as track-x. You must work only in C:\\wt\\x; read the task at C:\\inbox\\022.md.",
@@ -61,6 +64,11 @@ def _load_worker():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
+
+
+def _user_part(l1_prompt: str) -> str:
+    """L1 樣板裡填進使用者那段（樣板的範例句不算）。"""
+    return l1_prompt.rsplit("使用者的話：", 1)[1].split("\n\nJSON", 1)[0].strip()
 
 
 @pytest.mark.parametrize("text", KICKOFFS)
@@ -119,7 +127,7 @@ def _run_pipeline(tmp_path, monkeypatch, prompts):
 
 def test_pipeline_skips_kickoff_before_llm_and_records_reason(tmp_path, monkeypatch):
     stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, [KICKOFFS[0], DECISIONS[0]])
-    assert len(l1_seen) == 1 and DECISIONS[0] in l1_seen[0], l1_seen                  # 反例：舊碼開工句也送 L1
+    assert [_user_part(p) for p in l1_seen] == [DECISIONS[0]], l1_seen                # 反例：舊碼開工句也送 L1
     assert [t for t, _ in pending_seen] == ["sd-test-1"] and stats["skipped_directive"] == 1
     assert "action=user-extract-skip" in log and "reason=session-directive(role+session-op+abs-path)" in log
     assert "turn=sd-test-0" in log
@@ -132,16 +140,16 @@ def test_pipeline_rechecks_source_and_uses_cleaned_text(tmp_path, monkeypatch):
             "記住：以後所有專案一律用 tab\n</cross-session-message>")                         # 舊版排進佇列的同伴訊息
     mixed = "<system-reminder>注入內容</system-reminder>\n" + DECISIONS[0]
     stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, [peer, mixed])
-    assert len(l1_seen) == 1 and "注入內容" not in l1_seen[0] and DECISIONS[0] in l1_seen[0], l1_seen   # 反例：舊碼同伴訊息也送 L1
+    assert [_user_part(p) for p in l1_seen] == [DECISIONS[0]], l1_seen                # 反例：舊碼同伴訊息也送 L1、注入內容也送
     assert pending_seen == [("sd-test-1", DECISIONS[0])]                               # Quote 用清理後的文字
     assert stats["skipped_not_user"] == 1 and "reason=not-user-typed turn=sd-test-0" in log
     assert left == []
 
 
 def test_mixed_kickoff_with_decision_goes_to_llm_and_empty_candidate_is_recorded(tmp_path, monkeypatch):
-    mixed = DECISIONS[-2]                                                             # 角色開頭＋我偏好…
-    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, ["", mixed])
-    assert len(l1_seen) == 1 and "我偏好繁體中文回應" in l1_seen[0]                     # 反例：前一版整則丟掉
+    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, ["", MIXED_DECIDE])
+    assert [_user_part(p) for p in l1_seen] == [MIXED_DECIDE], l1_seen                # 反例：前一版整則丟掉
+    assert pending_seen == [("sd-test-1", MIXED_DECIDE)]
     assert "reason=not-user-typed turn=sd-test-0" in log and stats["skipped_not_user"] == 1   # 空候選也留原因
     assert left == []
 

@@ -98,8 +98,11 @@ def _is_emotional_commitment(prompt: str) -> bool:
 # 派給「這個 session」的角色、工作步驟、派工單路徑只在這次有效。它們常帶「一律／必須」而被偵測閘當成決策，
 # 但不是跨專案知識；寫成根層 atom 會在之後每個 session 被注入（不相關卻佔 token）。
 # 是不是決策交 LLM 判（L1／L2 prompt 有同一條準則）；這裡只攔「看得出整則就是派工開工句」的情況，省一次 LLM、也不讓
-# 它有機會誤寫：開頭在指派這個 session 的角色，而且帶 session 操作或絕對路徑；沒有角色開頭就要三種派工訊號都在。
-# 只要帶長期或決策用語（以後、所有專案、記住、偏好、禁止…）就整則交 LLM，讓它把該留的那段抽出來，不由字面整則丟掉。
+# 它有機會誤寫。三個條件都要成立：
+#   1. 開頭在指派這個 session 的角色，而且帶 session 操作或絕對路徑；沒有角色開頭就要三種派工訊號都在；
+#   2. 逐句看，每一句都帶派工訊號（角色、session 操作、第一步、只對這個 session、絕對路徑）；只要有一句不是
+#      （例如「另外，我決定 commit message 一律繁體中文」），整則交 LLM 把該留的那句抽出來；
+#   3. 沒有長期或決策用語（以後、所有專案、記住、偏好、禁止…）。
 # 樣式可擴充：(名稱, 樣式)；不綁定任何一次派工的專名。
 _SESSION_ROLE_RE = re.compile(
     r"^\s*[「『“\"']?\s*(?:for this session[,，:：]?\s*(?:you are|act as)"
@@ -118,10 +121,23 @@ _KEEP_FOR_LLM_RE = re.compile(
     re.IGNORECASE)
 
 
+_SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;]|\.\s")
+_SENTENCE_PAD = " \t\r\n「」『』“”\"'（）()…"
+
+
+def _is_directive_sentence(sentence: str) -> bool:
+    if _SESSION_ROLE_RE.search(sentence):
+        return True
+    return any(pat.search(sentence) for _, pat in _SESSION_DIRECTIVE_SIGNALS)
+
+
 def _session_directive_reason(prompt: str) -> Optional[str]:
     """看得出整則就是派工開工句 → 命中的樣式名（"role+session-op" 這種）；不是、或帶長期／決策用語 → None。"""
     text = prompt or ""
     if _KEEP_FOR_LLM_RE.search(text):
+        return None
+    parts = (p.strip(_SENTENCE_PAD) for p in _SENTENCE_SPLIT_RE.split(text))
+    if not all(_is_directive_sentence(s) for s in parts if s):
         return None
     hits = [name for name, pat in _SESSION_DIRECTIVE_SIGNALS if pat.search(text)]
     if _SESSION_ROLE_RE.search(text):

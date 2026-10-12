@@ -283,8 +283,9 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
 # 送來的訊息、skill 展開、Claude in Chrome 的 browser_instruction）的剔除規則在 lib/harness_text.py（巢狀照深度、
 # 閉合標籤允許空白、沒閉合吃到字串尾），Quote 清理也用同一支。
 # 沒有標籤包住的系統通知標記行：這行起到訊息尾都是 harness 的說明與通知，分不出使用者的字，寧可不認。
-# 只認完整標記（不分大小寫），使用者只是提到「[SYSTEM NOTIFICATION」字樣不受影響。
-_SYSTEM_NOTIFICATION_RE = re.compile(r"^[ \t]*\[SYSTEM NOTIFICATION - NOT USER INPUT\]", re.IGNORECASE | re.MULTILINE)
+# 只認自成一行的完整標記（不分大小寫，前後可有空白）；同一行還有別的字、或只是提到「[SYSTEM NOTIFICATION」字樣都不算。
+_SYSTEM_NOTIFICATION_RE = re.compile(r"^[ \t]*\[SYSTEM NOTIFICATION - NOT USER INPUT\][ \t]*\r?$",
+                                     re.IGNORECASE | re.MULTILINE)
 
 
 def user_typed_text(prompt: str) -> str:
