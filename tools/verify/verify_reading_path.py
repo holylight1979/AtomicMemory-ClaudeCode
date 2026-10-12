@@ -1492,6 +1492,16 @@ def test_r1_global_and_nonlocal_declarations_pick_the_scope(tmp_path, decl):
         assert not any(s for _, s in edges), "nonlocal work 指的是 outer 的參數：裝的東西看不到"
 
 
+@pytest.mark.parametrize("decl", ["global work", "nonlocal work"])
+def test_r1_a_global_or_nonlocal_name_written_in_the_function_is_not_a_simple_alias(tmp_path, decl):
+    """global／nonlocal 的名字不是區域變數：在函式裡 work = other 之後 work()，別的函式也能改它，不給第 4 條。"""
+    outer = "def outer():\n    def work():\n        return 0\n\n    def change():\n" if decl.startswith("nonlocal") else \
+        "def work():\n    return 0\n\n\ndef outer():\n    def change():\n"
+    files = {"app.py": ("def other():\n" + BODY + "\n\n" + outer + "        " + decl + "\n        work = other\n"
+                        "        work()\n\n    change()\n")}
+    assert not any(s for _, s in _sure_edges(files, "app.py::outer.change", tmp_path)), f"{decl}：不是簡單區域別名"
+
+
 R2_USES = {
     "positional": "    use(w)\n",
     "keyword": "    use(item=w)\n",

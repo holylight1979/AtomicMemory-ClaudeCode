@@ -692,8 +692,8 @@ class Graph:
         kind, owner = binding
         if owner is f and kind == "param":
             return self._param_call(f, c, defer)
-        if owner is f and kind == "local":
-            return self._r_local(f, c, defer)
+        if (owner is f and kind == "local") or c.name in f.nonlocal_writes:
+            return self._r_local(f, c, defer)      # 自己指定的（含 nonlocal 改寫外層的）：看自己指定了什麼
         if owner is f and c.name in f.reassigned:
             return []                              # 自己這一層綁了兩次（巢狀 def 寫兩次）：看不到是哪個
         if kind in ("param", "local"):             # 外層函式的參數或區域變數（閉包）：裝的東西看不到
@@ -1027,12 +1027,16 @@ class Graph:
             return False
         if c.recv.startswith("mod:"):
             target = self.find_module(c.recv[4:], 0, f.file)
-            return bool(target) and self._stable_in(target, c.name, 0)
+            return bool(target) and self._stable_in(target, c.name, 0) and self._module_member(target, c.name, e)
         head = c.recv.partition(".")[0]
         if f.lang == "py" and not self._shadowed(f, head) and (target := self.module_alias(f, c.recv)):
-            return self.stable(f, head) and self._stable_in(target, c.name, 0)
+            return self.stable(f, head) and self._stable_in(target, c.name, 0) and self._module_member(target, c.name, e)
         cls = self._static_class(f, c.recv)
         return bool(cls) and e.dst in self.lookup(cls, c.name)
+
+    def _module_member(self, target: str, name: str, e: Edge) -> bool:
+        """被證明穩定的 模組.name，就是 e.dst 的來源。"""
+        return e.dst in {x.dst for x in self._py_name(target, name)}
 
     def _static_class(self, f: lang.Func, recv: str):
         """類別.方法 的類別：接收者只有一段、就是類別名、而且不是同名的參數、區域變數或欄位；
@@ -1101,8 +1105,11 @@ class Graph:
         return cls
 
     def _rule4(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
-        """白名單 4：簡單區域別名——同一函式內指定一次、之後沒再指定，右邊是白名單內可確定的函式（逐跳都不能被改指）。"""
+        """白名單 4：簡單區域別名——同一函式內指定一次、之後沒再指定，右邊是白名單內可確定的函式（逐跳都不能被改指）。
+        宣告 global／nonlocal 的名字不是區域變數（別的函式也能改它），不算。"""
         if c.kind not in ("name", "invoke") or c.name not in f.aliases or c.name in f.params:
+            return False
+        if c.name in f.global_names | f.nonlocal_names:
             return False
         ref = self.alias_target(f, c.name)
         sure = [x.dst for x in self.resolve(f, ref, defer=False) if x.rule is not None] if ref else []
