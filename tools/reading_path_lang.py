@@ -50,7 +50,8 @@ class Func:
     lang: str          # py｜cs｜coarse
     line: int
     params: list = field(default_factory=list)
-    param_types: dict = field(default_factory=dict)
+    param_types: dict = field(default_factory=dict)   # 參數 → 型別的類別名（拿來解析接收者）
+    sig: str = ""                                     # C# 完整參數型別（含泛型、陣列、ref/out），當多載簽章
     calls: list = field(default_factory=list)
     simple: bool = False      # 去掉 docstring 與 log 後 ≤2 句且無分支迴圈：轉手函式的候選
     abstract: bool = False    # 沒有本體（抽象、介面、NotImplementedError）
@@ -60,6 +61,8 @@ class Func:
     exact: set = field(default_factory=set)           # 型別來自建構（x = Foo()）的區域變數：實際型別確定
     aliases: dict = field(default_factory=dict)       # 區域變數 → 函式參照（fn = b、fn = self.run）
     inline: set = field(default_factory=set)          # 就地定義的 lambda／C# 區域函式名：呼叫它不算未解（內容就在這裡）
+    reassigned: set = field(default_factory=set)      # 被指定超過一次（參數再被指定也算）：別名、確定型別、確定實例都不算
+    locals: set = field(default_factory=set)          # 本體裡被指定過的區域變數名：拿它當函式呼叫又追不到 → 未解
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
     imports: dict = field(default_factory=dict)       # 函式內的 import（只在這個函式與它的巢狀函式裡有效）
@@ -89,6 +92,7 @@ class Module:
     imports: dict = field(default_factory=dict)   # 本地名 → (模組名, 相對層級, from 匯入的原名或 "")
     tables: dict = field(default_factory=dict)    # 分派表名 → [(鍵, Call 參照)]
     aliases: dict = field(default_factory=dict)   # 模組層函式別名 → Call 參照（flat = itertools.chain.from_iterable）
+    static_usings: list = field(default_factory=list)   # C# using static 的型別名
     subs: list = field(default_factory=list)      # (事件鍵, Call 參照, 訂閱所在 func id 或 "", 檔, 訂閱的接收者)
 
 
@@ -359,6 +363,10 @@ def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
             f.local_types[node.target.id] = _py_ann(node.annotation)
         elif isinstance(node, ast.Assign) and len(node.targets) == 1:
             _py_bind(f, cls, node.targets[0], node.value)
+    stores = Counter(n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store))
+    f.locals = set(stores)
+    stores.update(f.params)
+    f.reassigned = {name for name, k in stores.items() if k > 1}
 
 
 def _py_bind(f: Func, cls: Cls | None, target, value) -> None:
@@ -401,6 +409,7 @@ _CS_SUB = re.compile(r"(?P<lhs>[\w.]+)\s*\+=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
 _CS_LISTEN = re.compile(r"(?P<lhs>[\w.]+)\s*\.\s*AddListener\s*\(\s*(?P<rhs>[A-Za-z_][\w.]*)\s*\)")
 _CS_LOCAL = re.compile(r"\b(?:var|(?P<type>[A-Z]\w*)(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?:new\s+(?P<new>\w+))?")
 _CS_ALIAS = re.compile(r"\b(?:var|[A-Z]\w*(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
+_CS_STORE = re.compile(r"\b([a-z_]\w*)\s*=(?![=>])")   # 區域變數被指定（宣告或重新指定；不含 ==、=>、+=）
 _CS_INLINE = re.compile(r"(?:^|[;{}])\s*(?:(?:static|async)\s+)*(?P<type>[\w<>\[\],?.]+)\s+(?P<name>\w+)\s*"
                         r"(?:\([^()]*\)\s*(?:\{|=>)|=\s*(?:\([^()]*\)|\w+)\s*=>)", re.M)   # 區域函式、lambda 變數
 _CS_ASSIGN = re.compile(r"(?:this\.)?(?P<lhs>\w+)\s*=\s*(?:new\s+(?P<new>\w+)|(?P<rhs>\w+)\s*;)")
@@ -461,6 +470,7 @@ def parse_csharp(rel: str, text: str) -> Module:
     src = _C_BLANK.sub(_blank, text)
     depth, pairs = _braces(src)
     mod = Module(rel, "cs")
+    mod.static_usings = re.findall(r"\busing\s+static\s+([\w.]+)\s*;", src)
     for m in _CS_CLASS.finditer(src):
         bases = [b.split(".")[-1] for b in _split_top(_strip_generics(m["bases"] or ""))]
         cls = Cls(m["name"], "cs", [rel], bases, partial="partial" in m["mods"].split())
@@ -477,7 +487,7 @@ def _cs_sign_overloads(mod: Module, cls: Cls, funcs: list) -> None:
     counts = Counter(f.name for f in funcs)
     renames = {}
     for f in [f for f in funcs if counts[f.name] > 1]:
-        sig = f"{f.file}::{f.qual}({','.join(f.param_types.get(p, '?') for p in f.params)})"
+        sig = f"{f.file}::{f.qual}({f.sig})"
         renames[f.id] = sig if sig not in renames.values() else f"{sig}#{len(renames)}"
         f.id = renames[f.id]
     if not renames:
@@ -517,15 +527,16 @@ def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> N
         _cs_field(cls, head)
         if b1 == b0 or "=" in head or not (arrow or _CS_ACCESSOR.search(src[b0:b1])):
             return
-        name, mods, params = head.split()[-1], set(), []     # 屬性的 get/set 本體：當成以屬性為名的節點
+        name, mods, texts = head.split()[-1], set(), []     # 屬性的 get/set 本體：當成以屬性為名的節點
     else:
-        name, mods = sig["name"], set(head[:sig.start()].split())
-        params = [p for p in (_cs_param(t) for t in _split_top(sig["params"], "()[]{}<>")) if p]
+        name, mods, texts = sig["name"], set(head[:sig.start()].split()), _split_top(sig["params"], "()[]{}<>")
+    params = [p for p in (_cs_param(t) for t in texts) if p]
     base = f"{mod.file}::{cls.name}.{name}"
     fid = base if all(f.id != base for f in mod.funcs) else f"{base}#{b0}"   # 暫用；多載在整個類別讀完後改成簽章 id
     line = src.count("\n", 0, start + len(raw) - len(raw.lstrip())) + 1
     f = Func(fid, mod.file, f"{cls.name}.{name}", name, cls.name, "cs", line,
-             params=[p for p, _ in params], param_types={p: t for p, t in params if t}, prop=is_prop)
+             params=[p for p, _ in params], param_types={p: t for p, t in params if t}, prop=is_prop,
+             sig=",".join(_cs_type_text(t) for t in texts))
     f.abstract = "abstract" in mods or (b0 == b1 and not arrow)
     f.entry = name == "Main" and "static" in mods
     if b1 > b0:
@@ -537,6 +548,12 @@ def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> N
 def _cs_param(text: str):
     words = [w for w in _strip_generics(text.split("=")[0]).split() if w not in ("this", "ref", "out", "in", "params")]
     return (words[-1], words[-2].rstrip("?").replace("[]", "").split(".")[-1]) if len(words) >= 2 else None
+
+
+def _cs_type_text(param: str) -> str:
+    """參數的完整型別寫法（含泛型、陣列、ref/out/params，去掉參數名與預設值）：List<int> 與 List<string> 分得開。"""
+    words = param.split("=")[0].split()
+    return re.sub(r"\s*([<>,\[\]])\s*", r"\1", " ".join(words[:-1]))
 
 
 def _cs_field(cls: Cls, head: str) -> None:
@@ -565,6 +582,10 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
             f.exact.add(m["var"])
     f.aliases = {m["var"]: ref for m in _CS_ALIAS.finditer(body) if (ref := _cs_ref(m["rhs"]))}
     f.inline = {m["name"] for m in _CS_INLINE.finditer(body) if not {m["type"], m["name"]} & CS_KEYWORDS}
+    stores = Counter(_CS_STORE.findall(body))
+    f.locals = set(stores)
+    stores.update(f.params)
+    f.reassigned = {name for name, k in stores.items() if k > 1}
     for m in _CS_ASSIGN.finditer(body):
         if m["new"]:
             cls.fields.setdefault(m["lhs"], m["new"])

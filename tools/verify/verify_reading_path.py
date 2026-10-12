@@ -710,6 +710,35 @@ def test_exact_new_type_has_no_override_edge_and_declared_type_is_candidate(tmp_
     assert _route(report, "Program.cs::Base.Work")["certain"] and not _route(report, "Program.cs::Child.Work")["certain"]
 
 
+def test_reassigned_locals_lose_alias_exact_type_and_same_instance(tmp_path):
+    hop = _write(tmp_path / "alias", _hop_variant("    next_fn = b\n    next_fn = c\n    return next_fn(n)"))
+    a = _route(rp.analyze(hop, "main.py"), "hop.py::a")
+    assert a["incomplete"], "fn = b 之後又 fn = c：不追別名、計入未解，不可以當成確定連到 b"
+    cs = CS_INHERIT.replace("var x = new Base();\n        x.Work();", "var x = new Base();\n        x = new Child();\n        x.Work();")
+    g = rp.build_graph(_write(tmp_path / "cs", {"Program.cs": cs}))
+    main_work = {e.dst: e.guess for e in g.edges["Program.cs::Program.Main"] if "Work" in e.dst}
+    assert set(main_work) == {"Program.cs::Base.Work", "Program.cs::Child.Work"} and all(main_work.values()), \
+        "x 被重新指定成 Child：實際型別不確定，兩個都連且標候選"
+    py = dict(PY_KINDS)
+    py["main.py"] = py["main.py"].replace('bus.emit("saved", "k1")', 'bus = Bus()\n    bus.emit("saved", "k1")')
+    r = _route(rp.analyze(_write(tmp_path / "py", py), "main.py"), "main.py::on_saved")
+    assert not r["certain"], "bus 被換成新的實例後才發事件：不能算同一實例"
+
+
+def test_production_callback_ignores_fakes_passed_from_test_files(tmp_path):
+    files = {
+        "app.py": ('def snapshot(rev=None):\n    for i in range(2):\n        rev(i)\n\n\n'
+                   'def real_rev(i):\n    k = i + 1\n    k *= 2\n    return k\n\n\n'
+                   'if __name__ == "__main__":\n    snapshot(real_rev)\n'),
+        "tests/test_app.py": ("from app import snapshot\n\n\ndef test_snapshot():\n    def fake_rev(i):\n"
+                              "        z = i\n        z += 9\n        return z\n    snapshot(fake_rev)\n"),
+    }
+    report = rp.analyze(_write(tmp_path, files), "app.py")
+    landings = {r["landing"]: r for r in report["entries"][0]["routes"]}
+    assert "app.py::real_rev" in landings and landings["app.py::real_rev"]["certain"]
+    assert not any(k.startswith("tests/") for k in landings), "測試檔傳進來的假函式不是 production 會跑的路"
+
+
 def test_overload_call_must_be_candidate(tmp_path):
     report = rp.analyze(_write(tmp_path, {"K.cs": _k(CS_W_INT, CS_W_STR)}))
     for landing in ("K.cs::K.Work(int)", "K.cs::K.Work(string)"):
@@ -762,6 +791,123 @@ def test_report_and_json_carry_the_caveats_that_apply(tmp_path):
     assert any("無責任後綴的 partial：Player" in c for c in partial["caveats"])
     kinds = rp.analyze(_write(tmp_path / "k", PY_KINDS), "main.py")
     assert any("繼承／介面分派" in c for c in kinds["caveats"]) and any("含候選的路徑" in c for c in kinds["caveats"])
+
+
+# ─── codex 二次初審（fcd1176）抓到的反例：不得出現確定捷徑、不得報成變好 ─────────
+
+PY_CHAIN = {
+    "app.py": ('from mid import b\nfrom end import done\n\n\ndef main():\n    return b(1)\n\n\n'
+               'if __name__ == "__main__":\n    main()\n'),
+    "mid.py": "from end import done\n\n\ndef b(n):\n    k = n + 1\n    k *= 2\n    return c(k)\n\n\ndef c(n):\n    m = n - 1\n    m *= 3\n    return done(m)\n",
+    "end.py": "def done(n):\n    t = n * 2\n    t += 1\n    return t\n",
+}
+
+
+def test_alias_assignment_order_cannot_create_a_certain_shortcut(tmp_path):
+    old = _write(tmp_path / "old", PY_CHAIN)
+    new = _write(tmp_path / "new", {**PY_CHAIN, "app.py": PY_CHAIN["app.py"].replace(
+        "    return b(1)", "    f = done\n    f = b\n    return f(1)")})
+    g = rp.build_graph(new)
+    assert not g.edges["app.py::main"], "f 被指定兩次：不挑一個當確定目標（尤其不能直接連到 done）"
+    res = rp.run_compare(new, str(old), None, "app.py", None)
+    assert res["counts"]["better"] == 0 and res["coverage_drop"] is True
+
+
+def test_rebinding_a_constructed_variable_drops_exact_type(tmp_path):
+    files = {"app.py": ("class Base:\n    def work(self):\n        a = 1\n        a += 1\n        return a\n\n\n"
+                        "class Child(Base):\n    def work(self):\n        b = 2\n        b += 1\n        return b\n\n\n"
+                        "def main(obj: Base):\n    x = Base()\n    x = obj\n    return x.work()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert not [e for e in g.edges["app.py::main"] if e.dst == "app.py::Base.work" and not e.guess], \
+        "x 改指向 obj（可能是 Child）：不能確定只連 Base.work"
+
+
+def test_guessed_reference_stays_uncertain_through_callback_and_event(tmp_path):
+    files = {
+        "app.py": ('def run(cb):\n    for i in range(2):\n        cb()\n\n\n'
+                   'def main(obj):\n    run(obj.work)\n    bus = Bus()\n    bus.on("x", obj.work)\n    bus.emit("x")\n\n\n'
+                   'class Bus:\n    def on(self, key, fn):\n        self.k = key\n        self.f = fn\n        self.n = 0\n\n'
+                   '    def emit(self, key):\n        self.n += 1\n        self.k = key\n        return self.n\n'),
+        "w.py": "class W:\n    def work(self):\n        q = 1\n        q += 1\n        return q\n",
+    }
+    g = rp.build_graph(_write(tmp_path, files))
+    cb = [e for e in g.edges["app.py::run"] if e.kind == "callback"]
+    ev = [e for e in g.edges["app.py::main"] if e.kind == "event"]
+    assert cb and all(e.guess for e in cb), "obj 型別不明、靠同名猜到 W.work：轉成 callback 邊也要帶著不確定"
+    assert ev and all(e.guess for e in ev), "同一 bus 訂閱又發出，但處理函式本身是猜的：事件邊也要帶著不確定"
+
+
+def test_event_receiver_rebound_from_parameter_is_not_same_instance(tmp_path):
+    files = {"app.py": ('class Bus:\n    def on(self, key, fn):\n        self.k = key\n        self.f = fn\n        self.n = 0\n\n'
+                        '    def emit(self, key):\n        self.n += 1\n        self.k = key\n        return self.n\n\n\n'
+                        'def handler():\n    h = 1\n    h += 1\n    return h\n\n\n'
+                        'def run(bus):\n    bus.on("x", handler)\n    bus = Bus()\n    bus.emit("x")\n')}
+    g = rp.build_graph(_write(tmp_path, files))
+    ev = [e for e in g.edges["app.py::run"] if e.kind == "event"]
+    assert ev and all(e.guess.startswith("候選") for e in ev)
+
+
+def test_base_call_and_constructor_overloads_are_candidates(tmp_path):
+    cs = """class B {
+    public B(int a) { a += 1; a *= 2; a -= 3; }
+    public B(string s) { s += "x"; s += "y"; s += "z"; }
+    public void Work(int a) { a += 1; a *= 2; a -= 3; }
+    public void Work(string s) { s += "x"; s += "y"; s += "z"; }
+}
+class C : B {
+    public C() : base(1) { }
+    public void Go() { base.Work(1); var b = new B(1); b.Work(2); }
+}
+"""
+    g = rp.build_graph(_write(tmp_path, {"C.cs": cs}))
+    edges = g.edges["C.cs::C.Go"]
+    assert {e.dst for e in edges} >= {"C.cs::B.Work(int)", "C.cs::B.Work(string)", "C.cs::B.B(int)", "C.cs::B.B(string)"}
+    assert all(e.guess.startswith("候選") for e in edges)
+
+
+def test_generic_overloads_keep_full_signatures_and_compare_by_them(tmp_path):
+    k = lambda *ms: "using System.Collections.Generic;\n" + _k(*ms)
+    w_int = "    void Work(List<int> xs) { int a = 1; a += 1; a *= 2; }\n"
+    w_str = "    void Work(List<string> xs) { int b = 2; b += 1; b *= 3; }\n"
+    ids = sorted(f.id for f in rp.lang.parse_csharp("K.cs", k(w_int, w_str)).funcs if f.name == "Work")
+    assert ids == ["K.cs::K.Work(List<int>)", "K.cs::K.Work(List<string>)"]
+    old = _write(tmp_path / "old", {"K.cs": k(w_int, w_str)})
+    new = _write(tmp_path / "new", {"K.cs": k(w_str, w_int)})
+    res = rp.run_compare(new, str(old), None, None, None)
+    work_rows = [r for r in res["rows"] if "Work" in r["landing"]]
+    assert len(work_rows) == 2 and all(r["status"] == "same" for r in work_rows)
+
+
+def test_unresolvable_invoke_is_not_external_and_compare_is_undecidable(tmp_path):
+    before = {"P.cs": ("class P {\n    static void Main() { Relay(); }\n    static void Relay() { Work(); }\n"
+                       "    static void Work() { int a = 1; a += 1; a *= 2; }\n}\n")}
+    after = {"P.cs": ("using System;\nclass P {\n    static void Main() { Action a = Pick(); a.Invoke(); }\n"
+                      "    static Action Pick() { int k = 1; k += 1; return Work; }\n"
+                      "    static void Work() { int a = 1; a += 1; a *= 2; }\n}\n")}
+    res = rp.run_compare(_write(tmp_path / "new", after), str(_write(tmp_path / "old", before)), None, None, None)
+    assert res["coverage_drop"] is True and res["counts"]["gone"] == 0 and res["counts"]["better"] == 0
+    assert res["undecidable_entries"] == ["P.cs::P.Main"]
+
+
+def test_external_aliases_and_static_usings_are_not_unresolved(tmp_path):
+    files = {
+        "app.py": ('import json\n\n\ndef work(s):\n    parse = json.loads\n    data = parse(s)\n    data["k"] = 1\n    return data\n\n\n'
+                   'if __name__ == "__main__":\n    work("{}")\n'),
+        "M.cs": ("using static System.Math;\nusing static Util;\nclass M {\n    static void Main() { Work(2.0); }\n"
+                 "    static double Work(double x) { var r = Sqrt(x); r += Twice(x); return r * 2; }\n}\n"
+                 "static class Util {\n    public static double Twice(double v) { var t = v; t *= 2; return t + 0; }\n}\n"),
+    }
+    report = rp.analyze(_write(tmp_path, files))
+    assert report["stats"]["unresolved"] == 0
+    assert _route(report, "M.cs::Util.Twice")["certain"], "using static 專案類別：裸名連得到"
+
+
+def test_zero_function_warning_covers_custom_types_and_top_level_statements(tmp_path):
+    files = {"Top.cs": "class Widget { }\nstatic Widget Create() { return new Widget(); }\n",
+             "Script.cs": "System.Console.WriteLine(1);\nSystem.Console.WriteLine(2);\n",
+             "Data.cs": "enum Color { Red, Green }\n", "consts.py": "LIMIT = 3\nNAMES = ['a', 'b']\n"}
+    report = rp.analyze(_write(tmp_path, files))
+    assert report["stats"]["empty_files"] == ["Script.cs", "Top.cs"], "純資料檔（enum、常數）不警示"
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────

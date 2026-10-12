@@ -63,8 +63,9 @@ CS_COMMON_METHODS = {"Add", "AddRange", "Remove", "RemoveAt", "Contains", "Conta
                      "Push", "Pop", "Enqueue", "Dequeue", "Peek", "Append", "AppendLine", "GetComponent",
                      "SetActive", "Find", "Wait", "CompareTo", "CopyTo", "GetType", "Max", "Min", "Sum", "Count"}
 # 檔裡看得到定義寫法、卻解析出零個函式 → 警示（可能是解析器沒認出來）
-DEF_HINT = {"py": re.compile(r"^\s*(async\s+)?def\s", re.M),
-            "cs": re.compile(r"\b(void|int|bool|string|float|double|Task|IEnumerator)\s+\w+\s*\("),
+#   py：def，或頂層直接呼叫（頂層程式碼不追）；cs：方法寫法 `型別 名稱(...) {`，或頂層敘述 `X.Y(...);`
+DEF_HINT = {"py": re.compile(r"^\s*(async\s+)?def\s|^[A-Za-z_][\w.]*\s*\(", re.M),
+            "cs": re.compile(r"[\w>\]]\s+\w+\s*\([^;{)]*\)\s*(\{|=>)|^\s*[\w.]+\s*\([^;]*\)\s*;", re.M),
             "coarse": re.compile(r"\bfunction\b|\bfunc\s|\bfn\s|=>")}
 # partial 檔名後綴看不出責任的（Part1、2、More、Misc…）不算責任軸
 NON_AXIS_SUFFIX = re.compile(r"(?i)^(part|partial|file|section|piece|split)?\d+$|^(more|extra|misc|other|others|rest|temp|tmp|new|old|copy)$")
@@ -84,7 +85,8 @@ LIMITS = """抓不到／可能偏差（數字是尺，判斷交給人）：
   - 外部函式庫、框架回呼（Unity 生命週期以外）、反射、eval、動態 import 看不到；getattr 只認分派表來的
   - 事件只在「同一函式對同一接收者訂閱又發出」時算確定，其餘看不出實例，標候選；callback 多處各傳不同函式也標候選
   - 繼承分派只有接收者是剛 new 出來的物件才算確定型別；多載不比對參數型別，同名多個一律標候選
-  - callback 與函式別名只追一層傳遞：函式被當參數再往下轉傳一次就斷
+  - 區域變數被指定超過一次：不追別名、不算確定型別、不算同一實例（寧可算未解或候選）
+  - callback 與函式別名只追一層傳遞：函式被當參數再往下轉傳一次就斷；工廠函式回傳的閉包看不到（計入未解）
   - 「只轉傳」靠句數判定（換區域變數名不算句）：塞進無關計算就會被當成有內容
   - 同檔多層有實質內容的呼叫：深度高但不算彎（刻度只看拐彎）
   - Python：裝飾器包裝、@property、模組頂層（__main__ 以外）程式碼、monkeypatch 不追
@@ -172,22 +174,24 @@ def override_targets(g: "Graph", cls: lang.Cls, name: str) -> list:
 
 
 def callback_targets(g: "Graph", bind_fid: str, param: str) -> list:
-    """bind_fid 的參數 param 被當函式呼叫：找所有呼叫 bind_fid 的地方，那個位置傳進來的是哪個函式。"""
+    """bind_fid 的參數 param 被當函式呼叫：找所有呼叫 bind_fid 的地方，那個位置傳進來的是哪個函式
+    → [(func id, 不確定原因)]；傳進來的參照本身是猜的，原因跟著帶過來。"""
     out = []
     for caller, ref in g.bound_refs(bind_fid, param):
-        out.extend(e.dst for e in g.resolve(caller, ref, defer=False))
+        out += [(e.dst, e.guess) for e in g.resolve(caller, ref, defer=False)]
     return out
 
 
 def event_targets(g: "Graph", f: lang.Func, c: lang.Call) -> list:
-    """訂閱了同名事件的處理函式 → [(func id, 確定否)]。同一函式裡對同一接收者訂閱又發出才算確定，其餘看不出實例。"""
+    """訂閱了同名事件的處理函式 → [(func id, 同一實例否, 處理函式本身的不確定原因)]。
+    同一函式裡對同一接收者訂閱又發出、且接收者沒被重新指定，才算同一實例。"""
     out = []
     for key, ref, owner, file, recv in g.subs:
-        if key != c.name:
+        if key != c.name or not g.same_side(f, file):
             continue
-        sure = bool(c.recv) and owner == f.id and recv == c.recv
+        sure = bool(c.recv) and owner == f.id and recv == c.recv and c.recv not in f.reassigned
         ctx = g.funcs.get(owner) or g.module_ctx(file)
-        out += [(e.dst, sure) for e in g.resolve(ctx, ref, defer=False)]
+        out += [(e.dst, sure, e.guess) for e in g.resolve(ctx, ref, defer=False)]
     return out
 
 
@@ -276,9 +280,9 @@ class Graph:
         return list(flat(self.classes.values()))
 
     def signature(self, fid: str):
-        """C# 方法的參數型別簽章（比較時用「名稱＋簽章」對齊多載）；其他語言沒有多載，回 None。"""
+        """C# 方法的完整參數型別簽章（比較時用「名稱＋簽章」對齊多載）；其他語言沒有多載，回 None。"""
         f = self.funcs[fid]
-        return ",".join(f.param_types.get(p, "?") for p in f.params) if f.lang == "cs" else None
+        return f.sig if f.lang == "cs" else None
 
     def cls_named(self, name: str, from_file: str = ""):
         cands = self.classes.get(name, [])
@@ -373,10 +377,15 @@ class Graph:
         f = self.funcs[bind_fid]
         offset = 1 if f.lang == "py" and f.cls and f.params[:1] in (["self"], ["cls"]) else 0
         pos = f.params.index(param) - offset
+        callers = [(caller, call) for caller, call in self.callers.get(bind_fid, []) if self.same_side(f, caller.file)]
         out = []
-        for caller, call in self.callers.get(bind_fid, []):
+        for caller, call in callers:
             out += [(caller, ref) for key, ref in call.refs if key in (pos, param)]
         return out
+
+    def same_side(self, f: lang.Func, other_file: str) -> bool:
+        """非測試碼不採用測試檔傳進來的假函式、訂閱的處理函式（那只在跑測試時存在）。"""
+        return is_test(f.file) or not is_test(other_file)
 
     def module_ctx(self, file: str) -> lang.Func:
         """模組層（函式外）的訂閱與分派表，用一個假函式當解析的語境。"""
@@ -397,32 +406,40 @@ class Graph:
         ids = list(dict.fromkeys(self.lookup(cls, name)))
         if not ids:
             return []
-        overload = f"候選：{len(ids)} 個多載，沒比對參數型別" if len(ids) > 1 else ""
         over = [] if exact else override_targets(self, cls, name)
         if not over:
-            return [Edge(i, "direct", guess=overload, via=via) for i in ids]
+            return self._overloads(ids, via)
         concrete = [i for i in ids if not self.funcs[i].abstract]
         reason = "候選：實際型別不確定，基底實作與子類覆寫都可能"
         return [Edge(i, "inherit", guess=reason, via=via) for i in dict.fromkeys(concrete + over)]
+
+    def _overloads(self, ids: list, via: str = "") -> list:
+        """同一個名字有幾個實作就連幾條；多於一個（多載）時沒比對參數型別，全部標候選。dispatch、base.、建構子共用。"""
+        reason = f"候選：{len(ids)} 個多載，沒比對參數型別" if len(ids) > 1 else ""
+        return [Edge(i, "direct", guess=reason, via=via) for i in dict.fromkeys(ids)]
 
     def _defer(self, src: lang.Func, bind: tuple, defer: bool) -> list:
         if defer:
             self.pending.append((src.id, *bind))
         return []
 
-    def _follow_alias(self, f, c, defer):
-        """fn = b; fn(n)：沿區域變數別名找到真正的函式參照（最多 MAX_REEXPORT 跳，循環就放棄）。"""
-        ref, hops = f.aliases[c.name], 0
-        while ref.kind == "name" and ref.name in f.aliases and hops < MAX_REEXPORT:
+    def alias_target(self, f: lang.Func, name: str):
+        """fn = b; fn(n)：沿區域變數別名走到真正的函式參照（最多 MAX_REEXPORT 跳）；
+        不是別名、循環、或中途被重新指定 → None（寧可算未解，也不挑一個當確定目標）。"""
+        if name not in f.aliases or name in f.reassigned:
+            return None
+        ref, hops = f.aliases[name], 0
+        while ref.kind == "name" and ref.name in f.aliases and ref.name not in f.reassigned and hops < MAX_REEXPORT:
             ref, hops = f.aliases[ref.name], hops + 1
-        looped = ref.kind == "name" and ref.name in f.aliases
-        return [] if looped else self.resolve(f, ref, defer)
+        stuck = ref.kind == "name" and (ref.name in f.aliases or ref.name in f.reassigned)
+        return None if stuck else ref
 
     def _r_name(self, f, c, defer):
         if c.name in f.params:
             return self._defer(f, (f.id, c.name), defer)
         if c.name in f.aliases:
-            return self._follow_alias(f, c, defer)
+            ref = self.alias_target(f, c.name)
+            return self.resolve(f, ref, defer) if ref else []
         if c.name in f.table_vars:
             return self._r_table(f, lang.Call("table", f.table_vars[c.name]), defer)
         nested = next((n for s in reversed(self.scopes(f)) if (n := f"{f.file}::{s}.{c.name}") in self.funcs), None)
@@ -432,7 +449,16 @@ class Graph:
             return self._coarse(f, c.name)
         if f.lang == "py":
             return self._py_name(f.file, c.name, imports=self.imports_of(f))
-        return self._r_self(f, c, defer)          # C#：裸名就是本類別的方法／事件／委派欄位
+        return self._r_self(f, c, defer) or self._static_using(f, c.name)   # C#：本類別的方法／事件／委派欄位，或 using static
+
+    def _static_using(self, f: lang.Func, name: str) -> list:
+        """C# `using static 專案類別;` 之後的裸名呼叫：到那些類別找靜態方法。"""
+        for t in self.modules[f.file].static_usings if f.file in self.modules else []:
+            cls = self.cls_named(t.split(".")[-1], f.file)
+            edges = self.dispatch(cls, name, exact=True) if cls else []
+            if edges:
+                return edges
+        return []
 
     def _r_self(self, f, c, defer):
         cls = self.cls_of(f)
@@ -451,7 +477,7 @@ class Graph:
         cls = self.cls_of(f)
         bases = [self.cls_named(b, f.file) for b in (cls.bases if cls else [])]
         ids = next((hits for b in bases if b and (hits := self.lookup(b, c.name))), [])
-        return [Edge(i, "direct") for i in ids]
+        return self._overloads(ids)
 
     def _r_attr(self, f, c, defer):
         kind, target, exact = self.recv_type(f, c.recv)
@@ -469,14 +495,15 @@ class Graph:
 
     def _r_emit(self, f, c, defer):
         reason = "候選：事件只按名字配對，看不出是哪個實例"
-        return [Edge(t, "event", guess="" if sure else reason) for t, sure in event_targets(self, f, c)]
+        return [Edge(t, "event", guess=guess or ("" if sure else reason)) for t, sure, guess in event_targets(self, f, c)]
 
     def _r_invoke(self, f, c, defer):
         """C# 的 X.Invoke()／X?.Invoke()：X 是參數、別名或建構時存下的委派 → callback；否則當事件。"""
         if c.name in f.params:
             return self._defer(f, (f.id, c.name), defer)
         if c.name in f.aliases:
-            return self._follow_alias(f, c, defer)
+            ref = self.alias_target(f, c.name)
+            return self.resolve(f, ref, defer) if ref else []
         stored = self.stored_param(self.cls_of(f), c.name) if f.cls else None
         return self._defer(f, stored, defer) if stored else self._r_emit(f, c, defer)
 
@@ -501,7 +528,7 @@ class Graph:
         return [e for e in edges if self.funcs[e.dst].prop]
 
     def _ctor(self, cls) -> list:
-        return [Edge(i, "direct") for i in self.lookup(cls, "__init__" if cls.lang == "py" else cls.name)]
+        return self._overloads(self.lookup(cls, "__init__" if cls.lang == "py" else cls.name))
 
     def _imported_from(self, file: str, imports: dict, name: str):
         """from X import name → (X 在專案內的檔, 原名)；不是 from 匯入或 X 不在專案內 → (None, "")。"""
@@ -559,7 +586,7 @@ class Graph:
         """接收者型別不明時可能的同名方法；內建型別本來就有的方法名不算，非測試碼不算測試檔裡的。"""
         common = PY_BUILTIN_METHODS if f.lang == "py" else CS_COMMON_METHODS
         cands = [] if name in common else self.by_method.get(name, [])
-        return cands if is_test(f.file) else [i for i in cands if not is_test(self.funcs[i].file)]
+        return [i for i in cands if self.same_side(f, self.funcs[i].file)]
 
     def _guess(self, f, name: str) -> list:
         """接收者型別不明：全專案只有一個同名方法才連（標為猜的），多個就不連（計入未解）。"""
@@ -581,13 +608,14 @@ class Graph:
         kind, cls = self._recv_head(f, head)
         for seg in rest:
             cls = self.field_type(cls, seg) if cls else None
-        exact = (kind == "static" or head in f.exact) and not rest
+        exact = (kind == "static" or (head in f.exact and head not in f.reassigned)) and not rest
         return (kind, cls, exact) if cls or kind == "external" else ("", None, False)
 
     def _recv_head(self, f: lang.Func, head: str):
         if head in ("self", "this"):
             return "object", self.cls_of(f)
-        typed = f.local_types.get(head) or f.param_types.get(head)
+        changed = head in f.exact and head in f.reassigned      # x = Base() 之後又 x = Child()：型別不定
+        typed = None if changed else f.local_types.get(head) or f.param_types.get(head)
         if typed:
             return "object", self.cls_named(typed, f.file)
         own = self.cls_of(f)
@@ -605,10 +633,12 @@ class Graph:
     def is_external(self, f: lang.Func, c: lang.Call) -> bool:
         """確知在專案外（內建、外部模組、外部父類、專案裡沒有同名方法、沒人訂閱的事件、外部類別）→ True；
         專案內但看不到（區域變數裝的函式、同名方法多個、找不到的 self 方法、getattr、找不到的表）→ False，計入未解。"""
-        if c.kind in ("emit", "prop", "new", "invoke", "super"):
+        if c.kind in ("emit", "prop", "new", "super"):
             return True
         if c.kind in ("table", "getattr"):
             return False
+        if c.kind == "invoke":                     # 沒人訂閱的事件 → 外部；區域變數或不明欄位裝的委派 → 看不到
+            return bool(f.cls) and any(c.name in x.events for x in self.ancestry(self.cls_of(f)))
         if c.kind == "self":
             return self.external_base(self.cls_of(f))
         if c.kind == "name":
@@ -618,10 +648,17 @@ class Graph:
     def _external_name(self, f: lang.Func, name: str) -> bool:
         if name in f.inline:
             return True                            # 就地定義的 lambda／區域函式：內容就在這個函式裡
+        ref = self.alias_target(f, name)
+        if ref:
+            return self.is_external(f, ref)        # parse = json.loads; parse(s)：看別名指到哪
+        if name in f.locals:
+            return False                           # 區域變數裝的函式（工廠回傳、條件指定）：看不到
         if f.lang == "coarse":
             return not self.coarse.get(name)
         if f.lang == "cs":
-            return self.external_base(self.cls_of(f))
+            usings = self.modules[f.file].static_usings if f.file in self.modules else []
+            outside = any(self.cls_named(t.split(".")[-1], f.file) is None for t in usings)
+            return outside or self.external_base(self.cls_of(f))
         if name in PY_BUILTINS or self.classes.get(name):
             return True
         alias = self.modules[f.file].aliases.get(name) if f.file in self.modules else None
@@ -663,10 +700,12 @@ class Graph:
                 self.hits[f.id] += linked
                 self.unres[f.id] += not linked and not self.is_external(f, c)
         for src, bind, param in self.pending:
-            targets = list(dict.fromkeys(callback_targets(self, bind, param)))
-            reason = f"候選：{len(targets)} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if len(targets) > 1 else ""
-            self._add_edges(src, [Edge(t, "callback", guess=reason) for t in targets], None)
-            self.unres[src] += not targets and bool(self.bound_refs(bind, param))   # 有人傳了具名函式卻解不出來
+            found = {}
+            for dst, guess in callback_targets(self, bind, param):
+                found[dst] = guess if dst not in found else (found[dst] and guess)   # 有一處確定就算確定
+            reason = f"候選：{len(found)} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if len(found) > 1 else ""
+            self._add_edges(src, [Edge(t, "callback", guess=g or reason) for t, g in found.items()], None)
+            self.unres[src] += not found and bool(self.bound_refs(bind, param))   # 有人傳了具名函式卻解不出來
 
     def _add_edges(self, src: str, edges: list, c) -> None:
         """加邊（同終點同種類只留一條）；直接／繼承呼叫每個呼叫點都記下呼叫者（就算邊重複），callback 要回頭查誰傳了什麼。"""
@@ -716,12 +755,12 @@ class Graph:
         return best, back
 
     def routes(self, entry: str):
-        """每個落點一條路：只走確定邊走得到就用那條；走不到才用含候選的路。另回入口可達範圍內的未解呼叫總數。"""
+        """每個落點一條路：只走確定邊走得到就用那條；走不到才用含候選的路。另回入口可達範圍內有未解呼叫的函式。"""
         sure_best, sure_back = self._shortest(entry, True)
         any_best, any_back = self._shortest(entry, False)
         landings = [v for v in any_best if v != entry and v not in self.passthrough and not self.funcs[v].abstract]
         found = [self._route(sure_back if v in sure_best else any_back, entry, v) for v in landings]
-        return found, sum(self.unres[v] for v in any_best)
+        return found, sorted(v for v in any_best if self.unres[v])
 
     def _route(self, back: dict, entry: str, landing: str) -> Route:
         steps, node = [], landing
@@ -800,7 +839,7 @@ def find_entries(g: Graph, spec: str | None) -> list:
     return [f.id for f in roots[:ROOT_LIMIT]]
 
 
-def entry_summary(eid: str, routes: list, unresolved_reach: int) -> dict:
+def entry_summary(g: Graph, eid: str, routes: list, unresolved_funcs: list) -> dict:
     """一個入口的彙總：最多拐彎與刻度分布只算全確定、讀到底的路；含候選、未讀到底的另計。"""
     routes.sort(key=worst_first)
     sure = [r for r in routes if r["certain"]]
@@ -812,7 +851,8 @@ def entry_summary(eid: str, routes: list, unresolved_reach: int) -> dict:
             "max_handoffs": max((r["handoffs"] for r in sure), default=0),
             "grades": {label: grades.get(label, 0) for _, label in GRADES},
             "candidate": len(routes) - len(sure), "incomplete": sum(r["incomplete"] for r in routes),
-            "unresolved_reach": unresolved_reach, "routes": routes}
+            "unresolved_reach": sum(g.unres[v] for v in unresolved_funcs), "unresolved_funcs": unresolved_funcs,
+            "routes": routes}
 
 
 def analyze(root: Path, entry: str | None = None, to: str | None = None) -> dict:
@@ -820,9 +860,9 @@ def analyze(root: Path, entry: str | None = None, to: str | None = None) -> dict
     targets = {f.id for f in spec_hits(g, to)[0]} if to else None
     report = {"root": str(root), "stats": graph_stats(g), "entries": []}
     for eid in find_entries(g, entry):
-        found, reach = g.routes(eid)
+        found, unresolved_funcs = g.routes(eid)
         routes = [r.summary() for r in found if targets is None or r.landing in targets]
-        report["entries"].append(entry_summary(eid, routes, reach))
+        report["entries"].append(entry_summary(g, eid, routes, unresolved_funcs))
     report["entries"].sort(key=lambda e: (-e["max_turns"], -e["max_file_jumps"], e["entry"]))
     report["caveats"] = caveats(g, report)
     return report
@@ -903,11 +943,10 @@ STATUS_LABEL = {"worse": "變差", "undecidable": "不可判定", "new": "新增
 
 def compare(before: dict, after: dict) -> dict:
     """同一入口、同一落點（檔::函式）比拐彎、跳檔、轉手。全確定與含候選的路分開數；
-    入口可達範圍內的未解呼叫變多 → 那個入口的變化標「不可判定」（可能是看不到了，不是變好）。"""
+    入口可達範圍內的未解呼叫變多、或冒出新的未解函式 → 那個入口的變化標「不可判定」（可能是看不到了，不是變好）。"""
     b_entries = {e["entry"]: e for e in before["entries"]}
     a_entries = {e["entry"]: e for e in after["entries"]}
-    undecidable = {eid for eid, a in a_entries.items()
-                   if eid in b_entries and a["unresolved_reach"] > b_entries[eid]["unresolved_reach"]}
+    undecidable = {eid for eid, a in a_entries.items() if eid in b_entries and _coverage_worse(b_entries[eid], a)}
     rows = []
     for eid in sorted(set(b_entries) | set(a_entries)):
         b = {compare_key(r): r for r in b_entries.get(eid, {}).get("routes", [])}
@@ -927,6 +966,10 @@ def compare(before: dict, after: dict) -> dict:
             "max_turns_after": max((e["max_turns"] for e in after["entries"]), default=0),
             "undecidable_entries": sorted(undecidable), "emptied_files": emptied,
             "stats_before": sb, "stats_after": sa, "coverage_drop": coverage_drop}
+
+
+def _coverage_worse(b: dict, a: dict) -> bool:
+    return a["unresolved_reach"] > b["unresolved_reach"] or bool(set(a["unresolved_funcs"]) - set(b["unresolved_funcs"]))
 
 
 def compare_key(r: dict) -> str:
@@ -961,14 +1004,20 @@ def run_compare(root: Path, before: str, after: str | None, entry: str | None, t
 
 
 def route_lines(r: dict) -> list:
-    flags = ["（共用底層：%d 處呼叫）" % r["fan_in"] * (r["fan_in"] >= SHARED_FAN_IN),
-             "（含候選）" * (not r["certain"]), "（未讀到底：落點有 %d 個解析不了的呼叫）" % r["unresolved"] * r["incomplete"]]
+    flags = ""
+    if r["fan_in"] >= SHARED_FAN_IN:
+        flags += f"（共用底層：{r['fan_in']} 處呼叫）"
+    if not r["certain"]:
+        flags += "（含候選）"
+    if r["incomplete"]:
+        flags += f"（未讀到底：落點有 {r['unresolved']} 個解析不了的呼叫）"
     lines = [f"  [{r['grade']}] 拐彎 {r['turns']}｜跳檔 {r['file_jumps']}｜轉手 {r['handoffs']}｜深度 {r['depth']}"
-             f"  {r['entry']} → {r['landing']}{''.join(flags)}"]
+             f"  {r['entry']} → {r['landing']}{flags}"]
     for s in r["steps"]:
-        tags = [" ↗換檔" * s["jump"], f" ≋分檔有責任軸（依檔名推測）{s['axis']}" * bool(s["axis"]),
-                f" ?{s['guess']}" * bool(s["guess"])]
-        lines.append(f"      {s['kind']:<9} {s['func']}{''.join(tags)}")
+        tags = " ↗換檔" if s["jump"] else ""
+        tags += f" ≋分檔有責任軸（依檔名推測）{s['axis']}" if s["axis"] else ""
+        tags += f" ?{s['guess']}" if s["guess"] else ""
+        lines.append(f"      {s['kind']:<9} {s['func']}{tags}")
     return lines
 
 
@@ -1014,7 +1063,7 @@ def render_compare(res: dict, top: int) -> str:
              f"{sb['unresolved_ratio']:.0%} → {sa['unresolved_ratio']:.0%}"]
     if res["coverage_drop"]:
         lines.append("⚠ after 的解析涵蓋變差：「消失」「變好」可能是看不到了，不是程式變好")
-    lines += [f"  不可判定的入口（可達範圍內解析不了的呼叫變多）：{e}" for e in res["undecidable_entries"]]
+    lines += [f"  不可判定的入口（可達範圍內解析不了的呼叫變多或換了地方）：{e}" for e in res["undecidable_entries"]]
     lines += [f"  從有函式變成零函式或解析失敗：{f}" for f in res["emptied_files"]]
     shown = 0
     for row in [r for r in res["rows"] if r["status"] != "same"]:
