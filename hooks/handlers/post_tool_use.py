@@ -32,7 +32,7 @@ from wg_harvest import (
 )
 from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
-    append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn,
+    append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
     aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd,
 )
 try:
@@ -400,12 +400,22 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     return True
 
 
-def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str) -> None:
+def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str, agent_id: str = "") -> None:
     """modified_files 以 (path, session_id) 去重：重複編輯只累加 count、刷 at／tool／last_turn_seq，
     不無限累積 entry。turn_seq＝第一次改的回合、last_turn_seq＝最近一次改的回合（對帳閘「本 turn 改了哪些」用）。
-    消費端計「編輯次數」者（wisdom track_retry / episodic 工作區統計）讀 count 欄（legacy 無 count → 預設 1）。"""
+    消費端計「編輯次數」者（wisdom track_retry / episodic 工作區統計）讀 count 欄（legacy 無 count → 預設 1）。
+    子代理（agent_id 非空）改的檔另記一份到 agent_modified_files[agent_id]（SubagentStop 的對帳／量尺閘只看子代理自己的）；
+    主 session 的 modified_files 照舊也記，主 session 行為不變。"""
+    _upsert_modified(state, state.setdefault("modified_files", []), session_id, file_path, tool_name)
+    if agent_id:
+        _upsert_modified(state, state.setdefault("agent_modified_files", {}).setdefault(agent_id, []),
+                         session_id, file_path, tool_name)
+    state["sync_pending"] = True
+
+
+def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_id: str, file_path: str,
+                     tool_name: str) -> None:
     turn = int(state.get("turn_seq", 0))
-    mods = state.setdefault("modified_files", [])
     for m in mods:
         if (
             isinstance(m, dict)
@@ -433,7 +443,6 @@ def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_
             "turn_seq": turn,
             "last_turn_seq": turn,
         })
-    state["sync_pending"] = True
 
 
 def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command: str, tool_name: str,
@@ -479,14 +488,14 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "root_uncertain": has_cd(command),
     }
     append_verify_ledger(session_id, record, base_dir=WORKFLOW_DIR, suffix=".agents" if agent_id else "")
-    if not agent_id:
-        record_receipt(state, session_id, {
-            "at": record["at"], "seq": next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
-            "cmd": command[:200],
-            "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
-            "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
-            "root_uncertain": record["root_uncertain"],
-        })
+    # 子代理的收據不進主 session 的收據（主帳不變），另放 agent_receipt_key(sid, agent_id)，給 SubagentStop 對帳用
+    record_receipt(state, agent_receipt_key(session_id, agent_id) if agent_id else session_id, {
+        "at": record["at"], "seq": next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
+        "cmd": command[:200],
+        "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
+        "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
+        "root_uncertain": record["root_uncertain"],
+    })
     ms = int((time.monotonic() - t0) * 1000)
     append_guard_log("verify_ledger", {
         "session_id": session_id, "turn_seq": turn_seq, "tool": tool_name, "ms": ms,
@@ -565,7 +574,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         and file_path
         and not _is_ephemeral_path(file_path)
     ):
-        _note_modified(state, session_id, file_path, tool_name)
+        _note_modified(state, session_id, file_path, tool_name, str(input_data.get("agent_id") or ""))
 
         edit_counts = state.setdefault("edit_counts", {})
         edit_counts[file_path] = edit_counts.get(file_path, 0) + 1
@@ -678,7 +687,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 _cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
                 for _p in _write_paths_from_tool(tool_name, tool_input, _cwd) or []:
                     if _p and not _is_ephemeral_path(_p):
-                        _note_modified(state, session_id, _p, tool_name)
+                        _note_modified(state, session_id, _p, tool_name, str(input_data.get("agent_id") or ""))
                         dirty = True
             except Exception as e:
                 _atom_debug_error("post_tool_use:write_paths_from_tool", e)

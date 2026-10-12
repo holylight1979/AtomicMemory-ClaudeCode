@@ -57,6 +57,48 @@ def test_load_self_receipts_newest_first_and_only_self_source(tmp_path):
     assert sr.load_self_receipts(tmp_path / "none") == []
 
 
+def _runs_dir(tmp_path, n, now, old_idx=()):
+    d = tmp_path / "workflow" / "verify-ledger" / "_runs"
+    d.mkdir(parents=True)
+    import os
+    for i in range(n):
+        f = d / f"2026{i:08d}T000000Z-1.json"
+        f.write_text("{}", encoding="utf-8")
+        t = now - (31 * 86400 if i in old_idx else 60)
+        os.utime(f, (t, t))
+    return d
+
+
+def test_prune_keeps_newest_200_and_drops_older_than_30_days(tmp_path):
+    now = 1_800_000_000.0
+    d = _runs_dir(tmp_path, 205, now, old_idx={204})                              # 最新那份（檔名最大）mtime 卻超過 30 天
+    removed = sr.prune_self_runs(tmp_path, now=now)
+    left = sorted(p.name for p in d.glob("*.json"))
+    assert removed == 6 and len(left) == 199                                       # 超過 200 份的 5 份＋30 天以上的 1 份
+    assert left[-1] == "202600000203T000000Z-1.json" and left[0] == "202600000005T000000Z-1.json"
+    assert sr.prune_self_runs(tmp_path / "none", now=now) == 0                     # 沒有目錄不炸
+
+
+def test_prune_failure_is_stderr_line_and_continues(tmp_path, monkeypatch):
+    now = 1_800_000_000.0
+    _runs_dir(tmp_path, 3, now, old_idx={0, 1})
+    real_unlink = Path.unlink
+
+    def flaky(self, *a, **k):
+        if self.name.startswith("202600000001"):
+            raise PermissionError("locked")
+        return real_unlink(self, *a, **k)
+    monkeypatch.setattr(Path, "unlink", flaky)
+    err = io.StringIO()
+    assert sr.prune_self_runs(tmp_path, now=now, err=err) == 1                     # 反例：一份刪不掉，另一份照刪
+    assert err.getvalue().count("\n") == 1 and "刪不掉舊收據" in err.getvalue()
+
+
+def test_session_end_calls_prune():
+    src = (ROOT / "hooks" / "handlers" / "session_end.py").read_text(encoding="utf-8")
+    assert "prune_self_runs(" in src and src.index("_cleanup_old_states()") < src.index("prune_self_runs(")
+
+
 def test_cmd_of_normalizes_interpreter_and_script_path():
     assert sr.cmd_of(["/usr/bin/python3", "run_verify.py"]) == "python3 run_verify.py"
     assert sr.cmd_of([r"C:\x\pythonw.exe", "-X", "utf8", r"C:\a\b\run_verify.py"]) == "pythonw -X utf8 run_verify.py"

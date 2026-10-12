@@ -67,10 +67,11 @@ def non_interactive_reason(input_data: Dict[str, Any], transcript_path: Optional
     return None
 
 
-def non_interactive_message(gate: str, n: int, summary: str, why: str) -> str:
-    """無法互動時擋滿的固定擋訊息：不叫模型問使用者，一律擋到底。"""
+def non_interactive_message(gate: str, n: Optional[int], summary: str, why: str) -> str:
+    """無法互動時的固定擋訊息：不叫模型問使用者，一律擋到底。n＝本回合已擋次數（子代理不計預算，給 None 就不寫次數）。"""
     line = (summary or "").strip().splitlines()[0] if (summary or "").strip() else "（無原因摘要）"
-    return (f"[Guardian:{gate}] 無法互動，不能放行：{line[:200]}（{why}；本回合已擋 {n} 次）。"
+    count = f"；本回合已擋 {n} 次" if n is not None else ""
+    return (f"[Guardian:{gate}] 無法互動，不能放行：{line[:200]}（{why}{count}）。"
             "不准自行放行，也不准改寫宣稱來繞過：把它修好，或照實回報沒修好。")
 
 

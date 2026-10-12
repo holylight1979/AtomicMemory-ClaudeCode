@@ -676,6 +676,46 @@ def test_load_verify_chains_reads_hub_json(tmp_path):
     assert vl.load_verify_chains(tmp_path / "nope") == {}
 
 
+@pytest.fixture()
+def hub_layers(tmp_path, monkeypatch):
+    """005：verify_chains 走四層合併；回 (公司根, 專案根, 設定 config.json 段的函式)。不吃本機 config 與公司根。"""
+    import wg_core
+    org, proj = tmp_path / "org", tmp_path / "proj"
+    for d in (org, proj):
+        (d / ".claude").mkdir(parents=True)
+    cfg = {}
+    monkeypatch.setattr(wg_core, "load_config", lambda: cfg)
+    monkeypatch.setattr(wo, "org_memory_root", lambda: org)
+    monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
+    monkeypatch.setattr(wo, "_WARNED", set())
+    return org, proj, cfg
+
+
+def _hub_json(root, data):
+    (root / ".claude" / "overview-hub.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def test_verify_chains_from_company_root_used_by_measure_gate(hub_layers):
+    org, proj, _ = hub_layers
+    _hub_json(org, {"verify_chains": {"hook 共用模組層": {"runtime_gate": "python org-gate.py"}}})
+    assert vl.load_verify_chains(proj) == {"hook 共用模組層": {"runtime_gate": "python org-gate.py"}}   # 專案沒設 → 公司的
+    ran = []
+    reason, _ = vl.measure_gate_reason([_mf(str(proj / "hooks" / "x.py"), 5)], [], 5, _lookup_at(proj), vl.MEASURE_DEFAULTS,
+                                       runner=lambda g, t, c: (ran.append(g), (False, "未就緒"))[1])
+    assert ran == ["python org-gate.py"] and "執行環境未就緒：未就緒" in reason                          # MeasureGate 用公司的
+    _hub_json(proj, {"verify_chains": {"hook 共用模組層": {"runtime_gate": "python proj-gate.py"}}})
+    assert vl.load_verify_chains(proj)["hook 共用模組層"]["runtime_gate"] == "python proj-gate.py"     # 專案覆蓋
+
+
+def test_verify_chains_config_root_value_and_errors(hub_layers):
+    org, proj, cfg = hub_layers
+    cfg["overview_hub"] = {"verify_chains": {"p": {"runtime_gate": "cfg-gate"}}}
+    assert vl.load_verify_chains(proj) == {"p": {"runtime_gate": "cfg-gate"}}                     # config.json 根層值生效
+    _hub_json(proj, {"verify_chain": {}})                                                          # 打錯鍵
+    with pytest.raises(ValueError, match="未知的設定鍵「verify_chain」"):
+        vl.load_verify_chains(proj)                                                                # 反例：與導讀卡端同樣報錯
+
+
 # ─── Q8 根層 worktree：認目標 verify 的 pytest DONE，不要求全量 ──────────────
 
 _MAP_BYTES = (FIX / "q6" / "overview-map.md").read_bytes()
@@ -1004,3 +1044,73 @@ def test_root_worktree_rule_unchanged_by_self_runs(tmp_path, monkeypatch):
     reason, _ = vl.measure_gate_reason([mod], [], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS,
                                        self_runs=lambda: [_self_run(root=str(wt))])
     assert reason and "根層 worktree" in reason
+
+
+# ─── 005：SubagentStop 只跑寫碼查核閘、擋到底 ───────────────────────────────────────
+
+@pytest.fixture()
+def sub_stop(monkeypatch):
+    """驅動 handle_subagent_stop：state 由參數給；回 run(state, last_text, agent_id) → (stdout, guard_log 事件)。"""
+    logs: list = []
+    monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
+    monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
+
+    def run(capsys, state, last="全部完成了。", agent_id="ag1"):
+        monkeypatch.setattr(st, "read_state", lambda sid: state)
+        logs.clear()
+        with pytest.raises(SystemExit):
+            st.handle_subagent_stop({"session_id": _SID, "agent_id": agent_id, "hook_event_name": "SubagentStop",
+                                     "last_assistant_message": last}, {})
+        return capsys.readouterr().out, list(logs)
+
+    return run
+
+
+def _sub_state(**extra):
+    s = {"turn_seq": 5, "modified_files": [], "verify_receipts": {}}
+    s.update(extra)
+    return s
+
+
+def test_subagent_code_change_without_case_blocks_non_interactive(sub_stop, capsys):
+    out, logs = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}))
+    assert "[Guardian:ReconcileGate] 無法互動，不能放行：✗ (d)" in out and "子代理 Stop" in out
+    assert "AskUserQuestion" not in out.split("原擋訊息")[0] and "本回合已擋" not in out          # 不問、不計次
+    assert [p["event"] for g, p in logs if g == "reconcile"] == ["subagent_block"]
+
+
+def test_subagent_read_only_not_gated(sub_stop, capsys):
+    out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"other": [_mf(_CODE, 5)]}))
+    assert "Guardian" not in out                                                            # 只讀檔（自己沒改檔）→ 不擋
+
+
+def test_subagent_uses_own_receipts_and_case(sub_stop, capsys):
+    key = vl.agent_receipt_key(_SID, "ag1")
+    st_ = _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5), _mf(_CASE, 5)]},
+                     verify_receipts={key: [_rcpt(5)], _SID: []})
+    out, _ = sub_stop(capsys, st_, last="x 修好了，完成。")
+    assert "Guardian" not in out                                                            # 正例：自己的收據＋改了 case
+    st_ = _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5), _mf(_CASE, 5)]},
+                     verify_receipts={_SID: [_rcpt(5)]})
+    out, _ = sub_stop(capsys, st_, last="x 修好了，完成。")
+    assert "(a)" in out                                                                     # 反例：主 session 的收據不替子代理背書
+
+
+def test_main_session_ignores_agent_bookkeeping(driven, capsys):
+    """主 session 行為不變：agent_modified_files／子代理收據鍵不影響主 Stop。"""
+    out, _, _ = driven("全部完成了。", capsys, agent_modified_files={"ag1": [_mf(_CODE, 5)]},
+                       verify_receipts={vl.agent_receipt_key(_SID, "ag1"): [_rcpt(5)]})
+    assert "ReconcileGate" not in out
+
+
+def test_dispatcher_routes_subagent_stop_and_post_tool_use_tags_agent_edits():
+    import dispatcher
+    assert dispatcher.HANDLERS["SubagentStop"] == ("handlers.stop", "handle_subagent_stop")
+    from handlers import post_tool_use as pt
+    s = {"turn_seq": 3}
+    pt._note_modified(s, _SID, "c:/p/a.py", "Edit", "ag1")
+    pt._note_modified(s, _SID, "c:/p/b.py", "Edit")
+    assert [m["path"] for m in s["modified_files"]] == ["c:/p/a.py", "c:/p/b.py"]           # 主帳照舊全記
+    assert [m["path"] for m in s["agent_modified_files"]["ag1"]] == ["c:/p/a.py"]            # 子代理另記自己的
+    assert s["agent_modified_files"]["ag1"][0]["last_turn_seq"] == 3

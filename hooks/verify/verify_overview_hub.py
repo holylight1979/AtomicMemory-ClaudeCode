@@ -616,7 +616,8 @@ def test_validator_internal_error_still_denies_and_logs_traceback(proj, monkeypa
 
     def _bug(bases, root):
         raise RuntimeError("validator-bug")
-    monkeypatch.setattr(wo, "_validate_path_bases", _bug)
+    import hub_config
+    monkeypatch.setattr(hub_config, "validate_path_bases", _bug)                  # 005：驗證本體搬到 lib/hub_config
     c = wo._cfg({}, proj)
     assert len(c["_errors"]) == 1 and "內部錯誤" in c["_errors"][0] and "validator-bug" in c["_errors"][0]
     assert seen == [("overview_hub:validate", "RuntimeError")]

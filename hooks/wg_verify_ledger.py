@@ -277,6 +277,11 @@ def append_verify_ledger(sid: str, record: Dict[str, Any], base_dir: Optional[Pa
         return None
 
 
+def agent_receipt_key(sid: str, agent_id: str) -> str:
+    """子代理的收據在 state["verify_receipts"] 裡的鍵（與主 session 的 sid 分開，主帳不混入子代理的）。"""
+    return f"{sid}#agent:{agent_id}"
+
+
 def receipts_of(state: Dict[str, Any], sid: str) -> List[Dict[str, Any]]:
     sec = (state.get("verify_receipts") or {}).get(sid)
     return [r for r in sec if isinstance(r, dict)] if isinstance(sec, list) else []
@@ -800,12 +805,15 @@ def measure_cfg(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_verify_chains(root: Path) -> Dict[str, Dict[str, str]]:
-    """<root>/.claude/overview-hub.json 的 `verify_chains{part:{runtime_gate,pre,run,collect,cleanup}}`；沒有回 {}。"""
-    try:
-        data = json.loads((Path(root) / HUB_REL).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    vc = data.get("verify_chains") if isinstance(data, dict) else None
+    """合併後設定（hub_config 四層：預設 < config.json overview_hub < 公司根 < 專案根 overview-hub.json，經 wg_overview._cfg）
+    的 `verify_chains{part:{runtime_gate,pre,run,collect,cleanup}}`；沒有回 {}。
+    設定有錯（與導讀卡端同一套驗證）→ 拋 ValueError：量尺閘的判定錯誤一律擋（stop._verify_gates），不當作沒設。"""
+    from wg_core import load_config
+    from wg_overview import _cfg
+    c = _cfg(load_config(), Path(root))
+    if c["_errors"]:
+        raise ValueError(f"overview-hub 設定錯誤（{root}）：" + "；".join(c["_errors"][:3]))
+    vc = c.get("verify_chains")
     return {str(k): v for k, v in vc.items() if isinstance(v, dict)} if isinstance(vc, dict) else {}
 
 

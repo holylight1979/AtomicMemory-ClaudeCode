@@ -218,7 +218,8 @@ def test_bash_without_sentinel_and_not_test_cmd_writes_nothing(monkeypatch, tmp_
 
 def test_subagent_receipt_not_in_main_ledger(monkeypatch, tmp_path):
     state = _drive(monkeypatch, tmp_path, "Bash", "python x.py", _fx("pass_exit0.txt"), agent_id="agent-1")
-    assert "verify_receipts" not in state
+    assert vl.receipts_of(state, _SID) == []                                        # 主 session 的收據不混入子代理的
+    assert len(vl.receipts_of(state, vl.agent_receipt_key(_SID, "agent-1"))) == 1     # 005：子代理自己的另放（SubagentStop 對帳用）
     assert not (tmp_path / "verify-ledger" / f"{_SID}.jsonl").exists()
     side = tmp_path / "verify-ledger" / f"{_SID}.agents.jsonl"
     assert side.exists() and json.loads(side.read_text(encoding="utf-8"))["agent_id"] == "agent-1"

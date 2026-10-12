@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from wg_core import (
-    _ensure_state, _now_iso, write_state, output_nothing, output_block,
+    _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block,
     append_guard_log, WORKFLOW_DIR,
 )
 from wg_evasion import (
@@ -34,7 +34,7 @@ from wg_evasion import (
 )
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_reason, measure_cfg, measure_gate_reason, measure_advisory,
-    measure_cmds_of,
+    measure_cmds_of, agent_receipt_key,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -765,6 +765,40 @@ def _verify_gates(
             print(m_err, file=sys.stderr)
             append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
     return reason, kind, advice
+
+
+def handle_subagent_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """SubagentStop：子代理收尾只跑寫碼查核閘（對帳／量尺），看子代理自己改的檔（agent_modified_files[agent_id]）與
+    自己的收據（agent_receipt_key）；記憶類與其他 Stop 閘不跑。子代理沒有人能回答 AskUserQuestion → 擋到底，不計預算、
+    不問使用者；只讀檔的子代理不擋。"""
+    session_id = input_data.get("session_id", "") or ""
+    agent_id = str(input_data.get("agent_id") or "")
+    state = read_state(session_id) if session_id and agent_id else None
+    own = list(((state or {}).get("agent_modified_files") or {}).get(agent_id) or [])
+    if not state or not own:
+        output_nothing()
+        return
+    tp = input_data.get("agent_transcript_path") or ""
+    transcript = Path(tp) if tp and Path(tp).is_file() else None
+    transcript_text = read_transcript_tail(transcript)
+    last_text = str(input_data.get("last_assistant_message") or "") or get_last_assistant_text(transcript, text=transcript_text)
+    turn_seq = int(state.get("turn_seq", 0))
+    rg_cfg, mg_cfg = reconcile_cfg(config), measure_cfg(config)
+    if not last_text or not (rg_cfg.get("enabled", True) or mg_cfg.get("enabled", True)):
+        output_nothing()
+        return
+    key = agent_receipt_key(session_id, agent_id)
+    reason, kind, _advice = _verify_gates(state, key, turn_seq, last_text, transcript, transcript_text, own,
+                                          rg_cfg, mg_cfg, {}, False)
+    write_state(session_id, state)      # measure_advised 等判定副作用
+    if not reason:
+        output_nothing()
+        return
+    gate = "MeasureGate" if kind == "measure" else "ReconcileGate"
+    summary = reason.split("\n")[1].strip() if "\n" in reason else reason
+    append_guard_log("reconcile", {"event": "subagent_block", "session_id": session_id, "agent_id": agent_id,
+                                   "turn_seq": turn_seq, "kind": kind, "reason": reason[:300]})
+    output_block(f"{non_interactive_message(gate, None, summary, '子代理 Stop')}\n原擋訊息：\n{reason}")
 
 
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:

@@ -34,6 +34,7 @@ HANDLERS = {
     "PostCompact": ("handlers.post_compact", "handle_post_compact"),        # 選配 #4
     "PostToolBatch": ("handlers.post_tool_batch", "handle_post_tool_batch"),  # 選配 #4
     "Stop": ("handlers.stop", "handle_stop"),
+    "SubagentStop": ("handlers.stop", "handle_subagent_stop"),   # 子代理收尾只跑寫碼查核閘（對帳／量尺），擋到底
     "SessionEnd": ("handlers.session_end", "handle_session_end"),
 }
 

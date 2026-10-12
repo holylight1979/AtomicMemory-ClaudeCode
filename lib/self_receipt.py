@@ -54,6 +54,32 @@ def write_self_receipt(claude_dir: Path, argv: List[str], sentinel: str, exit_co
         return None
 
 
+GC_KEEP = 200
+GC_MAX_AGE_DAYS = 30
+
+
+def prune_self_runs(claude_dir: Path, keep: int = GC_KEEP, max_age_days: int = GC_MAX_AGE_DAYS,
+                    now: Optional[float] = None, err: Optional[TextIO] = None) -> int:
+    """_runs/ 清理（SessionEnd 呼叫）：只留最新 keep 份（依檔名時間戳），其餘刪；留下的超過 max_age_days 天（看 mtime）也刪。
+    回刪掉的份數；任何一份刪不掉 → err（預設 stderr）一行，繼續下一份。"""
+    d = Path(claude_dir) / RUNS_REL
+    try:
+        files = sorted(d.glob("*.json"), reverse=True)
+    except OSError as e:
+        print(f"[self_receipt] 清理 {d} 失敗：{type(e).__name__}: {e}", file=err or sys.stderr)
+        return 0
+    cutoff = (now if now is not None else datetime.now(timezone.utc).timestamp()) - max_age_days * 86400
+    removed = 0
+    for i, f in enumerate(files):
+        try:
+            if i >= keep or f.stat().st_mtime < cutoff:
+                f.unlink()
+                removed += 1
+        except OSError as e:
+            print(f"[self_receipt] 刪不掉舊收據 {f}：{type(e).__name__}: {e}", file=err or sys.stderr)
+    return removed
+
+
 def load_self_receipts(claude_dir: Path, limit: int = LOAD_LIMIT) -> List[Dict[str, Any]]:
     """讀 _runs/ 最新的 limit 份自寫收據（檔名以 UTC 時間戳開頭，排序即新舊）；壞檔與非自寫來源略過。"""
     d = Path(claude_dir) / RUNS_REL
