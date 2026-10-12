@@ -610,14 +610,16 @@ def match_span(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = ""
     return next((span for span, diff in _ruler_spans(measure_cmd, cmd, shell, root, measure_root) if not diff), None)
 
 
-def ruler_env_diff(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "", measure_root: str = "") -> List[str]:
-    """量尺鏈結構上對上了、卻因為有效環境和表上不同而不算時，差在哪些環境設定（名稱照寫法）；給擋訊息講真正原因。其餘 → []。"""
+def ruler_env_mismatch(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "",
+                       measure_root: str = "") -> Optional[Tuple[Tuple[int, int], List[Tuple[str, str, str]]]]:
+    """量尺鏈結構上對上了、卻因為有效環境和表上不同而不算 → (片段, [(名稱, 這次的值, 表上的值)])，值不存在是 ""；
+    給擋訊息講真正原因（多設了、還是少了表上要的）。對上了或結構上就對不上 → None。"""
     spans = list(_ruler_spans(measure_cmd, cmd, shell, root, measure_root))
-    return [] if any(not d for _, d in spans) else next((d for _, d in spans), [])
+    return None if not spans or any(not d for _, d in spans) else spans[0]
 
 
 def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_root: str):
-    """結構上對上量尺的候選片段（照 end 由前到後）→ ((start, end), 片段裡和表上不同的有效環境名稱)。"""
+    """結構上對上量尺的候選片段（照 end 由前到後）→ ((start, end), [(名稱, 這次的值, 表上的值)]：片段裡和表上不同的有效環境)。"""
     m = parse_cmds(measure_cmd, root=measure_root or root)
     e = parse_cmds(cmd, shell, root or measure_root)
     if not m:
@@ -627,11 +629,12 @@ def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_ro
     for end in range(_first_filter(e), len(e) + 1):
         start = end - len(m)
         if start >= 0 and (end == len(e) or tail_ok) and _reachable(e, start) and _chain_at(m, e, start):
-            diff: List[str] = []
+            diff: List[Tuple[str, str, str]] = []
             for j in range(len(m)):
-                here, want = e_env[start + j], m_env[j]
-                diff += [nv[0] for k, nv in {**want, **here}.items()
-                         if _scope_vals(here).get(k) != _scope_vals(want).get(k) and nv[0] not in diff]
+                here, want = _scope_vals(e_env[start + j]), _scope_vals(m_env[j])
+                names = {**{k: nv[0] for k, nv in m_env[j].items()}, **{k: nv[0] for k, nv in e_env[start + j].items()}}
+                diff += [(names[k], here.get(k, ""), want.get(k, "")) for k in names
+                         if here.get(k) != want.get(k) and names[k] not in (d[0] for d in diff)]
             yield (start, end), diff
 
 

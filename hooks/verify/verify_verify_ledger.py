@@ -108,9 +108,10 @@ def repo(tmp_path):
 
 
 def test_snapshot_rev_matches_git_and_dirty_hash_tracks_stat(repo):
+    """rev 對得上 git、dirty 雜湊跟著 stat 變；時限給寬（機器忙時 git 會超過預設 1 秒，那是 024a 那案測的行為）。"""
     state: dict = {}
     f = str(repo / "a.py")
-    snap = vl.vcs_snapshot(str(repo), [f], state)
+    snap = vl.vcs_snapshot(str(repo), [f], state, budget_s=10.0, subprocess_s=5.0)
     assert len(snap) == 1 and snap[0]["kind"] == "git" and snap[0]["truncated"] is False
     assert snap[0]["rev"] == _git(repo, "rev-parse", "--short", "HEAD")
     h1 = snap[0]["dirty"]
@@ -119,6 +120,18 @@ def test_snapshot_rev_matches_git_and_dirty_hash_tracks_stat(repo):
     (repo / "a.py").write_text("x=22\n", encoding="utf-8", newline="\n")
     assert vl.dirty_hash(repo, [f])[0] != h1
     assert vl.dirty_hash(repo, []) == ("", False)
+
+
+def test_024a_rev_timeout_marks_truncated_with_reason(repo, monkeypatch):
+    """024a：取 rev 的子行程逾時（整體預算還沒到）→ 該筆 truncated=True、why 說取不到 rev，dirty 照算；
+    替身：rev 指令換成睡 3 秒的 python，子行程上限 0.3 秒，走真的 _run_rev 逾時路徑。配對：取得到時照舊 False。"""
+    monkeypatch.setattr(vl, "_rev_cmd", lambda kind, root: [sys.executable, "-c", "import time; time.sleep(3)"])
+    f = str(repo / "a.py")
+    snap = vl.vcs_snapshot(str(repo), [f], {}, budget_s=10.0, subprocess_s=0.3)
+    assert snap and snap[0]["rev"] == "" and snap[0]["truncated"] is True
+    assert "取不到 git rev" in snap[0].get("why", "") and snap[0]["dirty"]
+    snap = vl.vcs_snapshot(str(repo), [f], {}, budget_s=10.0, _rev=lambda k, r, t: "abc1234")
+    assert snap and snap[0]["rev"] == "abc1234" and snap[0]["truncated"] is False
 
 
 def test_snapshot_uses_rev_cache_within_60s(repo):

@@ -223,7 +223,8 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
                  _stat: Callable[[str], Any] = os.stat) -> List[Dict[str, Any]]:
     """cwd 與各 path 的 VCS 根（最多 2 個）→ [{kind, root, rev, dirty, truncated}]。
     整支函式一個 deadline＝起點＋budget_s：找 root、每個子行程（timeout＝min(subprocess_s, 剩餘)）、stat 迴圈每 10 檔
-    都查 deadline；檔數上限 200；任一處超過 → 該筆 truncated=True 並停止。rev 每 root 60 s 快取在 state["vcs_rev_cache"]；非 VCS 回 []。"""
+    都查 deadline；檔數上限 200；任一處超過 → 該筆 truncated=True 並停止。rev 取不到（子行程逾時、失敗、空字串）→ 該筆
+    truncated=True、why 寫原因，照樣算 dirty。rev 每 root 60 s 快取在 state["vcs_rev_cache"]；非 VCS 回 []。"""
     deadline = _clock() + budget_s
     paths = [p for p in paths if p][:SNAPSHOT_MAX_FILES + 1]
     roots: List[Tuple[str, Path]] = []
@@ -259,9 +260,13 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
         if cached and now_wall - float(cached.get("at", 0)) < rev_cache_s and cached.get("rev"):
             entry["rev"] = cached["rev"]
         else:
-            entry["rev"] = _rev(kind, root, min(subprocess_s, remaining))
+            limit = min(subprocess_s, remaining)
+            entry["rev"] = _rev(kind, root, limit)
             if entry["rev"]:
                 cache[key] = {"rev": entry["rev"], "at": now_wall}
+            else:                 # 子行程逾時、失敗或回空字串：結果不完整要說出來，不能讓空 rev 看起來像正常結果
+                entry["truncated"] = True
+                entry["why"] = f"取不到 {kind} rev（子行程上限 {limit:.2f} 秒內逾時、失敗或回空字串）"
             if _clock() > deadline:
                 entry["truncated"] = True
                 out.append(entry)
@@ -606,11 +611,15 @@ _RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1
                "後面只准 `| tail` 或 `| Select-Object -Last N`；請照表上原字串單獨跑。")
 
 
-def _scope_env_why(envs: List[str]) -> str:
-    """環境設定改了驗證範圍的說明（session 收據與自寫收據的擋訊息共用）。"""
-    return (f"用環境設定 {'、'.join(envs)} 改了驗證選項（PYTEST_ADDOPTS 會替 pytest 加 -k、路徑這類選項把範圍縮成子集，"
-            "PYTHONOPTIMIZE 等於 -O），跑的不是表上那組選項，也不算整體驗證；拿掉這個設定（要清空就設成空值），"
-            "或在沒有這些設定的環境照表上原字串跑。")
+def _scope_env_why(diffs: List[Tuple[str, str, str]]) -> str:
+    """環境設定改了驗證範圍的說明（session 收據與自寫收據的擋訊息共用）。diffs＝[(名稱, 這次的值, 表上的值)]，
+    表上的值空＝這次多設了；表上有值＝這次少了或值不同。"""
+    extra = [n for n, _, want in diffs if not want]
+    differ = [f"{n}（表上是 {want!r}）" for n, _, want in diffs if want]
+    parts = ([f"用環境設定 {'、'.join(extra)} 改了驗證選項（PYTEST_ADDOPTS 會替 pytest 加 -k、路徑這類選項把範圍縮成子集，"
+              "PYTHONOPTIMIZE 等於 -O）"] if extra else []) + ([f"環境設定 {'、'.join(differ)} 跟表上量尺不同"] if differ else [])
+    fix = "拿掉多加的設定（要清空就設成空值），" if extra else ""
+    return "；".join(parts) + f"，跑的不是表上那組選項，也不算整體驗證；{fix}照表上原字串在沒有其他這類設定的環境跑。"
 
 
 def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Iterable[str] = ()) -> str:
@@ -629,13 +638,17 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
             return f"這條指令 {head} 含解析不了的語法（{why}），不算跑了量尺；請照表上原字串單獨跑。"
         if any(_ruler_ran(mc, r) for mc in rulers):
             return ""
+        for mc in rulers:         # 結構上就是量尺、只差環境，而且量尺自己的字以外沒寫哨兵：講真正原因
+            mis = _self_receipt.ruler_env_mismatch(mc, raw, sh, _cwd_of(r))
+            if mis and not _prints_sentinel(raw, sh, mis[0], mc):
+                return f"這條指令 {head} {_scope_env_why(mis[1])}"
         if _prints_sentinel(raw, sh):
             return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
                     "哨兵只能由被執行的程式印出。")
-        envs = (next((d for d in (_self_receipt.ruler_env_diff(mc, raw, sh, _cwd_of(r)) for mc in rulers) if d), [])
-                or (_self_receipt.cmd_scope_env(raw, sh) if _self_receipt.whole_run_shape(raw, sh, _cwd_of(r)) else []))
-        if envs:                  # 結構上就是量尺或整體驗證，只差環境：講真正原因，不說「前後接了別的指令」
-            return f"這條指令 {head} {_scope_env_why(envs)}"
+        if _self_receipt.whole_run_shape(raw, sh, _cwd_of(r)):
+            envs = _self_receipt.cmd_scope_env(raw, sh)
+            if envs:              # 命令列是整體驗證、只差環境
+                return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs])}"
         if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
             return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"
         if not _in_tree(r):
@@ -1441,7 +1454,7 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                           f"跑 `{cmd}`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
         env_runs = [] if root_wt else _self_run_scope_env(_runs[0], cmd, str(root))
         if env_runs:
-            blocks[-1] += f"run_verify 自寫收據對上了這把尺，但跑的時候{_scope_env_why(env_runs)}"
+            blocks[-1] += f"run_verify 自寫收據對上了這把尺，但跑的時候{_scope_env_why([(n, '', '') for n in env_runs])}"
     reason = None
     if blocks:
         reason = ("[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n" + "\n".join("  ✗ " + b for b in blocks)

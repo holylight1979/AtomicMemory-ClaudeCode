@@ -2144,10 +2144,16 @@ def test_024_1_ruler_with_scope_env_compares_values():
 def test_024_1_scope_env_block_message_names_variable_and_fix():
     """024 規則 1：被環境選項擋下時，訊息說是哪個環境設定、怎麼改，不是「量尺前後接了別的指令」；多段量尺的第一段帶了也一樣。"""
     reason = _gate("PYTEST_ADDOPTS='-k x' python -m pytest -q", row=_pytest_row())
-    assert reason and "PYTEST_ADDOPTS" in reason and "拿掉這個設定" in reason and "前後接了別的指令" not in reason
+    assert reason and "PYTEST_ADDOPTS" in reason and "拿掉多加的設定" in reason and "前後接了別的指令" not in reason
     row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q && python check.py"}}
     reason = _gate("PYTEST_ADDOPTS='-k x' python -m pytest -q && python check.py", row=row)
     assert reason and "PYTEST_ADDOPTS" in reason and "前後接了別的指令" not in reason
+    row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "PYTEST_ADDOPTS='--tb=short' python -m pytest -q"}}
+    reason = _gate("python -m pytest -q", row=row)                                      # 少了表上要的值：不叫人拿掉
+    assert reason and "表上是 '--tb=short'" in reason and "拿掉多加的設定" not in reason
+    row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q && echo VERIFY_CHECK DONE"}}
+    reason = _gate("PYTEST_ADDOPTS='-k x' python -m pytest -q && echo VERIFY_CHECK DONE", row=row)
+    assert reason and "PYTEST_ADDOPTS" in reason and "寫了哨兵字樣" not in reason        # 量尺自帶的 DONE 不是這次的原因
 
 
 def test_024_2_self_receipt_with_scope_env_does_not_settle_part(tmp_path, monkeypatch):
