@@ -5163,6 +5163,45 @@
         "OverflowError mktime"
       ],
       "scope": "global"
+    },
+    {
+      "name": "ai寫碼四種行為偏差-第一句當全部-從最大檔出發-函式名下結論-沒派工卻寫無待答",
+      "path": "memory/工作流/ai寫碼四種行為偏差-第一句當全部-從最大檔出發-函式名下結論-沒派工卻寫無待答.md",
+      "triggers": [
+        "第一句當全部",
+        "從最大檔出發",
+        "函式名下結論",
+        "沒派工卻寫無待答",
+        "行為偏差",
+        "綜觀需求",
+        "候選檔怎麼挑",
+        "無待答項",
+        "看函式名就寫結論",
+        "沒實測就下結論",
+        "最大檔",
+        "病灶清單"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail",
+      "path": "_AIDocs/_atoms/MemDev/第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail.md",
+      "triggers": [
+        "第二意見工具",
+        "second-opinion",
+        "不變量",
+        "對抗測試",
+        "CommandLineToArgvW",
+        "切參數",
+        "deadline",
+        "subprocess timeout",
+        "分塊掃描",
+        "終態保護",
+        "pipefail",
+        "修 BLOCK 引入回歸",
+        "replay-guard"
+      ],
+      "scope": "global"
     }
   ]
 }

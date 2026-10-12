@@ -79,6 +79,7 @@
 | 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞 | 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞 |
 | 禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱 | 禁語 hook 不開引用豁免（誤報噪音 vs 契約破洞不對稱） |
 | 程式批量產生的atom觸發詞不得含日常字與種類單字-一句話就把整批拉進注入吃光預算-只放專名與名稱加種類片語 | 程式批量產生的atom觸發詞不得含日常字與種類單字-一句話就把整批拉進注入吃光預算-只放專名與名稱加種類片語 |
+| 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail | 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail |
 | 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem | 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進UPS-引用的糾正詞誤觸DeepPostMortem |
 | 衝突偵測-block-資格閘-複驗一致-分區感知-待審出路 | 衝突偵測-block-資格閘-複驗一致-分區感知-待審出路 |
 | 衝突偵測把互補的兩張卡判成矛盾-同一事實各說一半被擋寫入-一個樣本待查-depends驗過期可行驗矛盾誤報 | 衝突偵測把互補的兩張卡判成矛盾-同一事實各說一半被擋寫入-一個樣本待查-Depends驗過期可行驗矛盾誤報 |
