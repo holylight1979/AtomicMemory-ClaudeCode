@@ -496,6 +496,7 @@ def check_git_commit_order(
         # 原子記憶系統自己的程式與文件不等口令：驗證過就直接上版控（USER.md 例外條）；記憶內容三層由 vcs-sync worker
         # 自動提交，不經此閘。看的是每段 commit 實際落在哪個 repo，不是 session 開在哪；只認看得出落點的寫法
         # （_exempt_run_dirs 白名單），每段都落在 ~/.claude 本身或它的 git worktree 才豁免；其餘照常檢查口令。
+        shape_hint = ""
         if segments and cfg.get("exempt_cwd_under_claude_dir", True):
             base = cwd or str(((state or {}).get("session") or {}).get("cwd") or "")
             run_dirs = _exempt_run_dirs(command, base)
@@ -508,6 +509,10 @@ def check_git_commit_order(
                                      "不套用豁免，繼續口令檢查\n")
                 except OSError:
                     pass
+            if run_dirs is None and _commit_target_is_claude(base) is True:
+                shape_hint = ("\n若這次 commit 是在原子記憶系統自己的 repo（或它的 worktree）：豁免只認整條命令由 `&&` 串起、"
+                              "第一段可 `cd <絕對路徑>`、其餘每段都是 `git [-C <字面路徑>] add|commit|push|status|diff|log|show|rm|mv|restore …` "
+                              "的寫法；把管線、`;`、命令替換、未加引號的 heredoc 拿掉，單獨下 commit 指令就不用口令。")
         prompts = (state or {}).get("recent_user_prompts") or []
         if not prompts:
             try:
@@ -532,7 +537,7 @@ def check_git_commit_order(
             "使用者原話只認剔掉背景通知、其他 session 的訊息、系統注入後的字；那則訊息若夾了這些區塊或標籤字樣而整則不被認，"
             "請使用者單獨再打一次口令（只認最新一則使用者原話，中間夾系統通知或背景事件就要重下口令）。\n"
             "確為使用者本回合要求：引用其原話請他重下口令；長期口令調整 workflow/config.json "
-            "guard.commit_order.keywords（enabled=false 停用本閘）。"
+            "guard.commit_order.keywords（enabled=false 停用本閘）。" + shape_hint
         )
     except Exception as e:
         try:

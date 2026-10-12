@@ -385,6 +385,19 @@ def test_tool_cwd_wins_over_session_cwd_and_unreadable_git_file_is_undecided(tmp
     assert "不套用豁免" in capsys.readouterr().err
 
 
+def test_off_whitelist_shape_in_claude_repo_says_how_to_commit_without_order(tmp_path):
+    """在記憶系統自己的 repo 裡、寫法不在白名單（尾巴接管線）→ 照常要口令，但擋訊息要說「單獨下 commit 就不用口令」；
+    在別的 repo 不給這句（那裡本來就要口令）。"""
+    from handlers import pre_tool_use as ptu
+    ours = _wt(tmp_path, "wt-ours", Path(ptu.CLAUDE_DIR) / ".git" / "worktrees" / "track-x")
+    other = tmp_path / "other"
+    (other / ".git").mkdir(parents=True)
+    msg = check_git_commit_order("Bash", {"command": "git commit -m x | tail -2"}, {}, _peer_state(ours), str(ours))
+    assert msg and "單獨下 commit 指令就不用口令" in msg
+    msg2 = check_git_commit_order("Bash", {"command": "git commit -m x | tail -2"}, {}, _peer_state(other), str(other))
+    assert msg2 and "單獨下 commit 指令" not in msg2
+
+
 def test_wrapped_commit_is_not_skipped_by_parser(tmp_path):
     """bash -c／子 shell 包住的 git commit 解析器拆不出段：不能當成「沒有 commit」放行，照常檢查口令（即使在記憶系統 repo）。"""
     st = {"recent_user_prompts": ["改好了"], "turn_prompts": ["改好了"], "session": {"cwd": str(tmp_path)}}
