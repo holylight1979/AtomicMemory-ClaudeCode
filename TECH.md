@@ -603,7 +603,7 @@ sequenceDiagram
 | `smells_report`／`smells_max_age_days` | 空／7 | 專案有自己的壞味道報告產生器 → 指過去，天數照報告更新頻率 |
 | `candidate_top_n`／`post_compact_chars`／`max_card_chars` | 5／1500／6000 | 病灶段很長、部位很多、壓縮後要更多綜觀 → 調整字數與條數 |
 | `authority_map` | 空 | 專案有權威文件（規格書、介面表）→ 檔名樣式對到地圖檔 |
-| `verify_chains`（部位表量尺欄） | 無 | 部位有實機或編輯器驗證流程 → 填 runtime_gate／run，量尺閘才會要求跑 |
+| 部位表「量尺」欄＋`verify_chains` | 無 | 部位有固定的驗證指令 → 在部位表該列量尺欄填 `量法｜指令｜門檻`（有這欄量尺閘才會要求跑）；驗證要先有環境（實機、編輯器）→ 再在 `verify_chains[部位].runtime_gate` 填就緒檢查，沒就緒就擋並說原因 |
 | `path_bases`、`eol_policy`、`source_encodings`、`commit_encoding` | 單根／依檔頭／utf-8 | 多根倉庫、CRLF 專案、非 UTF-8 原始碼（例 cp950） |
 | `verify_ledger.sentinel_regex`（config） | PASS／FAIL／DONE 兩條＋pytest 映射 | 專案既有工具尾行格式不同 → 加映射，不改工具 |
 
