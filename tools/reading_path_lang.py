@@ -112,7 +112,8 @@ class Module:
     aliases: dict = field(default_factory=dict)   # 模組層函式別名 → [Call 參照]（flat = itertools.chain.from_iterable）
     bindings: Counter = field(default_factory=Counter)   # 模組層名字被綁定幾次（def、class、import、指定）
     opaque: set = field(default_factory=set)      # 模組層名字被指定成算出來的值，或被函式用 global 改寫：看不到是什麼
-    attr_stores: set = field(default_factory=set)   # 模組層程式碼寫過的屬性 (接收者, 屬性名)：worker.work = …
+    attr_stores: set = field(default_factory=set)   # 不在任何解析出的函式裡寫過的屬性 (接收者, 屬性名)：模組層、類別本體、巢狀類別…
+    scoped_nodes: set = field(default_factory=set, repr=False)   # 解析時用：已歸到某個函式的節點 id（其餘的屬性寫入歸模組層）
     static_usings: list = field(default_factory=list)   # C# using static 的型別名
 
     @property
@@ -153,6 +154,9 @@ def parse_python(rel: str, text: str) -> Module:
             _py_main_block(mod, node, tree)
         else:
             _py_module_stmt(mod, node)
+    loose = [n for n in ast.walk(tree) if id(n) not in mod.scoped_nodes]
+    mod.attr_stores |= _py_attr_stores(loose)   # 專案內任何地方的屬性寫入都要算（類別本體、巢狀類別、if 裡的 def…）
+    mod.scoped_nodes = set()
     if not any(f.entry for f in mod.funcs) and "main" in mod.defs:
         next(f for f in mod.funcs if f.id == mod.defs["main"]).entry = True
     return mod
@@ -186,6 +190,7 @@ def _py_main_block(mod: Module, node: ast.If, tree: ast.Module) -> None:
     fid = f"{mod.file}::<main>"
     f = Func(fid, mod.file, "<main>", "<main>", "", "py", node.lineno, entry=True)
     nodes = _py_scan(mod, node.body)
+    mod.scoped_nodes |= {id(n) for n in nodes}
     _py_count_bindings(mod, nodes)
     _py_locals(f, None, nodes)
     f.calls = _py_calls(mod, nodes, fid)
@@ -201,11 +206,29 @@ def _py_stores(nodes: list) -> Counter:
     return Counter(n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and id(n) not in bare)
 
 
+_OTHER_BINDERS = (ast.ExceptHandler, ast.MatchAs, ast.MatchStar, ast.MatchMapping, ast.ClassDef)
+
+
+def _bound_name(node) -> str:
+    """Name 節點以外的綁定寫法綁了哪個名字：import 別名（import a.b 綁 a）、except … as、match 擷取（case x、*rest、
+    **rest）、def／class 名；不是這些、或沒綁名字（case _、except E:）→ ""。"""
+    if isinstance(node, ast.alias):
+        return "" if node.name == "*" else node.asname or node.name.split(".")[0]
+    if isinstance(node, ast.MatchMapping):
+        return node.rest or ""
+    return (node.name or "") if isinstance(node, (*_OTHER_BINDERS, *_DEF_NODES)) else ""
+
+
+def _py_other_binds(nodes: list) -> Counter:
+    """Name、import、def 以外的綁定各幾次：except … as、match 擷取、巢狀 class（與 Name 指定一樣當區域變數）。"""
+    return Counter(n for n in (_bound_name(x) for x in nodes if isinstance(x, _OTHER_BINDERS)) if n)
+
+
 def _py_count_bindings(mod: Module, nodes: list) -> None:
-    """模組層程式碼裡的綁定：import 的名字、被指定的名字都算一次（__main__ 區塊裡的指定也是模組層）。"""
-    for node in [n for n in nodes if isinstance(n, (ast.Import, ast.ImportFrom))]:
-        mod.bindings.update((a.asname or a.name).split(".")[0] for a in node.names)
+    """模組層程式碼裡的綁定都算一次：被指定的名字、import、except … as、match 擷取、if／try 裡的 def 與 class
+    （__main__ 區塊裡的也是模組層）。"""
     mod.bindings.update(_py_stores(nodes))
+    mod.bindings.update(n for n in map(_bound_name, nodes) if n)
 
 
 def _py_module_stmt(mod: Module, node: ast.stmt) -> None:
@@ -214,7 +237,6 @@ def _py_module_stmt(mod: Module, node: ast.stmt) -> None:
     nodes = _py_scan(mod, [node])
     _py_count_bindings(mod, nodes)
     _py_calls(mod, nodes, "")
-    mod.attr_stores |= _py_attr_stores(nodes)
     target = node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else getattr(node, "target", None)
     value = getattr(node, "value", None)
     if not isinstance(target, ast.Name) or value is None:
@@ -247,15 +269,16 @@ def _py_str_ref(expr) -> Call | None:
 
 
 def _py_class(mod: Module, node: ast.ClassDef) -> None:
-    bases = [_py_recv(b).split(".")[-1] for b in node.bases if _py_recv(b)]
+    bases = [_py_recv(b) for b in node.bases if _py_recv(b)]      # 保留模組前綴（collections.UserDict），沿綁定鏈解析
     cls = Cls(node.name, "py", [mod.file], bases)
     for item in node.body:
         if isinstance(item, _DEF_NODES):
             _py_func(mod, item, node.name + ".", cls)
         elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and _py_ann(item.annotation):
             cls.fields[item.target.id] = cls.declared_fields[item.target.id] = _py_ann(item.annotation)
-    plain = [item for item in node.body if not isinstance(item, (*_DEF_NODES, ast.ClassDef))]
-    mod.attr_stores |= {(node.name, name) for name in _py_stores(list(_own_nodes(plain)))}   # 類別本體 run = other：蓋掉同名方法
+    plain = list(_own_nodes([item for item in node.body if not isinstance(item, _DEF_NODES)]))
+    names = set(_py_stores(plain)) | {n for n in map(_bound_name, plain) if n}
+    mod.attr_stores |= {(node.name, name) for name in names}   # 類別本體 run = other、import run、巢狀 class run：蓋掉同名方法
     mod.classes.append(cls)
 
 
@@ -273,6 +296,7 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
              blind_defaults={a.arg for a, d in pairs if _py_blind(d)})
     body = _strip_doc(node.body)
     nodes = _py_scan(f, body)
+    mod.scoped_nodes |= {id(n) for n in nodes}
     real = [s for s in body if not isinstance(s, ast.Pass) and not _py_noise_stmt(s) and not _py_move(s)]
     f.simple = (len(real) <= 2 and all(isinstance(s, _SIMPLE_STMTS) for s in real)
                 and not any(isinstance(n, _BRANCHY) for n in nodes))
@@ -280,9 +304,10 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     _py_locals(f, cls, nodes)
     f.calls = _py_calls(mod, nodes, fid)
     f.global_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Global)))
-    mod.opaque |= f.global_names & f.locals            # 函式用 global 改寫模組層名字：之後是什麼看不到
+    bound = f.locals | {n for n in map(_bound_name, nodes) if n}   # 這一層任何寫法綁定的名字（指定、import、def、class…）
+    mod.opaque |= f.global_names & bound               # 函式用 global 改寫模組層名字：之後是什麼看不到
     f.nonlocal_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Nonlocal)))
-    f.nonlocal_writes = f.nonlocal_names & f.locals    # 改的是外層函式的名字（reading-path 回頭標到外層）
+    f.nonlocal_writes = f.nonlocal_names & bound       # 改的是外層函式的名字（reading-path 回頭標到真正持有它的那一層）
     f.receiver_only = _py_receiver_only(f, body)
     mod.funcs.append(f)
     if cls:
@@ -336,8 +361,8 @@ def _py_noise_stmt(stmt: ast.stmt) -> bool:
 
 def _py_ann(ann) -> str:
     """型別標註取類別的寫法：Repo、mod.Repo（保留模組前綴，reading-path 才能沿綁定鏈分出 pathlib.Path 與專案的 Path）、
-    Optional[Repo]、Repo | None、"Repo"（字串只取最後一段）；容器（list[Repo]）回容器名，不是 Repo；
-    聯集有兩個以上非 None 成員（Disk | Cloud）→ 空字串（型別不定，不挑一個）。"""
+    Optional[Repo]、Repo | None、"Repo"／"mod.Repo"（字串照運算式解析，前綴一樣保留）；容器（list[Repo]）回容器名，
+    不是 Repo；聯集有兩個以上非 None 成員（Disk | Cloud）→ 空字串（型別不定，不挑一個）；字串解析不了 → 空字串。"""
     if isinstance(ann, ast.BinOp):
         members = [m for m in (ann.left, ann.right) if not _py_is_none(m)]
         return _py_ann(members[0]) if len(members) == 1 else ""
@@ -350,7 +375,10 @@ def _py_ann(ann) -> str:
             return head
         return _py_ann(members[0]) if len(members) == 1 else ""
     if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
-        return ann.value.split(".")[-1]
+        try:
+            return _py_ann(ast.parse(ann.value.strip(), mode="eval").body)
+        except SyntaxError:
+            return ""
     return _py_recv(ann) if ann is not None else ""
 
 
@@ -466,8 +494,9 @@ def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
     f.attr_stores = _py_attr_stores(nodes)
     for _ in range(len(f.aliases)):                    # v = w 之後 v 被存走，w 指的物件也被存走了
         f.escaped |= {ref.name for v, ref in f.aliases.items() if v in f.escaped and ref.kind == "name"}
-    stores = _py_stores(nodes)
+    stores = _py_stores(nodes) + _py_other_binds(nodes)   # except … as、match 擷取、巢狀 class 也是區域綁定
     f.locals = set(stores)
+    f.inline |= {n.name for n in nodes if isinstance(n, ast.ClassDef)}   # 就地定義的類別：建構它不算未解
     stores.update(f.params)
     stores.update(n.name for n in nodes if isinstance(n, _DEF_NODES))   # 巢狀 def 也是一次綁定
     f.reassigned = {name for name, k in stores.items() if k > 1}
@@ -513,16 +542,18 @@ def _py_receiver_only(f: Func, body: list) -> set:
     """白名單 2 的正向證明：建構之後每一次出現都只是方法呼叫的接收者（w.m(…)）的區域變數。
     只允許一次單一目標的建構指定（w = Foo(…)、w: T = Foo(…)）＋若干 w.m(…)；其他任何出現——當引數（位置或具名）、
     被指定給別的目標（含鏈式、解構）、放進容器、return、yield、讀 w.x 不呼叫、w.x = …、del、被 lambda 或巢狀函式捕捉——
-    都失去資格。不列舉「存走」有哪些寫法：沒被允許的就是不行。"""
-    seen = {}                                          # 名字 → [(Name 節點, 父節點, 祖父節點, 是否在巢狀作用域裡)]
+    都失去資格。不列舉「存走」有哪些寫法：沒被允許的就是不行。Name 以外的綁定（import、except … as、match 擷取、
+    def／class 名，巢狀作用域裡的也算）只要綁到同一個名字，就是又綁了一次，同樣失去資格。"""
+    seen, rebound = {}, set()                          # 名字 → [(Name 節點, 父節點, 祖父節點, 是否在巢狀作用域裡)]
     stack = [(node, None, None, False) for node in body]
     while stack:
         node, parent, grand, inner = stack.pop()
         if isinstance(node, ast.Name):
             seen.setdefault(node.id, []).append((node, parent, grand, inner))
+        rebound.add(_bound_name(node))
         nested = inner or isinstance(node, (*_DEF_NODES, ast.Lambda, ast.ClassDef))
         stack.extend((child, node, parent, nested) for child in ast.iter_child_nodes(node))
-    skip = set(f.params) | f.global_names | f.nonlocal_names
+    skip = set(f.params) | f.global_names | f.nonlocal_names | rebound
     return {name for name in f.constructed if name not in skip and _only_receiver(seen.get(name, []))}
 
 

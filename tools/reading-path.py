@@ -82,7 +82,8 @@ _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候選或未解，所以全確定的數字是可信的下限，含候選的數字是上限參考：
   1. 直接呼叫專案內唯一解析到、名字從未被重新指定的函式（含 import 進來的、模組.函式、類別.靜態方法、建構子、super()／base.）；
      模組層名字只要在任何地方被重新指定或被指定成算出來的值，就不在白名單；名字是哪一層的哪個綁定只查一次
-     （由內往外，遵守 global／nonlocal），連到的目標與被證明沒改指的必須是同一個綁定
+     （由內往外，遵守 global／nonlocal；指定、import、except … as、match 擷取、def／class 都算綁定），
+     連到的目標與被證明沒改指的必須是同一個綁定；同一層同名 import 好幾次，每次都解析到同一個專案內目標才算唯一
   2. 對剛 new 出來的物件呼叫方法（確定型別分派）：Foo().run()，或同一函式內建構一次、之後每一次出現都只是
      方法呼叫接收者（w.m(…)）的區域變數——當引數、被指定給別的目標、放進容器、回傳、yield、被 lambda／巢狀函式捕捉、
      del、w.x = …、讀 w.x 不呼叫，任何一種都失去資格；建構者的名字（含 import 別名）也要從未被重新指定
@@ -94,8 +95,9 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   類別證據（1、2、3 條的建構者、標註、欄位型別、類別.方法 的類別）只認沿綁定鏈（本檔定義、import 鏈、re-export、
   模組.類別）解析到專案內的類別：全專案同名搜尋只給候選；綁定鏈指到專案外（標準庫、typing、第三方）就是外部，
   連候選都不連到同名的專案類別（父類也照這個找）
-  方法目標（1～4 條）還要方法在類別上的綁定沒被改寫：專案任何地方寫過 類別.方法 = …、self.方法 = …、實例.方法 = …、
-  setattr(X, "方法", …)（字串字面值）、del、類別本體再指定，就不給條號；實例的型別看不出時，同名的方法都不給
+  方法目標（1～4 條）還要方法在類別上的綁定沒被改寫：專案任何地方（含類別本體、巢狀類別）寫過 類別.方法 = …、
+  self.方法 = …、實例.方法 = …、setattr(X, "方法", …)（字串字面值）、del、類別本體再指定，就不給條號；
+  改寫照類別身分（定義檔＋名字）記，實例的型別看不出時，同名的方法都不給
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
 
 NOT_WHITELISTED = "候選：不在確定白名單（名字綁定、型別來源或唯一目標證明不了）"
@@ -305,45 +307,70 @@ class Graph:
                 self.mod_index[".".join(parts[i:])].append(file)
         self.by_method = defaultdict(list)
         for c in self.all_classes():
-            for base in c.bases:
-                self.children[base].append(c)
+            for base in c.bases:                       # 子孫照父類名字最後一段收（同名都算：覆寫判斷寧可多）
+                self.children[base.rpartition(".")[2]].append(c)
             for name, ids in c.methods.items():
                 self.by_method[name].extend(ids)
 
     def _index_rebinds(self, modules: list) -> None:
         """在別處被改掉的綁定（綁定穩定的判斷要看）：
         rebound_elsewhere (檔, 名字)：別的程式碼用 模組.名字 = … 改掉的模組層名字；
-        method_writes (類別名或 "*", 屬性名)：會蓋掉同名方法的屬性寫入（"*"＝接收者型別看不出，專案裡同名的方法都算）；
-        nonlocal_rebound (檔, 外層作用域) → 名字：巢狀函式用 nonlocal 改掉的外層名字。"""
+        method_writes (類別身分或 "*", 屬性名)：會蓋掉同名方法的屬性寫入；類別身分＝(定義檔, 類別名)，
+        "*"＝接收者型別看不出，專案裡同名的方法都算；
+        nonlocal_rebound (檔, 外層作用域) → 名字：巢狀函式用 nonlocal 改掉的名字，只標在真正持有它的那一層。"""
         self.rebound_elsewhere, self.method_writes, self.nonlocal_rebound = set(), set(), defaultdict(set)
+        for f in [f for f in self.funcs.values() if f.nonlocal_writes]:
+            for name in f.nonlocal_writes:
+                owner = self._nonlocal_owner(f, name)
+                if owner is not None:
+                    self.nonlocal_rebound[(f.file, owner.qual)].add(name)
         contexts = [(f, f.attr_stores) for f in self.funcs.values()]
         contexts += [(self.module_ctx(m.file), m.attr_stores) for m in modules if m.lang == "py"]
         for f, stores in contexts:
             for recv, attr in stores:
                 self._note_attr_store(f, recv, attr)
-        for f in [f for f in self.funcs.values() if f.nonlocal_writes]:
-            for scope in self.scopes(f)[:-1]:
-                self.nonlocal_rebound[(f.file, scope)] |= f.nonlocal_writes
+
+    def _nonlocal_owner(self, f: lang.Func, name: str):
+        """f 裡 nonlocal name 改的是哪一層：從 f 的外層函式往外，第一個綁定它的作用域（lookup_binding 同一套規則）。"""
+        scopes = self.scopes(f)
+        parent = self.funcs.get(f"{f.file}::{scopes[-2]}") if len(scopes) > 1 else None
+        return self.lookup_binding(parent, name)[1] if parent else None
+
+    @staticmethod
+    def cls_key(cls) -> tuple:
+        """類別身分：(定義檔, 類別名)；不同模組的同名類別分得開。"""
+        return cls.files[0], cls.name
 
     def _note_attr_store(self, f: lang.Func, recv: str, attr: str) -> None:
         """一筆 Python 屬性寫入（含 setattr 字面寫法、del、類別本體再指定）記到它會蓋掉的綁定：
-        self／cls.名 → 這個類別；模組.名 → 那個模組的名字；類別.名、型別看得出的實例.名（剛 new 的、有標註的）→ 那個類別；
-        型別看不出的接收者（參數、欄位鏈、算出來的值）→ 用名字保守判定；接收者確知在專案外 → 不影響專案的方法。"""
+        self／cls.名 → 這個類別；模組.名 → 那個模組的名字；類別.名、剛 new 的或有標註的實例.名 → 沿綁定鏈確知的那個類別；
+        型別看不出（或類別只靠全專案同名搜尋）的接收者 → 用名字保守判定；接收者確知在專案外 → 不影響專案的方法。"""
         if f.lang != "py":
             return
-        if recv in ("self", "cls") and f.cls:
-            self.method_writes.add((f.cls, attr))
+        own = self.cls_of(f) if recv in ("self", "cls") else None
+        if own:
+            self.method_writes.add((self.cls_key(own), attr))
             return
         head = recv.partition(".")[0]
         target = self.module_alias(f, recv) if recv != "?" and not self._shadowed(f, head) else None
         if target:
             self.rebound_elsewhere.add((target, attr))
             return
-        kind, cls, exact = self.recv_type(f, recv) if recv != "?" else ("", None, False)
-        if kind == "external":
+        if recv != "?" and self.recv_type(f, recv)[0] == "external":
             return
-        annotated = (recv in f.param_types or recv in f.declared) and recv not in f.reassigned
-        self.method_writes.add((cls.name if cls and (exact or annotated) else "*", attr))
+        cls = self._written_class(f, recv)
+        self.method_writes.add((self.cls_key(cls) if cls else "*", attr))
+
+    def _written_class(self, f: lang.Func, recv: str):
+        """屬性寫入的接收者沿綁定鏈確知是哪個專案類別：類別名本身、剛 new 的區域變數、有標註的參數或區域變數；
+        其他（欄位鏈、算出來的、指定好幾次、只靠同名搜尋）→ None。"""
+        if "." in recv or recv == "?" or recv in f.reassigned:
+            return None
+        typed = f.constructed.get(recv) or f.param_types.get(recv) or f.declared.get(recv)
+        if typed is None and recv not in f.locals and recv not in f.params:
+            typed = recv                               # 類別.名 = …
+        cls, src = self.class_lookup(f, typed) if typed else (None, "unknown")
+        return cls if src == "project" else None
 
     def _add_class(self, c: lang.Cls) -> None:
         """C# partial（同名類）併成一個；Python 同名類各自保留，查找時優先同檔。"""
@@ -454,9 +481,11 @@ class Graph:
         return cls if self.stable(f, prefix.partition(".")[0]) and self._stable_in(target, last, 0) else None
 
     def base_of(self, c, base: str):
-        """類別 c 的父類 base：Python 在 c 所在的檔沿綁定鏈解析（import 自外部的父類不連到同名的專案類別）；C# 照名字找。"""
+        """類別 c 的父類 base：Python 在 c 所在的檔沿綁定鏈解析（含 collections.UserDict 這種模組前綴），而且名字穩定
+        （class_proof）——全專案同名搜尋、外部、解析不了 → None（當成外部父類：繼承來的方法看不到）；C# 照名字找。
+        找目標與白名單（lookup、super）都只走這條鏈。"""
         if c.lang == "py":
-            return self.class_ref(self.module_ctx(c.files[0]), base)
+            return self.class_proof(self.module_ctx(c.files[0]), base)
         return self.cls_named(base, c.files[0])
 
     def ancestry(self, cls):
@@ -894,7 +923,8 @@ class Graph:
             if decl and self._type_external(*decl):
                 return "external", None, False
             cls = self.class_ref(*decl) if decl else None
-        constructed = head in f.constructed and head not in f.reassigned and head not in f.escaped
+        constructed = (head in f.constructed and head not in f.reassigned | f.import_rebinds
+                       and head not in f.escaped)
         exact = (kind == "static" or constructed) and not rest
         return (kind, cls, exact) if cls or kind == "external" else ("", None, False)
 
@@ -1057,7 +1087,8 @@ class Graph:
         if ("*", fn.name) in self.method_writes:
             return True
         cls = self.cls_named(fn.cls, fn.file)
-        return any((k.name, fn.name) in self.method_writes for k in list(self.ancestry(cls)) + self.descendants(cls))
+        family = list(self.ancestry(cls)) + self.descendants(cls)
+        return any((self.cls_key(k), fn.name) in self.method_writes for k in family)
 
     def _call_rules(self) -> tuple:
         return (1, self._rule1), (2, self._rule2), (3, self._rule3), (4, self._rule4)

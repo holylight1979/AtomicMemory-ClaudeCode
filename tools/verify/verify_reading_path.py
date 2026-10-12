@@ -1502,6 +1502,44 @@ def test_r1_a_global_or_nonlocal_name_written_in_the_function_is_not_a_simple_al
     assert not any(s for _, s in _sure_edges(files, "app.py::outer.change", tmp_path)), f"{decl}：不是簡單區域別名"
 
 
+R1_BINDERS = {
+    "nested_class": "    class work:\n        pass\n",
+    "except_as": "    try:\n        pass\n    except Exception as work:\n        pass\n",
+    "match_capture": "    match 1:\n        case work:\n            pass\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(R1_BINDERS))
+def test_r1_every_binding_form_is_seen_by_the_scope_lookup(tmp_path, form):
+    """Name 指定以外的綁定（巢狀 class、except … as、match 擷取）也是這一層的綁定：遮住模組層的 work，不能確定連過去。"""
+    files = {"app.py": "def work():\n" + BODY + "\n\ndef main():\n" + R1_BINDERS[form] + "    work()\n"}
+    assert ("app.py::work", True) not in _sure_edges(files, "app.py::main", tmp_path), f"{form}：main 自己綁了 work"
+
+
+@pytest.mark.parametrize("decl", ["global", "nonlocal"])
+def test_r1_a_global_or_nonlocal_import_rebinding_is_not_stable(tmp_path, decl):
+    """global／nonlocal 之後用 import 改綁（不是 Name 指定）：持有那個名字的作用域被改了，不能確定連到原本的 work。"""
+    if decl == "global":
+        app = ("def work():\n" + BODY + "\n\ndef change():\n    global work\n    from other import work\n\n\n"
+               "def main():\n    change()\n    work()\n")
+        fid, old = "app.py::main", "app.py::work"
+    else:
+        app = ("def outer():\n    def work():\n        return 1\n\n    def change():\n        nonlocal work\n"
+               "        from other import work\n\n    change()\n    work()\n")
+        fid, old = "app.py::outer", "app.py::outer.work"
+    assert (old, True) not in _sure_edges({**OTHER_WORK, "app.py": app}, fid, tmp_path), f"{decl}＋import 改綁了 work"
+
+
+def test_r1_nonlocal_marks_only_the_nearest_binding_scope(tmp_path):
+    """nonlocal work 改的是最近持有 work 的那一層（middle）；outer 自己的 work 沒被改，仍是第 1 條。"""
+    files = {"app.py": ("def outer():\n    def work():\n" + "    " + BODY.replace("\n    ", "\n        ") + "\n"
+                        "    def middle():\n        def work():\n            return 2\n\n        def patch():\n"
+                        "            nonlocal work\n            work = None\n\n        patch()\n\n    middle()\n    work()\n")}
+    edges = [(d, s) for d, s in _sure_edges(files, "app.py::outer", tmp_path / "a") if d.endswith("work")]
+    assert edges == [("app.py::outer.work", True)], "改的是 middle.work，不是 outer.work"
+    assert [r for d, r in _edge_rules(files, "app.py::outer", tmp_path / "b") if d.endswith("work")] == [1]
+
+
 R1_TWIN_IMPORTS = {
     "same": ("from .other import work", "from other import work"),
     "different": ("from .other import work", "from .alt import work"),
@@ -1550,6 +1588,8 @@ R2_USES = {
     "attr_store": "    w.x = 1\n",
     "attr_read": "    n = w.x\n",
     "del": "    if holder:\n        del w\n        return\n",
+    "import_rebind": "    from other import w\n",
+    "except_rebind": "    try:\n        pass\n    except Exception as w:\n        pass\n",
 }
 
 
@@ -1608,6 +1648,30 @@ def test_r3_reexport_through_the_binding_chain_stays_rule_3_despite_a_same_name_
     assert _edge_rules(files, "app.py::main", tmp_path / "b") == [("worker.py::Worker.run", 3)]
 
 
+R3_PREFIXED = {
+    "string_external": ('import pathlib\n\n\nclass Path:\n    def resolve(self):\n        return 1\n\n\n'
+                        'def main(p: "pathlib.Path"):\n    p.resolve()\n', "app.py::main", "app.py::Path.resolve"),
+    "dotted_base": ("import collections\n\n\nclass UserDict:\n    def clear(self):\n        return 1\n\n\n"
+                    "class Child(collections.UserDict):\n    def run(self):\n        return super().clear()\n",
+                    "app.py::Child.run", "app.py::UserDict.clear"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(R3_PREFIXED))
+def test_r3_a_module_prefixed_external_type_or_base_never_links_to_a_same_name_project_class(tmp_path, case):
+    """字串標註 "pathlib.Path"、父類 collections.UserDict：模組前綴保留下來沿綁定鏈解析，指到專案外就不連同名的專案類別。"""
+    app, fid, decoy = R3_PREFIXED[case]
+    g = rp.build_graph(_write(tmp_path, {"app.py": app}))
+    assert decoy not in [e.dst for e in g.edges[fid]], f"{case}：連到了同名的專案類別"
+
+
+def test_r3_a_module_prefixed_string_annotation_to_a_project_class_is_rule_3(tmp_path):
+    files = {"worker.py": WORKER, "app.py": 'import worker\n\n\ndef main(w: "worker.Worker"):\n    w.run()\n'}
+    assert _sure_edges(files, "app.py::main", tmp_path / "a") == [("worker.py::Worker.run", True)], \
+        "字串標註 \"worker.Worker\" 沿 import worker 解析到專案內的類別"
+    assert _edge_rules(files, "app.py::main", tmp_path / "b") == [("worker.py::Worker.run", 3)]
+
+
 def test_r3_a_same_name_class_found_only_by_project_wide_search_is_a_candidate(tmp_path):
     files = {"other.py": WORKER, "app.py": "def main(w: Worker):\n    w.run()\n"}
     assert _sure_edges(files, "app.py::main", tmp_path) == [("other.py::Worker.run", False)], \
@@ -1622,6 +1686,9 @@ R4_REWRITES = {
                   "        return x + 1\n" + R4_OTHER + "\n\ndef main():\n    w = Worker()\n    w.run()\n"),
     "instance_attr": R4_STATIC + R4_OTHER + "\n\ndef patch(x):\n    x.run = other\n\n\ndef main():\n    w = Worker()\n    w.run()\n",
     "setattr": R4_STATIC + R4_OTHER + '\n\nsetattr(Worker, "run", other)\n\n\ndef main():\n    Worker.run()\n',
+    "other_class_body": R4_STATIC + R4_OTHER + "\n\nclass Patch:\n    Worker.run = other\n\n\ndef main():\n    Worker.run()\n",
+    "other_class_body_setattr": (R4_STATIC + R4_OTHER + '\n\nclass Patch:\n    setattr(Worker, "run", other)\n\n\n'
+                                 "def main():\n    Worker.run()\n"),
 }
 
 
@@ -1641,6 +1708,14 @@ def test_r4_an_unrewritten_static_method_stays_rule_1(tmp_path):
                                     "def patch(x: Other):\n    x.run = None\n\n\ndef main():\n    Worker.run()\n")}
     assert _edge_rules(typed, "app.py::main", tmp_path / "c") == [("app.py::Worker.run", 1)], \
         "實例型別看得出（標註 Other）：只算 Other 的 run 被改寫，Worker.run 不受影響"
+
+
+def test_r4_a_rewrite_of_a_same_name_class_in_another_module_does_not_touch_this_one(tmp_path):
+    """方法改寫以類別身分（定義檔＋名字）記：b.Worker.run 被改，不影響沿綁定鏈確知的 a.Worker.run。"""
+    files = {"a.py": R4_STATIC, "b.py": R4_STATIC + "\n\nWorker.run = None\n",
+             "app.py": "from a import Worker\n\n\ndef main():\n    Worker.run()\n"}
+    assert _sure_edges(files, "app.py::main", tmp_path / "a") == [("a.py::Worker.run", True)]
+    assert _edge_rules(files, "app.py::main", tmp_path / "b") == [("a.py::Worker.run", 1)]
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
