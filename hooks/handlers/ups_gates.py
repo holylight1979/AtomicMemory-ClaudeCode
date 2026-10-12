@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from wg_core import _now_iso, _atom_debug_log, _atom_debug_error, is_harness_generated_prompt
+from wg_core import _now_iso, _atom_debug_log, _atom_debug_error, user_typed_text
 from wg_extraction import detect_signal
 from wg_evasion import is_dismiss_prompt
 
@@ -36,18 +36,20 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
     （否則「上GIT」之後補一句別的話就會把口令蓋掉）。Stop 被 block 後續送的
     mid-turn 訊息會誤判為新回合——閘只會多擋一次、要求重下口令，fail-safe。
 
-    背景通知（task-notification）也走 UserPromptSubmit，但它不是使用者說的話：內文永不進清單；
+    清單只存 user_typed_text（剔掉通知、其他 session 的訊息等非使用者區塊後，先清理再截 500 字）。
+    整則都不是使用者的話（背景通知、其他 session 的訊息）也走 UserPromptSubmit：內文永不進清單；
     它在回合關閉後進來＝使用者上一回合的延續，原話沿用（「完工後直接上GIT」跨得過背景等待），
     除非那之後已經 commit 過（口令用掉了）→ 清空，再 commit 要新口令。"""
     has_list = isinstance(state.get("turn_prompts"), list)
-    if is_harness_generated_prompt(clean_prompt):
+    typed = user_typed_text(clean_prompt)[:500]
+    if not typed:
         spent = int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0))
         if not has_list or (not state.get("turn_open") and spent):
             state["turn_prompts"] = []
     elif state.get("turn_open") and has_list:
-        state["turn_prompts"] = (state["turn_prompts"] + [clean_prompt[:500]])[-5:]
+        state["turn_prompts"] = (state["turn_prompts"] + [typed])[-5:]
     else:
-        state["turn_prompts"] = [clean_prompt[:500]]
+        state["turn_prompts"] = [typed]
         state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1   # 本則 UPS 收尾後的 turn_seq
     state["turn_open"] = True
 
@@ -61,29 +63,32 @@ def run_pre_gates(
     lines: List[str],
 ) -> None:
     """執行 detect 段全部前置閘。mutate state / append lines。"""
-    # ── Evasion Guard: 追蹤近 5 則 user prompt ─────
+    # 下面的「使用者說了算」判斷（口令、豁免、使用者決策、否決記憶、停用後端）只吃使用者本人打的字：
+    # 剔掉通知、其他 session 的訊息等區塊後的文字（先清理、再截長）；整則都不是使用者的話 → 空字串。
+    typed = user_typed_text(clean_prompt)
+    typed_lower = typed.lower()
+
+    # ── Evasion Guard: 追蹤近 5 則 user prompt（存清理後的文字；不是使用者的話存空字串，保留「收過一則」的紀錄）─────
     rup = state.setdefault("recent_user_prompts", [])
-    rup.append(clean_prompt[:500])
+    rup.append(typed[:500])
     if len(rup) > 5:
         state["recent_user_prompts"] = rup[-5:]
     track_turn_prompts(state, clean_prompt)
-    # 下面四個是「使用者說了算」的判斷（豁免失敗紀錄、使用者決策、否決記憶、停用後端）：只認使用者本人打的字
-    user_typed = not is_harness_generated_prompt(clean_prompt)
 
-    if user_typed and state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
+    if typed and state.get("failing_tests") and is_dismiss_prompt(typed):
         state["failing_tests"] = []
 
     # ─── User Decision Detector gate ────────────────────────────
     ue_config = config.get("userExtraction", {})
-    if user_typed and ue_config.get("enabled", False):
+    if typed and ue_config.get("enabled", False):
         try:
-            det = detect_signal(clean_prompt)
+            det = detect_signal(typed)
             if det.get("signal"):
                 turn_n = state.get("topic_tracker", {}).get("prompt_count", 0)
                 pending = state.setdefault("pending_user_extract", [])
                 pending.append({
                     "turn_id": f"{session_id}-{turn_n}",
-                    "prompt": clean_prompt,
+                    "prompt": typed,
                     "score": det["score"],
                     "matched": det["matched"],
                     "ts": _now_iso(),
@@ -96,7 +101,7 @@ def run_pre_gates(
     # ─── Confirmed extractions ──
     confirmed = state.get("confirmed_extractions", [])
     if confirmed:
-        veto = user_typed and any(kw in prompt_lower for kw in ("否", "不要記", "別記", "取消記憶"))
+        veto = any(kw in typed_lower for kw in ("否", "不要記", "別記", "取消記憶"))
         if veto:
             for ext in confirmed:
                 _atom_debug_log(
@@ -141,10 +146,10 @@ def run_pre_gates(
 
     # ─── Dual-Backend: long_die user response ─────
     try:
-        long_die = check_long_die_status() if user_typed else None   # 「停用／保持」是使用者的回覆
+        long_die = check_long_die_status() if typed else None   # 「停用／保持」是使用者的回覆
         if long_die:
             backend_name = long_die.get("backend", "")
-            if any(kw in prompt_lower for kw in ("停用", "disable")):
+            if any(kw in typed_lower for kw in ("停用", "disable")):
                 if disable_backend(backend_name):
                     if OllamaClient is not None:
                         OllamaClient._clear_long_die_marker()
@@ -154,7 +159,7 @@ def run_pre_gates(
                     )
                 else:
                     lines.append(f"[Dual-Backend] 停用 '{backend_name}' 失敗，請手動修改 config.json。")
-            elif any(kw in prompt_lower for kw in ("保持", "keep", "忽略")):
+            elif any(kw in typed_lower for kw in ("保持", "keep", "忽略")):
                 if OllamaClient is not None:
                     OllamaClient._clear_long_die_marker()
                 lines.append(f"[Dual-Backend] 保持 '{backend_name}'，long_die 將在時間段到期後自動恢復。")

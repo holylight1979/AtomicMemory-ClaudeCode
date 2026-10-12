@@ -295,6 +295,8 @@ _FAILURE_PROMPT = (
     '"domain_tags": ["tag1"]}]\n\n'
     "規則:\n"
     "- 如果對話中不是真正的失敗（使用者只是描述需求），輸出 []\n"
+    "- 使用者給這個 session 的一次性指示（角色、工作步驟、檔案路徑、操作限制，例如「你是…session」「第一步…」"
+    "「只准讀寫 <路徑>」）不是失敗知識，不要抽成修復規則；只萃取跨 session 也成立的失敗模式\n"
     "- content 遵循「觸發 → 錯誤 → 正確（根因）」格式，最多 150 字\n"
     "- 最多萃取 2 條\n"
     "- domain_tags: 1-3 個領域標籤（如 gameplay, memory-system, git, unity, ollama）\n"

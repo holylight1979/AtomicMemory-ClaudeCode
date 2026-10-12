@@ -27,7 +27,7 @@ from .atom_spec import parse_frontmatter, slugify
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 CONTEXT_TEXT_CHARS = 600
 
-_STRIP_BLOCK_TAGS = ("system-reminder", "ide_selection", "ide_opened_file", "task-notification")
+_STRIP_BLOCK_TAGS = ("system-reminder", "ide_selection", "ide_opened_file", "task-notification", "cross-session-message")
 _BLOCK_RE = re.compile(
     r"<(" + "|".join(_STRIP_BLOCK_TAGS) + r")\b[^>]*>.*?</\1>", re.S | re.I,
 )

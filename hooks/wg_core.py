@@ -278,32 +278,40 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
     return text[:lo]
 
 
-# harness 注入標籤（IDE 開檔/選取、system-reminder、skill 展開、Claude in Chrome 的 browser_instruction）——成對或未閉合
-# （截斷）皆吃到閉合標或字串尾。用於把「使用者訊息」清成「使用者實際打的字」。
+# harness 注入標籤（IDE 開檔/選取、system-reminder、背景 agent/task 完成通知、其他 Claude session 用 SendMessage
+# 送來的訊息、skill 展開、Claude in Chrome 的 browser_instruction）：成對或未閉合（截斷）皆吃到閉合標或字串尾。
+# 用於把「使用者訊息」清成「使用者實際打的字」。
 _HARNESS_TAG_RE = re.compile(
-    r"<(system-reminder|task-notification|ide_opened_file|ide_selection|ide_diagnostics|"
+    r"<(system-reminder|task-notification|cross-session-message|ide_opened_file|ide_selection|ide_diagnostics|"
     r"command-name|command-message|command-args|local-command-stdout|browser_instruction)\b[^>]*>"
     r".*?(?:</\1>|\Z)",
     re.DOTALL | re.IGNORECASE,
 )
-# harness 代替使用者送進 UserPromptSubmit 的整則訊息（背景 agent/task 完成通知）。
-# 內容是 sub-agent 的回報原文，不是使用者打的字——糾正偵測、失敗萃取都不該吃它。
-_HARNESS_PROMPT_PREFIXES = ("<task-notification", "[SYSTEM NOTIFICATION", "<cross-session-message")
+# 沒有標籤包住的系統通知：這行開頭之後整則都是 harness 的說明文字
+_SYSTEM_NOTIFICATION_PREFIX = "[SYSTEM NOTIFICATION"
+
+
+def user_typed_text(prompt: str) -> str:
+    """使用者本人打的字：剔掉 harness 注入區塊（_HARNESS_TAG_RE）與 hook 殘渣行，剩下若以系統通知開頭整則不算。
+    空字串＝這則不是使用者的話。口令、糾正、豁免、使用者決策、不要記、停用等權威判斷只吃這個結果（先清理、再截長）；
+    使用者的字前後夾了通知或其他 session 的訊息，只剔掉那些區塊，使用者的字照留。"""
+    text = sanitize_harness_noise(prompt)
+    return "" if text.startswith(_SYSTEM_NOTIFICATION_PREFIX) else text
 
 
 def is_harness_generated_prompt(text: str) -> bool:
-    """整則 prompt 是否不是使用者打的字：harness 生成（task-notification／系統通知），或其他 Claude session 用 SendMessage 送來的訊息。"""
-    if not text:
-        return False
-    head = text.lstrip()[:40]
-    if head.startswith(_HARNESS_PROMPT_PREFIXES):
-        return True
-    return not sanitize_harness_noise(text)
+    """整則 prompt 裡沒有使用者打的字（user_typed_text 為空）。"""
+    return bool(text) and not user_typed_text(text)
 
 
 def user_typed_prompts(prompts: Optional[List[str]]) -> List[str]:
-    """近期 prompt 清單只留使用者本人打的（排除 is_harness_generated_prompt 判定的）；豁免詞與口令只認這些。"""
-    return [p for p in (prompts or []) if not is_harness_generated_prompt(p or "")]
+    """近期 prompt 清單逐則取 user_typed_text（清理後的文字），不是使用者的話的那幾則丟掉；豁免詞與口令只認這些。"""
+    out: List[str] = []
+    for p in prompts or []:
+        typed = user_typed_text(p or "")
+        if typed:
+            out.append(typed)
+    return out
 # hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] 等
 # additionalContext 前綴）——整行剔除。
 _HOOK_RESIDUE_LINE_RE = re.compile(

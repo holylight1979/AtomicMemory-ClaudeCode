@@ -164,11 +164,10 @@ def _maybe_spawn_failure_extraction(
     clean_prompt: str, lines: list,
 ) -> None:
     """偵測失敗關鍵字 → spawn extract-worker failure mode。"""
-    from wg_core import is_harness_generated_prompt
-    # sub-agent 完成通知不是使用者回報失敗；其內文的失敗詞不觸發萃取
-    if is_harness_generated_prompt(clean_prompt):
-        return
-    if not _detect_failure_keywords(clean_prompt, config):
+    from wg_core import user_typed_text
+    # 只看使用者打的字：sub-agent 完成通知、其他 session 的訊息內文的失敗詞不觸發萃取
+    typed = user_typed_text(clean_prompt)
+    if not typed or not _detect_failure_keywords(typed, config):
         return
 
     fc = config.get("response_capture", {}).get("failure_extraction", {})
@@ -197,7 +196,7 @@ def _maybe_spawn_failure_extraction(
         "session_intent": "debug",
         "mode": "failure",
         "byte_offset": prev_offset,
-        "failure_prompt": clean_prompt[:500],
+        "failure_prompt": typed[:500],
     }
     pid = _spawn_extract_worker(worker_ctx)
     if pid:

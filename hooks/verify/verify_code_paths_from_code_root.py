@@ -9,7 +9,8 @@
   `from m import CLAUDE_DIR as X` 的 X 也算）。記憶目錄底下是記憶資料：資料根直接接 "memory" 或從記憶目錄別名往下接，
   後面出現 "tools" 都不算違規（兩種寫法同一套規則）。
   固定名字（CLAUDE_DIR、_CLAUDE_DIR、MEMORY_DIR、memory_dir、mem_dir）是命名約定，就算由 `__file__` 推出也照資料看
-  （逼它改名成 CODE_DIR，例：skill-index.py）；推導出來的別名若同一個名字也由 `__file__` 推出，以檔案位置為準、不當別名。
+  （逼它改名成 CODE_DIR，例：skill-index.py）；同一個名字有混合來源（先檔案位置、後覆寫成資料根；條件式兩支來源不同）
+  保守當資料根，不因含 `__file__` 就解除。家目錄的包裝（`Path.home().resolve()`、`Path(HOME)`）也認得。
   抓不到：跨檔或跨函式傳遞（參數、回傳值）、屬性賦值（`self.root = ...`）、`os.path.join`／f-string 字串拼接、tuple 解包、
   非 .py 檔（shell 腳本等）。名字不分作用域，同檔同名一律當別名（偏嚴）。
 - 反方向（檔案位置接資料）：最左邊是檔案位置根（式子裡直接含 `__file__`，或同檔裡由含 `__file__` 的式子賦值出來的名字，
@@ -87,9 +88,12 @@ def _is_wrapped(node: ast.AST, test) -> bool:
 
 
 def _is_home(node: ast.AST, nm: _Names) -> bool:
+    """家目錄：`Path.home()`、家目錄別名，以及它們的包裝（`Path.home().resolve()`、`Path(HOME)`…）。"""
     if isinstance(node, ast.Name):
         return node.id in nm.homes
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "home"
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "home":
+        return True
+    return _is_wrapped(node, lambda x: _is_home(x, nm))
 
 
 def _data_root_len(ops: List[ast.AST], nm: _Names) -> int:
@@ -137,9 +141,10 @@ def _is_data_root_expr(node: ast.AST, nm: _Names) -> bool:
     return _is_wrapped(node, lambda x: _is_data_root_expr(x, nm))
 
 
-def _data_root_names(tree: ast.AST, file_roots: Set[str]) -> _Names:
-    """同檔裡的資料根／記憶目錄／家目錄名字：固定名字＋`import ... as` 的別名＋賦值推出來的別名；
-    推導出來的別名若同一個名字也由 `__file__` 推出，以檔案位置為準。"""
+def _data_root_names(tree: ast.AST) -> _Names:
+    """同檔裡的資料根／記憶目錄／家目錄名字：固定名字＋`import ... as` 的別名＋賦值推出來的別名。
+    同一個名字有混合來源（先由 `__file__` 推、後覆寫成資料根；條件式一支檔案位置一支資料根）時保守當資料根，
+    不因含 `__file__` 就解除（它同時也留在檔案位置名單，兩個方向都會檢查）。"""
     assigns = [(n.targets[0].id, n.value) for n in ast.walk(tree)
                if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)]
     assigns += [(n.target.id, n.value) for n in ast.walk(tree)
@@ -151,7 +156,7 @@ def _data_root_names(tree: ast.AST, file_roots: Set[str]) -> _Names:
     while changed:
         changed = False
         for name, value in assigns:
-            if name in nm.roots or name in nm.mems or name in nm.homes or name in file_roots:
+            if name in nm.roots or name in nm.mems or name in nm.homes:
                 continue
             for group, test in ((nm.homes, _is_home), (nm.roots, _is_data_root_expr), (nm.mems, _is_memory_dir_expr)):
                 if test(value, nm):
@@ -205,7 +210,7 @@ def violations(source: str, rel: str) -> List[Tuple[str, int, str, str]]:
     tree = ast.parse(source)
     lines = source.splitlines()
     names = _file_root_names(tree)
-    nm = _data_root_names(tree, names)
+    nm = _data_root_names(tree)
     inner = set()
     out: List[Tuple[str, int, str, str]] = []
     for node in ast.walk(tree):
@@ -324,17 +329,22 @@ def test_guard_home_alias_and_memory_dir_same_rule_direct_or_aliased():
     assert got == [(4, "data-root→code"), (6, "data-root→code")], got
 
 
-def test_guard_derived_alias_yields_to_file_root_but_fixed_names_stay_data():
+def test_guard_mixed_source_names_and_fixed_names_stay_data_root():
     src = (
         "from pathlib import Path\n"
         "base = Path(__file__).resolve().parent\n"
         "base = claude_data_dir()\n"
-        "ok = base / 'tools'\n"                                  # 推導別名也由 __file__ 推出 → 以檔案位置為準
+        "bad1 = base / 'tools'\n"                                # 先檔案位置、後覆寫成資料根 → 保守當資料根
         "MEMORY_DIR = Path(__file__).resolve().parent\n"
-        "bad = MEMORY_DIR.parent / 'lib'\n"                      # 固定名字是命名約定，照資料看（逼改名）
+        "bad2 = MEMORY_DIR.parent / 'lib'\n"                     # 固定名字是命名約定，照資料看（逼改名）
+        "pick = Path(__file__).parent if fast else claude_data_dir()\n"
+        "bad3 = pick / 'hooks'\n"                                # 條件式一支檔案位置一支資料根
+        "H = Path.home().resolve()\n"
+        "bad4 = H / '.claude' / 'skills'\n"                      # 家目錄包裝
+        "ok = Path(__file__).resolve().parent / 'tools'\n"
     )
-    got = [(ln, kind) for _, ln, _, kind in violations(src, "synthetic.py")]
-    assert got == [(6, "data-root→code")], got
+    got = [(ln, kind) for _, ln, _, kind in sorted(violations(src, "synthetic.py"), key=lambda v: v[1])]
+    assert got == [(4, "data-root→code"), (6, "data-root→code"), (8, "data-root→code"), (10, "data-root→code")], got
 
 
 def test_guard_flags_file_root_data_paths():
