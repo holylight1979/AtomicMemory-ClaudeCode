@@ -1718,6 +1718,101 @@ def test_r4_a_rewrite_of_a_same_name_class_in_another_module_does_not_touch_this
     assert _edge_rules(files, "app.py::main", tmp_path / "b") == [("a.py::Worker.run", 1)]
 
 
+# ─── 退件 011：總原則——證明只在模型涵蓋的範圍內成立；碰到模型沒建的語法構件，該證明就不成立 ─────────
+
+TWO_FUNCS = "def work():\n" + BODY + "\n\ndef other():\n" + BODY + "\n\n"
+APP_RUN = WORKER + "\n\nclass App:\n    def run(self):\n        q = 1\n        return q + 1\n\n"
+
+
+def test_p1_case1_lambda_parameter_shadows_the_module_function(tmp_path):
+    """案 1：(lambda work: work())(other)：lambda 參數 work 遮住模組層的 work，實際呼叫的是 other。
+    呼叫點在 lambda 裡（模型沒建那一層）→ 不給條號；名字是 lambda 自己的參數 → 不退回同名的模組函式，記未解。"""
+    files = {"app.py": TWO_FUNCS + "def main():\n    return (lambda work: work())(other)\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert not any(_sure(e) for e in g.edges["app.py::main"]), "lambda 裡的呼叫不能確定"
+    assert "app.py::work" not in [e.dst for e in g.edges["app.py::main"]], "lambda 參數 work 不是模組層的 work"
+    assert g.unres["app.py::main"] == 1, "lambda 參數裝的東西看不到：記未解"
+
+
+P1_CONSTRUCTS = {   # 構件 → (app.py, 呼叫所在函式, b1be2c0 照外層綁定給了條號的目標)
+    "lambda": (TWO_FUNCS + "def main():\n    fn = work\n    return (lambda fn: fn())(other)\n", "app.py::main", "app.py::work"),
+    "generator": (APP_RUN + "    def go(self):\n        return list(self.run() for self in [Worker()])\n",
+                  "app.py::App.go", "app.py::App.run"),
+    "comprehension": (APP_RUN + "    def go(self):\n        return [self.run() for self in [Worker()]]\n",
+                      "app.py::App.go", "app.py::App.run"),
+    "class_body": (TWO_FUNCS + "def main():\n    class Patch:\n        global work\n        work = other\n\n    work()\n",
+                   "app.py::main", "app.py::work"),
+}
+
+
+@pytest.mark.parametrize("construct", sorted(P1_CONSTRUCTS))
+def test_p1_a_binding_made_inside_an_unmodeled_scope_construct_never_gets_a_rule(tmp_path, construct):
+    """總原則 1 四種構件各一反例：lambda 參數遮住別名 fn（實際呼叫 other）、生成器／推導式的迴圈變數改綁 self
+    （實際呼叫 Worker.run）、類別本體裡 global 改綁模組層的 work。模型沒建這些構件的參數與綁定，照外層的綁定給條號就錯了。"""
+    app, fid, wrong = P1_CONSTRUCTS[construct]
+    assert (wrong, True) not in _sure_edges({"app.py": app}, fid, tmp_path / "a"), f"{construct}：連到 {wrong} 還確定"
+    assert all(r is None for d, r in _edge_rules({"app.py": app}, fid, tmp_path / "b") if d == wrong)
+
+
+P1_PROOF_TOUCHES = {
+    "call_in_generator": "    return sum(work() for _ in range(2))\n",
+    "call_in_comprehension": "    return [work() for _ in range(2)]\n",
+    "call_in_lambda": "    later = lambda: work()\n    return later\n",
+    "name_read_in_comprehension": "    names = [work for _ in range(2)]\n    work()\n    return names\n",
+    "name_read_in_class_body": "    class Holder:\n        fn = work\n\n    work()\n    return Holder\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(P1_PROOF_TOUCHES))
+def test_p1_a_call_or_the_proven_name_inside_a_construct_gets_no_rule_1(tmp_path, form):
+    """總原則 1 的另一半：呼叫點在 lambda／生成器／推導式裡，或被證明的名字 work 在構件裡被讀到——就算這次語意上剛好對，
+    證明也只在模型涵蓋的範圍內成立：找得到 work，但第 1 條不給。"""
+    files = {"app.py": TWO_FUNCS + "def main():\n" + P1_PROOF_TOUCHES[form]}
+    edges = [(d, s) for d, s in _sure_edges(files, "app.py::main", tmp_path) if d == "app.py::work"]
+    assert edges == [("app.py::work", False)], f"{form}：找得到 work，但不能確定"
+
+
+P1_ALIAS = {
+    "read_in_lambda": "    fn = work\n    later = lambda: fn\n    fn()\n    return later\n",
+    "class_body_nonlocal": "    fn = work\n\n    class Patch:\n        nonlocal fn\n        fn = other\n\n    fn()\n",
+    "inner_nonlocal": "    fn = work\n\n    def change():\n        nonlocal fn\n        fn = other\n\n    change()\n    fn()\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(P1_ALIAS))
+def test_p1_a_simple_alias_touched_outside_the_model_is_not_rule_4(tmp_path, form):
+    """第 4 條（簡單區域別名）：別名 fn 在 lambda 裡被讀到、在巢狀類別本體裡用 nonlocal 改綁、或被內層函式用 nonlocal 改綁
+    （同一家族：被證明的綁定在這一層以外被動到）→ 不給第 4 條。"""
+    files = {"app.py": TWO_FUNCS + "def main():\n" + P1_ALIAS[form]}
+    assert ("app.py::work", True) not in _sure_edges(files, "app.py::main", tmp_path / "a"), f"{form}：fn 不只這一層能動"
+    assert all(r is None for d, r in _edge_rules(files, "app.py::main", tmp_path / "b") if d == "app.py::work")
+
+
+def test_p1_a_class_body_nonlocal_two_levels_out_still_unsettles_the_nested_def(tmp_path):
+    """patch 裡的類別本體 nonlocal work：改的是 outer 的巢狀 def work（patch 自己沒綁）→ outer 裡的 work() 不給第 1 條。"""
+    files = {"app.py": ("def outer():\n    def work():\n" + "    " + BODY.replace("\n    ", "\n        ") + "\n"
+                        "    def patch():\n        class K:\n            nonlocal work\n            work = None\n\n"
+                        "    patch()\n    work()\n")}
+    edges = [(d, s) for d, s in _sure_edges(files, "app.py::outer", tmp_path) if d.endswith("work")]
+    assert edges == [("app.py::outer.work", False)], "outer.work 被 patch 裡的類別本體改綁了"
+
+
+def test_p1_a_callback_called_inside_a_lambda_gets_no_rule_5(tmp_path):
+    """呼叫點在 lambda 裡的 callback：參數被 lambda 遮住 → 看不到（記未解）；沒被遮住 → 沿呼叫者列候選，不給第 5 條。"""
+    shadow = {"app.py": TWO_FUNCS + "def run(cb):\n    return (lambda cb: cb())(other)\n\n\ndef main():\n    run(work)\n"}
+    g = rp.build_graph(_write(tmp_path / "a", shadow))
+    assert "app.py::work" not in [e.dst for e in g.edges.get("app.py::run", [])], "lambda 參數 cb 不是 run 的 cb"
+    plain = {"app.py": TWO_FUNCS + "def run(cb):\n    later = lambda: cb()\n    return later()\n\n\ndef main():\n    run(work)\n"}
+    assert _sure_edges(plain, "app.py::run", tmp_path / "b") == [("app.py::work", False)], "呼叫點在 lambda 裡：只列候選"
+
+
+def test_p1_constructs_that_do_not_touch_the_proven_name_keep_rule_1(tmp_path):
+    """反方向：構件裡沒讀到、沒綁定 work，外面的 work() 照樣是第 1 條（不因為函式裡有 lambda／推導式就整個降級）。"""
+    files = {"app.py": TWO_FUNCS + "def main():\n    items = [x for x in range(3)]\n    key = lambda x: x\n    work()\n"
+                                   "    return items, key\n"}
+    assert [r for d, r in _edge_rules(files, "app.py::main", tmp_path) if d == "app.py::work"] == [1]
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

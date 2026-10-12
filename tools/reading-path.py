@@ -98,9 +98,13 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   方法目標（1～4 條）還要方法在類別上的綁定沒被改寫：專案任何地方（含類別本體、巢狀類別）寫過 類別.方法 = …、
   self.方法 = …、實例.方法 = …、setattr(X, "方法", …)（字串字面值）、del、類別本體再指定，就不給條號；
   改寫照類別身分（定義檔＋名字）記，實例的型別看不出時，同名的方法都不給
+  模型沒建參數與綁定的 Python 作用域構件（lambda、生成器、推導式、類別本體）：呼叫點在 lambda／生成器／推導式裡的，
+  1～5 條一律不給；被證明的名字（第 1 條的名字或接收者開頭、第 4 條的別名）在查找會走過的函式裡、這類構件中被讀到
+  或綁定，也不給第 1、4 條——證明只在模型涵蓋的範圍內成立，不是假設那個構件不存在
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
 
 NOT_WHITELISTED = "候選：不在確定白名單（名字綁定、型別來源或唯一目標證明不了）"
+SCOPED = "候選：呼叫點在 lambda／生成器／推導式裡，模型沒建那一層的參數與綁定，不給條號"
 METHOD_REBOUND = "候選：這個方法在類別上的綁定可能被改寫（類別.方法 = …、self／實例.方法 = …、setattr），不一定是它"
 
 LIMITS = WHITELIST + """
@@ -122,7 +126,7 @@ LIMITS = WHITELIST + """
     （實例型別看不出時，專案裡同名的方法都不算；測試檔裡的寫入也算）
   - 防線邊界（下列寫法不追，照字面處理，落在候選或未解）：exec／eval 產生的綁定、setattr 帶變數名、globals()[…] = …、
     metaclass 與 __getattr__、import 時的副作用（別的模組在 import 時改寫本模組的名字；上一條列的字面寫法除外）、
-    C# 反射與 dynamic
+    C# 反射與 dynamic；模型沒建的 Python 作用域構件（lambda、生成器、推導式、類別本體）裡，一律不給條號
   - C#（不用 Roslyn）：擴充方法、LINQ、var 由方法回傳推型別、跨 namespace 同名類合併、lambda 裡的呼叫算外層函式、
     #if 不分支、運算子多載與索引子不認、接收者型別不明的屬性不猜、三元運算與 LINQ 不算分支、插值字串 {} 裡再套字串會漏；
     類別證據沒有 import 鏈可走（專案裡同名的類別就當那個型別，分不出外部同名型別）；第 2 條的用途證明只數文字出現，
@@ -317,11 +321,17 @@ class Graph:
         rebound_elsewhere (檔, 名字)：別的程式碼用 模組.名字 = … 改掉的模組層名字；
         method_writes (類別身分或 "*", 屬性名)：會蓋掉同名方法的屬性寫入；類別身分＝(定義檔, 類別名)，
         "*"＝接收者型別看不出，專案裡同名的方法都算；
-        nonlocal_rebound (檔, 外層作用域) → 名字：巢狀函式用 nonlocal 改掉的名字，只標在真正持有它的那一層。"""
+        nonlocal_rebound (檔, 外層作用域) → 名字：巢狀函式用 nonlocal 改掉的名字，只標在真正持有它的那一層
+        （巢狀類別本體或它的方法裡的 nonlocal，從包住那個類別的函式自己這一層往外找）。"""
         self.rebound_elsewhere, self.method_writes, self.nonlocal_rebound = set(), set(), defaultdict(set)
         for f in [f for f in self.funcs.values() if f.nonlocal_writes]:
             for name in f.nonlocal_writes:
                 owner = self._nonlocal_owner(f, name)
+                if owner is not None:
+                    self.nonlocal_rebound[(f.file, owner.qual)].add(name)
+        for f in [f for f in self.funcs.values() if f.class_nonlocals]:
+            for name in f.class_nonlocals:
+                owner = self.lookup_binding(f, name)[1]
                 if owner is not None:
                     self.nonlocal_rebound[(f.file, owner.qual)].add(name)
         contexts = [(f, f.attr_stores) for f in self.funcs.values()]
@@ -690,7 +700,8 @@ class Graph:
         ref = f.aliases.get(c.name) if shaky else None
         reason = f"候選：參數 {c.name} 在函式裡被重新指定"
         edges = [Edge(e.dst, e.kind, guess=reason) for e in self.resolve(f, ref, defer=False)] if ref else []
-        return edges + self._defer(f, (f.id, c.name), defer, "reassigned" if shaky else "")
+        flag = "scoped" if c.scoped else "reassigned" if shaky else ""
+        return edges + self._defer(f, (f.id, c.name), defer, flag)
 
     def alias_target(self, f: lang.Func, name: str):
         """fn = b; fn(n)：沿區域變數別名走到真正的函式參照（最多 MAX_REEXPORT 跳）；
@@ -718,7 +729,10 @@ class Graph:
         return self._r_self(f, c, defer) or self._static_using(f, c.name)   # C#：本類別的方法／事件／委派欄位，或 using static
 
     def _r_py_name(self, f, c, defer):
-        """Python 裸名呼叫：先問 lookup_binding 是哪一層的哪個綁定，再照那個綁定找目標（證明穩定看的是同一個綁定）。"""
+        """Python 裸名呼叫：先問 lookup_binding 是哪一層的哪個綁定，再照那個綁定找目標（證明穩定看的是同一個綁定）。
+        名字是包住呼叫點的 lambda 參數或推導式迴圈變數（模型沒建那一層）→ 裝的東西看不到，不退回外層同名的名字。"""
+        if c.shadowed:
+            return []
         binding = self.lookup_binding(f, c.name)
         kind, owner = binding
         if owner is f and kind == "param":
@@ -1063,12 +1077,15 @@ class Graph:
     # 不能給確定；所以新的解析路、或舊路漏了條件，產生的邊預設就是不確定。
 
     def certify(self, f: lang.Func, c: lang.Call, edges: list) -> list:
-        """呼叫點 c 解析出來的邊：目標不只一個、不是直接呼叫、解析路已標了不確定原因的，一律不確定；
+        """呼叫點 c 解析出來的邊：呼叫點在 lambda／生成器／推導式裡（c.scoped）、目標不只一個、不是直接呼叫、
+        解析路已標了不確定原因的，一律不確定；
         目標是類別的方法而它在類別上的綁定可能被改寫（_method_rebound，1～4 條共用）→ 不確定；
         其餘依序對白名單 1～4 檢查，第一條成立的條號填進 rule。都不成立 → rule=None，補上原因。"""
         unique = len({e.dst for e in edges}) == 1
         for e in edges:
             e.rule = None
+            if c.scoped and not e.guess:
+                e.guess = SCOPED                   # 總原則 1：模型沒建的作用域構件裡，一律不給條號
             if unique and e.kind == "direct" and not e.guess and self._method_rebound(e.dst):
                 e.guess = METHOD_REBOUND
             if unique and e.kind == "direct" and not e.guess:
@@ -1095,9 +1112,13 @@ class Graph:
 
     def _rule1(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 1：直接呼叫唯一解析到、名字從未被重新指定的函式——裸名（含 import 進來的、巢狀函式、類別建構）、
-        模組.函式、類別.靜態方法、建構子（C# new）、super()／base.。"""
+        模組.函式、類別.靜態方法、建構子（C# new）、super()／base.。
+        被證明的名字（裸名，或接收者開頭的模組名、類別名）在模型沒建的作用域構件裡被讀到或綁定 → 不成立（總原則 1）。"""
         if c.kind in ("super", "new"):
             return True
+        head = c.name if c.kind == "name" else c.recv.partition(".")[0]
+        if f.lang == "py" and self._in_construct(f, head):
+            return False
         if c.kind == "name":
             if f.lang == "cs":                     # C# 裸名：本類別的方法歸第 3 條；這裡只收 using static 匯入的
                 return self.stable(f, c.name) and not self._own_method(f, c.name, e)
@@ -1114,6 +1135,18 @@ class Graph:
             return self.stable(f, head) and self._stable_in(target, c.name, 0) and self._module_member(target, c.name, e)
         cls = self._static_class(f, c.recv)
         return bool(cls) and e.dst in self.lookup(cls, c.name)
+
+    def _in_construct(self, f: lang.Func, name: str) -> bool:
+        """總原則 1：名字在模型沒建的作用域構件（lambda、生成器、推導式、巢狀類別本體）裡被讀到或綁定——
+        看查找會走過的每一層函式：f 往外，到持有這個綁定的那一層為止（綁定在模組層就看到最外層函式）。"""
+        owner = self.lookup_binding(f, name)[1]
+        for scope in reversed(self.scopes(f)):
+            fn = self.funcs.get(f"{f.file}::{scope}")
+            if fn is not None and name in fn.scoped_names:
+                return True
+            if fn is not None and fn is owner:
+                return False
+        return False
 
     def _module_member(self, target: str, name: str, e: Edge) -> bool:
         """被證明穩定的 模組.name，就是 e.dst 的來源。"""
@@ -1186,11 +1219,16 @@ class Graph:
         return cls
 
     def _rule4(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
-        """白名單 4：簡單區域別名——同一函式內指定一次、之後沒再指定，右邊是白名單內可確定的函式（逐跳都不能被改指）。
-        宣告 global／nonlocal 的名字不是區域變數（別的函式也能改它），不算。"""
+        """白名單 4：簡單區域別名——同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式（逐跳都不能被改指）。
+        別名鏈上的名字宣告了 global／nonlocal、被內層函式用 nonlocal 改掉（別的作用域也能改它），
+        或在模型沒建的作用域構件裡被讀到或綁定（總原則 1），都不算。"""
         if c.kind not in ("name", "invoke") or c.name not in f.aliases or c.name in f.params:
             return False
-        if c.name in f.global_names | f.nonlocal_names:
+        names = [c.name]
+        while (nxt := f.aliases.get(names[-1])) and nxt.kind == "name" and nxt.name in f.aliases and len(names) <= MAX_REEXPORT:
+            names.append(nxt.name)
+        outside = f.global_names | f.nonlocal_names | self.nonlocal_rebound[(f.file, f.qual)] | f.scoped_names
+        if outside & set(names):
             return False
         ref = self.alias_target(f, c.name)
         sure = [x.dst for x in self.resolve(f, ref, defer=False) if x.rule is not None] if ref else []
@@ -1214,7 +1252,10 @@ class Graph:
 
     def is_external(self, f: lang.Func, c: lang.Call) -> bool:
         """確知在專案外（內建、外部模組、外部父類、專案裡沒有同名方法、沒人訂閱的事件、外部類別）→ True；
-        專案內但看不到（區域變數裝的函式、同名方法多個、找不到的 self 方法、getattr、找不到的表）→ False，計入未解。"""
+        專案內但看不到（區域變數裝的函式、同名方法多個、找不到的 self 方法、getattr、找不到的表、
+        lambda 參數或推導式迴圈變數裝的東西）→ False，計入未解。"""
+        if c.shadowed:
+            return False
         if c.kind in ("emit", "prop", "new", "super"):
             return True
         if c.kind in ("table", "getattr", "opaque"):
@@ -1315,6 +1356,8 @@ class Graph:
         > 多個目標；都沒有＝空字串（說明欄留空，確不確定由 _rule5 正向檢查）。"""
         if unknown:
             return f"候選：有呼叫處傳進看不到的函式給 {param}，這只是看得到的那些"
+        if flag == "scoped":
+            return f"候選：呼叫 {param} 的地方在 lambda／生成器／推導式裡，模型沒建那一層的綁定"
         if flag == "stored":
             return f"候選：經由欄位存下的 callback（建構時傳進 {param}），欄位可能被換"
         if flag == "reassigned":

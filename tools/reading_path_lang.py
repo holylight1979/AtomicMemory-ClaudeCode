@@ -43,6 +43,8 @@ class Call:
     blind: set = field(default_factory=set)    # 傳的是算出來的值（呼叫結果、下標…）的位置／關鍵字
     star: int = -1                             # 第一個 *args 展開的位置（之後的位置參數看不到）；-1＝沒有
     dstar: bool = False                        # 有 **kwargs 展開（沒明確傳的參數都可能被它蓋到）
+    scoped: bool = False                       # 呼叫點在模型沒建的作用域構件（lambda、生成器、推導式）裡：一律不給條號
+    shadowed: bool = False                     # 裸名呼叫的名字正是包住它的構件自己綁定的（lambda 參數、推導式迴圈變數）
 
 
 @dataclass
@@ -79,6 +81,8 @@ class Func:
     nonlocal_names: set = field(default_factory=set)  # 宣告 nonlocal 的名字：查找跳過這一層、往外層找
     import_rebinds: set = field(default_factory=set)  # 函式裡 import 的名字又被別種寫法綁定（import 又指定、又 def）：只影響確定，不影響找目標
     import_sources: dict = field(default_factory=dict)   # 綁定名 → 這一層全部的 import 來源 [(模組名, 相對層級, 原名或 "")]（import 好幾次都留）
+    scoped_names: set = field(default_factory=set)    # 在模型沒建的作用域構件（lambda、生成器、推導式、巢狀類別本體）裡被讀到或綁定的名字
+    class_nonlocals: set = field(default_factory=set)  # 巢狀類別本體（含它的方法）裡 nonlocal 宣告的名字：改的是這一層或外層函式的綁定
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
     imports: dict = field(default_factory=dict)       # 函式內的 import（只在這個函式與它的巢狀函式裡有效）
@@ -138,6 +142,7 @@ def _is_noise(kind: str, name: str, recv: str) -> bool:
 _DEF_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
 _SIMPLE_STMTS = (ast.Return, ast.Expr, ast.Assign, ast.AnnAssign, ast.AugAssign)
 _BRANCHY = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.IfExp)   # 一行裡的迴圈／分支也算內容
+_SCOPE_EXPRS = (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)   # 自成作用域、模型沒建參數與綁定的運算式
 
 
 def parse_python(rel: str, text: str) -> Module:
@@ -156,6 +161,8 @@ def parse_python(rel: str, text: str) -> Module:
             _py_module_stmt(mod, node)
     loose = [n for n in ast.walk(tree) if id(n) not in mod.scoped_nodes]
     mod.attr_stores |= _py_attr_stores(loose)   # 專案內任何地方的屬性寫入都要算（類別本體、巢狀類別、if 裡的 def…）
+    mod.opaque |= set(itertools.chain.from_iterable(n.names for n in loose if isinstance(n, ast.Global)))   # 類別本體、
+    # 沒解析的方法裡 global 改寫模組層名字（模型沒建那一層）：之後是什麼看不到
     mod.scoped_nodes = set()
     if not any(f.entry for f in mod.funcs) and "main" in mod.defs:
         next(f for f in mod.funcs if f.id == mod.defs["main"]).entry = True
@@ -194,6 +201,7 @@ def _py_main_block(mod: Module, node: ast.If, tree: ast.Module) -> None:
     _py_count_bindings(mod, nodes)
     _py_locals(f, None, nodes)
     f.calls = _py_calls(mod, nodes, fid)
+    f.scoped_names = _py_unmodeled(nodes)[0]
     elsewhere = itertools.chain.from_iterable(ast.walk(s) for s in tree.body if s is not node)
     outside = {n.id for n in elsewhere if isinstance(n, ast.Name)}
     f.receiver_only = _py_receiver_only(f, node.body) - outside   # 區塊裡的變數是模組層名字：別處寫到它就不算
@@ -303,6 +311,7 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     f.abstract = _py_abstract(node, body)
     _py_locals(f, cls, nodes)
     f.calls = _py_calls(mod, nodes, fid)
+    f.scoped_names, f.class_nonlocals = _py_unmodeled(nodes)
     f.global_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Global)))
     bound = f.locals | {n for n in map(_bound_name, nodes) if n}   # 這一層任何寫法綁定的名字（指定、import、def、class…）
     mod.opaque |= f.global_names & bound               # 函式用 global 改寫模組層名字：之後是什麼看不到
@@ -316,6 +325,46 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
         mod.defs[node.name] = fid
     for sub in [n for n in nodes if isinstance(n, _DEF_NODES)]:
         _py_func(mod, sub, qual + ".", cls)
+
+
+def _py_unmodeled(nodes: list) -> tuple:
+    """模型沒建參數與綁定的作用域構件：lambda／生成器／推導式整棵（含 lambda 參數），巢狀類別本體整棵（含它的方法；
+    類別名本身是這一層的普通綁定，不算）→ (在裡面被讀到或綁定的名字, 巢狀類別本體裡 nonlocal 宣告的名字)。
+    名字含 Name 的讀寫、參數、import、except … as、match 擷取、def／class 名、global／nonlocal 宣告。"""
+    exprs = itertools.chain.from_iterable(ast.walk(n) for n in nodes if isinstance(n, _SCOPE_EXPRS))
+    bodies = [s for n in nodes if isinstance(n, ast.ClassDef) for s in n.body]
+    in_class = list(itertools.chain.from_iterable(ast.walk(s) for s in bodies))
+    names = set()
+    for n in [*exprs, *in_class]:
+        if isinstance(n, ast.Name):
+            names.add(n.id)
+        elif isinstance(n, ast.arg):
+            names.add(n.arg)
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            names.update(n.names)
+        else:
+            names.add(_bound_name(n))
+    names.discard("")
+    return names, set(itertools.chain.from_iterable(n.names for n in in_class if isinstance(n, ast.Nonlocal)))
+
+
+def _scoped_spots(nodes: list) -> dict:
+    """nodes 裡位在 lambda／生成器／推導式裡的節點 id → 包住它的那些構件自己綁定的名字（巢狀的取聯集）。
+    構件整棵都算在裡面（含 lambda 預設值、推導式第一層的來源；寧可多算）。"""
+    inside = {}
+    for node in [n for n in nodes if isinstance(n, _SCOPE_EXPRS)]:
+        binds = _construct_binds(node)
+        for sub in itertools.islice(ast.walk(node), 1, None):
+            inside.setdefault(id(sub), set()).update(binds)
+    return inside
+
+
+def _construct_binds(node) -> set:
+    """lambda 的參數，或推導式各層 for 的目標名字。"""
+    if isinstance(node, ast.Lambda):
+        a = node.args
+        return {x.arg for x in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg] if x}
+    return {n.id for g in node.generators for n in ast.walk(g.target) if isinstance(n, ast.Name)}
 
 
 def _own_nodes(stmts):
@@ -444,7 +493,8 @@ def _py_blind(expr) -> bool:
 
 
 def _py_calls(mod: Module, nodes: list, owner: str) -> list:
-    calls = []
+    """呼叫點；位在 lambda／生成器／推導式裡的（連同它引數裡的函式參照）標 scoped，名字被那個構件自己綁定的標 shadowed。"""
+    calls, inside = [], _scoped_spots(nodes)
     for node in nodes:
         c = _py_call(node) if isinstance(node, ast.Call) else None
         if c is None:
@@ -455,8 +505,12 @@ def _py_calls(mod: Module, nodes: list, owner: str) -> list:
         c.nargs, c.kwargs = len(node.args), {k.arg for k in node.keywords if k.arg}
         c.star, c.dstar = (stars[0] if stars else -1), any(k.arg is None for k in node.keywords)
         c.blind = {i for i, a in enumerate(node.args) if _py_blind(a)} | {k.arg for k in node.keywords if k.arg and _py_blind(k.value)}
+        events = _py_events(mod, node, c, owner)
+        binds = inside.get(id(node))
+        for x in [c, *events, *(r for _, r in c.refs)] if binds is not None else []:
+            x.scoped, x.shadowed = True, x.kind == "name" and x.name in binds
         calls.append(c)
-        calls.extend(_py_events(mod, node, c, owner))
+        calls.extend(events)
     return sorted(calls, key=lambda c: c.line)
 
 
