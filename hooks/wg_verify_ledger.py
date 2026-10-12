@@ -515,12 +515,6 @@ def _receipt_after(receipt: Dict[str, Any], edit_at: Optional[str], edit_seq: Op
     return int(receipt.get("turn_seq", -1)) >= int(edit_turn)
 
 
-def _has_done_sentinel(receipt: Dict[str, Any], name: str) -> bool:
-    """收據裡有「名字＝name 且 verdict＝DONE」的哨兵（例：pytest 摘要行映射的 PYTEST_MEASURE）。"""
-    return any(isinstance(s, dict) and str(s.get("name", "")) == name and str(s.get("verdict", "")) == "DONE"
-               for s in receipt.get("sentinels") or [])
-
-
 def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = None,
                   cmd_contains: str = "", min_turn: Optional[int] = None, require_ok: bool = True,
                   min_at: Optional[str] = None, min_seq: Optional[int] = None,
@@ -538,8 +532,9 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
             continue
         if "DONE" not in _verdicts(r):
             continue
-        if sentinel_name and not _has_done_sentinel(r, sentinel_name):
-            continue
+        if sentinel_name and not any(isinstance(s, dict) and str(s.get("name", "")) == sentinel_name
+                                     and str(s.get("verdict", "")) == "DONE" for s in r.get("sentinels") or []):
+            continue          # DONE 要來自指定名字的哨兵（例：pytest 摘要行映射的 PYTEST_MEASURE）
         if require_ok and (r.get("root_uncertain") or has_cd(str(r.get("cmd", "")))):
             continue          # 含 cd 的收據不知道量的是哪個專案
         if require_ok and (r.get("exit_code") not in (None, 0) or not _failed_kv_ok(r)):
@@ -813,14 +808,10 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                                 min_seq=rec["edit_seq"], root=str(root), **pick)
         if ok_done:
             continue
-        if root_wt:
-            ruler = (f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
-                     f"哨兵 {ROOT_WT_SENTINEL}，表上的尺 `{cmd}` 不是這裡的門檻）")
-            rerun = (f"在 worktree 根 `{root}` 直接跑目標 verify `python -X utf8 -m pytest -q <hooks/verify/...>`"
-                     f"（不含 cd；尾行 `N passed` 會映射成 {ROOT_WT_SENTINEL} DONE）")
-        else:
-            ruler = f"「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」"
-            rerun = f"`{cmd}`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`，exit 0、failed=0）"
+        ruler = (f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
+                 f"哨兵 {ROOT_WT_SENTINEL}，表上的尺 `{cmd}` 不是這裡的門檻）")
+        rerun = (f"在 worktree 根 `{root}` 直接跑目標 verify `python -X utf8 -m pytest -q <hooks/verify/...>`"
+                 f"（不含 cd；尾行 `N passed` 會映射成 {ROOT_WT_SENTINEL} DONE）")
         any_done = done_receipts(receipts, require_ok=False, **pick)
         if any_done:
             last = any_done[-1]
@@ -834,11 +825,19 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                 why = f"最近一次跑尺的 cwd／project_root（{last.get('project_root') or last.get('cwd')}）不是這個部位的 root"
             else:
                 why = "最近一次跑尺在這個部位最後一次修改之前（先量後改不算）"
-            blocks.append(f"部位【{part}】有量尺{ruler}，{why}。改完再跑一次 {rerun} 再收尾。")
-        else:
+            if root_wt:
+                blocks.append(f"部位【{part}】有量尺{ruler}，{why}。改完再跑一次 {rerun} 再收尾。")
+            else:
+                blocks.append(f"部位【{part}】有量尺「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」，{why}。"
+                              f"改完再跑一次 `{cmd}`（尾行 `<NAME> DONE` 或 `<NAME>_CHECK DONE`，exit 0、failed=0）再收尾。")
+        elif root_wt:
             blocks.append(f"部位【{part}】有量尺{ruler}，"
                           f"改了 {len(rec['files'])} 個檔（最後在 turn {rec['edit_turn']}）但之後沒有這把尺的 DONE 收據。"
                           f"跑 {rerun} 再收尾。")
+        else:
+            blocks.append(f"部位【{part}】有量尺「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」，"
+                          f"改了 {len(rec['files'])} 個檔（最後在 turn {rec['edit_turn']}）但之後沒有這把尺的 DONE 收據。"
+                          f"跑 `{cmd}`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
     reason = None
     if blocks:
         reason = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n" + "\n".join("  ✗ " + b for b in blocks)

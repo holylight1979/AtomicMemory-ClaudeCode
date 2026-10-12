@@ -572,6 +572,29 @@ def test_is_root_worktree_pure_checks(tmp_path):
     assert vl.is_root_worktree(wt2, live) is False                  # 表內容不同＝一般專案
 
 
+_HEAD = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n  ✗ "
+# 基底 2b15257 hooks/wg_verify_ledger.py 第 800～805 行的兩句原文（非根層 worktree 分支逐字不變）
+_BASE_STALE = ("部位【hook 共用模組層】有量尺「全量 verify｜`python -X utf8 run_verify.py`｜全綠」，"
+               "最近一次跑尺在這個部位最後一次修改之前（先量後改不算）。"
+               "改完再跑一次 `python -X utf8 run_verify.py`（尾行 `<NAME> DONE` 或 `<NAME>_CHECK DONE`，exit 0、failed=0）再收尾。")
+_BASE_NONE = ("部位【hook 共用模組層】有量尺「全量 verify｜`python -X utf8 run_verify.py`｜全綠」，"
+              "改了 1 個檔（最後在 turn 5）但之後沒有這把尺的 DONE 收據。"
+              "跑 `python -X utf8 run_verify.py`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
+
+
+def test_non_root_worktree_block_messages_verbatim_as_base(tmp_path, monkeypatch):
+    """非根層 worktree 的兩句擋訊息與基底原文逐字相同：一般專案（表不在 CLAUDE_DIR）與 live 根層（root == CLAUDE_DIR）各比一次。"""
+    live, _ = _two_roots(tmp_path)
+    for root, lookup, claude_dir in ((ROOT, _lookup, live), (live, _lookup_at(live), live)):
+        monkeypatch.setattr(vl, "CLAUDE_DIR", claude_dir)
+        mod = str(Path(root) / "hooks" / "x.py")
+        stale = {**_rcpt(2, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(root), "cwd": str(root)}
+        reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [stale], 5, lookup, vl.MEASURE_DEFAULTS)
+        assert reason == _HEAD + _BASE_STALE, reason
+        reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [], 5, lookup, vl.MEASURE_DEFAULTS)
+        assert reason == _HEAD + _BASE_NONE, reason
+
+
 def test_done_receipts_sentinel_name_filter():
     pt = _pytest_done(5, ROOT)
     plain = _rcpt(5, "DONE", 0, cmd=MEASURE_CMD)

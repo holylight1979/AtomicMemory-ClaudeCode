@@ -1019,8 +1019,8 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
         if tmp_path.exists():
             try:
                 tmp_path.unlink()
-            except OSError:
-                pass
+            except OSError as e:
+                print(f"[state:tmp-left] {tmp_path.name}：{e}（另一行程握著，殘檔留下）", file=sys.stderr)
         if lock_fh is not None:
             try:
                 import msvcrt

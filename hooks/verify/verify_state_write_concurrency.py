@@ -42,9 +42,17 @@ def wait(name, timeout=10):
             raise SystemExit(f"wait timeout: {name}")
         time.sleep(0.002)
 
-def state_of(i):
-    big = (i % 2 == 0) if tag == "A" else (i % 2 == 1)
-    return {"session": {"id": sid}, "writer": tag, "i": i, "pad": "x" * (40000 if big else 8)}
+def expected(writer, i):
+    """writer 在第 i 次會寫出的完整 dict（A 偶數大、B 奇數大；去 last_updated）。"""
+    big = (i % 2 == 0) if writer == "A" else (i % 2 == 1)
+    return {"session": {"id": sid}, "writer": writer, "i": i, "pad": "x" * (40000 if big else 8)}
+
+def one_writer(d):
+    """d 必須「等於兩方之一會寫出的完整 dict」：用 writer＋i 重建預期後 == 比對。"""
+    if not isinstance(d, dict) or d.get("writer") not in ("A", "B") or not isinstance(d.get("i"), int) or not 0 <= d["i"] < n:
+        return "NOT_ONE_WRITER:" + json.dumps(d)[:80]
+    body = {k: v for k, v in d.items() if k != "last_updated"}
+    return "OK" if body == expected(d["writer"], d["i"]) else "NOT_ONE_WRITER:" + json.dumps(body)[:80]
 
 def read_valid():
     """讀回 state：暫時讀不到（另一方正 replace）就重試；JSON 壞就回錯誤字串。"""
@@ -58,17 +66,23 @@ def read_valid():
             continue
         except json.JSONDecodeError as e:
             return f"BAD_JSON:{e}"
-        keys = set(d) - {"last_updated"}
-        if keys != {"session", "writer", "i", "pad"} or d["pad"] != "x" * len(d["pad"]):
-            return f"NOT_ONE_WRITER:{sorted(keys)}"
-        return "OK"
+        return one_writer(d)
     return "UNREADABLE"
 
+if mode == "check":
+    # 反例：把 tag 槽的 JSON 原樣寫進 state 檔，印 read_valid 的判定（證明檢查器抓得到假 dict）
+    os.makedirs(os.path.dirname(wg_core.state_path(sid)), exist_ok=True)
+    with open(wg_core.state_path(sid), "w", encoding="utf-8", newline="\n") as f:
+        f.write(tag)
+    print(read_valid())
+    raise SystemExit(0)
+
 if mode == "burst":
+    signal(f"{tag}_ready")
     wait("go")
     bad = []
     for i in range(n):
-        wg_core.write_state(sid, state_of(i))
+        wg_core.write_state(sid, expected(tag, i))
         r = read_valid()
         if r != "OK":
             bad.append(f"{tag}#{i}:{r}")
@@ -91,8 +105,7 @@ def hooked_open(p, *a, **k):
     return fh
 
 wg_core.open = hooked_open
-state = {"session": {"id": sid}, "writer": tag, "i": 0, "pad": "x" * (40000 if tag == "A" else 8)}   # A 長、B 短
-wg_core.write_state(sid, state)
+wg_core.write_state(sid, expected(tag, 0))            # A 長（40000）、B 短（8）
 signal(f"{tag}_done")
 print(json.dumps({"tag": tag}))
 '''
@@ -110,6 +123,25 @@ def _state_file(claude_dir: Path) -> Path:
 
 def _signal(sync_dir: Path, name: str) -> None:
     (sync_dir / name).write_text("", encoding="utf-8", newline="\n")
+
+
+def _wait(sync_dir: Path, *names: str, timeout: float = 10) -> None:
+    deadline = time.time() + timeout
+    while not all((sync_dir / n).exists() for n in names):
+        assert time.time() < deadline, f"wait timeout: {names}"
+        time.sleep(0.005)
+
+
+def _expected(writer: str, i: int, n: int = 50) -> dict:
+    """父行程側的同一份「兩方各自會寫出的完整 dict」定義（與子行程 expected 一致）。"""
+    big = (i % 2 == 0) if writer == "A" else (i % 2 == 1)
+    return {"session": {"id": _SID}, "writer": writer, "i": i, "pad": "x" * (40000 if big else 8)}
+
+
+def _one_writer(d, n: int = 50) -> bool:
+    if not isinstance(d, dict) or d.get("writer") not in ("A", "B") or not isinstance(d.get("i"), int) or not 0 <= d["i"] < n:
+        return False
+    return {k: v for k, v in d.items() if k != "last_updated"} == _expected(d["writer"], d["i"], n)
 
 
 def _run_race(mode: str, tmp_path: Path):
@@ -130,7 +162,7 @@ def test_two_processes_interleaved_writes_always_valid_json(tmp_path):
     sync.mkdir()
     a = _spawn("burst", "A", 50, sync, tmp_path)
     b = _spawn("burst", "B", 50, sync, tmp_path)
-    time.sleep(0.3)                     # 兩邊都 import 完再放行，確保真的並行
+    _wait(sync, "A_ready", "B_ready")   # barrier：兩邊都 import 完、站在起跑線上才放 go
     _signal(sync, "go")
     p = _state_file(tmp_path)
     samples, bad_samples = 0, []
@@ -139,8 +171,8 @@ def test_two_processes_interleaved_writes_always_valid_json(tmp_path):
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             samples += 1
-            if set(d) - {"last_updated"} != {"session", "writer", "i", "pad"}:
-                bad_samples.append(sorted(d))
+            if not _one_writer(d):
+                bad_samples.append(json.dumps(d)[:80])
         except (OSError, json.JSONDecodeError) as e:
             if isinstance(e, json.JSONDecodeError):
                 bad_samples.append(str(e))
@@ -152,9 +184,25 @@ def test_two_processes_interleaved_writes_always_valid_json(tmp_path):
     assert ra["bad"] == [] and rb["bad"] == [], (ra, rb)
     assert bad_samples == [], bad_samples
     final = json.loads(p.read_text(encoding="utf-8"))
-    assert final["writer"] in ("A", "B") and final["i"] == 49
+    assert final["i"] == 49 and _one_writer(final)
     assert not list((tmp_path / "workflow").glob("*.tmp"))       # 不留 tmp
     assert "[state:unreadable]" not in ea + eb
+
+
+def test_counterexample_fake_dict_is_rejected_by_checker(tmp_path):
+    """檢查器餵一個鍵齊全但不是兩方任一會寫出的 dict → 父行程與子行程兩邊都判壞（證明正例不是只看鍵集合）。"""
+    fake = {"session": "wrong", "writer": "C", "i": 999, "pad": "xxx"}
+    assert _one_writer(fake) is False
+    for bad in ({"session": {"id": _SID}, "writer": "A", "i": 0, "pad": "x" * 8},       # A 第 0 次該是 40000
+                {"session": {"id": "other"}, "writer": "B", "i": 1, "pad": "x" * 40000}):
+        assert _one_writer(bad) is False, bad
+    assert _one_writer(_expected("A", 0)) and _one_writer(_expected("B", 1))
+    sync = tmp_path / "sync"
+    sync.mkdir()
+    c = _spawn("check", json.dumps(fake), 50, sync, tmp_path)
+    out, err = c.communicate(timeout=30)
+    assert c.returncode == 0, (out, err)
+    assert out.strip().startswith("NOT_ONE_WRITER"), out
 
 
 # ─── 反例：舊條件（共用 tmp＋無鎖）在可控交錯下必重現 Extra data ──────────
@@ -164,13 +212,14 @@ def test_counterexample_shared_tmp_without_lock_reproduces_extra_data(tmp_path):
     with pytest.raises(json.JSONDecodeError, match="Extra data"):
         json.loads(text)
     assert "[state:replace-failed]" in err       # A 換不掉被 B 握著的 tmp（舊碼靜默吞掉；現在浮訊號）
+    assert "[state:tmp-left]" in err             # A 的 tmp 也刪不掉（B 握著）→ 浮訊號不吞
 
 
 def test_same_interleaving_with_unique_tmp_stays_valid(tmp_path):
     """同一套交錯、鎖一樣拿不到，只靠 tmp 每行程唯一 → 檔仍是某一方（B，後寫）的完整 JSON。"""
     text, _ = _run_race("race-unique", tmp_path)
     d = json.loads(text)
-    assert d["writer"] == "B" and d["pad"] == "x" * 8
+    assert {k: v for k, v in d.items() if k != "last_updated"} == _expected("B", 0)
     assert not list((tmp_path / "workflow").glob("*.tmp"))
 
 
@@ -197,7 +246,7 @@ def test_lock_held_by_other_process_times_out_then_writes_valid_json(tmp_path):
     assert "[state:lock-timeout]" in ea
     assert json.loads(oa.strip().splitlines()[-1])["bad"] == []
     d = json.loads(_state_file(tmp_path).read_text(encoding="utf-8"))
-    assert d["writer"] == "A" and d["i"] == 0
+    assert {k: v for k, v in d.items() if k != "last_updated"} == _expected("A", 0, 1)
     assert not list(wf.glob("*.tmp"))
 
 
