@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block,
-    append_guard_log, WORKFLOW_DIR,
+    append_guard_log, WORKFLOW_DIR, _atom_debug_error,
 )
 from wg_evasion import (
     claims_completion, detect_evasion, deferral_gate_reason,

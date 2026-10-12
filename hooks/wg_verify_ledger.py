@@ -497,11 +497,16 @@ def _prints_sentinel(raw: str, shell: str) -> bool:
     return False
 
 
+def _cwd_of(receipt: Dict[str, Any]) -> str:
+    """收據的指令是從哪裡跑的（相對路徑照它解析）：cwd，沒有才用 project_root。"""
+    return str(receipt.get("cwd") or receipt.get("project_root") or "")
+
+
 def _in_tree(receipt: Dict[str, Any]) -> bool:
-    """跑程式的指令沒有指到收據根以外（量尺比對只看腳本檔名：`python ../live/run_verify.py`、`python C:\\…\\.claude\\run_verify.py`、
-    `pytest C:/live/tests` 量的都是別棵樹）。收據沒根資訊 → 不比（同 _root_ok）。"""
+    """跑程式的指令沒有指到收據根以外（`python ../live/run_verify.py`、`python C:\\…\\.claude\\run_verify.py`、`../live/verify.sh`、
+    `pytest C:/live/tests` 量的都是別棵樹；相對路徑照 cwd 解析）。收據沒根資訊 → 不比（同 _root_ok）。"""
     root = str(receipt.get("project_root") or receipt.get("cwd") or "")
-    return not _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root)
+    return not _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root, _cwd_of(receipt))
 
 
 def _clean(receipt: Dict[str, Any]) -> bool:
@@ -513,12 +518,17 @@ def _clean(receipt: Dict[str, Any]) -> bool:
             and _in_tree(receipt) and not _prints_sentinel(raw, sh))
 
 
-def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any]) -> bool:
-    """收據跑了表上這把尺（cmd_matches，依收據的 shell 解析、python 腳本照相對收據根的路徑比；指令要完整、沒指到收據根以外）。"""
+def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -> bool:
+    """收據跑了表上這把尺（cmd_matches，依收據的 shell 解析；腳本照路徑認：收據照它的 cwd、量尺照部位根 part_root，
+    沒給部位根就共用收據的；指令要完整、沒指到收據根以外）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    root = str(receipt.get("project_root") or receipt.get("cwd") or "")
-    return (bool(str(measure_cmd).strip()) and _cmd_complete(receipt) and cmd_matches(str(measure_cmd), raw, sh, root)
+    return (bool(str(measure_cmd).strip()) and _cmd_complete(receipt)
+            and cmd_matches(str(measure_cmd), raw, sh, _cwd_of(receipt), str(part_root or ""))
             and _in_tree(receipt))
+
+
+_RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1`、`export X=1`、`$env:X=\"1\";`、`$x = '字面值';`），"
+               "後面只准 `| tail` 或 `| Select-Object -Last N`；請照表上原字串單獨跑。")
 
 
 def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Iterable[str] = ()) -> str:
@@ -540,6 +550,8 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         if _prints_sentinel(raw, sh):
             return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
                     "哨兵只能由被執行的程式印出。")
+        if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
+            return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"
         if not _in_tree(r):
             return (f"這條指令 {head} 指到收據根以外的路徑（"
                     + "、".join(_self_receipt.outside_paths(raw, sh, str(r.get("project_root") or r.get("cwd") or ""))[:3])
@@ -788,7 +800,7 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
         if require_ok and (r.get("exit_code") not in (None, 0) or "FAIL" in _verdicts(r) or not _failed_kv_ok(r)):
             continue
         if want:
-            if not _ruler_ran(want, r):
+            if not _ruler_ran(want, r, root or ""):
                 continue
         elif not _clean(r):
             continue          # 沒指定量尺：指令要能當一般證據（白名單語法、只跑程式、沒寫哨兵字樣）
@@ -1165,7 +1177,7 @@ def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: st
         argv = r.get("argv") if isinstance(r, dict) else None
         if not isinstance(r, dict) or not cmd.strip() or not cmd_matches(
                 cmd, argv if isinstance(argv, list) and argv else str(r.get("cmd", "")),
-                root=str(r.get("project_root") or "")):
+                root=str(r.get("project_root") or ""), measure_root=str(root or "")):
             continue
         if r.get("exit_code") != 0 or str(r.get("failed")) != "0":
             continue

@@ -168,29 +168,28 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
         elif c == "#" and not has:
             j = s.find("\n", i)
             i = n if j < 0 else j
-        elif c == "'":
+        elif c in "'\"":                                          # PowerShell 引號裡連寫兩個（'' 或 ""）是一個字面引號
             string_start()
             begin()
-            j = s.find("'", i + 1)
-            if j < 0:
-                raise _Unsupported("引號沒閉合")
-            cur.append(s[i + 1:j])
-            has, i = True, j + 1
-        elif c == '"':
-            string_start()
-            begin()
-            j = i + 1
-            while j < n and s[j] != '"':
-                if s[j] == "`":
+            j, part = i + 1, []
+            while True:
+                if j >= n:
+                    raise _Unsupported("引號沒閉合")
+                if s[j] == c:
+                    if ps and s[j + 1:j + 2] == c:
+                        part.append(c)
+                        j += 2
+                        continue
+                    break
+                if c == '"' and s[j] == "`":
                     raise _Unsupported("反引號")
-                if s.startswith("$(", j):
+                if c == '"' and s.startswith("$(", j):
                     raise _Unsupported("命令替換 $( )")
-                if s.startswith('\\"', j):
+                if c == '"' and s.startswith('\\"', j):
                     raise _Unsupported('雙引號裡的跳脫 \\"')
+                part.append(s[j])
                 j += 1
-            if j >= n:
-                raise _Unsupported("引號沒閉合")
-            cur.append(s[i + 1:j])
+            cur.append("".join(part))
             has, i = True, j + 1
         elif c == "\\":
             begin()
@@ -257,6 +256,8 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
         w = ch.words if ps else _strip_env(ch.words)
         if not w:
             continue
+        if not w[0]:
+            raise _Unsupported("空的指令名")
         head = _prog(w[0])
         if head in _CTRL_WORDS:
             raise _Unsupported(f"控制結構 {w[0]}")
@@ -287,31 +288,26 @@ def unsupported_syntax(cmd: str, shell: str = "bash") -> Optional[str]:
     return split_shell(cmd, shell)[1]
 
 
-def _low(t: str) -> str:
-    """選項保留大小寫（python -V 與 -v 不同）；其餘參數斜線統一、小寫。"""
-    return t if t.startswith("-") else t.replace("\\", "/").lower()
-
-
 def _script_id(tok: str, root: str) -> str:
-    """python 跑的腳本是哪一支：有根 → 相對根的路徑（消掉 . 與 ..；`archive/run_verify.py` 和根下的 `run_verify.py` 不同支，
-    根外的留絕對路徑）；沒根 → 只看檔名。"""
+    """腳本是哪一支：有根（從哪裡跑）→ 照根解析成絕對路徑、消掉 . 與 ..（`archive/run_verify.py` 和根下的 `run_verify.py`
+    不同支，從 archive/ 裡跑 `run_verify.py` 也不同支）；沒根 → 只看檔名。"""
     base = abs_path(root) if root else None
     if not base:
         return Path(tok.replace("\\", "/")).name
-    p = posixpath.normpath(abs_path(tok) or f"{base}/{tok.replace(chr(92), '/').lower()}")
-    return p[len(base) + 1:] if p.startswith(base + "/") else p
+    return posixpath.normpath(abs_path(tok) or f"{base}/{tok.replace(chr(92), '/').lower()}")
 
 
 def _canon(toks: List[str], root: str = "") -> List[str]:
-    """一個指令的字 → 照原順序的正規化 token：程式取檔名、去 .exe、小寫，python 家族（python3.13／pythonw）一律寫 python；
-    python 的選項 `-Xutf8` 寫成 `-X utf8`；python 跑的腳本見 _script_id（`C:\\中文專案\\run_verify.py` 在根 C:\\中文專案 下
-    → run_verify.py）；其餘參數斜線統一、小寫，選項保留大小寫。"""
-    toks = [str(t) for t in toks if str(t) != ""]
+    """一個指令的字 → 照原順序的正規化 token：程式名取檔名、去 .exe、小寫，python 家族（python3.13／pythonw）一律寫 python；
+    程式本身寫成路徑（`./verify.sh`、`C:/live/verify.ps1`）的照 _script_id 認是哪一支；python 的選項 `-Xutf8` 寫成 `-X utf8`；
+    python 跑的腳本照 _script_id。其餘參數原樣（大小寫、空字串都保留：`verify:Critical` 與 `verify:critical` 是不同的 task）。"""
+    toks = [str(t) for t in toks]
     if not toks:
         return []
-    head, rest = _prog(toks[0]), toks[1:]
-    if not _PY_HEAD_RE.match(head):
-        return [head, *(_low(t) for t in rest)]
+    w0, rest = toks[0], toks[1:]
+    name = _prog(w0)
+    if not _PY_HEAD_RE.match(name):
+        return [_script_id(w0, root) if root and ("/" in w0 or "\\" in w0) else name, *rest]
     opts: List[str] = []
     while rest and rest[0].startswith("-") and rest[0] not in ("-", "-m", "-c"):
         tok = rest.pop(0)
@@ -320,9 +316,9 @@ def _canon(toks: List[str], root: str = "") -> List[str]:
         elif tok[:2] in _PY_OPT_ARG and len(tok) > 2:
             tok = f"{tok[:2]} {tok[2:]}"
         opts.append(tok)
-    if rest and not rest[0].startswith("-"):
+    if rest and rest[0] and not rest[0].startswith("-"):
         rest[0] = _script_id(rest[0], root)
-    return ["python", *opts, *(_low(t) for t in rest)]
+    return ["python", *opts, *rest]
 
 
 def _norm_cmd(words: List[str], root: str = "") -> Optional[Cmd]:
@@ -465,21 +461,37 @@ def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
     return runs if all(_runs_program(s) and not s.stdout for s in runs) else None
 
 
-def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "") -> bool:
+def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "", measure_root: str = "") -> bool:
     """執行的指令 cmd 是不是跑了表上的量尺 measure_cmd（量尺用 bash 規則解析，cmd 依 shell）：量尺的整條指令鏈
     （各指令與中間的 && || | ;）連續、運算子相同地出現在最後；之後只准乾淨的尾端過濾；之前只准 cd 與環境設定，接的運算子
     是開頭／;／換行／&&。各指令照順序完全相同：程式、python 直譯器選項、其他 token（`-h`、`-u`、`-k 某案`、多一個檔名、
-    選項換順序都不算；`-Xutf8`＝`-X utf8`）。root（收據根）給了，python 腳本照相對根的路徑比（`archive/run_verify.py`
-    不是根下的 run_verify.py）；沒給只比檔名。白名單外語法、`印假哨兵 || 量尺`、`量尺; echo 假的 DONE`、引號裡的量尺字樣都對不上。"""
-    m, e = parse_cmds(measure_cmd, root=root), parse_cmds(cmd, shell, root)
+    選項換順序、大小寫都不算；`-Xutf8`＝`-X utf8`）。腳本照路徑認：cmd 照 root（收據從哪裡跑）解析、量尺照 measure_root
+    （表所在的根）解析，兩邊只給一個就共用；都沒給只比檔名。多段量尺後面再接過濾時，量尺最後一段要是 echo 類（管線會蓋掉
+    最後一段的 exit：最後一段若是會失敗的程式，前段印的 DONE 會替它背書）。白名單外語法、`印假哨兵 || 量尺`、
+    `量尺; echo 假的 DONE`、引號裡的量尺字樣都對不上。"""
+    m = parse_cmds(measure_cmd, root=measure_root or root)
+    e = parse_cmds(cmd, shell, root or measure_root)
     if not m:
         return False
+    tail_ok = len(m) == 1 or _prog(m[-1].words[0] if m[-1].words else "") in _ECHO_PROGS
     for end in range(_first_filter(e), len(e) + 1):
         start = end - len(m)
-        if start >= 0 and _reachable(e, start) and all(
-                ms.cmd == es.cmd and (k == 0 or ms.op == es.op) for k, (ms, es) in enumerate(zip(m, e[start:end]))):
+        if start >= 0 and (end == len(e) or tail_ok) and _reachable(e, start) and _chain_at(m, e, start):
             return True
     return False
+
+
+def _chain_at(m: List[Step], e: List[Step], start: int) -> bool:
+    """量尺鏈 m 從 e[start] 起連續出現（各指令照順序相同、中間運算子相同）。"""
+    seg = e[start:start + len(m)]
+    return len(seg) == len(m) and all(ms.cmd == es.cmd and (k == 0 or ms.op == es.op)
+                                      for k, (ms, es) in enumerate(zip(m, seg)))
+
+
+def ruler_in(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "") -> bool:
+    """量尺鏈出現在 cmd 裡任何位置（不管前後接了什麼；兩邊照同一個根）：只給擋訊息說「量尺前後接了別的指令」，不是證據。"""
+    m, e = parse_cmds(measure_cmd, root=root), parse_cmds(cmd, shell, root)
+    return bool(m) and any(_chain_at(m, e, s) for s in range(len(e)))
 
 
 def abs_path(word: str) -> Optional[str]:
@@ -491,31 +503,38 @@ def abs_path(word: str) -> Optional[str]:
     return p.replace("\\", "/").rstrip("/").lower()
 
 
-def _path_in(word: str, base: str) -> bool:
-    """一個參數字在 base（abs_path 正規化過的根）底下：絕對路徑直接比、相對路徑接在 base 後面，都先消掉 . 與 ..；
-    `/p:Release` 這種 Windows 工具選項不是路徑；~、$變數、其他 / 開頭、`C:x` 看不出在哪 → 不在。"""
+def _path_in(word: str, base: str, tree: str, literal: bool) -> bool:
+    """一個參數字照 base（從哪裡跑）解析後在 tree（收據根）底下：絕對路徑直接比、相對路徑接在 base 後面，都先消掉 . 與 ..；
+    `/p:Release` 這種 Windows 工具選項不是路徑；沒有單引號包住的 ~、$變數，以及其他 / 開頭、`C:x` 看不出在哪 → 不在。"""
     if _WIN_SWITCH_RE.match(word):
         return True
-    if word.startswith("~") or "$" in word:
+    if not literal and (word.startswith("~") or "$" in word):
         return False
     a = abs_path(word)
     if a is None and (word.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", word)):
         return False
     p = posixpath.normpath(a or f"{base}/{word.replace(chr(92), '/').lower()}")
-    return p == base or p.startswith(base + "/")
+    return p == tree or p.startswith(tree + "/")
 
 
-def outside_paths(cmd: Argv, shell: str, root: str) -> List[str]:
-    """跑程式的指令裡指到收據根 root 以外的字（位置參數、選項 `=` 後面的值；cd 與環境設定另判）。量尺比對只看腳本檔名，
-    `python ../live/run_verify.py`、`pytest C:/live/tests` 量的是別棵樹，要靠這裡擋。root 不是絕對路徑（沒根資訊）→ 不比，回 []。"""
-    base = abs_path(str(root or "")) or ""
+def outside_paths(cmd: Argv, shell: str, root: str, cwd: str = "") -> List[str]:
+    """跑程式的指令裡指到收據根 root 以外的字：程式本身寫成路徑的（`../live/verify.sh`；python 直譯器除外）、位置參數、
+    選項 `=` 後面的值；相對路徑照 cwd（沒給就用 root）解析。cd 與環境設定另判。量尺比對只看腳本身分，`python ../live/run_verify.py`、
+    `pytest C:/live/tests` 量的是別棵樹，要靠這裡擋。root 不是絕對路徑（沒根資訊）→ 不比，回 []。"""
+    tree = abs_path(str(root or "")) or ""
+    base = abs_path(str(cwd or "")) or tree
     out: List[str] = []
-    for st in parse_cmds(cmd, shell) if base else []:
-        if _is_setup(st):
+    for st in parse_cmds(cmd, shell) if tree else []:
+        if _is_setup(st) or not st.words:
             continue
-        for w in st.words[1:]:
+        cands = list(zip(st.words[1:], st.raw[1:]))
+        w0 = st.words[0]
+        if ("/" in w0 or "\\" in w0) and not _PY_HEAD_RE.match(_prog(w0)):
+            cands.insert(0, (w0, st.raw[0]))
+        for w, rw in cands:
             v = w.split("=", 1)[1] if w.startswith("-") and "=" in w else ("" if w.startswith("-") else w)
-            if v and not _path_in(v, base):
+            literal = len(rw) >= 2 and rw[0] == "'" and rw[-1] == "'"          # 單引號裡不展開變數與 ~
+            if v and not _path_in(v, base, tree, literal):
                 out.append(w)
     return out
 

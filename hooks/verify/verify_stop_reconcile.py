@@ -1859,6 +1859,29 @@ def test_017_codex_r2_3_other_tree_paths_do_not_count(tmp_path, monkeypatch):
     assert gate("python -m pytest hooks/verify/verify_x.py && python -m pytest missing.py | tail -5") is not None
 
 
+@pytest.mark.parametrize("cmd", [f"git status; {MEASURE_CMD}", f"{MEASURE_CMD} | head -5", f"cd sub; {MEASURE_CMD} | tail -n 20 old.log"])
+def test_017_block_message_explains_allowed_prefix(cmd):
+    """總控台裁定：量尺前面只准 `cd <絕對路徑> &&` 與環境設定；量尺前後接了別的指令時，擋訊息要說明允許的寫法。"""
+    reason = _gate(cmd)
+    assert reason and "裡有量尺，但前後接了別的指令" in reason and "前面只准 `cd <絕對路徑> &&` 與環境設定" in reason, cmd
+    assert "| Select-Object -Last N" in reason
+    assert "前後接了別的指令" not in (_gate("python -X utf8 tools/other.py") or "")          # 沒有量尺的指令不加這句
+
+
+def test_017_codex_r4_measure_gate_identity_and_tail():
+    """codex 四審（經量尺閘）：從 archive/ 跑 `python -X utf8 run_verify.py`（cwd 不是部位根）跑的是另一支 → 不認；
+    `../live/verify.sh` 不是表上的 `./verify.sh` → 不認；多段量尺最後一段會失敗又接 `| tail` → 不認。"""
+    archive = {**_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=_T2, kv={"cases": "1", "failed": "0"}), "cwd": r"c:\proj\archive"}
+    reason, _ = vl.measure_gate_reason([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [archive], 5, _lookup, vl.MEASURE_DEFAULTS,
+                                       chains_of=lambda r: {}, self_runs=lambda: [])
+    assert reason is not None
+    sh_row = {"part_short": "腳本層", "measure": {"method": "verify", "cmd": "./verify.sh", "threshold": "全綠"}}
+    assert _gate("../live/verify.sh", row=sh_row) is not None and _gate("./verify.sh", row=sh_row) is None
+    two = {"part_short": "兩段", "measure": {"method": "v", "cmd": "python -X utf8 run_verify.py && python check.py", "threshold": "全綠"}}
+    assert _gate(two["measure"]["cmd"] + " | tail -n 5", row=two) is not None
+    assert _gate(two["measure"]["cmd"], row=two) is None
+
+
 def test_017_codex_r3_measure_gate_follows_real_execution():
     """codex 三審：判定要跟 shell 實際執行一致。`X=1 || 量尺`（量尺被短路）、`$x = Set-Location; 量尺`（換到家目錄）、
     `cd C:/repo | … && 量尺`（管線裡的 cd 不換目錄）、`archive/run_verify.py`（另一支同名腳本）→ 量尺閘不認；
@@ -1875,6 +1898,25 @@ def test_017_codex_r3_measure_gate_follows_real_execution():
     reason, _ = vl.measure_gate_reason([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [r], 5, _lookup, vl.MEASURE_DEFAULTS,
                                        chains_of=lambda r: {}, self_runs=lambda: [])
     assert reason is None
+
+
+def test_017d_rescue_map_error_is_logged_not_swallowed_by_name_error(monkeypatch, capsys):
+    """017d：stop.py 的 rescue_map 例外路徑呼叫 _atom_debug_error 卻沒 import → 一跑就 NameError，被外層吞成
+    「usefulness attribution error」、整段歸因中斷。修好：錯誤記進 _atom_debug_error（wg_core 那支），歸因照常跑完。"""
+    import wg_core
+    import wg_rescue
+    assert getattr(st, "_atom_debug_error", None) is wg_core._atom_debug_error
+    seen: list = []
+    monkeypatch.setattr(st, "_atom_debug_error", lambda src, exc: seen.append((src, type(exc).__name__)))
+
+    def boom(*a, **k):
+        raise RuntimeError("rescue broke")
+
+    monkeypatch.setattr(wg_rescue, "rescue_hits_for_turn_from_state", boom)
+    state = {"turn_seq": 3}
+    st._attribute_usefulness(state, {"usefulness": {"attribution_policy": "v2"}}, _SID, None, "完成", transcript_text="")
+    assert seen == [("usefulness:rescue_map", "RuntimeError")]
+    assert state.get("usefulness_attributed_seq") == 3 and "usefulness attribution error" not in capsys.readouterr().err
 
 
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────

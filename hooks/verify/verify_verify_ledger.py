@@ -394,11 +394,14 @@ def test_receipt_relates_root_must_match():
     mods = ["C:/Demo/src/widget.py"]
     r = {"cmd": "python tests/test_widget.py", "project_root": "C:/Other", "cwd": "C:/Other"}
     assert vl.receipt_relates(r, mods, (), (), "C:/Demo") is False                                     # 別的根
-    assert vl.receipt_relates({**r, "project_root": "C:/Demo"}, mods, (), (), "C:/Demo") is True
+    demo = {**r, "project_root": "C:/Demo", "cwd": "C:/Demo"}
+    assert vl.receipt_relates(demo, mods, (), (), "C:/Demo") is True
+    # 017：相對路徑照 cwd 解析，從 C:/Other 跑 `python tests/test_widget.py` 跑的是 C:/Other 的檔，project_root 寫什麼都不算
+    assert vl.receipt_relates({**r, "project_root": "C:/Demo"}, mods, (), (), "C:/Demo") is False
     assert vl.receipt_relates({**r, "project_root": "", "cwd": "C:/Demo/sub"}, mods, (), (), "C:/Demo") is True   # 沒 project_root 用 cwd
     assert vl.receipt_relates({**r, "project_root": "C:/Demo2"}, mods, (), (), "C:/Demo") is False     # 字首相同不等於同一棵樹
     assert vl.receipt_relates({**r, "project_root": "C:/"}, mods, (), (), "C:/Demo") is True           # 未解 1：收據根在上層也算
-    assert vl.receipt_relates({**r, "project_root": "C:/Demo"}, mods, (), (), "C:/Demo/sub") is True
+    assert vl.receipt_relates(demo, mods, (), (), "C:/Demo/sub") is True
     assert vl.receipt_relates({**r, "project_root": "C:/Demo/sub2"}, mods, (), (), "C:/Demo/sub") is False   # 互不包含才擋
     assert vl.receipt_relates({"cmd": r["cmd"]}, mods, (), (), "C:/Demo") is True                      # 收據沒根資訊 → 照舊
     assert vl.receipt_relates(r, mods, (), (), lambda p: None) is True                                 # 改檔根不可判定 → 照舊

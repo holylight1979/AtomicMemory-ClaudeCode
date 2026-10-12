@@ -364,6 +364,29 @@ def test_017_codex_r3_control_flow_identity_and_order():
     assert sr.cmd_matches("python -W ignore -W error verify.py", "python -W ignore -Werror verify.py")
 
 
+def test_017_codex_r4_identity_tail_and_literals():
+    """codex 四審：多段量尺接過濾時最後一段要是 echo；直接執行的腳本照路徑認；收據照 cwd、量尺照表的根解析；參數大小寫、
+    空字串、PowerShell 的 '' 跳脫都照原樣；單引號裡的 $ 是字面值。"""
+    two = "python -X utf8 run_verify.py && python missing.py"
+    assert not sr.cmd_matches(two, f"{two} | tail -n 5") and sr.cmd_matches(two, two)
+    mem = _ROOT_ROWS["記憶資料層"]["measure"]["cmd"]
+    assert sr.cmd_matches(mem, f"{mem} 2>&1 | tail -5")                                     # 最後一段是 echo → 照算
+    root = "C:\\proj"
+    assert not sr.cmd_matches("./verify.sh", "../live/verify.sh", root=root) and sr.cmd_matches("./verify.sh", "./verify.sh", root=root)
+    assert not sr.cmd_matches("./verify.ps1", "C:/live/verify.ps1", "powershell", root=root)
+    assert sr.outside_paths("../live/verify.sh", "bash", root) == ["../live/verify.sh"]
+    assert not sr.cmd_matches("python run_verify.py", "python run_verify.py", root="C:\\proj\\archive", measure_root=root)
+    assert sr.cmd_matches("python run_verify.py", "python run_verify.py", root=root, measure_root=root)
+    assert not sr.cmd_matches("npm run verify:Critical", "npm run verify:critical")
+    assert not sr.cmd_matches('python check.py --mode ""', "python check.py --mode")
+    # 量尺照 bash 規則讀（'a''b' 是 ab）；PowerShell 跑同一串時傳的是 a'b → 不是同一個參數
+    assert not sr.cmd_matches("python check.py --pattern 'a''b'", "python check.py --pattern 'a''b'", "powershell")
+    assert sr.cmd_matches("python check.py --pattern ab", "python check.py --pattern 'a''b'")          # bash 相鄰引號就是接起來
+    assert sr.split_shell("echo 'it''s'", "powershell")[0][0].words == ["echo", "it's"]
+    assert sr.outside_paths("rg --count '$'", "powershell", root) == [] and sr.outside_paths('rg --count "$x"', "bash", root)
+    assert "空的指令名" in sr.unsupported_syntax("'' run_verify.py")
+
+
 def test_017b_6_powershell_string_expression_is_not_a_command():
     """017b 規則 6：PowerShell 以引號開頭的那段是字串運算式（只輸出字串）→ 不算；bash 同字串（無引號）→ 算
     （bash 整串加引號是一個字＝找不到的程式名，也不算）。"""
