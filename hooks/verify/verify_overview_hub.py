@@ -1116,3 +1116,25 @@ def test_verify_ledger_delegation_failure_returns_false_and_gate_still_blocks(tm
     assert "[verify_ledger] is_root_worktree 委派失敗" in capsys.readouterr().err
     reason, _ = vl.measure_gate_reason(mf, [done], 5, lookup, vl.MEASURE_DEFAULTS)
     assert reason and "[Guardian:MeasureGate]" in reason                                 # 反例：委派失敗不得放行
+
+
+def test_verify_ledger_delegation_raising_attribute_error_returns_false(tmp_path, monkeypatch, capsys):
+    import types
+    import wg_verify_ledger as vl
+    fake = types.ModuleType("overview_hub")
+
+    def boom(root, claude_dir):
+        raise AttributeError("'NoneType' object has no attribute 'read_bytes'")
+    fake.is_root_worktree = boom
+    monkeypatch.setitem(sys.modules, "overview_hub", fake)
+    assert vl.is_root_worktree(tmp_path / "wt", tmp_path / "live") is False
+    err = capsys.readouterr().err
+    assert "[verify_ledger] is_root_worktree 委派失敗：AttributeError" in err
+
+
+def test_same_dir_norm_long_prefix_any_case():
+    unc = Path("\\\\localhost\\nosuchshare_a3")                                             # localhost：不存在的分享也秒回
+    assert oh._same_dir_norm(Path("\\\\?\\unc\\localhost\\nosuchshare_a3"), unc) is True   # 小寫 unc 不得剝成相對路徑
+    assert oh._same_dir_norm(Path("\\\\?\\UNC\\localhost\\nosuchshare_a3"), unc) is True
+    assert oh._same_dir_norm(Path("\\\\?\\c:\\x"), Path("C:\\x")) is True
+    assert oh._same_dir_norm(Path("\\\\?\\unc\\localhost\\nosuchshare_a3"), Path("\\\\localhost\\other_a3")) is False

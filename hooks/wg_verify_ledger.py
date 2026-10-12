@@ -747,10 +747,11 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
         sys.path.insert(0, lib_dir)
     try:
         from overview_hub import is_root_worktree as _impl
-    except ImportError as e:
-        print(f"[verify_ledger] is_root_worktree 委派失敗：{e}；當成非 worktree（量尺照根層規則要全量）", file=sys.stderr)
+        return bool(_impl(root, claude_dir))
+    except Exception as e:  # noqa: BLE001
+        print(f"[verify_ledger] is_root_worktree 委派失敗：{type(e).__name__}: {e}；當成非 worktree（量尺照根層規則要全量）",
+              file=sys.stderr)
         return False
-    return _impl(root, claude_dir)
 
 
 def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]], turn_seq: int,

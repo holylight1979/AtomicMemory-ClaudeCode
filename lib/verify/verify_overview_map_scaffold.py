@@ -627,3 +627,38 @@ def test_cli_root_worktree_write_exit_nonzero_and_check_reads_wt(tmp_path, fake_
     assert _all_files(tmp_path) == before                                               # tmp 內沒有新檔、沒改檔
     r = run("check", "--cwd", str(wt))
     assert r.returncode == 0 and r.stdout.rstrip().endswith("OVERVIEW_SCAFFOLD CHECK PASS issues=0"), r.stdout + r.stderr
+
+
+def _nested_wt_world(home: Path):
+    """live＝home/.claude；worktree 開在 live 底下（原生 EnterWorktree 的位置 <repo>/.claude/worktrees/<名>），表位元組相同。"""
+    live = home / ".claude"
+    wt = live / ".claude" / "worktrees" / "x"
+    for r in (live, wt):
+        (r / ".claude").mkdir(parents=True, exist_ok=True)
+        (r / "server").mkdir(parents=True, exist_ok=True)
+        (r / "server" / "a.py").write_text("x\n", encoding="utf-8", newline="\n")
+        (r / ".claude" / "overview-map.md").write_text(WT_MAP, encoding="utf-8", newline="\n")
+    (wt / "memory" / "MemDev").mkdir(parents=True)
+    (wt / "memory" / "MemDev" / "server部位導讀.md").write_text("# server部位導讀\n", encoding="utf-8", newline="\n")
+    return live, wt
+
+
+@pytest.mark.parametrize("path_kind", ["wg_core", "fallback"])
+def test_nested_root_worktree_under_live_is_root_wt_and_write_refused(tmp_path, monkeypatch, live_wg_core, path_kind):
+    home = tmp_path / "H"
+    live, wt = _nested_wt_world(home)
+    if path_kind == "wg_core":
+        live_wg_core(live)                                                                 # _layer_of 會判 root（在 live 之下）
+    else:
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        monkeypatch.setitem(sys.modules, "wg_core", None)
+    assert sc.detect_layer(wt) == (sc.LAYER_ROOT, wt)                                     # 不是 (root, live)
+    fake = _FakeWriter(wt)
+    monkeypatch.setattr(sc, "write_atom", fake)
+    before = _all_files(home)
+    for merge in (False, True):
+        with pytest.raises(sc.ScaffoldError) as ei:
+            sc.write_scaffold(wt, _rows(wt), sc.ROOT_DOMAIN, write=True, merge_missing=merge)
+        assert sc.ROOT_WT_WRITE_REFUSED in str(ei.value)
+    assert fake.calls == [] and _all_files(home) == before                               # live 與 wt 雜湊都不變

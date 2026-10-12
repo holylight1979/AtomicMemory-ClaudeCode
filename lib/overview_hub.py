@@ -266,13 +266,14 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
 # ─── 卡片 ───────────────────────────────────────────────────────────
 
 def _same_dir_norm(a: Path, b: Path) -> bool:
-    """兩個路徑是不是同一目錄（realpath＋反斜線轉正＋小寫，剝 `\\\\?\\`、`\\\\?\\UNC\\` 長路徑前綴）；
+    """兩個路徑是不是同一目錄（realpath＋反斜線轉正＋小寫，剝 `\\\\?\\`、`\\\\?\\UNC\\` 長路徑前綴，前綴不分大小寫）；
     只給 is_root_worktree／card_mem_dir 用，find_map 用上面的 _same_dir。"""
     def strip_long(s: str) -> str:
         s = s.replace("\\", "/")
-        if s.startswith("//?/UNC/"):
-            return "//" + s[len("//?/UNC/"):]
-        return s[len("//?/"):] if s.startswith("//?/") else s
+        head = s[:8].lower()
+        if head == "//?/unc/":
+            return "//" + s[8:]
+        return s[4:] if head.startswith("//?/") else s
 
     def norm(p: Path) -> str:
         return strip_long(os.path.realpath(strip_long(str(p)))).rstrip("/").lower()

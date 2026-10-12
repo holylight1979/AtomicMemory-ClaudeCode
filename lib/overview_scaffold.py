@@ -83,20 +83,21 @@ def merge_cfg(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 # ─── 判層 ────────────────────────────────────────────────────────────
 
 def detect_layer(root: Path) -> Tuple[str, Path]:
-    """→ (層, 該層的根)。走 hooks/wg_core._layer_of（根層／公司層／專案層單源）；wg_core 載不到時退「在 ~/.claude 之下＝根層，
+    """→ (層, 該層的根)。兩條路都先判根層 worktree（表與 live 根層位元組相同的其他根，含開在 ~/.claude 或公司根底下的）
+    → (根層, worktree 本身)；再走 hooks/wg_core._layer_of（根層／公司層／專案層單源）；wg_core 載不到時退「在 ~/.claude 之下＝根層，
     否則＝專案層」。專案層與解析不到專案根（none）都當專案，根＝使用者給的 --cwd。"""
     root = Path(root)
     try:
         if str(CLAUDE_DIR / "hooks") not in sys.path:
             sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
         import wg_core  # noqa: WPS433
+        if is_root_worktree(root, Path(wg_core.CLAUDE_DIR)):
+            return LAYER_ROOT, root
         info = wg_core._layer_of(str(root))
         if info.kind == "root":
             return LAYER_ROOT, Path(info.root)
         if info.kind == "org":
             return LAYER_ORG, Path(info.root)
-        if is_root_worktree(root, Path(wg_core.CLAUDE_DIR)):
-            return LAYER_ROOT, root
         return LAYER_PROJECT, root
     except Exception as e:  # lib 不硬依賴 hooks；退路徑判斷但要說一聲
         print(f"[overview_scaffold] wg_core 判層不可用，退路徑判斷：{e}", file=sys.stderr)
