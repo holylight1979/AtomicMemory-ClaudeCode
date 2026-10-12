@@ -35,6 +35,8 @@ _ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _FD_RE = re.compile(r"^(?:\d|\*)$")
 _SHELL_SPECIAL_RE = re.compile(r"[\s;&|<>()'\"#`$]")
 _FILTER_PROGS = frozenset({"tail", "head", "select-object", "select"})   # 尾端只准接這幾支：只會刪行，造不出成功行
+_ECHO_PROGS = frozenset({"echo", "printf", "write-output", "write-host", "write", "out-host"})   # 只會印字的指令
+_HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 Argv = Union[str, List[str]]
 Cmd = Tuple[str, FrozenSet[str], FrozenSet[str], Tuple[str, ...]]      # (程式, python 直譯器選項, 其他選項, 位置參數)
@@ -43,10 +45,12 @@ Cmd = Tuple[str, FrozenSet[str], FrozenSet[str], Tuple[str, ...]]      # (程式
 def split_shell(s: str) -> List[Tuple[Optional[str], List[str]]]:
     """bash／PowerShell 共通的保守斷詞 → [(接在前一個指令後的運算子, 這個指令的字)]；運算子只有 &&、||、|、;
     （換行、單獨的 &、( ) 都當 ;）。'…' 原樣；"…" 只認 \\" `" \\$ 這類跳脫，其餘反斜線照留（Windows 路徑）；
-    引號裡的 ; | && 不切，所以 echo 的參數不會變成指令。字首的 # 到行尾是註解；>、>>、2>&1、*>、&>、< 連同目標丟掉。"""
+    引號裡的 ; | && 不切，所以 echo 的參數不會變成指令。字首的 # 到行尾是註解；>、>>、2>&1、*>、&>、< 連同目標丟掉；
+    heredoc（`<<EOF`、`<<-'EOF'`）的內容行整段跳過，不當指令。"""
     out: List[Tuple[Optional[str], List[str]]] = []
     words: List[str] = []
     cur: List[str] = []
+    heredocs: List[str] = []
     has = skip = False
     op: Optional[str] = None
 
@@ -97,6 +101,22 @@ def split_shell(s: str) -> List[Tuple[Optional[str], List[str]]]:
         elif s.startswith(("&&", "||"), i):
             end_cmd(s[i:i + 2])
             i += 2
+        elif s.startswith("<<", i) and not s.startswith("<<<", i) and _HEREDOC_RE.match(s, i):
+            m = _HEREDOC_RE.match(s, i)
+            end_word()
+            heredocs.append(m.group(2))
+            i = m.end()
+        elif c == "\n" and heredocs:                          # heredoc 內容到結束標記那一行為止，整段跳過
+            end_cmd(";")
+            pos = i + 1
+            for d in heredocs:
+                while pos < n:
+                    e = s.find("\n", pos)
+                    line, pos = s[pos:n if e < 0 else e], (n if e < 0 else e + 1)
+                    if line.strip() == d:
+                        break
+            heredocs.clear()
+            i = pos
         elif c in "<>" or s.startswith("&>", i):
             if has and _FD_RE.match("".join(cur)):          # 2>、*> 的 fd 屬於重導向
                 cur.clear()
@@ -167,6 +187,20 @@ def _norm_cmd(words: List[str]) -> Optional[Cmd]:
     rest = c[i:]
     return (head, frozenset(py_opts), frozenset(t for t in rest if t.startswith("-")),
             tuple(t for t in rest if not t.startswith("-")))
+
+
+def exec_words(cmd: str) -> List[str]:
+    """真的會被執行的指令的字（split_shell 拆出；去掉開頭的 `X=1`；echo／printf／Write-Output／Write-Host 這類只會印字的
+    指令整個不算）：引號裡被印出的字、註解、重導向目標、heredoc 內容都不在裡面。對帳 (a) 判「收據有沒有提到改的檔」用。"""
+    out: List[str] = []
+    for _, words in split_shell(str(cmd or "")):
+        ws = [w for w in words if w]
+        while ws and _ENV_ASSIGN_RE.match(ws[0]):
+            ws = ws[1:]
+        head = Path(ws[0].replace("\\", "/")).name.lower() if ws else ""
+        if ws and (head[:-4] if head.endswith(".exe") else head) not in _ECHO_PROGS:
+            out.extend(ws)
+    return out
 
 
 def parse_cmds(cmd: Argv) -> List[Tuple[Optional[str], Cmd]]:

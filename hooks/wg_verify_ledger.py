@@ -44,7 +44,7 @@ def _load_self_receipt_module():
 
 
 _self_receipt = _load_self_receipt_module()
-cmd_matches, final_cmd = _self_receipt.cmd_matches, _self_receipt.final_cmd
+cmd_matches, final_cmd, exec_words = _self_receipt.cmd_matches, _self_receipt.final_cmd, _self_receipt.exec_words
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
@@ -440,11 +440,12 @@ def _stem_of(path: str) -> str:
 
 
 def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
-    """收據的 cmd（小寫、斜線正規化、空白壓一格）；沒有 cmd、root_uncertain 或含 cd → None（不知道驗的是哪裡）。"""
+    """收據 cmd 裡真的會被執行的字（lib/self_receipt.exec_words：echo 類只會印字的指令、引號裡印出的字、註解、heredoc 內容
+    都不算），小寫、斜線正規化、空白壓一格；「提到改的檔」只比這段。沒有 cmd、root_uncertain 或含 cd → None（不知道驗的是哪裡）。"""
     raw = str(receipt.get("cmd", ""))
     if not raw or receipt.get("root_uncertain") or has_cd(raw):
         return None
-    return " ".join(_norm_path(raw).split())
+    return " ".join(_norm_path(" ".join(exec_words(raw))).split())
 
 
 def _covers_all(raw: str, measure_cmds: Iterable[str]) -> bool:

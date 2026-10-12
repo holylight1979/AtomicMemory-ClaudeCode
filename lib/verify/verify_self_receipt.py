@@ -207,3 +207,12 @@ def test_run_verify_writes_receipt_after_sentinel_and_help_writes_nothing(tmp_pa
     assert r.returncode == 0 and "--json" in r.stdout
     after = set(runs.glob("*.json")) if runs.exists() else set()
     assert after == before                                                         # --help 不寫
+
+
+def test_015_heredoc_body_and_echo_are_not_executed_words():
+    """015：heredoc 內容行不是指令（量尺比對與「提到改檔」都不算）；exec_words 去掉 echo 類指令，留下真的執行的字。"""
+    hd = "cat <<'EOF' > note.txt\npython -X utf8 run_verify.py\nEOF\necho VERIFY_CHECK DONE cases=1 failed=0"
+    assert not sr.cmd_matches(_MEASURE, hd)
+    assert sr.cmd_matches(_MEASURE, "cat <<-EOF\n  x\n  EOF\npython -X utf8 run_verify.py")       # heredoc 之後真的跑 → 對
+    assert sr.exec_words("echo tests/test_a.py; pytest -q tests/test_b.py") == ["pytest", "-q", "tests/test_b.py"]
+    assert sr.exec_words(hd) == ["cat"]

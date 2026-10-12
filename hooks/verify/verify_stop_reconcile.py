@@ -1591,3 +1591,24 @@ def test_013_4_judge_pre_tool_use_denies_unknown_write_target(tmp_path):
     assert '"permissionDecision": "deny"' in out and "Guardian:JudgeWrite" in out
     assert _judge_dispatch("Bash", {"command": "git log --oneline -3"}, tmp_path).strip() == ""
     assert _judge_dispatch("Read", {"file_path": str(tmp_path / "a.py")}, tmp_path).strip() == ""
+
+
+# ─── 015：對帳 (a) 判「收據有沒有提到改的檔」只看真的會被執行的指令 ─────────────────────────────
+
+_WIDGET = r"c:\proj\src\widget.py"
+
+
+@pytest.mark.parametrize("cmd, related", [
+    ("pytest -q tests/test_widget.py", True),                                              # test_<stem>
+    ("echo tests/test_widget.py; echo X_CHECK PASS", False),                               # echo 印的字不算
+    ("Write-Output 'pytest -q tests/test_widget.py'; echo X_CHECK PASS", False),
+    ("# pytest -q tests/test_widget.py\necho X_CHECK PASS", False),                        # 註解不算
+    ("cat <<'EOF'\npytest -q tests/test_widget.py\nEOF\necho X_CHECK PASS", False),        # heredoc 內容不算
+    ("WG=1 python -m pytest -q tests/test_widget.py 2>&1 | tail -3", True),
+])
+def test_015_fixed_claim_relates_only_to_executed_commands(driven, capsys, cmd, related):
+    """015：說「修好」時，PASS 收據要真的執行了提到改檔的指令；echo／Write-Output 印出的字、註解、heredoc 都不算。"""
+    mods = [_mf(_WIDGET, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods,
+                       verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
+    assert ("(a) 說「修好」" not in out) is related, out
