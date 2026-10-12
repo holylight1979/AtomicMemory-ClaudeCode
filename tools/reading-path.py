@@ -94,9 +94,12 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   類別證據（1、2、3 條的建構者、標註、欄位型別、類別.方法 的類別）只認沿綁定鏈（本檔定義、import 鏈、re-export、
   模組.類別）解析到專案內的類別：全專案同名搜尋只給候選；綁定鏈指到專案外（標準庫、typing、第三方）就是外部，
   連候選都不連到同名的專案類別（父類也照這個找）
+  方法目標（1～4 條）還要方法在類別上的綁定沒被改寫：專案任何地方寫過 類別.方法 = …、self.方法 = …、實例.方法 = …、
+  setattr(X, "方法", …)（字串字面值）、del、類別本體再指定，就不給條號；實例的型別看不出時，同名的方法都不給
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
 
 NOT_WHITELISTED = "候選：不在確定白名單（名字綁定、型別來源或唯一目標證明不了）"
+METHOD_REBOUND = "候選：這個方法在類別上的綁定可能被改寫（類別.方法 = …、self／實例.方法 = …、setattr），不一定是它"
 
 LIMITS = WHITELIST + """
 
@@ -113,7 +116,11 @@ LIMITS = WHITELIST + """
   - 「只轉傳」靠句數判定（換區域變數名不算句）：塞進無關計算就會被當成有內容
   - 同檔多層有實質內容的呼叫：深度高但不算彎（刻度只看拐彎）
   - Python：裝飾器包裝、@property、模組頂層（__main__ 以外）程式碼不追；monkeypatch 不追換成什麼，
-    但寫過 模組.名字 = …、self.方法名 = …、類別.方法名 = … 的名字一律不算確定
+    但寫過 模組.名字 = …、self.方法名 = …、類別.方法名 = …、實例.方法名 = …、setattr(X, "名", …) 的名字一律不算確定
+    （實例型別看不出時，專案裡同名的方法都不算；測試檔裡的寫入也算）
+  - 防線邊界（下列寫法不追，照字面處理，落在候選或未解）：exec／eval 產生的綁定、setattr 帶變數名、globals()[…] = …、
+    metaclass 與 __getattr__、import 時的副作用（別的模組在 import 時改寫本模組的名字；上一條列的字面寫法除外）、
+    C# 反射與 dynamic
   - C#（不用 Roslyn）：擴充方法、LINQ、var 由方法回傳推型別、跨 namespace 同名類合併、lambda 裡的呼叫算外層函式、
     #if 不分支、運算子多載與索引子不認、接收者型別不明的屬性不猜、三元運算與 LINQ 不算分支、插值字串 {} 裡再套字串會漏
   - partial 責任軸是依檔名推測：檔名沒寫成 `類.責任.cs` → 照算跳檔，有責任軸但沒標在檔名上的分檔數字會偏高；
@@ -304,9 +311,9 @@ class Graph:
     def _index_rebinds(self, modules: list) -> None:
         """在別處被改掉的綁定（綁定穩定的判斷要看）：
         rebound_elsewhere (檔, 名字)：別的程式碼用 模組.名字 = … 改掉的模組層名字；
-        instance_attrs 類別名 → 屬性名：方法裡 self.X = …、或 類別.X = … 寫過的（會蓋掉同名方法）；
+        method_writes (類別名或 "*", 屬性名)：會蓋掉同名方法的屬性寫入（"*"＝接收者型別看不出，專案裡同名的方法都算）；
         nonlocal_rebound (檔, 外層作用域) → 名字：巢狀函式用 nonlocal 改掉的外層名字。"""
-        self.rebound_elsewhere, self.instance_attrs, self.nonlocal_rebound = set(), defaultdict(set), defaultdict(set)
+        self.rebound_elsewhere, self.method_writes, self.nonlocal_rebound = set(), set(), defaultdict(set)
         contexts = [(f, f.attr_stores) for f in self.funcs.values()]
         contexts += [(self.module_ctx(m.file), m.attr_stores) for m in modules if m.lang == "py"]
         for f, stores in contexts:
@@ -317,17 +324,24 @@ class Graph:
                 self.nonlocal_rebound[(f.file, scope)] |= f.nonlocal_writes
 
     def _note_attr_store(self, f: lang.Func, recv: str, attr: str) -> None:
+        """一筆 Python 屬性寫入（含 setattr 字面寫法、del、類別本體再指定）記到它會蓋掉的綁定：
+        self／cls.名 → 這個類別；模組.名 → 那個模組的名字；類別.名、型別看得出的實例.名（剛 new 的、有標註的）→ 那個類別；
+        型別看不出的接收者（參數、欄位鏈、算出來的值）→ 用名字保守判定；接收者確知在專案外 → 不影響專案的方法。"""
+        if f.lang != "py":
+            return
         if recv in ("self", "cls") and f.cls:
-            self.instance_attrs[f.cls].add(attr)
+            self.method_writes.add((f.cls, attr))
             return
         head = recv.partition(".")[0]
-        if f.lang != "py" or head in f.params or head in f.locals:
-            return
-        target = self.module_alias(f, recv) if not self._shadowed(f, head) else None
+        target = self.module_alias(f, recv) if recv != "?" and not self._shadowed(f, head) else None
         if target:
             self.rebound_elsewhere.add((target, attr))
-        elif "." not in recv and self.classes.get(recv):
-            self.instance_attrs[recv].add(attr)            # Worker.run = other：類別屬性蓋掉方法
+            return
+        kind, cls, exact = self.recv_type(f, recv) if recv != "?" else ("", None, False)
+        if kind == "external":
+            return
+        annotated = (recv in f.param_types or recv in f.declared) and recv not in f.reassigned
+        self.method_writes.add((cls.name if cls and (exact or annotated) else "*", attr))
 
     def _add_class(self, c: lang.Cls) -> None:
         """C# partial（同名類）併成一個；Python 同名類各自保留，查找時優先同檔。"""
@@ -970,15 +984,30 @@ class Graph:
 
     def certify(self, f: lang.Func, c: lang.Call, edges: list) -> list:
         """呼叫點 c 解析出來的邊：目標不只一個、不是直接呼叫、解析路已標了不確定原因的，一律不確定；
+        目標是類別的方法而它在類別上的綁定可能被改寫（_method_rebound，1～4 條共用）→ 不確定；
         其餘依序對白名單 1～4 檢查，第一條成立的條號填進 rule。都不成立 → rule=None，補上原因。"""
         unique = len({e.dst for e in edges}) == 1
         for e in edges:
             e.rule = None
+            if unique and e.kind == "direct" and not e.guess and self._method_rebound(e.dst):
+                e.guess = METHOD_REBOUND
             if unique and e.kind == "direct" and not e.guess:
                 e.rule = next((n for n, check in self._call_rules() if check(f, c, e)), None)
             if e.rule is None and not e.guess:
                 e.guess = NOT_WHITELISTED
         return edges
+
+    def _method_rebound(self, dst: str) -> bool:
+        """目標是 Python 類別的方法，而它在類別上的綁定可能被改寫：這個類別、祖先或子孫被寫過同名屬性
+        （self.名 = …、類別.名 = …、型別看得出的實例.名 = …、setattr(X, "名", …)、del、類別本體再指定），
+        或型別看不出的接收者寫過同名屬性（用名字保守判定）。C# 的方法不能被指定。"""
+        fn = self.funcs[dst]
+        if fn.lang != "py" or not fn.cls or fn.qual != f"{fn.cls}.{fn.name}":
+            return False
+        if ("*", fn.name) in self.method_writes:
+            return True
+        cls = self.cls_named(fn.cls, fn.file)
+        return any((k.name, fn.name) in self.method_writes for k in list(self.ancestry(cls)) + self.descendants(cls))
 
     def _call_rules(self) -> tuple:
         return (1, self._rule1), (2, self._rule2), (3, self._rule3), (4, self._rule4)
@@ -1031,22 +1060,13 @@ class Graph:
         else:
             return False
         cls = self.class_proof(f, ctor) if ctor else None
-        return bool(cls) and e.dst in self.lookup(cls, c.name) and not self._method_replaced(f, c, cls)
-
-    def _method_replaced(self, f: lang.Func, c: lang.Call, cls) -> bool:
-        """方法可能被屬性蓋掉：接收者在這個函式裡被寫過同名屬性（w.run = f），或這個類別／祖先／子孫
-        在任何方法裡寫過 self.run = …、類別外寫過 Worker.run = …（Python；C# 方法不能被指定）。"""
-        if (c.recv or "self", c.name) in f.attr_stores:
-            return True
-        family = list(self.ancestry(cls)) + self.descendants(cls)
-        return any(c.name in self.instance_attrs.get(k.name, ()) for k in family)
+        return bool(cls) and e.dst in self.lookup(cls, c.name)
 
     def _rule3(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 3：self.method()／this.Method()（含 C# 省略 this、classmethod 的 cls()）沒有子類覆寫；
         型別已宣告的接收者（參數標註、區域變數標註、欄位宣告型別）沒有子類覆寫、也沒有多載（多載在 certify 已擋）。"""
         cls, name = self._rule3_target(f, c, e)
-        return (bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
-                and not self._method_replaced(f, c, cls))
+        return bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
 
     def _rule3_target(self, f: lang.Func, c: lang.Call, e: Edge) -> tuple:
         """第 3 條看的類別與方法名：本物件 → 自己的類別；型別已宣告的接收者 → 宣告的型別；其他 → (None, "")。"""

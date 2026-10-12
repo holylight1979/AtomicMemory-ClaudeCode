@@ -245,6 +245,8 @@ def _py_class(mod: Module, node: ast.ClassDef) -> None:
             _py_func(mod, item, node.name + ".", cls)
         elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and _py_ann(item.annotation):
             cls.fields[item.target.id] = cls.declared_fields[item.target.id] = _py_ann(item.annotation)
+    plain = [item for item in node.body if not isinstance(item, (*_DEF_NODES, ast.ClassDef))]
+    mod.attr_stores |= {(node.name, name) for name in _py_stores(list(_own_nodes(plain)))}   # 類別本體 run = other：蓋掉同名方法
     mod.classes.append(cls)
 
 
@@ -470,9 +472,13 @@ def _py_import_names(nodes: list) -> list:
 
 
 def _py_attr_stores(nodes: list) -> set:
-    """被指定的屬性 (接收者, 屬性名)：self.run = f、w.run = f、worker.work = f；接收者寫不成字串的不收。"""
-    stored = [n for n in nodes if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)]
-    return {(_py_recv(n.value), n.attr) for n in stored if _py_recv(n.value)}
+    """被指定或 del 的屬性 (接收者, 屬性名)：self.run = f、w.run = f、worker.work = f、setattr(X, "run", f)（名字是字串字面值）；
+    接收者寫不成字串的（get().run = f、items[0].run = f、setattr(get(), "run", f)）記成 "?"：型別看不出，用名字保守判定。"""
+    stored = [n for n in nodes if isinstance(n, ast.Attribute) and isinstance(n.ctx, (ast.Store, ast.Del))]
+    out = {(_py_recv(n.value) or "?", n.attr) for n in stored}
+    calls = [n for n in nodes if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "setattr"]
+    literal = [c for c in calls if len(c.args) >= 2 and isinstance(c.args[1], ast.Constant) and isinstance(c.args[1].value, str)]
+    return out | {(_py_recv(c.args[0]) or "?", c.args[1].value) for c in literal}
 
 
 _CONTAINERS = (ast.List, ast.Tuple, ast.Set, ast.Dict)

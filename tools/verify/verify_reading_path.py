@@ -1571,6 +1571,35 @@ def test_r3_a_same_name_class_found_only_by_project_wide_search_is_a_candidate(t
         "Worker 沒有匯入：退回全專案同名搜尋只能給候選"
 
 
+R4_STATIC = "class Worker:\n    @staticmethod\n    def run():\n        x = 1\n        return x + 1\n"
+R4_OTHER = "\n\ndef other():\n    a = 1\n    return a + 2\n"
+R4_REWRITES = {
+    "class_attr": R4_STATIC + R4_OTHER + "\n\nWorker.run = other\n\n\ndef main():\n    Worker.run()\n",
+    "self_attr": ("class Worker:\n    def __init__(self):\n        self.run = other\n\n    def run(self):\n        x = 1\n"
+                  "        return x + 1\n" + R4_OTHER + "\n\ndef main():\n    w = Worker()\n    w.run()\n"),
+    "instance_attr": R4_STATIC + R4_OTHER + "\n\ndef patch(x):\n    x.run = other\n\n\ndef main():\n    w = Worker()\n    w.run()\n",
+    "setattr": R4_STATIC + R4_OTHER + '\n\nsetattr(Worker, "run", other)\n\n\ndef main():\n    Worker.run()\n',
+}
+
+
+@pytest.mark.parametrize("form", sorted(R4_REWRITES))
+def test_r4_a_rewritten_method_binding_is_not_certain_under_any_rule(tmp_path, form):
+    """案 4 一整類：類別.方法 = …、self.方法 = …、實例.方法 = …（型別看不出 → 同名方法都算）、setattr(類別, "方法", …)；
+    第 1 條的「類別.靜態方法」與第 2、3 條在 certify 用同一個檢查。"""
+    run = [s for d, s in _sure_edges({"app.py": R4_REWRITES[form]}, "app.py::main", tmp_path) if d == "app.py::Worker.run"]
+    assert run == [False], f"{form}：方法在類別上的綁定被改寫，不能給條號"
+
+
+def test_r4_an_unrewritten_static_method_stays_rule_1(tmp_path):
+    plain = {"app.py": R4_STATIC + "\n\ndef main():\n    Worker.run()\n"}
+    assert _sure_edges(plain, "app.py::main", tmp_path / "a") == [("app.py::Worker.run", True)]
+    assert _edge_rules(plain, "app.py::main", tmp_path / "b") == [("app.py::Worker.run", 1)]
+    typed = {"app.py": R4_STATIC + ("\n\nclass Other:\n    def run(self):\n        return 3\n\n\n"
+                                    "def patch(x: Other):\n    x.run = None\n\n\ndef main():\n    Worker.run()\n")}
+    assert _edge_rules(typed, "app.py::main", tmp_path / "c") == [("app.py::Worker.run", 1)], \
+        "實例型別看得出（標註 Other）：只算 Other 的 run 被改寫，Worker.run 不受影響"
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
