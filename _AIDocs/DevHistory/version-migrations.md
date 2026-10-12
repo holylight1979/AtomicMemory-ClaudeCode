@@ -23,6 +23,7 @@
 | V5.1 | 2026-07-25 | 檢索精準化 + 記憶完備性 | RRF 三路融合 × 個別化 decay；memory-eval 223 條（R@1 34→53.6%、MRR 0.584→0.709；bm25_min_score 3.5→7.0）；wilson_z 1.28 + demote n≥5 + decay 每日護欄；recall-miss；Depends/Evidence + fast-refute；向量服務修復；token 口徑統一；新 atom activation 0.0；UPS 90→16ms |
 | 5.1 後續 | 2026-07-31~08-06 | 協作與驗收 | 跨 session 衝突預警（純檔案）；PAN 預告閘門（終局 warn）；驗收裁判四段閉環 + 裁判後端鏈 |
 | 5.1 後續 | 2026-08-25~31 | 分類階層化 + 注入根治 + 落點單源 | 核心 atom 進 `memory/<範疇>/`、MEMORY.md 目錄化、寫入閘 domain 必填；AEC 殘檔帳本；DeferralGate；per-turn 硬頂 500→1200、裁切回填、分級依 token、同題去冗；write-gate 去重限層；realm 閘；橋接檔重產；回訪機制；跨專案索引快取；專案層判定單源；atom 落點單一裁決（js 鏡像全拔）；退避偵測引號內不觸發 |
+| V6.0 | 2026-10-12 | 寫程式碼的進化 | 部位導讀卡注入＋寫入閘（三項證據、定位三行、意圖分片、Bash／PowerShell 寫入目標解析）；驗證帳本＋Stop 對帳閘／量尺閘；寫入閘分型與路由（hub 卡、org）；Depends 讀檔召回；候選填空（觸發詞、第二次 Edit、全專案）；壓縮後每部位綜觀重注；第二意見與候選池 MCP（12 tool）；從零掃表、refix 熱點、scorecard；hook state 並行寫入安全；執行計畫與題組見 `DevHistory/v6.0-寫程式碼的進化-2026-10/` |
 
 ## 4.x → 5.1：升級後確認清單
 

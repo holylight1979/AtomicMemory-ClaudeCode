@@ -1,9 +1,9 @@
 {
   "_doc": "版本標識檔。guardian＝Workflow Guardian（hooks + MCP server）版本，Dashboard 標題與 MCP serverInfo 顯示；atom_memory＝原子記憶系統版本；release_date＝此版本正式發布日；release_theme＝此版本主題一句話。web＝三個網頁介面的位置（純說明，程式不讀）。程式讀者：tools/workflow-guardian-mcp/lib/paths.js（只取 guardian / atom_memory）與 tools/install.py --verify（確認本檔可讀）；文件讀者 TECH.md。",
-  "guardian": "5.1.0",
-  "atom_memory": "5.1",
-  "release_date": "2026-07-25",
-  "release_theme": "檢索精準化（RRF 三路融合 + 回歸評估集）+ 記憶完備性（失念偵測 / 壞滅緣 / 證據等級）",
+  "guardian": "6.0.0",
+  "atom_memory": "6.0",
+  "release_date": "2026-10-12",
+  "release_theme": "寫程式碼的進化：寫碼前先看部位導讀卡並交定位三行（閘）、宣稱修好／量了要有本回合收據、改到有量尺的部位要跑過尺、讀到相關檔召回舊坑、壓縮後綜觀不丟、第二意見與候選池工具、新專案一指令掃出部位表",
   "web": {
     "dashboard": {
       "url": "http://127.0.0.1:3848/",
