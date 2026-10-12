@@ -323,6 +323,24 @@ class Graph:
     def cls_of(self, f: lang.Func):
         return self.cls_named(f.cls, f.file) if f.cls else None
 
+    def class_ref(self, f: lang.Func, name: str):
+        """f 裡寫成 name 的類別（建構者、型別標註）：本檔的類別優先；Python 再沿 import 別名與 re-export 追到原類別
+        （from worker import Worker as W → worker.Worker）；都沒有才退回全專案同名的類別。"""
+        local = next((c for c in self.classes.get(name, []) if f.file in c.files), None)
+        if local or f.lang != "py":
+            return local or self.cls_named(name, f.file)
+        return self._class_in_import(f.file, self.imports_of(f), name, 0) or self.cls_named(name, f.file)
+
+    def _class_in_import(self, file: str, imports: dict, name: str, hops: int):
+        if hops > MAX_REEXPORT or name not in imports:
+            return None
+        src, orig = self._imported_from(file, imports, name)
+        mod = self.modules.get(src) if src else None
+        if mod is None:
+            return None
+        local = next((c for c in self.classes.get(orig, []) if src in c.files), None)
+        return local or self._class_in_import(src, mod.imports, orig, hops + 1)
+
     def ancestry(self, cls):
         """cls 自己與所有祖先（廣度優先，同一類只走一次）。"""
         seen, queue = set(), [cls]
@@ -362,7 +380,7 @@ class Graph:
         """欄位的型別（沿繼承鏈找）；declared_only 時只認宣告的型別（白名單 3），不認 self.x = Foo() 推導的。"""
         table = "declared_fields" if declared_only else "fields"
         owner = next((c for c in self.ancestry(cls) if attr in getattr(c, table)), None)
-        return self.cls_named(getattr(owner, table)[attr], owner.files[0]) if owner else None
+        return self.class_ref(self.module_ctx(owner.files[0]), getattr(owner, table)[attr]) if owner else None
 
     def stored_param(self, cls, attr: str):
         return next((c.stored[attr] for c in self.ancestry(cls) if attr in c.stored), None)
@@ -680,7 +698,7 @@ class Graph:
     def recv_type(self, f: lang.Func, recv: str):
         """接收者是什麼 → (種類, 對象, 實際型別確定否)：module＋檔｜object／static＋類別｜external｜("", None) 不明。"""
         if recv.startswith("new:"):
-            return "object", self.cls_named(recv[4:], f.file), True
+            return "object", self.class_ref(f, recv[4:]), True
         if recv.startswith("mod:"):
             target = self.find_module(recv[4:], 0, f.file)
             return ("module", target, False) if target else ("external", None, False)
@@ -706,7 +724,7 @@ class Graph:
         changed = head in f.constructed and head in f.reassigned      # x = Base() 之後又 x = Child()：型別不定
         typed = None if changed else f.local_types.get(head) or f.param_types.get(head)
         if typed:
-            return "object", self.cls_named(typed, f.file)
+            return "object", self.class_ref(f, typed)
         own = self.cls_of(f)
         if f.lang == "cs" and own and self.field_type(own, head):
             return "object", self.field_type(own, head)
@@ -809,7 +827,7 @@ class Graph:
         own = self.cls_of(f) if f.lang == "cs" else None
         if own and self.field_type(own, recv):
             return None
-        return self.cls_named(recv, f.file) if self.stable(f, recv) else None
+        return self.class_ref(f, recv) if self.stable(f, recv) else None
 
     def _own_method(self, f: lang.Func, name: str, e: Edge) -> bool:
         return bool(f.cls) and e.dst in self.lookup(self.cls_of(f), name)
@@ -825,7 +843,7 @@ class Graph:
             ctor = f.constructed[c.recv]
         else:
             return False
-        cls = self.cls_named(ctor, f.file) if ctor else None
+        cls = self.class_ref(f, ctor) if ctor else None
         return bool(cls) and self.stable(f, ctor) and e.dst in self.lookup(cls, c.name)
 
     def _rule3(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
@@ -854,9 +872,9 @@ class Graph:
         if head in ("self", "this"):
             cls = self.cls_of(f) if rest else None
         elif head in f.param_types and head not in f.reassigned:
-            cls = self.cls_named(f.param_types[head], f.file)
+            cls = self.class_ref(f, f.param_types[head])
         elif head in f.declared and head not in f.reassigned:
-            cls = self.cls_named(f.declared[head], f.file)
+            cls = self.class_ref(f, f.declared[head])
         elif f.lang == "cs" and head not in f.locals and head not in f.params and f.cls:
             cls = self.field_type(self.cls_of(f), head, declared_only=True)
         else:

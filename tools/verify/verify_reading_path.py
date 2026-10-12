@@ -1301,6 +1301,27 @@ def test_c5_annotated_self_field_in_init_is_certain_by_rule_3(tmp_path):
     assert g.unres["app.py::App.run"] == 0
 
 
+def test_c4_constructor_through_an_import_alias_is_certain_by_rule_2(tmp_path):
+    files = {"worker.py": WORKER, "app.py": "from worker import Worker as W\n\n\ndef main():\n    w = W()\n    w.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    run = [(e.dst, e.rule) for e in g.edges["app.py::main"] if e.dst.endswith("run")]
+    assert run == [("worker.py::Worker.run", 2)], "W 經 import 別名唯一解析到 worker.Worker，剛 new 的區域變數"
+
+
+def test_import_alias_annotation_and_reexport_resolve_to_the_original_class(tmp_path):
+    files = {"worker.py": WORKER, "pkg.py": "from worker import Worker\n",
+             "app.py": "from pkg import Worker as W\n\n\ndef main(w: W):\n    w.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert [(e.dst, e.rule) for e in g.edges["app.py::main"]] == [("worker.py::Worker.run", 3)]
+
+
+def test_constructor_alias_rebound_in_the_importing_module_is_not_certain(tmp_path):
+    files = {"worker.py": WORKER,
+             "app.py": "from worker import Worker as W\n\nW = object\n\n\ndef main():\n    w = W()\n    w.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert all(e.rule is None for e in g.edges["app.py::main"])
+
+
 def test_constructed_self_field_is_found_but_not_certain(tmp_path):
     files = {"app.py": WORKER + "\n\nclass App:\n    def __init__(self):\n        self.worker = Worker()\n\n"
                                 "    def run(self):\n        self.worker.run()\n"}
