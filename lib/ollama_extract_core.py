@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # ─── sys.path for ollama_client ─────────────────────────────────────────────
-_CLAUDE_DIR = Path.home() / ".claude"
-_TOOLS_DIR = str(_CLAUDE_DIR / "tools")
+_CODE_ROOT = Path(__file__).resolve().parents[1]   # 本檔所在的樹根（~/.claude 或它的 worktree）；不用 Path.home()
+_TOOLS_DIR = str(_CODE_ROOT / "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
 

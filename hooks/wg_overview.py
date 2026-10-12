@@ -32,11 +32,11 @@ from wg_core import (
     org_memory_root, resolve_project_root,
 )
 
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     DEFAULT_LOCATE_TEMPLATE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
-    build_injection_ex, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
+    build_injection_ex, card_mem_dir, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
     split_card_sections, top_dir, transcript_readable, transcript_size,
 )
 
@@ -398,10 +398,10 @@ def _intent_of(state: Dict[str, Any]) -> str:
 
 
 def _cards_for(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> List[Path]:
-    """表列的導讀卡檔（找得到的）。根層自己的表（~/.claude/.claude/overview-map.md）卡片在 ~/.claude/memory，不在 ~/.claude/.claude/memory。"""
+    """表列的導讀卡檔（找得到的）。卡片目錄由 card_mem_dir 決定：根層與根層 worktree 在 `<根>/memory`，其他專案在 `<根>/.claude/memory`。"""
     if row["status"] not in ("有", "部分", "索引"):
         return []
-    mem_dir = CLAUDE_DIR / "memory" if cfg.get("_layer") == "root" else None
+    mem_dir = card_mem_dir(root, CLAUDE_DIR)
     return [cp for cp in (resolve_card(root, c, mem_dir) for c in row["cards"]) if cp]
 
 
@@ -414,6 +414,16 @@ def _locate_template(cfg: Dict[str, Any]) -> List[str]:
     return t
 
 
+def _tracking_for(root: Path, row: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """這個專案追蹤帳本裡、這個部位（part 或 part_short）仍 open 的項目；讀不到只 stderr，不擋注入。"""
+    try:
+        from wg_harvest import tracking_items_for_part, tracking_slug
+        return tracking_items_for_part(tracking_slug(str(root)), [row.get("part"), row.get("part_short")])
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Tracking] 讀追蹤項失敗（不擋注入）：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
 def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
             hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any]) -> str:
     card_paths = _cards_for(root, row, cfg)
@@ -424,6 +434,10 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""))
+    tracked = _tracking_for(root, row)
+    if tracked:
+        from wg_harvest import tracking_block
+        text = f"{text}\n{tracking_block(tracked, int(cfg['max_card_chars']))}"
     hub = state.setdefault("overview_hub", {})
     hub[_key(root, row)] = {
         "injected_turn": int(state.get("turn_seq", 0)),

@@ -33,8 +33,9 @@ CLAUDE_DIR = Path.home() / ".claude"
 AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 
 # atom 掃描統一委派 lib.atom_locations（memory/ 遞迴含 memory/Failures/ + 舊址 _AIDocs/Failures/ + _AIDocs/_atoms/）
-if str(CLAUDE_DIR) not in sys.path:
-    sys.path.insert(0, str(CLAUDE_DIR))
+_CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 與 hooks 從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
 from lib.atom_locations import GLOBAL_MEMORY_DIR, iter_atom_files_multi  # noqa: E402
 from lib.atom_spec import evidence_rank, parse_evidence  # noqa: E402  證據等級（了義裁決）
 
@@ -69,7 +70,7 @@ def discover_layers(project_dir: Optional[Path] = None) -> List[Tuple[str, Path]
     # 不自掃 projects/*/memory（會把 CC 原生 auto-memory 目錄誤當 atom 層）。
     try:
         import sys as _sys
-        _hooks = CLAUDE_DIR / "hooks"
+        _hooks = _CODE_ROOT / "hooks"
         if str(_hooks) not in _sys.path:
             _sys.path.insert(0, str(_hooks))
         from wg_core import discover_all_project_memory_dirs  # noqa: E402

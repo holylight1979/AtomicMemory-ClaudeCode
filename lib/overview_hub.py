@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -264,8 +266,103 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
 
 # ─── 卡片 ───────────────────────────────────────────────────────────
 
+def _strip_long(s: str) -> str:
+    s = s.replace("\\", "/")
+    head = s[:8].lower()
+    if head == "//?/unc/":
+        return "//" + s[8:]
+    return s[4:] if head.startswith("//?/") else s
+
+
+def _is_unc(p: Path) -> bool:
+    """網路路徑（`\\\\server\\share`、`\\\\?\\UNC\\…`，前綴不分大小寫）；`\\\\?\\C:\\` 與 `\\\\.\\` 裝置路徑不算。"""
+    s = str(p).replace("\\", "/")
+    low = s.lower()
+    return low.startswith("//?/unc/") or (s.startswith("//") and not low.startswith(("//?/", "//./")))
+
+
+def _norm_dir(p: Path) -> str:
+    """realpath＋反斜線轉正＋小寫，剝 `\\\\?\\`、`\\\\?\\UNC\\` 長路徑前綴（前綴不分大小寫）；
+    網路路徑不呼叫 realpath（伺服器不在時會卡數秒），只做字串正規化。"""
+    if _is_unc(p):
+        return _strip_long(str(p)).rstrip("/").lower()
+    return _strip_long(os.path.realpath(_strip_long(str(p)))).rstrip("/").lower()
+
+
+def _same_dir_norm(a: Path, b: Path) -> bool:
+    """兩個路徑是不是同一目錄（_norm_dir 後相等）；只給 is_root_worktree／card_mem_dir 用，find_map 用上面的 _same_dir。"""
+    return _norm_dir(a) == _norm_dir(b)
+
+
+def _gitdir_of(root: Path) -> Optional[Path]:
+    """`<root>/.git` 是檔案時，第一個 `gitdir:` 行指的路徑（相對路徑以 root 為基準）；不是檔案、讀不到、沒有這行或值空 → None。"""
+    dot = root / ".git"
+    try:
+        if not dot.is_file():
+            return None
+        for line in dot.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("gitdir:"):
+                value = line[len("gitdir:"):].strip()
+                if not value:
+                    return None
+                p = Path(value)
+                return p if p.is_absolute() else root / p
+    except OSError as e:
+        msg = " ".join(f"{type(e).__name__}: {e}".split())
+        print(f"[overview_hub] 讀不到 {dot}：{msg}；當成非根層 worktree", file=sys.stderr)
+        return None
+    return None
+
+
+def is_root_worktree(root: Path, claude_dir: Path) -> bool:
+    """root 是「根層（~/.claude）的 git worktree」，三條同時成立才是：
+    1. root 與 claude_dir 不是同一目錄；
+    2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下；
+    3. 兩邊的 .claude/overview-map.md 位元組相同（任一不存在 → 不是）。
+    任一邊是網路路徑 → 直接不是（網路路徑不可能是 ~/.claude 的 worktree），不碰檔案系統。純函式，不碰 state。"""
+    try:
+        r, c = Path(root), Path(claude_dir)
+        if _is_unc(r) or _is_unc(c):
+            return False
+        if _same_dir_norm(r, c):
+            return False
+        gitdir = _gitdir_of(r)
+        if gitdir is None or not _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/"):
+            return False
+        return (r / MAP_REL).read_bytes() == (c / MAP_REL).read_bytes()
+    except OSError:
+        return False
+
+
+def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
+    """root 是不是 live 這個 repo（claude_dir）的 git worktree：只看 is_root_worktree 的前兩條（不是同一目錄、
+    `<root>/.git` 檔的 gitdir 落在 `<claude_dir>/.git/worktrees/` 之下），不看部位表。
+    給「資料歸屬」用（例如追蹤帳本）：worktree 改了自己的部位表，資料仍跟 live 走。任一邊是網路路徑 → False。"""
+    try:
+        r, c = Path(root), Path(claude_dir)
+        if _is_unc(r) or _is_unc(c) or _same_dir_norm(r, c):
+            return False
+        gitdir = _gitdir_of(r)
+        return gitdir is not None and _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/")
+    except OSError:
+        return False
+
+
+def card_mem_dir(root: Path, claude_dir: Path) -> Path:
+    """某個根的導讀卡住在哪個 memory 目錄（hook 注入與第二意見工具共用這一份）：
+    root 就是 claude_dir，或 root 是根層 worktree → `claude_dir/memory`（卡片是資料，由 atom_write 寫進 live；
+    worktree 的 memory/ 只是開分支當時的副本）；其他 → `root/.claude/memory`。
+    root 是網路路徑 → 直接 `root/.claude/memory`，不呼叫 realpath。"""
+    r, c = Path(root), Path(claude_dir)
+    if _is_unc(r):
+        return r / ".claude" / "memory"
+    if _same_dir_norm(r, c) or is_root_worktree(r, c):
+        return c / "memory"
+    return r / ".claude" / "memory"
+
+
 def resolve_card(root: Path, card: Optional[str], mem_dir: Optional[Path] = None) -> Optional[Path]:
-    """卡名 → `<mem_dir>/**/<卡名>.md`，mem_dir 預設 `<root>/.claude/memory`（根層自己的表傳 ~/.claude/memory）；
+    """卡名 → `<mem_dir>/**/<卡名>.md`，mem_dir 預設 `<root>/.claude/memory`（呼叫端用 card_mem_dir 算好再傳）；
     某些專案卡名的底線會被索引正規化成連字號，兩種都試。"""
     if not card:
         return None

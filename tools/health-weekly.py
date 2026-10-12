@@ -44,8 +44,12 @@ for _name in ("stdout", "stderr"):
     else:
         _s.reconfigure(encoding="utf-8")
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-TOOLS = CLAUDE_DIR / "tools"
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）：tools、hooks、子行程 cwd
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow、memory、Logs
+TOOLS = CODE_DIR / "tools"
 WORKFLOW = CLAUDE_DIR / "workflow"
 MEMORY = CLAUDE_DIR / "memory"
 REPORT_DIR = WORKFLOW / "health-reports"
@@ -65,7 +69,7 @@ def _run_json(args: list[str], timeout: int = 300) -> dict | None:
     try:
         r = subprocess.run(
             [PY, *args], capture_output=True, text=True, encoding="utf-8",
-            timeout=timeout, cwd=str(CLAUDE_DIR),
+            timeout=timeout, cwd=str(CODE_DIR),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return json.loads(r.stdout)
@@ -127,7 +131,7 @@ def _run_check(args: list[str], timeout: int = 120) -> tuple[bool, str]:
     try:
         r = subprocess.run(
             [PY, *args], capture_output=True, text=True, encoding="utf-8",
-            timeout=timeout, cwd=str(CLAUDE_DIR),
+            timeout=timeout, cwd=str(CODE_DIR),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         tail = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
@@ -151,7 +155,7 @@ def _episodic_status(fresh_cut: datetime) -> tuple[datetime | None, dict]:
     from collections import Counter
     dirs = [MEMORY / "episodic"]
     try:
-        hooks_dir = str(CLAUDE_DIR / "hooks")
+        hooks_dir = str(CODE_DIR / "hooks")
         if hooks_dir not in sys.path:
             sys.path.insert(0, hooks_dir)
         from wg_core import discover_all_project_memory_dirs  # noqa: WPS433
@@ -232,7 +236,7 @@ def _recall_miss_counts(days: int) -> dict[str, int]:
 
 
 def _hooks_on_path() -> None:
-    hooks_dir = str(CLAUDE_DIR / "hooks")
+    hooks_dir = str(CODE_DIR / "hooks")
     if hooks_dir not in sys.path:
         sys.path.insert(0, hooks_dir)
 
@@ -389,7 +393,7 @@ def collect() -> dict:
         info.extend(di)
 
     # 2c. 工具自測（config tool_selftests[]）：壞依賴／壞接線／壞哨兵都要在一週內浮出
-    sr, si, selftests = _selftests_block(_load_config().get("tool_selftests") or [], CLAUDE_DIR)
+    sr, si, selftests = _selftests_block(_load_config().get("tool_selftests") or [], CODE_DIR)
     red.extend(sr)
     info.extend(si)
     # 2d. 對帳閘預算用完放行

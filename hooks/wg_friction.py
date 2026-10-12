@@ -214,12 +214,13 @@ def detect_correction(prompt: str, config: Dict[str, Any]) -> List[str]:
     cfg = (config or {}).get("friction", {}) or {}
     if not cfg.get("enabled", True) or not prompt:
         return []
-    from wg_core import is_harness_generated_prompt, sanitize_harness_noise
-    # sub-agent 完成通知整則進 UPS，內文引用「不對／重來」會被誤判成使用者糾正
-    if is_harness_generated_prompt(prompt):
+    from wg_core import user_typed_text
+    # 只看使用者打的字：sub-agent 完成通知、其他 session 的訊息引用「不對／重來」不算使用者糾正
+    typed = user_typed_text(prompt)
+    if not typed:
         return []
     from wg_atoms import _kw_match
-    text = _QUESTION_FORMS_RE.sub("", sanitize_harness_noise(prompt)).lower()
+    text = _QUESTION_FORMS_RE.sub("", typed).lower()
     keywords = cfg.get("keywords") or _DEFAULT_CORRECTION_KEYWORDS
     return [kw for kw in keywords if _kw_match(kw.lower(), text)]
 

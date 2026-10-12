@@ -19,9 +19,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-CLAUDE_DIR = Path(__file__).resolve().parents[2]
-if str(CLAUDE_DIR) not in sys.path:
-    sys.path.insert(0, str(CLAUDE_DIR))
+CODE_DIR = Path(__file__).resolve().parents[2]   # 程式碼根（本檔所在的樹）
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 根層身分（card_mem_dir 的 claude_dir）：和 wg_overview._cards_for 用的 wg_core.CLAUDE_DIR 同一支算法
 
 # 材料檔名固定（提示詞只引這些相對路徑）
 REL_CARD = "card.md"
@@ -206,8 +208,8 @@ def gather_items(request: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Tup
     card_src = spec.get("card")
     if not card_src and row and base is not None:
         try:
-            from lib.overview_hub import resolve_card
-            p = resolve_card(base, row.get("card"))
+            from lib.overview_hub import card_mem_dir, resolve_card
+            p = resolve_card(base, row.get("card"), card_mem_dir(base, CLAUDE_DIR))
             card_src = str(p) if p else None
         except ImportError:
             card_src = None

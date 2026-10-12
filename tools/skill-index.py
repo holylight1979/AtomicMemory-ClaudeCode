@@ -26,10 +26,10 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-SKILLS_DIR = CLAUDE_DIR / "skills"
+CODE_DIR = Path(__file__).resolve().parent.parent
+SKILLS_DIR = CODE_DIR / "skills"
 
-# 散落 skill 計數的人讀文件（相對 CLAUDE_DIR）。marker 只包住純數字，
+# 散落 skill 計數的人讀文件（相對 CODE_DIR）。marker 只包住純數字，
 # 其餘策展文字（「19 遷移自…」「含外部 karpathy」）保持人工維護、工具不動。
 MARKED_DOCS = [
     "TECH.md",
@@ -88,7 +88,7 @@ def _read(p: Path):
         return None
 
 
-def check(skills_dir: Path = SKILLS_DIR, claude_dir: Path = CLAUDE_DIR) -> Tuple[bool, List[str]]:
+def check(skills_dir: Path = SKILLS_DIR, claude_dir: Path = CODE_DIR) -> Tuple[bool, List[str]]:
     """回傳 (ok, problems[])。problems 空 = 無 drift。"""
     true_n = len(scan_skills(skills_dir))
     problems: List[str] = []
@@ -116,7 +116,7 @@ def check(skills_dir: Path = SKILLS_DIR, claude_dir: Path = CLAUDE_DIR) -> Tuple
     return (not problems), problems
 
 
-def write(skills_dir: Path = SKILLS_DIR, claude_dir: Path = CLAUDE_DIR) -> Tuple[int, List[str]]:
+def write(skills_dir: Path = SKILLS_DIR, claude_dir: Path = CODE_DIR) -> Tuple[int, List[str]]:
     """重生 _skill_index.json + 重寫所有 marker。回傳 (count, changed_rel_paths[])。冪等。"""
     skills = scan_skills(skills_dir)
     n = len(skills)

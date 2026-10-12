@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR,
+    CLAUDE_DIR, CODE_DIR, MEMORY_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     MEMORY_INDEX, ATOM_INDEX, REALM_AUTOMOVE_MARKER,
     CONTEXT_BUDGET_DEFAULT, TURN_BUDGET_LIMIT,
     compute_token_budget,  # re-export：budget 單一來源在 wg_core，舊 caller 仍從本模組 import
@@ -36,7 +36,7 @@ from wg_core import (
 )
 
 # prefer _atom_index.json (machine source of truth)
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 try:
     from atom_index_json import (load_atom_index_json, to_atom_entries, ATOM_INDEX_JSON,
                                  delete_atom as index_delete_atom)
@@ -2197,7 +2197,7 @@ def _ensure_vector_ready(
             marker.parent.mkdir(parents=True, exist_ok=True)
             marker.write_text(str(time.time()), encoding="utf-8", newline="\n")
             import subprocess
-            starter = CLAUDE_DIR / "tools" / "memory-vector-service" / "starter.py"
+            starter = CODE_DIR / "tools" / "memory-vector-service" / "starter.py"
             kw: Dict[str, Any] = {
                 "stdin": subprocess.DEVNULL,
                 "stdout": subprocess.DEVNULL,
@@ -2481,7 +2481,7 @@ def _load_tool_module(filename: str, mod_name: str):
     """以 spec_from_file_location 載 tools/ 下單檔模組（self-sufficient sys.path）。失敗→None。"""
     try:
         import importlib.util
-        p = CLAUDE_DIR / "tools" / filename
+        p = CODE_DIR / "tools" / filename
         spec = importlib.util.spec_from_file_location(mod_name, p)
         if spec is None or spec.loader is None:
             return None
@@ -2561,7 +2561,7 @@ def _trigger_sync_memory_index(memory_dir: Optional[Path] = None) -> Optional[st
     呼叫者決定怎麼浮出，不靜默。
     """
     import subprocess
-    cmd = [sys.executable, str(CLAUDE_DIR / "tools" / "sync-memory-index.py"), "--write"]
+    cmd = [sys.executable, str(CODE_DIR / "tools" / "sync-memory-index.py"), "--write"]
     if memory_dir is not None:
         cmd += ["--memory-dir", str(memory_dir)]
     # Windows: 不帶 CREATE_NO_WINDOW 會讓子行程另開可見 console 視窗

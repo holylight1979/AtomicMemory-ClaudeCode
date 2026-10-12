@@ -15,10 +15,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-CLAUDE_DIR = Path(__file__).resolve().parents[2]
+CODE_DIR = Path(__file__).resolve().parents[2]
 os.environ.setdefault("PYTEST_CURRENT_TEST", "eval-usage-v2")
-sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
-sys.path.insert(0, str(CLAUDE_DIR))
+sys.path.insert(0, str(CODE_DIR / "hooks"))
+sys.path.insert(0, str(CODE_DIR))
 
 from wg_atoms import build_atom_df, detect_atom_use, detect_atom_use_v2  # noqa: E402
 

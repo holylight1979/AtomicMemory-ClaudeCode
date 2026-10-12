@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, WORKFLOW_DIR,
+    CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR,
     _now_iso, _atom_debug_error,
     write_state,
 )
@@ -258,7 +258,7 @@ def _maybe_spawn_user_extract_worker(
     if _is_lease_valid(state, "user_extract_worker_pid"):
         return False
 
-    worker_path = CLAUDE_DIR / "hooks" / "user-extract-worker.py"
+    worker_path = CODE_DIR / "hooks" / "user-extract-worker.py"
     if not worker_path.exists():
         return False
 
@@ -285,14 +285,18 @@ def _maybe_spawn_user_extract_worker(
         env["PYTHONIOENCODING"] = "utf-8"
 
         json_ctx = json.dumps(worker_ctx, ensure_ascii=False)
-        proc = _sp.Popen(
-            [sys.executable, str(worker_path)],
-            stdin=_sp.PIPE,
-            stdout=_sp.DEVNULL,
-            stderr=_sp.DEVNULL,
-            env=env,
-            **kwargs,
-        )
+        # worker 的錯誤（例如萃取紀錄寫不進）落到資料根 Logs/user-extract-worker.log，不丟進 DEVNULL
+        worker_log = CLAUDE_DIR / "Logs" / "user-extract-worker.log"
+        worker_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(worker_log, "a", encoding="utf-8", newline="\n") as worker_log_fh:
+            proc = _sp.Popen(
+                [sys.executable, str(worker_path)],
+                stdin=_sp.PIPE,
+                stdout=_sp.DEVNULL,
+                stderr=worker_log_fh,
+                env=env,
+                **kwargs,
+            )
         proc.stdin.write(json_ctx.encode("utf-8"))
         proc.stdin.close()
 

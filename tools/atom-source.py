@@ -18,9 +18,9 @@ import json
 import sys
 from pathlib import Path
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-if str(CLAUDE_DIR) not in sys.path:
-    sys.path.insert(0, str(CLAUDE_DIR))
+CODE_DIR = Path(__file__).resolve().parent.parent
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
 
 from lib.provenance import atom_source  # noqa: E402
 

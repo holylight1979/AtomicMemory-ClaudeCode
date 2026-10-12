@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-HOOKS_DIR = Path.home() / ".claude" / "hooks"
+HOOKS_DIR = Path(__file__).resolve().parent.parent / "hooks"   # 程式碼：本檔所在樹的 hooks/
 sys.path.insert(0, str(HOOKS_DIR))
 from wg_core import find_project_root, CLAUDE_DIR  # noqa: E402
 from wg_roles import get_current_user  # noqa: E402

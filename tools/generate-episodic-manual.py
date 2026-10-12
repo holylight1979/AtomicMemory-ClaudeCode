@@ -13,11 +13,11 @@ from pathlib import Path
 
 CLAUDE_DIR = Path.home() / ".claude"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
-HOOKS_DIR = CLAUDE_DIR / "hooks"
+HOOKS_DIR = Path(__file__).resolve().parent.parent / "hooks"   # 程式碼：本檔所在樹的 hooks/
 
 # Add hooks and tools to path for imports
 sys.path.insert(0, str(HOOKS_DIR))
-sys.path.insert(0, str(CLAUDE_DIR / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def find_best_state(target_sid: str = None):

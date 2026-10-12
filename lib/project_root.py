@@ -19,6 +19,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+
+def claude_data_dir() -> Path:
+    """使用者資料根（memory、workflow、config、Logs、projects、atom 卡片）的唯一算法：
+    環境變數 WG_CLAUDE_DIR（去頭尾空白後非空）→ 該路徑；否則 Path.home()/".claude"。
+    hooks（wg_core.CLAUDE_DIR）與 tools 都呼叫這支；程式碼根另由各檔的 Path(__file__) 推。"""
+    override = os.environ.get("WG_CLAUDE_DIR", "").strip()
+    return Path(override) if override else Path.home() / ".claude"
+
+
 HOME = Path.home()
 CLAUDE_DIR = HOME / ".claude"
 MEMORY_INDEX = "MEMORY.md"

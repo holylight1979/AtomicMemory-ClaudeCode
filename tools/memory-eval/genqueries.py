@@ -27,9 +27,11 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-CLAUDE_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
-sys.path.insert(0, str(CLAUDE_DIR / "tools"))
+CODE_DIR = Path(__file__).resolve().parents[2]   # 程式碼根（本檔所在的樹）
+sys.path.insert(0, str(CODE_DIR / "lib"))
+sys.path.insert(0, str(CODE_DIR / "tools"))
+from project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：memory、atom 檔
 
 from atom_index_json import load_atom_index_json  # noqa: E402
 

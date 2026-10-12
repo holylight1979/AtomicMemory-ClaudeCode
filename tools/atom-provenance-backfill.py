@@ -38,11 +38,13 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-for _p in (str(CLAUDE_DIR), str(CLAUDE_DIR / "hooks")):
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+for _p in (str(CODE_DIR), str(CODE_DIR / "hooks")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 from lib.provenance import (  # noqa: E402
     format_quote, format_source_session, is_human_record, read_src_comment, record_text, sanitize_quote,
 )

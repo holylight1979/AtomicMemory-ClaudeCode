@@ -3,10 +3,13 @@
 const fs = require("fs");
 const path = require("path");
 
+// CLAUDE_DIR＝使用者資料根（workflow、memory、config、registry、version）；CODE_DIR＝程式碼根（本檔所在的樹，
+// tools/workflow-guardian-mcp/lib 往上三層）：spawn 的 py 腳本與 `python -m lib.*` 的 cwd 一律用它，worktree 裡跑的就是 worktree 的碼。
 const CLAUDE_DIR = path.join(require("os").homedir(), ".claude");
+const CODE_DIR = path.resolve(__dirname, "..", "..", "..");
 const WORKFLOW_DIR = path.join(CLAUDE_DIR, "workflow");
 const MEMORY_DIR = path.join(CLAUDE_DIR, "memory");
-const TOOLS_DIR = path.join(CLAUDE_DIR, "tools");
+const TOOLS_DIR = path.join(CODE_DIR, "tools");
 const CONFIG_PATH = path.join(WORKFLOW_DIR, "config.json");
 const REGISTRY_PATH = path.join(MEMORY_DIR, "project-registry.json");
 const VERSION_PATH = path.join(CLAUDE_DIR, "version.json");
@@ -103,7 +106,7 @@ if (PYTHON_EXE_FALLBACK) {
 }
 
 module.exports = {
-  CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, CONFIG_PATH, REGISTRY_PATH, VERSION_PATH,
+  CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, CONFIG_PATH, REGISTRY_PATH, VERSION_PATH,
   loadVersions, VERSIONS, loadRegistry, getRegistryMemDirs, loadConfig, loadOrgLocal,
   resolvePythonExe, PYTHON_EXE, PYTHON_EXE_FALLBACK,
 };

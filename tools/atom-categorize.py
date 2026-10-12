@@ -44,9 +44,10 @@ if sys.stdout.encoding != "utf-8":
 if sys.stderr.encoding != "utf-8":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-CLAUDE_DIR = Path.home() / ".claude"
-if str(CLAUDE_DIR) not in sys.path:
-    sys.path.insert(0, str(CLAUDE_DIR))
+CLAUDE_DIR = Path.home() / ".claude"                  # 使用者資料
+_CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 與兄弟工具從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
 
 from lib.atom_access import access_sidecar_path, move_atom_pair, prune_empty_parents  # noqa: E402
 from lib.atom_classify import score_by_lexicon  # noqa: E402
@@ -63,7 +64,7 @@ from lib.atom_taxonomy import (  # noqa: E402
 )
 
 _SOURCE = "tool:atom-categorize"
-_SET_REALM_FILE = CLAUDE_DIR / "tools" / "atom-set-realm.py"
+_SET_REALM_FILE = _CODE_ROOT / "tools" / "atom-set-realm.py"
 DEFAULT_UNDO_DIR = CLAUDE_DIR / "plans"
 
 
