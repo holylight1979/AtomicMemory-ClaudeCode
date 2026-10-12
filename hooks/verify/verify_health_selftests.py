@@ -139,6 +139,25 @@ def test_reconcile_overflow_block_counts_recent(hw, monkeypatch, tmp_path):
     assert hw._reconcile_overflow_block(14) == []
 
 
+def test_user_release_block_counts_recent_per_gate(hw, monkeypatch, tmp_path):
+    """件一：擋滿後使用者放行（guard-<閘>.jsonl event=user_release）近 N 天要在健檢紅區看得到；其他事件與舊事件不算。"""
+    monkeypatch.setattr(hw, "CLAUDE_DIR", tmp_path)
+    (tmp_path / "Logs").mkdir()
+    now = datetime.now().astimezone()
+    old = (now - timedelta(days=40)).isoformat(timespec="seconds")
+    rows = {"reconcile": [{"at": now.isoformat(timespec="seconds"), "event": "user_release"},
+                          {"at": now.isoformat(timespec="seconds"), "event": "exhausted_block", "x": "user_release"},
+                          {"at": old, "event": "user_release"}],
+            "sync_block": [{"at": now.isoformat(timespec="seconds"), "event": "user_release"}] * 2}
+    for gate, rs in rows.items():
+        (tmp_path / "Logs" / f"guard-{gate}.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in rs) + "\n", encoding="utf-8", newline="\n")
+    out = hw._user_release_block(14)
+    assert len(out) == 1 and "reconcile 1 次" in out[0] and "sync_block 2 次" in out[0]
+    monkeypatch.setattr(hw, "CLAUDE_DIR", tmp_path / "none")
+    assert hw._user_release_block(14) == []
+
+
 # ─── atom-health-check：Depends mtime 與覆蓋率 ───────────────────────────────
 
 HC = _load("atom_health_check_selftests_ut", _ROOT / "tools" / "atom-health-check.py")

@@ -10,6 +10,8 @@ handlers/stop.py — Stop hook handler
 4. Scan-Report Gate（宣告完成但缺 anti_evasion_report emit → 硬阻）
 5. Sync Reminder Gate（modified_files>0 仍未 commit/push → 軟阻；vcs-sync worker 活鎖中的 root 跳過）
 + 一般 sync block 邏輯
+擋滿次數（reconcile_gate.max_blocks_per_turn／共用 stop_gate_max_blocks）後不自行放行：改送擋滿訊息要模型用
+AskUserQuestion 問使用者（wg_release）；使用者在最後一次擋之後放行，才放這一回合並記 guard-<閘>.jsonl user_release。
 """
 
 import json
@@ -33,6 +35,7 @@ from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_reason, measure_cfg, measure_gate_reason, measure_advisory,
     measure_cmds_of,
 )
+from wg_release import exhausted_message, mark_block, user_released, released_this_turn, record_release
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
 from wg_harvest import harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active
@@ -711,7 +714,7 @@ def _verify_gates(
     rg_cfg: Dict[str, Any], mg_cfg: Dict[str, Any], aec: Dict[str, Any], aec_emitted: bool,
 ) -> tuple:
     """對帳閘＋量尺閘的判定。回 (擋訊息或 None, 種類 reconcile／measure／"", 無量尺提醒或 None)。
-    判定本身出錯 → 產生擋訊息（一律擋，仍吃 reconcile_gate.max_blocks_per_turn 預算，用完那次照 overflow 放行記 red）
+    判定本身出錯 → 產生擋訊息（一律擋，仍吃 reconcile_gate.max_blocks_per_turn 預算，擋滿後改問使用者）
     ＋stderr＋guard_log（transcript 缺＝last_text 空＝無宣稱可對）。"""
     receipts = receipts_of(state, session_id)
     reason: Optional[str] = None
@@ -804,14 +807,43 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 迴歸累積提示同為 piggyback payload：驗收裁判真命中 → 建議補測試/落 atom。
     _accept_hint = _acceptance_regression_hint(state, session_id, config)
 
-    def _piggyback(reason: str) -> str:
+    _tpath = str(transcript) if transcript else None
+
+    def _piggyback(reason: str, gate: str = "shared") -> str:
+        """每個擋都經過這裡：附 token 預警／驗收提示，並記這個閘（reconcile／shared）最後一次擋的位置。
+        多數閘是先 write_state 再呼叫本函式，所以這裡改完 state 自己再寫一次，擋的位置才不會遺失。"""
+        mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)))
         if _token_warn:
             state["token_warn_emitted"] = True
             reason = reason + _token_warn
         if _accept_hint:
             state["acceptance_hint_emitted"] = True
             reason = reason + _accept_hint
+        write_state(session_id, state)
         return reason
+
+    def _shared_exhausted(gate_label: str, log_name: str, reason: str) -> bool:
+        """共用預算 stop_gate_max_blocks 擋滿時：使用者已放行這一回合、或在最後一次擋之後放行 → 記 user_release、清計數、
+        回 False（放行）；否則送擋滿訊息（附原擋訊息）並回 True（已擋）。"""
+        _turn = int(state.get("turn_seq", 0))
+        if released_this_turn(state, session_id, "shared", _turn):
+            return False
+        how = user_released(state, session_id, "shared", _tpath)
+        if how:
+            record_release(state, session_id, "shared", _turn)
+            state["stop_blocked_count"] = 0
+            append_guard_log(log_name, {"event": "user_release", "session_id": session_id, "turn_seq": _turn,
+                                        "via": how, "reason": reason[:300]})
+            print(f"[Guardian:{gate_label}] 使用者放行這一回合（{how}），記 user_release", file=sys.stderr)
+            write_state(session_id, state)
+            return False
+        n = int(state.get("stop_blocked_count", 0))
+        state["stop_blocked_count"] = n + 1
+        append_guard_log(log_name, {"event": "exhausted_block", "session_id": session_id, "turn_seq": _turn,
+                                    "count": n + 1, "reason": reason[:300]})
+        write_state(session_id, state)
+        output_block(_piggyback(f"{exhausted_message(gate_label, n, reason)}\n原擋訊息：\n{reason}"))
+        return True
 
     # ── 各閘共用前置變數 ─────────────────────────────────────────
     mod_files_all = state.get("modified_files", []) or []
@@ -859,7 +891,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # ── Reconcile Gate（收尾宣稱 vs 驗證收據）＋ Measure Gate（量尺）──────────
     # 緊接 TestFailGate 之後、evasion 偵測之前（correctness 閘優先）。不吃共用 stop_gate_max_blocks：
     # 獨立預算 reconcile_gate.max_blocks_per_turn（state reconcile_gate_turn[sid]={turn,count}）；
-    # 用完那次放行要可見：guard_log reconcile_overflow ＋ state reconcile_overflow[sid]（健檢列 red）。
+    # 擋滿後不放行：改送擋滿訊息要模型問使用者；使用者在最後一次擋之後放行（wg_release.user_released）→ 放這一回合、
+    # 清計數、guard-reconcile.jsonl 記 user_release（健檢列 red）。
     # 無量尺的部位只提醒（stderr；擋時併進 reason），每部位每 session 一次（measure_advised）。
     _rg_cfg = reconcile_cfg(config)
     _mg_cfg = measure_cfg(config)
@@ -871,30 +904,37 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if _vg_advice:
             print(_vg_advice, file=sys.stderr)
             append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "advisory": _vg_advice[:200]})
+        if _vg_reason and released_this_turn(state, session_id, "reconcile", turn_seq):
+            print("[Guardian:ReconcileGate] 使用者已放行這一回合，本次不擋", file=sys.stderr)
+            _vg_reason = None
         if _vg_reason:
             _budget = state.setdefault("reconcile_gate_turn", {})
             _rec = _budget.get(session_id) if isinstance(_budget.get(session_id), dict) else None
             _count = int(_rec.get("count", 0)) if _rec and int(_rec.get("turn", -1)) == turn_seq else 0
             _max = int(_rg_cfg.get("max_blocks_per_turn", 2))
-            if _count >= _max:
-                state.setdefault("reconcile_overflow", {})[session_id] = {
-                    "turn": turn_seq, "at": _now_iso(), "kind": _vg_kind, "reason": _vg_reason[:300],
-                }
-                append_guard_log("reconcile_overflow", {
-                    "session_id": session_id, "turn_seq": turn_seq, "kind": _vg_kind, "count": _count,
-                    "reason": _vg_reason[:300],
+            _how = user_released(state, session_id, "reconcile", _tpath) if _count >= _max else None
+            if _how:
+                record_release(state, session_id, "reconcile", turn_seq)
+                _budget[session_id] = {"turn": turn_seq, "count": 0}
+                append_guard_log("reconcile", {
+                    "event": "user_release", "session_id": session_id, "turn_seq": turn_seq, "kind": _vg_kind,
+                    "via": _how, "count": _count, "reason": _vg_reason[:300],
                 })
-                print(f"[Guardian:ReconcileGate] 本回合已擋 {_count} 次，這次放行但記 reconcile_overflow（健檢列 red）",
-                      file=sys.stderr)
+                print(f"[Guardian:ReconcileGate] 使用者放行這一回合（{_how}），記 user_release", file=sys.stderr)
                 write_state(session_id, state)
             else:
                 _budget[session_id] = {"turn": turn_seq, "count": _count + 1}
                 append_guard_log("reconcile", {
                     "session_id": session_id, "turn_seq": turn_seq, "kind": _vg_kind, "count": _count + 1,
                     "excerpt": _vg_reason.split("\n")[1][:160] if "\n" in _vg_reason else _vg_reason[:160],
+                    **({"event": "exhausted_block"} if _count >= _max else {}),
                 })
+                _gate = "MeasureGate" if _vg_kind == "measure" else "ReconcileGate"
+                _summary = _vg_reason.split("\n")[1].strip() if "\n" in _vg_reason else _vg_reason
+                _msg = (f"{exhausted_message(_gate, _count, _summary)}\n原擋訊息：\n{_vg_reason}"
+                        if _count >= _max else _vg_reason)
                 write_state(session_id, state)
-                output_block(_piggyback(_vg_reason + (f"\n{_vg_advice}" if _vg_advice else "")))
+                output_block(_piggyback(_msg + (f"\n{_vg_advice}" if _vg_advice else ""), "reconcile"))
                 return
         elif _vg_advice:
             write_state(session_id, state)
@@ -925,8 +965,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤ deferral_gate.
     # max_context_ratio 時，收尾把「帶受詞、可做的事」推給下個 session／獨立議題／
     # 非我造成 → 擋回三選一。每 turn 一次（deferral_gate_turn）、共用 stop_gate_max_blocks
-    # 全域預算。判定純函式在 wg_evasion.deferral_gate_reason；量測失敗 fail-open。
-    if stop_count < max_blocks and last_text:
+    # 全域預算（擋滿後改問使用者，見 _shared_exhausted）。判定純函式在 wg_evasion.deferral_gate_reason；量測失敗 fail-open。
+    if last_text:
         _dg_turn = int(state.get("turn_seq", 0))
         _ah = config.get("auto_handoff", {}) or {}
         try:
@@ -953,7 +993,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         except Exception as e:
             dg = None
             print(f"[Guardian:DeferralGate] error (fail-open): {e}", file=sys.stderr)
-        if dg:
+        if dg and stop_count >= max_blocks:
+            if _shared_exhausted("DeferralGate", "deferral", dg):
+                return
+        elif dg:
             state["deferral_gate_turn"] = _dg_turn
             state["stop_blocked_count"] = stop_count + 1
             append_guard_log("deferral", {
@@ -1039,25 +1082,26 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 才會補）。post_tool_use 判定落 report["d_pending"]；此處每 turn 擋一次（共用 max_blocks
     # 預算）：模型 atom_write 後重新 emit → 新報告無 d_pending → 放行。
     pending = aec.get("d_pending") or []
-    if (
-        emitted_this_turn and pending
-        and state.get("aec_pending_gate_turn") != turn_seq
-        and stop_count < max_blocks
-    ):
-        state["aec_pending_gate_turn"] = turn_seq
-        state["stop_blocked_count"] = stop_count + 1
-        append_guard_log("aec_pending", {
-            "session_id": session_id, "turn_seq": turn_seq, "items": pending[:5],
-        })
-        write_state(session_id, state)
-        output_block(_piggyback(
+    if emitted_this_turn and pending and state.get("aec_pending_gate_turn") != turn_seq:
+        ap_reason = (
             f"[Guardian:AEC-Pending] 收尾檢核把 {len(pending)} 項記憶寫入推到之後：\n"
             + "\n".join(f"  ✗ {x}" for x in pending[:5])
             + "\n這等於把知識留給下一回合（使用者要再問一次才會補），違反反退避契約。"
             "現在就 atom_write 寫完，再重新呼叫 anti_evasion_report 把該項改成"
             "「→ 已寫入 atom <名>」（或「→ 不寫（一句理由）」）；(h) 只列使用者要做的事。"
-        ))
-        return
+        )
+        if stop_count >= max_blocks:
+            if _shared_exhausted("AEC-Pending", "aec_pending", ap_reason):
+                return
+        else:
+            state["aec_pending_gate_turn"] = turn_seq
+            state["stop_blocked_count"] = stop_count + 1
+            append_guard_log("aec_pending", {
+                "session_id": session_id, "turn_seq": turn_seq, "items": pending[:5],
+            })
+            write_state(session_id, state)
+            output_block(_piggyback(ap_reason))
+            return
 
     # HUD 不可達且本回合 emit 為 notable/real-evasion → 大聲 fallback 回 chat（可觀測性鐵律：
     # push 不到窗不得 fail-silent）。post_tool_use 標旗，此處消費一次（新 emit 再標則再補，
@@ -1150,18 +1194,18 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # ── Atom Consumption Audit Gate（取用端閉環稽核）──────────────
     # 排序：correctness / sync 之後（那些優先）、DPM 之前；沿用 stop_gate_max_blocks
-    # 全域預算（第 3 次強制放行）。per-atom 一次（atom_audit_prompted）防轟炸。
+    # 全域預算（擋滿後改問使用者）。per-atom 一次（atom_audit_prompted）防轟炸。
     # fail-open：判定任何失敗 → stderr 浮訊號後照常放行，不比既有慣例更擋人。
-    if (
-        (config.get("atom_audit", {}) or {}).get("enabled", True)
-        and stop_count < max_blocks
-    ):
+    if (config.get("atom_audit", {}) or {}).get("enabled", True):
         try:
             aa = _audit_pointer_atom_consumption(state)
         except Exception as e:
             aa = None
             print(f"[Guardian:AtomAudit] audit error (fail-open): {e}", file=sys.stderr)
-        if aa:
+        if aa and stop_count >= max_blocks:
+            if _shared_exhausted("AtomAudit", "atom_audit", aa[0]):
+                return
+        elif aa:
             aa_reason, aa_names = aa
             prompted = state.setdefault("atom_audit_prompted", [])
             prompted.extend(n for n in aa_names if n not in prompted)
@@ -1204,14 +1248,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     )
     write_state(session_id, state)
 
-    # ── Anti-loop guard ─────────────────────────────────────────
-    if stop_count >= max_blocks:
-        state["phase"] = "done"
-        write_state(session_id, state)
-        _maybe_spawn_user_extract_worker(session_id, state, config)
-        output_nothing()
-        return
-
     if phase in ("done", "syncing"):
         _maybe_spawn_user_extract_worker(session_id, state, config)
         output_nothing()
@@ -1244,8 +1280,6 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         output_nothing()
         return
 
-    state["stop_blocked_count"] = stop_count + 1
-
     file_names = ", ".join(f.rsplit("/", 1)[-1] for f in unique_files[:8])
 
     reason = (
@@ -1264,6 +1298,17 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         except Exception:
             pass
 
+    # 共用預算擋滿：不自行放行，改問使用者；使用者放行 → 這個 session 的一般 sync block 結束（phase=done，同舊的收尾語意）
+    if stop_count >= max_blocks:
+        _maybe_spawn_user_extract_worker(session_id, state, config)
+        if _shared_exhausted("Sync", "sync_block", reason):
+            return
+        state["phase"] = "done"
+        write_state(session_id, state)
+        output_nothing()
+        return
+
+    state["stop_blocked_count"] = stop_count + 1
     reason = _piggyback(reason)
     write_state(session_id, state)
     _maybe_spawn_user_extract_worker(session_id, state, config)

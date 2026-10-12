@@ -355,6 +355,36 @@ def _reconcile_overflow_block(days: int) -> list[str]:
     return [f"對帳閘預算用完放行 {n} 次（近 {days} 天；Logs/guard-reconcile_overflow.jsonl）；收尾宣稱連續對不上收據"] if n else []
 
 
+def _user_release_block(days: int) -> list[str]:
+    """閘擋滿後使用者放行（Logs/guard-*.jsonl 的 event=user_release）近 N 天有事件 → 紅（放行要可見，按閘分計）。"""
+    cut = datetime.now().astimezone() - timedelta(days=days)
+    per: dict[str, int] = {}
+    for p in sorted((CLAUDE_DIR / "Logs").glob("guard-*.jsonl")):
+        try:
+            lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if '"user_release"' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+                at = datetime.fromisoformat(str(rec.get("at", "")))
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+            if rec.get("event") != "user_release":
+                continue
+            if at.tzinfo is None:
+                at = at.astimezone()
+            if at >= cut:
+                gate = p.stem[len("guard-"):]
+                per[gate] = per.get(gate, 0) + 1
+    if not per:
+        return []
+    detail = "、".join(f"{g} {n} 次" for g, n in sorted(per.items()))
+    return [f"閘擋滿後由使用者放行（近 {days} 天；{detail}；Logs/guard-<閘>.jsonl event=user_release）；閘連續擋滿仍未解"]
+
+
 def collect() -> dict:
     now = datetime.now()
     red: list[str] = []      # 需處理
@@ -392,8 +422,9 @@ def collect() -> dict:
     sr, si, selftests = _selftests_block(_load_config().get("tool_selftests") or [], CLAUDE_DIR)
     red.extend(sr)
     info.extend(si)
-    # 2d. 對帳閘預算用完放行
+    # 2d. 對帳閘預算用完放行（舊 overflow 紀錄）＋擋滿後使用者放行
     red.extend(_reconcile_overflow_block(FRESH_DAYS))
+    red.extend(_user_release_block(FRESH_DAYS))
     # 2e. scorecard（track-d2 的 hooks/wg_scorecard.health_block；沒有就印一行跳過）
     try:
         _hooks_on_path()

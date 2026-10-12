@@ -415,6 +415,58 @@ def _cards_for(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> List[Pat
     return [cp for cp in (resolve_card(root, c, mem_dir) for c in row["cards"]) if cp]
 
 
+CARD_SEARCH_BUDGET_S = 1.5
+_CARD_SEARCH_SKIP = (".git", "node_modules", "_distant")
+_clock = time.monotonic
+
+
+def _needs_card(row: Dict[str, Any]) -> bool:
+    """表上狀態有／部分／索引、且寫了卡名的列：卡一定要找得到。"""
+    return row["status"] in ("有", "部分", "索引") and bool(row["cards"])
+
+
+def _search_cards(root: Path, cards: List[str], budget_s: float = CARD_SEARCH_BUDGET_S) -> Dict[str, Any]:
+    """_cards_for 回空時接著搜 repo：依序找 <根>/memory/、_AIDocs/_atoms/、.claude/memory/，再整個根往下找 <卡名>.md
+    （含底線換連字號；略過 .git、node_modules、_distant、.claude/worktrees；總時限 budget_s 秒）。
+    回 {"found": [卡檔], "missing": [找不到的卡名], "searched": [找過的位置], "timed_out": bool}。"""
+    deadline = _clock() + budget_s
+    want = {n.lower(): c for c in cards for n in (c + ".md", c.replace("_", "-") + ".md")}
+    found: Dict[str, Path] = {}
+    searched: List[str] = []
+    done: List[str] = []
+    timed_out = False
+    for base in (root / "memory", root / "_AIDocs" / "_atoms", root / ".claude" / "memory", root):
+        if timed_out or len(found) == len(cards):
+            break
+        if not base.is_dir():
+            continue
+        searched.append(str(base))
+        for dirpath, dirnames, filenames in os.walk(base):
+            if _clock() > deadline:
+                timed_out = True
+                break
+            dp = Path(dirpath)
+            dirnames[:] = [d for d in dirnames if d not in _CARD_SEARCH_SKIP and str(dp / d) not in done
+                           and not (d == "worktrees" and dp.name == ".claude")]
+            for fn in filenames:
+                c = want.get(fn.lower())
+                if c and c not in found:
+                    found[c] = dp / fn
+            if len(found) == len(cards):
+                break
+        done.append(str(base))
+    return {"found": [found[c] for c in cards if c in found], "missing": [c for c in cards if c not in found],
+            "searched": searched, "timed_out": timed_out}
+
+
+def _missing_card_msg(row: Dict[str, Any], miss: Dict[str, Any]) -> str:
+    cards = "、".join(f"`{c}`" for c in miss["missing"])
+    where = "、".join(miss["searched"]) or "（沒有可搜的目錄）"
+    state = f"；搜尋逾時（{CARD_SEARCH_BUDGET_S} 秒）沒搜完" if miss["timed_out"] else "；已搜完"
+    return (f"[Guardian:OverviewHub] 部位【{row['part_short']}】表上寫的導讀卡 {cards} 在 repo 裡找不到（找過：{where}{state}）。"
+            "不准繞過（不准改寫表、不准改用其他卡、不准用 Bash 寫檔）：停下來告訴使用者這張卡不見了，等使用者補卡或改表。")
+
+
 def _locate_template(cfg: Dict[str, Any]) -> List[str]:
     """定位三行的範本句：專案 locate_template 給幾句用幾句，其餘補預設；第三句（前例）沒自訂時用填空範本（A5.1）。"""
     custom = cfg.get("locate_template") if isinstance(cfg.get("locate_template"), list) else []
@@ -427,6 +479,10 @@ def _locate_template(cfg: Dict[str, Any]) -> List[str]:
 def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
             hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any]) -> str:
     card_paths = _cards_for(root, row, cfg)
+    miss: Optional[Dict[str, Any]] = None
+    if not card_paths and _needs_card(row):
+        miss = _search_cards(root, row["cards"])
+        card_paths = miss["found"]
     card_path = card_paths[0] if card_paths else None
     template = _locate_template(cfg)
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
@@ -434,6 +490,10 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""))
+    if miss:
+        text += "".join(f"\n表上的卡在 {p}，不在預設目錄；請更新表或搬卡" for p in miss["found"])
+        if miss["missing"]:
+            text += "\n" + _missing_card_msg(row, miss)
     hub = state.setdefault("overview_hub", {})
     hub[_key(root, row)] = {
         "injected_turn": int(state.get("turn_seq", 0)),
@@ -453,6 +513,8 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "part": row["part"] or row["part_short"],
         "layer": row.get("layer") or "",
         "locate_template": template,
+        "cards_missing": ({k: miss[k] for k in ("missing", "searched", "timed_out")}
+                          if miss and miss["missing"] else None),
     }
     _log("inject", session_id, part=row["part_short"], status=row["status"], via=via, path=hit_path,
          card=str(card_path) if card_path else None, chars=len(text), intent=intent, slices=used, layer=cfg.get("_layer"))
@@ -950,8 +1012,28 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         return _unmapped_edit(state, session_id, root, file_path, cfg)
     key = _key(root, row)
     rec = (state.get("overview_hub") or {}).get(key)
+    if (rec is not None and _needs_card(row) and not rec.get("cards_missing") and not rec.get("card_paths")
+            and _cards_for(root, row, cfg)):
+        rec["card_paths"] = [str(p) for p in _cards_for(root, row, cfg)]     # 升級前的舊紀錄：卡在預設目錄，照常判定
+    if rec is not None and _needs_card(row) and (rec.get("cards_missing") or not rec.get("card_paths")):
+        # 表上有卡但上次沒找到（或升級前注入的舊紀錄沒有卡）：每次改檔都重搜；仍找不到一律擋，讀過檔＋交三行也一樣
+        again = _search_cards(root, row["cards"])
+        if again["missing"]:
+            rec["cards_missing"] = {k: again[k] for k in ("missing", "searched", "timed_out")}
+            msg = _missing_card_msg(row, again)
+            _log("edit_card_missing", session_id, part=row["part_short"], path=file_path, deny_reason="card_missing",
+                 cards=again["missing"], timed_out=again["timed_out"], layer=cfg.get("_layer"))
+            return (msg, msg, True)
+        rec = None                                  # 卡出現了：照第一次碰到這個部位重新注入
     if rec is None:
         text = _inject(state, session_id, root, row, file_path, "edit", transcript_path, cfg)
+        cm = state["overview_hub"][key].get("cards_missing")
+        if cm:
+            mm = _missing_card_msg(row, cm)
+            _log("edit_card_missing", session_id, part=row["part_short"], path=file_path, deny_reason="card_missing",
+                 cards=cm["missing"], timed_out=cm["timed_out"], layer=cfg.get("_layer"))
+            msg = f"{mm}\n{text.replace(chr(10) + mm, '')}"
+            return (msg, msg, True)
         msg = (f"[Guardian:OverviewHub] 要改【{row['part_short']}】部位的檔但本 session 還沒看過這個部位的導讀卡；"
                f"卡片現在才注入（下面）。先讀完、讀過部位檔、在回覆交出定位三行，再改。\n{text}")
         _log("edit_before_inject", session_id, part=row["part_short"], path=file_path, deny_reason="not_injected",

@@ -896,6 +896,96 @@ def test_unmapped_vcs_fallback_not_used_when_project_has_table(proj, tmp_path, m
     assert wo.on_edit({}, "s", str(deep), "", {}) == (None, None, False)
 
 
+# ─── 件二：表上有卡、預設目錄找不到 → 搜 repo；確定找不到一律擋 ───────────────────────
+
+_CARD = "戰鬥知識導讀-hub索引"
+
+
+def _move_card(proj, dest_dir):
+    src = proj / ".claude" / "memory" / "shared" / "戰鬥" / f"{_CARD}.md"
+    if dest_dir is None:
+        src.unlink()
+        return None
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    return src.replace(dest_dir / src.name)
+
+
+def test_card_in_default_dir_unchanged(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    txt = wo.on_read({}, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "A.cs")}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and "不在預設目錄" not in txt and "在 repo 裡找不到" not in txt
+
+
+def test_card_only_in_aidocs_atoms_is_found_and_flagged(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    moved = _move_card(proj, proj / "_AIDocs" / "_atoms" / "x")
+    tp = _transcript(tmp_path, ["x"])
+    state = {}
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and f"表上的卡在 {moved}，不在預設目錄；請更新表或搬卡" in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)                 # 找到 → 照正常判定放行
+
+
+def test_card_missing_everywhere_denies_even_after_reads_and_locate(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _move_card(proj, None)
+    tp = _transcript(tmp_path, ["x"])
+    state = {}
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert f"`{_CARD}` 在 repo 裡找不到" in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})                             # 反例：讀過檔＋交三行也擋
+    assert deny and f"部位【戰鬥】表上寫的導讀卡 `{_CARD}` 在 repo 裡找不到" in deny
+    assert str(proj / ".claude" / "memory") in deny and str(proj) in deny and "已搜完" in deny
+    assert "不准繞過（不准改寫表、不准改用其他卡、不准用 Bash 寫檔）" in deny and "等使用者補卡或改表" in deny
+    warn, deny2, _ = wo.on_edit({}, "s", f1, tp, {})                               # 沒讀過就改：同樣是找不到卡的擋
+    assert deny2.startswith(f"[Guardian:OverviewHub] 部位【戰鬥】表上寫的導讀卡 `{_CARD}`")
+    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert [e["deny_reason"] for e in log if e["event"] == "edit_card_missing"] == ["card_missing", "card_missing"]
+    _move_card_back = proj / "Game" / f"{_CARD}.md"                               # 卡出現後恢復正常判定
+    _move_card_back.write_text("# 戰鬥導讀\n病灶：共用字典", encoding="utf-8")
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
+    assert deny and "還沒看過這個部位的導讀卡" in deny and "戰鬥導讀" in deny and "不在預設目錄" in deny
+
+
+def test_status_none_row_unchanged(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    state = {}
+    v1 = str(proj / "Vendor" / "a.cs")
+    wo.on_read(state, "s", "Read", {"file_path": v1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "b.cs")}, str(proj), tp, {})
+    _locate(tp, part="框架")
+    assert wo.on_edit(state, "s", v1, tp, {}) == (None, None, True)                 # 狀態「無」不要求卡
+
+
+def test_card_search_timeout_denies_and_says_so(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _move_card(proj, proj / "deep" / "x")                                           # 卡在 repo 裡，但搜不到那裡就逾時
+    ticks = iter(range(0, 1000, 1))
+    monkeypatch.setattr(wo, "_clock", lambda: next(ticks))                          # 每問一次時間過 1 秒
+    tp = _transcript(tmp_path, ["x"])
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})
+    assert deny and f"`{_CARD}` 在 repo 裡找不到" in deny and "搜尋逾時（1.5 秒）沒搜完" in deny
+
+
+def test_search_cards_skips_git_node_modules_distant_and_worktrees(tmp_path):
+    for d in (".git", "node_modules", "_distant", ".claude/worktrees/wt"):
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+        (tmp_path / d / "c-x.md").write_text("x", encoding="utf-8")
+    r = wo._search_cards(tmp_path, ["c_x"])
+    assert r["found"] == [] and r["missing"] == ["c_x"] and not r["timed_out"]
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "c-x.md").write_text("x", encoding="utf-8")                # 底線換連字號的變體
+    assert wo._search_cards(tmp_path, ["c_x"])["found"] == [tmp_path / "docs" / "c-x.md"]
+
+
 def test_readonly_paths_deny_without_inject_and_glob_misses_neighbors(proj, tmp_path, monkeypatch):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     (proj / ".claude" / "overview-hub.json").write_text(

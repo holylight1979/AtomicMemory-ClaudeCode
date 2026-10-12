@@ -5,7 +5,7 @@
   與 exit code，連同 VCS 快照、本 turn 改過的檔、驗收規格路徑，落 `workflow/verify-ledger/<sid>.jsonl`
   並進 `state["verify_receipts"][sid]`（cap 50）。
   Stop 在「宣告完成」的回合拿收據對帳：說「修好」要有本 turn 且對得上改檔的 PASS（exit 0 或無 exit）、說「量了」要有 DONE、
-  說「試過」要有執行類工具呼叫、改了程式碼要有驗證 case 被改或對得上的 PASS、AEC 要有證據路徑（j）與追蹤項（k）；
+  說「試過」要有執行類工具呼叫、改了程式碼要有驗證 case 被新增或修改（PASS 不代替）、AEC 要有證據路徑（j）與追蹤項（k）；
   改到有量尺的部位，收尾前要有那把尺在最後一次修改之後、同 root、exit 0 且 failed=0 的 DONE（先過 runtime_gate）。
 
 怎麼跑：被 handlers/post_tool_use.py 與 handlers/stop.py 匯入；verify 在 hooks/verify/verify_verify_ledger.py、
@@ -463,12 +463,13 @@ def _file_root(root: RootSpec, path: str) -> Optional[str]:
 
 
 def _root_ok(receipt: Dict[str, Any], file_root: Optional[str]) -> bool:
-    """收據根（project_root，沒有就 cwd）要等於改檔的根或在它之下。收據沒有根資訊、或改檔根不可判定 → 不比（照舊）。"""
+    """收據根（project_root，沒有就 cwd）與改檔的根要在同一棵樹：相同、或互為上下層（從上層跑測試是正當驗證）；
+    兩根互不包含才算對不上。收據沒有根資訊、或改檔根不可判定 → 不比（照舊）。"""
     rr = _norm_path(str(receipt.get("project_root") or receipt.get("cwd") or ""))
     if not rr or not file_root:
         return True
     fr = _norm_path(str(file_root))
-    return rr == fr or rr.startswith(fr + "/")
+    return rr == fr or rr.startswith(fr + "/") or fr.startswith(rr + "/")
 
 
 def vcs_root_of(path: str) -> Optional[Path]:
@@ -507,7 +508,7 @@ def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_gl
     """PASS 收據「對得上」改檔＝下列任一（verify glob 單獨不算；含 cd 的收據一律不算）：
     (a) cmd 含修改檔 stem 作整詞（stem ≥3 字）；(b) cmd 含 test_<stem>／verify_<stem>／<stem>_test；
     (c) cmd 是部位量尺指令，或 run_verify.py／無檔名參數的 pytest（整體驗證）；(d) cmd 含修改檔所在的 verify 目錄 `<dir>/verify/`。
-    再加根要對：收據根（project_root，沒有就 cwd）要等於該改檔的根或在它之下（整體驗證也一樣）；任一邊沒有根資訊不比。"""
+    再加根要對：收據根（project_root，沒有就 cwd）與該改檔的根相同或互為上下層（整體驗證也一樣）；任一邊沒有根資訊不比。"""
     cmd = _usable_cmd(receipt)
     if cmd is None:
         return False
@@ -740,8 +741,8 @@ def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_s
                           measure_cmds: Iterable[str] = (), root: RootSpec = None) -> Optional[str]:
     """只在本回合「宣告完成」時對帳（純審查／中途回覆不擋）。五條規則任一命中回擋訊息（全部列出），否則 None。純判定、不改 state。
     (a) 說修好而本 turn 無對得上改檔的合格 PASS；(b) 說量了無 DONE；(c) 說試過無執行工具；
-    (d) 改了程式碼、沒改驗證 case、無對得上的 PASS；(e) AEC 已 emit：有收據而 j 缺／不存在、k 空字串。
-    (a)／(d) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後。"""
+    (d) 本回合改了程式碼、本回合沒新增或修改任何驗證 case 檔（PASS 不代替）；(e) AEC 已 emit：有收據而 j 缺／不存在、k 空字串。
+    (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後。"""
     if not claims_completion(last_text):
         return None
     this_turn = [r for r in receipts if int(r.get("turn_seq", -1)) == int(turn_seq)]
@@ -763,13 +764,10 @@ def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_s
     if tried_claim_without_exec(last_text, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases):
         hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。沒跑就寫沒跑，或現在跑。")
     code_changed = [p for p in mod_turn if is_code_file(p, cfg.get("code_exts") or [])]
-    if code_changed:
-        cases = [p for p in mod_turn if is_verify_case(p, globs)]
-        if not cases and not related:
-            names = "、".join(Path(p).name for p in code_changed[:4])
-            extra = f"（{_pass_why(this_turn, receipts, unrelated, mod_turn)}）" if this_turn else ""
-            hits.append(f"(d) 宣告完成且改了程式碼（{names}）但本回合沒新增／更新驗證 case、也沒有對得上的 PASS 收據{extra}：改了碼沒驗證 case。"
-                        "補一個會紅的 case 再跑綠（印 PASS），或說明為何不需要。")
+    if code_changed and not any(is_verify_case(p, globs) for p in mod_turn):
+        names = "、".join(Path(p).name for p in code_changed[:4])
+        hits.append(f"(d) 宣告完成且改了程式碼（{names}）但本回合沒有新增或修改任何驗證 case 檔：改了碼沒驗證 case（PASS 不能代替）。"
+                    "補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者。")
     # (e) 只檢本版報告（post_tool_use 一定寫入 j／k 兩鍵）；升級前 emit 的舊報告沒這兩鍵，不拿它擋
     if aec_emitted and isinstance(aec, dict) and "j_evidence_path" in aec and "k_followups" in aec:
         if aec_evidence_missing(aec.get("j_evidence_path"), bool(receipts)):
