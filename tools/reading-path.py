@@ -1435,15 +1435,19 @@ class Graph:
         return f"候選：{targets} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if targets > 1 else ""
 
     def _add_edges(self, src: str, edges: list, c) -> None:
-        """加邊（同終點同種類只留一條）；直接／繼承呼叫每個呼叫點都記下呼叫者（就算邊重複），callback 要回頭查誰傳了什麼。
+        """加邊（同終點同種類只留一條；幾處呼叫裡有一處經白名單確定，就留確定的那條，不看呼叫點的先後）；
+        直接／繼承呼叫每個呼叫點都記下呼叫者（就算邊重複），callback 要回頭查誰傳了什麼。
         沒經過確定白名單（rule 是 None）又沒寫原因的邊補上原因：確定只看 rule，原因只是說明。"""
         for e in edges:
             if e.rule is None and not e.guess:
                 e.guess = NOT_WHITELISTED
             if c is not None and e.kind in ("direct", "inherit"):
                 self.callers[e.dst].append((self.funcs[src], c))
-            if not any(x.dst == e.dst and x.kind == e.kind for x in self.edges[src]):
+            same = next((i for i, x in enumerate(self.edges[src]) if x.dst == e.dst and x.kind == e.kind), None)
+            if same is None:
                 self.edges[src].append(e)
+            elif e.rule is not None and self.edges[src][same].rule is None:
+                self.edges[src][same] = e
 
     def _is_passthrough(self, f: lang.Func) -> bool:
         """只把呼叫往下傳：≤2 句、無分支迴圈、恰好一個呼叫連到專案內、沒有解析不了的呼叫。"""

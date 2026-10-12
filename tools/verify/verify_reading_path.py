@@ -1808,6 +1808,14 @@ def test_p1_a_callback_called_inside_a_lambda_gets_no_rule_5(tmp_path):
     assert _sure_edges(plain, "app.py::run", tmp_path / "b") == [("app.py::work", False)], "呼叫點在 lambda 裡：只列候選"
 
 
+def test_p1_a_certain_call_site_is_not_masked_by_an_earlier_one_inside_a_construct(tmp_path):
+    """反方向：同一來源到同一目標有好幾處呼叫，推導式裡那處（不給條號）寫在前面，外面那處照第 3 條確定 →
+    邊留確定的那條（確定與否不看呼叫點的先後）。"""
+    files = {"app.py": APP_RUN + "    def go(self):\n        items = [self.run() for _ in range(2)]\n        self.run()\n"
+                                 "        return items\n"}
+    assert _edge_rules(files, "app.py::App.go", tmp_path) == [("app.py::App.run", 3)]
+
+
 def test_p1_constructs_that_do_not_touch_the_proven_name_keep_rule_1(tmp_path):
     """反方向：構件裡沒讀到、沒綁定 work，外面的 work() 照樣是第 1 條（不因為函式裡有 lambda／推導式就整個降級）。"""
     files = {"app.py": TWO_FUNCS + "def main():\n    items = [x for x in range(3)]\n    key = lambda x: x\n    work()\n"
