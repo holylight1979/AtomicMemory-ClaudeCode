@@ -19,6 +19,7 @@ import fnmatch
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -306,7 +307,9 @@ def _gitdir_of(root: Path) -> Optional[Path]:
                     return None
                 p = Path(value)
                 return p if p.is_absolute() else root / p
-    except OSError:
+    except OSError as e:
+        msg = " ".join(f"{type(e).__name__}: {e}".split())
+        print(f"[overview_hub] 讀不到 {dot}：{msg}；當成非根層 worktree", file=sys.stderr)
         return None
     return None
 

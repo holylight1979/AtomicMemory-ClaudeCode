@@ -393,7 +393,7 @@ def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
     oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
     lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位，不會隨部位導讀卡注入）；最舊 3 筆："]
     lines += [f"- {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）" for e in oldest]
-    lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字>」（未標部位的項目，結案行也不帶部位）。")
+    lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」（未標部位的項目，結案行也不帶部位）。")
     return ["\n".join(lines)]
 
 
@@ -1146,7 +1146,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         try:
             if (config or {}).get("skill_index", {}).get("enabled", True):
                 import json as _json
-                _sk_dir = CLAUDE_DIR / "skills"
+                _sk_dir = CODE_DIR / "skills"   # skills 屬程式碼樹（與 tools／hooks／lib 並列）
                 _true_sk = sum(1 for _ in _sk_dir.glob("*/SKILL.md"))
                 _idx = _sk_dir / "_skill_index.json"
                 _idx_n = None

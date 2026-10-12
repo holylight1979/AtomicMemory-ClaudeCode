@@ -33,7 +33,6 @@ def _load(name: str, path: Path):
     return mod
 
 
-os.environ["WG_CLAUDE_DIR"] = str(ROOT)  # run.py 的資料根跟 WG_CLAUDE_DIR 走；指本樹，子行程跑 run.py 也不碰 live ~/.claude
 _REAL_RUN = subprocess.run  # env fixture 會把 subprocess.run／Popen 換成假的；真 spawn 的案用這兩個
 _REAL_POPEN = subprocess.Popen
 run = _load("so_run", RUN_PY)
@@ -49,7 +48,9 @@ TWO = "## 結論\n改動正確。\n\n## 證據\nmaterials/diff.patch:3；等號�
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    """config／job_root 導到 tmp；models_cache 給假檔；guard 與 codex 都由 fake subprocess 代替。"""
+    """config／job_root 導到 tmp；models_cache 給假檔；guard 與 codex 都由 fake subprocess 代替。
+    WG_CLAUDE_DIR 只在本 fixture 範圍設成 tmp 資料根（子行程跑 run.py 也繼承它，不碰 live ~/.claude）。"""
+    monkeypatch.setenv("WG_CLAUDE_DIR", str(tmp_path / "data-root"))
     cache = tmp_path / "models_cache.json"
     cache.write_text(json.dumps({"models": [{"slug": "gpt-6-astra"}, {"slug": "gpt-5.6-sol"}]}),
                      encoding="utf-8", newline="\n")
@@ -587,11 +588,13 @@ def test_scan_subcommand_real_subprocess(env, monkeypatch):
     (job / "codex.stderr.log").write_text("model: x\n", encoding="utf-8", newline="\n")
     (job / "codex.stdout.log").write_text("clean\n", encoding="utf-8", newline="\n")
     cmd = [sys.executable, "-X", "utf8", str(RUN_PY), "scan", "--job", str(job)]
-    r = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    r = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60,
+                  env={**os.environ, "WG_CLAUDE_DIR": os.environ["WG_CLAUDE_DIR"]})   # 明傳 env（fixture 設的 tmp 資料根）
     lines = r.stdout.strip().splitlines()
     assert r.returncode == 0 and lines[-1] == "SCAN_CHECK PASS" and json.loads(lines[0]) == {"hits": [], "outside": []}, r.stderr
     (job / "codex.stdout.log").write_text("read C:\\outside\\secret.txt\n", encoding="utf-8", newline="\n")
-    r2 = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    r2 = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60,
+                   env={**os.environ, "WG_CLAUDE_DIR": os.environ["WG_CLAUDE_DIR"]})
     lines2 = r2.stdout.strip().splitlines()
     assert r2.returncode == 1 and lines2[-1] == "SCAN_CHECK FAIL" and json.loads(lines2[0])["outside"], r2.stderr
 

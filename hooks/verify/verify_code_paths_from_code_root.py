@@ -18,7 +18,7 @@ from typing import List, Set, Tuple
 
 TREE = Path(__file__).resolve().parents[2]
 SCAN_DIRS = ("hooks", "lib", "tools")
-CODE_SEGMENTS = {"tools", "hooks", "lib"}
+CODE_SEGMENTS = {"tools", "hooks", "lib", "skills"}   # skills 與 tools／hooks／lib 並列為核心程式層（wg_core._CORE_GUARDED_SUBDIRS）
 DATA_SEGMENTS = {"workflow", "Logs", "memory", "projects", "settings.json"}
 DATA_ROOT_NAMES = {"CLAUDE_DIR", "_CLAUDE_DIR"}
 # 整支檔案不掃：路徑 → 理由
@@ -169,11 +169,13 @@ def test_guard_flags_data_root_code_paths():
         "sys.path.insert(0, str(CLAUDE_DIR))\n"
         "sys.path.insert(0, str(Path.home() / '.claude'))\n"
         "sys.path.insert(0, str(CODE_DIR))\n"
+        "f = CLAUDE_DIR / 'skills' / '_skill_index.json'\n"
+        "ok5 = CODE_DIR / 'skills'\n"
     )
     got = sorted((ln, kind) for _, ln, _, kind in violations(src, "synthetic.py"))
     assert got == [(2, "data-root→code"), (3, "data-root→code"), (6, "data-root→code"),
                    (7, "data-root→code"), (8, "data-root→code"),
-                   (13, "data-root→code"), (14, "data-root→code")], got                # 多行式子回報在起頭那行
+                   (13, "data-root→code"), (14, "data-root→code"), (16, "data-root→code")], got   # 多行式子回報在起頭那行
 
 
 def test_guard_flags_file_root_data_paths():

@@ -149,6 +149,29 @@ def test_normal_install_paths_identical_to_old_algorithm(dirs):
     assert _n(got["MEMORY_DIR"]) == _n(TREE / "memory") and _n(got["_CONFIG_PATH"]) == _n(TREE / "workflow" / "config.json")
 
 
+def test_normal_install_without_override_raw_strings_identical(dirs):
+    """真正的一般安裝：沒設 WG_CLAUDE_DIR、程式碼就裝在 tmp家/.claude → 資料常數與程式碼根的原始字串（不正規化）
+    和舊算法（Path(__file__) 推出的根）組出的完全相同。"""
+    home, _ = dirs
+    root = home / ".claude"
+    (root / "tools").mkdir(parents=True)
+    (root / "lib").mkdir()
+    shutil.copyfile(TREE / "tools" / "followup-check.py", root / "tools" / "followup-check.py")
+    shutil.copyfile(TREE / "lib" / "project_root.py", root / "lib" / "project_root.py")
+    (root / "lib" / "__init__.py").write_text("", encoding="utf-8")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-c", PROBE, str(root / "tools" / "followup-check.py"),
+                        json.dumps(["FOLLOWUPS", "INJECTION_TURNS_LOG", "CODE_DIR", "CLAUDE_DIR"])],
+                       env=_env(home), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=60, creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
+    assert r.returncode == 0 and line, r.stderr[-2000:]
+    got = json.loads(line[len("PROBE_JSON "):])
+    old_root = (root / "tools" / "followup-check.py").resolve().parent.parent              # 舊算法的根
+    assert got["CODE_DIR"] == str(old_root) and got["CLAUDE_DIR"] == str(old_root)
+    assert got["FOLLOWUPS"] == str(old_root / "workflow" / "followups.json")
+    assert got["INJECTION_TURNS_LOG"] == str(old_root / "Logs" / "injection-turns.jsonl")
+
+
 LIB_ORIGIN_PROBE = r"""
 import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location("probe_tool_mod", sys.argv[1])

@@ -1246,6 +1246,28 @@ def test_is_root_worktree_relative_gitdir_resolved_against_root(tmp_path, git):
     assert oh.is_root_worktree(rel2, live) is False                                    # 反例：相對路徑解析到別處
 
 
+def test_unreadable_dot_git_says_so_on_one_stderr_line_and_is_not_root_git_worktree(tmp_path, monkeypatch, capsys):
+    live = tmp_path / "live"
+    (live / ".git" / "worktrees" / "x").mkdir(parents=True)
+    root = tmp_path / "wt"
+    root.mkdir()
+    (root / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'x'}\n", encoding="utf-8")
+    assert oh.is_root_git_worktree(root, live) is True                                 # 對照：讀得到就是
+    capsys.readouterr()
+    real_read_text = Path.read_text
+
+    def deny(self, *a, **kw):
+        if self.name == ".git":
+            raise PermissionError("拒絕存取\n第二行")                                      # 換行要壓成空白
+        return real_read_text(self, *a, **kw)
+    monkeypatch.setattr(Path, "read_text", deny)
+    assert oh.is_root_git_worktree(root, live) is False
+    err_lines = capsys.readouterr().err.splitlines()
+    assert len(err_lines) == 1, err_lines                                              # 反例：舊碼靜默回 False
+    assert err_lines[0].startswith("[overview_hub] 讀不到 ") and str(root / ".git") in err_lines[0]
+    assert "PermissionError: 拒絕存取 第二行" in err_lines[0] and err_lines[0].endswith("當成非根層 worktree")
+
+
 def test_measure_gate_fixture_with_same_map_is_not_root_worktree(tmp_path, monkeypatch, git):
     import wg_verify_ledger as vl
     q6 = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q6" / "overview-map.md"

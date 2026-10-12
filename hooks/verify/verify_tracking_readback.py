@@ -291,3 +291,36 @@ def test_structurally_bad_rows_are_skipped_with_stderr(world, capsys):
         fh.write(json.dumps({"status": "closed", "text": "x", "at": "y", "closes": "not-a-dict"}) + "\n")
     assert _open_texts(slug) == ["好好的一筆追蹤項目文字"]
     assert "追蹤帳本有 3 行壞掉已跳過" in capsys.readouterr().err                          # 反例：舊碼靜默收下
+
+
+# ─── 退件 017：短項結案提示、帳本列型別與逐行編碼 ─────────────────────────────────────────
+
+def test_close_hint_tells_short_items_to_use_full_text(world, monkeypatch):
+    proj, wf = world
+    block = wh.tracking_block([{"text": "補測試", "at": "2026-10-01T00:00:00", "part": "hooks"}], 2000)
+    assert "原文不足 8 字就寫全文" in block                                                 # 部位注入的標頭
+    from handlers import session_start as ss
+    monkeypatch.setattr(ss, "WORKFLOW_DIR", wf)
+    wh.append_tracking(wh.tracking_slug(str(proj)), _k("補文件", "2026-10-01T00:00:00"))
+    adv = ss._tracking_advisory(str(proj), {})
+    assert len(adv) == 1 and "補文件" in adv[0] and "原文不足 8 字就寫全文" in adv[0]        # SessionStart 未標部位的提示
+
+
+def test_ledger_rows_with_wrong_types_or_broken_bytes_report_line_numbers(world, capsys):
+    proj, wf = world
+    slug = wh.tracking_slug(str(proj))
+    wh.append_tracking(slug, _k("[戰鬥] 第一行是好好的追蹤項目", "2026-10-01T00:00:00"))
+    good = json.dumps({"status": "open", "text": "第五行文字壞位元組", "at": "2026-10-02T00:00:00", "part": "戰鬥"},
+                      ensure_ascii=False).encode("utf-8")
+    broken = good.replace("壞位元組".encode("utf-8"), b"\xff\xfe")                          # JSON 結構完好、文字有損壞位元組
+    with open(wf / "tracking" / f"{slug}.jsonl", "ab") as fh:
+        for row in ({"status": "closed", "text": "結案：x", "at": "y", "closes": {}},          # 第 2 行：closes 沒有 id
+                    {"status": "open", "text": None, "at": "y"},                           # 第 3 行：text=null
+                    {"status": "open", "text": "z", "at": []}):                            # 第 4 行：at 不是字串
+            fh.write(json.dumps(row, ensure_ascii=False).encode("utf-8") + b"\n")
+        fh.write(broken + b"\n")                                                           # 第 5 行
+    texts = _open_texts(slug)
+    assert texts[0] == "第一行是好好的追蹤項目" and len(texts) == 2 and texts[1].startswith("第五行文字")   # 損壞行照收
+    err = capsys.readouterr().err
+    assert "追蹤帳本有 3 行壞掉已跳過" in err and "第 2, 3, 4 行" in err                      # 反例：舊碼三列都收下、不出聲
+    assert "第 5 行編碼損壞" in err                                                          # 反例：舊碼 replace 解碼不出聲

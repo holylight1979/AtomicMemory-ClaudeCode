@@ -397,7 +397,9 @@ def tracking_slug(cwd: str) -> str:
     最近的部位表根 → 專案根 → cwd 本身（根是 live repo 的 git worktree 時換成 live 的 CLAUDE_DIR：帳本是資料，
     跟 live 走，只看是不是 worktree、不看部位表），經 cwd_to_project_slug。
     純 ASCII 且不超過 64 字 → 逐字使用；有字元被換成 `-`（有損）或超過 64 字 → 取前 55 字＋`-`＋「完整原始路徑
-    （反斜線轉正、casefold）」的 8 碼雜湊，等長的中文路徑不會撞成同一本。cwd 空 → `_no-cwd` 並 stderr。"""
+    （反斜線轉正、casefold）」的 8 碼雜湊，等長的中文路徑不會撞成同一本。cwd 空 → `_no-cwd` 並 stderr。
+    已知邊界：ASCII 標點不同的路徑（`D:\\game.v1` 與 `D:\\game-v1`、`D:\\a\\b` 與 `D:\\a-b`）沿用 Claude Code 自己
+    projects/<slug> 的規則，會落在同一本；中文與超長路徑才加雜湊。"""
     if not cwd:
         print("[Guardian:AEC] tracking slug: cwd 空，追蹤項寫進 _no-cwd 帳本（讀回時不會注入任何部位）", file=sys.stderr)
         return "_no-cwd"
@@ -434,28 +436,37 @@ def open_tracking_items(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _valid_tracking_row(row: Any) -> bool:
-    """帳本列的結構：物件、有 status／text／at、status 只收 open／closed、closed 列的 closes 必須是物件。"""
-    if not isinstance(row, dict) or not all(k in row for k in ("status", "text", "at")):
+    """帳本列的結構：物件；status／text／at 都是字串、text 非空；status 只收 open／closed；
+    closed 列的 closes 必須是物件且含字串型 id。"""
+    if not isinstance(row, dict) or not all(isinstance(row.get(k), str) for k in ("status", "text", "at")):
         return False
-    if row["status"] not in ("open", "closed"):
+    if not row["text"].strip() or row["status"] not in ("open", "closed"):
         return False
-    return row["status"] == "open" or isinstance(row.get("closes"), dict)
+    closes = row.get("closes")
+    return row["status"] == "open" or (isinstance(closes, dict) and isinstance(closes.get("id"), str))
 
 
 def read_tracking(slug: str, base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """讀 workflow/tracking/<slug>.jsonl；沒有檔回 []；壞行（非 JSON、非物件或結構不對，見 _valid_tracking_row）
-    跳過並 stderr 一行（列行號）；讀檔失敗 stderr 回 []。"""
+    跳過並 stderr 一行（列行號）；逐行嚴格 UTF-8 解碼，失敗的行改用 replace 解碼照收，另一行 stderr 列「第 N 行編碼損壞」；
+    讀檔失敗 stderr 回 []。"""
     p = (base_dir or WORKFLOW_DIR) / "tracking" / f"{slug}.jsonl"
     try:
         if not p.is_file():
             return []
-        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        raw_lines = p.read_bytes().split(b"\n")
     except OSError as e:
         print(f"[Guardian:Tracking] 追蹤帳本讀不到（不擋注入）：{p}：{e}", file=sys.stderr)
         return []
     out: List[Dict[str, Any]] = []
     bad: List[int] = []
-    for i, line in enumerate(lines, 1):
+    broken: List[int] = []
+    for i, raw in enumerate(raw_lines, 1):
+        try:
+            line = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            line = raw.decode("utf-8", errors="replace")
+            broken.append(i)
         if not line.strip():
             continue
         try:
@@ -466,6 +477,9 @@ def read_tracking(slug: str, base_dir: Optional[Path] = None) -> List[Dict[str, 
             out.append(row)
         else:
             bad.append(i)
+    if broken:
+        print(f"[Guardian:Tracking] 追蹤帳本編碼損壞（已用替換字元照收）：{p} 第 {', '.join(map(str, broken[:10]))} 行編碼損壞",
+              file=sys.stderr)
     if bad:
         print(f"[Guardian:Tracking] 追蹤帳本有 {len(bad)} 行壞掉已跳過：{p} 第 {', '.join(map(str, bad[:10]))} 行", file=sys.stderr)
     return out
@@ -533,7 +547,7 @@ def tracking_block(items: List[Dict[str, Any]], budget: int) -> str:
     """注入文字末段「【未結追蹤項】」：最多 5 筆、每筆截 200 字、整段不超過 budget 字；超過附「另有 N 筆」。沒有項目回空字串。"""
     if not items:
         return ""
-    head = "【未結追蹤項】（這個部位以前記下、還沒結案的問題；處理完在 AEC (k) 寫「[部位] 結案：<原文開頭至少 8 字>」）"
+    head = "【未結追蹤項】（這個部位以前記下、還沒結案的問題；處理完在 AEC (k) 寫「[部位] 結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」）"
     lines = [head]
     shown = 0
     for e in items[:TRACK_INJECT_MAX_ITEMS]:
