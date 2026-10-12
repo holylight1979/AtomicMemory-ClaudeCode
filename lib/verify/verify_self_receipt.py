@@ -123,9 +123,42 @@ def test_006_real_run_verify_writes_receipt_with_tree_root(tmp_path):
 
 
 def test_cmd_of_normalizes_interpreter_and_script_path():
-    assert sr.cmd_of(["/usr/bin/python3", "run_verify.py"]) == "python3 run_verify.py"
-    assert sr.cmd_of([r"C:\x\pythonw.exe", "-X", "utf8", r"C:\a\b\run_verify.py"]) == "pythonw -X utf8 run_verify.py"
+    """python 家族一律寫 python（表上的量尺寫 python）；腳本取檔名；`-Xutf8` 寫成 `-X utf8`。"""
+    assert sr.cmd_of(["/usr/bin/python3", "run_verify.py"]) == "python run_verify.py"
+    assert sr.cmd_of([r"C:\x\pythonw.exe", "-X", "utf8", r"C:\a\b\run_verify.py"]) == "python -X utf8 run_verify.py"
+    assert sr.cmd_of(["python3.13", "-Xutf8", r"C:\中文專案\run_verify.py"]) == "python -X utf8 run_verify.py"
     assert sr.cmd_of([]) == ""
+
+
+_MEASURE = "python -X utf8 run_verify.py"
+
+
+def test_009_3_cmd_matches_same_normalization_both_ends():
+    """009-4.3：收據端 cmd_of 與量尺比對共用 norm_argv：絕對腳本路徑、引號、`-X utf8` 位置、多帶參數、shell 串接都對得上。"""
+    ok = ['python -X utf8 "C:\\中文專案\\run_verify.py"', "python -u -X utf8 run_verify.py", "python -Xutf8 run_verify.py --json",
+          "C:/Py/python.exe -X utf8 run_verify.py", "export X=1; WG=1 python -X utf8 run_verify.py 2>&1 | tail -5",
+          sr.cmd_of(["C:\\Py\\python.exe", "-X", "utf8", "C:\\中文專案\\run_verify.py"])]
+    for cmd in ok:
+        assert sr.cmd_matches(_MEASURE, cmd), cmd
+    bad = ["python run_verify.py", "python -X utf8 other.py", "echo python -X utf8 run_verify.py",
+           "python -X utf8 -m pytest -q hooks/verify", "bash fullrun.sh"]
+    for cmd in bad:
+        assert not sr.cmd_matches(_MEASURE, cmd), cmd
+    assert sr.cmd_matches("pytest -q lib/verify", "python -X utf8 -m pytest -q lib/verify -p no:cacheprovider")
+    assert not sr.cmd_matches("python -X utf8 -m pytest -q lib/verify", "pytest -q lib/verify")          # 量尺要的選項沒帶
+    assert not sr.cmd_matches("python -m pytest -q lib/verify", "python -m pytest -q lib/verify/verify_x.py")  # 子集不算整把尺
+
+
+def test_009_8_load_failures_are_reported_not_silent(tmp_path):
+    """009-4.8：讀收據失敗（壞 JSON）→ stderr 一行帶路徑與錯誤種類，那份不採用；好的照收。"""
+    runs = tmp_path / "workflow" / "verify-ledger" / "_runs"
+    runs.mkdir(parents=True)
+    (runs / "20261012T020000Z-1.json").write_text("{broken", encoding="utf-8")
+    (runs / "20261012T020100Z-2.json").write_text(json.dumps({"source": sr.SOURCE, "cmd": _MEASURE}), encoding="utf-8")
+    err = io.StringIO()
+    got = sr.load_self_receipts(tmp_path, err=err)
+    assert [r["cmd"] for r in got] == [_MEASURE]
+    assert "20261012T020000Z-1.json" in err.getvalue() and "JSONDecodeError" in err.getvalue()
 
 
 def test_run_verify_writes_receipt_after_sentinel_and_help_writes_nothing(tmp_path):

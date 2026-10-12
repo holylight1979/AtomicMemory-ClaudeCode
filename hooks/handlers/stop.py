@@ -34,7 +34,7 @@ from wg_evasion import (
 )
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, measure_cfg, measure_gate_reason, measure_advisory,
-    measure_cmds_of, agent_receipt_key,
+    measure_cmds_of, agent_receipt_key, load_self_runs, measure_parts, self_run_covered,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -716,16 +716,25 @@ def _verify_gates(
     state: Dict[str, Any], session_id: str, turn_seq: int, last_text: str,
     transcript, transcript_text: str, own_mod_files: List[Dict[str, Any]],
     rg_cfg: Dict[str, Any], mg_cfg: Dict[str, Any], aec: Dict[str, Any], aec_emitted: bool,
+    claims: List[str] = (),
 ) -> tuple:
     """對帳閘＋量尺閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／measure／"",
     無量尺提醒或 None)。寫碼查核＝對帳 (a)～(d)＋量尺；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
-    判定本身出錯 → 寫碼查核擋訊息（一律擋，仍吃 reconcile_gate.max_blocks_per_turn 預算，擋滿後改問使用者）
-    ＋stderr＋guard_log（transcript 缺＝last_text 空＝無宣稱可對）。"""
+    (a)(b)(c) 對 last_text 與 claims（pending 承接的先前宣稱）；(d) 與量尺不看措辭，有改碼紀錄就判（last_text 空也判）。
+    自寫收據（_runs/）量尺閘與 (a) 共用，只讀一次。
+    判定本身出錯 → 寫碼查核擋訊息（一律擋，仍吃 reconcile_gate.max_blocks_per_turn 預算，擋滿後改問使用者）＋stderr＋guard_log。"""
     receipts = receipts_of(state, session_id)
     reason: Optional[str] = None
     report: Optional[str] = None
     kind = ""
     advice: Optional[str] = None
+    _runs: List[List[Dict[str, Any]]] = []
+
+    def _self_runs() -> List[Dict[str, Any]]:
+        if not _runs:
+            _runs.append(load_self_runs() or [])
+        return _runs[0]
+
     if rg_cfg.get("enabled", True):
         try:
             _, probe = get_current_turn_visible_text(transcript, text=transcript_text)
@@ -734,11 +743,12 @@ def _verify_gates(
                 from wg_overview import _lookup as _lk
                 mcmds = measure_cmds_of(own_mod_files, _lk)
             except Exception:
-                mcmds = []
+                _lk, mcmds = None, []
             reason, report = reconcile_gate_parts(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
-                measure_cmds=mcmds,
+                measure_cmds=mcmds, claims=claims,
+                self_covered=(lambda: self_run_covered(measure_parts(own_mod_files, _lk), _self_runs())) if _lk else None,
             )
             kind = "reconcile" if reason or report else ""
         except Exception as e:
@@ -747,10 +757,11 @@ def _verify_gates(
             kind = "reconcile"
             print(reason, file=sys.stderr)
             append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
-    if mg_cfg.get("enabled", True) and own_mod_files and claims_completion(last_text):
+    if mg_cfg.get("enabled", True) and own_mod_files:
         try:
             from wg_overview import _lookup
-            m_reason, no_measure = measure_gate_reason(own_mod_files, receipts, turn_seq, _lookup, mg_cfg)
+            m_reason, no_measure = measure_gate_reason(own_mod_files, receipts, turn_seq, _lookup, mg_cfg,
+                                                       self_runs=_self_runs)
             if m_reason:
                 reason = f"{reason}\n{m_reason}" if reason else m_reason
                 kind = kind or "measure"
@@ -769,13 +780,27 @@ def _verify_gates(
     return reason, report, kind, advice
 
 
+ASK_HINT = "要問使用者問題請用 AskUserQuestion，不要用文字結束回合。"     # 寫碼查核每次 Stop 都判，用文字發問也會被擋
+
+
+def _unknown_write_reason(unknown: List[Dict[str, Any]]) -> Optional[str]:
+    """寫入目標不明的指令（post_tool_use 記的未知寫入）→ 擋訊息：不知道改了哪些檔，補案例與量尺都查不了。"""
+    if not unknown:
+        return None
+    heads = "；".join(f"`{str(u.get('cmd', ''))[:60]}`" for u in unknown[-3:])
+    return (f"[Guardian:ReconcileGate] 有 {len(unknown)} 筆寫入目標不明的指令（{heads}）：不知道改了哪些檔，"
+            "補驗證案例與量尺都查不了，不能當成沒改檔。")
+
+
 def _code_gate_to_the_end(input_data: Dict[str, Any], config: Dict[str, Any], state: Optional[Dict[str, Any]],
                           receipt_key: str, own: List[Dict[str, Any]], transcript_path: str, why: str,
-                          log_extra: Dict[str, Any]) -> None:
-    """沒有人能回答 AskUserQuestion 的收尾（子代理、裁判子 session）：只跑寫碼查核閘（對帳 (a)～(d)＋量尺），
-    有原因就擋到底（不計預算、不問使用者、不看放行答案）；(e) 與其他 Stop 閘不跑；自己沒改檔就放行。"""
+                          log_extra: Dict[str, Any], unknown: Optional[List[Dict[str, Any]]] = None) -> None:
+    """沒有人能回答 AskUserQuestion 的收尾（子代理、裁判子 session）：只跑寫碼查核閘（對帳 (a)～(d)＋量尺＋未知寫入），
+    有原因就擋到底（不計預算、不問使用者、不看放行答案）；(e) 與其他 Stop 閘不跑；自己沒改檔也沒有未知寫入才放行。
+    (d) 與量尺不看措辭：沒有收尾文字（transcript 讀不到）也照判。"""
     session_id = input_data.get("session_id", "") or ""
-    if not state or not own:
+    unknown = list(unknown or [])
+    if not state or not (own or unknown):
         output_nothing()
         return
     transcript = Path(transcript_path) if transcript_path and Path(transcript_path).is_file() else None
@@ -783,12 +808,17 @@ def _code_gate_to_the_end(input_data: Dict[str, Any], config: Dict[str, Any], st
     last_text = str(input_data.get("last_assistant_message") or "") or get_last_assistant_text(transcript, text=transcript_text)
     turn_seq = int(state.get("turn_seq", 0))
     rg_cfg, mg_cfg = reconcile_cfg(config), measure_cfg(config)
-    if not last_text or not (rg_cfg.get("enabled", True) or mg_cfg.get("enabled", True)):
+    if not (rg_cfg.get("enabled", True) or mg_cfg.get("enabled", True)):
         output_nothing()
         return
-    reason, _report, kind, _advice = _verify_gates(state, receipt_key, turn_seq, last_text, transcript, transcript_text,
-                                                   own, rg_cfg, mg_cfg, {}, False)
-    write_state(session_id, state)      # measure_advised 等判定副作用
+    reason, kind = None, ""
+    if own:
+        reason, _report, kind, _advice = _verify_gates(state, receipt_key, turn_seq, last_text, transcript,
+                                                       transcript_text, own, rg_cfg, mg_cfg, {}, False)
+        write_state(session_id, state)      # measure_advised 等判定副作用
+    u_reason = _unknown_write_reason(unknown)
+    if u_reason:
+        reason, kind = (f"{u_reason}\n{reason}" if reason else u_reason), "reconcile"
     if not reason:
         output_nothing()
         return
@@ -805,19 +835,21 @@ def handle_subagent_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     agent_id = str(input_data.get("agent_id") or "")
     state = read_state(session_id) if session_id and agent_id else None
     own = list(((state or {}).get("agent_modified_files") or {}).get(agent_id) or [])
+    unknown = list(((state or {}).get("agent_unknown_writes") or {}).get(agent_id) or [])
     _code_gate_to_the_end(input_data, config, state, agent_receipt_key(session_id, agent_id), own,
                           input_data.get("agent_transcript_path") or "", "子代理 Stop",
-                          {"event": "subagent_block", "agent_id": agent_id})
+                          {"event": "subagent_block", "agent_id": agent_id}, unknown)
 
 
 def handle_judge_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 Stop：dispatcher 其他事件照舊早退，Stop 只跑寫碼查核閘，擋到底。
-    改檔與收據來自 post_tool_use.handle_judge_post_tool_use 的最小記帳。"""
+    改檔、未知寫入與收據來自 post_tool_use.handle_judge_post_tool_use 的最小記帳。"""
     session_id = input_data.get("session_id", "") or ""
     state = read_state(session_id) if session_id else None
     own = [m for m in ((state or {}).get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
+    unknown = [u for u in ((state or {}).get("unknown_writes") or []) if (u or {}).get("session_id", session_id) == session_id]
     _code_gate_to_the_end(input_data, config, state, session_id, own, input_data.get("transcript_path") or "",
-                          "裁判子 session（CLAUDE_COMPANION_JUDGE=1）", {"event": "judge_block"})
+                          "裁判子 session（CLAUDE_COMPANION_JUDGE=1）", {"event": "judge_block"}, unknown)
 
 
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -929,23 +961,27 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 獨立預算 reconcile_gate.max_blocks_per_turn（state reconcile_gate_turn[sid]={turn,count}）；
     # 寫碼查核（對帳 (a)～(d)＋量尺）擋滿後不放行：記 pending_release、改送擋滿訊息要模型問使用者；使用者在最後一次擋之後
     # 放行（wg_release.user_released）→ 放這一回合、清 pending 與計數、guard-reconcile.jsonl 記 user_release（健檢列 red）。
-    # pending 跨回合承接：換回合也不重給預算，查核仍不過就直接送擋滿訊息；查核通過才清 pending。
+    # pending 跨回合承接：換回合也不重給預算，查核仍不過就直接送擋滿訊息。
+    # 不看措辭的部分（(d) 補案例、量尺）每次 Stop 都判，last_text 空也判；(a)(b)(c) 對宣稱，pending 帶著擋滿時的宣稱原話
+    # （claims），換一句話也拿原話重查。pending 只在兩種情況清：重新查核後原因真的消失，或使用者合格放行：
+    # 「沒有執行查核」不等於「查核通過」（舊版 pending 沒帶 claims、這次又沒宣告完成 → (a)(b)(c) 沒重查，不清）。
     # (e) 收尾報告欄屬記憶與報告類：照舊第 3 次放行並記 reconcile_overflow（健檢 red），不走放行詢問；與寫碼部分同時擋滿時分開列。
     # 無量尺的部位只提醒（stderr；擋時併進 reason），每部位每 session 一次（measure_advised）。
     _rg_cfg = reconcile_cfg(config)
     _mg_cfg = measure_cfg(config)
-    if last_text and (_rg_cfg.get("enabled", True) or _mg_cfg.get("enabled", True)):
+    if _rg_cfg.get("enabled", True) or _mg_cfg.get("enabled", True):
+        _pend = pending_of(state, session_id, "reconcile")
+        _prev_claims = [str(c) for c in (_pend or {}).get("claims") or []]
         _code, _report, _vg_kind, _vg_advice = _verify_gates(
             state, session_id, turn_seq, last_text, transcript, transcript_text, own_mod_files,
-            _rg_cfg, _mg_cfg, aec, emitted_this_turn,
+            _rg_cfg, _mg_cfg, aec, emitted_this_turn, claims=_prev_claims,
         )
         if _vg_advice:
             print(_vg_advice, file=sys.stderr)
             append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "advisory": _vg_advice[:200]})
-        _pend = pending_of(state, session_id, "reconcile")
         _pend_cleared = False
-        if _code is None and _pend:
-            clear_pending(state, session_id, "reconcile")            # 查核通過（原因消失）→ 清 pending
+        if _code is None and _pend and ("claims" in _pend or claims_completion(last_text)):
+            clear_pending(state, session_id, "reconcile")            # 重新查核過了（原因真的消失）→ 清 pending
             _pend, _pend_cleared = None, True
         if _code and released_this_turn(state, session_id, "reconcile", turn_seq):
             print("[Guardian:ReconcileGate] 使用者已放行這一回合，本次不擋", file=sys.stderr)
@@ -987,7 +1023,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 _budget[session_id] = {"turn": turn_seq, "count": _count + 1}
                 _gate = "MeasureGate" if _vg_kind == "measure" else "ReconcileGate"
                 if _code_full:
-                    set_pending(state, session_id, "reconcile", turn_seq, _now_iso(), _code)
+                    set_pending(state, session_id, "reconcile", turn_seq, _now_iso(), _code,
+                                _prev_claims + ([last_text] if claims_completion(last_text) else []))
                     _summary = _code.split("\n")[1].strip() if "\n" in _code else _code
                     _n = _count if _count >= _max else None                    # pending 承接自先前回合：不報本回合次數
                     _head = (non_interactive_message(_gate, _n, _summary, _no_ask) if _no_ask
@@ -997,6 +1034,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                         _msg += f"\n另外（記憶與報告類，不走放行詢問，照原規則處理）：\n{_report}"
                 else:
                     _msg = _both
+                if _code and not _no_ask:
+                    _msg += f"\n{ASK_HINT}"
                 append_guard_log("reconcile", {
                     "session_id": session_id, "turn_seq": turn_seq, "kind": _vg_kind, "count": _count + 1,
                     "excerpt": _msg.split("\n")[1][:160] if "\n" in _msg else _msg[:160],

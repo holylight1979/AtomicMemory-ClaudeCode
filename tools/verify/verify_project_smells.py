@@ -229,6 +229,32 @@ def test_project_overrides_company_and_config_root_value_applies(tmp_path, monke
     assert set(cfg) == set(ps.DEFAULT_CFG)                                 # 只取本工具要的鍵
 
 
+def test_009_6_company_hub_above_mapped_project_keeps_project_root(tmp_path, monkeypatch):
+    """009-4.6：公司根有 overview-hub.json、專案有 .git 與部位表、專案不另設 hub → 根是專案（與導讀卡端同一套：最近的部位表根），
+    公司設定照樣繼承，相對報告路徑以專案根為基準。"""
+    company = tmp_path / "company"
+    proj = company / "project"
+    (company / ".claude").mkdir(parents=True)
+    (company / ".claude" / "overview-hub.json").write_text(json.dumps({"smells_report": "reports/smells.json"}), encoding="utf-8")
+    (proj / ".git").mkdir(parents=True)
+    (proj / ".claude").mkdir()
+    (proj / ".claude" / "overview-map.md").write_text("| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+                                                     "| `src\\` | 排程器 | `x` | 有 |\n", encoding="utf-8")
+    (proj / "src" / "sched").mkdir(parents=True)
+    (proj / "reports").mkdir()
+    shutil.copyfile(FIX / "fresh.json", proj / "reports" / "smells.json")
+    monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, company))
+    assert ps.find_root(str(proj / "src")) == proj
+    res = ps.collect(str(proj / "src"), "排程器")
+    assert res["root"] == str(proj) and res["source"] == "report" and res["rows"]
+
+
+def test_009_6_project_without_map_keeps_old_root_rule(tmp_path):
+    """沒有部位表的專案照舊：最近的 overview-hub.json 根。"""
+    root = _project(tmp_path, _hub(), None)
+    assert ps.find_root(str(root / "src" / "sched")) == root
+
+
 def test_config_errors_fail_like_overview_hub(tmp_path, capsys):
     root = _project(tmp_path, {"smells_report": "x.json", "smells_bogus": 1}, None)
     with pytest.raises(ps.SmellsError) as ei:

@@ -129,11 +129,17 @@ def _is_path_token(tok: str) -> bool:
     return ("/" in tok or "\\" in tok) and not tok.startswith("http")
 
 
+_EXT_ONLY_GLOB_RE = re.compile(r"^\*(?:\.[0-9A-Za-z_]+)+$")
+
+
 def _is_card_token(tok: str) -> bool:
-    """導讀卡欄的 token 是不是卡名。卡名可含 `*`（glob 語意，例：`戰鬥*`）；`*` 開頭或帶副檔名的（`*.bytes`）是檔案樣式，不算卡。"""
-    if "*" in tok and (tok.startswith("*") or "." in tok):
+    """導讀卡欄的 token 是不是卡名。含 `*` 的一律當卡名 glob（`戰鬥*`、`*Missing`、`Missing.v2*`：找不到就由缺卡閘擋，
+    不能在解析時消失）；只有純副檔名樣式（`*.bytes`）與含路徑分隔字元的才是檔案樣式，照舊不當卡。"""
+    if _is_path_token(tok):
         return False
-    return not _is_path_token(tok) and not tok.endswith((".cs", ".ps1", ".md", ".json"))
+    if "*" in tok:
+        return not _EXT_ONLY_GLOB_RE.match(tok)
+    return not tok.endswith((".cs", ".ps1", ".md", ".json"))
 
 
 def _header_columns(cells: List[str]) -> Dict[str, int]:

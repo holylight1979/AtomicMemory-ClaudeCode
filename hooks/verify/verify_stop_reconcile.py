@@ -35,6 +35,7 @@ PHRASES = ev.compile_claim_phrases(FIX / "q6" / "phrases.json")
 
 ROOT = Path(r"c:\proj")
 _RELATED_CMD = "python -m pytest hooks/verify/verify_x.py"
+_REAL_CASE_EXISTS = vl.case_exists           # fixture 會把它換成「一律存在」，009-4.5 要用真的
 
 
 def _rcpt(turn, verdict="PASS", exit_code=None, cmd=_RELATED_CMD, at="", seq=None, kv=None):
@@ -70,6 +71,7 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "pending_gate_reason", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
     monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
+    monkeypatch.setattr(vl, "case_exists", lambda p: True)       # 案例路徑是虛構的；存在與否由 009 段用真檔測
 
     def drive(text, capsys, tool_names=(), **extra):
         monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: text)
@@ -639,10 +641,14 @@ def test_no_measure_part_only_advises(driven, capsys, monkeypatch):
     assert any(g == "measure" and "沒有量尺" in p.get("advisory", "") for g, p in logs)
 
 
-def test_measure_gate_only_when_claiming_completion(driven, capsys, monkeypatch):
+def test_measure_gate_judged_without_completion_claim(driven, capsys, monkeypatch):
+    """009-4.1：量尺不看措辭，改到有量尺的部位沒跑尺，回覆不宣告完成也擋（舊行為：不宣告就不判）。"""
     monkeypatch.setattr(wo, "_lookup", _lookup)
     out, _, _ = driven("繼續看下一段。", capsys, modified_files=[_mf(_CASE, 5)])
-    assert "MeasureGate" not in out
+    assert "MeasureGate" in out and st.ASK_HINT in out
+    out, _, _ = driven("繼續看下一段。", capsys, modified_files=[_mf(_CASE, 3)],
+                       verify_receipts={_SID: [_rcpt(4, "DONE", 0, cmd=MEASURE_CMD)]})
+    assert "MeasureGate" not in out                                                         # 改完之後跑過尺 → 不擋
 
 
 def test_runtime_gate_not_ready_blocks_with_reason():
@@ -1013,14 +1019,9 @@ def _self_run(started="2026-10-12T02:00:01+00:00", exit_code=0, failed=0, root=s
             "started_at": started, "at": "2026-10-12T02:20:00+00:00", "source": "run_verify_self"}
 
 
-def _launch(at="2026-10-12T02:00:01+00:00", root=str(ROOT)):
-    return {"kind": "measure_launch", "at": at, "cmd": MEASURE_CMD, "measure_cmd": MEASURE_CMD, "cwd": root, "root": root}
-
-
-def _mg(runs, mods=None, launches=None):
+def _mg(runs, mods=None):
     reason, _ = vl.measure_gate_reason(mods or [_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)], [], 5, _lookup,
-                                       vl.MEASURE_DEFAULTS, self_runs=lambda: runs,
-                                       launches_of=lambda _r: [_launch()] if launches is None else launches)
+                                       vl.MEASURE_DEFAULTS, self_runs=lambda: runs)
     return reason
 
 
@@ -1047,14 +1048,13 @@ def test_no_self_run_blocks_with_hint():
 
 
 def test_self_run_from_sibling_session_counts_and_wraps_through_stop(driven, capsys, monkeypatch):
-    """不綁 session：收據沒有 session 欄也算；Stop 端到端走 _load_self_runs。"""
+    """不綁 session：收據沒有 session 欄也算；Stop 端到端走 load_self_runs。"""
     monkeypatch.setattr(wo, "_lookup", _lookup)
-    monkeypatch.setattr(vl, "_load_self_runs", lambda: [_self_run()])
-    monkeypatch.setattr(vl, "_load_launches_for", lambda runs: [_launch()])
+    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run()])
     kw = dict(modified_files=[_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)], anti_evasion_report=_aec(5, "無", "無"))
     out, _, _ = driven("全部完成了。", capsys, **kw)
     assert "MeasureGate" not in out
-    monkeypatch.setattr(vl, "_load_self_runs", lambda: [])
+    monkeypatch.setattr(st, "load_self_runs", lambda: [])
     out, _, _ = driven("全部完成了。", capsys, **kw)
     assert "MeasureGate" in out                                                              # 反例：沒收據
 
@@ -1078,6 +1078,7 @@ def sub_stop(monkeypatch):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
     monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
+    monkeypatch.setattr(vl, "case_exists", lambda p: True)
 
     def run(capsys, state, last="全部完成了。", agent_id="ag1"):
         monkeypatch.setattr(st, "read_state", lambda sid: state)
@@ -1212,26 +1213,6 @@ def test_006_3_pending_cleared_when_check_passes(driven, capsys):
     assert "ReconcileGate" not in out and state["pending_release"][_SID] == {}
 
 
-def test_006_4_self_receipt_needs_real_launch_within_window():
-    assert _mg([_self_run()], launches=[]) is not None                                      # 反例：偽造收據、沒有啟動紀錄
-    assert _mg([_self_run()], launches=[_launch(at="2026-10-12T01:56:00+00:00")]) is not None   # 反例：啟動後超過 120 秒才開跑
-    assert _mg([_self_run()], launches=[_launch(root="c:/other")]) is not None             # 反例：別根的啟動
-    assert _mg([_self_run(started="2026-10-12T02:01:30+00:00")],
-               launches=[_launch(at="2026-10-12T02:00:01+00:00")]) is None                  # 正例：啟動後 89 秒內開跑
-
-
-def test_006_4_post_tool_use_records_measure_launch(tmp_path, monkeypatch):
-    from handlers import post_tool_use as pt
-    proj = tmp_path / "proj"
-    (proj / ".claude").mkdir(parents=True)
-    (proj / ".claude" / "overview-map.md").write_bytes((FIX / "q6" / "overview-map.md").read_bytes())
-    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path / "wf")
-    assert pt._track_measure_launch({"cwd": str(proj)}, MEASURE_CMD + " --json", "Bash", _SID) is True
-    assert pt._track_measure_launch({"cwd": str(proj)}, "python -X utf8 other.py", "Bash", _SID) is False
-    got = vl.load_measure_launches(0, tmp_path / "wf" / "verify-ledger")
-    assert len(got) == 1 and got[0]["root"] == str(proj) and got[0]["measure_cmd"] == MEASURE_CMD
-
-
 def test_006_6_judge_stop_blocks_to_the_end(capsys, monkeypatch):
     import dispatcher
     assert set(dispatcher.JUDGE_HANDLERS) == {"PostToolUse", "Stop"}                       # PreToolUse／UPS 等照舊早退
@@ -1297,3 +1278,151 @@ def test_006_10_case_debt_carries_over_turns(driven, capsys):
     later = _mf(r"c:\proj\src\gadget.py", 6, last_at="2026-10-12T10:06:00+08:00", last_seq=10)
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, modified_files=[w, case, later])
     assert "改了程式碼（gadget.py）之後沒有新增或修改驗證 case 檔" in out                    # 案例之後又改的碼才欠
+
+
+# ─── 009 退件：換句話避查核、未知寫入、正常啟動的真收據、背景收據接對帳、刪案例清帳 ─────────────────
+
+_T1, _T2 = "2026-10-12T10:00:00+08:00", "2026-10-12T10:05:00+08:00"
+
+
+def _pend_state(claims):
+    s: dict = {}
+    rl.set_pending(s, _SID, "reconcile", 4, "x", "r", claims)
+    return s["pending_release"]
+
+
+def test_009_1_rephrase_keeps_case_debt_and_pending(driven, capsys):
+    """4.1 重現：有改碼、沒補案例、已有 pending，回「變更內容如上。」→ 擋（含 AskUserQuestion 提示）且 pending 留著；
+    補了案例後同一句 → 不擋、pending 清。"""
+    code = _mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3)
+    out, state, _ = driven("變更內容如上。", capsys, modified_files=[code], pending_release=_pend_state([]))
+    assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out and st.ASK_HINT in out
+    assert state["pending_release"][_SID]["reconcile"]["turn"] == 5                        # pending 承接、沒被清
+    case = _mf(r"c:\proj\tests\test_a.py", 5, last_at=_T2, last_seq=4)
+    out, state, _ = driven("變更內容如上。", capsys, modified_files=[code, case], pending_release=_pend_state([]))
+    assert "ReconcileGate" not in out and "reconcile" not in state["pending_release"][_SID]
+
+
+def test_009_1_pending_claim_rechecked_after_rephrase(driven, capsys):
+    """4.1 規則 2：擋滿時的宣稱（修好）跟著 pending 走；換句話不清，補到對得上的 PASS 才清。"""
+    pend = _pend_state(["閘修好了，完成。"])
+    out, state, _ = driven("變更內容如上。", capsys, pending_release=copy.deepcopy(pend))
+    assert "(a) 說「修好」" in out and state["pending_release"][_SID]["reconcile"]["claims"] == ["閘修好了，完成。"]
+    out, state, _ = driven("變更內容如上。", capsys, pending_release=copy.deepcopy(pend),
+                           verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py")]})
+    assert "ReconcileGate" not in out and "reconcile" not in state["pending_release"][_SID]
+
+
+def test_009_1_legacy_pending_not_cleared_without_recheck(driven, capsys):
+    """舊版 pending（沒帶 claims）＋這次沒宣告完成：(a)(b)(c) 沒重查 → 不清（沒有執行查核不等於查核通過）。"""
+    out, state, _ = driven("變更內容如上。", capsys,
+                           pending_release={_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r"}}})
+    assert "ReconcileGate" not in out and "reconcile" in state["pending_release"][_SID]
+
+
+def test_009_1_subagent_and_judge_judge_case_debt_regardless_of_wording(sub_stop, capsys, monkeypatch):
+    out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}), last="變更內容如上。")
+    assert "無法互動，不能放行" in out and "改了程式碼（x.py）之後沒有新增或修改驗證 case 檔" in out
+    out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}), last="")
+    assert "無法互動，不能放行" in out                                                       # 讀不到收尾文字也照判
+    state = {"turn_seq": 0, "modified_files": [_mf(_CODE, 0)]}
+    monkeypatch.setattr(st, "read_state", lambda sid: state)
+    with pytest.raises(SystemExit):
+        st.handle_judge_stop({"session_id": _SID, "last_assistant_message": "變更內容如上。"}, {})
+    out = capsys.readouterr().out
+    assert "裁判子 session" in out and "改了程式碼（x.py）之後沒有新增或修改驗證 case 檔" in out
+
+
+def _judge_post(monkeypatch, tmp_path, command):
+    from handlers import post_tool_use as pt
+    import wg_core
+    saved: dict = {}
+    monkeypatch.setattr(wg_core, "read_state", lambda sid: None)
+    monkeypatch.setattr(pt, "write_state", lambda sid, s: saved.update(s))
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path / "wf")
+    with pytest.raises(SystemExit):
+        pt.handle_judge_post_tool_use({"session_id": _SID, "tool_name": "Bash", "tool_input": {"command": command},
+                                       "cwd": str(tmp_path), "tool_response": {"stdout": "", "exit_code": 0}}, {})
+    return saved
+
+
+def _judge_stop(monkeypatch, capsys, state):
+    monkeypatch.setattr(st, "read_state", lambda sid: state)
+    monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
+    monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
+    with pytest.raises(SystemExit):
+        st.handle_judge_stop({"session_id": _SID, "last_assistant_message": "全部完成了。"}, {})
+    return capsys.readouterr().out
+
+
+def test_009_2_judge_unknown_write_blocks(tmp_path, monkeypatch, capsys):
+    """4.2 重現：裁判跑 python -c 寫檔（目標算不出來）→ 記未知寫入、不當成沒改檔 → 裁判 Stop 擋並列出指令開頭。"""
+    saved = _judge_post(monkeypatch, tmp_path, "python -c \"from pathlib import Path; Path('src/a.py').write_text('x')\"")
+    assert not saved.get("modified_files") and saved["unknown_writes"][0]["cmd"].startswith("python -c")
+    out = _judge_stop(monkeypatch, capsys, saved)
+    assert "無法互動，不能放行" in out and "寫入目標不明的指令" in out and "python -c" in out
+
+
+def test_009_2_judge_read_only_not_blocked(tmp_path, monkeypatch, capsys):
+    saved = _judge_post(monkeypatch, tmp_path, "git log --oneline -3")
+    assert not saved.get("unknown_writes") and not saved.get("modified_files")
+    assert "Guardian" not in _judge_stop(monkeypatch, capsys, saved)
+
+
+def test_009_2_subagent_unknown_write_blocks(sub_stop, capsys):
+    from handlers import post_tool_use as pt
+    s = _sub_state()
+    pt._note_unknown_write(s, _SID, "UNKNOWN:python -c", "python -c \"open('a.py','w')\"", "Bash", "ag1")
+    assert "unknown_writes" not in s and s["agent_unknown_writes"]["ag1"][0]["session_id"] == _SID
+    out, logs = sub_stop(capsys, s)
+    assert "寫入目標不明的指令" in out and [p["event"] for g, p in logs if g == "reconcile"] == ["subagent_block"]
+
+
+_ABS_CMD = 'python -X utf8 "C:\\中文專案\\run_verify.py"'
+
+
+@pytest.mark.parametrize("run, blocked", [
+    (_self_run(cmd=_ABS_CMD), False),                                       # 絕對路徑＋中文目錄、同根、改完才開始、全綠
+    (_self_run(cmd=_ABS_CMD, started="2026-10-12T01:59:59+00:00"), True),  # 改檔之前就開始
+    (_self_run(cmd=_ABS_CMD, root="c:/other"), True),                       # 別的根
+    (_self_run(cmd=_ABS_CMD, failed=3), True),                              # failed=3
+])
+def test_009_3_real_receipt_with_abs_script_path(run, blocked):
+    """4.3：拿掉啟動關聯後，收據採用條件回到 004；收據 cmd 與量尺經同一套 argv 正規化比對。"""
+    assert (_mg([run]) is not None) is blocked
+
+
+def test_009_3_session_receipt_uses_same_normalization(driven, capsys, monkeypatch):
+    """前景跑的 session 收據也走同一套比對：絕對腳本路徑、選項換位置都對得上量尺。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    for cmd in (_ABS_CMD, "python -u -X utf8 run_verify.py --json"):
+        out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)],
+                           verify_receipts={_SID: [_rcpt(4, "DONE", 0, cmd=cmd)]}, anti_evasion_report=_aec(5, "無", "無"))
+        assert "MeasureGate" not in out, cmd
+
+
+def test_009_4_background_self_receipt_satisfies_fixed_claim(driven, capsys, monkeypatch):
+    """4.4 重現：改碼、改案例、背景全量成功、自寫收據合格，回「修好了，全部完成了。」→ 對帳 (a) 也認自寫收據，不擋。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    mods = [_mf(_CODE, 5, last_at=_EDIT_AT, last_seq=7), _mf(_CASE, 5, last_at=_EDIT_AT, last_seq=8)]
+    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run()])
+    out, _, _ = driven("修好了，全部完成了。", capsys, modified_files=mods)
+    assert "ReconcileGate" not in out and "MeasureGate" not in out
+    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run(started="2026-10-12T01:59:00+00:00")])
+    out, _, _ = driven("修好了，全部完成了。", capsys, modified_files=mods)
+    assert "(a) 說「修好」" in out                                                         # 自寫收據在改檔之前開始 → 擋
+
+
+def test_009_5_deleted_case_does_not_clear_debt(driven, capsys, monkeypatch, tmp_path):
+    """4.5：改 src/a.py 後刪 tests/test_a.py（PostToolUse 對刪除也記一筆）→ 擋；改 src/a.py 後新增 tests/test_a.py → 不擋。
+    案例路徑用虛構的 c:\\proj（pytest 的 tmp 目錄名含 test，會被 `**/*test*` 當成案例），存在與否交給真的 case_exists 查 tmp 真檔。"""
+    real = tmp_path / "test_a.py"
+    case_path = r"c:\proj\tests\test_a.py"
+    monkeypatch.setattr(vl, "case_exists", lambda p: _REAL_CASE_EXISTS(str(real) if p == case_path else p))
+    mods = [_mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3), _mf(case_path, 5, last_at=_T2, last_seq=4)]
+    out, _, _ = driven("變更內容如上。", capsys, modified_files=mods)
+    assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out                       # 案例檔已不存在（刪掉了）
+    real.write_text("def test_a():\n    assert True\n", encoding="utf-8")
+    out, _, _ = driven("變更內容如上。", capsys, modified_files=mods)
+    assert "ReconcileGate" not in out                                                       # 案例檔在 → 補了案例

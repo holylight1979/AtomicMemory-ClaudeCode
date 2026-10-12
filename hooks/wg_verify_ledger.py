@@ -4,9 +4,11 @@
   PostToolUse 收 Bash／PowerShell 輸出裡的哨兵（`<NAME>_CHECK PASS|FAIL|DONE`、量測類 `<NAME> DONE k=v`）
   與 exit code，連同 VCS 快照、本 turn 改過的檔、驗收規格路徑，落 `workflow/verify-ledger/<sid>.jsonl`
   並進 `state["verify_receipts"][sid]`（cap 50）。
-  Stop 在「宣告完成」的回合拿收據對帳：說「修好」要有本 turn 且對得上改檔的 PASS（exit 0 或無 exit）、說「量了」要有 DONE、
-  說「試過」要有執行類工具呼叫、改了程式碼要有驗證 case 被新增或修改（PASS 不代替）、AEC 要有證據路徑（j）與追蹤項（k）；
-  改到有量尺的部位，收尾前要有那把尺在最後一次修改之後、同 root、exit 0 且 failed=0 的 DONE（先過 runtime_gate）。
+  Stop 對「宣告完成」的話拿收據對帳：說「修好」要有本 turn 且對得上改檔的 PASS（exit 0 或無 exit）或部位量尺的合格自寫收據、
+  說「量了」要有 DONE、說「試過」要有執行類工具呼叫、AEC 要有證據路徑（j）與追蹤項（k）。
+  不看措辭、每次 Stop 都判：改了程式碼要有仍存在的驗證 case 被新增或修改（PASS 不代替）；改到有量尺的部位要有那把尺在
+  最後一次修改之後、同 root、exit 0 且 failed=0 的 DONE（先過 runtime_gate）。
+  指令比對（收據 cmd 對表上量尺）只有一套：lib/self_receipt.cmd_matches。
 
 怎麼跑：被 handlers/post_tool_use.py 與 handlers/stop.py 匯入；verify 在 hooks/verify/verify_verify_ledger.py、
   verify_stop_reconcile.py。exit code 三來源：tool_response.exit_code／returncode（結構化欄優先，欄是 0 就不再看文字）
@@ -29,6 +31,20 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple
 
 from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, resolve_project_root
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
+
+
+def _load_self_receipt_module():
+    """lib/self_receipt.py 用本檔所在樹的那份（檔案路徑載入）：按名字 import 會依 sys.path 拿到別棵樹（live）的 lib，
+    收據的指令正規化兩端就不是同一套。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_wg_self_receipt", Path(__file__).resolve().parents[1] / "lib" / "self_receipt.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_self_receipt = _load_self_receipt_module()
+cmd_matches = _self_receipt.cmd_matches
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
@@ -433,10 +449,10 @@ def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
 
 
 def _covers_all(cmd: str, measure_cmds: Iterable[str]) -> bool:
-    """整體驗證（run_verify.py／無檔名參數的 pytest）或部位量尺指令：聲稱驗到全部改檔。"""
+    """整體驗證（run_verify.py／無檔名參數的 pytest）或部位量尺指令（cmd_matches，與量尺閘同一套正規化）：聲稱驗到全部改檔。"""
     if _is_whole_verification(cmd):
         return True
-    return any(w and w in cmd for w in (" ".join(str(mc).split()).lower() for mc in measure_cmds or []))
+    return any(str(mc).strip() and cmd_matches(str(mc), cmd) for mc in measure_cmds or [])
 
 
 def _cmd_names_path(cmd: str, path: str) -> bool:
@@ -619,10 +635,10 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
                   cmd_contains: str = "", min_turn: Optional[int] = None, require_ok: bool = True,
                   min_at: Optional[str] = None, min_seq: Optional[int] = None,
                   root: Optional[str] = None, *, sentinel_name: str = "") -> List[Dict[str, Any]]:
-    """DONE 收據；turn_seq 指定只認該 turn；min_turn／min_at／min_seq 指定要在該修改之後；cmd_contains 指定 cmd 要含該片段
-    （空白正規化、不分大小寫）；require_ok：exit 要 0 或 None 且 failed=<k> 必為 0；root 指定 cwd／project_root 要在該 root 下；
-    sentinel_name 指定 DONE 必須來自該名字的哨兵（空＝任一 DONE 哨兵，舊行為）。"""
-    want = " ".join(cmd_contains.split()).lower()
+    """DONE 收據；turn_seq 指定只認該 turn；min_turn／min_at／min_seq 指定要在該修改之後；cmd_contains 指定 cmd 要跑了該量尺
+    （cmd_matches：與自寫收據同一套 argv 正規化）；require_ok：exit 要 0 或 None 且 failed=<k> 必為 0；root 指定 cwd／project_root
+    要在該 root 下；sentinel_name 指定 DONE 必須來自該名字的哨兵（空＝任一 DONE 哨兵，舊行為）。"""
+    want = cmd_contains.strip()
     out = []
     for r in receipts:
         t = int(r.get("turn_seq", -1))
@@ -639,7 +655,7 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
             continue          # 含 cd 的收據不知道量的是哪個專案
         if require_ok and (r.get("exit_code") not in (None, 0) or not _failed_kv_ok(r)):
             continue
-        if want and want not in " ".join(str(r.get("cmd", "")).split()).lower():
+        if want and not cmd_matches(want, str(r.get("cmd", ""))):
             continue
         if not _root_match(r, root):
             continue
@@ -756,10 +772,17 @@ def is_case_file(path: str, cfg: Dict[str, Any]) -> bool:
     return is_verify_case(path, cfg.get("verify_case_globs") or []) and is_code_file(path, cfg.get("code_exts") or [])
 
 
+def case_exists(path: str) -> bool:
+    """案例檔在 Stop 當下還在嗎（刪掉的案例不算補了案例）。"""
+    return os.path.isfile(path)
+
+
 def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
               root_of: Callable[[str], Optional[str]]) -> List[str]:
     """補案例的義務（跨回合）：每個根找「本 session 最後一次改驗證案例之後還改過的程式檔」，回這些檔。
-    修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。"""
+    只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）。
+    修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。
+    範圍外：改的案例是不是對應這次改動，程式判不出來，交給收尾對照（需求目標核心流程 checklist C-G3）由 LLM 判。"""
     exts = cfg.get("code_exts") or []
     by_root: Dict[str, List[Dict[str, Any]]] = {}
     for m in own_mod_files or []:
@@ -767,12 +790,13 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
             by_root.setdefault(str(root_of(m["path"]) or ""), []).append(m)
     owed: List[str] = []
     for ms in by_root.values():
+        cases = [m for m in ms if is_case_file(m["path"], cfg) and case_exists(m["path"])]
         last_case: Optional[Dict[str, Any]] = None
-        for m in ms:
-            if is_case_file(m["path"], cfg) and _has_time(m) and (last_case is None or _mod_after(m, last_case)):
+        for m in cases:
+            if _has_time(m) and (last_case is None or _mod_after(m, last_case)):
                 last_case = m
-        case_this_turn = any(is_case_file(m["path"], cfg) and m.get("last_turn_seq", m.get("turn_seq")) is not None
-                             and int(m.get("last_turn_seq", m.get("turn_seq"))) == int(turn_seq) for m in ms)
+        case_this_turn = any(m.get("last_turn_seq", m.get("turn_seq")) is not None
+                             and int(m.get("last_turn_seq", m.get("turn_seq"))) == int(turn_seq) for m in cases)
         for m in ms:
             p = m["path"]
             if not is_code_file(p, exts) or is_case_file(p, cfg) or p in owed:
@@ -787,7 +811,7 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     return owed
 
 
-_RECONCILE_HEAD = "[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據：\n"
+_RECONCILE_HEAD = "[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據，或改了程式碼還欠驗證案例：\n"
 _RECONCILE_TAIL = ("\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
                    "改成事實句（沒跑就說沒跑），或現在跑出對應收據再重新收尾。")
 
@@ -797,10 +821,12 @@ def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_s
                           cfg: Dict[str, Any], aec: Optional[Dict[str, Any]] = None,
                           aec_emitted: bool = False, sid: str = "",
                           phrases: Optional[Dict[str, Pattern]] = None,
-                          measure_cmds: Iterable[str] = (), root: RootSpec = None) -> Optional[str]:
+                          measure_cmds: Iterable[str] = (), root: RootSpec = None,
+                          claims: Iterable[str] = (),
+                          self_covered: Optional[Callable[[], Iterable[str]]] = None) -> Optional[str]:
     """寫碼查核（a～d）與收尾報告欄（e）合在一則訊息；兩部分要分開處理時用 reconcile_gate_parts。"""
     code, report = reconcile_gate_parts(last_text, receipts, turn_seq, turn_tool_names, own_mod_files, cfg, aec,
-                                        aec_emitted, sid, phrases, measure_cmds, root)
+                                        aec_emitted, sid, phrases, measure_cmds, root, claims, self_covered)
     return "\n".join(x for x in (code, report) if x) or None
 
 
@@ -809,14 +835,20 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          cfg: Dict[str, Any], aec: Optional[Dict[str, Any]] = None,
                          aec_emitted: bool = False, sid: str = "",
                          phrases: Optional[Dict[str, Pattern]] = None,
-                         measure_cmds: Iterable[str] = (), root: RootSpec = None
+                         measure_cmds: Iterable[str] = (), root: RootSpec = None,
+                         claims: Iterable[str] = (),
+                         self_covered: Optional[Callable[[], Iterable[str]]] = None,
                          ) -> Tuple[Optional[str], Optional[str]]:
-    """只在本回合「宣告完成」時對帳（純審查／中途回覆不擋）。回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
-    寫碼查核：(a) 說修好而本 turn 無對得上改檔的合格 PASS；(b) 說量了無 DONE；(c) 說試過無執行工具；
-    (d) 補案例的義務：本 session 最後一次改驗證案例（程式檔）之後同根還改過程式檔（case_debt，跨回合；PASS 不代替）。
-    收尾報告欄：(e) AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
+    """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
+    寫碼查核：(a) 說修好而本 turn 無對得上改檔的合格 PASS、也沒有改檔所在部位的合格自寫收據（self_covered）；
+    (b) 說量了無 DONE；(c) 說試過無執行工具。(a)(b)(c) 對「宣稱」對帳：last_text 與 claims（擋滿待放行時承接的先前宣稱，
+    換一句話不能讓它消失）裡宣告完成的那幾段；
+    (d) 補案例的義務：本 session 最後一次改驗證案例（仍存在的程式檔）之後同根還改過程式檔（case_debt，跨回合；PASS 不代替），
+    不看措辭，有改碼紀錄就判。
+    收尾報告欄：(e) last_text 宣告完成且 AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
     (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後。"""
-    if not claims_completion(last_text):
+    texts = [t for t in (*claims, last_text) if t and claims_completion(t)]
+    if not texts and not own_mod_files:
         return None, None
     this_turn = [r for r in receipts if int(r.get("turn_seq", -1)) == int(turn_seq)]
     mod_turn = modified_this_turn(own_mod_files, turn_seq)
@@ -828,24 +860,28 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         root = roots.get
     root_of: Callable[[str], Optional[str]] = root if callable(root) else (lambda p, _r=root: _r)
     globs = cfg.get("verify_case_globs") or []
-    related, unrelated = related_pass_receipts(this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
+    related, unrelated = ([], []) if not texts else related_pass_receipts(
+        this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
     hits: List[str] = []
-    if claims_fixed(last_text, phrases) and not related:
+    if (any(claims_fixed(t, phrases) for t in texts) and not related
+            and not set(relate_paths) & set(self_covered() if self_covered else ())):
         hits.append(f"(a) 說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}。"
-                    "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0。")
-    if claims_measured(last_text, phrases) and not done_receipts(this_turn, require_ok=False):
+                    "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
+                    "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）。")
+    if any(claims_measured(t, phrases) for t in texts) and not done_receipts(this_turn, require_ok=False):
         hits.append("(b) 說「量了」但本回合沒有 `<NAME> DONE k=v` 收據。量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量。")
-    if tried_claim_without_exec(last_text, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases):
+    if any(tried_claim_without_exec(t, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases) for t in texts):
         hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。沒跑就寫沒跑，或現在跑。")
     owed = case_debt(own_mod_files, turn_seq, cfg, root_of)
     if owed:
         names = "、".join(Path(p).name for p in owed[:4])
-        hits.append(f"(d) 宣告完成但改了程式碼（{names}）之後沒有新增或修改驗證 case 檔（同根、程式檔；義務跨回合）："
+        hits.append(f"(d) 改了程式碼（{names}）之後沒有新增或修改驗證 case 檔（同根、仍存在的程式檔；義務跨回合，不看收尾措辭）："
                     "改了碼沒驗證 case（PASS 不能代替）。"
                     "補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者。")
     # (e) 只檢本版報告（post_tool_use 一定寫入 j／k 兩鍵）；升級前 emit 的舊報告沒這兩鍵，不拿它擋
     report: List[str] = []
-    if aec_emitted and isinstance(aec, dict) and "j_evidence_path" in aec and "k_followups" in aec:
+    if (claims_completion(last_text) and aec_emitted and isinstance(aec, dict)
+            and "j_evidence_path" in aec and "k_followups" in aec):
         if aec_evidence_missing(aec.get("j_evidence_path"), bool(receipts)):
             report.append(f"(e) 收尾檢核 (j) 證據持久路徑缺或不存在，但本 session 有 {len(receipts)} 筆驗證收據。"
                           f"填帳本路徑（{ledger_path(sid or 'SID')}）或其他真存在的證據檔。")
@@ -937,101 +973,36 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
         return False
 
 
-def _load_self_runs() -> List[Dict[str, Any]]:
-    """run_verify 自寫的驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/_runs/，格式在 lib/self_receipt.py）。"""
-    try:
-        from self_receipt import load_self_receipts
-    except ImportError as e:
-        print(f"[Guardian:MeasureGate] 讀不了自寫收據模組（lib/self_receipt.py）：{e}", file=sys.stderr)
-        return []
-    return load_self_receipts(CLAUDE_DIR)
+def load_self_runs() -> List[Dict[str, Any]]:
+    """run_verify 自寫的驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/_runs/，格式在 lib/self_receipt.py；讀不動會浮 stderr）。"""
+    return _self_receipt.load_self_receipts(CLAUDE_DIR)
 
 
-LAUNCH_WINDOW_S = 120          # 收據 started_at 最晚在啟動紀錄之後多少秒
-LAUNCH_SLACK_S = 10            # 啟動紀錄是 PostToolUse 在工具回來後才寫，背景啟動時程式可能早幾秒就開跑
-
-
-def load_measure_launches(since_utc_ts: float, ledger_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """帳本（workflow/verify-ledger/*.jsonl，含子代理的 .agents.jsonl）裡 since 之後有寫過的檔中的 measure_launch 紀錄。"""
-    d = ledger_dir or (WORKFLOW_DIR / LEDGER_SUBDIR)
-    out: List[Dict[str, Any]] = []
-    try:
-        files = [f for f in d.glob("*.jsonl") if f.stat().st_mtime >= since_utc_ts]
-    except OSError:
-        return []
-    for f in files:
-        try:
-            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for line in lines:
-            if '"measure_launch"' not in line:
-                continue
-            try:
-                rec = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(rec, dict) and rec.get("kind") == "measure_launch":
-                out.append(rec)
-    return out
-
-
-def _load_launches_for(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """這批自寫收據可能連得到的啟動紀錄：只讀「最早 started_at 前 LAUNCH_WINDOW_S＋60 秒」之後有寫過的帳本檔。"""
-    starts = [t.timestamp() for t in (_to_utc(str(r.get("started_at") or "")) for r in runs) if t is not None]
-    return load_measure_launches(min(starts) - LAUNCH_WINDOW_S - 60) if starts else []
-
-
-def _launched_for(run: Dict[str, Any], root: str, launches: Iterable[Dict[str, Any]]) -> bool:
-    """這份自寫收據連得到一次真的啟動：有同根（同一棵樹）的 measure_launch，收據 started_at 落在
-    [啟動 at − LAUNCH_SLACK_S, 啟動 at + LAUNCH_WINDOW_S]。"""
-    started = _to_utc(str(run.get("started_at") or ""))
-    if started is None:
-        return False
-    for la in launches or []:
-        at = _to_utc(str(la.get("at") or ""))
-        if at is None or not _root_ok({"project_root": la.get("root") or la.get("cwd") or ""}, root):
-            continue
-        if -LAUNCH_SLACK_S <= (started - at).total_seconds() <= LAUNCH_WINDOW_S:
-            return True
-    return False
-
-
-def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: str, edit_turn: int,
-                launches: Iterable[Dict[str, Any]]) -> bool:
-    """有一份自寫收據同時符合：cmd 含該部位量尺指令；exit 0 且 failed 0；started_at 晚於該部位最後一次修改；
-    收據根（受測樹）與部位根同一棵樹（_root_ok）；連得到一次真的啟動（_launched_for）。
+def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: str, edit_turn: int) -> bool:
+    """有一份自寫收據同時符合：cmd 跑了該部位量尺（cmd_matches，與收據的 cmd_of 同一套 argv 正規化）；exit 0 且 failed 0；
+    started_at 晚於該部位最後一次修改；收據根（受測樹 project_root）與部位根同一棵樹（_root_ok）。
     不綁 session：改完之後任何人對同一棵樹跑完的全量都算。"""
-    want = " ".join(cmd.split()).lower()
+    # 防線邊界：hook 擋得住 AI 直接手寫收據（PreToolUse 對 verify-ledger/ 的 Edit／Write／重導向／PowerShell 寫檔別名一律 deny）、
+    # 靠措辭避開查核（補案例義務與量尺每次 Stop 都判）、把目標不明的寫入當成沒寫（未知寫入欠帳）、舊收據或別棵樹的收據冒充
+    # （started_at 要晚於最後一次修改、project_root 要同一棵樹）。擋不住 AI 刻意寫一支程式去產生假收據：AI 能執行任意程式，
+    # 它讀得到的任何識別都能複製，這一層不是程式能保證的，不再為它加機制。
     for r in runs or []:
-        if not isinstance(r, dict) or not want or want not in " ".join(str(r.get("cmd", "")).split()).lower():
+        if not isinstance(r, dict) or not cmd.strip() or not cmd_matches(cmd, str(r.get("cmd", ""))):
             continue
         if r.get("exit_code") != 0 or str(r.get("failed")) != "0":
             continue
         if not _receipt_after({"at": r.get("started_at") or ""}, edit_at or None, None, edit_turn):
             continue
-        if not _root_ok(r, root):
-            continue
-        if _launched_for(r, root, launches):
+        if _root_ok(r, root):
             return True
     return False
 
 
-def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]], turn_seq: int,
-                        lookup: Callable[[str], Optional[Tuple[Path, Dict[str, Any]]]], cfg: Dict[str, Any],
-                        chains_of: Callable[[Path], Dict[str, Dict[str, str]]] = load_verify_chains,
-                        runner: Callable[[str, float, Optional[str]], Tuple[bool, str]] = run_runtime_gate,
-                        self_runs: Optional[Callable[[], List[Dict[str, Any]]]] = None,
-                        launches_of: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
-                        ) -> Tuple[Optional[str], List[str]]:
-    """改到的部位有量尺 → 先 runtime_gate（量不了就擋並說原因）→ 找「該部位最後一次修改之後」（比 at，沒有比序號，再沒有比 turn）、
-    同 root、exit 0／None 且 failed=0 的 DONE 且 cmd 含量尺指令，沒有→擋。回 (擋訊息或 None, 沒量尺的部位名清單＝提醒補)。
-    小修也要重跑尺：同 turn 再改一行，之前的 DONE 就在修改之前、不算；尺太重的部位把量尺改成子集指令（表上那格）。
-    根層 worktree（is_root_worktree(root, CLAUDE_DIR)）：工作 session 不跑全量，該部位的尺改認「同 root 下、修改之後、
-    exit 0 且 failed=0 的 pytest DONE 收據（哨兵 PYTEST_MEASURE）」；live 根層（root == CLAUDE_DIR）與非根層專案行為不變。
-    非根層 worktree 的部位除了 session 帳本，也認 run_verify 自寫收據（self_run_ok；長跑的尺只能背景跑，帳本看不到結尾哨兵）。"""
+def measure_parts(own_mod_files: List[Dict[str, Any]],
+                  lookup: Callable[[str], Optional[Tuple[Path, Dict[str, Any]]]]) -> Dict[str, Dict[str, Any]]:
+    """改檔依部位歸組：{根|部位: {root, row, edit_turn, edit_at, edit_seq, files}}，edit_* 是該部位最後一次修改。
+    量尺閘與對帳閘 (a) 認自寫收據都用它（兩邊的「部位最後一次修改」同一個算法）。"""
     parts: Dict[str, Dict[str, Any]] = {}
-    _runs: List[List[Dict[str, Any]]] = []          # 自寫收據只在需要時讀一次
     for m in own_mod_files or []:
         p = (m or {}).get("path", "")
         if not p:
@@ -1052,6 +1023,36 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
         if seq is not None and (rec["edit_seq"] is None or int(seq) > rec["edit_seq"]):
             rec["edit_seq"] = int(seq)
         rec["files"].append(p)
+    return parts
+
+
+def self_run_covered(parts: Dict[str, Dict[str, Any]], runs: Iterable[Dict[str, Any]]) -> List[str]:
+    """有合格自寫收據（self_run_ok：跑了該部位的量尺、改完之後才開始、全綠、同一棵樹）的部位，回它們的改檔。
+    對帳閘 (a)「說修好」也認這份（背景全量的收據不能只接到量尺閘）。"""
+    runs = list(runs or [])
+    out: List[str] = []
+    for rec in parts.values():
+        cmd = str(((rec["row"].get("measure") or {}).get("cmd")) or "").strip()
+        if cmd and self_run_ok(runs, cmd, str(rec["root"]), rec["edit_at"], rec["edit_turn"]):
+            out.extend(rec["files"])
+    return out
+
+
+def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]], turn_seq: int,
+                        lookup: Callable[[str], Optional[Tuple[Path, Dict[str, Any]]]], cfg: Dict[str, Any],
+                        chains_of: Callable[[Path], Dict[str, Dict[str, str]]] = load_verify_chains,
+                        runner: Callable[[str, float, Optional[str]], Tuple[bool, str]] = run_runtime_gate,
+                        self_runs: Optional[Callable[[], List[Dict[str, Any]]]] = None,
+                        ) -> Tuple[Optional[str], List[str]]:
+    """改到的部位有量尺 → 先 runtime_gate（量不了就擋並說原因）→ 找「該部位最後一次修改之後」（比 at，沒有比序號，再沒有比 turn）、
+    同 root、exit 0／None 且 failed=0 的 DONE 且 cmd 跑了量尺指令，沒有→擋。回 (擋訊息或 None, 沒量尺的部位名清單＝提醒補)。
+    不看收尾措辭：改到有量尺的部位，每次 Stop 都判（stop._verify_gates）。
+    小修也要重跑尺：同 turn 再改一行，之前的 DONE 就在修改之前、不算；尺太重的部位把量尺改成子集指令（表上那格）。
+    根層 worktree（is_root_worktree(root, CLAUDE_DIR)）：工作 session 不跑全量，該部位的尺改認「同 root 下、修改之後、
+    exit 0 且 failed=0 的 pytest DONE 收據（哨兵 PYTEST_MEASURE）」；live 根層（root == CLAUDE_DIR）與非根層專案行為不變。
+    非根層 worktree 的部位除了 session 帳本，也認 run_verify 自寫收據（self_run_ok；長跑的尺只能背景跑，帳本看不到結尾哨兵）。"""
+    parts = measure_parts(own_mod_files, lookup)
+    _runs: List[List[Dict[str, Any]]] = []          # 自寫收據只在需要時讀一次
     blocks: List[str] = []
     no_measure: List[str] = []
     timeout = float(cfg.get("runtime_gate_timeout_s", 2))
@@ -1079,10 +1080,8 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             continue
         if not root_wt:
             if not _runs:
-                runs = (self_runs or _load_self_runs)() or []
-                _runs.append(runs)
-                _runs.append((launches_of or _load_launches_for)(runs) if runs else [])
-            if self_run_ok(_runs[0], cmd, str(root), rec["edit_at"], rec["edit_turn"], _runs[1]):
+                _runs.append((self_runs or load_self_runs)() or [])
+            if self_run_ok(_runs[0], cmd, str(root), rec["edit_at"], rec["edit_turn"]):
                 continue
         ruler = (f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
                  f"哨兵 {ROOT_WT_SENTINEL}，表上的尺 `{cmd}` 不是這裡的門檻）")

@@ -1041,6 +1041,27 @@ def test_006_8_wildcard_card_matching_nothing_denies(proj, tmp_path, monkeypatch
     assert wo._search_cards(proj, ["不存在的卡*"])["found"] == [proj / "docs" / "不存在的卡-其實在這.md"]
 
 
+@pytest.mark.parametrize("card", ["*Missing", "Missing.v2*"])
+def test_009_7_wildcard_card_leading_star_or_dot_is_still_a_card(proj, tmp_path, monkeypatch, card):
+    """009-4.7：`*Missing`、`Missing.v2*` 是卡名 glob，不在解析時消失：找不到 → 擋；repo 有對得上的卡 → 搜得到。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _wild_table(proj, card)
+    assert oh.parse_map((proj / ".claude" / "overview-map.md").read_text(encoding="utf-8"))[0]["cards"] == [card]
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), _transcript(tmp_path, ["x"]), {})
+    assert deny and f"`{card}` 在 repo 裡找不到" in deny
+    (proj / "docs").mkdir()
+    hit = proj / "docs" / (card.replace("*", "X") + ".md")
+    hit.write_text("# x", encoding="utf-8")
+    assert wo._search_cards(proj, [card])["found"] == [hit]
+
+
+def test_009_7_extension_only_glob_is_file_pattern_not_card():
+    """純副檔名樣式（`*.bytes`）與含路徑分隔字元的照舊不當卡；同列的真卡名照收。"""
+    rows = oh.parse_map("| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+                     "| `Game\\Battle\\` | 戰鬥 | `*.bytes` `Data/*.json` `戰鬥*` | 有 |\n")
+    assert rows[0]["cards"] == ["戰鬥*"]
+
+
 def test_search_cards_skips_git_node_modules_distant_and_worktrees(tmp_path):
     for d in (".git", "node_modules", "_distant", ".claude/worktrees/wt"):
         (tmp_path / d).mkdir(parents=True, exist_ok=True)

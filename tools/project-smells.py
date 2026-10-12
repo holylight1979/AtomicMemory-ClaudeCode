@@ -52,9 +52,21 @@ class SmellsError(Exception):
 # ─── 專案根與設定 ─────────────────────────────────────────────────────────────
 
 
+_CLAUDE_DIR = Path(__file__).resolve().parents[1]    # 本工具所在的 repo 根（檔案相對，不吃 HOME）
+
+
 def find_root(cwd: str) -> Path:
-    """最近的 `<root>/.claude/overview-hub.json`；沒有則最近的 .git／.svn；再沒有就 cwd 本身。"""
+    """專案根，與導讀卡端（hooks/wg_overview._lookup）、量尺帳本同一套：最近的部位表 `<root>/.claude/overview-map.md`
+    （lib/overview_hub.find_map）就是專案根；祖先目錄的 overview-hub.json（公司覆蓋層）不改變專案身分，公司層另由
+    merge_hub_cfg 取。沒有部位表的專案照舊：最近的 `.claude/overview-hub.json`，再來 .git／.svn，再沒有就 cwd 本身。"""
     start = Path(cwd).resolve()
+    lib = str(_CLAUDE_DIR / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    from overview_hub import find_map
+    found = find_map(str(start))
+    if found:
+        return found[0]
     chain = [start] + list(start.parents)
     for p in chain:
         if (p / ".claude" / "overview-hub.json").is_file():
@@ -63,9 +75,6 @@ def find_root(cwd: str) -> Path:
         if (p / ".git").exists() or (p / ".svn").exists():
             return p
     return start
-
-
-_CLAUDE_DIR = Path(__file__).resolve().parents[1]    # 本工具所在的 repo 根（檔案相對，不吃 HOME）
 
 
 def _hub_inputs() -> Tuple[Dict[str, Any], Optional[Path]]:
