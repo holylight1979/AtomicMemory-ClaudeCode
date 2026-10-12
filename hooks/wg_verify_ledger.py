@@ -223,7 +223,8 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
                  _stat: Callable[[str], Any] = os.stat) -> List[Dict[str, Any]]:
     """cwd 與各 path 的 VCS 根（最多 2 個）→ [{kind, root, rev, dirty, truncated}]。
     整支函式一個 deadline＝起點＋budget_s：找 root、每個子行程（timeout＝min(subprocess_s, 剩餘)）、stat 迴圈每 10 檔
-    都查 deadline；檔數上限 200；任一處超過 → 該筆 truncated=True 並停止。rev 每 root 60 s 快取在 state["vcs_rev_cache"]；非 VCS 回 []。"""
+    都查 deadline；檔數上限 200；任一處超過 → 該筆 truncated=True 並停止。rev 取不到（子行程逾時、失敗、空字串）→ 該筆
+    truncated=True、why 寫原因，照樣算 dirty。rev 每 root 60 s 快取在 state["vcs_rev_cache"]；非 VCS 回 []。"""
     deadline = _clock() + budget_s
     paths = [p for p in paths if p][:SNAPSHOT_MAX_FILES + 1]
     roots: List[Tuple[str, Path]] = []
@@ -259,9 +260,13 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
         if cached and now_wall - float(cached.get("at", 0)) < rev_cache_s and cached.get("rev"):
             entry["rev"] = cached["rev"]
         else:
-            entry["rev"] = _rev(kind, root, min(subprocess_s, remaining))
+            limit = min(subprocess_s, remaining)
+            entry["rev"] = _rev(kind, root, limit)
             if entry["rev"]:
                 cache[key] = {"rev": entry["rev"], "at": now_wall}
+            else:                 # 子行程逾時、失敗或回空字串：結果不完整要說出來，不能讓空 rev 看起來像正常結果
+                entry["truncated"] = True
+                entry["why"] = f"取不到 {kind} rev（子行程上限 {limit:.2f} 秒內逾時、失敗或回空字串）"
             if _clock() > deadline:
                 entry["truncated"] = True
                 out.append(entry)
@@ -471,28 +476,64 @@ def _arg_sentinel_res() -> List[Pattern]:
                   file=sys.stderr)
             rules = []
         for rule in rules:                                        # 輸出端的錨點拿掉：指令裡的字樣前後接了別的字也算
-            _arg_res.append(re.compile(_drop_anchors(rule["re"].pattern), rule["re"].flags | re.MULTILINE))
+            src, flags = rule["re"].pattern, rule["re"].flags
+            pat = _drop_anchors(src, bool(flags & re.VERBOSE))
+            compiled = None
+            if pat is not None:
+                try:
+                    compiled = re.compile(pat, flags | re.MULTILINE)
+                except re.error:
+                    compiled = None
+            if compiled is None:                                  # 處理不了就拒用、說出來，不默默漏查
+                print(f"[verify-ledger] config 哨兵 regex {src!r}（{rule.get('name') or '?'}）無法用來掃指令"
+                      "（只對某一段開關 verbose 的 (?x:…)、沒閉合的 (?#…) 註解、或拿掉錨點後編譯不了）：指令裡寫了這種哨兵字樣"
+                      "查不到；請改寫成不帶 verbose 註解的形式", file=sys.stderr)
+                continue
+            _arg_res.append(compiled)
     return _arg_res
 
 
-def _drop_anchors(pat: str) -> str:
+_SCOPED_FLAGS_RE = re.compile(r"\(\?([aiLmsux]*)(?:-([imsx]*))?:")
+
+
+def _drop_anchors(pat: str, verbose: bool = False) -> Optional[str]:
     """regex 裡所有錨點（字元類 [...] 以外、沒跳脫的 ^ $，以及 \\A \\Z \\z）拿掉，在旗標後、群組裡的也拿：
-    `(?i)^X_OK$`、`^(?:X_OK$)` 都變成只找 X_OK 這串字。"""
-    out, i, in_class = [], 0, False
+    `(?i)^X_OK$`、`^(?:X_OK$)` 都變成只找 X_OK 這串字。註解先拿掉：`(?#…)` 一律是註解；verbose（`(?x)` 或編譯旗標，由
+    verbose 傳入）時字元類以外、沒跳脫的 `#` 到行尾是註解（註解裡的 `[`、`^` 不能當成字元類或錨點）；`(?#…)` 到第一個沒跳脫的 `)`。
+    只對某一段開關 verbose 的 `(?x:…)`／`(?-x:…)` 判不出哪段的 `#` 是註解，`(?#` 沒閉合 → None（呼叫端拒用並說明）；
+    註解與字元類裡的 `(?x:` 字樣不是旗標群組。字元類 `[` 或 `[^` 後面緊接的 `]` 是字面字元，之後的 `]` 才關閉（`[a[]` 是 a 或 [）。"""
+    out: List[str] = []
+    i, class_at = 0, -1                                           # class_at：字元類內容從 out 的第幾格開始（-1＝不在字元類裡）
     while i < len(pat):
         c = pat[i]
         if c == "\\" and i + 1 < len(pat):
-            if in_class or pat[i + 1] not in "AZz":
+            if class_at >= 0 or pat[i + 1] not in "AZz":
                 out.append(pat[i:i + 2])
             i += 2
             continue
-        if in_class:
-            in_class = c != "]" or (out and out[-1] in ("[", "[^"))      # 開頭緊接的 ] 是字面字元
+        if class_at >= 0:
+            if c == "]" and len(out) > class_at:
+                class_at = -1
             out.append(c)
+        elif pat.startswith("(?#", i):            # 註解到第一個沒跳脫的 )：Python 的斷詞把 `\)` 當一個字元
+            j = i + 3
+            while j < len(pat) and pat[j] != ")":
+                j += 2 if pat[j] == "\\" else 1
+            if j >= len(pat):
+                return None
+            i = j + 1
+            continue
+        elif verbose and c == "#":
+            j = pat.find("\n", i)
+            i = len(pat) if j < 0 else j
+            continue
+        elif c == "(" and (m := _SCOPED_FLAGS_RE.match(pat, i)) and "x" in m.group(1) + (m.group(2) or ""):
+            return None
         elif c == "[":
-            in_class = True
-            out.append("[^" if pat[i + 1:i + 2] == "^" else "[")
-            i += 1 if pat[i + 1:i + 2] == "^" else 0
+            neg = pat[i + 1:i + 2] == "^"
+            out.append("[^" if neg else "[")
+            class_at = len(out)
+            i += 1 if neg else 0
         elif c not in "^$":
             out.append(c)
         i += 1
@@ -591,6 +632,17 @@ _RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1
                "後面只准 `| tail` 或 `| Select-Object -Last N`；請照表上原字串單獨跑。")
 
 
+def _scope_env_why(diffs: List[Tuple[str, str, str]]) -> str:
+    """環境設定改了驗證範圍的說明（session 收據與自寫收據的擋訊息共用）。diffs＝[(名稱, 這次的值, 表上的值)]，
+    表上的值空＝這次多設了；表上有值＝這次少了或值不同。"""
+    extra = [n for n, _, want in diffs if not want]
+    differ = [f"{n}（表上是 {want!r}）" for n, _, want in diffs if want]
+    parts = ([f"用環境設定 {'、'.join(extra)} 改了驗證選項（PYTEST_ADDOPTS 會替 pytest 加 -k、路徑這類選項把範圍縮成子集，"
+              "PYTHONOPTIMIZE 等於 -O）"] if extra else []) + ([f"環境設定 {'、'.join(differ)} 跟表上量尺不同"] if differ else [])
+    fix = "拿掉多加的設定（要清空就設成空值），" if extra else ""
+    return "；".join(parts) + f"，跑的不是表上那組選項，也不算整體驗證；{fix}照表上原字串在沒有其他這類設定的環境跑。"
+
+
 def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Iterable[str] = ()) -> str:
     """最近一筆帶 verdict 哨兵的收據若因指令寫法不算證據 → 一句說明（是哪一種）；最近那筆寫法正常、是對上表上量尺的收據
     （量尺本身的 echo 不算寫哨兵），或沒有 → ""。"""
@@ -607,9 +659,17 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
             return f"這條指令 {head} 含解析不了的語法（{why}），不算跑了量尺；請照表上原字串單獨跑。"
         if any(_ruler_ran(mc, r) for mc in rulers):
             return ""
+        for mc in rulers:         # 結構上就是量尺、只差環境，而且量尺自己的字以外沒寫哨兵：講真正原因
+            mis = _self_receipt.ruler_env_mismatch(mc, raw, sh, _cwd_of(r))
+            if mis and not _prints_sentinel(raw, sh, mis[0], mc):
+                return f"這條指令 {head} {_scope_env_why(mis[1])}"
         if _prints_sentinel(raw, sh):
             return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
                     "哨兵只能由被執行的程式印出。")
+        if _self_receipt.whole_run_shape(raw, sh, _cwd_of(r)):
+            envs = _self_receipt.cmd_scope_env(raw, sh)
+            if envs:              # 命令列是整體驗證、只差環境
+                return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs])}"
         if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
             return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"
         extra = _extra_runners(r)
@@ -1249,7 +1309,8 @@ def load_self_runs() -> List[Dict[str, Any]]:
 
 def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: str, edit_turn: int) -> bool:
     """有一份自寫收據同時符合：argv 跑了該部位量尺（cmd_matches；argv 不經 shell 解析，沒有 argv 的舊收據才讀 cmd）；
-    exit 0 且 failed 0；started_at 晚於該部位最後一次修改；收據根（受測樹 project_root）與部位根同一棵樹（_root_ok）。
+    exit 0 且 failed 0；記下的行程環境沒有縮小驗證範圍的設定（scope_env，與 session 收據同一個判斷；沒記 env 的舊收據看不出來，
+    不算）；started_at 晚於該部位最後一次修改；收據根（受測樹 project_root）與部位根同一棵樹（_root_ok）。
     不綁 session：改完之後任何人對同一棵樹跑完的全量都算。"""
     # 防線邊界：hook 擋得住 AI 直接手寫收據（PreToolUse 對 verify-ledger/ 的 Edit／Write／重導向／PowerShell 寫檔別名一律 deny）、
     # 靠措辭避開查核（補案例義務與量尺每次 Stop 都判）、把目標不明的寫入當成沒寫（未知寫入欠帳）、舊收據或別棵樹的收據冒充
@@ -1265,11 +1326,26 @@ def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: st
             continue
         if r.get("exit_code") != 0 or str(r.get("failed")) != "0":
             continue
+        if not isinstance(r.get("env"), dict) or _self_receipt.scope_env(r["env"].items()):
+            continue
         if not _receipt_after({"at": r.get("started_at") or ""}, edit_at or None, None, edit_turn):
             continue
         if _root_ok(r, root):
             return True
     return False
+
+
+def _self_run_scope_env(runs: Iterable[Dict[str, Any]], cmd: str, root: str) -> List[str]:
+    """argv 對上這把量尺、但記下的環境縮小了驗證範圍的自寫收據 → 那些變數名（給量尺閘說最近那份為什麼不算）。"""
+    names: List[str] = []
+    for r in runs or []:
+        argv = r.get("argv") if isinstance(r, dict) else None
+        if not isinstance(r, dict) or not isinstance(r.get("env"), dict) or not cmd_matches(
+                cmd, argv if isinstance(argv, list) and argv else str(r.get("cmd", "")),
+                root=str(r.get("project_root") or ""), measure_root=str(root or "")):
+            continue
+        names += [n for n in _self_receipt.scope_env(r["env"].items()) if n not in names]
+    return names
 
 
 def measure_parts(own_mod_files: List[Dict[str, Any]],
@@ -1399,6 +1475,9 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             blocks.append(f"部位【{part}】有量尺「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」，"
                           f"改了 {len(rec['files'])} 個檔（最後在 turn {rec['edit_turn']}）但之後沒有這把尺的 DONE 收據。"
                           f"跑 `{cmd}`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
+        env_runs = [] if root_wt else _self_run_scope_env(_runs[0], cmd, str(root))
+        if env_runs:
+            blocks[-1] += f"run_verify 自寫收據對上了這把尺，但跑的時候{_scope_env_why([(n, '', '') for n in env_runs])}"
     reason = None
     if blocks:
         reason = ("[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n" + "\n".join("  ✗ " + b for b in blocks)
