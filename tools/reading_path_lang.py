@@ -72,6 +72,9 @@ class Func:
     reassigned: set = field(default_factory=set)      # 被指定超過一次（參數再被指定也算）：別名、確定型別、確定實例都不算
     escaped: set = field(default_factory=set)         # 被存進欄位或容器的區域變數（self.x = obj、items = [obj]、lst.append(obj)）
     locals: set = field(default_factory=set)          # 本體裡被指定過的區域變數名：拿它當函式呼叫又追不到 → 未解
+    attr_stores: set = field(default_factory=set)     # 本體裡寫過的屬性 (接收者, 屬性名)：self.run = f、w.run = f、mod.func = f
+    nonlocal_writes: set = field(default_factory=set)  # 用 nonlocal 宣告後又指定的名字：改的是外層作用域的綁定
+    import_rebinds: set = field(default_factory=set)  # 函式裡 import 的名字又被綁定（import 兩次、import 又指定）：只影響確定，不影響找目標
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
     imports: dict = field(default_factory=dict)       # 函式內的 import（只在這個函式與它的巢狀函式裡有效）
@@ -104,6 +107,7 @@ class Module:
     aliases: dict = field(default_factory=dict)   # 模組層函式別名 → [Call 參照]（flat = itertools.chain.from_iterable）
     bindings: Counter = field(default_factory=Counter)   # 模組層名字被綁定幾次（def、class、import、指定）
     opaque: set = field(default_factory=set)      # 模組層名字被指定成算出來的值，或被函式用 global 改寫：看不到是什麼
+    attr_stores: set = field(default_factory=set)   # 模組層程式碼寫過的屬性 (接收者, 屬性名)：worker.work = …
     static_usings: list = field(default_factory=list)   # C# using static 的型別名
 
     @property
@@ -195,6 +199,7 @@ def _py_module_stmt(mod: Module, node: ast.stmt) -> None:
     nodes = _py_scan(mod.imports, [node])
     _py_count_bindings(mod, nodes)
     _py_calls(mod, nodes, "")
+    mod.attr_stores |= _py_attr_stores(nodes)
     target = node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else getattr(node, "target", None)
     value = getattr(node, "value", None)
     if not isinstance(target, ast.Name) or value is None:
@@ -259,6 +264,8 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     f.calls = _py_calls(mod, nodes, fid)
     declared = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Global)))
     mod.opaque |= declared & f.locals                  # 函式用 global 改寫模組層名字：之後是什麼看不到
+    nonlocal_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Nonlocal)))
+    f.nonlocal_writes = nonlocal_names & f.locals      # 改的是外層函式的名字（reading-path 回頭標到外層）
     mod.funcs.append(f)
     if cls:
         cls.methods.setdefault(node.name, []).append(fid)
@@ -436,27 +443,59 @@ def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
         elif isinstance(node, ast.Assign) and len(node.targets) == 1:
             _py_bind(f, cls, node.targets[0], node.value)
         f.escaped |= _py_contained(node)
+    f.attr_stores = _py_attr_stores(nodes)
+    for _ in range(len(f.aliases)):                    # v = w 之後 v 被存走，w 指的物件也被存走了
+        f.escaped |= {ref.name for v, ref in f.aliases.items() if v in f.escaped and ref.kind == "name"}
     stores = _py_stores(nodes)
     f.locals = set(stores)
     stores.update(f.params)
     stores.update(n.name for n in nodes if isinstance(n, _DEF_NODES))   # 巢狀 def 也是一次綁定
     f.reassigned = {name for name, k in stores.items() if k > 1}
+    imported = Counter(_py_import_names(nodes))        # 函式裡的 import 也是一次綁定：同名 import 兩次、或 import 又指定
+    f.import_rebinds = {name for name in imported if imported[name] + stores[name] > 1}
+
+
+def _py_import_names(nodes: list) -> list:
+    imports = [n for n in nodes if isinstance(n, (ast.Import, ast.ImportFrom))]
+    return [(a.asname or a.name).split(".")[0] for a in itertools.chain.from_iterable(n.names for n in imports)]
+
+
+def _py_attr_stores(nodes: list) -> set:
+    """被指定的屬性 (接收者, 屬性名)：self.run = f、w.run = f、worker.work = f；接收者寫不成字串的不收。"""
+    stored = [n for n in nodes if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)]
+    return {(_py_recv(n.value), n.attr) for n in stored if _py_recv(n.value)}
+
+
+_CONTAINERS = (ast.List, ast.Tuple, ast.Set, ast.Dict)
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
 
 
 def _py_contained(node) -> set:
-    """被放進容器的區域變數名：指定的右邊是容器字面值（items = [w]、d = {"k": w}），或 lst.append(w) 這類加進容器的呼叫。"""
-    value = getattr(node, "value", None) if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) else None
-    if isinstance(value, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
-        elts = value.values if isinstance(value, ast.Dict) else value.elts
-        return {e.id for e in elts if isinstance(e, ast.Name)}
-    fn = node.func if isinstance(node, ast.Call) else None
-    if isinstance(fn, ast.Attribute) and fn.attr in CONTAINER_ADD:
-        return {a.id for a in node.args if isinstance(a, ast.Name)}
-    return set()
+    """被放進容器的區域變數名：容器字面值或推導式裡直接寫的名字（巢狀的容器各自會被走到，所以 [[w]] 也算），
+    或 lst.append(w) 這類加進容器的呼叫。拆包的指定目標（a, b = …）不算。"""
+    if isinstance(node, _CONTAINERS) and not isinstance(getattr(node, "ctx", None), ast.Store):
+        elts = [*node.keys, *node.values] if isinstance(node, ast.Dict) else node.elts
+    elif isinstance(node, _COMPREHENSIONS):
+        elts = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
+    elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in CONTAINER_ADD:
+        elts = node.args
+    else:
+        return set()
+    names = [e.value if isinstance(e, ast.Starred) else e for e in elts]
+    return {e.id for e in names if isinstance(e, ast.Name)}
+
+
+def _py_ctor(value) -> str:
+    """指定的右邊是建構（Foo()、worker.Foo()）→ 建構者寫法（"Foo"、"worker.Foo"）；不是 → ""。
+    worker.Foo() 也可能是普通的模組函式呼叫，是不是類別交給 reading-path 解析（解不到類別就不當型別證據）。"""
+    fn = value.func if isinstance(value, ast.Call) else None
+    if isinstance(fn, ast.Name):
+        return "" if fn.id == "super" else fn.id
+    return _py_recv(fn) if isinstance(fn, ast.Attribute) else ""
 
 
 def _py_bind(f: Func, cls: Cls | None, target, value) -> None:
-    ctor = _py_recv(value)[4:] if _py_recv(value).startswith("new:") else ""
+    ctor = _py_ctor(value)
     table, refs = _py_table(value)[0], _py_table_refs(value)
     alias = _py_ref(value) if isinstance(value, (ast.Name, ast.Attribute)) else None
     if isinstance(target, ast.Name):
@@ -498,6 +537,8 @@ _CS_LOCAL = re.compile(r"\b(?:var|(?P<type>[A-Z]\w*)(?:<[^<>;=]*>)?)\s+(?P<var>[
 _CS_ALIAS = re.compile(r"\b(?:var|[A-Z]\w*(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
 _CS_STORE = re.compile(r"\b([a-z_]\w*)\s*=(?![=>])")   # 區域變數被指定（宣告或重新指定；不含 ==、=>、+=）
 _CS_MODIFY = re.compile(r"\b([a-z_]\w*)\s*[+\-]=(?!=)")   # cb += B、cb -= A：委派被改（數值也算，只影響別名與確定型別）
+_CS_INITIALIZER = re.compile(r"\bnew\b[^;{}]*\{([^{}]*)\}")   # 陣列／集合／物件初始化的大括號內容（寧可多算存走）
+_CS_LOWER_NAME = re.compile(r"(?<![\w.])([a-z_]\w*)\b")
 _CS_CONTAINER_ADD = re.compile(r"\.\s*(?:Add|Insert|Push|Enqueue|AddLast|AddFirst)\s*\(\s*(?:\w+\s*,\s*)?([a-z_]\w*)\s*\)")
 _CS_BYREF = re.compile(r"\b(?:ref|out)\s+(?:var\s+|[\w<>\[\],.?]+\s+(?=[a-z_]\w*\s*[,)]))?([a-z_]\w*)")
 _CS_INLINE = re.compile(r"(?:^|[;{}])\s*(?:(?:static|async)\s+)*(?P<type>[\w<>\[\],?.]+)\s+(?P<name>\w+)\s*"
@@ -692,6 +733,8 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
         if m["rhs"] in f.locals and m["lhs"] not in f.locals:
             f.escaped.add(m["rhs"])                # 區域變數被存進欄位
     f.escaped |= set(_CS_CONTAINER_ADD.findall(body))   # list.Add(x) 這類加進容器
+    for init in _CS_INITIALIZER.findall(body):            # new[] { w }、new List<W> { w }、new Holder { W = w }
+        f.escaped |= set(_CS_LOWER_NAME.findall(init))
     for m in [*_CS_SUB.finditer(body), *_CS_LISTEN.finditer(body)]:
         ref = _cs_ref(m["rhs"])   # 訂閱的是具名方法才收；+= lambda 的內容就寫在這裡
         recv, _, key = m["lhs"].rpartition(".")

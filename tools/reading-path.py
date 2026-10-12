@@ -267,6 +267,7 @@ class Graph:
         self.hits = Counter()      # 每個函式有幾個呼叫連到專案內
         self.unres = Counter()     # 每個函式有幾個呼叫在專案內但解析不了
         self._index(modules)
+        self._index_rebinds(modules)
         self._resolve_all()
         self.fan_in = Counter()
         for es in self.edges.values():
@@ -292,6 +293,34 @@ class Graph:
                 self.children[base].append(c)
             for name, ids in c.methods.items():
                 self.by_method[name].extend(ids)
+
+    def _index_rebinds(self, modules: list) -> None:
+        """在別處被改掉的綁定（綁定穩定的判斷要看）：
+        rebound_elsewhere (檔, 名字)：別的程式碼用 模組.名字 = … 改掉的模組層名字；
+        instance_attrs 類別名 → 屬性名：方法裡 self.X = …、或 類別.X = … 寫過的（會蓋掉同名方法）；
+        nonlocal_rebound (檔, 外層作用域) → 名字：巢狀函式用 nonlocal 改掉的外層名字。"""
+        self.rebound_elsewhere, self.instance_attrs, self.nonlocal_rebound = set(), defaultdict(set), defaultdict(set)
+        contexts = [(f, f.attr_stores) for f in self.funcs.values()]
+        contexts += [(self.module_ctx(m.file), m.attr_stores) for m in modules if m.lang == "py"]
+        for f, stores in contexts:
+            for recv, attr in stores:
+                self._note_attr_store(f, recv, attr)
+        for f in [f for f in self.funcs.values() if f.nonlocal_writes]:
+            for scope in self.scopes(f)[:-1]:
+                self.nonlocal_rebound[(f.file, scope)] |= f.nonlocal_writes
+
+    def _note_attr_store(self, f: lang.Func, recv: str, attr: str) -> None:
+        if recv in ("self", "cls") and f.cls:
+            self.instance_attrs[f.cls].add(attr)
+            return
+        head = recv.partition(".")[0]
+        if f.lang != "py" or head in f.params or head in f.locals:
+            return
+        target = self.module_alias(f, recv) if not self._shadowed(f, head) else None
+        if target:
+            self.rebound_elsewhere.add((target, attr))
+        elif "." not in recv and self.classes.get(recv):
+            self.instance_attrs[recv].add(attr)            # Worker.run = other：類別屬性蓋掉方法
 
     def _add_class(self, c: lang.Cls) -> None:
         """C# partial（同名類）併成一個；Python 同名類各自保留，查找時優先同檔。"""
@@ -329,10 +358,24 @@ class Graph:
     def class_ref(self, f: lang.Func, name: str):
         """f 裡寫成 name 的類別（建構者、型別標註）：本檔的類別優先；Python 再沿 import 別名與 re-export 追到原類別
         （from worker import Worker as W → worker.Worker）；都沒有才退回全專案同名的類別。"""
+        if "." in name and f.lang == "py":            # worker.Worker：模組.類別
+            prefix, _, last = name.rpartition(".")
+            target = self.module_alias(f, prefix) if not self._shadowed(f, prefix.partition(".")[0]) else None
+            mod = self.modules.get(target) if target else None
+            local = next((c for c in self.classes.get(last, []) if target in c.files), None) if target else None
+            return local or (self._class_in_import(target, mod.imports, last, 1) if mod else None)
         local = next((c for c in self.classes.get(name, []) if f.file in c.files), None)
         if local or f.lang != "py":
             return local or self.cls_named(name, f.file)
         return self._class_in_import(f.file, self.imports_of(f), name, 0) or self.cls_named(name, f.file)
+
+    def _stable_ctor(self, f: lang.Func, ctor: str) -> bool:
+        """建構者名稱穩定：Foo → stable(Foo)；worker.Foo → 模組名穩定、模組裡的 Foo 也穩定。"""
+        if "." not in ctor or f.lang != "py":
+            return self.stable(f, ctor)
+        prefix, _, last = ctor.rpartition(".")
+        target = self.module_alias(f, prefix)
+        return bool(target) and self.stable(f, prefix.partition(".")[0]) and self._stable_in(target, last, 0)
 
     def _class_in_import(self, file: str, imports: dict, name: str, hops: int):
         if hops > MAX_REEXPORT or name not in imports:
@@ -726,13 +769,15 @@ class Graph:
             return "object", self.cls_of(f)
         changed = head in f.constructed and head in f.reassigned      # x = Base() 之後又 x = Child()：型別不定
         typed = None if changed else f.local_types.get(head) or f.param_types.get(head)
-        if typed:
-            return "object", self.class_ref(f, typed)
+        typed_cls = self.class_ref(f, typed) if typed else None
+        if typed_cls:                                   # 解不到類別（外部型別、工廠函式）就照沒型別往下判
+            return "object", typed_cls
         own = self.cls_of(f)
         if f.lang == "cs" and own and self.field_type(own, head):
             return "object", self.field_type(own, head)
-        if self.cls_named(head, f.file):
-            return "static", self.cls_named(head, f.file)
+        static = self.class_ref(f, head)
+        if static:                                      # 類別.方法（含 import 別名的類別）
+            return "static", static
         imp = self.imports_of(f).get(head) if f.lang == "py" else None
         if imp and not self.find_module(imp[0], imp[1], f.file):
             return "external", None               # 匯入的外部模組或其成員（json、os.path…）
@@ -745,8 +790,8 @@ class Graph:
         那一層是巢狀 def 且沒再被指定 → 穩定；是參數或區域變數 → 不穩定（裝的東西看不到或會變）；
         是那一層自己 import 的 → 沿匯入鏈到原模組；都沒有 → 模組層（_stable_in）。C# 的方法與類別名不會被改指，
         只要不是同名的區域變數或參數就算穩定。"""
-        if f.lang == "cs":
-            return name not in f.locals and name not in f.params
+        if f.lang == "cs":                         # C# 區域函式（f.inline）會遮住同名方法
+            return name not in f.locals and name not in f.params and name not in f.inline
         for scope in reversed(self.scopes(f)):
             owner = self.funcs.get(f"{f.file}::{scope}")
             if owner is None:
@@ -754,16 +799,19 @@ class Graph:
             nested = f"{owner.id}.{name}" in self.funcs
             if name in owner.params or name in owner.locals:
                 return False
-            if nested:
-                return name not in owner.reassigned
-            if name in owner.imports:
-                return self._stable_import(f.file, owner.imports, name, 0)
+            if not (nested or name in owner.imports):
+                continue
+            if name in owner.reassigned | owner.import_rebinds or name in self.nonlocal_rebound[(f.file, scope)]:
+                return False                       # 同一層綁了兩次（def＋指定、import 兩次），或被內層 nonlocal 改掉
+            return True if nested else self._stable_import(f.file, owner.imports, name, 0)
         return self._stable_in(f.file, name, 0)
 
     def _stable_in(self, file: str, name: str, hops: int) -> bool:
         """模組層的 name 只綁定一次、不是算出來的值；它是別名或 from 匯入時，指到的名字也要穩定（逐跳）。"""
         mod = self.modules.get(file)
         if mod is None or hops > MAX_REEXPORT or mod.bindings[name] != 1 or name in mod.opaque:
+            return False
+        if (file, name) in self.rebound_elsewhere:     # 別處寫了 模組.name = …
             return False
         if name in mod.aliases:
             return all(self._stable_ref(file, ref, hops + 1) for ref in mod.aliases[name])
@@ -815,7 +863,7 @@ class Graph:
             return True
         if c.kind == "name":
             if f.lang == "cs":                     # C# 裸名：本類別的方法歸第 3 條；這裡只收 using static 匯入的
-                return c.name not in f.params and not self._own_method(f, c.name, e)
+                return self.stable(f, c.name) and not self._own_method(f, c.name, e)
             return self.stable(f, c.name)
         if c.kind not in ("attr", "prop") or not c.recv:
             return False
@@ -852,20 +900,30 @@ class Graph:
         else:
             return False
         cls = self.class_ref(f, ctor) if ctor else None
-        return bool(cls) and self.stable(f, ctor) and e.dst in self.lookup(cls, c.name)
+        return (bool(cls) and self._stable_ctor(f, ctor) and e.dst in self.lookup(cls, c.name)
+                and not self._method_replaced(f, c, cls))
+
+    def _method_replaced(self, f: lang.Func, c: lang.Call, cls) -> bool:
+        """方法可能被屬性蓋掉：接收者在這個函式裡被寫過同名屬性（w.run = f），或這個類別／祖先／子孫
+        在任何方法裡寫過 self.run = …、類別外寫過 Worker.run = …（Python；C# 方法不能被指定）。"""
+        if (c.recv or "self", c.name) in f.attr_stores:
+            return True
+        family = list(self.ancestry(cls)) + self.descendants(cls)
+        return any(c.name in self.instance_attrs.get(k.name, ()) for k in family)
 
     def _rule3(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 3：self.method()／this.Method()（含 C# 省略 this、classmethod 的 cls()）沒有子類覆寫；
         型別已宣告的接收者（參數標註、區域變數標註、欄位宣告型別）沒有子類覆寫、也沒有多載（多載在 certify 已擋）。"""
         cls, name = self._rule3_target(f, c, e)
-        return bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
+        return (bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
+                and not self._method_replaced(f, c, cls))
 
     def _rule3_target(self, f: lang.Func, c: lang.Call, e: Edge) -> tuple:
         """第 3 條看的類別與方法名：本物件 → 自己的類別；型別已宣告的接收者 → 宣告的型別；其他 → (None, "")。"""
         own = self.cls_of(f) if f.cls else None
         if c.kind == "self" or (c.kind == "prop" and c.recv in ("", "this")):
             return own, c.name
-        if c.kind == "name" and f.lang == "cs" and c.name not in f.params and self._own_method(f, c.name, e):
+        if c.kind == "name" and f.lang == "cs" and self.stable(f, c.name) and self._own_method(f, c.name, e):
             return own, c.name
         if c.kind == "name" and c.name == "cls" and f.params[:1] == ["cls"]:
             return own, "__init__"

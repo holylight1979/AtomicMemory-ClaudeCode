@@ -1376,6 +1376,85 @@ def test_constructed_self_field_is_found_but_not_certain(tmp_path):
         "self.x = Foo() 是推導的欄位型別（欄位可能被換）：找得到目標，但第 3 條只吃宣告型別"
 
 
+# ─── 008 codex 初審與自查抓到的：白名單外卻確定（A）、白名單內被誤標（B） ─────────
+
+def _sure_edges(files: dict, fid: str, tmp_path) -> list:
+    g = rp.build_graph(_write(tmp_path, files))
+    return [(e.dst, _sure(e)) for e in g.edges[fid]]
+
+
+@pytest.mark.parametrize("store", ["    items = [[w]]\n", "    pairs = [(1, w)]\n", "    v = w\n    holder.x = v\n",
+                                   "    items = [x for x in (w,)]\n"])
+def test_a_constructed_local_escaping_through_nesting_or_alias_is_not_certain(tmp_path, store):
+    files = {"app.py": WORKER + "\n\ndef main(holder):\n    w = Worker()\n" + store + "    w.run()\n"}
+    run = [s for d, s in _sure_edges(files, "app.py::main", tmp_path) if d == "app.py::Worker.run"]
+    assert run == [False], "巢狀容器、經別名再存走，都算存走：第 2 條不成立"
+
+
+def test_a_csharp_constructed_local_in_an_array_initializer_is_not_certain(tmp_path):
+    cs = ("class Worker {\n    public void Run() { int x = 1; x += 1; x *= 2; }\n}\n"
+          "class Program {\n    static void Main() {\n        var w = new Worker();\n        var items = new[] { w };\n"
+          "        w.Run();\n    }\n}\n")
+    assert _sure_edges({"Program.cs": cs}, "Program.cs::Program.Main", tmp_path) == [("Program.cs::Worker.Run", False)]
+
+
+def test_a_name_imported_twice_inside_a_function_is_not_certain(tmp_path):
+    files = {"a.py": "def work():\n    x = 1\n    x += 1\n    return x\n",
+             "b.py": "def work():\n    y = 2\n    y += 1\n    return y\n",
+             "app.py": "def main():\n    from a import work\n    from b import work\n    work()\n"}
+    assert not any(s for _, s in _sure_edges(files, "app.py::main", tmp_path)), "work 在 main 裡被 import 兩次"
+
+
+def test_a_nested_function_rebound_through_nonlocal_is_not_certain(tmp_path):
+    files = {"app.py": ("def outer():\n    def work():\n        x = 1\n        x += 1\n        return x\n\n"
+                        "    def change():\n        nonlocal work\n        work = lambda: 2\n\n"
+                        "    def inner():\n        work()\n\n    change()\n    inner()\n")}
+    assert _sure_edges(files, "app.py::outer.inner", tmp_path) == [("app.py::outer.work", False)]
+
+
+def test_a_module_function_reassigned_through_the_module_attribute_is_not_certain(tmp_path):
+    files = {"worker.py": "def work():\n    x = 1\n    x += 1\n    return x\n",
+             "app.py": "import worker\n\nworker.work = lambda: 2\n\n\ndef main():\n    worker.work()\n"}
+    assert _sure_edges(files, "app.py::main", tmp_path) == [("worker.py::work", False)], \
+        "模組層名字在別處被 模組.名字 = … 改掉：第 1 條不成立"
+
+
+def test_a_method_replaced_by_an_instance_or_class_attribute_is_not_certain(tmp_path):
+    other = "def other():\n    a = 1\n    a += 1\n    return a\n\n\n"
+    method = "    def run(self):\n        q = 1\n        q += 1\n        return q\n"
+    own = {"app.py": other + "class App:\n    def __init__(self):\n        self.run = other\n\n" + method
+                     + "\n    def go(self):\n        self.run()\n"}
+    assert _sure_edges(own, "app.py::App.go", tmp_path / "own") == [("app.py::App.run", False)], "self.run = other 蓋掉方法"
+    typed = {"app.py": other + "class Worker:\n    def __init__(self):\n        self.run = other\n\n" + method
+                       + "\n\ndef main(w: Worker):\n    w.run()\n"}
+    assert _sure_edges(typed, "app.py::main", tmp_path / "typed") == [("app.py::Worker.run", False)]
+    local = {"app.py": other + "class Worker:\n" + method + "\n\ndef main():\n    w = Worker()\n    w.run = other\n    w.run()\n"}
+    assert ("app.py::Worker.run", True) not in _sure_edges(local, "app.py::main", tmp_path / "local")
+    klass = {"app.py": other + "class Worker:\n" + method + "\n\nWorker.run = other\n\n\ndef main():\n    w = Worker()\n    w.run()\n"}
+    assert ("app.py::Worker.run", True) not in _sure_edges(klass, "app.py::main", tmp_path / "klass")
+
+
+def test_a_csharp_local_function_shadowing_a_method_is_not_certain(tmp_path):
+    cs = ("class P {\n    static void Work() { int a = 1; a += 1; a *= 2; }\n"
+          "    static void Main() {\n        void Work() { int b = 2; b += 1; }\n        Work();\n    }\n}\n")
+    assert not any(s for _, s in _sure_edges({"P.cs": cs}, "P.cs::P.Main", tmp_path)), "Main 裡的區域函式 Work 遮住類別方法"
+
+
+def test_b_module_qualified_constructor_is_certain_by_rule_2(tmp_path):
+    files = {"worker.py": WORKER, "app.py": "import worker\n\n\ndef main():\n    w = worker.Worker()\n    w.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    run = [e for e in g.edges["app.py::main"] if e.dst.endswith("run")]
+    assert [(e.dst, _sure(e)) for e in run] == [("worker.py::Worker.run", True)]
+    assert [_rule_of(e) for e in run] == [2]
+
+
+def test_b_static_method_through_an_import_alias_is_certain_by_rule_1(tmp_path):
+    files = {"worker.py": "class Worker:\n    @staticmethod\n    def run():\n        x = 1\n        x += 1\n        return x\n",
+             "app.py": "from worker import Worker as W\n\n\ndef main():\n    W.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert [(e.dst, _sure(e), _rule_of(e)) for e in g.edges["app.py::main"]] == [("worker.py::Worker.run", True, 1)]
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
