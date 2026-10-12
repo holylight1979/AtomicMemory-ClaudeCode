@@ -40,8 +40,9 @@ REGISTRY_PATH = GLOBAL_MEMORY / "project-registry.json"
 ATOM_INDEX_JSON = "_atom_index.json"
 SKIP_PREFIXES = ("_",)
 
-if str(CLAUDE_DIR) not in sys.path:
-    sys.path.insert(0, str(CLAUDE_DIR))
+_CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 與兄弟工具從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
 
 from lib.atom_index_json import (  # noqa: E402
     load_atom_index_json, upsert_atom, delete_atom, validate_index,
@@ -239,7 +240,7 @@ def sync_scope_header(md: Path, scope: str) -> bool:
 def catalog_sync(index_dir: Path) -> Dict[str, Any]:
     """重生成該 memory root 的目錄：全域 → MEMORY.md + 各層 _INDEX.md；專案 → MEMORY.md
     的 atom-catalog 區塊（tools/sync-memory-index.py --write）。回 {ok, error?}。"""
-    script = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+    script = _CODE_ROOT / "tools" / "sync-memory-index.py"
     if not script.exists():
         return {"ok": False, "error": f"missing {script}"}
     argv = [sys.executable, str(script), "--write"]

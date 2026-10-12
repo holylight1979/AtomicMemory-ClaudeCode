@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlparse
 SERVICE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SERVICE_DIR))
 # import wg_core for centralized path resolution
-sys.path.insert(0, str(Path.home() / ".claude" / "hooks"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hooks"))   # 程式碼：本檔所在樹的 hooks/
 
 from config import load_config, VECTORDB_DIR
 from indexer import build_index, create_embedder, get_index_status

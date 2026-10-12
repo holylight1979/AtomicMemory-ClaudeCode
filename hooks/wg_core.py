@@ -27,9 +27,10 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 # CLAUDE_DIR＝使用者資料根（memory、workflow、config、Logs）：WG_CLAUDE_DIR 可覆蓋，未設＝家目錄 ~/.claude。
 # CODE_DIR＝程式碼根（hooks、lib、tools）：一律由本檔位置推，不吃 WG_CLAUDE_DIR、不看家目錄。
-_CLAUDE_DIR_OVERRIDE = os.environ.get("WG_CLAUDE_DIR", "").strip()
-CLAUDE_DIR = Path(_CLAUDE_DIR_OVERRIDE) if _CLAUDE_DIR_OVERRIDE else Path.home() / ".claude"
 CODE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(CODE_DIR / "lib"))
+from project_root import claude_data_dir  # noqa: E402  資料根的唯一算法（tools 也呼叫它）
+CLAUDE_DIR = claude_data_dir()
 MEMORY_DIR = CLAUDE_DIR / "memory"
 EPISODIC_DIR = MEMORY_DIR / "episodic"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"

@@ -354,7 +354,7 @@ def _project_summary_line(project: str, sessions: list[dict],
 def _llm_summary(proj_data: list, active_days: int | None = None) -> str:
     """呼叫本地 Ollama 產生 2-4 句話速覽。失敗回 ""。"""
     try:
-        sys.path.insert(0, str(Path.home() / ".claude" / "tools"))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))   # ollama_client：本檔所在的 tools/
         from ollama_client import OllamaClient, OllamaBackend  # type: ignore
     except ImportError:
         return ""

@@ -26,9 +26,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
-sys.path.insert(0, str(CLAUDE_DIR))
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+sys.path.insert(0, str(CODE_DIR / "lib"))
+sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 
 from lib.atom_access import USEFULNESS_PRIOR, wilson_lower_bound  # noqa: E402
 

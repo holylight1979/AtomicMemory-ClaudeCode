@@ -21,10 +21,11 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-HOOKS_DIR = Path.home() / ".claude" / "hooks"
-CLAUDE_DIR = Path.home() / ".claude"
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+HOOKS_DIR = CODE_DIR / "hooks"
+CLAUDE_DIR = Path.home() / ".claude"                # 使用者資料
 sys.path.insert(0, str(HOOKS_DIR))
-sys.path.insert(0, str(CLAUDE_DIR))
+sys.path.insert(0, str(CODE_DIR))
 from wg_core import find_project_root  # noqa: E402
 from wg_roles import is_management, get_current_user  # noqa: E402
 from lib.atom_io import _category_gate_enabled, write_index  # noqa: E402
@@ -325,7 +326,7 @@ def action_approve(proj_cwd: str, target: str, user: str,
 def _sync_project_catalog(mem: Path) -> None:
     """背景刷新專案 MEMORY.md 的 catalog 區塊（失敗只 stderr，不阻斷 approve）。"""
     import subprocess
-    script = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+    script = CODE_DIR / "tools" / "sync-memory-index.py"
     if not script.exists():
         return
     try:

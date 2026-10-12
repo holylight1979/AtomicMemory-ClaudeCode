@@ -49,7 +49,9 @@ from lib.atom_locations import (  # noqa: E402  V5+ 多根掃描 + Failures filt
 from lib.atom_spec import is_atom_file  # noqa: E402
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 
-MEMORY_DIR = Path.home() / ".claude" / "memory"
+from lib.project_root import claude_data_dir  # noqa: E402
+
+MEMORY_DIR = claude_data_dir() / "memory"   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 CLAUDE_ROOT = MEMORY_DIR.parent
 
 EXCLUDED_DIR_PARTS = {"_reference", "_archived", "_pending_review", "_staging",

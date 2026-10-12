@@ -30,7 +30,11 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 FOLLOWUPS = CLAUDE_DIR / "workflow" / "followups.json"
 INJECTION_TURNS_LOG = CLAUDE_DIR / "Logs" / "injection-turns.jsonl"
 ATOM_DEBUG_GLOB = str(CLAUDE_DIR / "Logs" / "atom-debug-*.log")
@@ -125,9 +129,9 @@ def check_injection_budget(item: dict) -> dict:
 
     tax = None
     try:
-        sys.path.insert(0, str(CLAUDE_DIR / "tools"))
+        sys.path.insert(0, str(CODE_DIR / "tools"))
         import importlib.util
-        spec = importlib.util.spec_from_file_location("mer", CLAUDE_DIR / "tools" / "memory-effect-report.py")
+        spec = importlib.util.spec_from_file_location("mer", CODE_DIR / "tools" / "memory-effect-report.py")
         mer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mer)  # type: ignore[union-attr]
         days = max(1, (date.today() - since).days)

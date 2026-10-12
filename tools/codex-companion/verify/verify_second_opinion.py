@@ -33,7 +33,7 @@ def _load(name: str, path: Path):
     return mod
 
 
-os.environ.pop("WG_CLAUDE_DIR", None)  # run.py 以檔案相對位置定 CLAUDE_DIR（＝本 repo 根），不吃 live 覆蓋
+os.environ["WG_CLAUDE_DIR"] = str(ROOT)  # run.py 的資料根跟 WG_CLAUDE_DIR 走；指本樹，子行程跑 run.py 也不碰 live ~/.claude
 _REAL_RUN = subprocess.run  # env fixture 會把 subprocess.run／Popen 換成假的；真 spawn 的案用這兩個
 _REAL_POPEN = subprocess.Popen
 run = _load("so_run", RUN_PY)

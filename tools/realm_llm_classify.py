@@ -21,8 +21,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"
-for _p in (CLAUDE_DIR, CLAUDE_DIR / "tools"):  # lib.* + ollama_client 都要可 import
+CLAUDE_DIR = Path.home() / ".claude"                  # 使用者資料（atom 路徑、workflow/config.json）
+_CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根
+for _p in (_CODE_ROOT, _CODE_ROOT / "tools"):  # lib.* + ollama_client 都要可 import
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 

@@ -25,10 +25,12 @@ import types
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-CLAUDE_DIR = Path(__file__).resolve().parents[2]
-for _p in (str(CLAUDE_DIR / "hooks"), str(CLAUDE_DIR)):
+CODE_DIR = Path(__file__).resolve().parents[2]   # 程式碼根（本檔所在的樹）
+for _p in (str(CODE_DIR / "hooks"), str(CODE_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow/config.json
 
 # 必須在 import hooks 之前設好：logs_dir() 讀環境變數
 os.environ.setdefault("PYTEST_CURRENT_TEST", "memory-eval-online")
@@ -143,7 +145,7 @@ class Replayer:
             },
             "injected_atoms": [],
             "turn_seq": 0,
-            "session": {"cwd": str(CLAUDE_DIR), "id": "memory-eval"},
+            "session": {"cwd": str(CODE_DIR), "id": "memory-eval"},   # 模擬 session 的 cwd：判不出屬哪個根，維持原本的檔案位置
         }
 
     def run(self, prompt: str, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

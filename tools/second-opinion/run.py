@@ -31,9 +31,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 HERE = Path(__file__).resolve().parent
-CLAUDE_DIR = Path(os.environ.get("WG_CLAUDE_DIR") or HERE.parents[1])
-COMPANION_DIR = CLAUDE_DIR / "tools" / "codex-companion"
-REPLAY_GUARD = CLAUDE_DIR / "tools" / "replay-guard.py"
+CODE_DIR = HERE.parents[1]   # 程式碼根（本檔所在的樹）：codex-companion、replay-guard
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow/config.json、job 目錄
+COMPANION_DIR = CODE_DIR / "tools" / "codex-companion"
+REPLAY_GUARD = CODE_DIR / "tools" / "replay-guard.py"
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
 JOB_ROOT = CLAUDE_DIR / "workflow" / "second-opinion"
 

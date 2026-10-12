@@ -39,9 +39,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(CLAUDE_DIR))
-sys.path.insert(0, str(CLAUDE_DIR / "tools"))
+CODE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(CODE_DIR))
+sys.path.insert(0, str(CODE_DIR / "tools"))
 
 from lib.atom_io import write_atom  # noqa: E402
 from lib.atom_taxonomy import core_categories  # noqa: E402

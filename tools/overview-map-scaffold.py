@@ -30,8 +30,10 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(CLAUDE_DIR))
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 from lib import overview_scaffold as sc  # noqa: E402
 
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
