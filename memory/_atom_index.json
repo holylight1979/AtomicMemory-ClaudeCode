@@ -5119,6 +5119,25 @@
         "多軌"
       ],
       "scope": "global"
+    },
+    {
+      "name": "hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過",
+      "path": "_AIDocs/_atoms/MemDev/hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過.md",
+      "triggers": [
+        "state:unreadable",
+        "state 檔存在但讀不到",
+        "Extra data",
+        "write_state",
+        "state-<sid>.json 壞",
+        "hook 跳過",
+        "part_files_read 歸零",
+        "導讀卡沒讀過",
+        "鎖住或 JSON 壞",
+        "並行工具呼叫 hook 競寫",
+        "LK_NBLCK",
+        "repair_state"
+      ],
+      "scope": "global"
     }
   ]
 }
