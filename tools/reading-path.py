@@ -770,11 +770,16 @@ class Graph:
         return self._stable_import(file, mod.imports, name, hops) if name in mod.imports else True
 
     def _stable_import(self, file: str, imports: dict, name: str, hops: int) -> bool:
-        """import 進來的名字：整個模組（import x）就是那個模組；from X import name 要追到 X 裡的 name 也穩定。"""
-        if not imports[name][2]:
+        """import 進來的名字：整個模組（import x）或子模組（from pkg import sub）就是那個模組；
+        from X import name 要追到 X 裡的 name 也穩定。"""
+        modname, level, orig = imports[name]
+        if not orig:
             return True
-        src, orig = self._imported_from(file, imports, name)
-        return bool(src) and self._stable_in(src, orig, hops + 1)
+        src, _ = self._imported_from(file, imports, name)
+        if src and self.modules.get(src) and self.modules[src].bindings[orig]:
+            return self._stable_in(src, orig, hops + 1)
+        sub = self.find_module(f"{modname}.{orig}" if modname else orig, level, file)
+        return bool(sub) and sub != file
 
     def _stable_ref(self, file: str, ref: lang.Call, hops: int) -> bool:
         """模組層別名的右邊（同模組的名字，或 匯入的模組.成員）穩定。"""

@@ -1341,6 +1341,14 @@ def test_compare_same_numbers_are_undecidable_when_coverage_got_worse(tmp_path):
     assert row["status"] == "undecidable", "可達範圍內看不到的呼叫變多：數字是下限，相同也不能報成不變"
 
 
+def test_submodule_imported_from_a_package_is_certain_by_rule_1(tmp_path):
+    files = {"pkg/__init__.py": "", "pkg/ledger.py": "def write():\n    w = 1\n    w += 1\n    return w\n",
+             "app.py": "from pkg import ledger\n\n\ndef main():\n    ledger.write()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert [(e.dst, e.rule) for e in g.edges["app.py::main"]] == [("pkg/ledger.py::write", 1)], \
+        "from pkg import 子模組 是誠實寫法：子模組名只綁定一次"
+
+
 def test_constructed_self_field_is_found_but_not_certain(tmp_path):
     files = {"app.py": WORKER + "\n\nclass App:\n    def __init__(self):\n        self.worker = Worker()\n\n"
                                 "    def run(self):\n        self.worker.run()\n"}
