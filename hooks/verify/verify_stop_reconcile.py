@@ -35,7 +35,7 @@ PHRASES = ev.compile_claim_phrases(FIX / "q6" / "phrases.json")
 
 ROOT = Path(r"c:\proj")
 _RELATED_CMD = "python -m pytest hooks/verify/verify_x.py"
-_REAL_CASE_EXISTS = vl.case_exists           # fixture 會把它換成「一律存在」，009-4.5 要用真的
+_REAL_CASE_EXISTS = getattr(vl, "case_exists", None)   # fixture 會把它換成「一律存在」，009-4.5 要用真的
 
 
 def _rcpt(turn, verdict="PASS", exit_code=None, cmd=_RELATED_CMD, at="", seq=None, kv=None):
@@ -71,7 +71,7 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "pending_gate_reason", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
     monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
-    monkeypatch.setattr(vl, "case_exists", lambda p: True)       # 案例路徑是虛構的；存在與否由 009 段用真檔測
+    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)   # 案例路徑是虛構的；存在與否由 009 段用真檔測
 
     def drive(text, capsys, tool_names=(), **extra):
         monkeypatch.setattr(st, "get_last_assistant_text", lambda *a, **k: text)
@@ -1050,11 +1050,11 @@ def test_no_self_run_blocks_with_hint():
 def test_self_run_from_sibling_session_counts_and_wraps_through_stop(driven, capsys, monkeypatch):
     """不綁 session：收據沒有 session 欄也算；Stop 端到端走 load_self_runs。"""
     monkeypatch.setattr(wo, "_lookup", _lookup)
-    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run()])
+    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run()], raising=False)
     kw = dict(modified_files=[_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)], anti_evasion_report=_aec(5, "無", "無"))
     out, _, _ = driven("全部完成了。", capsys, **kw)
     assert "MeasureGate" not in out
-    monkeypatch.setattr(st, "load_self_runs", lambda: [])
+    monkeypatch.setattr(st, "load_self_runs", lambda: [], raising=False)
     out, _, _ = driven("全部完成了。", capsys, **kw)
     assert "MeasureGate" in out                                                              # 反例：沒收據
 
@@ -1078,7 +1078,7 @@ def sub_stop(monkeypatch):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
     monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
-    monkeypatch.setattr(vl, "case_exists", lambda p: True)
+    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
 
     def run(capsys, state, last="全部完成了。", agent_id="ag1"):
         monkeypatch.setattr(st, "read_state", lambda sid: state)
@@ -1286,9 +1286,14 @@ _T1, _T2 = "2026-10-12T10:00:00+08:00", "2026-10-12T10:05:00+08:00"
 
 
 def _pend_state(claims):
+    """擋滿時 set_pending 寫下的 pending（含 claims）；直接寫字面值，退回舊碼反證時不依賴新簽名。"""
+    return {_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r", "claims": list(claims)}}}
+
+
+def test_009_1_set_pending_keeps_claims():
     s: dict = {}
-    rl.set_pending(s, _SID, "reconcile", 4, "x", "r", claims)
-    return s["pending_release"]
+    rl.set_pending(s, _SID, "reconcile", 4, "x", "r", ["a 修好了，完成。", "", "b 完成了。"])
+    assert s["pending_release"] == _pend_state(["a 修好了，完成。", "b 完成了。"])
 
 
 def test_009_1_rephrase_keeps_case_debt_and_pending(driven, capsys):
@@ -1406,10 +1411,10 @@ def test_009_4_background_self_receipt_satisfies_fixed_claim(driven, capsys, mon
     """4.4 重現：改碼、改案例、背景全量成功、自寫收據合格，回「修好了，全部完成了。」→ 對帳 (a) 也認自寫收據，不擋。"""
     monkeypatch.setattr(wo, "_lookup", _lookup)
     mods = [_mf(_CODE, 5, last_at=_EDIT_AT, last_seq=7), _mf(_CASE, 5, last_at=_EDIT_AT, last_seq=8)]
-    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run()])
+    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run()], raising=False)
     out, _, _ = driven("修好了，全部完成了。", capsys, modified_files=mods)
     assert "ReconcileGate" not in out and "MeasureGate" not in out
-    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run(started="2026-10-12T01:59:00+00:00")])
+    monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run(started="2026-10-12T01:59:00+00:00")], raising=False)
     out, _, _ = driven("修好了，全部完成了。", capsys, modified_files=mods)
     assert "(a) 說「修好」" in out                                                         # 自寫收據在改檔之前開始 → 擋
 
@@ -1419,10 +1424,11 @@ def test_009_5_deleted_case_does_not_clear_debt(driven, capsys, monkeypatch, tmp
     案例路徑用虛構的 c:\\proj（pytest 的 tmp 目錄名含 test，會被 `**/*test*` 當成案例），存在與否交給真的 case_exists 查 tmp 真檔。"""
     real = tmp_path / "test_a.py"
     case_path = r"c:\proj\tests\test_a.py"
-    monkeypatch.setattr(vl, "case_exists", lambda p: _REAL_CASE_EXISTS(str(real) if p == case_path else p))
+    monkeypatch.setattr(vl, "case_exists", lambda p: bool(_REAL_CASE_EXISTS) and _REAL_CASE_EXISTS(str(real) if p == case_path else p),
+                        raising=False)
     mods = [_mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3), _mf(case_path, 5, last_at=_T2, last_seq=4)]
-    out, _, _ = driven("變更內容如上。", capsys, modified_files=mods)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
     assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out                       # 案例檔已不存在（刪掉了）
     real.write_text("def test_a():\n    assert True\n", encoding="utf-8")
-    out, _, _ = driven("變更內容如上。", capsys, modified_files=mods)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
     assert "ReconcileGate" not in out                                                       # 案例檔在 → 補了案例
