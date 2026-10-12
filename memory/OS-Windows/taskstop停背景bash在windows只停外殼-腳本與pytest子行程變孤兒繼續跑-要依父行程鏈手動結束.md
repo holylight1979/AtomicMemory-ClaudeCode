@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨]（實測 2026-10-13，Windows、VS Code 擴充）用 TaskStop 停一個 `run_in_background` 的 Bash 任務（內容是 `bash script.sh > log 2>&1`，腳本裡跑 pytest），回報成功，但只結束了外層殼；`bash.exe script.sh` 與它底下的兩層 python（pytest）都還在跑，繼續佔著那個 worktree 與 CPU。若接著在同一個樹開新的一輪，兩輪會互踩。
+- [臨]（實測 Windows、VS Code 擴充）用 TaskStop 停一個 `run_in_background` 的 Bash 任務（內容是 `bash script.sh > log 2>&1`，腳本裡跑 pytest），回報成功，但只結束了外層殼；`bash.exe script.sh` 與它底下的兩層 python（pytest）都還在跑，繼續佔著那個 worktree 與 CPU。若接著在同一個樹開新的一輪，兩輪會互踩。
 - [臨] 確認法：PowerShell `Get-CimInstance Win32_Process` 依 CommandLine 找到 pytest，再看 ParentProcessId 是不是那支腳本的 bash；確定是自己開的才 `Stop-Process -Id <bash>,<python>... -Force`，結束後再查一次數量為 0、樹的 git status 乾淨。
 
 ## 行動

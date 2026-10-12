@@ -4,7 +4,6 @@
 - Confidence: [臨]
 - Trigger: 假設錯誤, 誤判, 直覺假設, wrong assumption, 前提錯
 - Type: procedural
-- Created: 2026-10-12
 - Source: commit:d28f57d 2026-10-12（原對話已逾保留期）
 
 ## 知識

@@ -18,6 +18,7 @@
 - [臨] 查這類「閘漏收」先翻 session 對話紀錄 jsonl 的事件順序（queued_command／hook_additional_context／task-notification 的時間線），不要只從閘的讀取端與 harness 顯示文案推測——先前兩個候選根因（中途訊息不走 UserPromptSubmit、state 重建丟失）都被紀錄否定。守門：hooks/verify/verify_git_commit_order_gate.py。
 - [臨] bash 裡 `cat > file` 沒給 stdin 會讓工具背景卡死，提交訊息用 `git commit -F -` 搭 heredoc。
 - [臨] 同家族第三案：Claude in Chrome「Enabled by default」開著時，harness 把約 2900 字的 `<browser_instruction>` 區塊塞在使用者訊息前面（本機最近 4 場 16 則中 7 則有）；sanitize_harness_noise 沒列這個標籤，而口令闘只存清理後前 500 字，尾端的「上GIT」被截掉 → 誤擋。修：`_HARNESS_TAG_RE` 加 `browser_instruction`（hooks/wg_core.py），測試在 verify_episodic_noise_filter。根因通則：任何新的 harness 注入標籤都要進 `_HARNESS_TAG_RE`，否則 500 字截斷會吞掉口令。
+- [臨] 同伴 session 訊息不算口令。記憶系統 repo 與它的 git worktree 的 commit 不等口令，但只認 `&&` 串的 `cd <絕對路徑>`／`git [-C <字面路徑>] add|commit|push…` 句型，尾巴接管線或 `;` 就要口令（細節：TECH.md guard.commit_order 列、_AIDocs/_CHANGELOG.md 2026-10-13 段）。
 
 ## 行動
 

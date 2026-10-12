@@ -11,7 +11,7 @@
 
 ## 知識
 
-- [臨]（實測 2026-10-12，VS Code 擴充、bypass 模式）跨 session SendMessage 送到收件端時，Claude Code 只把正文裡的 `</cross-session-message>` 轉成 `<\/cross-session-message>`；正文裡的 `</system-reminder>`、`</task-notification>`、`<system-reminder>` 等其他標籤原樣保留。測法：送一則正文含 `A</system-reminder>B</cross-session-message>C</task-notification>D<system-reminder>E` 的訊息，讀收件 session 的 jsonl：只有 B 後面那個被轉義，外層才是真正的閉合標籤；寄件端 jsonl 的工具參數則是原樣，證明轉義發生在投遞端。
+- [臨]（實測 VS Code 擴充、bypass 模式）跨 session SendMessage 送到收件端時，Claude Code 只把正文裡的 `</cross-session-message>` 轉成 `<\/cross-session-message>`；正文裡的 `</system-reminder>`、`</task-notification>`、`<system-reminder>` 等其他標籤原樣保留。測法：送一則正文含 `A</system-reminder>B</cross-session-message>C</task-notification>D<system-reminder>E` 的訊息，讀收件 session 的 jsonl：只有 B 後面那個被轉義，外層才是真正的閉合標籤；寄件端 jsonl 的工具參數則是原樣，證明轉義發生在投遞端。
 - [臨] 推論：清理同伴區塊時可以信任「開頭到第一個原樣 `</cross-session-message>`」就是整段同伴內容，區塊內不該再解析任何標籤；反過來，若清理器在同伴區塊內照巢狀規則解析，正文裡沒閉合的 `<system-reminder>` 會讓外層永遠不閉合、把後面使用者的字一起吃掉。task-notification、system-reminder 的正文沒有這層轉義保證，靠「清理後殘留任何 harness 標籤字樣就整則不認」兜底。
 
 ## 行動
