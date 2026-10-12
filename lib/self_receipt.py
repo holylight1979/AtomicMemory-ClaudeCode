@@ -52,7 +52,11 @@ _PS_SHELLS = frozenset({"pwsh", "powershell"})
 _POSIX_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
 _INLINE_FLAG_RE = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")        # bash -c／-lc：把字串當指令跑
 _PS_INLINE_RE = re.compile(r"^-(?:c|e$|ec$|en|cwa$)", re.IGNORECASE)   # pwsh -Command／-EncodedCommand（含縮寫）
-_SETUP_ARG_RE = re.compile(r"^(?:[A-Za-z_]\w*(?:=.*)?|[-+][A-Za-z]+)$", re.DOTALL)
+_SETUP_CD = frozenset({"cd", "set-location", "sl", "chdir"})        # 前置設定准的換目錄（帶單一字面絕對路徑；pushd 會印目錄堆疊，不算）
+_ASSIGN_CMDS = frozenset({"export", "declare", "typeset", "readonly", "local"})   # 參數是 NAME=值 的指令（查變數名用）
+# 會讓 shell 自己印字或執行東西的變數：任何位置指定它們，整條指令都不算（PS4＋set -x 就能讓 shell 印出假哨兵）
+_FORBIDDEN_ENV = frozenset({"PS1", "PS2", "PS3", "PS4", "PROMPT_COMMAND", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS",
+                            "BASH_XTRACEFD", "IFS"})
 _PS_VAR_RE = re.compile(r"^\$[A-Za-z_][\w:]*$")
 _PS_ASSIGN_RE = re.compile(r"^\$[A-Za-z_][\w:]*=")
 _PS_LITERAL_RE = re.compile(r"^(?:'[^']*'|\"[^\"$`]*\"|-?\d+(?:\.\d+)?|\$(?:true|false|null))$", re.IGNORECASE)
@@ -92,6 +96,7 @@ class Step(NamedTuple):
     stdin: bool                 # 有 < 輸入重導向（尾端過濾改讀檔）
     stdout: bool                # stdout 導到檔案或 $null
     raw: Tuple[str, ...]        # 與 words 對齊的原字串樣子
+    pre: Tuple[str, ...]        # 開頭被去掉的 bash 環境指定 `X=1` 的原字串（判斷是不是字面值用）
 
 
 class _Unsupported(Exception):
@@ -110,6 +115,25 @@ def _strip_env(words: List[str]) -> List[str]:
     while i < len(words) and _ENV_ASSIGN_RE.match(words[i]):
         i += 1
     return words[i:]
+
+
+def _assigned_names(words: List[str], ps: bool) -> List[str]:
+    """這個指令指定了哪些變數：bash 開頭的 `X=1`、export／declare 類的 `X=1` 參數；PowerShell 的 `$env:X=`／`$x =`。"""
+    if ps:
+        m = re.match(r"^\$(?:env:)?([A-Za-z_]\w*)(=|$)", words[0]) if words else None
+        assigning = m and (m.group(2) == "=" or (len(words) > 1 and words[1].startswith("=")))
+        return [m.group(1)] if assigning else []
+    names = [w.split("=", 1)[0] for w in words[:len(words) - len(_strip_env(words))]]
+    rest = _strip_env(words)
+    if rest and _prog(rest[0]) in _ASSIGN_CMDS:
+        names += [w.split("=", 1)[0] for w in rest[1:] if _ENV_ASSIGN_RE.match(w)]
+    return names
+
+
+def _literal_assign(raw_tok: str) -> bool:
+    """bash `NAME=值` 的值是字面值：沒有 `$`（整個用單引號包住的除外）。"""
+    v = raw_tok.split("=", 1)[1] if "=" in raw_tok else ""
+    return "$" not in v or (len(v) >= 2 and v[0] == v[-1] == "'" and v.count("'") == 2)
 
 
 def _scan(s: str, ps: bool) -> List[Chunk]:
@@ -253,6 +277,9 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
             has, i = True, i + 1
     end_cmd(";", hard=True)
     for ch in out:                                                # 指令層：控制結構、把字串當指令跑、另起一層 shell
+        bad = [n for n in _assigned_names(ch.words, ps) if n.upper() in _FORBIDDEN_ENV]
+        if bad:
+            raise _Unsupported(f"指定了會讓 shell 自己印字或執行東西的變數 {bad[0]}")
         w = ch.words if ps else _strip_env(ch.words)
         if not w:
             continue
@@ -348,21 +375,20 @@ def parse_cmds(cmd: Argv, shell: str = "bash", root: str = "") -> List[Step]:
     out: List[Step] = []
     for ch in chunks:
         ws = ch.words if argv or shell == "powershell" else _strip_env(ch.words)
+        n_env = len(ch.words) - len(ws)
         nc = _norm_cmd(ws, root) or (_ENV_ONLY if ch.words else None)
         if nc:
-            out.append(Step(ch.op if out else None, nc, tuple(ws), ch.stdin, ch.stdout,
-                            tuple(ch.raw[len(ch.words) - len(ws):])))
+            out.append(Step(ch.op if out else None, nc, tuple(ws), ch.stdin, ch.stdout, tuple(ch.raw[n_env:]),
+                            tuple(ch.raw[:n_env])))
     return out
 
 
-def exec_words(cmd: str, shell: str = "bash") -> List[str]:
-    """真的會被執行的指令的字（split_shell 拆出；去掉開頭的 `X=1`；echo／printf／Write-Output／Write-Host 這類只會印字的
-    指令整個不算）：引號裡被印出的字、註解、重導向目標都不在裡面；白名單外語法 → []。對帳 (a) 判「收據有沒有提到改的檔」用。"""
+def evidence_words(cmd: Argv, shell: str = "bash") -> List[str]:
+    """一般證據裡實際跑程式那幾段的參數（evidence_steps 每段程式名之後的字）：對帳 (a)「提到改檔」只比這些；前置設定、
+    cd、環境指定、echo 印的字都不算；不是證據形狀 → []。"""
     out: List[str] = []
-    for ch in split_shell(str(cmd or ""), shell)[0]:
-        ws = [w for w in (ch.words if shell == "powershell" else _strip_env(ch.words)) if w]
-        if ws and _prog(ws[0]) not in _ECHO_PROGS:
-            out.extend(ws)
+    for st in evidence_steps(cmd, shell) or []:
+        out.extend(w for w in st.words[1:] if w)
     return out
 
 
@@ -385,15 +411,20 @@ def _first_filter(steps: List[Step]) -> int:
 
 
 def _is_setup(st: Step) -> bool:
-    """量尺／整體驗證前面准接的指令：bash 環境指定 `X=1`、cd 類（根另判）、export／set／unset、PowerShell 變數指定。
-    這些不印東西也不換別的程式跑；其他指令擺在前面，印出來的成功行分不出是誰印的，就不算。PowerShell 指定的右邊只准一個
-    字面值（引號字串、數字、$true／$false／$null，看原字串）：`$x = Write-Host '…'` 會直接印到畫面、`$x = Set-Location`
-    會換目錄，右邊是指令就不算。"""
+    """量尺／整體驗證／一般證據前面准接的前置設定，只有這幾種（都不印東西、不換別的程式跑）：bash `NAME=字面值`、
+    `export NAME=字面值`；PowerShell `$env:NAME=字面值`、`$name=字面值`（右邊只准一個字面值：引號字串、數字、
+    $true／$false／$null，看原字串；`$x = Write-Host '…'` 會直接印到畫面、`$x = Set-Location` 會換目錄）；`cd <絕對路徑>`。
+    set、unset、shopt、alias、pushd 都不算（`set -x` 加 PS4 就能讓 shell 自己印字）；會讓 shell 印字或執行東西的變數名
+    （PS4 等）在斷詞時就整條不支援。"""
     w, raw = st.words, st.raw
-    if st.cmd == _ENV_ONLY or st.cmd[0] in _CD_PROGS:
-        return True
-    if st.cmd[0] in ("export", "set", "unset"):
-        return len(w) > 1 and all(_SETUP_ARG_RE.match(t) for t in w[1:])
+    if st.cmd == _ENV_ONLY:
+        return all(_literal_assign(t) for t in st.pre)
+    if st.pre:
+        return False                                              # `X=1 cd …` 這種帶環境指定的設定指令不算
+    if st.cmd[0] in _SETUP_CD:
+        return len(w) == 2 and bool(_ABS_DIR_RE.match(w[1])) and not any(ch in w[1] for ch in "$~*?")
+    if st.cmd[0] == "export":
+        return len(w) > 1 and all(_ENV_ASSIGN_RE.match(t) and _literal_assign(r) for t, r in zip(w[1:], raw[1:]))
     if _PS_ASSIGN_RE.match(w[0]):
         rhs = [raw[0].split("=", 1)[1], *raw[1:]]
     elif _PS_VAR_RE.match(w[0]) and len(w) > 1 and w[1].startswith("="):
@@ -409,21 +440,23 @@ def _reachable(steps: List[Step], start: int) -> bool:
     return start == 0 or (steps[start].op in (";", "&&") and all(_is_setup(s) for s in steps[:start]))
 
 
-def final_step(cmd: Argv, shell: str = "bash") -> Optional[Step]:
-    """輸出就是收據的那個指令：前面只准 cd 與環境設定、後面只准乾淨的尾端過濾；不是這種形狀（或白名單外語法）→ None。"""
-    steps = parse_cmds(cmd, shell)
+def final_step(cmd: Argv, shell: str = "bash", root: str = "") -> Optional[Step]:
+    """輸出就是收據的那個指令：前面只准前置設定、後面只准乾淨的尾端過濾；不是這種形狀（或白名單外語法）→ None。
+    root：從哪裡跑（腳本照它解析成路徑身分）。"""
+    steps = parse_cmds(cmd, shell, root)
     k = _first_filter(steps)
     return steps[k - 1] if k and _reachable(steps, k - 1) else None
 
 
-def is_whole_run(cmd: Argv, shell: str = "bash") -> bool:
-    """整體驗證（對所有改檔都算對得上）：final_step 是不帶任何參數的 run_verify.py，或不帶位置參數、只帶不縮範圍選項
-    （-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准 -X utf8、-u、-B。-k、-m、--lf、--collect-only、--deselect、
-    --ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）。"""
-    st = final_step(cmd, shell)
+def is_whole_run(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
+    """整體驗證：final_step 是執行根自己的 run_verify.py（root 給了就照完整路徑身分比，`archive/run_verify.py`、別處同名都不算；
+    沒給只比檔名）且不帶任何參數，或不帶位置參數、只帶不縮範圍選項（-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准
+    -X utf8、-u、-B。-k、-m、--lf、--collect-only、--deselect、--ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）。
+    涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
+    st = final_step(cmd, shell, root)
     if not st or not set(st.cmd[1]) <= _WHOLE_PY_OPTS:
         return False
-    if st.cmd[0] == "run_verify.py":
+    if st.cmd[0] == _script_id("run_verify.py", root):
         return not st.cmd[2]
     if st.cmd[0] != "pytest":
         return False
@@ -469,16 +502,23 @@ def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "
     （表所在的根）解析，兩邊只給一個就共用；都沒給只比檔名。多段量尺後面再接過濾時，量尺最後一段要是 echo 類（管線會蓋掉
     最後一段的 exit：最後一段若是會失敗的程式，前段印的 DONE 會替它背書）。白名單外語法、`印假哨兵 || 量尺`、
     `量尺; echo 假的 DONE`、引號裡的量尺字樣都對不上。"""
+    return match_span(measure_cmd, cmd, shell, root, measure_root) is not None
+
+
+def match_span(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "",
+               measure_root: str = "") -> Optional[Tuple[int, int]]:
+    """cmd_matches 對上的量尺片段在 cmd 裡是第幾到第幾個指令（[start, end)，與 split_shell 斷出的指令一一對應）；對不上 → None。
+    呼叫端要知道哪一段是量尺本身（量尺自帶的 `&& echo … DONE` 不算寫了假哨兵，其餘位置都算）。"""
     m = parse_cmds(measure_cmd, root=measure_root or root)
     e = parse_cmds(cmd, shell, root or measure_root)
     if not m:
-        return False
+        return None
     tail_ok = len(m) == 1 or _prog(m[-1].words[0] if m[-1].words else "") in _ECHO_PROGS
     for end in range(_first_filter(e), len(e) + 1):
         start = end - len(m)
         if start >= 0 and (end == len(e) or tail_ok) and _reachable(e, start) and _chain_at(m, e, start):
-            return True
-    return False
+            return start, end
+    return None
 
 
 def _chain_at(m: List[Step], e: List[Step], start: int) -> bool:
@@ -558,7 +598,7 @@ def leading_cd(cmd: str, shell: str = "bash") -> Optional[str]:
     收據根就用它；其餘 → None（照舊當根不可信）。"""
     chunks = split_shell(str(cmd or ""), shell)[0]
     if (len(chunks) < 2 or chunks[1].op != "&&" or len(chunks[0].words) != 2
-            or _prog(chunks[0].words[0]) not in _CD_PROGS):
+            or _prog(chunks[0].words[0]) not in _SETUP_CD):
         return None
     path = chunks[0].words[1]
     if not _ABS_DIR_RE.match(path) or any(ch in path for ch in "$~*?"):

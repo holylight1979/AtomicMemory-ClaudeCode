@@ -212,13 +212,15 @@ def test_run_verify_writes_receipt_after_sentinel_and_help_writes_nothing(tmp_pa
 
 
 def test_015_heredoc_body_and_echo_are_not_executed_words():
-    """015：exec_words 去掉 echo 類指令，留下真的執行的字。017b 規則 13／14：heredoc 改成 fail-closed：整條指令三種用途都不算
+    """015：echo 印的字不算執行的字（022 規則 3：「提到改檔」只看實際驗證段的參數，夾了 echo 整條就不是證據形狀）。
+    017b 規則 13／14：heredoc 改成 fail-closed：整條指令三種用途都不算
     （heredoc 之後真的跑也不算；要跑尺就單獨跑）。"""
     hd = "cat <<'EOF' > note.txt\npython -X utf8 run_verify.py\nEOF\necho VERIFY_CHECK DONE cases=1 failed=0"
     assert not sr.cmd_matches(_MEASURE, hd)
     assert not sr.cmd_matches(_MEASURE, "cat <<-EOF\n  x\n  EOF\npython -X utf8 run_verify.py")
-    assert sr.exec_words("echo tests/test_a.py; pytest -q tests/test_b.py") == ["pytest", "-q", "tests/test_b.py"]
-    assert sr.exec_words(hd) == [] and "heredoc" in sr.unsupported_syntax(hd)
+    assert sr.evidence_words("echo tests/test_a.py; pytest -q tests/test_b.py") == []
+    assert sr.evidence_words("pytest -q tests/test_b.py") == ["-q", "tests/test_b.py"]
+    assert sr.evidence_words(hd) == [] and "heredoc" in sr.unsupported_syntax(hd)
 
 
 # ─── 017／017b：白名單語法、解析不了就不算 ─────────────────────────────────────────────
@@ -265,7 +267,7 @@ def test_017_outside_whitelist_is_not_evidence_anywhere(cmd, kind):
     for shell in ("bash", "powershell"):
         why = sr.unsupported_syntax(cmd, shell)
         assert why and kind in why, (cmd, shell, why)
-        assert not sr.cmd_matches(_MEASURE, cmd, shell) and not sr.is_whole_run(cmd, shell) and sr.exec_words(cmd, shell) == []
+        assert not sr.cmd_matches(_MEASURE, cmd, shell) and not sr.is_whole_run(cmd, shell) and sr.evidence_words(cmd, shell) == []
 
 
 @pytest.mark.parametrize("cmd, shell", [
@@ -273,7 +275,7 @@ def test_017_outside_whitelist_is_not_evidence_anywhere(cmd, kind):
     ('python -X utf8 "C:\\中文 專案\\run_verify.py" 2>&1 | tail -n 20', "bash"),
     ('$env:WG_CLAUDE_DIR="C:\\x"; python -X utf8 run_verify.py 2>&1 | Select-Object -Last 5', "powershell"),
     ("$ErrorActionPreference = 'Stop'; python -X utf8 run_verify.py", "powershell"),
-    ("set -o pipefail; export X=1; WG=1 python -X utf8 run_verify.py", "bash"),
+    ("export X=1; WG=1 python -X utf8 run_verify.py", "bash"),
     ("python -X utf8 `\nrun_verify.py", "powershell"),                 # 017b 規則 12：PowerShell 反引號續行（LF）
     ("python -X utf8 `\r\nrun_verify.py", "powershell"),               # CRLF 續行
     ("python -X utf8 \\\nrun_verify.py", "bash"),

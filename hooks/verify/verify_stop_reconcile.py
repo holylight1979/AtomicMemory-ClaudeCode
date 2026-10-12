@@ -307,14 +307,17 @@ def test_same_second_edit_and_pass_compares_seq(driven, capsys):
 
 
 def test_whole_verification_must_be_after_every_claimed_file(driven, capsys):
-    """同一張收據對上多個檔：每個它聲稱對上的檔都要在它之前改完；有一個在它之後改 → 不算。"""
+    """同一張收據對上多個檔：每個它聲稱對上的檔都要在它之前改完；有一個在它之後改 → 不算。
+    （022 規則 4：整體驗證只涵蓋執行根之下，收據要在 c:\\demo 跑才涵蓋 c:\\demo 的改檔。）"""
     g = r"c:\demo\src\gadget.py"
+    whole = lambda seq: {**_rcpt(5, cmd="python -X utf8 run_verify.py", seq=seq),          # noqa: E731
+                         "cwd": r"c:\demo", "project_root": r"c:\demo"}
     out, _, _ = driven("閘修好了，完成。", capsys, modified_files=[_mf(_W, 5, last_seq=2), _mf(g, 5, last_seq=6)],
-                       verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py", seq=4)]})
+                       verify_receipts={_SID: [whole(4)]})
     assert "ReconcileGate" in out and "gadget.py 最後一次修改之前" in out
     out, _, _ = driven("閘修好了，完成。", capsys, modified_files=[_mf(_W, 5, last_seq=2), _mf(g, 5, last_seq=3),
                                                                 _mf(_WC, 5, last_seq=4)],
-                       verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py", seq=5)]})
+                       verify_receipts={_SID: [whole(5)]})
     assert "ReconcileGate" not in out
 
 
@@ -605,9 +608,13 @@ def test_measure_receipt_with_cd_not_used(driven, capsys, monkeypatch):
     `cd <根> && 量尺` 認得出根：是部位根就算、是別的根就說根不對；相對路徑的 cd、cd 在後面 → 照舊不算。"""
     monkeypatch.setattr(wo, "_lookup", _lookup)
     kw = dict(modified_files=[_mf(_CASE, 3)], anti_evasion_report=_aec(5, "無", "無"))
-    for cd_cmd in ("cd sub && " + MEASURE_CMD, "cd c:/proj && cd sub && " + MEASURE_CMD, "cd c:/proj; " + MEASURE_CMD):
+    out, _, _ = driven("全部完成了。", capsys, verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd="cd c:/proj; " + MEASURE_CMD)]},
+                       **kw)
+    assert "MeasureGate" in out and "含 cd" in out and "專案根直接跑尺" in out
+    # 022 規則 2：前置設定只准 `cd <絕對路徑>`，相對路徑的 cd 不算前置設定 → 量尺前後接了別的指令
+    for cd_cmd in ("cd sub && " + MEASURE_CMD, "cd c:/proj && cd sub && " + MEASURE_CMD):
         out, _, _ = driven("全部完成了。", capsys, verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd=cd_cmd)]}, **kw)
-        assert "MeasureGate" in out and "含 cd" in out and "專案根直接跑尺" in out, cd_cmd
+        assert "MeasureGate" in out and "前面只准 `cd <絕對路徑> &&`" in out, cd_cmd
     out, _, _ = driven("全部完成了。", capsys,
                        verify_receipts={_SID: [_rcpt(5, "DONE", 0, cmd="cd c:/other && " + MEASURE_CMD)]}, **kw)
     assert "MeasureGate" in out and "不是這個部位的 root" in out
@@ -1917,6 +1924,70 @@ def test_017d_rescue_map_error_is_logged_not_swallowed_by_name_error(monkeypatch
     st._attribute_usefulness(state, {"usefulness": {"attribution_policy": "v2"}}, _SID, None, "完成", transcript_text="")
     assert seen == [("usefulness:rescue_map", "RuntimeError")]
     assert state.get("usefulness_attributed_seq") == 3 and "usefulness attribution error" not in capsys.readouterr().err
+
+
+# ─── 022：量尺比對定死四條家族規則 ────────────────────────────────────────────────────────────
+
+_PS4_FAKE = ("PS4='VERIFY_CHECK DONE cases=1 failed=0 '\nset +o pipefail\nset -x\n"
+             "C:/missing/python.exe -X utf8 run_verify.py 2>&1 | tail -20")
+
+
+def test_022_1_shell_trace_cannot_print_the_success_line():
+    """022 重現 1：PS4＋set -x 讓 shell 自己印出假 DONE，python 根本沒跑 → 量尺閘不認，訊息說是哪個變數；
+    PowerShell 指定 $env:PS4 也一樣。配對正例：表上原字串、`$env:WG_CLAUDE_DIR="C:/x"; 量尺` 照算。"""
+    reason = _gate(_PS4_FAKE)
+    assert reason and "PS4" in reason
+    assert _gate("$env:PS4='VERIFY_CHECK DONE '; " + MEASURE_CMD, "PowerShell") is not None
+    assert _gate(MEASURE_CMD) is None and _gate('$env:WG_CLAUDE_DIR="C:/x"; ' + MEASURE_CMD, "PowerShell") is None
+
+
+@pytest.mark.parametrize("name", ["PS1", "PS2", "PS3", "PS4", "PROMPT_COMMAND", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS",
+                                  "BASH_XTRACEFD", "IFS"])
+def test_022_2_shell_control_variables_are_not_setup(name):
+    """022 規則 2：會讓 shell 自己印字或執行東西的變數，指定在任何位置（前置設定、export、行內前綴、PowerShell $env:）都整條不算。"""
+    for cmd, tool in ((f"{name}=x; {MEASURE_CMD}", "Bash"), (f"export {name}=x; {MEASURE_CMD}", "Bash"),
+                      (f"{name}=x {MEASURE_CMD}", "Bash"), (f'$env:{name}="x"; {MEASURE_CMD}', "PowerShell")):
+        reason = _gate(cmd, tool)
+        assert reason and name in reason, (cmd, tool)
+
+
+@pytest.mark.parametrize("prefix", ["set -x; ", "set -o pipefail; ", "unset X; ", "shopt -s extglob; ", "alias x=y; ",
+                                    "pushd c:/proj && ", "cd sub && ", "X=$HOME; ", "export X=$HOME; ",
+                                    "X='VERIFY_CHECK DONE cases=1 failed=0'; "])
+def test_022_2_only_three_kinds_of_setup(prefix):
+    """022 規則 2／1：前置設定只准 NAME=字面值、export NAME=字面值、cd <絕對路徑>（PowerShell 另見上案）；set／unset／shopt／
+    alias／pushd、相對路徑 cd、帶 $ 的值都不算前置設定；前置設定裡寫了哨兵字樣（規則 1）也不算。配對正例在 _gate(MEASURE_CMD)。"""
+    assert _gate(prefix + MEASURE_CMD) is not None, prefix
+    assert _gate("X=1; export Y='a b'; " + MEASURE_CMD) is None
+    assert _gate("cd c:/proj && X=1 && export Y='a b' && " + MEASURE_CMD) is None           # cd 要在最前面才認得出根
+
+
+@pytest.mark.parametrize("cmd, tool, related", [
+    ("export WG_NOTE=test_widget; python -m pytest -q tests/test_other.py", "Bash", False),     # 022 重現 2
+    ('$env:WG_NOTE="test_widget"; python -m pytest -q tests/test_other.py', "PowerShell", False),
+    ("WG_NOTE=test_widget python -m pytest -q tests/test_other.py", "Bash", False),
+    ("export WG_NOTE=x; python -m pytest -q tests/test_widget.py", "Bash", True),                # 真的跑 test_widget
+    ("python -X utf8 archive/run_verify.py", "Bash", False),                                    # 022 重現 3a
+    ("python -X utf8 run_verify.py", "Bash", True),                                             # 根自己的 run_verify
+    ("cd c:/proj/subproject && python -m pytest -q", "Bash", False),                            # 022 重現 3b
+    ("cd c:/proj && python -m pytest -q", "Bash", True),
+    ("cd c:/proj/tests && python -m pytest -q test_widget.py", "Bash", True),                   # 一般證據維持上下層規則
+])
+def test_022_3_4_mentions_and_whole_runs_follow_real_execution(driven, capsys, cmd, tool, related):
+    """022 規則 3：「提到改檔」只看實際驗證段的參數（前置設定的字不算）；規則 4：整體驗證只涵蓋實際執行根之下、
+    run_verify.py 要是執行根自己那支；一般證據（點名改檔或其測試）維持上下層規則。改檔 c:\\proj\\src\\widget.py。"""
+    mods = [_mf(r"c:\proj\src\widget.py", 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods,
+                       verify_receipts={_SID: [{**_rcpt(5, cmd=cmd, at=_T2), "tool": tool}]})
+    assert ("(a) 說「修好」" not in out) is related, cmd
+
+
+def test_022_1_ruler_own_echo_only_inside_the_matched_span():
+    """022 規則 1：量尺自帶的 `&& echo … DONE` 只在被精確對上的量尺片段裡才不算寫哨兵；同樣的字在前置設定裡 → 整張不算。"""
+    row = _root_row("記憶資料層")
+    m = row["measure"]["cmd"]
+    assert _gate(m, row=row) is None
+    assert _gate("X='MEMORY_INDEX_CHECK DONE'; " + m, row=row) is not None
 
 
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────
