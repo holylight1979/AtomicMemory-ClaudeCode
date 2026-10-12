@@ -1,7 +1,8 @@
 # MyClaudeCode (.claude) — AI 分析文件索引
 
 > 本資料夾記錄 `~/.claude` 自訂擴充系統的架構與演進。
-> 最近更新：2026-10-06（atom 來源回看閉環：`- Quote:` 欄、PostToolUse 自動填 Source／Quote、`atom_source` MCP／CLI／skill、舊 atom 回填與週健檢防腐；README／Install 改純使用者視角三層；TECH 現況對帳、§14.1 版本表移 DevHistory）
+> 最近更新：2026-10-12（V6.0 寫程式碼的進化：部位導讀卡注入＋寫入閘、驗證帳本與對帳／量尺閘、Depends 讀檔召回、候選填空、壓縮後綜觀重注、第二意見與候選池、從零掃表；TECH §7.6、DocIndex 補 v6 hooks 模組、README 補使用者會遇到的兩點）
+> 前次：2026-10-06（atom 來源回看閉環：`- Quote:` 欄、PostToolUse 自動填 Source／Quote、`atom_source` MCP／CLI／skill、舊 atom 回填與週健檢防腐；README／Install 改純使用者視角三層；TECH 現況對帳、§14.1 版本表移 DevHistory）
 > 前次：2026-08-31（對外四文件全面改寫：README 人讀化、TECH 按現況重排、Install-forAI 前置需求＋降級邏輯、version.json 加網頁位置欄）
 > 前次：2026-07-25（V5.1：RRF 三路融合 + memory-eval 回歸集 + 失念/壞滅緣/證據等級）
 

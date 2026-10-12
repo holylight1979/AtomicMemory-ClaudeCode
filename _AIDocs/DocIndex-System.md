@@ -112,6 +112,10 @@ Session Ready
 | wg_provenance.py | — | 來源自動填：PostToolUse 對 atom_write receipt（create／replace）補 `- Source: session:<sid8>#<uuid8> <日期>` 與 `- Quote:`（`state.turn_prompts[-1]` 經 `lib/provenance.sanitize_quote`；已有 Quote 不動、呼叫者已給 Source 只補 Quote）；失敗記 `Logs/guard-provenance.jsonl` 不阻斷 |
 | vcs-sync-worker.py | — | detached worker：git pathspec add＋commit → 拉（`vcs_sync.pull.enabled`）→ push 守門（待推歷史含非記憶 commit 不推）；svn `--xml` add／delete／update／commit；stderr → `Logs/vcs-sync.log` |
 | wg_recall_miss.py | — | 失念偵測（recall-miss）：SessionEnd 比對「失敗證據 × 庫中未注入 atom trigger」（≥2 非泛用詞）→ `Logs/recall-miss.jsonl`；浮出走效果報表 D 節 + 週健檢黃燈 |
+| wg_overview.py | — | 部位導讀卡（OverviewHub）：`on_prompt`／`on_read` 第一次碰到部位注入導讀卡（依意圖選片）、`on_edit` 寫入閘（三項證據缺一即 deny、readonly、transcript 讀不到即擋）、候選填空（觸發詞、第二次 Edit、全專案）；部位表解析在 `lib/overview_hub.py`；log `_overview-hub.log`（TECH §7.6） |
+| wg_depends.py | — | Depends 讀檔召回：讀到某卡 `- Depends: path:` 指的檔 → 一行一卡指標（同卡一 session 一次）；`authority_map` 命中文件檔一次性注入地圖 |
+| wg_verify_ledger.py | — | 驗證帳本：收 Bash／PowerShell 輸出哨兵進 `workflow/verify-ledger/<sid>.jsonl`；Stop 的 ReconcileGate（宣稱對收據）、MeasureGate（量尺 DONE）判定純函式（TECH §7.1） |
+| wg_scorecard.py | — | 每 session 一行過程量（S1／S3／S5）→ `workflow/scorecard/<yyyymm>.jsonl`，報表 `tools/scorecard-report.py` |
 | codex_companion.py | — | Codex Companion hook：in-process state + spawn audit.py subprocess |
 | extract-worker.py | — | SessionEnd 萃取子程序 |
 | user-extract-worker.py | — | L1/L2 使用者決策萃取 |
@@ -311,6 +315,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - _AIDocs/MultiMachineMemorySync.md — 多機記憶同步（AI 讀）：索引三檔三層防線（全 repo LF → 合併驅動 hook 自動裝 → `--resolve` 備案自動觸發）、config、CLI 契約、stage 方向矩陣、支援的 shell 語法、Windows 約束、失敗模式 SOP、手動最後手段、不在保證範圍、設計取捨、驗證方法
 - _AIDocs/context-memory-governance.md — 上下文與記憶治理設計憲法（context rot / 4 失效模式 / memory governance / CLT；注入·萃取自檢 hook 的對齊標的）
 - _AIDocs/DevHistory/v5-overhaul-2026-05/ — V5 升版完整紀錄
+- _AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/ — V6.0 預計畫、執行計畫（含驗收總表 Q0～Q16）、三方討論全貌、原設計者原話輯
 - LICENSE — GPLv3
 
 ---
