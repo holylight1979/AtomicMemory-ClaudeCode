@@ -710,7 +710,18 @@
   "verify_ledger": {
     "_doc": "驗證帳本（hooks/wg_verify_ledger.py）：PostToolUse 收 Bash／PowerShell 輸出的哨兵（<NAME>_CHECK PASS|FAIL|DONE、量測類 <NAME> DONE k=v）與 exit code，落 workflow/verify-ledger/<sid>.jsonl（gitignore）並進 state verify_receipts[sid]（cap 50）；只在有哨兵或是測試指令時落帳；子代理（agent_id）另落 <sid>.agents.jsonl 不入主帳。sentinel_regex 讓既有工具不改輸出就能映射：每項 {regex（MULTILINE；可帶 (?P<verdict>) 具名群組）, name, verdict_map{子字串: PASS|FAIL|DONE}}。vcs_budget_s 是 vcs_snapshot 整體 deadline（每個子行程 ≤1 s、rev 每 root 60 s 快取、未提交雜湊只用 os.stat、每 10 檔查一次、上限 200 檔）。ledger_sources 保留（v6.0 不讀）。一鍵關＝enabled:false。",
     "enabled": true,
-    "sentinel_regex": [],
+    "sentinel_regex": [
+      {
+        "regex": "^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed))",
+        "name": "PYTEST",
+        "verdict_map": {"failed": "FAIL", "passed": "PASS"}
+      },
+      {
+        "regex": "^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed))",
+        "name": "PYTEST_MEASURE",
+        "verdict_map": {"failed": "FAIL", "passed": "DONE"}
+      }
+    ],
     "vcs_budget_s": 1.5,
     "ledger_sources": []
   },
