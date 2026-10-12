@@ -15,7 +15,7 @@
 - [臨] 現象（2026-10-12 根層 session ccffc32e）：同一則訊息並行 4 個 Write＋3 個 SendMessage 後，`workflow/state-<sid>.json` 從 10:13:57 起不再更新，`Logs/atom-debug-*.log` 連續 45 筆 `[state:unreadable] state 檔存在但讀不到（鎖住或 JSON 壞），本次 hook 跳過、不建 fallback 覆蓋`；表面症狀是部位閘一直說「還沒看過導讀卡／同頂層目錄讀了 0 個檔」、verify_receipts 不再累積。`python -m json.tool` 報 `Extra data: line 6970`——合法 JSON 後面多 119 字元舊內容尾巴。
 - [臨] 根因在 `hooks/wg_core.py:write_state`：所有 hook 行程共用同一個 `state-<sid>.tmp`；Windows 鎖用 `msvcrt.locking(LK_NBLCK)`，拿不到只 `except OSError` 把 lock_fh 設 None 然後**照樣往下寫**。兩支 hook 同時 `open(tmp,'w')`，先寫的長內容被後寫的短內容從 offset 0 覆蓋、尾端殘留，`replace` 後整檔壞。read_state_status 正確地不建 fallback，但代價是該 session 餘生每支 hook 都跳過。
 - [臨] 自救：把 state 檔用 `json.JSONDecoder().raw_decode` 取第一個完整物件寫回、原檔備份 `.corrupt-<ts>`（scratchpad 範本 repair_state.py），hook 立刻恢復。修法（待派工）：tmp 檔名帶 pid（`path.with_suffix(f'.{os.getpid()}.tmp')`）；鎖拿不到短暫重試幾次再寫；verify 加兩行程併發 write_state 後檔仍是合法 JSON 的案。
-- [臨] 已修（2026-10-12 v6/track-b2，merge 268a12d）：`write_state` tmp 檔名帶 pid、鎖拿不到重試 10×20ms 才無鎖寫（stderr `[state:lock-timeout]`）、replace 失敗重試並不動原檔（`[state:replace-failed]`）、unlink 失敗浮 `[state:tmp-left]`；併發反例案 `hooks/verify/verify_state_write_concurrency.py` 在舊條件下確定性重現 Extra data。殺檔自救範本持久在 `workflow/v6-inbox/_console/repair_state.py`。
+- [臨] 已修（v6/track-b2，merge 268a12d）：`write_state` tmp 檔名帶 pid、鎖拿不到重試 10×20ms 才無鎖寫（stderr `[state:lock-timeout]`）、replace 失敗重試並不動原檔（`[state:replace-failed]`）、unlink 失敗浮 `[state:tmp-left]`；併發反例案 `hooks/verify/verify_state_write_concurrency.py` 在舊條件下確定性重現 Extra data。殺檔自救範本持久在 `workflow/v6-inbox/_console/repair_state.py`。
 
 ## 行動
 
