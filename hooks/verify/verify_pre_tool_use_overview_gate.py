@@ -102,6 +102,35 @@ def test_powershell_write_to_part_file_is_denied(world):
     assert _deny(out) and "共用字典" in out["hookSpecificOutput"]["permissionDecisionReason"]   # deny 理由帶卡
 
 
+# ─── 004：驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/，含 _runs/）禁手寫 ───────────────────
+
+def test_write_into_verify_ledger_runs_is_denied(world, tmp_path):
+    proj, outputs, tp = world
+    target = str(tmp_path / "wf" / "verify-ledger" / "_runs" / "x.json")
+    out = _run("Write", {"file_path": target, "content": "{}"}, proj, tp, outputs)
+    assert _deny(out) and "驗證收據只能由驗證程式自己寫，不准手寫或改" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_bash_and_powershell_redirect_into_verify_ledger_denied(world, tmp_path):
+    proj, outputs, tp = world
+    led = tmp_path / "wf" / "verify-ledger"
+    out = _run("Bash", {"command": f'echo {{}} > "{led / "a.jsonl"}"'}, proj, tp, outputs)
+    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    out = _run("PowerShell", {"command": f'Set-Content -Path "{led / "_runs" / "b.json"}" -Value "{{}}"'}, proj, tp, outputs)
+    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    out = _run("Edit", {"file_path": str(led / "s.jsonl"), "old_string": "a", "new_string": "b"}, proj, tp, outputs)
+    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_other_workflow_files_and_running_verify_not_affected(world, tmp_path):
+    proj, outputs, tp = world
+    for tool, ti in (("Write", {"file_path": str(tmp_path / "wf" / "other.json"), "content": "{}"}),
+                     ("Write", {"file_path": str(tmp_path / "wf" / "verify-ledger-notes.md"), "content": "x"}),
+                     ("Bash", {"command": "python -X utf8 run_verify.py"})):
+        out = _run(tool, ti, proj, tp, outputs)
+        assert not _deny(out), (tool, ti)
+
+
 def test_bash_without_write_target_passes_untouched(world):
     proj, outputs, tp = world
     out = _run("Bash", {"command": f'cat "{proj / "Game" / "Battle" / "A.cs"}"'}, proj, tp, outputs)

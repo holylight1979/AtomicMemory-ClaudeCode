@@ -861,17 +861,46 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
         return False
 
 
+def _load_self_runs() -> List[Dict[str, Any]]:
+    """run_verify 自寫的驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/_runs/，格式在 lib/self_receipt.py）。"""
+    try:
+        from self_receipt import load_self_receipts
+    except ImportError as e:
+        print(f"[Guardian:MeasureGate] 讀不了自寫收據模組（lib/self_receipt.py）：{e}", file=sys.stderr)
+        return []
+    return load_self_receipts(CLAUDE_DIR)
+
+
+def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: str, edit_turn: int) -> bool:
+    """有一份自寫收據同時符合：cmd 含該部位量尺指令；exit 0 且 failed 0；started_at 晚於該部位最後一次修改；
+    收據根與部位根同一棵樹（_root_ok）。不綁 session：改完之後任何人對同一棵樹跑完的全量都算。"""
+    want = " ".join(cmd.split()).lower()
+    for r in runs or []:
+        if not isinstance(r, dict) or not want or want not in " ".join(str(r.get("cmd", "")).split()).lower():
+            continue
+        if r.get("exit_code") != 0 or str(r.get("failed")) != "0":
+            continue
+        if not _receipt_after({"at": r.get("started_at") or ""}, edit_at or None, None, edit_turn):
+            continue
+        if _root_ok(r, root):
+            return True
+    return False
+
+
 def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]], turn_seq: int,
                         lookup: Callable[[str], Optional[Tuple[Path, Dict[str, Any]]]], cfg: Dict[str, Any],
                         chains_of: Callable[[Path], Dict[str, Dict[str, str]]] = load_verify_chains,
                         runner: Callable[[str, float, Optional[str]], Tuple[bool, str]] = run_runtime_gate,
+                        self_runs: Optional[Callable[[], List[Dict[str, Any]]]] = None,
                         ) -> Tuple[Optional[str], List[str]]:
     """改到的部位有量尺 → 先 runtime_gate（量不了就擋並說原因）→ 找「該部位最後一次修改之後」（比 at，沒有比序號，再沒有比 turn）、
     同 root、exit 0／None 且 failed=0 的 DONE 且 cmd 含量尺指令，沒有→擋。回 (擋訊息或 None, 沒量尺的部位名清單＝提醒補)。
     小修也要重跑尺：同 turn 再改一行，之前的 DONE 就在修改之前、不算；尺太重的部位把量尺改成子集指令（表上那格）。
     根層 worktree（is_root_worktree(root, CLAUDE_DIR)）：工作 session 不跑全量，該部位的尺改認「同 root 下、修改之後、
-    exit 0 且 failed=0 的 pytest DONE 收據（哨兵 PYTEST_MEASURE）」；live 根層（root == CLAUDE_DIR）與非根層專案行為不變。"""
+    exit 0 且 failed=0 的 pytest DONE 收據（哨兵 PYTEST_MEASURE）」；live 根層（root == CLAUDE_DIR）與非根層專案行為不變。
+    非根層 worktree 的部位除了 session 帳本，也認 run_verify 自寫收據（self_run_ok；長跑的尺只能背景跑，帳本看不到結尾哨兵）。"""
     parts: Dict[str, Dict[str, Any]] = {}
+    _runs: List[List[Dict[str, Any]]] = []          # 自寫收據只在需要時讀一次
     for m in own_mod_files or []:
         p = (m or {}).get("path", "")
         if not p:
@@ -917,7 +946,12 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                                 min_seq=rec["edit_seq"], root=str(root), **pick)
         if ok_done:
             continue
-        ruler = (f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
+        if not root_wt:
+            if not _runs:
+                _runs.append((self_runs or _load_self_runs)() or [])
+            if self_run_ok(_runs[0], cmd, str(root), rec["edit_at"], rec["edit_turn"]):
+                continue
+        ruler =(f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
                  f"哨兵 {ROOT_WT_SENTINEL}，表上的尺 `{cmd}` 不是這裡的門檻）")
         rerun = (f"在 worktree 根 `{root}` 直接跑目標 verify `python -X utf8 -m pytest -q <hooks/verify/...>`"
                  f"（不含 cd；尾行 `N passed` 會映射成 {ROOT_WT_SENTINEL} DONE）")
@@ -950,6 +984,9 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
     reason = None
     if blocks:
         reason = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n" + "\n".join("  ✗ " + b for b in blocks)
+        if any("run_verify.py" in str((r["row"].get("measure") or {}).get("cmd") or "") for r in parts.values()):
+            reason += ("\n  run_verify 跑超過 10 分鐘就背景跑：它跑完會自寫收據到 workflow/verify-ledger/_runs/，"
+                       "改完之後才開始跑、exit 0、failed=0、同一棵樹就認得到（收據不准手寫）。")
     return reason, no_measure
 
 

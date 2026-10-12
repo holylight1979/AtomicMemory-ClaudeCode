@@ -721,6 +721,27 @@ def check_merge_driver(
     return None
 
 
+_LEDGER_WRITE_TOOLS = ("Write", "Edit", "NotebookEdit", "MultiEdit", "Bash", "PowerShell")
+
+
+def check_verify_ledger_write(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> Optional[str]:
+    """驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/，含 run_verify 自寫的 _runs/）只能由驗證程式自己寫：
+    Edit／Write／NotebookEdit 的 file_path 與 Bash／PowerShell 解析出的寫入目標命中 → deny。
+    hook 自己落帳（PostToolUse）與 run_verify 自寫都不經工具呼叫，不受影響。"""
+    if tool_name not in _LEDGER_WRITE_TOOLS:
+        return None
+    from wg_core import WORKFLOW_DIR, write_paths_from_tool
+    base = os.path.normcase(os.path.normpath(str(WORKFLOW_DIR / "verify-ledger")))
+    for t in write_paths_from_tool(tool_name, tool_input, cwd or None):
+        if t.startswith("UNKNOWN:"):
+            continue                    # 算不出目標的寫入由 OverviewHub 閘一律擋
+        n = os.path.normcase(os.path.normpath(t))
+        if n == base or n.startswith(base + os.sep):
+            return (f"[Guardian:VerifyLedger] 驗證收據只能由驗證程式自己寫，不准手寫或改：{t}。"
+                    "要收據就跑驗證程式（run_verify.py 跑完自寫 _runs/；其他驗證由 PostToolUse 依輸出哨兵落帳）。")
+    return None
+
+
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
@@ -856,7 +877,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
-    deny_reason = check_svn_test_block(tool_name, tool_input)
+    deny_reason = check_svn_test_block(tool_name, tool_input) or check_verify_ledger_write(tool_name, tool_input, _cwd)
     if deny_reason:
         output_json({
             "hookSpecificOutput": {

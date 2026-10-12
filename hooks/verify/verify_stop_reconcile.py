@@ -726,6 +726,9 @@ _BASE_STALE = ("部位【hook 共用模組層】有量尺「全量 verify｜`pyt
 _BASE_NONE = ("部位【hook 共用模組層】有量尺「全量 verify｜`python -X utf8 run_verify.py`｜全綠」，"
               "改了 1 個檔（最後在 turn 5）但之後沒有這把尺的 DONE 收據。"
               "跑 `python -X utf8 run_verify.py`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
+# 004：尺是 run_verify 時，原文兩句之後另起一行提示背景跑的自寫收據（原文本身逐字不變）
+_RUNS_HINT = ("\n  run_verify 跑超過 10 分鐘就背景跑：它跑完會自寫收據到 workflow/verify-ledger/_runs/，"
+              "改完之後才開始跑、exit 0、failed=0、同一棵樹就認得到（收據不准手寫）。")
 
 
 def test_non_root_worktree_block_messages_verbatim_as_base(tmp_path, monkeypatch):
@@ -736,9 +739,9 @@ def test_non_root_worktree_block_messages_verbatim_as_base(tmp_path, monkeypatch
         mod = str(Path(root) / "hooks" / "x.py")
         stale = {**_rcpt(2, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(root), "cwd": str(root)}
         reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [stale], 5, lookup, vl.MEASURE_DEFAULTS)
-        assert reason == _HEAD + _BASE_STALE, reason
+        assert reason == _HEAD + _BASE_STALE + _RUNS_HINT, reason
         reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [], 5, lookup, vl.MEASURE_DEFAULTS)
-        assert reason == _HEAD + _BASE_NONE, reason
+        assert reason == _HEAD + _BASE_NONE + _RUNS_HINT, reason
 
 
 def test_done_receipts_sentinel_name_filter():
@@ -940,3 +943,64 @@ def test_headless_before_exhausted_is_ordinary_block(driven, capsys, monkeypatch
     monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
     out, _, _ = driven("閘修好了，完成。", capsys)
     assert "收尾宣稱對不上" in out and "無法互動" not in out                                 # 還沒擋滿：照一般擋訊息
+
+
+# ─── 004：MeasureGate 認 run_verify 自寫收據（_runs/） ───────────────────────────────
+
+_EDIT_AT = "2026-10-12T10:00:00+08:00"          # ＝UTC 02:00:00
+
+
+def _self_run(started="2026-10-12T02:00:01+00:00", exit_code=0, failed=0, root=str(ROOT), cmd=MEASURE_CMD):
+    return {"cmd": cmd, "sentinel": f"VERIFY_CHECK {'DONE' if not failed else 'FAIL'} cases=9 failed={failed}",
+            "exit_code": exit_code, "cases": 9, "failed": failed, "cwd": root, "project_root": root,
+            "started_at": started, "at": "2026-10-12T02:20:00+00:00", "source": "run_verify_self"}
+
+
+def _mg(runs, mods=None):
+    reason, _ = vl.measure_gate_reason(mods or [_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)], [], 5, _lookup,
+                                       vl.MEASURE_DEFAULTS, self_runs=lambda: runs)
+    return reason
+
+
+def test_self_run_started_after_edit_passes():
+    assert _mg([_self_run()]) is None                                                        # 正例
+
+
+@pytest.mark.parametrize("run, why", [
+    (_self_run(started="2026-10-12T01:59:59+00:00"), "改之前就開始跑"),
+    (_self_run(started="2026-10-12T02:00:00+00:00"), "同一秒開始跑：證明不了在修改之後"),
+    (_self_run(failed=3), "failed=3"),
+    (_self_run(exit_code=1), "exit 1"),
+    (_self_run(root="c:/other"), "別的根"),
+    (_self_run(cmd="python -m pytest -q hooks/verify"), "不是這把尺"),
+])
+def test_self_run_counterexamples_block(run, why):
+    reason = _mg([run])
+    assert reason and "MeasureGate" in reason and "workflow/verify-ledger/_runs/" in reason, why
+
+
+def test_no_self_run_blocks_with_hint():
+    reason = _mg([])
+    assert reason and "沒有這把尺的 DONE 收據" in reason and "背景跑" in reason and "收據不准手寫" in reason
+
+
+def test_self_run_from_sibling_session_counts_and_wraps_through_stop(driven, capsys, monkeypatch):
+    """不綁 session：收據沒有 session 欄也算；Stop 端到端走 _load_self_runs。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    monkeypatch.setattr(vl, "_load_self_runs", lambda: [_self_run()])
+    kw = dict(modified_files=[_mf(_CASE, 5, last_at=_EDIT_AT, last_seq=7)], anti_evasion_report=_aec(5, "無", "無"))
+    out, _, _ = driven("全部完成了。", capsys, **kw)
+    assert "MeasureGate" not in out
+    monkeypatch.setattr(vl, "_load_self_runs", lambda: [])
+    out, _, _ = driven("全部完成了。", capsys, **kw)
+    assert "MeasureGate" in out                                                              # 反例：沒收據
+
+
+def test_root_worktree_rule_unchanged_by_self_runs(tmp_path, monkeypatch):
+    """根層 worktree 照舊只認 PYTEST_MEASURE；自寫收據不改變它。"""
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = _mf(str(wt / "hooks" / "x.py"), 5, last_at=_EDIT_AT, last_seq=7)
+    reason, _ = vl.measure_gate_reason([mod], [], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS,
+                                       self_runs=lambda: [_self_run(root=str(wt))])
+    assert reason and "根層 worktree" in reason
