@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-12 v6.0 P3 track-a2 合併：Depends 讀檔召回、候選填空（全專案／第二次 Edit）、壓縮後每部位綜觀重注
+- **緣由**：v6.0 完工判準「舊坑在讀到相關檔時被召回、壓縮後綜觀不丟」；a2 補 Depends 索引與召回、候選填空、壓縮重注三件。
+- **做法**：索引 `depends` 欄由 atom_write／CLI／`sync-atom-index`（`--sync-depends`，frontmatter 為真相、空 Depends 行＝清空）收發；`wg_depends.on_read_depends` 讀到某卡 Depends 指的檔 → 一行一卡指標，`authority_map` 命中文件檔一次性注入地圖；`root_cause_triggers`（專案合併後設定判詞）命中 → 已注入部位各送候選，一個都沒注入時以 cwd 專案表送全專案候選，同檔第二次放行的 Edit 附一次；smells 報告壞格式附一行再退病灶段、候選失敗只附一行不改閘判定；壓縮前存 OverviewHub 摘要、壓縮後每部位綜觀隨 atom 重注（atom 先）。共用檔：config `overview_hub` 五鍵與 `_doc`、Architecture 壓縮列與 PostToolUse 列、TECH 壓縮列與 PostToolUse matcher（補 `PowerShell|Read` 對齊 live）。
+- **驗證**：目標＋鄰近 verify 246 案綠（merge main 後總控台複跑）；codex 三輪第二意見（8 BLOCK → 2 BLOCK → PASS），BLOCK 皆總控台親自重現後退回。全量見下一段 commit 訊息。
+
 ## 2026-10-12 v6.0 P3 track-b2 合併：hook state 並行寫入不再毀檔、量尺閘對根層 worktree 認目標 verify
 - **緣由**：P2 收尾實測兩個缺口——同一則訊息並行多個工具呼叫時，多支 hook 共用同一個 `state-<sid>.tmp` 且鎖拿不到就直接寫，短內容蓋長檔尾端殘留，state JSON 變 Extra data、該 session 之後 45 次 hook 全跳過；worktree 含根層表副本，工作 session 改 hooks/ 被要求跑 17 分鐘全量才能收尾。
 - **做法**：`wg_core.write_state` tmp 檔名帶 pid、鎖拿不到重試 10×20ms 才無鎖寫（stderr `[state:lock-timeout]`）、replace 失敗重試並不動原檔、unlink 失敗浮 `[state:tmp-left]`；`wg_verify_ledger.is_root_worktree`（兩張部位表位元組相同且 root≠CLAUDE_DIR）→ 量尺閘改認同 root、修改之後的 `PYTEST_MEASURE` DONE，live 根層與一般專案的判定與擋訊息逐字不變。共用檔：config `measure_gate._doc`、TECH 閘序表一句、.gitignore 加 `state-*.json.corrupt-*`。P4 第一件（7def5c4）同日：config `sentinel_regex` 映射 pytest 摘要行、根層表 memory/ 與 _AIDocs/ 量尺改成會印 DONE 的指令（原引用的 docdrift-check.py 不存在）。

@@ -87,9 +87,9 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | PreToolUse | `WebFetch` | `webfetch-guard.sh`(20) | 抓網頁前置護欄 |
 | PreToolUse | `Bash` | `plan_bash_guard.py`(5) | Plan Mode 彈窗攔截：必彈窗寫法 deny＋改寫提示（§7.5） |
 | PreToolUse | `Write\|Edit\|NotebookEdit\|Bash\|PowerShell\|Agent\|Task` | guardian(5) | 跨 session 同檔互寫預警、git commit 隱私硬閘、git commit 口令閘、`svn add` 中文路徑 SvnEncoding advisory（§7.5）、subagent 記憶注入 |
-| PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|ExitPlanMode\|Bash\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
+| PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|ExitPlanMode\|Bash\|PowerShell\|Read\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
-| PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom |
+| PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub 與 OverviewHub 摘要；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom 與每部位綜觀（atom 先、綜觀後） |
 | Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Deferral、KnowledgeHarvest／Harvest-Pending、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
 | SessionEnd | — | guardian(30)、codex(5) | spawn 萃取 worker、episodic 生成、decay、晉升 sweep、recall-miss、log GC；最後 spawn 一次 vcs-sync worker（`reason=promotion|session_end`，§6.3 階段收割） |
 
