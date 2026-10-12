@@ -39,8 +39,10 @@ class Call:
     noise: bool = False                        # log/print：不算句數、不算呼叫
     key: str = ""                              # 分派表呼叫時寫死的鍵（TABLE["x"]()）
     nargs: int = 0                             # 位置引數個數
-    kwargs: set = field(default_factory=set)   # 有傳的關鍵字引數名
-    blind: set = field(default_factory=set)    # 傳的是算出來的值（呼叫結果、下標…）的位置／關鍵字；"*"／"**" 表示展開，全部看不到
+    kwargs: set = field(default_factory=set)   # 有傳的關鍵字（具名）引數名
+    blind: set = field(default_factory=set)    # 傳的是算出來的值（呼叫結果、下標…）的位置／關鍵字
+    star: int = -1                             # 第一個 *args 展開的位置（之後的位置參數看不到）；-1＝沒有
+    dstar: bool = False                        # 有 **kwargs 展開（沒明確傳的參數都可能被它蓋到）
 
 
 @dataclass
@@ -55,6 +57,7 @@ class Func:
     params: list = field(default_factory=list)
     param_types: dict = field(default_factory=dict)   # 參數 → 型別的類別名（拿來解析接收者）
     defaults: dict = field(default_factory=dict)      # 參數 → 預設值是函式參照時的 Call（def run(cb=work)）
+    blind_defaults: set = field(default_factory=set)  # 預設值是算出來的值的參數（def run(cb=choose())）
     sig: str = ""                                     # C# 完整參數型別（含泛型、陣列、ref/out），當多載簽章
     calls: list = field(default_factory=list)
     simple: bool = False      # 去掉 docstring 與 log 後 ≤2 句且無分支迴圈：轉手函式的候選
@@ -213,7 +216,8 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     f = Func(fid, mod.file, qual, node.name, cls.name if cls else "", "py", node.lineno,
              params=[a.arg for a in args],
              param_types={a.arg: _py_ann(a.annotation) for a in args if _py_ann(a.annotation)},
-             defaults={a.arg: r for a, d in pairs if (r := _py_ref(d))})
+             defaults={a.arg: r for a, d in pairs if (r := _py_ref(d))},
+             blind_defaults={a.arg for a, d in pairs if _py_blind(d)})
     body = _strip_doc(node.body)
     nodes = _py_scan(f.imports, body)
     real = [s for s in body if not isinstance(s, ast.Pass) and not _py_noise_stmt(s) and not _py_move(s)]
@@ -348,7 +352,7 @@ def _py_ref(expr) -> Call | None:
 
 def _py_blind(expr) -> bool:
     """引數是算出來的值（呼叫結果、下標、條件運算…）：如果被當函式用，看不到是哪一個。"""
-    return isinstance(expr, (ast.Call, ast.Subscript, ast.IfExp, ast.BoolOp, ast.Await, ast.Starred))
+    return isinstance(expr, (ast.Call, ast.Subscript, ast.IfExp, ast.BoolOp, ast.Await))
 
 
 def _py_calls(mod: Module, nodes: list, owner: str) -> list:
@@ -359,10 +363,10 @@ def _py_calls(mod: Module, nodes: list, owner: str) -> list:
             continue
         c.refs = [(i, r) for i, a in enumerate(node.args) if (r := _py_ref(a))]
         c.refs += [(k.arg, r) for k in node.keywords if k.arg and (r := _py_ref(k.value))]
+        stars = [i for i, a in enumerate(node.args) if isinstance(a, ast.Starred)]
         c.nargs, c.kwargs = len(node.args), {k.arg for k in node.keywords if k.arg}
+        c.star, c.dstar = (stars[0] if stars else -1), any(k.arg is None for k in node.keywords)
         c.blind = {i for i, a in enumerate(node.args) if _py_blind(a)} | {k.arg for k in node.keywords if k.arg and _py_blind(k.value)}
-        c.blind |= {"*"} if any(isinstance(a, ast.Starred) for a in node.args) else set()
-        c.blind |= {"**"} if any(k.arg is None for k in node.keywords) else set()
         calls.append(c)
         calls.extend(_py_events(mod, node, c, owner))
     return sorted(calls, key=lambda c: c.line)
@@ -440,7 +444,9 @@ _CS_BYREF = re.compile(r"\b(?:ref|out)\s+(?:var\s+|[\w<>\[\],.?]+\s+(?=[a-z_]\w*
 _CS_INLINE = re.compile(r"(?:^|[;{}])\s*(?:(?:static|async)\s+)*(?P<type>[\w<>\[\],?.]+)\s+(?P<name>\w+)\s*"
                         r"(?:\([^()]*\)\s*(?:\{|=>)|=\s*(?:\([^()]*\)|\w+)\s*=>)", re.M)   # 區域函式、lambda 變數
 _CS_ASSIGN = re.compile(r"(?:this\.)?(?P<lhs>\w+)\s*=\s*(?:new\s+(?P<new>\w+)|(?P<rhs>\w+)\s*;)")
-_CS_REF = re.compile(r"(?:(?P<key>\w+)\s*:\s*)?(?:(?P<recv>\w+)\.)?(?P<name>[A-Za-z_]\w*)")
+_CS_REF = re.compile(r"(?:(?P<recv>\w+)\.)?(?P<name>[A-Za-z_]\w*)")
+_CS_NAMED_ARG = re.compile(r"(\w+)\s*:(?!:)\s*(.*)", re.S)
+_CS_INLINE_ARG = re.compile(r"|[\d.]+[a-zA-Z]*|true|false|null|default|(?:new|typeof|nameof|ref|out|in)\b.*", re.S)
 _CS_ATTR = re.compile(r"\[[^\[\]]*\]")
 _CS_TYPE_DECL = re.compile(r"\b(class|struct|interface|record|enum|namespace|delegate)\b")
 _CS_COMPOUND = re.compile(r"\b(if|for|foreach|while|switch|try|do|lock)\b|\busing\s*\(")
@@ -481,7 +487,9 @@ def _strip_generics(text: str) -> str:
 
 
 def _split_top(text: str, pairs: str = "()[]{}") -> list:
-    """依頂層逗號切開（括號裡的逗號不算）。"""
+    """依頂層逗號切開（括號裡的逗號不算）。空白文字回 []；中間被抹成空白的字串引數保留成空字串，位置才不會錯。"""
+    if not text.strip():
+        return []
     opens, closes = pairs[0::2], pairs[1::2]
     parts, depth, start = [], 0, 0
     for i, ch in enumerate(text):
@@ -490,7 +498,7 @@ def _split_top(text: str, pairs: str = "()[]{}") -> list:
             parts.append(text[start:i])
             start = i + 1
     parts.append(text[start:])
-    return [p.strip() for p in parts if p.strip()]
+    return [p.strip() for p in parts]
 
 
 def parse_csharp(rel: str, text: str) -> Module:
@@ -610,7 +618,7 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
     f.aliases = {m["var"]: ref for m in _CS_ALIAS.finditer(body) if (ref := _cs_ref(m["rhs"]))}
     f.inline = {m["name"] for m in _CS_INLINE.finditer(body) if not {m["type"], m["name"]} & CS_KEYWORDS}
     stores = Counter(_CS_STORE.findall(body))
-    f.locals = set(stores)
+    f.locals = {m["var"] for m in _CS_LOCAL.finditer(body)} | set(f.aliases)   # 有宣告的才是區域變數；裸名指定可能是欄位
     stores.update(f.params)
     stores.update({name: 2 for name in _CS_BYREF.findall(body)})   # 傳 ref／out 出去：呼叫後值可能被換掉
     f.reassigned = {name for name, k in stores.items() if k > 1}
@@ -636,13 +644,23 @@ def _cs_call(m: re.Match, body: str, line: int) -> Call | None:
     on_result = j >= 0 and body[j] in ".?"      # a.B().C( 的 C：接在運算結果上，接收者不明
     c = _cs_call_kind(bool(m["new"]), name, recv, on_result)
     c.line = line
-    args = _cs_arg_texts(body, m.end())
-    refs = [(m2["key"] or idx, _cs_ref(m2["name"] if not m2["recv"] else f"{m2['recv']}.{m2['name']}"))
-            for idx, a in enumerate(args) if (m2 := _CS_REF.fullmatch(a))]
-    c.refs = [(k, r) for k, r in refs if r]
-    c.nargs = len(args)
-    c.blind = {idx for idx, a in enumerate(args) if "(" in a and "=>" not in a and not a.lstrip().startswith("new ")}
+    parsed = [_cs_arg(idx, a) for idx, a in enumerate(_cs_arg_texts(body, m.end()))]
+    c.refs = [(key, ref) for key, ref, _, _ in parsed if ref]
+    c.blind = {key for key, _, blind, _ in parsed if blind}
+    c.nargs = sum(1 for *_, named in parsed if not named)
+    c.kwargs = {key for key, *_, named in parsed if named}
     return c
+
+
+def _cs_arg(idx: int, text: str):
+    """一個 C# 引數 → (位置或具名參數名, 函式參照或 None, 是否算出來的值, 是否具名)。
+    方法群組（Work、this.Work、Util.Work）→ 參照；lambda、字面值、new、ref/out → 內容在這裡或不是函式；其他 → 算出來的值。"""
+    named = _CS_NAMED_ARG.fullmatch(text) if "?" not in text else None
+    key, value = (named[1], named[2].strip()) if named else (idx, text)
+    m = _CS_REF.fullmatch(value)
+    ref = _cs_ref(value) if m else None
+    inline = "=>" in value or bool(_CS_INLINE_ARG.fullmatch(value))
+    return key, ref, not ref and not inline, bool(named)
 
 
 def _cs_call_kind(is_new: bool, name: str, recv: str, on_result: bool) -> Call:

@@ -997,6 +997,75 @@ def test_python_union_annotation_is_not_narrowed_to_its_first_member(tmp_path):
     assert g.unres["app.py::main"] == 2
 
 
+# ─── codex 四次初審（813a401）抓到的反例 ─────────────────────────────────────
+
+def _run_main(body: str) -> dict:
+    return {"app.py": PY_WORK + body + '\n\nif __name__ == "__main__":\n    main()\n'}
+
+
+def test_computed_default_callback_is_unresolved_not_gone(tmp_path):
+    old = _write(tmp_path / "old", _run_main("def run():\n    for i in range(2):\n        work()\n\n\ndef main():\n    run()\n"))
+    new = _write(tmp_path / "new", _run_main("def choose():\n    return work\n\n\ndef run(cb=choose()):\n"
+                                             "    for i in range(2):\n        cb()\n\n\ndef main():\n    run()\n"))
+    assert rp.build_graph(new).unres["app.py::run"] == 1
+    res = rp.run_compare(new, str(old), None, "app.py", None)
+    assert res["coverage_drop"] is True and res["counts"]["gone"] == 0
+
+
+def test_csharp_subscript_and_named_arguments_are_bound_by_parameter(tmp_path):
+    cs = ("using System;\nclass P {\n    static Action[] handlers;\n"
+          "    static void Run(int n, Action cb) { for (int i = 0; i < n; i++) { cb(); } }\n"
+          "    static void Show(string s, Action cb) { for (int i = 0; i < 2; i++) { cb(); } }\n"
+          "    static Action Choose() { int k = 1; k += 1; return Alternate; }\n"
+          "    static void Work() { int a = 1; a += 1; a *= 2; }\n"
+          "    static void Alternate() { int b = 2; b += 1; b *= 3; }\n"
+          "    static void Main() {\n        Run(0, Work);\n        Run(cb: Choose(), n: 1);\n"
+          "        Run(1, handlers[0]);\n        Show(\"x\", Work);\n    }\n}\n")
+    g = rp.build_graph(_write(tmp_path, {"P.cs": cs}))
+    run_cb = [e for e in g.edges["P.cs::P.Run"] if e.kind == "callback"]
+    assert run_cb and all(e.guess.startswith("候選：有呼叫處傳進看不到的函式") for e in run_cb)
+    show_cb = [(e.dst, e.guess) for e in g.edges["P.cs::P.Show"] if e.kind == "callback"]
+    assert show_cb == [("P.cs::P.Work", "")], "字串引數被抹成空白也不能讓後面的引數位置錯位"
+
+
+def test_callback_also_fed_an_external_function_is_candidate(tmp_path):
+    files = _run_main("import json\n\n\ndef run(cb):\n    for i in range(2):\n        cb(\"1\")\n\n\n"
+                      "def main():\n    run(work)\n    run(json.loads)\n    run(lambda s: s)\n")
+    g = rp.build_graph(_write(tmp_path, files))
+    cb = [e for e in g.edges["app.py::run"] if e.kind == "callback"]
+    assert cb and all(e.guess.startswith("候選：也有呼叫處傳 lambda 或外部函式") for e in cb)
+    assert g.unres["app.py::run"] == 0, "外部函式與 lambda 不是專案內看不到的東西"
+
+
+def test_csharp_bare_field_receiver_event_is_candidate(tmp_path):
+    cs = ("using System;\nclass Bus {\n    public Action Fired;\n}\nclass App {\n    Bus bus = new Bus();\n"
+          "    void Work() { int a = 1; a += 1; a *= 2; }\n    void Reset() { bus = new Bus(); }\n"
+          "    void Run() {\n        bus.Fired += Work;\n        Reset();\n        bus.Fired?.Invoke();\n    }\n}\n")
+    g = rp.build_graph(_write(tmp_path, {"App.cs": cs}))
+    ev = [e for e in g.edges["App.cs::App.Run"] if e.kind == "event"]
+    assert ev and all(e.guess.startswith("候選") for e in ev)
+
+
+def test_inherited_classmethod_factory_is_candidate(tmp_path):
+    files = {"app.py": ("class Base:\n    def __init__(self):\n        self.x = 1\n        self.y = 2\n        self.z = 3\n\n"
+                        "    @classmethod\n    def create(cls):\n        return cls()\n\n\n"
+                        "class Child(Base):\n    def __init__(self):\n        self.x = 2\n        self.y = 3\n        self.z = 4\n\n\n"
+                        "def main():\n    return Child.create()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    edges = {e.dst: e.guess for e in g.edges["app.py::Base.create"]}
+    assert set(edges) == {"app.py::Base.__init__", "app.py::Child.__init__"} and all(edges.values())
+
+
+def test_normal_code_is_not_flagged_default_same_name_and_args_spread(tmp_path):
+    files = _run_main("def run(work=work):\n    for i in range(2):\n        work()\n\n\n"
+                      "def call(cb, *args):\n    for i in range(2):\n        cb()\n\n\n"
+                      "def main(*args):\n    run()\n    call(alternate, *args)\n")
+    g = rp.build_graph(_write(tmp_path, files))
+    assert [(e.dst, e.guess) for e in g.edges["app.py::run"]] == [("app.py::work", "")]
+    assert [(e.dst, e.guess) for e in g.edges["app.py::call"]] == [("app.py::alternate", "")]
+    assert g.unres["app.py::run"] == 0 and g.unres["app.py::call"] == 0
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

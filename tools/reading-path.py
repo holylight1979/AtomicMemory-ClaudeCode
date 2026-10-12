@@ -184,12 +184,14 @@ def callback_targets(g: "Graph", bind_fid: str, param: str) -> list:
 
 def event_targets(g: "Graph", f: lang.Func, c: lang.Call) -> list:
     """訂閱了同名事件的處理函式 → [(func id, 同一實例否, 處理函式本身的不確定原因)]。
-    同一函式裡對同一個區域變數接收者訂閱又發出、且沒被重新指定，才算同一實例；欄位接收者（self.bus）中途可能被換，不算。"""
+    同一函式裡對同一個區域變數或參數訂閱又發出、且沒被重新指定，才算同一實例；
+    欄位接收者（self.bus、C# 省略 this 的 bus）中途可能被別的方法換掉，不算。"""
     out = []
     for key, ref, owner, file, recv in g.subs:
         if key != c.name or not g.same_side(f, file):
             continue
-        sure = bool(c.recv) and "." not in c.recv and owner == f.id and recv == c.recv and c.recv not in f.reassigned
+        local = c.recv in f.params or c.recv in f.locals
+        sure = local and owner == f.id and recv == c.recv and c.recv not in f.reassigned
         ctx = g.funcs.get(owner) or g.module_ctx(file)
         out += [(e.dst, sure, e.guess) for e in g.resolve(ctx, ref, defer=False)]
     return out
@@ -372,22 +374,33 @@ class Graph:
         return self.find_module(full, level, f.file)
 
     def bound_refs(self, bind_fid: str, param: str):
-        """呼叫 bind_fid 的每個地方，param 那個位置傳進來的是什麼 → ([(語境函式, 函式參照)], 有沒有看不到的來源)。
-        具名函式 → 參照；lambda、常數 → 略過（內容在呼叫者裡）；算出來的值、展開 → 看不到；
-        沒傳 → 預設值是函式就當參照。Python 方法經由物件呼叫時第一個參數是 self，位置要扣掉。"""
+        """呼叫 bind_fid 的每個地方，param 那個位置傳進來的是什麼 → ([(語境函式, 函式參照)], 看不到的來源?, 混了別種來源?)。
+        具名函式 → 參照；lambda、常數 → 混了別種來源（內容在呼叫者裡）；算出來的值、被 *args／**kw 展開蓋到 → 看不到；
+        沒傳 → 預設值（具名函式當參照，算出來的看不到；在定義所在的外層作用域解析）。
+        Python 方法經由物件呼叫時第一個參數是 self，位置要扣掉。"""
         f = self.funcs[bind_fid]
         offset = 1 if f.lang == "py" and f.cls and f.params[:1] in (["self"], ["cls"]) else 0
         pos = f.params.index(param) - offset
         callers = [(caller, call) for caller, call in self.callers.get(bind_fid, []) if self.same_side(f, caller.file)]
-        refs, unknown = [], False
+        default = [(self.module_ctx(f.file), f.defaults[param])] if param in f.defaults else []
+        refs, unknown, mixed = [], not callers and param in f.blind_defaults, False
         for caller, call in callers:
-            hit = [(caller, ref) for key, ref in call.refs if key in (pos, param)]
-            passed = pos < call.nargs or param in call.kwargs or bool({"*", "**"} & call.blind)
-            unknown = unknown or bool({pos, param, "*", "**"} & call.blind)
-            refs += hit or ([(f, f.defaults[param])] if not passed and param in f.defaults else [])
-        if not callers and param in f.defaults:
-            refs.append((f, f.defaults[param]))   # 專案裡沒人呼叫（框架或外部呼叫）：用預設值
-        return refs, unknown
+            state = self._arg_at(call, pos, param)
+            hit = [(caller, ref) for key, ref in call.refs if key in (pos, param)] if state == "given" else default
+            unknown = unknown or state in ("blind", "spread") or (state == "absent" and param in f.blind_defaults)
+            mixed = mixed or (state == "given" and not hit)
+            refs += hit if state in ("given", "absent") else []
+        return refs + (default if not callers else []), unknown, mixed
+
+    @staticmethod
+    def _arg_at(call: lang.Call, pos: int, param: str) -> str:
+        """呼叫處在這個參數傳了什麼：given 有傳｜blind 傳算出來的值｜spread 被 *args／**kw 展開蓋到｜absent 沒傳（用預設值）。"""
+        if pos in call.blind or param in call.blind:
+            return "blind"
+        limit = call.nargs if call.star < 0 else call.star
+        if 0 <= pos < limit or param in call.kwargs:
+            return "given"
+        return "spread" if (0 <= call.star <= pos) or call.dstar else "absent"
 
     def same_side(self, f: lang.Func, other_file: str) -> bool:
         """非測試碼不採用測試檔傳進來的假函式、訂閱的處理函式（那只在跑測試時存在）。"""
@@ -433,7 +446,7 @@ class Graph:
     def _param_call(self, f, c, defer) -> list:
         """呼叫參數 cb()：等呼叫者傳了什麼；參數在函式裡被重新指定（cb = alternate）→ 傳進來的和改指的都只是候選。"""
         if f.cls and c.name == "cls" and f.params[:1] == ["cls"]:
-            return self._ctor(self.cls_of(f))      # classmethod 裡的 cls(...)：建構自己的類別
+            return self.dispatch(self.cls_of(f), "__init__")   # classmethod 的 cls(...)：子類呼叫時建構的是子類，有覆寫就是候選
         shaky = c.name in f.reassigned
         ref = f.aliases.get(c.name) if shaky else None
         reason = f"候選：參數 {c.name} 在函式裡被重新指定"
@@ -670,15 +683,25 @@ class Graph:
         if f.lang == "coarse":
             return not self.coarse.get(name)
         if f.lang == "cs":
-            usings = self.modules[f.file].static_usings if f.file in self.modules else []
-            outside = any(self.cls_named(t.split(".")[-1], f.file) is None for t in usings)
-            return outside or self.external_base(self.cls_of(f))
-        if name in PY_BUILTINS or self.classes.get(name):
+            return self._external_cs_name(f, name)
+        if name in PY_BUILTINS or self.classes.get(name) or (name == "cls" and f.params[:1] == ["cls"]):
             return True
         alias = self.modules[f.file].aliases.get(name) if f.file in self.modules else None
         if alias:                                  # 模組層別名指向外部模組的函式（flat = itertools.chain.from_iterable）
             return alias.kind == "attr" and self.recv_type(self.module_ctx(f.file), alias.recv)[0] == "external"
         return self._py_external(f.file, self.imports_of(f), name)
+
+    def _external_cs_name(self, f: lang.Func, name: str) -> bool:
+        """C# 裸名呼叫解不到：沒人訂閱的事件 → 外部；本類別欄位裝的委派 → 看不到；
+        有 using static 外部型別或外部父類 → 可能是從那裡來的，算外部。"""
+        ancestry = list(self.ancestry(self.cls_of(f))) if f.cls else []
+        if any(name in c.events for c in ancestry):
+            return True
+        if any(name in c.fields for c in ancestry):
+            return False
+        usings = self.modules[f.file].static_usings if f.file in self.modules else []
+        outside = any(self.cls_named(t.split(".")[-1], f.file) is None for t in usings)
+        return outside or self.external_base(self.cls_of(f))
 
     def _py_external(self, file: str, imports: dict, name: str, hops: int = 0) -> bool:
         """name 沿 import／re-export 追到底是外部模組的東西 → True；追到專案內、沒匯入或追不到 → False。"""
@@ -717,18 +740,23 @@ class Graph:
             found = {}
             for dst, guess in callback_targets(self, bind, param):
                 found[dst] = guess if dst not in found else (found[dst] and guess)   # 有一處確定就算確定
-            refs, blind = self.bound_refs(bind, param)
-            unknown = blind or any(not self.resolve(c, r, defer=False) and not self.is_external(c, r) for c, r in refs)
-            reason = self._callback_reason(param, len(found), shaky, unknown)
+            refs, blind, mixed = self.bound_refs(bind, param)
+            dead = [(c, r) for c, r in refs if not self.resolve(c, r, defer=False)]     # 傳了具名函式卻連不到
+            unknown = blind or any(not self.is_external(c, r) for c, r in dead)
+            mixed = mixed or len(dead) > 0                                            # 有處傳外部函式（或看不到的）
+            reason = self._callback_reason(param, len(found), shaky, unknown, mixed)
             self._add_edges(src, [Edge(t, "callback", guess=g or reason) for t, g in found.items()], None)
             self.unres[src] += unknown or (not found and bool(refs))
 
     @staticmethod
-    def _callback_reason(param: str, targets: int, shaky: bool, unknown: bool) -> str:
+    def _callback_reason(param: str, targets: int, shaky: bool, unknown: bool, mixed: bool) -> str:
+        """callback 邊的不確定原因：看不到的來源 > 參數被改指 > 混了 lambda／外部函式 > 多個目標；都沒有＝確定。"""
         if unknown:
             return f"候選：有呼叫處傳進看不到的函式給 {param}，這只是看得到的那些"
         if shaky:
             return f"候選：參數 {param} 在函式裡被重新指定"
+        if mixed:
+            return f"候選：也有呼叫處傳 lambda 或外部函式進 {param}"
         return f"候選：{targets} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if targets > 1 else ""
 
     def _add_edges(self, src: str, edges: list, c) -> None:
