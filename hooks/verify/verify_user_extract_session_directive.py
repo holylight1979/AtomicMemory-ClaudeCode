@@ -189,6 +189,32 @@ def test_b1_kickoffs_with_decisions_go_to_llm(tmp_path, monkeypatch):
     assert stats["skipped_directive"] == 0 and left == []
 
 
+# 退件 028：角色句括號說明只認固定句型清單，清單外（裡面寫的是決策）整則交 LLM
+NOTE_DECISIONS = [
+    "你是工作 session track-x（所有專案一律用 UTF-8）",
+    "你是工作 session track-x（記住：所有 repo 都用 tab）",
+    "你是工作 session track-x（所有專案\n備份目錄統一用 D:\\backup）",
+]
+
+
+@pytest.mark.parametrize("text", NOTE_DECISIONS)
+def test_decision_inside_role_note_is_not_a_directive(text):
+    assert _load_worker()._session_directive_reason(text) is None
+
+
+def test_decisions_inside_role_note_reach_llm(tmp_path, monkeypatch):
+    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, NOTE_DECISIONS)
+    assert [_user_part(p) for p in l1_seen] == NOTE_DECISIONS, l1_seen                # 反例：舊碼自由括號吞掉決策、整則跳過
+    assert stats["skipped_directive"] == 0 and [p for _, p in pending_seen] == NOTE_DECISIONS
+
+
+def test_listed_role_notes_are_still_directives():
+    m = _load_worker()
+    for note in ("需求目標核心流程設計單，只設計不寫程式", "閱讀路徑掃描器", "獨立實跑驗證", "接手，前一個 track-a3 session 已滿"):
+        text = f"你是 v6.0 的工作 session track-a3（{note}），總控台是 claude-ad。"
+        assert m._session_directive_reason(text) == "role+controller", note
+
+
 def test_decision_after_path_field_reaches_llm_from_entry(tmp_path, monkeypatch):
     """經 UserPromptSubmit 前置閘排進候選，再經 worker：路徑後面頓號接的跨專案決策要送 L1。"""
     from handlers import ups_gates as g

@@ -106,12 +106,20 @@ def _is_emotional_commitment(prompt: str) -> bool:
 # 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
 # 欄位（路徑、名稱、分支）只收 ASCII：吃不下的字（中文、頓號後的另一段話）留在子句裡，整句就對不上、交 LLM，
 # 不會被欄位吞掉。中文路徑的開工句因此認不出、交 LLM（不誤丟優先）。
-# 已知邊界：角色句後面的括號說明（例：「（需求目標核心流程設計單，只設計不寫程式）」）是自由欄位（≤30 字），內容不檢查。
+# 角色句後面的括號說明只認 _ROLE_NOTES 這份固定完整句型（從實際開過的開工句收集）；清單外的括號內容當未匹配的殘餘，
+# 整則交 LLM（不靠字數、不靠決策關鍵字）。新的派工說明要被攔，就把那句加進清單。
 _PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[A-Za-z0-9_.~:\\/-]*"
 _NAME = r"[A-Za-z0-9_.-]+"
+_ROLE_NOTES = (
+    re.escape("需求目標核心流程設計單，只設計不寫程式"),   # track-goal
+    re.escape("閱讀路徑掃描器"),                           # track-g12
+    re.escape("獨立實跑驗證"),                             # track-verify
+    r"接手，前一個\s*" + _NAME + r"\s*session\s*已滿",     # 接手 session
+)
+_ROLE_NOTE = r"(?:\s*（(?:" + "|".join(_ROLE_NOTES) + r")）)?"
 _BRANCH_NOTE = r"(?:\s*（(?:分支\s*[A-Za-z0-9_./-]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
 _KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in (
-    ("role", r"(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?(?:\s*（[^（）]{0,30}）)?"),
+    ("role", r"(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?" + _ROLE_NOTE),
     ("role", r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?"),
     ("role", r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session"),
     ("controller", r"(?:總控台|主控台)\s*(?:是|為)\s*" + _NAME),
