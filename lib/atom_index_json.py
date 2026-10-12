@@ -4,13 +4,16 @@ Schema:
     {
       "version": "1.0",
       "atoms": [
-        {"name": str, "path": str, "triggers": [str], "scope": str, "last_used": str?}
+        {"name": str, "path": str, "triggers": [str], "scope": str, "last_used": str?, "depends": [str]?}
       ]
     }
 
+depends（optional）：卡片 frontmatter `- Depends:` 的條目（`path:<檔或目錄>` 或自由文字），frontmatter 為真相；
+讀到 path: 指到的檔時由 hooks/wg_depends 召回一行指標（lib.atom_spec.atoms_depending_on）。
+
 責任：
 - load_atom_index_json(mem_dir) -> {atoms: [...]}
-- upsert_atom(mem_dir, name, path, triggers, scope) -> bool
+- upsert_atom(mem_dir, name, path, triggers, scope, last_used, depends) -> bool（depends 未傳保留、[] 清空）
 - delete_atom(mem_dir, name, path=None) -> bool（給 path 時只刪 name+path 都相符的條目）
 - regenerate_atom_index_md(mem_dir) -> 同步重生 _ATOM_INDEX.md 作為人類可讀 deprecated view
 
@@ -125,6 +128,20 @@ def dedup_triggers(triggers, *, lower: bool = False) -> List[str]:
     return out
 
 
+def validate_depends(depends: Any) -> List[str]:
+    """索引 depends 欄：list[str]，每條 strip 後非空；其他型別／元素一律 ValueError（寫入當下即拒，不留到 validate_index 才爆）。"""
+    if not isinstance(depends, list):
+        raise ValueError(f"depends must be a list of str, got {type(depends).__name__}")
+    out: List[str] = []
+    for d in depends:
+        if not isinstance(d, str):
+            raise ValueError(f"depends item must be str, got {type(d).__name__}: {d!r}")
+        s = d.strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
 def upsert_atom(
     mem_dir: Path,
     name: str,
@@ -132,11 +149,17 @@ def upsert_atom(
     triggers: List[str],
     scope: str = "global",
     last_used: Optional[str] = None,
+    depends: Optional[List[str]] = None,
 ) -> bool:
-    """Insert or update an atom entry. Returns True if changed."""
+    """Insert or update an atom entry. Returns True if changed.
+
+    depends（optional，`path:<檔>` 或自由文字）：None＝未傳 → 沿用既有條目的 depends（4 參數的舊呼叫者不丟欄）；
+    `[]` → 清空（移除鍵）；非空清單 → 取代。型別不對直接 ValueError。
+    """
     data = load_atom_index_json(mem_dir)
     atoms = data["atoms"]
     triggers = dedup_triggers(triggers)
+    depends_list = validate_depends(depends) if depends is not None else None
     new_entry: Dict[str, Any] = {
         "name": name,
         "path": path,
@@ -148,6 +171,12 @@ def upsert_atom(
 
     for i, a in enumerate(atoms):
         if a.get("name") == name:
+            if depends_list is None:
+                prev = a.get("depends")
+                if isinstance(prev, list) and prev:
+                    new_entry["depends"] = list(prev)
+            elif depends_list:
+                new_entry["depends"] = depends_list
             if a == new_entry:
                 return False
             atoms[i] = new_entry
@@ -155,6 +184,8 @@ def upsert_atom(
             regenerate_atom_index_md(mem_dir)
             return True
 
+    if depends_list:
+        new_entry["depends"] = depends_list
     atoms.append(new_entry)
     save_atom_index_json(mem_dir, data)
     regenerate_atom_index_md(mem_dir)
@@ -196,21 +227,27 @@ def delete_atom(mem_dir: Path, name: str, path: Optional[str] = None) -> bool:
 def regenerate_atom_index_md(mem_dir: Path) -> None:
     """Regenerate _ATOM_INDEX.md from JSON (human-readable mirror, deprecated)."""
     data = load_atom_index_json(mem_dir)
+    # Depends 欄只在索引裡至少一條有 depends 時才出現：沒人用 depends 的索引 mirror byte 不變，
+    # 多機不會因為 mirror 格式換版而在合併時各自重生、互相衝突（索引三檔合併必衝突的教訓）。
+    has_depends = any(isinstance(a.get("depends"), list) and a["depends"] for a in data["atoms"])
     lines = [
         "# Atom Trigger Index — Global",
         "",
         "> **Deprecated mirror.** Machine source: `_atom_index.json`.",
         "> 本檔由 lib/atom_index_json.py 自動生成；勿手改。",
         "",
-        "| Atom | Path | Trigger | Scope |",
-        "|------|------|---------|-------|",
+        "| Atom | Path | Trigger | Scope | Depends |" if has_depends else "| Atom | Path | Trigger | Scope |",
+        "|------|------|---------|-------|---------|" if has_depends else "|------|------|---------|-------|",
     ]
     for a in data["atoms"]:
         name = a.get("name", "")
         path = a.get("path", "")
         triggers = ", ".join(a.get("triggers", []))
         scope = a.get("scope", "global")
-        lines.append(f"| {name} | {path} | {triggers} | {scope} |")
+        row = f"| {name} | {path} | {triggers} | {scope} |"
+        if has_depends:
+            row += " " + ", ".join(d for d in (a.get("depends") or []) if isinstance(d, str)) + " |"
+        lines.append(row)
     lines.append("")
 
     md = mem_dir / ATOM_INDEX_MD
@@ -320,6 +357,11 @@ def validate_index(mem_dir: Path) -> List[str]:
             for t in a["triggers"]:
                 if len(t) > TRIGGER_MAX_LEN:
                     errors.append(f"trigger too long (>{TRIGGER_MAX_LEN}): {name}: {t!r}")
+        if "depends" in a:
+            try:
+                validate_depends(a["depends"])
+            except ValueError as e:
+                errors.append(f"atoms[{i}] depends invalid: {name}: {e}")
     return errors
 
 

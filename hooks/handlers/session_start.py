@@ -808,7 +808,33 @@ def _root_fingerprint_matches(existing: Dict[str, Any], res) -> bool:
 _CARRY_ON_REBUILD = (
     "modified_files", "accessed_files", "vcs_queries", "knowledge_queue", "sync_pending",
     "stop_blocked_count", "topic_tracker", "session_context_injected",
+    # A2.4：專案根指紋變了重建 atom_index 時，OverviewHub 的注入紀錄／意圖／Depends 已提示的卡／已送過候選的部位照搬，不重注不重送
+    "overview_hub", "turn_intent", "depends_hints", "candidates_sent",
 )
+
+
+def _first_session_hint_lines(root_res, cwd: str) -> list:
+    """T1-7（track-d2 的 first_session_hint）掛 SessionStart：無部位表的專案給 scaffold 指令；表有「骨架」列就列每張卡的空段；
+    表齊或不在任何專案 → 空。根層 cwd 以 ~/.claude 當根（它的表在 ~/.claude/.claude/overview-map.md）。fail-open。"""
+    try:
+        root = None
+        if cwd:
+            c = Path(cwd)
+            if c == CLAUDE_DIR or CLAUDE_DIR in c.parents:
+                root = CLAUDE_DIR
+        if root is None and root_res is not None and getattr(root_res, "path", None):
+            root = Path(root_res.path)
+        if root is None:
+            return []
+        lib_dir = str(CLAUDE_DIR / "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        from overview_scaffold import first_session_hint
+        hint = first_session_hint(root, CLAUDE_DIR / "memory" if root == CLAUDE_DIR else None)
+        return [hint] if hint else []
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("session_start:first_session_hint", e)
+        return []
 
 
 def _next_phase_pointer(cwd: str, source: str) -> list:
@@ -854,6 +880,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         root_lines = _project_root_notice(root_res, cwd)
     except Exception as e:
         _atom_debug_error("session_start:project_root", e)
+    root_lines = [*root_lines, *_first_session_hint_lines(root_res, cwd)]
 
     # log rotation — prevent runaway log bloat
     try:

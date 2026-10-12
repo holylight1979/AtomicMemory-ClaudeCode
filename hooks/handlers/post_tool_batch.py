@@ -20,7 +20,7 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
     state = _ensure_state(session_id, input_data, config)
     # idle 極輕路徑：兩種 pending 皆無立即退出（每批觸發，杜絕常態開銷）
     if not state or not (
-        state.get("pending_reinjection") or state.get("pending_handoff_emit")
+        state.get("pending_reinjection") or state.get("pending_reinjection_overview") or state.get("pending_handoff_emit")
     ):
         output_nothing()
         return
@@ -43,6 +43,12 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                 state["injected_atoms"] = merged
             if blob:
                 parts.append(blob)
+
+        # (1b) 壓縮後 OverviewHub 綜觀重注（A2.2／A2.3）：順序 atom 內文先、綜觀後；一次性 pop
+        overview = state.pop("pending_reinjection_overview", None)
+        state.pop("pending_reinjection_parts", None)
+        if overview:
+            parts.append(overview)
 
         # (2) Auto-Handoff 補全提示（Layer 3，與 (1) 合流同一 additionalContext）
         if state.get("pending_handoff_emit"):

@@ -65,10 +65,9 @@ from .hub_card import budget_limit_for, is_hub_card, route_doc_for, depends_path
 
 
 def _index_kwargs(index: dict) -> dict:
-    """write_index 的選填鍵：depends 只在 write_index 簽名已收（track-a2 接欄）時傳，否則不傳不丟錯。"""
-    import inspect
+    """write_index 的選填鍵：depends 有給（含 []）才傳；None／缺鍵不傳＝索引沿用既有 depends。"""
     out = {}
-    if index.get("depends") is not None and "depends" in inspect.signature(write_index).parameters:
+    if index.get("depends") is not None:
         out["depends"] = list(index["depends"])
     return out
 

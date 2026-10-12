@@ -9,10 +9,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import date
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 
 # ─── Constants（單一規則來源） ───────────────────────────────────────────────
@@ -196,18 +197,89 @@ def parse_depends(raw: Optional[str]) -> List[Dict[str, str]]:
     return entries
 
 
-def resolve_depends_path(value: str, claude_dir: Optional[Path] = None) -> Path:
+def resolve_depends_path(value: str, claude_dir: Optional[Path] = None,
+                         base: Optional[Path] = None) -> Path:
     """path 型 Depends 條目 → 絕對路徑。
 
     - `~` 開頭 → expanduser
     - 絕對路徑 → 原樣
-    - 相對路徑 → 以 claude_dir（預設 ~/.claude）為根
+    - 相對路徑 → 以 base 為根（專案卡＝專案根；根層卡＝~/.claude）；沒給 base 用 claude_dir（預設 ~/.claude）
     """
-    claude_dir = claude_dir or Path.home() / ".claude"
+    root = base or claude_dir or Path.home() / ".claude"
     p = Path(value).expanduser()
     if not p.is_absolute():
-        p = claude_dir / p
+        p = root / p
     return p
+
+
+def depends_base_for(mem_dir: Path) -> Path:
+    """索引目錄 → 該索引卡片 `path:` 相對路徑的解析根：根層 `~/.claude/memory` → `~/.claude`；
+    專案層 `<root>/.claude/memory` → `<root>`；其他佈局退 mem_dir 的上一層。"""
+    mem_dir = Path(mem_dir)
+    try:
+        if mem_dir.resolve() == (Path.home() / ".claude" / "memory").resolve():
+            return mem_dir.parent
+    except OSError:
+        pass
+    if mem_dir.parent.name == ".claude":
+        return mem_dir.parent.parent
+    return mem_dir.parent
+
+
+def _norm_fs_path(p: Path) -> str:
+    """路徑比對鍵：resolve（不要求存在）→ 正斜線 → Windows 不分大小寫。"""
+    try:
+        s = str(Path(p).resolve(strict=False))
+    except (OSError, ValueError, RuntimeError):
+        s = str(p)
+    s = s.replace("\\", "/").rstrip("/")
+    return s.lower() if os.name == "nt" else s
+
+
+def atoms_depending_on(path, mem_dirs) -> List[Dict[str, Any]]:
+    """哪些卡的索引 `depends` 有 `path:` 條目指到這個檔（或它所在目錄的前綴）。
+
+    mem_dirs：索引目錄清單；每項是 Path（解析根由 depends_base_for 推）或 (mem_dir, base) 二元組（明給根）。
+    命中規則：條目解析成絕對路徑後與 path 相等，或 path 在該條目之下（`src/x` 只命中 `src/x/**`，不命中 `src/xy.cs`）。
+    回 [{"name", "path"（索引相對路徑）, "card"（卡絕對路徑）, "dep"（原條目）, "mem_dir"}]，依 mem_dirs 順序、同卡只列一次。
+    索引讀不到／條目壞掉一律略過（召回是旁路，不得讓讀檔 hook 炸）。
+    """
+    try:
+        from .atom_index_json import load_atom_index_json
+    except ImportError:  # 頂層模組載入（hooks 以 sys.path.insert(lib) 方式）
+        from atom_index_json import load_atom_index_json  # type: ignore
+    target = _norm_fs_path(Path(path))
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for item in mem_dirs or []:
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            mem_dir, base = Path(item[0]), Path(item[1])
+        else:
+            mem_dir = Path(item)
+            base = depends_base_for(mem_dir)
+        try:
+            atoms = load_atom_index_json(mem_dir).get("atoms", [])
+        except (OSError, ValueError):
+            continue
+        for a in atoms:
+            name = a.get("name") or ""
+            deps = a.get("depends")
+            if not name or not isinstance(deps, list) or name in seen:
+                continue
+            for raw in deps:
+                if not isinstance(raw, str) or not raw.strip().startswith(DEPENDS_PATH_PREFIX):
+                    continue
+                value = raw.strip()[len(DEPENDS_PATH_PREFIX):].strip()
+                if not value:
+                    continue
+                dep = _norm_fs_path(resolve_depends_path(value, base=base))
+                if target == dep or target.startswith(dep + "/"):
+                    seen.add(name)
+                    out.append({"name": name, "path": a.get("path") or "",
+                                "card": str(mem_dir.parent / (a.get("path") or "")),
+                                "dep": raw.strip(), "mem_dir": str(mem_dir)})
+                    break
+    return out
 
 
 def depends_warnings(raw: Optional[str]) -> List[str]:
