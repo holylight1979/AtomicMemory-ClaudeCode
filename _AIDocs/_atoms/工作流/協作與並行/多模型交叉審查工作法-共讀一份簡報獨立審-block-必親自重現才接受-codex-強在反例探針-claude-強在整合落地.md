@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 多開 agent, Codex 審查, 交叉審查, 多模型, 不被帶偏, BLOCK/WARN, 審查簡報, fan-out 審查, gpt-6-astra, 全面檢視, reply_review, 裁決紀錄
 - Created-at: 2026-09-21
-- Related: workflow-research-fanout, workflow-parallel-agents, 雙claude協作實戰認知-fable監工opus主力的分工手感, feedback-回放實驗洩題三型-出題者把答案寫進回覆-材料指到真工作副本-提示詞催被測行為-前兩型用replay-guard擋-第三型程式擋不了持續追蹤
+- Related: workflow-research-fanout, workflow-parallel-agents, 雙claude協作實戰認知-fable監工opus主力的分工手感, feedback-回放實驗洩題三型-出題者把答案寫進回覆-材料指到真工作副本-提示詞催被測行為-前兩型用replay-guard擋-第三型程式擋不了持續追蹤, 總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件
 - Source: session:127e56a5#cb0c2912 2026-09-21
 - Quote: 「好，上GIT。 請也把學習到的知識、經驗、智慧，能收錄的都收錄到 atoms 內，那些也要 上GIT。 然後，把暫存檔都清乾淨後，再開始檢查"改壞了什麼"。」
 
