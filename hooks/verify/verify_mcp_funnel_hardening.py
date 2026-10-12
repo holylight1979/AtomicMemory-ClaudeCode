@@ -203,4 +203,4 @@ def test_update_branch_relays_py_reason_and_index_payload_carries_depends():
     assert "...(Array.isArray(depends) && { depends })" in tools.split("// ── Mode: append ──")[0]
     assert "...(Array.isArray(dependsFinal) && { depends: dependsFinal })" in tools
     cli = _read("lib/atom_io_cli.py")
-    assert "_index_kwargs" in cli and 'inspect.signature(write_index).parameters' in cli
+    assert "_index_kwargs" in cli and 'out["depends"] = index["depends"]' in cli
