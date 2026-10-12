@@ -1896,6 +1896,7 @@ P4_REBOUND_WRITES = {   # 接收者的型別標註（pathlib.Path，外部）在
     "case4_param": "def change(p: Path):\n    p = Worker\n    p.run = other\n",
     "annotated_local": "def change(source):\n    p: Path = source\n    p = Worker\n    p.run = other\n",
     "nonlocal_param": "def change(p: Path):\n    def g():\n        nonlocal p\n        p = Worker\n\n    g()\n    p.run = other\n",
+    "import_rebind": "def change(p: Path):\n    from kit import Worker as p\n    p.run = other\n",
 }
 
 
@@ -1964,6 +1965,21 @@ def test_closure_over_an_outer_local_follows_its_assignment_or_is_unresolved(tmp
         assert edges == [("app.py::other", False)]
     else:
         assert edges == [] and g.unres["app.py::outer.inner"] == 1
+
+
+def test_p4_a_callback_parameter_rebound_through_nonlocal_is_not_rule_5(tmp_path):
+    """總原則 4 對第 5 條：callback 參數 cb 被內層函式用 nonlocal 改成 other，呼叫者傳的 work 不一定是這次跑的 → 只列候選。"""
+    app = TWO_FUNCS + ("def run(cb):\n    def g():\n        nonlocal cb\n        cb = other\n\n    g()\n    return cb()\n\n\n"
+                       "def main():\n    run(work)\n")
+    assert ("app.py::work", True) not in _sure_edges({"app.py": app}, "app.py::run", tmp_path), "cb 已被內層改掉"
+
+
+def test_closure_over_an_outer_parameter_rebound_in_the_outer_lists_both_sources(tmp_path):
+    """閉包疑點（外層改指）：outer 裡 work = other 之後 inner 呼叫 work → 外層改指的 other 與呼叫者傳的 work 都列候選。"""
+    app = TWO_FUNCS + ("def outer(work):\n    work = other\n\n    def inner():\n        return work()\n\n    return inner()\n\n\n"
+                       "def main():\n    outer(work)\n")
+    edges = sorted(_sure_edges({"app.py": app}, "app.py::outer.inner", tmp_path))
+    assert edges == [("app.py::other", False), ("app.py::work", False)], "兩個來源都只是候選"
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────

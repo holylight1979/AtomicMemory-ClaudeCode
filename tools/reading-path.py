@@ -732,16 +732,17 @@ class Graph:
             self.pending.append((src.id, *bind, flag))
         return []
 
-    def _param_call(self, f, c, defer) -> list:
-        """呼叫參數 cb()：等呼叫者傳了什麼；參數在函式裡被重新指定（cb = alternate）→ 傳進來的和改指的都只是候選。"""
+    def _param_call(self, f, c, defer, caller=None) -> list:
+        """呼叫 f 的參數 cb()：等 f 的呼叫者傳了什麼；參數被重新指定過（cb = alternate、import 改綁、內層 nonlocal 改寫）
+        → 傳進來的和改指的都只是候選。caller＝呼叫點所在的函式，不是 f 時是閉包（巢狀函式呼叫外層 f 的參數，只列候選）。"""
         if f.cls and c.name == "cls" and f.params[:1] == ["cls"]:
             return self.dispatch(self.cls_of(f), "__init__")   # classmethod 的 cls(...)：子類呼叫時建構的是子類，有覆寫就是候選
-        shaky = c.name in f.reassigned
+        shaky = self.rebound_local(f, c.name)
         ref = f.aliases.get(c.name) if shaky else None
-        reason = f"候選：參數 {c.name} 在函式裡被重新指定"
+        reason = f"候選：參數 {c.name} 在函式 {f.qual} 裡被重新指定"
         edges = [Edge(e.dst, e.kind, guess=reason) for e in self.resolve(f, ref, defer=False)] if ref else []
-        flag = "scoped" if c.scoped else "reassigned" if shaky else ""
-        return edges + self._defer(f, (f.id, c.name), defer, flag)
+        flag = "closure" if caller else "scoped" if c.scoped else "reassigned" if shaky else ""
+        return edges + self._defer(caller or f, (f.id, c.name), defer, flag)
 
     def alias_target(self, f: lang.Func, name: str):
         """fn = b; fn(n)：沿區域變數別名走到真正的函式參照（最多 MAX_REEXPORT 跳）；
@@ -781,8 +782,8 @@ class Graph:
             return self._r_local(f, c, defer)      # 自己指定的（含 nonlocal 改寫外層的）：看自己指定了什麼
         if owner is f and c.name in f.reassigned:
             return []                              # 自己這一層綁了兩次（巢狀 def 寫兩次）：看不到是哪個
-        if kind == "param":                        # 外層函式的參數（閉包）：沿外層的呼叫者傳了什麼列候選，沒有來源就記未解
-            return self._defer(f, (owner.id, c.name), defer, "closure")
+        if kind == "param":                        # 外層函式的參數（閉包）：沿外層的呼叫者傳了什麼（與外層改指的）列候選，沒有來源就記未解
+            return self._param_call(owner, c, defer, caller=f)
         if kind == "local":                        # 外層函式的區域變數（閉包）：沿它在外層的指定（函式別名、分派表）列候選
             reason = f"候選：{c.name} 是外層函式 {owner.qual} 的區域變數（閉包），沿它在外層的指定列出，呼叫時可能已被改指"
             return [Edge(e.dst, e.kind, guess=e.guess or reason) for e in self._r_local(owner, c, False)]
@@ -1023,8 +1024,10 @@ class Graph:
         return (self.outer_ctx(f), f.param_types[head]) if head in f.param_types else None
 
     def rebound_local(self, f: lang.Func, name: str) -> bool:
-        """f 的參數或區域變數 name 被重新指定過：這一層綁了不只一次，或被內層函式（含巢狀類別本體）用 nonlocal 改掉。"""
-        return name in f.reassigned or name in self.nonlocal_rebound.get((f.file, f.qual), ())
+        """f 的參數或區域變數 name 被重新指定過：這一層綁了不只一次（含 import 又綁到同一個名字），
+        或被內層函式（含巢狀類別本體）用 nonlocal 改掉。"""
+        return (name in f.reassigned or name in f.import_rebinds
+                or name in self.nonlocal_rebound.get((f.file, f.qual), ()))
 
     # 綁定穩定：白名單 1、2（建構者名稱）、4 共用的唯一判斷 ─────
 
@@ -1263,13 +1266,13 @@ class Graph:
         建構推導的型別（x = Foo()、self.x = Foo()）不算——那是第 2 條的證據，失去第 2 條資格就不能改走這條。
         宣告的型別也要沿綁定鏈解析到專案內的類別（class_proof）：全專案同名搜尋、指到外部的都不算。"""
         head, *rest = recv.split(".")
-        if self.rebound_local(f, head):
+        if f.lang == "py" and self.rebound_local(f, head):
             cls = None                             # 被重新指定過（含內層 nonlocal 改寫）：宣告的型別不再是證據（總原則 4）
         elif head in ("self", "this"):
             cls = self.cls_of(f) if rest else None
-        elif head in f.param_types:
+        elif head in f.param_types and head not in f.reassigned:
             cls = self.class_proof(self.outer_ctx(f), f.param_types[head])   # 參數標註在 def 的外層解析
-        elif head in f.declared:
+        elif head in f.declared and head not in f.reassigned:
             cls = self.class_proof(f, f.declared[head])
         elif f.lang == "cs" and head not in f.locals and head not in f.params and f.cls:
             cls = self.declared_field(self.cls_of(f), head)
