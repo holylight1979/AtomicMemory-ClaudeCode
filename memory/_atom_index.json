@@ -5308,6 +5308,23 @@
         "擋滿"
       ],
       "scope": "global"
+    },
+    {
+      "name": "路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試",
+      "path": "memory/驗證與實證/路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試.md",
+      "triggers": [
+        "glob",
+        "fnmatch",
+        "路徑樣式比對",
+        "絕對路徑",
+        "tmp_path",
+        "pytest tmp",
+        "測試檔判定",
+        "verify_case_globs",
+        "案例判定",
+        "假綠"
+      ],
+      "scope": "global"
     }
   ]
 }

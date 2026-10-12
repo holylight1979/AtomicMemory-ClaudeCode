@@ -12,6 +12,7 @@
 
 - [臨] 多軌開發實踩：工作 session 的分頁 cwd 若在 live（不在 worktree），驗證收據的 root 由 hook 的 cwd 推出來會是 live，量尺閘對不上。解法是 session 內用 `EnterWorktree(path)` 切進 worktree；但切進去之後，harness 隔離規則與 CrossRealmBashBlock 會擋住對 worktree 外路徑的寫入，**寫不到 live 的信箱**，也跑不了 `git -C <live> status`。
 - [臨] 因此派工單要一開始就規定：開工先確認 primary working directory 是 worktree（不是就 EnterWorktree）、**交付一律用 SendMessage 回全文**、總控台收到後存進信箱；live 未動證明改用 mtime 對照，由總控台補跑 porcelain。總控台換人時要先告訴工作 session「送舊總控台失敗就等新總控台訊息再重送」。
+- [臨] 工作 session context 將滿時的交棒：先叫它停手、不 commit（未提交的改動留在 worktree 給接手者），只用 SendMessage 回 20 行內的接手備忘（每條工作是已完成且測過／已改未測／未開始、每個未提交檔改到哪、做過的選擇與理由、讀程式碼看不出來的坑）；總控台把備忘存進信箱，再寫一份自足的派工單（含原話目標、待修清單、備忘路徑）給新 session 在同一個 worktree 接著做。新 session 不靠舊對話記憶，比接近滿、會被自動壓縮的舊 session 穩。
 
 ## 行動
 
