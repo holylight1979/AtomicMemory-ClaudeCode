@@ -1282,7 +1282,7 @@ def test_006_7_code_and_report_split_when_exhausted(driven, capsys):
 def test_006_9_case_must_be_code_file(driven, capsys):
     w = r"c:\proj\src\widget.py"
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(w, 5), _mf(r"c:\proj\tests\README.md", 5)])
-    assert "(d)" in out                                                                     # 反例：文件冒充案例
+    assert "ReconcileGate" in out and "改了程式碼（widget.py）之後沒有新增或修改驗證 case 檔" in out   # 反例：文件冒充案例
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(w, 5), _mf(r"c:\proj\tests\test_widget.py", 5)])
     assert "ReconcileGate" not in out
 
@@ -1290,10 +1290,10 @@ def test_006_9_case_must_be_code_file(driven, capsys):
 def test_006_10_case_debt_carries_over_turns(driven, capsys):
     w = _mf(r"c:\proj\src\widget.py", 5, last_at="2026-10-12T10:00:00+08:00", last_seq=3)
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, modified_files=[w])
-    assert "(d)" in out and "widget.py" in out                                              # 反例：turn 5 改的碼，turn 6 只說完成
+    assert "改了程式碼（widget.py）之後沒有新增或修改驗證 case 檔" in out                    # 反例：turn 5 改的碼，turn 6 只說完成
     case = _mf(r"c:\proj\tests\test_widget.py", 6, last_at="2026-10-12T10:05:00+08:00", last_seq=9)
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, modified_files=[w, case])
     assert "ReconcileGate" not in out                                                       # 正例：turn 6 補了案例
     later = _mf(r"c:\proj\src\gadget.py", 6, last_at="2026-10-12T10:06:00+08:00", last_seq=10)
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, modified_files=[w, case, later])
-    assert "(d)" in out and "gadget.py" in out and "widget.py" not in out.split("(d)")[1].split("\n")[0]
+    assert "改了程式碼（gadget.py）之後沒有新增或修改驗證 case 檔" in out                    # 案例之後又改的碼才欠
