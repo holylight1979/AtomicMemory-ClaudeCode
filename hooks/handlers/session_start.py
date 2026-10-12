@@ -369,6 +369,34 @@ def _scope_layout_advisory(project_mem_dir) -> list:
         return []
 
 
+def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
+    """本專案追蹤帳本（AEC (k) 寫的）裡沒標部位、仍未結案的項目：一個 session 只列一次筆數＋最舊 3 筆
+    （state["tracking_advisory_sent"]，重建 state 時照搬；標了部位的改在第一次碰到該部位時隨導讀卡注入）。
+    同專案疑似由舊算法（子目錄 cwd）分裂出的帳本只在 stderr 列，不自動合併。讀不到只 stderr，回 []。"""
+    if not cwd or state.get("tracking_advisory_sent"):
+        return []
+    state["tracking_advisory_sent"] = True
+    try:
+        from wg_harvest import open_tracking_items, read_tracking, tracking_slug
+        slug = tracking_slug(cwd)
+        tdir = WORKFLOW_DIR / "tracking"
+        split = sorted(p.name for p in tdir.glob(f"{slug}-*.jsonl")) if tdir.is_dir() else []
+        if split:
+            print(f"[Guardian:Tracking] 疑似同專案分裂的追蹤帳本（舊版用子目錄 cwd 命名，不自動合併）：{', '.join(split)}；"
+                  f"本專案帳本＝{slug}.jsonl", file=sys.stderr)
+        items = [e for e in open_tracking_items(read_tracking(slug)) if not str(e.get("part") or "").strip()]
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Tracking] 讀追蹤項失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
+    if not items:
+        return []
+    oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
+    lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位，不會隨部位導讀卡注入）；最舊 3 筆："]
+    lines += [f"- {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）" for e in oldest]
+    lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字>」（未標部位的項目，結案行也不帶部位）。")
+    return ["\n".join(lines)]
+
+
 def _followup_advisory() -> list:
     """回訪到期 → 開場自動跑 tools/followup-check.py，把檢查結果＋自足交接推進 context。
 
@@ -812,8 +840,8 @@ _CARRY_ON_REBUILD = (
     "stop_blocked_count", "topic_tracker", "session_context_injected",
     # A2.4：專案根指紋變了重建 atom_index 時，OverviewHub 的注入紀錄／意圖／Depends 已提示的卡／已送過候選的部位照搬，不重注不重送
     "overview_hub", "turn_intent", "depends_hints", "candidates_sent",
-    # 一 session 一次的旗標也要照搬，否則重建後 idle 一行與權威地圖會重送
-    "idle_scan_sent", "authority_map_injected",
+    # 一 session 一次的旗標也要照搬，否則重建後 idle 一行、權威地圖、未結追蹤項提示會重送
+    "idle_scan_sent", "authority_map_injected", "tracking_advisory_sent",
 )
 
 
@@ -1148,6 +1176,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_unpushed_advisory())
         lines.extend(_index_conflict_advisory(cwd))
         lines.extend(_followup_advisory())
+        lines.extend(_tracking_advisory(cwd, state))
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
         lines.extend(_org_advisory(org_root, pool))

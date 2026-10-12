@@ -348,9 +348,14 @@ def apply_report(
 _TRACK_PART_RE = re.compile(r"^(?:\[(?P<p1>[^\]]+)\]|(?P<p2>[^｜|：:]{1,20})[｜|])\s*(?P<rest>.+)$")
 
 
+_TRACK_CLOSE_RE = re.compile(r"^結案\s*[：:]\s*(?P<prefix>.+)$")
+TRACK_CLOSE_MIN_CHARS = 8
+
+
 def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[str] = None) -> List[Dict[str, Any]]:
     """AEC 的 (k) 追蹤項文字 → 帳本列：一行一筆 {session_id, turn_seq, at, part, text, status}。
-    「無」／空白 → []。行首 `[部位]` 或 `部位｜` 當 part，沒有就空字串；status 一律 open。"""
+    「無」／空白 → []。行首 `[部位]` 或 `部位｜` 當 part，沒有就空字串。
+    一般行 status＝open；`[部位] 結案：<原項目開頭>` → status＝closed、text＝前綴（closes 由 append_tracking 對帳本補上）。"""
     text = str(k_text or "").strip()
     if not text or text in ("無", "none", "None", "N/A"):
         return []
@@ -365,20 +370,112 @@ def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[s
         if m:
             part = (m.group("p1") or m.group("p2") or "").strip()
             body = m.group("rest").strip()
-        out.append({"session_id": session_id, "turn_seq": int(turn_seq or 0), "at": stamp,
-                    "part": part, "text": body, "status": "open"})
+        close = _TRACK_CLOSE_RE.match(body)
+        out.append({"session_id": session_id, "turn_seq": int(turn_seq or 0), "at": stamp, "part": part,
+                    "text": close.group("prefix").strip() if close else body, "status": "closed" if close else "open"})
     return out
 
 
 _TRACK_SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
+def tracking_slug(cwd: str) -> str:
+    """追蹤帳本的檔名（寫入端 post_tool_use 與讀取端 wg_overview／session_start 共用）：
+    最近的部位表根 → 專案根 → cwd 本身，經 cwd_to_project_slug；非 [A-Za-z0-9_-] 的字元換成 `-`，
+    超過 64 字取前 55 字＋`-`＋8 碼雜湊。cwd 空 → `_no-cwd` 並 stderr。"""
+    if not cwd:
+        print("[Guardian:AEC] tracking slug: cwd 空，追蹤項寫進 _no-cwd 帳本（讀回時不會注入任何部位）", file=sys.stderr)
+        return "_no-cwd"
+    from wg_core import cwd_to_project_slug, resolve_project_root
+    root: Optional[Path] = None
+    try:
+        from overview_hub import find_map
+        found = find_map(cwd)
+        root = found[0] if found else None
+        if root is None and resolve_project_root is not None:
+            root = resolve_project_root(cwd).path
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:AEC] tracking slug: 尋根失敗，退用 cwd：{type(e).__name__}: {e}", file=sys.stderr)
+    slug = re.sub(r"[^A-Za-z0-9_-]", "-", cwd_to_project_slug(str(root or cwd)))
+    if len(slug) > 64:
+        slug = slug[:55] + "-" + hashlib.sha1(slug.encode("utf-8")).hexdigest()[:8]
+    return slug
+
+
+def _part_eq(a: Any, b: Any) -> bool:
+    return str(a or "").strip().casefold() == str(b or "").strip().casefold()
+
+
+def _closes_entry(closed: Dict[str, Any], entry: Dict[str, Any]) -> bool:
+    c = closed.get("closes") or {}
+    return (isinstance(c, dict) and c.get("at") == entry.get("at") and _part_eq(closed.get("part"), entry.get("part"))
+            and str(entry.get("text") or "").startswith(str(c.get("text_prefix") or "\0")))
+
+
+def open_tracking_items(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """帳本列 → 仍 open 的項目（依帳本順序）：有任一 closed 列的 closes 對得上（at 相同、部位相同不分大小寫、
+    原文字以 text_prefix 開頭）就不算 open。"""
+    closers = [e for e in entries if e.get("status") == "closed"]
+    return [e for e in entries if e.get("status") == "open" and not any(_closes_entry(c, e) for c in closers)]
+
+
+def read_tracking(slug: str, base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """讀 workflow/tracking/<slug>.jsonl；沒有檔回 []；壞行（非 JSON 或非物件）跳過並 stderr 一行（列行號）；讀檔失敗 stderr 回 []。"""
+    p = (base_dir or WORKFLOW_DIR) / "tracking" / f"{slug}.jsonl"
+    try:
+        if not p.is_file():
+            return []
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as e:
+        print(f"[Guardian:Tracking] 追蹤帳本讀不到（不擋注入）：{p}：{e}", file=sys.stderr)
+        return []
+    out: List[Dict[str, Any]] = []
+    bad: List[int] = []
+    for i, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            row = None
+        if isinstance(row, dict):
+            out.append(row)
+        else:
+            bad.append(i)
+    if bad:
+        print(f"[Guardian:Tracking] 追蹤帳本有 {len(bad)} 行壞掉已跳過：{p} 第 {', '.join(map(str, bad[:10]))} 行", file=sys.stderr)
+    return out
+
+
+def _resolve_closes(existing: List[Dict[str, Any]], entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """closed 列補 closes＝{at, text_prefix}：在「既有帳本＋本批較早的列」中找仍 open、部位相同、原文字以前綴開頭的最舊一筆。
+    前綴不足 TRACK_CLOSE_MIN_CHARS 字或找不到 → stderr 並丟掉這筆（不寫成假的 open）。"""
+    out: List[Dict[str, Any]] = []
+    for e in entries:
+        if e.get("status") != "closed" or e.get("closes"):
+            out.append(e)
+            continue
+        prefix = str(e.get("text") or "")
+        if len(prefix) < TRACK_CLOSE_MIN_CHARS:
+            print(f"[Guardian:AEC] 結案前綴不足 {TRACK_CLOSE_MIN_CHARS} 字，沒有結案：[{e.get('part')}] {prefix}", file=sys.stderr)
+            continue
+        target = next((o for o in open_tracking_items(existing + out)
+                       if _part_eq(o.get("part"), e.get("part")) and str(o.get("text") or "").startswith(prefix)), None)
+        if target is None:
+            print(f"[Guardian:AEC] 結案找不到對應的未結追蹤項，沒有結案：[{e.get('part')}] {prefix}", file=sys.stderr)
+            continue
+        out.append({**e, "closes": {"at": target.get("at"), "text_prefix": prefix}})
+    return out
+
+
 def append_tracking(slug: str, entries: List[Dict[str, Any]], base_dir: Optional[Path] = None) -> Optional[Path]:
     """workflow/tracking/<slug>.jsonl 逐行追加（LF、一行一筆；執行期檔，.gitignore 收）。
     slug 必須 fullmatch [A-Za-z0-9_-]{1,64}（否則 ValueError：../、磁碟根、尾端換行都會指到 tracking 外或建怪檔）。
-    entries 空 → 不建檔、回 None。寫入失敗浮 stderr（fail-open）。回帳本路徑。"""
+    closed 列先對帳本補 closes（_resolve_closes）。entries 空 → 不建檔、回 None。寫入失敗浮 stderr（fail-open）。回帳本路徑。"""
     if not _TRACK_SLUG_RE.fullmatch(str(slug or "")):
         raise ValueError(f"tracking slug must match [A-Za-z0-9_-]+ (got {slug!r})")
+    if any(e.get("status") == "closed" for e in entries):
+        entries = _resolve_closes(read_tracking(slug, base_dir), entries)
     if not entries:
         return None
     try:
@@ -392,6 +489,37 @@ def append_tracking(slug: str, entries: List[Dict[str, Any]], base_dir: Optional
     except OSError as e:
         print(f"[Guardian:AEC] tracking ledger write failed (fail-open): {e}", file=sys.stderr)
         return None
+
+
+def tracking_items_for_part(slug: str, part_names: List[str], base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """某部位（part 或 part_short，不分大小寫）仍 open 的追蹤項；part 空的不算任何部位。"""
+    names = [n for n in part_names if str(n or "").strip()]
+    return [e for e in open_tracking_items(read_tracking(slug, base_dir))
+            if str(e.get("part") or "").strip() and any(_part_eq(e.get("part"), n) for n in names)]
+
+
+TRACK_INJECT_MAX_ITEMS, TRACK_INJECT_ITEM_CHARS = 5, 200
+
+
+def tracking_block(items: List[Dict[str, Any]], budget: int) -> str:
+    """注入文字末段「【未結追蹤項】」：最多 5 筆、每筆截 200 字、整段不超過 budget 字；超過附「另有 N 筆」。沒有項目回空字串。"""
+    if not items:
+        return ""
+    head = "【未結追蹤項】（這個部位以前記下、還沒結案的問題；處理完在 AEC (k) 寫「[部位] 結案：<原文開頭至少 8 字>」）"
+    lines = [head]
+    shown = 0
+    for e in items[:TRACK_INJECT_MAX_ITEMS]:
+        t = str(e.get("text") or "")
+        t = t if len(t) <= TRACK_INJECT_ITEM_CHARS else t[:TRACK_INJECT_ITEM_CHARS - 1] + "…"
+        line = f"- {t}（{str(e.get('at') or '')[:10]}）"
+        if len("\n".join(lines + [line])) > budget:
+            break
+        lines.append(line)
+        shown += 1
+    rest = len(items) - shown
+    if rest > 0:
+        lines.append(f"- 另有 {rest} 筆")
+    return "\n".join(lines)
 
 
 def append_ledger(sid: str, record: Dict[str, Any], base_dir: Optional[Path] = None) -> None:

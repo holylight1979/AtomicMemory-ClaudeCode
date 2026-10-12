@@ -414,6 +414,16 @@ def _locate_template(cfg: Dict[str, Any]) -> List[str]:
     return t
 
 
+def _tracking_for(root: Path, row: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """這個專案追蹤帳本裡、這個部位（part 或 part_short）仍 open 的項目；讀不到只 stderr，不擋注入。"""
+    try:
+        from wg_harvest import tracking_items_for_part, tracking_slug
+        return tracking_items_for_part(tracking_slug(str(root)), [row.get("part"), row.get("part_short")])
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Tracking] 讀追蹤項失敗（不擋注入）：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
 def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
             hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any]) -> str:
     card_paths = _cards_for(root, row, cfg)
@@ -424,6 +434,10 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""))
+    tracked = _tracking_for(root, row)
+    if tracked:
+        from wg_harvest import tracking_block
+        text = f"{text}\n{tracking_block(tracked, int(cfg['max_card_chars']))}"
     hub = state.setdefault("overview_hub", {})
     hub[_key(root, row)] = {
         "injected_turn": int(state.get("turn_seq", 0)),
