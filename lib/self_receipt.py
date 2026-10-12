@@ -568,9 +568,24 @@ def whole_run_shape(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
     return True
 
 
+# 永遠不算執行程式的指令：印字、讀檔、寫檔、過濾與 shell 內建。它們印出的成功行分不出是不是驗證程式跑出來的（讀舊 log、
+# printf 組字串），設定也不能把它們擴充成執行程式（hub_config 驗證時報錯，_extra_set 載入時再濾一次）
+NOT_RUNNERS = (_ECHO_PROGS | _FILTER_PROGS | _CD_ALL | _EVAL_PROGS | _CTRL_WORDS | frozenset({
+    "cat", "type", "get-content", "gc", "more", "less", "head", "tac", "nl", "bat", "select-string", "sls", "findstr",
+    "grep", "egrep", "fgrep", "rg", "awk", "gawk", "sed", "cut", "sort", "uniq", "tr", "xxd", "od", "strings", "jq", "yq",
+    "tee", "tee-object", "out-file", "set-content", "add-content", "cp", "copy", "copy-item", "mv", "move", "move-item",
+    "xargs", "env", "true", "false", "yes", "sleep", "test", "[", ":", "exit", "return", "cmd", "set", "unset", "export",
+    "declare", "typeset", "alias", "shopt", "builtin", "command", "exec", "time"}))
+
+
+def refused_runner(name: str) -> bool:
+    """這個名字（照執行程式的正規化：取檔名、小寫、去 .exe）永遠不算執行程式（NOT_RUNNERS）。"""
+    return _prog(str(name)) in NOT_RUNNERS
+
+
 def _extra_set(extra_runners: Any) -> frozenset:
-    """設定擴充的執行程式名 → 與內建清單同一套正規化（小寫、去 .exe）。"""
-    return frozenset(_prog(str(x)) for x in (extra_runners or ()) if str(x).strip())
+    """設定擴充的執行程式名 → 與內建清單同一套正規化（小寫、去 .exe）；NOT_RUNNERS 裡的名字不收。"""
+    return frozenset(_prog(str(x)) for x in (extra_runners or ()) if str(x).strip() and not refused_runner(x))
 
 
 def _runs_program(st: Step, extra: frozenset = frozenset()) -> bool:

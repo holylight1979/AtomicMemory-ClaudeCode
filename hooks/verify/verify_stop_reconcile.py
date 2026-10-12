@@ -1945,7 +1945,7 @@ def _hub_dir(base, progs):
 
 def _unity_claim(driven, capsys, monkeypatch, root, org=None, cmd=_UNITY):
     """專案根 root 裡改 Widget.cs 與 WidgetTests.cs，收據是 Bash 跑的 cmd（PASS），收尾說「Widget 修好了」→ handle_stop 的輸出。"""
-    monkeypatch.setattr(vl, "_RUNNER_CACHE", {})
+    monkeypatch.setattr(vl, "_RUNNER_CACHE", {}, raising=False)       # 舊碼沒有這個快取：退回時要紅在斷言，不是缺屬性
     monkeypatch.setattr(wo, "_org_root", lambda: org)
     mods = [_mf(str(root / "Assets" / "Scripts" / "Widget.cs"), 5, last_at=_T1, last_seq=3),
             _mf(str(root / "Assets" / "Tests" / "WidgetTests.cs"), 5, last_at=_T1, last_seq=4)]
@@ -1981,6 +1981,19 @@ def test_020_1_extension_is_program_names_not_syntax(driven, capsys, monkeypatch
     cmd = 'bash -c "python -m pytest -q Assets/Tests/WidgetTests.py"'
     out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "ok", ["unity", "bash"]), cmd=cmd)
     assert "(a) 說「修好」" in out and "解析不了的語法（另起一層 shell" in out
+
+
+def test_021_extension_refuses_read_and_print_commands(driven, capsys, monkeypatch, tmp_path):
+    """021（codex 審 020 的 BLOCK）：擴充清單不能把印字、讀檔、寫檔或 shell 內建的指令登記成執行程式：設定寫了就是設定錯誤、
+    一律擋；繞過設定驗證直接給，載入時也濾掉（讀舊 log、printf 組字串都不算證據）。尾端帶換行的名字也是設定錯誤。"""
+    for name in ("cat", "Get-Content", "type", "echo", "Write-Output", "tee", "printf"):
+        out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / name.lower(), [name]), cmd="cat Assets/Widget.log")
+        assert "判定錯誤，一律擋" in out and f"extra_runner_progs「{name}」是印字" in out, name
+    reason = json.loads(_unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "nl", ["unity\n"])))["reason"]
+    assert "判定錯誤，一律擋" in reason and "extra_runner_progs「unity\\n」不是程式名" in reason
+    for cmd, sh in (("cat Assets/Widget.log", "bash"), ("printf 'X_CHECK %s Widget' PASS", "bash"),
+                    ("Get-Content Widget.log", "powershell")):
+        assert vl._self_receipt.evidence_steps(cmd, sh, ["cat", "printf", "Get-Content"]) is None, cmd
 
 
 # ─── 022：量尺比對定死四條家族規則 ────────────────────────────────────────────────────────────

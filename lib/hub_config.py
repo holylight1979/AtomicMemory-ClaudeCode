@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from overview_hub import SLICE_NAMES
+from self_receipt import refused_runner
 
 HUB_REL = Path(".claude") / "overview-hub.json"
 
@@ -253,8 +254,13 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
     if _is_list_of_str(c.get("source_encodings")):
         errors.extend(f"source_encodings「{e}」不是 Python 認得的編碼" for e in c["source_encodings"] if not encoding_ok(e))
     if _is_list_of_str(c.get("extra_runner_progs")):
-        errors.extend(f"extra_runner_progs「{p}」不是程式名（只能列單一程式名，例：unity；語法白名單不能用設定放寬）"
-                      for p in c["extra_runner_progs"] if not _PROG_NAME_RE.match(p))
+        for p in c["extra_runner_progs"]:
+            if not _PROG_NAME_RE.fullmatch(p):            # fullmatch：尾端換行也算不是程式名
+                shown = p.encode("unicode_escape").decode("ascii")       # 換行這類看不見的字照跳脫顯示
+                errors.append(f"extra_runner_progs「{shown}」不是程式名（只能列單一程式名，例：unity；語法白名單不能用設定放寬）")
+            elif refused_runner(p):
+                errors.append(f"extra_runner_progs「{p}」是印字、讀檔、寫檔或 shell 內建的指令，不能當執行程式"
+                              "（它印出的成功行分不出是不是驗證程式跑出來的）")
     if c.get("eol_policy") not in _EOL_POLICIES:
         errors.append(f"eol_policy 必須是 {'／'.join(_EOL_POLICIES)} 之一")
     errors.extend(validate_path_bases(c.get("path_bases"), root))

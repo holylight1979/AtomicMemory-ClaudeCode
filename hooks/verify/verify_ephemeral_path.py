@@ -61,3 +61,14 @@ def test_project_paths_and_tilde_outside_temp_are_not_ephemeral(monkeypatch):
         for p in (r"C:\proj\src\a.py", r"C:\PROGRA~1\proj\src\a.py", r"C:\Users\HOLYLI~2\proj\a.py",
                   str(HOOKS_DIR / "handlers" / "_shared.py")):
             assert _shared._is_ephemeral_path(p) is False, (tmp, p)
+
+
+def test_021_long_path_failure_is_reported(monkeypatch, capsys):
+    """021（codex 審 020 的 WARN）：GetLongPathNameW 對短路徑與各層祖先都回 0（Win32 失敗不拋例外）→ 照原樣比對，並在 stderr
+    說一聲，不靜默；不帶短檔名記號的路徑轉不了不出聲（轉不轉都不影響比對）。"""
+    monkeypatch.setattr(ctypes.windll.kernel32, "GetLongPathNameW", lambda *a: 0)
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: r"C:\proj-temp")
+    capsys.readouterr()
+    _shared._is_ephemeral_path(r"C:\Users\HOLYLI~1\AppData\Local\Temp\new_dir\probe.py")
+    assert "短路徑轉長路徑失敗" in capsys.readouterr().err
+    assert _shared._is_ephemeral_path(r"C:\proj\x.py") is False and capsys.readouterr().err == ""

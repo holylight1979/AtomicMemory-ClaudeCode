@@ -127,6 +127,8 @@ def _long_path(path: str) -> str:
             break
         tail.append(name)
         head = parent
+    if re.search(r"~\d", path):                           # 只有帶短檔名記號的路徑轉不了才影響比對：說一聲，不靜默
+        print(f"[_shared] 8.3 短路徑轉長路徑失敗（GetLongPathNameW 對 {path} 與各層祖先都回 0），照原樣比對", file=sys.stderr)
     return path
 
 
