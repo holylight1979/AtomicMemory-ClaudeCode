@@ -1492,6 +1492,52 @@ def test_r1_global_and_nonlocal_declarations_pick_the_scope(tmp_path, decl):
         assert not any(s for _, s in edges), "nonlocal work 指的是 outer 的參數：裝的東西看不到"
 
 
+R2_USES = {
+    "positional": "    use(w)\n",
+    "keyword": "    use(item=w)\n",
+    "keyword_container": "    holder.update(item=w)\n",
+    "chained": "    holder.a = holder.b = w\n",
+    "unpack": "    a, b = w, 1\n",
+    "list": "    items = [1, w]\n",
+    "dict": '    d = {"k": w}\n',
+    "return": "    if holder:\n        return w\n",
+    "yield": "    if holder:\n        yield w\n",
+    "lambda": "    later = lambda: w\n",
+    "nested_def": "    def later():\n        return w.run()\n",
+    "attr_store": "    w.x = 1\n",
+    "attr_read": "    n = w.x\n",
+    "del": "    if holder:\n        del w\n        return\n",
+}
+
+
+@pytest.mark.parametrize("use", sorted(R2_USES))
+def test_r2_any_use_besides_a_method_call_receiver_loses_rule_2(tmp_path, use):
+    """案 2 一整類：建構後 w 的出現只要不是 w.m(…)，就沒有第 2 條的正向證明（不再列舉存走的寫法）。"""
+    files = {"app.py": WORKER + "\n\ndef use(item=None):\n    return item\n\n\ndef main(holder):\n    w = Worker()\n"
+                                + R2_USES[use] + "    w.run()\n"}
+    run = [s for d, s in _sure_edges(files, "app.py::main", tmp_path) if d == "app.py::Worker.run"]
+    assert run == [False], f"{use}：w 不只當方法呼叫的接收者，第 2 條不成立"
+
+
+def test_r2_only_method_calls_on_the_constructed_local_stay_rule_2(tmp_path):
+    files = {"app.py": ("class Worker:\n    def a(self):\n        x = 1\n        return x + 1\n\n"
+                        "    def b(self):\n        y = 2\n        return y * 2\n\n\n"
+                        "def main():\n    w = Worker()\n    w.a()\n    w.b()\n")}
+    edges = sorted(_sure_edges(files, "app.py::main", tmp_path / "a"))
+    assert edges == [("app.py::Worker.a", True), ("app.py::Worker.b", True)], "只做 w.a()、w.b() 兩次方法呼叫"
+    assert sorted(_edge_rules(files, "app.py::main", tmp_path / "b")) == [("app.py::Worker.a", 2), ("app.py::Worker.b", 2)]
+
+
+def test_r2_csharp_constructed_local_passed_as_an_argument_loses_rule_2(tmp_path):
+    worker = "class Worker {\n    public void Run() { int x = 1; x += 1; x *= 2; }\n}\n"
+    main = "class Program {\n    static void Use(Worker w) { }\n    static void Main() {\n        var w = new Worker();\n"
+    passed = {"Program.cs": worker + main + "        Use(w);\n        w.Run();\n    }\n}\n"}
+    run = [s for d, s in _sure_edges(passed, "Program.cs::Program.Main", tmp_path / "a") if d.endswith("Worker.Run")]
+    assert run == [False], "w 當引數傳出去：第 2 條不成立"
+    calls = {"Program.cs": worker + main + "        w.Run();\n        w?.Run();\n    }\n}\n"}
+    assert [r for d, r in _edge_rules(calls, "Program.cs::Program.Main", tmp_path / "b") if d.endswith("Worker.Run")] == [2]
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

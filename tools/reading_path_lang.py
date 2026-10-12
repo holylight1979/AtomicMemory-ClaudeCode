@@ -70,7 +70,8 @@ class Func:
     aliases: dict = field(default_factory=dict)       # 區域變數 → 函式參照（fn = b、fn = self.run）
     inline: set = field(default_factory=set)          # 就地定義的 lambda／C# 區域函式名：呼叫它不算未解（內容就在這裡）
     reassigned: set = field(default_factory=set)      # 被指定超過一次（參數再被指定也算）：別名、確定型別、確定實例都不算
-    escaped: set = field(default_factory=set)         # 被存進欄位或容器的區域變數（self.x = obj、items = [obj]、lst.append(obj)）
+    escaped: set = field(default_factory=set)         # 被存進欄位或容器的區域變數（self.x = obj、items = [obj]、lst.append(obj)）：找目標用
+    receiver_only: set = field(default_factory=set)   # 建構後每一次出現都只是方法呼叫接收者（w.m(…)）的區域變數：白名單 2 只吃這個
     locals: set = field(default_factory=set)          # 本體裡被指定過的區域變數名：拿它當函式呼叫又追不到 → 未解
     attr_stores: set = field(default_factory=set)     # 本體裡寫過的屬性 (接收者, 屬性名)：self.run = f、w.run = f、mod.func = f
     nonlocal_writes: set = field(default_factory=set)  # 用 nonlocal 宣告後又指定的名字：改的是外層作用域的綁定
@@ -147,7 +148,7 @@ def parse_python(rel: str, text: str) -> Module:
         elif isinstance(node, ast.ClassDef):
             _py_class(mod, node)
         elif _is_main_guard(node):
-            _py_main_block(mod, node)
+            _py_main_block(mod, node, tree)
         else:
             _py_module_stmt(mod, node)
     if not any(f.entry for f in mod.funcs) and "main" in mod.defs:
@@ -172,13 +173,16 @@ def _is_main_guard(node: ast.AST) -> bool:
             and isinstance(test.left, ast.Name) and test.left.id == "__name__")
 
 
-def _py_main_block(mod: Module, node: ast.If) -> None:
+def _py_main_block(mod: Module, node: ast.If, tree: ast.Module) -> None:
     fid = f"{mod.file}::<main>"
     f = Func(fid, mod.file, "<main>", "<main>", "", "py", node.lineno, entry=True)
     nodes = _py_scan(mod.imports, node.body)
     _py_count_bindings(mod, nodes)
     _py_locals(f, None, nodes)
     f.calls = _py_calls(mod, nodes, fid)
+    elsewhere = itertools.chain.from_iterable(ast.walk(s) for s in tree.body if s is not node)
+    outside = {n.id for n in elsewhere if isinstance(n, ast.Name)}
+    f.receiver_only = _py_receiver_only(f, node.body) - outside   # 區塊裡的變數是模組層名字：別處寫到它就不算
     mod.funcs.append(f)
 
 
@@ -268,6 +272,7 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     mod.opaque |= f.global_names & f.locals            # 函式用 global 改寫模組層名字：之後是什麼看不到
     f.nonlocal_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Nonlocal)))
     f.nonlocal_writes = f.nonlocal_names & f.locals    # 改的是外層函式的名字（reading-path 回頭標到外層）
+    f.receiver_only = _py_receiver_only(f, body)
     mod.funcs.append(f)
     if cls:
         cls.methods.setdefault(node.name, []).append(fid)
@@ -487,6 +492,45 @@ def _py_contained(node) -> set:
     return {e.id for e in names if isinstance(e, ast.Name)}
 
 
+def _py_receiver_only(f: Func, body: list) -> set:
+    """白名單 2 的正向證明：建構之後每一次出現都只是方法呼叫的接收者（w.m(…)）的區域變數。
+    只允許一次單一目標的建構指定（w = Foo(…)、w: T = Foo(…)）＋若干 w.m(…)；其他任何出現——當引數（位置或具名）、
+    被指定給別的目標（含鏈式、解構）、放進容器、return、yield、讀 w.x 不呼叫、w.x = …、del、被 lambda 或巢狀函式捕捉——
+    都失去資格。不列舉「存走」有哪些寫法：沒被允許的就是不行。"""
+    seen = {}                                          # 名字 → [(Name 節點, 父節點, 祖父節點, 是否在巢狀作用域裡)]
+    stack = [(node, None, None, False) for node in body]
+    while stack:
+        node, parent, grand, inner = stack.pop()
+        if isinstance(node, ast.Name):
+            seen.setdefault(node.id, []).append((node, parent, grand, inner))
+        nested = inner or isinstance(node, (*_DEF_NODES, ast.Lambda, ast.ClassDef))
+        stack.extend((child, node, parent, nested) for child in ast.iter_child_nodes(node))
+    skip = set(f.params) | f.global_names | f.nonlocal_names
+    return {name for name in f.constructed if name not in skip and _only_receiver(seen.get(name, []))}
+
+
+def _only_receiver(spots: list) -> bool:
+    builds = sum(1 for s in spots if _is_build(*s))
+    calls = sum(1 for s in spots if _is_receiver(*s))
+    return builds == 1 and builds + calls == len(spots)
+
+
+def _is_build(node, parent, _grand, inner) -> bool:
+    """w = Foo(…)／w: T = Foo(…)：單一目標、右邊是建構寫法、不在巢狀作用域裡。"""
+    if inner or not isinstance(node.ctx, ast.Store):
+        return False
+    if isinstance(parent, ast.Assign):
+        return len(parent.targets) == 1 and parent.targets[0] is node and bool(_py_ctor(parent.value))
+    return (isinstance(parent, ast.AnnAssign) and parent.target is node and parent.value is not None
+            and bool(_py_ctor(parent.value)))
+
+
+def _is_receiver(node, parent, grand, inner) -> bool:
+    """w.m(…)：讀 w、它是屬性存取的對象、那個屬性正被呼叫；不在巢狀作用域裡。"""
+    return (not inner and isinstance(node.ctx, ast.Load) and isinstance(parent, ast.Attribute) and parent.value is node
+            and isinstance(grand, ast.Call) and grand.func is parent)
+
+
 def _py_ctor(value) -> str:
     """指定的右邊是建構（Foo()、worker.Foo()）→ 建構者寫法（"Foo"、"worker.Foo"）；不是 → ""。
     worker.Foo() 也可能是普通的模組函式呼叫，是不是類別交給 reading-path 解析（解不到類別就不當型別證據）。"""
@@ -555,6 +599,7 @@ _CS_COMPOUND = re.compile(r"\b(if|for|foreach|while|switch|try|do|lock)\b|\busin
 _CS_MOVE = re.compile(r"[\w<>\[\],.?]+\s+[a-z_]\w*\s*=\s*[\w.]+")   # var y = x;：宣告區域變數只換個名字
 _CS_PROP_USE = re.compile(r"(?<![\w.?])(?P<recv>(?:\w+\s*\??\.\s*)*)(?P<name>[A-Z]\w*)\b(?!\s*[(<\w])")
 _CS_ACCESSOR = re.compile(r"\b(get|set|init)\s*(\{|=>)")
+_CS_RECV_CALL = re.compile(r"\s*\??\s*\.\s*\w+\s*(?:<[^<>();]*>)?\s*\(")   # 接在變數名後面的 .M( 或 ?.M(
 CS_KEYWORDS = {"if", "for", "foreach", "while", "switch", "catch", "using", "lock", "return", "typeof", "nameof",
                "sizeof", "default", "checked", "unchecked", "fixed", "when", "base", "this", "new", "throw",
                "await", "get", "set", "in", "is", "as", "out", "ref", "var", "else", "do", "try", "yield", "stackalloc"}
@@ -737,11 +782,26 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
     f.escaped |= set(_CS_CONTAINER_ADD.findall(body))   # list.Add(x) 這類加進容器
     for init in _CS_INITIALIZER.findall(body):            # new[] { w }、new List<W> { w }、new Holder { W = w }
         f.escaped |= set(_CS_LOWER_NAME.findall(init))
+    f.receiver_only = _cs_receiver_only(f, body)
     for m in [*_CS_SUB.finditer(body), *_CS_LISTEN.finditer(body)]:
         ref = _cs_ref(m["rhs"])   # 訂閱的是具名方法才收；+= lambda 的內容就寫在這裡
         recv, _, key = m["lhs"].rpartition(".")
         if ref:
             mod.subs.append((key, ref, f.id, mod.file, recv))
+
+
+def _cs_receiver_only(f: Func, body: str) -> set:
+    """C# 版的白名單 2 正向證明（本體已去註解與字串）：區域變數 w 的每一次出現（前面不是 `.` 的 \\bw\\b），
+    只能是一次宣告 `var w = new X(…)`／`X w = new X(…)`，其餘都是 `w.M(`／`w?.M(`；當引數、ref/out、再指定、
+    放進初始化子、return、讀屬性……都失去資格。"""
+    out = set()
+    for name in f.constructed:
+        builds = {m.start("var") for m in _CS_LOCAL.finditer(body) if m["var"] == name and m["new"]}
+        spots = [m.start() for m in re.finditer(rf"(?<![\w.]){re.escape(name)}\b", body)]
+        calls = [p for p in spots if p not in builds and _CS_RECV_CALL.match(body, p + len(name))]
+        if len(builds) == 1 and builds <= set(spots) and len(builds) + len(calls) == len(spots):
+            out.add(name)
+    return out
 
 
 def _cs_call(m: re.Match, body: str, line: int) -> Call | None:

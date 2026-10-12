@@ -82,8 +82,9 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   1. 直接呼叫專案內唯一解析到、名字從未被重新指定的函式（含 import 進來的、模組.函式、類別.靜態方法、建構子、super()／base.）；
      模組層名字只要在任何地方被重新指定或被指定成算出來的值，就不在白名單；名字是哪一層的哪個綁定只查一次
      （由內往外，遵守 global／nonlocal），連到的目標與被證明沒改指的必須是同一個綁定
-  2. 對同一函式內剛 new 出來、之後沒再指定、沒傳 ref/out、沒存到欄位或容器的區域變數呼叫方法（確定型別分派）；
-     建構者的名字（含 import 別名）也要從未被重新指定
+  2. 對剛 new 出來的物件呼叫方法（確定型別分派）：Foo().run()，或同一函式內建構一次、之後每一次出現都只是
+     方法呼叫接收者（w.m(…)）的區域變數——當引數、被指定給別的目標、放進容器、回傳、yield、被 lambda／巢狀函式捕捉、
+     del、w.x = …、讀 w.x 不呼叫，任何一種都失去資格；建構者的名字（含 import 別名）也要從未被重新指定
   3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、區域變數標註、
      欄位宣告型別；self.x = Foo() 這種推導出來的不算）同樣只在沒有子類覆寫、也沒有多載時
      （照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）
@@ -947,13 +948,14 @@ class Graph:
         return bool(f.cls) and e.dst in self.lookup(self.cls_of(f), name)
 
     def _rule2(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
-        """白名單 2：對同一函式內剛 new 出來、之後沒再指定、沒傳 ref/out（C# 算進重新指定）、沒存到欄位或容器的
-        區域變數呼叫方法；建構者的名字也要綁定穩定。Foo().run() 這種當場 new 出來的也算。"""
+        """白名單 2：對剛 new 出來的物件呼叫方法（確定型別分派）——當場 new 的 Foo().run()，或同一函式內的區域變數
+        建構之後每一次出現都只是方法呼叫的接收者（f.receiver_only 的正向證明，不是列舉「存走」的寫法）；
+        建構者的名字也要綁定穩定。"""
         if c.kind not in ("attr", "prop") or "." in c.recv:
             return False
         if c.recv.startswith("new:"):
             ctor = c.recv[4:]
-        elif c.recv in f.constructed and c.recv not in f.reassigned and c.recv not in f.escaped:
+        elif c.recv in f.receiver_only:
             ctor = f.constructed[c.recv]
         else:
             return False
