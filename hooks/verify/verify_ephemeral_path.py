@@ -74,26 +74,68 @@ def test_021_long_path_failure_is_reported(monkeypatch, capsys):
     assert _shared._is_ephemeral_path(r"C:\proj\x.py") is False and capsys.readouterr().err == ""
 
 
-def test_028_dotdot_out_of_temp_is_project_code(monkeypatch):
-    """028：暫存目錄後面接 `..` 跳回專案原碼（`<暫存>\\..\\..\\..\\.claude-wt\\…\\_shared.py`）不是暫存：轉長路徑後先 normpath
-    再比包含；長短寫法交叉都測。經 post_tool_use 入口，這個改檔照常進 modified_files。"""
+def _noted_via_post_tool_use(monkeypatch, path: str) -> bool:
+    """經 post_tool_use 入口（handle_post_tool_use 的 Edit）改這個檔，它有沒有進 modified_files（暫存檔不進）。"""
     from handlers import post_tool_use as pt
-    long_, short = _tmp_forms()
-    target = str(HOOKS_DIR / "handlers" / "_shared.py")
-    try:
-        rel = os.path.relpath(target, long_)
-    except ValueError:
-        pytest.skip("暫存目錄與 worktree 不在同一個磁碟，接不出 `..` 路徑")
-    for tmp, base in ((long_, short), (long_, long_), (short, long_), (short, short)):
-        monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda t=tmp: t)
-        assert _shared._is_ephemeral_path(base + "\\" + rel) is False, (tmp, base)
-    p = short + "\\" + rel
     state = {"turn_seq": 3, "session": {"cwd": str(HOOKS_DIR.parent)}}
     monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
     with pytest.raises(SystemExit):
-        pt.handle_post_tool_use({"session_id": "sid-028", "tool_name": "Edit", "tool_input": {"file_path": p},
+        pt.handle_post_tool_use({"session_id": "sid-eph", "tool_name": "Edit", "tool_input": {"file_path": path},
                                  "tool_response": {}, "cwd": str(HOOKS_DIR.parent)}, {"docdrift": {"enabled": False}})
-    assert any(m.get("path") == p for m in state.get("modified_files") or []), state.get("modified_files")
+    return any(m.get("path") == path for m in state.get("modified_files") or [])
+
+
+def _rel_to_shared(long_: str) -> str:
+    """從暫存目錄用 `..` 走到本樹 hooks/handlers/_shared.py 的相對路徑；不在同一個磁碟就跳過。"""
+    try:
+        return os.path.relpath(str(HOOKS_DIR / "handlers" / "_shared.py"), long_)
+    except ValueError:
+        pytest.skip("暫存目錄與 worktree 不在同一個磁碟，接不出 `..` 路徑")
+
+
+def test_028_dotdot_out_of_temp_is_project_code(monkeypatch):
+    """028：暫存目錄後面接 `..` 跳回專案原碼（`<暫存>\\..\\..\\..\\.claude-wt\\…\\_shared.py`）不是暫存：轉長路徑後先 normpath
+    再比包含；長短寫法交叉四組都測，每一組都經 post_tool_use 入口確認這個改檔照常進 modified_files。"""
+    long_, short = _tmp_forms()
+    rel = _rel_to_shared(long_)
+    for tmp, base in ((long_, short), (long_, long_), (short, long_), (short, short)):
+        monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda t=tmp: t)
+        p = base + "\\" + rel
+        assert _shared._is_ephemeral_path(p) is False, (tmp, base)
+        assert _noted_via_post_tool_use(monkeypatch, p), (tmp, base)
+
+
+@pytest.mark.parametrize("path_form", ["long", "short"])
+@pytest.mark.parametrize("path_pre, tmp_pre", [("\\\\?\\", ""), ("", "\\\\?\\"), ("\\\\?\\", "\\\\?\\")])
+def test_030_long_path_prefix_on_either_side_is_still_temp(monkeypatch, path_pre, tmp_pre, path_form):
+    """030：`\\\\?\\` 長路徑前綴只出現在路徑側、只出現在暫存側、兩側都有，scratchpad 都判暫存（比對前兩側統一表示），
+    經 post_tool_use 也不進 modified_files。"""
+    long_, short = _tmp_forms()
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: tmp_pre + long_)
+    p = path_pre + (long_ if path_form == "long" else short) + r"\claude\sess\scratchpad\probe.py"
+    assert _shared._is_ephemeral_path(p) is True, p
+    assert not _noted_via_post_tool_use(monkeypatch, p), p
+
+
+def test_030_prefixed_dotdot_out_of_temp_is_project_code(monkeypatch):
+    """030：方向不放寬：`\\\\?\\` 加 `..` 逃出暫存的仍是專案原碼，經 post_tool_use 照常記帳。"""
+    long_, _ = _tmp_forms()
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: long_)
+    p = "\\\\?\\" + long_ + "\\" + _rel_to_shared(long_)
+    assert _shared._is_ephemeral_path(p) is False and _noted_via_post_tool_use(monkeypatch, p)
+
+
+@pytest.mark.parametrize("path, tmp, is_temp", [
+    (r"\\?\UNC\localhost\nosuchshare\tmp\claude\x.py", r"\\localhost\nosuchshare\tmp", True),
+    (r"\\localhost\nosuchshare\tmp\claude\x.py", r"\\?\UNC\localhost\nosuchshare\tmp", True),
+    (r"\\?\UNC\localhost\nosuchshare\other\x.py", r"\\localhost\nosuchshare\tmp", False),
+    (r"\\?\UNC\localhost\nosuchshare\tmp\..\other\x.py", r"\\localhost\nosuchshare\tmp", False),
+    (r"\\localhost\othershare\tmp\x.py", r"\\?\UNC\localhost\nosuchshare\tmp", False),
+])
+def test_030_unc_forms(monkeypatch, path, tmp, is_temp):
+    """030：`\\\\?\\UNC\\server\\share\\…` 等同 `\\\\server\\share\\…`；暫存在 UNC 上時兩種寫法都判暫存，逃出暫存或別的分享仍判非暫存。"""
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: tmp)
+    assert _shared._is_ephemeral_path(path) is is_temp
