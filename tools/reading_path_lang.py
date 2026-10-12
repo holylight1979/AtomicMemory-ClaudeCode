@@ -154,6 +154,7 @@ def parse_python(rel: str, text: str) -> Module:
     for node in tree.body:
         if isinstance(node, (*_DEF_NODES, ast.ClassDef)):
             mod.bindings[node.name] += 1
+            _py_def_time(mod, node)
         if isinstance(node, _DEF_NODES):
             _py_func(mod, node, "", None)
         elif isinstance(node, ast.ClassDef):
@@ -188,6 +189,14 @@ def _py_scan(owner, stmts: list) -> list:
         for name, source in bound:
             owner.import_sources.setdefault(name, []).append(source)
     return nodes
+
+
+def _py_def_time(mod: Module, node) -> None:
+    """模組層 def／class 定義時在模組層求值的運算式（預設值、裝飾器、標註、父類…）：裡面的綁定（推導式裡的 :=）、
+    import 與訂閱照模組層的敘述算。"""
+    nodes = _py_scan(mod, _def_time_exprs(node))
+    _py_count_bindings(mod, nodes)
+    _py_calls(mod, nodes, "")
 
 
 def _is_main_guard(node: ast.AST) -> bool:
@@ -288,7 +297,9 @@ def _py_class(mod: Module, node: ast.ClassDef) -> None:
         elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and _py_ann(item.annotation):
             cls.fields[item.target.id] = cls.declared_fields[item.target.id] = _py_ann(item.annotation)
             cls.field_scope[item.target.id] = cls.declared_scope[item.target.id] = ""   # 類別本體的標註在類別本體解析
-    plain = list(_own_nodes([item for item in node.body if not isinstance(item, _DEF_NODES)]))
+    defs = [item for item in node.body if isinstance(item, _DEF_NODES)]
+    rest = [item for item in node.body if not isinstance(item, _DEF_NODES)]
+    plain = list(_own_nodes(rest + [x for d in defs for x in _def_time_exprs(d)]))   # 方法的預設值、裝飾器、標註在類別本體求值
     names = set(_py_stores(plain)) | {n for n in map(_bound_name, plain) if n}
     mod.attr_stores |= {(node.name, name) for name in names}   # 類別本體 run = other、import run、巢狀 class run：蓋掉同名方法
     cls.body_names = names | {item.name for item in node.body if isinstance(item, _DEF_NODES)}
@@ -367,13 +378,26 @@ def _construct_binds(node) -> set:
 
 
 def _own_nodes(stmts):
-    """stmts 底下所有節點；巢狀 def/class 本身會給出，但不往裡走（那是別的函式）。"""
+    """stmts 底下屬於這一層的節點：巢狀 def/class 本身會給出，它定義時在這一層求值的運算式（_def_time_exprs）也算這一層；
+    def 本體與類別本體不往裡走（那是別的函式、別的作用域）。"""
     stack = list(stmts)
     while stack:
         node = stack.pop()
         yield node
-        if not isinstance(node, (*_DEF_NODES, ast.ClassDef)):
-            stack.extend(ast.iter_child_nodes(node))
+        nested = isinstance(node, (*_DEF_NODES, ast.ClassDef))
+        stack.extend(_def_time_exprs(node) if nested else ast.iter_child_nodes(node))
+
+
+def _def_time_exprs(node) -> list:
+    """def／class 敘述在定義當下、於外層作用域求值的運算式：def 的裝飾器、參數預設值（含只限關鍵字的）、參數與回傳標註；
+    class 的裝飾器、父類、keywords（metaclass=…）。"""
+    if isinstance(node, ast.ClassDef):
+        return [*node.decorator_list, *node.bases, *node.keywords]
+    a = node.args
+    params = [p for p in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg] if p]
+    returns = [node.returns] if node.returns else []
+    return [*node.decorator_list, *a.defaults, *[d for d in a.kw_defaults if d],
+            *[p.annotation for p in params if p.annotation], *returns]
 
 
 def _strip_doc(body: list) -> list:

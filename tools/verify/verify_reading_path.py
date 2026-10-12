@@ -1929,6 +1929,8 @@ P4_REBOUND_WRITES = {   # 接收者的型別標註（pathlib.Path，外部）在
     "annotated_local": "def change(source):\n    p: Path = source\n    p = Worker\n    p.run = other\n",
     "nonlocal_param": "def change(p: Path):\n    def g():\n        nonlocal p\n        p = Worker\n\n    g()\n    p.run = other\n",
     "import_rebind": "def change(p: Path):\n    from kit import Worker as p\n    p.run = other\n",
+    "nested_default_walrus": ("def change(p: Path):\n    def inner(x=[(p := Worker) for _ in (0,)]):\n        return x\n\n"
+                              "    p.run = other\n"),
 }
 
 
@@ -2021,6 +2023,72 @@ def test_closure_over_an_outer_parameter_rebound_in_the_outer_lists_both_sources
                        "def main():\n    outer(work)\n")
     edges = sorted(_sure_edges({"app.py": app}, "app.py::outer.inner", tmp_path))
     assert edges == [("app.py::other", False), ("app.py::work", False)], "兩個來源都只是候選"
+
+
+# ─── 第七輪（codex 審 012）：def／class 定義時在外層求值的運算式算外層，本體才跳過 ─────────
+
+DECO = "def deco(_):\n    return lambda f: f\n\n\n"
+P7_DEF_TIME = {   # main 裡定義巢狀 def／class 時就執行的運算式把 work 綁成 other；main 的 work() 實際呼叫 other
+    "default_comprehension": "    def inner(x=[(work := other) for _ in (0,)]):\n        return x\n\n",
+    "default": "    def inner(x=(work := other)):\n        return x\n\n",
+    "kwonly_default": "    def inner(*, x=(work := other)):\n        return x\n\n",
+    "decorator": "    @deco(work := other)\n    def inner():\n        return 1\n\n",
+    "annotation": "    def inner(x: (work := other)):\n        return x\n\n",
+    "return_annotation": "    def inner() -> (work := other):\n        return 1\n\n",
+    "class_base": "    class K(object if (work := other) else object):\n        pass\n\n",
+    "class_keyword": "    class K(metaclass=type if (work := other) else type):\n        pass\n\n",
+    "class_decorator": "    @deco(work := other)\n    class K:\n        pass\n\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(P7_DEF_TIME))
+def test_p7_a_binding_in_a_definition_time_expression_belongs_to_the_outer_scope(tmp_path, form):
+    """codex 第 2 項一整類：巢狀 def 的預設值（含推導式裡的 :=）、只限關鍵字預設值、裝飾器、參數與回傳標註，
+    巢狀 class 的父類、keywords、裝飾器，都在 main 定義它的當下於 main 求值——裡面的綁定是 main 的綁定 → work() 不給條號。"""
+    files = {"app.py": DECO + TWO_FUNCS + "def main():\n" + P7_DEF_TIME[form] + "    return work()\n"}
+    assert ("app.py::work", True) not in _sure_edges(files, "app.py::main", tmp_path / "a"), f"{form}：work 已被改綁成 other"
+    assert all(r is None for d, r in _edge_rules(files, "app.py::main", tmp_path / "b") if d.endswith("::work"))
+
+
+def test_p7_a_binding_in_a_module_level_default_rebinds_the_module_name(tmp_path):
+    """模組層 def 的預設值在模組層求值：def setup(x=(work := other)) 把模組層的 work 綁成 other → main 的 work() 不給條號。"""
+    files = {"app.py": TWO_FUNCS + "def setup(x=(work := other)):\n    return x\n\n\ndef main():\n    return work()\n"}
+    assert ("app.py::work", True) not in _sure_edges(files, "app.py::main", tmp_path / "a")
+    assert all(r is None for d, r in _edge_rules(files, "app.py::main", tmp_path / "b") if d.endswith("::work"))
+
+
+def test_p7_a_sibling_default_rebinding_the_annotation_name_is_not_rule_3(tmp_path):
+    """codex 第 4 項：setup 的預設值在 main 裡把 Worker 綁成 Other；inner 的參數標註在 main 解析＝Other → 不給第 3 條。"""
+    app = WORKER + ("\n\nclass Other:\n    def run(self):\n        return 2\n\n\ndef main():\n"
+                    "    def setup(x=[(Worker := Other) for _ in (0,)]):\n        return x\n\n"
+                    "    def inner(p: Worker):\n        return p.run()\n\n    return inner(Other())\n")
+    assert ("app.py::Worker.run", True) not in _sure_edges({"app.py": app}, "app.py::main.inner", tmp_path / "a")
+    assert all(r is None for d, r in _edge_rules({"app.py": app}, "app.py::main.inner", tmp_path / "b") if d.endswith("run"))
+
+
+def test_p7_a_default_rebinding_the_nested_def_is_not_rule_5(tmp_path):
+    """codex 第 7 項：setup 的預設值把 main 的巢狀 def work 改綁成 other；inner(cb=work) 的預設值存的是 other → 不給第 5 條。"""
+    app = ("def other():\n" + BODY + "\n\ndef main():\n    def work():\n        q = 1\n        return q + 1\n\n"
+           "    def setup(x=[(work := other) for _ in (0,)]):\n        return x\n\n"
+           "    def inner(cb=work):\n        return cb()\n\n    return inner()\n")
+    assert not any(s for _, s in _sure_edges({"app.py": app}, "app.py::main.inner", tmp_path / "a")), "預設值存的是 other"
+    assert all(r is None for _, r in _edge_rules({"app.py": app}, "app.py::main.inner", tmp_path / "b"))
+
+
+def test_p7_a_plain_function_parameter_named_self_uses_its_annotation(tmp_path):
+    """codex 第 6 項（WARN）：一般函式的參數剛好叫 self、標註 Worker，不是方法自己的接收者 → 照一般參數標註給第 3 條。"""
+    files = {"app.py": WORKER + "\n\ndef main(self: Worker):\n    return self.run()\n"}
+    assert _edge_rules(files, "app.py::main", tmp_path) == [("app.py::Worker.run", 3)]
+
+
+@pytest.mark.parametrize("order", ["inside_first", "outside_first"])
+def test_p7_merging_keeps_each_target_on_its_own_evidence(tmp_path, order):
+    """codex 第 7 項建議的回歸：同一來源兩處呼叫、目標不同——推導式裡呼叫 other（不給條號）、外面呼叫 work（第 1 條）；
+    兩種先後順序結果相同，不跨目標升級。"""
+    inside, outside = "    items = [other() for _ in range(2)]\n", "    work()\n"
+    body = inside + outside if order == "inside_first" else outside + inside
+    files = {"app.py": TWO_FUNCS + "def main():\n" + body + "    return items\n"}
+    assert sorted(_edge_rules(files, "app.py::main", tmp_path)) == [("app.py::other", None), ("app.py::work", 1)]
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────

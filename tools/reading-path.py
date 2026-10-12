@@ -1284,8 +1284,8 @@ class Graph:
         建構推導的型別（x = Foo()、self.x = Foo()）不算——那是第 2 條的證據，失去第 2 條資格就不能改走這條。
         宣告的型別也要沿綁定鏈解析到專案內的類別（class_proof）：全專案同名搜尋、指到外部的都不算。"""
         head, *rest = recv.split(".")
-        if head in ("self", "this"):
-            cls = self.cls_of(f) if rest and self._own_receiver(f, head) else None
+        if head in ("self", "this") and self._own_receiver(f, head):
+            cls = self.cls_of(f) if rest else None   # 方法自己的接收者；不是的話（一般函式的參數叫 self）照一般參數走
         elif f.lang == "py" and self.rebound_local(f, head):
             cls = None                             # 被重新指定過（含內層 nonlocal 改寫）：宣告的型別不再是證據（總原則 4）
         elif head in f.param_types and head not in f.reassigned:
