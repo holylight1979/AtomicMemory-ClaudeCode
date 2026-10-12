@@ -384,6 +384,58 @@ def test_receipt_relates_rules_fixed_in_002_returned():
     assert vl.has_cd("cd /c && pytest") and vl.has_cd("pushd x; pytest") and vl.has_cd("Set-Location x; pytest")
     assert not vl.has_cd("python cdx.py") and not vl.has_cd("pytest --cd-flag")
 
+
+def test_receipt_relates_root_must_match():
+    """缺口 3：root 參數真的用上，收據根（project_root，沒有就 cwd）要等於改檔根或在它之下。"""
+    mods = ["C:/Demo/src/widget.py"]
+    r = {"cmd": "python tests/test_widget.py", "project_root": "C:/Other", "cwd": "C:/Other"}
+    assert vl.receipt_relates(r, mods, (), (), "C:/Demo") is False                                     # 別的根
+    assert vl.receipt_relates({**r, "project_root": "C:/Demo"}, mods, (), (), "C:/Demo") is True
+    assert vl.receipt_relates({**r, "project_root": "", "cwd": "C:/Demo/sub"}, mods, (), (), "C:/Demo") is True   # 沒 project_root 用 cwd
+    assert vl.receipt_relates({**r, "project_root": "C:/Demo2"}, mods, (), (), "C:/Demo") is False     # 字首相同不等於在之下
+    assert vl.receipt_relates({"cmd": r["cmd"]}, mods, (), (), "C:/Demo") is True                      # 收據沒根資訊 → 照舊
+    assert vl.receipt_relates(r, mods, (), (), lambda p: None) is True                                 # 改檔根不可判定 → 照舊
+    assert vl.receipt_relates({**r, "cmd": "python -m pytest -q"}, mods, (), (), "C:/Demo") is False   # 整體驗證也要同根
+    assert vl.receipt_relates({"cmd": "python -m pytest -q", "project_root": "C:/Other"}, [], (), (), "C:/Demo") is True   # 沒改檔不比根
+
+
+def test_file_root_of_uses_project_root_then_vcs_fallback(tmp_path):
+    root = tmp_path / "p"
+    (root / ".git").mkdir(parents=True)
+    deep = root / "a" / "b" / "c" / "d" / "x.py"
+    deep.parent.mkdir(parents=True)
+    assert vl.file_root_of(str(root / "x.py")) == str(root)                  # project_root 判得到
+    assert vl.file_root_of(str(deep)) == str(root)                           # 第 5 層：project_root 舊規則找不到，退 VCS 根
+    lone = tmp_path / "lone" / "x.py"
+    lone.parent.mkdir()
+    assert vl.file_root_of(str(lone)) is None                                # 沒任何根 → 不可判定
+
+
+def test_vcs_root_of_never_returns_home_or_drive_root(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".git").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    assert vl.vcs_root_of(str(home / "a" / "x.py")) is None
+    proj = home / "proj"
+    (proj / ".git").mkdir(parents=True)
+    assert vl.vcs_root_of(str(proj / "a" / "x.py")) == proj                  # 家目錄下的專案照常
+    monkeypatch.setattr(vl, "find_vcs_root", lambda start: ("git", Path(Path(start).anchor)))
+    assert vl.vcs_root_of(str(tmp_path / "x" / "y.py")) is None              # 磁碟根不算
+    assert vl.vcs_root_of("rel/x.py") is None
+
+
+def test_related_pass_receipts_marks_order_and_root_reasons():
+    mods = ["C:/Demo/src/widget.py"]
+    rec = {"cmd": "python tests/test_widget.py", "sentinels": [{"verdict": "PASS"}], "exit_code": 0,
+           "turn_seq": 5, "seq": 3, "project_root": "C:/Demo"}
+    edits = {mods[0]: {"path": mods[0], "last_seq": 5, "last_turn_seq": 5}}
+    related, unrelated = vl.related_pass_receipts([rec], 5, mods, (), (), "C:/Demo", edits)
+    assert related == [] and unrelated[0]["before_edit"] == mods
+    related, unrelated = vl.related_pass_receipts([{**rec, "seq": 6}], 5, mods, (), (), "C:/Demo", edits)
+    assert len(related) == 1 and unrelated == []
+    related, unrelated = vl.related_pass_receipts([{**rec, "seq": 6, "project_root": "C:/Other"}], 5, mods, (), (), "C:/Demo", edits)
+    assert related == [] and unrelated[0]["other_root"] is True
+
 # ─── 003-3：at 同秒比 seq；不同時區 offset 先轉 UTC ─────────────────────────────
 
 def test_receipt_after_same_second_uses_seq_and_normalizes_tz():

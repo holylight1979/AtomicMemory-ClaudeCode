@@ -31,6 +31,7 @@ from wg_core import (
     CLAUDE_DIR, CONFIG_PATH, _atom_debug_error, _deep_merge, _layer_kind_for_root, _map_path_of,
     org_memory_root, resolve_project_root,
 )
+from wg_verify_ledger import vcs_root_of
 
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 import overview_hub as _oh  # noqa: E402
@@ -342,6 +343,15 @@ def _project_root_of(path: str) -> Optional[Path]:
         return resolve_project_root(str(p if p.is_dir() else p.parent)).path
     except (OSError, ValueError):
         return None
+
+
+def _unmapped_root_of(path: str) -> Optional[Path]:
+    """無表那條路（改檔閘與讀檔記錄共用，兩邊根要一致）：_project_root_of 找不到、且往上沒有任何部位表時，
+    退 VCS 根（.git／.svn，不設層數上限；家目錄與磁碟根不算）。有部位表的專案不走退路，行為不變。"""
+    root = _project_root_of(path)
+    if root is not None or not path or find_map(path):
+        return root
+    return vcs_root_of(path)
 
 
 def _root_key(root: Path) -> str:
@@ -736,7 +746,7 @@ def _record_read(state: Dict[str, Any], p: str, hit: Optional[Tuple[Path, Dict[s
             if p not in rec["depends_files_read"] and any(norm in c.replace("\\", "/") for c in _card_texts(rec)):
                 rec["depends_files_read"].append(p)
         return
-    root = _project_root_of(p)
+    root = _unmapped_root_of(p)
     if root is None:
         return
     rec = state.setdefault("overview_hub", {}).setdefault(_unmapped_key(root, p), {"part_files_read": [], "edits": 0})
@@ -920,7 +930,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     if hit:
         root, row = hit
     else:
-        root, row = _project_root_of(file_path), None
+        root, row = _unmapped_root_of(file_path), None
         if root is None:
             return (None, None, False)
     cfg = _cfg(config, root)

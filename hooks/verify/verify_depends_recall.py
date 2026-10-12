@@ -161,3 +161,15 @@ def test_post_tool_use_calls_depends_after_hub():
     src = (HOOKS_DIR / "handlers" / "post_tool_use.py").read_text(encoding="utf-8")
     assert src.index("_hub_on_read(") < src.index("on_read_depends(") < src.index("advisories.append(dep_ctx)")
     assert src.index("advisories.append(hub_ctx)") < src.index("advisories.append(dep_ctx)")   # hub 文字先、召回後
+    assert src.count('if tool_name in ("Read", "Bash", "PowerShell"):') == 2                  # 缺口 5：兩個分支都收 PowerShell
+
+
+def test_powershell_and_bare_bash_reads_trigger_recall(world):
+    """缺口 5：PowerShell 讀檔、Bash 無斜線相對路徑也觸發 Depends 召回；含變數的路徑不收。"""
+    root, mem, state = world
+    txt = wd.on_read_depends(dict(state), "s", "PowerShell", {"command": "Get-Content src/sched/queue.py -TotalCount 5"}, str(root), {})
+    assert _cards_in(txt) == ["排程佇列卡"] and txt.count("\n") == 0                         # 一行指標
+    txt = wd.on_read_depends(dict(state), "s", "Bash", {"command": "cat queue.py"}, str(root / "src" / "sched"), {})
+    assert _cards_in(txt) == ["排程佇列卡"]
+    assert wd.on_read_depends(dict(state), "s", "PowerShell", {"command": "Get-Content $p"}, str(root), {}) is None
+    assert wd.on_read_depends(dict(state), "s", "Bash", {"command": "cat nothere.py"}, str(root / "src" / "sched"), {}) is None

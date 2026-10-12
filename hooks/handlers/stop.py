@@ -711,7 +711,8 @@ def _verify_gates(
     rg_cfg: Dict[str, Any], mg_cfg: Dict[str, Any], aec: Dict[str, Any], aec_emitted: bool,
 ) -> tuple:
     """對帳閘＋量尺閘的判定。回 (擋訊息或 None, 種類 reconcile／measure／"", 無量尺提醒或 None)。
-    判定本身出錯 → stderr 浮訊號、該閘當次不擋（判定器 bug 不該讓人卡死；transcript 缺＝last_text 空＝無宣稱可對）。"""
+    判定本身出錯 → 產生擋訊息（一律擋，仍吃 reconcile_gate.max_blocks_per_turn 預算，用完那次照 overflow 放行記 red）
+    ＋stderr＋guard_log（transcript 缺＝last_text 空＝無宣稱可對）。"""
     receipts = receipts_of(state, session_id)
     reason: Optional[str] = None
     kind = ""
@@ -732,7 +733,10 @@ def _verify_gates(
             )
             kind = "reconcile" if reason else ""
         except Exception as e:
-            print(f"[Guardian:ReconcileGate] 判定錯誤（本次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+            reason = (f"[Guardian:ReconcileGate] 判定錯誤，一律擋：{type(e).__name__}: {e}。"
+                      "修好設定或回報；先別宣告完成")
+            kind = "reconcile"
+            print(reason, file=sys.stderr)
             append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
     if mg_cfg.get("enabled", True) and own_mod_files and claims_completion(last_text):
         try:
@@ -747,7 +751,11 @@ def _verify_gates(
                 advised.extend(fresh)
                 advice = measure_advisory(fresh)
         except Exception as e:
-            print(f"[Guardian:MeasureGate] 判定錯誤（本次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+            m_err = (f"[Guardian:MeasureGate] 判定錯誤，一律擋：{type(e).__name__}: {e}。"
+                     "修好設定或回報；先別宣告完成")
+            reason = f"{reason}\n{m_err}" if reason else m_err
+            kind = kind or "measure"
+            print(m_err, file=sys.stderr)
             append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
     return reason, kind, advice
 

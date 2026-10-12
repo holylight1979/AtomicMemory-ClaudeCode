@@ -114,6 +114,32 @@ def test_read_paths_from_bash_and_read():
     assert oh.read_paths_from_tool("Grep", {"pattern": "x"}, "") == []
 
 
+def test_read_paths_bash_bare_name_only_when_file_exists_in_cwd(tmp_path):
+    """缺口 5①：沒斜線的 token 只有 cwd 下真有這個檔才收（旗標、指令名不算）。"""
+    (tmp_path / "main.py").write_text("x", encoding="utf-8")
+    assert oh.read_paths_from_tool("Bash", {"command": "cat main.py"}, str(tmp_path)) == [str(tmp_path / "main.py")]
+    assert oh.read_paths_from_tool("Bash", {"command": "cat -n"}, str(tmp_path)) == []
+    assert oh.read_paths_from_tool("Bash", {"command": "echo hi"}, str(tmp_path)) == []
+    assert oh.read_paths_from_tool("Bash", {"command": "cat nothere.py"}, str(tmp_path)) == []
+
+
+def test_read_paths_from_powershell():
+    """缺口 5②：Get-Content／gc／cat／type／Select-String -Path／Import-Csv；-Path／-LiteralPath 具名或第一個位置參數。"""
+    def ps(c):
+        return [p.replace("\\", "/") for p in oh.read_paths_from_tool("PowerShell", {"command": c}, "C:/w")]
+    assert ps("Get-Content src/widget.py") == ["C:/w/src/widget.py"]
+    assert ps('gc -Path "C:/x/a.cs"') == ["C:/x/a.cs"]
+    assert ps("Select-String -Path a.txt foo") == ["C:/w/a.txt"]
+    assert ps("Get-Content $p") == []                                            # 反例：含變數跳過
+    assert ps("Select-String foo") == []                                         # 反例：Select-String 第一個位置參數是 Pattern
+    assert ps("Write-Output hi") == []                                           # 反例：不是讀檔 cmdlet
+    assert ps("Get-Content -Raw -Encoding utf8 x.py") == ["C:/w/x.py"]           # 帶值參數的值不當路徑
+    assert ps("Get-Content -LiteralPath:'C:/y b/z.txt' -TotalCount 3") == ["C:/y b/z.txt"]
+    assert ps("$rows = Import-Csv data/a.csv; type b.txt") == ["C:/w/data/a.csv", "C:/w/b.txt"]
+    assert ps("gc a.cs,b.cs | Select-String x") == ["C:/w/a.cs", "C:/w/b.cs"]
+    assert oh.read_paths_from_tool("Read", {"file_path": "C:/q.cs"}, "C:/w") == ["C:/q.cs"]   # Read 行為不變
+
+
 # ─── state 層：假專案 + 假 transcript ───────────────────────────────
 
 @pytest.fixture
@@ -827,6 +853,47 @@ def test_unmapped_project_requires_a_read_in_same_top_dir(tmp_path, monkeypatch)
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     assert [e["event"] for e in log] == ["edit_unmapped"] * 3 and log[-1]["deny_reason"] is None
     assert wo.on_edit({}, "s", str(tmp_path / "lonely.py"), "", {}) == (None, None, False)   # 無標記目錄不管
+
+
+def test_unmapped_deep_file_falls_back_to_vcs_root(tmp_path, monkeypatch):
+    """缺口 4：只有 .git、無表；第 5 層的檔以前放行，現在退 VCS 根照無表規則（讀過同頂層一檔才放）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = tmp_path / "deep"
+    (root / ".git").mkdir(parents=True)
+    (root / "src" / "a" / "b" / "c").mkdir(parents=True)
+    (root / "src" / "other.py").write_text("x", encoding="utf-8")
+    deep = str(root / "src" / "a" / "b" / "c" / "widget.py")
+    assert wo._project_root_of(deep) is None                                       # 前提：舊規則最多 4 層找不到
+    state = {}
+    warn, deny, changed = wo.on_edit(state, "s", deep, "", {})
+    assert deny and "沒有部位表" in deny and str(root) in deny and "「src」至少 1 個檔（目前 0 個）" in deny
+    wo.on_read(state, "s", "PowerShell", {"command": "Get-Content src/other.py"}, str(root), "", {})
+    assert wo.on_edit(state, "s", deep, "", {}) == (None, None, True)
+
+
+def test_unmapped_vcs_fallback_never_takes_home_or_drive_root(tmp_path, monkeypatch):
+    import wg_verify_ledger as vl
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    home = tmp_path / "home"
+    (home / ".git").mkdir(parents=True)
+    deep = home / "a" / "b" / "c" / "d" / "e.py"
+    deep.parent.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    assert wo._project_root_of(str(deep)) is None
+    assert wo.on_edit({}, "s", str(deep), "", {}) == (None, None, False)          # 家目錄不當根
+    monkeypatch.setattr(vl, "find_vcs_root", lambda start: ("git", Path(Path(start).anchor)))
+    other = tmp_path / "x" / "a" / "b" / "c" / "d" / "f.py"
+    assert wo.on_edit({}, "s", str(other), "", {}) == (None, None, False)         # 磁碟根不當根
+
+
+def test_unmapped_vcs_fallback_not_used_when_project_has_table(proj, tmp_path, monkeypatch):
+    """有部位表的專案不走退路：表上沒列的深層檔行為不變（照舊放行）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    (proj / ".git").mkdir()
+    deep = proj / "Other" / "a" / "b" / "c" / "x.py"
+    deep.parent.mkdir(parents=True)
+    assert wo._project_root_of(str(deep)) is None
+    assert wo.on_edit({}, "s", str(deep), "", {}) == (None, None, False)
 
 
 def test_readonly_paths_deny_without_inject_and_glob_misses_neighbors(proj, tmp_path, monkeypatch):

@@ -863,9 +863,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _atom_debug_error("post_tool_use:docdrift_prune", e)
             pass
 
-    # OverviewHub：Read／Bash 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
+    # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
     hub_ctx = None
-    if tool_name in ("Read", "Bash"):
+    if tool_name in ("Read", "Bash", "PowerShell"):
         try:
             from wg_overview import on_read as _hub_on_read
             hub_ctx = _hub_on_read(
@@ -878,7 +878,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
     dep_ctx = None
-    if tool_name in ("Read", "Bash"):
+    if tool_name in ("Read", "Bash", "PowerShell"):
         try:
             from wg_depends import on_read_depends as _on_read_depends
             dep_ctx = _on_read_depends(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config)

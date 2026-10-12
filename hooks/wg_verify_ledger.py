@@ -25,9 +25,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple, Union
 
-from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root
+from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, resolve_project_root
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -419,31 +419,113 @@ def _stem_of(path: str) -> str:
     return name.rsplit(".", 1)[0] if "." in name else name
 
 
-def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_globs: Iterable[str] = (),
-                    measure_cmds: Iterable[str] = (), root: Optional[str] = None) -> bool:
-    """PASS 收據「對得上」改檔＝下列任一（verify glob 單獨不算；含 cd 的收據一律不算）：
-    (a) cmd 含修改檔 stem 作整詞（stem ≥3 字）；(b) cmd 含 test_<stem>／verify_<stem>／<stem>_test；
-    (c) cmd 是部位量尺指令，或 run_verify.py／無檔名參數的 pytest（整體驗證）；(d) cmd 含修改檔所在的 verify 目錄 `<dir>/verify/`。"""
+def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
+    """收據的 cmd（小寫、斜線正規化、空白壓一格）；沒有 cmd、root_uncertain 或含 cd → None（不知道驗的是哪裡）。"""
     raw = str(receipt.get("cmd", ""))
     if not raw or receipt.get("root_uncertain") or has_cd(raw):
-        return False
-    cmd = " ".join(_norm_path(raw).split())
+        return None
+    return " ".join(_norm_path(raw).split())
+
+
+def _covers_all(cmd: str, measure_cmds: Iterable[str]) -> bool:
+    """整體驗證（run_verify.py／無檔名參數的 pytest）或部位量尺指令：聲稱驗到全部改檔。"""
     if _is_whole_verification(cmd):
         return True
-    for mc in measure_cmds or []:
-        want = " ".join(str(mc).split()).lower()
-        if want and want in cmd:
-            return True
-    for p in mod_paths or []:
-        stem = _stem_of(p).lower()
-        if len(stem) >= 3 and re.search(r"(?<![a-z0-9_])" + re.escape(stem) + r"(?![a-z0-9_])", cmd):
-            return True
-        if stem and any(t in cmd for t in (f"test_{stem}", f"verify_{stem}", f"{stem}_test")):
-            return True
-        d = _norm_path(p).rsplit("/", 1)[0] if "/" in _norm_path(p) else ""
-        if d and (d + "/verify/" in cmd or (d.rsplit("/", 1)[-1] + "/verify/") in cmd):
-            return True
-    return False
+    return any(w and w in cmd for w in (" ".join(str(mc).split()).lower() for mc in measure_cmds or []))
+
+
+def _cmd_names_path(cmd: str, path: str) -> bool:
+    """cmd 提到這個改檔：stem 整詞（≥3 字）、test_<stem>／verify_<stem>／<stem>_test、或改檔所在的 `<dir>/verify/`。"""
+    stem = _stem_of(path).lower()
+    if len(stem) >= 3 and re.search(r"(?<![a-z0-9_])" + re.escape(stem) + r"(?![a-z0-9_])", cmd):
+        return True
+    if stem and any(t in cmd for t in (f"test_{stem}", f"verify_{stem}", f"{stem}_test")):
+        return True
+    d = _norm_path(path).rsplit("/", 1)[0] if "/" in _norm_path(path) else ""
+    return bool(d and (d + "/verify/" in cmd or (d.rsplit("/", 1)[-1] + "/verify/") in cmd))
+
+
+def claimed_paths(receipt: Dict[str, Any], mod_paths: Iterable[str], measure_cmds: Iterable[str] = ()) -> List[str]:
+    """收據聲稱驗到的改檔（只看 cmd，不看根與先後）：整體驗證／量尺指令＝全部改檔，否則 cmd 提到的那幾個。"""
+    cmd = _usable_cmd(receipt)
+    if cmd is None:
+        return []
+    paths = list(mod_paths or [])
+    return paths if _covers_all(cmd, measure_cmds) else [p for p in paths if _cmd_names_path(cmd, p)]
+
+
+RootSpec = Union[None, str, Callable[[str], Optional[str]]]
+
+
+def _file_root(root: RootSpec, path: str) -> Optional[str]:
+    """root 是單一根字串（全部改檔同根）或「改檔 → 根」函式；None＝不比根。"""
+    return root(path) if callable(root) else root
+
+
+def _root_ok(receipt: Dict[str, Any], file_root: Optional[str]) -> bool:
+    """收據根（project_root，沒有就 cwd）要等於改檔的根或在它之下。收據沒有根資訊、或改檔根不可判定 → 不比（照舊）。"""
+    rr = _norm_path(str(receipt.get("project_root") or receipt.get("cwd") or ""))
+    if not rr or not file_root:
+        return True
+    fr = _norm_path(str(file_root))
+    return rr == fr or rr.startswith(fr + "/")
+
+
+def vcs_root_of(path: str) -> Optional[Path]:
+    """path 所在的 VCS 根（.git／.svn，往上不設層數上限）；最近的根是家目錄或磁碟根就不算，回 None。"""
+    if not path:
+        return None
+    p = Path(path)
+    if not p.is_absolute():
+        return None
+    found = find_vcs_root(p if p.is_dir() else p.parent)
+    if not found:
+        return None
+    root = found[1]
+    if root.parent == root or _norm_path(str(root)) == _norm_path(str(Path.home())):
+        return None
+    return root
+
+
+def file_root_of(path: str) -> Optional[str]:
+    """改檔所屬的根（對帳閘比收據根用）：先用 lib/project_root（收據的 project_root 也是它算的，兩邊同一把尺）；
+    它找不到（舊規則最多往上 4 層、~/.claude 本身不當根）再退 VCS 根；都沒有回 None＝根不可判定，不比根。"""
+    if resolve_project_root is not None:
+        try:
+            p = Path(path)
+            found = resolve_project_root(str(p if p.is_dir() else p.parent)).path
+            if found:
+                return str(found)
+        except (OSError, ValueError) as e:
+            print(f"[Guardian:ReconcileGate] project_root 判定失敗，改用 VCS 根：{type(e).__name__}: {e}", file=sys.stderr)
+    vr = vcs_root_of(path)
+    return str(vr) if vr else None
+
+
+def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_globs: Iterable[str] = (),
+                    measure_cmds: Iterable[str] = (), root: RootSpec = None) -> bool:
+    """PASS 收據「對得上」改檔＝下列任一（verify glob 單獨不算；含 cd 的收據一律不算）：
+    (a) cmd 含修改檔 stem 作整詞（stem ≥3 字）；(b) cmd 含 test_<stem>／verify_<stem>／<stem>_test；
+    (c) cmd 是部位量尺指令，或 run_verify.py／無檔名參數的 pytest（整體驗證）；(d) cmd 含修改檔所在的 verify 目錄 `<dir>/verify/`。
+    再加根要對：收據根（project_root，沒有就 cwd）要等於該改檔的根或在它之下（整體驗證也一樣）；任一邊沒有根資訊不比。"""
+    cmd = _usable_cmd(receipt)
+    if cmd is None:
+        return False
+    paths = list(mod_paths or [])
+    if not paths:
+        return _covers_all(cmd, measure_cmds)
+    return any(_root_ok(receipt, _file_root(root, p)) for p in claimed_paths(receipt, paths, measure_cmds))
+
+
+def _after_last_edit(receipt: Dict[str, Any], mod: Optional[Dict[str, Any]]) -> bool:
+    """收據在這個改檔最後一次修改之後。修改紀錄沒有 at／seq（升級前的 legacy entry）→ 不比（照舊）。"""
+    if not isinstance(mod, dict):
+        return True
+    at, seq = mod.get("last_at") or mod.get("at"), mod.get("last_seq")
+    if not at and seq is None:
+        return True
+    turn = mod.get("last_turn_seq", mod.get("turn_seq"))
+    return _receipt_after(receipt, at, seq, int(turn) if turn is not None else -1)
 
 
 def pass_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -462,11 +544,23 @@ def pass_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
 
 def related_pass_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int], mod_paths: Iterable[str],
                           verify_globs: Iterable[str], measure_cmds: Iterable[str] = (),
-                          root: Optional[str] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """合格 PASS 再分「對得上」與「對不上」兩堆。"""
+                          root: RootSpec = None, mod_records: Optional[Dict[str, Dict[str, Any]]] = None,
+                          ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """合格 PASS 再分「對得上」與「對不上」兩堆。給 mod_records（改檔路徑 → 修改紀錄）時，收據對上的每個改檔
+    都要在該檔最後一次修改之後才算對得上。對不上的標原因：other_root＝cmd 提到改檔但根不對；before_edit＝跑在修改之前的檔。"""
+    paths = list(mod_paths or [])
     related, unrelated = [], []
     for r in pass_receipts(receipts, turn_seq):
-        (related if receipt_relates(r, mod_paths, verify_globs, measure_cmds, root) else unrelated).append(r)
+        named = claimed_paths(r, paths, measure_cmds)
+        if not receipt_relates(r, paths, verify_globs, measure_cmds, root):
+            unrelated.append({**r, "other_root": True} if named else r)
+            continue
+        claimed = [p for p in named if _root_ok(r, _file_root(root, p))]
+        stale = [p for p in claimed if not _after_last_edit(r, (mod_records or {}).get(p))]
+        if stale:
+            unrelated.append({**r, "before_edit": stale})
+        else:
+            related.append(r)
     return related, unrelated
 
 
@@ -597,7 +691,10 @@ RECONCILE_DEFAULTS: Dict[str, Any] = {
     "enabled": True,
     "max_blocks_per_turn": 2,
     "exec_tools": ["Bash", "PowerShell"],
-    "code_exts": [".py", ".js", ".cs", ".ts", ".lua"],
+    "code_exts": [".py", ".pyw", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".cs", ".lua", ".c", ".h", ".cc",
+                  ".cpp", ".cxx", ".hpp", ".hh", ".java", ".kt", ".kts", ".go", ".rs", ".rb", ".php", ".swift", ".m",
+                  ".mm", ".scala", ".dart", ".vue", ".svelte", ".ps1", ".psm1", ".sh", ".bash", ".sql", ".gd",
+                  ".shader", ".hlsl", ".glsl"],
     "verify_case_globs": ["**/verify/**", "**/tests/**", "**/*test*"],
 }
 
@@ -614,6 +711,15 @@ def _pass_why(this_turn: List[Dict[str, Any]], all_receipts: List[Dict[str, Any]
               mod_paths: List[str]) -> str:
     bad_exit = [r for r in this_turn if "PASS" in _verdicts(r) and r.get("exit_code") not in (None, 0)]
     stale = pass_receipts(all_receipts)
+    before = [r for r in unrelated if r.get("before_edit")]
+    if before:
+        names = "、".join(Path(p).name for p in before[0]["before_edit"][:3])
+        return f"本回合的 PASS（{str(before[0].get('cmd', ''))[:50]}）跑在 {names} 最後一次修改之前，改完沒重跑"
+    foreign = [r for r in unrelated if r.get("other_root")]
+    if foreign:
+        r0 = foreign[0]
+        return (f"本回合的 PASS（{str(r0.get('cmd', ''))[:50]}）是在 {r0.get('project_root') or r0.get('cwd')} 跑的，"
+                "不是改檔所屬的專案根")
     if unrelated:
         verified = "、".join(str(r.get("cmd", ""))[:50] for r in unrelated[:2])
         changed = "、".join(Path(p).name for p in mod_paths[:3]) or "（本回合沒改檔）"
@@ -631,18 +737,23 @@ def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_s
                           cfg: Dict[str, Any], aec: Optional[Dict[str, Any]] = None,
                           aec_emitted: bool = False, sid: str = "",
                           phrases: Optional[Dict[str, Pattern]] = None,
-                          measure_cmds: Iterable[str] = (), root: Optional[str] = None) -> Optional[str]:
+                          measure_cmds: Iterable[str] = (), root: RootSpec = None) -> Optional[str]:
     """只在本回合「宣告完成」時對帳（純審查／中途回覆不擋）。五條規則任一命中回擋訊息（全部列出），否則 None。純判定、不改 state。
     (a) 說修好而本 turn 無對得上改檔的合格 PASS；(b) 說量了無 DONE；(c) 說試過無執行工具；
-    (d) 改了程式碼、沒改驗證 case、無對得上的 PASS；(e) AEC 已 emit：有收據而 j 缺／不存在、k 空字串。"""
+    (d) 改了程式碼、沒改驗證 case、無對得上的 PASS；(e) AEC 已 emit：有收據而 j 缺／不存在、k 空字串。
+    (a)／(d) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後。"""
     if not claims_completion(last_text):
         return None
     this_turn = [r for r in receipts if int(r.get("turn_seq", -1)) == int(turn_seq)]
     mod_turn = modified_this_turn(own_mod_files, turn_seq)
-    mod_session = [m["path"] for m in own_mod_files or [] if isinstance(m, dict) and m.get("path")]
+    mod_records = {m["path"]: m for m in own_mod_files or [] if isinstance(m, dict) and m.get("path")}
+    mod_session = list(mod_records)
     relate_paths = mod_turn or mod_session
+    if root is None:
+        roots = {p: file_root_of(p) for p in relate_paths}
+        root = roots.get
     globs = cfg.get("verify_case_globs") or []
-    related, unrelated = related_pass_receipts(this_turn, None, relate_paths, globs, measure_cmds, root)
+    related, unrelated = related_pass_receipts(this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
     hits: List[str] = []
     if claims_fixed(last_text, phrases) and not related:
         hits.append(f"(a) 說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}。"

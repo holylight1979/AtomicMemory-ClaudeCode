@@ -178,6 +178,31 @@ def test_pack_rejects_absolute_and_parent_paths(tmp_path):
     assert pack.manifest_outside_paths({"files": [{"rel": "C:\\Users\\x\\a.md"}]}) == ["C:\\Users\\x\\a.md"]
 
 
+def test_ledger_source_order_session_ledger_then_old_then_note(tmp_path, monkeypatch):
+    """缺口 6：帳本來源＝materials.ledger → <CLAUDE_DIR>/workflow/verify-ledger/<sid>.jsonl → 舊位置；都沒有 notes 寫明。"""
+    monkeypatch.setattr(pack, "CLAUDE_DIR", tmp_path / "claude")
+    led = tmp_path / "claude" / "workflow" / "verify-ledger" / "sid-x.jsonl"
+    led.parent.mkdir(parents=True)
+    led.write_text('{"cmd": "session-ledger"}\n', encoding="utf-8")
+    req = {"cwd": "", "part": "", "mode": "independent", "session_id": "sid-x", "materials": {"diff": {"text": "d\n"}}}
+    items, notes = pack.gather_items(req, {})
+    assert "session-ledger" in dict(items)["ledger.jsonl"] and not any("驗證帳本" in n for n in notes)
+    items, notes = pack.gather_items({**req, "session_id": ""}, {})
+    assert "ledger.jsonl" not in dict(items) and "沒有驗證帳本（session_id=未給）" in notes          # 反例
+    items, notes = pack.gather_items({**req, "session_id": "nope"}, {})
+    assert "沒有驗證帳本（session_id=nope）" in notes
+    proj = tmp_path / "proj"
+    old = proj / ".claude" / "verify" / "_ledger.jsonl"
+    old.parent.mkdir(parents=True)
+    old.write_text('{"cmd": "old-ledger"}\n', encoding="utf-8")
+    items, _ = pack.gather_items({**req, "cwd": str(proj), "session_id": "nope"}, {})
+    assert "old-ledger" in dict(items)["ledger.jsonl"]                                               # 退舊位置
+    items, _ = pack.gather_items({**req, "cwd": str(proj)}, {})
+    assert "session-ledger" in dict(items)["ledger.jsonl"]                                           # session 帳本優先於舊位置
+    items, notes = pack.gather_items({**req, "materials": {**req["materials"], "ledger": str(tmp_path / "no.jsonl")}}, {})
+    assert "ledger.jsonl" not in dict(items) and "沒有驗證帳本（session_id=sid-x）" in notes          # 明指就只認它
+
+
 def test_top_n_sections_and_tail():
     text = (FIX / "defects.md").read_text(encoding="utf-8")
     top = pack.top_n_sections(text, 5)
