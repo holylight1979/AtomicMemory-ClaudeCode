@@ -1967,11 +1967,26 @@ def test_022_2_only_three_kinds_of_setup(prefix):
     ('$env:WG_NOTE="test_widget"; python -m pytest -q tests/test_other.py', "PowerShell", False),
     ("WG_NOTE=test_widget python -m pytest -q tests/test_other.py", "Bash", False),
     ("export WG_NOTE=x; python -m pytest -q tests/test_widget.py", "Bash", True),                # 真的跑 test_widget
+    ('$env:WG_NOTE="x"; python -m pytest -q tests/test_widget.py', "PowerShell", True),
     ("python -X utf8 archive/run_verify.py", "Bash", False),                                    # 022 重現 3a
+    ("python -X utf8 archive/run_verify.py", "PowerShell", False),
     ("python -X utf8 run_verify.py", "Bash", True),                                             # 根自己的 run_verify
+    ("python -X utf8 run_verify.py", "PowerShell", True),
     ("cd c:/proj/subproject && python -m pytest -q", "Bash", False),                            # 022 重現 3b
+    ("cd c:/proj/subproject && python -m pytest -q", "PowerShell", False),
     ("cd c:/proj && python -m pytest -q", "Bash", True),
+    ("cd c:/proj && python -m pytest -q", "PowerShell", True),
     ("cd c:/proj/tests && python -m pytest -q test_widget.py", "Bash", True),                   # 一般證據維持上下層規則
+    ('python -m pytest -q tests/test_widget.py 2>"VERIFY_CHECK PASS"', "Bash", False),          # codex 預審：重導向目標照查
+    ('python -m pytest -q 2>"VERIFY_CHECK PASS"', "Bash", False),
+    ("X=$HOME python -m pytest -q tests/test_widget.py", "Bash", False),                        # 行內環境指定要字面值
+    ("X=$HOME python -m pytest -q", "Bash", False),
+    ("X=1 python -m pytest -q tests/test_widget.py", "Bash", True),
+    ("cd c:/proj/. && python -m pytest -q", "Bash", True),                                      # 執行根消掉 . 與 ..
+    ("cd c:/proj/tests/.. && python -m pytest -q", "Bash", True),
+    ('python -m pytest -q tests/test_widget.py; > "VERIFY_CHECK PASS"', "Bash", False),        # 只有重導向的指令段
+    ('python -m pytest -q; > "VERIFY_CHECK PASS"', "Bash", False),
+    ("cd c:/proj/tests && python -m pytest -q ../hooks/verify/verify_widget.py", "Bash", True),  # cd 進專案內：樹根仍是專案根
 ])
 def test_022_3_4_mentions_and_whole_runs_follow_real_execution(driven, capsys, cmd, tool, related):
     """022 規則 3：「提到改檔」只看實際驗證段的參數（前置設定的字不算）；規則 4：整體驗證只涵蓋實際執行根之下、
@@ -1988,6 +2003,65 @@ def test_022_1_ruler_own_echo_only_inside_the_matched_span():
     m = row["measure"]["cmd"]
     assert _gate(m, row=row) is None
     assert _gate("X='MEMORY_INDEX_CHECK DONE'; " + m, row=row) is not None
+
+
+@pytest.mark.parametrize("cmd, tool, why", [
+    ("X='VERIFY_CHECK DONE cases=1 failed=0' " + MEASURE_CMD, "Bash", ""),     # 量尺片段裡多出來的行內環境指定照查
+    ("X='1 passed' " + MEASURE_CMD, "Bash", ""),                               # config sentinel_regex 的字樣也算
+    (MEASURE_CMD + ' 2>"VERIFY_CHECK DONE"', "Bash", ""),                      # 重導向目標照查
+    ("X=$HOME " + MEASURE_CMD, "Bash", "不是字面值"),                           # 行內環境指定要字面值
+    ('$ENV:PS4="x"; ' + MEASURE_CMD, "PowerShell", "PS4"),                     # PowerShell 的 env: 不分大小寫
+    ('$Env:ps4="x"; ' + MEASURE_CMD, "PowerShell", "ps4"),
+    ('python -X utf8 "./VERIFY_CHECK DONE/../run_verify.py"', "Bash", ""),    # 正規化後才對上的腳本路徑：字不同就照查
+    (MEASURE_CMD + '; > "VERIFY_CHECK DONE"', "Bash", "只有重導向"),          # 只有重導向的指令段
+    ("$global:PS4='x'; " + MEASURE_CMD, "PowerShell", "PS4"),                 # PowerShell scope 前綴
+    ("$script:ENV='x'; " + MEASURE_CMD, "PowerShell", "ENV"),
+])
+def test_022_codex_pre_ruler_extras_are_checked(cmd, tool, why):
+    """022 codex 預審：量尺片段只豁免表上的字本身；行內環境指定、重導向目標照查哨兵字樣，行內環境指定也要字面值；
+    PowerShell 變數名不分大小寫。"""
+    reason = _gate(cmd, tool)
+    assert reason and why in reason, (cmd, tool)
+
+
+def test_022_codex_pre_honest_forms_still_count():
+    """配對正例：行內字面值環境指定、單引號包住的 $、bash 小寫 env／ifs（bash 變數名分大小寫，不是 ENV／IFS）、2>&1 | tail 照算。"""
+    for cmd in ("X=1 " + MEASURE_CMD, "X='$HOME' " + MEASURE_CMD, "env=x; ifs=y; " + MEASURE_CMD,
+                MEASURE_CMD + " 2>&1 | tail -5", "WG_CLAUDE_DIR='C:/x' " + MEASURE_CMD):
+        assert _gate(cmd) is None, cmd
+    assert _gate(f"$note='it''s'; {MEASURE_CMD}", "PowerShell") is None                       # PowerShell '' 是字面引號
+
+
+def test_022_codex_pre_measure_gate_ruler_covers_only_its_exec_root():
+    """022 規則 4（量尺閘）：表上的尺是 `python -m pytest -q` 時，`cd 部位根/tests && 量尺` 只涵蓋 tests 之下，不替部位根其他改檔解帳，
+    擋訊息說執行根在哪；在部位根跑、或開頭 cd 到部位根照算。"""
+    row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q"}}
+    reason = _gate("cd c:/proj/tests && python -m pytest -q", row=row)
+    assert reason and "執行根是 c:/proj/tests" in reason
+    assert _gate("python -m pytest -q", row=row) is None
+    assert _gate("cd c:/proj && python -m pytest -q", row=row) is None
+
+
+def test_022_codex_pre_config_sentinel_with_end_anchor(monkeypatch):
+    """022 規則 1：config sentinel_regex 帶行首、行尾錨點（`^CUSTOM_OK$`），指令裡的字樣前後接了別的字也算寫了哨兵。"""
+    import wg_core
+    rule = {"regex": "^CUSTOM_OK$", "name": "CUSTOM", "verdict_map": {"CUSTOM_OK": "DONE"}}
+    monkeypatch.setattr(wg_core, "load_config", lambda: {"verify_ledger": {"sentinel_regex": [rule]}})
+    monkeypatch.setattr(vl, "_arg_res", [])
+    for cmd in ("NOTE='CUSTOM_OK' Y=1 " + MEASURE_CMD, "NOTE='CUSTOM_OK' Y=1 python -m pytest -q tests/test_widget.py"):
+        assert vl._prints_sentinel(cmd, "bash"), cmd
+    assert not vl._prints_sentinel("Y=1 " + MEASURE_CMD, "bash")
+
+
+def test_022_codex_pre_ruler_covers_only_its_exec_root():
+    """022 規則 4：對帳閘的量尺分支也只涵蓋執行根之下的改檔；`cd 子專案 && 量尺` 對上的是子專案自己那支，不涵蓋父專案改檔。"""
+    widget = r"c:\proj\src\widget.py"
+    sub = _rcpt(5, cmd="cd c:/proj/subproject && " + MEASURE_CMD)
+    assert vl.claimed_paths(sub, [widget], [MEASURE_CMD]) == []
+    assert not vl.receipt_relates(sub, [widget], measure_cmds=[MEASURE_CMD])
+    top = _rcpt(5, cmd=MEASURE_CMD)
+    assert vl.claimed_paths(top, [widget], [MEASURE_CMD]) == [widget]
+    assert vl.receipt_relates(top, [widget], measure_cmds=[MEASURE_CMD])
 
 
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────

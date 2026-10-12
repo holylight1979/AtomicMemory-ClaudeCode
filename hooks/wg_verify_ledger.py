@@ -444,15 +444,17 @@ def _cmd_complete(receipt: Dict[str, Any]) -> bool:
 
 
 def _trusted(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """收據的指令完整、根可信才回（開頭單一絕對路徑的 `cd <根> && …` 把根換成該路徑）；不完整或含其他 cd → None。
+    """收據的指令完整、根可信才回（開頭單一絕對路徑的 `cd <路徑> && …`：執行根 cwd 換成該路徑；路徑在原專案根之內就保留
+    原專案根當樹根，否則樹根也換成它）；不完整或含其他 cd → None。
     可解析的指令只看同一套斷詞判換目錄（`c"d" C:/live; 量尺` 的 c"d" 是 cd；`量尺 # cd x` 的 cd 在註解裡不是）；
     解析不了的才退回原字串比對 has_cd 與 PostToolUse 記的 root_uncertain（那種收據本來也當不了證據）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
     if not _cmd_complete(receipt):
         return None
     cd = leading_cd(raw, sh)
-    if cd:
-        return {**receipt, "project_root": cd, "cwd": cd, "root_uncertain": False}
+    if cd:                                                        # cd 進原專案根之內：樹還是原專案根（從 tests/ 點名 ../hooks 的測試照算）
+        pr = str(receipt.get("project_root") or "")
+        return {**receipt, "project_root": pr if pr and _under(cd, pr) else cd, "cwd": cd, "root_uncertain": False}
     moved = (_self_receipt.changes_dir(raw, sh) if not unsupported_syntax(raw, sh)
              else bool(receipt.get("root_uncertain") or has_cd(raw)))
     return None if moved else receipt
@@ -468,9 +470,11 @@ def _arg_sentinel_res() -> List[Pattern]:
             print(f"[verify-ledger] 讀不到 sentinel_regex，參數裡的哨兵字樣只認預設格式：{type(e).__name__}: {e}",
                   file=sys.stderr)
             rules = []
-        for rule in rules:
+        for rule in rules:                                        # 輸出端的行首、行尾錨點拿掉：指令裡的字樣前後接了別的字也算
             pat = rule["re"].pattern
-            _arg_res.append(re.compile(pat[1:] if pat.startswith("^") else pat, re.MULTILINE))
+            pat = pat[1:] if pat.startswith("^") else pat
+            pat = pat[:-1] if pat.endswith("$") and not pat.endswith("\\$") else pat
+            _arg_res.append(re.compile(pat, re.MULTILINE))
     return _arg_res
 
 
@@ -487,15 +491,22 @@ def _unescape(t: str) -> str:
 _VAR_REF_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_][\w:]*|[0-9@*#?$!-])")
 
 
-def _prints_sentinel(raw: str, shell: str, skip: Optional[Tuple[int, int]] = None) -> bool:
+def _prints_sentinel(raw: str, shell: str, skip: Optional[Tuple[int, int]] = None, ruler: str = "") -> bool:
     """同一條指令裡有字寫了哨兵字樣（echo X_CHECK PASS、printf、Write-Output、xargs echo、`V="X_CHECK PASS"; echo $V`、
     `$s = '… DONE'`、`PS4='… DONE '`…）：成功行只能來自被執行的驗證程式，指令裡寫好的一律不算，量尺路、一般證據路、
-    整體驗證路都用這一個檢查。skip＝精確對上的量尺片段（match_span 的 [start, end)），量尺自帶的 `&& echo … DONE` 不算。
+    整體驗證路都用這一個檢查。skip＝精確對上的量尺片段（match_span 的 [start, end)）、ruler＝表上的量尺原字串：片段裡只有
+    與表上那段逐字相同的字不算（量尺自帶的 `&& echo … DONE`）；多出來或寫法不同的字照查（行內環境指定 `X='… DONE' 量尺`、
+    正規化後才對上的腳本路徑 `"./X_CHECK DONE/../run_verify.py"`）。重導向目標 `2>"X_CHECK PASS"` 也照查（註解以外的字都算）。
     echo -e／printf 的跳脫先還原；變數引用（`X_CHECK$x PASS`，變數空字串時印出來就是哨兵）拿掉再找一次。"""
+    table = _self_receipt.split_shell(ruler)[0] if skip else []
     for i, ch in enumerate(_self_receipt.split_shell(raw, shell)[0]):
-        if skip and skip[0] <= i < skip[1]:
-            continue
-        t = _unescape(" ".join(ch.words))
+        ws = list(ch.words)
+        k = i - skip[0] if skip else -1
+        if 0 <= k < len(table) and i < skip[1]:
+            for w in table[k].words:                                  # 逐字扣掉表上那段的字（同一個字出現幾次扣幾次）
+                if w in ws:
+                    ws.remove(w)
+        t = _unescape(" ".join([*ws, *ch.targets]))
         text = t + "\x00" + _VAR_REF_RE.sub("", t)          # \x00 不是空白，兩段之間湊不出哨兵
         if any(rx.search(text) for rx in _arg_sentinel_res()):
             return True
@@ -530,7 +541,7 @@ def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -
     if not str(measure_cmd).strip() or not _cmd_complete(receipt):
         return False
     span = _self_receipt.match_span(str(measure_cmd), raw, sh, _cwd_of(receipt), str(part_root or ""))
-    return span is not None and not _prints_sentinel(raw, sh, span) and _in_tree(receipt)
+    return span is not None and not _prints_sentinel(raw, sh, span, str(measure_cmd)) and _in_tree(receipt)
 
 
 _RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1`、`export X=1`、`$env:X=\"1\";`、`$x = '字面值';`；"
@@ -601,9 +612,14 @@ def _whole_run(receipt: Dict[str, Any]) -> bool:
 def _in_exec_root(receipt: Dict[str, Any], path: str) -> bool:
     """整體驗證只涵蓋實際執行根（開頭 `cd <絕對路徑>` 已換進收據 cwd，沒有就是收據 cwd）之下的改檔；不套 _root_ok 的
     上下層互通（從子專案跑 `pytest -q` 只收集子目錄的測試）。收據沒根資訊 → 不比。"""
-    base = _norm_path(_cwd_of(receipt))
-    p = _norm_path(path)
-    return not base or p == base or p.startswith(base + "/")
+    base = _cwd_of(receipt)
+    return not _norm_path(base) or _under(path, base)
+
+
+def _under(path: str, base: str) -> bool:
+    """path 是 base 本身或在 base 底下（斜線、大小寫正規化後比）。"""
+    p, b = _norm_path(path), _norm_path(base)
+    return p == b or p.startswith(b + "/")
 
 
 def _cmd_names_path(cmd: str, path: str) -> bool:
@@ -618,15 +634,13 @@ def _cmd_names_path(cmd: str, path: str) -> bool:
 
 
 def claimed_paths(receipt: Dict[str, Any], mod_paths: Iterable[str], measure_cmds: Iterable[str] = ()) -> List[str]:
-    """收據聲稱驗到的改檔（不看先後）：部位量尺指令＝全部改檔；整體驗證＝執行根之下的改檔；否則實際驗證段提到的那幾個。
-    指令不完整或根不可信 → 沒有。"""
+    """收據聲稱驗到的改檔（不看先後）：部位量尺指令、整體驗證＝執行根之下的改檔（量尺在這裡沒有部位根可比，
+    `cd 子專案 && 量尺` 對上的是子專案自己那支，只涵蓋子專案）；否則實際驗證段提到的那幾個。指令不完整或根不可信 → 沒有。"""
     r = _trusted(receipt)
     if r is None:
         return []
     paths = list(mod_paths or [])
-    if _ruler_any(r, measure_cmds):
-        return paths
-    if _whole_run(r):
+    if _ruler_any(r, measure_cmds) or _whole_run(r):
         return [p for p in paths if _in_exec_root(r, p)]
     cmd = _usable_cmd(r)
     return [p for p in paths if _cmd_names_path(cmd, p)] if cmd else []
@@ -685,7 +699,7 @@ def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_gl
                     measure_cmds: Iterable[str] = (), root: RootSpec = None) -> bool:
     """PASS 收據「對得上」改檔＝下列任一（verify glob 單獨不算；含 cd 的收據一律不算）：
     (a) cmd 含修改檔 stem 作整詞（stem ≥3 字）；(b) cmd 含 test_<stem>／verify_<stem>／<stem>_test；
-    (c) cmd 是部位量尺指令，或執行根自己的 run_verify.py／無檔名參數的 pytest（整體驗證，只涵蓋執行根之下的改檔）；
+    (c) cmd 是部位量尺指令，或執行根自己的 run_verify.py／無檔名參數的 pytest（整體驗證）；兩者都只涵蓋執行根之下的改檔；
     (d) cmd 含修改檔所在的 verify 目錄 `<dir>/verify/`。(a)(b)(d) 只看實際驗證段的參數。
     再加根要對：收據根（project_root，沒有就 cwd；開頭 `cd <根> &&` 用該路徑）與該改檔的根相同或互為上下層；任一邊沒有根資訊
     不比。指令只認白名單語法（lib/self_receipt），解析不了的不算。"""
@@ -1287,6 +1301,8 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
         pick = {"sentinel_name": ROOT_WT_SENTINEL, "final_prog": "pytest"} if root_wt else {"cmd_contains": cmd}
         ok_done = done_receipts(receipts, min_turn=rec["edit_turn"], min_at=rec["edit_at"] or None,
                                 min_seq=rec["edit_seq"], root=str(root), **pick)
+        if not root_wt:           # 量尺也只涵蓋執行根之下的改檔：`cd 部位根/tests && 量尺` 不替部位根其他改檔解帳
+            ok_done = [r for r in ok_done if all(_in_exec_root(r, p) for p in rec["files"])]
         if ok_done:
             continue
         if not root_wt:
@@ -1318,6 +1334,9 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                 why = f"最近一次跑尺 exit={last.get('exit_code')} failed={failed}，尺沒過"
             elif not _root_match(last, str(root)):
                 why = f"最近一次跑尺的 cwd／project_root（{last.get('project_root') or last.get('cwd')}）不是這個部位的 root"
+            elif not root_wt and not all(_in_exec_root(last, p) for p in rec["files"]):
+                why = (f"最近一次跑尺的執行根是 {_cwd_of(last)}，只涵蓋那之下的改檔"
+                       f"（{next(p for p in rec['files'] if not _in_exec_root(last, p))} 不在裡面）；請在部位根 {root} 跑尺")
             else:
                 why = "最近一次跑尺在這個部位最後一次修改之前（先量後改不算）"
             if root_wt:

@@ -432,10 +432,42 @@ def test_017b_8_tail_filters_take_only_numbers_and_options():
     ("pytest -q -p xdist", False), (f"{_MEASURE} --json", False), ("python -O -m pytest -q", False),
     ("python -h -X utf8 run_verify.py", False), ("echo VERIFY_CHECK PASS; pytest -q", False), (f"printf x || {_MEASURE}", False),
     ("pytest no:fake", False), ("pytest -p", False), ("pytest -q -p no:x no:y", False),        # codex 初審 WARN 4：-p 要配值
+    ("python -X utf8 ./run_verify.py", True), ("python -X utf8 archive/run_verify.py", False),  # 022 規則 4：沒根就照寫法認
+    ("python -X utf8 C:\\proj\\run_verify.py", False), ("python -X utf8 ../run_verify.py", False),
 ])
 def test_017b_9_whole_run_is_a_whitelist(cmd, whole):
     """017b 規則 9：整體驗證只有不帶參數的 run_verify.py、不帶位置參數也不帶縮範圍選項的 pytest。"""
     assert sr.is_whole_run(cmd) is whole, cmd
+
+
+def test_022_codex_pre_tokenizer_targets_assignments_and_cd_root():
+    """022 codex 預審：重導向目標另記（查哨兵字樣用，不進 words），只有重導向、沒有程式的指令段不支援；bash 環境指定的值要
+    字面值（單引號包住的 $ 是字面值）；PowerShell 變數不分大小寫、任何 scope 前綴都認，bash 變數名分大小寫；
+    cd 根消掉 . 與 ..，消完不是絕對路徑就不認。"""
+    chunks, why = sr.split_shell('python x.py 2>"VERIFY_CHECK DONE" > out.log')
+    assert why is None and chunks[0].words == ["python", "x.py"] and chunks[0].targets == ["VERIFY_CHECK DONE", "out.log"]
+    assert "只有重導向" in (sr.unsupported_syntax('python x.py; > "VERIFY_CHECK DONE"') or "")
+    for cmd in ("$global:PS4='x'; python x.py", "$script:ENV='x'; python x.py", "$ENV:ps4 = 'x'; python x.py"):
+        assert sr.unsupported_syntax(cmd, "powershell"), cmd
+    assert sr.cmd_matches(_MEASURE, f"$note='it''s'; {_MEASURE}", "powershell")              # PowerShell '' 是字面引號
+    for cmd in ("X=$HOME python x.py", 'X="$HOME"; python x.py', "export X=$HOME; python x.py", "declare -x X=$HOME; python x.py"):
+        assert "不是字面值" in (sr.unsupported_syntax(cmd) or ""), cmd
+    assert sr.unsupported_syntax("X='$HOME' python x.py") is None
+    assert "PS4" in (sr.unsupported_syntax('$ENV:PS4="x"; python x.py', "powershell") or "")
+    assert sr.unsupported_syntax("env=x; ifs=y; python x.py") is None
+    assert sr.leading_cd("cd C:/proj/tests/.. && pytest -q") == "C:/proj"
+    assert sr.leading_cd("cd /c/proj/. && pytest -q") == "C:/proj"
+    assert sr.leading_cd("cd C:\\proj && pytest -q") == "C:\\proj"
+    assert sr.leading_cd("cd C:/.. && pytest -q") is None
+
+
+def test_022_4_whole_run_identity_with_root():
+    """022 規則 4：有根就照完整路徑身分，絕對路徑寫法是根自己那支才算。"""
+    root = "C:\\proj"
+    assert sr.is_whole_run("python -X utf8 C:\\proj\\run_verify.py", "bash", root)
+    assert sr.is_whole_run("python -X utf8 run_verify.py", "bash", root)
+    assert not sr.is_whole_run("python -X utf8 archive/run_verify.py", "bash", root)
+    assert not sr.is_whole_run("python -X utf8 C:\\other\\run_verify.py", "bash", root)
 
 
 def test_017b_12_backslash_escape_fails_closed_quotes_work():
