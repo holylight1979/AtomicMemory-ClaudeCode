@@ -67,13 +67,15 @@ def run_pre_gates(
     if len(rup) > 5:
         state["recent_user_prompts"] = rup[-5:]
     track_turn_prompts(state, clean_prompt)
+    # 下面四個是「使用者說了算」的判斷（豁免失敗紀錄、使用者決策、否決記憶、停用後端）：只認使用者本人打的字
+    user_typed = not is_harness_generated_prompt(clean_prompt)
 
-    if state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
+    if user_typed and state.get("failing_tests") and is_dismiss_prompt(clean_prompt):
         state["failing_tests"] = []
 
     # ─── User Decision Detector gate ────────────────────────────
     ue_config = config.get("userExtraction", {})
-    if ue_config.get("enabled", False):
+    if user_typed and ue_config.get("enabled", False):
         try:
             det = detect_signal(clean_prompt)
             if det.get("signal"):
@@ -94,7 +96,7 @@ def run_pre_gates(
     # ─── Confirmed extractions ──
     confirmed = state.get("confirmed_extractions", [])
     if confirmed:
-        veto = any(kw in prompt_lower for kw in ("否", "不要記", "別記", "取消記憶"))
+        veto = user_typed and any(kw in prompt_lower for kw in ("否", "不要記", "別記", "取消記憶"))
         if veto:
             for ext in confirmed:
                 _atom_debug_log(
@@ -139,7 +141,7 @@ def run_pre_gates(
 
     # ─── Dual-Backend: long_die user response ─────
     try:
-        long_die = check_long_die_status()
+        long_die = check_long_die_status() if user_typed else None   # 「停用／保持」是使用者的回覆
         if long_die:
             backend_name = long_die.get("backend", "")
             if any(kw in prompt_lower for kw in ("停用", "disable")):

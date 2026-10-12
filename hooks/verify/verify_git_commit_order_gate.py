@@ -161,8 +161,11 @@ def test_peer_session_message_is_never_an_order():
     st = {}
     _ups(st, "上GIT")
     assert st["turn_prompts"] == ["上GIT"] and _check(state=st) is None             # 使用者打的照記、照放行
-    legacy = {"recent_user_prompts": ["幫我把這個 bug 修好", _PEER]}                 # 舊 state 退路：只看使用者打的最後一句
-    msg = _check(state=legacy)
+    for older in ("幫我把這個 bug 修好", "上GIT"):                                  # 舊 state 退路：最後一句是同伴訊息 → 擋，
+        msg = _check(state={"recent_user_prompts": [older, _PEER]})                  # 也不往前撿舊口令
+        assert msg and "[Guardian:CommitOrder]" in msg, older
+    stale = {"recent_user_prompts": ["幫我修", _PEER], "turn_prompts": [_PEER], "turn_open": True}   # 舊版已把同伴訊息存進 turn_prompts
+    msg = _check(state=stale)
     assert msg and "[Guardian:CommitOrder]" in msg
 
 

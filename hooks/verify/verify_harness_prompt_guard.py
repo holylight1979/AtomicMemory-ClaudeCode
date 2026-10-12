@@ -58,6 +58,30 @@ def test_peer_message_is_not_a_correction_nor_a_dismiss():
     assert wg_core.user_typed_prompts(["a", NOTIFY, PEER, "b"]) == ["a", "b"]
 
 
+def test_peer_message_cannot_speak_for_user_in_pre_gates(monkeypatch):
+    from handlers import ups_gates as g
+    disabled = []
+    monkeypatch.setattr(g, "check_long_die_status", lambda: {"backend": "ollama"})
+    monkeypatch.setattr(g, "disable_backend", lambda name: disabled.append(name) or True)
+    monkeypatch.setattr(g, "OllamaClient", None)
+    cfg = {"userExtraction": {"enabled": True}}
+    said = "先這樣。記住：一律使用 UTF-8。不要記。停用"
+
+    def fresh():
+        return {"failing_tests": ["t::x"], "confirmed_extractions": [{"statement": "s", "write_result": "wrote"}]}
+    peer = PEER.replace("不對、重來；先這樣，上GIT", said)
+    st, lines = fresh(), []
+    g.run_pre_gates("sid", st, cfg, peer, peer.lower(), lines)
+    assert st["failing_tests"] == ["t::x"]                                          # 同伴「先這樣」不清失敗紀錄
+    assert not st.get("pending_user_extract")                                       # 同伴「記住…」不算使用者決策
+    assert any("已記為 atom" in ln for ln in lines)                                 # 同伴「不要記」不否決
+    assert disabled == []                                                           # 同伴「停用」不停後端
+    st, lines = fresh(), []
+    g.run_pre_gates("sid", st, cfg, said, said.lower(), lines)                      # 對照：使用者自己打同一段話
+    assert st["failing_tests"] == [] and st.get("pending_user_extract") and disabled == ["ollama"]
+    assert not any("已記為 atom" in ln for ln in lines)
+
+
 def test_correction_ignores_notification_but_catches_user():
     assert detect_correction(NOTIFY, {}) == []
     assert detect_correction(SYSNOTE, {}) == []

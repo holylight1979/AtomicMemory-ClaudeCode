@@ -3,10 +3,11 @@
 做什麼：以 ast 掃 hooks/、lib/、tools/ 的 .py（排除 verify/ 與 __pycache__），找出 `/` 串起來的路徑式（只看最外層、跨行也算）：
 - 正方向（資料根接程式碼）：最左邊是資料根（`CLAUDE_DIR`、`_CLAUDE_DIR`、`xxx.CLAUDE_DIR`，或 `Path.home() / ".claude"`），
   後面任一段是 "tools"、"hooks"、"lib"、"skills" 或以 .py 結尾的字串 → 違規。程式碼根用 wg_core.CODE_DIR 或 Path(__file__)。
-  資料根的別名也算：`claude_data_dir()`；記憶目錄（`MEMORY_DIR`、`memory_dir`、`mem_dir`、`xxx.MEMORY_DIR`、資料根 / "memory"）
-  的 `.parent`／`.parents[0]`；以及經 `Path(x)`／`str(x)`、`.resolve()`／`.absolute()`／`.expanduser()`、條件式任一支推出來的名字
-  （同檔單一名字賦值，反覆推到不再變；`from m import CLAUDE_DIR as X` 的 X 也算）。記憶目錄本身底下是記憶資料，
-  `memory_dir / "tools" / "x.md"` 不算違規。
+  資料根的別名也算：`claude_data_dir()`；家目錄別名（`HOME = Path.home()`）/ ".claude"；記憶目錄（`MEMORY_DIR`、`memory_dir`、
+  `mem_dir`、`xxx.MEMORY_DIR`、任一種資料根寫法 / "memory"）的 `.parent`／`.parents[0]`；以及經 `Path(x)`／`str(x)`、
+  `.resolve()`／`.absolute()`／`.expanduser()`、條件式任一支推出來的名字（同檔單一名字賦值，反覆推到不再變；
+  `from m import CLAUDE_DIR as X` 的 X 也算）。記憶目錄底下是記憶資料：資料根直接接 "memory" 或從記憶目錄別名往下接，
+  後面出現 "tools" 都不算違規（兩種寫法同一套規則）。
   固定名字（CLAUDE_DIR、_CLAUDE_DIR、MEMORY_DIR、memory_dir、mem_dir）是命名約定，就算由 `__file__` 推出也照資料看
   （逼它改名成 CODE_DIR，例：skill-index.py）；推導出來的別名若同一個名字也由 `__file__` 推出，以檔案位置為準、不當別名。
   抓不到：跨檔或跨函式傳遞（參數、回傳值）、屬性賦值（`self.root = ...`）、`os.path.join`／f-string 字串拼接、tuple 解包、
@@ -22,7 +23,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import List, NamedTuple, Set, Tuple
 
 TREE = Path(__file__).resolve().parents[2]
 SCAN_DIRS = ("hooks", "lib", "tools")
@@ -36,8 +37,13 @@ WRAP_METHODS = {"resolve", "absolute", "expanduser"}
 SKIP_FILES = {
     "tools/project-smells.py": "track-e 擁有，本輪不准動；是否同類寫在 014 交付信，由總控台合併時處理",
 }
-# (相對路徑, 違規那一行的原始碼片段) → 為什麼保留；目前沒有例外
-ALLOWLIST: dict = {}
+# (相對路徑, 違規那一行的原始碼片段) → 為什麼保留
+ALLOWLIST: dict = {
+    ("tools/install.py", 'init = run([bash, str(TARGET / "hooks" / "user-init.sh")], cwd=TARGET, check=False, env=env, timeout=60)'):
+        "安裝器：TARGET（~/.claude）是安裝目的地，複製完跑目的地那份 user-init.sh 是安裝步驟本身",
+    ("tools/install.py", 'hub_py = next(p for p in (TARGET / "lib" / "overview_hub.py", SOURCE / "lib" / "overview_hub.py") if p.is_file())'):
+        "安裝器 --verify 驗的是「已安裝版本」：用 hook 實際會載的 ~/.claude/lib/overview_hub.py 解析部位表（函式 docstring 已寫明）",
+}
 
 
 def _chain(node: ast.AST) -> List[ast.AST]:
@@ -62,6 +68,12 @@ def _mentions_file(node: ast.AST) -> bool:
     return any(isinstance(n, ast.Name) and n.id == "__file__" for n in ast.walk(node))
 
 
+class _Names(NamedTuple):
+    roots: Set[str]   # 資料根
+    mems: Set[str]    # 記憶目錄（資料根 / "memory"）
+    homes: Set[str]   # 家目錄（`Path.home()`）
+
+
 def _is_wrapped(node: ast.AST, test) -> bool:
     """`Path(x)`／`str(x)`／`x.resolve()` 等包裝，或條件式任一支，裡面的 x 符合 test。"""
     if isinstance(node, ast.IfExp):
@@ -74,70 +86,79 @@ def _is_wrapped(node: ast.AST, test) -> bool:
     return isinstance(f, ast.Attribute) and f.attr in WRAP_METHODS and test(f.value)
 
 
-def _is_memory_dir_expr(node: ast.AST, roots: Set[str], mems: Set[str]) -> bool:
-    """這個運算式的值是不是記憶目錄（資料根 / "memory"）。"""
+def _is_home(node: ast.AST, nm: _Names) -> bool:
     if isinstance(node, ast.Name):
-        return node.id in mems
+        return node.id in nm.homes
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "home"
+
+
+def _data_root_len(ops: List[ast.AST], nm: _Names) -> int:
+    """路徑式開頭是資料根（含別名）→ 資料根佔幾段（家目錄 / ".claude" 佔 2，其餘 1）；不是 → 0。"""
+    if _is_home(ops[0], nm) and len(ops) > 1 and _is_str(ops[1]) and ops[1].value == ".claude":
+        return 2
+    return 1 if _is_data_root_expr(ops[0], nm) else 0
+
+
+def _enters_memory(ops: List[ast.AST], n: int) -> bool:
+    """資料根後面緊接 "memory"：後續各段是記憶資料，不是程式碼。"""
+    return len(ops) > n and _is_str(ops[n]) and ops[n].value == "memory"
+
+
+def _is_memory_dir_expr(node: ast.AST, nm: _Names) -> bool:
+    """這個運算式的值是不是記憶目錄（資料根 / "memory"，資料根不論幾段寫法）。"""
+    if isinstance(node, ast.Name):
+        return node.id in nm.mems
     if isinstance(node, ast.Attribute):
         return node.attr == "MEMORY_DIR"
     ops = _chain(node)
-    if len(ops) == 2 and _is_str(ops[1]) and ops[1].value == "memory" and _is_data_root_expr(ops[0], roots, mems):
-        return True
-    return _is_wrapped(node, lambda x: _is_memory_dir_expr(x, roots, mems))
+    if len(ops) > 1:
+        n = _data_root_len(ops, nm)
+        return bool(n) and len(ops) == n + 1 and _enters_memory(ops, n)
+    return _is_wrapped(node, lambda x: _is_memory_dir_expr(x, nm))
 
 
-def _is_data_root_expr(node: ast.AST, roots: Set[str], mems: Set[str]) -> bool:
+def _is_data_root_expr(node: ast.AST, nm: _Names) -> bool:
     """這個運算式的值是不是資料根本身（見模組說明）。"""
     if isinstance(node, ast.Name):
-        return node.id in roots
+        return node.id in nm.roots
     if isinstance(node, ast.Attribute):
         if node.attr == "CLAUDE_DIR":
             return True
-        return node.attr == "parent" and _is_memory_dir_expr(node.value, roots, mems)
+        return node.attr == "parent" and _is_memory_dir_expr(node.value, nm)
     if isinstance(node, ast.Subscript):
         v, i = node.value, node.slice
         return (isinstance(v, ast.Attribute) and v.attr == "parents" and isinstance(i, ast.Constant) and i.value == 0
-                and _is_memory_dir_expr(v.value, roots, mems))
+                and _is_memory_dir_expr(v.value, nm))
     ops = _chain(node)
-    if len(ops) == 2 and _data_root_len(ops, roots, mems) == 2:
-        return True
+    if len(ops) > 1:
+        return _data_root_len(ops, nm) == len(ops)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "claude_data_dir":
         return True
-    return _is_wrapped(node, lambda x: _is_data_root_expr(x, roots, mems))
+    return _is_wrapped(node, lambda x: _is_data_root_expr(x, nm))
 
 
-def _data_root_len(ops: List[ast.AST], roots: Set[str], mems: Set[str]) -> int:
-    """路徑式開頭是資料根（含別名）→ 資料根佔幾段（1 或 2）；不是 → 0。"""
-    head = ops[0]
-    is_home = (isinstance(head, ast.Call) and isinstance(head.func, ast.Attribute) and head.func.attr == "home")
-    if is_home and len(ops) > 1 and _is_str(ops[1]) and ops[1].value == ".claude":
-        return 2
-    return 1 if _is_data_root_expr(head, roots, mems) else 0
-
-
-def _data_root_names(tree: ast.AST, file_roots: Set[str]) -> Tuple[Set[str], Set[str]]:
-    """同檔裡的 (資料根名字, 記憶目錄名字)：固定名字＋`import ... as` 的別名＋賦值推出來的別名；
+def _data_root_names(tree: ast.AST, file_roots: Set[str]) -> _Names:
+    """同檔裡的資料根／記憶目錄／家目錄名字：固定名字＋`import ... as` 的別名＋賦值推出來的別名；
     推導出來的別名若同一個名字也由 `__file__` 推出，以檔案位置為準。"""
     assigns = [(n.targets[0].id, n.value) for n in ast.walk(tree)
                if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)]
     assigns += [(n.target.id, n.value) for n in ast.walk(tree)
                 if isinstance(n, ast.AnnAssign) and n.value is not None and isinstance(n.target, ast.Name)]
     imported = [a for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names if a.asname]
-    roots = set(DATA_ROOT_NAMES) | {a.asname for a in imported if a.name in DATA_ROOT_NAMES}
-    mems = set(MEMORY_DIR_NAMES) | {a.asname for a in imported if a.name in MEMORY_DIR_NAMES}
+    nm = _Names(set(DATA_ROOT_NAMES) | {a.asname for a in imported if a.name in DATA_ROOT_NAMES},
+                set(MEMORY_DIR_NAMES) | {a.asname for a in imported if a.name in MEMORY_DIR_NAMES}, set())
     changed = True
     while changed:
         changed = False
         for name, value in assigns:
-            if name in roots or name in mems or name in file_roots:
+            if name in nm.roots or name in nm.mems or name in nm.homes or name in file_roots:
                 continue
-            if _is_data_root_expr(value, roots, mems):
-                roots.add(name)
-                changed = True
-            elif _is_memory_dir_expr(value, roots, mems):
-                mems.add(name)
-                changed = True
-    return roots, mems
+            for group, test in ((nm.homes, _is_home), (nm.roots, _is_data_root_expr), (nm.mems, _is_memory_dir_expr)):
+                if test(value, nm):
+                    group.add(name)
+                    changed = True
+                    break
+    return nm
 
 
 def _file_root_names(tree: ast.AST) -> Set[str]:
@@ -164,12 +185,12 @@ def _is_sys_path_add(node: ast.AST) -> bool:
             and f.value.attr == "path" and isinstance(f.value.value, ast.Name) and f.value.value.id == "sys")
 
 
-def _is_bare_data_root(node: ast.AST, roots: Set[str], mems: Set[str]) -> bool:
+def _is_bare_data_root(node: ast.AST, nm: _Names) -> bool:
     """`CLAUDE_DIR`、`str(CLAUDE_DIR)`、`Path.home() / ".claude"`、資料根別名本身（插進 sys.path＝從資料根載程式碼）。"""
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "str" and node.args:
         node = node.args[0]
     ops = _chain(node)
-    n = _data_root_len(ops, roots, mems)
+    n = _data_root_len(ops, nm)
     return bool(n) and len(ops) == n
 
 
@@ -184,11 +205,11 @@ def violations(source: str, rel: str) -> List[Tuple[str, int, str, str]]:
     tree = ast.parse(source)
     lines = source.splitlines()
     names = _file_root_names(tree)
-    roots, mems = _data_root_names(tree, names)
+    nm = _data_root_names(tree, names)
     inner = set()
     out: List[Tuple[str, int, str, str]] = []
     for node in ast.walk(tree):
-        if _is_sys_path_add(node) and any(_is_bare_data_root(a, roots, mems) for a in node.args):
+        if _is_sys_path_add(node) and any(_is_bare_data_root(a, nm) for a in node.args):
             text = lines[node.lineno - 1].strip()
             if (rel, text) not in ALLOWLIST:
                 out.append((rel, node.lineno, text, "data-root→code"))
@@ -200,9 +221,9 @@ def violations(source: str, rel: str) -> List[Tuple[str, int, str, str]]:
             inner.add(id(sub))
             sub = sub.left
         ops = _chain(node)
-        n = _data_root_len(ops, roots, mems)
+        n = _data_root_len(ops, nm)
         kind = ""
-        if n and any(_is_code_seg(o) for o in ops[n:]):
+        if n and not _enters_memory(ops, n) and any(_is_code_seg(o) for o in ops[n:]):
             kind = "data-root→code"
         elif _is_file_root(ops[0], names) and any(_is_data_seg(o) for o in ops[1:]):
             kind = "file-root→data"
@@ -281,6 +302,23 @@ def test_guard_follows_data_root_aliases():
     got = [(ln, kind) for _, ln, _, kind in sorted(violations(src, "synthetic.py"), key=lambda v: v[1])]
     assert got == [(4, "data-root→code"), (5, "data-root→code"), (7, "data-root→code"), (8, "data-root→code"),
                    (9, "data-root→code"), (11, "data-root→code"), (20, "data-root→code")], got   # 反例：舊守門一條都抓不到
+
+
+def test_guard_home_alias_and_memory_dir_same_rule_direct_or_aliased():
+    src = (
+        "from pathlib import Path\n"
+        "HOME = Path.home()\n"
+        "TARGET = HOME / '.claude'\n"
+        "a = TARGET / 'tools' / 'x.py'\n"                              # 家目錄別名 / .claude → 資料根
+        "m = Path.home() / '.claude' / 'memory'\n"
+        "b = m.parent / 'tools' / 'x.py'\n"                            # 三段寫法的記憶目錄 .parent → 資料根
+        "ok1 = CLAUDE_DIR / 'memory' / 'tools' / 'x.md'\n"             # 直接接 memory → 記憶資料
+        "mem = CLAUDE_DIR / 'memory'\n"
+        "ok2 = mem / 'tools' / 'x.md'\n"                               # 別名接同樣後綴 → 同一套規則
+        "ok3 = HOME / 'Downloads' / 'tools'\n"                         # 家目錄本身不是資料根
+    )
+    got = [(ln, kind) for _, ln, _, kind in sorted(violations(src, "synthetic.py"), key=lambda v: v[1])]
+    assert got == [(4, "data-root→code"), (6, "data-root→code")], got
 
 
 def test_guard_derived_alias_yields_to_file_root_but_fixed_names_stay_data():
