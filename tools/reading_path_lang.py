@@ -1,4 +1,4 @@
-"""reading_path_lang.py：tools/reading-path.py 的語言解析層——把原始碼變成語言中立的「函式＋呼叫點」清單。
+"""reading_path_lang.py：tools/reading-path.py 的語言解析層，把原始碼變成語言中立的「函式＋呼叫點」清單。
 
 只做抽取，不決定誰呼叫誰（連線、找路、計數都在 reading-path.py）。單獨跑沒有意義，入口是 tools/reading-path.py。
   Python  ast：函式／方法／巢狀函式／`if __name__ == "__main__"` 區塊、import、繼承與欄位型別、事件鍵、dict 分派表
@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import ast
+import itertools
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 
 EMIT_NAMES = {"emit", "publish", "fire", "trigger", "notify", "send_event", "dispatch_event"}
@@ -25,8 +27,9 @@ class Call:
     """一個呼叫點，或一個被當值傳遞的函式參照。
 
     kind：name 裸名呼叫｜self 本物件方法｜super 父類方法｜attr 經由別的東西（recv；mod:X＝字串寫的模組）｜new 建構｜
-          emit 發事件（name＝事件鍵）｜invoke C# 的 X.Invoke()（name＝X）｜table 分派表（name＝表名）｜
-          getattr getattr(…)(…)（name＝引數裡出現的變數名，逗號分隔）
+          emit 發事件（name＝事件鍵，recv＝發事件的接收者）｜invoke C# 的 X.Invoke()（name＝X）｜
+          table 分派表（name＝表名，key＝寫死的鍵）｜getattr getattr(…)(…)（name＝引數裡出現的變數名，逗號分隔）｜
+          prop C# 讀寫屬性
     """
     kind: str
     name: str
@@ -34,6 +37,7 @@ class Call:
     line: int = 0
     refs: list = field(default_factory=list)   # 引數裡的函式參照 [(位置 int｜關鍵字 str, Call)]
     noise: bool = False                        # log/print：不算句數、不算呼叫
+    key: str = ""                              # 分派表呼叫時寫死的鍵（TABLE["x"]()）
 
 
 @dataclass
@@ -52,9 +56,12 @@ class Func:
     abstract: bool = False    # 沒有本體（抽象、介面、NotImplementedError）
     prop: bool = False        # C# 屬性的 get/set 本體（讀寫屬性就會跑進來）
     entry: bool = False       # 天生入口：__main__ 區塊、無區塊時的 main、C# static Main、粗略模式 main
-    local_types: dict = field(default_factory=dict)   # 區域變數 → 類別名（x = Foo()）
+    local_types: dict = field(default_factory=dict)   # 區域變數 → 類別名（x = Foo()、x: Foo）
+    exact: set = field(default_factory=set)           # 型別來自建構（x = Foo()）的區域變數：實際型別確定
+    aliases: dict = field(default_factory=dict)       # 區域變數 → 函式參照（fn = b、fn = self.run）
+    inline: set = field(default_factory=set)          # 就地定義的 lambda／C# 區域函式名：呼叫它不算未解（內容就在這裡）
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
-    tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [Call 參照]
+    tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
     imports: dict = field(default_factory=dict)       # 函式內的 import（只在這個函式與它的巢狀函式裡有效）
 
 
@@ -80,8 +87,9 @@ class Module:
     classes: list = field(default_factory=list)
     defs: dict = field(default_factory=dict)      # 模組層函式名 → func id
     imports: dict = field(default_factory=dict)   # 本地名 → (模組名, 相對層級, from 匯入的原名或 "")
-    tables: dict = field(default_factory=dict)    # 分派表名 → [Call 參照]
-    subs: list = field(default_factory=list)      # (事件鍵, Call 參照, 訂閱所在 func id 或 "", 檔)
+    tables: dict = field(default_factory=dict)    # 分派表名 → [(鍵, Call 參照)]
+    aliases: dict = field(default_factory=dict)   # 模組層函式別名 → Call 參照（flat = itertools.chain.from_iterable）
+    subs: list = field(default_factory=list)      # (事件鍵, Call 參照, 訂閱所在 func id 或 "", 檔, 訂閱的接收者)
 
 
 def _event_key(first_arg: str, recv: str) -> str:
@@ -145,19 +153,28 @@ def _py_main_block(mod: Module, node: ast.If) -> None:
 
 
 def _py_module_stmt(mod: Module, node: ast.stmt) -> None:
-    """模組層其他敘述：收 import、分派表（NAME = {k: func}）與訂閱（bus.on("k", f)）。"""
+    """模組層其他敘述：收 import、分派表（NAME = {k: func}）、函式別名（NAME = mod.func）與訂閱（bus.on("k", f)）。"""
     _py_calls(mod, _py_scan(mod.imports, [node]), "")
     target = node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else getattr(node, "target", None)
     value = getattr(node, "value", None)
+    if not isinstance(target, ast.Name):
+        return
     refs = _py_table_refs(value)
-    if isinstance(target, ast.Name) and refs:
+    alias = _py_ref(value) if isinstance(value, (ast.Name, ast.Attribute)) else None
+    if refs:
         mod.tables[target.id] = refs
+    if alias:
+        mod.aliases[target.id] = alias
 
 
 def _py_table_refs(value) -> list:
-    """dict 字面值裡認得出是函式的值（f、self.f、mod.f、("pkg.mod", "func")）；其他值略過。"""
-    values = value.values if isinstance(value, ast.Dict) else []
-    return [r for v in values if (r := _py_ref(v) or _py_str_ref(v))]
+    """dict 字面值裡認得出是函式的值（f、self.f、mod.f、("pkg.mod", "func")）→ [(鍵, 參照)]；其他值略過。"""
+    pairs = zip(value.keys, value.values) if isinstance(value, ast.Dict) else []
+    return [(_py_literal(k), r) for k, v in pairs if (r := _py_ref(v) or _py_str_ref(v))]
+
+
+def _py_literal(node) -> str:
+    return str(node.value) if isinstance(node, ast.Constant) and isinstance(node.value, (str, int)) else ""
 
 
 def _py_str_ref(expr) -> Call | None:
@@ -244,9 +261,13 @@ def _py_noise_stmt(stmt: ast.stmt) -> bool:
 
 
 def _py_ann(ann) -> str:
-    """型別標註取類別名：Repo、mod.Repo、Optional[Repo]、"Repo"。"""
+    """型別標註取類別名：Repo、mod.Repo、Optional[Repo]、Repo | None、"Repo"；容器（list[Repo]）回容器名，不是 Repo。"""
+    if isinstance(ann, ast.BinOp):
+        return _py_ann(ann.left)
     if isinstance(ann, ast.Subscript):
-        return _py_ann(ann.slice)
+        head = _py_recv(ann.value).split(".")[-1]
+        inner = ann.slice.elts[0] if isinstance(ann.slice, ast.Tuple) and ann.slice.elts else ann.slice
+        return _py_ann(inner) if head in ("Optional", "Union", "Annotated", "Final", "ClassVar") else head
     if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
         return ann.value.split(".")[-1]
     return _py_recv(ann).split(".")[-1] if ann is not None else ""
@@ -264,25 +285,25 @@ def _py_recv(expr) -> str:
     return ""
 
 
-def _py_table_name(expr) -> str:
-    """TABLE[k] 或 TABLE.get(k) → "TABLE"。"""
+def _py_table(expr):
+    """TABLE[k] 或 TABLE.get(k) → ("TABLE", k 若是寫死的字面值)；不是 → ("", "")。"""
     if isinstance(expr, ast.Subscript) and isinstance(expr.value, ast.Name):
-        return expr.value.id
+        return expr.value.id, _py_literal(expr.slice)
     fn = expr.func if isinstance(expr, ast.Call) else None
     if isinstance(fn, ast.Attribute) and fn.attr == "get" and isinstance(fn.value, ast.Name):
-        return fn.value.id
-    return ""
+        return fn.value.id, _py_literal(expr.args[0]) if expr.args else ""
+    return "", ""
 
 
 def _py_call(node: ast.Call) -> Call | None:
     fn, line = node.func, node.lineno
-    table = _py_table_name(fn)
+    table, key = _py_table(fn)
     if table:
-        return Call("table", table, line=line)
+        return Call("table", table, line=line, key=key)
     if isinstance(fn, ast.Name):
         return Call("name", fn.id, line=line, noise=fn.id in NOISE_CALLS)
     if isinstance(fn, ast.Call) and _py_recv(fn.func) == "getattr":
-        names = sorted({n.id for a in fn.args for n in ast.walk(a) if isinstance(n, ast.Name)})
+        names = sorted({n.id for n in itertools.chain.from_iterable(ast.walk(a) for a in fn.args) if isinstance(n, ast.Name)})
         return Call("getattr", ",".join(names), line=line)
     if not isinstance(fn, ast.Attribute):
         return None
@@ -325,9 +346,9 @@ def _py_events(mod: Module, node: ast.Call, c: Call, owner: str) -> list:
     literal = first.value if isinstance(first, ast.Constant) and isinstance(first.value, str) else ""
     key = _event_key(literal, c.recv)
     if c.name in EMIT_NAMES:
-        return [Call("emit", key, line=c.line)] if key else []
+        return [Call("emit", key, recv=c.recv, line=c.line)] if key else []
     if key and c.refs:
-        mod.subs.append((key, c.refs[-1][1], owner, mod.file))
+        mod.subs.append((key, c.refs[-1][1], owner, mod.file, c.recv))
     return []
 
 
@@ -342,14 +363,20 @@ def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
 
 def _py_bind(f: Func, cls: Cls | None, target, value) -> None:
     ctor = _py_recv(value)[4:] if _py_recv(value).startswith("new:") else ""
-    table, refs = _py_table_name(value), _py_table_refs(value)
+    table, refs = _py_table(value)[0], _py_table_refs(value)
+    alias = _py_ref(value) if isinstance(value, (ast.Name, ast.Attribute)) else None
     if isinstance(target, ast.Name):
         if ctor:
             f.local_types[target.id] = ctor
+            f.exact.add(target.id)
         if table:
             f.table_vars[target.id] = table
         if refs:
             f.tables[target.id] = refs
+        if alias:
+            f.aliases[target.id] = alias
+        if isinstance(value, ast.Lambda):
+            f.inline.add(target.id)
         return
     if not (cls and isinstance(target, ast.Attribute) and _py_recv(target.value) == "self"):
         return
@@ -373,6 +400,9 @@ _CS_CALL = re.compile(r"(?P<new>\bnew\s+)?(?P<recv>(?:\w+\s*\??\.\s*)*)(?P<name>
 _CS_SUB = re.compile(r"(?P<lhs>[\w.]+)\s*\+=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
 _CS_LISTEN = re.compile(r"(?P<lhs>[\w.]+)\s*\.\s*AddListener\s*\(\s*(?P<rhs>[A-Za-z_][\w.]*)\s*\)")
 _CS_LOCAL = re.compile(r"\b(?:var|(?P<type>[A-Z]\w*)(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?:new\s+(?P<new>\w+))?")
+_CS_ALIAS = re.compile(r"\b(?:var|[A-Z]\w*(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
+_CS_INLINE = re.compile(r"(?:^|[;{}])\s*(?:(?:static|async)\s+)*(?P<type>[\w<>\[\],?.]+)\s+(?P<name>\w+)\s*"
+                        r"(?:\([^()]*\)\s*(?:\{|=>)|=\s*(?:\([^()]*\)|\w+)\s*=>)", re.M)   # 區域函式、lambda 變數
 _CS_ASSIGN = re.compile(r"(?:this\.)?(?P<lhs>\w+)\s*=\s*(?:new\s+(?P<new>\w+)|(?P<rhs>\w+)\s*;)")
 _CS_REF = re.compile(r"(?:(?P<key>\w+)\s*:\s*)?(?:(?P<recv>\w+)\.)?(?P<name>[A-Za-z_]\w*)")
 _CS_ATTR = re.compile(r"\[[^\[\]]*\]")
@@ -434,10 +464,27 @@ def parse_csharp(rel: str, text: str) -> Module:
     for m in _CS_CLASS.finditer(src):
         bases = [b.split(".")[-1] for b in _split_top(_strip_generics(m["bases"] or ""))]
         cls = Cls(m["name"], "cs", [rel], bases, partial="partial" in m["mods"].split())
+        first = len(mod.funcs)
         for member in _cs_members(src, depth, pairs, m.end() - 1):
             _cs_member(mod, cls, src, depth, member)
+        _cs_sign_overloads(mod, cls, mod.funcs[first:])
         mod.classes.append(cls)
     return mod
+
+
+def _cs_sign_overloads(mod: Module, cls: Cls, funcs: list) -> None:
+    """同名多載每一個（含第一個）都改用「名稱(參數型別)」當 id，宣告順序、插入刪除都對得上；沒多載的維持裸名。"""
+    counts = Counter(f.name for f in funcs)
+    renames = {}
+    for f in [f for f in funcs if counts[f.name] > 1]:
+        sig = f"{f.file}::{f.qual}({','.join(f.param_types.get(p, '?') for p in f.params)})"
+        renames[f.id] = sig if sig not in renames.values() else f"{sig}#{len(renames)}"
+        f.id = renames[f.id]
+    if not renames:
+        return
+    cls.methods = {name: [renames.get(i, i) for i in ids] for name, ids in cls.methods.items()}
+    cls.stored = {attr: (renames.get(fid, fid), param) for attr, (fid, param) in cls.stored.items()}
+    mod.subs = [(key, ref, renames.get(owner, owner), file, recv) for key, ref, owner, file, recv in mod.subs]
 
 
 def _cs_members(src: str, depth: list, pairs: dict, open_i: int):
@@ -475,9 +522,7 @@ def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> N
         name, mods = sig["name"], set(head[:sig.start()].split())
         params = [p for p in (_cs_param(t) for t in _split_top(sig["params"], "()[]{}<>")) if p]
     base = f"{mod.file}::{cls.name}.{name}"
-    taken = {f.id for f in mod.funcs}
-    fid = base if base not in taken else f"{base}({','.join(t for _, t in params)})"   # 多載：用參數型別區分
-    fid = fid if fid not in taken else f"{fid}#{sum(1 for t in taken if t.startswith(base))}"
+    fid = base if all(f.id != base for f in mod.funcs) else f"{base}#{b0}"   # 暫用；多載在整個類別讀完後改成簽章 id
     line = src.count("\n", 0, start + len(raw) - len(raw.lstrip())) + 1
     f = Func(fid, mod.file, f"{cls.name}.{name}", name, cls.name, "cs", line,
              params=[p for p, _ in params], param_types={p: t for p, t in params if t}, prop=is_prop)
@@ -516,6 +561,10 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
     for m in _CS_LOCAL.finditer(body):
         if m["new"] or m["type"]:
             f.local_types[m["var"]] = m["new"] or m["type"]
+        if m["new"]:
+            f.exact.add(m["var"])
+    f.aliases = {m["var"]: ref for m in _CS_ALIAS.finditer(body) if (ref := _cs_ref(m["rhs"]))}
+    f.inline = {m["name"] for m in _CS_INLINE.finditer(body) if not {m["type"], m["name"]} & CS_KEYWORDS}
     for m in _CS_ASSIGN.finditer(body):
         if m["new"]:
             cls.fields.setdefault(m["lhs"], m["new"])
@@ -523,8 +572,9 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
             cls.stored[m["lhs"]] = (f.id, m["rhs"])
     for m in [*_CS_SUB.finditer(body), *_CS_LISTEN.finditer(body)]:
         ref = _cs_ref(m["rhs"])
+        recv, _, key = m["lhs"].rpartition(".")
         if ref:
-            mod.subs.append((m["lhs"].split(".")[-1], ref, f.id, mod.file))
+            mod.subs.append((key, ref, f.id, mod.file, recv))
 
 
 def _cs_call(m: re.Match, body: str, line: int) -> Call | None:
@@ -546,7 +596,8 @@ def _cs_call_kind(is_new: bool, name: str, recv: str, on_result: bool) -> Call:
     if is_new:
         return Call("new", name)
     if name == "Invoke" and recv:
-        return Call("invoke", recv.split(".")[-1])
+        owner, _, target = recv.rpartition(".")
+        return Call("invoke", target, recv=owner)
     if on_result:
         return Call("attr", name, recv="?")
     if recv in ("", "this"):

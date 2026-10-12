@@ -3,12 +3,15 @@
 正例：入口→三層包裝→落地 數出跳檔／轉手／拐彎；Python 與 C# 各一組 callback／事件／繼承分派被認成轉手；
       partial 檔名有責任軸 → 標「分檔有責任軸」不算彎；前後比較（兩個目錄、git rev）差異正確；尾行哨兵。
 反例：拿掉包裝的直線版數字較小；無責任軸的 partial 照算跳檔；同版本比較全部不變；
-      反證——一次拿掉一種轉手偵測（callback／event／inherit／dynamic／責任軸），對應案例就紅。
+      反證：一次拿掉一種轉手偵測（callback／event／inherit／dynamic／責任軸），對應案例就紅；
+      不確定的連線必須標候選、不該存在的邊不存在、看不到的不能被比較成變好。
 假專案都在 tmp 現建。怎麼跑：python -X utf8 -m pytest -q -p no:cacheprovider tools/verify/verify_reading_path.py
 """
 from __future__ import annotations
 
+import codecs
 import importlib.util
+import itertools
 import json
 import re
 import subprocess
@@ -41,7 +44,7 @@ def _write(root: Path, files: dict) -> Path:
 
 
 def _route(report: dict, landing: str) -> dict:
-    hits = [r for e in report["entries"] for r in e["routes"] if r["landing"] == landing]
+    hits = [r for r in itertools.chain.from_iterable(e["routes"] for e in report["entries"]) if r["landing"] == landing]
     assert hits, f"沒有走到 {landing}"
     return hits[0]
 
@@ -329,7 +332,7 @@ def poke(obj, name):
 def test_python_lazy_import_table_is_dynamic_and_bare_getattr_is_ambiguous(tmp_path):
     report = rp.analyze(_write(tmp_path, PY_LAZY), "entry.py::main")
     _check_last_step(report, "handlers/alpha.py::handle_alpha", "dynamic")
-    assert report["stats"]["ambiguous"] == 1, "poke 的 getattr 沒有分派表可對 → 記成對不到，不亂連"
+    assert report["stats"]["unresolved"] == 1, "poke 的 getattr 沒有分派表可對 → 計入專案內解析不了，不亂連"
 
 
 PY_LOCAL_TABLE = {
@@ -493,12 +496,12 @@ if __name__ == "__main__":
         assert _kinds(r)[-1] == "callback" and r["steps"][-1]["guess"].startswith("候選")
 
 
-def test_same_event_name_with_two_handlers_is_marked_candidate(tmp_path):
+def test_same_instance_event_with_two_handlers_is_certain(tmp_path):
     files = dict(PY_KINDS)
     files["main.py"] = files["main.py"].replace('bus.on("saved", on_saved)',
                                                 'bus.on("saved", on_saved)\n    bus.on("saved", on_item)')
     r = _route(rp.analyze(_write(tmp_path, files), "main.py"), "main.py::on_saved")
-    assert r["steps"][-1]["kind"] == "event" and r["steps"][-1]["guess"].startswith("候選")
+    assert r["steps"][-1]["kind"] == "event" and r["certain"], "同一函式對同一個 bus 訂閱又發出：兩個處理函式都確定會跑"
 
 
 def test_function_local_import_does_not_leak_to_other_functions(tmp_path):
@@ -562,11 +565,203 @@ def test_python_file_with_bom_is_parsed(tmp_path):
     _route(report, "core.py::work")
 
 
-def test_csharp_overload_ids_survive_layout_changes():
-    body = ("class K {\n    void Work(int a) { a += 1; a *= 2; a -= 3; }\n"
-            '    void Work(string s) { s += "x"; s += "y"; s += "z"; }\n}\n')
-    ids = lambda text: sorted(f.id for f in rp.lang.parse_csharp("K.cs", text).funcs)
-    assert ids(body) == ids("\n\n" + body) == ["K.cs::K.Work", "K.cs::K.Work(string)"]
+CS_W_INT = "    void Work(int a) { a += 1; a *= 2; a -= 3; }\n"
+CS_W_STR = '    void Work(string s) { s += "x"; s += "y"; s += "z"; }\n'
+CS_W_TWO = "    void Work(int a, int b) { a += b; a *= 2; a -= 3; }\n"
+CS_K_MAIN = "    static void Main() { var k = new K(); k.Work(1); }\n}\n"
+
+
+def _k(*members) -> str:
+    return "class K {\n" + "".join(members) + CS_K_MAIN
+
+
+def _work_ids(text: str) -> list:
+    return sorted(f.id for f in rp.lang.parse_csharp("K.cs", text).funcs if f.name == "Work")
+
+
+def test_csharp_overload_ids_are_signatures_regardless_of_order_or_layout():
+    expect = ["K.cs::K.Work(int)", "K.cs::K.Work(string)"]
+    assert _work_ids(_k(CS_W_INT, CS_W_STR)) == _work_ids(_k(CS_W_STR, CS_W_INT)) == expect
+    assert _work_ids("\n\n" + _k(CS_W_INT, CS_W_STR)) == expect
+    assert _work_ids(_k(CS_W_INT, CS_W_TWO, CS_W_STR)) == ["K.cs::K.Work(int)", "K.cs::K.Work(int,int)", "K.cs::K.Work(string)"]
+    assert _work_ids(_k(CS_W_INT)) == ["K.cs::K.Work"], "沒有多載維持裸名"
+
+
+@pytest.mark.parametrize("after", [_k(CS_W_STR, CS_W_INT), _k(CS_W_INT, CS_W_TWO, CS_W_STR), _k(CS_W_INT)],
+                         ids=["swap", "insert", "delete-to-one"])
+def test_compare_matches_the_same_overload_after_reorder_insert_delete(tmp_path, after):
+    old = _write(tmp_path / "old", {"K.cs": _k(CS_W_INT, CS_W_STR)})
+    new = _write(tmp_path / "new", {"K.cs": after})
+    res = rp.run_compare(new, str(old), None, None, None)
+    row = next(r for r in res["rows"] if r["landing"].startswith("K.cs::K.Work") and (r["before"] or {}).get("sig") == "int")
+    assert row["after"] is not None and row["after"]["sig"] == "int", "Work(int) 前後要對到同一個方法"
+    assert row["status"] == "same"
+
+
+# ─── 退件 003：看不到的不能被當成變好、不確定的要標候選、編碼不能靜默（修正後的回歸） ──
+
+PY_HOP = {
+    "main.py": 'import hop\n\nif __name__ == "__main__":\n    hop.a(1)\n',
+    "hop.py": ("import end\n\n\ndef a(n):\n    return b(n)\n\n\ndef b(n):\n    return c(n)\n\n\n"
+               "def c(n):\n    return end.done(n)\n"),
+    "end.py": "def done(n):\n    t = n * 2\n    t += 1\n    return t\n",
+}
+
+
+def _hop_variant(body: str, extra: str = "") -> dict:
+    return {**PY_HOP, "hop.py": PY_HOP["hop.py"].replace("    return b(n)", body, 1) + extra}
+
+
+def test_function_alias_is_followed_and_compare_stays_same(tmp_path):
+    b1 = _write(tmp_path / "b1", PY_HOP)
+    b2 = _write(tmp_path / "b2", _hop_variant("    next_fn = b\n    return next_fn(n)"))
+    r = _route(rp.analyze(b2, "main.py"), "end.py::done")
+    assert _kinds(r) == ["wrapper", "wrapper", "wrapper", "direct"] and r["certain"] and not r["incomplete"]
+    res = rp.run_compare(b2, str(b1), None, "main.py", None)
+    assert _row(res, "end.py::done")["status"] == "same"
+    assert res["coverage_drop"] is False and res["max_turns_before"] == res["max_turns_after"] == 4
+
+
+def test_csharp_delegate_alias_is_followed(tmp_path):
+    files = {"Program.cs": "using System;\nclass Program {\n    static void Main() {\n"
+                           "        Func<int, int> next = Core.Work;\n        next(3);\n    }\n}\n", "Core.cs": CS_CORE}
+    r = _route(rp.analyze(_write(tmp_path, files)), "Core.cs::Core.Work")
+    assert r["certain"] and r["steps"][-1]["kind"] == "direct"
+
+
+def test_unresolvable_call_is_incomplete_and_compare_is_undecidable_not_better(tmp_path):
+    b1 = _write(tmp_path / "b1", PY_HOP)
+    b3 = _write(tmp_path / "b3", _hop_variant("    next_fn = pick()\n    return next_fn(n)",
+                                               "\n\ndef pick():\n    return b\n"))
+    report = rp.analyze(b3, "main.py")
+    a = _route(report, "hop.py::a")
+    assert a["incomplete"] and a["unresolved"] == 1 and report["stats"]["unresolved"] == 1
+    assert report["entries"][0]["grades"]["順"] == 1, "未讀到底的落點不算進刻度分布（只剩 pick）"
+    assert "（未讀到底" in rp.render(report, 3) and "incomplete=1" in rp.done_line(report)
+    res = rp.run_compare(b3, str(b1), None, "main.py", None)
+    assert _row(res, "end.py::done")["status"] == "undecidable", "看不到了不能報成消失或變好"
+    assert res["coverage_drop"] is True and res["counts"]["better"] == 0 and res["counts"]["gone"] == 0
+    assert res["undecidable_entries"] == ["main.py::<main>"]
+    assert "coverage_drop=1" in rp.compare_done_line(res) and "不可判定" in rp.render_compare(res, 3)
+
+
+def test_event_on_a_different_instance_must_be_candidate(tmp_path):
+    py = dict(PY_KINDS)
+    py["main.py"] = py["main.py"].replace('bus.on("saved", on_saved)', 'other = Bus()\n    other.on("saved", on_saved)')
+    r = _route(rp.analyze(_write(tmp_path / "py", py), "main.py"), "main.py::on_saved")
+    assert r["steps"][-1]["kind"] == "event" and r["steps"][-1]["guess"].startswith("候選") and not r["certain"]
+    cs = {"Program.cs": """using System;
+class Bus {
+    public event Action Fired;
+    public void Fire() {
+        int n = 1;
+        n += 1;
+        if (n > 0) { Fired?.Invoke(); }
+    }
+}
+class Program {
+    static void Main() {
+        var a = new Bus();
+        var b = new Bus();
+        b.Fired += Handler;
+        a.Fire();
+    }
+    static void Handler() {
+        int x = 1;
+        x += 2;
+        x *= 3;
+    }
+}
+"""}
+    r = _route(rp.analyze(_write(tmp_path / "cs", cs)), "Program.cs::Program.Handler")
+    assert r["steps"][-1]["kind"] == "event" and not r["certain"]
+
+
+CS_INHERIT = """class Base {
+    public virtual void Work() { int a = 1; a += 1; a *= 2; }
+}
+class Child : Base {
+    public override void Work() { int b = 2; b += 1; b *= 3; }
+}
+class Program {
+    static void Main() {
+        var x = new Base();
+        x.Work();
+        Run(new Child());
+    }
+    static void Run(Base y) {
+        y.Work();
+        y.Work();
+        y.Work();
+    }
+}
+"""
+
+
+def test_exact_new_type_has_no_override_edge_and_declared_type_is_candidate(tmp_path):
+    root = _write(tmp_path, {"Program.cs": CS_INHERIT})
+    g = rp.build_graph(root)
+    assert [(e.dst, e.guess) for e in g.edges["Program.cs::Program.Main"] if "Work" in e.dst] == [("Program.cs::Base.Work", "")], \
+        "明確 new Base() 後呼叫 Work：不該連到 Child.Work"
+    run_edges = {e.dst: e for e in g.edges["Program.cs::Program.Run"]}
+    assert set(run_edges) == {"Program.cs::Base.Work", "Program.cs::Child.Work"}
+    assert all(e.kind == "inherit" and e.guess.startswith("候選") for e in run_edges.values())
+    report = rp.analyze(root)
+    assert _route(report, "Program.cs::Base.Work")["certain"] and not _route(report, "Program.cs::Child.Work")["certain"]
+
+
+def test_overload_call_must_be_candidate(tmp_path):
+    report = rp.analyze(_write(tmp_path, {"K.cs": _k(CS_W_INT, CS_W_STR)}))
+    for landing in ("K.cs::K.Work(int)", "K.cs::K.Work(string)"):
+        r = _route(report, landing)
+        assert not r["certain"] and r["steps"][-1]["guess"].startswith("候選")
+    text = rp.render(report, 3)
+    assert "最差 0 條路徑（全確定）" in text and "最差 2 條路徑（含候選）" in text
+
+
+def test_dynamic_edge_keeps_its_uncertainty(tmp_path):
+    report = rp.analyze(_write(tmp_path, PY_LAZY), "entry.py::main")
+    assert _route(report, "handlers/alpha.py::handle_alpha")["certain"], "表裡只有一項：只可能是它"
+    lazy2 = {**PY_LAZY, "entry.py": PY_LAZY["entry.py"].replace(
+        '{"a": ("handlers.alpha", "handle_alpha")}', '{"a": ("handlers.alpha", "handle_alpha"), "b": ("handlers.beta", "go")}'),
+        "handlers/beta.py": "def go(x):\n    y = x * 2\n    y += 1\n    return y\n"}
+    report = rp.analyze(_write(tmp_path / "two", lazy2), "entry.py::main")
+    r = _route(report, "handlers/alpha.py::handle_alpha")
+    assert not r["certain"] and r["steps"][-1]["guess"].startswith("候選：分派表")
+    fixed = rp.analyze(_write(tmp_path / "kinds", PY_KINDS), "main.py")
+    assert _route(fixed, "main.py::on_table")["certain"], "HANDLERS[\"x\"] 寫死了鍵：確定"
+
+
+def test_utf16_bom_is_decoded_and_bad_bytes_are_listed_not_silent(tmp_path):
+    root = _write(tmp_path / "proj", PY_STRAIGHT)
+    (root / "core.py").write_bytes(codecs.BOM_UTF16_LE + PY_CORE.encode("utf-16-le"))
+    (root / "be.py").write_bytes(codecs.BOM_UTF16_BE + "def be(n):\n    return n + 1\n".encode("utf-16-be"))
+    (root / "bad.py").write_bytes("def f():\n    return 'caf\xe9'\n".encode("latin-1"))
+    (root / "Top.cs").write_text("System.Console.WriteLine(1);\nstatic int Add(int a, int b) { return a + b; }\n",
+                                 encoding="utf-8")
+    report = rp.analyze(root, "app.py")
+    _route(report, "core.py::work")
+    assert report["stats"]["file_funcs"]["be.py"] == 1
+    assert [e.split("（")[0] for e in report["stats"]["parse_errors"]] == ["bad.py"]
+    assert report["stats"]["empty_files"] == ["Top.cs"] and "有定義卻解析出零函式" in rp.render(report, 3)
+
+
+def test_compare_flags_a_file_that_drops_to_zero_functions(tmp_path):
+    old = _write(tmp_path / "old", PY_STRAIGHT)
+    new = _write(tmp_path / "new", PY_STRAIGHT)
+    (new / "core.py").write_bytes(PY_CORE.encode("utf-16-le"))
+    res = rp.run_compare(new, str(old), None, "app.py", None)
+    assert res["emptied_files"] == ["core.py"] and res["coverage_drop"] is True
+
+
+def test_report_and_json_carry_the_caveats_that_apply(tmp_path):
+    report = rp.analyze(_write(tmp_path / "w", CS_WRAPPED))
+    assert any("只轉傳的層 3 步" in c for c in report["caveats"])
+    assert "本次涉及的限制與可能誤報：" in rp.render(report, 3)
+    partial = rp.analyze(_write(tmp_path / "p", CS_PARTIAL_NO_AXIS))
+    assert any("無責任後綴的 partial：Player" in c for c in partial["caveats"])
+    kinds = rp.analyze(_write(tmp_path / "k", PY_KINDS), "main.py")
+    assert any("繼承／介面分派" in c for c in kinds["caveats"]) and any("含候選的路徑" in c for c in kinds["caveats"])
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
@@ -597,7 +792,7 @@ def test_cli_text_json_and_sentinels(tmp_path):
 
     js = run("--entry", "app.py", "--json")
     payload = json.loads("\n".join(js.stdout.strip().splitlines()[:-1]))
-    assert payload["entries"][0]["routes"][0]["turns"] == 4
+    assert payload["entries"][0]["routes"][0]["turns"] == 4 and "caveats" in payload
 
     bad = run("--entry", "no_such_func")
     assert bad.returncode == 1 and bad.stdout.strip().splitlines()[-1].startswith("READING_PATH FAIL reason=")
