@@ -179,6 +179,10 @@ workflow/harvest-ledger/
 workflow/vcs-sync/
 settings.json.bak
 
+# _AIDocs 附件內的 .NET 範例專案建置產物（smells 等 demo）
+_AIDocs/**/attachments/**/bin/
+_AIDocs/**/attachments/**/obj/
+
 # v6.0 執行期：總控台信箱與根層自己的部位表
 workflow/v6-inbox/
 workflow/second-opinion/
