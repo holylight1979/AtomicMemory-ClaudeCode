@@ -575,6 +575,22 @@ sequenceDiagram
 | Auto-Handoff | `hooks/wg_handoff.py` | PreCompact 存 stub、Stop 的 token 預警（0.85，`token_warn_payload`）、SessionEnd fallback；`_staging/next-phase-auto.md` |
 | webfetch-guard | `hooks/webfetch-guard.sh` | WebFetch 前置護欄 |
 
+### 7.6 寫碼守門：部位導讀卡（OverviewHub）
+
+目的：AI 改一段程式前，先看過「這個部位是什麼、以前摔過什麼」，再說清楚自己改的是哪一層、修根因還是症狀。設定在 `workflow/config.json` 的 `overview_hub` 段（合併順序：程式預設 < config < 公司根 `.claude/overview-hub.json` < 專案根 `.claude/overview-hub.json`；未知鍵報錯）。
+
+| 部件 | 位置 | 做什麼 |
+|------|------|--------|
+| 部位表 | `<專案根>/.claude/overview-map.md`（根層自己的表在 `~/.claude/.claude/overview-map.md`）；解析 `lib/overview_hub.parse_map` | 一列一個部位：路徑樣式、層、導讀卡名、卡片狀態、病灶文件、量尺。新專案用 `tools/overview-map-scaffold.py` 掃出骨架（預設 dry-run，`--write` 落檔、不撤回可重入） |
+| 注入 | UPS（提示提到部位檔）、PostToolUse（Read／Bash 讀到部位檔）；`hooks/wg_overview.py` | 本 session 第一次碰到某部位 → 整張導讀卡注入；依本回合意圖（`turn_intent` 十類）用 `goal_weights` 選先送哪幾片 |
+| 寫入閘 | PreToolUse（Edit／Write／NotebookEdit，以及 Bash／PowerShell 解析出的寫入目標） | 三項證據缺一即 deny：卡已注入、注入後讀過該部位檔 ≥`min_overview_evidence.part_files`、交了定位三行（部位／根因層／前例；前例填存在的卡名、「無」或「待規格：<理由>」，光禿「待規格」與照抄範本不算）。三行從回覆文字、工具參數（Bash 開頭 `#` 註解）、thinking 三處都認。`readonly_paths` 一律擋；transcript 讀不到視為環境異常也擋；沒表或表外檔只要求同頂層目錄讀過檔。閘自己出例外也擋（不 fail-open） |
+| 候選填空 | `wg_overview._candidates_on_trigger`／`on_edit` | 提示命中 `root_cause_triggers` → 已注入部位各送一次「候選前 N＋根因卡＋兩問」，一個都沒注入時以 cwd 專案表送全專案一次；放行的同檔第二次 Edit 也附一次。來源 `smells_report` → 導讀卡「已知病灶」段 → 明說無候選；候選產生失敗只附一行，不改變閘判定 |
+| Depends 召回 | `hooks/wg_depends.py`（PostToolUse） | 讀到某張卡 `- Depends: path:<檔>` 指的檔（或其目錄之下）→ 一行指標「改它前先讀卡」，同卡一 session 一次；`authority_map` 命中文件檔一次性注入地圖。索引欄由 `sync-atom-index.py --sync-depends` 以 frontmatter 為真相同步 |
+| 壓縮後重注 | PreCompact／PostCompact／PostToolBatch | 壓縮前存 OverviewHub 摘要，壓縮後每部位綜觀（部位／層／三行已交否／主目標／卡／病灶前 N，`post_compact_chars` 截）隨 atom 一起重注（atom 先） |
+| 收據與量尺 | `hooks/wg_verify_ledger.py`；Stop 的 ReconcileGate／MeasureGate（§7.1） | Bash／PowerShell 輸出的哨兵（`<NAME>_CHECK PASS|FAIL|DONE`、`<NAME> DONE k=v`，格式見 `rules/coding-style.md` 自檢段）進 `workflow/verify-ledger/<sid>.jsonl`；說修好要本回合對得上的 PASS、改到有量尺的部位要跑過那把尺 |
+| 第二意見與候選池 | MCP `second_opinion_start`／`second_opinion_result`（`tools/second-opinion/`）、`project_smells`（`tools/project-smells.py`） | 把部位卡、病灶文件、diff、帳本尾打包給 codex 獨立審；把專案壞味道候選排成表 |
+| 過程量 | `hooks/wg_scorecard.py`、`tools/scorecard-report.py`、`tools/refix-churn.py` | 每 session 一行：改過的部位裡注入後讀過檔的比例、交三行的比例；同檔反覆修的熱點 |
+
 ---
 
 ## 8. 可觀測與自我維護
@@ -840,7 +856,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
     └── hooks/project_hooks.py               ← delegate
 ```
 
-驗證：`python run_verify.py`（hooks/lib/tools/codex-companion/auto-continue 各 `verify/`）；基線 2195 案起（2193 passed、1 skipped）；git／svn e2e 族（`verify_vcs_sync_worker`、`verify_merge_driver_gate`、`verify_merge_atom_index` 內各一案）在全量或有其他 git 活動並行時偶發單案紅、單跑穩定，根因待追。MCP js 層另有 `node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js`（不在 run_verify 掃描範圍）。
+驗證：`python run_verify.py`（hooks/lib/tools/codex-companion/auto-continue 及 skills 各 `verify/`；`--help` 只印用法不跑；結尾印量尺哨兵 `VERIFY_CHECK DONE cases=<n> failed=0`，有紅印 FAIL 且 exit 1）；基線約 2950 案；git／svn e2e 族（`verify_vcs_sync_worker`、`verify_merge_driver_gate`、`verify_merge_atom_index` 內各一案）在全量或有其他 git 活動並行時偶發單案紅、單跑穩定（推論：工具內 git 子行程 5 秒逾時在負載下觸發）。MCP js 層另有 `node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js`（不在 run_verify 掃描範圍）。
 
 ---
 
