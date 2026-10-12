@@ -747,7 +747,7 @@
     ]
   },
   "measure_gate": {
-    "_doc": "量尺閘（緊接對帳閘，共用其預算）：宣告完成時，本 session 改過的檔命中部位表某列且該列有量尺欄（量法｜`指令`｜門檻）→ 先跑 <專案根>/.claude/overview-hub.json 的 verify_chains[部位].runtime_gate（runtime_gate_timeout_s 秒，非 0＝環境未就緒→擋並說原因）→ 找「最後一次改該部位之後」（at 晚於修改；同秒比序號；同 root；指令含 cd 不採用）的 DONE 收據（exit 0 或無 exit；解析到 failed=k 必須 k==0）且 cmd 含量尺指令，沒有→擋。無量尺的部位只提醒補（stderr＋Logs/guard-measure.jsonl，每部位每 session 一次）。根層自己的表給 hooks 部位的尺是 python -X utf8 run_verify.py（成功尾行 VERIFY_CHECK DONE cases= failed=0，失敗 VERIFY_CHECK FAIL 且 exit 1）。一鍵關＝enabled:false。",
+    "_doc": "量尺閘（緊接對帳閘，共用其預算）：宣告完成時，本 session 改過的檔命中部位表某列且該列有量尺欄（量法｜`指令`｜門檻）→ 先跑 <專案根>/.claude/overview-hub.json 的 verify_chains[部位].runtime_gate（runtime_gate_timeout_s 秒，非 0＝環境未就緒→擋並說原因）→ 找「最後一次改該部位之後」（at 晚於修改；同秒比序號；同 root；指令含 cd 不採用）的 DONE 收據（exit 0 或無 exit；解析到 failed=k 必須 k==0）且 cmd 含量尺指令，沒有→擋。無量尺的部位只提醒補（stderr＋Logs/guard-measure.jsonl，每部位每 session 一次）。根層自己的表給 hooks 部位的尺是 python -X utf8 run_verify.py（成功尾行 VERIFY_CHECK DONE cases= failed=0，失敗 VERIFY_CHECK FAIL 且 exit 1）。根層 worktree（root ≠ ~/.claude 且 .claude/overview-map.md 與根層位元組相同）改到有量尺的部位時，尺改認同 root 下、修改之後、exit 0 且 failed=0 的 pytest DONE（哨兵 PYTEST_MEASURE，sentinel_regex 映射），不要求全量；live 根層與一般專案不變。一鍵關＝enabled:false。",
     "enabled": true,
     "runtime_gate_timeout_s": 2
   },

@@ -517,7 +517,7 @@ sequenceDiagram
 |----|------|------|
 | TestFailGate | 本 session 有未轉綠的失敗測試（只認本 session 的條目；子代理內的紅測不記主 session） | block 要求修到綠或明說跳過 |
 | ReconcileGate | 宣告完成時收尾宣稱對不上本回合驗證收據（`wg_verify_ledger`）：說修好無對得上的 PASS／說量了無 DONE／說試過無執行工具／改了碼沒驗證 case 也沒 PASS／AEC (j) 證據路徑缺或不存在、(k) 空字串 | block 列出命中的規則；獨立預算 `reconcile_gate.max_blocks_per_turn` 2，第 3 次放行並寫 guard-reconcile_overflow（健檢 red） |
-| MeasureGate | 宣告完成且改到部位表有量尺的部位：runtime_gate 未就緒、或最後一次改檔後沒有該量尺的 DONE 收據（exit 0 且 failed=0） | block 說哪把尺沒跑；無量尺部位只提醒補欄（stderr＋guard-measure） |
+| MeasureGate | 宣告完成且改到部位表有量尺的部位：runtime_gate 未就緒、或最後一次改檔後沒有該量尺的 DONE 收據（exit 0 且 failed=0）；根層 worktree（表與 `~/.claude` 位元組相同的其他 root）改認同 root 的 pytest DONE（`PYTEST_MEASURE`），不要求全量 | block 說哪把尺沒跑；無量尺部位只提醒補欄（stderr＋guard-measure） |
 | Evasion 偵測／DeferralGate | 退避詞命中（軟糾正）；主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤0.75（讀 transcript 真實 usage），收尾把帶受詞的可做之事推給「下個 session／獨立議題／非我造成」 | 擋回三選一：做掉／一句話不能做的理由／使用者明示延後；使用者命令式延後語為逃生門 |
 | KnowledgeHarvest | 宣告完成 ∧ 有實質活動 ∧ 冷卻已過（§6.3 階段收割；`wg_harvest.harvest_gate_reason`） | 要求先 `atom_write`／`atom_retire` 再呼叫 MCP `knowledge_harvest_report`（沒東西也要 `items=[]`）；**不增 `stop_blocked_count`**、每 turn 一次（`harvest_gate_turn[sid]`） |
 | Harvest-Pending | 本 session 收割回報有 item 對不上 receipt（`knowledge_harvest[sid].pending` 非空） | 每 turn 擋一次：真做完或改 `action=skip` 附 reason 再重報 |

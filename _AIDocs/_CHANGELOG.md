@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-12 v6.0 P3 track-b2 合併：hook state 並行寫入不再毀檔、量尺閘對根層 worktree 認目標 verify
+- **緣由**：P2 收尾實測兩個缺口——同一則訊息並行多個工具呼叫時，多支 hook 共用同一個 `state-<sid>.tmp` 且鎖拿不到就直接寫，短內容蓋長檔尾端殘留，state JSON 變 Extra data、該 session 之後 45 次 hook 全跳過；worktree 含根層表副本，工作 session 改 hooks/ 被要求跑 17 分鐘全量才能收尾。
+- **做法**：`wg_core.write_state` tmp 檔名帶 pid、鎖拿不到重試 10×20ms 才無鎖寫（stderr `[state:lock-timeout]`）、replace 失敗重試並不動原檔、unlink 失敗浮 `[state:tmp-left]`；`wg_verify_ledger.is_root_worktree`（兩張部位表位元組相同且 root≠CLAUDE_DIR）→ 量尺閘改認同 root、修改之後的 `PYTEST_MEASURE` DONE，live 根層與一般專案的判定與擋訊息逐字不變。共用檔：config `measure_gate._doc`、TECH 閘序表一句、.gitignore 加 `state-*.json.corrupt-*`。P4 第一件（7def5c4）同日：config `sentinel_regex` 映射 pytest 摘要行、根層表 memory/ 與 _AIDocs/ 量尺改成會印 DONE 的指令（原引用的 docdrift-check.py 不存在）。
+- **驗證**：目標 verify 7 檔 134 案綠（工作 session 與總控台在 worktree 各複跑）；併發反例在舊條件下確定性重現 Extra data；codex 兩輪第二意見，首輪 4 BLOCK 總控台重現 3 條退回、末輪 BLOCK：無。全量見下一段 commit 訊息。裁決：之後工作 session 的分頁 cwd 開在 worktree（收據 root 由 hook cwd 推）。
+
 ## 2026-10-09 v6.0 P2 四軌整批合併：意圖分片注入與閘一律擋（a1）、寫入閘分型與路由（c）、掃表／refix／scorecard（d2）、驗證帳本與對帳／量尺閘（b）
 - **緣由**：v6.0 執行計畫 P2；四軌各在 worktree 做、總控台對帳＋codex 第二意見逐輪退回（a1 四輪、c 三輪、d2 四輪、b 三輪，BLOCK 都親自重現才退）、收斂後整批 merge --no-ff（a1→c→d2→b）。
 - **做法**：UPS 先算 `turn_intent` 十類，導讀卡依 `goal_weights` 選片注入；on_edit 三項證據缺一即 deny、readonly、transcript 讀不到即擋、Bash／PowerShell 寫入目標解析（R0～R5，算不出回 UNKNOWN 由閘擋）、state 缺檔即建；寫入閘回 kind／route_to／budget／missing_sections，hub 卡 4096、org 寫入過 realm 閘、萃取 item 帶 route、追蹤項落 `workflow/tracking/`；`overview-map-scaffold.py`（不撤回、可重入）、`refix-churn.py`、`wg_scorecard`＋`scorecard-report.py`、install 根層表三態；`wg_verify_ledger` 帳本（哨兵＋exit code＋vcs 快照）、Stop ReconcileGate／MeasureGate（宣稱子句判、PASS 要對得上、收據晚於修改、含 cd 不採用）、failing_tests 按 session 隔離、非零 exit 必紅、健檢工具自測、AEC 加 j／k。共用檔：config.json 九段、settings PostToolUse matcher 加 `PowerShell|Read`、.gitignore 三行、禁語三類宣稱、mcp.js 兩 schema、smoke 兩案、HUD j／k、文件兩列與十一欄。
