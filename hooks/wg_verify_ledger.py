@@ -668,8 +668,12 @@ def is_code_file(path: str, code_exts: Iterable[str]) -> bool:
     return any(low.endswith(str(e).lower()) for e in code_exts)
 
 
-def is_verify_case(path: str, globs: Iterable[str]) -> bool:
-    norm = _norm_path(path)
+def is_verify_case(path: str, globs: Iterable[str], root: Optional[str] = None) -> bool:
+    """path 符合 verify_case_globs 嗎。比對前轉成相對 root 的路徑（前面補一個 `/`，根目錄下的 test_x.py 也比得到）：
+    glob 要認的是專案內的 verify/、tests/ 與檔名，專案根所在目錄的名字（`C:\\latest\\proj`）不能參與比對。
+    root 沒給或 path 不在 root 底下 → 用絕對路徑（呼叫端負責告知，見 case_debt）。"""
+    full, base = _norm_path(path), _norm_path(root or "")
+    norm = full[len(base):] if base and full.startswith(base + "/") else full
     for g in globs:
         g = str(g).replace("\\", "/").lower()
         if fnmatch.fnmatch(norm, g) or fnmatch.fnmatch(norm, "*/" + g.lstrip("*/")):
@@ -767,9 +771,10 @@ def _mod_after(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
                           int(tb) if tb is not None else -1)
 
 
-def is_case_file(path: str, cfg: Dict[str, Any]) -> bool:
-    """驗證案例＝符合 verify_case_globs 且是程式檔（code_exts）；tests/README.md、verify/notes.txt 不算。"""
-    return is_verify_case(path, cfg.get("verify_case_globs") or []) and is_code_file(path, cfg.get("code_exts") or [])
+def is_case_file(path: str, cfg: Dict[str, Any], root: Optional[str] = None) -> bool:
+    """驗證案例＝符合 verify_case_globs（相對 root 比）且是程式檔（code_exts）；tests/README.md、verify/notes.txt 不算。"""
+    return (is_verify_case(path, cfg.get("verify_case_globs") or [], root)
+            and is_code_file(path, cfg.get("code_exts") or []))
 
 
 def case_exists(path: str) -> bool:
@@ -781,6 +786,7 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
               root_of: Callable[[str], Optional[str]]) -> List[str]:
     """補案例的義務（跨回合）：每個根找「本 session 最後一次改驗證案例之後還改過的程式檔」，回這些檔。
     只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）。
+    案例判定用相對該根的路徑；拿不到根的程式檔退回絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。
     修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。
     範圍外：改的案例是不是對應這次改動，程式判不出來，交給收尾對照（需求目標核心流程 checklist C-G3）由 LLM 判。"""
     exts = cfg.get("code_exts") or []
@@ -789,8 +795,11 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
         if isinstance(m, dict) and m.get("path"):
             by_root.setdefault(str(root_of(m["path"]) or ""), []).append(m)
     owed: List[str] = []
-    for ms in by_root.values():
-        cases = [m for m in ms if is_case_file(m["path"], cfg) and case_exists(m["path"])]
+    for root, ms in by_root.items():
+        case_of = {m["path"]: is_case_file(m["path"], cfg, root) for m in ms}
+        for p in [p for p in case_of if not root and is_code_file(p, exts)]:
+            print(f"[verify_ledger] 找不到 {p} 的專案根，案例判定改用絕對路徑", file=sys.stderr)
+        cases = [m for m in ms if case_of[m["path"]] and case_exists(m["path"])]
         last_case: Optional[Dict[str, Any]] = None
         for m in cases:
             if _has_time(m) and (last_case is None or _mod_after(m, last_case)):
@@ -799,7 +808,7 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
                              and int(m.get("last_turn_seq", m.get("turn_seq"))) == int(turn_seq) for m in cases)
         for m in ms:
             p = m["path"]
-            if not is_code_file(p, exts) or is_case_file(p, cfg) or p in owed:
+            if not is_code_file(p, exts) or case_of[p] or p in owed:
                 continue
             if _has_time(m):
                 if last_case is None or _mod_after(m, last_case):

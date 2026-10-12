@@ -1432,3 +1432,40 @@ def test_009_5_deleted_case_does_not_clear_debt(driven, capsys, monkeypatch, tmp
     real.write_text("def test_a():\n    assert True\n", encoding="utf-8")
     out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
     assert "ReconcileGate" not in out                                                       # 案例檔在 → 補了案例
+
+
+# ─── 011：案例判定用相對專案根的路徑比 glob ─────────────────────────────────────────
+
+_LATEST = r"C:\latest\proj"
+
+
+def test_011_project_under_test_named_dir_judges_relative_path(driven, capsys, monkeypatch):
+    """根在 C:\\latest\\proj（虛構路徑走樣式判定；存在與否由 fixture 視為存在）：改 src/a.py → 不是案例、(d) 擋；
+    再改 tests/test_a.py → 是案例、(d) 不擋。舊碼比絕對路徑，`**/*test*` 吃到 latest，src/a.py 也算案例 → 不擋。"""
+    monkeypatch.setattr(vl, "file_root_of", lambda p: _LATEST if p.lower().startswith(_LATEST.lower()) else None)
+    src = _mf(_LATEST + r"\src\a.py", 5, last_at=_T1, last_seq=3)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[src])
+    assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out
+    case = _mf(_LATEST + r"\tests\test_a.py", 5, last_at=_T2, last_seq=4)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[src, case])
+    assert "ReconcileGate" not in out
+
+
+def test_011_ordinary_root_behaves_as_before(monkeypatch):
+    monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)              # 虛構路徑：只驗樣式判定
+    cfg = vl.reconcile_cfg({})
+    src, case = _mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_a.py", 5, last_at=_T2, last_seq=4)
+    root_of = lambda p: str(ROOT)                                                       # noqa: E731
+    assert vl.case_debt([src], 5, cfg, root_of) == [src["path"]]
+    assert vl.case_debt([src, case], 5, cfg, root_of) == []
+    assert vl.is_verify_case(r"c:\proj\test_root.py", cfg["verify_case_globs"], str(ROOT))   # 根目錄下的 test_x.py 也算
+    assert vl.is_verify_case(r"c:\proj\hooks\verify\x.py", cfg["verify_case_globs"], str(ROOT))
+
+
+def test_011_no_root_falls_back_to_absolute_path_with_one_stderr_line(capsys):
+    """拿不到根 → 用絕對路徑判定（這裡 latest 會被 *test* 吃到 → 算案例、沒欠帳），stderr 每個程式檔恰一行。"""
+    cfg = vl.reconcile_cfg({})
+    src, doc = _mf(_LATEST + r"\src\a.py", 5, last_at=_T1, last_seq=3), _mf(_LATEST + r"\docs\a.md", 5)
+    assert vl.case_debt([src, doc], 5, cfg, lambda p: None) == []
+    err = [ln for ln in capsys.readouterr().err.splitlines() if "[verify_ledger] 找不到" in ln]
+    assert err == [f"[verify_ledger] 找不到 {src['path']} 的專案根，案例判定改用絕對路徑"]
