@@ -5240,6 +5240,74 @@
         "閘的漏洞"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-每個需求都要先抓需求目標並在關鍵處對照-目標會樹狀長出子目標-判斷交llm智慧-流程交程式控制",
+      "path": "memory/Failures/思考與決策/feedback-每個需求都要先抓需求目標並在關鍵處對照-目標會樹狀長出子目標-判斷交llm智慧-流程交程式控制.md",
+      "triggers": [
+        "需求目標",
+        "目標樹",
+        "子目標",
+        "當下的需求",
+        "關鍵處",
+        "目標對照",
+        "核心流程",
+        "LLM 介入",
+        "流程控制",
+        "機制清單",
+        "目標被淡化"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上",
+      "path": "memory/工作流/協作與並行/工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上.md",
+      "triggers": [
+        "EnterWorktree",
+        "worktree 隔離",
+        "寫不到 live",
+        "交付信",
+        "信箱",
+        "SendMessage 交付",
+        "工作 session",
+        "收據 root",
+        "primary working directory"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄",
+      "path": "_AIDocs/_atoms/MemDev/驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄.md",
+      "triggers": [
+        "MeasureGate",
+        "量尺閘",
+        "run_verify 全量",
+        "10 分鐘上限",
+        "背景跑不留收據",
+        "自寫收據",
+        "_runs",
+        "measure_launch",
+        "收據偽造",
+        "量尺指令字串"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接",
+      "path": "_AIDocs/_atoms/MemDev/使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接.md",
+      "triggers": [
+        "收尾放行確認",
+        "使用者放行",
+        "放行判定",
+        "AskUserQuestion 答案",
+        "tool_use_id",
+        "偽造放行",
+        "否定句",
+        "pending_release",
+        "wg_release",
+        "擋滿"
+      ],
+      "scope": "global"
     }
   ]
 }
