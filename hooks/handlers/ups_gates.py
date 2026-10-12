@@ -88,7 +88,7 @@ def run_pre_gates(
                 pending = state.setdefault("pending_user_extract", [])
                 pending.append({
                     "turn_id": f"{session_id}-{turn_n}",
-                    "prompt": typed,
+                    "prompt": user_typed_text(clean_prompt, keep_lines=True),   # 保留換行，worker 才能逐句看
                     "score": det["score"],
                     "matched": det["matched"],
                     "ts": _now_iso(),

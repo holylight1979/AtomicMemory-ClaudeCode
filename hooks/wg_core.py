@@ -288,15 +288,20 @@ _SYSTEM_NOTIFICATION_RE = re.compile(r"^[ \t]*\[SYSTEM NOTIFICATION - NOT USER I
                                      re.IGNORECASE | re.MULTILINE)
 
 
-def user_typed_text(prompt: str) -> str:
-    """使用者本人打的字：剔掉 harness 注入區塊、系統通知標記行之後的內容、hook 殘渣行，空白折一格。
+def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
+    """使用者本人打的字：剔掉 harness 注入區塊、系統通知標記行之後的內容、hook 殘渣行，空白折一格
+    （keep_lines=True 時保留換行、只折行內空白，給要逐句看的萃取用）。
     空字串＝這則不是使用者的話。口令、糾正、豁免、使用者決策、不要記、停用、失敗萃取等權威判斷只吃這個結果
     （先清理、再截長）；使用者的字前後夾了通知或其他 session 的訊息，只剔掉那些區塊，使用者的字照留。清兩次結果不變。"""
     if not prompt:
         return ""
     text = strip_harness_blocks(prompt)
     m = _SYSTEM_NOTIFICATION_RE.search(text)
-    return sanitize_harness_noise(text[:m.start()] if m else text)
+    text = text[:m.start()] if m else text
+    if not keep_lines:
+        return sanitize_harness_noise(text)
+    lines = (re.sub(r"[ \t]+", " ", ln).strip() for ln in _HOOK_RESIDUE_LINE_RE.sub("", text).splitlines())
+    return "\n".join(ln for ln in lines if ln)
 
 
 def is_harness_generated_prompt(text: str) -> bool:

@@ -47,14 +47,15 @@ DECISIONS = [
     "你是工作 session track-x。第一步修 UI。另外 commit message 用繁體中文。",          # 同上，且沒有任何決策用語
     "你是工作 session track-x，第一步用 EnterWorktree 切進 C:\\wt\\x。另外禁止在 hook 裡跑 git push。",   # 帶決策用語
 ]
-# 開工句後面夾一句真正的決策：那一句沒有派工訊號 → 整則交 LLM（逐句判斷，不靠用語清單）
+# 開工句後面夾一句真正的決策：那一句沒有派工訊號 → 整則交 LLM（逐句判斷，不靠用語清單；換行也算句界）
 MIXED_DECIDE = "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x。另外，我決定 commit message 一律使用繁體中文。"
-DECISIONS.append(MIXED_DECIDE)
-# 開工句的常見改寫（不是「你是」開頭、英文、多行、外層引號）
+MIXED_DECIDE_NEWLINE = "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x\n另外，我決定 commit message 一律使用繁體中文。"
+DECISIONS += [MIXED_DECIDE, MIXED_DECIDE_NEWLINE,
+              "你是\n工作 session track-x，本次一律只讀 C:\\wt\\x。"]   # 角色被換行拆開：認不出就交 LLM（不誤丟優先）
+# 開工句的常見改寫（不是「你是」開頭、英文、外層引號）
 REWORDED_KICKOFFS = [
     "For this session, act as track-x. You must work only in C:\\wt\\x; read the task at C:\\inbox\\022.md.",
     "請接手本次工作 session track-x，一律只讀 C:\\wt\\x；派工單在 C:\\inbox\\022.md。",
-    "你是\n工作 session track-x，本次一律只讀 C:\\wt\\x。",
     "「你是工作 session track-x，本次一律只讀 C:\\wt\\x。」",
 ]
 
@@ -147,9 +148,9 @@ def test_pipeline_rechecks_source_and_uses_cleaned_text(tmp_path, monkeypatch):
 
 
 def test_mixed_kickoff_with_decision_goes_to_llm_and_empty_candidate_is_recorded(tmp_path, monkeypatch):
-    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, ["", MIXED_DECIDE])
-    assert [_user_part(p) for p in l1_seen] == [MIXED_DECIDE], l1_seen                # 反例：前一版整則丟掉
-    assert pending_seen == [("sd-test-1", MIXED_DECIDE)]
+    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, ["", MIXED_DECIDE, MIXED_DECIDE_NEWLINE])
+    assert [_user_part(p) for p in l1_seen] == [MIXED_DECIDE, MIXED_DECIDE_NEWLINE], l1_seen   # 反例：前一版整則丟掉
+    assert pending_seen == [("sd-test-1", MIXED_DECIDE), ("sd-test-2", MIXED_DECIDE_NEWLINE)]
     assert "reason=not-user-typed turn=sd-test-0" in log and stats["skipped_not_user"] == 1   # 空候選也留原因
     assert left == []
 

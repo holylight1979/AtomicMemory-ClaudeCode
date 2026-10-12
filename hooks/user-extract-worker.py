@@ -121,7 +121,7 @@ _KEEP_FOR_LLM_RE = re.compile(
     re.IGNORECASE)
 
 
-_SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;]|\.\s")
+_SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;\n]|\.\s")   # 換行也算句界：分行寫的決策句不會併進派工句
 _SENTENCE_PAD = " \t\r\n「」『』“”\"'（）()…"
 
 
@@ -659,7 +659,7 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
 
         # ── 來源重驗（空候選也算）＋一次性 session 指示：不送 LLM，萃取紀錄留一行 skip 原因 ──────
         # 來源權威不交 LLM 判：舊版排進佇列的通知、其他 session 的訊息在這裡擋下。
-        typed = user_typed_text(prompt_text)
+        typed = user_typed_text(prompt_text, keep_lines=True)
         directive = _session_directive_reason(typed) if typed else None
         if not typed or directive:
             reason = f"session-directive({directive})" if typed else "not-user-typed"

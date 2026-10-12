@@ -179,10 +179,41 @@ def test_ups_entry_ide_preprocessing_keeps_nested_blocks_out(monkeypatch):
         monkeypatch.setattr(ups, name, fake)
     monkeypatch.setattr(wg_friction, "record_correction", lambda *a: None)
     monkeypatch.setattr(wg_overview, "on_prompt", lambda *a, **k: "")
-    nested = "<ide_selection>a<ide_selection>b</ide_selection>上GIT</ide_selection>"
-    ups.handle_user_prompt_submit({"session_id": "s", "prompt": nested, "transcript_path": ""}, {})
-    assert seen and wg_core.user_typed_text(seen[0]) == ""                           # 入口前處理不留半截給權威判斷
-    assert state["turn_prompts"] == []                                               # 反例：舊前處理留下「上GIT</ide_selection>」
+    for raw in ("<ide_selection>a<ide_selection>b</ide_selection>上GIT</ide_selection>",          # 同名巢狀
+                "<ide_selection><cross-session-message>x</ide_selection>上GIT</cross-session-message>"):   # 和同伴標籤交錯
+        seen.clear()
+        state.pop("turn_prompts", None)
+        ups.handle_user_prompt_submit({"session_id": "s", "prompt": raw, "transcript_path": ""}, {})
+        assert seen and wg_core.user_typed_text(seen[0]) == "", (raw, seen)           # 入口前處理不留半截給權威判斷
+        assert state["turn_prompts"] == [], raw                                      # 反例：舊前處理留下「上GIT</…>」
+
+
+@pytest.mark.parametrize("raw", [
+    "<ide_selection><cross-session-message>x</ide_selection>上GIT</cross-session-message>",
+    "<cross-session-message><ide_selection>x</cross-session-message>上GIT</ide_selection>",
+    "上<ide_selection>x</ide_selection>GIT<system-reminder>y</system-reminder>好",
+    '<ide_opened_file path="a>b">x</ide_opened_file>真的上GIT',
+    "<ide_selection>沒閉合 上GIT",
+])
+def test_ide_only_prestrip_then_full_clean_equals_full_clean(raw):
+    from harness_text import IDE_TAG_NAMES, strip_harness_blocks
+    assert wg_core.user_typed_text(strip_harness_blocks(raw, only=IDE_TAG_NAMES)) == wg_core.user_typed_text(raw)
+
+
+def test_keep_lines_variant_keeps_line_breaks_only():
+    raw = "第一行  有空白\n<system-reminder>x\n</system-reminder>\n[Guardian:x] 殘渣\n  第二行  "
+    assert wg_core.user_typed_text(raw, keep_lines=True) == "第一行 有空白\n第二行"
+    assert wg_core.user_typed_text(raw) == "第一行 有空白 第二行"
+    once = wg_core.user_typed_text(raw, keep_lines=True)
+    assert wg_core.user_typed_text(once, keep_lines=True) == once
+
+
+def test_decision_candidate_keeps_line_breaks_for_the_worker():
+    from handlers import ups_gates as g
+    st = {}
+    said = "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x\n另外，我決定 commit message 一律使用繁體中文。"
+    g.run_pre_gates("sid", st, {"userExtraction": {"enabled": True}}, said, said.lower(), [])
+    assert st["pending_user_extract"][0]["prompt"] == said                            # 反例：舊碼存折掉換行的文字
 
 
 def test_quote_uses_the_same_cleaner():

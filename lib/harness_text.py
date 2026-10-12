@@ -1,5 +1,5 @@
 """harness_text.py：把一則訊息裡 harness 注入的區塊剔掉，留下其餘文字（純函式；hooks 的 user_typed_text、
-UserPromptSubmit 入口剔 IDE 區塊、Quote 清理共用這一支）。
+UserPromptSubmit 入口剔 IDE 區塊（only=IDE_TAG_NAMES）、Quote 清理共用這一支）。
 
 區塊＝下列標籤成對包住的內容：
 - 標籤名完整比對（`<task-notification-example>` 不算），不分大小寫；標籤在引號外的 `>` 才結束，屬性值裡的 `>`、`/` 不算。
@@ -11,18 +11,12 @@ UserPromptSubmit 入口剔 IDE 區塊、Quote 清理共用這一支）。
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Pattern, Tuple
+from typing import List, Optional, Tuple
 
 HARNESS_TAG_NAMES = (r"system-reminder|task-notification|cross-session-message|ide_[a-z_]+|command-name|"
                      r"command-message|command-args|local-command-stdout|browser_instruction")
 IDE_TAG_NAMES = r"ide_[a-z_]+"
-_TAG_RES: Dict[str, Pattern[str]] = {}
-
-
-def _tag_re(names: str) -> Pattern[str]:
-    if names not in _TAG_RES:
-        _TAG_RES[names] = re.compile(r"<\s*(/?)\s*(" + names + r")(?=[\s/>])", re.IGNORECASE)
-    return _TAG_RES[names]
+_TAG_RE = re.compile(r"<\s*(/?)\s*(" + HARNESS_TAG_NAMES + r")(?=[\s/>])", re.IGNORECASE)
 
 
 def _tag_end(text: str, i: int) -> Tuple[int, bool]:
@@ -42,15 +36,23 @@ def _tag_end(text: str, i: int) -> Tuple[int, bool]:
     return len(text), False
 
 
-def strip_harness_blocks(text: str, repl: str = " ", names: Optional[str] = None) -> str:
-    """剔掉 harness 區塊（規則見模組說明），每個區塊換成 repl；names 是標籤名的正則（預設 HARNESS_TAG_NAMES）。"""
+def strip_harness_blocks(text: str, repl: str = " ", only: Optional[str] = None) -> str:
+    """剔掉 harness 區塊（規則見模組說明），每個區塊換成 repl。
+    only：只剔最外層標籤名完整符合這個正則的區塊，其餘區塊原樣留著；巢狀與交錯照樣看所有 harness 標籤判斷，
+    所以先用 only 剔一部分、再整則清理，和直接整則清理結果相同。"""
     if not text:
         return ""
+    keep_re = re.compile(r"(?:" + only + r")\Z", re.IGNORECASE) if only else None
     out: List[str] = []
     stack: List[str] = []
     pos = 0          # 區塊外文字從哪裡開始
     seen_to = 0      # 已讀過的標籤到哪裡（屬性值裡的字不再當標籤）
-    for m in _tag_re(names or HARNESS_TAG_NAMES).finditer(text):
+    start, outer = 0, ""
+
+    def block(end: int) -> str:
+        return repl if keep_re is None or keep_re.match(outer) else text[start:end]
+
+    for m in _TAG_RE.finditer(text):
         if m.start() < seen_to:
             continue
         closing, name = m.group(1) == "/", m.group(2).lower()
@@ -60,8 +62,9 @@ def strip_harness_blocks(text: str, repl: str = " ", names: Optional[str] = None
             if closing:
                 continue                              # 區塊外的孤立閉合標籤：普通文字
             out.append(text[pos:m.start()])
+            start, outer = m.start(), name
             if self_closing:
-                out.append(repl)
+                out.append(block(end))
                 pos = end
             else:
                 stack.append(name)
@@ -73,7 +76,7 @@ def strip_harness_blocks(text: str, repl: str = " ", names: Optional[str] = None
         elif name == stack[-1]:
             stack.pop()
             if not stack:
-                out.append(repl)
+                out.append(block(end))
                 pos = end
-    out.append(repl if stack else text[pos:])        # 沒閉合 → 吃到字串尾
+    out.append(block(len(text)) if stack else text[pos:])   # 沒閉合 → 吃到字串尾
     return "".join(out)

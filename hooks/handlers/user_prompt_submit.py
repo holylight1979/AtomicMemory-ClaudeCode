@@ -224,8 +224,9 @@ def handle_user_prompt_submit(
         return
 
     prompt = input_data.get("prompt", "")
-    # 只剔 IDE 區塊（其餘內容留給檢索與注入）；和權威判斷的 user_typed_text 用同一支清理器，巢狀不會漏出半截
-    clean_prompt = strip_harness_blocks(prompt, repl="", names=IDE_TAG_NAMES).strip()
+    # 只剔最外層是 IDE 的區塊（其餘內容留給檢索與注入）；巢狀與交錯照樣看所有 harness 標籤判斷，
+    # 所以權威判斷再對它取 user_typed_text，和直接對原文取的結果相同
+    clean_prompt = strip_harness_blocks(prompt, only=IDE_TAG_NAMES).strip()
     prompt_lower = clean_prompt.lower()
     lines: List[str] = []
 
