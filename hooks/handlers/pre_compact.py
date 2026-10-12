@@ -11,6 +11,19 @@ from wg_core import _ensure_state, output_nothing, write_state, _now_iso, resolv
 from wg_episodic import _should_generate_episodic, _generate_episodic_atom
 from wg_handoff import build_handoff_stub, should_write_stub
 
+_SUMMARY_KEYS = ("part", "root", "layer", "intent", "slices", "card_paths", "located", "edits", "edited_files",
+                 "reinjected_after_compact")
+
+
+def _overview_summary(hub: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """state["overview_hub"] → 每個已注入部位的摘要（只留重注要用的欄；無表 key 不帶）。"""
+    out: Dict[str, Dict[str, Any]] = {}
+    for key, rec in hub.items():
+        if "(unmapped)" in key or not isinstance(rec, dict):
+            continue
+        out[key] = {k: rec.get(k) for k in _SUMMARY_KEYS if k in rec}
+    return out
+
 
 def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
@@ -23,6 +36,9 @@ def handle_pre_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     # #4：快照壓縮前已注入 atom 名單，供 PostCompact 復原內文（免受 SessionStart(compact)
     # 清空 injected_atoms 的順序影響）。見 handlers/post_compact.py。
     state["pre_compact_injected_atoms"] = list(dict.fromkeys(state.get("injected_atoms", []) or []))
+    # A2.1：OverviewHub 已注入部位的摘要與本回合意圖也快照，PostCompact 據此組每部位綜觀 blob（主目標／部位／層／卡／病灶／三行已交否）
+    state["pre_compact_overview_hub"] = _overview_summary(state.get("overview_hub") or {})
+    state["pre_compact_turn_intent"] = state.get("turn_intent") or "general"
 
     if not state.get("episodic_checkpoint_done"):
         ep_cfg = config.get("episodic", {})

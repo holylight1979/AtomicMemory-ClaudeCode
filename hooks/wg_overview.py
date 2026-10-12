@@ -33,13 +33,25 @@ from wg_core import (
 )
 
 sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
-    LOCATE_CHANNELS, MAP_REL, SLICE_NAMES, assistant_text_after, build_injection_ex, find_map, locate_quality,
-    locate_values, match_row, parse_map, read_paths_from_tool, resolve_card, top_dir, transcript_readable, transcript_size,
+    DEFAULT_LOCATE_TEMPLATE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
+    build_injection_ex, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
+    split_card_sections, top_dir, transcript_readable, transcript_size,
 )
 
 LOG_PATH = CLAUDE_DIR / "workflow" / "_overview-hub.log"   # _*.log 不進版控
 HUB_REL = Path(".claude") / "overview-hub.json"
+
+# A5.1 前例行填空範本：只能填存在的卡名、「無」、或「待規格：<理由>」；照抄這句不算交（登進 overview_hub 的範本句表，
+# locate_groups 對任何 template 都會剔除；overview_hub.py 是軌 A α 的檔，這裡以擴充 tuple 登記、不改原檔）
+PRECEDENT_TEMPLATE = "<卡名>／無／待規格：<理由>"
+if PRECEDENT_TEMPLATE not in _oh._TEMPLATE_PHRASES:
+    _oh._TEMPLATE_PHRASES = tuple(_oh._TEMPLATE_PHRASES) + (PRECEDENT_TEMPLATE,)
+IDLE_SCAN_LINE = ("[Guardian:OverviewHub] 沒有指定任務 → 主動掃視：跑 `project_smells(part)` 看候選前 N、看部位表還是「骨架」的列、"
+                  "看健檢紅燈；挑一個說出來（部位＋為什麼）再動手。")
+_CANDIDATE_QUESTIONS = ("① 這些候選裡哪一個是你這次要修的問題的根因所在？為什麼不是另一個？",
+                        f"② {ROOT_CAUSE_SENTENCE}")
 
 # 十個 intent 鍵固定（介面凍結，與 wg_atoms.INTENT_PATTERNS＋general 對拍；verify_intent_goal_weights 驗）
 INTENT_KEYS = ("debug", "feature", "refactor", "perf", "new_project", "build", "design", "recall", "handoff", "general")
@@ -63,6 +75,17 @@ _DEFAULT: Dict[str, Any] = {
     "min_overview_evidence": {"card": True, "part_files": 1, "depends_files": 0},
     "candidate_top_n": 5,
     "root_cause_triggers": ["根因", "治本", "為什麼又", "又壞", "重複發生", "老問題", "root cause", "again"],
+    # 候選填空（A5.2）：smells_report（相對專案根或絕對；json／jsonl／md 表）前 N → 沒報告退導讀卡病灶段前 N；
+    # 報告 mtime 超過 smells_max_age_days 附一行「過期仍送」
+    "smells_report": "",
+    "smells_max_age_days": 7,
+    # 沒事做提示（A5.4）：general 意圖且提示詞命中 → 一 session 一行「主動掃視」
+    "idle_triggers": ["接下來做什麼", "還有什麼", "沒事了", "下一步"],
+    # 壓縮重注（A2.2）：post_compact 每部位綜觀 blob 的字數上限
+    "post_compact_chars": 1500,
+    # 權威地圖（A3.5）：{"<檔名樣式（fnmatch，對檔名或相對專案根路徑）>": "<地圖路徑（相對專案根或絕對）>"}；
+    # 讀到文件／計畫檔命中樣式且非空 → 一 session 注入一次該地圖
+    "authority_map": {},
     # 目的加權（預計畫第二節）：意圖 → 先送哪幾片、用哪個視角、先問哪題；空 slices＝整卡原序
     "goal_weights": {
         "debug": {"slices": ["defects", "verify", "authority"], "lens": "目標視角", "ask_first": "幾份存法、有無訊號"},
@@ -82,8 +105,9 @@ _DEFAULT: Dict[str, Any] = {
 _KNOWN_KEYS = frozenset(_DEFAULT)
 _RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告一次，不報錯
 _EOL_POLICIES = ("lf", "crlf", "per-file-head")
-_LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "root_cause_triggers", "locate_template", "source_encodings")
-_DICT_KEYS = ("locate_extra", "min_overview_evidence", "goal_weights", "verify_chains")
+_LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "root_cause_triggers", "locate_template", "source_encodings", "idle_triggers")
+_DICT_KEYS = ("locate_extra", "min_overview_evidence", "goal_weights", "verify_chains", "authority_map")
+_NONNEG_INT_KEYS = ("candidate_top_n", "smells_max_age_days", "post_compact_chars")
 _ENCODING_KEYS = ("commit_encoding", "PYTHONIOENCODING")
 _LAYER_SPLIT_RE = re.compile(r"[／/、,，;；]")
 _WARNED: set = set()                               # 行程內只警告一次的鍵
@@ -223,8 +247,14 @@ def _validate_cfg(c: Dict[str, Any], root: Optional[Path]) -> List[str]:
         errors.append("enabled 必須是 true／false")
     if not isinstance(c.get("max_card_chars"), int) or isinstance(c.get("max_card_chars"), bool) or c["max_card_chars"] <= 0:
         errors.append("max_card_chars 必須是正整數")
-    if not _is_nonneg_int(c.get("candidate_top_n")):
-        errors.append("candidate_top_n 必須是 0 以上的整數")
+    for key in _NONNEG_INT_KEYS:
+        if not _is_nonneg_int(c.get(key)):
+            errors.append(f"{key} 必須是 0 以上的整數")
+    if not isinstance(c.get("smells_report"), str):
+        errors.append("smells_report 必須是字串（報告路徑；空字串＝沒有報告）")
+    am = c.get("authority_map")
+    if isinstance(am, dict) and not all(isinstance(k, str) and isinstance(v, str) and k and v for k, v in am.items()):
+        errors.append("authority_map 的鍵與值都必須是非空字串（檔名樣式 → 地圖路徑）")
     for key in _LIST_OF_STR_KEYS:
         if not _is_list_of_str(c.get(key)):
             errors.append(f"{key} 必須是字串陣列")
@@ -340,6 +370,11 @@ def _migrate_rec(rec: Dict[str, Any]) -> Dict[str, Any]:
     rec.setdefault("card_paths", [])
     rec.setdefault("reads_after", [])
     rec.setdefault("edits", 0)
+    rec.setdefault("edited_files", {})
+    rec.setdefault("reinjected_after_compact", False)
+    rec.setdefault("root", "")
+    rec.setdefault("layer", "")
+    rec.setdefault("part", "")
     return rec
 
 
@@ -362,15 +397,28 @@ def _intent_of(state: Dict[str, Any]) -> str:
     return v if isinstance(v, str) and v in INTENT_KEYS else "general"
 
 
+def _cards_for(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> List[Path]:
+    """表列的導讀卡檔（找得到的）。根層自己的表（~/.claude/.claude/overview-map.md）卡片在 ~/.claude/memory，不在 ~/.claude/.claude/memory。"""
+    if row["status"] not in ("有", "部分", "索引"):
+        return []
+    mem_dir = CLAUDE_DIR / "memory" if cfg.get("_layer") == "root" else None
+    return [cp for cp in (resolve_card(root, c, mem_dir) for c in row["cards"]) if cp]
+
+
+def _locate_template(cfg: Dict[str, Any]) -> List[str]:
+    """定位三行的範本句：專案 locate_template 給幾句用幾句，其餘補預設；第三句（前例）沒自訂時用填空範本（A5.1）。"""
+    custom = cfg.get("locate_template") if isinstance(cfg.get("locate_template"), list) else []
+    t = (list(custom) + DEFAULT_LOCATE_TEMPLATE[len(custom):])[:3]
+    if len(custom) < 3:
+        t[2] = PRECEDENT_TEMPLATE
+    return t
+
+
 def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
             hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any]) -> str:
-    card_paths: List[Path] = []
-    if row["status"] in ("有", "部分", "索引"):
-        # 根層自己的表（~/.claude/.claude/overview-map.md）卡片在 ~/.claude/memory，不在 ~/.claude/.claude/memory
-        mem_dir = CLAUDE_DIR / "memory" if cfg.get("_layer") == "root" else None
-        card_paths = [cp for cp in (resolve_card(root, c, mem_dir) for c in row["cards"]) if cp]
+    card_paths = _cards_for(root, row, cfg)
     card_path = card_paths[0] if card_paths else None
-    template = cfg.get("locate_template") if isinstance(cfg.get("locate_template"), list) else None
+    template = _locate_template(cfg)
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
     intent = _intent_of(state)
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
@@ -389,11 +437,274 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "depends_files_read": [],
         "located": False,
         "edits": 0,
-        "locate_template": template or [],
+        "edited_files": {},
+        "reinjected_after_compact": False,
+        "root": str(root),
+        "part": row["part"] or row["part_short"],
+        "layer": row.get("layer") or "",
+        "locate_template": template,
     }
     _log("inject", session_id, part=row["part_short"], status=row["status"], via=via, path=hit_path,
          card=str(card_path) if card_path else None, chars=len(text), intent=intent, slices=used, layer=cfg.get("_layer"))
     return text
+
+
+# ─── 候選填空（A5.2～A5.4）────────────────────────────────────────────
+
+def defects_top_n(card_paths: List[Any], n: int) -> List[str]:
+    """導讀卡「已知病灶」片的前 n 條 bullet（跨多張卡依序取）；讀不到的卡略過。post_compact 重注也用這把。"""
+    out: List[str] = []
+    for cp in card_paths or []:
+        try:
+            body = Path(cp).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        sec = split_card_sections(body)["slices"].get("defects") or ""
+        for line in sec.splitlines():
+            s = line.strip()
+            if s.startswith("- ") and len(out) < n:
+                out.append(s)
+        if len(out) >= n:
+            break
+    return out
+
+
+_GENERATED_AT_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_LINE_CAP = 200   # 候選每列（reason／病灶）上限，與 max_card_chars // N 取小
+_SMELLS_STR_FIELDS = ("part", "category", "kind", "reason")
+
+
+def _smells_rows(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str], Optional[float]]:
+    """smells 報告 → (列清單, 解析錯誤, generated_at 時間戳)。json（list 或 {rows|items|smells}，可帶 generated_at）／
+    jsonl（一行一筆）／md 表（| 路徑 | 分類 | 理由 | 部位? |）。讀不到、壞 JSON、JSONL 壞行、頂層格式不收 → 錯誤字串（照舊回能解析的列）。"""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return [], f"讀不到：{e}", None
+    rows: List[Any] = []
+    err: Optional[str] = None
+    gen_ts: Optional[float] = None
+    suffix = path.suffix.lower()
+    if suffix == ".jsonl":
+        bad = 0
+        for i, line in enumerate(text.splitlines(), 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                bad += 1
+                err = err or f"第 {i} 行不是 JSON"
+        if bad:
+            err = f"{bad} 行不是 JSON（{err}）"
+    elif suffix == ".md":
+        for line in text.splitlines():
+            if not line.strip().startswith("|") or set(line.replace("|", "").strip()) <= set("-: "):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) < 3 or cells[0] in ("路徑", "path", "檔案"):
+                continue
+            rows.append({"path": cells[0].strip("`"), "category": cells[1], "reason": cells[2],
+                         **({"part": cells[3]} if len(cells) > 3 else {})})
+    else:
+        try:
+            data = json.loads(text)
+        except ValueError as e:
+            return [], f"不是合法 JSON：{e}", None
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict) and any(isinstance(data.get(k), list) for k in ("rows", "items", "smells")):
+            rows = next(data[k] for k in ("rows", "items", "smells") if isinstance(data.get(k), list))
+            raw_gen = data.get("generated_at")
+            m = _GENERATED_AT_RE.match(str(raw_gen or ""))
+            if m:
+                try:   # 0000-01-01、13 月、9999 年這類值 mktime 會拋；退回 mtime 並記一筆
+                    gen_ts = time.mktime((int(m.group(1)), int(m.group(2)), int(m.group(3)), 0, 0, 0, 0, 0, -1))
+                except (OverflowError, ValueError, OSError):
+                    gen_ts = None
+                    err = f"generated_at 無法換算：{raw_gen}"
+        else:
+            err = "頂層要是陣列或含 rows／items／smells 陣列的物件"
+    # 報告是外部輸入：path 必須是非空字串；part／category／kind／reason 有值就必須是字串，否則整列丟棄並計數
+    good: List[Dict[str, Any]] = []
+    bad_type = 0
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if not isinstance(r.get("path"), str) or not r["path"].strip():
+            if r.get("path") not in (None, ""):
+                bad_type += 1
+            continue
+        if any(r.get(k) is not None and not isinstance(r.get(k), str) for k in _SMELLS_STR_FIELDS):
+            bad_type += 1
+            continue
+        good.append(r)
+    if bad_type:
+        msg = f"{bad_type} 列欄位型別不對（path／part／category／kind／reason 要字串）"
+        err = f"{err}；{msg}" if err else msg
+    return good, err, gen_ts
+
+
+def _clip(s: str, k: int) -> str:
+    s = str(s)
+    return s if len(s) <= k else s[:k] + f"…（截 {len(s) - k} 字）"
+
+
+def _smells_lines(root: Path, cfg: Dict[str, Any], parts: Optional[Tuple[str, ...]], n: int,
+                  line_cap: int) -> Tuple[List[str], List[str], str]:
+    """smells_report → (候選列, 附註列, 來源字樣)。parts=None＝全專案不濾部位。過期（generated_at 優先、否則 mtime）附一行仍送；
+    解析失敗附一行「解析失敗」讓呼叫端退病灶段，不跟「真的沒候選」混在一起。"""
+    report = str(cfg.get("smells_report") or "").strip()
+    if not report:
+        return [], [], ""
+    rp = Path(report)
+    if not rp.is_absolute():
+        rp = root / rp
+    if not rp.is_file():
+        return [], [f"（smells_report 指到的報告不存在：{rp}）"], ""
+    rows, err, gen_ts = _smells_rows(rp)
+    notes = [f"（報告 {rp} 解析失敗：{err}）"] if err else []
+    if parts is not None:
+        rows = [r for r in rows if not r.get("part") or r["part"] in parts]
+    rows.sort(key=lambda r: -float(r["score"]) if isinstance(r.get("score"), (int, float)) else 0)
+    lines = [_clip(f"- {r['path']}｜{r.get('category') or r.get('kind') or '?'}｜"
+                   f"{(('【' + r['part'] + '】') if parts is None and r.get('part') else '')}{r.get('reason') or '（沒寫理由）'}",
+                   line_cap) for r in rows[:n]]
+    if not lines:
+        return [], notes, ""
+    try:
+        ts = gen_ts if gen_ts is not None else rp.stat().st_mtime
+        age = max(0, int((time.time() - ts) // 86400))
+    except OSError:
+        age = 0
+    max_age = int(cfg.get("smells_max_age_days") or 0)
+    if age > max_age:
+        notes.append(f"（報告已 {age} 天沒更新，超過 smells_max_age_days={max_age}；仍送，先重跑 smells_cmd 再信它）")
+    return lines, notes, f"smells 報告 {rp}"
+
+
+def _candidates_block(root: Path, rows: List[Dict[str, Any]], cfg: Dict[str, Any], max_chars: Optional[int] = None,
+                      label: Optional[str] = None) -> str:
+    """候選前 N＋根因卡＋兩問。rows＝一列（該部位）或整張表（全專案，label 給「全專案」）。
+    來源：smells_report（過期附一行仍送、壞格式附一行解析失敗）→ 沒有就退導讀卡病灶段前 N（全專案時各部位輪流取）→ 都沒有明說「無候選」。
+    字數：每列截 min(200, max_card_chars // N)；整塊截 max_chars（預設 max_card_chars），卡名與兩問一定保留。"""
+    n = int(cfg.get("candidate_top_n") or 0)
+    cap = int(max_chars if max_chars is not None else cfg.get("max_card_chars") or 6000)
+    line_cap = min(_LINE_CAP, int(cfg.get("max_card_chars") or 6000) // max(n, 1))
+    whole = label is not None
+    parts = None if whole else tuple(x for x in (rows[0]["part"], rows[0]["part_short"]) if x)
+    lines, notes, source = _smells_lines(root, cfg, parts, n, line_cap)
+    card_paths: List[Path] = []
+    per_part: List[List[str]] = []
+    for r in rows:
+        cps = _cards_for(root, r, cfg)
+        card_paths.extend(cp for cp in cps if cp not in card_paths)
+        if not lines:
+            pref = f"【{r['part_short']}】" if whole else ""
+            per_part.append([_clip(pref + d, line_cap) for d in defects_top_n(cps, n)])
+    if not lines:
+        merged: List[str] = []
+        for i in range(n):   # 各部位輪流取第 i 條，避免全被表上第一個部位佔滿
+            merged.extend(p[i] for p in per_part if i < len(p))
+        lines = merged[:n]
+        source = "導讀卡「已知病灶」段" if lines else ""
+    if not lines:
+        lines = ["候選：無（沒有可用的 smells 報告也沒有病灶段；先補導讀卡「已知病灶」段或在 overview-hub.json 設 smells_report）"]
+        source = "無"
+    head = f"[Guardian:OverviewHub] 【{label or rows[0]['part_short']}】候選前 {n}（來源：{source}）："
+    cards = _clip("、".join(f"`{cp.stem}`（{cp}）" for cp in card_paths) or "無（表上沒卡）", max(line_cap, cap // 4))
+    tail = [f"根因卡：{cards}", "先答兩問：" + "；".join(_CANDIDATE_QUESTIONS)]
+    body = "\n".join([*notes, *lines])
+    room = cap - len(head) - sum(len(t) + 1 for t in tail) - 1
+    if len(body) > room:
+        keep = max(room - 40, 0)   # 40＝截斷附註本身的長度預留，整塊仍 ≤ cap
+        body = body[:keep] + f"\n…（候選區塊超過 {cap} 字，截 {len(body) - keep} 字）"
+    return "\n".join([head, body, *tail])
+
+
+def _row_for_key(root: Path, part_short: str) -> Optional[Dict[str, Any]]:
+    mp = _map_path_of(root)
+    if mp is None:
+        return None
+    try:
+        rows = parse_map(mp.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return None
+    return next((r for r in rows if r["part_short"] == part_short), None)
+
+
+def _hit_trigger(prompt: str, triggers: Any) -> Optional[str]:
+    low = (prompt or "").lower()
+    return next((t for t in (triggers or []) if isinstance(t, str) and t and t.lower() in low), None)
+
+
+def _mapped_recs(state: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
+    """已注入的部位紀錄（排除無表 key），附 key；舊 rec 補欄。"""
+    out = []
+    for key, rec in (state.get("overview_hub") or {}).items():
+        if "(unmapped)" in key:
+            continue
+        out.append((key, _migrate_rec(rec)))
+    return out
+
+
+def _table_rows(root: Path) -> List[Dict[str, Any]]:
+    mp = _map_path_of(root)
+    if mp is None:
+        return []
+    try:
+        return parse_map(mp.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return []
+
+
+def _candidates_error_line(session_id: str, e: Exception, **kw: Any) -> str:
+    """候選產生失敗：回一行給模型（不影響閘的判定與同回合其他注入）並落 log candidates_error，traceback 進 atom-debug。"""
+    _log("candidates_error", session_id, error=f"{type(e).__name__}: {e}", **kw)
+    _atom_debug_error("overview_hub:candidates", e)
+    return f"[Guardian:OverviewHub] 候選產生失敗：{type(e).__name__}: {e}（不影響本次放行）"
+
+
+def _candidates_on_trigger(state: Dict[str, Any], session_id: str, prompt: str, config: Dict[str, Any]) -> List[str]:
+    """提示詞命中 root_cause_triggers（用該專案根合併後的 cfg 判，專案層覆蓋有效）→ 送候選，每個 key 一 session 一次
+    （state["candidates_sent"]）。已注入過部位 → 逐部位送（key＝部位 key）；本 session 還沒注入任何部位 → 用 cwd 的專案表
+    送一次「全專案候選前 N」（key＝`<root>|(all)`）。多塊一起送時總量也受 max_card_chars 限制（平分給各塊）。"""
+    sent = state.setdefault("candidates_sent", [])
+    targets: List[Tuple[str, Path, List[Dict[str, Any]], Dict[str, Any], str, Optional[str]]] = []
+    recs = _mapped_recs(state)
+    if recs:
+        for key, rec in recs:
+            if key in sent or not rec.get("root"):
+                continue
+            root = Path(rec["root"])
+            row = _row_for_key(root, key.split("|", 1)[1])
+            if row is None:
+                continue
+            cfg = _cfg(config, root)
+            word = _hit_trigger(prompt, cfg.get("root_cause_triggers"))
+            if cfg["enabled"] and word:
+                targets.append((key, root, [row], cfg, word, None))
+    else:
+        found = find_map(str((state.get("session") or {}).get("cwd") or ""))
+        if found:
+            root = found[0]
+            key = f"{_root_key(root)}|(all)"
+            cfg = _cfg(config, root)
+            word = _hit_trigger(prompt, cfg.get("root_cause_triggers"))
+            rows = _table_rows(root)
+            if key not in sent and cfg["enabled"] and word and rows:
+                targets.append((key, root, rows, cfg, word, "全專案"))
+    if not targets:
+        return []
+    total = min(int(t[3].get("max_card_chars") or 6000) for t in targets)
+    each = max(total // len(targets), 1)
+    out: List[str] = []
+    for key, root, rows, cfg, word, label in targets:
+        out.append(_candidates_block(root, rows, cfg, each, label))
+        sent.append(key)
+        _log("candidates", session_id, part=label or rows[0]["part_short"], trigger=word, via="prompt", layer=cfg.get("_layer"))
+    return out
 
 
 def _card_texts(rec: Dict[str, Any]) -> List[str]:
@@ -461,17 +772,29 @@ def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_pa
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
+    parts: List[str] = []
     for m in re.finditer(r"[A-Za-z]:[\\/][^\s`'\"<>|]+", prompt):
         hit = _lookup(m.group(0))
         if not hit:
             continue
         root, row = hit
         if _key(root, row) not in (state.get("overview_hub") or {}):
-            cfg = _cfg(config, root)
-            if not cfg["enabled"]:
+            cfg_r = _cfg(config, root)
+            if not cfg_r["enabled"]:
                 return None
-            return _inject(state, session_id, root, row, m.group(0), "prompt", transcript_path, cfg)
-    return None
+            parts.append(_inject(state, session_id, root, row, m.group(0), "prompt", transcript_path, cfg_r))
+            break
+    # A5.2：觸發詞 → 已注入部位各送一次候選前 N；A5.4：沒事做（general 意圖）→ 一 session 一行主動掃視
+    try:   # 候選炸了不得吞掉同回合已組好的導讀卡注入（UPS 外層 except 會把整段 _hub_txt 丟掉）
+        parts.extend(_candidates_on_trigger(state, session_id, prompt, config))
+    except Exception as e:  # noqa: BLE001
+        parts.append(_candidates_error_line(session_id, e, via="prompt"))
+    if (_intent_of(state) == "general" and not state.get("idle_scan_sent")
+            and _hit_trigger(prompt, cfg.get("idle_triggers"))):
+        state["idle_scan_sent"] = True
+        parts.append(IDLE_SCAN_LINE)
+        _log("idle_scan", session_id, trigger=_hit_trigger(prompt, cfg.get("idle_triggers")))
+    return "\n".join(parts) if parts else None
 
 
 _EXT_UNC_PREFIX = "\\\\?\\UNC\\"
@@ -626,6 +949,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         return (msg, msg, True)
     _migrate_rec(rec)
     rec["edits"] = int(rec.get("edits", 0)) + 1
+    candidates: Optional[str] = None
     reads = rec["reads_after"]
     dirs = sorted({top_dir(p, root) for p in reads})
     part_files = rec["part_files_read"]
@@ -684,6 +1008,18 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
          reads_after_inject=len(reads), dirs_after_inject=len(dirs), edits=rec["edits"],
          intent=rec.get("intent"), slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=deny_reason)
     if not missing:
+        # A5.3：放行的同檔第 2 次 Edit 附候選一次（被擋的不算改過；第 3 次起不送）；rec.edited_files {路徑: 放行次數}
+        ef = rec["edited_files"]
+        ef_key = _root_key(Path(file_path))   # 正斜線＋小寫：Windows 上 Game/A.cs 與 game/a.cs 是同一檔
+        ef[ef_key] = int(ef.get(ef_key, 0)) + 1
+        if ef[ef_key] == 2:
+            # 放行已判定；候選是附加輸出，炸了只附一行說明，不得把放行變成擋（外層 pre_tool_use 的 except 會當環境異常 deny）
+            try:
+                candidates = _candidates_block(root, [row], cfg)
+            except Exception as e:  # noqa: BLE001
+                candidates = _candidates_error_line(session_id, e, via="second_edit", part=row["part_short"])
+            _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
+            warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
     msg = (f"[Guardian:OverviewHub] 改【{row['part_short']}】部位的檔（{file_path}）前的證據不足，一律擋：\n"
            + "\n".join(f"- {m}" for m in missing))

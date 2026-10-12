@@ -281,11 +281,13 @@ function funnelWriteRaw(filePath, content, source, op) {
   });
 }
 
-/** Single-atom upsert via lib.atom_io.write_index → _atom_index.json. */
-function funnelWriteIndex(baseDir, slug, relPath, triggers, source) {
+/** Single-atom upsert via lib.atom_io.write_index → _atom_index.json.
+ *  depends（選填）：陣列才帶（[] 清空、非空取代）；未給＝索引沿用既有 depends（py 端 None）。 */
+function funnelWriteIndex(baseDir, slug, relPath, triggers, source, depends) {
   return spawnAtomCli("write_index", {
     base_dir: baseDir, slug, rel_path: relPath,
     triggers, source,
+    ...(Array.isArray(depends) && { depends }),
   });
 }
 

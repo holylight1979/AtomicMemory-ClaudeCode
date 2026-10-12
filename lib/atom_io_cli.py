@@ -65,11 +65,11 @@ from .hub_card import budget_limit_for, is_hub_card, route_doc_for, depends_path
 
 
 def _index_kwargs(index: dict) -> dict:
-    """write_index 的選填鍵：depends 只在 write_index 簽名已收（track-a2 接欄）時傳，否則不傳不丟錯。"""
-    import inspect
+    """write_index 的選填鍵：depends 有給（含 []）才傳；None／缺鍵不傳＝索引沿用既有 depends。
+    原型別透傳不轉 list：字串／dict 要讓 write_index（validate_depends）拒收，list("path:x") 會變逐字合法清單。"""
     out = {}
-    if index.get("depends") is not None and "depends" in inspect.signature(write_index).parameters:
-        out["depends"] = list(index["depends"])
+    if index.get("depends") is not None:
+        out["depends"] = index["depends"]
     return out
 
 
@@ -102,8 +102,8 @@ def _append_budget_check(existing: str, knowledge, file_path: str):
 
 def _depends_of(content: str):
     import re as _re
-    m = _re.search(r"^- Depends:\s*(.+)$", content or "", _re.MULTILINE)
-    return [x.strip() for x in m.group(1).split(",")] if m else []
+    m = _re.search(r"^- Depends:[ \t]*(.*)$", content or "", _re.MULTILINE)   # 不跨行：空 Depends 行不吃下一行
+    return [x.strip() for x in _re.split(r"[,，]", m.group(1)) if x.strip()] if m else []
 
 
 def _realm_check(payload: dict):

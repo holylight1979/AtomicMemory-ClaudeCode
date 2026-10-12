@@ -1,0 +1,11 @@
+{
+  "_doc": "Q3 路徑→卡召回：read 是相對專案根的路徑，expect 是該讀檔應召回的卡名（空＝零注入）。recall＝命中的期望卡／全部期望卡，誤報＝不在期望內卻被列的卡。",
+  "cases": [
+    {"name": "exact-file", "read": "src/sched/queue.py", "expect": ["排程佇列卡"]},
+    {"name": "dir-prefix", "read": "src/sched/legacy/old.py", "expect": ["舊排程卡"]},
+    {"name": "no-partial-prefix", "read": "src/sched/legacyx.py", "expect": []},
+    {"name": "unrelated", "read": "README.md", "expect": []}
+  ],
+  "authority_map": {"*.md": "_AIDocs/MAP.md"},
+  "doc_read": "docs/計畫.md"
+}

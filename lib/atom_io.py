@@ -464,6 +464,7 @@ def write_index(
     triggers: Iterable[str],
     source: str,
     scope: Optional[str] = None,
+    depends: Optional[List[str]] = None,
 ) -> WriteResult:
     """更新或追加 atom 條目到 _atom_index.json (SoT)，並回寫 _ATOM_INDEX.md mirror。
 
@@ -473,6 +474,8 @@ def write_index(
     scope：明給則用；None → **沿用索引既有條目的 scope**（replace/edit_metadata
     不得重設專案層 scope）；新條目由 path 推導（scope_from_index_path）。trigger 逐項驗長度上限
     （TRIGGER_MAX_LEN）——超長在寫入當下拒絕，不留給後續 validate_index 才爆。
+    depends：卡片 Depends 條目（`path:<檔>` 或自由文字）；None → 沿用索引既有 depends、`[]` → 清空、
+    非空 → 取代；型別不對在寫入當下拒絕（ValueError → ok=False）。
     """
     if source not in VALID_SOURCES:
         return WriteResult(ok=False, error=f"invalid source: {source}",
@@ -482,7 +485,7 @@ def write_index(
     triggers_list = list(triggers)
 
     from .atom_index_json import (
-        upsert_atom, load_atom_index_json, TRIGGER_MAX_LEN,
+        upsert_atom, load_atom_index_json, TRIGGER_MAX_LEN, validate_depends,
     )
     too_long = [t for t in triggers_list if len(t) > TRIGGER_MAX_LEN]
     if too_long:
@@ -491,6 +494,11 @@ def write_index(
             error=f"trigger too long (>{TRIGGER_MAX_LEN}): "
                   + ", ".join(repr(t) for t in too_long),
         )
+    if depends is not None:
+        try:
+            validate_depends(depends)
+        except ValueError as e:
+            return WriteResult(ok=False, audit_id=audit_id, error=f"depends invalid: {e}")
     if scope is None:
         try:
             for a in load_atom_index_json(base_dir).get("atoms", []):
@@ -515,6 +523,7 @@ def write_index(
         path=rel_path,
         triggers=triggers_list,
         scope=scope,
+        depends=depends,
     )
     index_path = base_dir / "_atom_index.json"
     _audit_log({
@@ -1161,6 +1170,7 @@ def write_atom(
         prev_provenance = provenance
         prev_depends = depends
         prev_quote = quote
+        index_depends = None   # replace：下面依最終檔頭決定（有行→該清單、無行→[] 清索引），索引跟 frontmatter 走
         if file_path.exists():
             old = file_path.read_text(encoding="utf-8-sig")
             am = re.search(r"^- Author:\s*(.+)$", old, re.MULTILINE)
@@ -1175,8 +1185,9 @@ def write_atom(
                 sm = re.search(r"^- Source:\s*(.+)$", old, re.MULTILINE)
                 prev_provenance = sm.group(1).strip() if sm else None
             if depends is None:
-                dm = re.search(r"^- Depends:\s*(.+)$", old, re.MULTILINE)
-                prev_depends = [t.strip() for t in dm.group(1).split(",") if t.strip()] if dm else None
+                # [ \t]* 不跨行：空的 `- Depends:` 行不能把下一行（Trigger／標題）吃成依賴；空行＝[]（清）
+                dm = re.search(r"^- Depends:[ \t]*(.*)$", old, re.MULTILINE)
+                prev_depends = [t.strip() for t in re.split(r"[,，]", dm.group(1)) if t.strip()] if dm else None
             if quote is None:
                 qm = re.search(r"^- Quote:\s*(.+)$", old, re.MULTILINE)
                 prev_quote = qm.group(1).strip() if qm else None
@@ -1197,6 +1208,7 @@ def write_atom(
             created_at=prev_created, today=today, supersedes=supersedes_final,
             provenance=prev_provenance, depends=prev_depends, quote=prev_quote,
         )
+        index_depends = list(prev_depends) if prev_depends else []
     else:
         return WriteResult(ok=False, audit_id=audit_id,
                            error=f"Unknown mode: {mode}")
@@ -1245,8 +1257,10 @@ def write_atom(
     index_ok: Optional[bool] = None  # append 不動索引 → None
     index_error: Optional[str] = None
     if mode in ("create", "replace"):
+        # depends 透傳：create 給什麼就登什麼（None＝不登）；replace 以最終檔頭為準（無行→[] 清掉索引殘值）
         ir = write_index(resolved["index_dir"], slug, rel_path, triggers, source,
-                         scope=scope_label if mode == "create" else None)
+                         scope=scope_label if mode == "create" else None,
+                         depends=(depends if mode == "create" else index_depends))
         index_ok, index_error = ir.ok, ir.error
 
     # ── Audit log ──

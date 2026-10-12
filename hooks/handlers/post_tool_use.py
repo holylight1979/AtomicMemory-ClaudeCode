@@ -876,9 +876,22 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             print(f"overview hub read error: {e}", file=sys.stderr)
 
+    # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
+    dep_ctx = None
+    if tool_name in ("Read", "Bash"):
+        try:
+            from wg_depends import on_read_depends as _on_read_depends
+            dep_ctx = _on_read_depends(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config)
+            if dep_ctx:
+                dirty = True   # depends_hints／authority_map_injected 要落盤
+        except Exception as e:
+            print(f"depends recall error: {e}", file=sys.stderr)
+
     advisories = list(aec_reject_msgs)
     if hub_ctx:
         advisories.append(hub_ctx)
+    if dep_ctx:
+        advisories.append(dep_ctx)
     if state:
         for key, prefix in [
             ("_path_enforcement_advisory", "[Guardian:PathEnforce]"),

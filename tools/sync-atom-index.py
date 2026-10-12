@@ -13,7 +13,9 @@ V5 改讀 `_atom_index.json`，append 走 `lib.atom_index_json.upsert_atom`。
 模式：
   (default)              dry-run，輸出 drift JSON 報告，drift 則 exit 1
   --fix                  以 _atom_index.json 內容覆蓋 atom 檔 frontmatter Trigger
-  --add-from-frontmatter 把 frontmatter 有 Trigger 但 _atom_index.json 缺的 atom 補進索引
+  --add-from-frontmatter 把 frontmatter 有 Trigger 但 _atom_index.json 缺的 atom 補進索引（連 Depends 一起）
+  --sync-depends         frontmatter 有 `- Depends:` 行的 atom，把條目寫進索引 depends（frontmatter 為真相；
+                         沒有該行的存量不碰、--check 也不對它們報漂移）
   --check                同 default，僅報 exit code（PreCommit 用，輸出最小化）
 
 範圍判定（哪些檔算 atom）：
@@ -56,6 +58,8 @@ EXCLUDED_FILE_NAMES = {"MEMORY.md", "_ATOM_INDEX.md"}
 
 TRIGGER_LINE_RE = re.compile(r"^- Trigger:\s*(.+)$", re.MULTILINE)
 SCOPE_LINE_RE = re.compile(r"^- Scope:\s*(.+)$", re.MULTILINE)
+# [ \t]* 不跨行、(.*) 收空值：空的 `- Depends:` 行＝有行但清空（[]），不能把下一行吃成依賴
+DEPENDS_LINE_RE = re.compile(r"^- Depends:[ \t]*(.*)$", re.MULTILINE)
 
 
 @dataclass
@@ -64,6 +68,7 @@ class IndexRow:
     path: str  # relative to ~/.claude
     triggers: List[str]
     scope: str = "global"
+    depends: Optional[List[str]] = None   # None＝索引條目沒有 depends 鍵
 
 
 @dataclass
@@ -73,6 +78,7 @@ class AtomFile:
     rel_path: str  # relative to ~/.claude (forward slash)
     triggers: List[str]
     scope: str
+    depends: Optional[List[str]] = None   # None＝frontmatter 沒有 Depends 行（存量）；[]／清單＝有行
 
 
 @dataclass
@@ -82,10 +88,11 @@ class DriftReport:
     trigger_drift: List[Dict] = field(default_factory=list)
     orphan_index: List[str] = field(default_factory=list)
     scope_drift: List[Dict] = field(default_factory=list)
+    depends_drift: List[Dict] = field(default_factory=list)
 
     def has_drift(self) -> bool:
         return any([self.missing_in_index, self.missing_frontmatter,
-                    self.trigger_drift, self.orphan_index, self.scope_drift])
+                    self.trigger_drift, self.orphan_index, self.scope_drift, self.depends_drift])
 
     def to_dict(self) -> Dict:
         return {
@@ -94,6 +101,7 @@ class DriftReport:
             "trigger_drift": self.trigger_drift,
             "orphan_index": self.orphan_index,
             "scope_drift": self.scope_drift,
+            "depends_drift": self.depends_drift,
             "has_drift": self.has_drift(),
         }
 
@@ -119,6 +127,36 @@ def parse_frontmatter_triggers(text: str) -> Optional[List[str]]:
 def parse_frontmatter_scope(text: str) -> str:
     m = SCOPE_LINE_RE.search(text)
     return m.group(1).strip() if m else "global"
+
+
+def parse_frontmatter_depends(text: str) -> Optional[List[str]]:
+    """`- Depends:` 行 → 條目清單（逗號／全形逗號切、strip、去空、保序去重）；沒有該行回 None（存量，不算漂移）；
+    有行但值空 → []（清空：索引殘值算漂移，--sync-depends 會把索引鍵清掉）。"""
+    m = DEPENDS_LINE_RE.search(text)
+    if not m:
+        return None
+    out: List[str] = []
+    for item in re.split(r"[,，]", m.group(1)):
+        s = item.strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def depends_drift(atom: AtomFile, row: IndexRow) -> Optional[Dict]:
+    """frontmatter 為真相：有 Depends 行而索引缺或不同 → 漂移；frontmatter 沒有行（存量）→ 不報，索引殘值由 --sync-depends 不動。
+    回漂移記錄或 None。"""
+    if atom.depends is None:
+        return None
+    index_deps = row.depends or []
+    if sorted(atom.depends) == sorted(index_deps):
+        return None
+    return {
+        "atom": row.name,
+        "path": row.path,
+        "frontmatter": atom.depends,
+        "index": index_deps,
+    }
 
 
 def scan_atom_files(memory_dir: Path, claude_root: Path) -> Dict[str, AtomFile]:
@@ -154,7 +192,8 @@ def scan_atom_files(memory_dir: Path, claude_root: Path) -> Dict[str, AtomFile]:
         slug = md.stem
         rel = str(md.relative_to(claude_root)).replace("\\", "/")
         out[rel] = AtomFile(name=slug, path=md, rel_path=rel,
-                            triggers=triggers, scope=scope)
+                            triggers=triggers, scope=scope,
+                            depends=parse_frontmatter_depends(text))
     return out
 
 
@@ -163,11 +202,13 @@ def load_index_rows(memory_dir: Path) -> List[IndexRow]:
     data = load_atom_index_json(memory_dir)
     rows: List[IndexRow] = []
     for a in data.get("atoms", []):
+        deps = a.get("depends")
         rows.append(IndexRow(
             name=a.get("name", ""),
             path=a.get("path", "").replace("\\", "/"),
             triggers=dedup_triggers(a.get("triggers", [])),
             scope=a.get("scope", "global"),
+            depends=[d for d in deps if isinstance(d, str)] if isinstance(deps, list) else None,
         ))
     return rows
 
@@ -211,8 +252,27 @@ def detect_drift(atoms_by_path: Dict[str, AtomFile],
                 "frontmatter": atom.scope,
                 "index": row.scope,
             })
+        dd = depends_drift(atom, row)
+        if dd:
+            rep.depends_drift.append(dd)
 
     return rep
+
+
+def sync_depends_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
+                                  index_rows: List[IndexRow],
+                                  memory_dir: Path) -> List[str]:
+    """--sync-depends：frontmatter 有 Depends 行的 atom，把清單寫進索引 depends（走 upsert_atom，[] 也會清空索引殘值）；
+    沒有行的存量不碰。回改到的 atom 名。"""
+    changed: List[str] = []
+    for row in index_rows:
+        atom = atoms_by_path.get(row.path)
+        if atom is None or depends_drift(atom, row) is None:
+            continue
+        upsert_atom(memory_dir, name=row.name, path=row.path, triggers=row.triggers,
+                    scope=row.scope, depends=list(atom.depends or []))
+        changed.append(row.name)
+    return changed
 
 
 def fix_frontmatter_from_index(atoms_by_path: Dict[str, AtomFile],
@@ -249,6 +309,7 @@ def add_to_index_from_frontmatter(atoms_by_path: Dict[str, AtomFile],
             path=rel_path,
             triggers=atom.triggers,
             scope=atom.scope,
+            depends=atom.depends,   # None＝frontmatter 無行＝不登；有行就連 depends 一起進索引
         )
         if ok:
             added.append(atom.name)
@@ -314,6 +375,8 @@ def main() -> int:
                         help="append atoms with frontmatter Trigger but missing from _atom_index.json")
     parser.add_argument("--fix-scope-from-path", action="store_true",
                         help="rewrite index scope from path (personal/roles/layer), drop dangling entries, align .md Scope header")
+    parser.add_argument("--sync-depends", action="store_true",
+                        help="write frontmatter Depends into _atom_index.json depends (frontmatter is truth; atoms without a Depends line untouched)")
     parser.add_argument("--check", action="store_true",
                         help="quiet drift check (exit 1 if drift, for PreCommit)")
     parser.add_argument("--memory-dir", type=Path, default=MEMORY_DIR)
@@ -379,6 +442,12 @@ def _run_one(memory_dir: Path, args, *, quiet: bool = False,
         if changed:
             actions_taken.append(f"frontmatter rewritten: {changed}")
             atoms_by_path = scan_atom_files(memory_dir, claude_root)
+
+    if getattr(args, "sync_depends", False):
+        changed = sync_depends_from_frontmatter(atoms_by_path, index_rows, memory_dir)
+        if changed:
+            actions_taken.append(f"index depends synced from frontmatter: {changed}")
+            index_rows = load_index_rows(memory_dir)
 
     rep = detect_drift(atoms_by_path, index_rows, claude_root)
 

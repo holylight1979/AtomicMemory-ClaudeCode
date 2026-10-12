@@ -1153,6 +1153,43 @@ def test_33_replace_preserves_source_and_depends(isolated_claude):
 # ─── 34. Quote parity（py↔js buildAtomContent：quote 緊接 Source 之後、Confidence 之前） ───
 
 
+def test_33b_depends_passthrough_to_index(isolated_claude):
+    """A3.2：write_atom／write_index 的 depends 透傳索引：create 登、replace 未給沿用檔頭、給 [] 清、型別錯拒（ok=False、索引不動）。"""
+    from lib.atom_index_json import load_atom_index_json
+    mem = isolated_claude["memory"]
+    common = dict(scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+                  knowledge=["k"], source="test", skip_gate=True, today=FIXED_TODAY)
+
+    def _entry():
+        return next(a for a in load_atom_index_json(mem)["atoms"] if a["name"] == "dep-atom")
+
+    r = write_atom(title="Dep Atom", domain="設計通則", mode="create", depends=["path:tools/x.py", "decision:z"], **common)
+    assert r.ok and r.extra["index_ok"] is True, r.error
+    assert _entry()["depends"] == ["path:tools/x.py", "decision:z"]
+    # replace 未給 depends → 檔頭保留 → 索引沿用
+    r = write_atom(title="Dep Atom", mode="replace", knowledge=["k2"], **{k: v for k, v in common.items() if k != "knowledge"})
+    assert r.ok, r.error
+    assert _entry()["depends"] == ["path:tools/x.py", "decision:z"]
+    # replace 給新清單 → 索引取代
+    r = write_atom(title="Dep Atom", mode="replace", depends=["path:tools/y.py"], **common)
+    assert r.ok and _entry()["depends"] == ["path:tools/y.py"]
+    # replace 給 [] → 檔頭清、索引清
+    r = write_atom(title="Dep Atom", mode="replace", depends=[], **common)
+    assert r.ok and "depends" not in _entry() and "Depends" not in r.path.read_text(encoding="utf-8")
+    # write_index 直呼：型別錯 → ok=False、索引不動；None → 不動既有
+    from lib.atom_io import write_index
+    write_index(mem, "dep-atom", _entry()["path"], ["a"], "test", depends=["path:tools/q.py"])
+    bad = write_index(mem, "dep-atom", _entry()["path"], ["a"], "test", depends="path:tools/q.py")  # type: ignore[arg-type]
+    assert not bad.ok and "depends invalid" in (bad.error or "")
+    assert _entry()["depends"] == ["path:tools/q.py"]
+    assert write_index(mem, "dep-atom", _entry()["path"], ["a", "b"], "test").ok and _entry()["depends"] == ["path:tools/q.py"]
+    # 檔頭被手改成空的 `- Depends:` 行（下一行是 Related）→ replace 未給 depends 視為清空，不把 Related 行吃成依賴
+    p = r.path
+    p.write_text(p.read_text(encoding="utf-8").replace("- Created-at:", "- Depends:\n- Related: rr\n- Created-at:"), encoding="utf-8")
+    r = write_atom(title="Dep Atom", mode="replace", **common)
+    assert r.ok and "depends" not in _entry() and "Depends" not in r.path.read_text(encoding="utf-8")
+
+
 def test_34_quote_py_js_byte_parity(tmp_path):
     """quote → `- Quote:` 位於 Source 之後、Confidence 之前；無 Source 時位於 Author 之後；py↔js byte-identical。"""
     q = "「上GIT 是 commit 加 push 一體」"
