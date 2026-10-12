@@ -1278,7 +1278,9 @@ def test_c2_closure_over_an_outer_parameter_is_not_certain(tmp_path):
                         "def outer(work):\n    def inner():\n        work()\n    inner()\n")}
     g = rp.build_graph(_write(tmp_path, files))
     edges = g.edges["app.py::outer.inner"]
-    assert edges and not any(_sure(e) for e in edges), "inner 呼叫的是 outer 的參數，不是模組層的 work"
+    assert not any(_sure(e) for e in edges), "inner 呼叫的是 outer 的參數，不是模組層的 work"
+    assert "app.py::work" not in [e.dst for e in edges], "外層參數沒有來源（outer 沒有呼叫者）：不拿同名的模組函式補邊"
+    assert g.unres["app.py::outer.inner"] == 1, "沒有來源就記未解"
 
 
 WORKER = "class Worker:\n    def run(self):\n        x = 1\n        y = x + 1\n        return y\n"
@@ -1929,6 +1931,39 @@ def test_p4_a_rebound_receiver_loses_its_declared_type(tmp_path, form):
     app = WORKER + "\n\nclass Other:\n    def run(self):\n        return 3\n\n\n" + body
     assert (wrong, True) not in _sure_edges({"app.py": app}, fid, tmp_path / "a"), f"{form}：接收者已被改指"
     assert all(r is None for d, r in _edge_rules({"app.py": app}, fid, tmp_path / "b") if d == wrong)
+
+
+CLOSURE_PARAM = TWO_FUNCS + "def outer(work):\n    def inner():\n        return work()\n\n    return inner()\n"
+
+
+def test_closure_over_an_outer_parameter_follows_what_the_outer_callers_pass(tmp_path):
+    """閉包疑點（有來源）：inner 呼叫 outer 的參數 work；outer 的呼叫者傳 other → 沿來源列候選 other，不連同名的模組 work。"""
+    g = rp.build_graph(_write(tmp_path, {"app.py": CLOSURE_PARAM + "\n\ndef main():\n    outer(other)\n"}))
+    assert [(e.dst, _sure(e)) for e in g.edges["app.py::outer.inner"]] == [("app.py::other", False)], \
+        "沿外層的呼叫者列候選；閉包不給條號"
+    assert g.unres["app.py::outer.inner"] == 0
+
+
+def test_closure_over_an_outer_parameter_without_a_source_is_unresolved(tmp_path):
+    """閉包疑點（沒來源）：outer 沒有呼叫者、參數也沒預設值 → 記未解，不用同名的模組函式 work 補邊。"""
+    g = rp.build_graph(_write(tmp_path, {"app.py": CLOSURE_PARAM}))
+    assert "app.py::work" not in [e.dst for e in g.edges.get("app.py::outer.inner", [])], "同名不是來源證據"
+    assert g.unres["app.py::outer.inner"] == 1
+
+
+@pytest.mark.parametrize("assign", ["    work = other\n", "    work = pick()\n"])
+def test_closure_over_an_outer_local_follows_its_assignment_or_is_unresolved(tmp_path, assign):
+    """外層區域變數（閉包）同一套：outer 裡 work = other → 沿外層的指定列候選 other；work = pick()（算出來的）→ 記未解；
+    兩種都不連同名的模組 work。"""
+    app = TWO_FUNCS + "def pick():\n    return other\n\n\ndef outer():\n" + assign + \
+        "\n    def inner():\n        return work()\n\n    return inner()\n"
+    g = rp.build_graph(_write(tmp_path, {"app.py": app}))
+    edges = [(e.dst, _sure(e)) for e in g.edges.get("app.py::outer.inner", [])]
+    assert ("app.py::work", False) not in edges, "同名的模組 work 不是外層區域變數的來源"
+    if "other" in assign:
+        assert edges == [("app.py::other", False)]
+    else:
+        assert edges == [] and g.unres["app.py::outer.inner"] == 1
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────

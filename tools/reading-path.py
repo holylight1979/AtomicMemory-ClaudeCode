@@ -124,6 +124,8 @@ LIMITS = WHITELIST + """
   - 沒有任何確定路徑的入口標「無法評級」，不以 0 彎、順呈現
   - 區域變數被指定超過一次：不追別名、不算確定型別、不算同一實例（寧可算未解或候選）
   - callback 與函式別名只追一層傳遞：函式被當參數再往下轉傳一次就斷；工廠函式回傳的閉包看不到（計入未解）
+  - 閉包呼叫外層函式的參數或區域變數：沿外層的呼叫者傳了什麼、或它在外層指定成什麼列候選；沒有來源就記未解，
+    不拿同名的模組層函式補邊
   - 「只轉傳」靠句數判定（換區域變數名不算句）：塞進無關計算就會被當成有內容
   - 同檔多層有實質內容的呼叫：深度高但不算彎（刻度只看拐彎）
   - Python：裝飾器包裝、@property、模組頂層（__main__ 以外）程式碼不追；monkeypatch 不追換成什麼，
@@ -724,7 +726,8 @@ class Graph:
 
     def _defer(self, src: lang.Func, bind: tuple, defer: bool, flag: str = "") -> list:
         """callback 等所有呼叫者都連好再解：記下 (呼叫的函式, 綁定的函式, 參數名, 旗標)。
-        旗標：reassigned＝參數在函式裡被重新指定；stored＝經由欄位存下的 callback（欄位可能被換）；空＝直接呼叫參數。"""
+        旗標：reassigned＝參數在函式裡被重新指定；stored＝經由欄位存下的 callback（欄位可能被換）；
+        scoped＝呼叫點在 lambda／生成器／推導式裡；closure＝巢狀函式呼叫外層函式的參數；空＝直接呼叫參數。"""
         if defer:
             self.pending.append((src.id, *bind, flag))
         return []
@@ -778,9 +781,11 @@ class Graph:
             return self._r_local(f, c, defer)      # 自己指定的（含 nonlocal 改寫外層的）：看自己指定了什麼
         if owner is f and c.name in f.reassigned:
             return []                              # 自己這一層綁了兩次（巢狀 def 寫兩次）：看不到是哪個
-        if kind in ("param", "local"):             # 外層函式的參數或區域變數（閉包）：裝的東西看不到
-            reason = f"候選：{c.name} 是外層函式 {owner.qual} 的參數或區域變數，這只是同名的模組層名字"
-            return [Edge(e.dst, e.kind, guess=reason) for e in self._py_name(f.file, c.name)]
+        if kind == "param":                        # 外層函式的參數（閉包）：沿外層的呼叫者傳了什麼列候選，沒有來源就記未解
+            return self._defer(f, (owner.id, c.name), defer, "closure")
+        if kind == "local":                        # 外層函式的區域變數（閉包）：沿它在外層的指定（函式別名、分派表）列候選
+            reason = f"候選：{c.name} 是外層函式 {owner.qual} 的區域變數（閉包），沿它在外層的指定列出，呼叫時可能已被改指"
+            return [Edge(e.dst, e.kind, guess=e.guess or reason) for e in self._r_local(owner, c, False)]
         return self._binding_edges(f, c.name, binding)
 
     def _r_local(self, f, c, defer):
@@ -1414,6 +1419,8 @@ class Graph:
             return f"候選：有呼叫處傳進看不到的函式給 {param}，這只是看得到的那些"
         if flag == "scoped":
             return f"候選：呼叫 {param} 的地方在 lambda／生成器／推導式裡，模型沒建那一層的綁定"
+        if flag == "closure":
+            return f"候選：{param} 是外層函式的參數（閉包），這些是外層的呼叫者傳進來的"
         if flag == "stored":
             return f"候選：經由欄位存下的 callback（建構時傳進 {param}），欄位可能被換"
         if flag == "reassigned":
