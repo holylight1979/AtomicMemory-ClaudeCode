@@ -1538,6 +1538,39 @@ def test_r2_csharp_constructed_local_passed_as_an_argument_loses_rule_2(tmp_path
     assert [r for d, r in _edge_rules(calls, "Program.cs::Program.Main", tmp_path / "b") if d.endswith("Worker.Run")] == [2]
 
 
+R3_EXTERNAL = {
+    "pathlib_from": ("Path", "resolve", "from pathlib import Path\n\n\ndef main(p: Path):\n    p.resolve()\n"),
+    "pathlib_module": ("Path", "resolve", "import pathlib\n\n\ndef main(p: pathlib.Path):\n    p.resolve()\n"),
+    "typing": ("Mapping", "lookup", "from typing import Mapping\n\n\ndef main(m: Mapping):\n    m.lookup()\n"),
+    "third_party": ("Session", "mount", "from requests import Session\n\n\ndef main(s: Session):\n    s.mount()\n"),
+    "third_party_ctor": ("Session", "mount", "from requests import Session\n\n\ndef main():\n    s = Session()\n    s.mount()\n"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(R3_EXTERNAL))
+def test_r3_a_type_bound_outside_the_project_never_links_to_a_same_name_project_class(tmp_path, case):
+    """案 3 一整類：標註、建構者沿綁定鏈指到專案外（標準庫、typing、第三方）→ 外部；不連到同名的專案類別，連候選都不連。"""
+    cls, method, app = R3_EXTERNAL[case]
+    files = {"other.py": f"class {cls}:\n    def {method}(self):\n        x = 1\n        return x + 1\n", "app.py": app}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert f"other.py::{cls}.{method}" not in [e.dst for e in g.edges["app.py::main"]], f"{case}：連到了同名的專案類別"
+    assert g.unres["app.py::main"] == 0, "型別確知在專案外：不是看不到的呼叫"
+
+
+def test_r3_reexport_through_the_binding_chain_stays_rule_3_despite_a_same_name_decoy(tmp_path):
+    files = {"worker.py": WORKER, "other.py": WORKER, "pkg.py": "from worker import Worker\n",
+             "app.py": "from pkg import Worker\n\n\ndef main(w: Worker):\n    w.run()\n"}
+    assert _sure_edges(files, "app.py::main", tmp_path / "a") == [("worker.py::Worker.run", True)], \
+        "沿 import 鏈＋re-export 解析到 worker.Worker，不是同名的 other.Worker"
+    assert _edge_rules(files, "app.py::main", tmp_path / "b") == [("worker.py::Worker.run", 3)]
+
+
+def test_r3_a_same_name_class_found_only_by_project_wide_search_is_a_candidate(tmp_path):
+    files = {"other.py": WORKER, "app.py": "def main(w: Worker):\n    w.run()\n"}
+    assert _sure_edges(files, "app.py::main", tmp_path) == [("other.py::Worker.run", False)], \
+        "Worker 沒有匯入：退回全專案同名搜尋只能給候選"
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

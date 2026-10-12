@@ -55,6 +55,7 @@ PY_BUILTINS = set(dir(builtins))
 # 接收者型別不明時不拿來猜的方法名：內建型別本來就有的（d.get、s.strip…）與 .NET 常見方法
 PY_BUILTIN_TYPES = (dict, list, str, set, bytes, tuple, int, float, io.TextIOWrapper, Path, re.Pattern, re.Match)
 PY_BUILTIN_METHODS = set(itertools.chain.from_iterable(dir(t) for t in PY_BUILTIN_TYPES))
+UNTYPED_ANNOTATIONS = {"Any", "object"}   # 標了等於沒標型別：照沒標註往下判，不當成「指到專案外的型別」
 flat = itertools.chain.from_iterable
 CS_COMMON_METHODS = {"Add", "AddRange", "Remove", "RemoveAt", "Contains", "ContainsKey", "TryGetValue", "Clear",
                      "ToString", "Equals", "GetHashCode", "Dispose", "Insert", "IndexOf", "Any", "All", "Where",
@@ -90,6 +91,9 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
      （照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）
   4. 簡單區域別名：同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式
   5. callback：有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、參數沒被重新指定
+  類別證據（1、2、3 條的建構者、標註、欄位型別、類別.方法 的類別）只認沿綁定鏈（本檔定義、import 鏈、re-export、
+  模組.類別）解析到專案內的類別：全專案同名搜尋只給候選；綁定鏈指到專案外（標準庫、typing、第三方）就是外部，
+  連候選都不連到同名的專案類別（父類也照這個找）
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
 
 NOT_WHITELISTED = "候選：不在確定白名單（名字綁定、型別來源或唯一目標證明不了）"
@@ -358,37 +362,86 @@ class Graph:
     def cls_of(self, f: lang.Func):
         return self.cls_named(f.cls, f.file) if f.cls else None
 
-    def class_ref(self, f: lang.Func, name: str):
-        """f 裡寫成 name 的類別（建構者、型別標註）：本檔的類別優先；Python 再沿 import 別名與 re-export 追到原類別
-        （from worker import Worker as W → worker.Worker）；都沒有才退回全專案同名的類別。"""
-        if "." in name and f.lang == "py":            # worker.Worker：模組.類別
+    def class_lookup(self, f: lang.Func, name: str) -> tuple:
+        """f 裡寫成 name 的類別（建構者、型別標註、欄位型別、類別.方法 的類別）沿綁定鏈解析 → (類別或 None, 來源)。
+        來源：project＝沿本檔定義、import 鏈、re-export、模組.類別 解析到專案內的類別；external＝綁定鏈指到專案外
+        （標準庫、第三方：import 的模組不在專案內）；unknown＝綁定鏈解不出（參數、區域變數、沒匯入的名字、不是類別）。
+        C# 沒有 import 鏈（不用 Roslyn，namespace 也不分）：本檔或全專案同名的類別就算 project。"""
+        if f.lang != "py":
+            cls = next((c for c in self.classes.get(name, []) if f.file in c.files), None) or self.cls_named(name, f.file)
+            return cls, "project" if cls else "unknown"
+        if "." in name:                            # worker.Worker：模組.類別
             prefix, _, last = name.rpartition(".")
-            target = self.module_alias(f, prefix) if not self._shadowed(f, prefix.partition(".")[0]) else None
-            mod = self.modules.get(target) if target else None
-            local = next((c for c in self.classes.get(last, []) if target in c.files), None) if target else None
-            return local or (self._class_in_import(target, mod.imports, last, 1) if mod else None)
-        local = next((c for c in self.classes.get(name, []) if f.file in c.files), None)
-        if local or f.lang != "py":
-            return local or self.cls_named(name, f.file)
-        return self._class_in_import(f.file, self.imports_for(f, name), name, 0) or self.cls_named(name, f.file)
+            if self._shadowed(f, prefix.partition(".")[0]):
+                return None, "unknown"
+            target = self.module_alias(f, prefix)
+            if target:
+                return self._class_at(target, last, 1)
+            return None, "external" if self._external_import(f, prefix) else "unknown"
+        kind, owner = self.lookup_binding(f, name)
+        if kind == "import":
+            return self._class_via_import(f.file, owner.imports, name, 0)
+        return self._class_at(f.file, name, 0) if kind == "module" else (None, "unknown")
 
-    def _stable_ctor(self, f: lang.Func, ctor: str) -> bool:
-        """建構者名稱穩定：Foo → stable(Foo)；worker.Foo → 模組名穩定、模組裡的 Foo 也穩定。"""
-        if "." not in ctor or f.lang != "py":
-            return self.stable(f, ctor)
-        prefix, _, last = ctor.rpartition(".")
+    def _class_at(self, file: str, name: str, hops: int) -> tuple:
+        """模組 file 的模組層名字 name 是哪個類別：本檔定義的，或沿 from 匯入追 re-export。"""
+        mod = self.modules.get(file)
+        if mod is None or hops > MAX_REEXPORT:
+            return None, "unknown"
+        local = next((c for c in self.classes.get(name, []) if file in c.files), None)
+        if local:
+            return local, "project"
+        return self._class_via_import(file, mod.imports, name, hops) if name in mod.imports else (None, "unknown")
+
+    def _class_via_import(self, file: str, imports: dict, name: str, hops: int) -> tuple:
+        modname, level, orig = imports.get(name, ("", 0, ""))
+        if not orig:
+            return None, "unknown"                 # import x：名字是模組，不是類別
+        src = self.find_module(modname, level, file)
+        if src is None:
+            return None, "external" if self._outside(modname, level) else "unknown"
+        return self._class_at(src, orig, hops + 1) if src != file else (None, "unknown")
+
+    def _outside(self, modname: str, level: int) -> bool:
+        """import 的模組確知不在專案內（絕對 import、專案裡沒有這個模組名）；同名模組多個、相對 import 解不到 → 不算確知。"""
+        return level == 0 and not self.mod_index.get(modname)
+
+    def _external_import(self, f: lang.Func, dotted: str) -> bool:
+        """dotted（pathlib、os.path、typing）開頭的名字綁定到專案外模組的 import。"""
+        imports = self.imports_for(f, dotted.partition(".")[0])
+        key = dotted if dotted in imports else dotted.partition(".")[0]
+        return key in imports and self._outside(imports[key][0], imports[key][1])
+
+    def _type_external(self, f: lang.Func, name: str) -> bool:
+        """型別寫法沿綁定鏈指到專案外（pathlib.Path、typing.Mapping、第三方）：不連到同名的專案類別。
+        typing.Any 這種「沒有型別」的標註不算，照沒標註往下判。"""
+        return name.rpartition(".")[2] not in UNTYPED_ANNOTATIONS and self.class_lookup(f, name)[1] == "external"
+
+    def class_ref(self, f: lang.Func, name: str):
+        """找目標用的類別：沿綁定鏈（class_lookup）；綁定鏈指到專案外 → None（不連到同名的專案類別）；
+        Python 裸名的綁定鏈解不出來，才退回全專案同名的類別——那只是候選，確定要用 class_proof。"""
+        cls, src = self.class_lookup(f, name)
+        if cls or src == "external" or "." in name or f.lang != "py":
+            return cls
+        return self.cls_named(name, f.file)
+
+    def class_proof(self, f: lang.Func, name: str):
+        """確定白名單用的類別證據：沿綁定鏈解析到專案內的類別，而且沿途的名字都綁定穩定
+        （Foo → stable(Foo)；worker.Foo → 模組名穩定、模組裡的 Foo 也穩定）；全專案同名搜尋、外部、不穩定 → None。"""
+        cls, src = self.class_lookup(f, name)
+        if src != "project":
+            return None
+        if "." not in name or f.lang != "py":
+            return cls if self.stable(f, name) else None
+        prefix, _, last = name.rpartition(".")
         target = self.module_alias(f, prefix)
-        return bool(target) and self.stable(f, prefix.partition(".")[0]) and self._stable_in(target, last, 0)
+        return cls if self.stable(f, prefix.partition(".")[0]) and self._stable_in(target, last, 0) else None
 
-    def _class_in_import(self, file: str, imports: dict, name: str, hops: int):
-        if hops > MAX_REEXPORT or name not in imports:
-            return None
-        src, orig = self._imported_from(file, imports, name)
-        mod = self.modules.get(src) if src else None
-        if mod is None:
-            return None
-        local = next((c for c in self.classes.get(orig, []) if src in c.files), None)
-        return local or self._class_in_import(src, mod.imports, orig, hops + 1)
+    def base_of(self, c, base: str):
+        """類別 c 的父類 base：Python 在 c 所在的檔沿綁定鏈解析（import 自外部的父類不連到同名的專案類別）；C# 照名字找。"""
+        if c.lang == "py":
+            return self.class_ref(self.module_ctx(c.files[0]), base)
+        return self.cls_named(base, c.files[0])
 
     def ancestry(self, cls):
         """cls 自己與所有祖先（廣度優先，同一類只走一次）。"""
@@ -399,7 +452,7 @@ class Graph:
                 continue
             seen.add(id(c))
             yield c
-            queue.extend(self.cls_named(b, c.files[0]) for b in c.bases)
+            queue.extend(self.base_of(c, b) for b in c.bases)
 
     def descendants(self, cls):
         seen, queue, out = {id(cls)}, list(self.children.get(cls.name, [])), []
@@ -421,15 +474,24 @@ class Graph:
         if cls is None:
             return True
         for c in self.ancestry(cls):
-            if any(self.cls_named(b, c.files[0]) is None for b in c.bases):
+            if any(self.base_of(c, b) is None for b in c.bases):
                 return True
         return False
 
-    def field_type(self, cls, attr: str, declared_only: bool = False):
-        """欄位的型別（沿繼承鏈找）；declared_only 時只認宣告的型別（白名單 3），不認 self.x = Foo() 推導的。"""
-        table = "declared_fields" if declared_only else "fields"
+    def _field_decl(self, cls, attr: str, table: str = "fields"):
+        """欄位寫的型別（沿繼承鏈找）→ (欄位所在檔的模組語境, 型別寫法) 或 None；table＝declared_fields 時只認宣告的。"""
         owner = next((c for c in self.ancestry(cls) if attr in getattr(c, table)), None)
-        return self.class_ref(self.module_ctx(owner.files[0]), getattr(owner, table)[attr]) if owner else None
+        return (self.module_ctx(owner.files[0]), getattr(owner, table)[attr]) if owner else None
+
+    def field_type(self, cls, attr: str):
+        """找目標用：欄位的型別（宣告的與 self.x = Foo() 推導的都算；類別照 class_ref）。"""
+        decl = self._field_decl(cls, attr)
+        return self.class_ref(*decl) if decl else None
+
+    def declared_field(self, cls, attr: str):
+        """白名單 3 用：只認宣告的欄位型別，而且型別沿綁定鏈解析到專案內的類別（class_proof）。"""
+        decl = self._field_decl(cls, attr, "declared_fields")
+        return self.class_proof(*decl) if decl else None
 
     def stored_param(self, cls, attr: str):
         return next((c.stored[attr] for c in self.ancestry(cls) if attr in c.stored), None)
@@ -665,7 +727,7 @@ class Graph:
     def _r_super(self, f, c, defer):
         """super()／base.：直接連父類的實作，不展開子類覆寫（那正是呼叫者自己）。"""
         cls = self.cls_of(f)
-        bases = [self.cls_named(b, f.file) for b in (cls.bases if cls else [])]
+        bases = [self.base_of(cls, b) for b in (cls.bases if cls else [])]
         ids = next((hits for b in bases if b and (hits := self.lookup(b, c.name))), [])
         return self._overloads(ids)
 
@@ -797,8 +859,11 @@ class Graph:
         return [Edge(cands[0], "direct", guess=reason, via="object")] if len(cands) == 1 else []
 
     def recv_type(self, f: lang.Func, recv: str):
-        """接收者是什麼 → (種類, 對象, 實際型別確定否)：module＋檔｜object／static＋類別｜external｜("", None) 不明。"""
+        """接收者是什麼 → (種類, 對象, 實際型別確定否)：module＋檔｜object／static＋類別｜external｜("", None) 不明。
+        建構者、標註、欄位型別沿綁定鏈指到專案外 → external（不連到同名的專案類別）。"""
         if recv.startswith("new:"):
+            if self._type_external(f, recv[4:]):
+                return "external", None, False
             return "object", self.class_ref(f, recv[4:]), True
         if recv.startswith("mod:"):
             target = self.find_module(recv[4:], 0, f.file)
@@ -809,7 +874,10 @@ class Graph:
             return "module", whole, False
         kind, cls = self._recv_head(f, head)
         for seg in rest:
-            cls = self.field_type(cls, seg) if cls else None
+            decl = self._field_decl(cls, seg) if cls else None
+            if decl and self._type_external(*decl):
+                return "external", None, False
+            cls = self.class_ref(*decl) if decl else None
         constructed = head in f.constructed and head not in f.reassigned and head not in f.escaped
         exact = (kind == "static" or constructed) and not rest
         return (kind, cls, exact) if cls or kind == "external" else ("", None, False)
@@ -826,8 +894,10 @@ class Graph:
             return "object", self.cls_of(f)
         changed = head in f.constructed and head in f.reassigned      # x = Base() 之後又 x = Child()：型別不定
         typed = None if changed else f.local_types.get(head) or f.param_types.get(head)
+        if typed and self._type_external(f, typed):
+            return "external", None                     # 標註或建構者指到專案外（pathlib.Path、typing 型別、第三方）
         typed_cls = self.class_ref(f, typed) if typed else None
-        if typed_cls:                                   # 解不到類別（外部型別、工廠函式）就照沒型別往下判
+        if typed_cls:                                   # 解不到類別（工廠函式、沒匯入的名字）就照沒型別往下判
             return "object", typed_cls
         own = self.cls_of(f)
         if f.lang == "cs" and own and self.field_type(own, head):
@@ -936,13 +1006,14 @@ class Graph:
         return bool(cls) and e.dst in self.lookup(cls, c.name)
 
     def _static_class(self, f: lang.Func, recv: str):
-        """類別.方法 的類別：接收者只有一段、就是類別名、而且不是同名的參數、區域變數或欄位，名字也穩定。"""
+        """類別.方法 的類別：接收者只有一段、就是類別名、而且不是同名的參數、區域變數或欄位；
+        類別沿綁定鏈解析到專案內、名字也穩定（class_proof）。"""
         if "." in recv or recv in f.params or recv in f.locals or recv in f.local_types:
             return None
         own = self.cls_of(f) if f.lang == "cs" else None
         if own and self.field_type(own, recv):
             return None
-        return self.class_ref(f, recv) if self.stable(f, recv) else None
+        return self.class_proof(f, recv)
 
     def _own_method(self, f: lang.Func, name: str, e: Edge) -> bool:
         return bool(f.cls) and e.dst in self.lookup(self.cls_of(f), name)
@@ -950,7 +1021,7 @@ class Graph:
     def _rule2(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 2：對剛 new 出來的物件呼叫方法（確定型別分派）——當場 new 的 Foo().run()，或同一函式內的區域變數
         建構之後每一次出現都只是方法呼叫的接收者（f.receiver_only 的正向證明，不是列舉「存走」的寫法）；
-        建構者的名字也要綁定穩定。"""
+        建構者沿綁定鏈解析到專案內的類別、名字也綁定穩定（class_proof）。"""
         if c.kind not in ("attr", "prop") or "." in c.recv:
             return False
         if c.recv.startswith("new:"):
@@ -959,9 +1030,8 @@ class Graph:
             ctor = f.constructed[c.recv]
         else:
             return False
-        cls = self.class_ref(f, ctor) if ctor else None
-        return (bool(cls) and self._stable_ctor(f, ctor) and e.dst in self.lookup(cls, c.name)
-                and not self._method_replaced(f, c, cls))
+        cls = self.class_proof(f, ctor) if ctor else None
+        return bool(cls) and e.dst in self.lookup(cls, c.name) and not self._method_replaced(f, c, cls)
 
     def _method_replaced(self, f: lang.Func, c: lang.Call, cls) -> bool:
         """方法可能被屬性蓋掉：接收者在這個函式裡被寫過同名屬性（w.run = f），或這個類別／祖先／子孫
@@ -993,20 +1063,21 @@ class Graph:
 
     def _declared_type(self, f: lang.Func, recv: str):
         """接收者的型別來自宣告：參數標註、區域變數標註（C# 寫明型別的宣告）、欄位宣告型別；沿 a.b.c 每一段都要是宣告的。
-        建構推導的型別（x = Foo()、self.x = Foo()）不算——那是第 2 條的證據，失去第 2 條資格就不能改走這條。"""
+        建構推導的型別（x = Foo()、self.x = Foo()）不算——那是第 2 條的證據，失去第 2 條資格就不能改走這條。
+        宣告的型別也要沿綁定鏈解析到專案內的類別（class_proof）：全專案同名搜尋、指到外部的都不算。"""
         head, *rest = recv.split(".")
         if head in ("self", "this"):
             cls = self.cls_of(f) if rest else None
         elif head in f.param_types and head not in f.reassigned:
-            cls = self.class_ref(f, f.param_types[head])
+            cls = self.class_proof(f, f.param_types[head])
         elif head in f.declared and head not in f.reassigned:
-            cls = self.class_ref(f, f.declared[head])
+            cls = self.class_proof(f, f.declared[head])
         elif f.lang == "cs" and head not in f.locals and head not in f.params and f.cls:
-            cls = self.field_type(self.cls_of(f), head, declared_only=True)
+            cls = self.declared_field(self.cls_of(f), head)
         else:
             cls = None
         for seg in rest:
-            cls = self.field_type(cls, seg, declared_only=True) if cls else None
+            cls = self.declared_field(cls, seg) if cls else None
         return cls
 
     def _rule4(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:

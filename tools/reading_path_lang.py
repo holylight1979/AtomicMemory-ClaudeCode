@@ -324,21 +324,23 @@ def _py_noise_stmt(stmt: ast.stmt) -> bool:
 
 
 def _py_ann(ann) -> str:
-    """型別標註取類別名：Repo、mod.Repo、Optional[Repo]、Repo | None、"Repo"；容器（list[Repo]）回容器名，不是 Repo；
+    """型別標註取類別的寫法：Repo、mod.Repo（保留模組前綴，reading-path 才能沿綁定鏈分出 pathlib.Path 與專案的 Path）、
+    Optional[Repo]、Repo | None、"Repo"（字串只取最後一段）；容器（list[Repo]）回容器名，不是 Repo；
     聯集有兩個以上非 None 成員（Disk | Cloud）→ 空字串（型別不定，不挑一個）。"""
     if isinstance(ann, ast.BinOp):
         members = [m for m in (ann.left, ann.right) if not _py_is_none(m)]
         return _py_ann(members[0]) if len(members) == 1 else ""
     if isinstance(ann, ast.Subscript):
-        head = _py_recv(ann.value).split(".")[-1]
+        head = _py_recv(ann.value)
         elts = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
-        members = [e for e in elts if not _py_is_none(e)] if head == "Union" else elts[:1]
-        if head not in ("Optional", "Union", "Annotated", "Final", "ClassVar"):
+        last = head.split(".")[-1]
+        members = [e for e in elts if not _py_is_none(e)] if last == "Union" else elts[:1]
+        if last not in ("Optional", "Union", "Annotated", "Final", "ClassVar"):
             return head
         return _py_ann(members[0]) if len(members) == 1 else ""
     if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
         return ann.value.split(".")[-1]
-    return _py_recv(ann).split(".")[-1] if ann is not None else ""
+    return _py_recv(ann) if ann is not None else ""
 
 
 def _py_is_none(node) -> bool:
