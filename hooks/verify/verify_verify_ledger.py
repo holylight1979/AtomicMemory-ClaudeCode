@@ -333,6 +333,13 @@ def test_run_verify_source_prints_fail_and_exit_1():
     assert ev.is_test_command("python -X utf8 run_verify.py") and ev.is_test_command("python run_verify.py --json")
 
 
+def test_run_verify_help_prints_usage_without_running():
+    r = subprocess.run([sys.executable, "-X", "utf8", str(HOOKS_DIR.parent / "run_verify.py"), "--help"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    assert r.returncode == 0 and "usage:" in r.stdout and "--json" in r.stdout
+    assert "VERIFY_CHECK" not in r.stdout + r.stderr   # 沒有跑測試
+
+
 def test_done_receipt_with_failed_count_or_nonzero_exit_not_ok():
     good = {"turn_seq": 5, "cmd": "python -X utf8 run_verify.py", "exit_code": 0,
             "sentinels": [{"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "10", "failed": "0"}}]}

@@ -406,6 +406,8 @@ def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, 
 # ─── 定位三行 ───────────────────────────────────────────────────────
 
 _TEMPLATE_PHRASES = ("這次改的是哪一塊", "修根因還是症狀；根因在哪層", "這個部位以前摔過什麼", ROOT_CAUSE_SENTENCE)
+# 「待規格：<理由>」是合法填法（規格不存在、要人拍板）；只有光禿的「待規格」沒理由才當沒填
+_BARE_PENDING_SPEC_RE = re.compile(r"^待規格\s*[:：]?\s*$")
 _NONE_PRECEDENT_RE = re.compile(r"^(?:無|沒有|none|n/?a)(?:[\s，。；;,:：（(].*)?$", re.IGNORECASE | re.DOTALL)
 _PRECEDENT_SPLIT_RE = re.compile(r"[\s，。；、,;:：()（）\[\]【】「」『』→/／-]+")
 
@@ -417,7 +419,7 @@ def locate_groups(text: str, template: Optional[List[str]] = None) -> List[Dict[
     groups: List[Dict[str, str]] = []
     for m in LOCATE_RE.finditer(text):
         key, val = m.group(1)[:2], m.group(2).strip()
-        if any(t in val for t in phrases):
+        if any(t in val for t in phrases) or _BARE_PENDING_SPEC_RE.match(val):
             continue
         if key == "部位" or not groups:
             groups.append({})

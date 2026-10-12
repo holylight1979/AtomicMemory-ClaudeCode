@@ -29,8 +29,14 @@ skills = ROOT / "skills"
 if skills.exists():
     fixed += [d / "verify" for d in skills.iterdir() if d.is_dir() and (d / "verify").exists()]
 
+import argparse
+
+# --help 只印用法不跑；其他未知參數照舊忽略（parse_known_args）
+_ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+_ap.add_argument("--json", action="store_true", help="機讀輸出：stdout 純 JSON，量尺哨兵改印 stderr")
+as_json = _ap.parse_known_args()[0].json
+
 paths = [str(p) for p in fixed if p.exists()]
-as_json = "--json" in sys.argv[1:]
 
 if not paths:
     if as_json:

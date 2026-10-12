@@ -225,6 +225,17 @@ def test_locate_rejects_copied_template():                                # W1�
     assert not oh.locate_present(text, "戰鬥")
 
 
+@pytest.mark.parametrize("precedent, ok", [
+    ("待規格：擊破任務計分時點沒人拍板", True),     # 帶理由＝誠實交出「沒有規格」
+    ("待規格", False),                              # 光禿沒理由＝沒填
+    ("待規格：", False),
+    ("待規格:  ", False),
+])
+def test_locate_accepts_pending_spec(precedent, ok):
+    text = f"定位｜部位：戰鬥\n定位｜根因層：根因層，計分時點與建築生命週期分家\n定位｜前例：{precedent}"
+    assert oh.locate_present(text, "戰鬥") is ok
+
+
 def test_extended_profile_columns_do_not_steal_card_or_status():      # 擴欄（病灶清單、量尺、檢查器…）：骨架列導讀卡空就是空
     rows = oh.parse_map(
         "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 病灶清單 | 量尺 | 檢查器清單 | 第四問 |\n"
