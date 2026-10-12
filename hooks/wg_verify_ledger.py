@@ -8,7 +8,8 @@
   說「量了」要有 DONE、說「試過」要有執行類工具呼叫、AEC 要有證據路徑（j）與追蹤項（k）。
   不看措辭、每次 Stop 都判：改了程式碼要有仍存在的驗證 case 被新增或修改（PASS 不代替）；改到有量尺的部位要有那把尺在
   最後一次修改之後、同 root、exit 0 且 failed=0 的 DONE（先過 runtime_gate）。
-  指令比對（收據 cmd 對表上量尺）只有一套：lib/self_receipt.cmd_matches。
+  指令解析只有一套（lib/self_receipt：白名單語法，解析不了的指令一律不算證據）：量尺比對 cmd_matches、整體驗證 is_whole_run、
+  「提到改檔」exec_words；收據的 cmd 存完整字串（升級前只存 200 字的舊收據不算），echo 類參數寫了哨兵字樣的收據不算。
 
 怎麼跑：被 handlers/post_tool_use.py 與 handlers/stop.py 匯入；verify 在 hooks/verify/verify_verify_ledger.py、
   verify_stop_reconcile.py。exit code 三來源：tool_response.exit_code／returncode（結構化欄優先，欄是 0 就不再看文字）
@@ -44,7 +45,9 @@ def _load_self_receipt_module():
 
 
 _self_receipt = _load_self_receipt_module()
-cmd_matches, final_cmd, exec_words = _self_receipt.cmd_matches, _self_receipt.final_cmd, _self_receipt.exec_words
+cmd_matches, exec_words, is_whole_run = _self_receipt.cmd_matches, _self_receipt.exec_words, _self_receipt.is_whole_run
+unsupported_syntax, leading_cd, final_step = (_self_receipt.unsupported_syntax, _self_receipt.leading_cd,
+                                              _self_receipt.final_step)
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
@@ -415,23 +418,106 @@ def _norm_path(p: str) -> str:
     return str(p).replace("\\", "/").rstrip("/").lower()
 
 
-_CD_RE = re.compile(r"(?:^|[\s;&|(])(?:cd|pushd|set-location)(?:\s|$)", re.IGNORECASE)
+_CD_RE = re.compile(r"(?:^|[\s;&|(])(?:cd|pushd|popd|set-location|push-location|pop-location|sl|chdir)(?:\s|$)",
+                    re.IGNORECASE)
+LEGACY_CMD_CAP = 200          # 升級前的 state 收據 cmd 只存前 200 字
+_ARG_SENTINEL_RE = re.compile(r"_CHECK\s+(?:PASS|FAIL|DONE)|\w\s+DONE(?!\w)")    # 參數裡的哨兵字樣（不要求行首與名字）
+_ESC_RE = re.compile(r"\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{4}|0?[0-7]{1,3}|[abefnrtv])")
+_ESC_CHARS = {"a": "\a", "b": "\b", "e": "\x1b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v"}
+_arg_res: List[Pattern] = []  # _ARG_SENTINEL_RE ＋ config sentinel_regex（去掉開頭 ^）；第一次用到才讀
 
 
 def has_cd(cmd: str) -> bool:
-    """cmd 任何位置含 cd／pushd／Set-Location token → 收據的 cwd 不可信（root_uncertain）。"""
+    """cmd 任何位置含 cd／pushd／popd／Set-Location／sl／chdir token → 收據的 cwd 不可信（root_uncertain）。"""
     return bool(_CD_RE.search(str(cmd or "")))
 
 
-def _is_whole_verification(raw: str) -> bool:
-    """最後被執行的指令（lib/self_receipt.final_cmd：尊重引號的斷詞，echo 的參數不算指令；尾端 | tail 不算）是 run_verify.py，
-    或沒帶檔名參數的 pytest ＝ 整體驗證，對所有改檔都算對得上。"""
-    final = final_cmd(raw)
-    if not final:
-        return False
-    if final[0] == "run_verify.py":
-        return True
-    return final[0] == "pytest" and not any(".py" in p or "/" in p for p in final[3])
+def _shell_of(receipt: Dict[str, Any]) -> str:
+    """收據是哪種 shell 跑的（PostToolUse 記的 tool）：PowerShell 依 PowerShell 規則解析，其餘依 bash。"""
+    return "powershell" if str(receipt.get("tool") or "") == "PowerShell" else "bash"
+
+
+def _cmd_complete(receipt: Dict[str, Any]) -> bool:
+    """收據存的是完整指令：新收據帶 cmd_full；升級前的只存前 200 字，滿 200 字的不知道後面還接了什麼 → 不算證據。"""
+    return bool(receipt.get("cmd_full")) or len(str(receipt.get("cmd") or "")) < LEGACY_CMD_CAP
+
+
+def _trusted(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """收據的指令完整、根可信才回（開頭單一絕對路徑的 `cd <根> && …` 把根換成該路徑）；不完整或含其他 cd → None。"""
+    raw = str(receipt.get("cmd") or "")
+    if not _cmd_complete(receipt):
+        return None
+    cd = leading_cd(raw, _shell_of(receipt))
+    if cd:
+        return {**receipt, "project_root": cd, "cwd": cd, "root_uncertain": False}
+    return None if receipt.get("root_uncertain") or has_cd(raw) else receipt
+
+
+def _arg_sentinel_res() -> List[Pattern]:
+    if not _arg_res:
+        _arg_res.append(_ARG_SENTINEL_RE)
+        try:
+            from wg_core import load_config
+            rules = compile_sentinel_rules(((load_config() or {}).get("verify_ledger") or {}).get("sentinel_regex"))
+        except Exception as e:  # noqa: BLE001  讀不到設定 → 只認預設格式，浮一行
+            print(f"[verify-ledger] 讀不到 sentinel_regex，參數裡的哨兵字樣只認預設格式：{type(e).__name__}: {e}",
+                  file=sys.stderr)
+            rules = []
+        for rule in rules:
+            pat = rule["re"].pattern
+            _arg_res.append(re.compile(pat[1:] if pat.startswith("^") else pat, re.MULTILINE))
+    return _arg_res
+
+
+def _unescape(t: str) -> str:
+    """echo -e／printf 會還原的跳脫（\\t \\n \\x41 \\0101 \\u0041）先還原，再找哨兵字樣。"""
+    def rep(m: "re.Match") -> str:
+        g = m.group(1)
+        if g[0] in "xu":
+            return chr(int(g[1:], 16))
+        return chr(int(g, 8)) if g[0].isdigit() else _ESC_CHARS[g]
+    return _ESC_RE.sub(rep, t)
+
+
+def _prints_sentinel(raw: str, shell: str) -> bool:
+    """同一條指令裡有指令的參數寫了哨兵字樣（echo X_CHECK PASS、printf、Write-Output、xargs echo、`$s = '… DONE'`…）：
+    哨兵只能由被執行的程式印出，參數裡寫好的不算（量尺本身那段 echo 由 cmd_matches 對上，不經這裡）。"""
+    for _, words, _ in _self_receipt.split_shell(raw, shell)[0]:
+        text = _unescape(" ".join(words[1:]))
+        if any(rx.search(text) for rx in _arg_sentinel_res()):
+            return True
+    return False
+
+
+def _clean(receipt: Dict[str, Any]) -> bool:
+    """收據的指令能當一般證據：完整、白名單語法、參數裡沒寫哨兵字樣。"""
+    raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
+    return _cmd_complete(receipt) and not unsupported_syntax(raw, sh) and not _prints_sentinel(raw, sh)
+
+
+def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any]) -> bool:
+    """收據跑了表上這把尺（cmd_matches，依收據的 shell 解析；指令要完整）。"""
+    return (bool(str(measure_cmd).strip()) and _cmd_complete(receipt)
+            and cmd_matches(str(measure_cmd), str(receipt.get("cmd") or ""), _shell_of(receipt)))
+
+
+def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str) -> str:
+    """最近一筆帶 verdict 哨兵的收據若因指令寫法不算證據 → 一句說明（是哪一種）；最近那筆寫法正常或沒有 → ""。"""
+    for r in reversed(list(receipts)):
+        if verdict not in _verdicts(r):
+            continue
+        raw, sh = str(r.get("cmd") or ""), _shell_of(r)
+        head = f"`{' '.join(raw.split())[:60]}`"
+        if not _cmd_complete(r):
+            return f"最近那筆收據 {head} 是升級前只存前 200 字的舊收據，看不出整條指令，不算證據；請重跑。"
+        why = unsupported_syntax(raw, sh)
+        if why:
+            return f"這條指令 {head} 含解析不了的語法（{why}），不算跑了量尺；請照表上原字串單獨跑。"
+        if _prints_sentinel(raw, sh):
+            return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
+                    "哨兵只能由被執行的程式印出。")
+        return ""
+    return ""
 
 
 def _stem_of(path: str) -> str:
@@ -440,20 +526,21 @@ def _stem_of(path: str) -> str:
 
 
 def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
-    """收據 cmd 裡真的會被執行的字（lib/self_receipt.exec_words：echo 類只會印字的指令、引號裡印出的字、註解、heredoc 內容
-    都不算），小寫、斜線正規化、空白壓一格；「提到改的檔」只比這段。沒有 cmd、root_uncertain 或含 cd → None（不知道驗的是哪裡）。"""
-    raw = str(receipt.get("cmd", ""))
-    if not raw or receipt.get("root_uncertain") or has_cd(raw):
+    """收據 cmd 裡真的會被執行的字（lib/self_receipt.exec_words：echo 類只會印字的指令、引號裡印出的字、註解都不算），
+    小寫、斜線正規化、空白壓一格；「提到改的檔」只比這段。指令不完整、根不可信（開頭單一 cd 以外的 cd）、白名單外語法、
+    參數裡寫了哨兵字樣 → None。"""
+    r = _trusted(receipt)
+    if r is None or not _clean(r):
         return None
-    return " ".join(_norm_path(" ".join(exec_words(raw))).split())
+    return " ".join(_norm_path(" ".join(exec_words(str(r.get("cmd") or ""), _shell_of(r)))).split())
 
 
-def _covers_all(raw: str, measure_cmds: Iterable[str]) -> bool:
-    """整體驗證（run_verify.py／無檔名參數的 pytest）或部位量尺指令（cmd_matches，與量尺閘同一套解析）：聲稱驗到全部改檔。
-    raw＝收據原文（斷詞要看引號與換行，不能用小寫壓空白後的 _usable_cmd）。"""
-    if _is_whole_verification(raw):
-        return True
-    return any(str(mc).strip() and cmd_matches(str(mc), raw) for mc in measure_cmds or [])
+def _covers_all(receipt: Dict[str, Any], measure_cmds: Iterable[str]) -> bool:
+    """部位量尺指令（cmd_matches）或整體驗證（is_whole_run：不帶參數的 run_verify.py、不縮範圍的 pytest）：聲稱驗到全部改檔。
+    兩種都只認白名單語法、前面只准 cd 與環境設定、後面只准尾端過濾。"""
+    raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
+    return (any(_ruler_ran(mc, receipt) for mc in measure_cmds or [])
+            or (_cmd_complete(receipt) and is_whole_run(raw, sh)))
 
 
 def _cmd_names_path(cmd: str, path: str) -> bool:
@@ -468,12 +555,16 @@ def _cmd_names_path(cmd: str, path: str) -> bool:
 
 
 def claimed_paths(receipt: Dict[str, Any], mod_paths: Iterable[str], measure_cmds: Iterable[str] = ()) -> List[str]:
-    """收據聲稱驗到的改檔（只看 cmd，不看根與先後）：整體驗證／量尺指令＝全部改檔，否則 cmd 提到的那幾個。"""
-    cmd = _usable_cmd(receipt)
-    if cmd is None:
+    """收據聲稱驗到的改檔（只看 cmd，不看根與先後）：整體驗證／量尺指令＝全部改檔，否則 cmd 提到的那幾個。
+    指令不完整或根不可信 → 沒有。"""
+    r = _trusted(receipt)
+    if r is None:
         return []
     paths = list(mod_paths or [])
-    return paths if _covers_all(str(receipt.get("cmd", "")), measure_cmds) else [p for p in paths if _cmd_names_path(cmd, p)]
+    if _covers_all(r, measure_cmds):
+        return paths
+    cmd = _usable_cmd(r)
+    return [p for p in paths if _cmd_names_path(cmd, p)] if cmd else []
 
 
 RootSpec = Union[None, str, Callable[[str], Optional[str]]]
@@ -530,14 +621,15 @@ def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_gl
     """PASS 收據「對得上」改檔＝下列任一（verify glob 單獨不算；含 cd 的收據一律不算）：
     (a) cmd 含修改檔 stem 作整詞（stem ≥3 字）；(b) cmd 含 test_<stem>／verify_<stem>／<stem>_test；
     (c) cmd 是部位量尺指令，或 run_verify.py／無檔名參數的 pytest（整體驗證）；(d) cmd 含修改檔所在的 verify 目錄 `<dir>/verify/`。
-    再加根要對：收據根（project_root，沒有就 cwd）與該改檔的根相同或互為上下層（整體驗證也一樣）；任一邊沒有根資訊不比。"""
-    cmd = _usable_cmd(receipt)
-    if cmd is None:
+    再加根要對：收據根（project_root，沒有就 cwd；開頭 `cd <根> &&` 用該路徑）與該改檔的根相同或互為上下層（整體驗證也一樣）；
+    任一邊沒有根資訊不比。指令只認白名單語法（lib/self_receipt），解析不了的不算。"""
+    r = _trusted(receipt)
+    if r is None:
         return False
     paths = list(mod_paths or [])
     if not paths:
-        return _covers_all(str(receipt.get("cmd", "")), measure_cmds)
-    return any(_root_ok(receipt, _file_root(root, p)) for p in claimed_paths(receipt, paths, measure_cmds))
+        return _covers_all(r, measure_cmds)
+    return any(_root_ok(r, _file_root(root, p)) for p in claimed_paths(r, paths, measure_cmds))
 
 
 def _after_last_edit(receipt: Dict[str, Any], mod: Optional[Dict[str, Any]]) -> bool:
@@ -573,7 +665,8 @@ def related_pass_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional
     都要在該檔最後一次修改之後才算對得上。對不上的標原因：other_root＝cmd 提到改檔但根不對；before_edit＝跑在修改之前的檔。"""
     paths = list(mod_paths or [])
     related, unrelated = [], []
-    for r in pass_receipts(receipts, turn_seq):
+    for r0 in pass_receipts(receipts, turn_seq):
+        r = _trusted(r0) or r0
         named = claimed_paths(r, paths, measure_cmds)
         if not receipt_relates(r, paths, verify_globs, measure_cmds, root):
             unrelated.append({**r, "other_root": True} if named else r)
@@ -635,13 +728,20 @@ def _receipt_after(receipt: Dict[str, Any], edit_at: Optional[str], edit_seq: Op
 def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = None,
                   cmd_contains: str = "", min_turn: Optional[int] = None, require_ok: bool = True,
                   min_at: Optional[str] = None, min_seq: Optional[int] = None,
-                  root: Optional[str] = None, *, sentinel_name: str = "") -> List[Dict[str, Any]]:
+                  root: Optional[str] = None, *, sentinel_name: str = "", final_prog: str = "") -> List[Dict[str, Any]]:
     """DONE 收據；turn_seq 指定只認該 turn；min_turn／min_at／min_seq 指定要在該修改之後；cmd_contains 指定 cmd 要跑了該量尺
-    （cmd_matches：與自寫收據同一套 argv 正規化）；require_ok：exit 要 0 或 None 且 failed=<k> 必為 0；root 指定 cwd／project_root
-    要在該 root 下；sentinel_name 指定 DONE 必須來自該名字的哨兵（空＝任一 DONE 哨兵，舊行為）。"""
+    （cmd_matches：白名單語法、與自寫收據同一套正規化）；require_ok：指令完整、根可信（開頭單一絕對路徑 cd 換成該根）、
+    exit 要 0 或 None、沒有 FAIL 哨兵且 failed=<k> 必為 0；root 指定 cwd／project_root 要在該 root 下；sentinel_name 指定 DONE
+    必須來自該名字的哨兵（空＝任一 DONE 哨兵）；final_prog 指定輸出就是收據的那個指令（final_step）是這支程式、且參數裡沒寫哨兵字樣。
+    回的是根已換好的收據。"""
     want = cmd_contains.strip()
     out = []
-    for r in receipts:
+    for r0 in receipts:
+        r = _trusted(r0)
+        if r is None:
+            if require_ok:
+                continue          # 指令不完整、或含 cd 不知道量的是哪個專案
+            r = r0
         t = int(r.get("turn_seq", -1))
         if turn_seq is not None and t != int(turn_seq):
             continue
@@ -652,12 +752,14 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
         if sentinel_name and not any(isinstance(s, dict) and str(s.get("name", "")) == sentinel_name
                                      and str(s.get("verdict", "")) == "DONE" for s in r.get("sentinels") or []):
             continue          # DONE 要來自指定名字的哨兵（例：pytest 摘要行映射的 PYTEST_MEASURE）
-        if require_ok and (r.get("root_uncertain") or has_cd(str(r.get("cmd", "")))):
-            continue          # 含 cd 的收據不知道量的是哪個專案
-        if require_ok and (r.get("exit_code") not in (None, 0) or not _failed_kv_ok(r)):
+        if require_ok and (r.get("exit_code") not in (None, 0) or "FAIL" in _verdicts(r) or not _failed_kv_ok(r)):
             continue
-        if want and not cmd_matches(want, str(r.get("cmd", ""))):
+        if want and not _ruler_ran(want, r):
             continue
+        if final_prog:
+            st = final_step(str(r.get("cmd") or ""), _shell_of(r))
+            if not (st and st.cmd[0] == final_prog and _clean(r)):
+                continue
         if not _root_match(r, root):
             continue
         out.append(r)
@@ -857,8 +959,9 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
     pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
     寫碼查核：(a) 說修好而本 turn 無對得上改檔的合格 PASS、也沒有改檔所在部位的合格自寫收據（self_covered）；
-    (b) 說量了無 DONE；(c) 說試過無執行工具。(a)(b)(c) 對「宣稱」對帳：last_text 與 claims（擋滿待放行時承接的先前宣稱，
-    換一句話不能讓它消失）裡宣告完成的那幾段；
+    (b) 說量了而本 turn 沒有能當證據的 DONE（跑了部位量尺，或白名單語法且參數沒寫哨兵字樣）、也沒有改檔部位的合格自寫收據；
+    (c) 說試過無執行工具。(a)(b)(c) 對「宣稱」對帳：last_text 與 claims（擋滿待放行時承接的先前宣稱，
+    換一句話不能讓它消失）裡宣告完成的那幾段；pending 時 (b)(c) 只叫人補證據、不叫人改措辭；
     (d) 補案例的義務：本 session 最後一次改驗證案例（仍存在的程式檔）之後同根還改過程式檔（case_debt，跨回合；PASS 不代替），
     不看措辭，有改碼紀錄就判。
     收尾報告欄：(e) last_text 宣告完成且 AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
@@ -876,18 +979,35 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         root = roots.get
     root_of: Callable[[str], Optional[str]] = root if callable(root) else (lambda p, _r=root: _r)
     globs = cfg.get("verify_case_globs") or []
+    measure_cmds = list(measure_cmds or [])
     related, unrelated = ([], []) if not texts else related_pass_receipts(
         this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
+    _cov: List[bool] = []
+
+    def covered() -> bool:
+        """改檔所在部位有合格的自寫收據（量尺閘同一個條件；只讀一次）。"""
+        if not _cov:
+            _cov.append(bool(set(relate_paths) & set(self_covered() if self_covered else ())))
+        return _cov[0]
+
+    def note(verdict: str) -> str:
+        n = _syntax_note(this_turn, verdict)
+        return f"（{n}）" if n else ""
+
     hits: List[str] = []
-    if (any(claims_fixed(t, phrases) for t in texts) and not related
-            and not set(relate_paths) & set(self_covered() if self_covered else ())):
+    if any(claims_fixed(t, phrases) for t in texts) and not related and not covered():
         hits.append(f"(a) 說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}。"
                     "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
-                    "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）。")
-    if any(claims_measured(t, phrases) for t in texts) and not done_receipts(this_turn, require_ok=False):
-        hits.append("(b) 說「量了」但本回合沒有 `<NAME> DONE k=v` 收據。量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量。")
+                    "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）。" + note("PASS"))
+    measured = any("DONE" in _verdicts(r) and (_clean(r) or any(_ruler_ran(mc, r) for mc in measure_cmds))
+                   for r in this_turn)
+    if any(claims_measured(t, phrases) for t in texts) and not measured and not covered():
+        hits.append("(b) 說「量了」但本回合沒有 `<NAME> DONE k=v` 收據，也沒有改完之後跑的部位量尺自寫收據。"
+                    + ("補跑量尺讓它印 DONE 尾行。" if pending else "量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量。")
+                    + note("DONE"))
     if any(tried_claim_without_exec(t, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases) for t in texts):
-        hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。沒跑就寫沒跑，或現在跑。")
+        hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。"
+                    + ("現在跑出收據。" if pending else "沒跑就寫沒跑，或現在跑。"))
     owed = case_debt(own_mod_files, turn_seq, cfg, root_of)
     if owed:
         names = "、".join(Path(p).name for p in owed[:4])
@@ -996,15 +1116,19 @@ def load_self_runs() -> List[Dict[str, Any]]:
 
 
 def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: str, edit_turn: int) -> bool:
-    """有一份自寫收據同時符合：cmd 跑了該部位量尺（cmd_matches，與收據的 cmd_of 同一套 argv 正規化）；exit 0 且 failed 0；
-    started_at 晚於該部位最後一次修改；收據根（受測樹 project_root）與部位根同一棵樹（_root_ok）。
+    """有一份自寫收據同時符合：argv 跑了該部位量尺（cmd_matches；argv 不經 shell 解析，沒有 argv 的舊收據才讀 cmd）；
+    exit 0 且 failed 0；started_at 晚於該部位最後一次修改；收據根（受測樹 project_root）與部位根同一棵樹（_root_ok）。
     不綁 session：改完之後任何人對同一棵樹跑完的全量都算。"""
     # 防線邊界：hook 擋得住 AI 直接手寫收據（PreToolUse 對 verify-ledger/ 的 Edit／Write／重導向／PowerShell 寫檔別名一律 deny）、
     # 靠措辭避開查核（補案例義務與量尺每次 Stop 都判）、把目標不明的寫入當成沒寫（未知寫入欠帳）、舊收據或別棵樹的收據冒充
     # （started_at 要晚於最後一次修改、project_root 要同一棵樹）。擋不住 AI 刻意寫一支程式去產生假收據：AI 能執行任意程式，
     # 它讀得到的任何識別都能複製，這一層不是程式能保證的，不再為它加機制。
+    # 量尺比對只認白名單語法；解析不了的指令一律不算證據（fail-closed），所以不必逐一追 shell 技巧；在白名單語法內印假哨兵的
+    # 組合（引號、echo、短路、截斷）都已封住。
     for r in runs or []:
-        if not isinstance(r, dict) or not cmd.strip() or not cmd_matches(cmd, str(r.get("cmd", ""))):
+        argv = r.get("argv") if isinstance(r, dict) else None
+        if not isinstance(r, dict) or not cmd.strip() or not cmd_matches(
+                cmd, argv if isinstance(argv, list) and argv else str(r.get("cmd", ""))):
             continue
         if r.get("exit_code") != 0 or str(r.get("failed")) != "0":
             continue
@@ -1082,7 +1206,13 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             no_measure.append(part)
             continue
         root_wt = is_root_worktree(root, CLAUDE_DIR)
-        pick = {"sentinel_name": ROOT_WT_SENTINEL} if root_wt else {"cmd_contains": cmd}
+        bad_ruler = None if root_wt else unsupported_syntax(cmd)
+        if bad_ruler:             # 表上的尺本身就解析不了：任何收據都對不上，要改的是表
+            blocks.append(f"部位【{part}】表上的量尺 `{cmd}` 含解析不了的語法（{bad_ruler}），任何收據都對不上；"
+                          "把 .claude/overview-map.md 這格改成白名單語法（單一指令或 && 串接、引號、重導向），"
+                          "改不了就照【收尾放行確認】問使用者。")
+            continue
+        pick = {"sentinel_name": ROOT_WT_SENTINEL, "final_prog": "pytest"} if root_wt else {"cmd_contains": cmd}
         ok_done = done_receipts(receipts, min_turn=rec["edit_turn"], min_at=rec["edit_at"] or None,
                                 min_seq=rec["edit_seq"], root=str(root), **pick)
         if ok_done:
@@ -1110,8 +1240,8 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             last = any_done[-1]
             failed = next(((s.get("kv") or {}).get("failed") for s in last.get("sentinels") or []
                            if isinstance(s, dict) and (s.get("kv") or {}).get("failed") is not None), None)
-            if last.get("root_uncertain") or has_cd(str(last.get("cmd", ""))):
-                why = "最近一次跑尺的指令含 cd，無法確認量測目標；請在專案根直接跑尺"
+            if _trusted(last) is None:
+                why = "最近一次跑尺的指令含 cd（只有開頭 `cd <絕對路徑> &&` 認得出根），無法確認量測目標；請在專案根直接跑尺"
             elif last.get("exit_code") not in (None, 0) or (failed is not None and str(failed) != "0"):
                 why = f"最近一次跑尺 exit={last.get('exit_code')} failed={failed}，尺沒過"
             elif not _root_match(last, str(root)):
@@ -1138,6 +1268,9 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
         if any("run_verify.py" in str((r["row"].get("measure") or {}).get("cmd") or "") for r in parts.values()):
             reason += ("\n  run_verify 跑超過 10 分鐘就背景跑：它跑完會自寫收據到 workflow/verify-ledger/_runs/，"
                        "改完之後才開始跑、exit 0、failed=0、同一棵樹就認得到（收據不准手寫）。")
+        note = _syntax_note(receipts, "DONE")
+        if note:
+            reason += "\n  " + note
     return reason, no_measure
 
 

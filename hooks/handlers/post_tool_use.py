@@ -492,7 +492,8 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "agent_id": agent_id,
         "turn_seq": turn_seq,
         "tool": tool_name,
-        "cmd": command[:500],
+        "cmd": command,               # 完整指令：量尺比對要看到尾段（截斷後接的假哨兵也要看得到）；顯示時才截
+        "cmd_full": True,
         "cwd": cwd,
         "project_root": project_root,
         "sentinels": [{"name": s["name"], "verdict": s["verdict"], "line": s["line"]} for s in sentinels],
@@ -507,7 +508,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
     # 子代理的收據不進主 session 的收據（主帳不變），另放 agent_receipt_key(sid, agent_id)，給 SubagentStop 對帳用
     record_receipt(state, agent_receipt_key(session_id, agent_id) if agent_id else session_id, {
         "at": record["at"], "seq": next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
-        "cmd": command[:200],
+        "cmd": command, "cmd_full": True,
         "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
         "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
         "root_uncertain": record["root_uncertain"],

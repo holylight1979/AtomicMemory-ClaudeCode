@@ -794,6 +794,13 @@ def _unknown_write_reason(unknown: List[Dict[str, Any]]) -> Optional[str]:
             "補驗證案例與量尺都查不了，不能當成沒改檔。")
 
 
+def _code_check_text(input_data: Dict[str, Any], transcript, transcript_text: str) -> str:
+    """寫碼查核（TestFail、對帳 (a)(b)(c)、pending 原宣稱）看的最後一句：先用 hook 輸入的 last_assistant_message，沒有才退回
+    transcript，且不套退避偵測用的 30 字下限（長說明之後只回一句「修好了，全部完成。」也要判這句）。"""
+    return (str(input_data.get("last_assistant_message") or "")
+            or get_last_assistant_text(transcript, text=transcript_text, min_chars=1))
+
+
 def _code_gate_to_the_end(input_data: Dict[str, Any], config: Dict[str, Any], state: Optional[Dict[str, Any]],
                           receipt_key: str, own: List[Dict[str, Any]], transcript_path: str, why: str,
                           log_extra: Dict[str, Any], unknown: Optional[List[Dict[str, Any]]] = None) -> None:
@@ -807,7 +814,7 @@ def _code_gate_to_the_end(input_data: Dict[str, Any], config: Dict[str, Any], st
         return
     transcript = Path(transcript_path) if transcript_path and Path(transcript_path).is_file() else None
     transcript_text = read_transcript_tail(transcript)
-    last_text = str(input_data.get("last_assistant_message") or "") or get_last_assistant_text(transcript, text=transcript_text)
+    last_text = _code_check_text(input_data, transcript, transcript_text)
     turn_seq = int(state.get("turn_seq", 0))
     rg_cfg, mg_cfg = reconcile_cfg(config), measure_cfg(config)
     if not (rg_cfg.get("enabled", True) or mg_cfg.get("enabled", True)):
@@ -873,7 +880,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 單次 tail-read：本函式所有 transcript 消費者（last_text / token 預警 /
     # usefulness turn 文字）共用同一份尾段，取代先前各自全檔讀取。
     transcript_text = read_transcript_tail(transcript)
-    last_text = get_last_assistant_text(transcript, text=transcript_text)
+    last_text = get_last_assistant_text(transcript, text=transcript_text)          # 退避偵測等：只看 >30 字的段落
+    code_text = _code_check_text(input_data, transcript, transcript_text)          # 寫碼查核：真正的最後一句
     # accessed_files 回收（取代 per-Read PostToolUse hook）——先寫進 state，
     # 後續任何 gate 的 write_state 也會一併固化；此處立即寫防走到不寫 state 的路徑。
     # 關回合：下一則 UserPromptSubmit 才是新回合的第一句（turn_prompts 重開，見 ups_gates.track_turn_prompts）。
@@ -941,7 +949,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and aec.get("session_id") == session_id
     )
 
-    if failing and claims_completion(last_text):
+    if failing and claims_completion(code_text):
         state["stop_blocked_count"] = stop_count + 1
         reason = _piggyback(
             f"[Guardian:TestFailGate] 測試未綠（{len(failing)} 項失敗），"
@@ -975,7 +983,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _pend = pending_of(state, session_id, "reconcile")
         _prev_claims = [str(c) for c in (_pend or {}).get("claims") or []]
         _code, _report, _vg_kind, _vg_advice = _verify_gates(
-            state, session_id, turn_seq, last_text, transcript, transcript_text, own_mod_files,
+            state, session_id, turn_seq, code_text, transcript, transcript_text, own_mod_files,
             _rg_cfg, _mg_cfg, aec, emitted_this_turn, claims=_prev_claims, pending=_pend is not None,
         )
         if _vg_advice:
@@ -1029,7 +1037,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 _gate = "MeasureGate" if _vg_kind == "measure" else "ReconcileGate"
                 if _code_full:
                     set_pending(state, session_id, "reconcile", turn_seq, _now_iso(), _code,
-                                [last_text] if claims_completion(last_text) else [])   # pending 已在就沿用原 claims
+                                [code_text] if claims_completion(code_text) else [])   # pending 已在就沿用原 claims
                     _summary = _code.split("\n")[1].strip() if "\n" in _code else _code
                     _n = _count if _count >= _max else None                    # pending 承接自先前回合：不報本回合次數
                     _head = (non_interactive_message(_gate, _n, _summary, _no_ask) if _no_ask

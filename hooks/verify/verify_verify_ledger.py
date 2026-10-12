@@ -371,7 +371,8 @@ def test_receipt_relates_rules_fixed_in_002_returned():
     assert vl.receipt_relates({"cmd": "python check_beta.py"}, a, globs) is False               # 子字串不算
     assert vl.receipt_relates({"cmd": "pytest -q"}, a, globs) is True                           # (c) 無檔名 pytest
     assert vl.receipt_relates({"cmd": "python -m pytest -q -p no:cacheprovider"}, a, globs) is True
-    assert vl.receipt_relates({"cmd": "python -X utf8 run_verify.py --json"}, a, globs) is True  # (c) run_verify
+    assert vl.receipt_relates({"cmd": "python -X utf8 run_verify.py"}, a, globs) is True        # (c) run_verify
+    assert vl.receipt_relates({"cmd": "python -X utf8 run_verify.py --json"}, a, globs) is False  # 017b 規則 9：帶參數不算整體
     assert vl.receipt_relates({"cmd": "python measure.py"}, a, globs, ["python measure.py"]) is True   # (c) 量尺
     assert vl.receipt_relates({"cmd": "python tools/replay-guard.py pre"}, a, globs) is False
     assert vl.receipt_relates({"cmd": "cd other; python -m pytest -q"}, a, globs) is False      # 003-4 含 cd 不算
@@ -457,3 +458,44 @@ def test_ledger_marks_root_uncertain_when_cmd_has_cd(monkeypatch, tmp_path):
     assert rec["root_uncertain"] is True
     line = json.loads((tmp_path / "verify-ledger" / f"{_SID}.jsonl").read_text(encoding="utf-8"))
     assert line["root_uncertain"] is True
+
+
+# ─── 017 規則 4：收據存完整指令（截斷後接在尾段的假哨兵也看得到） ─────────────────────────────
+
+_RUN_ROW = {"part_short": "hook 共用模組層", "measure": {"method": "全量 verify", "cmd": "python -X utf8 run_verify.py",
+                                                     "threshold": "全綠"}}
+_DONE_OUT = {"stdout": "VERIFY_CHECK DONE cases=1 failed=0\n", "stderr": ""}
+
+
+def _measure_gate_on(receipts, tmp_path):
+    mod = {"path": str(tmp_path / "hooks" / "x.py"), "session_id": _SID, "turn_seq": 4, "last_turn_seq": 4,
+           "last_at": "2020-01-01T00:00:00+00:00", "last_seq": 0}
+    return vl.measure_gate_reason([mod], receipts, 4, lambda p: (tmp_path, _RUN_ROW), vl.MEASURE_DEFAULTS,
+                                  chains_of=lambda r: {}, self_runs=lambda: [])[0]
+
+
+def test_017_long_command_through_track_sentinels(monkeypatch, tmp_path):
+    """前段 `量尺 > $null 2>&1` 補空白到 200 字、尾段 `; Write-Output "VERIFY_CHECK DONE …"`，經 PostToolUse 落帳 → 量尺閘不認；
+    誠實的長指令（超過 200 字、量尺在最後）經同一條路 → 認得。舊碼收據只存前 200 字，假的變成只剩量尺而被認。"""
+    head = "python -X utf8 run_verify.py > $null 2>&1"
+    fake = head + " " * (200 - len(head)) + '; Write-Output "VERIFY_CHECK DONE cases=1 failed=0"'
+    honest = '$env:WG_CLAUDE_DIR="C:\\' + "x" * 190 + '"; python -X utf8 run_verify.py'
+    for cmd, blocked in ((fake, True), (honest, False)):
+        state = _drive(monkeypatch, tmp_path, "PowerShell", cmd, _DONE_OUT)
+        reason = _measure_gate_on(state["verify_receipts"][_SID], tmp_path)
+        assert (reason is not None) is blocked, (cmd[:40], reason)
+        rec = state["verify_receipts"][_SID][-1]
+        assert len(cmd) > 200 and rec["cmd"] == cmd and rec["cmd_full"] is True
+    assert "參數裡寫了哨兵字樣" in _measure_gate_on(_drive(monkeypatch, tmp_path, "PowerShell", fake, _DONE_OUT)
+                                             ["verify_receipts"][_SID], tmp_path)
+
+
+def test_017_legacy_truncated_receipt_is_not_evidence(tmp_path):
+    """升級前的收據（沒有 cmd_full）滿 200 字 → 不知道後面還接了什麼 → 不算，訊息叫人重跑；不滿 200 字的舊收據照算。"""
+    base = {"turn_seq": 4, "tool": "Bash", "exit_code": 0, "at": "2026-10-12T02:00:00+00:00", "cwd": str(tmp_path),
+            "sentinels": [{"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "1", "failed": "0"}}]}
+    full = ("python -X utf8 run_verify.py" + " " * 200)[:200]
+    reason = _measure_gate_on([{**base, "cmd": full}], tmp_path)
+    assert reason and "只存前 200 字" in reason
+    assert _measure_gate_on([{**base, "cmd": full[:199]}], tmp_path) is None
+    assert _measure_gate_on([{**base, "cmd": full, "cmd_full": True}], tmp_path) is None

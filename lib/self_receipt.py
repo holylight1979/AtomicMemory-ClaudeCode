@@ -4,9 +4,10 @@
   看不到結尾的量尺哨兵 → session 帳本永遠沒有這把尺的 DONE。所以 run_verify 印完哨兵後自己寫一份收據到
   <CLAUDE_DIR>/workflow/verify-ledger/_runs/<UTC 時間戳>-<pid>.json，MeasureGate 再讀它（hooks/wg_verify_ledger）。
   這個目錄由 PreToolUse 禁止手寫（hooks/handlers/pre_tool_use.check_verify_ledger_write）。
-怎麼跑：run_verify.py 呼叫 write_self_receipt；hooks 呼叫 load_self_receipts 與 cmd_matches。
+怎麼跑：run_verify.py 呼叫 write_self_receipt；hooks 呼叫 load_self_receipts、cmd_matches、is_whole_run、unsupported_syntax。
   verify 在 lib/verify/verify_self_receipt.py、hooks/verify/verify_stop_reconcile.py（自寫收據段）。
-指令比對只有一套（split_shell → parse_cmds → cmd_matches）：收據的 cmd（cmd_of）、量尺閘、對帳閘拿表上量尺去比收據都經過它。
+指令解析只有一套（split_shell → parse_cmds）：量尺閘、自寫收據比對、對帳閘的「整體驗證」與「提到改檔」都經過它。
+  只認白名單語法；白名單外的語法整條指令不算證據（fail-closed），不逐一追 shell 技巧。
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, List, Optional, TextIO, Tuple, Union
+from typing import Any, Dict, FrozenSet, List, NamedTuple, Optional, TextIO, Tuple, Union
 
 RUNS_REL = Path("workflow") / "verify-ledger" / "_runs"
 SOURCE = "run_verify_self"
@@ -27,52 +28,97 @@ def utc_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat(timespec="seconds")
 
 
-# ─── 指令解析與比對（收據端、量尺閘、對帳閘共用這一套） ─────────────────────────────
-_PY_HEAD_RE = re.compile(r"^(?:python(?:\d+(?:\.\d+)*)?w?|py)$", re.IGNORECASE)
+# ─── 指令解析與比對（量尺閘、自寫收據、對帳閘共用這一套） ─────────────────────────────
+_PY_HEAD_RE = re.compile(r"^python(?:\d+(?:\.\d+)*)?w?$", re.IGNORECASE)   # py 啟動器（py -3）不算：照表上字串跑
 _PY_OPT_ARG = ("-X", "-W")                       # 帶一個參數的直譯器選項（`-X utf8` 與 `-Xutf8` 同義）
 _PY_OPT_PAIR_RE = re.compile(r"^-[XW] \S+$")
 _ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _FD_RE = re.compile(r"^(?:\d|\*)$")
 _SHELL_SPECIAL_RE = re.compile(r"[\s;&|<>()'\"#`$]")
+_ESCAPED_RE = re.compile(r"[\s;&|<>()'\"#`${}*?\[\]!~]")    # 反斜線後接這些＝shell 跳脫（白名單外）
 _FILTER_PROGS = frozenset({"tail", "head", "select-object", "select"})   # 尾端只准接這幾支：只會刪行，造不出成功行
+_FILTER_ARG_RE = re.compile(r"^(?:[+-]?\d+|--?[A-Za-z][A-Za-z-]*=?\d*)$")  # 尾端過濾只准選項與數字（不帶檔名）
 _ECHO_PROGS = frozenset({"echo", "printf", "write-output", "write-host", "write", "out-host"})   # 只會印字的指令
-_HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+_CD_PROGS = frozenset({"cd", "pushd", "set-location", "sl", "chdir", "push-location"})
+_CTRL_WORDS = frozenset({"if", "then", "elif", "else", "fi", "for", "foreach", "while", "until", "do", "done",
+                         "function", "switch", "case", "esac", "try", "catch", "finally", "trap", "!"})
+_EVAL_PROGS = frozenset({"iex", "invoke-expression", "eval", "source", ".", "start-process", "saps", "start"})
+_PS_SHELLS = frozenset({"pwsh", "powershell"})
+_POSIX_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
+_INLINE_FLAG_RE = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")        # bash -c／-lc：把字串當指令跑
+_PS_INLINE_RE = re.compile(r"^-(?:c|e$|ec$|en|cwa$)", re.IGNORECASE)   # pwsh -Command／-EncodedCommand（含縮寫）
+_SETUP_ARG_RE = re.compile(r"^(?:[A-Za-z_]\w*(?:=.*)?|[-+][A-Za-z]+)$", re.DOTALL)
+_PS_VAR_RE = re.compile(r"^\$[A-Za-z_][\w:]*$")
+_PS_ASSIGN_RE = re.compile(r"^\$[A-Za-z_][\w:]*=")
+_ABS_DIR_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|/[A-Za-z](?:/|$))")
+_WHOLE_PY_OPTS = frozenset({"-X utf8", "-u", "-B"})              # 整體驗證准帶的直譯器選項（不改變跑什麼）
+_PYTEST_WHOLE_OPT_RE = re.compile(r"^(?:-[qvsx]+|-p|-r\w+|--tb=\w+|--color=\w+|--no-header|--disable-warnings"
+                                  r"|--strict-markers)$")        # 整體驗證准帶的 pytest 選項（白名單；沒列的都不算）
 
 Argv = Union[str, List[str]]
 Cmd = Tuple[str, FrozenSet[str], FrozenSet[str], Tuple[str, ...]]      # (程式, python 直譯器選項, 其他選項, 位置參數)
+Chunk = Tuple[Optional[str], List[str], bool]                           # (接在前一個指令後的運算子, 原字, 有 < 輸入重導向)
 
 
-def split_shell(s: str) -> List[Tuple[Optional[str], List[str]]]:
-    """bash／PowerShell 共通的保守斷詞 → [(接在前一個指令後的運算子, 這個指令的字)]；運算子只有 &&、||、|、;
-    （換行、單獨的 &、( ) 都當 ;）。'…' 原樣；"…" 只認 \\" `" \\$ 這類跳脫，其餘反斜線照留（Windows 路徑）；
-    引號裡的 ; | && 不切，所以 echo 的參數不會變成指令。字首的 # 到行尾是註解；>、>>、2>&1、*>、&>、< 連同目標丟掉；
-    heredoc（`<<EOF`、`<<-'EOF'`）的內容行整段跳過，不當指令。"""
-    out: List[Tuple[Optional[str], List[str]]] = []
+class Step(NamedTuple):
+    """指令鏈裡的一個指令。"""
+    op: Optional[str]           # 接在前一個指令後的運算子：&& || | ;（換行算 ;）；第一個是 None
+    cmd: Cmd                    # 正規化後的指令
+    words: Tuple[str, ...]      # 原字（bash 已去開頭的 X=1）
+    stdin: bool                 # 有 < 輸入重導向（尾端過濾改讀檔）
+
+
+class _Unsupported(Exception):
+    """白名單外的語法；訊息＝是哪一種（擋訊息直接引用）。"""
+
+
+def _prog(word: str) -> str:
+    """程式名：取檔名、小寫、去 .exe（`.` 就是 `.`）。"""
+    head = (Path(str(word).replace("\\", "/")).name or str(word)).lower()
+    return head[:-4] if head.endswith(".exe") else head
+
+
+def _strip_env(words: List[str]) -> List[str]:
+    """去掉開頭的 bash 環境指定 `X=1`（PowerShell 沒有這種寫法，不去）。"""
+    i = 0
+    while i < len(words) and _ENV_ASSIGN_RE.match(words[i]):
+        i += 1
+    return words[i:]
+
+
+def _scan(s: str, ps: bool) -> List[Chunk]:
+    """白名單斷詞；碰到白名單外的語法拋 _Unsupported。白名單見 split_shell。"""
+    out: List[Chunk] = []
     words: List[str] = []
     cur: List[str] = []
-    heredocs: List[str] = []
-    has = skip = False
+    has = skip = stdin = False
     op: Optional[str] = None
+    cont = "`" if ps else "\\"                                   # 行尾續行字元
 
     def end_word() -> None:
         nonlocal has, skip
         if has and skip:
-            skip = False
+            skip = False                                          # 重導向目標，丟掉
         elif has:
             words.append("".join(cur))
         cur.clear()
         has = False
 
     def end_cmd(nxt: str) -> None:
-        nonlocal op, skip
+        nonlocal op, skip, stdin
         end_word()
         skip = False
         if words:
-            out.append((op, list(words)))
+            out.append((op, list(words), stdin))
             words.clear()
             op = nxt
         elif nxt != ";":
             op = nxt
+        stdin = False
+
+    def string_start() -> None:
+        if ps and not has and not words:
+            raise _Unsupported("PowerShell 以引號開頭的指令（字串運算式，不是執行的指令）")
 
     i, n = 0, len(s)
     while i < n:
@@ -80,82 +126,136 @@ def split_shell(s: str) -> List[Tuple[Optional[str], List[str]]]:
         if c in " \t\r":
             end_word()
             i += 1
+        elif c == cont and s.startswith(("\n", "\r\n"), i + 1):    # 續行（LF／CRLF）
+            i += 2 if s[i + 1] == "\n" else 3
         elif c == "#" and not has:
             j = s.find("\n", i)
             i = n if j < 0 else j
         elif c == "'":
+            string_start()
             j = s.find("'", i + 1)
-            j = n if j < 0 else j
+            if j < 0:
+                raise _Unsupported("引號沒閉合")
             cur.append(s[i + 1:j])
             has, i = True, j + 1
         elif c == '"':
-            i += 1
-            while i < n and s[i] != '"':
-                if s[i] in "\\`" and s[i + 1:i + 2] in ('"', "`", "$"):
-                    i += 1
-                cur.append(s[i])
-                i += 1
-            has, i = True, i + 1
-        elif c in "\\`" and s[i + 1:i + 2] == "\n":           # 續行
-            i += 2
+            string_start()
+            j = i + 1
+            while j < n and s[j] != '"':
+                if s[j] == "`":
+                    raise _Unsupported("反引號")
+                if s.startswith("$(", j):
+                    raise _Unsupported("命令替換 $( )")
+                if s.startswith('\\"', j):
+                    raise _Unsupported('雙引號裡的跳脫 \\"')
+                j += 1
+            if j >= n:
+                raise _Unsupported("引號沒閉合")
+            cur.append(s[i + 1:j])
+            has, i = True, j + 1
+        elif c == "\\":
+            if s.startswith("\\\\", i):                          # `\\`：bash 是一個反斜線，PowerShell 照留
+                cur.append("\\" if not ps else "\\\\")
+                has, i = True, i + 2
+            elif i + 1 < n and _ESCAPED_RE.match(s[i + 1]):
+                raise _Unsupported("反斜線跳脫（含空白或 shell 符號的參數請改用引號）")
+            else:                                                 # Windows 路徑的 \x 照留
+                cur.append(c)
+                has, i = True, i + 1
+        elif c == "$" and s[i + 1:i + 2] in ("(", "'", '"'):
+            raise _Unsupported("命令替換 $( )" if s[i + 1] == "(" else "$'…' 引號")
+        elif c == "@" and s[i + 1:i + 2] in ("'", '"'):
+            raise _Unsupported("PowerShell here-string @'…'@")
+        elif c == "`":
+            raise _Unsupported("反引號")
+        elif c in "()":
+            raise _Unsupported("子 shell ( )")
+        elif c in "{}":
+            raise _Unsupported("script block／大括號 { }")
+        elif s.startswith("<<", i):
+            raise _Unsupported("heredoc／here-string（<<、<<<）")
+        elif s.startswith("<#", i):
+            raise _Unsupported("PowerShell 區塊註解 <# #>")
         elif s.startswith(("&&", "||"), i):
             end_cmd(s[i:i + 2])
             i += 2
-        elif s.startswith("<<", i) and not s.startswith("<<<", i) and _HEREDOC_RE.match(s, i):
-            m = _HEREDOC_RE.match(s, i)
-            end_word()
-            heredocs.append(m.group(2))
-            i = m.end()
-        elif c == "\n" and heredocs:                          # heredoc 內容到結束標記那一行為止，整段跳過
-            end_cmd(";")
-            pos = i + 1
-            for d in heredocs:
-                while pos < n:
-                    e = s.find("\n", pos)
-                    line, pos = s[pos:n if e < 0 else e], (n if e < 0 else e + 1)
-                    if line.strip() == d:
-                        break
-            heredocs.clear()
-            i = pos
         elif c in "<>" or s.startswith("&>", i):
-            if has and _FD_RE.match("".join(cur)):          # 2>、*> 的 fd 屬於重導向
+            if has and _FD_RE.match("".join(cur)):              # 2>、*> 的 fd 屬於重導向
                 cur.clear()
                 has = False
             else:
                 end_word()
+            stdin = stdin or c == "<"
             i += 1 if c == "&" else 0
             while i < n and s[i] in "<>":
                 i += 1
-            if s[i:i + 1] == "&":                            # 2>&1：沒有目標檔
-                i += 1
-                while i < n and (s[i].isdigit() or s[i] == "-"):
-                    i += 1
+            if s[i:i + 1] == "|":
+                raise _Unsupported("重導向 >|")
+            if s[i:i + 1] == "&":                                # 2>&1：沒有目標檔；`>& 檔名` 的目標是下一個字
+                j = i + 1
+                while j < n and (s[j].isdigit() or s[j] == "-"):
+                    j += 1
+                skip, i = j == i + 1, j
             else:
-                skip = True                                   # 下一個字是重導向目標，丟掉
-        elif c in "|;\n&()":
+                skip = True                                       # 下一個字是重導向目標，丟掉
+        elif c == "&":
+            raise _Unsupported("單獨的 &（背景執行／PowerShell 呼叫運算子）")
+        elif c in "|;\n":
             end_cmd("|" if c == "|" else ";")
             i += 1
         else:
             cur.append(c)
             has, i = True, i + 1
     end_cmd(";")
+    for _, ws, _ in out:                                          # 指令層：控制結構、把字串當指令跑、另起一層 shell
+        w = ws if ps else _strip_env(ws)
+        if not w:
+            continue
+        head = _prog(w[0])
+        if head in _CTRL_WORDS:
+            raise _Unsupported(f"控制結構 {w[0]}")
+        if head in _EVAL_PROGS:
+            raise _Unsupported(f"{w[0]}（把字串或腳本當指令執行）")
+        if (head == "cmd" or (head in _POSIX_SHELLS and any(_INLINE_FLAG_RE.match(t) for t in w[1:]))
+                or (head in _PS_SHELLS and (not any(t.lower() in ("-file", "-f") for t in w[1:])
+                                            or any(_PS_INLINE_RE.match(t) for t in w[1:])))):
+            raise _Unsupported(f"另起一層 shell 跑字串指令（{w[0]}）")    # 跑腳本檔（bash x.sh、pwsh -File x.ps1）照算
     return out
 
 
+def split_shell(s: str, shell: str = "bash") -> Tuple[List[Chunk], Optional[str]]:
+    """白名單語法的斷詞 → ([(運算子, 原字, 有沒有 < 輸入), …], None)；白名單外 → ([], 是哪一種)。
+    白名單：單一指令與 && || | ; 換行串起的指令鏈；'…'、"…"；重導向 > >> 2>&1 *> &> < > $null（連同目標丟掉）；
+    字首 # 註解；行首環境指定（bash `X=1 cmd`、PowerShell `$env:X="1";`）；續行（bash 反斜線、PowerShell 反引號，LF／CRLF）。
+    其餘一律不支援：引號沒閉合、here-string、heredoc、$( )、反引號、( )、{ }、單獨的 &、反斜線跳脫、<# #>、
+    if／for／function 等控制結構、iex／eval／source／.／Start-Process、bash -c、pwsh -Command（pwsh 只准 -File）、cmd。
+    shell="powershell"：以引號開頭的指令是字串運算式（只是輸出那串字）→ 不支援。"""
+    try:
+        return _scan(str(s or ""), shell == "powershell"), None
+    except _Unsupported as e:
+        return [], str(e)
+
+
+def unsupported_syntax(cmd: str, shell: str = "bash") -> Optional[str]:
+    """指令含白名單外的語法 → 是哪一種（給擋訊息）；可解析 → None。"""
+    return split_shell(cmd, shell)[1]
+
+
+def _low(t: str) -> str:
+    """選項保留大小寫（python -V 與 -v 不同）；其餘參數斜線統一、小寫。"""
+    return t if t.startswith("-") else t.replace("\\", "/").lower()
+
+
 def _canon(toks: List[str]) -> List[str]:
-    """一個指令的字 → 照原順序的正規化 token：去掉開頭的 `X=1` 環境指定；程式取檔名、去 .exe、小寫，python 家族
-    （python3.13／pythonw／py）一律寫 python；python 的選項 `-Xutf8` 寫成 `-X utf8`（收據上保留原大小寫）；python 跑的
-    腳本取檔名（`C:\\中文專案\\run_verify.py` → run_verify.py）；其餘參數斜線統一、小寫。"""
+    """一個指令的字 → 照原順序的正規化 token：程式取檔名、去 .exe、小寫，python 家族（python3.13／pythonw）一律寫 python；
+    python 的選項 `-Xutf8` 寫成 `-X utf8`；python 跑的腳本取檔名（`C:\\中文專案\\run_verify.py` → run_verify.py）；
+    其餘參數斜線統一、小寫，選項保留大小寫。"""
     toks = [str(t) for t in toks if str(t) != ""]
-    while toks and _ENV_ASSIGN_RE.match(toks[0]):
-        toks = toks[1:]
     if not toks:
         return []
-    head = Path(toks[0].replace("\\", "/")).name.lower()
-    head = head[:-4] if head.endswith(".exe") else head
-    rest = toks[1:]
+    head, rest = _prog(toks[0]), toks[1:]
     if not _PY_HEAD_RE.match(head):
-        return [head, *(t.replace("\\", "/").lower() for t in rest)]
+        return [head, *(_low(t) for t in rest)]
     opts: List[str] = []
     while rest and rest[0].startswith("-") and rest[0] not in ("-", "-m", "-c"):
         tok = rest.pop(0)
@@ -166,7 +266,7 @@ def _canon(toks: List[str]) -> List[str]:
         opts.append(tok)
     if rest and not rest[0].startswith("-"):
         rest[0] = Path(rest[0].replace("\\", "/")).name
-    return ["python", *opts, *(t.replace("\\", "/").lower() for t in rest)]
+    return ["python", *opts, *(_low(t) for t in rest)]
 
 
 def _norm_cmd(words: List[str]) -> Optional[Cmd]:
@@ -178,7 +278,7 @@ def _norm_cmd(words: List[str]) -> Optional[Cmd]:
     head, i, py_opts = c[0], 1, []
     if head == "python":
         while i < len(c) and c[i].startswith("-") and c[i] not in ("-", "-m", "-c"):
-            py_opts.append(c[i].lower())
+            py_opts.append(c[i])
             i += 1
         if c[i:i + 1] == ["-m"] and i + 1 < len(c):
             head, i = c[i + 1], i + 2
@@ -189,75 +289,123 @@ def _norm_cmd(words: List[str]) -> Optional[Cmd]:
             tuple(t for t in rest if not t.startswith("-")))
 
 
-def exec_words(cmd: str) -> List[str]:
+def parse_cmds(cmd: Argv, shell: str = "bash") -> List[Step]:
+    """指令 → [Step]。字串走 split_shell（白名單外語法 → []）；argv 清單＝一個指令（自寫收據，不經 shell 解析）。"""
+    argv = isinstance(cmd, (list, tuple))
+    chunks = [(None, [str(t) for t in cmd], False)] if argv else split_shell(str(cmd or ""), shell)[0]
+    out: List[Step] = []
+    for op, words, stdin in chunks:
+        ws = words if argv or shell == "powershell" else _strip_env(words)
+        nc = _norm_cmd(ws)
+        if nc:
+            out.append(Step(op if out else None, nc, tuple(ws), stdin))
+    return out
+
+
+def exec_words(cmd: str, shell: str = "bash") -> List[str]:
     """真的會被執行的指令的字（split_shell 拆出；去掉開頭的 `X=1`；echo／printf／Write-Output／Write-Host 這類只會印字的
-    指令整個不算）：引號裡被印出的字、註解、重導向目標、heredoc 內容都不在裡面。對帳 (a) 判「收據有沒有提到改的檔」用。"""
+    指令整個不算）：引號裡被印出的字、註解、重導向目標都不在裡面；白名單外語法 → []。對帳 (a) 判「收據有沒有提到改的檔」用。"""
     out: List[str] = []
-    for _, words in split_shell(str(cmd or "")):
-        ws = [w for w in words if w]
-        while ws and _ENV_ASSIGN_RE.match(ws[0]):
-            ws = ws[1:]
-        head = Path(ws[0].replace("\\", "/")).name.lower() if ws else ""
-        if ws and (head[:-4] if head.endswith(".exe") else head) not in _ECHO_PROGS:
+    for _, words, _ in split_shell(str(cmd or ""), shell)[0]:
+        ws = [w for w in (words if shell == "powershell" else _strip_env(words)) if w]
+        if ws and _prog(ws[0]) not in _ECHO_PROGS:
             out.extend(ws)
     return out
 
 
-def parse_cmds(cmd: Argv) -> List[Tuple[Optional[str], Cmd]]:
-    """指令（字串走 split_shell；argv 清單＝一個指令）→ [(接在前一個指令後的運算子, 正規化後的指令)]。"""
-    chunks = [(None, [str(t) for t in cmd])] if isinstance(cmd, (list, tuple)) else split_shell(str(cmd or ""))
-    out: List[Tuple[Optional[str], Cmd]] = []
-    for op, words in chunks:
-        nc = _norm_cmd(words)
-        if nc:
-            out.append((op if out else None, nc))
-    return out
+def _plain_filter(st: Step) -> bool:
+    """尾端過濾：`| tail`／`| head`／`| Select-Object` 只帶選項與數字（`-n 20`、`-5`、`-Last 5`），不帶檔名、沒有 < 輸入。"""
+    return (st.op == "|" and st.cmd[0] in _FILTER_PROGS and not st.stdin
+            and all(_FILTER_ARG_RE.match(t) for t in st.words[1:]))
 
 
-def _first_filter(cmds: List[Tuple[Optional[str], Cmd]]) -> int:
-    """尾端那串 `| tail …`／`| head …`／`| Select-Object …` 從第幾個指令開始（沒有就是 len）。"""
-    k = len(cmds)
-    while k > 1 and cmds[k - 1][0] == "|" and cmds[k - 1][1][0] in _FILTER_PROGS:
+def _first_filter(steps: List[Step]) -> int:
+    """尾端那串過濾從第幾個指令開始（沒有就是 len）。"""
+    k = len(steps)
+    while k > 1 and _plain_filter(steps[k - 1]):
         k -= 1
     return k
 
 
-def final_cmd(cmd: Argv) -> Optional[Cmd]:
-    """最後被執行的那個指令（尾端的 tail／head／Select-Object 不算）；沒有回 None。"""
-    cmds = parse_cmds(cmd)
-    k = _first_filter(cmds)
-    return cmds[k - 1][1] if k else None
+def _is_setup(st: Step) -> bool:
+    """量尺／整體驗證前面准接的指令：cd 類（根另判）、export／set／unset、PowerShell 變數指定（`$env:X="1"`、`$x = …`）。
+    這些不印哨兵；其他指令擺在前面，印出來的成功行分不出是誰印的，就不算。"""
+    w = st.words
+    if st.cmd[0] in _CD_PROGS:
+        return True
+    if st.cmd[0] in ("export", "set", "unset"):
+        return len(w) > 1 and all(_SETUP_ARG_RE.match(t) for t in w[1:])
+    return bool(_PS_ASSIGN_RE.match(w[0]) or (_PS_VAR_RE.match(w[0]) and len(w) > 1 and w[1].startswith("=")))
 
 
-def _same_cmd(m: Cmd, e: Cmd) -> bool:
-    """程式相同；量尺有的 python 直譯器選項它都要有；其他選項集合相等；位置參數照順序相等（不准多帶，`-k 某案`、多一個檔名都不算）。"""
-    return m[0] == e[0] and m[1] <= e[1] and m[2] == e[2] and m[3] == e[3]
+def _reachable(steps: List[Step], start: int) -> bool:
+    """steps[start] 一定會執行、輸出就是它的：接在開頭／;／換行／&& 之後（|| 可能沒跑、| 是把輸入給它），前面只有 cd 與環境設定。"""
+    return start == 0 or (steps[start].op in (";", "&&") and all(_is_setup(s) for s in steps[:start]))
 
 
-def cmd_matches(measure_cmd: Argv, cmd: Argv) -> bool:
-    """執行的指令 cmd 是不是跑了表上的量尺 measure_cmd：量尺的整條指令鏈（各指令與中間的 && || | ;）連續、運算子相同地出現，
-    而且就在最後；之後只准接 `| tail`、`| head`、`| Select-Object`。`量尺; echo 假的 DONE`、`量尺 && echo …`（量尺本身沒有那段）、
-    引號裡的量尺字樣、子集或多帶參數都對不上。"""
-    m, e = parse_cmds(measure_cmd), parse_cmds(cmd)
+def final_step(cmd: Argv, shell: str = "bash") -> Optional[Step]:
+    """輸出就是收據的那個指令：前面只准 cd 與環境設定、後面只准乾淨的尾端過濾；不是這種形狀（或白名單外語法）→ None。"""
+    steps = parse_cmds(cmd, shell)
+    k = _first_filter(steps)
+    return steps[k - 1] if k and _reachable(steps, k - 1) else None
+
+
+def is_whole_run(cmd: Argv, shell: str = "bash") -> bool:
+    """整體驗證（對所有改檔都算對得上）：final_step 是不帶任何參數的 run_verify.py，或不帶位置參數、只帶不縮範圍選項
+    （-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准 -X utf8、-u、-B。-k、-m、--lf、--collect-only、--deselect、
+    --ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）。"""
+    st = final_step(cmd, shell)
+    if not st:
+        return False
+    head, py, opts, pos = st.cmd
+    if not py <= _WHOLE_PY_OPTS:
+        return False
+    if head == "run_verify.py":
+        return not opts and not pos
+    return head == "pytest" and all(_PYTEST_WHOLE_OPT_RE.match(o) for o in opts) and all(p.startswith("no:") for p in pos)
+
+
+def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash") -> bool:
+    """執行的指令 cmd 是不是跑了表上的量尺 measure_cmd（量尺用 bash 規則解析，cmd 依 shell）：量尺的整條指令鏈
+    （各指令與中間的 && || | ;）連續、運算子相同地出現在最後；之後只准乾淨的尾端過濾；之前只准 cd 與環境設定，接的運算子
+    是開頭／;／換行／&&。各指令要完全相同：程式、python 直譯器選項集合、其他選項集合、位置參數順序（`-h`、`-u`、`-k 某案`、
+    多一個檔名都不算）。白名單外語法、`印假哨兵 || 量尺`、`量尺; echo 假的 DONE`、引號裡的量尺字樣都對不上。"""
+    m, e = parse_cmds(measure_cmd), parse_cmds(cmd, shell)
     if not m:
         return False
     for end in range(_first_filter(e), len(e) + 1):
         start = end - len(m)
-        if start >= 0 and all(_same_cmd(mc, ec) and (k == 0 or mo == eo)
-                              for k, ((mo, mc), (eo, ec)) in enumerate(zip(m, e[start:end]))):
+        if start >= 0 and _reachable(e, start) and all(
+                ms.cmd == es.cmd and (k == 0 or ms.op == es.op) for k, (ms, es) in enumerate(zip(m, e[start:end]))):
             return True
     return False
+
+
+def leading_cd(cmd: str, shell: str = "bash") -> Optional[str]:
+    """`cd <絕對路徑> && …`：第一個指令是 cd／pushd／Set-Location 帶單一字面絕對路徑，之後只用 && 與 | 串（cd 失敗後面就都不跑）、
+    沒有別的 cd → 回該路徑（Git Bash 的 /c/x 寫成 C:/x），收據根就用它；其餘 → None（照舊當根不可信）。"""
+    chunks = split_shell(str(cmd or ""), shell)[0]
+    if len(chunks) < 2 or len(chunks[0][1]) != 2 or _prog(chunks[0][1][0]) not in _CD_PROGS:
+        return None
+    path = chunks[0][1][1]
+    if not _ABS_DIR_RE.match(path) or any(ch in path for ch in "$~*?"):
+        return None
+    if any(op not in ("&&", "|") or (ws and _prog(ws[0]) in _CD_PROGS | {"popd", "pop-location"})
+           for op, ws, _ in chunks[1:]):
+        return None
+    m = re.match(r"^/([A-Za-z])(/.*)?$", path)
+    return f"{m.group(1).upper()}:{m.group(2) or '/'}" if m else path
 
 
 def _quote(t: str) -> str:
     if not t or not _SHELL_SPECIAL_RE.search(t):
         return t or "''"
-    return f"'{t}'" if "'" not in t else '"' + t.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return f"'{t}'" if "'" not in t else f'"{t}"'
 
 
 def cmd_of(argv: List[str]) -> str:
-    """收據上的指令字串：_canon 的結果接回一行（`python -X utf8 "C:\\中文專案\\run_verify.py"` → `python -X utf8 run_verify.py`）；
-    含空白或 shell 符號的參數加引號，split_shell 讀回來是同一串字。python 選項 `-X utf8` 本來就是兩個字，原樣接。"""
+    """收據上的指令字串（顯示用；比對用收據的 argv）：_canon 的結果接回一行（`python -X utf8 "C:\\中文專案\\run_verify.py"` →
+    `python -X utf8 run_verify.py`）；含空白或 shell 符號的參數加引號。python 選項 `-X utf8` 本來就是兩個字，原樣接。"""
     return " ".join(t if _PY_OPT_PAIR_RE.match(t) else _quote(t) for t in _canon(list(argv or [])))
 
 
