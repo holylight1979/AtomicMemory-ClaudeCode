@@ -253,6 +253,11 @@ def test_015_heredoc_body_and_echo_are_not_executed_words():
     ("python -X utf8 my\\ dir/run_verify.py", "反斜線跳脫"),
     ("echo VERIFY_CHECK PASS \\; python -X utf8 run_verify.py", "反斜線跳脫"),
     ("echo $'VERIFY_CHECK\\x20PASS'; python -X utf8 run_verify.py", "$'…'"),
+    ("python -X utf8 run_verify.py >", "重導向沒有目標"),                 # shell 語法錯誤：整條都沒跑
+    ("python -X utf8 run_verify.py ||| tail -5", "運算子前後缺指令"),
+    ("| python -X utf8 run_verify.py", "運算子前後缺指令"),
+    ("echo x && ; python -X utf8 run_verify.py", "運算子前後缺指令"),
+    ("python -X utf8 run_verify.py &&", "運算子前後缺指令"),
 ])
 def test_017_outside_whitelist_is_not_evidence_anywhere(cmd, kind):
     """017 規則 2、017b 規則 13／14：白名單外語法 → 兩種 shell 都說得出是哪一種，量尺比對、整體驗證、「提到改檔」三種用途都不算。"""
@@ -276,10 +281,21 @@ def test_017_outside_whitelist_is_not_evidence_anywhere(cmd, kind):
     ("cd C:\\proj && python -X utf8 run_verify.py", "powershell"),
     ("python -X utf8 C:\\\\proj\\\\run_verify.py", "bash"),               # bash 的 \\ 是一個反斜線
     ("python -X utf8 run_verify.py < /dev/null > $null 2>&1", "bash"),
+    ("cd C:\\proj &&\npython -X utf8 run_verify.py", "bash"),            # && 之後換行是合法續接
 ])
 def test_017_honest_forms_match(cmd, shell):
     """017 規則 1：白名單內的誠實寫法（引號、重導向、環境設定、cd <根>、續行、CRLF）照表上原字串跑 → 對得上。"""
     assert sr.unsupported_syntax(cmd, shell) is None and sr.cmd_matches(_MEASURE, cmd, shell), cmd
+
+
+def test_017_runs_programs_only_for_general_evidence():
+    """一般證據（對帳 (a)(b)）的形狀：整條只有跑程式的指令、cd／環境設定、留結尾的過濾；讀檔與印字的指令一出現就不算。"""
+    for ok in ("pytest -q tests/test_a.py", "python tools/x.py --check", "cd C:\\p && npm test", "./gradlew test",
+               ".\\verify.ps1", "WG=1 python -m pytest -q x.py 2>&1 | tail -3", "pytest a.py && pytest b.py"):
+        assert sr.runs_programs_only(ok, "powershell" if ok.startswith(".\\") else "bash"), ok
+    for bad in ("cat old.log", "Get-Content x.txt", "type x.txt", "pytest -q x.py; cat old.log", "echo hi",
+                "pytest -q x.py | grep passed", "pytest -q x.py | head -5", "iex x", ""):
+        assert not sr.runs_programs_only(bad), bad
 
 
 def test_017_script_file_shells_are_whitelisted():
@@ -295,6 +311,11 @@ def test_017_short_circuit_and_prefix_rules():
         assert not sr.cmd_matches(_MEASURE, bad), bad
     for ok in (f"cd C:\\proj && {_MEASURE}", f"export X=1; {_MEASURE}", f"X=1; {_MEASURE}"):
         assert sr.cmd_matches(_MEASURE, ok), ok
+    for ps_bad in (f"$x = Write-Host 'VERIFY_CHECK DONE cases=1 failed=0'; {_MEASURE} | Select-Object -Last 0",
+                   f"$x=Write-Host VERIFY_CHECK DONE; {_MEASURE}", f"$env:S = python fake.py x; {_MEASURE}"):
+        assert not sr.cmd_matches(_MEASURE, ps_bad, "powershell"), ps_bad                # 指定右邊是會印字的指令
+    for ps_ok in (f"$ErrorActionPreference = 'Stop'; {_MEASURE}", f'$env:X="1"; {_MEASURE}', f"$x =1; {_MEASURE}"):
+        assert sr.cmd_matches(_MEASURE, ps_ok, "powershell"), ps_ok
 
 
 def test_017b_6_powershell_string_expression_is_not_a_command():
@@ -319,13 +340,15 @@ def test_017b_7_python_options_must_be_equal():
 
 
 def test_017b_8_tail_filters_take_only_numbers_and_options():
-    """017b 規則 8：尾端過濾只准選項與數字；帶檔名、< 輸入、<<< 都不算。"""
-    for ok in (f"{_MEASURE} | tail -n 20", f"{_MEASURE} | head -5", f"{_MEASURE} 2>&1 | tail -n +3",
+    """017b 規則 8：尾端過濾只准選項與數字；帶檔名、< 輸入、<<< 都不算。再收窄成只准留結尾的過濾（tail、Select-Object -Last N）：
+    量尺的結論印在最後一行，head／-First 只會把結論切掉、留下前面輸出裡長得像哨兵的行。"""
+    for ok in (f"{_MEASURE} | tail -n 20", f"{_MEASURE} 2>&1 | tail -n +3", f"{_MEASURE} | tail -5",
                f"{_MEASURE} | Select-Object -Last 5", f"{_MEASURE} | tail --lines=20"):
         assert sr.cmd_matches(_MEASURE, ok), ok
     for bad in (f"{_MEASURE} | tail -n 20 old.log", f"{_MEASURE} | tail -n 20 < old.log",
                 f"{_MEASURE} | tail <<< 'VERIFY_CHECK PASS'", f"{_MEASURE} | Select-Object -ExpandProperty x",
-                f"{_MEASURE} | sed s/a/b/"):
+                f"{_MEASURE} | sed s/a/b/", f"{_MEASURE} | head -5", f"{_MEASURE} | Select-Object -First 5",
+                f"{_MEASURE} | Select-Object -SkipLast 1"):
         assert not sr.cmd_matches(_MEASURE, bad), bad
 
 
@@ -337,6 +360,7 @@ def test_017b_8_tail_filters_take_only_numbers_and_options():
     ("pytest -q --ignore=x", False), ("pytest -q --maxfail=1", False), ("pytest -q -o testpaths=x", False),
     ("pytest -q -p xdist", False), (f"{_MEASURE} --json", False), ("python -O -m pytest -q", False),
     ("python -h -X utf8 run_verify.py", False), ("echo VERIFY_CHECK PASS; pytest -q", False), (f"printf x || {_MEASURE}", False),
+    ("pytest no:fake", False), ("pytest -p", False), ("pytest -q -p no:x no:y", False),        # codex 初審 WARN 4：-p 要配值
 ])
 def test_017b_9_whole_run_is_a_whitelist(cmd, whole):
     """017b 規則 9：整體驗證只有不帶參數的 run_verify.py、不帶位置參數也不帶縮範圍選項的 pytest。"""
@@ -367,6 +391,8 @@ def test_017_leading_cd_root_only_for_single_absolute_cd():
     for bad in (f"cd proj && {_MEASURE}", f"cd C:\\proj; {_MEASURE}", f"cd C:\\proj && cd sub && {_MEASURE}",
                 f"cd C:\\proj || {_MEASURE}", f"cd ~/p && {_MEASURE}", f"{_MEASURE} && cd C:\\p", "cd C:\\proj"):
         assert sr.leading_cd(bad) is None, bad
+    assert sr.abs_scripts('python -X utf8 "/c/X/run_verify.py" && python -X utf8 C:\\Y\\a.py && python b.py') == [
+        "c:/x/run_verify.py", "c:/y/a.py"]                                              # 只回絕對路徑的腳本
 
 
 def test_017_all_root_table_rulers_parse_and_match_themselves():

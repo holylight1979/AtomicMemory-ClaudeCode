@@ -36,8 +36,10 @@ _ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _FD_RE = re.compile(r"^(?:\d|\*)$")
 _SHELL_SPECIAL_RE = re.compile(r"[\s;&|<>()'\"#`$]")
 _ESCAPED_RE = re.compile(r"[\s;&|<>()'\"#`${}*?\[\]!~]")    # 反斜線後接這些＝shell 跳脫（白名單外）
-_FILTER_PROGS = frozenset({"tail", "head", "select-object", "select"})   # 尾端只准接這幾支：只會刪行，造不出成功行
-_FILTER_ARG_RE = re.compile(r"^(?:[+-]?\d+|--?[A-Za-z][A-Za-z-]*=?\d*)$")  # 尾端過濾只准選項與數字（不帶檔名）
+# 尾端只准接留結尾的過濾：只會刪行、造不出成功行，又留得住印在最後一行的結論（head／-First 只會把結論行切掉）
+_FILTER_PROGS = frozenset({"tail", "select-object", "select"})
+_FILTER_ARG_RE = re.compile(r"^(?:[+-]?\d+|--?[A-Za-z][A-Za-z-]*=?\d*)$")  # tail 只准選項與數字（不帶檔名）
+_LAST_ONLY_RE = re.compile(r"^-last$", re.IGNORECASE)                    # Select-Object 只准 -Last N
 _ECHO_PROGS = frozenset({"echo", "printf", "write-output", "write-host", "write", "out-host"})   # 只會印字的指令
 _CD_PROGS = frozenset({"cd", "pushd", "set-location", "sl", "chdir", "push-location"})
 _CTRL_WORDS = frozenset({"if", "then", "elif", "else", "fi", "for", "foreach", "while", "until", "do", "done",
@@ -52,8 +54,16 @@ _PS_VAR_RE = re.compile(r"^\$[A-Za-z_][\w:]*$")
 _PS_ASSIGN_RE = re.compile(r"^\$[A-Za-z_][\w:]*=")
 _ABS_DIR_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|/[A-Za-z](?:/|$))")
 _WHOLE_PY_OPTS = frozenset({"-X utf8", "-u", "-B"})              # 整體驗證准帶的直譯器選項（不改變跑什麼）
-_PYTEST_WHOLE_OPT_RE = re.compile(r"^(?:-[qvsx]+|-p|-r\w+|--tb=\w+|--color=\w+|--no-header|--disable-warnings"
-                                  r"|--strict-markers)$")        # 整體驗證准帶的 pytest 選項（白名單；沒列的都不算）
+_PYTEST_WHOLE_OPT_RE = re.compile(r"^(?:-[qvsx]+|-r\w+|--tb=\w+|--color=\w+|--no-header|--disable-warnings"
+                                  r"|--strict-markers)$")        # 整體驗證准帶的 pytest 選項（白名單；沒列的都不算；-p 另配值）
+# 跑程式的指令（直譯器、測試與建置工具、腳本檔）：一般證據（對帳 (a) 提到改檔、(b) 量了）的輸出要是它們印的；
+# 讀檔與印字的指令（cat、Get-Content、type、echo…）不在裡面，印出舊 log 的哨兵不算
+_RUNNER_PROGS = frozenset({
+    "python", "pytest", "py.test", "tox", "nox", "node", "deno", "bun", "npm", "npx", "pnpm", "yarn", "jest", "vitest",
+    "mocha", "dotnet", "go", "cargo", "make", "cmake", "ctest", "msbuild", "ninja", "java", "mvn", "gradle", "gradlew",
+    "ruby", "rspec", "rake", "bundle", "php", "phpunit", "composer", "perl", "lua", "rscript", "swift", "dart",
+    "flutter", "julia", "sbt", "bash", "sh", "zsh", "pwsh", "powershell"})
+_SCRIPT_EXTS = (".py", ".sh", ".ps1", ".bat", ".cmd", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl")
 
 Argv = Union[str, List[str]]
 Cmd = Tuple[str, FrozenSet[str], FrozenSet[str], Tuple[str, ...]]      # (程式, python 直譯器選項, 其他選項, 位置參數)
@@ -66,6 +76,7 @@ class Step(NamedTuple):
     cmd: Cmd                    # 正規化後的指令
     words: Tuple[str, ...]      # 原字（bash 已去開頭的 X=1）
     stdin: bool                 # 有 < 輸入重導向（尾端過濾改讀檔）
+    args: Tuple[str, ...]       # 程式之後的正規化 token，照原順序（選項與值的配對要看順序）
 
 
 class _Unsupported(Exception):
@@ -104,16 +115,18 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
         cur.clear()
         has = False
 
-    def end_cmd(nxt: str) -> None:
-        nonlocal op, skip, stdin
+    def end_cmd(nxt: str, hard: bool = False) -> None:
+        """一個指令結束；nxt＝接下一個指令的運算子。hard＝字面的 ; 或輸入結尾（換行接在 && || | 後面是合法續接，不算）。"""
+        nonlocal op, stdin
         end_word()
-        skip = False
+        if skip:
+            raise _Unsupported("重導向沒有目標")
         if words:
             out.append((op, list(words), stdin))
             words.clear()
             op = nxt
-        elif nxt != ";":
-            op = nxt
+        elif nxt != ";" or (hard and out and op in ("&&", "||", "|")):
+            raise _Unsupported("運算子前後缺指令")
         stdin = False
 
     def string_start() -> None:
@@ -201,12 +214,12 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
         elif c == "&":
             raise _Unsupported("單獨的 &（背景執行／PowerShell 呼叫運算子）")
         elif c in "|;\n":
-            end_cmd("|" if c == "|" else ";")
+            end_cmd("|" if c == "|" else ";", hard=c == ";")
             i += 1
         else:
             cur.append(c)
             has, i = True, i + 1
-    end_cmd(";")
+    end_cmd(";", hard=True)
     for _, ws, _ in out:                                          # 指令層：控制結構、把字串當指令跑、另起一層 shell
         w = ws if ps else _strip_env(ws)
         if not w:
@@ -269,9 +282,10 @@ def _canon(toks: List[str]) -> List[str]:
     return ["python", *opts, *(_low(t) for t in rest)]
 
 
-def _norm_cmd(words: List[str]) -> Optional[Cmd]:
-    """一個指令 → (程式, python 直譯器選項, 其他選項, 位置參數)。python 跑腳本時程式＝腳本檔名、`python -m 模組` 時程式＝模組
-    （`pytest -q x` 與 `python -m pytest -q x` 同一支）；`-` 開頭的是選項（收成集合，順序不計），其餘是位置參數（照順序）。"""
+def _norm_cmd(words: List[str]) -> Optional[Tuple[Cmd, Tuple[str, ...]]]:
+    """一個指令 → ((程式, python 直譯器選項, 其他選項, 位置參數), 程式之後照順序的 token)。python 跑腳本時程式＝腳本檔名、
+    `python -m 模組` 時程式＝模組（`pytest -q x` 與 `python -m pytest -q x` 同一支）；`-` 開頭的是選項（收成集合，順序不計），
+    其餘是位置參數（照順序）。"""
     c = _canon(words)
     if not c:
         return None
@@ -285,8 +299,8 @@ def _norm_cmd(words: List[str]) -> Optional[Cmd]:
         elif i < len(c) and not c[i].startswith("-"):
             head, i = c[i], i + 1
     rest = c[i:]
-    return (head, frozenset(py_opts), frozenset(t for t in rest if t.startswith("-")),
-            tuple(t for t in rest if not t.startswith("-")))
+    return ((head, frozenset(py_opts), frozenset(t for t in rest if t.startswith("-")),
+             tuple(t for t in rest if not t.startswith("-"))), tuple(rest))
 
 
 def parse_cmds(cmd: Argv, shell: str = "bash") -> List[Step]:
@@ -298,7 +312,7 @@ def parse_cmds(cmd: Argv, shell: str = "bash") -> List[Step]:
         ws = words if argv or shell == "powershell" else _strip_env(words)
         nc = _norm_cmd(ws)
         if nc:
-            out.append(Step(op if out else None, nc, tuple(ws), stdin))
+            out.append(Step(op if out else None, nc[0], tuple(ws), stdin, nc[1]))
     return out
 
 
@@ -314,9 +328,13 @@ def exec_words(cmd: str, shell: str = "bash") -> List[str]:
 
 
 def _plain_filter(st: Step) -> bool:
-    """尾端過濾：`| tail`／`| head`／`| Select-Object` 只帶選項與數字（`-n 20`、`-5`、`-Last 5`），不帶檔名、沒有 < 輸入。"""
-    return (st.op == "|" and st.cmd[0] in _FILTER_PROGS and not st.stdin
-            and all(_FILTER_ARG_RE.match(t) for t in st.words[1:]))
+    """尾端過濾：`| tail` 只帶選項與數字（`-n 20`、`-5`、`-n +3`）、`| Select-Object -Last N`；不帶檔名、沒有 < 輸入。"""
+    if st.op != "|" or st.cmd[0] not in _FILTER_PROGS or st.stdin:
+        return False
+    args = st.words[1:]
+    if st.cmd[0] == "tail":
+        return all(_FILTER_ARG_RE.match(t) for t in args)
+    return len(args) == 2 and bool(_LAST_ONLY_RE.match(args[0])) and args[1].isdigit()
 
 
 def _first_filter(steps: List[Step]) -> int:
@@ -328,14 +346,21 @@ def _first_filter(steps: List[Step]) -> int:
 
 
 def _is_setup(st: Step) -> bool:
-    """量尺／整體驗證前面准接的指令：cd 類（根另判）、export／set／unset、PowerShell 變數指定（`$env:X="1"`、`$x = …`）。
-    這些不印哨兵；其他指令擺在前面，印出來的成功行分不出是誰印的，就不算。"""
+    """量尺／整體驗證前面准接的指令：cd 類（根另判）、export／set／unset、PowerShell 變數指定（`$env:X="1"`、`$x = 'Stop'`）。
+    這些不印東西；其他指令擺在前面，印出來的成功行分不出是誰印的，就不算。PowerShell 指定的右邊只准一個字：
+    `$x = Write-Host '…'` 的 Write-Host 會直接印到畫面（指定接不住），右邊是指令就不算。"""
     w = st.words
     if st.cmd[0] in _CD_PROGS:
         return True
     if st.cmd[0] in ("export", "set", "unset"):
         return len(w) > 1 and all(_SETUP_ARG_RE.match(t) for t in w[1:])
-    return bool(_PS_ASSIGN_RE.match(w[0]) or (_PS_VAR_RE.match(w[0]) and len(w) > 1 and w[1].startswith("=")))
+    if _PS_ASSIGN_RE.match(w[0]):
+        rhs = [w[0].split("=", 1)[1], *w[1:]]
+    elif _PS_VAR_RE.match(w[0]) and len(w) > 1 and w[1].startswith("="):
+        rhs = [w[1][1:], *w[2:]]
+    else:
+        return False
+    return len([t for t in rhs if t]) <= 1
 
 
 def _reachable(steps: List[Step], start: int) -> bool:
@@ -355,14 +380,35 @@ def is_whole_run(cmd: Argv, shell: str = "bash") -> bool:
     （-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准 -X utf8、-u、-B。-k、-m、--lf、--collect-only、--deselect、
     --ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）。"""
     st = final_step(cmd, shell)
-    if not st:
+    if not st or not st.cmd[1] <= _WHOLE_PY_OPTS:
         return False
-    head, py, opts, pos = st.cmd
-    if not py <= _WHOLE_PY_OPTS:
+    if st.cmd[0] == "run_verify.py":
+        return not st.args
+    if st.cmd[0] != "pytest":
         return False
-    if head == "run_verify.py":
-        return not opts and not pos
-    return head == "pytest" and all(_PYTEST_WHOLE_OPT_RE.match(o) for o in opts) and all(p.startswith("no:") for p in pos)
+    i, a = 0, st.args
+    while i < len(a):                                             # 照順序看：-p 後面一定要接 no:…，其餘只准白名單選項
+        if a[i] == "-p" and i + 1 < len(a) and a[i + 1].startswith("no:"):
+            i += 2
+        elif _PYTEST_WHOLE_OPT_RE.match(a[i]):
+            i += 1
+        else:
+            return False
+    return True
+
+
+def _runs_program(st: Step) -> bool:
+    """這個指令是跑程式的（直譯器、測試與建置工具、腳本檔）。"""
+    name = _prog(st.words[0]) if st.words else ""
+    return name in _RUNNER_PROGS or bool(_PY_HEAD_RE.match(name)) or name.endswith(_SCRIPT_EXTS)
+
+
+def runs_programs_only(cmd: Argv, shell: str = "bash") -> bool:
+    """整條指令只有跑程式的指令、cd 與環境設定、留結尾的尾端過濾（白名單外語法 → False）。一般證據（對帳 (a) 提到改檔、
+    (b) 量了）要這種形狀：讀檔與印字的指令（cat、Get-Content、type、echo…）一出現，印出來的哨兵就分不出是誰印的。"""
+    steps = parse_cmds(cmd, shell)
+    k = _first_filter(steps)
+    return bool(steps) and all(_runs_program(s) or _is_setup(s) for s in steps[:k])
 
 
 def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash") -> bool:
@@ -379,6 +425,31 @@ def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash") -> bool:
                 ms.cmd == es.cmd and (k == 0 or ms.op == es.op) for k, (ms, es) in enumerate(zip(m, e[start:end]))):
             return True
     return False
+
+
+def abs_path(word: str) -> Optional[str]:
+    """字面絕對路徑 → 正規化（斜線、小寫，Git Bash 的 /c/x 寫成 c:/x）；不是絕對路徑 → None。"""
+    if not _ABS_DIR_RE.match(word):
+        return None
+    m = re.match(r"^/([A-Za-z])(/.*)?$", word)
+    p = f"{m.group(1)}:{m.group(2) or '/'}" if m else word
+    return p.replace("\\", "/").rstrip("/").lower()
+
+
+def abs_scripts(cmd: Argv, shell: str = "bash") -> List[str]:
+    """python 跑的腳本裡用絕對路徑寫的那些（abs_path 正規化）：量尺比對只看檔名，呼叫端要確認它們在收據根底下。"""
+    out: List[str] = []
+    for st in parse_cmds(cmd, shell):
+        w = st.words
+        if not w or not _PY_HEAD_RE.match(_prog(w[0])):
+            continue
+        i = 1
+        while i < len(w) and w[i].startswith("-") and w[i] not in ("-", "-m", "-c"):
+            i += 2 if w[i] in _PY_OPT_ARG else 1
+        p = abs_path(w[i]) if i < len(w) and not w[i].startswith("-") else None
+        if p:
+            out.append(p)
+    return out
 
 
 def leading_cd(cmd: str, shell: str = "bash") -> Optional[str]:

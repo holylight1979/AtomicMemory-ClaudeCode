@@ -1432,9 +1432,12 @@ def test_009_3_real_receipt_with_abs_script_path(run, blocked):
 
 
 def test_009_3_session_receipt_uses_same_normalization(driven, capsys, monkeypatch):
-    """前景跑的 session 收據也走同一套比對：絕對腳本路徑、`-Xutf8` 寫法都對得上量尺；017b 規則 7：多帶 `-u` 不算。"""
+    """前景跑的 session 收據也走同一套比對：絕對腳本路徑、`-Xutf8` 寫法都對得上量尺；017b 規則 7：多帶 `-u` 不算。
+    017：量尺只比腳本檔名，所以絕對路徑的腳本要在收據根底下；別棵樹的 run_verify（例：從 worktree 跑 live 的）量的不是這裡。"""
     monkeypatch.setattr(wo, "_lookup", _lookup)
-    for cmd, blocked in ((_ABS_CMD, False), ("python -Xutf8 run_verify.py", False), ("python -u -X utf8 run_verify.py", True)):
+    for cmd, blocked in (('python -X utf8 "c:\\proj\\run_verify.py"', False), ("python -Xutf8 run_verify.py", False),
+                         ("python -u -X utf8 run_verify.py", True), (_ABS_CMD, True),
+                         ("python -X utf8 C:\\Users\\holylight\\.claude\\run_verify.py", True)):
         out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)],
                            verify_receipts={_SID: [_rcpt(4, "DONE", 0, cmd=cmd)]}, anti_evasion_report=_aec(5, "無", "無"))
         assert ("MeasureGate" in out) is blocked, cmd
@@ -1719,10 +1722,14 @@ def test_017b_10_measured_claim_accepts_qualified_self_receipt(driven, capsys, m
 
 @pytest.mark.parametrize("cmd, related", [
     ("pytest -q tests/test_widget.py", True),
+    ("pytest -q c:\\proj\\tests\\test_widget.py", True),
+    ("pytest -q c:\\other\\tests\\test_widget.py", False),                            # 別棵樹的同名測試
     ("cat tests/test_widget.py && echo X_CHECK PASS", False),
     ("cat tests/test_widget.py; xargs echo X_CHECK PASS < /dev/null", False),
     ("cat tests/test_widget.py; printf 'X\\x5fCHECK PASS\\n'", False),                # 跳脫還原後是哨兵
     ("cat tests/test_widget.py; echo -e 'X_CHECK\\tPASS'", False),
+    ('cat tests/test_widget.py; echo "X_CHECK$x PASS"', False),                       # 空變數拿掉就是哨兵
+    ('V="X_CHECK PASS"; cat tests/test_widget.py; echo $V', False),
 ])
 def test_017b_11_sentinel_written_in_args_is_not_evidence(driven, capsys, cmd, related):
     """017b 規則 11：哨兵只能由被執行的程式印出；同一條指令裡參數寫了哨兵字樣（echo、printf、xargs echo…）→ (a) 不算。"""
@@ -1751,6 +1758,61 @@ def test_017_root_worktree_pytest_done_must_come_from_pytest(tmp_path, monkeypat
     for fake in ('echo "=== 5 passed in 0.1s ==="', "cat old-pytest.log", f"cat old-pytest.log; {_PYTEST_CMD} | tail -3",
                  f"{_PYTEST_CMD}; echo '5 passed'"):
         assert gate(fake) is not None, fake
+
+
+# ─── 017 codex 初審：指定式藏假哨兵、讀舊輸出檔冒充、done_receipts 預設也 fail-closed ─────────────────────
+
+_PYTEST_RULE = {"regex": "^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed))", "name": "PYTEST_MEASURE",
+                "verdict_map": {"failed": "FAIL", "passed": "DONE"}}
+
+
+def test_017_codex1_powershell_assignment_cannot_print_fake_pytest_summary(tmp_path, monkeypatch):
+    """codex 初審 BLOCK 1：`$env:S="5 passed"; $x=Write-Host $env:S; python -m pytest --version`（PowerShell 實跑會印出假摘要）
+    經 PostToolUse 落帳 → 根層 worktree 量尺閘不認；真的跑 pytest 印的摘要 → 認。"""
+    from handlers import post_tool_use as pt
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path / "wf")
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    mod = str(wt / "hooks" / "x.py")
+
+    def gate(cmd, stdout):
+        state = {"turn_seq": 5, "session": {"cwd": str(wt)}}
+        assert pt._track_sentinels(state, {"tool_response": {"stdout": stdout}, "cwd": str(wt)}, cmd, "PowerShell",
+                                   {"verify_ledger": {"sentinel_regex": [_PYTEST_RULE]}}, _SID)
+        return vl.measure_gate_reason([_mf(mod, 5)], state["verify_receipts"][_SID], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)[0]
+
+    fake = '$env:S="5 passed"; $x=Write-Host $env:S; python -m pytest --version'
+    assert gate(fake, "5 passed\npytest 8.3.0\n") is not None
+    assert gate("$x = Write-Host '=== 5 passed ==='; python -m pytest --version", "=== 5 passed ===\npytest 8.3.0\n") is not None
+    assert gate(_PYTEST_CMD, "1 passed in 0.10s\n") is None
+
+
+@pytest.mark.parametrize("cmd, tool, ok", [
+    ("Get-Content hooks/verify/fixtures/v6/q6/pass_exit0.txt", "PowerShell", False),
+    ("cat hooks/verify/old-run.log", "Bash", False),
+    ("python -m pytest hooks/verify/verify_x.py; Get-Content old.log", "PowerShell", False),
+    ("python -m pytest hooks/verify/verify_x.py", "Bash", True),
+    ("python -m pytest hooks/verify/verify_other.py && python -m pytest hooks/verify/verify_x.py", "Bash", True),
+])
+def test_017_codex2_reading_old_output_is_not_evidence(driven, capsys, cmd, tool, ok):
+    """codex 初審 BLOCK 2：改了 hooks/x.py，拿 Get-Content／cat 印出舊輸出檔（路徑含 hooks/verify/、內容有 PASS 與 DONE）→
+    對帳 (a)(b) 都不認；整條都是跑程式的指令 → 認。"""
+    r = {**_rcpt(5, "PASS", None, cmd=cmd, at=_T2), "tool": tool}
+    r["sentinels"].append({"name": "X", "verdict": "DONE", "kv": {}})
+    mods = [_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)]
+    out, _, _ = driven("修好了，我量了，全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
+    assert ("(a) 說「修好」" not in out and "(b) 說「量了」" not in out) is ok, cmd
+    if not ok and "Get-Content hooks" in cmd:
+        assert "讀檔或印字的指令" in out
+
+
+def test_017_codex3_done_receipts_without_ruler_is_fail_closed():
+    """codex 初審 WARN 3：沒指定量尺的 done_receipts 也先驗語法與證據形狀。"""
+    for bad in ("echo $(date)", "iex x", "cmd /c echo x", "Get-Content old.log", "echo X DONE"):
+        assert vl.done_receipts([_rcpt(5, "DONE", 0, cmd=bad)]) == [], bad
+    good = _rcpt(5, "DONE", 0, cmd=MEASURE_CMD)
+    assert vl.done_receipts([good]) == [good]
 
 
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────
