@@ -55,7 +55,7 @@ if sys.platform == "win32":
             stream.reconfigure(encoding="utf-8", errors="replace")
 
 # ─── Import shared core from lib/ ───────────────────────────────────────────
-_CLAUDE_ROOT = str(CLAUDE_DIR)
+_CLAUDE_ROOT = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 if _CLAUDE_ROOT not in sys.path:
     sys.path.insert(0, _CLAUDE_ROOT)
 

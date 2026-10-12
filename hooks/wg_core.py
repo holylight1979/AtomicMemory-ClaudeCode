@@ -25,9 +25,11 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 # ─── 全域路徑常數 ────────────────────────────────────────────────────────────
 
-# WG_CLAUDE_DIR：worktree 內跑 verify 時指到 worktree 根，lib 與 workflow 都跟著走；未設＝家目錄 ~/.claude（行為不變）
+# CLAUDE_DIR＝使用者資料根（memory、workflow、config、Logs）：WG_CLAUDE_DIR 可覆蓋，未設＝家目錄 ~/.claude。
+# CODE_DIR＝程式碼根（hooks、lib、tools）：一律由本檔位置推，不吃 WG_CLAUDE_DIR、不看家目錄。
 _CLAUDE_DIR_OVERRIDE = os.environ.get("WG_CLAUDE_DIR", "").strip()
 CLAUDE_DIR = Path(_CLAUDE_DIR_OVERRIDE) if _CLAUDE_DIR_OVERRIDE else Path.home() / ".claude"
+CODE_DIR = Path(__file__).resolve().parents[1]
 MEMORY_DIR = CLAUDE_DIR / "memory"
 EPISODIC_DIR = MEMORY_DIR / "episodic"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
@@ -39,7 +41,7 @@ ATOM_INDEX = "_ATOM_INDEX.md"
 REGISTRY_PATH = MEMORY_DIR / "project-registry.json"
 
 # atom 物理位置 / 白名單規則來源（單一來源 lib.atom_locations）
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+sys.path.insert(0, str(CODE_DIR / "lib"))
 try:
     from atom_locations import (
         atom_writable_dir_segments, failures_atom_stems, is_local_realm_path,

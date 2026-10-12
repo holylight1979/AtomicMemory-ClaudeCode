@@ -51,7 +51,7 @@ def _last_human_uuid(transcript_path: str) -> Optional[str]:
         return None
     try:
         import sys
-        lib_root = str(CLAUDE_DIR)
+        lib_root = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
         if lib_root not in sys.path:
             sys.path.insert(0, lib_root)
         from lib.provenance import last_human_record  # noqa: WPS433
@@ -83,7 +83,7 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
             return out
 
         import sys
-        lib_root = str(CLAUDE_DIR)
+        lib_root = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
         if lib_root not in sys.path:
             sys.path.insert(0, lib_root)
         from lib.atom_io import edit_metadata

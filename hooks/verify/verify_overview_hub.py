@@ -1271,3 +1271,46 @@ def test_measure_gate_fixture_with_same_map_is_not_root_worktree(tmp_path, monke
     assert gate(wt) is None                                                            # 真 worktree：認目標 verify 的 pytest DONE
     reason = gate(fixture)
     assert reason and "[Guardian:MeasureGate]" in reason and "PYTEST_MEASURE" not in reason   # 反例：fixture 不走 worktree 規則
+
+
+# ─── 網路路徑（UNC）：不呼叫 realpath，直接不是根層 worktree ─────────────────────────
+
+@pytest.fixture
+def unc_realpath_guard(monkeypatch):
+    """realpath 遇到網路路徑就記下並拋例外（真環境會卡數秒）；本機路徑照常算。"""
+    real = os.path.realpath
+    hits = []
+
+    def guarded(p, *a, **kw):
+        s = str(p).replace("\\", "/").lower()
+        if s.startswith("//?/unc/") or (s.startswith("//") and not s.startswith(("//?/", "//./"))):
+            hits.append(str(p))
+            raise AssertionError(f"realpath called on UNC: {p}")
+        return real(p, *a, **kw)
+    monkeypatch.setattr(oh.os.path, "realpath", guarded)
+    return hits
+
+
+def test_unc_paths_skip_realpath_and_are_never_root_worktree(tmp_path, unc_realpath_guard):
+    live = tmp_path / "claude"
+    (live / ".claude").mkdir(parents=True)
+    (live / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
+    for unc in (Path("\\\\server\\share\\wt"), Path("\\\\?\\UNC\\server\\share\\wt"), Path("\\\\?\\unc\\server\\share\\wt")):
+        assert oh.is_root_worktree(unc, live) is False
+        assert oh.card_mem_dir(unc, live) == unc / ".claude" / "memory"
+        assert oh.is_root_worktree(live, unc) is False                                  # claude_dir 是網路路徑也直接不是
+    assert oh._same_dir_norm(Path("\\\\?\\UNC\\server\\share"), Path("\\\\server\\share")) is True
+    assert oh._same_dir_norm(Path("\\\\server\\share\\a"), Path("\\\\server\\share\\b")) is False
+    assert unc_realpath_guard == []                                                     # 一次都沒對網路路徑呼叫 realpath
+
+
+def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_guard):
+    live, wt = tmp_path / "claude", tmp_path / "wt"
+    for d in (live, wt):
+        (d / ".claude").mkdir(parents=True)
+        (d / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
+    _link_wt(live, wt)
+    assert oh.is_root_worktree(wt, live) is True                                        # 正例：本機路徑照常走完三條
+    assert oh.card_mem_dir(wt, live) == wt / "memory"
+    assert oh.card_mem_dir(live, live) == live / "memory"
+    assert unc_realpath_guard == []

@@ -23,15 +23,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"
+CLAUDE_DIR = Path.home() / ".claude"          # 使用者資料根（workflow、config）
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
-COMPANION_DIR = CLAUDE_DIR / "tools" / "codex-companion"
+COMPANION_DIR = Path(__file__).resolve().parents[1] / "tools" / "codex-companion"   # 程式碼：用本檔位置推樹根
 AUDIT_SCRIPT = COMPANION_DIR / "audit.py"
 
-# Add companion dir to path for heuristics/state import（程式碼位置用本檔推樹根，不用 Path.home()）
-_COMPANION_CODE_DIR = Path(__file__).resolve().parents[1] / "tools" / "codex-companion"
-for _p in (str(_COMPANION_CODE_DIR), str(Path(__file__).resolve().parent)):
+# Add companion dir to path for heuristics/state import
+for _p in (str(COMPANION_DIR), str(Path(__file__).resolve().parent)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -1042,8 +1041,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
     max_audits = int(config.get("max_audits_per_session", 30))
 
     try:
-        if str(_COMPANION_CODE_DIR) not in sys.path:
-            sys.path.insert(0, str(_COMPANION_CODE_DIR))
+        if str(COMPANION_DIR) not in sys.path:
+            sys.path.insert(0, str(COMPANION_DIR))
         import scorer
         score = scorer.compute_turn_score(merged_state, stop_text=last_assistant_tail)
     except Exception as e:

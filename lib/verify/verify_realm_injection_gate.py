@@ -15,12 +15,13 @@ from pathlib import Path
 
 import pytest  # noqa: F401  (pytest 收集需要)
 
-CLAUDE = Path.home() / ".claude"
-for _p in (CLAUDE / "hooks", CLAUDE / "lib", CLAUDE):
+CODE = Path(__file__).resolve().parents[2]   # 本測試所在的樹根：程式碼從這裡載
+for _p in (CODE / "hooks", CODE / "lib", CODE):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
 import atom_locations  # noqa: E402  (monkeypatch CROSS_PROJECT_LOCAL_DOMAINS 的宿主)
+from wg_core import CLAUDE_DIR as CLAUDE  # noqa: E402  資料根（WG_CLAUDE_DIR 或 ~/.claude）：「在根層之內」的判準
 from wg_core import (  # noqa: E402
     _is_under_claude_dir, is_local_realm_path, is_cross_project_local,
 )

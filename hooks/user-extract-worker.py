@@ -38,7 +38,7 @@ from wg_core import (
     _is_under_claude_dir,
 )
 
-_CLAUDE_ROOT = str(CLAUDE_DIR)
+_CLAUDE_ROOT = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 if _CLAUDE_ROOT not in sys.path:
     sys.path.insert(0, _CLAUDE_ROOT)
 
@@ -52,7 +52,7 @@ from lib.ollama_extract_core import (
 from lib.atom_io import write_atom
 from wg_evasion import evaluate_session
 
-sys.path.insert(0, str(CLAUDE_DIR / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from ollama_client import get_client
 
 # Windows cp950 → UTF-8

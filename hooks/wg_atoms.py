@@ -36,7 +36,7 @@ from wg_core import (
 )
 
 # prefer _atom_index.json (machine source of truth)
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 try:
     from atom_index_json import (load_atom_index_json, to_atom_entries, ATOM_INDEX_JSON,
                                  delete_atom as index_delete_atom)

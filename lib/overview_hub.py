@@ -273,8 +273,18 @@ def _strip_long(s: str) -> str:
     return s[4:] if head.startswith("//?/") else s
 
 
+def _is_unc(p: Path) -> bool:
+    """網路路徑（`\\\\server\\share`、`\\\\?\\UNC\\…`，前綴不分大小寫）；`\\\\?\\C:\\` 與 `\\\\.\\` 裝置路徑不算。"""
+    s = str(p).replace("\\", "/")
+    low = s.lower()
+    return low.startswith("//?/unc/") or (s.startswith("//") and not low.startswith(("//?/", "//./")))
+
+
 def _norm_dir(p: Path) -> str:
-    """realpath＋反斜線轉正＋小寫，剝 `\\\\?\\`、`\\\\?\\UNC\\` 長路徑前綴（前綴不分大小寫）。"""
+    """realpath＋反斜線轉正＋小寫，剝 `\\\\?\\`、`\\\\?\\UNC\\` 長路徑前綴（前綴不分大小寫）；
+    網路路徑不呼叫 realpath（伺服器不在時會卡數秒），只做字串正規化。"""
+    if _is_unc(p):
+        return _strip_long(str(p)).rstrip("/").lower()
     return _strip_long(os.path.realpath(_strip_long(str(p)))).rstrip("/").lower()
 
 
@@ -306,9 +316,11 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
     1. root 與 claude_dir 不是同一目錄；
     2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下；
     3. 兩邊的 .claude/overview-map.md 位元組相同（任一不存在 → 不是）。
-    純函式，不碰 state。"""
+    任一邊是網路路徑 → 直接不是（網路路徑不可能是 ~/.claude 的 worktree），不碰檔案系統。純函式，不碰 state。"""
     try:
         r, c = Path(root), Path(claude_dir)
+        if _is_unc(r) or _is_unc(c):
+            return False
         if _same_dir_norm(r, c):
             return False
         gitdir = _gitdir_of(r)
@@ -321,8 +333,11 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
 
 def card_mem_dir(root: Path, claude_dir: Path) -> Path:
     """某個根的導讀卡住在哪個 memory 目錄（hook 注入與第二意見工具共用這一份）：
-    root 就是 claude_dir → `claude_dir/memory`；root 是根層 worktree → `root/memory`；其他 → `root/.claude/memory`。"""
+    root 就是 claude_dir → `claude_dir/memory`；root 是根層 worktree → `root/memory`；其他 → `root/.claude/memory`。
+    root 是網路路徑 → 直接 `root/.claude/memory`，不呼叫 realpath。"""
     r, c = Path(root), Path(claude_dir)
+    if _is_unc(r):
+        return r / ".claude" / "memory"
     if _same_dir_norm(r, c):
         return c / "memory"
     if is_root_worktree(r, c):

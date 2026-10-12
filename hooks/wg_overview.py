@@ -32,7 +32,7 @@ from wg_core import (
     org_memory_root, resolve_project_root,
 )
 
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     DEFAULT_LOCATE_TEMPLATE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
