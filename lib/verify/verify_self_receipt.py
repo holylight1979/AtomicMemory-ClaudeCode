@@ -171,7 +171,6 @@ def test_013_3_compound_rulers_from_root_table(part):
 def test_013_2_quotes_echo_and_subsets_do_not_count():
     """013 BLOCK 2：引號裡的字（含分號）不切、echo 的參數不是指令、子集與多帶參數不是那把尺；選項順序、PowerShell 管線過濾照算。"""
     fake = "echo 'dummy;py -3 -Xutf8 run_verify.py;'; echo VERIFY_CHECK PASS"
-    assert sr.split_shell(fake)[0] == (None, ["echo", "dummy;py -3 -Xutf8 run_verify.py;"])   # 引號內含分號 → 不切
     assert not sr.cmd_matches(_MEASURE, fake)
     assert not sr.cmd_matches(_MEASURE, 'Write-Output "python -X utf8 run_verify.py"')
     assert not sr.cmd_matches(_MEASURE, f"{_MEASURE}; echo VERIFY_CHECK DONE cases=1 failed=0")
@@ -182,6 +181,7 @@ def test_013_2_quotes_echo_and_subsets_do_not_count():
     assert sr.cmd_matches(_MEASURE, 'python -X utf8 "C:\\中文專案\\run_verify.py" 2>&1 | tail -5')
     assert sr.cmd_matches(_MEASURE, "python -X utf8 run_verify.py | Select-Object -Last 5")
     assert sr.cmd_matches(_MEASURE, "# 定位｜部位：x && y\npython -X utf8 run_verify.py")       # 註解行不算指令
+    assert sr.split_shell(fake)[0] == (None, ["echo", "dummy;py -3 -Xutf8 run_verify.py;"])   # 引號內含分號 → 不切
     assert sr.final_cmd(fake)[0] == "echo" and sr.final_cmd(f"{_MEASURE} | tail -3")[0] == "run_verify.py"
 
 
