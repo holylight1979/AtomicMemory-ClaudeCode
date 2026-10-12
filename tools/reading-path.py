@@ -810,7 +810,7 @@ class Graph:
         mod = self.modules.get(file)
         if mod is None or hops > MAX_REEXPORT:
             return []
-        return self._py_rebound(mod, name, hops) if name in mod.rebound else self._py_bound_once(mod, name, hops)
+        return self._py_rebound(mod, name, hops) if self._rebound(mod, name) else self._py_bound_once(mod, name, hops)
 
     def _py_bound_once(self, mod: lang.Module, name: str, hops: int) -> list:
         """模組層只綁定一次的名字：本檔函式、本檔類別（建構）、別名、from 匯入的函式或類別。"""
@@ -903,7 +903,7 @@ class Graph:
         或在模組層被重新指定（a = pick_backend()）：不能當那個模組。"""
         kind, _ = self.lookup_binding(f, head)
         mod = self.modules.get(f.file)
-        return kind in ("param", "local", "nested") or (kind == "module" and bool(mod and head in mod.rebound))
+        return kind in ("param", "local", "nested") or (kind == "module" and bool(mod) and self._rebound(mod, head))
 
     def _recv_head(self, f: lang.Func, head: str):
         if head in ("self", "this"):
@@ -944,30 +944,78 @@ class Graph:
         if kind not in ("nested", "import"):
             return False
         if name in owner.reassigned | owner.import_rebinds or name in self.nonlocal_rebound[(f.file, owner.qual)]:
-            return False                           # 同一層綁了兩次（def＋指定、import 兩次），或被內層 nonlocal 改掉
+            return False                           # 同一層綁了兩種（def＋指定、import＋指定），或被內層 nonlocal 改掉
+        sources = owner.import_sources.get(name, []) if kind == "import" else []
+        if len(sources) > 1:                       # 同一層 import 好幾次（try/except ImportError 兩種寫法）
+            return self._imports_stable(f.file, sources, 0)
         if kind == "nested" or name not in owner.imports:
             return True                            # 巢狀 def，或 import a.b 綁的整個套件 a
-        return self._stable_import(f.file, owner.imports, name, 0)
+        return self._stable_import(f.file, owner.imports[name], 0)
 
     def _stable_in(self, file: str, name: str, hops: int) -> bool:
-        """模組層的 name 只綁定一次、不是算出來的值；它是別名或 from 匯入時，指到的名字也要穩定（逐跳）。"""
+        """模組層的 name 只綁定一次（或只被 import 好幾次、每次都指到同一個專案內目標）、不是算出來的值；
+        它是別名或 from 匯入時，指到的名字也要穩定（逐跳）。"""
         mod = self.modules.get(file)
-        if mod is None or hops > MAX_REEXPORT or mod.bindings[name] != 1 or name in mod.opaque:
+        if mod is None or hops > MAX_REEXPORT or name in mod.opaque:
             return False
         if (file, name) in self.rebound_elsewhere:     # 別處寫了 模組.name = …
             return False
+        if mod.bindings[name] != 1:
+            return self._only_agreeing_imports(mod, name, hops) and self._imports_stable(file, mod.import_sources[name], hops)
         if name in mod.aliases:
             return all(self._stable_ref(file, ref, hops + 1) for ref in mod.aliases[name])
-        return self._stable_import(file, mod.imports, name, hops) if name in mod.imports else True
+        return self._stable_import(file, mod.imports[name], hops) if name in mod.imports else True
 
-    def _stable_import(self, file: str, imports: dict, name: str, hops: int) -> bool:
-        """import 進來的名字：整個模組（import x）或子模組（from pkg import sub）就是那個模組；
+    def _only_agreeing_imports(self, mod: lang.Module, name: str, hops: int) -> bool:
+        """模組層名字綁了好幾次，但每一次都是 import、而且全部指到同一個專案內目標。"""
+        sources = mod.import_sources.get(name, [])
+        return 1 < len(sources) == mod.bindings[name] and self._imports_agree(mod.file, sources, hops)
+
+    def _imports_agree(self, file: str, sources: list, hops: int) -> bool:
+        """同一層同名的 import 寫了好幾次（try/except ImportError 兩種寫法）：每一次沿綁定鏈都解析到同一個專案內目標
+        （同一個函式、類別或模組）才算唯一解析到；有任何一次指到不同目標、外部、或解析不了 → 不是。
+        函式層與模組層共用這一個判斷（找目標的 _rebound 只看這個；證明穩定再加 _imports_stable）。"""
+        targets = {self._source_target(file, s, hops) for s in sources}
+        return len(targets) == 1 and None not in targets
+
+    def _imports_stable(self, file: str, sources: list, hops: int) -> bool:
+        """同名 import 好幾次的綁定穩定：都指到同一個專案內目標，而且每一條匯入鏈都穩定。"""
+        return self._imports_agree(file, sources, hops) and all(self._stable_import(file, s, hops) for s in sources)
+
+    def _source_target(self, file: str, source: tuple, hops: int):
+        """一筆 import 沿綁定鏈最後指到的專案內目標 → ("func", id)｜("class", 檔, 名)｜("module", 檔)；外部或解析不了 → None。"""
+        modname, level, orig = source
+        src = self.find_module(modname, level, file)
+        if not orig or hops > MAX_REEXPORT:
+            return ("module", src) if src and not orig else None
+        mod = self.modules.get(src) if src and src != file else None
+        if mod and mod.bindings[orig]:
+            return self._name_target(mod, orig, hops + 1)
+        sub = self.find_module(f"{modname}.{orig}" if modname else orig, level, file)
+        return ("module", sub) if sub and sub != file else None
+
+    def _name_target(self, mod: lang.Module, name: str, hops: int):
+        """模組層名字 name 指到的專案內目標：本檔 def、本檔類別，或它的 import 都指到的同一個目標。"""
+        if name in mod.defs:
+            return "func", mod.defs[name]
+        if any(mod.file in c.files for c in self.classes.get(name, [])):
+            return "class", mod.file, name
+        targets = {self._source_target(mod.file, s, hops) for s in mod.import_sources.get(name, [])}
+        return targets.pop() if len(targets) == 1 else None
+
+    def _rebound(self, mod: lang.Module, name: str) -> bool:
+        """模組層名字被重新指定過（lang 的 rebound）；只被 import 好幾次、每次都指到同一個專案內目標的不算。"""
+        return name in mod.rebound and (name in mod.opaque or not self._only_agreeing_imports(mod, name, 0))
+
+    def _stable_import(self, file: str, source: tuple, hops: int) -> bool:
+        """一筆 import：整個模組（import x）或子模組（from pkg import sub）就是那個模組；
         from X import name 要追到 X 裡的 name 也穩定。"""
-        modname, level, orig = imports[name]
+        modname, level, orig = source
         if not orig:
             return True
-        src, _ = self._imported_from(file, imports, name)
-        if src and self.modules.get(src) and self.modules[src].bindings[orig]:
+        src = self.find_module(modname, level, file)
+        mod = self.modules.get(src) if src and src != file else None
+        if mod and mod.bindings[orig]:
             return self._stable_in(src, orig, hops + 1)
         sub = self.find_module(f"{modname}.{orig}" if modname else orig, level, file)
         return bool(sub) and sub != file

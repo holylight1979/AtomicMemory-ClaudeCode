@@ -77,7 +77,8 @@ class Func:
     nonlocal_writes: set = field(default_factory=set)  # 用 nonlocal 宣告後又指定的名字：改的是外層作用域的綁定
     global_names: set = field(default_factory=set)    # 宣告 global 的名字：查找直接跳模組層
     nonlocal_names: set = field(default_factory=set)  # 宣告 nonlocal 的名字：查找跳過這一層、往外層找
-    import_rebinds: set = field(default_factory=set)  # 函式裡 import 的名字又被綁定（import 兩次、import 又指定）：只影響確定，不影響找目標
+    import_rebinds: set = field(default_factory=set)  # 函式裡 import 的名字又被別種寫法綁定（import 又指定、又 def）：只影響確定，不影響找目標
+    import_sources: dict = field(default_factory=dict)   # 綁定名 → 這一層全部的 import 來源 [(模組名, 相對層級, 原名或 "")]（import 好幾次都留）
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
     imports: dict = field(default_factory=dict)       # 函式內的 import（只在這個函式與它的巢狀函式裡有效）
@@ -106,6 +107,7 @@ class Module:
     classes: list = field(default_factory=list)
     defs: dict = field(default_factory=dict)      # 模組層函式名 → func id
     imports: dict = field(default_factory=dict)   # 本地名 → (模組名, 相對層級, from 匯入的原名或 "")
+    import_sources: dict = field(default_factory=dict)   # 綁定名 → 模組層全部的 import 來源（import 好幾次都留，見 Func.import_sources）
     tables: dict = field(default_factory=dict)    # 分派表名 → [(鍵, Call 參照)]
     aliases: dict = field(default_factory=dict)   # 模組層函式別名 → [Call 參照]（flat = itertools.chain.from_iterable）
     bindings: Counter = field(default_factory=Counter)   # 模組層名字被綁定幾次（def、class、import、指定）
@@ -156,14 +158,21 @@ def parse_python(rel: str, text: str) -> Module:
     return mod
 
 
-def _py_scan(imports: dict, stmts: list) -> list:
-    """stmts 底下的節點走一次（不進巢狀 def/class），順手把 import 收進 imports（模組層或該函式自己的）。"""
+def _py_scan(owner, stmts: list) -> list:
+    """stmts 底下的節點走一次（不進巢狀 def/class），順手把 import 收進 owner（Module 或 Func）的 imports 與 import_sources。
+    import_sources 以實際綁定的名字為鍵、每一次 import 都留：import a.b 綁的是套件 a（來源記 a），import a.b as c 綁的是 a.b。"""
     nodes = list(_own_nodes(stmts))
     for node in nodes:
         if isinstance(node, ast.Import):
-            imports.update({a.asname or a.name: (a.name, 0, "") for a in node.names})
+            owner.imports.update({a.asname or a.name: (a.name, 0, "") for a in node.names})
+            bound = [(a.asname or a.name.split(".")[0], (a.name if a.asname else a.name.split(".")[0], 0, "")) for a in node.names]
         elif isinstance(node, ast.ImportFrom):
-            imports.update({a.asname or a.name: (node.module or "", node.level, a.name) for a in node.names})
+            owner.imports.update({a.asname or a.name: (node.module or "", node.level, a.name) for a in node.names})
+            bound = [(a.asname or a.name, (node.module or "", node.level, a.name)) for a in node.names if a.name != "*"]
+        else:
+            continue
+        for name, source in bound:
+            owner.import_sources.setdefault(name, []).append(source)
     return nodes
 
 
@@ -176,7 +185,7 @@ def _is_main_guard(node: ast.AST) -> bool:
 def _py_main_block(mod: Module, node: ast.If, tree: ast.Module) -> None:
     fid = f"{mod.file}::<main>"
     f = Func(fid, mod.file, "<main>", "<main>", "", "py", node.lineno, entry=True)
-    nodes = _py_scan(mod.imports, node.body)
+    nodes = _py_scan(mod, node.body)
     _py_count_bindings(mod, nodes)
     _py_locals(f, None, nodes)
     f.calls = _py_calls(mod, nodes, fid)
@@ -202,7 +211,7 @@ def _py_count_bindings(mod: Module, nodes: list) -> None:
 def _py_module_stmt(mod: Module, node: ast.stmt) -> None:
     """模組層其他敘述：收 import、分派表（NAME = {k: func}）、函式別名（NAME = mod.func）與訂閱（bus.on("k", f)）。
     名字被指定成算出來的值（NAME = pick()）→ 記成看不到，之後呼叫它不能沿用先前的別名。"""
-    nodes = _py_scan(mod.imports, [node])
+    nodes = _py_scan(mod, [node])
     _py_count_bindings(mod, nodes)
     _py_calls(mod, nodes, "")
     mod.attr_stores |= _py_attr_stores(nodes)
@@ -263,7 +272,7 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
              defaults={a.arg: r for a, d in pairs if (r := _py_ref(d))},
              blind_defaults={a.arg for a, d in pairs if _py_blind(d)})
     body = _strip_doc(node.body)
-    nodes = _py_scan(f.imports, body)
+    nodes = _py_scan(f, body)
     real = [s for s in body if not isinstance(s, ast.Pass) and not _py_noise_stmt(s) and not _py_move(s)]
     f.simple = (len(real) <= 2 and all(isinstance(s, _SIMPLE_STMTS) for s in real)
                 and not any(isinstance(n, _BRANCHY) for n in nodes))
@@ -462,8 +471,8 @@ def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
     stores.update(f.params)
     stores.update(n.name for n in nodes if isinstance(n, _DEF_NODES))   # 巢狀 def 也是一次綁定
     f.reassigned = {name for name, k in stores.items() if k > 1}
-    imported = Counter(_py_import_names(nodes))        # 函式裡的 import 也是一次綁定：同名 import 兩次、或 import 又指定
-    f.import_rebinds = {name for name in imported if imported[name] + stores[name] > 1}
+    imported = Counter(_py_import_names(nodes))        # 函式裡的 import 也是一次綁定：import 又指定（或又 def）→ 不穩定；
+    f.import_rebinds = {name for name in imported if stores[name] > 0}   # 只 import 好幾次的交給 reading-path 比對來源
 
 
 def _py_import_names(nodes: list) -> list:

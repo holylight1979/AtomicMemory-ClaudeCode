@@ -1502,6 +1502,39 @@ def test_r1_a_global_or_nonlocal_name_written_in_the_function_is_not_a_simple_al
     assert not any(s for _, s in _sure_edges(files, "app.py::outer.change", tmp_path)), f"{decl}：不是簡單區域別名"
 
 
+R1_TWIN_IMPORTS = {
+    "same": ("from .other import work", "from other import work"),
+    "different": ("from .other import work", "from .alt import work"),
+    "external": ("from fastlib import work", "from .other import work"),
+}
+
+
+def _twin_import_files(case: str, scope: str) -> dict:
+    first, second = R1_TWIN_IMPORTS[case]
+    pad = "        " if scope == "function" else "    "
+    block = f"try:\n{pad}{first}\nexcept ImportError:\n{pad}{second}\n"
+    if scope == "function":
+        app = "def main():\n" + "".join("    " + line + "\n" for line in block.splitlines()) + "    work()\n"
+    else:
+        app = block + "\n\ndef main():\n    work()\n"
+    return {"pkg/__init__.py": "", "pkg/other.py": "def work():\n" + BODY, "pkg/alt.py": "def work():\n    return 7\n",
+            "pkg/app.py": app}
+
+
+@pytest.mark.parametrize("scope", ["function", "module"])
+@pytest.mark.parametrize("case", sorted(R1_TWIN_IMPORTS))
+def test_r1_a_name_imported_several_times_is_stable_only_if_every_import_reaches_the_same_target(tmp_path, case, scope):
+    """try/except ImportError 兩種寫法：每一次 import 沿綁定鏈都解析到同一個專案內目標才算唯一解析到（白名單 1）；
+    指到不同函式、或一次外部 → 不確定。函式層與模組層同一個判斷。"""
+    files = _twin_import_files(case, scope)
+    edges = _sure_edges(files, "pkg/app.py::main", tmp_path / "a")
+    if case == "same":
+        assert edges == [("pkg/other.py::work", True)], f"{scope}：兩次 import 都指到 pkg/other.py::work"
+        assert _edge_rules(files, "pkg/app.py::main", tmp_path / "b") == [("pkg/other.py::work", 1)]
+    else:
+        assert not any(s for _, s in edges), f"{scope}／{case}：兩次 import 指到的不是同一個專案內目標"
+
+
 R2_USES = {
     "positional": "    use(w)\n",
     "keyword": "    use(item=w)\n",
