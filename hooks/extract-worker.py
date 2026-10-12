@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # ─── Import centralized paths from wg_core (V5: wg_paths merged into wg_core) ─
-_HOOKS_DIR = str(Path.home() / ".claude" / "hooks")
+_HOOKS_DIR = str(Path(__file__).resolve().parent)   # 本檔所在的 hooks/（不用 Path.home()）
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
@@ -40,7 +40,7 @@ from wg_core import (
 from wg_extraction import classify_extracted_item
 
 # route failure atom writes through atom_io funnel
-_LIB_PARENT = str(Path.home() / ".claude")
+_LIB_PARENT = str(Path(__file__).resolve().parents[1])
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
 from lib.atom_io import build_atom_content, write_raw  # noqa: E402

@@ -1385,7 +1385,8 @@ def _lexicon_category(name: str, triggers: Iterable[str], layer: str) -> Dict[st
 def _default_llm_category_classifier():
     """lazy 取 tools/realm_llm_classify.llm_classify_category（tools 反依賴 lib，故不在模組頂層 import）。
     取不到 → None（caller 視同 LLM 不可用 → error 態）。"""
-    for p in (CLAUDE_DIR / "tools", CLAUDE_DIR):
+    code_root = Path(__file__).resolve().parents[1]   # 程式碼用本檔位置推樹根；CLAUDE_DIR（家目錄）只拿來定位資料
+    for p in (code_root / "tools", code_root):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
     try:

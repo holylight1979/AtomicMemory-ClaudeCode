@@ -1050,3 +1050,69 @@ def test_inject_record_and_log_carry_intent_slices_layer(proj, tmp_path, monkeyp
     state3 = {"turn_intent": "bogus"}                                              # 不在十鍵 → 當 general
     wo.on_read(state3, "s", "Read", {"file_path": f1}, str(proj), "", {})
     assert next(iter(state3["overview_hub"].values()))["intent"] == "general"
+
+
+# ─── codex 補件：_same_dir 不撞名、長路徑前綴、委派失敗不放行 ─────────────────────
+
+def _base_overview_hub():
+    """基底 9ab945f 的 lib/overview_hub.py（版控讀出、載成獨立模組），當 find_map／_same_dir 的預期值來源。"""
+    import subprocess
+    import types
+    src = subprocess.run(["git", "-C", str(HOOKS_DIR.parent), "show", "9ab945f:lib/overview_hub.py"],
+                         capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    mod = types.ModuleType("overview_hub_base_9ab945f")
+    exec(compile(src, "overview_hub@9ab945f", "exec"), mod.__dict__)
+    return mod, src
+
+
+def test_find_map_same_dir_unchanged_from_base_with_case_variant_stop_at(tmp_path, monkeypatch):
+    import inspect
+    base, src = _base_overview_hub()
+    assert inspect.getsource(oh._same_dir) in src and inspect.getsource(oh.find_map) in src   # 原版兩支一字不動
+    assert oh._same_dir is not oh._same_dir_norm
+    proj = tmp_path / "Proj"
+    (proj / ".claude").mkdir(parents=True)
+    (proj / ".claude" / "overview-map.md").write_text("| `a/` | 甲 | 無 | 無 |\n", encoding="utf-8")
+    deep = proj / "Sub" / "Deep"
+    deep.mkdir(parents=True)
+    monkeypatch.setattr(oh, "_home", lambda: tmp_path / "nohome")
+    monkeypatch.setattr(base, "_home", lambda: tmp_path / "nohome")
+    for stop in (None, proj / "Sub", Path(str(proj / "Sub").upper()), Path(str(proj / "Sub").lower()),
+                 Path(str(proj).upper()), tmp_path / "unrelated"):
+        assert oh.find_map(str(deep / "x.py"), stop) == base.find_map(str(deep / "x.py"), stop), stop
+
+
+def test_is_root_worktree_long_path_prefix_is_same_dir(tmp_path):
+    live = tmp_path / "claude"
+    (live / ".claude").mkdir(parents=True)
+    (live / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
+    prefixed = Path("\\\\?\\" + str(live))
+    assert oh.is_root_worktree(prefixed, live) is False                    # 同一目錄加長路徑前綴不是 worktree
+    assert oh.card_mem_dir(prefixed, live) == live / "memory"
+
+
+def test_verify_ledger_delegation_failure_returns_false_and_gate_still_blocks(tmp_path, monkeypatch, capsys):
+    import types
+    import wg_verify_ledger as vl
+    q6 = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q6" / "overview-map.md"
+    rows = oh.parse_map(q6.read_text(encoding="utf-8"))
+    live, wt = tmp_path / "live", tmp_path / "wt"
+    for d in (live, wt):
+        (d / ".claude").mkdir(parents=True)
+        (d / ".claude" / "overview-map.md").write_bytes(q6.read_bytes())
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    mf = [{"path": mod, "tool": "Edit", "session_id": "s", "turn_seq": 5, "last_turn_seq": 5}]
+    done = {"turn_seq": 5, "tool": "Bash", "cmd": "python -X utf8 -m pytest -q hooks/verify/verify_x.py", "exit_code": 0,
+            "at": "", "project_root": str(wt), "cwd": str(wt),
+            "sentinels": [{"name": "PYTEST", "verdict": "PASS", "kv": {}}, {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
+
+    def lookup(path):
+        row = oh.match_row(path, wt, rows)
+        return (wt, row) if row else None
+    assert vl.measure_gate_reason(mf, [done], 5, lookup, vl.MEASURE_DEFAULTS)[0] is None   # 正常委派：worktree 認目標 verify
+    monkeypatch.setitem(sys.modules, "overview_hub", types.ModuleType("overview_hub"))     # 混載：舊版模組沒有這支
+    assert vl.is_root_worktree(wt, live) is False
+    assert "[verify_ledger] is_root_worktree 委派失敗" in capsys.readouterr().err
+    reason, _ = vl.measure_gate_reason(mf, [done], 5, lookup, vl.MEASURE_DEFAULTS)
+    assert reason and "[Guardian:MeasureGate]" in reason                                 # 反例：委派失敗不得放行

@@ -29,9 +29,11 @@ CONFIG_PATH = WORKFLOW_DIR / "config.json"
 COMPANION_DIR = CLAUDE_DIR / "tools" / "codex-companion"
 AUDIT_SCRIPT = COMPANION_DIR / "audit.py"
 
-# Add companion dir to path for heuristics/state import
-sys.path.insert(0, str(COMPANION_DIR))
-sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+# Add companion dir to path for heuristics/state import（程式碼位置用本檔推樹根，不用 Path.home()）
+_COMPANION_CODE_DIR = Path(__file__).resolve().parents[1] / "tools" / "codex-companion"
+for _p in (str(_COMPANION_CODE_DIR), str(Path(__file__).resolve().parent)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
 # ─── Config ──────────────────────────────────────────────────────────────────
@@ -1040,7 +1042,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]):
     max_audits = int(config.get("max_audits_per_session", 30))
 
     try:
-        sys.path.insert(0, str(COMPANION_DIR))
+        if str(_COMPANION_CODE_DIR) not in sys.path:
+            sys.path.insert(0, str(_COMPANION_CODE_DIR))
         import scorer
         score = scorer.compute_turn_score(merged_state, stop_text=last_assistant_tail)
     except Exception as e:

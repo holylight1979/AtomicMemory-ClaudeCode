@@ -528,3 +528,102 @@ def test_index_missing_is_repaired_on_rerun(tmp_path, monkeypatch):
     assert sc.check_consistency(root) == []
     res = sc.write_scaffold(root, _rows(root), "設計通則", write=True, merge_missing=True)
     assert res["ok"] and res["cards"] == []                                              # 已齊，什麼都不做
+
+
+# ─── 根層 worktree：判成根層、讀 worktree 自己的卡、--write 一律拒 ─────────────────
+
+WT_MAP = "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n| `server/` | server | `server部位導讀` | 骨架 |\n"
+
+
+def _root_wt_world(base: Path):
+    """live 根層（base/claude）與它的 worktree（base/wt，表位元組相同、卡在 wt/memory）、一般專案（表不同）。"""
+    live, wt, proj = base / "claude", base / "wt", base / "proj"
+    for r in (live, wt, proj):
+        (r / ".claude").mkdir(parents=True)
+        (r / "server").mkdir()
+        (r / "server" / "a.py").write_text("x\n", encoding="utf-8", newline="\n")
+    for r in (live, wt):
+        (r / ".claude" / "overview-map.md").write_text(WT_MAP, encoding="utf-8", newline="\n")
+    (proj / ".claude" / "overview-map.md").write_text(WT_MAP + "| `docs/` | docs | 無 | 無 |\n", encoding="utf-8", newline="\n")
+    (wt / "memory" / "MemDev").mkdir(parents=True)
+    (wt / "memory" / "MemDev" / "server部位導讀.md").write_text("# server部位導讀\n", encoding="utf-8", newline="\n")
+    return live, wt, proj
+
+
+def _all_files(base: Path) -> dict:
+    return {str(p.relative_to(base)): _sha(p) for p in base.rglob("*") if p.is_file()}
+
+
+@pytest.fixture
+def live_wg_core(monkeypatch):
+    if str(CLAUDE / "hooks") not in sys.path:
+        sys.path.insert(0, str(CLAUDE / "hooks"))
+    import wg_core
+    return lambda live: monkeypatch.setattr(wg_core, "CLAUDE_DIR", live)
+
+
+def test_detect_layer_root_worktree_reads_its_own_cards(tmp_path, live_wg_core):
+    live, wt, proj = _root_wt_world(tmp_path)
+    live_wg_core(live)
+    assert sc.detect_layer(wt) == (sc.LAYER_ROOT, wt)
+    assert sc.card_dirs(*sc.detect_layer(wt)) == [wt / "memory", wt / "_AIDocs" / "_atoms"]
+    assert sc.check_consistency(wt) == []                                                # 卡在 wt/memory 找得到
+    assert sc.detect_layer(proj) == (sc.LAYER_PROJECT, proj)                             # 反例：表不同＝一般專案
+    assert sc.detect_layer(live) == (sc.LAYER_ROOT, live)
+
+
+def test_root_worktree_preview_merge_missing_plans_without_writing(tmp_path, monkeypatch, live_wg_core):
+    live, wt, _ = _root_wt_world(tmp_path)
+    live_wg_core(live)
+    (wt / "docs").mkdir()
+    (wt / "docs" / "r.md").write_text("x\n", encoding="utf-8", newline="\n")
+    fake = _FakeWriter(wt)
+    monkeypatch.setattr(sc, "write_atom", fake)
+    before = _all_files(tmp_path)
+    res = sc.write_scaffold(wt, _rows(wt), sc.ROOT_DOMAIN, write=False, merge_missing=True)
+    assert res["layer"] == sc.LAYER_ROOT and res["layer_root"] == str(wt) and not res["written"]
+    assert fake.calls and "server部位導讀" not in {c["title"] for c in fake.calls}            # wt 的卡找得到，不重寫
+    assert _all_files(tmp_path) == before                                               # 假 writer 真寫會落檔；沒有新檔＝只預驗
+
+
+def test_root_worktree_write_refused_and_nothing_written(tmp_path, monkeypatch, live_wg_core):
+    live, wt, _ = _root_wt_world(tmp_path)
+    live_wg_core(live)
+    fake = _FakeWriter(wt)
+    monkeypatch.setattr(sc, "write_atom", fake)
+    before = _all_files(tmp_path)
+    for merge in (False, True):
+        with pytest.raises(sc.ScaffoldError) as ei:
+            sc.write_scaffold(wt, _rows(wt), sc.ROOT_DOMAIN, write=True, merge_missing=merge)
+        assert sc.ROOT_WT_WRITE_REFUSED in str(ei.value)
+    assert fake.calls == [] and _all_files(tmp_path) == before                          # 一次 write_atom 都沒叫
+
+
+def test_detect_layer_fallback_without_wg_core_still_sees_root_worktree(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    live, wt, proj = _root_wt_world(home)
+    live.rename(home / ".claude")                                                         # 退路的 live＝Path.home()/.claude
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setitem(sys.modules, "wg_core", None)                                     # import wg_core → ImportError
+    assert sc.detect_layer(wt) == (sc.LAYER_ROOT, wt)
+    assert sc.detect_layer(proj) == (sc.LAYER_PROJECT, proj)
+    assert "wg_core 判層不可用，退路徑判斷" in capsys.readouterr().err
+
+
+def test_cli_root_worktree_write_exit_nonzero_and_check_reads_wt(tmp_path, fake_home):
+    live, wt, _ = _root_wt_world(tmp_path / "w")
+    env = {**os.environ, "HOME": str(fake_home), "USERPROFILE": str(fake_home), "WG_CLAUDE_DIR": str(live),
+           "PYTHONIOENCODING": "utf-8"}
+
+    def run(*args):
+        return subprocess.run([sys.executable, "-X", "utf8", str(TOOL), *args], env=env, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+    before = _all_files(tmp_path)
+    r = run("--cwd", str(wt), "--write")
+    assert r.returncode != 0 and sc.ROOT_WT_WRITE_REFUSED in r.stderr, r.stdout + r.stderr
+    r = run("--cwd", str(wt), "--write", "--merge-missing")
+    assert r.returncode != 0 and sc.ROOT_WT_WRITE_REFUSED in r.stderr, r.stdout + r.stderr
+    assert _all_files(tmp_path) == before                                               # tmp 內沒有新檔、沒改檔
+    r = run("check", "--cwd", str(wt))
+    assert r.returncode == 0 and r.stdout.rstrip().endswith("OVERVIEW_SCAFFOLD CHECK PASS issues=0"), r.stdout + r.stderr

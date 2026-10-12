@@ -16,6 +16,8 @@ frontmatter `Source: tool:overview-map-scaffold` 當身分）。產出的表必�
 （卡名避開既有表全部卡名）與「表有列但卡檔不在」的卡。
 
 卡落哪一層由 `detect_layer(root)` 決定（hooks/wg_core._layer_of 單源；lib 不硬依賴 hooks，載不到就退路徑判斷）：
+根層 worktree（表與 live 根層位元組相同的其他根）→ 根層、層根＝worktree 本身（找卡讀 worktree 的 memory、_AIDocs/_atoms），
+但 `write=True` 一律拒（ScaffoldError：write_atom 會寫進 live 的 ~/.claude）；
 根層（~/.claude）→ scope=global、realm=local、domain=MemDev（_AIDocs/_atoms/MemDev/，索引在 ~/.claude/memory）；
 公司根 → shared＋project_cwd=公司根（與 atom-tools.js 的 org 對映相同；py 端沒有 org scope）；專案 → shared＋project_cwd=專案根。
 """
@@ -30,7 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 try:
-    from .overview_hub import MAP_REL, parse_map
+    from .overview_hub import MAP_REL, is_root_worktree, parse_map
     from .atom_spec import slugify
     from .atom_taxonomy import TaxonomyUnavailable, core_categories, match_lv1
     from .atom_locations import project_taxonomy_lv1
@@ -38,7 +40,7 @@ try:
     from .atom_index_json import load_atom_index_json
     from . import refix_churn as rc
 except ImportError:  # 以 ~/.claude 為 sys.path 根時（tools／verify）：atom_io 只能以套件匯入
-    from lib.overview_hub import MAP_REL, parse_map
+    from lib.overview_hub import MAP_REL, is_root_worktree, parse_map
     from lib.atom_spec import slugify
     from lib.atom_taxonomy import TaxonomyUnavailable, core_categories, match_lv1
     from lib.atom_locations import project_taxonomy_lv1
@@ -93,16 +95,35 @@ def detect_layer(root: Path) -> Tuple[str, Path]:
             return LAYER_ROOT, Path(info.root)
         if info.kind == "org":
             return LAYER_ORG, Path(info.root)
+        if is_root_worktree(root, Path(wg_core.CLAUDE_DIR)):
+            return LAYER_ROOT, root
         return LAYER_PROJECT, root
     except Exception as e:  # lib 不硬依賴 hooks；退路徑判斷但要說一聲
         print(f"[overview_scaffold] wg_core 判層不可用，退路徑判斷：{e}", file=sys.stderr)
     home_claude = Path.home() / ".claude"
+    if is_root_worktree(root, home_claude):
+        return LAYER_ROOT, root
     try:
         if root.resolve() == home_claude.resolve() or home_claude.resolve() in root.resolve().parents:
             return LAYER_ROOT, home_claude
     except OSError:
         pass
     return LAYER_PROJECT, root
+
+
+ROOT_WT_WRITE_REFUSED = "根層 worktree 不寫卡：write_atom 會寫進 live 的 ~/.claude，請在 live 根層執行"
+
+
+def _live_claude_dir() -> Path:
+    """live 根層（使用者資料所在）：wg_core.CLAUDE_DIR（吃 WG_CLAUDE_DIR）；wg_core 載不到退 Path.home()/.claude。"""
+    try:
+        if str(CLAUDE_DIR / "hooks") not in sys.path:
+            sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+        import wg_core  # noqa: WPS433
+        return Path(wg_core.CLAUDE_DIR)
+    except Exception as e:  # lib 不硬依賴 hooks；退家目錄但要說一聲
+        print(f"[overview_scaffold] wg_core 不可用，live 根層退 Path.home()/.claude：{e}", file=sys.stderr)
+        return Path.home() / ".claude"
 
 
 def card_write_kwargs(layer: str, layer_root: Path, lv1: Optional[str]) -> Dict[str, Any]:
@@ -431,6 +452,8 @@ def write_scaffold(root: Path, rows: List[Dict[str, Any]], lv1: Optional[str], *
     root = Path(root)
     map_path = root / MAP_REL
     kind, layer_root = layer or detect_layer(root)
+    if write and kind == LAYER_ROOT and is_root_worktree(layer_root, _live_claude_dir()):
+        raise ScaffoldError(f"{ROOT_WT_WRITE_REFUSED}（{layer_root}）")
     kwargs, dirs, index_dir = card_write_kwargs(kind, layer_root, lv1), card_dirs(kind, layer_root), index_dir_for(kind, layer_root)
     exists = map_path.is_file()
     if exists and not merge_missing:

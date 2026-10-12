@@ -18,8 +18,10 @@ from wg_core import _now_iso, _atom_debug_log, _atom_debug_error, is_harness_gen
 from wg_extraction import detect_signal
 from wg_evasion import is_dismiss_prompt
 
-# Ollama client（dispatcher 已加 tools/ 到 sys.path）
-sys.path.insert(0, str(Path.home() / ".claude" / "tools"))
+# Ollama client（dispatcher 已加 tools/ 到 sys.path）；用本檔位置推樹根，不用 Path.home()
+_TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
 try:
     from ollama_client import check_long_die_status, disable_backend, OllamaClient
 except ImportError:

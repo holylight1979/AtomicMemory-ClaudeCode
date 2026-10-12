@@ -25,11 +25,14 @@ from wg_core import (
 )
 from wg_extraction import is_plan_content
 
-sys.path.insert(0, str(Path.home() / ".claude" / "tools"))
+_CODE_ROOT = Path(__file__).resolve().parents[1]   # 本檔所在的樹根（~/.claude 或它的 worktree）；不用 Path.home()
+_TOOLS_DIR = str(_CODE_ROOT / "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
 from ollama_client import get_client
 
 # route Confirmations counter update through atom_io funnel
-_LIB_PARENT = str(Path.home() / ".claude")
+_LIB_PARENT = str(_CODE_ROOT)
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
 from lib.atom_io import write_raw  # noqa: E402

@@ -265,9 +265,17 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
 
 # ─── 卡片 ───────────────────────────────────────────────────────────
 
-def _same_dir(a: Path, b: Path) -> bool:
+def _same_dir_norm(a: Path, b: Path) -> bool:
+    """兩個路徑是不是同一目錄（realpath＋反斜線轉正＋小寫，剝 `\\\\?\\`、`\\\\?\\UNC\\` 長路徑前綴）；
+    只給 is_root_worktree／card_mem_dir 用，find_map 用上面的 _same_dir。"""
+    def strip_long(s: str) -> str:
+        s = s.replace("\\", "/")
+        if s.startswith("//?/UNC/"):
+            return "//" + s[len("//?/UNC/"):]
+        return s[len("//?/"):] if s.startswith("//?/") else s
+
     def norm(p: Path) -> str:
-        return os.path.realpath(str(p)).replace("\\", "/").rstrip("/").lower()
+        return strip_long(os.path.realpath(strip_long(str(p)))).rstrip("/").lower()
     return norm(a) == norm(b)
 
 
@@ -276,7 +284,7 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
     任一表不存在、或兩者是同一目錄 → False。純函式，不碰 state。"""
     try:
         r, c = Path(root), Path(claude_dir)
-        if _same_dir(r, c):
+        if _same_dir_norm(r, c):
             return False
         return (r / MAP_REL).read_bytes() == (c / MAP_REL).read_bytes()
     except OSError:
@@ -287,7 +295,7 @@ def card_mem_dir(root: Path, claude_dir: Path) -> Path:
     """某個根的導讀卡住在哪個 memory 目錄（hook 注入與第二意見工具共用這一份）：
     root 就是 claude_dir → `claude_dir/memory`；root 是根層 worktree → `root/memory`；其他 → `root/.claude/memory`。"""
     r, c = Path(root), Path(claude_dir)
-    if _same_dir(r, c):
+    if _same_dir_norm(r, c):
         return c / "memory"
     if is_root_worktree(r, c):
         return r / "memory"

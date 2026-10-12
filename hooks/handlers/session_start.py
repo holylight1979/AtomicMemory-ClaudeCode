@@ -49,8 +49,10 @@ from handlers._shared import (
     WISDOM_AVAILABLE, get_reflection_summary,
 )
 
-# Ollama client 在 tools/ 下（dispatcher 已加 sys.path）
-sys.path.insert(0, str(Path.home() / ".claude" / "tools"))
+# Ollama client 在 tools/ 下（dispatcher 已加 sys.path）；用本檔位置推樹根，不用 Path.home()
+_TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
 try:
     from ollama_client import check_long_die_status
 except ImportError:
@@ -828,7 +830,7 @@ def _first_session_hint_lines(root_res, cwd: str) -> list:
             root = Path(root_res.path)
         if root is None:
             return []
-        lib_dir = str(CLAUDE_DIR / "lib")
+        lib_dir = str(Path(__file__).resolve().parents[2] / "lib")   # 程式碼用本檔位置；CLAUDE_DIR 只拿來判根層與定位卡
         if lib_dir not in sys.path:
             sys.path.insert(0, lib_dir)
         from overview_scaffold import first_session_hint
