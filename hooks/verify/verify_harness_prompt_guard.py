@@ -49,6 +49,12 @@ def test_peer_message_is_not_a_correction_nor_a_dismiss():
     assert detect_evasion(t, ["幫我修好", PEER]) is not None                        # 同伴說「先這樣」不替使用者豁免
     assert detect_evasion(t, ["先這樣", PEER]) is None                              # 使用者說的照樣豁免
     assert _dismissed(["幫我修好", PEER]) is False and _dismissed(["先這樣"]) is True
+    from wg_evasion import detect_deferral, detect_missing_aec_emission
+    later = "完工。realm atom 瘦身留到下個 session 做。"
+    assert detect_deferral(later, ["幫我修好", PEER]) is not None and detect_deferral(later, ["先這樣"]) is None
+    core = [{"path": r"c:\a\.claude\hooks\x.py", "tool": "Edit"}]
+    assert detect_missing_aec_emission("全部完成了", core, ["幫我修好", PEER], 2, False) is True
+    assert detect_missing_aec_emission("全部完成了", core, ["先這樣"], 2, False) is False
     assert wg_core.user_typed_prompts(["a", NOTIFY, PEER, "b"]) == ["a", "b"]
 
 
