@@ -1299,12 +1299,18 @@ class Graph:
         else:
             order, proven = self.mro(self._named_class(f, c))
             free = 1                               # 呼叫點寫出的類別自己就定義 dst：MRO 後面怎麼排都不影響
+        return self._walk_veto(order, proven, free, dst, fn.name)
+
+    def _walk_veto(self, order: list, proven: bool, free: int, dst: str, name: str) -> str:
+        """沿 MRO 順序 order 走到定義 dst 的類別，途中（含起點）的否決：帶清單外類別裝飾器 → DECORATED；dataclass 會自己
+        產生 name → GENERATED；走到定義 dst 的類別時 MRO 證不出、而它排在前 free 個以外 → MRO_UNPROVEN；沒有 → ""。
+        直接查找（_lookup_veto）與第 3 條逐一檢查子孫（_rule3）共用這一段。"""
         for i, k in enumerate(order):
             if self._class_decorated(k):
                 return DECORATED
             if any(dst in ids for ids in k.methods.values()):
                 return "" if proven or i < free else MRO_UNPROVEN
-            if self._generates(k, fn.name):
+            if self._generates(k, name):
                 return GENERATED
         return ""
 
@@ -1451,10 +1457,12 @@ class Graph:
     def _rule3(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 3：self.method()／this.Method()（含 C# 省略 this、classmethod 的 cls()）沒有子類覆寫；
         型別已宣告的接收者（參數標註、區域變數標註、欄位宣告型別）沒有子類覆寫、也沒有多載（多載在 certify 已擋）。
-        子類覆寫照各子孫自己的 C3 MRO 算（多重繼承排在前面的兄弟 mixin 也算）；子孫的 MRO 有任何一個證不出 → 不成立。"""
+        子類覆寫照各子孫自己的 C3 MRO 算（多重繼承排在前面的兄弟 mixin 也算）；每個子孫還要套用與直接查找相同的否決
+        （_walk_veto）：從子孫沿它自己的 MRO 走到 e.dst 的類別，途中（含子孫本身）有類別會產生 name（dataclass）、帶清單外
+        類別裝飾器、或 MRO 證不出 → 不成立（子孫產生出來的方法在原始碼裡沒有節點，覆寫檢查看不到）。"""
         cls, name = self._rule3_target(f, c, e)
         return (bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
-                and all(self.mro(d)[1] for d in self.descendants(cls)))
+                and not any(self._walk_veto(*self.mro(d), 0, e.dst, name) for d in self.descendants(cls)))
 
     def _rule3_target(self, f: lang.Func, c: lang.Call, e: Edge) -> tuple:
         """第 3 條看的類別與方法名：本物件 → 自己的類別；型別已宣告的接收者 → 宣告的型別；其他 → (None, "")。"""

@@ -2365,6 +2365,82 @@ def test_p10_a_lookalike_decorator_that_is_not_the_real_one_is_only_a_candidate(
     assert (target, False) in edges and (target, True) not in edges, f"{form}：{edges}"
 
 
+# ─── 017（codex 第九輪）：第 3 條逐一檢查子孫時套用與直接查找相同的否決 ─────────────────────
+
+FACTORY_BASE = ("from dataclasses import dataclass\n\n\n" + DECO_CLS + "class Base:\n    def __init__(self):\n" + RUN_BODY
+                + "\n    def __eq__(self, other):\n" + RUN_BODY + "\n    @classmethod\n    def create(cls):\n        return cls()\n\n\n")
+P11_CHILDREN = {   # 子孫類別寫法 → (Base.create 裡的 cls() 連到 Base.__init__ 給不給第 3 條, main → Base.create 的條號)
+    "codex_dataclass_child": ("@dataclass\nclass Child(Base):\n    n: int = 0\n", False, 1),
+    "decorated_child": ("@deco\nclass Child(Base):\n    pass\n", False, None),
+    "plain_child": ("class Child(Base):\n    pass\n", True, 1),
+    "dataclass_init_false_child": ("@dataclass(init=False)\nclass Child(Base):\n    n: int = 0\n", True, 1),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P11_CHILDREN))
+def test_p11_a_classmethod_factory_sees_what_each_subclass_generates(tmp_path, form):
+    """codex 第九輪 BLOCK＋總控台定死：Base.create 的 cls() 在 Child.create() 時建構的是 Child；第 3 條逐一檢查子孫時，
+    從子孫沿自己的 C3 MRO 走到 Base，途中有 dataclass 產生 __init__、或清單外類別裝飾器 → 不給第 3 條。
+    守門：沒裝飾的子類、@dataclass(init=False) 的子類照給。main → Base.create 照直接查找判（經過被清單外裝飾器包的
+    Child 才不給，015 的家族規則）。"""
+    child, sure, entry_rule = P11_CHILDREN[form]
+    app = FACTORY_BASE + child + "\n\ndef main():\n    return Child.create()\n"
+    edges = _sure_edges({"app.py": app}, "app.py::Base.create", tmp_path / "a")
+    assert edges == [("app.py::Base.__init__", sure)], f"{form}：{edges}"
+    rules = _edge_rules({"app.py": app}, "app.py::Base.create", tmp_path / "b")
+    assert rules == [("app.py::Base.__init__", 3 if sure else None)], f"{form}：{rules}"
+    assert ("app.py::Base.create", entry_rule) in _edge_rules({"app.py": app}, "app.py::main", tmp_path / "c")
+
+
+def test_p11_a_dataclass_child_that_writes_its_own_init_is_an_ordinary_override(tmp_path):
+    """守門：dataclass 子類本體自己寫了 __init__（dataclass 不產生、不蓋掉）：工廠的 cls() 照一般子類覆寫處理（兩個都是
+    候選，理由不是 GENERATED），直接 Child() 照給第 1 條。"""
+    child = "@dataclass\nclass Child(Base):\n    n: int = 0\n\n    def __init__(self):\n" + RUN_BODY
+    app = FACTORY_BASE + child + "\n\ndef main():\n    return Child()\n"
+    g = rp.build_graph(_write(tmp_path / "a", {"app.py": app}))
+    factory = {e.dst: (_rule_of(e), e.guess) for e in g.edges["app.py::Base.create"]}
+    assert set(factory) == {"app.py::Base.__init__", "app.py::Child.__init__"}, factory
+    assert all(r is None and why != getattr(rp, "GENERATED", None) for r, why in factory.values()), factory
+    assert ("app.py::Child.__init__", 1) in _edge_rules({"app.py": app}, "app.py::main", tmp_path / "b")
+
+
+def test_p11_a_generated_eq_in_a_subclass_blocks_rule_3_through_a_base_typed_parameter(tmp_path):
+    """codex 第九輪同根：Base 自訂 __eq__、dataclass 子類自動產生 __eq__；對標註成 Base 的參數呼叫 a.__eq__(b)，
+    實際可能跑 Child 產生的 __eq__ → 不給第 3 條。"""
+    app = FACTORY_BASE + "@dataclass\nclass Child(Base):\n    n: int = 0\n\n\ndef main(a: Base, b):\n    return a.__eq__(b)\n"
+    edges = _sure_edges({"app.py": app}, "app.py::main", tmp_path / "a")
+    assert edges == [("app.py::Base.__eq__", False)], edges
+    assert _edge_rules({"app.py": app}, "app.py::main", tmp_path / "b") == [("app.py::Base.__eq__", None)]
+
+
+MIXIN_M = "class Mixin:\n    def m(self):\n" + RUN_BODY + "\n\n"
+P11_REGRESSIONS = {   # codex 第九輪建議固化的回歸：寫法 → (app.py, 呼叫所在函式, 目標, 期望 (條號, 原因))
+    "userdict_and_mixin": ("import collections\n\n\n" + MIXIN_M + "class Store(collections.UserDict, Mixin):\n    pass\n\n\n"
+                           "def main():\n    s = Store()\n    return s.m()\n", "app.py::main", "app.py::Mixin.m", (None, "MRO_UNPROVEN")),
+    "userdict_via_parent_and_mixin": ("import collections\n\n\n" + MIXIN_M + "class Mid(collections.UserDict):\n    pass\n\n\n"
+                                      "class Store(Mid, Mixin):\n    pass\n\n\ndef main():\n    s = Store()\n    return s.m()\n",
+                                      "app.py::main", "app.py::Mixin.m", (None, "MRO_UNPROVEN")),
+    "super_in_a_diamond": ("class A:\n    def run(self):\n        return 1\n\n\nclass B(A):\n    pass\n\n\nclass C(A):\n"
+                           "    def run(self):\n" + RUN_BODY + "\n\nclass W(B, C):\n    def run(self):\n        return super().run()\n",
+                           "app.py::W.run", "app.py::C.run", (1, "")),
+    "super_with_a_multiple_inheritance_subclass": ("class A:\n    def run(self):\n" + RUN_BODY + "\n\nclass B(A):\n"
+                                                   "    def run(self):\n        return super().run()\n\n\nclass C(A):\n"
+                                                   "    def run(self):\n        return 2\n\n\nclass D(B, C):\n    pass\n",
+                                                   "app.py::B.run", "app.py::A.run", (None, "MRO_UNPROVEN")),
+    "c3_merge_failure": ("class A:\n    def m(self):\n" + RUN_BODY + "\n\nclass B(A):\n    pass\n\n\nclass C(A, B):\n    pass\n\n\n"
+                         "def main():\n    c = C()\n    return c.m()\n", "app.py::main", "app.py::A.m", (None, "MRO_UNPROVEN")),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P11_REGRESSIONS))
+def test_p11_c3_regressions_stay_fixed(tmp_path, form):
+    """codex 第九輪 PASS 項建議固化：外部祖先（直接繼承 UserDict＋mixin、經中間父類繼承 UserDict＋mixin）→ MRO 證不出；
+    菱形裡 W.run 的 super().run() 照 C3 連 C.run、第 1 條；B.run 的 super() 在有多重繼承子孫 D(B, C) 時可能落到 C → 證不出；
+    C3 合併失敗（C(A, B)、B(A)）→ 證不出。"""
+    app, fid, target, (rule, why) = P11_REGRESSIONS[form]
+    assert _guess_of({"app.py": app}, fid, target, tmp_path) == [(rule, getattr(rp, why, None) if why else "")], form
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
