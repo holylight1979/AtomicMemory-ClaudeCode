@@ -2441,6 +2441,48 @@ def test_p11_c3_regressions_stay_fixed(tmp_path, form):
     assert _guess_of({"app.py": app}, fid, target, tmp_path) == [(rule, getattr(rp, why, None) if why else "")], form
 
 
+# ─── 018：codex 第十輪第 2 條的組合固化成回歸 ─────────────────────────────────────────
+
+EQ_BASE = ("from dataclasses import dataclass\n\n\ndef invoke(cb, x):\n    return cb(x)\n\n\nclass Base:\n"
+           "    def __eq__(self, other):\n        return \"BASE\"\n\n    def run(self, other):\n")
+EQ_CHILDREN = {   # 子孫寫法：實際以它執行 Base.run
+    "dataclass": "@dataclass\nclass Child(Base):\n    n: int = 0\n",
+    "plain": "class Child(Base):\n    pass\n",
+    "dataclass_via_custom_decorator": "def make(cls):\n    return dataclass(cls)\n\n\n@make\nclass Child(Base):\n    n: int = 0\n",
+}
+EQ_FORMS = {   # Base.run 裡的寫法 → (連到 Base.__eq__ 的邊在哪個函式, {子孫寫法: 期望條號})
+    "self_call": ("        return self.__eq__(other)\n", "app.py::Base.run", {"dataclass": None, "plain": 3}),
+    "alias": ("        f = self.__eq__\n        return f(other)\n", "app.py::Base.run", {"dataclass": None, "plain": 4}),
+    "callback": ("        return invoke(self.__eq__, other)\n", "app.py::invoke", {"dataclass": None, "plain": 5}),
+    "child_class_call": ("        return Child.__eq__(self, other)\n", "app.py::Base.run", {"dataclass": None}),
+    "child_instance_call": ("        return Child().__eq__(other)\n", "app.py::Base.run", {"dataclass": None}),
+    "base_class_call": ("        return Base.__eq__(self, other)\n", "app.py::Base.run", {"dataclass": 1}),
+    "base_instance_call": ("        return Base().__eq__(other)\n", "app.py::Base.run", {"dataclass": 2}),
+}
+EQ_CASES = sorted((form, child) for form, (_, _, want) in EQ_FORMS.items() for child in want)
+
+
+@pytest.mark.parametrize("form,child", EQ_CASES)
+def test_p12_a_generated_eq_in_a_subclass_is_respected_by_every_rule(tmp_path, form, child):
+    """codex 第十輪第 2 條：基底自訂 __eq__、run 寫在基底、實際以 dataclass 子類執行（它自己產生 __eq__）。
+    self.__eq__(other) 不給第 3 條、f = self.__eq__; f(other) 不被第 4 條重新認證、invoke(self.__eq__, other) 的 callback
+    不給第 5 條、Child.__eq__(self, other) 不給第 1 條、Child().__eq__(other) 不給第 2 條；明確選定基底的
+    Base.__eq__(self, other)、Base().__eq__(other) 照給第 1、2 條。對照組：沒裝飾也沒覆寫的普通子類，前三種恢復 3／4／5。"""
+    line, fid, want = EQ_FORMS[form]
+    app = EQ_BASE + line + "\n\n" + EQ_CHILDREN[child]
+    rules = [r for d, r in _edge_rules({"app.py": app}, fid, tmp_path) if d == "app.py::Base.__eq__"]
+    assert rules == [want[child]], f"{form}／{child}：{rules}"
+
+
+def test_p12_a_custom_decorator_that_applies_dataclass_blocks_rule_3_too(tmp_path):
+    """codex 第十輪第 2 條另測：自訂類別裝飾器 make 透過 dataclass(cls) 產生方法（make 不在保留身分清單）→ 基底 run 裡的
+    self.__eq__(other) 不給第 3 條。"""
+    line, fid, _ = EQ_FORMS["self_call"]
+    app = EQ_BASE + line + "\n\n" + EQ_CHILDREN["dataclass_via_custom_decorator"]
+    edges = _sure_edges({"app.py": app}, fid, tmp_path)
+    assert edges == [("app.py::Base.__eq__", False)], edges
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
