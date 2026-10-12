@@ -197,3 +197,38 @@ def test_home_decoy_lib_never_loaded_by_tools(tool, dirs):
     assert r.returncode == 0 and line, f"{tool} rc={r.returncode}\n{r.stderr[-3000:]}"
     files = json.loads(line[len("PROBE_JSON "):])
     assert files and all(_under(f, TREE) for f in files.values() if f), files
+
+
+HOOKS_ORIGIN_PROBE = r"""
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("probe_tool_mod", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+sys.modules["probe_tool_mod"] = mod
+spec.loader.exec_module(mod)
+if sys.argv[2]:
+    getattr(mod, sys.argv[2])()
+print("PROBE_JSON " + json.dumps({k: getattr(m, "__file__", "") or "" for k, m in sys.modules.items()
+                                  if k.startswith("wg_")}))
+"""
+
+
+@pytest.mark.parametrize("tool,call", [("heal-review.py", ""), ("sync-atom-index.py", "_project_memory_dirs")])
+def test_home_decoy_hooks_never_loaded_by_tools(tool, call, dirs):
+    """家目錄放誘餌 hooks/wg_roles.py、wg_core.py（import 就寫標記再丟例外），沒設 WG_CLAUDE_DIR 冷啟動：
+    wg_* 全來自工具自己的樹、誘餌沒被載（反例：舊碼用資料根別名 CLAUDE／CLAUDE_ROOT 拼 hooks 會載到誘餌；
+    heal-review 的 try/except 會把誘餌的例外吞掉，只有標記看得出來）。"""
+    home, _ = dirs
+    decoy = home / ".claude" / "hooks"
+    decoy.mkdir(parents=True)
+    marker = home / "decoy-hooks-ran.txt"
+    for name in ("wg_roles.py", "wg_core.py"):
+        (decoy / name).write_text(f"open(r'{marker}', 'a').write('{name}\\n')\nraise ImportError('decoy hooks loaded')\n",
+                                  encoding="utf-8")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", HOOKS_ORIGIN_PROBE, str(TREE / "tools" / tool), call],
+                       env=_env(home), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=120, creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
+    assert r.returncode == 0 and line, f"{tool} rc={r.returncode}\n{r.stderr[-3000:]}"
+    assert not marker.exists(), marker.read_text(encoding="utf-8")
+    files = json.loads(line[len("PROBE_JSON "):])
+    assert files and all(_under(f, TREE) for f in files.values() if f), files

@@ -52,7 +52,6 @@ from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + a
 from lib.project_root import claude_data_dir  # noqa: E402
 
 MEMORY_DIR = claude_data_dir() / "memory"   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
-CLAUDE_ROOT = MEMORY_DIR.parent
 
 EXCLUDED_DIR_PARTS = {"_reference", "_archived", "_pending_review", "_staging",
                       "templates", "wisdom", "_drafts", "episodic", "_distant", "_rejected"}
@@ -393,7 +392,7 @@ def main() -> int:
 
 def _project_memory_dirs() -> List[Tuple[str, Path]]:
     """與執行期同一套專案判定（hooks/wg_core.discover_all_project_memory_dirs）；只取有 JSON 索引者。"""
-    hooks = CLAUDE_ROOT / "hooks"
+    hooks = Path(__file__).resolve().parent.parent / "hooks"   # 程式碼：本檔所在的樹
     if str(hooks) not in sys.path:
         sys.path.insert(0, str(hooks))
     from wg_core import discover_all_project_memory_dirs  # noqa: E402

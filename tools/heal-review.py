@@ -17,12 +17,13 @@ from pathlib import Path
 if sys.stdout.encoding != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-CLAUDE = Path.home() / ".claude"
+CLAUDE = Path.home() / ".claude"                      # 資料根
+CODE_DIR = Path(__file__).resolve().parent.parent     # 程式碼根（本檔所在的樹）
 MEMORY = CLAUDE / "memory"
 REVIEW = MEMORY / "_heal_review"
-TOOLS = CLAUDE / "tools"
+TOOLS = CODE_DIR / "tools"
 
-sys.path.insert(0, str(CLAUDE / "hooks"))
+sys.path.insert(0, str(CODE_DIR / "hooks"))
 try:
     from wg_roles import is_management, get_current_user   # noqa: E402
 except Exception:

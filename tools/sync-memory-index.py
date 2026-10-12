@@ -800,7 +800,7 @@ def main() -> int:
         try:
             import subprocess
             r = subprocess.run(
-                [sys.executable, str(Path(claude_root) / "tools" / "native-memory-bridge.py")],
+                [sys.executable, str(Path(__file__).resolve().parent / "native-memory-bridge.py")],   # 程式碼：本檔旁那支
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
