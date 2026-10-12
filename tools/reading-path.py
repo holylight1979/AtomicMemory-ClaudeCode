@@ -104,8 +104,9 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   self.方法 = …、實例.方法 = …、setattr(X, "方法", …)（字串字面值）、del、類別本體再指定，就不給條號；
   改寫照類別身分（定義檔＋名字）記，實例的型別看不出時，同名的方法都不給；經由被重新指定過的參數或區域變數寫入的，
   它原本的標註不再算數，也照型別看不出處理
-  目標（1～5 條）被裝飾過：函式的裝飾器、或方法所屬類別的類別裝飾器，有任何一個不在「保留原函式身分」清單裡，
-  就不給條號（呼叫先進的是裝飾器給的東西）——清單：staticmethod、classmethod、abstractmethod、property 與
+  目標（1～5 條）被裝飾過：函式的裝飾器，或查找經過的類別——呼叫點寫出的類別（建構的類別、接收者型別、類別.方法 的
+  類別、super() 用到的父類）沿繼承鏈到實際定義方法的類別，整條鏈上——的類別裝飾器，有任何一個不在「保留原函式身分」
+  清單裡，就不給條號（呼叫先進的是裝飾器給的東西）——清單：staticmethod、classmethod、abstractmethod、property 與
   它的 .setter／.getter／.deleter、typing（含 typing_extensions）的 overload／override／final；類別只有 dataclass；
   名字要沿綁定鏈確認就是那個內建或標準庫名字（自己定義的同名裝飾器不算）
   模型沒建參數與綁定的 Python 作用域構件（lambda、生成器、推導式、類別本體）：呼叫點在 lambda／生成器／推導式裡的，
@@ -149,8 +150,10 @@ LIMITS = WHITELIST + """
     C# 反射與 dynamic；模型沒建的 Python 作用域構件（lambda、生成器、推導式、類別本體）裡，一律不給條號
   - Python 標註（參數、回傳、變數標註）不產生呼叫邊，確定或候選都不給：標註可能延後求值或根本不求值
     （from __future__ import annotations、3.14 以後、函式裡的變數標註），裡面的呼叫不算；標註只當型別證據。預設值與裝飾器照常算呼叫
-  - 被裝飾的函式：裝飾器（或方法所屬類別的類別裝飾器）不在保留原函式身分的清單裡（見白名單末段；functools.lru_cache、
-    cache、contextmanager、自訂裝飾器都不在），呼叫它只給候選，包裝層（wrapper）裡做了什麼不追；呼叫裝飾器工廠 @deco(…) 本身照常判
+  - 被裝飾的函式或類別：函式的裝飾器，或呼叫點寫出的類別沿繼承鏈到定義方法的類別之間（含被繼承的方法、建構時用到的
+    父類 __init__、super() 經過的父類、多層繼承的中間層）任一個類別裝飾器，不在保留原函式身分的清單裡（見白名單末段；
+    functools.lru_cache、cache、contextmanager、自訂裝飾器都不在），呼叫它只給候選，包裝層（wrapper）裡做了什麼不追；
+    呼叫裝飾器工廠 @deco(…) 本身照常判
   - C#（不用 Roslyn）：擴充方法、LINQ、var 由方法回傳推型別、跨 namespace 同名類合併、lambda 裡的呼叫算外層函式、
     #if 不分支、運算子多載與索引子不認、接收者型別不明的屬性不猜、三元運算與 LINQ 不算分支、插值字串 {} 裡再套字串會漏；
     類別證據沒有 import 鏈可走（專案裡同名的類別就當那個型別，分不出外部同名型別）；第 2 條的用途證明只數文字出現，
@@ -1181,7 +1184,7 @@ class Graph:
                 e.guess = SCOPED                   # 總原則 1：模型沒建的作用域構件裡，一律不給條號
             if unique and e.kind == "direct" and not e.guess and self._method_rebound(e.dst):
                 e.guess = METHOD_REBOUND
-            if unique and e.kind == "direct" and not e.guess and self._decorated(e.dst):
+            if unique and e.kind == "direct" and not e.guess and self._decorated(f, c, e.dst):
                 e.guess = DECORATED
             if unique and e.kind == "direct" and not e.guess:
                 e.rule = next((n for n, check in self._call_rules() if check(f, c, e)), None)
@@ -1202,19 +1205,51 @@ class Graph:
         family = list(self.ancestry(cls)) + self.descendants(cls)
         return any((self.cls_key(k), fn.name) in self.method_writes for k in family)
 
-    def _decorated(self, dst: str) -> bool:
-        """目標被保留身分清單以外的裝飾器包過：函式自己的裝飾器（在 def 的外層解析），或它所屬類別的類別裝飾器
-        （在模組層解析）。包裝層不追：呼叫先進的是裝飾器給的東西，不一定是它。C# 的屬性不改身分。"""
+    def _decorated(self, f: lang.Func, c: lang.Call, dst: str) -> bool:
+        """呼叫點 c 連到 dst 的路上有保留身分清單以外的裝飾器：dst 自己的函式裝飾器（在 def 的外層解析）、dst 所屬類別的
+        類別裝飾器，或呼叫點經由的類別（_named_class）沿繼承鏈走到定義 dst 的類別，經過的任一類別裝飾器（在模組層解析）。
+        包裝層不追：呼叫先進的是裝飾器給的東西，不一定是它。C# 的屬性不改身分。"""
         fn = self.funcs[dst]
         if fn.lang != "py":
             return False
         ctx = self.outer_ctx(fn)
         if not all(self._keeps_identity(ctx, path, called, KEEP_IDENTITY, fn.name) for path, called in fn.decorators):
             return True
-        cls = self.cls_of(fn) if fn.cls and fn.qual == f"{fn.cls}.{fn.name}" else None
-        top = self.module_ctx(cls.files[0]) if cls else None
-        return bool(cls) and not all(self._keeps_identity(top, path, called, CLASS_KEEP_IDENTITY, cls.name)
-                                     for path, called in cls.decorators)
+        own = self.cls_of(fn) if fn.cls and fn.qual == f"{fn.cls}.{fn.name}" else None
+        if own is not None and self._class_decorated(own):
+            return True
+        start = self._named_class(f, c)
+        for k in (self.ancestry(start) if start is not None else []):   # 呼叫點寫出的類別往上，到定義 dst 的那個類別為止
+            if self._class_decorated(k):
+                return True
+            if any(dst in ids for ids in k.methods.values()):
+                return False
+        return False
+
+    def _class_decorated(self, cls) -> bool:
+        """Python 類別帶保留身分清單（dataclass 系）以外的類別裝飾器。"""
+        top = self.module_ctx(cls.files[0])
+        return cls.lang == "py" and not all(self._keeps_identity(top, path, called, CLASS_KEEP_IDENTITY, cls.name)
+                                            for path, called in cls.decorators)
+
+    def _named_class(self, f: lang.Func, c: lang.Call):
+        """呼叫點經由哪個類別查到目標（裝飾器檢查用，只會讓邊變不確定）：self／cls → 自己的類別；super() → 有這個方法的
+        那個父類；裸名 → 名字綁到的類別（建構）；接收者 → 它的型別（建構的、標註的、欄位宣告的）、類別.方法 的類別、
+        模組.類別(…) 的類別；其他 → None。C# 沒有類別裝飾器，回 None。"""
+        if f.lang != "py":
+            return None
+        if c.kind == "self" or (c.kind == "name" and c.name == "cls" and f.params[:1] == ["cls"]):
+            return self.cls_of(f)
+        if c.kind == "super":
+            own = self.cls_of(f)
+            bases = [self.base_of(own, b) for b in (own.bases if own else [])]
+            return next((b for b in bases if b and self.lookup(b, c.name)), None)
+        if c.kind == "name":
+            return self.class_lookup(f, c.name)[0]
+        if c.kind != "attr" or not c.recv:
+            return None
+        kind, target, _ = self.recv_type(f, c.recv)
+        return self._class_at(target, c.name, 0)[0] if kind == "module" else target
 
     def _keeps_identity(self, ctx: lang.Func, path: str, called: bool, allowed: dict, own: str) -> bool:
         """一個裝飾器保不保留被裝飾者的身分：寫法在清單裡（staticmethod、typing.overload、name.setter、dataclass(…)…），

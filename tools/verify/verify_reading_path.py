@@ -2179,6 +2179,61 @@ def test_p8_a_preserving_decorator_keeps_the_rule(tmp_path, form):
     assert (target, rule) in _edge_rules({"app.py": app}, fid, tmp_path), f"{form}：保留身分的裝飾器不影響條號"
 
 
+# ─── 015：查找經過的類別整條繼承鏈都要過類別裝飾器檢查 ─────────────────────────
+
+DECO_CLS = "def deco(cls):\n    return cls\n\n\n"
+BASE_INIT_M = "class Base:\n    def __init__(self):\n" + RUN_BODY + "\n    def m(self):\n" + RUN_BODY + "\n\n"
+CHAIN_A = "class A:\n    def m(self):\n" + RUN_BODY + "\n\n"
+P9_CHAIN = {   # 寫法 → (app.py, 呼叫所在函式, 目標)：呼叫點寫出的類別到定義方法的類別之間有清單外的類別裝飾器
+    "d1_ctor_inherited_init": (DECO_CLS + BASE_INIT_M + "@deco\nclass Foo(Base):\n    pass\n\n\ndef main():\n    Foo()\n",
+                               "app.py::main", "app.py::Base.__init__"),
+    "d2_method_via_decorated_sub": (DECO_CLS + BASE_INIT_M + "@deco\nclass Foo(Base):\n    pass\n\n\n"
+                                    "def main():\n    f = Foo()\n    f.m()\n", "app.py::main", "app.py::Base.m"),
+    "d3_annot_receiver": (DECO_CLS + BASE_INIT_M + "@deco\nclass Foo(Base):\n    pass\n\n\ndef main(f: Foo):\n    f.m()\n",
+                          "app.py::main", "app.py::Base.m"),
+    "middle_layer": (DECO_CLS + CHAIN_A + "@deco\nclass B(A):\n    pass\n\n\nclass C(B):\n    pass\n\n\n"
+                     "def main(c: C):\n    c.m()\n", "app.py::main", "app.py::A.m"),
+    "super_through_decorated": (DECO_CLS + CHAIN_A + "@deco\nclass B(A):\n    pass\n\n\nclass C(B):\n    def m(self):\n"
+                                "        return super().m()\n", "app.py::C.m", "app.py::A.m"),
+    "static_via_decorated_sub": (DECO_CLS + "class Base:\n    @staticmethod\n    def s():\n" + RUN_BODY
+                                 + "\n\n@deco\nclass Foo(Base):\n    pass\n\n\ndef main():\n    Foo.s()\n",
+                                 "app.py::main", "app.py::Base.s"),
+    "decorated_parent": (DECO_CLS + "@deco\nclass Base:\n    def m(self):\n" + RUN_BODY + "\n\nclass Foo(Base):\n    pass\n\n\n"
+                         "def main(f: Foo):\n    f.m()\n", "app.py::main", "app.py::Base.m"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P9_CHAIN))
+def test_p9_a_decorated_class_anywhere_on_the_lookup_chain_leaves_only_a_candidate(tmp_path, form):
+    """總控台定死的家族規則：查找經過的每個類別——呼叫點寫出的類別（建構的類別、接收者型別、類別.方法 的類別、super()
+    用到的父類）到實際定義方法的類別之間整條繼承鏈——任一帶清單外類別裝飾器 → 只給候選，理由 DECORATED。
+    含繼承來的 __init__（d1）、繼承來的方法（d2、d3）、多層繼承的中間層、super() 經過的父類、被裝飾類別當父類。"""
+    app, fid, target = P9_CHAIN[form]
+    edges = _sure_edges({"app.py": app}, fid, tmp_path / "a")
+    assert (target, False) in edges and (target, True) not in edges, f"{form}：{edges}"
+    g = rp.build_graph(_write(tmp_path / "b", {"app.py": app}))
+    hit = [e for e in g.edges[fid] if e.dst == target]
+    assert [_rule_of(e) for e in hit] == [None] and hit[0].guess == getattr(rp, "DECORATED", None), hit
+
+
+P9_KEPT = {   # 寫法 → (app.py, 呼叫所在函式, 目標, 條號)：鏈上沒有清單外的類別裝飾器 → 條號照給
+    "d4_dataclass": ("from dataclasses import dataclass\n\n\n" + BASE_INIT_M + "@dataclass\nclass Foo(Base):\n    pass\n\n\n"
+                     "def main(f: Foo):\n    f.m()\n", "app.py::main", "app.py::Base.m", 3),
+    "undecorated_chain": (CHAIN_A + "class B(A):\n    pass\n\n\nclass C(B):\n    pass\n\n\ndef main(c: C):\n    c.m()\n",
+                          "app.py::main", "app.py::A.m", 3),
+    "super_from_a_decorated_class": (DECO_CLS + CHAIN_A + "@deco\nclass C(A):\n    def m(self):\n        return super().m()\n",
+                                     "app.py::C.m", "app.py::A.m", 1),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P9_KEPT))
+def test_p9_a_clean_lookup_chain_keeps_the_rule(tmp_path, form):
+    """反方向：鏈上只有 dataclass、或完全沒有類別裝飾器 → 照給；被裝飾類別自己方法裡的 super().m() 走的是未裝飾的父類
+    （零參數 super 用的是原本的類別），照給第 1 條。"""
+    app, fid, target, rule = P9_KEPT[form]
+    assert (target, rule) in _edge_rules({"app.py": app}, fid, tmp_path), f"{form}：鏈上沒有清單外的類別裝飾器"
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
