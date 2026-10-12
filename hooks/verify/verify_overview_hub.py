@@ -547,6 +547,12 @@ def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):
 ROOT_MAP = "| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n"
 
 
+def _link_wt(live: Path, wt: Path, name: str = "wt") -> None:
+    """把 wt 接成 live 的 git worktree 結構：live/.git/worktrees/<name>/ 目錄＋wt/.git 檔指回去（is_root_worktree 第 2 條）。"""
+    (live / ".git" / "worktrees" / name).mkdir(parents=True, exist_ok=True)
+    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / name}\n", encoding="utf-8")
+
+
 def _root_world(tmp_path, monkeypatch):
     """tmp 造 live 根層（fake claude）、它的 worktree（表位元組相同、卡在 <wt>/memory）、一般專案（表不同）。"""
     live, wt, proj = tmp_path / "claude", tmp_path / "claude-wt" / "track-x", tmp_path / "proj"
@@ -556,6 +562,7 @@ def _root_world(tmp_path, monkeypatch):
         (r / "memory" / "CC").mkdir(parents=True)
         (r / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
         (r / "memory" / "CC" / "hooks導讀.md").write_text(f"# hooks 導讀\n病灶：{body}", encoding="utf-8")
+    _link_wt(live, wt, "track-x")
     (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
     (proj / "memory" / "CC").mkdir(parents=True)
     (proj / "hooks").mkdir()
@@ -1100,6 +1107,7 @@ def test_verify_ledger_delegation_failure_returns_false_and_gate_still_blocks(tm
     for d in (live, wt):
         (d / ".claude").mkdir(parents=True)
         (d / ".claude" / "overview-map.md").write_bytes(q6.read_bytes())
+    _link_wt(live, wt)
     monkeypatch.setattr(vl, "CLAUDE_DIR", live)
     mod = str(wt / "hooks" / "x.py")
     mf = [{"path": mod, "tool": "Edit", "session_id": "s", "turn_seq": 5, "last_turn_seq": 5}]
@@ -1138,3 +1146,128 @@ def test_same_dir_norm_long_prefix_any_case():
     assert oh._same_dir_norm(Path("\\\\?\\UNC\\localhost\\nosuchshare_a3"), unc) is True
     assert oh._same_dir_norm(Path("\\\\?\\c:\\x"), Path("C:\\x")) is True
     assert oh._same_dir_norm(Path("\\\\?\\unc\\localhost\\nosuchshare_a3"), Path("\\\\localhost\\other_a3")) is False
+
+
+def test_verify_ledger_delegation_multiline_error_is_one_stderr_line(tmp_path, monkeypatch, capsys):
+    import types
+    import wg_verify_ledger as vl
+    fake = types.ModuleType("overview_hub")
+
+    def boom(root, claude_dir):
+        raise AttributeError("first\nsecond")
+    fake.is_root_worktree = boom
+    monkeypatch.setitem(sys.modules, "overview_hub", fake)
+    assert vl.is_root_worktree(tmp_path / "wt", tmp_path / "live") is False
+    lines = [l for l in capsys.readouterr().err.splitlines() if l.strip()]
+    assert len(lines) == 1 and "AttributeError: first second" in lines[0]
+
+
+# ─── is_root_worktree 定義：真 git worktree（.git 檔指回 <live>/.git/worktrees/）＋表位元組相同 ─────────
+
+@pytest.fixture
+def git(tmp_path):
+    """隔離全域／系統 git 設定的 git 執行器（作者資訊走環境變數）。"""
+    import subprocess
+    cfg = tmp_path / "gitconfig-empty"
+    cfg.write_text("", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
+    env.update({"GIT_CONFIG_GLOBAL": str(cfg), "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+
+    def run(*args):
+        r = subprocess.run(["git", *args], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        assert r.returncode == 0, f"git {args}: {r.stderr}"
+        return r.stdout
+    return run
+
+
+def _git_live(git, live: Path, map_bytes: bytes) -> None:
+    live.mkdir(parents=True)
+    git("init", "-q", str(live))
+    git("-C", str(live), "config", "core.autocrlf", "false")
+    (live / ".claude").mkdir()
+    (live / ".claude" / "overview-map.md").write_bytes(map_bytes)
+    git("-C", str(live), "add", ".claude/overview-map.md")
+    git("-C", str(live), "commit", "-q", "-m", "init")
+
+
+def _copy_map(live: Path, d: Path) -> Path:
+    (d / ".claude").mkdir(parents=True)
+    (d / ".claude" / "overview-map.md").write_bytes((live / ".claude" / "overview-map.md").read_bytes())
+    return d
+
+
+def test_is_root_worktree_real_git_worktrees_inside_and_outside_live(tmp_path, git):
+    live = tmp_path / "live"
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
+    outside, inside = tmp_path / "wt-out", live / ".claude" / "worktrees" / "x"
+    git("-C", str(live), "worktree", "add", "-q", "-b", "wt-out", str(outside))
+    git("-C", str(live), "worktree", "add", "-q", "-b", "wt-in", str(inside))
+    assert oh.is_root_worktree(outside, live) is True                                  # live 之外
+    assert oh.is_root_worktree(inside, live) is True                                   # live 之下（原生 EnterWorktree 的位置）
+    assert oh.card_mem_dir(inside, live) == inside / "memory"
+    (outside / ".claude" / "overview-map.md").write_bytes(b"| `x/` | other | none | none |\n")
+    assert oh.is_root_worktree(outside, live) is False                                 # 反例：真 worktree 但表不同
+
+
+def test_is_root_worktree_rejects_lookalike_folders(tmp_path, git):
+    live = tmp_path / "live"
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
+    plain = _copy_map(live, live / "fixture")
+    assert oh.is_root_worktree(plain, live) is False                                   # 反例：相同表、沒有 .git
+    assert oh.card_mem_dir(plain, live) == plain / ".claude" / "memory"
+    with_dir = _copy_map(live, live / "fixture-dotgit-dir")
+    (with_dir / ".git").mkdir()
+    assert oh.is_root_worktree(with_dir, live) is False                                # 反例：.git 是目錄
+    other = tmp_path / "other"
+    _git_live(git, other, ROOT_MAP.encode("utf-8"))
+    (other / ".git" / "worktrees" / "z").mkdir(parents=True)
+    foreign = _copy_map(live, tmp_path / "foreign")
+    (foreign / ".git").write_text(f"gitdir: {other / '.git' / 'worktrees' / 'z'}\n", encoding="utf-8")
+    assert oh.is_root_worktree(foreign, live) is False                                 # 反例：指到別的 repo 的 worktrees/
+    bad = _copy_map(live, tmp_path / "bad-format")
+    (bad / ".git").write_text("not a gitdir line\n", encoding="utf-8")
+    assert oh.is_root_worktree(bad, live) is False                                     # 反例：格式不對
+    git("-C", str(live), "worktree", "add", "-q", "-b", "real", str(tmp_path / "real"))
+    assert oh.is_root_worktree(tmp_path / "real", live) is True                        # 正例對照
+
+
+def test_is_root_worktree_relative_gitdir_resolved_against_root(tmp_path, git):
+    live = tmp_path / "live"
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
+    (live / ".git" / "worktrees" / "rel").mkdir(parents=True)
+    rel = _copy_map(live, tmp_path / "rel")
+    (rel / ".git").write_text("gitdir: ../live/.git/worktrees/rel\n", encoding="utf-8")
+    assert oh.is_root_worktree(rel, live) is True                                      # 相對路徑以 <root> 為基準
+    other = tmp_path / "other"
+    (other / ".git" / "worktrees" / "rel").mkdir(parents=True)
+    rel2 = _copy_map(live, tmp_path / "rel2")
+    (rel2 / ".git").write_text("gitdir: ../other/.git/worktrees/rel\n", encoding="utf-8")
+    assert oh.is_root_worktree(rel2, live) is False                                    # 反例：相對路徑解析到別處
+
+
+def test_measure_gate_fixture_with_same_map_is_not_root_worktree(tmp_path, monkeypatch, git):
+    import wg_verify_ledger as vl
+    q6 = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q6" / "overview-map.md"
+    rows = oh.parse_map(q6.read_text(encoding="utf-8"))
+    live = tmp_path / "live"
+    _git_live(git, live, q6.read_bytes())
+    wt = tmp_path / "wt"
+    git("-C", str(live), "worktree", "add", "-q", "-b", "wt", str(wt))
+    fixture = _copy_map(live, live / "fixture")
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+
+    def gate(root):
+        mf = [{"path": str(root / "hooks" / "x.py"), "tool": "Edit", "session_id": "s", "turn_seq": 5, "last_turn_seq": 5}]
+        done = {"turn_seq": 5, "tool": "Bash", "cmd": "python -X utf8 -m pytest -q hooks/verify/verify_x.py", "exit_code": 0,
+                "at": "", "project_root": str(root), "cwd": str(root),
+                "sentinels": [{"name": "PYTEST", "verdict": "PASS", "kv": {}},
+                              {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
+
+        def lookup(path):
+            row = oh.match_row(path, root, rows)
+            return (root, row) if row else None
+        return vl.measure_gate_reason(mf, [done], 5, lookup, vl.MEASURE_DEFAULTS)[0]
+    assert gate(wt) is None                                                            # 真 worktree：認目標 verify 的 pytest DONE
+    reason = gate(fixture)
+    assert reason and "[Guardian:MeasureGate]" in reason and "PYTEST_MEASURE" not in reason   # 反例：fixture 不走 worktree 規則

@@ -265,27 +265,54 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
 
 # ─── 卡片 ───────────────────────────────────────────────────────────
 
-def _same_dir_norm(a: Path, b: Path) -> bool:
-    """兩個路徑是不是同一目錄（realpath＋反斜線轉正＋小寫，剝 `\\\\?\\`、`\\\\?\\UNC\\` 長路徑前綴，前綴不分大小寫）；
-    只給 is_root_worktree／card_mem_dir 用，find_map 用上面的 _same_dir。"""
-    def strip_long(s: str) -> str:
-        s = s.replace("\\", "/")
-        head = s[:8].lower()
-        if head == "//?/unc/":
-            return "//" + s[8:]
-        return s[4:] if head.startswith("//?/") else s
+def _strip_long(s: str) -> str:
+    s = s.replace("\\", "/")
+    head = s[:8].lower()
+    if head == "//?/unc/":
+        return "//" + s[8:]
+    return s[4:] if head.startswith("//?/") else s
 
-    def norm(p: Path) -> str:
-        return strip_long(os.path.realpath(strip_long(str(p)))).rstrip("/").lower()
-    return norm(a) == norm(b)
+
+def _norm_dir(p: Path) -> str:
+    """realpath＋反斜線轉正＋小寫，剝 `\\\\?\\`、`\\\\?\\UNC\\` 長路徑前綴（前綴不分大小寫）。"""
+    return _strip_long(os.path.realpath(_strip_long(str(p)))).rstrip("/").lower()
+
+
+def _same_dir_norm(a: Path, b: Path) -> bool:
+    """兩個路徑是不是同一目錄（_norm_dir 後相等）；只給 is_root_worktree／card_mem_dir 用，find_map 用上面的 _same_dir。"""
+    return _norm_dir(a) == _norm_dir(b)
+
+
+def _gitdir_of(root: Path) -> Optional[Path]:
+    """`<root>/.git` 是檔案時，第一個 `gitdir:` 行指的路徑（相對路徑以 root 為基準）；不是檔案、讀不到、沒有這行或值空 → None。"""
+    dot = root / ".git"
+    try:
+        if not dot.is_file():
+            return None
+        for line in dot.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("gitdir:"):
+                value = line[len("gitdir:"):].strip()
+                if not value:
+                    return None
+                p = Path(value)
+                return p if p.is_absolute() else root / p
+    except OSError:
+        return None
+    return None
 
 
 def is_root_worktree(root: Path, claude_dir: Path) -> bool:
-    """root 是「根層（~/.claude）的 worktree」：root ≠ claude_dir，且兩邊的 .claude/overview-map.md 位元組相同。
-    任一表不存在、或兩者是同一目錄 → False。純函式，不碰 state。"""
+    """root 是「根層（~/.claude）的 git worktree」，三條同時成立才是：
+    1. root 與 claude_dir 不是同一目錄；
+    2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下；
+    3. 兩邊的 .claude/overview-map.md 位元組相同（任一不存在 → 不是）。
+    純函式，不碰 state。"""
     try:
         r, c = Path(root), Path(claude_dir)
         if _same_dir_norm(r, c):
+            return False
+        gitdir = _gitdir_of(r)
+        if gitdir is None or not _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/"):
             return False
         return (r / MAP_REL).read_bytes() == (c / MAP_REL).read_bytes()
     except OSError:

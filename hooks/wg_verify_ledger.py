@@ -749,7 +749,8 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
         from overview_hub import is_root_worktree as _impl
         return bool(_impl(root, claude_dir))
     except Exception as e:  # noqa: BLE001
-        print(f"[verify_ledger] is_root_worktree 委派失敗：{type(e).__name__}: {e}；當成非 worktree（量尺照根層規則要全量）",
+        msg = " ".join(str(e).split())   # 多行例外壓成一行
+        print(f"[verify_ledger] is_root_worktree 委派失敗：{type(e).__name__}: {msg}；當成非 worktree（量尺照根層規則要全量）",
               file=sys.stderr)
         return False
 

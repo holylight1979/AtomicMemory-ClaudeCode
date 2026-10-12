@@ -652,13 +652,15 @@ def _so_world(tmp_path, monkeypatch):
         (r / "memory" / "CC").mkdir(parents=True)
         (r / ".claude" / "overview-map.md").write_text(SO_MAP, encoding="utf-8", newline="\n")
         (r / "memory" / "CC" / "hooks導讀.md").write_text(f"# {body}\n", encoding="utf-8")
+    (live / ".git" / "worktrees" / "track-x").mkdir(parents=True)                      # git worktree 結構：.git 檔指回 live
+    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'track-x'}\n", encoding="utf-8")
     (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
     (proj / "memory").mkdir()
     (proj / ".claude" / "overview-map.md").write_text(SO_MAP + "| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8", newline="\n")
     (proj / ".claude" / "memory" / "shared" / "hooks導讀.md").write_text("# 專案卡\n", encoding="utf-8")
     (proj / "memory" / "hooks導讀.md").write_text("# 誤撈的根 memory 同名卡\n", encoding="utf-8")
     monkeypatch.setattr(pack, "CLAUDE_DIR", live)
-    # 同一 pytest 行程先載過 hooks（wg_episodic／ups_context 把 Path.home()/.claude 插到 sys.path 最前）時，`lib` 套件會是 live 那份；
+    # 同一 pytest 行程先載過 hooks（經 wg_core.CLAUDE_DIR 組 sys.path，沒設 WG_CLAUDE_DIR 時指 live）時，`lib` 套件可能是 live 那份；
     # 這裡要驗的是本樹的 lib，先把 `lib*` 清掉、本樹根放最前
     for name in [m for m in sys.modules if m == "lib" or m.startswith("lib.")]:
         monkeypatch.delitem(sys.modules, name)

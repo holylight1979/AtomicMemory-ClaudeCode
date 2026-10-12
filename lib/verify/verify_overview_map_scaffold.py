@@ -535,8 +535,14 @@ def test_index_missing_is_repaired_on_rerun(tmp_path, monkeypatch):
 WT_MAP = "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n| `server/` | server | `server部位導讀` | 骨架 |\n"
 
 
+def _link_wt(live: Path, wt: Path, name: str) -> None:
+    """把 wt 接成 live 的 git worktree 結構：live/.git/worktrees/<name>/ 目錄＋wt/.git 檔指回去。"""
+    (live / ".git" / "worktrees" / name).mkdir(parents=True, exist_ok=True)
+    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / name}\n", encoding="utf-8")
+
+
 def _root_wt_world(base: Path):
-    """live 根層（base/claude）與它的 worktree（base/wt，表位元組相同、卡在 wt/memory）、一般專案（表不同）。"""
+    """live 根層（base/claude）與它的 worktree（base/wt，git worktree 結構、表位元組相同、卡在 wt/memory）、一般專案（表不同）。"""
     live, wt, proj = base / "claude", base / "wt", base / "proj"
     for r in (live, wt, proj):
         (r / ".claude").mkdir(parents=True)
@@ -547,6 +553,7 @@ def _root_wt_world(base: Path):
     (proj / ".claude" / "overview-map.md").write_text(WT_MAP + "| `docs/` | docs | 無 | 無 |\n", encoding="utf-8", newline="\n")
     (wt / "memory" / "MemDev").mkdir(parents=True)
     (wt / "memory" / "MemDev" / "server部位導讀.md").write_text("# server部位導讀\n", encoding="utf-8", newline="\n")
+    _link_wt(live, wt, "wt")
     return live, wt, proj
 
 
@@ -603,6 +610,7 @@ def test_detect_layer_fallback_without_wg_core_still_sees_root_worktree(tmp_path
     home = tmp_path / "home"
     live, wt, proj = _root_wt_world(home)
     live.rename(home / ".claude")                                                         # 退路的 live＝Path.home()/.claude
+    _link_wt(home / ".claude", wt, "wt")                                                  # live 搬家後 .git 檔重新指回
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setitem(sys.modules, "wg_core", None)                                     # import wg_core → ImportError
@@ -640,6 +648,7 @@ def _nested_wt_world(home: Path):
         (r / ".claude" / "overview-map.md").write_text(WT_MAP, encoding="utf-8", newline="\n")
     (wt / "memory" / "MemDev").mkdir(parents=True)
     (wt / "memory" / "MemDev" / "server部位導讀.md").write_text("# server部位導讀\n", encoding="utf-8", newline="\n")
+    _link_wt(live, wt, "x")
     return live, wt
 
 
@@ -662,3 +671,39 @@ def test_nested_root_worktree_under_live_is_root_wt_and_write_refused(tmp_path, 
             sc.write_scaffold(wt, _rows(wt), sc.ROOT_DOMAIN, write=True, merge_missing=merge)
         assert sc.ROOT_WT_WRITE_REFUSED in str(ei.value)
     assert fake.calls == [] and _all_files(home) == before                               # live 與 wt 雜湊都不變
+
+
+def _git(tmp_path: Path):
+    """隔離全域／系統 git 設定的 git 執行器（作者資訊走環境變數）。"""
+    cfg = tmp_path / "gitconfig-empty"
+    cfg.write_text("", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
+    env.update({"GIT_CONFIG_GLOBAL": str(cfg), "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+
+    def run(*args):
+        r = subprocess.run(["git", *args], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           creationflags=NO_WINDOW)
+        assert r.returncode == 0, f"git {args}: {r.stderr}"
+    return run
+
+
+def test_org_root_with_live_map_stays_org_but_worktree_under_org_is_root(tmp_path, monkeypatch, live_wg_core):
+    git = _git(tmp_path)
+    live, org = tmp_path / "live", tmp_path / "org"
+    live.mkdir()
+    git("init", "-q", str(live))
+    git("-C", str(live), "config", "core.autocrlf", "false")
+    (live / ".claude").mkdir()
+    (live / ".claude" / "overview-map.md").write_text(WT_MAP, encoding="utf-8", newline="\n")
+    git("-C", str(live), "add", ".claude/overview-map.md")
+    git("-C", str(live), "commit", "-q", "-m", "init")
+    (org / ".claude").mkdir(parents=True)
+    (org / ".claude" / "overview-map.md").write_text(WT_MAP, encoding="utf-8", newline="\n")   # 公司根放了與 live 相同的表
+    live_wg_core(live)
+    import wg_core
+    monkeypatch.setattr(wg_core, "org_memory_root", lambda: org)
+    assert sc.detect_layer(org) == (sc.LAYER_ORG, org)                                  # 反例：不是 worktree → 仍判 org
+    wt = org / "wt-sub"
+    git("-C", str(live), "worktree", "add", "-q", "-b", "wt-sub", str(wt))
+    assert sc.detect_layer(wt) == (sc.LAYER_ROOT, wt)                                   # 正例：開在公司根底下的真 worktree
