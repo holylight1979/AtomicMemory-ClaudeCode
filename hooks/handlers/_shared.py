@@ -110,17 +110,38 @@ def _hud_alive(port: int, threshold_s: int) -> Tuple[bool, Dict[str, Any]]:
 # ─── Path helpers ────────────────────────────────────────────────────────────
 
 
+def _long_path(path: str) -> str:
+    """Windows 8.3 短路徑 → 長路徑（GetLongPathNameW）。檔案還不存在就往上找到存在的祖先轉，再接回其餘部分；
+    非 Windows 或整條都轉不了 → 原樣。暫存目錄在這台機器同時以長路徑與 `HOLYLI~1` 這種短路徑出現，比對前兩邊都要轉。"""
+    if os.name != "nt" or not path:
+        return path
+    import ctypes
+    buf = ctypes.create_unicode_buffer(32768)
+    head, tail = path, []
+    while head:
+        n = ctypes.windll.kernel32.GetLongPathNameW(head, buf, 32768)
+        if 0 < n < 32768:
+            return os.path.join(buf.value, *reversed(tail))
+        parent, name = os.path.split(head)
+        if not name or parent == head:
+            break
+        tail.append(name)
+        head = parent
+    return path
+
+
 def _is_ephemeral_path(path: str) -> bool:
-    """過濾測試/快取/系統 tmp 路徑，避免污染 modified_files。"""
+    """過濾測試/快取/系統 tmp 路徑，避免污染 modified_files。系統 tmp 兩邊都轉成長路徑再比（8.3 短路徑寫法也認得）；
+    含 `~1` 的字樣本身不算暫存。"""
     if not path:
         return False
-    norm = path.replace("\\", "/")
+    norm = _long_path(path).replace("\\", "/")
     try:
-        tmp_root = tempfile.gettempdir().replace("\\", "/").rstrip("/")
+        tmp_root = _long_path(tempfile.gettempdir()).replace("\\", "/").rstrip("/")
         if tmp_root and norm.lower().startswith(tmp_root.lower() + "/"):
             return True
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001  判不了暫存目錄 → 當一般路徑（照記改檔），浮一行
+        print(f"[_shared] 判斷暫存目錄失敗，路徑照一般檔處理：{type(e).__name__}: {e}", file=sys.stderr)
     norm_low = norm.lower()
     return any(tok in norm_low for tok in _EPHEMERAL_DIR_TOKENS)
 
