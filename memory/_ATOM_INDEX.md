@@ -312,3 +312,5 @@
 | 路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試 | memory/驗證與實證/路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試.md | glob, fnmatch, 路徑樣式比對, 絕對路徑, tmp_path, pytest tmp, 測試檔判定, verify_case_globs, 案例判定, 假綠 | global |  |
 | wrong-assumptions-工作流 | memory/Failures/工作流/wrong-assumptions-工作流.md | 假設錯誤, 誤判, 直覺假設, wrong assumption, 前提錯 | global |  |
 | 量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試 | memory/驗證與實證/量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試.md | 量測工具, 靜態分析, 呼叫圖, 未解析, 看不到, 信心度, 候選連線, 前後比較, 數字帶偏, coverage_drop, 反向測試 | global |  |
+| 確認使用現有-deep-merge-機制處理列表合併-並規定-專案層的配置會覆蓋 | memory/版控/確認使用現有-deep-merge-機制處理列表合併-並規定-專案層的配置會覆蓋.md | overview_hub, deep_merge, 專案層覆蓋公司層, 配置合併規則 | global |  |
+| cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留 | memory/CC與原子記憶契約/cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留.md | cross-session-message, 同伴訊息, SendMessage 跨 session, harness 標籤, 閉合標籤, 轉義, user_typed_text, strip_harness_blocks, 清理器, 標籤注入, system-reminder 引用 | global |  |

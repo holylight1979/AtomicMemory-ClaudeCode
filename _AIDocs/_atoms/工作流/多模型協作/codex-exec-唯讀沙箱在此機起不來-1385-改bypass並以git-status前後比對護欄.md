@@ -8,6 +8,8 @@
 - Created-at: 2026-09-03
 - Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-aa1d485368fca9958b7357c8a9a7531a" from-name="claude-88" from-mode="bypass"> track-g12 補充（不用回）：既有 atom「codex-exec-唯讀沙箱在此機起不來-1385-改bypass…」這次被反證。…」
 
+- Related: codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空
+
 ## 知識
 
 - [臨] **現況：唯讀沙箱加 unelevated 就起得來，不必 bypass**（標題是舊結論）。可用指令（多個 session 實跑正常）：`Get-Content '<prompt檔>' -Raw | codex exec -m gpt-6-astra -s read-only -C '<目錄>' --ephemeral --skip-git-repo-check -c 'windows.sandbox="unelevated"' -c 'mcp_servers.unityMCP.enabled=false' -o '<回覆檔>' -`；它能自己跑 git 讀檔與做記憶體內探針。`CreateProcessWithLogonW failed: 1385` 只在沒加 `windows.sandbox="unelevated"` 或舊版 CLI 出現；那時才退回 `--dangerously-bypass-approvals-and-sandbox`＋前後 `git status --porcelain` 比對當「沒動檔」證據。

@@ -7,6 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | gh-cli-已裝已登入-pr本地merge-push自動標merged | gh-cli-已裝已登入-PR本地merge-push自動標merged |
+| 確認使用現有-deep-merge-機制處理列表合併-並規定-專案層的配置會覆蓋 | 確認使用現有-deep_merge-機制處理列表合併-並規定-專案層的配置會覆蓋 |
 
 ## 子層
 
