@@ -33,7 +33,6 @@ def _load(name: str, path: Path):
     return mod
 
 
-os.environ.pop("WG_CLAUDE_DIR", None)  # run.py 以檔案相對位置定 CLAUDE_DIR（＝本 repo 根），不吃 live 覆蓋
 _REAL_RUN = subprocess.run  # env fixture 會把 subprocess.run／Popen 換成假的；真 spawn 的案用這兩個
 _REAL_POPEN = subprocess.Popen
 run = _load("so_run", RUN_PY)
@@ -49,7 +48,9 @@ TWO = "## 結論\n改動正確。\n\n## 證據\nmaterials/diff.patch:3；等號�
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    """config／job_root 導到 tmp；models_cache 給假檔；guard 與 codex 都由 fake subprocess 代替。"""
+    """config／job_root 導到 tmp；models_cache 給假檔；guard 與 codex 都由 fake subprocess 代替。
+    WG_CLAUDE_DIR 只在本 fixture 範圍設成 tmp 資料根（子行程跑 run.py 也繼承它，不碰 live ~/.claude）。"""
+    monkeypatch.setenv("WG_CLAUDE_DIR", str(tmp_path / "data-root"))
     cache = tmp_path / "models_cache.json"
     cache.write_text(json.dumps({"models": [{"slug": "gpt-6-astra"}, {"slug": "gpt-5.6-sol"}]}),
                      encoding="utf-8", newline="\n")
@@ -612,11 +613,13 @@ def test_scan_subcommand_real_subprocess(env, monkeypatch):
     (job / "codex.stderr.log").write_text("model: x\n", encoding="utf-8", newline="\n")
     (job / "codex.stdout.log").write_text("clean\n", encoding="utf-8", newline="\n")
     cmd = [sys.executable, "-X", "utf8", str(RUN_PY), "scan", "--job", str(job)]
-    r = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    r = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60,
+                  env={**os.environ, "WG_CLAUDE_DIR": os.environ["WG_CLAUDE_DIR"]})   # 明傳 env（fixture 設的 tmp 資料根）
     lines = r.stdout.strip().splitlines()
     assert r.returncode == 0 and lines[-1] == "SCAN_CHECK PASS" and json.loads(lines[0]) == {"hits": [], "outside": []}, r.stderr
     (job / "codex.stdout.log").write_text("read C:\\outside\\secret.txt\n", encoding="utf-8", newline="\n")
-    r2 = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    r2 = _REAL_RUN(cmd, capture_output=True, text=True, encoding="utf-8", timeout=60,
+                   env={**os.environ, "WG_CLAUDE_DIR": os.environ["WG_CLAUDE_DIR"]})
     lines2 = r2.stdout.strip().splitlines()
     assert r2.returncode == 1 and lines2[-1] == "SCAN_CHECK FAIL" and json.loads(lines2[0])["outside"], r2.stderr
 
@@ -662,3 +665,45 @@ def test_post_oversize_log_is_failed(env, monkeypatch):
     st = _execute(env, res["job_dir"])
     assert st["status"] == "failed" and "過大" in st["reason"]
     assert not (Path(res["job_dir"]) / "reply.md").exists()
+
+
+# ─── 部位卡解析走 lib.overview_hub.card_mem_dir：根層／根層 worktree／一般專案 ─────────────
+
+SO_MAP = "| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n"
+
+
+def _so_world(tmp_path, monkeypatch):
+    """tmp 造 live 根層、它的 worktree（表位元組相同、卡在 <根>/memory）、一般專案（表不同、兩處同名卡）；pack.CLAUDE_DIR 指 tmp 根層。"""
+    live, wt, proj = tmp_path / "claude", tmp_path / "claude-wt" / "track-x", tmp_path / "proj"
+    for r, body in ((live, "live 根層卡"), (wt, "worktree 卡")):
+        (r / ".claude").mkdir(parents=True)
+        (r / "memory" / "CC").mkdir(parents=True)
+        (r / ".claude" / "overview-map.md").write_text(SO_MAP, encoding="utf-8", newline="\n")
+        (r / "memory" / "CC" / "hooks導讀.md").write_text(f"# {body}\n", encoding="utf-8")
+    (live / ".git" / "worktrees" / "track-x").mkdir(parents=True)                      # git worktree 結構：.git 檔指回 live
+    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'track-x'}\n", encoding="utf-8")
+    (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
+    (proj / "memory").mkdir()
+    (proj / ".claude" / "overview-map.md").write_text(SO_MAP + "| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8", newline="\n")
+    (proj / ".claude" / "memory" / "shared" / "hooks導讀.md").write_text("# 專案卡\n", encoding="utf-8")
+    (proj / "memory" / "hooks導讀.md").write_text("# 誤撈的根 memory 同名卡\n", encoding="utf-8")
+    monkeypatch.setattr(pack, "CLAUDE_DIR", live)
+    # 同一 pytest 行程先載過 hooks（經 wg_core.CLAUDE_DIR 組 sys.path，沒設 WG_CLAUDE_DIR 時指 live）時，`lib` 套件可能是 live 那份；
+    # 這裡要驗的是本樹的 lib，先把 `lib*` 清掉、本樹根放最前
+    for name in [m for m in sys.modules if m == "lib" or m.startswith("lib.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.syspath_prepend(str(ROOT))
+    return live, wt, proj
+
+
+def _card_of(cwd):
+    items, notes = pack.gather_items({"cwd": str(cwd), "part": "hook 層", "materials": {"diff": {"text": "d\n"}}}, {})
+    return dict(items).get(pack.REL_CARD), notes
+
+
+@pytest.mark.parametrize("which, expect", [("live", "# live 根層卡"), ("wt", "# live 根層卡"), ("proj", "# 專案卡")])   # 根層 worktree 讀 live 的卡
+def test_pack_card_resolves_for_root_worktree_and_project(tmp_path, monkeypatch, which, expect):
+    live, wt, proj = _so_world(tmp_path, monkeypatch)
+    card, notes = _card_of({"live": live, "wt": wt, "proj": proj}[which])
+    assert card is not None and card.startswith(expect)                     # 一般專案反例：不拿專案根 memory 的同名卡
+    assert not any("找不到部位卡" in n for n in notes)

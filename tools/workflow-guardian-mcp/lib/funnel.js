@@ -2,7 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const { TOOLS_DIR, CLAUDE_DIR, PYTHON_EXE } = require("./paths");
+const { TOOLS_DIR, CLAUDE_DIR, CODE_DIR, PYTHON_EXE } = require("./paths");
 const { crashLog } = require("./log");
 
 /** Run conflict-detector --mode=write-check.
@@ -235,7 +235,7 @@ function spawnAtomCli(action, payload) {
       cp = require("child_process").spawn(
         PYTHON_EXE, ["-m", "lib.atom_io_cli"],
         {
-          cwd: CLAUDE_DIR,
+          cwd: CODE_DIR,   // -m 從 cwd 載 lib：程式碼根（資料位置由 payload 與 py 端自己決定）
           windowsHide: true,
           env: { ...process.env, PYTHONIOENCODING: "utf-8" },
         }

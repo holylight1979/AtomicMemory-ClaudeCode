@@ -32,13 +32,14 @@ if sys.stdout.encoding != "utf-8":
 if sys.stderr.encoding != "utf-8":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-ROOT = Path(__file__).resolve().parent.parent          # ~/.claude
+ROOT = Path(__file__).resolve().parent.parent          # 程式碼根（本檔所在的樹）
 TOOLS = ROOT / "tools"
-MEMORY = ROOT / "memory"
 HEAL_SOURCE = "tool:atom-heal"
 
 sys.path.insert(0, str(ROOT))                          # lib.*
 sys.path.insert(0, str(TOOLS))                         # ollama_client
+from lib.project_root import claude_data_dir           # noqa: E402
+MEMORY = claude_data_dir() / "memory"                  # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）
 from lib.atom_io import edit_metadata                  # noqa: E402
 from lib.atom_spec import validate_atom_content        # noqa: E402
 from lib.atom_locations import LEGACY_FAILURES_DIR     # noqa: E402  舊址 _AIDocs/Failures/（遷移期讀端相容）

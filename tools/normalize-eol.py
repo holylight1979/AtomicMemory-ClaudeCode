@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
+CODE_DIR = Path(__file__).resolve().parent.parent
 INDEX_FILES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
 ATTR_MARK = "# AtomicMemory eol/merge rules"
 SKIP_DIR_PARTS = {"_vectordb", "__pycache__", "node_modules", ".git", ".svn"}
@@ -256,7 +256,7 @@ def write_gitattributes(mem_dir: Path) -> Dict:
 
 
 def _wg_core():
-    hooks = CLAUDE_DIR / "hooks"
+    hooks = CODE_DIR / "hooks"
     if str(hooks) not in sys.path:
         sys.path.insert(0, str(hooks))
     import wg_core  # noqa: E402
@@ -349,7 +349,7 @@ def main(argv: List[str]) -> int:
     mode.add_argument("--root", action="store_true", help="根層 repo 的 git 追蹤檔")
     mode.add_argument("--memory-dir", type=Path, help="專案 .claude/memory 樹")
     mode.add_argument("--all-projects", action="store_true", help="所有登記專案的 memory dir")
-    ap.add_argument("--repo", type=Path, default=CLAUDE_DIR, help="--root 的 repo 路徑（預設 ~/.claude；測試用）")
+    ap.add_argument("--repo", type=Path, default=CODE_DIR, help="--root 的 repo 路徑（預設 ~/.claude；測試用）")
     ap.add_argument("--include-dirty", action="store_true", help="--root：連別的 session 正在改的檔與 untracked 一起處理")
     ap.add_argument("--check", action="store_true", help="唯讀巡檢，有殘留 exit 1")
     ap.add_argument("--write-gitattributes", action="store_true", help="--memory-dir：在該 repo 的 .gitattributes 寫入規則區塊")

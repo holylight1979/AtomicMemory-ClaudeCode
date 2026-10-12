@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, WORKFLOW_DIR, _now_iso, _atom_debug_error,
+    CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, _now_iso, _atom_debug_error,
     append_guard_log, find_project_root, find_vcs_root, load_config, org_memory_root,
 )
 
@@ -597,7 +597,7 @@ def spawn_vcs_sync(session_id: str, cwd: str, reason: str,
         targets = collect_sync_targets(cwd, cfg)
         if not targets:
             return 0
-        worker_path = CLAUDE_DIR / "hooks" / "vcs-sync-worker.py"
+        worker_path = CODE_DIR / "hooks" / "vcs-sync-worker.py"
         if not worker_path.exists():
             raise FileNotFoundError(str(worker_path))
         retired = list(retired_paths or [])
@@ -701,7 +701,7 @@ def _run_index_tools(target: SyncTarget, timeout: float, env: Dict[str, str], lo
                      tool_args: Sequence[List[str]]) -> None:
     """對每個有 _atom_index.json 的記憶目錄跑 tools/ 下的索引工具；`--write` 者失敗即 _Stop（半套索引不能
     進版控），其餘（--check）漂移只記 log。"""
-    tools = CLAUDE_DIR / "tools"
+    tools = CODE_DIR / "tools"   # 程式碼；跑的時候 cwd 與 --memory-dir（資料）仍是 CLAUDE_DIR／mem
     for mem in target.mem_dirs:
         if not (mem / "_atom_index.json").exists():
             continue
@@ -1189,7 +1189,7 @@ def _git_isolated_rebase(t: SyncTarget, vs: Dict[str, Any], git, log: Logger, he
             missing_attr = [p for p in unmerged if attrs.get(p) != "atomindex"]
             if chk.returncode != 0 or missing_attr:
                 raise _Behind(f"衝突檔沒有 merge=atomindex 屬性（{(missing_attr or unmerged)[0]}），不自動解")
-            rr = _run([sys.executable, str(CLAUDE_DIR / "tools" / "merge-atom-index.py"),
+            rr = _run([sys.executable, str(CODE_DIR / "tools" / "merge-atom-index.py"),
                        "--resolve", "--quiet", "--cwd", str(tmp)], tmp, timeout, wt_env)
             try:
                 rep = json.loads((rr.stdout or "").strip().splitlines()[-1]) if (rr.stdout or "").strip() else {}
@@ -1564,7 +1564,7 @@ def svn_update_targets(svn: "_Svn", t: SyncTarget, retired_rel: set, env: Dict[s
     if hard:
         return "conflict", f"update 後衝突在驅動解不了的檔：{', '.join(hard[:3])}", deleted
     try:
-        r = _run([sys.executable, str(CLAUDE_DIR / "tools" / "merge-atom-index.py"),
+        r = _run([sys.executable, str(CODE_DIR / "tools" / "merge-atom-index.py"),
                   "--resolve", "--quiet", "--cwd", str(root)], root, svn.timeout, env)
     except subprocess.TimeoutExpired as e:
         return "conflict", f"索引檔衝突 resolver 逾時 {e.timeout}s（工作副本仍在衝突態）", deleted

@@ -765,6 +765,8 @@ def _two_roots(tmp_path, same_map=True):
     (live / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES)
     extra = "\n| `x/` | 其他 | 無 | 無 | 無 | 無 | 無 |\n".encode("utf-8")
     (wt / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES if same_map else _MAP_BYTES + extra)
+    (live / ".git" / "worktrees" / "wt").mkdir(parents=True)                       # 結構同真 worktree：.git 檔指回 live 的 worktrees/
+    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
     return live, wt
 
 

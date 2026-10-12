@@ -23,15 +23,11 @@ from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from .atom_spec import parse_frontmatter, slugify
+from .harness_text import user_typed_text
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 CONTEXT_TEXT_CHARS = 600
 
-_STRIP_BLOCK_TAGS = ("system-reminder", "ide_selection", "ide_opened_file", "task-notification")
-_BLOCK_RE = re.compile(
-    r"<(" + "|".join(_STRIP_BLOCK_TAGS) + r")\b[^>]*>.*?</\1>", re.S | re.I,
-)
-_WG_LINE_RE = re.compile(r"^[ \t]*\[WG:[^\n]*\n?", re.M)
 _QUOTE_PAIRS = {"「": "」", '"': '"', "“": "”"}
 _DATE = r"(\d{4}-\d{2}-\d{2})"
 _SESSION_RE = re.compile(r"^session:([0-9a-fA-F]{8})(?:#([0-9a-fA-F]{8}))?\s+" + _DATE)
@@ -44,11 +40,9 @@ _SRC_COMMENT_RE = re.compile(r"<!--\s*src:\s*([0-9a-fA-F]{8})#([0-9a-fA-F]{8})\s
 # ─── 寫入端共用：Quote / Source 格式 ────────────────────────────────────────────
 
 def sanitize_quote(text: str, max_chars: int = 200) -> str:
-    """原句清成可落檔的單行：剝 hook 注入區塊與 [WG:…] 行、空白折一格、去頭尾配對引號、超長截 `…`。
-    回空字串＝沒有可寫的原句。"""
-    s = _BLOCK_RE.sub(" ", text or "")
-    s = _WG_LINE_RE.sub("", s)
-    s = re.sub(r"\s+", " ", s).strip()
+    """原句清成可落檔的單行：先取 user_typed_text（只留使用者本人打的字；harness 區塊、系統通知、[WG:…] 等殘渣行剔掉，
+    殘留標籤字樣整則不認），再空白折一格、去頭尾配對引號、超長截 `…`。回空字串＝沒有可寫的原句。"""
+    s = re.sub(r"\s+", " ", user_typed_text(text or "", keep_lines=True)).strip()
     while len(s) >= 2 and _QUOTE_PAIRS.get(s[0]) == s[-1]:
         s = s[1:-1].strip()
     if max_chars > 0 and len(s) > max_chars:

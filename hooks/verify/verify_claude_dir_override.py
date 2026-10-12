@@ -1,7 +1,8 @@
-"""verify_claude_dir_override.py：WG_CLAUDE_DIR 環境變數覆蓋 wg_core.CLAUDE_DIR 與 lib 的 sys.path 來源。
+"""verify_claude_dir_override.py：WG_CLAUDE_DIR 只覆蓋「使用者資料根」wg_core.CLAUDE_DIR；程式碼（lib 的 sys.path）一律跟檔案位置走。
 
-正例：設 WG_CLAUDE_DIR 後 CLAUDE_DIR／MEMORY_DIR／WORKFLOW_DIR 跟著走、lib 路徑進 sys.path、
-wg_overview 載到的 overview_hub 是該樹的；反例：未設（或空白）時等於家目錄 ~/.claude。
+正例：設 WG_CLAUDE_DIR 後 CLAUDE_DIR／MEMORY_DIR／WORKFLOW_DIR 跟著走；sys.path 最前面的 lib 是本樹的 lib（wg_core.CODE_DIR），
+覆蓋目錄底下的 lib 不進 sys.path；wg_overview 載到的 overview_hub 是本樹的。
+反例：未設（或空白）時資料根等於家目錄 ~/.claude，lib 仍是本樹的（在 live 根層兩者是同一個目錄）。
 每案都開子行程（常數在 import 時決定），不受本行程已載入的模組影響。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_claude_dir_override.py
 """
@@ -19,8 +20,8 @@ CLAUDE_ROOT = HOOKS_DIR.parent
 PROBE_CORE = (
     "import json, sys; sys.path.insert(0, sys.argv[1]); import wg_core; "
     "print(json.dumps({'claude_dir': str(wg_core.CLAUDE_DIR), 'memory_dir': str(wg_core.MEMORY_DIR), "
-    "'workflow_dir': str(wg_core.WORKFLOW_DIR), 'lib_in_path': str(wg_core.CLAUDE_DIR / 'lib') in sys.path, "
-    "'path0': sys.path[0]}))"
+    "'workflow_dir': str(wg_core.WORKFLOW_DIR), 'code_dir': str(wg_core.CODE_DIR), "
+    "'data_lib_in_path': str(wg_core.CLAUDE_DIR / 'lib') in sys.path, 'path0': sys.path[0]}))"
 )
 PROBE_OVERVIEW = (
     "import json, sys; sys.path.insert(0, sys.argv[1]); import wg_core, wg_overview, overview_hub; "
@@ -28,8 +29,8 @@ PROBE_OVERVIEW = (
     "'log_path': str(wg_overview.LOG_PATH)}))"
 )
 PROBE_COMPANION = (
-    "import json, sys; sys.path.insert(0, sys.argv[1]); import codex_companion as cc; import handlers; "
-    "print(json.dumps({'claude_dir': str(cc.CLAUDE_DIR), 'path0': sys.path[0], 'handlers': handlers.__file__}))"
+    "import json, sys; sys.path.insert(0, sys.argv[1]); import codex_companion; import handlers; "
+    "print(json.dumps({'handlers': handlers.__file__}))"
 )
 
 
@@ -46,13 +47,15 @@ def _probe(snippet: str, env_value) -> dict:
 
 # ─── 正例 ──────────────────────────────────────────────────────────────────────
 
-def test_override_points_everything_at_given_tree(tmp_path):
+def test_override_moves_data_dirs_but_lib_stays_with_code(tmp_path):
     (tmp_path / "lib").mkdir()
     got = _probe(PROBE_CORE, str(tmp_path))
     assert Path(got["claude_dir"]) == tmp_path
     assert Path(got["memory_dir"]) == tmp_path / "memory"
     assert Path(got["workflow_dir"]) == tmp_path / "workflow"
-    assert got["lib_in_path"] and Path(got["path0"]) == tmp_path / "lib"
+    assert Path(got["code_dir"]) == CLAUDE_ROOT
+    assert Path(got["path0"]) == CLAUDE_ROOT / "lib"                     # 程式碼從本樹載
+    assert got["data_lib_in_path"] is False                              # 反例：覆蓋目錄的 lib 不進 sys.path
 
 
 def test_override_to_this_tree_loads_this_trees_lib():
@@ -62,30 +65,24 @@ def test_override_to_this_tree_loads_this_trees_lib():
     assert Path(got["log_path"]) == CLAUDE_ROOT / "workflow" / "_overview-hub.log"
 
 
-def test_codex_companion_follows_override():
-    """codex_companion import 時會插 hooks 到 sys.path 最前面；不認覆蓋就讓之後 import 的 handlers 載到家目錄那份。"""
-    got = _probe(PROBE_COMPANION, str(CLAUDE_ROOT))
-    assert Path(got["claude_dir"]) == CLAUDE_ROOT
-    assert Path(got["path0"]) == HOOKS_DIR
-    assert Path(got["handlers"]).resolve() == (HOOKS_DIR / "handlers" / "__init__.py").resolve()
+def test_codex_companion_keeps_handlers_from_this_tree():
+    """codex_companion import 時會往 sys.path 最前面插路徑；插的若是家目錄的 hooks，之後 import 的 handlers 就載到 live 那份
+    （worktree 測試合跑時 verify_verify_ledger 會因此誤紅）。設不設 WG_CLAUDE_DIR，handlers 都要是本樹的。"""
+    for env_value in (str(CLAUDE_ROOT), None):
+        got = _probe(PROBE_COMPANION, env_value)
+        assert Path(got["handlers"]).resolve() == (HOOKS_DIR / "handlers" / "__init__.py").resolve(), env_value
 
 
-# ─── 反例：未設＝家目錄，行為與現狀相同 ─────────────────────────────────────────
+# ─── 反例：未設＝資料在家目錄，程式碼仍在本樹 ─────────────────────────────────────
 
-def test_unset_equals_home_claude():
+def test_unset_data_is_home_claude_code_is_this_tree():
     home_claude = Path.home() / ".claude"
     got = _probe(PROBE_CORE, None)
     assert Path(got["claude_dir"]) == home_claude
     assert Path(got["memory_dir"]) == home_claude / "memory"
     assert Path(got["workflow_dir"]) == home_claude / "workflow"
-    assert got["lib_in_path"] and Path(got["path0"]) == home_claude / "lib"
+    assert Path(got["path0"]) == CLAUDE_ROOT / "lib" and Path(got["code_dir"]) == CLAUDE_ROOT
 
 
 def test_blank_value_equals_unset():
     assert Path(_probe(PROBE_CORE, "   ")["claude_dir"]) == Path.home() / ".claude"
-
-
-def test_codex_companion_unset_equals_home_claude():
-    got = _probe(PROBE_COMPANION, None)
-    assert Path(got["claude_dir"]) == Path.home() / ".claude"
-    assert Path(got["path0"]) == Path.home() / ".claude" / "hooks"

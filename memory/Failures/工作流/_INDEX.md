@@ -14,3 +14,4 @@
 | feedback-暫時偵錯碼插進被外部程序持續執行的-live-檔案前後必-py-compile-一次語法錯誤讓使用者-statusline-整個失效 | feedback-暫時偵錯碼插進被外部程序持續執行的-live-檔案前後必-py-compile-一次語法錯誤讓使用者-statusline-整個失效 |
 | feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向 | feedback-每輪重新校準全盤現況與偏移指標-inbox來回易帶偏風向 |
 | feedback-高速推進每步跨大-禁越執行越偏細節越耗時 | feedback-高速推進每步跨大-禁越執行越偏細節越耗時 |
+| wrong-assumptions-工作流 | 假設錯誤（Wrong Assumptions） |

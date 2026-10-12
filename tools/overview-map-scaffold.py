@@ -7,6 +7,7 @@
 產物才沿用，並核對它在 _atom_index.json 有條目、缺就補；同名的人手寫卡 → 停並要你改名或刪除）接續補完。
 表已存在一律拒寫，`--merge-missing` 以既有表的前綴→卡名配對為準，只補缺列與「表有列但卡檔不在」的卡。
 卡落哪層自動判：~/.claude → 根層（global＋realm local＋MemDev）；公司根 → 公司層；其他 → 專案 shared。
+根層 worktree（表與 live 根層位元組相同）判成根層、找卡讀 worktree 自己的 memory／_AIDocs/_atoms；`--write` 一律拒（exit 2）。
 
 怎麼跑：
   python ~/.claude/tools/overview-map-scaffold.py --cwd <專案根>                 # 預覽（不落檔）
@@ -29,8 +30,10 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(CLAUDE_DIR))
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 from lib import overview_scaffold as sc  # noqa: E402
 
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"

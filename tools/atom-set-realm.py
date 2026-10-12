@@ -34,9 +34,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"
-if str(CLAUDE_DIR) not in sys.path:
-    sys.path.insert(0, str(CLAUDE_DIR))
+CLAUDE_DIR = Path.home() / ".claude"                  # 使用者資料（index path 的基準）
+_CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
 
 from lib.atom_locations import (  # noqa: E402
     CLAUDE_DIR as _CLAUDE_ROOT, FAILURES_ROOT_NAME,

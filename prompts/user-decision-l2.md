@@ -35,6 +35,8 @@ When `conf < 0.70`, output `{"decision": false}` (no scope/trigger needed).
 {"decision": bool, "conf": 0.0-1.0, "scope": "personal|shared|role", "audience": "programmer|artist|management|all", "trigger": ["關鍵詞1", "關鍵詞2"], "statement": "精簡決策陳述"}
 
 conf < 0.70 時直接輸出 {"decision": false}，不需算 scope/trigger。
+只在這個 session 有效的指示不是決策，直接輸出 {"decision": false}：派給這個 session 的角色、工作步驟、檔案路徑、
+操作限制（「你是…session」「第一步先…」「派工單在 <路徑>」「這個 session 只准…」），就算有「一律／必須」也一樣。
 
 scope 判定（問「這條是遷就專案、還是遷就這個人？」）：
 - shared：針對專案的規則或決策——專案的程式碼、流程、格式、工具選型、上傳/發布/版控、命名、架構取捨。只要換一個人做同一個專案也該遵守，就是 shared。
@@ -92,6 +94,11 @@ scope 判定（問「這條是遷就專案、還是遷就這個人？」）：
    AI 回應：（無）
    → {"decision": true, "conf": 0.90, "scope": "role", "audience": "artist", "trigger": ["Photoshop", "出圖", "美術"], "statement": "美術組一律用 Photoshop 出圖"}
    （scope=role：「美術組」= 特定角色群組）
+
+10. 使用者：「你是這個專案的工作 session，第一步切進 C:\wt\x，所有讀寫一律用 worktree 絕對路徑，派工單在 C:\work\inbox\012.md」
+   AI 回應：（無）
+   → {"decision": false}
+   （派給這個 session 的角色、步驟與路徑，只在這次有效，不是跨專案知識）
 
 使用者的話：{{user_prompt}}
 

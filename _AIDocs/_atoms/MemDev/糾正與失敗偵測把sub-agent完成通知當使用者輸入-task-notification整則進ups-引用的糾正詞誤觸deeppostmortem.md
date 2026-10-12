@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: task-notification, DeepPostMortem 誤觸, 糾正訊號誤報, wg_friction, user_correction_count, FailureDetect 誤觸, sub-agent 回報, harness 生成 prompt, is_harness_generated_prompt, sanitize_harness_noise, 假糾正
 - Created-at: 2026-09-21
-- Related: codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位, 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞, wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報
+- Related: codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測, escalation-hook-在-edit-count-proxy-上-false-fire-的辨識無真實失敗迴圈時不盲從不編造, posttooluse的tool-response不等於模型看到的結果-edit帶整份originalfile-量context浪費要按工具取可見欄位, 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞, wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報, cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留
 - Source: session:127e56a5#775963c8 2026-09-21
 - Quote: 「要請你針對最新版 Claude Code (含上網蒐集官方發布與非官方各種討論)，以及目前多人推薦、或設計理念非常特別的 skill，找出目前原子記憶系統(含子系統) 可以補強、或新增、或精簡 的，先出一份報告、若確實存在則推進計畫到執行；原則是 可以不用硬找或硬加，過於雞肋的也不用考慮，若有很hack的"演算法"或特定設計，可以多研究。」
 
@@ -16,6 +16,7 @@
 - [臨] 設計原理：friction 糾正計數是從 agent-retro 拆來的量測，目的是「測試全綠但一路被糾正也算真失敗」，餵 Stop 的 Deep Post-Mortem；關鍵字比對走 CJK 子字串，本來就靠「來源一定是使用者」保精度。失敗萃取同理。sub-agent 回報恰好是最容易含這些詞的文本（審查報告會引用「不對／重來」、描述失敗）。
 - [臨] 修法：wg_core 加 `task-notification` 進 _HARNESS_TAG_RE，並新增 `is_harness_generated_prompt()`（開頭 `<task-notification` / `[SYSTEM NOTIFICATION`，或 sanitize 後為空）；detect_correction 與 _maybe_spawn_failure_extraction 入口先過這道閘，糾正比對改吃 sanitize 後文字。實跑：通知不命中、真使用者糾正仍命中、「對不對？」仍排除。
 - [臨] 防再犯：任何新的 UPS 側「使用者訊號」偵測（糾正、失敗、意圖、決策萃取 L0）都要先問「這則 prompt 是人打的嗎」——統一走 is_harness_generated_prompt + sanitize_harness_noise，不各自 regex。驗法：拿一則真實 task-notification 原文當負例放進 verify。
+- [臨] 同家族第二型：其他 Claude session 用 SendMessage 送來的訊息以 `<cross-session-message` 開頭，不在 `wg_core._HARNESS_PROMPT_PREFIXES`（只認 task-notification 與 SYSTEM NOTIFICATION），整則被當使用者原話：進 turn_prompts（同伴訊息含「上GIT」會被 CommitOrder 當口令）、糾正偵測、意圖分類。多 session 協作時，工作 session 的交付信引用測試字串「不對、重來」就讓總控台的 DeepPostMortem 以「使用者已糾正 2 次」誤觸，實際使用者沒糾正。修法（前綴加 `<cross-session-message`，讀取端 user_typed_prompts 過濾）由 track-verify 用真 hook 探針驗過。誤觸時照本卡规則：先查 state 的 user_correction_hits excerpt 是不是同伴訊息，是就據實標誤報，不編造 post-mortem。
 
 ## 行動
 

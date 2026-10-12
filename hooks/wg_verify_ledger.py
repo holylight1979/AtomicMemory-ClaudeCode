@@ -1180,18 +1180,21 @@ def measure_cmds_of(own_mod_files: List[Dict[str, Any]],
 
 
 ROOT_WT_SENTINEL = "PYTEST_MEASURE"      # 根層 worktree 認的尺：pytest 摘要行映射的 DONE 哨兵（config verify_ledger.sentinel_regex）
-MAP_REL = ".claude/overview-map.md"
 
 
 def is_root_worktree(root: Path, claude_dir: Path) -> bool:
-    """root 是「根層（~/.claude）的 worktree」：root ≠ claude_dir，且兩邊的 .claude/overview-map.md 位元組相同。
-    任一表不存在、或兩者是同一目錄 → False。純函式，不碰 state。"""
+    """root 是「根層（~/.claude）的 worktree」；判定本體在 lib/overview_hub.is_root_worktree（卡片目錄解析共用）。
+    委派失敗（載到沒有這支的舊版 overview_hub 等）→ stderr 說一聲並回 False：量尺照根層規則要全量，閘保持擋。"""
+    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
     try:
-        r, c = Path(root), Path(claude_dir)
-        if _norm_path(os.path.realpath(str(r))) == _norm_path(os.path.realpath(str(c))):
-            return False
-        return (r / MAP_REL).read_bytes() == (c / MAP_REL).read_bytes()
-    except OSError:
+        from overview_hub import is_root_worktree as _impl
+        return bool(_impl(root, claude_dir))
+    except Exception as e:  # noqa: BLE001
+        msg = " ".join(str(e).split())   # 多行例外壓成一行
+        print(f"[verify_ledger] is_root_worktree 委派失敗：{type(e).__name__}: {msg}；當成非 worktree（量尺照根層規則要全量）",
+              file=sys.stderr)
         return False
 
 

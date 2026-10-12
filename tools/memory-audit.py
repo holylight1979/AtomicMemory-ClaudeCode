@@ -34,9 +34,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 # route memory-audit atom writes through funnel
-_CLAUDE_DIR = Path.home() / ".claude"
-if str(_CLAUDE_DIR) not in sys.path:
-    sys.path.insert(0, str(_CLAUDE_DIR))
+_CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
 from lib.atom_io import write_raw, write_index_full  # noqa: E402
 
 _AUDIT_SOURCE = "tool:memory-audit"

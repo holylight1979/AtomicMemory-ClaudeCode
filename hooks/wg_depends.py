@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from wg_core import CLAUDE_DIR, MEMORY_DIR
 from wg_overview import _cfg, _log, _project_root_of
 
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 from atom_spec import atoms_depending_on  # noqa: E402
 from overview_hub import read_paths_from_tool  # noqa: E402
 

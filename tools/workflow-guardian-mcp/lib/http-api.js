@@ -5,7 +5,7 @@ const path = require("path");
 const http = require("http");
 const https = require("https");
 const { exec } = require("child_process");
-const { CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, loadRegistry, getRegistryMemDirs, PYTHON_EXE } = require("./paths");
+const { CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, loadRegistry, getRegistryMemDirs, PYTHON_EXE } = require("./paths");
 const { listAllSessions, readState, writeState } = require("./state");
 const { enrichAtomWithAccess } = require("./atom-access");
 
@@ -198,7 +198,7 @@ const testRunner = makeJobRunner({ maxConcurrent: 1, ttlMs: 300000 });
 function apiTestRunStart(req, res) {
   // V5 統一 verify 入口（hooks/tools/lib/skills 各層 verify/）；舊 tools/test-memory-v21.py
   // 已於 V5 Wave 5 汰除，此處為當時漏改的呼叫點。1400 餘案 JSON 約 300 KB → 放大 maxBuffer。
-  const scriptPath = path.join(CLAUDE_DIR, "run_verify.py");
+  const scriptPath = path.join(CODE_DIR, "run_verify.py");   // 程式碼：本樹的 run_verify
   const r = testRunner.start(() =>
     execJson(pyCmd(scriptPath, "--json"), { timeout: 180000, maxBuffer: 32 * 1024 * 1024 })
       .then(mapVerifyToDashboard)

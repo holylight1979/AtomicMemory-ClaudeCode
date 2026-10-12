@@ -404,7 +404,8 @@ def test_index_sync_failure_stops_before_commit(repo, tmp_path, monkeypatch):
     fake = tmp_path / "fake_claude"
     (fake / "tools").mkdir(parents=True)
     (fake / "tools" / "sync-memory-index.py").write_text("import sys; sys.exit(3)\n", encoding="utf-8")
-    monkeypatch.setattr(vs, "CLAUDE_DIR", fake)
+    monkeypatch.setattr(vs, "CODE_DIR", fake)                    # 索引工具從程式碼根找
+    monkeypatch.setattr(vs, "CLAUDE_DIR", fake)                  # 跑工具時的 cwd（資料根）也落 tmp
     (repo / "memory" / "_atom_index.json").write_text("{}", encoding="utf-8")
     (repo / "memory" / "new.md").write_text("# new\n", encoding="utf-8")
     before = _git(repo, "rev-parse", "HEAD").stdout

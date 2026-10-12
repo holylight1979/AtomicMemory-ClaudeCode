@@ -23,6 +23,7 @@ from wg_core import (
     read_state, read_state_status,
     _atom_debug_log,
     find_vcs_root, memory_dir_candidates,
+    user_typed_prompts,
 )
 
 # sub-agent 注入 budget（緊湊，守 token 紅線；2-3 顆最高活化）
@@ -370,7 +371,8 @@ def check_git_commit_order(
         keywords = cfg.get("keywords") or list(_COMMIT_ORDER_DEFAULT_KEYWORDS)
         # 整回合的使用者原話（含 mid-turn 排隊訊息；背景通知內文不在內，見 ups_gates.track_turn_prompts）都算。
         # 空清單＝本回合沒有使用者原話（通知開的回合且口令已用掉）→ 擋；舊 state 沒有 turn_prompts 才退回只看最後一句。
-        turn_prompts = state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else prompts[-1:]
+        # 讀取端再濾一次：舊版曾把其他 session 的訊息記進 turn_prompts；濾完是空清單照樣擋（不走 fail-open）
+        turn_prompts = user_typed_prompts(state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else prompts[-1:])
         if any(_commit_order_keyword_hit(p, keywords) for p in turn_prompts):
             return None
         return (
@@ -380,6 +382,8 @@ def check_git_commit_order(
             "等使用者看過 diff 下「上GIT」，再 commit → push 一氣做完；不得先 commit 再等 push。\n"
             "記憶目錄（根層／專案層／公司層）不適用「記憶相關直上」手動 commit：vcs-sync worker 會在收割與 session 結束時"
             "自動 commit＋push，AI 不碰也不問。\n"
+            "使用者原話只認剔掉背景通知、其他 session 的訊息、系統注入後的字；那則訊息若夾了這些區塊或標籤字樣而整則不被認，"
+            "請使用者單獨再打一次口令（只認最新一則使用者原話，中間夾系統通知或背景事件就要重下口令）。\n"
             "確為使用者本回合要求：引用其原話請他重下口令；長期口令調整 workflow/config.json "
             "guard.commit_order.keywords（enabled=false 停用本閘）。"
         )
