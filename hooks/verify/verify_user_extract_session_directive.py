@@ -61,6 +61,16 @@ B1B = "你是工作 session。第一步用 EnterWorktree 切進 C:\\wt\\x。所�
 LIMITS = "你是工作 session track-x，第一步用 EnterWorktree 切進 C:\\wt\\x，只准處理 UI，一律先跑測試。"
 NEWLINE_MIXED = "你是工作 session track-x\n第一步用 EnterWorktree 切進 C:\\wt\\x\n所有 repo 的 commit message 用繁體中文"
 DECISIONS += [B1A, B1B, LIMITS, NEWLINE_MIXED]
+# 欄位不能吞掉決策：頓號或直接接在路徑、名稱、分支、開工回覆後面的另一段話，整句要對不上樣板
+PATH_SWALLOW = "你是工作 session track-x，本次一律只讀 C:\\wt\\x、所有專案一律禁止刪除備份。"
+DECISIONS += [
+    PATH_SWALLOW,
+    "你是工作 session track-x，派工 prompt 在 C:\\inbox\\7.md、所有專案一律禁止刪除備份。",
+    "你是工作 session track-x，本次一律只讀 C:\\wt\\x所有專案一律禁止刪除備份。",
+    "你是工作 session track-x，總控台是 claude-ad所有專案一律禁止刪除備份。",
+    "你是工作 session track-x，第一步用 EnterWorktree 切進 C:\\wt\\x（分支 v6/x、所有專案一律用 tab）。",
+    "你是工作 session track-x，開工前先 SendMessage claude-ad 一句「所有專案一律禁止刪除備份」。",
+]
 # 開工句模板（workflow/v6-inbox/_console/開工句模板.md）填好的整段，與只用換行分句的純開工句
 TEMPLATE_FILLED = (
     "你是 v6.0 的工作 session track-a3，總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree "
@@ -176,6 +186,18 @@ def test_mixed_kickoff_with_decision_goes_to_llm_and_empty_candidate_is_recorded
 def test_b1_kickoffs_with_decisions_go_to_llm(tmp_path, monkeypatch):
     stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, [B1A, B1B, LIMITS])
     assert [_user_part(p) for p in l1_seen] == [B1A, B1B, LIMITS], l1_seen            # 反例：舊碼整則跳過
+    assert stats["skipped_directive"] == 0 and left == []
+
+
+def test_decision_after_path_field_reaches_llm_from_entry(tmp_path, monkeypatch):
+    """經 UserPromptSubmit 前置閘排進候選，再經 worker：路徑後面頓號接的跨專案決策要送 L1。"""
+    from handlers import ups_gates as g
+    st = {}
+    g.run_pre_gates("sd-test", st, {"userExtraction": {"enabled": True}}, PATH_SWALLOW, PATH_SWALLOW.lower(), [])
+    queued = [c["prompt"] for c in st.get("pending_user_extract", [])]
+    assert queued == [PATH_SWALLOW]
+    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, queued)
+    assert [_user_part(p) for p in l1_seen] == [PATH_SWALLOW], l1_seen                 # 反例：舊碼路徑欄位吞掉決策、整則跳過
     assert stats["skipped_directive"] == 0 and left == []
 
 

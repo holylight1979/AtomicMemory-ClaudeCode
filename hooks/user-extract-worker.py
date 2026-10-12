@@ -104,12 +104,14 @@ def _is_emotional_commitment(prompt: str) -> bool:
 #     不用「含派工訊號就算」，也不用長期用語清單。
 # 樣板以 workflow/v6-inbox/_console/開工句模板.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
 # 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
+# 欄位（路徑、名稱、分支）只收 ASCII：吃不下的字（中文、頓號後的另一段話）留在子句裡，整句就對不上、交 LLM，
+# 不會被欄位吞掉。中文路徑的開工句因此認不出、交 LLM（不誤丟優先）。
 # 已知邊界：角色句後面的括號說明（例：「（需求目標核心流程設計單，只設計不寫程式）」）是自由欄位（≤30 字），內容不檢查。
-_PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[^\s，。；;,（）()]*"
-_NAME = r"[\w.-]+"
-_BRANCH_NOTE = r"(?:\s*（(?:分支\s*[^\s，）]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
+_PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[A-Za-z0-9_.~:\\/-]*"
+_NAME = r"[A-Za-z0-9_.-]+"
+_BRANCH_NOTE = r"(?:\s*（(?:分支\s*[A-Za-z0-9_./-]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
 _KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in (
-    ("role", r"(?:你是|妳是)\s*(?:v[\w.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?(?:\s*（[^（）]{0,30}）)?"),
+    ("role", r"(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?(?:\s*（[^（）]{0,30}）)?"),
     ("role", r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?"),
     ("role", r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session"),
     ("controller", r"(?:總控台|主控台)\s*(?:是|為)\s*" + _NAME),
@@ -124,7 +126,7 @@ _KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in
     ("deliver", r"交付(?:信)?(?:用\s*SendMessage\s*(?:全文)?(?:\s*給\s*" + _NAME + r")?)?(?:\s*附\s*live\s*未動證明)?"),
     ("verify", r"只跑目標\s*verify(?:（直接在\s*worktree\s*根跑\s*pytest，\s*不加\s*cd）)?(?:、\s*不跑全量)?"
                r"(?:、\s*不重掛\s*Monitor)?(?:、\s*不輪詢)?"),
-    ("ack", r"開工前先\s*SendMessage\s*" + _NAME + r"\s*一句「[^」]*」?"),
+    ("ack", r"開工前先\s*SendMessage\s*" + _NAME + r"\s*一句「\s*" + _NAME + r"?\s*收到開工\s*」?"),
 ))
 _CLAUSE_BREAKS = "。，,；;！？!?\n"
 _CLAUSE_PAD = " \t\r\n「」『』“”\"'…"
