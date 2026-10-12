@@ -673,7 +673,7 @@ def _card_of(cwd):
     return dict(items).get(pack.REL_CARD), notes
 
 
-@pytest.mark.parametrize("which, expect", [("live", "# live 根層卡"), ("wt", "# worktree 卡"), ("proj", "# 專案卡")])
+@pytest.mark.parametrize("which, expect", [("live", "# live 根層卡"), ("wt", "# live 根層卡"), ("proj", "# 專案卡")])   # 根層 worktree 讀 live 的卡
 def test_pack_card_resolves_for_root_worktree_and_project(tmp_path, monkeypatch, which, expect):
     live, wt, proj = _so_world(tmp_path, monkeypatch)
     card, notes = _card_of({"live": live, "wt": wt, "proj": proj}[which])

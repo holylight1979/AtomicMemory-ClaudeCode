@@ -331,17 +331,30 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
         return False
 
 
+def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
+    """root 是不是 live 這個 repo（claude_dir）的 git worktree：只看 is_root_worktree 的前兩條（不是同一目錄、
+    `<root>/.git` 檔的 gitdir 落在 `<claude_dir>/.git/worktrees/` 之下），不看部位表。
+    給「資料歸屬」用（例如追蹤帳本）：worktree 改了自己的部位表，資料仍跟 live 走。任一邊是網路路徑 → False。"""
+    try:
+        r, c = Path(root), Path(claude_dir)
+        if _is_unc(r) or _is_unc(c) or _same_dir_norm(r, c):
+            return False
+        gitdir = _gitdir_of(r)
+        return gitdir is not None and _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/")
+    except OSError:
+        return False
+
+
 def card_mem_dir(root: Path, claude_dir: Path) -> Path:
     """某個根的導讀卡住在哪個 memory 目錄（hook 注入與第二意見工具共用這一份）：
-    root 就是 claude_dir → `claude_dir/memory`；root 是根層 worktree → `root/memory`；其他 → `root/.claude/memory`。
+    root 就是 claude_dir，或 root 是根層 worktree → `claude_dir/memory`（卡片是資料，由 atom_write 寫進 live；
+    worktree 的 memory/ 只是開分支當時的副本）；其他 → `root/.claude/memory`。
     root 是網路路徑 → 直接 `root/.claude/memory`，不呼叫 realpath。"""
     r, c = Path(root), Path(claude_dir)
     if _is_unc(r):
         return r / ".claude" / "memory"
-    if _same_dir_norm(r, c):
+    if _same_dir_norm(r, c) or is_root_worktree(r, c):
         return c / "memory"
-    if is_root_worktree(r, c):
-        return r / "memory"
     return r / ".claude" / "memory"
 
 

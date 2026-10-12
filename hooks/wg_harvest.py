@@ -352,16 +352,27 @@ _TRACK_CLOSE_RE = re.compile(r"^結案\s*[：:]\s*(?P<prefix>.+)$")
 TRACK_CLOSE_MIN_CHARS = 8
 
 
+def _sha16(raw: str) -> str:
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def tracking_entry_id(entry: Dict[str, Any]) -> str:
+    """追蹤項的唯一 id：新寫入的列自帶 id；沒有 id 的舊列用 session_id、turn_seq、at、part、text 算出固定 id。"""
+    if entry.get("id"):
+        return str(entry["id"])
+    return _sha16("|".join(str(entry.get(k, "")) for k in ("session_id", "turn_seq", "at", "part", "text")))
+
+
 def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[str] = None) -> List[Dict[str, Any]]:
-    """AEC 的 (k) 追蹤項文字 → 帳本列：一行一筆 {session_id, turn_seq, at, part, text, status}。
-    「無」／空白 → []。行首 `[部位]` 或 `部位｜` 當 part，沒有就空字串。
+    """AEC 的 (k) 追蹤項文字 → 帳本列：一行一筆 {id, session_id, turn_seq, at, part, text, status}。
+    「無」／空白 → []。行首 `[部位]` 或 `部位｜` 當 part，沒有就空字串。id 含行序，同批同文字的兩筆也不同。
     一般行 status＝open；`[部位] 結案：<原項目開頭>` → status＝closed、text＝前綴（closes 由 append_tracking 對帳本補上）。"""
     text = str(k_text or "").strip()
     if not text or text in ("無", "none", "None", "N/A"):
         return []
     out: List[Dict[str, Any]] = []
     stamp = at or _now_iso()
-    for raw in text.splitlines():
+    for idx, raw in enumerate(text.splitlines()):
         line = raw.strip().lstrip("-•*").strip()
         if not line or line in ("無",):
             continue
@@ -371,8 +382,10 @@ def tracking_entries(session_id: str, turn_seq: int, k_text: Any, at: Optional[s
             part = (m.group("p1") or m.group("p2") or "").strip()
             body = m.group("rest").strip()
         close = _TRACK_CLOSE_RE.match(body)
-        out.append({"session_id": session_id, "turn_seq": int(turn_seq or 0), "at": stamp, "part": part,
-                    "text": close.group("prefix").strip() if close else body, "status": "closed" if close else "open"})
+        row = {"session_id": session_id, "turn_seq": int(turn_seq or 0), "at": stamp, "part": part,
+               "text": close.group("prefix").strip() if close else body, "status": "closed" if close else "open"}
+        out.append({"id": _sha16("|".join(str(row[k]) for k in ("session_id", "turn_seq", "at", "part", "text")) + f"|{idx}"),
+                    **row})
     return out
 
 
@@ -381,27 +394,31 @@ _TRACK_SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 def tracking_slug(cwd: str) -> str:
     """追蹤帳本的檔名（寫入端 post_tool_use 與讀取端 wg_overview／session_start 共用）：
-    最近的部位表根 → 專案根 → cwd 本身（根是根層 worktree 時換成 live 的 CLAUDE_DIR：帳本是資料，跟 live 走），
-    經 cwd_to_project_slug；非 [A-Za-z0-9_-] 的字元換成 `-`，
-    超過 64 字取前 55 字＋`-`＋8 碼雜湊。cwd 空 → `_no-cwd` 並 stderr。"""
+    最近的部位表根 → 專案根 → cwd 本身（根是 live repo 的 git worktree 時換成 live 的 CLAUDE_DIR：帳本是資料，
+    跟 live 走，只看是不是 worktree、不看部位表），經 cwd_to_project_slug。
+    純 ASCII 且不超過 64 字 → 逐字使用；有字元被換成 `-`（有損）或超過 64 字 → 取前 55 字＋`-`＋「完整原始路徑
+    （反斜線轉正、casefold）」的 8 碼雜湊，等長的中文路徑不會撞成同一本。cwd 空 → `_no-cwd` 並 stderr。"""
     if not cwd:
         print("[Guardian:AEC] tracking slug: cwd 空，追蹤項寫進 _no-cwd 帳本（讀回時不會注入任何部位）", file=sys.stderr)
         return "_no-cwd"
     from wg_core import CLAUDE_DIR, cwd_to_project_slug, resolve_project_root
     root: Optional[Path] = None
     try:
-        from overview_hub import find_map, is_root_worktree
+        from overview_hub import find_map, is_root_git_worktree
         found = find_map(cwd)
         root = found[0] if found else None
         if root is None and resolve_project_root is not None:
             root = resolve_project_root(cwd).path
-        if root is not None and is_root_worktree(Path(root), CLAUDE_DIR):
+        if root is not None and is_root_git_worktree(Path(root), CLAUDE_DIR):
             root = CLAUDE_DIR                                  # 帳本是資料：根層 worktree 讀寫 live 的那本
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:AEC] tracking slug: 尋根失敗，退用 cwd：{type(e).__name__}: {e}", file=sys.stderr)
-    slug = re.sub(r"[^A-Za-z0-9_-]", "-", cwd_to_project_slug(str(root or cwd)))
-    if len(slug) > 64:
-        slug = slug[:55] + "-" + hashlib.sha1(slug.encode("utf-8")).hexdigest()[:8]
+    original = str(root or cwd)
+    raw = cwd_to_project_slug(original)
+    slug = re.sub(r"[^A-Za-z0-9_-]", "-", raw)
+    if slug != raw or len(slug) > 64:
+        digest = _sha16(original.replace("\\", "/").rstrip("/").casefold())[:8]
+        slug = slug[:55] + "-" + digest
     return slug
 
 
@@ -409,21 +426,25 @@ def _part_eq(a: Any, b: Any) -> bool:
     return str(a or "").strip().casefold() == str(b or "").strip().casefold()
 
 
-def _closes_entry(closed: Dict[str, Any], entry: Dict[str, Any]) -> bool:
-    c = closed.get("closes") or {}
-    return (isinstance(c, dict) and c.get("at") == entry.get("at") and _part_eq(closed.get("part"), entry.get("part"))
-            and str(entry.get("text") or "").startswith(str(c.get("text_prefix") or "\0")))
-
-
 def open_tracking_items(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """帳本列 → 仍 open 的項目（依帳本順序）：有任一 closed 列的 closes 對得上（at 相同、部位相同不分大小寫、
-    原文字以 text_prefix 開頭）就不算 open。"""
-    closers = [e for e in entries if e.get("status") == "closed"]
-    return [e for e in entries if e.get("status") == "open" and not any(_closes_entry(c, e) for c in closers)]
+    """帳本列 → 仍 open 的項目（依帳本順序）：被任一 closed 列的 closes.id 指到的那一筆不算 open（一筆結案只消除一筆）。"""
+    closed_ids = {str((e.get("closes") or {}).get("id")) for e in entries
+                  if e.get("status") == "closed" and isinstance(e.get("closes"), dict)}
+    return [e for e in entries if e.get("status") == "open" and tracking_entry_id(e) not in closed_ids]
+
+
+def _valid_tracking_row(row: Any) -> bool:
+    """帳本列的結構：物件、有 status／text／at、status 只收 open／closed、closed 列的 closes 必須是物件。"""
+    if not isinstance(row, dict) or not all(k in row for k in ("status", "text", "at")):
+        return False
+    if row["status"] not in ("open", "closed"):
+        return False
+    return row["status"] == "open" or isinstance(row.get("closes"), dict)
 
 
 def read_tracking(slug: str, base_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """讀 workflow/tracking/<slug>.jsonl；沒有檔回 []；壞行（非 JSON 或非物件）跳過並 stderr 一行（列行號）；讀檔失敗 stderr 回 []。"""
+    """讀 workflow/tracking/<slug>.jsonl；沒有檔回 []；壞行（非 JSON、非物件或結構不對，見 _valid_tracking_row）
+    跳過並 stderr 一行（列行號）；讀檔失敗 stderr 回 []。"""
     p = (base_dir or WORKFLOW_DIR) / "tracking" / f"{slug}.jsonl"
     try:
         if not p.is_file():
@@ -441,7 +462,7 @@ def read_tracking(slug: str, base_dir: Optional[Path] = None) -> List[Dict[str, 
             row = json.loads(line)
         except ValueError:
             row = None
-        if isinstance(row, dict):
+        if _valid_tracking_row(row):
             out.append(row)
         else:
             bad.append(i)
@@ -451,23 +472,27 @@ def read_tracking(slug: str, base_dir: Optional[Path] = None) -> List[Dict[str, 
 
 
 def _resolve_closes(existing: List[Dict[str, Any]], entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """closed 列補 closes＝{at, text_prefix}：在「既有帳本＋本批較早的列」中找仍 open、部位相同、原文字以前綴開頭的最舊一筆。
-    前綴不足 TRACK_CLOSE_MIN_CHARS 字或找不到 → stderr 並丟掉這筆（不寫成假的 open）。"""
+    """closed 列補 closes＝{id, at, text_prefix}：在「既有帳本＋本批較早的列」中找仍 open、部位相同的最舊一筆，
+    對法是「前綴至少 TRACK_CLOSE_MIN_CHARS 字且原文字以它開頭」或「前綴就是原項目全文（strip 後相同）」。
+    兩種都對不上 → stderr 並丟掉這筆（不寫成假的 open）。closes.id 只指那一筆，讀回時只消除它。"""
     out: List[Dict[str, Any]] = []
     for e in entries:
         if e.get("status") != "closed" or e.get("closes"):
             out.append(e)
             continue
-        prefix = str(e.get("text") or "")
-        if len(prefix) < TRACK_CLOSE_MIN_CHARS:
-            print(f"[Guardian:AEC] 結案前綴不足 {TRACK_CLOSE_MIN_CHARS} 字，沒有結案：[{e.get('part')}] {prefix}", file=sys.stderr)
-            continue
+        prefix = str(e.get("text") or "").strip()
+        long_enough = len(prefix) >= TRACK_CLOSE_MIN_CHARS
+
+        def matches(o: Dict[str, Any]) -> bool:
+            text = str(o.get("text") or "").strip()
+            return text == prefix or (long_enough and text.startswith(prefix))
         target = next((o for o in open_tracking_items(existing + out)
-                       if _part_eq(o.get("part"), e.get("part")) and str(o.get("text") or "").startswith(prefix)), None)
+                       if _part_eq(o.get("part"), e.get("part")) and matches(o)), None)
         if target is None:
-            print(f"[Guardian:AEC] 結案找不到對應的未結追蹤項，沒有結案：[{e.get('part')}] {prefix}", file=sys.stderr)
+            why = "結案找不到對應的未結追蹤項" if long_enough else f"結案前綴不足 {TRACK_CLOSE_MIN_CHARS} 字、也不是原項目全文"
+            print(f"[Guardian:AEC] {why}，沒有結案：[{e.get('part')}] {prefix}", file=sys.stderr)
             continue
-        out.append({**e, "closes": {"at": target.get("at"), "text_prefix": prefix}})
+        out.append({**e, "closes": {"id": tracking_entry_id(target), "at": target.get("at"), "text_prefix": prefix}})
     return out
 
 

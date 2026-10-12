@@ -147,3 +147,30 @@ def test_normal_install_paths_identical_to_old_algorithm(dirs):
     assert _n(got["FOLLOWUPS"]) == _n(TREE / "workflow" / "followups.json") and _n(got["CODE_DIR"]) == _n(TREE)
     got = _probe("sync-memory-index.py", ["MEMORY_DIR", "_CONFIG_PATH"], _env(home, TREE))
     assert _n(got["MEMORY_DIR"]) == _n(TREE / "memory") and _n(got["_CONFIG_PATH"]) == _n(TREE / "workflow" / "config.json")
+
+
+LIB_ORIGIN_PROBE = r"""
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("probe_tool_mod", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+sys.modules["probe_tool_mod"] = mod
+spec.loader.exec_module(mod)
+print("PROBE_JSON " + json.dumps({k: getattr(m, "__file__", "") or "" for k, m in sys.modules.items()
+                                  if k == "lib" or k.startswith("lib.")}))
+"""
+
+
+@pytest.mark.parametrize("tool", ["atom-set-realm.py", "realm_llm_classify.py"])
+def test_home_decoy_lib_never_loaded_by_tools(tool, dirs):
+    """家目錄放誘餌 lib（import 就丟例外），沒設 WG_CLAUDE_DIR 冷啟動載入工具：lib.* 全來自工具自己的樹（反例：舊碼插家目錄會載到誘餌）。"""
+    home, _ = dirs
+    decoy = home / ".claude" / "lib"
+    decoy.mkdir(parents=True)
+    (decoy / "__init__.py").write_text("raise ImportError('decoy lib loaded from home')\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", LIB_ORIGIN_PROBE, str(TREE / "tools" / tool)],
+                       env=_env(home), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=120, creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
+    assert r.returncode == 0 and line, f"{tool} rc={r.returncode}\n{r.stderr[-3000:]}"
+    files = json.loads(line[len("PROBE_JSON "):])
+    assert files and all(_under(f, TREE) for f in files.values() if f), files

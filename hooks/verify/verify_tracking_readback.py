@@ -103,7 +103,9 @@ def test_close_line_resolves_and_hides_item(world, capsys):
     wh.append_tracking(slug, _k("[戰鬥] 結案：傷害公式在暴擊時", "2026-10-03T00:00:00", sid="s2"))
     rows = wh.read_tracking(slug)
     closed = [r for r in rows if r["status"] == "closed"]
-    assert len(closed) == 1 and closed[0]["closes"] == {"at": "2026-10-01T00:00:00", "text_prefix": "傷害公式在暴擊時"}
+    target = next(r for r in rows if r["text"] == "傷害公式在暴擊時溢位要再查")
+    assert len(closed) == 1 and closed[0]["closes"] == {"id": wh.tracking_entry_id(target), "at": "2026-10-01T00:00:00",
+                                                        "text_prefix": "傷害公式在暴擊時"}
     open_texts = [r["text"] for r in wh.open_tracking_items(rows)]
     assert "傷害公式在暴擊時溢位要再查" not in open_texts                                   # 已結案的不列
     assert open_texts == ["技能冷卻表讀錯欄位", "按鈕文字被截斷要改字型", "未標部位的雜項追蹤一則"]
@@ -200,3 +202,92 @@ def test_session_start_lists_unparted_items_once_and_flags_split_ledgers(world, 
     r2 = _run_hook(home, {**base, "hook_event_name": "SessionStart", "source": "compact"})
     assert r2.returncode == 0, r2.stderr[-2000:]
     assert "本專案未結追蹤項" not in r2.stdout                                             # 壓縮後不再列（一次性）
+
+
+# ─── 退件 015：一筆結案只消一筆、短項可結、中文路徑不撞本、worktree 帳本不看部位表、結構錯的列要報 ───────
+
+def _open_texts(slug):
+    return [r["text"] for r in wh.open_tracking_items(wh.read_tracking(slug))]
+
+
+def test_one_close_removes_exactly_one_item_even_same_batch_same_prefix(world):
+    proj, _ = world
+    slug = wh.tracking_slug(str(proj))
+    wh.append_tracking(slug, _k("[hooks] PowerShell 讀取失敗待查\n[hooks] PowerShell 寫入失敗待查", "2026-10-01T00:00:00"))
+    rows = wh.read_tracking(slug)
+    assert len({r["id"] for r in rows}) == 2                                            # 同批同時間也各有 id
+    wh.append_tracking(slug, _k("[hooks] 結案：PowerShell", "2026-10-02T00:00:00"))
+    assert _open_texts(slug) == ["PowerShell 寫入失敗待查"]                              # 反例：舊碼兩筆一起消失
+    wh.append_tracking(slug, _k("[hooks] 結案：PowerShell", "2026-10-03T00:00:00"))
+    assert _open_texts(slug) == []
+
+
+def test_legacy_rows_without_id_close_one_at_a_time(world):
+    proj, wf = world
+    slug = wh.tracking_slug(str(proj))
+    (wf / "tracking").mkdir(parents=True, exist_ok=True)
+    legacy = [{"session_id": "old", "turn_seq": 3, "at": "2026-09-01T00:00:00", "part": "hooks", "text": t, "status": "open"}
+              for t in ("舊格式追蹤項目第一則內容", "舊格式追蹤項目第二則內容")]
+    (wf / "tracking" / f"{slug}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in legacy),
+                                                  encoding="utf-8")
+    wh.append_tracking(slug, _k("[hooks] 結案：舊格式追蹤項目第", "2026-10-02T00:00:00"))   # 兩筆都對得上，只結最舊那筆
+    assert _open_texts(slug) == ["舊格式追蹤項目第二則內容"]
+    closer = [r for r in wh.read_tracking(slug) if r["status"] == "closed"][0]
+    assert closer["closes"]["id"] == wh.tracking_entry_id(legacy[0])                    # 舊列的 id 是由欄位算出來的固定值
+
+
+def test_short_item_closes_with_full_text_but_not_with_short_prefix(world, capsys):
+    proj, _ = world
+    slug = wh.tracking_slug(str(proj))
+    wh.append_tracking(slug, _k("[hooks] 補測試\n[hooks] 補文件", "2026-10-01T00:00:00"))
+    wh.append_tracking(slug, _k("[hooks] 結案：補測試", "2026-10-02T00:00:00"))            # 全文（不足 8 字）可結
+    assert _open_texts(slug) == ["補文件"]
+    wh.append_tracking(slug, _k("[hooks] 結案：補", "2026-10-03T00:00:00"))                # 反例：短前綴又不是全文
+    assert _open_texts(slug) == ["補文件"] and "也不是原項目全文" in capsys.readouterr().err
+
+
+def test_slug_lossy_paths_get_full_path_hash_ascii_unchanged(tmp_path):
+    a, b = tmp_path / "專案甲", tmp_path / "專案乙"
+    a.mkdir()
+    b.mkdir()
+    sa, sb = wh.tracking_slug(str(a)), wh.tracking_slug(str(b))
+    assert sa != sb and all(re.fullmatch(r"[A-Za-z0-9_-]{1,64}", s) for s in (sa, sb))
+    short_a, short_b = wh.tracking_slug("D:\\專案甲"), wh.tracking_slug("D:\\專案乙")       # 短路徑不會截短：只靠有損時加雜湊
+    assert short_a != short_b, (short_a, short_b)                                        # 反例：舊碼兩者都是 d-----
+    live = Path.home() / ".claude"
+    if (live / ".claude" / "overview-map.md").is_file():                                 # 唯讀：根層 slug 逐字不變
+        assert wh.tracking_slug(str(live)) == "c--" + str(live).split(":\\", 1)[1].replace("\\", "-").replace(".", "-").lower()
+    long_ascii = tmp_path / ("a" * 80)
+    long_ascii.mkdir()
+    s = wh.tracking_slug(str(long_ascii))
+    import wg_core
+    raw = wg_core.cwd_to_project_slug(str(long_ascii))
+    assert len(s) == 64 and s[:55] == raw[:55] and s[55] == "-"                          # 超長 ASCII：截 55＋雜湊
+
+
+def test_root_worktree_ledger_ignores_map_content_fixture_does_not_use_live(world, tmp_path, monkeypatch):
+    import wg_core
+    live = tmp_path / "live-claude"
+    (live / ".claude").mkdir(parents=True)
+    (live / ".claude" / "overview-map.md").write_text(MAP, encoding="utf-8", newline="\n")
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", live)
+    wt = tmp_path / "claude-wt" / "x"
+    _git_worktree_of(live, wt, "x")
+    (wt / ".claude" / "overview-map.md").write_text(MAP + "| `new/` | 新部位 | 無 | 無 |\n", encoding="utf-8")   # 表與 live 不同
+    assert wh.tracking_slug(str(wt)) == wh.tracking_slug(str(live))                    # 仍是 live 的帳本（反例：舊碼換本）
+    fixture = live / "fixture"
+    (fixture / ".claude").mkdir(parents=True)
+    (fixture / ".claude" / "overview-map.md").write_text(MAP, encoding="utf-8", newline="\n")   # 表相同但不是 worktree
+    assert wh.tracking_slug(str(fixture)) != wh.tracking_slug(str(live))
+
+
+def test_structurally_bad_rows_are_skipped_with_stderr(world, capsys):
+    proj, wf = world
+    slug = wh.tracking_slug(str(proj))
+    wh.append_tracking(slug, _k("[戰鬥] 好好的一筆追蹤項目文字", "2026-10-01T00:00:00"))
+    with open(wf / "tracking" / f"{slug}.jsonl", "a", encoding="utf-8", newline="\n") as fh:
+        fh.write("{}\n")
+        fh.write(json.dumps({"status": "opened", "text": "x", "at": "y"}) + "\n")
+        fh.write(json.dumps({"status": "closed", "text": "x", "at": "y", "closes": "not-a-dict"}) + "\n")
+    assert _open_texts(slug) == ["好好的一筆追蹤項目文字"]
+    assert "追蹤帳本有 3 行壞掉已跳過" in capsys.readouterr().err                          # 反例：舊碼靜默收下

@@ -580,7 +580,7 @@ def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
     live, wt, proj = _root_world(tmp_path, monkeypatch)
     assert oh.card_mem_dir(live, live) == live / "memory"
     assert oh.card_mem_dir(Path(str(live).upper()), live) == Path(str(live).upper()) / "memory"   # 正規化後相同也算根層
-    assert oh.card_mem_dir(wt, live) == wt / "memory"                                  # 表位元組相同＝根層 worktree
+    assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree：卡是資料，讀 live 那批
     assert oh.card_mem_dir(proj, live) == proj / ".claude" / "memory"                  # 反例：表不同＝一般專案
     nomap = tmp_path / "bare"
     nomap.mkdir()
@@ -597,7 +597,7 @@ def test_cards_for_root_worktree_live_and_project_same_name_counterexample(tmp_p
     live, wt, proj = _root_world(tmp_path, monkeypatch)
     row = oh.parse_map(ROOT_MAP)[0]
     assert wo._cfg({}, wt)["_layer"] == "project_mapped"                              # 層名判定不變
-    assert wo._cards_for(wt, row, wo._cfg({}, wt)) == [wt / "memory" / "CC" / "hooks導讀.md"]
+    assert wo._cards_for(wt, row, wo._cfg({}, wt)) == [live / "memory" / "CC" / "hooks導讀.md"]   # 同名卡內容不同，拿 live 那張
     assert wo._cards_for(live, row, wo._cfg({}, live)) == [live / "memory" / "CC" / "hooks導讀.md"]
     got = wo._cards_for(proj, row, wo._cfg({}, proj))                                  # 反例：兩處同名卡，只拿 .claude/memory
     assert got == [proj / ".claude" / "memory" / "shared" / "hooks導讀.md"]
@@ -608,9 +608,9 @@ def test_inject_end_to_end_in_root_worktree_has_card_text(tmp_path, monkeypatch)
     tp = _transcript(tmp_path, ["x"])
     target = str(wt / "hooks" / "wg_x.py")
     warn, deny, changed = wo.on_edit({}, "s", target, tp, {})                          # 改檔觸發注入（沒先讀 → 擋，理由帶整張卡）
-    assert deny and "HOME 覆寫指錯" in deny and "沒有可注入的導讀卡" not in deny and changed
+    assert deny and "pythonw 無 stdio" in deny and "沒有可注入的導讀卡" not in deny and changed   # live 那張
     txt = wo.on_read({}, "s", "Read", {"file_path": target}, str(wt), tp, {})
-    assert txt and "HOME 覆寫指錯" in txt and "pythonw 無 stdio" not in txt and "沒有可注入的導讀卡" not in txt
+    assert txt and "pythonw 無 stdio" in txt and "HOME 覆寫指錯" not in txt and "沒有可注入的導讀卡" not in txt   # 反例：不是 worktree 的舊副本
 
 
 # ─── 退回 002 的 BLOCK：設定錯誤不得封鎖設定檔自身的修復 ───────────────────────
@@ -1205,7 +1205,7 @@ def test_is_root_worktree_real_git_worktrees_inside_and_outside_live(tmp_path, g
     git("-C", str(live), "worktree", "add", "-q", "-b", "wt-in", str(inside))
     assert oh.is_root_worktree(outside, live) is True                                  # live 之外
     assert oh.is_root_worktree(inside, live) is True                                   # live 之下（原生 EnterWorktree 的位置）
-    assert oh.card_mem_dir(inside, live) == inside / "memory"
+    assert oh.card_mem_dir(inside, live) == live / "memory"                            # 根層 worktree 讀 live 的卡
     (outside / ".claude" / "overview-map.md").write_bytes(b"| `x/` | other | none | none |\n")
     assert oh.is_root_worktree(outside, live) is False                                 # 反例：真 worktree 但表不同
 
@@ -1311,6 +1311,6 @@ def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_
         (d / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
     _link_wt(live, wt)
     assert oh.is_root_worktree(wt, live) is True                                        # 正例：本機路徑照常走完三條
-    assert oh.card_mem_dir(wt, live) == wt / "memory"
+    assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree 讀 live 的卡
     assert oh.card_mem_dir(live, live) == live / "memory"
     assert unc_realpath_guard == []
