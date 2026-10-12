@@ -224,7 +224,8 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
     """cwd 與各 path 的 VCS 根（最多 2 個）→ [{kind, root, rev, dirty, truncated}]。
     整支函式一個 deadline＝起點＋budget_s：找 root、每個子行程（timeout＝min(subprocess_s, 剩餘)）、stat 迴圈每 10 檔
     都查 deadline；檔數上限 200；任一處超過 → 該筆 truncated=True 並停止。rev 取不到（子行程逾時、失敗、空字串）→ 該筆
-    truncated=True、why 寫原因，照樣算 dirty。rev 每 root 60 s 快取在 state["vcs_rev_cache"]；非 VCS 回 []。"""
+    truncated=True、照樣算 dirty。每個 truncated=True 的筆都有 why 說原因（哪一步耗盡預算、或取不到 rev）。
+    rev 每 root 60 s 快取在 state["vcs_rev_cache"]；非 VCS 回 []。"""
     deadline = _clock() + budget_s
     paths = [p for p in paths if p][:SNAPSHOT_MAX_FILES + 1]
     roots: List[Tuple[str, Path]] = []
@@ -233,7 +234,7 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
         if not start:
             continue
         if i and i % SNAPSHOT_STAT_CHECK_EVERY == 0 and _clock() > deadline:
-            out.append({"kind": "", "root": "", "rev": "", "dirty": "", "truncated": True})
+            out.append({"kind": "", "root": "", "rev": "", "dirty": "", "truncated": True, "why": "找 VCS 根時已耗盡預算"})
             return out
         try:
             sp = Path(start)
@@ -253,6 +254,7 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
         remaining = deadline - _clock()
         if remaining <= 0:
             entry["truncated"] = True
+            entry["why"] = "還沒取 rev 就已耗盡預算"
             out.append(entry)
             break
         cached = cache.get(key) if isinstance(cache.get(key), dict) else None
@@ -269,9 +271,12 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
                 entry["why"] = f"取不到 {kind} rev（子行程上限 {limit:.2f} 秒內逾時、失敗或回空字串）"
             if _clock() > deadline:
                 entry["truncated"] = True
+                entry.setdefault("why", "取完 rev 已耗盡預算，改檔雜湊沒算")
                 out.append(entry)
                 break
         entry["dirty"], trunc = dirty_hash(root, paths, deadline, _clock, _stat)
+        if trunc:
+            entry.setdefault("why", "算改檔雜湊時已耗盡預算或超過檔數上限")
         entry["truncated"] = entry["truncated"] or trunc
         out.append(entry)
         if trunc:
@@ -580,40 +585,19 @@ def _cwd_of(receipt: Dict[str, Any]) -> str:
     return str(receipt.get("cwd") or receipt.get("project_root") or "")
 
 
-_RUNNER_CACHE: Dict[str, Tuple[str, ...]] = {}
-EXTRA_RUNNER_HINT = ("專案自製的測試工具（例：Unity 編輯器 CLI）可在 overview-hub.json 的 `extra_runner_progs` 加程式名"
-                     "（與內建清單取聯集；專案層的清單會蓋掉公司層的，兩邊都要就寫在專案層）")
-
-
-def _extra_runners(receipt: Dict[str, Any]) -> Tuple[str, ...]:
-    """收據所在專案設定擴充的執行程式名：overview_hub 段的 extra_runner_progs，走三層合併（wg_overview._cfg，與導讀卡、
-    量尺閘同一套）；行程內依根快取。設定有錯 → ValueError（寫碼查核判定錯誤一律擋，訊息列出錯誤）。"""
-    root = str(receipt.get("project_root") or receipt.get("cwd") or "")
-    if root not in _RUNNER_CACHE:
-        from wg_core import load_config
-        from wg_overview import _cfg
-        c = _cfg(load_config(), Path(root) if root else None)
-        if c["_errors"]:
-            raise ValueError(f"overview-hub 設定錯誤（{root or '根層'}）：" + "；".join(c["_errors"][:3]))
-        _RUNNER_CACHE[root] = tuple(c.get("extra_runner_progs") or ())
-    return _RUNNER_CACHE[root]
-
-
 def _in_tree(receipt: Dict[str, Any]) -> bool:
     """跑程式的指令沒有指到收據根以外（`python ../live/run_verify.py`、`python C:\\…\\.claude\\run_verify.py`、`../live/verify.sh`、
-    `pytest C:/live/tests` 量的都是別棵樹；相對路徑照 cwd 解析；設定宣告過的工具裝在樹外照算）。收據沒根資訊 → 不比（同 _root_ok）。"""
+    `pytest C:/live/tests` 量的都是別棵樹；相對路徑照 cwd 解析）。收據沒根資訊 → 不比（同 _root_ok）。"""
     root = str(receipt.get("project_root") or receipt.get("cwd") or "")
-    return not _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root, _cwd_of(receipt),
-                                           _extra_runners(receipt))
+    return not _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root, _cwd_of(receipt))
 
 
 def _clean(receipt: Dict[str, Any]) -> bool:
     """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、白名單語法、是 evidence_steps
-    的形狀（cd／環境設定之後全是跑程式的指令（含設定擴充的 extra_runner_progs）、只用 && 串、stdout 沒導走、後面只准留結尾的
-    過濾）、沒指到收據根以外、指令裡沒寫哨兵字樣。"""
+    的形狀（cd／環境設定之後全是跑程式的指令、只用 && 串、stdout 沒導走、後面只准留結尾的過濾）、沒指到收據根以外、
+    指令裡沒寫哨兵字樣。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (_cmd_complete(receipt) and not unsupported_syntax(raw, sh)
-            and _self_receipt.evidence_steps(raw, sh, _extra_runners(receipt)) is not None
+    return (_cmd_complete(receipt) and not unsupported_syntax(raw, sh) and _self_receipt.evidence_steps(raw, sh) is not None
             and _in_tree(receipt) and not _prints_sentinel(raw, sh))
 
 
@@ -666,21 +650,23 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         if _prints_sentinel(raw, sh):
             return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
                     "哨兵只能由被執行的程式印出。")
-        if _self_receipt.whole_run_shape(raw, sh, _cwd_of(r)):
-            envs = _self_receipt.cmd_scope_env(raw, sh)
-            if envs:              # 命令列是整體驗證、只差環境
-                return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs])}"
+        envs = _self_receipt.program_scope_env(raw, sh)
+        if envs:                  # 整體驗證、一般證據：任何一段跑程式的指令啟動時帶了縮限設定
+            return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs])}"
         if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
             return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"
-        extra = _extra_runners(r)
-        if _self_receipt.evidence_steps(raw, sh, extra) is None:
-            others = _self_receipt.non_runners(raw, sh, extra)
-            return (f"這條指令 {head} 不是單純跑驗證程式的形狀（夾了讀檔或印字的指令、用 ; 或 || 串、或把輸出導走），"
-                    "印出來的哨兵分不出是誰印的、哪一段真的過了，不算證據；請單獨跑驗證程式（前面只准 cd 與環境設定、多段只用 && 串）。"
-                    + (f"不算執行程式的：{'、'.join(others[:3])}；{EXTRA_RUNNER_HINT}。" if others else ""))
+        others = _self_receipt.non_runners(raw, sh)
+        if others:                # 先講這個：樹外的自製工具（Unity.exe）否則會先被說成「指到收據根以外」
+            return (f"這條指令 {head} 夾了不算執行程式的指令（{'、'.join(others[:3])}：讀檔或印字的指令、或不在執行程式白名單的程式），"
+                    "印出來的哨兵分不出是誰印的，不算證據；"
+                    "專案自製的測試工具請寫進部位表的量尺欄（量尺逐字比對、不經執行程式白名單，對上就涵蓋整個部位的改檔）。")
         if not _in_tree(r):
-            outside = _self_receipt.outside_paths(raw, sh, str(r.get("project_root") or r.get("cwd") or ""), _cwd_of(r), extra)
-            return f"這條指令 {head} 指到收據根以外的路徑（{'、'.join(outside[:3])}），量的不是這棵樹；請在專案根照表上原字串跑。"
+            return (f"這條指令 {head} 指到收據根以外的路徑（"
+                    + "、".join(_self_receipt.outside_paths(raw, sh, str(r.get("project_root") or r.get("cwd") or ""))[:3])
+                    + "），量的不是這棵樹；請在專案根照表上原字串跑。")
+        if _self_receipt.evidence_steps(raw, sh) is None:
+            return (f"這條指令 {head} 不是單純跑驗證程式的形狀（夾了讀檔或印字的指令、用 ; 或 || 串、或把輸出導走），"
+                    "印出來的哨兵分不出是誰印的、哪一段真的過了，不算證據；請單獨跑驗證程式（前面只准 cd 與環境設定、多段只用 && 串）。")
         return ""
     return ""
 
@@ -697,7 +683,7 @@ def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
     r = _trusted(receipt)
     if r is None or not _clean(r):
         return None
-    return " ".join(_norm_path(" ".join(evidence_words(str(r.get("cmd") or ""), _shell_of(r), _extra_runners(r)))).split())
+    return " ".join(_norm_path(" ".join(evidence_words(str(r.get("cmd") or ""), _shell_of(r)))).split())
 
 
 def _ruler_any(receipt: Dict[str, Any], measure_cmds: Iterable[str]) -> bool:
@@ -946,7 +932,7 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
         elif not _clean(r):
             continue          # 沒指定量尺：指令要能當一般證據（白名單語法、只跑程式、沒寫哨兵字樣）
         if final_prog:            # 跑程式的每一段都是這支（`pytest a && pytest b` 照算；_clean 已確認形狀）
-            runs = _self_receipt.evidence_steps(str(r.get("cmd") or ""), _shell_of(r), _extra_runners(r)) or []
+            runs = _self_receipt.evidence_steps(str(r.get("cmd") or ""), _shell_of(r)) or []
             if not runs or any(s.cmd[0] != final_prog for s in runs):
                 continue
         if not _root_match(r, root):

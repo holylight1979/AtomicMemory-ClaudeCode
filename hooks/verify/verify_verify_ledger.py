@@ -134,6 +134,14 @@ def test_024a_rev_timeout_marks_truncated_with_reason(repo, monkeypatch):
     assert snap and snap[0]["rev"] == "abc1234" and snap[0]["truncated"] is False
 
 
+def test_026_budget_exhausted_before_rev_says_why(repo):
+    """026（WARN）：取 rev 之前整體預算就已耗盡 → truncated=True 而且 why 說原因（時鐘替身：起點 0、進入取 rev 前 2 秒、預算 1.5 秒）。"""
+    ticks = iter([0.0] + [2.0] * 50)
+    snap = vl.vcs_snapshot(str(repo), [str(repo / "a.py")], {}, budget_s=1.5, _rev=lambda k, r, t: "abc1234",
+                           _clock=lambda: next(ticks))
+    assert snap and snap[0]["truncated"] is True and "還沒取 rev 就已耗盡預算" in snap[0].get("why", "")
+
+
 def test_snapshot_uses_rev_cache_within_60s(repo):
     state: dict = {}
     calls = []

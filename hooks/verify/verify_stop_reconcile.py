@@ -1929,71 +1929,16 @@ def test_017d_rescue_map_error_is_logged_not_swallowed_by_name_error(monkeypatch
     assert state.get("usefulness_attributed_seq") == 3 and "usefulness attribution error" not in capsys.readouterr().err
 
 
-# ─── 020-1：執行程式白名單可由三層設定擴充（overview_hub 段的 extra_runner_progs） ───────────────────────
+# ─── 021：不做執行程式擴充；不在白名單的程式在擋訊息裡指路到量尺欄 ─────────────────────────────
 
-_UNITY = ('"C:/Program Files/Unity/Hub/Editor/2022.3.1f1/Editor/Unity.exe" -batchmode -runTests '
-          '-testFilter Widget -testPlatform EditMode')
-
-
-def _hub_dir(base, progs):
-    """建一層設定根：<base>/.claude/overview-hub.json 寫 extra_runner_progs（progs 為 None 就不寫檔）。"""
-    (base / ".claude").mkdir(parents=True, exist_ok=True)
-    if progs is not None:
-        (base / ".claude" / "overview-hub.json").write_text(json.dumps({"extra_runner_progs": progs}), encoding="utf-8")
-    return base
-
-
-def _unity_claim(driven, capsys, monkeypatch, root, org=None, cmd=_UNITY):
-    """專案根 root 裡改 Widget.cs 與 WidgetTests.cs，收據是 Bash 跑的 cmd（PASS），收尾說「Widget 修好了」→ handle_stop 的輸出。"""
-    monkeypatch.setattr(vl, "_RUNNER_CACHE", {}, raising=False)       # 舊碼沒有這個快取：退回時要紅在斷言，不是缺屬性
-    monkeypatch.setattr(wo, "_org_root", lambda: org)
-    mods = [_mf(str(root / "Assets" / "Scripts" / "Widget.cs"), 5, last_at=_T1, last_seq=3),
-            _mf(str(root / "Assets" / "Tests" / "WidgetTests.cs"), 5, last_at=_T1, last_seq=4)]
-    r = {**_rcpt(5, cmd=cmd, at=_T2), "project_root": str(root), "cwd": str(root)}
-    out, _, _ = driven("Widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
-    return out
-
-
-def test_020_1_project_layer_extra_runner_accepts_unity_cli(driven, capsys, monkeypatch, tmp_path):
-    """專案層 overview-hub.json 加 `unity` → Unity 編輯器 CLI（裝在樹外的絕對路徑）的 PASS 在對帳 (a) 被採認；
-    沒設定 → 照舊擋，擋訊息說可以在 extra_runner_progs 加、專案層會蓋掉公司層。"""
-    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "game", ["unity"]))
-    assert "(a) 說「修好」" not in out and "ReconcileGate" not in out
-    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "plain", None))
-    assert "(a) 說「修好」" in out and "`extra_runner_progs`" in out and "專案層的清單會蓋掉公司層的" in out
-
-
-def test_020_1_project_list_replaces_company_list(driven, capsys, monkeypatch, tmp_path):
-    """清單照既有合併規則由下層整個取代：公司層寫 unity、專案層寫 mytool → unity 不算；專案層寫齊兩個 → 算。"""
-    org = _hub_dir(tmp_path / "org", ["unity"])
-    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "a", ["mytool"]), org=org)
-    assert "(a) 說「修好」" in out
-    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "b", ["mytool", "unity"]), org=org)
-    assert "(a) 說「修好」" not in out
-    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "c", None), org=org)
-    assert "(a) 說「修好」" not in out                                                      # 專案層沒寫 → 用公司層的
-
-
-def test_020_1_extension_is_program_names_not_syntax(driven, capsys, monkeypatch, tmp_path):
-    """擴充的是程式名、不是語法：設定寫 `bash -c` → 設定錯誤、寫碼查核一律擋並列錯誤；設定寫 bash 也不讓 `bash -c "…"` 算數。"""
-    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "bad", ["bash -c"]))
-    assert "判定錯誤，一律擋" in out and "extra_runner_progs「bash -c」不是程式名" in out
-    cmd = 'bash -c "python -m pytest -q Assets/Tests/WidgetTests.py"'
-    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "ok", ["unity", "bash"]), cmd=cmd)
-    assert "(a) 說「修好」" in out and "解析不了的語法（另起一層 shell" in out
-
-
-def test_021_extension_refuses_read_and_print_commands(driven, capsys, monkeypatch, tmp_path):
-    """021（codex 審 020 的 BLOCK）：擴充清單不能把印字、讀檔、寫檔或 shell 內建的指令登記成執行程式：設定寫了就是設定錯誤、
-    一律擋；繞過設定驗證直接給，載入時也濾掉（讀舊 log、printf 組字串都不算證據）。尾端帶換行的名字也是設定錯誤。"""
-    for name in ("cat", "Get-Content", "type", "echo", "Write-Output", "tee", "printf"):
-        out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / name.lower(), [name]), cmd="cat Assets/Widget.log")
-        assert "判定錯誤，一律擋" in out and f"extra_runner_progs「{name}」是印字" in out, name
-    reason = json.loads(_unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "nl", ["unity\n"])))["reason"]
-    assert "判定錯誤，一律擋" in reason and "extra_runner_progs「unity\\n」不是程式名" in reason
-    for cmd, sh in (("cat Assets/Widget.log", "bash"), ("printf 'X_CHECK %s Widget' PASS", "bash"),
-                    ("Get-Content Widget.log", "powershell")):
-        assert vl._self_receipt.evidence_steps(cmd, sh, ["cat", "printf", "Get-Content"]) is None, cmd
+def test_021_non_runner_hint_points_to_ruler_column(driven, capsys):
+    """021（總控台拍板：不做 extra_runner_progs 擴充）：指令裡有不在執行程式白名單的程式（例：裝在樹外的 Unity 編輯器 CLI），
+    對帳 (a) 照擋，訊息說是哪個程式，並提示專案自製的測試工具寫進部位表的量尺欄（量尺逐字比對、不經白名單）。"""
+    cmd = '"C:/Program Files/Unity/Hub/Editor/2022.3.1f1/Editor/Unity.exe" -batchmode -runTests -testFilter widget'
+    mods = [_mf(r"c:\proj\src\widget.py", 5, last_at=_T1, last_seq=3)]
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
+    assert "(a) 說「修好」" in out and "Unity.exe" in out and "請寫進部位表的量尺欄" in out
+    assert "extra_runner_progs" not in out
 
 
 # ─── 022：量尺比對定死四條家族規則 ────────────────────────────────────────────────────────────
@@ -2221,6 +2166,41 @@ def test_024_1_scope_env_block_message_names_variable_and_fix():
     row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q && echo VERIFY_CHECK DONE"}}
     reason = _gate("PYTEST_ADDOPTS='-k x' python -m pytest -q && echo VERIFY_CHECK DONE", row=row)
     assert reason and "PYTEST_ADDOPTS" in reason and "寫了哨兵字樣" not in reason        # 量尺自帶的 DONE 不是這次的原因
+
+
+@pytest.mark.parametrize("cmd, tool, related", [
+    ("PYTEST_ADDOPTS='-k other' python -m pytest -q tests/test_widget.py", "Bash", False),
+    ("PYTHONOPTIMIZE=1 python -m pytest -q tests/test_widget.py", "Bash", False),
+    ('$env:PYTEST_ADDOPTS="-k other"; python -m pytest -q tests/test_widget.py', "PowerShell", False),
+    ("PYTEST_ADDOPTS='-k other' python -m pytest -q tests/test_widget.py && python -m pytest -q tests/test_other.py",
+     "Bash", False),                                                                       # 只有第一段帶縮限
+    ("PYTEST_ADDOPTS='' python -m pytest -q tests/test_widget.py", "Bash", True),          # 清空照算
+    ('$PYTEST_ADDOPTS="工作備註"; python -m pytest -q tests/test_widget.py', "PowerShell", True),   # PowerShell 普通變數
+])
+def test_026_general_evidence_checks_scope_env_at_every_program_step(driven, capsys, cmd, tool, related):
+    """026：規則 1 的環境檢查也接到一般證據（_clean／claimed_paths）：每一段跑程式的指令啟動時，有效環境帶非空縮限設定就不採認，
+    擋訊息講變數名與改法；清空與 PowerShell 普通變數照常採認。"""
+    widget = r"c:\proj\src\widget.py"
+    r = {**_rcpt(5, cmd=cmd, at=_T2), "tool": tool}
+    assert (vl.claimed_paths(r, [widget]) == [widget]) is related, cmd
+    mods = [_mf(widget, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
+    assert ("(a) 說「修好」" not in out) is related, cmd
+    if not related:
+        assert "改了驗證選項" in out and ("PYTEST_ADDOPTS" in out or "PYTHONOPTIMIZE" in out), cmd
+
+
+def test_026_root_worktree_pytest_measure_checks_scope_env(tmp_path, monkeypatch):
+    """026：根層 worktree 認 PYTEST_MEASURE DONE 的那條路也查環境：縮限設定跑出的 pytest DONE 不能替部位解帳，訊息講變數；
+    清空照算。"""
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    narrowed = _pytest_done(5, wt, cmd="PYTEST_ADDOPTS='-k other' python -X utf8 -m pytest -q hooks/verify/verify_x.py")
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [narrowed], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "PYTEST_ADDOPTS" in reason
+    cleared = _pytest_done(5, wt, cmd="PYTEST_ADDOPTS='' python -X utf8 -m pytest -q hooks/verify/verify_x.py")
+    assert vl.measure_gate_reason([_mf(mod, 5)], [cleared], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)[0] is None
 
 
 def test_024_2_self_receipt_with_scope_env_does_not_settle_part(tmp_path, monkeypatch):

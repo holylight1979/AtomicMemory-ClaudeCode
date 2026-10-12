@@ -197,13 +197,18 @@ def _scope_maps(cmd: Argv, shell: str = "bash") -> List[Dict[str, Tuple[str, str
     return out
 
 
-def cmd_scope_env(cmd: Argv, shell: str = "bash") -> List[str]:
-    """指令的最後一個程式（後面只准尾端過濾）啟動當下，看得到的會縮小驗證範圍的環境設定名稱（_scope_maps）；
-    給整體驗證與擋訊息用。自寫收據（argv 清單）看它記下的 env，不在這裡判。"""
-    maps = _scope_maps(cmd, shell)
-    k = _first_filter(parse_cmds(cmd, shell)) if not isinstance(cmd, (list, tuple)) else 1
-    here = maps[k - 1] if 0 < k <= len(maps) else {}
-    return [n for n, _ in here.values()]
+def program_scope_env(cmd: Argv, shell: str = "bash") -> List[str]:
+    """每一段跑程式的指令（前置設定與尾端過濾除外）啟動當下，看得到的會縮小驗證範圍的環境設定名稱（_scope_maps，去重）。
+    一般證據（evidence_steps：對帳 (a)(b)、根層 worktree 的 PYTEST_MEASURE）與整體驗證都要每一段乾淨，擋訊息也用它說是哪個變數；
+    量尺另逐段連值比（match_span）。自寫收據（argv 清單）看它記下的 env，不在這裡判。"""
+    if isinstance(cmd, (list, tuple)):
+        return []
+    steps, maps = parse_cmds(cmd, shell), _scope_maps(cmd, shell)
+    names: List[str] = []
+    for j in range(min(_first_filter(steps), len(maps))):
+        if not _is_setup(steps[j]):
+            names += [n for n, _ in maps[j].values() if n not in names]
+    return names
 
 
 def _scope_vals(m: Dict[str, Tuple[str, str]]) -> Dict[str, str]:
@@ -472,11 +477,11 @@ def parse_cmds(cmd: Argv, shell: str = "bash", root: str = "") -> List[Step]:
     return out
 
 
-def evidence_words(cmd: Argv, shell: str = "bash", extra_runners: Any = ()) -> List[str]:
+def evidence_words(cmd: Argv, shell: str = "bash") -> List[str]:
     """一般證據裡實際跑程式那幾段的參數（evidence_steps 每段程式名之後的字）：對帳 (a)「提到改檔」只比這些；前置設定、
-    cd、環境指定、echo 印的字都不算；不是證據形狀 → []。extra_runners：設定擴充的程式名（同 evidence_steps）。"""
+    cd、環境指定、echo 印的字都不算；不是證據形狀 → []。"""
     out: List[str] = []
-    for st in evidence_steps(cmd, shell, extra_runners) or []:
+    for st in evidence_steps(cmd, shell) or []:
         out.extend(w for w in st.words[1:] if w)
     return out
 
@@ -539,9 +544,9 @@ def final_step(cmd: Argv, shell: str = "bash", root: str = "") -> Optional[Step]
 
 
 def is_whole_run(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
-    """整體驗證：命令列是整體驗證的形狀（whole_run_shape），而且沒有進到子程式環境、會縮小範圍的設定（cmd_scope_env）。
+    """整體驗證：命令列是整體驗證的形狀（whole_run_shape），而且跑程式的那段啟動時沒有會縮小範圍的環境設定（program_scope_env）。
     涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
-    return whole_run_shape(cmd, shell, root) and not cmd_scope_env(cmd, shell)
+    return whole_run_shape(cmd, shell, root) and not program_scope_env(cmd, shell)
 
 
 def whole_run_shape(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
@@ -568,49 +573,26 @@ def whole_run_shape(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
     return True
 
 
-# 永遠不算執行程式的指令：印字、讀檔、寫檔、過濾與 shell 內建。它們印出的成功行分不出是不是驗證程式跑出來的（讀舊 log、
-# printf 組字串），設定也不能把它們擴充成執行程式（hub_config 驗證時報錯，_extra_set 載入時再濾一次）
-NOT_RUNNERS = (_ECHO_PROGS | _FILTER_PROGS | _CD_ALL | _EVAL_PROGS | _CTRL_WORDS | frozenset({
-    "cat", "type", "get-content", "gc", "more", "less", "head", "tac", "nl", "bat", "select-string", "sls", "findstr",
-    "grep", "egrep", "fgrep", "rg", "awk", "gawk", "sed", "cut", "sort", "uniq", "tr", "xxd", "od", "strings", "jq", "yq",
-    "tee", "tee-object", "out-file", "set-content", "add-content", "cp", "copy", "copy-item", "mv", "move", "move-item",
-    "xargs", "env", "true", "false", "yes", "sleep", "test", "[", ":", "exit", "return", "cmd", "set", "unset", "export",
-    "declare", "typeset", "alias", "shopt", "builtin", "command", "exec", "time"}))
-
-
-def refused_runner(name: str) -> bool:
-    """這個名字（照執行程式的正規化：取檔名、小寫、去 .exe）永遠不算執行程式（NOT_RUNNERS）。"""
-    return _prog(str(name)) in NOT_RUNNERS
-
-
-def _extra_set(extra_runners: Any) -> frozenset:
-    """設定擴充的執行程式名 → 與內建清單同一套正規化（小寫、去 .exe）；NOT_RUNNERS 裡的名字不收。"""
-    return frozenset(_prog(str(x)) for x in (extra_runners or ()) if str(x).strip() and not refused_runner(x))
-
-
-def _runs_program(st: Step, extra: frozenset = frozenset()) -> bool:
-    """這個指令是跑程式的（直譯器、測試與建置工具、腳本檔，加上設定擴充的程式名 extra）。"""
+def _runs_program(st: Step) -> bool:
+    """這個指令是跑程式的（直譯器、測試與建置工具、腳本檔）。"""
     name = _prog(st.words[0]) if st.words else ""
-    return name in _RUNNER_PROGS or name in extra or bool(_PY_HEAD_RE.match(name)) or name.endswith(_SCRIPT_EXTS)
+    return name in _RUNNER_PROGS or bool(_PY_HEAD_RE.match(name)) or name.endswith(_SCRIPT_EXTS)
 
 
-def non_runners(cmd: Argv, shell: str = "bash", extra_runners: Any = ()) -> List[str]:
-    """指令裡不算「跑程式」的程式名（cd 與環境設定、尾端過濾除外）：擋訊息列給人看，好判斷要不要在設定擴充。"""
+def non_runners(cmd: Argv, shell: str = "bash") -> List[str]:
+    """指令裡不算執行程式的那幾段的程式名（前置設定與尾端過濾除外）：給擋訊息說是哪個。"""
     steps = parse_cmds(cmd, shell)
-    extra = _extra_set(extra_runners)
-    return [_prog(s.words[0]) for s in steps[:_first_filter(steps)]
-            if s.words and not _is_setup(s) and not _runs_program(s, extra)]
+    return [s.words[0] for s in steps[:_first_filter(steps)] if s.words and not _is_setup(s) and not _runs_program(s)]
 
 
-def evidence_steps(cmd: Argv, shell: str = "bash", extra_runners: Any = ()) -> Optional[List[Step]]:
+def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
     """一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）的形狀 → 跑程式的那幾段；不是這種形狀 → None。
     形狀：前面只有 cd 與環境設定；之後全是跑程式的指令（直譯器、測試與建置工具、腳本檔），彼此只用 && 串（一段失敗後面就不跑、
     exit 會反映）、stdout 沒有導到檔案或 $null（失敗輸出藏不住）；最後只准留結尾的過濾，而且有過濾時只准一段（管線把最後一段的
     exit 蓋掉，前一段印的成功行會替後一段沒印 FAIL 的失敗背書）。夾了讀檔或印字的指令（cat、Get-Content、echo…）、
-    用 ; 或 || 串、把輸出導走，印出來的成功行就分不出是誰印的、哪一段真的過了。extra_runners：設定擴充的程式名
-    （overview-hub.json 的 extra_runner_progs），與內建清單取聯集；擴充的是程式名，語法照樣只認白名單。"""
+    用 ; 或 || 串、把輸出導走，印出來的成功行就分不出是誰印的、哪一段真的過了。每一段啟動時的有效環境都不能帶縮小驗證範圍的設定
+    （program_scope_env：`PYTEST_ADDOPTS='-k other' pytest tests/test_widget.py` 跑的不是 test_widget 全部）。"""
     steps = parse_cmds(cmd, shell)
-    extra = _extra_set(extra_runners)
     k = _first_filter(steps)
     i = 0
     while i < k and _is_setup(steps[i]):
@@ -618,7 +600,9 @@ def evidence_steps(cmd: Argv, shell: str = "bash", extra_runners: Any = ()) -> O
     runs = steps[i:k]
     if not runs or not _reachable(steps, i) or any(s.op != "&&" for s in runs[1:]) or (k < len(steps) and len(runs) > 1):
         return None
-    return runs if all(_runs_program(s, extra) and not s.stdout for s in runs) else None
+    if not all(_runs_program(s) and not s.stdout for s in runs) or program_scope_env(cmd, shell):
+        return None
+    return runs
 
 
 def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "", measure_root: str = "") -> bool:
@@ -704,21 +688,19 @@ def _path_in(word: str, base: str, tree: str, literal: bool) -> bool:
     return p == tree or p.startswith(tree + "/")
 
 
-def outside_paths(cmd: Argv, shell: str, root: str, cwd: str = "", extra_runners: Any = ()) -> List[str]:
-    """跑程式的指令裡指到收據根 root 以外的字：程式本身寫成路徑的（`../live/verify.sh`；python 直譯器與設定裡宣告的
-    extra_runners 除外：宣告過的工具本來就裝在樹外，例 `C:/Program Files/…/Unity.exe`，它的參數照查）、位置參數、
+def outside_paths(cmd: Argv, shell: str, root: str, cwd: str = "") -> List[str]:
+    """跑程式的指令裡指到收據根 root 以外的字：程式本身寫成路徑的（`../live/verify.sh`；python 直譯器除外）、位置參數、
     選項 `=` 後面的值；相對路徑照 cwd（沒給就用 root）解析。cd 與環境設定另判。量尺比對只看腳本身分，`python ../live/run_verify.py`、
     `pytest C:/live/tests` 量的是別棵樹，要靠這裡擋。root 不是絕對路徑（沒根資訊）→ 不比，回 []。"""
     tree = abs_path(str(root or "")) or ""
     base = abs_path(str(cwd or "")) or tree
-    extra = _extra_set(extra_runners)
     out: List[str] = []
     for st in parse_cmds(cmd, shell) if tree else []:
         if _is_setup(st) or not st.words:
             continue
         cands = list(zip(st.words[1:], st.raw[1:]))
         w0 = st.words[0]
-        if ("/" in w0 or "\\" in w0) and not _PY_HEAD_RE.match(_prog(w0)) and _prog(w0) not in extra:
+        if ("/" in w0 or "\\" in w0) and not _PY_HEAD_RE.match(_prog(w0)):
             cands.insert(0, (w0, st.raw[0]))
         for w, rw in cands:
             v = w.split("=", 1)[1] if w.startswith("-") and "=" in w else ("" if w.startswith("-") else w)
