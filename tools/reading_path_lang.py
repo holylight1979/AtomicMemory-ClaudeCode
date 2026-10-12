@@ -83,6 +83,7 @@ class Func:
     import_sources: dict = field(default_factory=dict)   # 綁定名 → 這一層全部的 import 來源 [(模組名, 相對層級, 原名或 "")]（import 好幾次都留）
     scoped_binds: set = field(default_factory=set)    # 在模型沒建的作用域構件裡被綁定的名字（lambda 參數、推導式迴圈目標、:=、類別本體的 global／nonlocal）
     class_nonlocals: set = field(default_factory=set)  # 巢狀類別本體（含它的方法）裡 nonlocal 宣告的名字：改的是這一層或外層函式的綁定
+    decorators: list = field(default_factory=list)    # Python 裝飾器 [(寫法 staticmethod／functools.lru_cache…, 是否當場呼叫)]，由內到外照原文順序
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
     imports: dict = field(default_factory=dict)       # 函式內的 import（只在這個函式與它的巢狀函式裡有效）
@@ -100,6 +101,7 @@ class Cls:
     field_scope: dict = field(default_factory=dict)      # 欄位 → fields 那筆型別證據寫在哪個函式（func id；沒有或 ""＝類別本體）：在那裡解析
     declared_scope: dict = field(default_factory=dict)   # 欄位 → declared_fields 那筆寫在哪個函式（同上）
     body_names: set = field(default_factory=set)         # Python 類別本體綁定的名字（方法、指定、import、巢狀類別…）：方法的參數標註先在這裡找
+    decorators: list = field(default_factory=list)       # Python 類別裝飾器 [(寫法, 是否當場呼叫)]（見 Func.decorators）
     stored: dict = field(default_factory=dict)    # 欄位 → (func id, 參數名)：把參數存成欄位的 callback
     events: set = field(default_factory=set)
     partial: bool = False
@@ -196,7 +198,8 @@ def _py_def_time(mod: Module, node) -> None:
     import 與訂閱照模組層的敘述算。"""
     nodes = _py_scan(mod, _def_time_exprs(node))
     _py_count_bindings(mod, nodes)
-    _py_calls(mod, nodes, "")
+    notes = {id(s) for r in _def_annotations(node) for s in ast.walk(r)}   # 標註只當型別證據，不算呼叫
+    _py_calls(mod, [n for n in nodes if id(n) not in notes], "")
 
 
 def _is_main_guard(node: ast.AST) -> bool:
@@ -290,7 +293,7 @@ def _py_str_ref(expr) -> Call | None:
 
 def _py_class(mod: Module, node: ast.ClassDef) -> None:
     bases = [_py_recv(b) for b in node.bases if _py_recv(b)]      # 保留模組前綴（collections.UserDict），沿綁定鏈解析
-    cls = Cls(node.name, "py", [mod.file], bases)
+    cls = Cls(node.name, "py", [mod.file], bases, decorators=_py_decorators(node))
     for item in node.body:
         if isinstance(item, _DEF_NODES):
             _py_func(mod, item, node.name + ".", cls)
@@ -317,7 +320,7 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
              params=[a.arg for a in args],
              param_types={a.arg: _py_ann(a.annotation) for a in args if _py_ann(a.annotation)},
              defaults={a.arg: r for a, d in pairs if (r := _py_ref(d))},
-             blind_defaults={a.arg for a, d in pairs if _py_blind(d)})
+             blind_defaults={a.arg for a, d in pairs if _py_blind(d)}, decorators=_py_decorators(node))
     body = _strip_doc(node.body)
     nodes = _py_scan(f, body)
     mod.scoped_nodes |= {id(n) for n in nodes}
@@ -394,10 +397,29 @@ def _def_time_exprs(node) -> list:
     if isinstance(node, ast.ClassDef):
         return [*node.decorator_list, *node.bases, *node.keywords]
     a = node.args
+    return [*node.decorator_list, *a.defaults, *[d for d in a.kw_defaults if d], *_def_annotations(node)]
+
+
+def _def_annotations(node) -> list:
+    """def 的參數標註與回傳標註（class 沒有，回空）。綁定（:=）照外層算，但裡面的呼叫不算呼叫（標註可能延後求值）。"""
+    if isinstance(node, ast.ClassDef):
+        return []
+    a = node.args
     params = [p for p in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg] if p]
-    returns = [node.returns] if node.returns else []
-    return [*node.decorator_list, *a.defaults, *[d for d in a.kw_defaults if d],
-            *[p.annotation for p in params if p.annotation], *returns]
+    return [p.annotation for p in params if p.annotation] + ([node.returns] if node.returns else [])
+
+
+def _annotation_ids(nodes: list) -> set:
+    """nodes 裡標註整棵的節點 id：巢狀 def 的參數與回傳標註、變數標註（x: T = …）。標註可能延後求值或根本不求值
+    （from __future__ import annotations、Python 3.14 以後、函式裡的變數標註），裡面的呼叫不算呼叫，只當型別證據。"""
+    roots = [n.annotation for n in nodes if isinstance(n, ast.AnnAssign)]
+    roots += [r for n in nodes if isinstance(n, _DEF_NODES) for r in _def_annotations(n)]
+    return {id(s) for r in roots for s in ast.walk(r)}
+
+
+def _py_decorators(node) -> list:
+    """裝飾器寫法 [(staticmethod／functools.lru_cache／name.setter…, 是否當場呼叫 @deco(…))]；寫不成名字的（lambda、下標…）記 ""。"""
+    return [(_py_recv(d.func if isinstance(d, ast.Call) else d), isinstance(d, ast.Call)) for d in node.decorator_list]
 
 
 def _strip_doc(body: list) -> list:
@@ -517,9 +539,9 @@ def _py_blind(expr) -> bool:
 
 def _py_calls(mod: Module, nodes: list, owner: str) -> list:
     """呼叫點；位在 lambda／生成器／推導式裡的（連同它引數裡的函式參照）標 scoped，名字被那個構件自己綁定的標 shadowed。"""
-    calls, inside = [], _scoped_spots(nodes)
+    calls, inside, notes = [], _scoped_spots(nodes), _annotation_ids(nodes)
     for node in nodes:
-        c = _py_call(node) if isinstance(node, ast.Call) else None
+        c = _py_call(node) if isinstance(node, ast.Call) and id(node) not in notes else None   # 標註裡的不算呼叫
         if c is None:
             continue
         c.refs = [(i, r) for i, a in enumerate(node.args) if (r := _py_ref(a))]

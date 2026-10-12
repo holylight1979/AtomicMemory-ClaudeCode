@@ -104,6 +104,10 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   self.方法 = …、實例.方法 = …、setattr(X, "方法", …)（字串字面值）、del、類別本體再指定，就不給條號；
   改寫照類別身分（定義檔＋名字）記，實例的型別看不出時，同名的方法都不給；經由被重新指定過的參數或區域變數寫入的，
   它原本的標註不再算數，也照型別看不出處理
+  目標（1～5 條）被裝飾過：函式的裝飾器、或方法所屬類別的類別裝飾器，有任何一個不在「保留原函式身分」清單裡，
+  就不給條號（呼叫先進的是裝飾器給的東西）——清單：staticmethod、classmethod、abstractmethod、property 與
+  它的 .setter／.getter／.deleter、typing（含 typing_extensions）的 overload／override／final；類別只有 dataclass；
+  名字要沿綁定鏈確認就是那個內建或標準庫名字（自己定義的同名裝飾器不算）
   模型沒建參數與綁定的 Python 作用域構件（lambda、生成器、推導式、類別本體）：呼叫點在 lambda／生成器／推導式裡的，
   1～5 條一律不給；被證明的名字（第 1 條的名字或接收者開頭、第 4 條的別名）在查找會走過的函式裡、這類構件中被綁定
   （lambda 參數、推導式／生成器的迴圈目標、構件裡的 :=、類別本體裡的 global／nonlocal；只讀不算），也不給第 1、4 條
@@ -111,6 +115,13 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
 
 NOT_WHITELISTED = "候選：不在確定白名單（名字綁定、型別來源或唯一目標證明不了）"
+DECORATED = "候選：目標被保留身分清單以外的裝飾器包過，呼叫先進的是裝飾器給的東西，不一定是它"
+KEEP_IDENTITY = {   # 函式裝飾器：保留原函式身分（呼叫還是進原函式）→ 可以出現在哪些模組
+    "staticmethod": ("builtins",), "classmethod": ("builtins",), "property": ("builtins",),
+    "abstractmethod": ("abc",), "overload": ("typing", "typing_extensions"),
+    "override": ("typing", "typing_extensions"), "final": ("typing", "typing_extensions")}
+CLASS_KEEP_IDENTITY = {"dataclass": ("dataclasses",)}   # 類別裝飾器（可以寫成 dataclass(…)）
+PROPERTY_PARTS = {"setter", "getter", "deleter"}       # @name.setter：同名 property 自己加的
 SCOPED = "候選：呼叫點在 lambda／生成器／推導式裡，模型沒建那一層的參數與綁定，不給條號"
 METHOD_REBOUND = "候選：這個方法在類別上的綁定可能被改寫（類別.方法 = …、self／實例.方法 = …、setattr），不一定是它"
 
@@ -136,6 +147,10 @@ LIMITS = WHITELIST + """
   - 防線邊界（下列寫法不追，照字面處理，落在候選或未解）：exec／eval 產生的綁定、setattr 帶變數名、globals()[…] = …、
     metaclass 與 __getattr__、import 時的副作用（別的模組在 import 時改寫本模組的名字；上一條列的字面寫法除外）、
     C# 反射與 dynamic；模型沒建的 Python 作用域構件（lambda、生成器、推導式、類別本體）裡，一律不給條號
+  - Python 標註（參數、回傳、變數標註）不產生呼叫邊，確定或候選都不給：標註可能延後求值或根本不求值
+    （from __future__ import annotations、3.14 以後、函式裡的變數標註），裡面的呼叫不算；標註只當型別證據。預設值與裝飾器照常算呼叫
+  - 被裝飾的函式：裝飾器（或方法所屬類別的類別裝飾器）不在保留原函式身分的清單裡（見白名單末段；functools.lru_cache、
+    cache、contextmanager、自訂裝飾器都不在），呼叫它只給候選，包裝層（wrapper）裡做了什麼不追；呼叫裝飾器工廠 @deco(…) 本身照常判
   - C#（不用 Roslyn）：擴充方法、LINQ、var 由方法回傳推型別、跨 namespace 同名類合併、lambda 裡的呼叫算外層函式、
     #if 不分支、運算子多載與索引子不認、接收者型別不明的屬性不猜、三元運算與 LINQ 不算分支、插值字串 {} 裡再套字串會漏；
     類別證據沒有 import 鏈可走（專案裡同名的類別就當那個型別，分不出外部同名型別）；第 2 條的用途證明只數文字出現，
@@ -1166,6 +1181,8 @@ class Graph:
                 e.guess = SCOPED                   # 總原則 1：模型沒建的作用域構件裡，一律不給條號
             if unique and e.kind == "direct" and not e.guess and self._method_rebound(e.dst):
                 e.guess = METHOD_REBOUND
+            if unique and e.kind == "direct" and not e.guess and self._decorated(e.dst):
+                e.guess = DECORATED
             if unique and e.kind == "direct" and not e.guess:
                 e.rule = next((n for n, check in self._call_rules() if check(f, c, e)), None)
             if e.rule is None and not e.guess:
@@ -1184,6 +1201,38 @@ class Graph:
         cls = self.cls_named(fn.cls, fn.file)
         family = list(self.ancestry(cls)) + self.descendants(cls)
         return any((self.cls_key(k), fn.name) in self.method_writes for k in family)
+
+    def _decorated(self, dst: str) -> bool:
+        """目標被保留身分清單以外的裝飾器包過：函式自己的裝飾器（在 def 的外層解析），或它所屬類別的類別裝飾器
+        （在模組層解析）。包裝層不追：呼叫先進的是裝飾器給的東西，不一定是它。C# 的屬性不改身分。"""
+        fn = self.funcs[dst]
+        if fn.lang != "py":
+            return False
+        ctx = self.outer_ctx(fn)
+        if not all(self._keeps_identity(ctx, path, called, KEEP_IDENTITY, fn.name) for path, called in fn.decorators):
+            return True
+        cls = self.cls_of(fn) if fn.cls and fn.qual == f"{fn.cls}.{fn.name}" else None
+        top = self.module_ctx(cls.files[0]) if cls else None
+        return bool(cls) and not all(self._keeps_identity(top, path, called, CLASS_KEEP_IDENTITY, cls.name)
+                                     for path, called in cls.decorators)
+
+    def _keeps_identity(self, ctx: lang.Func, path: str, called: bool, allowed: dict, own: str) -> bool:
+        """一個裝飾器保不保留被裝飾者的身分：寫法在清單裡（staticmethod、typing.overload、name.setter、dataclass(…)…），
+        而且名字沿綁定鏈確實是那個名字——從清單上的模組 import 的，或內建的、在模組層從沒被綁定過。
+        函式裝飾器不能當場呼叫（@staticmethod() 不是那個寫法）；類別的 dataclass(…) 可以。"""
+        head, _, last = path.rpartition(".")
+        if head and last in PROPERTY_PARTS and allowed is KEEP_IDENTITY:
+            return not called and head == own
+        if last not in allowed or (called and allowed is KEEP_IDENTITY):
+            return False
+        key = head or last
+        imports = self.imports_for(ctx, key.partition(".")[0])
+        if key in imports:
+            modname, level, orig = imports[key]
+            return level == 0 and modname in allowed[last] and orig == ("" if head else last)
+        mod = self.modules.get(ctx.file)
+        kind = self.lookup_binding(ctx, last)[0]
+        return not head and "builtins" in allowed[last] and kind == "module" and bool(mod) and mod.bindings[last] == 0
 
     def _call_rules(self) -> tuple:
         return (1, self._rule1), (2, self._rule2), (3, self._rule3), (4, self._rule4)

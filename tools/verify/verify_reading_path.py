@@ -2091,6 +2091,94 @@ def test_p7_merging_keeps_each_target_on_its_own_evidence(tmp_path, order):
     assert sorted(_edge_rules(files, "app.py::main", tmp_path)) == [("app.py::other", None), ("app.py::work", 1)]
 
 
+# ─── 第八輪（codex 審 013）：標註不產生呼叫邊；被裝飾的函式只在保留身分的裝飾器下給條號 ─────────
+
+META = "def make_metadata():\n" + BODY + "\n\n"
+P8_ANNOTATION_CALLS = {   # 標註裡的呼叫：可能延後求值或根本不求值 → 不連邊（確定、候選都不給）
+    "codex_future_annotated": ("from __future__ import annotations\nfrom typing import Annotated\n\n\n" + META
+                               + "def main():\n    def inner(x: Annotated[int, make_metadata()]):\n        return x\n\n"
+                               "    return inner(2)\n"),
+    "param_annotation": META + "def main():\n    def inner(x: make_metadata()):\n        return x\n\n    return inner(2)\n",
+    "return_annotation": META + "def main():\n    def inner() -> make_metadata():\n        return 1\n\n    return inner()\n",
+    "local_variable_annotation": META + "def main():\n    x: make_metadata() = 1\n    return x\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(P8_ANNOTATION_CALLS))
+def test_p8_a_call_inside_an_annotation_is_not_a_call(tmp_path, form):
+    """codex 第 1 項＋總控台定死：參數標註、回傳標註（與函式裡的變數標註）一律不產生呼叫邊——from __future__ import
+    annotations、3.14 以後標註延後求值，函式裡的變數標註根本不求值；標註只當型別證據。"""
+    edges = _edge_rules({"app.py": P8_ANNOTATION_CALLS[form]}, "app.py::main", tmp_path)
+    assert "app.py::make_metadata" not in [d for d, _ in edges], f"{form}：標註裡的 make_metadata() 不是 main 的呼叫"
+
+
+def test_p8_defaults_and_decorator_factories_are_still_calls(tmp_path):
+    """反方向（codex 第 5 項）：巢狀 def 的預設值 x=work() 與裝飾器工廠 @deco(1) 在定義當下真的執行 → 照常是第 1 條。"""
+    app = DECO + TWO_FUNCS + "def main():\n    @deco(1)\n    def inner(x=work()):\n        return x\n\n    return inner\n"
+    rules = _edge_rules({"app.py": app}, "app.py::main", tmp_path)
+    assert ("app.py::work", 1) in rules and ("app.py::deco", 1) in rules, rules
+
+
+LOGGED = ("from functools import wraps\n\n\ndef logged(fn):\n    @wraps(fn)\n    def wrapper(*a, **k):\n"
+          "        return fn(*a, **k)\n\n    return wrapper\n\n\n")
+RUN_BODY = "        x = 1\n        return x + 1\n"
+P8_WRAPPED = {   # 寫法 → (app.py, 呼叫所在函式, 被包過的目標)：裝飾器不在保留身分清單 → 只給候選
+    "codex_logged": (LOGGED + "@logged\ndef work():\n" + BODY + "\n\ndef main():\n    return work()\n",
+                     "app.py::main", "app.py::work"),
+    "lru_cache": ("import functools\n\n\n@functools.lru_cache(maxsize=None)\ndef work():\n" + BODY
+                  + "\n\ndef main():\n    return work()\n", "app.py::main", "app.py::work"),
+    "cache": ("from functools import cache\n\n\n@cache\ndef work():\n" + BODY + "\n\ndef main():\n    return work()\n",
+              "app.py::main", "app.py::work"),
+    "decorated_by_a_factory": (DECO + "@deco(1)\ndef work():\n" + BODY + "\n\ndef main():\n    return work()\n",
+                               "app.py::main", "app.py::work"),
+    "shadowed_staticmethod": ("def staticmethod(fn):\n    return lambda: 2\n\n\nclass Worker:\n    @staticmethod\n"
+                              "    def run():\n" + RUN_BODY + "\n\ndef main():\n    return Worker.run()\n",
+                              "app.py::main", "app.py::Worker.run"),
+    "method_via_self": (LOGGED + "class Worker:\n    @logged\n    def run(self):\n" + RUN_BODY
+                        + "\n    def go(self):\n        return self.run()\n", "app.py::Worker.go", "app.py::Worker.run"),
+    "class_decorator": ("def register(cls):\n    return cls\n\n\n@register\nclass Worker:\n    def run(self):\n" + RUN_BODY
+                        + "\n\ndef main():\n    return Worker().run()\n", "app.py::main", "app.py::Worker.run"),
+    "callback_source": (LOGGED + "@logged\ndef work():\n" + BODY + "\n\ndef run(cb):\n    return cb()\n\n\n"
+                        "def main():\n    return run(work)\n", "app.py::run", "app.py::work"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P8_WRAPPED))
+def test_p8_a_function_behind_a_non_preserving_decorator_is_only_a_candidate(tmp_path, form):
+    """codex 第 2 項＋總控台定死：被裝飾的函式（或方法所屬類別被裝飾），裝飾器不在保留原函式身分的清單裡
+    （functools.lru_cache／cache、自訂裝飾器、被裝飾器工廠包過、自己定義的同名 staticmethod…）→ 呼叫先進的是裝飾器
+    給的東西，連到原函式只給候選；callback 來源也一樣。"""
+    app, fid, target = P8_WRAPPED[form]
+    edges = _sure_edges({"app.py": app}, fid, tmp_path / "a")
+    assert (target, False) in edges and (target, True) not in edges, f"{form}：{edges}"
+    assert all(r is None for d, r in _edge_rules({"app.py": app}, fid, tmp_path / "b") if d == target)
+
+
+P8_KEPT = {   # 寫法 → (app.py, 呼叫所在函式, 目標, 條號)：保留原函式身分的裝飾器照給條號
+    "staticmethod": ("class Worker:\n    @staticmethod\n    def run():\n" + RUN_BODY + "\n\ndef main():\n    return Worker.run()\n",
+                     "app.py::main", "app.py::Worker.run", 1),
+    "classmethod": ("class Worker:\n    @classmethod\n    def make(cls):\n" + RUN_BODY
+                    + "\n\ndef main():\n    return Worker.make()\n", "app.py::main", "app.py::Worker.make", 1),
+    "typing_final": ("from typing import final\n\n\n@final\ndef work():\n" + BODY + "\n\ndef main():\n    return work()\n",
+                     "app.py::main", "app.py::work", 1),
+    "typing_module_override": ("import typing\n\n\nclass Worker:\n    @typing.override\n    def run(self):\n" + RUN_BODY
+                               + "\n\ndef main(w: Worker):\n    return w.run()\n", "app.py::main", "app.py::Worker.run", 3),
+    "dataclass": ("from dataclasses import dataclass\n\n\n@dataclass\nclass Worker:\n    n: int = 0\n\n    def run(self):\n"
+                  + RUN_BODY + "\n\ndef main():\n    w = Worker()\n    return w.run()\n", "app.py::main", "app.py::Worker.run", 2),
+    "dataclass_called": ("import dataclasses\n\n\n@dataclasses.dataclass(frozen=True)\nclass Worker:\n    n: int = 0\n\n"
+                         "    def run(self):\n" + RUN_BODY + "\n\ndef main():\n    w = Worker()\n    return w.run()\n",
+                         "app.py::main", "app.py::Worker.run", 2),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P8_KEPT))
+def test_p8_a_preserving_decorator_keeps_the_rule(tmp_path, form):
+    """反方向：staticmethod、classmethod、typing 的 final／override、dataclass（含 dataclasses.dataclass(…)）保留原函式
+    （與類別）身分，呼叫仍進原函式 → 條號照給。"""
+    app, fid, target, rule = P8_KEPT[form]
+    assert (target, rule) in _edge_rules({"app.py": app}, fid, tmp_path), f"{form}：保留身分的裝飾器不影響條號"
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
