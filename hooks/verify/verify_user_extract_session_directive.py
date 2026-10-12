@@ -44,6 +44,7 @@ DECISIONS = [
     "以後所有專案一律遵守：第一步用 EnterWorktree 隔離修改。",                         # 訊號兩種但是長期規則
     "你是工作 session track-x。這次修 UI。另外記住：以後所有專案 commit message 一律繁體中文。",   # 混合：交 LLM 抽長期段
     "你是工作 session track-x。第一步修 UI。另外，我偏好繁體中文回應。",                # 角色開頭但沒有派工操作或路徑
+    "你是工作 session track-x。第一步修 UI。另外 commit message 用繁體中文。",          # 同上，且沒有任何決策用語
     "你是工作 session track-x，第一步用 EnterWorktree 切進 C:\\wt\\x。另外禁止在 hook 裡跑 git push。",   # 帶決策用語
 ]
 # 開工句的常見改寫（不是「你是」開頭、英文、多行、外層引號）
