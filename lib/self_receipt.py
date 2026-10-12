@@ -422,15 +422,16 @@ def _runs_program(st: Step) -> bool:
 def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
     """一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）的形狀 → 跑程式的那幾段；不是這種形狀 → None。
     形狀：前面只有 cd 與環境設定；之後全是跑程式的指令（直譯器、測試與建置工具、腳本檔），彼此只用 && 串（一段失敗後面就不跑、
-    exit 會反映）、stdout 沒有導到檔案或 $null（失敗輸出藏不住）；最後只准留結尾的過濾。夾了讀檔或印字的指令（cat、
-    Get-Content、echo…）、用 ; 或 || 串、把輸出導走，印出來的成功行就分不出是誰印的、哪一段真的過了。"""
+    exit 會反映）、stdout 沒有導到檔案或 $null（失敗輸出藏不住）；最後只准留結尾的過濾，而且有過濾時只准一段（管線把最後一段的
+    exit 蓋掉，前一段印的成功行會替後一段沒印 FAIL 的失敗背書）。夾了讀檔或印字的指令（cat、Get-Content、echo…）、
+    用 ; 或 || 串、把輸出導走，印出來的成功行就分不出是誰印的、哪一段真的過了。"""
     steps = parse_cmds(cmd, shell)
     k = _first_filter(steps)
     i = 0
     while i < k and _is_setup(steps[i]):
         i += 1
     runs = steps[i:k]
-    if not runs or not _reachable(steps, i) or any(s.op != "&&" for s in runs[1:]):
+    if not runs or not _reachable(steps, i) or any(s.op != "&&" for s in runs[1:]) or (k < len(steps) and len(runs) > 1):
         return None
     return runs if all(_runs_program(s) and not s.stdout for s in runs) else None
 

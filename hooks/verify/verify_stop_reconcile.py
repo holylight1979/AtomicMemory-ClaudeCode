@@ -1852,6 +1852,8 @@ def test_017_codex_r2_3_other_tree_paths_do_not_count(tmp_path, monkeypatch):
     assert gate(f"python -m pytest -q {live}/hooks/verify/verify_x.py") is not None
     assert gate("python -m pytest -q ../live/hooks/verify/verify_x.py") is not None
     assert gate("python -m pytest -q hooks/verify/verify_a.py && python -m pytest -q hooks/verify/verify_b.py") is None
+    # codex 三審探針：後一段失敗沒印 failed、又被 | tail 蓋掉 exit，前一段的 passed 不能替它背書
+    assert gate("python -m pytest hooks/verify/verify_x.py && python -m pytest missing.py | tail -5") is not None
 
 
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────

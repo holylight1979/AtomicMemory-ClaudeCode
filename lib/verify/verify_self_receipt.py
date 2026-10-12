@@ -301,7 +301,8 @@ def test_017_evidence_steps_shape_for_general_evidence():
                 "python verify_good.py || python verify_widget.py",
                 "python verify_widget.py > /dev/null 2>&1; python verify_good.py",
                 "python verify_widget.py > /dev/null && python verify_good.py", "pytest a.py; pytest b.py",
-                "python verify_good.py && python verify_widget.py > $null | tail -3"):
+                "python verify_good.py && python verify_widget.py > $null | tail -3",
+                "python -m pytest a.py && python -m pytest missing.py | tail -5"):     # 管線蓋掉最後一段的 exit
         assert sr.evidence_steps(bad) is None, bad
     assert [s.cmd[0] for s in sr.evidence_steps("cd C:\\p && pytest a.py && python -m pytest b.py")] == ["pytest", "pytest"]
 
