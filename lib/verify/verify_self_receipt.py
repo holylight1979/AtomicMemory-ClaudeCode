@@ -179,7 +179,7 @@ def test_013_2_quotes_echo_and_subsets_do_not_count():
     assert not sr.cmd_matches("pytest -q lib/verify", "pytest -q lib/verify -k test_cmd_of")
     assert not sr.cmd_matches("pytest -q lib/verify", "pytest -q lib/verify lib/verify/verify_self_receipt.py")
     assert not sr.cmd_matches(_MEASURE, f"{_MEASURE} --json")                                 # 其他選項集合要相等
-    assert sr.cmd_matches("pytest -q lib/verify", "pytest lib/verify -q")                    # 選項順序不同照算
+    assert not sr.cmd_matches("pytest -q lib/verify", "pytest lib/verify -q")                # 017：照順序比（換順序可能換意思）
     assert sr.cmd_matches(_MEASURE, 'python -X utf8 "C:\\中文專案\\run_verify.py" 2>&1 | tail -5')
     assert sr.cmd_matches(_MEASURE, "python -X utf8 run_verify.py | Select-Object -Last 5")
     assert sr.cmd_matches(_MEASURE, "# 定位｜部位：x && y\npython -X utf8 run_verify.py")       # 註解行不算指令
@@ -342,6 +342,26 @@ def test_017_short_circuit_and_prefix_rules():
         assert not sr.cmd_matches(_MEASURE, ps_bad, "powershell"), ps_bad                # 指定右邊是會印字的指令
     for ps_ok in (f"$ErrorActionPreference = 'Stop'; {_MEASURE}", f'$env:X="1"; {_MEASURE}', f"$x =1; {_MEASURE}"):
         assert sr.cmd_matches(_MEASURE, ps_ok, "powershell"), ps_ok
+
+
+def test_017_codex_r3_control_flow_identity_and_order():
+    """codex 三審：只有環境指定的指令留著（`X=1 || 量尺` 的 || 不能丟）；PowerShell 指定右邊是指令（Set-Location）不是設定；
+    管線裡的 cd 不換父 shell 的目錄；腳本照相對根的路徑認（archive/ 裡的同名腳本不算）；選項照順序比。"""
+    mem = _ROOT_ROWS["記憶資料層"]["measure"]["cmd"]
+    assert not sr.cmd_matches(mem, f"X=1 || {mem}") and not sr.cmd_matches(_MEASURE, f"X=1 || {_MEASURE}")
+    assert sr.cmd_matches(_MEASURE, f"X=1; {_MEASURE}") and sr.cmd_matches(_MEASURE, f"X=1 && {_MEASURE}")
+    assert not sr.cmd_matches(_MEASURE, f"$x = Set-Location; {_MEASURE}", "powershell")
+    assert not sr.cmd_matches(_MEASURE, f"$x = $y; {_MEASURE}", "powershell")
+    assert sr.leading_cd(f"cd C:\\proj | export X=1 && {_MEASURE}") is None
+    root = "C:\\proj"
+    assert not sr.cmd_matches(_MEASURE, "python -X utf8 archive/run_verify.py", root=root)
+    assert sr.cmd_matches(_MEASURE, "python -X utf8 archive/run_verify.py")                 # 沒根資訊只比檔名
+    assert sr.cmd_matches(_MEASURE, "python -X utf8 C:\\proj\\run_verify.py", root=root)
+    assert sr.cmd_matches(_MEASURE, 'python -X utf8 "C:\\中文 專案\\run_verify.py"', root="C:\\中文 專案")
+    assert sr.cmd_matches(_MEASURE, ["C:\\Py\\python.exe", "-X", "utf8", "C:\\proj\\run_verify.py"], root=root)
+    assert not sr.cmd_matches("pytest -k smoke -m slow", "pytest -m smoke -k slow")
+    assert not sr.cmd_matches("python -W ignore -W error verify.py", "python -W error -W ignore verify.py")
+    assert sr.cmd_matches("python -W ignore -W error verify.py", "python -W ignore -Werror verify.py")
 
 
 def test_017b_6_powershell_string_expression_is_not_a_command():

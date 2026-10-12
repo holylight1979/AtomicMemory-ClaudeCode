@@ -1418,16 +1418,18 @@ def test_009_2_subagent_unknown_write_blocks(sub_stop, capsys, monkeypatch, tmp_
 
 
 _ABS_CMD = 'python -X utf8 "C:\\中文專案\\run_verify.py"'
+_ABS_IN_ROOT = 'python -X utf8 "C:\\proj\\run_verify.py"'      # 真的自寫收據：腳本就在 project_root（run_verify 自己的 ROOT）
 
 
 @pytest.mark.parametrize("run, blocked", [
-    (_self_run(cmd=_ABS_CMD), False),                                       # 絕對路徑＋中文目錄、同根、改完才開始、全綠
-    (_self_run(cmd=_ABS_CMD, started="2026-10-12T01:59:59+00:00"), True),  # 改檔之前就開始
-    (_self_run(cmd=_ABS_CMD, root="c:/other"), True),                       # 別的根
-    (_self_run(cmd=_ABS_CMD, failed=3), True),                              # failed=3
+    (_self_run(cmd=_ABS_IN_ROOT), False),                                   # 絕對路徑、同根、改完才開始、全綠
+    (_self_run(cmd=_ABS_IN_ROOT, started="2026-10-12T01:59:59+00:00"), True),  # 改檔之前就開始
+    (_self_run(cmd=_ABS_IN_ROOT, root="c:/other"), True),                   # 別的根
+    (_self_run(cmd=_ABS_IN_ROOT, failed=3), True),                          # failed=3
+    (_self_run(cmd=_ABS_CMD), True),                                        # 017：腳本是別棵樹的 run_verify
 ])
 def test_009_3_real_receipt_with_abs_script_path(run, blocked):
-    """4.3：拿掉啟動關聯後，收據採用條件回到 004；收據 cmd 與量尺經同一套 argv 正規化比對。"""
+    """4.3：拿掉啟動關聯後，收據採用條件回到 004；收據 cmd 與量尺經同一套正規化比對（python 腳本照相對收據根的路徑比）。"""
     assert (_mg([run]) is not None) is blocked
 
 
@@ -1550,7 +1552,8 @@ def test_013_2_subset_run_is_not_the_ruler():
     gate = lambda runs_cmd: vl.measure_gate_reason(                                          # noqa: E731
         [mod], [_rcpt(5, "DONE", 0, cmd=runs_cmd, at=_T2)], 5, lambda p: (ROOT, row), vl.MEASURE_DEFAULTS,
         chains_of=lambda r: {}, self_runs=lambda: [])[0]
-    assert gate("pytest lib/verify -q") is None                                             # 選項換位置照算
+    assert gate("pytest -q lib/verify") is None
+    assert gate("pytest lib/verify -q") is not None                                         # 017：照順序比，換位置不算
     assert gate("pytest -q lib/verify -k test_cmd_of") is not None
     assert gate("pytest -q lib/verify lib/verify/verify_self_receipt.py") is not None
 
@@ -1854,6 +1857,24 @@ def test_017_codex_r2_3_other_tree_paths_do_not_count(tmp_path, monkeypatch):
     assert gate("python -m pytest -q hooks/verify/verify_a.py && python -m pytest -q hooks/verify/verify_b.py") is None
     # codex 三審探針：後一段失敗沒印 failed、又被 | tail 蓋掉 exit，前一段的 passed 不能替它背書
     assert gate("python -m pytest hooks/verify/verify_x.py && python -m pytest missing.py | tail -5") is not None
+
+
+def test_017_codex_r3_measure_gate_follows_real_execution():
+    """codex 三審：判定要跟 shell 實際執行一致。`X=1 || 量尺`（量尺被短路）、`$x = Set-Location; 量尺`（換到家目錄）、
+    `cd C:/repo | … && 量尺`（管線裡的 cd 不換目錄）、`archive/run_verify.py`（另一支同名腳本）→ 量尺閘不認；
+    `量尺 # cd C:/repo`（cd 只在註解裡，PostToolUse 用原字串標了 root_uncertain）→ 認。"""
+    row = _root_row("記憶資料層")
+    mem = row["measure"]["cmd"]
+    assert _gate(f"X=1 || {mem}", row=row) is not None and _gate(mem, row=row) is None
+    assert _gate(f"$x = Set-Location; {MEASURE_CMD}", "PowerShell") is not None
+    assert _gate(f"$ErrorActionPreference = 'Stop'; {MEASURE_CMD}", "PowerShell") is None
+    assert _gate(f"cd {ROOT} | export X=1 && {MEASURE_CMD}") is not None
+    assert _gate("python -X utf8 archive/run_verify.py") is not None
+    r = {**_rcpt(5, "DONE", 0, cmd=f"{MEASURE_CMD} # cd C:/repo", at=_T2, kv={"cases": "1", "failed": "0"}),
+         "root_uncertain": True}
+    reason, _ = vl.measure_gate_reason([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [r], 5, _lookup, vl.MEASURE_DEFAULTS,
+                                       chains_of=lambda r: {}, self_runs=lambda: [])
+    assert reason is None
 
 
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────

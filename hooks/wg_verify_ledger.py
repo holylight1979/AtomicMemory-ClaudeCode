@@ -443,14 +443,17 @@ def _cmd_complete(receipt: Dict[str, Any]) -> bool:
 
 def _trusted(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """收據的指令完整、根可信才回（開頭單一絕對路徑的 `cd <根> && …` 把根換成該路徑）；不完整或含其他 cd → None。
-    換目錄用同一套斷詞判（`c"d" C:/live; 量尺` 的 c"d" 就是 cd），原字串比對 has_cd 也照算。"""
+    可解析的指令只看同一套斷詞判換目錄（`c"d" C:/live; 量尺` 的 c"d" 是 cd；`量尺 # cd x` 的 cd 在註解裡不是）；
+    解析不了的才退回原字串比對 has_cd 與 PostToolUse 記的 root_uncertain（那種收據本來也當不了證據）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
     if not _cmd_complete(receipt):
         return None
     cd = leading_cd(raw, sh)
     if cd:
         return {**receipt, "project_root": cd, "cwd": cd, "root_uncertain": False}
-    return None if receipt.get("root_uncertain") or has_cd(raw) or _self_receipt.changes_dir(raw, sh) else receipt
+    moved = (_self_receipt.changes_dir(raw, sh) if not unsupported_syntax(raw, sh)
+             else bool(receipt.get("root_uncertain") or has_cd(raw)))
+    return None if moved else receipt
 
 
 def _arg_sentinel_res() -> List[Pattern]:
@@ -511,9 +514,10 @@ def _clean(receipt: Dict[str, Any]) -> bool:
 
 
 def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any]) -> bool:
-    """收據跑了表上這把尺（cmd_matches，依收據的 shell 解析；指令要完整、沒指到收據根以外）。"""
+    """收據跑了表上這把尺（cmd_matches，依收據的 shell 解析、python 腳本照相對收據根的路徑比；指令要完整、沒指到收據根以外）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (bool(str(measure_cmd).strip()) and _cmd_complete(receipt) and cmd_matches(str(measure_cmd), raw, sh)
+    root = str(receipt.get("project_root") or receipt.get("cwd") or "")
+    return (bool(str(measure_cmd).strip()) and _cmd_complete(receipt) and cmd_matches(str(measure_cmd), raw, sh, root)
             and _in_tree(receipt))
 
 
@@ -1160,7 +1164,8 @@ def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: st
     for r in runs or []:
         argv = r.get("argv") if isinstance(r, dict) else None
         if not isinstance(r, dict) or not cmd.strip() or not cmd_matches(
-                cmd, argv if isinstance(argv, list) and argv else str(r.get("cmd", ""))):
+                cmd, argv if isinstance(argv, list) and argv else str(r.get("cmd", "")),
+                root=str(r.get("project_root") or "")):
             continue
         if r.get("exit_code") != 0 or str(r.get("failed")) != "0":
             continue

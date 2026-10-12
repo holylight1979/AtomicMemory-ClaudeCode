@@ -376,7 +376,9 @@ def test_receipt_relates_rules_fixed_in_002_returned():
     assert vl.receipt_relates({"cmd": "python measure.py"}, a, globs, ["python measure.py"]) is True   # (c) 量尺
     assert vl.receipt_relates({"cmd": "python tools/replay-guard.py pre"}, a, globs) is False
     assert vl.receipt_relates({"cmd": "cd other; python -m pytest -q"}, a, globs) is False      # 003-4 含 cd 不算
-    assert vl.receipt_relates({"cmd": "pytest -q", "root_uncertain": True}, a, globs) is False
+    assert vl.receipt_relates({"cmd": "cd x && pytest -q", "root_uncertain": True}, a, globs) is False
+    # 017：可解析的指令看斷詞判換目錄，PostToolUse 用原字串標的 root_uncertain 不推翻它（cd 只在註解裡）
+    assert vl.receipt_relates({"cmd": "pytest -q # cd x", "root_uncertain": True}, a, globs) is True
     mods = [r"c:\proj\hooks\wg_x.py"]
     assert vl.receipt_relates({"cmd": "python -m pytest hooks/verify/verify_wg_x.py"}, mods, globs) is True   # (b) verify_<stem>
     assert vl.receipt_relates({"cmd": "python -m pytest hooks/verify/verify_other.py"}, mods, globs) is True  # (d) 改檔所在的 verify 目錄
