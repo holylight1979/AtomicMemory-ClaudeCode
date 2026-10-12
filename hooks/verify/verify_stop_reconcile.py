@@ -2156,6 +2156,41 @@ def test_024_1_scope_env_block_message_names_variable_and_fix():
     assert reason and "PYTEST_ADDOPTS" in reason and "寫了哨兵字樣" not in reason        # 量尺自帶的 DONE 不是這次的原因
 
 
+@pytest.mark.parametrize("cmd, tool, related", [
+    ("PYTEST_ADDOPTS='-k other' python -m pytest -q tests/test_widget.py", "Bash", False),
+    ("PYTHONOPTIMIZE=1 python -m pytest -q tests/test_widget.py", "Bash", False),
+    ('$env:PYTEST_ADDOPTS="-k other"; python -m pytest -q tests/test_widget.py', "PowerShell", False),
+    ("PYTEST_ADDOPTS='-k other' python -m pytest -q tests/test_widget.py && python -m pytest -q tests/test_other.py",
+     "Bash", False),                                                                       # 只有第一段帶縮限
+    ("PYTEST_ADDOPTS='' python -m pytest -q tests/test_widget.py", "Bash", True),          # 清空照算
+    ('$PYTEST_ADDOPTS="工作備註"; python -m pytest -q tests/test_widget.py', "PowerShell", True),   # PowerShell 普通變數
+])
+def test_026_general_evidence_checks_scope_env_at_every_program_step(driven, capsys, cmd, tool, related):
+    """026：規則 1 的環境檢查也接到一般證據（_clean／claimed_paths）：每一段跑程式的指令啟動時，有效環境帶非空縮限設定就不採認，
+    擋訊息講變數名與改法；清空與 PowerShell 普通變數照常採認。"""
+    widget = r"c:\proj\src\widget.py"
+    r = {**_rcpt(5, cmd=cmd, at=_T2), "tool": tool}
+    assert (vl.claimed_paths(r, [widget]) == [widget]) is related, cmd
+    mods = [_mf(widget, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
+    assert ("(a) 說「修好」" not in out) is related, cmd
+    if not related:
+        assert "改了驗證選項" in out and ("PYTEST_ADDOPTS" in out or "PYTHONOPTIMIZE" in out), cmd
+
+
+def test_026_root_worktree_pytest_measure_checks_scope_env(tmp_path, monkeypatch):
+    """026：根層 worktree 認 PYTEST_MEASURE DONE 的那條路也查環境：縮限設定跑出的 pytest DONE 不能替部位解帳，訊息講變數；
+    清空照算。"""
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    narrowed = _pytest_done(5, wt, cmd="PYTEST_ADDOPTS='-k other' python -X utf8 -m pytest -q hooks/verify/verify_x.py")
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [narrowed], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "PYTEST_ADDOPTS" in reason
+    cleared = _pytest_done(5, wt, cmd="PYTEST_ADDOPTS='' python -X utf8 -m pytest -q hooks/verify/verify_x.py")
+    assert vl.measure_gate_reason([_mf(mod, 5)], [cleared], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)[0] is None
+
+
 def test_024_2_self_receipt_with_scope_env_does_not_settle_part(tmp_path, monkeypatch):
     """024 規則 2：`PYTEST_ADDOPTS='-k x' python -X utf8 run_verify.py` 的自寫收據（用真的 write_self_receipt 序列化）不能替部位
     解帳，擋訊息說是哪個環境設定；配對正例：環境裡沒有或是空值時，同樣寫出的收據照算。"""

@@ -224,7 +224,8 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
     """cwd 與各 path 的 VCS 根（最多 2 個）→ [{kind, root, rev, dirty, truncated}]。
     整支函式一個 deadline＝起點＋budget_s：找 root、每個子行程（timeout＝min(subprocess_s, 剩餘)）、stat 迴圈每 10 檔
     都查 deadline；檔數上限 200；任一處超過 → 該筆 truncated=True 並停止。rev 取不到（子行程逾時、失敗、空字串）→ 該筆
-    truncated=True、why 寫原因，照樣算 dirty。rev 每 root 60 s 快取在 state["vcs_rev_cache"]；非 VCS 回 []。"""
+    truncated=True、照樣算 dirty。每個 truncated=True 的筆都有 why 說原因（哪一步耗盡預算、或取不到 rev）。
+    rev 每 root 60 s 快取在 state["vcs_rev_cache"]；非 VCS 回 []。"""
     deadline = _clock() + budget_s
     paths = [p for p in paths if p][:SNAPSHOT_MAX_FILES + 1]
     roots: List[Tuple[str, Path]] = []
@@ -233,7 +234,7 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
         if not start:
             continue
         if i and i % SNAPSHOT_STAT_CHECK_EVERY == 0 and _clock() > deadline:
-            out.append({"kind": "", "root": "", "rev": "", "dirty": "", "truncated": True})
+            out.append({"kind": "", "root": "", "rev": "", "dirty": "", "truncated": True, "why": "找 VCS 根時已耗盡預算"})
             return out
         try:
             sp = Path(start)
@@ -253,6 +254,7 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
         remaining = deadline - _clock()
         if remaining <= 0:
             entry["truncated"] = True
+            entry["why"] = "還沒取 rev 就已耗盡預算"
             out.append(entry)
             break
         cached = cache.get(key) if isinstance(cache.get(key), dict) else None
@@ -269,9 +271,12 @@ def vcs_snapshot(cwd: str, paths: Iterable[str], state: Dict[str, Any], budget_s
                 entry["why"] = f"取不到 {kind} rev（子行程上限 {limit:.2f} 秒內逾時、失敗或回空字串）"
             if _clock() > deadline:
                 entry["truncated"] = True
+                entry.setdefault("why", "取完 rev 已耗盡預算，改檔雜湊沒算")
                 out.append(entry)
                 break
         entry["dirty"], trunc = dirty_hash(root, paths, deadline, _clock, _stat)
+        if trunc:
+            entry.setdefault("why", "算改檔雜湊時已耗盡預算或超過檔數上限")
         entry["truncated"] = entry["truncated"] or trunc
         out.append(entry)
         if trunc:
@@ -645,10 +650,9 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         if _prints_sentinel(raw, sh):
             return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
                     "哨兵只能由被執行的程式印出。")
-        if _self_receipt.whole_run_shape(raw, sh, _cwd_of(r)):
-            envs = _self_receipt.cmd_scope_env(raw, sh)
-            if envs:              # 命令列是整體驗證、只差環境
-                return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs])}"
+        envs = _self_receipt.program_scope_env(raw, sh)
+        if envs:                  # 整體驗證、一般證據：任何一段跑程式的指令啟動時帶了縮限設定
+            return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs])}"
         if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
             return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"
         if not _in_tree(r):

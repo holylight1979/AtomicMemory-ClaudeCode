@@ -197,13 +197,18 @@ def _scope_maps(cmd: Argv, shell: str = "bash") -> List[Dict[str, Tuple[str, str
     return out
 
 
-def cmd_scope_env(cmd: Argv, shell: str = "bash") -> List[str]:
-    """指令的最後一個程式（後面只准尾端過濾）啟動當下，看得到的會縮小驗證範圍的環境設定名稱（_scope_maps）；
-    給整體驗證與擋訊息用。自寫收據（argv 清單）看它記下的 env，不在這裡判。"""
-    maps = _scope_maps(cmd, shell)
-    k = _first_filter(parse_cmds(cmd, shell)) if not isinstance(cmd, (list, tuple)) else 1
-    here = maps[k - 1] if 0 < k <= len(maps) else {}
-    return [n for n, _ in here.values()]
+def program_scope_env(cmd: Argv, shell: str = "bash") -> List[str]:
+    """每一段跑程式的指令（前置設定與尾端過濾除外）啟動當下，看得到的會縮小驗證範圍的環境設定名稱（_scope_maps，去重）。
+    一般證據（evidence_steps：對帳 (a)(b)、根層 worktree 的 PYTEST_MEASURE）與整體驗證都要每一段乾淨，擋訊息也用它說是哪個變數；
+    量尺另逐段連值比（match_span）。自寫收據（argv 清單）看它記下的 env，不在這裡判。"""
+    if isinstance(cmd, (list, tuple)):
+        return []
+    steps, maps = parse_cmds(cmd, shell), _scope_maps(cmd, shell)
+    names: List[str] = []
+    for j in range(min(_first_filter(steps), len(maps))):
+        if not _is_setup(steps[j]):
+            names += [n for n, _ in maps[j].values() if n not in names]
+    return names
 
 
 def _scope_vals(m: Dict[str, Tuple[str, str]]) -> Dict[str, str]:
@@ -539,9 +544,9 @@ def final_step(cmd: Argv, shell: str = "bash", root: str = "") -> Optional[Step]
 
 
 def is_whole_run(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
-    """整體驗證：命令列是整體驗證的形狀（whole_run_shape），而且沒有進到子程式環境、會縮小範圍的設定（cmd_scope_env）。
+    """整體驗證：命令列是整體驗證的形狀（whole_run_shape），而且跑程式的那段啟動時沒有會縮小範圍的環境設定（program_scope_env）。
     涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
-    return whole_run_shape(cmd, shell, root) and not cmd_scope_env(cmd, shell)
+    return whole_run_shape(cmd, shell, root) and not program_scope_env(cmd, shell)
 
 
 def whole_run_shape(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
@@ -579,7 +584,8 @@ def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
     形狀：前面只有 cd 與環境設定；之後全是跑程式的指令（直譯器、測試與建置工具、腳本檔），彼此只用 && 串（一段失敗後面就不跑、
     exit 會反映）、stdout 沒有導到檔案或 $null（失敗輸出藏不住）；最後只准留結尾的過濾，而且有過濾時只准一段（管線把最後一段的
     exit 蓋掉，前一段印的成功行會替後一段沒印 FAIL 的失敗背書）。夾了讀檔或印字的指令（cat、Get-Content、echo…）、
-    用 ; 或 || 串、把輸出導走，印出來的成功行就分不出是誰印的、哪一段真的過了。"""
+    用 ; 或 || 串、把輸出導走，印出來的成功行就分不出是誰印的、哪一段真的過了。每一段啟動時的有效環境都不能帶縮小驗證範圍的設定
+    （program_scope_env：`PYTEST_ADDOPTS='-k other' pytest tests/test_widget.py` 跑的不是 test_widget 全部）。"""
     steps = parse_cmds(cmd, shell)
     k = _first_filter(steps)
     i = 0
@@ -588,7 +594,9 @@ def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
     runs = steps[i:k]
     if not runs or not _reachable(steps, i) or any(s.op != "&&" for s in runs[1:]) or (k < len(steps) and len(runs) > 1):
         return None
-    return runs if all(_runs_program(s) and not s.stdout for s in runs) else None
+    if not all(_runs_program(s) and not s.stdout for s in runs) or program_scope_env(cmd, shell):
+        return None
+    return runs
 
 
 def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "", measure_root: str = "") -> bool:
