@@ -81,7 +81,7 @@ class Func:
     nonlocal_names: set = field(default_factory=set)  # 宣告 nonlocal 的名字：查找跳過這一層、往外層找
     import_rebinds: set = field(default_factory=set)  # 函式裡 import 的名字又被別種寫法綁定（import 又指定、又 def）：只影響確定，不影響找目標
     import_sources: dict = field(default_factory=dict)   # 綁定名 → 這一層全部的 import 來源 [(模組名, 相對層級, 原名或 "")]（import 好幾次都留）
-    scoped_names: set = field(default_factory=set)    # 在模型沒建的作用域構件（lambda、生成器、推導式、巢狀類別本體）裡被讀到或綁定的名字
+    scoped_binds: set = field(default_factory=set)    # 在模型沒建的作用域構件裡被綁定的名字（lambda 參數、推導式迴圈目標、:=、類別本體的 global／nonlocal）
     class_nonlocals: set = field(default_factory=set)  # 巢狀類別本體（含它的方法）裡 nonlocal 宣告的名字：改的是這一層或外層函式的綁定
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
@@ -204,7 +204,7 @@ def _py_main_block(mod: Module, node: ast.If, tree: ast.Module) -> None:
     _py_count_bindings(mod, nodes)
     _py_locals(f, None, nodes)
     f.calls = _py_calls(mod, nodes, fid)
-    f.scoped_names = _py_unmodeled(nodes)[0]
+    f.scoped_binds = _py_unmodeled(nodes)[0]
     elsewhere = itertools.chain.from_iterable(ast.walk(s) for s in tree.body if s is not node)
     outside = {n.id for n in elsewhere if isinstance(n, ast.Name)}
     f.receiver_only = _py_receiver_only(f, node.body) - outside   # 區塊裡的變數是模組層名字：別處寫到它就不算
@@ -316,7 +316,7 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     f.abstract = _py_abstract(node, body)
     _py_locals(f, cls, nodes)
     f.calls = _py_calls(mod, nodes, fid)
-    f.scoped_names, f.class_nonlocals = _py_unmodeled(nodes)
+    f.scoped_binds, f.class_nonlocals = _py_unmodeled(nodes)
     f.global_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Global)))
     bound = f.locals | {n for n in map(_bound_name, nodes) if n}   # 這一層任何寫法綁定的名字（指定、import、def、class…）
     mod.opaque |= f.global_names & bound               # 函式用 global 改寫模組層名字：之後是什麼看不到
@@ -333,24 +333,18 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
 
 
 def _py_unmodeled(nodes: list) -> tuple:
-    """模型沒建參數與綁定的作用域構件：lambda／生成器／推導式整棵（含 lambda 參數），巢狀類別本體整棵（含它的方法；
-    類別名本身是這一層的普通綁定，不算）→ (在裡面被讀到或綁定的名字, 巢狀類別本體裡 nonlocal 宣告的名字)。
-    名字含 Name 的讀寫、參數、import、except … as、match 擷取、def／class 名、global／nonlocal 宣告。"""
-    exprs = itertools.chain.from_iterable(ast.walk(n) for n in nodes if isinstance(n, _SCOPE_EXPRS))
+    """模型沒建參數與綁定的作用域構件裡「會改變綁定」的寫法 → (被綁定的名字, 巢狀類別本體裡 nonlocal 宣告的名字)。
+    只算綁定、不算讀取（讀取不改變外層名字的綁定）：lambda／生成器／推導式整棵裡的 lambda 參數、迴圈目標與 :=
+    （推導式裡的 := 綁在外層函式）；巢狀類別本體整棵（含它的方法）裡的 global／nonlocal 宣告。
+    類別本體自己的指定、方法參數只綁在類別或方法裡，不改外層，不算。"""
+    exprs = list(itertools.chain.from_iterable(ast.walk(n) for n in nodes if isinstance(n, _SCOPE_EXPRS)))
     bodies = [s for n in nodes if isinstance(n, ast.ClassDef) for s in n.body]
     in_class = list(itertools.chain.from_iterable(ast.walk(s) for s in bodies))
-    names = set()
-    for n in [*exprs, *in_class]:
-        if isinstance(n, ast.Name):
-            names.add(n.id)
-        elif isinstance(n, ast.arg):
-            names.add(n.arg)
-        elif isinstance(n, (ast.Global, ast.Nonlocal)):
-            names.update(n.names)
-        else:
-            names.add(_bound_name(n))
-    names.discard("")
-    return names, set(itertools.chain.from_iterable(n.names for n in in_class if isinstance(n, ast.Nonlocal)))
+    binds = {n.arg for n in exprs if isinstance(n, ast.arg)}
+    binds |= {n.id for n in exprs if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del))}
+    declared = [n for n in in_class if isinstance(n, (ast.Global, ast.Nonlocal))]
+    binds |= set(itertools.chain.from_iterable(n.names for n in declared))
+    return binds, set(itertools.chain.from_iterable(n.names for n in declared if isinstance(n, ast.Nonlocal)))
 
 
 def _scoped_spots(nodes: list) -> dict:

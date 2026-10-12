@@ -1760,22 +1760,21 @@ P1_PROOF_TOUCHES = {
     "call_in_generator": "    return sum(work() for _ in range(2))\n",
     "call_in_comprehension": "    return [work() for _ in range(2)]\n",
     "call_in_lambda": "    later = lambda: work()\n    return later\n",
-    "name_read_in_comprehension": "    names = [work for _ in range(2)]\n    work()\n    return names\n",
-    "name_read_in_class_body": "    class Holder:\n        fn = work\n\n    work()\n    return Holder\n",
+    "name_bound_as_lambda_param": "    later = lambda work: work\n    work()\n    return later\n",
 }
 
 
 @pytest.mark.parametrize("form", sorted(P1_PROOF_TOUCHES))
 def test_p1_a_call_or_the_proven_name_inside_a_construct_gets_no_rule_1(tmp_path, form):
-    """總原則 1 的另一半：呼叫點在 lambda／生成器／推導式裡，或被證明的名字 work 在構件裡被讀到——就算這次語意上剛好對，
-    證明也只在模型涵蓋的範圍內成立：找得到 work，但第 1 條不給。"""
+    """總原則 1 的另一半：呼叫點在 lambda／生成器／推導式裡，或被證明的名字 work 在構件裡被綁定（這裡是 lambda 參數）——
+    就算這次語意上剛好對，證明也只在模型涵蓋的範圍內成立：找得到 work，但第 1 條不給。"""
     files = {"app.py": TWO_FUNCS + "def main():\n" + P1_PROOF_TOUCHES[form]}
     edges = [(d, s) for d, s in _sure_edges(files, "app.py::main", tmp_path) if d == "app.py::work"]
     assert edges == [("app.py::work", False)], f"{form}：找得到 work，但不能確定"
 
 
 P1_ALIAS = {
-    "read_in_lambda": "    fn = work\n    later = lambda: fn\n    fn()\n    return later\n",
+    "bound_as_lambda_param": "    fn = work\n    later = lambda fn: fn\n    fn()\n    return later\n",
     "class_body_nonlocal": "    fn = work\n\n    class Patch:\n        nonlocal fn\n        fn = other\n\n    fn()\n",
     "inner_nonlocal": "    fn = work\n\n    def change():\n        nonlocal fn\n        fn = other\n\n    change()\n    fn()\n",
 }
@@ -1783,8 +1782,8 @@ P1_ALIAS = {
 
 @pytest.mark.parametrize("form", sorted(P1_ALIAS))
 def test_p1_a_simple_alias_touched_outside_the_model_is_not_rule_4(tmp_path, form):
-    """第 4 條（簡單區域別名）：別名 fn 在 lambda 裡被讀到、在巢狀類別本體裡用 nonlocal 改綁、或被內層函式用 nonlocal 改綁
-    （同一家族：被證明的綁定在這一層以外被動到）→ 不給第 4 條。"""
+    """第 4 條（簡單區域別名）：別名 fn 在 lambda 裡被綁定成參數、在巢狀類別本體裡用 nonlocal 改綁、或被內層函式用
+    nonlocal 改綁（同一家族：被證明的名字在這一層以外被綁定）→ 不給第 4 條。"""
     files = {"app.py": TWO_FUNCS + "def main():\n" + P1_ALIAS[form]}
     assert ("app.py::work", True) not in _sure_edges(files, "app.py::main", tmp_path / "a"), f"{form}：fn 不只這一層能動"
     assert all(r is None for d, r in _edge_rules(files, "app.py::main", tmp_path / "b") if d == "app.py::work")
@@ -1814,6 +1813,31 @@ def test_p1_a_certain_call_site_is_not_masked_by_an_earlier_one_inside_a_constru
     files = {"app.py": APP_RUN + "    def go(self):\n        items = [self.run() for _ in range(2)]\n        self.run()\n"
                                  "        return items\n"}
     assert _edge_rules(files, "app.py::App.go", tmp_path) == [("app.py::App.run", 3)]
+
+
+P1_READ_ONLY = {   # 構件裡只讀被證明的名字（讀取不改變外層綁定）→ 條號照給
+    "module_read_in_comprehension": ("    names = [kit.func for _ in range(2)]\n    kit.func()\n    return names\n",
+                                     "kit.py::func", 1),
+    "name_read_in_comprehension": ("    names = [work for _ in range(2)]\n    work()\n    return names\n", "app.py::work", 1),
+    "name_read_in_class_body": ("    class Holder:\n        fn = work\n\n    work()\n    return Holder\n", "app.py::work", 1),
+    "alias_read_in_lambda": ("    fn = work\n    later = lambda: fn\n    fn()\n    return later\n", "app.py::work", 4),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P1_READ_ONLY))
+def test_p1_a_name_only_read_inside_a_construct_keeps_its_rule(tmp_path, form):
+    """總控台裁定（反方向）：推導式、類別本體、lambda 裡只「讀」被證明的名字（模組名 kit、函式 work、別名 fn），
+    不改變外層的綁定 → 外面的 kit.func()、work() 照給第 1 條，fn() 照給第 4 條。"""
+    body, target, rule = P1_READ_ONLY[form]
+    files = {"kit.py": "def func():\n" + BODY, "app.py": "import kit\n\n\n" + TWO_FUNCS + "def main():\n" + body}
+    assert (target, rule) in _edge_rules(files, "app.py::main", tmp_path), f"{form}：只讀不改綁定，條號要照給"
+
+
+def test_p1_a_walrus_inside_a_comprehension_rebinds_the_outer_name(tmp_path):
+    """總控台裁定（正面）：推導式裡的 (work := other) 綁在外層函式作用域，work 已不是模組層的 work → 外面的 work() 不給條號。"""
+    files = {"app.py": TWO_FUNCS + "def main():\n    names = [(work := other) for _ in range(2)]\n    work()\n    return names\n"}
+    assert ("app.py::work", True) not in _sure_edges(files, "app.py::main", tmp_path / "a"), "work 被 := 改綁成 other"
+    assert all(r is None for d, r in _edge_rules(files, "app.py::main", tmp_path / "b") if d.endswith("work"))
 
 
 def test_p1_constructs_that_do_not_touch_the_proven_name_keep_rule_1(tmp_path):

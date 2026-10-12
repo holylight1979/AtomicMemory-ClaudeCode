@@ -105,8 +105,9 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   改寫照類別身分（定義檔＋名字）記，實例的型別看不出時，同名的方法都不給；經由被重新指定過的參數或區域變數寫入的，
   它原本的標註不再算數，也照型別看不出處理
   模型沒建參數與綁定的 Python 作用域構件（lambda、生成器、推導式、類別本體）：呼叫點在 lambda／生成器／推導式裡的，
-  1～5 條一律不給；被證明的名字（第 1 條的名字或接收者開頭、第 4 條的別名）在查找會走過的函式裡、這類構件中被讀到
-  或綁定，也不給第 1、4 條——證明只在模型涵蓋的範圍內成立，不是假設那個構件不存在
+  1～5 條一律不給；被證明的名字（第 1 條的名字或接收者開頭、第 4 條的別名）在查找會走過的函式裡、這類構件中被綁定
+  （lambda 參數、推導式／生成器的迴圈目標、構件裡的 :=、類別本體裡的 global／nonlocal；只讀不算），也不給第 1、4 條
+  ——證明只在模型涵蓋的範圍內成立，不是假設那個構件不存在
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
 
 NOT_WHITELISTED = "候選：不在確定白名單（名字綁定、型別來源或唯一目標證明不了）"
@@ -1190,7 +1191,7 @@ class Graph:
     def _rule1(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 1：直接呼叫唯一解析到、名字從未被重新指定的函式——裸名（含 import 進來的、巢狀函式、類別建構）、
         模組.函式、類別.靜態方法、建構子（C# new）、super()／base.。
-        被證明的名字（裸名，或接收者開頭的模組名、類別名）在模型沒建的作用域構件裡被讀到或綁定 → 不成立（總原則 1）。"""
+        被證明的名字（裸名，或接收者開頭的模組名、類別名）在模型沒建的作用域構件裡被綁定 → 不成立（總原則 1）。"""
         if c.kind in ("super", "new"):
             return True
         head = c.name if c.kind == "name" else c.recv.partition(".")[0]
@@ -1214,12 +1215,13 @@ class Graph:
         return bool(cls) and e.dst in self.lookup(cls, c.name)
 
     def _in_construct(self, f: lang.Func, name: str) -> bool:
-        """總原則 1：名字在模型沒建的作用域構件（lambda、生成器、推導式、巢狀類別本體）裡被讀到或綁定——
+        """總原則 1：名字在模型沒建的作用域構件裡被綁定（lambda 參數、推導式／生成器的迴圈目標、構件裡的 :=、
+        巢狀類別本體裡的 global／nonlocal）——只讀不算，讀取不改變外層名字的綁定。
         看查找會走過的每一層函式：f 往外，到持有這個綁定的那一層為止（綁定在模組層就看到最外層函式）。"""
         owner = self.lookup_binding(f, name)[1]
         for scope in reversed(self.scopes(f)):
             fn = self.funcs.get(f"{f.file}::{scope}")
-            if fn is not None and name in fn.scoped_names:
+            if fn is not None and name in fn.scoped_binds:
                 return True
             if fn is not None and fn is owner:
                 return False
@@ -1301,13 +1303,13 @@ class Graph:
     def _rule4(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 4：簡單區域別名——同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式（逐跳都不能被改指）。
         別名鏈上的名字宣告了 global／nonlocal、被內層函式用 nonlocal 改掉（別的作用域也能改它），
-        或在模型沒建的作用域構件裡被讀到或綁定（總原則 1），都不算。"""
+        或在模型沒建的作用域構件裡被綁定（總原則 1；只讀不算），都不算。"""
         if c.kind not in ("name", "invoke") or c.name not in f.aliases or c.name in f.params:
             return False
         names = [c.name]
         while (nxt := f.aliases.get(names[-1])) and nxt.kind == "name" and nxt.name in f.aliases and len(names) <= MAX_REEXPORT:
             names.append(nxt.name)
-        outside = f.global_names | f.nonlocal_names | self.nonlocal_rebound[(f.file, f.qual)] | f.scoped_names
+        outside = f.global_names | f.nonlocal_names | self.nonlocal_rebound[(f.file, f.qual)] | f.scoped_binds
         if outside & set(names):
             return False
         ref = self.alias_target(f, c.name)
