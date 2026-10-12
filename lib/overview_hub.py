@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -264,8 +265,37 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
 
 # ─── 卡片 ───────────────────────────────────────────────────────────
 
+def _same_dir(a: Path, b: Path) -> bool:
+    def norm(p: Path) -> str:
+        return os.path.realpath(str(p)).replace("\\", "/").rstrip("/").lower()
+    return norm(a) == norm(b)
+
+
+def is_root_worktree(root: Path, claude_dir: Path) -> bool:
+    """root 是「根層（~/.claude）的 worktree」：root ≠ claude_dir，且兩邊的 .claude/overview-map.md 位元組相同。
+    任一表不存在、或兩者是同一目錄 → False。純函式，不碰 state。"""
+    try:
+        r, c = Path(root), Path(claude_dir)
+        if _same_dir(r, c):
+            return False
+        return (r / MAP_REL).read_bytes() == (c / MAP_REL).read_bytes()
+    except OSError:
+        return False
+
+
+def card_mem_dir(root: Path, claude_dir: Path) -> Path:
+    """某個根的導讀卡住在哪個 memory 目錄（hook 注入與第二意見工具共用這一份）：
+    root 就是 claude_dir → `claude_dir/memory`；root 是根層 worktree → `root/memory`；其他 → `root/.claude/memory`。"""
+    r, c = Path(root), Path(claude_dir)
+    if _same_dir(r, c):
+        return c / "memory"
+    if is_root_worktree(r, c):
+        return r / "memory"
+    return r / ".claude" / "memory"
+
+
 def resolve_card(root: Path, card: Optional[str], mem_dir: Optional[Path] = None) -> Optional[Path]:
-    """卡名 → `<mem_dir>/**/<卡名>.md`，mem_dir 預設 `<root>/.claude/memory`（根層自己的表傳 ~/.claude/memory）；
+    """卡名 → `<mem_dir>/**/<卡名>.md`，mem_dir 預設 `<root>/.claude/memory`（呼叫端用 card_mem_dir 算好再傳）；
     某些專案卡名的底線會被索引正規化成連字號，兩種都試。"""
     if not card:
         return None

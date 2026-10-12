@@ -36,7 +36,7 @@ sys.path.insert(0, str(CLAUDE_DIR / "lib"))
 import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
     DEFAULT_LOCATE_TEMPLATE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
-    build_injection_ex, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
+    build_injection_ex, card_mem_dir, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
     split_card_sections, top_dir, transcript_readable, transcript_size,
 )
 
@@ -398,10 +398,10 @@ def _intent_of(state: Dict[str, Any]) -> str:
 
 
 def _cards_for(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> List[Path]:
-    """表列的導讀卡檔（找得到的）。根層自己的表（~/.claude/.claude/overview-map.md）卡片在 ~/.claude/memory，不在 ~/.claude/.claude/memory。"""
+    """表列的導讀卡檔（找得到的）。卡片目錄由 card_mem_dir 決定：根層與根層 worktree 在 `<根>/memory`，其他專案在 `<根>/.claude/memory`。"""
     if row["status"] not in ("有", "部分", "索引"):
         return []
-    mem_dir = CLAUDE_DIR / "memory" if cfg.get("_layer") == "root" else None
+    mem_dir = card_mem_dir(root, CLAUDE_DIR)
     return [cp for cp in (resolve_card(root, c, mem_dir) for c in row["cards"]) if cp]
 
 

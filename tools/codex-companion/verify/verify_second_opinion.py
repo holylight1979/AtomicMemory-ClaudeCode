@@ -637,3 +637,43 @@ def test_post_oversize_log_is_failed(env, monkeypatch):
     st = _execute(env, res["job_dir"])
     assert st["status"] == "failed" and "過大" in st["reason"]
     assert not (Path(res["job_dir"]) / "reply.md").exists()
+
+
+# ─── 部位卡解析走 lib.overview_hub.card_mem_dir：根層／根層 worktree／一般專案 ─────────────
+
+SO_MAP = "| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n"
+
+
+def _so_world(tmp_path, monkeypatch):
+    """tmp 造 live 根層、它的 worktree（表位元組相同、卡在 <根>/memory）、一般專案（表不同、兩處同名卡）；pack.CLAUDE_DIR 指 tmp 根層。"""
+    live, wt, proj = tmp_path / "claude", tmp_path / "claude-wt" / "track-x", tmp_path / "proj"
+    for r, body in ((live, "live 根層卡"), (wt, "worktree 卡")):
+        (r / ".claude").mkdir(parents=True)
+        (r / "memory" / "CC").mkdir(parents=True)
+        (r / ".claude" / "overview-map.md").write_text(SO_MAP, encoding="utf-8", newline="\n")
+        (r / "memory" / "CC" / "hooks導讀.md").write_text(f"# {body}\n", encoding="utf-8")
+    (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
+    (proj / "memory").mkdir()
+    (proj / ".claude" / "overview-map.md").write_text(SO_MAP + "| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8", newline="\n")
+    (proj / ".claude" / "memory" / "shared" / "hooks導讀.md").write_text("# 專案卡\n", encoding="utf-8")
+    (proj / "memory" / "hooks導讀.md").write_text("# 誤撈的根 memory 同名卡\n", encoding="utf-8")
+    monkeypatch.setattr(pack, "CLAUDE_DIR", live)
+    # 同一 pytest 行程先載過 hooks（wg_episodic／ups_context 把 Path.home()/.claude 插到 sys.path 最前）時，`lib` 套件會是 live 那份；
+    # 這裡要驗的是本樹的 lib，先把 `lib*` 清掉、本樹根放最前
+    for name in [m for m in sys.modules if m == "lib" or m.startswith("lib.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.syspath_prepend(str(ROOT))
+    return live, wt, proj
+
+
+def _card_of(cwd):
+    items, notes = pack.gather_items({"cwd": str(cwd), "part": "hook 層", "materials": {"diff": {"text": "d\n"}}}, {})
+    return dict(items).get(pack.REL_CARD), notes
+
+
+@pytest.mark.parametrize("which, expect", [("live", "# live 根層卡"), ("wt", "# worktree 卡"), ("proj", "# 專案卡")])
+def test_pack_card_resolves_for_root_worktree_and_project(tmp_path, monkeypatch, which, expect):
+    live, wt, proj = _so_world(tmp_path, monkeypatch)
+    card, notes = _card_of({"live": live, "wt": wt, "proj": proj}[which])
+    assert card is not None and card.startswith(expect)                     # 一般專案反例：不拿專案根 memory 的同名卡
+    assert not any("找不到部位卡" in n for n in notes)

@@ -542,6 +542,70 @@ def test_root_layer_cards_resolve_from_claude_memory(tmp_path, monkeypatch):
     assert oh.resolve_card(fake, "hooks導讀", fake / "memory").name == "hooks導讀.md"
 
 
+# ─── 卡片目錄單源 card_mem_dir：根層／根層 worktree／一般專案 ─────────────────────
+
+ROOT_MAP = "| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n"
+
+
+def _root_world(tmp_path, monkeypatch):
+    """tmp 造 live 根層（fake claude）、它的 worktree（表位元組相同、卡在 <wt>/memory）、一般專案（表不同）。"""
+    live, wt, proj = tmp_path / "claude", tmp_path / "claude-wt" / "track-x", tmp_path / "proj"
+    for r, body in ((live, "live 卡：pythonw 無 stdio"), (wt, "worktree 卡：HOME 覆寫指錯")):
+        (r / ".claude").mkdir(parents=True)
+        (r / "hooks").mkdir()
+        (r / "memory" / "CC").mkdir(parents=True)
+        (r / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
+        (r / "memory" / "CC" / "hooks導讀.md").write_text(f"# hooks 導讀\n病灶：{body}", encoding="utf-8")
+    (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
+    (proj / "memory" / "CC").mkdir(parents=True)
+    (proj / "hooks").mkdir()
+    (proj / ".claude" / "overview-map.md").write_text(ROOT_MAP + "| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8", newline="\n")
+    (proj / ".claude" / "memory" / "shared" / "hooks導讀.md").write_text("# 專案卡\n病灶：專案 .claude/memory 這張", encoding="utf-8")
+    (proj / "memory" / "CC" / "hooks導讀.md").write_text("# 誤撈\n病灶：專案根 memory 同名卡", encoding="utf-8")
+    import wg_core
+    monkeypatch.setattr(wo, "CLAUDE_DIR", live)
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", live)
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    return live, wt, proj
+
+
+def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
+    live, wt, proj = _root_world(tmp_path, monkeypatch)
+    assert oh.card_mem_dir(live, live) == live / "memory"
+    assert oh.card_mem_dir(Path(str(live).upper()), live) == Path(str(live).upper()) / "memory"   # 正規化後相同也算根層
+    assert oh.card_mem_dir(wt, live) == wt / "memory"                                  # 表位元組相同＝根層 worktree
+    assert oh.card_mem_dir(proj, live) == proj / ".claude" / "memory"                  # 反例：表不同＝一般專案
+    nomap = tmp_path / "bare"
+    nomap.mkdir()
+    assert oh.card_mem_dir(nomap, live) == nomap / ".claude" / "memory"                # 反例：沒有表＝一般專案
+    nolive = tmp_path / "no-live-map"
+    nolive.mkdir()
+    assert oh.card_mem_dir(wt, nolive) == wt / ".claude" / "memory"                    # 反例：claude_dir 沒表＝一律不是 worktree
+    assert oh.is_root_worktree(wt, live) is True and oh.is_root_worktree(wt, nolive) is False
+    import wg_verify_ledger as vl
+    assert vl.is_root_worktree(wt, live) is True and vl.is_root_worktree(proj, live) is False   # 舊名委派 lib 本體
+
+
+def test_cards_for_root_worktree_live_and_project_same_name_counterexample(tmp_path, monkeypatch):
+    live, wt, proj = _root_world(tmp_path, monkeypatch)
+    row = oh.parse_map(ROOT_MAP)[0]
+    assert wo._cfg({}, wt)["_layer"] == "project_mapped"                              # 層名判定不變
+    assert wo._cards_for(wt, row, wo._cfg({}, wt)) == [wt / "memory" / "CC" / "hooks導讀.md"]
+    assert wo._cards_for(live, row, wo._cfg({}, live)) == [live / "memory" / "CC" / "hooks導讀.md"]
+    got = wo._cards_for(proj, row, wo._cfg({}, proj))                                  # 反例：兩處同名卡，只拿 .claude/memory
+    assert got == [proj / ".claude" / "memory" / "shared" / "hooks導讀.md"]
+
+
+def test_inject_end_to_end_in_root_worktree_has_card_text(tmp_path, monkeypatch):
+    live, wt, _ = _root_world(tmp_path, monkeypatch)
+    tp = _transcript(tmp_path, ["x"])
+    target = str(wt / "hooks" / "wg_x.py")
+    warn, deny, changed = wo.on_edit({}, "s", target, tp, {})                          # 改檔觸發注入（沒先讀 → 擋，理由帶整張卡）
+    assert deny and "HOME 覆寫指錯" in deny and "沒有可注入的導讀卡" not in deny and changed
+    txt = wo.on_read({}, "s", "Read", {"file_path": target}, str(wt), tp, {})
+    assert txt and "HOME 覆寫指錯" in txt and "pythonw 無 stdio" not in txt and "沒有可注入的導讀卡" not in txt
+
+
 # ─── 退回 002 的 BLOCK：設定錯誤不得封鎖設定檔自身的修復 ───────────────────────
 
 def test_cfg_error_still_allows_editing_the_config_files_themselves(proj, tmp_path, monkeypatch):

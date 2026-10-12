@@ -206,8 +206,8 @@ def gather_items(request: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Tup
     card_src = spec.get("card")
     if not card_src and row and base is not None:
         try:
-            from lib.overview_hub import resolve_card
-            p = resolve_card(base, row.get("card"))
+            from lib.overview_hub import card_mem_dir, resolve_card
+            p = resolve_card(base, row.get("card"), card_mem_dir(base, CLAUDE_DIR))
             card_src = str(p) if p else None
         except ImportError:
             card_src = None
