@@ -2,7 +2,7 @@
 
 做什麼：以 ast 掃 hooks/、lib/、tools/ 的 .py（排除 verify/ 與 __pycache__），找出 `/` 串起來的路徑式（只看最外層、跨行也算）：
 - 正方向（資料根接程式碼）：最左邊是資料根（`CLAUDE_DIR`、`_CLAUDE_DIR`、`xxx.CLAUDE_DIR`，或 `Path.home() / ".claude"`），
-  後面任一段是 "tools"、"hooks"、"lib"、"skills" 或以 .py 結尾的字串 → 違規。程式碼根用 wg_core.CODE_DIR 或 Path(__file__)。
+  後面任一段是 "tools"、"hooks"、"lib"、"skills"、"prompts" 或以 .py 結尾的字串 → 違規。程式碼根用 wg_core.CODE_DIR 或 Path(__file__)。
   資料根的別名也算：`claude_data_dir()`；家目錄別名（`HOME = Path.home()`）/ ".claude"；記憶目錄（`MEMORY_DIR`、`memory_dir`、
   `mem_dir`、`xxx.MEMORY_DIR`、任一種資料根寫法 / "memory"）的 `.parent`／`.parents[0]`；以及經 `Path(x)`／`str(x)`、
   `.resolve()`／`.absolute()`／`.expanduser()`、條件式任一支推出來的名字（同檔單一名字賦值，反覆推到不再變；
@@ -27,7 +27,7 @@ from typing import List, NamedTuple, Set, Tuple
 
 TREE = Path(__file__).resolve().parents[2]
 SCAN_DIRS = ("hooks", "lib", "tools")
-CODE_SEGMENTS = {"tools", "hooks", "lib", "skills"}   # skills 與 tools／hooks／lib 並列為核心程式層（wg_core._CORE_GUARDED_SUBDIRS）
+CODE_SEGMENTS = {"tools", "hooks", "lib", "skills", "prompts"}   # 核心程式層（wg_core._CORE_GUARDED_SUBDIRS）＋版控裡的 LLM 樣板
 DATA_SEGMENTS = {"workflow", "Logs", "memory", "projects", "settings.json"}
 DATA_ROOT_NAMES = {"CLAUDE_DIR", "_CLAUDE_DIR"}
 MEMORY_DIR_NAMES = {"MEMORY_DIR", "memory_dir", "mem_dir"}   # 記憶目錄＝資料根 / "memory"，它的 .parent 就是資料根
@@ -269,11 +269,14 @@ def test_guard_flags_data_root_code_paths():
         "sys.path.insert(0, str(CODE_DIR))\n"
         "f = CLAUDE_DIR / 'skills' / '_skill_index.json'\n"
         "ok5 = CODE_DIR / 'skills'\n"
+        "g = CLAUDE_DIR / 'prompts' / 'user-decision-l1.md'\n"
+        "ok6 = CODE_DIR / 'prompts'\n"
     )
     got = sorted((ln, kind) for _, ln, _, kind in violations(src, "synthetic.py"))
     assert got == [(2, "data-root→code"), (3, "data-root→code"), (6, "data-root→code"),
                    (7, "data-root→code"), (8, "data-root→code"),
-                   (13, "data-root→code"), (14, "data-root→code"), (16, "data-root→code")], got   # 多行式子回報在起頭那行
+                   (13, "data-root→code"), (14, "data-root→code"), (16, "data-root→code"),
+                   (18, "data-root→code")], got   # 多行式子回報在起頭那行
 
 
 def test_guard_follows_data_root_aliases():
