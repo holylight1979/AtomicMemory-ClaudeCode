@@ -975,6 +975,42 @@ def test_card_search_timeout_denies_and_says_so(proj, tmp_path, monkeypatch):
     assert deny and f"`{_CARD}` 在 repo 裡找不到" in deny and "搜尋逾時（1.5 秒）沒搜完" in deny
 
 
+def _two_card_table(proj):
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        f"| `Game\\Battle\\` | 戰鬥 | `{_CARD}`；根因層另有 `戰鬥根因層` | 有 |\n", encoding="utf-8")
+
+
+def test_two_cards_both_present_unchanged(proj, tmp_path, monkeypatch):
+    """003-4 正例：表上兩張卡都在預設目錄 → 照舊（注入兩張、交三行讀檔後放行）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _two_card_table(proj)
+    (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥根因層.md").write_text("# 根因層\n共用字典", encoding="utf-8")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "在 repo 裡找不到" not in txt and "不在預設目錄" not in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
+
+
+def test_two_cards_one_missing_denies_listing_only_that_one(proj, tmp_path, monkeypatch):
+    """003-4 反例：一張在、一張哪裡都找不到 → 對該部位 deny，訊息只列缺的那張；讀檔＋交三行也照擋。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _two_card_table(proj)
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and "表上寫的導讀卡 `戰鬥根因層` 在 repo 裡找不到" in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
+    assert deny and "表上寫的導讀卡 `戰鬥根因層` 在 repo 裡找不到" in deny and f"`{_CARD}`" not in deny
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})                                # 沒讀過就改：同一種擋
+    assert deny.startswith("[Guardian:OverviewHub] 部位【戰鬥】表上寫的導讀卡 `戰鬥根因層`")
+
+
 def test_search_cards_skips_git_node_modules_distant_and_worktrees(tmp_path):
     for d in (".git", "node_modules", "_distant", ".claude/worktrees/wt"):
         (tmp_path / d).mkdir(parents=True, exist_ok=True)

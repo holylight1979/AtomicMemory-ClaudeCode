@@ -6,6 +6,8 @@
     (a) transcript 裡 AskUserQuestion 的 tool_result，題目含【收尾放行確認】、答案是「放行這一回合」（同題多次以最後一次為準）；
     (b) 使用者本人新打的訊息含「放行」（state.turn_prompts；背景通知等 harness 訊息本來就不進這個清單；「不放行」類否定不算）。
   「最後一次擋」的位置＝擋那一刻的 transcript 位元組長度＋當時的 turn_prompts 快照（mark_block 記）。
+  無法互動（non_interactive_reason：裁判子 session、子代理、headless／SDK）→ 不叫它問，擋到底（non_interactive_message）。
+  只用在寫程式碼的查核閘（ReconcileGate／MeasureGate）；其他閘照舊。
 怎麼跑：被 handlers/stop.py 匯入；verify 在 hooks/verify/verify_stop_reconcile.py（件一段）。
 """
 from __future__ import annotations
@@ -28,6 +30,48 @@ def exhausted_message(gate: str, n: int, summary: str) -> str:
     return (f"[Guardian:{gate}] 本回合已擋 {n} 次仍未解：{line[:200]}。不准自行放行，也不准改寫宣稱來繞過。"
             f"用 AskUserQuestion 問使用者，題目必須含標記{RELEASE_TAG}，選項固定兩個：「{OPT_RELEASE}」「{OPT_KEEP}」；"
             "使用者選放行才收尾。")
+
+
+_ENTRY_RE = re.compile(r'"entrypoint"\s*:\s*"([^"]*)"')
+_ENTRY_TAIL_BYTES = 65536
+
+
+def _transcript_entrypoint(transcript_path: Optional[str]) -> str:
+    """transcript 尾段最後一筆紀錄的 entrypoint 欄（CC 每筆紀錄都寫）；讀不到回空字串。"""
+    if not transcript_path:
+        return ""
+    try:
+        with open(transcript_path, "rb") as f:
+            f.seek(max(0, os.path.getsize(transcript_path) - _ENTRY_TAIL_BYTES))
+            hits = _ENTRY_RE.findall(f.read().decode("utf-8", errors="replace"))
+    except OSError:
+        return ""
+    return hits[-1] if hits else ""
+
+
+def non_interactive_reason(input_data: Dict[str, Any], transcript_path: Optional[str],
+                           env: Optional[Dict[str, str]] = None) -> Optional[str]:
+    """沒有人能回答 AskUserQuestion 的情境 → 回原因（給擋訊息）；有人在 → None。訊號依序：
+    ① 環境變數 CLAUDE_COMPANION_JUDGE（裁判子 session；dispatcher 現已整組早退，這裡是第二道）；
+    ② hook 輸入是 SubagentStop、或帶 agent_id（官方：子代理內才有）；
+    ③ entrypoint 是 sdk-*（`claude -p`／SDK 呼叫）：環境變數 CLAUDE_CODE_ENTRYPOINT 優先（CC 設給子行程，hook 繼承），
+       沒有再看 transcript 最後一筆紀錄的 entrypoint 欄。互動入口是 cli／claude-vscode 等，不算。"""
+    env = os.environ if env is None else env
+    if env.get("CLAUDE_COMPANION_JUDGE"):
+        return "裁判子 session（CLAUDE_COMPANION_JUDGE=1）"
+    if input_data.get("hook_event_name") == "SubagentStop" or input_data.get("agent_id"):
+        return "子代理 Stop"
+    ep = str(env.get("CLAUDE_CODE_ENTRYPOINT") or _transcript_entrypoint(transcript_path) or "")
+    if ep.startswith("sdk"):
+        return f"headless／SDK（entrypoint={ep}）"
+    return None
+
+
+def non_interactive_message(gate: str, n: int, summary: str, why: str) -> str:
+    """無法互動時擋滿的固定擋訊息：不叫模型問使用者，一律擋到底。"""
+    line = (summary or "").strip().splitlines()[0] if (summary or "").strip() else "（無原因摘要）"
+    return (f"[Guardian:{gate}] 無法互動，不能放行：{line[:200]}（{why}；本回合已擋 {n} 次）。"
+            "不准自行放行，也不准改寫宣稱來繞過：把它修好，或照實回報沒修好。")
 
 
 def _size(transcript_path: Optional[str]) -> int:

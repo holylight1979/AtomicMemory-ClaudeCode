@@ -459,6 +459,20 @@ def _search_cards(root: Path, cards: List[str], budget_s: float = CARD_SEARCH_BU
             "searched": searched, "timed_out": timed_out}
 
 
+def _resolve_row_cards(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Path], Optional[Dict[str, Any]]]:
+    """表列的卡：先 _cards_for（預設目錄），表上卡名對不到找到的檔的那幾張再 _search_cards。
+    回 (全部找到的卡檔, 搜尋結果或 None)；搜尋結果 missing 非空＝有卡在 repo 裡找不到。"""
+    paths = _cards_for(root, row, cfg)
+    if not _needs_card(row):
+        return paths, None
+    stems = {p.stem.lower() for p in paths}
+    absent = [c for c in row["cards"] if c.lower() not in stems and c.replace("_", "-").lower() not in stems]
+    if not absent:
+        return paths, None
+    miss = _search_cards(root, absent)
+    return paths + miss["found"], miss
+
+
 def _missing_card_msg(row: Dict[str, Any], miss: Dict[str, Any]) -> str:
     cards = "、".join(f"`{c}`" for c in miss["missing"])
     where = "、".join(miss["searched"]) or "（沒有可搜的目錄）"
@@ -478,11 +492,7 @@ def _locate_template(cfg: Dict[str, Any]) -> List[str]:
 
 def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
             hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any]) -> str:
-    card_paths = _cards_for(root, row, cfg)
-    miss: Optional[Dict[str, Any]] = None
-    if not card_paths and _needs_card(row):
-        miss = _search_cards(root, row["cards"])
-        card_paths = miss["found"]
+    card_paths, miss = _resolve_row_cards(root, row, cfg)
     card_path = card_paths[0] if card_paths else None
     template = _locate_template(cfg)
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
@@ -1012,19 +1022,19 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         return _unmapped_edit(state, session_id, root, file_path, cfg)
     key = _key(root, row)
     rec = (state.get("overview_hub") or {}).get(key)
-    if (rec is not None and _needs_card(row) and not rec.get("cards_missing") and not rec.get("card_paths")
-            and _cards_for(root, row, cfg)):
-        rec["card_paths"] = [str(p) for p in _cards_for(root, row, cfg)]     # 升級前的舊紀錄：卡在預設目錄，照常判定
     if rec is not None and _needs_card(row) and (rec.get("cards_missing") or not rec.get("card_paths")):
-        # 表上有卡但上次沒找到（或升級前注入的舊紀錄沒有卡）：每次改檔都重搜；仍找不到一律擋，讀過檔＋交三行也一樣
-        again = _search_cards(root, row["cards"])
-        if again["missing"]:
+        # 表上有卡但上次有缺（或升級前注入的舊紀錄沒有卡）：每次改檔都重找；任何一張仍找不到一律擋，讀過檔＋交三行也一樣
+        paths, again = _resolve_row_cards(root, row, cfg)
+        if again and again["missing"]:
             rec["cards_missing"] = {k: again[k] for k in ("missing", "searched", "timed_out")}
             msg = _missing_card_msg(row, again)
             _log("edit_card_missing", session_id, part=row["part_short"], path=file_path, deny_reason="card_missing",
                  cards=again["missing"], timed_out=again["timed_out"], layer=cfg.get("_layer"))
             return (msg, msg, True)
-        rec = None                                  # 卡出現了：照第一次碰到這個部位重新注入
+        if not rec.get("cards_missing") and again is None:
+            rec["card_paths"] = [str(p) for p in paths]   # 升級前的舊紀錄：卡都在預設目錄，照常判定
+        else:
+            rec = None                              # 缺的卡出現了（或只在別處）：照第一次碰到這個部位重新注入
     if rec is None:
         text = _inject(state, session_id, root, row, file_path, "edit", transcript_path, cfg)
         cm = state["overview_hub"][key].get("cards_missing")

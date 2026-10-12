@@ -816,6 +816,8 @@ def exhausted(driven, tmp_path, monkeypatch):
     """對帳閘已擋滿（count=2）且最後一次擋記在 transcript 的 offset；回 run(after=[行], before=[行], **state) → (out, state, logs)。"""
     tp = tmp_path / "t.jsonl"
     monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: tp)
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")                             # 預設互動；無法互動的案自己改
+    monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
 
     def run(capsys, before=(), after=(), **extra):
         tp.write_text("".join(before), encoding="utf-8")
@@ -891,28 +893,50 @@ def test_new_prompts_alignment_over_sliding_window():
     assert rl.new_prompts([], ["x"]) == ["x"]
 
 
-def test_shared_budget_sync_block_asks_instead_of_force_release(driven, capsys, tmp_path, monkeypatch):
-    """件一（共用預算 stop_gate_max_blocks）：一般 sync block 擋滿後不再強制放行；使用者放行後 phase=done。"""
-    tp = tmp_path / "t.jsonl"
-    tp.write_text("", encoding="utf-8")
-    monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: tp)
+def test_shared_budget_sync_block_keeps_force_release(driven, capsys, monkeypatch):
+    """003 裁決：共用預算 stop_gate_max_blocks 的閘照舊：一般 sync block 第 3 次強制放行（phase=done），不問使用者。"""
     monkeypatch.setattr(st, "_git_unpushed_roots", lambda mf: [])
     mf = [_mf(r"c:\proj\docs\a.md", 5), _mf(r"c:\proj\docs\b.md", 5)]
-    sess = {"cwd": str(tmp_path)}
-    out, state, logs = driven("好了。", capsys, modified_files=mf, stop_blocked_count=2, session=sess)
-    assert "[Guardian:Sync] 本回合已擋 2 次仍未解" in out and "【收尾放行確認】" in out    # 反例：舊行為這裡直接放行
-    assert state.get("phase") != "done" and [p["event"] for g, p in logs if g == "sync_block"] == ["exhausted_block"]
-    with open(tp, "a", encoding="utf-8") as f:
-        f.write(_ask_line(rl.OPT_RELEASE))
-    out, state2, logs = driven("好了。", capsys, modified_files=mf, stop_blocked_count=3, last_block=state["last_block"],
-                               session=sess)
-    assert "Guardian" not in out and state2["phase"] == "done" and state2["stop_blocked_count"] == 0
-    assert [p["event"] for g, p in logs if g == "sync_block"] == ["user_release"]
+    out, state, _ = driven("好了。", capsys, modified_files=mf, stop_blocked_count=0)
+    assert "[Workflow Guardian] 2 file(s) modified" in out and state["stop_blocked_count"] == 1     # 沒擋滿：照擋
+    out, state, logs = driven("好了。", capsys, modified_files=mf, stop_blocked_count=2)
+    assert "Guardian" not in out and "【收尾放行確認】" not in out and state["phase"] == "done"     # 擋滿：照舊放行
+    assert not [g for g, _ in logs if g == "sync_block"]
 
 
-def test_shared_budget_deferral_gate_asks_instead_of_skipping(driven, capsys, monkeypatch):
+def test_shared_budget_deferral_gate_keeps_skipping_when_exhausted(driven, capsys, monkeypatch):
     monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
-    out, _, logs = driven("好了。", capsys, stop_blocked_count=2)
-    assert "[Guardian:DeferralGate] 本回合已擋 2 次仍未解：[Guardian:DeferralGate] 把可做的事推給下個 session" in out
+    out, _, _ = driven("好了。", capsys, stop_blocked_count=2)
+    assert "DeferralGate" not in out and "【收尾放行確認】" not in out                         # 擋滿：照舊跳過
     out, _, _ = driven("好了。", capsys, stop_blocked_count=0)
-    assert "本回合已擋" not in out and "DeferralGate" in out                                # 沒擋滿：照原本的擋
+    assert "DeferralGate" in out and "本回合已擋" not in out                                # 沒擋滿：照原本的擋
+
+
+# ─── 003：無法互動情境一律擋到底（不叫它問使用者） ──────────────────────────────
+
+def test_non_interactive_reason_signals(tmp_path):
+    tp = tmp_path / "t.jsonl"
+    tp.write_text('{"type":"user","entrypoint":"cli"}\n{"type":"assistant","entrypoint":"sdk-cli"}\n', encoding="utf-8")
+    assert rl.non_interactive_reason({}, str(tp), env={}) == "headless／SDK（entrypoint=sdk-cli）"           # transcript 欄
+    assert rl.non_interactive_reason({}, str(tp), env={"CLAUDE_CODE_ENTRYPOINT": "claude-vscode"}) is None  # 環境變數優先
+    assert rl.non_interactive_reason({}, None, env={"CLAUDE_CODE_ENTRYPOINT": "sdk-py"}).startswith("headless")
+    assert rl.non_interactive_reason({"agent_id": "a1"}, None, env={"CLAUDE_CODE_ENTRYPOINT": "cli"}) == "子代理 Stop"
+    assert rl.non_interactive_reason({"hook_event_name": "SubagentStop"}, None, env={}) == "子代理 Stop"
+    assert rl.non_interactive_reason({}, None, env={"CLAUDE_COMPANION_JUDGE": "1"}).startswith("裁判子 session")
+    assert rl.non_interactive_reason({}, None, env={"CLAUDE_CODE_ENTRYPOINT": "cli"}) is None              # 互動
+    tp.write_text('{"type":"user","entrypoint":"claude-vscode"}\n', encoding="utf-8")
+    assert rl.non_interactive_reason({}, str(tp), env={}) is None
+
+
+def test_headless_exhausted_blocks_without_asking_even_with_release_answer(exhausted, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    out, _, logs = exhausted(capsys, after=[_ask_line(rl.OPT_RELEASE)], turn_prompts=["原本那句", "放行"])
+    assert "[Guardian:ReconcileGate] 無法互動，不能放行：✗ (a)" in out and "headless／SDK（entrypoint=sdk-cli）" in out
+    assert "AskUserQuestion" not in out.split("原擋訊息")[0] and "【收尾放行確認】" not in out           # 不叫它問
+    assert [p.get("event") for g, p in logs if g == "reconcile"] == ["noninteractive_block"]
+
+
+def test_headless_before_exhausted_is_ordinary_block(driven, capsys, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+    out, _, _ = driven("閘修好了，完成。", capsys)
+    assert "收尾宣稱對不上" in out and "無法互動" not in out                                 # 還沒擋滿：照一般擋訊息
