@@ -591,6 +591,22 @@ sequenceDiagram
 | 第二意見與候選池 | MCP `second_opinion_start`／`second_opinion_result`（`tools/second-opinion/`）、`project_smells`（`tools/project-smells.py`） | 把部位卡、病灶文件、diff、帳本尾打包給 codex 獨立審；把專案壞味道候選排成表 |
 | 過程量 | `hooks/wg_scorecard.py`、`tools/scorecard-report.py`、`tools/refix-churn.py` | 每 session 一行：改過的部位裡注入後讀過檔的比例、交三行的比例；同檔反覆修的熱點 |
 
+**專案什麼情況該覆蓋**（寫在 `<專案根>/.claude/overview-hub.json`，只寫要改的鍵）：
+
+| 鍵 | 預設 | 這種專案才改 |
+|----|------|-------------|
+| `readonly_paths` | 空 | 有生成碼、打包產物、第三方原始碼不准手改 → 列 glob，命中一律擋 |
+| `min_overview_evidence.part_files` | 1 | 部位很大、讀一個檔看不出全貌 → 調高 |
+| `goal_weights` | 十類意圖各有片序 | 導讀卡段落名跟預設不同，或某類任務該先看別的片 → 只覆蓋那個意圖 |
+| `locate_template`／`locate_extra` | 三句預設問法 | 團隊要換問法，或某部位要加第四問（第四問只提醒、不納入三行檢查） |
+| `root_cause_triggers`／`idle_triggers` | 內建詞表 | 團隊口語不同（例「又出現」「接著呢」）→ 換詞 |
+| `smells_report`／`smells_max_age_days` | 空／7 | 專案有自己的壞味道報告產生器 → 指過去，天數照報告更新頻率 |
+| `candidate_top_n`／`post_compact_chars`／`max_card_chars` | 5／1500／6000 | 病灶段很長、部位很多、壓縮後要更多綜觀 → 調整字數與條數 |
+| `authority_map` | 空 | 專案有權威文件（規格書、介面表）→ 檔名樣式對到地圖檔 |
+| 部位表「量尺」欄＋`verify_chains` | 無 | 部位有固定的驗證指令 → 在部位表該列量尺欄填 `量法｜指令｜門檻`（有這欄量尺閘才會要求跑）；驗證要先有環境（實機、編輯器）→ 再在 `verify_chains[部位].runtime_gate` 填就緒檢查，沒就緒就擋並說原因 |
+| `path_bases`、`eol_policy`、`source_encodings`、`commit_encoding` | 單根／依檔頭／utf-8 | 多根倉庫、CRLF 專案、非 UTF-8 原始碼（例 cp950） |
+| `verify_ledger.sentinel_regex`（config） | PASS／FAIL／DONE 兩條＋pytest 映射 | 專案既有工具尾行格式不同 → 加映射，不改工具 |
+
 ---
 
 ## 8. 可觀測與自我維護
