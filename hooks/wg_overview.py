@@ -471,6 +471,7 @@ def defects_top_n(card_paths: List[Any], n: int) -> List[str]:
 
 _GENERATED_AT_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 _LINE_CAP = 200   # 候選每列（reason／病灶）上限，與 max_card_chars // N 取小
+_SMELLS_STR_FIELDS = ("part", "category", "kind", "reason")
 
 
 def _smells_rows(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str], Optional[float]]:
@@ -515,12 +516,34 @@ def _smells_rows(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str], Optio
             rows = data
         elif isinstance(data, dict) and any(isinstance(data.get(k), list) for k in ("rows", "items", "smells")):
             rows = next(data[k] for k in ("rows", "items", "smells") if isinstance(data.get(k), list))
-            m = _GENERATED_AT_RE.match(str(data.get("generated_at") or ""))
+            raw_gen = data.get("generated_at")
+            m = _GENERATED_AT_RE.match(str(raw_gen or ""))
             if m:
-                gen_ts = time.mktime((int(m.group(1)), int(m.group(2)), int(m.group(3)), 0, 0, 0, 0, 0, -1))
+                try:   # 0000-01-01、13 月、9999 年這類值 mktime 會拋；退回 mtime 並記一筆
+                    gen_ts = time.mktime((int(m.group(1)), int(m.group(2)), int(m.group(3)), 0, 0, 0, 0, 0, -1))
+                except (OverflowError, ValueError, OSError):
+                    gen_ts = None
+                    err = f"generated_at 無法換算：{raw_gen}"
         else:
             err = "頂層要是陣列或含 rows／items／smells 陣列的物件"
-    return [r for r in rows if isinstance(r, dict) and r.get("path")], err, gen_ts
+    # 報告是外部輸入：path 必須是非空字串；part／category／kind／reason 有值就必須是字串，否則整列丟棄並計數
+    good: List[Dict[str, Any]] = []
+    bad_type = 0
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if not isinstance(r.get("path"), str) or not r["path"].strip():
+            if r.get("path") not in (None, ""):
+                bad_type += 1
+            continue
+        if any(r.get(k) is not None and not isinstance(r.get(k), str) for k in _SMELLS_STR_FIELDS):
+            bad_type += 1
+            continue
+        good.append(r)
+    if bad_type:
+        msg = f"{bad_type} 列欄位型別不對（path／part／category／kind／reason 要字串）"
+        err = f"{err}；{msg}" if err else msg
+    return good, err, gen_ts
 
 
 def _clip(s: str, k: int) -> str:
@@ -634,6 +657,13 @@ def _table_rows(root: Path) -> List[Dict[str, Any]]:
         return parse_map(mp.read_text(encoding="utf-8", errors="replace"))
     except OSError:
         return []
+
+
+def _candidates_error_line(session_id: str, e: Exception, **kw: Any) -> str:
+    """候選產生失敗：回一行給模型（不影響閘的判定與同回合其他注入）並落 log candidates_error，traceback 進 atom-debug。"""
+    _log("candidates_error", session_id, error=f"{type(e).__name__}: {e}", **kw)
+    _atom_debug_error("overview_hub:candidates", e)
+    return f"[Guardian:OverviewHub] 候選產生失敗：{type(e).__name__}: {e}（不影響本次放行）"
 
 
 def _candidates_on_trigger(state: Dict[str, Any], session_id: str, prompt: str, config: Dict[str, Any]) -> List[str]:
@@ -755,7 +785,10 @@ def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_pa
             parts.append(_inject(state, session_id, root, row, m.group(0), "prompt", transcript_path, cfg_r))
             break
     # A5.2：觸發詞 → 已注入部位各送一次候選前 N；A5.4：沒事做（general 意圖）→ 一 session 一行主動掃視
-    parts.extend(_candidates_on_trigger(state, session_id, prompt, config))
+    try:   # 候選炸了不得吞掉同回合已組好的導讀卡注入（UPS 外層 except 會把整段 _hub_txt 丟掉）
+        parts.extend(_candidates_on_trigger(state, session_id, prompt, config))
+    except Exception as e:  # noqa: BLE001
+        parts.append(_candidates_error_line(session_id, e, via="prompt"))
     if (_intent_of(state) == "general" and not state.get("idle_scan_sent")
             and _hit_trigger(prompt, cfg.get("idle_triggers"))):
         state["idle_scan_sent"] = True
@@ -980,7 +1013,11 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         ef_key = _root_key(Path(file_path))   # 正斜線＋小寫：Windows 上 Game/A.cs 與 game/a.cs 是同一檔
         ef[ef_key] = int(ef.get(ef_key, 0)) + 1
         if ef[ef_key] == 2:
-            candidates = _candidates_block(root, [row], cfg)
+            # 放行已判定；候選是附加輸出，炸了只附一行說明，不得把放行變成擋（外層 pre_tool_use 的 except 會當環境異常 deny）
+            try:
+                candidates = _candidates_block(root, [row], cfg)
+            except Exception as e:  # noqa: BLE001
+                candidates = _candidates_error_line(session_id, e, via="second_edit", part=row["part_short"])
             _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)

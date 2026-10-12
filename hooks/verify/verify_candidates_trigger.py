@@ -34,6 +34,7 @@ def _isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(wo, "org_memory_root", lambda: None)
     monkeypatch.setattr(wo, "_ORG_ROOT_CACHE", [])
     monkeypatch.setattr(wo, "_WARNED", set())
+    monkeypatch.setattr(wo, "_atom_debug_error", lambda src, exc: None)   # 不寫真 atom-debug log
 
 
 @pytest.fixture
@@ -239,6 +240,63 @@ def test_generated_at_wins_over_mtime(proj, tmp_path):                      # WA
     state, tp = {}, _transcript(tmp_path, ["x"])
     _inject(proj, state, tp)
     assert "天沒更新" in wo.on_prompt(state, "s", "根因", tp, {}, intent="debug")
+
+
+# ─── 退件 002：壞報告不拋、候選炸了不改變閘的判定 ───────────────────────
+
+@pytest.mark.parametrize("report,bad_hint", [
+    ({"generated_at": "0000-01-01", "rows": [{"path": "Game/Battle/Ok.cs", "category": "hotspot", "reason": "合法列", "part": "戰鬥"}]},
+     "generated_at 無法換算：0000-01-01"),
+    ({"rows": [{"path": "Game/Battle/Bad.cs", "reason": "part 型別錯", "part": 7},
+               {"path": "Game/Battle/Ok.cs", "category": "hotspot", "reason": "合法列", "part": "戰鬥"}]},
+     "1 列欄位型別不對"),
+    ({"rows": [{"path": "Game/Battle/Bad.cs", "reason": {"x": 1}, "part": "戰鬥"},
+               {"path": "Game/Battle/Ok.cs", "category": "hotspot", "reason": "合法列", "part": "戰鬥"}]},
+     "1 列欄位型別不對"),
+])
+def test_bad_report_fields_do_not_raise_and_good_rows_still_sent(proj, report, bad_hint):
+    rp = proj / ".claude" / "smells.json"
+    rp.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    cfg = wo._cfg({"overview_hub": {"smells_report": str(rp)}}, proj)
+    for parts in (None, ("戰鬥",)):                                         # 全專案（part 串接那條）與單部位兩條路都走
+        lines, notes, source = wo._smells_lines(proj, cfg, parts, 5, 200)
+        assert any("解析失敗" in n and bad_hint in n for n in notes), notes
+        assert len(lines) == 1 and "Ok.cs" in lines[0] and "合法列" in lines[0]
+        assert "Bad.cs" not in "\n".join(lines)
+    state = {"session": {"cwd": str(proj)}}                                  # 端到端：全專案候選不拋
+    txt = wo.on_prompt(state, "s", "根因", "", {"overview_hub": {"smells_report": str(rp)}}, intent="debug")
+    assert txt and "Ok.cs" in txt and "解析失敗" in txt
+
+
+def test_candidates_crash_on_second_edit_still_allows(proj, tmp_path, monkeypatch):
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1, _ = _inject(proj, state, tp)
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
+                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：根因在邏輯層\n定位｜前例：無"}]}}, ensure_ascii=False) + "\n")
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
+
+    def _boom(*a, **k):
+        raise RuntimeError("候選爆了")
+    monkeypatch.setattr(wo, "_candidates_block", _boom)
+    warn, deny, changed = wo.on_edit(state, "s", f1, tp, {})
+    assert deny is None and changed and warn and "候選產生失敗：RuntimeError: 候選爆了" in warn and "不影響本次放行" in warn
+    rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
+    assert rec["edited_files"][wo._root_key(Path(f1))] == 2
+    assert "candidates_error" in _log_events(tmp_path)
+
+
+def test_candidates_crash_on_prompt_keeps_card_injection(proj, tmp_path, monkeypatch):
+    def _boom(*a, **k):
+        raise RuntimeError("候選爆了")
+    monkeypatch.setattr(wo, "_candidates_on_trigger", _boom)
+    state = {}
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_prompt(state, "s", f"為什麼又壞了 {f1}", "", {}, intent="debug")   # 同時命中部位檔與觸發詞
+    assert txt and "本 session 第一次碰到【戰鬥】部位" in txt and "戰鬥導讀" in txt   # 導讀卡照送
+    assert "候選產生失敗：RuntimeError: 候選爆了" in txt
+    assert any(k.endswith("|戰鬥") for k in state["overview_hub"])
 
 
 # ─── A5.4 沒事做提示 ─────────────────────────────────────────────────
