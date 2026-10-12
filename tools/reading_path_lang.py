@@ -595,8 +595,9 @@ def _py_contained(node) -> set:
 def _py_receiver_only(f: Func, body: list) -> set:
     """白名單 2 的正向證明：建構之後每一次出現都只是方法呼叫的接收者（w.m(…)）的區域變數。
     只允許一次單一目標的建構指定（w = Foo(…)、w: T = Foo(…)）＋若干 w.m(…)；其他任何出現——當引數（位置或具名）、
-    被指定給別的目標（含鏈式、解構）、放進容器、return、yield、讀 w.x 不呼叫、w.x = …、del、被 lambda 或巢狀函式捕捉——
-    都失去資格。不列舉「存走」有哪些寫法：沒被允許的就是不行。Name 以外的綁定（import、except … as、match 擷取、
+    被指定給別的目標（含鏈式、解構）、放進容器、return、yield、讀 w.x 不呼叫、w.x = …、del——都失去資格；
+    任何一次出現位在巢狀作用域（def、lambda、生成器、推導式、類別本體）裡，就算被捕捉，就算是 w.m(…) 也失去資格。
+    不列舉「存走」有哪些寫法：沒被允許的就是不行。Name 以外的綁定（import、except … as、match 擷取、
     def／class 名，巢狀作用域裡的也算）只要綁到同一個名字，就是又綁了一次，同樣失去資格。"""
     seen, rebound = {}, set()                          # 名字 → [(Name 節點, 父節點, 祖父節點, 是否在巢狀作用域裡)]
     stack = [(node, None, None, False) for node in body]
@@ -605,7 +606,7 @@ def _py_receiver_only(f: Func, body: list) -> set:
         if isinstance(node, ast.Name):
             seen.setdefault(node.id, []).append((node, parent, grand, inner))
         rebound.add(_bound_name(node))
-        nested = inner or isinstance(node, (*_DEF_NODES, ast.Lambda, ast.ClassDef))
+        nested = inner or isinstance(node, (*_DEF_NODES, ast.ClassDef, *_SCOPE_EXPRS))
         stack.extend((child, node, parent, nested) for child in ast.iter_child_nodes(node))
     skip = set(f.params) | f.global_names | f.nonlocal_names | rebound
     return {name for name in f.constructed if name not in skip and _only_receiver(seen.get(name, []))}

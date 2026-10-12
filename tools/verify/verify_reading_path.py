@@ -1813,6 +1813,24 @@ def test_p1_constructs_that_do_not_touch_the_proven_name_keep_rule_1(tmp_path):
     assert [r for d, r in _edge_rules(files, "app.py::main", tmp_path) if d == "app.py::work"] == [1]
 
 
+P2_CAPTURES = {   # 建構變數 w 的某一次出現在推導式／生成器裡（被那一層捕捉）；外面那次 w.run() 寫在前面，邊就是它的
+    "case2_generator": "    pending = (w.run() for _ in range(2))\n    w.run()\n    return pending\n",
+    "generator_after": "    w.run()\n    pending = (w.run() for _ in range(2))\n    return pending\n",
+    "list_comprehension": "    w.run()\n    return [w.run() for _ in range(2)]\n",
+    "set_comprehension": "    w.run()\n    return {w.run() for _ in range(2)}\n",
+    "dict_comprehension": "    w.run()\n    return {k: w.run() for k in range(2)}\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(P2_CAPTURES))
+def test_p2_a_constructed_local_captured_by_a_generator_or_comprehension_loses_rule_2(tmp_path, form):
+    """案 2＋總原則 2：建構後 w 只要有一次出現在巢狀作用域（生成器、推導式）裡就算被捕捉——就算那次也只是 w.run()，
+    外面的 w.run() 也不給第 2 條（生成器延後執行、把 w 帶出去）。"""
+    files = {"app.py": WORKER + "\n\ndef main():\n    w = Worker()\n" + P2_CAPTURES[form]}
+    run = [s for d, s in _sure_edges(files, "app.py::main", tmp_path) if d == "app.py::Worker.run"]
+    assert run == [False], f"{form}：w 被巢狀作用域捕捉，第 2 條不成立"
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
