@@ -288,17 +288,22 @@ _HARNESS_TAG_RE = re.compile(
 )
 # harness 代替使用者送進 UserPromptSubmit 的整則訊息（背景 agent/task 完成通知）。
 # 內容是 sub-agent 的回報原文，不是使用者打的字——糾正偵測、失敗萃取都不該吃它。
-_HARNESS_PROMPT_PREFIXES = ("<task-notification", "[SYSTEM NOTIFICATION")
+_HARNESS_PROMPT_PREFIXES = ("<task-notification", "[SYSTEM NOTIFICATION", "<cross-session-message")
 
 
 def is_harness_generated_prompt(text: str) -> bool:
-    """整則 prompt 是否由 harness 生成（task-notification / 系統通知），而非使用者輸入。"""
+    """整則 prompt 是否不是使用者打的字：harness 生成（task-notification／系統通知），或其他 Claude session 用 SendMessage 送來的訊息。"""
     if not text:
         return False
     head = text.lstrip()[:40]
     if head.startswith(_HARNESS_PROMPT_PREFIXES):
         return True
     return not sanitize_harness_noise(text)
+
+
+def user_typed_prompts(prompts: Optional[List[str]]) -> List[str]:
+    """近期 prompt 清單只留使用者本人打的（排除 is_harness_generated_prompt 判定的）；豁免詞與口令只認這些。"""
+    return [p for p in (prompts or []) if not is_harness_generated_prompt(p or "")]
 # hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] 等
 # additionalContext 前綴）——整行剔除。
 _HOOK_RESIDUE_LINE_RE = re.compile(

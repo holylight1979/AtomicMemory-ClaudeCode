@@ -1,8 +1,9 @@
 """verify_harness_prompt_guard.py — harness 生成 prompt 不當使用者訊號（2026-09-21 全面檢視 Phase 0/1a）。
 
 守住：
-1. is_harness_generated_prompt：<task-notification> / [SYSTEM NOTIFICATION 整則 → True；使用者文字 → False。
-2. detect_correction：sub-agent 完成通知裡引用的「不對／重來」不算使用者糾正；真糾正仍命中。
+1. is_harness_generated_prompt：<task-notification> / [SYSTEM NOTIFICATION / <cross-session-message 整則 → True；使用者文字 → False。
+2. detect_correction：sub-agent 完成通知、其他 session 訊息裡引用的「不對／重來」不算使用者糾正；真糾正仍命中。
+   豁免詞（detect_evasion、收割閘 _dismissed）只認使用者打的；其他 session 訊息裡的「先這樣」不替使用者豁免。
 3. recall-miss collect_problem_texts：knowledge_queue 混有純字串不炸。
 4. logs_dir：pytest 內寫到暫存目錄，不污染正式 Logs/。
 """
@@ -27,13 +28,28 @@ NOTIFY = (
     "<result>使用者說「不對」「我說過」「重來」時要記錄</result>\n</task-notification>"
 )
 SYSNOTE = "[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is automated. 不對 重來"
+PEER = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-ad" from-mode="bypass">\n'
+        "不對、重來；先這樣，上GIT\n</cross-session-message>")
 
 
 def test_harness_prompt_detection():
     assert wg_core.is_harness_generated_prompt(NOTIFY) is True
     assert wg_core.is_harness_generated_prompt(SYSNOTE) is True
+    assert wg_core.is_harness_generated_prompt(PEER) is True                       # 其他 session 的訊息不是使用者打的
+    assert wg_core.is_harness_generated_prompt("  " + PEER) is True
     assert wg_core.is_harness_generated_prompt("不對，我說過要用 LF，重來") is False
     assert wg_core.is_harness_generated_prompt("") is False
+
+
+def test_peer_message_is_not_a_correction_nor_a_dismiss():
+    from wg_evasion import detect_evasion
+    from wg_harvest import _dismissed
+    assert detect_correction(PEER, {}) == []                                        # 反例：舊碼算成使用者糾正
+    t = "既有的問題，非本次範圍。"
+    assert detect_evasion(t, ["幫我修好", PEER]) is not None                        # 同伴說「先這樣」不替使用者豁免
+    assert detect_evasion(t, ["先這樣", PEER]) is None                              # 使用者說的照樣豁免
+    assert _dismissed(["幫我修好", PEER]) is False and _dismissed(["先這樣"]) is True
+    assert wg_core.user_typed_prompts(["a", NOTIFY, PEER, "b"]) == ["a", "b"]
 
 
 def test_correction_ignores_notification_but_catches_user():

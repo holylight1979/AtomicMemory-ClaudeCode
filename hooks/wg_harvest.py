@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from wg_core import _now_iso, WORKFLOW_DIR
+from wg_core import _now_iso, WORKFLOW_DIR, user_typed_prompts
 from wg_evasion import claims_completion, _DISMISS_RE, _COMPLETION_EXCLUDE_RE
 from wg_extraction import _is_pid_alive
 
@@ -580,7 +580,7 @@ def append_ledger(sid: str, record: Dict[str, Any], base_dir: Optional[Path] = N
 
 
 def _dismissed(recent_prompts: List[str]) -> bool:
-    return any(_DISMISS_RE.search(p or "") for p in (recent_prompts or [])[-3:])
+    return any(_DISMISS_RE.search(p or "") for p in user_typed_prompts(recent_prompts)[-3:])
 
 
 def harvest_gate_reason(

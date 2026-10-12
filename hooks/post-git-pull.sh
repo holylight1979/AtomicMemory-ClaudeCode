@@ -20,7 +20,15 @@ if [ -z "$PROJ_ROOT" ]; then
   exit 0  # not a git repo — nothing to do
 fi
 
-DETECTOR="${HOME}/.claude/tools/memory-conflict-detector.py"
+# 程式碼：先找本腳本所在的樹（跟隨符號連結；直接從 worktree 跑就用 worktree 的 detector）；
+# 複製安裝到 .git/hooks 時旁邊沒有 tools/，才用家目錄的一般安裝。
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+CODE_TOOLS="$(cd "$(dirname "$SELF")/.." 2>/dev/null && pwd)/tools"
+if [ -f "$CODE_TOOLS/memory-conflict-detector.py" ]; then
+  DETECTOR="$CODE_TOOLS/memory-conflict-detector.py"
+else
+  DETECTOR="${HOME}/.claude/tools/memory-conflict-detector.py"
+fi
 SHARED_DIR="$PROJ_ROOT/.claude/memory/shared"
 
 [ -f "$DETECTOR" ] || exit 0
