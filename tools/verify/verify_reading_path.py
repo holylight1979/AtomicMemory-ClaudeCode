@@ -496,12 +496,12 @@ if __name__ == "__main__":
         assert _kinds(r)[-1] == "callback" and r["steps"][-1]["guess"].startswith("候選")
 
 
-def test_same_instance_event_with_two_handlers_is_certain(tmp_path):
+def test_events_are_never_certain_even_on_the_same_instance(tmp_path):
     files = dict(PY_KINDS)
     files["main.py"] = files["main.py"].replace('bus.on("saved", on_saved)',
                                                 'bus.on("saved", on_saved)\n    bus.on("saved", on_item)')
     r = _route(rp.analyze(_write(tmp_path, files), "main.py"), "main.py::on_saved")
-    assert r["steps"][-1]["kind"] == "event" and r["certain"], "同一函式對同一個 bus 訂閱又發出：兩個處理函式都確定會跑"
+    assert r["steps"][-1]["kind"] == "event" and not r["certain"], "事件不在確定白名單：同一實例也只是候選"
 
 
 def test_function_local_import_does_not_leak_to_other_functions(tmp_path):
@@ -748,17 +748,12 @@ def test_overload_call_must_be_candidate(tmp_path):
     assert "最差 0 條路徑（全確定）" in text and "最差 2 條路徑（含候選）" in text
 
 
-def test_dynamic_edge_keeps_its_uncertainty(tmp_path):
+def test_dispatch_tables_are_never_certain(tmp_path):
     report = rp.analyze(_write(tmp_path, PY_LAZY), "entry.py::main")
-    assert _route(report, "handlers/alpha.py::handle_alpha")["certain"], "表裡只有一項：只可能是它"
-    lazy2 = {**PY_LAZY, "entry.py": PY_LAZY["entry.py"].replace(
-        '{"a": ("handlers.alpha", "handle_alpha")}', '{"a": ("handlers.alpha", "handle_alpha"), "b": ("handlers.beta", "go")}'),
-        "handlers/beta.py": "def go(x):\n    y = x * 2\n    y += 1\n    return y\n"}
-    report = rp.analyze(_write(tmp_path / "two", lazy2), "entry.py::main")
     r = _route(report, "handlers/alpha.py::handle_alpha")
-    assert not r["certain"] and r["steps"][-1]["guess"].startswith("候選：分派表")
+    assert not r["certain"] and r["steps"][-1]["guess"].startswith("候選：分派表"), "分派表不在確定白名單：只有一項也是候選"
     fixed = rp.analyze(_write(tmp_path / "kinds", PY_KINDS), "main.py")
-    assert _route(fixed, "main.py::on_table")["certain"], "HANDLERS[\"x\"] 寫死了鍵：確定"
+    assert not _route(fixed, "main.py::on_table")["certain"], "寫死鍵也只是縮小候選範圍"
 
 
 def test_utf16_bom_is_decoded_and_bad_bytes_are_listed_not_silent(tmp_path):
@@ -775,12 +770,13 @@ def test_utf16_bom_is_decoded_and_bad_bytes_are_listed_not_silent(tmp_path):
     assert report["stats"]["empty_files"] == ["Top.cs"] and "有定義卻解析出零函式" in rp.render(report, 3)
 
 
-def test_compare_flags_a_file_that_drops_to_zero_functions(tmp_path):
+def test_compare_marks_every_row_through_a_failed_file_undecidable(tmp_path):
     old = _write(tmp_path / "old", PY_STRAIGHT)
     new = _write(tmp_path / "new", PY_STRAIGHT)
-    (new / "core.py").write_bytes(PY_CORE.encode("utf-16-le"))
+    (new / "core.py").write_bytes(PY_CORE.replace("total = 0", "total = 'caf\xe9'").encode("latin-1"))
     res = rp.run_compare(new, str(old), None, "app.py", None)
     assert res["emptied_files"] == ["core.py"] and res["coverage_drop"] is True
+    assert _row(res, "core.py::work")["status"] == "undecidable", "落點所在檔解析失敗：那一列不可判定，不是消失"
 
 
 def test_report_and_json_carry_the_caveats_that_apply(tmp_path):
@@ -1064,6 +1060,93 @@ def test_normal_code_is_not_flagged_default_same_name_and_args_spread(tmp_path):
     assert [(e.dst, e.guess) for e in g.edges["app.py::run"]] == [("app.py::work", "")]
     assert [(e.dst, e.guess) for e in g.edges["app.py::call"]] == [("app.py::alternate", "")]
     assert g.unres["app.py::run"] == 0 and g.unres["app.py::call"] == 0
+
+
+# ─── 退件 005：確定只來自白名單 ──────────────────────────────────────────────
+
+EX_A = {"app.py": ("class Runner:\n    def run(self, cb):\n        for n in range(2):\n            cb(n)\n\n\n"
+                   "class Api:\n    def start(self, worker: Runner):\n        return worker.run(done)\n\n\n"
+                   "def done(n):\n    x = n + 1\n    x *= 2\n    return x\n\n\n"
+                   "def main():\n    a = Api()\n    w = Runner()\n    a.start(w)\n")}
+EX_B = {
+    "app.py": "from hop import a\n\n\ndef main():\n    return a(2)\n",
+    "hop.py": ("from end import done\n\n\ndef c(n):\n    return done(n)\n\n\ndef b(n):\n    return c(n)\n\n\n"
+               "def a(n):\n    next_fn = b\n    return next_fn(n)\n"),
+    "end.py": "def done(n):\n    for i in range(n):\n        n += i\n    return n\n",
+}
+
+
+def _numbers(r: dict) -> tuple:
+    return r["file_jumps"], r["handoffs"], r["turns"], r["depth"]
+
+
+def test_whitelist_examples_stay_certain_with_the_same_numbers(tmp_path):
+    a = _route(rp.analyze(_write(tmp_path / "a", EX_A), "app.py::main"), "app.py::done")
+    assert a["certain"] and _numbers(a) == (0, 2, 2, 3), "例 A：委派＋單一來源 callback"
+    b = _route(rp.analyze(_write(tmp_path / "b", EX_B), "app.py::main"), "end.py::done")
+    assert b["certain"] and _numbers(b) == (2, 3, 4, 4), "例 B：簡單區域別名"
+    g = rp.build_graph(_write(tmp_path / "c", {"Program.cs": CS_INHERIT}))
+    assert [(e.dst, e.guess) for e in g.edges["Program.cs::Program.Main"] if "Work" in e.dst] == [("Program.cs::Base.Work", "")]
+
+
+def test_module_alias_overwritten_by_a_factory_is_not_certain(tmp_path):
+    hop = EX_B["hop.py"].replace("def a(n):\n    next_fn = b\n    return next_fn(n)\n",
+                                 "def a(n):\n    return NEXT(n)\n\n\ndef pick():\n    return b\n\n\nNEXT = done\nNEXT = pick()\n")
+    old = _write(tmp_path / "old", EX_B)
+    new = _write(tmp_path / "new", {**EX_B, "hop.py": hop})
+    g = rp.build_graph(new)
+    assert not [e for e in g.edges["hop.py::a"] if not e.guess], "NEXT 被工廠覆寫：不能沿用 NEXT = done 當確定"
+    assert g.unres["hop.py::a"] == 1
+    res = rp.run_compare(new, str(old), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["coverage_drop"] is True
+
+
+def test_unsubscribed_event_is_not_certain(tmp_path):
+    cs = ("using System;\nclass Bus {\n    public event Action Fired;\n    public void Check() {\n        var bus = new Bus();\n"
+          "        bus.Fired += Work;\n        bus.Fired -= Work;\n        bus.Fired?.Invoke();\n    }\n"
+          "    void Work() { int n = 1; n += 1; n *= 2; }\n}\n")
+    g = rp.build_graph(_write(tmp_path, {"Bus.cs": cs}))
+    assert all(e.guess for e in g.edges["Bus.cs::Bus.Check"] if e.kind == "event")
+
+
+def test_entry_single_to_overload_aligns_by_signature(tmp_path):
+    a_fn = "    static void A() { int a = 1; a += 1; a *= 2; }\n"
+    one = "class P {\n    static void Run(int n) { A(); n += 1; n *= 2; }\n" + a_fn + "}\n"
+    two = ("class P {\n    static void Run(int n) { A(); n += 1; n *= 2; }\n"
+           '    static void Run(string s) { A(); s += "x"; s += "y"; }\n' + a_fn + "}\n")
+    res = rp.run_compare(_write(tmp_path / "two", {"P.cs": two}), str(_write(tmp_path / "one", {"P.cs": one})),
+                         None, "P.Run", None)
+    assert (res["entries"], res["counts"]["same"], res["counts"]["new"], res["counts"]["gone"]) == (2, 1, 1, 0)
+    back = rp.run_compare(_write(tmp_path / "one2", {"P.cs": one}), str(tmp_path / "two"), None, "P.Run", None)
+    assert (back["counts"]["same"], back["counts"]["gone"], back["counts"]["new"]) == (1, 1, 0)
+
+
+def test_utf16_without_bom_is_decoded_or_listed(tmp_path):
+    cs = "class P {\n    static void Main() { A(); }\n    static void A() { int a = 1; a += 1; a *= 2; }\n}\n"
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "P.cs").write_bytes(cs.encode("utf-16-le"))
+    (root / "Q.cs").write_bytes(cs.replace("P", "Q").encode("utf-16-be"))
+    (root / "Bad.cs").write_bytes(b"class B { }\x00\x00\x01\x00\x00\x02")
+    report = rp.analyze(root)
+    assert report["stats"]["file_funcs"]["P.cs"] == 2 and report["stats"]["file_funcs"]["Q.cs"] == 2
+    assert [e.split("（")[0] for e in report["stats"]["parse_errors"]] == ["Bad.cs"]
+
+
+def test_callback_without_known_callers_is_unresolved_entry(tmp_path):
+    report = rp.analyze(_write(tmp_path, {"api.py": "def run(cb):\n    cb()\n"}), "api.py::run")
+    e = report["entries"][0]
+    assert e["unresolved_reach"] == 1 and e["certain_routes"] == 0
+    assert "無法評級" in rp.render(report, 3), "沒有確定路徑時不能顯示 0 彎、順"
+    g = rp.build_graph(tmp_path)
+    assert g.hits["api.py::run"] == 0 and g.unres["api.py::run"] == 1
+
+
+def test_compare_text_carries_caveats(tmp_path):
+    old = _write(tmp_path / "old", PY_STRAIGHT)
+    new = _write(tmp_path / "new", PY_WRAPPED)
+    text = rp.render_compare(rp.run_compare(new, str(old), None, "app.py", None), 3)
+    assert "本次涉及的限制與可能誤報：" in text and "只轉傳的層" in text
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────

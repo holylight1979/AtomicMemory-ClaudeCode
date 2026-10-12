@@ -15,10 +15,9 @@
   轉手  這一步不是直接呼叫：wrapper／delegate（落到只轉傳的函式）、callback、event、inherit（繼承／介面分派）、dynamic（分派表）
   跳檔  換到別的檔；partial 類別各檔名是 `類.責任.cs` 且責任各不相同 → 標「分檔有責任軸」，不算跳檔、不算彎
   拐彎  這一步是轉手或跳檔。刻度（G11，參考）：0-1 順｜2 注意｜3 警戒｜≥4 臭掉
-確定與否：
-  看不出實例的事件、看不出實際型別的繼承、沒比對參數的多載、執行時才選的分派表、多來源 callback → 邊標「候選」。
-  每個落點先找只走確定邊的路；走不到才用含候選的路，那條路整條標成候選，彙總與比較都分開列。
-  落點裡有專案內但解析不了的呼叫 → 標「未讀到底」（數字是下限），不算進刻度分布。
+確定與否：確定只來自白名單（見 --help 末段），白名單外一律候選（有可列舉的目標）或未解（沒有）。
+  所以全確定的數字是可信的下限，含候選的數字是上限參考。每個落點先找只走確定邊的路；走不到才用含候選的路，
+  彙總、最差 N 條與比較都分開列。落點裡有專案內但解析不了的呼叫 → 標「未讀到底」（數字是下限），不算進刻度分布。
 語言解析在同目錄 reading_path_lang.py（Python 用 ast；C# 不用 Roslyn；js/ts/go/java/kt/rs 粗略模式只數跳檔）。
 """
 from __future__ import annotations
@@ -78,13 +77,25 @@ SHARED_FAN_IN = 5         # 落點被這麼多處呼叫 → 標「共用底層�
 DEEP_STRAIGHT = 6         # 深度到這麼多但拐彎 ≤1 → 提醒「同檔多層有實質內容的呼叫不算彎」
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
-LIMITS = """抓不到／可能偏差（數字是尺，判斷交給人）：
+WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候選或未解，所以全確定的數字是可信的下限，含候選的數字是上限參考：
+  1. 直接呼叫專案內唯一解析到、名字從未被重新指定的函式（含 import 進來的、模組.函式、類別.靜態方法、建構子、super()／base.）；
+     模組層名字只要在任何地方被重新指定或被指定成算出來的值，就不在白名單
+  2. 對同一函式內剛 new 出來、之後沒再指定、沒傳 ref/out、沒存到欄位的區域變數呼叫方法（確定型別分派）
+  3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、欄位型別）同樣只在沒有子類覆寫時
+  4. 簡單區域別名：同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式
+  5. callback：有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、參數沒被重新指定
+  不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
+
+LIMITS = WHITELIST + """
+
+抓不到／可能偏差（數字是尺，判斷交給人）：
   - 每個落點只取拐彎最少的一條路（G11「重找最短路」的口徑）；同一落點更繞的路不列
   - 專案內但解析不了的呼叫（區域變數裝的函式、同名方法多個、找不到的 self 方法、getattr）計入未解，
     落點標「未讀到底」；確知在專案外的（內建、外部模組、外部父類、專案沒有同名方法）不算
   - 外部函式庫、框架回呼（Unity 生命週期以外）、反射、eval、動態 import 看不到；getattr 只認分派表來的
-  - 事件只在「同一函式對同一接收者訂閱又發出」時算確定，其餘看不出實例，標候選；callback 多處各傳不同函式也標候選
+  - 事件一律候選（看不出實例、也不追訂閱與取消訂閱的先後）；callback 多處各傳不同函式、沒有已知呼叫者也標候選
   - 繼承分派只有接收者是剛 new 出來的物件才算確定型別；多載不比對參數型別，同名多個一律標候選
+  - 沒有任何確定路徑的入口標「無法評級」，不以 0 彎、順呈現
   - 區域變數被指定超過一次：不追別名、不算確定型別、不算同一實例（寧可算未解或候選）
   - callback 與函式別名只追一層傳遞：函式被當參數再往下轉傳一次就斷；工廠函式回傳的閉包看不到（計入未解）
   - 「只轉傳」靠句數判定（換區域變數名不算句）：塞進無關計算就會被當成有內容
@@ -109,6 +120,15 @@ class Edge:
     kind: str            # direct｜callback｜event｜inherit｜dynamic
     guess: str = ""      # 這條邊不確定的原因（猜的／候選）；空字串＝確定
     via: str = ""        # object：經由別的物件轉交（落點若只轉傳 → delegate）
+
+
+@dataclass
+class Binding:
+    """callback 參數的來源。refs＝[(語境函式, 函式參照)]；blind＝有看不到的來源；mixed＝混了 lambda／常數；callers＝已知呼叫處數。"""
+    refs: list
+    blind: bool
+    mixed: bool
+    callers: int
 
 
 @dataclass
@@ -158,11 +178,19 @@ def is_test(rel: str) -> bool:
 
 
 def read_source(path: Path) -> str:
-    """依 BOM 解碼 UTF-8／UTF-16 LE／BE；沒 BOM 就嚴格 UTF-8，解不開丟 UnicodeDecodeError（列進解析失敗，不靜默替換）。"""
+    """有 BOM 照 BOM（UTF-8／UTF-16 LE／BE）；沒 BOM 先看前 4KB 的 NUL 分布：奇數位置大量 NUL → UTF-16 LE、
+    偶數位置 → UTF-16 BE；否則嚴格 UTF-8。解不開、或有 NUL 卻判不出編碼 → 丟例外（列進解析失敗，不靜默替換）。"""
     data = path.read_bytes()
     boms = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16"))
-    encoding = next((enc for bom, enc in boms if data.startswith(bom)), "utf-8")
-    return data.decode(encoding)
+    encoding = next((enc for bom, enc in boms if data.startswith(bom)), "")
+    head = data[:4096]
+    odd, even = head[1::2].count(0), head[0::2].count(0)
+    if not encoding and (odd or even):
+        half = max(1, len(head) // 2)
+        encoding = "utf-16-le" if odd > half * 0.3 > even else "utf-16-be" if even > half * 0.3 > odd else ""
+        if not encoding:
+            raise ValueError("檔裡有 NUL 位元組卻判不出編碼")
+    return data.decode(encoding or "utf-8")
 
 
 # ─── 偵測器：每一種轉手各一個（反證測試會一次拿掉一個） ─────────────────────
@@ -177,23 +205,19 @@ def callback_targets(g: "Graph", bind_fid: str, param: str) -> list:
     """bind_fid 的參數 param 被當函式呼叫：找所有呼叫 bind_fid 的地方，那個位置傳進來的是哪個函式
     → [(func id, 不確定原因)]；傳進來的參照本身是猜的，原因跟著帶過來。"""
     out = []
-    for caller, ref in g.bound_refs(bind_fid, param)[0]:
+    for caller, ref in g.bound_refs(bind_fid, param).refs:
         out += [(e.dst, e.guess) for e in g.resolve(caller, ref, defer=False)]
     return out
 
 
 def event_targets(g: "Graph", f: lang.Func, c: lang.Call) -> list:
-    """訂閱了同名事件的處理函式 → [(func id, 同一實例否, 處理函式本身的不確定原因)]。
-    同一函式裡對同一個區域變數或參數訂閱又發出、且沒被重新指定，才算同一實例；
-    欄位接收者（self.bus、C# 省略 this 的 bus）中途可能被別的方法換掉，不算。"""
+    """訂閱了同名事件的處理函式 → [(func id, 處理函式本身的不確定原因)]。事件不在確定白名單：
+    看不出是哪個實例發的、也不追訂閱、取消訂閱、觸發的先後，所以連線一律是候選。"""
     out = []
-    for key, ref, owner, file, recv in g.subs:
-        if key != c.name or not g.same_side(f, file):
-            continue
-        local = c.recv in f.params or c.recv in f.locals
-        sure = local and owner == f.id and recv == c.recv and c.recv not in f.reassigned
-        ctx = g.funcs.get(owner) or g.module_ctx(file)
-        out += [(e.dst, sure, e.guess) for e in g.resolve(ctx, ref, defer=False)]
+    for key, ref, owner, file, _recv in g.subs:
+        if key == c.name and g.same_side(f, file):
+            ctx = g.funcs.get(owner) or g.module_ctx(file)
+            out += [(e.dst, e.guess) for e in g.resolve(ctx, ref, defer=False)]
     return out
 
 
@@ -355,13 +379,18 @@ class Graph:
         parts = f.qual.split(".")
         return [".".join(parts[:i]) for i in range(2 if f.cls else 1, len(parts) + 1)]
 
-    def imports_of(self, f: lang.Func) -> dict:
-        """f 看得到的 import：模組層＋外層函式＋自己的（內層蓋外層）。"""
-        merged = dict(self.modules[f.file].imports) if f.file in self.modules else {}
+    def scoped_imports(self, f: lang.Func) -> dict:
+        """f 與它外層函式自己寫的 import（內層蓋外層），不含模組層的。"""
+        merged = {}
         for scope in self.scopes(f):
             owner = self.funcs.get(f"{f.file}::{scope}")
             merged.update(owner.imports if owner else {})
         return merged
+
+    def imports_of(self, f: lang.Func) -> dict:
+        """f 看得到的 import：模組層＋外層函式＋自己的（內層蓋外層）。"""
+        base = dict(self.modules[f.file].imports) if f.file in self.modules else {}
+        return {**base, **self.scoped_imports(f)}
 
     def module_alias(self, f: lang.Func, dotted: str):
         """f 裡寫成 dotted 的接收者（w2、pkg.w2、a.b）是不是專案內的模組 → 模組檔或 None。"""
@@ -373,8 +402,8 @@ class Graph:
         full = ".".join(p for p in (modname, orig, dotted[len(key) + 1:]) if p)
         return self.find_module(full, level, f.file)
 
-    def bound_refs(self, bind_fid: str, param: str):
-        """呼叫 bind_fid 的每個地方，param 那個位置傳進來的是什麼 → ([(語境函式, 函式參照)], 看不到的來源?, 混了別種來源?)。
+    def bound_refs(self, bind_fid: str, param: str) -> "Binding":
+        """呼叫 bind_fid 的每個地方，param 那個位置傳進來的是什麼。
         具名函式 → 參照；lambda、常數 → 混了別種來源（內容在呼叫者裡）；算出來的值、被 *args／**kw 展開蓋到 → 看不到；
         沒傳 → 預設值（具名函式當參照，算出來的看不到；在定義所在的外層作用域解析）。
         Python 方法經由物件呼叫時第一個參數是 self，位置要扣掉。"""
@@ -390,7 +419,7 @@ class Graph:
             unknown = unknown or state in ("blind", "spread") or (state == "absent" and param in f.blind_defaults)
             mixed = mixed or (state == "given" and not hit)
             refs += hit if state in ("given", "absent") else []
-        return refs + (default if not callers else []), unknown, mixed
+        return Binding(refs + (default if not callers else []), unknown, mixed, len(callers))
 
     @staticmethod
     def _arg_at(call: lang.Call, pos: int, param: str) -> str:
@@ -472,13 +501,18 @@ class Graph:
             return self.resolve(f, ref, defer) if ref else []
         if c.name in f.table_vars:
             return self._r_table(f, lang.Call("table", f.table_vars[c.name]), defer)
+        if c.name in f.locals or c.name in f.reassigned:
+            return []                              # 區域變數裝的東西（遮住同名的模組函式）：看不到
         nested = next((n for s in reversed(self.scopes(f)) if (n := f"{f.file}::{s}.{c.name}") in self.funcs), None)
         if nested:
             return [Edge(nested, "direct")]       # 自己或外層函式裡定義的巢狀函式
         if f.lang == "coarse":
             return self._coarse(f, c.name)
+        if f.lang == "py" and c.name in self.scoped_imports(f):
+            src, orig = self._imported_from(f.file, self.scoped_imports(f), c.name)   # 函式裡自己 import 的名字
+            return self._py_name(src, orig, 1) if src else []
         if f.lang == "py":
-            return self._py_name(f.file, c.name, imports=self.imports_of(f))
+            return self._py_name(f.file, c.name)
         return self._r_self(f, c, defer) or self._static_using(f, c.name)   # C#：本類別的方法／事件／委派欄位，或 using static
 
     def _static_using(self, f: lang.Func, name: str) -> list:
@@ -521,8 +555,8 @@ class Graph:
         return self._ctor(cls) if cls else []
 
     def _r_emit(self, f, c, defer):
-        reason = "候選：事件只按名字配對，看不出是哪個實例"
-        return [Edge(t, "event", guess=guess or ("" if sure else reason)) for t, sure, guess in event_targets(self, f, c)]
+        reason = "候選：事件只按名字配對，看不出實例與訂閱是否還在"
+        return [Edge(t, "event", guess=guess or reason) for t, guess in event_targets(self, f, c)]
 
     def _r_invoke(self, f, c, defer):
         """C# 的 X.Invoke()／X?.Invoke()：X 是參數、別名或建構時存下的委派 → callback；否則當事件。"""
@@ -563,21 +597,33 @@ class Graph:
         src = self.find_module(modname, level, file) if orig else None
         return (src, orig) if src and src != file else (None, "")
 
-    def _py_name(self, file: str, name: str, hops: int = 0, imports: dict | None = None) -> list:
-        """Python 模組 file 裡的 name：本檔函式、本檔類別（建構）、from 匯入的函式或類別（追 re-export）。
-        imports 給的是呼叫所在函式看得到的 import；沒給就用模組層的。"""
+    def _py_name(self, file: str, name: str, hops: int = 0) -> list:
+        """Python 模組 file 的模組層名字 name：本檔函式、本檔類別（建構）、別名、from 匯入的函式或類別（追 re-export）。
+        被重新指定過的名字不在確定白名單。"""
         mod = self.modules.get(file)
         if mod is None or hops > MAX_REEXPORT:
             return []
+        return self._py_rebound(mod, name, hops) if name in mod.rebound else self._py_bound_once(mod, name, hops)
+
+    def _py_bound_once(self, mod: lang.Module, name: str, hops: int) -> list:
+        """模組層只綁定一次的名字：本檔函式、本檔類別（建構）、別名、from 匯入的函式或類別。"""
         if name in mod.defs:
             return [Edge(mod.defs[name], "direct")]
-        local_cls = next((c for c in self.classes.get(name, []) if file in c.files), None)
+        local_cls = next((c for c in self.classes.get(name, []) if mod.file in c.files), None)
         if local_cls:
             return self._ctor(local_cls)
         if name in mod.aliases:
-            return self._py_alias(file, mod.aliases[name], hops + 1)
-        src, orig = self._imported_from(file, mod.imports if imports is None else imports, name)
+            return list(flat(self._py_alias(mod.file, ref, hops + 1) for ref in mod.aliases[name]))
+        src, orig = self._imported_from(mod.file, mod.imports, name)
         return self._py_name(src, orig, hops + 1) if src else []
+
+    def _py_rebound(self, mod: lang.Module, name: str, hops: int) -> list:
+        """模組層被重新指定的名字：被指定成算出來的值（或被 global 改寫）→ 看不到（未解）；
+        都指向可列舉的函式（def、import、別名）→ 全部連上並標候選。"""
+        if name in mod.opaque:
+            return []
+        reason = f"候選：模組層名字 {name} 被重新指定，不一定是這個"
+        return [Edge(e.dst, e.kind, guess=reason) for e in self._py_bound_once(mod, name, hops)]
 
     def _py_alias(self, file: str, ref: lang.Call, hops: int) -> list:
         """模組層別名 NAME = 別的函式：同模組的名字，或匯入的專案模組成員（追的跳數與 re-export 共用上限）。"""
@@ -596,9 +642,9 @@ class Graph:
         return self._dynamic(self.module_ctx(file), mod.tables[name], key)
 
     def _dynamic(self, ctx: lang.Func, entries: list, key: str) -> list:
-        """分派表的項目：呼叫時寫死了鍵且對得上 → 只連那一項；否則執行時才選，多項就全連並標候選。"""
+        """分派表的項目：呼叫時寫死了鍵且對得上 → 只連那一項；否則全連。分派表不在確定白名單（表可能被改），一律候選。"""
         picked = [ref for k, ref in entries if key and k == key] or [ref for _, ref in entries]
-        reason = f"候選：分派表依執行時的鍵選一個（{len(picked)} 項）" if len(picked) > 1 else ""
+        reason = f"候選：分派表選出來的（{len(picked)} 項）"
         edges = []
         for ref in picked:
             edges += [Edge(e.dst, "dynamic", guess=e.guess or reason) for e in self.resolve(ctx, ref, defer=False)]
@@ -607,7 +653,7 @@ class Graph:
     def _coarse(self, f, name: str) -> list:
         cands = self.coarse.get(name, [])
         pick = [i for i in cands if self.funcs[i].file == f.file] or cands
-        return [Edge(pick[0], "direct")] if len(pick) == 1 else []
+        return [Edge(pick[0], "direct", guess="候選：粗略模式只按同名配對")] if len(pick) == 1 else []
 
     def _guess_cands(self, f, name: str) -> list:
         """接收者型別不明時可能的同名方法；內建型別本來就有的方法名不算，非測試碼不算測試檔裡的。"""
@@ -635,7 +681,8 @@ class Graph:
         kind, cls = self._recv_head(f, head)
         for seg in rest:
             cls = self.field_type(cls, seg) if cls else None
-        exact = (kind == "static" or (head in f.exact and head not in f.reassigned)) and not rest
+        constructed = head in f.exact and head not in f.reassigned and head not in f.escaped
+        exact = (kind == "static" or constructed) and not rest
         return (kind, cls, exact) if cls or kind == "external" else ("", None, False)
 
     def _recv_head(self, f: lang.Func, head: str):
@@ -686,9 +733,13 @@ class Graph:
             return self._external_cs_name(f, name)
         if name in PY_BUILTINS or self.classes.get(name) or (name == "cls" and f.params[:1] == ["cls"]):
             return True
-        alias = self.modules[f.file].aliases.get(name) if f.file in self.modules else None
-        if alias:                                  # 模組層別名指向外部模組的函式（flat = itertools.chain.from_iterable）
-            return alias.kind == "attr" and self.recv_type(self.module_ctx(f.file), alias.recv)[0] == "external"
+        mod = self.modules.get(f.file)
+        if mod and name in mod.opaque:
+            return False                           # 模組層名字被指定成算出來的值：看不到
+        aliases = mod.aliases.get(name, []) if mod else []
+        if aliases:                                # 模組層別名指向外部模組的函式（flat = itertools.chain.from_iterable）
+            ctx = self.module_ctx(f.file)
+            return all(a.kind == "attr" and self.recv_type(ctx, a.recv)[0] == "external" for a in aliases)
         return self._py_external(f.file, self.imports_of(f), name)
 
     def _external_cs_name(self, f: lang.Func, name: str) -> bool:
@@ -733,28 +784,31 @@ class Graph:
                 waiting = len(self.pending)
                 edges = self.resolve(f, c)
                 self._add_edges(f.id, edges, c)
-                linked = bool(edges) or len(self.pending) > waiting
-                self.hits[f.id] += linked
-                self.unres[f.id] += not linked and not self.is_external(f, c)
+                deferred = len(self.pending) > waiting      # callback：等下面解完才知道算連線還是未解
+                self.hits[f.id] += bool(edges)
+                self.unres[f.id] += not edges and not deferred and not self.is_external(f, c)
         for src, bind, param, shaky in self.pending:
             found = {}
             for dst, guess in callback_targets(self, bind, param):
                 found[dst] = guess if dst not in found else (found[dst] and guess)   # 有一處確定就算確定
-            refs, blind, mixed = self.bound_refs(bind, param)
-            dead = [(c, r) for c, r in refs if not self.resolve(c, r, defer=False)]     # 傳了具名函式卻連不到
-            unknown = blind or any(not self.is_external(c, r) for c, r in dead)
-            mixed = mixed or len(dead) > 0                                            # 有處傳外部函式（或看不到的）
-            reason = self._callback_reason(param, len(found), shaky, unknown, mixed)
+            b = self.bound_refs(bind, param)
+            dead = [(c, r) for c, r in b.refs if not self.resolve(c, r, defer=False)]   # 傳了具名函式卻連不到
+            unknown = b.blind or any(not self.is_external(c, r) for c, r in dead)
+            reason = self._callback_reason(param, len(found), shaky, unknown, b.mixed or bool(dead), b.callers)
             self._add_edges(src, [Edge(t, "callback", guess=g or reason) for t, g in found.items()], None)
-            self.unres[src] += unknown or (not found and bool(refs))
+            self.hits[src] += bool(found)
+            self.unres[src] += unknown or not (found or dead or b.mixed)   # 沒有任何來源證據（沒呼叫者也沒預設值）也算未解
 
     @staticmethod
-    def _callback_reason(param: str, targets: int, shaky: bool, unknown: bool, mixed: bool) -> str:
-        """callback 邊的不確定原因：看不到的來源 > 參數被改指 > 混了 lambda／外部函式 > 多個目標；都沒有＝確定。"""
+    def _callback_reason(param: str, targets: int, shaky: bool, unknown: bool, mixed: bool, callers: int) -> str:
+        """callback 邊的不確定原因：看不到的來源 > 參數被改指 > 沒有已知呼叫者 > 混了 lambda／外部函式 > 多個目標；
+        都沒有＝確定（白名單第 5 條）。"""
         if unknown:
             return f"候選：有呼叫處傳進看不到的函式給 {param}，這只是看得到的那些"
         if shaky:
             return f"候選：參數 {param} 在函式裡被重新指定"
+        if not callers:
+            return f"候選：{param} 沒有已知呼叫者，只看到預設值"
         if mixed:
             return f"候選：也有呼叫處傳 lambda 或外部函式進 {param}"
         return f"候選：{targets} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if targets > 1 else ""
@@ -896,7 +950,7 @@ def entry_summary(g: Graph, eid: str, routes: list, unresolved_funcs: list) -> d
     routes.sort(key=worst_first)
     sure = [r for r in routes if r["certain"]]
     grades = Counter(r["grade"] for r in sure if not r["incomplete"])
-    return {"entry": eid, "landings": len(routes),
+    return {"entry": eid, "sig": g.signature(eid), "landings": len(routes), "certain_routes": len(sure),
             "max_turns": max((r["turns"] for r in sure), default=0),
             "max_turns_candidate": max((r["turns"] for r in routes if not r["certain"]), default=0),
             "max_file_jumps": max((r["file_jumps"] for r in sure), default=0),
@@ -994,42 +1048,53 @@ STATUS_LABEL = {"worse": "變差", "undecidable": "不可判定", "new": "新增
 
 
 def compare(before: dict, after: dict) -> dict:
-    """同一入口、同一落點（檔::函式）比拐彎、跳檔、轉手。全確定與含候選的路分開數；
-    入口可達範圍內的未解呼叫變多、或冒出新的未解函式 → 那個入口的變化標「不可判定」（可能是看不到了，不是變好）。"""
-    b_entries = {e["entry"]: e for e in before["entries"]}
-    a_entries = {e["entry"]: e for e in after["entries"]}
-    undecidable = {eid for eid, a in a_entries.items() if eid in b_entries and _coverage_worse(b_entries[eid], a)}
+    """同一入口、同一落點比拐彎、跳檔、轉手；入口與落點都用「名稱＋完整簽章」對齊（C# 單一 ↔ 多載轉換也對得上）。
+    全確定與含候選的路分開數。下列情況那一列標「不可判定」（可能是看不到了，不是變好）：
+    入口可達範圍內的未解呼叫變多或冒出新的未解函式；路徑經過的檔在任一版解析失敗或從有函式變零函式。"""
+    b_entries = {compare_key(e["entry"], e["sig"]): e for e in before["entries"]}
+    a_entries = {compare_key(e["entry"], e["sig"]): e for e in after["entries"]}
+    undecidable = {k for k, a in a_entries.items() if k in b_entries and _coverage_worse(b_entries[k], a)}
+    sb, sa = before["stats"], after["stats"]
+    broken = _broken_files(sb["file_funcs"], sa["file_funcs"])
     rows = []
-    for eid in sorted(set(b_entries) | set(a_entries)):
-        b = {compare_key(r): r for r in b_entries.get(eid, {}).get("routes", [])}
-        a = {compare_key(r): r for r in a_entries.get(eid, {}).get("routes", [])}
-        rows += [_diff_row(eid, b.get(key), a.get(key), eid in undecidable) for key in sorted(set(b) | set(a))]
+    for key in sorted(set(b_entries) | set(a_entries)):
+        eb, ea = b_entries.get(key, {}), a_entries.get(key, {})
+        b = {compare_key(r["landing"], r["sig"]): r for r in eb.get("routes", [])}
+        a = {compare_key(r["landing"], r["sig"]): r for r in ea.get("routes", [])}
+        label = (ea or eb)["entry"]
+        rows += [_diff_row(label, b.get(k), a.get(k), key in undecidable, broken) for k in sorted(set(b) | set(a))]
     rows.sort(key=lambda r: (not r["certain"], STATUS_ORDER.index(r["status"]), r["entry"], r["landing"]))
     sure = Counter(r["status"] for r in rows if r["certain"])
     maybe = Counter(r["status"] for r in rows if not r["certain"])
-    sb, sa = before["stats"], after["stats"]
-    emptied = sorted(f for f, n in sb["file_funcs"].items() if n > 0 and sa["file_funcs"].get(f, 1) <= 0)
-    coverage_drop = bool(len(sa["parse_errors"]) > len(sb["parse_errors"]) or emptied or undecidable
+    coverage_drop = bool(len(sa["parse_errors"]) > len(sb["parse_errors"]) or broken or undecidable
                          or sa["unresolved_ratio"] > sb["unresolved_ratio"] + COVERAGE_DROP)
     return {"entries": len(set(b_entries) | set(a_entries)), "rows": rows,
             "counts": {k: sure.get(k, 0) for k in STATUS_ORDER},
             "counts_candidate": {k: maybe.get(k, 0) for k in STATUS_ORDER},
             "max_turns_before": max((e["max_turns"] for e in before["entries"]), default=0),
             "max_turns_after": max((e["max_turns"] for e in after["entries"]), default=0),
-            "undecidable_entries": sorted(undecidable), "emptied_files": emptied,
-            "stats_before": sb, "stats_after": sa, "coverage_drop": coverage_drop}
+            "undecidable_entries": sorted((a_entries.get(k) or b_entries[k])["entry"] for k in undecidable),
+            "emptied_files": sorted(broken), "stats_before": sb, "stats_after": sa, "coverage_drop": coverage_drop}
+
+
+def _broken_files(before: dict, after: dict) -> set:
+    """任一版解析失敗（-1），或一版有函式、另一版變零函式的檔：涉及它的比較列都不可判定。"""
+    files = set(before) | set(after)
+    failed = {f for f in files if -1 in (before.get(f), after.get(f))}
+    emptied = {f for f in files if {before.get(f, 0) > 0, after.get(f, 0) > 0} == {True, False} and f in before and f in after}
+    return failed | emptied
 
 
 def _coverage_worse(b: dict, a: dict) -> bool:
     return a["unresolved_reach"] > b["unresolved_reach"] or bool(set(a["unresolved_funcs"]) - set(b["unresolved_funcs"]))
 
 
-def compare_key(r: dict) -> str:
-    """落點在前後比較時的對齊鍵：C# 用「檔::類.方法(參數型別)」，多載刪到剩一個（id 變回裸名）也對得上同一個方法。"""
-    return r["landing"] if r["sig"] is None else f"{r['landing'].split('(')[0]}({r['sig']})"
+def compare_key(ident: str, sig: str | None) -> str:
+    """入口或落點在前後比較時的對齊鍵：C# 用「檔::類.方法(完整參數型別)」，單一方法與多載互轉、重排都對得上同一個方法。"""
+    return ident if sig is None else f"{ident.split('(')[0]}({sig})"
 
 
-def _diff_row(entry: str, b: dict | None, a: dict | None, undecidable: bool) -> dict:
+def _diff_row(entry: str, b: dict | None, a: dict | None, undecidable: bool, broken: set) -> dict:
     landing = (a or b)["landing"]
     key = ("turns", "file_jumps", "handoffs")
     if b is None or a is None:
@@ -1037,7 +1102,8 @@ def _diff_row(entry: str, b: dict | None, a: dict | None, undecidable: bool) -> 
     else:
         vb, va = tuple(b[k] for k in key), tuple(a[k] for k in key)
         status = "same" if va == vb else ("better" if va < vb else "worse")
-    status = "undecidable" if undecidable and status != "same" else status
+    touched = {s["func"].split("::")[0] for s in flat(r["steps"] for r in (b, a) if r)}
+    status = "undecidable" if (undecidable or touched & broken) and status != "same" else status
     certain = all(r["certain"] for r in (b, a) if r)
     return {"entry": entry, "landing": landing, "status": status, "certain": certain, "before": b, "after": a}
 
@@ -1048,7 +1114,8 @@ def run_compare(root: Path, before: str, after: str | None, entry: str | None, t
         a_root = materialize(after, root, Path(tmp), "after") if after else root
         b_rep, a_rep = analyze(b_root, entry, to), analyze(a_root, entry, to)
     res = compare(b_rep, a_rep)
-    res.update(before_label=before, after_label=after or "目前內容", root=str(root), caveats=a_rep["caveats"])
+    res.update(before_label=before, after_label=after or "目前內容", root=str(root),
+               caveats=list(dict.fromkeys(b_rep["caveats"] + a_rep["caveats"])))
     return res
 
 
@@ -1073,6 +1140,10 @@ def route_lines(r: dict) -> list:
     return lines
 
 
+def caveat_lines(caveats: list) -> list:
+    return ["本次涉及的限制與可能誤報：", *(f"  - {c}" for c in caveats)] if caveats else []
+
+
 def render(report: dict, top: int) -> str:
     st = report["stats"]
     lines = [f"閱讀路徑｜{report['root']}｜Python {st['files']['py']}・C# {st['files']['cs']}・粗略 {st['files']['coarse']} 檔"
@@ -1086,19 +1157,20 @@ def render(report: dict, top: int) -> str:
         lines.append(f"⚠ 有定義卻解析出零函式 {len(st['empty_files'])} 檔：" + "、".join(st["empty_files"][:5]))
     lines += [f"分檔有責任軸（依檔名推測）：{name}（{'・'.join(axes)}），這些檔之間換檔不算彎，另計 axis_jumps"
               for name, axes in st["axis_classes"].items()]
-    if report["caveats"]:
-        lines.append("本次涉及的限制與可能誤報：")
-        lines += [f"  - {c}" for c in report["caveats"]]
+    lines += caveat_lines(report["caveats"])
     entries = report["entries"]
-    lines.append(f"入口 {len(entries)} 個（最差在前；刻度分布只算全確定且讀到底的路）：")
+    routes = sorted(flat(e["routes"] for e in entries), key=worst_first)
+    lines.append(f"入口 {len(entries)} 個（最差在前）｜落點 {len(routes)} 條，其中全確定 {sum(r['certain'] for r in routes)}"
+                 "：全確定的數字是可信下限，含候選的是上限參考；刻度分布只算全確定且讀到底的路")
     for e in entries[:ENTRY_LIST_LIMIT]:
         dist = "・".join(f"{label} {n}" for label, n in reversed(e["grades"].items()))
-        lines.append(f"  [{grade(e['max_turns'])}] {e['entry']}  落點 {e['landings']}｜最多拐彎 {e['max_turns']}"
+        rating = grade(e["max_turns"]) if e["certain_routes"] else "無法評級：沒有全確定的路"
+        lines.append(f"  [{rating}] {e['entry']}  落點 {e['landings']}（全確定 {e['certain_routes']}）｜最多拐彎 {e['max_turns']}"
                      f"｜最多跳檔 {e['max_file_jumps']}｜最多轉手 {e['max_handoffs']}｜{dist}"
-                     f"｜含候選 {e['candidate']}（最多拐彎 {e['max_turns_candidate']}）｜未讀到底 {e['incomplete']}")
+                     f"｜含候選 {e['candidate']}（最多拐彎 {e['max_turns_candidate']}）｜未讀到底 {e['incomplete']}"
+                     f"｜可達範圍內未解 {e['unresolved_reach']}")
     if len(entries) > ENTRY_LIST_LIMIT:
         lines.append(f"  …另 {len(entries) - ENTRY_LIST_LIMIT} 個入口（--json 看全部）")
-    routes = sorted(flat(e["routes"] for e in entries), key=worst_first)
     for title, group in (("全確定", [r for r in routes if r["certain"]]), ("含候選", [r for r in routes if not r["certain"]])):
         lines.append(f"最差 {min(top, len(group))} 條路徑（{title}）：")
         lines += list(flat(route_lines(r) for r in group[:top]))
@@ -1116,7 +1188,8 @@ def render_compare(res: dict, top: int) -> str:
     if res["coverage_drop"]:
         lines.append("⚠ after 的解析涵蓋變差：「消失」「變好」可能是看不到了，不是程式變好")
     lines += [f"  不可判定的入口（可達範圍內解析不了的呼叫變多或換了地方）：{e}" for e in res["undecidable_entries"]]
-    lines += [f"  從有函式變成零函式或解析失敗：{f}" for f in res["emptied_files"]]
+    lines += [f"  解析失敗或有函式↔零函式（經過它的列都不可判定）：{f}" for f in res["emptied_files"]]
+    lines += caveat_lines(res["caveats"])
     shown = 0
     for row in [r for r in res["rows"] if r["status"] != "same"]:
         b, a = row["before"] or {}, row["after"] or {}
@@ -1134,7 +1207,7 @@ def done_line(report: dict) -> str:
     entries = report["entries"]
     routes = list(flat(e["routes"] for e in entries))
     grades = Counter(r["grade"] for r in routes if r["certain"] and not r["incomplete"])
-    return (f"READING_PATH DONE entries={len(entries)} landings={len(routes)}"
+    return (f"READING_PATH DONE entries={len(entries)} landings={len(routes)} certain={sum(r['certain'] for r in routes)}"
             f" max_turns={max((e['max_turns'] for e in entries), default=0)}"
             f" max_turns_candidate={max((e['max_turns_candidate'] for e in entries), default=0)}"
             f" max_file_jumps={max((e['max_file_jumps'] for e in entries), default=0)}"

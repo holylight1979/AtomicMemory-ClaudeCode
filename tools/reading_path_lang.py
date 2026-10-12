@@ -69,6 +69,7 @@ class Func:
     aliases: dict = field(default_factory=dict)       # 區域變數 → 函式參照（fn = b、fn = self.run）
     inline: set = field(default_factory=set)          # 就地定義的 lambda／C# 區域函式名：呼叫它不算未解（內容就在這裡）
     reassigned: set = field(default_factory=set)      # 被指定超過一次（參數再被指定也算）：別名、確定型別、確定實例都不算
+    escaped: set = field(default_factory=set)         # 被存進欄位的區域變數（self.x = obj）：不算確定型別
     locals: set = field(default_factory=set)          # 本體裡被指定過的區域變數名：拿它當函式呼叫又追不到 → 未解
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
@@ -98,8 +99,15 @@ class Module:
     defs: dict = field(default_factory=dict)      # 模組層函式名 → func id
     imports: dict = field(default_factory=dict)   # 本地名 → (模組名, 相對層級, from 匯入的原名或 "")
     tables: dict = field(default_factory=dict)    # 分派表名 → [(鍵, Call 參照)]
-    aliases: dict = field(default_factory=dict)   # 模組層函式別名 → Call 參照（flat = itertools.chain.from_iterable）
+    aliases: dict = field(default_factory=dict)   # 模組層函式別名 → [Call 參照]（flat = itertools.chain.from_iterable）
+    bindings: Counter = field(default_factory=Counter)   # 模組層名字被綁定幾次（def、class、import、指定）
+    opaque: set = field(default_factory=set)      # 模組層名字被指定成算出來的值，或被函式用 global 改寫：看不到是什麼
     static_usings: list = field(default_factory=list)   # C# using static 的型別名
+
+    @property
+    def rebound(self) -> set:
+        """模組層被重新指定過的名字（綁定超過一次，或被函式 global 改寫）：不在確定白名單。"""
+        return {name for name, k in self.bindings.items() if k > 1} | self.opaque
     subs: list = field(default_factory=list)      # (事件鍵, Call 參照, 訂閱所在 func id 或 "", 檔, 訂閱的接收者)
 
 
@@ -124,6 +132,8 @@ def parse_python(rel: str, text: str) -> Module:
     tree = ast.parse(text)
     mod = Module(rel, "py")
     for node in tree.body:
+        if isinstance(node, (*_DEF_NODES, ast.ClassDef)):
+            mod.bindings[node.name] += 1
         if isinstance(node, _DEF_NODES):
             _py_func(mod, node, "", None)
         elif isinstance(node, ast.ClassDef):
@@ -158,24 +168,39 @@ def _py_main_block(mod: Module, node: ast.If) -> None:
     fid = f"{mod.file}::<main>"
     f = Func(fid, mod.file, "<main>", "<main>", "", "py", node.lineno, entry=True)
     nodes = _py_scan(mod.imports, node.body)
+    _py_count_bindings(mod, nodes)
     _py_locals(f, None, nodes)
     f.calls = _py_calls(mod, nodes, fid)
     mod.funcs.append(f)
 
 
+def _py_count_bindings(mod: Module, nodes: list) -> None:
+    """模組層程式碼裡的綁定：import 的名字、被指定的名字都算一次（__main__ 區塊裡的指定也是模組層）。"""
+    for node in nodes:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            mod.bindings.update((a.asname or a.name).split(".")[0] for a in node.names)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            mod.bindings[node.id] += 1
+
+
 def _py_module_stmt(mod: Module, node: ast.stmt) -> None:
-    """模組層其他敘述：收 import、分派表（NAME = {k: func}）、函式別名（NAME = mod.func）與訂閱（bus.on("k", f)）。"""
-    _py_calls(mod, _py_scan(mod.imports, [node]), "")
+    """模組層其他敘述：收 import、分派表（NAME = {k: func}）、函式別名（NAME = mod.func）與訂閱（bus.on("k", f)）。
+    名字被指定成算出來的值（NAME = pick()）→ 記成看不到，之後呼叫它不能沿用先前的別名。"""
+    nodes = _py_scan(mod.imports, [node])
+    _py_count_bindings(mod, nodes)
+    _py_calls(mod, nodes, "")
     target = node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else getattr(node, "target", None)
     value = getattr(node, "value", None)
-    if not isinstance(target, ast.Name):
+    if not isinstance(target, ast.Name) or value is None:
         return
     refs = _py_table_refs(value)
     alias = _py_ref(value) if isinstance(value, (ast.Name, ast.Attribute)) else None
     if refs:
         mod.tables[target.id] = refs
     if alias:
-        mod.aliases[target.id] = alias
+        mod.aliases.setdefault(target.id, []).append(alias)
+    if not (refs or alias or isinstance(value, (ast.Constant, ast.Lambda))):
+        mod.opaque.add(target.id)
 
 
 def _py_table_refs(value) -> list:
@@ -226,6 +251,8 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     f.abstract = _py_abstract(node, body)
     _py_locals(f, cls, nodes)
     f.calls = _py_calls(mod, nodes, fid)
+    declared = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Global)))
+    mod.opaque |= declared & f.locals                  # 函式用 global 改寫模組層名字：之後是什麼看不到
     mod.funcs.append(f)
     if cls:
         cls.methods.setdefault(node.name, []).append(fid)
@@ -396,6 +423,7 @@ def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
     stores = Counter(n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store))
     f.locals = set(stores)
     stores.update(f.params)
+    stores.update(n.name for n in nodes if isinstance(n, _DEF_NODES))   # 巢狀 def 也是一次綁定
     f.reassigned = {name for name, k in stores.items() if k > 1}
 
 
@@ -416,6 +444,8 @@ def _py_bind(f: Func, cls: Cls | None, target, value) -> None:
         if isinstance(value, ast.Lambda):
             f.inline.add(target.id)
         return
+    if isinstance(target, (ast.Attribute, ast.Subscript)) and isinstance(value, ast.Name):
+        f.escaped.add(value.id)                    # 區域變數被存進欄位或容器
     if not (cls and isinstance(target, ast.Attribute) and _py_recv(target.value) == "self"):
         return
     if ctor:
@@ -627,6 +657,8 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
             cls.fields.setdefault(m["lhs"], m["new"])
         elif m["rhs"] in f.params:
             cls.stored[m["lhs"]] = (f.id, m["rhs"])
+        if m["rhs"] in f.locals and m["lhs"] not in f.locals:
+            f.escaped.add(m["rhs"])                # 區域變數被存進欄位
     for m in [*_CS_SUB.finditer(body), *_CS_LISTEN.finditer(body)]:
         ref = _cs_ref(m["rhs"])   # 訂閱的是具名方法才收；+= lambda 的內容就寫在這裡
         recv, _, key = m["lhs"].rpartition(".")
