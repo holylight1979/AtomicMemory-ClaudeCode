@@ -12,7 +12,7 @@ import sys
 from typing import Any, Dict
 
 from wg_core import (
-    CLAUDE_DIR, EPISODIC_DIR, WORKFLOW_DIR,
+    CLAUDE_DIR, CODE_DIR, EPISODIC_DIR, WORKFLOW_DIR,
     _ensure_state, _now_iso, write_state,
     _atom_debug_error,
     discover_all_project_memory_dirs, get_project_memory_dir, resolve_staging_dir,
@@ -302,7 +302,7 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     # 兩個子行程各可吃 10s；其輸出本就丟棄、結果不影響收尾流程，detach 即可。
     try:
         import subprocess as _sp
-        _hc_script = str(CLAUDE_DIR / "tools" / "atom-health-check.py")
+        _hc_script = str(CODE_DIR / "tools" / "atom-health-check.py")
         _hc_kwargs: Dict[str, Any] = {
             "stdin": _sp.DEVNULL, "stdout": _sp.DEVNULL, "stderr": _sp.DEVNULL,
         }

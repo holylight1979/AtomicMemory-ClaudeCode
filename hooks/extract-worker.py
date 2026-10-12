@@ -35,6 +35,7 @@ from wg_core import (
     resolve_failures_dir,
     find_project_root,
     CLAUDE_DIR,
+    CODE_DIR,
     MEMORY_DIR,
 )
 from wg_extraction import classify_extracted_item
@@ -958,7 +959,7 @@ def _failure_catalog_sync(failures_dir: Path, config: dict) -> None:
     要等下次 MCP 寫入或人工跑 sync-memory-index 才更新（一條龍中斷）。同步跑、
     收 stderr、失敗只 debug log（fail-open）。專案層 failures 走 --memory-dir。"""
     try:
-        script = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+        script = CODE_DIR / "tools" / "sync-memory-index.py"   # 程式碼；--memory-dir（資料）仍由 CLAUDE_DIR 判
         if not script.exists():
             return
         argv = [sys.executable, str(script), "--write"]

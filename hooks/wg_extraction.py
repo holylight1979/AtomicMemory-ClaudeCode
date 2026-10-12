@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, WORKFLOW_DIR,
+    CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR,
     _now_iso, _atom_debug_log, _atom_debug_error,
 )
 from wg_atoms import _kw_match
@@ -92,7 +92,7 @@ def _gui_python() -> str:
 def _spawn_extract_worker(ctx_dict: dict) -> int:
     """Spawn extract-worker.py as detached subprocess. Returns PID or 0."""
     import subprocess as _sp
-    worker_path = CLAUDE_DIR / "hooks" / "extract-worker.py"
+    worker_path = CODE_DIR / "hooks" / "extract-worker.py"
     if not worker_path.exists():
         return 0
     try:

@@ -48,7 +48,7 @@ except ImportError:  # 以 ~/.claude 為 sys.path 根時（tools／verify）：a
     from lib.atom_index_json import load_atom_index_json
     from lib import refix_churn as rc
 
-CLAUDE_DIR = Path(__file__).resolve().parents[1]
+CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根（hooks/ 在這裡）；使用者資料根看 wg_core.CLAUDE_DIR
 DEFAULT_IGNORE = [".git", ".svn", "node_modules", "obj", "bin", "Library", "Temp", "__pycache__", ".claude", "_AIDocs"]
 DEFAULT_LAYER = "單層"
 DEFAULT_LV1 = "設計通則"
@@ -88,8 +88,8 @@ def detect_layer(root: Path) -> Tuple[str, Path]:
     否則＝專案層」。專案層與解析不到專案根（none）都當專案，根＝使用者給的 --cwd。"""
     root = Path(root)
     try:
-        if str(CLAUDE_DIR / "hooks") not in sys.path:
-            sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+        if str(CODE_DIR / "hooks") not in sys.path:
+            sys.path.insert(0, str(CODE_DIR / "hooks"))
         import wg_core  # noqa: WPS433
         if is_root_worktree(root, Path(wg_core.CLAUDE_DIR)):
             return LAYER_ROOT, root
@@ -118,8 +118,8 @@ ROOT_WT_WRITE_REFUSED = "根層 worktree 不寫卡：write_atom 會寫進 live �
 def _live_claude_dir() -> Path:
     """live 根層（使用者資料所在）：wg_core.CLAUDE_DIR（吃 WG_CLAUDE_DIR）；wg_core 載不到退 Path.home()/.claude。"""
     try:
-        if str(CLAUDE_DIR / "hooks") not in sys.path:
-            sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+        if str(CODE_DIR / "hooks") not in sys.path:
+            sys.path.insert(0, str(CODE_DIR / "hooks"))
         import wg_core  # noqa: WPS433
         return Path(wg_core.CLAUDE_DIR)
     except Exception as e:  # lib 不硬依賴 hooks；退家目錄但要說一聲

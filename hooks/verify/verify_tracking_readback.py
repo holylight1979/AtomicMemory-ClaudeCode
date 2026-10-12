@@ -68,6 +68,31 @@ def test_tracking_slug_subdir_maps_to_table_root_and_edge_cases(world, capsys):
         assert wh.tracking_slug(str(live)) == wh.tracking_slug(str(live / "hooks"))
 
 
+def _git_worktree_of(repo: Path, wt: Path, name: str) -> None:
+    """把 wt 接成 repo 的 git worktree 結構（repo/.git/worktrees/<name>/＋wt/.git 檔指回去），表複製一份。"""
+    (repo / ".git" / "worktrees" / name).mkdir(parents=True, exist_ok=True)
+    (wt / ".claude").mkdir(parents=True, exist_ok=True)
+    (wt / ".git").write_text(f"gitdir: {repo / '.git' / 'worktrees' / name}\n", encoding="utf-8")
+    (wt / ".claude" / "overview-map.md").write_bytes((repo / ".claude" / "overview-map.md").read_bytes())
+
+
+def test_root_worktree_ledger_follows_live_but_project_worktree_keeps_own(world, tmp_path, monkeypatch):
+    import wg_core
+    proj, _ = world
+    live = tmp_path / "live-claude"
+    (live / ".claude").mkdir(parents=True)
+    (live / ".claude" / "overview-map.md").write_text(MAP, encoding="utf-8", newline="\n")
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", live)
+    root_wt = tmp_path / "claude-wt" / "track-x"
+    _git_worktree_of(live, root_wt, "track-x")
+    (root_wt / "Game" / "Battle").mkdir(parents=True)
+    assert wh.tracking_slug(str(root_wt / "Game" / "Battle")) == wh.tracking_slug(str(live))   # 根層 worktree → live 的帳本
+    assert wh.tracking_slug(str(live)) != wh.tracking_slug(str(proj))
+    proj_wt = tmp_path / "proj-wt"
+    _git_worktree_of(proj, proj_wt, "proj-wt")
+    assert wh.tracking_slug(str(proj_wt)) not in (wh.tracking_slug(str(live)), wh.tracking_slug(str(proj)))   # 反例：一般專案的 worktree 用自己的根
+
+
 # ─── 結案 ────────────────────────────────────────────────────────────────────
 
 def test_close_line_resolves_and_hides_item(world, capsys):

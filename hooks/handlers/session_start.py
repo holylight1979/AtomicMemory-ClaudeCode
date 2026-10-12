@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, EPISODIC_DIR,
+    CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, EPISODIC_DIR,
     MEMORY_INDEX,
     _now_iso, _atom_debug_error,
     get_project_memory_dir, find_project_root,
@@ -411,7 +411,7 @@ def _followup_advisory() -> list:
         if not reg.exists():
             return []
         r = subprocess.run(
-            [sys.executable, str(CLAUDE_DIR / "tools" / "followup-check.py"),
+            [sys.executable, str(CODE_DIR / "tools" / "followup-check.py"),
              "--run", "--auto-close", "--brief", "--mark-shown"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -444,7 +444,7 @@ def _maybe_spawn_provenance_backfill(config: Dict[str, Any]) -> int:
         if not prov.get("enabled", True) or not (prov.get("backfill") or {}).get("enabled", True):
             return 0
         import importlib.util
-        tool = CLAUDE_DIR / "tools" / "atom-provenance-backfill.py"
+        tool = CODE_DIR / "tools" / "atom-provenance-backfill.py"
         if not tool.exists():
             return 0
         spec = importlib.util.spec_from_file_location("atom_provenance_backfill", tool)
@@ -1420,7 +1420,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if (config.get("vector_search", {}).get("auto_start_service", True)
             and not state.get("_skip_vector_init")):
         try:
-            starter = CLAUDE_DIR / "tools" / "memory-vector-service" / "starter.py"
+            starter = CODE_DIR / "tools" / "memory-vector-service" / "starter.py"
             _bg_kwargs: dict = {
                 "stdin": subprocess.DEVNULL,
                 "stdout": subprocess.DEVNULL,

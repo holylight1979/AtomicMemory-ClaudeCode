@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, WORKFLOW_DIR,
+    CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR,
     _now_iso, _atom_debug_error,
     write_state,
 )
@@ -258,7 +258,7 @@ def _maybe_spawn_user_extract_worker(
     if _is_lease_valid(state, "user_extract_worker_pid"):
         return False
 
-    worker_path = CLAUDE_DIR / "hooks" / "user-extract-worker.py"
+    worker_path = CODE_DIR / "hooks" / "user-extract-worker.py"
     if not worker_path.exists():
         return False
 

@@ -136,20 +136,47 @@ def test_codex_companion_spawns_this_trees_audit_script(tmp_path, monkeypatch):
         assert not _under(calls[0][1], LIVE)                                            # 反例：不得跑 live 的 audit.py
 
 
+HOOK_SID = "probe-a3-syspath"
+
+
 def _hook_inputs(proj: Path, transcript: Path) -> list:
-    base = {"session_id": "probe-a3-syspath", "cwd": str(proj), "transcript_path": str(transcript)}
+    base = {"session_id": HOOK_SID, "cwd": str(proj), "transcript_path": str(transcript)}
     return [
         {**base, "hook_event_name": "SessionStart", "source": "startup"},
-        {**base, "hook_event_name": "UserPromptSubmit", "prompt": "hello"},
-        {**base, "hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": str(proj / "a.txt")}},
+        {**base, "hook_event_name": "UserPromptSubmit", "prompt": "請幫我修 src 的 bug"},
+        {**base, "hook_event_name": "PreToolUse", "tool_name": "Edit",
+         "tool_input": {"file_path": str(proj / "src" / "a.py"), "old_string": "x", "new_string": "y"}},
         {**base, "hook_event_name": "Stop", "stop_hook_active": False},
     ]
 
 
+def _state(home: Path) -> dict:
+    p = home / ".claude" / "workflow" / f"state-{HOOK_SID}.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+
+
+def _assert_effect(event: str, stdout: str, home: Path) -> None:
+    """每個事件真的跑到該做的事（設定 enabled=False 早退、handler 沒被呼叫都會在這裡紅）。"""
+    st = _state(home)
+    if event == "SessionStart":
+        ctx = json.loads(stdout.strip().splitlines()[-1])["hookSpecificOutput"]["additionalContext"]
+        assert "[Workflow Guardian] Active." in ctx and st.get("phase") == "working", ctx[:300]
+    elif event == "UserPromptSubmit":
+        assert st.get("turn_seq") == 1 and st.get("turn_intent"), {k: st.get(k) for k in ("turn_seq", "turn_intent")}
+    elif event == "PreToolUse":                                                        # OverviewHub：沒看過部位就改 → 擋
+        out = json.loads(stdout.strip().splitlines()[-1])["hookSpecificOutput"]
+        assert out.get("permissionDecision") == "deny" and "[Guardian:OverviewHub]" in out.get("permissionDecisionReason", "")
+    elif event == "Stop":
+        assert st.get("phase") == "done", st.get("phase")
+
+
 def test_hook_process_events_load_code_only_from_this_tree(tmp_path, empty_home):
     proj = tmp_path / "proj"
-    proj.mkdir()
-    (proj / "a.txt").write_text("x\n", encoding="utf-8")
+    (proj / "src").mkdir(parents=True)
+    (proj / "src" / "a.py").write_text("x\n", encoding="utf-8")
+    (proj / ".claude").mkdir()
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8")
     transcript = tmp_path / "t.jsonl"
     transcript.write_text("", encoding="utf-8")
     guardian = TREE / "hooks" / "workflow-guardian.py"
@@ -161,6 +188,7 @@ def test_hook_process_events_load_code_only_from_this_tree(tmp_path, empty_home)
         event = payload["hook_event_name"]
         assert r.returncode == 0, f"{event} rc={r.returncode}\n{r.stderr[-3000:]}"
         assert "Traceback" not in r.stderr and "[workflow-guardian] Error in" not in r.stderr, f"{event}\n{r.stderr[-3000:]}"
+        _assert_effect(event, r.stdout, empty_home)
         files = json.loads(dump.read_text(encoding="utf-8"))
         assert not [f for f in files if _under(f, empty_home)], event                    # 沒有模組來自 tmp 家
         if _norm(str(TREE)) != _norm(str(LIVE)):
@@ -169,3 +197,20 @@ def test_hook_process_events_load_code_only_from_this_tree(tmp_path, empty_home)
         for name in ("dispatcher.py", "wg_core.py"):
             hit = [f for f in files if Path(f).name == name]
             assert hit and all(_under(f, TREE / "hooks") for f in hit), (event, name, hit)
+
+
+def test_effect_assertion_catches_disabled_guardian(tmp_path, empty_home):
+    """反例：config enabled=False 時 dispatcher 早退，_assert_effect 必須紅（不能只靠「不拋例外」就算綠）。"""
+    wf = empty_home / ".claude" / "workflow"
+    wf.mkdir(parents=True)
+    (wf / "config.json").write_text('{"enabled": false}', encoding="utf-8")
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    payload = {"session_id": HOOK_SID, "cwd": str(proj), "transcript_path": str(tmp_path / "t.jsonl"),
+               "hook_event_name": "SessionStart", "source": "startup"}
+    r = subprocess.run([sys.executable, "-X", "utf8", str(TREE / "hooks" / "workflow-guardian.py")], cwd=str(proj),
+                       env=_env(empty_home), input=json.dumps(payload), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=120, creationflags=NO_WINDOW)
+    assert r.returncode == 0
+    with pytest.raises(Exception):
+        _assert_effect("SessionStart", r.stdout, empty_home)

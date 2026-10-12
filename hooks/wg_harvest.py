@@ -381,19 +381,22 @@ _TRACK_SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 def tracking_slug(cwd: str) -> str:
     """追蹤帳本的檔名（寫入端 post_tool_use 與讀取端 wg_overview／session_start 共用）：
-    最近的部位表根 → 專案根 → cwd 本身，經 cwd_to_project_slug；非 [A-Za-z0-9_-] 的字元換成 `-`，
+    最近的部位表根 → 專案根 → cwd 本身（根是根層 worktree 時換成 live 的 CLAUDE_DIR：帳本是資料，跟 live 走），
+    經 cwd_to_project_slug；非 [A-Za-z0-9_-] 的字元換成 `-`，
     超過 64 字取前 55 字＋`-`＋8 碼雜湊。cwd 空 → `_no-cwd` 並 stderr。"""
     if not cwd:
         print("[Guardian:AEC] tracking slug: cwd 空，追蹤項寫進 _no-cwd 帳本（讀回時不會注入任何部位）", file=sys.stderr)
         return "_no-cwd"
-    from wg_core import cwd_to_project_slug, resolve_project_root
+    from wg_core import CLAUDE_DIR, cwd_to_project_slug, resolve_project_root
     root: Optional[Path] = None
     try:
-        from overview_hub import find_map
+        from overview_hub import find_map, is_root_worktree
         found = find_map(cwd)
         root = found[0] if found else None
         if root is None and resolve_project_root is not None:
             root = resolve_project_root(cwd).path
+        if root is not None and is_root_worktree(Path(root), CLAUDE_DIR):
+            root = CLAUDE_DIR                                  # 帳本是資料：根層 worktree 讀寫 live 的那本
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:AEC] tracking slug: 尋根失敗，退用 cwd：{type(e).__name__}: {e}", file=sys.stderr)
     slug = re.sub(r"[^A-Za-z0-9_-]", "-", cwd_to_project_slug(str(root or cwd)))
