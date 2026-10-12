@@ -254,6 +254,7 @@ def test_015_heredoc_body_and_echo_are_not_executed_words():
     ("echo VERIFY_CHECK PASS \\; python -X utf8 run_verify.py", "反斜線跳脫"),
     ("echo $'VERIFY_CHECK\\x20PASS'; python -X utf8 run_verify.py", "$'…'"),
     ("python -X utf8 run_verify.py >", "重導向沒有目標"),                 # shell 語法錯誤：整條都沒跑
+    ("python -X utf8 run_verify.py > > out", "重導向沒有目標"),           # codex 二審 WARN
     ("python -X utf8 run_verify.py ||| tail -5", "運算子前後缺指令"),
     ("| python -X utf8 run_verify.py", "運算子前後缺指令"),
     ("echo x && ; python -X utf8 run_verify.py", "運算子前後缺指令"),
@@ -288,14 +289,38 @@ def test_017_honest_forms_match(cmd, shell):
     assert sr.unsupported_syntax(cmd, shell) is None and sr.cmd_matches(_MEASURE, cmd, shell), cmd
 
 
-def test_017_runs_programs_only_for_general_evidence():
-    """一般證據（對帳 (a)(b)）的形狀：整條只有跑程式的指令、cd／環境設定、留結尾的過濾；讀檔與印字的指令一出現就不算。"""
+def test_017_evidence_steps_shape_for_general_evidence():
+    """一般證據（對帳 (a)(b)、根層 worktree pytest）的形狀：cd／環境設定之後全是跑程式的指令、只用 && 串、stdout 沒導走、
+    後面只准留結尾的過濾；讀檔與印字的指令、; 或 || 串（codex 二審 BLOCK 1）、把輸出導走都不算。"""
     for ok in ("pytest -q tests/test_a.py", "python tools/x.py --check", "cd C:\\p && npm test", "./gradlew test",
-               ".\\verify.ps1", "WG=1 python -m pytest -q x.py 2>&1 | tail -3", "pytest a.py && pytest b.py"):
-        assert sr.runs_programs_only(ok, "powershell" if ok.startswith(".\\") else "bash"), ok
+               ".\\verify.ps1", "WG=1 python -m pytest -q x.py 2>&1 | tail -3", "pytest a.py && pytest b.py",
+               "pytest -q x.py 2>/dev/null"):
+        assert sr.evidence_steps(ok, "powershell" if ok.startswith(".\\") else "bash"), ok
     for bad in ("cat old.log", "Get-Content x.txt", "type x.txt", "pytest -q x.py; cat old.log", "echo hi",
-                "pytest -q x.py | grep passed", "pytest -q x.py | head -5", "iex x", ""):
-        assert not sr.runs_programs_only(bad), bad
+                "pytest -q x.py | grep passed", "pytest -q x.py | head -5", "iex x", "",
+                "python verify_good.py || python verify_widget.py",
+                "python verify_widget.py > /dev/null 2>&1; python verify_good.py",
+                "python verify_widget.py > /dev/null && python verify_good.py", "pytest a.py; pytest b.py",
+                "python verify_good.py && python verify_widget.py > $null | tail -3"):
+        assert sr.evidence_steps(bad) is None, bad
+    assert [s.cmd[0] for s in sr.evidence_steps("cd C:\\p && pytest a.py && python -m pytest b.py")] == ["pytest", "pytest"]
+
+
+def test_017_changes_dir_and_outside_paths():
+    """codex 二審 BLOCK 2／3：換目錄用同一套斷詞判（`c"d"`、`builtin cd`）；指到收據根以外的路徑（../、含 .. 的絕對路徑、
+    別棵樹、~、$變數、/tmp）都抓得到，根底下的與 Windows 工具選項 `/p:x` 不算。"""
+    for cmd in ('c"d" C:/live; python -X utf8 run_verify.py', "builtin cd /c/live; x", "Set-Location C:\\x; y", "popd; x"):
+        assert sr.changes_dir(cmd, "powershell" if "Set-Location" in cmd else "bash"), cmd
+    assert not sr.changes_dir("python cdx.py --cd") and not sr.changes_dir(_MEASURE)
+    root = "C:\\proj"
+    for out in ("python -X utf8 ../live/run_verify.py", "python -X utf8 C:/proj/../live/run_verify.py",
+                "python -m pytest -q C:/live/tests/test_x.py", "pytest -q --rootdir=C:/live", "python ~/x.py",
+                "python $LIVE/run_verify.py", "python /tmp/run_verify.py", "pytest -q .."):
+        assert sr.outside_paths(out, "bash", root), out
+    for inside in (_MEASURE, "python -X utf8 c:\\proj\\run_verify.py", "python -m pytest -q -p no:cacheprovider lib/verify",
+                   "python -X utf8 /c/proj/sub/../run_verify.py", "msbuild /p:Configuration=Release /nologo"):
+        assert sr.outside_paths(inside, "bash", root) == [], inside
+    assert sr.outside_paths("python ../x.py", "bash", "") == []                         # 沒根資訊 → 不比
 
 
 def test_017_script_file_shells_are_whitelisted():
@@ -391,8 +416,6 @@ def test_017_leading_cd_root_only_for_single_absolute_cd():
     for bad in (f"cd proj && {_MEASURE}", f"cd C:\\proj; {_MEASURE}", f"cd C:\\proj && cd sub && {_MEASURE}",
                 f"cd C:\\proj || {_MEASURE}", f"cd ~/p && {_MEASURE}", f"{_MEASURE} && cd C:\\p", "cd C:\\proj"):
         assert sr.leading_cd(bad) is None, bad
-    assert sr.abs_scripts('python -X utf8 "/c/X/run_verify.py" && python -X utf8 C:\\Y\\a.py && python b.py') == [
-        "c:/x/run_verify.py", "c:/y/a.py"]                                              # 只回絕對路徑的腳本
 
 
 def test_017_all_root_table_rulers_parse_and_match_themselves():

@@ -46,8 +46,7 @@ def _load_self_receipt_module():
 
 _self_receipt = _load_self_receipt_module()
 cmd_matches, exec_words, is_whole_run = _self_receipt.cmd_matches, _self_receipt.exec_words, _self_receipt.is_whole_run
-unsupported_syntax, leading_cd, final_step = (_self_receipt.unsupported_syntax, _self_receipt.leading_cd,
-                                              _self_receipt.final_step)
+unsupported_syntax, leading_cd = _self_receipt.unsupported_syntax, _self_receipt.leading_cd
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
@@ -443,14 +442,15 @@ def _cmd_complete(receipt: Dict[str, Any]) -> bool:
 
 
 def _trusted(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """收據的指令完整、根可信才回（開頭單一絕對路徑的 `cd <根> && …` 把根換成該路徑）；不完整或含其他 cd → None。"""
-    raw = str(receipt.get("cmd") or "")
+    """收據的指令完整、根可信才回（開頭單一絕對路徑的 `cd <根> && …` 把根換成該路徑）；不完整或含其他 cd → None。
+    換目錄用同一套斷詞判（`c"d" C:/live; 量尺` 的 c"d" 就是 cd），原字串比對 has_cd 也照算。"""
+    raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
     if not _cmd_complete(receipt):
         return None
-    cd = leading_cd(raw, _shell_of(receipt))
+    cd = leading_cd(raw, sh)
     if cd:
         return {**receipt, "project_root": cd, "cwd": cd, "root_uncertain": False}
-    return None if receipt.get("root_uncertain") or has_cd(raw) else receipt
+    return None if receipt.get("root_uncertain") or has_cd(raw) or _self_receipt.changes_dir(raw, sh) else receipt
 
 
 def _arg_sentinel_res() -> List[Pattern]:
@@ -486,37 +486,35 @@ def _prints_sentinel(raw: str, shell: str) -> bool:
     """同一條指令裡有字寫了哨兵字樣（echo X_CHECK PASS、printf、Write-Output、xargs echo、`V="X_CHECK PASS"; echo $V`、
     `$s = '… DONE'`…）：哨兵只能由被執行的程式印出，指令裡寫好的不算（量尺本身那段 echo 由 cmd_matches 對上，不經這裡）。
     echo -e／printf 的跳脫先還原；變數引用（`X_CHECK$x PASS`，變數空字串時印出來就是哨兵）拿掉再找一次。"""
-    for _, words, _ in _self_receipt.split_shell(raw, shell)[0]:
-        t = _unescape(" ".join(words))
+    for ch in _self_receipt.split_shell(raw, shell)[0]:
+        t = _unescape(" ".join(ch.words))
         text = t + "\x00" + _VAR_REF_RE.sub("", t)          # \x00 不是空白，兩段之間湊不出哨兵
         if any(rx.search(text) for rx in _arg_sentinel_res()):
             return True
     return False
 
 
+def _in_tree(receipt: Dict[str, Any]) -> bool:
+    """跑程式的指令沒有指到收據根以外（量尺比對只看腳本檔名：`python ../live/run_verify.py`、`python C:\\…\\.claude\\run_verify.py`、
+    `pytest C:/live/tests` 量的都是別棵樹）。收據沒根資訊 → 不比（同 _root_ok）。"""
+    root = str(receipt.get("project_root") or receipt.get("cwd") or "")
+    return not _self_receipt.outside_paths(str(receipt.get("cmd") or ""), _shell_of(receipt), root)
+
+
 def _clean(receipt: Dict[str, Any]) -> bool:
-    """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、白名單語法、整條只有跑程式的
-    指令與 cd／環境設定／留結尾的過濾（讀檔、印字的指令印出舊 log 的哨兵不算）、指令裡沒寫哨兵字樣。"""
+    """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、白名單語法、是 evidence_steps
+    的形狀（cd／環境設定之後全是跑程式的指令、只用 && 串、stdout 沒導走、後面只准留結尾的過濾）、沒指到收據根以外、
+    指令裡沒寫哨兵字樣。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (_cmd_complete(receipt) and not unsupported_syntax(raw, sh)
-            and _self_receipt.runs_programs_only(raw, sh) and not _prints_sentinel(raw, sh))
-
-
-def _receipt_root(receipt: Dict[str, Any]) -> str:
-    return _norm_path(str(receipt.get("project_root") or receipt.get("cwd") or ""))
-
-
-def _in_root(path: str, root: str) -> bool:
-    """絕對路徑 path（已正規化）在收據根 root 底下；收據沒根資訊 → 不比（同 _root_ok）。"""
-    return not root or path == root or path.startswith(root + "/")
+    return (_cmd_complete(receipt) and not unsupported_syntax(raw, sh) and _self_receipt.evidence_steps(raw, sh) is not None
+            and _in_tree(receipt) and not _prints_sentinel(raw, sh))
 
 
 def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any]) -> bool:
-    """收據跑了表上這把尺（cmd_matches，依收據的 shell 解析；指令要完整）。量尺比對只看腳本檔名，所以用絕對路徑寫的腳本
-    要在收據根底下（從 worktree 跑 live 的 `python C:\\…\\.claude\\run_verify.py` 量的是 live，不是這棵樹）。"""
+    """收據跑了表上這把尺（cmd_matches，依收據的 shell 解析；指令要完整、沒指到收據根以外）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
     return (bool(str(measure_cmd).strip()) and _cmd_complete(receipt) and cmd_matches(str(measure_cmd), raw, sh)
-            and all(_in_root(p, _receipt_root(receipt)) for p in _self_receipt.abs_scripts(raw, sh)))
+            and _in_tree(receipt))
 
 
 def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Iterable[str] = ()) -> str:
@@ -538,9 +536,13 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         if _prints_sentinel(raw, sh):
             return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
                     "哨兵只能由被執行的程式印出。")
-        if not _self_receipt.runs_programs_only(raw, sh):
-            return (f"這條指令 {head} 裡有讀檔或印字的指令（cat、Get-Content、echo…），印出來的哨兵分不出是誰印的，"
-                    "不算證據；請單獨跑驗證程式（前面只准 cd 與環境設定）。")
+        if not _in_tree(r):
+            return (f"這條指令 {head} 指到收據根以外的路徑（"
+                    + "、".join(_self_receipt.outside_paths(raw, sh, str(r.get("project_root") or r.get("cwd") or ""))[:3])
+                    + "），量的不是這棵樹；請在專案根照表上原字串跑。")
+        if _self_receipt.evidence_steps(raw, sh) is None:
+            return (f"這條指令 {head} 不是單純跑驗證程式的形狀（夾了讀檔或印字的指令、用 ; 或 || 串、或把輸出導走），"
+                    "印出來的哨兵分不出是誰印的、哪一段真的過了，不算證據；請單獨跑驗證程式（前面只准 cd 與環境設定、多段只用 && 串）。")
         return ""
     return ""
 
@@ -552,24 +554,20 @@ def _stem_of(path: str) -> str:
 
 def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
     """收據 cmd 裡真的會被執行的字（lib/self_receipt.exec_words：echo 類只會印字的指令、引號裡印出的字、註解都不算），
-    小寫、斜線正規化、空白壓一格；「提到改的檔」只比這段。指令不完整、根不可信（開頭單一 cd 以外的 cd）、白名單外語法、
-    參數裡寫了哨兵字樣 → None。用絕對路徑寫、不在收據根底下的字不算（別棵樹的同名測試檔不是驗這裡的改動）。"""
+    小寫、斜線正規化、空白壓一格；「提到改的檔」只比這段。指令不完整、根不可信（開頭單一 cd 以外的 cd）、不能當一般證據
+    （_clean：白名單語法、只跑程式且只用 && 串、沒指到別棵樹、沒寫哨兵字樣）→ None。"""
     r = _trusted(receipt)
     if r is None or not _clean(r):
         return None
-    root = _receipt_root(r)
-    words = [w for w in exec_words(str(r.get("cmd") or ""), _shell_of(r))
-             if _in_root(_self_receipt.abs_path(w) or root, root)]
-    return " ".join(_norm_path(" ".join(words)).split())
+    return " ".join(_norm_path(" ".join(exec_words(str(r.get("cmd") or ""), _shell_of(r)))).split())
 
 
 def _covers_all(receipt: Dict[str, Any], measure_cmds: Iterable[str]) -> bool:
     """部位量尺指令（cmd_matches）或整體驗證（is_whole_run：不帶參數的 run_verify.py、不縮範圍的 pytest）：聲稱驗到全部改檔。
-    兩種都只認白名單語法、前面只准 cd 與環境設定、後面只准尾端過濾。"""
+    兩種都只認白名單語法、前面只准 cd 與環境設定、後面只准尾端過濾、沒指到收據根以外。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
     return (any(_ruler_ran(mc, receipt) for mc in measure_cmds or [])
-            or (_cmd_complete(receipt) and is_whole_run(raw, sh)
-                and all(_in_root(p, _receipt_root(receipt)) for p in _self_receipt.abs_scripts(raw, sh))))
+            or (_cmd_complete(receipt) and is_whole_run(raw, sh) and _in_tree(receipt)))
 
 
 def _cmd_names_path(cmd: str, path: str) -> bool:
@@ -763,8 +761,8 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
     """DONE 收據；turn_seq 指定只認該 turn；min_turn／min_at／min_seq 指定要在該修改之後；cmd_contains 指定 cmd 要跑了該量尺
     （cmd_matches：白名單語法、與自寫收據同一套正規化）；require_ok：指令完整、根可信（開頭單一絕對路徑 cd 換成該根）、
     exit 要 0 或 None、沒有 FAIL 哨兵且 failed=<k> 必為 0；root 指定 cwd／project_root 要在該 root 下；sentinel_name 指定 DONE
-    必須來自該名字的哨兵（空＝任一 DONE 哨兵）；沒給 cmd_contains 時指令要能當一般證據（_clean）；final_prog 指定輸出就是收據的
-    那個指令（final_step）是這支程式。回的是根已換好的收據。"""
+    必須來自該名字的哨兵（空＝任一 DONE 哨兵）；沒給 cmd_contains 時指令要能當一般證據（_clean）；final_prog 指定跑程式的每一段
+    （evidence_steps）都是這支程式。回的是根已換好的收據。"""
     want = cmd_contains.strip()
     out = []
     for r0 in receipts:
@@ -790,9 +788,9 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
                 continue
         elif not _clean(r):
             continue          # 沒指定量尺：指令要能當一般證據（白名單語法、只跑程式、沒寫哨兵字樣）
-        if final_prog:
-            st = final_step(str(r.get("cmd") or ""), _shell_of(r))
-            if not (st and st.cmd[0] == final_prog):
+        if final_prog:            # 跑程式的每一段都是這支（`pytest a && pytest b` 照算；_clean 已確認形狀）
+            runs = _self_receipt.evidence_steps(str(r.get("cmd") or ""), _shell_of(r)) or []
+            if not runs or any(s.cmd[0] != final_prog for s in runs):
                 continue
         if not _root_match(r, root):
             continue

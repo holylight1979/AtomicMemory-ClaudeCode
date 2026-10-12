@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import sys
 from datetime import datetime, timezone
@@ -42,6 +43,8 @@ _FILTER_ARG_RE = re.compile(r"^(?:[+-]?\d+|--?[A-Za-z][A-Za-z-]*=?\d*)$")  # tai
 _LAST_ONLY_RE = re.compile(r"^-last$", re.IGNORECASE)                    # Select-Object 只准 -Last N
 _ECHO_PROGS = frozenset({"echo", "printf", "write-output", "write-host", "write", "out-host"})   # 只會印字的指令
 _CD_PROGS = frozenset({"cd", "pushd", "set-location", "sl", "chdir", "push-location"})
+_CD_ALL = _CD_PROGS | {"popd", "pop-location"}
+_WIN_SWITCH_RE = re.compile(r"^/[A-Za-z][\w-]*(?::[^/\\]*)?$")   # msbuild /p:Release、/nologo 這類選項，不是路徑
 _CTRL_WORDS = frozenset({"if", "then", "elif", "else", "fi", "for", "foreach", "while", "until", "do", "done",
                          "function", "switch", "case", "esac", "try", "catch", "finally", "trap", "!"})
 _EVAL_PROGS = frozenset({"iex", "invoke-expression", "eval", "source", ".", "start-process", "saps", "start"})
@@ -67,7 +70,14 @@ _SCRIPT_EXTS = (".py", ".sh", ".ps1", ".bat", ".cmd", ".js", ".mjs", ".cjs", ".t
 
 Argv = Union[str, List[str]]
 Cmd = Tuple[str, FrozenSet[str], FrozenSet[str], Tuple[str, ...]]      # (程式, python 直譯器選項, 其他選項, 位置參數)
-Chunk = Tuple[Optional[str], List[str], bool]                           # (接在前一個指令後的運算子, 原字, 有 < 輸入重導向)
+
+
+class Chunk(NamedTuple):
+    """split_shell 斷出的一個指令（原字，還沒正規化）。"""
+    op: Optional[str]           # 接在前一個指令後的運算子：&& || | ;（換行算 ;）；第一個是 None
+    words: List[str]            # 原字（重導向與目標已丟掉）
+    stdin: bool                 # 有 < 輸入重導向
+    stdout: bool                # stdout 導到檔案或 $null（輸出看不到）
 
 
 class Step(NamedTuple):
@@ -77,6 +87,7 @@ class Step(NamedTuple):
     words: Tuple[str, ...]      # 原字（bash 已去開頭的 X=1）
     stdin: bool                 # 有 < 輸入重導向（尾端過濾改讀檔）
     args: Tuple[str, ...]       # 程式之後的正規化 token，照原順序（選項與值的配對要看順序）
+    stdout: bool                # stdout 導到檔案或 $null
 
 
 class _Unsupported(Exception):
@@ -102,7 +113,7 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
     out: List[Chunk] = []
     words: List[str] = []
     cur: List[str] = []
-    has = skip = stdin = False
+    has = skip = stdin = stdout = False
     op: Optional[str] = None
     cont = "`" if ps else "\\"                                   # 行尾續行字元
 
@@ -117,17 +128,17 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
 
     def end_cmd(nxt: str, hard: bool = False) -> None:
         """一個指令結束；nxt＝接下一個指令的運算子。hard＝字面的 ; 或輸入結尾（換行接在 && || | 後面是合法續接，不算）。"""
-        nonlocal op, stdin
+        nonlocal op, stdin, stdout
         end_word()
         if skip:
             raise _Unsupported("重導向沒有目標")
         if words:
-            out.append((op, list(words), stdin))
+            out.append(Chunk(op, list(words), stdin, stdout))
             words.clear()
             op = nxt
         elif nxt != ";" or (hard and out and op in ("&&", "||", "|")):
             raise _Unsupported("運算子前後缺指令")
-        stdin = False
+        stdin = stdout = False
 
     def string_start() -> None:
         if ps and not has and not words:
@@ -193,11 +204,15 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
             end_cmd(s[i:i + 2])
             i += 2
         elif c in "<>" or s.startswith("&>", i):
+            fd = "&" if c == "&" else ""
             if has and _FD_RE.match("".join(cur)):              # 2>、*> 的 fd 屬於重導向
+                fd = "".join(cur)
                 cur.clear()
                 has = False
             else:
                 end_word()
+            if skip:
+                raise _Unsupported("重導向沒有目標")              # `> > out`：前一個重導向還沒給目標
             stdin = stdin or c == "<"
             i += 1 if c == "&" else 0
             while i < n and s[i] in "<>":
@@ -211,6 +226,7 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
                 skip, i = j == i + 1, j
             else:
                 skip = True                                       # 下一個字是重導向目標，丟掉
+            stdout = stdout or (skip and c != "<" and fd in ("", "1", "*", "&"))   # stdout 導到檔案／$null
         elif c == "&":
             raise _Unsupported("單獨的 &（背景執行／PowerShell 呼叫運算子）")
         elif c in "|;\n":
@@ -220,8 +236,8 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
             cur.append(c)
             has, i = True, i + 1
     end_cmd(";", hard=True)
-    for _, ws, _ in out:                                          # 指令層：控制結構、把字串當指令跑、另起一層 shell
-        w = ws if ps else _strip_env(ws)
+    for ch in out:                                                # 指令層：控制結構、把字串當指令跑、另起一層 shell
+        w = ch.words if ps else _strip_env(ch.words)
         if not w:
             continue
         head = _prog(w[0])
@@ -237,7 +253,7 @@ def _scan(s: str, ps: bool) -> List[Chunk]:
 
 
 def split_shell(s: str, shell: str = "bash") -> Tuple[List[Chunk], Optional[str]]:
-    """白名單語法的斷詞 → ([(運算子, 原字, 有沒有 < 輸入), …], None)；白名單外 → ([], 是哪一種)。
+    """白名單語法的斷詞 → ([Chunk(運算子, 原字, 有沒有 < 輸入, stdout 有沒有導走), …], None)；白名單外 → ([], 是哪一種)。
     白名單：單一指令與 && || | ; 換行串起的指令鏈；'…'、"…"；重導向 > >> 2>&1 *> &> < > $null（連同目標丟掉）；
     字首 # 註解；行首環境指定（bash `X=1 cmd`、PowerShell `$env:X="1";`）；續行（bash 反斜線、PowerShell 反引號，LF／CRLF）。
     其餘一律不支援：引號沒閉合、here-string、heredoc、$( )、反引號、( )、{ }、單獨的 &、反斜線跳脫、<# #>、
@@ -306,13 +322,13 @@ def _norm_cmd(words: List[str]) -> Optional[Tuple[Cmd, Tuple[str, ...]]]:
 def parse_cmds(cmd: Argv, shell: str = "bash") -> List[Step]:
     """指令 → [Step]。字串走 split_shell（白名單外語法 → []）；argv 清單＝一個指令（自寫收據，不經 shell 解析）。"""
     argv = isinstance(cmd, (list, tuple))
-    chunks = [(None, [str(t) for t in cmd], False)] if argv else split_shell(str(cmd or ""), shell)[0]
+    chunks = [Chunk(None, [str(t) for t in cmd], False, False)] if argv else split_shell(str(cmd or ""), shell)[0]
     out: List[Step] = []
-    for op, words, stdin in chunks:
-        ws = words if argv or shell == "powershell" else _strip_env(words)
+    for ch in chunks:
+        ws = ch.words if argv or shell == "powershell" else _strip_env(ch.words)
         nc = _norm_cmd(ws)
         if nc:
-            out.append(Step(op if out else None, nc[0], tuple(ws), stdin, nc[1]))
+            out.append(Step(ch.op if out else None, nc[0], tuple(ws), ch.stdin, nc[1], ch.stdout))
     return out
 
 
@@ -320,8 +336,8 @@ def exec_words(cmd: str, shell: str = "bash") -> List[str]:
     """真的會被執行的指令的字（split_shell 拆出；去掉開頭的 `X=1`；echo／printf／Write-Output／Write-Host 這類只會印字的
     指令整個不算）：引號裡被印出的字、註解、重導向目標都不在裡面；白名單外語法 → []。對帳 (a) 判「收據有沒有提到改的檔」用。"""
     out: List[str] = []
-    for _, words, _ in split_shell(str(cmd or ""), shell)[0]:
-        ws = [w for w in (words if shell == "powershell" else _strip_env(words)) if w]
+    for ch in split_shell(str(cmd or ""), shell)[0]:
+        ws = [w for w in (ch.words if shell == "powershell" else _strip_env(ch.words)) if w]
         if ws and _prog(ws[0]) not in _ECHO_PROGS:
             out.extend(ws)
     return out
@@ -403,12 +419,20 @@ def _runs_program(st: Step) -> bool:
     return name in _RUNNER_PROGS or bool(_PY_HEAD_RE.match(name)) or name.endswith(_SCRIPT_EXTS)
 
 
-def runs_programs_only(cmd: Argv, shell: str = "bash") -> bool:
-    """整條指令只有跑程式的指令、cd 與環境設定、留結尾的尾端過濾（白名單外語法 → False）。一般證據（對帳 (a) 提到改檔、
-    (b) 量了）要這種形狀：讀檔與印字的指令（cat、Get-Content、type、echo…）一出現，印出來的哨兵就分不出是誰印的。"""
+def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
+    """一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）的形狀 → 跑程式的那幾段；不是這種形狀 → None。
+    形狀：前面只有 cd 與環境設定；之後全是跑程式的指令（直譯器、測試與建置工具、腳本檔），彼此只用 && 串（一段失敗後面就不跑、
+    exit 會反映）、stdout 沒有導到檔案或 $null（失敗輸出藏不住）；最後只准留結尾的過濾。夾了讀檔或印字的指令（cat、
+    Get-Content、echo…）、用 ; 或 || 串、把輸出導走，印出來的成功行就分不出是誰印的、哪一段真的過了。"""
     steps = parse_cmds(cmd, shell)
     k = _first_filter(steps)
-    return bool(steps) and all(_runs_program(s) or _is_setup(s) for s in steps[:k])
+    i = 0
+    while i < k and _is_setup(steps[i]):
+        i += 1
+    runs = steps[i:k]
+    if not runs or not _reachable(steps, i) or any(s.op != "&&" for s in runs[1:]):
+        return None
+    return runs if all(_runs_program(s) and not s.stdout for s in runs) else None
 
 
 def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash") -> bool:
@@ -436,33 +460,58 @@ def abs_path(word: str) -> Optional[str]:
     return p.replace("\\", "/").rstrip("/").lower()
 
 
-def abs_scripts(cmd: Argv, shell: str = "bash") -> List[str]:
-    """python 跑的腳本裡用絕對路徑寫的那些（abs_path 正規化）：量尺比對只看檔名，呼叫端要確認它們在收據根底下。"""
+def _path_in(word: str, base: str) -> bool:
+    """一個參數字在 base（abs_path 正規化過的根）底下：絕對路徑直接比、相對路徑接在 base 後面，都先消掉 . 與 ..；
+    `/p:Release` 這種 Windows 工具選項不是路徑；~、$變數、其他 / 開頭、`C:x` 看不出在哪 → 不在。"""
+    if _WIN_SWITCH_RE.match(word):
+        return True
+    if word.startswith("~") or "$" in word:
+        return False
+    a = abs_path(word)
+    if a is None and (word.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", word)):
+        return False
+    p = posixpath.normpath(a or f"{base}/{word.replace(chr(92), '/').lower()}")
+    return p == base or p.startswith(base + "/")
+
+
+def outside_paths(cmd: Argv, shell: str, root: str) -> List[str]:
+    """跑程式的指令裡指到收據根 root 以外的字（位置參數、選項 `=` 後面的值；cd 與環境設定另判）。量尺比對只看腳本檔名，
+    `python ../live/run_verify.py`、`pytest C:/live/tests` 量的是別棵樹，要靠這裡擋。root 不是絕對路徑（沒根資訊）→ 不比，回 []。"""
+    base = abs_path(str(root or "")) or ""
     out: List[str] = []
-    for st in parse_cmds(cmd, shell):
-        w = st.words
-        if not w or not _PY_HEAD_RE.match(_prog(w[0])):
+    for st in parse_cmds(cmd, shell) if base else []:
+        if _is_setup(st):
             continue
-        i = 1
-        while i < len(w) and w[i].startswith("-") and w[i] not in ("-", "-m", "-c"):
-            i += 2 if w[i] in _PY_OPT_ARG else 1
-        p = abs_path(w[i]) if i < len(w) and not w[i].startswith("-") else None
-        if p:
-            out.append(p)
+        for w in st.words[1:]:
+            v = w.split("=", 1)[1] if w.startswith("-") and "=" in w else ("" if w.startswith("-") else w)
+            if v and not _path_in(v, base):
+                out.append(w)
     return out
+
+
+def _is_cd(words: List[str], shell: str) -> bool:
+    """這個指令換目錄（cd／pushd／popd／Set-Location／sl／chdir，含 `builtin cd`、`command cd`）。"""
+    w = words if shell == "powershell" else _strip_env(words)
+    if w and _prog(w[0]) in ("builtin", "command"):
+        w = w[1:]
+    return bool(w) and _prog(w[0]) in _CD_ALL
+
+
+def changes_dir(cmd: str, shell: str = "bash") -> bool:
+    """指令裡有換目錄的指令；用同一套斷詞判，不靠原字串比對（`c"d"` 在 shell 裡就是 cd）。"""
+    return any(_is_cd(ch.words, shell) for ch in split_shell(str(cmd or ""), shell)[0])
 
 
 def leading_cd(cmd: str, shell: str = "bash") -> Optional[str]:
     """`cd <絕對路徑> && …`：第一個指令是 cd／pushd／Set-Location 帶單一字面絕對路徑，之後只用 && 與 | 串（cd 失敗後面就都不跑）、
     沒有別的 cd → 回該路徑（Git Bash 的 /c/x 寫成 C:/x），收據根就用它；其餘 → None（照舊當根不可信）。"""
     chunks = split_shell(str(cmd or ""), shell)[0]
-    if len(chunks) < 2 or len(chunks[0][1]) != 2 or _prog(chunks[0][1][0]) not in _CD_PROGS:
+    if len(chunks) < 2 or len(chunks[0].words) != 2 or _prog(chunks[0].words[0]) not in _CD_PROGS:
         return None
-    path = chunks[0][1][1]
+    path = chunks[0].words[1]
     if not _ABS_DIR_RE.match(path) or any(ch in path for ch in "$~*?"):
         return None
-    if any(op not in ("&&", "|") or (ws and _prog(ws[0]) in _CD_PROGS | {"popd", "pop-location"})
-           for op, ws, _ in chunks[1:]):
+    if any(ch.op not in ("&&", "|") or _is_cd(ch.words, shell) for ch in chunks[1:]):
         return None
     m = re.match(r"^/([A-Za-z])(/.*)?$", path)
     return f"{m.group(1).upper()}:{m.group(2) or '/'}" if m else path

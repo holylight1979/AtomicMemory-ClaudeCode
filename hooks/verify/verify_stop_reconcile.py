@@ -1815,6 +1815,45 @@ def test_017_codex3_done_receipts_without_ruler_is_fail_closed():
     assert vl.done_receipts([good]) == [good]
 
 
+@pytest.mark.parametrize("cmd, related", [
+    ("python verify_good.py || python verify_widget.py", False),                         # verify_widget 根本沒跑
+    ("python verify_widget.py > /dev/null 2>&1; python verify_good.py", False),          # 目標失敗被藏、; 照跑下一段
+    ("python verify_widget.py > /dev/null && python verify_good.py", False),             # 輸出導走
+    ("python verify_good.py && python verify_widget.py", True),                          # && 串：前面過了才跑、都過才 exit 0
+])
+def test_017_codex_r2_1_chain_must_show_every_run_passed(driven, capsys, cmd, related):
+    """codex 二審 BLOCK 1：一般證據要看得出每一段真的跑了也過了：只准 && 串、stdout 不導走；|| 沒跑的分支、; 前段被藏的失敗
+    都不能借後一段的 PASS 說 widget 修好了。"""
+    mods = [_mf(_WIDGET, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
+    assert ("(a) 說「修好」" not in out) is related, cmd
+
+
+def test_017_codex_r2_2_quote_split_cd_is_a_cd():
+    """codex 二審 BLOCK 2：`c"d" C:/live; 量尺`（shell 裡 c"d" 就是 cd）→ 根不可信，量尺閘不認、訊息說含 cd。"""
+    for tool in ("Bash", "PowerShell"):
+        reason = _gate('c"d" C:/live; python -X utf8 run_verify.py', tool)
+        assert reason and "含 cd" in reason, tool
+    assert _gate(MEASURE_CMD) is None
+
+
+def test_017_codex_r2_3_other_tree_paths_do_not_count(tmp_path, monkeypatch):
+    """codex 二審 BLOCK 3：`../live/run_verify.py`、`C:/proj/../live/run_verify.py` 量的是別棵樹 → 量尺閘不認；根層 worktree 的
+    pytest 跑別棵樹的測試也不認。codex 二審 BLOCK 4：根層 worktree 的 `pytest a && pytest b` 誠實串接 → 認。"""
+    for bad in ("python -X utf8 ../live/run_verify.py", "python -X utf8 C:/proj/../live/run_verify.py"):
+        reason = _gate(bad)
+        assert reason and "收據根以外" in reason, bad
+    assert _gate("python -X utf8 c:/proj/sub/../run_verify.py") is None
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    gate = lambda cmd: vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, wt, cmd=cmd)], 5, _lookup_at(wt),  # noqa: E731
+                                              vl.MEASURE_DEFAULTS)[0]
+    assert gate(f"python -m pytest -q {live}/hooks/verify/verify_x.py") is not None
+    assert gate("python -m pytest -q ../live/hooks/verify/verify_x.py") is not None
+    assert gate("python -m pytest -q hooks/verify/verify_a.py && python -m pytest -q hooks/verify/verify_b.py") is None
+
+
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────
 
 _LONG_NOTE = "這一段是很長的說明，交代改動的來龍去脈與每一個檔案的用途，只是說明而已沒有別的。"
