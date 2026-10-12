@@ -89,11 +89,12 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
      讀 w.x 不呼叫，任何一種都失去資格；任何一次出現在巢狀作用域（def、lambda、生成器、推導式、類別本體）裡
      就算被捕捉，同樣失去資格；建構者的名字（含 import 別名）也要從未被重新指定
   3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、區域變數標註、
-     欄位宣告型別；self.x = Foo() 這種推導出來的不算）同樣只在沒有子類覆寫、也沒有多載時；接收者（含 self）被重新指定過
-     （任何一次，含內層函式用 nonlocal 改寫）就不算型別已宣告；self／cls 要真的是方法的第一個參數（區域變數剛好叫 cls 的不算）
-     （照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）；標註在它被求值的作用域解析：參數標註在 def 的
-     外層（方法是類別本體、巢狀函式是外層函式、模組層函式是模組層），函式本體裡的標註（含 self.x: Foo）在那個本體，
-     類別本體的標註在類別本體；那個作用域裡這個名字還有別的綁定（區域 import、指定、同名參數、類別屬性）就不給
+     欄位宣告型別；self.x = Foo() 這種推導出來的不算）同樣只在沒有子類覆寫、也沒有多載時
+     （照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）。self／cls 要真的是方法的第一個參數（區域變數
+     剛好叫 cls 的不算）；接收者（含 self）被重新指定過（任何一次，含內層函式用 nonlocal 改寫）就不算型別已宣告。
+     標註在它被求值的作用域解析：參數標註在 def 的外層（方法是類別本體、巢狀函式是外層函式、模組層函式是模組層），
+     函式本體裡的標註（含 self.x: Foo）在那個本體，類別本體的標註在類別本體；那個作用域裡這個名字還有別的綁定
+     （區域 import、指定、同名參數、類別屬性）就不給
   4. 簡單區域別名：同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式
   5. callback：有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、參數沒被重新指定
   類別證據（1、2、3 條的建構者、標註、欄位型別、類別.方法 的類別）只認沿綁定鏈（本檔定義、import 鏈、re-export、
@@ -988,8 +989,7 @@ class Graph:
             if decl and self._type_external(*decl):
                 return "external", None, False
             cls = self.class_ref(*decl) if decl else None
-        constructed = (head in f.constructed and not self.rebound_local(f, head) and head not in f.import_rebinds
-                       and head not in f.escaped)
+        constructed = head in f.constructed and not self.rebound_local(f, head) and head not in f.escaped
         exact = (kind == "static" or constructed) and not rest
         return (kind, cls, exact) if cls or kind == "external" else ("", None, False)
 
@@ -1025,7 +1025,8 @@ class Graph:
         區域變數的建構者與區域標註在本體（f）解析；參數標註在 def 的外層解析（outer_ctx）。
         Python 名字被重新指定過（任何一次，含內層 nonlocal 改寫）→ None：型別證據失效（總原則 4）；
         C# 的宣告型別是靜態型別，只有建構過又被重新指定（var x = new A(); x = new B();）才不定。"""
-        if self.rebound_local(f, head) if f.lang == "py" else head in f.constructed and head in f.reassigned:
+        unsettled = self.rebound_local(f, head) if f.lang == "py" else head in f.constructed and head in f.reassigned
+        if unsettled:
             return None
         if head in f.local_types:
             return f, f.local_types[head]
