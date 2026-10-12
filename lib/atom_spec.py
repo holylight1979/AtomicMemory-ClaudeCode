@@ -227,11 +227,15 @@ def depends_base_for(mem_dir: Path) -> Path:
 
 
 def _norm_fs_path(p: Path) -> str:
-    """路徑比對鍵：resolve（不要求存在）→ 正斜線 → Windows 不分大小寫。"""
+    """路徑比對鍵：resolve（不要求存在）→ 剝 `\\\\?\\`／`\\\\?\\UNC\\` → 正斜線 → Windows 不分大小寫。"""
     try:
         s = str(Path(p).resolve(strict=False))
     except (OSError, ValueError, RuntimeError):
         s = str(p)
+    if s.startswith("\\\\?\\UNC\\"):     # Path.resolve 對 extended-length 前綴的處理隨版本不同，兩邊都剝掉才可比
+        s = "\\\\" + s[8:]
+    elif s.startswith("\\\\?\\"):
+        s = s[4:]
     s = s.replace("\\", "/").rstrip("/")
     return s.lower() if os.name == "nt" else s
 

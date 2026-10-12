@@ -73,6 +73,28 @@ def test_wrong_type_is_rejected_before_writing(mem):
     assert any("depends invalid" in e for e in errs), errs
 
 
+@pytest.mark.parametrize("bad", ["path:src/x.py", {"path:src/x.py": 1}, ["ok", 7]])
+def test_cli_write_index_rejects_non_list_depends(mem, monkeypatch, capsys, bad):   # 退件 BLOCK 1：CLI 不得先 list() 洗成合法
+    import io
+    from lib import atom_io, atom_io_cli
+    monkeypatch.setattr(atom_io, "AUDIT_LOG", mem / "_meta" / "audit.jsonl")
+    upsert_atom(mem, "a", "memory/a.md", ["t1"], "global", depends=["path:keep.py"])
+    before = (mem / "_atom_index.json").read_text(encoding="utf-8")
+    payload = {"action": "write_index", "base_dir": str(mem), "slug": "a", "rel_path": "memory/a.md",
+               "triggers": ["t1"], "source": "mcp", "depends": bad}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload, ensure_ascii=False)))
+    assert atom_io_cli.main() == 1
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out["ok"] is False and "depends invalid" in out["error"]
+    assert (mem / "_atom_index.json").read_text(encoding="utf-8") == before          # 索引不動
+    assert atom_io_cli._index_kwargs({"depends": bad}) == {"depends": bad}           # 原型別透傳
+    # 對照：合法 list 照收；[] 清空
+    payload["depends"] = ["path:new.py"]
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    assert atom_io_cli.main() == 0 and _entry(mem, "a")["depends"] == ["path:new.py"]
+    capsys.readouterr()
+
+
 def test_md_mirror_has_depends_column_only_when_used(mem):
     # 沒人用 depends → mirror 格式與以前 byte 相同（多機不因格式換版互相重生衝突）
     upsert_atom(mem, "b", "memory/b.md", ["t2"], "global")

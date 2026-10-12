@@ -113,3 +113,38 @@ def test_add_from_frontmatter_carries_depends(world):
     assert entry["depends"] == ["path:src/sched/legacy"]
     assert sync.parse_frontmatter_depends("- Depends: a， b, a\n") == ["a", "b"]
     assert sync.parse_frontmatter_depends("# x\n- Trigger: t\n") is None
+
+
+@pytest.mark.parametrize("tail", ["\n- Trigger: x\n", "\n\n## 知識\n\n- k\n", ""])
+def test_empty_depends_line_is_clear_not_next_line(world, tail):          # 退件 BLOCK 2
+    root, mem = world
+    sync = _load_sync()
+    assert sync.parse_frontmatter_depends("# t\n- Depends:" + tail) == []
+    assert sync.parse_frontmatter_depends("# t\n- Depends:   " + tail) == []
+    # 索引有殘值、frontmatter 改成空行 → 漂移；--sync-depends 後索引鍵消失
+    card = mem / "shared" / "排程" / "有依賴卡.md"
+    text = card.read_text(encoding="utf-8").replace("- Depends: path:src/sched/queue.py, decision:abc\n", "- Depends:" + tail)
+    if not tail:   # 檔尾情境：把 Depends 行搬到最後一行
+        text = card.read_text(encoding="utf-8").replace("- Depends: path:src/sched/queue.py, decision:abc\n", "") + "- Depends:"
+    card.write_text(text, encoding="utf-8")
+    upsert_atom(mem, "有依賴卡", "memory/shared/排程/有依賴卡.md", ["有依賴卡", "t2", "t3"], "shared", depends=["path:old.py"])
+    atoms = sync.scan_atom_files(mem, mem.parent)
+    assert atoms["memory/shared/排程/有依賴卡.md"].depends == []
+    rows = sync.load_index_rows(mem)
+    rep = sync.detect_drift(atoms, rows, mem.parent)
+    assert [d["atom"] for d in rep.depends_drift] == ["有依賴卡"]
+    assert sync.sync_depends_from_frontmatter(atoms, rows, mem) == ["有依賴卡"]
+    entry = next(a for a in load_atom_index_json(mem)["atoms"] if a["name"] == "有依賴卡")
+    assert "depends" not in entry
+    assert sync.detect_drift(atoms, sync.load_index_rows(mem), mem.parent).depends_drift == []
+
+
+def test_atom_io_replace_reads_empty_depends_line_as_clear():              # 同一個 \s* 跨行坑在 atom_io／atom_io_cli
+    import re
+    src_io = (CLAUDE_ROOT / "lib" / "atom_io.py").read_text(encoding="utf-8")
+    src_cli = (CLAUDE_ROOT / "lib" / "atom_io_cli.py").read_text(encoding="utf-8")
+    assert r'^- Depends:\s*(.+)$' not in src_io and r'^- Depends:\s*(.+)$' not in src_cli
+    from lib.atom_io_cli import _depends_of
+    assert _depends_of("# t\n- Depends:\n- Related: r\n") == []
+    assert _depends_of("# t\n- Depends: path:a.py， path:b.py\n") == ["path:a.py", "path:b.py"]
+    assert re.search(r"^- Depends:[ \t]*(.*)$", "- Depends:\n- Trigger: x", re.MULTILINE).group(1) == ""

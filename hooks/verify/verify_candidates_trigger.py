@@ -144,10 +144,101 @@ def test_second_edit_same_file_attaches_candidates_once(proj, tmp_path):
     assert deny is None and warn and "【戰鬥】候選前 5" in warn and "DamageSystem.cs" in warn
     assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)         # 第 3 次：不送
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
-    assert rec["edited_files"] == {f1.replace("\\", "/"): 3} and rec["edits"] == 4
+    assert rec["edited_files"] == {f1.replace("\\", "/").lower(): 3} and rec["edits"] == 4
     f2 = str(proj / "Game" / "Battle" / "B.cs")
     assert wo.on_edit(state, "s", f2, tp, {}) == (None, None, True)         # 另一檔第 1 次：不附
     assert _log_events(tmp_path).count("second_edit") == 1
+
+
+def test_second_edit_key_is_case_insensitive(proj, tmp_path):          # 退件 BLOCK 6
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1, _ = _inject(proj, state, tp)
+    with open(tp, "a", encoding="utf-8") as f:                              # 注入後才交三行（offset 之後）
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text",
+                "text": "定位｜部位：戰鬥：A.cs\n定位｜根因層：根因在邏輯層\n定位｜前例：無"}]}}, ensure_ascii=False) + "\n")
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
+    other_case = str(proj / "game" / "battle" / "a.cs")                    # 同一檔、大小寫不同
+    warn, deny, _ = wo.on_edit(state, "s", other_case, tp, {})
+    assert deny is None and warn and "候選前" in warn                      # 第二次就送
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)          # 第三次不送
+    rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
+    assert list(rec["edited_files"].values()) == [3]
+
+
+# ─── 退件 BLOCK 4／5／7 與 WARN ───────────────────────────────────────
+
+def test_table_but_no_injected_part_sends_whole_project_once(proj, tmp_path):   # BLOCK 4
+    _with_report(proj)
+    state = {"session": {"cwd": str(proj)}}
+    txt = wo.on_prompt(state, "s", "為什麼又壞了", "", {}, intent="debug")
+    assert txt and "【全專案】候選前 5" in txt and "DamageSystem.cs" in txt and "【戰鬥】" in txt
+    assert "Panel.cs" in txt                                                # 全專案不濾部位（Panel 分數最高）
+    assert state["candidates_sent"] == [str(proj).replace("\\", "/").lower() + "|(all)"]
+    assert wo.on_prompt(state, "s", "根因到底在哪", "", {}, intent="debug") is None   # 第二次不送
+    # 沒報告 → 各部位病灶段合併
+    state2 = {"session": {"cwd": str(proj)}}
+    (proj / ".claude" / "overview-hub.json").unlink()
+    txt = wo.on_prompt(state2, "s", "又壞了", "", {}, intent="debug")
+    assert txt and "導讀卡「已知病灶」段" in txt and "【戰鬥】" in txt and "最後一擊無訊號" in txt
+    # cwd 不在任何有表專案 → 不送
+    assert wo.on_prompt({"session": {"cwd": str(tmp_path)}}, "s", "又壞了", "", {}, intent="debug") is None
+
+
+def test_project_layer_root_cause_triggers_override(proj, tmp_path):      # BLOCK 5
+    (proj / ".claude" / "overview-hub.json").write_text(json.dumps({"root_cause_triggers": ["專案暗號"]}), encoding="utf-8")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    _inject(proj, state, tp)
+    assert wo.on_prompt(state, "s", "為什麼又壞了，找根因", tp, {}, intent="debug") is None   # 根層預設詞被專案覆蓋掉
+    txt = wo.on_prompt(state, "s", "專案暗號", tp, {}, intent="debug")
+    assert txt and "【戰鬥】候選前" in txt
+    state2 = {"session": {"cwd": str(proj)}}                                # 全專案路徑也用專案層 cfg
+    assert wo.on_prompt(state2, "s", "根因", "", {}, intent="debug") is None
+    assert wo.on_prompt(state2, "s", "專案暗號", "", {}, intent="debug")
+
+
+def test_candidates_block_is_capped(proj, tmp_path):                       # BLOCK 7
+    rp = proj / ".claude" / "smells.json"
+    rp.write_text(json.dumps({"rows": [{"path": "Game/Battle/X.cs", "category": "hotspot", "reason": "長" * 100000,
+                                        "score": 9, "part": "戰鬥"}] * 5}, ensure_ascii=False), encoding="utf-8")
+    (proj / ".claude" / "overview-hub.json").write_text(json.dumps({"smells_report": ".claude/smells.json", "max_card_chars": 1200}),
+                                                        encoding="utf-8")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    _inject(proj, state, tp)
+    txt = wo.on_prompt(state, "s", "根因", tp, {}, intent="debug")
+    assert txt and len(txt) <= 1200 + 20
+    assert "根因卡：`戰鬥導讀`" in txt and "先答兩問" in txt and "截" in txt
+    rows = [l for l in txt.splitlines() if l.startswith("- Game/")]
+    assert rows and all(len(l) <= 200 + 20 for l in rows)                  # 每列 min(200, 1200//5)=200
+
+
+def test_bad_report_says_parse_failed_then_falls_back(proj, tmp_path):     # WARN 1
+    (proj / ".claude" / "smells.json").write_text("{not json", encoding="utf-8")
+    (proj / ".claude" / "overview-hub.json").write_text(json.dumps({"smells_report": ".claude/smells.json"}), encoding="utf-8")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    _inject(proj, state, tp)
+    txt = wo.on_prompt(state, "s", "根因", tp, {}, intent="debug")
+    assert "解析失敗" in txt and "不是合法 JSON" in txt and "最後一擊無訊號" in txt and "候選：無" not in txt
+    rows, err, _ = wo._smells_rows(proj / ".claude" / "smells.json")
+    assert rows == [] and err
+    jl = proj / ".claude" / "s.jsonl"
+    jl.write_text('{"path": "a.cs", "reason": "r"}\nbroken\n', encoding="utf-8")
+    rows, err, _ = wo._smells_rows(jl)
+    assert len(rows) == 1 and "1 行不是 JSON" in err
+    top = proj / ".claude" / "t.json"
+    top.write_text('{"foo": 1}', encoding="utf-8")
+    assert "頂層" in wo._smells_rows(top)[1]
+
+
+def test_generated_at_wins_over_mtime(proj, tmp_path):                      # WARN 2
+    data = json.loads((FIX / "smells.json").read_text(encoding="utf-8"))
+    data["generated_at"] = "2020-01-01"
+    rp = proj / ".claude" / "smells.json"
+    rp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")   # mtime＝現在，但 generated_at 很舊
+    (proj / ".claude" / "overview-hub.json").write_text(json.dumps({"smells_report": ".claude/smells.json"}), encoding="utf-8")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    _inject(proj, state, tp)
+    assert "天沒更新" in wo.on_prompt(state, "s", "根因", tp, {}, intent="debug")
 
 
 # ─── A5.4 沒事做提示 ─────────────────────────────────────────────────

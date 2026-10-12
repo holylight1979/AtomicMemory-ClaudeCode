@@ -109,12 +109,16 @@ def _overview_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str) 
         cards = [str(c) for c in (rec.get("card_paths") or [])]
         defects = defects_top_n(cards, int(cfg.get("candidate_top_n") or 5))
         edited = rec.get("edited_files") or {}
+        # 短欄在前（部位／層／三行已交否），長的（主目標說明、卡路徑、病灶、同檔多次清單）在後，截斷只切到尾巴
         lines = [
-            f"【{part}】主目標：{goal}｜層：{rec.get('layer') or '單層'}｜專案根：{root or '?'}",
+            f"【{part}】層：{rec.get('layer') or '單層'}｜定位三行：{'已交' if rec.get('located') else '未交'}"
+            f"（本 session 改過 {int(rec.get('edits') or 0)} 次）",
+            f"  主目標：{goal}｜專案根：{root or '?'}",
             f"  卡路徑：{'；'.join(cards) or '無'}",
-            f"  定位三行：{'已交' if rec.get('located') else '未交'}（本 session 改過 {int(rec.get('edits') or 0)} 次"
-            f"{'；同檔多次：' + '、'.join(p for p, n in edited.items() if int(n) >= 2) if any(int(n) >= 2 for n in edited.values()) else ''}）",
         ]
+        multi = [p for p, n in edited.items() if int(n) >= 2]
+        if multi:
+            lines.append("  同檔多次：" + "、".join(multi))
         if defects:
             lines.append("  病灶前 N：\n" + "\n".join(f"    {d}" for d in defects))
         blob = "\n".join(lines)

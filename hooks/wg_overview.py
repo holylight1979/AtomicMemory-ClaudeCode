@@ -469,23 +469,35 @@ def defects_top_n(card_paths: List[Any], n: int) -> List[str]:
     return out
 
 
-def _smells_rows(path: Path) -> List[Dict[str, Any]]:
-    """smells 報告 → 列清單。json（list 或 {rows|items|smells}）／jsonl（一行一筆）／md 表（| 路徑 | 分類 | 理由 |）。壞檔回 []。"""
+_GENERATED_AT_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_LINE_CAP = 200   # 候選每列（reason／病灶）上限，與 max_card_chars // N 取小
+
+
+def _smells_rows(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str], Optional[float]]:
+    """smells 報告 → (列清單, 解析錯誤, generated_at 時間戳)。json（list 或 {rows|items|smells}，可帶 generated_at）／
+    jsonl（一行一筆）／md 表（| 路徑 | 分類 | 理由 | 部位? |）。讀不到、壞 JSON、JSONL 壞行、頂層格式不收 → 錯誤字串（照舊回能解析的列）。"""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
+    except OSError as e:
+        return [], f"讀不到：{e}", None
     rows: List[Any] = []
-    if path.suffix.lower() == ".jsonl":
-        for line in text.splitlines():
+    err: Optional[str] = None
+    gen_ts: Optional[float] = None
+    suffix = path.suffix.lower()
+    if suffix == ".jsonl":
+        bad = 0
+        for i, line in enumerate(text.splitlines(), 1):
             line = line.strip()
             if not line:
                 continue
             try:
                 rows.append(json.loads(line))
             except ValueError:
-                continue
-    elif path.suffix.lower() == ".md":
+                bad += 1
+                err = err or f"第 {i} 行不是 JSON"
+        if bad:
+            err = f"{bad} 行不是 JSON（{err}）"
+    elif suffix == ".md":
         for line in text.splitlines():
             if not line.strip().startswith("|") or set(line.replace("|", "").strip()) <= set("-: "):
                 continue
@@ -497,51 +509,95 @@ def _smells_rows(path: Path) -> List[Dict[str, Any]]:
     else:
         try:
             data = json.loads(text)
-        except ValueError:
-            return []
+        except ValueError as e:
+            return [], f"不是合法 JSON：{e}", None
         if isinstance(data, list):
             rows = data
-        elif isinstance(data, dict):
-            rows = next((data[k] for k in ("rows", "items", "smells") if isinstance(data.get(k), list)), [])
-    return [r for r in rows if isinstance(r, dict) and r.get("path")]
+        elif isinstance(data, dict) and any(isinstance(data.get(k), list) for k in ("rows", "items", "smells")):
+            rows = next(data[k] for k in ("rows", "items", "smells") if isinstance(data.get(k), list))
+            m = _GENERATED_AT_RE.match(str(data.get("generated_at") or ""))
+            if m:
+                gen_ts = time.mktime((int(m.group(1)), int(m.group(2)), int(m.group(3)), 0, 0, 0, 0, 0, -1))
+        else:
+            err = "頂層要是陣列或含 rows／items／smells 陣列的物件"
+    return [r for r in rows if isinstance(r, dict) and r.get("path")], err, gen_ts
 
 
-def _candidates_block(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> str:
-    """候選前 N＋根因卡＋兩問。來源：smells_report（過期附一行仍送）→ 沒有就退導讀卡病灶段前 N → 都沒有就明說「無候選」。"""
-    n = int(cfg.get("candidate_top_n") or 0)
-    part = row["part_short"]
-    lines: List[str] = []
-    source = ""
+def _clip(s: str, k: int) -> str:
+    s = str(s)
+    return s if len(s) <= k else s[:k] + f"…（截 {len(s) - k} 字）"
+
+
+def _smells_lines(root: Path, cfg: Dict[str, Any], parts: Optional[Tuple[str, ...]], n: int,
+                  line_cap: int) -> Tuple[List[str], List[str], str]:
+    """smells_report → (候選列, 附註列, 來源字樣)。parts=None＝全專案不濾部位。過期（generated_at 優先、否則 mtime）附一行仍送；
+    解析失敗附一行「解析失敗」讓呼叫端退病灶段，不跟「真的沒候選」混在一起。"""
     report = str(cfg.get("smells_report") or "").strip()
-    if report:
-        rp = Path(report)
-        if not rp.is_absolute():
-            rp = root / rp
-        if rp.is_file():
-            rows = [r for r in _smells_rows(rp)
-                    if not r.get("part") or r["part"] in (row["part"], part)]
-            rows.sort(key=lambda r: -float(r.get("score") or 0) if isinstance(r.get("score"), (int, float)) else 0)
-            for r in rows[:n]:
-                lines.append(f"- {r['path']}｜{r.get('category') or r.get('kind') or '?'}｜{r.get('reason') or '（沒寫理由）'}")
-            if lines:
-                source = f"smells 報告 {rp}"
-                try:
-                    age = int((time.time() - rp.stat().st_mtime) // 86400)
-                except OSError:
-                    age = 0
-                max_age = int(cfg.get("smells_max_age_days") or 0)
-                if age > max_age:
-                    lines.insert(0, f"（報告已 {age} 天沒更新，超過 smells_max_age_days={max_age}；仍送，先重跑 smells_cmd 再信它）")
-    card_paths = _cards_for(root, row, cfg)
+    if not report:
+        return [], [], ""
+    rp = Path(report)
+    if not rp.is_absolute():
+        rp = root / rp
+    if not rp.is_file():
+        return [], [f"（smells_report 指到的報告不存在：{rp}）"], ""
+    rows, err, gen_ts = _smells_rows(rp)
+    notes = [f"（報告 {rp} 解析失敗：{err}）"] if err else []
+    if parts is not None:
+        rows = [r for r in rows if not r.get("part") or r["part"] in parts]
+    rows.sort(key=lambda r: -float(r["score"]) if isinstance(r.get("score"), (int, float)) else 0)
+    lines = [_clip(f"- {r['path']}｜{r.get('category') or r.get('kind') or '?'}｜"
+                   f"{(('【' + r['part'] + '】') if parts is None and r.get('part') else '')}{r.get('reason') or '（沒寫理由）'}",
+                   line_cap) for r in rows[:n]]
     if not lines:
-        lines = defects_top_n(card_paths, n)
+        return [], notes, ""
+    try:
+        ts = gen_ts if gen_ts is not None else rp.stat().st_mtime
+        age = max(0, int((time.time() - ts) // 86400))
+    except OSError:
+        age = 0
+    max_age = int(cfg.get("smells_max_age_days") or 0)
+    if age > max_age:
+        notes.append(f"（報告已 {age} 天沒更新，超過 smells_max_age_days={max_age}；仍送，先重跑 smells_cmd 再信它）")
+    return lines, notes, f"smells 報告 {rp}"
+
+
+def _candidates_block(root: Path, rows: List[Dict[str, Any]], cfg: Dict[str, Any], max_chars: Optional[int] = None,
+                      label: Optional[str] = None) -> str:
+    """候選前 N＋根因卡＋兩問。rows＝一列（該部位）或整張表（全專案，label 給「全專案」）。
+    來源：smells_report（過期附一行仍送、壞格式附一行解析失敗）→ 沒有就退導讀卡病灶段前 N（全專案時各部位輪流取）→ 都沒有明說「無候選」。
+    字數：每列截 min(200, max_card_chars // N)；整塊截 max_chars（預設 max_card_chars），卡名與兩問一定保留。"""
+    n = int(cfg.get("candidate_top_n") or 0)
+    cap = int(max_chars if max_chars is not None else cfg.get("max_card_chars") or 6000)
+    line_cap = min(_LINE_CAP, int(cfg.get("max_card_chars") or 6000) // max(n, 1))
+    whole = label is not None
+    parts = None if whole else tuple(x for x in (rows[0]["part"], rows[0]["part_short"]) if x)
+    lines, notes, source = _smells_lines(root, cfg, parts, n, line_cap)
+    card_paths: List[Path] = []
+    per_part: List[List[str]] = []
+    for r in rows:
+        cps = _cards_for(root, r, cfg)
+        card_paths.extend(cp for cp in cps if cp not in card_paths)
+        if not lines:
+            pref = f"【{r['part_short']}】" if whole else ""
+            per_part.append([_clip(pref + d, line_cap) for d in defects_top_n(cps, n)])
+    if not lines:
+        merged: List[str] = []
+        for i in range(n):   # 各部位輪流取第 i 條，避免全被表上第一個部位佔滿
+            merged.extend(p[i] for p in per_part if i < len(p))
+        lines = merged[:n]
         source = "導讀卡「已知病灶」段" if lines else ""
     if not lines:
-        lines = ["候選：無（此部位沒有 smells 報告也沒有病灶段；先補導讀卡「已知病灶」段或在 overview-hub.json 設 smells_report）"]
+        lines = ["候選：無（沒有可用的 smells 報告也沒有病灶段；先補導讀卡「已知病灶」段或在 overview-hub.json 設 smells_report）"]
         source = "無"
-    cards = "、".join(f"`{cp.stem}`（{cp}）" for cp in card_paths) or "無（表上沒卡）"
-    head = f"[Guardian:OverviewHub] 【{part}】候選前 {n}（來源：{source}）："
-    return "\n".join([head, *lines, f"根因卡：{cards}", "先答兩問：" + "；".join(_CANDIDATE_QUESTIONS)])
+    head = f"[Guardian:OverviewHub] 【{label or rows[0]['part_short']}】候選前 {n}（來源：{source}）："
+    cards = _clip("、".join(f"`{cp.stem}`（{cp}）" for cp in card_paths) or "無（表上沒卡）", max(line_cap, cap // 4))
+    tail = [f"根因卡：{cards}", "先答兩問：" + "；".join(_CANDIDATE_QUESTIONS)]
+    body = "\n".join([*notes, *lines])
+    room = cap - len(head) - sum(len(t) + 1 for t in tail) - 1
+    if len(body) > room:
+        keep = max(room - 40, 0)   # 40＝截斷附註本身的長度預留，整塊仍 ≤ cap
+        body = body[:keep] + f"\n…（候選區塊超過 {cap} 字，截 {len(body) - keep} 字）"
+    return "\n".join([head, body, *tail])
 
 
 def _row_for_key(root: Path, part_short: str) -> Optional[Dict[str, Any]]:
@@ -570,25 +626,54 @@ def _mapped_recs(state: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
     return out
 
 
-def _candidates_on_trigger(state: Dict[str, Any], session_id: str, prompt: str, config: Dict[str, Any]) -> List[str]:
-    """提示詞命中 root_cause_triggers → 對本 session 已注入、還沒送過候選的部位各送一次（state["candidates_sent"] 記 key）。"""
-    cfg0 = _cfg(config)
-    word = _hit_trigger(prompt, cfg0.get("root_cause_triggers"))
-    if not word:
+def _table_rows(root: Path) -> List[Dict[str, Any]]:
+    mp = _map_path_of(root)
+    if mp is None:
         return []
+    try:
+        return parse_map(mp.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return []
+
+
+def _candidates_on_trigger(state: Dict[str, Any], session_id: str, prompt: str, config: Dict[str, Any]) -> List[str]:
+    """提示詞命中 root_cause_triggers（用該專案根合併後的 cfg 判，專案層覆蓋有效）→ 送候選，每個 key 一 session 一次
+    （state["candidates_sent"]）。已注入過部位 → 逐部位送（key＝部位 key）；本 session 還沒注入任何部位 → 用 cwd 的專案表
+    送一次「全專案候選前 N」（key＝`<root>|(all)`）。多塊一起送時總量也受 max_card_chars 限制（平分給各塊）。"""
     sent = state.setdefault("candidates_sent", [])
+    targets: List[Tuple[str, Path, List[Dict[str, Any]], Dict[str, Any], str, Optional[str]]] = []
+    recs = _mapped_recs(state)
+    if recs:
+        for key, rec in recs:
+            if key in sent or not rec.get("root"):
+                continue
+            root = Path(rec["root"])
+            row = _row_for_key(root, key.split("|", 1)[1])
+            if row is None:
+                continue
+            cfg = _cfg(config, root)
+            word = _hit_trigger(prompt, cfg.get("root_cause_triggers"))
+            if cfg["enabled"] and word:
+                targets.append((key, root, [row], cfg, word, None))
+    else:
+        found = find_map(str((state.get("session") or {}).get("cwd") or ""))
+        if found:
+            root = found[0]
+            key = f"{_root_key(root)}|(all)"
+            cfg = _cfg(config, root)
+            word = _hit_trigger(prompt, cfg.get("root_cause_triggers"))
+            rows = _table_rows(root)
+            if key not in sent and cfg["enabled"] and word and rows:
+                targets.append((key, root, rows, cfg, word, "全專案"))
+    if not targets:
+        return []
+    total = min(int(t[3].get("max_card_chars") or 6000) for t in targets)
+    each = max(total // len(targets), 1)
     out: List[str] = []
-    for key, rec in _mapped_recs(state):
-        if key in sent or not rec.get("root"):
-            continue
-        root = Path(rec["root"])
-        row = _row_for_key(root, key.split("|", 1)[1])
-        if row is None:
-            continue
-        cfg = _cfg(config, root)
-        out.append(_candidates_block(root, row, cfg))
+    for key, root, rows, cfg, word, label in targets:
+        out.append(_candidates_block(root, rows, cfg, each, label))
         sent.append(key)
-        _log("candidates", session_id, part=row["part_short"], trigger=word, via="prompt", layer=cfg.get("_layer"))
+        _log("candidates", session_id, part=label or rows[0]["part_short"], trigger=word, via="prompt", layer=cfg.get("_layer"))
     return out
 
 
@@ -892,10 +977,10 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     if not missing:
         # A5.3：放行的同檔第 2 次 Edit 附候選一次（被擋的不算改過；第 3 次起不送）；rec.edited_files {路徑: 放行次數}
         ef = rec["edited_files"]
-        ef_key = file_path.replace("\\", "/")
+        ef_key = _root_key(Path(file_path))   # 正斜線＋小寫：Windows 上 Game/A.cs 與 game/a.cs 是同一檔
         ef[ef_key] = int(ef.get(ef_key, 0)) + 1
         if ef[ef_key] == 2:
-            candidates = _candidates_block(root, row, cfg)
+            candidates = _candidates_block(root, [row], cfg)
             _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)

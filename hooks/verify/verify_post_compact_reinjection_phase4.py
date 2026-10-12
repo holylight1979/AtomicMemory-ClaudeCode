@@ -215,7 +215,9 @@ def test_q2_post_compact_keeps_both_parts_layers_cards_defects(tmp_path, monkeyp
     blob = st["pending_reinjection_overview"]
     _assert_q2_both_parts(blob)
     assert "壓縮前意圖：debug" in blob and "主目標：debug（視角：目標視角；先問：幾份存法、有無訊號）" in blob
-    assert "定位三行：已交（本 session 改過 2 次；同檔多次：" in blob and "定位三行：未交（本 session 改過 0 次）" in blob
+    assert "【戰鬥】層：熱修／主程式集｜定位三行：已交（本 session 改過 2 次）" in blob
+    assert "【UI 演出】層：單層｜定位三行：未交（本 session 改過 0 次）" in blob
+    assert "同檔多次：" in blob and "/game/battle/a.cs" in blob
     assert "ui導讀.md" in blob and "戰鬥導讀.md" in blob
     assert st["pending_reinjection_parts"] == ["戰鬥", "UI 演出"]
     assert all(rec.get("reinjected_after_compact") is True for k, rec in st["overview_hub"].items() if "(unmapped)" not in k)
@@ -244,6 +246,8 @@ def test_post_compact_chars_truncates_each_part(tmp_path, monkeypatch):
     parts = blob.split("\n\n")[1:]
     assert len(parts) == 2 and all(len(p) <= 80 + 60 and "post_compact_chars=80 截斷" in p for p in parts)
     assert "【戰鬥】" in blob and "【UI 演出】" in blob                                        # 截斷也不丟部位
+    # WARN 修：短欄在前，硬切也保住「層」與「三行已交否」
+    assert "層：熱修／主程式集｜定位三行：已交" in blob and "層：單層｜定位三行：未交" in blob
 
 
 def test_post_tool_batch_injects_atoms_before_overview_and_pops_both(tmp_path, monkeypatch, capsys):
@@ -267,9 +271,27 @@ def test_post_tool_batch_injects_atoms_before_overview_and_pops_both(tmp_path, m
     assert "[Overview Recovery] only" in json.loads(capsys.readouterr().out.strip())["hookSpecificOutput"]["additionalContext"]
 
 
+def test_rebuild_carry_keeps_one_shot_flags_so_nothing_resends(tmp_path, monkeypatch):   # 退件 BLOCK 8
+    """照 session_start 重建分支的搬法（for key in _CARRY_ON_REBUILD）搬舊 state，idle 一行與權威地圖不得重送。"""
+    from handlers import session_start as ss
+    import wg_overview as wo
+    import wg_depends as wd
+    existing = {"idle_scan_sent": True, "authority_map_injected": True, "candidates_sent": ["k"],
+                "depends_hints": ["c"], "turn_intent": "general", "overview_hub": {}}
+    rebuilt = {"session": {"cwd": str(tmp_path)}}
+    for key in ss._CARRY_ON_REBUILD:
+        if key in existing:
+            rebuilt[key] = existing[key]
+    assert rebuilt["idle_scan_sent"] is True and rebuilt["authority_map_injected"] is True
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    assert wo.on_prompt(rebuilt, "s", "接下來做什麼？", "", {}, intent="general") is None
+    assert wd._authority_map_text(rebuilt, "s", str(tmp_path / "a.md"), {"authority_map": {"*.md": "m.md"},
+                                                                         "max_card_chars": 100}, tmp_path) is None
+
+
 def test_session_start_carry_on_rebuild_includes_overview_keys():
     from handlers import session_start as ss
-    for key in ("overview_hub", "turn_intent", "depends_hints", "candidates_sent"):
+    for key in ("overview_hub", "turn_intent", "depends_hints", "candidates_sent", "idle_scan_sent", "authority_map_injected"):
         assert key in ss._CARRY_ON_REBUILD, key
     assert isinstance(ss._CARRY_ON_REBUILD, tuple)
     src = (HOOKS_DIR / "handlers" / "session_start.py").read_text(encoding="utf-8")

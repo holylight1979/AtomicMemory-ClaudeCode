@@ -810,6 +810,8 @@ _CARRY_ON_REBUILD = (
     "stop_blocked_count", "topic_tracker", "session_context_injected",
     # A2.4：專案根指紋變了重建 atom_index 時，OverviewHub 的注入紀錄／意圖／Depends 已提示的卡／已送過候選的部位照搬，不重注不重送
     "overview_hub", "turn_intent", "depends_hints", "candidates_sent",
+    # 一 session 一次的旗標也要照搬，否則重建後 idle 一行與權威地圖會重送
+    "idle_scan_sent", "authority_map_injected",
 )
 
 

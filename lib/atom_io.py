@@ -1185,8 +1185,9 @@ def write_atom(
                 sm = re.search(r"^- Source:\s*(.+)$", old, re.MULTILINE)
                 prev_provenance = sm.group(1).strip() if sm else None
             if depends is None:
-                dm = re.search(r"^- Depends:\s*(.+)$", old, re.MULTILINE)
-                prev_depends = [t.strip() for t in dm.group(1).split(",") if t.strip()] if dm else None
+                # [ \t]* 不跨行：空的 `- Depends:` 行不能把下一行（Trigger／標題）吃成依賴；空行＝[]（清）
+                dm = re.search(r"^- Depends:[ \t]*(.*)$", old, re.MULTILINE)
+                prev_depends = [t.strip() for t in re.split(r"[,，]", dm.group(1)) if t.strip()] if dm else None
             if quote is None:
                 qm = re.search(r"^- Quote:\s*(.+)$", old, re.MULTILINE)
                 prev_quote = qm.group(1).strip() if qm else None

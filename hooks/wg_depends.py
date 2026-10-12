@@ -10,6 +10,7 @@ lib.atom_spec.atoms_depending_on（全域索引以 ~/.claude 為根、專案索�
 from __future__ import annotations
 
 import fnmatch
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -53,11 +54,12 @@ def _authority_map_for(path: str, cfg: Dict[str, Any], root: Optional[Path]) -> 
     am = cfg.get("authority_map") or {}
     if not isinstance(am, dict) or not am:
         return None
-    norm = path.replace("\\", "/")
+    # 先 normpath 消解 `..`／`.`：docs/../src/a.md 是 src/a.md，不得命中 docs/*.md（fnmatch 的 * 會吃 /）
+    norm = os.path.normpath(path).replace("\\", "/")
     name = norm.rsplit("/", 1)[-1]
     rel = None
     if root is not None:
-        r = str(root).replace("\\", "/").rstrip("/")
+        r = os.path.normpath(str(root)).replace("\\", "/").rstrip("/")
         if norm.lower().startswith(r.lower() + "/"):
             rel = norm[len(r) + 1:]
     for pat, target in am.items():

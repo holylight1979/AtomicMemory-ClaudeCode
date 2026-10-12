@@ -58,7 +58,8 @@ EXCLUDED_FILE_NAMES = {"MEMORY.md", "_ATOM_INDEX.md"}
 
 TRIGGER_LINE_RE = re.compile(r"^- Trigger:\s*(.+)$", re.MULTILINE)
 SCOPE_LINE_RE = re.compile(r"^- Scope:\s*(.+)$", re.MULTILINE)
-DEPENDS_LINE_RE = re.compile(r"^- Depends:\s*(.+)$", re.MULTILINE)
+# [ \t]* 不跨行、(.*) 收空值：空的 `- Depends:` 行＝有行但清空（[]），不能把下一行吃成依賴
+DEPENDS_LINE_RE = re.compile(r"^- Depends:[ \t]*(.*)$", re.MULTILINE)
 
 
 @dataclass
@@ -129,7 +130,8 @@ def parse_frontmatter_scope(text: str) -> str:
 
 
 def parse_frontmatter_depends(text: str) -> Optional[List[str]]:
-    """`- Depends:` 行 → 條目清單（逗號／全形逗號切、strip、去空、保序去重）；沒有該行回 None（存量，不算漂移）。"""
+    """`- Depends:` 行 → 條目清單（逗號／全形逗號切、strip、去空、保序去重）；沒有該行回 None（存量，不算漂移）；
+    有行但值空 → []（清空：索引殘值算漂移，--sync-depends 會把索引鍵清掉）。"""
     m = DEPENDS_LINE_RE.search(text)
     if not m:
         return None

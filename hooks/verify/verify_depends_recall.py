@@ -120,6 +120,25 @@ def test_authority_map_injected_once_for_doc_files_only(world):
     assert wd.on_read_depends(st, "s", "Read", {"file_path": str(root / EXPECTED["doc_read"])}, str(root), {}) is None
 
 
+def test_authority_map_dotdot_does_not_escape_pattern(world):            # 退件 BLOCK 3
+    root, mem, state = world
+    (root / ".claude" / "overview-hub.json").write_text(json.dumps({"authority_map": {"docs/*.md": "_AIDocs/MAP.md"}}), encoding="utf-8")
+    (root / "src" / "a.md").write_text("x", encoding="utf-8")
+    cfg = wo._cfg({}, root)
+    assert wd._authority_map_for(str(root / "docs" / ".." / "src" / "a.md"), cfg, root) is None
+    assert wd._authority_map_for(str(root / "docs" / "計畫.md"), cfg, root) is not None
+    assert wd._authority_map_for(str(root / "src" / ".." / "docs" / "計畫.md"), cfg, root) is not None
+    st = dict(state)
+    assert wd.on_read_depends(st, "s", "Read", {"file_path": str(root / "docs" / ".." / "src" / "a.md")}, str(root), {}) is None
+
+
+def test_norm_fs_path_strips_extended_prefix(tmp_path):                  # 退件 WARN（\\?\ 前綴）
+    from atom_spec import _norm_fs_path
+    plain = _norm_fs_path(tmp_path / "x.py")
+    assert _norm_fs_path(Path("\\\\?\\" + str(tmp_path / "x.py"))) == plain
+    assert "?" not in plain
+
+
 def test_atoms_depending_on_bases_project_vs_root(tmp_path):
     root = tmp_path / "p"
     mem = root / ".claude" / "memory"

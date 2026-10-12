@@ -1183,6 +1183,11 @@ def test_33b_depends_passthrough_to_index(isolated_claude):
     assert not bad.ok and "depends invalid" in (bad.error or "")
     assert _entry()["depends"] == ["path:tools/q.py"]
     assert write_index(mem, "dep-atom", _entry()["path"], ["a", "b"], "test").ok and _entry()["depends"] == ["path:tools/q.py"]
+    # 檔頭被手改成空的 `- Depends:` 行（下一行是 Related）→ replace 未給 depends 視為清空，不把 Related 行吃成依賴
+    p = r.path
+    p.write_text(p.read_text(encoding="utf-8").replace("- Created-at:", "- Depends:\n- Related: rr\n- Created-at:"), encoding="utf-8")
+    r = write_atom(title="Dep Atom", mode="replace", **common)
+    assert r.ok and "depends" not in _entry() and "Depends" not in r.path.read_text(encoding="utf-8")
 
 
 def test_34_quote_py_js_byte_parity(tmp_path):
