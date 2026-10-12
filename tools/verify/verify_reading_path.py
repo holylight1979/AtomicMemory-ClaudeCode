@@ -910,6 +910,93 @@ def test_zero_function_warning_covers_custom_types_and_top_level_statements(tmp_
     assert report["stats"]["empty_files"] == ["Script.cs", "Top.cs"], "純資料檔（enum、常數）不警示"
 
 
+# ─── codex 三次初審（5de7780）抓到的反例 ─────────────────────────────────────
+
+PY_WORK = "def work():\n    w = 1\n    w += 1\n    return w\n\n\ndef alternate():\n    a = 2\n    a *= 3\n    return a\n\n\n"
+
+
+def test_default_callback_is_followed_and_compare_stays_same(tmp_path):
+    old = _write(tmp_path / "old", {"app.py": PY_WORK + "def run():\n    for i in range(2):\n        work()\n\n\n"
+                                              'if __name__ == "__main__":\n    run()\n'})
+    new = _write(tmp_path / "new", {"app.py": PY_WORK + "def run(cb=work):\n    for i in range(2):\n        cb()\n\n\n"
+                                              'if __name__ == "__main__":\n    run()\n'})
+    _route(rp.analyze(new, "app.py"), "app.py::work")
+    res = rp.run_compare(new, str(old), None, "app.py", None)
+    assert res["counts"]["gone"] == 0 and res["counts"]["better"] == 0
+
+
+def test_calling_a_computed_callable_counts_as_unresolved(tmp_path):
+    old = _write(tmp_path / "old", {"app.py": PY_WORK + "def main():\n    return work()\n\n\n"
+                                              'if __name__ == "__main__":\n    main()\n'})
+    new = _write(tmp_path / "new", {"app.py": PY_WORK + "def factory():\n    return work\n\n\n"
+                                              "def main():\n    return factory()()\n\n\n"
+                                              'if __name__ == "__main__":\n    main()\n'})
+    assert rp.build_graph(new).unres["app.py::main"] == 1
+    res = rp.run_compare(new, str(old), None, "app.py", None)
+    assert res["coverage_drop"] is True and res["counts"]["gone"] == 0 and res["counts"]["better"] == 0
+
+
+def test_callback_with_an_unseen_source_is_candidate_and_unresolved(tmp_path):
+    files = {"app.py": PY_WORK + ("def choose():\n    return alternate\n\n\n"
+                                  "def run(cb):\n    for i in range(2):\n        cb()\n\n\n"
+                                  "def warmup():\n    run(work)\n\n\n"
+                                  "def main():\n    warmup()\n    run(choose())\n\n\n"
+                                  'if __name__ == "__main__":\n    main()\n')}
+    g = rp.build_graph(_write(tmp_path, files))
+    cb = [e for e in g.edges["app.py::run"] if e.kind == "callback"]
+    assert cb and all(e.guess.startswith("候選：有呼叫處傳進看不到的函式") for e in cb)
+    assert g.unres["app.py::run"] >= 1
+
+
+def test_reassigned_callback_parameter_is_candidate(tmp_path):
+    files = {"app.py": PY_WORK + ("def run(cb, offline):\n    if offline:\n        cb = alternate\n    cb()\n\n\n"
+                                  "def main():\n    run(work, True)\n\n\n"
+                                  'if __name__ == "__main__":\n    main()\n')}
+    g = rp.build_graph(_write(tmp_path, files))
+    edges = {e.dst: e.guess for e in g.edges["app.py::run"]}
+    assert set(edges) >= {"app.py::work", "app.py::alternate"} and all(edges.values())
+
+
+def test_event_on_a_field_receiver_is_not_same_instance(tmp_path):
+    files = {"app.py": ('class Bus:\n    def on(self, key, fn):\n        self.k = key\n        self.f = fn\n        self.n = 0\n\n'
+                        '    def emit(self, key):\n        self.n += 1\n        self.k = key\n        return self.n\n\n\n'
+                        + PY_WORK +
+                        'class Svc:\n    def go(self):\n        self.bus = Bus()\n        self.bus.on("x", work)\n'
+                        '        self.bus = Bus()\n        self.bus.emit("x")\n')}
+    g = rp.build_graph(_write(tmp_path, files))
+    ev = [e for e in g.edges["app.py::Svc.go"] if e.kind == "event"]
+    assert ev and all(e.guess.startswith("候選") for e in ev)
+
+
+def test_csharp_ref_argument_drops_exact_type(tmp_path):
+    cs = CS_INHERIT.replace("var x = new Base();\n        x.Work();",
+                            "var x = new Base();\n        Replace(ref x);\n        x.Work();") \
+        .replace("    static void Run(Base y) {", "    static void Replace(ref Base b) { b = new Child(); }\n    static void Run(Base y) {")
+    g = rp.build_graph(_write(tmp_path, {"Program.cs": cs}))
+    main_work = {e.dst: e.guess for e in g.edges["Program.cs::Program.Main"] if "Work" in e.dst}
+    assert "Program.cs::Child.Work" in main_work and all(main_work.values()), "x 傳 ref 出去後可能變成 Child"
+
+
+def test_multiple_static_usings_with_same_name_are_candidates(tmp_path):
+    cs = ("using static A;\nusing static B;\nclass M {\n    static void Main() { Work(1); }\n}\n"
+          "static class A {\n    public static void Work(string s) { s += \"x\"; s += \"y\"; s += \"z\"; }\n}\n"
+          "static class B {\n    public static void Work(int n) { n += 1; n *= 2; n -= 3; }\n}\n")
+    g = rp.build_graph(_write(tmp_path, {"M.cs": cs}))
+    edges = {e.dst: e.guess for e in g.edges["M.cs::M.Main"]}
+    assert set(edges) == {"M.cs::A.Work", "M.cs::B.Work"} and all(edges.values())
+
+
+def test_python_union_annotation_is_not_narrowed_to_its_first_member(tmp_path):
+    files = {"app.py": ("from typing import Union\n\n\nclass Disk:\n    def save(self):\n        d = 1\n        d += 1\n        return d\n\n\n"
+                        "class Cloud:\n    def save(self):\n        c = 2\n        c += 1\n        return c\n\n\n"
+                        "def main(store: Union[Disk, Cloud], other: Disk | Cloud, maybe: Disk | None):\n"
+                        "    store.save()\n    other.save()\n    maybe.save()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    certain = [e.dst for e in g.edges["app.py::main"] if not e.guess]
+    assert certain == ["app.py::Disk.save"], "只有 Disk | None 能確定是 Disk；兩種聯集都不能只挑 Disk"
+    assert g.unres["app.py::main"] == 2
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

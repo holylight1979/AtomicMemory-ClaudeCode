@@ -177,19 +177,19 @@ def callback_targets(g: "Graph", bind_fid: str, param: str) -> list:
     """bind_fid 的參數 param 被當函式呼叫：找所有呼叫 bind_fid 的地方，那個位置傳進來的是哪個函式
     → [(func id, 不確定原因)]；傳進來的參照本身是猜的，原因跟著帶過來。"""
     out = []
-    for caller, ref in g.bound_refs(bind_fid, param):
+    for caller, ref in g.bound_refs(bind_fid, param)[0]:
         out += [(e.dst, e.guess) for e in g.resolve(caller, ref, defer=False)]
     return out
 
 
 def event_targets(g: "Graph", f: lang.Func, c: lang.Call) -> list:
     """訂閱了同名事件的處理函式 → [(func id, 同一實例否, 處理函式本身的不確定原因)]。
-    同一函式裡對同一接收者訂閱又發出、且接收者沒被重新指定，才算同一實例。"""
+    同一函式裡對同一個區域變數接收者訂閱又發出、且沒被重新指定，才算同一實例；欄位接收者（self.bus）中途可能被換，不算。"""
     out = []
     for key, ref, owner, file, recv in g.subs:
         if key != c.name or not g.same_side(f, file):
             continue
-        sure = bool(c.recv) and owner == f.id and recv == c.recv and c.recv not in f.reassigned
+        sure = bool(c.recv) and "." not in c.recv and owner == f.id and recv == c.recv and c.recv not in f.reassigned
         ctx = g.funcs.get(owner) or g.module_ctx(file)
         out += [(e.dst, sure, e.guess) for e in g.resolve(ctx, ref, defer=False)]
     return out
@@ -371,17 +371,23 @@ class Graph:
         full = ".".join(p for p in (modname, orig, dotted[len(key) + 1:]) if p)
         return self.find_module(full, level, f.file)
 
-    def bound_refs(self, bind_fid: str, param: str) -> list:
-        """呼叫 bind_fid 的每個地方，在 param 那個位置傳進來的函式參照 → [(呼叫者, 參照)]。
-        傳 lambda 的不算參照（內容就寫在呼叫者裡）。Python 方法經由物件呼叫時第一個參數是 self，位置要扣掉。"""
+    def bound_refs(self, bind_fid: str, param: str):
+        """呼叫 bind_fid 的每個地方，param 那個位置傳進來的是什麼 → ([(語境函式, 函式參照)], 有沒有看不到的來源)。
+        具名函式 → 參照；lambda、常數 → 略過（內容在呼叫者裡）；算出來的值、展開 → 看不到；
+        沒傳 → 預設值是函式就當參照。Python 方法經由物件呼叫時第一個參數是 self，位置要扣掉。"""
         f = self.funcs[bind_fid]
         offset = 1 if f.lang == "py" and f.cls and f.params[:1] in (["self"], ["cls"]) else 0
         pos = f.params.index(param) - offset
         callers = [(caller, call) for caller, call in self.callers.get(bind_fid, []) if self.same_side(f, caller.file)]
-        out = []
+        refs, unknown = [], False
         for caller, call in callers:
-            out += [(caller, ref) for key, ref in call.refs if key in (pos, param)]
-        return out
+            hit = [(caller, ref) for key, ref in call.refs if key in (pos, param)]
+            passed = pos < call.nargs or param in call.kwargs or bool({"*", "**"} & call.blind)
+            unknown = unknown or bool({pos, param, "*", "**"} & call.blind)
+            refs += hit or ([(f, f.defaults[param])] if not passed and param in f.defaults else [])
+        if not callers and param in f.defaults:
+            refs.append((f, f.defaults[param]))   # 專案裡沒人呼叫（框架或外部呼叫）：用預設值
+        return refs, unknown
 
     def same_side(self, f: lang.Func, other_file: str) -> bool:
         """非測試碼不採用測試檔傳進來的假函式、訂閱的處理函式（那只在跑測試時存在）。"""
@@ -397,7 +403,7 @@ class Graph:
     def resolve(self, f: lang.Func, c: lang.Call, defer: bool = True) -> list:
         handler = {"name": self._r_name, "self": self._r_self, "super": self._r_super, "attr": self._r_attr,
                    "new": self._r_new, "emit": self._r_emit, "invoke": self._r_invoke, "table": self._r_table,
-                   "getattr": self._r_getattr, "prop": self._r_prop}
+                   "getattr": self._r_getattr, "prop": self._r_prop, "opaque": lambda *_: []}
         return handler[c.kind](f, c, defer)
 
     def dispatch(self, cls, name: str, via: str = "", exact: bool = False) -> list:
@@ -418,10 +424,21 @@ class Graph:
         reason = f"候選：{len(ids)} 個多載，沒比對參數型別" if len(ids) > 1 else ""
         return [Edge(i, "direct", guess=reason, via=via) for i in dict.fromkeys(ids)]
 
-    def _defer(self, src: lang.Func, bind: tuple, defer: bool) -> list:
+    def _defer(self, src: lang.Func, bind: tuple, defer: bool, shaky: bool = False) -> list:
+        """callback 等所有呼叫者都連好再解：記下 (呼叫的函式, 綁定的函式, 參數名, 參數是否在函式裡被重新指定)。"""
         if defer:
-            self.pending.append((src.id, *bind))
+            self.pending.append((src.id, *bind, shaky))
         return []
+
+    def _param_call(self, f, c, defer) -> list:
+        """呼叫參數 cb()：等呼叫者傳了什麼；參數在函式裡被重新指定（cb = alternate）→ 傳進來的和改指的都只是候選。"""
+        if f.cls and c.name == "cls" and f.params[:1] == ["cls"]:
+            return self._ctor(self.cls_of(f))      # classmethod 裡的 cls(...)：建構自己的類別
+        shaky = c.name in f.reassigned
+        ref = f.aliases.get(c.name) if shaky else None
+        reason = f"候選：參數 {c.name} 在函式裡被重新指定"
+        edges = [Edge(e.dst, e.kind, guess=reason) for e in self.resolve(f, ref, defer=False)] if ref else []
+        return edges + self._defer(f, (f.id, c.name), defer, shaky)
 
     def alias_target(self, f: lang.Func, name: str):
         """fn = b; fn(n)：沿區域變數別名走到真正的函式參照（最多 MAX_REEXPORT 跳）；
@@ -436,7 +453,7 @@ class Graph:
 
     def _r_name(self, f, c, defer):
         if c.name in f.params:
-            return self._defer(f, (f.id, c.name), defer)
+            return self._param_call(f, c, defer)
         if c.name in f.aliases:
             ref = self.alias_target(f, c.name)
             return self.resolve(f, ref, defer) if ref else []
@@ -452,13 +469,10 @@ class Graph:
         return self._r_self(f, c, defer) or self._static_using(f, c.name)   # C#：本類別的方法／事件／委派欄位，或 using static
 
     def _static_using(self, f: lang.Func, name: str) -> list:
-        """C# `using static 專案類別;` 之後的裸名呼叫：到那些類別找靜態方法。"""
-        for t in self.modules[f.file].static_usings if f.file in self.modules else []:
-            cls = self.cls_named(t.split(".")[-1], f.file)
-            edges = self.dispatch(cls, name, exact=True) if cls else []
-            if edges:
-                return edges
-        return []
+        """C# `using static 專案類別;` 之後的裸名呼叫：所有靜態匯入的類別裡同名的方法都算，多於一個就標候選。"""
+        usings = self.modules[f.file].static_usings if f.file in self.modules else []
+        classes = [c for c in (self.cls_named(t.split(".")[-1], f.file) for t in usings) if c]
+        return self._overloads(list(flat(self.lookup(c, name) for c in classes)))
 
     def _r_self(self, f, c, defer):
         cls = self.cls_of(f)
@@ -500,7 +514,7 @@ class Graph:
     def _r_invoke(self, f, c, defer):
         """C# 的 X.Invoke()／X?.Invoke()：X 是參數、別名或建構時存下的委派 → callback；否則當事件。"""
         if c.name in f.params:
-            return self._defer(f, (f.id, c.name), defer)
+            return self._param_call(f, c, defer)
         if c.name in f.aliases:
             ref = self.alias_target(f, c.name)
             return self.resolve(f, ref, defer) if ref else []
@@ -635,7 +649,7 @@ class Graph:
         專案內但看不到（區域變數裝的函式、同名方法多個、找不到的 self 方法、getattr、找不到的表）→ False，計入未解。"""
         if c.kind in ("emit", "prop", "new", "super"):
             return True
-        if c.kind in ("table", "getattr"):
+        if c.kind in ("table", "getattr", "opaque"):
             return False
         if c.kind == "invoke":                     # 沒人訂閱的事件 → 外部；區域變數或不明欄位裝的委派 → 看不到
             return bool(f.cls) and any(c.name in x.events for x in self.ancestry(self.cls_of(f)))
@@ -699,13 +713,23 @@ class Graph:
                 linked = bool(edges) or len(self.pending) > waiting
                 self.hits[f.id] += linked
                 self.unres[f.id] += not linked and not self.is_external(f, c)
-        for src, bind, param in self.pending:
+        for src, bind, param, shaky in self.pending:
             found = {}
             for dst, guess in callback_targets(self, bind, param):
                 found[dst] = guess if dst not in found else (found[dst] and guess)   # 有一處確定就算確定
-            reason = f"候選：{len(found)} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if len(found) > 1 else ""
+            refs, blind = self.bound_refs(bind, param)
+            unknown = blind or any(not self.resolve(c, r, defer=False) and not self.is_external(c, r) for c, r in refs)
+            reason = self._callback_reason(param, len(found), shaky, unknown)
             self._add_edges(src, [Edge(t, "callback", guess=g or reason) for t, g in found.items()], None)
-            self.unres[src] += not found and bool(self.bound_refs(bind, param))   # 有人傳了具名函式卻解不出來
+            self.unres[src] += unknown or (not found and bool(refs))
+
+    @staticmethod
+    def _callback_reason(param: str, targets: int, shaky: bool, unknown: bool) -> str:
+        if unknown:
+            return f"候選：有呼叫處傳進看不到的函式給 {param}，這只是看得到的那些"
+        if shaky:
+            return f"候選：參數 {param} 在函式裡被重新指定"
+        return f"候選：{targets} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if targets > 1 else ""
 
     def _add_edges(self, src: str, edges: list, c) -> None:
         """加邊（同終點同種類只留一條）；直接／繼承呼叫每個呼叫點都記下呼叫者（就算邊重複），callback 要回頭查誰傳了什麼。"""
@@ -793,8 +817,8 @@ def build_graph(root: Path) -> Graph:
             continue
         modules.append(mod)
         scan["file_funcs"][rel] = len(mod.funcs)
-        if not mod.funcs and DEF_HINT[mod.lang].search(text):
-            scan["empty_files"].append(rel)
+        if not mod.funcs and not is_test(rel) and DEF_HINT[mod.lang].search(text):
+            scan["empty_files"].append(rel)       # 測試夾具常是只有頂層程式碼的腳本，不列
     return Graph(root, modules, scan)
 
 

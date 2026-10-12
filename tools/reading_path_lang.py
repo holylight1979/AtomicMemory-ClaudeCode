@@ -29,7 +29,7 @@ class Call:
     kind：name 裸名呼叫｜self 本物件方法｜super 父類方法｜attr 經由別的東西（recv；mod:X＝字串寫的模組）｜new 建構｜
           emit 發事件（name＝事件鍵，recv＝發事件的接收者）｜invoke C# 的 X.Invoke()（name＝X）｜
           table 分派表（name＝表名，key＝寫死的鍵）｜getattr getattr(…)(…)（name＝引數裡出現的變數名，逗號分隔）｜
-          prop C# 讀寫屬性
+          prop C# 讀寫屬性｜opaque 呼叫的對象是算出來的值（factory()(x)、self.handlers[k](x)），看不到
     """
     kind: str
     name: str
@@ -38,6 +38,9 @@ class Call:
     refs: list = field(default_factory=list)   # 引數裡的函式參照 [(位置 int｜關鍵字 str, Call)]
     noise: bool = False                        # log/print：不算句數、不算呼叫
     key: str = ""                              # 分派表呼叫時寫死的鍵（TABLE["x"]()）
+    nargs: int = 0                             # 位置引數個數
+    kwargs: set = field(default_factory=set)   # 有傳的關鍵字引數名
+    blind: set = field(default_factory=set)    # 傳的是算出來的值（呼叫結果、下標…）的位置／關鍵字；"*"／"**" 表示展開，全部看不到
 
 
 @dataclass
@@ -51,6 +54,7 @@ class Func:
     line: int
     params: list = field(default_factory=list)
     param_types: dict = field(default_factory=dict)   # 參數 → 型別的類別名（拿來解析接收者）
+    defaults: dict = field(default_factory=dict)      # 參數 → 預設值是函式參照時的 Call（def run(cb=work)）
     sig: str = ""                                     # C# 完整參數型別（含泛型、陣列、ref/out），當多載簽章
     calls: list = field(default_factory=list)
     simple: bool = False      # 去掉 docstring 與 log 後 ≤2 句且無分支迴圈：轉手函式的候選
@@ -202,10 +206,14 @@ def _py_class(mod: Module, node: ast.ClassDef) -> None:
 def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     qual = prefix + node.name
     fid = f"{mod.file}::{qual}"
-    args = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+    positional = node.args.posonlyargs + node.args.args
+    args = positional + node.args.kwonlyargs
+    pairs = list(zip(positional[len(positional) - len(node.args.defaults):], node.args.defaults))
+    pairs += [(a, d) for a, d in zip(node.args.kwonlyargs, node.args.kw_defaults) if d is not None]
     f = Func(fid, mod.file, qual, node.name, cls.name if cls else "", "py", node.lineno,
              params=[a.arg for a in args],
-             param_types={a.arg: _py_ann(a.annotation) for a in args if _py_ann(a.annotation)})
+             param_types={a.arg: _py_ann(a.annotation) for a in args if _py_ann(a.annotation)},
+             defaults={a.arg: r for a, d in pairs if (r := _py_ref(d))})
     body = _strip_doc(node.body)
     nodes = _py_scan(f.imports, body)
     real = [s for s in body if not isinstance(s, ast.Pass) and not _py_noise_stmt(s) and not _py_move(s)]
@@ -265,16 +273,25 @@ def _py_noise_stmt(stmt: ast.stmt) -> bool:
 
 
 def _py_ann(ann) -> str:
-    """型別標註取類別名：Repo、mod.Repo、Optional[Repo]、Repo | None、"Repo"；容器（list[Repo]）回容器名，不是 Repo。"""
+    """型別標註取類別名：Repo、mod.Repo、Optional[Repo]、Repo | None、"Repo"；容器（list[Repo]）回容器名，不是 Repo；
+    聯集有兩個以上非 None 成員（Disk | Cloud）→ 空字串（型別不定，不挑一個）。"""
     if isinstance(ann, ast.BinOp):
-        return _py_ann(ann.left)
+        members = [m for m in (ann.left, ann.right) if not _py_is_none(m)]
+        return _py_ann(members[0]) if len(members) == 1 else ""
     if isinstance(ann, ast.Subscript):
         head = _py_recv(ann.value).split(".")[-1]
-        inner = ann.slice.elts[0] if isinstance(ann.slice, ast.Tuple) and ann.slice.elts else ann.slice
-        return _py_ann(inner) if head in ("Optional", "Union", "Annotated", "Final", "ClassVar") else head
+        elts = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+        members = [e for e in elts if not _py_is_none(e)] if head == "Union" else elts[:1]
+        if head not in ("Optional", "Union", "Annotated", "Final", "ClassVar"):
+            return head
+        return _py_ann(members[0]) if len(members) == 1 else ""
     if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
         return ann.value.split(".")[-1]
     return _py_recv(ann).split(".")[-1] if ann is not None else ""
+
+
+def _py_is_none(node) -> bool:
+    return (isinstance(node, ast.Constant) and node.value is None) or (isinstance(node, ast.Name) and node.id == "None")
 
 
 def _py_recv(expr) -> str:
@@ -309,8 +326,8 @@ def _py_call(node: ast.Call) -> Call | None:
     if isinstance(fn, ast.Call) and _py_recv(fn.func) == "getattr":
         names = sorted({n.id for n in itertools.chain.from_iterable(ast.walk(a) for a in fn.args) if isinstance(n, ast.Name)})
         return Call("getattr", ",".join(names), line=line)
-    if not isinstance(fn, ast.Attribute):
-        return None
+    if not isinstance(fn, ast.Attribute):          # 就地呼叫 lambda：內容在這裡；其他算出來的對象：看不到
+        return None if isinstance(fn, ast.Lambda) else Call("opaque", "", line=line)
     recv = _py_recv(fn.value)
     if recv in ("self", "cls"):
         return Call("self", fn.attr, line=line)
@@ -329,6 +346,11 @@ def _py_ref(expr) -> Call | None:
     return Call("attr", expr.attr, recv=recv) if recv and not recv.startswith("new:") else None
 
 
+def _py_blind(expr) -> bool:
+    """引數是算出來的值（呼叫結果、下標、條件運算…）：如果被當函式用，看不到是哪一個。"""
+    return isinstance(expr, (ast.Call, ast.Subscript, ast.IfExp, ast.BoolOp, ast.Await, ast.Starred))
+
+
 def _py_calls(mod: Module, nodes: list, owner: str) -> list:
     calls = []
     for node in nodes:
@@ -337,6 +359,10 @@ def _py_calls(mod: Module, nodes: list, owner: str) -> list:
             continue
         c.refs = [(i, r) for i, a in enumerate(node.args) if (r := _py_ref(a))]
         c.refs += [(k.arg, r) for k in node.keywords if k.arg and (r := _py_ref(k.value))]
+        c.nargs, c.kwargs = len(node.args), {k.arg for k in node.keywords if k.arg}
+        c.blind = {i for i, a in enumerate(node.args) if _py_blind(a)} | {k.arg for k in node.keywords if k.arg and _py_blind(k.value)}
+        c.blind |= {"*"} if any(isinstance(a, ast.Starred) for a in node.args) else set()
+        c.blind |= {"**"} if any(k.arg is None for k in node.keywords) else set()
         calls.append(c)
         calls.extend(_py_events(mod, node, c, owner))
     return sorted(calls, key=lambda c: c.line)
@@ -410,6 +436,7 @@ _CS_LISTEN = re.compile(r"(?P<lhs>[\w.]+)\s*\.\s*AddListener\s*\(\s*(?P<rhs>[A-Z
 _CS_LOCAL = re.compile(r"\b(?:var|(?P<type>[A-Z]\w*)(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?:new\s+(?P<new>\w+))?")
 _CS_ALIAS = re.compile(r"\b(?:var|[A-Z]\w*(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
 _CS_STORE = re.compile(r"\b([a-z_]\w*)\s*=(?![=>])")   # 區域變數被指定（宣告或重新指定；不含 ==、=>、+=）
+_CS_BYREF = re.compile(r"\b(?:ref|out)\s+(?:var\s+|[\w<>\[\],.?]+\s+(?=[a-z_]\w*\s*[,)]))?([a-z_]\w*)")
 _CS_INLINE = re.compile(r"(?:^|[;{}])\s*(?:(?:static|async)\s+)*(?P<type>[\w<>\[\],?.]+)\s+(?P<name>\w+)\s*"
                         r"(?:\([^()]*\)\s*(?:\{|=>)|=\s*(?:\([^()]*\)|\w+)\s*=>)", re.M)   # 區域函式、lambda 變數
 _CS_ASSIGN = re.compile(r"(?:this\.)?(?P<lhs>\w+)\s*=\s*(?:new\s+(?P<new>\w+)|(?P<rhs>\w+)\s*;)")
@@ -585,6 +612,7 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
     stores = Counter(_CS_STORE.findall(body))
     f.locals = set(stores)
     stores.update(f.params)
+    stores.update({name: 2 for name in _CS_BYREF.findall(body)})   # 傳 ref／out 出去：呼叫後值可能被換掉
     f.reassigned = {name for name, k in stores.items() if k > 1}
     for m in _CS_ASSIGN.finditer(body):
         if m["new"]:
@@ -592,7 +620,7 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
         elif m["rhs"] in f.params:
             cls.stored[m["lhs"]] = (f.id, m["rhs"])
     for m in [*_CS_SUB.finditer(body), *_CS_LISTEN.finditer(body)]:
-        ref = _cs_ref(m["rhs"])
+        ref = _cs_ref(m["rhs"])   # 訂閱的是具名方法才收；+= lambda 的內容就寫在這裡
         recv, _, key = m["lhs"].rpartition(".")
         if ref:
             mod.subs.append((key, ref, f.id, mod.file, recv))
@@ -608,7 +636,12 @@ def _cs_call(m: re.Match, body: str, line: int) -> Call | None:
     on_result = j >= 0 and body[j] in ".?"      # a.B().C( 的 C：接在運算結果上，接收者不明
     c = _cs_call_kind(bool(m["new"]), name, recv, on_result)
     c.line = line
-    c.refs = _cs_args(body, m.end())
+    args = _cs_arg_texts(body, m.end())
+    refs = [(m2["key"] or idx, _cs_ref(m2["name"] if not m2["recv"] else f"{m2['recv']}.{m2['name']}"))
+            for idx, a in enumerate(args) if (m2 := _CS_REF.fullmatch(a))]
+    c.refs = [(k, r) for k, r in refs if r]
+    c.nargs = len(args)
+    c.blind = {idx for idx, a in enumerate(args) if "(" in a and "=>" not in a and not a.lstrip().startswith("new ")}
     return c
 
 
@@ -628,15 +661,13 @@ def _cs_call_kind(is_new: bool, name: str, recv: str, on_result: bool) -> Call:
     return Call("attr", name, recv=recv, noise=_is_noise("attr", name, recv))
 
 
-def _cs_args(body: str, i: int) -> list:
-    """body[i] 是 ( 後一格：取到對應 ) 為止的引數裡、像函式參照的那些（方法群組 OnHit、this.OnHit）。"""
+def _cs_arg_texts(body: str, i: int) -> list:
+    """body[i] 是 ( 後一格：取到對應 ) 為止，切成一個個引數文字。"""
     depth = 0
     for j in range(i, len(body)):
         depth += (body[j] in "([{") - (body[j] in ")]}")
         if depth < 0:
-            args = _split_top(body[i:j])
-            return [(m["key"] or idx, _cs_ref(m["name"] if not m["recv"] else f"{m['recv']}.{m['name']}"))
-                    for idx, a in enumerate(args) if (m := _CS_REF.fullmatch(a))]
+            return _split_top(body[i:j])
     return []
 
 
