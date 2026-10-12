@@ -1890,6 +1890,47 @@ def test_p3_a_parameter_default_resolves_in_the_enclosing_scope(tmp_path):
     assert _edge_rules(files, "app.py::outer.inner", tmp_path / "b") == [("app.py::outer.work", 5)]
 
 
+P4_REBOUND_WRITES = {   # 接收者的型別標註（pathlib.Path，外部）在寫入前就失效了：p 指的其實是 Worker
+    "case4_param": "def change(p: Path):\n    p = Worker\n    p.run = other\n",
+    "annotated_local": "def change(source):\n    p: Path = source\n    p = Worker\n    p.run = other\n",
+    "nonlocal_param": "def change(p: Path):\n    def g():\n        nonlocal p\n        p = Worker\n\n    g()\n    p.run = other\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(P4_REBOUND_WRITES))
+def test_p4_a_write_through_a_rebound_receiver_counts_as_a_possible_method_rewrite(tmp_path, form):
+    """案 4＋總原則 4：參數或區域變數被重新指定過（任何一次，含內層 nonlocal），它的型別證據就失效；之後經它寫的
+    p.run = other 照「接收者型別看不出」用名字保守記成可能改寫 → 別處 Worker().run() 不給條號。"""
+    app = ("from pathlib import Path\n\n\n" + WORKER + "\n\ndef other(self):\n    return 2\n\n\n" + P4_REBOUND_WRITES[form]
+           + "\n\ndef main():\n    w = Worker()\n    return w.run()\n")
+    run = [s for d, s in _sure_edges({"app.py": app}, "app.py::main", tmp_path) if d == "app.py::Worker.run"]
+    assert run == [False], f"{form}：p 已不是 Path，p.run = other 可能改寫了 Worker.run"
+
+
+def test_p4_a_write_through_an_external_receiver_that_was_never_rebound_does_not_touch_project_methods(tmp_path):
+    """反方向：p: Path 沒被重新指定，p.run = … 寫的是外部型別的屬性，不影響專案的 Worker.run（仍是第 2 條）。"""
+    app = ("from pathlib import Path\n\n\n" + WORKER + "\n\ndef touch(p: Path):\n    p.run = None\n\n\n"
+           "def main():\n    w = Worker()\n    return w.run()\n")
+    assert [r for d, r in _edge_rules({"app.py": app}, "app.py::main", tmp_path) if d == "app.py::Worker.run"] == [2]
+
+
+P4_REBOUND_RECEIVERS = {   # 宣告型別（第 3 條的證據）在呼叫前被改掉
+    "nonlocal_param": ("def main(w: Worker):\n    def g():\n        nonlocal w\n        w = Other()\n\n    g()\n    w.run()\n",
+                       "app.py::main", "app.py::Worker.run"),
+    "self_reassigned": ("class App:\n    def run(self):\n        q = 1\n        return q + 1\n\n"
+                        "    def go(self):\n        self = Other()\n        self.run()\n", "app.py::App.go", "app.py::App.run"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P4_REBOUND_RECEIVERS))
+def test_p4_a_rebound_receiver_loses_its_declared_type(tmp_path, form):
+    """總原則 4 對第 3 條：參數 w 被內層 nonlocal 改成 Other()、self 被重新指定——宣告的型別不再是證據，不給第 3 條。"""
+    body, fid, wrong = P4_REBOUND_RECEIVERS[form]
+    app = WORKER + "\n\nclass Other:\n    def run(self):\n        return 3\n\n\n" + body
+    assert (wrong, True) not in _sure_edges({"app.py": app}, fid, tmp_path / "a"), f"{form}：接收者已被改指"
+    assert all(r is None for d, r in _edge_rules({"app.py": app}, fid, tmp_path / "b") if d == wrong)
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
