@@ -1,8 +1,9 @@
 """verify_user_extract_session_directive.py：一次性 session 指示（派工開工句）不送萃取，萃取紀錄留 skip 原因。
 
-正例：四張曾被誤寫成根層 atom 的開工句（卡片 Quote 原句）→ 程式前置判斷命中，不送 L1／L2，
+正例：四張曾被誤寫成根層 atom 的開工句（卡片 Quote 原句）、開工句模板整段 → 每個子句都整句對上派工樣板，不送 L1／L2，
       _merge_history.log 寫一行「action=user-extract-skip reason=session-directive(...)」，批次統計 skipped_directive。
-反例：一般跨專案決策（「以後 commit message 一律繁體中文」等）→ 不命中，照常送 L1／L2。
+反例：開工句裡夾任何一個對不上樣板的子句（跨專案決策、操作限制…）、一般跨專案決策 → 交 L1／L2。
+另驗：正式啟動端（_shared）把 worker 的 stderr 落到資料根 Logs/，紀錄寫不進時錯誤看得到、候選留在佇列。
 另驗：worker 讀的判斷樣板來自程式碼樹，且 L1／L2 樣板都有「只在這個 session 有效的指示不算」準則。
 退回舊碼：開工句也送 L1 → 管線案紅在斷言。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_user_extract_session_directive.py
@@ -54,6 +55,21 @@ DECISIONS += [MIXED_DECIDE, MIXED_DECIDE_NEWLINE,
               "你是\n工作 session track-x，本次一律只讀 C:\\wt\\x。",   # 角色被換行拆開：認不出就交 LLM（不誤丟優先）
               "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x\n我決定備份目錄統一使用 D:\\backup。",
               "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x\n備份目錄統一使用 D:\\backup。"]   # 有路徑但沒有派工語境的句子不算派工句
+# 退件 026 的重現：開工句後面接跨專案決策或操作限制，那個子句對不上任何樣板 → 交 LLM
+B1A = "你是工作 session，第一步用 EnterWorktree 切進 C:\\wt\\x，所有 repo 的 commit message 一律繁體中文。"
+B1B = "你是工作 session。第一步用 EnterWorktree 切進 C:\\wt\\x。所有 repo 的 worktree 備份目錄統一用 D:\\backup。"
+LIMITS = "你是工作 session track-x，第一步用 EnterWorktree 切進 C:\\wt\\x，只准處理 UI，一律先跑測試。"
+NEWLINE_MIXED = "你是工作 session track-x\n第一步用 EnterWorktree 切進 C:\\wt\\x\n所有 repo 的 commit message 用繁體中文"
+DECISIONS += [B1A, B1B, LIMITS, NEWLINE_MIXED]
+# 開工句模板（workflow/v6-inbox/_console/開工句模板.md）填好的整段，與只用換行分句的純開工句
+TEMPLATE_FILLED = (
+    "你是 v6.0 的工作 session track-a3，總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree "
+    "C:\\Users\\holylight\\.claude-wt\\track-a3（分支 v6/track-a3，已存在，不要新建）。派工 prompt 在 "
+    "C:\\Users\\holylight\\.claude\\workflow\\v6-inbox\\to-track-a3\\019-continue-017.md，用絕對路徑讀完全文照做。"
+    "切進去之後所有讀寫一律用 worktree 絕對路徑、不碰 live C:\\Users\\holylight\\.claude；交付信附 live 未動證明。"
+    "只跑目標 verify（直接在 worktree 根跑 pytest，不加 cd）、不跑全量、不重掛 Monitor、不輪詢。"
+    "開工前先 SendMessage claude-ad 一句「track-a3 收到開工」。")
+NEWLINE_KICKOFF = "你是工作 session track-x\n第一步用 EnterWorktree 切進 C:\\wt\\x"
 # 開工句的常見改寫（不是「你是」開頭、英文、外層引號）
 REWORDED_KICKOFFS = [
     "For this session, act as track-x. You must work only in C:\\wt\\x; read the task at C:\\inbox\\022.md.",
@@ -89,11 +105,11 @@ def test_cross_project_decisions_are_not_session_directives(text):
     assert _load_worker()._session_directive_reason(text) is None
 
 
-def test_signals_without_role_need_two_kinds():
+def test_template_and_newline_kickoffs_match_clause_by_clause():
     m = _load_worker()
-    assert m._session_directive_reason("第一步用 EnterWorktree 切進 worktree，派工單在 D:\\inbox\\7.md") == "first-step+session-op+abs-path"
-    assert m._session_directive_reason("第一步用 EnterWorktree 切進 worktree") is None     # 沒有角色開頭只有兩種訊號不算
-    assert m._session_directive_reason("以後第一步都先跑測試") is None                     # 長期用語交 LLM
+    assert m._session_directive_reason(TEMPLATE_FILLED) == "role+controller+step+dispatch+scope+deliver+verify+ack"
+    assert m._session_directive_reason(NEWLINE_KICKOFF) == "role+step"                  # 反例：換行不切句就對不上樣板
+    assert m._session_directive_reason(TEMPLATE_FILLED + "另外，所有 repo 都用 tab") is None   # 多一個子句對不上 → 交 LLM
 
 
 def test_prompt_templates_come_from_code_tree_and_carry_the_criterion(tmp_path, monkeypatch):
@@ -132,7 +148,7 @@ def test_pipeline_skips_kickoff_before_llm_and_records_reason(tmp_path, monkeypa
     stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, [KICKOFFS[0], DECISIONS[0]])
     assert [_user_part(p) for p in l1_seen] == [DECISIONS[0]], l1_seen                # 反例：舊碼開工句也送 L1
     assert [t for t, _ in pending_seen] == ["sd-test-1"] and stats["skipped_directive"] == 1
-    assert "action=user-extract-skip" in log and "reason=session-directive(role+session-op+abs-path)" in log
+    assert "action=user-extract-skip" in log and "reason=session-directive(role+controller+step+dispatch)" in log
     assert "turn=sd-test-0" in log
     assert "skipped_directive=1" in log
     assert left == []                                                                  # 兩筆都處理完、不留待重送
@@ -155,6 +171,33 @@ def test_mixed_kickoff_with_decision_goes_to_llm_and_empty_candidate_is_recorded
     assert pending_seen == [("sd-test-1", MIXED_DECIDE), ("sd-test-2", MIXED_DECIDE_NEWLINE)]
     assert "reason=not-user-typed turn=sd-test-0" in log and stats["skipped_not_user"] == 1   # 空候選也留原因
     assert left == []
+
+
+def test_b1_kickoffs_with_decisions_go_to_llm(tmp_path, monkeypatch):
+    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, [B1A, B1B, LIMITS])
+    assert [_user_part(p) for p in l1_seen] == [B1A, B1B, LIMITS], l1_seen            # 反例：舊碼整則跳過
+    assert stats["skipped_directive"] == 0 and left == []
+
+
+def test_spawned_worker_errors_land_in_logs_and_candidate_stays(tmp_path, monkeypatch):
+    """經正式啟動端（handlers/_shared）起 detached worker：萃取紀錄寫不進 → 資料根 Logs/ 有錯誤行、候選留在佇列。"""
+    import time
+    from handlers import _shared
+    data, sid = tmp_path / "data", "sd-spawn"
+    (data / "workflow" / "_merge_history.log").mkdir(parents=True)                     # 紀錄檔位置被目錄占住
+    state = {"pending_user_extract": [{"turn_id": f"{sid}-0", "prompt": KICKOFFS[0]}], "session": {"cwd": str(tmp_path)}}
+    (data / "workflow" / f"state-{sid}.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("WG_CLAUDE_DIR", str(data))                                     # worker 子行程的資料根
+    monkeypatch.setattr(_shared, "CLAUDE_DIR", data)
+    monkeypatch.setattr(_shared, "write_state", lambda s, st: None)
+    assert _shared._maybe_spawn_user_extract_worker(sid, dict(state), {"userExtraction": {"enabled": True}})
+    log = data / "Logs" / "user-extract-worker.log"
+    deadline = time.time() + 90
+    while time.time() < deadline and "萃取紀錄寫不進" not in (log.read_text("utf-8", "replace") if log.exists() else ""):
+        time.sleep(0.5)
+    assert "萃取紀錄寫不進" in log.read_text("utf-8", "replace")                        # 反例：舊碼 stderr 進 DEVNULL
+    left = json.loads((data / "workflow" / f"state-{sid}.json").read_text(encoding="utf-8"))["pending_user_extract"]
+    assert [c["turn_id"] for c in left] == [f"{sid}-0"]
 
 
 def test_skip_stays_queued_when_the_record_cannot_be_written(tmp_path, monkeypatch, capsys):

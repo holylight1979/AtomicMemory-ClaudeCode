@@ -97,58 +97,73 @@ def _is_emotional_commitment(prompt: str) -> bool:
 # ─── 一次性 session 指示 ──────────────────────────────────────────────────────
 # 派給「這個 session」的角色、工作步驟、派工單路徑只在這次有效。它們常帶「一律／必須」而被偵測閘當成決策，
 # 但不是跨專案知識；寫成根層 atom 會在之後每個 session 被注入（不相關卻佔 token）。
-# 是不是決策交 LLM 判（L1／L2 prompt 有同一條準則）；這裡只攔「看得出整則就是派工開工句」的情況，省一次 LLM、也不讓
-# 它有機會誤寫。三個條件都要成立：
-#   1. 開頭在指派這個 session 的角色，而且帶 session 操作或絕對路徑；沒有角色開頭就要三種派工訊號都在；
-#   2. 逐句看，每一句都帶派工訊號（角色、session 操作、第一步、只對這個 session、配上派工語境的絕對路徑）；只要有一句不是
-#      （例如「另外，我決定 commit message 一律繁體中文」），整則交 LLM 把該留的那句抽出來；
-#   3. 沒有長期或決策用語（以後、所有專案、記住、偏好、禁止…）。
-# 樣式可擴充：(名稱, 樣式)；不綁定任何一次派工的專名。
-_SESSION_ROLE_RE = re.compile(
-    r"^\s*[「『“\"']?\s*(?:for this session[,，:：]?\s*(?:you are|act as)"
-    r"|(?:你是|妳是|請接手|you are|act as)[^。，,]{0,60}?(?:session|工作階段|分頁|子代理|agent))",
-    re.IGNORECASE)
-_ABS_PATH_RE = re.compile(r"(?<![\w.])(?:[A-Za-z]:[\\/]|~[\\/])")
-_SESSION_DIRECTIVE_SIGNALS = (
-    ("first-step", re.compile(r"第一步|first step", re.IGNORECASE)),                     # 要這個 session 先做什麼
-    ("session-op", re.compile(r"EnterWorktree|ExitWorktree|SendMessage|切進\s*worktree|切到\s*worktree",
-                              re.IGNORECASE)),                                         # 這個 session 的操作
-    ("this-session", re.compile(r"(?:這個|本|this)\s*session|本次工作", re.IGNORECASE)),  # 明說只對這個 session
-    ("abs-path", _ABS_PATH_RE),                                                        # 派工單、worktree 的絕對路徑
-)
-# 逐句看時，絕對路徑要配上派工語境才算派工句（「備份目錄統一用 D:\backup」這種決策句不算）
-_PATH_CONTEXT_RE = re.compile(r"派工|工作單|prompt|task|worktree|只讀|只准|讀完|照做|work only|read the", re.IGNORECASE)
-_KEEP_FOR_LLM_RE = re.compile(
-    r"以後|從此|今後|往後|從現在起|所有專案|每個專案|跨專案|長期|永遠|記住|偏好|習慣|禁止|規定|約定|不要再|決定|"
-    r"from now on|going forward|always|remember|prefer",
-    re.IGNORECASE)
+# 是不是決策交 LLM 判（L1／L2 prompt 有同一條準則）；這裡只攔「整則每個子句都對上一次性派工樣板」的情況，
+# 省一次 LLM、也不讓它有機會誤寫：
+#   - 子句界：句號、逗號、分號、問號、驚嘆號、換行、英文句點加空白；頓號不切；括號裡的逗號不切（樣板含括號註記）。
+#   - 每個子句都必須「整句」對上下面某個樣板；只要有一個子句對不上（還有任何非標點的殘餘字），整則交 LLM。
+#     不用「含派工訊號就算」，也不用長期用語清單。
+# 樣板以 workflow/v6-inbox/_console/開工句模板.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
+# 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
+# 已知邊界：角色句後面的括號說明（例：「（需求目標核心流程設計單，只設計不寫程式）」）是自由欄位（≤30 字），內容不檢查。
+_PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[^\s，。；;,（）()]*"
+_NAME = r"[\w.-]+"
+_BRANCH_NOTE = r"(?:\s*（(?:分支\s*[^\s，）]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
+_KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in (
+    ("role", r"(?:你是|妳是)\s*(?:v[\w.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?(?:\s*（[^（）]{0,30}）)?"),
+    ("role", r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?"),
+    ("role", r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session"),
+    ("controller", r"(?:總控台|主控台)\s*(?:是|為)\s*" + _NAME),
+    ("step", r"第一步(?:用|先)?\s*EnterWorktree\s*切進\s*(?:worktree\s*)?(?:" + _PATH + r")?" + _BRANCH_NOTE),
+    ("step", r"worktree\s*" + _PATH + _BRANCH_NOTE),
+    ("dispatch", r"派工(?:單|\s*prompt)\s*(?:在|:|：)\s*" + _PATH),
+    ("dispatch", r"(?:用絕對路徑)?讀完(?:全文)?照做"),
+    ("dispatch", r"read the task at\s+" + _PATH),
+    ("scope", r"(?:本次)?(?:一律)?只(?:讀|讀寫|在)\s*" + _PATH + r"(?:\s*(?:裡|內))?(?:\s*(?:讀寫|工作))?"),
+    ("scope", r"you must work only in\s+" + _PATH),
+    ("scope", r"(?:切進去之後)?所有讀寫一律用\s*worktree\s*(?:的\s*)?絕對路徑(?:、\s*不碰\s*live(?:\s*" + _PATH + r")?)?"),
+    ("deliver", r"交付(?:信)?(?:用\s*SendMessage\s*(?:全文)?(?:\s*給\s*" + _NAME + r")?)?(?:\s*附\s*live\s*未動證明)?"),
+    ("verify", r"只跑目標\s*verify(?:（直接在\s*worktree\s*根跑\s*pytest，\s*不加\s*cd）)?(?:、\s*不跑全量)?"
+               r"(?:、\s*不重掛\s*Monitor)?(?:、\s*不輪詢)?"),
+    ("ack", r"開工前先\s*SendMessage\s*" + _NAME + r"\s*一句「[^」]*」?"),
+))
+_CLAUSE_BREAKS = "。，,；;！？!?\n"
+_CLAUSE_PAD = " \t\r\n「」『』“”\"'…"
 
 
-_SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;\n]|\.\s")   # 換行也算句界：分行寫的決策句不會併進派工句
-_SENTENCE_PAD = " \t\r\n「」『』“”\"'（）()…"
+def _kickoff_clauses(text: str) -> List[str]:
+    """切子句（括號裡的逗號不切；英文句點後接空白才切），去掉頭尾空白與引號。"""
+    parts, buf, depth = [], [], 0
+    for i, c in enumerate(text):
+        if c in "（(":
+            depth += 1
+        elif c in "）)" and depth:
+            depth -= 1
+        period = c == "." and i + 1 < len(text) and text[i + 1].isspace()
+        if depth == 0 and (c in _CLAUSE_BREAKS or period):
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(c)
+    parts.append("".join(buf))
+    stripped = (p.strip(_CLAUSE_PAD) for p in parts)
+    return [p for p in stripped if p]
 
 
-def _is_directive_sentence(sentence: str) -> bool:
-    if _SESSION_ROLE_RE.search(sentence):
-        return True
-    if any(pat.search(sentence) for name, pat in _SESSION_DIRECTIVE_SIGNALS if name != "abs-path"):
-        return True
-    return bool(_ABS_PATH_RE.search(sentence) and _PATH_CONTEXT_RE.search(sentence))
+def _kickoff_clause_kind(clause: str) -> Optional[str]:
+    return next((name for name, pat in _KICKOFF_CLAUSES if pat.fullmatch(clause)), None)
 
 
 def _session_directive_reason(prompt: str) -> Optional[str]:
-    """看得出整則就是派工開工句 → 命中的樣式名（"role+session-op" 這種）；不是、或帶長期／決策用語 → None。"""
-    text = prompt or ""
-    if _KEEP_FOR_LLM_RE.search(text):
-        return None
-    parts = (p.strip(_SENTENCE_PAD) for p in _SENTENCE_SPLIT_RE.split(text))
-    if not all(_is_directive_sentence(s) for s in parts if s):
-        return None
-    hits = [name for name, pat in _SESSION_DIRECTIVE_SIGNALS if pat.search(text)]
-    if _SESSION_ROLE_RE.search(text):
-        anchor = [h for h in hits if h in ("session-op", "abs-path")]
-        return "+".join(["role"] + anchor) if anchor else None
-    return "+".join(hits) if len(hits) >= 3 else None
+    """每個子句都整句對上一次性派工樣板 → 對上的樣板名（"role+controller+step" 這種）；有任何子句對不上 → None（交 LLM）。"""
+    kinds: List[str] = []
+    clauses = _kickoff_clauses(prompt or "")
+    for clause in clauses:
+        kind = _kickoff_clause_kind(clause)
+        if kind is None:
+            return None
+        if kind not in kinds:
+            kinds.append(kind)
+    return "+".join(kinds) if kinds else None
 
 
 # ─── Prompt template loading ──────────────────────────────────────────────────
