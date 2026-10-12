@@ -54,6 +54,9 @@ CS_COMMON_METHODS = {"Add", "AddRange", "Remove", "RemoveAt", "Contains", "Conta
                      "Push", "Pop", "Enqueue", "Dequeue", "Peek", "Append", "AppendLine", "GetComponent",
                      "SetActive", "Find", "Wait", "CompareTo", "CopyTo", "GetType", "Max", "Min", "Sum", "Count"}
 MAX_REEXPORT = 5          # from a import x 追 re-export 最多幾跳（防循環）
+# partial 檔名後綴看不出責任的（Part1、2、More、Misc…）不算責任軸
+NON_AXIS_SUFFIX = re.compile(r"(?i)^(part|partial|file|section|piece|split)?\d+$|^(more|extra|misc|other|others|rest|temp|tmp|new|old|copy)$")
+COVERAGE_DROP = 0.05      # 前後比較時 after 的「對不到」比例多出這麼多 → 警示可能是解析退化
 SHARED_FAN_IN = 5         # 落點被這麼多處呼叫 → 標「共用底層」：讀功能時通常不必沿這條路讀到它
 ROOT_LIMIT = 10           # 沒有天生入口時，最多拿幾個「沒人呼叫的公開函式」當入口
 ENTRY_LIST_LIMIT = 20     # 表頭列幾個入口（--json 看全部）
@@ -63,12 +66,16 @@ _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 LIMITS = """抓不到／可能偏差（數字是尺，判斷交給人）：
   - 每個落點只取拐彎最少的一條路（G11「重找最短路」的口徑）；同一落點更繞的路不列
   - 名字對不到唯一目標（同名方法多個、接收者型別不明）不連線，只計 ambiguous → 路徑可能沒畫到、數字偏低
-  - 外部函式庫、框架回呼（Unity 生命週期以外）、反射、getattr、eval、動態 import 看不到
+  - 外部函式庫、框架回呼（Unity 生命週期以外）、反射、eval、動態 import 看不到；getattr 只認分派表來的
+  - callback 與事件不分呼叫語境：多處各傳不同函式、同名事件多處訂閱 → 全連並標「候選」，可能出現實際走不到的捷徑
   - callback 只追一層：函式被當參數再往下轉傳一次就斷
-  - Python：裝飾器包裝、property、模組頂層（__main__ 以外）程式碼、monkeypatch 不追
+  - 「只轉傳」靠句數判定（換區域變數名不算句）：塞進無關計算就會被當成有內容
+  - Python：裝飾器包裝、@property、模組頂層（__main__ 以外）程式碼、monkeypatch 不追
   - C#（不用 Roslyn）：多載同名全連、擴充方法、LINQ、var 由方法回傳推型別、跨 namespace 同名類合併、
-    lambda 裡的呼叫算外層函式、#if 不分支、運算子多載與索引子不認
-  - partial 檔名沒寫成 `類.責任.cs` → 照算跳檔：有責任軸但沒標在檔名上的分檔，數字會偏高
+    lambda 裡的呼叫算外層函式、#if 不分支、運算子多載與索引子不認、接收者型別不明的屬性不猜、
+    三元運算與 LINQ 不算分支（一行 ?: 的方法可能被當成只轉傳）、插值字串 {} 裡再套字串會漏
+  - partial 責任軸是依檔名推測：檔名沒寫成 `類.責任.cs` → 照算跳檔，有責任軸但沒標在檔名上的分檔數字會偏高；
+    反過來，取了像樣後綴但其實沒分責任的也會被當成有軸（Part1、Misc 這類已排除）——輸出都標「依檔名推測」
   - 分層架構（main→service→repo 各一檔）每層換檔都算彎 → 可能誤報，由讀的人判
   - 落點被很多處呼叫（≥5）會標「共用底層」：讀某個功能時通常不必沿這條路讀到它，路長不一定是問題
   - 粗略模式（js/ts/go/java/kt/rs）只認定義與同名唯一呼叫：只數跳檔，不判轉手"""
@@ -82,7 +89,7 @@ class ReadingPathError(Exception):
 class Edge:
     dst: str
     kind: str            # direct｜callback｜event｜inherit｜dynamic
-    guess: bool = False  # 接收者型別不明、靠「全專案只有一個同名方法」猜的
+    guess: str = ""      # 這條邊不確定的原因（猜的／候選）；空字串＝確定
     via: str = ""        # object：經由別的物件轉交（落點若只轉傳 → delegate）
 
 
@@ -92,7 +99,7 @@ class Step:
     kind: str            # entry｜direct｜wrapper｜delegate｜callback｜event｜inherit｜dynamic
     jump: bool = False
     axis: str = ""       # 分檔有責任軸時的「責任→責任」
-    guess: bool = False
+    guess: str = ""
 
     @property
     def turn(self) -> int:
@@ -157,15 +164,17 @@ def event_targets(g: "Graph", key: str) -> list:
 
 
 def partial_axis(cls: lang.Cls) -> dict:
-    """partial 類別的檔名是 `類.責任.cs`（可再加一個不帶後綴的主檔）且責任各不相同 → {檔: 責任}；否則 {}，照算跳檔。"""
+    """partial 類別的檔名是 `類.責任.cs`（可再加一個不帶後綴的主檔）、責任各不相同且看得出意思 → {檔: 責任}；
+    否則 {}，照算跳檔。這是依檔名推測，輸出會標明；Part1、Misc 之類的後綴不算責任。"""
     if not cls.partial or len(cls.files) < 2:
         return {}
     axis = {}
     for file in cls.files:
         stem = PurePosixPath(file).name[:-3]
-        if stem != cls.name and not stem.startswith(cls.name + "."):
+        suffix = stem[len(cls.name) + 1:] if stem.startswith(cls.name + ".") else ""
+        if stem != cls.name and (not suffix or NON_AXIS_SUFFIX.match(suffix)):
             return {}
-        axis[file] = stem[len(cls.name) + 1:] or "主檔"
+        axis[file] = suffix or "主檔"
     return axis if len(set(axis.values())) == len(axis) else {}
 
 
@@ -289,15 +298,28 @@ class Graph:
         pick = [c for c in cands if PurePosixPath(c).parent == here] or cands
         return pick[0] if len(pick) == 1 else None
 
-    def module_alias(self, file: str, dotted: str):
-        """file 裡寫成 dotted 的接收者（w2、pkg.w2、a.b）是不是專案內的模組 → 模組檔或 None。"""
-        imports = self.modules[file].imports
+    def scopes(self, f: lang.Func) -> list:
+        """f 所在的函式作用域，由外到內（Cls.method.inner → Cls.method、Cls.method.inner；類別本身不算作用域）。"""
+        parts = f.qual.split(".")
+        return [".".join(parts[:i]) for i in range(2 if f.cls else 1, len(parts) + 1)]
+
+    def imports_of(self, f: lang.Func) -> dict:
+        """f 看得到的 import：模組層＋外層函式＋自己的（內層蓋外層）。"""
+        merged = dict(self.modules[f.file].imports) if f.file in self.modules else {}
+        for scope in self.scopes(f):
+            owner = self.funcs.get(f"{f.file}::{scope}")
+            merged.update(owner.imports if owner else {})
+        return merged
+
+    def module_alias(self, f: lang.Func, dotted: str):
+        """f 裡寫成 dotted 的接收者（w2、pkg.w2、a.b）是不是專案內的模組 → 模組檔或 None。"""
+        imports = self.imports_of(f)
         key = dotted if dotted in imports else dotted.partition(".")[0]
         if key not in imports:
             return None
         modname, level, orig = imports[key]
         full = ".".join(p for p in (modname, orig, dotted[len(key) + 1:]) if p)
-        return self.find_module(full, level, file)
+        return self.find_module(full, level, f.file)
 
     def module_ctx(self, file: str) -> lang.Func:
         """模組層（函式外）的訂閱與分派表，用一個假函式當解析的語境。"""
@@ -309,7 +331,7 @@ class Graph:
     def resolve(self, f: lang.Func, c: lang.Call, defer: bool = True) -> list:
         handler = {"name": self._r_name, "self": self._r_self, "super": self._r_super, "attr": self._r_attr,
                    "new": self._r_new, "emit": self._r_emit, "invoke": self._r_invoke, "table": self._r_table,
-                   "getattr": self._r_getattr}
+                   "getattr": self._r_getattr, "prop": self._r_prop}
         return handler[c.kind](f, c, defer)
 
     def dispatch(self, cls, name: str, via: str = "") -> list:
@@ -333,13 +355,13 @@ class Graph:
             return self._defer(f, (f.id, c.name), defer)
         if c.name in f.table_vars:
             return self._r_table(f, lang.Call("table", f.table_vars[c.name]), defer)
-        nested = f"{f.file}::{f.qual}.{c.name}"
-        if nested in self.funcs:
-            return [Edge(nested, "direct")]
+        nested = next((n for s in reversed(self.scopes(f)) if (n := f"{f.file}::{s}.{c.name}") in self.funcs), None)
+        if nested:
+            return [Edge(nested, "direct")]       # 自己或外層函式裡定義的巢狀函式
         if f.lang == "coarse":
             return self._coarse(f, c.name)
         if f.lang == "py":
-            return self._py_name(f.file, c.name)
+            return self._py_name(f.file, c.name, imports=self.imports_of(f))
         return self._r_self(f, c, defer)          # C#：裸名就是本類別的方法／事件／委派欄位
 
     def _r_self(self, f, c, defer):
@@ -376,7 +398,16 @@ class Graph:
         return self._ctor(cls) if cls else []
 
     def _r_emit(self, f, c, defer):
-        return [Edge(t, "event") for t in event_targets(self, c.name)]
+        """事件只按名字配對（看不出是哪個實例發的）：同名事件有多個處理函式就標成候選。"""
+        targets = list(dict.fromkeys(event_targets(self, c.name)))
+        reason = f"候選：事件 {c.name} 有 {len(targets)} 個處理函式，只按名字配對" if len(targets) > 1 else ""
+        return [Edge(t, "event", guess=reason) for t in targets]
+
+    def _r_prop(self, f, c, defer):
+        """C# 讀寫屬性：只連到有 get/set 本體的屬性；接收者型別不明就不猜（屬性名太常見）。"""
+        target = self.recv_type(f, c.recv)[1] if c.recv and c.recv != "this" else self.cls_of(f)
+        edges = self.dispatch(target, c.name) if target else []
+        return [e for e in edges if self.funcs[e.dst].prop]
 
     def _r_invoke(self, f, c, defer):
         """C# 的 X.Invoke()／X?.Invoke()：X 是參數或建構時存下的委派 → callback；否則當事件。"""
@@ -402,14 +433,15 @@ class Graph:
     def _ctor(self, cls) -> list:
         return [Edge(i, "direct") for i in self.lookup(cls, "__init__" if cls.lang == "py" else cls.name)]
 
-    def _imported_from(self, file: str, name: str):
+    def _imported_from(self, file: str, imports: dict, name: str):
         """from X import name → (X 在專案內的檔, 原名)；不是 from 匯入或 X 不在專案內 → (None, "")。"""
-        modname, level, orig = self.modules[file].imports.get(name, ("", 0, ""))
+        modname, level, orig = imports.get(name, ("", 0, ""))
         src = self.find_module(modname, level, file) if orig else None
         return (src, orig) if src and src != file else (None, "")
 
-    def _py_name(self, file: str, name: str, hops: int = 0) -> list:
-        """Python 模組 file 裡的 name：本檔函式、本檔類別（建構）、from 匯入的函式或類別（追 re-export）。"""
+    def _py_name(self, file: str, name: str, hops: int = 0, imports: dict | None = None) -> list:
+        """Python 模組 file 裡的 name：本檔函式、本檔類別（建構）、from 匯入的函式或類別（追 re-export）。
+        imports 給的是呼叫所在函式看得到的 import；沒給就用模組層的。"""
         mod = self.modules.get(file)
         if mod is None or hops > MAX_REEXPORT:
             return []
@@ -418,7 +450,7 @@ class Graph:
         local_cls = next((c for c in self.classes.get(name, []) if file in c.files), None)
         if local_cls:
             return self._ctor(local_cls)
-        src, orig = self._imported_from(file, name)
+        src, orig = self._imported_from(file, mod.imports if imports is None else imports, name)
         return self._py_name(src, orig, hops + 1) if src else []
 
     def _table(self, file: str, name: str, hops: int = 0) -> list:
@@ -426,7 +458,7 @@ class Graph:
         if mod is None or hops > MAX_REEXPORT:
             return []
         if name not in mod.tables:
-            src, orig = self._imported_from(file, name)
+            src, orig = self._imported_from(file, mod.imports, name)
             return self._table(src, orig, hops + 1) if src else []
         return self._dynamic(self.module_ctx(file), mod.tables[name])
 
@@ -451,7 +483,7 @@ class Graph:
         cands = cands if is_test(f.file) else [i for i in cands if not is_test(self.funcs[i].file)]
         if len(cands) > 1:
             self.amb[f.id] += 1
-        return [Edge(cands[0], "direct", guess=True, via="object")] if len(cands) == 1 else []
+        return [Edge(cands[0], "direct", guess="猜的：接收者型別不明，全專案只有這個同名方法", via="object")] if len(cands) == 1 else []
 
     def recv_type(self, f: lang.Func, recv: str):
         """接收者是什麼 → (種類, 對象)：module＋檔｜object＋類別（物件）｜static＋類別｜external｜("", None) 不明。"""
@@ -460,7 +492,7 @@ class Graph:
         if recv.startswith("mod:"):
             target = self.find_module(recv[4:], 0, f.file)
             return ("module", target) if target else ("external", None)
-        whole = self.module_alias(f.file, recv) if f.lang == "py" and recv else None
+        whole = self.module_alias(f, recv) if f.lang == "py" and recv else None
         if whole:
             return "module", whole
         head, *rest = recv.split(".")
@@ -480,7 +512,7 @@ class Graph:
             return "object", self.field_type(own, head)
         if self.cls_named(head, f.file):
             return "static", self.cls_named(head, f.file)
-        imp = self.modules[f.file].imports.get(head) if f.lang == "py" and f.file in self.modules else None
+        imp = self.imports_of(f).get(head) if f.lang == "py" else None
         if imp and not self.find_module(imp[0], imp[1], f.file):
             return "external", None               # 匯入的外部模組或其成員（json、os.path…）
         return "", None
@@ -495,16 +527,17 @@ class Graph:
                 self._add_edges(f.id, edges, c)
                 self.hits[f.id] += bool(edges) or len(self.pending) > waiting
         for src, bind, param in self.pending:
-            self._add_edges(src, [Edge(t, "callback") for t in callback_targets(self, bind, param)], None)
+            targets = list(dict.fromkeys(callback_targets(self, bind, param)))
+            reason = f"候選：{len(targets)} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if len(targets) > 1 else ""
+            self._add_edges(src, [Edge(t, "callback", guess=reason) for t in targets], None)
 
     def _add_edges(self, src: str, edges: list, c) -> None:
-        """加邊（同終點同種類只留一條）；直接／繼承呼叫順便記呼叫者，callback 要回頭查誰傳了什麼。"""
+        """加邊（同終點同種類只留一條）；直接／繼承呼叫每個呼叫點都記下呼叫者（就算邊重複），callback 要回頭查誰傳了什麼。"""
         for e in edges:
-            if any(x.dst == e.dst and x.kind == e.kind for x in self.edges[src]):
-                continue
-            self.edges[src].append(e)
             if c is not None and e.kind in ("direct", "inherit"):
                 self.callers[e.dst].append((self.funcs[src], c))
+            if not any(x.dst == e.dst and x.kind == e.kind for x in self.edges[src]):
+                self.edges[src].append(e)
 
     def _is_passthrough(self, f: lang.Func) -> bool:
         """只把呼叫往下傳：≤2 句、無分支迴圈、恰好一個呼叫連到專案內。"""
@@ -568,7 +601,7 @@ def build_graph(root: Path) -> Graph:
         if lang.GENERATED_RE.search(rel):
             continue
         try:
-            modules.append(PARSERS[path.suffix.lower()](rel, path.read_text(encoding="utf-8", errors="replace")))
+            modules.append(PARSERS[path.suffix.lower()](rel, path.read_text(encoding="utf-8-sig", errors="replace")))
         except (SyntaxError, ValueError, RecursionError) as e:
             errors.append(f"{rel}（{type(e).__name__}）")
     return Graph(root, modules, errors)
@@ -686,10 +719,14 @@ def compare(before: dict, after: dict) -> dict:
     order = {"worse": 0, "new": 1, "gone": 2, "better": 3, "same": 4}
     rows.sort(key=lambda r: (order[r["status"]], r["entry"], r["landing"]))
     counts = Counter(r["status"] for r in rows)
+    sb, sa = before["stats"], after["stats"]
+    coverage_drop = (len(sa["parse_errors"]) > len(sb["parse_errors"])
+                     or sa["ambiguous_ratio"] > sb["ambiguous_ratio"] + COVERAGE_DROP)
     return {"entries": len(set(b_entries) | set(a_entries)), "rows": rows,
             "counts": {k: counts.get(k, 0) for k in order},
             "max_turns_before": max((e["max_turns"] for e in before["entries"]), default=0),
-            "max_turns_after": max((e["max_turns"] for e in after["entries"]), default=0)}
+            "max_turns_after": max((e["max_turns"] for e in after["entries"]), default=0),
+            "stats_before": sb, "stats_after": sa, "coverage_drop": coverage_drop}
 
 
 def _diff_row(entry: str, landing: str, b: dict | None, a: dict | None) -> dict:
@@ -722,8 +759,8 @@ def route_lines(r: dict) -> list:
     lines = [f"  [{r['grade']}] 拐彎 {r['turns']}｜跳檔 {r['file_jumps']}｜轉手 {r['handoffs']}｜深度 {r['depth']}"
              f"  {r['entry']} → {r['landing']}{shared}"]
     for s in r["steps"]:
-        tags = [" ↗換檔" * s["jump"], f" ≋分檔有責任軸 {s['axis']}" * bool(s["axis"]),
-                " ?猜的（全專案唯一同名方法）" * s["guess"]]
+        tags = [" ↗換檔" * s["jump"], f" ≋分檔有責任軸（依檔名推測）{s['axis']}" * bool(s["axis"]),
+                f" ?{s['guess']}" * bool(s["guess"])]
         lines.append(f"      {s['kind']:<9} {s['func']}{''.join(tags)}")
     if r["open_end"]:
         lines.append("      （落點只轉傳、下一站對不到唯一目標：可能還沒讀到底）")
@@ -739,7 +776,8 @@ def render(report: dict, top: int) -> str:
         lines.append(f"⚠ 對不到唯一目標的呼叫占 {st['ambiguous_ratio']:.0%}：圖可能缺邊，數字偏低不可信")
     if st["parse_errors"]:
         lines.append(f"解析失敗 {len(st['parse_errors'])} 檔：" + "、".join(st["parse_errors"][:5]))
-    lines += [f"分檔有責任軸：{name}（{'・'.join(axes)}）——這些檔之間換檔不算彎" for name, axes in st["axis_classes"].items()]
+    lines += [f"分檔有責任軸（依檔名推測）：{name}（{'・'.join(axes)}）——這些檔之間換檔不算彎，另計 axis_jumps"
+              for name, axes in st["axis_classes"].items()]
     entries = report["entries"]
     lines.append(f"入口 {len(entries)} 個（最差在前）：")
     for e in entries[:ENTRY_LIST_LIMIT]:
@@ -758,8 +796,14 @@ def render(report: dict, top: int) -> str:
 
 def render_compare(res: dict, top: int) -> str:
     c = res["counts"]
+    sb, sa = res["stats_before"], res["stats_after"]
     lines = [f"前後比較｜{res['root']}｜before={res['before_label']} → after={res['after_label']}｜入口 {res['entries']}",
-             "｜".join(f"{STATUS_LABEL[k]} {c[k]}" for k in c) + f"｜最多拐彎 {res['max_turns_before']} → {res['max_turns_after']}"]
+             "｜".join(f"{STATUS_LABEL[k]} {c[k]}" for k in c) + f"｜最多拐彎 {res['max_turns_before']} → {res['max_turns_after']}",
+             f"解析：失敗 {len(sb['parse_errors'])} → {len(sa['parse_errors'])} 檔｜對不到唯一目標 "
+             f"{sb['ambiguous_ratio']:.0%} → {sa['ambiguous_ratio']:.0%}"]
+    if res["coverage_drop"]:
+        lines.append("⚠ after 的解析涵蓋變差：「消失」「變好」可能是看不到了，不是程式變好——先看解析失敗清單 "
+                     + "、".join(sa["parse_errors"][:5]))
     shown = 0
     for row in [r for r in res["rows"] if r["status"] != "same"]:
         b, a = row["before"] or {}, row["after"] or {}
@@ -788,7 +832,8 @@ def compare_done_line(res: dict) -> str:
     c = res["counts"]
     return (f"READING_PATH DONE mode=compare entries={res['entries']} better={c['better']} worse={c['worse']}"
             f" new={c['new']} gone={c['gone']} same={c['same']}"
-            f" max_turns_before={res['max_turns_before']} max_turns_after={res['max_turns_after']}")
+            f" max_turns_before={res['max_turns_before']} max_turns_after={res['max_turns_after']}"
+            f" coverage_drop={int(res['coverage_drop'])}")
 
 
 def main(argv: list | None = None) -> int:

@@ -50,10 +50,12 @@ class Func:
     calls: list = field(default_factory=list)
     simple: bool = False      # 去掉 docstring 與 log 後 ≤2 句且無分支迴圈：轉手函式的候選
     abstract: bool = False    # 沒有本體（抽象、介面、NotImplementedError）
+    prop: bool = False        # C# 屬性的 get/set 本體（讀寫屬性就會跑進來）
     entry: bool = False       # 天生入口：__main__ 區塊、無區塊時的 main、C# static Main、粗略模式 main
     local_types: dict = field(default_factory=dict)   # 區域變數 → 類別名（x = Foo()）
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [Call 參照]
+    imports: dict = field(default_factory=dict)       # 函式內的 import（只在這個函式與它的巢狀函式裡有效）
 
 
 @dataclass
@@ -116,14 +118,14 @@ def parse_python(rel: str, text: str) -> Module:
     return mod
 
 
-def _py_scan(mod: Module, stmts: list) -> list:
-    """stmts 底下的節點走一次（不進巢狀 def/class），順手收 import（函式內的惰性 import 也算）。"""
+def _py_scan(imports: dict, stmts: list) -> list:
+    """stmts 底下的節點走一次（不進巢狀 def/class），順手把 import 收進 imports（模組層或該函式自己的）。"""
     nodes = list(_own_nodes(stmts))
     for node in nodes:
         if isinstance(node, ast.Import):
-            mod.imports.update({a.asname or a.name: (a.name, 0, "") for a in node.names})
+            imports.update({a.asname or a.name: (a.name, 0, "") for a in node.names})
         elif isinstance(node, ast.ImportFrom):
-            mod.imports.update({a.asname or a.name: (node.module or "", node.level, a.name) for a in node.names})
+            imports.update({a.asname or a.name: (node.module or "", node.level, a.name) for a in node.names})
     return nodes
 
 
@@ -136,7 +138,7 @@ def _is_main_guard(node: ast.AST) -> bool:
 def _py_main_block(mod: Module, node: ast.If) -> None:
     fid = f"{mod.file}::<main>"
     f = Func(fid, mod.file, "<main>", "<main>", "", "py", node.lineno, entry=True)
-    nodes = _py_scan(mod, node.body)
+    nodes = _py_scan(mod.imports, node.body)
     _py_locals(f, None, nodes)
     f.calls = _py_calls(mod, nodes, fid)
     mod.funcs.append(f)
@@ -144,7 +146,7 @@ def _py_main_block(mod: Module, node: ast.If) -> None:
 
 def _py_module_stmt(mod: Module, node: ast.stmt) -> None:
     """模組層其他敘述：收 import、分派表（NAME = {k: func}）與訂閱（bus.on("k", f)）。"""
-    _py_calls(mod, _py_scan(mod, [node]), "")
+    _py_calls(mod, _py_scan(mod.imports, [node]), "")
     target = node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else getattr(node, "target", None)
     value = getattr(node, "value", None)
     refs = _py_table_refs(value)
@@ -184,8 +186,8 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
              params=[a.arg for a in args],
              param_types={a.arg: _py_ann(a.annotation) for a in args if _py_ann(a.annotation)})
     body = _strip_doc(node.body)
-    nodes = _py_scan(mod, body)
-    real = [s for s in body if not isinstance(s, ast.Pass) and not _py_noise_stmt(s)]
+    nodes = _py_scan(f.imports, body)
+    real = [s for s in body if not isinstance(s, ast.Pass) and not _py_noise_stmt(s) and not _py_move(s)]
     f.simple = (len(real) <= 2 and all(isinstance(s, _SIMPLE_STMTS) for s in real)
                 and not any(isinstance(n, _BRANCHY) for n in nodes))
     f.abstract = _py_abstract(node, body)
@@ -225,6 +227,13 @@ def _py_abstract(node, body: list) -> bool:
         return True
     exc = getattr(only, "exc", None) if isinstance(only, ast.Raise) else None
     return _py_recv(getattr(exc, "func", exc)) == "NotImplementedError" if exc else False
+
+
+def _py_move(stmt: ast.stmt) -> bool:
+    """只是把值換個區域變數名（y = x、y = self.x、y = 3）：沒有內容，不算進轉手判定的句數。存進 self.x 是改狀態，不算。"""
+    targets = stmt.targets if isinstance(stmt, ast.Assign) else [getattr(stmt, "target", None)]
+    value = getattr(stmt, "value", None) if isinstance(stmt, (ast.Assign, ast.AnnAssign)) else None
+    return isinstance(value, (ast.Name, ast.Attribute, ast.Constant)) and all(isinstance(t, ast.Name) for t in targets)
 
 
 def _py_noise_stmt(stmt: ast.stmt) -> bool:
@@ -352,7 +361,8 @@ def _py_bind(f: Func, cls: Cls | None, target, value) -> None:
 
 # ─── C#（括號配對＋正規式，不用 Roslyn） ─────────────────────────────────────
 
-_C_BLANK = re.compile(r'//[^\n]*|/\*.*?\*/|@"(?:[^"]|"")*"|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])+\'', re.S)
+_C_BLANK = re.compile(r'//[^\n]*|/\*.*?\*/|(?:\$@|@\$|@)"(?:[^"]|"")*"|\$?"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])+\'', re.S)
+_HOLE = re.compile(r"\{\{|\}\}|\{([^{}]*)\}")
 _CS_CLASS = re.compile(
     r"(?P<mods>(?:(?:public|private|protected|internal|static|sealed|abstract|partial|readonly|unsafe|new|file)\s+)*)"
     r"\b(?P<kind>class|struct|interface|record)\s+(?P<name>\w+)(?:\s*<[^>{;]*>)?(?:\s*\([^)]*\))?"
@@ -368,14 +378,22 @@ _CS_REF = re.compile(r"(?:(?P<key>\w+)\s*:\s*)?(?:(?P<recv>\w+)\.)?(?P<name>[A-Z
 _CS_ATTR = re.compile(r"\[[^\[\]]*\]")
 _CS_TYPE_DECL = re.compile(r"\b(class|struct|interface|record|enum|namespace|delegate)\b")
 _CS_COMPOUND = re.compile(r"\b(if|for|foreach|while|switch|try|do|lock)\b|\busing\s*\(")
+_CS_MOVE = re.compile(r"[\w<>\[\],.?]+\s+[a-z_]\w*\s*=\s*[\w.]+")   # var y = x;：宣告區域變數只換個名字
+_CS_PROP_USE = re.compile(r"(?<![\w.?])(?P<recv>(?:\w+\s*\??\.\s*)*)(?P<name>[A-Z]\w*)\b(?!\s*[(<\w])")
+_CS_ACCESSOR = re.compile(r"\b(get|set|init)\s*(\{|=>)")
 CS_KEYWORDS = {"if", "for", "foreach", "while", "switch", "catch", "using", "lock", "return", "typeof", "nameof",
                "sizeof", "default", "checked", "unchecked", "fixed", "when", "base", "this", "new", "throw",
                "await", "get", "set", "in", "is", "as", "out", "ref", "var", "else", "do", "try", "yield", "stackalloc"}
 
 
 def _blank(m: re.Match) -> str:
-    """註解與字串換成等長空白（保留換行，行號不跑掉）。"""
-    return re.sub(r"[^\n]", " ", m.group())
+    """註解與字串換成等長空白（保留換行，行號不跑掉）；插值字串 $"…{運算式}…" 留下 {} 裡的運算式（大括號本身仍換掉）。"""
+    text = m.group()
+    out = list(re.sub(r"[^\n]", " ", text))
+    holes = _HOLE.finditer(text) if text.startswith(("$", "@$")) else []
+    for h in [h for h in holes if h.group(1)]:
+        out[h.start(1):h.end(1)] = h.group(1)
+    return "".join(out)
 
 
 def _braces(src: str):
@@ -447,16 +465,22 @@ def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> N
     if not head or _CS_TYPE_DECL.search(head):
         return
     sig = _CS_SIG.search(head)
-    if not sig or "=" in head[:sig.start()] or sig["name"] in CS_KEYWORDS:
+    is_prop = not sig or "=" in head[:sig.start()] or sig["name"] in CS_KEYWORDS
+    if is_prop:
         _cs_field(cls, head)
-        return
-    name, mods = sig["name"], set(head[:sig.start()].split())
-    params = [p for p in (_cs_param(t) for t in _split_top(sig["params"], "()[]{}<>")) if p]
-    fid = f"{mod.file}::{cls.name}.{name}"
-    fid = fid if all(f.id != fid for f in mod.funcs) else f"{fid}@{b0}"
+        if b1 == b0 or "=" in head or not (arrow or _CS_ACCESSOR.search(src[b0:b1])):
+            return
+        name, mods, params = head.split()[-1], set(), []     # 屬性的 get/set 本體：當成以屬性為名的節點
+    else:
+        name, mods = sig["name"], set(head[:sig.start()].split())
+        params = [p for p in (_cs_param(t) for t in _split_top(sig["params"], "()[]{}<>")) if p]
+    base = f"{mod.file}::{cls.name}.{name}"
+    taken = {f.id for f in mod.funcs}
+    fid = base if base not in taken else f"{base}({','.join(t for _, t in params)})"   # 多載：用參數型別區分
+    fid = fid if fid not in taken else f"{fid}#{sum(1 for t in taken if t.startswith(base))}"
     line = src.count("\n", 0, start + len(raw) - len(raw.lstrip())) + 1
     f = Func(fid, mod.file, f"{cls.name}.{name}", name, cls.name, "cs", line,
-             params=[p for p, _ in params], param_types={p: t for p, t in params if t})
+             params=[p for p, _ in params], param_types={p: t for p, t in params if t}, prop=is_prop)
     f.abstract = "abstract" in mods or (b0 == b1 and not arrow)
     f.entry = name == "Main" and "static" in mods
     if b1 > b0:
@@ -482,9 +506,13 @@ def _cs_field(cls: Cls, head: str) -> None:
 def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1: int, arrow: bool) -> None:
     body = src[b0:b1]
     f.calls = [c for m in _CS_CALL.finditer(body) if (c := _cs_call(m, body, f.line))]
-    stmts = 1 if arrow else sum(1 for j in range(b0, b1) if src[j] == ";" and depth[j] == depth[b0])
+    f.calls += [Call("prop", m["name"], recv=re.sub(r"[\s?]", "", m["recv"]).rstrip("."), line=f.line)
+                for m in _CS_PROP_USE.finditer(body)]
+    ends = [j for j in range(b0, b1) if src[j] == ";" and (depth[j] == depth[b0] or f.prop)]   # 屬性的句子在 get/set 裡面一層
+    stmts = [body.strip()] if arrow else [src[a + 1:e].strip() for a, e in zip([b0 - 1] + ends, ends)]
+    moves = sum(1 for s in stmts if _CS_MOVE.fullmatch(s))
     noise = sum(1 for c in f.calls if c.noise)
-    f.simple = stmts - noise <= 2 and not _CS_COMPOUND.search(body)
+    f.simple = len(stmts) - moves - noise <= 2 and not _CS_COMPOUND.search(body)
     for m in _CS_LOCAL.finditer(body):
         if m["new"] or m["type"]:
             f.local_types[m["var"]] = m["new"] or m["type"]

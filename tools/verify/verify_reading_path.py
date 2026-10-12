@@ -213,7 +213,8 @@ class Circle : Shape {
 }
 
 CS_GAME_MAIN = "class Game {\n    static void Main() {\n        var p = new Player();\n        p.Fire();\n    }\n}\n"
-CS_PART_API = "public partial class Player {\n    public void Fire() {\n        int ammo = 3;\n        ammo -= 1;\n        Apply(ammo);\n    }\n}\n"
+CS_PART_API = ("public partial class Player {\n    public void Fire() {\n        int ammo = 3;\n        ammo -= 1;\n"
+               "        ammo *= 2;\n        Apply(ammo);\n    }\n}\n")
 CS_PART_CORE = """public partial class Player {
     private int _hp = 10;
     void Apply(int a) {
@@ -384,7 +385,7 @@ def _check_axis(report: dict) -> None:
 def test_partial_with_responsibility_axis_is_marked_not_smelly(tmp_path):
     report = rp.analyze(_write(tmp_path, CS_PARTIAL_AXIS))
     _check_axis(report)
-    assert "≋分檔有責任軸 PublicApi→Core" in rp.render(report, 3)
+    assert "≋分檔有責任軸（依檔名推測）PublicApi→Core" in rp.render(report, 3)
 
 
 def test_partial_without_axis_naming_counts_file_jumps(tmp_path):
@@ -392,6 +393,13 @@ def test_partial_without_axis_naming_counts_file_jumps(tmp_path):
     r = _route(report, "PlayerMore.cs::Player.Commit")
     assert all(not s["axis"] for s in r["steps"])
     assert (r["turns"], r["file_jumps"], r["grade"]) == (4, 4, "臭掉")
+
+
+def test_partial_with_meaningless_suffixes_is_not_an_axis(tmp_path):
+    files = {"Game.cs": CS_GAME_MAIN, "Player.Part1.cs": CS_PART_API,
+             "Player.Part2.cs": CS_PART_CORE, "Player.Part3.cs": CS_PART_LOGIC}
+    r = _route(rp.analyze(_write(tmp_path, files)), "Player.Part2.cs::Player.Commit")
+    assert (r["axis_jumps"], r["turns"]) == (0, 4), "改個 Part1/2/3 檔名不能洗掉跳檔"
 
 
 def test_counter_proof_removing_axis_detection_turns_partial_case_red(tmp_path, monkeypatch):
@@ -441,6 +449,124 @@ def test_compare_git_rev_against_working_tree(tmp_path):
     assert _row(res, "core.py::work")["status"] == "better"
     with pytest.raises(rp.ReadingPathError):
         rp.run_compare(repo, "no-such-rev", None, "app.py", None)
+
+
+def test_compare_flags_parse_regression_instead_of_calling_it_better(tmp_path):
+    old = _write(tmp_path / "old", PY_WRAPPED)
+    new = _write(tmp_path / "new", PY_WRAPPED)
+    (new / "w3.py").write_text("def pass_on(n:\n", encoding="utf-8")
+    res = rp.run_compare(new, str(old), None, "app.py", None)
+    assert res["coverage_drop"] is True
+    assert "⚠ after 的解析涵蓋變差" in rp.render_compare(res, 3) and "coverage_drop=1" in rp.compare_done_line(res)
+
+
+# ─── codex 初審抓到的反例（修正後的回歸） ─────────────────────────────────────
+
+PY_B_WORK = "static class B {\n    public static int Work(int n) {\n        int t = n;\n        for (int i = 0; i < n; i++) t += i;\n        return t;\n    }\n}\n"
+
+
+def test_same_callee_called_twice_keeps_both_callbacks_marked_candidate(tmp_path):
+    files = {"app.py": '''def run(cb):
+    for i in range(2):
+        cb(i)
+
+
+def first(i):
+    a = i + 1
+    a *= 2
+    return a
+
+
+def second(i):
+    b = i - 1
+    b *= 3
+    return b
+
+
+if __name__ == "__main__":
+    run(first)
+    run(second)
+'''}
+    report = rp.analyze(_write(tmp_path, files), "app.py")
+    for landing in ("app.py::first", "app.py::second"):
+        r = _route(report, landing)
+        assert _kinds(r)[-1] == "callback" and r["steps"][-1]["guess"].startswith("候選")
+
+
+def test_same_event_name_with_two_handlers_is_marked_candidate(tmp_path):
+    files = dict(PY_KINDS)
+    files["main.py"] = files["main.py"].replace('bus.on("saved", on_saved)',
+                                                'bus.on("saved", on_saved)\n    bus.on("saved", on_item)')
+    r = _route(rp.analyze(_write(tmp_path, files), "main.py"), "main.py::on_saved")
+    assert r["steps"][-1]["kind"] == "event" and r["steps"][-1]["guess"].startswith("候選")
+
+
+def test_function_local_import_does_not_leak_to_other_functions(tmp_path):
+    files = {
+        "app.py": ('def main():\n    from b import work\n    return work(1)\n\n\n'
+                   'def unused():\n    from c import work\n    return work(2)\n\n\n'
+                   'if __name__ == "__main__":\n    main()\n'),
+        "b.py": "from deep import work as deep_work\n\n\ndef work(n):\n    m = n + 1\n    m *= 2\n    return deep_work(m) + m\n",
+        "c.py": "def work(n):\n    k = n * 3\n    k -= 1\n    return k\n",
+        "deep.py": "def work(n):\n    z = n * n\n    z += 1\n    return z\n",
+    }
+    report = rp.analyze(_write(tmp_path, files), "app.py")
+    landings = {r["landing"] for r in report["entries"][0]["routes"]}
+    assert {"b.py::work", "deep.py::work"} <= landings and "c.py::work" not in landings
+
+
+def test_nested_function_finds_sibling_in_enclosing_scope(tmp_path):
+    files = {"app.py": ('def main():\n    def work(n):\n        t = n + 1\n        t *= 2\n        return t\n\n'
+                        '    def relay(n):\n        return work(n)\n\n    return relay(1)\n\n\n'
+                        'if __name__ == "__main__":\n    main()\n')}
+    r = _route(rp.analyze(_write(tmp_path, files), "app.py"), "app.py::main.work")
+    assert _kinds(r) == ["direct", "wrapper", "direct"]
+
+
+def test_variable_shuffles_do_not_hide_wrappers(tmp_path):
+    hop = "def {name}(n):\n    x = n\n    y = x\n    return {nxt}(y)\n\n\n"
+    text = ("def end(n):\n    s = n * 2\n    s += 1\n    return s\n\n\n"
+            + hop.format(name="c", nxt="end") + hop.format(name="b", nxt="c") + hop.format(name="a", nxt="b")
+            + 'if __name__ == "__main__":\n    a(1)\n')
+    r = _route(rp.analyze(_write(tmp_path, {"app.py": text}), "app.py"), "app.py::end")
+    assert _kinds(r) == ["wrapper", "wrapper", "wrapper", "direct"] and r["turns"] == 3
+
+
+def test_csharp_property_getter_is_followed(tmp_path):
+    files = {
+        "Program.cs": ("class Program {\n    static void Main() {\n        var h = new Holder();\n"
+                       "        int v = h.Value;\n        System.Console.WriteLine(v);\n    }\n}\n"),
+        "Holder.cs": "class Holder {\n    public int Value {\n        get { int a = B.Work(2); a += 1; return a; }\n    }\n}\n",
+        "B.cs": PY_B_WORK,
+    }
+    report = rp.analyze(_write(tmp_path, files))
+    assert _route(report, "Holder.cs::Holder.Value")["entry"] == "Program.cs::Program.Main"
+    assert _kinds(_route(report, "B.cs::B.Work")) == ["direct", "direct"]
+
+
+def test_csharp_interpolated_string_keeps_calls_inside_braces(tmp_path):
+    files = {
+        "Program.cs": ('class Program {\n    static void Main() {\n        Run();\n    }\n    static void Run() {\n'
+                       '        var s = $"total {B.Work(3)} done";\n        var n = s.Length * 2;\n'
+                       '        n += 1;\n        n *= 3;\n    }\n}\n'),
+        "B.cs": PY_B_WORK,
+    }
+    _route(rp.analyze(_write(tmp_path, files)), "B.cs::B.Work")
+
+
+def test_python_file_with_bom_is_parsed(tmp_path):
+    root = _write(tmp_path, PY_STRAIGHT)
+    (root / "core.py").write_bytes(b"\xef\xbb\xbf" + PY_CORE.encode("utf-8"))
+    report = rp.analyze(root, "app.py")
+    assert report["stats"]["parse_errors"] == []
+    _route(report, "core.py::work")
+
+
+def test_csharp_overload_ids_survive_layout_changes():
+    body = ("class K {\n    void Work(int a) { a += 1; a *= 2; a -= 3; }\n"
+            '    void Work(string s) { s += "x"; s += "y"; s += "z"; }\n}\n')
+    ids = lambda text: sorted(f.id for f in rp.lang.parse_csharp("K.cs", text).funcs)
+    assert ids(body) == ids("\n\n" + body) == ["K.cs::K.Work", "K.cs::K.Work(string)"]
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
