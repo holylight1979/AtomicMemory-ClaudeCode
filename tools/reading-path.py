@@ -300,6 +300,7 @@ class Graph:
         same.bases += [b for b in c.bases if b not in same.bases]
         same.partial = same.partial or c.partial
         same.fields.update(c.fields)
+        same.declared_fields.update(c.declared_fields)
         same.stored.update(c.stored)
         same.events |= c.events
         for name, ids in c.methods.items():
@@ -357,9 +358,11 @@ class Graph:
                 return True
         return False
 
-    def field_type(self, cls, attr: str):
-        owner = next((c for c in self.ancestry(cls) if attr in c.fields), None)
-        return self.cls_named(owner.fields[attr], owner.files[0]) if owner else None
+    def field_type(self, cls, attr: str, declared_only: bool = False):
+        """欄位的型別（沿繼承鏈找）；declared_only 時只認宣告的型別（白名單 3），不認 self.x = Foo() 推導的。"""
+        table = "declared_fields" if declared_only else "fields"
+        owner = next((c for c in self.ancestry(cls) if attr in getattr(c, table)), None)
+        return self.cls_named(getattr(owner, table)[attr], owner.files[0]) if owner else None
 
     def stored_param(self, cls, attr: str):
         return next((c.stored[attr] for c in self.ancestry(cls) if attr in c.stored), None)
@@ -688,7 +691,7 @@ class Graph:
         kind, cls = self._recv_head(f, head)
         for seg in rest:
             cls = self.field_type(cls, seg) if cls else None
-        constructed = head in f.exact and head not in f.reassigned and head not in f.escaped
+        constructed = head in f.constructed and head not in f.reassigned and head not in f.escaped
         exact = (kind == "static" or constructed) and not rest
         return (kind, cls, exact) if cls or kind == "external" else ("", None, False)
 
@@ -700,7 +703,7 @@ class Graph:
     def _recv_head(self, f: lang.Func, head: str):
         if head in ("self", "this"):
             return "object", self.cls_of(f)
-        changed = head in f.exact and head in f.reassigned      # x = Base() 之後又 x = Child()：型別不定
+        changed = head in f.constructed and head in f.reassigned      # x = Base() 之後又 x = Child()：型別不定
         typed = None if changed else f.local_types.get(head) or f.param_types.get(head)
         if typed:
             return "object", self.cls_named(typed, f.file)
@@ -818,8 +821,8 @@ class Graph:
             return False
         if c.recv.startswith("new:"):
             ctor = c.recv[4:]
-        elif c.recv in f.exact and c.recv not in f.reassigned and c.recv not in f.escaped:
-            ctor = f.local_types.get(c.recv, "")
+        elif c.recv in f.constructed and c.recv not in f.reassigned and c.recv not in f.escaped:
+            ctor = f.constructed[c.recv]
         else:
             return False
         cls = self.cls_named(ctor, f.file) if ctor else None
@@ -827,7 +830,7 @@ class Graph:
 
     def _rule3(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 3：self.method()／this.Method()（含 C# 省略 this、classmethod 的 cls()）沒有子類覆寫；
-        型別已宣告的接收者（參數標註、欄位型別）沒有子類覆寫、也沒有多載（多載在 certify 已擋）。"""
+        型別已宣告的接收者（參數標註、區域變數標註、欄位宣告型別）沒有子類覆寫、也沒有多載（多載在 certify 已擋）。"""
         cls, name = self._rule3_target(f, c, e)
         return bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
 
@@ -845,20 +848,21 @@ class Graph:
         return None, ""
 
     def _declared_type(self, f: lang.Func, recv: str):
-        """接收者的型別來自宣告（參數標註、欄位型別），沿 a.b.c 每一段都要是宣告的；不是 → None。"""
+        """接收者的型別來自宣告：參數標註、區域變數標註（C# 寫明型別的宣告）、欄位宣告型別；沿 a.b.c 每一段都要是宣告的。
+        建構推導的型別（x = Foo()、self.x = Foo()）不算——那是第 2 條的證據，失去第 2 條資格就不能改走這條。"""
         head, *rest = recv.split(".")
         if head in ("self", "this"):
             cls = self.cls_of(f) if rest else None
         elif head in f.param_types and head not in f.reassigned:
             cls = self.cls_named(f.param_types[head], f.file)
-        elif head in f.local_types and head not in f.reassigned:
-            cls = self.cls_named(f.local_types[head], f.file)
+        elif head in f.declared and head not in f.reassigned:
+            cls = self.cls_named(f.declared[head], f.file)
         elif f.lang == "cs" and head not in f.locals and head not in f.params and f.cls:
-            cls = self.field_type(self.cls_of(f), head)
+            cls = self.field_type(self.cls_of(f), head, declared_only=True)
         else:
             cls = None
         for seg in rest:
-            cls = self.field_type(cls, seg) if cls else None
+            cls = self.field_type(cls, seg, declared_only=True) if cls else None
         return cls
 
     def _rule4(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:

@@ -64,12 +64,13 @@ class Func:
     abstract: bool = False    # 沒有本體（抽象、介面、NotImplementedError）
     prop: bool = False        # C# 屬性的 get/set 本體（讀寫屬性就會跑進來）
     entry: bool = False       # 天生入口：__main__ 區塊、無區塊時的 main、C# static Main、粗略模式 main
-    local_types: dict = field(default_factory=dict)   # 區域變數 → 類別名（x = Foo()、x: Foo）
-    exact: set = field(default_factory=set)           # 型別來自建構（x = Foo()）的區域變數：實際型別確定
+    local_types: dict = field(default_factory=dict)   # 區域變數 → 類別名（x = Foo()、x: Foo）：找目標用，不分來源
+    declared: dict = field(default_factory=dict)      # 區域變數 → 標註／宣告的型別名（x: Foo、C# Foo x = …）：白名單 3 只吃這個
+    constructed: dict = field(default_factory=dict)   # 區域變數 → 建構者名稱（x = Foo()、var x = new Foo()）：白名單 2 只吃這個
     aliases: dict = field(default_factory=dict)       # 區域變數 → 函式參照（fn = b、fn = self.run）
     inline: set = field(default_factory=set)          # 就地定義的 lambda／C# 區域函式名：呼叫它不算未解（內容就在這裡）
     reassigned: set = field(default_factory=set)      # 被指定超過一次（參數再被指定也算）：別名、確定型別、確定實例都不算
-    escaped: set = field(default_factory=set)         # 被存進欄位的區域變數（self.x = obj）：不算確定型別
+    escaped: set = field(default_factory=set)         # 被存進欄位或容器的區域變數（self.x = obj、items = [obj]、lst.append(obj)）
     locals: set = field(default_factory=set)          # 本體裡被指定過的區域變數名：拿它當函式呼叫又追不到 → 未解
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
@@ -83,7 +84,8 @@ class Cls:
     files: list = field(default_factory=list)
     bases: list = field(default_factory=list)
     methods: dict = field(default_factory=dict)   # 方法名 → [func id]（C# 多載同名全收）
-    fields: dict = field(default_factory=dict)    # 欄位 → 型別名
+    fields: dict = field(default_factory=dict)    # 欄位 → 型別名（宣告的與 self.x = Foo() 推導的都有）：找目標用
+    declared_fields: dict = field(default_factory=dict)   # 欄位 → 宣告的型別名（類別層標註、self.x: Foo = …、C# 欄位宣告）：白名單 3 只吃這個
     stored: dict = field(default_factory=dict)    # 欄位 → (func id, 參數名)：把參數存成欄位的 callback
     events: set = field(default_factory=set)
     partial: bool = False
@@ -231,7 +233,7 @@ def _py_class(mod: Module, node: ast.ClassDef) -> None:
         if isinstance(item, _DEF_NODES):
             _py_func(mod, item, node.name + ".", cls)
         elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and _py_ann(item.annotation):
-            cls.fields[item.target.id] = _py_ann(item.annotation)
+            cls.fields[item.target.id] = cls.declared_fields[item.target.id] = _py_ann(item.annotation)
     mod.classes.append(cls)
 
 
@@ -417,20 +419,40 @@ def _py_events(mod: Module, node: ast.Call, c: Call, owner: str) -> list:
     return []
 
 
+CONTAINER_ADD = {"append", "appendleft", "extend", "insert", "add", "setdefault", "update", "put", "push"}
+
+
 def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
-    """區域變數型別、分派表變數；方法裡的 self.x = Foo() 記欄位型別、self.x = 參數 記成 callback 欄位。"""
+    """區域變數型別（標註與建構分開記）、分派表變數、被存進欄位或容器的區域變數；
+    方法裡的 self.x = Foo() 記欄位型別（推導）、self.x: Foo = … 記欄位宣告型別、self.x = 參數 記成 callback 欄位。"""
     for node in nodes:
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and _py_ann(node.annotation):
-            f.local_types[node.target.id] = _py_ann(node.annotation)
+        ann = _py_ann(node.annotation) if isinstance(node, ast.AnnAssign) else ""
+        if ann and isinstance(node.target, ast.Name):
+            f.local_types[node.target.id] = f.declared[node.target.id] = ann
+        if ann and cls and isinstance(node.target, ast.Attribute) and _py_recv(node.target.value) == "self":
+            cls.fields[node.target.attr] = cls.declared_fields[node.target.attr] = ann
         if isinstance(node, ast.AnnAssign) and node.value is not None:
             _py_bind(f, cls, node.target, node.value)      # w: Base = Child()：實際型別看建構的那個
         elif isinstance(node, ast.Assign) and len(node.targets) == 1:
             _py_bind(f, cls, node.targets[0], node.value)
+        f.escaped |= _py_contained(node)
     stores = _py_stores(nodes)
     f.locals = set(stores)
     stores.update(f.params)
     stores.update(n.name for n in nodes if isinstance(n, _DEF_NODES))   # 巢狀 def 也是一次綁定
     f.reassigned = {name for name, k in stores.items() if k > 1}
+
+
+def _py_contained(node) -> set:
+    """被放進容器的區域變數名：指定的右邊是容器字面值（items = [w]、d = {"k": w}），或 lst.append(w) 這類加進容器的呼叫。"""
+    value = getattr(node, "value", None) if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) else None
+    if isinstance(value, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+        elts = value.values if isinstance(value, ast.Dict) else value.elts
+        return {e.id for e in elts if isinstance(e, ast.Name)}
+    fn = node.func if isinstance(node, ast.Call) else None
+    if isinstance(fn, ast.Attribute) and fn.attr in CONTAINER_ADD:
+        return {a.id for a in node.args if isinstance(a, ast.Name)}
+    return set()
 
 
 def _py_bind(f: Func, cls: Cls | None, target, value) -> None:
@@ -439,8 +461,7 @@ def _py_bind(f: Func, cls: Cls | None, target, value) -> None:
     alias = _py_ref(value) if isinstance(value, (ast.Name, ast.Attribute)) else None
     if isinstance(target, ast.Name):
         if ctor:
-            f.local_types[target.id] = ctor
-            f.exact.add(target.id)
+            f.local_types[target.id] = f.constructed[target.id] = ctor
         if table:
             f.table_vars[target.id] = table
         if refs:
@@ -477,6 +498,7 @@ _CS_LOCAL = re.compile(r"\b(?:var|(?P<type>[A-Z]\w*)(?:<[^<>;=]*>)?)\s+(?P<var>[
 _CS_ALIAS = re.compile(r"\b(?:var|[A-Z]\w*(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
 _CS_STORE = re.compile(r"\b([a-z_]\w*)\s*=(?![=>])")   # 區域變數被指定（宣告或重新指定；不含 ==、=>、+=）
 _CS_MODIFY = re.compile(r"\b([a-z_]\w*)\s*[+\-]=(?!=)")   # cb += B、cb -= A：委派被改（數值也算，只影響別名與確定型別）
+_CS_CONTAINER_ADD = re.compile(r"\.\s*(?:Add|Insert|Push|Enqueue|AddLast|AddFirst)\s*\(\s*(?:\w+\s*,\s*)?([a-z_]\w*)\s*\)")
 _CS_BYREF = re.compile(r"\b(?:ref|out)\s+(?:var\s+|[\w<>\[\],.?]+\s+(?=[a-z_]\w*\s*[,)]))?([a-z_]\w*)")
 _CS_INLINE = re.compile(r"(?:^|[;{}])\s*(?:(?:static|async)\s+)*(?P<type>[\w<>\[\],?.]+)\s+(?P<name>\w+)\s*"
                         r"(?:\([^()]*\)\s*(?:\{|=>)|=\s*(?:\([^()]*\)|\w+)\s*=>)", re.M)   # 區域函式、lambda 變數
@@ -632,7 +654,7 @@ def _cs_field(cls: Cls, head: str) -> None:
     words = _strip_generics(head.split("=")[0]).replace("[]", "").split()
     if len(words) < 2:
         return
-    cls.fields[words[-1]] = words[-2].rstrip("?").split(".")[-1]
+    cls.fields[words[-1]] = cls.declared_fields[words[-1]] = words[-2].rstrip("?").split(".")[-1]
     if "event" in words:
         cls.events.add(words[-1])
 
@@ -650,8 +672,10 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
     for m in _CS_LOCAL.finditer(body):
         if m["new"] or m["type"]:
             f.local_types[m["var"]] = m["new"] or m["type"]
+        if m["type"]:
+            f.declared[m["var"]] = m["type"]
         if m["new"]:
-            f.exact.add(m["var"])
+            f.constructed[m["var"]] = m["new"]
     f.aliases = {m["var"]: ref for m in _CS_ALIAS.finditer(body) if (ref := _cs_ref(m["rhs"]))}
     f.inline = {m["name"] for m in _CS_INLINE.finditer(body) if not {m["type"], m["name"]} & CS_KEYWORDS}
     stores = Counter(_CS_STORE.findall(body))
@@ -667,6 +691,7 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
             cls.stored[m["lhs"]] = (f.id, m["rhs"])
         if m["rhs"] in f.locals and m["lhs"] not in f.locals:
             f.escaped.add(m["rhs"])                # 區域變數被存進欄位
+    f.escaped |= set(_CS_CONTAINER_ADD.findall(body))   # list.Add(x) 這類加進容器
     for m in [*_CS_SUB.finditer(body), *_CS_LISTEN.finditer(body)]:
         ref = _cs_ref(m["rhs"])   # 訂閱的是具名方法才收；+= lambda 的內容就寫在這裡
         recv, _, key = m["lhs"].rpartition(".")

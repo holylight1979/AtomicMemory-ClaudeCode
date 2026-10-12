@@ -1241,8 +1241,7 @@ def test_certain_only_comes_from_a_rule(tmp_path):
             assert r["certain"] == all(s["rule"] is not None for s in r["steps"][1:]), (name, r["landing"])
 
 
-@pytest.mark.parametrize("n", [1, pytest.param(2, marks=pytest.mark.xfail(
-    strict=True, reason="007 第 3 條還沒做：建構推導的型別仍被第 3 條當成宣告型別")), 3, 4, 5])
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 5])
 def test_removing_one_rule_makes_its_edges_uncertain(tmp_path, monkeypatch, n):
     """臨時拿掉第 n 條的判斷：原本靠它確定的邊全部變成不確定、也沒有改由別條補上——證明確定只從 rule 來。"""
     before = _rule_edges(_graphs(tmp_path / "before"), n)
@@ -1268,6 +1267,46 @@ def test_c2_closure_over_an_outer_parameter_is_not_certain(tmp_path):
                         "def outer(work):\n    def inner():\n        work()\n    inner()\n")}
     g = rp.build_graph(_write(tmp_path, files))
     assert all(e.rule is None for e in g.edges["app.py::outer.inner"]), "inner 呼叫的是 outer 的參數，不是模組層的 work"
+
+
+WORKER = "class Worker:\n    def run(self):\n        x = 1\n        y = x + 1\n        return y\n"
+
+
+def test_c1_class_name_rebound_by_a_factory_is_not_certain(tmp_path):
+    files = {"app.py": WORKER + "\n\ndef factory():\n    return object\n\n\nWorker = factory()\n\n\n"
+                                "def main():\n    w = Worker()\n    w.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert all(e.rule is None for e in g.edges["app.py::main"]), "Worker 被工廠覆寫：建構者名稱不穩定，第 2 條不成立"
+
+
+def test_c3_constructed_local_stored_to_a_field_is_not_certain(tmp_path):
+    files = {"app.py": WORKER + "\n\ndef main(holder):\n    w = Worker()\n    holder.worker = w\n    w.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    edges = [(e.dst, e.rule) for e in g.edges["app.py::main"]]
+    assert edges == [("app.py::Worker.run", None)], "w 存進欄位：第 2 條不成立；沒有宣告型別，也不能轉用第 3 條"
+
+
+@pytest.mark.parametrize("store", ["    items = [w]\n", "    pool = []\n    pool.append(w)\n", '    d = {"k": w}\n'])
+def test_constructed_local_put_into_a_container_is_not_certain(tmp_path, store):
+    files = {"app.py": WORKER + "\n\ndef main():\n    w = Worker()\n" + store + "    w.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert all(e.rule is None for e in g.edges["app.py::main"] if e.dst == "app.py::Worker.run")
+
+
+def test_c5_annotated_self_field_in_init_is_certain_by_rule_3(tmp_path):
+    files = {"app.py": WORKER + "\n\nclass App:\n    def __init__(self, worker):\n        self.worker: Worker = worker\n\n"
+                                "    def run(self):\n        self.worker.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert [(e.dst, e.rule) for e in g.edges["app.py::App.run"]] == [("app.py::Worker.run", 3)]
+    assert g.unres["app.py::App.run"] == 0
+
+
+def test_constructed_self_field_is_found_but_not_certain(tmp_path):
+    files = {"app.py": WORKER + "\n\nclass App:\n    def __init__(self):\n        self.worker = Worker()\n\n"
+                                "    def run(self):\n        self.worker.run()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert [(e.dst, e.rule) for e in g.edges["app.py::App.run"]] == [("app.py::Worker.run", None)], \
+        "self.x = Foo() 是推導的欄位型別（欄位可能被換）：找得到目標，但第 3 條只吃宣告型別"
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
