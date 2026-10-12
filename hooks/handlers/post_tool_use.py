@@ -32,7 +32,7 @@ from wg_harvest import (
 )
 from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
-    append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn,
+    append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
     aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd,
 )
 try:
@@ -400,12 +400,22 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     return True
 
 
-def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str) -> None:
+def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str, agent_id: str = "") -> None:
     """modified_files 以 (path, session_id) 去重：重複編輯只累加 count、刷 at／tool／last_turn_seq，
     不無限累積 entry。turn_seq＝第一次改的回合、last_turn_seq＝最近一次改的回合（對帳閘「本 turn 改了哪些」用）。
-    消費端計「編輯次數」者（wisdom track_retry / episodic 工作區統計）讀 count 欄（legacy 無 count → 預設 1）。"""
+    消費端計「編輯次數」者（wisdom track_retry / episodic 工作區統計）讀 count 欄（legacy 無 count → 預設 1）。
+    子代理（agent_id 非空）改的檔另記一份到 agent_modified_files[agent_id]（SubagentStop 的對帳／量尺閘只看子代理自己的）；
+    主 session 的 modified_files 照舊也記，主 session 行為不變。"""
+    _upsert_modified(state, state.setdefault("modified_files", []), session_id, file_path, tool_name)
+    if agent_id:
+        _upsert_modified(state, state.setdefault("agent_modified_files", {}).setdefault(agent_id, []),
+                         session_id, file_path, tool_name)
+    state["sync_pending"] = True
+
+
+def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_id: str, file_path: str,
+                     tool_name: str) -> None:
     turn = int(state.get("turn_seq", 0))
-    mods = state.setdefault("modified_files", [])
     for m in mods:
         if (
             isinstance(m, dict)
@@ -433,7 +443,22 @@ def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_
             "turn_seq": turn,
             "last_turn_seq": turn,
         })
-    state["sync_pending"] = True
+
+
+UNKNOWN_WRITES_CAP = 20
+
+
+def _note_unknown_write(state: Dict[str, Any], session_id: str, target: str, command: str, tool_name: str,
+                        agent_id: str = "") -> None:
+    """寫入目標算不出來（write_paths_from_tool 回 UNKNOWN:…）→ 記一筆「未知寫入」：知道有寫、不知道寫了哪個檔，
+    不能當成沒寫。裁判 Stop（unknown_writes）與子代理 Stop（agent_unknown_writes[agent_id]）有這筆就擋到底；
+    主 session 的 PreToolUse 本來就 deny UNKNOWN，主 Stop 不看這份。每份最多留 UNKNOWN_WRITES_CAP 筆。"""
+    rec = {"cmd": " ".join(str(command or "").split())[:120], "target": str(target)[:60], "tool": tool_name,
+           "session_id": session_id, "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso()}
+    lst = (state.setdefault("agent_unknown_writes", {}).setdefault(agent_id, []) if agent_id
+           else state.setdefault("unknown_writes", []))
+    lst.append(rec)
+    del lst[:-UNKNOWN_WRITES_CAP]
 
 
 def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command: str, tool_name: str,
@@ -467,7 +492,8 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "agent_id": agent_id,
         "turn_seq": turn_seq,
         "tool": tool_name,
-        "cmd": command[:500],
+        "cmd": command,               # 完整指令：量尺比對要看到尾段（截斷後接的假哨兵也要看得到）；顯示時才截
+        "cmd_full": True,
         "cwd": cwd,
         "project_root": project_root,
         "sentinels": [{"name": s["name"], "verdict": s["verdict"], "line": s["line"]} for s in sentinels],
@@ -479,14 +505,14 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "root_uncertain": has_cd(command),
     }
     append_verify_ledger(session_id, record, base_dir=WORKFLOW_DIR, suffix=".agents" if agent_id else "")
-    if not agent_id:
-        record_receipt(state, session_id, {
-            "at": record["at"], "seq": next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
-            "cmd": command[:200],
-            "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
-            "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
-            "root_uncertain": record["root_uncertain"],
-        })
+    # 子代理的收據不進主 session 的收據（主帳不變），另放 agent_receipt_key(sid, agent_id)，給 SubagentStop 對帳用
+    record_receipt(state, agent_receipt_key(session_id, agent_id) if agent_id else session_id, {
+        "at": record["at"], "seq": next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
+        "cmd": command, "cmd_full": True,
+        "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
+        "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
+        "root_uncertain": record["root_uncertain"],
+    })
     ms = int((time.monotonic() - t0) * 1000)
     append_guard_log("verify_ledger", {
         "session_id": session_id, "turn_seq": turn_seq, "tool": tool_name, "ms": ms,
@@ -494,6 +520,35 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "truncated": any(v.get("truncated") for v in record["vcs"]),
     })
     return True
+
+
+def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PostToolUse 最小記帳：只記改了哪些檔、目標不明的寫入與驗證收據，
+    給 stop.handle_judge_stop 的寫碼查核閘用；不注入、不跑其他閘、不建完整 state（不重建 atom index，防裁判觸發裁判）。"""
+    session_id = input_data.get("session_id", "") or ""
+    if not session_id:
+        output_nothing()
+        return
+    from wg_core import read_state as _read_state
+    tool_name = input_data.get("tool_name", "") or ""
+    tool_input = input_data.get("tool_input") or {}
+    cwd = input_data.get("cwd", "") or ""
+    state = _read_state(session_id) or {"session": {"id": session_id, "cwd": cwd}, "turn_seq": 0, "judge": True}
+    if tool_name in ("Write", "Edit", "NotebookEdit", "MultiEdit"):
+        fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+        if fp and not _is_ephemeral_path(fp):
+            _note_modified(state, session_id, fp, tool_name)
+    elif tool_name in ("Bash", "PowerShell"):
+        command = tool_input.get("command", "") or ""
+        targets = _write_paths_from_tool(tool_name, tool_input, cwd) if _write_paths_from_tool is not None else []
+        for p in targets or []:
+            if p and p.startswith("UNKNOWN:"):
+                _note_unknown_write(state, session_id, p, command, tool_name)
+            elif p and not _is_ephemeral_path(p):
+                _note_modified(state, session_id, p, tool_name)
+        _track_sentinels(state, input_data, command, tool_name, config, session_id)
+    write_state(session_id, state)
+    output_nothing()
 
 
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -565,7 +620,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         and file_path
         and not _is_ephemeral_path(file_path)
     ):
-        _note_modified(state, session_id, file_path, tool_name)
+        _note_modified(state, session_id, file_path, tool_name, str(input_data.get("agent_id") or ""))
 
         edit_counts = state.setdefault("edit_counts", {})
         edit_counts[file_path] = edit_counts.get(file_path, 0) + 1
@@ -676,10 +731,15 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if _write_paths_from_tool is not None:
             try:
                 _cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+                _aid = str(input_data.get("agent_id") or "")
                 for _p in _write_paths_from_tool(tool_name, tool_input, _cwd) or []:
-                    if _p and not _is_ephemeral_path(_p):
-                        _note_modified(state, session_id, _p, tool_name)
-                        dirty = True
+                    if _p and _p.startswith("UNKNOWN:"):    # 目標不明：記未知寫入（子代理 Stop 據此擋到底），不當成某個檔
+                        _note_unknown_write(state, session_id, _p, command, tool_name, _aid)
+                    elif _p and not _is_ephemeral_path(_p):
+                        _note_modified(state, session_id, _p, tool_name, _aid)
+                    else:
+                        continue
+                    dirty = True
             except Exception as e:
                 _atom_debug_error("post_tool_use:write_paths_from_tool", e)
 
@@ -863,9 +923,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _atom_debug_error("post_tool_use:docdrift_prune", e)
             pass
 
-    # OverviewHub：Read／Bash 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
+    # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
     hub_ctx = None
-    if tool_name in ("Read", "Bash"):
+    if tool_name in ("Read", "Bash", "PowerShell"):
         try:
             from wg_overview import on_read as _hub_on_read
             hub_ctx = _hub_on_read(
@@ -878,7 +938,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
     dep_ctx = None
-    if tool_name in ("Read", "Bash"):
+    if tool_name in ("Read", "Bash", "PowerShell"):
         try:
             from wg_depends import on_read_depends as _on_read_depends
             dep_ctx = _on_read_depends(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config)

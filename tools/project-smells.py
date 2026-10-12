@@ -5,7 +5,8 @@
   python tools/project-smells.py --cwd <專案內任一路徑> --part <部位名> [--top-n 5] [--json]
   結果最後一行哨兵：PROJECT_SMELLS DONE n=<k>（失敗則 PROJECT_SMELLS FAIL reason=<...>，exit 1）
 
-來源三選一（讀 `<專案根>/.claude/overview-hub.json`）：
+來源三選一（讀四層合併後的設定，與導讀卡同一份：lib/hub_config.merge_hub_cfg＝預設 < workflow/config.json 的 overview_hub
+< <公司根>/.claude/overview-hub.json < <專案根>/.claude/overview-hub.json；相對路徑一律以專案根為基準；設定有錯 → FAIL）：
   smells_report  報告檔（JSON：list 或 {rows|items|smells:[...]}；每列 path／category|kind／reason／score?／part?）
                  超過 smells_max_age_days（預設 7）只在表頭加一行 stale，資料照回
   smells_cmd     沒報告（或報告不存在）就跑這條指令，stdout 要是同格式 JSON；逾時 smells_timeout_s（預設 20）回錯誤附指示
@@ -51,9 +52,21 @@ class SmellsError(Exception):
 # ─── 專案根與設定 ─────────────────────────────────────────────────────────────
 
 
+_CLAUDE_DIR = Path(__file__).resolve().parents[1]    # 本工具所在的 repo 根（檔案相對，不吃 HOME）
+
+
 def find_root(cwd: str) -> Path:
-    """最近的 `<root>/.claude/overview-hub.json`；沒有則最近的 .git／.svn；再沒有就 cwd 本身。"""
+    """專案根，與導讀卡端（hooks/wg_overview._lookup）、量尺帳本同一套：最近的部位表 `<root>/.claude/overview-map.md`
+    （lib/overview_hub.find_map）就是專案根；祖先目錄的 overview-hub.json（公司覆蓋層）不改變專案身分，公司層另由
+    merge_hub_cfg 取。沒有部位表的專案照舊：最近的 `.claude/overview-hub.json`，再來 .git／.svn，再沒有就 cwd 本身。"""
     start = Path(cwd).resolve()
+    lib = str(_CLAUDE_DIR / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    from overview_hub import find_map
+    found = find_map(str(start))
+    if found:
+        return found[0]
     chain = [start] + list(start.parents)
     for p in chain:
         if (p / ".claude" / "overview-hub.json").is_file():
@@ -64,19 +77,29 @@ def find_root(cwd: str) -> Path:
     return start
 
 
+def _hub_inputs() -> Tuple[Dict[str, Any], Optional[Path]]:
+    """合併要的兩個外部輸入：workflow/config.json 全文與公司根。讀法與 hooks 同一份（wg_core.load_config／org_memory_root），
+    以檔案相對路徑載入；載不到就是環境壞了，照實拋出。"""
+    hooks = str(_CLAUDE_DIR / "hooks")
+    if hooks not in sys.path:
+        sys.path.insert(0, hooks)
+    from wg_core import load_config, org_memory_root
+    return load_config(), org_memory_root()
+
+
 def load_hub_cfg(root: Path) -> Dict[str, Any]:
-    cfg = dict(DEFAULT_CFG)
-    hub = root / ".claude" / "overview-hub.json"
-    if hub.is_file():
-        try:
-            data = json.loads(hub.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                cfg.update({k: v for k, v in data.items() if k in DEFAULT_CFG})
-        except (OSError, ValueError) as e:
-            sys.stderr.write(f"[project-smells] overview-hub.json 讀取失敗（用預設）：{e}\n")
-    if not isinstance(cfg.get("smells_category_map"), dict):
-        cfg["smells_category_map"] = {}
-    return cfg
+    """四層合併後的設定（lib/hub_config.merge_hub_cfg：預設 < config.json overview_hub < 公司根 < 專案根 overview-hub.json），
+    只取本工具要的鍵（DEFAULT_CFG）。設定有錯（未知鍵、型別錯，與導讀卡端同一套驗證）→ SmellsError，不悄悄用預設。"""
+    lib = str(_CLAUDE_DIR / "lib")
+    if lib not in sys.path:
+        sys.path.insert(0, lib)
+    from hub_config import merge_hub_cfg
+    config, org = _hub_inputs()
+    merged = merge_hub_cfg(config, org, root)
+    if merged["_errors"]:
+        raise SmellsError(f"overview-hub 設定錯誤（{root}）：" + "；".join(merged["_errors"][:5])
+                          + "（修正 overview-hub.json／config.json 的 overview_hub 段）")
+    return {k: merged.get(k, v) for k, v in DEFAULT_CFG.items()}
 
 
 # ─── 三種來源 ─────────────────────────────────────────────────────────────────

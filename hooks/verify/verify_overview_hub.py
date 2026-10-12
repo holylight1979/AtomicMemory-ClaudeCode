@@ -114,6 +114,32 @@ def test_read_paths_from_bash_and_read():
     assert oh.read_paths_from_tool("Grep", {"pattern": "x"}, "") == []
 
 
+def test_read_paths_bash_bare_name_only_when_file_exists_in_cwd(tmp_path):
+    """缺口 5①：沒斜線的 token 只有 cwd 下真有這個檔才收（旗標、指令名不算）。"""
+    (tmp_path / "main.py").write_text("x", encoding="utf-8")
+    assert oh.read_paths_from_tool("Bash", {"command": "cat main.py"}, str(tmp_path)) == [str(tmp_path / "main.py")]
+    assert oh.read_paths_from_tool("Bash", {"command": "cat -n"}, str(tmp_path)) == []
+    assert oh.read_paths_from_tool("Bash", {"command": "echo hi"}, str(tmp_path)) == []
+    assert oh.read_paths_from_tool("Bash", {"command": "cat nothere.py"}, str(tmp_path)) == []
+
+
+def test_read_paths_from_powershell():
+    """缺口 5②：Get-Content／gc／cat／type／Select-String -Path／Import-Csv；-Path／-LiteralPath 具名或第一個位置參數。"""
+    def ps(c):
+        return [p.replace("\\", "/") for p in oh.read_paths_from_tool("PowerShell", {"command": c}, "C:/w")]
+    assert ps("Get-Content src/widget.py") == ["C:/w/src/widget.py"]
+    assert ps('gc -Path "C:/x/a.cs"') == ["C:/x/a.cs"]
+    assert ps("Select-String -Path a.txt foo") == ["C:/w/a.txt"]
+    assert ps("Get-Content $p") == []                                            # 反例：含變數跳過
+    assert ps("Select-String foo") == []                                         # 反例：Select-String 第一個位置參數是 Pattern
+    assert ps("Write-Output hi") == []                                           # 反例：不是讀檔 cmdlet
+    assert ps("Get-Content -Raw -Encoding utf8 x.py") == ["C:/w/x.py"]           # 帶值參數的值不當路徑
+    assert ps("Get-Content -LiteralPath:'C:/y b/z.txt' -TotalCount 3") == ["C:/y b/z.txt"]
+    assert ps("$rows = Import-Csv data/a.csv; type b.txt") == ["C:/w/data/a.csv", "C:/w/b.txt"]
+    assert ps("gc a.cs,b.cs | Select-String x") == ["C:/w/a.cs", "C:/w/b.cs"]
+    assert oh.read_paths_from_tool("Read", {"file_path": "C:/q.cs"}, "C:/w") == ["C:/q.cs"]   # Read 行為不變
+
+
 # ─── state 層：假專案 + 假 transcript ───────────────────────────────
 
 @pytest.fixture
@@ -576,6 +602,20 @@ def _root_world(tmp_path, monkeypatch):
     return live, wt, proj
 
 
+def test_024_root_worktree_card_search_uses_data_root_not_worktree_copy(tmp_path, monkeypatch):
+    """024 修正：根層 worktree 的導讀卡補搜也以資料根（card_mem_dir）為準。資料根（live）已沒有這張卡、worktree 的 memory/
+    還留著開分支時的舊副本 → 不撿舊副本、列為 missing，也沒搜 worktree；一般專案在非預設目錄的卡照舊補搜得到。"""
+    live, wt, proj = _root_world(tmp_path, monkeypatch)
+    row = {"status": "部分", "cards": ["hooks導讀"], "part_short": "hook 層", "part": "hooks/"}
+    (live / "memory" / "CC" / "hooks導讀.md").unlink()
+    paths, miss = wo._resolve_row_cards(wt, row, {})
+    assert paths == [] and miss and miss["missing"] == ["hooks導讀"]
+    assert not any(Path(s) == wt or str(wt) in s for s in miss["searched"])
+    (proj / ".claude" / "memory" / "shared" / "hooks導讀.md").unlink()
+    paths, miss = wo._resolve_row_cards(proj, row, {})
+    assert [p.parent.name for p in paths] == ["CC"] and miss and miss["missing"] == []      # 專案根 memory/CC 那張照撿
+
+
 def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
     live, wt, proj = _root_world(tmp_path, monkeypatch)
     assert oh.card_mem_dir(live, live) == live / "memory"
@@ -661,7 +701,8 @@ def test_validator_internal_error_still_denies_and_logs_traceback(proj, monkeypa
 
     def _bug(bases, root):
         raise RuntimeError("validator-bug")
-    monkeypatch.setattr(wo, "_validate_path_bases", _bug)
+    import hub_config
+    monkeypatch.setattr(hub_config, "validate_path_bases", _bug)                  # 005：驗證本體搬到 lib/hub_config
     c = wo._cfg({}, proj)
     assert len(c["_errors"]) == 1 and "內部錯誤" in c["_errors"][0] and "validator-bug" in c["_errors"][0]
     assert seen == [("overview_hub:validate", "RuntimeError")]
@@ -898,6 +939,223 @@ def test_unmapped_project_requires_a_read_in_same_top_dir(tmp_path, monkeypatch)
     log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
     assert [e["event"] for e in log] == ["edit_unmapped"] * 3 and log[-1]["deny_reason"] is None
     assert wo.on_edit({}, "s", str(tmp_path / "lonely.py"), "", {}) == (None, None, False)   # 無標記目錄不管
+
+
+def test_unmapped_deep_file_falls_back_to_vcs_root(tmp_path, monkeypatch):
+    """缺口 4：只有 .git、無表；第 5 層的檔以前放行，現在退 VCS 根照無表規則（讀過同頂層一檔才放）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = tmp_path / "deep"
+    (root / ".git").mkdir(parents=True)
+    (root / "src" / "a" / "b" / "c").mkdir(parents=True)
+    (root / "src" / "other.py").write_text("x", encoding="utf-8")
+    deep = str(root / "src" / "a" / "b" / "c" / "widget.py")
+    assert wo._project_root_of(deep) is None                                       # 前提：舊規則最多 4 層找不到
+    state = {}
+    warn, deny, changed = wo.on_edit(state, "s", deep, "", {})
+    assert deny and "沒有部位表" in deny and str(root) in deny and "「src」至少 1 個檔（目前 0 個）" in deny
+    wo.on_read(state, "s", "PowerShell", {"command": "Get-Content src/other.py"}, str(root), "", {})
+    assert wo.on_edit(state, "s", deep, "", {}) == (None, None, True)
+
+
+def test_unmapped_vcs_fallback_never_takes_home_or_drive_root(tmp_path, monkeypatch):
+    import wg_verify_ledger as vl
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    home = tmp_path / "home"
+    (home / ".git").mkdir(parents=True)
+    deep = home / "a" / "b" / "c" / "d" / "e.py"
+    deep.parent.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    assert wo._project_root_of(str(deep)) is None
+    assert wo.on_edit({}, "s", str(deep), "", {}) == (None, None, False)          # 家目錄不當根
+    monkeypatch.setattr(vl, "find_vcs_root", lambda start: ("git", Path(Path(start).anchor)))
+    other = tmp_path / "x" / "a" / "b" / "c" / "d" / "f.py"
+    assert wo.on_edit({}, "s", str(other), "", {}) == (None, None, False)         # 磁碟根不當根
+
+
+def test_unmapped_vcs_fallback_not_used_when_project_has_table(proj, tmp_path, monkeypatch):
+    """有部位表的專案不走退路：表上沒列的深層檔行為不變（照舊放行）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    (proj / ".git").mkdir()
+    deep = proj / "Other" / "a" / "b" / "c" / "x.py"
+    deep.parent.mkdir(parents=True)
+    assert wo._project_root_of(str(deep)) is None
+    assert wo.on_edit({}, "s", str(deep), "", {}) == (None, None, False)
+
+
+# ─── 件二：表上有卡、預設目錄找不到 → 搜 repo；確定找不到一律擋 ───────────────────────
+
+_CARD = "戰鬥知識導讀-hub索引"
+
+
+def _move_card(proj, dest_dir):
+    src = proj / ".claude" / "memory" / "shared" / "戰鬥" / f"{_CARD}.md"
+    if dest_dir is None:
+        src.unlink()
+        return None
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    return src.replace(dest_dir / src.name)
+
+
+def test_card_in_default_dir_unchanged(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    txt = wo.on_read({}, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "A.cs")}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and "不在預設目錄" not in txt and "在 repo 裡找不到" not in txt
+
+
+def test_card_only_in_aidocs_atoms_is_found_and_flagged(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    moved = _move_card(proj, proj / "_AIDocs" / "_atoms" / "x")
+    tp = _transcript(tmp_path, ["x"])
+    state = {}
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and f"表上的卡在 {moved}，不在預設目錄；請更新表或搬卡" in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)                 # 找到 → 照正常判定放行
+
+
+def test_card_missing_everywhere_denies_even_after_reads_and_locate(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _move_card(proj, None)
+    tp = _transcript(tmp_path, ["x"])
+    state = {}
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert f"`{_CARD}` 在 repo 裡找不到" in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})                             # 反例：讀過檔＋交三行也擋
+    assert deny and f"部位【戰鬥】表上寫的導讀卡 `{_CARD}` 在 repo 裡找不到" in deny
+    assert str(proj / ".claude" / "memory") in deny and str(proj) in deny and "已搜完" in deny
+    assert "不准繞過（不准改寫表、不准改用其他卡、不准用 Bash 寫檔）" in deny and "等使用者補卡或改表" in deny
+    warn, deny2, _ = wo.on_edit({}, "s", f1, tp, {})                               # 沒讀過就改：同樣是找不到卡的擋
+    assert deny2.startswith(f"[Guardian:OverviewHub] 部位【戰鬥】表上寫的導讀卡 `{_CARD}`")
+    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert [e["deny_reason"] for e in log if e["event"] == "edit_card_missing"] == ["card_missing", "card_missing"]
+    _move_card_back = proj / "Game" / f"{_CARD}.md"                               # 卡出現後恢復正常判定
+    _move_card_back.write_text("# 戰鬥導讀\n病灶：共用字典", encoding="utf-8")
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
+    assert deny and "還沒看過這個部位的導讀卡" in deny and "戰鬥導讀" in deny and "不在預設目錄" in deny
+
+
+def test_status_none_row_unchanged(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    tp = _transcript(tmp_path, ["x"])
+    state = {}
+    v1 = str(proj / "Vendor" / "a.cs")
+    wo.on_read(state, "s", "Read", {"file_path": v1}, str(proj), tp, {})
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Vendor" / "b.cs")}, str(proj), tp, {})
+    _locate(tp, part="框架")
+    assert wo.on_edit(state, "s", v1, tp, {}) == (None, None, True)                 # 狀態「無」不要求卡
+
+
+def test_card_search_timeout_denies_and_says_so(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _move_card(proj, proj / "deep" / "x")                                           # 卡在 repo 裡，但搜不到那裡就逾時
+    ticks = iter(range(0, 1000, 1))
+    monkeypatch.setattr(wo, "_clock", lambda: next(ticks))                          # 每問一次時間過 1 秒
+    tp = _transcript(tmp_path, ["x"])
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), tp, {})
+    assert deny and f"`{_CARD}` 在 repo 裡找不到" in deny and "搜尋逾時（1.5 秒）沒搜完" in deny
+
+
+def _two_card_table(proj):
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        f"| `Game\\Battle\\` | 戰鬥 | `{_CARD}`；根因層另有 `戰鬥根因層` | 有 |\n", encoding="utf-8")
+
+
+def test_two_cards_both_present_unchanged(proj, tmp_path, monkeypatch):
+    """003-4 正例：表上兩張卡都在預設目錄 → 照舊（注入兩張、交三行讀檔後放行）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _two_card_table(proj)
+    (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥根因層.md").write_text("# 根因層\n共用字典", encoding="utf-8")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "在 repo 裡找不到" not in txt and "不在預設目錄" not in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
+
+
+def test_two_cards_one_missing_denies_listing_only_that_one(proj, tmp_path, monkeypatch):
+    """003-4 反例：一張在、一張哪裡都找不到 → 對該部位 deny，訊息只列缺的那張；讀檔＋交三行也照擋。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _two_card_table(proj)
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and "表上寫的導讀卡 `戰鬥根因層` 在 repo 裡找不到" in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    warn, deny, _ = wo.on_edit(state, "s", f1, tp, {})
+    assert deny and "表上寫的導讀卡 `戰鬥根因層` 在 repo 裡找不到" in deny and f"`{_CARD}`" not in deny
+    warn, deny, _ = wo.on_edit({}, "s", f1, tp, {})                                # 沒讀過就改：同一種擋
+    assert deny.startswith("[Guardian:OverviewHub] 部位【戰鬥】表上寫的導讀卡 `戰鬥根因層`")
+
+
+def _wild_table(proj, card):
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        f"| `Game\\Battle\\` | 戰鬥 | `{card}` | 有 |\n", encoding="utf-8")
+
+
+def test_006_8_wildcard_card_found_by_glob(proj, tmp_path, monkeypatch):
+    """表上卡名 `戰鬥*`：預設目錄有 `戰鬥知識導讀-hub索引.md` → 不報缺卡（沿用 glob 語意）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _wild_table(proj, "戰鬥*")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and "在 repo 裡找不到" not in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
+
+
+def test_006_8_wildcard_card_matching_nothing_denies(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _wild_table(proj, "不存在的卡*")
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), _transcript(tmp_path, ["x"]), {})
+    assert deny and "`不存在的卡*` 在 repo 裡找不到" in deny
+    (proj / "docs").mkdir()
+    (proj / "docs" / "不存在的卡-其實在這.md").write_text("# x", encoding="utf-8")       # repo 搜尋對含 * 的卡名用 fnmatch
+    assert wo._search_cards(proj, ["不存在的卡*"])["found"] == [proj / "docs" / "不存在的卡-其實在這.md"]
+
+
+@pytest.mark.parametrize("card", ["*Missing", "Missing.v2*"])
+def test_009_7_wildcard_card_leading_star_or_dot_is_still_a_card(proj, tmp_path, monkeypatch, card):
+    """009-4.7：`*Missing`、`Missing.v2*` 是卡名 glob，不在解析時消失：找不到 → 擋；repo 有對得上的卡 → 搜得到。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _wild_table(proj, card)
+    assert oh.parse_map((proj / ".claude" / "overview-map.md").read_text(encoding="utf-8"))[0]["cards"] == [card]
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), _transcript(tmp_path, ["x"]), {})
+    assert deny and f"`{card}` 在 repo 裡找不到" in deny
+    (proj / "docs").mkdir()
+    hit = proj / "docs" / (card.replace("*", "X") + ".md")
+    hit.write_text("# x", encoding="utf-8")
+    assert wo._search_cards(proj, [card])["found"] == [hit]
+
+
+def test_009_7_extension_only_glob_is_file_pattern_not_card():
+    """純副檔名樣式（`*.bytes`）與含路徑分隔字元的照舊不當卡；同列的真卡名照收。"""
+    rows = oh.parse_map("| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+                     "| `Game\\Battle\\` | 戰鬥 | `*.bytes` `Data/*.json` `戰鬥*` | 有 |\n")
+    assert rows[0]["cards"] == ["戰鬥*"]
+
+
+def test_search_cards_skips_git_node_modules_distant_and_worktrees(tmp_path):
+    for d in (".git", "node_modules", "_distant", ".claude/worktrees/wt"):
+        (tmp_path / d).mkdir(parents=True, exist_ok=True)
+        (tmp_path / d / "c-x.md").write_text("x", encoding="utf-8")
+    r = wo._search_cards(tmp_path, ["c_x"])
+    assert r["found"] == [] and r["missing"] == ["c_x"] and not r["timed_out"]
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "c-x.md").write_text("x", encoding="utf-8")                # 底線換連字號的變體
+    assert wo._search_cards(tmp_path, ["c_x"])["found"] == [tmp_path / "docs" / "c-x.md"]
 
 
 def test_readonly_paths_deny_without_inject_and_glob_misses_neighbors(proj, tmp_path, monkeypatch):

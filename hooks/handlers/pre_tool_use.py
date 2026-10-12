@@ -877,6 +877,49 @@ def check_merge_driver(
     return None
 
 
+_LEDGER_WRITE_TOOLS = ("Write", "Edit", "NotebookEdit", "MultiEdit", "Bash", "PowerShell")
+
+
+def check_verify_ledger_write(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> Optional[str]:
+    """驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/，含 run_verify 自寫的 _runs/）只能由驗證程式自己寫：
+    Edit／Write／NotebookEdit 的 file_path 與 Bash／PowerShell 解析出的寫入目標命中 → deny。
+    hook 自己落帳（PostToolUse）與 run_verify 自寫都不經工具呼叫，不受影響。"""
+    if tool_name not in _LEDGER_WRITE_TOOLS:
+        return None
+    from wg_core import WORKFLOW_DIR, write_paths_from_tool
+    base = os.path.normcase(os.path.realpath(str(WORKFLOW_DIR / "verify-ledger")))
+    for t in write_paths_from_tool(tool_name, tool_input, cwd or None):
+        if t.startswith("UNKNOWN:"):
+            continue                    # 算不出目標的寫入由 OverviewHub 閘一律擋
+        n = os.path.normcase(os.path.realpath(t))          # 經 symlink／junction 繞進帳本目錄也算
+        if n == base or n.startswith(base + os.sep):
+            return (f"[Guardian:VerifyLedger] 驗證收據只能由驗證程式自己寫，不准手寫或改：{t}。"
+                    "要收據就跑驗證程式（run_verify.py 跑完自寫 _runs/；其他驗證由 PostToolUse 依輸出哨兵落帳）。")
+    return None
+
+
+def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PreToolUse：只跑「寫入目標判不出 → deny」這一道（與主 session 的
+    OverviewHub 對 UNKNOWN 的 deny 同一個判定：wg_core.write_paths_from_tool）。`python -c "print(1)"` 這類內嵌碼在執行前
+    就擋，不會被 PostToolUse 記成永久的未知寫入；其他閘、注入、state 一律不碰（防裁判觸發裁判）。"""
+    tool_name = input_data.get("tool_name", "") or ""
+    if tool_name not in ("Bash", "PowerShell"):
+        output_nothing()
+        return
+    from wg_core import write_paths_from_tool
+    unknown = [t for t in write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, input_data.get("cwd") or None)
+               if t.startswith("UNKNOWN:")]
+    if not unknown:
+        output_nothing()
+        return
+    output_json({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": (f"[Guardian:JudgeWrite] 裁判子 session：這段指令的寫入目標判不出來（{unknown[0][8:]}…），"
+                                     "執行了就只能記成未知寫入、收尾擋到底。查資料改用 Read／Grep，或不含內嵌程式碼的指令。"),
+    }})
+
+
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
@@ -1012,7 +1055,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
-    deny_reason = check_svn_test_block(tool_name, tool_input)
+    deny_reason = check_svn_test_block(tool_name, tool_input) or check_verify_ledger_write(tool_name, tool_input, _cwd)
     if deny_reason:
         output_json({
             "hookSpecificOutput": {

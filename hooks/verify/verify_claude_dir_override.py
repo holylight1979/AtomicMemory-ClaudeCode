@@ -28,6 +28,10 @@ PROBE_OVERVIEW = (
     "print(json.dumps({'claude_dir': str(wg_core.CLAUDE_DIR), 'oh_file': overview_hub.__file__, "
     "'log_path': str(wg_overview.LOG_PATH)}))"
 )
+PROBE_COMPANION = (
+    "import json, sys; sys.path.insert(0, sys.argv[1]); import codex_companion; import handlers; "
+    "print(json.dumps({'handlers': handlers.__file__}))"
+)
 
 
 def _probe(snippet: str, env_value) -> dict:
@@ -59,6 +63,14 @@ def test_override_to_this_tree_loads_this_trees_lib():
     assert Path(got["claude_dir"]) == CLAUDE_ROOT
     assert Path(got["oh_file"]).resolve() == (CLAUDE_ROOT / "lib" / "overview_hub.py").resolve()
     assert Path(got["log_path"]) == CLAUDE_ROOT / "workflow" / "_overview-hub.log"
+
+
+def test_codex_companion_keeps_handlers_from_this_tree():
+    """codex_companion import 時會往 sys.path 最前面插路徑；插的若是家目錄的 hooks，之後 import 的 handlers 就載到 live 那份
+    （worktree 測試合跑時 verify_verify_ledger 會因此誤紅）。設不設 WG_CLAUDE_DIR，handlers 都要是本樹的。"""
+    for env_value in (str(CLAUDE_ROOT), None):
+        got = _probe(PROBE_COMPANION, env_value)
+        assert Path(got["handlers"]).resolve() == (HOOKS_DIR / "handlers" / "__init__.py").resolve(), env_value
 
 
 # ─── 反例：未設＝資料在家目錄，程式碼仍在本樹 ─────────────────────────────────────

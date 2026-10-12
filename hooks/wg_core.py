@@ -1641,7 +1641,13 @@ _BASH_WRITE_OP_RE = re.compile(
 _WRITE_CMDS = frozenset({
     "tee", "cp", "mv", "install", "rsync", "ln", "dd", "touch", "mkdir", "rm", "truncate", "sed", "sort",
     "set-content", "out-file", "add-content", "copy-item", "move-item", "new-item", "remove-item",
+    "rename-item", "tee-object",
 })
+# PowerShell 寫檔 cmdlet 的內建別名（只在 PowerShell 工具下換成正式名；cp／mv 在 Bash 分支已處理）
+_PS_WRITE_ALIASES = {
+    "cpi": "copy-item", "copy": "copy-item", "mi": "move-item", "move": "move-item", "ac": "add-content",
+    "sc": "set-content", "ni": "new-item", "rni": "rename-item", "ren": "rename-item", "tee": "tee-object",
+}
 _COPY_CMDS = frozenset({"cp", "mv", "install", "rsync", "ln", "copy-item", "move-item"})
 _COPY_VALUE_FLAGS = frozenset({"-m", "-o", "-g", "-t", "-e", "--mode", "--owner", "--group", "--target-directory", "--suffix", "-S"})
 _PS_VALUE_PARAMS = frozenset({
@@ -1881,12 +1887,13 @@ def _lex_shell(cmd: str) -> List[_Tok]:
 
 class _Scan:
     """一次解析的累積結果：targets（絕對路徑）、signal（有沒有寫入訊號）、unknown（算不出目標的那段文字）。"""
-    __slots__ = ("targets", "signal", "unknown")
+    __slots__ = ("targets", "signal", "unknown", "ps")
 
-    def __init__(self) -> None:
+    def __init__(self, ps: bool = False) -> None:
         self.targets: List[str] = []
         self.signal = False
         self.unknown: Optional[str] = None
+        self.ps = ps                        # PowerShell 工具：寫檔 cmdlet 的別名才生效（Bash 下 sc 是 sc.exe，不是 Set-Content）
 
 
 def _write_target_abs(tok: str, cwd: Optional[str]) -> Optional[str]:
@@ -2071,6 +2078,8 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
     name = words[k].text.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
     if name.endswith(".exe"):
         name = name[:-4]
+    if out.ps:
+        name = _PS_WRITE_ALIASES.get(name, name)
     args = [w.text for w in words[k + 1:]]
     lows = [a.lower() for a in args]
     if name in _INTERPRETERS and any(a in _INTERPRETERS[name] for a in lows):
@@ -2177,7 +2186,7 @@ def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optio
         return [p if p and p != _WRITE_TARGET_UNKNOWN else f"{_WRITE_TARGET_UNKNOWN}:{fp[:40]}"]
     if tool_name not in ("Bash", "PowerShell"):
         return []
-    out = _Scan()
+    out = _Scan(ps=tool_name == "PowerShell")
     _scan_tokens(_lex_shell(tool_input.get("command", "") or ""), base, out)
     if not out.signal:
         return []

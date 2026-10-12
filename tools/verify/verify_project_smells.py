@@ -34,6 +34,12 @@ def _load():
 ps = _load()
 
 
+@pytest.fixture(autouse=True)
+def _no_live_layers(monkeypatch):
+    """預設不吃本機 config.json 與公司根（合併的兩個外部輸入）；要測合併層的案自己再 setattr。"""
+    monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, None))
+
+
 def _project(tmp_path, hub: dict | None, report: str | None):
     root = tmp_path / "proj"
     (root / ".claude").mkdir(parents=True)
@@ -79,7 +85,7 @@ def test_stale_report_still_returns_rows_with_stale_header(tmp_path):
 
 
 def test_no_report_with_cmd_runs_cmd(tmp_path, monkeypatch):
-    hub = _hub() | {"smells_report": None, "smells_cmd": "python gen_smells.py --json"}
+    hub = _hub() | {"smells_report": "", "smells_cmd": "python gen_smells.py --json"}
     root = _project(tmp_path, hub, None)
     seen = {}
 
@@ -99,7 +105,7 @@ def test_no_report_with_cmd_runs_cmd(tmp_path, monkeypatch):
 
 
 def test_cmd_timeout_returns_error_with_hint(tmp_path, monkeypatch, capsys):
-    hub = _hub() | {"smells_report": None, "smells_cmd": ["python", "slow.py"]}
+    hub = _hub() | {"smells_report": "", "smells_cmd": ["python", "slow.py"]}
     root = _project(tmp_path, hub, None)
 
     def fake_run(cmd, **kw):
@@ -191,3 +197,72 @@ def test_split_cmd_windows_leading_whitespace():
     assert ps._split_cmd("   python gen.py --json") == ["python", "gen.py", "--json"]
     got = ps._split_windows("   ")
     assert got == [] and all(t != "" for t in ps._split_windows(" x"))
+
+
+# ─── 005：設定走四層合併（與導讀卡同一份 lib/hub_config） ───────────────────────────
+
+def test_company_root_smells_report_used_when_project_unset(tmp_path, monkeypatch):
+    org = tmp_path / "org"
+    (org / ".claude").mkdir(parents=True)
+    rpt = tmp_path / "org-smells.json"
+    shutil.copyfile(FIX / "fresh.json", rpt)
+    (org / ".claude" / "overview-hub.json").write_text(
+        json.dumps({"smells_report": str(rpt), "smells_category_map": {"god-class": "complexity"}}), encoding="utf-8")
+    monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, org))
+    root = _project(tmp_path, None, None)                                  # 專案沒有 overview-hub.json
+    assert ps.load_hub_cfg(root)["smells_report"] == str(rpt)               # 正例：用公司的
+    res = ps.collect(str(root / "src"), "排程器")
+    assert res["source"] == "report" and res["rows"]
+
+
+def test_project_overrides_company_and_config_root_value_applies(tmp_path, monkeypatch):
+    org = tmp_path / "org"
+    (org / ".claude").mkdir(parents=True)
+    (org / ".claude" / "overview-hub.json").write_text(json.dumps({"smells_report": "org.json", "candidate_top_n": 3}),
+                                                      encoding="utf-8")
+    monkeypatch.setattr(ps, "_hub_inputs", lambda: ({"overview_hub": {"smells_timeout_s": 9, "candidate_top_n": 2}}, org))
+    root = _project(tmp_path, {"smells_report": "proj.json"}, None)
+    cfg = ps.load_hub_cfg(root)
+    assert cfg["smells_report"] == "proj.json"                              # 專案覆蓋公司
+    assert cfg["candidate_top_n"] == 3                                     # 公司覆蓋 config.json 根層值
+    assert cfg["smells_timeout_s"] == 9                                    # config.json overview_hub 的根層值生效
+    assert set(cfg) == set(ps.DEFAULT_CFG)                                 # 只取本工具要的鍵
+
+
+def test_009_6_company_hub_above_mapped_project_keeps_project_root(tmp_path, monkeypatch):
+    """009-4.6：公司根有 overview-hub.json、專案有 .git 與部位表、專案不另設 hub → 根是專案（與導讀卡端同一套：最近的部位表根），
+    公司設定照樣繼承，相對報告路徑以專案根為基準。"""
+    company = tmp_path / "company"
+    proj = company / "project"
+    (company / ".claude").mkdir(parents=True)
+    (company / ".claude" / "overview-hub.json").write_text(json.dumps({"smells_report": "reports/smells.json"}), encoding="utf-8")
+    (proj / ".git").mkdir(parents=True)
+    (proj / ".claude").mkdir()
+    (proj / ".claude" / "overview-map.md").write_text("| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+                                                     "| `src\\` | 排程器 | `x` | 有 |\n", encoding="utf-8")
+    (proj / "src" / "sched").mkdir(parents=True)
+    (proj / "reports").mkdir()
+    shutil.copyfile(FIX / "fresh.json", proj / "reports" / "smells.json")
+    monkeypatch.setattr(ps, "_hub_inputs", lambda: ({}, company))
+    assert ps.find_root(str(proj / "src")) == proj
+    res = ps.collect(str(proj / "src"), "排程器")
+    assert res["root"] == str(proj) and res["source"] == "report" and res["rows"]
+
+
+def test_009_6_project_without_map_keeps_old_root_rule(tmp_path):
+    """沒有部位表的專案照舊：最近的 overview-hub.json 根。"""
+    root = _project(tmp_path, _hub(), None)
+    assert ps.find_root(str(root / "src" / "sched")) == root
+
+
+def test_config_errors_fail_like_overview_hub(tmp_path, capsys):
+    root = _project(tmp_path, {"smells_report": "x.json", "smells_bogus": 1}, None)
+    with pytest.raises(ps.SmellsError) as ei:
+        ps.load_hub_cfg(root)
+    assert "未知的設定鍵「smells_bogus」" in str(ei.value)                    # 反例：未知鍵與導讀卡端同樣報錯
+    root2 = _project(tmp_path / "b", {"smells_timeout_s": "fast"}, None)
+    with pytest.raises(ps.SmellsError) as ei:
+        ps.load_hub_cfg(root2)
+    assert "smells_timeout_s 必須是正數" in str(ei.value)                    # 反例：型別錯
+    rc = ps.main(["--cwd", str(root / "src"), "--part", "排程器"])
+    assert rc == 1 and "PROJECT_SMELLS FAIL" in capsys.readouterr().out

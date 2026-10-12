@@ -188,10 +188,11 @@ def find_part_row(cwd: str, part: str) -> Tuple[Optional[Path], Optional[Dict[st
 
 
 def gather_items(request: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Tuple[str, str]], List[str]]:
-    """request{cwd, part, mode, draft?, materials?{card,defects,diff,ledger,files[]}} → (items, notes)。
+    """request{cwd, part, mode, session_id?, draft?, materials?{card,defects,diff,ledger,files[]}} → (items, notes)。
 
     materials 顯式指定的路徑優先（CLI／測試用）；否則從 overview-map 找卡與病灶文件、git/svn 取 diff、
-    `<root>/.claude/verify/_ledger.jsonl` 取帳本尾 K。缺哪樣就在 notes 說，不靜默。
+    帳本取 `<CLAUDE_DIR>/workflow/verify-ledger/<session_id>.jsonl`（沒有再找舊位置 `<root>/.claude/verify/_ledger.jsonl`）尾 K。
+    缺哪樣就在 notes 說，不靜默。
     """
     cwd = str(request.get("cwd") or "")
     part = str(request.get("part") or "")
@@ -238,11 +239,18 @@ def gather_items(request: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Tup
     else:
         notes.append("diff 為空（無改動或無版控）")
 
-    ledger_src = spec.get("ledger") or (str(base / ".claude" / "verify" / "_ledger.jsonl") if base else None)
-    if ledger_src and Path(ledger_src).is_file():
+    # 帳本來源：materials.ledger 明指（只認它）→ 本 session 的 workflow/verify-ledger/<sid>.jsonl → 舊位置 <根>/.claude/verify/_ledger.jsonl
+    sid = str(request.get("session_id") or "")
+    if spec.get("ledger"):
+        ledger_cands = [str(spec["ledger"])]
+    else:
+        ledger_cands = [str(CLAUDE_DIR / "workflow" / "verify-ledger" / f"{sid}.jsonl") if sid else "",
+                        str(base / ".claude" / "verify" / "_ledger.jsonl") if base else ""]
+    ledger_src = next((c for c in ledger_cands if c and Path(c).is_file()), None)
+    if ledger_src:
         items.append((REL_LEDGER, tail_lines(_read(Path(ledger_src)), tail_k)))
     else:
-        notes.append("沒有驗證帳本")
+        notes.append(f"沒有驗證帳本（session_id={sid or '未給'}）")
 
     for extra in spec.get("files") or []:
         p = Path(str(extra))

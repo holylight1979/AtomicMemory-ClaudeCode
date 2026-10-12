@@ -603,11 +603,12 @@ def read_transcript_tail(
 
 
 def get_last_assistant_text(
-    transcript_path: Optional[Path], *, text: Optional[str] = None
+    transcript_path: Optional[Path], *, text: Optional[str] = None, min_chars: int = 31
 ) -> str:
     """Read JSONL transcript, return last assistant text block (or empty).
 
     text 給定時（read_transcript_tail 共用尾段）直接掃該字串、不再開檔。
+    min_chars：短於它的 text 區塊跳過（預設 31＝退避偵測只看有份量的段落）；寫碼查核要真正的最後一句，傳 1。
     """
     if text is None:
         if not transcript_path:
@@ -630,7 +631,7 @@ def get_last_assistant_text(
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text":
                 t = block.get("text", "")
-                if t and len(t) > 30:
+                if t and len(t) >= min_chars:
                     last = t
     return last
 

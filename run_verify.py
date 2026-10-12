@@ -7,10 +7,18 @@
                                  #   {exit_code, total, passed, failed, errors, skipped,
                                  #    duration_s, paths, cases:[{id, file, markers, phase,
                                  #    outcome, duration_s, message}]}
+
+印完量尺哨兵後自寫一份驗證收據到 workflow/verify-ledger/_runs/（lib/self_receipt.py）：全量常要背景跑，
+PostToolUse 看不到結尾哨兵，MeasureGate 靠這份收據認「改完之後跑過、全綠、同根」。--help 不寫。
 """
+import os
 import sys
 import subprocess
+import time
 from pathlib import Path
+
+_STARTED = time.time()   # 整輪開始的時刻（自寫收據的 started_at：要晚於最後一次修改才算驗到這次改動）
+_CWD = os.getcwd()       # 開跑時的 cwd（個別測試可能 chdir，結尾再取不可靠）
 
 # 測試訊息含非 cp950 字元（如 ⚠）時 --json 會在 Windows 主控台炸掉，統一走 UTF-8
 for _s in (sys.stdout, sys.stderr):
@@ -53,7 +61,6 @@ if not paths:
 # 人讀模式印 stdout，--json 模式印 stderr 讓 stdout 仍是純 JSON）
 import io
 import json
-import time
 from contextlib import redirect_stdout
 
 import pytest
@@ -124,4 +131,27 @@ if as_json:
     print(sentinel, file=sys.stderr)
 else:
     print(sentinel)
+sys.stdout.flush()
+
+
+def _write_self_receipt() -> None:
+    """自寫驗證收據；任何失敗只在 stderr 浮一行（self_receipt 內處理），不改 exit code。"""
+    try:
+        import importlib.util
+        sys.path.insert(0, str(ROOT))
+        sys.path.insert(0, str(ROOT / "lib"))
+        # 用檔案路徑載入：pytest.main 跑過的測試可能已把別處的 `lib` 套件放進 sys.modules，按名字 import 會拿錯版本
+        _spec = importlib.util.spec_from_file_location("_run_verify_self_receipt", ROOT / "lib" / "self_receipt.py")
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        write_self_receipt = _mod.write_self_receipt
+        # project_root＝受測的那棵樹（本檔所在的 ROOT），不是呼叫時的 cwd：在 B 目錄跑 A 的 run_verify，驗的是 A
+        argv = list(getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv])
+        write_self_receipt(ROOT, argv, sentinel, exit_code, len(collector.cases), n_failed,
+                           _CWD, str(ROOT), _STARTED, time.time())
+    except Exception as e:  # noqa: BLE001
+        print(f"[run_verify] 自寫驗證收據失敗：{type(e).__name__}: {e}", file=sys.stderr)
+
+
+_write_self_receipt()
 sys.exit(exit_code)

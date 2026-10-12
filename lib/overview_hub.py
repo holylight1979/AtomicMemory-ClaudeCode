@@ -47,6 +47,17 @@ _BASH_READ_RE = re.compile(
     r'(?:^|[;&|(]\s*)(?:cat|head|tail|less|sed\s+-n\s+\S+|svn\s+cat|svn\s+diff|git\s+show|git\s+diff)'
     r'\s+(?:-[a-zA-Z0-9=]+\s+)*(?:[0-9a-f]{7,40}:|HEAD[~^0-9]*:)?"?([^"\s;|&)]+)"?'
 )
+# PowerShell 讀檔 cmdlet（含常用別名）＋到本段結束（; | & 換行 ) }）為止的參數字串
+_PS_READ_RE = re.compile(
+    r'(?:^|[;|&({=\n])\s*(get-content|gc|cat|type|select-string|sls|import-csv)(?=\s|$)([^;|&\n)}]*)',
+    re.IGNORECASE,
+)
+_PS_TOKEN_RE = re.compile(r'-[\w-]+:(?:"[^"]*"|\'[^\']*\'|\S+)|"[^"]*"|\'[^\']*\'|\S+')   # -Name:'含空白的值' 是一個 token
+_PS_PATH_PARAMS = ("-path", "-literalpath", "-pspath", "-lp")
+# 帶值的具名參數：值不是路徑，也不能被當成第一個位置參數
+_PS_VALUE_PARAMS = ("-encoding", "-totalcount", "-head", "-first", "-tail", "-last", "-readcount", "-delimiter",
+                    "-pattern", "-filter", "-include", "-exclude", "-stream", "-header", "-context", "-culture",
+                    "-erroraction", "-ea", "-errorvariable", "-ev", "-outvariable", "-ov")
 
 
 # 分片（預計畫第二節）：導讀卡五片；標籤同義詞依優先序 authority > ask > defects > verify > what 映射
@@ -120,8 +131,17 @@ def _is_path_token(tok: str) -> bool:
     return ("/" in tok or "\\" in tok) and not tok.startswith("http")
 
 
+_EXT_ONLY_GLOB_RE = re.compile(r"^\*(?:\.[0-9A-Za-z_]+)+$")
+
+
 def _is_card_token(tok: str) -> bool:
-    return not _is_path_token(tok) and "*" not in tok and not tok.endswith((".cs", ".ps1", ".md", ".json"))
+    """導讀卡欄的 token 是不是卡名。含 `*` 的一律當卡名 glob（`戰鬥*`、`*Missing`、`Missing.v2*`：找不到就由缺卡閘擋，
+    不能在解析時消失）；只有純副檔名樣式（`*.bytes`）與含路徑分隔字元的才是檔案樣式，照舊不當卡。"""
+    if _is_path_token(tok):
+        return False
+    if "*" in tok:
+        return not _EXT_ONLY_GLOB_RE.match(tok)
+    return not tok.endswith((".cs", ".ps1", ".md", ".json"))
 
 
 def _header_columns(cells: List[str]) -> Dict[str, int]:
@@ -635,21 +655,59 @@ def transcript_readable(transcript_path: str) -> Tuple[bool, str]:
 
 # ─── 工具呼叫裡的讀檔路徑 ──────────────────────────────────────────
 
+def _ps_read_args(cmdlet: str, args: str) -> List[str]:
+    """PowerShell 讀檔 cmdlet 的路徑參數：-Path／-LiteralPath（具名，含 -Path:值）或第一個位置參數
+    （Select-String 的第一個位置參數是 Pattern，只認具名）。回原樣 token（引號未剝）。"""
+    toks = _PS_TOKEN_RE.findall(args)
+    positional = cmdlet not in ("select-string", "sls")
+    out: List[str] = []
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        if not t.startswith("-"):
+            if positional:
+                out.append(t)
+                positional = False
+            i += 1
+            continue
+        name, colon, inline = t.partition(":")
+        name = name.lower()
+        if name in _PS_PATH_PARAMS:
+            val = inline if colon else (toks[i + 1] if i + 1 < len(toks) else "")
+            out.append(val)
+            i += 1 if colon else 2
+            continue
+        i += 2 if name in _PS_VALUE_PARAMS and not colon else 1
+    return out
+
+
 def read_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
-    """Read 的 file_path；Bash 裡 cat/head/tail/sed -n 的路徑（相對路徑補 cwd）。"""
+    """Read 的 file_path；Bash 裡 cat/head/tail/sed -n 的路徑；PowerShell 裡 Get-Content／gc／cat／type／Select-String -Path／
+    Import-Csv 的路徑參數（相對路徑補 cwd）。Bash 沒斜線的 token 只有 cwd 下真有這個檔才收（旗標、指令名不算路徑）；
+    含變數（$）的路徑跳過。"""
     if tool_name == "Read":
         fp = tool_input.get("file_path", "")
         return [fp] if fp else []
-    if tool_name != "Bash":
-        return []
+    command = tool_input.get("command", "") or ""
     out: List[str] = []
-    for m in _BASH_READ_RE.finditer(tool_input.get("command", "") or ""):
-        tok = m.group(1)
-        if tok.startswith("$") or not _is_path_token(tok):
-            continue
-        if not Path(tok).is_absolute() and cwd:
-            tok = str(Path(cwd) / tok)
-        out.append(tok)
+    if tool_name == "Bash":
+        for m in _BASH_READ_RE.finditer(command):
+            tok = m.group(1)
+            if tok.startswith(("$", "-")):
+                continue
+            if not _is_path_token(tok) and not (cwd and (Path(cwd) / tok).is_file()):
+                continue
+            out.append(tok if Path(tok).is_absolute() or not cwd else str(Path(cwd) / tok))
+        return out
+    if tool_name != "PowerShell":
+        return []
+    for m in _PS_READ_RE.finditer(command):
+        for raw in _ps_read_args(m.group(1).lower(), m.group(2)):
+            for tok in ([raw] if raw[:1] in ("'", '"') else raw.split(",")):     # 引號內的逗號是路徑的一部分
+                tok = tok.strip().strip("\"'")
+                if not tok or "$" in tok or tok.startswith("-") or tok.startswith("http"):
+                    continue
+                out.append(tok if Path(tok).is_absolute() or not cwd else str(Path(cwd) / tok))
     return out
 
 

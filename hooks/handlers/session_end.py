@@ -106,6 +106,13 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
         _cleanup_old_states()
     except Exception as e:
         print(f"SessionEnd cleanup error: {e}", file=sys.stderr)
+    try:
+        # run_verify 自寫的驗證收據（workflow/verify-ledger/_runs/）：留最新 200 份、刪 30 天以上；單份刪不掉在函式內浮 stderr
+        from wg_core import CLAUDE_DIR as _CD
+        from self_receipt import prune_self_runs
+        prune_self_runs(_CD)
+    except Exception as e:
+        print(f"SessionEnd 自寫收據清理失敗：{type(e).__name__}: {e}", file=sys.stderr)
 
     rc = config.get("response_capture", {})
     # session_end 全文萃取 worker 的唯一下游是 session_end_flush（已停產）；
