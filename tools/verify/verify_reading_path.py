@@ -1083,10 +1083,17 @@ def _numbers(r: dict) -> tuple:
 def test_whitelist_examples_stay_certain_with_the_same_numbers(tmp_path):
     a = _route(rp.analyze(_write(tmp_path / "a", EX_A), "app.py::main"), "app.py::done")
     assert a["certain"] and _numbers(a) == (0, 2, 2, 3), "例 A：委派＋單一來源 callback"
+    assert _rules(a) == [2, 3, 5], "剛 new 的 a.start → 2；標註 Runner 的 worker.run → 3；單一來源 callback → 5"
     b = _route(rp.analyze(_write(tmp_path / "b", EX_B), "app.py::main"), "end.py::done")
     assert b["certain"] and _numbers(b) == (2, 3, 4, 4), "例 B：簡單區域別名"
+    assert _rules(b) == [1, 4, 1, 1], "import 的 a → 1；next_fn = b → 4；c、done → 1"
     g = rp.build_graph(_write(tmp_path / "c", {"Program.cs": CS_INHERIT}))
-    assert [(e.dst, e.guess) for e in g.edges["Program.cs::Program.Main"] if "Work" in e.dst] == [("Program.cs::Base.Work", "")]
+    assert [(e.dst, e.guess, e.rule) for e in g.edges["Program.cs::Program.Main"] if "Work" in e.dst] == \
+        [("Program.cs::Base.Work", "", 2)]
+
+
+def _rules(r: dict) -> list:
+    return [s["rule"] for s in r["steps"][1:]]
 
 
 def test_module_alias_overwritten_by_a_factory_is_not_certain(tmp_path):
@@ -1203,6 +1210,64 @@ def test_b_annotated_construction_is_exact(tmp_path):
                         "def main():\n    w: Base = Base()\n    w.run()\n")}
     g = rp.build_graph(_write(tmp_path, files))
     assert [(e.dst, e.guess) for e in g.edges["app.py::main"] if "run" in e.dst] == [("app.py::Base.run", "")]
+
+
+# ─── 退件 007：確定改成由白名單主動證明（Edge.rule） ─────────────────────────
+
+def _corpus() -> dict:
+    """結構守門用的夾具語料：每一種轉手與白名單 1～5 都有。"""
+    return {"ex_a": EX_A, "ex_b": EX_B, "cs_inherit": {"Program.cs": CS_INHERIT}, "py_kinds": PY_KINDS,
+            "cs_kinds": CS_KINDS, "py_wrapped": PY_WRAPPED}
+
+
+def _graphs(tmp_path) -> dict:
+    return {name: rp.build_graph(_write(tmp_path / name, files)) for name, files in _corpus().items()}
+
+
+def _rule_edges(graphs: dict, n: int) -> set:
+    return {(name, src, e.dst) for name, g in graphs.items() for src, es in g.edges.items() for e in es if e.rule == n}
+
+
+def test_certain_only_comes_from_a_rule(tmp_path):
+    """每條邊：有 rule ⇔ 沒有不確定原因；rule 只會是 1～5；路線的「全確定」＝每一步都有 rule。"""
+    for name, files in _corpus().items():
+        root = _write(tmp_path / name, files)
+        g = rp.build_graph(root)
+        for src, es in g.edges.items():
+            for e in es:
+                assert e.rule in (None, 1, 2, 3, 4, 5), (name, src, e)
+                assert (e.rule is None) == bool(e.guess), f"{name} {src}→{e.dst}：確定與否只看 rule，原因只是說明"
+        for r in itertools.chain.from_iterable(entry["routes"] for entry in rp.analyze(root)["entries"]):
+            assert r["certain"] == all(s["rule"] is not None for s in r["steps"][1:]), (name, r["landing"])
+
+
+@pytest.mark.parametrize("n", [1, pytest.param(2, marks=pytest.mark.xfail(
+    strict=True, reason="007 第 3 條還沒做：建構推導的型別仍被第 3 條當成宣告型別")), 3, 4, 5])
+def test_removing_one_rule_makes_its_edges_uncertain(tmp_path, monkeypatch, n):
+    """臨時拿掉第 n 條的判斷：原本靠它確定的邊全部變成不確定、也沒有改由別條補上——證明確定只從 rule 來。"""
+    before = _rule_edges(_graphs(tmp_path / "before"), n)
+    assert before, f"語料裡要有靠第 {n} 條確定的邊"
+    monkeypatch.setattr(rp.Graph, f"_rule{n}", lambda self, *a: False)
+    after = _graphs(tmp_path / "after")
+    still = {(name, src, e.dst) for name, g in after.items() for src, es in g.edges.items() for e in es
+             if e.rule is not None and (name, src, e.dst) in before}
+    assert not still, f"拿掉第 {n} 條後仍確定：{sorted(still)[:3]}"
+    assert not _rule_edges(after, n)
+
+
+def test_c2_nested_function_name_reassigned_in_outer_scope_is_not_certain(tmp_path):
+    files = {"app.py": ("def outer():\n    def work():\n        x = 1\n        y = x + 1\n        return y\n\n"
+                        "    def inner():\n        work()\n\n    work = lambda: 2\n    inner()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    edges = [(e.dst, e.rule) for e in g.edges["app.py::outer.inner"]]
+    assert edges == [("app.py::outer.work", None)], "work 在 outer 裡被改指成 lambda：白名單 1 不成立"
+
+
+def test_c2_closure_over_an_outer_parameter_is_not_certain(tmp_path):
+    files = {"app.py": ("def work():\n    x = 1\n    x += 1\n    return x\n\n\n"
+                        "def outer(work):\n    def inner():\n        work()\n    inner()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert all(e.rule is None for e in g.edges["app.py::outer.inner"]), "inner 呼叫的是 outer 的參數，不是模組層的 work"
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────

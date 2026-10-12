@@ -87,6 +87,8 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   5. callback：有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、參數沒被重新指定
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
 
+NOT_WHITELISTED = "候選：不在確定白名單（名字綁定、型別來源或唯一目標證明不了）"
+
 LIMITS = WHITELIST + """
 
 抓不到／可能偏差（數字是尺，判斷交給人）：
@@ -119,8 +121,9 @@ class ReadingPathError(Exception):
 class Edge:
     dst: str
     kind: str            # direct｜callback｜event｜inherit｜dynamic
-    guess: str = ""      # 這條邊不確定的原因（猜的／候選）；空字串＝確定
+    guess: str = ""      # 為什麼不確定（說明用）；確定與否只看 rule
     via: str = ""        # object：經由別的物件轉交（落點若只轉傳 → delegate）
+    rule: int | None = None   # 給它確定的白名單條號 1～5；只有 Graph 的「確定白名單」那一段能填，其他一律 None＝不確定
 
 
 @dataclass
@@ -139,6 +142,7 @@ class Step:
     jump: bool = False
     axis: str = ""       # 分檔有責任軸時的「責任→責任」
     guess: str = ""
+    rule: int | None = None   # 這一步憑白名單第幾條確定；None＝不確定（入口那一步也是 None，不算進確定與否）
 
     @property
     def turn(self) -> int:
@@ -160,7 +164,7 @@ class Route:
         return {"entry": self.entry, "landing": self.landing, "sig": self.sig, "turns": turns, "grade": grade(turns),
                 "file_jumps": sum(s.jump for s in moves), "axis_jumps": sum(bool(s.axis) for s in moves),
                 "handoffs": sum(s.kind != "direct" for s in moves), "depth": len(moves),
-                "certain": not any(s.guess for s in moves), "incomplete": self.unresolved > 0,
+                "certain": all(s.rule is not None for s in moves), "incomplete": self.unresolved > 0,
                 "unresolved": self.unresolved, "fan_in": self.fan_in, "steps": [asdict(s) for s in self.steps]}
 
 
@@ -204,10 +208,10 @@ def override_targets(g: "Graph", cls: lang.Cls, name: str) -> list:
 
 def callback_targets(g: "Graph", bind_fid: str, param: str) -> list:
     """bind_fid 的參數 param 被當函式呼叫：找所有呼叫 bind_fid 的地方，那個位置傳進來的是哪個函式
-    → [(func id, 不確定原因)]；傳進來的參照本身是猜的，原因跟著帶過來。"""
+    → [(func id, 那個參照在呼叫者語境的白名單條號或 None, 不確定原因)]；白名單 5 要每個來源都確定。"""
     out = []
     for caller, ref in g.bound_refs(bind_fid, param).refs:
-        out += [(e.dst, e.guess) for e in g.resolve(caller, ref, defer=False)]
+        out += [(e.dst, e.rule, e.guess) for e in g.resolve(caller, ref, defer=False)]
     return out
 
 
@@ -444,10 +448,11 @@ class Graph:
     # 解析：一個呼叫點連到哪些函式 ─────────────────────────
 
     def resolve(self, f: lang.Func, c: lang.Call, defer: bool = True) -> list:
+        """找目標（各解析路）→ 定確定與否（certify，唯一能給確定的地方）。"""
         handler = {"name": self._r_name, "self": self._r_self, "super": self._r_super, "attr": self._r_attr,
                    "new": self._r_new, "emit": self._r_emit, "invoke": self._r_invoke, "table": self._r_table,
                    "getattr": self._r_getattr, "prop": self._r_prop, "opaque": lambda *_: []}
-        return handler[c.kind](f, c, defer)
+        return self.certify(f, c, handler[c.kind](f, c, defer))
 
     def dispatch(self, cls, name: str, via: str = "", exact: bool = False) -> list:
         """在 cls 上呼叫 name。實際型別確定（剛 new 出來）→ 只連它自己的實作；
@@ -709,6 +714,175 @@ class Graph:
             return "external", None               # 匯入的外部模組或其成員（json、os.path…）
         return "", None
 
+    # 綁定穩定：白名單 1、2（建構者名稱）、4 共用的唯一判斷 ─────
+
+    def stable(self, f: lang.Func, name: str) -> bool:
+        """f 裡寫成 name 的名字，在它所屬的作用域只綁定一次、不是算出來的值：由內往外找第一個綁定它的作用域——
+        那一層是巢狀 def 且沒再被指定 → 穩定；是參數或區域變數 → 不穩定（裝的東西看不到或會變）；
+        是那一層自己 import 的 → 沿匯入鏈到原模組；都沒有 → 模組層（_stable_in）。C# 的方法與類別名不會被改指，
+        只要不是同名的區域變數或參數就算穩定。"""
+        if f.lang == "cs":
+            return name not in f.locals and name not in f.params
+        for scope in reversed(self.scopes(f)):
+            owner = self.funcs.get(f"{f.file}::{scope}")
+            if owner is None:
+                continue
+            nested = f"{owner.id}.{name}" in self.funcs
+            if name in owner.params or name in owner.locals:
+                return False
+            if nested:
+                return name not in owner.reassigned
+            if name in owner.imports:
+                return self._stable_import(f.file, owner.imports, name, 0)
+        return self._stable_in(f.file, name, 0)
+
+    def _stable_in(self, file: str, name: str, hops: int) -> bool:
+        """模組層的 name 只綁定一次、不是算出來的值；它是別名或 from 匯入時，指到的名字也要穩定（逐跳）。"""
+        mod = self.modules.get(file)
+        if mod is None or hops > MAX_REEXPORT or mod.bindings[name] != 1 or name in mod.opaque:
+            return False
+        if name in mod.aliases:
+            return all(self._stable_ref(file, ref, hops + 1) for ref in mod.aliases[name])
+        return self._stable_import(file, mod.imports, name, hops) if name in mod.imports else True
+
+    def _stable_import(self, file: str, imports: dict, name: str, hops: int) -> bool:
+        """import 進來的名字：整個模組（import x）就是那個模組；from X import name 要追到 X 裡的 name 也穩定。"""
+        if not imports[name][2]:
+            return True
+        src, orig = self._imported_from(file, imports, name)
+        return bool(src) and self._stable_in(src, orig, hops + 1)
+
+    def _stable_ref(self, file: str, ref: lang.Call, hops: int) -> bool:
+        """模組層別名的右邊（同模組的名字，或 匯入的模組.成員）穩定。"""
+        if ref.kind == "name":
+            return self._stable_in(file, ref.name, hops)
+        target = self.module_alias(self.module_ctx(file), ref.recv) if ref.kind == "attr" else None
+        head = ref.recv.partition(".")[0]
+        return bool(target) and self._stable_in(file, head, hops) and self._stable_in(target, ref.name, hops)
+
+    # 確定白名單：rule 只在這一段填 ─────────────────────────
+    # 每條白名單一個判斷式（_rule1～_rule5），各自正向檢查自己的寫法與條件。解析路只找目標、標不確定原因，
+    # 不能給確定；所以新的解析路、或舊路漏了條件，產生的邊預設就是不確定。
+
+    def certify(self, f: lang.Func, c: lang.Call, edges: list) -> list:
+        """呼叫點 c 解析出來的邊：目標不只一個、不是直接呼叫、解析路已標了不確定原因的，一律不確定；
+        其餘依序對白名單 1～4 檢查，第一條成立的條號填進 rule。都不成立 → rule=None，補上原因。"""
+        unique = len({e.dst for e in edges}) == 1
+        for e in edges:
+            e.rule = None
+            if unique and e.kind == "direct" and not e.guess:
+                e.rule = next((n for n, check in self._call_rules() if check(f, c, e)), None)
+            if e.rule is None and not e.guess:
+                e.guess = NOT_WHITELISTED
+        return edges
+
+    def _call_rules(self) -> tuple:
+        return (1, self._rule1), (2, self._rule2), (3, self._rule3), (4, self._rule4)
+
+    def _rule1(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
+        """白名單 1：直接呼叫唯一解析到、名字從未被重新指定的函式——裸名（含 import 進來的、巢狀函式、類別建構）、
+        模組.函式、類別.靜態方法、建構子（C# new）、super()／base.。"""
+        if c.kind in ("super", "new"):
+            return True
+        if c.kind == "name":
+            if f.lang == "cs":                     # C# 裸名：本類別的方法歸第 3 條；這裡只收 using static 匯入的
+                return c.name not in f.params and not self._own_method(f, c.name, e)
+            return self.stable(f, c.name)
+        if c.kind not in ("attr", "prop") or not c.recv:
+            return False
+        if c.recv.startswith("mod:"):
+            target = self.find_module(c.recv[4:], 0, f.file)
+            return bool(target) and self._stable_in(target, c.name, 0)
+        head = c.recv.partition(".")[0]
+        if f.lang == "py" and not self._shadowed(f, head) and (target := self.module_alias(f, c.recv)):
+            return self.stable(f, head) and self._stable_in(target, c.name, 0)
+        cls = self._static_class(f, c.recv)
+        return bool(cls) and e.dst in self.lookup(cls, c.name)
+
+    def _static_class(self, f: lang.Func, recv: str):
+        """類別.方法 的類別：接收者只有一段、就是類別名、而且不是同名的參數、區域變數或欄位，名字也穩定。"""
+        if "." in recv or recv in f.params or recv in f.locals or recv in f.local_types:
+            return None
+        own = self.cls_of(f) if f.lang == "cs" else None
+        if own and self.field_type(own, recv):
+            return None
+        return self.cls_named(recv, f.file) if self.stable(f, recv) else None
+
+    def _own_method(self, f: lang.Func, name: str, e: Edge) -> bool:
+        return bool(f.cls) and e.dst in self.lookup(self.cls_of(f), name)
+
+    def _rule2(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
+        """白名單 2：對同一函式內剛 new 出來、之後沒再指定、沒傳 ref/out（C# 算進重新指定）、沒存到欄位或容器的
+        區域變數呼叫方法；建構者的名字也要綁定穩定。Foo().run() 這種當場 new 出來的也算。"""
+        if c.kind not in ("attr", "prop") or "." in c.recv:
+            return False
+        if c.recv.startswith("new:"):
+            ctor = c.recv[4:]
+        elif c.recv in f.exact and c.recv not in f.reassigned and c.recv not in f.escaped:
+            ctor = f.local_types.get(c.recv, "")
+        else:
+            return False
+        cls = self.cls_named(ctor, f.file) if ctor else None
+        return bool(cls) and self.stable(f, ctor) and e.dst in self.lookup(cls, c.name)
+
+    def _rule3(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
+        """白名單 3：self.method()／this.Method()（含 C# 省略 this、classmethod 的 cls()）沒有子類覆寫；
+        型別已宣告的接收者（參數標註、欄位型別）沒有子類覆寫、也沒有多載（多載在 certify 已擋）。"""
+        cls, name = self._rule3_target(f, c, e)
+        return bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
+
+    def _rule3_target(self, f: lang.Func, c: lang.Call, e: Edge) -> tuple:
+        """第 3 條看的類別與方法名：本物件 → 自己的類別；型別已宣告的接收者 → 宣告的型別；其他 → (None, "")。"""
+        own = self.cls_of(f) if f.cls else None
+        if c.kind == "self" or (c.kind == "prop" and c.recv in ("", "this")):
+            return own, c.name
+        if c.kind == "name" and f.lang == "cs" and c.name not in f.params and self._own_method(f, c.name, e):
+            return own, c.name
+        if c.kind == "name" and c.name == "cls" and f.params[:1] == ["cls"]:
+            return own, "__init__"
+        if c.kind in ("attr", "prop") and c.recv:
+            return self._declared_type(f, c.recv), c.name
+        return None, ""
+
+    def _declared_type(self, f: lang.Func, recv: str):
+        """接收者的型別來自宣告（參數標註、欄位型別），沿 a.b.c 每一段都要是宣告的；不是 → None。"""
+        head, *rest = recv.split(".")
+        if head in ("self", "this"):
+            cls = self.cls_of(f) if rest else None
+        elif head in f.param_types and head not in f.reassigned:
+            cls = self.cls_named(f.param_types[head], f.file)
+        elif head in f.local_types and head not in f.reassigned:
+            cls = self.cls_named(f.local_types[head], f.file)
+        elif f.lang == "cs" and head not in f.locals and head not in f.params and f.cls:
+            cls = self.field_type(self.cls_of(f), head)
+        else:
+            cls = None
+        for seg in rest:
+            cls = self.field_type(cls, seg) if cls else None
+        return cls
+
+    def _rule4(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
+        """白名單 4：簡單區域別名——同一函式內指定一次、之後沒再指定，右邊是白名單內可確定的函式（逐跳都不能被改指）。"""
+        if c.kind not in ("name", "invoke") or c.name not in f.aliases or c.name in f.params:
+            return False
+        ref = self.alias_target(f, c.name)
+        sure = [x.dst for x in self.resolve(f, ref, defer=False) if x.rule is not None] if ref else []
+        return sure == [e.dst]
+
+    def certify_callback(self, edges: list, sources: list, b: "Binding", flag: str, dead: bool, unknown: bool) -> list:
+        """callback 邊（參數被當函式呼叫）：只有白名單 5 能給確定；不成立 → rule=None，補上原因。"""
+        for e in edges:
+            e.rule = 5 if len(edges) == 1 and not e.guess and self._rule5(e, sources, b, flag, dead, unknown) else None
+            if e.rule is None and not e.guess:
+                e.guess = NOT_WHITELISTED
+        return edges
+
+    def _rule5(self, e: Edge, sources: list, b: "Binding", flag: str, dead: bool, unknown: bool) -> bool:
+        """白名單 5：callback——有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、
+        參數沒被重新指定、不是經由欄位存下的、沒有看不到或外部的來源。"""
+        return (b.callers > 0 and not flag and not unknown and not b.mixed and not dead and bool(sources)
+                and all(dst == e.dst and rule is not None for dst, rule, _ in sources))
+
     # 解析不到時：確知在專案外，還是專案內但看不到 ────────
 
     def is_external(self, f: lang.Func, c: lang.Call) -> bool:
@@ -795,21 +969,23 @@ class Graph:
                 self.hits[f.id] += bool(edges)
                 self.unres[f.id] += not edges and not deferred and not self.is_external(f, c)
         for src, bind, param, flag in self.pending:
+            sources = callback_targets(self, bind, param)
             found = {}
-            for dst, guess in callback_targets(self, bind, param):
+            for dst, _rule, guess in sources:
                 found[dst] = guess if dst not in found else (found[dst] or guess)    # 任一處來源不確定就保留候選
             b = self.bound_refs(bind, param)
             dead = [(c, r) for c, r in b.refs if not self.resolve(c, r, defer=False)]   # 傳了具名函式卻連不到
             unknown = b.blind or any(not self.is_external(c, r) for c, r in dead)
             reason = self._callback_reason(param, len(found), flag, unknown, b.mixed or bool(dead), b.callers)
-            self._add_edges(src, [Edge(t, "callback", guess=g or reason) for t, g in found.items()], None)
+            edges = [Edge(t, "callback", guess=g or reason) for t, g in found.items()]
+            self._add_edges(src, self.certify_callback(edges, sources, b, flag, bool(dead), unknown), None)
             self.hits[src] += bool(found)
             self.unres[src] += unknown or not (found or dead or b.mixed)   # 沒有任何來源證據（沒呼叫者也沒預設值）也算未解
 
     @staticmethod
     def _callback_reason(param: str, targets: int, flag: str, unknown: bool, mixed: bool, callers: int) -> str:
         """callback 邊的不確定原因：看不到的來源 > 經由欄位存下 > 參數被改指 > 沒有已知呼叫者 > 混了 lambda／外部函式
-        > 多個目標；都沒有＝確定（白名單第 5 條）。"""
+        > 多個目標；都沒有＝空字串（說明欄留空，確不確定由 _rule5 正向檢查）。"""
         if unknown:
             return f"候選：有呼叫處傳進看不到的函式給 {param}，這只是看得到的那些"
         if flag == "stored":
@@ -823,8 +999,11 @@ class Graph:
         return f"候選：{targets} 處呼叫各傳不同函式進 {param}，分不出這次是哪個" if targets > 1 else ""
 
     def _add_edges(self, src: str, edges: list, c) -> None:
-        """加邊（同終點同種類只留一條）；直接／繼承呼叫每個呼叫點都記下呼叫者（就算邊重複），callback 要回頭查誰傳了什麼。"""
+        """加邊（同終點同種類只留一條）；直接／繼承呼叫每個呼叫點都記下呼叫者（就算邊重複），callback 要回頭查誰傳了什麼。
+        沒經過確定白名單（rule 是 None）又沒寫原因的邊補上原因：確定只看 rule，原因只是說明。"""
         for e in edges:
+            if e.rule is None and not e.guess:
+                e.guess = NOT_WHITELISTED
             if c is not None and e.kind in ("direct", "inherit"):
                 self.callers[e.dst].append((self.funcs[src], c))
             if not any(x.dst == e.dst and x.kind == e.kind for x in self.edges[src]):
@@ -851,7 +1030,7 @@ class Graph:
         kind = e.kind if e.kind != "direct" else self.passthrough.get(b.id, "direct")
         axis_map = self.axis.get(a.cls, {}) if a.cls and a.cls == b.cls else {}
         axis = f"{axis_map[a.file]}→{axis_map[b.file]}" if a.file != b.file and a.file in axis_map and b.file in axis_map else ""
-        return Step(b.id, kind, jump=a.file != b.file and not axis, axis=axis, guess=e.guess)
+        return Step(b.id, kind, jump=a.file != b.file and not axis, axis=axis, guess=e.guess, rule=e.rule)
 
     def _shortest(self, entry: str, certain_only: bool):
         """從 entry 出發的最短路（拐彎、跳檔、深度依序比）；certain_only 時只走確定的邊。"""
@@ -861,7 +1040,7 @@ class Graph:
             cost, u = heapq.heappop(heap)
             if cost > best[u]:
                 continue
-            for e in [e for e in self.edges.get(u, []) if not (certain_only and e.guess)]:
+            for e in [e for e in self.edges.get(u, []) if not (certain_only and e.rule is None)]:
                 s = self.step(self.funcs[u], e)
                 nxt = (cost[0] + s.turn, cost[1] + s.jump, cost[2] + 1)
                 if nxt < best.get(e.dst, (float("inf"),)):
