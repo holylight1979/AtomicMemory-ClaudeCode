@@ -130,7 +130,10 @@ def _is_path_token(tok: str) -> bool:
 
 
 def _is_card_token(tok: str) -> bool:
-    return not _is_path_token(tok) and "*" not in tok and not tok.endswith((".cs", ".ps1", ".md", ".json"))
+    """導讀卡欄的 token 是不是卡名。卡名可含 `*`（glob 語意，例：`戰鬥*`）；`*` 開頭或帶副檔名的（`*.bytes`）是檔案樣式，不算卡。"""
+    if "*" in tok and (tok.startswith("*") or "." in tok):
+        return False
+    return not _is_path_token(tok) and not tok.endswith((".cs", ".ps1", ".md", ".json"))
 
 
 def _header_columns(cells: List[str]) -> Dict[str, int]:

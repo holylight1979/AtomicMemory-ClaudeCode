@@ -122,6 +122,44 @@ def test_bash_and_powershell_redirect_into_verify_ledger_denied(world, tmp_path)
     assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
 
+@pytest.mark.parametrize("tool, cmd", [
+    ("PowerShell", "cpi a.json {led}/_runs/x.json"),
+    ("PowerShell", "mi a.json {led}/_runs/x.json"),
+    ("PowerShell", "ac {led}/a.jsonl 'x'"),
+    ("PowerShell", "sc -Path {led}/a.jsonl -Value x"),
+    ("PowerShell", "'x' | Tee-Object -FilePath {led}/a.jsonl"),
+    ("PowerShell", "ni {led}/_runs/y.json"),
+    ("Bash", "cp a.json {led}/_runs/x.json"),
+    ("Bash", "dd if=a.json of={led}/_runs/x.json"),
+])
+def test_006_4_write_aliases_into_verify_ledger_denied(world, tmp_path, tool, cmd):
+    proj, outputs, tp = world
+    led = str(tmp_path / "wf" / "verify-ledger").replace("\\", "/")
+    out = _run(tool, {"command": cmd.format(led=led)}, proj, tp, outputs)
+    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"], cmd
+
+
+def test_006_4_bash_sc_is_not_set_content(world):
+    """反例：Bash 下 sc 是 Windows 的 sc.exe（服務控制），不是 Set-Content；別名只在 PowerShell 工具下換。"""
+    assert wg_core.write_paths_from_tool("Bash", {"command": "sc query wuauserv"}, "C:/x") == []
+    got = wg_core.write_paths_from_tool("PowerShell", {"command": "sc C:/x/a.txt v"}, "C:/x")
+    assert [p.replace("\\", "/") for p in got] == ["C:/x/a.txt"]
+
+
+def test_006_4_junction_into_verify_ledger_denied(world, tmp_path):
+    import _winapi
+    proj, outputs, tp = world
+    led = tmp_path / "wf" / "verify-ledger"
+    led.mkdir(parents=True, exist_ok=True)
+    j = tmp_path / "j"
+    try:
+        _winapi.CreateJunction(str(led), str(j))
+    except OSError as e:
+        pytest.skip(f"這台建不了 junction：{e}")
+    out = _run("Write", {"file_path": str(j / "_runs" / "x.json"), "content": "{}"}, proj, tp, outputs)
+    assert _deny(out) and "VerifyLedger" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
 def test_other_workflow_files_and_running_verify_not_affected(world, tmp_path):
     proj, outputs, tp = world
     for tool, ti in (("Write", {"file_path": str(tmp_path / "wf" / "other.json"), "content": "{}"}),

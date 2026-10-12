@@ -232,12 +232,18 @@ def _needs_card(row: Dict[str, Any]) -> bool:
     return row["status"] in ("有", "部分", "索引") and bool(row["cards"])
 
 
+def _card_name_matches(card: str, stem: str) -> bool:
+    """表上卡名對檔名主幹（不分大小寫，底線換連字號的變體也算）；卡名含 `*` 時沿用 glob 語意（fnmatch）。"""
+    stem = stem.lower()
+    return any(fnmatch.fnmatchcase(stem, n.lower()) if "*" in n else stem == n.lower()
+               for n in (card, card.replace("_", "-")))
+
+
 def _search_cards(root: Path, cards: List[str], budget_s: float = CARD_SEARCH_BUDGET_S) -> Dict[str, Any]:
     """_cards_for 回空時接著搜 repo：依序找 <根>/memory/、_AIDocs/_atoms/、.claude/memory/，再整個根往下找 <卡名>.md
     （含底線換連字號；略過 .git、node_modules、_distant、.claude/worktrees；總時限 budget_s 秒）。
     回 {"found": [卡檔], "missing": [找不到的卡名], "searched": [找過的位置], "timed_out": bool}。"""
     deadline = _clock() + budget_s
-    want = {n.lower(): c for c in cards for n in (c + ".md", c.replace("_", "-") + ".md")}
     found: Dict[str, Path] = {}
     searched: List[str] = []
     done: List[str] = []
@@ -256,9 +262,11 @@ def _search_cards(root: Path, cards: List[str], budget_s: float = CARD_SEARCH_BU
             dirnames[:] = [d for d in dirnames if d not in _CARD_SEARCH_SKIP and str(dp / d) not in done
                            and not (d == "worktrees" and dp.name == ".claude")]
             for fn in filenames:
-                c = want.get(fn.lower())
-                if c and c not in found:
-                    found[c] = dp / fn
+                if not fn.lower().endswith(".md"):
+                    continue
+                for c in cards:
+                    if c not in found and _card_name_matches(c, fn[:-3]):
+                        found[c] = dp / fn
             if len(found) == len(cards):
                 break
         done.append(str(base))
@@ -272,8 +280,8 @@ def _resolve_row_cards(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> 
     paths = _cards_for(root, row, cfg)
     if not _needs_card(row):
         return paths, None
-    stems = {p.stem.lower() for p in paths}
-    absent = [c for c in row["cards"] if c.lower() not in stems and c.replace("_", "-").lower() not in stems]
+    stems = [p.stem.lower() for p in paths]
+    absent = [c for c in row["cards"] if not any(_card_name_matches(c, s) for s in stems)]
     if not absent:
         return paths, None
     miss = _search_cards(root, absent)

@@ -731,11 +731,11 @@ def check_verify_ledger_write(tool_name: str, tool_input: Dict[str, Any], cwd: s
     if tool_name not in _LEDGER_WRITE_TOOLS:
         return None
     from wg_core import WORKFLOW_DIR, write_paths_from_tool
-    base = os.path.normcase(os.path.normpath(str(WORKFLOW_DIR / "verify-ledger")))
+    base = os.path.normcase(os.path.realpath(str(WORKFLOW_DIR / "verify-ledger")))
     for t in write_paths_from_tool(tool_name, tool_input, cwd or None):
         if t.startswith("UNKNOWN:"):
             continue                    # 算不出目標的寫入由 OverviewHub 閘一律擋
-        n = os.path.normcase(os.path.normpath(t))
+        n = os.path.normcase(os.path.realpath(t))          # 經 symlink／junction 繞進帳本目錄也算
         if n == base or n.startswith(base + os.sep):
             return (f"[Guardian:VerifyLedger] 驗證收據只能由驗證程式自己寫，不准手寫或改：{t}。"
                     "要收據就跑驗證程式（run_verify.py 跑完自寫 _runs/；其他驗證由 PostToolUse 依輸出哨兵落帳）。")

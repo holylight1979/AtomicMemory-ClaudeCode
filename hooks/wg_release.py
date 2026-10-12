@@ -4,8 +4,10 @@
   擋滿後送固定擋訊息，要模型用 AskUserQuestion 問使用者（題目含【收尾放行確認】、選項固定兩個）。
   放行只認兩種，且都要在「最後一次擋」之後出現：
     (a) transcript 裡 AskUserQuestion 的 tool_result，題目含【收尾放行確認】、答案是「放行這一回合」（同題多次以最後一次為準）；
-    (b) 使用者本人新打的訊息含「放行」（state.turn_prompts；背景通知等 harness 訊息本來就不進這個清單；「不放行」類否定不算）。
+    (b) 使用者本人新打的訊息整則符合放行句型（is_release_prompt；state.turn_prompts，背景通知等 harness 訊息不進這個清單）。
+  (a) 只認 tool_use_id 對到 AskUserQuestion（題目含標記）的 tool_result；其他工具輸出、assistant 文字印出同樣的字都不算。
   「最後一次擋」的位置＝擋那一刻的 transcript 位元組長度＋當時的 turn_prompts 快照（mark_block 記）。
+  擋滿記 pending_release，跨回合承接：換回合不重給預算，直到使用者放行或查核通過。
   無法互動（non_interactive_reason：裁判子 session、子代理、headless／SDK）→ 不叫它問，擋到底（non_interactive_message）。
   只用在寫程式碼的查核閘（ReconcileGate／MeasureGate）；其他閘照舊。
 怎麼跑：被 handlers/stop.py 匯入；verify 在 hooks/verify/verify_stop_reconcile.py（件一段）。
@@ -15,19 +17,26 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 RELEASE_TAG = "【收尾放行確認】"
 OPT_RELEASE = "放行這一回合"
 OPT_KEEP = "繼續擋，先修好"
-_PROMPT_RELEASE_RE = re.compile(r"(?<![不別勿])(?<!不要)(?<!不准)(?<!不能)放行")
+# 使用者打字放行：整則訊息（NFKC 正規化全半形、去頭尾空白）必須完全符合；否定、疑問、引用、描述句一律不算
+_PROMPT_RELEASE_RE = re.compile(r"^(好|好的|可以|行|OK|ok)?[，,、 ]*放行(這一回合|吧)?[。.!！]*$")
+
+
+def is_release_prompt(text: str) -> bool:
+    return bool(_PROMPT_RELEASE_RE.match(unicodedata.normalize("NFKC", str(text or "")).strip()))
 _ANSWER_PAIR_RE = re.compile(r'"([^"]*)"="([^"]*)"')
 
 
-def exhausted_message(gate: str, n: int, summary: str) -> str:
-    """擋滿後的固定擋訊息。summary 取原因第一行。"""
+def exhausted_message(gate: str, n: Optional[int], summary: str) -> str:
+    """擋滿後的固定擋訊息。summary 取原因第一行；n＝None 表示承接先前回合的擋滿（pending_release），不報本回合次數。"""
     line = (summary or "").strip().splitlines()[0] if (summary or "").strip() else "（無原因摘要）"
-    return (f"[Guardian:{gate}] 本回合已擋 {n} 次仍未解：{line[:200]}。不准自行放行，也不准改寫宣稱來繞過。"
+    head = f"本回合已擋 {n} 次仍未解" if n is not None else "先前回合已擋滿、仍未放行也仍未解"
+    return (f"[Guardian:{gate}] {head}：{line[:200]}。不准自行放行，也不准改寫宣稱來繞過。"
             f"用 AskUserQuestion 問使用者，題目必須含標記{RELEASE_TAG}，選項固定兩個：「{OPT_RELEASE}」「{OPT_KEEP}」；"
             "使用者選放行才收尾。")
 
@@ -91,8 +100,17 @@ def mark_block(state: Dict[str, Any], sid: str, gate: str, transcript_path: Opti
     }
 
 
+def _blocks(o: Dict[str, Any]) -> List[Dict[str, Any]]:
+    msg = o.get("message") if isinstance(o.get("message"), dict) else {}
+    content = msg.get("content")
+    return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+
+
 def _answers_after(transcript_path: Optional[str], offset: int) -> List[Tuple[str, str]]:
-    """offset 之後 AskUserQuestion 的 (題目, 答案)，依出現順序。優先讀 toolUseResult.answers，沒有就解析 tool_result 文字。"""
+    """offset 之後真的來自 AskUserQuestion 的 (題目, 答案)，依出現順序。
+    先從 assistant 的 tool_use 區塊建「tool_use_id → AskUserQuestion 題目」表（只收 input 題目含【收尾放行確認】的那次呼叫），
+    再只採用 tool_use_id 對得上的 tool_result：優先讀同一筆紀錄的 toolUseResult.answers，沒有才解析 tool_result 文字。
+    Bash／PowerShell／其他工具的輸出、assistant 文字一律不算（印出同樣的字也不算）。"""
     if not transcript_path:
         return []
     try:
@@ -101,6 +119,7 @@ def _answers_after(transcript_path: Optional[str], offset: int) -> List[Tuple[st
             raw = f.read().decode("utf-8", errors="replace")
     except OSError:
         return []
+    asked: Dict[str, List[str]] = {}
     out: List[Tuple[str, str]] = []
     for line in raw.splitlines():
         try:
@@ -109,15 +128,23 @@ def _answers_after(transcript_path: Optional[str], offset: int) -> List[Tuple[st
             continue
         if not isinstance(o, dict):
             continue
+        for b in _blocks(o):
+            if b.get("type") == "tool_use" and b.get("name") == "AskUserQuestion":
+                qs = [str((q or {}).get("question", "")) for q in ((b.get("input") or {}).get("questions") or [])
+                      if isinstance(q, dict)]
+                if any(RELEASE_TAG in q for q in qs):
+                    asked[str(b.get("id", ""))] = qs
+        results = [b for b in _blocks(o) if b.get("type") == "tool_result" and str(b.get("tool_use_id", "")) in asked]
+        if not results:
+            continue
+        qs = asked[str(results[0].get("tool_use_id"))]
         tur = o.get("toolUseResult")
         if isinstance(tur, dict) and isinstance(tur.get("answers"), dict):
-            out.extend((str(q), str(a)) for q, a in tur["answers"].items())
+            out.extend((str(q), str(a)) for q, a in tur["answers"].items() if str(q) in qs)
             continue
-        content = (o.get("message") or {}).get("content") if isinstance(o.get("message"), dict) else None
-        for b in content if isinstance(content, list) else []:
-            if isinstance(b, dict) and b.get("type") == "tool_result":
-                text = b.get("content") if isinstance(b.get("content"), str) else ""
-                out.extend(_ANSWER_PAIR_RE.findall(text))
+        for b in results:
+            text = b.get("content") if isinstance(b.get("content"), str) else ""
+            out.extend((q, a) for q, a in _ANSWER_PAIR_RE.findall(text) if q in qs)
     return out
 
 
@@ -140,9 +167,26 @@ def user_released(state: Dict[str, Any], sid: str, gate: str, transcript_path: O
     if tagged and tagged[-1] == OPT_RELEASE:
         return "ask"
     now = state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else []
-    if any(_PROMPT_RELEASE_RE.search(str(p)) for p in new_prompts(rec.get("prompts") or [], now)):
+    if any(is_release_prompt(p) for p in new_prompts(rec.get("prompts") or [], now)):
         return "prompt"
     return None
+
+
+def pending_of(state: Dict[str, Any], sid: str, gate: str) -> Optional[Dict[str, Any]]:
+    """擋滿後待使用者放行的紀錄（跨回合承接：換了回合也不重給預算）；沒有回 None。"""
+    rec = ((state.get("pending_release") or {}).get(sid) or {}).get(gate)
+    return rec if isinstance(rec, dict) else None
+
+
+def set_pending(state: Dict[str, Any], sid: str, gate: str, turn_seq: int, at: str, reason: str) -> None:
+    state.setdefault("pending_release", {}).setdefault(sid, {})[gate] = {"turn": int(turn_seq), "at": at,
+                                                                          "reason": (reason or "")[:300]}
+
+
+def clear_pending(state: Dict[str, Any], sid: str, gate: str) -> None:
+    sec = (state.get("pending_release") or {}).get(sid)
+    if isinstance(sec, dict):
+        sec.pop(gate, None)
 
 
 def released_this_turn(state: Dict[str, Any], sid: str, gate: str, turn_seq: int) -> bool:

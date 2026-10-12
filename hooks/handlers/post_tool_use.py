@@ -445,6 +445,35 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
         })
 
 
+def _track_measure_launch(input_data: Dict[str, Any], command: str, tool_name: str, session_id: str) -> bool:
+    """指令含 cwd 所屬部位表任一列的量尺指令 → session 帳本記一筆 kind=measure_launch（背景啟動也記）。
+    MeasureGate 只採用連得到一次真的啟動的自寫收據（wg_verify_ledger.self_run_ok），防任意程式寫出偽造收據。"""
+    cwd = input_data.get("cwd", "") or ""
+    if not cwd or not command:
+        return False
+    from overview_hub import find_map, parse_map
+    found = find_map(cwd)
+    if not found:
+        return False
+    root, map_path = found
+    try:
+        rows = parse_map(map_path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return False
+    cmd = " ".join(command.split()).lower()
+    hit = next((str((r.get("measure") or {}).get("cmd") or "").strip() for r in rows
+                if (r.get("measure") or {}).get("cmd")
+                and " ".join(str(r["measure"]["cmd"]).split()).lower() in cmd), "")
+    if not hit:
+        return False
+    agent_id = str(input_data.get("agent_id") or "")
+    append_verify_ledger(session_id, {
+        "kind": "measure_launch", "at": _now_iso(), "session_id": session_id, "agent_id": agent_id, "tool": tool_name,
+        "cmd": command[:500], "measure_cmd": hit, "cwd": cwd, "root": str(root),
+    }, base_dir=WORKFLOW_DIR, suffix=".agents" if agent_id else "")
+    return True
+
+
 def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command: str, tool_name: str,
                      config: Dict[str, Any], session_id: str) -> bool:
     """Bash／PowerShell 輸出的哨兵（`<NAME>_CHECK PASS|FAIL|DONE`、`<NAME> DONE k=v`）與 exit code → 驗證帳本
@@ -503,6 +532,33 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "truncated": any(v.get("truncated") for v in record["vcs"]),
     })
     return True
+
+
+def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PostToolUse 最小記帳：只記改了哪些檔與驗證收據，給 stop.handle_judge_stop
+    的寫碼查核閘用；不注入、不跑其他閘、不建完整 state（不重建 atom index，防裁判觸發裁判）。"""
+    session_id = input_data.get("session_id", "") or ""
+    if not session_id:
+        output_nothing()
+        return
+    from wg_core import read_state as _read_state
+    tool_name = input_data.get("tool_name", "") or ""
+    tool_input = input_data.get("tool_input") or {}
+    cwd = input_data.get("cwd", "") or ""
+    state = _read_state(session_id) or {"session": {"id": session_id, "cwd": cwd}, "turn_seq": 0, "judge": True}
+    if tool_name in ("Write", "Edit", "NotebookEdit", "MultiEdit"):
+        fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+        if fp and not _is_ephemeral_path(fp):
+            _note_modified(state, session_id, fp, tool_name)
+    elif tool_name in ("Bash", "PowerShell"):
+        targets = _write_paths_from_tool(tool_name, tool_input, cwd) if _write_paths_from_tool is not None else []
+        for p in targets or []:
+            if p and not p.startswith("UNKNOWN:") and not _is_ephemeral_path(p):
+                _note_modified(state, session_id, p, tool_name)
+        _track_sentinels(state, input_data, tool_input.get("command", "") or "", tool_name, config, session_id)
+        _track_measure_launch(input_data, tool_input.get("command", "") or "", tool_name, session_id)
+    write_state(session_id, state)
+    output_nothing()
 
 
 def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -700,6 +756,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
             _atom_debug_error("post_tool_use:verify_ledger", e)
+        try:
+            _track_measure_launch(input_data, command, tool_name, session_id)
+        except Exception as e:
+            print(f"[verify-ledger] measure_launch 記錄失敗：{type(e).__name__}: {e}", file=sys.stderr)
+            _atom_debug_error("post_tool_use:measure_launch", e)
 
     elif tool_name.endswith("anti_evasion_report"):
         # MCP 結構化收尾 emit（one-writer spine）：MCP tool 只回 chip、不碰 state；

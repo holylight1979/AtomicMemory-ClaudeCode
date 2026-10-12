@@ -738,26 +738,95 @@ def _pass_why(this_turn: List[Dict[str, Any]], all_receipts: List[Dict[str, Any]
     return "本回合沒有任何 PASS 收據"
 
 
+def _has_time(m: Dict[str, Any]) -> bool:
+    return bool(m.get("last_at") or m.get("at")) or m.get("last_seq") is not None
+
+
+def _mod_after(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    """修改紀錄 a 在 b 之後（先比 at，同秒比 seq；重用 _receipt_after）。"""
+    tb = b.get("last_turn_seq", b.get("turn_seq"))
+    return _receipt_after({"at": a.get("last_at") or a.get("at") or "", "seq": a.get("last_seq"),
+                           "turn_seq": a.get("last_turn_seq", a.get("turn_seq", -1))},
+                          b.get("last_at") or b.get("at") or None, b.get("last_seq"),
+                          int(tb) if tb is not None else -1)
+
+
+def is_case_file(path: str, cfg: Dict[str, Any]) -> bool:
+    """驗證案例＝符合 verify_case_globs 且是程式檔（code_exts）；tests/README.md、verify/notes.txt 不算。"""
+    return is_verify_case(path, cfg.get("verify_case_globs") or []) and is_code_file(path, cfg.get("code_exts") or [])
+
+
+def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
+              root_of: Callable[[str], Optional[str]]) -> List[str]:
+    """補案例的義務（跨回合）：每個根找「本 session 最後一次改驗證案例之後還改過的程式檔」，回這些檔。
+    修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。"""
+    exts = cfg.get("code_exts") or []
+    by_root: Dict[str, List[Dict[str, Any]]] = {}
+    for m in own_mod_files or []:
+        if isinstance(m, dict) and m.get("path"):
+            by_root.setdefault(str(root_of(m["path"]) or ""), []).append(m)
+    owed: List[str] = []
+    for ms in by_root.values():
+        last_case: Optional[Dict[str, Any]] = None
+        for m in ms:
+            if is_case_file(m["path"], cfg) and _has_time(m) and (last_case is None or _mod_after(m, last_case)):
+                last_case = m
+        case_this_turn = any(is_case_file(m["path"], cfg) and m.get("last_turn_seq", m.get("turn_seq")) is not None
+                             and int(m.get("last_turn_seq", m.get("turn_seq"))) == int(turn_seq) for m in ms)
+        for m in ms:
+            p = m["path"]
+            if not is_code_file(p, exts) or is_case_file(p, cfg) or p in owed:
+                continue
+            if _has_time(m):
+                if last_case is None or _mod_after(m, last_case):
+                    owed.append(p)
+                continue
+            t = m.get("last_turn_seq", m.get("turn_seq"))
+            if t is not None and int(t) == int(turn_seq) and not case_this_turn:
+                owed.append(p)
+    return owed
+
+
+_RECONCILE_HEAD = "[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據：\n"
+_RECONCILE_TAIL = ("\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
+                   "改成事實句（沒跑就說沒跑），或現在跑出對應收據再重新收尾。")
+
+
 def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_seq: int,
                           turn_tool_names: Iterable[str], own_mod_files: List[Dict[str, Any]],
                           cfg: Dict[str, Any], aec: Optional[Dict[str, Any]] = None,
                           aec_emitted: bool = False, sid: str = "",
                           phrases: Optional[Dict[str, Pattern]] = None,
                           measure_cmds: Iterable[str] = (), root: RootSpec = None) -> Optional[str]:
-    """只在本回合「宣告完成」時對帳（純審查／中途回覆不擋）。五條規則任一命中回擋訊息（全部列出），否則 None。純判定、不改 state。
-    (a) 說修好而本 turn 無對得上改檔的合格 PASS；(b) 說量了無 DONE；(c) 說試過無執行工具；
-    (d) 本回合改了程式碼、本回合沒新增或修改任何驗證 case 檔（PASS 不代替）；(e) AEC 已 emit：有收據而 j 缺／不存在、k 空字串。
+    """寫碼查核（a～d）與收尾報告欄（e）合在一則訊息；兩部分要分開處理時用 reconcile_gate_parts。"""
+    code, report = reconcile_gate_parts(last_text, receipts, turn_seq, turn_tool_names, own_mod_files, cfg, aec,
+                                        aec_emitted, sid, phrases, measure_cmds, root)
+    return "\n".join(x for x in (code, report) if x) or None
+
+
+def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_seq: int,
+                         turn_tool_names: Iterable[str], own_mod_files: List[Dict[str, Any]],
+                         cfg: Dict[str, Any], aec: Optional[Dict[str, Any]] = None,
+                         aec_emitted: bool = False, sid: str = "",
+                         phrases: Optional[Dict[str, Pattern]] = None,
+                         measure_cmds: Iterable[str] = (), root: RootSpec = None
+                         ) -> Tuple[Optional[str], Optional[str]]:
+    """只在本回合「宣告完成」時對帳（純審查／中途回覆不擋）。回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
+    寫碼查核：(a) 說修好而本 turn 無對得上改檔的合格 PASS；(b) 說量了無 DONE；(c) 說試過無執行工具；
+    (d) 補案例的義務：本 session 最後一次改驗證案例（程式檔）之後同根還改過程式檔（case_debt，跨回合；PASS 不代替）。
+    收尾報告欄：(e) AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
     (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後。"""
     if not claims_completion(last_text):
-        return None
+        return None, None
     this_turn = [r for r in receipts if int(r.get("turn_seq", -1)) == int(turn_seq)]
     mod_turn = modified_this_turn(own_mod_files, turn_seq)
     mod_records = {m["path"]: m for m in own_mod_files or [] if isinstance(m, dict) and m.get("path")}
     mod_session = list(mod_records)
     relate_paths = mod_turn or mod_session
     if root is None:
-        roots = {p: file_root_of(p) for p in relate_paths}
+        roots = {p: file_root_of(p) for p in mod_session}
         root = roots.get
+    root_of: Callable[[str], Optional[str]] = root if callable(root) else (lambda p, _r=root: _r)
     globs = cfg.get("verify_case_globs") or []
     related, unrelated = related_pass_receipts(this_turn, None, relate_paths, globs, measure_cmds, root, mod_records)
     hits: List[str] = []
@@ -768,27 +837,26 @@ def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_s
         hits.append("(b) 說「量了」但本回合沒有 `<NAME> DONE k=v` 收據。量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量。")
     if tried_claim_without_exec(last_text, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases):
         hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。沒跑就寫沒跑，或現在跑。")
-    code_changed = [p for p in mod_turn if is_code_file(p, cfg.get("code_exts") or [])]
-    if code_changed and not any(is_verify_case(p, globs) for p in mod_turn):
-        names = "、".join(Path(p).name for p in code_changed[:4])
-        hits.append(f"(d) 宣告完成且改了程式碼（{names}）但本回合沒有新增或修改任何驗證 case 檔：改了碼沒驗證 case（PASS 不能代替）。"
+    owed = case_debt(own_mod_files, turn_seq, cfg, root_of)
+    if owed:
+        names = "、".join(Path(p).name for p in owed[:4])
+        hits.append(f"(d) 宣告完成但改了程式碼（{names}）之後沒有新增或修改驗證 case 檔（同根、程式檔；義務跨回合）："
+                    "改了碼沒驗證 case（PASS 不能代替）。"
                     "補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者。")
     # (e) 只檢本版報告（post_tool_use 一定寫入 j／k 兩鍵）；升級前 emit 的舊報告沒這兩鍵，不拿它擋
+    report: List[str] = []
     if aec_emitted and isinstance(aec, dict) and "j_evidence_path" in aec and "k_followups" in aec:
         if aec_evidence_missing(aec.get("j_evidence_path"), bool(receipts)):
-            hits.append(f"(e) 收尾檢核 (j) 證據持久路徑缺或不存在，但本 session 有 {len(receipts)} 筆驗證收據。"
-                        f"填帳本路徑（{ledger_path(sid or 'SID')}）或其他真存在的證據檔。")
+            report.append(f"(e) 收尾檢核 (j) 證據持久路徑缺或不存在，但本 session 有 {len(receipts)} 筆驗證收據。"
+                          f"填帳本路徑（{ledger_path(sid or 'SID')}）或其他真存在的證據檔。")
         if aec_followups_missing(aec.get("k_followups")):
-            hits.append("(e) 收尾檢核 (k) 追蹤項是空字串。有就一行一項，沒有就寫「無」。")
-    if not hits:
-        return None
+            report.append("(e) 收尾檢核 (k) 追蹤項是空字串。有就一行一項，沒有就寫「無」。")
     note = ""
     if any(r.get("exit_unknown") for r in related) or any(r.get("exit_unknown") for r in unrelated):
         note = "\n註：有 PASS 收據的 exit 未知（exit 未知＝dict 回應沒有 exit 欄），只憑哨兵認定。"
-    return ("[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據：\n"
-            + "\n".join("  ✗ " + h for h in hits)
-            + "\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
-            "改成事實句（沒跑就說沒跑），或現在跑出對應收據再重新收尾。" + note)
+    code_reason = (_RECONCILE_HEAD + "\n".join("  ✗ " + h for h in hits) + _RECONCILE_TAIL + note) if hits else None
+    report_reason = (_RECONCILE_HEAD + "\n".join("  ✗ " + h for h in report) + _RECONCILE_TAIL) if report else None
+    return code_reason, report_reason
 
 
 # ─── 量尺閘 ───────────────────────────────────────────────────────────
@@ -879,9 +947,61 @@ def _load_self_runs() -> List[Dict[str, Any]]:
     return load_self_receipts(CLAUDE_DIR)
 
 
-def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: str, edit_turn: int) -> bool:
+LAUNCH_WINDOW_S = 120          # 收據 started_at 最晚在啟動紀錄之後多少秒
+LAUNCH_SLACK_S = 10            # 啟動紀錄是 PostToolUse 在工具回來後才寫，背景啟動時程式可能早幾秒就開跑
+
+
+def load_measure_launches(since_utc_ts: float, ledger_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """帳本（workflow/verify-ledger/*.jsonl，含子代理的 .agents.jsonl）裡 since 之後有寫過的檔中的 measure_launch 紀錄。"""
+    d = ledger_dir or (WORKFLOW_DIR / LEDGER_SUBDIR)
+    out: List[Dict[str, Any]] = []
+    try:
+        files = [f for f in d.glob("*.jsonl") if f.stat().st_mtime >= since_utc_ts]
+    except OSError:
+        return []
+    for f in files:
+        try:
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if '"measure_launch"' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(rec, dict) and rec.get("kind") == "measure_launch":
+                out.append(rec)
+    return out
+
+
+def _load_launches_for(runs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """這批自寫收據可能連得到的啟動紀錄：只讀「最早 started_at 前 LAUNCH_WINDOW_S＋60 秒」之後有寫過的帳本檔。"""
+    starts = [t.timestamp() for t in (_to_utc(str(r.get("started_at") or "")) for r in runs) if t is not None]
+    return load_measure_launches(min(starts) - LAUNCH_WINDOW_S - 60) if starts else []
+
+
+def _launched_for(run: Dict[str, Any], root: str, launches: Iterable[Dict[str, Any]]) -> bool:
+    """這份自寫收據連得到一次真的啟動：有同根（同一棵樹）的 measure_launch，收據 started_at 落在
+    [啟動 at − LAUNCH_SLACK_S, 啟動 at + LAUNCH_WINDOW_S]。"""
+    started = _to_utc(str(run.get("started_at") or ""))
+    if started is None:
+        return False
+    for la in launches or []:
+        at = _to_utc(str(la.get("at") or ""))
+        if at is None or not _root_ok({"project_root": la.get("root") or la.get("cwd") or ""}, root):
+            continue
+        if -LAUNCH_SLACK_S <= (started - at).total_seconds() <= LAUNCH_WINDOW_S:
+            return True
+    return False
+
+
+def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: str, edit_turn: int,
+                launches: Iterable[Dict[str, Any]]) -> bool:
     """有一份自寫收據同時符合：cmd 含該部位量尺指令；exit 0 且 failed 0；started_at 晚於該部位最後一次修改；
-    收據根與部位根同一棵樹（_root_ok）。不綁 session：改完之後任何人對同一棵樹跑完的全量都算。"""
+    收據根（受測樹）與部位根同一棵樹（_root_ok）；連得到一次真的啟動（_launched_for）。
+    不綁 session：改完之後任何人對同一棵樹跑完的全量都算。"""
     want = " ".join(cmd.split()).lower()
     for r in runs or []:
         if not isinstance(r, dict) or not want or want not in " ".join(str(r.get("cmd", "")).split()).lower():
@@ -890,7 +1010,9 @@ def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: st
             continue
         if not _receipt_after({"at": r.get("started_at") or ""}, edit_at or None, None, edit_turn):
             continue
-        if _root_ok(r, root):
+        if not _root_ok(r, root):
+            continue
+        if _launched_for(r, root, launches):
             return True
     return False
 
@@ -900,6 +1022,7 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                         chains_of: Callable[[Path], Dict[str, Dict[str, str]]] = load_verify_chains,
                         runner: Callable[[str, float, Optional[str]], Tuple[bool, str]] = run_runtime_gate,
                         self_runs: Optional[Callable[[], List[Dict[str, Any]]]] = None,
+                        launches_of: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None,
                         ) -> Tuple[Optional[str], List[str]]:
     """改到的部位有量尺 → 先 runtime_gate（量不了就擋並說原因）→ 找「該部位最後一次修改之後」（比 at，沒有比序號，再沒有比 turn）、
     同 root、exit 0／None 且 failed=0 的 DONE 且 cmd 含量尺指令，沒有→擋。回 (擋訊息或 None, 沒量尺的部位名清單＝提醒補)。
@@ -956,10 +1079,12 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             continue
         if not root_wt:
             if not _runs:
-                _runs.append((self_runs or _load_self_runs)() or [])
-            if self_run_ok(_runs[0], cmd, str(root), rec["edit_at"], rec["edit_turn"]):
+                runs = (self_runs or _load_self_runs)() or []
+                _runs.append(runs)
+                _runs.append((launches_of or _load_launches_for)(runs) if runs else [])
+            if self_run_ok(_runs[0], cmd, str(root), rec["edit_at"], rec["edit_turn"], _runs[1]):
                 continue
-        ruler =(f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
+        ruler = (f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
                  f"哨兵 {ROOT_WT_SENTINEL}，表上的尺 `{cmd}` 不是這裡的門檻）")
         rerun = (f"在 worktree 根 `{root}` 直接跑目標 verify `python -X utf8 -m pytest -q <hooks/verify/...>`"
                  f"（不含 cd；尾行 `N passed` 會映射成 {ROOT_WT_SENTINEL} DONE）")

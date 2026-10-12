@@ -1012,6 +1012,35 @@ def test_two_cards_one_missing_denies_listing_only_that_one(proj, tmp_path, monk
     assert deny.startswith("[Guardian:OverviewHub] 部位【戰鬥】表上寫的導讀卡 `戰鬥根因層`")
 
 
+def _wild_table(proj, card):
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 範疇 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        f"| `Game\\Battle\\` | 戰鬥 | `{card}` | 有 |\n", encoding="utf-8")
+
+
+def test_006_8_wildcard_card_found_by_glob(proj, tmp_path, monkeypatch):
+    """表上卡名 `戰鬥*`：預設目錄有 `戰鬥知識導讀-hub索引.md` → 不報缺卡（沿用 glob 語意）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _wild_table(proj, "戰鬥*")
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    f1 = str(proj / "Game" / "Battle" / "A.cs")
+    txt = wo.on_read(state, "s", "Read", {"file_path": f1}, str(proj), tp, {})
+    assert "戰鬥導讀" in txt and "在 repo 裡找不到" not in txt
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    _locate(tp)
+    assert wo.on_edit(state, "s", f1, tp, {}) == (None, None, True)
+
+
+def test_006_8_wildcard_card_matching_nothing_denies(proj, tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    _wild_table(proj, "不存在的卡*")
+    warn, deny, _ = wo.on_edit({}, "s", str(proj / "Game" / "Battle" / "A.cs"), _transcript(tmp_path, ["x"]), {})
+    assert deny and "`不存在的卡*` 在 repo 裡找不到" in deny
+    (proj / "docs").mkdir()
+    (proj / "docs" / "不存在的卡-其實在這.md").write_text("# x", encoding="utf-8")       # repo 搜尋對含 * 的卡名用 fnmatch
+    assert wo._search_cards(proj, ["不存在的卡*"])["found"] == [proj / "docs" / "不存在的卡-其實在這.md"]
+
+
 def test_search_cards_skips_git_node_modules_distant_and_worktrees(tmp_path):
     for d in (".git", "node_modules", "_distant", ".claude/worktrees/wt"):
         (tmp_path / d).mkdir(parents=True, exist_ok=True)

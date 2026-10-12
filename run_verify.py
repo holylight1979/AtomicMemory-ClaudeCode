@@ -145,15 +145,10 @@ def _write_self_receipt() -> None:
         _mod = importlib.util.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
         write_self_receipt = _mod.write_self_receipt
-        try:
-            from project_root import resolve_project_root
-            proot = str(resolve_project_root(_CWD).path or "")
-        except Exception as e:  # noqa: BLE001  判不出根就留空（讀端退用 cwd），但要看得到
-            print(f"[run_verify] 判定 project_root 失敗，收據留空：{type(e).__name__}: {e}", file=sys.stderr)
-            proot = ""
+        # project_root＝受測的那棵樹（本檔所在的 ROOT），不是呼叫時的 cwd：在 B 目錄跑 A 的 run_verify，驗的是 A
         argv = list(getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv])
         write_self_receipt(ROOT, argv, sentinel, exit_code, len(collector.cases), n_failed,
-                           _CWD, proot, _STARTED, time.time())
+                           _CWD, str(ROOT), _STARTED, time.time())
     except Exception as e:  # noqa: BLE001
         print(f"[run_verify] 自寫驗證收據失敗：{type(e).__name__}: {e}", file=sys.stderr)
 
