@@ -80,7 +80,8 @@ _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候選或未解，所以全確定的數字是可信的下限，含候選的數字是上限參考：
   1. 直接呼叫專案內唯一解析到、名字從未被重新指定的函式（含 import 進來的、模組.函式、類別.靜態方法、建構子、super()／base.）；
-     模組層名字只要在任何地方被重新指定或被指定成算出來的值，就不在白名單
+     模組層名字只要在任何地方被重新指定或被指定成算出來的值，就不在白名單；名字是哪一層的哪個綁定只查一次
+     （由內往外，遵守 global／nonlocal），連到的目標與被證明沒改指的必須是同一個綁定
   2. 對同一函式內剛 new 出來、之後沒再指定、沒傳 ref/out、沒存到欄位或容器的區域變數呼叫方法（確定型別分派）；
      建構者的名字（含 import 別名）也要從未被重新指定
   3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、區域變數標註、
@@ -368,7 +369,7 @@ class Graph:
         local = next((c for c in self.classes.get(name, []) if f.file in c.files), None)
         if local or f.lang != "py":
             return local or self.cls_named(name, f.file)
-        return self._class_in_import(f.file, self.imports_of(f), name, 0) or self.cls_named(name, f.file)
+        return self._class_in_import(f.file, self.imports_for(f, name), name, 0) or self.cls_named(name, f.file)
 
     def _stable_ctor(self, f: lang.Func, ctor: str) -> bool:
         """建構者名稱穩定：Foo → stable(Foo)；worker.Foo → 模組名穩定、模組裡的 Foo 也穩定。"""
@@ -452,22 +453,48 @@ class Graph:
         parts = f.qual.split(".")
         return [".".join(parts[:i]) for i in range(2 if f.cls else 1, len(parts) + 1)]
 
-    def scoped_imports(self, f: lang.Func) -> dict:
-        """f 與它外層函式自己寫的 import（內層蓋外層），不含模組層的。"""
-        merged = {}
-        for scope in self.scopes(f):
+    def lookup_binding(self, f: lang.Func, name: str) -> tuple:
+        """Python 函式 f 裡寫成 name 的名字由哪個作用域的哪個綁定提供 → (種類, 綁定所在的函式；模組層為 None)。
+        種類：param 參數｜nested 巢狀 def｜local 區域變數｜import 函式裡自己 import 的｜module 模組層（def、class、別名、import，或沒綁定）。
+        由內往外找第一個綁定它的函式作用域（類別本體不算作用域）；某一層宣告 global name → 直接跳模組層，
+        宣告 nonlocal name → 那一層不算、往外層找。找目標（_r_name、module_alias、類別證據）與證明穩定（stable）
+        都只看這一次查找的結果，兩邊才不會各自找到不同的綁定。"""
+        for scope in reversed(self.scopes(f)):
             owner = self.funcs.get(f"{f.file}::{scope}")
-            merged.update(owner.imports if owner else {})
-        return merged
+            if owner is None or name in owner.nonlocal_names:
+                continue
+            if name in owner.global_names:
+                return "module", None
+            kind = self._bound_in(owner, name)
+            if kind:
+                return kind, owner
+        return "module", None
 
-    def imports_of(self, f: lang.Func) -> dict:
-        """f 看得到的 import：模組層＋外層函式＋自己的（內層蓋外層）。"""
-        base = dict(self.modules[f.file].imports) if f.file in self.modules else {}
-        return {**base, **self.scoped_imports(f)}
+    def _bound_in(self, owner: lang.Func, name: str) -> str:
+        """name 在 owner 這一層怎麼綁定；同一層綁了好幾種時取一種（那種情況 stable 會因 reassigned／import_rebinds 不穩定）。"""
+        if name in owner.params:
+            return "param"
+        if f"{owner.id}.{name}" in self.funcs:
+            return "nested"
+        if name in owner.locals:
+            return "local"
+        if name in owner.imports or any(k.partition(".")[0] == name for k in owner.imports):
+            return "import"
+        return ""
+
+    def imports_for(self, f: lang.Func, name: str) -> dict:
+        """name 的綁定（lookup_binding）所在那一層的 import 表：函式自己的或模組層的；被參數、區域變數、巢狀 def 遮住 → {}。"""
+        if f.lang != "py":
+            return {}
+        kind, owner = self.lookup_binding(f, name)
+        if kind == "import":
+            return owner.imports
+        return self.modules[f.file].imports if kind == "module" and f.file in self.modules else {}
 
     def module_alias(self, f: lang.Func, dotted: str):
-        """f 裡寫成 dotted 的接收者（w2、pkg.w2、a.b）是不是專案內的模組 → 模組檔或 None。"""
-        imports = self.imports_of(f)
+        """f 裡寫成 dotted 的接收者（w2、pkg.w2、a.b）是不是專案內的模組 → 模組檔或 None。
+        看的是開頭那個名字的綁定（lookup_binding）所在那一層的 import。"""
+        imports = self.imports_for(f, dotted.partition(".")[0])
         key = dotted if dotted in imports else dotted.partition(".")[0]
         if key not in imports:
             return None
@@ -569,26 +596,52 @@ class Graph:
         return None if stuck else ref
 
     def _r_name(self, f, c, defer):
+        if f.lang == "py":
+            return self._r_py_name(f, c, defer)
         if c.name in f.params:
             return self._param_call(f, c, defer)
         if c.name in f.aliases:
             ref = self.alias_target(f, c.name)
             return self.resolve(f, ref, defer) if ref else []
-        if c.name in f.table_vars:
-            return self._r_table(f, lang.Call("table", f.table_vars[c.name]), defer)
         if c.name in f.locals or c.name in f.reassigned:
-            return []                              # 區域變數裝的東西（遮住同名的模組函式）：看不到
-        nested = next((n for s in reversed(self.scopes(f)) if (n := f"{f.file}::{s}.{c.name}") in self.funcs), None)
-        if nested:
-            return [Edge(nested, "direct")]       # 自己或外層函式裡定義的巢狀函式
+            return []                              # 區域變數裝的東西（遮住同名的方法）：看不到
         if f.lang == "coarse":
             return self._coarse(f, c.name)
-        if f.lang == "py" and c.name in self.scoped_imports(f):
-            src, orig = self._imported_from(f.file, self.scoped_imports(f), c.name)   # 函式裡自己 import 的名字
-            return self._py_name(src, orig, 1) if src else []
-        if f.lang == "py":
-            return self._py_name(f.file, c.name)
         return self._r_self(f, c, defer) or self._static_using(f, c.name)   # C#：本類別的方法／事件／委派欄位，或 using static
+
+    def _r_py_name(self, f, c, defer):
+        """Python 裸名呼叫：先問 lookup_binding 是哪一層的哪個綁定，再照那個綁定找目標（證明穩定看的是同一個綁定）。"""
+        binding = self.lookup_binding(f, c.name)
+        kind, owner = binding
+        if owner is f and kind == "param":
+            return self._param_call(f, c, defer)
+        if owner is f and kind == "local":
+            return self._r_local(f, c, defer)
+        if owner is f and c.name in f.reassigned:
+            return []                              # 自己這一層綁了兩次（巢狀 def 寫兩次）：看不到是哪個
+        if kind in ("param", "local"):             # 外層函式的參數或區域變數（閉包）：裝的東西看不到
+            reason = f"候選：{c.name} 是外層函式 {owner.qual} 的參數或區域變數，這只是同名的模組層名字"
+            return [Edge(e.dst, e.kind, guess=reason) for e in self._py_name(f.file, c.name)]
+        return self._binding_edges(f, c.name, binding)
+
+    def _r_local(self, f, c, defer):
+        """自己這一層的區域變數：函式別名 → 追到真正的函式；分派表變數 → 表裡的項目；其他裝的東西看不到。"""
+        if c.name in f.aliases:
+            ref = self.alias_target(f, c.name)
+            return self.resolve(f, ref, defer) if ref else []
+        if c.name in f.table_vars:
+            return self._r_table(f, lang.Call("table", f.table_vars[c.name]), defer)
+        return []
+
+    def _binding_edges(self, f: lang.Func, name: str, binding: tuple) -> list:
+        """綁定是巢狀 def、函式裡的 import、模組層名字時，它指到的函式（建構類別 → 建構子）；其他綁定 → []。"""
+        kind, owner = binding
+        if kind == "nested":
+            return [Edge(f"{owner.id}.{name}", "direct")]
+        if kind == "import":
+            src, orig = self._imported_from(f.file, owner.imports, name)
+            return self._py_name(src, orig, 1) if src else []
+        return self._py_name(f.file, name) if kind == "module" else []
 
     def _static_using(self, f: lang.Func, name: str) -> list:
         """C# `using static 專案類別;` 之後的裸名呼叫：所有靜態匯入的類別裡同名的方法都算，多於一個就標候選。"""
@@ -761,9 +814,11 @@ class Graph:
         return (kind, cls, exact) if cls or kind == "external" else ("", None, False)
 
     def _shadowed(self, f: lang.Func, head: str) -> bool:
-        """import 進來的模組名在函式裡被區域變數或參數遮住，或在模組層被重新指定（a = pick_backend()）：不能當那個模組。"""
+        """import 進來的模組名被參數、區域變數、巢狀 def 遮住（lookup_binding 找到的不是 import），
+        或在模組層被重新指定（a = pick_backend()）：不能當那個模組。"""
+        kind, _ = self.lookup_binding(f, head)
         mod = self.modules.get(f.file)
-        return head in f.locals or head in f.params or bool(mod and head in mod.rebound and head not in self.scoped_imports(f))
+        return kind in ("param", "local", "nested") or (kind == "module" and bool(mod and head in mod.rebound))
 
     def _recv_head(self, f: lang.Func, head: str):
         if head in ("self", "this"):
@@ -779,7 +834,7 @@ class Graph:
         static = self.class_ref(f, head)
         if static:                                      # 類別.方法（含 import 別名的類別）
             return "static", static
-        imp = self.imports_of(f).get(head) if f.lang == "py" else None
+        imp = self.imports_for(f, head).get(head)
         if imp and not self.find_module(imp[0], imp[1], f.file):
             return "external", None               # 匯入的外部模組或其成員（json、os.path…）
         return "", None
@@ -787,25 +842,25 @@ class Graph:
     # 綁定穩定：白名單 1、2（建構者名稱）、4 共用的唯一判斷 ─────
 
     def stable(self, f: lang.Func, name: str) -> bool:
-        """f 裡寫成 name 的名字，在它所屬的作用域只綁定一次、不是算出來的值：由內往外找第一個綁定它的作用域——
-        那一層是巢狀 def 且沒再被指定 → 穩定；是參數或區域變數 → 不穩定（裝的東西看不到或會變）；
-        是那一層自己 import 的 → 沿匯入鏈到原模組；都沒有 → 模組層（_stable_in）。C# 的方法與類別名不會被改指，
-        只要不是同名的區域變數或參數就算穩定。"""
+        """f 裡寫成 name 的名字只綁定一次、不是算出來的值（Python 看 lookup_binding 找到的那個綁定，見 _binding_stable）。
+        C# 的方法與類別名不會被改指，只要不是同名的區域變數、參數或區域函式就算穩定。"""
         if f.lang == "cs":                         # C# 區域函式（f.inline）會遮住同名方法
             return name not in f.locals and name not in f.params and name not in f.inline
-        for scope in reversed(self.scopes(f)):
-            owner = self.funcs.get(f"{f.file}::{scope}")
-            if owner is None:
-                continue
-            nested = f"{owner.id}.{name}" in self.funcs
-            if name in owner.params or name in owner.locals:
-                return False
-            if not (nested or name in owner.imports):
-                continue
-            if name in owner.reassigned | owner.import_rebinds or name in self.nonlocal_rebound[(f.file, scope)]:
-                return False                       # 同一層綁了兩次（def＋指定、import 兩次），或被內層 nonlocal 改掉
-            return True if nested else self._stable_import(f.file, owner.imports, name, 0)
-        return self._stable_in(f.file, name, 0)
+        return self._binding_stable(f, name, self.lookup_binding(f, name))
+
+    def _binding_stable(self, f: lang.Func, name: str, binding: tuple) -> bool:
+        """這個綁定只綁一次、不是算出來的值：參數或區域變數 → 不穩定（裝的東西看不到或會變）；巢狀 def 或函式裡的 import →
+        那一層沒再綁定、沒被內層 nonlocal 改掉（import 還要沿匯入鏈到原模組也穩定）；模組層 → _stable_in。"""
+        kind, owner = binding
+        if kind == "module":
+            return self._stable_in(f.file, name, 0)
+        if kind not in ("nested", "import"):
+            return False
+        if name in owner.reassigned | owner.import_rebinds or name in self.nonlocal_rebound[(f.file, owner.qual)]:
+            return False                           # 同一層綁了兩次（def＋指定、import 兩次），或被內層 nonlocal 改掉
+        if kind == "nested" or name not in owner.imports:
+            return True                            # 巢狀 def，或 import a.b 綁的整個套件 a
+        return self._stable_import(f.file, owner.imports, name, 0)
 
     def _stable_in(self, file: str, name: str, hops: int) -> bool:
         """模組層的 name 只綁定一次、不是算出來的值；它是別名或 from 匯入時，指到的名字也要穩定（逐跳）。"""
@@ -865,7 +920,9 @@ class Graph:
         if c.kind == "name":
             if f.lang == "cs":                     # C# 裸名：本類別的方法歸第 3 條；這裡只收 using static 匯入的
                 return self.stable(f, c.name) and not self._own_method(f, c.name, e)
-            return self.stable(f, c.name)
+            binding = self.lookup_binding(f, c.name)   # 被證明穩定的綁定，就要是 e.dst 的來源
+            return (f.lang == "py" and self._binding_stable(f, c.name, binding)
+                    and e.dst in {x.dst for x in self._binding_edges(f, c.name, binding)})
         if c.kind not in ("attr", "prop") or not c.recv:
             return False
         if c.recv.startswith("mod:"):
@@ -1010,7 +1067,7 @@ class Graph:
         if aliases:                                # 模組層別名指向外部模組的函式（flat = itertools.chain.from_iterable）
             ctx = self.module_ctx(f.file)
             return all(a.kind == "attr" and self.recv_type(ctx, a.recv)[0] == "external" for a in aliases)
-        return self._py_external(f.file, self.imports_of(f), name)
+        return self._py_external(f.file, self.imports_for(f, name), name)
 
     def _external_cs_name(self, f: lang.Func, name: str) -> bool:
         """C# 裸名呼叫解不到：沒人訂閱的事件 → 外部；本類別欄位裝的委派 → 看不到；

@@ -74,6 +74,8 @@ class Func:
     locals: set = field(default_factory=set)          # 本體裡被指定過的區域變數名：拿它當函式呼叫又追不到 → 未解
     attr_stores: set = field(default_factory=set)     # 本體裡寫過的屬性 (接收者, 屬性名)：self.run = f、w.run = f、mod.func = f
     nonlocal_writes: set = field(default_factory=set)  # 用 nonlocal 宣告後又指定的名字：改的是外層作用域的綁定
+    global_names: set = field(default_factory=set)    # 宣告 global 的名字：查找直接跳模組層
+    nonlocal_names: set = field(default_factory=set)  # 宣告 nonlocal 的名字：查找跳過這一層、往外層找
     import_rebinds: set = field(default_factory=set)  # 函式裡 import 的名字又被綁定（import 兩次、import 又指定）：只影響確定，不影響找目標
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
@@ -262,10 +264,10 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     f.abstract = _py_abstract(node, body)
     _py_locals(f, cls, nodes)
     f.calls = _py_calls(mod, nodes, fid)
-    declared = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Global)))
-    mod.opaque |= declared & f.locals                  # 函式用 global 改寫模組層名字：之後是什麼看不到
-    nonlocal_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Nonlocal)))
-    f.nonlocal_writes = nonlocal_names & f.locals      # 改的是外層函式的名字（reading-path 回頭標到外層）
+    f.global_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Global)))
+    mod.opaque |= f.global_names & f.locals            # 函式用 global 改寫模組層名字：之後是什麼看不到
+    f.nonlocal_names = set(itertools.chain.from_iterable(n.names for n in nodes if isinstance(n, ast.Nonlocal)))
+    f.nonlocal_writes = f.nonlocal_names & f.locals    # 改的是外層函式的名字（reading-path 回頭標到外層）
     mod.funcs.append(f)
     if cls:
         cls.methods.setdefault(node.name, []).append(fid)

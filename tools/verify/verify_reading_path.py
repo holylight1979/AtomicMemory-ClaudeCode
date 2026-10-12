@@ -1456,6 +1456,42 @@ def test_b_static_method_through_an_import_alias_is_certain_by_rule_1(tmp_path):
     assert [(e.dst, _sure(e), _rule_of(e)) for e in g.edges["app.py::main"]] == [("worker.py::Worker.run", True, 1)]
 
 
+# ─── 退件 009：四條證據家族規則（每條封住一整類；先驗行為，再驗條號） ─────────
+
+BODY = "    x = 1\n    y = x + 1\n    return y\n"
+OTHER_WORK = {"other.py": "def work():\n" + BODY}
+
+
+def _edge_rules(files: dict, fid: str, tmp_path) -> list:
+    g = rp.build_graph(_write(tmp_path, files))
+    return [(e.dst, _rule_of(e)) for e in g.edges[fid]]
+
+
+def test_r1_an_import_inside_the_inner_function_beats_a_nested_def_of_the_outer(tmp_path):
+    """案 1：找目標與證明穩定共用同一次作用域查找；inner 自己 import 的 work 才是被呼叫的那個。"""
+    files = {**OTHER_WORK, "app.py": ("def outer():\n    def work():\n        x = 1\n        return x\n\n"
+                                      "    def inner():\n        from other import work\n        work()\n\n    inner()\n    work()\n")}
+    assert _sure_edges(files, "app.py::outer.inner", tmp_path / "a") == [("other.py::work", True)], \
+        "inner 裡 from other import work：目標是 other.py::work，不是 outer 的巢狀 def"
+    assert _edge_rules(files, "app.py::outer.inner", tmp_path / "b") == [("other.py::work", 1)]
+    outer = [(d, s) for d, s in _sure_edges(files, "app.py::outer", tmp_path / "c") if d.endswith("work")]
+    assert outer == [("app.py::outer.work", True)], "同名的巢狀 def 與 import、呼叫在外層：仍指巢狀 def"
+    assert [r for d, r in _edge_rules(files, "app.py::outer", tmp_path / "d") if d.endswith("work")] == [1]
+
+
+@pytest.mark.parametrize("decl", ["global work", "nonlocal work"])
+def test_r1_global_and_nonlocal_declarations_pick_the_scope(tmp_path, decl):
+    """案 5：global work 直接跳模組層（外層同名參數不算）；nonlocal work 跳到最近綁定它的外層（這裡是 outer 的參數）。"""
+    files = {"app.py": ("def work():\n" + BODY + "\n\ndef outer(work):\n    def inner():\n        " + decl
+                        + "\n        work()\n\n    inner()\n")}
+    edges = _sure_edges(files, "app.py::outer.inner", tmp_path / "a")
+    if decl.startswith("global"):
+        assert edges == [("app.py::work", True)], "模組層唯一的 def work、沒被改指：第 1 條"
+        assert _edge_rules(files, "app.py::outer.inner", tmp_path / "b") == [("app.py::work", 1)]
+    else:
+        assert not any(s for _, s in edges), "nonlocal work 指的是 outer 的參數：裝的東西看不到"
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):
