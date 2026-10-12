@@ -66,9 +66,11 @@ def test_signals_without_role_need_two_kinds():
     assert m._session_directive_reason("以後第一步都先跑測試") is None                     # 單一訊號不算
 
 
-def test_prompt_templates_come_from_code_tree_and_carry_the_criterion():
+def test_prompt_templates_come_from_code_tree_and_carry_the_criterion(tmp_path, monkeypatch):
+    import wg_core
+    monkeypatch.setattr(wg_core, "CLAUDE_DIR", tmp_path / "data-root")                  # 資料根與程式碼樹分開
     m = _load_worker()
-    assert m._PROMPTS_DIR == CLAUDE_ROOT / "prompts"
+    assert m._PROMPTS_DIR == CLAUDE_ROOT / "prompts"                                    # 反例：舊碼從資料根載樣板
     assert "只在這個 session 有效的指示不算" in m._load_l1_prompt("x")
     assert "只在這個 session 有效的指示不是決策" in m._load_l2_prompt("x", "")
 
