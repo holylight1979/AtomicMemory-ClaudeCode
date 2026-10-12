@@ -90,7 +90,7 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
      就算被捕捉，同樣失去資格；建構者的名字（含 import 別名）也要從未被重新指定
   3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、區域變數標註、
      欄位宣告型別；self.x = Foo() 這種推導出來的不算）同樣只在沒有子類覆寫、也沒有多載時；接收者（含 self）被重新指定過
-     （任何一次，含內層函式用 nonlocal 改寫）就不算型別已宣告
+     （任何一次，含內層函式用 nonlocal 改寫）就不算型別已宣告；self／cls 要真的是方法的第一個參數（區域變數剛好叫 cls 的不算）
      （照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）；標註在它被求值的作用域解析：參數標註在 def 的
      外層（方法是類別本體、巢狀函式是外層函式、模組層函式是模組層），函式本體裡的標註（含 self.x: Foo）在那個本體，
      類別本體的標註在類別本體；那個作用域裡這個名字還有別的綁定（區域 import、指定、同名參數、類別屬性）就不給
@@ -365,7 +365,7 @@ class Graph:
         接收者（含 self）被重新指定過，型別證據就失效（總原則 4），照型別看不出的規則用名字判。"""
         if f.lang != "py":
             return
-        own = self.cls_of(f) if recv in ("self", "cls") and not self.rebound_local(f, recv) else None
+        own = self.cls_of(f) if recv in ("self", "cls") and self._own_receiver(f, recv) else None
         if own:
             self.method_writes.add((self.cls_key(own), attr))
             return
@@ -701,10 +701,18 @@ class Graph:
 
     def resolve(self, f: lang.Func, c: lang.Call, defer: bool = True) -> list:
         """找目標（各解析路）→ 定確定與否（certify，唯一能給確定的地方）。"""
+        c = self._plain_self(f, c)
         handler = {"name": self._r_name, "self": self._r_self, "super": self._r_super, "attr": self._r_attr,
                    "new": self._r_new, "emit": self._r_emit, "invoke": self._r_invoke, "table": self._r_table,
                    "getattr": self._r_getattr, "prop": self._r_prop, "opaque": lambda *_: []}
         return self.certify(f, c, handler[c.kind](f, c, defer))
+
+    def _plain_self(self, f: lang.Func, c: lang.Call) -> lang.Call:
+        """Python 寫成 self.m()／cls.m()，但接收者不是方法自己的第一個參數（區域變數剛好叫 cls、self 被重新指定過）→
+        當成一般的屬性呼叫 recv.m()（照接收者的型別證據找，不連本類別的同名方法）；其他照原樣。"""
+        if c.kind != "self" or f.lang != "py" or self._own_receiver(f, c.recv or "self"):
+            return c
+        return lang.Call("attr", c.name, recv=c.recv or "self", line=c.line, scoped=c.scoped)
 
     def dispatch(self, cls, name: str, via: str = "", exact: bool = False) -> list:
         """在 cls 上呼叫 name。實際型別確定（剛 new 出來）→ 只連它自己的實作；
@@ -993,7 +1001,7 @@ class Graph:
         return kind in ("param", "local", "nested") or (kind == "module" and bool(mod) and self._rebound(mod, head))
 
     def _recv_head(self, f: lang.Func, head: str):
-        if head in ("self", "this") and not (f.lang == "py" and self.rebound_local(f, head)):
+        if head in ("self", "this") and self._own_receiver(f, head):
             return "object", self.cls_of(f)
         evidence = self._type_evidence(f, head)
         if evidence and self._type_external(*evidence):
@@ -1022,6 +1030,15 @@ class Graph:
         if head in f.local_types:
             return f, f.local_types[head]
         return (self.outer_ctx(f), f.param_types[head]) if head in f.param_types else None
+
+    def _own_receiver(self, f: lang.Func, name: str) -> bool:
+        """self.m()／cls.m() 的 self／cls 真的是方法自己的第一個參數：沿 lookup_binding 找到的是某個方法的第一個參數
+        （巢狀函式裡用的是外層方法的），而且那一層沒重新指定過它（總原則 4）；區域變數剛好叫 self／cls 的不算。
+        C# 的 this 不會被改。"""
+        if f.lang != "py":
+            return True
+        kind, owner = self.lookup_binding(f, name)
+        return kind == "param" and bool(owner.cls) and owner.params[:1] == [name] and not self.rebound_local(owner, name)
 
     def rebound_local(self, f: lang.Func, name: str) -> bool:
         """f 的參數或區域變數 name 被重新指定過：這一層綁了不只一次（含 import 又綁到同一個名字），
@@ -1248,14 +1265,12 @@ class Graph:
     def _rule3_target(self, f: lang.Func, c: lang.Call, e: Edge) -> tuple:
         """第 3 條看的類別與方法名：本物件 → 自己的類別；型別已宣告的接收者 → 宣告的型別；其他 → (None, "")。"""
         own = self.cls_of(f) if f.cls else None
-        if f.lang == "py" and (self.rebound_local(f, "self") or self.rebound_local(f, "cls")):
-            own = None                             # self／cls 被重新指定過：型別證據失效（總原則 4）
         if c.kind == "self" or (c.kind == "prop" and c.recv in ("", "this")):
-            return own, c.name
+            return (own if self._own_receiver(f, c.recv or "self") else None), c.name
         if c.kind == "name" and f.lang == "cs" and self.stable(f, c.name) and self._own_method(f, c.name, e):
             return own, c.name
         if c.kind == "name" and c.name == "cls" and f.params[:1] == ["cls"]:
-            return own, "__init__"
+            return (own if self._own_receiver(f, "cls") else None), "__init__"
         if c.kind in ("attr", "prop") and c.recv:
             return self._declared_type(f, c.recv), c.name
         return None, ""
@@ -1266,10 +1281,10 @@ class Graph:
         建構推導的型別（x = Foo()、self.x = Foo()）不算——那是第 2 條的證據，失去第 2 條資格就不能改走這條。
         宣告的型別也要沿綁定鏈解析到專案內的類別（class_proof）：全專案同名搜尋、指到外部的都不算。"""
         head, *rest = recv.split(".")
-        if f.lang == "py" and self.rebound_local(f, head):
+        if head in ("self", "this"):
+            cls = self.cls_of(f) if rest and self._own_receiver(f, head) else None
+        elif f.lang == "py" and self.rebound_local(f, head):
             cls = None                             # 被重新指定過（含內層 nonlocal 改寫）：宣告的型別不再是證據（總原則 4）
-        elif head in ("self", "this"):
-            cls = self.cls_of(f) if rest else None
         elif head in f.param_types and head not in f.reassigned:
             cls = self.class_proof(self.outer_ctx(f), f.param_types[head])   # 參數標註在 def 的外層解析
         elif head in f.declared and head not in f.reassigned:
@@ -1320,6 +1335,7 @@ class Graph:
         lambda 參數或推導式迴圈變數裝的東西）→ False，計入未解。"""
         if c.shadowed:
             return False
+        c = self._plain_self(f, c)
         if c.kind in ("emit", "prop", "new", "super"):
             return True
         if c.kind in ("table", "getattr", "opaque"):

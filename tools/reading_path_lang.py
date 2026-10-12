@@ -26,7 +26,7 @@ GENERATED_RE = re.compile(r"(\.Designer\.cs|\.g\.cs|\.g\.i\.cs|_pb2\.py|_pb2_grp
 class Call:
     """一個呼叫點，或一個被當值傳遞的函式參照。
 
-    kind：name 裸名呼叫｜self 本物件方法｜super 父類方法｜attr 經由別的東西（recv；mod:X＝字串寫的模組）｜new 建構｜
+    kind：name 裸名呼叫｜self 本物件方法（Python 的 recv＝寫的是 self 還是 cls）｜super 父類方法｜attr 經由別的東西（recv；mod:X＝字串寫的模組）｜new 建構｜
           emit 發事件（name＝事件鍵，recv＝發事件的接收者）｜invoke C# 的 X.Invoke()（name＝X）｜
           table 分派表（name＝表名，key＝寫死的鍵）｜getattr getattr(…)(…)（name＝引數裡出現的變數名，逗號分隔）｜
           prop C# 讀寫屬性｜opaque 呼叫的對象是算出來的值（factory()(x)、self.handlers[k](x)），看不到
@@ -476,7 +476,7 @@ def _py_call(node: ast.Call) -> Call | None:
         return None if isinstance(fn, ast.Lambda) else Call("opaque", "", line=line)
     recv = _py_recv(fn.value)
     if recv in ("self", "cls"):
-        return Call("self", fn.attr, line=line)
+        return Call("self", fn.attr, recv=recv, line=line)
     if recv == "super()":
         return Call("super", fn.attr, line=line)
     return Call("attr", fn.attr, recv=recv, line=line, noise=_is_noise("attr", fn.attr, recv))
@@ -488,7 +488,7 @@ def _py_ref(expr) -> Call | None:
         return Call("name", expr.id)
     recv = _py_recv(expr.value) if isinstance(expr, ast.Attribute) else ""
     if recv in ("self", "cls"):
-        return Call("self", expr.attr)
+        return Call("self", expr.attr, recv=recv)
     return Call("attr", expr.attr, recv=recv) if recv and not recv.startswith("new:") else None
 
 
@@ -525,11 +525,12 @@ def _py_events(mod: Module, node: ast.Call, c: Call, owner: str) -> list:
         return []
     first = node.args[0] if node.args else None
     literal = first.value if isinstance(first, ast.Constant) and isinstance(first.value, str) else ""
-    key = _event_key(literal, c.recv)
+    recv = "" if c.kind == "self" else c.recv          # self.emit(…)：接收者是物件自己，不拿來當事件鍵
+    key = _event_key(literal, recv)
     if c.name in EMIT_NAMES:
-        return [Call("emit", key, recv=c.recv, line=c.line)] if key else []
+        return [Call("emit", key, recv=recv, line=c.line)] if key else []
     if key and c.refs:
-        mod.subs.append((key, c.refs[-1][1], owner, mod.file, c.recv))
+        mod.subs.append((key, c.refs[-1][1], owner, mod.file, recv))
     return []
 
 

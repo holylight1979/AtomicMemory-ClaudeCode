@@ -1975,6 +1975,15 @@ def test_closure_over_an_outer_local_follows_its_assignment_or_is_unresolved(tmp
         assert edges == [] and g.unres["app.py::outer.inner"] == 1
 
 
+def test_p4_self_and_cls_count_only_when_they_are_the_methods_own_first_parameter(tmp_path):
+    """self.m()／cls.m() 的接收者要真的是方法自己的第一個參數：區域變數剛好叫 cls（cls = Worker()）時 cls.run() 是
+    Worker.run（第 2 條），不是本類別的 run；反過來，方法裡有個叫 cls 的區域變數不影響 self.run() 的第 3 條。"""
+    local = {"app.py": APP_RUN + "    def go(self):\n        cls = Worker()\n        return cls.run()\n"}
+    assert _edge_rules(local, "app.py::App.go", tmp_path / "a") == [("app.py::Worker.run", 2)]
+    mixed = {"app.py": APP_RUN + "    def go(self, x):\n        cls = x\n        cls = cls or None\n        return self.run()\n"}
+    assert _edge_rules(mixed, "app.py::App.go", tmp_path / "b") == [("app.py::App.run", 3)]
+
+
 def test_p4_a_callback_parameter_rebound_through_nonlocal_is_not_rule_5(tmp_path):
     """總原則 4 對第 5 條：callback 參數 cb 被內層函式用 nonlocal 改成 other，呼叫者傳的 work 不一定是這次跑的 → 只列候選。"""
     app = TWO_FUNCS + ("def run(cb):\n    def g():\n        nonlocal cb\n        cb = other\n\n    g()\n    return cb()\n\n\n"
