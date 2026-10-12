@@ -51,7 +51,9 @@ DECISIONS = [
 MIXED_DECIDE = "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x。另外，我決定 commit message 一律使用繁體中文。"
 MIXED_DECIDE_NEWLINE = "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x\n另外，我決定 commit message 一律使用繁體中文。"
 DECISIONS += [MIXED_DECIDE, MIXED_DECIDE_NEWLINE,
-              "你是\n工作 session track-x，本次一律只讀 C:\\wt\\x。"]   # 角色被換行拆開：認不出就交 LLM（不誤丟優先）
+              "你是\n工作 session track-x，本次一律只讀 C:\\wt\\x。",   # 角色被換行拆開：認不出就交 LLM（不誤丟優先）
+              "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x\n我決定備份目錄統一使用 D:\\backup。",
+              "你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x\n備份目錄統一使用 D:\\backup。"]   # 有路徑但沒有派工語境的句子不算派工句
 # 開工句的常見改寫（不是「你是」開頭、英文、外層引號）
 REWORDED_KICKOFFS = [
     "For this session, act as track-x. You must work only in C:\\wt\\x; read the task at C:\\inbox\\022.md.",

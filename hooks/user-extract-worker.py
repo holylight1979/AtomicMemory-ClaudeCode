@@ -100,7 +100,7 @@ def _is_emotional_commitment(prompt: str) -> bool:
 # 是不是決策交 LLM 判（L1／L2 prompt 有同一條準則）；這裡只攔「看得出整則就是派工開工句」的情況，省一次 LLM、也不讓
 # 它有機會誤寫。三個條件都要成立：
 #   1. 開頭在指派這個 session 的角色，而且帶 session 操作或絕對路徑；沒有角色開頭就要三種派工訊號都在；
-#   2. 逐句看，每一句都帶派工訊號（角色、session 操作、第一步、只對這個 session、絕對路徑）；只要有一句不是
+#   2. 逐句看，每一句都帶派工訊號（角色、session 操作、第一步、只對這個 session、配上派工語境的絕對路徑）；只要有一句不是
 #      （例如「另外，我決定 commit message 一律繁體中文」），整則交 LLM 把該留的那句抽出來；
 #   3. 沒有長期或決策用語（以後、所有專案、記住、偏好、禁止…）。
 # 樣式可擴充：(名稱, 樣式)；不綁定任何一次派工的專名。
@@ -108,15 +108,18 @@ _SESSION_ROLE_RE = re.compile(
     r"^\s*[「『“\"']?\s*(?:for this session[,，:：]?\s*(?:you are|act as)"
     r"|(?:你是|妳是|請接手|you are|act as)[^。，,]{0,60}?(?:session|工作階段|分頁|子代理|agent))",
     re.IGNORECASE)
+_ABS_PATH_RE = re.compile(r"(?<![\w.])(?:[A-Za-z]:[\\/]|~[\\/])")
 _SESSION_DIRECTIVE_SIGNALS = (
     ("first-step", re.compile(r"第一步|first step", re.IGNORECASE)),                     # 要這個 session 先做什麼
     ("session-op", re.compile(r"EnterWorktree|ExitWorktree|SendMessage|切進\s*worktree|切到\s*worktree",
                               re.IGNORECASE)),                                         # 這個 session 的操作
     ("this-session", re.compile(r"(?:這個|本|this)\s*session|本次工作", re.IGNORECASE)),  # 明說只對這個 session
-    ("abs-path", re.compile(r"(?<![\w.])(?:[A-Za-z]:[\\/]|~[\\/])")),                  # 派工單、worktree 的絕對路徑
+    ("abs-path", _ABS_PATH_RE),                                                        # 派工單、worktree 的絕對路徑
 )
+# 逐句看時，絕對路徑要配上派工語境才算派工句（「備份目錄統一用 D:\backup」這種決策句不算）
+_PATH_CONTEXT_RE = re.compile(r"派工|工作單|prompt|task|worktree|只讀|只准|讀完|照做|work only|read the", re.IGNORECASE)
 _KEEP_FOR_LLM_RE = re.compile(
-    r"以後|從此|今後|往後|從現在起|所有專案|每個專案|跨專案|長期|永遠|記住|偏好|習慣|禁止|規定|約定|不要再|"
+    r"以後|從此|今後|往後|從現在起|所有專案|每個專案|跨專案|長期|永遠|記住|偏好|習慣|禁止|規定|約定|不要再|決定|"
     r"from now on|going forward|always|remember|prefer",
     re.IGNORECASE)
 
@@ -128,7 +131,9 @@ _SENTENCE_PAD = " \t\r\n「」『』“”\"'（）()…"
 def _is_directive_sentence(sentence: str) -> bool:
     if _SESSION_ROLE_RE.search(sentence):
         return True
-    return any(pat.search(sentence) for _, pat in _SESSION_DIRECTIVE_SIGNALS)
+    if any(pat.search(sentence) for name, pat in _SESSION_DIRECTIVE_SIGNALS if name != "abs-path"):
+        return True
+    return bool(_ABS_PATH_RE.search(sentence) and _PATH_CONTEXT_RE.search(sentence))
 
 
 def _session_directive_reason(prompt: str) -> Optional[str]:
