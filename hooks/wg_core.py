@@ -956,8 +956,39 @@ def read_state_status(session_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
         return None, "error"
 
 
+_STATE_LOCK_RETRIES = 10      # 鎖拿不到／replace 失敗的重試次數
+_STATE_LOCK_RETRY_S = 0.02    # 每次間隔：10 × 20 ms＝最多等 200 ms
+
+
+def _acquire_state_lock(lock_path: Path):
+    """Windows 取 state 寫入鎖（msvcrt LK_NBLCK 鎖 1 byte）：拿不到短暫重試，仍拿不到回 None 並 stderr 浮一行
+    `[state:lock-timeout]`（無鎖寫仍安全：tmp 每行程唯一＋os.replace 原子換檔）。非 Windows 回 None。"""
+    if sys.platform != "win32":
+        return None
+    import msvcrt
+    for _ in range(_STATE_LOCK_RETRIES):
+        fh = None
+        try:
+            fh = open(lock_path, "ab")
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            return fh
+        except OSError:
+            if fh is not None:
+                fh.close()
+            time.sleep(_STATE_LOCK_RETRY_S)
+    print(f"[state:lock-timeout] {lock_path.name}：等 {_STATE_LOCK_RETRIES * _STATE_LOCK_RETRY_S:.2f}s 仍拿不到寫入鎖，"
+          "改無鎖寫（tmp 每行程唯一，檔仍完整）", file=sys.stderr)
+    return None
+
+
 def write_state(session_id: str, state: Dict[str, Any]) -> None:
-    """Atomic write with advisory lock to prevent concurrent R-M-W races."""
+    """Atomic write：tmp 每行程唯一（state-<sid>.<pid>.tmp）＋ os.replace 換檔；advisory lock 只用來序列化寫者。
+
+    以前所有 hook 行程共用同一個 .tmp、鎖拿不到就照寫：同一則訊息並行多個工具呼叫時，兩支 hook 同時 open(tmp,'w')，
+    短內容從 offset 0 蓋掉長內容前段、尾巴殘留 → replace 後 state「Extra data」，該 session 餘生每支 hook 都
+    [state:unreadable] 跳過。現在任何路徑下 state 檔只會是某一方的完整 JSON；replace 失敗（目標被讀者鎖住）重試後
+    放棄、清掉 tmp、原檔不動，stderr 浮 `[state:replace-failed]`。
+    """
     WORKFLOW_DIR.mkdir(parents=True, exist_ok=True)
 
     canonical_id = state.get("session", {}).get("id")
@@ -966,31 +997,30 @@ def write_state(session_id: str, state: Dict[str, Any]) -> None:
 
     state["last_updated"] = _now_iso()
     path = state_path(session_id)
-    tmp_path = path.with_suffix(".tmp")
+    tmp_path = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     lock_path = path.with_suffix(".lock")
 
-    lock_fh = None
-    if sys.platform == "win32":
-        try:
-            import msvcrt
-            lock_fh = open(lock_path, "ab")
-            msvcrt.locking(lock_fh.fileno(), msvcrt.LK_NBLCK, 1)
-        except OSError:
-            if lock_fh:
-                lock_fh.close()
-            lock_fh = None
-
+    lock_fh = _acquire_state_lock(lock_path)
     try:
         with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
-        tmp_path.replace(path)
-    except OSError:
+        for attempt in range(_STATE_LOCK_RETRIES):
+            try:
+                tmp_path.replace(path)
+                break
+            except OSError as e:
+                if attempt == _STATE_LOCK_RETRIES - 1:
+                    print(f"[state:replace-failed] {path.name}：{e}；本次寫入放棄，原檔不動", file=sys.stderr)
+                else:
+                    time.sleep(_STATE_LOCK_RETRY_S)
+    except OSError as e:
+        print(f"[state:write-failed] {tmp_path.name}：{e}；本次寫入放棄，原檔不動", file=sys.stderr)
+    finally:
         if tmp_path.exists():
             try:
                 tmp_path.unlink()
             except OSError:
                 pass
-    finally:
         if lock_fh is not None:
             try:
                 import msvcrt
