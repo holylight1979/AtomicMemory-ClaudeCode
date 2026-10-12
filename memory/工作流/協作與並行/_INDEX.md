@@ -14,6 +14,7 @@
 | 並行llm即時通訊-inbox機制 | 並行llm即時通訊-inbox機制 |
 | 並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次 | 並行實作線不要各自跑全量驗證-簡報只給目標verify清單-全量由主持人整合後單獨跑一次 |
 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 | 併發session共用的不只工作樹-執行中的應用程式行程也是共用資源 |
+| 工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上 | 工作session切進worktree後被隔離寫不到worktree外-交付改用SendMessage回全文-cwd不在worktree時收據根對不上 |
 | 根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox | 根層與專案session對齊認知用root-link雙槽與tri-link三槽信箱-落專案inbox |
 | 派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用sendmessage喚醒 | 派sub-agent時寫第一則必須是預告會讓它送完就停-要寫立刻續跑-已停用SendMessage喚醒 |
 | 總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件 | 總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件 |
