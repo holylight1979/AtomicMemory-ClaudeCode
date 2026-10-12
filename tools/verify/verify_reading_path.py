@@ -1088,12 +1088,22 @@ def test_whitelist_examples_stay_certain_with_the_same_numbers(tmp_path):
     assert b["certain"] and _numbers(b) == (2, 3, 4, 4), "例 B：簡單區域別名"
     assert _rules(b) == [1, 4, 1, 1], "import 的 a → 1；next_fn = b → 4；c、done → 1"
     g = rp.build_graph(_write(tmp_path / "c", {"Program.cs": CS_INHERIT}))
-    assert [(e.dst, e.guess, e.rule) for e in g.edges["Program.cs::Program.Main"] if "Work" in e.dst] == \
+    assert [(e.dst, e.guess, _rule_of(e)) for e in g.edges["Program.cs::Program.Main"] if "Work" in e.dst] == \
         [("Program.cs::Base.Work", "", 2)]
 
 
 def _rules(r: dict) -> list:
-    return [s["rule"] for s in r["steps"][1:]]
+    return [s.get("rule") for s in r["steps"][1:]]
+
+
+def _rule_of(e):
+    """邊的白名單條號；用 getattr 讀，新案退回沒有 rule 的舊版時紅在斷言、不是紅在屬性。"""
+    return getattr(e, "rule", None)
+
+
+def _sure(e) -> bool:
+    """這條邊確定嗎：有 rule 欄的版本只看 rule；沒有 rule 欄的舊版看有沒有不確定原因（舊版的口徑）。"""
+    return _rule_of(e) is not None if hasattr(e, "rule") else not e.guess
 
 
 def test_module_alias_overwritten_by_a_factory_is_not_certain(tmp_path):
@@ -1225,7 +1235,8 @@ def _graphs(tmp_path) -> dict:
 
 
 def _rule_edges(graphs: dict, n: int) -> set:
-    return {(name, src, e.dst) for name, g in graphs.items() for src, es in g.edges.items() for e in es if e.rule == n}
+    return {(name, src, e.dst) for name, g in graphs.items() for src, es in g.edges.items() for e in es
+            if _rule_of(e) == n}
 
 
 def test_certain_only_comes_from_a_rule(tmp_path):
@@ -1235,10 +1246,10 @@ def test_certain_only_comes_from_a_rule(tmp_path):
         g = rp.build_graph(root)
         for src, es in g.edges.items():
             for e in es:
-                assert e.rule in (None, 1, 2, 3, 4, 5), (name, src, e)
-                assert (e.rule is None) == bool(e.guess), f"{name} {src}→{e.dst}：確定與否只看 rule，原因只是說明"
+                assert _rule_of(e) in (None, 1, 2, 3, 4, 5), (name, src, e)
+                assert (_rule_of(e) is None) == bool(e.guess), f"{name} {src}→{e.dst}：確定與否只看 rule，原因只是說明"
         for r in itertools.chain.from_iterable(entry["routes"] for entry in rp.analyze(root)["entries"]):
-            assert r["certain"] == all(s["rule"] is not None for s in r["steps"][1:]), (name, r["landing"])
+            assert r["certain"] == all(s.get("rule") is not None for s in r["steps"][1:]), (name, r["landing"])
 
 
 @pytest.mark.parametrize("n", [1, 2, 3, 4, 5])
@@ -1246,10 +1257,10 @@ def test_removing_one_rule_makes_its_edges_uncertain(tmp_path, monkeypatch, n):
     """臨時拿掉第 n 條的判斷：原本靠它確定的邊全部變成不確定、也沒有改由別條補上——證明確定只從 rule 來。"""
     before = _rule_edges(_graphs(tmp_path / "before"), n)
     assert before, f"語料裡要有靠第 {n} 條確定的邊"
-    monkeypatch.setattr(rp.Graph, f"_rule{n}", lambda self, *a: False)
+    monkeypatch.setattr(rp.Graph, f"_rule{n}", lambda self, *a: False, raising=False)
     after = _graphs(tmp_path / "after")
     still = {(name, src, e.dst) for name, g in after.items() for src, es in g.edges.items() for e in es
-             if e.rule is not None and (name, src, e.dst) in before}
+             if _sure(e) and (name, src, e.dst) in before}
     assert not still, f"拿掉第 {n} 條後仍確定：{sorted(still)[:3]}"
     assert not _rule_edges(after, n)
 
@@ -1258,15 +1269,16 @@ def test_c2_nested_function_name_reassigned_in_outer_scope_is_not_certain(tmp_pa
     files = {"app.py": ("def outer():\n    def work():\n        x = 1\n        y = x + 1\n        return y\n\n"
                         "    def inner():\n        work()\n\n    work = lambda: 2\n    inner()\n")}
     g = rp.build_graph(_write(tmp_path, files))
-    edges = [(e.dst, e.rule) for e in g.edges["app.py::outer.inner"]]
-    assert edges == [("app.py::outer.work", None)], "work 在 outer 裡被改指成 lambda：白名單 1 不成立"
+    edges = [(e.dst, _sure(e)) for e in g.edges["app.py::outer.inner"]]
+    assert edges == [("app.py::outer.work", False)], "work 在 outer 裡被改指成 lambda：白名單 1 不成立"
 
 
 def test_c2_closure_over_an_outer_parameter_is_not_certain(tmp_path):
     files = {"app.py": ("def work():\n    x = 1\n    x += 1\n    return x\n\n\n"
                         "def outer(work):\n    def inner():\n        work()\n    inner()\n")}
     g = rp.build_graph(_write(tmp_path, files))
-    assert all(e.rule is None for e in g.edges["app.py::outer.inner"]), "inner 呼叫的是 outer 的參數，不是模組層的 work"
+    edges = g.edges["app.py::outer.inner"]
+    assert edges and not any(_sure(e) for e in edges), "inner 呼叫的是 outer 的參數，不是模組層的 work"
 
 
 WORKER = "class Worker:\n    def run(self):\n        x = 1\n        y = x + 1\n        return y\n"
@@ -1276,50 +1288,56 @@ def test_c1_class_name_rebound_by_a_factory_is_not_certain(tmp_path):
     files = {"app.py": WORKER + "\n\ndef factory():\n    return object\n\n\nWorker = factory()\n\n\n"
                                 "def main():\n    w = Worker()\n    w.run()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    assert all(e.rule is None for e in g.edges["app.py::main"]), "Worker 被工廠覆寫：建構者名稱不穩定，第 2 條不成立"
+    assert not any(_sure(e) for e in g.edges["app.py::main"]), "Worker 被工廠覆寫：建構者名稱不穩定，第 2 條不成立"
 
 
 def test_c3_constructed_local_stored_to_a_field_is_not_certain(tmp_path):
     files = {"app.py": WORKER + "\n\ndef main(holder):\n    w = Worker()\n    holder.worker = w\n    w.run()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    edges = [(e.dst, e.rule) for e in g.edges["app.py::main"]]
-    assert edges == [("app.py::Worker.run", None)], "w 存進欄位：第 2 條不成立；沒有宣告型別，也不能轉用第 3 條"
+    edges = [(e.dst, _sure(e)) for e in g.edges["app.py::main"]]
+    assert edges == [("app.py::Worker.run", False)], "w 存進欄位：第 2 條不成立；沒有宣告型別，也不能轉用第 3 條"
 
 
 @pytest.mark.parametrize("store", ["    items = [w]\n", "    pool = []\n    pool.append(w)\n", '    d = {"k": w}\n'])
 def test_constructed_local_put_into_a_container_is_not_certain(tmp_path, store):
     files = {"app.py": WORKER + "\n\ndef main():\n    w = Worker()\n" + store + "    w.run()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    assert all(e.rule is None for e in g.edges["app.py::main"] if e.dst == "app.py::Worker.run")
+    run = [e for e in g.edges["app.py::main"] if e.dst == "app.py::Worker.run"]
+    assert run and not any(_sure(e) for e in run), "放進容器也算存走：第 2 條不成立"
 
 
 def test_c5_annotated_self_field_in_init_is_certain_by_rule_3(tmp_path):
     files = {"app.py": WORKER + "\n\nclass App:\n    def __init__(self, worker):\n        self.worker: Worker = worker\n\n"
                                 "    def run(self):\n        self.worker.run()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    assert [(e.dst, e.rule) for e in g.edges["app.py::App.run"]] == [("app.py::Worker.run", 3)]
+    assert [(e.dst, _sure(e)) for e in g.edges["app.py::App.run"]] == [("app.py::Worker.run", True)], \
+        "欄位型別已宣告（self.worker: Worker）、沒有子類覆寫：要連上而且確定"
     assert g.unres["app.py::App.run"] == 0
+    assert [_rule_of(e) for e in g.edges["app.py::App.run"]] == [3]
 
 
 def test_c4_constructor_through_an_import_alias_is_certain_by_rule_2(tmp_path):
     files = {"worker.py": WORKER, "app.py": "from worker import Worker as W\n\n\ndef main():\n    w = W()\n    w.run()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    run = [(e.dst, e.rule) for e in g.edges["app.py::main"] if e.dst.endswith("run")]
-    assert run == [("worker.py::Worker.run", 2)], "W 經 import 別名唯一解析到 worker.Worker，剛 new 的區域變數"
+    run = [e for e in g.edges["app.py::main"] if e.dst.endswith("run")]
+    assert [(e.dst, _sure(e)) for e in run] == [("worker.py::Worker.run", True)], \
+        "W 經 import 別名唯一解析到 worker.Worker，剛 new 的區域變數：確定"
+    assert [_rule_of(e) for e in run] == [2]
 
 
 def test_import_alias_annotation_and_reexport_resolve_to_the_original_class(tmp_path):
     files = {"worker.py": WORKER, "pkg.py": "from worker import Worker\n",
              "app.py": "from pkg import Worker as W\n\n\ndef main(w: W):\n    w.run()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    assert [(e.dst, e.rule) for e in g.edges["app.py::main"]] == [("worker.py::Worker.run", 3)]
+    assert [(e.dst, _sure(e)) for e in g.edges["app.py::main"]] == [("worker.py::Worker.run", True)]
+    assert [_rule_of(e) for e in g.edges["app.py::main"]] == [3]
 
 
 def test_constructor_alias_rebound_in_the_importing_module_is_not_certain(tmp_path):
     files = {"worker.py": WORKER,
              "app.py": "from worker import Worker as W\n\nW = object\n\n\ndef main():\n    w = W()\n    w.run()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    assert all(e.rule is None for e in g.edges["app.py::main"])
+    assert not any(_sure(e) for e in g.edges["app.py::main"])
 
 
 def test_json_steps_carry_the_rule_number(tmp_path):
@@ -1328,7 +1346,7 @@ def test_json_steps_carry_the_rule_number(tmp_path):
                          capture_output=True, text=True, encoding="utf-8")
     payload = json.loads("\n".join(out.stdout.strip().splitlines()[:-1]))
     route = next(r for r in payload["entries"][0]["routes"] if r["landing"] == "end.py::done")
-    assert [s["rule"] for s in route["steps"]] == [None, 1, 4, 1, 1], "入口那一步沒有條號；之後每一步附憑哪一條確定"
+    assert [s.get("rule") for s in route["steps"]] == [None, 1, 4, 1, 1], "入口那一步沒有條號；之後每一步附憑哪一條確定"
 
 
 def test_compare_same_numbers_are_undecidable_when_coverage_got_worse(tmp_path):
@@ -1345,15 +1363,16 @@ def test_submodule_imported_from_a_package_is_certain_by_rule_1(tmp_path):
     files = {"pkg/__init__.py": "", "pkg/ledger.py": "def write():\n    w = 1\n    w += 1\n    return w\n",
              "app.py": "from pkg import ledger\n\n\ndef main():\n    ledger.write()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    assert [(e.dst, e.rule) for e in g.edges["app.py::main"]] == [("pkg/ledger.py::write", 1)], \
+    assert [(e.dst, _sure(e)) for e in g.edges["app.py::main"]] == [("pkg/ledger.py::write", True)], \
         "from pkg import 子模組 是誠實寫法：子模組名只綁定一次"
+    assert [_rule_of(e) for e in g.edges["app.py::main"]] == [1]
 
 
 def test_constructed_self_field_is_found_but_not_certain(tmp_path):
     files = {"app.py": WORKER + "\n\nclass App:\n    def __init__(self):\n        self.worker = Worker()\n\n"
                                 "    def run(self):\n        self.worker.run()\n"}
     g = rp.build_graph(_write(tmp_path, files))
-    assert [(e.dst, e.rule) for e in g.edges["app.py::App.run"]] == [("app.py::Worker.run", None)], \
+    assert [(e.dst, _sure(e)) for e in g.edges["app.py::App.run"]] == [("app.py::Worker.run", False)], \
         "self.x = Foo() 是推導的欄位型別（欄位可能被換）：找得到目標，但第 3 條只吃宣告型別"
 
 
