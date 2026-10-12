@@ -43,6 +43,8 @@ DECISIONS = [
     "你是我的長期 coding agent，記住所有專案一律先查證再修改。",                      # 角色開頭但帶長期用語 → 交 LLM
     "以後所有專案一律遵守：第一步用 EnterWorktree 隔離修改。",                         # 訊號兩種但是長期規則
     "你是工作 session track-x。這次修 UI。另外記住：以後所有專案 commit message 一律繁體中文。",   # 混合：交 LLM 抽長期段
+    "你是工作 session track-x。第一步修 UI。另外，我偏好繁體中文回應。",                # 角色開頭但沒有派工操作或路徑
+    "你是工作 session track-x，第一步用 EnterWorktree 切進 C:\\wt\\x。另外禁止在 hook 裡跑 git push。",   # 帶決策用語
 ]
 # 開工句的常見改寫（不是「你是」開頭、英文、多行、外層引號）
 REWORDED_KICKOFFS = [
@@ -62,7 +64,7 @@ def _load_worker():
 
 @pytest.mark.parametrize("text", KICKOFFS)
 def test_kickoff_quotes_are_session_directives(text):
-    assert _load_worker()._session_directive_reason(text) == "role"
+    assert (_load_worker()._session_directive_reason(text) or "").startswith("role+")
 
 
 @pytest.mark.parametrize("text", REWORDED_KICKOFFS)
@@ -77,8 +79,9 @@ def test_cross_project_decisions_are_not_session_directives(text):
 
 def test_signals_without_role_need_two_kinds():
     m = _load_worker()
-    assert m._session_directive_reason("第一步用 EnterWorktree 切進 worktree，派工單在 D:\\inbox\\7.md") == "first-step+session-op+dispatch-path"
-    assert m._session_directive_reason("以後第一步都先跑測試") is None                     # 單一訊號不算
+    assert m._session_directive_reason("第一步用 EnterWorktree 切進 worktree，派工單在 D:\\inbox\\7.md") == "first-step+session-op+abs-path"
+    assert m._session_directive_reason("第一步用 EnterWorktree 切進 worktree") is None     # 沒有角色開頭只有兩種訊號不算
+    assert m._session_directive_reason("以後第一步都先跑測試") is None                     # 長期用語交 LLM
 
 
 def test_prompt_templates_come_from_code_tree_and_carry_the_criterion(tmp_path, monkeypatch):
@@ -117,7 +120,8 @@ def test_pipeline_skips_kickoff_before_llm_and_records_reason(tmp_path, monkeypa
     stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, [KICKOFFS[0], DECISIONS[0]])
     assert len(l1_seen) == 1 and DECISIONS[0] in l1_seen[0], l1_seen                  # 反例：舊碼開工句也送 L1
     assert [t for t, _ in pending_seen] == ["sd-test-1"] and stats["skipped_directive"] == 1
-    assert "action=user-extract-skip" in log and "reason=session-directive(role)" in log and "turn=sd-test-0" in log
+    assert "action=user-extract-skip" in log and "reason=session-directive(role+session-op+abs-path)" in log
+    assert "turn=sd-test-0" in log
     assert "skipped_directive=1" in log
     assert left == []                                                                  # 兩筆都處理完、不留待重送
 
@@ -131,3 +135,26 @@ def test_pipeline_rechecks_source_and_uses_cleaned_text(tmp_path, monkeypatch):
     assert pending_seen == [("sd-test-1", DECISIONS[0])]                               # Quote 用清理後的文字
     assert stats["skipped_not_user"] == 1 and "reason=not-user-typed turn=sd-test-0" in log
     assert left == []
+
+
+def test_mixed_kickoff_with_decision_goes_to_llm_and_empty_candidate_is_recorded(tmp_path, monkeypatch):
+    mixed = DECISIONS[-2]                                                             # 角色開頭＋我偏好…
+    stats, l1_seen, pending_seen, log, left = _run_pipeline(tmp_path, monkeypatch, ["", mixed])
+    assert len(l1_seen) == 1 and "我偏好繁體中文回應" in l1_seen[0]                     # 反例：前一版整則丟掉
+    assert "reason=not-user-typed turn=sd-test-0" in log and stats["skipped_not_user"] == 1   # 空候選也留原因
+    assert left == []
+
+
+def test_skip_stays_queued_when_the_record_cannot_be_written(tmp_path, monkeypatch, capsys):
+    (tmp_path / "_merge_history.log").mkdir()                                          # 紀錄檔位置被目錄占住 → 寫不進去
+    m = _load_worker()
+    monkeypatch.setattr(m, "WORKFLOW_DIR", tmp_path)
+    monkeypatch.setattr(m, "_call_l1", lambda p: pytest.fail("不該送 L1"))
+    monkeypatch.setattr(m, "_get_assistant_last_600", lambda sid, cwd: "")
+    monkeypatch.setattr(m, "evaluate_session", lambda *a, **k: {"scores": {"weighted_total": 0}})
+    state = {"pending_user_extract": [{"turn_id": "sd-test-0", "prompt": KICKOFFS[0]}]}
+    (tmp_path / "state-sd-test.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    m.run_user_extraction({"session_id": "sd-test", "cwd": str(tmp_path), "user": "u", "config": {}})
+    left = json.loads((tmp_path / "state-sd-test.json").read_text(encoding="utf-8"))["pending_user_extract"]
+    assert [c["turn_id"] for c in left] == ["sd-test-0"]                               # 沒記到原因就不清佇列
+    assert "萃取紀錄寫不進" in capsys.readouterr().err

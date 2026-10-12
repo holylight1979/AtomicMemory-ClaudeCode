@@ -22,23 +22,27 @@ fi
 
 # 程式碼：先找本腳本所在的樹（跟隨符號連結；直接從 worktree 跑就用 worktree 的 detector）。
 # 找不到才用家目錄的一般安裝：複製安裝（旁邊本來就沒有 tools/）不出聲；
-# readlink -f 失敗、或符號連結指向的樹沒有 tools/ → stderr 一行說明改用哪支。
+# readlink -f 失敗（不論最後選到哪支）、或符號連結指向的樹沒有 tools/ → stderr 一行說明實際用哪支。
 SRC="${BASH_SOURCE[0]}"
 SELF="$(readlink -f "$SRC" 2>/dev/null)"
 if [ $? -ne 0 ] || [ -z "$SELF" ]; then
   SELF="$SRC"
-  WHY="符號連結解析失敗（readlink -f 失敗）"
-elif [ -L "$SRC" ]; then
-  WHY="符號連結 $SRC 指向的樹沒有 tools/"
+  RESOLVE_FAILED=1
 else
-  WHY=""
+  RESOLVE_FAILED=""
 fi
 CODE_TOOLS="$(cd "$(dirname "$SELF")/.." 2>/dev/null && pwd)/tools"
 if [ -f "$CODE_TOOLS/memory-conflict-detector.py" ]; then
   DETECTOR="$CODE_TOOLS/memory-conflict-detector.py"
+  LINK_WITHOUT_TOOLS=""
 else
   DETECTOR="${HOME}/.claude/tools/memory-conflict-detector.py"
-  [ -n "$WHY" ] && echo "[atom-v4] post-merge：${WHY}，改用 $DETECTOR" >&2
+  LINK_WITHOUT_TOOLS="$([ -L "$SRC" ] && echo 1)"
+fi
+if [ -n "$RESOLVE_FAILED" ]; then
+  echo "[atom-v4] post-merge：符號連結解析失敗（readlink -f 失敗），改用 $DETECTOR" >&2
+elif [ -n "$LINK_WITHOUT_TOOLS" ]; then
+  echo "[atom-v4] post-merge：符號連結 $SRC 指向的樹沒有 tools/，改用 $DETECTOR" >&2
 fi
 SHARED_DIR="$PROJ_ROOT/.claude/memory/shared"
 

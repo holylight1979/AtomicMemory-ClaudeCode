@@ -30,6 +30,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 CODE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CODE_DIR / "lib"))
 from project_root import claude_data_dir  # noqa: E402  資料根的唯一算法（tools 也呼叫它）
+from harness_text import strip_harness_blocks  # noqa: E402  剔 harness 注入區塊（user_typed_text 與 Quote 清理共用）
 CLAUDE_DIR = claude_data_dir()
 MEMORY_DIR = CLAUDE_DIR / "memory"
 EPISODIC_DIR = MEMORY_DIR / "episodic"
@@ -278,30 +279,28 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
     return text[:lo]
 
 
-# harness 注入標籤（IDE 開檔/選取、system-reminder、背景 agent/task 完成通知、其他 Claude session 用 SendMessage
-# 送來的訊息、skill 展開、Claude in Chrome 的 browser_instruction）：成對或未閉合（截斷）皆吃到閉合標或字串尾。
-# 用於把「使用者訊息」清成「使用者實際打的字」。
-_HARNESS_TAG_RE = re.compile(
-    r"<(system-reminder|task-notification|cross-session-message|ide_opened_file|ide_selection|ide_diagnostics|"
-    r"command-name|command-message|command-args|local-command-stdout|browser_instruction)\b[^>]*>"
-    r".*?(?:</\1>|\Z)",
-    re.DOTALL | re.IGNORECASE,
-)
-# 沒有標籤包住的系統通知：這行開頭之後整則都是 harness 的說明文字
-_SYSTEM_NOTIFICATION_PREFIX = "[SYSTEM NOTIFICATION"
+# harness 注入區塊（IDE 開檔/選取、system-reminder、背景 agent/task 完成通知、其他 Claude session 用 SendMessage
+# 送來的訊息、skill 展開、Claude in Chrome 的 browser_instruction）的剔除規則在 lib/harness_text.py（巢狀照深度、
+# 閉合標籤允許空白、沒閉合吃到字串尾），Quote 清理也用同一支。
+# 沒有標籤包住的系統通知標記行：這行起到訊息尾都是 harness 的說明與通知，分不出使用者的字，寧可不認。
+# 只認完整標記（不分大小寫），使用者只是提到「[SYSTEM NOTIFICATION」字樣不受影響。
+_SYSTEM_NOTIFICATION_RE = re.compile(r"^[ \t]*\[SYSTEM NOTIFICATION - NOT USER INPUT\]", re.IGNORECASE | re.MULTILINE)
 
 
 def user_typed_text(prompt: str) -> str:
-    """使用者本人打的字：剔掉 harness 注入區塊（_HARNESS_TAG_RE）與 hook 殘渣行，剩下若以系統通知開頭整則不算。
-    空字串＝這則不是使用者的話。口令、糾正、豁免、使用者決策、不要記、停用等權威判斷只吃這個結果（先清理、再截長）；
-    使用者的字前後夾了通知或其他 session 的訊息，只剔掉那些區塊，使用者的字照留。"""
-    text = sanitize_harness_noise(prompt)
-    return "" if text.startswith(_SYSTEM_NOTIFICATION_PREFIX) else text
+    """使用者本人打的字：剔掉 harness 注入區塊、系統通知標記行之後的內容、hook 殘渣行，空白折一格。
+    空字串＝這則不是使用者的話。口令、糾正、豁免、使用者決策、不要記、停用、失敗萃取等權威判斷只吃這個結果
+    （先清理、再截長）；使用者的字前後夾了通知或其他 session 的訊息，只剔掉那些區塊，使用者的字照留。清兩次結果不變。"""
+    if not prompt:
+        return ""
+    text = strip_harness_blocks(prompt)
+    m = _SYSTEM_NOTIFICATION_RE.search(text)
+    return sanitize_harness_noise(text[:m.start()] if m else text)
 
 
 def is_harness_generated_prompt(text: str) -> bool:
-    """整則 prompt 裡沒有使用者打的字（user_typed_text 為空）。"""
-    return bool(text) and not user_typed_text(text)
+    """整則 prompt 裡沒有使用者打的字（user_typed_text 為空；空訊息也算）。"""
+    return not user_typed_text(text)
 
 
 def user_typed_prompts(prompts: Optional[List[str]]) -> List[str]:
@@ -312,12 +311,12 @@ def user_typed_prompts(prompts: Optional[List[str]]) -> List[str]:
         if typed:
             out.append(typed)
     return out
-# hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] 等
-# additionalContext 前綴）——整行剔除。
+# hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] 等 additionalContext 前綴，
+# 允許行首空白、不分大小寫）：在空白折疊前逐行整行剔除，清理後的文字不會再被當成殘渣行。
 _HOOK_RESIDUE_LINE_RE = re.compile(
-    r"^\[(?:Guardian|Atom|JIT|Session|Parallel|Workflow Guardian|WG|Role|AIDocs|"
+    r"^[ \t]*\[(?:Guardian|Atom|JIT|Session|Parallel|Workflow Guardian|WG|Role|AIDocs|"
     r"Context budget)[^\]]*\].*$",
-    re.MULTILINE,
+    re.MULTILINE | re.IGNORECASE,
 )
 
 
@@ -330,7 +329,7 @@ def sanitize_harness_noise(text: str) -> str:
     if not text:
         return ""
     try:
-        cleaned = _HARNESS_TAG_RE.sub(" ", text)
+        cleaned = strip_harness_blocks(text)
         cleaned = _HOOK_RESIDUE_LINE_RE.sub(" ", cleaned)
         return re.sub(r"\s+", " ", cleaned).strip()
     except Exception:

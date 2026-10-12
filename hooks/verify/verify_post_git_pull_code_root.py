@@ -4,7 +4,8 @@
 探針 detector（只寫「誰被跑」的標記）；curl 換成一跑就失敗的替身（不碰本機的向量服務）。
 - 直接跑程式碼樹那份（路徑含空白）→ 跑程式碼樹那支，不出聲。
 - 複製安裝到專案 .git/hooks/post-merge（旁邊本來就沒有 tools/）→ 跑家目錄那支，不出聲（一般安裝不變）。
-- readlink -f 失敗（替身 readlink 一跑就失敗）＋複製安裝 → 跑家目錄那支，stderr 一行「符號連結解析失敗…改用 <路徑>」。
+- readlink -f 失敗（替身 readlink 一跑就失敗）：複製安裝 → 跑家目錄那支；直接跑 → 跑程式碼樹那支；兩者都 stderr 一行
+  「符號連結解析失敗…改用 <實際那支>」。
 - 真符號連結指向程式碼樹 → 跑程式碼樹那支；指向沒有 tools/ 的樹 → 家目錄那支並出聲。需要建符號連結的權限，沒有就跳過。
 反例：退回舊碼（DETECTOR 寫死 ${HOME}/.claude/tools，或解析失敗不出聲）→ 直接跑案、解析失敗案紅。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_post_git_pull_code_root.py（需要 Git Bash）
@@ -75,11 +76,14 @@ def test_direct_run_uses_script_tree_even_with_spaces_and_copy_install_uses_home
 
 
 @needs_git_bash
-def test_readlink_failure_falls_back_to_home_with_one_stderr_line(world):
+def test_readlink_failure_always_says_which_detector_on_one_stderr_line(world):
     ran, notes = _run(world, _installed_copy(world), extra_path=world["broken"])
     assert ran == ["home"]
     assert len(notes) == 1 and "符號連結解析失敗" in notes[0], notes                         # 反例：舊碼靜默改用家目錄
-    assert ".claude/tools/memory-conflict-detector.py" in notes[0], notes                  # 說明改用哪支
+    assert ".claude/tools/memory-conflict-detector.py" in notes[0], notes                  # 說明實際用哪支
+    ran, notes = _run(world, world["code"] / "hooks" / "post-git-pull.sh", extra_path=world["broken"])
+    assert ran == ["code-tree"]                                                          # 直接跑：仍找得到本樹那支
+    assert len(notes) == 1 and "符號連結解析失敗" in notes[0] and "code tree with space" in notes[0], notes
 
 
 @needs_git_bash

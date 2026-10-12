@@ -97,34 +97,37 @@ def _is_emotional_commitment(prompt: str) -> bool:
 # ─── 一次性 session 指示 ──────────────────────────────────────────────────────
 # 派給「這個 session」的角色、工作步驟、派工單路徑只在這次有效。它們常帶「一律／必須」而被偵測閘當成決策，
 # 但不是跨專案知識；寫成根層 atom 會在之後每個 session 被注入（不相關卻佔 token）。
-# 是不是決策仍交 LLM 判（L1／L2 prompt 有同一條準則），這裡只攔「整則都是一次性指示」的明顯情況：開頭就在指派
-# session 角色，或下面的訊號同時出現兩種以上；但只要帶長期用語（以後、所有專案、記住…）就整則交 LLM，
-# 讓它把長期的那一段抽出來，不由字面訊號整則丟掉。樣式可擴充：(名稱, 樣式)；不綁定任何一次派工的專名。
+# 是不是決策交 LLM 判（L1／L2 prompt 有同一條準則）；這裡只攔「看得出整則就是派工開工句」的情況，省一次 LLM、也不讓
+# 它有機會誤寫：開頭在指派這個 session 的角色，而且帶 session 操作或絕對路徑；沒有角色開頭就要三種派工訊號都在。
+# 只要帶長期或決策用語（以後、所有專案、記住、偏好、禁止…）就整則交 LLM，讓它把該留的那段抽出來，不由字面整則丟掉。
+# 樣式可擴充：(名稱, 樣式)；不綁定任何一次派工的專名。
 _SESSION_ROLE_RE = re.compile(
-    r"^\s*[「『“\"']?\s*(?:你是|妳是|請接手|you are|act as)[^。，,]{0,60}?(?:session|工作階段|分頁|子代理|agent)",
+    r"^\s*[「『“\"']?\s*(?:for this session[,，:：]?\s*(?:you are|act as)"
+    r"|(?:你是|妳是|請接手|you are|act as)[^。，,]{0,60}?(?:session|工作階段|分頁|子代理|agent))",
     re.IGNORECASE)
 _SESSION_DIRECTIVE_SIGNALS = (
     ("first-step", re.compile(r"第一步|first step", re.IGNORECASE)),                     # 要這個 session 先做什麼
     ("session-op", re.compile(r"EnterWorktree|ExitWorktree|SendMessage|切進\s*worktree|切到\s*worktree",
                               re.IGNORECASE)),                                         # 這個 session 的操作
     ("this-session", re.compile(r"(?:這個|本|this)\s*session|本次工作", re.IGNORECASE)),  # 明說只對這個 session
-    ("dispatch-path", re.compile(r"(?:派工|工作單|prompt|task)[^\n]{0,12}?(?:在|at|:|：)\s*(?:[A-Za-z]:[\\/]|/|~[\\/])",
-                                 re.IGNORECASE)),                                      # 指向一份派工單的絕對路徑
+    ("abs-path", re.compile(r"(?<![\w.])(?:[A-Za-z]:[\\/]|~[\\/])")),                  # 派工單、worktree 的絕對路徑
 )
-_LONG_TERM_RE = re.compile(
-    r"以後|從此|今後|往後|從現在起|所有專案|每個專案|跨專案|長期|永遠|記住|from now on|going forward|always|remember",
+_KEEP_FOR_LLM_RE = re.compile(
+    r"以後|從此|今後|往後|從現在起|所有專案|每個專案|跨專案|長期|永遠|記住|偏好|習慣|禁止|規定|約定|不要再|"
+    r"from now on|going forward|always|remember|prefer",
     re.IGNORECASE)
 
 
 def _session_directive_reason(prompt: str) -> Optional[str]:
-    """整則都是一次性 session 指示 → 命中的樣式名（"role" 或 "first-step+session-op" 這種）；不是或帶長期用語 → None。"""
+    """看得出整則就是派工開工句 → 命中的樣式名（"role+session-op" 這種）；不是、或帶長期／決策用語 → None。"""
     text = prompt or ""
-    if _LONG_TERM_RE.search(text):
+    if _KEEP_FOR_LLM_RE.search(text):
         return None
-    if _SESSION_ROLE_RE.search(text):
-        return "role"
     hits = [name for name, pat in _SESSION_DIRECTIVE_SIGNALS if pat.search(text)]
-    return "+".join(hits) if len(hits) >= 2 else None
+    if _SESSION_ROLE_RE.search(text):
+        anchor = [h for h in hits if h in ("session-op", "abs-path")]
+        return "+".join(["role"] + anchor) if anchor else None
+    return "+".join(hits) if len(hits) >= 3 else None
 
 
 # ─── Prompt template loading ──────────────────────────────────────────────────
@@ -579,22 +582,24 @@ def _write_pending_candidate(
 
 # ─── Merge history log ────────────────────────────────────────────────────────
 
-def _append_merge_history(session_id: str, action: str, details: str = "") -> None:
-    """Append to _merge_history.log."""
+def _append_merge_history(session_id: str, action: str, details: str = "") -> bool:
+    """Append to _merge_history.log；寫不進去回 False 並 stderr 一行（不靜默）。"""
     log_path = WORKFLOW_DIR / "_merge_history.log"
     try:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(f"[{ts}] action={action} session={session_id} {details}\n")
-    except OSError:
-        pass
+        return True
+    except OSError as e:
+        print(f"[user-extract] 萃取紀錄寫不進 {log_path}：{e}", file=sys.stderr)
+        return False
 
 
-def _record_skip(session_id: str, reason: str, candidate: Dict, text: str) -> None:
-    """候選不送萃取時在萃取紀錄留一行原因（可觀測，不靜默）。"""
+def _record_skip(session_id: str, reason: str, candidate: Dict, text: str) -> bool:
+    """候選不送萃取時在萃取紀錄留一行原因（可觀測，不靜默）；寫不進去回 False，呼叫端把候選留在佇列等下次再記。"""
     excerpt = " ".join((text or "").split())[:60]
-    _append_merge_history(session_id, "user-extract-skip",
-                          f"reason={reason} turn={candidate.get('turn_id', '')} text={excerpt!r}")
+    return _append_merge_history(session_id, "user-extract-skip",
+                                 f"reason={reason} turn={candidate.get('turn_id', '')} text={excerpt!r}")
 
 
 # ─── Main extraction pipeline ────────────────────────────────────────────────
@@ -633,33 +638,22 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
     l2_ran = False
 
     for idx, candidate in enumerate(pending):
-        prompt_text = candidate.get("prompt", "")
-        if not prompt_text:
-            processed_indices.append(idx)
-            stats["skipped"] += 1
-            continue
-
+        prompt_text = candidate.get("prompt", "") or ""
         stats["processed"] += 1
 
-        # ── 來源重驗：只萃取使用者本人打的字（舊版排進佇列的通知、其他 session 的訊息在這裡擋下，不交 LLM 判）──
+        # ── 來源重驗（空候選也算）＋一次性 session 指示：不送 LLM，萃取紀錄留一行 skip 原因 ──────
+        # 來源權威不交 LLM 判：舊版排進佇列的通知、其他 session 的訊息在這裡擋下。
         typed = user_typed_text(prompt_text)
-        if not typed:
-            _record_skip(session_id, "not-user-typed", candidate, prompt_text)
-            processed_indices.append(idx)
+        directive = _session_directive_reason(typed) if typed else None
+        if not typed or directive:
+            reason = f"session-directive({directive})" if typed else "not-user-typed"
+            if _record_skip(session_id, reason, candidate, prompt_text):
+                processed_indices.append(idx)   # 紀錄寫進去才清佇列；寫不進去留著下次再記
             stats["skipped"] += 1
-            stats["skipped_not_user"] += 1
+            stats["skipped_directive" if typed else "skipped_not_user"] += 1
             continue
         prompt_text = typed
         candidate["prompt"] = typed   # 之後的 L1／L2 與 atom 的 Quote 都用清理後的文字
-
-        # ── 一次性 session 指示：不送 LLM，萃取紀錄留一行 skip 原因 ──────
-        directive = _session_directive_reason(prompt_text)
-        if directive:
-            _record_skip(session_id, f"session-directive({directive})", candidate, prompt_text)
-            processed_indices.append(idx)
-            stats["skipped"] += 1
-            stats["skipped_directive"] += 1
-            continue
 
         # ── Mixed sentence detection ──────────────────────────────────
         if _is_mixed_sentence(prompt_text):
