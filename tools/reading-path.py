@@ -85,7 +85,7 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
      （由內往外，遵守 global／nonlocal；指定、import、except … as、match 擷取、def／class 都算綁定），
      連到的目標與被證明沒改指的必須是同一個綁定；同一層同名 import 好幾次，每次都解析到同一個專案內目標才算唯一
   2. 對剛 new 出來的物件呼叫方法（確定型別分派）：Foo().run()，或同一函式內建構一次、之後每一次出現都只是
-     方法呼叫接收者（w.m(…)）的區域變數——當引數、被指定給別的目標、放進容器、回傳、yield、del、w.x = …、
+     方法呼叫接收者（w.m(…)）的區域變數：當引數、被指定給別的目標、放進容器、回傳、yield、del、w.x = …、
      讀 w.x 不呼叫，任何一種都失去資格；任何一次出現在巢狀作用域（def、lambda、生成器、推導式、類別本體）裡
      就算被捕捉，同樣失去資格；建構者的名字（含 import 別名）也要從未被重新指定
   3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、區域變數標註、
@@ -104,20 +104,20 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   self.方法 = …、實例.方法 = …、setattr(X, "方法", …)（字串字面值）、del、類別本體再指定，就不給條號；
   改寫照類別身分（定義檔＋名字）記，實例的型別看不出時，同名的方法都不給；經由被重新指定過的參數或區域變數寫入的，
   它原本的標註不再算數，也照型別看不出處理
-  目標（1～5 條）被裝飾過：函式的裝飾器，或查找經過的類別——呼叫點寫出的類別（建構的類別、接收者型別、類別.方法 的
-  類別、super() 用到的父類）沿繼承鏈到實際定義方法的類別，整條鏈上——的類別裝飾器，有任何一個不在「保留原函式身分」
-  清單裡，就不給條號（呼叫先進的是裝飾器給的東西）——清單：staticmethod、classmethod、abstractmethod、property 與
+  目標（1～5 條）被裝飾過：函式的裝飾器，或查找經過的類別（呼叫點寫出的類別，即建構的類別、接收者型別、類別.方法 的
+  類別、super() 用到的父類，沿繼承鏈到實際定義方法的類別，整條鏈上）的類別裝飾器，有任何一個不在「保留原函式身分」
+  清單裡，就不給條號（呼叫先進的是裝飾器給的東西）。清單：staticmethod、classmethod、abstractmethod、property 與
   它的 .setter／.getter／.deleter、typing（含 typing_extensions）的 overload／override／final；類別只有 dataclass；
   名字要沿綁定鏈確認就是那個內建或標準庫名字（import 別名先還原原名；import 之後又被改綁、自己定義的同名裝飾器都不算；
   .setter／.getter／.deleter 要同類別裡同名的方法真的是 @property）。類別白名單只保證類別身分：dataclass（init 不是
   寫死 False）本體沒自己的 __init__ 時建構式是它產生的，其他它會產生的方法（__eq__、__repr__…）本體沒定義也一樣，
   經過它的這些查找不給條號
-  方法查找照 Python C3 MRO（多重繼承）：MRO 證不出——多重繼承裡有外部、未解或算出來的父類，或合併不出來——
+  方法查找照 Python C3 MRO（多重繼承）：MRO 證不出（多重繼承裡有外部、未解或算出來的父類，或合併不出來）時，
   只有查到的就是呼叫點寫出的類別自己時才給；第 3 條還要每個子孫類別的 MRO 都證得出（它們的實例也會跑進這個呼叫）
   模型沒建參數與綁定的 Python 作用域構件（lambda、生成器、推導式、類別本體）：呼叫點在 lambda／生成器／推導式裡的，
   1～5 條一律不給；被證明的名字（第 1 條的名字或接收者開頭、第 4 條的別名）在查找會走過的函式裡、這類構件中被綁定
   （lambda 參數、推導式／生成器的迴圈目標、構件裡的 :=、類別本體裡的 global／nonlocal；只讀不算），也不給第 1、4 條
-  ——證明只在模型涵蓋的範圍內成立，不是假設那個構件不存在
+  （證明只在模型涵蓋的範圍內成立，不是假設那個構件不存在）
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
 
 NOT_WHITELISTED = "候選：不在確定白名單（名字綁定、型別來源或唯一目標證明不了）"
@@ -131,7 +131,7 @@ PROPERTY_PARTS = {"setter", "getter", "deleter"}       # @name.setter：同類�
 DATACLASS_METHODS = {"__init__", "__repr__", "__eq__", "__lt__", "__le__", "__gt__", "__ge__", "__hash__",
                      "__setattr__", "__delattr__", "__getstate__", "__setstate__", "__replace__"}   # dataclass 可能自己產生的
 GENERATED = "候選：dataclass 產生的建構式（或其他它產生的方法），模型沒建；不把繼承鏈上的同名方法當成確定目標"
-MRO_UNPROVEN = "候選：方法解析順序（Python C3 MRO）證不出——多重繼承裡有外部、未解或算出來的父類，或合併不出來"
+MRO_UNPROVEN = "候選：方法解析順序（Python C3 MRO）證不出（多重繼承裡有外部、未解或算出來的父類，或合併不出來）"
 SCOPED = "候選：呼叫點在 lambda／生成器／推導式裡，模型沒建那一層的參數與綁定，不給條號"
 METHOD_REBOUND = "候選：這個方法在類別上的綁定可能被改寫（類別.方法 = …、self／實例.方法 = …、setattr），不一定是它"
 
@@ -265,7 +265,7 @@ def read_source(path: Path) -> str:
 
 def override_targets(g: "Graph", cls: lang.Cls, name: str) -> list:
     """cls 的實例實際可能跑到、但不是 cls 自己查到的 name 實作：繼承／介面分派可能跑到的地方。
-    Python：每個子孫類別照它自己的 C3 MRO 找到的第一個 name——子類覆寫，或多重繼承時排在前面的兄弟 mixin；
+    Python：每個子孫類別照它自己的 C3 MRO 找到的第一個 name：子類覆寫，或多重繼承時排在前面的兄弟 mixin；
     單一繼承就是子孫自己的覆寫。C#：子孫自己的覆寫。"""
     if cls.lang != "py":
         return [fid for fid in flat(sub.methods.get(name, []) for sub in g.descendants(cls)) if not g.funcs[fid].abstract]
@@ -538,7 +538,7 @@ class Graph:
 
     def class_ref(self, f: lang.Func, name: str):
         """找目標用的類別：沿綁定鏈（class_lookup）；綁定鏈指到專案外 → None（不連到同名的專案類別）；
-        Python 裸名的綁定鏈解不出來，才退回全專案同名的類別——那只是候選，確定要用 class_proof。"""
+        Python 裸名的綁定鏈解不出來，才退回全專案同名的類別，那只是候選，確定要用 class_proof。"""
         cls, src = self.class_lookup(f, name)
         if cls or src == "external" or "." in name or f.lang != "py":
             return cls
@@ -558,7 +558,7 @@ class Graph:
 
     def base_of(self, c, base: str):
         """類別 c 的父類 base：Python 在 c 所在的檔沿綁定鏈解析（含 collections.UserDict 這種模組前綴），而且名字穩定
-        （class_proof）——全專案同名搜尋、外部、解析不了 → None（當成外部父類：繼承來的方法看不到）；C# 照名字找。
+        （class_proof）；全專案同名搜尋、外部、解析不了 → None（當成外部父類：繼承來的方法看不到）；C# 照名字找。
         找目標與白名單（lookup、super）都只走這條鏈。"""
         if c.lang == "py":
             return self.class_proof(self.module_ctx(c.files[0]), base)
@@ -592,7 +592,7 @@ class Graph:
 
     def mro(self, cls) -> tuple:
         """cls 的方法解析順序裡的專案類別 → (類別串列, 證得出否)。
-        Python 照 C3：單一繼承一路往上，父類解析不到（外部、未解、算出來的運算式）就停在那裡——前面那段照樣證得出，
+        Python 照 C3：單一繼承一路往上，父類解析不到（外部、未解、算出來的運算式）就停在那裡，前面那段照樣證得出，
         後面不會再有專案類別；多重繼承要每個父類都是專案內類別、它們一路到頂都沒有解析不到的父類、C3 合併成功，
         才算證得出，否則照合併得出的順序（合併失敗就退回廣度優先）給找目標用、標證不出。明寫的 object 父類不算。
         C# 照父類鏈（廣度優先），不用 C3。"""
@@ -645,7 +645,7 @@ class Graph:
         return self.funcs.get(scope) or self.class_body_ctx(owner), getattr(owner, table)[attr]
 
     def outer_ctx(self, f: lang.Func) -> lang.Func:
-        """f 的 def 在哪個作用域執行——參數標註與參數預設值在這裡求值（Python 語意）：巢狀函式 → 外層函式；
+        """f 的 def 在哪個作用域執行（參數標註與參數預設值在這裡求值，Python 語意）：巢狀函式 → 外層函式；
         方法 → 類別本體（本體綁定的名字遮住外面的，之後才是模組層）；模組層函式 → 模組層。C# 沒有這個分別，就是 f。"""
         if f.lang != "py":
             return f
@@ -1378,7 +1378,7 @@ class Graph:
         return (1, self._rule1), (2, self._rule2), (3, self._rule3), (4, self._rule4)
 
     def _rule1(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
-        """白名單 1：直接呼叫唯一解析到、名字從未被重新指定的函式——裸名（含 import 進來的、巢狀函式、類別建構）、
+        """白名單 1：直接呼叫唯一解析到、名字從未被重新指定的函式：裸名（含 import 進來的、巢狀函式、類別建構）、
         模組.函式、類別.靜態方法、建構子（C# new）、super()／base.。
         被證明的名字（裸名，或接收者開頭的模組名、類別名）在模型沒建的作用域構件裡被綁定 → 不成立（總原則 1）。"""
         if c.kind in ("super", "new"):
@@ -1405,7 +1405,7 @@ class Graph:
 
     def _in_construct(self, f: lang.Func, name: str) -> bool:
         """總原則 1：名字在模型沒建的作用域構件裡被綁定（lambda 參數、推導式／生成器的迴圈目標、構件裡的 :=、
-        巢狀類別本體裡的 global／nonlocal）——只讀不算，讀取不改變外層名字的綁定。
+        巢狀類別本體裡的 global／nonlocal）；只讀不算，讀取不改變外層名字的綁定。
         看查找會走過的每一層函式：f 往外，到持有這個綁定的那一層為止（綁定在模組層就看到最外層函式）。"""
         owner = self.lookup_binding(f, name)[1]
         for scope in reversed(self.scopes(f)):
@@ -1434,7 +1434,7 @@ class Graph:
         return bool(f.cls) and e.dst in self.lookup(self.cls_of(f), name)
 
     def _rule2(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
-        """白名單 2：對剛 new 出來的物件呼叫方法（確定型別分派）——當場 new 的 Foo().run()，或同一函式內的區域變數
+        """白名單 2：對剛 new 出來的物件呼叫方法（確定型別分派）：當場 new 的 Foo().run()，或同一函式內的區域變數
         建構之後每一次出現都只是方法呼叫的接收者（f.receiver_only 的正向證明，不是列舉「存走」的寫法）；
         建構者沿綁定鏈解析到專案內的類別、名字也綁定穩定（class_proof）。"""
         if c.kind not in ("attr", "prop") or "." in c.recv:
@@ -1472,7 +1472,7 @@ class Graph:
     def _declared_type(self, f: lang.Func, recv: str):
         """接收者的型別來自宣告：參數標註（在 def 的外層解析）、區域變數標註（在本體解析；C# 寫明型別的宣告）、
         欄位宣告型別（在寫它的地方解析）；沿 a.b.c 每一段都要是宣告的。
-        建構推導的型別（x = Foo()、self.x = Foo()）不算——那是第 2 條的證據，失去第 2 條資格就不能改走這條。
+        建構推導的型別（x = Foo()、self.x = Foo()）不算，那是第 2 條的證據，失去第 2 條資格就不能改走這條。
         宣告的型別也要沿綁定鏈解析到專案內的類別（class_proof）：全專案同名搜尋、指到外部的都不算。"""
         head, *rest = recv.split(".")
         if head in ("self", "this") and self._own_receiver(f, head):
@@ -1492,7 +1492,7 @@ class Graph:
         return cls
 
     def _rule4(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
-        """白名單 4：簡單區域別名——同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式（逐跳都不能被改指）。
+        """白名單 4：簡單區域別名：同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式（逐跳都不能被改指）。
         別名鏈上的名字宣告了 global／nonlocal、被內層函式用 nonlocal 改掉（別的作用域也能改它），
         或在模型沒建的作用域構件裡被綁定（總原則 1；只讀不算），都不算。"""
         if c.kind not in ("name", "invoke") or c.name not in f.aliases or c.name in f.params:
@@ -1516,7 +1516,7 @@ class Graph:
         return edges
 
     def _rule5(self, e: Edge, sources: list, b: "Binding", flag: str, dead: bool, unknown: bool) -> bool:
-        """白名單 5：callback——有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、
+        """白名單 5：callback：有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、
         參數沒被重新指定、不是經由欄位存下的、沒有看不到或外部的來源。"""
         return (b.callers > 0 and not flag and not unknown and not b.mixed and not dead and bool(sources)
                 and all(dst == e.dst and rule is not None for dst, rule, _ in sources))

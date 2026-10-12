@@ -1254,7 +1254,7 @@ def test_certain_only_comes_from_a_rule(tmp_path):
 
 @pytest.mark.parametrize("n", [1, 2, 3, 4, 5])
 def test_removing_one_rule_makes_its_edges_uncertain(tmp_path, monkeypatch, n):
-    """臨時拿掉第 n 條的判斷：原本靠它確定的邊全部變成不確定、也沒有改由別條補上——證明確定只從 rule 來。"""
+    """臨時拿掉第 n 條的判斷：原本靠它確定的邊全部變成不確定、也沒有改由別條補上，證明確定只從 rule 來。"""
     before = _rule_edges(_graphs(tmp_path / "before"), n)
     assert before, f"語料裡要有靠第 {n} 條確定的邊"
     monkeypatch.setattr(rp.Graph, f"_rule{n}", lambda self, *a: False, raising=False)
@@ -1720,7 +1720,7 @@ def test_r4_a_rewrite_of_a_same_name_class_in_another_module_does_not_touch_this
     assert _edge_rules(files, "app.py::main", tmp_path / "b") == [("a.py::Worker.run", 1)]
 
 
-# ─── 退件 011：總原則——證明只在模型涵蓋的範圍內成立；碰到模型沒建的語法構件，該證明就不成立 ─────────
+# ─── 退件 011：總原則（證明只在模型涵蓋的範圍內成立；碰到模型沒建的語法構件，該證明就不成立） ─────────
 
 TWO_FUNCS = "def work():\n" + BODY + "\n\ndef other():\n" + BODY + "\n\n"
 APP_RUN = WORKER + "\n\nclass App:\n    def run(self):\n        q = 1\n        return q + 1\n\n"
@@ -1766,7 +1766,7 @@ P1_PROOF_TOUCHES = {
 
 @pytest.mark.parametrize("form", sorted(P1_PROOF_TOUCHES))
 def test_p1_a_call_or_the_proven_name_inside_a_construct_gets_no_rule_1(tmp_path, form):
-    """總原則 1 的另一半：呼叫點在 lambda／生成器／推導式裡，或被證明的名字 work 在構件裡被綁定（這裡是 lambda 參數）——
+    """總原則 1 的另一半：呼叫點在 lambda／生成器／推導式裡，或被證明的名字 work 在構件裡被綁定（這裡是 lambda 參數），
     就算這次語意上剛好對，證明也只在模型涵蓋的範圍內成立：找得到 work，但第 1 條不給。"""
     files = {"app.py": TWO_FUNCS + "def main():\n" + P1_PROOF_TOUCHES[form]}
     edges = [(d, s) for d, s in _sure_edges(files, "app.py::main", tmp_path) if d == "app.py::work"]
@@ -1858,7 +1858,7 @@ P2_CAPTURES = {   # 建構變數 w 的某一次出現在推導式／生成器裡
 
 @pytest.mark.parametrize("form", sorted(P2_CAPTURES))
 def test_p2_a_constructed_local_captured_by_a_generator_or_comprehension_loses_rule_2(tmp_path, form):
-    """案 2＋總原則 2：建構後 w 只要有一次出現在巢狀作用域（生成器、推導式）裡就算被捕捉——就算那次也只是 w.run()，
+    """案 2＋總原則 2：建構後 w 只要有一次出現在巢狀作用域（生成器、推導式）裡就算被捕捉，就算那次也只是 w.run()，
     外面的 w.run() 也不給第 2 條（生成器延後執行、把 w 帶出去）。"""
     files = {"app.py": WORKER + "\n\ndef main():\n    w = Worker()\n" + P2_CAPTURES[form]}
     run = [s for d, s in _sure_edges(files, "app.py::main", tmp_path) if d == "app.py::Worker.run"]
@@ -1961,7 +1961,7 @@ P4_REBOUND_RECEIVERS = {   # 宣告型別（第 3 條的證據）在呼叫前被
 
 @pytest.mark.parametrize("form", sorted(P4_REBOUND_RECEIVERS))
 def test_p4_a_rebound_receiver_loses_its_declared_type(tmp_path, form):
-    """總原則 4 對第 3 條：參數 w 被內層 nonlocal 改成 Other()、self 被重新指定——宣告的型別不再是證據，不給第 3 條。"""
+    """總原則 4 對第 3 條：參數 w 被內層 nonlocal 改成 Other()、self 被重新指定：宣告的型別不再是證據，不給第 3 條。"""
     body, fid, wrong = P4_REBOUND_RECEIVERS[form]
     app = WORKER + "\n\nclass Other:\n    def run(self):\n        return 3\n\n\n" + body
     assert (wrong, True) not in _sure_edges({"app.py": app}, fid, tmp_path / "a"), f"{form}：接收者已被改指"
@@ -2044,7 +2044,7 @@ P7_DEF_TIME = {   # main 裡定義巢狀 def／class 時就執行的運算式把
 @pytest.mark.parametrize("form", sorted(P7_DEF_TIME))
 def test_p7_a_binding_in_a_definition_time_expression_belongs_to_the_outer_scope(tmp_path, form):
     """codex 第 2 項一整類：巢狀 def 的預設值（含推導式裡的 :=）、只限關鍵字預設值、裝飾器、參數與回傳標註，
-    巢狀 class 的父類、keywords、裝飾器，都在 main 定義它的當下於 main 求值——裡面的綁定是 main 的綁定 → work() 不給條號。"""
+    巢狀 class 的父類、keywords、裝飾器，都在 main 定義它的當下於 main 求值，裡面的綁定是 main 的綁定 → work() 不給條號。"""
     files = {"app.py": DECO + TWO_FUNCS + "def main():\n" + P7_DEF_TIME[form] + "    return work()\n"}
     assert ("app.py::work", True) not in _sure_edges(files, "app.py::main", tmp_path / "a"), f"{form}：work 已被改綁成 other"
     assert all(r is None for d, r in _edge_rules(files, "app.py::main", tmp_path / "b") if d.endswith("::work"))
@@ -2083,7 +2083,7 @@ def test_p7_a_plain_function_parameter_named_self_uses_its_annotation(tmp_path):
 
 @pytest.mark.parametrize("order", ["inside_first", "outside_first"])
 def test_p7_merging_keeps_each_target_on_its_own_evidence(tmp_path, order):
-    """codex 第 7 項建議的回歸：同一來源兩處呼叫、目標不同——推導式裡呼叫 other（不給條號）、外面呼叫 work（第 1 條）；
+    """codex 第 7 項建議的回歸：同一來源兩處呼叫、目標不同：推導式裡呼叫 other（不給條號）、外面呼叫 work（第 1 條）；
     兩種先後順序結果相同，不跨目標升級。"""
     inside, outside = "    items = [other() for _ in range(2)]\n", "    work()\n"
     body = inside + outside if order == "inside_first" else outside + inside
@@ -2106,7 +2106,7 @@ P8_ANNOTATION_CALLS = {   # 標註裡的呼叫：可能延後求值或根本不�
 
 @pytest.mark.parametrize("form", sorted(P8_ANNOTATION_CALLS))
 def test_p8_a_call_inside_an_annotation_is_not_a_call(tmp_path, form):
-    """codex 第 1 項＋總控台定死：參數標註、回傳標註（與函式裡的變數標註）一律不產生呼叫邊——from __future__ import
+    """codex 第 1 項＋總控台定死：參數標註、回傳標註（與函式裡的變數標註）一律不產生呼叫邊：from __future__ import
     annotations、3.14 以後標註延後求值，函式裡的變數標註根本不求值；標註只當型別證據。"""
     edges = _edge_rules({"app.py": P8_ANNOTATION_CALLS[form]}, "app.py::main", tmp_path)
     assert "app.py::make_metadata" not in [d for d, _ in edges], f"{form}：標註裡的 make_metadata() 不是 main 的呼叫"
@@ -2205,8 +2205,8 @@ P9_CHAIN = {   # 寫法 → (app.py, 呼叫所在函式, 目標)：呼叫點寫�
 
 @pytest.mark.parametrize("form", sorted(P9_CHAIN))
 def test_p9_a_decorated_class_anywhere_on_the_lookup_chain_leaves_only_a_candidate(tmp_path, form):
-    """總控台定死的家族規則：查找經過的每個類別——呼叫點寫出的類別（建構的類別、接收者型別、類別.方法 的類別、super()
-    用到的父類）到實際定義方法的類別之間整條繼承鏈——任一帶清單外類別裝飾器 → 只給候選，理由 DECORATED。
+    """總控台定死的家族規則：查找經過的每個類別，也就是呼叫點寫出的類別（建構的類別、接收者型別、類別.方法 的類別、super()
+    用到的父類）到實際定義方法的類別之間整條繼承鏈，任一帶清單外類別裝飾器 → 只給候選，理由 DECORATED。
     含繼承來的 __init__（d1）、繼承來的方法（d2、d3）、多層繼承的中間層、super() 經過的父類、被裝飾類別當父類。"""
     app, fid, target = P9_CHAIN[form]
     edges = _sure_edges({"app.py": app}, fid, tmp_path / "a")
@@ -2287,7 +2287,7 @@ A_RUN = "class A:\n    def run(self):\n" + RUN_BODY + "\n\n"
 
 
 def test_p10_codex_multiple_inheritance_follows_c3_and_reaches_the_decorated_class(tmp_path):
-    """codex 第八輪 BLOCK 2：Worker(B, Mixin)、B(A)——Python C3 MRO 是 Worker → B → A → Mixin，w.run() 跑的是 A.run，
+    """codex 第八輪 BLOCK 2：Worker(B, Mixin)、B(A)：Python C3 MRO 是 Worker → B → A → Mixin，w.run() 跑的是 A.run，
     不是 Mixin.run。A 帶清單外類別裝飾器 → 候選、理由 DECORATED；拿掉裝飾器 → A.run 第 2 條。"""
     decorated = {"app.py": DECO_CLS + "@deco\n" + A_RUN + MRO_CODEX}
     edges = _sure_edges(decorated, "app.py::main", tmp_path / "a")
@@ -2315,7 +2315,7 @@ P10_MRO = {   # 寫法 → (app.py, 呼叫所在函式, 目標, 期望 (條號, 
 
 @pytest.mark.parametrize("form", sorted(P10_MRO))
 def test_p10_method_lookup_uses_c3_and_needs_a_provable_mro(tmp_path, form):
-    """總控台定死：方法查找與裝飾器檢查共用 Python C3 MRO——菱形繼承照 C3 找對（D(B, C) 的 m 是 C.m）；被裝飾的類別在
+    """總控台定死：方法查找與裝飾器檢查共用 Python C3 MRO：菱形繼承照 C3 找對（D(B, C) 的 m 是 C.m）；被裝飾的類別在
     MRO 中段 → 候選；多重繼承裡有外部父類，MRO 證不出 → 查到的不是呼叫點寫出的類別自己時只給候選；
     查到的就是自己定義的方法，後面怎麼排都不影響 → 照給。"""
     app, fid, target, (rule, why) = P10_MRO[form]
@@ -2341,7 +2341,7 @@ P10_ALIASES = {   # 裝飾器用 import 別名：先還原原名再比白名單 
 
 @pytest.mark.parametrize("form", sorted(P10_ALIASES))
 def test_p10_a_decorator_imported_under_an_alias_is_recognized(tmp_path, form):
-    """codex 第八輪 WARN（G5）：from abc import abstractmethod as abstract、from typing import final as preserve——
+    """codex 第八輪 WARN（G5）：from abc import abstractmethod as abstract、from typing import final as preserve，
     沿 import 還原原名後在保留身分清單裡 → 條號照給（014 誤降成候選）。"""
     app, target, rule = P10_ALIASES[form]
     assert (target, rule) in _edge_rules({"app.py": app}, "app.py::main", tmp_path), form
