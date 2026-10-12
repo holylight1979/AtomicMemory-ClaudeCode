@@ -108,7 +108,12 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
   類別、super() 用到的父類）沿繼承鏈到實際定義方法的類別，整條鏈上——的類別裝飾器，有任何一個不在「保留原函式身分」
   清單裡，就不給條號（呼叫先進的是裝飾器給的東西）——清單：staticmethod、classmethod、abstractmethod、property 與
   它的 .setter／.getter／.deleter、typing（含 typing_extensions）的 overload／override／final；類別只有 dataclass；
-  名字要沿綁定鏈確認就是那個內建或標準庫名字（自己定義的同名裝飾器不算）
+  名字要沿綁定鏈確認就是那個內建或標準庫名字（import 別名先還原原名；import 之後又被改綁、自己定義的同名裝飾器都不算；
+  .setter／.getter／.deleter 要同類別裡同名的方法真的是 @property）。類別白名單只保證類別身分：dataclass（init 不是
+  寫死 False）本體沒自己的 __init__ 時建構式是它產生的，其他它會產生的方法（__eq__、__repr__…）本體沒定義也一樣，
+  經過它的這些查找不給條號
+  方法查找照 Python C3 MRO（多重繼承）：MRO 證不出——多重繼承裡有外部、未解或算出來的父類，或合併不出來——
+  只有查到的就是呼叫點寫出的類別自己時才給；第 3 條還要每個子孫類別的 MRO 都證得出（它們的實例也會跑進這個呼叫）
   模型沒建參數與綁定的 Python 作用域構件（lambda、生成器、推導式、類別本體）：呼叫點在 lambda／生成器／推導式裡的，
   1～5 條一律不給；被證明的名字（第 1 條的名字或接收者開頭、第 4 條的別名）在查找會走過的函式裡、這類構件中被綁定
   （lambda 參數、推導式／生成器的迴圈目標、構件裡的 :=、類別本體裡的 global／nonlocal；只讀不算），也不給第 1、4 條
@@ -122,7 +127,11 @@ KEEP_IDENTITY = {   # 函式裝飾器：保留原函式身分（呼叫還是進�
     "abstractmethod": ("abc",), "overload": ("typing", "typing_extensions"),
     "override": ("typing", "typing_extensions"), "final": ("typing", "typing_extensions")}
 CLASS_KEEP_IDENTITY = {"dataclass": ("dataclasses",)}   # 類別裝飾器（可以寫成 dataclass(…)）
-PROPERTY_PARTS = {"setter", "getter", "deleter"}       # @name.setter：同名 property 自己加的
+PROPERTY_PARTS = {"setter", "getter", "deleter"}       # @name.setter：同類別裡同名的 @property 自己加的
+DATACLASS_METHODS = {"__init__", "__repr__", "__eq__", "__lt__", "__le__", "__gt__", "__ge__", "__hash__",
+                     "__setattr__", "__delattr__", "__getstate__", "__setstate__", "__replace__"}   # dataclass 可能自己產生的
+GENERATED = "候選：dataclass 產生的建構式（或其他它產生的方法），模型沒建；不把繼承鏈上的同名方法當成確定目標"
+MRO_UNPROVEN = "候選：方法解析順序（Python C3 MRO）證不出——多重繼承裡有外部、未解或算出來的父類，或合併不出來"
 SCOPED = "候選：呼叫點在 lambda／生成器／推導式裡，模型沒建那一層的參數與綁定，不給條號"
 METHOD_REBOUND = "候選：這個方法在類別上的綁定可能被改寫（類別.方法 = …、self／實例.方法 = …、setattr），不一定是它"
 
@@ -153,7 +162,8 @@ LIMITS = WHITELIST + """
   - 被裝飾的函式或類別：函式的裝飾器，或呼叫點寫出的類別沿繼承鏈到定義方法的類別之間（含被繼承的方法、建構時用到的
     父類 __init__、super() 經過的父類、多層繼承的中間層）任一個類別裝飾器，不在保留原函式身分的清單裡（見白名單末段；
     functools.lru_cache、cache、contextmanager、自訂裝飾器都不在），呼叫它只給候選，包裝層（wrapper）裡做了什麼不追；
-    呼叫裝飾器工廠 @deco(…) 本身照常判
+    呼叫裝飾器工廠 @deco(…) 本身照常判；functools.cached_property 有快取（之後取值不再執行原函式），維持候選
+  - 已知降級：typing.overload 的「多個 @overload 宣告＋唯一實作」被當成同名重複綁定，呼叫它只給候選（沒辨識宣告與實作）
   - C#（不用 Roslyn）：擴充方法、LINQ、var 由方法回傳推型別、跨 namespace 同名類合併、lambda 裡的呼叫算外層函式、
     #if 不分支、運算子多載與索引子不認、接收者型別不明的屬性不猜、三元運算與 LINQ 不算分支、插值字串 {} 裡再套字串會漏；
     類別證據沒有 import 鏈可走（專案裡同名的類別就當那個型別，分不出外部同名型別）；第 2 條的用途證明只數文字出現，
@@ -254,8 +264,28 @@ def read_source(path: Path) -> str:
 
 
 def override_targets(g: "Graph", cls: lang.Cls, name: str) -> list:
-    """cls 的子孫類別裡覆寫 name 的方法：繼承／介面分派可能跑到的地方。"""
-    return [fid for fid in flat(sub.methods.get(name, []) for sub in g.descendants(cls)) if not g.funcs[fid].abstract]
+    """cls 的實例實際可能跑到、但不是 cls 自己查到的 name 實作：繼承／介面分派可能跑到的地方。
+    Python：每個子孫類別照它自己的 C3 MRO 找到的第一個 name——子類覆寫，或多重繼承時排在前面的兄弟 mixin；
+    單一繼承就是子孫自己的覆寫。C#：子孫自己的覆寫。"""
+    if cls.lang != "py":
+        return [fid for fid in flat(sub.methods.get(name, []) for sub in g.descendants(cls)) if not g.funcs[fid].abstract]
+    own = set(g.lookup(cls, name))
+    reached = [fid for sub in g.descendants(cls) for fid in g.lookup(sub, name) if fid not in own]
+    return [fid for fid in dict.fromkeys(reached) if not g.funcs[fid].abstract]
+
+
+def c3_merge(seqs: list):
+    """Python C3 線性化的合併步驟（用物件身分比）：每次取第一個不出現在任何序列尾端的頭；合併不出來（順序衝突）→ None。"""
+    seqs = [list(s) for s in seqs if s]
+    out = []
+    while seqs:
+        tails = {id(x) for s in seqs for x in s[1:]}
+        head = next((s[0] for s in seqs if id(s[0]) not in tails), None)
+        if head is None:
+            return None
+        out.append(head)
+        seqs = [s for s in (s[1:] if s[0] is head else s for s in seqs) if s]
+    return out
 
 
 def callback_targets(g: "Graph", bind_fid: str, param: str) -> list:
@@ -317,6 +347,7 @@ class Graph:
         self.unres = Counter()     # 每個函式有幾個呼叫在專案內但解析不了
         self._index(modules)
         self._index_rebinds(modules)
+        self._mro_memo = {}        # id(類別) → (C3 順序, 證得出否, 一路到頂都解析得到否)；綁定都建好之後才算
         self._resolve_all()
         self.fan_in = Counter()
         for es in self.edges.values():
@@ -556,8 +587,44 @@ class Graph:
         return out
 
     def lookup(self, cls, name: str) -> list:
-        """沿繼承鏈往上，第一個定義 name 的類別裡的那些方法。"""
-        return next((c.methods[name] for c in self.ancestry(cls) if name in c.methods), [])
+        """照方法解析順序（mro），第一個定義 name 的類別裡的那些方法。"""
+        return next((c.methods[name] for c in self.mro(cls)[0] if name in c.methods), [])
+
+    def mro(self, cls) -> tuple:
+        """cls 的方法解析順序裡的專案類別 → (類別串列, 證得出否)。
+        Python 照 C3：單一繼承一路往上，父類解析不到（外部、未解、算出來的運算式）就停在那裡——前面那段照樣證得出，
+        後面不會再有專案類別；多重繼承要每個父類都是專案內類別、它們一路到頂都沒有解析不到的父類、C3 合併成功，
+        才算證得出，否則照合併得出的順序（合併失敗就退回廣度優先）給找目標用、標證不出。明寫的 object 父類不算。
+        C# 照父類鏈（廣度優先），不用 C3。"""
+        if cls is None:
+            return [], True
+        if cls.lang != "py":
+            return list(self.ancestry(cls)), True
+        return self._linearize(cls)[:2]
+
+    def _linearize(self, cls) -> tuple:
+        """Python 類別的 (C3 順序, 證得出否, 一路到頂都解析得到否)；算過的記下來，繼承循環當證不出。"""
+        key = id(cls)
+        if key in self._mro_memo:
+            return self._mro_memo[key]
+        self._mro_memo[key] = ([cls], False, False)
+        names = [b for b in cls.bases if b != "object"]
+        bases = [self.base_of(cls, b) for b in names]
+        if len(names) + cls.opaque_bases <= 1:          # 單一繼承
+            if not bases or bases[0] is None:
+                result = [cls], True, not names and not cls.opaque_bases
+            else:
+                order, proven, whole = self._linearize(bases[0])
+                result = [cls] + order, proven, whole
+        else:
+            known = [b for b in bases if b is not None]
+            lins = [self._linearize(b) for b in known]
+            merged = c3_merge([order for order, _, _ in lins] + [known])
+            proven = (merged is not None and len(known) == len(names) and not cls.opaque_bases
+                      and all(p and w for _, p, w in lins))
+            result = ([cls] + merged if merged is not None else list(self.ancestry(cls))), proven, proven
+        self._mro_memo[key] = result
+        return result
 
     def external_base(self, cls) -> bool:
         """類別（含祖先）有不在專案裡的父類：找不到的方法可能是從那裡繼承來的。沒有類別也當外部。"""
@@ -855,8 +922,12 @@ class Graph:
         return self._r_emit(f, c, defer) if any(c.name in x.events for x in self.ancestry(cls)) else []
 
     def _r_super(self, f, c, defer):
-        """super()／base.：直接連父類的實作，不展開子類覆寫（那正是呼叫者自己）。"""
+        """super()／base.：直接連父類的實作，不展開子類覆寫（那正是呼叫者自己）。Python 照所在類別的 C3 MRO、
+        在它自己後面找第一個實作；C# 照父類順序。"""
         cls = self.cls_of(f)
+        if f.lang == "py":
+            order = self.mro(cls)[0][1:] if cls else []
+            return self._overloads(next((k.methods[c.name] for k in order if c.name in k.methods), []))
         bases = [self.base_of(cls, b) for b in (cls.bases if cls else [])]
         ids = next((hits for b in bases if b and (hits := self.lookup(b, c.name))), [])
         return self._overloads(ids)
@@ -1184,8 +1255,8 @@ class Graph:
                 e.guess = SCOPED                   # 總原則 1：模型沒建的作用域構件裡，一律不給條號
             if unique and e.kind == "direct" and not e.guess and self._method_rebound(e.dst):
                 e.guess = METHOD_REBOUND
-            if unique and e.kind == "direct" and not e.guess and self._decorated(f, c, e.dst):
-                e.guess = DECORATED
+            if unique and e.kind == "direct" and not e.guess:
+                e.guess = self._lookup_veto(f, c, e.dst)   # 裝飾器、dataclass 產生的方法、MRO 證不出
             if unique and e.kind == "direct" and not e.guess:
                 e.rule = next((n for n, check in self._call_rules() if check(f, c, e)), None)
             if e.rule is None and not e.guess:
@@ -1205,45 +1276,58 @@ class Graph:
         family = list(self.ancestry(cls)) + self.descendants(cls)
         return any((self.cls_key(k), fn.name) in self.method_writes for k in family)
 
-    def _decorated(self, f: lang.Func, c: lang.Call, dst: str) -> bool:
-        """呼叫點 c 連到 dst 的路上有保留身分清單以外的裝飾器：dst 自己的函式裝飾器（在 def 的外層解析）、dst 所屬類別的
-        類別裝飾器，或呼叫點經由的類別（_named_class）沿繼承鏈走到定義 dst 的類別，經過的任一類別裝飾器（在模組層解析）。
-        包裝層不追：呼叫先進的是裝飾器給的東西，不一定是它。C# 的屬性不改身分。"""
+    def _lookup_veto(self, f: lang.Func, c: lang.Call, dst: str) -> str:
+        """呼叫點 c 連到 dst 的路上有模型證不出的東西 → 不確定原因；沒有 → ""（白名單照常檢查）。C# 不適用。
+        dst 自己的函式裝飾器、dst 所屬類別的類別裝飾器不在保留身分清單 → DECORATED；
+        呼叫點經由的類別（_named_class；super() 則是所在類別 MRO 裡排在它後面的）照 C3 MRO 走到定義 dst 的類別：
+        經過的類別帶清單外類別裝飾器 → DECORATED；經過的 dataclass 會自己產生這個方法 → GENERATED；MRO 證不出、而 dst
+        不是呼叫點寫出的類別自己定義的 → MRO_UNPROVEN。super() 所在類別有用到多重繼承的子孫時，super 可能落到兄弟類別，
+        也是 MRO_UNPROVEN。"""
         fn = self.funcs[dst]
         if fn.lang != "py":
-            return False
-        ctx = self.outer_ctx(fn)
-        if not all(self._keeps_identity(ctx, path, called, KEEP_IDENTITY, fn.name) for path, called in fn.decorators):
-            return True
-        own = self.cls_of(fn) if fn.cls and fn.qual == f"{fn.cls}.{fn.name}" else None
+            return ""
+        ctx, own = self.outer_ctx(fn), self.cls_of(fn) if fn.cls and fn.qual == f"{fn.cls}.{fn.name}" else None
+        if not all(self._keeps_identity(ctx, p, called, KEEP_IDENTITY, fn.name, own) for p, called, _ in fn.decorators):
+            return DECORATED
         if own is not None and self._class_decorated(own):
-            return True
-        start = self._named_class(f, c)
-        for k in (self.ancestry(start) if start is not None else []):   # 呼叫點寫出的類別往上，到定義 dst 的那個類別為止
+            return DECORATED
+        if c.kind == "super":
+            here = self.cls_of(f)
+            order, proven = self.mro(here) if here else ([], True)
+            order, free = order[1:], 0
+            proven = proven and not any(len(d.bases) + d.opaque_bases > 1 for d in (self.descendants(here) if here else []))
+        else:
+            order, proven = self.mro(self._named_class(f, c))
+            free = 1                               # 呼叫點寫出的類別自己就定義 dst：MRO 後面怎麼排都不影響
+        for i, k in enumerate(order):
             if self._class_decorated(k):
-                return True
+                return DECORATED
             if any(dst in ids for ids in k.methods.values()):
-                return False
-        return False
+                return "" if proven or i < free else MRO_UNPROVEN
+            if self._generates(k, fn.name):
+                return GENERATED
+        return ""
 
     def _class_decorated(self, cls) -> bool:
         """Python 類別帶保留身分清單（dataclass 系）以外的類別裝飾器。"""
         top = self.module_ctx(cls.files[0])
         return cls.lang == "py" and not all(self._keeps_identity(top, path, called, CLASS_KEEP_IDENTITY, cls.name)
-                                            for path, called in cls.decorators)
+                                            for path, called, _ in cls.decorators)
+
+    def _generates(self, cls, name: str) -> bool:
+        """cls 是 dataclass（沿綁定鏈確認的 dataclass 系裝飾器）、本體沒定義 name、而 name 是 dataclass 可能自己產生的方法：
+        __init__ 只有寫死 init=False 時不產生；其他產生的方法不看旗標，一律當可能產生（模型沒建）。"""
+        if cls.lang != "py" or name not in DATACLASS_METHODS or name in cls.methods or name in cls.body_names:
+            return False
+        top = self.module_ctx(cls.files[0])
+        flags = [kw for p, _, kw in cls.decorators if self._canonical(top, p, CLASS_KEEP_IDENTITY) == "dataclass"]
+        return any(not (name == "__init__" and kw.get("init") is False) for kw in flags)
 
     def _named_class(self, f: lang.Func, c: lang.Call):
-        """呼叫點經由哪個類別查到目標（裝飾器檢查用，只會讓邊變不確定）：self／cls → 自己的類別；super() → 有這個方法的
-        那個父類；裸名 → 名字綁到的類別（建構）；接收者 → 它的型別（建構的、標註的、欄位宣告的）、類別.方法 的類別、
-        模組.類別(…) 的類別；其他 → None。C# 沒有類別裝飾器，回 None。"""
-        if f.lang != "py":
-            return None
+        """呼叫點經由哪個類別查到目標（_lookup_veto 用，只會讓邊變不確定）：self／cls → 自己的類別；裸名 → 名字綁到的
+        類別（建構）；接收者 → 它的型別（建構的、標註的、欄位宣告的）、類別.方法 的類別、模組.類別(…) 的類別；其他 → None。"""
         if c.kind == "self" or (c.kind == "name" and c.name == "cls" and f.params[:1] == ["cls"]):
             return self.cls_of(f)
-        if c.kind == "super":
-            own = self.cls_of(f)
-            bases = [self.base_of(own, b) for b in (own.bases if own else [])]
-            return next((b for b in bases if b and self.lookup(b, c.name)), None)
         if c.kind == "name":
             return self.class_lookup(f, c.name)[0]
         if c.kind != "attr" or not c.recv:
@@ -1251,23 +1335,44 @@ class Graph:
         kind, target, _ = self.recv_type(f, c.recv)
         return self._class_at(target, c.name, 0)[0] if kind == "module" else target
 
-    def _keeps_identity(self, ctx: lang.Func, path: str, called: bool, allowed: dict, own: str) -> bool:
-        """一個裝飾器保不保留被裝飾者的身分：寫法在清單裡（staticmethod、typing.overload、name.setter、dataclass(…)…），
-        而且名字沿綁定鏈確實是那個名字——從清單上的模組 import 的，或內建的、在模組層從沒被綁定過。
-        函式裝飾器不能當場呼叫（@staticmethod() 不是那個寫法）；類別的 dataclass(…) 可以。"""
+    def _keeps_identity(self, ctx: lang.Func, path: str, called: bool, allowed: dict, own: str, cls=None) -> bool:
+        """一個裝飾器保不保留被裝飾者的身分：寫法沿綁定鏈還原得出清單上的名字（_canonical）；函式裝飾器不能當場呼叫
+        （@staticmethod() 不是那個寫法），類別的 dataclass(…) 可以。@name.setter／.getter／.deleter：name 就是被裝飾的方法名，
+        而且同類別 cls 裡同名的方法真的掛了 @property。"""
         head, _, last = path.rpartition(".")
         if head and last in PROPERTY_PARTS and allowed is KEEP_IDENTITY:
-            return not called and head == own
-        if last not in allowed or (called and allowed is KEEP_IDENTITY):
-            return False
+            props = cls.def_decorators.get(own, []) if cls is not None and head == own else []
+            return not called and any(not c2 and self._canonical(ctx, p2, KEEP_IDENTITY) == "property" for p2, c2, _ in props)
+        return bool(self._canonical(ctx, path, allowed)) and (not called or allowed is CLASS_KEEP_IDENTITY)
+
+    def _canonical(self, ctx: lang.Func, path: str, allowed: dict) -> str:
+        """裝飾器寫法沿綁定鏈還原成清單上的名字（import 別名先還原原名：from abc import abstractmethod as abstract →
+        abstractmethod）；import 進來的名字要綁定穩定（import 之後又被 def／指定改綁的不算）；內建的（staticmethod…）
+        要在模組層從沒被綁定過。解析不到、不在清單 → ""。"""
+        head, _, last = path.rpartition(".")
         key = head or last
-        imports = self.imports_for(ctx, key.partition(".")[0])
+        root = key.partition(".")[0]
+        imports = self.imports_for(ctx, root)
         if key in imports:
             modname, level, orig = imports[key]
-            return level == 0 and modname in allowed[last] and orig == ("" if head else last)
+            name = last if head else orig
+            ok = level == 0 and not (head and orig) and name in allowed and modname in allowed[name]
+            return name if ok and self._bound_once(ctx, root) else ""
+        if head or last not in allowed or "builtins" not in allowed[last]:
+            return ""
         mod = self.modules.get(ctx.file)
-        kind = self.lookup_binding(ctx, last)[0]
-        return not head and "builtins" in allowed[last] and kind == "module" and bool(mod) and mod.bindings[last] == 0
+        return last if self.lookup_binding(ctx, last)[0] == "module" and mod and mod.bindings[last] == 0 else ""
+
+    def _bound_once(self, ctx: lang.Func, name: str) -> bool:
+        """name 在綁定它的那一層只綁了這一次、之後沒被改綁（外部 import 也適用；stable() 會追到專案內的原模組，這裡不追）：
+        模組層 → 只綁一次、不是算出來的值、沒被 模組.名字 = … 改掉；函式裡的 import → 那一層沒再綁、只 import 一次。"""
+        kind, owner = self.lookup_binding(ctx, name)
+        if kind == "module":
+            mod = self.modules.get(ctx.file)
+            return (bool(mod) and mod.bindings[name] == 1 and name not in mod.opaque
+                    and (ctx.file, name) not in self.rebound_elsewhere)
+        return (kind == "import" and name not in owner.reassigned | owner.import_rebinds
+                and len(owner.import_sources.get(name, [])) == 1)
 
     def _call_rules(self) -> tuple:
         return (1, self._rule1), (2, self._rule2), (3, self._rule3), (4, self._rule4)
@@ -1345,9 +1450,11 @@ class Graph:
 
     def _rule3(self, f: lang.Func, c: lang.Call, e: Edge) -> bool:
         """白名單 3：self.method()／this.Method()（含 C# 省略 this、classmethod 的 cls()）沒有子類覆寫；
-        型別已宣告的接收者（參數標註、區域變數標註、欄位宣告型別）沒有子類覆寫、也沒有多載（多載在 certify 已擋）。"""
+        型別已宣告的接收者（參數標註、區域變數標註、欄位宣告型別）沒有子類覆寫、也沒有多載（多載在 certify 已擋）。
+        子類覆寫照各子孫自己的 C3 MRO 算（多重繼承排在前面的兄弟 mixin 也算）；子孫的 MRO 有任何一個證不出 → 不成立。"""
         cls, name = self._rule3_target(f, c, e)
-        return bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
+        return (bool(cls) and e.dst in self.lookup(cls, name) and not override_targets(self, cls, name)
+                and all(self.mro(d)[1] for d in self.descendants(cls)))
 
     def _rule3_target(self, f: lang.Func, c: lang.Call, e: Edge) -> tuple:
         """第 3 條看的類別與方法名：本物件 → 自己的類別；型別已宣告的接收者 → 宣告的型別；其他 → (None, "")。"""

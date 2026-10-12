@@ -2234,6 +2234,137 @@ def test_p9_a_clean_lookup_chain_keeps_the_rule(tmp_path, form):
     assert (target, rule) in _edge_rules({"app.py": app}, fid, tmp_path), f"{form}：鏈上沒有清單外的類別裝飾器"
 
 
+# ─── 016（codex 第八輪）：dataclass 產生的方法、C3 MRO、裝飾器別名 ─────────────────────
+
+def _guess_of(files: dict, fid: str, target: str, tmp_path) -> list:
+    """fid → target 那條邊的 (條號, 不確定原因)。"""
+    g = rp.build_graph(_write(tmp_path, files))
+    return [(_rule_of(e), e.guess) for e in g.edges[fid] if e.dst == target]
+
+
+DC_BASE = ("from dataclasses import dataclass\n\n\nclass Base:\n    def __init__(self):\n" + RUN_BODY
+           + "\n    def __eq__(self, other):\n" + RUN_BODY + "\n\n")
+P10_GENERATED = {   # 寫法 → (app.py, 呼叫所在函式, 目標)：dataclass 會自己產生這個方法，不從繼承鏈認證
+    "codex_generated_init": (DC_BASE + "@dataclass\nclass Foo(Base):\n    n: int = 0\n\n\ndef main():\n    return Foo()\n",
+                             "app.py::main", "app.py::Base.__init__"),
+    "called_dataclass": (DC_BASE + "@dataclass(frozen=True)\nclass Foo(Base):\n    n: int = 0\n\n\ndef main():\n"
+                         "    return Foo()\n", "app.py::main", "app.py::Base.__init__"),
+    "super_into_dataclass": (DC_BASE + "@dataclass\nclass Foo(Base):\n    n: int = 0\n\n\nclass Sub(Foo):\n"
+                             "    def __init__(self):\n        super().__init__()\n", "app.py::Sub.__init__", "app.py::Base.__init__"),
+    "generated_eq": (DC_BASE + "@dataclass\nclass Foo(Base):\n    n: int = 0\n\n\ndef main(a: Foo, b):\n    return a.__eq__(b)\n",
+                     "app.py::main", "app.py::Base.__eq__"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P10_GENERATED))
+def test_p10_a_method_dataclass_generates_is_not_certified_from_the_parent(tmp_path, form):
+    """codex 第八輪 BLOCK 1＋總控台定死：類別白名單只保證類別身分。dataclass（init 不是寫死 False）本體沒有自己的
+    __init__ 時，建構式是它產生的（不呼叫父類的）；__eq__ 等它會產生的方法同理 → 經過它的查找只給候選，理由寫明。"""
+    app, fid, target = P10_GENERATED[form]
+    edges = _sure_edges({"app.py": app}, fid, tmp_path / "a")
+    assert (target, False) in edges and (target, True) not in edges, f"{form}：{edges}"
+    assert _guess_of({"app.py": app}, fid, target, tmp_path / "b") == [(None, getattr(rp, "GENERATED", None))]
+
+
+P10_DATACLASS_KEPT = {   # dataclass 不產生的情況 → 照給
+    "init_false": (DC_BASE + "@dataclass(init=False)\nclass Foo(Base):\n    n: int = 0\n\n\ndef main():\n    return Foo()\n",
+                   "app.py::Base.__init__", 1),
+    "own_init": (DC_BASE + "@dataclass\nclass Foo(Base):\n    n: int = 0\n\n    def __init__(self):\n" + RUN_BODY
+                 + "\n\ndef main():\n    return Foo()\n", "app.py::Foo.__init__", 1),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P10_DATACLASS_KEPT))
+def test_p10_a_dataclass_that_does_not_generate_the_constructor_keeps_the_rule(tmp_path, form):
+    """守門：@dataclass(init=False) 不產生建構式 → 照連父類 __init__、第 1 條；本體自己寫了 __init__ → dataclass 不蓋掉，照給。"""
+    app, target, rule = P10_DATACLASS_KEPT[form]
+    assert (target, rule) in _edge_rules({"app.py": app}, "app.py::main", tmp_path), form
+
+
+MRO_CODEX = ("class B(A):\n    pass\n\n\nclass Mixin:\n    def run(self):\n        return 3\n\n\n"
+             "class Worker(B, Mixin):\n    pass\n\n\ndef main():\n    w = Worker()\n    return w.run()\n")
+A_RUN = "class A:\n    def run(self):\n" + RUN_BODY + "\n\n"
+
+
+def test_p10_codex_multiple_inheritance_follows_c3_and_reaches_the_decorated_class(tmp_path):
+    """codex 第八輪 BLOCK 2：Worker(B, Mixin)、B(A)——Python C3 MRO 是 Worker → B → A → Mixin，w.run() 跑的是 A.run，
+    不是 Mixin.run。A 帶清單外類別裝飾器 → 候選、理由 DECORATED；拿掉裝飾器 → A.run 第 2 條。"""
+    decorated = {"app.py": DECO_CLS + "@deco\n" + A_RUN + MRO_CODEX}
+    edges = _sure_edges(decorated, "app.py::main", tmp_path / "a")
+    assert "app.py::Mixin.run" not in [d for d, _ in edges], "C3 MRO 先走 B → A，不是 Mixin"
+    assert _guess_of(decorated, "app.py::main", "app.py::A.run", tmp_path / "b") == [(None, getattr(rp, "DECORATED", None))]
+    plain = {"app.py": A_RUN + MRO_CODEX}
+    assert ("app.py::A.run", 2) in _edge_rules(plain, "app.py::main", tmp_path / "c"), "沒有裝飾器：照 C3 連 A.run、第 2 條"
+    assert "app.py::Mixin.run" not in [d for d, _ in _edge_rules(plain, "app.py::main", tmp_path / "d")]
+
+
+P10_MRO = {   # 寫法 → (app.py, 呼叫所在函式, 目標, 期望 (條號, 原因))
+    "diamond": ("class A:\n    def m(self):\n        return 1\n\n\nclass B(A):\n    pass\n\n\nclass C(A):\n    def m(self):\n"
+                + RUN_BODY + "\n\nclass D(B, C):\n    pass\n\n\ndef main():\n    d = D()\n    return d.m()\n",
+                "app.py::main", "app.py::C.m", (2, "")),
+    "decorated_in_the_middle": (DECO_CLS + "class A:\n    pass\n\n\n@deco\nclass B(A):\n    pass\n\n\nclass Mixin:\n"
+                                "    def m(self):\n" + RUN_BODY + "\n\nclass W(B, Mixin):\n    pass\n\n\n"
+                                "def main():\n    w = W()\n    return w.m()\n", "app.py::main", "app.py::Mixin.m", (None, "DECORATED")),
+    "external_base_in_multiple": ("class Base:\n    def m(self):\n" + RUN_BODY + "\n\nclass W(Base, Exception):\n    pass\n\n\n"
+                                  "def main():\n    w = W()\n    return w.m()\n", "app.py::main", "app.py::Base.m",
+                                  (None, "MRO_UNPROVEN")),
+    "own_method_despite_unprovable_mro": ("class Base:\n    pass\n\n\nclass W(Base, Exception):\n    def run(self):\n" + RUN_BODY
+                                          + "\n    def go(self):\n        return self.run()\n", "app.py::W.go", "app.py::W.run", (3, "")),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P10_MRO))
+def test_p10_method_lookup_uses_c3_and_needs_a_provable_mro(tmp_path, form):
+    """總控台定死：方法查找與裝飾器檢查共用 Python C3 MRO——菱形繼承照 C3 找對（D(B, C) 的 m 是 C.m）；被裝飾的類別在
+    MRO 中段 → 候選；多重繼承裡有外部父類，MRO 證不出 → 查到的不是呼叫點寫出的類別自己時只給候選；
+    查到的就是自己定義的方法，後面怎麼排都不影響 → 照給。"""
+    app, fid, target, (rule, why) = P10_MRO[form]
+    assert _guess_of({"app.py": app}, fid, target, tmp_path) == [(rule, getattr(rp, why, None) if why else "")], form
+
+
+def test_p10_a_mixin_placed_before_the_base_in_a_subclass_overrides_self_calls(tmp_path):
+    """第 3 條的子類覆寫照子孫自己的 C3 MRO 算：Child(Mixin, Base) 的實例在 Base.go 裡 self.m() 跑的是 Mixin.m
+    （Mixin 不是 Base 的子孫，舊的覆寫檢查看不到）→ Base.go → Base.m 不給第 3 條。"""
+    app = ("class Base:\n    def m(self):\n" + RUN_BODY + "\n    def go(self):\n        return self.m()\n\n\n"
+           "class Mixin:\n    def m(self):\n        return 2\n\n\nclass Child(Mixin, Base):\n    pass\n")
+    assert ("app.py::Base.m", True) not in _sure_edges({"app.py": app}, "app.py::Base.go", tmp_path / "a")
+    assert "app.py::Mixin.m" in [d for d, _ in _edge_rules({"app.py": app}, "app.py::Base.go", tmp_path / "b")], "Mixin.m 也是可能跑到的地方"
+
+
+P10_ALIASES = {   # 裝飾器用 import 別名：先還原原名再比白名單 → 照給
+    "abstract_alias": ("from abc import abstractmethod as abstract\n\n\nclass Worker:\n    @abstract\n    def run(self):\n"
+                       + RUN_BODY + "\n\ndef main(w: Worker):\n    return w.run()\n", "app.py::Worker.run", 3),
+    "final_alias": ("from typing import final as preserve\n\n\n@preserve\ndef work():\n" + BODY
+                    + "\n\ndef main():\n    return work()\n", "app.py::work", 1),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P10_ALIASES))
+def test_p10_a_decorator_imported_under_an_alias_is_recognized(tmp_path, form):
+    """codex 第八輪 WARN（G5）：from abc import abstractmethod as abstract、from typing import final as preserve——
+    沿 import 還原原名後在保留身分清單裡 → 條號照給（014 誤降成候選）。"""
+    app, target, rule = P10_ALIASES[form]
+    assert (target, rule) in _edge_rules({"app.py": app}, "app.py::main", tmp_path), form
+
+
+P10_RARE = {   # 罕見構造：名字看起來在清單上，但綁定不是那個 → 只給候選
+    "import_then_rebound": ("from typing import final\n\n\ndef final(fn):\n    return lambda: 2\n\n\n@final\ndef work():\n" + BODY
+                            + "\n\ndef main():\n    return work()\n", "app.py::main", "app.py::work"),
+    "getter_of_a_non_property": ("class Desc:\n    def getter(self, fn):\n        return lambda *a: 2\n\n\nrun = Desc()\n\n\n"
+                                 "class Worker:\n    @run.getter\n    def run(self):\n" + RUN_BODY
+                                 + "\n\ndef main(w: Worker):\n    return w.run()\n", "app.py::main", "app.py::Worker.run"),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P10_RARE))
+def test_p10_a_lookalike_decorator_that_is_not_the_real_one_is_only_a_candidate(tmp_path, form):
+    """codex 第八輪 WARN 的兩個罕見構造：from typing import final 之後又 def final（綁定不再是那個 import）；
+    @run.getter 的 run 不是同類別裡的 @property（自訂描述器）→ 都不是保留身分的裝飾器，只給候選。"""
+    app, fid, target = P10_RARE[form]
+    edges = _sure_edges({"app.py": app}, fid, tmp_path)
+    assert (target, False) in edges and (target, True) not in edges, f"{form}：{edges}"
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

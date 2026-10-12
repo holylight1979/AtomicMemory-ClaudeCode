@@ -19,6 +19,7 @@ SUB_NAMES = {"on", "subscribe", "add_listener", "connect", "add_handler", "liste
 NOISE_CALLS = {"print"}
 NOISE_RECV = {"log", "logger", "logging", "_log", "_logger", "Debug", "Console", "Log", "Trace"}
 COARSE_EXT = {".js", ".mjs", ".jsx", ".ts", ".tsx", ".go", ".java", ".kt", ".rs"}
+GENERIC_MARKERS = {"Generic", "Protocol"}   # class Foo(Generic[T])：型別參數標記，不是會進 MRO 的專案父類
 GENERATED_RE = re.compile(r"(\.Designer\.cs|\.g\.cs|\.g\.i\.cs|_pb2\.py|_pb2_grpc\.py)$")
 
 
@@ -83,7 +84,7 @@ class Func:
     import_sources: dict = field(default_factory=dict)   # 綁定名 → 這一層全部的 import 來源 [(模組名, 相對層級, 原名或 "")]（import 好幾次都留）
     scoped_binds: set = field(default_factory=set)    # 在模型沒建的作用域構件裡被綁定的名字（lambda 參數、推導式迴圈目標、:=、類別本體的 global／nonlocal）
     class_nonlocals: set = field(default_factory=set)  # 巢狀類別本體（含它的方法）裡 nonlocal 宣告的名字：改的是這一層或外層函式的綁定
-    decorators: list = field(default_factory=list)    # Python 裝飾器 [(寫法 staticmethod／functools.lru_cache…, 是否當場呼叫)]，由內到外照原文順序
+    decorators: list = field(default_factory=list)    # Python 裝飾器 [(寫法 staticmethod／functools.lru_cache…, 是否當場呼叫, 字面 keyword 引數)]，照原文順序
     table_vars: dict = field(default_factory=dict)    # 區域變數 → 分派表名（h = TABLE[k]）
     tables: dict = field(default_factory=dict)        # 函式內的分派表名 → [(鍵, Call 參照)]
     imports: dict = field(default_factory=dict)       # 函式內的 import（只在這個函式與它的巢狀函式裡有效）
@@ -101,7 +102,9 @@ class Cls:
     field_scope: dict = field(default_factory=dict)      # 欄位 → fields 那筆型別證據寫在哪個函式（func id；沒有或 ""＝類別本體）：在那裡解析
     declared_scope: dict = field(default_factory=dict)   # 欄位 → declared_fields 那筆寫在哪個函式（同上）
     body_names: set = field(default_factory=set)         # Python 類別本體綁定的名字（方法、指定、import、巢狀類別…）：方法的參數標註先在這裡找
-    decorators: list = field(default_factory=list)       # Python 類別裝飾器 [(寫法, 是否當場呼叫)]（見 Func.decorators）
+    decorators: list = field(default_factory=list)       # Python 類別裝飾器 [(寫法, 是否當場呼叫, 字面 keyword 引數)]（見 Func.decorators）
+    opaque_bases: int = 0                                # 寫不成名字的父類運算式個數（Base[int]、lambda…；Generic[…] 不算）：MRO 證不出
+    def_decorators: dict = field(default_factory=dict)   # 方法名 → 同名各個 def 的裝飾器（property 與 setter 同名，函式 id 只留最後一個）
     stored: dict = field(default_factory=dict)    # 欄位 → (func id, 參數名)：把參數存成欄位的 callback
     events: set = field(default_factory=set)
     partial: bool = False
@@ -293,10 +296,13 @@ def _py_str_ref(expr) -> Call | None:
 
 def _py_class(mod: Module, node: ast.ClassDef) -> None:
     bases = [_py_recv(b) for b in node.bases if _py_recv(b)]      # 保留模組前綴（collections.UserDict），沿綁定鏈解析
-    cls = Cls(node.name, "py", [mod.file], bases, decorators=_py_decorators(node))
+    markers = [b for b in node.bases if isinstance(b, ast.Subscript) and _py_recv(b.value).split(".")[-1] in GENERIC_MARKERS]
+    opaque = len(node.bases) - len(bases) - len(markers)           # Base[int]、make_base() 這類算出來的父類：MRO 證不出
+    cls = Cls(node.name, "py", [mod.file], bases, decorators=_py_decorators(node), opaque_bases=opaque)
     for item in node.body:
         if isinstance(item, _DEF_NODES):
             _py_func(mod, item, node.name + ".", cls)
+            cls.def_decorators.setdefault(item.name, []).extend(_py_decorators(item))
         elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and _py_ann(item.annotation):
             cls.fields[item.target.id] = cls.declared_fields[item.target.id] = _py_ann(item.annotation)
             cls.field_scope[item.target.id] = cls.declared_scope[item.target.id] = ""   # 類別本體的標註在類別本體解析
@@ -418,8 +424,14 @@ def _annotation_ids(nodes: list) -> set:
 
 
 def _py_decorators(node) -> list:
-    """裝飾器寫法 [(staticmethod／functools.lru_cache／name.setter…, 是否當場呼叫 @deco(…))]；寫不成名字的（lambda、下標…）記 ""。"""
-    return [(_py_recv(d.func if isinstance(d, ast.Call) else d), isinstance(d, ast.Call)) for d in node.decorator_list]
+    """裝飾器寫法 [(staticmethod／functools.lru_cache／name.setter…, 是否當場呼叫 @deco(…), 字面 keyword 引數 {名: 值})]；
+    寫不成名字的（lambda、下標…）記 ""；keyword 只留寫死的字面值（dataclass(init=False) 判斷要用）。"""
+    out = []
+    for d in node.decorator_list:
+        called = isinstance(d, ast.Call)
+        kwargs = {k.arg: k.value.value for k in (d.keywords if called else []) if k.arg and isinstance(k.value, ast.Constant)}
+        out.append((_py_recv(d.func if called else d), called, kwargs))
+    return out
 
 
 def _strip_doc(body: list) -> list:
