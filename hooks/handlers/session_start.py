@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
-    CLAUDE_DIR, WORKFLOW_DIR, MEMORY_DIR, EPISODIC_DIR,
+    CLAUDE_DIR, CODE_DIR, WORKFLOW_DIR, MEMORY_DIR, EPISODIC_DIR,
     MEMORY_INDEX,
     _now_iso, _atom_debug_error,
     get_project_memory_dir, find_project_root,
@@ -49,8 +49,10 @@ from handlers._shared import (
     WISDOM_AVAILABLE, get_reflection_summary,
 )
 
-# Ollama client 在 tools/ 下（dispatcher 已加 sys.path）
-sys.path.insert(0, str(Path.home() / ".claude" / "tools"))
+# Ollama client 在 tools/ 下（dispatcher 已加 sys.path）；用本檔位置推樹根，不用 Path.home()
+_TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
 try:
     from ollama_client import check_long_die_status
 except ImportError:
@@ -367,6 +369,34 @@ def _scope_layout_advisory(project_mem_dir) -> list:
         return []
 
 
+def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
+    """本專案追蹤帳本（AEC (k) 寫的）裡沒標部位、仍未結案的項目：一個 session 只列一次筆數＋最舊 3 筆
+    （state["tracking_advisory_sent"]，重建 state 時照搬；標了部位的改在第一次碰到該部位時隨導讀卡注入）。
+    同專案疑似由舊算法（子目錄 cwd）分裂出的帳本只在 stderr 列，不自動合併。讀不到只 stderr，回 []。"""
+    if not cwd or state.get("tracking_advisory_sent"):
+        return []
+    state["tracking_advisory_sent"] = True
+    try:
+        from wg_harvest import open_tracking_items, read_tracking, tracking_slug
+        slug = tracking_slug(cwd)
+        tdir = WORKFLOW_DIR / "tracking"
+        split = sorted(p.name for p in tdir.glob(f"{slug}-*.jsonl")) if tdir.is_dir() else []
+        if split:
+            print(f"[Guardian:Tracking] 疑似同專案分裂的追蹤帳本（舊版用子目錄 cwd 命名，不自動合併）：{', '.join(split)}；"
+                  f"本專案帳本＝{slug}.jsonl", file=sys.stderr)
+        items = [e for e in open_tracking_items(read_tracking(slug)) if not str(e.get("part") or "").strip()]
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Tracking] 讀追蹤項失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
+    if not items:
+        return []
+    oldest = sorted(items, key=lambda e: str(e.get("at") or ""))[:3]
+    lines = [f"[Guardian:Tracking] 本專案未結追蹤項 {len(items)} 筆（未標部位，不會隨部位導讀卡注入）；最舊 3 筆："]
+    lines += [f"- {str(e.get('text') or '')[:200]}（{str(e.get('at') or '')[:10]}）" for e in oldest]
+    lines.append("處理完在 AEC (k) 寫「結案：<原文開頭至少 8 字；原文不足 8 字就寫全文>」（未標部位的項目，結案行也不帶部位）。")
+    return ["\n".join(lines)]
+
+
 def _followup_advisory() -> list:
     """回訪到期 → 開場自動跑 tools/followup-check.py，把檢查結果＋自足交接推進 context。
 
@@ -381,7 +411,7 @@ def _followup_advisory() -> list:
         if not reg.exists():
             return []
         r = subprocess.run(
-            [sys.executable, str(CLAUDE_DIR / "tools" / "followup-check.py"),
+            [sys.executable, str(CODE_DIR / "tools" / "followup-check.py"),
              "--run", "--auto-close", "--brief", "--mark-shown"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -414,7 +444,7 @@ def _maybe_spawn_provenance_backfill(config: Dict[str, Any]) -> int:
         if not prov.get("enabled", True) or not (prov.get("backfill") or {}).get("enabled", True):
             return 0
         import importlib.util
-        tool = CLAUDE_DIR / "tools" / "atom-provenance-backfill.py"
+        tool = CODE_DIR / "tools" / "atom-provenance-backfill.py"
         if not tool.exists():
             return 0
         spec = importlib.util.spec_from_file_location("atom_provenance_backfill", tool)
@@ -810,8 +840,8 @@ _CARRY_ON_REBUILD = (
     "stop_blocked_count", "topic_tracker", "session_context_injected",
     # A2.4：專案根指紋變了重建 atom_index 時，OverviewHub 的注入紀錄／意圖／Depends 已提示的卡／已送過候選的部位照搬，不重注不重送
     "overview_hub", "turn_intent", "depends_hints", "candidates_sent",
-    # 一 session 一次的旗標也要照搬，否則重建後 idle 一行與權威地圖會重送
-    "idle_scan_sent", "authority_map_injected",
+    # 一 session 一次的旗標也要照搬，否則重建後 idle 一行、權威地圖、未結追蹤項提示會重送
+    "idle_scan_sent", "authority_map_injected", "tracking_advisory_sent",
 )
 
 
@@ -828,7 +858,7 @@ def _first_session_hint_lines(root_res, cwd: str) -> list:
             root = Path(root_res.path)
         if root is None:
             return []
-        lib_dir = str(CLAUDE_DIR / "lib")
+        lib_dir = str(Path(__file__).resolve().parents[2] / "lib")   # 程式碼用本檔位置；CLAUDE_DIR 只拿來判根層與定位卡
         if lib_dir not in sys.path:
             sys.path.insert(0, lib_dir)
         from overview_scaffold import first_session_hint
@@ -1116,7 +1146,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         try:
             if (config or {}).get("skill_index", {}).get("enabled", True):
                 import json as _json
-                _sk_dir = CLAUDE_DIR / "skills"
+                _sk_dir = CODE_DIR / "skills"   # skills 屬程式碼樹（與 tools／hooks／lib 並列）
                 _true_sk = sum(1 for _ in _sk_dir.glob("*/SKILL.md"))
                 _idx = _sk_dir / "_skill_index.json"
                 _idx_n = None
@@ -1146,6 +1176,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_unpushed_advisory())
         lines.extend(_index_conflict_advisory(cwd))
         lines.extend(_followup_advisory())
+        lines.extend(_tracking_advisory(cwd, state))
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
         lines.extend(_org_advisory(org_root, pool))
@@ -1389,7 +1420,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     if (config.get("vector_search", {}).get("auto_start_service", True)
             and not state.get("_skip_vector_init")):
         try:
-            starter = CLAUDE_DIR / "tools" / "memory-vector-service" / "starter.py"
+            starter = CODE_DIR / "tools" / "memory-vector-service" / "starter.py"
             _bg_kwargs: dict = {
                 "stdin": subprocess.DEVNULL,
                 "stdout": subprocess.DEVNULL,

@@ -825,14 +825,14 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             )
         if report.get("k_missing"):
             aec_reject_msgs.append("[Guardian:AEC-Followups] (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。")
-        # (k) 追蹤項 → workflow/tracking/<slug>.jsonl（track-c C8：k=「無」不寫；slug 用專案 slug，根層 session 用 "root"）
+        # (k) 追蹤項 → workflow/tracking/<slug>.jsonl（k=「無」不寫；slug＝tracking_slug(cwd)：最近部位表根 → 專案根 → cwd，
+        # 根層是 c--users-<user>--claude；cwd 空寫 _no-cwd 並 stderr；讀回端 wg_overview／session_start 用同一支）
         try:
-            from wg_harvest import tracking_entries, append_tracking
-            from wg_core import cwd_to_project_slug
+            from wg_harvest import tracking_entries, append_tracking, tracking_slug
             _k_entries = tracking_entries(session_id, turn_seq, vals.get("k_followups", ""))
             if _k_entries:
                 _k_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
-                append_tracking(cwd_to_project_slug(_k_cwd) if _k_cwd else "root", _k_entries)
+                append_tracking(tracking_slug(_k_cwd), _k_entries)
         except ImportError:
             print("[Guardian:AEC] wg_harvest.tracking_entries 尚未合併（track-c），(k) 追蹤項本次不入 workflow/tracking", file=sys.stderr)
         except Exception as e:

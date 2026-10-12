@@ -27,8 +27,8 @@ from wg_atoms import (
 )
 from handlers._shared import WISDOM_AVAILABLE, classify_situation
 
-# lib funnel（atom_access）：episodic 注入曝光遙測。確保 ~/.claude 在 path（handler 執行時 cwd 不定）。
-_LIB_PARENT = str(Path.home() / ".claude")
+# lib funnel（atom_access）：episodic 注入曝光遙測。確保本樹根在 path（handler 執行時 cwd 不定；用檔案位置不用 Path.home()）。
+_LIB_PARENT = str(Path(__file__).resolve().parents[2])
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
 from lib.atom_access import increment_read_hits  # noqa: E402

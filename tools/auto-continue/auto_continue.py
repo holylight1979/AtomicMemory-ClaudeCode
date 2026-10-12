@@ -58,7 +58,7 @@ DEFAULTS: Dict[str, Any] = {
 }
 
 # ─── 與 hook 對齊的 staging 解析（單一來源：wg_core.resolve_staging_dir）──────────
-sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "hooks"))   # 程式碼：本檔所在樹的 hooks/
 try:
     from wg_core import resolve_staging_dir as _resolve_staging  # type: ignore
 except Exception:  # pragma: no cover - fallback 僅在 hook 缺失時走

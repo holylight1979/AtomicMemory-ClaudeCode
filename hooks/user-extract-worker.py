@@ -8,6 +8,8 @@ writes confirmed atoms via MCP atom_write.
 
 Flow:
   state-{sid}.json/pending_user_extract[]
+  → 來源重驗（user_typed_text 為空＝不是使用者打的字 → skip）
+  → session-directive filter（一次性 session 指示不送 LLM；兩種 skip 都在 _merge_history.log 記原因）
   → mixed-sentence filter
   → emotional-commitment filter
   → session budget tracker
@@ -28,17 +30,17 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # ─── Path setup ───────────────────────────────────────────────────────────────
-_HOOKS_DIR = str(Path.home() / ".claude" / "hooks")
+_HOOKS_DIR = str(Path(__file__).resolve().parent)   # 本檔所在的 hooks/（不用 Path.home()）
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
 from wg_core import (
     CLAUDE_DIR, WORKFLOW_DIR,
     cwd_to_project_slug, get_transcript_path, find_project_root,
-    _is_under_claude_dir,
+    _is_under_claude_dir, user_typed_text,
 )
 
-_CLAUDE_ROOT = str(CLAUDE_DIR)
+_CLAUDE_ROOT = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 if _CLAUDE_ROOT not in sys.path:
     sys.path.insert(0, _CLAUDE_ROOT)
 
@@ -52,7 +54,7 @@ from lib.ollama_extract_core import (
 from lib.atom_io import write_atom
 from wg_evasion import evaluate_session
 
-sys.path.insert(0, str(CLAUDE_DIR / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from ollama_client import get_client
 
 # Windows cp950 → UTF-8
@@ -92,9 +94,91 @@ def _is_emotional_commitment(prompt: str) -> bool:
     return bool(_EMOTIONAL_COMMITMENT.search(prompt) and _EMOTION_WORDS.search(prompt))
 
 
+# ─── 一次性 session 指示 ──────────────────────────────────────────────────────
+# 派給「這個 session」的角色、工作步驟、派工單路徑只在這次有效。它們常帶「一律／必須」而被偵測閘當成決策，
+# 但不是跨專案知識；寫成根層 atom 會在之後每個 session 被注入（不相關卻佔 token）。
+# 是不是決策交 LLM 判（L1／L2 prompt 有同一條準則）；這裡只攔「整則每個子句都對上一次性派工樣板」的情況，
+# 省一次 LLM、也不讓它有機會誤寫：
+#   - 子句界：句號、逗號、分號、問號、驚嘆號、換行、英文句點加空白；頓號不切；括號裡的逗號不切（樣板含括號註記）。
+#   - 每個子句都必須「整句」對上下面某個樣板；只要有一個子句對不上（還有任何非標點的殘餘字），整則交 LLM。
+#     不用「含派工訊號就算」，也不用長期用語清單。
+# 樣板以 workflow/v6-inbox/_console/開工句模板.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
+# 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
+# 欄位（路徑、名稱、分支）只收 ASCII：吃不下的字（中文、頓號後的另一段話）留在子句裡，整句就對不上、交 LLM，
+# 不會被欄位吞掉。中文路徑的開工句因此認不出、交 LLM（不誤丟優先）。
+# 角色句後面的括號說明只認 _ROLE_NOTES 這份固定完整句型（從實際開過的開工句收集）；清單外的括號內容當未匹配的殘餘，
+# 整則交 LLM（不靠字數、不靠決策關鍵字）。新的派工說明要被攔，就把那句加進清單。
+_PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[A-Za-z0-9_.~:\\/-]*"
+_NAME = r"[A-Za-z0-9_.-]+"
+_ROLE_NOTES = (
+    re.escape("需求目標核心流程設計單，只設計不寫程式"),   # track-goal
+    re.escape("閱讀路徑掃描器"),                           # track-g12
+    re.escape("獨立實跑驗證"),                             # track-verify
+    r"接手，前一個\s*" + _NAME + r"\s*session\s*已滿",     # 接手 session
+)
+_ROLE_NOTE = r"(?:\s*（(?:" + "|".join(_ROLE_NOTES) + r")）)?"
+_BRANCH_NOTE = r"(?:\s*（(?:分支\s*[A-Za-z0-9_./-]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
+_KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in (
+    ("role", r"(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?" + _ROLE_NOTE),
+    ("role", r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?"),
+    ("role", r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session"),
+    ("controller", r"(?:總控台|主控台)\s*(?:是|為)\s*" + _NAME),
+    ("step", r"第一步(?:用|先)?\s*EnterWorktree\s*切進\s*(?:worktree\s*)?(?:" + _PATH + r")?" + _BRANCH_NOTE),
+    ("step", r"worktree\s*" + _PATH + _BRANCH_NOTE),
+    ("dispatch", r"派工(?:單|\s*prompt)\s*(?:在|:|：)\s*" + _PATH),
+    ("dispatch", r"(?:用絕對路徑)?讀完(?:全文)?照做"),
+    ("dispatch", r"read the task at\s+" + _PATH),
+    ("scope", r"(?:本次)?(?:一律)?只(?:讀|讀寫|在)\s*" + _PATH + r"(?:\s*(?:裡|內))?(?:\s*(?:讀寫|工作))?"),
+    ("scope", r"you must work only in\s+" + _PATH),
+    ("scope", r"(?:切進去之後)?所有讀寫一律用\s*worktree\s*(?:的\s*)?絕對路徑(?:、\s*不碰\s*live(?:\s*" + _PATH + r")?)?"),
+    ("deliver", r"交付(?:信)?(?:用\s*SendMessage\s*(?:全文)?(?:\s*給\s*" + _NAME + r")?)?(?:\s*附\s*live\s*未動證明)?"),
+    ("verify", r"只跑目標\s*verify(?:（直接在\s*worktree\s*根跑\s*pytest，\s*不加\s*cd）)?(?:、\s*不跑全量)?"
+               r"(?:、\s*不重掛\s*Monitor)?(?:、\s*不輪詢)?"),
+    ("ack", r"開工前先\s*SendMessage\s*" + _NAME + r"\s*一句「\s*" + _NAME + r"?\s*收到開工\s*」?"),
+))
+_CLAUSE_BREAKS = "。，,；;！？!?\n"
+_CLAUSE_PAD = " \t\r\n「」『』“”\"'…"
+
+
+def _kickoff_clauses(text: str) -> List[str]:
+    """切子句（括號裡的逗號不切；英文句點後接空白才切），去掉頭尾空白與引號。"""
+    parts, buf, depth = [], [], 0
+    for i, c in enumerate(text):
+        if c in "（(":
+            depth += 1
+        elif c in "）)" and depth:
+            depth -= 1
+        period = c == "." and i + 1 < len(text) and text[i + 1].isspace()
+        if depth == 0 and (c in _CLAUSE_BREAKS or period):
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(c)
+    parts.append("".join(buf))
+    stripped = (p.strip(_CLAUSE_PAD) for p in parts)
+    return [p for p in stripped if p]
+
+
+def _kickoff_clause_kind(clause: str) -> Optional[str]:
+    return next((name for name, pat in _KICKOFF_CLAUSES if pat.fullmatch(clause)), None)
+
+
+def _session_directive_reason(prompt: str) -> Optional[str]:
+    """每個子句都整句對上一次性派工樣板 → 對上的樣板名（"role+controller+step" 這種）；有任何子句對不上 → None（交 LLM）。"""
+    kinds: List[str] = []
+    clauses = _kickoff_clauses(prompt or "")
+    for clause in clauses:
+        kind = _kickoff_clause_kind(clause)
+        if kind is None:
+            return None
+        if kind not in kinds:
+            kinds.append(kind)
+    return "+".join(kinds) if kinds else None
+
+
 # ─── Prompt template loading ──────────────────────────────────────────────────
 
-_PROMPTS_DIR = CLAUDE_DIR / "prompts"
+_PROMPTS_DIR = Path(_CLAUDE_ROOT) / "prompts"   # 程式碼樹的樣板（worktree 裡跑就用 worktree 的）
 
 
 def _extract_prompt_block(raw: str) -> str:
@@ -544,15 +628,24 @@ def _write_pending_candidate(
 
 # ─── Merge history log ────────────────────────────────────────────────────────
 
-def _append_merge_history(session_id: str, action: str, details: str = "") -> None:
-    """Append to _merge_history.log."""
+def _append_merge_history(session_id: str, action: str, details: str = "") -> bool:
+    """Append to _merge_history.log；寫不進去回 False 並 stderr 一行（不靜默）。"""
     log_path = WORKFLOW_DIR / "_merge_history.log"
     try:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(f"[{ts}] action={action} session={session_id} {details}\n")
-    except OSError:
-        pass
+        return True
+    except OSError as e:
+        print(f"[user-extract] 萃取紀錄寫不進 {log_path}：{e}", file=sys.stderr)
+        return False
+
+
+def _record_skip(session_id: str, reason: str, candidate: Dict, text: str) -> bool:
+    """候選不送萃取時在萃取紀錄留一行原因（可觀測，不靜默）；寫不進去回 False，呼叫端把候選留在佇列等下次再記。"""
+    excerpt = " ".join((text or "").split())[:60]
+    return _append_merge_history(session_id, "user-extract-skip",
+                                 f"reason={reason} turn={candidate.get('turn_id', '')} text={excerpt!r}")
 
 
 # ─── Main extraction pipeline ────────────────────────────────────────────────
@@ -584,19 +677,29 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
 
     confirmed_extractions = []
     processed_indices = []
-    stats = {"processed": 0, "confirmed": 0, "skipped": 0, "l1_yes": 0, "l1_no": 0}
+    stats = {"processed": 0, "confirmed": 0, "skipped": 0, "l1_yes": 0, "l1_no": 0,
+             "skipped_not_user": 0, "skipped_directive": 0}
     l2_confs: List[float] = []  # for avg_l2_conf in session evaluator
     dedup_hit = 0
     l2_ran = False
 
     for idx, candidate in enumerate(pending):
-        prompt_text = candidate.get("prompt", "")
-        if not prompt_text:
-            processed_indices.append(idx)
-            stats["skipped"] += 1
-            continue
-
+        prompt_text = candidate.get("prompt", "") or ""
         stats["processed"] += 1
+
+        # ── 來源重驗（空候選也算）＋一次性 session 指示：不送 LLM，萃取紀錄留一行 skip 原因 ──────
+        # 來源權威不交 LLM 判：舊版排進佇列的通知、其他 session 的訊息在這裡擋下。
+        typed = user_typed_text(prompt_text, keep_lines=True)
+        directive = _session_directive_reason(typed) if typed else None
+        if not typed or directive:
+            reason = f"session-directive({directive})" if typed else "not-user-typed"
+            if _record_skip(session_id, reason, candidate, prompt_text):
+                processed_indices.append(idx)   # 紀錄寫進去才清佇列；寫不進去留著下次再記
+            stats["skipped"] += 1
+            stats["skipped_directive" if typed else "skipped_not_user"] += 1
+            continue
+        prompt_text = typed
+        candidate["prompt"] = typed   # 之後的 L1／L2 與 atom 的 Quote 都用清理後的文字
 
         # ── Mixed sentence detection ──────────────────────────────────
         if _is_mixed_sentence(prompt_text):
@@ -792,7 +895,8 @@ def run_user_extraction(ctx: Dict[str, Any]) -> Dict[str, Any]:
         session_id,
         "auto-extract-v41",
         f"processed={stats['processed']} confirmed={stats['confirmed']} "
-        f"l1_yes={stats['l1_yes']} l1_no={stats['l1_no']} skipped={stats['skipped']}",
+        f"l1_yes={stats['l1_yes']} l1_no={stats['l1_no']} skipped={stats['skipped']} "
+        f"skipped_not_user={stats['skipped_not_user']} skipped_directive={stats['skipped_directive']}",
     )
 
     # ── Augment stats for session evaluator ──

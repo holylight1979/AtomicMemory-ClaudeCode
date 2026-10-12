@@ -27,8 +27,11 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-CLAUDE_DIR = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+CODE_DIR = Path(__file__).resolve().parents[2]   # 程式碼根（本檔所在的樹）
+sys.path.insert(0, str(CODE_DIR / "hooks"))
+sys.path.insert(0, str(CODE_DIR / "lib"))
+from project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：memory、workflow/config.json
 
 from wg_atoms import any_trigger_hit, bm25_match, parse_memory_index  # noqa: E402
 

@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Pattern, Tuple
 
+from wg_core import user_typed_prompts
+
 
 _TEST_CMD_RE = re.compile(
     r"(?:^|\s)(?:pytest|python\s+-m\s+pytest|npm\s+(?:run\s+)?test|jest|node\s+--check|tsc|go\s+test|cargo\s+test)(?:\s|$)"
@@ -287,7 +289,7 @@ def detect_evasion(text: str, recent_user_prompts: List[str]) -> Optional[Dict[s
     m = _EVASION_RE.search(strip_quoted_spans(text))
     if not m:
         return None
-    for p in (recent_user_prompts or [])[-3:]:
+    for p in user_typed_prompts(recent_user_prompts)[-3:]:
         if _DISMISS_RE.search(p or ""):
             return None
     phrase = m.group(0)
@@ -315,7 +317,7 @@ def detect_deferral(
     """
     if not text:
         return None
-    for p in (recent_user_prompts or [])[-3:]:
+    for p in user_typed_prompts(recent_user_prompts)[-3:]:
         if _DEFERRAL_USER_OK_RE.search(p or "") or _DISMISS_RE.search(p or ""):
             return None
     for orig_sent in _SENTENCE_SPLIT_RE.split(text):
@@ -438,7 +440,7 @@ def _completion_gate_applies(
         return False
     if not claims_completion(text):
         return False
-    for p in (recent_user_prompts or [])[-3:]:
+    for p in user_typed_prompts(recent_user_prompts)[-3:]:
         if _DISMISS_RE.search(p or ""):
             return False
     unique_paths = {(m or {}).get("path", "") for m in modified_files}

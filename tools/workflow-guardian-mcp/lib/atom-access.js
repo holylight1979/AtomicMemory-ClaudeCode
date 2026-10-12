@@ -1,7 +1,7 @@
 // atom-access.js — <atom>.access.json 遙測讀取與效用 Wilson 下界（SYNC: lib/atom_access.py）。
 // verify_promotion_gate_phase0 讀本檔驗 usefulnessStats / wilsonLowerBound 鏡像。
 const fs = require("fs");
-const { CLAUDE_DIR, PYTHON_EXE } = require("./paths");
+const { CLAUDE_DIR, CODE_DIR, PYTHON_EXE } = require("./paths");
 
 /** Parse atom metadata from file content. Returns {confidence, confirmations, ...} */
 function parseAtomMeta(content) {
@@ -100,7 +100,7 @@ function spawnAtomAccess(subcommand, args) {
     try {
       cp = require("child_process").spawn(
         PYTHON_EXE, ["-m", "lib.atom_access", subcommand, ...args],
-        { cwd: CLAUDE_DIR, windowsHide: true,
+        { cwd: CODE_DIR, windowsHide: true,   // -m 從 cwd 載 lib：程式碼根
           env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
       );
     } catch (e) {

@@ -34,9 +34,9 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(CLAUDE_DIR))
-sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+CODE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(CODE_DIR))
+sys.path.insert(0, str(CODE_DIR / "hooks"))
 
 import wg_core  # noqa: E402
 from wg_roles import get_current_user  # noqa: E402
@@ -48,7 +48,7 @@ from lib.atom_spec import (  # noqa: E402
 from lib.atom_index_json import load_atom_index_json, upsert_atom  # noqa: E402
 
 CONFIG_PATH = wg_core.CONFIG_PATH
-SYNC_INDEX = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+SYNC_INDEX = CODE_DIR / "tools" / "sync-memory-index.py"
 TAXONOMY = {
     "domains": {
         "工具": {
@@ -62,9 +62,9 @@ SEED_REL = f"memory/shared/工具/{SEED_NAME}.md"
 SEED_TRIGGERS = ["org-memory", "公司層記憶", "org 初始化", "scope=org"]
 
 # --scan-tools 來源（測試 monkeypatch 這三個）
-SKILL_INDEX = CLAUDE_DIR / "skills" / "_skill_index.json"
-SKILLS_DIR = CLAUDE_DIR / "skills"
-MCP_TEMPLATE = CLAUDE_DIR / "mcp-servers.template.json"
+SKILL_INDEX = CODE_DIR / "skills" / "_skill_index.json"
+SKILLS_DIR = CODE_DIR / "skills"
+MCP_TEMPLATE = CODE_DIR / "mcp-servers.template.json"
 TOOL_DOMAIN = "工具"
 # audit source：VALID_SOURCES 內最貼切者——把外部 SoT（skills 索引／MCP 樣板／tools 目錄）同步進記憶
 SCAN_SOURCE = "tool:sync-memory-index"
@@ -243,7 +243,7 @@ def collect_mcp_cards() -> List[Dict[str, object]]:
     for name, d in (data.get("servers") or {}).items():
         abs_entry = d.get("entry_absolute")
         if abs_entry:
-            entry = Path(abs_entry.replace("{claude_dir}", str(CLAUDE_DIR))).resolve().as_posix()
+            entry = Path(abs_entry.replace("{claude_dir}", str(CODE_DIR))).resolve().as_posix()
         else:
             entry = d.get("npm_package") or name
         cards.append(_card(name, "mcp", d.get("description", ""), entry=entry, has_path=bool(abs_entry),

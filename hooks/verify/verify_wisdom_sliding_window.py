@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-_HOOKS_DIR = Path.home() / ".claude" / "hooks"
+_HOOKS_DIR = Path(__file__).resolve().parents[1]   # 本測試所在樹的 hooks/（不用 Path.home()）
 sys.path.insert(0, str(_HOOKS_DIR))
 
 import wisdom_engine as we  # noqa: E402

@@ -22,7 +22,11 @@ import re
 import sys
 from pathlib import Path
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 
 # ANSI（Windows Terminal / VSCode 終端皆支援）

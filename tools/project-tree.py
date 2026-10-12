@@ -26,9 +26,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-if str(CLAUDE_DIR / "lib") not in sys.path:
-    sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+CODE_DIR = Path(__file__).resolve().parent.parent
+if str(CODE_DIR / "lib") not in sys.path:
+    sys.path.insert(0, str(CODE_DIR / "lib"))
 
 from project_root import (  # noqa: E402
     DECL_NAME, clear_cache, declaration_path, describe, load_declaration, resolve_project_root,

@@ -4,7 +4,7 @@
 // Python PostToolUse 解析進 state.atom_ops，knowledge_harvest_report 的逐項核對以它為準（one-writer：本檔不寫 state）。
 const fs = require("fs");
 const path = require("path");
-const { CLAUDE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, PYTHON_EXE } = require("./paths");
+const { CLAUDE_DIR, CODE_DIR, MEMORY_DIR, TOOLS_DIR, loadConfig, PYTHON_EXE } = require("./paths");
 const { crashLog } = require("./log");
 // 落點／定位／路由全部由 py lib/atom_io.locate_atom 裁決（spawnAtomCli("locate")），
 // js 只採用回傳的路徑；realm.js 只剩 js 自己真的需要的（使用者名、去重層清單）。
@@ -546,7 +546,7 @@ async function locateByName(atomName, scope, projectCwd, { role, user } = {}) {
 }
 
 /** Spawn inline python → lib.atom_index_json.delete_atom（含 _ATOM_INDEX.md mirror
- *  自動 regenerate）。沿用 spawnEditMetadata 慣例：cwd=CLAUDE_DIR、PYTHONIOENCODING、
+ *  自動 regenerate）。沿用 spawnEditMetadata 慣例：cwd=CODE_DIR、PYTHONIOENCODING、
  *  windowsHide、30s timeout。Returns Promise<{ok, removed?, error?}>。 */
 function spawnIndexDelete(memDir, atomName) {
   const inline = [
@@ -561,7 +561,7 @@ function spawnIndexDelete(memDir, atomName) {
     try {
       cp = require("child_process").spawn(
         PYTHON_EXE, ["-c", inline, memDir, atomName],
-        { cwd: CLAUDE_DIR, windowsHide: true,
+        { cwd: CODE_DIR, windowsHide: true,   // -c 的 `from lib...` 從 cwd 載：程式碼根
           env: { ...process.env, PYTHONIOENCODING: "utf-8" } },
       );
     } catch (e) {
@@ -809,7 +809,7 @@ async function toolAtomPromote(id, args) {
 
 /** Spawn inline python that calls lib.atom_io.edit_metadata through the funnel.
  *  list 參數 (triggers/related/tags) 以單一 JSON 字串走 argv 傳入，python 端
- *  json.loads 後展開。沿用 spawnAtomCli/spawnAtomAccess 慣例：cwd=CLAUDE_DIR、
+ *  json.loads 後展開。沿用 spawnAtomCli/spawnAtomAccess 慣例：cwd=CODE_DIR、
  *  PYTHONIOENCODING=utf-8、windowsHide。回傳 Promise<WriteResult.to_dict()>。
  */
 function spawnEditMetadata(filePath, fields) {
@@ -834,7 +834,7 @@ function spawnEditMetadata(filePath, fields) {
       cp = require("child_process").spawn(
         PYTHON_EXE, ["-c", inline, payload],
         {
-          cwd: CLAUDE_DIR,
+          cwd: CODE_DIR,   // -c 的 `from lib...` 從 cwd 載：程式碼根
           windowsHide: true,
           env: { ...process.env, PYTHONIOENCODING: "utf-8" },
         }

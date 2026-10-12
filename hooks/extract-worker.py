@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 # ─── Import centralized paths from wg_core (V5: wg_paths merged into wg_core) ─
-_HOOKS_DIR = str(Path.home() / ".claude" / "hooks")
+_HOOKS_DIR = str(Path(__file__).resolve().parent)   # 本檔所在的 hooks/（不用 Path.home()）
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
@@ -35,12 +35,13 @@ from wg_core import (
     resolve_failures_dir,
     find_project_root,
     CLAUDE_DIR,
+    CODE_DIR,
     MEMORY_DIR,
 )
 from wg_extraction import classify_extracted_item
 
 # route failure atom writes through atom_io funnel
-_LIB_PARENT = str(Path.home() / ".claude")
+_LIB_PARENT = str(Path(__file__).resolve().parents[1])
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
 from lib.atom_io import build_atom_content, write_raw  # noqa: E402
@@ -55,7 +56,7 @@ if sys.platform == "win32":
             stream.reconfigure(encoding="utf-8", errors="replace")
 
 # ─── Import shared core from lib/ ───────────────────────────────────────────
-_CLAUDE_ROOT = str(CLAUDE_DIR)
+_CLAUDE_ROOT = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
 if _CLAUDE_ROOT not in sys.path:
     sys.path.insert(0, _CLAUDE_ROOT)
 
@@ -294,6 +295,8 @@ _FAILURE_PROMPT = (
     '"domain_tags": ["tag1"]}]\n\n'
     "規則:\n"
     "- 如果對話中不是真正的失敗（使用者只是描述需求），輸出 []\n"
+    "- 使用者給這個 session 的一次性指示（角色、工作步驟、檔案路徑、操作限制，例如「你是…session」「第一步…」"
+    "「只准讀寫 <路徑>」）不是失敗知識，不要抽成修復規則；只萃取跨 session 也成立的失敗模式\n"
     "- content 遵循「觸發 → 錯誤 → 正確（根因）」格式，最多 150 字\n"
     "- 最多萃取 2 條\n"
     "- domain_tags: 1-3 個領域標籤（如 gameplay, memory-system, git, unity, ollama）\n"
@@ -958,7 +961,7 @@ def _failure_catalog_sync(failures_dir: Path, config: dict) -> None:
     要等下次 MCP 寫入或人工跑 sync-memory-index 才更新（一條龍中斷）。同步跑、
     收 stderr、失敗只 debug log（fail-open）。專案層 failures 走 --memory-dir。"""
     try:
-        script = CLAUDE_DIR / "tools" / "sync-memory-index.py"
+        script = CODE_DIR / "tools" / "sync-memory-index.py"   # 程式碼；--memory-dir（資料）仍由 CLAUDE_DIR 判
         if not script.exists():
             return
         argv = [sys.executable, str(script), "--write"]

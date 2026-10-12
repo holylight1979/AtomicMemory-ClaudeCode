@@ -83,7 +83,9 @@ try:
 except Exception:
     sync_doc_counts = None
 
-MEMORY_DIR = Path.home() / ".claude" / "memory"
+from lib.project_root import claude_data_dir  # noqa: E402
+
+MEMORY_DIR = claude_data_dir() / "memory"   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 MEMORY_INDEX_NAME = "MEMORY.md"
 LOCAL_CATALOG_NAME = "_local_catalog.md"  # 本地範疇側檔（hook 僅核心環境注入）
 FLAT_ATOM_MSG = "[sync-memory-index] flat atom under memory/: {slug}"
@@ -520,7 +522,7 @@ def upsert_project_catalog(text: str, block: str) -> Tuple[str, bool]:
     return base + "\n\n" + wrapped + "\n", False
 
 
-_CONFIG_PATH = Path(__file__).resolve().parent.parent / "workflow" / "config.json"
+_CONFIG_PATH = claude_data_dir() / "workflow" / "config.json"   # 設定是資料
 
 
 def _eol_auto_enabled(cfg_path: Path = _CONFIG_PATH) -> bool:
@@ -798,7 +800,7 @@ def main() -> int:
         try:
             import subprocess
             r = subprocess.run(
-                [sys.executable, str(Path(claude_root) / "tools" / "native-memory-bridge.py")],
+                [sys.executable, str(Path(__file__).resolve().parent / "native-memory-bridge.py")],   # 程式碼：本檔旁那支
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )

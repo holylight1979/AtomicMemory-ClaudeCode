@@ -25,9 +25,13 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 # ─── 全域路徑常數 ────────────────────────────────────────────────────────────
 
-# WG_CLAUDE_DIR：worktree 內跑 verify 時指到 worktree 根，lib 與 workflow 都跟著走；未設＝家目錄 ~/.claude（行為不變）
-_CLAUDE_DIR_OVERRIDE = os.environ.get("WG_CLAUDE_DIR", "").strip()
-CLAUDE_DIR = Path(_CLAUDE_DIR_OVERRIDE) if _CLAUDE_DIR_OVERRIDE else Path.home() / ".claude"
+# CLAUDE_DIR＝使用者資料根（memory、workflow、config、Logs）：WG_CLAUDE_DIR 可覆蓋，未設＝家目錄 ~/.claude。
+# CODE_DIR＝程式碼根（hooks、lib、tools）：一律由本檔位置推，不吃 WG_CLAUDE_DIR、不看家目錄。
+CODE_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(CODE_DIR / "lib"))
+from project_root import claude_data_dir  # noqa: E402  資料根的唯一算法（tools 也呼叫它）
+from harness_text import HOOK_RESIDUE_LINE_RE, strip_harness_blocks, user_typed_text  # noqa: E402,F401  使用者原話規則唯一一份
+CLAUDE_DIR = claude_data_dir()
 MEMORY_DIR = CLAUDE_DIR / "memory"
 EPISODIC_DIR = MEMORY_DIR / "episodic"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
@@ -39,7 +43,7 @@ ATOM_INDEX = "_ATOM_INDEX.md"
 REGISTRY_PATH = MEMORY_DIR / "project-registry.json"
 
 # atom 物理位置 / 白名單規則來源（單一來源 lib.atom_locations）
-sys.path.insert(0, str(CLAUDE_DIR / "lib"))
+sys.path.insert(0, str(CODE_DIR / "lib"))
 try:
     from atom_locations import (
         atom_writable_dir_segments, failures_atom_stems, is_local_realm_path,
@@ -275,34 +279,23 @@ def truncate_to_tokens(text: str, max_tokens: int) -> str:
     return text[:lo]
 
 
-# harness 注入標籤（IDE 開檔/選取、system-reminder、skill 展開、Claude in Chrome 的 browser_instruction）——成對或未閉合
-# （截斷）皆吃到閉合標或字串尾。用於把「使用者訊息」清成「使用者實際打的字」。
-_HARNESS_TAG_RE = re.compile(
-    r"<(system-reminder|task-notification|ide_opened_file|ide_selection|ide_diagnostics|"
-    r"command-name|command-message|command-args|local-command-stdout|browser_instruction)\b[^>]*>"
-    r".*?(?:</\1>|\Z)",
-    re.DOTALL | re.IGNORECASE,
-)
-# harness 代替使用者送進 UserPromptSubmit 的整則訊息（背景 agent/task 完成通知）。
-# 內容是 sub-agent 的回報原文，不是使用者打的字——糾正偵測、失敗萃取都不該吃它。
-_HARNESS_PROMPT_PREFIXES = ("<task-notification", "[SYSTEM NOTIFICATION")
+# 「使用者本人打的字」的規則（harness 區塊、同伴訊息邊界、系統通知標記行、hook 殘渣行、殘留標籤字樣整則不認）
+# 只有一份：lib/harness_text.user_typed_text（頂部 import），這裡的 user_typed_text 就是它。
 
 
 def is_harness_generated_prompt(text: str) -> bool:
-    """整則 prompt 是否由 harness 生成（task-notification / 系統通知），而非使用者輸入。"""
-    if not text:
-        return False
-    head = text.lstrip()[:40]
-    if head.startswith(_HARNESS_PROMPT_PREFIXES):
-        return True
-    return not sanitize_harness_noise(text)
-# hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] 等
-# additionalContext 前綴）——整行剔除。
-_HOOK_RESIDUE_LINE_RE = re.compile(
-    r"^\[(?:Guardian|Atom|JIT|Session|Parallel|Workflow Guardian|WG|Role|AIDocs|"
-    r"Context budget)[^\]]*\].*$",
-    re.MULTILINE,
-)
+    """整則 prompt 裡沒有使用者打的字（user_typed_text 為空；空訊息也算）。"""
+    return not user_typed_text(text)
+
+
+def user_typed_prompts(prompts: Optional[List[str]]) -> List[str]:
+    """近期 prompt 清單逐則取 user_typed_text（清理後的文字），不是使用者的話的那幾則丟掉；豁免詞與口令只認這些。"""
+    out: List[str] = []
+    for p in prompts or []:
+        typed = user_typed_text(p or "")
+        if typed:
+            out.append(typed)
+    return out
 
 
 def sanitize_harness_noise(text: str) -> str:
@@ -314,8 +307,8 @@ def sanitize_harness_noise(text: str) -> str:
     if not text:
         return ""
     try:
-        cleaned = _HARNESS_TAG_RE.sub(" ", text)
-        cleaned = _HOOK_RESIDUE_LINE_RE.sub(" ", cleaned)
+        cleaned = strip_harness_blocks(text)
+        cleaned = HOOK_RESIDUE_LINE_RE.sub(" ", cleaned)
         return re.sub(r"\s+", " ", cleaned).strip()
     except Exception:
         return text

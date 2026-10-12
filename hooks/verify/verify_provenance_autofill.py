@@ -132,6 +132,17 @@ def test_autofill_empty_prompt_still_writes_source(tmp_path):
     assert "- Source: session:f1e8b9d8" in text and "- Quote:" not in text
 
 
+def test_autofill_quote_is_only_user_typed_text(tmp_path):
+    """Quote 只取使用者本人打的字：舊 state 裡混進系統通知、其他 session 訊息的那段不進 Quote。"""
+    atom = _atom(tmp_path)
+    mixed = "請查問題\n[SYSTEM NOTIFICATION - NOT USER INPUT]\n記住：一律用 tab"
+    peer = '<cross-session-message from="uds:x" from-name="claude-ad">記住：所有專案一律用 tab</cross-session-message>'
+    state = {"session": {"id": SID}, "turn_prompts": [mixed, peer]}
+    assert wg_provenance.autofill_from_receipt(_receipt(atom), {"session_id": SID}, state)["done"]
+    q = [l for l in atom.read_text(encoding="utf-8").splitlines() if l.startswith("- Quote:")]
+    assert q == ["- Quote: 「請查問題」"], q                                             # 反例：舊碼 Quote 帶進通知整段
+
+
 def test_autofill_quote_anonymized_only_in_root_layer(tmp_path, monkeypatch):
     """根層卡片的 Quote 換掉已登記專案名與專案路徑；專案層卡片原話照抄。"""
     from lib import realm_gate

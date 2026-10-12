@@ -36,11 +36,16 @@ def _is_root_layer(path: Path) -> bool:
 
 
 def _last_turn_prompt(state: Dict[str, Any]) -> str:
+    """本回合最後一則使用者本人打的字（user_typed_text，保留換行）；舊 state 裡混進的通知、其他 session 的訊息不算。"""
+    from wg_core import user_typed_text
     prompts = state.get("turn_prompts") or []
-    if not isinstance(prompts, list) or not prompts:
+    if not isinstance(prompts, list):
         return ""
-    last = prompts[-1]
-    return last if isinstance(last, str) else ""
+    for p in reversed(prompts):
+        typed = user_typed_text(p, keep_lines=True) if isinstance(p, str) else ""
+        if typed:
+            return typed
+    return ""
 
 
 def _last_human_uuid(transcript_path: str) -> Optional[str]:
@@ -51,7 +56,7 @@ def _last_human_uuid(transcript_path: str) -> Optional[str]:
         return None
     try:
         import sys
-        lib_root = str(CLAUDE_DIR)
+        lib_root = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
         if lib_root not in sys.path:
             sys.path.insert(0, lib_root)
         from lib.provenance import last_human_record  # noqa: WPS433
@@ -83,7 +88,7 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
             return out
 
         import sys
-        lib_root = str(CLAUDE_DIR)
+        lib_root = str(Path(__file__).resolve().parents[1])   # 程式碼用本檔位置，CLAUDE_DIR 只定位資料
         if lib_root not in sys.path:
             sys.path.insert(0, lib_root)
         from lib.atom_io import edit_metadata

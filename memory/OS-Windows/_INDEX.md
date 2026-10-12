@@ -7,6 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段 | dotnet的SpecialFolder不吃APPDATA環境變數-隔離測試要換別的手段 |
+| taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 | TaskStop停背景Bash在Windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 |
 | unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫 | unity-editorprefs-registry值名hash是djb2xor-字串binary-utf8結尾0-editor關著可直接寫 |
 | unity-editor崩潰鑑識三路徑-事件檔1000先看故障模組-edr注入dll可能是真兇 | Unity-Editor崩潰鑑識三路徑-事件檔1000先看故障模組-EDR注入DLL可能是真兇 |
 | whoami-輸出走-oem-碼頁-cp950-非-utf-8-中文群組名用-utf-8-解碼會靜默變亂碼 | whoami 輸出走 OEM 碼頁 cp950 非 utf-8-中文群組名用 utf-8 解碼會靜默變亂碼 |

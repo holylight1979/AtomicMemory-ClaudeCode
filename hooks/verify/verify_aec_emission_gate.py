@@ -400,7 +400,8 @@ def test_scan_report_message_lists_j_and_k(driven, capsys):
 
 
 def test_ptu_k_followups_tracking_hook(monkeypatch, tmp_path):
-    """(k)≠「無」→ 呼叫 wg_harvest.append_tracking（track-c C8）；k=「無」不呼叫。wg_harvest 的兩函式以 monkeypatch 提供。"""
+    """(k)≠「無」→ 呼叫 wg_harvest.append_tracking；k=「無」不呼叫。wg_harvest 的兩函式以 monkeypatch 提供。
+    本案的輸入沒有 cwd → slug＝tracking_slug("")＝"_no-cwd"（舊版寫 "root"，讀回端永遠對不上）。"""
     import wg_harvest
     calls = []
     monkeypatch.setattr(wg_harvest, "tracking_entries",
@@ -408,7 +409,7 @@ def test_ptu_k_followups_tracking_hook(monkeypatch, tmp_path):
                         raising=False)
     monkeypatch.setattr(wg_harvest, "append_tracking", lambda slug, entries: calls.append((slug, entries)), raising=False)
     _drive_ptu(monkeypatch, tmp_path, _full_input(k_followups="[hooks] 補 PowerShell 案"))
-    assert len(calls) == 1 and calls[0][0] == "root" and calls[0][1][0]["text"] == "[hooks] 補 PowerShell 案"
+    assert len(calls) == 1 and calls[0][0] == "_no-cwd" and calls[0][1][0]["text"] == "[hooks] 補 PowerShell 案"
     _drive_ptu(monkeypatch, tmp_path, _full_input(k_followups="無"))
     assert len(calls) == 1
 

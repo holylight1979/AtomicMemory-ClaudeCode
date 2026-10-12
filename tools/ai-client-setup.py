@@ -27,14 +27,14 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-CLAUDE_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+CODE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(CODE_DIR / "hooks"))
 
 import wg_core  # noqa: E402
 
 SERVER_NAME = "workflow-guardian"
-SERVER_JS = CLAUDE_DIR / "tools" / "workflow-guardian-mcp" / "server.js"
-ORG_MEMORY = CLAUDE_DIR / "tools" / "org-memory.py"
+SERVER_JS = CODE_DIR / "tools" / "workflow-guardian-mcp" / "server.js"
+ORG_MEMORY = CODE_DIR / "tools" / "org-memory.py"
 CODEX_CONFIG = Path.home() / ".codex" / "config.toml"
 GEMINI_SETTINGS = Path.home() / ".gemini" / "settings.json"
 ANTIGRAVITY_DIR = Path.home() / ".gemini" / "antigravity"
@@ -128,12 +128,12 @@ def snippets(entry: Dict[str, object]) -> str:
 
 def update_repo(*, dry_run: bool) -> str:
     def git(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "-C", str(CLAUDE_DIR), *args], capture_output=True, text=True,
+        return subprocess.run(["git", "-C", str(CODE_DIR), *args], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=120, creationflags=_NO_WINDOW)
     try:
         dirty = git("status", "--porcelain", "--untracked-files=no")
         if dirty.returncode != 0:
-            return f"略過更新：{CLAUDE_DIR} 不是 git 工作區"
+            return f"略過更新：{CODE_DIR} 不是 git 工作區"
         if dirty.stdout.strip():
             return "略過更新：~/.claude 有未提交的改動（不影響接上；要更新請先處理那些改動）"
         if dry_run:

@@ -280,7 +280,8 @@ def test_tried_claim_without_exec_accepts_tool_names_or_receipts(phrases):
 # ─── BLOCK 7：vcs_snapshot 整體 deadline（找 root、子行程、stat 迴圈都受管；檔數上限 200）────
 
 def test_snapshot_deadline_covers_slow_stat(repo):
-    """注入 55 ms stat 延遲×100 檔：總耗時 < 2 s 且 truncated（1.5 s 預算在 stat 迴圈內就停）。"""
+    """注入 55 ms stat 延遲×100 檔：truncated，且總耗時不超過「預算＋一次檢查間隔」（每 10 檔才查 deadline，最多多跑 10 次
+    stat；再留 0.3 s 給排程抖動）。沒停的話 100 檔要 5.5 s。"""
     files = []
     for i in range(100):
         p = repo / f"f{i}.py"
@@ -294,7 +295,7 @@ def test_snapshot_deadline_covers_slow_stat(repo):
     t0 = time.monotonic()
     snap = vl.vcs_snapshot(str(repo), files, {}, budget_s=1.5, _rev=lambda k, r, t: "abc1234", _stat=slow_stat)
     elapsed = time.monotonic() - t0
-    assert elapsed < 2.0, elapsed
+    assert elapsed < 2.35, elapsed                 # 1.5 s 預算＋10 檔×55 ms 檢查間隔＋0.3 s 排程餘量（固定數字：間隔被調大要紅）
     assert snap and snap[0]["truncated"] is True
 
 
