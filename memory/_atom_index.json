@@ -4140,7 +4140,11 @@
         "transcribe",
         "/meeting"
       ],
-      "scope": "global"
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/tools/meeting-transcribe.py",
+        "path:C:/Users/holylight/.claude/skills/meeting/SKILL.md"
+      ]
     },
     {
       "name": "feedback-人讀文件只寫使用者直接體驗到的-技術細節一律指tech-贅述與過時段落剔除",
@@ -4717,7 +4721,10 @@
         "提示詞偏誤",
         "Codex 記憶"
       ],
-      "scope": "global"
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/tools/replay-guard.py"
+      ]
     },
     {
       "name": "feedback-多session協作時主持端要派工問進度分工寫文件-不要只回信等信-閒置session要給解決問題的工作-文件分開寫再彙整",
@@ -5137,7 +5144,10 @@
         "LK_NBLCK",
         "repair_state"
       ],
-      "scope": "global"
+      "scope": "global",
+      "depends": [
+        "path:C:/Users/holylight/.claude/hooks/wg_core.py"
+      ]
     },
     {
       "name": "fail-closed閘裡的附加輸出要隔離例外-否則附加資訊炸掉會被當閘異常擋住放行",
