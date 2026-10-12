@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple
 
-from wg_core import WORKFLOW_DIR, find_vcs_root
+from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -518,9 +518,10 @@ def _receipt_after(receipt: Dict[str, Any], edit_at: Optional[str], edit_seq: Op
 def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = None,
                   cmd_contains: str = "", min_turn: Optional[int] = None, require_ok: bool = True,
                   min_at: Optional[str] = None, min_seq: Optional[int] = None,
-                  root: Optional[str] = None) -> List[Dict[str, Any]]:
+                  root: Optional[str] = None, *, sentinel_name: str = "") -> List[Dict[str, Any]]:
     """DONE 收據；turn_seq 指定只認該 turn；min_turn／min_at／min_seq 指定要在該修改之後；cmd_contains 指定 cmd 要含該片段
-    （空白正規化、不分大小寫）；require_ok：exit 要 0 或 None 且 failed=<k> 必為 0；root 指定 cwd／project_root 要在該 root 下。"""
+    （空白正規化、不分大小寫）；require_ok：exit 要 0 或 None 且 failed=<k> 必為 0；root 指定 cwd／project_root 要在該 root 下；
+    sentinel_name 指定 DONE 必須來自該名字的哨兵（空＝任一 DONE 哨兵，舊行為）。"""
     want = " ".join(cmd_contains.split()).lower()
     out = []
     for r in receipts:
@@ -531,6 +532,9 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
             continue
         if "DONE" not in _verdicts(r):
             continue
+        if sentinel_name and not any(isinstance(s, dict) and str(s.get("name", "")) == sentinel_name
+                                     and str(s.get("verdict", "")) == "DONE" for s in r.get("sentinels") or []):
+            continue          # DONE 要來自指定名字的哨兵（例：pytest 摘要行映射的 PYTEST_MEASURE）
         if require_ok and (r.get("root_uncertain") or has_cd(str(r.get("cmd", "")))):
             continue          # 含 cd 的收據不知道量的是哪個專案
         if require_ok and (r.get("exit_code") not in (None, 0) or not _failed_kv_ok(r)):
@@ -732,6 +736,22 @@ def measure_cmds_of(own_mod_files: List[Dict[str, Any]],
     return out
 
 
+ROOT_WT_SENTINEL = "PYTEST_MEASURE"      # 根層 worktree 認的尺：pytest 摘要行映射的 DONE 哨兵（config verify_ledger.sentinel_regex）
+MAP_REL = ".claude/overview-map.md"
+
+
+def is_root_worktree(root: Path, claude_dir: Path) -> bool:
+    """root 是「根層（~/.claude）的 worktree」：root ≠ claude_dir，且兩邊的 .claude/overview-map.md 位元組相同。
+    任一表不存在、或兩者是同一目錄 → False。純函式，不碰 state。"""
+    try:
+        r, c = Path(root), Path(claude_dir)
+        if _norm_path(os.path.realpath(str(r))) == _norm_path(os.path.realpath(str(c))):
+            return False
+        return (r / MAP_REL).read_bytes() == (c / MAP_REL).read_bytes()
+    except OSError:
+        return False
+
+
 def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]], turn_seq: int,
                         lookup: Callable[[str], Optional[Tuple[Path, Dict[str, Any]]]], cfg: Dict[str, Any],
                         chains_of: Callable[[Path], Dict[str, Dict[str, str]]] = load_verify_chains,
@@ -739,7 +759,9 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                         ) -> Tuple[Optional[str], List[str]]:
     """改到的部位有量尺 → 先 runtime_gate（量不了就擋並說原因）→ 找「該部位最後一次修改之後」（比 at，沒有比序號，再沒有比 turn）、
     同 root、exit 0／None 且 failed=0 的 DONE 且 cmd 含量尺指令，沒有→擋。回 (擋訊息或 None, 沒量尺的部位名清單＝提醒補)。
-    小修也要重跑尺：同 turn 再改一行，之前的 DONE 就在修改之前、不算；尺太重的部位把量尺改成子集指令（表上那格）。"""
+    小修也要重跑尺：同 turn 再改一行，之前的 DONE 就在修改之前、不算；尺太重的部位把量尺改成子集指令（表上那格）。
+    根層 worktree（is_root_worktree(root, CLAUDE_DIR)）：工作 session 不跑全量，該部位的尺改認「同 root 下、修改之後、
+    exit 0 且 failed=0 的 pytest DONE 收據（哨兵 PYTEST_MEASURE）」；live 根層（root == CLAUDE_DIR）與非根層專案行為不變。"""
     parts: Dict[str, Dict[str, Any]] = {}
     for m in own_mod_files or []:
         p = (m or {}).get("path", "")
@@ -780,11 +802,17 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                 blocks.append(f"部位【{part}】有量尺（{measure.get('method') or cmd}）但執行環境未就緒：{why}。"
                               "這次量不了就不能宣告完成：寫明量不了的原因與何時能量，或讓環境就緒後跑尺。")
                 continue
-        ok_done = done_receipts(receipts, min_turn=rec["edit_turn"], cmd_contains=cmd, min_at=rec["edit_at"] or None,
-                                min_seq=rec["edit_seq"], root=str(root))
+        root_wt = is_root_worktree(root, CLAUDE_DIR)
+        pick = {"sentinel_name": ROOT_WT_SENTINEL} if root_wt else {"cmd_contains": cmd}
+        ok_done = done_receipts(receipts, min_turn=rec["edit_turn"], min_at=rec["edit_at"] or None,
+                                min_seq=rec["edit_seq"], root=str(root), **pick)
         if ok_done:
             continue
-        any_done = done_receipts(receipts, cmd_contains=cmd, require_ok=False)
+        ruler = (f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
+                 f"哨兵 {ROOT_WT_SENTINEL}，表上的尺 `{cmd}` 不是這裡的門檻）")
+        rerun = (f"在 worktree 根 `{root}` 直接跑目標 verify `python -X utf8 -m pytest -q <hooks/verify/...>`"
+                 f"（不含 cd；尾行 `N passed` 會映射成 {ROOT_WT_SENTINEL} DONE）")
+        any_done = done_receipts(receipts, require_ok=False, **pick)
         if any_done:
             last = any_done[-1]
             failed = next(((s.get("kv") or {}).get("failed") for s in last.get("sentinels") or []
@@ -797,8 +825,15 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                 why = f"最近一次跑尺的 cwd／project_root（{last.get('project_root') or last.get('cwd')}）不是這個部位的 root"
             else:
                 why = "最近一次跑尺在這個部位最後一次修改之前（先量後改不算）"
-            blocks.append(f"部位【{part}】有量尺「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」，{why}。"
-                          f"改完再跑一次 `{cmd}`（尾行 `<NAME> DONE` 或 `<NAME>_CHECK DONE`，exit 0、failed=0）再收尾。")
+            if root_wt:
+                blocks.append(f"部位【{part}】有量尺{ruler}，{why}。改完再跑一次 {rerun} 再收尾。")
+            else:
+                blocks.append(f"部位【{part}】有量尺「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」，{why}。"
+                              f"改完再跑一次 `{cmd}`（尾行 `<NAME> DONE` 或 `<NAME>_CHECK DONE`，exit 0、failed=0）再收尾。")
+        elif root_wt:
+            blocks.append(f"部位【{part}】有量尺{ruler}，"
+                          f"改了 {len(rec['files'])} 個檔（最後在 turn {rec['edit_turn']}）但之後沒有這把尺的 DONE 收據。"
+                          f"跑 {rerun} 再收尾。")
         else:
             blocks.append(f"部位【{part}】有量尺「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」，"
                           f"改了 {len(rec['files'])} 個檔（最後在 turn {rec['edit_turn']}）但之後沒有這把尺的 DONE 收據。"

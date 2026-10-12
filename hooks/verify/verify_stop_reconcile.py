@@ -528,3 +528,126 @@ def test_load_verify_chains_reads_hub_json(tmp_path):
                                          encoding="utf-8", newline="\n")
     assert vl.load_verify_chains(tmp_path) == {"p": {"runtime_gate": "x", "run": "y"}}
     assert vl.load_verify_chains(tmp_path / "nope") == {}
+
+
+# ─── Q8 根層 worktree：認目標 verify 的 pytest DONE，不要求全量 ──────────────
+
+_MAP_BYTES = (FIX / "q6" / "overview-map.md").read_bytes()
+_PYTEST_CMD = "python -X utf8 -m pytest -q hooks/verify/verify_x.py"
+
+
+def _pytest_done(turn, root, exit_code=0, cmd=_PYTEST_CMD):
+    """pytest 摘要行 `N passed` 經 sentinel_regex 映射後的收據：PYTEST PASS ＋ PYTEST_MEASURE DONE 兩個哨兵。"""
+    return {"turn_seq": turn, "tool": "Bash", "cmd": cmd, "exit_code": exit_code, "at": "",
+            "project_root": str(root), "cwd": str(root),
+            "sentinels": [{"name": "PYTEST", "verdict": "PASS", "kv": {}},
+                          {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
+
+
+def _two_roots(tmp_path, same_map=True):
+    """live 根（當 CLAUDE_DIR）與 worktree 根各放一張表；same_map=False 時 worktree 的表內容不同（＝一般專案）。"""
+    live, wt = tmp_path / "live", tmp_path / "wt"
+    for d in (live, wt):
+        (d / ".claude").mkdir(parents=True)
+    (live / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES)
+    extra = "\n| `x/` | 其他 | 無 | 無 | 無 | 無 | 無 |\n".encode("utf-8")
+    (wt / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES if same_map else _MAP_BYTES + extra)
+    return live, wt
+
+
+def _lookup_at(root):
+    def lookup(path):
+        row = match_row(path, root, ROWS)
+        return (root, row) if row else None
+    return lookup
+
+
+def test_is_root_worktree_pure_checks(tmp_path):
+    live, wt = _two_roots(tmp_path)
+    assert vl.is_root_worktree(wt, live) is True
+    assert vl.is_root_worktree(live, live) is False                 # 同一目錄不是 worktree
+    assert vl.is_root_worktree(tmp_path / "nope", live) is False    # 表不存在
+    assert vl.is_root_worktree(wt, tmp_path / "nope") is False
+    _, wt2 = _two_roots(tmp_path / "b", same_map=False)
+    assert vl.is_root_worktree(wt2, live) is False                  # 表內容不同＝一般專案
+
+
+_HEAD = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n  ✗ "
+# 基底 2b15257 hooks/wg_verify_ledger.py 第 800～805 行的兩句原文（非根層 worktree 分支逐字不變）
+_BASE_STALE = ("部位【hook 共用模組層】有量尺「全量 verify｜`python -X utf8 run_verify.py`｜全綠」，"
+               "最近一次跑尺在這個部位最後一次修改之前（先量後改不算）。"
+               "改完再跑一次 `python -X utf8 run_verify.py`（尾行 `<NAME> DONE` 或 `<NAME>_CHECK DONE`，exit 0、failed=0）再收尾。")
+_BASE_NONE = ("部位【hook 共用模組層】有量尺「全量 verify｜`python -X utf8 run_verify.py`｜全綠」，"
+              "改了 1 個檔（最後在 turn 5）但之後沒有這把尺的 DONE 收據。"
+              "跑 `python -X utf8 run_verify.py`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
+
+
+def test_non_root_worktree_block_messages_verbatim_as_base(tmp_path, monkeypatch):
+    """非根層 worktree 的兩句擋訊息與基底原文逐字相同：一般專案（表不在 CLAUDE_DIR）與 live 根層（root == CLAUDE_DIR）各比一次。"""
+    live, _ = _two_roots(tmp_path)
+    for root, lookup, claude_dir in ((ROOT, _lookup, live), (live, _lookup_at(live), live)):
+        monkeypatch.setattr(vl, "CLAUDE_DIR", claude_dir)
+        mod = str(Path(root) / "hooks" / "x.py")
+        stale = {**_rcpt(2, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(root), "cwd": str(root)}
+        reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [stale], 5, lookup, vl.MEASURE_DEFAULTS)
+        assert reason == _HEAD + _BASE_STALE, reason
+        reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [], 5, lookup, vl.MEASURE_DEFAULTS)
+        assert reason == _HEAD + _BASE_NONE, reason
+
+
+def test_done_receipts_sentinel_name_filter():
+    pt = _pytest_done(5, ROOT)
+    plain = _rcpt(5, "DONE", 0, cmd=MEASURE_CMD)
+    assert vl.done_receipts([pt, plain], sentinel_name="PYTEST_MEASURE") == [pt]
+    assert vl.done_receipts([pt, plain]) == [pt, plain]             # 預設＝舊行為
+
+
+def test_root_worktree_pytest_done_after_edit_passes(tmp_path, monkeypatch):
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, wt)], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason is None
+
+
+def test_root_worktree_pytest_done_from_live_root_blocks(tmp_path, monkeypatch):
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, live)], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "根層 worktree" in reason and "不是這個部位的 root" in reason and "不要求全量" in reason
+
+
+def test_root_worktree_pytest_done_before_edit_blocks(tmp_path, monkeypatch):
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(2, wt)], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "根層 worktree" in reason and "修改之前" in reason
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, wt, exit_code=1)], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "尺沒過" in reason
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "沒有這把尺的 DONE 收據" in reason and "PYTEST_MEASURE" in reason
+
+
+def test_live_root_still_requires_full_measure(tmp_path, monkeypatch):
+    """live 根層（root == CLAUDE_DIR）行為一字不變：只有 pytest DONE 不夠，要 run_verify.py 的 DONE。"""
+    live, _ = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(live / "hooks" / "x.py")
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, live)], 5, _lookup_at(live), vl.MEASURE_DEFAULTS)
+    assert reason and MEASURE_CMD in reason and "根層 worktree" not in reason
+    full = {**_rcpt(5, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(live), "cwd": str(live)}
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [full], 5, _lookup_at(live), vl.MEASURE_DEFAULTS)
+    assert reason is None
+
+
+def test_project_worktree_with_different_map_keeps_project_logic(tmp_path, monkeypatch):
+    live, wt = _two_roots(tmp_path, same_map=False)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, wt)], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and MEASURE_CMD in reason and "根層 worktree" not in reason
+    full = {**_rcpt(5, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(wt), "cwd": str(wt)}
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [full], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason is None
