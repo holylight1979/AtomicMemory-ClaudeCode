@@ -174,13 +174,17 @@ def _py_main_block(mod: Module, node: ast.If) -> None:
     mod.funcs.append(f)
 
 
+def _py_stores(nodes: list) -> Counter:
+    """被指定的名字各幾次；只有型別宣告沒給值的（handler: Callable）不算指定。"""
+    bare = {id(n.target) for n in nodes if isinstance(n, ast.AnnAssign) and n.value is None}
+    return Counter(n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and id(n) not in bare)
+
+
 def _py_count_bindings(mod: Module, nodes: list) -> None:
     """模組層程式碼裡的綁定：import 的名字、被指定的名字都算一次（__main__ 區塊裡的指定也是模組層）。"""
-    for node in nodes:
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            mod.bindings.update((a.asname or a.name).split(".")[0] for a in node.names)
-        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            mod.bindings[node.id] += 1
+    for node in [n for n in nodes if isinstance(n, (ast.Import, ast.ImportFrom))]:
+        mod.bindings.update((a.asname or a.name).split(".")[0] for a in node.names)
+    mod.bindings.update(_py_stores(nodes))
 
 
 def _py_module_stmt(mod: Module, node: ast.stmt) -> None:
@@ -418,9 +422,11 @@ def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
     for node in nodes:
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and _py_ann(node.annotation):
             f.local_types[node.target.id] = _py_ann(node.annotation)
+        if isinstance(node, ast.AnnAssign) and node.value is not None:
+            _py_bind(f, cls, node.target, node.value)      # w: Base = Child()：實際型別看建構的那個
         elif isinstance(node, ast.Assign) and len(node.targets) == 1:
             _py_bind(f, cls, node.targets[0], node.value)
-    stores = Counter(n.id for n in nodes if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store))
+    stores = _py_stores(nodes)
     f.locals = set(stores)
     stores.update(f.params)
     stores.update(n.name for n in nodes if isinstance(n, _DEF_NODES))   # 巢狀 def 也是一次綁定
@@ -470,6 +476,7 @@ _CS_LISTEN = re.compile(r"(?P<lhs>[\w.]+)\s*\.\s*AddListener\s*\(\s*(?P<rhs>[A-Z
 _CS_LOCAL = re.compile(r"\b(?:var|(?P<type>[A-Z]\w*)(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?:new\s+(?P<new>\w+))?")
 _CS_ALIAS = re.compile(r"\b(?:var|[A-Z]\w*(?:<[^<>;=]*>)?)\s+(?P<var>[a-z_]\w*)\s*=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
 _CS_STORE = re.compile(r"\b([a-z_]\w*)\s*=(?![=>])")   # 區域變數被指定（宣告或重新指定；不含 ==、=>、+=）
+_CS_MODIFY = re.compile(r"\b([a-z_]\w*)\s*[+\-]=(?!=)")   # cb += B、cb -= A：委派被改（數值也算，只影響別名與確定型別）
 _CS_BYREF = re.compile(r"\b(?:ref|out)\s+(?:var\s+|[\w<>\[\],.?]+\s+(?=[a-z_]\w*\s*[,)]))?([a-z_]\w*)")
 _CS_INLINE = re.compile(r"(?:^|[;{}])\s*(?:(?:static|async)\s+)*(?P<type>[\w<>\[\],?.]+)\s+(?P<name>\w+)\s*"
                         r"(?:\([^()]*\)\s*(?:\{|=>)|=\s*(?:\([^()]*\)|\w+)\s*=>)", re.M)   # 區域函式、lambda 變數
@@ -651,6 +658,7 @@ def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1:
     f.locals = {m["var"] for m in _CS_LOCAL.finditer(body)} | set(f.aliases)   # 有宣告的才是區域變數；裸名指定可能是欄位
     stores.update(f.params)
     stores.update({name: 2 for name in _CS_BYREF.findall(body)})   # 傳 ref／out 出去：呼叫後值可能被換掉
+    stores.update({name: 2 for name in _CS_MODIFY.findall(body)})
     f.reassigned = {name for name, k in stores.items() if k > 1}
     for m in _CS_ASSIGN.finditer(body):
         if m["new"]:

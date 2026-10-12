@@ -1149,6 +1149,62 @@ def test_compare_text_carries_caveats(tmp_path):
     assert "本次涉及的限制與可能誤報：" in text and "只轉傳的層" in text
 
 
+# ─── 白名單初審（be45e1f）抓到的：白名單外卻確定（A）、白名單內被誤標（B） ─────────
+
+def _certain_edges(g, fid: str) -> list:
+    return sorted(e.dst for e in g.edges[fid] if not e.guess)
+
+
+def test_a_module_import_rebound_by_a_factory_is_not_certain(tmp_path):
+    files = {"a.py": "def work():\n    w = 1\n    w += 1\n    return w\n",
+             "app.py": ("import a\n\n\ndef pick_backend():\n    return object()\n\n\na = pick_backend()\n\n\n"
+                        "def main():\n    a.work()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert _certain_edges(g, "app.py::main") == []
+
+
+def test_a_one_uncertain_callback_source_keeps_the_edge_candidate(tmp_path):
+    files = {"app.py": ("class Base:\n    def work(self):\n        raise NotImplementedError\n\n\n"
+                        "class Child(Base):\n    def work(self):\n        q = 1\n        q += 1\n        return q\n\n\n"
+                        "def run(cb):\n    cb()\n\n\ndef install(b: Base):\n    run(b.work)\n\n\n"
+                        "def main():\n    c = Child()\n    run(c.work)\n    install(c)\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert _certain_edges(g, "app.py::run") == [], "b.work 是候選：同一目標的確定來源不能抹掉它"
+
+
+def test_a_callback_stored_in_a_field_is_candidate(tmp_path):
+    files = {"app.py": ("def work():\n    w = 1\n    w += 1\n    return w\n\n\n"
+                        "class Runner:\n    def __init__(self, cb):\n        self.cb = cb\n\n"
+                        "    def run(self):\n        self.cb()\n\n\n"
+                        "def main():\n    r = Runner(work)\n    r.run()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    edges = [(e.dst, e.guess) for e in g.edges["app.py::Runner.run"]]
+    assert edges and all(guess.startswith("候選：經由欄位存下的 callback") for _, guess in edges)
+
+
+def test_a_csharp_delegate_compound_assignment_is_not_a_simple_alias(tmp_path):
+    cs = ("using System;\nclass P {\n    static void A() { int x = 1; x++; x *= 2; }\n"
+          "    static void B() { int x = 2; x++; x *= 3; }\n"
+          "    static void Main() {\n        Action cb = A;\n        cb += B;\n        cb();\n    }\n}\n")
+    g = rp.build_graph(_write(tmp_path, {"P.cs": cs}))
+    assert _certain_edges(g, "P.cs::P.Main") == []
+
+
+def test_b_annotation_without_value_is_not_a_binding(tmp_path):
+    files = {"app.py": ("from typing import Callable\n\n\ndef work():\n    w = 1\n    w += 1\n    return w\n\n\n"
+                        "handler: Callable\nhandler = work\n\n\ndef main():\n    handler()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert _certain_edges(g, "app.py::main") == ["app.py::work"]
+
+
+def test_b_annotated_construction_is_exact(tmp_path):
+    files = {"app.py": ("class Base:\n    def run(self):\n        return 1\n\n\n"
+                        "class Child(Base):\n    def run(self):\n        return 2\n\n\n"
+                        "def main():\n    w: Base = Base()\n    w.run()\n")}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert [(e.dst, e.guess) for e in g.edges["app.py::main"] if "run" in e.dst] == [("app.py::Base.run", "")]
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

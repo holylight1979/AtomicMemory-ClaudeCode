@@ -466,10 +466,11 @@ class Graph:
         reason = f"候選：{len(ids)} 個多載，沒比對參數型別" if len(ids) > 1 else ""
         return [Edge(i, "direct", guess=reason, via=via) for i in dict.fromkeys(ids)]
 
-    def _defer(self, src: lang.Func, bind: tuple, defer: bool, shaky: bool = False) -> list:
-        """callback 等所有呼叫者都連好再解：記下 (呼叫的函式, 綁定的函式, 參數名, 參數是否在函式裡被重新指定)。"""
+    def _defer(self, src: lang.Func, bind: tuple, defer: bool, flag: str = "") -> list:
+        """callback 等所有呼叫者都連好再解：記下 (呼叫的函式, 綁定的函式, 參數名, 旗標)。
+        旗標：reassigned＝參數在函式裡被重新指定；stored＝經由欄位存下的 callback（欄位可能被換）；空＝直接呼叫參數。"""
         if defer:
-            self.pending.append((src.id, *bind, shaky))
+            self.pending.append((src.id, *bind, flag))
         return []
 
     def _param_call(self, f, c, defer) -> list:
@@ -480,7 +481,7 @@ class Graph:
         ref = f.aliases.get(c.name) if shaky else None
         reason = f"候選：參數 {c.name} 在函式裡被重新指定"
         edges = [Edge(e.dst, e.kind, guess=reason) for e in self.resolve(f, ref, defer=False)] if ref else []
-        return edges + self._defer(f, (f.id, c.name), defer, shaky)
+        return edges + self._defer(f, (f.id, c.name), defer, "reassigned" if shaky else "")
 
     def alias_target(self, f: lang.Func, name: str):
         """fn = b; fn(n)：沿區域變數別名走到真正的函式參照（最多 MAX_REEXPORT 跳）；
@@ -530,7 +531,7 @@ class Graph:
             return hits
         stored = self.stored_param(cls, c.name)
         if stored:
-            return self._defer(f, stored, defer)
+            return self._defer(f, stored, defer, "stored")
         return self._r_emit(f, c, defer) if any(c.name in x.events for x in self.ancestry(cls)) else []
 
     def _r_super(self, f, c, defer):
@@ -566,7 +567,7 @@ class Graph:
             ref = self.alias_target(f, c.name)
             return self.resolve(f, ref, defer) if ref else []
         stored = self.stored_param(self.cls_of(f), c.name) if f.cls else None
-        return self._defer(f, stored, defer) if stored else self._r_emit(f, c, defer)
+        return self._defer(f, stored, defer, "stored") if stored else self._r_emit(f, c, defer)
 
     def _r_table(self, f, c, defer):
         """分派表：函式內的表在函式語境解（self._r_x 要認得出類別），模組層的表在模組語境解。"""
@@ -674,16 +675,21 @@ class Graph:
         if recv.startswith("mod:"):
             target = self.find_module(recv[4:], 0, f.file)
             return ("module", target, False) if target else ("external", None, False)
-        whole = self.module_alias(f, recv) if f.lang == "py" and recv else None
+        head, *rest = recv.split(".")
+        whole = self.module_alias(f, recv) if f.lang == "py" and recv and not self._shadowed(f, head) else None
         if whole:
             return "module", whole, False
-        head, *rest = recv.split(".")
         kind, cls = self._recv_head(f, head)
         for seg in rest:
             cls = self.field_type(cls, seg) if cls else None
         constructed = head in f.exact and head not in f.reassigned and head not in f.escaped
         exact = (kind == "static" or constructed) and not rest
         return (kind, cls, exact) if cls or kind == "external" else ("", None, False)
+
+    def _shadowed(self, f: lang.Func, head: str) -> bool:
+        """import 進來的模組名在函式裡被區域變數或參數遮住，或在模組層被重新指定（a = pick_backend()）：不能當那個模組。"""
+        mod = self.modules.get(f.file)
+        return head in f.locals or head in f.params or bool(mod and head in mod.rebound and head not in self.scoped_imports(f))
 
     def _recv_head(self, f: lang.Func, head: str):
         if head in ("self", "this"):
@@ -787,25 +793,27 @@ class Graph:
                 deferred = len(self.pending) > waiting      # callback：等下面解完才知道算連線還是未解
                 self.hits[f.id] += bool(edges)
                 self.unres[f.id] += not edges and not deferred and not self.is_external(f, c)
-        for src, bind, param, shaky in self.pending:
+        for src, bind, param, flag in self.pending:
             found = {}
             for dst, guess in callback_targets(self, bind, param):
-                found[dst] = guess if dst not in found else (found[dst] and guess)   # 有一處確定就算確定
+                found[dst] = guess if dst not in found else (found[dst] or guess)    # 任一處來源不確定就保留候選
             b = self.bound_refs(bind, param)
             dead = [(c, r) for c, r in b.refs if not self.resolve(c, r, defer=False)]   # 傳了具名函式卻連不到
             unknown = b.blind or any(not self.is_external(c, r) for c, r in dead)
-            reason = self._callback_reason(param, len(found), shaky, unknown, b.mixed or bool(dead), b.callers)
+            reason = self._callback_reason(param, len(found), flag, unknown, b.mixed or bool(dead), b.callers)
             self._add_edges(src, [Edge(t, "callback", guess=g or reason) for t, g in found.items()], None)
             self.hits[src] += bool(found)
             self.unres[src] += unknown or not (found or dead or b.mixed)   # 沒有任何來源證據（沒呼叫者也沒預設值）也算未解
 
     @staticmethod
-    def _callback_reason(param: str, targets: int, shaky: bool, unknown: bool, mixed: bool, callers: int) -> str:
-        """callback 邊的不確定原因：看不到的來源 > 參數被改指 > 沒有已知呼叫者 > 混了 lambda／外部函式 > 多個目標；
-        都沒有＝確定（白名單第 5 條）。"""
+    def _callback_reason(param: str, targets: int, flag: str, unknown: bool, mixed: bool, callers: int) -> str:
+        """callback 邊的不確定原因：看不到的來源 > 經由欄位存下 > 參數被改指 > 沒有已知呼叫者 > 混了 lambda／外部函式
+        > 多個目標；都沒有＝確定（白名單第 5 條）。"""
         if unknown:
             return f"候選：有呼叫處傳進看不到的函式給 {param}，這只是看得到的那些"
-        if shaky:
+        if flag == "stored":
+            return f"候選：經由欄位存下的 callback（建構時傳進 {param}），欄位可能被換"
+        if flag == "reassigned":
             return f"候選：參數 {param} 在函式裡被重新指定"
         if not callers:
             return f"候選：{param} 沒有已知呼叫者，只看到預設值"
