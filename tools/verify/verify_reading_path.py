@@ -1322,6 +1322,7 @@ def test_c4_constructor_through_an_import_alias_is_certain_by_rule_2(tmp_path):
     run = [e for e in g.edges["app.py::main"] if e.dst.endswith("run")]
     assert [(e.dst, _sure(e)) for e in run] == [("worker.py::Worker.run", True)], \
         "W 經 import 別名唯一解析到 worker.Worker，剛 new 的區域變數：確定"
+    assert g.unres["app.py::main"] == 0, "W() 建構沒有 __init__ 的類別：不是看不到的呼叫"
     assert [_rule_of(e) for e in run] == [2]
 
 

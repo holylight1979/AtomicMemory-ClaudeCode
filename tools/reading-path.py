@@ -1001,8 +1001,8 @@ class Graph:
             return not self.coarse.get(name)
         if f.lang == "cs":
             return self._external_cs_name(f, name)
-        if name in PY_BUILTINS or self.classes.get(name) or (name == "cls" and f.params[:1] == ["cls"]):
-            return True
+        if name in PY_BUILTINS or self.class_ref(f, name) or (name == "cls" and f.params[:1] == ["cls"]):
+            return True                            # 建構沒有 __init__ 的類別（含 import 別名）：沒有要讀的建構子
         mod = self.modules.get(f.file)
         if mod and name in mod.opaque:
             return False                           # 模組層名字被指定成算出來的值：看不到
