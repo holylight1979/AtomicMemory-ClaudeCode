@@ -90,7 +90,9 @@ WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候�
      就算被捕捉，同樣失去資格；建構者的名字（含 import 別名）也要從未被重新指定
   3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、區域變數標註、
      欄位宣告型別；self.x = Foo() 這種推導出來的不算）同樣只在沒有子類覆寫、也沒有多載時
-     （照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）
+     （照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）；標註在它被求值的作用域解析：參數標註在 def 的
+     外層（方法是類別本體、巢狀函式是外層函式、模組層函式是模組層），函式本體裡的標註（含 self.x: Foo）在那個本體，
+     類別本體的標註在類別本體；那個作用域裡這個名字還有別的綁定（區域 import、指定、同名參數、類別屬性）就不給
   4. 簡單區域別名：同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式
   5. callback：有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、參數沒被重新指定
   類別證據（1、2、3 條的建構者、標註、欄位型別、類別.方法 的類別）只認沿綁定鏈（本檔定義、import 鏈、re-export、
@@ -377,10 +379,17 @@ class Graph:
         其他（欄位鏈、算出來的、指定好幾次、只靠同名搜尋）→ None。"""
         if "." in recv or recv == "?" or recv in f.reassigned:
             return None
-        typed = f.constructed.get(recv) or f.param_types.get(recv) or f.declared.get(recv)
-        if typed is None and recv not in f.locals and recv not in f.params:
-            typed = recv                               # 類別.名 = …
-        cls, src = self.class_lookup(f, typed) if typed else (None, "unknown")
+        if recv in f.constructed:
+            ctx, typed = f, f.constructed[recv]
+        elif recv in f.param_types:
+            ctx, typed = self.outer_ctx(f), f.param_types[recv]   # 參數標註在 def 的外層解析
+        elif recv in f.declared:
+            ctx, typed = f, f.declared[recv]
+        elif recv not in f.locals and recv not in f.params:
+            ctx, typed = f, recv                       # 類別.名 = …
+        else:
+            return None
+        cls, src = self.class_lookup(ctx, typed)
         return cls if src == "project" else None
 
     def _add_class(self, c: lang.Cls) -> None:
@@ -535,9 +544,33 @@ class Graph:
         return False
 
     def _field_decl(self, cls, attr: str, table: str = "fields"):
-        """欄位寫的型別（沿繼承鏈找）→ (欄位所在檔的模組語境, 型別寫法) 或 None；table＝declared_fields 時只認宣告的。"""
+        """欄位寫的型別（沿繼承鏈找）→ (解析它的語境, 型別寫法) 或 None；table＝declared_fields 時只認宣告的。
+        語境照型別證據寫在哪裡（總原則 3）：類別本體的標註在類別本體解析，方法裡的 self.x: Foo／self.x = Foo() 在那個方法的本體。"""
         owner = next((c for c in self.ancestry(cls) if attr in getattr(c, table)), None)
-        return (self.module_ctx(owner.files[0]), getattr(owner, table)[attr]) if owner else None
+        if owner is None:
+            return None
+        scope = (owner.declared_scope if table == "declared_fields" else owner.field_scope).get(attr, "")
+        return self.funcs.get(scope) or self.class_body_ctx(owner), getattr(owner, table)[attr]
+
+    def outer_ctx(self, f: lang.Func) -> lang.Func:
+        """f 的 def 在哪個作用域執行——參數標註與參數預設值在這裡求值（Python 語意）：巢狀函式 → 外層函式；
+        方法 → 類別本體（本體綁定的名字遮住外面的，之後才是模組層）；模組層函式 → 模組層。C# 沒有這個分別，就是 f。"""
+        if f.lang != "py":
+            return f
+        scopes = self.scopes(f)
+        if len(scopes) > 1:
+            return self.funcs.get(f"{f.file}::{scopes[-2]}") or self.module_ctx(f.file)
+        cls = self.cls_of(f)
+        return self.class_body_ctx(cls) if cls else self.module_ctx(f.file)
+
+    def class_body_ctx(self, cls) -> lang.Func:
+        """類別本體當解析語境：本體綁定的名字（方法、指定、import、巢狀類別…）是這一層的區域綁定（裝的是什麼不追），
+        其他照模組層找。C# 沒有這個分別，就是類別所在檔的模組層。"""
+        file = cls.files[0]
+        if cls.lang != "py":
+            return self.module_ctx(file)
+        qual = f"<class {cls.name}>"
+        return lang.Func(f"{file}::{qual}", file, qual, qual, "", "py", 0, locals=set(cls.body_names))
 
     def field_type(self, cls, attr: str):
         """找目標用：欄位的型別（宣告的與 self.x = Foo() 推導的都算；類別照 class_ref）。"""
@@ -579,7 +612,7 @@ class Graph:
         宣告 nonlocal name → 那一層不算、往外層找。找目標（_r_name、module_alias、類別證據）與證明穩定（stable）
         都只看這一次查找的結果，兩邊才不會各自找到不同的綁定。"""
         for scope in reversed(self.scopes(f)):
-            owner = self.funcs.get(f"{f.file}::{scope}")
+            owner = self.funcs.get(f"{f.file}::{scope}") or (f if scope == f.qual else None)   # 沒登記的語境（類別本體）看它自己
             if owner is None or name in owner.nonlocal_names:
                 continue
             if name in owner.global_names:
@@ -630,7 +663,7 @@ class Graph:
         offset = 1 if f.lang == "py" and f.cls and f.params[:1] in (["self"], ["cls"]) else 0
         pos = f.params.index(param) - offset
         callers = [(caller, call) for caller, call in self.callers.get(bind_fid, []) if self.same_side(f, caller.file)]
-        default = [(self.module_ctx(f.file), f.defaults[param])] if param in f.defaults else []
+        default = [(self.outer_ctx(f), f.defaults[param])] if param in f.defaults else []
         refs, unknown, mixed = [], not callers and param in f.blind_defaults, False
         for caller, call in callers:
             state = self._arg_at(call, pos, param)
@@ -953,11 +986,10 @@ class Graph:
     def _recv_head(self, f: lang.Func, head: str):
         if head in ("self", "this"):
             return "object", self.cls_of(f)
-        changed = head in f.constructed and head in f.reassigned      # x = Base() 之後又 x = Child()：型別不定
-        typed = None if changed else f.local_types.get(head) or f.param_types.get(head)
-        if typed and self._type_external(f, typed):
+        evidence = self._type_evidence(f, head)
+        if evidence and self._type_external(*evidence):
             return "external", None                     # 標註或建構者指到專案外（pathlib.Path、typing 型別、第三方）
-        typed_cls = self.class_ref(f, typed) if typed else None
+        typed_cls = self.class_ref(*evidence) if evidence else None
         if typed_cls:                                   # 解不到類別（工廠函式、沒匯入的名字）就照沒型別往下判
             return "object", typed_cls
         own = self.cls_of(f)
@@ -970,6 +1002,16 @@ class Graph:
         if imp and not self.find_module(imp[0], imp[1], f.file):
             return "external", None               # 匯入的外部模組或其成員（json、os.path…）
         return "", None
+
+    def _type_evidence(self, f: lang.Func, head: str):
+        """f 裡區域名字 head 的型別寫法與解析它的語境 → (語境, 型別寫法) 或 None（總原則 3：型別證據帶作用域）。
+        區域變數的建構者與區域標註在本體（f）解析；參數標註在 def 的外層解析（outer_ctx）。
+        建構過又被重新指定（x = Base() 之後 x = Child()）→ None：型別不定。"""
+        if head in f.constructed and head in f.reassigned:
+            return None
+        if head in f.local_types:
+            return f, f.local_types[head]
+        return (self.outer_ctx(f), f.param_types[head]) if head in f.param_types else None
 
     # 綁定穩定：白名單 1、2（建構者名稱）、4 共用的唯一判斷 ─────
 
@@ -1201,14 +1243,15 @@ class Graph:
         return None, ""
 
     def _declared_type(self, f: lang.Func, recv: str):
-        """接收者的型別來自宣告：參數標註、區域變數標註（C# 寫明型別的宣告）、欄位宣告型別；沿 a.b.c 每一段都要是宣告的。
+        """接收者的型別來自宣告：參數標註（在 def 的外層解析）、區域變數標註（在本體解析；C# 寫明型別的宣告）、
+        欄位宣告型別（在寫它的地方解析）；沿 a.b.c 每一段都要是宣告的。
         建構推導的型別（x = Foo()、self.x = Foo()）不算——那是第 2 條的證據，失去第 2 條資格就不能改走這條。
         宣告的型別也要沿綁定鏈解析到專案內的類別（class_proof）：全專案同名搜尋、指到外部的都不算。"""
         head, *rest = recv.split(".")
         if head in ("self", "this"):
             cls = self.cls_of(f) if rest else None
         elif head in f.param_types and head not in f.reassigned:
-            cls = self.class_proof(f, f.param_types[head])
+            cls = self.class_proof(self.outer_ctx(f), f.param_types[head])   # 參數標註在 def 的外層解析
         elif head in f.declared and head not in f.reassigned:
             cls = self.class_proof(f, f.declared[head])
         elif f.lang == "cs" and head not in f.locals and head not in f.params and f.cls:

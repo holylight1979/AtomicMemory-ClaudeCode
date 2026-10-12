@@ -1831,6 +1831,65 @@ def test_p2_a_constructed_local_captured_by_a_generator_or_comprehension_loses_r
     assert run == [False], f"{form}：w 被巢狀作用域捕捉，第 2 條不成立"
 
 
+def test_p3_case3_a_body_import_does_not_retarget_a_parameter_annotation(tmp_path):
+    """案 3：參數標註 Path 在 def 的外層（模組層）求值＝pathlib.Path（外部）；函式本體裡的 from other import Path 不改它。"""
+    files = {"other.py": "class Path:\n    def resolve(self):\n        x = 1\n        return x + 1\n",
+             "app.py": "from pathlib import Path\n\n\ndef main(p: Path):\n    from other import Path\n    return p.resolve()\n"}
+    g = rp.build_graph(_write(tmp_path, files))
+    assert "other.py::Path.resolve" not in [e.dst for e in g.edges["app.py::main"]], "標註指到 pathlib.Path，不連專案的 Path"
+    assert g.unres["app.py::main"] == 0, "型別確知在專案外：不是看不到的呼叫"
+
+
+def test_p3_case5_a_same_name_parameter_does_not_hide_the_annotation(tmp_path):
+    """案 5（正例）：def main(p: Worker, Worker)：標註在外層解析到模組層的 class Worker；同名參數只在本體裡遮住 → 第 3 條。"""
+    files = {"app.py": WORKER + "\n\ndef main(p: Worker, Worker):\n    return p.run()\n"}
+    assert _sure_edges(files, "app.py::main", tmp_path / "a") == [("app.py::Worker.run", True)]
+    assert _edge_rules(files, "app.py::main", tmp_path / "b") == [("app.py::Worker.run", 3)]
+
+
+P3_CLASS_BODY = {   # 方法的參數標註在類別本體求值：類別本體也綁了 Worker
+    "class_attribute": "    Worker = Other\n\n",
+    "class_import": "    from other import Worker\n\n",
+}
+
+
+@pytest.mark.parametrize("form", sorted(P3_CLASS_BODY))
+def test_p3_a_method_annotation_name_bound_in_the_class_body_is_not_rule_3(tmp_path, form):
+    """標註同名區域綁定（反例）：方法的參數標註在類別本體求值，類別本體裡的 Worker（類別屬性、import）遮住模組層的
+    Worker，實際是 Other／other.Worker → 不給第 3 條。"""
+    app = WORKER + "\n\nclass Other:\n    def run(self):\n        return 3\n\n\nclass App:\n" + P3_CLASS_BODY[form] + \
+        "    def go(self, w: Worker):\n        w.run()\n"
+    files = {"other.py": WORKER, "app.py": app}
+    assert ("app.py::Worker.run", True) not in _sure_edges(files, "app.py::App.go", tmp_path / "a"), f"{form}：標註不是模組層的 Worker"
+    assert all(r is None for d, r in _edge_rules(files, "app.py::App.go", tmp_path / "b") if d.endswith("Worker.run"))
+
+
+def test_p3_a_nested_function_parameter_annotation_resolves_in_the_enclosing_scope(tmp_path):
+    """標註在外層正確解析（正例）：inner 的參數標註 Worker 在 outer 求值＝模組層的 Worker；inner 本體裡的
+    from other import Worker 只影響本體 → 連 app.py::Worker.run、第 3 條。"""
+    files = {"other.py": WORKER, "app.py": WORKER + "\n\ndef outer(x):\n    def inner(w: Worker):\n        from other import Worker\n"
+                                           "        return w.run()\n\n    return inner(x)\n"}
+    assert _sure_edges(files, "app.py::outer.inner", tmp_path / "a") == [("app.py::Worker.run", True)]
+    assert _edge_rules(files, "app.py::outer.inner", tmp_path / "b") == [("app.py::Worker.run", 3)]
+
+
+def test_p3_a_field_annotation_in_a_method_body_resolves_in_that_body(tmp_path):
+    """函式本體裡的區域標註在本體解析：__init__ 裡 from other import Worker 之後的 self.worker: Worker 是 other.py 的 Worker。"""
+    files = {"other.py": WORKER, "app.py": WORKER + "\n\nclass App:\n    def __init__(self, worker):\n        from other import Worker\n"
+                                           "        self.worker: Worker = worker\n\n    def go(self):\n        self.worker.run()\n"}
+    assert _sure_edges(files, "app.py::App.go", tmp_path / "a") == [("other.py::Worker.run", True)]
+    assert _edge_rules(files, "app.py::App.go", tmp_path / "b") == [("other.py::Worker.run", 3)]
+
+
+def test_p3_a_parameter_default_resolves_in_the_enclosing_scope(tmp_path):
+    """參數預設值跟參數標註一樣在 def 的外層求值：inner(cb=work) 的 work 是 outer 的巢狀 def，不是模組層的 work。"""
+    files = {"app.py": "def work():\n" + BODY + "\n\ndef outer():\n    def work():\n        q = 2\n        return q * 2\n\n"
+                       "    def inner(cb=work):\n        return cb()\n\n    return inner()\n"}
+    edges = _sure_edges(files, "app.py::outer.inner", tmp_path / "a")
+    assert "app.py::work" not in [d for d, _ in edges], "預設值 work 是 outer 的巢狀 def，不是模組層的 work"
+    assert _edge_rules(files, "app.py::outer.inner", tmp_path / "b") == [("app.py::outer.work", 5)]
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

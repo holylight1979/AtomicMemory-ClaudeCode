@@ -97,6 +97,9 @@ class Cls:
     methods: dict = field(default_factory=dict)   # 方法名 → [func id]（C# 多載同名全收）
     fields: dict = field(default_factory=dict)    # 欄位 → 型別名（宣告的與 self.x = Foo() 推導的都有）：找目標用
     declared_fields: dict = field(default_factory=dict)   # 欄位 → 宣告的型別名（類別層標註、self.x: Foo = …、C# 欄位宣告）：白名單 3 只吃這個
+    field_scope: dict = field(default_factory=dict)      # 欄位 → fields 那筆型別證據寫在哪個函式（func id；沒有或 ""＝類別本體）：在那裡解析
+    declared_scope: dict = field(default_factory=dict)   # 欄位 → declared_fields 那筆寫在哪個函式（同上）
+    body_names: set = field(default_factory=set)         # Python 類別本體綁定的名字（方法、指定、import、巢狀類別…）：方法的參數標註先在這裡找
     stored: dict = field(default_factory=dict)    # 欄位 → (func id, 參數名)：把參數存成欄位的 callback
     events: set = field(default_factory=set)
     partial: bool = False
@@ -284,9 +287,11 @@ def _py_class(mod: Module, node: ast.ClassDef) -> None:
             _py_func(mod, item, node.name + ".", cls)
         elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and _py_ann(item.annotation):
             cls.fields[item.target.id] = cls.declared_fields[item.target.id] = _py_ann(item.annotation)
+            cls.field_scope[item.target.id] = cls.declared_scope[item.target.id] = ""   # 類別本體的標註在類別本體解析
     plain = list(_own_nodes([item for item in node.body if not isinstance(item, _DEF_NODES)]))
     names = set(_py_stores(plain)) | {n for n in map(_bound_name, plain) if n}
     mod.attr_stores |= {(node.name, name) for name in names}   # 類別本體 run = other、import run、巢狀 class run：蓋掉同名方法
+    cls.body_names = names | {item.name for item in node.body if isinstance(item, _DEF_NODES)}
     mod.classes.append(cls)
 
 
@@ -540,6 +545,7 @@ def _py_locals(f: Func, cls: Cls | None, nodes: list) -> None:
             f.local_types[node.target.id] = f.declared[node.target.id] = ann
         if ann and cls and isinstance(node.target, ast.Attribute) and _py_recv(node.target.value) == "self":
             cls.fields[node.target.attr] = cls.declared_fields[node.target.attr] = ann
+            cls.field_scope[node.target.attr] = cls.declared_scope[node.target.attr] = f.id   # 方法本體裡的標註在本體解析
         if isinstance(node, ast.AnnAssign) and node.value is not None:
             _py_bind(f, cls, node.target, node.value)      # w: Base = Child()：實際型別看建構的那個
         elif isinstance(node, ast.Assign) and len(node.targets) == 1:
@@ -665,6 +671,7 @@ def _py_bind(f: Func, cls: Cls | None, target, value) -> None:
         return
     if ctor:
         cls.fields[target.attr] = ctor
+        cls.field_scope[target.attr] = f.id
     elif isinstance(value, ast.Name) and value.id in f.params:
         cls.stored[target.attr] = (f.id, value.id)
 
