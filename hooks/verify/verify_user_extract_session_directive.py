@@ -195,7 +195,7 @@ def test_spawned_worker_errors_land_in_logs_and_candidate_stays(tmp_path, monkey
     deadline = time.time() + 90
     while time.time() < deadline and "萃取紀錄寫不進" not in (log.read_text("utf-8", "replace") if log.exists() else ""):
         time.sleep(0.5)
-    assert "萃取紀錄寫不進" in log.read_text("utf-8", "replace")                        # 反例：舊碼 stderr 進 DEVNULL
+    assert log.exists() and "萃取紀錄寫不進" in log.read_text("utf-8", "replace")       # 反例：舊碼 stderr 進 DEVNULL
     left = json.loads((data / "workflow" / f"state-{sid}.json").read_text(encoding="utf-8"))["pending_user_extract"]
     assert [c["turn_id"] for c in left] == [f"{sid}-0"]
 
