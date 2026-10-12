@@ -602,6 +602,20 @@ def _root_world(tmp_path, monkeypatch):
     return live, wt, proj
 
 
+def test_024_root_worktree_card_search_uses_data_root_not_worktree_copy(tmp_path, monkeypatch):
+    """024 修正：根層 worktree 的導讀卡補搜也以資料根（card_mem_dir）為準。資料根（live）已沒有這張卡、worktree 的 memory/
+    還留著開分支時的舊副本 → 不撿舊副本、列為 missing，也沒搜 worktree；一般專案在非預設目錄的卡照舊補搜得到。"""
+    live, wt, proj = _root_world(tmp_path, monkeypatch)
+    row = {"status": "部分", "cards": ["hooks導讀"], "part_short": "hook 層", "part": "hooks/"}
+    (live / "memory" / "CC" / "hooks導讀.md").unlink()
+    paths, miss = wo._resolve_row_cards(wt, row, {})
+    assert paths == [] and miss and miss["missing"] == ["hooks導讀"]
+    assert not any(Path(s) == wt or str(wt) in s for s in miss["searched"])
+    (proj / ".claude" / "memory" / "shared" / "hooks導讀.md").unlink()
+    paths, miss = wo._resolve_row_cards(proj, row, {})
+    assert [p.parent.name for p in paths] == ["CC"] and miss and miss["missing"] == []      # 專案根 memory/CC 那張照撿
+
+
 def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
     live, wt, proj = _root_world(tmp_path, monkeypatch)
     assert oh.card_mem_dir(live, live) == live / "memory"

@@ -239,16 +239,17 @@ def _card_name_matches(card: str, stem: str) -> bool:
                for n in (card, card.replace("_", "-")))
 
 
-def _search_cards(root: Path, cards: List[str], budget_s: float = CARD_SEARCH_BUDGET_S) -> Dict[str, Any]:
-    """_cards_for 回空時接著搜 repo：依序找 <根>/memory/、_AIDocs/_atoms/、.claude/memory/，再整個根往下找 <卡名>.md
-    （含底線換連字號；略過 .git、node_modules、_distant、.claude/worktrees；總時限 budget_s 秒）。
+def _search_cards(root: Path, cards: List[str], budget_s: float = CARD_SEARCH_BUDGET_S,
+                  bases: Optional[Tuple[Path, ...]] = None) -> Dict[str, Any]:
+    """_cards_for 回空時接著搜：bases 依序往下找 <卡名>.md（含底線換連字號；略過 .git、node_modules、_distant、.claude/worktrees；
+    總時限 budget_s 秒）。bases 預設是 <根>/memory/、_AIDocs/_atoms/、.claude/memory/，再整個根。
     回 {"found": [卡檔], "missing": [找不到的卡名], "searched": [找過的位置], "timed_out": bool}。"""
     deadline = _clock() + budget_s
     found: Dict[str, Path] = {}
     searched: List[str] = []
     done: List[str] = []
     timed_out = False
-    for base in (root / "memory", root / "_AIDocs" / "_atoms", root / ".claude" / "memory", root):
+    for base in bases or (root / "memory", root / "_AIDocs" / "_atoms", root / ".claude" / "memory", root):
         if timed_out or len(found) == len(cards):
             break
         if not base.is_dir():
@@ -275,8 +276,9 @@ def _search_cards(root: Path, cards: List[str], budget_s: float = CARD_SEARCH_BU
 
 
 def _resolve_row_cards(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> Tuple[List[Path], Optional[Dict[str, Any]]]:
-    """表列的卡：先 _cards_for（預設目錄），表上卡名對不到找到的檔的那幾張再 _search_cards。
-    回 (全部找到的卡檔, 搜尋結果或 None)；搜尋結果 missing 非空＝有卡在 repo 裡找不到。"""
+    """表列的卡：先 _cards_for（預設目錄），表上卡名對不到找到的檔的那幾張再 _search_cards。卡片目錄（card_mem_dir）不在
+    root 底下＝根層 worktree，卡是資料、權威在 live：補搜只找資料根的 memory/ 與 _AIDocs/_atoms/，不從 worktree 撿開分支時的
+    舊副本；live 根層與一般專案照原本的位置補搜。回 (全部找到的卡檔, 搜尋結果或 None)；搜尋結果 missing 非空＝有卡找不到。"""
     paths = _cards_for(root, row, cfg)
     if not _needs_card(row):
         return paths, None
@@ -284,7 +286,9 @@ def _resolve_row_cards(root: Path, row: Dict[str, Any], cfg: Dict[str, Any]) -> 
     absent = [c for c in row["cards"] if not any(_card_name_matches(c, s) for s in stems)]
     if not absent:
         return paths, None
-    miss = _search_cards(root, absent)
+    mem_dir = card_mem_dir(root, CLAUDE_DIR)
+    inside = os.path.normcase(os.path.abspath(mem_dir)).startswith(os.path.normcase(os.path.abspath(root)) + os.sep)
+    miss = _search_cards(root, absent, bases=None if inside else (mem_dir, mem_dir.parent / "_AIDocs" / "_atoms"))
     return paths + miss["found"], miss
 
 

@@ -1034,10 +1034,11 @@ def test_headless_before_exhausted_is_ordinary_block(driven, capsys, monkeypatch
 _EDIT_AT = "2026-10-12T10:00:00+08:00"          # ＝UTC 02:00:00
 
 
-def _self_run(started="2026-10-12T02:00:01+00:00", exit_code=0, failed=0, root=str(ROOT), cmd=MEASURE_CMD):
+def _self_run(started="2026-10-12T02:00:01+00:00", exit_code=0, failed=0, root=str(ROOT), cmd=MEASURE_CMD, env=None):
     return {"cmd": cmd, "sentinel": f"VERIFY_CHECK {'DONE' if not failed else 'FAIL'} cases=9 failed={failed}",
             "exit_code": exit_code, "cases": 9, "failed": failed, "cwd": root, "project_root": root,
-            "started_at": started, "at": "2026-10-12T02:20:00+00:00", "source": "run_verify_self"}
+            "started_at": started, "at": "2026-10-12T02:20:00+00:00", "source": "run_verify_self",
+            "env": {} if env is None else env}
 
 
 def _mg(runs, mods=None):
@@ -2093,6 +2094,108 @@ def test_022_codex_pre_ruler_covers_only_its_exec_root():
     top = _rcpt(5, cmd=MEASURE_CMD)
     assert vl.claimed_paths(top, [widget], [MEASURE_CMD]) == [widget]
     assert vl.receipt_relates(top, [widget], measure_cmds=[MEASURE_CMD])
+
+
+# ─── 024：影響範圍的環境選項只看真的進子程式環境、值非空的設定；自寫收據共用同一個判斷；去錨點懂註解 ────────────
+
+def _pytest_row():
+    return {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q"}}
+
+
+@pytest.mark.parametrize("cmd, tool, fold, counts", [
+    ("pytest_addopts='-k x' python -m pytest -q", "Bash", True, False),         # Windows：bash 小寫在 Python 裡就是 PYTEST_ADDOPTS
+    ("pytest_addopts='-k x' python -m pytest -q", "Bash", False, True),         # 非 Windows：小寫是另一個變數
+    ('$PYTEST_ADDOPTS="工作備註"; python -m pytest -q', "PowerShell", True, True),  # PowerShell 變數不進子程式環境
+    ('$global:PYTEST_ADDOPTS="-k x"; python -m pytest -q', "PowerShell", True, True),
+    ("PYTEST_ADDOPTS='' python -m pytest -q", "Bash", True, True),              # 清空不算縮小範圍
+    ('$env:PYTEST_ADDOPTS=""; python -m pytest -q', "PowerShell", True, True),
+    ("$env:PYTEST_ADDOPTS=$null; python -m pytest -q", "PowerShell", True, True),
+    ('$env:pytest_addopts="-k x"; python -m pytest -q', "PowerShell", True, False),
+    ("export PYTEST_ADDOPTS='-k x'; python -m pytest -q", "Bash", True, False),
+    ("PYTEST_ADDOPTS='-k x'; python -m pytest -q", "Bash", True, False),        # 單獨一段：變數若本來就在環境裡會傳下去，照算
+    ("PYTHONOPTIMIZE=1 python -m pytest -q", "Bash", True, False),
+    ("$env:PYTHONOPTIMIZE='$null'; python -m pytest -q", "PowerShell", True, False),  # 加引號的 '$null' 是字串，非空
+    ("$env:PYTHONOPTIMIZE=' '; python -m pytest -q", "PowerShell", True, False),      # 空白也是值，不修剪
+    ("$env:PYTEST_ADDOPTS='-k x'; $env:PYTEST_ADDOPTS=''; python -m pytest -q", "PowerShell", True, True),  # 照順序：啟動時已清空
+    ("export PYTEST_ADDOPTS='-k x'; PYTEST_ADDOPTS='' python -m pytest -q", "Bash", True, True),
+])
+def test_024_1_scope_env_counts_only_child_env_with_value(monkeypatch, cmd, tool, fold, counts):
+    """024 規則 1：只有真的進到子程式環境（bash 行內前綴／export、PowerShell 只有 $env:）而且值非空的 PYTEST_ADDOPTS／
+    PYTHONOPTIMIZE 才算縮小驗證範圍；名稱照受執行平台比（fold＝Windows 不分大小寫）。counts＝這條仍算整體驗證、也對得上量尺。"""
+    monkeypatch.setattr(vl._self_receipt, "_ENV_CASE_FOLD", fold, raising=False)
+    widget = r"c:\proj\src\widget.py"
+    r = {**_rcpt(5, cmd=cmd), "tool": tool}
+    assert (vl.claimed_paths(r, [widget]) == [widget]) is counts, cmd
+    assert (_gate(cmd, tool, _pytest_row()) is None) is counts, cmd
+
+
+def test_024_1_ruler_with_scope_env_compares_values():
+    """024 規則 1：表上量尺本身帶影響範圍的環境設定時，收據要同名同值才對得上；換成縮小範圍的值、或少了它都對不上。"""
+    row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "PYTEST_ADDOPTS='--tb=short' python -m pytest -q"}}
+    assert _gate("PYTEST_ADDOPTS='--tb=short' python -m pytest -q", row=row) is None
+    assert _gate("PYTEST_ADDOPTS='-k x' python -m pytest -q", row=row) is not None
+    assert _gate("python -m pytest -q", row=row) is not None
+
+
+def test_024_1_scope_env_block_message_names_variable_and_fix():
+    """024 規則 1：被環境選項擋下時，訊息說是哪個環境設定、怎麼改，不是「量尺前後接了別的指令」。"""
+    reason = _gate("PYTEST_ADDOPTS='-k x' python -m pytest -q", row=_pytest_row())
+    assert reason and "PYTEST_ADDOPTS" in reason and "拿掉這個設定" in reason and "前後接了別的指令" not in reason
+
+
+def test_024_2_self_receipt_with_scope_env_does_not_settle_part(tmp_path, monkeypatch):
+    """024 規則 2：`PYTEST_ADDOPTS='-k x' python -X utf8 run_verify.py` 的自寫收據（用真的 write_self_receipt 序列化）不能替部位
+    解帳，擋訊息說是哪個環境設定；配對正例：環境裡沒有或是空值時，同樣寫出的收據照算。"""
+    from datetime import datetime, timezone
+    started = datetime(2026, 10, 12, 2, 0, 1, tzinfo=timezone.utc).timestamp()
+
+    def written(name, value):
+        monkeypatch.delenv("PYTEST_ADDOPTS", raising=False)
+        monkeypatch.delenv("PYTHONOPTIMIZE", raising=False)
+        if value is not None:
+            monkeypatch.setenv("PYTEST_ADDOPTS", value)
+        p = vl._self_receipt.write_self_receipt(tmp_path / name, ["python", "-X", "utf8", "run_verify.py"],
+                                                "VERIFY_CHECK DONE cases=1 failed=0", 0, 1, 0, str(ROOT), str(ROOT),
+                                                started, started + 60)
+        return json.loads(p.read_text(encoding="utf-8"))
+    reason = _mg([written("subset", "-k test_x")])
+    assert reason and "PYTEST_ADDOPTS" in reason and "自寫收據" in reason
+    assert _mg([written("clean", None)]) is None and _mg([written("empty", "")]) is None
+    legacy = {k: v for k, v in _self_run().items() if k != "env"}
+    assert _mg([legacy]) is not None                                                      # 沒記 env 的舊收據看不出來，不算
+
+
+def test_024_3_verbose_comment_in_config_sentinel(monkeypatch, capsys):
+    """024 規則 3：config 哨兵 regex 帶 verbose 註解（註解裡有 `[`）時，輸出端認得到，指令端藏在前置變數值裡也要擋；
+    只對某段開關 verbose 的 `(?x:…)` 處理不了 → 拒用並在 stderr 說是哪一條、怎麼改。"""
+    import wg_core
+    rule = {"regex": "(?x)# [ metadata\n^CUSTOM_OK$", "name": "CUSTOM", "verdict_map": {"CUSTOM_OK": "DONE"}}
+    assert [s["verdict"] for s in vl.parse_sentinels("CUSTOM_OK\n", vl.compile_sentinel_rules([rule]))] == ["DONE"]
+    monkeypatch.setattr(wg_core, "load_config", lambda: {"verify_ledger": {"sentinel_regex": [rule]}})
+    monkeypatch.setattr(vl, "_arg_res", [])
+    assert vl._prints_sentinel("NOTE='CUSTOM_OK'; " + MEASURE_CMD, "bash")
+    assert _gate("NOTE='CUSTOM_OK'; " + MEASURE_CMD) is not None
+    note = {"regex": "(?#[ note)^CUSTOM_OK$", "name": "CUSTOM", "verdict_map": {"CUSTOM_OK": "DONE"}}
+    monkeypatch.setattr(wg_core, "load_config", lambda: {"verify_ledger": {"sentinel_regex": [note]}})
+    monkeypatch.setattr(vl, "_arg_res", [])
+    assert vl._prints_sentinel("NOTE='CUSTOM_OK'; " + MEASURE_CMD, "bash")                # (?#…) 註解任何模式都拿掉
+    for regex, arg in (("(?x)^[a[] # metadata\nCUSTOM_OK$", "[CUSTOM_OK trailing"),       # [a[] 是 a 或 [，之後的 ] 才關閉
+                       ("(?x)# (?x: metadata\n^CUSTOM_OK$", "CUSTOM_OK"),                  # 註解裡的 (?x: 不是旗標群組
+                       ("^[a(?x:)]CUSTOM_OK$", "aCUSTOM_OK")):                             # 字元類裡的 (?x: 也不是
+        rule = {"regex": regex, "name": "CUSTOM", "verdict_map": {"CUSTOM_OK": "DONE"}}
+        assert vl.parse_sentinels(arg.split()[0] + "\n", vl.compile_sentinel_rules([rule])), regex   # 輸出端認得到
+        monkeypatch.setattr(wg_core, "load_config", lambda rule=rule: {"verify_ledger": {"sentinel_regex": [rule]}})
+        monkeypatch.setattr(vl, "_arg_res", [])
+        capsys.readouterr()
+        assert vl._prints_sentinel(f"NOTE='{arg}'; " + MEASURE_CMD, "bash"), regex
+        assert "無法用來掃指令" not in capsys.readouterr().err, regex
+    scoped = {"regex": "(?x:^CUSTOM_OK$)", "name": "SCOPED", "verdict_map": {"CUSTOM_OK": "DONE"}}
+    monkeypatch.setattr(wg_core, "load_config", lambda: {"verify_ledger": {"sentinel_regex": [scoped]}})
+    monkeypatch.setattr(vl, "_arg_res", [])
+    capsys.readouterr()
+    vl._prints_sentinel(MEASURE_CMD, "bash")
+    err = capsys.readouterr().err
+    assert "(?x:^CUSTOM_OK$)" in err and "無法用來掃指令" in err and "不帶 verbose 註解" in err
 
 
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────

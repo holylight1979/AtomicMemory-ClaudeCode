@@ -18,7 +18,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, TextIO, Tuple, Union
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, TextIO, Tuple, Union
 
 RUNS_REL = Path("workflow") / "verify-ledger" / "_runs"
 SOURCE = "run_verify_self"
@@ -58,8 +58,9 @@ _ASSIGN_CMDS = frozenset({"export", "declare", "typeset", "readonly", "local"}) 
 _FORBIDDEN_ENV = frozenset({"PS1", "PS2", "PS3", "PS4", "PROMPT_COMMAND", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS",
                             "BASH_XTRACEFD", "IFS"})
 # 從環境替程式加選項的變數：等於命令列多帶了選項（PYTEST_ADDOPTS 塞 -k／路徑縮成子集、PYTHONOPTIMIZE 等於 -O），
-# 整體驗證與量尺比對只看命令列看不見，指定了就不算整體驗證、也對不上沒指定它的量尺
+# 整體驗證與量尺比對只看命令列看不見；真的進到子程式環境且值非空就不算整體驗證、也對不上沒指定它的量尺（scope_env）
 _ARG_ENV = frozenset({"PYTEST_ADDOPTS", "PYTHONOPTIMIZE"})
+_ENV_CASE_FOLD = os.name == "nt"        # 受執行平台的環境變數名：Windows 不分大小寫（bash 的 pytest_addopts= 在 Windows Python 就是它）
 _PS_VAR_RE = re.compile(r"^\$[A-Za-z_][\w:]*$")
 _PS_ASSIGN_RE = re.compile(r"^\$[A-Za-z_][\w:]*=")
 _PS_LITERAL_RE = re.compile(r"^(?:'(?:[^']|'')*'|\"[^\"$`]*\"|-?\d+(?:\.\d+)?|\$(?:true|false|null))$", re.IGNORECASE)
@@ -135,14 +136,79 @@ def _assignments(words: List[str], raws: List[str], ps: bool) -> List[Tuple[str,
     return out
 
 
-def _arg_env(cmd: Argv, shell: str = "bash") -> frozenset:
-    """指令裡指定了哪些 _ARG_ENV 變數（行內前綴、獨立指定、export、PowerShell $env: 都算；PowerShell 不分大小寫）；
-    argv 清單（自寫收據，不經 shell）沒有環境指定。"""
+def _env_key(name: str) -> str:
+    return name.upper() if _ENV_CASE_FOLD else name
+
+
+def scope_env(pairs: Iterable[Tuple[str, Any]]) -> List[str]:
+    """會改變驗證範圍的環境設定：名稱是 _ARG_ENV 之一（照受執行平台比，Windows 不分大小寫）而且值非空 → 回名稱（照寫法、去重）。
+    session 收據（程式啟動當下的有效環境，_scope_maps）與自寫收據（run_verify 記下的行程環境）共用這個判斷。"""
+    out: List[str] = []
+    seen = set()
+    for name, value in pairs:
+        key = _env_key(str(name))
+        if key in _ARG_ENV and str(value if value is not None else "") != "" and key not in seen:
+            seen.add(key)
+            out.append(str(name))
+    return out
+
+
+def _child_env(words: List[str], raws: List[str], ps: bool) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
+    """這個指令對子程式環境的指定 → (之後的指令都看得到的, 只給這個指令的)，各是 [(變數名, 值)]（值是去掉引號後的字，不修剪）。
+    bash：接在程式前面的 `X=值` 是行內前綴，只給這個指令；單獨一段的 `X=值`（若該變數本來就在繼承的環境裡，之後的程式都看得到，
+    收據看不出來，照算）、export 與 declare／typeset -x 的 `X=值` 之後都看得到。PowerShell：只有 `$env:X=值`（`$X=`、`$global:X=`
+    是 PowerShell 自己的變數，不進子程式環境），之後都看得到；值是沒加引號的 `$null` 等於刪掉，算空（`'$null'` 是字串）。"""
+    if ps:
+        m = re.match(r"^\$env:([A-Za-z_]\w*)(?:=(.*))?$", words[0], re.IGNORECASE | re.DOTALL) if words else None
+        if not m:
+            return [], []
+        if m.group(2) is not None:
+            vals, rhs = [m.group(2), *words[1:]], [raws[0].split("=", 1)[1], *raws[1:]]
+        elif len(words) > 1 and words[1].startswith("="):
+            vals, rhs = [words[1][1:], *words[2:]], [raws[1][1:], *raws[2:]]
+        else:
+            return [], []
+        keep = [(v, r) for v, r in zip(vals, rhs) if r != ""]          # `=` 自己切出來的空段不是值
+        null = len(keep) == 1 and keep[0][1].lower() == "$null"
+        return [(m.group(1), "" if null else " ".join(v for v, _ in keep))], []
+    rest = _strip_env(words)
+    prefix = [(w.split("=", 1)[0], w.split("=", 1)[1]) for w in words[:len(words) - len(rest)]]
+    if not rest:
+        return prefix, []
+    exports = _prog(rest[0]) == "export" or (_prog(rest[0]) in ("declare", "typeset")
+                                             and any(t.startswith("-") and "x" in t for t in rest[1:]))
+    lasting = [(w.split("=", 1)[0], w.split("=", 1)[1]) for w in rest[1:] if _ENV_ASSIGN_RE.match(w)] if exports else []
+    return lasting, prefix
+
+
+def _scope_maps(cmd: Argv, shell: str = "bash") -> List[Dict[str, Tuple[str, str]]]:
+    """每個指令（split_shell 的順序，與 parse_cmds 一一對應）啟動當下看得到、會縮小驗證範圍的環境：{平台鍵: (照寫法的名稱, 值)}，
+    只留 scope_env 判定的。照執行順序算：後面的指定蓋前面的（`$env:X='-k x'; $env:X=''` 到程式時已是空值），bash 行內前綴
+    只給它接的那個指令。argv 清單（自寫收據，不經 shell）沒有環境指定 → [{}]。"""
     if isinstance(cmd, (list, tuple)):
-        return frozenset()
+        return [{}]
     ps = shell == "powershell"
-    names = (n.upper() if ps else n for ch in split_shell(str(cmd or ""), shell)[0] for n, _ in _assignments(ch.words, ch.raw, ps))
-    return frozenset(n for n in names if n in _ARG_ENV)
+    lasting_env: Dict[str, Tuple[str, str]] = {}
+    out: List[Dict[str, Tuple[str, str]]] = []
+    for ch in split_shell(str(cmd or ""), shell)[0]:
+        lasting, inline = _child_env(ch.words, ch.raw, ps)
+        lasting_env.update({_env_key(n): (n, v) for n, v in lasting})
+        here = {**lasting_env, **{_env_key(n): (n, v) for n, v in inline}}
+        out.append({k: nv for k, nv in here.items() if scope_env([nv])})
+    return out
+
+
+def cmd_scope_env(cmd: Argv, shell: str = "bash") -> List[str]:
+    """指令的最後一個程式（後面只准尾端過濾）啟動當下，看得到的會縮小驗證範圍的環境設定名稱（_scope_maps）；
+    給整體驗證與擋訊息用。自寫收據（argv 清單）看它記下的 env，不在這裡判。"""
+    maps = _scope_maps(cmd, shell)
+    k = _first_filter(parse_cmds(cmd, shell)) if not isinstance(cmd, (list, tuple)) else 1
+    here = maps[k - 1] if 0 < k <= len(maps) else {}
+    return [n for n, _ in here.values()]
+
+
+def _scope_vals(m: Dict[str, Tuple[str, str]]) -> Dict[str, str]:
+    return {k: v for k, (_, v) in m.items()}
 
 
 def _literal_assign(raw_tok: str) -> bool:
@@ -473,13 +539,18 @@ def final_step(cmd: Argv, shell: str = "bash", root: str = "") -> Optional[Step]
 
 
 def is_whole_run(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
-    """整體驗證：final_step 是執行根自己的 run_verify.py（root 給了就照完整路徑身分比，`archive/run_verify.py`、別處同名都不算；
-    沒給就認不出是哪一支，要照寫法就是 `run_verify.py`，`archive/run_verify.py`、絕對路徑都不算）且不帶任何參數，或不帶位置參數、
-    只帶不縮範圍選項（-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准 -X utf8、-u、-B。-k、-m、--lf、--collect-only、
-    --deselect、--ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）；從環境塞選項（PYTEST_ADDOPTS、PYTHONOPTIMIZE）
-    也不算。涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
+    """整體驗證：命令列是整體驗證的形狀（whole_run_shape），而且沒有進到子程式環境、會縮小範圍的設定（cmd_scope_env）。
+    涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
+    return whole_run_shape(cmd, shell, root) and not cmd_scope_env(cmd, shell)
+
+
+def whole_run_shape(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
+    """只看命令列的整體驗證形狀：final_step 是執行根自己的 run_verify.py（root 給了就照完整路徑身分比，`archive/run_verify.py`、
+    別處同名都不算；沒給就認不出是哪一支，要照寫法就是 `run_verify.py`，`archive/run_verify.py`、絕對路徑都不算）且不帶任何參數，
+    或不帶位置參數、只帶不縮範圍選項（-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准 -X utf8、-u、-B。-k、-m、--lf、
+    --collect-only、--deselect、--ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）。"""
     st = final_step(cmd, shell, root)
-    if not st or not set(st.cmd[1]) <= _WHOLE_PY_OPTS or _arg_env(cmd, shell):
+    if not st or not set(st.cmd[1]) <= _WHOLE_PY_OPTS:
         return False
     if st.cmd[0] == _script_id("run_verify.py", root):
         as_written = any(posixpath.normpath(w.replace("\\", "/").lower()) == "run_verify.py" for w in st.words)
@@ -534,15 +605,18 @@ def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "
 def match_span(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "",
                measure_root: str = "") -> Optional[Tuple[int, int]]:
     """cmd_matches 對上的量尺片段在 cmd 裡是第幾到第幾個指令（[start, end)，與 split_shell 斷出的指令一一對應）；對不上 → None。
-    呼叫端要知道哪一段是量尺本身（量尺自帶的 `&& echo … DONE` 不算寫了假哨兵，其餘位置都算）。"""
+    呼叫端要知道哪一段是量尺本身（量尺自帶的 `&& echo … DONE` 不算寫了假哨兵，其餘位置都算）。
+    片段每一段啟動當下會縮小驗證範圍的有效環境（_scope_maps，連值）要和表上那段相同：從環境多塞或改了選項＝跑的不是表上那組。"""
     m = parse_cmds(measure_cmd, root=measure_root or root)
     e = parse_cmds(cmd, shell, root or measure_root)
-    if not m or _arg_env(cmd, shell) - _arg_env(measure_cmd):     # 從環境多塞選項＝跑的不是表上那組選項
+    if not m:
         return None
+    m_env, e_env = _scope_maps(measure_cmd), _scope_maps(cmd, shell)
     tail_ok = len(m) == 1 or _prog(m[-1].words[0] if m[-1].words else "") in _ECHO_PROGS
     for end in range(_first_filter(e), len(e) + 1):
         start = end - len(m)
-        if start >= 0 and (end == len(e) or tail_ok) and _reachable(e, start) and _chain_at(m, e, start):
+        if (start >= 0 and (end == len(e) or tail_ok) and _reachable(e, start) and _chain_at(m, e, start)
+                and all(_scope_vals(e_env[start + j]) == _scope_vals(m_env[j]) for j in range(len(m)))):
             return start, end
     return None
 
@@ -655,12 +729,14 @@ def write_self_receipt(claude_dir: Path, argv: List[str], sentinel: str, exit_co
                        cwd: str, project_root: str, started: float, ended: float,
                        err: Optional[TextIO] = None) -> Optional[Path]:
     """寫一份自寫收據，回寫入的路徑；寫不進去 → err（預設 stderr）印一行、回 None，不拋例外（不改呼叫端的 exit code）。
-    project_root＝受測的那棵樹（run_verify 傳自己的 ROOT），cwd 另存（呼叫時的工作目錄，只供追查）。"""
+    project_root＝受測的那棵樹（run_verify 傳自己的 ROOT），cwd 另存（呼叫時的工作目錄，只供追查）。
+    env＝本行程環境裡影響驗證範圍的變數（_ARG_ENV，照執行平台比名稱；空值也記），讀收據的一方用 scope_env 判斷。"""
     path = Path(claude_dir) / RUNS_REL / f"{datetime.fromtimestamp(ended, timezone.utc):%Y%m%dT%H%M%SZ}-{os.getpid()}.json"
     rec = {
         "cmd": cmd_of(argv), "argv": list(argv), "sentinel": sentinel, "exit_code": int(exit_code),
         "cases": int(cases), "failed": int(failed), "cwd": cwd, "project_root": project_root,
         "started_at": utc_iso(started), "at": utc_iso(ended), "source": SOURCE,
+        "env": {k: v for k, v in os.environ.items() if _env_key(k) in _ARG_ENV},
     }
     try:
         from lib.atom_io import write_text_lf

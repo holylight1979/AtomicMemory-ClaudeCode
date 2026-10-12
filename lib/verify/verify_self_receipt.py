@@ -43,6 +43,15 @@ def test_write_self_receipt_fields_and_location(tmp_path):
     assert b"\r\n" not in p.read_bytes()                                       # LF
 
 
+def test_024_2_write_self_receipt_records_scope_env(tmp_path, monkeypatch):
+    """024 規則 2：自寫收據記下本行程環境裡影響驗證範圍的變數（空值也記；讀的一方照值判斷）。"""
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k x")
+    monkeypatch.setenv("PYTHONOPTIMIZE", "")
+    p = sr.write_self_receipt(tmp_path, ARGV, "VERIFY_CHECK DONE cases=1 failed=0", 0, 1, 0, r"C:\proj", r"C:\proj", 0.0, 1.0)
+    rec = json.loads(p.read_text(encoding="utf-8"))
+    assert {k.upper(): v for k, v in (rec.get("env") or {}).items()} == {"PYTEST_ADDOPTS": "-k x", "PYTHONOPTIMIZE": ""}
+
+
 def test_write_failure_is_one_stderr_line_not_exception(tmp_path):
     (tmp_path / "workflow").write_text("我是檔案不是目錄", encoding="utf-8")       # mkdir 必失敗
     err = io.StringIO()
