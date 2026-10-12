@@ -5202,6 +5202,26 @@
         "replay-guard"
       ],
       "scope": "global"
+    },
+    {
+      "name": "在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過",
+      "path": "_AIDocs/_atoms/MemDev/在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過.md",
+      "triggers": [
+        "同名函式",
+        "遮蔽",
+        "shadow",
+        "提早 return",
+        "判斷順序",
+        "根層 worktree",
+        "巢狀 worktree",
+        "is_root_worktree",
+        "detect_layer",
+        "_layer_of",
+        "長路徑前綴",
+        "UNC",
+        "大小寫"
+      ],
+      "scope": "global"
     }
   ]
 }

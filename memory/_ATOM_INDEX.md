@@ -303,3 +303,4 @@
 | fail-closed閘裡的附加輸出要隔離例外-否則附加資訊炸掉會被當閘異常擋住放行 | memory/設計通則/fail-closed閘裡的附加輸出要隔離例外-否則附加資訊炸掉會被當閘異常擋住放行.md | fail-closed, 閘環境異常, except Exception deny, 附加輸出, 候選填空, 閘內例外, 外部報告解析, OverflowError mktime | global |  |
 | ai寫碼四種行為偏差-第一句當全部-從最大檔出發-函式名下結論-沒派工卻寫無待答 | memory/工作流/ai寫碼四種行為偏差-第一句當全部-從最大檔出發-函式名下結論-沒派工卻寫無待答.md | 第一句當全部, 從最大檔出發, 函式名下結論, 沒派工卻寫無待答, 行為偏差, 綜觀需求, 候選檔怎麼挑, 無待答項, 看函式名就寫結論, 沒實測就下結論, 最大檔, 病灶清單 | global |  |
 | 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail | _AIDocs/_atoms/MemDev/第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail.md | 第二意見工具, second-opinion, 不變量, 對抗測試, CommandLineToArgvW, 切參數, deadline, subprocess timeout, 分塊掃描, 終態保護, pipefail, 修 BLOCK 引入回歸, replay-guard | global |  |
+| 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 | _AIDocs/_atoms/MemDev/在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過.md | 同名函式, 遮蔽, shadow, 提早 return, 判斷順序, 根層 worktree, 巢狀 worktree, is_root_worktree, detect_layer, _layer_of, 長路徑前綴, UNC, 大小寫 | global |  |
