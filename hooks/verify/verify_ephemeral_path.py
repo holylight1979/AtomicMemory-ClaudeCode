@@ -4,7 +4,7 @@
 session scratchpad 就是短路徑寫法；只比字面前綴時兩種寫法對不上，scratchpad 裡的一次性腳本被當成改了程式碼，
 寫碼查核 (d) 要求補案例。
 正例：長／短 × 長／短（路徑寫法 × gettempdir 回傳寫法）四種組合都判成暫存，檔案還不存在也一樣。
-反例：一般專案路徑、含 `~1` 但不在暫存目錄下的路徑判成非暫存。
+反例：一般專案路徑、含 `~1` 但不在暫存目錄下的路徑判成非暫存；`<暫存>\\..\\..\\專案\\x.py` 是專案原碼（經 post_tool_use 照常記改檔）。
 怎麼跑：python -X utf8 -m pytest -q hooks/verify/verify_ephemeral_path.py
 """
 from __future__ import annotations
@@ -67,8 +67,33 @@ def test_021_long_path_failure_is_reported(monkeypatch, capsys):
     """021（codex 審 020 的 WARN）：GetLongPathNameW 對短路徑與各層祖先都回 0（Win32 失敗不拋例外）→ 照原樣比對，並在 stderr
     說一聲，不靜默；不帶短檔名記號的路徑轉不了不出聲（轉不轉都不影響比對）。"""
     monkeypatch.setattr(ctypes.windll.kernel32, "GetLongPathNameW", lambda *a: 0)
-    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: r"C:\proj-temp")
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: r"C:\Users\holylight\AppData\Local\Temp")
     capsys.readouterr()
-    _shared._is_ephemeral_path(r"C:\Users\HOLYLI~1\AppData\Local\Temp\new_dir\probe.py")
+    assert _shared._is_ephemeral_path(r"C:\Users\HOLYLI~1\AppData\Local\Temp\new_dir\probe.py") is False   # 轉不了＝照一般檔記
     assert "短路徑轉長路徑失敗" in capsys.readouterr().err
     assert _shared._is_ephemeral_path(r"C:\proj\x.py") is False and capsys.readouterr().err == ""
+
+
+def test_028_dotdot_out_of_temp_is_project_code(monkeypatch):
+    """028：暫存目錄後面接 `..` 跳回專案原碼（`<暫存>\\..\\..\\..\\.claude-wt\\…\\_shared.py`）不是暫存：轉長路徑後先 normpath
+    再比包含；長短寫法交叉都測。經 post_tool_use 入口，這個改檔照常進 modified_files。"""
+    from handlers import post_tool_use as pt
+    long_, short = _tmp_forms()
+    target = str(HOOKS_DIR / "handlers" / "_shared.py")
+    try:
+        rel = os.path.relpath(target, long_)
+    except ValueError:
+        pytest.skip("暫存目錄與 worktree 不在同一個磁碟，接不出 `..` 路徑")
+    for tmp, base in ((long_, short), (long_, long_), (short, long_), (short, short)):
+        monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda t=tmp: t)
+        assert _shared._is_ephemeral_path(base + "\\" + rel) is False, (tmp, base)
+    p = short + "\\" + rel
+    state = {"turn_seq": 3, "session": {"cwd": str(HOOKS_DIR.parent)}}
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use({"session_id": "sid-028", "tool_name": "Edit", "tool_input": {"file_path": p},
+                                 "tool_response": {}, "cwd": str(HOOKS_DIR.parent)}, {"docdrift": {"enabled": False}})
+    assert any(m.get("path") == p for m in state.get("modified_files") or []), state.get("modified_files")

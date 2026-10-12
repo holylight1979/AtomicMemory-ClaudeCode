@@ -133,13 +133,13 @@ def _long_path(path: str) -> str:
 
 
 def _is_ephemeral_path(path: str) -> bool:
-    """過濾測試/快取/系統 tmp 路徑，避免污染 modified_files。系統 tmp 兩邊都轉成長路徑再比（8.3 短路徑寫法也認得）；
-    含 `~1` 的字樣本身不算暫存。"""
+    """過濾測試/快取/系統 tmp 路徑，避免污染 modified_files。系統 tmp 兩邊都轉成長路徑、再用 normpath 消掉 . 與 .. 才比包含
+    （8.3 短路徑寫法也認得；`<tmp>\\..\\..\\專案\\x.py` 是專案原碼，不是暫存）；含 `~1` 的字樣本身不算暫存。"""
     if not path:
         return False
-    norm = _long_path(path).replace("\\", "/")
+    norm = os.path.normpath(_long_path(os.path.normpath(path))).replace("\\", "/")
     try:
-        tmp_root = _long_path(tempfile.gettempdir()).replace("\\", "/").rstrip("/")
+        tmp_root = os.path.normpath(_long_path(os.path.normpath(tempfile.gettempdir()))).replace("\\", "/").rstrip("/")
         if tmp_root and norm.lower().startswith(tmp_root.lower() + "/"):
             return True
     except Exception as e:  # noqa: BLE001  判不了暫存目錄 → 當一般路徑（照記改檔），浮一行
