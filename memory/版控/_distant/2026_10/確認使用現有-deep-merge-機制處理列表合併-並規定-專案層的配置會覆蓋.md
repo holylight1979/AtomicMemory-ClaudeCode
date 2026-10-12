@@ -17,3 +17,10 @@
 ## 行動
 
 - （依知識內容判斷）
+
+
+## 演化日誌
+
+| 日期 | 變更 | 來源 |
+|------|------|------|
+| 2026-10-12 | 退役移入 _distant/：背景萃取把總控台 claude-2c 送給 track-e 的跨 session 訊息（同伴訊息，非使用者原話）當成使用者決策寫成根層卡；Quote 即 <cross-session-message from-name="claude-2c">。屬 020b／024 要修的洞（live 尚未合併），內容是一次性工作裁定、範疇也錯放版控。 | memory-audit --delete |

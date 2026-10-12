@@ -8,6 +8,8 @@
 - Source: session:c5b0a814#c9c2cf0f 2026-09-14
 - Quote: 「此session的經驗與知識，需要記憶的就atoms記起來吧。都記好以後 上GIT 、上乾淨。」
 
+- Related: cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留
+
 ## 知識
 
 - [臨] CommitOrder 閘看「本回合使用者原話」＝state.turn_prompts（ups_gates.track_turn_prompts 維護；Stop 入口設 turn_open=False 關回合，下一則真使用者訊息重開）。同回合先說「上GIT」再補一句別的不會蓋掉口令；回合中途送的使用者訊息也有進 UserPromptSubmit、有進清單。

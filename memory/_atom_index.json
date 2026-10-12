@@ -5358,17 +5358,6 @@
       "scope": "global"
     },
     {
-      "name": "確認使用現有-deep-merge-機制處理列表合併-並規定-專案層的配置會覆蓋",
-      "path": "memory/版控/確認使用現有-deep-merge-機制處理列表合併-並規定-專案層的配置會覆蓋.md",
-      "triggers": [
-        "overview_hub",
-        "deep_merge",
-        "專案層覆蓋公司層",
-        "配置合併規則"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留",
       "path": "memory/CC與原子記憶契約/cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留.md",
       "triggers": [
@@ -5383,6 +5372,23 @@
         "清理器",
         "標籤注入",
         "system-reminder 引用"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束",
+      "path": "memory/OS-Windows/taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束.md",
+      "triggers": [
+        "TaskStop",
+        "背景任務",
+        "run_in_background",
+        "停掉背景",
+        "孤兒行程",
+        "子行程還在跑",
+        "Stop-Process",
+        "Win32_Process",
+        "取消驗證",
+        "快照複跑"
       ],
       "scope": "global"
     }
