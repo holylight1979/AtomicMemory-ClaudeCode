@@ -1919,6 +1919,60 @@ def test_017d_rescue_map_error_is_logged_not_swallowed_by_name_error(monkeypatch
     assert state.get("usefulness_attributed_seq") == 3 and "usefulness attribution error" not in capsys.readouterr().err
 
 
+# ─── 020-1：執行程式白名單可由三層設定擴充（overview_hub 段的 extra_runner_progs） ───────────────────────
+
+_UNITY = ('"C:/Program Files/Unity/Hub/Editor/2022.3.1f1/Editor/Unity.exe" -batchmode -runTests '
+          '-testFilter Widget -testPlatform EditMode')
+
+
+def _hub_dir(base, progs):
+    """建一層設定根：<base>/.claude/overview-hub.json 寫 extra_runner_progs（progs 為 None 就不寫檔）。"""
+    (base / ".claude").mkdir(parents=True, exist_ok=True)
+    if progs is not None:
+        (base / ".claude" / "overview-hub.json").write_text(json.dumps({"extra_runner_progs": progs}), encoding="utf-8")
+    return base
+
+
+def _unity_claim(driven, capsys, monkeypatch, root, org=None, cmd=_UNITY):
+    """專案根 root 裡改 Widget.cs 與 WidgetTests.cs，收據是 Bash 跑的 cmd（PASS），收尾說「Widget 修好了」→ handle_stop 的輸出。"""
+    monkeypatch.setattr(vl, "_RUNNER_CACHE", {})
+    monkeypatch.setattr(wo, "_org_root", lambda: org)
+    mods = [_mf(str(root / "Assets" / "Scripts" / "Widget.cs"), 5, last_at=_T1, last_seq=3),
+            _mf(str(root / "Assets" / "Tests" / "WidgetTests.cs"), 5, last_at=_T1, last_seq=4)]
+    r = {**_rcpt(5, cmd=cmd, at=_T2), "project_root": str(root), "cwd": str(root)}
+    out, _, _ = driven("Widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
+    return out
+
+
+def test_020_1_project_layer_extra_runner_accepts_unity_cli(driven, capsys, monkeypatch, tmp_path):
+    """專案層 overview-hub.json 加 `unity` → Unity 編輯器 CLI（裝在樹外的絕對路徑）的 PASS 在對帳 (a) 被採認；
+    沒設定 → 照舊擋，擋訊息說可以在 extra_runner_progs 加、專案層會蓋掉公司層。"""
+    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "game", ["unity"]))
+    assert "(a) 說「修好」" not in out and "ReconcileGate" not in out
+    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "plain", None))
+    assert "(a) 說「修好」" in out and "`extra_runner_progs`" in out and "專案層的清單會蓋掉公司層的" in out
+
+
+def test_020_1_project_list_replaces_company_list(driven, capsys, monkeypatch, tmp_path):
+    """清單照既有合併規則由下層整個取代：公司層寫 unity、專案層寫 mytool → unity 不算；專案層寫齊兩個 → 算。"""
+    org = _hub_dir(tmp_path / "org", ["unity"])
+    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "a", ["mytool"]), org=org)
+    assert "(a) 說「修好」" in out
+    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "b", ["mytool", "unity"]), org=org)
+    assert "(a) 說「修好」" not in out
+    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "c", None), org=org)
+    assert "(a) 說「修好」" not in out                                                      # 專案層沒寫 → 用公司層的
+
+
+def test_020_1_extension_is_program_names_not_syntax(driven, capsys, monkeypatch, tmp_path):
+    """擴充的是程式名、不是語法：設定寫 `bash -c` → 設定錯誤、寫碼查核一律擋並列錯誤；設定寫 bash 也不讓 `bash -c "…"` 算數。"""
+    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "bad", ["bash -c"]))
+    assert "判定錯誤，一律擋" in out and "extra_runner_progs「bash -c」不是程式名" in out
+    cmd = 'bash -c "python -m pytest -q Assets/Tests/WidgetTests.py"'
+    out = _unity_claim(driven, capsys, monkeypatch, _hub_dir(tmp_path / "ok", ["unity", "bash"]), cmd=cmd)
+    assert "(a) 說「修好」" in out and "解析不了的語法（另起一層 shell" in out
+
+
 # ─── 017c：寫碼查核看真正的最後一句（短收尾句不被 30 字下限跳過） ─────────────────────────────────
 
 _LONG_NOTE = "這一段是很長的說明，交代改動的來龍去脈與每一個檔案的用途，只是說明而已沒有別的。"

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import codecs
 import json
+import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -71,11 +72,17 @@ HUB_DEFAULTS: Dict[str, Any] = {
     },
     # 量尺閘（wg_verify_ledger）讀合併後的 verify_chains[部位]={runtime_gate,pre,run,collect,cleanup}
     "verify_chains": {},
+    # 寫碼查核的一般證據（對帳 (a) 說修好、(b) 說量了）只認執行程式的指令；內建清單沒有的專案自製測試工具在這裡加程式名
+    # （例：unity），與內建取聯集、不能移除內建。只能列程式名，語法白名單不能用設定放寬。清單照合併規則由下層整個取代：
+    # 專案層的清單會蓋掉公司層的，兩邊都要就寫在專案層。
+    "extra_runner_progs": [],
 }
 KNOWN_KEYS = frozenset(HUB_DEFAULTS)
 RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告，不報錯
 _EOL_POLICIES = ("lf", "crlf", "per-file-head")
-_LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "root_cause_triggers", "locate_template", "source_encodings", "idle_triggers")
+_LIST_OF_STR_KEYS = ("vcs_roots", "readonly_paths", "root_cause_triggers", "locate_template", "source_encodings", "idle_triggers",
+                     "extra_runner_progs")
+_PROG_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")      # extra_runner_progs 每項：單一程式名，不帶路徑、空白、參數
 _DICT_KEYS = ("locate_extra", "min_overview_evidence", "goal_weights", "verify_chains", "authority_map", "smells_category_map")
 _NONNEG_INT_KEYS = ("candidate_top_n", "smells_max_age_days", "post_compact_chars")
 _ENCODING_KEYS = ("commit_encoding", "PYTHONIOENCODING")
@@ -245,6 +252,9 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
             errors.append(f"{key}「{c.get(key)}」不是 Python 認得的編碼")
     if _is_list_of_str(c.get("source_encodings")):
         errors.extend(f"source_encodings「{e}」不是 Python 認得的編碼" for e in c["source_encodings"] if not encoding_ok(e))
+    if _is_list_of_str(c.get("extra_runner_progs")):
+        errors.extend(f"extra_runner_progs「{p}」不是程式名（只能列單一程式名，例：unity；語法白名單不能用設定放寬）"
+                      for p in c["extra_runner_progs"] if not _PROG_NAME_RE.match(p))
     if c.get("eol_policy") not in _EOL_POLICIES:
         errors.append(f"eol_policy 必須是 {'／'.join(_EOL_POLICIES)} 之一")
     errors.extend(validate_path_bases(c.get("path_bases"), root))
