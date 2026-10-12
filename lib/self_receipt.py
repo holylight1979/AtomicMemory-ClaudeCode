@@ -57,6 +57,9 @@ _ASSIGN_CMDS = frozenset({"export", "declare", "typeset", "readonly", "local"}) 
 # 會讓 shell 自己印字或執行東西的變數：任何位置指定它們，整條指令都不算（PS4＋set -x 就能讓 shell 印出假哨兵）
 _FORBIDDEN_ENV = frozenset({"PS1", "PS2", "PS3", "PS4", "PROMPT_COMMAND", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS",
                             "BASH_XTRACEFD", "IFS"})
+# 從環境替程式加選項的變數：等於命令列多帶了選項（PYTEST_ADDOPTS 塞 -k／路徑縮成子集、PYTHONOPTIMIZE 等於 -O），
+# 整體驗證與量尺比對只看命令列看不見，指定了就不算整體驗證、也對不上沒指定它的量尺
+_ARG_ENV = frozenset({"PYTEST_ADDOPTS", "PYTHONOPTIMIZE"})
 _PS_VAR_RE = re.compile(r"^\$[A-Za-z_][\w:]*$")
 _PS_ASSIGN_RE = re.compile(r"^\$[A-Za-z_][\w:]*=")
 _PS_LITERAL_RE = re.compile(r"^(?:'(?:[^']|'')*'|\"[^\"$`]*\"|-?\d+(?:\.\d+)?|\$(?:true|false|null))$", re.IGNORECASE)
@@ -130,6 +133,16 @@ def _assignments(words: List[str], raws: List[str], ps: bool) -> List[Tuple[str,
     if n_env < len(words) and _prog(words[n_env]) in _ASSIGN_CMDS:
         out += [(w.split("=", 1)[0], r) for w, r in zip(words[n_env + 1:], raws[n_env + 1:]) if _ENV_ASSIGN_RE.match(w)]
     return out
+
+
+def _arg_env(cmd: Argv, shell: str = "bash") -> frozenset:
+    """指令裡指定了哪些 _ARG_ENV 變數（行內前綴、獨立指定、export、PowerShell $env: 都算；PowerShell 不分大小寫）；
+    argv 清單（自寫收據，不經 shell）沒有環境指定。"""
+    if isinstance(cmd, (list, tuple)):
+        return frozenset()
+    ps = shell == "powershell"
+    names = (n.upper() if ps else n for ch in split_shell(str(cmd or ""), shell)[0] for n, _ in _assignments(ch.words, ch.raw, ps))
+    return frozenset(n for n in names if n in _ARG_ENV)
 
 
 def _literal_assign(raw_tok: str) -> bool:
@@ -463,9 +476,10 @@ def is_whole_run(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
     """整體驗證：final_step 是執行根自己的 run_verify.py（root 給了就照完整路徑身分比，`archive/run_verify.py`、別處同名都不算；
     沒給就認不出是哪一支，要照寫法就是 `run_verify.py`，`archive/run_verify.py`、絕對路徑都不算）且不帶任何參數，或不帶位置參數、
     只帶不縮範圍選項（-q -v -s -x、-p no:…、--tb=…）的 pytest；直譯器選項只准 -X utf8、-u、-B。-k、-m、--lf、--collect-only、
-    --deselect、--ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）。涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
+    --deselect、--ignore、目錄或檔名參數…都不算（白名單：沒列的選項一律不算）；從環境塞選項（PYTEST_ADDOPTS、PYTHONOPTIMIZE）
+    也不算。涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
     st = final_step(cmd, shell, root)
-    if not st or not set(st.cmd[1]) <= _WHOLE_PY_OPTS:
+    if not st or not set(st.cmd[1]) <= _WHOLE_PY_OPTS or _arg_env(cmd, shell):
         return False
     if st.cmd[0] == _script_id("run_verify.py", root):
         as_written = any(posixpath.normpath(w.replace("\\", "/").lower()) == "run_verify.py" for w in st.words)
@@ -523,7 +537,7 @@ def match_span(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = ""
     呼叫端要知道哪一段是量尺本身（量尺自帶的 `&& echo … DONE` 不算寫了假哨兵，其餘位置都算）。"""
     m = parse_cmds(measure_cmd, root=measure_root or root)
     e = parse_cmds(cmd, shell, root or measure_root)
-    if not m:
+    if not m or _arg_env(cmd, shell) - _arg_env(measure_cmd):     # 從環境多塞選項＝跑的不是表上那組選項
         return None
     tail_ok = len(m) == 1 or _prog(m[-1].words[0] if m[-1].words else "") in _ECHO_PROGS
     for end in range(_first_filter(e), len(e) + 1):

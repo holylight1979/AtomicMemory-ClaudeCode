@@ -2047,12 +2047,41 @@ def test_022_codex_pre_measure_gate_ruler_covers_only_its_exec_root():
 def test_022_codex_pre_config_sentinel_with_end_anchor(monkeypatch):
     """022 規則 1：config sentinel_regex 帶行首、行尾錨點（`^CUSTOM_OK$`），指令裡的字樣前後接了別的字也算寫了哨兵。"""
     import wg_core
-    rule = {"regex": "^CUSTOM_OK$", "name": "CUSTOM", "verdict_map": {"CUSTOM_OK": "DONE"}}
-    monkeypatch.setattr(wg_core, "load_config", lambda: {"verify_ledger": {"sentinel_regex": [rule]}})
-    monkeypatch.setattr(vl, "_arg_res", [])
-    for cmd in ("NOTE='CUSTOM_OK' Y=1 " + MEASURE_CMD, "NOTE='CUSTOM_OK' Y=1 python -m pytest -q tests/test_widget.py"):
-        assert vl._prints_sentinel(cmd, "bash"), cmd
-    assert not vl._prints_sentinel("Y=1 " + MEASURE_CMD, "bash")
+    for regex in ("^CUSTOM_OK$", "(?i)^CUSTOM_OK$", "^(?:CUSTOM_OK$)", r"\ACUSTOM_OK\Z"):    # 錨點在旗標後、群組裡也要拿掉
+        rule = {"regex": regex, "name": "CUSTOM", "verdict_map": {"CUSTOM_OK": "DONE"}}
+        monkeypatch.setattr(wg_core, "load_config", lambda rule=rule: {"verify_ledger": {"sentinel_regex": [rule]}})
+        monkeypatch.setattr(vl, "_arg_res", [])
+        for cmd in ("NOTE='CUSTOM_OK' Y=1 " + MEASURE_CMD, "NOTE='CUSTOM_OK' Y=1 python -m pytest -q tests/test_widget.py"):
+            assert vl._prints_sentinel(cmd, "bash"), (regex, cmd)
+        assert not vl._prints_sentinel("Y=1 " + MEASURE_CMD, "bash"), regex
+
+
+def test_022_codex_pre_drop_anchors_keeps_classes_and_escapes():
+    """_drop_anchors 只拿錨點：字元類裡的 ^ $、跳脫的 \\$、類別開頭的 ] 都照留。"""
+    assert vl._drop_anchors("(?i)^CUSTOM_OK$") == "(?i)CUSTOM_OK"
+    assert vl._drop_anchors("^(?:CUSTOM_OK$)") == "(?:CUSTOM_OK)"
+    assert vl._drop_anchors(r"\AX_OK\Z") == "X_OK"
+    assert vl._drop_anchors("[^$]X$") == "[^$]X"
+    assert vl._drop_anchors(r"^\$5 passed$") == r"\$5 passed"
+    assert vl._drop_anchors("[]^]X") == "[]^]X"
+
+
+@pytest.mark.parametrize("cmd, tool", [
+    ("PYTEST_ADDOPTS='-k test_x' python -m pytest -q", "Bash"),                 # 從環境塞 -k：跑的是子集
+    ("export PYTEST_ADDOPTS='tests/test_other.py'; python -m pytest -q", "Bash"),
+    ("PYTHONOPTIMIZE=1 python -m pytest -q", "Bash"),                            # 等於 -O
+    ('$env:pytest_addopts="-k test_x"; python -m pytest -q', "PowerShell"),      # PowerShell 不分大小寫
+])
+def test_022_codex_pre_env_injected_options_are_not_whole_runs(cmd, tool):
+    """022 規則 4：PYTEST_ADDOPTS／PYTHONOPTIMIZE 從環境替程式加選項，等於命令列多帶了選項：不算整體驗證，
+    也對不上沒指定它的量尺 `python -m pytest -q`。配對正例：其他環境指定照算。"""
+    widget = r"c:\proj\src\widget.py"
+    r = {**_rcpt(5, cmd=cmd), "tool": tool}
+    assert vl.claimed_paths(r, [widget]) == [] and vl.claimed_paths(r, [widget], ["python -m pytest -q"]) == []
+    row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q"}}
+    assert _gate(cmd, tool, row) is not None
+    ok = {**_rcpt(5, cmd="X=1 python -m pytest -q"), "tool": "Bash"}
+    assert vl.claimed_paths(ok, [widget]) == [widget] and _gate("X=1 python -m pytest -q", row=row) is None
 
 
 def test_022_codex_pre_ruler_covers_only_its_exec_root():

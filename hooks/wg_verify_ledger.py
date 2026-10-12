@@ -470,12 +470,33 @@ def _arg_sentinel_res() -> List[Pattern]:
             print(f"[verify-ledger] 讀不到 sentinel_regex，參數裡的哨兵字樣只認預設格式：{type(e).__name__}: {e}",
                   file=sys.stderr)
             rules = []
-        for rule in rules:                                        # 輸出端的行首、行尾錨點拿掉：指令裡的字樣前後接了別的字也算
-            pat = rule["re"].pattern
-            pat = pat[1:] if pat.startswith("^") else pat
-            pat = pat[:-1] if pat.endswith("$") and not pat.endswith("\\$") else pat
-            _arg_res.append(re.compile(pat, re.MULTILINE))
+        for rule in rules:                                        # 輸出端的錨點拿掉：指令裡的字樣前後接了別的字也算
+            _arg_res.append(re.compile(_drop_anchors(rule["re"].pattern), rule["re"].flags | re.MULTILINE))
     return _arg_res
+
+
+def _drop_anchors(pat: str) -> str:
+    """regex 裡所有錨點（字元類 [...] 以外、沒跳脫的 ^ $，以及 \\A \\Z \\z）拿掉，在旗標後、群組裡的也拿：
+    `(?i)^X_OK$`、`^(?:X_OK$)` 都變成只找 X_OK 這串字。"""
+    out, i, in_class = [], 0, False
+    while i < len(pat):
+        c = pat[i]
+        if c == "\\" and i + 1 < len(pat):
+            if in_class or pat[i + 1] not in "AZz":
+                out.append(pat[i:i + 2])
+            i += 2
+            continue
+        if in_class:
+            in_class = c != "]" or (out and out[-1] in ("[", "[^"))      # 開頭緊接的 ] 是字面字元
+            out.append(c)
+        elif c == "[":
+            in_class = True
+            out.append("[^" if pat[i + 1:i + 2] == "^" else "[")
+            i += 1 if pat[i + 1:i + 2] == "^" else 0
+        elif c not in "^$":
+            out.append(c)
+        i += 1
+    return "".join(out)
 
 
 def _unescape(t: str) -> str:
