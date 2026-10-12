@@ -244,3 +244,150 @@ def test_claude_dir_cwd_exempt_and_other_cwd_still_gated(tmp_path):
     assert _check(state=outside) is not None
     cfg = {"guard": {"commit_order": {"exempt_cwd_under_claude_dir": False}}}
     assert _check(state=inside, config=cfg) is not None
+
+
+def _wt(tmp_path, name, gitdir, with_map=True):
+    """假 worktree：`.git` 檔的 gitdir 指到 gitdir；with_map 決定有沒有 .claude/overview-map.md（豁免不該靠它）。"""
+    root = tmp_path / name
+    (root / "hooks").mkdir(parents=True)
+    if with_map:
+        (root / ".claude").mkdir()
+        (root / ".claude" / "overview-map.md").write_text("x", encoding="utf-8")
+    (root / ".git").write_text(f"gitdir: {gitdir}\n", encoding="utf-8")
+    return root
+
+
+_PEER_COMMIT_WORD = '<cross-session-message from="uds:x" from-name="claude-x">分支先別再 commit</cross-session-message>'
+
+
+def _peer_state(cwd):
+    """本回合只有同伴訊息（user_typed_text 剔光，即使內文寫了 commit）：豁免只能照 commit 落在哪個 repo 判，不靠訊息字樣。"""
+    return {"recent_user_prompts": [""], "turn_prompts": [_PEER_COMMIT_WORD], "session": {"cwd": str(cwd)}}
+
+
+def test_claude_repo_worktree_exempt_other_repo_worktree_gated(tmp_path):
+    """commit 落在 ~/.claude 這個 repo 的 git worktree（gitdir 在 <CLAUDE_DIR>/.git/worktrees/ 之下）→ 同屬記憶系統程式，放行；
+    gitdir 指到別的 repo → 照擋；關掉 exempt 鍵 → 照擋；worktree 沒有 overview-map 也算（豁免看 git，不看部位表）。"""
+    from handlers import pre_tool_use as ptu
+    ours = _wt(tmp_path, "wt-ours", Path(ptu.CLAUDE_DIR) / ".git" / "worktrees" / "track-x")
+    bare = _wt(tmp_path, "wt-nomap", Path(ptu.CLAUDE_DIR) / ".git" / "worktrees" / "track-y", with_map=False)
+    other = _wt(tmp_path, "wt-other", tmp_path / "other-repo" / ".git" / "worktrees" / "track-x")
+    assert _check(state=_peer_state(ours / "hooks")) is None
+    assert _check(state=_peer_state(bare / "hooks")) is None
+    assert _check(state=_peer_state(other / "hooks")) is not None
+    cfg = {"guard": {"commit_order": {"exempt_cwd_under_claude_dir": False}}}
+    assert _check(state=_peer_state(ours / "hooks"), config=cfg) is not None
+
+
+def test_exemption_follows_commit_target_repo_not_session_cwd(tmp_path):
+    """豁免看每段 commit 實際落在哪個 repo：session 在我們的 worktree，但 `git -C <別的專案> commit`、
+    或 commit 落在 worktree 裡的內嵌 repo（自己的 .git 目錄）→ 照擋；`-C hooks`（相對、仍在 worktree）→ 放行；
+    一段在我們、一段在別處 → 照擋。"""
+    from handlers import pre_tool_use as ptu
+    ours = _wt(tmp_path, "wt-ours", Path(ptu.CLAUDE_DIR) / ".git" / "worktrees" / "track-x")
+    other_proj = tmp_path / "other-proj"
+    (other_proj / ".git").mkdir(parents=True)
+    nested = ours / "vendor" / "lib"
+    (nested / ".git").mkdir(parents=True)
+    st = _peer_state(ours)
+    assert _check(command=f'git -C "{other_proj}" commit -m x', state=st) is not None
+    assert _check(command="git commit -m x", state=_peer_state(nested)) is not None
+    assert _check(command="git -C hooks commit -m x", state=st) is None
+    assert _check(command=f'git commit -m a && git -C "{other_proj}" commit -m b', state=st) is not None
+
+
+def test_undecidable_target_does_not_exempt_and_says_so(capsys):
+    """判不了 commit 落在哪（沒有 cwd 可解相對路徑）→ 不套用豁免、繼續口令檢查，stderr 說明；不宣稱一定擋。"""
+    st = {"recent_user_prompts": [""], "turn_prompts": [_PEER_COMMIT_WORD], "session": {}}
+    assert _check(state=st) is not None
+    assert "不套用豁免" in capsys.readouterr().err
+
+
+def test_exemption_whitelist_rejects_repo_overrides_and_dir_juggling(tmp_path, monkeypatch):
+    """豁免只給看得出落點的寫法：session 在我們的 worktree，下列寫法都可能落到別的 repo（或看不出），一律不豁免、照常要口令。
+    誠實寫法（第一段 `cd <絕對路徑>`、單一獨立 `-C <絕對路徑>`、commit 訊息含括號）仍豁免。"""
+    from handlers import pre_tool_use as ptu
+    ours = _wt(tmp_path, "wt-ours", Path(ptu.CLAUDE_DIR) / ".git" / "worktrees" / "track-x")
+    other = tmp_path / "other"
+    (other / ".git").mkdir(parents=True)
+    st = _peer_state(ours)
+    o = str(other).replace("\\", "/")
+    w = str(ours).replace("\\", "/")
+    blocked = [
+        f"git --git-dir={o}/.git --work-tree={o} commit -m x",
+        f"git --git-dir {o}/.git --work-tree {o} commit -m x",
+        f'$env:GIT_DIR="{o}/.git"; git commit -m x',
+        f"GIT_DIR={o}/.git git commit -m x",
+        f"cd {o}; git -C . commit -m x",
+        f"cd {o}; cd .; git commit -m x",
+        f"pushd {o}; git -C . commit -m x",
+        f"Set-Location -Path {o}; git -C . commit -m x",
+        f"git -C {o} -C . commit -m x",
+        f"git -C{o} commit -m x",
+        f"cd {o}; pushd {w}; popd; git commit -m x",
+        f"(cd {o}; git commit -m x)",
+        f'git "--git-dir={o}/.git" "--work-tree={o}" commit -m x',       # 引號裡的覆寫參數一樣算
+        f'env "GIT_DIR={o}/.git" git commit -m x',
+        f"builtin cd {o}; git commit -m x",
+        f"builtin cd {o} && git commit -m x",
+        f'git commit -m "$(git -C {o} commit -m y)"',                    # 雙引號裡的 $( ) 會被展開
+        f"git commit -m \"'$(git -C {o} commit -m y)'\"",                # 雙引號裡的單引號不擋展開
+        f"git commit -F - <<'EOF' && git -C {o} commit -m y\nx\nEOF",    # heredoc 起始行夾帶第二段
+        f"git commit -F - <<EOF\n$(git -C {o} commit -m y)\nEOF",        # 沒加引號的 heredoc 內文會展開
+        f'git commit -m "x\\$(git -C {o} commit -m y)"',                 # 跳脫
+        'git commit -m "沒閉合',
+        'git -C "$repo" commit -m x',                                     # 路徑變數會被展開成別處
+        'git -C "${repo}" commit -m x',
+        'git -C "$env:REPO" commit -m x',
+        'git -C %REPO% commit -m x',
+        "git -C ~/other commit -m x",
+        f"cd {w} && git -C ../other commit -m x",                         # .. 消掉後落在 worktree 外
+    ]
+    for cmd in blocked:
+        assert _check(command=cmd, state=st) is not None, cmd
+    allowed = [
+        "git commit -m x",
+        "git commit -m 'fix(tools): 括號與 $(x) 在單引號裡不展開'",
+        f'git commit -m "fix(tools): 雙引號裡的括號不算"',
+        f"cd {w} && git add a.py && git commit -m x",
+        f'git -C "{w}" commit -m x',
+        f"cd {w} && git -C hooks commit -m x",                  # 相對 -C 接在唯一的 cd 後面
+        "git commit -F - <<'EOF'\nfix: 訊息 (含括號) ; | 都在 heredoc 裡\nEOF",
+    ]
+    for cmd in allowed:
+        assert _check(command=cmd, state=st) is None, cmd
+    other_cwd = {"recent_user_prompts": [""], "turn_prompts": [_PEER_COMMIT_WORD], "session": {"cwd": str(other)}}
+    assert _check(command=f"cd {w} | git commit -m x", state=other_cwd) is not None   # 管線左邊的 cd 不改右邊的目錄
+    monkeypatch.setenv("GIT_DIR", f"{o}/.git")                 # hook 行程繼承的環境變數也算覆寫
+    assert _check(command="git commit -m x", state=st) is not None
+
+
+def test_tool_cwd_wins_over_session_cwd_and_unreadable_git_file_is_undecided(tmp_path, monkeypatch, capsys):
+    """hook 的 tool cwd 優先於 session cwd（session 開在我們的 worktree、工具卻在別的專案跑 → 照擋）；
+    worktree 的 `.git` 檔讀不到 → 判不了，不套用豁免並在 stderr 說明（不被吞成「不是」）。"""
+    from handlers import pre_tool_use as ptu
+    ours = _wt(tmp_path, "wt-ours", Path(ptu.CLAUDE_DIR) / ".git" / "worktrees" / "track-x")
+    other = tmp_path / "other"
+    (other / ".git").mkdir(parents=True)
+    st = _peer_state(ours)
+    assert check_git_commit_order("Bash", {"command": "git commit -m x"}, {}, st, str(other)) is not None
+    assert check_git_commit_order("Bash", {"command": "git commit -m x"}, {}, st, str(ours)) is None
+    real_read = Path.read_text
+
+    def boom(self, *a, **k):
+        if self.name == ".git":
+            raise PermissionError("denied")
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", boom)
+    capsys.readouterr()
+    assert check_git_commit_order("Bash", {"command": "git commit -m x"}, {}, st, str(ours)) is not None
+    assert "不套用豁免" in capsys.readouterr().err
+
+
+def test_wrapped_commit_is_not_skipped_by_parser(tmp_path):
+    """bash -c／子 shell 包住的 git commit 解析器拆不出段：不能當成「沒有 commit」放行，照常檢查口令（即使在記憶系統 repo）。"""
+    st = {"recent_user_prompts": ["改好了"], "turn_prompts": ["改好了"], "session": {"cwd": str(tmp_path)}}
+    assert _check(command='bash -c "git -C C:/other commit -m x"', state=st) is not None
+    assert _check(command='bash -c "git log --oneline"', state=st) is None
+    assert _check(command='git log --grep "commit (x)"', state=st) is None

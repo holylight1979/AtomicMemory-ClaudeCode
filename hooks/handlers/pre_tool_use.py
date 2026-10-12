@@ -332,16 +332,149 @@ def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
     return None
 
 
-def _under_claude_dir(cwd: str) -> bool:
-    try:
-        return Path(cwd).resolve() == Path(CLAUDE_DIR).resolve() or Path(CLAUDE_DIR).resolve() in Path(cwd).resolve().parents
-    except OSError:
+# 口令閘的「記憶系統自己的程式」豁免只給整條命令都對得上白名單句型的寫法；其他寫法不豁免、照常檢查口令
+# （不會擋死，只是要使用者口令），所以白名單寧窄勿寬：只認 `&&` 串起的這幾種段，不解析其他 shell 語法。
+_GIT_REPO_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
+_COMMIT_WRAP_RE = re.compile(r"\b(?:bash|sh|zsh|pwsh|powershell|cmd)(?:\.exe)?\s+(?:-c|-command|/c)\b|\beval\b|\$\(|`|\(",
+                             re.I)
+_EXEMPT_GIT_SUBS = {"add", "commit", "push", "status", "diff", "log", "show", "rm", "mv", "restore"}
+_HEREDOC_MARK = "<<HEREDOC_STRIPPED"
+
+
+def _unquoted(command: str) -> str:
+    """把引號裡的字換成空字串（commit 訊息裡的括號不該影響寫法判斷）。"""
+    return re.sub(r'"[^"]*"|\'[^\']*\'', '""', command or "")
+
+
+def _split_and(command: str) -> List[str]:
+    """照引號外的 `&&` 切段（引號裡的 && 是訊息內容）。"""
+    out, buf, quote, i = [], [], "", 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "\"'":
+            quote = ch
+        elif command.startswith("&&", i):
+            out.append("".join(buf))
+            buf, i = [], i + 2
+            continue
+        buf.append(ch)
+        i += 1
+    out.append("".join(buf))
+    return out
+
+
+def _expands_outside_single_quotes(command: str) -> bool:
+    """照真實引號狀態掃：單引號外（含雙引號裡）出現 `$(`、反引號，或反斜線跳脫 `$`／反引號／引號，或引號沒閉合 → True。"""
+    quote = ""
+    for i, ch in enumerate(command):
+        if quote == "'":
+            quote = "" if ch == "'" else quote
+            continue
+        if ch == "\\" and command[i + 1:i + 2] in ("$", "`", '"', "'"):
+            return True
+        if ch == "`" or command.startswith("$(", i):
+            return True
+        if ch == '"':
+            quote = "" if quote == '"' else '"'
+        elif ch == "'" and not quote:
+            quote = "'"
+    return bool(quote)
+
+
+def _literal_path(token: str) -> bool:
+    """cd／-C 的路徑是不是字面值：含 `$`（bash／PowerShell 變數）、`%`（cmd 變數）、開頭 `~`、萬用字元 → 不是，
+    shell 會展開成看不到的路徑，不能拿字面去找歸屬。"""
+    return bool(token) and not token.startswith("~") and not any(c in token for c in "$%*?")
+
+
+def _exempt_run_dirs(raw: str, base: str) -> Optional[List[str]]:
+    """白名單句型：整條命令只由 `&&` 串起，每段都是下列之一 → 回每段 git commit 落的目錄；否則 None（不豁免）。
+      第一段可以是 `cd <絕對路徑>`；其餘每段都是 `git [-C <路徑>] <add|commit|push|status|diff|log|show|rm|mv|restore> …`
+      （相對 -C 接在那個 cd 或 tool cwd 後面），commit 段可帶 heredoc，但 delimiter 要加引號（`<<'EOF'`，內文不展開）、
+      起始行 delimiter 後面不准再接東西。
+    任何其他東西都不在白名單：未知命令段（builtin、env、變數指定、echo…）、`;`／`|`／`||`／換行、重導向、括號、
+    單引號外的 `$(`／反引號／跳脫（照真實引號狀態掃，雙引號裡也算）、沒閉合的引號、repo 覆寫參數（--git-dir、
+    --work-tree，引號裡也算）、hook 行程繼承的 GIT_DIR 等環境變數、第二個 cd、多個或黏在一起的 -C。"""
+    if any(os.environ.get(k) for k in _GIT_REPO_ENV):
+        return None
+    for m in re.finditer(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1([^\n]*)", raw):
+        if not m.group(1) or m.group(3).strip():
+            return None
+    command = _strip_heredoc_bodies(raw)
+    if _expands_outside_single_quotes(command):
+        return None
+    if re.search(r"[;|()<>\n]|(?<!&)&(?!&)", _unquoted(command).replace(_HEREDOC_MARK, "")):
+        return None
+    run_base, out = base, []
+    for idx, seg in enumerate(_split_and(command)):
+        tokens = [t for t in _shell_tokens(seg) if t != _HEREDOC_MARK]
+        if not tokens:
+            return None
+        if tokens[0].lower() == "cd":
+            if idx != 0 or len(tokens) != 2 or not _literal_path(tokens[1]) or not os.path.isabs(tokens[1]):
+                return None
+            run_base = tokens[1]
+            continue
+        if tokens[0].lower() not in ("git", "git.exe"):
+            return None
+        if any(t.lower().startswith(("--git-dir", "--work-tree")) for t in tokens):
+            return None
+        rest, target = tokens[1:], ""
+        if rest[:1] == ["-C"]:
+            if len(rest) < 2 or not _literal_path(rest[1]):
+                return None
+            target, rest = rest[1], rest[2:]
+        if not rest or rest[0].lower() not in _EXEMPT_GIT_SUBS or any(t.startswith("-C") for t in rest):
+            return None
+        if rest[0].lower() == "commit":
+            if target and not os.path.isabs(target):
+                if not run_base:
+                    return None
+                target = os.path.join(run_base, target)    # 相對 -C 接在唯一的 cd（或 tool cwd）後面
+            out.append(target or run_base)
+    return out or None
+
+
+def _commit_target_is_claude(run_dir: str) -> Optional[bool]:
+    """這段 commit 實際落在原子記憶系統這個 repo（~/.claude 本身，或它的 git worktree）嗎？
+    從 run_dir 往上找最近的 `.git`（檔或目錄都算，遇到就停，所以內嵌 repo／submodule 歸它自己）；
+    該根就是 CLAUDE_DIR → True；`.git` 是檔且 gitdir 指到 <CLAUDE_DIR>/.git/worktrees/ 之下 → True；其他 → False。
+    run_dir 不是絕對路徑、或讀檔出錯 → None（判不了）；網路路徑直接 False（不碰網路；本機長路徑 `\\\\?\\C:\\…` 不算）。"""
+    if run_dir.startswith("\\\\?\\"):
+        run_dir = run_dir[4:]
+    if not run_dir or not os.path.isabs(run_dir):
+        return None
+    if run_dir.startswith(("\\\\", "//")):
         return False
+    try:
+        p = Path(os.path.abspath(run_dir))                 # 先消掉 `..`：`.claude/../other` 的字面父層不是 .claude
+        root = next((d for d in (p, *p.parents) if (d / ".git").exists()), None)
+        if root is None:
+            return False
+        if root.resolve() == Path(CLAUDE_DIR).resolve():
+            return True
+        dot = root / ".git"
+        if not dot.is_file():
+            return False
+        text = dot.read_text(encoding="utf-8", errors="replace")   # 只讀一次；讀不到 → 例外 → 判不了
+        value = next((ln[len("gitdir:"):].strip() for ln in text.splitlines() if ln.startswith("gitdir:")), "")
+        if not value:
+            return False
+        gitdir = Path(value) if os.path.isabs(value) else root / value
+        return (Path(CLAUDE_DIR) / ".git" / "worktrees").resolve() in gitdir.resolve().parents
+    except Exception as e:  # noqa: BLE001
+        try:
+            sys.stderr.write(f"[Guardian:CommitOrder] 判斷 {run_dir} 是否屬於原子記憶系統 repo 失敗：{type(e).__name__}: {e}\n")
+        except OSError:
+            pass
+        return None
 
 
 def check_git_commit_order(
     tool_name: str, tool_input: Dict[str, Any], config: Dict[str, Any],
-    state: Optional[Dict[str, Any]],
+    state: Optional[Dict[str, Any]], cwd: str = "",
 ) -> Optional[str]:
     """Bash/PowerShell `git commit` 且本回合使用者原話無版控口令 → deny 訊息；否則 None。"""
     if tool_name not in ("Bash", "PowerShell"):
@@ -353,14 +486,28 @@ def check_git_commit_order(
     if "git" not in command or "commit" not in command:
         return None
     try:
-        if not _git_commit_segments(_strip_heredoc_bodies(command)):
-            return None
-        # 原子記憶系統自己的程式與文件（session 在 ~/.claude repo 內）不等口令：驗證過就直接上版控（USER.md 例外條）；
-        # 記憶內容三層由 vcs-sync worker 自動提交，不經此閘
-        if cfg.get("exempt_cwd_under_claude_dir", True):
-            cwd = str(((state or {}).get("session") or {}).get("cwd") or "")
-            if cwd and _under_claude_dir(cwd):
+        stripped = _strip_heredoc_bodies(command)
+        segments = _git_commit_segments(stripped)
+        if not segments:
+            # 包在子 shell／bash -c／eval 裡的 git commit 解析器拆不出來：不能當成「沒有 commit」放行，照常檢查口令
+            if not (_COMMIT_WRAP_RE.search(_unquoted(stripped))
+                    and re.search(r"\bgit(?:\.exe)?\b.*\bcommit\b", stripped, re.S)):
                 return None
+        # 原子記憶系統自己的程式與文件不等口令：驗證過就直接上版控（USER.md 例外條）；記憶內容三層由 vcs-sync worker
+        # 自動提交，不經此閘。看的是每段 commit 實際落在哪個 repo，不是 session 開在哪；只認看得出落點的寫法
+        # （_exempt_run_dirs 白名單），每段都落在 ~/.claude 本身或它的 git worktree 才豁免；其餘照常檢查口令。
+        if segments and cfg.get("exempt_cwd_under_claude_dir", True):
+            base = cwd or str(((state or {}).get("session") or {}).get("cwd") or "")
+            run_dirs = _exempt_run_dirs(command, base)
+            verdicts = [_commit_target_is_claude(d) for d in run_dirs or []]
+            if verdicts and all(v is True for v in verdicts):
+                return None
+            if run_dirs is None or any(v is None for v in verdicts):
+                try:
+                    sys.stderr.write("[Guardian:CommitOrder] 看不出這次 commit 落在哪個 repo（或寫法不在豁免白名單），"
+                                     "不套用豁免，繼續口令檢查\n")
+                except OSError:
+                    pass
         prompts = (state or {}).get("recent_user_prompts") or []
         if not prompts:
             try:
@@ -893,7 +1040,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     # git commit 口令閘（本回合使用者原話無版控口令 → deny；fail-open）
     _co_sid = input_data.get("session_id", "") or ""
     _co_state, _co_status = read_state_status(_co_sid) if _co_sid else (None, "missing")
-    deny_reason = check_git_commit_order(tool_name, tool_input, config, _co_state)
+    deny_reason = check_git_commit_order(tool_name, tool_input, config, _co_state, _cwd)
     if deny_reason:
         output_json({
             "hookSpecificOutput": {

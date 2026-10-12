@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 CommitOrder 口令閘：記憶系統自己的 worktree commit 不等口令，豁免只認看得出落點的句型
+- **緣由**：a3 合併「同伴訊息不算使用者原話」後，工作 session 在 `~/.claude-wt/*`（~/.claude 的 git worktree）的 commit 全被擋——以前能過是同伴訊息裡的「commit」字樣漏進使用者原話；豁免只認 session cwd 在 ~/.claude 之下，漏認 worktree，也從不看 `-C`／`cd` 讓 commit 落到別的 repo。
+- **做法**：豁免改看每段 commit 實際落在哪個 repo（最近的 `.git`；~/.claude 本身或 gitdir 在 `<CLAUDE_DIR>/.git/worktrees/` 下才算），只認句型白名單（`&&` 串、第一段可 `cd <絕對路徑>`、其餘每段 `git [-C <字面路徑>] add/commit/push/…`；引號狀態掃單引號外的 `$(`／反引號、heredoc 須加引號、路徑不得含變數、`--git-dir` 等覆寫與繼承的 GIT_* 一律不豁免）；拆不出段但有包裝寫法的 git commit 照常檢查口令。順帶：`extract-worker` 失敗骨架卡的建立日期欄改 `Created-at:`（原 `Created:` 會被日期 lint 判成敘事日期）；`verify_harvest_routing` 追蹤項帶唯一 id、`verify_followup_check` 沙箱連程式碼根一起指 tmp（a3 合併後才浮現的兩個測試落差）。
+- **驗證**：口令閘 34 案＋同伴訊息＋隱私閘 86 passed；codex 第二意見六輪（BLOCK 2→3→3→3→1→PASS），防線邊界寫明「刻意構造的 shell 技巧與刻意寫程式造假同層」。全量 run_verify 3143 passed、8 failed：3 個是上述測試落差（已修、單跑綠），5 個是 CPU 100% 下的計時逾時（merge_driver 安裝檢查子程式實測 2.86 秒 > 1.5 秒預算；合併前 c107cf9 同樣失敗），作準的全量待機器空閒時與 A7 一起跑。
+
 ## 2026-10-12 v6.0 P3 track-a2 合併：Depends 讀檔召回、候選填空（全專案／第二次 Edit）、壓縮後每部位綜觀重注
 - **緣由**：v6.0 完工判準「舊坑在讀到相關檔時被召回、壓縮後綜觀不丟」；a2 補 Depends 索引與召回、候選填空、壓縮重注三件。
 - **做法**：索引 `depends` 欄由 atom_write／CLI／`sync-atom-index`（`--sync-depends`，frontmatter 為真相、空 Depends 行＝清空）收發；`wg_depends.on_read_depends` 讀到某卡 Depends 指的檔 → 一行一卡指標，`authority_map` 命中文件檔一次性注入地圖；`root_cause_triggers`（專案合併後設定判詞）命中 → 已注入部位各送候選，一個都沒注入時以 cwd 專案表送全專案候選，同檔第二次放行的 Edit 附一次；smells 報告壞格式附一行再退病灶段、候選失敗只附一行不改閘判定；壓縮前存 OverviewHub 摘要、壓縮後每部位綜觀隨 atom 重注（atom 先）。共用檔：config `overview_hub` 五鍵與 `_doc`、Architecture 壓縮列與 PostToolUse 列、TECH 壓縮列與 PostToolUse matcher（補 `PowerShell|Read` 對齊 live）。

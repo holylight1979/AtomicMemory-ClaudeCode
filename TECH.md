@@ -953,7 +953,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 | `friction.enabled` / `min_hits` / `keywords` | true / 2 / 省略＝模組內建表 | 使用者糾正訊號 → DPM |
 | `tool_result_waste.enabled` / `oversized_chars` / `max_advisories_per_session` | true / 20000 / 3 | 工具結果體積量測與提醒 |
 | `privacy.enabled` / `deny_globs` | true / []（追加） | git commit 隱私硬閘 |
-| `guard.commit_order.{enabled,keywords,exempt_cwd_under_claude_dir}` | true / 上GIT、上乾淨、全上、執P、commit… / true | git commit 口令閘：本回合使用者原話（`state.turn_prompts`，含 mid-turn 排隊訊息；Stop 關回合）無任一口令 → deny；背景通知（task-notification）開的回合視為上一回合的延續——使用者原話沿用、通知內文不算口令、口令之後已 commit 過就不沿用（USER.md 縮寫指令契約的程式化版本；state 缺失 fail-open） |
+| `guard.commit_order.{enabled,keywords,exempt_cwd_under_claude_dir}` | true / 上GIT、上乾淨、全上、執P、commit… / true | git commit 口令閘：本回合使用者原話（`state.turn_prompts`，含 mid-turn 排隊訊息；Stop 關回合）無任一口令 → deny；背景通知（task-notification）開的回合視為上一回合的延續——使用者原話沿用、通知內文不算口令、口令之後已 commit 過就不沿用（USER.md 縮寫指令契約的程式化版本；state 缺失 fail-open）。使用者原話只認剔掉其他 session 訊息與系統注入後的字。`exempt_cwd_under_claude_dir`：每段 commit 實際落在原子記憶系統自己的 repo（~/.claude 本身或它的 git worktree）才不等口令，且只認看得出落點的句型（`&&` 串、第一段可 `cd <絕對路徑>`、其餘每段 `git [-C <字面路徑>] add/commit/push/…`）；其他寫法照常要口令。包在 `bash -c`／子 shell 裡的 commit 也照常檢查口令 |
 | `sync_reminder.{enabled,max_reminders,unpushed}` | true / 1 / true | Stop 同步閘；unpushed=true 時已 commit 未 push 也擋 |
 | `parallel_agents.*` / `research_fanout.*` | enabled | 多 agent 拆分／研究 fan-out 判準注入 |
 | `docdrift.path_mappings` | hooks→Architecture.md、skills/rules/tools→DocIndex-System.md | 文件漂移提醒 |

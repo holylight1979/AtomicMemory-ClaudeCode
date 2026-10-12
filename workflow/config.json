@@ -453,7 +453,7 @@
       "allowlist": []
     },
     "commit_order": {
-      "_doc": "PreToolUse git commit 口令閘：本回合使用者原話無任何 keywords → deny。USER.md 縮寫指令契約的程式化版本。exempt_cwd_under_claude_dir＝session 在 ~/.claude（原子記憶系統自己的 repo）內時放行——系統自己的程式與文件驗證過就由 AI 直接上版控，不等口令（USER.md 例外條；記憶內容三層本來就由 vcs-sync 自動，與本閘無關）。",
+      "_doc": "PreToolUse git commit 口令閘：本回合使用者原話無任何 keywords → deny。USER.md 縮寫指令契約的程式化版本。exempt_cwd_under_claude_dir＝commit 實際落在原子記憶系統自己的 repo（~/.claude 本身或它的 git worktree）時放行——系統自己的程式與文件驗證過就由 AI 直接上版控，不等口令（USER.md 例外條；記憶內容三層本來就由 vcs-sync 自動，與本閘無關）。只認看得出落點的句型：整條命令只由 && 串起，第一段可為 cd <絕對路徑>，其餘每段都是 git [-C <字面路徑>] <add|commit|push|status|diff|log|show|rm|mv|restore> …；其他寫法（未知命令段、; | 換行、單引號外的 $( ) 或反引號、未加引號的 heredoc、repo 覆寫參數或 GIT_DIR 等環境變數、路徑含變數）不豁免、照常要口令。",
       "enabled": true,
       "exempt_cwd_under_claude_dir": true,
       "keywords": [

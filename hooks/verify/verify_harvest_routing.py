@@ -95,8 +95,11 @@ def test_tracking_k_not_none_writes_one_line_lf(tmp_path):
     entries = wh.tracking_entries(_SID, 7, "[lib] atom_io.append_atom_file 的 limit 要用 is_hub_card 選", at="2026-10-08T21:00:00")
     assert len(entries) == 1
     e = entries[0]
-    assert e == {"session_id": _SID, "turn_seq": 7, "at": "2026-10-08T21:00:00", "part": "lib",
-                 "text": "atom_io.append_atom_file 的 limit 要用 is_hub_card 選", "status": "open"}
+    eid = e["id"]                      # 追蹤項唯一 id（結案靠它精準指到這一項）：16 碼十六進位
+    assert len(eid) == 16 and all(c in "0123456789abcdef" for c in eid)
+    assert {k: v for k, v in e.items() if k != "id"} == {
+        "session_id": _SID, "turn_seq": 7, "at": "2026-10-08T21:00:00", "part": "lib",
+        "text": "atom_io.append_atom_file 的 limit 要用 is_hub_card 選", "status": "open"}
     p = wh.append_tracking("c--users-x--proj", entries, base_dir=tmp_path)
     assert p == tmp_path / "tracking" / "c--users-x--proj.jsonl"
     raw = p.read_bytes()

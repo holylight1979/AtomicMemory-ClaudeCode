@@ -1011,7 +1011,7 @@ def _create_failure_atom(path: Path, ftype: str, first_block: str) -> None:
         f"- Confidence: [臨]\n"
         f"- Trigger: {_FAILURE_TRIGGERS.get(ftype, _FAILURE_TRIGGERS['assumption'])}\n"
         f"- Type: procedural\n"
-        f"- Created: {datetime.now().strftime('%Y-%m-%d')}\n\n"
+        f"- Created-at: {datetime.now().strftime('%Y-%m-%d')}\n\n"
         f"## 知識\n\n{first_block}\n\n"
         f"## 行動\n\n- 同全域 failures 共通行動規則\n"
     )

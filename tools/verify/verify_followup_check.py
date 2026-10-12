@@ -27,8 +27,10 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(fc, "FOLLOWUPS", tmp_path / "followups.json")
     monkeypatch.setattr(fc, "INJECTION_TURNS_LOG", tmp_path / "injection-turns.jsonl")
     monkeypatch.setattr(fc, "ATOM_DEBUG_GLOB", str(tmp_path / "atom-debug-*.log"))
-    # 報表模組不可用 → 該列標 n/a 且視為通過（報表壞掉不擋回訪）
+    # 報表模組不可用 → 該列標 n/a 且視為通過（報表壞掉不擋回訪）。報表從程式碼樹載入、讀的是資料根，
+    # 兩個都指 tmp，否則會載到真的報表、讀到真家的曝光資料
     monkeypatch.setattr(fc, "CLAUDE_DIR", tmp_path)
+    monkeypatch.setattr(fc, "CODE_DIR", tmp_path)
     return tmp_path
 
 
