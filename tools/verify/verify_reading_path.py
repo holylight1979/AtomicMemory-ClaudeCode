@@ -1322,6 +1322,25 @@ def test_constructor_alias_rebound_in_the_importing_module_is_not_certain(tmp_pa
     assert all(e.rule is None for e in g.edges["app.py::main"])
 
 
+def test_json_steps_carry_the_rule_number(tmp_path):
+    root = _write(tmp_path, EX_B)
+    out = subprocess.run([sys.executable, "-X", "utf8", str(SCRIPT), "--root", str(root), "--entry", "app.py::main", "--json"],
+                         capture_output=True, text=True, encoding="utf-8")
+    payload = json.loads("\n".join(out.stdout.strip().splitlines()[:-1]))
+    route = next(r for r in payload["entries"][0]["routes"] if r["landing"] == "end.py::done")
+    assert [s["rule"] for s in route["steps"]] == [None, 1, 4, 1, 1], "入口那一步沒有條號；之後每一步附憑哪一條確定"
+
+
+def test_compare_same_numbers_are_undecidable_when_coverage_got_worse(tmp_path):
+    old = _write(tmp_path / "old", PY_HOP)
+    worse = "def pick():\n    return 1\n\n\ndef done(n):\n    t = n * 2\n    h = pick()\n    h()\n    return t\n"
+    new = _write(tmp_path / "new", {**PY_HOP, "end.py": worse})
+    res = rp.run_compare(new, str(old), None, "main.py", None)
+    row = _row(res, "end.py::done")
+    assert _numbers(row["before"])[:3] == _numbers(row["after"])[:3], "這一列前後數字相同"
+    assert row["status"] == "undecidable", "可達範圍內看不到的呼叫變多：數字是下限，相同也不能報成不變"
+
+
 def test_constructed_self_field_is_found_but_not_certain(tmp_path):
     files = {"app.py": WORKER + "\n\nclass App:\n    def __init__(self):\n        self.worker = Worker()\n\n"
                                 "    def run(self):\n        self.worker.run()\n"}

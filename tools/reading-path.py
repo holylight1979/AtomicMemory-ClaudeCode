@@ -16,6 +16,7 @@
   跳檔  換到別的檔；partial 類別各檔名是 `類.責任.cs` 且責任各不相同 → 標「分檔有責任軸」，不算跳檔、不算彎
   拐彎  這一步是轉手或跳檔。刻度（G11，參考）：0-1 順｜2 注意｜3 警戒｜≥4 臭掉
 確定與否：確定只來自白名單（見 --help 末段），白名單外一律候選（有可列舉的目標）或未解（沒有）。
+  每條邊要由白名單其中一條正向證明才確定（--json 每一步的 rule＝憑第幾條；null＝不確定），不是「沒標不確定就算確定」。
   所以全確定的數字是可信的下限，含候選的數字是上限參考。每個落點先找只走確定邊的路；走不到才用含候選的路，
   彙總、最差 N 條與比較都分開列。落點裡有專案內但解析不了的呼叫 → 標「未讀到底」（數字是下限），不算進刻度分布。
 語言解析在同目錄 reading_path_lang.py（Python 用 ast；C# 不用 Roslyn；js/ts/go/java/kt/rs 粗略模式只數跳檔）。
@@ -80,9 +81,11 @@ _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候選或未解，所以全確定的數字是可信的下限，含候選的數字是上限參考：
   1. 直接呼叫專案內唯一解析到、名字從未被重新指定的函式（含 import 進來的、模組.函式、類別.靜態方法、建構子、super()／base.）；
      模組層名字只要在任何地方被重新指定或被指定成算出來的值，就不在白名單
-  2. 對同一函式內剛 new 出來、之後沒再指定、沒傳 ref/out、沒存到欄位的區域變數呼叫方法（確定型別分派）
-  3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、欄位型別）同樣只在
-     沒有子類覆寫、也沒有多載時（照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）
+  2. 對同一函式內剛 new 出來、之後沒再指定、沒傳 ref/out、沒存到欄位或容器的區域變數呼叫方法（確定型別分派）；
+     建構者的名字（含 import 別名）也要從未被重新指定
+  3. self.method()／this.Method()（含 C# 省略 this）在沒有子類覆寫時；型別已宣告的接收者（參數標註、區域變數標註、
+     欄位宣告型別；self.x = Foo() 這種推導出來的不算）同樣只在沒有子類覆寫、也沒有多載時
+     （照讀的人順著標註往下讀的方式；型別標註寫錯時，這條會跟著錯）
   4. 簡單區域別名：同一函式內指定一次、之後沒再指定、右邊是白名單內可確定的函式
   5. callback：有已知呼叫者、每處都傳同一個白名單內的函式（或都用同一個預設值）、參數沒被重新指定
   不在白名單（例）：模組層可變名字、工廠回傳、事件（不論有沒有 -=）、多載、分派表、反射、getattr、繼承分派、接收者型別不明的猜測、粗略模式"""
@@ -1313,7 +1316,7 @@ def _diff_row(entry: str, b: dict | None, a: dict | None, undecidable: bool, bro
         vb, va = tuple(b[k] for k in key), tuple(a[k] for k in key)
         status = "same" if va == vb else ("better" if va < vb else "worse")
     touched = {s["func"].split("::")[0] for s in flat(r["steps"] for r in (b, a) if r)}
-    status = "undecidable" if (undecidable or touched & broken) and status != "same" else status
+    status = "undecidable" if undecidable or touched & broken else status   # 數字是下限：前後相同也不代表沒變
     certain = all(r["certain"] for r in (b, a) if r)
     return {"entry": entry, "landing": landing, "status": status, "certain": certain, "before": b, "after": a}
 
