@@ -27,6 +27,10 @@ PROBE_OVERVIEW = (
     "print(json.dumps({'claude_dir': str(wg_core.CLAUDE_DIR), 'oh_file': overview_hub.__file__, "
     "'log_path': str(wg_overview.LOG_PATH)}))"
 )
+PROBE_COMPANION = (
+    "import json, sys; sys.path.insert(0, sys.argv[1]); import codex_companion as cc; import handlers; "
+    "print(json.dumps({'claude_dir': str(cc.CLAUDE_DIR), 'path0': sys.path[0], 'handlers': handlers.__file__}))"
+)
 
 
 def _probe(snippet: str, env_value) -> dict:
@@ -58,6 +62,14 @@ def test_override_to_this_tree_loads_this_trees_lib():
     assert Path(got["log_path"]) == CLAUDE_ROOT / "workflow" / "_overview-hub.log"
 
 
+def test_codex_companion_follows_override():
+    """codex_companion import 時會插 hooks 到 sys.path 最前面；不認覆蓋就讓之後 import 的 handlers 載到家目錄那份。"""
+    got = _probe(PROBE_COMPANION, str(CLAUDE_ROOT))
+    assert Path(got["claude_dir"]) == CLAUDE_ROOT
+    assert Path(got["path0"]) == HOOKS_DIR
+    assert Path(got["handlers"]).resolve() == (HOOKS_DIR / "handlers" / "__init__.py").resolve()
+
+
 # ─── 反例：未設＝家目錄，行為與現狀相同 ─────────────────────────────────────────
 
 def test_unset_equals_home_claude():
@@ -71,3 +83,9 @@ def test_unset_equals_home_claude():
 
 def test_blank_value_equals_unset():
     assert Path(_probe(PROBE_CORE, "   ")["claude_dir"]) == Path.home() / ".claude"
+
+
+def test_codex_companion_unset_equals_home_claude():
+    got = _probe(PROBE_COMPANION, None)
+    assert Path(got["claude_dir"]) == Path.home() / ".claude"
+    assert Path(got["path0"]) == Path.home() / ".claude" / "hooks"

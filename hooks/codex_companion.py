@@ -23,7 +23,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"
+# WG_CLAUDE_DIR：同 wg_core，worktree 內跑 verify 時指到 worktree 根；未設＝家目錄 ~/.claude
+_CLAUDE_DIR_OVERRIDE = os.environ.get("WG_CLAUDE_DIR", "").strip()
+CLAUDE_DIR = Path(_CLAUDE_DIR_OVERRIDE) if _CLAUDE_DIR_OVERRIDE else Path.home() / ".claude"
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
 COMPANION_DIR = CLAUDE_DIR / "tools" / "codex-companion"
