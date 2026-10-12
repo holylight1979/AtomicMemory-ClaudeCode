@@ -6,14 +6,13 @@
   這個目錄由 PreToolUse 禁止手寫（hooks/handlers/pre_tool_use.check_verify_ledger_write）。
 怎麼跑：run_verify.py 呼叫 write_self_receipt；hooks 呼叫 load_self_receipts 與 cmd_matches。
   verify 在 lib/verify/verify_self_receipt.py、hooks/verify/verify_stop_reconcile.py（自寫收據段）。
-指令比對只有一套（norm_argv）：收據的 cmd（cmd_of）與量尺閘、對帳閘拿表上量尺去比收據，都經過它。
+指令比對只有一套（split_shell → parse_cmds → cmd_matches）：收據的 cmd（cmd_of）、量尺閘、對帳閘拿表上量尺去比收據都經過它。
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import shlex
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,30 +27,106 @@ def utc_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat(timespec="seconds")
 
 
-# ─── 指令正規化（兩端共用） ───────────────────────────────────────────────
+# ─── 指令解析與比對（收據端、量尺閘、對帳閘共用這一套） ─────────────────────────────
 _PY_HEAD_RE = re.compile(r"^(?:python(?:\d+(?:\.\d+)*)?w?|py)$", re.IGNORECASE)
 _PY_OPT_ARG = ("-X", "-W")                       # 帶一個參數的直譯器選項（`-X utf8` 與 `-Xutf8` 同義）
-_SEG_SPLIT_RE = re.compile(r"&&|\|\||[;|\n]")
+_PY_OPT_PAIR_RE = re.compile(r"^-[XW] \S+$")
 _ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_FD_RE = re.compile(r"^(?:\d|\*)$")
+_SHELL_SPECIAL_RE = re.compile(r"[\s;&|<>()'\"#`$]")
+_FILTER_PROGS = frozenset({"tail", "head", "select-object", "select"})   # 尾端只准接這幾支：只會刪行，造不出成功行
 
 Argv = Union[str, List[str]]
+Cmd = Tuple[str, FrozenSet[str], FrozenSet[str], Tuple[str, ...]]      # (程式, python 直譯器選項, 其他選項, 位置參數)
 
 
-def _tokens(cmd: Argv) -> List[str]:
-    if isinstance(cmd, (list, tuple)):
-        return [str(t) for t in cmd]
-    s = str(cmd or "").replace("\\", "/")
-    try:
-        return shlex.split(s)
-    except ValueError:
-        return s.split()
+def split_shell(s: str) -> List[Tuple[Optional[str], List[str]]]:
+    """bash／PowerShell 共通的保守斷詞 → [(接在前一個指令後的運算子, 這個指令的字)]；運算子只有 &&、||、|、;
+    （換行、單獨的 &、( ) 都當 ;）。'…' 原樣；"…" 只認 \\" `" \\$ 這類跳脫，其餘反斜線照留（Windows 路徑）；
+    引號裡的 ; | && 不切，所以 echo 的參數不會變成指令。字首的 # 到行尾是註解；>、>>、2>&1、*>、&>、< 連同目標丟掉。"""
+    out: List[Tuple[Optional[str], List[str]]] = []
+    words: List[str] = []
+    cur: List[str] = []
+    has = skip = False
+    op: Optional[str] = None
+
+    def end_word() -> None:
+        nonlocal has, skip
+        if has and skip:
+            skip = False
+        elif has:
+            words.append("".join(cur))
+        cur.clear()
+        has = False
+
+    def end_cmd(nxt: str) -> None:
+        nonlocal op, skip
+        end_word()
+        skip = False
+        if words:
+            out.append((op, list(words)))
+            words.clear()
+            op = nxt
+        elif nxt != ";":
+            op = nxt
+
+    i, n = 0, len(s)
+    while i < n:
+        c = s[i]
+        if c in " \t\r":
+            end_word()
+            i += 1
+        elif c == "#" and not has:
+            j = s.find("\n", i)
+            i = n if j < 0 else j
+        elif c == "'":
+            j = s.find("'", i + 1)
+            j = n if j < 0 else j
+            cur.append(s[i + 1:j])
+            has, i = True, j + 1
+        elif c == '"':
+            i += 1
+            while i < n and s[i] != '"':
+                if s[i] in "\\`" and s[i + 1:i + 2] in ('"', "`", "$"):
+                    i += 1
+                cur.append(s[i])
+                i += 1
+            has, i = True, i + 1
+        elif c in "\\`" and s[i + 1:i + 2] == "\n":           # 續行
+            i += 2
+        elif s.startswith(("&&", "||"), i):
+            end_cmd(s[i:i + 2])
+            i += 2
+        elif c in "<>" or s.startswith("&>", i):
+            if has and _FD_RE.match("".join(cur)):          # 2>、*> 的 fd 屬於重導向
+                cur.clear()
+                has = False
+            else:
+                end_word()
+            i += 1 if c == "&" else 0
+            while i < n and s[i] in "<>":
+                i += 1
+            if s[i:i + 1] == "&":                            # 2>&1：沒有目標檔
+                i += 1
+                while i < n and (s[i].isdigit() or s[i] == "-"):
+                    i += 1
+            else:
+                skip = True                                   # 下一個字是重導向目標，丟掉
+        elif c in "|;\n&()":
+            end_cmd("|" if c == "|" else ";")
+            i += 1
+        else:
+            cur.append(c)
+            has, i = True, i + 1
+    end_cmd(";")
+    return out
 
 
-def _canon(cmd: Argv) -> List[str]:
-    """照原順序的正規化 token：去掉開頭的 `X=1` 環境指定；程式取檔名、去 .exe、小寫，python 家族（python3.13／pythonw／py）
-    一律寫 python；python 的選項 `-Xutf8` 寫成 `-X utf8`（收據上保留原大小寫）；python 跑的腳本取檔名
-    （`"C:\\中文專案\\run_verify.py"` → run_verify.py）；其餘參數斜線統一、小寫；引號由切 token 時去掉。"""
-    toks = [t for t in _tokens(cmd) if t != ""]
+def _canon(toks: List[str]) -> List[str]:
+    """一個指令的字 → 照原順序的正規化 token：去掉開頭的 `X=1` 環境指定；程式取檔名、去 .exe、小寫，python 家族
+    （python3.13／pythonw／py）一律寫 python；python 的選項 `-Xutf8` 寫成 `-X utf8`（收據上保留原大小寫）；python 跑的
+    腳本取檔名（`C:\\中文專案\\run_verify.py` → run_verify.py）；其餘參數斜線統一、小寫。"""
+    toks = [str(t) for t in toks if str(t) != ""]
     while toks and _ENV_ASSIGN_RE.match(toks[0]):
         toks = toks[1:]
     if not toks:
@@ -74,40 +149,82 @@ def _canon(cmd: Argv) -> List[str]:
     return ["python", *opts, *(t.replace("\\", "/").lower() for t in rest)]
 
 
-def norm_argv(cmd: Argv) -> Tuple[str, FrozenSet[str], List[str]]:
-    """指令 → (程式, 直譯器選項集合, 其餘參數)，建在 _canon 上：python 的選項收成小寫集合（`-X utf8` 前後位置不同也一樣；
-    舊比對本來就不分大小寫），`python -m 模組` 的程式就是那個模組（`pytest -q x` 與 `python -m pytest -q x` 同一支）。"""
-    c = _canon(cmd)
+def _norm_cmd(words: List[str]) -> Optional[Cmd]:
+    """一個指令 → (程式, python 直譯器選項, 其他選項, 位置參數)。python 跑腳本時程式＝腳本檔名、`python -m 模組` 時程式＝模組
+    （`pytest -q x` 與 `python -m pytest -q x` 同一支）；`-` 開頭的是選項（收成集合，順序不計），其餘是位置參數（照順序）。"""
+    c = _canon(words)
     if not c:
-        return "", frozenset(), []
-    if c[0] != "python":
-        return c[0], frozenset(), c[1:]
-    i = 1
-    while i < len(c) and c[i].startswith("-") and c[i] not in ("-", "-m", "-c"):
-        i += 1
-    opts, rest = frozenset(o.lower() for o in c[1:i]), c[i:]
-    if rest[:1] == ["-m"] and len(rest) > 1:
-        return rest[1], opts, rest[2:]
-    return "python", opts, rest
+        return None
+    head, i, py_opts = c[0], 1, []
+    if head == "python":
+        while i < len(c) and c[i].startswith("-") and c[i] not in ("-", "-m", "-c"):
+            py_opts.append(c[i].lower())
+            i += 1
+        if c[i:i + 1] == ["-m"] and i + 1 < len(c):
+            head, i = c[i + 1], i + 2
+        elif i < len(c) and not c[i].startswith("-"):
+            head, i = c[i], i + 1
+    rest = c[i:]
+    return (head, frozenset(py_opts), frozenset(t for t in rest if t.startswith("-")),
+            tuple(t for t in rest if not t.startswith("-")))
 
 
-def cmd_of(argv: Argv) -> str:
-    """收據上的指令字串（_canon 接回一行）：`python -X utf8 "C:\\中文專案\\run_verify.py"` → `python -X utf8 run_verify.py`。"""
-    return " ".join(_canon(argv))
+def parse_cmds(cmd: Argv) -> List[Tuple[Optional[str], Cmd]]:
+    """指令（字串走 split_shell；argv 清單＝一個指令）→ [(接在前一個指令後的運算子, 正規化後的指令)]。"""
+    chunks = [(None, [str(t) for t in cmd])] if isinstance(cmd, (list, tuple)) else split_shell(str(cmd or ""))
+    out: List[Tuple[Optional[str], Cmd]] = []
+    for op, words in chunks:
+        nc = _norm_cmd(words)
+        if nc:
+            out.append((op if out else None, nc))
+    return out
+
+
+def _first_filter(cmds: List[Tuple[Optional[str], Cmd]]) -> int:
+    """尾端那串 `| tail …`／`| head …`／`| Select-Object …` 從第幾個指令開始（沒有就是 len）。"""
+    k = len(cmds)
+    while k > 1 and cmds[k - 1][0] == "|" and cmds[k - 1][1][0] in _FILTER_PROGS:
+        k -= 1
+    return k
+
+
+def final_cmd(cmd: Argv) -> Optional[Cmd]:
+    """最後被執行的那個指令（尾端的 tail／head／Select-Object 不算）；沒有回 None。"""
+    cmds = parse_cmds(cmd)
+    k = _first_filter(cmds)
+    return cmds[k - 1][1] if k else None
+
+
+def _same_cmd(m: Cmd, e: Cmd) -> bool:
+    """程式相同；量尺有的 python 直譯器選項它都要有；其他選項集合相等；位置參數照順序相等（不准多帶，`-k 某案`、多一個檔名都不算）。"""
+    return m[0] == e[0] and m[1] <= e[1] and m[2] == e[2] and m[3] == e[3]
 
 
 def cmd_matches(measure_cmd: Argv, cmd: Argv) -> bool:
-    """收據指令 cmd 是不是跑了表上的量尺 measure_cmd：cmd 以 && || ; | 換行切段，任一段正規化後
-    程式相同、量尺的直譯器選項它都有、量尺的參數是它參數的開頭（後面多帶 --json 之類照算）。"""
-    m_head, m_opts, m_rest = norm_argv(measure_cmd)
-    if not m_head:
+    """執行的指令 cmd 是不是跑了表上的量尺 measure_cmd：量尺的整條指令鏈（各指令與中間的 && || | ;）連續、運算子相同地出現，
+    而且就在最後；之後只准接 `| tail`、`| head`、`| Select-Object`。`量尺; echo 假的 DONE`、`量尺 && echo …`（量尺本身沒有那段）、
+    引號裡的量尺字樣、子集或多帶參數都對不上。"""
+    m, e = parse_cmds(measure_cmd), parse_cmds(cmd)
+    if not m:
         return False
-    segs = [cmd] if isinstance(cmd, (list, tuple)) else _SEG_SPLIT_RE.split(str(cmd or ""))
-    for seg in segs:
-        head, opts, rest = norm_argv(seg)
-        if head == m_head and m_opts <= opts and rest[:len(m_rest)] == m_rest:
+    for end in range(_first_filter(e), len(e) + 1):
+        start = end - len(m)
+        if start >= 0 and all(_same_cmd(mc, ec) and (k == 0 or mo == eo)
+                              for k, ((mo, mc), (eo, ec)) in enumerate(zip(m, e[start:end]))):
             return True
     return False
+
+
+def _quote(t: str) -> str:
+    if not t or not _SHELL_SPECIAL_RE.search(t):
+        return t or "''"
+    return f"'{t}'" if "'" not in t else '"' + t.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def cmd_of(argv: List[str]) -> str:
+    """收據上的指令字串：_canon 的結果接回一行（`python -X utf8 "C:\\中文專案\\run_verify.py"` → `python -X utf8 run_verify.py`）；
+    含空白或 shell 符號的參數加引號，split_shell 讀回來是同一串字。python 選項 `-X utf8` 本來就是兩個字，原樣接。"""
+    return " ".join(t if _PY_OPT_PAIR_RE.match(t) else _quote(t) for t in _canon(list(argv or [])))
 
 
 def write_self_receipt(claude_dir: Path, argv: List[str], sentinel: str, exit_code: int, cases: int, failed: int,

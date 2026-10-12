@@ -221,6 +221,16 @@ def test_unknown_write_target_is_denied_end_to_end(world):           # 退回 00
     assert not wg_core.state_file_path(SID).exists() or True              # UNKNOWN 不落 state（state 可能已建，不強求）
 
 
+def test_013_4_subagent_tool_call_gets_same_unknown_target_deny(world):
+    """013 BLOCK 4 查證：子代理的工具呼叫（hook 輸入帶 agent_id）走同一個 handle_pre_tool_use，沒有 agent_id 分支，
+    `python -c "print(1)"` 照樣在執行前被 deny，不會在子代理 Stop 留下未知寫入。"""
+    proj, outputs, tp = world
+    with pytest.raises(SystemExit):
+        ptu.handle_pre_tool_use({"tool_name": "Bash", "tool_input": {"command": 'python -c "print(1)"'}, "session_id": SID,
+                                 "agent_id": "ag1", "agent_type": "general-purpose", "cwd": str(proj), "transcript_path": tp}, {})
+    assert _deny(outputs[-1]) and "無法判定這段指令的寫入目標" in outputs[-1]["hookSpecificOutput"]["permissionDecisionReason"]
+
+
 def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(world):
     proj, outputs, tp = world
     f1 = str(proj / "Game" / "Battle" / "A.cs")

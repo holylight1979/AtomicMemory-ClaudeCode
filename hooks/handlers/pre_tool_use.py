@@ -742,6 +742,28 @@ def check_verify_ledger_write(tool_name: str, tool_input: Dict[str, Any], cwd: s
     return None
 
 
+def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PreToolUse：只跑「寫入目標判不出 → deny」這一道（與主 session 的
+    OverviewHub 對 UNKNOWN 的 deny 同一個判定：wg_core.write_paths_from_tool）。`python -c "print(1)"` 這類內嵌碼在執行前
+    就擋，不會被 PostToolUse 記成永久的未知寫入；其他閘、注入、state 一律不碰（防裁判觸發裁判）。"""
+    tool_name = input_data.get("tool_name", "") or ""
+    if tool_name not in ("Bash", "PowerShell"):
+        output_nothing()
+        return
+    from wg_core import write_paths_from_tool
+    unknown = [t for t in write_paths_from_tool(tool_name, input_data.get("tool_input") or {}, input_data.get("cwd") or None)
+               if t.startswith("UNKNOWN:")]
+    if not unknown:
+        output_nothing()
+        return
+    output_json({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": (f"[Guardian:JudgeWrite] 裁判子 session：這段指令的寫入目標判不出來（{unknown[0][8:]}…），"
+                                     "執行了就只能記成未知寫入、收尾擋到底。查資料改用 Read／Grep，或不含內嵌程式碼的指令。"),
+    }})
+
+
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})

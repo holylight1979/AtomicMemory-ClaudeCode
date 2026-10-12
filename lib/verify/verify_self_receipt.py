@@ -14,12 +14,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 _spec = importlib.util.spec_from_file_location("_ut_self_receipt", ROOT / "lib" / "self_receipt.py")   # 按檔案載入（同 run_verify）
 sr = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sr)
+_ohspec = importlib.util.spec_from_file_location("_ut_overview_hub", ROOT / "lib" / "overview_hub.py")
+_overview_hub = importlib.util.module_from_spec(_ohspec)
+_ohspec.loader.exec_module(_overview_hub)
 
 ARGV = [r"C:\Py\python.exe", "-X", "utf8", str(ROOT / "run_verify.py"), "--json"]
 
@@ -134,8 +139,8 @@ _MEASURE = "python -X utf8 run_verify.py"
 
 
 def test_009_3_cmd_matches_same_normalization_both_ends():
-    """009-4.3：收據端 cmd_of 與量尺比對共用 norm_argv：絕對腳本路徑、引號、`-X utf8` 位置、多帶參數、shell 串接都對得上。"""
-    ok = ['python -X utf8 "C:\\中文專案\\run_verify.py"', "python -u -X utf8 run_verify.py", "python -Xutf8 run_verify.py --json",
+    """009-4.3：收據端 cmd_of 與量尺比對同一套：絕對腳本路徑、引號、`-X utf8` 位置、python 家族、前面的 shell 串接都對得上。"""
+    ok = ['python -X utf8 "C:\\中文專案\\run_verify.py"', "python -u -X utf8 run_verify.py", "py -3 -Xutf8 run_verify.py",
           "C:/Py/python.exe -X utf8 run_verify.py", "export X=1; WG=1 python -X utf8 run_verify.py 2>&1 | tail -5",
           sr.cmd_of(["C:\\Py\\python.exe", "-X", "utf8", "C:\\中文專案\\run_verify.py"])]
     for cmd in ok:
@@ -144,9 +149,40 @@ def test_009_3_cmd_matches_same_normalization_both_ends():
            "python -X utf8 -m pytest -q hooks/verify", "bash fullrun.sh"]
     for cmd in bad:
         assert not sr.cmd_matches(_MEASURE, cmd), cmd
-    assert sr.cmd_matches("pytest -q lib/verify", "python -X utf8 -m pytest -q lib/verify -p no:cacheprovider")
+    assert sr.cmd_matches("pytest -q lib/verify", "python -X utf8 -m pytest -q lib/verify")
     assert not sr.cmd_matches("python -X utf8 -m pytest -q lib/verify", "pytest -q lib/verify")          # 量尺要的選項沒帶
     assert not sr.cmd_matches("python -m pytest -q lib/verify", "python -m pytest -q lib/verify/verify_x.py")  # 子集不算整把尺
+
+
+_ROOT_ROWS = {r["part_short"]: r for r in _overview_hub.parse_map((ROOT / ".claude" / "overview-map.md").read_text(encoding="utf-8"))}
+
+
+@pytest.mark.parametrize("part", ["記憶資料層", "專案文件層"])
+def test_013_3_compound_rulers_from_root_table(part):
+    """013 BLOCK 3：根層部位表 memory/、_AIDocs/ 兩列的量尺（`… && echo X DONE` 串接式）原樣執行 → 對上；
+    後面接 `; echo X DONE`、`&& echo …`、`| sed …` → 不對；`| tail -5` → 對。直接讀表上字串當輸入。"""
+    m = _ROOT_ROWS[part]["measure"]["cmd"]
+    assert "&&" in m
+    assert sr.cmd_matches(m, m) and sr.cmd_matches(m, f"WG=1 {m} 2>&1 | tail -5")
+    for bad in (f"{m}; echo X_CHECK DONE", f"{m} && echo X_CHECK DONE", f"{m} | sed s/a/b/", m.split(" && ")[0]):
+        assert not sr.cmd_matches(m, bad), bad
+
+
+def test_013_2_quotes_echo_and_subsets_do_not_count():
+    """013 BLOCK 2：引號裡的字（含分號）不切、echo 的參數不是指令、子集與多帶參數不是那把尺；選項順序、PowerShell 管線過濾照算。"""
+    fake = "echo 'dummy;py -3 -Xutf8 run_verify.py;'; echo VERIFY_CHECK PASS"
+    assert sr.split_shell(fake)[0] == (None, ["echo", "dummy;py -3 -Xutf8 run_verify.py;"])   # 引號內含分號 → 不切
+    assert not sr.cmd_matches(_MEASURE, fake)
+    assert not sr.cmd_matches(_MEASURE, 'Write-Output "python -X utf8 run_verify.py"')
+    assert not sr.cmd_matches(_MEASURE, f"{_MEASURE}; echo VERIFY_CHECK DONE cases=1 failed=0")
+    assert not sr.cmd_matches("pytest -q lib/verify", "pytest -q lib/verify -k test_cmd_of")
+    assert not sr.cmd_matches("pytest -q lib/verify", "pytest -q lib/verify lib/verify/verify_self_receipt.py")
+    assert not sr.cmd_matches(_MEASURE, f"{_MEASURE} --json")                                 # 其他選項集合要相等
+    assert sr.cmd_matches("pytest -q lib/verify", "pytest lib/verify -q")                    # 選項順序不同照算
+    assert sr.cmd_matches(_MEASURE, 'python -X utf8 "C:\\中文專案\\run_verify.py" 2>&1 | tail -5')
+    assert sr.cmd_matches(_MEASURE, "python -X utf8 run_verify.py | Select-Object -Last 5")
+    assert sr.cmd_matches(_MEASURE, "# 定位｜部位：x && y\npython -X utf8 run_verify.py")       # 註解行不算指令
+    assert sr.final_cmd(fake)[0] == "echo" and sr.final_cmd(f"{_MEASURE} | tail -3")[0] == "run_verify.py"
 
 
 def test_009_8_load_failures_are_reported_not_silent(tmp_path):

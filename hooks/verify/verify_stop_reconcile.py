@@ -545,11 +545,16 @@ def test_measure_present_not_run_blocks(driven, capsys, monkeypatch):
 
 
 def test_measure_done_after_last_edit_passes(driven, capsys, monkeypatch):
+    """013：量尺比對的其他選項要集合相等，所以表上 `python -X utf8 run_verify.py` 要原樣跑（多帶 --json 不算）。"""
     monkeypatch.setattr(wo, "_lookup", _lookup)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)],
+                       verify_receipts={_SID: [_rcpt(4, "DONE", 0, cmd=MEASURE_CMD)]},
+                       anti_evasion_report=_aec(5, "無", "無"))
+    assert "MeasureGate" not in out
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)],
                        verify_receipts={_SID: [_rcpt(4, "DONE", 0, cmd=MEASURE_CMD + " --json")]},
                        anti_evasion_report=_aec(5, "無", "無"))
-    assert "MeasureGate" not in out
+    assert "MeasureGate" in out
 
 
 def test_measure_done_before_last_edit_blocks(driven, capsys, monkeypatch):
@@ -652,9 +657,10 @@ def test_measure_gate_judged_without_completion_claim(driven, capsys, monkeypatc
 
 
 def test_runtime_gate_not_ready_blocks_with_reason():
+    """還欠這把尺的收據時才探環境（013 WARN 2：已有合格收據就不跑 runtime_gate，見 test_013_w2）；量不了 → 擋並說原因。"""
     chains = {"hook 共用模組層": {"runtime_gate": "unity-is-playing --check"}}
     reason, no_measure = vl.measure_gate_reason(
-        [_mf(_CASE, 5)], [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD)], 5, _lookup, vl.MEASURE_DEFAULTS,
+        [_mf(_CASE, 5)], [], 5, _lookup, vl.MEASURE_DEFAULTS, self_runs=lambda: [],
         chains_of=lambda root: chains, runner=lambda cmd, t, cwd: (False, "runtime_gate exit 1：Editor 不在 Play Mode"))
     assert reason and "未就緒" in reason and "Play Mode" in reason and no_measure == []
 
@@ -775,8 +781,9 @@ _BASE_STALE = ("部位【hook 共用模組層】有量尺「全量 verify｜`pyt
 _BASE_NONE = ("部位【hook 共用模組層】有量尺「全量 verify｜`python -X utf8 run_verify.py`｜全綠」，"
               "改了 1 個檔（最後在 turn 5）但之後沒有這把尺的 DONE 收據。"
               "跑 `python -X utf8 run_verify.py`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
-# 004：尺是 run_verify 時，原文兩句之後另起一行提示背景跑的自寫收據（原文本身逐字不變）
-_RUNS_HINT = ("\n  run_verify 跑超過 10 分鐘就背景跑：它跑完會自寫收據到 workflow/verify-ledger/_runs/，"
+# 013 WARN 1：原文之後另起一行只列證據與放行問法（不叫人改寫收尾文字）；004：尺是 run_verify 時再提示背景跑的自寫收據
+_EVIDENCE = "\n  要補的證據就是上面那把尺的收據；跑不了就照【收尾放行確認】問使用者，改寫收尾文字不會解帳。"
+_RUNS_HINT = (_EVIDENCE + "\n  run_verify 跑超過 10 分鐘就背景跑：它跑完會自寫收據到 workflow/verify-ledger/_runs/，"
               "改完之後才開始跑、exit 0、failed=0、同一棵樹就認得到（收據不准手寫）。")
 
 
@@ -1208,14 +1215,16 @@ def test_006_3_pending_release_carries_over_turns(exhausted, capsys, monkeypatch
 
 
 def test_006_3_pending_cleared_when_check_passes(driven, capsys):
+    """查核通過才清 pending（pending 帶原宣稱 claims；舊版沒帶 claims 的照擋，見 test_013_1_legacy_pending_blocks_until_user_release）。"""
+    pend = {_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r", "claims": ["閘修好了，完成。"]}}}
     out, state, _ = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py")]},
-                           pending_release={_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r"}}})
+                           pending_release=pend)
     assert "ReconcileGate" not in out and state["pending_release"][_SID] == {}
 
 
 def test_006_6_judge_stop_blocks_to_the_end(capsys, monkeypatch):
     import dispatcher
-    assert set(dispatcher.JUDGE_HANDLERS) == {"PostToolUse", "Stop"}                       # PreToolUse／UPS 等照舊早退
+    assert set(dispatcher.JUDGE_HANDLERS) == {"PreToolUse", "PostToolUse", "Stop"}         # UPS 等照舊早退；PreToolUse 只擋判不出的寫入
     assert dispatcher.JUDGE_HANDLERS["Stop"] == ("handlers.stop", "handle_judge_stop")
     state = {"turn_seq": 0, "modified_files": [_mf(_CODE, 0)]}
     monkeypatch.setattr(st, "read_state", lambda sid: state)
@@ -1290,12 +1299,6 @@ def _pend_state(claims):
     return {_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r", "claims": list(claims)}}}
 
 
-def test_009_1_set_pending_keeps_claims():
-    s: dict = {}
-    rl.set_pending(s, _SID, "reconcile", 4, "x", "r", ["a 修好了，完成。", "", "b 完成了。"])
-    assert s["pending_release"] == _pend_state(["a 修好了，完成。", "b 完成了。"])
-
-
 def test_009_1_rephrase_keeps_case_debt_and_pending(driven, capsys):
     """4.1 重現：有改碼、沒補案例、已有 pending，回「變更內容如上。」→ 擋（含 AskUserQuestion 提示）且 pending 留著；
     補了案例後同一句 → 不擋、pending 清。"""
@@ -1318,11 +1321,29 @@ def test_009_1_pending_claim_rechecked_after_rephrase(driven, capsys):
     assert "ReconcileGate" not in out and "reconcile" not in state["pending_release"][_SID]
 
 
-def test_009_1_legacy_pending_not_cleared_without_recheck(driven, capsys):
-    """舊版 pending（沒帶 claims）＋這次沒宣告完成：(a)(b)(c) 沒重查 → 不清（沒有執行查核不等於查核通過）。"""
-    out, state, _ = driven("變更內容如上。", capsys,
-                           pending_release={_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r"}}})
-    assert "ReconcileGate" not in out and "reconcile" in state["pending_release"][_SID]
+def test_013_1_legacy_pending_blocks_until_user_release(driven, capsys):
+    """013 BLOCK 1 規則 2：舊版 pending（沒帶 claims）原宣稱無從重查 → 照擋（不再當成可收尾），pending 留著且不被補上 claims；
+    說完成也一樣擋；只有使用者放行能清（放行流程見 test_006_3_pending_release_carries_over_turns）。"""
+    legacy = {_SID: {"reconcile": {"turn": 4, "at": "x", "reason": "r"}}}
+    for text in ("變更內容如上。", "全部完成了。"):
+        out, state, _ = driven(text, capsys, pending_release=copy.deepcopy(legacy))
+        assert "舊格式，沒有原宣稱可以重查" in out and "【收尾放行確認】" in out, text
+        assert "claims" not in state["pending_release"][_SID]["reconcile"], text
+
+
+def test_013_1_original_claim_survives_repeated_rephrase(driven, capsys):
+    """013 BLOCK 1 重現：pending 的原宣稱是「修好了，全部完成了。」，之後連說五次「全部完成了。」→ 每次都擋、原宣稱不被擠掉；
+    補了對得上的 PASS → 清。訊息不再叫人改寫宣稱（WARN 1）。"""
+    pend, budget = _pend_state(["修好了，全部完成了。"]), None
+    for k in range(5):
+        extra = {"reconcile_gate_turn": budget} if budget else {}
+        out, state, _ = driven("全部完成了。", capsys, pending_release=copy.deepcopy(pend), **extra)
+        assert "(a) 說「修好」" in out and "改成事實句" not in out, k
+        pend, budget = state["pending_release"], state["reconcile_gate_turn"]
+        assert pend[_SID]["reconcile"]["claims"] == ["修好了，全部完成了。"], k
+    out, state, _ = driven("全部完成了。", capsys, pending_release=copy.deepcopy(pend),
+                           verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py")]})
+    assert "ReconcileGate" not in out and "reconcile" not in state["pending_release"][_SID]
 
 
 def test_009_1_subagent_and_judge_judge_case_debt_regardless_of_wording(sub_stop, capsys, monkeypatch):
@@ -1375,11 +1396,18 @@ def test_009_2_judge_read_only_not_blocked(tmp_path, monkeypatch, capsys):
     assert "Guardian" not in _judge_stop(monkeypatch, capsys, saved)
 
 
-def test_009_2_subagent_unknown_write_blocks(sub_stop, capsys):
+def test_009_2_subagent_unknown_write_blocks(sub_stop, capsys, monkeypatch, tmp_path):
+    """經主 PostToolUse 入口（帶 agent_id）記帳，再經 SubagentStop 入口判：子代理的未知寫入 → 擋到底（WARN 3：紅在行為）。"""
     from handlers import post_tool_use as pt
-    s = _sub_state()
-    pt._note_unknown_write(s, _SID, "UNKNOWN:python -c", "python -c \"open('a.py','w')\"", "Bash", "ag1")
-    assert "unknown_writes" not in s and s["agent_unknown_writes"]["ag1"][0]["session_id"] == _SID
+    s = _sub_state(session={"cwd": str(tmp_path)})
+    for name, fn in (("_ensure_state", lambda *a, **k: s), ("write_state", lambda *a, **k: None),
+                     ("append_guard_log", lambda *a, **k: None), ("_check_output_quality", lambda *a, **k: None)):
+        monkeypatch.setattr(pt, name, fn)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use({"session_id": _SID, "agent_id": "ag1", "tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": "python -c \"open('a.py','w').write('x')\""},
+                                 "tool_response": {"stdout": "", "stderr": ""}}, {"docdrift": {"enabled": False}})
     out, logs = sub_stop(capsys, s)
     assert "寫入目標不明的指令" in out and [p["event"] for g, p in logs if g == "reconcile"] == ["subagent_block"]
 
@@ -1401,7 +1429,7 @@ def test_009_3_real_receipt_with_abs_script_path(run, blocked):
 def test_009_3_session_receipt_uses_same_normalization(driven, capsys, monkeypatch):
     """前景跑的 session 收據也走同一套比對：絕對腳本路徑、選項換位置都對得上量尺。"""
     monkeypatch.setattr(wo, "_lookup", _lookup)
-    for cmd in (_ABS_CMD, "python -u -X utf8 run_verify.py --json"):
+    for cmd in (_ABS_CMD, "python -u -X utf8 run_verify.py"):
         out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CASE, 3)],
                            verify_receipts={_SID: [_rcpt(4, "DONE", 0, cmd=cmd)]}, anti_evasion_report=_aec(5, "無", "無"))
         assert "MeasureGate" not in out, cmd
@@ -1469,3 +1497,97 @@ def test_011_no_root_falls_back_to_absolute_path_with_one_stderr_line(capsys):
     assert vl.case_debt([src, doc], 5, cfg, lambda p: None) == []
     err = [ln for ln in capsys.readouterr().err.splitlines() if "[verify_ledger] 找不到" in ln]
     assert err == [f"[verify_ledger] 找不到 {src['path']} 的專案根，案例判定改用絕對路徑"]
+
+
+# ─── 013 退件：串接式量尺、引號與子集冒充、裁判 PreToolUse、訊息與 runtime_gate 成本 ─────────────────
+
+_ROOT_ROWS = parse_map((HOOKS_DIR.parent / ".claude" / "overview-map.md").read_text(encoding="utf-8"))
+
+
+def _root_row(part):
+    return next(r for r in _ROOT_ROWS if r["part_short"] == part)
+
+
+@pytest.mark.parametrize("part", ["記憶資料層", "專案文件層"])
+def test_013_3_compound_ruler_from_root_table_is_satisfiable(part):
+    """013 BLOCK 3（最優先）：根層部位表這兩列的量尺是 `… && echo X DONE` 串接式；表上字串原樣跑出的 DONE 收據要認得到，
+    後面再接 `; echo 假的 DONE` 就不算。舊碼（7b80327）收據端按 && 切段、量尺端整串比，原樣跑也永遠對不上。"""
+    row = _root_row(part)
+    cmd = row["measure"]["cmd"]
+    assert "&&" in cmd and "echo" in cmd                                                   # 直接讀表上字串當輸入
+    mod = _mf(r"c:\proj\x.md", 5, last_at=_T1, last_seq=3)
+    gate = lambda runs_cmd: vl.measure_gate_reason(                                          # noqa: E731
+        [mod], [_rcpt(5, "DONE", 0, cmd=runs_cmd, at=_T2)], 5, lambda p: (ROOT, row), vl.MEASURE_DEFAULTS,
+        chains_of=lambda r: {}, self_runs=lambda: [])[0]
+    assert gate(cmd) is None
+    assert gate(cmd + "; echo FAKE_CHECK DONE") is not None
+
+
+def test_013_2_quoted_ruler_text_is_not_a_run(driven, capsys, monkeypatch):
+    """013 BLOCK 2：量尺字樣在 echo 的引號裡、成功行是另一個 echo 印的 → 量尺閘不認 DONE、對帳 (a) 不認 PASS。"""
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    monkeypatch.setattr(st, "load_self_runs", lambda: [], raising=False)
+    fake = "echo 'dummy;py -3 -Xutf8 run_verify.py;'; echo VERIFY_CHECK PASS; echo VERIFY_CHECK DONE cases=1 failed=0"
+    r = _rcpt(5, "PASS", 0, cmd=fake, at=_T2)
+    r["sentinels"].append({"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "1", "failed": "0"}})
+    mods = [_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)]
+    out, _, _ = driven("修好了，全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
+    assert "(a) 說「修好」" in out and "[Guardian:MeasureGate]" in out
+
+
+def test_013_2_subset_run_is_not_the_ruler():
+    """013 BLOCK 2：表上 `pytest -q lib/verify`，實跑多帶 `-k 某案` 或多一個檔名 → 不是那把尺。"""
+    row = {"part_short": "純函式與資料層", "measure": {"method": "lib verify", "cmd": "pytest -q lib/verify", "threshold": "全綠"}}
+    mod = _mf(r"c:\proj\lib\x.py", 5, last_at=_T1, last_seq=3)
+    gate = lambda runs_cmd: vl.measure_gate_reason(                                          # noqa: E731
+        [mod], [_rcpt(5, "DONE", 0, cmd=runs_cmd, at=_T2)], 5, lambda p: (ROOT, row), vl.MEASURE_DEFAULTS,
+        chains_of=lambda r: {}, self_runs=lambda: [])[0]
+    assert gate("pytest lib/verify -q") is None                                             # 選項換位置照算
+    assert gate("pytest -q lib/verify -k test_cmd_of") is not None
+    assert gate("pytest -q lib/verify lib/verify/verify_self_receipt.py") is not None
+
+
+def test_013_w2_runtime_gate_skipped_when_part_already_measured():
+    """013 WARN 2：部位已有合格收據 → 不跑 runtime_gate；還欠收據才跑，量不了的訊息不再叫人寫原因來解帳。"""
+    calls: list = []
+    runner = lambda g, t, c: (calls.append(g), (False, "未就緒"))[1]                          # noqa: E731
+    chains = lambda r: {"hook 共用模組層": {"runtime_gate": "probe --check"}}                 # noqa: E731
+    mod = _mf(_CASE, 5, last_at=_T1, last_seq=3)
+    reason, _ = vl.measure_gate_reason([mod], [_rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=_T2)], 5, _lookup,
+                                       vl.MEASURE_DEFAULTS, chains_of=chains, runner=runner, self_runs=lambda: [])
+    assert reason is None and calls == []
+    reason, _ = vl.measure_gate_reason([mod], [], 5, _lookup, vl.MEASURE_DEFAULTS, chains_of=chains, runner=runner,
+                                       self_runs=lambda: [])
+    assert calls == ["probe --check"] and "執行環境未就緒" in reason and "【收尾放行確認】" in reason
+    assert "寫明量不了的原因與何時能量，或讓環境就緒後跑尺" not in reason
+
+
+def test_013_w1_messages_list_evidence_not_rewording(driven, capsys, monkeypatch):
+    """013 WARN 1：沒 pending 的 (a) 第一次擋照舊可說「沒跑就說沒跑」；欠補案例 (d) 或量尺欠帳時只列證據與放行問法。"""
+    out, _, _ = driven("閘修好了，完成。", capsys)
+    assert "沒跑就說沒跑" in out
+    out, _, _ = driven("變更內容如上。", capsys, modified_files=[_mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3)])
+    assert "(d)" in out and "改成事實句" not in out and "改寫收尾文字不會解帳" in out
+    monkeypatch.setattr(wo, "_lookup", _lookup)
+    out, _, _ = driven("變更內容如上。", capsys, modified_files=[_mf(_CASE, 5)])
+    assert "[Guardian:MeasureGate]" in out and "改寫收尾文字不會解帳" in out
+
+
+def _judge_dispatch(tool_name, tool_input, cwd):
+    """真的跑 dispatcher（CLAUDE_COMPANION_JUDGE=1），回 stdout；經入口驗可觀察結果。"""
+    import os
+    import subprocess
+    env = dict(os.environ, CLAUDE_COMPANION_JUDGE="1", WG_CLAUDE_DIR=str(HOOKS_DIR.parent))
+    payload = json.dumps({"hook_event_name": "PreToolUse", "session_id": _SID, "tool_name": tool_name,
+                          "tool_input": tool_input, "cwd": str(cwd)}, ensure_ascii=False).encode("utf-8")
+    r = subprocess.run([sys.executable, "-X", "utf8", str(HOOKS_DIR / "dispatcher.py")], input=payload,
+                       capture_output=True, env=env, timeout=120)
+    return r.stdout.decode("utf-8", "replace")
+
+
+def test_013_4_judge_pre_tool_use_denies_unknown_write_target(tmp_path):
+    """013 BLOCK 4：裁判跑純讀取的 `python -c "print(1)"` → 執行前就 deny（不會被記成永久未知寫入）；git log／Read 放行。"""
+    out = _judge_dispatch("Bash", {"command": 'python -c "print(1)"'}, tmp_path)
+    assert '"permissionDecision": "deny"' in out and "Guardian:JudgeWrite" in out
+    assert _judge_dispatch("Bash", {"command": "git log --oneline -3"}, tmp_path).strip() == ""
+    assert _judge_dispatch("Read", {"file_path": str(tmp_path / "a.py")}, tmp_path).strip() == ""

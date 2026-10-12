@@ -44,7 +44,7 @@ def _load_self_receipt_module():
 
 
 _self_receipt = _load_self_receipt_module()
-cmd_matches = _self_receipt.cmd_matches
+cmd_matches, final_cmd = _self_receipt.cmd_matches, _self_receipt.final_cmd
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
@@ -416,8 +416,6 @@ def _norm_path(p: str) -> str:
 
 
 _CD_RE = re.compile(r"(?:^|[\s;&|(])(?:cd|pushd|set-location)(?:\s|$)", re.IGNORECASE)
-_PYTEST_RE = re.compile(r"(?:^|\s)(?:python(?:\d(?:\.\d+)?)?\s+(?:-\S+\s+)*-m\s+)?pytest(?:\s|$)", re.IGNORECASE)
-_FILE_ARG_RE = re.compile(r"(?:^|\s)[^\s-][^\s]*(?:\.py|/)[^\s]*", re.IGNORECASE)
 
 
 def has_cd(cmd: str) -> bool:
@@ -425,14 +423,15 @@ def has_cd(cmd: str) -> bool:
     return bool(_CD_RE.search(str(cmd or "")))
 
 
-def _is_whole_verification(cmd: str) -> bool:
-    """run_verify.py 或「沒帶檔名參數的 pytest」＝整體驗證，對所有改檔都算對得上。"""
-    if "run_verify.py" in cmd:
-        return True
-    if not _PYTEST_RE.search(cmd):
+def _is_whole_verification(raw: str) -> bool:
+    """最後被執行的指令（lib/self_receipt.final_cmd：尊重引號的斷詞，echo 的參數不算指令；尾端 | tail 不算）是 run_verify.py，
+    或沒帶檔名參數的 pytest ＝ 整體驗證，對所有改檔都算對得上。"""
+    final = final_cmd(raw)
+    if not final:
         return False
-    tail = cmd[_PYTEST_RE.search(cmd).end():]
-    return not _FILE_ARG_RE.search(" " + tail)
+    if final[0] == "run_verify.py":
+        return True
+    return final[0] == "pytest" and not any(".py" in p or "/" in p for p in final[3])
 
 
 def _stem_of(path: str) -> str:
@@ -448,11 +447,12 @@ def _usable_cmd(receipt: Dict[str, Any]) -> Optional[str]:
     return " ".join(_norm_path(raw).split())
 
 
-def _covers_all(cmd: str, measure_cmds: Iterable[str]) -> bool:
-    """整體驗證（run_verify.py／無檔名參數的 pytest）或部位量尺指令（cmd_matches，與量尺閘同一套正規化）：聲稱驗到全部改檔。"""
-    if _is_whole_verification(cmd):
+def _covers_all(raw: str, measure_cmds: Iterable[str]) -> bool:
+    """整體驗證（run_verify.py／無檔名參數的 pytest）或部位量尺指令（cmd_matches，與量尺閘同一套解析）：聲稱驗到全部改檔。
+    raw＝收據原文（斷詞要看引號與換行，不能用小寫壓空白後的 _usable_cmd）。"""
+    if _is_whole_verification(raw):
         return True
-    return any(str(mc).strip() and cmd_matches(str(mc), cmd) for mc in measure_cmds or [])
+    return any(str(mc).strip() and cmd_matches(str(mc), raw) for mc in measure_cmds or [])
 
 
 def _cmd_names_path(cmd: str, path: str) -> bool:
@@ -472,7 +472,7 @@ def claimed_paths(receipt: Dict[str, Any], mod_paths: Iterable[str], measure_cmd
     if cmd is None:
         return []
     paths = list(mod_paths or [])
-    return paths if _covers_all(cmd, measure_cmds) else [p for p in paths if _cmd_names_path(cmd, p)]
+    return paths if _covers_all(str(receipt.get("cmd", "")), measure_cmds) else [p for p in paths if _cmd_names_path(cmd, p)]
 
 
 RootSpec = Union[None, str, Callable[[str], Optional[str]]]
@@ -535,7 +535,7 @@ def receipt_relates(receipt: Dict[str, Any], mod_paths: Iterable[str], verify_gl
         return False
     paths = list(mod_paths or [])
     if not paths:
-        return _covers_all(cmd, measure_cmds)
+        return _covers_all(str(receipt.get("cmd", "")), measure_cmds)
     return any(_root_ok(receipt, _file_root(root, p)) for p in claimed_paths(receipt, paths, measure_cmds))
 
 
@@ -821,8 +821,11 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
 
 
 _RECONCILE_HEAD = "[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據，或改了程式碼還欠驗證案例：\n"
-_RECONCILE_TAIL = ("\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
-                   "改成事實句（沒跑就說沒跑），或現在跑出對應收據再重新收尾。")
+_RECONCILE_SOURCE = "\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
+_RECONCILE_TAIL = _RECONCILE_SOURCE + "改成事實句（沒跑就說沒跑），或現在跑出對應收據再重新收尾。"
+# 有 pending（擋滿待放行）或欠補案例時，改寫收尾文字解不了帳：只列要補的證據與放行的問法
+_RECONCILE_TAIL_EVIDENCE = (_RECONCILE_SOURCE + "補上面列的證據（跑出對得上的收據、補仍存在的案例檔）；"
+                            "補不了就照【收尾放行確認】問使用者，改寫收尾文字不會解帳。")
 
 
 def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_seq: int,
@@ -832,10 +835,11 @@ def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_s
                           phrases: Optional[Dict[str, Pattern]] = None,
                           measure_cmds: Iterable[str] = (), root: RootSpec = None,
                           claims: Iterable[str] = (),
-                          self_covered: Optional[Callable[[], Iterable[str]]] = None) -> Optional[str]:
+                          self_covered: Optional[Callable[[], Iterable[str]]] = None,
+                          pending: bool = False) -> Optional[str]:
     """寫碼查核（a～d）與收尾報告欄（e）合在一則訊息；兩部分要分開處理時用 reconcile_gate_parts。"""
     code, report = reconcile_gate_parts(last_text, receipts, turn_seq, turn_tool_names, own_mod_files, cfg, aec,
-                                        aec_emitted, sid, phrases, measure_cmds, root, claims, self_covered)
+                                        aec_emitted, sid, phrases, measure_cmds, root, claims, self_covered, pending)
     return "\n".join(x for x in (code, report) if x) or None
 
 
@@ -847,8 +851,10 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          measure_cmds: Iterable[str] = (), root: RootSpec = None,
                          claims: Iterable[str] = (),
                          self_covered: Optional[Callable[[], Iterable[str]]] = None,
+                         pending: bool = False,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
+    pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
     寫碼查核：(a) 說修好而本 turn 無對得上改檔的合格 PASS、也沒有改檔所在部位的合格自寫收據（self_covered）；
     (b) 說量了無 DONE；(c) 說試過無執行工具。(a)(b)(c) 對「宣稱」對帳：last_text 與 claims（擋滿待放行時承接的先前宣稱，
     換一句話不能讓它消失）裡宣告完成的那幾段；
@@ -899,7 +905,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     note = ""
     if any(r.get("exit_unknown") for r in related) or any(r.get("exit_unknown") for r in unrelated):
         note = "\n註：有 PASS 收據的 exit 未知（exit 未知＝dict 回應沒有 exit 欄），只憑哨兵認定。"
-    code_reason = (_RECONCILE_HEAD + "\n".join("  ✗ " + h for h in hits) + _RECONCILE_TAIL + note) if hits else None
+    tail = _RECONCILE_TAIL_EVIDENCE if pending or owed else _RECONCILE_TAIL
+    code_reason = (_RECONCILE_HEAD + "\n".join("  ✗ " + h for h in hits) + tail + note) if hits else None
     report_reason = (_RECONCILE_HEAD + "\n".join("  ✗ " + h for h in report) + _RECONCILE_TAIL) if report else None
     return code_reason, report_reason
 
@@ -1073,14 +1080,6 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
         if not cmd:
             no_measure.append(part)
             continue
-        chain = (chains_of(root) or {}).get(part) or {}
-        gate = str(chain.get("runtime_gate") or "").strip()
-        if gate:
-            ok, why = runner(gate, timeout, str(root))
-            if not ok:
-                blocks.append(f"部位【{part}】有量尺（{measure.get('method') or cmd}）但執行環境未就緒：{why}。"
-                              "這次量不了就不能宣告完成：寫明量不了的原因與何時能量，或讓環境就緒後跑尺。")
-                continue
         root_wt = is_root_worktree(root, CLAUDE_DIR)
         pick = {"sentinel_name": ROOT_WT_SENTINEL} if root_wt else {"cmd_contains": cmd}
         ok_done = done_receipts(receipts, min_turn=rec["edit_turn"], min_at=rec["edit_at"] or None,
@@ -1091,6 +1090,15 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             if not _runs:
                 _runs.append((self_runs or load_self_runs)() or [])
             if self_run_ok(_runs[0], cmd, str(root), rec["edit_at"], rec["edit_turn"]):
+                continue
+        # 已有合格收據的部位不探環境（上面 continue 掉了）；還欠收據才跑 runtime_gate，量不了就說環境原因
+        chain = (chains_of(root) or {}).get(part) or {}
+        gate = str(chain.get("runtime_gate") or "").strip()
+        if gate:
+            ok, why = runner(gate, timeout, str(root))
+            if not ok:
+                blocks.append(f"部位【{part}】有量尺（{measure.get('method') or cmd}）但執行環境未就緒：{why}。"
+                              f"讓環境就緒後跑 `{cmd}`；現在量不了，就照【收尾放行確認】問使用者（題目寫明量不了的原因）。")
                 continue
         ruler = (f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
                  f"哨兵 {ROOT_WT_SENTINEL}，表上的尺 `{cmd}` 不是這裡的門檻）")
@@ -1124,7 +1132,8 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
                           f"跑 `{cmd}`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
     reason = None
     if blocks:
-        reason = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n" + "\n".join("  ✗ " + b for b in blocks)
+        reason = ("[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n" + "\n".join("  ✗ " + b for b in blocks)
+                  + "\n  要補的證據就是上面那把尺的收據；跑不了就照【收尾放行確認】問使用者，改寫收尾文字不會解帳。")
         if any("run_verify.py" in str((r["row"].get("measure") or {}).get("cmd") or "") for r in parts.values()):
             reason += ("\n  run_verify 跑超過 10 分鐘就背景跑：它跑完會自寫收據到 workflow/verify-ledger/_runs/，"
                        "改完之後才開始跑、exit 0、failed=0、同一棵樹就認得到（收據不准手寫）。")

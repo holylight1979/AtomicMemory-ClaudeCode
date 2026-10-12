@@ -716,7 +716,7 @@ def _verify_gates(
     state: Dict[str, Any], session_id: str, turn_seq: int, last_text: str,
     transcript, transcript_text: str, own_mod_files: List[Dict[str, Any]],
     rg_cfg: Dict[str, Any], mg_cfg: Dict[str, Any], aec: Dict[str, Any], aec_emitted: bool,
-    claims: List[str] = (),
+    claims: List[str] = (), pending: bool = False,
 ) -> tuple:
     """對帳閘＋量尺閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／measure／"",
     無量尺提醒或 None)。寫碼查核＝對帳 (a)～(d)＋量尺；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
@@ -747,7 +747,7 @@ def _verify_gates(
             reason, report = reconcile_gate_parts(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
-                measure_cmds=mcmds, claims=claims,
+                measure_cmds=mcmds, claims=claims, pending=pending,
                 self_covered=(lambda: self_run_covered(measure_parts(own_mod_files, _lk), _self_runs())) if _lk else None,
             )
             kind = "reconcile" if reason or report else ""
@@ -781,6 +781,8 @@ def _verify_gates(
 
 
 ASK_HINT = "要問使用者問題請用 AskUserQuestion，不要用文字結束回合。"     # 寫碼查核每次 Stop 都判，用文字發問也會被擋
+LEGACY_PENDING = ("[Guardian:ReconcileGate] 先前擋滿的查核紀錄是舊格式，沒有原宣稱可以重查：補證據解不了，"
+                  "只能照【收尾放行確認】問使用者放行。")
 
 
 def _unknown_write_reason(unknown: List[Dict[str, Any]]) -> Optional[str]:
@@ -962,9 +964,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 寫碼查核（對帳 (a)～(d)＋量尺）擋滿後不放行：記 pending_release、改送擋滿訊息要模型問使用者；使用者在最後一次擋之後
     # 放行（wg_release.user_released）→ 放這一回合、清 pending 與計數、guard-reconcile.jsonl 記 user_release（健檢列 red）。
     # pending 跨回合承接：換回合也不重給預算，查核仍不過就直接送擋滿訊息。
-    # 不看措辭的部分（(d) 補案例、量尺）每次 Stop 都判，last_text 空也判；(a)(b)(c) 對宣稱，pending 帶著擋滿時的宣稱原話
-    # （claims），換一句話也拿原話重查。pending 只在兩種情況清：重新查核後原因真的消失，或使用者合格放行：
-    # 「沒有執行查核」不等於「查核通過」（舊版 pending 沒帶 claims、這次又沒宣告完成 → (a)(b)(c) 沒重查，不清）。
+    # 不看措辭的部分（(d) 補案例、量尺）每次 Stop 都判，last_text 空也判；(a)(b)(c) 對宣稱，pending 帶著第一次擋滿時的
+    # 宣稱原話（claims，之後的文字不附加也擠不掉），換一句話也拿原話重查。pending 只在兩種情況清：重新查核後原因真的消失，
+    # 或使用者合格放行：「沒有執行查核」不等於「查核通過」。舊版 pending 沒帶 claims → 原宣稱無從重查 → 照擋，只能使用者放行。
     # (e) 收尾報告欄屬記憶與報告類：照舊第 3 次放行並記 reconcile_overflow（健檢 red），不走放行詢問；與寫碼部分同時擋滿時分開列。
     # 無量尺的部位只提醒（stderr；擋時併進 reason），每部位每 session 一次（measure_advised）。
     _rg_cfg = reconcile_cfg(config)
@@ -974,13 +976,16 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _prev_claims = [str(c) for c in (_pend or {}).get("claims") or []]
         _code, _report, _vg_kind, _vg_advice = _verify_gates(
             state, session_id, turn_seq, last_text, transcript, transcript_text, own_mod_files,
-            _rg_cfg, _mg_cfg, aec, emitted_this_turn, claims=_prev_claims,
+            _rg_cfg, _mg_cfg, aec, emitted_this_turn, claims=_prev_claims, pending=_pend is not None,
         )
         if _vg_advice:
             print(_vg_advice, file=sys.stderr)
             append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "advisory": _vg_advice[:200]})
+        if _pend is not None and "claims" not in _pend:
+            _code = f"{_code}\n{LEGACY_PENDING}" if _code else LEGACY_PENDING
+            _vg_kind = _vg_kind or "reconcile"
         _pend_cleared = False
-        if _code is None and _pend and ("claims" in _pend or claims_completion(last_text)):
+        if _code is None and _pend:
             clear_pending(state, session_id, "reconcile")            # 重新查核過了（原因真的消失）→ 清 pending
             _pend, _pend_cleared = None, True
         if _code and released_this_turn(state, session_id, "reconcile", turn_seq):
@@ -1024,7 +1029,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 _gate = "MeasureGate" if _vg_kind == "measure" else "ReconcileGate"
                 if _code_full:
                     set_pending(state, session_id, "reconcile", turn_seq, _now_iso(), _code,
-                                _prev_claims + ([last_text] if claims_completion(last_text) else []))
+                                [last_text] if claims_completion(last_text) else [])   # pending 已在就沿用原 claims
                     _summary = _code.split("\n")[1].strip() if "\n" in _code else _code
                     _n = _count if _count >= _max else None                    # pending 承接自先前回合：不報本回合次數
                     _head = (non_interactive_message(_gate, _n, _summary, _no_ask) if _no_ask

@@ -178,17 +178,21 @@ def pending_of(state: Dict[str, Any], sid: str, gate: str) -> Optional[Dict[str,
     return rec if isinstance(rec, dict) else None
 
 
-CLAIMS_KEEP = 3
 CLAIM_CHARS = 3000
 
 
 def set_pending(state: Dict[str, Any], sid: str, gate: str, turn_seq: int, at: str, reason: str,
                 claims: Iterable[str] = ()) -> None:
-    """claims＝擋滿那時與先前承接下來的「宣告完成」原話（最多 CLAIMS_KEEP 段、每段尾 CLAIM_CHARS 字）：之後的 Stop 換一句話，
-    對帳 (a)(b)(c) 仍拿這幾段重新查核；查核過了才清 pending（沒有執行查核不等於查核通過）。"""
-    kept = [str(c)[-CLAIM_CHARS:] for c in claims if c][-CLAIMS_KEEP:]
-    state.setdefault("pending_release", {}).setdefault(sid, {})[gate] = {"turn": int(turn_seq), "at": at,
-                                                                          "reason": (reason or "")[:300], "claims": kept}
+    """記擋滿待放行。claims＝pending 第一次建立時的「宣告完成」原話（每段尾 CLAIM_CHARS 字）：之後的 Stop 換一句話，
+    對帳 (a)(b)(c) 仍拿原話重查；pending 已在時 claims 一律沿用原本那份，之後的文字不附加、不取代、不擠掉。
+    舊版 pending（沒有 claims 欄）照舊沒有：無法重查原宣稱，只能由使用者放行清掉（stop.handle_stop 據此擋）。"""
+    old = pending_of(state, sid, gate)
+    rec: Dict[str, Any] = {"turn": int(turn_seq), "at": at, "reason": (reason or "")[:300]}
+    if old is None:
+        rec["claims"] = [str(c)[-CLAIM_CHARS:] for c in claims if c]
+    elif "claims" in old:
+        rec["claims"] = list(old["claims"])
+    state.setdefault("pending_release", {}).setdefault(sid, {})[gate] = rec
 
 
 def clear_pending(state: Dict[str, Any], sid: str, gate: str) -> None:
