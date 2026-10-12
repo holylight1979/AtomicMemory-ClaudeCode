@@ -518,7 +518,7 @@ def test_017_all_root_table_rulers_parse_and_match_themselves():
 
 
 def test_029b_env_case_fold_follows_platform():
-    """029b（track-verify 008 WARN）：環境變數名的比對照受執行平台——Windows 不分大小寫。旗標的真實預設要有測試守，
+    """029b（track-verify 008 WARN）：環境變數名的比對照受執行平台，Windows 不分大小寫。旗標的真實預設要有測試守，
     不經 monkeypatch（其他案都自設旗標，寫死成 False 也照綠）。"""
     assert sr._ENV_CASE_FOLD == (os.name == "nt")
 
