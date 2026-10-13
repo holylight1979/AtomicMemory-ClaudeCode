@@ -577,7 +577,7 @@ def test_detect_layer_root_worktree_reads_its_own_cards(tmp_path, live_wg_core):
     assert sc.detect_layer(wt) == (sc.LAYER_ROOT, wt)
     assert sc.card_dirs(*sc.detect_layer(wt)) == [wt / "memory", wt / "_AIDocs" / "_atoms"]
     assert sc.check_consistency(wt) == []                                                # 卡在 wt/memory 找得到
-    assert sc.detect_layer(proj) == (sc.LAYER_PROJECT, proj)                             # 反例：表不同＝一般專案
+    assert sc.detect_layer(proj) == (sc.LAYER_PROJECT, proj)                             # 反例：不是 live 的 worktree＝一般專案
     assert sc.detect_layer(live) == (sc.LAYER_ROOT, live)
 
 
@@ -593,6 +593,23 @@ def test_root_worktree_preview_merge_missing_plans_without_writing(tmp_path, mon
     assert res["layer"] == sc.LAYER_ROOT and res["layer_root"] == str(wt) and not res["written"]
     assert fake.calls and "server部位導讀" not in {c["title"] for c in fake.calls}            # wt 的卡找得到，不重寫
     assert _all_files(tmp_path) == before                                               # 假 writer 真寫會落檔；沒有新檔＝只預驗
+
+
+def test_root_worktree_with_changed_map_still_root_and_write_refused(tmp_path, monkeypatch, live_wg_core):
+    """B12：工作 session 改了根層部位表，這個 worktree 仍判根層（身分只看 git），寫卡照拒、一個檔都不動。
+    舊碼比對兩邊表的位元組，表一改就判成一般專案、照專案層寫卡。"""
+    live, wt, _ = _root_wt_world(tmp_path)
+    (wt / ".claude" / "overview-map.md").write_text(WT_MAP + "| `docs/` | docs | 無 | 無 | knowledge |\n", encoding="utf-8",
+                                                     newline="\n")
+    live_wg_core(live)
+    assert sc.detect_layer(wt) == (sc.LAYER_ROOT, wt)
+    fake = _FakeWriter(wt)
+    monkeypatch.setattr(sc, "write_atom", fake)
+    before = _all_files(tmp_path)
+    with pytest.raises(sc.ScaffoldError) as ei:
+        sc.write_scaffold(wt, _rows(wt), sc.ROOT_DOMAIN, write=True, merge_missing=True)
+    assert sc.ROOT_WT_WRITE_REFUSED in str(ei.value)
+    assert fake.calls == [] and _all_files(tmp_path) == before
 
 
 def test_root_worktree_write_refused_and_nothing_written(tmp_path, monkeypatch, live_wg_core):
