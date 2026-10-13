@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 try:
     from .overview_hub import MAP_REL, is_root_worktree, parse_map
+    from .project_root import claude_data_dir
     from .atom_spec import slugify
     from .atom_taxonomy import TaxonomyUnavailable, core_categories, match_lv1
     from .atom_locations import project_taxonomy_lv1
@@ -41,6 +42,7 @@ try:
     from . import refix_churn as rc
 except ImportError:  # 以 ~/.claude 為 sys.path 根時（tools／verify）：atom_io 只能以套件匯入
     from lib.overview_hub import MAP_REL, is_root_worktree, parse_map
+    from lib.project_root import claude_data_dir
     from lib.atom_spec import slugify
     from lib.atom_taxonomy import TaxonomyUnavailable, core_categories, match_lv1
     from lib.atom_locations import project_taxonomy_lv1
@@ -84,8 +86,8 @@ def merge_cfg(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 def detect_layer(root: Path) -> Tuple[str, Path]:
     """→ (層, 該層的根)。兩條路都先判根層 worktree（live 這個 repo 的 git worktree，含開在 ~/.claude 或公司根底下的）
-    → (根層, worktree 本身)；再走 hooks/wg_core._layer_of（根層／公司層／專案層單源）；wg_core 載不到時退「在 ~/.claude 之下＝根層，
-    否則＝專案層」。專案層與解析不到專案根（none）都當專案，根＝使用者給的 --cwd。"""
+    → (根層, worktree 本身)；再走 hooks/wg_core._layer_of（根層／公司層／專案層單源）；wg_core 載不到時退「在資料根
+    （claude_data_dir()）之下＝根層，否則＝專案層」。專案層與解析不到專案根（none）都當專案，根＝使用者給的 --cwd。"""
     root = Path(root)
     try:
         if str(CODE_DIR / "hooks") not in sys.path:
@@ -101,7 +103,7 @@ def detect_layer(root: Path) -> Tuple[str, Path]:
         return LAYER_PROJECT, root
     except Exception as e:  # lib 不硬依賴 hooks；退路徑判斷但要說一聲
         print(f"[overview_scaffold] wg_core 判層不可用，退路徑判斷：{e}", file=sys.stderr)
-    home_claude = Path.home() / ".claude"
+    home_claude = claude_data_dir()
     if is_root_worktree(root, home_claude):
         return LAYER_ROOT, root
     try:
@@ -116,15 +118,15 @@ ROOT_WT_WRITE_REFUSED = "根層 worktree 不寫卡：write_atom 會寫進 live �
 
 
 def _live_claude_dir() -> Path:
-    """live 根層（使用者資料所在）：wg_core.CLAUDE_DIR（吃 WG_CLAUDE_DIR）；wg_core 載不到退 Path.home()/.claude。"""
+    """live 根層（使用者資料所在）：wg_core.CLAUDE_DIR（吃 WG_CLAUDE_DIR）；wg_core 載不到退 lib 的 claude_data_dir()（同一支算法）。"""
     try:
         if str(CODE_DIR / "hooks") not in sys.path:
             sys.path.insert(0, str(CODE_DIR / "hooks"))
         import wg_core  # noqa: WPS433
         return Path(wg_core.CLAUDE_DIR)
-    except Exception as e:  # lib 不硬依賴 hooks；退家目錄但要說一聲
-        print(f"[overview_scaffold] wg_core 不可用，live 根層退 Path.home()/.claude：{e}", file=sys.stderr)
-        return Path.home() / ".claude"
+    except Exception as e:  # lib 不硬依賴 hooks；退 lib 的算法但要說一聲
+        print(f"[overview_scaffold] wg_core 不可用，live 根層退 claude_data_dir()：{e}", file=sys.stderr)
+        return claude_data_dir()
 
 
 def card_write_kwargs(layer: str, layer_root: Path, lv1: Optional[str]) -> Dict[str, Any]:

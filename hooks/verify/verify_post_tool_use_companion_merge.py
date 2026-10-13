@@ -32,8 +32,9 @@ from wg_core import load_config  # noqa: E402
 
 # ─── 事件矩陣（與 GOLDEN 擷取時完全相同的輸入）───────────────────────────────
 
-CLAUDE_HOOK_PATH = str(Path.home() / ".claude" / "hooks" / "wg_parallel.py")
-CLAUDE_TECH_PATH = str(Path.home() / ".claude" / "TECH.md")
+# 本系統自己的檔：version_guard 只掃資料根或程式碼根之內，路徑取它自己算的程式碼根（一般安裝下就是 ~/.claude）
+CLAUDE_HOOK_PATH = str(version_guard._CODE_ROOT / "hooks" / "wg_parallel.py")
+CLAUDE_TECH_PATH = str(version_guard._CODE_ROOT / "TECH.md")
 SID = "equiv-sess-0001"
 VG_ON = {"enabled": True, "mode": "warn", "min_matches": 1}
 ASP_ON = {"enabled": True, "min_files_trigger": 3,

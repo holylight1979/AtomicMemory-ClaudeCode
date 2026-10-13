@@ -25,10 +25,14 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-CLAUDE_DIR = Path.home() / ".claude"
-for _p in (CLAUDE_DIR, CLAUDE_DIR / "tools"):  # lib.* + realm_llm_classify / ollama_client 可 import
+_CODE_ROOT = Path(__file__).resolve().parents[3]   # 程式碼根（skills/refile/scripts/ 往上三層）
+for _p in (_CODE_ROOT, _CODE_ROOT / "tools"):  # lib.* + realm_llm_classify / ollama_client 可 import
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
+
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：要歸檔的文件、索引、config 都在這裡
 
 from lib.atom_locations import (  # noqa: E402
     GLOBAL_MEMORY_DIR, LOCAL_ATOMS_REL,

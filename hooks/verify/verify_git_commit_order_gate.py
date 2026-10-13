@@ -312,11 +312,20 @@ def test_custom_keywords_replace_default():
     assert msg and "[Guardian:CommitOrder]" in msg
 
 
-def test_claude_dir_cwd_exempt_and_other_cwd_still_gated(tmp_path):
-    """session cwd 在 ~/.claude 內 → 不等口令放行（記憶系統 repo 例外）；別的專案 cwd 照擋；關掉 exempt 鍵則一律照擋。"""
+def _live_repo(tmp_path, monkeypatch):
+    """記憶系統 repo 的替身：帶 .git 的 tmp 目錄當 CLAUDE_DIR（測試資料根是隔離的暫存目錄，不是 git repo）。"""
     from handlers import pre_tool_use as ptu
+    live = tmp_path / "live"
+    (live / ".git").mkdir(parents=True)
+    monkeypatch.setattr(ptu, "CLAUDE_DIR", live)
+    return live
+
+
+def test_claude_dir_cwd_exempt_and_other_cwd_still_gated(tmp_path, monkeypatch):
+    """session cwd 在 ~/.claude 內 → 不等口令放行（記憶系統 repo 例外）；別的專案 cwd 照擋；關掉 exempt 鍵則一律照擋。"""
+    live = _live_repo(tmp_path, monkeypatch)
     inside = {"recent_user_prompts": ["改好了"], "turn_prompts": ["改好了"],
-              "session": {"cwd": str(Path(ptu.CLAUDE_DIR) / "hooks")}}
+              "session": {"cwd": str(live / "hooks")}}
     outside = {"recent_user_prompts": ["改好了"], "turn_prompts": ["改好了"],
                "session": {"cwd": str(tmp_path)}}
     assert _check(state=inside) is None
@@ -565,12 +574,13 @@ def _msys(p):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Git Bash 磁碟機路徑只在 Windows 需要轉")
-def test_git_bash_drive_path_resolves_to_windows_drive(tmp_path):
+def test_git_bash_drive_path_resolves_to_windows_drive(tmp_path, monkeypatch):
     """Git Bash 的 `cd /c/…`、`git -C /c/…` 在 Windows 轉成 `C:/…` 再找最近 `.git`：落在記憶系統 repo／worktree → 免口令（與 `C:/` 寫法同判）；
     落在別的 repo → 擋；關豁免 → 擋；`/cygdrive/c/…`、`//c/…` 不是已知寫法 → 不豁免。"""
     from handlers import pre_tool_use as ptu
+    live_dir = _live_repo(tmp_path, monkeypatch)
     other, ours = _other_repo(tmp_path), _ours(tmp_path)
-    live, w, o = _msys(ptu.CLAUDE_DIR), _msys(ours), _msys(other)
+    live, w, o = _msys(live_dir), _msys(ours), _msys(other)
     assert _check(command=f"cd {live} && git add a.py && git commit -m fix", state=_no_order(other)) is None
     assert _check(command=f"cd {w} && git add a.py && git commit -m fix", state=_no_order(other)) is None
     assert _check(command=f"git -C {w} commit -F msg.txt", state=_no_order(other)) is None

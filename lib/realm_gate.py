@@ -37,11 +37,13 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
     from .project_root import claude_data_dir
+    from .overview_hub import is_root_git_worktree
 except ImportError:  # 頂層模組載入
     from project_root import claude_data_dir
+    from overview_hub import is_root_git_worktree
 
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
-_CODE_ROOT = Path(__file__).resolve().parents[1]   # 程式碼根（本檔所在的樹）：頂層資料夾名和資料根一起當泛詞排除
+_CODE_ROOT = Path(__file__).resolve().parents[1]   # 程式碼根（本檔所在的樹）：頂層資料夾名和資料根一起當泛詞排除；也算核心根
 
 # 字面「專案指涉」片語（泛用，非專案名）
 PROJECT_LITERALS = ("此專案", "本專案", "這個專案", "這專案")
@@ -76,15 +78,16 @@ def project_root_of(cwd: Optional[str]) -> Optional[Path]:
 
 
 def is_core_root(root: Optional[Path]) -> bool:
-    """root 是 ~/.claude 本身或其子樹 → 核心環境，本閘不啟動。"""
+    """root 是核心環境 → 本閘不啟動：資料根或程式碼根本身或其子樹，或資料根這個 repo 的 git worktree
+    （live 的 MCP／hook 在 cwd＝worktree 時，程式碼根是 live，要靠最後這條認出 worktree）。"""
     if root is None:
         return True
     try:
         r = root.resolve()
-        home = CLAUDE_DIR.resolve()
+        cores = (CLAUDE_DIR.resolve(), _CODE_ROOT.resolve())
     except OSError:
         return False
-    return r == home or home in r.parents
+    return any(r == c or c in r.parents for c in cores) or is_root_git_worktree(r, CLAUDE_DIR)
 
 
 def _is_ascii(s: str) -> bool:

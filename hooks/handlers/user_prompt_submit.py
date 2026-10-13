@@ -27,7 +27,7 @@ from handlers import aec_ledger
 from wg_core import (
     _ensure_state, _estimate_tokens, _now_iso, write_state,
     output_json, output_nothing,
-    _atom_debug_log, _atom_debug_error, WORKFLOW_DIR,
+    _atom_debug_log, _atom_debug_error, CLAUDE_DIR, WORKFLOW_DIR,
 )
 from harness_text import IDE_TAG_NAMES, strip_harness_blocks  # lib/（wg_core 已把它放進 sys.path）
 from wg_atoms import (
@@ -57,7 +57,7 @@ def _decision_item_path(item: str) -> Optional[Path]:
     """把 (d) 決策項字串保守解析為可 exists() 檢查的路徑；非路徑樣貌回 None。
 
     只認含路徑分隔符的單行短字串（prose 敘述 / 裸檔名無從定位 → None＝不後驗）；
-    相對路徑以 ~/.claude 為基準（HUD (d) 項慣為 repo 相對路徑）。"""
+    相對路徑以資料根（wg_core.CLAUDE_DIR）為基準（HUD (d) 項慣為 repo 相對路徑）。"""
     s = (item or "").strip().strip("`\"'")
     if not s or len(s) > 400 or "\n" in s:
         return None
@@ -65,7 +65,7 @@ def _decision_item_path(item: str) -> Optional[Path]:
         return None
     p = Path(s).expanduser()
     if not p.is_absolute():
-        p = Path.home() / ".claude" / s
+        p = CLAUDE_DIR / s
     return p
 
 

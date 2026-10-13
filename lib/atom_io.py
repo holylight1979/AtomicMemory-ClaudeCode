@@ -37,6 +37,7 @@ from .atom_locations import (
 )
 from .atom_taxonomy import gate_enabled as _taxonomy_gate_enabled
 from .project_root import resolve_project_root
+from .realm_gate import is_core_root
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -286,18 +287,11 @@ def _resolve_target_impl(
 
     if scope == "global" and enforce_cwd_scope and not force_global and project_cwd:
         proj_root = _find_project_root(project_cwd)
-        if proj_root is not None:
-            try:
-                r = proj_root.resolve()
-                home = CLAUDE_DIR.resolve()
-                inside_core = (r == home or home in r.parents)
-            except OSError:
-                inside_core = False
-            if not inside_core:
-                return {"error":
-                        f"scope=global rejected: cwd={project_cwd} is inside project root={proj_root}; "
-                        "use scope=shared/role/personal for project knowledge (omit project_cwd "
-                        "when writing cross-project knowledge from a project)"}
+        if proj_root is not None and not is_core_root(proj_root):
+            return {"error":
+                    f"scope=global rejected: cwd={project_cwd} is inside project root={proj_root}; "
+                    "use scope=shared/role/personal for project knowledge (omit project_cwd "
+                    "when writing cross-project knowledge from a project)"}
 
     if scope == "global":
         # global 的三個物理居所（memory/ + memory/Failures/ + _AIDocs/_atoms/）一律
@@ -344,17 +338,9 @@ def _resolve_target_impl(
     if scope == "personal":
         # 本人跨專案 personal：~/.claude/memory/personal/<user>/。索引在全域 _atom_index.json，
         # path 前綴 memory/personal/<user>/ → 讀取端（filter_visible）只給本人。
-        # 觸發：明給 cross_project，或 cwd 不在任何專案／在 ~/.claude 子樹。
+        # 觸發：明給 cross_project，或 cwd 不在任何專案／在核心根（~/.claude 子樹、程式碼樹、根層 worktree）。
         _root = _find_project_root(project_cwd) if project_cwd else None
-        _under_home = _root is None
-        if _root is not None:
-            try:
-                _r = _root.resolve()
-                _home = CLAUDE_DIR.resolve()
-                _under_home = (_r == _home or _home in _r.parents)
-            except OSError:
-                _under_home = False
-        if cross_project or _under_home:
+        if cross_project or is_core_root(_root):
             pg_dir = GLOBAL_MEMORY_DIR / "personal" / user
             return {
                 "dir": pg_dir, "base": GLOBAL_MEMORY_DIR, "index_dir": GLOBAL_MEMORY_DIR,
@@ -367,15 +353,10 @@ def _resolve_target_impl(
     root = _find_project_root(project_cwd)
     if not root:
         return {"error": f"No project root found for scope={scope} cwd={project_cwd!r}"}
-    # ~/.claude 本身或其子樹（子目錄自帶 .git 也算）沒有 V4 子層；改用 scope=global
-    try:
-        r = root.resolve()
-        home = CLAUDE_DIR.resolve()
-        if r == home or home in r.parents:
-            return {"error": f"scope={scope} rejected: cwd={project_cwd} is under ~/.claude itself; "
-                             "use scope=global for cross-project knowledge"}
-    except OSError:
-        pass
+    # 核心根（~/.claude 本身或其子樹、子目錄自帶 .git 也算；程式碼樹；根層 worktree）沒有 V4 子層；改用 scope=global
+    if is_core_root(root):
+        return {"error": f"scope={scope} rejected: cwd={project_cwd} is under ~/.claude itself (or its worktree); "
+                         "use scope=global for cross-project knowledge"}
 
     base = root / ".claude" / "memory"
     category = None

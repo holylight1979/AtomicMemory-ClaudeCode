@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 資料根一致化收尾：剩下的家目錄寫法、核心根認 worktree、測試預設隔離資料根、整組量尺自寫收據
+- **緣由**：A2c 之後仍有 lib／hooks／skills 十多處自己用 `Path.home()/.claude` 算資料根；`is_core_root` 只認資料根，cwd 在根層 worktree 時含「此專案」的 global 卡被拒；既有測試沒設 WG_CLAUDE_DIR 時整個 pytest 行程的資料根是 live，假 session 檔寫進 live workflow/；run_verify 收據寫程式碼樹、量尺閘讀資料根，worktree 全量永遠不被認；整組 pytest 量尺（tools/verify、lib/verify）背景跑完不留收據。
+- **做法**：ollama_extract_core／atom_spec／provenance／overview_scaffold 退路／lang_guard／wg_evasion／wisdom_engine／acceptance_spec／version_guard／ensure-mcp／UPS 決策項／refile_classify／skill-cost-measure／console-window-trace.ps1 改走資料根（程式碼看檔案位置，一般安裝字串不變）；核心根＝資料根或程式碼根之內、或資料根 repo 的 git worktree，`atom_io` 三處同判斷改共用 `is_core_root`；repo 根 `conftest.py` 每個 session 把資料根與 TEMP／TMP／TMPDIR 導到暫存目錄（先放本樹受版控資料）、結束還原，暫存目錄一建好就登記（初始化中斷也清得到），`@pytest.mark.live_data` 豁免；run_verify 開跑前算資料根、收據寫資料根；整組 tools/verify、lib/verify 由 conftest 跑完自寫收據（篩過、只收集、-o 改收集設定、-c 換 ini 都不寫）。
+- **驗證**：`tools/verify/verify_tools_data_root.py`（TOOLS 表加 7 列＋ensure-mcp 案＋ps1 案）、`verify_tools_data_root_lib.py`（lib 尾巴與 worktree 核心根、hooks 三支）、`verify_pytest_isolation.py`（新）、`lib/verify/verify_self_receipt.py`（收據落資料根、量尺閘認帳）；退回改前逐處紅在斷言。
+
 ## 2026-10-13 v6.0 需求目標樹的中途關鍵點：讀入範圍變大、被糾正、改多次、收到外部主張、提問前掛節點、壓縮與換 session 不淡掉
 - **緣由**：B 段骨架只管開頭（新需求寫目標）與結尾（改了要對照、交付前完整對照）；中途讀得越來越廣、被使用者糾正、同一處繞好幾圈、收到同伴或審查的主張、要問使用者時，都沒有回頭看目標的時點（設計單 4.3、4.4、第九節軌五）。
 - **做法**：新 `hooks/wg_need_goal_points.py`。讀入範圍（post_tool_use 的 `scope_on_read`，不看 OverviewHub 開關）、同檔改 3 次以上在 PostToolBatch 合併成一則；使用者糾正在 UPS 當場送；同伴訊息、審查結果、交付信送「服務哪條目標／框架誰給的／成本為零怎麼裁」三問，工作中途只記在 transcript 的同伴訊息由 PostToolBatch 在目標檔的鎖裡從 `peer_offset` 往後掃（只往前、上限 256KB、變短明確重置）；AskUserQuestion／ExitPlanMode 前寫碼類沒掛節點就擋（PreToolUse matcher 加這兩個工具），理由附照做就能過的修法，PostToolBatch 記提問審計；壓縮後與續接單帶【需求目標樹】、session 結束記沒對照的樹。合併審查補：搬移或複製含程式檔的目錄、新建沒副檔名的 `#!` 腳本也算改程式（`writes_code`、`wg_core.write_sources_from_tool`）；commit 判定與口令閘共用 `_git_commits_to_run`（heredoc 本文裡的範例不算）；各 hook 入口照這次事件的 cwd 解設定（`hook_cwd`）。契約 12.1，TECH §7.7。

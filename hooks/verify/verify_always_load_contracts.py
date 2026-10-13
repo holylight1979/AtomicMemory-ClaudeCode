@@ -72,6 +72,10 @@ def test_broken_registry_surfaces_not_silent(tmp_path):
     assert len(out) == 1 and "登記表讀取失敗" in out[0]
 
 
+@pytest.mark.live_data
 def test_real_root_live_files_complete():
-    """本機 live 檔（USER.md／IDENTITY.md／rules/core.md）目前齊全；缺句代表本機要回填。"""
-    assert check_always_load_contracts(CLAUDE_DIR) == []
+    """本機 live 檔（USER.md／IDENTITY.md／rules/core.md）目前齊全；缺句代表本機要回填。
+    刻意讀 live 資料根（live_data：本案期間 WG_CLAUDE_DIR 還原成 pytest 啟動時的值），和 SessionStart 檢查同一處；
+    不用本樹：USER.md／IDENTITY.md 是各機自己產生、不進版控的檔，worktree 裡沒有。"""
+    from project_root import claude_data_dir   # lib/（wg_core 已放進 sys.path）；執行期算，模組層常數已被隔離
+    assert check_always_load_contracts(claude_data_dir()) == []

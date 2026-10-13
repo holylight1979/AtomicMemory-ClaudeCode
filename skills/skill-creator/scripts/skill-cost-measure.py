@@ -19,7 +19,12 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-PROJECTS_DIR = Path.home() / ".claude" / "projects"
+_CODE_ROOT = Path(__file__).resolve().parents[3]   # 程式碼根（skills/skill-creator/scripts/ 往上三層）
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+PROJECTS_DIR = claude_data_dir() / "projects"
 
 
 def find_latest_jsonl() -> Path:

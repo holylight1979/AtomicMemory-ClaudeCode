@@ -125,7 +125,7 @@ def test_locate_personal_global_from_claude_dir_and_cross_project(tmp_path):
     assert r.extra["scope_label"] == "personal:holylight"
     assert r.extra["target_dir"].replace("\\", "/").endswith("/memory/personal/holylight")
     assert r.extra["create_rel_path"] == "memory/personal/holylight/my-cross-pref.md"
-    assert r.extra["index_dir"].replace("\\", "/").endswith("/.claude/memory")
+    assert Path(r.extra["index_dir"]).resolve() == atom_io.GLOBAL_MEMORY_DIR.resolve()   # 全域索引＝資料根/memory
     # 從專案 cwd：預設本專案 personal；cross_project=True 才進全域
     proj = tmp_path / "proj"
     (proj / ".git").mkdir(parents=True)
