@@ -15,8 +15,8 @@
   轉手  這一步不是直接呼叫：wrapper／delegate（落到只轉傳的函式）、callback、event、inherit（繼承／介面分派）、dynamic（分派表）
   跳檔  換到別的檔；partial 類別各檔名是 `類.責任.cs` 且責任各不相同 → 標「分檔有責任軸」，只免掉換檔那個彎，轉手照算
   拐彎  這一步是轉手或跳檔。刻度（G11，參考）：0-1 順｜2 注意｜3 警戒｜≥4 臭掉
-  未知  落到的函式長得像只轉傳，但裡面有解析不了的呼叫，證不出是轉傳還是有內容：這一步算一個彎（數字不因看不到而變好），
-        整條路標「未讀到底」，不進刻度分布
+  未知  落到的函式裡有解析不了的呼叫（不論長短，所有含未解呼叫的函式都是未知步），證不出是轉傳還是有內容：
+        這一步算一個彎（數字不因看不到而變好），整條路標「未讀到底」，不進刻度分布
 確定與否：確定只來自白名單（見 --help 末段），白名單外一律候選（有可列舉的目標）或未解（沒有）。
   每條邊要由白名單其中一條正向證明才確定（--json 每一步的 rule＝憑第幾條；null＝不確定），不是「沒標不確定就算確定」。
   全確定的數字是「確定邊子圖上的最短觀測路徑」，含候選的是「含候選邊的探索路徑」：模型外可能還有更短的捷徑，候選邊也可能
@@ -136,6 +136,7 @@ KEEP_IDENTITY = {   # 函式裝飾器：保留原函式身分（呼叫還是進�
     "abstractmethod": ("abc",), "overload": ("typing", "typing_extensions"),
     "override": ("typing", "typing_extensions"), "final": ("typing", "typing_extensions")}
 CLASS_KEEP_IDENTITY = {"dataclass": ("dataclasses",)}   # 類別裝飾器（可以寫成 dataclass(…)）
+ABC_META = {"ABC": ("abc",), "ABCMeta": ("abc",)}       # 父類 abc.ABC 或 metaclass=abc.ABCMeta：@abstractmethod 才擋得住建立實例
 PROPERTY_PARTS = {"setter", "getter", "deleter"}       # @name.setter：同類別裡同名的 @property 自己加的
 DATACLASS_METHODS = {"__init__", "__repr__", "__eq__", "__lt__", "__le__", "__gt__", "__ge__", "__hash__",
                      "__setattr__", "__delattr__", "__getstate__", "__setstate__", "__replace__"}   # dataclass 可能自己產生的
@@ -144,7 +145,7 @@ MRO_UNPROVEN = "候選：方法解析順序（Python C3 MRO）證不出（多重
 SCOPED = "候選：呼叫點在 lambda／生成器／推導式（C# 區域函式／lambda）裡，模型沒建那一層的參數與綁定，不給條號"
 CONDITIONAL = "候選：目標掛了 [Conditional]，編譯符號沒定義時編譯器會省略這個呼叫，不能承諾它一定存在"
 SUPER_EXPLICIT = "候選：super(B, self) 的顯式起點還沒建模，列出所有祖先的實作，不給條號"
-UNKNOWN_STEP = "未知：落到的函式長得像只轉傳，但裡面有解析不了的呼叫，證不出是轉傳還是有內容"
+UNKNOWN_STEP = "未知：落到的函式裡有解析不了的呼叫（不論長短都算未知步），證不出是轉傳還是有內容"
 METHOD_REBOUND = "候選：這個方法在類別上的綁定可能被改寫（類別.方法 = …、self／實例.方法 = …、setattr），不一定是它"
 
 LIMITS = WHITELIST + """
@@ -155,8 +156,9 @@ LIMITS = WHITELIST + """
     路上任一步有未解就整條路標「未讀到底」；確知在專案外的（內建、外部模組、外部父類、專案沒有同名方法）不算
   - 掃描母體：--scope git（預設，git ls-files 與原始碼副檔名的交集；不在 git 裡就退回 tree 並標明）或 --scope tree
     （目錄遞迴，只排 SKIP_DIRS 與點開頭目錄）；報告附範圍政策與檔案清單雜湊，前後比較範圍政策不同時整份標不可判定
-  - 抽象與空實作分開：@abstractmethod／只有 ...／raise NotImplementedError、C# abstract 或分號宣告才是抽象；只有 pass
-    （或只有 docstring）、C# 空大括號是空實作：仍算覆寫（子類空實作擋掉父類方法，第 3 條不成立），只是不當落點
+  - 抽象與空實作分開：Python 只有方法本身掛 @abstractmethod、而且類別確定是 ABCMeta（自己或專案內祖先的父類是 abc.ABC，
+    或寫了 metaclass=abc.ABCMeta）才是抽象，C# 是 abstract 或分號宣告；只有 pass、...、raise NotImplementedError（或只有
+    docstring）、C# 空大括號是空實作：不論所在類別抽不抽象都仍算覆寫（子類空實作擋掉父類方法，第 3 條不成立），只是不當落點
   - 外部函式庫、框架回呼（Unity 生命週期以外）、反射、eval、動態 import 看不到；getattr 只認分派表來的
   - 事件一律候選（看不出實例、也不追訂閱與取消訂閱的先後）；callback 多處各傳不同函式、沒有已知呼叫者也標候選
   - 繼承分派只有接收者是剛 new 出來的物件才算確定型別；多載不比對參數型別，同名多個一律標候選
@@ -294,7 +296,7 @@ def override_targets(g: "Graph", cls: lang.Cls, name: str) -> list:
     """cls 的實例實際可能跑到、但不是 cls 自己查到的 name 實作：繼承／介面分派可能跑到的地方。
     Python：每個子孫類別照它自己的 C3 MRO 找到的第一個 name：子類覆寫，或多重繼承時排在前面的兄弟 mixin；
     單一繼承就是子孫自己的覆寫。C#：子孫同名的方法都算（virtual／override／new 不分，new 隱藏也當覆寫：寧可候選）。
-    空實作（pass、{}）也是覆寫，只有真正抽象的不算。"""
+    空實作（pass、...、raise NotImplementedError、{}）也是覆寫，只有真正抽象的不算。"""
     if cls.lang != "py":
         return [fid for fid in flat(sub.methods.get(name, []) for sub in g.descendants(cls)) if not g.funcs[fid].abstract]
     own = set(g.lookup(cls, name))
@@ -376,6 +378,7 @@ class Graph:
         self._index(modules)
         self._index_rebinds(modules)
         self._mro_memo = {}        # id(類別) → (C3 順序, 證得出否, 一路到頂都解析得到否)；綁定都建好之後才算
+        self._settle_abstract()
         self._resolve_all()
         self.fan_in = Counter()
         for es in self.edges.values():
@@ -402,6 +405,18 @@ class Graph:
                 self.children[base.rpartition(".")[2]].append(c)
             for name, ids in c.methods.items():
                 self.by_method[name].extend(ids)
+
+    def _settle_abstract(self) -> None:
+        """Python 的 @abstractmethod 只在類別的 metaclass 確定是 abc.ABCMeta 時擋得住建立實例（自己或專案內祖先的父類寫了
+        abc.ABC，或寫了 metaclass=abc.ABCMeta）；證不出（沒繼承 ABC、祖先在專案外或解析不了）就當一般方法：是存在的覆寫，
+        本體只有 ...／pass 時照空實作不當落點。綁定建好之後、解析呼叫之前定案（覆寫判斷要用）。"""
+        for c in [c for c in self.all_classes() if c.lang == "py" and not self._abc_meta(c)]:
+            for fid in flat(c.methods.values()):
+                self.funcs[fid].abstract = False
+
+    def _abc_meta(self, cls) -> bool:
+        return any(self._canonical(self.module_ctx(c.files[0]), name, ABC_META)
+                   for c in self.ancestry(cls) for name in [*c.bases, c.metaclass] if name)
 
     def _index_rebinds(self, modules: list) -> None:
         """在別處被改掉的綁定（綁定穩定的判斷要看）：
@@ -1940,7 +1955,8 @@ def caveats(g: Graph, report: dict) -> list:
         (unaxis, f"無責任後綴的 partial：{'、'.join(unaxis)} 換檔照算，數字可能偏高"),
         (candidate, f"含候選的路徑 {candidate} 條：可能是實際走不到的捷徑，與全確定的分開列"),
         (incomplete, f"未讀到底的路徑 {incomplete} 條：路上有專案內但解析不了的呼叫（未知那一步照算一個彎），不進刻度分布"),
-        (kinds["unknown"], f"未知的步 {kinds['unknown']}：落到的函式長得像只轉傳但有解析不了的呼叫，證不出是轉傳還是有內容"),
+        (kinds["unknown"], f"未知的步 {kinds['unknown']}：落到的函式裡有解析不了的呼叫（所有含未解呼叫的函式都是未知步），"
+                           "證不出是轉傳還是有內容"),
         (any(not e["ratable"] and e["certain_routes"] for e in report["entries"]),
          "可達範圍內有解析不了的呼叫的入口只給觀測值、標不可評級"),
         (g.scan["empty_files"], f"有定義卻解析出零函式 {len(g.scan['empty_files'])} 檔：可能是解析器沒認出來"),
@@ -1984,6 +2000,12 @@ def materialize(spec: str, root: Path, tmp: Path, label: str) -> Path:
 
 STATUS_ORDER = ("worse", "undecidable", "new", "gone", "better", "same")
 STATUS_LABEL = {"worse": "變差", "undecidable": "不可判定", "new": "新增", "gone": "消失", "better": "變好", "same": "不變"}
+CANDIDATE_CHANGE = "探索路徑變化（非實際呼叫鏈改善）"   # 含候選那一欄的變好／變差：候選邊可能是實際走不到的捷徑
+
+
+def all_ratable(entries: list) -> bool:
+    """每個入口都可評級（有全確定的路、可達範圍內沒有未解）：這時尾行與比較摘要的數字才是可用於品質比較的值。"""
+    return bool(entries) and all(e["ratable"] for e in entries)
 
 
 def compare(before: dict, after: dict) -> dict:
@@ -2015,7 +2037,8 @@ def compare(before: dict, after: dict) -> dict:
     maybe = Counter(r["status"] for r in rows if not r["certain"])
     return {"entries": len(set(b_entries) | set(a_entries)), "rows": rows, "scope_mismatch": mismatch,
             "counts": {k: sure.get(k, 0) for k in STATUS_ORDER},
-            "counts_candidate": {k: maybe.get(k, 0) for k in STATUS_ORDER},
+            "counts_candidate": {k: maybe.get(k, 0) for k in STATUS_ORDER}, "counts_candidate_meaning": CANDIDATE_CHANGE,
+            "ratable_before": all_ratable(before["entries"]), "ratable_after": all_ratable(after["entries"]),
             "max_turns_before": max((e["max_turns"] for e in before["entries"]), default=0),
             "max_turns_after": max((e["max_turns"] for e in after["entries"]), default=0),
             "undecidable_entries": sorted((a_entries.get(k) or b_entries[k])["entry"] for k in undecidable),
@@ -2138,10 +2161,11 @@ def render(report: dict, top: int) -> str:
 
 def render_compare(res: dict, top: int) -> str:
     c, cc, sb, sa = res["counts"], res["counts_candidate"], res["stats_before"], res["stats_after"]
+    observed = "" if res["ratable_before"] and res["ratable_after"] else "（觀測值・不可評級，不能當改善或退步）"
     lines = [f"前後比較｜{res['root']}｜before={res['before_label']} → after={res['after_label']}｜入口 {res['entries']}",
              "全確定：" + "｜".join(f"{STATUS_LABEL[k]} {c[k]}" for k in STATUS_ORDER)
-             + f"｜最多拐彎 {res['max_turns_before']} → {res['max_turns_after']}",
-             "含候選：" + "｜".join(f"{STATUS_LABEL[k]} {cc[k]}" for k in STATUS_ORDER),
+             + f"｜最多拐彎 {res['max_turns_before']} → {res['max_turns_after']}{observed}",
+             f"含候選（{CANDIDATE_CHANGE}）：" + "｜".join(f"{STATUS_LABEL[k]} {cc[k]}" for k in STATUS_ORDER),
              f"解析：失敗 {len(sb['parse_errors'])} → {len(sa['parse_errors'])} 檔｜專案內解析不了 "
              f"{sb['unresolved_ratio']:.0%} → {sa['unresolved_ratio']:.0%}",
              f"掃描母體：{sb['scope']['policy']}（{sb['scope']['files']} 檔，{sb['scope']['digest']}）→ "
@@ -2158,7 +2182,7 @@ def render_compare(res: dict, top: int) -> str:
         b, a = row["before"] or {}, row["after"] or {}
         nums = "｜".join(f"{name} {b.get(k, '-')}→{a.get(k, '-')}"
                         for name, k in (("拐彎", "turns"), ("跳檔", "file_jumps"), ("轉手", "handoffs")))
-        mark = "" if row["certain"] else "（含候選）"
+        mark = "" if row["certain"] else "（含候選：探索路徑變化）"
         lines.append(f"  [{STATUS_LABEL[row['status']]}]{mark} {row['entry']} → {row['landing']}｜{nums}")
         if row["status"] in ("worse", "new") and shown < top:
             lines += route_lines(a)
@@ -2172,7 +2196,7 @@ def done_line(report: dict) -> str:
     entries = report["entries"]
     routes = list(flat(e["routes"] for e in entries))
     grades = Counter(r["grade"] for r in routes if r["certain"] and not r["incomplete"])
-    ratable = bool(entries) and all(e["ratable"] for e in entries)
+    ratable = all_ratable(entries)
     mark = "" if ratable else "*"
     return (f"READING_PATH DONE entries={len(entries)} landings={len(routes)} certain={sum(r['certain'] for r in routes)}"
             f" ratable={int(ratable)} max_turns={max((e['max_turns'] for e in entries), default=0)}{mark}"
@@ -2185,13 +2209,17 @@ def done_line(report: dict) -> str:
 
 
 def compare_done_line(res: dict) -> str:
+    """比較尾行。better／worse… 是全確定那一欄；candidate_changed 是含候選的探索路徑變化（非實際呼叫鏈改善）。
+    任一側不可評級時印 ratable=0，max_turns_before／after 與 coverage_drop 加 * 標成觀測值，與一般尾行一致。"""
     c = res["counts"]
     changed_candidate = sum(n for k, n in res["counts_candidate"].items() if k != "same")
+    ratable = res["ratable_before"] and res["ratable_after"]
+    mark = "" if ratable else "*"
     return (f"READING_PATH DONE mode=compare entries={res['entries']} better={c['better']} worse={c['worse']}"
             f" new={c['new']} gone={c['gone']} same={c['same']} undecidable={c['undecidable']}"
-            f" candidate_changed={changed_candidate}"
-            f" max_turns_before={res['max_turns_before']} max_turns_after={res['max_turns_after']}"
-            f" coverage_drop={int(res['coverage_drop'])}")
+            f" candidate_changed={changed_candidate} ratable={int(ratable)}"
+            f" max_turns_before={res['max_turns_before']}{mark} max_turns_after={res['max_turns_after']}{mark}"
+            f" coverage_drop={int(res['coverage_drop'])}{mark}")
 
 
 def main(argv: list | None = None) -> int:

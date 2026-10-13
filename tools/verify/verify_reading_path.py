@@ -1365,7 +1365,8 @@ def test_compare_same_numbers_are_undecidable_when_coverage_got_worse(tmp_path):
     new = _write(tmp_path / "new", {**PY_HOP, "end.py": worse})
     res = rp.run_compare(new, str(old), None, "main.py", None)
     row = _row(res, "end.py::done")
-    assert _numbers(row["before"])[2] == _numbers(row["after"])[2], "這一列前後拐彎相同（落到有未解的 done 那一步變成未知，轉手多 1）"
+    assert _numbers(row["before"])[2] == _numbers(row["after"])[2], "這一列前後拐彎相同"
+    assert row["after"]["handoffs"] == row["before"]["handoffs"] + 1, "落到有未解的 done 那一步變成未知，轉手多 1"
     assert row["status"] == "undecidable", "可達範圍內看不到的呼叫變多：沒觀測完整，相同也不能報成不變"
 
 
@@ -2492,7 +2493,7 @@ def test_p12_a_custom_decorator_that_applies_dataclass_blocks_rule_3_too(tmp_pat
 
 # ─── 019（Codex 徹底檢核 C）：空實作覆寫、C# 作用域與委派、未知步、super 起點、掃描母體 ─────────
 
-EMPTY_BASE = "class Base:\n    def run(self):\n        return 'BASE'\n\n\n"
+EMPTY_BASE = "class Base(ABC):\n    def run(self):\n        return 'BASE'\n\n\n"
 P13_OVERRIDES = {   # 子類 run 的寫法 → Base.run 給不給第 3 條
     "pass_only": ("    def run(self):\n        pass\n", None),
     "docstring_only": ("    def run(self):\n        \"\"\"nothing\"\"\"\n", None),
@@ -2500,18 +2501,18 @@ P13_OVERRIDES = {   # 子類 run 的寫法 → Base.run 給不給第 3 條
     "stub_ellipsis_in_concrete_class": ("    def run(self):\n        ...\n", None),
     "stub_raise_in_concrete_class": ("    def run(self):\n        raise NotImplementedError\n", None),
     "decorated_abstract": ("    @abstractmethod\n    def run(self):\n        ...\n", 3),
-    "stub_in_abstract_class": ("    @abstractmethod\n    def other(self):\n        ...\n\n    def run(self):\n        ...\n", 3),
+    "stub_in_abstract_class": ("    @abstractmethod\n    def other(self):\n        ...\n\n    def run(self):\n        ...\n", None),
 }
 
 
 @pytest.mark.parametrize("form", sorted(P13_OVERRIDES))
 def test_p13_an_empty_override_is_still_an_override(tmp_path, form):
-    """Codex C 第 1 條＋021 第 3 條：子類 run 只有 pass、只有 docstring、只有 ...、raise NotImplementedError，在具體類別裡
-    都是存在的覆寫（實際跑 Child() 回 None 或拋例外，不進基底）：main(x: Base) 的 x.run() 不給第 3 條；這些覆寫不當落點。
-    真抽象只有兩種：方法本身掛 @abstractmethod，或 ...／raise NotImplementedError 寫在抽象類別（有 abstractmethod）裡；
-    那時子類實例進不來，基底照給第 3 條。"""
+    """Codex C 第 1 條＋021 第 3 條＋023：子類 run 只有 pass、只有 docstring、只有 ...、raise NotImplementedError 都是存在的
+    覆寫（實際跑子類實例回 None 或拋例外，不進基底），不論所在類別抽不抽象（抽象類別裡沒掛裝飾器的 stub 會被可實例化的
+    孫類繼承）：main(x: Base) 的 x.run() 不給第 3 條；這些覆寫不當落點。真抽象只有方法本身掛 @abstractmethod（類別是
+    ABCMeta）：那時這個類別與沒覆寫 run 的子孫都建不出實例，基底照給第 3 條。"""
     child, rule = P13_OVERRIDES[form]
-    files = {"app.py": "from abc import abstractmethod\n\n\n" + EMPTY_BASE + "class Child(Base):\n" + child
+    files = {"app.py": "from abc import ABC, abstractmethod\n\n\n" + EMPTY_BASE + "class Child(Base):\n" + child
                        + "\n\ndef main(x: Base):\n    return x.run()\n"}
     rules = dict(_edge_rules(files, "app.py::main", tmp_path / "a"))
     assert rules.get("app.py::Base.run", "missing") == rule, f"{form}：{rules}"
@@ -2795,6 +2796,113 @@ def test_p14_an_unresolved_call_in_the_entry_taints_every_route(tmp_path):
     assert end["incomplete"] and end["unresolved_path"] == 1 and end["unresolved"] == 0, "入口的未解也算整條路未讀到底"
     e = rep["entries"][0]
     assert not e["ratable"] and sum(e["grades"].values()) == 0 and "ratable=0" in rp.done_line(rep), "入口有未解：不可評級"
+
+
+# ─── 023（codex 審 022）：抽象只看方法本身、候選欄是探索路徑、比較摘要的觀測標記 ─────────────
+
+P15_GRANDCHILD = ("class Base(BASE_HEAD):\n    def run(self):\n        return 'BASE'\n\n\n"
+                  "class Child(Base):\n    @abstractmethod\n    def other(self):\n        ...\n\n"
+                  "    def run(self):\n        ...\n\n\n"
+                  "class Concrete(Child):\n    def other(self):\n        return 1\n\n\n"
+                  "def main(x: Base):\n    return x.run()\n")
+
+
+@pytest.mark.parametrize("head,base", [("from abc import ABC, abstractmethod", "ABC"),
+                                       ("from abc import ABCMeta, abstractmethod", "metaclass=ABCMeta")])
+def test_p15_an_undecorated_stub_in_an_abstract_class_reaches_a_concrete_grandchild(tmp_path, head, base):
+    """023 BLOCK（codex 重現）：Child 有別的 @abstractmethod，但 run 只是沒掛裝飾器的 ...；Concrete(Child) 補上 other 就建得出
+    實例，x.run() 實際跑繼承來的 Child.run（回 None）。Base.run 不給第 3 條、Child.run 是候選目標；Child.run 是空實作不當落點。"""
+    files = {"app.py": head + "\n\n\n" + P15_GRANDCHILD.replace("BASE_HEAD", base)}
+    rules = dict(_edge_rules(files, "app.py::main", tmp_path / "a"))
+    assert rules.get("app.py::Base.run", "missing") is None, rules
+    assert rules.get("app.py::Child.run", "missing") is None, f"繼承給孫類的 stub 要列成候選目標：{rules}"
+    landings = [r["landing"] for r in rp.analyze(_write(tmp_path / "b", files), "app.py::main")["entries"][0]["routes"]]
+    assert "app.py::Child.run" not in landings, landings
+
+
+P15_META = {   # 類別怎麼寫 → 子類 @abstractmethod run 擋不擋得住實例（Base.run 給不給第 3 條）
+    "abc_base": ("from abc import ABC, abstractmethod\n\n\n", "class Base(ABC):\n", 3),
+    "abcmeta_via_module": ("import abc\nfrom abc import abstractmethod\n\n\n", "class Base(metaclass=abc.ABCMeta):\n", 3),
+    "abc_on_grandparent": ("from abc import ABC, abstractmethod\n\n\nclass Root(ABC):\n    pass\n\n\n",
+                           "class Base(Root):\n", 3),
+    "no_abc": ("from abc import abstractmethod\n\n\n", "class Base:\n", None),
+    "abc_name_rebound": ("from abc import ABC, abstractmethod\n\nABC = object\n\n\n", "class Base(ABC):\n", None),
+    "lookalike_from_elsewhere": ("from abc import abstractmethod\nfrom mylib import ABC\n\n\n", "class Base(ABC):\n", None),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P15_META))
+def test_p15_abstractmethod_only_blocks_instances_under_abcmeta(tmp_path, form):
+    """023 BLOCK 同家族：@abstractmethod 只在類別的 metaclass 確定是 abc.ABCMeta（自己或祖先的父類是 abc.ABC、或
+    metaclass=abc.ABCMeta）時擋得住建立實例；沒繼承 ABC、ABC 被改綁、ABC 從別的模組來 → Child() 照樣建得出來、
+    x.run() 跑的是 Child.run，Child.run 是存在的覆寫，Base.run 不給第 3 條。"""
+    head, cls_line, rule = P15_META[form]
+    app = (head + cls_line + "    def run(self):\n        return 'BASE'\n\n\n"
+           "class Child(Base):\n    @abstractmethod\n    def run(self):\n        ...\n\n\n"
+           "def main(x: Base):\n    return x.run()\n")
+    rules = dict(_edge_rules({"app.py": app}, "app.py::main", tmp_path))
+    assert rules.get("app.py::Base.run", "missing") == rule, f"{form}：{rules}"
+
+
+@pytest.mark.parametrize("annotate,want", [("Interface", {"app.py::Child.run": None}), ("Child", {"app.py::Child.run": 3})])
+def test_p15_an_all_stub_interface_keeps_concrete_children_as_candidates(tmp_path, annotate, want):
+    """codex 審 022 第 8 條（對照）：Interface.run 只有 ...（沒掛裝飾器，是空實作不當落點），Child.run 有實作。標註 Interface
+    時 Child.run 是候選；標註 Child 時照給第 3 條。"""
+    app = ("class Interface:\n    def run(self):\n        ...\n\n\n"
+           "class Child(Interface):\n    def run(self):\n        return 1\n\n\n"
+           f"def main(x: {annotate}):\n    return x.run()\n")
+    rules = dict(_edge_rules({"app.py": app}, "app.py::main", tmp_path))
+    assert {k: v for k, v in rules.items() if k == "app.py::Child.run"} == want, rules
+
+
+P15_TABLE = ("def a(n):\n    return b(n)\n\n\ndef b(n):\n    return c(n)\n\n\ndef c(n):\n    return end(n)\n\n\n"
+             "def end(n):\n    t = n * 2\n    t += 1\n    return t\n\n\nHANDLERS = TABLE\n\n\n"
+             "def main(key):\n    return HANDLERS[key](0)\n")
+
+
+def test_p15_a_candidate_only_shortcut_is_labelled_as_exploration_not_improvement(tmp_path):
+    """023 WARN 1：只有候選路的入口（HANDLERS[key](0) 查表分派）新增一條直接指向 end 的捷徑：候選欄可以報變化，但要明寫
+    「探索路徑變化（非實際呼叫鏈改善）」；全確定欄 better=0；兩側都不可評級，比較尾行印 ratable=0 並把數字標 *。"""
+    before = _write(tmp_path / "b", {"app.py": P15_TABLE.replace("TABLE", '{"a": a}')})
+    after = _write(tmp_path / "a", {"app.py": P15_TABLE.replace("TABLE", '{"a": a, "shortcut": end}')})
+    res = rp.run_compare(after, str(before), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["counts_candidate"]["better"] == 1, (res["counts"], res["counts_candidate"])
+    assert res.get("counts_candidate_meaning") == "探索路徑變化（非實際呼叫鏈改善）"
+    text = rp.render_compare(res, 3)
+    assert "含候選（探索路徑變化（非實際呼叫鏈改善））" in text and "（含候選：探索路徑變化）" in text, text
+    tail = rp.compare_done_line(res)
+    assert "ratable=0" in tail and re.search(r" max_turns_before=\d+\* max_turns_after=\d+\* ", tail), tail
+
+
+def test_p15_compare_summary_marks_observed_numbers_when_unratable(tmp_path):
+    """023 WARN 1：後半條鏈消失（fn = [b][0]）那案的比較尾行：max_turns_before／after、coverage_drop 加 * 並印 ratable=0，
+    與一般尾行一致；兩側都可評級時印 ratable=1、不加 *。"""
+    ctrl = _write(tmp_path / "ctrl", {"app.py": C6_CHAIN.replace("A_BODY", "b(0)")})
+    lost = _write(tmp_path / "lost", {"app.py": C6_CHAIN.replace("    return A_BODY", "    fn = [b][0]\n    return fn(0)")})
+    tail = rp.compare_done_line(rp.run_compare(lost, str(ctrl), None, "app.py::main", None))
+    assert "ratable=0 max_turns_before=3* max_turns_after=1* coverage_drop=1*" in tail, tail
+    assert re.fullmatch(r"READING_PATH DONE( \w+=\S+)*", tail), tail
+    same = rp.run_compare(ctrl, str(ctrl), None, "app.py::main", None)
+    clean = rp.compare_done_line(same)
+    assert "ratable=1 max_turns_before=3 max_turns_after=3 coverage_drop=0" in clean and "*" not in clean, clean
+    assert "觀測值・不可評級" not in rp.render_compare(same, 3)
+
+
+P15_MOVE = ("def pick():\n    return 1\n\n\ndef main():\n    return a(0)\n\n\n"
+            "def a(n):\nA_BLIND    return b(n)\n\n\ndef b(n):\nB_BLIND    return c(n)\n\n\n"
+            "def c(n):\n    return end(n)\n\n\ndef end(n):\n    t = n * 2\n    t += 1\n    return t\n")
+BLIND = "    h = pick()\n    h()\n"
+
+
+@pytest.mark.parametrize("after_a,after_b", [(BLIND + "    h()\n", ""), ("", BLIND)])
+def test_p15_unresolved_count_or_place_changes_never_report_better(tmp_path, after_a, after_b):
+    """codex 審 022 第 2 條（固化回歸）：兩側未解數量不同（1→2）、或數量相同但位置由 a 移到 b，確定與候選都不報變好，
+    到 end 那列不可判定。"""
+    before = _write(tmp_path / "b", {"app.py": P15_MOVE.replace("A_BLIND", BLIND).replace("B_BLIND", "")})
+    after = _write(tmp_path / "a", {"app.py": P15_MOVE.replace("A_BLIND", after_a).replace("B_BLIND", after_b)})
+    res = rp.run_compare(after, str(before), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["counts_candidate"]["better"] == 0
+    assert _row(res, "app.py::end")["status"] == "undecidable"
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
