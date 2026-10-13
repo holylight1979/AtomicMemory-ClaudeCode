@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from wg_core import hook_python_exe   # 子行程直譯器單一來源（pythonw 換同目錄 python.exe）
 from wg_verify_ledger import _git_root_of, is_code_file, is_verify_case, reconcile_cfg
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))   # 程式碼用本檔位置找，不用 CLAUDE_DIR
@@ -41,13 +42,6 @@ _PLACEHOLDER = re.compile(r"<[^<>]*>")
 
 class _Timeout(Exception):
     """整支預算用完。"""
-
-
-def _python_exe() -> str:
-    """hook 在 pythonw.exe 下跑，子行程用 pythonw 會拿不到 stdout → 改用同目錄 python.exe。"""
-    exe = Path(sys.executable)
-    sib = exe.with_name("python.exe")
-    return str(sib) if exe.name.lower() == "pythonw.exe" and sib.exists() else str(exe)
 
 
 def _spawn(args: List[str], deadline: float, run: Callable[..., Any]) -> Any:
@@ -185,7 +179,7 @@ def _measure_root(root: Path, base: str, entries: Optional[List[str]], layers: O
     sha = sha_proc.stdout.decode("utf-8", "replace").strip()
     args, manual = tool_args(sha), manual_for(sha)
     try:
-        proc = _spawn([_python_exe(), "-X", "utf8", str(TOOL), *args, "--json", "--top", "1"], deadline, run)
+        proc = _spawn([hook_python_exe(), "-X", "utf8", str(TOOL), *args, "--json", "--top", "1"], deadline, run)
     except _Timeout:
         return [f"{head}：逾時（{BUDGET_S:g} 秒內量不完，這個 session 這個根不再自動量）。{manual}"], True
     out = proc.stdout.decode("utf-8", "replace").strip().splitlines()
