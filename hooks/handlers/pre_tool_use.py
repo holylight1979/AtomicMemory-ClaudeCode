@@ -1098,7 +1098,7 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
     import wg_release
     try:
         import wg_need_goal as _ng
-        from wg_need_goal_points import mark_asked, on_ask
+        from wg_need_goal_points import mark_asked, note_ask_blocked, on_ask
         from wg_core import write_state
         if not _ng.cfg_of(config).get("enabled", True):
             output_nothing()
@@ -1108,6 +1108,7 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
         deny, hint = on_ask(sid, tool_name, tool_input, state or {})
         if status == "ok" and state is not None:
             mark_asked(state, str(input_data.get("tool_use_id") or ""), tool_input)
+            note_ask_blocked(state, deny)     # PostToolBatch 的提問審計看「擋過幾次」
             write_state(sid, state)
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"

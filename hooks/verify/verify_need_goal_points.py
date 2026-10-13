@@ -448,6 +448,73 @@ def test_review_report_and_delivery_letter_in_batch_trigger(world, tmp_path):
     assert len(lines) == 1 and "收到外部主張" in lines[0] and "001-done.md" in lines[0] and "審查" in lines[0]
 
 
+def _tx_line(obj):
+    return json.dumps(obj, ensure_ascii=False) + "\n"
+
+
+QUEUED_PEER = {"type": "attachment", "attachment": {
+    "type": "queued_command", "commandMode": "prompt", "prompt": PEER_PROMPT,
+    "origin": "{'kind': 'peer', 'name': 'claude-aa'}"}}
+
+
+def test_mid_turn_peer_message_in_transcript_triggers_three_questions(world, tmp_path):
+    """工作中途送到的同伴訊息不經任何 hook，只記成 transcript 的 attachment queued_command：PostToolBatch 從上次位置往後掃到就送三問。"""
+    make_tree()
+    tp = tmp_path / "tx.jsonl"
+    tp.write_text(_tx_line({"type": "user", "message": {"role": "user", "content": "先前的話"}}), encoding="utf-8")
+    assert ngp.peer_claim_lines(SID, str(tp), {}, 3) == []                       # 第一次只記位置，不回溯
+    assert ng.load(SID)["peer_offset"] == tp.stat().st_size
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(_tx_line({"type": "user", "message": {"role": "user", "content": "使用者打的一般訊息"}}))
+        f.write(_tx_line(QUEUED_PEER))
+    lines = ngp.peer_claim_lines(SID, str(tp), {}, 3)
+    assert len(lines) == 1 and "收到外部主張" in lines[0] and "claude-aa" in lines[0] and "成本是零" in lines[0]
+    assert ngp.peer_claim_lines(SID, str(tp), {}, 3) == []                       # 同一則不重送
+
+
+def test_mid_turn_scan_plain_prompt_and_no_goal_file_do_nothing(world, tmp_path):
+    tp = tmp_path / "tx.jsonl"
+    tp.write_text(_tx_line(QUEUED_PEER), encoding="utf-8")
+    assert ngp.peer_claim_lines(SID, str(tp), {}, 1) == [] and not ng.goal_path(SID).exists()   # 沒目標檔不掃
+    make_tree()
+    ngp.peer_claim_lines(SID, str(tp), {}, 1)
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(_tx_line({"type": "attachment", "attachment": {"type": "queued_command", "prompt": "使用者排隊打的字"}}))
+    assert ngp.peer_claim_lines(SID, str(tp), {}, 1) == []                       # 排隊的一般 prompt 不觸發
+
+
+def test_mid_turn_scan_caps_read_size_and_fails_soft(world, tmp_path, monkeypatch):
+    """一次最多讀 PEER_SCAN_CAP，超過只取最後一段並記 truncated；讀不到 → 不丟例外、stderr、目標檔記 peer_scan_error。"""
+    make_tree()
+    monkeypatch.setattr(ngp, "PEER_SCAN_CAP", 2000)
+    tp = tmp_path / "tx.jsonl"
+    tp.write_text("", encoding="utf-8")
+    ngp.peer_claim_lines(SID, str(tp), {}, 1)
+    with open(tp, "a", encoding="utf-8") as f:
+        for i in range(60):
+            f.write(_tx_line({"type": "user", "message": {"role": "user", "content": f"雜訊 {i}"}}))
+        f.write(_tx_line(QUEUED_PEER))
+    lines = ngp.peer_claim_lines(SID, str(tp), {}, 1)
+    doc = ng.load(SID)
+    assert lines and doc["peer_scan_truncated"]["skipped"] > 0 and doc["peer_offset"] == tp.stat().st_size
+    assert ngp.peer_claim_lines(SID, str(tmp_path / "沒有這個檔.jsonl"), {}, 1) == []
+    assert "peer_scan_error" in ng.load(SID)
+
+
+def test_post_tool_batch_handler_sends_mid_turn_peer_claim(world, tmp_path):
+    make_tree()
+    tp = tmp_path / "tx.jsonl"
+    tp.write_text("", encoding="utf-8")
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2})
+    inp = {"session_id": SID, "hook_event_name": "PostToolBatch", "transcript_path": str(tp),
+           "tool_calls": [{"tool_name": "Read", "tool_input": {}}]}
+    assert run_handler(ptb.handle_post_tool_batch, inp, {}) is None              # 第一批只記位置
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(_tx_line(QUEUED_PEER))
+    out = run_handler(ptb.handle_post_tool_batch, inp, {})
+    assert out and "收到外部主張" in out["hookSpecificOutput"]["additionalContext"]
+
+
 # ─── 4.4 提問 ─────────────────────────────────────────────────────────────
 
 ASK = {"questions": [{"question": "要用哪個做法？", "header": "做法", "multiSelect": False,
@@ -463,6 +530,29 @@ def test_ask_code_tree_unlinked_is_blocked_with_nodes(world):
     deny, hint = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
     assert deny and "掛在目標樹哪個節點" in deny and "T1.1" in deny and hint is None
     assert guard(world)[-1]["event"] == "ask_blocked"
+
+
+def test_ask_deny_reason_gives_fix_you_can_follow():
+    """D(1) 實測：AI 讀得到 deny 理由但不一定自己補 → 理由要給照做就能過的修法：建議掛哪個節點、怎麼寫進題目、不屬於任何節點怎麼辦。"""
+    make_tree("code")
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
+    assert "照做：" in deny and "（掛 T1.1）" in deny and "need_goal(action=add" in deny
+
+
+def test_batch_records_ask_audit_blocked_count_and_linked(world):
+    """PostToolBatch 對每次提問記一筆審計：這題被擋過幾次、最後有沒有掛上節點。"""
+    make_tree("code")
+    state = {"turn_seq": 3}
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, state)
+    ngp.note_ask_blocked(state, deny)
+    ngp.mark_asked(state, "a1", ASK)
+    ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": ASK, "tool_use_id": "a1"}], CFG)
+    ok = ask_with("T1.1 卡在這：要用哪個？")
+    ngp.mark_asked(state, "a2", ok)
+    ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": ok, "tool_use_id": "a2"}], CFG)
+    audits = [g for g in guard(world) if g["event"] == "ask_audit"]
+    assert [(a["blocked"], a["linked"]) for a in audits] == [(1, None), (1, "T1.1")]
+    assert state.get("need_goal_ask_blocks", 0) == 0                            # 掛上之後計數歸零
 
 
 def test_ask_linked_passes_and_records_checkpoint():
@@ -550,7 +640,7 @@ def test_asks_after_skips_handled_and_hints_unhandled(world):
     calls2 = [{"tool_name": "AskUserQuestion", "tool_input": ask_with("另一題"), "tool_use_id": "tu2"}]
     lines = ngp.batch_lines(SID, state, calls2, CFG)
     assert len(lines) == 1 and "事後提醒" in lines[0]                          # 沒攔到 → 事後提醒、不擋
-    assert guard(world)[-1]["mode"] == "after"
+    assert [g for g in guard(world) if g["event"] == "ask_hint"][-1]["mode"] == "after"   # 之後還會多一筆 ask_audit
     assert ngp.batch_lines(SID, state, calls2, CFG) == []                      # 同一題不重複提醒
 
 

@@ -16,23 +16,37 @@ from typing import Any, Dict
 from wg_core import _ensure_state, write_state, output_json, output_nothing
 
 
-def _need_goal_due(state: Dict[str, Any], input_data: Dict[str, Any]) -> bool:
-    """需求目標的批次提醒要不要跑（只看 state 與這批的工具名，不讀目標檔）；模組載不進來 → stderr，當成不用跑。"""
+def _points_module() -> Any:
+    """需求目標的批次模組；載不進來 → stderr 一行、回 None（這批的需求目標提醒全停）。"""
     try:
-        from wg_need_goal_points import batch_due
+        import wg_need_goal_points
+        return wg_need_goal_points
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] 需求目標模組載入失敗，批次提醒停用：{type(e).__name__}: {e}", file=sys.stderr)
-        return False
-    return batch_due(state, input_data.get("tool_calls"))
+        return None
+
+
+def _peer_lines(ngp: Any, session_id: str, input_data: Dict[str, Any], config: Dict[str, Any],
+                state: Dict[str, Any]) -> list:
+    """工作中途送到的同伴訊息（只在 transcript）：本 session 有目標檔才掃 transcript 新增段；判不了 → stderr、空。"""
+    try:
+        return ngp.peer_claim_lines(session_id, input_data.get("transcript_path") or "", config,
+                                    int(state.get("turn_seq", 0) or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 掃工作中途的同伴訊息失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
 
 
 def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
-    # idle 極輕路徑：pending 皆無、需求目標也沒有待送立即退出（每批觸發，杜絕常態開銷）
+    ngp = _points_module() if state else None
+    peer = _peer_lines(ngp, session_id, input_data, config, state) if ngp else []
+    goal_due = bool(ngp) and ngp.batch_due(state, input_data.get("tool_calls"))
+    # idle 極輕路徑：pending 皆無、需求目標也沒有待送立即退出（每批觸發，杜絕常態開銷；沒有目標檔的 session 只多一次 stat）
     if not state or not (
         state.get("pending_reinjection") or state.get("pending_reinjection_overview") or state.get("pending_handoff_emit")
-        or state.get("pending_reinjection_goal") or _need_goal_due(state, input_data)
+        or state.get("pending_reinjection_goal") or goal_due or peer
     ):
         output_nothing()
         return
@@ -79,14 +93,14 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
                 )
             state["pending_handoff_emit"] = False  # 一次性，即使 config 關亦清旗標
 
-        # (3) 需求目標的批次提醒（4.3 讀入範圍、同檔多次；4.4 PreToolUse 沒攔到的提問）：判不了只寫 stderr，不擋其他段
-        if _need_goal_due(state, input_data):
+        # (3) 需求目標的批次提醒（4.3 讀入範圍、同檔多次、外部主張；4.4 提問審計與沒攔到的提問）：判不了只寫 stderr，不擋其他段
+        if goal_due:
             try:
                 import wg_need_goal as _ng
-                from wg_need_goal_points import batch_lines
-                parts.extend(batch_lines(session_id, state, input_data.get("tool_calls"), _ng.cfg_of(config)))
+                parts.extend(ngp.batch_lines(session_id, state, input_data.get("tool_calls"), _ng.cfg_of(config)))
             except Exception as e:  # noqa: BLE001
                 print(f"[NeedGoal] post_tool_batch 提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+        parts.extend(peer)
 
         write_state(session_id, state)
     except Exception as e:

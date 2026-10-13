@@ -260,6 +260,71 @@ def on_external_claim(sid: Any, kind: str, source: str, turn: Optional[int] = No
     return head + "\n" + ng.render(tree, "header")
 
 
+PEER_SCAN_CAP = 256 * 1024     # 一批最多讀 transcript 新增段的位元組數，超過只取最後一段
+
+
+def _peer_scan_error(sid: Any, turn: Optional[int], err: str) -> None:
+    """掃 transcript 失敗：不擋，stderr 一行，目標檔記 peer_scan_error。"""
+    print(f"[NeedGoal] 掃工作中途的同伴訊息失敗（不擋）：{err}", file=sys.stderr)
+    _update(sid, lambda d: d.__setitem__("peer_scan_error", {"at": wg_core._now_iso(), "turn": turn, "error": err}),
+            "peer_scan_error", turn)
+
+
+def peer_claim_lines(sid: Any, transcript_path: str, config: Dict[str, Any], turn: Optional[int] = None) -> List[str]:
+    """PostToolBatch：工作中途送到的同伴訊息不經任何 hook，只在 transcript 記成 attachment queued_command。
+    從目標檔頂層 peer_offset 往後讀新增段（最多 PEER_SCAN_CAP，超過只取最後一段並記 peer_scan_truncated），
+    找到同伴訊息就照外部主張送三問。只在本 session 有目標檔時掃；第一次只記位置不回溯；只吃到最後一個完整行。"""
+    if not transcript_path or not ng.goal_path(sid).exists() or not ng.cfg_of(config).get("enabled", True):
+        return []
+    doc = _load(sid, "peer_claim_lines", turn)
+    if doc is None:
+        return []
+    off = doc.get("peer_offset")
+    try:
+        size = Path(transcript_path).stat().st_size
+        if not isinstance(off, int) or off > size:
+            _update(sid, lambda d: d.__setitem__("peer_offset", size), "peer_claim_lines", turn)
+            return []
+        start = max(off, size - PEER_SCAN_CAP)
+        with open(transcript_path, "rb") as f:
+            f.seek(start)
+            raw = f.read(size - start)
+    except OSError as e:
+        _peer_scan_error(sid, turn, f"{type(e).__name__}: {e}")
+        return []
+    end = raw.rfind(b"\n") + 1
+    chunk = raw[:end]
+    if start > off:                                   # 截過：第一行可能只剩半行
+        chunk = chunk[chunk.find(b"\n") + 1:]
+    names: List[str] = []
+    bad = 0
+    for line in chunk.splitlines():
+        if b"queued_command" not in line or b"cross-session-message" not in line:
+            continue
+        try:
+            o = json.loads(line)
+        except ValueError:
+            bad += 1
+            continue
+        att = o.get("attachment") if isinstance(o, dict) else None
+        peer = peer_of_prompt(att.get("prompt")) if isinstance(att, dict) and att.get("type") == "queued_command" else None
+        if peer is not None:
+            names.append(peer or "同伴 session")
+
+    def fn(d: Dict[str, Any]) -> None:
+        d["peer_offset"] = start + end
+        if start > off:
+            d["peer_scan_truncated"] = {"at": wg_core._now_iso(), "turn": turn, "skipped": start - off}
+
+    if end:
+        _update(sid, fn, "peer_claim_lines", turn)
+    if bad:
+        _peer_scan_error(sid, turn, f"{bad} 行同伴訊息 JSON 解析失敗")
+    if not names:
+        return []
+    return [on_external_claim(sid, "同伴訊息（工作中途送到）", "、".join(dict.fromkeys(names)), turn)]
+
+
 # ─── 4.3 被使用者糾正 ─────────────────────────────────────────────────────
 
 def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Optional[str]:
@@ -320,11 +385,51 @@ def ask_text(tool_name: str, tool_input: Any, state: Dict[str, Any]) -> str:
     return text
 
 
+def _node_order(nid: str) -> Tuple[int, ...]:
+    return tuple(int(x) for x in re.findall(r"\d+", nid))
+
+
+def _suggest_node(tree: Dict[str, Any]) -> Tuple[str, str]:
+    """建議這題掛哪個節點：還沒完成的節點裡編號最前的那個（不含樹根），都完成了就掛樹根。回（編號, 文字）。"""
+    nodes = tree.get("nodes") or {}
+    open_ids = [n for n in sorted(nodes, key=_node_order) if n != tree["id"]
+                and (nodes[n] or {}).get("status") in ("todo", "doing", "partial")]
+    nid = open_ids[0] if open_ids else tree["id"]
+    return nid, str((nodes.get(nid) or {}).get("text") or "")
+
+
 def _ask_message(tree: Dict[str, Any], code: bool, after: bool) -> str:
+    """擋或提醒的理由：AI 讀得到但不一定自己補（D(1) 實測），所以給照做就能過的修法。"""
     head = ("[NeedGoal] 剛才的提問沒寫掛在目標樹哪個節點（這次提問前沒攔到，事後提醒）" if after else
             "[NeedGoal] 提問前要寫出這題掛在目標樹哪個節點" + ("" if code else "（記憶知識類不擋，只提醒）"))
-    return (f"{head}：題目或計畫裡寫節點編號，例如 {tree['id']}.1。全貌還沒對齊就先補，自己判斷得了的不推給人；"
-            "問完把答案寫進 need_goal。目前的樹：\n" + ng.render(tree, "compact"))
+    nid, text = _suggest_node(tree)
+    fix = (f"照做：{'下次提問' if after else '在題目（或計畫）裡'}寫上節點編號再問，例如在題目後面加「（掛 {nid}）」"
+           f"；目前最可能的是 {nid}（{text}），換成真正對應的節點也可以。這題不屬於任何節點 → "
+           "先用 need_goal(action=add, parent=…) 長出那個節點，再掛上它問。")
+    return (f"{head}。{fix}全貌還沒對齊就先補，自己判斷得了的不推給人；問完把答案寫進 need_goal。目前的樹：\n"
+            + ng.render(tree, "compact"))
+
+
+def note_ask_blocked(state: Dict[str, Any], deny: Optional[str]) -> None:
+    """PreToolUse 擋了一次提問：累計次數（PostToolBatch 的審計看這個，掛上節點後歸零）。"""
+    if deny:
+        state["need_goal_ask_blocks"] = int(state.get("need_goal_ask_blocks") or 0) + 1
+
+
+def _ask_audit(sid: Any, state: Dict[str, Any], tool_calls: Any, turn: int) -> None:
+    """PostToolBatch：這批每一次提問記一筆審計（擋過幾次、最後掛上哪個節點）；掛上了就把擋的次數歸零。"""
+    doc = None
+    for c in tool_calls if isinstance(tool_calls, list) else []:
+        name, inp, tid = _call_parts(c)
+        if name not in ASK_TOOLS:
+            continue
+        doc = doc or _load(sid, "ask_audit", turn)
+        tree = _live(doc) if doc else None
+        linked = ng.node_ref(tree, ask_text(name, inp, state)) if tree else None
+        _guard("ask_audit", sid, turn, tool=name, tool_use_id=tid, tree=tree["id"] if tree else None,
+               blocked=int(state.get("need_goal_ask_blocks") or 0), linked=linked)
+        if linked:
+            state["need_goal_ask_blocks"] = 0
 
 
 def _ask_checkpoint(doc: Dict[str, Any], turn: int, nid: str) -> None:
@@ -477,6 +582,7 @@ def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str,
             state["need_goal_batch"] = True   # 這回合送過了：留到下一回合第一批
     if has_ask_calls(tool_calls):
         lines += asks_after(sid, state, tool_calls)
+        _ask_audit(sid, state, tool_calls, turn)
     claims = claim_calls(tool_calls)
     if claims:
         kinds = "、".join(dict.fromkeys(k for k, _s in claims))
