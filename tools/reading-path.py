@@ -87,7 +87,8 @@ SHARED_FAN_IN = 5         # 落點被這麼多處呼叫 → 標「共用底層�
 DEEP_STRAIGHT = 6         # 深度到這麼多但拐彎 ≤1 → 提醒「同檔多層有實質內容的呼叫不算彎」
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
-WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候選或未解，所以全確定的數字是可信的下限，含候選的數字是上限參考：
+WHITELIST = """確定只來自這幾種寫法（白名單）；其他一律候選或未解。全確定的數字是確定邊子圖上的最短觀測路徑，
+含候選的是含候選邊的探索路徑，都不是數學上的下限或上限：
   1. 直接呼叫專案內唯一解析到、名字從未被重新指定的函式（含 import 進來的、模組.函式、類別.靜態方法、建構子、super()／base.）；
      模組層名字只要在任何地方被重新指定或被指定成算出來的值，就不在白名單；名字是哪一層的哪個綁定只查一次
      （由內往外，遵守 global／nonlocal；指定、import、except … as、match 擷取、def／class 都算綁定），
@@ -382,7 +383,7 @@ class Graph:
         self.called = set(self.fan_in)
         self.axis = {c.name: partial_axis(c) for c in self.all_classes() if c.lang == "cs"}
         self.passthrough = {f.id: self._forward_style(f) for f in self.funcs.values() if self._is_passthrough(f)}
-        self.unknown = {f.id for f in self.funcs.values() if self._looks_forwarding(f) and self.unres[f.id]}
+        self.unknown = {fid for fid, n in self.unres.items() if n}   # 有解析不了的呼叫：落到它的那一步是未知，不看函式長短
 
     def _index(self, modules: list) -> None:
         for m in modules:
@@ -1723,7 +1724,7 @@ class Graph:
         return self._looks_forwarding(f) and self.hits[f.id] == 1 and not self.unres[f.id]
 
     def _looks_forwarding(self, f: lang.Func) -> bool:
-        """長得像只轉傳的函式（句數與形狀）；裡面有解析不了的呼叫時證不出是轉傳還是有內容 → 落到它的那一步是「未知」。"""
+        """長得像只轉傳的函式（句數與形狀）。"""
         return f.simple and not f.entry and not f.abstract and not f.hollow and f.lang != "coarse"
 
     def _forward_style(self, f: lang.Func) -> str:
@@ -1775,7 +1776,7 @@ class Graph:
         while node != entry:
             node, s = back[node]
             steps.append(s)
-        on_path = sum(self.unres[s.func] for s in steps)   # 路上每一步（含落點）解析不了的呼叫：任一步有就整條路未讀到底
+        on_path = sum(self.unres[s.func] for s in steps) + self.unres[entry]   # 路上每一步（含入口與落點）解析不了的呼叫
         return Route(entry, landing, [Step(entry, "entry")] + steps[::-1], self.unres[landing], self.fan_in[landing],
                      self.signature(landing), on_path)
 
@@ -1791,7 +1792,8 @@ def scan_paths(root: Path, scope: str) -> tuple:
         proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, creationflags=_NO_WINDOW)
         if proc.returncode == 0:
             names = [n for n in proc.stdout.decode("utf-8", "replace").split("\0") if n]
-            paths = sorted(root / n for n in names if Path(n).suffix.lower() in PARSERS and (root / n).is_file())
+            paths = sorted(root / n for n in names if Path(n).suffix.lower() in PARSERS and (root / n).is_file()
+                           and not _skipped(n))   # 兩種政策共用同一套目錄排除：被追蹤的 marketplaces 也不掃
             if paths:
                 return paths, "git"
             scope = "tree(git 在這一層沒追蹤到原始碼)"
@@ -1802,6 +1804,11 @@ def scan_paths(root: Path, scope: str) -> tuple:
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
         paths += [Path(dirpath) / name for name in sorted(filenames) if Path(name).suffix.lower() in PARSERS]
     return paths, scope
+
+
+def _skipped(rel: str) -> bool:
+    """相對路徑經過 SKIP_DIRS 或點開頭的目錄：git 清單與目錄遞迴兩邊用同一條規則。"""
+    return any(d in SKIP_DIRS or d.startswith(".") for d in PurePosixPath(rel.replace("\\", "/")).parts[:-1])
 
 
 def build_graph(root: Path, scope: str = "git", policy: str | None = None) -> Graph:
@@ -1988,7 +1995,9 @@ def compare(before: dict, after: dict) -> dict:
     a_entries = {compare_key(e["entry"], e["sig"]): e for e in after["entries"]}
     sb, sa = before["stats"], after["stats"]
     mismatch = sb["scope"]["policy"] != sa["scope"]["policy"]
-    undecidable = {k for k, a in a_entries.items() if k in b_entries and (mismatch or _coverage_worse(b_entries[k], a))}
+    undecidable = {k for k, a in a_entries.items() if k in b_entries
+                   and (mismatch or _coverage_worse(b_entries[k], a) or b_entries[k]["unresolved_reach"] or a["unresolved_reach"])}
+    # 任一側可達範圍內有未解（兩側一樣多也算）：沒觀測完整，整個入口不可判定；只有候選路的入口照常比（分開列在含候選）
     broken = _broken_files(sb["file_funcs"], sa["file_funcs"])
     rows = []
     for key in sorted(set(b_entries) | set(a_entries)):
@@ -1997,11 +2006,13 @@ def compare(before: dict, after: dict) -> dict:
         a = {compare_key(r["landing"], r["sig"]): r for r in ea.get("routes", [])}
         label = (ea or eb)["entry"]
         rows += [_diff_row(label, b.get(k), a.get(k), key in undecidable, broken) for k in sorted(set(b) | set(a))]
+    coverage_drop = bool(len(sa["parse_errors"]) > len(sb["parse_errors"]) or broken or undecidable or mismatch
+                         or sa["unresolved_ratio"] > sb["unresolved_ratio"] + COVERAGE_DROP)
+    for r in [r for r in rows if coverage_drop and r["status"] == "better"]:
+        r["status"] = "undecidable"                # 涵蓋變差時看不到的不能算變好：better 一律歸不可判定
     rows.sort(key=lambda r: (not r["certain"], STATUS_ORDER.index(r["status"]), r["entry"], r["landing"]))
     sure = Counter(r["status"] for r in rows if r["certain"])
     maybe = Counter(r["status"] for r in rows if not r["certain"])
-    coverage_drop = bool(len(sa["parse_errors"]) > len(sb["parse_errors"]) or broken or undecidable or mismatch
-                         or sa["unresolved_ratio"] > sb["unresolved_ratio"] + COVERAGE_DROP)
     return {"entries": len(set(b_entries) | set(a_entries)), "rows": rows, "scope_mismatch": mismatch,
             "counts": {k: sure.get(k, 0) for k in STATUS_ORDER},
             "counts_candidate": {k: maybe.get(k, 0) for k in STATUS_ORDER},
@@ -2037,14 +2048,16 @@ def _diff_row(entry: str, b: dict | None, a: dict | None, undecidable: bool, bro
         vb, va = tuple(b[k] for k in key), tuple(a[k] for k in key)
         status = "same" if va == vb else ("better" if va < vb else "worse")
     touched = {s["func"].split("::")[0] for s in flat(r["steps"] for r in (b, a) if r)}
-    status = "undecidable" if undecidable or touched & broken else status   # 數字是下限：前後相同也不代表沒變
+    partial = any(r["incomplete"] for r in (b, a) if r)   # 任一側這條路未讀到底：數字沒觀測完整，不能比
+    status = "undecidable" if undecidable or partial or touched & broken else status
     certain = all(r["certain"] for r in (b, a) if r)
     return {"entry": entry, "landing": landing, "status": status, "certain": certain, "before": b, "after": a}
 
 
 def run_compare(root: Path, before: str, after: str | None, entry: str | None, to: str | None,
                 scope: str = "git") -> dict:
-    """git rev 解出來的目錄就是追蹤清單，政策記 git（整棵走訪即可）；目錄或 --root 照 --scope。"""
+    """git rev 解出來的目錄就是那個版本的追蹤清單（git archive），再套與 git 清單相同的目錄排除，政策記 git；
+    目錄或 --root 照 --scope。兩側政策不同（例如 --root 不在 git 裡退回 tree）→ 比較整份不可判定。"""
     with tempfile.TemporaryDirectory(prefix="reading-path-") as tmp:
         b_root = materialize(before, root, Path(tmp), "before")
         a_root = materialize(after, root, Path(tmp), "after") if after else root
@@ -2154,15 +2167,19 @@ def render_compare(res: dict, top: int) -> str:
 
 
 def done_line(report: dict) -> str:
+    """尾行。ratable=1 時各欄是可用於品質比較的值；ratable=0（任一入口不可評級：沒有全確定的路或可達範圍內有未解）時
+    max_turns 與刻度欄只是觀測值，加 * 標記，不能當改善或退步。"""
     entries = report["entries"]
     routes = list(flat(e["routes"] for e in entries))
     grades = Counter(r["grade"] for r in routes if r["certain"] and not r["incomplete"])
+    ratable = bool(entries) and all(e["ratable"] for e in entries)
+    mark = "" if ratable else "*"
     return (f"READING_PATH DONE entries={len(entries)} landings={len(routes)} certain={sum(r['certain'] for r in routes)}"
-            f" max_turns={max((e['max_turns'] for e in entries), default=0)}"
-            f" max_turns_candidate={max((e['max_turns_candidate'] for e in entries), default=0)}"
-            f" max_file_jumps={max((e['max_file_jumps'] for e in entries), default=0)}"
-            f" max_handoffs={max((e['max_handoffs'] for e in entries), default=0)}"
-            f" smelly={grades['臭掉']} alert={grades['警戒']} notice={grades['注意']}"
+            f" ratable={int(ratable)} max_turns={max((e['max_turns'] for e in entries), default=0)}{mark}"
+            f" max_turns_candidate={max((e['max_turns_candidate'] for e in entries), default=0)}{mark}"
+            f" max_file_jumps={max((e['max_file_jumps'] for e in entries), default=0)}{mark}"
+            f" max_handoffs={max((e['max_handoffs'] for e in entries), default=0)}{mark}"
+            f" smelly={grades['臭掉']}{mark} alert={grades['警戒']}{mark} notice={grades['注意']}{mark}"
             f" candidate={sum(not r['certain'] for r in routes)} incomplete={sum(r['incomplete'] for r in routes)}"
             f" unresolved={report['stats']['unresolved']}")
 

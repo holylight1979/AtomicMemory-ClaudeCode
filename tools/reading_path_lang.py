@@ -66,6 +66,7 @@ class Func:
     simple: bool = False      # 去掉 docstring 與 log 後 ≤2 句且無分支迴圈：轉手函式的候選
     abstract: bool = False    # 真正抽象：@abstractmethod、只有 ...、raise NotImplementedError；C# abstract 或分號宣告（介面）
     hollow: bool = False      # 空實作：Python 只有 pass（或只有 docstring）、C# 空大括號本體。是覆寫，但不值得當落點
+    stub: bool = False        # Python 只有 ... 或 raise NotImplementedError：所屬類別是抽象類別才算 abstract，否則算 hollow
     conditional: bool = False                         # C# [Conditional("SYM")]：符號沒定義時編譯器會省略呼叫，呼叫它不給條號
     prop: bool = False        # C# 屬性的 get/set 本體（讀寫屬性就會跑進來）
     entry: bool = False       # 天生入口：__main__ 區塊、無區塊時的 main、C# static Main、粗略模式 main
@@ -301,6 +302,7 @@ def _py_class(mod: Module, node: ast.ClassDef) -> None:
     markers = [b for b in node.bases if isinstance(b, ast.Subscript) and _py_recv(b.value).split(".")[-1] in GENERIC_MARKERS]
     opaque = len(node.bases) - len(bases) - len(markers)           # Base[int]、make_base() 這類算出來的父類：MRO 證不出
     cls = Cls(node.name, "py", [mod.file], bases, decorators=_py_decorators(node), opaque_bases=opaque)
+    first = len(mod.funcs)
     for item in node.body:
         if isinstance(item, _DEF_NODES):
             _py_func(mod, item, node.name + ".", cls)
@@ -308,6 +310,9 @@ def _py_class(mod: Module, node: ast.ClassDef) -> None:
         elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and _py_ann(item.annotation):
             cls.fields[item.target.id] = cls.declared_fields[item.target.id] = _py_ann(item.annotation)
             cls.field_scope[item.target.id] = cls.declared_scope[item.target.id] = ""   # 類別本體的標註在類別本體解析
+    abstract_class = any(p.split(".")[-1] == "abstractmethod" for decs in cls.def_decorators.values() for p, _, _ in decs)
+    for f in [f for f in mod.funcs[first:] if f.stub]:   # ... 或 raise NotImplementedError：只在抽象類別裡才是真抽象
+        f.abstract, f.hollow = abstract_class, not abstract_class   # 否則是存在的覆寫（擋掉父類的方法），只是不當落點
     defs = [item for item in node.body if isinstance(item, _DEF_NODES)]
     rest = [item for item in node.body if not isinstance(item, _DEF_NODES)]
     plain = list(_own_nodes(rest + [x for d in defs for x in _def_time_exprs(d)]))   # 方法的預設值、裝飾器、標註在類別本體求值
@@ -335,7 +340,8 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     real = [s for s in body if not isinstance(s, ast.Pass) and not _py_noise_stmt(s) and not _py_move(s)]
     f.simple = (len(real) <= 2 and all(isinstance(s, _SIMPLE_STMTS) for s in real)
                 and not any(isinstance(n, _BRANCHY) for n in nodes))
-    f.abstract, f.hollow = _py_abstract(node, body)
+    shape = _py_abstract(node, body)
+    f.abstract, f.hollow, f.stub = shape == "abstract" or (shape == "stub" and cls is None), shape == "hollow", shape == "stub"
     _py_locals(f, cls, nodes)
     f.calls = _py_calls(mod, nodes, fid)
     f.scoped_binds, f.class_nonlocals = _py_unmodeled(nodes)
@@ -442,17 +448,19 @@ def _strip_doc(body: list) -> list:
     return body[1:] if is_doc else body
 
 
-def _py_abstract(node, body: list) -> tuple:
-    """(真正抽象, 空實作)。抽象：@abstractmethod、只有 ...、raise NotImplementedError。空實作：只有 pass、或 docstring 之外
-    什麼都沒有。兩者分開記：空實作仍是覆寫（子類 pass 掉父類的方法，呼叫就不進父類），只是不值得當落點。"""
-    decorated = any(_py_recv(d).split(".")[-1] == "abstractmethod" for d in node.decorator_list)
+def _py_abstract(node, body: list) -> str:
+    """本體長相：abstract＝@abstractmethod 標記；stub＝只有 ... 或 raise NotImplementedError（長得像抽象，但只有所屬類別
+    本身是抽象類別時才算真抽象，否則是存在的覆寫、不當落點，由 _py_class 定案）；hollow＝只有 pass、或 docstring 之外
+    什麼都沒有（空實作：是覆寫，不當落點）；""＝一般函式。"""
+    if any(_py_recv(d).split(".")[-1] == "abstractmethod" for d in node.decorator_list):
+        return "abstract"
     only = body[0] if len(body) == 1 else None
-    if decorated or (isinstance(only, ast.Expr) and getattr(only.value, "value", None) is Ellipsis):
-        return True, False
+    if isinstance(only, ast.Expr) and getattr(only.value, "value", None) is Ellipsis:
+        return "stub"
     exc = getattr(only, "exc", None) if isinstance(only, ast.Raise) else None
     if exc and _py_recv(getattr(exc, "func", exc)) == "NotImplementedError":
-        return True, False
-    return False, not body or isinstance(only, ast.Pass)
+        return "stub"
+    return "hollow" if not body or isinstance(only, ast.Pass) else ""
 
 
 def _py_move(stmt: ast.stmt) -> bool:
@@ -1043,11 +1051,9 @@ def _cs_construct_end(body: str, start: int, braced: bool) -> int:
         if ch in "([{":
             depth += 1
         elif ch in ")]}":
-            if depth == 0:
+            if depth == 0:                         # 關掉的是包住本體的那一個括號：本體到這裡（內層 if {…} 關掉時 depth 回 0，不是結束）
                 return j
             depth -= 1
-            if braced and depth == 0 and ch == "}":
-                return j + 1
         elif not braced and depth == 0 and ch in ";,":
             return j
     return len(body)

@@ -437,8 +437,11 @@ def test_compare_same_version_reports_no_change(tmp_path):
     a = _write(tmp_path / "a", PY_KINDS)
     b = _write(tmp_path / "b", PY_KINDS)
     res = rp.run_compare(b, str(a), None, None, None)
-    assert res["counts"]["same"] >= 4
     assert all(res["counts"][k] == 0 for k in ("better", "worse", "new", "gone"))
+    assert res["counts"]["undecidable"] >= 4 and res["undecidable_entries"] == ["main.py::<main>"], \
+        "Bus.emit 裡 fn(*args) 解析不了、入口可達：兩側一樣沒觀測完整也只能不可判定，不報不變（021）"
+    full = rp.run_compare(_write(tmp_path / "d", PY_WRAPPED), str(_write(tmp_path / "c", PY_WRAPPED)), None, None, None)
+    assert full["counts"]["same"] == len(full["rows"]) >= 1 and full["undecidable_entries"] == [], "全部解析得了才報不變"
 
 
 def test_compare_git_rev_against_working_tree(tmp_path):
@@ -1362,8 +1365,8 @@ def test_compare_same_numbers_are_undecidable_when_coverage_got_worse(tmp_path):
     new = _write(tmp_path / "new", {**PY_HOP, "end.py": worse})
     res = rp.run_compare(new, str(old), None, "main.py", None)
     row = _row(res, "end.py::done")
-    assert _numbers(row["before"])[:3] == _numbers(row["after"])[:3], "這一列前後數字相同"
-    assert row["status"] == "undecidable", "可達範圍內看不到的呼叫變多：數字是下限，相同也不能報成不變"
+    assert _numbers(row["before"])[2] == _numbers(row["after"])[2], "這一列前後拐彎相同（落到有未解的 done 那一步變成未知，轉手多 1）"
+    assert row["status"] == "undecidable", "可達範圍內看不到的呼叫變多：沒觀測完整，相同也不能報成不變"
 
 
 def test_submodule_imported_from_a_package_is_certain_by_rule_1(tmp_path):
@@ -2494,18 +2497,22 @@ P13_OVERRIDES = {   # 子類 run 的寫法 → Base.run 給不給第 3 條
     "pass_only": ("    def run(self):\n        pass\n", None),
     "docstring_only": ("    def run(self):\n        \"\"\"nothing\"\"\"\n", None),
     "nonempty": ("    def run(self):\n        return 1\n", None),
-    "truly_abstract_ellipsis": ("    def run(self):\n        ...\n", 3),
-    "truly_abstract_raise": ("    def run(self):\n        raise NotImplementedError\n", 3),
+    "stub_ellipsis_in_concrete_class": ("    def run(self):\n        ...\n", None),
+    "stub_raise_in_concrete_class": ("    def run(self):\n        raise NotImplementedError\n", None),
+    "decorated_abstract": ("    @abstractmethod\n    def run(self):\n        ...\n", 3),
+    "stub_in_abstract_class": ("    @abstractmethod\n    def other(self):\n        ...\n\n    def run(self):\n        ...\n", 3),
 }
 
 
 @pytest.mark.parametrize("form", sorted(P13_OVERRIDES))
 def test_p13_an_empty_override_is_still_an_override(tmp_path, form):
-    """Codex C 第 1 條：子類 run 只有 pass（或只有 docstring）是空實作，仍是覆寫：main(x: Base) 的 x.run() 不給第 3 條
-    （實際跑 Child() 回 None，不進基底）。真正抽象（只有 ...、raise NotImplementedError）才不算覆寫，基底照給第 3 條。
-    空實作不當落點。"""
+    """Codex C 第 1 條＋021 第 3 條：子類 run 只有 pass、只有 docstring、只有 ...、raise NotImplementedError，在具體類別裡
+    都是存在的覆寫（實際跑 Child() 回 None 或拋例外，不進基底）：main(x: Base) 的 x.run() 不給第 3 條；這些覆寫不當落點。
+    真抽象只有兩種：方法本身掛 @abstractmethod，或 ...／raise NotImplementedError 寫在抽象類別（有 abstractmethod）裡；
+    那時子類實例進不來，基底照給第 3 條。"""
     child, rule = P13_OVERRIDES[form]
-    files = {"app.py": EMPTY_BASE + "class Child(Base):\n" + child + "\n\ndef main(x: Base):\n    return x.run()\n"}
+    files = {"app.py": "from abc import abstractmethod\n\n\n" + EMPTY_BASE + "class Child(Base):\n" + child
+                       + "\n\ndef main(x: Base):\n    return x.run()\n"}
     rules = dict(_edge_rules(files, "app.py::main", tmp_path / "a"))
     assert rules.get("app.py::Base.run", "missing") == rule, f"{form}：{rules}"
     report = rp.analyze(_write(tmp_path / "b", files), "app.py::main")
@@ -2620,7 +2627,8 @@ def test_p13_an_unresolved_call_mid_chain_is_an_unknown_step_and_taints_the_whol
     e = rep["entries"][0]
     assert not e.get("ratable", True) and e["max_turns"] == 3 and sum(e["grades"].values()) == 0
     tail = rp.done_line(rep)
-    assert "max_turns=3" in tail and "alert=0" in tail and "notice=0" in tail
+    assert "ratable=0" in tail and "max_turns=3*" in tail and "alert=0*" in tail, f"不可評級：尾行只給加 * 的觀測值 {tail}"
+    assert re.fullmatch(r"READING_PATH DONE( \w+=\S+)*", tail)
     assert "不可評級" in rp.render(rep, 3) and "未知" in rp.render(rep, 3)
 
 
@@ -2665,11 +2673,13 @@ def test_p13_an_explicit_super_start_is_not_certified(tmp_path):
 
 
 def test_p13_report_wording_is_observed_paths_not_bounds(tmp_path):
-    """Codex C 第 9 條：全確定的數字是「確定邊子圖上的最短觀測路徑」，不再寫成可信下限／上限參考；partial 豁免只免換檔的彎。"""
+    """Codex C 第 9 條＋021 第 6 條：全確定的數字是「確定邊子圖上的最短觀測路徑」，報告與完整 --help（含白名單段）都不再
+    寫成可信的下限／上限參考；partial 豁免只免換檔的彎。"""
     text = rp.render(rp.analyze(_write(tmp_path, PY_WRAPPED), "app.py"), 3)
     assert "最短觀測路徑" in text and "可信下限" not in text and "上限參考" not in text
     helped = subprocess.run([sys.executable, "-X", "utf8", str(SCRIPT), "--help"], capture_output=True, text=True, encoding="utf-8")
     assert "豁免的只有換檔那個彎" in helped.stdout and "--scope" in helped.stdout
+    assert "可信的下限" not in helped.stdout and "上限參考" not in helped.stdout and "最短觀測路徑" in helped.stdout
 
 
 def _git_repo(root: Path, files: dict) -> Path:
@@ -2707,6 +2717,84 @@ def test_p13_compare_with_different_scope_policies_is_undecidable(tmp_path):
     assert res["rows"] and all(r["status"] == "undecidable" for r in res["rows"])
     same = rp.compare(rp.analyze(repo, "app.py", scope="git"), rp.analyze(repo, "app.py", scope="git"))
     assert not same["scope_mismatch"] and same["counts"]["same"] == len(same["rows"])
+
+
+# ─── 021（codex 審 020）：看不到不能變好、stub 覆寫、兩側同一套範圍政策 ─────────────────────
+
+def test_p14_an_equivalent_rewrite_of_an_unobserved_function_is_not_better(tmp_path):
+    """021 第 1 條：a 從 return b(cb()) 拆成區域變數寫法，兩版都有看不到來源的 cb()、都不可評級；未知不靠句數門檻
+    （落到有未解呼叫的函式就是未知），比較守門先看兩側可評級與整路完整性：該列不可判定、better=0。"""
+    chain = C6_CHAIN.replace("A_BODY", "b(cb())")
+    split = C6_CHAIN.replace("    return A_BODY", "    x = cb()\n    y = b(x)\n    return y")
+    before = _write(tmp_path / "b", {"app.py": chain})
+    after = _write(tmp_path / "a", {"app.py": split})
+    for root in (before, after):
+        rep = rp.analyze(root, "app.py::main")
+        end = _route(rep, "app.py::end")
+        assert _kinds(end)[0] == "unknown" and end["turns"] == 3 and end["incomplete"], "長短都一樣：落到 a 是未知步"
+        assert not rep["entries"][0]["ratable"]
+    res = rp.run_compare(after, str(before), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["counts_candidate"]["better"] == 0
+    assert _row(res, "app.py::end")["status"] == "undecidable" and res["coverage_drop"] is True
+    assert "better=0" in rp.compare_done_line(res)
+
+
+def test_p14_losing_the_tail_of_a_chain_cannot_lower_the_numbers(tmp_path):
+    """021 第 2 條：a 改成 fn = [b][0]; fn(0)，後半條鏈看不到了：尾行 ratable=0、max_turns 與刻度加 * 標成觀測值，
+    比較摘要 better=0、該入口不可判定；coverage_drop 時 better 必為 0。"""
+    ctrl = _write(tmp_path / "ctrl", {"app.py": C6_CHAIN.replace("A_BODY", "b(0)")})
+    lost = _write(tmp_path / "lost", {"app.py": C6_CHAIN.replace("    return A_BODY", "    fn = [b][0]\n    return fn(0)")})
+    tail_ctrl, tail_lost = rp.done_line(rp.analyze(ctrl, "app.py::main")), rp.done_line(rp.analyze(lost, "app.py::main"))
+    assert "ratable=1 max_turns=3 " in tail_ctrl and "alert=1 " in tail_ctrl
+    assert "ratable=0" in tail_lost and "max_turns=1*" in tail_lost and "alert=0*" in tail_lost, tail_lost
+    res = rp.run_compare(lost, str(ctrl), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["coverage_drop"] is True
+    assert res["undecidable_entries"] == ["app.py::main"]
+    assert all(r["status"] in ("undecidable", "gone") for r in res["rows"]), [r["status"] for r in res["rows"]]
+
+
+def test_p14_tracked_build_dir_is_treated_the_same_on_both_sides_of_a_compare(tmp_path):
+    """021 第 4 條：被追蹤的 build/worker.py 在工作樹（git 清單）與歷史快照（git archive）兩側套同一套目錄排除：
+    兩側政策都是 git、檔數相同，同內容比較沒有消失、沒有不可判定；被追蹤的 marketplaces 兩側同樣不掃。"""
+    files = {"app.py": "from lib import worker\n\n\ndef main():\n    worker.go()\n", "lib/__init__.py": "",
+             "lib/worker.py": "def go():\n    x = 1\n    return x + 1\n",
+             "build/gen.py": "def gen():\n    return 1\n",
+             "plugins/marketplaces/m/x.py": "def market():\n    return 2\n"}
+    repo = _git_repo(tmp_path / "repo", files)
+    live = rp.analyze(repo, "app.py::main")["stats"]["scope"]
+    assert live["policy"] == "git" and live["files"] == 3, live
+    assert not any("marketplaces" in f or "build/" in f for f in rp.build_graph(repo).funcs)
+    res = rp.run_compare(repo, "HEAD", None, "app.py::main", None)
+    assert res["stats_before"]["scope"]["policy"] == res["stats_after"]["scope"]["policy"] == "git"
+    assert res["stats_before"]["scope"]["files"] == res["stats_after"]["scope"]["files"] == 3
+    assert res["stats_before"]["scope"]["digest"] == res["stats_after"]["scope"]["digest"]
+    assert not res["scope_mismatch"] and res["counts"]["gone"] == 0 and res["undecidable_entries"] == []
+    assert _row(res, "lib/worker.py::go")["status"] == "same"
+
+
+def test_p14_csharp_calls_after_an_inner_block_in_a_local_function_still_get_no_rule(tmp_path):
+    """021 第 5 條：區域函式裡先有一個 if {…} 區塊，之後的 Run()／cb.Invoke() 仍在區域函式裡：參數遮蔽記未解、
+    callback 不給第 5 條（內層括號關掉不等於區域函式結束）。"""
+    head = ("using System;\nclass P {\n    static void Run() { int n = 1; n++; }\n    static void Other() { int n = 2; n++; }\n")
+    shadow = {"P.cs": head + "    static void Main() {\n        void Wrap(Action Run) {\n            if (true) { int x = 1; }\n"
+                             "            Run();\n        }\n        Wrap(Other);\n    }\n}\n"}
+    g = rp.build_graph(_write(tmp_path / "a", shadow))
+    assert "P.cs::P.Run" not in [e.dst for e in g.edges["P.cs::P.Main"]] and g.unres["P.cs::P.Main"] == 1
+    cb = {"P.cs": head + "    static void Go(Action cb) {\n        void Wrap() {\n            if (true) { int x = 1; }\n"
+                         "            cb.Invoke();\n        }\n        Wrap();\n    }\n    static void Main() { Go(Other); }\n}\n"}
+    rules = dict(_edge_rules(cb, "P.cs::P.Go", tmp_path / "b"))
+    assert rules.get("P.cs::P.Other", "missing") is None, rules
+
+
+def test_p14_an_unresolved_call_in_the_entry_taints_every_route(tmp_path):
+    """021 第 6 條：未解呼叫在入口本身（main 回傳 a(cb())），後續鏈全可解：到 end 的路仍整條未讀到底、不進刻度，入口不可評級。"""
+    app = ("def main(cb):\n    return a(cb())\n\n\ndef a(n):\n    return b(n)\n\n\ndef b(n):\n    return c(n)\n\n\n"
+           "def c(n):\n    return end(n)\n\n\ndef end(n):\n    return n\n")
+    rep = rp.analyze(_write(tmp_path, {"app.py": app}), "app.py::main")
+    end = _route(rep, "app.py::end")
+    assert end["incomplete"] and end["unresolved_path"] == 1 and end["unresolved"] == 0, "入口的未解也算整條路未讀到底"
+    e = rep["entries"][0]
+    assert not e["ratable"] and sum(e["grades"].values()) == 0 and "ratable=0" in rp.done_line(rep), "入口有未解：不可評級"
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
