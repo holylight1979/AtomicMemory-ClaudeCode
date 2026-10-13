@@ -171,8 +171,9 @@ def test_tool_data_follows_data_root_code_follows_file(tool, dirs, cwd):
     for n in code_names:
         assert _under(got[n], TREE) and not _under(got[n], data), (n, got[n])
     got = _probe(tool, data_names, _env(home), cwd)                                     # 沒設 → 家目錄/.claude
+    raw = str(home / ".claude")                                                          # 原始字串不正規化：和舊算法 Path.home()/".claude" 一字不差
     for n in data_names:
-        assert _under(got[n], home / ".claude"), (n, got[n])
+        assert got[n] == raw or got[n].startswith(raw + os.sep), (n, got[n])
 
 
 PAIR_PROBE = r"""
