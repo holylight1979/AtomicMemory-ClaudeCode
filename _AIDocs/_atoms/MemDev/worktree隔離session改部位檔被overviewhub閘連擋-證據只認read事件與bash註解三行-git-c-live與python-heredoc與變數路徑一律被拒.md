@@ -15,6 +15,8 @@
 - [臨] 根因：閘的證據來源是 PostToolUse 的 Read 事件與 transcript 的 assistant 文字／工具參數，不是「我看過了」；bypass 提示「盡量用 Bash 讀檔」與閘的證據規則相衝，照提示做就必被擋。設計原理：閘要可稽核的讀檔紀錄與 hook 解析得到的三行，Bash 只做寫入目標判定。運作邏輯：wg_overview.on_read 只把 Read／Bash 解析出的讀路徑記進 part_files_read；on_edit 用 transcript_offset 之後的 assistant 文字找三行，工具參數也在三管道內，所以 Bash 註解最穩。
 - [臨] 隔離 session 的硬擋（同場實證）：`git -C <live>` 任何子命令（含只讀 status）一律拒；`python -` heredoc、路徑含 `$W` 變數的指令被寫入目標解析器拒（改 Edit 工具或字面絕對路徑）；同一條指令把 `python -m pytest` 與 git 串在一起也拒（拆兩條）。live 未動證明改用 `cmp <live 檔> <git show <基準>:檔 的副本>`＋grep 新符號＋stat mtime。
 - [臨] 反轉驗證在隔離 session：`git show <舊版>:檔 > scratchpad/old.py`、cp 現版到 scratchpad，用 cp 換檔跑 pytest 再 cp 回來（不走 git checkout，暫存區不會被動）；紅的型別要分類：新案要紅在 AssertionError，純函式新 API 案紅在 AttributeError 可接受但要在交付信標明。
+- [臨] `git hash-object <live 路徑>` 也被 CrossRealmBashBlock 擋；`python -c "…"` 被寫入目標解析器拒，驗 JSON 用 `python -m json.tool <檔>`。live 未動證明：scratchpad Python 用 hashlib 算 git blob（sha1 of `blob <長度>\0`＋位元組）對 `git -C <worktree> rev-parse main:<路徑>`，逐檔 SAME／DIFF；DIFF 用 difflib 看差在哪、對開工快照判是不是自己改的。
+- [臨] 隔離 session 的驗證帳本落在 live `workflow/verify-ledger/<sid>.jsonl`，AEC (j) 填 live 路徑。根層 worktree 的量尺（PYTEST_MEASURE）屬一般證據，接 `| tail`／`2>&1` 就不算；改完最後一個檔後在 worktree 根再跑一次不接管線的目標 verify 才收尾。
 
 ## 行動
 

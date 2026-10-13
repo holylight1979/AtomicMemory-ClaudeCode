@@ -17,6 +17,8 @@
 - [臨] Codex 跟別的 session 共用同一個工作樹時，對方同時改檔會讓行號與判斷混到兩個版本：prompt 要求「讀檔一律用 git show <commit>:<路徑>、diff 用 git diff <起> <迄>」，結論就固定在指定 commit。
 - [臨] 審查 prompt 結構：原話目標（判準）→ 交付方自述（逐條核實）→ 兼看兩向（能不能被繞過／誠實流程能不能過）→ 已知不必再報 → 回覆格式（VERDICT＋每條檔:行＋重現）。它的斷言以靜態讀碼與記憶體探針為主，BLOCK 要親自讀碼重現才退件；價值在正確性與邊界反例，不在可讀性。
 - [臨] 純推理用法（不讓它碰檔）：把 prompt＋完整檔＋diff 組成一份 md 經 stdin 送，明寫不要跑指令；SVN 工作副本同樣必加 `--skip-git-repo-check`。
+- [臨] MCP 第二意見工具（`tools/second-opinion/run.py` 的 `_execute_body`）組的 `codex exec -s read-only` 沒帶 `-c windows.sandbox="unelevated"`（`codex_companion.codex_extra_args` 只停 unityMCP）：codex 內部每個讀檔指令都 `CreateProcessWithLogonW failed: 1385`，只能看 job 目錄的材料包（card.md、defects.md、diff.patch）。探針只叫它回 `CODEX_OK`、不跑 shell，所以 status 照樣 done、探不出來。認法：`<job>/codex.stderr.log` grep 1385，或回覆末段寫「唯讀取行號指令因 … 1385 無法啟動」。
+- [臨] 這時它的 WARN「材料沒有對照程式／完整 JSON，無法核實文件與程式一致」是環境造成，不是交付缺陷；BLOCK 是只看 diff 推的，要自己讀碼核實（實例：它判健檢 verdict_map 先 upper() 再比是漏報，讀 hook 端 compile_sentinel_rules 也 upper()，執行期同義 → 判誤報，用兩向案例固定）。交付報告寫明「codex 這輪讀不到 repo」與每條處置；要它真的讀 repo，在 question 裡貼關鍵函式原文，或改設定補 unelevated（動到共用的 codex_extra_args，裁判也受影響，屬總控台裁定）。
 
 ## 行動
 

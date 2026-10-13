@@ -12,4 +12,5 @@
 | powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
 | toolchain | 工具鏈實戰記憶 |
 | windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff | Windows Python write_text 缺 newline 把 LF 翻 CRLF 整檔假 diff |
+| 彙整多份來源寫現況文件時-追蹤表裡的修法建議不是現況-每句現況要能指到程式 | 彙整多份來源寫現況文件時-追蹤表裡的修法建議不是現況-每句現況要能指到程式 |
 | 規格裡未實證的前提要先取樣再實作-不然整包白做 | 規格裡未實證的前提要先取樣再實作-不然整包白做 |
