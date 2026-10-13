@@ -6525,6 +6525,25 @@
         "ReadingPath"
       ],
       "scope": "global"
+    },
+    {
+      "name": "需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份",
+      "path": "_AIDocs/_atoms/MemDev/需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份.md",
+      "triggers": [
+        "edit_gate",
+        "writes_code",
+        "write_paths_from_tool",
+        "write_sources_from_tool",
+        "commit_gate",
+        "_git_commits_to_run",
+        "cfg_of",
+        "cfg_for_cwd",
+        "hook_cwd",
+        "peer_offset",
+        "建樹閘漏擋",
+        "閘被繞過"
+      ],
+      "scope": "global"
     }
   ]
 }
