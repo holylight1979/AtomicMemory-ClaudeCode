@@ -5741,6 +5741,26 @@
         "live 未動證明"
       ],
       "scope": "global"
+    },
+    {
+      "name": "hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本",
+      "path": "_AIDocs/_atoms/MemDev/hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本.md",
+      "triggers": [
+        "write_state",
+        "state 並行",
+        "state 互相覆蓋",
+        "三方合併",
+        "_merge_state",
+        "event_seq",
+        "next_event_seq",
+        "modified_files 合併",
+        "verify_receipts 合併",
+        "knowledge_harvest 合併",
+        "pending 版本",
+        "鎖內重讀",
+        "track-b3"
+      ],
+      "scope": "global"
     }
   ]
 }
