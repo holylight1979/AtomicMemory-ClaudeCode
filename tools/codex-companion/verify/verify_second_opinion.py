@@ -363,6 +363,14 @@ def test_002_probe_that_only_answers_without_reading_the_file_is_failed(env):
     assert not (Path(res["job_dir"]) / run.PROBE_FILE).exists()
 
 
+def test_002_sandbox_args_platform_branch(monkeypatch):
+    # codex 審 ccf2597 WARN：平台分支沒測。Windows 要帶 unelevated；其他平台只留 -s read-only，不塞 Windows 專用設定
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert run._sandbox_args() == ["-s", "read-only", "-c", UNELEVATED]
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert run._sandbox_args() == ["-s", "read-only"]
+
+
 def test_002_stale_probe_log_does_not_fail_a_recovered_probe(env, tmp_path):
     # codex 審 ccf2597 BLOCK 1：`run.py probe` 重用 _probe 目錄、log 附加寫入；上一次的 1385 留在尾段時，這次讀回字樣也被判失敗
     probe_dir = tmp_path / "_probe"
