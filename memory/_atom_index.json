@@ -6324,6 +6324,19 @@
         "改前版紅"
       ],
       "scope": "global"
+    },
+    {
+      "name": "pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因",
+      "path": "memory/驗證與實證/pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因.md",
+      "triggers": [
+        "紅在斷言",
+        "退回紅",
+        "紅的型別",
+        "junitxml",
+        "規則變異",
+        "mutant"
+      ],
+      "scope": "global"
     }
   ]
 }

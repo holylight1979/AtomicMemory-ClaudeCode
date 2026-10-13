@@ -8,6 +8,7 @@
 |------|------|
 | goal-driven-verify-loopkarpathy-吸收 | goal-driven-verify-loop（karpathy 吸收） |
 | pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 | PYTEST_ADDOPTS與PYTHONOPTIMIZE會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 |
+| pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
 | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |
 | 不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案 | 不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案 |
 | 假家目錄測試要同時設home與userprofile-windows的pathhome看userprofile而bash看home | 假家目錄測試要同時設HOME與USERPROFILE-Windows的Path.home看USERPROFILE而bash看HOME |
