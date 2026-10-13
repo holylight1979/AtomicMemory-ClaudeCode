@@ -6240,6 +6240,21 @@
         "隔離探針"
       ],
       "scope": "global"
+    },
+    {
+      "name": "worktree測試裡資料根的斷言要對被測模組自己算的claude-dir比-對本樹路徑比會隨別支測試先跑的setdefault變",
+      "path": "_AIDocs/_atoms/MemDev/worktree測試裡資料根的斷言要對被測模組自己算的claude-dir比-對本樹路徑比會隨別支測試先跑的setdefault變.md",
+      "triggers": [
+        "WG_CLAUDE_DIR",
+        "資料根斷言",
+        "setdefault 收集順序",
+        "worktree 測試紅",
+        "單跑綠合跑紅",
+        "claude_data_dir",
+        "verify_project_layer_smoke",
+        "verify_locate_single_authority"
+      ],
+      "scope": "global"
     }
   ]
 }
