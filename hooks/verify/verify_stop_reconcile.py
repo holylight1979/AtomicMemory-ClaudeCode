@@ -2774,6 +2774,33 @@ def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys
     assert "改了程式碼（kept.py）之後沒有新增或修改驗證 case 檔" in out                       # 配對：還在的照欠
 
 
+def test_040_9_moving_changed_code_with_git_mv_still_owes_at_new_path(driven, capsys, chain, monkeypatch):
+    """040 配套：已不存在的程式檔不欠補案例，所以「改了程式、再 git mv 搬到新檔」要在新路徑照欠，不能靠搬檔清帳。
+    經工具→PostToolUse（git mv 的目標記成改檔）→Stop。舊碼 git mv 不記寫入，新路徑沒有修改紀錄。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, code, _ = chain
+    edit(code, 3)
+    git("mv", "src/a.py", "src/b.py")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "改了程式碼（b.py）之後沒有新增或修改驗證 case 檔" in out
+
+
+def test_040_10_change_and_commit_in_one_command_is_not_exempted(driven, capsys, chain):
+    """040 codex 第二輪 BLOCK：先改程式＋補案例＋commit（不欠案例），再用同一條 Bash 指令改程式又 commit、沒補案例 →
+    PostToolUse 先記這次改檔、再拍 commit 快照：快照時 a.py 已經欠案例，不進不欠清單 → Stop (d) 照擋。
+    舊碼先拍快照後記改檔，快照把新內容當成不欠案例的狀態，Stop 比對內容相同就豁免。"""
+    state, edit, git, repo, code, case = chain
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    code.write_text(_CODE_V.format(4), encoding="utf-8", newline="\n")
+    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "v4"], check=True, capture_output=True)
+    edit.post("Bash", {"command": "sed -i 's/return 3/return 4/' src/a.py && git commit -qam v4"})
+    assert os.path.normpath(str(code)) not in (state.get("commit_snapshot") or {}).get("settled", [])
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert _DEBT_A in out
+
+
 def test_git_failure_is_reported_not_silent(clean_repo, capsys):
     """git 逾時或回非零 → 照算改了，而且 stderr 說是哪個根、照算改了（不靜默）。"""
     import subprocess
@@ -2868,6 +2895,7 @@ def chain(monkeypatch, tmp_path):
         subprocess.run(argv, check=True, capture_output=True)
         post("Bash", {"command": " ".join(argv)}, agent_id, judge)
 
+    edit.post = post                                  # 複合指令的案例自己先做完動作，再用它送同一條指令的 PostToolUse
     return state, edit, git, repo, code, case
 
 

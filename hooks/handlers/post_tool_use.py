@@ -401,7 +401,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
 
 
 def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str, Any]] = None,
-                 session_id: str = "") -> bool:
+                 session_id: str = "", snapshot: bool = True) -> bool:
     """跑了 git／svn commit → state["last_commit_turn_seq"]＝本回合；回有沒有記。一般與裁判 PostToolUse 共用這一條：
     ScanReport 閘據此豁免收尾檢核（工作已寫進 VCS 歷史＝可稽核），寫碼查核判「改過又原樣還原」也看它（改完 commit 了，
     工作樹乾淨不代表沒改）。同時記 commit_snapshot（本 session 改過的檔此刻的內容雜湊＋當時不欠案例的程式檔）：commit 之後
@@ -410,6 +410,10 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
         return False
     turn = int(state.get("turn_seq", 0))
     state["last_commit_turn_seq"] = turn
+    if not snapshot:                                  # 這條指令的寫入目標沒算出來：不拍快照（可能漏掉同一條指令改的檔）
+        state.pop("commit_snapshot", None)
+        print("[verify-ledger] commit 指令的寫入目標算不出來，不記內容快照；commit 之後的反證還原照算改碼", file=sys.stderr)
+        return True
     try:
         own = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
         state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}))
@@ -743,11 +747,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             vcs.append({"command": command[:200], "at": _now_iso()})
             dirty = True
 
-        if _note_commit(state, command, config, session_id):
-            dirty = True
-
         # Bash／PowerShell 改檔目標（>、>>、tee、sed -i、cp、mv、Set-Content…）也進 modified_files；
-        # 先記目標再落帳，帳本的 modified_files_turn 才含本次寫入
+        # 先記目標再落帳，帳本的 modified_files_turn 才含本次寫入；commit 快照也在記完之後才拍
+        # （`sed -i a.py && git commit` 這種同一條指令改檔又 commit，快照要看得到這次改了 a.py）
+        _writes_ok = True
         if _write_paths_from_tool is not None:
             try:
                 _cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
@@ -762,6 +765,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     dirty = True
             except Exception as e:
                 _atom_debug_error("post_tool_use:write_paths_from_tool", e)
+                _writes_ok = False
+
+        if _note_commit(state, command, config, session_id, snapshot=_writes_ok):
+            dirty = True
 
         if _track_test_result(state, input_data, command, tool_name):
             dirty = True

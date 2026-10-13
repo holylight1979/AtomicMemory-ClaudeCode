@@ -1652,7 +1652,7 @@ _COPY_CMDS = frozenset({"cp", "mv", "install", "rsync", "ln", "copy-item", "move
 _COPY_VALUE_FLAGS = frozenset({"-m", "-o", "-g", "-t", "-e", "--mode", "--owner", "--group", "--target-directory", "--suffix", "-S"})
 _PS_VALUE_PARAMS = frozenset({
     "-value", "-encoding", "-itemtype", "-filter", "-include", "-exclude", "-destination", "-path", "-literalpath",
-    "-filepath", "-name", "-width", "-stream", "-delimiter",
+    "-filepath", "-name", "-width", "-stream", "-delimiter", "-newname",
 })
 _PS_PATH_PARAMS = frozenset({"-path", "-literalpath", "-filepath", "-destination"})
 _INTERPRETERS = {
@@ -1987,6 +1987,12 @@ def _ps_targets(name: str, args: List[str]) -> List[str]:
         dst = named.get("-destination") or (positional[1] if len(positional) > 1 else "")
         src = named.get("-path") or named.get("-literalpath") or (positional[0] if positional else "")
         return [f"{dst}\x00{src}"] if dst else []
+    if name == "rename-item":                        # 舊路徑與改名後的新路徑都是目標（新名字落在舊路徑的同一個目錄）
+        src = named.get("-path") or named.get("-literalpath") or (positional[0] if positional else "")
+        new = named.get("-newname") or (positional[1] if len(positional) > 1 else "")
+        if src and new:
+            return [src, os.path.join(os.path.dirname(src.rstrip("/\\")), os.path.basename(new.rstrip("/\\")))]
+        return [src] if src else []
     for key in ("-path", "-literalpath", "-filepath"):
         if key in named:
             path = named[key]
@@ -2098,7 +2104,8 @@ def _git_restore_targets(args: List[str], cwd: Optional[str], seg: List[_Tok], o
     `git restore [--source <rev>] [--worktree] <路徑>…` 會改寫工作樹的檔 → 目標＝那些路徑（照 `-C <目錄>` 或 cwd 解析）。
     寫碼查核靠它記下「最後一次改這個檔」的時間：反證時用 git 把程式與案例退回舊版、最後只還原程式，時間序才查得到。
     只認字面檔案路徑：萬用字元、pathspec 魔術字（`:` 開頭）、目錄、--pathspec-from-file、--git-dir／--work-tree、算不出的 -C → UNKNOWN。
-    其他 git 子指令（commit、log、switch…）照舊不算寫入目標。"""
+    `git mv 來源… 目標` 的目標同 mv 算寫入（目標是現存目錄就是目錄/來源檔名）：寫碼查核對「已不存在的程式檔不欠案例」，
+    搬走的程式要在新路徑照算。其他 git 子指令（commit、log、switch…）照舊不算寫入目標。"""
     base, tree, i = cwd, False, 0
     while i < len(args) and args[i].startswith("-"):
         a = args[i]
@@ -2116,6 +2123,17 @@ def _git_restore_targets(args: List[str], cwd: Optional[str], seg: List[_Tok], o
     if i >= len(args):
         return
     sub, rest = args[i].lower(), args[i + 1:]
+    if sub == "mv":                                  # git mv 來源… 目標：目標是寫入（同 mv）；來源不在了，寫碼查核另有刪除的規則
+        pos = [a for a in rest if a != "--" and not a.startswith("-")]
+        if len(pos) < 2:
+            return
+        out.signal = True
+        if tree or (base is None and not all(os.path.isabs(a) for a in pos)):
+            _mark_unknown(out, seg)
+            return
+        for r in _copy_targets(pos[:-1], pos[-1], base):
+            _add(out, seg, r)
+        return
     if sub == "checkout":
         paths = _git_checkout_paths(rest, base)
     elif sub == "restore":
