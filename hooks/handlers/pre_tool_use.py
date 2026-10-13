@@ -805,13 +805,9 @@ _MERGE_MANUAL_INSTALL = "手動 python ~/.claude/tools/merge-atom-index.py --ins
 
 
 def _hook_python_exe() -> str:
-    """子行程直譯器：hook 在 pythonw.exe 下跑，spawn sys.executable 會沒有 stdout → 改用同目錄 python.exe。"""
-    exe = Path(sys.executable)
-    if exe.name.lower() == "pythonw.exe":
-        sib = exe.with_name("python.exe")
-        if sib.exists():
-            return str(sib)
-    return str(exe)
+    """子行程直譯器（本體在 wg_core.hook_python_exe，與 wg_reading_path 共用）：hook 在 pythonw.exe 下跑就改用同目錄 python.exe。"""
+    from wg_core import hook_python_exe
+    return hook_python_exe()
 
 
 def _run_capture(args: List[str], cwd: str, timeout: float) -> subprocess.CompletedProcess:

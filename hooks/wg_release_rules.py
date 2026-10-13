@@ -58,6 +58,10 @@ RULES: Dict[str, str] = {
     "RED_WHILE_REVERTED": "跑紅時，受測根裡有本 session 改過的程式檔內容等於非 HEAD 的已提交版本（退回舊碼反證）→ 刻意紅：不算失敗、不計重試。",
     "RETRY_COUNTS_EDITS_SINCE_RED": "重試只數「紅測出現之後」對同一個檔的編輯次數（達門檻起每次 +1），不數整場累計；刻意紅不計。",
     "GREEN_SAME_CASE_CLEARS": "跑綠的指令點名與某筆紅測同一個案例檔 → 那筆紅測清掉（不限 pytest、不看指令前綴）。",
+    "DISPATCH_OPENS_TURN": "回合起點＝使用者打字，或帶派工標記的跨 session 訊息（正文首行以「派工」開頭、或含 to-track-<軌> 派工檔路徑）；"
+                           "一般同伴訊息、背景通知不開回合。擋次預算、ScanReport 豁免、AtomAudit、PASS 窗口、退避預告切點、有用度學習單位、"
+                           "收割冷卻全吃同一個起點（user_turn／turn_prompts_seq／user_turn_count）。派工訊息不是使用者原話：口令照樣不認。",
+    "VCS_ROOT_UNREADABLE": "找改檔所在版控根時檔案系統出錯（OSError：權限、網路路徑斷、路徑太長）→ 讀不到不等於不在版控：判不出去向，照欠（fail-closed）。",
     # 既有對帳條目的名字（(a)(b)(c)(e)、量尺），讓每一條擋訊息都有規則名
     "CLAIM_FIXED_NEEDS_PASS": "(a) 說「修好」要有本回合對得上改檔、晚於最後一次修改、同一棵樹的 PASS，或改檔部位的合格自寫收據。",
     "CLAIM_MEASURED_NEEDS_DONE": "(b) 說「量了」要有本回合能當證據的 DONE，或改檔部位的合格自寫收據。",
@@ -230,10 +234,10 @@ def budget_tick(rec: Any, uturn: int, letters: Iterable[str]) -> Dict[str, Any]:
 
 
 def exhausted_summary(code_text: str) -> str:
-    """擋滿訊息的摘要：列出全部命中條目「(a) RULE；(d) RULE」，不只第一行。"""
+    """擋滿訊息的摘要：列出全部命中條目「✗ (a) RULE；✗ (d) RULE」，不只第一行。"""
     pairs = parse_hit_rules(code_text)
     if pairs:
-        return "；".join(f"({l}) {r}" for l, r in pairs)
+        return "；".join(f"{HIT_PREFIX}({l}) {r}" for l, r in pairs)
     lines = [ln.strip() for ln in str(code_text or "").splitlines() if ln.strip()]
     return lines[1] if len(lines) > 1 else (lines[0] if lines else "")
 
@@ -508,6 +512,27 @@ def strip_comment_lines(command: str) -> str:
         out.append(ln)
         cont = ln.rstrip().endswith("\\")
     return "\n".join(out)
+
+
+# ─── ⑥ DISPATCH_OPENS_TURN ／ ⑧ VCS_ROOT_UNREADABLE ────────────────────────────
+_DISPATCH_HEAD_RE = re.compile(r"^\s*[\[【（(]?\s*派工")
+_DISPATCH_PATH_RE = re.compile(r"to-track-[A-Za-z0-9_-]+[\\/][^\s\"'<>]*?\.md\b", re.IGNORECASE)
+
+
+def is_dispatch_message(bodies: Iterable[str]) -> bool:
+    """DISPATCH_OPENS_TURN：任一同伴訊息正文的第一個非空行以「派工」開頭（可帶括號），或正文含 to-track-<軌>/<檔>.md 派工檔路徑。"""
+    for body in bodies or ():
+        lines = [ln for ln in str(body or "").splitlines() if ln.strip()]
+        if not lines:
+            continue
+        if _DISPATCH_HEAD_RE.match(lines[0]) or _DISPATCH_PATH_RE.search(str(body)):
+            return True
+    return False
+
+
+def vcs_unreadable_verdict(name: str, error: str) -> Verdict:
+    """VCS_ROOT_UNREADABLE：找版控根時 OSError → 照欠。"""
+    return Verdict("VCS_ROOT_UNREADABLE", True, f"{name} 所在的版控根讀不到，判不出去向", (str(error)[:120],))
 
 
 # ─── B7 WORKTREE_NO_PUSH ───────────────────────────────────────────────────────

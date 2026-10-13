@@ -34,14 +34,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple, Union
 
-from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, resolve_project_root
+from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, find_vcs_root_ex, resolve_project_root
 from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, gone_verdict, in_turn,
-                              owed_after_last_case, user_turn, Verdict)
+                              owed_after_last_case, user_turn, Verdict,
+                              format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
+                              committed_refs, content_equals_committed, is_temp_path, temp_roots, vcs_unreadable_verdict)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
-from wg_release_rules import (
-    Verdict, format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
-    committed_refs, content_equals_committed, is_temp_path, temp_roots,
-)
 
 
 def _load_self_receipt_module():
@@ -1209,8 +1207,10 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
     by_root: Dict[str, Tuple[Path, List[str]]] = {}
     found: Dict[str, Verdict] = {}
     for p in paths or []:
-        hit = _vcs_hit(str(p))
-        if hit and hit[0] == "git":
+        hit, err = _vcs_hit_ex(str(p))
+        if err:
+            found[str(p)] = vcs_unreadable_verdict(Path(p).name, err)       # 讀不到 ≠ 不在版控：照欠
+        elif hit and hit[0] == "git":
             by_root.setdefault(_norm_path(str(hit[1])), (hit[1], []))[1].append(str(p))
         else:
             found[str(p)] = gone_verdict(Path(p).name, hit[0] if hit else None)
@@ -1389,12 +1389,21 @@ def git_deadline(budget_s: Optional[float] = None) -> float:
     return time.monotonic() + (GIT_BUDGET_S if budget_s is None else float(budget_s))
 
 
-def _vcs_hit(path: str) -> Optional[Tuple[str, Path]]:
-    """改檔所在的版控根 → (種類 git／svn, 根)；檔或目錄被刪了往上找還在的目錄；不在任何版控根內回 None。"""
+def _vcs_hit_ex(path: str) -> Tuple[Optional[Tuple[str, Path]], str]:
+    """改檔所在的版控根 → ((種類 git／svn, 根) 或 None, 讀不到的原因)；檔或目錄被刪了往上找還在的目錄。
+    規則 VCS_ROOT_UNREADABLE：第二欄非空＝檔案系統出錯，不是「不在版控」。"""
     d = Path(path).parent
-    while not d.exists() and d.parent != d:
-        d = d.parent
-    return find_vcs_root(d)
+    try:
+        while not d.exists() and d.parent != d:
+            d = d.parent
+    except OSError as e:
+        return None, f"{type(e).__name__}: {e}"
+    return find_vcs_root_ex(d)
+
+
+def _vcs_hit(path: str) -> Optional[Tuple[str, Path]]:
+    """改檔所在的版控根 → (種類 git／svn, 根)；不在任何版控根內或讀不到回 None。"""
+    return _vcs_hit_ex(path)[0]
 
 
 def _git_root_of(path: str) -> Optional[Tuple[str, Path]]:
@@ -1508,7 +1517,7 @@ def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None
 
 # ─── 045：已提交版本的事實（CONTENT_EQUALS_COMMITTED／COMMENT_ONLY_CHANGE／RED_WHILE_REVERTED 共用）────────
 _REF_CANDIDATES = ("HEAD", "MERGE_HEAD", "main", "master")
-REF_BUDGET_S = 2.5
+REF_BUDGET_S = 3.5       # 典型 4 次 git（show-ref、ls-tree、hash-object、show）；負載下每次可達 0.7 秒
 
 
 def _run_git(root: Path, args: List[str], timeout_s: float, _run: Optional[Callable[..., Any]] = None) -> Optional[str]:
@@ -1548,11 +1557,16 @@ def ref_blob_facts(root: Path, rel_paths: List[str], deadline: Optional[float] =
         if sha:
             out["commits"][ref] = sha
     if "MERGE_HEAD" not in out["commits"]:
-        left = deadline - time.monotonic()
-        if left >= _GIT_MIN_S and (root / ".git").exists():
-            sha = (_run_git(root, ["rev-parse", "--verify", "-q", "MERGE_HEAD"], left, _run) or "").strip()
-            if sha:
-                out["commits"]["MERGE_HEAD"] = sha
+        # MERGE_HEAD 是 git 目錄裡的一行純文字（worktree 的 .git 是檔，指向 gitdir）：直接讀，省一次 git 子行程
+        try:
+            dot = root / ".git"
+            gitdir = dot if dot.is_dir() else Path(dot.read_text(encoding="utf-8", errors="replace").split("gitdir:", 1)[-1].strip())
+            gitdir = gitdir if gitdir.is_absolute() else root / gitdir
+            mh = (gitdir / "MERGE_HEAD").read_text(encoding="utf-8", errors="replace").split()
+            if mh and len(mh[0]) >= 7:
+                out["commits"]["MERGE_HEAD"] = mh[0]
+        except OSError:
+            pass
     seen_sha: Dict[str, Dict[str, str]] = {}
     for ref, sha in list(out["commits"].items()):
         if sha in seen_sha:
@@ -1588,14 +1602,32 @@ def _rel_in_root(path: str, root_key: str) -> Optional[str]:
     return n[len(root_key) + 1:] if n.startswith(root_key + "/") else None
 
 
+def _comment_only_vs_head(root: Path, rel: str, path: str, deadline: float, _run: Optional[Callable[..., Any]]) -> Optional[bool]:
+    """path 與 HEAD:rel 是否只差註解／docstring／空白；拿不到或判不了 → None。"""
+    left = deadline - time.monotonic()
+    if left < _GIT_MIN_S or not str(path).lower().endswith((".py", ".pyw")):
+        return None
+    head_src = _run_git(root, ["show", f"HEAD:{rel}"], left, _run)
+    try:
+        cur_src = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return comment_only_change(head_src, cur_src, path)
+
+
 def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_commit_turn: Any = None,
                           own_commit_shas: Optional[Dict[str, Any]] = None, budget_s: Optional[float] = None,
-                          _run: Optional[Callable[..., Any]] = None) -> Dict[str, Verdict]:
-    """改過的程式檔裡「不是本 session 改碼」的：內容等於已提交版本（CONTENT_EQUALS_COMMITTED：MERGE_HEAD／main／master，
-    或本 session 沒 commit 過它時的 HEAD；本 session 自己提交出來的 commit 不算），或與 HEAD 只差註解（COMMENT_ONLY_CHANGE，
-    同樣要本 session 沒 commit 過它）。回 {path: Verdict}。判不出來（不在 git、預算到、拿不到 ref）→ 不回，照算改了。"""
+                          _run: Optional[Callable[..., Any]] = None,
+                          session_paths: Optional[Iterable[str]] = None) -> Dict[str, Verdict]:
+    """改過的程式檔裡「不是本 session 改碼」的，回 {path: Verdict}：
+    - CONTENT_EQUALS_COMMITTED：內容等於另一方已提交的版本（MERGE_HEAD／main／master；指到 HEAD 或本 session 自己提交的 commit 不算）。
+    - COMMENT_ONLY_CHANGE：與 HEAD 只差註解／docstring／空白，且本 session 沒 commit 過它；同根本 session（主 session＋子代理，
+      session_paths）改過的其他檔也都要等於 HEAD 或只差註解——程式與案例一起退回舊版、只還原程式時案例還是舊的，照欠
+      （與 NET_UNCHANGED 同一條防線，verify_stop_reconcile 035 ⑤／037）。
+    判不出來（不在 git、預算到、拿不到 ref）→ 不回，照算改了。"""
     exts = cfg.get("code_exts") or []
-    deadline = time.monotonic() + (REF_BUDGET_S if budget_s is None else float(budget_s))
+    # 預算跟 net_unchanged 同一把尺（GIT_BUDGET_S 被測試或設定壓到 0 時，這裡也不查、照算改了）
+    deadline = time.monotonic() + (min(REF_BUDGET_S, float(GIT_BUDGET_S)) if budget_s is None else float(budget_s))
     try:
         last = int(last_commit_turn) if last_commit_turn is not None else None
     except (TypeError, ValueError):
@@ -1608,9 +1640,16 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
         hit = _git_root_of(p)
         if hit:
             by_root.setdefault(hit[0], (hit[1], []))[1].append(m)
+    if not by_root:
+        return {}
+    every: Dict[str, List[str]] = {}            # 根 → 同根本 session 改過的所有檔（含案例、子代理的）
+    for p in [*(session_paths or []), *(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path"))]:
+        hit = _git_root_of(str(p))
+        if hit and hit[0] in by_root and str(p) not in every.setdefault(hit[0], []):
+            every[hit[0]].append(str(p))
     out: Dict[str, Verdict] = {}
     for key, (root, ms) in by_root.items():
-        rels = {m["path"]: _rel_in_root(m["path"], key) for m in ms}
+        rels = {p: _rel_in_root(p, key) for p in every.get(key, [])}
         rel_list = [r for r in rels.values() if r]
         if not rel_list:
             continue
@@ -1618,33 +1657,48 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
         if not facts["commits"]:
             continue
         own = ((own_commit_shas or {}).get(key) or {}).get("shas") or []
+        refs = committed_refs(own, facts["commits"])
+        head_blobs = facts["blobs"].get("HEAD") or {}
+        root_clean: Optional[bool] = None        # 同根其他改檔都等於 HEAD 或只差註解（只在需要時算一次）
+
+        def _root_head_clean(skip: str) -> bool:
+            for q, qrel in rels.items():
+                if q == skip:
+                    continue
+                if not qrel or not os.path.isfile(q):
+                    return False
+                if facts["current"].get(qrel) and facts["current"].get(qrel) == head_blobs.get(qrel):
+                    continue
+                if _comment_only_vs_head(root, qrel, q, deadline, _run) is not True:
+                    return False
+            return True
+
         for m in ms:
-            p, rel = m["path"], rels[m["path"]]
+            p, rel = m["path"], rels.get(m["path"])
             if not rel:
+                continue
+            ref_blobs = {ref: (facts["blobs"].get(ref) or {}).get(rel) for ref in refs}
+            v = content_equals_committed(Path(p).name, facts["current"].get(rel), ref_blobs, refs)
+            if v is not None:
+                out[p] = v
                 continue
             try:
                 first_turn = int(m.get("turn_seq"))
             except (TypeError, ValueError):
                 first_turn = None
             committed_since = first_turn is None or (last is not None and last >= first_turn)
-            refs = committed_refs(own, facts["commits"])
-            ref_blobs = {ref: (facts["blobs"].get(ref) or {}).get(rel) for ref in refs}
-            v = content_equals_committed(Path(p).name, facts["current"].get(rel), ref_blobs, refs)
-            if v is not None:
-                out[p] = v
+            if committed_since or not head_blobs.get(rel):
+                continue                          # commit 過它：HEAD 就是自己的碼，不拿 HEAD 比
+            if facts["current"].get(rel) == head_blobs.get(rel):
+                continue                          # 內容與 HEAD 一模一樣：那是 NET_UNCHANGED 的判定（它還看同根乾淨與預算），這裡不插手
+            if _comment_only_vs_head(root, rel, p, deadline, _run) is not True:
                 continue
-            # COMMENT_ONLY_CHANGE 只對「本 session 沒 commit 過它」的 HEAD 比（commit 後 HEAD 就是自己的碼）
-            if not committed_since and (facts["blobs"].get("HEAD") or {}).get(rel) and p.lower().endswith((".py", ".pyw")):
-                left = deadline - time.monotonic()
-                if left < _GIT_MIN_S:
-                    continue
-                head_src = _run_git(root, ["show", f"HEAD:{rel}"], left, _run)
-                try:
-                    cur_src = Path(p).read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    continue
-                if comment_only_change(head_src, cur_src, p) is True:
-                    out[p] = comment_only_verdict(Path(p).name, "HEAD")
+            if root_clean is None:
+                root_clean = _root_head_clean(p)
+            if root_clean:
+                out[p] = comment_only_verdict(Path(p).name, "HEAD")
+            else:
+                print(f"[Guardian:ReconcileGate] {Path(p).name} 與 HEAD 只差註解，但同根還有改過、與 HEAD 不同的檔，照算改了", file=sys.stderr)
     return out
 
 

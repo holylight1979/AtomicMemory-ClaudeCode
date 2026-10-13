@@ -525,13 +525,15 @@ sequenceDiagram
 | ScanReport | 宣告完成且動 core 檔或多檔 | 要求以 MCP `anti_evasion_report` 提交十一欄收尾檢核 (a)–(k) |
 | AEC-Pending | 本回合 emit 的報告 (d) 有「尚未寫／見下一動」或 (h)「下一動＝寫 atom」；本 turn 已 validated 收割時 (d) 不再判 | 每 turn 擋一次：先 atom_write 再重新 emit（記憶寫入不得留給下一回合） |
 | HUD fallback | HUD 不可達且本回合 emit 為 notable/real-evasion | 不 block；收尾檢核改回 chat 呈現（可觀測性鐵律） |
-| 同步閘（SyncReminder） | 有未 commit 修改且 ≥`min_files_to_block` 2；或已 commit 但 repo 領先 upstream 未 push。root 有 vcs-sync worker 活鎖（`wg_harvest.vcs_sync_lock_active`）時跳過該 root 的 unpushed 判定 | block，訊息瘦身不列檔案清單；上GIT＝commit+push 一氣，local commit 不算同步；git/svn clean 且 push 後自動標 `sync_completed`（`sync_reminder.unpushed` 可關） |
+| 同步閘（SyncReminder） | 有未 commit 修改且 ≥`min_files_to_block` 2；或已 commit 但 repo 領先 upstream 未 push。root 有 vcs-sync worker 活鎖（`wg_harvest.vcs_sync_lock_active`）時跳過該 root 的 unpushed 判定；改檔所在 repo 是 git worktree（git-dir ≠ git-common-dir）或分支沒有 upstream → 不要求 push（規則 WORKTREE_NO_PUSH） | block，訊息瘦身不列檔案清單；上GIT＝commit+push 一氣，local commit 不算同步；git/svn clean 且 push 後自動標 `sync_completed`（`sync_reminder.unpushed` 可關） |
 | AtomAudit | 本 session 有 trigger 命中但只以路標注入、且未 Read | 要求讀取（取用端閉環稽核） |
 | 驗收裁判 enforce | 獨立 hook `codex_companion.py`（150s）：fail 且 severity ≥high | block 附逐條證據；裁判逾時 → uncertain 放行 |
-| Deep Post-Mortem | effort AND real_failure（使用者糾正 ≥2 次單獨即同時滿足兩者，見 §7.5 使用者糾正訊號） | one-shot，**獨立預算**不與上列共用（防餓死）；done 旗標檔案側 marker 7 天自清 |
+| Deep Post-Mortem | effort AND real_failure（使用者糾正 ≥2 次單獨即同時滿足兩者，見 §7.5 使用者糾正訊號）；effort 的重試只數「紅測出現之後」對同檔的編輯、刻意紅（退回舊碼反證）不算（規則 RETRY_COUNTS_EDITS_SINCE_RED／RED_WHILE_REVERTED） | one-shot，**獨立預算**不與上列共用（防餓死）；done 旗標檔案側 marker 7 天自清。cwd 是 git worktree 的隔離 session 改要求把 post-mortem 寫進交付信由總控台代寫，不叫它 atom_write（規則 DPM_WORKTREE_DELIVERY） |
 | 迴歸提示 | 本 session 有驗收 fail/high 真命中 | piggyback 建議補測試／落 atom，每 session 一次 |
 
 SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑寫碼查核，有原因就擋到底，不計預算、不問使用者；寫入目標判不出的指令在 PreToolUse 就 deny。
+
+寫碼查核的每一條擋訊息都是一條有名字的規則（`hooks/wg_release_rules.py`，規則表 §7.7），格式 `✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`。擋次預算每條規則（字母）各自計次：同一條在同一個使用者回合擋滿 `max_blocks_per_turn` 才算擋滿，擋滿訊息列出全部命中條目。「回合」＝使用者打字、或帶派工標記的跨 session 訊息（首行「派工」或含 `to-track-<軌>/<檔>.md`）開的回合；一般同伴訊息、背景通知不開回合。
 
 定死規則（寫碼查核相關，改法不得放寬）：
 - CommitOrder 豁免：commit 落在記憶系統 repo 或其 worktree 才不等口令，只認 `&&` 串的 `cd <絕對路徑>`／`git [-C <字面路徑>] add|commit|push` 句型。
@@ -615,6 +617,34 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | `verify_ledger.sentinel_regex`（config） | PASS／FAIL／DONE 兩條＋pytest 映射 | 專案既有工具尾行格式不同 → 加映射，不改工具 |
 
 ---
+
+### 7.7 放行／欠帳判定規則（`hooks/wg_release_rules.py`）
+
+每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
+
+| 規則 | 判什麼 | 不欠／放行的條件 | 照欠／照擋 |
+|---|---|---|---|
+| SAME_FILE | 同一個檔的不同寫法 | 反斜線／正斜線、大小寫、`..` 消掉後相同 → 同一個檔 | — |
+| TURN_SINCE_USER_PROMPT／DISPATCH_OPENS_TURN | 「本回合」的窗口 | 使用者打字、或帶派工標記的跨 session 訊息（首行「派工」或含 `to-track-<軌>/<檔>.md`）開回合到現在；擋次預算、ScanReport 豁免、AtomAudit、PASS 窗口、退避預告切點、有用度學習單位、收割冷卻（`user_turn_count`）全吃它 | 一般同伴訊息、背景通知不開回合；派工訊息不是使用者原話，口令不認 |
+| CLAIM_MODIFIER_NOT_OWN | 宣稱詞是不是自己的 | 「修好的 X」是形容詞用法（轉述） | 「我修好了」照算宣稱 |
+| CLAIM_FIXED_NEEDS_PASS／CLAIM_MEASURED_NEEDS_DONE／CLAIM_TRIED_NEEDS_EXEC | (a)(b)(c) 宣稱對帳 | 本回合有對得上、晚於改檔、同一棵樹的 PASS／DONE／執行 | 收據缺、對不上、跑在改檔之前 |
+| OWED_AFTER_LAST_CASE | (d) 欠補案例 | — | 本 session 最後一次改仍存在的案例檔之後同根還改過程式檔 |
+| CASE_GREEN_AFTER_EDIT | 先紅後綠 | 改碼之後有同根、仍存在、本 session 改過的案例檔被合格 PASS 點名跑綠（收據晚於該程式檔最後一次修改） | 綠跑在改碼之前、綠的是別的案例 |
+| GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW | 已不存在的改檔 | 不在任何版控根內；或 git 根內且同根沒有新出現的程式檔 → 算刪除 | — |
+| MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE | 已不存在的改檔 | — | 同根出現新程式檔（搬走）；svn 或查 git 失敗；找版控根時 OSError（讀不到 ≠ 不在版控） |
+| EXCLUDED_REGION | 排除區 | `reconcile_gate.exclude_globs` 裡的檔是素材 | 既不算程式、也不能清帳 |
+| NET_UNCHANGED／SNAPSHOT_SETTLED | 改過又還原 | 與 HEAD 相同且同根乾淨、沒 commit；或回到 commit 那刻不欠的狀態 | 同根任一改檔不乾淨（程式與案例一起退回、只還原程式） |
+| CONTENT_EQUALS_COMMITTED | 內容等於另一方已提交版本 | blob 等於 MERGE_HEAD／main／master 的版本（merge 取 theirs、退回 main 版） | 指到 HEAD 或本 session 自己提交的 commit 不算 |
+| COMMENT_ONLY_CHANGE | 只改註解 | ast 去註解、docstring、空白後與 HEAD 相同，且本 session 沒 commit 過它、同根其他改檔也乾淨 | 非 Python、解析不了、改到識別字 |
+| BLOCK_BUDGET_PER_RULE | 擋次預算 | 每條規則（字母）各自計次，同一條擋滿才算擋滿；擋滿訊息列全部條目 | 升級前整場一個 count 的舊紀錄保守承接 |
+| INLINE_PY_READONLY | `python -c` 內嵌碼 | ast 判無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec → 不算寫入 | node -e、python - heredoc、pwsh -Command 判不了照擋，擋訊息指路 |
+| GIT_READONLY_SUBCMD | 專案 session 對根層 repo 的 git | 每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file…）且寫入目標不在根層 | 任一段會寫、目標在根層或不明；擋就留 `Logs/guard-crossrealm.jsonl` |
+| GREP_CONTENT_IS_READ／BASH_COMMENT_LINES_STRIPPED | 讀檔證據 | Grep `output_mode=content` 且 path 是檔算讀過；Bash 行首 `#` 註解行剝掉、每行行首都算指令開頭 | — |
+| WORKTREE_NO_PUSH | 同步閘要不要求 push | git worktree 或分支沒 upstream → 不要求 | 主工作樹且有 upstream |
+| RUNTIME_DATA_NO_OVERVIEW | 無表檔的綜觀要求 | gitignored 或在執行期資料目錄（`workflow/state*`、`workflow/need-goal`、`Logs`…）→ 免讀同目錄 | 程式檔照要求 |
+| TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT | 暫存目錄 | commit 落在系統 TEMP／scratchpad／pytest tmp 下的 repo 免口令；暫存目錄下的副本不找部位表、不注入、不要求綜觀、不當收據 | 正式 repo、本體 |
+| DPM_WORKTREE_DELIVERY | DeepPostMortem 的寫法 | worktree 隔離 session 寫進交付信由總控台代寫 | 主工作樹照叫 atom_write |
+| RED_WHILE_REVERTED／RETRY_COUNTS_EDITS_SINCE_RED／GREEN_SAME_CASE_CLEARS | 紅測與重試 | 跑紅時有改檔等於非 HEAD 已提交版本 → 刻意紅不記；重試只數紅之後對同檔的編輯；綠的點名同一案例檔就清那筆紅 | 真的紅照記、改 N 次仍紅照升級 |
 
 ## 8. 可觀測與自我維護
 

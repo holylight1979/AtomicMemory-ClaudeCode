@@ -179,6 +179,17 @@ def test_cooldown_only_counts_validated(driven, capsys):
     assert "KnowledgeHarvest" in driven(capsys, _state(turn_seq=7, knowledge_harvest=validated_t4))
 
 
+def test_045_cooldown_counts_user_turns_not_peer_messages(driven, capsys):
+    """規則 DISPATCH_OPENS_TURN（收割冷卻）：同伴訊息把 turn_seq 推到 9，使用者回合只過了 1 個 → 仍在冷卻；
+    使用者回合過了 4 個 → 冷卻已過照擋。舊 state 沒有使用者回合計數 → 退回 turn_seq 差。"""
+    kh = {_SID: {"turn_seq": 4, "validated": True, "pending": [], "items": [],
+                 "last_valid_harvest_turn": 4, "last_valid_harvest_uturn": 4}}
+    assert "KnowledgeHarvest" not in driven(capsys, _state(turn_seq=9, user_turn_count=5, knowledge_harvest=kh))
+    assert "KnowledgeHarvest" in driven(capsys, _state(turn_seq=9, user_turn_count=8, knowledge_harvest=kh))
+    legacy = {_SID: {"turn_seq": 4, "validated": True, "pending": [], "items": [], "last_valid_harvest_turn": 4}}
+    assert "KnowledgeHarvest" in driven(capsys, _state(turn_seq=9, knowledge_harvest=legacy))
+
+
 def test_sibling_session_harvest_does_not_release(driven, capsys):
     other = {"other": {"turn_seq": 5, "validated": True, "pending": [], "items": [],
                        "last_valid_harvest_turn": 5}}

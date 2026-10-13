@@ -687,24 +687,39 @@ def discover_all_project_memory_dirs() -> List[Tuple[str, Path]]:
     return results
 
 
-def find_vcs_root(start: Path) -> Optional[Tuple[str, Path]]:
-    """從 start 往上找最近的 VCS 根：.git（dir 或 worktree/submodule 的 file）或 .svn 目錄。
+def hook_python_exe() -> str:
+    """hook 要起 Python 子行程時用的直譯器：hook 本身在 pythonw.exe 下跑（無 console）時，spawn sys.executable 會沒有 stdout
+    → 改用同目錄的 python.exe；其他情況就是 sys.executable。pre_tool_use（合併驅動／svn 工具）與 wg_reading_path 共用這一支。"""
+    exe = Path(sys.executable)
+    if exe.name.lower() == "pythonw.exe":
+        sib = exe.with_name("python.exe")
+        if sib.exists():
+            return str(sib)
+    return str(exe)
 
-    純檔案系統 walk-up、零 subprocess。回 ("git"|"svn", root)；非工作區回 None。
-    巢狀時取最近的那個（svn WC 住在 git repo 裡，如 svn 工作副本 <repo>/Tools 在 git repo <repo> 之下）。
-    """
+
+def find_vcs_root_ex(start: Path) -> Tuple[Optional[Tuple[str, Path]], str]:
+    """從 start 往上找最近的 VCS 根：.git（dir 或 worktree/submodule 的 file）或 .svn 目錄。回 (命中, 錯誤原因)：
+    命中＝("git"|"svn", root)，不在工作區＝None；檔案系統出錯（權限、網路路徑斷、路徑太長）→ (None, "OSError: …")，
+    讀不到和「不在版控」是兩回事（規則 VCS_ROOT_UNREADABLE：讀不到照欠）。純檔案系統 walk-up、零 subprocess。
+    巢狀時取最近的那個（svn WC 住在 git repo 裡，如 svn 工作副本 <repo>/Tools 在 git repo <repo> 之下）。"""
     cur = Path(start)
     while True:
         try:
             if (cur / ".git").exists():
-                return ("git", cur)
+                return ("git", cur), ""
             if (cur / ".svn").is_dir():
-                return ("svn", cur)
-        except OSError:
-            return None
+                return ("svn", cur), ""
+        except OSError as e:
+            return None, f"{type(e).__name__}: {e}"
         if cur.parent == cur:
-            return None
+            return None, ""
         cur = cur.parent
+
+
+def find_vcs_root(start: Path) -> Optional[Tuple[str, Path]]:
+    """find_vcs_root_ex 不帶錯誤原因的版本（讀不到當不在工作區；要分辨的呼叫端用 _ex）。"""
+    return find_vcs_root_ex(start)[0]
 
 
 def memory_dir_candidates(start: Path, root: Path) -> List[Path]:

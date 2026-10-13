@@ -110,6 +110,25 @@ def strip_harness_blocks(text: str, repl: str = " ", only: Optional[str] = None)
     return "".join(out)
 
 
+def peer_message_bodies(text: str) -> List[str]:
+    """其他 session 用 SendMessage 送來的每個 `<cross-session-message …>…</cross-session-message>` 區塊的正文（去頭尾空白）。
+    正文不解析標籤（同 strip_harness_blocks：直接跳到第一個原樣閉合）；沒閉合就吃到字串尾。給「派工訊息開回合」的判定用。"""
+    out: List[str] = []
+    if not text:
+        return out
+    for m in _TAG_RE.finditer(text):
+        if m.group(1) == "/" or m.group(2).lower() != _PEER_TAG:
+            continue
+        end, self_closing = _tag_end(text, m.end())
+        if self_closing:
+            continue
+        close = _PEER_CLOSE_RE.search(text, end)
+        body = text[end:close.start()] if close else text[end:]
+        if body.strip():
+            out.append(body.strip())
+    return out
+
+
 def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
     """使用者本人打的字：剔掉 harness 區塊、系統通知標記行之後的內容、hook 殘渣行，空白折一格
     （keep_lines=True 時保留換行、只折行內空白，給要逐句看的萃取與 Quote 用）。

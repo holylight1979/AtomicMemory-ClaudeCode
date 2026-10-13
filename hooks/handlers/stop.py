@@ -774,7 +774,8 @@ def _verify_gates(
     # 內容等於已提交版本（merge 取 theirs、退回 main 版再還原）或與 HEAD 只差註解 → 不是本 session 改碼（CONTENT_EQUALS_COMMITTED／
     # COMMENT_ONLY_CHANGE）；判不出來照算改了
     try:
-        equal = committed_equal_paths(own_mod_files, rg_cfg, state.get("last_commit_turn_seq"), state.get("committed_new_code"))
+        equal = committed_equal_paths(own_mod_files, rg_cfg, state.get("last_commit_turn_seq"), state.get("committed_new_code"),
+                                      session_paths=session_paths)
     except Exception as e:  # noqa: BLE001
         equal = {}
         print(f"[Guardian:ReconcileGate] 判斷內容是否等於已提交版本失敗，照算改了：{type(e).__name__}: {e}", file=sys.stderr)

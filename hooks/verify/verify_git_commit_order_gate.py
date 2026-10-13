@@ -177,6 +177,31 @@ def test_peer_session_message_is_never_an_order():
     assert msg and "[Guardian:CommitOrder]" in msg
 
 
+_DISPATCH = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-aa" from-mode="bypass">\n'
+             "派工：045 追加 B14；派工單在 workflow/v6-inbox/to-track-gate-rules/000-prompt.md，照做後上GIT\n</cross-session-message>")
+
+
+def test_045_dispatch_message_opens_turn_but_is_not_an_order():
+    """規則 DISPATCH_OPENS_TURN：帶派工標記的跨 session 訊息開新回合（turn_prompts_seq 前進、user_turn_count +1），
+    但不是使用者原話：turn_prompts 空、口令閘照擋。一般同伴訊息不開回合（序號不動）。"""
+    from handlers.ups_gates import track_turn_prompts
+    st = {}
+    _ups(st, "幫我把這個 bug 修好")
+    seq0, cnt0 = st["turn_prompts_seq"], st["user_turn_count"]
+    _stop(st)
+    _ups(st, _PEER)                                                                  # 一般同伴訊息：續跑回合，不開新回合
+    assert st["turn_prompts_seq"] == seq0 and st["user_turn_count"] == cnt0
+    _stop(st)
+    _ups(st, _DISPATCH)                                                              # 派工訊息：新回合
+    assert st["turn_prompts_seq"] > seq0 and st["user_turn_count"] == cnt0 + 1
+    assert st["turn_prompts"] == [] and st["turn_open"] is True
+    msg = _check(state=st)
+    assert msg and "[Guardian:CommitOrder]" in msg                                   # 派工訊息裡的「上GIT」不是口令
+    st2 = {"turn_open": True, "turn_prompts": ["上GIT"], "turn_prompts_seq": 1, "turn_seq": 1, "recent_user_prompts": ["上GIT"]}
+    track_turn_prompts(st2, _DISPATCH)                                               # 回合中途進來的派工：也開新回合、清掉舊口令
+    assert st2["turn_prompts"] == [] and st2["turn_prompts_seq"] == 2
+
+
 def test_spent_order_is_not_reused_by_notification_turn():
     # 「上GIT」那回合已經 commit 過 → 之後背景通知開的回合要再 commit，得有新口令
     st = {}

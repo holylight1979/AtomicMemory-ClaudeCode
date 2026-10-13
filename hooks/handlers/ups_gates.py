@@ -17,6 +17,8 @@ from typing import Any, Dict, List
 from wg_core import _now_iso, _atom_debug_log, _atom_debug_error, user_typed_text
 from wg_extraction import detect_signal
 from wg_evasion import is_dismiss_prompt
+from wg_release_rules import is_dispatch_message
+from harness_text import peer_message_bodies   # lib/（wg_core 已把它放進 sys.path）
 
 # Ollama client（dispatcher 已加 tools/ 到 sys.path）；用本檔位置推樹根，不用 Path.home()
 _TOOLS_DIR = str(Path(__file__).resolve().parents[2] / "tools")
@@ -45,7 +47,21 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
     （turn_typed=False）；這個續跑回合裡使用者打的第一則字仍算使用者開的新回合，序號前進（清單照舊追加）。"""
     has_list = isinstance(state.get("turn_prompts"), list)
     typed = user_typed_text(clean_prompt)[:500]
+
+    def _new_turn() -> None:
+        state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1   # 本則 UPS 收尾後的 turn_seq
+        state["user_turn_count"] = int(state.get("user_turn_count", 0) or 0) + 1
+
     if not typed:
+        # 規則 DISPATCH_OPENS_TURN：帶派工標記的跨 session 訊息（首行「派工」或含 to-track- 派工檔路徑）開新回合——
+        # 工作 session 整場只在開工句打過一次字，之後每封派工都該是新回合（預算、PASS 窗口、收割冷卻才會重算）；
+        # 它不是使用者原話，turn_prompts 照樣不收（口令不認）。一般同伴訊息、背景通知只開續跑回合。
+        if is_dispatch_message(peer_message_bodies(clean_prompt)):
+            state["turn_prompts"] = []
+            state["turn_typed"] = False
+            _new_turn()
+            state["turn_open"] = True
+            return
         spent = int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0))
         if not has_list or (not state.get("turn_open") and spent):
             state["turn_prompts"] = []
@@ -54,10 +70,10 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
     elif state.get("turn_open") and has_list:
         state["turn_prompts"] = (state["turn_prompts"] + [typed])[-5:]
         if state.get("turn_typed") is False:                            # 續跑回合裡使用者的第一則字：使用者開的新回合
-            state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1
+            _new_turn()
     else:
         state["turn_prompts"] = [typed]
-        state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1   # 本則 UPS 收尾後的 turn_seq
+        _new_turn()
     if typed:
         state["turn_typed"] = True
     state["turn_open"] = True

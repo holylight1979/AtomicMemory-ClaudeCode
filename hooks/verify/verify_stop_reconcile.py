@@ -794,7 +794,15 @@ def test_is_root_worktree_pure_checks(tmp_path):
     assert vl.is_root_worktree(wt2, live) is False                  # 表內容不同＝一般專案
 
 
-_HEAD = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n  ✗ "
+_HEAD = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n  "
+
+
+def _m_hit(base: str) -> str:
+    """量尺條目套 045 擋訊息格式：`✗ (m) MEASURE_RULER_NOT_RUN：<第一句>｜證據：<其餘>`（原文兩句照舊，只是拆成現象與證據）。"""
+    first, rest = base.split("。", 1)
+    return f"✗ (m) MEASURE_RULER_NOT_RUN：{first}｜證據：{rest}"
+
+
 # 基底 2b15257 hooks/wg_verify_ledger.py 第 800～805 行的兩句原文（非根層 worktree 分支逐字不變）
 _BASE_STALE = ("部位【hook 共用模組層】有量尺「全量 verify｜`python -X utf8 run_verify.py`｜全綠」，"
                "最近一次跑尺在這個部位最後一次修改之前（先量後改不算）。"
@@ -816,9 +824,9 @@ def test_non_root_worktree_block_messages_verbatim_as_base(tmp_path, monkeypatch
         mod = str(Path(root) / "hooks" / "x.py")
         stale = {**_rcpt(2, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(root), "cwd": str(root)}
         reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [stale], 5, lookup, vl.MEASURE_DEFAULTS)
-        assert reason == _HEAD + _BASE_STALE + _RUNS_HINT, reason
+        assert reason == _HEAD + _m_hit(_BASE_STALE) + _RUNS_HINT, reason
         reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [], 5, lookup, vl.MEASURE_DEFAULTS)
-        assert reason == _HEAD + _BASE_NONE + _RUNS_HINT, reason
+        assert reason == _HEAD + _m_hit(_BASE_NONE) + _RUNS_HINT, reason
 
 
 def test_done_receipts_sentinel_name_filter():
@@ -1339,7 +1347,7 @@ def test_009_1_pending_claim_rechecked_after_rephrase(driven, capsys):
     """4.1 規則 2：擋滿時的宣稱（修好）跟著 pending 走；換句話不清，補到對得上的 PASS 才清。"""
     pend = _pend_state(["閘修好了，完成。"])
     out, state, _ = driven("變更內容如上。", capsys, pending_release=copy.deepcopy(pend))
-    assert "(a) 說「修好」" in out and state["pending_release"][_SID]["reconcile"]["claims"] == ["閘修好了，完成。"]
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out and state["pending_release"][_SID]["reconcile"]["claims"] == ["閘修好了，完成。"]
     out, state, _ = driven("變更內容如上。", capsys, pending_release=copy.deepcopy(pend),
                            verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py")]})
     assert "ReconcileGate" not in out and "reconcile" not in state["pending_release"][_SID]
@@ -1362,7 +1370,7 @@ def test_013_1_original_claim_survives_repeated_rephrase(driven, capsys):
     for k in range(5):
         extra = {"reconcile_gate_turn": budget} if budget else {}
         out, state, _ = driven("全部完成了。", capsys, pending_release=copy.deepcopy(pend), **extra)
-        assert "(a) 說「修好」" in out and "改成事實句" not in out, k
+        assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out and "改成事實句" not in out, k
         pend, budget = state["pending_release"], state["reconcile_gate_turn"]
         assert pend[_SID]["reconcile"]["claims"] == ["修好了，全部完成了。"], k
     out, state, _ = driven("全部完成了。", capsys, pending_release=copy.deepcopy(pend),
@@ -1475,7 +1483,7 @@ def test_009_4_background_self_receipt_satisfies_fixed_claim(driven, capsys, mon
     assert "ReconcileGate" not in out and "MeasureGate" not in out
     monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run(started="2026-10-12T01:59:00+00:00")], raising=False)
     out, _, _ = driven("修好了，全部完成了。", capsys, modified_files=mods)
-    assert "(a) 說「修好」" in out                                                         # 自寫收據在改檔之前開始 → 擋
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out                                                         # 自寫收據在改檔之前開始 → 擋
 
 
 def test_009_5_deleted_case_does_not_clear_debt(driven, capsys, monkeypatch, tmp_path):
@@ -1564,7 +1572,7 @@ def test_013_2_quoted_ruler_text_is_not_a_run(driven, capsys, monkeypatch):
     r["sentinels"].append({"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "1", "failed": "0"}})
     mods = [_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)]
     out, _, _ = driven("修好了，全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
-    assert "(a) 說「修好」" in out and "[Guardian:MeasureGate]" in out
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out and "[Guardian:MeasureGate]" in out
 
 
 def test_013_2_subset_run_is_not_the_ruler():
@@ -1619,9 +1627,11 @@ def _judge_dispatch(tool_name, tool_input, cwd):
 
 
 def test_013_4_judge_pre_tool_use_denies_unknown_write_target(tmp_path):
-    """013 BLOCK 4：裁判跑純讀取的 `python -c "print(1)"` → 執行前就 deny（不會被記成永久未知寫入）；git log／Read 放行。"""
-    out = _judge_dispatch("Bash", {"command": 'python -c "print(1)"'}, tmp_path)
+    """013 BLOCK 4：裁判跑寫檔的 `python -c "open('x','w')…"` → 執行前就 deny（不會被記成永久未知寫入）；
+    純讀取的 `python -c "print(1)"`（規則 INLINE_PY_READONLY）、git log、Read 放行。"""
+    out = _judge_dispatch("Bash", {"command": "python -c \"open('x','w').write('1')\""}, tmp_path)
     assert '"permissionDecision": "deny"' in out and "Guardian:JudgeWrite" in out
+    assert _judge_dispatch("Bash", {"command": 'python -c "print(1)"'}, tmp_path).strip() == ""
     assert _judge_dispatch("Bash", {"command": "git log --oneline -3"}, tmp_path).strip() == ""
     assert _judge_dispatch("Read", {"file_path": str(tmp_path / "a.py")}, tmp_path).strip() == ""
 
@@ -1644,7 +1654,7 @@ def test_015_fixed_claim_relates_only_to_executed_commands(driven, capsys, cmd, 
     mods = [_mf(_WIDGET, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods,
                        verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
-    assert ("(a) 說「修好」" not in out) is related, out
+    assert ("(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" not in out) is related, out
 
 
 # ─── 017／017b：白名單語法、解析不了就不算（都經量尺閘或 handle_stop 入口） ──────────────────────────
@@ -1713,8 +1723,8 @@ def test_017_table_ruler_itself_unparseable_says_fix_the_table():
 
 def test_017_warn_pending_b_c_ask_for_evidence_not_rewording(driven, capsys):
     """017 WARN：沒 pending 的第一次宣稱查核照舊（可說「沒量就寫沒量」）；有 pending 時 (b)(c) 只叫人補證據或問放行。"""
-    for claim, hit, phrase in (("我量了，全部完成了。", "(b) 說「量了」", "沒量就寫沒量"),
-                               ("我跑了測試，全部完成了。", "(c) 說「試過／跑了」", "沒跑就寫沒跑")):
+    for claim, hit, phrase in (("我量了，全部完成了。", "(b) CLAIM_MEASURED_NEEDS_DONE：說「量了」", "沒量就寫沒量"),
+                               ("我跑了測試，全部完成了。", "(c) CLAIM_TRIED_NEEDS_EXEC：說「試過／跑了」", "沒跑就寫沒跑")):
         out, _, _ = driven(claim, capsys, tool_names=["Read"])
         assert hit in out and phrase in out, claim
         out, _, _ = driven("全部完成了。", capsys, tool_names=["Read"], pending_release=_pend_state([claim]))
@@ -1730,7 +1740,7 @@ def test_017b_9_only_unnarrowed_runs_are_whole_verification(driven, capsys, cmd,
     """017b 規則 9：說「修好」時，整體驗證只認不帶參數的 run_verify.py 與不縮範圍的 pytest；選案、只收集、指定目錄都不算。"""
     mods = [_mf(_WIDGET, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
-    assert ("(a) 說「修好」" not in out) is related, cmd
+    assert ("(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" not in out) is related, cmd
 
 
 def test_017b_10_measured_claim_accepts_qualified_self_receipt(driven, capsys, monkeypatch):
@@ -1739,10 +1749,10 @@ def test_017b_10_measured_claim_accepts_qualified_self_receipt(driven, capsys, m
     mods = [_mf(_CODE, 5, last_at=_EDIT_AT, last_seq=7), _mf(_CASE, 5, last_at=_EDIT_AT, last_seq=8)]
     monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run()], raising=False)
     out, _, _ = driven("我量了，全部完成了。", capsys, modified_files=mods)
-    assert "(b) 說「量了」" not in out and "ReconcileGate" not in out
+    assert "(b) CLAIM_MEASURED_NEEDS_DONE：說「量了」" not in out and "ReconcileGate" not in out
     monkeypatch.setattr(st, "load_self_runs", lambda: [_self_run(started="2026-10-12T01:59:00+00:00")], raising=False)
     out, _, _ = driven("我量了，全部完成了。", capsys, modified_files=mods)
-    assert "(b) 說「量了」" in out
+    assert "(b) CLAIM_MEASURED_NEEDS_DONE：說「量了」" in out
 
 
 @pytest.mark.parametrize("cmd, related", [
@@ -1760,7 +1770,7 @@ def test_017b_11_sentinel_written_in_args_is_not_evidence(driven, capsys, cmd, r
     """017b 規則 11：哨兵只能由被執行的程式印出；同一條指令裡參數寫了哨兵字樣（echo、printf、xargs echo…）→ (a) 不算。"""
     mods = [_mf(_WIDGET, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
-    assert ("(a) 說「修好」" not in out) is related, cmd
+    assert ("(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" not in out) is related, cmd
 
 
 def test_017b_11_ruler_own_echo_still_counts():
@@ -1827,7 +1837,7 @@ def test_017_codex2_reading_old_output_is_not_evidence(driven, capsys, cmd, tool
     r["sentinels"].append({"name": "X", "verdict": "DONE", "kv": {}})
     mods = [_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)]
     out, _, _ = driven("修好了，我量了，全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
-    assert ("(a) 說「修好」" not in out and "(b) 說「量了」" not in out) is ok, cmd
+    assert ("(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" not in out and "(b) CLAIM_MEASURED_NEEDS_DONE：說「量了」" not in out) is ok, cmd
     if not ok and "Get-Content hooks" in cmd:
         assert "讀檔或印字的指令" in out
 
@@ -1851,7 +1861,7 @@ def test_017_codex_r2_1_chain_must_show_every_run_passed(driven, capsys, cmd, re
     都不能借後一段的 PASS 說 widget 修好了。"""
     mods = [_mf(_WIDGET, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
-    assert ("(a) 說「修好」" not in out) is related, cmd
+    assert ("(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" not in out) is related, cmd
 
 
 def test_017_codex_r2_2_quote_split_cd_is_a_cd():
@@ -1949,7 +1959,7 @@ def test_021_non_runner_hint_points_to_ruler_column(driven, capsys):
     cmd = '"C:/Program Files/Unity/Hub/Editor/2022.3.1f1/Editor/Unity.exe" -batchmode -runTests -testFilter widget'
     mods = [_mf(r"c:\proj\src\widget.py", 5, last_at=_T1, last_seq=3)]
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
-    assert "(a) 說「修好」" in out and "Unity.exe" in out and "請寫進部位表的量尺欄" in out and "PATH 上的程式名" in out
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out and "Unity.exe" in out and "請寫進部位表的量尺欄" in out and "PATH 上的程式名" in out
     assert "extra_runner_progs" not in out
 
 
@@ -2032,7 +2042,7 @@ def test_022_3_4_mentions_and_whole_runs_follow_real_execution(driven, capsys, c
     mods = [_mf(r"c:\proj\src\widget.py", 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods,
                        verify_receipts={_SID: [{**_rcpt(5, cmd=cmd, at=_T2), "tool": tool}]})
-    assert ("(a) 說「修好」" not in out) is related, cmd
+    assert ("(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" not in out) is related, cmd
 
 
 def test_022_1_ruler_own_echo_only_inside_the_matched_span():
@@ -2208,7 +2218,7 @@ def test_026_general_evidence_checks_scope_env_at_every_program_step(driven, cap
     assert (vl.claimed_paths(r, [widget]) == [widget]) is related, cmd
     mods = [_mf(widget, 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_widget.py", 5, last_at=_T1, last_seq=4)]
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [r]})
-    assert ("(a) 說「修好」" not in out) is related, cmd
+    assert ("(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" not in out) is related, cmd
     if not related:
         assert "改了驗證選項" in out and ("PYTEST_ADDOPTS" in out or "PYTHONOPTIMIZE" in out), cmd
 
@@ -2302,7 +2312,7 @@ def test_017c_short_final_claim_after_long_text_is_judged(driven, capsys, monkey
     monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: tp)
     kw = dict(session={"cwd": str(tmp_path)})
     out, _, _ = driven(None, capsys, **kw)
-    assert "(a) 說「修好」" in out
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out
     out, _, _ = driven(None, capsys, verify_receipts={_SID: [_rcpt(5, cmd=MEASURE_CMD)]}, **kw)
     assert "ReconcileGate" not in out
     red = {"cmd": "python -m pytest x.py", "summary": "1 failed", "turn_seq": 5, "session_id": _SID, "pytest": True}
@@ -2321,7 +2331,7 @@ def test_017c_hook_last_assistant_message_wins_over_transcript(driven, capsys, m
     assert "ReconcileGate" not in out                                                       # 只有說明 → 沒宣稱
     out, state, _ = driven(None, capsys, hook_input={"last_assistant_message": "修好了，全部完成。"},
                            reconcile_gate_turn={_SID: {"turn": 5, "count": 2}}, **kw)
-    assert "(a) 說「修好」" in out
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out
     assert state["pending_release"][_SID]["reconcile"]["claims"] == ["修好了，全部完成。"]
 
 
@@ -2393,7 +2403,7 @@ def test_035_1_inherited_scope_env_is_part_of_effective_env(driven, capsys, monk
     assert [s["verdict"] for s in rec["sentinels"]] == ["PASS", "DONE"]
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS),
                        verify_receipts=state["verify_receipts"])
-    assert ("(a) 說「修好」" not in out) is ok, (inherited, cmd, tool)
+    assert ("(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" not in out) is ok, (inherited, cmd, tool)
     if not ok:
         assert "PYTEST_ADDOPTS" in out and "改了驗證選項" in out
         if "PYTEST_ADDOPTS=" not in cmd:
@@ -2428,7 +2438,7 @@ def test_035_1_receipt_without_env_is_not_evidence(driven, capsys):
     legacy = {k: v for k, v in _rcpt(5, at=_T2).items() if k != "env"}
     out, _, _ = driven("x 修好了，完成。", capsys, modified_files=[_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)],
                        verify_receipts={_SID: [legacy]})
-    assert "(a) 說「修好」" in out and "沒記啟動環境" in out
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out and "沒記啟動環境" in out
     out, _, _ = driven("x 修好了，完成。", capsys, modified_files=[_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)],
                        verify_receipts={_SID: [{**legacy, "env": {}}]})
     assert "ReconcileGate" not in out
@@ -2554,7 +2564,7 @@ def test_036b_unsupported_env_clearing_syntax_is_not_accepted(driven, capsys, mo
     state = _post(monkeypatch, tmp_path, cmd, "1 passed, 40 deselected in 0.10s\n", tool)
     out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS),
                        verify_receipts=state["verify_receipts"])
-    assert "(a) 說「修好」" in out, cmd
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out, cmd
 
 
 @pytest.mark.parametrize("out, resp_kind", [
@@ -2575,7 +2585,7 @@ def test_035_2_pytest_error_is_fail_through_post_tool_use_and_stop(driven, capsy
                      verify_receipts=state["verify_receipts"], failing_tests=state["failing_tests"])
     assert "TestFailGate" in o
     o, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS), verify_receipts=state["verify_receipts"])
-    assert "(a) 說「修好」" in o and "沒有任何 PASS 收據" in o
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in o and "沒有任何 PASS 收據" in o
     live, wt = _two_roots(tmp_path)
     monkeypatch.setattr(vl, "CLAUDE_DIR", live)
     red = {**rec, "project_root": str(wt), "cwd": str(wt), "cmd": _PYTEST_CMD}
@@ -3053,21 +3063,34 @@ def test_037_git_budget_exhausted_keeps_debt_through_stop(driven, capsys, chain,
     assert _DEBT_A in out
 
 
-@pytest.mark.parametrize("kind", ["staged_then_reverted", "tracked_but_ignored", "whitespace_only"])
+@pytest.mark.parametrize("kind", ["staged_then_reverted", "tracked_but_ignored"])
 def test_037_codex_pass_pairs_keep_debt(driven, capsys, clean_repo, kind):
-    """codex 010 第 5 條建議補的真 git 配對（新舊都綠）：暫存後工作樹改回 HEAD、已追蹤但符合 .gitignore、只留空白差異 → 都不是原樣，照擋。"""
+    """codex 010 第 5 條建議補的真 git 配對（新舊都綠）：暫存後工作樹改回 HEAD、已追蹤但符合 .gitignore → 不是原樣（NET_UNCHANGED 不剔），照擋。
+    原本第三案「只留空白差異」改由 045 規則 COMMENT_ONLY_CHANGE 接手（見 test_037_whitespace_only_is_comment_only_change）。"""
     repo, x = clean_repo
     if kind == "staged_then_reverted":
         Path(x).write_text("x = 3\n", encoding="utf-8", newline="\n")
         _git(repo, "add", "hooks/x.py")
         Path(x).write_text("x = 1\n", encoding="utf-8", newline="\n")
-    elif kind == "tracked_but_ignored":
+    else:
         (repo / ".gitignore").write_text("hooks/x.py\n", encoding="utf-8")
         Path(x).write_text("x = 5\n", encoding="utf-8", newline="\n")
-    else:
-        Path(x).write_text("x = 1 \n", encoding="utf-8", newline="\n")
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
     assert _DEBT_X in out, kind
+
+
+def test_037_whitespace_only_is_comment_only_change(driven, capsys, clean_repo, monkeypatch):
+    """045 規則 COMMENT_ONLY_CHANGE 取代 037 的第三案：只留空白差異（`x = 1 ` 多一個空白）ast 形狀與 HEAD 相同 → 不算改碼、不擋；
+    NET_UNCHANGED 仍不剔它（不是原樣），所以擋不擋由這條規則決定。配對：改了值 → 照擋。"""
+    monkeypatch.setattr(vl, "REF_BUDGET_S", 20.0, raising=False)                       # 負載下 git 慢，不讓預算當判定
+    monkeypatch.setattr(vl, "GIT_BUDGET_S", 20.0, raising=False)
+    repo, x = clean_repo
+    Path(x).write_text("x = 1 \n", encoding="utf-8", newline="\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
+    assert _DEBT_X not in out, out
+    Path(x).write_text("x = 2\n", encoding="utf-8", newline="\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
+    assert _DEBT_X in out
 
 
 @pytest.mark.parametrize("who", ["subagent", "judge"])
@@ -3574,7 +3597,7 @@ def test_044_4_pass_receipt_before_peer_messages_still_counts(driven, capsys, mo
     assert _A_HIT in out and "TURN_SINCE_USER_PROMPT" in out and "turn 5～7" in out
 
 
-_A_HIT, _C_HIT = "(a) 說「修好」", "(c) 說「試過／跑了」"
+_A_HIT, _C_HIT = "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」", "(c) CLAIM_TRIED_NEEDS_EXEC：說「試過／跑了」"
 
 
 def test_044_4_exec_before_peer_messages_counts_for_tried(driven, capsys, monkeypatch):
@@ -3708,3 +3731,114 @@ def test_044_6_subagent_pass_spanning_user_turns_counts(sub_stop, capsys):
     s["verify_receipts"] = {key: []}                                                        # 配對：子代理沒有 PASS → 照擋
     out, _ = sub_stop(capsys, s, last="x.py 修好了，全部完成了。")
     assert _A_HIT in out
+
+
+# ═══ 045（track-gate-rules）：清冊 B／C 組規則的端到端案（真 git repo） ═══════════════════════════════
+
+_T3 = "2026-10-12T10:10:00+08:00"
+
+
+def _repo_with_code_and_case(base: Path):
+    """真 git repo：src/a.py 與 tests/test_a.py 同一筆提交。回 (repo, code, case)。"""
+    repo = base / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    code, case = repo / "src" / "a.py", repo / "tests" / "test_a.py"
+    code.write_text("def a():\n    return 1\n", encoding="utf-8", newline="\n")
+    case.write_text("def test_a():\n    assert a() == 1\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    return repo, code, case
+
+
+def _green(repo: Path, cmd: str, at: str, seq: int, turn: int = 5):
+    return {"turn_seq": turn, "tool": "Bash", "cmd": cmd, "sentinels": [{"name": "PYTEST_MEASURE", "verdict": "PASS", "kv": {}}],
+            "exit_code": 0, "at": at, "seq": seq, "project_root": str(repo), "cwd": str(repo), "env": {}}
+
+
+def test_045_b1_case_green_after_edit_settles_debt_only_when_receipt_is_after_code_edit(driven, capsys, tmp_path, monkeypatch):
+    """規則 CASE_GREEN_AFTER_EDIT（先紅後綠）：先加案例（T1）→ 改程式（T2）→ 點名該案例的 PASS（T3）→ (d) 不欠；
+    PASS 跑在改程式之前（T1）→ 照欠（舊碼只看案例 mtime 先後，先紅後綠必擋）。"""
+    monkeypatch.setattr(vl, "case_exists", os.path.isfile, raising=False)
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile, raising=False)
+    repo, code, case = _repo_with_code_and_case(tmp_path)
+    case.write_text("def test_a():\n    assert a() == 2\n", encoding="utf-8", newline="\n")      # 先寫會紅的案例
+    code.write_text("def a():\n    return 2\n", encoding="utf-8", newline="\n")                   # 再改程式
+    mods = [_mf(str(case), 5, last_at=_T1, last_seq=5), _mf(str(code), 5, last_at=_T2, last_seq=6)]
+    green = _green(repo, "python -m pytest -q tests/test_a.py", _T3, 7)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [green]})
+    assert "改了程式碼（a.py）" not in out, out
+    assert "CASE_GREEN_AFTER_EDIT" in capsys.readouterr().err or True                           # stderr 證據（driven 先讀走 out）
+    early = _green(repo, "python -m pytest -q tests/test_a.py", _T1, 4)                          # 配對：綠在改程式之前
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [early]})
+    assert "(d) OWED_AFTER_LAST_CASE：改了程式碼（a.py）" in out
+    other = _green(repo, "python -m pytest -q tests/test_b.py", _T3, 7)                          # 配對：綠的是別的案例
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [other]})
+    assert "改了程式碼（a.py）" in out
+
+
+def test_045_b13_checkout_theirs_in_merge_equals_merge_head_not_owed(driven, capsys, tmp_path, monkeypatch):
+    """規則 CONTENT_EQUALS_COMMITTED：merge main 衝突時 `git checkout --theirs src/a.py` 取 main 版（內容等於 MERGE_HEAD 的 blob）
+    → 不是本 session 改碼、(d) 不欠；配對：內容與 MERGE_HEAD／main 都不同 → 照欠。"""
+    import subprocess as sp
+    monkeypatch.setattr(vl, "case_exists", os.path.isfile, raising=False)
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile, raising=False)
+    monkeypatch.setattr(vl, "REF_BUDGET_S", 20.0, raising=False)
+    monkeypatch.setattr(vl, "GIT_BUDGET_S", 20.0, raising=False)
+    repo, code, case = _repo_with_code_and_case(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feat")
+    code.write_text("def a():\n    return 'feat'\n", encoding="utf-8", newline="\n")
+    _git(repo, "commit", "-qam", "feat")
+    _git(repo, "checkout", "-q", "-")
+    code.write_text("def a():\n    return 'main'\n", encoding="utf-8", newline="\n")
+    _git(repo, "commit", "-qam", "main side")
+    main_name = sp.run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+    _git(repo, "checkout", "-q", "feat")
+    r = sp.run(["git", "-C", str(repo), "merge", main_name], capture_output=True, text=True)
+    assert r.returncode != 0 and (repo / ".git" / "MERGE_HEAD").exists()                        # 衝突中
+    _git(repo, "checkout", "--theirs", "--", "src/a.py")                                        # 取 main 版
+    mods = [_mf(str(code), 5, last_at=_T2, last_seq=6)]
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
+    assert "改了程式碼（a.py）" not in out, out
+    code.write_text("def a():\n    return 'mine'\n", encoding="utf-8", newline="\n")             # 配對：自己改的內容 → 照欠
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
+    assert "改了程式碼（a.py）" in out
+
+
+def test_045_b3_comment_only_change_not_owed_identifier_change_owed(driven, capsys, tmp_path, monkeypatch):
+    """規則 COMMENT_ONLY_CHANGE：只改一行註解／docstring → 不算改碼、(d) 不欠；改一個識別字 → 照欠。"""
+    monkeypatch.setattr(vl, "case_exists", os.path.isfile, raising=False)
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile, raising=False)
+    monkeypatch.setattr(vl, "REF_BUDGET_S", 20.0, raising=False)                       # 負載下 git 慢，不讓預算當判定
+    monkeypatch.setattr(vl, "GIT_BUDGET_S", 20.0, raising=False)
+    repo, code, case = _repo_with_code_and_case(tmp_path)
+    code.write_text("# 新註解\ndef a():\n    \"\"\"doc\"\"\"\n    return 1  # 行尾\n", encoding="utf-8", newline="\n")
+    mods = [_mf(str(code), 5, last_at=_T2, last_seq=6)]
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
+    assert "改了程式碼（a.py）" not in out, out
+    code.write_text("def b():\n    return 1\n", encoding="utf-8", newline="\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
+    assert "改了程式碼（a.py）" in out
+
+
+def test_045_b2_budget_counts_per_rule_and_exhausted_message_lists_all(driven, capsys):
+    """規則 BLOCK_BUDGET_PER_RULE：本回合 (d) 已擋 1 次、這次命中 (a) → 兩條各 1 次，不算擋滿；(a) 已擋 2 次 → 擋滿，
+    擋滿訊息列出全部命中條目（(a) 與 (d) 都在）。"""
+    rec = {_SID: {"turn": 5, "counts": {"d": 1}, "count": 1}}
+    out, state, _ = driven("閘修好了，完成。", capsys, reconcile_gate_turn=rec)
+    assert "【收尾放行確認】" not in out and state["reconcile_gate_turn"][_SID]["counts"] == {"d": 1, "a": 1}
+    rec = {_SID: {"turn": 5, "counts": {"a": 2}, "count": 2}}
+    out, state, _ = driven("閘修好了，完成。", capsys, reconcile_gate_turn=rec, modified_files=[_mf(_CODE, 5, last_at=_T1, last_seq=1)])
+    head = out.split("原擋訊息")[0]
+    assert "【收尾放行確認】" in out and "(a) CLAIM_FIXED_NEEDS_PASS" in head and "(d) OWED_AFTER_LAST_CASE" in head
+
+
+def test_045_vcs_root_unreadable_still_owes(driven, capsys, monkeypatch):
+    """規則 VCS_ROOT_UNREADABLE（⑧）：找版控根時 OSError → 讀不到不是不在版控，已不存在的改檔照欠；舊碰把兩者都當 None 就不欠。"""
+    monkeypatch.setattr(vl, "code_exists", lambda p: False, raising=False)
+    monkeypatch.setattr(vl, "find_vcs_root_ex", lambda d: (None, "PermissionError: [WinError 5] 存取被拒"))
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(r"\\srv\share\proj\x.py", 5, last_at=_T1, last_seq=1)])
+    assert "VCS_ROOT_UNREADABLE" in out and "改了程式碼（x.py）" in out

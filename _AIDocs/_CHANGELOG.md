@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 放行／欠帳判定抽成獨立模組，一次修完誤判清冊 B／C 組（045 track-gate-rules）
+- **緣由**：七個工作分頁一天被各種閘誤擋幾十次（清冊 B1～B14、C1）：先紅後綠被當欠案例、整場一份擋次預算、只改註解算改碼、merge 取 theirs 算改碼、`python -c` 一律 UNKNOWN、唯讀 git 碰 live 路徑就擋、Grep 不算讀檔、worktree 要求 push、刪執行期目錄要綜觀、暫存 repo 要口令、隔離 session 被叫 atom_write、刻意跑紅算重試。原設計者裁定：不加例外清單、不放寬，做成獨立模組，每情境一條有名字的規則＋會紅案例，擋訊息印規則名與證據。
+- **做法**：`hooks/wg_release_rules.py`（e8 044 的 11 條之上加 24 條）＋ `format_hit`／`parse_hits`／每規則各自計次的預算；`wg_verify_ledger` 新增 `ref_blob_facts`／`committed_equal_paths`／`green_settled_paths`／`reverted_code_files`、對帳 hits 改 `format_hit`；`stop`、`post_tool_use`、`pre_tool_use`、`wg_core`、`wg_overview`、`lib/overview_hub`、`wisdom_engine`、`ups_gates`、`wg_evasion`、`wg_harvest` 的判定改呼叫模組。追加三項：派工訊息開回合（`DISPATCH_OPENS_TURN`、`user_turn_count`）、找版控根 OSError 另立 `VCS_ROOT_UNREADABLE`、hook 子行程直譋器單一來源 `wg_core.hook_python_exe`。
+- **驗證**：`hooks/verify/verify_release_rules.py`（044 23 案＋045 70 餘案，守門案逐規則查）、各閘 verify 檔補端到端案（先紅後綠、checkout --theirs、只改註解、每規則預算、派工開回合、收割冷卻、退避切點、VCS 讀不到）；舊斷言依新格式改；真 hook 入口探針 `hooks/verify/probe_release_rules.py` P1～P9。詳見交付信 001 與 TECH §7.7。 | `hooks/wg_release_rules.py`, `hooks/wg_verify_ledger.py`, `hooks/wg_core.py`, `hooks/wg_overview.py`, `hooks/wg_evasion.py`, `hooks/wg_harvest.py`, `hooks/wisdom_engine.py`, `hooks/handlers/stop.py`, `hooks/handlers/post_tool_use.py`, `hooks/handlers/pre_tool_use.py`, `hooks/handlers/ups_gates.py`, `hooks/handlers/user_prompt_submit.py`, `lib/overview_hub.py`, `lib/harness_text.py`, `TECH.md`, `_AIDocs/Architecture.md`
+
 ## 2026-10-13 v6.0 舊卡回填與萃取器寫卡也不把開工句當 Quote
 - **緣由**：開工句被填成 Quote 有三個寫入口，前一筆只修了 PostToolUse 自動填。舊卡回填（`tools/atom-provenance-backfill.py`，SessionStart 見新對話紀錄就背景跑）沿 parentUuid 找最近一則真人訊息當原話；工作分頁裡同伴訊息開的回合不是真人訊息，往回走到的就是開工句。稽核紀錄顯示它把總控台剛改回的 decisions 卡與另一張新卡又補上開工句，清掉的 Quote 也會被它補回。萃取器把開工句裡夾的決策萃成卡時，Quote 也是那則開工句。
 - **做法**：`lib/provenance.is_kickoff_text`（原文清成使用者打的字後交 `lib/harness_text.is_kickoff_prompt`，與 PostToolUse 同一支判定）；回填 `_resolve_quote` 遇開工句不寫 Quote（A_noquote、Source 照補指到那則訊息；已有 Source 就 skip、reason=kickoff_not_quoted），萃取器 `_write_atom_via_mcp` 遇開工句不帶 quote。`is_kickoff_prompt` 的寬判定補兩處（codex 審查）：角色句括號說明全形半形都認；以引號開頭的訊息（在引用開工句討論）只認整則都是樣板的嚴格判定。

@@ -191,7 +191,7 @@ def test_045_block_budget_per_rule_same_rule_twice_exhausted_and_lists_all():
     rec = rr.budget_tick(rec, 7, ["a", "d"])
     assert rr.budget_exhausted(rec, 7, 2, ["a", "d"]) == ["d"]
     text = "頭\n  ✗ (a) PASS_MISSING：沒 PASS｜證據：x\n  ✗ (d) OWED_AFTER_LAST_CASE：欠｜證據：y"
-    assert rr.exhausted_summary(text) == "(a) PASS_MISSING；(d) OWED_AFTER_LAST_CASE"
+    assert rr.exhausted_summary(text) == "✗ (a) PASS_MISSING；✗ (d) OWED_AFTER_LAST_CASE"
 
 
 def test_045_block_budget_per_rule_new_turn_resets_and_legacy_record_is_conservative():
@@ -336,6 +336,40 @@ def test_045_bash_comment_lines_stripped_keeps_commands_and_continuations():
     out = rr.strip_comment_lines(cmd)
     assert out.splitlines()[0] == "head -20 hooks/x.py"
     assert "# 這是接續行不是註解" in out and "定位" not in out
+
+
+# ─── ⑨ hook 子行程直譯器只有一份（wg_core.hook_python_exe） ──────────────────────
+
+def test_045_hook_python_exe_single_source(monkeypatch, tmp_path):
+    import wg_core
+    from handlers import pre_tool_use as ptu
+    pyw = tmp_path / "pythonw.exe"
+    py = tmp_path / "python.exe"
+    pyw.write_bytes(b"")
+    py.write_bytes(b"")
+    monkeypatch.setattr(sys, "executable", str(pyw))
+    assert wg_core.hook_python_exe() == str(py) and ptu._hook_python_exe() == str(py)       # pythonw → 同目錄 python.exe
+    py.unlink()
+    assert wg_core.hook_python_exe() == str(pyw)                                               # 沒有 python.exe → 原樣
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "python3.exe"))
+    assert wg_core.hook_python_exe() == str(tmp_path / "python3.exe")
+
+
+# ─── ⑥ DISPATCH_OPENS_TURN ／ ⑧ VCS_ROOT_UNREADABLE ────────────────────────────
+
+def test_045_dispatch_opens_turn_only_for_dispatch_marked_peer_messages():
+    assert rr.is_dispatch_message(["派工：045 B 組規則，派工單在 workflow/v6-inbox/to-track-x/001-prompt.md"])
+    assert rr.is_dispatch_message(["【派工】接續單"])
+    assert rr.is_dispatch_message(["主旨與其他字\n看 C:\\Users\\me\\.claude\\workflow\\v6-inbox\\to-track-gate-rules\\000-prompt.md 照做"])
+    assert not rr.is_dispatch_message(["對帳過了，上GIT"])                                   # 一般同伴訊息
+    assert not rr.is_dispatch_message(["from-track-a6/006-false-block.md 收到"])          # from-track 是交付，不是派工
+    assert not rr.is_dispatch_message([]) and not rr.is_dispatch_message([""])
+
+
+def test_045_vcs_root_unreadable_is_owed_not_outside_vcs():
+    v = rr.vcs_unreadable_verdict("a.py", "PermissionError: [WinError 5]")
+    assert v.rule == "VCS_ROOT_UNREADABLE" and v.owed is True and "PermissionError" in v.evidence[0]
+    assert rr.gone_verdict("a.py", None).owed is False                                      # 真的不在版控才不欠
 
 
 # ─── B7 WORKTREE_NO_PUSH ───────────────────────────────────────────────────────
