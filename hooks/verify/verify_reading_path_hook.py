@@ -107,7 +107,7 @@ def test_summarize_ratable_unratable_and_worst_row():
            "rows": [row("same", True, 1)], "entry_misses": ["pkg/gone.py"]}
     text = "\n".join(rph.summarize(bad, "READING_PATH DONE mode=compare ratable=0"))
     assert "可評級：否" in text and "after 有入口沒有全確定的路" in text and "解析失敗或有函式↔零函式 1 檔" in text
-    assert "沒有變差或新增的路徑" in text and "gone.py" in text
+    assert "沒有變差或新增的路徑" in text and "找不到函式的入口 1 個" in text and "gone.py" not in text
 
 
 # ─── 真量尺（真 git 夾具） ─────────────────────────────────────────────────────
@@ -191,7 +191,8 @@ def test_tool_failure_and_only_tests_and_untracked_say_why(tmp_path, monkeypatch
     assert "只改了測試檔" in rph.reading_path_note(_state(_mf(root / "tests/test_y.py")), _SID, {})
     _write(root, {"new.py": _BODY.format("n")})
     note = rph.reading_path_note(_state(_mf(root / "new.py")), _SID, {})
-    assert "還沒 git add 的新檔" in note and "new.py" in note and "沒有產品入口可量" in note
+    assert "還沒 git add 的新檔 1 個" in note and "new.py" not in note and "沒有產品入口可量" in note, \
+        "只報個數不列檔名（檔名會跟對帳閘的欠帳檔名混淆）"
     real = subprocess.run
 
     def broken(args, **kw):
@@ -254,7 +255,7 @@ def test_git_add_alone_makes_a_new_batch_and_is_measured(tmp_path):
     _write(root, {"y.py": "from z import c\n\n\ndef b(n):\n    return c(n)\n", "z.py": _BODY.format("c")})
     state = _state(_mf(root / "y.py"), _mf(root / "z.py"))
     first = rph.reading_path_note(state, _SID, {})
-    assert "還沒 git add 的新檔" in first and "z.py" in first, first
+    assert "還沒 git add 的新檔 1 個" in first, first
     _git(root, "add", "z.py")
     second = rph.reading_path_note(state, _SID, {})
     assert second and "READING_PATH DONE mode=compare" in second and "還沒 git add" not in second, second

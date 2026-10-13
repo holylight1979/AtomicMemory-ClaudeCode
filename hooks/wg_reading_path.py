@@ -161,8 +161,8 @@ def summarize(res: Dict[str, Any], tail: str) -> List[str]:
         lines.append(f"    可評級：否（觀測值，不能當改善或退步：{why}）")
     worst = worst_row(res.get("rows") or [])
     lines.append(f"    變差／新增最差一條：{worst}" if worst else "    沒有變差或新增的路徑")
-    if res.get("entry_misses"):
-        lines.append(f"    兩版都找不到函式的入口（略過）：{'、'.join(Path(e).name for e in res['entry_misses'])}")
+    if res.get("entry_misses"):   # 只報個數，理由同不在 git 的改檔
+        lines.append(f"    兩版都找不到函式的入口 {len(res['entry_misses'])} 個（略過）")
     return lines
 
 
@@ -264,8 +264,8 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
         if timed_out:
             rec["slow"] = sorted(set(rec.get("slow", [])) | {key})
         lines += got
-    if notes:
-        lines.append(f"  還沒 git add 的新檔不在掃描母體（--scope git），沒量到：{'、'.join(Path(f).name for f in notes)}")
+    if notes:   # 同上只報個數（git status 看得到是哪些）：檔名會跟對帳閘「這個檔還欠不欠」的訊息混在一起
+        lines.append(f"  還沒 git add 的新檔 {len(notes)} 個不在掃描母體（--scope git），沒量到")
     return "\n".join(lines)
 
 
