@@ -7,6 +7,7 @@
 - Trigger: 紅在斷言, 退回紅, 紅的型別, junitxml, 規則變異, mutant
 - Created-at: 2026-10-13
 - Related: 反轉驗證換回舊版會同時改暫存區要restore-staged-新案走舊碼就有的入口才紅在斷言
+- Quote: 「<pasted_content id="c931"> 你是 v6.0 的工作 session track-b-hooks-2（接 track-b-hooks 未完：需求目標 4.3 第六關鍵點、queued_command 同伴訊息補掃、4.4 提問前用 PreToolUse 擋），總控台是 claude-aa（對人總控台 claude-91）。第一步用 EnterWorktree 切進 wor…」
 
 ## 知識
 

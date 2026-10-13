@@ -22,6 +22,7 @@
 | auto-capture碎片sweep污染詞庫-defer根治 | auto-capture碎片sweep污染詞庫-defer根治 |
 | cc實測-pretooluse對askuserquestion與exitplanmode會觸發且tool-input完整-deny時posttooluse不觸發posttoolbatch會-中途到的同伴訊息是queued-command不經任何hook | cc實測-PreToolUse對AskUserQuestion與ExitPlanMode會觸發且tool_input完整-deny時PostToolUse不觸發PostToolBatch會-中途到的同伴訊息是queued_command不經任何hook |
 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 | codex-handoff自檢誤報文件截斷-真因是輸入靜默截斷非模型幻覺 |
+| codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字 | codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字 |
 | confirmations-已退役-phase2-usefulness-接管晉升 | confirmations-已退役-Phase2-usefulness-接管晉升 |
 | cross-encoder-rerank實測不進注入鏈-bge-base只抬r1三點r3反降每句加1秒-13題池外rerank碰不到-讀取端可選 | cross-encoder-rerank實測不進注入鏈-bge-base只抬R1三點R3反降每句加1秒-13題池外rerank碰不到-讀取端可選 |
 | dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房 | dashboard apiAtoms 專案 shared 範疇被 frontmatter Scope 覆寫誤歸核心房 |
@@ -83,6 +84,7 @@
 | 收尾閘的驗證收據只認本回合的bash-引用前回合結果要寫明或重跑-測試檔之後才修排版會欠驗證案例 | 收尾閘的驗證收據只認本回合的Bash-引用前回合結果要寫明或重跑-測試檔之後才修排版會欠驗證案例 |
 | 改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live | 改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live |
 | 改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看 | 改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看 |
+| 暫存路徑類放行規則上線要配測試開關-pytest-tmp下的假專案會被整批放行-探針run目錄不放系統暫存否則寫碼查核整段不跑 | 暫存路徑類放行規則上線要配測試開關-pytest-tmp下的假專案會被整批放行-探針run目錄不放系統暫存否則寫碼查核整段不跑 |
 | 本repo公開有同事使用者-外部pr審查與docindex衝突解法 | 本repo公開有同事使用者-外部PR審查與DocIndex衝突解法 |
 | 模型行為移植-fable行為契約必載檔 | 模型行為移植-Fable行為契約必載檔 |
 | 檢索融合與回歸集調參-rrf-min-score-定案 | 檢索融合與回歸集調參-rrf-min-score-定案 |
@@ -106,6 +108,7 @@
 | 路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列 | 路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列 |
 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 |
 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 |
+| 附在stop擋訊息後的資訊段不要列檔名-別的閘與測試用檔名在不在輸出判斷欠帳 | 附在Stop擋訊息後的資訊段不要列檔名-別的閘與測試用檔名在不在輸出判斷欠帳 |
 | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase |
 | 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源 | 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源 |
 | 驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄 | 驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄 |

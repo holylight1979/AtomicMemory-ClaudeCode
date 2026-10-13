@@ -23,6 +23,12 @@ import wg_overview as wo  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """假專案都建在 pytest tmp 下：關掉暫存規則（TEMP_COPY_NOT_PROJECT），B14 的案自己再開。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+
+
+@pytest.fixture(autouse=True)
 def _no_org(monkeypatch):
     """預設不接公司層：不讀本機真設定（org-memory.local.json）；要公司層的案自己再 setattr。"""
     monkeypatch.setattr(wo, "org_memory_root", lambda: None)
@@ -112,6 +118,13 @@ def test_read_paths_from_bash_and_read():
     assert got[0] == "C:/a/b.cs" and got[1].replace("\\", "/") == "C:/w/lib/z.py" and len(got) == 2
     assert oh.read_paths_from_tool("Read", {"file_path": "C:/q.cs"}, "") == ["C:/q.cs"]
     assert oh.read_paths_from_tool("Grep", {"pattern": "x"}, "") == []
+
+
+def test_045_bash_comment_lines_stripped_head_on_next_line_is_a_read():
+    """規則 BASH_COMMENT_LINES_STRIPPED：定位三行放 # 註解、下一行 head 讀檔 → 認得到（舊 regex 只認字串開頭）。"""
+    cmd = "# 定位｜部位：x\n# 定位｜根因層：y\n# 定位｜前例：z\nhead -20 C:/a/b.py"
+    assert oh.read_paths_from_tool("Bash", {"command": cmd}, "C:/w") == ["C:/a/b.py"]
+    assert oh.read_paths_from_tool("Bash", {"command": "echo a\nsed -n 1,5p C:/a/c.py"}, "C:/w") == ["C:/a/c.py"]
 
 
 def test_read_paths_bash_bare_name_only_when_file_exists_in_cwd(tmp_path):
@@ -1199,6 +1212,18 @@ def test_thinking_channel_allows_with_reminder(proj, tmp_path, monkeypatch):
 
 LAYER_TABLE = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 層 |\n|---|---|---|---|---|\n"
                "| `Game\\Battle\\` | 戰鬥 | `戰鬥知識導讀-hub索引` | 有 | 主程式集／熱修 |\n")
+
+
+def test_reading_path_layer_number_is_not_a_layer_the_root_cause_line_must_name():
+    """層欄的「第 N 層」是閱讀路徑層次軸，由程式依路徑推：根因層那行不用寫它（只有它或配「單層」都不擋）；
+    和要人填的層混寫時，只要求寫出要人填的那幾個。"""
+    vals = {"根因": "邏輯層：判斷式寫反"}
+    assert wo._layer_mismatch({"layer": "第2層"}, vals) is None
+    assert wo._layer_mismatch({"layer": "第 3 層"}, vals) is None
+    mixed = wo._layer_mismatch({"layer": "主程式集／第2層"}, vals)
+    assert mixed and "主程式集" in mixed and "第2層" not in mixed
+    assert wo._layer_mismatch({"layer": "主程式集／第2層"}, {"根因": "主程式集：判斷式寫反"}) is None
+    assert wo._layer_mismatch({"layer": "主程式集／熱修"}, vals), "要人填的層照擋"
 
 
 def test_wrong_layer_then_corrected_passes(proj, tmp_path, monkeypatch):       # BLOCK 1：補正取最後一組

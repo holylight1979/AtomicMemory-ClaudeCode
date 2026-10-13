@@ -47,12 +47,15 @@ _EMPTY_EXTRA: Dict[str, Any] = {
     "defects_doc": "", "measure": {}, "checkers": [], "sample_paths": "", "extra_q": "",
     "layer": "", "authority": "", "upstream": "", "downstream": "", "kind": KIND_CODE,
 }
+# 「層」欄裡的閱讀路徑層號（tools/reading-path.py 的宣告層次軸）；由程式依路徑推，R5 不要求根因層那行寫它
+LAYER_AXIS_RE = re.compile(r"第\s*(\d+)\s*層")
 _MEASURE_SPLIT_RE = re.compile(r"\s*[｜]\s*")
 _LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
 # bypass 模式下讀檔走 Bash：cat / head / tail / sed -n / less 後面的路徑也算 Read
 _BASH_READ_RE = re.compile(
     r'(?:^|[;&|(]\s*)(?:cat|head|tail|less|sed\s+-n\s+\S+|svn\s+cat|svn\s+diff|git\s+show|git\s+diff)'
-    r'\s+(?:-[a-zA-Z0-9=]+\s+)*(?:[0-9a-f]{7,40}:|HEAD[~^0-9]*:)?"?([^"\s;|&)]+)"?'
+    r'\s+(?:-[a-zA-Z0-9=]+\s+)*(?:[0-9a-f]{7,40}:|HEAD[~^0-9]*:)?"?([^"\s;|&)]+)"?',
+    re.MULTILINE,            # 每一行行首都算指令開頭（定位三行放 # 註解後，下一行的 head 照認；註解行由 hooks 層先剝掉）
 )
 # PowerShell 讀檔 cmdlet（含常用別名）＋到本段結束（; | & 換行 ) }）為止的參數字串
 _PS_READ_RE = re.compile(
@@ -279,6 +282,12 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
             **_extra_fields(cells, cols),
         })
     return rows
+
+
+def layer_number(row: Optional[Dict[str, Any]]) -> Optional[int]:
+    """「層」欄恰好一個「第 N 層」→ N（閱讀路徑層次軸的層號）；沒有（例：單層）或不只一個 → None（沒宣告）。"""
+    found = LAYER_AXIS_RE.findall((row or {}).get("layer") or "")
+    return int(found[0]) if len(found) == 1 else None
 
 
 # ─── 命中 ───────────────────────────────────────────────────────────
