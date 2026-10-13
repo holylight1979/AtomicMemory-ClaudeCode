@@ -64,7 +64,9 @@ class Func:
     sig: str = ""                                     # C# 完整參數型別（含泛型、陣列、ref/out），當多載簽章
     calls: list = field(default_factory=list)
     simple: bool = False      # 去掉 docstring 與 log 後 ≤2 句且無分支迴圈：轉手函式的候選
-    abstract: bool = False    # 沒有本體（抽象、介面、NotImplementedError）
+    abstract: bool = False    # 真正抽象：Python 方法本身掛 @abstractmethod（建圖時再要求類別確定是 ABCMeta）；C# abstract 或分號宣告（介面）
+    hollow: bool = False      # 空實作：Python 只有 pass、...、raise NotImplementedError（或只有 docstring）、C# 空大括號本體。是覆寫，但不值得當落點
+    conditional: bool = False                         # C# [Conditional("SYM")]：符號沒定義時編譯器會省略呼叫，呼叫它不給條號
     prop: bool = False        # C# 屬性的 get/set 本體（讀寫屬性就會跑進來）
     entry: bool = False       # 天生入口：__main__ 區塊、無區塊時的 main、C# static Main、粗略模式 main
     local_types: dict = field(default_factory=dict)   # 區域變數 → 類別名（x = Foo()、x: Foo）：找目標用，不分來源
@@ -104,6 +106,7 @@ class Cls:
     body_names: set = field(default_factory=set)         # Python 類別本體綁定的名字（方法、指定、import、巢狀類別…）：方法的參數標註先在這裡找
     decorators: list = field(default_factory=list)       # Python 類別裝飾器 [(寫法, 是否當場呼叫, 字面 keyword 引數)]（見 Func.decorators）
     opaque_bases: int = 0                                # 寫不成名字的父類運算式個數（Base[int]、lambda…；Generic[…] 不算）：MRO 證不出
+    metaclass: str = ""                                  # Python class 的 metaclass=… 寫法（abc.ABCMeta 才擋得住建立抽象類別的實例）
     def_decorators: dict = field(default_factory=dict)   # 方法名 → 同名各個 def 的裝飾器（property 與 setter 同名，函式 id 只留最後一個）
     stored: dict = field(default_factory=dict)    # 欄位 → (func id, 參數名)：把參數存成欄位的 callback
     events: set = field(default_factory=set)
@@ -298,7 +301,8 @@ def _py_class(mod: Module, node: ast.ClassDef) -> None:
     bases = [_py_recv(b) for b in node.bases if _py_recv(b)]      # 保留模組前綴（collections.UserDict），沿綁定鏈解析
     markers = [b for b in node.bases if isinstance(b, ast.Subscript) and _py_recv(b.value).split(".")[-1] in GENERIC_MARKERS]
     opaque = len(node.bases) - len(bases) - len(markers)           # Base[int]、make_base() 這類算出來的父類：MRO 證不出
-    cls = Cls(node.name, "py", [mod.file], bases, decorators=_py_decorators(node), opaque_bases=opaque)
+    metaclass = next((_py_recv(k.value) for k in node.keywords if k.arg == "metaclass"), "")
+    cls = Cls(node.name, "py", [mod.file], bases, decorators=_py_decorators(node), opaque_bases=opaque, metaclass=metaclass)
     for item in node.body:
         if isinstance(item, _DEF_NODES):
             _py_func(mod, item, node.name + ".", cls)
@@ -333,7 +337,8 @@ def _py_func(mod: Module, node, prefix: str, cls: Cls | None) -> None:
     real = [s for s in body if not isinstance(s, ast.Pass) and not _py_noise_stmt(s) and not _py_move(s)]
     f.simple = (len(real) <= 2 and all(isinstance(s, _SIMPLE_STMTS) for s in real)
                 and not any(isinstance(n, _BRANCHY) for n in nodes))
-    f.abstract = _py_abstract(node, body)
+    f.abstract = any(_py_recv(d).split(".")[-1] == "abstractmethod" for d in node.decorator_list)
+    f.hollow = _py_hollow(body)
     _py_locals(f, cls, nodes)
     f.calls = _py_calls(mod, nodes, fid)
     f.scoped_binds, f.class_nonlocals = _py_unmodeled(nodes)
@@ -440,15 +445,16 @@ def _strip_doc(body: list) -> list:
     return body[1:] if is_doc else body
 
 
-def _py_abstract(node, body: list) -> bool:
-    decorated = any(_py_recv(d).split(".")[-1] == "abstractmethod" for d in node.decorator_list)
-    if decorated or not body:
-        return True
+def _py_hollow(body: list) -> bool:
+    """空實作：docstring 之外什麼都沒有、只有 pass、只有 ...、只有 raise NotImplementedError。是存在的覆寫（子類寫了就擋掉
+    父類的方法，不論所在類別抽不抽象），只是不當落點；真抽象只看方法本身有沒有掛 @abstractmethod。"""
     only = body[0] if len(body) == 1 else None
-    if isinstance(only, ast.Pass) or (isinstance(only, ast.Expr) and getattr(only.value, "value", None) is Ellipsis):
+    if not body or isinstance(only, ast.Pass):
+        return True
+    if isinstance(only, ast.Expr) and getattr(only.value, "value", None) is Ellipsis:
         return True
     exc = getattr(only, "exc", None) if isinstance(only, ast.Raise) else None
-    return _py_recv(getattr(exc, "func", exc)) == "NotImplementedError" if exc else False
+    return bool(exc) and _py_recv(getattr(exc, "func", exc)) == "NotImplementedError"
 
 
 def _py_move(stmt: ast.stmt) -> bool:
@@ -493,14 +499,17 @@ def _py_is_none(node) -> bool:
 
 
 def _py_recv(expr) -> str:
-    """接收者寫成字串：self、self.repo、mod.sub；Foo() → new:Foo；super() → super()；其他為空。"""
+    """接收者寫成字串：self、self.repo、mod.sub；Foo() → new:Foo；super() → super()；帶引數的 super(B, self) → super(…)；
+    其他為空。"""
     if isinstance(expr, ast.Name):
         return expr.id
     if isinstance(expr, ast.Attribute):
         head = _py_recv(expr.value)
         return f"{head}.{expr.attr}" if head and not head.startswith(("new:", "super")) else ""
     if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name):
-        return "super()" if expr.func.id == "super" else "new:" + expr.func.id
+        if expr.func.id == "super":
+            return "super(…)" if expr.args or expr.keywords else "super()"
+        return "new:" + expr.func.id
     return ""
 
 
@@ -531,6 +540,8 @@ def _py_call(node: ast.Call) -> Call | None:
         return Call("self", fn.attr, recv=recv, line=line)
     if recv == "super()":
         return Call("super", fn.attr, line=line)
+    if recv == "super(…)":                         # 顯式起點 super(B, self).m()：起點沒建模，recv 留記號給 reading-path 降級
+        return Call("super", fn.attr, recv="explicit", line=line)
     return Call("attr", fn.attr, recv=recv, line=line, noise=_is_noise("attr", fn.attr, recv))
 
 
@@ -739,6 +750,9 @@ _CS_CLASS = re.compile(
     r"\s*(?::\s*(?P<bases>[^{;]+?))?\s*(?:where\s[^{;]*)?\{")
 _CS_SIG = re.compile(r"(?P<name>\w+)\s*(?:<[^<>()]*>)?\s*\((?P<params>[^()]*(?:\([^()]*\)[^()]*)*)\)"
                      r"\s*(?::\s*(?:base|this)\s*\([^()]*\))?\s*(?:where\s.*)?$", re.S)
+_CS_CONDITIONAL = re.compile(r"\[\s*(?:System\.Diagnostics\.)?Conditional\s*\(")   # [Conditional("DEBUG")]：符號沒定義就不呼叫
+_CS_OPAQUE_CALL = re.compile(r"\]\s*\(|\)\s*\(")   # handlers[0]()、Get()()：下標或運算結果上的呼叫，對象看不到
+_CS_LAMBDA = re.compile(r"(?:\((?P<params>[^()]*)\)|(?P<one>\b[a-z_]\w*))\s*=>")   # (a, b) =>、x =>：lambda 的參數
 _CS_CALL = re.compile(r"(?P<new>\bnew\s+)?(?P<recv>(?:\w+\s*\??\.\s*)*)(?P<name>\w+)\s*(?:<[^<>();]*>)?\s*\(")
 _CS_SUB = re.compile(r"(?P<lhs>[\w.]+)\s*\+=\s*(?P<rhs>[A-Za-z_][\w.]*)\s*;")
 _CS_LISTEN = re.compile(r"(?P<lhs>[\w.]+)\s*\.\s*AddListener\s*\(\s*(?P<rhs>[A-Za-z_][\w.]*)\s*\)")
@@ -756,7 +770,7 @@ _CS_ASSIGN = re.compile(r"(?:this\.)?(?P<lhs>\w+)\s*=\s*(?:new\s+(?P<new>\w+)|(?
 _CS_REF = re.compile(r"(?:(?P<recv>\w+)\.)?(?P<name>[A-Za-z_]\w*)")
 _CS_NAMED_ARG = re.compile(r"(\w+)\s*:(?!:)\s*(.*)", re.S)
 _CS_INLINE_ARG = re.compile(r"|[\d.]+[a-zA-Z]*|true|false|null|default|(?:new|typeof|nameof|ref|out|in)\b.*", re.S)
-_CS_ATTR = re.compile(r"\[[^\[\]]*\]")
+_CS_ATTR = re.compile(r"\[\s*[A-Za-z_][^\[\]]*\]")   # attribute 以識別字開頭；陣列的 [] 與 [,] 不是 attribute，要留著
 _CS_TYPE_DECL = re.compile(r"\b(class|struct|interface|record|enum|namespace|delegate)\b")
 _CS_COMPOUND = re.compile(r"\b(if|for|foreach|while|switch|try|do|lock)\b|\busing\s*\(")
 _CS_MOVE = re.compile(r"[\w<>\[\],.?]+\s+[a-z_]\w*\s*=\s*[\w.]+")   # var y = x;：宣告區域變數只換個名字
@@ -843,7 +857,8 @@ def _cs_sign_overloads(mod: Module, cls: Cls, funcs: list) -> None:
 
 
 def _cs_members(src: str, depth: list, pairs: dict, open_i: int):
-    """class 本體那一層的成員：yield (標頭, 標頭起點, 本體起, 本體迄, 是否 =>)。"""
+    """class 本體那一層的成員：yield (標頭, 標頭起點, 本體起, 本體迄, 是否 =>, 是否只有分號宣告)。
+    空大括號 {} 的本體起迄相同，跟分號宣告（abstract、介面）要分得開：前者是空實作，後者才是沒有本體。"""
     close_i = pairs.get(open_i, len(src))
     level = depth[open_i] + 1
     start = i = open_i + 1
@@ -851,18 +866,18 @@ def _cs_members(src: str, depth: list, pairs: dict, open_i: int):
         ch = src[i]
         if ch == "{" and depth[i] == level:
             end = pairs.get(i, close_i)
-            yield src[start:i], start, i + 1, end, False
+            yield src[start:i], start, i + 1, end, False, False
             start = i = end + 1
             continue
         if ch == ";" and depth[i] == level:
             head, arrow, _ = src[start:i].partition("=>")
-            yield (head, start, start + len(head) + 2, i, True) if arrow else (head, start, i, i, False)
+            yield (head, start, start + len(head) + 2, i, True, False) if arrow else (head, start, i, i, False, True)
             start = i + 1
         i += 1
 
 
 def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> None:
-    raw, start, b0, b1, arrow = member
+    raw, start, b0, b1, arrow, declared = member
     head = _CS_ATTR.sub(" ", raw).strip()
     if not head or _CS_TYPE_DECL.search(head):
         return
@@ -870,7 +885,7 @@ def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> N
     is_prop = not sig or "=" in head[:sig.start()] or sig["name"] in CS_KEYWORDS
     if is_prop:
         _cs_field(cls, head)
-        if b1 == b0 or "=" in head or not (arrow or _CS_ACCESSOR.search(src[b0:b1])):
+        if declared or "=" in head or not (arrow or _CS_ACCESSOR.search(src[b0:b1])):
             return
         name, mods, texts = head.split()[-1], set(), []     # 屬性的 get/set 本體：當成以屬性為名的節點
     else:
@@ -882,7 +897,9 @@ def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> N
     f = Func(fid, mod.file, f"{cls.name}.{name}", name, cls.name, "cs", line,
              params=[p for p, _ in params], param_types={p: t for p, t in params if t}, prop=is_prop,
              sig=",".join(_cs_type_text(t) for t in texts))
-    f.abstract = "abstract" in mods or (b0 == b1 and not arrow)
+    f.abstract = "abstract" in mods or declared
+    f.hollow = not f.abstract and not arrow and not src[b0:b1].strip()   # 空大括號：是覆寫，不值得當落點
+    f.conditional = bool(_CS_CONDITIONAL.search(raw))
     f.entry = name == "Main" and "static" in mods
     if b1 > b0:
         _cs_body(mod, cls, f, src, depth, b0, b1, arrow)
@@ -891,8 +908,9 @@ def _cs_member(mod: Module, cls: Cls, src: str, depth: list, member: tuple) -> N
 
 
 def _cs_param(text: str):
+    """(參數名, 型別名)：保留陣列形狀（Worker[] 不是 Worker，陣列的成員解析還沒支援，元素型別不當證據）。"""
     words = [w for w in _strip_generics(text.split("=")[0]).split() if w not in ("this", "ref", "out", "in", "params")]
-    return (words[-1], words[-2].rstrip("?").replace("[]", "").split(".")[-1]) if len(words) >= 2 else None
+    return (words[-1], words[-2].rstrip("?").split(".")[-1]) if len(words) >= 2 else None
 
 
 def _cs_type_text(param: str) -> str:
@@ -902,17 +920,20 @@ def _cs_type_text(param: str) -> str:
 
 
 def _cs_field(cls: Cls, head: str) -> None:
-    words = _strip_generics(head.split("=")[0]).replace("[]", "").split()
+    words = _strip_generics(head.split("=")[0]).split()
     if len(words) < 2:
         return
-    cls.fields[words[-1]] = cls.declared_fields[words[-1]] = words[-2].rstrip("?").split(".")[-1]
+    cls.fields[words[-1]] = cls.declared_fields[words[-1]] = words[-2].rstrip("?").split(".")[-1]   # 陣列形狀保留（Worker[]）
     if "event" in words:
         cls.events.add(words[-1])
 
 
 def _cs_body(mod: Module, cls: Cls, f: Func, src: str, depth: list, b0: int, b1: int, arrow: bool) -> None:
     body = src[b0:b1]
-    f.calls = [c for m in _CS_CALL.finditer(body) if (c := _cs_call(m, body, f.line))]
+    spots = [(m.start(), c) for m in _CS_CALL.finditer(body) if (c := _cs_call(m, body, f.line))]
+    _cs_scope_calls(body, spots)                    # 區域函式／lambda 裡的呼叫：模型外（參數與綁定沒建）
+    f.calls = [c for _, c in spots]
+    f.calls += [Call("opaque", "", line=f.line) for m in _CS_OPAQUE_CALL.finditer(body) if _cs_opaque_call(body, m)]
     f.calls += [Call("prop", m["name"], recv=re.sub(r"[\s?]", "", m["recv"]).rstrip("."), line=f.line)
                 for m in _CS_PROP_USE.finditer(body)]
     ends = [j for j in range(b0, b1) if src[j] == ";" and (depth[j] == depth[b0] or f.prop)]   # 屬性的句子在 get/set 裡面一層
@@ -965,6 +986,71 @@ def _cs_receiver_only(f: Func, body: str) -> set:
         if len(builds) == 1 and builds <= set(spots) and len(builds) + len(calls) == len(spots):
             out.add(name)
     return out
+
+
+def _cs_opaque_call(body: str, m: re.Match) -> bool:
+    """`](`：下標結果上的呼叫（handlers[0]()）→ 是一次看不到對象的呼叫。`)(`：前面那組括號裡還有括號（Get()(x)、
+    (a.B())(x)）才算呼叫結果上的呼叫；(int)(x)、(Foo)(x) 這種轉型不算（委派變數加括號再呼叫也會被略過，列在抓不到清單）。"""
+    if m.group().startswith("]"):
+        return True
+    depth, i = 0, m.start()
+    while i >= 0:
+        depth += (body[i] == ")") - (body[i] == "(")
+        if depth == 0:
+            return "(" in body[i + 1:m.start()]
+        i -= 1
+    return False
+
+
+def _cs_scope_calls(body: str, spots: list) -> None:
+    """位在區域函式或 lambda 本體裡的呼叫標 scoped（模型沒建那一層的參數與綁定，一律不給條號）；裸名呼叫的名字正是
+    那個構件自己的參數（void Wrap(Action Run) { Run(); }）→ 再標 shadowed：裝的東西看不到，不退回外層同名的方法。"""
+    ranges = []
+    for m in _CS_INLINE.finditer(body):           # 區域函式、指定給變數的 lambda
+        head = m.group()
+        inner = re.search(r"\(([^()]*)\)", head)
+        params = {_cs_param_name(p) for p in _split_top(inner.group(1) if inner else "")} - {""}
+        if "=>" in head and not inner:
+            params = {head.split("=")[-1].split("=>")[0].strip()}
+        ranges.append((m.end(), _cs_construct_end(body, m.end(), head.endswith("{")), params))
+    covered = [r for r in ranges]
+    for m in _CS_LAMBDA.finditer(body):          # 當引數的 lambda：(x) => …、x => …
+        if any(a <= m.start() < b for a, b, _ in covered):
+            continue
+        raw = m["params"] if m["params"] is not None else m["one"]
+        params = {_cs_param_name(p) for p in _split_top(raw)} - {""}
+        j = m.end()
+        while j < len(body) and body[j].isspace():
+            j += 1
+        braced = j < len(body) and body[j] == "{"
+        ranges.append((m.end(), _cs_construct_end(body, j + 1 if braced else m.end(), braced), params))
+    for pos, c in spots:
+        for a, b, params in ranges:
+            if a <= pos < b:
+                c.scoped = True
+                c.shadowed = c.shadowed or (c.kind == "name" and c.name in params)
+
+
+def _cs_param_name(text: str) -> str:
+    """參數文字的名字：型別＋名字取最後一字；只有一個字（lambda 沒寫型別）就是它。"""
+    words = [w for w in text.replace("=", " ").split() if w not in ("ref", "out", "in", "params", "this")]
+    return words[-1] if words and (words[-1][0].isalpha() or words[-1][0] == "_") else ""
+
+
+def _cs_construct_end(body: str, start: int, braced: bool) -> int:
+    """構件本體到哪裡：大括號本體到對應的 }；運算式本體到深度 0 的 ; 或 ,、或包住它的 ) ] } 為止。"""
+    depth = 0
+    for j in range(start, len(body)):
+        ch = body[j]
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:                         # 關掉的是包住本體的那一個括號：本體到這裡（內層 if {…} 關掉時 depth 回 0，不是結束）
+                return j
+            depth -= 1
+        elif not braced and depth == 0 and ch in ";,":
+            return j
+    return len(body)
 
 
 def _cs_call(m: re.Match, body: str, line: int) -> Call | None:

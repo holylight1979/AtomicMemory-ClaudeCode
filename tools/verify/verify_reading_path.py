@@ -437,8 +437,11 @@ def test_compare_same_version_reports_no_change(tmp_path):
     a = _write(tmp_path / "a", PY_KINDS)
     b = _write(tmp_path / "b", PY_KINDS)
     res = rp.run_compare(b, str(a), None, None, None)
-    assert res["counts"]["same"] >= 4
     assert all(res["counts"][k] == 0 for k in ("better", "worse", "new", "gone"))
+    assert res["counts"]["undecidable"] >= 4 and res["undecidable_entries"] == ["main.py::<main>"], \
+        "Bus.emit 裡 fn(*args) 解析不了、入口可達：兩側一樣沒觀測完整也只能不可判定，不報不變（021）"
+    full = rp.run_compare(_write(tmp_path / "d", PY_WRAPPED), str(_write(tmp_path / "c", PY_WRAPPED)), None, None, None)
+    assert full["counts"]["same"] == len(full["rows"]) >= 1 and full["undecidable_entries"] == [], "全部解析得了才報不變"
 
 
 def test_compare_git_rev_against_working_tree(tmp_path):
@@ -636,8 +639,10 @@ def test_unresolvable_call_is_incomplete_and_compare_is_undecidable_not_better(t
     report = rp.analyze(b3, "main.py")
     a = _route(report, "hop.py::a")
     assert a["incomplete"] and a["unresolved"] == 1 and report["stats"]["unresolved"] == 1
-    assert report["entries"][0]["grades"]["順"] == 1, "未讀到底的落點不算進刻度分布（只剩 pick）"
-    assert "（未讀到底" in rp.render(report, 3) and "incomplete=1" in rp.done_line(report)
+    pick = _route(report, "hop.py::pick")
+    assert pick["incomplete"] and pick["unresolved"] == 0 and pick["unresolved_path"] == 1, "經過 a 才到 pick：整條路未讀到底（019）"
+    assert report["entries"][0]["grades"]["順"] == 0 and not report["entries"][0]["ratable"], "未讀到底的路不算進刻度分布"
+    assert "（未讀到底" in rp.render(report, 3) and "incomplete=2" in rp.done_line(report)
     res = rp.run_compare(b3, str(b1), None, "main.py", None)
     assert _row(res, "end.py::done")["status"] == "undecidable", "看不到了不能報成消失或變好"
     assert res["coverage_drop"] is True and res["counts"]["better"] == 0 and res["counts"]["gone"] == 0
@@ -1123,7 +1128,9 @@ def test_unsubscribed_event_is_not_certain(tmp_path):
           "        bus.Fired += Work;\n        bus.Fired -= Work;\n        bus.Fired?.Invoke();\n    }\n"
           "    void Work() { int n = 1; n += 1; n *= 2; }\n}\n")
     g = rp.build_graph(_write(tmp_path, {"Bus.cs": cs}))
-    assert all(e.guess for e in g.edges["Bus.cs::Bus.Check"] if e.kind == "event")
+    events = [e for e in g.edges["Bus.cs::Bus.Check"] if e.kind == "event"]
+    assert events, "要先有連到 Work 的事件邊，空集合的 all() 不算驗到"
+    assert all(e.guess and _rule_of(e) is None for e in events)
 
 
 def test_entry_single_to_overload_aligns_by_signature(tmp_path):
@@ -1358,8 +1365,9 @@ def test_compare_same_numbers_are_undecidable_when_coverage_got_worse(tmp_path):
     new = _write(tmp_path / "new", {**PY_HOP, "end.py": worse})
     res = rp.run_compare(new, str(old), None, "main.py", None)
     row = _row(res, "end.py::done")
-    assert _numbers(row["before"])[:3] == _numbers(row["after"])[:3], "這一列前後數字相同"
-    assert row["status"] == "undecidable", "可達範圍內看不到的呼叫變多：數字是下限，相同也不能報成不變"
+    assert _numbers(row["before"])[2] == _numbers(row["after"])[2], "這一列前後拐彎相同"
+    assert row["after"]["handoffs"] == row["before"]["handoffs"] + 1, "落到有未解的 done 那一步變成未知，轉手多 1"
+    assert row["status"] == "undecidable", "可達範圍內看不到的呼叫變多：沒觀測完整，相同也不能報成不變"
 
 
 def test_submodule_imported_from_a_package_is_certain_by_rule_1(tmp_path):
@@ -2481,6 +2489,435 @@ def test_p12_a_custom_decorator_that_applies_dataclass_blocks_rule_3_too(tmp_pat
     app = EQ_BASE + line + "\n\n" + EQ_CHILDREN["dataclass_via_custom_decorator"]
     edges = _sure_edges({"app.py": app}, fid, tmp_path)
     assert edges == [("app.py::Base.__eq__", False)], edges
+
+
+# ─── 019（Codex 徹底檢核 C）：空實作覆寫、C# 作用域與委派、未知步、super 起點、掃描母體 ─────────
+
+EMPTY_BASE = "class Base(ABC):\n    def run(self):\n        return 'BASE'\n\n\n"
+P13_OVERRIDES = {   # 子類 run 的寫法 → Base.run 給不給第 3 條
+    "pass_only": ("    def run(self):\n        pass\n", None),
+    "docstring_only": ("    def run(self):\n        \"\"\"nothing\"\"\"\n", None),
+    "nonempty": ("    def run(self):\n        return 1\n", None),
+    "stub_ellipsis_in_concrete_class": ("    def run(self):\n        ...\n", None),
+    "stub_raise_in_concrete_class": ("    def run(self):\n        raise NotImplementedError\n", None),
+    "decorated_abstract": ("    @abstractmethod\n    def run(self):\n        ...\n", 3),
+    "stub_in_abstract_class": ("    @abstractmethod\n    def other(self):\n        ...\n\n    def run(self):\n        ...\n", None),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P13_OVERRIDES))
+def test_p13_an_empty_override_is_still_an_override(tmp_path, form):
+    """Codex C 第 1 條＋021 第 3 條＋023：子類 run 只有 pass、只有 docstring、只有 ...、raise NotImplementedError 都是存在的
+    覆寫（實際跑子類實例回 None 或拋例外，不進基底），不論所在類別抽不抽象（抽象類別裡沒掛裝飾器的 stub 會被可實例化的
+    孫類繼承）：main(x: Base) 的 x.run() 不給第 3 條；這些覆寫不當落點。真抽象只有方法本身掛 @abstractmethod（類別是
+    ABCMeta）：那時這個類別與沒覆寫 run 的子孫都建不出實例，基底照給第 3 條。"""
+    child, rule = P13_OVERRIDES[form]
+    files = {"app.py": "from abc import ABC, abstractmethod\n\n\n" + EMPTY_BASE + "class Child(Base):\n" + child
+                       + "\n\ndef main(x: Base):\n    return x.run()\n"}
+    rules = dict(_edge_rules(files, "app.py::main", tmp_path / "a"))
+    assert rules.get("app.py::Base.run", "missing") == rule, f"{form}：{rules}"
+    report = rp.analyze(_write(tmp_path / "b", files), "app.py::main")
+    landings = [r["landing"] for r in report["entries"][0]["routes"]]
+    assert ("app.py::Child.run" in landings) == (form == "nonempty"), f"{form}：空實作與抽象都不當落點 {landings}"
+
+
+@pytest.mark.parametrize("body", ["{}", "{ }", "{\n    }"])
+def test_p13_a_csharp_empty_override_blocks_rule_3_regardless_of_whitespace(tmp_path, body):
+    """Codex C 第 1 條（C#）：空大括號本體是空實作、不是分號宣告；{} 與 { } 結果要一樣：App.Go → Base.Run 不給第 3 條。"""
+    cs = ("class Base {\n    public virtual void Run() { Work(); }\n    static void Work() { int n = 1; n++; }\n}\n"
+          "class Child : Base {\n    public override void Run() " + body + "\n}\n"
+          "class App {\n    static void Go(Base x) { x.Run(); }\n}\n")
+    rules = dict(_edge_rules({"App.cs": cs}, "App.cs::App.Go", tmp_path))
+    assert rules.get("App.cs::Base.Run", "missing") is None, rules
+    g = rp.build_graph(_write(tmp_path / "g", {"App.cs": cs}))
+    run = g.funcs["App.cs::Child.Run"]
+    assert not run.abstract and getattr(run, "hollow", False), "空大括號是空實作，不是抽象"
+
+
+def test_p13_a_csharp_declaration_without_body_is_still_abstract(tmp_path):
+    """守門：分號宣告（abstract、介面）仍是抽象，不是空實作；Shape.Render → Shape.Draw 走 inherit 連到 Circle.Draw。"""
+    g = rp.build_graph(_write(tmp_path, CS_KINDS))
+    draw = g.funcs["Shapes.cs::Shape.Draw"]
+    assert draw.abstract and not getattr(draw, "hollow", False)
+
+
+CS_LOCAL = ("using System;\nclass P {\n    static void Run() { int n = 1; n++; }\n    static void Other() { int n = 2; n++; }\n"
+            "    static void Main() {\n")
+
+
+def test_p13_a_csharp_local_function_parameter_shadows_the_method(tmp_path):
+    """Codex C 第 2 條：區域函式 void Wrap(Action Run) { Run(); } 裡的 Run 是參數，不是 P.Run：不連 P.Run、記未解。
+    對照：Main 裡直接 Run() 照給第 3 條。"""
+    shadow = {"P.cs": CS_LOCAL + "        void Wrap(Action Run) { Run(); }\n        Wrap(Other);\n    }\n}\n"}
+    g = rp.build_graph(_write(tmp_path / "a", shadow))
+    assert "P.cs::P.Run" not in [e.dst for e in g.edges["P.cs::P.Main"]], "區域函式的參數遮住同名方法"
+    assert g.unres["P.cs::P.Main"] == 1
+    plain = {"P.cs": CS_LOCAL + "        Run();\n    }\n}\n"}
+    assert ("P.cs::P.Run", 3) in _edge_rules(plain, "P.cs::P.Main", tmp_path / "b")
+
+
+@pytest.mark.parametrize("form", ["local_function_body", "lambda_variable", "lambda_argument"])
+def test_p13_a_call_inside_a_csharp_local_function_or_lambda_gets_no_rule(tmp_path, form):
+    """Codex C 第 2 條一整類：區域函式／lambda 的參數與綁定沒建模，裡面的呼叫一律模型外：連得到 P.Run，但不給條號。"""
+    body = {"local_function_body": "        void Wrap() { Run(); }\n        Wrap();\n",
+            "lambda_variable": "        Action act = () => Run();\n        act();\n",
+            "lambda_argument": "        Use(() => Run());\n"}[form]
+    cs = CS_LOCAL + body + "    }\n    static void Use(Action a) { a(); }\n}\n"
+    rules = dict(_edge_rules({"P.cs": cs}, "P.cs::P.Main", tmp_path))
+    assert rules.get("P.cs::P.Run", "missing") is None, f"{form}：{rules}"
+
+
+def test_p13_a_csharp_invoke_through_a_receiver_does_not_borrow_a_same_name_parameter(tmp_path):
+    """Codex C 第 3 條：h.cb.Invoke() 讀的是 h 的欄位 cb（值是 B），不是同名參數 cb（值是 A）：不連 P.A、記未解。
+    對照：沒有接收者的 cb.Invoke() 照參數來源給第 5 條。"""
+    head = ("using System;\nclass Holder { public Action cb; }\nclass P {\n    static void A() { int n = 1; n++; }\n"
+            "    static void B() { int n = 2; n++; }\n")
+    field = {"P.cs": head + "    static void Run(Holder h, Action cb) { h.cb.Invoke(); }\n"
+                            "    static void Main() { Run(new Holder { cb = B }, A); }\n}\n"}
+    g = rp.build_graph(_write(tmp_path / "a", field))
+    assert [e.dst for e in g.edges.get("P.cs::P.Run", [])] == [], "欄位委派證不出，不能拿同名參數補"
+    assert g.unres["P.cs::P.Run"] == 1
+    param = {"P.cs": head + "    static void Run(Holder h, Action cb) { cb.Invoke(); }\n"
+                            "    static void Main() { Run(new Holder { cb = B }, A); }\n}\n"}
+    assert _edge_rules(param, "P.cs::P.Run", tmp_path / "b") == [("P.cs::P.A", 5)]
+
+
+def test_p13_a_csharp_array_type_is_not_its_element_type(tmp_path):
+    """Codex C 第 4 條：Worker[] workers 的接收者是陣列，不是 Worker：workers.ToString() 不連 Worker.ToString、也不算未解
+    （陣列的成員是外部）。對照：Worker worker 照給第 3 條。"""
+    worker = "class Worker {\n    public override string ToString() { int n = 1; n++; return \"w\"; }\n}\n"
+    arr = {"P.cs": worker + "class P {\n    static string Work(Worker[] workers) { return workers.ToString(); }\n}\n"}
+    g = rp.build_graph(_write(tmp_path / "a", arr))
+    assert g.edges.get("P.cs::P.Work", []) == [] and g.unres["P.cs::P.Work"] == 0
+    one = {"P.cs": worker + "class P {\n    static string Work(Worker worker) { return worker.ToString(); }\n}\n"}
+    assert _edge_rules(one, "P.cs::P.Work", tmp_path / "b") == [("P.cs::Worker.ToString", 3)]
+
+
+CS_HANDLERS = ("using System;\nclass P {\n    static Action[] handlers = { Work };\n    static void Main() { Relay(); }\n"
+               "    static void Relay() { RELAY }\n    static void Work() { int n = 1; n++; n *= 2; }\n}\n")
+
+
+def test_p13_a_csharp_indexed_delegate_call_counts_as_an_unresolved_call(tmp_path):
+    """Codex C 第 5 條：handlers[0]() 是一次看不到對象的呼叫，計入未解；前後比較不能把 Work 落點報成消失、涵蓋也要標變差。
+    對照：(int)(x) 這種轉型不算呼叫。"""
+    before = _write(tmp_path / "b", {"P.cs": CS_HANDLERS.replace("RELAY", "Work();")})
+    after = _write(tmp_path / "a", {"P.cs": CS_HANDLERS.replace("RELAY", "handlers[0]();")})
+    g = rp.build_graph(after)
+    assert g.unres["P.cs::P.Relay"] == 1, "handlers[0]() 是一次看不到對象的呼叫，要計入未解"
+    res = rp.run_compare(after, str(before), None, "P.cs::P.Main", None)
+    assert res["coverage_drop"] is True and res["counts"]["gone"] == 0 and res["counts"]["better"] == 0
+    cast = rp.build_graph(_write(tmp_path / "c", {"P.cs": CS_HANDLERS.replace("RELAY", "int x = (int)(3.0); Work();")}))
+    assert cast.unres["P.cs::P.Relay"] == 0
+
+
+C6_CHAIN = ("def main(cb):\n    return a(cb)\n\n\ndef a(cb):\n    return A_BODY\n\n\ndef b(n):\n    return c(n)\n\n\n"
+            "def c(n):\n    return end(n)\n\n\ndef end(n):\n    return n\n")
+
+
+def test_p13_an_unresolved_call_mid_chain_is_an_unknown_step_and_taints_the_whole_route(tmp_path):
+    """Codex C 第 6 條：a 裡多了看不到來源的 cb()，a 不再是證明過的轉傳，但也不是證明過的直接一步：那一步是「未知」，
+    照算一個彎（3 彎不會變 2 彎），整條到 end 的路標未讀到底、不進刻度分布，入口只給觀測值、不可評級。"""
+    ctrl = rp.analyze(_write(tmp_path / "ctrl", {"app.py": C6_CHAIN.replace("A_BODY", "b(0)")}), "app.py::main")
+    end = _route(ctrl, "app.py::end")
+    assert end["turns"] == 3 and end["certain"] and not end["incomplete"] and ctrl["entries"][0]["grades"]["警戒"] == 1
+    assert ctrl["entries"][0].get("ratable", True) and "alert=1" in rp.done_line(ctrl)
+    rep = rp.analyze(_write(tmp_path / "mid", {"app.py": C6_CHAIN.replace("A_BODY", "b(cb())")}), "app.py::main")
+    end = _route(rep, "app.py::end")
+    assert end["turns"] == 3 and end["incomplete"], "未知那一步照算彎（3 彎不會變 2 彎），整條路未讀到底"
+    assert _kinds(end)[0] == "unknown" and end.get("unknown_steps") == 1 and end.get("unresolved_path") == 1
+    e = rep["entries"][0]
+    assert not e.get("ratable", True) and e["max_turns"] == 3 and sum(e["grades"].values()) == 0
+    tail = rp.done_line(rep)
+    assert "ratable=0" in tail and "max_turns=3*" in tail and "alert=0*" in tail, f"不可評級：尾行只給加 * 的觀測值 {tail}"
+    assert re.fullmatch(r"READING_PATH DONE( \w+=\S+)*", tail)
+    assert "不可評級" in rp.render(rep, 3) and "未知" in rp.render(rep, 3)
+
+
+@pytest.mark.parametrize("mods", [("", "new"), ("virtual", "override")])
+def test_p13_csharp_new_hiding_is_not_modeled_so_it_stays_a_candidate(tmp_path, mods):
+    """Codex C 第 7 條（v6.0 不建模，守門）：virtual／override／new 不分，子類同名方法一律當覆寫：Go(Base x) 的 x.Run()
+    在 new 隱藏與 override 兩種寫法下都只給候選、不給條號（new 的誠實寫法降級，列在抓不到清單）。"""
+    base_mod, child_mod = mods
+    cs = (f"class Base {{\n    public {base_mod} void Run() {{ int n = 1; n++; }}\n}}\n"
+          f"class Child : Base {{\n    public {child_mod} void Run() {{ int n = 2; n++; }}\n}}\n"
+          "class App {\n    static void Go(Base x) { x.Run(); }\n}\n")
+    rules = dict(_edge_rules({"App.cs": cs}, "App.cs::App.Go", tmp_path))
+    assert "App.cs::Base.Run" in rules and rules["App.cs::Base.Run"] is None, rules
+
+
+def test_p13_csharp_generic_same_name_zero_parameter_methods_collide_and_both_stay_candidates(tmp_path):
+    """Codex C 第 7 條（v6.0 不建模，守門）：Get() 與 Get<T>() 零參數同名，簽章撞在一起：兩個都是多載候選、不給條號，
+    比較時只剩一列（列在抓不到清單）。"""
+    cs = ("class K {\n    public int Get() { int n = 1; n++; return n; }\n    public T Get<T>() { int n = 2; n++; return default(T); }\n"
+          "    public void Main() { Get(); Get<int>(); }\n}\n")
+    rules = _edge_rules({"K.cs": cs}, "K.cs::K.Main", tmp_path)
+    assert len(rules) == 2 and all(r is None for _, r in rules), rules
+
+
+def test_p13_csharp_conditional_method_calls_are_not_certified(tmp_path):
+    """Codex C 第 7 條：[Conditional("DEBUG")] 的方法，符號沒定義時編譯器會省略呼叫：連得到，但只給候選、理由寫明。"""
+    cs = ("using System.Diagnostics;\nclass P {\n    [Conditional(\"DEBUG\")]\n    static void Log() { int n = 1; n++; }\n"
+          "    static void Main() { Log(); }\n}\n")
+    assert _guess_of({"P.cs": cs}, "P.cs::P.Main", "P.cs::P.Log", tmp_path) == [(None, getattr(rp, "CONDITIONAL", None))]
+
+
+def test_p13_an_explicit_super_start_is_not_certified(tmp_path):
+    """Codex C 第 8 條：super(B, self).run() 的起點沒建模（實際跳過 B 進 A）：A.run、B.run 都列候選、不給條號；
+    對照：零參數 super().run() 照 MRO 連 B.run、第 1 條。"""
+    base = "class A:\n    def run(self):\n        return 1\n\n\nclass B(A):\n    def run(self):\n        return 2\n\n\n"
+    explicit = {"app.py": base + "class C(B):\n    def go(self):\n        return super(B, self).run()\n"}
+    rules = sorted(_edge_rules(explicit, "app.py::C.go", tmp_path / "a"))
+    assert rules == [("app.py::A.run", None), ("app.py::B.run", None)], rules
+    assert _guess_of(explicit, "app.py::C.go", "app.py::A.run", tmp_path / "b") == [(None, getattr(rp, "SUPER_EXPLICIT", None))]
+    plain = {"app.py": base + "class C(B):\n    def go(self):\n        return super().run()\n"}
+    assert _edge_rules(plain, "app.py::C.go", tmp_path / "c") == [("app.py::B.run", 1)]
+
+
+def test_p13_report_wording_is_observed_paths_not_bounds(tmp_path):
+    """Codex C 第 9 條＋021 第 6 條：全確定的數字是「確定邊子圖上的最短觀測路徑」，報告與完整 --help（含白名單段）都不再
+    寫成可信的下限／上限參考；partial 豁免只免換檔的彎。"""
+    text = rp.render(rp.analyze(_write(tmp_path, PY_WRAPPED), "app.py"), 3)
+    assert "最短觀測路徑" in text and "可信下限" not in text and "上限參考" not in text
+    helped = subprocess.run([sys.executable, "-X", "utf8", str(SCRIPT), "--help"], capture_output=True, text=True, encoding="utf-8")
+    assert "豁免的只有換檔那個彎" in helped.stdout and "--scope" in helped.stdout
+    assert "可信的下限" not in helped.stdout and "上限參考" not in helped.stdout and "最短觀測路徑" in helped.stdout
+
+
+def _git_repo(root: Path, files: dict) -> Path:
+    _write(root, files)
+    git = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(git + ["add", "-A"], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "init"], check=True)
+    return root
+
+
+def test_p13_git_scope_is_the_tracked_list_and_marketplaces_are_never_scanned(tmp_path):
+    """Codex C 第 10 條：預設 --scope git 只掃版本追蹤清單與原始碼副檔名的交集；未追蹤的副本不算；plugins/marketplaces
+    兩種政策都不掃；報告附政策、檔數、清單雜湊；不在 git 裡退回 tree 並標明。"""
+    repo = _git_repo(tmp_path / "repo", {".gitignore": "vendor_copy/\nplugins/\n", **PY_STRAIGHT})
+    _write(repo, {"vendor_copy/extra.py": "def extra():\n    return 1\n",
+                  "plugins/marketplaces/m/x.py": "def market():\n    return 2\n"})
+    assert "scope" in rp.analyze(repo, "app.py")["stats"], "報告要附掃描母體（政策、檔數、清單雜湊）"
+    git_scope = rp.analyze(repo, "app.py", scope="git")["stats"]["scope"]
+    tree_scope = rp.analyze(repo, "app.py", scope="tree")["stats"]["scope"]
+    assert git_scope["policy"] == "git" and git_scope["files"] == len(PY_STRAIGHT) and len(git_scope["digest"]) == 12
+    assert tree_scope["policy"] == "tree" and tree_scope["files"] == len(PY_STRAIGHT) + 1, "tree 多掃到未追蹤的副本"
+    funcs = set(rp.build_graph(repo, "tree").funcs)
+    assert not any("marketplaces" in f for f in funcs), "marketplaces 在哪種政策下都不掃"
+    loose = rp.analyze(_write(tmp_path / "loose", PY_STRAIGHT), "app.py")["stats"]["scope"]
+    assert loose["policy"].startswith("tree(") and loose["files"] == len(PY_STRAIGHT)
+
+
+def test_p13_compare_with_different_scope_policies_is_undecidable(tmp_path):
+    """Codex C 第 10 條：前後掃描母體政策不同（追蹤清單 vs 目錄遞迴）→ 整份不可判定、涵蓋標變差，不報改善。"""
+    repo = _git_repo(tmp_path / "repo", PY_WRAPPED)
+    assert "scope" in rp.analyze(repo, "app.py")["stats"], "報告要附掃描母體政策，比較才有得比"
+    res = rp.compare(rp.analyze(repo, "app.py", scope="git"), rp.analyze(repo, "app.py", scope="tree"))
+    assert res["scope_mismatch"] and res["coverage_drop"] and res["counts"]["better"] == 0
+    assert res["rows"] and all(r["status"] == "undecidable" for r in res["rows"])
+    same = rp.compare(rp.analyze(repo, "app.py", scope="git"), rp.analyze(repo, "app.py", scope="git"))
+    assert not same["scope_mismatch"] and same["counts"]["same"] == len(same["rows"])
+
+
+# ─── 021（codex 審 020）：看不到不能變好、stub 覆寫、兩側同一套範圍政策 ─────────────────────
+
+def test_p14_an_equivalent_rewrite_of_an_unobserved_function_is_not_better(tmp_path):
+    """021 第 1 條：a 從 return b(cb()) 拆成區域變數寫法，兩版都有看不到來源的 cb()、都不可評級；未知不靠句數門檻
+    （落到有未解呼叫的函式就是未知），比較守門先看兩側可評級與整路完整性：該列不可判定、better=0。"""
+    chain = C6_CHAIN.replace("A_BODY", "b(cb())")
+    split = C6_CHAIN.replace("    return A_BODY", "    x = cb()\n    y = b(x)\n    return y")
+    before = _write(tmp_path / "b", {"app.py": chain})
+    after = _write(tmp_path / "a", {"app.py": split})
+    for root in (before, after):
+        rep = rp.analyze(root, "app.py::main")
+        end = _route(rep, "app.py::end")
+        assert _kinds(end)[0] == "unknown" and end["turns"] == 3 and end["incomplete"], "長短都一樣：落到 a 是未知步"
+        assert not rep["entries"][0]["ratable"]
+    res = rp.run_compare(after, str(before), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["counts_candidate"]["better"] == 0
+    assert _row(res, "app.py::end")["status"] == "undecidable" and res["coverage_drop"] is True
+    assert "better=0" in rp.compare_done_line(res)
+
+
+def test_p14_losing_the_tail_of_a_chain_cannot_lower_the_numbers(tmp_path):
+    """021 第 2 條：a 改成 fn = [b][0]; fn(0)，後半條鏈看不到了：尾行 ratable=0、max_turns 與刻度加 * 標成觀測值，
+    比較摘要 better=0、該入口不可判定；coverage_drop 時 better 必為 0。"""
+    ctrl = _write(tmp_path / "ctrl", {"app.py": C6_CHAIN.replace("A_BODY", "b(0)")})
+    lost = _write(tmp_path / "lost", {"app.py": C6_CHAIN.replace("    return A_BODY", "    fn = [b][0]\n    return fn(0)")})
+    tail_ctrl, tail_lost = rp.done_line(rp.analyze(ctrl, "app.py::main")), rp.done_line(rp.analyze(lost, "app.py::main"))
+    assert "ratable=1 max_turns=3 " in tail_ctrl and "alert=1 " in tail_ctrl
+    assert "ratable=0" in tail_lost and "max_turns=1*" in tail_lost and "alert=0*" in tail_lost, tail_lost
+    res = rp.run_compare(lost, str(ctrl), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["coverage_drop"] is True
+    assert res["undecidable_entries"] == ["app.py::main"]
+    assert all(r["status"] in ("undecidable", "gone") for r in res["rows"]), [r["status"] for r in res["rows"]]
+
+
+def test_p14_tracked_build_dir_is_treated_the_same_on_both_sides_of_a_compare(tmp_path):
+    """021 第 4 條：被追蹤的 build/worker.py 在工作樹（git 清單）與歷史快照（git archive）兩側套同一套目錄排除：
+    兩側政策都是 git、檔數相同，同內容比較沒有消失、沒有不可判定；被追蹤的 marketplaces 兩側同樣不掃。"""
+    files = {"app.py": "from lib import worker\n\n\ndef main():\n    worker.go()\n", "lib/__init__.py": "",
+             "lib/worker.py": "def go():\n    x = 1\n    return x + 1\n",
+             "build/gen.py": "def gen():\n    return 1\n",
+             "plugins/marketplaces/m/x.py": "def market():\n    return 2\n"}
+    repo = _git_repo(tmp_path / "repo", files)
+    live = rp.analyze(repo, "app.py::main")["stats"]["scope"]
+    assert live["policy"] == "git" and live["files"] == 3, live
+    assert not any("marketplaces" in f or "build/" in f for f in rp.build_graph(repo).funcs)
+    res = rp.run_compare(repo, "HEAD", None, "app.py::main", None)
+    assert res["stats_before"]["scope"]["policy"] == res["stats_after"]["scope"]["policy"] == "git"
+    assert res["stats_before"]["scope"]["files"] == res["stats_after"]["scope"]["files"] == 3
+    assert res["stats_before"]["scope"]["digest"] == res["stats_after"]["scope"]["digest"]
+    assert not res["scope_mismatch"] and res["counts"]["gone"] == 0 and res["undecidable_entries"] == []
+    assert _row(res, "lib/worker.py::go")["status"] == "same"
+
+
+def test_p14_csharp_calls_after_an_inner_block_in_a_local_function_still_get_no_rule(tmp_path):
+    """021 第 5 條：區域函式裡先有一個 if {…} 區塊，之後的 Run()／cb.Invoke() 仍在區域函式裡：參數遮蔽記未解、
+    callback 不給第 5 條（內層括號關掉不等於區域函式結束）。"""
+    head = ("using System;\nclass P {\n    static void Run() { int n = 1; n++; }\n    static void Other() { int n = 2; n++; }\n")
+    shadow = {"P.cs": head + "    static void Main() {\n        void Wrap(Action Run) {\n            if (true) { int x = 1; }\n"
+                             "            Run();\n        }\n        Wrap(Other);\n    }\n}\n"}
+    g = rp.build_graph(_write(tmp_path / "a", shadow))
+    assert "P.cs::P.Run" not in [e.dst for e in g.edges["P.cs::P.Main"]] and g.unres["P.cs::P.Main"] == 1
+    cb = {"P.cs": head + "    static void Go(Action cb) {\n        void Wrap() {\n            if (true) { int x = 1; }\n"
+                         "            cb.Invoke();\n        }\n        Wrap();\n    }\n    static void Main() { Go(Other); }\n}\n"}
+    rules = dict(_edge_rules(cb, "P.cs::P.Go", tmp_path / "b"))
+    assert rules.get("P.cs::P.Other", "missing") is None, rules
+
+
+def test_p14_an_unresolved_call_in_the_entry_taints_every_route(tmp_path):
+    """021 第 6 條：未解呼叫在入口本身（main 回傳 a(cb())），後續鏈全可解：到 end 的路仍整條未讀到底、不進刻度，入口不可評級。"""
+    app = ("def main(cb):\n    return a(cb())\n\n\ndef a(n):\n    return b(n)\n\n\ndef b(n):\n    return c(n)\n\n\n"
+           "def c(n):\n    return end(n)\n\n\ndef end(n):\n    return n\n")
+    rep = rp.analyze(_write(tmp_path, {"app.py": app}), "app.py::main")
+    end = _route(rep, "app.py::end")
+    assert end["incomplete"] and end["unresolved_path"] == 1 and end["unresolved"] == 0, "入口的未解也算整條路未讀到底"
+    e = rep["entries"][0]
+    assert not e["ratable"] and sum(e["grades"].values()) == 0 and "ratable=0" in rp.done_line(rep), "入口有未解：不可評級"
+
+
+# ─── 023（codex 審 022）：抽象只看方法本身、候選欄是探索路徑、比較摘要的觀測標記 ─────────────
+
+P15_GRANDCHILD = ("class Base(BASE_HEAD):\n    def run(self):\n        return 'BASE'\n\n\n"
+                  "class Child(Base):\n    @abstractmethod\n    def other(self):\n        ...\n\n"
+                  "    def run(self):\n        ...\n\n\n"
+                  "class Concrete(Child):\n    def other(self):\n        return 1\n\n\n"
+                  "def main(x: Base):\n    return x.run()\n")
+
+
+@pytest.mark.parametrize("head,base", [("from abc import ABC, abstractmethod", "ABC"),
+                                       ("from abc import ABCMeta, abstractmethod", "metaclass=ABCMeta")])
+def test_p15_an_undecorated_stub_in_an_abstract_class_reaches_a_concrete_grandchild(tmp_path, head, base):
+    """023 BLOCK（codex 重現）：Child 有別的 @abstractmethod，但 run 只是沒掛裝飾器的 ...；Concrete(Child) 補上 other 就建得出
+    實例，x.run() 實際跑繼承來的 Child.run（回 None）。Base.run 不給第 3 條、Child.run 是候選目標；Child.run 是空實作不當落點。"""
+    files = {"app.py": head + "\n\n\n" + P15_GRANDCHILD.replace("BASE_HEAD", base)}
+    rules = dict(_edge_rules(files, "app.py::main", tmp_path / "a"))
+    assert rules.get("app.py::Base.run", "missing") is None, rules
+    assert rules.get("app.py::Child.run", "missing") is None, f"繼承給孫類的 stub 要列成候選目標：{rules}"
+    landings = [r["landing"] for r in rp.analyze(_write(tmp_path / "b", files), "app.py::main")["entries"][0]["routes"]]
+    assert "app.py::Child.run" not in landings, landings
+
+
+P15_META = {   # 類別怎麼寫 → 子類 @abstractmethod run 擋不擋得住實例（Base.run 給不給第 3 條）
+    "abc_base": ("from abc import ABC, abstractmethod\n\n\n", "class Base(ABC):\n", 3),
+    "abcmeta_via_module": ("import abc\nfrom abc import abstractmethod\n\n\n", "class Base(metaclass=abc.ABCMeta):\n", 3),
+    "abc_on_grandparent": ("from abc import ABC, abstractmethod\n\n\nclass Root(ABC):\n    pass\n\n\n",
+                           "class Base(Root):\n", 3),
+    "no_abc": ("from abc import abstractmethod\n\n\n", "class Base:\n", None),
+    "abc_name_rebound": ("from abc import ABC, abstractmethod\n\nABC = object\n\n\n", "class Base(ABC):\n", None),
+    "lookalike_from_elsewhere": ("from abc import abstractmethod\nfrom mylib import ABC\n\n\n", "class Base(ABC):\n", None),
+}
+
+
+@pytest.mark.parametrize("form", sorted(P15_META))
+def test_p15_abstractmethod_only_blocks_instances_under_abcmeta(tmp_path, form):
+    """023 BLOCK 同家族：@abstractmethod 只在類別的 metaclass 確定是 abc.ABCMeta（自己或祖先的父類是 abc.ABC、或
+    metaclass=abc.ABCMeta）時擋得住建立實例；沒繼承 ABC、ABC 被改綁 → Child() 照樣建得出來、x.run() 跑的是 Child.run，
+    Child.run 是存在的覆寫；ABC 從專案外來源來 → 證不出 ABCMeta，保守降為候選。兩種 Base.run 都不給第 3 條。"""
+    head, cls_line, rule = P15_META[form]
+    app = (head + cls_line + "    def run(self):\n        return 'BASE'\n\n\n"
+           "class Child(Base):\n    @abstractmethod\n    def run(self):\n        ...\n\n\n"
+           "def main(x: Base):\n    return x.run()\n")
+    rules = dict(_edge_rules({"app.py": app}, "app.py::main", tmp_path))
+    assert rules.get("app.py::Base.run", "missing") == rule, f"{form}：{rules}"
+
+
+@pytest.mark.parametrize("annotate,want", [("Interface", {"app.py::Child.run": None}), ("Child", {"app.py::Child.run": 3})])
+def test_p15_an_all_stub_interface_keeps_concrete_children_as_candidates(tmp_path, annotate, want):
+    """codex 審 022 第 8 條（對照）：Interface.run 只有 ...（沒掛裝飾器，是空實作不當落點），Child.run 有實作。標註 Interface
+    時 Child.run 是候選；標註 Child 時照給第 3 條。"""
+    app = ("class Interface:\n    def run(self):\n        ...\n\n\n"
+           "class Child(Interface):\n    def run(self):\n        return 1\n\n\n"
+           f"def main(x: {annotate}):\n    return x.run()\n")
+    rules = dict(_edge_rules({"app.py": app}, "app.py::main", tmp_path))
+    assert {k: v for k, v in rules.items() if k == "app.py::Child.run"} == want, rules
+
+
+P15_TABLE = ("def a(n):\n    return b(n)\n\n\ndef b(n):\n    return c(n)\n\n\ndef c(n):\n    return end(n)\n\n\n"
+             "def end(n):\n    t = n * 2\n    t += 1\n    return t\n\n\nHANDLERS = TABLE\n\n\n"
+             "def main(key):\n    return HANDLERS[key](0)\n")
+
+
+def test_p15_a_candidate_only_shortcut_is_labelled_as_exploration_not_improvement(tmp_path):
+    """023 WARN 1：只有候選路的入口（HANDLERS[key](0) 查表分派）新增一條直接指向 end 的捷徑：候選欄可以報變化，但要明寫
+    「探索路徑變化（非實際呼叫鏈改善）」；全確定欄 better=0；兩側都不可評級，比較尾行印 ratable=0 並把數字標 *。"""
+    before = _write(tmp_path / "b", {"app.py": P15_TABLE.replace("TABLE", '{"a": a}')})
+    after = _write(tmp_path / "a", {"app.py": P15_TABLE.replace("TABLE", '{"a": a, "shortcut": end}')})
+    res = rp.run_compare(after, str(before), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["counts_candidate"]["better"] == 1, (res["counts"], res["counts_candidate"])
+    assert res.get("counts_candidate_meaning") == "探索路徑變化（非實際呼叫鏈改善）"
+    text = rp.render_compare(res, 3)
+    assert "含候選（探索路徑變化（非實際呼叫鏈改善））" in text and "（含候選：探索路徑變化）" in text, text
+    tail = rp.compare_done_line(res)
+    assert "ratable=0" in tail and re.search(r" max_turns_before=\d+\* max_turns_after=\d+\* ", tail), tail
+
+
+def test_p15_compare_summary_marks_observed_numbers_when_unratable(tmp_path):
+    """023 WARN 1：後半條鏈消失（fn = [b][0]）那案的比較尾行：max_turns_before／after、coverage_drop 加 * 並印 ratable=0，
+    與一般尾行一致；兩側都可評級時印 ratable=1、不加 *。"""
+    ctrl = _write(tmp_path / "ctrl", {"app.py": C6_CHAIN.replace("A_BODY", "b(0)")})
+    lost = _write(tmp_path / "lost", {"app.py": C6_CHAIN.replace("    return A_BODY", "    fn = [b][0]\n    return fn(0)")})
+    tail = rp.compare_done_line(rp.run_compare(lost, str(ctrl), None, "app.py::main", None))
+    assert "ratable=0 max_turns_before=3* max_turns_after=1* coverage_drop=1*" in tail, tail
+    assert re.fullmatch(r"READING_PATH DONE( \w+=\S+)*", tail), tail
+    same = rp.run_compare(ctrl, str(ctrl), None, "app.py::main", None)
+    clean = rp.compare_done_line(same)
+    assert "ratable=1 max_turns_before=3 max_turns_after=3 coverage_drop=0" in clean and "*" not in clean, clean
+    assert "觀測值・不可評級" not in rp.render_compare(same, 3)
+
+
+def test_p16_a_parse_failure_in_the_longer_entry_makes_the_whole_summary_unratable(tmp_path):
+    """025 BLOCK（G11）：不指定入口、自動偵測兩檔的 main：long.py 3 彎、short.py 0 彎；after 只把 long.py 弄成語法錯誤。
+    列級本來就對（不報變好、消失那列不可判定），整份摘要也要對：JSON 的 ratable＝False，尾行 ratable=0 且
+    max_turns_before／after 與 coverage_drop 帶 *，文字有觀測值註記（三處都看 compare_ratable 這一個判斷）。"""
+    short = "def main():\n    return end()\n\n\ndef end():\n    return 1\n"
+    before = _write(tmp_path / "b", {"long.py": C6_CHAIN.replace("A_BODY", "b(0)"), "short.py": short})
+    after = _write(tmp_path / "a", {"long.py": "def main(:\n    pass\n", "short.py": short})
+    res = rp.run_compare(after, str(before), None, None, None)
+    assert res["entries"] == 2 and res["counts"]["better"] == 0
+    assert res.get("ratable") is False, f"長入口那檔解析失敗：整份不可評級 {res.get('ratable')}"
+    tail = rp.compare_done_line(res)
+    assert "ratable=0 max_turns_before=3* max_turns_after=0* coverage_drop=1*" in tail, tail
+    assert "觀測值・不可評級" in rp.render_compare(res, 3)
+
+
+P15_MOVE = ("def pick():\n    return 1\n\n\ndef main():\n    return a(0)\n\n\n"
+            "def a(n):\nA_BLIND    return b(n)\n\n\ndef b(n):\nB_BLIND    return c(n)\n\n\n"
+            "def c(n):\n    return end(n)\n\n\ndef end(n):\n    t = n * 2\n    t += 1\n    return t\n")
+BLIND = "    h = pick()\n    h()\n"
+
+
+@pytest.mark.parametrize("after_a,after_b", [(BLIND + "    h()\n", ""), ("", BLIND)])
+def test_p15_unresolved_count_or_place_changes_never_report_better(tmp_path, after_a, after_b):
+    """codex 審 022 第 2 條（固化回歸）：兩側未解數量不同（1→2）、或數量相同但位置由 a 移到 b，確定與候選都不報變好，
+    到 end 那列不可判定。"""
+    before = _write(tmp_path / "b", {"app.py": P15_MOVE.replace("A_BLIND", BLIND).replace("B_BLIND", "")})
+    after = _write(tmp_path / "a", {"app.py": P15_MOVE.replace("A_BLIND", after_a).replace("B_BLIND", after_b)})
+    res = rp.run_compare(after, str(before), None, "app.py::main", None)
+    assert res["counts"]["better"] == 0 and res["counts_candidate"]["better"] == 0
+    assert _row(res, "app.py::end")["status"] == "undecidable"
 
 
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
