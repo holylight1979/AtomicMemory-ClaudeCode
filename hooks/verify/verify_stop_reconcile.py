@@ -2313,7 +2313,7 @@ def test_017c_hook_last_assistant_message_wins_over_transcript(driven, capsys, m
     assert state["pending_release"][_SID]["reconcile"]["claims"] == ["修好了，全部完成。"]
 
 
-# ─── 035／033：繼承環境進判定、pytest error 是 FAIL、部位表讀不到要擋、暫存子目錄不是改碰、還原反例 ──────────
+# ─── 035／033：繼承環境進判定、pytest error 是 FAIL、部位表讀不到要擋、暫存子目錄不是改碼、還原反例 ──────────
 
 import os  # noqa: E402
 import subprocess  # noqa: E402
