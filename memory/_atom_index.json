@@ -6544,6 +6544,37 @@
         "閘被繞過"
       ],
       "scope": "global"
+    },
+    {
+      "name": "conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離",
+      "path": "_AIDocs/_atoms/MemDev/conftest隔離資料根要先放本樹受版控資料否則默默讀live設定與真實atom的既有案整批紅-放pytest-configure不放模組層-同行程多次pytest-main才都隔離.md",
+      "triggers": [
+        "conftest 隔離資料根",
+        "WG_CLAUDE_DIR 導走",
+        "pytest_configure",
+        "種子資料",
+        "默默讀 live",
+        "lib/verify 70 紅",
+        "pytest.main 多次",
+        "測試寫live 記憶",
+        "wg-iso"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清",
+      "path": "memory/OS-Windows/windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清.md",
+      "triggers": [
+        "rmtree ignore_errors",
+        "暫存目錄刪不掉",
+        "log handler 佔用",
+        "唯讀 git 物件",
+        "測試殘留目錄",
+        "KeyboardInterrupt 清理",
+        "pytest_unconfigure",
+        "wg-iso 殘留"
+      ],
+      "scope": "global"
     }
   ]
 }
