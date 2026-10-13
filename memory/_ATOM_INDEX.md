@@ -333,3 +333,4 @@
 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 | _AIDocs/_atoms/MemDev/worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名.md | worktree, 程式碼根, 資料根, CODE_DIR, CLAUDE_DIR, WG_CLAUDE_DIR, spawn cwd, python -m, 載到 live, code root 守門, 資料根別名 | global |  |
 | 改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染 | memory/驗證與實證/改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染.md | 模組層常數, 路徑常數, import 時計算, 冷啟動, 子行程驗證, 預設參數綁死, setdefault, 收集順序, 測試污染, python -P | global |  |
 | 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它 | memory/OS-Windows/子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它.md | TMPDIR, tempfile.gettempdir, 暫存目錄, 沙箱, 子行程環境, Git Bash, 探針隔離, TEMP TMP, scratchpad | global |  |
+| feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行 | memory/Failures/驗證與實證/feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行.md | 收尾放行確認, 反覆擋, 放行, 閘門誤判, 正確性, 徹底修正, AskUserQuestion, (d) 補案例 | global |  |

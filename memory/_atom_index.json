@@ -5709,6 +5709,21 @@
         "scratchpad"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行",
+      "path": "memory/Failures/驗證與實證/feedback-閘門反覆擋同一件事時要修判定的根因-不要一再請使用者放行.md",
+      "triggers": [
+        "收尾放行確認",
+        "反覆擋",
+        "放行",
+        "閘門誤判",
+        "正確性",
+        "徹底修正",
+        "AskUserQuestion",
+        "(d) 補案例"
+      ],
+      "scope": "global"
     }
   ]
 }
