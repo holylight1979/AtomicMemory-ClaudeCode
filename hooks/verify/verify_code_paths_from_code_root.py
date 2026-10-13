@@ -44,6 +44,9 @@ ALLOWLIST: dict = {
         "安裝器：TARGET（~/.claude）是安裝目的地，複製完跑目的地那份 user-init.sh 是安裝步驟本身",
     ("tools/install.py", 'hub_py = next(p for p in (TARGET / "lib" / "overview_hub.py", SOURCE / "lib" / "overview_hub.py") if p.is_file())'):
         "安裝器 --verify 驗的是「已安裝版本」：用 hook 實際會載的 ~/.claude/lib/overview_hub.py 解析部位表（函式 docstring 已寫明）",
+    ("tools/usage-snapshot/usage_snapshot.py",
+     'PROFILE_DIR = CLAUDE_DIR / "tools" / "usage-snapshot" / "browser-data"   # Chrome 登入 profile（使用者資料）'):
+        "Chrome 登入 profile 是使用者資料、刻意看資料根（A2c 拍板 5）；放在資料根的 tools/usage-snapshot/ 底下，一般安裝兩根同一路徑，既有 profile 位置不變",
 }
 
 
