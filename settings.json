@@ -108,7 +108,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task",
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task|AskUserQuestion|ExitPlanMode",
         "hooks": [
           {
             "type": "command",
@@ -120,7 +120,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|ExitPlanMode|Bash|PowerShell|Read|Agent|Task|mcp__workflow-guardian__anti_evasion_report|mcp__workflow-guardian__atom_write|mcp__workflow-guardian__atom_retire|mcp__workflow-guardian__knowledge_harvest_report",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|ExitPlanMode|Bash|PowerShell|Read|Agent|Task|mcp__workflow-guardian__anti_evasion_report|mcp__workflow-guardian__atom_write|mcp__workflow-guardian__atom_retire|mcp__workflow-guardian__knowledge_harvest_report|mcp__workflow-guardian__need_goal",
         "hooks": [
           {
             "type": "command",

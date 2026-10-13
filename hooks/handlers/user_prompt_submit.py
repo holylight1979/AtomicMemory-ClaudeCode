@@ -18,6 +18,7 @@ turn_injected 歸因記錄、atom-debug summary、budget 截斷輸出。
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -270,6 +271,18 @@ def handle_user_prompt_submit(
     turn_intent = classify_intent(clean_prompt)
     state["turn_intent"] = turn_intent
 
+    # 需求目標（4.1）：使用者本人打的字記進目前的目標樹、同伴訊息記成轉述；沒樹時提醒先寫目標、有樹時送回樹根一行。
+    # 排在導讀卡之前（目標那一行先到眼前）；本則的回合號＝turn_seq＋1（這則收尾才加一）
+    try:
+        from wg_need_goal import on_prompt as _ng_on_prompt
+        _ng_txt = _ng_on_prompt(session_id, clean_prompt, int(state.get("turn_seq", 0)) + 1, config,
+                                cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
+        if _ng_txt:
+            lines.append(_ng_txt)
+    except Exception as e:
+        _atom_debug_error("ups:need_goal", e)
+        print(f"[NeedGoal] UserPromptSubmit 記原話失敗：{type(e).__name__}: {e}", file=sys.stderr)
+
     # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 依意圖選片注入導讀卡（fail-open）
     try:
         from wg_overview import on_prompt as _hub_on_prompt
@@ -337,12 +350,30 @@ def handle_user_prompt_submit(
         session_id, state, config, clean_prompt, lines
     )
 
-    # 使用者糾正訊號：跨 turn 計數（wg_friction），達門檻由 Stop 的 Deep Post-Mortem 消費
+    # 使用者糾正訊號：跨 turn 計數（wg_friction），達門檻由 Stop 的 Deep Post-Mortem 消費；
+    # 命中（只算使用者本人打的字）且有需求目標樹 → 提醒回頭看樹（4.3，不擋）
+    correction_hits: List[str] = []
     try:
         from wg_friction import record_correction
-        record_correction(state, session_id, clean_prompt, config)
+        correction_hits = record_correction(state, session_id, clean_prompt, config)
     except Exception as e:
         _atom_debug_error("ups:friction", e)
+    # 同伴 session 送來的訊息＝外部主張：裁定前送「用目標視角重看」三問（4.3；使用者本人打的字不觸發）
+    if correction_hits or "<cross-session-message" in clean_prompt[:300]:
+        try:
+            import wg_need_goal as _ng
+            from wg_need_goal_points import on_correction, on_external_claim, peer_of_prompt
+            if _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
+                _ng_turn = int(state.get("turn_seq", 0) or 0) + 1
+                _ng_peer = peer_of_prompt(clean_prompt)
+                for _ng_line in (on_correction(session_id, correction_hits, _ng_turn) if correction_hits else None,
+                                 on_external_claim(session_id, "同伴訊息", _ng_peer or "同伴 session", _ng_turn)
+                                 if _ng_peer is not None else None):
+                    if _ng_line:
+                        lines.append(_ng_line)
+        except Exception as e:
+            print(f"[NeedGoal] 糾正或外部主張提醒失敗（不送）：{type(e).__name__}: {e}", file=sys.stderr)
+            _atom_debug_error("ups:need_goal_correction", e)
 
     # Topic tracking
     _update_topic_tracker(state, prompt, intent, newly_injected)

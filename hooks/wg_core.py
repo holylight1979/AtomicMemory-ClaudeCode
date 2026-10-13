@@ -1901,14 +1901,16 @@ def _lex_shell(cmd: str) -> List[_Tok]:
 
 
 class _Scan:
-    """一次解析的累積結果：targets（絕對路徑）、signal（有沒有寫入訊號）、unknown（算不出目標的那段文字）。"""
-    __slots__ = ("targets", "signal", "unknown", "ps")
+    """一次解析的累積結果：targets（絕對路徑）、signal（有沒有寫入訊號）、unknown（算不出目標的那段文字）、
+    sources（cp／mv 家族：目標 → 它的來源絕對路徑）。"""
+    __slots__ = ("targets", "signal", "unknown", "ps", "sources")
 
     def __init__(self, ps: bool = False) -> None:
         self.targets: List[str] = []
         self.signal = False
         self.unknown: Optional[str] = None
         self.ps = ps                        # PowerShell 工具：寫檔 cmdlet 的別名才生效（Bash 下 sc 是 sc.exe，不是 Set-Content）
+        self.sources: Dict[str, List[str]] = {}
 
 
 def _write_target_abs(tok: str, cwd: Optional[str]) -> Optional[str]:
@@ -2053,6 +2055,21 @@ def _add(out: _Scan, seg: List[_Tok], resolved: Optional[str]) -> None:
         _mark_unknown(out, seg)
     elif resolved and resolved not in out.targets:
         out.targets.append(resolved)
+
+
+def _add_copy(out: _Scan, seg: List[_Tok], srcs: List[str], dst: str, cwd: Optional[str]) -> None:
+    """cp 家族：目標照 _copy_targets 算，每個目標記下來源（給「搬的是不是程式」判斷；目的地還不存在時路徑看不出來）。
+    srcs 空字串＝來源不明，只收目標。"""
+    tgts = _copy_targets([s or "x" for s in srcs], dst, cwd)
+    pairs = list(zip(tgts, srcs)) if len(tgts) == len(srcs) else [(t, s) for t in tgts for s in srcs]
+    for t in tgts:
+        _add(out, seg, t)
+    for t, s in pairs:
+        src = _write_target_abs(s, cwd) if s else None
+        if t and t != _WRITE_TARGET_UNKNOWN and src and src != _WRITE_TARGET_UNKNOWN:
+            got = out.sources.setdefault(t, [])
+            if src not in got:
+                got.append(src)
 
 
 def _inner_has_signal(text: str, cwd: Optional[str]) -> bool:
@@ -2300,17 +2317,14 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
                 continue
             pos.append(a)
         if tdir:
-            for p in _copy_targets(pos, tdir + "/", cwd):
-                _add(out, seg, p)
+            _add_copy(out, seg, pos, tdir + "/", cwd)
         elif len(pos) >= 2:
-            for p in _copy_targets(pos[:-1], pos[-1], cwd):
-                _add(out, seg, p)
+            _add_copy(out, seg, pos[:-1], pos[-1], cwd)
     else:
         for item in _ps_targets(name, args):
             if "\x00" in item:
                 dst, src = item.split("\x00", 1)
-                for p in _copy_targets([src] if src else ["x"], dst, cwd):
-                    _add(out, seg, p)
+                _add_copy(out, seg, [src], dst, cwd)
             else:
                 _add(out, seg, _write_target_abs(item, cwd))
     return cwd
@@ -2326,15 +2340,27 @@ def write_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optio
             return []
         p = _write_target_abs(fp, base)
         return [p if p and p != _WRITE_TARGET_UNKNOWN else f"{_WRITE_TARGET_UNKNOWN}:{fp[:40]}"]
-    if tool_name not in ("Bash", "PowerShell"):
-        return []
-    out = _Scan(ps=tool_name == "PowerShell")
-    _scan_tokens(_lex_shell(tool_input.get("command", "") or ""), base, out)
-    if not out.signal:
+    out = _scan_shell_tool(tool_name, tool_input, base)
+    if out is None or not out.signal:
         return []
     if out.unknown is not None:
         return [f"{_WRITE_TARGET_UNKNOWN}:{out.unknown[:40]}"]
     return out.targets
+
+
+def _scan_shell_tool(tool_name: str, tool_input: Dict[str, Any], base: str) -> Optional[_Scan]:
+    if tool_name not in ("Bash", "PowerShell"):
+        return None
+    out = _Scan(ps=tool_name == "PowerShell")
+    _scan_tokens(_lex_shell(tool_input.get("command", "") or ""), base, out)
+    return out
+
+
+def write_sources_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: Optional[str] = None) -> Dict[str, List[str]]:
+    """Bash／PowerShell 的 cp／mv／install／rsync／ln／Copy-Item／Move-Item：寫入目標 → 它的來源（絕對路徑）。
+    目的地還不存在時光看目標路徑分不出搬的是不是程式，來源才看得出來。其他工具、沒有來源的目標不在裡面。"""
+    out = _scan_shell_tool(tool_name, tool_input, cwd or os.getcwd())
+    return dict(out.sources) if out is not None and out.unknown is None else {}
 
 
 def check_cross_realm_bash(

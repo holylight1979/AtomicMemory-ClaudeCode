@@ -23,6 +23,7 @@ HUB_REL = Path(".claude") / "overview-hub.json"
 INTENT_KEYS = ("debug", "feature", "refactor", "perf", "new_project", "build", "design", "recall", "handoff", "general")
 _GOAL_WEIGHT_KEYS = ("slices", "lens", "ask_first")
 _EVIDENCE_KEYS = ("card", "part_files", "depends_files")
+_NEED_GOAL_KEYS = ("enabled", "scope_growth_dirs", "render_chars")
 
 # 變量預設（預計畫附錄 D）
 HUB_DEFAULTS: Dict[str, Any] = {
@@ -71,6 +72,9 @@ HUB_DEFAULTS: Dict[str, Any] = {
     },
     # 量尺閘（wg_verify_ledger）讀合併後的 verify_chains[部位]={runtime_gate,pre,run,collect,cleanup}
     "verify_chains": {},
+    # 需求目標流程（hooks/wg_need_goal）：enabled 整個流程的開關；scope_growth_dirs 讀入範圍變大的頂層目錄門檻；
+    # render_chars 精簡版目標樹的字數上限
+    "need_goal": {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200},
 }
 KNOWN_KEYS = frozenset(HUB_DEFAULTS)
 RETIRED_KEYS = ("dry_run", "deny_parts")          # 退役：閘一律擋；出現只警告，不報錯
@@ -211,6 +215,19 @@ def validate_smells(c: Dict[str, Any]) -> List[str]:
     return errors
 
 
+def validate_need_goal(ng: Any) -> List[str]:
+    """need_goal：enabled 是 true／false；scope_growth_dirs、render_chars 是正整數；無其他鍵。"""
+    if not isinstance(ng, dict):
+        return ["need_goal 必須是物件"]
+    errors = [f"need_goal 有未知鍵「{k}」" for k in sorted(ng) if k not in _NEED_GOAL_KEYS and not k.startswith("_")]
+    if not isinstance(ng.get("enabled"), bool):
+        errors.append("need_goal.enabled 必須是 true／false")
+    for k in ("scope_growth_dirs", "render_chars"):
+        if not _is_nonneg_int(ng.get(k)) or ng.get(k) == 0:
+            errors.append(f"need_goal.{k} 必須是正整數")
+    return errors
+
+
 def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str], List[str]]:
     """合併後設定 → (錯誤清單, 出現的退役鍵)。未知鍵報錯；退役鍵不報錯只回報；底線開頭的鍵（_doc、_errors）不檢查。"""
     errors: List[str] = []
@@ -251,6 +268,7 @@ def validate_hub_cfg(c: Dict[str, Any], root: Optional[Path]) -> Tuple[List[str]
     errors.extend(validate_goal_weights(c.get("goal_weights")))
     errors.extend(validate_evidence(c.get("min_overview_evidence")))
     errors.extend(validate_smells(c))
+    errors.extend(validate_need_goal(c.get("need_goal")))
     return errors, retired
 
 

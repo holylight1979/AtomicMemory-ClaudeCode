@@ -338,6 +338,18 @@ def _strip_heredoc_bodies(command: str) -> str:
     return "\n".join(out)
 
 
+def _git_commits_to_run(command: str) -> Tuple[str, List[Tuple[str, List[str]]], bool]:
+    """命令裡真的會執行的 git commit（CommitOrder 與需求目標 commit_gate 共用這一支）：先剝 heredoc 本文，寫在文件裡的
+    commit 範例不算、heredoc 結束後真的執行的照算。回（剝過的命令、直接拆得出的 commit 段、有沒有 commit：拆得出段，
+    或包裝／展開裡可能有）。快篩與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git。"""
+    low = (command or "").lower()
+    if "git" not in low or "commit" not in low:
+        return command or "", [], False
+    stripped = _strip_heredoc_bodies(command)
+    segments = _git_commit_segments(stripped)
+    return stripped, segments, bool(segments) or _wrapped_commit_verdict(stripped)
+
+
 def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
     low = (prompt or "").lower()
     for k in keywords:
@@ -645,13 +657,9 @@ def check_git_commit_order(
     if not cfg.get("enabled", True):
         return None
     command = tool_input.get("command", "") or ""
-    low = command.lower()                       # 快篩與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git
-    if "git" not in low or "commit" not in low:
-        return None
     try:
-        stripped = _strip_heredoc_bodies(command)
-        segments = _git_commit_segments(stripped)
-        if not segments and not _wrapped_commit_verdict(stripped):
+        _stripped, segments, has_commit = _git_commits_to_run(command)
+        if not has_commit:
             # 包在 shell 包裝／子 shell／eval 裡的 git commit 解析器拆不出來：拆得出內層且確定是查詢才放行，其餘照常檢查口令
             return None
         # 原子記憶系統自己的程式與文件不等口令：驗證過就直接上版控（USER.md 例外條）；記憶內容三層由 vcs-sync worker
@@ -1106,9 +1114,69 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
     }})
 
 
+def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """需求目標 4.4（AskUserQuestion／ExitPlanMode 前）：有目標樹就要題目或計畫裡寫節點編號；寫碼類沒寫 deny 並列節點，
+    知識類與還沒有樹只補提示（wg_need_goal_points.on_ask）。子代理不跑（裁判子 session 由 dispatcher 分去
+    handle_judge_pre_tool_use，到不了這裡）。處理過的提問記進 state["need_goal_asks"]，PostToolBatch 就不再事後處理。
+    這支本身炸了 → 照契約擋＋stderr＋守門紀錄 ask_error；只放過【收尾放行確認】而且本 session 真有擋滿待放行紀錄的題目
+    （放行題問不出去，收尾就死鎖）。"""
+    sid = input_data.get("session_id", "") or ""
+    if not sid or input_data.get("agent_id"):
+        output_nothing()
+        return
+    import wg_release
+    try:
+        import wg_need_goal as _ng
+        from wg_need_goal_points import mark_asked, note_ask_blocked, on_ask
+        from wg_core import write_state
+        state, status = read_state_status(sid)
+        if not _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
+            output_nothing()
+            return
+        tool_input = input_data.get("tool_input") or {}
+        deny, hint = on_ask(sid, tool_name, tool_input, state or {})
+        if status == "ok" and state is not None:
+            mark_asked(state, str(input_data.get("tool_use_id") or ""), tool_input)
+            note_ask_blocked(state, deny)     # PostToolBatch 的提問審計看「擋過幾次」
+            write_state(sid, state)
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {e}"
+        state = read_state(sid) or {}
+        release = (wg_release.RELEASE_TAG in json.dumps(input_data.get("tool_input") or {}, ensure_ascii=False)
+                   and wg_release.pending_any(state, sid))
+        sys.stderr.write(f"[NeedGoal] 提問前檢查失敗（{'放行題照放' if release else '擋'}）：{err}\n")
+        try:
+            from wg_core import append_guard_log
+            append_guard_log("need_goal", {"event": "ask_error", "session_id": sid, "tool": tool_name, "error": err,
+                                           "released": release})
+        except Exception as log_err:  # noqa: BLE001
+            sys.stderr.write(f"[NeedGoal] ask_error 守門紀錄寫不進去：{type(log_err).__name__}: {log_err}\n")
+        if release:
+            output_nothing()
+            return
+        output_json({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "deny",
+            "permissionDecisionReason": (f"[NeedGoal] 提問前檢查壞了，判不了這題掛在目標樹哪個節點，一律擋（{err}）。"
+                                         "修好 hooks/wg_need_goal*.py 再問；只有【收尾放行確認】而且真有擋滿待放行紀錄的題目照放。")}})
+        return
+    if deny:
+        output_json({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": deny}})
+        return
+    if hint:
+        output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": hint}})
+        return
+    output_nothing()
+
+
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
+
+    # 需求目標 4.4：問使用者之前（settings.json PreToolUse matcher 掛了這兩個工具才會走到這裡；沒掛時由 PostToolBatch 事後提醒）
+    if tool_name in ("AskUserQuestion", "ExitPlanMode"):
+        _need_goal_ask(tool_name, input_data, config)
+        return
 
     # ─── Sub-agent 記憶注入 ────────────────────────────────────
     # sub-agent（Agent/Task）開全新 context、不觸發 UserPromptSubmit，吃不到 atom。
@@ -1297,6 +1365,26 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
+    # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2) 缺了就擋；判不了一律擋。
+    # 是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
+    if tool_name in ("Bash", "PowerShell"):
+        _ng_cmd = tool_input.get("command", "") or ""
+        if _git_commits_to_run(_ng_cmd)[2] or _svn_segments(_strip_heredoc_bodies(_ng_cmd), {"commit", "ci"}):
+            try:
+                from wg_need_goal import commit_gate
+                deny_reason = commit_gate(_co_sid, config)
+            except Exception as e:
+                deny_reason = f"[NeedGoal] commit 前核對需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
+            if deny_reason:
+                output_json({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": deny_reason,
+                    }
+                })
+                return
+
     # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足一律 deny。
     # 五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 on_edit。
     # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，注入紀錄才落得了盤；
@@ -1305,10 +1393,15 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
     if tool_name in ("Write", "Edit", "NotebookEdit", "Bash", "PowerShell"):
         hub_deny = None
         try:
-            from wg_core import _ensure_state as _hub_ensure_state, write_paths_from_tool, write_state as _ws
+            from wg_core import (_ensure_state as _hub_ensure_state, write_paths_from_tool, write_sources_from_tool,
+                                 write_state as _ws)
             from wg_overview import on_edit as _hub_on_edit
+            from wg_need_goal import edit_gate as _ng_edit_gate
             _hub_targets = write_paths_from_tool(tool_name, tool_input, _cwd)
             if _hub_targets:
+                # 需求目標判「是不是改程式」另看 cp／mv 的來源與 Write 要寫的內容（目的地還不存在、新建的腳本沒副檔名）
+                _ng_sources = write_sources_from_tool(tool_name, tool_input, _cwd)
+                _ng_content = tool_input.get("content") if tool_name == "Write" else None
                 _hub_state = _co_state
                 if _hub_state is None and _co_sid and _co_status == "missing":
                     _hub_state = _hub_ensure_state(_co_sid, input_data, config)
@@ -1318,6 +1411,11 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 _hub_warns: List[str] = []
                 hub_changed = False
                 for _hub_fp in _hub_targets:
+                    # 需求目標第一層（4.2）：寫碼類檔沒有目標樹就擋，在 OverviewHub 任何判斷之前（OverviewHub 關掉、沒專案根、表外都照查）
+                    _ng_deny = _ng_edit_gate(_co_sid, _hub_fp, config, _ng_sources.get(_hub_fp, ()), _ng_content)
+                    if _ng_deny:
+                        hub_deny = _ng_deny
+                        break
                     _w, _d, _c = _hub_on_edit(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
                     )

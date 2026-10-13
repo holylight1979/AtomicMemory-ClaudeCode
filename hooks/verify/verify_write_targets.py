@@ -17,7 +17,7 @@ os.environ.setdefault("WG_CLAUDE_DIR", str(HOOKS_DIR.parent))
 sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(HOOKS_DIR.parent / "lib"))
 
-from wg_core import write_paths_from_tool  # noqa: E402
+from wg_core import write_paths_from_tool, write_sources_from_tool  # noqa: E402
 
 CWD = "C:/Work/Proj"
 
@@ -193,6 +193,24 @@ def test_write_targets_cp_into_existing_directory(tmp_path):
     (tmp_path / "out").mkdir()
     got = _n(write_paths_from_tool("Bash", {"command": "cp a.py out"}, str(tmp_path)))
     assert got == [str(tmp_path / "out" / "a.py").replace("\\", "/")]
+
+
+def _srcs(tool, cmd):
+    return {k.replace("\\", "/"): _n(v) for k, v in write_sources_from_tool(tool, {"command": cmd}, CWD).items()}
+
+
+def test_write_sources_map_each_copy_target_to_its_source():
+    """需求目標判「搬的是不是程式」用：目的地還不存在時看來源。一對一、多來源進目錄、-t、Move-Item 都對得上；
+    沒有來源的寫入（重導向）、非 shell 工具、算不出目標的命令回空；寫入目標本身跟以前一樣。"""
+    assert _srcs("Bash", "mv src pkg") == {"C:/Work/Proj/pkg": ["C:/Work/Proj/src"]}
+    assert _srcs("Bash", "mv a.py b.py c/") == {"C:/Work/Proj/c/a.py": ["C:/Work/Proj/a.py"],
+                                                "C:/Work/Proj/c/b.py": ["C:/Work/Proj/b.py"]}
+    assert _srcs("Bash", "cp -t dest a.py") == {"C:/Work/Proj/dest/a.py": ["C:/Work/Proj/a.py"]}
+    assert _srcs("PowerShell", "Move-Item -Path src -Destination pkg") == {"C:/Work/Proj/pkg": ["C:/Work/Proj/src"]}
+    assert _srcs("Bash", "echo x > out.txt") == {}
+    assert write_sources_from_tool("Write", {"file_path": "C:/Work/Proj/x.py"}, CWD) == {}
+    assert _srcs("Bash", "cp src $DEST") == {}
+    assert _n(write_paths_from_tool("Bash", {"command": "cp -t dest"}, CWD)) == []          # 沒來源的 -t：不多出目標
 
 
 def test_write_targets_edit_relative_path_is_absolutized():

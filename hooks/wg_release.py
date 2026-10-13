@@ -178,6 +178,12 @@ def pending_of(state: Dict[str, Any], sid: str, gate: str) -> Optional[Dict[str,
     return rec if isinstance(rec, dict) else None
 
 
+def pending_any(state: Dict[str, Any], sid: str) -> bool:
+    """這個 session 真的有一筆擋滿待放行：同一個閘的 last_block 與 pending_release 都在（光在題目加【收尾放行確認】不算）。"""
+    blocks = (state.get("last_block") or {}).get(sid) or {}
+    return any(pending_of(state, sid, g) is not None for g in blocks)
+
+
 CLAIM_CHARS = 3000
 
 
