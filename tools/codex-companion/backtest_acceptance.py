@@ -40,11 +40,16 @@ sys.path.insert(0, str(SERVICE_DIR))
 import acceptance  # noqa: E402
 import assessor  # noqa: E402
 
-CLAUDE_DIR = Path.home() / ".claude"
+CODE_DIR = SERVICE_DIR.parents[1]   # 程式碼根（本檔所在的樹）
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow 與驗收紀錄
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
 OUT_PATH = WORKFLOW_DIR / "acceptance-backtest.jsonl"
-REPO = CLAUDE_DIR  # 回放對象 = 本 repo 的 git 歷史
+REPO = CODE_DIR  # 回放對象 = 本 repo 的 git 歷史
 DONE_DIR = CLAUDE_DIR / ".claude" / "verify" / "done"
 
 _write_lock = threading.Lock()

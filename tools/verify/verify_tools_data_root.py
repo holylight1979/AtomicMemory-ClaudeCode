@@ -58,6 +58,30 @@ TOOLS = {
     "rag-engine.py": (["VECTORDB_DIR"], ["SERVICE_DIR"]),
     "codex-companion/state.py": (["WORKFLOW_DIR"], []),
     "../hooks/codex_companion.py": (["CLAUDE_DIR", "WORKFLOW_DIR", "CONFIG_PATH"], ["COMPANION_DIR", "AUDIT_SCRIPT"]),
+    "atom-set-realm.py": (["CLAUDE_DIR", "_CLAUDE_ROOT", "GLOBAL_MEMORY_DIR", "LOCAL_ATOMS_DIR"], ["_CODE_ROOT"]),
+    "changelog-roll.py": ([], ["CODE_DIR", "DEFAULT_CHANGELOG", "DEFAULT_ARCHIVE"]),
+    "cleanup-old-files.py": (["CLAUDE_DIR", "CLEANUP_RULES[2][0]"], ["CODE_DIR"]),
+    "cleanup-projects-residue.py": (["CLAUDE_DIR", "PROJECTS_DIR", "ARCHIVE_ROOT"], ["CODE_DIR"]),
+    "codex-companion/backtest_acceptance.py": (["CLAUDE_DIR", "WORKFLOW_DIR", "CONFIG_PATH", "OUT_PATH", "DONE_DIR"],
+                                               ["CODE_DIR", "REPO", "SERVICE_DIR"]),
+    "generate-episodic-manual.py": (["CLAUDE_DIR", "WORKFLOW_DIR"], ["HOOKS_DIR"]),
+    "heal-review.py": (["CLAUDE_DIR", "MEMORY", "REVIEW"], ["CODE_DIR", "TOOLS"]),
+    "journal-aggregate.py": (["CLAUDE_DIR", "DEFAULT_JOURNALS_DIR", "WORKFLOW_DIR"], ["CODE_DIR"]),
+    "usage-snapshot/usage_snapshot.py": (["CLAUDE_DIR", "OUT_DIR", "LAST_RUN", "LOG", "PROFILE_DIR"], ["TOOL_DIR"]),
+    "check-bypass.py": ([], ["CODE_DIR"]),
+    "ollama_client.py": (["CLAUDE_DIR", "CONFIG_PATH", "TOKEN_PATH", "OllamaClient.LONG_DIE_MARKER"], ["CODE_DIR"]),
+    "realm_llm_classify.py": (["CLAUDE_DIR"], ["_CODE_ROOT"]),
+    "atom-categorize.py": (["CLAUDE_DIR", "DEFAULT_UNDO_DIR"], ["_CODE_ROOT", "_SET_REALM_FILE"]),
+    "atom-health-check.py": (["CLAUDE_DIR", "MEMORY_ROOT", "GLOBAL_MEMORY_ROOT", "AIDOCS_ROOT"], ["CODE_DIR"]),
+    "atom-move.py": (["CLAUDE_DIR", "GLOBAL_MEMORY", "REGISTRY_PATH"], ["_CODE_ROOT"]),
+    "auto-continue/auto_continue.py": (["CLAUDE_DIR"], ["TOOL_DIR", "CODE_DIR"]),
+    "codex-companion/acceptance.py": (["CLAUDE_DIR", "WORKFLOW_DIR", "SIDECAR_DIR", "AUDIT_JSONL"], ["SERVICE_DIR"]),
+    "codex-companion/audit.py": (["CLAUDE_DIR", "WORKFLOW_DIR", "CONFIG_PATH"], ["SERVICE_DIR"]),
+    "codex-companion/judge_backend.py": (["CLAUDE_DIR", "STATE_PATH"], ["CODE_DIR"]),
+    "memory-audit.py": (["CLAUDE_DIR", "AUDIT_LOG_PATH"], ["_CODE_ROOT"]),
+    "memory-conflict-detector.py": (["CLAUDE_DIR", "AUDIT_LOG"], ["_CODE_ROOT"]),
+    "memory-write-gate.py": (["CLAUDE_DIR", "CONFIG_PATH", "AUDIT_LOG"], ["_SELF_ROOT"]),
+    "sync_doc_counts.py": (["CLAUDE_DIR"], ["_CLAUDE_ROOT"]),
 }
 
 PROBE = r"""
@@ -71,9 +95,9 @@ spec.loader.exec_module(mod)
 def get(name):
     obj = mod
     for part in name.split("."):
-        part, _, key = part.partition("[")
-        obj = getattr(obj, part)
-        if key:
+        attr, *keys = part.split("[")
+        obj = getattr(obj, attr)
+        for key in keys:
             key = key.rstrip("]")
             obj = obj[int(key)] if key.isdigit() else obj[key]
     return obj
@@ -201,6 +225,73 @@ def test_paired_vector_and_companion_share_data_root(dirs, cwd):
     assert len({_n(p) for p in got["workflow"]}) == 1 and _n(got["workflow"][0]) == _n(data / "workflow")
     assert got["assess_glob"] == ["companion-state-a2c-probe.json"]                     # 寫的和讀的同一處
     assert not (home / ".claude").exists()                                              # 反例：家目錄不被碰
+
+
+@pytest.mark.parametrize("tool,names", [
+    ("cleanup-old-files.py", ["HARNESS_DIR", "CLEANUP_RULES[0][0]", "CLEANUP_RULES[1][0]"]),
+    ("check-bypass.py", ["HARNESS_DIR"]),
+])
+def test_cc_harness_dirs_stay_in_home(tool, names, dirs, cwd):
+    """CC 自己的目錄（shell-snapshots、debug、plugins）刻意看家目錄：設了 WG_CLAUDE_DIR 也不跟資料根走。"""
+    home, data = dirs
+    got = _probe(tool, names, _env(home, data), cwd)
+    for n in names:
+        assert _under(got[n], home / ".claude") and not _under(got[n], data), (n, got[n])
+
+
+def _run_tool(rel: str, args, env, cwd: Path):
+    return subprocess.run([sys.executable, "-X", "utf8", "-P", str(TREE / "tools" / rel), *map(str, args)], env=env,
+                          cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          timeout=120, creationflags=NO_WINDOW)
+
+
+def test_changelog_roll_archive_defaults_next_to_given_changelog(dirs, cwd, tmp_path):
+    """只給 --changelog（post_tool_use 自動捲動就是這樣叫）：封存檔落在同資料夾，不寫進本樹或家目錄的 _AIDocs。"""
+    home, data = dirs
+    docs = tmp_path / "proj" / "_AIDocs"
+    docs.mkdir(parents=True)
+    rows = "".join(f"| 2026-09-{d:02d} | 變更{d} | a.py |\n" for d in range(1, 13))
+    (docs / "_CHANGELOG.md").write_text("# 變更記錄\n\n| 日期 | 變更 | 涉及檔案 |\n|------|------|---------|\n" + rows,
+                                        encoding="utf-8")
+    tree_archive = TREE / "_AIDocs" / "_CHANGELOG_ARCHIVE.md"
+    before = tree_archive.read_bytes() if tree_archive.exists() else None
+    r = _run_tool("changelog-roll.py", ["--changelog", docs / "_CHANGELOG.md", "--keep=8", "--quiet"],
+                  _env(home, data), cwd)
+    assert r.returncode == 0, r.stderr[-2000:]
+    archive = docs / "_CHANGELOG_ARCHIVE.md"
+    assert archive.is_file() and "變更1 " in archive.read_text(encoding="utf-8")
+    assert not (home / ".claude").exists() and not (data / "_AIDocs").exists()           # 反例：舊碼寫進家目錄
+    assert (tree_archive.read_bytes() if tree_archive.exists() else None) == before
+
+
+def test_ollama_disable_backend_writes_data_root_config(dirs, cwd):
+    """hook 讀資料根的 config；disable_backend 也要改同一份，不能寫家目錄那份。"""
+    home, data = dirs
+    (data / "workflow").mkdir()
+    cfg = data / "workflow" / "config.json"
+    cfg.write_text(json.dumps({"vector_search": {"ollama_backends": {"probe": {"enabled": True}}}}), encoding="utf-8")
+    snippet = ("import json, sys; sys.path.insert(0, sys.argv[1]); import ollama_client as oc; "
+               "print('PROBE_JSON ' + json.dumps(oc.disable_backend('probe')))")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", snippet, str(TREE / "tools")], env=_env(home, data),
+                       cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=120, creationflags=NO_WINDOW)
+    assert r.returncode == 0 and "PROBE_JSON true" in r.stdout, r.stdout + r.stderr[-2000:]
+    assert json.loads(cfg.read_text(encoding="utf-8"))["vector_search"]["ollama_backends"]["probe"]["enabled"] is False
+    assert not (home / ".claude").exists()
+
+
+def test_atom_health_check_report_with_local_atom_under_data_root(dirs, cwd):
+    """資料根不在家目錄：_AIDocs/_atoms 下的 atom 算相對路徑要對資料根（反例：舊碼對家目錄 relative_to 丟 ValueError）。"""
+    home, data = dirs
+    (data / "memory").mkdir()
+    (data / "memory" / "MEMORY.md").write_text("# Atom Index\n", encoding="utf-8")
+    local = data / "_AIDocs" / "_atoms" / "Tools"
+    local.mkdir(parents=True)
+    (local / "local-probe.md").write_text("# local-probe\n\n- Scope: global\n- Confidence: [臨]\n- Trigger: probe\n\n"
+                                          "## 知識\n\n- [臨] x\n\n## 行動\n\n- y\n", encoding="utf-8")
+    r = _run_tool("atom-health-check.py", ["--report", "--json"], _env(home, data), cwd)
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-2000:]
+    assert "_AIDocs" in r.stdout and "local-probe" in r.stdout
 
 
 def test_fake_worktree_followup_check_reads_and_writes_data_root_only(tmp_path):

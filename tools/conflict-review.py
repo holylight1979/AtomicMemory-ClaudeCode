@@ -23,7 +23,6 @@ from typing import Any, Dict, List, Optional
 
 CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
 HOOKS_DIR = CODE_DIR / "hooks"
-CLAUDE_DIR = Path.home() / ".claude"                # 使用者資料
 sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(CODE_DIR))
 from wg_core import find_project_root  # noqa: E402

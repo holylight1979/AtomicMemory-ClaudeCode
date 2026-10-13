@@ -26,7 +26,9 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 # Single source of truth: lib/atom_spec.py
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 從本樹載
+sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
 from lib.atom_spec import (  # noqa: E402
     is_atom_file, REQUIRED_METADATA, parse_depends, resolve_depends_path,
 )
@@ -34,9 +36,10 @@ from lib.atom_locations import iter_atom_files_multi, atom_search_roots  # noqa:
 from lib.atom_io import write_raw  # noqa: E402  走 funnel：EOL-preserving + audit（杜絕 bypass 裸寫）
 from lib.atom_access import read_access  # noqa: E402  計數欄居 sidecar <atom>.access.json
 
-MEMORY_ROOT = Path.home() / ".claude" / "memory"
-GLOBAL_MEMORY_ROOT = Path.home() / ".claude" / "memory"
-AIDOCS_ROOT = Path.home() / ".claude" / "_AIDocs"
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
+MEMORY_ROOT = CLAUDE_DIR / "memory"
+GLOBAL_MEMORY_ROOT = CLAUDE_DIR / "memory"
+AIDOCS_ROOT = CLAUDE_DIR / "_AIDocs"
 EXTRA_SCAN_ROOTS: list[Path] = []  # populated from CLI; searched as fallback for ref resolution
 # Central hub atoms — skip reverse-link warnings for these
 # (hub docs don't back-reference every detail doc that points to them)
@@ -110,9 +113,9 @@ def mojibake_names(root: Path) -> list[Path]:
 
 
 def _under_mojibake(path: Path, root: Path) -> bool:
-    """只看 root（或舊址根 ~/.claude）以下的路徑段，使用者家目錄本身含 Latin-1 字不算。"""
+    """只看 root（或資料根）以下的路徑段，使用者家目錄本身含 Latin-1 字不算。"""
     rel = Path(path.name)
-    for base in (root, Path.home() / ".claude"):
+    for base in (root, CLAUDE_DIR):
         try:
             rel = path.relative_to(base)
             break
@@ -594,11 +597,11 @@ def full_report(atoms: dict[str, Path], aliases: dict[str, str] | None = None,
         fm = parse_frontmatter(path)
         acc = read_access(path)  # 計數欄居 sidecar <atom>.access.json
         related = parse_related(fm)
-        # atom 可居 memory/ 樹外（舊址 _AIDocs/Failures/、_AIDocs/_atoms/）→ 退相對 ~/.claude 計算
+        # atom 可居 memory/ 樹外（舊址 _AIDocs/Failures/、_AIDocs/_atoms/）→ 退相對資料根計算
         try:
             file_rel = str(path.relative_to(MEMORY_ROOT))
         except ValueError:
-            file_rel = str(path.relative_to(Path.home() / ".claude"))
+            file_rel = str(path.relative_to(CLAUDE_DIR))
         entry = {
             "name": name,
             "file": file_rel,

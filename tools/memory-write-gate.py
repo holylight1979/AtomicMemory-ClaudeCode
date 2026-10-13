@@ -29,16 +29,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-CLAUDE_DIR = Path.home() / ".claude"
+# lib 一律從本腳本所在 repo 根載入（worktree 內跑 verify 不得撈到 live 的 lib）；CLAUDE_DIR 只管 config／audit 落點
+_SELF_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_SELF_ROOT))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
 AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 
 # 大小預算 + 樣式警告：規則單一來源 lib/atom_spec；import 失敗時退最小 fallback
 # （預算常數內建、樣式警告停用）並照舊放行其餘檢查——本 gate 不因依賴缺失而更擋人。
-# lib 一律從本腳本所在 repo 根載入（worktree 內跑 verify 不得撈到 live 的 lib）；CLAUDE_DIR 只管 config／audit 落點
-_SELF_ROOT = Path(__file__).resolve().parent.parent
 try:
-    sys.path.insert(0, str(_SELF_ROOT))
     from lib.atom_spec import (
         KNOWLEDGE_BUDGET_BYTES as _BUDGET_DEFAULT,
         knowledge_style_warnings as _style_warnings,

@@ -29,14 +29,15 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ollama_client import get_client
 
-CLAUDE_DIR = Path.home() / ".claude"
-AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
-
 # atom 掃描統一委派 lib.atom_locations（memory/ 遞迴含 memory/Failures/ + 舊址 _AIDocs/Failures/ + _AIDocs/_atoms/）
 _CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 與 hooks 從本樹載
 if str(_CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(_CODE_ROOT))
 from lib.atom_locations import GLOBAL_MEMORY_DIR, iter_atom_files_multi  # noqa: E402
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
+AUDIT_LOG = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 from lib.atom_spec import evidence_rank, parse_evidence  # noqa: E402  證據等級（了義裁決）
 
 # conflict detection
