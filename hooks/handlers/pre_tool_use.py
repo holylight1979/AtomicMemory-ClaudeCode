@@ -381,20 +381,24 @@ _SEPARATORS = ("&&", "||", "\n", ";", "|", "&")
 
 
 def _scan_segments(command: str) -> List[List[Tuple[str, str]]]:
-    """保留引號狀態的切段＋斷詞 → 每段一串 (raw, value)：raw 是 token 在原字串的切片（含引號），value 剝一層引號。
+    """保留引號狀態的切段＋斷詞 → 每段一串 (raw, value)：raw 是 token 的原文（含引號、已去掉續行），value 剝一層引號。
     只在引號外切段（&& || ; | & 換行）。續行接回、不切段：Bash 的 `\\`＋換行（引號外與雙引號裡）、cmd 的 `^`＋換行、
-    PowerShell 的反引號＋換行（都只在引號外）；三種都認，判定只會因此多擋不會少擋。不解其他跳脫。"""
+    PowerShell 的反引號＋換行（都只在引號外）；三種都認，判定只會因此多擋不會少擋。raw 不留續行字元，所以拿 raw 重組
+    再判（`git\\⏎commit`）和展開檢查（`$\\⏎(`）看到的都是接回後的命令。
+    註解：引號外、位在 token 起頭的 `#` 到行尾略過（Bash 與 PowerShell 同語意），換行照切段；引號裡與 token 中間的 `#`
+    是字面（`git commit -m "fix #12"`、`a#b`）。不解其他跳脫。"""
     s = command or ""
     segs: List[List[Tuple[str, str]]] = []
     toks: List[Tuple[str, str]] = []
     val: List[str] = []
-    start, quote, i = -1, "", 0
+    raw: List[str] = []
+    in_token, quote, i = False, "", 0
 
-    def end_token(j: int) -> None:
-        nonlocal val, start
-        if start >= 0:
-            toks.append((s[start:j], "".join(val)))
-        val, start = [], -1
+    def end_token() -> None:
+        nonlocal val, raw, in_token
+        if in_token:
+            toks.append(("".join(raw), "".join(val)))
+        val, raw, in_token = [], [], False
 
     while i < len(s):
         ch = s[i]
@@ -403,26 +407,31 @@ def _scan_segments(command: str) -> List[List[Tuple[str, str]]]:
             continue
         if quote:
             quote = "" if ch == quote else quote
+            raw.append(ch)
             if quote:
                 val.append(ch)
             i += 1
             continue
+        if ch == "#" and not in_token:
+            nl = s.find("\n", i)
+            i = len(s) if nl < 0 else nl
+            continue
         sep = next((p for p in _SEPARATORS if s.startswith(p, i)), "")
         if sep or ch.isspace():
-            end_token(i)
+            end_token()
             if sep and toks:
                 segs.append(toks)
                 toks = []
             i += len(sep) or 1
             continue
-        if start < 0:
-            start = i
+        in_token = True
+        raw.append(ch)
         if ch in "\"'":
             quote = ch
         else:
             val.append(ch)
         i += 1
-    end_token(len(s))
+    end_token()
     if toks:
         segs.append(toks)
     return segs
@@ -434,8 +443,8 @@ def _live_expansion(raw: str) -> bool:
     return bool(_SUBSHELL_RE.search(_unquoted(raw))) or _expands_outside_single_quotes(raw)
 
 
-def _wrapper_split(seg: List[Tuple[str, str]]) -> Optional[Tuple[str, str]]:
-    """seg 是「shell ＋ 執行旗標」段 → (內層命令, 不屬於內層的 raw：shell 前綴、選項、POSIX 的位置參數)；不是 → None。"""
+def _wrapper_split(seg: List[Tuple[str, str]]) -> Optional[str]:
+    """seg 是「shell ＋ 執行旗標」段 → 內層命令（剝一層引號）；不是 → None。"""
     for idx, (_, tok) in enumerate(seg):
         exe = os.path.basename(tok.replace("\\", "/")).lower()
         exe = exe[:-4] if exe.endswith(".exe") else exe
@@ -447,16 +456,16 @@ def _wrapper_split(seg: List[Tuple[str, str]]) -> Optional[Tuple[str, str]]:
             return None
         cut = flag_at + 1
         take = len(seg) - cut if exe == "cmd" or exe in _PS_SHELLS else 1
-        inner = " ".join(v for _, v in seg[cut:cut + take])
-        return inner, " ".join(r for r, _ in seg[:cut] + seg[cut + take:])
+        return " ".join(v for _, v in seg[cut:cut + take])
     return None
 
 
 def _wrapped_commit_verdict(command: str, depth: int = 0, strict: bool = False) -> bool:
     """解析器拆不出 git commit 段時的第二層判斷：True＝有 commit 或判不明（走口令檢查），False＝確定沒有。
-    逐段判（_scan_segments，續行已接回）：
-      包裝段 → 內層遞迴（strict，最多 3 層，超過就只看 git…commit 字樣）；包裝以外的 raw 有展開訊號且命令有 git…commit 字樣 → True。
-      其他段 → 有展開訊號（_live_expansion）且命令有 git…commit 字樣 → True。
+    逐段判（_scan_segments，續行已接回、註解已略過）：
+      每段先用外層 shell 語意查整段原文（含包裝內層自己的外層引號；只有單引號是字面）：有展開訊號（_live_expansion）
+      且命令有 git…commit 字樣 → True。所以 `bash -c "git log --grep='$(…)'"` 的 `$(` 在外層雙引號裡就算數。
+      包裝段 → 再把剝一層引號的內層遞迴（strict，最多 3 層，超過就只看 git…commit 字樣）。
     strict（包裝內層）另加：git 子命令不在 log/status/diff/show 而命令有 git…commit 字樣 → True；
       整段內層既沒有 git 呼叫也沒有包裝卻有 git…commit 字樣 → True（判不明寧擋）。
     續行接回後拆得出 git commit 段 → True。"""
@@ -468,16 +477,15 @@ def _wrapped_commit_verdict(command: str, depth: int = 0, strict: bool = False) 
         return True
     explained = False
     for seg in segs:
-        split = _wrapper_split(seg)
-        if split:
-            explained = True
-            inner, outside = split
-            if _wrapped_commit_verdict(inner, depth + 1, strict=True) or (words and _live_expansion(outside)):
-                return True
-            continue
         raw = " ".join(r for r, _ in seg)
         if words and _live_expansion(raw):
             return True
+        inner = _wrapper_split(seg)
+        if inner is not None:
+            explained = True
+            if _wrapped_commit_verdict(inner, depth + 1, strict=True):
+                return True
+            continue
         if strict:
             subs = [t[0].lower() for _, t in _vcs_segments(raw, None, ("git", "git.exe"), _GIT_VALUE_FLAGS)]
             explained = explained or bool(subs)
@@ -649,7 +657,10 @@ def check_git_commit_order(
         # 原子記憶系統自己的程式與文件不等口令：驗證過就直接上版控（USER.md 例外條）；記憶內容三層由 vcs-sync worker
         # 自動提交，不經此閘。看的是每段 commit 實際落在哪個 repo，不是 session 開在哪；只認看得出落點的寫法
         # （_exempt_run_dirs 白名單），每段都落在 ~/.claude 本身或它的 git worktree 才豁免；其餘照常檢查口令。
-        shape_hint = ""
+        # 拆不出直接的 git commit、是靠包裝或展開判出來的：已知邊界（fail-closed）在擋訊息裡講清楚，讓查詢有路可走
+        shape_hint = "" if segments else (
+            "\n這次拆不出直接的 git commit，是包裝（bash -c、powershell -Command、cmd /c…）或展開（$()、反引號、eval、括號）"
+            "裡可能有 commit：命令裡有 `$()` 等展開又含 commit 字樣時一律要口令；只是查詢的話把 commit 字樣拿掉或改用單引號。")
         if segments and cfg.get("exempt_cwd_under_claude_dir", True):
             base = cwd or str(((state or {}).get("session") or {}).get("cwd") or "")
             run_dirs = _exempt_run_dirs(command, base, msys_paths=(tool_name == "Bash"))

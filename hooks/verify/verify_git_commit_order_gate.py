@@ -638,3 +638,60 @@ def test_deeply_nested_wrapped_commit_is_gated_past_parse_depth(tmp_path):
         assert _check(command=cmd, state=st) is not None, layer
         assert _check(command=cmd, state=st, config=_OFF) is not None, layer
     assert _check(command="bash -c " + shlex.quote("bash -c " + shlex.quote("git log --grep=commit")), state=st) is None
+
+
+# ─── codex 審 005 退件四條：註解、外層雙引號的命令替換、續行重判、已知邊界的擋訊息 ────
+
+def test_comment_apostrophe_does_not_swallow_next_line(tmp_path):
+    """引號外、位在 token 起頭的 `#` 到行尾是註解：註解裡的撇號不是開引號，不得跨行吞掉下一行的包裝 commit。
+    引號裡與 token 中間的 `#` 是字面：訊息含 `#12` 的誠實寫法在記憶系統 worktree 照舊免口令。"""
+    other, ours = _other_repo(tmp_path), _ours(tmp_path)
+    st = _no_order(other)
+    for cmd in ("# Run the user's command\nbash -lc 'git commit -m fix'\n# That's all",
+                "bash -lc 'git log --grep=commit' # user's query\nbash -lc 'git commit -m fix'",
+                "# it's\n\"C:/Program Files/Git/bin/bash.exe\" -lc 'git commit -m fix'",
+                "# don't\npwsh -NoProfile -Command \"git commit -m fix\"",
+                "bash -lc 'git commit -m \"fix #12\"'"):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="# user's note\nbash -lc 'git log --grep=commit'", state=st) is None
+    assert _check(command="bash -lc 'git log --grep=\"#12 commit\"'", state=st) is None
+    w = str(ours).replace("\\", "/")
+    assert _check(command=f'cd {w} && git add a.py && git commit -m "fix #12"', state=_no_order(other)) is None
+    assert _check(command=f'git -C {w} commit -m "fix #12: 收尾"', state=_no_order(other)) is None
+
+
+def test_outer_double_quotes_keep_substitution_live_before_recursion(tmp_path):
+    """外層 shell 的雙引號裡，單引號只是普通字元，擋不住 `$()`：遞迴剝掉外層引號前，先用外層語意查整段原文。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ("bash -c \"git log --grep='$(git commit -m x)'\"",
+                "bash -lc \"git log --grep='`git commit -m x`'\"",
+                "pwsh -NoProfile -Command \"git log --grep='$(git commit -m x)'\""):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="bash -c 'git log --grep=commit'", state=st) is None
+
+
+def test_continuation_inside_git_token_is_rejoined_for_parsing(tmp_path):
+    """續行接回後的文字才拿去判 git commit：`git\\⏎  commit`（反斜線緊貼 git、下一行縮排）也要擋；`$\\⏎(` 接回後是命令替換。
+    `git\\⏎commit`（下一行不縮排）接回後是 `gitcommit` 一個字，不是 git commit，照 Bash 語意放行。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ("git\\\n  commit -m fix", "Git\\\n commit -m fix",
+                "bash -lc 'git log' \"$\\\n(git commit -m x)\""):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="git\\\ncommit -m fix", state=st) is None
+
+
+def test_expansion_with_commit_word_is_known_boundary_and_says_so(tmp_path):
+    """已知邊界（fail-closed）：命令裡有 `$()` 等展開又含 commit 字樣 → 一律要口令；擋訊息講清楚查詢怎麼寫才不擋。
+    直接寫的 git commit 被擋時不附這句（它與包裝／展開無關）。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    msg = _check(command='cd "$(git rev-parse --show-toplevel)" && git log --grep=commit', state=st)
+    assert msg and "展開又含 commit 字樣時一律要口令" in msg and "改用單引號" in msg
+    assert _check(command='cd "$(git rev-parse --show-toplevel)" && git status', state=st) is None
+    plain = _check(command="git commit -m fix", state=st)
+    assert plain and "展開又含 commit 字樣" not in plain
