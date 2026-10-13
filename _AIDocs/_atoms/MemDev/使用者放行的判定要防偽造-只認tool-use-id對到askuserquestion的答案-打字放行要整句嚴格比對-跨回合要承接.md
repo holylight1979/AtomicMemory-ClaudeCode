@@ -8,6 +8,8 @@
 - Trigger: 收尾放行確認, 使用者放行, 放行判定, AskUserQuestion 答案, tool_use_id, 偽造放行, 否定句, pending_release, wg_release, 擋滿, 放行沒生效, transcript_path, turn_prompts_seq
 - Created-at: 2026-10-12
 
+- Related: 收尾閘的驗證收據只認本回合的bash-引用前回合結果要寫明或重跑-測試檔之後才修排版會欠驗證案例, 改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看
+
 ## 知識
 
 - [臨] 第一版被 codex 抓到三個「AI 自己能過」的洞：解析任何 tool_result 的 `"題"="答"` 文字（Bash 印出就能偽造）；打字放行只排除緊貼否定字；另送「好，放行」開新回合、預算歸零。正解：只採用 tool_use_id 對到 AskUserQuestion、題目含固定標記的答案；打字放行 NFKC 後整句比對；擋滿記 pending 跨回合承接。通則：「人同意了」的來源必須是 AI 產生不了的結構欄位。無法互動情境（子代理、headless、裁判）擋到底。
