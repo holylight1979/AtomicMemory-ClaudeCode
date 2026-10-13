@@ -5307,7 +5307,10 @@
         "否定句",
         "pending_release",
         "wg_release",
-        "擋滿"
+        "擋滿",
+        "放行沒生效",
+        "transcript_path",
+        "turn_prompts_seq"
       ],
       "scope": "global"
     },
@@ -5973,15 +5976,16 @@
       "name": "feedback-閘誤擋暴露的bug要第一時間派工挖根因不只寫規則-不得提關掉對人窗口或繞閘當解法",
       "path": "memory/Failures/行為契約/feedback-閘誤擋暴露的bug要第一時間派工挖根因不只寫規則-不得提關掉對人窗口或繞閘當解法.md",
       "triggers": [
-        "闘誤擋",
+        "閘誤擋",
         "放行迴圈",
         "根因",
         "立即派工",
         "總控台收尾",
         "關分頁",
-        "繞闘",
+        "繞閘",
         "記錯成改碼",
-        "第一時間修"
+        "第一時間修",
+        "被閘擋住"
       ],
       "scope": "global"
     },
@@ -5996,7 +6000,56 @@
         "is_code_file",
         "仍存在的程式檔",
         "(d) 改了程式碼",
-        "總控台被擋"
+        "總控台被擋",
+        "查核閘誤判"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與listagents啟動時間",
+      "path": "_AIDocs/_atoms/Tools/盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與listagents啟動時間.md",
+      "triggers": [
+        "token 量",
+        "context 用量",
+        "盤點 session",
+        "快滿了",
+        "換手時機",
+        "transcript usage",
+        "cache_read_input_tokens",
+        "多 session 盤點"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見",
+      "path": "memory/Failures/文字與格式/feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見.md",
+      "triggers": [
+        "可以關的 session",
+        "關分頁",
+        "session 名字",
+        "claude-xx",
+        "軌名",
+        "分頁標題",
+        "多 session 回報",
+        "總控台回報"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看",
+      "path": "_AIDocs/_atoms/MemDev/改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看.md",
+      "triggers": [
+        "寫碼查核 (d)",
+        "case_debt",
+        "刪除豁免",
+        "搬檔",
+        "git mv",
+        "Rename-Item",
+        "commit_snapshot",
+        "vanished_code_paths",
+        "net_unchanged_paths",
+        "反證還原",
+        "暗存區"
       ],
       "scope": "global"
     }
