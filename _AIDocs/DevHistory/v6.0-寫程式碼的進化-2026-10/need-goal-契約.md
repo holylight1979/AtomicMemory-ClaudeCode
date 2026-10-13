@@ -305,14 +305,22 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 
 ### 12.1 track-b-hooks 新增（只加鍵，不改第二～九節任何鍵的意義）
 - 樹 `points`（dict，只有 wg_need_goal_points 寫）：`scope_parts` [部位鍵]、`scope_dirs` {mark, dirs, sent}（mark＝節點 history 最大 seq，樹一更新就重算）、`scope_pending` [{kind: part｜dirs, label, prev}]、`scope_sent_turn` int｜null（一回合最多送一則）、`multi_hinted` [路徑]。匯出時會跟著出去，匯入時不帶。
+- 讀入範圍由 `post_tool_use` 對 Read／Bash／PowerShell 呼叫 `wg_need_goal_points.scope_on_read` 計算，不看 OverviewHub 開關：跨頂層目錄照算，部位鍵只在 OverviewHub 開著、表上有列時才有；這個 session 還沒有目標檔就直接返回。
+- `wg_overview.read_scope_keys(path, config) → (root, part_key, dir_key)`：專案根、部位鍵 `<根>|<部位>`、頂層目錄鍵 `<根>|<頂層目錄>`；不在任何專案裡全回 None。`wg_overview.on_read` 不再算讀入範圍。
+- 目標檔頂層 `peer_offset`（int）：PostToolBatch 掃 transcript 找工作中途送到的同伴訊息（attachment `queued_command`）已掃到的位元組位置；第一次只記位置不回溯，只吃到最後一個完整行。只有 `peer_claim_lines` 寫。
+- 目標檔頂層 `peer_scan_truncated` {at, turn, skipped}（一批新增段超過 `PEER_SCAN_CAP` 256KB，只讀最後一段，skipped＝跳過的位元組數）、`peer_scan_error` {at, turn, error}（讀不到 transcript 或同伴訊息行 JSON 解析失敗；不擋，另寫 stderr）。
 - state 鍵：
-  - `need_goal_batch`（bool）：on_read 排了讀入範圍提示，由 PostToolBatch 送。
+  - `need_goal_batch`（bool）：scope_on_read 排了讀入範圍提示，由 PostToolBatch 送。
+  - `need_goal_ask_blocks`（int）：PreToolUse 擋提問的累計次數（`note_ask_blocked` 加一），PostToolBatch 的提問審計遇到掛上節點的提問就歸零。
   - `need_goal_multi_checked` {路徑: 次數}。
   - `need_goal_asks` [tool_use_id 或 h:<輸入雜湊>]，最多 20 筆：PreToolUse 處理過的提問。
   - `need_goal_recovery_sent`（epoch 秒）：SessionStart(compact) 當場送過目標樹，300 秒內的 PostCompact 不再存。
   - `pending_reinjection_goal`（str）：PostCompact 存、PostToolBatch 送，排在 atom 內文後、部位綜觀前；綜觀的「主目標」改成指向它。
 - `state["overview_hub"][部位].goal_view_turn`：目標視角重送過的那一次 goal_reset_turn。
-- 守門紀錄另加事件：`multi_edit`、`ask_error`（PreToolUse 提問分支自己炸了，放行）、`points_error`。
-- 函式：on_correction(sid, hits, turn=None)、silent_unreconciled(sid, turn=None) 多一個可省略的 turn。另有只在 bkp 模組與它的呼叫點用的：scope_dir_line、batch_due、batch_lines、asks_after、mark_asked、ask_key、goal_view_text、recovery_text、handoff_note、handoff_section。
-- 4.4 擋與事後兩種模式：settings.json 的 PreToolUse matcher 有掛 AskUserQuestion|ExitPlanMode＝擋；沒掛（或 PreToolUse 不觸發）＝PostToolBatch 從 tool_calls 找沒處理過的提問，事後記錄並提醒。附錄 D(1) 實測決定預設用哪一種。
+- 守門紀錄另加事件：`multi_edit`、`ask_error`（PreToolUse 提問分支自己炸了：擋＋stderr，只放過含【收尾放行確認】而且本 session 真有擋滿待放行紀錄的題目）、`points_error`。
+- 守門紀錄事件 `ask_audit` {tool, tool_use_id, tree, blocked, linked}：PostToolBatch 對這批每一次提問記一筆，blocked＝送出前被擋過幾次，linked＝最後掛上的節點（沒掛為 null）。
+- 守門紀錄事件 `external_claim` {kind, source, tree}：收到外部主張（同伴訊息、審查結果、讀交付信或審查報告檔）時送「用目標視角重看」三問並記一筆。
+- checkpoint 的 point 不新增值：外部主張沿用 `scope`（有樹才記）。
+- 函式：on_correction(sid, hits, turn=None)、silent_unreconciled(sid, turn=None) 多一個可省略的 turn。另有只在 bkp 模組與它的呼叫點用的：scope_on_read、scope_dir_line、batch_due、batch_lines、asks_after、mark_asked、ask_key、note_ask_blocked、peer_claim_lines、peer_of_prompt、on_external_claim、goal_view_text、recovery_text、handoff_note、handoff_section、has_open_tree。
+- 4.4 擋與事後兩種模式：settings.json 的 PreToolUse matcher 有掛 AskUserQuestion|ExitPlanMode＝擋；沒掛（或 PreToolUse 不觸發）＝PostToolBatch 從 tool_calls 找沒處理過的提問，事後記錄並提醒。附錄 D(1) 實測 PreToolUse 對這兩個工具都會觸發、tool_input 完整，預設用擋（matcher 已掛）；擋的理由附照做就能過的修法（建議節點、題目裡怎麼寫、不屬於任何節點先 need_goal add）。
 - 回合號慣例：只有 UserPromptSubmit 當下用 `state["turn_seq"]+1`（turn_seq 在 UPS 最後才加一）；PreToolUse／PostToolUse／PostToolBatch／Stop 用 `state["turn_seq"]` 本身。
