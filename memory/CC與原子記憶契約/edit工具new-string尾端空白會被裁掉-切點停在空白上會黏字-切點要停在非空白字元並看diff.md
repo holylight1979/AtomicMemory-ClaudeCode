@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: Edit 工具, new_string, old_string, 行尾空白, 尾端空白, trailing whitespace, 黏字, 切點, Edit 後看 diff
 - Created-at: 2026-10-13
+- Quote: 「你是 v6.0 的工作 session track-g12，總控台是 claude-2c。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-g12（分支 v6/track-g12，已存在，不要新建）。接手單在 C:\Users\holylight\.claude\workflow\v6-inbox\to-trac…」
 
 ## 知識
 
