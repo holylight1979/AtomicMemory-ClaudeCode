@@ -126,17 +126,33 @@ def _log(event: str, session_id: str, **kw: Any) -> None:
 
 
 def _lookup(path: str, stop_at: Optional[Path] = None) -> Optional[Tuple[Path, Dict[str, Any]]]:
-    """路徑 → (專案根, 命中的表列)；找不到表或沒命中回 None。stop_at：往上找表到這層就停（見 find_map）。"""
+    """路徑 → (專案根, 命中的表列)；找不到表或沒命中回 None；表存在卻讀不到拋 MapReadError（量尺閘不能把它當成沒有量尺）。
+    stop_at：往上找表到這層就停（見 find_map）。"""
     found = find_map(path, stop_at)
     if not found:
         return None
     root, map_path = found
     try:
         rows = parse_map(map_path.read_text(encoding="utf-8", errors="replace"))
-    except OSError:
-        return None
+    except OSError as e:
+        raise MapReadError(f"部位表 {map_path} 存在但讀不到（{type(e).__name__}: {e}）") from e
     row = match_row(path, root, rows)
     return (root, row) if row else None
+
+
+class MapReadError(RuntimeError):
+    """部位表找到了（find_map 確認檔案存在）卻讀不到：跟「沒有表／沒命中」是兩回事。量尺閘靠 _lookup 決定改檔屬於哪個部位，
+    讀不到表就不知道該部位有沒有尺，不能當成「沒有量尺」靜默跳過；stop._verify_gates 接到這個例外走判定錯誤路徑（一律擋＋stderr
+    ＋guard_log）。注入／讀檔記錄那幾條路（_lookup_quiet）照舊當沒命中，但在 stderr 說一聲。"""
+
+
+def _lookup_quiet(path: str, stop_at: Optional[Path] = None) -> Optional[Tuple[Path, Dict[str, Any]]]:
+    """_lookup 給注入與讀檔記錄用的版本：表讀不到 → stderr 一行、回 None（這幾條路不是閘，不為此中斷 hook）。"""
+    try:
+        return _lookup(path, stop_at)
+    except MapReadError as e:
+        sys.stderr.write(f"[Guardian:OverviewHub] {e}；這次當成沒命中部位表\n")
+        return None
 
 
 def _project_root_of(path: str) -> Optional[Path]:
@@ -666,7 +682,7 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
     if not cfg["enabled"]:
         return None
     for p in read_paths_from_tool(tool_name, tool_input, cwd):
-        hit = _lookup(p)
+        hit = _lookup_quiet(p)
         _record_read(state, p, hit)
         if not hit:
             continue
@@ -689,7 +705,7 @@ def on_prompt(state: Dict[str, Any], session_id: str, prompt: str, transcript_pa
         return None
     parts: List[str] = []
     for m in re.finditer(r"[A-Za-z]:[\\/][^\s`'\"<>|]+", prompt):
-        hit = _lookup(m.group(0))
+        hit = _lookup_quiet(m.group(0))
         if not hit:
             continue
         root, row = hit
@@ -831,7 +847,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         return denied
     if not cfg["enabled"]:
         return (None, None, False)
-    hit = _lookup(file_path)
+    hit = _lookup_quiet(file_path)
     if hit:
         root, row = hit
     else:

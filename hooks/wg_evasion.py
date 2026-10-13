@@ -35,6 +35,8 @@ _FAILURE_PATTERNS = [
     re.compile(r"^---\s+FAIL:", re.MULTILINE),
     re.compile(r"test result:\s+FAILED"),
     re.compile(r"^[A-Z][A-Z0-9_]*_CHECK FAIL\b", re.MULTILINE),   # 哨兵規矩：<NAME>_CHECK FAIL 就是失敗
+    # pytest 摘要行的 error（fixture／collection 出錯）：`1 error in 0.1s`、`1 passed, 2 errors in 0.5s`；0 errors 不算
+    re.compile(r"\b[1-9]\d*\s+errors?\b[^\n]*\bin\s+\d+(?:\.\d+)?s\b"),
 ]
 
 

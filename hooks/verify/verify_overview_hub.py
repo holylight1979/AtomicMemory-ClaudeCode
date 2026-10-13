@@ -1370,7 +1370,7 @@ def test_verify_ledger_delegation_failure_returns_false_and_gate_still_blocks(tm
     mod = str(wt / "hooks" / "x.py")
     mf = [{"path": mod, "tool": "Edit", "session_id": "s", "turn_seq": 5, "last_turn_seq": 5}]
     done = {"turn_seq": 5, "tool": "Bash", "cmd": "python -X utf8 -m pytest -q hooks/verify/verify_x.py", "exit_code": 0,
-            "at": "", "project_root": str(wt), "cwd": str(wt),
+            "at": "", "project_root": str(wt), "cwd": str(wt), "env": {},
             "sentinels": [{"name": "PYTEST", "verdict": "PASS", "kv": {}}, {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
 
     def lookup(path):
@@ -1540,7 +1540,7 @@ def test_measure_gate_fixture_with_same_map_is_not_root_worktree(tmp_path, monke
     def gate(root):
         mf = [{"path": str(root / "hooks" / "x.py"), "tool": "Edit", "session_id": "s", "turn_seq": 5, "last_turn_seq": 5}]
         done = {"turn_seq": 5, "tool": "Bash", "cmd": "python -X utf8 -m pytest -q hooks/verify/verify_x.py", "exit_code": 0,
-                "at": "", "project_root": str(root), "cwd": str(root),
+                "at": "", "project_root": str(root), "cwd": str(root), "env": {},
                 "sentinels": [{"name": "PYTEST", "verdict": "PASS", "kv": {}},
                               {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
 

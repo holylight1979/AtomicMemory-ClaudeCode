@@ -364,7 +364,7 @@ def test_run_verify_help_prints_usage_without_running():
 
 
 def test_done_receipt_with_failed_count_or_nonzero_exit_not_ok():
-    good = {"turn_seq": 5, "cmd": "python -X utf8 run_verify.py", "exit_code": 0,
+    good = {"turn_seq": 5, "cmd": "python -X utf8 run_verify.py", "exit_code": 0, "env": {},
             "sentinels": [{"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "10", "failed": "0"}}]}
     bad_kv = {**good, "sentinels": [{"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "10", "failed": "2"}}]}
     bad_exit = {**good, "exit_code": 1}
@@ -388,25 +388,25 @@ def test_receipt_relates_rules_fixed_in_002_returned():
     """003-2「對得上」定死：stem 整詞／test_<stem>／整體驗證／量尺／verify 目錄算；verify glob 單獨、子字串、含 cd 不算。"""
     globs = vl.RECONCILE_DEFAULTS["verify_case_globs"]
     a = [r"c:\proj\src\a.py"]
-    assert vl.receipt_relates({"cmd": "pytest tests/test_a.py"}, a, globs) is True              # (b) test_<stem>
-    assert vl.receipt_relates({"cmd": "pytest tests/test_b.py"}, a, globs) is False             # verify glob 單獨不算
-    assert vl.receipt_relates({"cmd": "python check_beta.py"}, a, globs) is False               # 子字串不算
-    assert vl.receipt_relates({"cmd": "pytest -q"}, a, globs) is True                           # (c) 無檔名 pytest
-    assert vl.receipt_relates({"cmd": "python -m pytest -q -p no:cacheprovider"}, a, globs) is True
-    assert vl.receipt_relates({"cmd": "python -X utf8 run_verify.py"}, a, globs) is True        # (c) run_verify
-    assert vl.receipt_relates({"cmd": "python -X utf8 run_verify.py --json"}, a, globs) is False  # 017b 規則 9：帶參數不算整體
-    assert vl.receipt_relates({"cmd": "python measure.py"}, a, globs, ["python measure.py"]) is True   # (c) 量尺
-    assert vl.receipt_relates({"cmd": "python tools/replay-guard.py pre"}, a, globs) is False
-    assert vl.receipt_relates({"cmd": "cd other; python -m pytest -q"}, a, globs) is False      # 003-4 含 cd 不算
-    assert vl.receipt_relates({"cmd": "cd x && pytest -q", "root_uncertain": True}, a, globs) is False
+    assert vl.receipt_relates({"env": {}, "cmd": "pytest tests/test_a.py"}, a, globs) is True              # (b) test_<stem>
+    assert vl.receipt_relates({"env": {}, "cmd": "pytest tests/test_b.py"}, a, globs) is False             # verify glob 單獨不算
+    assert vl.receipt_relates({"env": {}, "cmd": "python check_beta.py"}, a, globs) is False               # 子字串不算
+    assert vl.receipt_relates({"env": {}, "cmd": "pytest -q"}, a, globs) is True                           # (c) 無檔名 pytest
+    assert vl.receipt_relates({"env": {}, "cmd": "python -m pytest -q -p no:cacheprovider"}, a, globs) is True
+    assert vl.receipt_relates({"env": {}, "cmd": "python -X utf8 run_verify.py"}, a, globs) is True        # (c) run_verify
+    assert vl.receipt_relates({"env": {}, "cmd": "python -X utf8 run_verify.py --json"}, a, globs) is False  # 017b 規則 9：帶參數不算整體
+    assert vl.receipt_relates({"env": {}, "cmd": "python measure.py"}, a, globs, ["python measure.py"]) is True   # (c) 量尺
+    assert vl.receipt_relates({"env": {}, "cmd": "python tools/replay-guard.py pre"}, a, globs) is False
+    assert vl.receipt_relates({"env": {}, "cmd": "cd other; python -m pytest -q"}, a, globs) is False      # 003-4 含 cd 不算
+    assert vl.receipt_relates({"env": {}, "cmd": "cd x && pytest -q", "root_uncertain": True}, a, globs) is False
     # 017：可解析的指令看斷詞判換目錄，PostToolUse 用原字串標的 root_uncertain 不推翻它（cd 只在註解裡）
-    assert vl.receipt_relates({"cmd": "pytest -q # cd x", "root_uncertain": True}, a, globs) is True
+    assert vl.receipt_relates({"env": {}, "cmd": "pytest -q # cd x", "root_uncertain": True}, a, globs) is True
     mods = [r"c:\proj\hooks\wg_x.py"]
-    assert vl.receipt_relates({"cmd": "python -m pytest hooks/verify/verify_wg_x.py"}, mods, globs) is True   # (b) verify_<stem>
-    assert vl.receipt_relates({"cmd": "python -m pytest hooks/verify/verify_other.py"}, mods, globs) is True  # (d) 改檔所在的 verify 目錄
-    assert vl.receipt_relates({"cmd": "python -m pytest lib/verify/verify_other.py"}, mods, globs) is False
-    assert vl.receipt_relates({"cmd": "python tools/wg_x.py --check"}, mods, globs) is True        # (a) stem 整詞
-    assert vl.receipt_relates({"cmd": "python tools/wg_xy.py --check"}, mods, globs) is False      # 整詞邊界
+    assert vl.receipt_relates({"env": {}, "cmd": "python -m pytest hooks/verify/verify_wg_x.py"}, mods, globs) is True   # (b) verify_<stem>
+    assert vl.receipt_relates({"env": {}, "cmd": "python -m pytest hooks/verify/verify_other.py"}, mods, globs) is True  # (d) 改檔所在的 verify 目錄
+    assert vl.receipt_relates({"env": {}, "cmd": "python -m pytest lib/verify/verify_other.py"}, mods, globs) is False
+    assert vl.receipt_relates({"env": {}, "cmd": "python tools/wg_x.py --check"}, mods, globs) is True        # (a) stem 整詞
+    assert vl.receipt_relates({"env": {}, "cmd": "python tools/wg_xy.py --check"}, mods, globs) is False      # 整詞邊界
     assert vl.has_cd("cd /c && pytest") and vl.has_cd("pushd x; pytest") and vl.has_cd("Set-Location x; pytest")
     assert not vl.has_cd("python cdx.py") and not vl.has_cd("pytest --cd-flag")
 
@@ -414,7 +414,7 @@ def test_receipt_relates_rules_fixed_in_002_returned():
 def test_receipt_relates_root_must_match():
     """缺口 3：root 參數真的用上，收據根（project_root，沒有就 cwd）要等於改檔根或在它之下。"""
     mods = ["C:/Demo/src/widget.py"]
-    r = {"cmd": "python tests/test_widget.py", "project_root": "C:/Other", "cwd": "C:/Other"}
+    r = {"cmd": "python tests/test_widget.py", "project_root": "C:/Other", "cwd": "C:/Other", "env": {}}
     assert vl.receipt_relates(r, mods, (), (), "C:/Demo") is False                                     # 別的根
     demo = {**r, "project_root": "C:/Demo", "cwd": "C:/Demo"}
     assert vl.receipt_relates(demo, mods, (), (), "C:/Demo") is True
@@ -425,10 +425,10 @@ def test_receipt_relates_root_must_match():
     assert vl.receipt_relates({**r, "project_root": "C:/"}, mods, (), (), "C:/Demo") is True           # 未解 1：收據根在上層也算
     assert vl.receipt_relates(demo, mods, (), (), "C:/Demo/sub") is True
     assert vl.receipt_relates({**r, "project_root": "C:/Demo/sub2"}, mods, (), (), "C:/Demo/sub") is False   # 互不包含才擋
-    assert vl.receipt_relates({"cmd": r["cmd"]}, mods, (), (), "C:/Demo") is True                      # 收據沒根資訊 → 照舊
+    assert vl.receipt_relates({"env": {}, "cmd": r["cmd"]}, mods, (), (), "C:/Demo") is True                      # 收據沒根資訊 → 照舊
     assert vl.receipt_relates(r, mods, (), (), lambda p: None) is True                                 # 改檔根不可判定 → 照舊
     assert vl.receipt_relates({**r, "cmd": "python -m pytest -q"}, mods, (), (), "C:/Demo") is False   # 整體驗證也要同根
-    assert vl.receipt_relates({"cmd": "python -m pytest -q", "project_root": "C:/Other"}, [], (), (), "C:/Demo") is True   # 沒改檔不比根
+    assert vl.receipt_relates({"env": {}, "cmd": "python -m pytest -q", "project_root": "C:/Other"}, [], (), (), "C:/Demo") is True   # 沒改檔不比根
 
 
 def test_file_root_of_uses_project_root_then_vcs_fallback(tmp_path):
@@ -459,7 +459,7 @@ def test_vcs_root_of_never_returns_home_or_drive_root(tmp_path, monkeypatch):
 def test_related_pass_receipts_marks_order_and_root_reasons():
     mods = ["C:/Demo/src/widget.py"]
     rec = {"cmd": "python tests/test_widget.py", "sentinels": [{"verdict": "PASS"}], "exit_code": 0,
-           "turn_seq": 5, "seq": 3, "project_root": "C:/Demo"}
+           "turn_seq": 5, "seq": 3, "project_root": "C:/Demo", "env": {}}
     edits = {mods[0]: {"path": mods[0], "last_seq": 5, "last_turn_seq": 5}}
     related, unrelated = vl.related_pass_receipts([rec], 5, mods, (), (), "C:/Demo", edits)
     assert related == [] and unrelated[0]["before_edit"] == mods
@@ -519,7 +519,7 @@ def test_017_long_command_through_track_sentinels(monkeypatch, tmp_path):
 
 def test_017_legacy_truncated_receipt_is_not_evidence(tmp_path):
     """升級前的收據（沒有 cmd_full）滿 200 字 → 不知道後面還接了什麼 → 不算，訊息叫人重跑；不滿 200 字的舊收據照算。"""
-    base = {"turn_seq": 4, "tool": "Bash", "exit_code": 0, "at": "2026-10-12T02:00:00+00:00", "cwd": str(tmp_path),
+    base = {"turn_seq": 4, "tool": "Bash", "exit_code": 0, "at": "2026-10-12T02:00:00+00:00", "cwd": str(tmp_path), "env": {},
             "sentinels": [{"name": "VERIFY_CHECK", "verdict": "DONE", "kv": {"cases": "1", "failed": "0"}}]}
     full = ("python -X utf8 run_verify.py" + " " * 200)[:200]
     reason = _measure_gate_on([{**base, "cmd": full}], tmp_path)
