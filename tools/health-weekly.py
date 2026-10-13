@@ -352,7 +352,8 @@ _CURRENT_PYTEST_VERDICT_MAP = {
 
 def _pytest_regex_block(cfg: dict) -> list[str]:
     """config 內建 PYTEST／PYTEST_MEASURE 規則（verify_ledger.sentinel_regex）不是現行版 → 黃（WARN）。
-    regex、verdict_map、pytest_summary 三樣任一與現行值不同就報；兩條缺一條也報。自訂名稱的規則不管。"""
+    regex、verdict_map、pytest_summary 三樣任一與現行值不同就報；兩條缺一條也報。自訂名稱的規則不管。
+    verdict_map 的值只比大小寫無關的結論（hook 端 compile_sentinel_rules 一樣 upper()，`pass` 與 `PASS` 執行期同義，不算舊版）。"""
     vl = cfg.get("verify_ledger") if isinstance(cfg.get("verify_ledger"), dict) else {}
     rules = vl.get("sentinel_regex") if isinstance(vl.get("sentinel_regex"), list) else []
     yellow: list[str] = []

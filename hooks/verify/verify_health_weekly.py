@@ -182,3 +182,17 @@ def test_pytest_regex_block_missing_rule_and_custom_rule_ignored(hw):
     yellow = hw._pytest_regex_block(_cfg_with_rules(rules))
     assert yellow == ["config 內建 PYTEST_MEASURE 規則缺失（verify_ledger.sentinel_regex 沒有這條）→ 補成版控庫 workflow/config.json 的現行值"]
     assert hw._pytest_regex_block({}) and hw._pytest_regex_block({"verify_ledger": "bad"})   # 沒有區段：兩條都缺，不炸
+
+
+def test_pytest_regex_block_case_only_and_junk_items(hw):
+    # codex 審 8d4c4ad 提的兩個邊界：verdict_map 只差大小寫（hook 端 upper() 後同義 → 靜默）；非 dict 的規則項略過不炸
+    shipped = json.loads((_ROOT / "workflow" / "config.json").read_text(encoding="utf-8"))
+    rules = [dict(r) for r in shipped["verify_ledger"]["sentinel_regex"]]
+    for r in rules:
+        r["verdict_map"] = {k: v.lower() for k, v in r["verdict_map"].items()}
+    assert hw._pytest_regex_block(_cfg_with_rules(rules)) == []
+    assert hw._pytest_regex_block(_cfg_with_rules(["junk", None, 3] + rules)) == []
+    # 單獨只改 verdict_map 的「內容」（少了 error→FAIL）就要報，且只報 verdict_map 那一樣
+    rules[0]["verdict_map"] = {"failed": "FAIL", "passed": "PASS", "xpassed": "PASS"}
+    yellow = hw._pytest_regex_block(_cfg_with_rules(rules))
+    assert len(yellow) == 1 and "（verdict_map 與版控庫" in yellow[0] and yellow[0].startswith("config 內建 PYTEST regex 非現行版")
