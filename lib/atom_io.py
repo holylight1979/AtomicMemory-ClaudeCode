@@ -1017,9 +1017,10 @@ def _kv_key(line: str) -> Optional[str]:
 
 def carry_replace_header(old: str, built: str, given: Iterable[str] = ()) -> str:
     """replace 落檔前的最後一步：built（build_atom_content 產出）的檔頭改成以舊卡為底。
-    1. 標題（H1 原文）用舊卡的；title 參數在 replace 只用來找卡。
+    1. 標題：舊卡標題 slug 和 title 參數不同（舊格式：標題是中文名、檔名是英文 slug 這類）→ 用舊卡 H1 原文；
+       相同（新格式）→ 照舊用 title 參數。
     2. Created-at：舊卡有 → 用舊值；舊卡沒有 → 不輸出（不補當天）。
-    3. 舊卡檔頭有、built 沒有、呼叫者也沒明給（given 不含）的鍵 → 原行帶回，放在舊卡裡它前面那個鍵之後。
+    3. 舊卡檔頭有、built 沒有、呼叫者也沒明給（given 不含）的鍵 → 原行（同鍵多行就全部）帶回，放在舊卡裡它前面那個鍵之後。
        涵蓋 Related／Status／Audience 沒給時，以及 build 不認得的 Confirmations／Last-used／Tags／Type 等舊欄位。
        Author／Source／Quote／Depends／Supersedes 在進 build 前已由三態判定定案（_DECIDED_BEFORE_BUILD），不帶回。
     知識段與行動段一律用 built 的（那是 replace 要換的內容）。舊卡沒有 H1 時原樣回 built。"""
@@ -1040,9 +1041,10 @@ def carry_replace_header(old: str, built: str, given: Iterable[str] = ()) -> str
     def last_index(key: str) -> int:
         return max(i for i, ln in enumerate(head) if _kv_key(ln) == key)
 
-    present = {k for ln in head if (k := _kv_key(ln))}
+    built_keys = {k for ln in head if (k := _kv_key(ln))}
+    present = set(built_keys)
     for i, (key, line) in enumerate(old_kv):
-        if key in present or key in given or key in _DECIDED_BEFORE_BUILD:
+        if key in built_keys or key in given or key in _DECIDED_BEFORE_BUILD:
             continue
         anchor = next((k for k, _ in reversed(old_kv[:i]) if k in present), None)
         if anchor is not None:
@@ -1051,7 +1053,9 @@ def carry_replace_header(old: str, built: str, given: Iterable[str] = ()) -> str
             pos = next((j for j, ln in enumerate(head) if _kv_key(ln)), len(head))
         head.insert(pos, line)
         present.add(key)
-    return "\n".join(new_lines[:nh1] + [old_lines[oh1]] + head + new_lines[nend:])
+    old_title, new_title = old_lines[oh1][2:].strip(), new_lines[nh1][2:].strip()
+    h1 = old_lines[oh1] if slugify(old_title) != slugify(new_title) else new_lines[nh1]
+    return "\n".join(new_lines[:nh1] + [h1] + head + new_lines[nend:])
 
 
 def write_atom(

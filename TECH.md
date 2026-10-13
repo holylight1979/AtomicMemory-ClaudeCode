@@ -173,7 +173,7 @@ sequenceDiagram
 | `Expires-at` / `Tags` / `Quality` | 否 | — | 輔助 |
 | access sidecar | 自動 | `<atom>.access.json` | read_hits（純曝光）、useful/used_fail（α/β）、Wilson 下界、decay、last_decay_date |
 
-**Source／Quote／Depends 的 replace 三態**（與 Supersedes 同）：未給＝保留原行、`""`／`[]`＝清除、非空＝替換；append 不動檔頭。**replace 只換呼叫者給的部分**（`lib/atom_io.carry_replace_header`，py `write_atom` 與 MCP js 經 `atom_io_cli build existing_path` 共用）：標題用舊卡的 H1（title 參數只用來找卡）；舊卡沒有 Created-at 就不補；Related／Status／Audience 沒給、以及 build 不認得的舊鍵（Confirmations、Last-used、Tags、Type…）原行帶回。渲染順序與 py↔js byte parity 的單一來源：`lib/atom_spec.build_atom_content` ↔ `atom-render.js buildAtomContent`（`verify_atom_io_equivalence.py` test_31–33）。
+**Source／Quote／Depends 的 replace 三態**（與 Supersedes 同）：未給＝保留原行、`""`／`[]`＝清除、非空＝替換；append 不動檔頭。**replace 只換呼叫者給的部分**（`lib/atom_io.carry_replace_header`，py `write_atom` 與 MCP js 經 `atom_io_cli build existing_path` 共用）：舊格式卡（標題 slug≠檔名，例：標題中文、檔名英文）沿用舊標題，新格式照舊用 title 參數；舊卡沒有 Created-at 就不補；Related／Status／Audience 沒給、以及 build 不認得的舊鍵（Confirmations、Last-used、Tags、Type…）原行帶回（同鍵多行全帶）。渲染順序與 py↔js byte parity 的單一來源：`lib/atom_spec.build_atom_content` ↔ `atom-render.js buildAtomContent`（`verify_atom_io_equivalence.py` test_31–33）。
 
 **為什麼 Depends 與 Evidence 都是 optional**：向後相容鐵則——既有 atom 缺欄靜默通過。**為什麼 access 是 sidecar 不是 frontmatter**：計數每回合都在變，寫回 atom 本體會讓 git diff 全是噪音、也會和人手編輯互撞。
 

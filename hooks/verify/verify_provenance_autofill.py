@@ -156,6 +156,11 @@ def test_003_kickoff_detector_shares_extractor_templates():
     assert is_kickoff_prompt("你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x。只跑目標 verify")
     for words in ("請把這條記成卡片", "你是說這張卡要留舊標題嗎？對", "這個 session 的工作是修 replace", ""):
         assert not is_kickoff_prompt(words), words
+    # codex 審 cdac58d：引用開工句來討論、問句、只有角色句沒有其他派工子句 → 是真原話，不算開工句
+    for words in ("『你是工作 session track-a6』這句話不應填進 Quote，請記下這個修正原則。",
+                  "你是工作 session track-a6 嗎？請把保留舊標題這項決策記成卡片。",
+                  "你是工作 session track-a6，請把保留舊標題這項決策記成卡片。"):
+        assert not is_kickoff_prompt(words), words
 
 
 def test_autofill_skips_append_and_missing_path(tmp_path):

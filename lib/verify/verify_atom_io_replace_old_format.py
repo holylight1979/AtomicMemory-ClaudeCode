@@ -155,6 +155,32 @@ def test_003_fields_decided_before_build_are_not_carried_back(isolated_claude):
     assert "- Type: procedural" in text and text.splitlines()[0] == "# 全域決策"
 
 
+def test_003_same_key_on_several_lines_is_all_carried(isolated_claude):
+    """codex 審 cdac58d BLOCK 1：同一個鍵分兩行（中間夾空行）沒給時兩行都帶回、順序不變。"""
+    fp = _old_format_card(isolated_claude)
+    two = OLD_CARD.replace("- Related: decisions-architecture, toolchain, toolchain-ollama",
+                           "- Related: first-card\n\n- Related: second-card")
+    fp.write_text(two, encoding="utf-8", newline="\n")
+    r = write_atom(title="decisions", scope="global", confidence="[固]", triggers=["決策"], knowledge=NEW_KNOWLEDGE,
+                   mode="replace", source="test", skip_gate=True, today=TODAY)
+    assert r.ok, r.error
+    lines = fp.read_text(encoding="utf-8").splitlines()
+    assert "- Related: first-card" in lines and "- Related: second-card" in lines
+    assert lines.index("- Related: first-card") < lines.index("- Related: second-card")
+
+
+def test_003_new_format_title_follows_caller_as_before(isolated_claude):
+    """codex 審 cdac58d BLOCK 3：新格式卡（標題 slug＝檔名）replace 時標題照舊用 title 參數（大小寫變體也一樣），
+    只有舊格式（標題 slug≠檔名）才沿用舊標題。"""
+    r = write_atom(title="Fresh Card", scope="global", confidence="[臨]", triggers=["a", "b", "c"], knowledge=["v1"],
+                   domain="設計通則", mode="create", source="test", skip_gate=True, today="2026-10-01")
+    assert r.ok, r.error
+    r2 = write_atom(title="fresh card", scope="global", confidence="[臨]", triggers=["a", "b", "c"], knowledge=["v2"],
+                    mode="replace", source="test", skip_gate=True, today=TODAY)
+    assert r2.ok, r2.error
+    assert r2.path.read_text(encoding="utf-8").splitlines()[0] == "# fresh card"
+
+
 def test_003_new_format_replace_is_byte_identical_to_before(isolated_claude):
     """新格式卡（標題＝建立時的 title、有 Created-at、沒有舊鍵）：replace 結果與修前（直接 build）逐 byte 相同。"""
     r = write_atom(title="Fresh Card", scope="global", confidence="[臨]", triggers=["a", "b", "c"], knowledge=["v1"],
@@ -167,4 +193,4 @@ def test_003_new_format_replace_is_byte_identical_to_before(isolated_claude):
     expected = build_atom_content(title="Fresh Card", scope="global", confidence="[臨]", triggers=["a", "b", "c"],
                                   knowledge=["v2"], author="orig", related=["x-card"], created_at="2026-10-01",
                                   today=TODAY)
-    assert r2.path.read_text(encoding="utf-8") == expected
+    assert r2.path.read_bytes() == expected.encode("utf-8")
