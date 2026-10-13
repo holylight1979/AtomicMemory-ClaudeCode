@@ -31,14 +31,19 @@ _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
 _STATUS_HEADS = ("有", "部分", "索引", "骨架", "無")
 _TWO_CHAR_STATUS = ("部分", "索引", "骨架")
-# 擴欄：表頭關鍵字 → row 鍵；只認表頭，沒表頭的舊四欄表這些鍵全空
+# 部位類別：code＝寫碼部位（改了要定位三行、欠 (d) 案例）；knowledge＝知識部位（文件、記憶、派工信箱：只要卡已注入、不欠案例）
+KIND_CODE = "code"
+KIND_KNOWLEDGE = "knowledge"
+_KNOWLEDGE_WORDS = ("knowledge", "知識")
+# 擴欄：表頭關鍵字 → row 鍵；只認表頭，沒表頭的舊四欄表這些鍵全空（類別沒欄＝code）
 _EXTRA_COLUMNS = (
     ("病灶", "defects_doc"), ("量尺", "measure"), ("檢查器", "checkers"), ("讀路徑", "sample_paths"),
     ("第四問", "extra_q"), ("權威", "authority"), ("上游", "upstream"), ("下游", "downstream"), ("層", "layer"),
+    ("類別", "kind"),
 )
 _EMPTY_EXTRA: Dict[str, Any] = {
     "defects_doc": "", "measure": {}, "checkers": [], "sample_paths": "", "extra_q": "",
-    "layer": "", "authority": "", "upstream": "", "downstream": "",
+    "layer": "", "authority": "", "upstream": "", "downstream": "", "kind": KIND_CODE,
 }
 _MEASURE_SPLIT_RE = re.compile(r"\s*[｜]\s*")
 _LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
@@ -191,6 +196,8 @@ def _extra_fields(cells: List[str], cols: Dict[str, int]) -> Dict[str, Any]:
         cell = cells[idx] if idx < len(cells) else ""
         if key == "measure":
             out[key] = _parse_measure(cell)
+        elif key == "kind":   # 只認 knowledge／知識；空格、無、拼錯一律 code（fail-closed）
+            out[key] = KIND_KNOWLEDGE if cell.strip("` ").lower() in _KNOWLEDGE_WORDS else KIND_CODE
         elif key == "checkers":
             out[key] = _parse_list(cell)
         elif key in ("defects_doc", "authority"):
@@ -202,7 +209,7 @@ def _extra_fields(cells: List[str], cols: Dict[str, int]) -> Dict[str, Any]:
 
 def parse_map(text: str) -> List[Dict[str, Any]]:
     """表 → rows：[{prefixes, part, part_short, card, cards, status, line, defects_doc, measure, checkers,
-    sample_paths, extra_q, layer, authority, upstream, downstream}]。前綴已正規化（小寫、/、去尾斜線）。
+    sample_paths, extra_q, layer, authority, upstream, downstream, kind}]。前綴已正規化（小寫、/、去尾斜線）。
 
     前四欄（前綴／部位／導讀卡／狀態）照位置解析；擴欄照表頭關鍵字定位（_EXTRA_COLUMNS），
     沒表頭時擴欄全為空值（""／{}／[]）。
@@ -259,8 +266,8 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
 
 # ─── 命中 ───────────────────────────────────────────────────────────
 
-def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """最長前綴命中；錨在專案根的命中優先於子字串命中；同分取先列。"""
+def match_row(path: str, root: Path, rows: List[Dict[str, Any]], anchored: bool = False) -> Optional[Dict[str, Any]]:
+    """最長前綴命中；錨在專案根的命中優先於子字串命中；同分取先列。anchored＝只認錨在專案根的命中。"""
     p = _norm(path)
     r = _norm(str(root)).rstrip("/")
     best, best_score = None, -1
@@ -279,9 +286,33 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
                 score = len(pre)
             else:
                 score = -1
+            if anchored and score < 1000:
+                continue
             if score > best_score:
                 best, best_score = row, score
     return best
+
+
+def part_kind(path: str, root: Path, rows: List[Dict[str, Any]]) -> str:
+    """path 屬哪一類部位：錨在專案根的最長前綴命中列的「類別」；沒命中、沒標、只有子字串命中（tools/memory/x.py 撞到
+    `memory/`）→ code。rows 給 match_row 已選出的那一列也行：錨定命中一定勝過子字串命中，所以結果相同。"""
+    row = match_row(path, root, rows, anchored=True)
+    return row.get("kind", KIND_CODE) if row else KIND_CODE
+
+
+def path_kind(path: str, stop_at: Optional[Path] = None) -> Optional[str]:
+    """從 path 往上找最近的部位表（find_map，停在 stop_at），回 part_kind；沒有部位表回 None（呼叫端照無表行為）。
+    表存在卻讀不到 → code（fail-closed），stderr 說一聲。寫碼查核（wg_verify_ledger.is_excluded）與 OverviewHub 共用這一份判法。"""
+    found = find_map(path, stop_at)
+    if not found:
+        return None
+    root, map_path = found
+    try:
+        rows = parse_map(map_path.read_text(encoding="utf-8", errors="replace"))
+    except OSError as e:
+        print(f"[overview_hub] 部位表 {map_path} 讀不到，{path} 照寫碼部位算：{type(e).__name__}: {e}", file=sys.stderr)
+        return KIND_CODE
+    return part_kind(path, root, rows)
 
 
 # ─── 卡片 ───────────────────────────────────────────────────────────
@@ -465,27 +496,32 @@ def _card_body_for(parsed: Dict[str, Any], used: List[str], cp: Path) -> str:
 
 def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
                        locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None,
-                       slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "") -> Tuple[str, List[str]]:
+                       slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "",
+                       knowledge: bool = False) -> Tuple[str, List[str]]:
     """同 build_injection，另回實際送出的片名（依 slices 順序、只含卡裡切得出的片；沒選片或沒命中回 []）。
 
     slices：依意圖要先送的片；命中就「選中片全文＋其餘段標題清單」，整張切不出任何選中片就退回整卡（不得注得更少）。
     lens／ask_first：視角與先問的那一題，加在 head。max_chars 只截**每張卡的正文**（選片後或整卡），
     head（定位三行說明）與卡片分隔行不計入；整段注入文字＝head＋每張卡各 ≤ max_chars。
+    knowledge：知識類部位（part_kind）：head 不要求定位三行，卡照注。
     """
     part = row["part"] or row["part_short"]
     t = list(locate_template or [])
     t = (t + DEFAULT_LOCATE_TEMPLATE[len(t):])[:3]
-    head = (
-        f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-        f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字最好，"
-        f"但本機 transcript 偶爾會掉「先文字再呼叫工具」那段，保險做法是同時放進下一個工具呼叫的參數，例如 Bash 開頭的註解）：\n"
-        f"定位｜部位：{row['part_short']}——{t[0]}\n"
-        f"定位｜根因層：{t[1]}；{ROOT_CAUSE_SENTENCE}\n"
-        f"定位｜前例：{t[2]}"
-        + (f"\n定位｜加問：{locate_extra}" if locate_extra else "")
-        + (f"\n視角：{lens}" if lens else "")
-        + (f"\n先問：{ask_first}" if ask_first else "")
-    )
+    if knowledge:
+        head = (f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
+                f"這是知識類部位（部位表類別 knowledge）：不要求定位三行，下面的導讀卡讀完即可改。")
+    else:
+        head = (
+            f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
+            f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字最好，"
+            f"但本機 transcript 偶爾會掉「先文字再呼叫工具」那段，保險做法是同時放進下一個工具呼叫的參數，例如 Bash 開頭的註解）：\n"
+            f"定位｜部位：{row['part_short']}——{t[0]}\n"
+            f"定位｜根因層：{t[1]}；{ROOT_CAUSE_SENTENCE}\n"
+            f"定位｜前例：{t[2]}"
+            + (f"\n定位｜加問：{locate_extra}" if locate_extra else "")
+        )
+    head += (f"\n視角：{lens}" if lens else "") + (f"\n先問：{ask_first}" if ask_first else "")
     if not card_paths:
         why = f"卡片狀態「{row['status'] or '未標'}」" if row["cards"] else "表上沒有卡"
         return f"{head}\n---- 此部位目前沒有可注入的導讀卡（{why}）；表列原文：{row['line']} ----", []

@@ -1594,3 +1594,94 @@ def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_
     assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree 讀 live 的卡
     assert oh.card_mem_dir(live, live) == live / "memory"
     assert unc_realpath_guard == []
+
+
+# ─── track-know：部位表類別 knowledge 的部位只要卡已注入 ─────────────────────────────────────────
+# 舊碼不分類別：知識部位（派工信箱）改檔前也要讀部位檔、交定位三行；注入文字也叫人交定位三行。
+
+_KNOW_MAP = (
+    "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+    "| `tools/` | 工具 | `工具導讀` | 有 | code |\n"
+    "| `scripts/` | 腳本 | `工具導讀` | 有 |  |\n"
+    "| `workflow/v6-inbox/` | 派工信箱 | `信箱導讀` | 有 | knowledge |\n"
+)
+
+
+@pytest.fixture
+def kproj(tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = tmp_path / "kproj"
+    cards = root / ".claude" / "memory" / "shared" / "導讀"
+    cards.mkdir(parents=True)
+    (root / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
+    (cards / "工具導讀.md").write_text("# 工具導讀\n病灶：參數名寫錯", encoding="utf-8")
+    (cards / "信箱導讀.md").write_text("# 信箱導讀\n派工單一律 .md", encoding="utf-8")
+    for d in ("tools", "scripts", "workflow/v6-inbox/to-x", "sub/workflow/v6-inbox"):
+        (root / d).mkdir(parents=True)
+    return root
+
+
+def _know_log(tmp_path):
+    return [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+
+
+@pytest.mark.parametrize("rel,knowledge", [
+    ("workflow/v6-inbox/to-x/a.py", True),
+    ("tools/a.py", False),
+    ("scripts/a.py", False),                      # 沒標類別的列＝code
+    ("sub/workflow/v6-inbox/a.py", False),        # 只有子字串撞到信箱列＝code
+])
+def test_know_edit_evidence_depends_on_part_kind(kproj, tmp_path, rel, knowledge):
+    """同一份檔：在知識部位，注入過卡就放行（沒讀部位檔、沒交定位三行也放）；在寫碼部位照擋。"""
+    tp = _transcript(tmp_path, ["先看看。"])
+    f = str(kproj / rel)
+    state: dict = {}
+    assert wo.on_prompt(state, "s", f"看一下 {f}", tp, {})                      # 提到路徑 → 注入，沒讀任何部位檔
+    warn, deny, changed = wo.on_edit(state, "s", f, tp, {})
+    if knowledge:
+        assert (warn, deny, changed) == (None, None, True), rel
+        last = _know_log(tmp_path)[-1]
+        assert last["event"] == "edit" and last["kind"] == "knowledge" and last["deny_reason"] is None
+    else:
+        assert deny and "定位三行" in deny, rel
+
+
+def test_know_edit_before_inject_still_denies_once_without_locate_demand(kproj, tmp_path):
+    """知識部位保留「卡已注入」這一項：沒注入過就先注入並擋一次（理由不叫人交定位三行），下一次放行。"""
+    tp = _transcript(tmp_path, ["x"])
+    f = str(kproj / "workflow" / "v6-inbox" / "to-x" / "001-x.md")
+    state: dict = {}
+    warn, deny, changed = wo.on_edit(state, "s", f, tp, {})
+    assert deny and "信箱導讀" in deny and "知識類部位" in deny and "定位｜部位" not in deny and changed
+    assert _know_log(tmp_path)[-1]["deny_reason"] == "not_injected"
+    assert wo.on_edit(state, "s", f, tp, {}) == (None, None, True)
+
+
+def test_know_injection_text_asks_locate_only_for_code_parts(kproj, tmp_path):
+    """注入文字：知識部位不要求定位三行（卡照注）；寫碼部位照舊要。"""
+    state: dict = {}
+    k = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "workflow" / "v6-inbox" / "to-x" / "a.md")}, str(kproj), "", {})
+    c = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "tools" / "a.py")}, str(kproj), "", {})
+    assert "信箱導讀" in k and "知識類部位" in k and "定位｜部位" not in k
+    assert "工具導讀" in c and "定位｜部位：工具" in c
+    assert {key.rsplit("|", 1)[1]: rec.get("kind") for key, rec in state["overview_hub"].items()} == {
+        "派工信箱": "knowledge", "工具": "code"}                                  # scorecard 的 S3 靠這欄排除知識部位
+
+
+def test_know_part_kind_table(tmp_path):
+    """lib 判法：錨在專案根的最長前綴列的類別；沒欄、沒標、拼錯、只有子字串命中、沒命中都算 code；沒部位表回 None。"""
+    rows = oh.parse_map(_KNOW_MAP + "| `tools/notes/` | 工具筆記 | 無 | 無 | knowlege |\n")
+    root = Path("c:/p")
+    kind_of = getattr(oh, "part_kind", None)
+    assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
+    kinds = {rel: kind_of(f"c:/p/{rel}", root, rows) for rel in
+             ("workflow/v6-inbox/a.py", "tools/a.py", "scripts/a.py", "tools/notes/a.md", "x/workflow/v6-inbox/a.py", "a.py")}
+    assert kinds == {"workflow/v6-inbox/a.py": "knowledge", "tools/a.py": "code", "scripts/a.py": "code",
+                     "tools/notes/a.md": "code", "x/workflow/v6-inbox/a.py": "code", "a.py": "code"}
+    assert all(r.get("kind") == "code" for r in oh.parse_map(APPB_TABLE))       # 沒有類別欄的舊表全是 code
+    proj = tmp_path / "p"
+    (proj / ".claude").mkdir(parents=True)
+    assert oh.path_kind(str(proj / "workflow" / "v6-inbox" / "a.py"), proj) is None
+    (proj / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
+    assert oh.path_kind(str(proj / "workflow" / "v6-inbox" / "a.py"), proj) == "knowledge"
+    assert oh.path_kind(str(proj / "tools" / "a.py"), proj) == "code"

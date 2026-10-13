@@ -1135,6 +1135,24 @@ def is_case_file(path: str, cfg: Dict[str, Any], root: Optional[str] = None) -> 
             and is_code_file(path, cfg.get("code_exts") or []))
 
 
+def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str]) -> bool:
+    """path 屬部位表類別 knowledge 的部位（文件、記憶、派工信箱）：那裡的 .py 是素材，不是本專案的程式也不是它的案例。
+    看的是路徑屬哪個部位（lib/overview_hub.path_kind，與 OverviewHub 同一份判法），不看副檔名、不看 git 狀態。
+    拿不到根、不在根底下、沒有部位表、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。"""
+    full, base = _norm_path(path), _norm_path(root or "")
+    if not base or not full.startswith(base + "/"):
+        return False
+    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    try:
+        from overview_hub import KIND_KNOWLEDGE, path_kind
+        return path_kind(str(path), Path(root)) == KIND_KNOWLEDGE
+    except Exception as e:  # noqa: BLE001
+        print(f"[verify_ledger] 判不出 {path} 的部位類別，照寫碼部位算：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
+
+
 def case_exists(path: str) -> bool:
     """案例檔在 Stop 當下還在嗎（刪掉的案例不算補了案例）。"""
     return os.path.isfile(path)
@@ -1233,6 +1251,7 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     """補案例的義務（跨回合）：每個根找「本 session 最後一次改驗證案例之後還改過的程式檔」，回這些檔。
     只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）；gone 裡的程式檔（已刪除、而且同根沒有新出現的程式檔，
     見 vanished_code_paths）不欠；搬走的照欠，量尺閘照舊看所有改檔。
+    屬知識類部位的檔（is_excluded：部位表類別 knowledge）兩邊都不算：不欠案例，也不能拿來替寫碼部位的程式清帳。
     案例判定用相對該根的路徑；拿不到根的程式檔退回絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。
     修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。
     範圍外：改的案例是不是對應這次改動，程式判不出來，交給收尾對照（需求目標核心流程 checklist C-G3）由 LLM 判。"""
@@ -1241,7 +1260,9 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     by_root: Dict[str, List[Dict[str, Any]]] = {}
     for m in own_mod_files or []:
         if isinstance(m, dict) and m.get("path"):
-            by_root.setdefault(str(root_of(m["path"]) or ""), []).append(m)
+            r = root_of(m["path"])
+            if not is_excluded(m["path"], cfg, r):
+                by_root.setdefault(str(r or ""), []).append(m)
     owed: List[str] = []
     for root, ms in by_root.items():
         case_of = {m["path"]: is_case_file(m["path"], cfg, root) for m in ms}
@@ -1493,7 +1514,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。"
                     + ("現在跑出收據。" if pending else "沒跑就寫沒跑，或現在跑。"))
     exts = cfg.get("code_exts") or []
-    absent = [p for p in mod_session if is_code_file(p, exts) and not code_exists(p)]
+    absent = [p for p in mod_session if is_code_file(p, exts) and not is_excluded(p, cfg, root_of(p)) and not code_exists(p)]
     gone = vanished_code_paths(absent, cfg, committed_new=committed_new) if absent else ()
     owed = case_debt(own_mod_files, turn_seq, cfg, root_of, gone)
     if owed and case_settled:

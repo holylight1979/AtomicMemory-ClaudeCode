@@ -47,7 +47,15 @@ def test_fixture_scores():
     assert s["parts_injected"] == 3 and s["parts_edited"] == 2 and s["modified_files"] == 3
     server = next(p for p in s["parts"] if p["part"] == "Server")
     assert server == {"key": "C:/p|Server", "root": "C:/p", "part": "Server", "edits": 2, "reads": 2,
-                      "located": True, "located_via": "tool_input", "card_read": True}
+                      "located": True, "located_via": "tool_input", "card_read": True, "kind": "code"}
+
+
+def test_knowledge_parts_not_in_s3_denominator():
+    """部位表類別 knowledge 的部位不要求定位三行：改了沒交三行不拉低 S3；S1 照算。"""
+    st = _state()
+    st["overview_hub"]["C:/p|派工信箱"] = {"edits": 3, "reads_after": [], "located": False, "kind": "knowledge"}
+    s = scb.compute_session_scores(st)
+    assert s["s3"] == 0.5 and s["parts_edited"] == 3 and s["s1"] == 0.333
 
 
 def test_zero_denominator_is_none_and_garbage_tolerated():
