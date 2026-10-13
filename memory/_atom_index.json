@@ -2851,7 +2851,10 @@
         "第二意見",
         "獨立掃碼",
         "codex 報告",
-        "--output-last-message"
+        "--output-last-message",
+        "second_opinion_start",
+        "材料不足",
+        "replay-guard pre"
       ],
       "scope": "global"
     },
@@ -6069,6 +6072,25 @@
         "next-phase",
         "文件膨脹",
         "codex 壞臭味"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "健康探針要真的用到被依賴的能力-答案只能從那個能力拿到-只回固定字樣的探針探不出沙箱故障",
+      "path": "memory/驗證與實證/健康探針要真的用到被依賴的能力-答案只能從那個能力拿到-只回固定字樣的探針探不出沙箱故障.md",
+      "triggers": [
+        "探針",
+        "健康檢查",
+        "smoke",
+        "起得來",
+        "沙箱",
+        "假綠",
+        "隨機字樣",
+        "nonce",
+        "探不出來",
+        "probe",
+        "附加寫入 log",
+        "殘留"
       ],
       "scope": "global"
     }
