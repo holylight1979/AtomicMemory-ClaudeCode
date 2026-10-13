@@ -49,6 +49,7 @@ from wg_release import (
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
 from wg_harvest import harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active
+from wg_reading_path import reading_path_note
 from handlers._shared import (
     _hud_alive,
     _maybe_spawn_user_extract_worker,
@@ -971,11 +972,19 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     )
     # 迴歸累積提示同為 piggyback payload：驗收裁判真命中 → 建議補測試/落 atom。
     _accept_hint = _acceptance_regression_hint(state, session_id, config)
+    # 閱讀路徑影響（G12）：改碼回合量一次，附在這次擋的訊息與 stderr；只量不擋、不計預算（wg_reading_path）
+    try:
+        _reading_path = reading_path_note(state, session_id, config)
+    except Exception as e:  # noqa: BLE001
+        _reading_path = f"[Guardian:ReadingPath] 這次對閱讀路徑的影響量不出來：hook 內部錯誤 {type(e).__name__}: {e}"
+    if _reading_path:
+        print(_reading_path, file=sys.stderr)
+        write_state(session_id, state)
 
     _tpath = str(transcript) if transcript else None
 
     def _piggyback(reason: str, gate: Optional[str] = None) -> str:
-        """附 token 預警／驗收提示。gate 有給（對帳／量尺閘＝"reconcile"）就記這個閘最後一次擋的位置；那條路是先 write_state
+        """附 token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳／量尺閘＝"reconcile"）就記這個閘最後一次擋的位置；那條路是先 write_state
         再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。"""
         if gate:
             mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)))
@@ -985,6 +994,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if _accept_hint:
             state["acceptance_hint_emitted"] = True
             reason = reason + _accept_hint
+        if _reading_path:
+            reason = f"{reason}\n{_reading_path}"
         if gate:
             write_state(session_id, state)
         return reason

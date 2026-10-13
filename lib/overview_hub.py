@@ -46,6 +46,8 @@ _EMPTY_EXTRA: Dict[str, Any] = {
     "defects_doc": "", "measure": {}, "checkers": [], "sample_paths": "", "extra_q": "",
     "layer": "", "authority": "", "upstream": "", "downstream": "", "kind": KIND_CODE,
 }
+# 「層」欄裡的閱讀路徑層號（tools/reading-path.py 的宣告層次軸）；由程式依路徑推，R5 不要求根因層那行寫它
+LAYER_AXIS_RE = re.compile(r"第\s*(\d+)\s*層")
 _MEASURE_SPLIT_RE = re.compile(r"\s*[｜]\s*")
 _LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
 # bypass 模式下讀檔走 Bash：cat / head / tail / sed -n / less 後面的路徑也算 Read
@@ -279,6 +281,12 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
             **_extra_fields(cells, cols),
         })
     return rows
+
+
+def layer_number(row: Optional[Dict[str, Any]]) -> Optional[int]:
+    """「層」欄恰好一個「第 N 層」→ N（閱讀路徑層次軸的層號）；沒有（例：單層）或不只一個 → None（沒宣告）。"""
+    found = LAYER_AXIS_RE.findall((row or {}).get("layer") or "")
+    return int(found[0]) if len(found) == 1 else None
 
 
 # ─── 命中 ───────────────────────────────────────────────────────────
