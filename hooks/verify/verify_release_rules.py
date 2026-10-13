@@ -357,6 +357,14 @@ def test_045_bash_comment_lines_stripped_keeps_commands_and_continuations():
     assert "# 這是接續行不是註解" in out and "定位" not in out
 
 
+# ─── 文字格式守門：規則模組不寫破折號（總控台對帳規則「新增行不准——」，002 對帳卡過一次） ─────
+
+def test_045_rules_module_has_no_em_dash():
+    src = (HOOKS_DIR / "wg_release_rules.py").read_text(encoding="utf-8")
+    bad = [i for i, ln in enumerate(src.splitlines(), 1) if "——" in ln]
+    assert not bad, f"wg_release_rules.py 第 {bad} 行有破折號，改成逗號或句號"
+
+
 # ─── ⑨ hook 子行程直譯器只有一份（wg_core.hook_python_exe） ──────────────────────
 
 def test_045_hook_python_exe_single_source(monkeypatch, tmp_path):
