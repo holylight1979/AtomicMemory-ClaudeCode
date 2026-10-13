@@ -271,6 +271,18 @@ def handle_user_prompt_submit(
     turn_intent = classify_intent(clean_prompt)
     state["turn_intent"] = turn_intent
 
+    # 需求目標（4.1）：使用者本人打的字記進目前的目標樹、同伴訊息記成轉述；沒樹時提醒先寫目標、有樹時送回樹根一行。
+    # 排在導讀卡之前（目標那一行先到眼前）；本則的回合號＝turn_seq＋1（這則收尾才加一）
+    try:
+        from wg_need_goal import on_prompt as _ng_on_prompt
+        _ng_txt = _ng_on_prompt(session_id, clean_prompt, int(state.get("turn_seq", 0)) + 1, config,
+                                cwd=input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or "")
+        if _ng_txt:
+            lines.append(_ng_txt)
+    except Exception as e:
+        _atom_debug_error("ups:need_goal", e)
+        print(f"[NeedGoal] UserPromptSubmit 記原話失敗：{type(e).__name__}: {e}", file=sys.stderr)
+
     # OverviewHub：提示詞提到某部位的檔且本 session 未注入過該部位 → 依意圖選片注入導讀卡（fail-open）
     try:
         from wg_overview import on_prompt as _hub_on_prompt

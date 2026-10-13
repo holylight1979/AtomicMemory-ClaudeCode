@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 B 段需求目標樹（need_goal）：新需求先寫目標、改程式前要有樹與定位第四行、改了要回頭對照、交付與 commit 前完整對照
+- **緣由**：系統跟「目標」沾邊的只有意圖分類（分的是手段不是需求目標），壓縮後重送的「主目標」也是它；定位三行、寫碼查核、收尾檢核都沒有一處問這次改動服務哪個目標（設計單 `v6-B-需求目標核心流程-設計單`，原設計者第十節定案 ①A ②A）。
+- **做法**：新 `hooks/wg_need_goal.py`（目標檔 `workflow/need-goal/<sid>.json` 整段上鎖、自帶序號；五個動作、證據七條、狀態轉換、續接單區塊與匯入、壓縮重送）＋ MCP `need_goal`（`lib/need-goal.js` 只驗參數）；UPS 送回樹根／第一則提醒、PreToolUse 寫碼類沒樹就擋（OverviewHub 之前）與 commit 前 (f1)(f2)、`wg_overview.on_edit` 定位第四行核對與目標改了清定位、導讀卡附樹、Stop 寫碼查核併進 (f1)(f2)、收尾檢核附樹＋HUD「目標對照」、驗收審查拿原話／轉述／樹三段；`reconcile_cfg` 的 code_exts 改成與預設聯集、沒副檔名的 `#!` 腳本算程式檔；`overview_hub.need_goal` 設定段。契約 `DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md`，TECH §7.7。
+- **驗證**：`verify_need_goal` 51 passed（測試沒導走資料根時目標檔落系統暫存目錄、兩個行程交錯寫不掉節點、各拒收理由、先後與目標版本作廢、第四行、(f1)(f2)、擋滿轉 pending 再清、子代理不跑、commit、匯入）；退回舊接點 15 紅（斷言 6；其餘 9 是舊碼沒有新函式、新參數或新輸出：AttributeError 4、KeyError 2、TypeError 1、IndexError 1、JSONDecodeError 1）；codex 審 4 條 BLOCK（換題後舊樹欠的交不進去、匯入的寫碼類樹沒新改動就漏 (f2)、上限截短丟掉義務與先後依據、清理刪鎖檔）處置後新案 6 個在處置前版本紅在斷言；OverviewHub 三檔＋部位表兩檔、MCP smoke、真 hook 入口情境探針 `hooks/verify/probe_need_goal_flow.py` 12 步全過。
+
 ## 2026-10-13 v6.0 舊卡回填與萃取器寫卡也不把開工句當 Quote
 - **緣由**：開工句被填成 Quote 有三個寫入口，前一筆只修了 PostToolUse 自動填。舊卡回填（`tools/atom-provenance-backfill.py`，SessionStart 見新對話紀錄就背景跑）沿 parentUuid 找最近一則真人訊息當原話；工作分頁裡同伴訊息開的回合不是真人訊息，往回走到的就是開工句。稽核紀錄顯示它把總控台剛改回的 decisions 卡與另一張新卡又補上開工句，清掉的 Quote 也會被它補回。萃取器把開工句裡夾的決策萃成卡時，Quote 也是那則開工句。
 - **做法**：`lib/provenance.is_kickoff_text`（原文清成使用者打的字後交 `lib/harness_text.is_kickoff_prompt`，與 PostToolUse 同一支判定）；回填 `_resolve_quote` 遇開工句不寫 Quote（A_noquote、Source 照補指到那則訊息；已有 Source 就 skip、reason=kickoff_not_quoted），萃取器 `_write_atom_via_mcp` 遇開工句不帶 quote。`is_kickoff_prompt` 的寬判定補兩處（codex 審查）：角色句括號說明全形半形都認；以引號開頭的訊息（在引用開工句討論）只認整則都是樣板的嚴格判定。

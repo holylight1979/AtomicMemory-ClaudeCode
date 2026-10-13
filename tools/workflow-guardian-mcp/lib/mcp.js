@@ -478,6 +478,66 @@ const TOOL_DEFINITIONS = [
       required: ["part", "cwd"],
     },
   },
+  {
+    name: "need_goal",
+    description:
+      "需求目標樹：每個要動手的需求先抓「真正要達成什麼」，工作中長出子目標，回頭對照做法有沒有更接近。" +
+      "set＝寫樹根（任務開始；換題帶 new_task=true 開新樹；改寫樹根要附 why；import_from＝從續接單匯入）；" +
+      "add＝加子目標（parent 省略＝樹根；說不清的 clarity=open 寫方向）；" +
+      "update＝改節點文字／狀態／清楚度，也是改了程式之後的「一句進度」（why 必填：這次改動讓它更接近了沒、為什麼）；" +
+      "reconcile＝交付前的完整對照（每個還活著的節點交終點結論 done|partial|none|dropped；達成要附證據，" +
+      "實測只能配收據 R<號> 且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note）；" +
+      "read＝把目前的樹送回眼前（form=handoff 取續接單區塊）。樹根與節點用使用者的語言、只寫目標不寫手段。" +
+      "寫碼類任務沒有樹不能改程式；改了程式要回頭對照；宣告完成、交收尾檢核、commit 前要有完整對照。" +
+      "本 tool 只驗參數回 chip、不寫檔（one-writer：目標檔、編號、送回的樹由 Python PostToolUse 獨佔）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["set", "add", "update", "reconcile", "read"], description: "動作（必填）" },
+        goal: { type: "string", description: "set：一句、使用者的語言、只寫目標不寫手段（沒給 import_from 時必填）" },
+        new_task: { type: "boolean", description: "set：換題，開新樹" },
+        why: { type: "string", description: "set：改寫樹根時必填，為什麼改" },
+        import_from: { type: "string", description: "set：續接單路徑（從【需求目標樹】區塊匯入）" },
+        parent: { type: "string", description: "add：掛在哪個節點（T2、T2.1…），省略＝樹根" },
+        items: {
+          type: "array",
+          description: "add：[{text, clarity?, origin?}]；update：[{id, text?, status?, clarity?, why}]；" +
+            "reconcile：[{id, status, evidence?, followup?, note?}]",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "update／reconcile：節點編號" },
+              text: { type: "string", description: "add／update：目標文字" },
+              status: { type: "string", enum: ["todo", "doing", "done", "partial", "none", "dropped"],
+                description: "update：任一狀態；reconcile：只收終點 done|partial|none|dropped" },
+              clarity: { type: "string", enum: ["clear", "open"], description: "明確／待展開" },
+              origin: { type: "string", enum: ["user", "inferred", "grown"], description: "add：使用者說的／推出來的／工作中長出的（預設 grown）" },
+              why: { type: "string", description: "update 必填：這次改動讓它更接近了沒、為什麼" },
+              evidence: {
+                type: "array",
+                description: "reconcile：證據",
+                items: {
+                  type: "object",
+                  properties: {
+                    kind: { type: "string", enum: ["receipt", "case", "file", "atom"], description: "收據／驗證案例檔／檔:行／卡名" },
+                    ref: { type: "string", description: "receipt 寫 R<號>（need_goal read 看最近收據）；case／file 寫路徑（可帶 :行）；atom 寫卡名" },
+                    level: { type: "string", enum: ["measured", "read", "inferred"], description: "實測（只配收據）／讀碼／推論" },
+                    covers: { type: "array", items: { type: "string" }, description: "這筆證據支持哪幾個節點，省略＝所在節點" },
+                  },
+                  required: ["kind", "ref", "level"],
+                },
+              },
+              followup: { type: "string", description: "reconcile：部分／沒有時接下來要追什麼" },
+              note: { type: "string", description: "reconcile：附註（放棄的理由寫這裡）" },
+            },
+          },
+        },
+        turns: { type: "integer", description: "reconcile：這次拐了幾個彎（選填）" },
+        form: { type: "string", enum: ["full", "compact", "handoff"], description: "read：顯示形式，預設 full" },
+      },
+      required: ["action"],
+    },
+  },
 ];
 
 // ─── Tool Handlers ──────────────────────────────────────────────────────────
@@ -506,6 +566,10 @@ function handleToolCall(id, toolName, args) {
       // 唯讀：spawn tools/project-smells.py --json（25 s timeout+kill）。
       return require("./project-smells").toolProjectSmells(id, args)
         .catch(e => sendToolResult(id, `project_smells error: ${e.message}`, true));
+    case "need_goal":
+      // one-writer：只驗參數、回 chip；目標檔與編號由 Python PostToolUse（wg_need_goal.apply_op）獨佔。
+      return require("./need-goal").toolNeedGoal(id, args)
+        .catch(e => sendToolResult(id, `need_goal error: ${e.message}`, true));
     case "atom_write":
       return toolAtomWrite(id, args).catch(e => sendToolResult(id, `atom_write error: ${e.message}`, true));
     case "atom_promote":
