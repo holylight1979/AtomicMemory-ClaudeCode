@@ -1266,7 +1266,7 @@ def log_promotion_heartbeat(scanned: int, min_gap_hours: float = 20.0) -> None:
 
 # ─── Guard Trigger Log（可觀測性：各護欄觸發計數 JSONL）─────────────────────
 
-_DEFAULT_LOGS_DIR = Path.home() / ".claude" / "Logs"
+_DEFAULT_LOGS_DIR = CLAUDE_DIR / "Logs"
 GUARD_LOG_DIR = _DEFAULT_LOGS_DIR
 
 

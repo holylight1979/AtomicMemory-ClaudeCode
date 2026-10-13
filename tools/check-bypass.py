@@ -20,7 +20,8 @@ import re
 import sys
 from pathlib import Path
 
-CLAUDE_DIR = Path.home() / ".claude"
+CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根：掃本樹的 hooks／tools／lib 原始碼
+HARNESS_DIR = Path.home() / ".claude"            # CC 自己的目錄：plugins/ 在這
 
 WHITELIST = {
     "lib/atom_io.py",
@@ -84,16 +85,17 @@ def scan_file(path: Path) -> list[tuple[int, str, str]]:
 
 def main() -> int:
     violations = 0
-    print(f"[check-bypass] scanning {CLAUDE_DIR}/{{hooks,tools,lib,plugins}}/...\n")
-    for sub in ("hooks", "tools", "lib", "plugins"):
-        root = CLAUDE_DIR / sub
+    print(f"[check-bypass] scanning {CODE_DIR}/{{hooks,tools,lib}}/、{HARNESS_DIR}/plugins/...\n")
+    scan_roots = [(CODE_DIR, sub) for sub in ("hooks", "tools", "lib")] + [(HARNESS_DIR, "plugins")]
+    for base, sub in scan_roots:
+        root = base / sub
         if not root.is_dir():
             continue
         for path in root.rglob("*"):
             if not path.is_file() or path.suffix not in SCAN_EXTS:
                 continue
             try:
-                rel = path.relative_to(CLAUDE_DIR).as_posix()
+                rel = path.relative_to(base).as_posix()
             except ValueError:
                 continue
             if any(part in SKIP_DIRS for part in path.parts):

@@ -29,13 +29,15 @@ from typing import Any, Dict, Iterable, List, Optional
 # `atom_locations`（絕對）兩種載入路徑；atom_classify 為 leaf（不 import 本模組）→ 無 cycle。
 try:
     from .atom_classify import score_by_lexicon
+    from .project_root import claude_data_dir
 except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
     from atom_classify import score_by_lexicon
+    from project_root import claude_data_dir
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-CLAUDE_DIR = Path.home() / ".claude"
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 GLOBAL_MEMORY_DIR = CLAUDE_DIR / "memory"
 CORE_ATOMS_REL = "memory"
 # 失敗家族（feedback-* / cognitive-patterns / memory-pipeline-*）是核心層的一個 Lv1 範疇

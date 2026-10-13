@@ -3,15 +3,17 @@
 驗證：
   - compute_counts 自洽（total == 各 realm 分項加總 == _atom_index.json 實際 atom 數）；
   - _apply 只換 marker 夾心、不動其他內容、不動換行；
-  - 跑完 sync(--write) 後 sync(--check) 零 drift（idempotent）。
+  - 跑完 sync(--write) 後 sync(--check) 零 drift（idempotent）：在 tmp 根（本樹的索引與計數文件複本）上寫，
+    本樹與家目錄的文件都不動。
 """
 
+import shutil
 import sys
 from pathlib import Path
 
 import pytest  # noqa: F401
 
-CLAUDE = Path.home() / ".claude"
+CLAUDE = Path(__file__).resolve().parents[2]   # 本樹（測的是這份碼與這份索引；唯讀）
 for _p in (CLAUDE / "tools", CLAUDE):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
@@ -45,11 +47,22 @@ def test_apply_noop_when_no_marker():
     assert out == "沒有任何 marker 的純文字"
 
 
-def test_sync_idempotent_no_drift():
+def test_sync_idempotent_no_drift(tmp_path: Path):
     # 先寫一次把所有 marked 文件對齊 SoT，再 check 必須零 drift（自動化的核心保證）。
-    sdc.sync(CLAUDE, write=True)
-    drift, msgs = sdc.sync(CLAUDE, write=False)
+    root = tmp_path / "root"
+    for rel in [sdc.ATOM_INDEX_REL] + sdc.DOC_FILES:
+        if (CLAUDE / rel).exists():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(CLAUDE / rel, root / rel)
+    tech = root / "TECH.md"
+    tech.write_text(tech.read_text(encoding="utf-8").replace("<!-- atom-total -->", "<!-- atom-total -->0", 1),
+                    encoding="utf-8", newline="\n")                                   # 計數改舊，逼出一次寫入
+    before = {rel: (CLAUDE / rel).read_bytes() for rel in sdc.DOC_FILES if (CLAUDE / rel).exists()}
+    drift, _ = sdc.sync(root, write=True)
+    assert drift is True
+    drift, msgs = sdc.sync(root, write=False)
     assert drift is False, msgs
+    assert {rel: (CLAUDE / rel).read_bytes() for rel in before} == before             # 本樹文件不動
 
 
 def test_compute_counts_failures_both_prefixes(tmp_path: Path):

@@ -89,6 +89,7 @@ def gtree(tmp_path, monkeypatch) -> Path:
         ("dev-note", "_AIDocs/_atoms/MemDev/dev-note.md", "global"),
     ])
     monkeypatch.setattr(MOD, "GLOBAL_MEMORY_DIR", mem)
+    monkeypatch.setattr(MOD, "DEFAULT_UNDO_DIR", root / "plans")   # 沒給 --undo-file 時 undo.json 落 tmp，不寫資料根
     return root
 
 

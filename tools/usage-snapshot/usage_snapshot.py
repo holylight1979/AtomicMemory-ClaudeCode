@@ -39,11 +39,12 @@ for _name in ("stdout", "stderr"):
 
 TOOL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOL_DIR.parents[1] / "hooks"))
-from wg_core import load_config, org_memory_root  # noqa: E402
+from wg_core import CLAUDE_DIR, load_config, org_memory_root  # noqa: E402
 from wg_vcs_sync import collect_sync_targets, sync_targets_inline  # noqa: E402
 
-PROFILE_DIR = TOOL_DIR / "browser-data"
-OUT_DIR = Path.home() / ".claude" / "workflow" / "usage-snapshots"  # 本機：log / last-run / FAILED 圖 / 沒接公司記憶庫時的截圖退路
+# 資料都在資料根（WG_CLAUDE_DIR 或 ~/.claude）；一般安裝兩根同一路徑，登入 profile 仍在原處
+PROFILE_DIR = CLAUDE_DIR / "tools" / "usage-snapshot" / "browser-data"   # Chrome 登入 profile（使用者資料）
+OUT_DIR = CLAUDE_DIR / "workflow" / "usage-snapshots"  # 本機：log / last-run / FAILED 圖 / 沒接公司記憶庫時的截圖退路
 REPO_SUBDIR = "usage-snapshots"  # 公司記憶庫內的截圖目錄（wg_vcs_sync org_extra_pathspecs 同名）
 LAST_RUN = OUT_DIR / "usage-last-run.json"
 LOG = OUT_DIR / "usage-log.jsonl"

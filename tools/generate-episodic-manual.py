@@ -11,13 +11,17 @@ import json
 import sys
 from pathlib import Path
 
-CLAUDE_DIR = Path.home() / ".claude"
-WORKFLOW_DIR = CLAUDE_DIR / "workflow"
-HOOKS_DIR = Path(__file__).resolve().parent.parent / "hooks"   # 程式碼：本檔所在樹的 hooks/
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）
+HOOKS_DIR = CODE_DIR / "hooks"
 
-# Add hooks and tools to path for imports
+# Add code root, hooks and tools to path for imports
+sys.path.insert(0, str(CODE_DIR))
 sys.path.insert(0, str(HOOKS_DIR))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
+WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 
 
 def find_best_state(target_sid: str = None):
