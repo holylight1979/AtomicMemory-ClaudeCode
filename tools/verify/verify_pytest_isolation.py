@@ -1,0 +1,178 @@
+"""verify_pytest_isolation.py：repo 根 conftest.py 讓測試預設隔離使用者資料根。
+
+做什麼：
+- 本行程：WG_CLAUDE_DIR 在 wg-iso-* 暫存目錄底下（不是本樹、不是家目錄/.claude），lib.claude_data_dir() 算出它；
+  tempfile 的暫存目錄是同一個暫存目錄下的 tmp，資料根不在暫存目錄底下；conftest 加的那層目錄名不含 test
+  （有案要「路徑不含 test 字樣」的暫存目錄，含了就構不出情境而跳過）。
+- 子行程：繼承同一個資料根（走真 hook 入口的測試靠這個）。
+- @pytest.mark.live_data：該案執行期間 WG_CLAUDE_DIR 還原成 pytest 啟動時的值。
+- 同一行程跑 pytest.main（run_verify.py 的跑法，連跑兩次）：每次都隔離，結束後四個變數還原、暫存目錄刪掉。
+- 資料根先放本樹受版控的資料（taxonomy 與本樹同一版）。
+怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_pytest_isolation.py
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+import pytest
+
+TREE = Path(__file__).resolve().parents[2]
+NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
+
+def _n(p) -> str:
+    return os.path.normcase(os.path.realpath(str(p)))
+
+
+def _under(p, root) -> bool:
+    a, r = _n(p), _n(root)
+    return a == r or a.startswith(r + os.sep)
+
+
+def _root_conftest(config):
+    """從 pytest 的 plugin 清單找根 conftest（別的目錄也有 conftest.py 時，sys.modules['conftest'] 會被換成那一支）。"""
+    mod = next((p for p in config.pluginmanager.get_plugins()
+                if getattr(p, "__file__", None) and _n(p.__file__) == _n(TREE / "conftest.py")), None)
+    assert mod is not None, "根 conftest.py 沒被 pytest 載入"
+    return mod
+
+
+def test_in_process_data_root_is_isolated():
+    data = os.environ.get("WG_CLAUDE_DIR", "")
+    assert data and Path(data).parent.name.startswith("wg-iso-"), data
+    assert "test" not in Path(data).parent.name.lower()
+    assert not _under(data, TREE) and _n(data) != _n(Path.home() / ".claude")
+    sys.path.insert(0, str(TREE))
+    from lib.project_root import claude_data_dir
+    assert _n(claude_data_dir()) == _n(data)
+    temp = tempfile.gettempdir()
+    assert _n(Path(temp).parent) == _n(Path(data).parent) and not _under(data, temp), (temp, data)
+
+
+def test_data_root_seeded_with_tracked_data():
+    assert os.environ.get("WG_CLAUDE_DIR"), "資料根沒被導到暫存目錄"
+    data = Path(os.environ["WG_CLAUDE_DIR"])
+    rel = Path("memory") / "_meta" / "taxonomy.json"
+    assert (data / rel).read_bytes() == (TREE / rel).read_bytes()
+    if (TREE / ".git").exists():        # 不是 git 工作樹（例 git archive 匯出）時 conftest 只放 _meta 與 config，stderr 已說明
+        assert (data / "memory" / "_atom_index.json").is_file() and (data / "_AIDocs" / "_atoms").is_dir()
+
+
+def test_subprocess_inherits_isolated_data_root(tmp_path):
+    snippet = ("import json, sys; sys.path.insert(0, sys.argv[1]); import wg_core; "
+               "print(json.dumps([str(wg_core.CLAUDE_DIR), str(wg_core.WORKFLOW_DIR)]))")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", snippet, str(TREE / "hooks")], cwd=str(tmp_path),
+                       capture_output=True, text=True, encoding="utf-8", timeout=60, creationflags=NO_WINDOW)
+    assert r.returncode == 0, r.stderr[-2000:]
+    claude_dir, workflow = json.loads(r.stdout.strip().splitlines()[-1])
+    assert _n(claude_dir) == _n(os.environ.get("WG_CLAUDE_DIR", "")) and _under(workflow, claude_dir)
+
+
+def test_leftovers_for_cleanup(tmp_path):
+    """留兩種難刪的東西給 session 收尾：唯讀檔（測試建的 git repo 物件檔在 Windows 是唯讀）、開著的 log 檔
+    （wg_atoms 向量觀測紀錄的 logging handler 整個行程開著）。下面的巢狀案驗收尾後暫存目錄整個不見。"""
+    import logging
+    import stat
+    data = Path(os.environ.get("WG_CLAUDE_DIR", str(tmp_path)))
+    for d in (tmp_path, data / "ro-probe"):
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / "objects-like.bin"
+        f.write_bytes(b"x")
+        os.chmod(f, stat.S_IREAD)
+        assert not os.access(f, os.W_OK)
+    (data / "Logs").mkdir(parents=True, exist_ok=True)
+    lg = logging.getLogger("verify_pytest_isolation.open_log")
+    lg.addHandler(logging.FileHandler(str(data / "Logs" / "open-handler.log"), encoding="utf-8"))
+    lg.warning("kept open until session cleanup")
+
+
+@pytest.mark.live_data
+def test_live_data_marker_restores_original_value(request):
+    assert os.environ.get("WG_CLAUDE_DIR") == _root_conftest(request.config).SESSION["original"]["WG_CLAUDE_DIR"]
+
+
+NESTED = r"""
+import json, os, sys, pytest
+keys = ("WG_CLAUDE_DIR", "TEMP", "TMP", "TMPDIR")
+before = {k: os.environ.get(k) for k in keys}
+temp = os.environ["TEMP"]
+bases = {d for d in os.listdir(temp) if d.startswith("wg-iso-")}
+rcs = [int(pytest.main([sys.argv[1] + "::test_in_process_data_root_is_isolated",
+                        sys.argv[1] + "::test_leftovers_for_cleanup", "-q", "-p", "no:cacheprovider"]))
+       for _ in range(2)]
+left = {d for d in os.listdir(temp) if d.startswith("wg-iso-")} - bases
+print("NESTED_JSON " + json.dumps({"rc": rcs, "same": {k: os.environ.get(k) for k in keys} == before,
+                                   "left": sorted(left)}))
+"""
+
+
+def test_in_process_pytest_main_restores_env_and_removes_base():
+    """同一行程連跑兩次 pytest.main：兩次都隔離（conftest 已快取也一樣），結束後環境還原、暫存目錄連唯讀檔與開著的 log 一起刪掉；
+    第二次開始時第一次載入的本樹模組還在（常數改不到），stderr 明講一次。"""
+    r = subprocess.run([sys.executable, "-X", "utf8", "-c", NESTED, str(Path(__file__))], cwd=str(TREE),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                       creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("NESTED_JSON ")), None)
+    assert line, f"rc={r.returncode}\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}"
+    got = json.loads(line[len("NESTED_JSON "):])
+    assert got == {"rc": [0, 0], "same": True, "left": []}, got
+    assert r.stderr.count("[conftest] 這些本樹模組在 pytest 開始前已載入") == 1, r.stderr[-2000:]   # 第二次才有、明講
+
+
+def test_subdir_conftest_is_not_reported_as_preloaded(tmp_path):
+    """子目錄自己有 conftest.py（例 hooks/verify/conftest.py）時，pytest 會在 pytest_configure 之前先載它；
+    那不是「帶資料根常數的本樹模組」，不得印「已預載」警示（否則每輪都出假警示）。"""
+    import shutil
+    a = tmp_path / "A"
+    (a / "sub").mkdir(parents=True)
+    for name in ("conftest.py", "pytest.ini"):
+        shutil.copyfile(TREE / name, a / name)
+    (a / "sub" / "conftest.py").write_text("import pytest\n", encoding="utf-8")
+    (a / "sub" / "verify_x.py").write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-m", "pytest", "-q", "-p", "no:cacheprovider", "sub/verify_x.py"],
+                       cwd=str(a), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                       creationflags=NO_WINDOW)
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-1500:]
+    assert "pytest 開始前已載入" not in r.stderr, r.stderr[-1500:]
+
+
+INTERRUPTED = r"""
+import json, os, shutil, sys, pytest
+keys = ("WG_CLAUDE_DIR", "TEMP", "TMP", "TMPDIR")
+before = {k: os.environ.get(k) for k in keys}
+temp = os.environ["TEMP"]
+bases = {d for d in os.listdir(temp) if d.startswith("wg-iso-")}
+real_copy, calls = shutil.copyfile, []
+
+def copy_then_interrupt(*a, **k):
+    calls.append(1)
+    if len(calls) == 3:
+        raise KeyboardInterrupt                        # 種子拷到一半按 Ctrl+C
+    return real_copy(*a, **k)
+
+shutil.copyfile = copy_then_interrupt
+try:
+    rc = int(pytest.main([sys.argv[1] + "::test_in_process_data_root_is_isolated", "-q", "-p", "no:cacheprovider"]))
+except BaseException as e:
+    rc = type(e).__name__
+shutil.copyfile = real_copy
+left = {d for d in os.listdir(temp) if d.startswith("wg-iso-")} - bases
+print("INTERRUPTED_JSON " + json.dumps({"interrupted": len(calls) >= 3, "rc": rc,
+                                        "same": {k: os.environ.get(k) for k in keys} == before, "left": sorted(left)}))
+"""
+
+
+def test_interrupted_while_seeding_leaves_nothing():
+    """暫存目錄建好、種子拷到一半被中斷（Ctrl+C；複製出錯同一條路）：暫存目錄照樣刪掉、四個環境變數維持原值。"""
+    r = subprocess.run([sys.executable, "-X", "utf8", "-c", INTERRUPTED, str(Path(__file__))], cwd=str(TREE),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                       creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("INTERRUPTED_JSON ")), None)
+    assert line, f"rc={r.returncode}\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}"
+    got = json.loads(line[len("INTERRUPTED_JSON "):])
+    assert got["interrupted"] and got["rc"] != 0 and got["same"] and got["left"] == [], got

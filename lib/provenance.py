@@ -24,8 +24,9 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from .atom_spec import parse_frontmatter, slugify
 from .harness_text import is_kickoff_prompt, user_typed_text
+from .project_root import claude_data_dir
 
-PROJECTS_DIR = Path.home() / ".claude" / "projects"
+PROJECTS_DIR = claude_data_dir() / "projects"
 CONTEXT_TEXT_CHARS = 600
 
 _QUOTE_PAIRS = {"「": "」", '"': '"', "“": "”"}

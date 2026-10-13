@@ -20,9 +20,14 @@ import time
 from pathlib import Path
 
 # ── Paths ────────────────────────────────────────────────────────────────
-CLAUDE_DIR = Path.home() / ".claude"
-CLAUDE_JSON = Path.home() / ".claude.json"
-TEMPLATE = CLAUDE_DIR / "mcp-servers.template.json"
+CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根：樣板與 MCP server 入口（{claude_dir}）在這棵樹
+if str(CODE_DIR / "lib") not in sys.path:
+    sys.path.insert(0, str(CODE_DIR / "lib"))
+from project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow 旗標與版本快取
+CLAUDE_JSON = Path.home() / ".claude.json"   # CC 自己的設定檔，固定在家目錄
+TEMPLATE = CODE_DIR / "mcp-servers.template.json"
 VERSION_CACHE = CLAUDE_DIR / "workflow" / "mcp-version-cache.json"
 FLAG_NEEDS_NODE = CLAUDE_DIR / "workflow" / "mcp-needs-node.flag"
 TTL_SECONDS = 7 * 86400  # 7 days
@@ -97,7 +102,7 @@ def _save_json(path, data):
 def _resolve_entry(server_def, npm_prefix):
     """Resolve JS entry point. Returns (absolute_path_str, exists_bool)."""
     if "entry_absolute" in server_def:
-        p = Path(server_def["entry_absolute"].replace("{claude_dir}", str(CLAUDE_DIR)))
+        p = Path(server_def["entry_absolute"].replace("{claude_dir}", str(CODE_DIR)))
         return str(p), p.exists()
     if npm_prefix and "entry_relative" in server_def:
         p = Path(npm_prefix) / "node_modules" / server_def["entry_relative"]

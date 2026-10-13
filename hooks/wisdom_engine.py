@@ -15,7 +15,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-WISDOM_DIR = Path.home() / ".claude" / "memory" / "wisdom"
+_LIB_DIR = str(Path(__file__).resolve().parents[1] / "lib")   # 程式碼：資料根算法從本樹載
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from project_root import claude_data_dir  # noqa: E402
+
+WISDOM_DIR = claude_data_dir() / "memory" / "wisdom"
 REFLECTION_PATH = WISDOM_DIR / "reflection_metrics.json"
 
 ARCH_KEYWORDS = {"架構", "refactor", "重構", "migrate", "migration", "重寫"}

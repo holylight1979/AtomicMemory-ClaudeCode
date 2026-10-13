@@ -2,7 +2,10 @@
 
 正例：欄位齊、路徑在 workflow/verify-ledger/_runs/、cmd 正規化成表上的量尺寫法；讀端只收自寫來源、新的在前。
 反例：寫不進去 → stderr 一行、回 None、不拋；--help 不寫收據（真的跑 run_verify.py --help）。
-接線：run_verify.py 印完量尺哨兵之後才寫收據。
+接線：run_verify.py 印完量尺哨兵之後才寫收據；收據寫資料根（WG_CLAUDE_DIR 或 ~/.claude），不寫程式碼樹，
+  量尺閘（hooks/wg_verify_ledger.load_self_runs）從同一個資料根讀得到、project_root 對得上受測樹。
+  部位量尺是整組 pytest 的（`pytest -q tools/verify`、`pytest -q lib/verify`）由根 conftest 跑完自寫收據（同機制），
+  量尺閘 self_run_ok 認帳；只跑一支不寫。
 怎麼跑：python -X utf8 -m pytest -q lib/verify/verify_self_receipt.py
 """
 from __future__ import annotations
@@ -114,27 +117,102 @@ def test_session_end_calls_prune():
     assert "prune_self_runs(" in src and src.index("_cleanup_old_states()") < src.index("prune_self_runs(")
 
 
-def test_006_real_run_verify_writes_receipt_with_tree_root(tmp_path):
-    """真實接線：tmp 樹 A 放 run_verify.py＋lib/＋一個會過的 verify 檔，在 B 目錄當 cwd 子行程實跑；
-    收據真的落地在 A/workflow/verify-ledger/_runs/，project_root＝A（受測樹，006-5）、cwd＝B。"""
+GATE_PROBE = ("import json, sys; sys.path.insert(0, sys.argv[1]); import wg_verify_ledger as L; runs = L.load_self_runs(); "
+              "print('GATE_JSON ' + json.dumps({'roots': [r.get('project_root') for r in runs], "
+              "'root_ok': [L._root_ok(r, sys.argv[2]) for r in runs]}))")
+
+
+@pytest.mark.parametrize("data_mode", ["tmp", "unset"])
+def test_006_real_run_verify_writes_receipt_to_data_root_with_tree_root(tmp_path, data_mode):
+    """真實接線：tmp 樹 A（當成 worktree）放 run_verify.py＋conftest.py＋lib/＋一個會過的 verify 檔，在 B 目錄當 cwd 子行程實跑；
+    資料根是 tmp（WG_CLAUDE_DIR）或沒設（落 tmp 家/.claude，等同 live）。收據落地在資料根的 workflow/verify-ledger/_runs/、
+    不落 A；project_root＝A（受測樹，006-5）、cwd＝B；A 裡的測試跑在 conftest 隔離的資料根（不是外層資料根）；
+    量尺閘用同一組環境 load_self_runs 讀得到這份收據，_root_ok 對 A 成立。"""
     import shutil
-    a, b = tmp_path / "A", tmp_path / "B"
+    a, b, home = tmp_path / "A", tmp_path / "B", tmp_path / "home"
     b.mkdir()
+    home.mkdir()
     shutil.copytree(ROOT / "lib", a / "lib", ignore=shutil.ignore_patterns("verify", "__pycache__"))
-    shutil.copyfile(ROOT / "run_verify.py", a / "run_verify.py")
-    shutil.copyfile(ROOT / "pytest.ini", a / "pytest.ini")                         # python_files 要收 verify_*.py
+    for name in ("run_verify.py", "pytest.ini", "conftest.py"):                    # pytest.ini：python_files 要收 verify_*.py
+        shutil.copyfile(ROOT / name, a / name)
     (a / "hooks" / "verify").mkdir(parents=True)
-    (a / "hooks" / "verify" / "verify_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in ("WG_CLAUDE_DIR", "PYTEST_CURRENT_TEST")}
+    env.update({"HOME": str(home), "USERPROFILE": str(home), "PYTHONIOENCODING": "utf-8"})
+    data = tmp_path / "data" if data_mode == "tmp" else home / ".claude"
+    if data_mode == "tmp":
+        env["WG_CLAUDE_DIR"] = str(data)
+    (a / "hooks" / "verify" / "verify_ok.py").write_text(
+        "import os\n\ndef test_ok():\n    assert os.path.realpath(os.environ['WG_CLAUDE_DIR']) != "
+        f"os.path.realpath({str(data)!r})\n", encoding="utf-8")
     r = subprocess.run([sys.executable, "-X", "utf8", str(a / "run_verify.py")], capture_output=True, text=True,
-                       encoding="utf-8", timeout=300, cwd=str(b))
+                       encoding="utf-8", timeout=300, cwd=str(b), env=env)
     assert r.returncode == 0 and "VERIFY_CHECK DONE cases=1 failed=0" in r.stdout, r.stdout[-500:] + r.stderr[-500:]
-    runs = list((a / "workflow" / "verify-ledger" / "_runs").glob("*.json"))
+    assert not (a / "workflow").exists()                                              # 反例：收據不寫程式碼樹
+    runs = list((data / "workflow" / "verify-ledger" / "_runs").glob("*.json"))
     assert len(runs) == 1
     rec = json.loads(runs[0].read_text(encoding="utf-8"))
     assert rec["project_root"] == str(a) and rec["cwd"] == str(b)                     # 受測樹不是 cwd
     assert rec["cmd"] == "python -X utf8 run_verify.py" and rec["source"] == "run_verify_self"
     assert rec["exit_code"] == 0 and rec["cases"] == 1 and rec["failed"] == 0
     assert rec["sentinel"] == "VERIFY_CHECK DONE cases=1 failed=0" and rec["started_at"] <= rec["at"]
+    g = subprocess.run([sys.executable, "-X", "utf8", "-c", GATE_PROBE, str(ROOT / "hooks"), str(a)], capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", timeout=120, cwd=str(b), env=env)
+    line = next((l for l in g.stdout.splitlines() if l.startswith("GATE_JSON ")), None)
+    assert line, g.stderr[-2000:]
+    assert json.loads(line[len("GATE_JSON "):]) == {"roots": [str(a)], "root_ok": [True]}
+
+
+# argv：hooks 目錄、受測樹、量尺；部位最後修改給一個早於開跑的時間
+SUITE_GATE_PROBE = ("import json, sys; sys.path.insert(0, sys.argv[1]); import wg_verify_ledger as L; runs = L.load_self_runs(); "
+                    "print('GATE_JSON ' + json.dumps({'n': len(runs), 'sentinels': [r.get('sentinel') for r in runs], "
+                    "'ok': L.self_run_ok(runs, sys.argv[3], sys.argv[2], '2000-01-01T00:00:00+00:00', 0)}))")
+
+
+@pytest.mark.parametrize("suite,data_mode", [("tools/verify", "tmp"), ("tools/verify", "unset"), ("lib/verify", "tmp")])
+def test_whole_pytest_suite_writes_receipt_gate_accepts(tmp_path, suite, data_mode):
+    """部位量尺是整組 pytest（`python -X utf8 -m pytest -q tools/verify`、`… lib/verify`；背景跑看不到結尾）：根 conftest
+    在整組跑完後寫收據到 pytest 啟動時的資料根（tmp，或沒設 → tmp 家/.claude）、不落受測樹；量尺閘 load_self_runs 讀得到，
+    self_run_ok 對這把量尺與受測樹成立。只跑其中一支、篩過、只收集、-o 覆寫收集設定、-c 換 ini 都不寫收據。"""
+    import shutil
+    a, home = tmp_path / "A", tmp_path / "home"
+    home.mkdir()
+    shutil.copytree(ROOT / "lib", a / "lib", ignore=shutil.ignore_patterns("verify", "__pycache__"))
+    for name in ("pytest.ini", "conftest.py"):
+        shutil.copyfile(ROOT / name, a / name)
+    shutil.copyfile(ROOT / "pytest.ini", a / "alt.ini")                                # 內容相同、但不是本樹那支 ini
+    (a / suite).mkdir(parents=True)
+    (a / suite / "verify_ok.py").write_text("def test_ok():\n    assert True\n\n\ndef test_other():\n    assert True\n",
+                                            encoding="utf-8")
+    ruler = f"python -X utf8 -m pytest -q {suite}"
+    env = {k: v for k, v in os.environ.items() if k not in ("WG_CLAUDE_DIR", "PYTEST_CURRENT_TEST")}
+    env.update({"HOME": str(home), "USERPROFILE": str(home), "PYTHONIOENCODING": "utf-8"})
+    data = tmp_path / "data" if data_mode == "tmp" else home / ".claude"
+    if data_mode == "tmp":
+        env["WG_CLAUDE_DIR"] = str(data)
+    runs_dir = data / "workflow" / "verify-ledger" / "_runs"
+
+    def pytest_run(*args):
+        r = subprocess.run([sys.executable, "-X", "utf8", "-m", "pytest", "-q", *args], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=300, cwd=str(a), env=env)
+        assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-1500:]
+
+    for narrowed in ([f"{suite}/verify_ok.py"], [suite, "-k", "test_other"], [suite, "--collect-only"],
+                     [suite, "--deselect", f"{suite}/verify_ok.py::test_other"],
+                     [suite, "-o", "python_files=verify_ok.py"], [suite, "-c", "alt.ini"]):
+        pytest_run(*narrowed)                                                         # 子集／篩過／只收集／改收集設定：不寫收據
+        assert not runs_dir.exists(), narrowed
+    pytest_run(suite)                                                                 # 整組：寫收據
+    runs = list(runs_dir.glob("*.json"))
+    assert len(runs) == 1 and not (a / "workflow").exists()
+    rec = json.loads(runs[0].read_text(encoding="utf-8"))
+    assert rec["project_root"] == str(a) and rec["cmd"] == ruler
+    assert rec["exit_code"] == 0 and rec["cases"] == 2 and rec["failed"] == 0 and rec["source"] == "run_verify_self"
+    g = subprocess.run([sys.executable, "-X", "utf8", "-c", SUITE_GATE_PROBE, str(ROOT / "hooks"), str(a), ruler],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120, env=env)
+    line = next((l for l in g.stdout.splitlines() if l.startswith("GATE_JSON ")), None)
+    assert line, g.stderr[-2000:]
+    sentinel = f"{suite.replace('/', '_').upper()}_CHECK DONE cases=2 failed=0"
+    assert json.loads(line[len("GATE_JSON "):]) == {"n": 1, "sentinels": [sentinel], "ok": True}
 
 
 def test_cmd_of_normalizes_interpreter_and_script_path():

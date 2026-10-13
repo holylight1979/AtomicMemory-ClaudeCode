@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 資料根一致化收尾：剩下的家目錄寫法、核心根認 worktree、測試預設隔離資料根、整組量尺自寫收據
+- **緣由**：A2c 之後仍有 lib／hooks／skills 十多處自己用 `Path.home()/.claude` 算資料根；`is_core_root` 只認資料根，cwd 在根層 worktree 時含「此專案」的 global 卡被拒；既有測試沒設 WG_CLAUDE_DIR 時整個 pytest 行程的資料根是 live，假 session 檔寫進 live workflow/；run_verify 收據寫程式碼樹、量尺閘讀資料根，worktree 全量永遠不被認；整組 pytest 量尺（tools/verify、lib/verify）背景跑完不留收據。
+- **做法**：ollama_extract_core／atom_spec／provenance／overview_scaffold 退路／lang_guard／wg_evasion／wisdom_engine／acceptance_spec／version_guard／ensure-mcp／UPS 決策項／refile_classify／skill-cost-measure／console-window-trace.ps1 改走資料根（程式碼看檔案位置，一般安裝字串不變）；核心根＝資料根或程式碼根之內、或資料根 repo 的 git worktree，`atom_io` 三處同判斷改共用 `is_core_root`；repo 根 `conftest.py` 每個 session 把資料根與 TEMP／TMP／TMPDIR 導到暫存目錄（先放本樹受版控資料）、結束還原，暫存目錄一建好就登記（初始化中斷也清得到），`@pytest.mark.live_data` 豁免；run_verify 開跑前算資料根、收據寫資料根；整組 tools/verify、lib/verify 由 conftest 跑完自寫收據（篩過、只收集、-o 改收集設定、-c 換 ini 都不寫）。
+- **驗證**：`tools/verify/verify_tools_data_root.py`（TOOLS 表加 7 列＋ensure-mcp 案＋ps1 案）、`verify_tools_data_root_lib.py`（lib 尾巴與 worktree 核心根、hooks 三支）、`verify_pytest_isolation.py`（新）、`lib/verify/verify_self_receipt.py`（收據落資料根、量尺閘認帳）；退回改前逐處紅在斷言。
+
 ## 2026-10-13 v6.0 放行／欠帳判定抽成獨立模組，一次修完誤判清冊 B／C 組（045 track-gate-rules）
 - **緣由**：七個工作分頁一天被各種閘誤擋幾十次（清冊 B1～B14、C1）：先紅後綠被當欠案例、整場一份擋次預算、只改註解算改碼、merge 取 theirs 算改碼、`python -c` 一律 UNKNOWN、唯讀 git 碰 live 路徑就擋、Grep 不算讀檔、worktree 要求 push、刪執行期目錄要綜觀、暫存 repo 要口令、隔離 session 被叫 atom_write、刻意跑紅算重試。原設計者裁定：不加例外清單、不放寬，做成獨立模組，每情境一條有名字的規則＋會紅案例，擋訊息印規則名與證據。
 - **做法**：`hooks/wg_release_rules.py`（e8 044 的 11 條之上加 24 條）＋ `format_hit`／`parse_hits`／每規則各自計次的預算；`wg_verify_ledger` 新增 `ref_blob_facts`／`committed_equal_paths`／`green_settled_paths`／`reverted_code_files`、對帳 hits 改 `format_hit`；`stop`、`post_tool_use`、`pre_tool_use`、`wg_core`、`wg_overview`、`lib/overview_hub`、`wisdom_engine`、`ups_gates`、`wg_evasion`、`wg_harvest` 的判定改呼叫模組。追加三項：派工訊息開回合（`DISPATCH_OPENS_TURN`、`user_turn_count`）、找版控根 OSError 另立 `VCS_ROOT_UNREADABLE`、hook 子行程直譋器單一來源 `wg_core.hook_python_exe`。

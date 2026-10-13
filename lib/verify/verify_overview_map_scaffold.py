@@ -632,10 +632,9 @@ def test_root_worktree_write_refused_and_nothing_written(tmp_path, monkeypatch, 
 def test_detect_layer_fallback_without_wg_core_still_sees_root_worktree(tmp_path, monkeypatch, capsys):
     home = tmp_path / "home"
     live, wt, proj = _root_wt_world(home)
-    live.rename(home / ".claude")                                                         # 退路的 live＝Path.home()/.claude
+    live.rename(home / ".claude")
     _link_wt(home / ".claude", wt, "wt")                                                  # live 搬家後 .git 檔重新指回
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("WG_CLAUDE_DIR", str(home / ".claude"))                            # 退路的 live＝資料根（claude_data_dir）
     monkeypatch.setitem(sys.modules, "wg_core", None)                                     # import wg_core → ImportError
     assert sc.detect_layer(wt) == (sc.LAYER_ROOT, wt)
     assert sc.detect_layer(proj) == (sc.LAYER_PROJECT, proj)
@@ -682,8 +681,7 @@ def test_nested_root_worktree_under_live_is_root_wt_and_write_refused(tmp_path, 
     if path_kind == "wg_core":
         live_wg_core(live)                                                                 # _layer_of 會判 root（在 live 之下）
     else:
-        monkeypatch.setenv("HOME", str(home))
-        monkeypatch.setenv("USERPROFILE", str(home))
+        monkeypatch.setenv("WG_CLAUDE_DIR", str(live))                                     # 退路的 live＝資料根（claude_data_dir）
         monkeypatch.setitem(sys.modules, "wg_core", None)
     assert sc.detect_layer(wt) == (sc.LAYER_ROOT, wt)                                     # 不是 (root, live)
     fake = _FakeWriter(wt)

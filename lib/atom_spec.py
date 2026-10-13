@@ -11,9 +11,17 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+
+try:
+    from .project_root import claude_data_dir
+except ImportError:  # 頂層模組載入（含單獨按檔案載入、lib/ 不在 sys.path）：從本檔所在的 lib/ 找
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from project_root import claude_data_dir
 
 
 # ─── Constants（單一規則來源） ───────────────────────────────────────────────
@@ -203,9 +211,9 @@ def resolve_depends_path(value: str, claude_dir: Optional[Path] = None,
 
     - `~` 開頭 → expanduser
     - 絕對路徑 → 原樣
-    - 相對路徑 → 以 base 為根（專案卡＝專案根；根層卡＝~/.claude）；沒給 base 用 claude_dir（預設 ~/.claude）
+    - 相對路徑 → 以 base 為根（專案卡＝專案根；根層卡＝資料根）；沒給 base 用 claude_dir（預設資料根 claude_data_dir()）
     """
-    root = base or claude_dir or Path.home() / ".claude"
+    root = base or claude_dir or claude_data_dir()
     p = Path(value).expanduser()
     if not p.is_absolute():
         p = root / p
@@ -213,11 +221,11 @@ def resolve_depends_path(value: str, claude_dir: Optional[Path] = None,
 
 
 def depends_base_for(mem_dir: Path) -> Path:
-    """索引目錄 → 該索引卡片 `path:` 相對路徑的解析根：根層 `~/.claude/memory` → `~/.claude`；
+    """索引目錄 → 該索引卡片 `path:` 相對路徑的解析根：根層 `<資料根>/memory` → 資料根；
     專案層 `<root>/.claude/memory` → `<root>`；其他佈局退 mem_dir 的上一層。"""
     mem_dir = Path(mem_dir)
     try:
-        if mem_dir.resolve() == (Path.home() / ".claude" / "memory").resolve():
+        if mem_dir.resolve() == (claude_data_dir() / "memory").resolve():
             return mem_dir.parent
     except OSError:
         pass
