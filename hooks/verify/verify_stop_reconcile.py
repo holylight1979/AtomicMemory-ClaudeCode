@@ -2984,7 +2984,7 @@ def test_039_directory_restore_is_unknown_write_through_stop(sub_stop, monkeypat
     edit(code, 1, **kw)
     edit(case, 1, **kw)
     git("-C", "src", "checkout", ".", **kw)
-    unknown = (state.get("agent_unknown_writes") or {}).get("ag1") if who == "subagent" else state.get("unknown_writes")
-    assert unknown and unknown[-1]["target"].startswith("UNKNOWN:")
     out = sub_stop(capsys, state, agent_id="ag1")[0] if who == "subagent" else _judge_stop(monkeypatch, capsys, state)
     assert "無法互動，不能放行" in out and "寫入目標不明" in out
+    unknown = (state.get("agent_unknown_writes") or {}).get("ag1") if who == "subagent" else state.get("unknown_writes")
+    assert unknown and unknown[-1]["target"].startswith("UNKNOWN:")
