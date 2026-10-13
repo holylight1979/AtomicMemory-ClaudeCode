@@ -73,7 +73,8 @@ SNAPSHOT_STAT_CHECK_EVERY = 10     # 每 10 檔查一次 deadline（50 檔×55 m
 
 
 def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
-    """config `verify_ledger.sentinel_regex: [{regex, name, verdict_map}]` → 已編譯規則；壞 regex 跳過（stderr 浮一行）。"""
+    """config `verify_ledger.sentinel_regex: [{regex, name, verdict_map, pytest_summary?}]` → 已編譯規則；壞 regex 跳過（stderr 浮一行）。
+    pytest_summary＝true 的規則按 pytest 統計逐組解析（_map_verdict），其餘照子字串映射。"""
     out: List[Dict[str, Any]] = []
     for r in cfg_rules or []:
         if not isinstance(r, dict) or not r.get("regex"):
@@ -88,6 +89,7 @@ def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
             "re": rx,
             "name": str(r.get("name") or "").strip(),
             "verdict_map": {str(k): str(v).upper() for k, v in vm.items()},
+            "pytest_summary": r.get("pytest_summary") is True,
         })
     return out
 
@@ -95,19 +97,20 @@ def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
 _STAT_RE = re.compile(r"\b(\d+) ([a-z]+)\b")          # 統計行的「數字 狀態詞」組：5 passed, 2 skipped, 1 xfailed
 
 
-def _map_verdict(raw: str, verdict_map: Dict[str, str]) -> Optional[str]:
-    """命中的那段文字 → verdict_map 的結論。文字裡有「數字 狀態詞」組（pytest 統計行）時按完整狀態詞逐組比：鍵要等於整個狀態詞
-    （去尾 s：error 對 errors、warning 對 warnings），`xfailed`／`xpassed` 不是 `failed`／`passed`，只有計數非零的狀態詞算命中；
-    沒有統計組的文字（自訂哨兵字樣）才用子字串比。命中多個鍵時 FAIL 優先（`1 passed, 1 error` 是 FAIL），其餘照 verdict_map 順序
-    取第一個。兩條共用同一 regex 的規則（PYTEST／PYTEST_MEASURE）因此對同一行一定得到同一種結果。"""
+def _map_verdict(raw: str, verdict_map: Dict[str, str], pytest_summary: bool = False) -> Optional[str]:
+    """命中的那段文字 → verdict_map 的結論。pytest_summary（config 規則標了 `pytest_summary: true`，只有內建的 PYTEST／
+    PYTEST_MEASURE 兩條）：按「數字 狀態詞」組逐組比，鍵要等於整個狀態詞（去尾 s：error 對 errors），`xfailed`／`xpassed`
+    不是 `failed`／`passed`，只有計數非零的狀態詞算命中。其他規則（自訂哨兵）照子字串比，`CUSTOM_FAIL 1 item` 的 `1 item`
+    不是統計。兩種都是命中多個鍵時 FAIL 優先（`1 passed, 1 error` 是 FAIL），其餘照 verdict_map 順序取第一個；兩條共用同一
+    regex 的 pytest 規則因此對同一行一定得到同一種結果。"""
     low = raw.lower()
-    stats = [(int(n), w.rstrip("s")) for n, w in _STAT_RE.findall(low)]
+    stats = [(int(n), w.rstrip("s")) for n, w in _STAT_RE.findall(low)] if pytest_summary else []
     hits: List[str] = []
     for key, v in verdict_map.items():
         k = key.lower()
         if v not in VERDICTS:
             continue
-        if stats:
+        if pytest_summary:
             if not any(n > 0 and w == k.rstrip("s") for n, w in stats):
                 continue
         elif k not in low:
@@ -154,7 +157,7 @@ def parse_sentinels(text: str, rules: Optional[List[Dict[str, Any]]] = None) -> 
     for rule in rules or []:
         for m in rule["re"].finditer(text):
             raw = m.groupdict().get("verdict") or m.group(0)
-            verdict = _map_verdict(raw, rule["verdict_map"])
+            verdict = _map_verdict(raw, rule["verdict_map"], rule.get("pytest_summary", False))
             if not verdict:
                 continue
             name = rule["name"] or m.groupdict().get("name") or "CUSTOM"

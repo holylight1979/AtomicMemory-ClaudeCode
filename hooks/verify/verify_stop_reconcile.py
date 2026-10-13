@@ -2443,6 +2443,10 @@ def test_035_1_receipt_without_env_is_not_evidence(driven, capsys):
     ("1 failed, 1 xfailed in 0.2s", ("FAIL", "FAIL")),
     ("1 xpassed in 0.1s", ("PASS", "DONE")),
     ("2 passed, 1 xpassed, 1 xfailed in 0.4s", ("PASS", "DONE")),
+    ("1 failed, 1 passed, 1 xpassed in 0.3s", ("FAIL", "FAIL")),            # 036b codex 額外驗證的變體固定下來
+    ("1 xfailed, 1 error in 0.2s", ("FAIL", "FAIL")),
+    ("2 passed, 1 warning in 0.2s", ("PASS", "DONE")),
+    ("3 passed, 0 failed in 0.1s", ("PASS", "DONE")),                        # 只跟著 0 不算命中
 ])
 def test_035_2_pytest_summary_mapping_reads_whole_line(line, verdicts):
     """035 ②／036b：config 的兩條 pytest 規則抓整段統計到 ` in `，按完整狀態詞逐組解析：只有非零 failed／error(s) 才 FAIL，
@@ -2450,13 +2454,30 @@ def test_035_2_pytest_summary_mapping_reads_whole_line(line, verdicts):
     rules = vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"])
     got = vl.parse_sentinels(line + "\n", rules)
     assert [(s["name"], s["verdict"]) for s in got] == [("PYTEST", verdicts[0]), ("PYTEST_MEASURE", verdicts[1])], line
-    assert vl._map_verdict("3 passed, 0 failed", {"failed": "FAIL", "passed": "PASS"}) == "PASS"      # 只跟著 0 不算命中
-    assert vl._map_verdict("3 passed, 1 xfailed", {"failed": "FAIL", "passed": "PASS"}) == "PASS"     # 完整狀態詞，不是子字串
-    assert vl.parse_sentinels("1 passed\n", rules) == []                                               # 不是完整摘要行不映射
-    assert vl.parse_sentinels("2 skipped in 0.1s\n", rules) == []                                      # 什麼都沒跑：沒有成功哨兵
-    assert vl.parse_sentinels("CUSTOM_OK\n", vl.compile_sentinel_rules([{"regex": "^CUSTOM_OK$", "name": "C",
-                                                                           "verdict_map": {"CUSTOM_OK": "DONE"}}])) \
-        == [{"name": "C", "verdict": "DONE", "line": "CUSTOM_OK", "kv": {}}]                          # 沒有統計組的自訂字樣照子字串比
+
+
+def test_036c_pytest_summary_rules_ignore_non_summaries():
+    """036c（原 035 ② 共用斷言獨立出來）：內建 pytest 規則只認完整摘要行；什麼都沒跑、只有 deselected、`-rA` 的逐案狀態行都不產生
+    成功哨兵，多行輸出只認最後的摘要。"""
+    rules = vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"])
+    for text in ("1 passed\n", "2 skipped in 0.1s\n", "3 deselected in 0.1s\n", "no tests ran in 0.01s\n"):
+        assert vl.parse_sentinels(text, rules) == [], text
+    multi = "PASSED tests/test_x.py::test_ok\nFAILED tests/test_x.py::test_bad\n1 failed, 1 passed in 0.1s\n"
+    assert [(s["name"], s["verdict"]) for s in vl.parse_sentinels(multi, rules)] == [("PYTEST", "FAIL"), ("PYTEST_MEASURE", "FAIL")]
+
+
+@pytest.mark.parametrize("line, verdict", [
+    ("CUSTOM_FAIL 1 item", "FAIL"),
+    ("CUSTOM_OK 1 item", "PASS"),
+    ("CUSTOM_OK", "PASS"),
+])
+def test_036c_custom_rule_keeps_substring_mapping(line, verdict):
+    """036c（036b codex WARN 1）：pytest 統計逐組解析只套用在標了 pytest_summary 的內建兩條規則；自訂規則照子字串映射，
+    `CUSTOM_FAIL 1 item` 的 `1 item` 不是統計，照 fail 判 FAIL、`CUSTOM_OK 1 item` 照 ok 判 PASS。"""
+    rules = vl.compile_sentinel_rules([{"regex": "^CUSTOM_.*$", "name": "CUSTOM", "verdict_map": {"ok": "PASS", "fail": "FAIL"}}])
+    got = vl.parse_sentinels(line + "\n", rules)
+    assert [(s["name"], s["verdict"]) for s in got] == [("CUSTOM", verdict)], line
+    assert all(r["pytest_summary"] for r in vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"]))
 
 
 @pytest.mark.parametrize("cmd, tool", [
