@@ -15,6 +15,7 @@
 - [臨] 用 `git archive | tar -x` 在 scratchpad 建快照當反證副本或基準，只要本 session 碰過（改、甚至只是建立後讀），OverviewHub 會把快照根當成專案、整個 `rm -rf` 擋下（要求讀過「(outside)」頭層的檔，實際滿足不了）。基準快照改用腳本自建自刪（例：run_on_commit.py 跑完 shutil.rmtree），反證直接在 worktree 一處一處改、git checkout 還原。
 - [臨] worktree 隔離的 session 在 Bash 指令裡設 HOME（行內前綴也算）會被當成改 git 設定位置而拒跑；探針要在 Python 腳本裡自己設 WG_CLAUDE_DIR／HOME／USERPROFILE／TEMP／TMP／TMPDIR。
 - [臨] worktree 分支的 commit：CommitOrder 的記憶系統豁免只認磁碟機寫法 `git -C C:/Users/…/<worktree> commit …`；寫成 Git Bash 的 `/c/Users/…`，或整條接了 `|`／`;`，都會被擋下要口令。長訊息先寫成檔、用 `-F <檔>`，指令只留 commit 一段。
+- [臨] 收尾同步閘在 worktree 工作分支上照樣要求 commit＋push，但多軌派工規定工作分支不推、也沒有 upstream：樹乾淨就回一句『已 commit、照派工不推、交總控台合併』收尾，不要自己推（已列誤判清冊待修）。
 
 ## 行動
 

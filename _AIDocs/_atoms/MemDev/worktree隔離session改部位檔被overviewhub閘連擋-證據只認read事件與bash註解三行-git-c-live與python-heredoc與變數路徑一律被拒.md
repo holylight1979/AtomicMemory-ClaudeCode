@@ -16,6 +16,7 @@
 - [臨] 反轉驗證在隔離 session：`git show <舊版>:檔 > scratchpad/old.py`、cp 現版到 scratchpad，用 cp 換檔跑 pytest 再 cp 回來（不走 git checkout，暫存區不會被動）；紅的型別要分類：新案要紅在 AssertionError，純函式新 API 案紅在 AttributeError 可接受但要在交付信標明。
 - [臨] `git hash-object <live 路徑>` 也被 CrossRealmBashBlock 擋；`python -c "…"` 被寫入目標解析器拒，驗 JSON 用 `python -m json.tool <檔>`。live 未動證明：scratchpad Python 用 hashlib 算 git blob（sha1 of `blob <長度>\0`＋位元組）對 `git -C <worktree> rev-parse main:<路徑>`，逐檔 SAME／DIFF；DIFF 用 difflib 看差在哪、對開工快照判是不是自己改的。
 - [臨] 隔離 session 的驗證帳本落在 live `workflow/verify-ledger/<sid>.jsonl`，AEC (j) 填 live 路徑。根層 worktree 的量尺（PYTEST_MEASURE）屬一般證據，接 `| tail`／`2>&1` 就不算；改完最後一個檔後在 worktree 根再跑一次不接管線的目標 verify 才收尾。
+- [臨] Grep 工具（content 模式）讀出部位檔也不算讀過，要用 Read。live 未動證明查 main 有沒有某檔用 `git rev-parse --verify -q main:<路徑>`；不加時查不到會把參數印回 stdout，被當成有。
 
 ## 行動
 
