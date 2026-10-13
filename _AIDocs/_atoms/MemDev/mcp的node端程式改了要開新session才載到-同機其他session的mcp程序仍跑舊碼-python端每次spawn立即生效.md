@@ -10,6 +10,7 @@
 ## 知識
 
 - [臨] 實踩：R6 改了 `tools/workflow-guardian-mcp/lib/atom-tools.js`／`funnel.js`（去重閘多傳 title）並上版，另一個早已開著的專案 session 立刻實測仍被擋 0.869——它的 workflow-guardian MCP 是 node 常駐程序，session 開時載入 js，之後改檔不重載。同機其他 session 要吃到新碼必須開新 session（MCP 跟著重起）。對照：python 端（memory-write-gate.py、hooks）每次呼叫都是新 spawn，改完立即生效。所以 node 端和 python 端各改一半的修法，在舊 session 裡會出現「半生效」的怪結果。
+- [臨]（2026-10-13 need_goal 合進 main 後實踩）python 閘立刻生效、它要求呼叫的 MCP 工具得 Reload 才有 → 合併前就開著的分頁改程式被擋、又建不了樹，誠實流程死鎖。合這類「閘＋新 MCP 工具」的改動前，先讓還在改碼的分頁 Reload；擋下訊息要附「叫不到工具 → Reload Window」。被擋的分頁不繞閘、不提關閘，把要改的內容原文交給有工具的分頁。
 
 ## 行動
 
