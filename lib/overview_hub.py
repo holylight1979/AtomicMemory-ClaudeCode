@@ -18,6 +18,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import posixpath
 import re
 import sys
 from pathlib import Path
@@ -31,14 +32,19 @@ _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
 _STATUS_HEADS = ("有", "部分", "索引", "骨架", "無")
 _TWO_CHAR_STATUS = ("部分", "索引", "骨架")
-# 擴欄：表頭關鍵字 → row 鍵；只認表頭，沒表頭的舊四欄表這些鍵全空
+# 部位類別：code＝寫碼部位（改了要定位三行、欠 (d) 案例）；knowledge＝知識部位（文件、記憶、派工信箱：只要卡已注入、不欠案例）
+KIND_CODE = "code"
+KIND_KNOWLEDGE = "knowledge"
+_KNOWLEDGE_WORDS = ("knowledge", "知識")
+# 擴欄：表頭關鍵字 → row 鍵；只認表頭，沒表頭的舊四欄表這些鍵全空（類別沒欄＝code）
 _EXTRA_COLUMNS = (
     ("病灶", "defects_doc"), ("量尺", "measure"), ("檢查器", "checkers"), ("讀路徑", "sample_paths"),
     ("第四問", "extra_q"), ("權威", "authority"), ("上游", "upstream"), ("下游", "downstream"), ("層", "layer"),
+    ("類別", "kind"),
 )
 _EMPTY_EXTRA: Dict[str, Any] = {
     "defects_doc": "", "measure": {}, "checkers": [], "sample_paths": "", "extra_q": "",
-    "layer": "", "authority": "", "upstream": "", "downstream": "",
+    "layer": "", "authority": "", "upstream": "", "downstream": "", "kind": KIND_CODE,
 }
 _MEASURE_SPLIT_RE = re.compile(r"\s*[｜]\s*")
 _LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
@@ -191,6 +197,8 @@ def _extra_fields(cells: List[str], cols: Dict[str, int]) -> Dict[str, Any]:
         cell = cells[idx] if idx < len(cells) else ""
         if key == "measure":
             out[key] = _parse_measure(cell)
+        elif key == "kind":   # 只認 knowledge／知識；空格、無、拼錯一律 code（fail-closed）
+            out[key] = KIND_KNOWLEDGE if cell.strip("` ").lower() in _KNOWLEDGE_WORDS else KIND_CODE
         elif key == "checkers":
             out[key] = _parse_list(cell)
         elif key in ("defects_doc", "authority"):
@@ -200,9 +208,24 @@ def _extra_fields(cells: List[str], cols: Dict[str, int]) -> Dict[str, Any]:
     return out
 
 
+_DRIVE_RE = re.compile(r"^[a-z]:")
+
+
+def _norm_prefix(tok: str) -> Tuple[str, bool]:
+    """表列前綴 → (根相對的正規化前綴, 放得進根相對位置嗎)。小寫、/、消 `./` 與 `a/../b`、去尾斜線，與 part_kind 對輸入路徑的
+    normpath 同一套（`./docs/build/`、`docs/x/../build/` 都是 `docs/build`）。消完是整個根（`.`）、往上跳出根（`..` 開頭）、
+    絕對路徑或磁碟代號 → 放不進，回字面正規化與 False。"""
+    raw = _norm(tok).rstrip("/")
+    q = posixpath.normpath(raw) if raw else raw
+    if not q or q in (".", "..") or q.startswith(("../", "/")) or _DRIVE_RE.match(q):
+        return raw, False
+    return q, True
+
+
 def parse_map(text: str) -> List[Dict[str, Any]]:
-    """表 → rows：[{prefixes, part, part_short, card, cards, status, line, defects_doc, measure, checkers,
-    sample_paths, extra_q, layer, authority, upstream, downstream}]。前綴已正規化（小寫、/、去尾斜線）。
+    """表 → rows：[{prefixes, unsafe_prefix, part, part_short, card, cards, status, line, defects_doc, measure, checkers,
+    sample_paths, extra_q, layer, authority, upstream, downstream, kind}]。前綴已正規化（小寫、/、消 `./` 與 `..`、去尾斜線，
+    見 _norm_prefix）；unsafe_prefix＝這列有放不進根相對位置的前綴。
 
     前四欄（前綴／部位／導讀卡／狀態）照位置解析；擴欄照表頭關鍵字定位（_EXTRA_COLUMNS），
     沒表頭時擴欄全為空值（""／{}／[]）。
@@ -223,9 +246,8 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
             if not rows and not cols:
                 cols = _header_columns(cells)      # 第一個沒路徑的表列＝表頭
             continue
-        prefixes = [
-            _norm(t).rstrip("/") for t in _BACKTICK_RE.findall(cells[prefix_idx]) if _is_path_token(t)
-        ]
+        normed = [_norm_prefix(t) for t in _BACKTICK_RE.findall(cells[prefix_idx]) if _is_path_token(t)]
+        prefixes = [p for p, _ in normed]
         part = cells[prefix_idx + 1] if prefix_idx + 1 < len(cells) else ""
         part = part.replace("（", "(").split("(")[0].strip()
         part_short = re.split(r"[／/]", part)[0].strip() or part
@@ -246,6 +268,7 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
             status = status_cell[:2] if status_cell.startswith(_TWO_CHAR_STATUS) else status_cell[0]
         rows.append({
             "prefixes": [p for p in prefixes if p],
+            "unsafe_prefix": any(not ok for _, ok in normed),
             "part": part,
             "part_short": part_short,
             "card": cards[0] if cards else None,
@@ -259,8 +282,8 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
 
 # ─── 命中 ───────────────────────────────────────────────────────────
 
-def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """最長前綴命中；錨在專案根的命中優先於子字串命中；同分取先列。"""
+def match_row(path: str, root: Path, rows: List[Dict[str, Any]], anchored: bool = False) -> Optional[Dict[str, Any]]:
+    """最長前綴命中；錨在專案根的命中優先於子字串命中；同分取先列。anchored＝只認錨在專案根的命中。"""
     p = _norm(path)
     r = _norm(str(root)).rstrip("/")
     best, best_score = None, -1
@@ -279,9 +302,47 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]]) -> Optional[Dic
                 score = len(pre)
             else:
                 score = -1
+            if anchored and score < 1000:
+                continue
             if score > best_score:
                 best, best_score = row, score
     return best
+
+
+_SHORT_NAME_RE = re.compile(r"~\d")
+
+
+def part_kind(path: str, root: Path, rows: List[Dict[str, Any]]) -> str:
+    """path 屬哪一類部位：錨在專案根的最長前綴命中列的「類別」；沒命中、沒標、只有子字串命中（tools/memory/x.py 撞到
+    `memory/`）→ code。先消 . 與 ..（docs/../tools/a.py 是 tools 的檔）；根以下帶 8.3 短名（`BUILD~1`）時長名寫的
+    子部位比不到、可能落到外層的 knowledge 列，判不出就算 code。"""
+    p, r = os.path.normpath(str(path)), os.path.normpath(str(root))
+    np_, nr = _norm(p), _norm(r).rstrip("/")
+    if np_.startswith(nr + "/") and _SHORT_NAME_RE.search(np_[len(nr):]):
+        return KIND_CODE
+    row = match_row(p, Path(r), rows, anchored=True)
+    kind = row.get("kind", KIND_CODE) if row else KIND_CODE
+    if kind == KIND_KNOWLEDGE and any(x.get("unsafe_prefix") and x.get("kind") != KIND_KNOWLEDGE for x in rows):
+        return KIND_CODE    # 表上有放不進根相對位置的寫碼列：判不出它是不是這條路徑的子列，不落回 knowledge
+    return kind
+
+
+def path_kind(path: str, stop_at: Optional[Path] = None) -> Optional[str]:
+    """從 path 往上找最近的部位表（find_map，停在 stop_at），用整張表回 part_kind；沒有部位表回 None（呼叫端照無表行為）。
+    表存在卻讀不到 → code（fail-closed），stderr 說一聲。寫碼查核（wg_verify_ledger.is_excluded）與 OverviewHub 共用這一份判法。"""
+    if not path:
+        return None
+    path = os.path.normpath(str(path))
+    found = find_map(path, stop_at)
+    if not found:
+        return None
+    root, map_path = found
+    try:
+        rows = parse_map(map_path.read_text(encoding="utf-8", errors="replace"))
+    except OSError as e:
+        print(f"[overview_hub] 部位表 {map_path} 讀不到，{path} 照寫碼部位算：{type(e).__name__}: {e}", file=sys.stderr)
+        return KIND_CODE
+    return part_kind(path, root, rows)
 
 
 # ─── 卡片 ───────────────────────────────────────────────────────────
@@ -334,38 +395,43 @@ def _gitdir_of(root: Path) -> Optional[Path]:
     return None
 
 
+def _read_git_pointer(path: Path) -> Optional[Path]:
+    """git 管理檔（worktrees/<名>/gitdir、commondir）的第一行路徑；相對路徑以該檔所在目錄為基準；不存在、讀不到、空 → None。"""
+    try:
+        first = path.read_text(encoding="utf-8", errors="replace").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return None
+    if not first:
+        return None
+    p = Path(first)
+    return p if p.is_absolute() else path.parent / p
+
+
 def is_root_worktree(root: Path, claude_dir: Path) -> bool:
     """root 是「根層（~/.claude）的 git worktree」，三條同時成立才是：
     1. root 與 claude_dir 不是同一目錄；
-    2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下；
-    3. 兩邊的 .claude/overview-map.md 位元組相同（任一不存在 → 不是）。
+    2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下（與 CommitOrder 認記憶系統 worktree 同一判法）；
+    3. 那個管理目錄真的登記了這棵樹：它的 `gitdir` 檔反向指回 `<root>/.git`，`commondir` 指到 `<claude_dir>/.git`
+       （只寫一個 `.git` 檔指過去、管理目錄不存在或指向別處 → 不是）。
+    不看部位表：工作 session 照派工改了根層部位表，這個 worktree 仍是根層（量尺認 PYTEST_MEASURE、卡讀 live）。
     任一邊是網路路徑 → 直接不是（網路路徑不可能是 ~/.claude 的 worktree），不碰檔案系統。純函式，不碰 state。"""
-    try:
-        r, c = Path(root), Path(claude_dir)
-        if _is_unc(r) or _is_unc(c):
-            return False
-        if _same_dir_norm(r, c):
-            return False
-        gitdir = _gitdir_of(r)
-        if gitdir is None or not _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/"):
-            return False
-        return (r / MAP_REL).read_bytes() == (c / MAP_REL).read_bytes()
-    except OSError:
-        return False
-
-
-def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
-    """root 是不是 live 這個 repo（claude_dir）的 git worktree：只看 is_root_worktree 的前兩條（不是同一目錄、
-    `<root>/.git` 檔的 gitdir 落在 `<claude_dir>/.git/worktrees/` 之下），不看部位表。
-    給「資料歸屬」用（例如追蹤帳本）：worktree 改了自己的部位表，資料仍跟 live 走。任一邊是網路路徑 → False。"""
     try:
         r, c = Path(root), Path(claude_dir)
         if _is_unc(r) or _is_unc(c) or _same_dir_norm(r, c):
             return False
         gitdir = _gitdir_of(r)
-        return gitdir is not None and _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/")
+        if gitdir is None or not _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/"):
+            return False
+        back, common = _read_git_pointer(gitdir / "gitdir"), _read_git_pointer(gitdir / "commondir")
+        return (back is not None and _same_dir_norm(back, r / ".git")
+                and common is not None and _same_dir_norm(common, c / ".git"))
     except OSError:
         return False
+
+
+def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
+    """同 is_root_worktree（資料歸屬用的舊名，追蹤帳本等呼叫端仍用這個名字）。"""
+    return is_root_worktree(root, claude_dir)
 
 
 def card_mem_dir(root: Path, claude_dir: Path) -> Path:
@@ -465,27 +531,32 @@ def _card_body_for(parsed: Dict[str, Any], used: List[str], cp: Path) -> str:
 
 def build_injection_ex(row: Dict[str, Any], card_paths: List[Path], hit_path: str, max_chars: int,
                        locate_template: Optional[List[str]] = None, locate_extra: Optional[str] = None,
-                       slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "") -> Tuple[str, List[str]]:
+                       slices: Optional[List[str]] = None, lens: str = "", ask_first: str = "",
+                       knowledge: bool = False) -> Tuple[str, List[str]]:
     """同 build_injection，另回實際送出的片名（依 slices 順序、只含卡裡切得出的片；沒選片或沒命中回 []）。
 
     slices：依意圖要先送的片；命中就「選中片全文＋其餘段標題清單」，整張切不出任何選中片就退回整卡（不得注得更少）。
     lens／ask_first：視角與先問的那一題，加在 head。max_chars 只截**每張卡的正文**（選片後或整卡），
     head（定位三行說明）與卡片分隔行不計入；整段注入文字＝head＋每張卡各 ≤ max_chars。
+    knowledge：知識類部位（part_kind）：head 不要求定位三行，卡照注。
     """
     part = row["part"] or row["part_short"]
     t = list(locate_template or [])
     t = (t + DEFAULT_LOCATE_TEMPLATE[len(t):])[:3]
-    head = (
-        f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
-        f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字最好，"
-        f"但本機 transcript 偶爾會掉「先文字再呼叫工具」那段，保險做法是同時放進下一個工具呼叫的參數，例如 Bash 開頭的註解）：\n"
-        f"定位｜部位：{row['part_short']}——{t[0]}\n"
-        f"定位｜根因層：{t[1]}；{ROOT_CAUSE_SENTENCE}\n"
-        f"定位｜前例：{t[2]}"
-        + (f"\n定位｜加問：{locate_extra}" if locate_extra else "")
-        + (f"\n視角：{lens}" if lens else "")
-        + (f"\n先問：{ask_first}" if ask_first else "")
-    )
+    if knowledge:
+        head = (f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
+                f"這是知識類部位（部位表類別 knowledge）：不要求定位三行，下面的導讀卡讀完即可改。")
+    else:
+        head = (
+            f"[Guardian:OverviewHub] 本 session 第一次碰到【{part}】部位的檔（{hit_path}）。"
+            f"改這個部位的檔之前先把下面的導讀卡讀完，並交出定位三行（三行都要，格式照抄；寫在回覆文字最好，"
+            f"但本機 transcript 偶爾會掉「先文字再呼叫工具」那段，保險做法是同時放進下一個工具呼叫的參數，例如 Bash 開頭的註解）：\n"
+            f"定位｜部位：{row['part_short']}——{t[0]}\n"
+            f"定位｜根因層：{t[1]}；{ROOT_CAUSE_SENTENCE}\n"
+            f"定位｜前例：{t[2]}"
+            + (f"\n定位｜加問：{locate_extra}" if locate_extra else "")
+        )
+    head += (f"\n視角：{lens}" if lens else "") + (f"\n先問：{ask_first}" if ask_first else "")
     if not card_paths:
         why = f"卡片狀態「{row['status'] or '未標'}」" if row["cards"] else "表上沒有卡"
         return f"{head}\n---- 此部位目前沒有可注入的導讀卡（{why}）；表列原文：{row['line']} ----", []

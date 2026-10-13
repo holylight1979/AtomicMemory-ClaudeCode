@@ -96,12 +96,14 @@ def test_044_claim_is_modifier_unit():
 # ─── EXCLUDED_REGION ────────────────────────────────────────────────────
 
 def test_044_excluded_region():
-    """EXCLUDED_REGION：相對專案根比；拿不到根、不在根下、`..` 繞回 src/ 都不排除。"""
-    globs = ["workflow/v6-inbox/**", "_AIDocs/**"]
-    assert rr.excluded_region(r"c:\proj\workflow\v6-inbox\x\a.py", globs, r"c:\proj")
-    assert not rr.excluded_region(r"c:\proj\workflow\v6-inbox\..\..\src\a.py", globs, r"c:\proj")
-    assert not rr.excluded_region(r"c:\proj\workflow\v6-inbox\a.py", globs, None)
-    assert not rr.excluded_region(r"c:\other\_AIDocs\a.py", globs, r"c:\proj")
+    """EXCLUDED_REGION：在專案根底下、部位表判 knowledge 才排除；類別 code、沒有部位表（None）、拿不到根、不在根下、
+    `..` 繞出根都不排除（部位類別的判法本身在 verify_overview_hub／verify_stop_reconcile 的 know 段）。"""
+    assert rr.excluded_region(r"c:\proj\workflow\v6-inbox\x\a.py", r"c:\proj", "knowledge")
+    assert not rr.excluded_region(r"c:\proj\tools\a.py", r"c:\proj", "code")
+    assert not rr.excluded_region(r"c:\proj\workflow\v6-inbox\a.py", r"c:\proj", None)
+    assert not rr.excluded_region(r"c:\proj\workflow\v6-inbox\..\..\..\src\a.py", r"c:\proj", "knowledge")   # `..` 繞出根
+    assert not rr.excluded_region(r"c:\proj\workflow\v6-inbox\a.py", None, "knowledge")
+    assert not rr.excluded_region(r"c:\other\_AIDocs\a.py", r"c:\proj", "knowledge")
 
 
 # ─── 已不存在的改檔：GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW／MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE ─────
