@@ -420,7 +420,8 @@ def test_user_correction_prompt_is_correction_not_external_claim(world, ups_wire
 
 def test_peer_message_without_tree_still_asks(world, ups_wired):
     ctx = ups_wired(PEER_PROMPT)
-    assert "收到外部主張" in ctx and "還沒有目標樹" in ctx and not ng.goal_path(SID).exists()
+    assert "收到外部主張" in ctx and "還沒有目標樹" in ctx
+    assert ng.active_tree(ng.load(SID)) is None                                # 不替它開樹（b2 的 4.1 會另記同伴轉述）
 
 
 def test_review_report_and_delivery_letter_in_batch_trigger(world, tmp_path):
