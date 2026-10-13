@@ -632,6 +632,30 @@ def test_auto_handoff_stub_carries_goal_block():
     assert stub.index("## 6.【決策依據】") < stub.index("【需求目標樹】")
 
 
+def test_auto_handoff_written_for_open_tree_without_edits(tmp_path):
+    """沒改過檔、但還有沒結束的目標樹（例：記憶知識類任務做到一半）也要寫自動續接單，樹才帶得到下一個 session。"""
+    staging = tmp_path / "staging"
+    state = {"session": {"id": SID}, "modified_files": []}
+    assert wg_handoff.should_write_stub(staging, state, "next-phase-auto.md") is False   # 沒樹沒改檔：不寫
+    make_tree("knowledge")
+    assert wg_handoff.should_write_stub(staging, state, "next-phase-auto.md") is True
+    make_tree("knowledge", status="closed")                                            # 目前的樹結束了，但前一棵還沒
+    assert wg_handoff.should_write_stub(staging, state, "next-phase-auto.md") is True
+    staging.mkdir()
+    (staging / "next-phase-hand.md").write_text("手寫", encoding="utf-8")              # 有新鮮手寫續接單：照舊尊重不覆蓋
+    assert wg_handoff.should_write_stub(staging, state, "next-phase-auto.md") is False
+
+
+def test_has_open_tree_corrupt_goal_file_is_false_and_logged(world):
+    """目標檔壞了：判成沒有樹（不因此多寫續接單），但要留 stderr 與守門紀錄 corrupt，不靜默。"""
+    p = ng.goal_path(SID)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("{壞掉的 JSON", encoding="utf-8")
+    assert ngp.has_open_tree(SID) is False
+    g = guard(world)[-1]
+    assert g["event"] == "corrupt" and g["where"] == "has_open_tree"
+
+
 def test_next_phase_pointer_tells_own_vs_other_handoff(tmp_path, monkeypatch):
     staging = tmp_path / "staging"
     staging.mkdir()

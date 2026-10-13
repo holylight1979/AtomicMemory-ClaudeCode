@@ -446,6 +446,12 @@ def handoff_note(sid: Any, text: str) -> str:
             "need_goal(action=set, import_from=<這份檔>) 接續）")
 
 
+def has_open_tree(sid: Any) -> bool:
+    """這個 session 還有沒結束的樹（不只看目前的樹）：自動續接單要不要寫的條件之一。判不了 → False（stderr＋守門紀錄）。"""
+    doc = _load(sid, "has_open_tree")
+    return any(isinstance(t, dict) and t.get("status") != "closed" for t in (doc or {}).get("trees", {}).values())
+
+
 def handoff_section(sid: Any) -> str:
     """自動續接單的【需求目標樹】區塊（handoff_block）；沒有未結束的樹、或判不了 → ""（判不了寫 stderr）。"""
     try:

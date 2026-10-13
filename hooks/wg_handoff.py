@@ -73,16 +73,17 @@ def should_write_stub(
 ) -> bool:
     """是否自動補 stub。
 
-    True 條件：有未完成工作（modified_files 非空）且 staging 無既有「新鮮的手寫」
+    True 條件：有未完成工作（modified_files 非空，或還有沒結束的需求目標樹）且 staging 無既有「新鮮的手寫」
     next-phase*.md（既有手寫 handoff 品質更佳，尊重不覆蓋；自身產出的 auto stub
-    可被新 stub 更新，故排除自身檔名）。
+    可被新 stub 更新，故排除自身檔名）。沒改檔但目標樹沒結束（例：記憶知識類任務做到一半）也寫，
+    樹才帶得到下一個 session。
 
     新鮮度窗：只尊重 mtime 在 fresh_window_hours（預設 24h）內的手寫檔。
     逾期手寫檔＝陳舊 backlog（已完成/放棄的舊 phase），不再阻擋救生艇——否則抗失真
     保底 Layer 2(PreCompact)/Layer 4(SessionEnd) 會被一個永遠躺在 staging 的老檔卡成
     「實際是死的」（實測 staging 曾有兩個 5 月老檔把此層在 ~/.claude 環境卡死）。
     """
-    if not (state.get("modified_files") or []):
+    if not (state.get("modified_files") or []) and not _has_open_goal_tree(str((state.get("session") or {}).get("id") or "")):
         return False
     import time
     now = time.time()
@@ -167,6 +168,18 @@ def build_handoff_stub(state: Dict[str, Any], cwd: str) -> str:
 ---
 > 補全後可直接續工；或人工檢視後刪除。標準接續：下個 session 打 `/continue`。
 """
+
+
+def _has_open_goal_tree(sid: str) -> bool:
+    """這個 session 還有沒結束的需求目標樹；模組載不進來 → stderr，當成沒有。"""
+    if not sid:
+        return False
+    try:
+        from wg_need_goal_points import has_open_tree
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 需求目標模組載入失敗，續接單不看目標樹：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
+    return has_open_tree(sid)
 
 
 def _need_goal_section(sid: str) -> str:
