@@ -729,9 +729,15 @@ def _verify_gates(
     kind = ""
     advice: Optional[str] = None
     _runs: List[List[Dict[str, Any]]] = []
-    # 改過又原樣還原的檔（與 HEAD 相同、本 session 之後沒 commit）不算改碼：補案例與量尺都不欠；判不出來照算改了
+    # 改過又原樣還原的檔（與 HEAD 相同、本 session 之後沒 commit、同根本 session 改過的檔全都乾淨）不算改碼：補案例與量尺都不欠；
+    # 判不出來照算改了。同根乾淨看 session 全部改檔（主 session＋所有子代理），剔除只套在這次受查的 own_mod_files
+    sid = str(session_id).split("#agent:", 1)[0]
+    session_paths = [m["path"] for m in state.get("modified_files") or []
+                     if isinstance(m, dict) and m.get("path") and m.get("session_id", sid) == sid]
+    for _agent_mods in (state.get("agent_modified_files") or {}).values():
+        session_paths += [m["path"] for m in _agent_mods or [] if isinstance(m, dict) and m.get("path")]
     try:
-        same = net_unchanged_paths(own_mod_files, state.get("last_commit_turn_seq"))
+        same = net_unchanged_paths(own_mod_files, state.get("last_commit_turn_seq"), session_paths=session_paths)
     except Exception as e:  # noqa: BLE001
         same = []
         print(f"[Guardian:ReconcileGate] 判斷改過又還原的檔失敗，照算改了：{type(e).__name__}: {e}", file=sys.stderr)

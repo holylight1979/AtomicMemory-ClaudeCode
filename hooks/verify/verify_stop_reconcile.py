@@ -2419,3 +2419,202 @@ def test_undecidable_keeps_debt(driven, capsys, clean_repo, tmp_path):
         raise subprocess.TimeoutExpired("git", 1)
     assert vl.net_unchanged_paths([_mf(x, 5)], _run=timeout) == []
     assert vl.net_unchanged_paths([_mf(x, 5)], _run=lambda *a, **k: subprocess.CompletedProcess(a, 128, b"", b"x")) == []
+
+
+# ─── 037：整根乾淨、git 指定路徑還原進改檔紀錄、裁判 commit 記帳、git 整支時間預算（工具→PostToolUse→Stop 整條鏈） ─────────
+
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import types  # noqa: E402
+
+_DEBT_A = "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔"
+_CODE_V, _CASE_V = "def a():\n    return {}\n", "def test_a():\n    assert a() == {}\n"
+
+
+def _two_version_repo(tmp_path):
+    """真 git repo：src/a.py 與 tests/test_a.py 兩版各一筆提交（舊版回 1、新版回 2），HEAD 是新版。回 (repo, 程式, 案例)。"""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    code, case = repo / "src" / "a.py", repo / "tests" / "test_a.py"
+    for v in (1, 2):
+        code.write_text(_CODE_V.format(v), encoding="utf-8", newline="\n")
+        case.write_text(_CASE_V.format(v), encoding="utf-8", newline="\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-qm", f"v{v}")
+    return repo, code, case
+
+
+@pytest.fixture()
+def chain(monkeypatch, tmp_path):
+    """一個 session 的工具事件鏈：每一步先真的做（寫檔、跑 git），再把同一個工具呼叫餵給 PostToolUse（一般或裁判入口），state 一路沿用，
+    最後交給 Stop。pytest 的 tmp 在系統暫存目錄下，會被當成暫存檔不記改檔：只對受測 repo 底下的路徑關掉這個判斷，其他照舊。
+    回 (state, edit(path, 版本, agent_id, judge), git(*args, agent_id, judge), repo, 程式, 案例)。"""
+    from handlers import post_tool_use as pt
+    from handlers import aec_ledger
+    import wg_core
+    repo, code, case = _two_version_repo(tmp_path)
+    state = {"turn_seq": 5, "session": {"id": _SID, "cwd": str(repo)}}
+    real_eph = pt._is_ephemeral_path
+    monkeypatch.setattr(pt, "_is_ephemeral_path", lambda p: not vl._under(str(p), str(repo)) and real_eph(p))
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path / "wf")
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
+    monkeypatch.setattr(aec_ledger, "record_temp_write", lambda *a, **k: None)
+    monkeypatch.setattr(wg_core, "read_state", lambda sid: state)                  # 裁判入口自己讀 state
+
+    def post(tool, tool_input, agent_id="", judge=False):
+        inp = {"session_id": _SID, "tool_name": tool, "tool_input": tool_input, "cwd": str(repo),
+               "tool_response": {"stdout": "", "stderr": "", "exit_code": 0}}
+        if agent_id:
+            inp["agent_id"] = agent_id
+        with pytest.raises(SystemExit):
+            (pt.handle_judge_post_tool_use if judge else pt.handle_post_tool_use)(inp, {"docdrift": {"enabled": False}})
+
+    def edit(path, v, agent_id="", judge=False):
+        Path(path).write_text((_CODE_V if Path(path).name == "a.py" else _CASE_V).format(v), encoding="utf-8", newline="\n")
+        post("Edit", {"file_path": str(path)}, agent_id, judge)
+
+    def git(*args, agent_id="", judge=False):
+        argv = ["git", "-C", str(repo).replace("\\", "/"), *args]
+        subprocess.run(argv, check=True, capture_output=True)
+        post("Bash", {"command": " ".join(argv)}, agent_id, judge)
+
+    return state, edit, git, repo, code, case
+
+
+def test_037_git_reverting_both_then_restoring_only_code_still_owes(driven, capsys, chain):
+    """037（codex 設計反例，git 版）：新版程式與案例已提交 → `git checkout HEAD~1 -- 程式 案例` 退回舊版 → `git checkout HEAD -- 程式`
+    只還原程式 → 經 PostToolUse 兩次 git 還原都記成改檔（最後一次改程式晚於改案例）→ Stop (d) 擋 a.py：案例還留舊版，同根不乾淨，
+    程式不剔除。舊碼 git 指令不記改檔，什麼都沒記，直接放行。"""
+    state, _, git, _, code, case = chain
+    git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_a.py")
+    git("checkout", "HEAD", "--", "src/a.py")
+    paths = [m["path"] for m in state.get("modified_files") or []]
+    assert os.path.normpath(str(code)) in paths and os.path.normpath(str(case)) in paths
+    out, _, _ = driven("全部完成了。", capsys, **state)
+    assert _DEBT_A in out
+
+
+def test_037_git_restoring_everything_back_is_not_code_debt(driven, capsys, chain):
+    """配對（新舊都綠）：程式與案例都退回舊版、再都還原成 HEAD，同根全乾淨、本 session 沒 commit → 不算改碼，(d) 不擋。"""
+    state, _, git, _, _, _ = chain
+    git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_a.py")
+    git("checkout", "HEAD", "--", "src/a.py", "tests/test_a.py")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "ReconcileGate" not in out and "MeasureGate" not in out
+
+
+def test_037_edit_reverting_both_then_restoring_only_code_still_owes(driven, capsys, chain):
+    """037 整根不剔除（Edit 版，036 test_035_5 的情境走整條鏈）：Edit 把程式與案例改回舊版、再只把程式 Edit 回 HEAD 的內容 →
+    程式與 HEAD 相同但案例不同 → 這個根一個都不剔除 → (d) 擋。舊碼只看程式自己乾淨就剔除，案例反而清了帳。"""
+    state, edit, _, _, code, case = chain
+    edit(code, 1)
+    edit(case, 1)
+    edit(code, 2)
+    out, _, _ = driven("全部完成了。", capsys, **state)
+    assert _DEBT_A in out
+
+
+def test_037_subagent_judged_with_other_agents_dirty_files_in_same_root(sub_stop, capsys, chain):
+    """037 整根判定看 session 全部改檔（含其他子代理）：子代理 ag1 把程式改了又改回 HEAD，ag2 改了同根的案例還沒還原 →
+    ag1 的 SubagentStop 照擋 (d)（責任仍分代理：ag1 只看自己改的檔）；配對：ag2 也還原 → ag1 不欠。舊碼只看 ag1 自己的檔。"""
+    state, edit, _, _, code, case = chain
+    edit(code, 1, agent_id="ag1")
+    edit(code, 2, agent_id="ag1")
+    edit(case, 1, agent_id="ag2")
+    out, _ = sub_stop(capsys, state, agent_id="ag1")
+    assert "無法互動，不能放行" in out and _DEBT_A in out
+    edit(case, 2, agent_id="ag2")
+    out, _ = sub_stop(capsys, state, agent_id="ag1")
+    assert _DEBT_A not in out
+
+
+def test_037_judge_edit_then_commit_still_owes(monkeypatch, capsys, chain):
+    """037 裁判 commit 記帳：裁判子 session 用 Edit 改程式 → 真的 git commit → 裁判 PostToolUse 記下 commit 回合 → 裁判 Stop 照擋 (d)：
+    工作樹乾淨是因為提交了，不是沒改。舊碼裁判入口不記 commit，提交後乾淨就被剔除、放行。"""
+    state, edit, git, _, code, _ = chain
+    state.update({"turn_seq": 0, "judge": True})
+    edit(code, 3, judge=True)
+    git("commit", "-qam", "judge", judge=True)
+    assert _DEBT_A in _judge_stop(monkeypatch, capsys, state)
+    assert state.get("last_commit_turn_seq") == 0
+
+
+def test_037_judge_edit_then_restore_without_commit_is_not_debt(monkeypatch, capsys, chain):
+    """配對（新舊都綠）：裁判 Edit 改程式又改回 HEAD 的內容、沒 commit → 不算改碼，裁判 Stop 不擋。"""
+    state, edit, _, _, code, _ = chain
+    state.update({"turn_seq": 0, "judge": True})
+    edit(code, 3, judge=True)
+    edit(code, 2, judge=True)
+    assert _DEBT_A not in _judge_stop(monkeypatch, capsys, state)
+
+
+def test_037_git_budget_is_shared_across_roots(tmp_path, monkeypatch, capsys):
+    """037 BLOCK：兩個根各有一個改了又還原的檔；替身讓每次 git 花 2.8 秒（拿到的時間不夠就逾時）→ 整支累計不超過預算 4 秒、
+    每個子行程只拿剩餘預算；第一個根的 status 逾時、第二個根沒得查 → 兩個都照算改了，stderr 印出沒查的根。
+    舊碼每次各給 3 秒，四次累計 11.2 秒，超過 Stop hook 的 10 秒。"""
+    roots = []
+    for name in ("live", "wt"):
+        r = tmp_path / name
+        (r / "hooks").mkdir(parents=True)
+        _git(r, "init", "-q")
+        _git(r, "config", "user.email", "t@t")
+        _git(r, "config", "user.name", "t")
+        (r / "hooks" / "x.py").write_text("x = 1\n", encoding="utf-8", newline="\n")
+        _git(r, "add", ".")
+        _git(r, "commit", "-qm", "init")
+        roots.append(r)
+    clock = {"t": 100.0, "spent": 0.0, "timeouts": []}
+    real_time = vl.time
+    monkeypatch.setattr(vl, "time", types.SimpleNamespace(monotonic=lambda: clock["t"], time=real_time.time,
+                                                           sleep=real_time.sleep))
+
+    def slow_git(argv, **kw):
+        clock["timeouts"].append(kw.get("timeout"))
+        took = min(2.8, float(kw.get("timeout") or 2.8))
+        clock["t"] += took
+        clock["spent"] += took
+        if took < 2.8:
+            raise subprocess.TimeoutExpired(argv[3], kw.get("timeout"))
+        return subprocess.run(argv, **kw)
+    mods = [_mf(str(r / "hooks" / "x.py"), 5) for r in roots]
+    assert vl.net_unchanged_paths(mods, None, _run=slow_git) == []
+    assert clock["spent"] <= 4.0 + 1e-9, clock
+    assert all(t is not None and t <= 3.0 for t in clock["timeouts"])
+    err = capsys.readouterr().err
+    assert str(roots[1]) in err and "照算改了" in err and "時間預算" in err
+
+
+def test_037_git_budget_exhausted_keeps_debt_through_stop(driven, capsys, chain, monkeypatch):
+    """037 BLOCK 經 Stop：預算用完（GIT_BUDGET_S=0）時改了又還原的程式不剔除，(d) 照擋；配對：預算正常就剔除、不擋。"""
+    state, edit, _, _, code, _ = chain
+    edit(code, 1)
+    edit(code, 2)
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert "ReconcileGate" not in out
+    monkeypatch.setattr(vl, "GIT_BUDGET_S", 0.0, raising=False)
+    out, _, _ = driven("全部完成了。", capsys, **copy.deepcopy(state))
+    assert _DEBT_A in out
+
+
+@pytest.mark.parametrize("kind", ["staged_then_reverted", "tracked_but_ignored", "whitespace_only"])
+def test_037_codex_pass_pairs_keep_debt(driven, capsys, clean_repo, kind):
+    """codex 010 第 5 條建議補的真 git 配對（新舊都綠）：暫存後工作樹改回 HEAD、已追蹤但符合 .gitignore、只留空白差異 → 都不是原樣，照擋。"""
+    repo, x = clean_repo
+    if kind == "staged_then_reverted":
+        Path(x).write_text("x = 3\n", encoding="utf-8", newline="\n")
+        _git(repo, "add", "hooks/x.py")
+        Path(x).write_text("x = 1\n", encoding="utf-8", newline="\n")
+    elif kind == "tracked_but_ignored":
+        (repo / ".gitignore").write_text("hooks/x.py\n", encoding="utf-8")
+        Path(x).write_text("x = 5\n", encoding="utf-8", newline="\n")
+    else:
+        Path(x).write_text("x = 1 \n", encoding="utf-8", newline="\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
+    assert _DEBT_X in out, kind

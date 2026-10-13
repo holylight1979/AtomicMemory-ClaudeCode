@@ -400,6 +400,16 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     return True
 
 
+def _note_commit(state: Dict[str, Any], command: str) -> bool:
+    """跑了 git／svn commit → state["last_commit_turn_seq"]＝本回合；回有沒有記。一般與裁判 PostToolUse 共用這一條：
+    ScanReport 閘據此豁免收尾檢核（工作已寫進 VCS 歷史＝可稽核），寫碼查核判「改過又原樣還原」也看它（改完 commit 了，
+    工作樹乾淨不代表沒改）。"""
+    if not _VCS_COMMIT_RE.search(command):
+        return False
+    state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
+    return True
+
+
 def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str, agent_id: str = "") -> None:
     """modified_files 以 (path, session_id) 去重：重複編輯只累加 count、刷 at／tool／last_turn_seq，
     不無限累積 entry。turn_seq＝第一次改的回合、last_turn_seq＝最近一次改的回合（對帳閘「本 turn 改了哪些」用）。
@@ -523,7 +533,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
 
 
 def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
-    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PostToolUse 最小記帳：只記改了哪些檔、目標不明的寫入與驗證收據，
+    """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PostToolUse 最小記帳：只記改了哪些檔、目標不明的寫入、commit 回合與驗證收據，
     給 stop.handle_judge_stop 的寫碼查核閘用；不注入、不跑其他閘、不建完整 state（不重建 atom index，防裁判觸發裁判）。"""
     session_id = input_data.get("session_id", "") or ""
     if not session_id:
@@ -546,6 +556,7 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
                 _note_unknown_write(state, session_id, p, command, tool_name)
             elif p and not _is_ephemeral_path(p):
                 _note_modified(state, session_id, p, tool_name)
+        _note_commit(state, command)
         _track_sentinels(state, input_data, command, tool_name, config, session_id)
     write_state(session_id, state)
     output_nothing()
@@ -720,10 +731,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             vcs.append({"command": command[:200], "at": _now_iso()})
             dirty = True
 
-        # 本 turn 有跑 git/svn commit → 記 turn_seq，供 ScanReport 閘豁免收尾檢核
-        # （工作已寫進 VCS 歷史＝可稽核、與「藏」相反，anti-evasion 目的消解）。
-        if _VCS_COMMIT_RE.search(command):
-            state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
+        if _note_commit(state, command):
             dirty = True
 
         # Bash／PowerShell 改檔目標（>、>>、tee、sed -i、cp、mv、Set-Content…）也進 modified_files；
