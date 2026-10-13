@@ -35,6 +35,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple, Union
 
 from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, resolve_project_root
+from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, gone_verdict, in_turn,
+                              owed_after_last_case, user_turn, Verdict)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -384,7 +386,9 @@ def next_event_seq(state: Dict[str, Any]) -> int:
 
 
 def ledger_entries_this_turn(state: Dict[str, Any], sid: str, turn_seq: int) -> List[Dict[str, Any]]:
-    return [r for r in receipts_of(state, sid) if int(r.get("turn_seq", -1)) == int(turn_seq)]
+    """本回合的收據（規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起，同伴訊息、背景通知不另開回合）。"""
+    since = user_turn(state, turn_seq)
+    return [r for r in receipts_of(state, sid) if in_turn(r.get("turn_seq", -1), turn_seq, since)]
 
 
 def spec_paths_of(sid: str, base_dir: Optional[Path] = None) -> List[str]:
@@ -397,15 +401,15 @@ def spec_paths_of(sid: str, base_dir: Optional[Path] = None) -> List[str]:
         return []
 
 
-def modified_this_turn(own_mod_files: Iterable[Dict[str, Any]], turn_seq: int) -> List[str]:
-    """本 turn 動過的檔（last_turn_seq==turn_seq）。升級前 in-flight session 的 legacy entry 沒有 turn 欄＝不知道哪回合改的，
-    不算本 turn（對帳 (d) 不拿它擋人；下一次 Edit 就會補上 turn 欄）。"""
+def modified_this_turn(own_mod_files: Iterable[Dict[str, Any]], turn_seq: int, since: Optional[int] = None) -> List[str]:
+    """本回合動過的檔（last_turn_seq 落在本回合，見 in_turn）。升級前 in-flight session 的 legacy entry 沒有 turn 欄＝不知道
+    哪回合改的，不算本回合（對帳 (d) 不拿它擋人；下一次 Edit 就會補上 turn 欄）。"""
     out: List[str] = []
     for m in own_mod_files or []:
         if not isinstance(m, dict) or not m.get("path"):
             continue
         t = m.get("last_turn_seq", m.get("turn_seq"))
-        if t is not None and int(t) == int(turn_seq) and m["path"] not in out:
+        if t is not None and in_turn(t, turn_seq, since) and m["path"] not in out:
             out.append(m["path"])
     return out
 
@@ -428,19 +432,20 @@ def _third_party_said(head: str) -> bool:
 
 def _claims(text: str, kind: str, phrases: Optional[Dict[str, Pattern]] = None) -> bool:
     """逐子句判：子句命中 <kind> 詞、同子句無 <kind>_exclude 詞（否定／疑問只取消同子句；轉折詞後另起子句）、
-    不是第三方轉述（第三方名詞在子句開頭且宣稱詞前沒有我／本／已）；引號／code span 內容先剝掉（引用閘文字不算宣稱）。"""
+    不是第三方轉述（第三方名詞在子句開頭且宣稱詞前沒有我／本／已）；引號／code span 內容先剝掉（引用閘文字不算宣稱）；
+    宣稱詞後面直接接「的＋名詞」（修好的 X）是形容詞用法，不算（規則 CLAIM_MODIFIER_NOT_OWN），同子句後面另有宣稱照算。"""
     if not text:
         return False
     ph = phrases or CLAIM_RES
     pos, neg = ph[kind], ph[f"{kind}_exclude"]
     for clause in _CLAUSE_SPLIT_RE.split(strip_quoted_spans(text[-3000:])):
         clause = clause.strip()
-        m = pos.search(clause)
-        if not m or neg.search(clause):
+        if neg.search(clause):
             continue
-        if _third_party_said(clause[:m.start()]):
-            continue
-        return True
+        for m in pos.finditer(clause):
+            if claim_is_modifier(clause, m.end()) or _third_party_said(clause[:m.start()]):
+                continue
+            return True
     return False
 
 
@@ -1136,21 +1141,26 @@ def is_case_file(path: str, cfg: Dict[str, Any], root: Optional[str] = None) -> 
 
 
 def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str]) -> bool:
-    """path 屬部位表類別 knowledge 的部位（文件、記憶、派工信箱）：那裡的 .py 是素材，不是本專案的程式也不是它的案例。
-    看的是路徑屬哪個部位（lib/overview_hub.path_kind，與 OverviewHub 同一份判法），不看副檔名、不看 git 狀態。
+    """規則 EXCLUDED_REGION（wg_release_rules.excluded_region）：path 屬部位表類別 knowledge 的部位（文件、記憶、派工信箱），
+    那裡的 .py 是素材，不是本專案的程式也不是它的案例。事實（路徑屬哪類部位）由 _part_kind 查部位表，規則判排不排除。
     拿不到根、不在根底下、沒有部位表、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。"""
-    full, base = _norm_path(path), _norm_path(root or "")
-    if not base or not full.startswith(base + "/"):
+    if not root:
         return False
+    return excluded_region(path, root, _part_kind(path, root))
+
+
+def _part_kind(path: str, root: str) -> Optional[str]:
+    """路徑屬部位表哪一類部位（lib/overview_hub.path_kind，與 OverviewHub 同一份判法；部位表找到 root 那層為止）；
+    沒有部位表回 None。判法載入失敗 → stderr 說一聲、回 None（不排除）。"""
     lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
     if lib_dir not in sys.path:
         sys.path.insert(0, lib_dir)
     try:
-        from overview_hub import KIND_KNOWLEDGE, path_kind
-        return path_kind(str(path), Path(root)) == KIND_KNOWLEDGE
+        from overview_hub import path_kind
+        return path_kind(str(path), Path(root))
     except Exception as e:  # noqa: BLE001
         print(f"[verify_ledger] 判不出 {path} 的部位類別，照寫碼部位算：{type(e).__name__}: {e}", file=sys.stderr)
-        return False
+        return None
 
 
 def case_exists(path: str) -> bool:
@@ -1194,76 +1204,84 @@ def head_new_code(root: Path, cfg: Dict[str, Any], timeout_s: float = 2.0,
 
 def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: float = 2.0,
                         _run: Optional[Callable[..., Any]] = None,
-                        committed_new: Optional[Dict[str, Any]] = None) -> List[str]:
-    """Stop 當下已不存在的改過程式檔裡，可以當成「刪掉了」、不再欠補案例的：所在 git 根的 status（未追蹤、新增、改名、複製）
-    沒有出現任何程式檔，而且本 session 在這個根的提交（committed_new：PostToolUse 看到 commit 時用 head_new_code 記的）
-    也沒有新增、改名、複製進來的程式檔。搬走（mv、git mv、Rename-Item、整個目錄改名，搬完又 commit 也一樣）的程式一定會在其中
-    一處以新路徑出現，就照欠。不追每一種搬檔寫法，只看結果。不在 git 工作區、git 失敗或逾時、預算用完 → 不算（照欠），stderr 說一聲。"""
+                        committed_new: Optional[Dict[str, Any]] = None,
+                        verdicts: Optional[Dict[str, Verdict]] = None) -> List[str]:
+    """Stop 當下已不存在的改過程式檔，查事實交給 wg_release_rules.gone_verdict 判欠不欠，回不欠的那些：
+    - 所在版控根：不在任何版控根內 → GONE_OUTSIDE_VCS（不欠）；svn → GONE_UNVERIFIABLE（照欠）
+    - git 根：同根 status 新出現的程式檔（未追蹤、新增、改名、複製）＋本 session 在這個根的提交新加進來的程式檔
+      （committed_new：PostToolUse 看到 commit 時用 head_new_code 記的）。有 → MOVED_NEW_CODE_SEEN（照欠）；沒有 → 刪除、不欠。
+      搬走（mv、git mv、Rename-Item、整個目錄改名，搬完又 commit 也一樣）的程式一定會在其中一處以新路徑出現；不追搬檔寫法，只看結果。
+      git 失敗或逾時、預算用完 → GONE_UNVERIFIABLE（照欠）。
+    每個檔的判定 stderr 印一行（規則名＋證據）；verdicts 給了就把每個檔的 Verdict 填進去，擋訊息照印。"""
     run = _run or subprocess.run
     exts = cfg.get("code_exts") or []
     deadline = time.monotonic() + VANISH_BUDGET_S
     by_root: Dict[str, Tuple[Path, List[str]]] = {}
+    found: Dict[str, Verdict] = {}
     for p in paths or []:
-        hit = _git_root_of(str(p))
-        if hit:
-            by_root.setdefault(hit[0], (hit[1], []))[1].append(str(p))
-    out: List[str] = []
+        hit = _vcs_hit(str(p))
+        if hit and hit[0] == "git":
+            by_root.setdefault(_norm_path(str(hit[1])), (hit[1], []))[1].append(str(p))
+        else:
+            found[str(p)] = gone_verdict(Path(p).name, hit[0] if hit else None)
     for key, (root, ps) in by_root.items():
-        earlier = ((committed_new or {}).get(key) or {}).get("paths") or []
-        if earlier:
-            print(f"[verify_ledger] {root} 本 session 的提交裡有新加進來的程式檔（{'、'.join(Path(n).name for n in earlier[:3])}），"
-                  "已不存在的改檔可能是搬過去了，照算欠補案例", file=sys.stderr)
-            continue
+        new_code: List[str] = list(((committed_new or {}).get(key) or {}).get("paths") or [])
+        failed = ""
         left = deadline - time.monotonic()
-        if left < _GIT_MIN_S:
-            print(f"[verify_ledger] {root} 沒時間查 git，已不存在的改檔照算欠補案例", file=sys.stderr)
-            continue
-        try:
-            st = run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-                     capture_output=True, timeout=min(timeout_s, left), creationflags=_NO_WINDOW)
-        except (OSError, subprocess.SubprocessError) as e:
-            print(f"[verify_ledger] 在 {root} 查 git 失敗，已不存在的改檔照算欠補案例：{type(e).__name__}: {e}", file=sys.stderr)
-            continue
-        if st.returncode != 0:
-            print(f"[verify_ledger] 在 {root} 查 git 回非零，已不存在的改檔照算欠補案例", file=sys.stderr)
-            continue
-        fields, appeared, i = st.stdout.decode("utf-8", "replace").split("\0"), [], 0
-        while i < len(fields):
-            f = fields[i]
-            if len(f) > 3:
-                if f[0] in "RC":
-                    appeared.append(f[3:])
-                    i += 1                                        # 改名／複製：下一欄是原路徑
-                elif "?" in f[:2] or "A" in f[:2]:
-                    appeared.append(f[3:])
-            i += 1
-        new_code = [n for n in appeared if is_code_file(n, exts)]
         if new_code:
-            print(f"[verify_ledger] {root} 有新出現的程式檔（{'、'.join(Path(n).name for n in new_code[:3])}），"
-                  "已不存在的改檔可能是搬過去了，照算欠補案例", file=sys.stderr)
-            continue
-        out += ps
-    return out
+            pass                                                      # 提交裡已經看到新程式檔，不必再查 status
+        elif left < _GIT_MIN_S:
+            failed = f"在 {root} 沒時間查 git"
+        else:
+            try:
+                st = run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+                         capture_output=True, timeout=min(timeout_s, left), creationflags=_NO_WINDOW)
+            except (OSError, subprocess.SubprocessError) as e:
+                st, failed = None, f"在 {root} 查 git 失敗（{type(e).__name__}: {e}）"
+            if st is not None and st.returncode != 0:
+                failed = f"在 {root} 查 git 回非零"
+            elif st is not None:
+                fields, appeared, i = st.stdout.decode("utf-8", "replace").split("\0"), [], 0
+                while i < len(fields):
+                    f = fields[i]
+                    if len(f) > 3:
+                        if f[0] in "RC":
+                            appeared.append(f[3:])
+                            i += 1                                    # 改名／複製：下一欄是原路徑
+                        elif "?" in f[:2] or "A" in f[:2]:
+                            appeared.append(f[3:])
+                    i += 1
+                new_code = [n for n in appeared if is_code_file(n, exts)]
+        for p in ps:
+            found[p] = gone_verdict(Path(p).name, "git", new_code, failed)
+    for v in found.values():
+        print(f"[verify_ledger] {v.rule}：{v.why}（{'照欠補案例' if v.owed else '不欠補案例'}）", file=sys.stderr)
+    if verdicts is not None:
+        verdicts.update(found)
+    return [p for p, v in found.items() if not v.owed]
 
 
 def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
-              root_of: Callable[[str], Optional[str]], gone: Iterable[str] = ()) -> List[str]:
-    """補案例的義務（跨回合）：每個根找「本 session 最後一次改驗證案例之後還改過的程式檔」，回這些檔。
-    只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）；gone 裡的程式檔（已刪除、而且同根沒有新出現的程式檔，
-    見 vanished_code_paths）不欠；搬走的照欠，量尺閘照舊看所有改檔。
+              root_of: Callable[[str], Optional[str]], gone: Iterable[str] = (),
+              evidence: Optional[Dict[str, Verdict]] = None) -> List[str]:
+    """補案例的義務（規則 OWED_AFTER_LAST_CASE，跨回合）：每個根找「本 session 最後一次改驗證案例之後還改過的程式檔」，回這些檔；
+    evidence 給了就填每個欠的檔的 Verdict（最後一次改的案例是哪個），擋訊息照印。
+    只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）；gone 裡的程式檔（vanished_code_paths 判成刪除的）不欠；
+    搬走的照欠，量尺閘照舊看所有改檔。同一個檔不同寫法、同一個根不同寫法都用 canon_path 比（SAME_FILE）。
     屬知識類部位的檔（is_excluded：部位表類別 knowledge）兩邊都不算：不欠案例，也不能拿來替寫碼部位的程式清帳。
     案例判定用相對該根的路徑；拿不到根的程式檔退回絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。
     修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。
     範圍外：改的案例是不是對應這次改動，程式判不出來，交給收尾對照（需求目標核心流程 checklist C-G3）由 LLM 判。"""
     exts = cfg.get("code_exts") or []
-    gone = set(gone or ())
+    gone = {canon_path(p) for p in gone or ()}
     by_root: Dict[str, List[Dict[str, Any]]] = {}
     for m in own_mod_files or []:
         if isinstance(m, dict) and m.get("path"):
             r = root_of(m["path"])
             if not is_excluded(m["path"], cfg, r):
-                by_root.setdefault(str(r or ""), []).append(m)
+                by_root.setdefault(canon_path(r) if r else "", []).append(m)           # 同根比較用 canon_path（SAME_FILE）
     owed: List[str] = []
+    owed_keys: set = set()
     for root, ms in by_root.items():
         case_of = {m["path"]: is_case_file(m["path"], cfg, root) for m in ms}
         for p in [p for p in case_of if not root and is_code_file(p, exts)]:
@@ -1276,16 +1294,19 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
         case_this_turn = any(m.get("last_turn_seq", m.get("turn_seq")) is not None
                              and int(m.get("last_turn_seq", m.get("turn_seq"))) == int(turn_seq) for m in cases)
         for m in ms:
-            p = m["path"]
-            if not is_code_file(p, exts) or case_of[p] or p in owed or p in gone:
+            p, k = m["path"], canon_path(m["path"])
+            if not is_code_file(p, exts) or case_of[p] or k in owed_keys or k in gone:
                 continue
             if _has_time(m):
-                if last_case is None or _mod_after(m, last_case):
-                    owed.append(p)
-                continue
-            t = m.get("last_turn_seq", m.get("turn_seq"))
-            if t is not None and int(t) == int(turn_seq) and not case_this_turn:
+                hit = last_case is None or _mod_after(m, last_case)
+            else:
+                t = m.get("last_turn_seq", m.get("turn_seq"))
+                hit = t is not None and int(t) == int(turn_seq) and not case_this_turn
+            if hit:
                 owed.append(p)
+                owed_keys.add(k)
+                if evidence is not None:
+                    evidence[p] = owed_after_last_case(Path(p).name, Path(last_case["path"]).name if last_case else None)
     return owed
 
 
@@ -1298,63 +1319,169 @@ def _content_sha(path: str) -> Optional[str]:
 
 
 def commit_snapshot(mods: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
-                    root_of: Optional[Callable[[str], Optional[str]]] = None) -> Dict[str, Any]:
+                    root_of: Optional[Callable[[str], Optional[str]]] = None, prev: Any = None,
+                    session_paths: Optional[Iterable[str]] = None) -> Dict[str, Any]:
     """commit 那一刻（PostToolUse 看到 git／svn commit）本 session 改過的每個檔的內容雜湊，與當時不欠案例的程式檔
-    （case_debt 照當時的修改紀錄算）。Stop 拿它判 commit 之後的改動有沒有回到這個不欠案例的狀態（committed_settled_paths）。"""
+    （case_debt 照當時的修改紀錄算）。Stop 拿它判 commit 之後的改動有沒有回到這個不欠案例的狀態（committed_settled_paths）。
+    prev＝上一份快照：照修改時間算是欠、但對 prev 已經成立「回到不欠案例的狀態」的程式檔（committed_settled_paths；session_paths
+    是同根要一起比的改檔，沒給就用 mods），新快照照算不欠：反證還原後又 commit（例：--amend 只改訊息），有效的豁免不被蓋掉。
+    files／settled 的鍵是 canon_path（keys="canon"）：同一個檔被不同寫法記下也是同一筆；任一種寫法欠案例，這個檔就不算不欠。"""
     root_of = root_of or file_root_of
     paths = list(dict.fromkeys(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path")))
     owed = set(case_debt(mods, turn_seq, cfg, root_of))
+    if owed and prev:
+        owed -= set(committed_settled_paths(prev, owed, paths if session_paths is None else session_paths, root_of))
+    owed_keys = {canon_path(p) for p in owed}
     exts = cfg.get("code_exts") or []
-    settled = [p for p in paths if is_code_file(p, exts) and not is_case_file(p, cfg, root_of(p)) and p not in owed]
-    return {"turn": int(turn_seq), "files": {p: _content_sha(p) for p in paths}, "settled": settled}
+    settled = {canon_path(p) for p in paths
+               if is_code_file(p, exts) and not is_case_file(p, cfg, root_of(p)) and canon_path(p) not in owed_keys}
+    return {"turn": int(turn_seq), "keys": "canon", "files": {canon_path(p): _content_sha(p) for p in paths},
+            "settled": sorted(settled)}
 
 
 def committed_settled_paths(snapshot: Any, owed: Iterable[str], session_paths: Iterable[str],
-                            root_of: Optional[Callable[[str], Optional[str]]] = None) -> List[str]:
-    """欠案例的程式檔裡，commit 那一刻（commit_snapshot）它不欠案例、而且同根本 session 改過的每個檔（主 session＋所有子代理）
-    現在的內容都和那一刻一樣的 → 回這些檔：commit 之後做反證，把程式或案例退回舊版又還原，補案例的義務不重算。
-    只免補案例，量尺照舊要跑。快照之後才改的檔（不在快照裡）、任一檔內容不同、案例被刪或還留舊版 → 不回。"""
+                            root_of: Optional[Callable[[str], Optional[str]]] = None, deadline: Optional[float] = None,
+                            _run: Optional[Callable[..., Any]] = None) -> List[str]:
+    """欠案例的程式檔裡，commit 那一刻（commit_snapshot）它不欠案例、同根本 session 改過的每個檔（主 session＋所有子代理）
+    現在的內容都和那一刻一樣、而且這些檔 git status 都乾淨（_root_clean，和 net_unchanged_paths 同一個條件：只把工作樹改回去、
+    暫存區還留著新內容也算有差）→ 回這些檔：commit 之後做反證，把程式或案例退回舊版又還原，補案例的義務不重算。
+    只免補案例，量尺照舊要跑。快照之後才改的檔（不在快照裡）、任一檔內容不同、案例被刪或還留舊版、git 有差或判不出來
+    （任一相關檔不在 git 工作區、git 失敗或逾時、預算用完；deadline 給了就和 net_unchanged_paths 共用同一個整支預算）→ 不回。
+    同一個專案根跨好幾個 git 根（巢狀 repo、submodule）時，比內容的那些檔落在哪幾個 git 根就每個都查，全部乾淨才算。
+    路徑一律用 canon_path 比（快照成員、內容鍵、同根），同一個檔不同寫法是同一個；沒有 keys="canon" 的舊快照照原字串比。"""
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("files"), dict):
         return []
+    key: Callable[[str], str] = canon_path if snapshot.get("keys") == "canon" else str
     files, settled = snapshot["files"], set(snapshot.get("settled") or [])
     root_of = root_of or file_root_of
+
+    def root_key(q: str) -> str:
+        r = root_of(q)
+        return canon_path(r) if r else ""
     every = list(dict.fromkeys(str(p) for p in session_paths or []))
-    out: List[str] = []
+    cands: List[Tuple[str, List[str]]] = []               # (欠案例的程式檔, 同專案根要一起比的檔，每個檔一種寫法)
     for p in owed or []:
-        if p not in settled:
+        if key(p) not in settled:
             continue
-        r = root_of(p)
-        same_root = [q for q in every if root_of(q) == r] or [p]
-        if all(q in files and _content_sha(q) == files[q] for q in same_root):
+        r = root_key(p)
+        same_root = list({key(q): q for q in [*(q for q in every if root_key(q) == r), p]}.values())
+        if all(key(q) in files and _content_sha(q) == files[key(q)] for q in same_root):
+            cands.append((p, same_root))
+    if not cands:
+        return []
+    run = _run or subprocess.run
+    deadline = git_deadline() if deadline is None else deadline
+    git_of = {q: _git_root_of(q) for q in dict.fromkeys([*every, *(q for _, qs in cands for q in qs)])}
+    clean: Dict[str, bool] = {}
+    out: List[str] = []
+    for p, same_root in cands:
+        outside = [q for q in same_root if not git_of[q]]
+        if outside:
+            print(f"[verify_ledger] {Path(outside[0]).name} 不在 git 工作區，查不了暫存區，commit 之後的還原照算改了（{Path(p).name}）",
+                  file=sys.stderr)
+            continue
+        for key, root in dict.fromkeys(git_of[q] for q in same_root):
+            if key not in clean:
+                in_root = [q for q, h in git_of.items() if h and h[0] == key]
+                clean[key] = _root_clean(root, [p], in_root, deadline, 3.0, run)
+        if all(clean[git_of[q][0]] for q in same_root):
             out.append(p)
     return out
 
 
-GIT_BUDGET_S = 4.0       # net_unchanged_paths 整支查 git 的時間預算（Guardian Stop hook 上限 10 秒，其餘留給後面的閘）
+GIT_BUDGET_S = 4.0       # 「內容回到某狀態」豁免（net_unchanged_paths＋committed_settled_paths）整支查 git 的時間預算（Guardian Stop hook 上限 10 秒，其餘留給後面的閘）
 _GIT_MIN_S = 0.2         # 剩餘預算不到這麼多就不再開 git 子行程
 _GIT_SPEC_CAP = 24000    # pathspec 合計字數上限（Windows 命令列 32767 字）；超過就不查，照算改了
 
 
-def _git_root_of(path: str) -> Optional[Tuple[str, Path]]:
-    """改檔所在的 git 根 → (正規化鍵, 根)；檔或目錄被刪了往上找還在的目錄；不在 git 工作區回 None。"""
+def git_deadline(budget_s: Optional[float] = None) -> float:
+    """查 git 的整支時間預算截止點（monotonic；預設 GIT_BUDGET_S 秒）。同一次 Stop 的兩種「內容回到某狀態」豁免共用一個。"""
+    return time.monotonic() + (GIT_BUDGET_S if budget_s is None else float(budget_s))
+
+
+def _vcs_hit(path: str) -> Optional[Tuple[str, Path]]:
+    """改檔所在的版控根 → (種類 git／svn, 根)；檔或目錄被刪了往上找還在的目錄；不在任何版控根內回 None。"""
     d = Path(path).parent
     while not d.exists() and d.parent != d:
         d = d.parent
-    hit = find_vcs_root(d)
+    return find_vcs_root(d)
+
+
+def _git_root_of(path: str) -> Optional[Tuple[str, Path]]:
+    """改檔所在的 git 根 → (正規化鍵, 根)；不在 git 工作區回 None。"""
+    hit = _vcs_hit(path)
     return (_norm_path(str(hit[1])), hit[1]) if hit and hit[0] == "git" else None
+
+
+def _git_out(root: Path, args: List[str], deadline: float, timeout_s: float, run: Callable[..., Any]) -> Optional[bytes]:
+    """在 root 跑一次帶改檔路徑的 git 查詢，只拿剩餘預算（最多 timeout_s）。pathspec 一律不分大小寫（--icase-pathspecs）：
+    Windows 上 Edit 寫 `src/A.py`、git 記 `src/a.py` 是同一個檔，分大小寫會查不到、空輸出被當成乾淨；結果另用小寫鍵比回改檔。
+    預算不足、逾時、失敗、回非零 → None，stderr 說哪個根、照算改了。"""
+    left = deadline - time.monotonic()
+    try:
+        if left < _GIT_MIN_S:
+            raise subprocess.TimeoutExpired(f"git {args[0]}", 0)
+        r = run(["git", "-C", str(root), "--icase-pathspecs", *args], capture_output=True, timeout=min(timeout_s, left),
+                creationflags=_NO_WINDOW)
+    except subprocess.TimeoutExpired as e:
+        print(f"[verify_ledger] 在 {root} 查 git 逾時或時間預算用完（TimeoutExpired：{e.cmd}；整支預算預設 {GIT_BUDGET_S} 秒），"
+              "沒查完，這些改檔照算改了", file=sys.stderr)
+        return None
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"[verify_ledger] 在 {root} 查 git 失敗，這些改檔照算改了：{type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    if r.returncode != 0:
+        err = (r.stderr or b"").decode("utf-8", "replace").strip()[:120]
+        print(f"[verify_ledger] 在 {root} 查 git 回非零，這些改檔照算改了：{err}", file=sys.stderr)
+        return None
+    return r.stdout
+
+
+def _root_clean(root: Path, paths: List[str], every: List[str], deadline: float, timeout_s: float,
+                run: Callable[..., Any]) -> bool:
+    """「內容回到某狀態」的豁免共用的 git 條件（net_unchanged_paths、committed_settled_paths 都走這裡，不各寫一套）：
+    這個 git 根裡本 session 改過的每個檔（every）`git status --ignored --untracked-files=all` 都沒有輸出：改動、已暫存
+    （只把工作樹改回去、暫存區還留著新內容也算）、刪除、未追蹤、被忽略都算有差。paths＝要豁免的那幾個：它們本身乾淨、
+    卻被同根其他改檔拖住時 stderr 說一聲。路徑太長、預算不足、git 失敗或逾時 → False（照算改了），stderr 說哪個根。"""
+    spec_all = [str(x).replace("\\", "/") for x in every]
+    spec_len = sum(len(s) + 1 for s in spec_all)
+    if spec_len > _GIT_SPEC_CAP:
+        print(f"[verify_ledger] {root} 這次改過的檔路徑合計 {spec_len} 字（{len(spec_all)} 個檔），超過命令列可帶的 "
+              f"{_GIT_SPEC_CAP} 字，查不了 git，這些改檔照算改了", file=sys.stderr)
+        return False
+    raw = _git_out(root, ["status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=all", "--", *spec_all],
+                   deadline, timeout_s, run)
+    if raw is None:
+        return False
+    key = canon_path(str(root))
+    changed, fields, i = set(), raw.decode("utf-8", "replace").split("\0"), 0
+    while i < len(fields):
+        f = fields[i]
+        if len(f) > 3:
+            changed.add(canon_path(f"{key}/{f[3:]}"))
+            if f[0] in "RC" and i + 1 < len(fields):    # 改名／複製：下一欄是原路徑
+                i += 1
+                changed.add(canon_path(f"{key}/{fields[i]}"))
+        i += 1
+    dirty = [p for p in every if canon_path(p) in changed]
+    if dirty and any(canon_path(p) not in changed for p in paths):
+        print(f"[verify_ledger] {root} 還有本 session 改過、跟 HEAD 不同的檔（{'、'.join(Path(p).name for p in dirty[:3])}），"
+              "這個根的改檔一律照算改了", file=sys.stderr)
+    return not dirty
 
 
 def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None, timeout_s: float = 3.0,
                         _run: Optional[Callable[..., Any]] = None, session_paths: Optional[Iterable[str]] = None,
-                        budget_s: Optional[float] = None) -> List[str]:
+                        budget_s: Optional[float] = None, deadline: Optional[float] = None) -> List[str]:
     """改過、但現在跟 HEAD 一模一樣的檔（例：反證時暫改、又 git checkout 還原）→ 回這些檔的 path（照 modified_files 的寫法）。
     要同時成立：git 追蹤著它、本 session 從第一次改它那回合起沒跑過 commit（last_commit_turn ≥ 該檔 turn_seq：工作樹乾淨可能是
     把改動提交了，照算改了），而且同一個 git 根裡本 session 改過的每個檔（session_paths：主 session 與所有子代理的改檔，沒給就只看
-    mods）git status 都沒有輸出（改動、已暫存、刪除、未追蹤、被忽略都算有差）：只把程式還原、案例還留著舊版，這個根就一個都不剔除。
-    時間：整支共用 budget_s（預設 GIT_BUDGET_S）秒，每個 git 子行程只拿剩餘預算（最多 timeout_s）；預算不足沒查到的根照算改了，
-    stderr 印根路徑。判不出來（不在 git 工作區、修改紀錄沒有回合、git 失敗或逾時）→ 不回，照算改了（不放寬）。每個根最多兩次 git。"""
+    mods）git status 都沒有輸出（_root_clean）：只把程式還原、案例還留著舊版，這個根就一個都不剔除。
+    時間：整支共用一個截止點（deadline；沒給就從現在起算 budget_s，預設 GIT_BUDGET_S 秒），每個 git 子行程只拿剩餘預算
+    （最多 timeout_s）；預算不足沒查到的根照算改了，stderr 印根路徑。判不出來（不在 git 工作區、修改紀錄沒有回合、git 失敗或逾時）
+    → 不回，照算改了（不放寬）。每個根最多兩次 git（status 有差就不再查 ls-files）。"""
     run = _run or subprocess.run
-    deadline = time.monotonic() + (GIT_BUDGET_S if budget_s is None else float(budget_s))
+    deadline = git_deadline(budget_s) if deadline is None else deadline
     try:
         last = int(last_commit_turn) if last_commit_turn is not None else None
     except (TypeError, ValueError):
@@ -1378,51 +1505,14 @@ def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None
             by_root[hit[0]][2].append(str(p))
     out: List[str] = []
     for key, (root, paths, every) in by_root.items():
-        spec, spec_all = [str(x).replace("\\", "/") for x in paths], [str(x).replace("\\", "/") for x in every]
-        spec_len = sum(len(s) + 1 for s in spec_all)
-        if spec_len > _GIT_SPEC_CAP:
-            print(f"[verify_ledger] {root} 這次改過的檔路徑合計 {spec_len} 字（{len(spec_all)} 個檔），超過命令列可帶的 "
-                  f"{_GIT_SPEC_CAP} 字，查不了 git，這些改檔照算改了", file=sys.stderr)
+        if not _root_clean(root, paths, every, deadline, timeout_s, run):
             continue
-        try:
-            left = deadline - time.monotonic()
-            if left < _GIT_MIN_S:
-                raise subprocess.TimeoutExpired("git ls-files", 0)
-            tracked = run(["git", "-C", str(root), "ls-files", "-z", "--full-name", "--", *spec],
-                          capture_output=True, timeout=min(timeout_s, left), creationflags=_NO_WINDOW)
-            left = deadline - time.monotonic()
-            if left < _GIT_MIN_S:
-                raise subprocess.TimeoutExpired("git status", 0)
-            status = run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=all",
-                          "--", *spec_all], capture_output=True, timeout=min(timeout_s, left), creationflags=_NO_WINDOW)
-        except subprocess.TimeoutExpired as e:
-            print(f"[verify_ledger] 在 {root} 查 git 逾時或時間預算用完（TimeoutExpired：{e.cmd}；整支預算 "
-                  f"{GIT_BUDGET_S if budget_s is None else budget_s} 秒），沒查完，這些改檔照算改了", file=sys.stderr)
+        tracked = _git_out(root, ["ls-files", "-z", "--full-name", "--", *(str(x).replace("\\", "/") for x in paths)],
+                           deadline, timeout_s, run)
+        if tracked is None:
             continue
-        except (OSError, subprocess.SubprocessError) as e:
-            print(f"[verify_ledger] 在 {root} 查 git 失敗，這些改檔照算改了：{type(e).__name__}: {e}", file=sys.stderr)
-            continue
-        if tracked.returncode != 0 or status.returncode != 0:
-            err = (status.stderr or tracked.stderr or b"").decode("utf-8", "replace").strip()[:120]
-            print(f"[verify_ledger] 在 {root} 查 git 回非零，這些改檔照算改了：{err}", file=sys.stderr)
-            continue
-        known = {_norm_path(f"{key}/{f}") for f in tracked.stdout.decode("utf-8", "replace").split("\0") if f}
-        changed, fields, i = set(), status.stdout.decode("utf-8", "replace").split("\0"), 0
-        while i < len(fields):
-            f = fields[i]
-            if len(f) > 3:
-                changed.add(_norm_path(f"{key}/{f[3:]}"))
-                if f[0] in "RC" and i + 1 < len(fields):    # 改名／複製：下一欄是原路徑
-                    i += 1
-                    changed.add(_norm_path(f"{key}/{fields[i]}"))
-            i += 1
-        dirty = [p for p in every if _norm_path(p) in changed]
-        if dirty:
-            if any(_norm_path(p) not in changed for p in paths):
-                print(f"[verify_ledger] {root} 還有本 session 改過、跟 HEAD 不同的檔（{'、'.join(Path(p).name for p in dirty[:3])}），"
-                      "這個根的改檔一律照算改了", file=sys.stderr)
-            continue
-        out += [p for p in paths if _norm_path(p) in known]
+        known = {canon_path(f"{key}/{f}") for f in tracked.decode("utf-8", "replace").split("\0") if f}
+        out += [p for p in paths if canon_path(p) in known]
     return out
 
 
@@ -1460,8 +1550,13 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          pending: bool = False,
                          case_settled: Optional[Callable[[List[str]], Iterable[str]]] = None,
                          committed_new: Optional[Dict[str, Any]] = None,
+                         user_turn: Optional[int] = None,
+                         exec_this_turn: bool = False,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
+    「本回合」的收據與改檔：user_turn（使用者打字開的回合，stop._user_turn）給了就是它到 turn_seq 之間的每個 turn_seq
+    （同伴訊息、背景通知讓 turn_seq 前進，剛跑完的驗證仍算本回合）；沒給只認 turn_seq 那一個。
+    exec_this_turn＝本回合跑過 Bash／PowerShell（PostToolUse 記的 exec_turn_seq 落在本回合）：(c) 不再只靠 transcript 這一段的工具名。
     pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
     寫碼查核：(a) 說修好而本 turn 無對得上改檔的合格 PASS、也沒有改檔所在部位的合格自寫收據（self_covered）；
     (b) 說量了而本 turn 沒有能當證據的 DONE（跑了部位量尺，或白名單語法且參數沒寫哨兵字樣）、也沒有改檔部位的合格自寫收據；
@@ -1474,8 +1569,10 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     texts = [t for t in (*claims, last_text) if t and claims_completion(t)]
     if not texts and not own_mod_files:
         return None, None
-    this_turn = [r for r in receipts if int(r.get("turn_seq", -1)) == int(turn_seq)]
-    mod_turn = modified_this_turn(own_mod_files, turn_seq)
+    this_turn = [r for r in receipts if in_turn(r.get("turn_seq", -1), turn_seq, user_turn)]
+    mod_turn = modified_this_turn(own_mod_files, turn_seq, user_turn)
+    turn_rule = (f"（規則 TURN_SINCE_USER_PROMPT：本回合＝turn {min(int(user_turn), int(turn_seq))}～{turn_seq}，"
+                 f"期間收據 {len(this_turn)} 筆）" if user_turn is not None else "")
     mod_records = {m["path"]: m for m in own_mod_files or [] if isinstance(m, dict) and m.get("path")}
     mod_session = list(mod_records)
     relate_paths = mod_turn or mod_session
@@ -1503,31 +1600,36 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     if any(claims_fixed(t, phrases) for t in texts) and not related and not covered():
         hits.append(f"(a) 說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}。"
                     "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
-                    "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）。" + note("PASS"))
+                    "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）。" + note("PASS") + turn_rule)
     measured = any("DONE" in _verdicts(r) and (_clean(r) or any(_ruler_ran(mc, r) for mc in measure_cmds))
                    for r in this_turn)
     if any(claims_measured(t, phrases) for t in texts) and not measured and not covered():
         hits.append("(b) 說「量了」但本回合沒有 `<NAME> DONE k=v` 收據，也沒有改完之後跑的部位量尺自寫收據。"
                     + ("補跑量尺讓它印 DONE 尾行。" if pending else "量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量。")
                     + note("DONE"))
-    if any(tried_claim_without_exec(t, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases) for t in texts):
+    if not exec_this_turn and any(tried_claim_without_exec(t, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases)
+                                  for t in texts):
         hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。"
-                    + ("現在跑出收據。" if pending else "沒跑就寫沒跑，或現在跑。"))
+                    + ("現在跑出收據。" if pending else "沒跑就寫沒跑，或現在跑。") + turn_rule)
     exts = cfg.get("code_exts") or []
     absent = [p for p in mod_session if is_code_file(p, exts) and not is_excluded(p, cfg, root_of(p)) and not code_exists(p)]
-    gone = vanished_code_paths(absent, cfg, committed_new=committed_new) if absent else ()
-    owed = case_debt(own_mod_files, turn_seq, cfg, root_of, gone)
+    why: Dict[str, Verdict] = {}
+    gone = vanished_code_paths(absent, cfg, committed_new=committed_new, verdicts=why) if absent else ()
+    debt_why: Dict[str, Verdict] = {}
+    owed = case_debt(own_mod_files, turn_seq, cfg, root_of, gone, evidence=debt_why)
     if owed and case_settled:
         done = set(case_settled(owed))
         if done:
-            print("[Guardian:ReconcileGate] commit 時不欠案例、之後改了又回到那時的內容，不重算補案例："
+            print("[Guardian:ReconcileGate] SNAPSHOT_SETTLED：commit 時不欠案例、之後改了又回到那時的內容，不重算補案例："
                   + "、".join(Path(p).name for p in sorted(done)[:5]), file=sys.stderr)
         owed = [p for p in owed if p not in done]
     if owed:
         names = "、".join(Path(p).name for p in owed[:4])
+        rules = "；".join(f"{v.rule}（{v.why}）" for v in (why.get(p) or debt_why.get(p) for p in owed[:4]) if v)
         hits.append(f"(d) 改了程式碼（{names}）之後沒有新增或修改驗證 case 檔（案例檔要和程式同根、現在還在、是程式檔；義務跨回合，不看收尾措辭）："
                     "改了碼沒驗證 case（PASS 不能代替）。"
-                    "補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者。")
+                    "補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者。"
+                    + (f"命中規則：{rules}。" if rules else ""))
     # (e) 只檢本版報告（post_tool_use 一定寫入 j／k 兩鍵）；升級前 emit 的舊報告沒這兩鍵，不拿它擋
     report: List[str] = []
     if (claims_completion(last_text) and aec_emitted and isinstance(aec, dict)
