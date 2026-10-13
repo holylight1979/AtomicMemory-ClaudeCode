@@ -8,6 +8,8 @@
 - Created-at: 2026-10-13
 - Quote: 「請把知識、經驗，該atoms的都記好，特別是我最後提出的」
 
+- Related: 健康探針要真的用到被依賴的能力-答案只能從那個能力拿到-只回固定字樣的探針探不出沙箱故障
+
 ## 知識
 
 - [臨] 實踩：修 tools/second-opinion/pack.py 的 subprocess.run 補 `creationflags=_NO_WINDOW`，但 `_NO_WINDOW` 常數是別的檔的（grep 兩個檔把結果看混），pack.py 裡根本沒定義；壓窗守門 verify_no_window_spawn 只掃字面「有沒有帶 creationflags／startupinfo」，照樣 PASS；整份 tools verify 718 passed 也沒抓到，因為沒有任何測試真的呼叫那條路徑。補一個 monkeypatch subprocess.run、斷言 `creationflags == CREATE_NO_WINDOW` 的案例，第一次跑就紅在 NameError。
