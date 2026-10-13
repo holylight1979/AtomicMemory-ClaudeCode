@@ -34,6 +34,7 @@ from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
     aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
+    head_new_code, _git_root_of,
 )
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -410,17 +411,36 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
         return False
     turn = int(state.get("turn_seq", 0))
     state["last_commit_turn_seq"] = turn
+    own = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
+    _note_committed_new_code(state, own, reconcile_cfg(config or {}))
     if not snapshot:                                  # 這條指令的寫入目標沒算出來：不拍快照（可能漏掉同一條指令改的檔）
         state.pop("commit_snapshot", None)
         print("[verify-ledger] commit 指令的寫入目標算不出來，不記內容快照；commit 之後的反證還原照算改碼", file=sys.stderr)
         return True
     try:
-        own = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
         state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}))
     except Exception as e:  # noqa: BLE001
         state.pop("commit_snapshot", None)
         print(f"[verify-ledger] commit 內容快照失敗，commit 之後的反證還原照算改碼：{type(e).__name__}: {e}", file=sys.stderr)
     return True
+
+
+def _note_committed_new_code(state: Dict[str, Any], own: List[Dict[str, Any]], cfg: Dict[str, Any]) -> None:
+    """commit 之後，本 session 改過的檔所在的每個 git 根，記下 HEAD 那筆提交新增、改名、複製進來的程式檔
+    （state["committed_new_code"][根]＝{shas, paths}）。寫碼查核判「已不存在的改檔是刪掉還是搬走」時用：搬完又 commit，
+    工作樹的 status 就看不到新路徑了。讀不到只少這份證據（已不存在的改檔照欠），stderr 由 head_new_code 說。"""
+    rec = state.setdefault("committed_new_code", {})
+    seen = set()
+    for m in own:
+        hit = _git_root_of(str((m or {}).get("path") or ""))
+        if not hit or hit[0] in seen:
+            continue
+        seen.add(hit[0])
+        sha, new = head_new_code(hit[1], cfg)
+        r = rec.setdefault(hit[0], {"shas": [], "paths": []})
+        if sha and sha not in r["shas"]:
+            r["shas"] = (r["shas"] + [sha])[-50:]
+            r["paths"] = list(dict.fromkeys(r["paths"] + new))[-200:]
 
 
 def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str, agent_id: str = "") -> None:

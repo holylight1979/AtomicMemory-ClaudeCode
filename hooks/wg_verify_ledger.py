@@ -1148,11 +1148,39 @@ def code_exists(path: str) -> bool:
 VANISH_BUDGET_S = 2.0    # vanished_code_paths 整支查 git 的時間預算
 
 
+def head_new_code(root: Path, cfg: Dict[str, Any], timeout_s: float = 2.0,
+                  _run: Optional[Callable[..., Any]] = None) -> Tuple[str, List[str]]:
+    """這個 git 根 HEAD 那筆提交新增、改名、複製進來的程式檔（相對根的路徑）與 HEAD 的 sha。PostToolUse 看到 commit 時記下來：
+    搬檔後又 commit，工作樹的 status 就空了，搬過去的新路徑只留在提交裡。查不到 → ("", [])，stderr 說一聲。"""
+    run = _run or subprocess.run
+    try:
+        r = run(["git", "-c", "core.quotepath=false", "-C", str(root), "show", "--name-status", "-M", "-C", "--format=%H", "HEAD"],
+                capture_output=True, timeout=timeout_s, creationflags=_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"[verify_ledger] 在 {root} 讀不到 HEAD 的提交內容：{type(e).__name__}: {e}", file=sys.stderr)
+        return "", []
+    if r.returncode != 0:
+        print(f"[verify_ledger] 在 {root} 讀 HEAD 的提交內容回非零", file=sys.stderr)
+        return "", []
+    lines = [ln for ln in r.stdout.decode("utf-8", "replace").splitlines() if ln.strip()]
+    if not lines:
+        return "", []
+    exts = cfg.get("code_exts") or []
+    new = []
+    for ln in lines[1:]:
+        cols = ln.split("\t")
+        if cols and cols[0][:1] in "ARC" and len(cols) >= 2 and is_code_file(cols[-1], exts):
+            new.append(cols[-1])
+    return lines[0].strip(), new
+
+
 def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: float = 2.0,
-                        _run: Optional[Callable[..., Any]] = None) -> List[str]:
+                        _run: Optional[Callable[..., Any]] = None,
+                        committed_new: Optional[Dict[str, Any]] = None) -> List[str]:
     """Stop 當下已不存在的改過程式檔裡，可以當成「刪掉了」、不再欠補案例的：所在 git 根的 status（未追蹤、新增、改名、複製）
-    沒有出現任何程式檔。搬走（mv、git mv、Rename-Item、整個目錄改名）的程式一定會在那裡以新路徑出現，就照欠。
-    不追每一種搬檔寫法，只看結果。不在 git 工作區、git 失敗或逾時、預算用完 → 不算（照欠），stderr 說一聲。"""
+    沒有出現任何程式檔，而且本 session 在這個根的提交（committed_new：PostToolUse 看到 commit 時用 head_new_code 記的）
+    也沒有新增、改名、複製進來的程式檔。搬走（mv、git mv、Rename-Item、整個目錄改名，搬完又 commit 也一樣）的程式一定會在其中
+    一處以新路徑出現，就照欠。不追每一種搬檔寫法，只看結果。不在 git 工作區、git 失敗或逾時、預算用完 → 不算（照欠），stderr 說一聲。"""
     run = _run or subprocess.run
     exts = cfg.get("code_exts") or []
     deadline = time.monotonic() + VANISH_BUDGET_S
@@ -1162,7 +1190,12 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
         if hit:
             by_root.setdefault(hit[0], (hit[1], []))[1].append(str(p))
     out: List[str] = []
-    for root, ps in by_root.values():
+    for key, (root, ps) in by_root.items():
+        earlier = ((committed_new or {}).get(key) or {}).get("paths") or []
+        if earlier:
+            print(f"[verify_ledger] {root} 本 session 的提交裡有新加進來的程式檔（{'、'.join(Path(n).name for n in earlier[:3])}），"
+                  "已不存在的改檔可能是搬過去了，照算欠補案例", file=sys.stderr)
+            continue
         left = deadline - time.monotonic()
         if left < _GIT_MIN_S:
             print(f"[verify_ledger] {root} 沒時間查 git，已不存在的改檔照算欠補案例", file=sys.stderr)
@@ -1405,6 +1438,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          self_covered: Optional[Callable[[], Iterable[str]]] = None,
                          pending: bool = False,
                          case_settled: Optional[Callable[[List[str]], Iterable[str]]] = None,
+                         committed_new: Optional[Dict[str, Any]] = None,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
     pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
@@ -1460,7 +1494,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                     + ("現在跑出收據。" if pending else "沒跑就寫沒跑，或現在跑。"))
     exts = cfg.get("code_exts") or []
     absent = [p for p in mod_session if is_code_file(p, exts) and not code_exists(p)]
-    owed = case_debt(own_mod_files, turn_seq, cfg, root_of, vanished_code_paths(absent, cfg) if absent else ())
+    gone = vanished_code_paths(absent, cfg, committed_new=committed_new) if absent else ()
+    owed = case_debt(own_mod_files, turn_seq, cfg, root_of, gone)
     if owed and case_settled:
         done = set(case_settled(owed))
         if done:

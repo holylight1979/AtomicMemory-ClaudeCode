@@ -2777,19 +2777,34 @@ def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys
     assert "a.py" in debt                                                                   # 同根冒出新程式檔：分不出是不是搬過去，刪掉的也照欠
 
 
-@pytest.mark.parametrize("how", ["git_mv_dir", "plain_mv_file"])
+@pytest.mark.parametrize("how", ["git_mv_dir", "plain_mv_file", "git_mv_dir_then_commit"])
 def test_040_11_moving_changed_code_away_still_owes(driven, capsys, chain, monkeypatch, how):
-    """040 codex 第三輪 BLOCK：改了程式後整個目錄改名（git mv src pkg）、或用一般 mv 搬到新檔名 → 舊路徑不在了，但同根出現新的程式檔
-    → 判成搬走、照欠補案例；不靠逐一解析每種搬檔寫法。舊碼 040 第一版只看檔案在不在，搬走就清帳。"""
+    """040 codex 第三、四輪 BLOCK：改了程式後整個目錄改名（git mv src pkg）、用一般 mv 搬到新檔名、或搬完又 commit（工作樹 status 變空）
+    → 舊路徑不在了，但同根的 status 或本 session 的提交裡出現新的程式檔 → 判成搬走、照欠補案例；不靠逐一解析每種搬檔寫法。
+    舊碼 040 第一版只看檔案在不在、第三輪只看當下 status，搬走（搬完又 commit）就清帳。"""
     monkeypatch.setattr(vl, "code_exists", os.path.isfile)
     state, edit, git, repo, code, _ = chain
     edit(code, 3)
-    if how == "git_mv_dir":
+    if how.startswith("git_mv_dir"):
         git("mv", "src", "pkg")
     else:
         code.rename(repo / "src" / "moved.py")                                            # 沒經過記帳的搬法也要擋
+    if how.endswith("then_commit"):
+        git("commit", "-qam", "move")
+        assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout == ""
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
     assert "改了程式碼（" in out and "a.py" in next((ln for ln in out.split("\\n") if "沒有新增或修改驗證 case 檔" in ln), ""), how
+
+
+def test_040_12_committed_deletion_still_counts_as_deleted(driven, capsys, chain, monkeypatch):
+    """040 配對：改了程式後真的刪掉並 commit（提交裡只有刪除、沒有新加進來的程式檔）→ 照算刪掉、不欠補案例。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, code, _ = chain
+    edit(code, 3)
+    git("rm", "-q", "-f", "src/a.py")
+    git("commit", "-qm", "drop a")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "改了程式碼（a.py" not in out
 
 
 def test_040_9_moving_changed_code_with_git_mv_still_owes_at_new_path(driven, capsys, chain, monkeypatch):

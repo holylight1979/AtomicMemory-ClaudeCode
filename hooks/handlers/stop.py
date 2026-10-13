@@ -768,6 +768,7 @@ def _verify_gates(
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
                 measure_cmds=mcmds, claims=claims, pending=pending,
                 case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths),
+                committed_new=state.get("committed_new_code"),
                 self_covered=(lambda: self_run_covered(measure_parts(own_mod_files, _lk), _self_runs())) if _lk else None,
             )
             kind = "reconcile" if reason or report else ""
