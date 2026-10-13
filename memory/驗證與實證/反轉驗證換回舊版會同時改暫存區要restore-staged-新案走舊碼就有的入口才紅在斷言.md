@@ -6,6 +6,7 @@
 - Trigger: 反轉, 退回舊版, 紅在斷言, AttributeError, git checkout -- 檔案, restore --staged, raising=False, 新案退回紅, 保護案例
 - Created-at: 2026-10-13
 - Source: session:ec069e59 2026-10-13
+- Quote: 「你是 v6.0 的「待命 track-e」，總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命 track-e：<你的名字>」。之…」
 
 ## 知識
 
@@ -13,6 +14,10 @@
 - [臨] 新案要能在舊碼上「紅在斷言」而不是 AttributeError：走舊碼就有的入口（公開判定函式、hook 入口），不直接呼叫新加的函式；替身用 `monkeypatch.setattr(..., raising=False)`；讀新欄位用 `.get()`。退回後要分類失敗型別，全是 AssertionError 才算數。
 - [臨] 交付描述要分開寫「新增負例（退回會紅）」與「既有保護案例（新舊都綠）」；參數化案例不能概括成「舊碼全紅」。
 - [臨] 新案要在舊碼上紅在斷言的三個小做法：預先放的 state 用字面值 dict，不用新簽名的 helper 產生；對新增屬性的 monkeypatch 加 `raising=False`（舊模組沒有該屬性也不炸）；同一案裡行為斷言放前面、新 API 細節斷言放最後。反證跑完用 `--tb=line` 檢查每個紅的例外種類都是 AssertionError，紅在 TypeError／AttributeError 的只證明舊碼沒這支函式。
+- [臨] 本體先 commit 再做反證，還原用 `git checkout HEAD -- <檔>`：工作樹與暫存區一起回到已提交的新版，不會留下 staged 的舊內容。未提交的改動上不能這樣還原，會連同別的未提交改動一起丟掉。
+- [臨] 暫改只動要驗的那一處：用小腳本做精確字串替換，並斷言恰好命中一次。命中零次或多次就是改錯地方，那次反證不算。
+- [臨] 一個測試裡有好幾個斷言、修補也分好幾處時，要逐處分開退：一起退只能證明第一個斷言對應的那一處（例：同一案驗 detect_evasion 和 _dismissed，只退 _dismissed 才知道它真的被鎖住）。
+- [臨] 斷言如果對整份樣板做子字串比對，可能比到樣板裡的範例句而假綠，要只取填入的那一段來比。
 
 ## 行動
 

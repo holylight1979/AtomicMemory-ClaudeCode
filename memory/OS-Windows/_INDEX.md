@@ -15,3 +15,4 @@
 | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring | windows認證管理員blob上限-credwrite回傳值必檢-大token禁keyring |
 | windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath | Windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath |
 | winget-升不動-powershell-msi-與-msix-通道分裂 | winget 升不動 PowerShell — MSI 與 MSIX 通道分裂 |
+| 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它 | 子行程沙箱改暫存目錄要連TMPDIR一起改-Git Bash帶TMPDIR=/tmp-gettempdir先看它 |

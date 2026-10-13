@@ -17,6 +17,7 @@
 - [臨] 實例（工具開發）：單檔約 6 次編輯撞 2 輪「不同」編譯錯（先 ctor、後 cast），每次「診斷→修→建置」一次過、最終 build 0 錯 + verify-roundtrip 全 PASS。session 末 FixEscalation + DeepPostMortem 觸發；正確處置＝辨識為 false positive，而非編造 post-mortem。
 - [臨] 新變體（多 agent 併行 session）：子 agent 在自己流程裡跑 pytest 的紅→綠迭代與大量檔案編輯，會餵主 session 的 track_retry / failing_tests 計數 → FixEscalation 與 DeepPostMortem 連鎖誤發（實例：5 個併行實作 agent 修 5 檔案域，主 session 無任何重複修復失敗，retry 卻累到 6）。辨識法：主 session 自身有無「同一錯誤修了又紅」的真實迴圈；只有 agent 們的過程性測試迭代 → 誤發，照舊不盲從不編造，續正常作業。
 - [臨] 同族例二：same_file_3x 對索引/編年檔（README/_CHANGELOG/DocIndex/_INDEX）必過度警報→已建 wg_core.is_rut_whitelisted 白名單（略過落 debug log）。通則：計數 proxy 須豁免「本來就高頻改」的檔案類型。
+- [臨] 同族例三：退回舊碼反證的刻意紅燈會餵 failing_tests／retry → 誤發；還原後全綠就是 false positive。
 
 ## 行動
 

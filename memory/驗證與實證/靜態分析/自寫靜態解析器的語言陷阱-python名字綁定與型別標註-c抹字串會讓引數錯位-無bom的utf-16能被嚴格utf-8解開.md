@@ -7,6 +7,7 @@
 - Trigger: 靜態分析, 呼叫圖, ast 解析, 名字綁定, 型別標註 Union, C# 正規式解析, 引數位置錯位, UTF-16 無 BOM, NUL 位元組, BOM SyntaxError
 - Created-at: 2026-10-13
 - Related: 量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試
+- Quote: 「你是 v6.0 的工作 session track-g12（閱讀路徑掃描器），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-g12（分支 v6/track-g12，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\workflow\…」
 
 ## 知識
 

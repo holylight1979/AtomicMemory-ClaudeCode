@@ -14,6 +14,8 @@
 - [臨] 根因：把探針當成「只讀的觀察」，沒意識到它本身也走實機寫入路徑（登記表、mkdir、access sidecar 曝光計數、state 檔、injection-turns.jsonl）；且探針的輸入經過 bash→檔→node→JSON→py 四層轉譯，反斜線這類字元任一層吃掉就改變語意，輸出卻還是「合理」的拒寫訊息，很難一眼看出。
 - [臨] 設計原理：_resolve_target 在定位時就 mkdir，是為了 create 後的寫檔零分支；register_project 在 SessionStart 登記，是為了跨專案掃描；都是對真 session 合理、對探針有副作用的設計。parse_memory_index 的三源 fallback 是容錯，不是真相源——測試要測「不再回舊快取」而非「回空」。
 - [臨] 防再犯：① 探針路徑一律正斜線，或直接用 py 呼叫不經 heredoc；看到拒寫訊息先檢查它印出的 cwd 字串是不是你給的；② 探針結束必做三清：workflow/state-<sid>.json、injection-turns.jsonl 假 session 列、memory/project-registry.json 新垃圾；③ dry-run 後到目標 repo 跑 git status / 找空目錄 rmdir；④ 斷言寫「不含舊值」而非「為空」；⑤ 審計報告記得把「探針副作用」列進 (a) 誠實揭露。
+- [臨] 背景 worker 類探針（user-extract-worker）判「跑完」不能看 state 檔幾秒沒變：機器忙時 worker 還沒清佇列就被讀，候選「留在佇列」成了假通過（同一份程式碼，忙時跑符合、閒時跑不符）。要等 worker 自己寫的收尾紀錄（_merge_history.log 的 processed= 行）出現再判，等不到就記「沒確認跑完」、一律判不符。
+- [臨] 同一佇列放多個候選再跑 worker：token 預算用完會 break，排後面的候選根本沒被看過，也會假裝成「交 LLM、留在佇列」。判「被攔／交 LLM」要一句一個沙箱。
 
 ## 行動
 

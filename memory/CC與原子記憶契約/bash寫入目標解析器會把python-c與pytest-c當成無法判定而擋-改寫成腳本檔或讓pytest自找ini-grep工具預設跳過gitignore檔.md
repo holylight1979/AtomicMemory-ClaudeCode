@@ -6,6 +6,7 @@
 - Trigger: 無法判定這段指令的寫入目標, python -c 被擋, pytest -c, OverviewHub 擋 Bash, UNKNOWN 寫入目標, Grep 找不到, gitignore, state-*.json 搜不到, verify-ledger 搜不到
 - Created-at: 2026-10-13
 - Source: session:c4685bc9 2026-10-13
+- Quote: 「你是 v6.0 的工作 session track-goal（需求目標核心流程設計單，只設計不寫程式），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-goal（分支 v6/track-goal，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.c…」
 
 ## 知識
 
