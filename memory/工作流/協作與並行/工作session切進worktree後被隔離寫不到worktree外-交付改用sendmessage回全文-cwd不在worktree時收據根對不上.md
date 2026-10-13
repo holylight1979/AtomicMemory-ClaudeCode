@@ -8,6 +8,8 @@
 - Source: session:a1cd2ad7#32684599 2026-10-12
 - Quote: 「這session所有你學到的重要知識、經驗都記好的話，我就關掉了。」
 
+- Related: worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名
+
 ## 知識
 
 - [臨] 多軌開發實踩：工作 session 的分頁 cwd 若在 live（不在 worktree），驗證收據的 root 由 hook 的 cwd 推出來會是 live，量尺閘對不上。解法是 session 內用 `EnterWorktree(path)` 切進 worktree；但切進去之後，harness 隔離規則與 CrossRealmBashBlock 會擋住對 worktree 外路徑的寫入，**寫不到 live 的信箱**，也跑不了 `git -C <live> status`。

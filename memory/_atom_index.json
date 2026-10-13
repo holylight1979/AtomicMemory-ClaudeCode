@@ -5626,7 +5626,7 @@
     },
     {
       "name": "自寫靜態解析器的語言陷阱-python名字綁定與型別標註-c抹字串會讓引數錯位-無bom的utf-16能被嚴格utf-8解開",
-      "path": "memory/驗證與實證/靜態分析/自寫靜態解析器的語言陷阱-python名字綁定與型別標註-c抹字串會讓引數錯位-無bom的utf-16能被嚴格utf-8解開.md",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/自寫靜態解析器的語言陷阱-python名字綁定與型別標註-c抹字串會讓引數錯位-無bom的utf-16能被嚴格utf-8解開.md",
       "triggers": [
         "靜態分析",
         "呼叫圖",
