@@ -1,0 +1,20 @@
+# 反轉驗證換回舊版會同時改暫存區要restore-staged-新案走舊碼就有的入口才紅在斷言
+
+- Scope: global
+- Author: holylight
+- Confidence: [臨]
+- Trigger: 反轉, 退回舊版, 紅在斷言, AttributeError, git checkout -- 檔案, restore --staged, raising=False, 新案退回紅, 保護案例
+- Created-at: 2026-10-13
+- Source: session:ec069e59 2026-10-13
+
+## 知識
+
+- [臨] 「把原始碼換回舊版、測試留新版，確認新案會紅」時：`git checkout <舊版> -- 檔案` 會同時改寫暫存區，跑完把新版複製回來後要 `git restore --staged <檔案>`，否則暫存區留著舊版、下一次提交可能帶到舊內容。複製回原位的動作也可能被「改碼後要有新案例」類的閘記成最後一次改碼。
+- [臨] 新案要能在舊碼上「紅在斷言」而不是 AttributeError：走舊碼就有的入口（公開判定函式、hook 入口），不直接呼叫新加的函式；替身用 `monkeypatch.setattr(..., raising=False)`；讀新欄位用 `.get()`。退回後要分類失敗型別，全是 AssertionError 才算數。
+- [臨] 交付描述要分開寫「新增負例（退回會紅）」與「既有保護案例（新舊都綠）」；參數化案例不能概括成「舊碼全紅」。
+- [臨] 新案要在舊碼上紅在斷言的三個小做法：預先放的 state 用字面值 dict，不用新簽名的 helper 產生；對新增屬性的 monkeypatch 加 `raising=False`（舊模組沒有該屬性也不炸）；同一案裡行為斷言放前面、新 API 細節斷言放最後。反證跑完用 `--tb=line` 檢查每個紅的例外種類都是 AssertionError，紅在 TypeError／AttributeError 的只證明舊碼沒這支函式。
+
+## 行動
+
+- 反轉後一律 git status＋git restore --staged，確認工作樹與暫存區都乾淨
+- 退回跑完用 grep 分類 AssertionError／AttributeError 等失敗型別再下結論

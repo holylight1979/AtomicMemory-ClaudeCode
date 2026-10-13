@@ -5288,8 +5288,10 @@
         "自寫收據",
         "_runs",
         "measure_launch",
+        "啟動關聯",
         "收據偽造",
-        "量尺指令字串"
+        "量尺指令字串",
+        "--json"
       ],
       "scope": "global"
     },
@@ -5389,6 +5391,271 @@
         "Win32_Process",
         "取消驗證",
         "快照複跑"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "判定成功行是否由驗證程式印出-豁免只能是與表上量尺逐字相同的字-斷詞丟掉的字也要掃",
+      "path": "memory/驗證與實證/判定成功行是否由驗證程式印出-豁免只能是與表上量尺逐字相同的字-斷詞丟掉的字也要掃.md",
+      "triggers": [
+        "哨兵",
+        "成功行",
+        "量尺比對",
+        "假哨兵",
+        "收據採認",
+        "指令裡寫了哨兵字樣",
+        "sentinel_regex",
+        "去錨點",
+        "豁免範圍"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值",
+      "path": "memory/驗證與實證/pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值.md",
+      "triggers": [
+        "PYTEST_ADDOPTS",
+        "PYTHONOPTIMIZE",
+        "環境變數縮小範圍",
+        "整體驗證",
+        "pytest 子集",
+        "有效環境",
+        "env 前綴",
+        "run_verify 自寫收據"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "可信下限的確定判定要由白名單主動證明-單一入口填條號-漏抓只會落成不確定-證據用家族規則封整類",
+      "path": "memory/設計通則/可信下限的確定判定要由白名單主動證明-單一入口填條號-漏抓只會落成不確定-證據用家族規則封整類.md",
+      "triggers": [
+        "確定白名單",
+        "可信下限",
+        "主動證明",
+        "預設確定",
+        "certify",
+        "證據家族規則",
+        "靜態分析",
+        "呼叫圖",
+        "閱讀路徑",
+        "退件反覆",
+        "逐條補漏"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "可由設定擴充的執行程式白名單配拒絕清單列不完-改走逐字比對的既有通道",
+      "path": "memory/設計通則/可由設定擴充的執行程式白名單配拒絕清單列不完-改走逐字比對的既有通道.md",
+      "triggers": [
+        "白名單擴充",
+        "拒絕清單",
+        "denylist",
+        "extra runner",
+        "設定擴充",
+        "列不完",
+        "讀檔工具當證據",
+        "包裝執行器"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "新舊兩版工具量同一份輸入-逐條比確定集合進出-總數不變也可能互相抵銷",
+      "path": "memory/驗證與實證/新舊兩版工具量同一份輸入-逐條比確定集合進出-總數不變也可能互相抵銷.md",
+      "triggers": [
+        "新舊工具比對",
+        "前後比較",
+        "量尺改版",
+        "確定集合",
+        "逐條比對",
+        "退化",
+        "總數不變",
+        "判定邏輯改動",
+        "回歸檢查"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath",
+      "path": "memory/OS-Windows/windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath.md",
+      "triggers": [
+        "8.3 短路徑",
+        "GetLongPathNameW",
+        "normpath",
+        "長路徑前綴",
+        "UNC",
+        "暫存目錄判斷",
+        "gettempdir",
+        "路徑包含",
+        "HOLYLI~1"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "驗收題目與答案不能寫進受測session讀得到的文件-答案由控制端保管在受測環境外",
+      "path": "memory/驗證與實證/驗收題目與答案不能寫進受測session讀得到的文件-答案由控制端保管在受測環境外.md",
+      "triggers": [
+        "沒有預填答案",
+        "驗收題",
+        "盲測",
+        "受測 session",
+        "封存答案",
+        "對照組",
+        "設計單驗法",
+        "洩題"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "反轉驗證換回舊版會同時改暫存區要restore-staged-新案走舊碼就有的入口才紅在斷言",
+      "path": "memory/驗證與實證/反轉驗證換回舊版會同時改暫存區要restore-staged-新案走舊碼就有的入口才紅在斷言.md",
+      "triggers": [
+        "反轉",
+        "退回舊版",
+        "紅在斷言",
+        "AttributeError",
+        "git checkout -- 檔案",
+        "restore --staged",
+        "raising=False",
+        "新案退回紅",
+        "保護案例"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔",
+      "path": "memory/CC與原子記憶契約/bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔.md",
+      "triggers": [
+        "無法判定這段指令的寫入目標",
+        "python -c 被擋",
+        "pytest -c",
+        "OverviewHub 擋 Bash",
+        "UNKNOWN 寫入目標",
+        "Grep 找不到",
+        "gitignore",
+        "state-*.json 搜不到",
+        "verify-ledger 搜不到"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "context將滿時把同一批檔的多條改動交給單一子代理照序做-續派用sendmessage保留它的context-主session只做獨立複核與轉交",
+      "path": "memory/工作流/context將滿時把同一批檔的多條改動交給單一子代理照序做-續派用sendmessage保留它的context-主session只做獨立複核與轉交.md",
+      "triggers": [
+        "context 快滿",
+        "context 80%",
+        "派子代理實作",
+        "general-purpose",
+        "續派子代理",
+        "SendMessage 子代理",
+        "子代理 commit",
+        "獨立複核",
+        "換手"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "程式前置閘要略過llm判斷時只能用正向樣板逐子句整句比對-含訊號就算與關鍵字清單都會誤丟真決策-欄位要收窄",
+      "path": "memory/設計通則/程式前置閘要略過llm判斷時只能用正向樣板逐子句整句比對-含訊號就算與關鍵字清單都會誤丟真決策-欄位要收窄.md",
+      "triggers": [
+        "前置判斷",
+        "略過 LLM",
+        "便宜的程式判斷",
+        "正向樣板",
+        "誤丟",
+        "關鍵字清單",
+        "萃取前過濾",
+        "一次性指示",
+        "開工句",
+        "fullmatch",
+        "自由欄位"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據",
+      "path": "memory/設計通則/從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據.md",
+      "triggers": [
+        "指令比對",
+        "收據比對",
+        "cmd_matches",
+        "量尺指令",
+        "哨兵偽造",
+        "echo 冒充",
+        "短路 ||",
+        "here-string",
+        "指令截斷",
+        "白名單語法",
+        "fail-closed",
+        "shell 斷詞",
+        "子集冒充"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行",
+      "path": "_AIDocs/_atoms/MemDev/使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行.md",
+      "triggers": [
+        "user_typed_text",
+        "使用者原話",
+        "權威判斷",
+        "is_harness_generated_prompt",
+        "turn_prompts",
+        "recent_user_prompts",
+        "口令",
+        "同伴訊息",
+        "harness_text",
+        "strip_harness_blocks",
+        "豁免詞",
+        "使用者決策萃取"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "回歸測試先證明舊版會紅-把舊版受測檔git-show到暫存夾配新測試跑-紅要紅在斷言不是keyerror",
+      "path": "memory/驗證與實證/回歸測試先證明舊版會紅-把舊版受測檔git-show到暫存夾配新測試跑-紅要紅在斷言不是keyerror.md",
+      "triggers": [
+        "回歸測試",
+        "舊版會紅",
+        "反證",
+        "修正前紅修正後綠",
+        "git show 舊版",
+        "新測試跑舊碼",
+        "測試有沒有測到"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "自寫靜態解析器的語言陷阱-python名字綁定與型別標註-c抹字串會讓引數錯位-無bom的utf-16能被嚴格utf-8解開",
+      "path": "memory/驗證與實證/靜態分析/自寫靜態解析器的語言陷阱-python名字綁定與型別標註-c抹字串會讓引數錯位-無bom的utf-16能被嚴格utf-8解開.md",
+      "triggers": [
+        "靜態分析",
+        "呼叫圖",
+        "ast 解析",
+        "名字綁定",
+        "型別標註 Union",
+        "C# 正規式解析",
+        "引數位置錯位",
+        "UTF-16 無 BOM",
+        "NUL 位元組",
+        "BOM SyntaxError"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "擋滿待放行的紀錄只在重新查核真的通過或使用者放行才清-沒執行查核不等於查核通過-原宣稱只記第一次-舊格式缺欄位照擋",
+      "path": "memory/設計通則/擋滿待放行的紀錄只在重新查核真的通過或使用者放行才清-沒執行查核不等於查核通過-原宣稱只記第一次-舊格式缺欄位照擋.md",
+      "triggers": [
+        "pending_release",
+        "擋滿",
+        "待放行",
+        "沒有執行查核",
+        "查核通過",
+        "措辭避查核",
+        "換一句話",
+        "舊格式 state",
+        "缺欄位",
+        "每次 Stop 都判",
+        "claims"
       ],
       "scope": "global"
     }

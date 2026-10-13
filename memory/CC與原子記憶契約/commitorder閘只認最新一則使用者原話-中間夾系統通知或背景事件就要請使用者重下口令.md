@@ -19,6 +19,7 @@
 - [臨] bash 裡 `cat > file` 沒給 stdin 會讓工具背景卡死，提交訊息用 `git commit -F -` 搭 heredoc。
 - [臨] 同家族第三案：Claude in Chrome「Enabled by default」開著時，harness 把約 2900 字的 `<browser_instruction>` 區塊塞在使用者訊息前面（本機最近 4 場 16 則中 7 則有）；sanitize_harness_noise 沒列這個標籤，而口令闘只存清理後前 500 字，尾端的「上GIT」被截掉 → 誤擋。修：`_HARNESS_TAG_RE` 加 `browser_instruction`（hooks/wg_core.py），測試在 verify_episodic_noise_filter。根因通則：任何新的 harness 注入標籤都要進 `_HARNESS_TAG_RE`，否則 500 字截斷會吞掉口令。
 - [臨] 同伴 session 訊息不算口令。記憶系統 repo 與它的 git worktree 的 commit 不等口令，但只認 `&&` 串的 `cd <絕對路徑>`／`git [-C <字面路徑>] add|commit|push…` 句型，尾巴接管線或 `;` 就要口令（細節：TECH.md guard.commit_order 列、_AIDocs/_CHANGELOG.md 段）。
+- [臨] 同伴訊息不算口令；記憶系統 repo 的 worktree 免口令，但整條要是 `&&` 串的 cd／git 句型（不接管線、`;`，訊息不含反斜線），否則照擋。
 
 ## 行動
 
