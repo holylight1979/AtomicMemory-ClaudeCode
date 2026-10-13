@@ -2477,7 +2477,13 @@ def test_036c_custom_rule_keeps_substring_mapping(line, verdict):
     rules = vl.compile_sentinel_rules([{"regex": "^CUSTOM_.*$", "name": "CUSTOM", "verdict_map": {"ok": "PASS", "fail": "FAIL"}}])
     got = vl.parse_sentinels(line + "\n", rules)
     assert [(s["name"], s["verdict"]) for s in got] == [("CUSTOM", verdict)], line
-    assert all(r["pytest_summary"] for r in vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"]))
+
+
+def test_036c_only_builtin_pytest_rules_are_marked_pytest_summary():
+    """036c：config 裡兩條內建 pytest 規則都標了 pytest_summary（照統計逐組解析）；沒標的規則編譯後是 False（照子字串）。"""
+    compiled = vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"])
+    assert [(r["name"], r.get("pytest_summary")) for r in compiled] == [("PYTEST", True), ("PYTEST_MEASURE", True)]
+    assert vl.compile_sentinel_rules([{"regex": "^X$", "name": "X", "verdict_map": {}}])[0].get("pytest_summary") is False
 
 
 @pytest.mark.parametrize("cmd, tool", [
