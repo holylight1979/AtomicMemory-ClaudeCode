@@ -172,13 +172,14 @@ SUITE_GATE_PROBE = ("import json, sys; sys.path.insert(0, sys.argv[1]); import w
 def test_whole_pytest_suite_writes_receipt_gate_accepts(tmp_path, suite, data_mode):
     """部位量尺是整組 pytest（`python -X utf8 -m pytest -q tools/verify`、`… lib/verify`；背景跑看不到結尾）：根 conftest
     在整組跑完後寫收據到 pytest 啟動時的資料根（tmp，或沒設 → tmp 家/.claude）、不落受測樹；量尺閘 load_self_runs 讀得到，
-    self_run_ok 對這把量尺與受測樹成立。只跑其中一支不寫收據。"""
+    self_run_ok 對這把量尺與受測樹成立。只跑其中一支、篩過、只收集、-o 覆寫收集設定、-c 換 ini 都不寫收據。"""
     import shutil
     a, home = tmp_path / "A", tmp_path / "home"
     home.mkdir()
     shutil.copytree(ROOT / "lib", a / "lib", ignore=shutil.ignore_patterns("verify", "__pycache__"))
     for name in ("pytest.ini", "conftest.py"):
         shutil.copyfile(ROOT / name, a / name)
+    shutil.copyfile(ROOT / "pytest.ini", a / "alt.ini")                                # 內容相同、但不是本樹那支 ini
     (a / suite).mkdir(parents=True)
     (a / suite / "verify_ok.py").write_text("def test_ok():\n    assert True\n\n\ndef test_other():\n    assert True\n",
                                             encoding="utf-8")
@@ -196,8 +197,9 @@ def test_whole_pytest_suite_writes_receipt_gate_accepts(tmp_path, suite, data_mo
         assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-1500:]
 
     for narrowed in ([f"{suite}/verify_ok.py"], [suite, "-k", "test_other"], [suite, "--collect-only"],
-                     [suite, "--deselect", f"{suite}/verify_ok.py::test_other"]):
-        pytest_run(*narrowed)                                                         # 子集／篩過／只收集：不寫收據
+                     [suite, "--deselect", f"{suite}/verify_ok.py::test_other"],
+                     [suite, "-o", "python_files=verify_ok.py"], [suite, "-c", "alt.ini"]):
+        pytest_run(*narrowed)                                                         # 子集／篩過／只收集／改收集設定：不寫收據
         assert not runs_dir.exists(), narrowed
     pytest_run(suite)                                                                 # 整組：寫收據
     runs = list(runs_dir.glob("*.json"))
