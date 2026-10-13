@@ -9,7 +9,7 @@ after＝工作樹、--scope git），組成一段文字：尾行（READING_PATH 
 （main、__main__，都沒有才用沒人呼叫的公開函式）。測試檔與還沒 git add 的新檔不拿來找入口（後者附一句沒量到）。
 before：本 session 在這個 git 根 commit 過（state committed_new_code）→ 第一筆的父提交；沒 commit 過 → HEAD。
 時間：整支（git 與量尺子行程）共用 BUDGET_S 秒，逾時附「逾時」；逾時過的根這個 session 不再自動量，只附手動指令。
-同一批輸入（根、before、入口、改檔大小與時間）只量一次、只附一次（state["reading_path"][session_id]）。
+同一批輸入（根、before、改檔大小與時間、哪些還沒 git add）只量一次、只附一次（state["reading_path"][session_id]）。
 """
 
 from __future__ import annotations
@@ -173,17 +173,17 @@ def _measure_root(root: Path, base: str, entries: Optional[List[str]], layers: O
     tool_args = lambda before: ["--root", str(root), "--before", before, *[x for e in entries or [] for x in ("--entry", e)],
                                 *(["--layers", layers] if layers else [])]
     manual_for = lambda before: "手動：python " + " ".join(_quote(a) for a in [str(TOOL), *tool_args(before)])
+    if slow:   # 不再起任何子行程
+        return [f"{head}：這個 session 先前 {BUDGET_S:g} 秒內量不完，不再自動量。{manual_for(base)}"], False
     try:
         sha_proc = _spawn(["git", "-C", str(root), "rev-parse", "--verify", "--short=12", f"{base}^{{commit}}"],
                           deadline, run)
     except _Timeout:
-        return [f"{head}：逾時（{BUDGET_S:g} 秒預算在呼叫 git 時就用完）。{manual_for(base)}"], False
+        return [f"{head}：逾時（{BUDGET_S:g} 秒預算在呼叫 git 時就用完，這個 session 這個根不再自動量）。{manual_for(base)}"], True
     if sha_proc.returncode != 0:
         return [f"{head}：量不出來，before（{base}）解不出：這個根還沒有任何 commit 或歷史不完整"], False
     sha = sha_proc.stdout.decode("utf-8", "replace").strip()
     args, manual = tool_args(sha), manual_for(sha)
-    if slow:
-        return [f"{head}：這個 session 先前 {BUDGET_S:g} 秒內量不完，不再自動量。{manual}"], False
     try:
         proc = _spawn([_python_exe(), "-X", "utf8", str(TOOL), *args, "--json", "--top", "1"], deadline, run)
     except _Timeout:
@@ -232,9 +232,14 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
             groups.setdefault(hit[0], (hit[1], []))[1].append(f)
         else:
             outside.append(f)
-    plans = [(key, root, files, base_spec(key, state.get("committed_new_code") or {}))
-             for key, (root, files) in sorted(groups.items())]
-    cache = json.dumps([[k, b, _fingerprint(fs)] for k, _, fs, b in plans] + [outside], ensure_ascii=False)
+    plans = []
+    for key, (root, files) in sorted(groups.items()):
+        slow = key in rec.get("slow", [])   # 逾時過的根：不再起 git 子行程
+        tracked = {_norm(f) for f in files} if slow else _tracked(root, files, deadline, run)
+        fresh = [f for f in files if Path(f).exists() and _norm(f) not in tracked]   # 還沒 git add 的新檔
+        plans.append((key, root, files, base_spec(key, state.get("committed_new_code") or {}), fresh))
+    # 同一批輸入＝根、before、改檔大小與時間、哪些還沒 git add 都相同（只 git add 不改檔也算新的一批）
+    cache = json.dumps([[k, b, fr, _fingerprint(fs)] for k, _, fs, b, fr in plans] + [outside], ensure_ascii=False)
     if rec.get("key") == cache:
         return None
     rec["key"] = cache
@@ -243,9 +248,7 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
         lines.append(f"  不在 git 工作區，比較要 git 歷史當 before，沒量：{'、'.join(Path(f).name for f in outside)}")
     if not TOOL.is_file():
         return "\n".join(lines + [f"  量不出來：找不到量尺 {TOOL}"])
-    for key, root, files, base in plans:
-        tracked = _tracked(root, files, deadline, run)
-        fresh = [f for f in files if Path(f).exists() and _norm(f) not in tracked]
+    for key, root, files, base, fresh in plans:
         notes += fresh
         product = [f for f in files if not is_verify_case(f, cfg.get("verify_case_globs") or [], str(root))]
         measurable = [f for f in product if f not in fresh]

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,8 @@ HOOKS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HOOKS_DIR))
 
 import wg_reading_path as rph  # noqa: E402
+
+OFFICIAL_BUDGET = rph.BUDGET_S   # 夾具把預算放寬之前的正式值
 
 _SID = "sid-rp"
 _EXTS = [".py", ".cs", ".js"]
@@ -222,12 +225,15 @@ def test_timeout_says_so_and_the_root_is_not_measured_again(tmp_path, monkeypatc
     assert "先前 8 秒內量不完，不再自動量" in again and not any(str(slow) in " ".join(c) for c in calls)
 
 
-def test_budget_spent_on_git_still_says_timeout_with_a_manual_command(tmp_path):
-    """git 本身就把預算用完（忙碌的機器）：附「逾時」與手動指令（before 用還沒解開的寫法），不記成量尺太慢。"""
+def test_budget_spent_on_git_says_timeout_and_the_root_is_not_measured_again(tmp_path):
+    """git 本身就把預算用完（忙碌的機器）：附「逾時」與手動指令（before 用還沒解開的寫法），這個根同樣不再自動量：
+    之後再改檔，連 git 子行程都不起（codex 審 698a987 BLOCK 2）。"""
     root = _repo(tmp_path / "r")
     real = subprocess.run
+    calls = []
 
     def slow_git(args, **kw):
+        calls.append(list(args))
         if "rev-parse" in args:
             raise subprocess.TimeoutExpired(args, kw.get("timeout"))
         return real(args, **kw)
@@ -235,4 +241,33 @@ def test_budget_spent_on_git_still_says_timeout_with_a_manual_command(tmp_path):
     _write(root, {"y.py": _BODY.format("b") + "\n"})
     state = _state(_mf(root / "y.py"))
     note = rph.reading_path_note(state, _SID, {}, run=slow_git)
-    assert "呼叫 git 時就用完" in note and "--before HEAD" in note and not state["reading_path"][_SID].get("slow")
+    assert "呼叫 git 時就用完" in note and "--before HEAD" in note and state["reading_path"][_SID].get("slow"), note
+    calls.clear()
+    _write(root, {"y.py": _BODY.format("b") + "\n\n"})
+    again = rph.reading_path_note(state, _SID, {}, run=slow_git)
+    assert "不再自動量" in again and "手動：python" in again and calls == [], "逾時過的根不再起任何子行程"
+
+
+def test_git_add_alone_makes_a_new_batch_and_is_measured(tmp_path):
+    """只 git add、不改檔也算新的一批：第一次提示「還沒 git add」，暫存之後再 Stop 要真的量（codex 審 698a987 BLOCK 1）。"""
+    root = _repo(tmp_path / "r")
+    _write(root, {"y.py": "from z import c\n\n\ndef b(n):\n    return c(n)\n", "z.py": _BODY.format("c")})
+    state = _state(_mf(root / "y.py"), _mf(root / "z.py"))
+    first = rph.reading_path_note(state, _SID, {})
+    assert "還沒 git add 的新檔" in first and "z.py" in first, first
+    _git(root, "add", "z.py")
+    second = rph.reading_path_note(state, _SID, {})
+    assert second and "READING_PATH DONE mode=compare" in second and "還沒 git add" not in second, second
+
+
+def test_the_official_budget_bounds_the_whole_call(tmp_path, monkeypatch):
+    """正式預算（模組常數 3 秒）下，量尺卡住時整支在預算內收手（加啟動與收尾的餘裕 2 秒），附「逾時」。"""
+    monkeypatch.setattr(rph, "BUDGET_S", OFFICIAL_BUDGET)
+    root = _repo(tmp_path / "r")
+    slow = _write(tmp_path / "slowtool", {"reading-path.py": "import time\ntime.sleep(60)\n"}) / "reading-path.py"
+    monkeypatch.setattr(rph, "TOOL", slow)
+    _write(root, {"y.py": _BODY.format("b") + "\n"})
+    started = time.monotonic()
+    note = rph.reading_path_note(_state(_mf(root / "y.py")), _SID, {})
+    assert OFFICIAL_BUDGET == 3.0 and time.monotonic() - started < OFFICIAL_BUDGET + 2.0
+    assert "逾時" in note and "手動：python" in note, note
