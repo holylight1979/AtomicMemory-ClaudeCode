@@ -2439,14 +2439,40 @@ def test_035_1_receipt_without_env_is_not_evidence(driven, capsys):
     ("5 passed, 1 skipped, 2 deselected, 3 warnings in 1.00s", ("PASS", "DONE")),
     ("3 passed in 65.00s (0:01:05)", ("PASS", "DONE")),
     ("=========== 3 passed in 0.1s ===========", ("PASS", "DONE")),
+    ("== 5 passed, 2 skipped, 1 xfailed in 3.2s ==", ("PASS", "DONE")),     # 036 codex：xfailed 不是 failed（預期失敗的正常測試集）
+    ("1 failed, 1 xfailed in 0.2s", ("FAIL", "FAIL")),
+    ("1 xpassed in 0.1s", ("PASS", "DONE")),
+    ("2 passed, 1 xpassed, 1 xfailed in 0.4s", ("PASS", "DONE")),
 ])
 def test_035_2_pytest_summary_mapping_reads_whole_line(line, verdicts):
-    """035 ②：config 的兩條 pytest 規則抓整段統計到 ` in `，任何非零 failed／error(s) 優先 FAIL，PYTEST 與 PYTEST_MEASURE 同一行同結果。"""
+    """035 ②／036b：config 的兩條 pytest 規則抓整段統計到 ` in `，按完整狀態詞逐組解析：只有非零 failed／error(s) 才 FAIL，
+    xfailed／xpassed／skipped／warnings／deselected 不算失敗，PYTEST 與 PYTEST_MEASURE 同一行同結果。"""
     rules = vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"])
     got = vl.parse_sentinels(line + "\n", rules)
     assert [(s["name"], s["verdict"]) for s in got] == [("PYTEST", verdicts[0]), ("PYTEST_MEASURE", verdicts[1])], line
     assert vl._map_verdict("3 passed, 0 failed", {"failed": "FAIL", "passed": "PASS"}) == "PASS"      # 只跟著 0 不算命中
+    assert vl._map_verdict("3 passed, 1 xfailed", {"failed": "FAIL", "passed": "PASS"}) == "PASS"     # 完整狀態詞，不是子字串
     assert vl.parse_sentinels("1 passed\n", rules) == []                                               # 不是完整摘要行不映射
+    assert vl.parse_sentinels("2 skipped in 0.1s\n", rules) == []                                      # 什麼都沒跑：沒有成功哨兵
+    assert vl.parse_sentinels("CUSTOM_OK\n", vl.compile_sentinel_rules([{"regex": "^CUSTOM_OK$", "name": "C",
+                                                                           "verdict_map": {"CUSTOM_OK": "DONE"}}])) \
+        == [{"name": "C", "verdict": "DONE", "line": "CUSTOM_OK", "kv": {}}]                          # 沒有統計組的自訂字樣照子字串比
+
+
+@pytest.mark.parametrize("cmd, tool", [
+    ("unset PYTEST_ADDOPTS; python -X utf8 -m pytest -q", "Bash"),
+    ("unset PYTEST_ADDOPTS && python -X utf8 -m pytest -q", "Bash"),
+    ("env -u PYTEST_ADDOPTS python -X utf8 -m pytest -q", "Bash"),
+    ("Remove-Item env:PYTEST_ADDOPTS; python -X utf8 -m pytest -q", "PowerShell"),
+])
+def test_036b_unsupported_env_clearing_syntax_is_not_accepted(driven, capsys, monkeypatch, tmp_path, cmd, tool):
+    """036 codex 建議固定邊界：繼承了 `-k smoke` 時，白名單外的清空寫法（unset、env -u、Remove-Item env:）不算清空，
+    收據不採認（它們不是前置設定也不是跑程式的指令）；要清空只認 `PYTEST_ADDOPTS='' …` 與 `$env:PYTEST_ADDOPTS=''`。"""
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k smoke")
+    state = _post(monkeypatch, tmp_path, cmd, "1 passed, 40 deselected in 0.10s\n", tool)
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS),
+                       verify_receipts=state["verify_receipts"])
+    assert "(a) 說「修好」" in out, cmd
 
 
 @pytest.mark.parametrize("out, resp_kind", [

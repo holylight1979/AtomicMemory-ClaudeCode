@@ -92,18 +92,25 @@ def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
     return out
 
 
+_STAT_RE = re.compile(r"\b(\d+) ([a-z]+)\b")          # 統計行的「數字 狀態詞」組：5 passed, 2 skipped, 1 xfailed
+
+
 def _map_verdict(raw: str, verdict_map: Dict[str, str]) -> Optional[str]:
-    """命中的那段文字 → verdict_map 的結論。整段統計都看：命中多個鍵時 FAIL 優先（`1 passed, 1 error` 是 FAIL 不是 PASS），
-    鍵前面只跟著 0（`0 failed`）不算命中；對應 PASS／DONE 的鍵（passed）照 verdict_map 順序取第一個。兩條共用同一 regex 的規則
-    （PYTEST／PYTEST_MEASURE）因此對同一行一定得到同一種結果。"""
+    """命中的那段文字 → verdict_map 的結論。文字裡有「數字 狀態詞」組（pytest 統計行）時按完整狀態詞逐組比：鍵要等於整個狀態詞
+    （去尾 s：error 對 errors、warning 對 warnings），`xfailed`／`xpassed` 不是 `failed`／`passed`，只有計數非零的狀態詞算命中；
+    沒有統計組的文字（自訂哨兵字樣）才用子字串比。命中多個鍵時 FAIL 優先（`1 passed, 1 error` 是 FAIL），其餘照 verdict_map 順序
+    取第一個。兩條共用同一 regex 的規則（PYTEST／PYTEST_MEASURE）因此對同一行一定得到同一種結果。"""
     low = raw.lower()
+    stats = [(int(n), w.rstrip("s")) for n, w in _STAT_RE.findall(low)]
     hits: List[str] = []
     for key, v in verdict_map.items():
         k = key.lower()
-        if v not in VERDICTS or k not in low:
+        if v not in VERDICTS:
             continue
-        counts = [int(c) for c in re.findall(r"(\d+)\s+" + re.escape(k), low)]
-        if counts and not any(counts):
+        if stats:
+            if not any(n > 0 and w == k.rstrip("s") for n, w in stats):
+                continue
+        elif k not in low:
             continue
         hits.append(v)
     if "FAIL" in hits:
