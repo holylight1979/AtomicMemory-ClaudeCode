@@ -6308,6 +6308,22 @@
         "D(1) 實測"
       ],
       "scope": "global"
+    },
+    {
+      "name": "退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼",
+      "path": "memory/驗證與實證/退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼.md",
+      "triggers": [
+        "退回看紅",
+        "git checkout main --",
+        "pathspec did not match",
+        "快照腳本",
+        "退回段",
+        "假綠",
+        "新檔退回",
+        "總控台快照",
+        "改前版紅"
+      ],
+      "scope": "global"
     }
   ]
 }
