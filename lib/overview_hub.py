@@ -18,6 +18,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import posixpath
 import re
 import sys
 from pathlib import Path
@@ -207,9 +208,24 @@ def _extra_fields(cells: List[str], cols: Dict[str, int]) -> Dict[str, Any]:
     return out
 
 
+_DRIVE_RE = re.compile(r"^[a-z]:")
+
+
+def _norm_prefix(tok: str) -> Tuple[str, bool]:
+    """表列前綴 → (根相對的正規化前綴, 放得進根相對位置嗎)。小寫、/、消 `./` 與 `a/../b`、去尾斜線，與 part_kind 對輸入路徑的
+    normpath 同一套（`./docs/build/`、`docs/x/../build/` 都是 `docs/build`）。消完是整個根（`.`）、往上跳出根（`..` 開頭）、
+    絕對路徑或磁碟代號 → 放不進，回字面正規化與 False。"""
+    raw = _norm(tok).rstrip("/")
+    q = posixpath.normpath(raw) if raw else raw
+    if not q or q in (".", "..") or q.startswith(("../", "/")) or _DRIVE_RE.match(q):
+        return raw, False
+    return q, True
+
+
 def parse_map(text: str) -> List[Dict[str, Any]]:
-    """表 → rows：[{prefixes, part, part_short, card, cards, status, line, defects_doc, measure, checkers,
-    sample_paths, extra_q, layer, authority, upstream, downstream, kind}]。前綴已正規化（小寫、/、去尾斜線）。
+    """表 → rows：[{prefixes, unsafe_prefix, part, part_short, card, cards, status, line, defects_doc, measure, checkers,
+    sample_paths, extra_q, layer, authority, upstream, downstream, kind}]。前綴已正規化（小寫、/、消 `./` 與 `..`、去尾斜線，
+    見 _norm_prefix）；unsafe_prefix＝這列有放不進根相對位置的前綴。
 
     前四欄（前綴／部位／導讀卡／狀態）照位置解析；擴欄照表頭關鍵字定位（_EXTRA_COLUMNS），
     沒表頭時擴欄全為空值（""／{}／[]）。
@@ -230,9 +246,8 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
             if not rows and not cols:
                 cols = _header_columns(cells)      # 第一個沒路徑的表列＝表頭
             continue
-        prefixes = [
-            _norm(t).rstrip("/") for t in _BACKTICK_RE.findall(cells[prefix_idx]) if _is_path_token(t)
-        ]
+        normed = [_norm_prefix(t) for t in _BACKTICK_RE.findall(cells[prefix_idx]) if _is_path_token(t)]
+        prefixes = [p for p, _ in normed]
         part = cells[prefix_idx + 1] if prefix_idx + 1 < len(cells) else ""
         part = part.replace("（", "(").split("(")[0].strip()
         part_short = re.split(r"[／/]", part)[0].strip() or part
@@ -253,6 +268,7 @@ def parse_map(text: str) -> List[Dict[str, Any]]:
             status = status_cell[:2] if status_cell.startswith(_TWO_CHAR_STATUS) else status_cell[0]
         rows.append({
             "prefixes": [p for p in prefixes if p],
+            "unsafe_prefix": any(not ok for _, ok in normed),
             "part": part,
             "part_short": part_short,
             "card": cards[0] if cards else None,
@@ -305,7 +321,10 @@ def part_kind(path: str, root: Path, rows: List[Dict[str, Any]]) -> str:
     if np_.startswith(nr + "/") and _SHORT_NAME_RE.search(np_[len(nr):]):
         return KIND_CODE
     row = match_row(p, Path(r), rows, anchored=True)
-    return row.get("kind", KIND_CODE) if row else KIND_CODE
+    kind = row.get("kind", KIND_CODE) if row else KIND_CODE
+    if kind == KIND_KNOWLEDGE and any(x.get("unsafe_prefix") and x.get("kind") != KIND_KNOWLEDGE for x in rows):
+        return KIND_CODE    # 表上有放不進根相對位置的寫碼列：判不出它是不是這條路徑的子列，不落回 knowledge
+    return kind
 
 
 def path_kind(path: str, stop_at: Optional[Path] = None) -> Optional[str]:
@@ -376,10 +395,24 @@ def _gitdir_of(root: Path) -> Optional[Path]:
     return None
 
 
+def _read_git_pointer(path: Path) -> Optional[Path]:
+    """git 管理檔（worktrees/<名>/gitdir、commondir）的第一行路徑；相對路徑以該檔所在目錄為基準；不存在、讀不到、空 → None。"""
+    try:
+        first = path.read_text(encoding="utf-8", errors="replace").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return None
+    if not first:
+        return None
+    p = Path(first)
+    return p if p.is_absolute() else path.parent / p
+
+
 def is_root_worktree(root: Path, claude_dir: Path) -> bool:
-    """root 是「根層（~/.claude）的 git worktree」，兩條同時成立才是：
+    """root 是「根層（~/.claude）的 git worktree」，三條同時成立才是：
     1. root 與 claude_dir 不是同一目錄；
-    2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下（與 CommitOrder 認記憶系統 worktree 同一判法）。
+    2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下（與 CommitOrder 認記憶系統 worktree 同一判法）；
+    3. 那個管理目錄真的登記了這棵樹：它的 `gitdir` 檔反向指回 `<root>/.git`，`commondir` 指到 `<claude_dir>/.git`
+       （只寫一個 `.git` 檔指過去、管理目錄不存在或指向別處 → 不是）。
     不看部位表：工作 session 照派工改了根層部位表，這個 worktree 仍是根層（量尺認 PYTEST_MEASURE、卡讀 live）。
     任一邊是網路路徑 → 直接不是（網路路徑不可能是 ~/.claude 的 worktree），不碰檔案系統。純函式，不碰 state。"""
     try:
@@ -387,7 +420,11 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
         if _is_unc(r) or _is_unc(c) or _same_dir_norm(r, c):
             return False
         gitdir = _gitdir_of(r)
-        return gitdir is not None and _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/")
+        if gitdir is None or not _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/"):
+            return False
+        back, common = _read_git_pointer(gitdir / "gitdir"), _read_git_pointer(gitdir / "commondir")
+        return (back is not None and _same_dir_norm(back, r / ".git")
+                and common is not None and _same_dir_norm(common, c / ".git"))
     except OSError:
         return False
 

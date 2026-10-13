@@ -538,9 +538,13 @@ WT_MAP = "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n| `
 
 
 def _link_wt(live: Path, wt: Path, name: str) -> None:
-    """把 wt 接成 live 的 git worktree 結構：live/.git/worktrees/<name>/ 目錄＋wt/.git 檔指回去。"""
-    (live / ".git" / "worktrees" / name).mkdir(parents=True, exist_ok=True)
-    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / name}\n", encoding="utf-8")
+    """把 wt 接成 live 的 git worktree 結構，與 git worktree add 寫的同一組檔：管理目錄 live/.git/worktrees/<name>/ 的
+    gitdir（反向指回 wt/.git）與 commondir（../..），wt/.git 檔指到管理目錄。"""
+    adm = live / ".git" / "worktrees" / name
+    adm.mkdir(parents=True, exist_ok=True)
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
 
 
 def _root_wt_world(base: Path):

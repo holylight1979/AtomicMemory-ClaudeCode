@@ -788,8 +788,11 @@ def _so_world(tmp_path, monkeypatch):
         (r / "memory" / "CC").mkdir(parents=True)
         (r / ".claude" / "overview-map.md").write_text(SO_MAP, encoding="utf-8", newline="\n")
         (r / "memory" / "CC" / "hooks導讀.md").write_text(f"# {body}\n", encoding="utf-8")
-    (live / ".git" / "worktrees" / "track-x").mkdir(parents=True)                      # git worktree 結構：.git 檔指回 live
-    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'track-x'}\n", encoding="utf-8")
+    adm = live / ".git" / "worktrees" / "track-x"                                      # git worktree 結構（git worktree add 寫的同一組檔）
+    adm.mkdir(parents=True)
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
     (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
     (proj / "memory").mkdir()
     (proj / ".claude" / "overview-map.md").write_text(SO_MAP + "| `src/` | 主程式 | 無 | 無 |\n", encoding="utf-8", newline="\n")

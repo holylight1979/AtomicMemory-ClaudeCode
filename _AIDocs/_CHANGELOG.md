@@ -6,7 +6,7 @@
 ---
 ## 2026-10-13 v6.0 部位表加「類別」欄：知識類部位（文件、記憶、派工信箱）移出寫碼查核
 - **緣由**：寫碼查核只看副檔名與部位，`workflow/v6-inbox/` 放一支 .py 素材就欠 (d) 案例、改 `memory/_staging` 也要交定位三行；對人總控台一整天只改這兩處卻被擋到要人放行。
-- **做法**：部位表加「類別」欄（code｜knowledge，沒欄、沒標、拼錯＝code）；`lib/overview_hub.path_kind` 用錨在專案根的最長前綴判類別（先消 `..`，根以下帶 8.3 短名算 code），OverviewHub 對 knowledge 部位只要求卡已注入，`wg_verify_ledger.is_excluded` 讓 knowledge 部位的檔不欠 (d) 也不能替寫碼部位清帳；量尺閘不動；無部位表的專案行為不變；scorecard S3 只算寫碼部位。根層表補 `workflow/v6-inbox/`、`.claude/` 兩列。
+- **做法**：部位表加「類別」欄（code｜knowledge，沒欄、沒標、拼錯＝code）；`lib/overview_hub.path_kind` 用錨在專案根的最長前綴判類別（先消 `..`，根以下帶 8.3 短名算 code），OverviewHub 對 knowledge 部位只要求卡已注入，`wg_verify_ledger.is_excluded` 讓 knowledge 部位的檔不欠 (d) 也不能替寫碼部位清帳；量尺閘不動；無部位表的專案行為不變；scorecard S3 只算寫碼部位。根層表補 `workflow/v6-inbox/`、`.claude/` 兩列。表列前綴與路徑同一套正規化（`./`、`..`），放不進根相對位置的 code 列讓 knowledge 不豁免。根層 worktree 身分改成只看 git：`.git` 指到 live 的管理目錄，而且該目錄反向登記這棵樹，不再比部位表位元組。來源回填遇自動萃取卡只補 Source、不寫「AI：」Quote。
 - **驗證**：目標 verify 8 檔全綠；新案退回 main 紅 13 全在斷言；用真 hook 入口重放對人總控台的真實 transcript，(d)＋定位三行擋次修前 1 → 修後 0（刪掉定位三行的版本 38 → 0），量尺擋次修前修後相同；codex 一輪的 BLOCK（8.3 短名與 `..` 讓巢狀 code 列落到 knowledge）與 WARN 已修。順手修 `lib/realm_gate` 資料根寫死家目錄（worktree 跑 lib verify 必紅）。
 
 ## 2026-10-13 v6.0 舊卡回填與萃取器寫卡也不把開工句當 Quote

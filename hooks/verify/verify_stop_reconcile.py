@@ -766,8 +766,11 @@ def _two_roots(tmp_path, same_map=True):
     (live / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES)
     extra = "\n| `x/` | 其他 | 無 | 無 | 無 | 無 | 無 |\n".encode("utf-8")
     (wt / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES if same_map else _MAP_BYTES + extra)
-    (live / ".git" / "worktrees" / "wt").mkdir(parents=True)                       # 結構同真 worktree：.git 檔指回 live 的 worktrees/
-    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+    adm = live / ".git" / "worktrees" / "wt"                                       # 結構同真 worktree（git worktree add 寫的同一組檔）
+    adm.mkdir(parents=True)
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
     return live, wt
 
 
@@ -3383,6 +3386,24 @@ def test_know_knowledge_part_ruler_and_commit_snapshot_unchanged(driven, capsys,
     assert "[Guardian:MeasureGate]" in out and "部位【記憶】有量尺" in out and _know_debt("a.py") not in out
     snap = vl.commit_snapshot([_mf(str(p), 5)], 5, vl.reconcile_cfg({}), lambda _p: str(repo))
     assert str(p) in snap["files"] and snap["files"][str(p)] is not None
+
+
+@pytest.mark.parametrize("child", ["./docs/build/", "docs/x/../build/"])
+def test_know_code_child_row_written_with_dot_segments_still_owes(driven, capsys, tmp_path, child):
+    """knowledge 父列 `docs/` 底下的 code 子列寫成 `./docs/build/` 或 `docs/x/../build/`：子列照樣蓋住 docs/build/，那裡的程式欠案例；
+    父列其他地方的 .py 不欠。舊碼表列前綴沒消 `./`、`..`，子列比不到、落回 knowledge，真程式免 (d)。console codex 審 ec4f9e9 BLOCK 1。"""
+    repo = tmp_path / "drepo"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        f"| `docs/` | 文件 | 無 | 無 | knowledge |\n| `{child}` | 建置 | 無 | 無 | code |\n", encoding="utf-8")
+    _git(repo, "init", "-q")
+    code, note = repo / "docs" / "build" / "a.py", repo / "docs" / "b.py"
+    for p in (code, note):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(_KNOW_SRC, encoding="utf-8")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(code), 5), _mf(str(note), 5)])
+    assert _know_debt("a.py") in out and "b.py" not in out
 
 
 def test_know_no_map_keeps_extension_rule(driven, capsys, tmp_path):

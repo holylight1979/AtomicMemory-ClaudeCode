@@ -574,9 +574,13 @@ ROOT_MAP = "| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n"
 
 
 def _link_wt(live: Path, wt: Path, name: str = "wt") -> None:
-    """把 wt 接成 live 的 git worktree 結構：live/.git/worktrees/<name>/ 目錄＋wt/.git 檔指回去（is_root_worktree 第 2 條）。"""
-    (live / ".git" / "worktrees" / name).mkdir(parents=True, exist_ok=True)
-    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / name}\n", encoding="utf-8")
+    """把 wt 接成 live 的 git worktree 結構，與 `git worktree add` 寫的同一組檔：管理目錄 live/.git/worktrees/<name>/ 裡的
+    gitdir（反向指回 wt/.git）與 commondir（../..），wt/.git 檔指到管理目錄。is_root_worktree 的定義案用真 worktree，見下。"""
+    adm = live / ".git" / "worktrees" / name
+    adm.mkdir(parents=True, exist_ok=True)
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
 
 
 def _root_world(tmp_path, monkeypatch):
@@ -1491,11 +1495,35 @@ def test_is_root_worktree_rejects_lookalike_folders(tmp_path, git):
     assert oh.is_root_worktree(tmp_path / "real", live) is True                        # 正例對照
 
 
+def test_is_root_worktree_rejects_forged_dot_git(tmp_path, git):
+    """一個普通目錄只寫一行 `.git` 指到 live 的 worktrees/ 底下，不算根層 worktree：管理目錄要真的登記這棵樹
+    （gitdir 反向指回它的 .git、commondir 指到 live 的 .git）。舊碼只看 .git 指向就認，可拿到量尺免全量。console codex 審 ec4f9e9 WARN 2。"""
+    live = tmp_path / "live"
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
+    real = tmp_path / "real"
+    git("-C", str(live), "worktree", "add", "-q", "-b", "real", str(real))
+    adm = live / ".git" / "worktrees" / "real"
+    assert oh.is_root_worktree(real, live) is True                                     # 對照：真 worktree
+    nowhere = _copy_map(live, tmp_path / "nowhere")
+    (nowhere / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'nonexistent'}\n", encoding="utf-8")
+    assert oh.is_root_worktree(nowhere, live) is False                                 # 反例：指到不存在的管理目錄
+    empty_adm = live / ".git" / "worktrees" / "empty"
+    empty_adm.mkdir()
+    hollow = _copy_map(live, tmp_path / "hollow")
+    (hollow / ".git").write_text(f"gitdir: {empty_adm}\n", encoding="utf-8")
+    assert oh.is_root_worktree(hollow, live) is False                                  # 反例：管理目錄是空的（沒有 gitdir／commondir）
+    thief = _copy_map(live, tmp_path / "thief")
+    (thief / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
+    assert oh.is_root_worktree(thief, live) is False                                   # 反例：借用別棵樹的管理目錄（反向指回 real）
+    assert oh.card_mem_dir(thief, live) == thief / ".claude" / "memory"
+
+
 def test_is_root_worktree_relative_gitdir_resolved_against_root(tmp_path, git):
     live = tmp_path / "live"
     _git_live(git, live, ROOT_MAP.encode("utf-8"))
-    (live / ".git" / "worktrees" / "rel").mkdir(parents=True)
-    rel = _copy_map(live, tmp_path / "rel")
+    rel = tmp_path / "rel"
+    git("-C", str(live), "worktree", "add", "-q", "-b", "rel", str(rel))              # 真 worktree，再把 .git 改寫成相對路徑
+    (rel / ".git").unlink()                                                            # Windows 的 git 把 .git 設成隱藏檔，不能直接覆寫
     (rel / ".git").write_text("gitdir: ../live/.git/worktrees/rel\n", encoding="utf-8")
     assert oh.is_root_worktree(rel, live) is True                                      # 相對路徑以 <root> 為基準
     other = tmp_path / "other"
@@ -1505,12 +1533,11 @@ def test_is_root_worktree_relative_gitdir_resolved_against_root(tmp_path, git):
     assert oh.is_root_worktree(rel2, live) is False                                    # 反例：相對路徑解析到別處
 
 
-def test_unreadable_dot_git_says_so_on_one_stderr_line_and_is_not_root_git_worktree(tmp_path, monkeypatch, capsys):
+def test_unreadable_dot_git_says_so_on_one_stderr_line_and_is_not_root_git_worktree(tmp_path, monkeypatch, capsys, git):
     live = tmp_path / "live"
-    (live / ".git" / "worktrees" / "x").mkdir(parents=True)
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
     root = tmp_path / "wt"
-    root.mkdir()
-    (root / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'x'}\n", encoding="utf-8")
+    git("-C", str(live), "worktree", "add", "-q", "-b", "x", str(root))
     assert oh.is_root_git_worktree(root, live) is True                                 # 對照：讀得到就是
     capsys.readouterr()
     real_read_text = Path.read_text
@@ -1585,13 +1612,11 @@ def test_unc_paths_skip_realpath_and_are_never_root_worktree(tmp_path, unc_realp
     assert unc_realpath_guard == []                                                     # 一次都沒對網路路徑呼叫 realpath
 
 
-def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_guard):
+def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_guard, git):
     live, wt = tmp_path / "claude", tmp_path / "wt"
-    for d in (live, wt):
-        (d / ".claude").mkdir(parents=True)
-        (d / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
-    _link_wt(live, wt)
-    assert oh.is_root_worktree(wt, live) is True                                        # 正例：本機路徑照常走完兩條
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
+    git("-C", str(live), "worktree", "add", "-q", "-b", "wt", str(wt))                # 真 worktree
+    assert oh.is_root_worktree(wt, live) is True                                        # 正例：本機路徑照常走完三條
     assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree 讀 live 的卡
     assert oh.card_mem_dir(live, live) == live / "memory"
     assert unc_realpath_guard == []
@@ -1706,6 +1731,36 @@ def test_know_nested_rows_and_path_forms():
     }
     assert {p: kind_of(p, root, rows) for p in cases} == cases
     assert kind_of("C:/HOLYLI~1/p/docs/a.md", Path("C:/HOLYLI~1/p"), rows) == "knowledge"   # 根本身的短名不影響
+
+
+@pytest.mark.parametrize("child", ["./docs/build/", "docs/x/../build/", ".\\docs\\build\\", "./DOCS/Build"])
+def test_know_table_prefix_forms_normalized_like_paths(child):
+    """表列前綴與輸入路徑同一套根相對正規化：code 子列寫成 `./docs/build/`、`docs/x/../build/`、反斜線、大小寫，都蓋得住
+    knowledge 父列 `docs/` 底下的 build/。舊碼只正規化輸入路徑，子列比不到、落回 knowledge 父列，真程式免 (d)。
+    console codex 審 ec4f9e9 BLOCK 1。"""
+    rows = oh.parse_map("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+                        "| `docs/` | 文件 | 無 | 無 | knowledge |\n"
+                        f"| `{child}` | 建置 | 無 | 無 | code |\n")
+    assert rows[1]["prefixes"] == ["docs/build"]
+    kind_of = getattr(oh, "part_kind", None)
+    assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
+    assert kind_of("C:/p/docs/build/a.py", Path("C:/p"), rows) == "code"
+    assert kind_of("C:/p/docs/a.md", Path("C:/p"), rows) == "knowledge"
+
+
+@pytest.mark.parametrize("child", ["../build/", "./", "/abs/build/", "C:/abs/build/"])
+def test_know_unplaceable_code_row_keeps_knowledge_parents_as_code(child):
+    """放不進根相對位置的 code 列（往上跳出根、整個根、絕對路徑、磁碟代號）：判不出它管不管這條路徑，knowledge 列一律不豁免；
+    沒有這種列時 knowledge 照常。"""
+    head = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+            "| `docs/` | 文件 | 無 | 無 | knowledge |\n| `tools/` | 工具 | 無 | 無 | code |\n")
+    rows = oh.parse_map(head + f"| `{child}` | 怪列 | 無 | 無 | code |\n")
+    assert rows[2].get("unsafe_prefix") is True
+    kind_of = getattr(oh, "part_kind", None)
+    assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
+    assert kind_of("C:/p/docs/a.md", Path("C:/p"), rows) == "code"
+    assert kind_of("C:/p/docs/a.md", Path("C:/p"), oh.parse_map(head)) == "knowledge"
+    assert kind_of("C:/p/docs/a.md", Path("C:/p"), oh.parse_map(head + f"| `{child}` | 怪列 | 無 | 無 | knowledge |\n")) == "knowledge"
 
 
 def test_know_existing_denies_still_apply_to_knowledge_parts(kproj, tmp_path):
