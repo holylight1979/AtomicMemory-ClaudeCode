@@ -167,7 +167,9 @@ CFG = {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200}
 
 @pytest.fixture(autouse=True)
 def world(tmp_path, monkeypatch):
-    """資料根與守門紀錄都進 tmp：目標檔在 tmp/workflow/need-goal，守門紀錄在 tmp/Logs。"""
+    """資料根與守門紀錄都進 tmp：目標檔在 tmp/workflow/need-goal，守門紀錄在 tmp/Logs。假專案建在 pytest tmp 下，
+    關掉 TEMP_COPY_NOT_PROJECT（暫存目錄下的檔不算專案檔；要測它的案自己再開）。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
     monkeypatch.setattr(wg_core, "WORKFLOW_DIR", tmp_path / "workflow")
     monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path / "Logs")
     (tmp_path / "workflow").mkdir()
@@ -881,16 +883,63 @@ def _tp(tmp_path):
     return str(tp)
 
 
-def _post_read(monkeypatch, tmp_path, state, path, cwd, config):
-    """經真的 post_tool_use 入口送一次 Read（state 與落盤換成記憶體；回補給 AI 的提示或 None）。"""
+def _post_read(monkeypatch, tmp_path, state, path, cwd, config, tool="Read", tool_input=None):
+    """經真的 post_tool_use 入口送一次讀檔（預設 Read；state 與落盤換成記憶體；回補給 AI 的提示或 None）。"""
     from handlers import post_tool_use as pt
     monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
     monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
     out = run_handler(pt.handle_post_tool_use, {
-        "session_id": SID, "hook_event_name": "PostToolUse", "tool_name": "Read", "tool_input": {"file_path": path},
+        "session_id": SID, "hook_event_name": "PostToolUse", "tool_name": tool,
+        "tool_input": tool_input or {"file_path": path},
         "tool_response": {}, "cwd": cwd, "transcript_path": _tp(tmp_path)}, {"docdrift": {"enabled": False}, **config})
     return ((out or {}).get("hookSpecificOutput") or {}).get("additionalContext")
+
+
+def _three_dir_proj(base):
+    root = base / "plain"
+    (root / ".git").mkdir(parents=True)
+    for d in ("src", "docs", "tools"):
+        (root / d).mkdir()
+        (root / d / "f.txt").write_text("x\n", encoding="utf-8")
+    return root
+
+
+def _scope_dirs_now():
+    return ((tree_now().get("points") or {}).get("scope_dirs") or {}).get("dirs") or []
+
+
+def test_scope_on_read_ignores_paths_in_bash_comment_lines(tmp_path):
+    """讀入範圍與 OverviewHub 的 on_read 認同一套「讀了什麼」：Bash 行首 # 註解（例如定位三行）裡的路徑不算讀
+    （規則 BASH_COMMENT_LINES_STRIPPED）。"""
+    root = _three_dir_proj(tmp_path)
+    make_tree()
+    cmd = "\n".join(f"# cat {root / d / 'f.txt'}" for d in ("src", "docs", "tools")) + "\necho hi"
+    assert not ngp.scope_on_read({"turn_seq": 2}, SID, "Bash", {"command": cmd}, str(root), {"overview_hub": {"enabled": False}})
+    assert _scope_dirs_now() == []
+
+
+def test_scope_counts_grep_content_reads_through_post_tool_use(tmp_path, monkeypatch):
+    """Grep 內容模式讀單一檔算讀（規則 GREP_CONTENT_IS_READ）：經 post_tool_use 入口，跨三個頂層目錄就排進待送。"""
+    root = _three_dir_proj(tmp_path)
+    make_tree()
+    state = {"turn_seq": 2, "session": {"id": SID, "cwd": str(root)}}
+    for d in ("src", "docs", "tools"):
+        f = str(root / d / "f.txt")
+        _post_read(monkeypatch, tmp_path, state, f, str(root), {"overview_hub": {"enabled": False}}, tool="Grep",
+                   tool_input={"pattern": "x", "path": f, "output_mode": "content"})
+    assert state.get("need_goal_batch") is True and len(_scope_dirs_now()) == 3
+
+
+def test_scope_on_read_skips_files_in_temp_copies(tmp_path, monkeypatch):
+    """暫存目錄下的 repo 副本（退回檢查、快照）不算專案檔（規則 TEMP_COPY_NOT_PROJECT），讀了也不算讀入範圍。"""
+    monkeypatch.delenv("WG_TEMP_RULES", raising=False)              # pytest tmp 本身就在暫存目錄下
+    root = _three_dir_proj(tmp_path)
+    make_tree()
+    for d in ("src", "docs", "tools"):
+        ngp.scope_on_read({"turn_seq": 2}, SID, "Read", {"file_path": str(root / d / "f.txt")}, str(root),
+                          {"overview_hub": {"enabled": False}})
+    assert _scope_dirs_now() == []
 
 
 def test_post_tool_use_read_records_parts_and_dirs_with_hub_on(proj, tmp_path, monkeypatch):

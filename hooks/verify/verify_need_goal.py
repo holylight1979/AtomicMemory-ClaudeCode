@@ -40,7 +40,9 @@ SID = "sess-goal-0001"
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    """tmp 資料根：目標檔、state、守門紀錄、OverviewHub log 都在 tmp；pytest 暫存目錄不當成暫存檔（測的就是正式檔的行為）。"""
+    """tmp 資料根：目標檔、state、守門紀錄、OverviewHub log 都在 tmp；pytest 暫存目錄不當成暫存檔（測的就是正式檔的行為：
+    暫存檔判定換成 /eph/，OverviewHub 的 TEMP_COPY_NOT_PROJECT 關掉）。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
     wf = tmp_path / "wf"
     wf.mkdir()
     guard = []
