@@ -18,6 +18,7 @@
 - [臨] 純推理用法（不讓它碰檔）：把 prompt＋完整檔＋diff 組成一份 md 經 stdin 送，明寫不要跑指令；SVN 工作副本同樣必加 `--skip-git-repo-check`。
 - [臨] 第二意見工具（`tools/second-opinion/run.py`）的 `_sandbox_args` 在 Windows 加 `-c windows.sandbox="unelevated"`，不放共用 codex_extra_args（裁判不傳 -s）。少了它 codex 每個指令都 1385、只看得到提示內嵌（超過 material_max_chars 會截斷）的材料，job 照樣 done。認法：`<job>/codex.stderr.log` 有 `exec_command failed … 1385`（只 grep 1385 會撞到材料內文）。
 - [臨] 審查材料不能含工作目錄外的絕對路徑（replay-guard pre 擋），測試裡的假路徑也算：自己產 diff、把假路徑換成代稱再以 materials.diff 餵入，問題裡寫明。codex 的『材料不足』WARN 或只看 diff 推的 BLOCK：先看 stderr 有沒有真的 spawn 失敗，再逐條讀碼核實。
+- [臨] replay-guard 的絕對路徑規則（字母＋冒號＋斜線）會把程式裡的 regex 片段（`Author:` 這類冒號後接 `\s`）誤認成路徑而擋 pre，問題文字裡引用 regex 也一樣：那幾段在 diff 裡換代稱並寫明原意，含同類字樣的整檔不附。
 
 ## 行動
 

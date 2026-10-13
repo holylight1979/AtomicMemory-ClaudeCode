@@ -9,6 +9,9 @@
 - 呼叫者已給非空 Source（例：會議轉錄的逐字稿路徑）→ 只補 Quote。
 - Quote 取 state["turn_prompts"][-1]（本回合最後一則使用者原話，≤500 字）消毒後 ≤200 字；
   空字串不寫。uuid 從 transcript 尾端最後一則真人訊息取，取不到只寫 session＋日期。
+- 那則原話是開工句（lib/harness_text.is_kickoff_prompt：派工樣板整則對上，或以「你是…工作 session」開場）→ 不填 Quote：
+  開工句是派給這個 session 的指示，不是哪張卡片的使用者原話；同伴訊息開的回合沿用前一回合原話，開工句會一路被帶進後面寫的卡。
+  Source（session 指標）照補。原卡已有 Quote 一律不動（上面第一條）。
 - 任何失敗只記 Logs/guard-provenance.jsonl，不阻斷 hook。
 
 入口：autofill_from_receipt(receipt, input_data, state) → dict（結果摘要，供測試與日誌）。
@@ -92,10 +95,14 @@ def autofill_from_receipt(receipt: Dict[str, Any], input_data: Dict[str, Any],
         if lib_root not in sys.path:
             sys.path.insert(0, lib_root)
         from lib.atom_io import edit_metadata
+        from lib.harness_text import is_kickoff_prompt
         from lib.provenance import format_quote, format_source_session, sanitize_quote
 
         session_id = str(input_data.get("session_id") or state.get("session", {}).get("id") or "")
         quote_raw = _last_turn_prompt(state)
+        if quote_raw and is_kickoff_prompt(quote_raw):
+            out["quote_skipped"] = "kickoff"
+            quote_raw = ""
         if _is_root_layer(path):
             # 根層卡片不帶專案名與專案路徑；原話照抄會把它們帶進來
             from lib.realm_gate import anonymize_projects

@@ -34,6 +34,7 @@
 
 | 24 | rerank-cross-encoder-evaluation-2026-10.md | cross-encoder rerank／sentence-transformers 要不要進注入鏈：本機回歸集對照實驗（bge-base R@1 +3.4、R@3 −0.6、每句 +1.2 s）＋外部文獻＋Codex 審；判定不進 hook、讀取端可選 | rerank, cross-encoder, fastembed, bge-reranker, memory-eval, 檢索精度 |
 | 25 | v6.0-寫程式碼的進化-2026-10/ | v6.0（針對寫程式碼的進化）開發歷史：原設計者認可的預計畫（G0～G16、分片加權模型、機制／題組／變量）、前一波三方討論全貌、原設計者原話輯、三槽信箱全文與附件（兩專案輸入、三份 Codex 審查）、前一波第二視角綱要 | v6.0, 寫程式碼, 守門, 綜觀, 預計畫, 三方討論, tri-link, 原話, OverviewHub, 分片加權, 題組, 變量 |
+| 26 | v6.0-寫程式碼的進化-2026-10/工作紀錄.md | v6.0 各工作軌（a3、track-e、g12、track-verify、track-goal、a4、b3、a6、a2c）與總控台的完整歷程：session、commit、codex 輪次、退件單、快照數字、證據 log；核心推進文件只留現況並連到這裡 | v6.0, 工作紀錄, 歷程, 工作軌, track-e, a3, g12, 寫碼查核閘, codex 輪次, 退件單, 快照複跑, live 補驗, 總控台 |
 > 2026-05-27 Wave 5 Session 2 已歸檔（移至 `memory/_distant/2026_05_v5_overhaul/`，git 不再追蹤）：`session-logs/` / `memory-cleanup-2026-04/` / `atomic-memory-evolution/` / `ab-test-gemma4/` / `atom-v4/` / `atom-v4-phases/` / `changelog-roll/` / `v41-handoffs/` / `v41-p4-simulation/` / `wg-docdrift/`
 
 > 2026-05-28 Session α/β（commits `082f791` / `89ccb2d` / `6772049`）：feedback-* atoms 5 個 + cognitive-patterns + memory-pipeline-silent-failure-2026-05 物理搬遷至 `_AIDocs/Failures/`，`lib/atom_locations.py` 為單一規則來源；sync-atom-index / vector indexer 多根掃描；SPEC_ATOM_V5 §2.1 章節記錄。完整紀錄詳見上方 v5-overhaul-2026-05/ 及主 [_AIDocs/_CHANGELOG.md](../_CHANGELOG.md) 對應條目。
