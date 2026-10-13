@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 try:
     from .project_root import claude_data_dir
-except ImportError:  # 頂層模組載入
+except ImportError:  # 頂層模組載入（含單獨按檔案載入、lib/ 不在 sys.path）：從本檔所在的 lib/ 找
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
     from project_root import claude_data_dir
 
 

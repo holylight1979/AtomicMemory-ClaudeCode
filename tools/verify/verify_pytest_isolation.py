@@ -34,8 +34,10 @@ def _under(p, root) -> bool:
 
 
 def _root_conftest():
-    return next(m for m in list(sys.modules.values())
-                if getattr(m, "__file__", None) and _n(m.__file__) == _n(TREE / "conftest.py"))
+    mod = next((m for m in list(sys.modules.values())
+                if getattr(m, "__file__", None) and _n(m.__file__) == _n(TREE / "conftest.py")), None)
+    assert mod is not None, "根 conftest.py 沒被 pytest 載入"
+    return mod
 
 
 def test_in_process_data_root_is_isolated():
@@ -50,6 +52,7 @@ def test_in_process_data_root_is_isolated():
 
 
 def test_data_root_seeded_with_tracked_data():
+    assert os.environ.get("WG_CLAUDE_DIR"), "資料根沒被導到暫存目錄"
     data = Path(os.environ["WG_CLAUDE_DIR"])
     rel = Path("memory") / "_meta" / "taxonomy.json"
     assert (data / rel).read_bytes() == (TREE / rel).read_bytes()
@@ -63,7 +66,7 @@ def test_subprocess_inherits_isolated_data_root(tmp_path):
                        capture_output=True, text=True, encoding="utf-8", timeout=60, creationflags=NO_WINDOW)
     assert r.returncode == 0, r.stderr[-2000:]
     claude_dir, workflow = json.loads(r.stdout.strip().splitlines()[-1])
-    assert _n(claude_dir) == _n(os.environ["WG_CLAUDE_DIR"]) and _under(workflow, claude_dir)
+    assert _n(claude_dir) == _n(os.environ.get("WG_CLAUDE_DIR", "")) and _under(workflow, claude_dir)
 
 
 @pytest.mark.live_data
@@ -86,7 +89,8 @@ print("NESTED_JSON " + json.dumps({"rc": rcs, "same": {k: os.environ.get(k) for 
 
 
 def test_in_process_pytest_main_restores_env_and_removes_base():
-    """同一行程連跑兩次 pytest.main：兩次都隔離（conftest 已快取也一樣），結束後環境還原、暫存目錄刪掉。"""
+    """同一行程連跑兩次 pytest.main：兩次都隔離（conftest 已快取也一樣），結束後環境還原、暫存目錄刪掉；
+    第二次開始時第一次載入的本樹模組還在（常數改不到），stderr 明講一次。"""
     r = subprocess.run([sys.executable, "-X", "utf8", "-c", NESTED, str(Path(__file__))], cwd=str(TREE),
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
                        creationflags=NO_WINDOW)
@@ -94,3 +98,4 @@ def test_in_process_pytest_main_restores_env_and_removes_base():
     assert line, f"rc={r.returncode}\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}"
     got = json.loads(line[len("NESTED_JSON "):])
     assert got == {"rc": [0, 0], "same": True, "left": []}, got
+    assert r.stderr.count("[conftest] 這些本樹模組在 pytest 開始前已載入") == 1, r.stderr[-2000:]   # 第二次才有、明講

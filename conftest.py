@@ -11,9 +11,11 @@
    刻意讀 live 資料根的案：標 @pytest.mark.live_data，該案執行期間 WG_CLAUDE_DIR 還原成 pytest 啟動時的值；
    模組層常數在匯入時已算好、不會跟著變，這種案要在執行期呼叫 claude_data_dir() 或開子行程。
    隔離只在這裡做：claude_data_dir() 不判斷自己是不是在 pytest 裡。
+   pytest 開始前已載入的本樹模組（同一行程先 import 再 pytest.main、或第二次 pytest.main）常數改不到 → stderr 列出來。
 2. 自寫收據：這次 pytest 的目標恰好是 SUITES 裡某一整組（部位量尺就是整組 pytest，例 `pytest -q tools/verify`）時，
    跑完照 run_verify 的機制（lib/self_receipt.write_self_receipt）寫一份收據到 pytest 啟動時的資料根，
-   量尺閘（hooks/wg_verify_ledger.load_self_runs）從那裡讀；背景跑、看不到結尾輸出也認得到。只跑其中幾支不寫。
+   量尺閘（hooks/wg_verify_ledger.load_self_runs）從那裡讀；背景跑、看不到結尾輸出也認得到。
+   只跑其中幾支、用 -k／-m／--deselect／--lf 篩過、--ignore、--collect-only、中途停下（-x）都不寫。
 怎麼跑：不用另外跑；rootdir 是本檔所在目錄（有 pytest.ini），pytest 自動載入。
 """
 from __future__ import annotations
@@ -31,7 +33,7 @@ import pytest
 
 TREE = Path(__file__).resolve().parent
 SEED = ("memory", "_AIDocs/_atoms", "workflow/config.json")   # 本樹受版控的使用者資料
-SUITES = ("tools/verify",)                                      # 量尺是「整組 pytest」的目錄：跑完自寫收據
+SUITES = ("tools/verify", "lib/verify")                         # 部位量尺是「整組 pytest」的目錄：跑完自寫收據
 KEYS = ("WG_CLAUDE_DIR", "TEMP", "TMP", "TMPDIR")
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 SESSION: Dict[str, Any] = {}   # 本次 session：original（四個變數原值）、base／data_root／temp_root、started、receipt
@@ -86,6 +88,12 @@ def _write_suite_receipt(r: Dict[str, Any]) -> None:
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "live_data: 刻意讀 live 資料根的案；執行期間 WG_CLAUDE_DIR 還原成 pytest 啟動時的值")
+    preloaded = sorted(n for n, m in list(sys.modules.items())                  # 常數在匯入時算好，換環境變數改不到
+                       if not n.startswith("_") and getattr(m, "__file__", None) and _n(m.__file__) != _n(__file__)
+                       and _n(m.__file__).startswith(_n(TREE) + os.sep))
+    if preloaded:
+        print("[conftest] 這些本樹模組在 pytest 開始前已載入，模組層的資料根常數不會跟著隔離（要隔離就開新行程跑）："
+              + "、".join(preloaded[:8]) + ("…" if len(preloaded) > 8 else ""), file=sys.stderr)
     base = Path(tempfile.mkdtemp(prefix="wg-pytest-"))
     data_root, temp_root = base / "data", base / "tmp"
     data_root.mkdir()
@@ -96,7 +104,7 @@ def pytest_configure(config):
             shutil.copyfile(TREE / rel, data_root / rel)
     SESSION.clear()
     SESSION.update(original={k: os.environ.get(k) for k in KEYS}, base=base, data_root=data_root,
-                   temp_root=temp_root, started=time.time(), receipt=None)
+                   temp_root=temp_root, started=time.time(), receipt=None, deselected=0, finished=0)
     os.environ["WG_CLAUDE_DIR"] = str(data_root)
     for k in ("TEMP", "TMP", "TMPDIR"):
         os.environ[k] = str(temp_root)
@@ -114,11 +122,24 @@ def _live_data_exemption(request, monkeypatch):
         monkeypatch.setenv("WG_CLAUDE_DIR", original)
 
 
+def pytest_deselected(items):
+    SESSION["deselected"] += len(items)                 # -k、-m、--deselect、--lf 篩掉的案
+
+
+def pytest_runtest_logreport(report):
+    if report.when == "teardown":
+        SESSION["finished"] += 1                        # 每個案最後都有 teardown（setup 就跳過的也有）
+
+
 def pytest_sessionfinish(session, exitstatus):
-    inv_dir = Path(session.config.invocation_params.dir)
-    targets = {_n(inv_dir / a) for a in session.config.args}
+    """整組才寫收據：目標恰好是 SUITES 某一整組，沒篩掉、沒忽略任何案，不是只收集，收集到的每一案都跑完。"""
+    config = session.config
+    inv_dir = Path(config.invocation_params.dir)
+    targets = {_n(inv_dir / a) for a in config.args}
     suite = next((s for s in SUITES if targets == {_n(TREE / s)}), None)
-    if suite:
+    narrowed = (SESSION["deselected"] or config.option.collectonly or SESSION["finished"] != session.testscollected
+                or any(getattr(config.option, k, None) for k in ("ignore", "ignore_glob", "deselect")))
+    if suite and not narrowed:
         SESSION["receipt"] = {"suite": suite, "exit_code": int(exitstatus), "cases": session.testscollected,
                               "failed": session.testsfailed, "cwd": str(inv_dir)}
 

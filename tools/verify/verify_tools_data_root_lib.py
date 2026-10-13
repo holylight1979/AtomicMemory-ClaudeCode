@@ -221,6 +221,23 @@ def test_lib_tail_follows_data_root_and_worktree_is_core(dirs, tmp_path):
     assert not (home / ".claude").exists()                                                  # 反例：家目錄不被碰
 
 
+STANDALONE_SPEC_PROBE = r"""
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("any_name_atom_spec", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+sys.modules["any_name_atom_spec"] = mod
+spec.loader.exec_module(mod)
+print("PROBE_JSON " + json.dumps({"depends_default": str(mod.resolve_depends_path("x"))}))
+"""
+
+
+def test_atom_spec_loads_standalone_by_file(dirs):
+    """atom_spec 原本零相依、可單獨按檔案載入；加了資料根相依後，lib/ 不在 sys.path（-P、cwd 在 tmp）時照樣載得起來。"""
+    home, data, cwd = dirs
+    got = _py(STANDALONE_SPEC_PROBE, [TREE / "lib" / "atom_spec.py"], _env(home, data), cwd)
+    assert _n(got["depends_default"]) == _n(data / "x")
+
+
 HOOK_PROBE = r"""
 import json, sys
 from pathlib import Path

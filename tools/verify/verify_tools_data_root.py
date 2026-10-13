@@ -284,7 +284,9 @@ def test_console_window_trace_log_defaults_to_data_root(wg, dirs, cwd):
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
                        creationflags=NO_WINDOW)
     assert r.returncode == 0, r.stderr[-2000:]
-    assert "TRACE START" in (root / "Logs" / "console-window-trace.log").read_text(encoding="utf-8")
+    log = root / "Logs" / "console-window-trace.log"
+    assert log.is_file(), sorted(str(p) for p in Path(home).parent.rglob("console-window-trace.log"))   # 反例：落到家目錄
+    assert "TRACE START" in log.read_text(encoding="utf-8")
     if wg:
         assert not (home / ".claude").exists()                                          # 反例：家目錄不被碰
 
