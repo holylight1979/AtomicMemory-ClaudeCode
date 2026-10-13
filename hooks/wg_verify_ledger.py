@@ -1227,8 +1227,10 @@ def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None
     out: List[str] = []
     for key, (root, paths, every) in by_root.items():
         spec, spec_all = [str(x).replace("\\", "/") for x in paths], [str(x).replace("\\", "/") for x in every]
-        if sum(len(s) + 1 for s in spec_all) > _GIT_SPEC_CAP:
-            print(f"[verify_ledger] {root} 這次改過的檔太多（{len(spec_all)} 個），查不了 git，這些改檔照算改了", file=sys.stderr)
+        spec_len = sum(len(s) + 1 for s in spec_all)
+        if spec_len > _GIT_SPEC_CAP:
+            print(f"[verify_ledger] {root} 這次改過的檔路徑合計 {spec_len} 字（{len(spec_all)} 個檔），超過命令列可帶的 "
+                  f"{_GIT_SPEC_CAP} 字，查不了 git，這些改檔照算改了", file=sys.stderr)
             continue
         try:
             left = deadline - time.monotonic()

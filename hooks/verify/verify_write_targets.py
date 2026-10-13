@@ -100,6 +100,19 @@ def test_037_git_path_restore_is_a_write_target(tmp_path):
         assert len(got) == 1 and got[0].startswith("UNKNOWN:"), (cmd, got)
 
 
+def test_039_whole_directory_restore_is_unknown_not_silent(tmp_path):
+    """039（038 codex BLOCK）：只給一個參數而它是現存目錄的 checkout（`git checkout .`、`git -C src checkout .`、`git checkout src`）
+    還原整個目錄、不知道動了哪些檔 → 目標不明，不是 []；`checkout -- .`、`restore .` 同樣目標不明；真的切分支、不存在的名字仍是 []。"""
+    (tmp_path / "src").mkdir()
+    cwd, fwd = str(tmp_path), str(tmp_path).replace("\\", "/")
+    for cmd in ("git checkout .", f"git -C {fwd}/src checkout .", f"git -C {fwd} -C src checkout .", "git checkout src",
+                "git checkout -- .", "git restore .", f"cd {fwd}/src && git checkout ."):
+        got = write_paths_from_tool("Bash", {"command": cmd}, cwd)
+        assert len(got) == 1 and got[0].startswith("UNKNOWN:"), (cmd, got)
+    for cmd in ("git checkout main", "git checkout v6/track-e6", "git checkout -"):
+        assert write_paths_from_tool("Bash", {"command": cmd}, cwd) == [], cmd
+
+
 def test_relative_paths_resolve_against_cwd():
     got = _n(write_paths_from_tool("Bash", {"command": "echo a > src/a.txt; tee logs/x.log"}, CWD))
     assert got == ["C:/Work/Proj/src/a.txt", "C:/Work/Proj/logs/x.log"]

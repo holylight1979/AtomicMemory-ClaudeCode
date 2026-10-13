@@ -2046,7 +2046,8 @@ _PATHSPEC_MAGIC_RE = re.compile(r"[*?\[]|^:")
 def _git_checkout_paths(rest: List[str], base: Optional[str]) -> Optional[List[str]]:
     """git checkout 的參數 → 會被改寫的路徑 token：`-- <路徑>…` 之後全是路徑；沒有 `--` 時 `<rev> <路徑>…` 第二個起是路徑，
     只有一個參數且它是現存的檔（`git checkout x.py`）也是路徑。切分支、建分支（-b／-B／--orphan、`git checkout <分支>`）→ []。
-    --pathspec-from-file → None（判不出來）。"""
+    只有一個參數且它是現存的目錄（`git checkout .`、`git -C src checkout .`）會還原整個目錄、不知道動了哪些檔，
+    與 --pathspec-from-file 一樣 → None（判不出來）。"""
     if any(a.startswith("--pathspec-from-file") for a in rest):
         return None
     if "--" in rest:
@@ -2058,7 +2059,11 @@ def _git_checkout_paths(rest: List[str], base: Optional[str]) -> Optional[List[s
         return pos[1:]
     if len(pos) == 1:
         r = _write_target_abs(pos[0], base) if base is not None or os.path.isabs(pos[0]) else None
-        return pos if r not in (None, _WRITE_TARGET_UNKNOWN) and os.path.isfile(r) else []
+        if r in (None, _WRITE_TARGET_UNKNOWN):
+            return []
+        if os.path.isdir(r):
+            return None
+        return pos if os.path.isfile(r) else []
     return []
 
 

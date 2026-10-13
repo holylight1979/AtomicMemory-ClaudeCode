@@ -2970,3 +2970,21 @@ def test_037_codex_pass_pairs_keep_debt(driven, capsys, clean_repo, kind):
         Path(x).write_text("x = 1 \n", encoding="utf-8", newline="\n")
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
     assert _DEBT_X in out, kind
+
+
+@pytest.mark.parametrize("who", ["subagent", "judge"])
+def test_039_directory_restore_is_unknown_write_through_stop(sub_stop, monkeypatch, capsys, chain, who):
+    """039（038 codex BLOCK）：把程式與案例改回舊版、再用 `git -C src checkout .` 只還原程式目錄 → PostToolUse 記成目標不明的寫入
+    → 子代理／裁判 Stop 擋到底（不知道改了哪些檔）。舊碼把整個目錄還原當成沒寫，帳面剩「案例晚於程式」，程式已回新版、案例仍舊版卻放行。
+    主 session 這種寫法在 PreToolUse 就因目標不明被擋（verify_write_targets 的 039 案）。"""
+    state, edit, git, _, code, case = chain
+    kw = {"agent_id": "ag1"} if who == "subagent" else {"judge": True}
+    if who == "judge":
+        state.update({"turn_seq": 0, "judge": True})
+    edit(code, 1, **kw)
+    edit(case, 1, **kw)
+    git("-C", "src", "checkout", ".", **kw)
+    unknown = (state.get("agent_unknown_writes") or {}).get("ag1") if who == "subagent" else state.get("unknown_writes")
+    assert unknown and unknown[-1]["target"].startswith("UNKNOWN:")
+    out = sub_stop(capsys, state, agent_id="ag1")[0] if who == "subagent" else _judge_stop(monkeypatch, capsys, state)
+    assert "無法互動，不能放行" in out and "寫入目標不明" in out
