@@ -243,12 +243,6 @@ def ask_text(tool_name: str, tool_input: Any, state: Dict[str, Any]) -> str:
     return text
 
 
-def _release_pending(state: Dict[str, Any], sid: str) -> bool:
-    """這個 session 真的有一筆擋滿待放行的紀錄：同一個閘 last_block 與 pending_release 都在。"""
-    blocks = (state.get("last_block") or {}).get(sid) or {}
-    return any(wg_release.pending_of(state, sid, g) is not None for g in blocks)
-
-
 def _ask_message(tree: Dict[str, Any], code: bool, after: bool) -> str:
     head = ("[NeedGoal] 剛才的提問沒寫掛在目標樹哪個節點（這次提問前沒攔到，事後提醒）" if after else
             "[NeedGoal] 提問前要寫出這題掛在目標樹哪個節點" + ("" if code else "（記憶知識類不擋，只提醒）"))
@@ -266,7 +260,7 @@ def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any],
                ) -> Tuple[Optional[str], Optional[str]]:
     turn = int(state.get("turn_seq", 0) or 0)
     text = ask_text(tool_name, tool_input, state)
-    if wg_release.RELEASE_TAG in text and _release_pending(state, str(sid)):
+    if wg_release.RELEASE_TAG in text and wg_release.pending_any(state, str(sid)):
         return None, None
     try:
         doc = ng.load(sid)

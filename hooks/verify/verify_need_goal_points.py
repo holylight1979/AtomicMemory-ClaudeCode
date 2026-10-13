@@ -417,6 +417,20 @@ def test_release_tag_exempt_only_with_real_pending():
     assert ngp.on_ask(SID, "AskUserQuestion", q, state) == (None, None)
 
 
+def test_release_pending_any_needs_same_gate_block_and_pending():
+    """wg_release.pending_any：同一個閘 last_block 與 pending_release 都在才算（on_ask 與壞掉時的放行題共用這一支）。"""
+    s = {}
+    wg_release.mark_block(s, SID, "reconcile", None, 1)
+    assert wg_release.pending_any(s, SID) is False                              # 只擋過、沒擋滿
+    s2 = {}
+    wg_release.set_pending(s2, SID, "reconcile", 1, "now", "擋滿")
+    assert wg_release.pending_any(s2, SID) is False                             # 只有待放行、沒有擋的位置
+    wg_release.mark_block(s2, SID, "shared", None, 1)
+    assert wg_release.pending_any(s2, SID) is False                             # 不同閘不算
+    wg_release.mark_block(s2, SID, "reconcile", None, 1)
+    assert wg_release.pending_any(s2, SID) is True and wg_release.pending_any(s2, "別的 session") is False
+
+
 def test_exit_plan_mode_reads_plan_field_and_plan_file(tmp_path):
     make_tree("code")
     assert ngp.on_ask(SID, "ExitPlanMode", {"plan": "對準 T1.1 的計畫"}, {})[0] is None
@@ -478,6 +492,36 @@ def test_pre_tool_use_handler_knowledge_hint_and_subagent_skip(world):
     assert out, "知識類提問沒有提示"
     assert "記憶知識類不擋" in out["hookSpecificOutput"]["additionalContext"]
     assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(ASK), "agent_id": "a1"}, {}) is None
+
+
+def _broken_points(monkeypatch):
+    """提問前檢查壞掉：wg_need_goal_points 載不進來（import 時丟 ImportError）。"""
+    monkeypatch.setitem(sys.modules, "wg_need_goal_points", None)
+
+
+def test_pre_tool_use_broken_gate_blocks_normal_question(world, monkeypatch):
+    """提問前檢查自己壞了 → 照契約擋（fail-closed）＋stderr＋守門紀錄 ask_error（claude-91 裁定）。"""
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2})
+    _broken_points(monkeypatch)
+    out = run_handler(ptu.handle_pre_tool_use, _pre_input(ASK), {})
+    assert out, "提問前檢查壞掉時沒擋"
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "提問前檢查壞了" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert guard(world)[-1]["event"] == "ask_error"
+
+
+def test_pre_tool_use_broken_gate_still_lets_real_release_question_through(world, monkeypatch):
+    """壞了也要放過【收尾放行確認】：本 session 真有擋滿待放行紀錄時才放，否則收尾會死鎖；光加標記照擋。"""
+    q = ask_with(f"{wg_release.RELEASE_TAG} 要放行這一回合嗎？")
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2})
+    _broken_points(monkeypatch)
+    out = run_handler(ptu.handle_pre_tool_use, _pre_input(q), {})
+    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"     # 沒有待放行紀錄：照擋
+    state = {"session": {"id": SID}, "turn_seq": 2}
+    wg_release.mark_block(state, SID, "reconcile", None, 2)
+    wg_release.set_pending(state, SID, "reconcile", 2, "now", "擋滿")
+    wg_core.write_state(SID, state)
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(q, "tu5"), {}) is None
 
 
 def test_pre_tool_use_disabled_by_config(world):
