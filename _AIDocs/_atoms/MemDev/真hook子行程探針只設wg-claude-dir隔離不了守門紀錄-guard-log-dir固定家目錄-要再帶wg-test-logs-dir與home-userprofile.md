@@ -7,6 +7,7 @@
 - Trigger: 探針, 真 hook 入口探針, dispatcher 探針, WG_CLAUDE_DIR, WG_TEST_LOGS_DIR, GUARD_LOG_DIR, 守門紀錄寫進 live, 探針污染 live, 隔離探針
 - Created-at: 2026-10-13
 - Related: 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源, hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定, 假家目錄測試要同時設home與userprofile-windows的pathhome看userprofile而bash看home
+- Quote: 「<pasted_content id="1bd6"> 你是 v6.0 的工作 session track-b-hooks（B 段：把需求目標核心流程的五個關鍵點接進 hooks，含跨 session 續接；不是備份），總控台是 claude-9f（調度；對人總控台是 claude-91）。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.cla…」
 
 ## 知識
 

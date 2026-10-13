@@ -36,7 +36,7 @@ from wg_verify_ledger import (
     aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
     head_new_code, _git_root_of, reverted_code_files,
 )
-from wg_release_rules import deliberate_red_verdict, green_clears_red
+from wg_release_rules import canon_path, in_user_turn, deliberate_red_verdict, green_clears_red
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
@@ -427,7 +427,8 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
     """跑了 git／svn commit → state["last_commit_turn_seq"]＝本回合；回有沒有記。一般與裁判 PostToolUse 共用這一條：
     ScanReport 閘據此豁免收尾檢核（工作已寫進 VCS 歷史＝可稽核），寫碼查核判「改過又原樣還原」也看它（改完 commit 了，
     工作樹乾淨不代表沒改）。同時記 commit_snapshot（本 session 改過的檔此刻的內容雜湊＋當時不欠案例的程式檔）：commit 之後
-    做反證、把檔退回舊版又還原，Stop 看內容回到這個快照就不重算補案例。快照算失敗只少了這個豁免（照擋），stderr 說一聲。"""
+    做反證、把檔退回舊版又還原，Stop 看內容回到這個快照就不重算補案例。新快照先拿舊快照判一次：對舊快照已經成立「回到不欠
+    案例的狀態」的程式檔照算不欠（還原後再 commit --amend 只改訊息，不會又欠一次）。快照算失敗只少了這個豁免（照擋），stderr 說一聲。"""
     if not _VCS_COMMIT_RE.search(command):
         return False
     turn = int(state.get("turn_seq", 0))
@@ -438,8 +439,12 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
         state.pop("commit_snapshot", None)
         print("[verify-ledger] commit 指令的寫入目標算不出來，不記內容快照；commit 之後的反證還原照算改碼", file=sys.stderr)
         return True
+    every = [m["path"] for m in own if (m or {}).get("path")]          # 同根要一起比的改檔：與 Stop 同一份（主 session＋子代理）
+    for _mods in (state.get("agent_modified_files") or {}).values():
+        every += [m["path"] for m in _mods or [] if isinstance(m, dict) and m.get("path")]
     try:
-        state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}))
+        state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}),
+                                                   prev=state.get("commit_snapshot"), session_paths=every)
     except Exception as e:  # noqa: BLE001
         state.pop("commit_snapshot", None)
         print(f"[verify-ledger] commit 內容快照失敗，commit 之後的反證還原照算改碼：{type(e).__name__}: {e}", file=sys.stderr)
@@ -479,11 +484,15 @@ def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_
 
 def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_id: str, file_path: str,
                      tool_name: str) -> None:
+    """同一個檔不論哪種寫法（Edit 的反斜線、Bash 的正斜線、大小寫、`..`）只留一筆，比對用 canon_path；
+    path 欄保留第一次記下的原字串。"""
     turn = int(state.get("turn_seq", 0))
+    key = canon_path(file_path)
     for m in mods:
         if (
             isinstance(m, dict)
-            and m.get("path") == file_path
+            and m.get("path")
+            and canon_path(m["path"]) == key
             and m.get("session_id", session_id) == session_id
         ):
             m["count"] = int(m.get("count", 1)) + 1
@@ -510,6 +519,7 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
 
 
 UNKNOWN_WRITES_CAP = 20
+EXEC_TURN_KEYS_CAP = 50          # exec_turn_seq 最多記幾個 session／子代理（主 session＋每個子代理各一個鍵）
 
 
 def _note_unknown_write(state: Dict[str, Any], session_id: str, target: str, command: str, tool_name: str,
@@ -783,6 +793,16 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     elif tool_name in ("Bash", "PowerShell"):
         command = tool_input.get("command", "")
+        # 寫碼查核 (c)「說試過／跑了」看本回合有沒有執行過指令：記最後一次執行的 turn_seq（主 session 用 sid、子代理用它自己的收據鍵），
+        # 同伴訊息讓 transcript 另起一段之後，同一個使用者回合裡較早跑的指令照樣算（規則 TURN_SINCE_USER_PROMPT）
+        _exec_aid = str(input_data.get("agent_id") or "")
+        _exec = state.setdefault("exec_turn_seq", {})
+        _exec_key = agent_receipt_key(session_id, _exec_aid) if _exec_aid else session_id
+        _exec.pop(_exec_key, None)                                          # 重新插入排到最後，超量時先丟最久沒執行的
+        _exec[_exec_key] = int(state.get("turn_seq", 0))
+        for _old in list(_exec)[:-EXEC_TURN_KEYS_CAP]:
+            _exec.pop(_old, None)
+        dirty = True
         if re.search(r"\b(git\s+(log|blame|show|diff)|svn\s+(log|blame|diff))\b", command):
             vcs = state.setdefault("vcs_queries", [])
             vcs.append({"command": command[:200], "at": _now_iso()})
@@ -955,10 +975,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 "retired_paths": sec["retired_paths"], "note": sec["note"],
             }, base_dir=WORKFLOW_DIR)
             if sec["validated"]:
-                # 同 turn 先 emit 的 AEC 報告：(d) 的記憶收錄帳已由收割核對過 → 用 (h) 重算 d_pending。
-                # (d)/(h) 共用 d_pending，整個 pop 會把 (h)「下一動＝寫 atom」一起放掉。
+                # 本回合（規則 TURN_SINCE_USER_PROMPT，同伴訊息不另開回合）先 emit 的 AEC 報告：(d) 的記憶收錄帳
+                # 已由收割核對過 → 用 (h) 重算 d_pending。(d)/(h) 共用 d_pending，整個 pop 會把 (h)「下一動＝寫 atom」一起放掉。
                 aec = state.get("anti_evasion_report") or {}
-                if aec.get("session_id") == session_id and aec.get("turn_seq") == turn_seq and aec.get("d_pending"):
+                if (aec.get("session_id") == session_id and in_user_turn(aec.get("turn_seq"), state, turn_seq)
+                        and aec.get("d_pending")):
                     still = aec_pending_items("", aec.get("h", ""))
                     if still:
                         aec["d_pending"] = still

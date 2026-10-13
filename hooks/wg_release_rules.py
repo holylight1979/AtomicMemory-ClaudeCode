@@ -41,8 +41,8 @@ RULES: Dict[str, str] = {
                              "擋滿訊息列出全部命中條目。",
     "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同 → 不算改碼；"
                            "非 Python、解析不了、基準拿不到 → 照算。",
-    "CONTENT_EQUALS_COMMITTED": "程式檔現在的 blob 等於任一已提交版本（MERGE_HEAD、main／master、本 session 沒 commit 過它時的 HEAD；"
-                                "本 session 自己提交出來的 commit 不算）→ 不是本 session 改碼（merge 取 theirs、退回 main 版再還原都在此）。",
+    "CONTENT_EQUALS_COMMITTED": "程式檔現在的 blob 等於另一方已提交的版本（MERGE_HEAD、main／master；指到 HEAD 或本 session 自己提交的 commit 不算）"
+                                "→ 不是本 session 改碼（merge 取 theirs、退回 main 版都在此）；等於 HEAD 走 NET_UNCHANGED／SNAPSHOT_SETTLED。",
     "INLINE_PY_READONLY": "python -c 的內嵌碼用 ast 靜態判：無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval → 不算寫入，放行；"
                           "node -e、python - heredoc、pwsh -Command 判不了照擋，擋訊息指路（寫成腳本檔、python -m json.tool）。",
     "GIT_READONLY_SUBCMD": "跨層閘：指令裡每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file、"
@@ -299,15 +299,15 @@ def blob_sha(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
-def committed_refs(own_commit_shas: Iterable[str], ref_commits: Dict[str, str], committed_since_edit: bool) -> List[str]:
-    """哪些 ref 可以當「已提交版本」：MERGE_HEAD／main／master 永遠算（指到本 session 自己提交的 commit 除外）；
-    HEAD 只在本 session 沒 commit 過這個檔之後（committed_since_edit=False）才算。ref_commits＝ref → 它指到的 commit sha。"""
+def committed_refs(own_commit_shas: Iterable[str], ref_commits: Dict[str, str], committed_since_edit: bool = True) -> List[str]:
+    """哪些 ref 可以當「已提交版本」：MERGE_HEAD／main／master（指到本 session 自己提交的 commit 除外）。
+    HEAD 永遠不算：「等於 HEAD」只能走 NET_UNCHANGED／SNAPSHOT_SETTLED（它們還會查同根案例檔乾不乾淨——程式與案例一起退回舊版、
+    只還原程式時案例還是舊的，照欠；verify_stop_reconcile 035 ⑤）。ref_commits＝ref → 它指到的 commit sha。"""
     own = {str(s) for s in own_commit_shas or ()}
+    head = str((ref_commits or {}).get("HEAD") or "")
     out: List[str] = []
     for ref, sha in (ref_commits or {}).items():
-        if not sha or str(sha) in own:
-            continue
-        if ref == "HEAD" and committed_since_edit:
+        if not sha or str(sha) in own or ref == "HEAD" or str(sha) == head:
             continue
         out.append(ref)
     return out
