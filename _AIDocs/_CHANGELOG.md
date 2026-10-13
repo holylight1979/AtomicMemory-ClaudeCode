@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 舊卡回填與萃取器寫卡也不把開工句當 Quote
+- **緣由**：開工句被填成 Quote 有三個寫入口，前一筆只修了 PostToolUse 自動填。舊卡回填（`tools/atom-provenance-backfill.py`，SessionStart 見新對話紀錄就背景跑）沿 parentUuid 找最近一則真人訊息當原話；工作分頁裡同伴訊息開的回合不是真人訊息，往回走到的就是開工句。稽核紀錄顯示它把總控台剛改回的 decisions 卡與另一張新卡又補上開工句，清掉的 Quote 也會被它補回。萃取器把開工句裡夾的決策萃成卡時，Quote 也是那則開工句。
+- **做法**：`lib/provenance.is_kickoff_text`（原文清成使用者打的字後交 `lib/harness_text.is_kickoff_prompt`，與 PostToolUse 同一支判定）；回填 `_resolve_quote` 遇開工句不寫 Quote（A_noquote、Source 照補指到那則訊息；已有 Source 就 skip、reason=kickoff_not_quoted），萃取器 `_write_atom_via_mcp` 遇開工句不帶 quote。
+- **驗證**：`verify_provenance_backfill.py` 新 3 案（同伴訊息回合往回走到開工句、開工句就在前一則、已有 Source）＋`verify_user_extract_session_directive.py` 新 1 案（開工句不填、真原話照填），main 版程式上 4 案全紅在斷言（「開工句被回填成 Quote」）。 | `lib/provenance.py`, `tools/atom-provenance-backfill.py`, `hooks/user-extract-worker.py`, `lib/verify/verify_provenance_backfill.py`, `hooks/verify/verify_user_extract_session_directive.py`, `_AIDocs/Architecture.md`
+
 ## 2026-10-13 v6.0 核心推進文件總整理：歷程搬進 DevHistory 工作紀錄，checklist 與接續單只留現況與連結
 - **緣由**：原設計者指出 v6.0 checklist 每條塞滿 commit、codex 輪次、退件單編號，全文 4 萬 token，讀者看不出目標與下一步，「嚴禁把核心推進文件搞成會造成嚴重飄移的狀態」。
 - **做法**：新建 `DevHistory/v6.0-寫程式碼的進化-2026-10/工作紀錄.md`（按軌、按日期，一筆不漏）；`memory/_staging` 的 checklist 改成 G 目標表＋一行一項 checklist＋活軌表＋待決兩題，接續單只留接手方法、規矩、現況。

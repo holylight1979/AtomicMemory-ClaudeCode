@@ -149,6 +149,47 @@ def test_04_failed_then_retry_only_success_counts(world):
     assert r["grade"] == "A" and r["hit"]["uuid"] == "h7" and r["quote"] == "「記卡片乙」"
 
 
+KICKOFF = ("你是 v6.0 的工作 session track-x（共用檔同步），總控台是 claude-9f。"
+           "第一步用 EnterWorktree 切進 worktree C:\\wt\\x。派工 prompt 在 C:\\inbox\\000.md，用絕對路徑讀完全文照做。")
+
+
+def _kickoff_world(world, peer_turn=True):
+    """工作分頁：開工句是唯一的真人訊息；之後是同伴訊息開的回合（不是真人），atom_write 在那回合。
+    回填沿 parentUuid 往回走會走到開工句。"""
+    recs = [_human("k1", None, "2026-10-05T09:00:00Z", KICKOFF, sid=SID2)]
+    parent = "k1"
+    if peer_turn:
+        recs.append(_rec("p1", "k1", "2026-10-05T09:30:00Z", "user",
+                         [{"type": "text", "text": '<cross-session-message from="uds:x" from-name="claude-9f">寫卡</cross-session-message>'}],
+                         sid=SID2, origin={"kind": "peer"}))
+        parent = "p1"
+    recs += [_tool_use("a9", parent, "2026-10-05T09:30:05Z", "t9", "卡片丙", sid=SID2),
+             _tool_result("r9", "a9", "2026-10-05T09:30:06Z", "t9", str(world["mem"] / "設計通則" / "卡片丙.md"), sid=SID2)]
+    _write_jsonl(world["projects"] / "slug" / f"{SID2}.jsonl", recs)
+    return _atom(world["mem"] / "設計通則" / "卡片丙.md", "卡片丙")
+
+
+@pytest.mark.parametrize("peer_turn", [True, False])
+def test_005_kickoff_is_not_used_as_quote(world, peer_turn):
+    # 005：回填找到的真人訊息是開工句 → 不寫 Quote（A_noquote），Source 照補（指到那則真人訊息）
+    atom = _kickoff_world(world, peer_turn)
+    rep = _run(world, apply=True, atoms=[("root", atom)])
+    r = rep["results"][0]
+    text = atom.read_text(encoding="utf-8")
+    assert "- Quote:" not in text, f"開工句被回填成 Quote：{text}"
+    assert r["grade"] == "A_noquote" and r.get("quote_skipped") == "kickoff", r
+    assert "- Source: session:22222222#k1 2026-10-05\n" in text and r["written"] is True
+
+
+def test_005_kickoff_with_existing_source_is_skipped_with_reason(world):
+    atom = _kickoff_world(world)
+    _atom(atom, "卡片丙", extra="- Source: commit:abc1234 2026-03-02（原對話已逾保留期）\n")
+    before = atom.read_bytes()
+    r = _run(world, apply=True, atoms=[("root", atom)])["results"][0]
+    assert r["grade"] == "skip" and r["reason"] == "kickoff_not_quoted", r
+    assert atom.read_bytes() == before
+
+
 def test_05_existing_source_kept_only_quote_added(world):
     _atom(world["atom"], "卡片甲", extra="- Source: C:/x/transcript.md\n")
     rep = _run(world, apply=True)
