@@ -113,6 +113,56 @@ def test_autofill_no_transcript_writes_session_only(tmp_path):
     assert "- Source: session:f1e8b9d8 20" in text and "#" not in [l for l in text.splitlines() if l.startswith("- Source:")][0]
 
 
+# 實際開過的兩則開工句（路徑換成假路徑）：角色句帶清單外的括號說明、總控台句帶括號，嚴格樣板整則對不上
+KICKOFF_REAL_1 = ("你是 v6.0 的工作 session track-a6（A6 共用檔：settings/config/TECH＋pack.py 小修提交），"
+                  "對人總控台是 claude-91、調度總控台是 claude-9f。第一步用 EnterWorktree 切進 worktree C:\\wt\\track-a6"
+                  "（分支 v6/track-a6，已存在，不要新建）。派工 prompt 在 C:\\inbox\\000-prompt.md，用絕對路徑讀完全文照做。"
+                  "codex 審查由你自己跑一次、交付附報告，最終判斷由總控台做。")
+KICKOFF_REAL_2 = ("你是 v6.0 的工作 session track-a6，總控台是 claude-9f（調度；對人總控台是 claude-91）。"
+                  "第一步用 EnterWorktree 切進 worktree C:\\wt\\track-a6。只跑目標 verify、不跑全量。")
+
+
+@pytest.mark.parametrize("op", ["create", "replace"])
+@pytest.mark.parametrize("kickoff", [KICKOFF_REAL_1, KICKOFF_REAL_2])
+def test_003_kickoff_prompt_is_not_used_as_quote(tmp_path, op, kickoff):
+    # 003：同伴訊息開的回合沿用前一回合原話，開工句被一路填成後面每張卡的 Quote。開工句不是使用者原話 → 不填 Quote，Source 照補
+    atom = _atom(tmp_path)
+    state = {"session": {"id": SID}, "turn_prompts": [kickoff]}
+    out = wg_provenance.autofill_from_receipt(_receipt(atom, op), {"session_id": SID}, state)
+    text = atom.read_text(encoding="utf-8")
+    assert "- Quote:" not in text, f"開工句被填成 Quote：{text}"
+    assert out.get("quote_skipped") == "kickoff"
+    assert out["done"] and "- Source: session:f1e8b9d8 20" in text
+
+
+@pytest.mark.parametrize("op", ["create", "replace"])
+def test_003_real_user_words_still_fill_quote_on_replace(tmp_path, op):
+    # 保護案：Quote 自動填是設計，replace 照填；真使用者原話（含「你是」開頭但不是開工句）照填
+    for words in ("請把 replace 改成保留舊標題", "你是說這張卡要留舊標題嗎？對，留著"):
+        atom_dir = tmp_path / words[:4]
+        atom = _atom(atom_dir)
+        state = {"session": {"id": SID}, "turn_prompts": [words]}
+        out = wg_provenance.autofill_from_receipt(_receipt(atom, op), {"session_id": SID}, state)
+        assert out["done"] and "quote_skipped" not in out, out
+        assert f"- Quote: 「{words}」\n" in atom.read_text(encoding="utf-8")
+
+
+def test_003_kickoff_detector_shares_extractor_templates():
+    from lib.harness_text import is_kickoff_prompt, session_directive_reason
+    # 嚴格判定（萃取器用）對這兩則真開工句都不成立，Quote 端靠角色開場句認出
+    assert session_directive_reason(KICKOFF_REAL_1) is None and session_directive_reason(KICKOFF_REAL_2) is None
+    assert is_kickoff_prompt(KICKOFF_REAL_1) and is_kickoff_prompt(KICKOFF_REAL_2)
+    # 嚴格樣板整則對上的開工句也算
+    assert is_kickoff_prompt("你是工作 session track-x。第一步用 EnterWorktree 切進 C:\\wt\\x。只跑目標 verify")
+    for words in ("請把這條記成卡片", "你是說這張卡要留舊標題嗎？對", "這個 session 的工作是修 replace", ""):
+        assert not is_kickoff_prompt(words), words
+    # codex 審 cdac58d：引用開工句來討論、問句、只有角色句沒有其他派工子句 → 是真原話，不算開工句
+    for words in ("『你是工作 session track-a6』這句話不應填進 Quote，請記下這個修正原則。",
+                  "你是工作 session track-a6 嗎？請把保留舊標題這項決策記成卡片。",
+                  "你是工作 session track-a6，請把保留舊標題這項決策記成卡片。"):
+        assert not is_kickoff_prompt(words), words
+
+
 def test_autofill_skips_append_and_missing_path(tmp_path):
     atom = _atom(tmp_path)
     state = {"session": {"id": SID}, "turn_prompts": ["x"]}
