@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: codex exec, codex, 派 codex, 第二觀點, second opinion, 大師會議
 - Created-at: 2026-09-03
-- Related: feedback-tooling-reliability, codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空, codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測
+- Related: feedback-tooling-reliability, codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空, codegraph與agent-retro評估結論-codegraph只當專案local-mcp不進記憶-agent-retro只拆量測, codex-exec長提示要寫成檔用管線送stdin-命令列參數會被cmd包裝吃掉換行-唯讀沙箱下pytest可能因無可寫暫存整個中止-通過數一律自己在worktree跑
 - Source: commit:a8f5122 2026-09-03（原對話已逾保留期）
 
 ## 知識

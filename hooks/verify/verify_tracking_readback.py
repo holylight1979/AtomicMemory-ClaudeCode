@@ -69,10 +69,14 @@ def test_tracking_slug_subdir_maps_to_table_root_and_edge_cases(world, capsys):
 
 
 def _git_worktree_of(repo: Path, wt: Path, name: str) -> None:
-    """把 wt 接成 repo 的 git worktree 結構（repo/.git/worktrees/<name>/＋wt/.git 檔指回去），表複製一份。"""
-    (repo / ".git" / "worktrees" / name).mkdir(parents=True, exist_ok=True)
+    """把 wt 接成 repo 的 git worktree 結構（git worktree add 寫的同一組檔：管理目錄的 gitdir 反向指回 wt/.git、commondir、
+    wt/.git 檔指到管理目錄），表複製一份。"""
+    adm = repo / ".git" / "worktrees" / name
+    adm.mkdir(parents=True, exist_ok=True)
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
     (wt / ".claude").mkdir(parents=True, exist_ok=True)
-    (wt / ".git").write_text(f"gitdir: {repo / '.git' / 'worktrees' / name}\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
     (wt / ".claude" / "overview-map.md").write_bytes((repo / ".claude" / "overview-map.md").read_bytes())
 
 

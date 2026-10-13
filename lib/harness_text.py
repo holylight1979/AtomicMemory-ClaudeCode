@@ -162,11 +162,14 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
 # 樣板以 workflow/v6-inbox/_console/開工句模板.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
 # 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
 # 欄位（路徑、名稱、分支）只收 ASCII：吃不下的字（中文、頓號後的另一段話）留在子句裡，整句就對不上、交 LLM，
-# 不會被欄位吞掉。中文路徑的開工句因此認不出、交 LLM（不誤丟優先）。
+# 不會被欄位吞掉。兩個例外是原設計者的一般開工句型：角色句「接手「<名稱>」的（根層）總控端／總控台」名稱收中文與全形引號，
+# 派工子句「先讀 <路徑> 全文」路徑收中文字（接續單檔名多是中文），兩者仍整句比對。
 # 角色句後面的括號說明只認 _ROLE_NOTES 這份固定完整句型（從實際開過的開工句收集）；清單外的括號內容當未匹配的殘餘，
 # 整則交 LLM（不靠字數、不靠決策關鍵字）。新的派工說明要被攔，就把那句加進清單。
 _PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[A-Za-z0-9_.~:\\/-]*"
+_PATH_WIDE = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[\w.~:\\/-]*"          # 「先讀 <路徑> 全文」專用：\w 含中文字，仍不收空白與標點
 _NAME = r"[A-Za-z0-9_.-]+"
+_QUOTED_NAME = r"「[^「」\n]{1,40}」"                               # 「接手「<名稱>」的總控端」專用：名稱收中文
 _ROLE_NOTES = (
     re.escape("需求目標核心流程設計單，只設計不寫程式"),   # track-goal
     re.escape("閱讀路徑掃描器"),                           # track-g12
@@ -180,16 +183,19 @@ _ROLE_OPENERS = (
     r"(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?",
     r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?",
     r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session",
+    r"接手\s*" + _QUOTED_NAME + r"\s*的\s*(?:根層\s*)?(?:總控端|總控台)",
 )
 KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in (
     ("role", _ROLE_OPENERS[0] + _ROLE_NOTE),
     ("role", _ROLE_OPENERS[1]),
     ("role", _ROLE_OPENERS[2]),
+    ("role", _ROLE_OPENERS[3]),
     ("controller", r"(?:總控台|主控台)\s*(?:是|為)\s*" + _NAME),
     ("step", r"第一步(?:用|先)?\s*EnterWorktree\s*切進\s*(?:worktree\s*)?(?:" + _PATH + r")?" + _BRANCH_NOTE),
     ("step", r"worktree\s*" + _PATH + _BRANCH_NOTE),
     ("dispatch", r"派工(?:單|\s*prompt)\s*(?:在|:|：)\s*" + _PATH),
     ("dispatch", r"(?:用絕對路徑)?讀完(?:全文)?照做"),
+    ("dispatch", r"先讀\s*" + _PATH_WIDE + r"\s*全文"),
     ("dispatch", r"read the task at\s+" + _PATH),
     ("scope", r"(?:本次)?(?:一律)?只(?:讀|讀寫|在)\s*" + _PATH + r"(?:\s*(?:裡|內))?(?:\s*(?:讀寫|工作))?"),
     ("scope", r"you must work only in\s+" + _PATH),

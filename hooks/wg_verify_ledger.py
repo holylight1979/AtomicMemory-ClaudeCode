@@ -1089,7 +1089,6 @@ RECONCILE_DEFAULTS: Dict[str, Any] = {
                   ".mm", ".scala", ".dart", ".vue", ".svelte", ".ps1", ".psm1", ".sh", ".bash", ".sql", ".gd",
                   ".shader", ".hlsl", ".glsl"],
     "verify_case_globs": ["**/verify/**", "**/tests/**", "**/*test*"],
-    "exclude_globs": ["workflow/v6-inbox/**", "memory/_staging/**", "_AIDocs/**"],
 }
 
 
@@ -1146,9 +1145,26 @@ def is_case_file(path: str, cfg: Dict[str, Any], root: Optional[str] = None) -> 
 
 
 def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str]) -> bool:
-    """規則 EXCLUDED_REGION（wg_release_rules.excluded_region）：path 落在 exclude_globs（相對專案根比，先消掉 `..`）。
-    信箱、規劃暫存、文件目錄下的 .py 是素材，不是本專案的程式也不是它的案例。拿不到根或不在根底下 → 不排除（照算）。"""
-    return excluded_region(path, cfg.get("exclude_globs") or [], root)
+    """規則 EXCLUDED_REGION（wg_release_rules.excluded_region）：path 屬部位表類別 knowledge 的部位（文件、記憶、派工信箱），
+    那裡的 .py 是素材，不是本專案的程式也不是它的案例。事實（路徑屬哪類部位）由 _part_kind 查部位表，規則判排不排除。
+    拿不到根、不在根底下、沒有部位表、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。"""
+    if not root:
+        return False
+    return excluded_region(path, root, _part_kind(path, root))
+
+
+def _part_kind(path: str, root: str) -> Optional[str]:
+    """路徑屬部位表哪一類部位（lib/overview_hub.path_kind，與 OverviewHub 同一份判法；部位表找到 root 那層為止）；
+    沒有部位表回 None。判法載入失敗 → stderr 說一聲、回 None（不排除）。"""
+    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    try:
+        from overview_hub import path_kind
+        return path_kind(str(path), Path(root))
+    except Exception as e:  # noqa: BLE001
+        print(f"[verify_ledger] 判不出 {path} 的部位類別，照寫碼部位算：{type(e).__name__}: {e}", file=sys.stderr)
+        return None
 
 
 def case_exists(path: str) -> bool:
@@ -1258,7 +1274,7 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     evidence 給了就填每個欠的檔的 Verdict（最後一次改的案例是哪個），擋訊息照印。
     只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）；gone 裡的程式檔（vanished_code_paths 判成刪除的）不欠；
     搬走的照欠，量尺閘照舊看所有改檔。同一個檔不同寫法、同一個根不同寫法都用 canon_path 比（SAME_FILE）。
-    落在 exclude_globs 的檔（is_excluded：信箱素材等）兩邊都不算：不欠案例，也不能拿來替真程式清帳。
+    屬知識類部位的檔（is_excluded：部位表類別 knowledge）兩邊都不算：不欠案例，也不能拿來替寫碼部位的程式清帳。
     案例判定用相對該根的路徑；拿不到根的程式檔退回絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。
     修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。
     範圍外：改的案例是不是對應這次改動，程式判不出來，交給收尾對照（需求目標核心流程 checklist C-G3）由 LLM 判。"""

@@ -31,7 +31,8 @@ RULES: Dict[str, str] = {
     "GONE_IN_GIT_NOTHING_NEW": "改過的程式檔已不存在、在 git 根內、同根 status 與本 session 提交都沒有新出現的程式檔 → 算刪除、不欠。",
     "MOVED_NEW_CODE_SEEN": "改過的程式檔已不存在、同根 status 或本 session 提交出現新的程式檔 → 可能是搬過去了，照欠。",
     "GONE_UNVERIFIABLE": "改過的程式檔已不存在、但在 svn 工作副本裡、或查 git 失敗／逾時 → 判不出去向，照欠。",
-    "EXCLUDED_REGION": "落在排除區（reconcile_gate.exclude_globs，相對專案根）的檔是素材：不算程式、也不能拿來清帳。",
+    "EXCLUDED_REGION": "屬部位表類別 knowledge 的部位（文件、記憶、派工信箱；錨在專案根的最長前綴列）的檔是素材：不算程式、"
+                       "也不能拿來清帳。沒有部位表、沒標類別、判不出 → 照算程式。",
     "SNAPSHOT_SETTLED": "commit 那刻不欠案例、之後同根改檔內容都回到那刻、git status 乾淨（含暫存區）→ 不重算補案例（wg_verify_ledger）。",
     "NET_UNCHANGED": "改過又原樣還原（與 HEAD 相同、之後沒 commit、同根改檔 git status 全乾淨）→ 不算改碼（wg_verify_ledger）。",
     # ── 045（track-gate-rules）起：誤判清冊 B／C 組 ──
@@ -134,13 +135,14 @@ def claim_is_modifier(clause: str, end: int) -> bool:
     return bool(_MODIFIER_TAIL_RE.match(clause[end:]))
 
 
-def excluded_region(path: Any, globs: Iterable[str], root: Optional[str]) -> bool:
-    """EXCLUDED_REGION：path 相對專案根落在 globs 裡。拿不到根或不在根底下 → 不排除（照算）。看路徑屬哪一區，不看 git 狀態。"""
+def excluded_region(path: Any, root: Optional[str], kind: Optional[str]) -> bool:
+    """EXCLUDED_REGION：path 在專案根底下，而且部位表判它屬類別 knowledge 的部位（kind＝lib/overview_hub.path_kind 的結果，
+    呼叫端查完部位表傳進來）。拿不到根、不在根底下、沒有部位表（None）、類別 code → 不排除（照算）。
+    看路徑屬哪個部位，不看副檔名、不看 git 狀態。"""
     full, base = canon_path(path), (canon_path(root) if root else "")
     if not base or not full.startswith(base + "/"):
         return False
-    rel = full[len(base) + 1:]
-    return any(fnmatch.fnmatch(rel, str(g).replace("\\", "/").lower()) for g in globs or [])
+    return kind == "knowledge"
 
 
 def gone_verdict(name: str, vcs_kind: Optional[str], new_code: Iterable[str] = (), git_failed: str = "") -> Verdict:

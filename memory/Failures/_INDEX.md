@@ -11,6 +11,6 @@
 | 思考與決策 | 10 | `memory/Failures/思考與決策/_INDEX.md` |
 | 文字與格式 | 6 | `memory/Failures/文字與格式/_INDEX.md` |
 | 版控 | 2 | `memory/Failures/版控/_INDEX.md` |
-| 行為契約 | 23 | `memory/Failures/行為契約/_INDEX.md` |
+| 行為契約 | 24 | `memory/Failures/行為契約/_INDEX.md` |
 | 設計通則 | 1 | `memory/Failures/設計通則/feedback-閘誤判的修法不是加例外清單-把欠帳本回合放行改碼的判定抽成獨立模組-每情境一條有名字的規則加會紅案例-擋訊息印規則名與證據-不准整輪不擋或放寬.md` |
 | 驗證與實證 | 10 | `memory/Failures/驗證與實證/_INDEX.md` |

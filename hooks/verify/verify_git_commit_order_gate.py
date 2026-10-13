@@ -202,6 +202,27 @@ def test_045_dispatch_message_opens_turn_but_is_not_an_order():
     assert st2["turn_prompts"] == [] and st2["turn_prompts_seq"] == 2
 
 
+_PEER_DELIVERY = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-a9" from-mode="bypass">\n'
+                  "已完成，交付依據 to-track-gate-rules/001-prompt.md；請審查結果。\n</cross-session-message>")
+_DISPATCH_NO_PATH = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-aa" from-mode="bypass">\n'
+                     "派工：接 B14，暫存目錄副本不當專案。\n</cross-session-message>")
+
+
+def test_045_dispatch_opens_turn_only_by_first_line_marker():
+    """對人裁定 #13（codex 001 BLOCK 7）：交付信內文引用 to-track-<軌>/<檔>.md 路徑不開回合、不清口令；首行以「派工」開頭但沒帶路徑要開回合。"""
+    st = {}
+    _ups(st, "完工後直接上GIT")
+    seq0, cnt0 = st["turn_prompts_seq"], st["user_turn_count"]
+    _stop(st)
+    _ups(st, _PEER_DELIVERY)                                                         # 交付信引用派工單路徑：續跑回合，口令沿用
+    assert st["turn_prompts_seq"] == seq0 and st["user_turn_count"] == cnt0 and st["turn_prompts"] == ["完工後直接上GIT"]
+    assert _check(state=st) is None
+    _stop(st)
+    _ups(st, _DISPATCH_NO_PATH)                                                      # 首行「派工」沒帶路徑：開新回合、口令清掉
+    assert st["turn_prompts_seq"] > seq0 and st["user_turn_count"] == cnt0 + 1 and st["turn_prompts"] == []
+    assert _check(state=st)
+
+
 def test_045_temp_repo_commit_exempt_judges_repo_root_not_run_dir(tmp_path, monkeypatch):
     """規則 TEMP_REPO_COMMIT_EXEMPT：豁免看 commit 實際落的 repo 根在不在暫存根下；正式 repo 裡一個叫 scratchpad 的子目錄拿不到豁免
     （codex 001 BLOCK 6）；暫存根下的 repo 免口令。暫存根由測試指定（WG_TEMP_RULES 開著、TEMP 指到 tmp_path/tempzone）。"""

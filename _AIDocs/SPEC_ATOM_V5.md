@@ -474,7 +474,7 @@ atom 標「依何條件而為真」——decay 是時間函數，這是**真值�
 
 ### 13.3 `- Source:` — 來源（provenance）與 `- Quote:` — 原話引述
 
-`- Source:` 標準值三態：`session:<sid8>#<uuid8> <YYYY-MM-DD>`（uuid 可缺；transcript 還在就能回看前後文）、`commit:<hash7> <日期>（原對話已逾保留期）`／`unknown <日期>（原對話已逾保留期）`（回填時原對話已清）、其他自由字串（如會議逐字稿路徑）。`- Quote:` 是觸發這張卡片的使用者原話（`lib/provenance.sanitize_quote`：剝 system-reminder 等區塊、折單行、≤200 字、以「」包住；自動萃取的 AI 片段以「AI：」前綴標示），渲染於 Source 後、Confidence 前；寫入參數 `quote`，replace 三態同 Source；一般由 PostToolUse 自動補（`hooks/wg_provenance.py`），讀取端 `lib/provenance.atom_source`（live／quote_only／unrecoverable 三態）。守門 `lib/verify/verify_atom_io_equivalence.py` test_34–36、`hooks/verify/verify_provenance_autofill.py`、`tools/verify/verify_atom_source.py`、`lib/verify/verify_provenance_backfill.py`。
+`- Source:` 標準值三態：`session:<sid8>#<uuid8> <YYYY-MM-DD>`（uuid 可缺；transcript 還在就能回看前後文）、`commit:<hash7> <日期>（原對話已逾保留期）`／`unknown <日期>（原對話已逾保留期）`（回填時原對話已清）、其他自由字串（如會議逐字稿路徑）。`- Quote:` 是觸發這張卡片的使用者原話（`lib/provenance.sanitize_quote`：剝 system-reminder 等區塊、折單行、≤200 字、以「」包住；只放使用者原話，自動萃取卡只補 Source、不寫 Quote），渲染於 Source 後、Confidence 前；寫入參數 `quote`，replace 三態同 Source；一般由 PostToolUse 自動補（`hooks/wg_provenance.py`），讀取端 `lib/provenance.atom_source`（live／quote_only／unrecoverable 三態）。守門 `lib/verify/verify_atom_io_equivalence.py` test_34–36、`hooks/verify/verify_provenance_autofill.py`、`tools/verify/verify_atom_source.py`、`lib/verify/verify_provenance_backfill.py`。
 
 原 Source 說明：
 

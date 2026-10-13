@@ -168,6 +168,37 @@ def test_003_kickoff_detector_shares_extractor_templates():
     assert is_kickoff_prompt("你是工作 session track-x(共用檔同步)，總控台是 claude-9f。第一步用 EnterWorktree 切進 worktree。")
 
 
+# 005：三張卡的 Quote 原文（卡上 Quote 「」裡的字，含回填截斷的「…」）。原設計者的一般開工句型：
+# 角色句「接手「<名稱>」的根層總控端」＋派工子句「先讀 <中文檔名的路徑> 全文」；舊樣板的角色句只認「你是／請接手 工作 session」、
+# 路徑只收 ASCII，三句都判不出，回填照填成 Quote。
+KICKOFF_TRI_LINK = (
+    "接手「AI 寫碼守門三方討論」的根層總控端。先讀 C:\\Users\\holylight\\.claude\\memory\\_staging\\next-phase-AI寫碼守門三方討論.md "
+    "全文，照「下一步」做：重掛 Monitor 盯 <專案路徑>\\.claude\\inbox\\tri-link\\ 的 from-projects 與 from-某專案、對帳信箱、做 R4 與 R5、每 6…",
+    "接手「AI 寫碼守門三方討論」的根層總控端。先讀 C:\\Users\\holylight\\.claude\\memory\\_staging\\next-phase-AI寫碼守門三方討論.md "
+    "全文，照「下一步」做：重掛 Monitor 盯 <專案路徑>\\.claude\\inbox\\tri-link\\ 的 from-某專案 與 from-另一專案、對帳信箱、做 R4 與 R5、每 6…",
+    "接手「AI 寫碼守門三方討論」的總控台。先讀 ~/.claude/memory/_staging/next-phase-AI寫碼守門三方討論.md 全文",
+)
+
+
+@pytest.mark.parametrize("text", KICKOFF_TRI_LINK)
+def test_005_takeover_controller_kickoff_with_cjk_path_is_kickoff(text):
+    from lib.provenance import is_kickoff_text
+    from lib.harness_text import kickoff_clause_kind
+    assert is_kickoff_text(text), text
+    assert kickoff_clause_kind("先讀 C:\\x\\next-phase-中文檔名.md 全文") == "dispatch"
+
+
+def test_005_takeover_variant_keeps_real_words_as_quote():
+    """新樣板只吃整句：角色句後面沒有派工子句、引號開頭的引用、問句、「先讀」後面帶決策或沒有路徑，都還是使用者原話。"""
+    from lib.harness_text import is_kickoff_prompt
+    for words in ("接手「AI 寫碼守門三方討論」的根層總控端，請把保留舊標題這項決策記成卡片。",
+                  "『接手「AI 寫碼守門三方討論」的根層總控端。先讀 C:\\x\\中文.md 全文』這句是開工句，請勿當作原話。",
+                  "接手「AI 寫碼守門三方討論」的根層總控端嗎？先讀 C:\\x\\中文.md 全文？",
+                  "接手「AI 寫碼守門三方討論」的根層總控端。先讀接續單全文，再決定要不要拆軌。",
+                  "接手「AI 寫碼守門三方討論」的根層總控端。先讀 C:\\x\\中文.md 全文 然後把舊標題留著"):
+        assert not is_kickoff_prompt(words), words
+
+
 def test_autofill_skips_append_and_missing_path(tmp_path):
     atom = _atom(tmp_path)
     state = {"session": {"id": SID}, "turn_prompts": ["x"]}

@@ -278,7 +278,10 @@ def test_11_src_comment_atom_becomes_A_ai(world):
     a = _atom(world["mem"] / "Failures" / "x" / "feedback-卡片己.md", "feedback-卡片己", body="  <!-- src: 22222222#ab12cd34 -->\n")
     r = _run(world, atoms=[("root", a)])["results"][0]
     assert r["grade"] == "A_ai" and r["source"] == "session:22222222#ab12cd34 2026-10-05"
-    assert r["quote"] == "「AI：這是 AI 的失敗片段」"
+    assert r["quote"] is None                                       # 指到的是 AI 的話：只補 Source，Quote 只放使用者原話
+    r = _run(world, apply=True, atoms=[("root", a)])["results"][0]
+    text = a.read_text(encoding="utf-8")
+    assert r["written"] and "- Source: session:22222222#ab12cd34 2026-10-05" in text and "- Quote:" not in text
 
 
 def test_12_no_weak_match_same_day_prompt_without_tool_use(world):
