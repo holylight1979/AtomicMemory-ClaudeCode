@@ -363,6 +363,34 @@ def test_002_probe_that_only_answers_without_reading_the_file_is_failed(env):
     assert not (Path(res["job_dir"]) / run.PROBE_FILE).exists()
 
 
+def test_002_stale_probe_log_does_not_fail_a_recovered_probe(env, tmp_path):
+    # codex 審 ccf2597 BLOCK 1：`run.py probe` 重用 _probe 目錄、log 附加寫入；上一次的 1385 留在尾段時，這次讀回字樣也被判失敗
+    probe_dir = tmp_path / "_probe"
+    probe_dir.mkdir()
+    stale = (FIX / "stderr_fail.log").read_text(encoding="utf-8")
+    (probe_dir / "probe.stderr.log").write_text(stale, encoding="utf-8", newline="\n")
+    (probe_dir / "probe.stdout.log").write_text("PROBE_FAIL\n", encoding="utf-8", newline="\n")
+    so_cfg, cc_cfg = run.load_config()
+    ok, why = run.probe_codex(probe_dir, "gpt-6-astra", so_cfg, cc_cfg)
+    assert ok, f"上一次探針的 1385 殘留讓這次判失敗：{why}"
+    assert "1385" not in (probe_dir / "probe.stderr.log").read_text(encoding="utf-8")
+
+
+def test_002_probe_file_undeletable_leaves_stderr_signal(env, tmp_path, monkeypatch, capsys):
+    # codex 審 ccf2597 BLOCK 2：刪不掉 probe.txt 不改判定，但要留訊號（不准靜默）
+    real_unlink = Path.unlink
+
+    def stuck(self, *a, **kw):
+        if self.name == run.PROBE_FILE:
+            raise PermissionError("被別的程序開著")
+        return real_unlink(self, *a, **kw)
+    monkeypatch.setattr(Path, "unlink", stuck)
+    so_cfg, cc_cfg = run.load_config()
+    ok, _ = run.probe_codex(tmp_path, "gpt-6-astra", so_cfg, cc_cfg)
+    assert ok and (tmp_path / run.PROBE_FILE).exists()
+    assert "探針檔刪不掉" in capsys.readouterr().err
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="unelevated 只在 Windows 唯讀沙箱有意義")
 def test_002_probe_without_unelevated_is_red_like_real_codex(env, monkeypatch):
     # 拿掉旗標（只剩 -s read-only）：模擬的 codex 照本機實測回 1385 → 探針必紅，job 不得 done

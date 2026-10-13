@@ -315,7 +315,8 @@ def prepare(req: Dict[str, Any], so_cfg: Dict[str, Any], job_root: Path) -> Dict
 
 def probe_codex(job_dir: Path, slug: str, so_cfg: Dict[str, Any], cc_cfg: Dict[str, Any]) -> Tuple[bool, str]:
     """在 job_dir 放 probe.txt（一行隨機字樣，不在提示裡），`codex exec --skip-git-repo-check -s read-only <沙箱旗標> -m <slug>
-    -C <job_dir> PROBE_PROMPT` 叫它用 shell 讀回來。逾時／1385／回覆沒有那個字樣 → False。探完刪掉 probe.txt。"""
+    -C <job_dir> PROBE_PROMPT` 叫它用 shell 讀回來。逾時／1385／回覆沒有那個字樣 → False。
+    探完刪掉 probe.txt；刪不掉只在 stderr 留一行、不改判定（字樣是隨機值、不含材料，留在 job 目錄不影響審查）。"""
     codex_bin = judge_backend.resolve_codex_bin(cc_cfg)
     if not codex_bin:
         return False, "找不到 codex CLI（codex_companion.codex_binary 與 PATH 都沒有）"
@@ -326,6 +327,8 @@ def probe_codex(job_dir: Path, slug: str, so_cfg: Dict[str, Any], cc_cfg: Dict[s
     cmd += [str(a) for a in (cc_cfg.get("codex_extra_args") or [])]
     cmd += [PROBE_PROMPT]
     out_p, err_p = job_dir / "probe.stdout.log", job_dir / "probe.stderr.log"
+    for p in (out_p, err_p):  # run_with_timeout 是附加寫入；`run.py probe` 重用 _probe 目錄，上一次的 1385 不能留在這次的尾段
+        p.write_bytes(b"")
     try:
         rc, timed_out = run_with_timeout(cmd, int(so_cfg.get("probe_timeout_s", 60)), str(job_dir), None, out_p, err_p)
     finally:

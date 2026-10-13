@@ -17,7 +17,8 @@
 ```
 prepare  打包材料 → manifest.hash → prompt.md → replay-guard pre（非 PASS → blocked，不 spawn codex）
 execute  探針 codex exec --skip-git-repo-check -s read-only -c windows.sandbox="unelevated" -m <slug> -C <job_dir> "<讀 probe.txt 回第一行>"
-         （job 目錄先放 probe.txt＝一行隨機字樣，不在提示裡；逾時 60 s／1385／回覆沒有那個字樣 → failed，不退 claude；探完刪 probe.txt）
+         （job 目錄先放 probe.txt＝一行隨機字樣，不在提示裡；探針兩個 log 開跑前清空；逾時 60 s／1385／回覆沒有那個字樣 → failed，不退 claude；
+          探完刪 probe.txt，刪不掉只在 stderr 留一行、不改判定：字樣是隨機值、不含材料）
          → codex exec -m <slug> -s read-only -c windows.sandbox="unelevated" -C <job_dir> --ephemeral --skip-git-repo-check -o reply.raw.md -  （stdin=prompt.md；逾時 300 s kill）
          → replay-guard post --log codex.stderr.log（FAIL → failed）
          → parse_three_sections（缺段 → failed）→ reply.md → done
