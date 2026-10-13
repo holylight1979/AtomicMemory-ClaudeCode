@@ -983,6 +983,15 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             print(f"overview hub read error: {e}", file=sys.stderr)
 
+    # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）
+    if tool_name in ("Read", "Bash", "PowerShell"):
+        try:
+            from wg_need_goal_points import scope_on_read
+            if scope_on_read(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config):
+                dirty = True   # need_goal_batch 要落盤
+        except Exception as e:  # noqa: BLE001
+            print(f"[NeedGoal] 讀入範圍記錄失敗（不影響讀檔）：{type(e).__name__}: {e}", file=sys.stderr)
+
     # Depends 召回（A3.5）：讀到的檔若是某張卡的壞滅緣（索引 depends path:），一行一卡指標；文件／計畫檔命中 authority_map 一次性注入地圖
     dep_ctx = None
     if tool_name in ("Read", "Bash", "PowerShell"):

@@ -575,35 +575,62 @@ def _tp(tmp_path):
     return str(tp)
 
 
-def test_on_read_records_parts_and_dirs_into_tree(proj, tmp_path):
+def _post_read(monkeypatch, tmp_path, state, path, cwd, config):
+    """經真的 post_tool_use 入口送一次 Read（state 與落盤換成記憶體；回補給 AI 的提示或 None）。"""
+    from handlers import post_tool_use as pt
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
+    out = run_handler(pt.handle_post_tool_use, {
+        "session_id": SID, "hook_event_name": "PostToolUse", "tool_name": "Read", "tool_input": {"file_path": path},
+        "tool_response": {}, "cwd": cwd, "transcript_path": _tp(tmp_path)}, {"docdrift": {"enabled": False}, **config})
+    return ((out or {}).get("hookSpecificOutput") or {}).get("additionalContext")
+
+
+def test_post_tool_use_read_records_parts_and_dirs_with_hub_on(proj, tmp_path, monkeypatch):
+    """OverviewHub 開著：行為跟以前一樣，第二個部位起排進待送、跨 3 個頂層目錄排一次，導讀卡照樣注入。"""
     make_tree()
     cfg = {"overview_hub": {"enabled": True}}
-    state = {"turn_seq": 2}
-    tp = _tp(tmp_path)
-    wo.on_read(state, SID, "Read", {"file_path": str(proj / "Game/Battle/A.cs")}, str(proj), tp, cfg)
-    assert not state.get("need_goal_batch")                                   # 第一個部位、第一個目錄：不排
-    wo.on_read(state, SID, "Read", {"file_path": str(proj / "Game/Net/B.cs")}, str(proj), tp, cfg)
-    assert state.get("need_goal_batch")                                       # 第二個部位：排進待送
+    state = {"turn_seq": 2, "session": {"id": SID, "cwd": str(proj)}}
+    ctx = _post_read(monkeypatch, tmp_path, state, str(proj / "Game/Battle/A.cs"), str(proj), cfg)
+    assert ctx and "戰鬥導讀" in ctx and not state.get("need_goal_batch")   # 第一個部位、第一個目錄：不排
+    _post_read(monkeypatch, tmp_path, state, str(proj / "Game/Net/B.cs"), str(proj), cfg)
+    assert state.get("need_goal_batch")                                        # 第二個部位：排進待送
     for f in ("Tools/x.py", "Docs/y.md"):
-        wo.on_read(state, SID, "Read", {"file_path": str(proj / f)}, str(proj), tp, cfg)
+        _post_read(monkeypatch, tmp_path, state, str(proj / f), str(proj), cfg)
     kinds = [i["kind"] for i in tree_now()["points"]["scope_pending"]]
-    assert kinds == ["part", "dirs"]                                          # Game、Tools、Docs 三個頂層目錄
+    assert kinds == ["part", "dirs"]                                           # Game、Tools、Docs 三個頂層目錄
 
 
-def test_on_read_without_goal_file_skips_scope_work(proj, tmp_path, monkeypatch):
-    """這個 session 還沒寫過樹：on_read 照常注入導讀卡，連讀入範圍的計算都不做（每次讀檔都走這裡，要省）；寫了樹才算。"""
+def test_post_tool_use_read_scope_works_with_hub_off(tmp_path, monkeypatch):
+    """OverviewHub 關掉（或專案沒有部位表）：沒有部位概念，但跨頂層目錄的讀入擴張照樣偵測、照樣排進待送（claude-91 改判）。"""
+    root = tmp_path / "plain"
+    (root / ".git").mkdir(parents=True)
+    for d in ("src", "docs", "tools"):
+        (root / d).mkdir()
+    make_tree()
+    cfg = {"overview_hub": {"enabled": False}}
+    state = {"turn_seq": 2, "session": {"id": SID, "cwd": str(root)}}
+    for f in ("src/a.py", "docs/b.md", "tools/c.py"):
+        assert _post_read(monkeypatch, tmp_path, state, str(root / f), str(root), cfg) is None   # 沒有導讀卡
+    pending = tree_now().get("points", {}).get("scope_pending", [])
+    assert [i["kind"] for i in pending] == ["dirs"] and len(pending[0]["prev"]) == 3
+    assert state.get("need_goal_batch") is True and "overview_hub" not in state
+
+
+def test_scope_on_read_without_goal_file_skips_work(proj, tmp_path, monkeypatch):
+    """這個 session 還沒寫過樹：連讀入範圍的計算都不做（每次讀檔都走這裡，要省）；寫了樹才算。"""
+    assert hasattr(wo, "read_scope_keys"), "部位與頂層目錄要由 wg_overview.read_scope_keys 算（不看 OverviewHub 開關）"
     called = []
     monkeypatch.setattr(ngp, "scope_growth_line", lambda *a: called.append("part"))
     monkeypatch.setattr(ngp, "scope_dir_line", lambda *a: called.append("dir"))
     cfg = {"overview_hub": {"enabled": True}}
     state = {"turn_seq": 1}
-    tp = _tp(tmp_path)
     for f in ("Game/Battle/A.cs", "Tools/x.py"):
-        wo.on_read(state, SID, "Read", {"file_path": str(proj / f)}, str(proj), tp, cfg)
-    assert any(k.endswith("|戰鬥") for k in state["overview_hub"])
+        ngp.scope_on_read(state, SID, "Read", {"file_path": str(proj / f)}, str(proj), cfg)
     assert called == [] and not ng.goal_path(SID).exists() and not state.get("need_goal_batch")
     make_tree()
-    wo.on_read(state, SID, "Read", {"file_path": str(proj / "Docs/y.md")}, str(proj), tp, cfg)
+    ngp.scope_on_read(state, SID, "Read", {"file_path": str(proj / "Docs/y.md")}, str(proj), cfg)
     assert called == ["dir"]
 
 
@@ -747,11 +774,16 @@ def _calls(path, name):
     ("handlers/user_prompt_submit.py", "on_correction"),
     ("handlers/pre_tool_use.py", "on_ask"),
     ("handlers/post_tool_batch.py", "batch_lines"),
-    ("wg_overview.py", "scope_growth_line"),
-    ("wg_overview.py", "scope_dir_line"),
+    ("handlers/post_tool_use.py", "scope_on_read"),
 ])
 def test_hook_files_call_points(rel, name):
     assert _calls(HOOKS_DIR / rel, name), f"{rel} 沒呼叫 {name}"
+
+
+def test_overview_on_read_no_longer_counts_scope():
+    """讀入範圍只從 post_tool_use 算一次：wg_overview.on_read 不再呼叫，避免 hub 開著時兩條路各算各的。"""
+    assert not _calls(HOOKS_DIR / "wg_overview.py", "scope_growth_line")
+    assert not _calls(HOOKS_DIR / "wg_overview.py", "scope_dir_line")
 
 
 def test_settings_pre_tool_use_matcher_has_ask_tools():

@@ -680,26 +680,17 @@ def _record_read(state: Dict[str, Any], p: str, hit: Optional[Tuple[Path, Dict[s
         rec["part_files_read"].append(p)
 
 
-def _goal_scope(state: Dict[str, Any], session_id: str, p: str, hit: Optional[Tuple[Path, Dict[str, Any]]],
-                config: Dict[str, Any]) -> None:
-    """需求目標 4.3 讀入範圍：這次讀到的部位與頂層目錄記進目前的目標樹；有新提示排進待送就標
-    state["need_goal_batch"]，由 PostToolBatch 合併成一則送。判不了只寫 stderr，不影響讀檔記錄。"""
-    try:
-        import wg_need_goal as _ng
-        import wg_need_goal_points as _ngp
-        if not _ng.goal_path(session_id).exists():   # 這個 session 還沒寫過樹：不必算部位與目錄
-            return
-        ng_cfg = _ng.cfg_of(config, hit[0] if hit else None)
-        if not ng_cfg.get("enabled", True):
-            return
-        found = None if hit else find_map(p)      # 有部位表但表上沒列的檔：頂層目錄照表所在的根算
-        root = hit[0] if hit else (found[0] if found else _unmapped_root_of(p))
-        queued = [_ngp.scope_growth_line(session_id, _key(*hit), ng_cfg) if hit else None,
-                  _ngp.scope_dir_line(session_id, f"{_root_key(root)}|{top_dir(p, root)}", ng_cfg) if root else None]
-        if any(queued):
-            state["need_goal_batch"] = True
-    except Exception as e:  # noqa: BLE001
-        sys.stderr.write(f"[NeedGoal] 讀入範圍記錄失敗（不影響讀檔）：{type(e).__name__}: {e}\n")
+def read_scope_keys(path: str, config: Dict[str, Any]) -> Tuple[Optional[Path], Optional[str], Optional[str]]:
+    """需求目標 4.3 讀入範圍用：回（專案根, 部位鍵, 頂層目錄鍵 <根>|<頂層目錄>）。部位只在 OverviewHub 開著、表上有列時才有；
+    專案根與頂層目錄不看 OverviewHub 開關（有部位表照表所在的根，沒有就照專案標記或 VCS 根）；不在任何專案裡全回 None。"""
+    hit = _lookup_quiet(path) if _cfg(config)["enabled"] else None
+    if hit and not _cfg(config, hit[0])["enabled"]:
+        hit = None
+    found = None if hit else find_map(path)
+    root = hit[0] if hit else (found[0] if found else _unmapped_root_of(path))
+    if root is None:
+        return None, None, None
+    return root, (_key(*hit) if hit else None), f"{_root_key(root)}|{top_dir(path, root)}"
 
 
 # 目標改了之後重送導讀卡用的視角（取代 goal_weights 依意圖選的 lens）
@@ -731,14 +722,14 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
 def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
             cwd: str, transcript_path: str, config: Dict[str, Any]) -> Optional[str]:
     """PostToolUse（Read／Bash）：第一次讀到某部位 → 回注入文字；已注入 → 記 reads_after／part_files_read；
-    目標改了之後再讀到已碰過的部位 → 回目標視角的導讀卡。讀到的部位與頂層目錄另記進需求目標樹（4.3）。"""
+    目標改了之後再讀到已碰過的部位 → 回目標視角的導讀卡。（需求目標的讀入範圍由 post_tool_use 另外呼叫
+    wg_need_goal_points.scope_on_read 算，不看 OverviewHub 開關。）"""
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
     for p in read_paths_from_tool(tool_name, tool_input, cwd):
         hit = _lookup_quiet(p)
         _record_read(state, p, hit)
-        _goal_scope(state, session_id, p, hit, config)
         if not hit:
             continue
         root, row = hit

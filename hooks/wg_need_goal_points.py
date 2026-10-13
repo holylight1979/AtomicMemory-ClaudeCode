@@ -183,6 +183,28 @@ def scope_dir_line(sid: Any, dir_label: str, cfg: Dict[str, Any]) -> Optional[st
     return _update(sid, fn, "scope_dir_line")
 
 
+def scope_on_read(state: Dict[str, Any], sid: Any, tool_name: str, tool_input: Any, cwd: str,
+                  config: Dict[str, Any]) -> bool:
+    """PostToolUse（Read／Bash／PowerShell）：讀到的檔落在哪個部位、哪個頂層目錄，記進目前的目標樹；有新提示排進待送就標
+    state["need_goal_batch"]（回 True），由 PostToolBatch 合併送。不看 OverviewHub 開關：關掉時沒有部位，跨頂層目錄照算。
+    這個 session 還沒寫過樹就什麼都不做（每次讀檔都走這裡）。"""
+    if not ng.goal_path(sid).exists():
+        return False
+    import wg_overview
+    from overview_hub import read_paths_from_tool
+    queued = False
+    for p in read_paths_from_tool(tool_name, tool_input, cwd):
+        root, part, dir_key = wg_overview.read_scope_keys(p, config)
+        cfg = ng.cfg_of(config, root)
+        if not dir_key or not cfg.get("enabled", True):
+            continue
+        hits = [scope_growth_line(sid, part, cfg) if part else None, scope_dir_line(sid, dir_key, cfg)]
+        queued = queued or any(hits)
+    if queued:
+        state["need_goal_batch"] = True
+    return queued
+
+
 # ─── 4.3 被使用者糾正 ─────────────────────────────────────────────────────
 
 def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Optional[str]:
