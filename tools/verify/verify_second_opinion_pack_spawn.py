@@ -35,4 +35,6 @@ def test_run_passes_no_window_creationflags(monkeypatch):
 
     monkeypatch.setattr(pack.subprocess, "run", fake_run)
     assert pack._run(["git", "status"], str(ROOT), 5) == "ok"
-    assert seen.get("creationflags") == subprocess.CREATE_NO_WINDOW, "pack._run 沒帶 CREATE_NO_WINDOW（會閃 console 窗）"
+    flags = seen.get("creationflags")
+    assert flags is not None, "pack._run 的 subprocess.run 沒帶 creationflags（pythonw 父行程下會閃 console 窗）"
+    assert flags & subprocess.CREATE_NO_WINDOW, f"pack._run 的 creationflags={flags!r} 不含 CREATE_NO_WINDOW（會閃 console 窗）"
