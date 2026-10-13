@@ -36,6 +36,10 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple
 
 from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, resolve_project_root
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
+from wg_release_rules import (
+    Verdict, format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
+    committed_refs, content_equals_committed, is_temp_path, temp_roots,
+)
 
 
 def _load_self_receipt_module():
@@ -901,6 +905,8 @@ def pass_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
     for r in receipts:
         if turn_seq is not None and int(r.get("turn_seq", -1)) != int(turn_seq):
             continue
+        if _temp_receipt(r):
+            continue          # TEMP_COPY_NOT_PROJECT：暫存目錄裡跑的不當收據
         verdicts = _verdicts(r)
         if "PASS" in verdicts and "FAIL" not in verdicts and r.get("exit_code") in (None, 0):
             if r.get("exit_code") is None:
@@ -999,7 +1005,7 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
             continue
         if min_turn is not None and not _receipt_after(r, min_at, min_seq, min_turn):
             continue
-        if "DONE" not in _verdicts(r):
+        if "DONE" not in _verdicts(r) or _temp_receipt(r):
             continue
         if sentinel_name and not any(isinstance(s, dict) and str(s.get("name", "")) == sentinel_name
                                      and str(s.get("verdict", "")) == "DONE" for s in r.get("sentinels") or []):
@@ -1405,6 +1411,222 @@ def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None
     return out
 
 
+# ─── 045：已提交版本的事實（CONTENT_EQUALS_COMMITTED／COMMENT_ONLY_CHANGE／RED_WHILE_REVERTED 共用）────────
+_REF_CANDIDATES = ("HEAD", "MERGE_HEAD", "main", "master")
+REF_BUDGET_S = 2.5
+
+
+def _run_git(root: Path, args: List[str], timeout_s: float, _run: Optional[Callable[..., Any]] = None) -> Optional[str]:
+    """跑一次 git，回 stdout（utf-8）；失敗、非零、逾時 → None（stderr 一行）。"""
+    run = _run or subprocess.run
+    try:
+        r = run(["git", "-c", "core.quotepath=false", "-C", str(root), *args], capture_output=True,
+                timeout=max(0.1, timeout_s), creationflags=_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"[verify_ledger] 在 {root} 跑 git {args[0]} 失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.decode("utf-8", "replace")
+
+
+def ref_blob_facts(root: Path, rel_paths: List[str], deadline: Optional[float] = None,
+                   _run: Optional[Callable[..., Any]] = None) -> Dict[str, Any]:
+    """一個 git 根的已提交事實：{"commits": {ref: sha}, "blobs": {ref: {rel: blob}}, "current": {rel: blob}}。
+    ref 只看 HEAD／MERGE_HEAD／main／master（存在的才列）；current 用 `git hash-object`（套 clean filter，CRLF 不影響）。
+    預算到就少查（缺的 ref 當拿不到，呼叫端照算改了）。"""
+    deadline = deadline if deadline is not None else time.monotonic() + REF_BUDGET_S
+    out: Dict[str, Any] = {"commits": {}, "blobs": {}, "current": {}}
+    if not rel_paths:
+        return out
+    left = deadline - time.monotonic()
+    if left < _GIT_MIN_S:
+        return out
+    text = _run_git(root, ["show-ref", "--head"], left, _run) or ""
+    heads: Dict[str, str] = {}
+    for ln in text.splitlines():
+        parts = ln.split()
+        if len(parts) == 2:
+            heads[parts[1]] = parts[0]
+    for ref in _REF_CANDIDATES:
+        sha = heads.get(ref) or heads.get(f"refs/heads/{ref}")
+        if sha:
+            out["commits"][ref] = sha
+    if "MERGE_HEAD" not in out["commits"]:
+        left = deadline - time.monotonic()
+        if left >= _GIT_MIN_S and (root / ".git").exists():
+            sha = (_run_git(root, ["rev-parse", "--verify", "-q", "MERGE_HEAD"], left, _run) or "").strip()
+            if sha:
+                out["commits"]["MERGE_HEAD"] = sha
+    seen_sha: Dict[str, Dict[str, str]] = {}
+    for ref, sha in list(out["commits"].items()):
+        if sha in seen_sha:
+            out["blobs"][ref] = seen_sha[sha]
+            continue
+        left = deadline - time.monotonic()
+        if left < _GIT_MIN_S:
+            break
+        tree = _run_git(root, ["ls-tree", "-z", sha, "--", *rel_paths], left, _run)
+        if tree is None:
+            continue
+        blobs: Dict[str, str] = {}
+        for ent in tree.split("\0"):
+            if not ent or "\t" not in ent:
+                continue
+            meta, rel = ent.split("\t", 1)
+            cols = meta.split()
+            if len(cols) >= 3:
+                blobs[rel.replace("\\", "/")] = cols[2]
+        out["blobs"][ref] = seen_sha[sha] = blobs
+    existing = [p for p in rel_paths if (root / p).is_file()]
+    left = deadline - time.monotonic()
+    if existing and left >= _GIT_MIN_S:
+        text = _run_git(root, ["hash-object", "--", *existing], left, _run)
+        if text is not None:
+            for rel, sha in zip(existing, text.split()):
+                out["current"][rel] = sha
+    return out
+
+
+def _rel_in_root(path: str, root_key: str) -> Optional[str]:
+    n = _norm_path(path)
+    return n[len(root_key) + 1:] if n.startswith(root_key + "/") else None
+
+
+def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_commit_turn: Any = None,
+                          own_commit_shas: Optional[Dict[str, Any]] = None, budget_s: Optional[float] = None,
+                          _run: Optional[Callable[..., Any]] = None) -> Dict[str, Verdict]:
+    """改過的程式檔裡「不是本 session 改碼」的：內容等於已提交版本（CONTENT_EQUALS_COMMITTED：MERGE_HEAD／main／master，
+    或本 session 沒 commit 過它時的 HEAD；本 session 自己提交出來的 commit 不算），或與 HEAD 只差註解（COMMENT_ONLY_CHANGE，
+    同樣要本 session 沒 commit 過它）。回 {path: Verdict}。判不出來（不在 git、預算到、拿不到 ref）→ 不回，照算改了。"""
+    exts = cfg.get("code_exts") or []
+    deadline = time.monotonic() + (REF_BUDGET_S if budget_s is None else float(budget_s))
+    try:
+        last = int(last_commit_turn) if last_commit_turn is not None else None
+    except (TypeError, ValueError):
+        last = None
+    by_root: Dict[str, Tuple[Path, List[Dict[str, Any]]]] = {}
+    for m in mods or []:
+        p = (m or {}).get("path") if isinstance(m, dict) else None
+        if not p or not is_code_file(p, exts) or not os.path.isfile(p):
+            continue
+        hit = _git_root_of(p)
+        if hit:
+            by_root.setdefault(hit[0], (hit[1], []))[1].append(m)
+    out: Dict[str, Verdict] = {}
+    for key, (root, ms) in by_root.items():
+        rels = {m["path"]: _rel_in_root(m["path"], key) for m in ms}
+        rel_list = [r for r in rels.values() if r]
+        if not rel_list:
+            continue
+        facts = ref_blob_facts(root, rel_list, deadline, _run)
+        if not facts["commits"]:
+            continue
+        own = ((own_commit_shas or {}).get(key) or {}).get("shas") or []
+        for m in ms:
+            p, rel = m["path"], rels[m["path"]]
+            if not rel:
+                continue
+            try:
+                first_turn = int(m.get("turn_seq"))
+            except (TypeError, ValueError):
+                first_turn = None
+            committed_since = first_turn is None or (last is not None and last >= first_turn)
+            refs = committed_refs(own, facts["commits"], committed_since)
+            ref_blobs = {ref: (facts["blobs"].get(ref) or {}).get(rel) for ref in refs}
+            v = content_equals_committed(Path(p).name, facts["current"].get(rel), ref_blobs, refs)
+            if v is not None:
+                out[p] = v
+                continue
+            if "HEAD" in refs and ref_blobs.get("HEAD") and p.lower().endswith((".py", ".pyw")):
+                left = deadline - time.monotonic()
+                if left < _GIT_MIN_S:
+                    continue
+                head_src = _run_git(root, ["show", f"HEAD:{rel}"], left, _run)
+                try:
+                    cur_src = Path(p).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if comment_only_change(head_src, cur_src, p) is True:
+                    out[p] = comment_only_verdict(Path(p).name, "HEAD")
+    return out
+
+
+def reverted_code_files(mods: List[Dict[str, Any]], cfg: Dict[str, Any], budget_s: Optional[float] = None,
+                        _run: Optional[Callable[..., Any]] = None) -> List[Tuple[str, str]]:
+    """RED_WHILE_REVERTED 的事實：本 session 改過、現在內容等於非 HEAD 已提交版本（MERGE_HEAD／main／master）的程式檔 → [(檔名, ref)]。"""
+    exts = cfg.get("code_exts") or []
+    deadline = time.monotonic() + (REF_BUDGET_S if budget_s is None else float(budget_s))
+    by_root: Dict[str, Tuple[Path, List[str]]] = {}
+    for m in mods or []:
+        p = (m or {}).get("path") if isinstance(m, dict) else None
+        if not p or not is_code_file(p, exts) or not os.path.isfile(p):
+            continue
+        hit = _git_root_of(p)
+        if hit:
+            by_root.setdefault(hit[0], (hit[1], []))[1].append(p)
+    out: List[Tuple[str, str]] = []
+    for key, (root, paths) in by_root.items():
+        rels = {p: _rel_in_root(p, key) for p in paths}
+        facts = ref_blob_facts(root, [r for r in rels.values() if r], deadline, _run)
+        head_sha = facts["commits"].get("HEAD")
+        for p, rel in rels.items():
+            cur = facts["current"].get(rel or "")
+            if not cur:
+                continue
+            for ref, sha in facts["commits"].items():
+                if ref == "HEAD" or sha == head_sha:
+                    continue
+                if (facts["blobs"].get(ref) or {}).get(rel) == cur and (facts["blobs"].get("HEAD") or {}).get(rel) != cur:
+                    out.append((Path(p).name, ref))
+                    break
+    return out
+
+
+def green_settled_paths(owed: Iterable[str], own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]],
+                        cfg: Dict[str, Any], root_of: Callable[[str], Optional[str]]) -> Dict[str, Verdict]:
+    """CASE_GREEN_AFTER_EDIT：欠案例的程式檔裡，改完之後有同根、仍存在、本 session 改過的案例檔被合格 PASS 收據點名跑綠的 → {path: Verdict}。"""
+    mods = {m["path"]: m for m in own_mod_files or [] if isinstance(m, dict) and m.get("path")}
+    cases = [p for p in mods if is_case_file(p, cfg, root_of(p)) and case_exists(p)]
+    if not cases:
+        return {}
+    greens = [(_trusted(r) or r) for r in pass_receipts(receipts) if not _temp_receipt(r)]
+    out: Dict[str, Verdict] = {}
+    for p in owed or []:
+        root = root_of(p)
+        for c in cases:
+            if root_of(c) != root:
+                continue
+            for r in greens:
+                if cmd_names_file(str(r.get("cmd") or ""), c) and _root_ok(r, root) and _after_last_edit(r, mods.get(p)):
+                    out[p] = green_after_edit_verdict(Path(p).name, Path(c).name, str(r.get("cmd") or ""), str(r.get("at") or ""))
+                    break
+            if p in out:
+                break
+    return out
+
+
+_TEMP_ROOTS: List[str] = []
+
+
+def _temp_receipt(receipt: Dict[str, Any]) -> bool:
+    """TEMP_COPY_NOT_PROJECT：收據在暫存目錄跑（cwd／project_root）或跑的是暫存目錄裡的腳本 → 不當收據。"""
+    if str(os.environ.get("WG_TEMP_RULES", "")).lower() == "off":
+        return False
+    if not _TEMP_ROOTS:
+        import tempfile
+        _TEMP_ROOTS.extend(temp_roots(tempdir=tempfile.gettempdir()))
+    for key in ("cwd", "project_root"):
+        v = str(receipt.get(key) or "")
+        if v and is_temp_path(v, _TEMP_ROOTS):
+            return True
+    cmd = str(receipt.get("cmd") or "")
+    for tok in re.findall(r"[A-Za-z]:[\\/][^\s\"']+|/[^\s\"']+|\\\\\?\\[^\s\"']+", cmd):
+        if is_temp_path(tok, _TEMP_ROOTS):
+            return True
+    return False
+
+
 _RECONCILE_HEAD = "[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據，或改了程式碼還欠驗證案例：\n"
 _RECONCILE_SOURCE = "\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
 _RECONCILE_TAIL = _RECONCILE_SOURCE + "改成事實句（沒跑就說沒跑），或現在跑出對應收據再重新收尾。"
@@ -1478,20 +1700,24 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         n = _syntax_note(this_turn, verdict, measure_cmds)
         return f"（{n}）" if n else ""
 
-    hits: List[str] = []
+    hits: List[str] = []          # 每條都是 format_hit 的一行：`✗ (<字母>) <規則名>：<一句現象>｜證據：…`
     if any(claims_fixed(t, phrases) for t in texts) and not related and not covered():
-        hits.append(f"(a) 說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}。"
-                    "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
-                    "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）。" + note("PASS"))
+        hits.append(format_hit("a", Verdict(
+            "CLAIM_FIXED_NEEDS_PASS", True, f"說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}",
+            (f"本回合 PASS 收據 {len(pass_receipts(this_turn))} 筆、對得上改檔的 0 筆",
+             "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
+             "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）" + note("PASS")))))
     measured = any("DONE" in _verdicts(r) and (_clean(r) or any(_ruler_ran(mc, r) for mc in measure_cmds))
                    for r in this_turn)
     if any(claims_measured(t, phrases) for t in texts) and not measured and not covered():
-        hits.append("(b) 說「量了」但本回合沒有 `<NAME> DONE k=v` 收據，也沒有改完之後跑的部位量尺自寫收據。"
-                    + ("補跑量尺讓它印 DONE 尾行。" if pending else "量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量。")
-                    + note("DONE"))
+        hits.append(format_hit("b", Verdict(
+            "CLAIM_MEASURED_NEEDS_DONE", True, "說「量了」但本回合沒有 `<NAME> DONE k=v` 收據，也沒有改完之後跑的部位量尺自寫收據",
+            (("補跑量尺讓它印 DONE 尾行" if pending else "量了就讓量尺腳本印 DONE 尾行，沒量就寫沒量") + note("DONE"),))))
     if any(tried_claim_without_exec(t, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases) for t in texts):
-        hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。"
-                    + ("現在跑出收據。" if pending else "沒跑就寫沒跑，或現在跑。"))
+        hits.append(format_hit("c", Verdict(
+            "CLAIM_TRIED_NEEDS_EXEC", True, "說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行",
+            (f"本回合工具呼叫：{'、'.join(sorted(set(str(n) for n in turn_tool_names))[:6]) or '（無）'}",
+             "現在跑出收據" if pending else "沒跑就寫沒跑，或現在跑"))))
     exts = cfg.get("code_exts") or []
     absent = [p for p in mod_session if is_code_file(p, exts) and not code_exists(p)]
     gone = vanished_code_paths(absent, cfg, committed_new=committed_new) if absent else ()
@@ -1499,29 +1725,41 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     if owed and case_settled:
         done = set(case_settled(owed))
         if done:
-            print("[Guardian:ReconcileGate] commit 時不欠案例、之後改了又回到那時的內容，不重算補案例："
+            print("[Guardian:ReconcileGate] 規則 SNAPSHOT_SETTLED：commit 時不欠案例、之後改了又回到那時的內容，不重算補案例："
                   + "、".join(Path(p).name for p in sorted(done)[:5]), file=sys.stderr)
         owed = [p for p in owed if p not in done]
     if owed:
+        green = green_settled_paths(owed, own_mod_files, receipts, cfg, root_of)
+        for p, v in green.items():
+            print(f"[Guardian:ReconcileGate] 規則 {v.rule}：{v.why}｜證據：{'；'.join(v.evidence)}", file=sys.stderr)
+        owed = [p for p in owed if p not in green]
+    if owed:
         names = "、".join(Path(p).name for p in owed[:4])
-        hits.append(f"(d) 改了程式碼（{names}）之後沒有新增或修改驗證 case 檔（案例檔要和程式同根、現在還在、是程式檔；義務跨回合，不看收尾措辭）："
-                    "改了碼沒驗證 case（PASS 不能代替）。"
-                    "補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者。")
+        cases_touched = [Path(m["path"]).name for m in own_mod_files or []
+                         if isinstance(m, dict) and m.get("path") and is_case_file(m["path"], cfg, root_of(m["path"]))]
+        hits.append(format_hit("d", Verdict(
+            "OWED_AFTER_LAST_CASE", True,
+            f"改了程式碼（{names}）之後沒有新增或修改驗證 case 檔（案例檔要和程式同根、現在還在、是程式檔；義務跨回合，不看收尾措辭）",
+            (f"本 session 改過的案例檔：{'、'.join(cases_touched[:4]) or '（無）'}",
+             "改碼之後沒有點名同根案例檔跑綠的 PASS 收據（規則 CASE_GREEN_AFTER_EDIT）",
+             "改了碼沒驗證 case（PASS 不能代替）：補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者"))))
     # (e) 只檢本版報告（post_tool_use 一定寫入 j／k 兩鍵）；升級前 emit 的舊報告沒這兩鍵，不拿它擋
     report: List[str] = []
     if (claims_completion(last_text) and aec_emitted and isinstance(aec, dict)
             and "j_evidence_path" in aec and "k_followups" in aec):
         if aec_evidence_missing(aec.get("j_evidence_path"), bool(receipts)):
-            report.append(f"(e) 收尾檢核 (j) 證據持久路徑缺或不存在，但本 session 有 {len(receipts)} 筆驗證收據。"
-                          f"填帳本路徑（{ledger_path(sid or 'SID')}）或其他真存在的證據檔。")
+            report.append(format_hit("e", Verdict(
+                "AEC_EVIDENCE_PATH", True, f"收尾檢核 (j) 證據持久路徑缺或不存在，但本 session 有 {len(receipts)} 筆驗證收據",
+                (f"填帳本路徑（{ledger_path(sid or 'SID')}）或其他真存在的證據檔",))))
         if aec_followups_missing(aec.get("k_followups")):
-            report.append("(e) 收尾檢核 (k) 追蹤項是空字串。有就一行一項，沒有就寫「無」。")
+            report.append(format_hit("e", Verdict(
+                "AEC_FOLLOWUPS_EMPTY", True, "收尾檢核 (k) 追蹤項是空字串", ("有就一行一項，沒有就寫「無」",))))
     note = ""
     if any(r.get("exit_unknown") for r in related) or any(r.get("exit_unknown") for r in unrelated):
         note = "\n註：有 PASS 收據的 exit 未知（exit 未知＝dict 回應沒有 exit 欄），只憑哨兵認定。"
     tail = _RECONCILE_TAIL_EVIDENCE if pending or owed else _RECONCILE_TAIL
-    code_reason = (_RECONCILE_HEAD + "\n".join("  ✗ " + h for h in hits) + tail + note) if hits else None
-    report_reason = (_RECONCILE_HEAD + "\n".join("  ✗ " + h for h in report) + _RECONCILE_TAIL) if report else None
+    code_reason = (_RECONCILE_HEAD + "\n".join("  " + h for h in hits) + tail + note) if hits else None
+    report_reason = (_RECONCILE_HEAD + "\n".join("  " + h for h in report) + _RECONCILE_TAIL) if report else None
     return code_reason, report_reason
 
 
@@ -1787,7 +2025,10 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             blocks[-1] += f"run_verify 自寫收據對上了這把尺，但跑的時候{_scope_env_why([(n, '', '') for n in env_runs])}"
     reason = None
     if blocks:
-        reason = ("[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n" + "\n".join("  ✗ " + b for b in blocks)
+        reason = ("[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n"
+                  + "\n".join("  " + format_hit("m", Verdict("MEASURE_RULER_NOT_RUN", True, b.split("。", 1)[0],
+                                                             tuple(x for x in b.split("。", 1)[1:] if x.strip())))
+                              for b in blocks)
                   + "\n  要補的證據就是上面那把尺的收據；跑不了就照【收尾放行確認】問使用者，改寫收尾文字不會解帳。")
         if any("run_verify.py" in str((r["row"].get("measure") or {}).get("cmd") or "") for r in parts.values()):
             reason += ("\n  run_verify 跑超過 10 分鐘就背景跑：它跑完會自寫收據到 workflow/verify-ledger/_runs/，"

@@ -2200,6 +2200,13 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
     args = [w.text for w in words[k + 1:]]
     lows = [a.lower() for a in args]
     if name in _INTERPRETERS and any(a in _INTERPRETERS[name] for a in lows):
+        # 規則 INLINE_PY_READONLY：python -c 的程式碼用 ast 靜態判只讀 → 沒有寫入訊號；其他直譯器內嵌碼（node -e、python -、
+        # pwsh -Command）判不了照 UNKNOWN
+        if name in ("python", "python3", "py", "pythonw") and "-c" in lows and "-" not in lows:
+            code = args[lows.index("-c") + 1] if lows.index("-c") + 1 < len(args) else ""
+            from wg_release_rules import inline_python_verdict
+            if code and not inline_python_verdict(code).owed:
+                return cwd
         _mark_unknown(out, seg)
         return cwd
     if name == "eval":
@@ -2340,11 +2347,26 @@ def check_cross_realm_bash(
     for pat in g.get("allowlist", []) or []:
         if pat and str(pat).replace("\\", "/").lower() in cmd_norm:
             return None
+    # 規則 GIT_READONLY_SUBCMD：寫入訊號是 git 子命令或 python -c 時，每段 git 都唯讀（show、hash-object 無 -w、rev-parse、diff、
+    # log、status、ls-files、cat-file…）、且算得出的寫入目標沒有落在根層核心路徑（重導到 scratchpad 可以）→ 放行；
+    # 目標不明（UNKNOWN）、任一目標在根層、任一段 git 會寫 → 照擋並留 guard-crossrealm.jsonl
+    from wg_release_rules import git_readonly_verdict
+    targets = write_paths_from_tool(tool_name, tool_input, cwd)
+    root_targets = [t for t in targets if t.startswith(_WRITE_TARGET_UNKNOWN) or _ROOT_CORE_PATH_RE.search(t)
+                    or _is_core_session(t) is True]
+    verdict = git_readonly_verdict(cmd, root_targets)
+    if not verdict.owed:
+        print(f"[Guardian:CrossRealmBashBlock] 規則 {verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}",
+              file=sys.stderr)
+        return None
+    append_guard_log("crossrealm", {"cwd": cwd, "cmd": cmd[:200], "rule": verdict.rule, "why": verdict.why,
+                                    "evidence": list(verdict.evidence)[:3], "targets": root_targets[:3]})
     return (
         "[Guardian:CrossRealmBashBlock] 專案 session 不得經 Bash/PowerShell 修改 ~/.claude 核心層"
         "（hooks/lib/tools/skills/rules/prompts、根層設定與文件）或操作根層 repo（git add/commit/push）。\n"
         f"命令：{cmd[:160]!r}\n"
         f"session cwd：{cwd}\n"
+        f"命中規則：{verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}\n"
         "規則：專案層遇到要改根層的需求 → 不動手，把需求寫成一段可貼上的 prompt 交給使用者，"
         "請他到 ~/.claude 開 session 執行（那裡會跑 verify、選擇性 staging、push）。\n"
         "專案自己的需求 → 寫 {專案根}/.claude/hooks/project_hooks.py 或 .claude/skills/。\n"

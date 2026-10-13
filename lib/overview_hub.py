@@ -45,7 +45,8 @@ _LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
 # bypass 模式下讀檔走 Bash：cat / head / tail / sed -n / less 後面的路徑也算 Read
 _BASH_READ_RE = re.compile(
     r'(?:^|[;&|(]\s*)(?:cat|head|tail|less|sed\s+-n\s+\S+|svn\s+cat|svn\s+diff|git\s+show|git\s+diff)'
-    r'\s+(?:-[a-zA-Z0-9=]+\s+)*(?:[0-9a-f]{7,40}:|HEAD[~^0-9]*:)?"?([^"\s;|&)]+)"?'
+    r'\s+(?:-[a-zA-Z0-9=]+\s+)*(?:[0-9a-f]{7,40}:|HEAD[~^0-9]*:)?"?([^"\s;|&)]+)"?',
+    re.MULTILINE,            # 每一行行首都算指令開頭（定位三行放 # 註解後，下一行的 head 照認；註解行由 hooks 層先剝掉）
 )
 # PowerShell 讀檔 cmdlet（含常用別名）＋到本段結束（; | & 換行 ) }）為止的參數字串
 _PS_READ_RE = re.compile(

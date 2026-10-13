@@ -25,6 +25,12 @@ from handlers.pre_tool_use import check_git_commit_order  # noqa: E402
 _CMD = "git add a.py && git commit -m 'x' && git push"
 
 
+@pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """假 repo 都建在 pytest tmp 下：關掉 TEMP_REPO_COMMIT_EXEMPT（B9 的案自己再開）。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+
+
 def _state(*prompts):
     return {"recent_user_prompts": list(prompts)}
 

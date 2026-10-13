@@ -661,6 +661,23 @@ def check_git_commit_order(
         shape_hint = "" if segments else (
             "\n這次拆不出直接的 git commit，是包裝（bash -c、powershell -Command、cmd /c…）或展開（$()、反引號、eval、括號）"
             "裡可能有 commit：命令裡有 `$()` 等展開又含 commit 字樣時一律要口令；只是查詢的話把 commit 字樣拿掉或改用單引號。")
+        if segments:
+            # 規則 TEMP_REPO_COMMIT_EXEMPT：每段 commit 都落在暫存目錄（系統 TEMP、scratchpad、pytest tmp）下的拋棄式 repo → 免口令；
+            # 同一套白名單句型（_exempt_run_dirs）判落點，寫法拆不出來就不豁免
+            base = cwd or str(((state or {}).get("session") or {}).get("cwd") or "")
+            run_dirs = _exempt_run_dirs(command, base, msys_paths=(tool_name == "Bash"))
+            if run_dirs:
+                import tempfile
+                from wg_release_rules import temp_commit_verdict, temp_roots
+                from handlers._shared import _comparable
+                roots = temp_roots(tempdir=tempfile.gettempdir())
+                verdicts = [temp_commit_verdict(_comparable(d), roots) for d in run_dirs]
+                if all(not v.owed for v in verdicts):
+                    try:
+                        sys.stderr.write(f"[Guardian:CommitOrder] 規則 {verdicts[0].rule}：{verdicts[0].why}\n")
+                    except OSError:
+                        pass
+                    return None
         if segments and cfg.get("exempt_cwd_under_claude_dir", True):
             base = cwd or str(((state or {}).get("session") or {}).get("cwd") or "")
             run_dirs = _exempt_run_dirs(command, base, msys_paths=(tool_name == "Bash"))

@@ -21,7 +21,9 @@ import fnmatch
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,7 +45,20 @@ from overview_hub import (  # noqa: E402
     split_card_sections, top_dir, transcript_readable, transcript_size,
 )
 
+import wg_release_rules as _rr  # noqa: E402  放行／欠帳判定規則（GREP_CONTENT_IS_READ、BASH_COMMENT_LINES_STRIPPED、RUNTIME_DATA_NO_OVERVIEW、TEMP_COPY_NOT_PROJECT）
+
 LOG_PATH = CLAUDE_DIR / "workflow" / "_overview-hub.log"   # _*.log 不進版控
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+_TEMP_ROOTS: List[str] = []
+
+
+def _temp_roots() -> List[str]:
+    """暫存根（規則 TEMP_COPY_NOT_PROJECT 的事實）；WG_TEMP_RULES=off 時每次都回關閉值（案例把假專案建在 tmp 下）。"""
+    if str(os.environ.get("WG_TEMP_RULES", "")).lower() == "off":
+        return list(_rr.TEMP_DISABLED)
+    if not _TEMP_ROOTS:
+        _TEMP_ROOTS.extend(_rr.temp_roots(tempdir=tempfile.gettempdir()))
+    return _TEMP_ROOTS
 
 # A5.1 前例行填空範本：只能填存在的卡名、「無」、或「待規格：<理由>」；照抄這句不算交（登進 overview_hub 的範本句表，
 # locate_groups 對任何 template 都會剔除；overview_hub.py 是軌 A α 的檔，這裡以擴充 tuple 登記、不改原檔）
@@ -680,13 +695,26 @@ def _record_read(state: Dict[str, Any], p: str, hit: Optional[Tuple[Path, Dict[s
         rec["part_files_read"].append(p)
 
 
+def _read_paths(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
+    """讀檔辨識的入口：Grep（規則 GREP_CONTENT_IS_READ：output_mode=content 且 path 是檔）、Bash 先剝行首 # 註解行
+    （規則 BASH_COMMENT_LINES_STRIPPED）再交 lib 的 regex；其他工具照 lib 原規則。"""
+    if tool_name == "Grep":
+        return _rr.grep_read_paths(tool_input)
+    if tool_name == "Bash":
+        tool_input = {**tool_input, "command": _rr.strip_comment_lines(str(tool_input.get("command") or ""))}
+    return read_paths_from_tool(tool_name, tool_input, cwd)
+
+
 def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
             cwd: str, transcript_path: str, config: Dict[str, Any]) -> Optional[str]:
-    """PostToolUse（Read／Bash）：第一次讀到某部位 → 回注入文字；已注入 → 記 reads_after／part_files_read。"""
+    """PostToolUse（Read／Bash／PowerShell／Grep）：第一次讀到某部位 → 回注入文字；已注入 → 記 reads_after／part_files_read。
+    暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）不找表、不注入、不記。"""
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
-    for p in read_paths_from_tool(tool_name, tool_input, cwd):
+    for p in _read_paths(tool_name, tool_input, cwd):
+        if _rr.is_temp_path(p, _temp_roots()):
+            continue
         hit = _lookup_quiet(p)
         _record_read(state, p, hit)
         if not hit:
@@ -800,11 +828,28 @@ def _layer_mismatch(row: Dict[str, Any], vals: Dict[str, str]) -> Optional[str]:
     return f"定位｜根因層 沒有指明這個部位的層（部位表列的層：{'／'.join(layers)}），填錯層或沒填層一律擋"
 
 
+def _gitignored(root: Path, file_path: str) -> Optional[bool]:
+    """git check-ignore 事實（規則 RUNTIME_DATA_NO_OVERVIEW）：True 被忽略、False 沒有、None 查不到（不在 git／逾時）。"""
+    if not (root / ".git").exists():
+        return None
+    try:
+        r = subprocess.run(["git", "-C", str(root), "check-ignore", "-q", "--", file_path], capture_output=True,
+                           timeout=2, creationflags=_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return True if r.returncode == 0 else (False if r.returncode == 1 else None)
+
+
 def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path: str,
                    cfg: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], bool]:
-    """沒有部位表的專案、或表上沒列的檔：只要求本 session 讀過同頂層目錄 ≥N 個檔。"""
+    """沒有部位表的專案、或表上沒列的檔：只要求本 session 讀過同頂層目錄 ≥N 個檔。
+    執行期資料（gitignored、workflow/state*、workflow/need-goal、Logs…；規則 RUNTIME_DATA_NO_OVERVIEW）免綜觀。"""
     key = _unmapped_key(root, file_path)
     top = top_dir(file_path, root)
+    v = _rr.runtime_data_verdict(file_path, str(root), _gitignored(root, file_path))
+    if not v.owed:
+        _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, rule=v.rule, deny_reason=None)
+        return (None, None, False)
     need = int(cfg["min_overview_evidence"]["part_files"])
     rec = (state.get("overview_hub") or {}).get(key)
     have = len(rec["part_files_read"]) if rec else 0
@@ -833,8 +878,15 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         # write_paths_from_tool 解析不出寫入目標（變數路徑、eval、cd -、heredoc 以外的怪寫法）：不知道改哪個檔就不能判，一律擋
         msg = (f"[Guardian:OverviewHub] 無法判定這段指令的寫入目標（{file_path[8:]}…）：路徑含展不開的變數、eval、cd - 或"
                f"解析不出的重導向。改用 Edit／Write 工具，或把路徑寫成字面絕對路徑。")
+        _interp = re.match(r"\s*(?:\S+=\S+\s+)*(node|nodejs|pwsh|powershell|python3?|py|pythonw)\b", file_path[8:], re.IGNORECASE)
+        if _interp:
+            msg += "\n" + _rr.inline_code_hint(_interp.group(1).lower())      # 規則 INLINE_PY_READONLY：判不了的內嵌碼指路
         _log("edit_unknown_target", session_id, path=file_path, deny_reason="unknown_target")
         return (msg, msg, False)
+    if _rr.is_temp_path(file_path, _temp_roots()):
+        # 規則 TEMP_COPY_NOT_PROJECT：暫存目錄下的副本不當專案（git archive 解到 scratchpad 的樹含部位表也一樣），不找表、不注入、不擋
+        _log("edit_temp_copy", session_id, path=file_path, rule="TEMP_COPY_NOT_PROJECT", deny_reason=None)
+        return (None, None, False)
     # 改的是 OverviewHub 自己的設定檔／部位表 → 不走 OverviewHub 流程（否則設定寫錯一個鍵就再也改不回來）；有錯仍回警告列出來讓模型知道在修什麼
     own, own_root = _own_config_layer(file_path)
     if own:

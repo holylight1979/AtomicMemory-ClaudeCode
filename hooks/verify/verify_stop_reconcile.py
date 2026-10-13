@@ -35,6 +35,12 @@ PHRASES = ev.compile_claim_phrases(FIX / "q6" / "phrases.json")
 
 ROOT = Path(r"c:\proj")
 _RELATED_CMD = "python -m pytest hooks/verify/verify_x.py"
+
+
+@pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """假專案與收據可能落在 pytest tmp：關掉暫存規則（B14 的案自己再開）。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
 _REAL_CASE_EXISTS = getattr(vl, "case_exists", None)   # fixture 會把它換成「一律存在」，009-4.5 要用真的
 
 
@@ -108,7 +114,7 @@ def test_fixed_claim_without_completion_not_gated(driven, capsys):
 def test_fixed_claim_without_any_pass_blocks(driven, capsys):
     out, state, logs = driven("閘修好了，完成。", capsys)
     assert "[Guardian:ReconcileGate]" in out and "(a)" in out and "沒有任何 PASS" in out
-    assert state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 1}
+    assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
     assert logs and logs[-1][0] == "reconcile"
 
 
@@ -372,7 +378,7 @@ def test_reconcile_judge_exception_blocks(driven, capsys, monkeypatch):
     monkeypatch.setattr(st, "reconcile_gate_parts", _boom)
     out, state, logs = driven("閘修好了，完成。", capsys, verify_receipts={_SID: [_rcpt(5, cmd="python -X utf8 run_verify.py")]})
     assert "[Guardian:ReconcileGate] 判定錯誤，一律擋：RuntimeError: boom" in out and "先別宣告完成" in out
-    assert state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 1}
+    assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
     assert any(g == "reconcile" and "boom" in p.get("error", "") for g, p in logs)
 
 
@@ -384,7 +390,7 @@ def test_measure_judge_exception_blocks(driven, capsys, monkeypatch):
     monkeypatch.setattr(st, "measure_gate_reason", _boom)
     out, state, _ = driven("全部完成了。", capsys, **kw)
     assert "[Guardian:MeasureGate] 判定錯誤，一律擋：RuntimeError: boom" in out
-    assert state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 1}
+    assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
 
 
 def test_judge_exception_third_block_asks_user(driven, capsys, monkeypatch):
@@ -494,13 +500,13 @@ def test_third_block_in_same_turn_still_blocks_and_asks_user(driven, capsys):
     out, state, logs = driven("閘修好了，完成。", capsys, reconcile_gate_turn={_SID: {"turn": 5, "count": 2}})
     assert "[Guardian:ReconcileGate] 本回合已擋 2 次仍未解" in out and "【收尾放行確認】" in out
     assert "「放行這一回合」「繼續擋，先修好」" in out and "原擋訊息" in out and "(a)" in out
-    assert "reconcile_overflow" not in state and state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 3}
+    assert "reconcile_overflow" not in state and {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 3}
     assert [p.get("event") for g, p in logs if g == "reconcile"] == ["exhausted_block"]
 
 
 def test_budget_resets_on_new_turn(driven, capsys):
     out, state, _ = driven("閘修好了，完成。", capsys, reconcile_gate_turn={_SID: {"turn": 4, "count": 2}})
-    assert "ReconcileGate" in out and state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 1}
+    assert "ReconcileGate" in out and {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
 
 
 def test_gate_not_consuming_shared_stop_budget(driven, capsys):
@@ -1228,7 +1234,7 @@ def test_006_3_pending_release_carries_over_turns(exhausted, capsys, monkeypatch
     _ups_turn(monkeypatch, s6b, "繼續修")
     out, after, _ = exhausted(capsys, **s6b)
     assert "先前回合已擋滿、仍未放行也仍未解" in out and "【收尾放行確認】" in out              # 反例：不重給新回合預算
-    assert after["reconcile_gate_turn"][_SID] == {"turn": 6, "count": 1}
+    assert {k: after["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 6, "count": 1}
 
 
 def test_006_3_pending_cleared_when_check_passes(driven, capsys):
@@ -3162,11 +3168,11 @@ def test_040_3_peer_or_notification_does_not_reset_count(gate_run, capsys, promp
     state, stop, ups, ask, ref = gate_run
     ref[0] = capsys
     stop()
-    assert state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 1}
+    assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
     ups(prompt)
     assert state["turn_seq"] == 6 and state["turn_prompts_seq"] == 5
     stop()
-    assert state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 2}
+    assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 2}
     out, _ = stop()
     assert "本回合已擋 2 次仍未解" in out and rl.RELEASE_TAG in out
 
@@ -3179,7 +3185,7 @@ def test_040_4_user_typed_new_turn_resets_count(gate_run, capsys):
     ups("再看一次")
     assert state["turn_prompts_seq"] == 6
     stop()
-    assert state["reconcile_gate_turn"][_SID] == {"turn": 6, "count": 1}
+    assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 6, "count": 1}
 
 
 @pytest.mark.parametrize("summary, ok", [("718 passed in 5.20s", True), ("1 failed, 717 passed in 5.20s", False)])

@@ -307,10 +307,9 @@ def handle_user_prompt_submit(
         state["fix_escalation_warned"] = True
         state["fix_escalation_triggered"] = True
         lines.append(
-            f"[Guardian:FixEscalation] 偵測到重複修正 "
-            f"(retry={retry_count})。"
-            "依據「精確修正升級」規則，必須暫停直接修復，"
-            "執行 /fix-escalation 精確修正會議。"
+            f"[Guardian:FixEscalation] 偵測到重複修正（retry={retry_count}：同一筆紅測之後反覆改同一個檔，規則 RETRY_COUNTS_EDITS_SINCE_RED）。"
+            "依「精確修正升級」規則先停下直接修：用三句寫出①失敗現象與原文、②已試過的改法與各自為何沒解、"
+            "③下一個能區分候選原因的最小檢查；做完那個檢查再動手。刻意跑紅（退回舊碼反證）不算在內。"
         )
 
     # Evasion 上輪命中 → 注入舉證要求
