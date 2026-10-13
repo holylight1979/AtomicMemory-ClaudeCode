@@ -94,7 +94,7 @@ def pytest_configure(config):
     if preloaded:
         print("[conftest] 這些本樹模組在 pytest 開始前已載入，模組層的資料根常數不會跟著隔離（要隔離就開新行程跑）："
               + "、".join(preloaded[:8]) + ("…" if len(preloaded) > 8 else ""), file=sys.stderr)
-    base = Path(tempfile.mkdtemp(prefix="wg-pytest-"))
+    base = Path(tempfile.mkdtemp(prefix="wg-iso-"))   # 前綴不含 test：有案要「路徑不含 test 字樣」的暫存目錄
     data_root, temp_root = base / "data", base / "tmp"
     data_root.mkdir()
     temp_root.mkdir()
