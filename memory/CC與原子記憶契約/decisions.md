@@ -7,6 +7,7 @@
 - Trigger: 決策, 記憶系統, 原子記憶, 架構細節, context budget
 - Created-at: 2026-10-13
 - Quote: 「你是 v6.0 的工作 session track-a6，總控台是 claude-9f（調度；對人總控台是 claude-91）。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-a6（分支 v6/track-a6，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\…」
+- Related: decisions-architecture, toolchain, toolchain-ollama
 
 ## 知識
 

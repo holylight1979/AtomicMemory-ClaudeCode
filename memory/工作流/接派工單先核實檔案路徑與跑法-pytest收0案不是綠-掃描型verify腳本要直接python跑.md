@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 派工單, 路徑寫錯, no tests ran, pytest exit 5, 收 0 案, 掃描腳本, verify 腳本, 跑法, 核實路徑, 工作 session
 - Created-at: 2026-10-13
+- Quote: 「你是 v6.0 的工作 session track-a6（A6 共用檔：settings/config/TECH/Architecture/CHANGELOG/README/Install-forAI/健檢/coding-style/atom 改寫＋pack.py 小修提交），對人總控台是 claude-91、調度總控台是 claude-9f。第一步用 EnterWorktree 切進 work…」
 
 ## 知識
 
