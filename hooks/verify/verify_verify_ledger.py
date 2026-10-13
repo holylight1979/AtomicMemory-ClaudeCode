@@ -191,6 +191,8 @@ def test_receipt_cap_50_and_turn_filter():
     this = vl.ledger_entries_this_turn(state, _SID, 3)
     assert this and all(r["turn_seq"] == 3 for r in this)
     assert vl.ledger_entries_this_turn(state, "other", 3) == []
+    state["turn_prompts_seq"] = 2                     # 044：使用者在 turn 2 打字、同伴訊息到 turn 3 → turn 2、3 都是本回合
+    assert {r["turn_seq"] for r in vl.ledger_entries_this_turn(state, _SID, 3)} == {2, 3}
 
 
 # ─── B4 post_tool_use：Bash／PowerShell 落帳、PASS 且 exit≠0、子代理不入主帳 ──

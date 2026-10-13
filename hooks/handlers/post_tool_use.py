@@ -499,6 +499,7 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
 
 
 UNKNOWN_WRITES_CAP = 20
+EXEC_TURN_KEYS_CAP = 50          # exec_turn_seq 最多記幾個 session／子代理（主 session＋每個子代理各一個鍵）
 
 
 def _note_unknown_write(state: Dict[str, Any], session_id: str, target: str, command: str, tool_name: str,
@@ -775,8 +776,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 寫碼查核 (c)「說試過／跑了」看本回合有沒有執行過指令：記最後一次執行的 turn_seq（主 session 用 sid、子代理用它自己的收據鍵），
         # 同伴訊息讓 transcript 另起一段之後，同一個使用者回合裡較早跑的指令照樣算（規則 TURN_SINCE_USER_PROMPT）
         _exec_aid = str(input_data.get("agent_id") or "")
-        state.setdefault("exec_turn_seq", {})[agent_receipt_key(session_id, _exec_aid) if _exec_aid else session_id] = \
-            int(state.get("turn_seq", 0))
+        _exec = state.setdefault("exec_turn_seq", {})
+        _exec_key = agent_receipt_key(session_id, _exec_aid) if _exec_aid else session_id
+        _exec.pop(_exec_key, None)                                          # 重新插入排到最後，超量時先丟最久沒執行的
+        _exec[_exec_key] = int(state.get("turn_seq", 0))
+        for _old in list(_exec)[:-EXEC_TURN_KEYS_CAP]:
+            _exec.pop(_old, None)
         dirty = True
         if re.search(r"\b(git\s+(log|blame|show|diff)|svn\s+(log|blame|diff))\b", command):
             vcs = state.setdefault("vcs_queries", [])

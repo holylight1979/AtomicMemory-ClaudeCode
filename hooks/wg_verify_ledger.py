@@ -36,7 +36,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple
 
 from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, resolve_project_root
 from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, gone_verdict, in_turn,
-                              owed_after_last_case, Verdict)
+                              owed_after_last_case, user_turn, Verdict)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -386,7 +386,9 @@ def next_event_seq(state: Dict[str, Any]) -> int:
 
 
 def ledger_entries_this_turn(state: Dict[str, Any], sid: str, turn_seq: int) -> List[Dict[str, Any]]:
-    return [r for r in receipts_of(state, sid) if int(r.get("turn_seq", -1)) == int(turn_seq)]
+    """本回合的收據（規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起，同伴訊息、背景通知不另開回合）。"""
+    since = user_turn(state, turn_seq)
+    return [r for r in receipts_of(state, sid) if in_turn(r.get("turn_seq", -1), turn_seq, since)]
 
 
 def spec_paths_of(sid: str, base_dir: Optional[Path] = None) -> List[str]:
