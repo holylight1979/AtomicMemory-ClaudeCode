@@ -307,7 +307,7 @@ def blob_sha(data: bytes) -> str:
 
 def committed_refs(own_commit_shas: Iterable[str], ref_commits: Dict[str, str], committed_since_edit: bool = True) -> List[str]:
     """哪些 ref 可以當「已提交版本」：MERGE_HEAD／main／master（指到本 session 自己提交的 commit 除外）。
-    HEAD 永遠不算：「等於 HEAD」只能走 NET_UNCHANGED／SNAPSHOT_SETTLED（它們還會查同根案例檔乾不乾淨——程式與案例一起退回舊版、
+    HEAD 永遠不算：「等於 HEAD」只能走 NET_UNCHANGED／SNAPSHOT_SETTLED（它們還會查同根案例檔乾不乾淨，程式與案例一起退回舊版、
     只還原程式時案例還是舊的，照欠；verify_stop_reconcile 035 ⑤）。ref_commits＝ref → 它指到的 commit sha。"""
     own = {str(s) for s in own_commit_shas or ()}
     head = str((ref_commits or {}).get("HEAD") or "")

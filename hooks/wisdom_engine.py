@@ -303,7 +303,7 @@ def track_retry(state: Dict[str, Any], file_path: str) -> None:
     # Error gate: only re-edits made against an unresolved, genuine failure count.
     # 規則 RED_WHILE_REVERTED：刻意紅（退回舊碼反證）不進 failing_tests，自然不算；舊 state 帶 deliberate 旗標的也跳過。
     # 規則 RETRY_COUNTS_EDITS_SINCE_RED：只數「這筆紅出現之後」對同檔的編輯（記在紅測條目的 edits_after[path]），
-    # 不數整場累計——整場改過 7 次的檔在新一筆紅之後改第一次不是重試。
+    # 不數整場累計，整場改過 7 次的檔在新一筆紅之後改第一次不是重試。
     from wg_release_rules import retry_bump
     live = [f for f in (state.get("failing_tests") or []) if isinstance(f, dict) and not f.get("deliberate")]
     if not live:

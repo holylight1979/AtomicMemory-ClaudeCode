@@ -1638,7 +1638,7 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
     """改過的程式檔裡「不是本 session 改碼」的，回 {path: Verdict}：
     - CONTENT_EQUALS_COMMITTED：內容等於另一方已提交的版本（MERGE_HEAD／main／master；指到 HEAD 或本 session 自己提交的 commit 不算）。
     - COMMENT_ONLY_CHANGE：與 HEAD 只差註解／docstring／空白，且本 session 沒 commit 過它；同根本 session（主 session＋子代理，
-      session_paths）改過的其他檔也都要等於 HEAD 或只差註解——程式與案例一起退回舊版、只還原程式時案例還是舊的，照欠
+      session_paths）改過的其他檔也都要等於 HEAD 或只差註解。程式與案例一起退回舊版、只還原程式時案例還是舊的，照欠
       （與 NET_UNCHANGED 同一條防線，verify_stop_reconcile 035 ⑤／037）。
     判不出來（不在 git、預算到、拿不到 ref）→ 不回，照算改了。"""
     exts = cfg.get("code_exts") or []

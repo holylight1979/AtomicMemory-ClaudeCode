@@ -53,7 +53,7 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
         state["user_turn_count"] = int(state.get("user_turn_count", 0) or 0) + 1
 
     if not typed:
-        # 規則 DISPATCH_OPENS_TURN：帶派工標記的跨 session 訊息（首行「派工」或含 to-track- 派工檔路徑）開新回合——
+        # 規則 DISPATCH_OPENS_TURN：帶派工標記的跨 session 訊息（首行「派工」或含 to-track- 派工檔路徑）開新回合。
         # 工作 session 整場只在開工句打過一次字，之後每封派工都該是新回合（預算、PASS 窗口、收割冷卻才會重算）；
         # 它不是使用者原話，turn_prompts 照樣不收（口令不認）。一般同伴訊息、背景通知只開續跑回合。
         if is_dispatch_message(peer_message_bodies(clean_prompt)):
