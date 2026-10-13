@@ -40,7 +40,7 @@ _REAL_CASE_EXISTS = getattr(vl, "case_exists", None)   # fixture 會把它換成
 
 def _rcpt(turn, verdict="PASS", exit_code=None, cmd=_RELATED_CMD, at="", seq=None, kv=None):
     r = {"turn_seq": turn, "tool": "Bash", "cmd": cmd, "sentinels": [{"name": "X_CHECK", "verdict": verdict, "kv": kv or {}}],
-         "exit_code": exit_code, "at": at, "project_root": str(ROOT), "cwd": str(ROOT)}
+         "exit_code": exit_code, "at": at, "project_root": str(ROOT), "cwd": str(ROOT), "env": {}}
     if seq is not None:
         r["seq"] = seq
     return r
@@ -751,7 +751,7 @@ _PYTEST_CMD = "python -X utf8 -m pytest -q hooks/verify/verify_x.py"
 
 def _pytest_done(turn, root, exit_code=0, cmd=_PYTEST_CMD):
     """pytest 摘要行 `N passed` 經 sentinel_regex 映射後的收據：PYTEST PASS ＋ PYTEST_MEASURE DONE 兩個哨兵。"""
-    return {"turn_seq": turn, "tool": "Bash", "cmd": cmd, "exit_code": exit_code, "at": "",
+    return {"turn_seq": turn, "tool": "Bash", "cmd": cmd, "exit_code": exit_code, "at": "", "env": {},
             "project_root": str(root), "cwd": str(root),
             "sentinels": [{"name": "PYTEST", "verdict": "PASS", "kv": {}},
                           {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
@@ -2033,7 +2033,7 @@ def test_022_1_ruler_own_echo_only_inside_the_matched_span():
 
 @pytest.mark.parametrize("cmd, tool, why", [
     ("X='VERIFY_CHECK DONE cases=1 failed=0' " + MEASURE_CMD, "Bash", ""),     # 量尺片段裡多出來的行內環境指定照查
-    ("X='1 passed' " + MEASURE_CMD, "Bash", ""),                               # config sentinel_regex 的字樣也算
+    ("X='1 passed in 0.1s' " + MEASURE_CMD, "Bash", ""),                       # config sentinel_regex 的字樣（整段 pytest 摘要）也算
     (MEASURE_CMD + ' 2>"VERIFY_CHECK DONE"', "Bash", ""),                      # 重導向目標照查
     ("X=$HOME " + MEASURE_CMD, "Bash", "不是字面值"),                           # 行內環境指定要字面值
     ('$ENV:PS4="x"; ' + MEASURE_CMD, "PowerShell", "PS4"),                     # PowerShell 的 env: 不分大小寫
@@ -2311,3 +2311,355 @@ def test_017c_hook_last_assistant_message_wins_over_transcript(driven, capsys, m
                            reconcile_gate_turn={_SID: {"turn": 5, "count": 2}}, **kw)
     assert "(a) 說「修好」" in out
     assert state["pending_release"][_SID]["reconcile"]["claims"] == ["修好了，全部完成。"]
+
+
+# ─── 035／033：繼承環境進判定、pytest error 是 FAIL、部位表讀不到要擋、暫存子目錄不是改碼、還原反例 ──────────
+
+import os  # noqa: E402
+import subprocess  # noqa: E402
+
+_LIVE_CFG = json.loads((HOOKS_DIR.parent / "workflow" / "config.json").read_text(encoding="utf-8"))
+_PTU_CFG = {"verify_ledger": _LIVE_CFG["verify_ledger"], "docdrift": {"enabled": False}}
+_WIDGET, _WIDGET_CASE = r"c:\proj\src\widget.py", r"c:\proj\tests\test_widget.py"
+
+
+def _post(monkeypatch, tmp_path, cmd, out, tool="Bash", resp=None, turn=5):
+    """經 post_tool_use 入口落一筆收據（用這棵樹 config.json 的 sentinel_regex）；resp 給了就當 tool_response 原樣送（字串＝沒有 exit 欄）。
+    回 state（verify_receipts、failing_tests）。"""
+    from handlers import post_tool_use as pt
+    state = {"turn_seq": turn, "session": {"cwd": str(ROOT)}}
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
+    tr = resp if resp is not None else {"stdout": out, "stderr": "", "exit_code": 0}
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use({"session_id": _SID, "tool_name": tool, "tool_input": {"command": cmd},
+                                 "tool_response": tr, "cwd": str(ROOT)}, _PTU_CFG)
+    return state
+
+
+def _edit_via_post_tool_use(monkeypatch, tmp_path, path):
+    """經 post_tool_use 入口（Edit）改這個檔；回 state。"""
+    from handlers import post_tool_use as pt
+    state = {"turn_seq": 5, "session": {"cwd": str(HOOKS_DIR.parent)}}
+    monkeypatch.setattr(pt, "_ensure_state", lambda *a, **k: state)
+    monkeypatch.setattr(pt, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
+    monkeypatch.setattr(pt, "append_guard_log", lambda *a, **k: None)
+    monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        pt.handle_post_tool_use({"session_id": _SID, "tool_name": "Edit", "tool_input": {"file_path": path},
+                                 "tool_response": {}, "cwd": str(HOOKS_DIR.parent)}, {"docdrift": {"enabled": False}})
+    return state
+
+
+_WIDGET_MODS = [_mf(_WIDGET, 5, last_at=_T1, last_seq=3), _mf(_WIDGET_CASE, 5, last_at=_T1, last_seq=4)]
+
+
+@pytest.mark.parametrize("inherited, cmd, tool, ok", [
+    ("-k smoke", "python -X utf8 -m pytest -q", "Bash", False),                           # 繼承：指令內沒提，程式照樣只跑子集
+    ("-k smoke", "python -X utf8 -m pytest -q", "PowerShell", False),
+    ("-k smoke", "PYTEST_ADDOPTS='-k x' python -X utf8 -m pytest -q", "Bash", False),     # 行內覆蓋成另一個縮限值
+    ("-k smoke", "PYTEST_ADDOPTS='' python -X utf8 -m pytest -q", "Bash", True),           # 行內清空繼承值
+    ("-k smoke", "$env:PYTEST_ADDOPTS=''; python -X utf8 -m pytest -q", "PowerShell", True),
+    ("-k smoke", "$env:PYTEST_ADDOPTS=$null; python -X utf8 -m pytest -q", "PowerShell", True),
+    ("", "python -X utf8 -m pytest -q", "Bash", True),                                      # 繼承的是空值
+    (None, "python -X utf8 -m pytest -q", "Bash", True),                                    # 父行程沒設
+])
+def test_035_1_inherited_scope_env_is_part_of_effective_env(driven, capsys, monkeypatch, tmp_path, inherited, cmd, tool, ok):
+    """035 ①：PostToolUse 落帳記下啟動當下的 PYTEST_ADDOPTS／PYTHONOPTIMIZE（空值也記），Stop 採認時與指令內的指定合併算有效值：
+    父行程已設 `-k smoke` 時原樣跑 pytest 只跑子集，不算整體驗證、(a) 擋且訊息講是繼承來的；行內清空才算；沒設或空值照常。"""
+    monkeypatch.delenv("PYTEST_ADDOPTS", raising=False)
+    monkeypatch.delenv("PYTHONOPTIMIZE", raising=False)
+    if inherited is not None:
+        monkeypatch.setenv("PYTEST_ADDOPTS", inherited)
+    state = _post(monkeypatch, tmp_path, cmd, "1 passed, 40 deselected in 0.10s\n", tool)
+    rec = state["verify_receipts"][_SID][0]
+    assert {k.upper(): v for k, v in rec["env"].items()} == ({"PYTEST_ADDOPTS": inherited} if inherited is not None else {})
+    assert [s["verdict"] for s in rec["sentinels"]] == ["PASS", "DONE"]
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS),
+                       verify_receipts=state["verify_receipts"])
+    assert ("(a) 說「修好」" not in out) is ok, (inherited, cmd, tool)
+    if not ok:
+        assert "PYTEST_ADDOPTS" in out and "改了驗證選項" in out
+        if "PYTEST_ADDOPTS=" not in cmd:
+            assert "父行程繼承" in out and "在指令內清空繼承值" in out
+
+
+def test_035_1_inherited_env_also_gates_root_worktree_ruler_and_table_ruler(tmp_path, monkeypatch):
+    """035 ①：根層 worktree 認的 pytest DONE 與表上量尺的比對都從收據 env 起算：繼承 `-k smoke` 的收據不替部位解帳，訊息講變數；
+    行內清空的照算；表上量尺自帶 PYTEST_ADDOPTS 值時，繼承來的同值也算對上。"""
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    mod = str(wt / "hooks" / "x.py")
+    inherited = {**_pytest_done(5, wt), "env": {"PYTEST_ADDOPTS": "-k smoke"}}
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [inherited], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "PYTEST_ADDOPTS" in reason and "父行程繼承" in reason
+    cleared = {**_pytest_done(5, wt, cmd="PYTEST_ADDOPTS='' " + _PYTEST_CMD), "env": {"PYTEST_ADDOPTS": "-k smoke"}}
+    assert vl.measure_gate_reason([_mf(mod, 5)], [cleared], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)[0] is None
+    row = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "python -m pytest -q"}}
+    r = {**_rcpt(5, "DONE", 0, cmd="python -m pytest -q", at=_T2), "env": {"PYTEST_ADDOPTS": "-k smoke"}}
+    reason = vl.measure_gate_reason([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [r], 5, lambda p: (ROOT, row),
+                                    vl.MEASURE_DEFAULTS, chains_of=lambda r: {}, self_runs=lambda: [])[0]
+    assert reason and "PYTEST_ADDOPTS" in reason
+    row2 = {**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": "PYTEST_ADDOPTS='--tb=short' python -m pytest -q"}}
+    r2 = {**_rcpt(5, "DONE", 0, cmd="python -m pytest -q", at=_T2), "env": {"PYTEST_ADDOPTS": "--tb=short"}}
+    assert vl.measure_gate_reason([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [r2], 5, lambda p: (ROOT, row2),
+                                  vl.MEASURE_DEFAULTS, chains_of=lambda r: {}, self_runs=lambda: [])[0] is None
+
+
+def test_035_1_receipt_without_env_is_not_evidence(driven, capsys):
+    """035 ①（照 025 規則 2）：升級前沒記 env 欄的收據看不出範圔有沒有被縮小，(a) 與量尺閘都不採認，訊息說是沒記啟動環境、請重跑；
+    配對：同一筆加上 env={} 就認。"""
+    legacy = {k: v for k, v in _rcpt(5, at=_T2).items() if k != "env"}
+    out, _, _ = driven("x 修好了，完成。", capsys, modified_files=[_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)],
+                       verify_receipts={_SID: [legacy]})
+    assert "(a) 說「修好」" in out and "沒記啟動環境" in out
+    out, _, _ = driven("x 修好了，完成。", capsys, modified_files=[_mf(_CODE, 5, last_at=_T1, last_seq=3), _mf(_CASE, 5, last_at=_T1, last_seq=4)],
+                       verify_receipts={_SID: [{**legacy, "env": {}}]})
+    assert "ReconcileGate" not in out
+    done = {k: v for k, v in _rcpt(5, "DONE", 0, cmd=MEASURE_CMD, at=_T2, kv={"failed": "0"}).items() if k != "env"}
+    reason = vl.measure_gate_reason([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [done], 5, _lookup, vl.MEASURE_DEFAULTS,
+                                    chains_of=lambda r: {}, self_runs=lambda: [])[0]
+    assert reason and "沒記啟動環境" in reason
+    assert vl.measure_gate_reason([_mf(_CASE, 5, last_at=_T1, last_seq=3)], [{**done, "env": {}}], 5, _lookup, vl.MEASURE_DEFAULTS,
+                                  chains_of=lambda r: {}, self_runs=lambda: [])[0] is None
+
+
+@pytest.mark.parametrize("line, verdicts", [
+    ("1 passed, 1 error in 0.12s", ("FAIL", "FAIL")),                 # teardown error：整段看，error 優先
+    ("1 error in 0.05s", ("FAIL", "FAIL")),                           # 純 error 也是 FAIL，不是沒哨兵
+    ("2 errors in 0.05s", ("FAIL", "FAIL")),
+    ("1 failed, 2 passed in 0.5s", ("FAIL", "FAIL")),
+    ("1 passed, 1 failed, 1 error in 0.5s", ("FAIL", "FAIL")),
+    ("=========== 1 passed, 1 error in 0.1s ===========", ("FAIL", "FAIL")),
+    ("3 passed in 0.12s", ("PASS", "DONE")),
+    ("5 passed, 1 skipped, 2 deselected, 3 warnings in 1.00s", ("PASS", "DONE")),
+    ("3 passed in 65.00s (0:01:05)", ("PASS", "DONE")),
+    ("=========== 3 passed in 0.1s ===========", ("PASS", "DONE")),
+    ("== 5 passed, 2 skipped, 1 xfailed in 3.2s ==", ("PASS", "DONE")),     # 036 codex：xfailed 不是 failed（預期失敗的正常測試集）
+    ("1 failed, 1 xfailed in 0.2s", ("FAIL", "FAIL")),
+    ("1 xpassed in 0.1s", ("PASS", "DONE")),
+    ("2 passed, 1 xpassed, 1 xfailed in 0.4s", ("PASS", "DONE")),
+    ("1 failed, 1 passed, 1 xpassed in 0.3s", ("FAIL", "FAIL")),            # 036b codex 額外驗證的變體固定下來
+    ("1 xfailed, 1 error in 0.2s", ("FAIL", "FAIL")),
+    ("2 passed, 1 warning in 0.2s", ("PASS", "DONE")),
+    ("3 passed, 0 failed in 0.1s", ("PASS", "DONE")),                        # 只跟著 0 不算命中
+])
+def test_035_2_pytest_summary_mapping_reads_whole_line(line, verdicts):
+    """035 ②／036b：config 的兩條 pytest 規則抓整段統計到 ` in `，按完整狀態詞逐組解析：只有非零 failed／error(s) 才 FAIL，
+    xfailed／xpassed／skipped／warnings／deselected 不算失敗，PYTEST 與 PYTEST_MEASURE 同一行同結果。"""
+    rules = vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"])
+    got = vl.parse_sentinels(line + "\n", rules)
+    assert [(s["name"], s["verdict"]) for s in got] == [("PYTEST", verdicts[0]), ("PYTEST_MEASURE", verdicts[1])], line
+
+
+def test_036c_pytest_summary_rules_ignore_non_summaries():
+    """036c（原 035 ② 共用斷言獨立出來）：內建 pytest 規則只認完整摘要行；什麼都沒跑、只有 deselected、`-rA` 的逐案狀態行都不產生
+    成功哨兵，多行輸出只認最後的摘要。"""
+    rules = vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"])
+    for text in ("1 passed\n", "2 skipped in 0.1s\n", "3 deselected in 0.1s\n", "no tests ran in 0.01s\n"):
+        assert vl.parse_sentinels(text, rules) == [], text
+    multi = "PASSED tests/test_x.py::test_ok\nFAILED tests/test_x.py::test_bad\n1 failed, 1 passed in 0.1s\n"
+    assert [(s["name"], s["verdict"]) for s in vl.parse_sentinels(multi, rules)] == [("PYTEST", "FAIL"), ("PYTEST_MEASURE", "FAIL")]
+
+
+@pytest.mark.parametrize("line, verdict", [
+    ("CUSTOM_FAIL 1 item", "FAIL"),
+    ("CUSTOM_OK 1 item", "PASS"),
+    ("CUSTOM_OK", "PASS"),
+    ("CUSTOM_OK 0 fail", "FAIL"),                  # 自訂規則照子字串、FAIL 優先：fail 出現就 FAIL，不套 pytest 的零計數
+])
+def test_036c_custom_rule_keeps_substring_mapping(line, verdict):
+    """036c（036b codex WARN 1）：pytest 統計逐組解析只套用在標了 pytest_summary 的內建兩條規則；自訂規則照子字串映射，
+    `CUSTOM_FAIL 1 item` 的 `1 item` 不是統計，照 fail 判 FAIL、`CUSTOM_OK 1 item` 照 ok 判 PASS。"""
+    rules = vl.compile_sentinel_rules([{"regex": "^CUSTOM_.*$", "name": "CUSTOM", "verdict_map": {"ok": "PASS", "fail": "FAIL"}}])
+    got = vl.parse_sentinels(line + "\n", rules)
+    assert [(s["name"], s["verdict"]) for s in got] == [("CUSTOM", verdict)], line
+
+
+def test_036c_only_builtin_pytest_rules_are_marked_pytest_summary():
+    """036c：config 裡兩條內建 pytest 規則都標了 pytest_summary（照統計逐組解析）；沒標的規則編譯後是 False（照子字串）。"""
+    compiled = vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"])
+    assert [(r["name"], r.get("pytest_summary")) for r in compiled] == [("PYTEST", True), ("PYTEST_MEASURE", True)]
+    assert vl.compile_sentinel_rules([{"regex": "^X$", "name": "X", "verdict_map": {}}])[0].get("pytest_summary") is False
+
+
+# 歷來內建 pytest 規則（config 還沒有 pytest_summary 鍵的三個版本），照當時 config.json 原字抄
+_OLD_PYTEST_RULES = {
+    "d59ee37": ("^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed))", {"failed": "FAIL", "passed": "{ok}"}),
+    "1c6a902": ("^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed|errors?)(?:, \\d+ [a-z]+)*) in \\d",
+                {"failed": "FAIL", "error": "FAIL", "passed": "{ok}"}),
+    "ec80a66": ("^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected|rerun)"
+                "(?:, \\d+ [a-z]+)*) in \\d", {"failed": "FAIL", "error": "FAIL", "passed": "{ok}", "xpassed": "{ok}"}),
+}
+
+
+def _old_rules(ver):
+    regex, vm = _OLD_PYTEST_RULES[ver]
+    return [{"regex": regex, "name": n, "verdict_map": {k: v.format(ok=ok) for k, v in vm.items()}}
+            for n, ok in (("PYTEST", "PASS"), ("PYTEST_MEASURE", "DONE"))]
+
+
+@pytest.mark.parametrize("ver, line, verdicts", [
+    ("ec80a66", "== 5 passed, 2 skipped, 1 xfailed in 3.2s ==", ("PASS", "DONE")),
+    ("ec80a66", "3 passed, 0 failed in 0.1s", ("PASS", "DONE")),
+    ("ec80a66", "1 passed, 1 error in 0.1s", ("FAIL", "FAIL")),
+    ("1c6a902", "5 passed, 2 skipped, 1 xfailed in 3.2s", ("PASS", "DONE")),
+    ("1c6a902", "1 passed, 1 error in 0.1s", ("FAIL", "FAIL")),
+    ("d59ee37", "3 passed in 0.1s", ("PASS", "DONE")),
+])
+def test_036d_new_parser_with_old_config_still_reads_pytest_summary(ver, line, verdicts):
+    """036d（036c codex WARN）：保留舊全域 config（內建兩條 pytest 規則沒有 pytest_summary 鍵）、只更新 hooks 時，load_config 只做頂層
+    合併補不到旗標；編譯規則時認出歷來內建的 名稱＋regex＋verdict_map，照樣按統計逐組解析，xfailed 不被當 failed。"""
+    got = vl.parse_sentinels(line + "\n", vl.compile_sentinel_rules(_old_rules(ver)))
+    assert [(s["name"], s["verdict"]) for s in got] == [("PYTEST", verdicts[0]), ("PYTEST_MEASURE", verdicts[1])], (ver, line)
+
+
+def test_036d_only_exact_builtin_forms_are_upgraded():
+    """036d 配對：只同名的自訂規則（regex 或 verdict_map 不同）、明寫 pytest_summary:false 的內建形狀，都照子字串（不升級）。"""
+    builtin = _old_rules("ec80a66")[0]
+    for rule in ({**builtin, "regex": "^(?P<verdict>\\d+ passed.*)$"},
+                 {**builtin, "verdict_map": {"failed": "FAIL", "passed": "PASS", "ok": "PASS"}},
+                 {**builtin, "name": "MY_PYTEST"},
+                 {**builtin, "pytest_summary": False}):
+        assert vl.compile_sentinel_rules([rule])[0]["pytest_summary"] is False, rule
+    assert vl.compile_sentinel_rules([builtin])[0]["pytest_summary"] is True
+
+
+@pytest.mark.parametrize("cmd, tool", [
+    ("unset PYTEST_ADDOPTS; python -X utf8 -m pytest -q", "Bash"),
+    ("unset PYTEST_ADDOPTS && python -X utf8 -m pytest -q", "Bash"),
+    ("env -u PYTEST_ADDOPTS python -X utf8 -m pytest -q", "Bash"),
+    ("Remove-Item env:PYTEST_ADDOPTS; python -X utf8 -m pytest -q", "PowerShell"),
+])
+def test_036b_unsupported_env_clearing_syntax_is_not_accepted(driven, capsys, monkeypatch, tmp_path, cmd, tool):
+    """036 codex 建議固定邊界：繼承了 `-k smoke` 時，白名單外的清空寫法（unset、env -u、Remove-Item env:）不算清空，
+    收據不採認（它們不是前置設定也不是跑程式的指令）；要清空只認 `PYTEST_ADDOPTS='' …` 與 `$env:PYTEST_ADDOPTS=''`。"""
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k smoke")
+    state = _post(monkeypatch, tmp_path, cmd, "1 passed, 40 deselected in 0.10s\n", tool)
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS),
+                       verify_receipts=state["verify_receipts"])
+    assert "(a) 說「修好」" in out, cmd
+
+
+@pytest.mark.parametrize("out, resp_kind", [
+    ("1 passed, 1 error in 0.12s\n", "exit0"),            # teardown error；`| tail -n 1` 讓工具 exit 0
+    ("1 error in 0.05s\n", "exit0"),                       # 純 error
+    ("2 passed, 1 error in 0.30s\n", "noexit"),            # 字串回應，沒有 exit code
+])
+def test_035_2_pytest_error_is_fail_through_post_tool_use_and_stop(driven, capsys, monkeypatch, tmp_path, out, resp_kind):
+    """035 ②：經 PostToolUse 落帳的 pytest error 摘要是 FAIL 收據（兩個哨兵都 FAIL），也進 failing_tests；
+    Stop：(a) 不採認、TestFailGate 擋、根層 worktree 的量尺也不認。配對：同形狀全綠照常 PASS／DONE。"""
+    cmd = "python -X utf8 -m pytest -q lib/verify | tail -n 1"
+    state = _post(monkeypatch, tmp_path, cmd, out, resp=(out if resp_kind == "noexit" else None))
+    rec = state["verify_receipts"][_SID][0]
+    assert [(s["name"], s["verdict"]) for s in rec["sentinels"]] == [("PYTEST", "FAIL"), ("PYTEST_MEASURE", "FAIL")]
+    assert rec["exit_code"] == (None if resp_kind == "noexit" else 0)
+    assert state["failing_tests"] and state["failing_tests"][0]["pytest"] is True
+    o, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS),
+                     verify_receipts=state["verify_receipts"], failing_tests=state["failing_tests"])
+    assert "TestFailGate" in o
+    o, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS), verify_receipts=state["verify_receipts"])
+    assert "(a) 說「修好」" in o and "沒有任何 PASS 收據" in o
+    live, wt = _two_roots(tmp_path)
+    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
+    red = {**rec, "project_root": str(wt), "cwd": str(wt), "cmd": _PYTEST_CMD}
+    assert vl.measure_gate_reason([_mf(str(wt / "hooks" / "x.py"), 5)], [red], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)[0]
+    green = _post(monkeypatch, tmp_path, cmd, "3 passed in 0.10s\n")["verify_receipts"][_SID][0]
+    assert [s["verdict"] for s in green["sentinels"]] == ["PASS", "DONE"]
+
+
+def test_035_3_unreadable_map_blocks_as_judge_error_not_silent_skip(driven, capsys, monkeypatch, tmp_path):
+    """035 ③：部位表存在但讀不到（PermissionError）→ _lookup 拋 MapReadError，Stop 走判定錯誤路徑一律擋＋stderr＋guard_log，
+    不是「沒有量尺」靜默跳過；配對：表讀得到時量尺閘正常擋「有量尺沒跑」。"""
+    proj = tmp_path / "proj"
+    (proj / ".claude").mkdir(parents=True)
+    (proj / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES)
+    mods = [_mf(str(proj / "hooks" / "x.py"), 5, last_at=_T1, last_seq=3), _mf(str(proj / "hooks" / "verify" / "verify_x.py"), 5, last_at=_T1, last_seq=4)]
+    out, _, _ = driven("全部完成了。", capsys, modified_files=copy.deepcopy(mods), anti_evasion_report=_aec(5, j="無", k="無"))
+    assert "MeasureGate" in out and "有量尺" in out and "判定錯誤" not in out
+    orig = Path.read_text
+
+    def denied(self, *a, **k):
+        if self.name == "overview-map.md":
+            raise PermissionError(13, "Permission denied", str(self))
+        return orig(self, *a, **k)
+    monkeypatch.setattr(Path, "read_text", denied)
+    with pytest.raises(wo.MapReadError, match="存在但讀不到"):
+        wo._lookup(str(proj / "hooks" / "x.py"))
+    assert wo._lookup(str(tmp_path / "nowhere" / "x.py")) is None                      # 沒有表：照舊 None
+    capsys.readouterr()
+    assert wo._lookup_quiet(str(proj / "hooks" / "x.py")) is None                      # 注入那幾條路：當沒命中，但 stderr 說一聲
+    assert "存在但讀不到" in capsys.readouterr().err
+    out, _, logs = driven("全部完成了。", capsys, modified_files=copy.deepcopy(mods), anti_evasion_report=_aec(5, j="無", k="無"))
+    assert "判定錯誤，一律擋" in out and "MapReadError" in out and "存在但讀不到" in out
+    assert "有量尺「" not in out
+    assert any(g in ("measure", "reconcile") and "MapReadError" in str(p.get("error")) for g, p in logs)
+
+
+def _win_long_short():
+    import ctypes
+    import tempfile
+    if os.name != "nt":
+        pytest.skip("8.3 短路徑只在 Windows")
+    buf = ctypes.create_unicode_buffer(32768)
+    long_ = tempfile.gettempdir()
+    n = ctypes.windll.kernel32.GetLongPathNameW(long_, buf, 32768)
+    long_ = buf.value if 0 < n < 32768 else long_
+    n = ctypes.windll.kernel32.GetShortPathNameW(long_, buf, 32768)
+    short = buf.value if 0 < n < 32768 else long_
+    if short.lower() == long_.lower():
+        pytest.skip("這台機器的暫存目錄沒有 8.3 短名")
+    return long_, short
+
+
+def test_033_2_scratchpad_subdir_long_path_with_short_tempdir_needs_no_case(driven, capsys, monkeypatch, tmp_path):
+    """033 ②（9c 實遇）：scratchpad 子目錄的一次性探針（長路徑寫法）、gettempdir 回短路徑 → 經 PostToolUse 不記改檔，
+    Stop (d) 不要求案例；配對：同樣的子目錄寫法不在暫存目錄下 → 照記、照擋。"""
+    long_, short = _win_long_short()
+    from handlers import _shared
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: short)
+    probe = long_ + r"\claude\c--Users-x\sess\scratchpad\probe\probe_codegate.py"
+    state = _edit_via_post_tool_use(monkeypatch, tmp_path, probe)
+    assert not state.get("modified_files")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=state.get("modified_files") or [])
+    assert "ReconcileGate" not in out
+    real = r"c:\proj\scratchpad\probe\probe_codegate.py"
+    state = _edit_via_post_tool_use(monkeypatch, tmp_path, real)
+    assert [m["path"] for m in state["modified_files"]] == [real]
+    out, _, _ = driven("全部完成了。", capsys, modified_files=state["modified_files"])
+    assert "(d)" in out and "probe_codegate.py" in out
+
+
+def _git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+@pytest.mark.parametrize("commit_turn", [None, 5])
+def test_035_5_restoring_only_code_after_reverting_code_and_case_still_owes(driven, capsys, tmp_path, monkeypatch, commit_turn):
+    """035 ⑤（codex 對 033 ① 的反例）：程式與案例同一筆提交 → 反證把兩者都退回舊版 → 只還原程式，案例仍是舊版 →
+    (d) 照擋：免補案例的條件不能只看程式檔等於 HEAD，同根案例檔也得仍是提交時的版本。commit 在本 session 之前（commit_turn=None）
+    與同 session（last_commit_turn_seq=5）都要擋。真 git repo；案例檔存在用真的 isfile 判。"""
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    code, case = repo / "src" / "a.py", repo / "tests" / "test_a.py"
+    code.write_text("def a():\n    return 2\n", encoding="utf-8", newline="\n")
+    case.write_text("def test_a():\n    assert a() == 2\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "new code and case")
+    code.write_text("def a():\n    return 1\n", encoding="utf-8", newline="\n")                   # 反證：兩者都退回舊版
+    case.write_text("def test_a():\n    assert a() == 1\n", encoding="utf-8", newline="\n")
+    code.write_text("def a():\n    return 2\n", encoding="utf-8", newline="\n")                   # 只還原程式（等於 HEAD）
+    assert subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout.strip() == "M tests/test_a.py"
+    monkeypatch.setattr(vl, "case_exists", os.path.isfile, raising=False)
+    mods = [_mf(str(code), 5, last_at=_T2, last_seq=6), _mf(str(case), 5, last_at=_T1, last_seq=5)]
+    extra = {"last_commit_turn_seq": commit_turn} if commit_turn is not None else {}
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, **extra)
+    assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out, commit_turn

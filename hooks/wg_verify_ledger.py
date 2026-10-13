@@ -11,6 +11,9 @@
   指令解析只有一套（lib/self_receipt：白名單語法，解析不了的指令一律不算證據）：量尺比對 cmd_matches、整體驗證 is_whole_run、
   「提到改檔」evidence_words（只看實際跑程式那幾段的參數）；收據的 cmd 存完整字串（升級前只存 200 字的舊收據不算）；
   整條指令除了精確對上的量尺片段外出現哨兵字樣，這張收據任何用途都不算。
+  收據的 env 欄＝PostToolUse 落帳時 hook 行程看到的縮限變數（PYTEST_ADDOPTS、PYTHONOPTIMIZE；lib/self_receipt.env_snapshot），
+  採認時與指令內的指定合併成每段程式的有效環境（父行程已設 `PYTEST_ADDOPTS=-k smoke` 時原樣跑的 pytest 只跑子集，不算；
+  指令內 `PYTEST_ADDOPTS='' …` 清掉才算）；沒記 env 欄的舊收據照自寫收據的規則不算證據。
 
 怎麼跑：被 handlers/post_tool_use.py 與 handlers/stop.py 匯入；verify 在 hooks/verify/verify_verify_ledger.py、
   verify_stop_reconcile.py。exit code 三來源：tool_response.exit_code／returncode（結構化欄優先，欄是 0 就不再看文字）
@@ -49,6 +52,7 @@ _self_receipt = _load_self_receipt_module()
 cmd_matches, evidence_words, is_whole_run = (_self_receipt.cmd_matches, _self_receipt.evidence_words,
                                              _self_receipt.is_whole_run)
 unsupported_syntax, leading_cd = _self_receipt.unsupported_syntax, _self_receipt.leading_cd
+env_snapshot = _self_receipt.env_snapshot          # PostToolUse 落帳時記的啟動環境（與 run_verify 自寫收據同一個函式）
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
@@ -68,8 +72,30 @@ SNAPSHOT_MAX_FILES = 200
 SNAPSHOT_STAT_CHECK_EVERY = 10     # 每 10 檔查一次 deadline（50 檔×55 ms 的慢磁碟會先吃掉 2.75 s）
 
 
+# 歷來內建的兩條 pytest 規則用過的 regex（config 還沒有 pytest_summary 旗標的舊版本）：使用者保留舊全域 config、只更新 hooks 時，
+# load_config 只做頂層合併，補不到這個旗標；照這張表認出內建規則，照樣按統計逐組解析
+_BUILTIN_PYTEST_REGEXES = frozenset({
+    r"^(?:=+ )?(?P<verdict>\d+ (?:passed|failed))",
+    r"^(?:=+ )?(?P<verdict>\d+ (?:passed|failed|errors?)(?:, \d+ [a-z]+)*) in \d",
+    r"^(?:=+ )?(?P<verdict>\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected|rerun)(?:, \d+ [a-z]+)*) in \d",
+})
+_BUILTIN_PYTEST_OK = {"PYTEST": "PASS", "PYTEST_MEASURE": "DONE"}       # 內建規則名 → 成功時的結論
+
+
+def _builtin_pytest_rule(r: Dict[str, Any]) -> bool:
+    """沒寫 pytest_summary 的規則是不是歷來內建的 PYTEST／PYTEST_MEASURE：名稱、regex、verdict_map 三樣都要對上（只同名的自訂規則不算）。"""
+    ok = _BUILTIN_PYTEST_OK.get(str(r.get("name") or "").strip())
+    vm = r.get("verdict_map")
+    if not ok or r.get("regex") not in _BUILTIN_PYTEST_REGEXES or not isinstance(vm, dict):
+        return False
+    items = {(str(k), str(v).upper()) for k, v in vm.items()}
+    return ("passed", ok) in items and items <= {("failed", "FAIL"), ("error", "FAIL"), ("passed", ok), ("xpassed", ok)}
+
+
 def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
-    """config `verify_ledger.sentinel_regex: [{regex, name, verdict_map}]` → 已編譯規則；壞 regex 跳過（stderr 浮一行）。"""
+    """config `verify_ledger.sentinel_regex: [{regex, name, verdict_map, pytest_summary?}]` → 已編譯規則；壞 regex 跳過（stderr 浮一行）。
+    pytest_summary＝true 的規則按 pytest 統計逐組解析（_map_verdict），其餘照子字串映射；沒寫這個鍵的規則，是歷來內建的兩條
+    pytest 規則（_builtin_pytest_rule）就當 true，明寫的值優先。"""
     out: List[Dict[str, Any]] = []
     for r in cfg_rules or []:
         if not isinstance(r, dict) or not r.get("regex"):
@@ -84,15 +110,37 @@ def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
             "re": rx,
             "name": str(r.get("name") or "").strip(),
             "verdict_map": {str(k): str(v).upper() for k, v in vm.items()},
+            "pytest_summary": r["pytest_summary"] is True if "pytest_summary" in r else _builtin_pytest_rule(r),
         })
     return out
 
 
-def _map_verdict(raw: str, verdict_map: Dict[str, str]) -> Optional[str]:
+_STAT_RE = re.compile(r"\b(\d+) ([a-z]+)\b")          # 統計行的「數字 狀態詞」組：5 passed, 2 skipped, 1 xfailed
+
+
+def _map_verdict(raw: str, verdict_map: Dict[str, str], pytest_summary: bool = False) -> Optional[str]:
+    """命中的那段文字 → verdict_map 的結論。pytest_summary（config 規則標了 `pytest_summary: true`，只有內建的 PYTEST／
+    PYTEST_MEASURE 兩條）：按「數字 狀態詞」組逐組比，鍵要等於整個狀態詞（去尾 s：error 對 errors），`xfailed`／`xpassed`
+    不是 `failed`／`passed`，只有計數非零的狀態詞算命中。其他規則（自訂哨兵）照子字串比，`CUSTOM_FAIL 1 item` 的 `1 item`
+    不是統計。兩種都是命中多個鍵時 FAIL 優先（`1 passed, 1 error` 是 FAIL），其餘照 verdict_map 順序取第一個；兩條共用同一
+    regex 的 pytest 規則因此對同一行一定得到同一種結果。"""
     low = raw.lower()
+    stats = [(int(n), w.rstrip("s")) for n, w in _STAT_RE.findall(low)] if pytest_summary else []
+    hits: List[str] = []
     for key, v in verdict_map.items():
-        if key.lower() in low and v in VERDICTS:
-            return v
+        k = key.lower()
+        if v not in VERDICTS:
+            continue
+        if pytest_summary:
+            if not any(n > 0 and w == k.rstrip("s") for n, w in stats):
+                continue
+        elif k not in low:
+            continue
+        hits.append(v)
+    if "FAIL" in hits:
+        return "FAIL"
+    if hits:
+        return hits[0]
     return raw.strip().upper() if raw.strip().upper() in VERDICTS else None
 
 
@@ -130,7 +178,7 @@ def parse_sentinels(text: str, rules: Optional[List[Dict[str, Any]]] = None) -> 
     for rule in rules or []:
         for m in rule["re"].finditer(text):
             raw = m.groupdict().get("verdict") or m.group(0)
-            verdict = _map_verdict(raw, rule["verdict_map"])
+            verdict = _map_verdict(raw, rule["verdict_map"], rule.get("pytest_summary", False))
             if not verdict:
                 continue
             name = rule["name"] or m.groupdict().get("name") or "CUSTOM"
@@ -453,13 +501,25 @@ def _cmd_complete(receipt: Dict[str, Any]) -> bool:
     return bool(receipt.get("cmd_full")) or len(str(receipt.get("cmd") or "")) < LEGACY_CMD_CAP
 
 
+def _env_of(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """收據記下的啟動環境（PostToolUse 落帳時 hook 行程的 env_snapshot：PYTEST_ADDOPTS、PYTHONOPTIMIZE 這幾個會縮小驗證範圍的變數，
+    空值也記）；升級前沒記 env 欄的收據回 None＝看不出父行程有沒有把範圍縮小，照自寫收據的規則（025 規則 2）不算證據。"""
+    env = receipt.get("env")
+    return env if isinstance(env, dict) else None
+
+
+def _usable(receipt: Dict[str, Any]) -> bool:
+    """收據能拿來當任何證據的前提：指令完整（_cmd_complete）而且記了啟動環境（_env_of）。"""
+    return _cmd_complete(receipt) and _env_of(receipt) is not None
+
+
 def _trusted(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """收據的指令完整、根可信才回（開頭單一絕對路徑的 `cd <路徑> && …`：執行根 cwd 換成該路徑；路徑在原專案根之內就保留
-    原專案根當樹根，否則樹根也換成它）；不完整或含其他 cd → None。
+    """收據的指令完整、記了啟動環境、根可信才回（開頭單一絕對路徑的 `cd <路徑> && …`：執行根 cwd 換成該路徑；路徑在原專案根之內就保留
+    原專案根當樹根，否則樹根也換成它）；不完整、沒記 env 或含其他 cd → None。
     可解析的指令只看同一套斷詞判換目錄（`c"d" C:/live; 量尺` 的 c"d" 是 cd；`量尺 # cd x` 的 cd 在註解裡不是）；
     解析不了的才退回原字串比對 has_cd 與 PostToolUse 記的 root_uncertain（那種收據本來也當不了證據）。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    if not _cmd_complete(receipt):
+    if not _usable(receipt):
         return None
     cd = leading_cd(raw, sh)
     if cd:                                                        # cd 進原專案根之內：樹還是原專案根（從 tests/ 點名 ../hooks 的測試照算）
@@ -593,21 +653,23 @@ def _in_tree(receipt: Dict[str, Any]) -> bool:
 
 
 def _clean(receipt: Dict[str, Any]) -> bool:
-    """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、白名單語法、是 evidence_steps
-    的形狀（cd／環境設定之後全是跑程式的指令、只用 && 串、stdout 沒導走、後面只准留結尾的過濾）、沒指到收據根以外、
-    指令裡沒寫哨兵字樣。"""
+    """收據的指令能當一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）：完整、記了啟動環境、白名單語法、
+    是 evidence_steps 的形狀（cd／環境設定之後全是跑程式的指令、只用 && 串、stdout 沒導走、後面只准留結尾的過濾；每一段啟動時
+    繼承環境＋指令內指定的有效環境沒有縮限設定）、沒指到收據根以外、指令裡沒寫哨兵字樣。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (_cmd_complete(receipt) and not unsupported_syntax(raw, sh) and _self_receipt.evidence_steps(raw, sh) is not None
+    return (_usable(receipt) and not unsupported_syntax(raw, sh)
+            and _self_receipt.evidence_steps(raw, sh, _env_of(receipt)) is not None
             and _in_tree(receipt) and not _prints_sentinel(raw, sh))
 
 
 def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -> bool:
     """收據跑了表上這把尺（match_span，依收據的 shell 解析；腳本照路徑認：收據照它的 cwd、量尺照部位根 part_root，
-    沒給部位根就共用收據的）；指令要完整、沒指到收據根以外，而且量尺片段以外沒有任何字寫了哨兵字樣。"""
+    沒給部位根就共用收據的；有效環境從收據記下的繼承環境起算）；指令要完整、記了啟動環境、沒指到收據根以外，而且量尺片段以外
+    沒有任何字寫了哨兵字樣。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    if not str(measure_cmd).strip() or not _cmd_complete(receipt):
+    if not str(measure_cmd).strip() or not _usable(receipt):
         return False
-    span = _self_receipt.match_span(str(measure_cmd), raw, sh, _cwd_of(receipt), str(part_root or ""))
+    span = _self_receipt.match_span(str(measure_cmd), raw, sh, _cwd_of(receipt), str(part_root or ""), _env_of(receipt))
     return span is not None and not _prints_sentinel(raw, sh, span, str(measure_cmd)) and _in_tree(receipt)
 
 
@@ -620,14 +682,21 @@ _TOOL_HINT = ("專案自製的測試工具請寫進部位表的量尺欄，寫 P
               "加進 PATH；樹外完整路徑的程式不算（量的不是這棵樹）。量尺逐字比對、不經執行程式白名單，對上就涵蓋整個部位的改檔。")
 
 
-def _scope_env_why(diffs: List[Tuple[str, str, str]]) -> str:
+def _scope_env_why(diffs: List[Tuple[str, str, str]], env: Optional[Dict[str, Any]] = None) -> str:
     """環境設定改了驗證範圍的說明（session 收據與自寫收據的擋訊息共用）。diffs＝[(名稱, 這次的值, 表上的值)]，
-    表上的值空＝這次多設了；表上有值＝這次少了或值不同。"""
+    表上的值空＝這次多設了；表上有值＝這次少了或值不同。env＝收據記下的繼承環境：多設的變數若是從父行程繼承來的（指令內沒寫），
+    就說清楚是繼承的、要在指令內清空。"""
+    inherited = {str(k).upper() for k, v in (env or {}).items() if str(v if v is not None else "") != ""}
     extra = [n for n, _, want in diffs if not want]
     differ = [f"{n}（表上是 {want!r}）" for n, _, want in diffs if want]
+    from_parent = [n for n in extra if n.upper() in inherited]
     parts = ([f"用環境設定 {'、'.join(extra)} 改了驗證選項（PYTEST_ADDOPTS 會替 pytest 加 -k、路徑這類選項把範圍縮成子集，"
               "PYTHONOPTIMIZE 等於 -O）"] if extra else []) + ([f"環境設定 {'、'.join(differ)} 跟表上量尺不同"] if differ else [])
+    if from_parent:
+        parts.append(f"{'、'.join(from_parent)} 是從啟動 Claude Code 的父行程繼承來的（指令內沒寫也在）")
     fix = "拿掉多加的設定（要清空就設成空值），" if extra else ""
+    if from_parent:
+        fix = f"在指令內清空繼承值（bash `{from_parent[0]}='' …`、PowerShell `$env:{from_parent[0]}=''; …`），"
     return "；".join(parts) + f"，跑的不是表上那組選項，也不算整體驗證；{fix}照表上原字串在沒有其他這類設定的環境跑。"
 
 
@@ -642,24 +711,28 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         head = f"`{' '.join(raw.split())[:60]}`"
         if not _cmd_complete(r):
             return f"最近那筆收據 {head} 是升級前只存前 200 字的舊收據，看不出整條指令，不算證據；請重跑。"
+        env = _env_of(r)
+        if env is None:
+            return (f"最近那筆收據 {head} 沒記啟動環境（升級前落的帳），看不出父行程有沒有用 PYTEST_ADDOPTS 這類設定把驗證範圍"
+                    "縮小，不算證據；請重跑。")
         why = unsupported_syntax(raw, sh)
         if why:
             return f"這條指令 {head} 含解析不了的語法（{why}），不算跑了量尺；請照表上原字串單獨跑。"
         if any(_ruler_ran(mc, r) for mc in rulers):
             return ""
         for mc in rulers:         # 結構上就是量尺、只差環境，而且量尺自己的字以外沒寫哨兵：講真正原因
-            mis = _self_receipt.ruler_env_mismatch(mc, raw, sh, _cwd_of(r))
+            mis = _self_receipt.ruler_env_mismatch(mc, raw, sh, _cwd_of(r), env=env)
             if mis and not _prints_sentinel(raw, sh, mis[0], mc):
-                return f"這條指令 {head} {_scope_env_why(mis[1])}"
+                return f"這條指令 {head} {_scope_env_why(mis[1], env)}"
         if _prints_sentinel(raw, sh):
             return (f"這條指令 {head} 的參數裡寫了哨兵字樣（echo／printf／Write-Output 印出來的），不算任何證據；"
                     "哨兵只能由被執行的程式印出。")
-        envs = _self_receipt.program_scope_env(raw, sh)
-        if envs:                  # 整體驗證、一般證據：任何一段跑程式的指令啟動時帶了縮限設定
-            return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs])}"
+        envs = _self_receipt.program_scope_env(raw, sh, env)
+        if envs:                  # 整體驗證、一般證據：任何一段跑程式的指令啟動時帶了縮限設定（含父行程繼承的）
+            return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs], env)}"
         outside = [] if _in_tree(r) else _self_receipt.outside_paths(
             raw, sh, str(r.get("project_root") or r.get("cwd") or ""), _cwd_of(r))
-        if outside and any(_self_receipt.match_span(mc, raw, sh, _cwd_of(r)) is not None for mc in rulers):
+        if outside and any(_self_receipt.match_span(mc, raw, sh, _cwd_of(r), env=env) is not None for mc in rulers):
             return (f"這條指令 {head} 對上了表上的量尺，但指到收據根以外的路徑（{'、'.join(outside[:3])}），量的不是這棵樹，不算；"
                     f"{_TOOL_HINT}")       # 精確對上卻因樹外被拒：講樹外，不說「前後接了別的指令」
         if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
@@ -702,7 +775,7 @@ def _whole_run(receipt: Dict[str, Any]) -> bool:
     """整體驗證：執行根自己的 run_verify.py（照完整路徑身分）或不縮範圍的 pytest；只認白名單語法、前面只准前置設定、
     後面只准尾端過濾、沒指到收據根以外、整條指令沒寫哨兵字樣。涵蓋範圍見 _in_exec_root。"""
     raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
-    return (_cmd_complete(receipt) and is_whole_run(raw, sh, _cwd_of(receipt)) and _in_tree(receipt)
+    return (_usable(receipt) and is_whole_run(raw, sh, _cwd_of(receipt), _env_of(receipt)) and _in_tree(receipt)
             and not _prints_sentinel(raw, sh))
 
 
@@ -1444,7 +1517,10 @@ def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict
             last = any_done[-1]
             failed = next(((s.get("kv") or {}).get("failed") for s in last.get("sentinels") or []
                            if isinstance(s, dict) and (s.get("kv") or {}).get("failed") is not None), None)
-            if _trusted(last) is None:
+            if _env_of(last) is None:
+                why = ("最近一次跑尺的收據沒記啟動環境（升級前落的帳），看不出父行程有沒有把驗證範圍縮小（PYTEST_ADDOPTS 等）；"
+                       "請重跑一次")
+            elif _trusted(last) is None:
                 why = "最近一次跑尺的指令含 cd（只有開頭 `cd <絕對路徑> &&` 認得出根），無法確認量測目標；請在專案根直接跑尺"
             elif last.get("exit_code") not in (None, 0) or (failed is not None and str(failed) != "0"):
                 why = f"最近一次跑尺 exit={last.get('exit_code')} failed={failed}，尺沒過"
