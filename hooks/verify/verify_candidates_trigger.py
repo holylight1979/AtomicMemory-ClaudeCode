@@ -29,6 +29,12 @@ FIX = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q5"
 
 
 @pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """假專案建在 pytest tmp 下：關掉規則 TEMP_COPY_NOT_PROJECT（否則暫存目錄下的專案不注入導讀卡、不擋）。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+
+
+@pytest.fixture(autouse=True)
 def _isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     monkeypatch.setattr(wo, "org_memory_root", lambda: None)
