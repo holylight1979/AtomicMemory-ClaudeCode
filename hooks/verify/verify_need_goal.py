@@ -620,6 +620,27 @@ def test_pretool_write_code_without_tree_denied_then_allowed(hooked):
     assert _deny_text(_ptu_run("Write", {"file_path": target, "content": "x"}, proj, tp, outputs)) is None
 
 
+def test_pretool_move_code_dir_and_new_shebang_script_need_tree(hooked):
+    """搬或複製含程式檔的目錄（目的地還不存在、看不到副檔名）、新建沒副檔名而內容以 #! 開頭的腳本：都算改程式，
+    沒樹就擋；搬純文件目錄、寫沒副檔名的純文字不擋；有樹就放行。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    (proj / "src" / "lib").mkdir(parents=True)
+    (proj / "src" / "lib" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (proj / "docs").mkdir()
+    (proj / "docs" / "a.md").write_text("# a\n", encoding="utf-8")
+    shebang = {"file_path": str(proj / "deploy"), "content": "#!/bin/sh\necho hi\n"}
+    for tool, cmd in (("Bash", "mv src pkg"), ("Bash", "cp -r src pkg2"), ("PowerShell", "Move-Item src pkg")):
+        deny = _deny_text(_ptu_run(tool, {"command": cmd}, proj, tp, outputs))
+        assert deny and deny.startswith("[NeedGoal]") and "目標樹" in deny, cmd
+    deny = _deny_text(_ptu_run("Write", shebang, proj, tp, outputs))
+    assert deny and deny.startswith("[NeedGoal]")
+    assert _deny_text(_ptu_run("Bash", {"command": "mv docs manual"}, proj, tp, outputs)) is None
+    assert _deny_text(_ptu_run("Write", {"file_path": str(proj / "NOTES"), "content": "純文字"}, proj, tp, outputs)) is None
+    _op("set", goal="G")
+    assert _deny_text(_ptu_run("Bash", {"command": "mv src pkg"}, proj, tp, outputs)) is None
+    assert _deny_text(_ptu_run("Write", shebang, proj, tp, outputs)) is None
+
+
 def _mapped_world(env):
     proj = env["proj"]
     (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
@@ -805,6 +826,19 @@ def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch):
     deny = _deny_text(_ptu_run("Bash", {"command": 'git commit -m "x"'}, proj, tp, outputs))
     assert deny and deny.startswith("[NeedGoal] commit 前") and "(f2)" in deny
     assert _deny_text(_ptu_run("Bash", {"command": "git log -1"}, proj, tp, outputs)) is None
+
+
+def test_commit_gate_ignores_commit_examples_inside_heredoc(hooked, monkeypatch):
+    """heredoc 本文裡的 git／svn commit 是文件內容（操作說明、派工單），不觸發 commit_gate；heredoc 結束後真的執行的
+    commit 照擋。與 CommitOrder 共用同一支判定。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    _code_tree(hooked)
+    monkeypatch.setattr(ptu, "check_git_commit_order", lambda *a, **k: None)
+    monkeypatch.setattr(ptu, "check_git_privacy", lambda *a, **k: None)
+    doc = "cat > guide.md <<'EOF'\n步驟：\ngit commit -m example\nsvn commit -m example\nEOF"
+    assert _deny_text(_ptu_run("Bash", {"command": doc}, proj, tp, outputs)) is None
+    deny = _deny_text(_ptu_run("Bash", {"command": doc + "\ngit commit -m real"}, proj, tp, outputs))
+    assert deny and deny.startswith("[NeedGoal] commit 前")
 
 
 # ─── 收尾檢核、審查材料、續接單、壓縮重送 ─────────────────────────────────────

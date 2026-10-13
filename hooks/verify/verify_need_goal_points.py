@@ -515,6 +515,47 @@ def test_post_tool_batch_handler_sends_mid_turn_peer_claim(world, tmp_path):
     assert out and "收到外部主張" in out["hookSpecificOutput"]["additionalContext"]
 
 
+def test_mid_turn_overlapping_scans_never_move_offset_back(world, tmp_path, monkeypatch):
+    """兩次掃描交錯：A 算好位置、還沒拿到鎖時，B 已經掃到更後面寫回。位置只往前，同一則同伴訊息只送一次。"""
+    make_tree()
+    tp = tmp_path / "tx.jsonl"
+    tp.write_text("", encoding="utf-8")
+    ngp.peer_claim_lines(SID, str(tp), {}, 1)
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(_tx_line(QUEUED_PEER))
+    real = ng.update_locked
+    other = []
+
+    def racing(sid, fn):
+        monkeypatch.setattr(ng, "update_locked", real)                         # B 用真的鎖完整跑一次
+        with open(tp, "a", encoding="utf-8") as f:
+            f.write(_tx_line({"type": "user", "message": {"role": "user", "content": "之後又多一行"}}))
+        other.extend(ngp.peer_claim_lines(SID, str(tp), {}, 1))
+        return real(sid, fn)
+
+    monkeypatch.setattr(ng, "update_locked", racing)
+    mine = ngp.peer_claim_lines(SID, str(tp), {}, 1)
+    assert ng.load(SID)["peer_offset"] == tp.stat().st_size                      # 沒倒退回 A 算的舊位置
+    assert len(mine + other) == 1                                                # 同一則只送一次
+
+
+def test_mid_turn_scan_transcript_shrunk_resets_explicitly(world, tmp_path):
+    """transcript 變短（換檔或被截）：位置明確重置到檔尾並記 peer_scan_reset，這一次不回溯；之後新到的照掃。"""
+    make_tree()
+    tp = tmp_path / "tx.jsonl"
+    tp.write_text(_tx_line({"type": "user", "message": {"role": "user", "content": "x" * 300}}), encoding="utf-8")
+    ngp.peer_claim_lines(SID, str(tp), {}, 1)
+    old = ng.load(SID)["peer_offset"]
+    tp.write_text(_tx_line({"type": "user", "message": {"role": "user", "content": "短"}}), encoding="utf-8")
+    assert ngp.peer_claim_lines(SID, str(tp), {}, 2) == []
+    doc = ng.load(SID)
+    assert doc["peer_offset"] == tp.stat().st_size
+    assert (doc.get("peer_scan_reset") or {}).get("from") == old
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(_tx_line(QUEUED_PEER))
+    assert ngp.peer_claim_lines(SID, str(tp), {}, 2)
+
+
 # ─── 4.4 提問 ─────────────────────────────────────────────────────────────
 
 ASK = {"questions": [{"question": "要用哪個做法？", "header": "做法", "multiSelect": False,
@@ -720,6 +761,80 @@ def test_pre_tool_use_disabled_by_config(world):
     make_tree("code")
     off = {"overview_hub": {"need_goal": {"enabled": False}}}
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ASK), off) is None
+
+
+ROOT_OFF = {"overview_hub": {"need_goal": {"enabled": False}}}
+
+
+def _layered_proj(base, enabled):
+    """有 .git 的專案，專案層 .claude/overview-hub.json 寫 need_goal.enabled。"""
+    root = base / f"lay-{'on' if enabled else 'off'}"
+    (root / ".git").mkdir(parents=True)
+    (root / ".claude").mkdir()
+    (root / ".claude" / "overview-hub.json").write_text(json.dumps({"need_goal": {"enabled": enabled}}), encoding="utf-8")
+    return root
+
+
+def test_ask_gate_root_off_project_on_still_blocks(world, tmp_path):
+    """根層關、專案層開：提問閘照這次的 cwd 解四層設定，專案開著就要攔沒掛節點的提問。"""
+    root = _layered_proj(tmp_path, True)
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3})
+    make_tree("code")
+    out = run_handler(ptu.handle_pre_tool_use, {**_pre_input(ASK), "cwd": str(root)}, ROOT_OFF)
+    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_ask_gate_root_on_project_off_does_not_block(world, tmp_path):
+    """根層開、專案層關：這個專案已關掉流程，提問不攔。"""
+    root = _layered_proj(tmp_path, False)
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3})
+    make_tree("code")
+    assert run_handler(ptu.handle_pre_tool_use, {**_pre_input(ASK), "cwd": str(root)}, {}) is None
+
+
+@pytest.mark.parametrize("enabled,config", [(True, ROOT_OFF), (False, {})])
+def test_batch_and_resume_entries_follow_project_layer(world, tmp_path, enabled, config):
+    """批次審計（PostToolBatch 事後提醒）、壓縮後重送、工作中途同伴訊息補掃、UPS 同伴訊息三問：都照這次的 cwd 解設定。
+    根關專案開 → 照做；根開專案關 → 都不做。"""
+    root = _layered_proj(tmp_path, enabled)
+    make_tree("code")
+    wg_core.write_state(SID, {"session": {"id": SID, "cwd": str(root)}, "turn_seq": 2})
+    inp = {"session_id": SID, "hook_event_name": "PostToolBatch", "cwd": str(root),
+           "tool_calls": [{"tool_name": "AskUserQuestion", "tool_input": ASK, "tool_use_id": "lay1"}]}
+    ctx = ((run_handler(ptb.handle_post_tool_batch, inp, config) or {}).get("hookSpecificOutput") or {}).get(
+        "additionalContext", "")
+    assert ("事後提醒" in ctx) is enabled
+    assert bool(ngp.recovery_text(SID, config, str(root))) is enabled
+    tp = tmp_path / "tx.jsonl"
+    tp.write_text("", encoding="utf-8")
+    ngp.peer_claim_lines(SID, str(tp), config, 2, str(root))
+    tp.write_text(_tx_line(QUEUED_PEER), encoding="utf-8")
+    assert bool(ngp.peer_claim_lines(SID, str(tp), config, 2, str(root))) is enabled
+
+
+@pytest.mark.parametrize("enabled,config", [(True, ROOT_OFF), (False, {})])
+def test_ups_peer_claim_follows_project_layer(world, tmp_path, monkeypatch, enabled, config):
+    """UserPromptSubmit 的同伴訊息三問也照這次的 cwd 解設定。"""
+    from handlers import user_prompt_submit as ups
+    root = _layered_proj(tmp_path, enabled)
+    make_tree("code")
+    state = {"session": {"id": SID, "cwd": str(root)}, "turn_seq": 4}
+    outputs = []
+    monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
+    for name, fake in (("_ups_sentinel_check_and_arm", lambda *a: None), ("_ups_sentinel_clear", lambda sid: None),
+                       ("run_pre_gates", lambda *a: None), ("build_context", lambda *a: None),
+                       ("collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {})),
+                       ("assemble_injection", lambda *a, **k: ([], {})), ("_maybe_spawn_failure_extraction", lambda *a: None),
+                       ("_update_topic_tracker", lambda *a: None), ("_drain_aec_decisions", lambda *a: None),
+                       ("_truncate_context_by_activation", lambda lines, *a: lines),
+                       ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, st: None),
+                       ("output_json", lambda d: outputs.append(d)), ("output_nothing", lambda: outputs.append(None))):
+        monkeypatch.setattr(ups, name, fake)
+    ups.handle_user_prompt_submit({"session_id": SID, "prompt": PEER_PROMPT, "transcript_path": "", "cwd": str(root)},
+                                  {"sync_keywords": [], **config})
+    ctx = ((outputs[-1] or {}).get("hookSpecificOutput") or {}).get("additionalContext", "") if outputs else ""
+    assert ("收到外部主張" in ctx) is enabled
+    assert bool(ng.cfg_for_cwd(config, ng.hook_cwd({}, state))["enabled"]) is enabled    # 輸入沒 cwd 用 state 記的
 
 
 def test_post_tool_batch_handler_emits_scope_and_after_ask(world):
@@ -969,6 +1084,23 @@ def _calls(path, name):
 ])
 def test_hook_files_call_points(rel, name):
     assert _calls(HOOKS_DIR / rel, name), f"{rel} 沒呼叫 {name}"
+
+
+@pytest.mark.parametrize("rel", ["handlers/pre_tool_use.py", "handlers/post_tool_batch.py", "handlers/post_compact.py",
+                                 "handlers/session_start.py", "handlers/session_end.py", "handlers/user_prompt_submit.py"])
+def test_need_goal_entries_resolve_config_by_cwd(rel):
+    """hook 入口取 need_goal 設定一律帶這次的 cwd：不帶根的 cfg_of(config) 只讀得到根層，專案層的開關會失效。"""
+    bare = [n.lineno for n in _calls(HOOKS_DIR / rel, "cfg_of") if len(n.args) + len(n.keywords) < 2]
+    assert not bare, f"{rel} 第 {bare} 行用不帶根的 cfg_of"
+
+
+@pytest.mark.parametrize("rel,name,nargs", [("handlers/post_compact.py", "recovery_text", 3),
+                                            ("handlers/session_start.py", "recovery_text", 3),
+                                            ("handlers/post_tool_batch.py", "peer_claim_lines", 5)])
+def test_resume_entries_pass_cwd(rel, name, nargs):
+    """壓縮後重送、工作中途補掃在模組裡解設定：入口要把這次的 cwd 傳下去。"""
+    calls = _calls(HOOKS_DIR / rel, name)
+    assert calls and all(len(c.args) + len(c.keywords) >= nargs for c in calls), f"{rel} 呼叫 {name} 沒帶 cwd"
 
 
 def test_overview_on_read_no_longer_counts_scope():
