@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 track-a4 OverviewHub 候選填空去噪：改檔路徑沒內容一行、一部位一 session 一次
+- **緣由**：工作 session 每改一個 hook 檔的第二次 Edit 就被灌一整塊「候選前 5（來源：無）＋根因卡＋先答兩問」。沒有 smells 報告也沒有病灶段時內容是零卻佔最多字；去重 key 又是「檔」不是「部位」，同部位改十個檔就送十次。
+- **做法**：`_candidates_block` 加 `compact_empty`：改檔路徑沒內容時只回一行（報告不存在／解析失敗的附註接在同一行）；使用者問根因的 on_prompt 觸發詞路徑不縮。`on_edit` 第二次 Edit 送候選改以部位 key 查 `state["candidates_sent"]`（與觸發詞共用），送過就不再送，一行版也記帳。
+- **驗證**：verify_candidates_trigger 新 3 案（換回 41887aa 紅在斷言，完整塊那句為保護案）＋verify_overview_hub＋verify_pre_tool_use_overview_gate 共 147 passed；verify_overview_hub 一句既有斷言從「候選前」改為兩種形狀都認的「【戰鬥】候選」（該 fixture 沒病灶段，現在送一行版）。 | `hooks/wg_overview.py`, `hooks/verify/verify_candidates_trigger.py`, `hooks/verify/verify_overview_hub.py`, `TECH.md`
+
 ## 2026-10-13 v6.0 track-a4 CommitOrder 口令閘補四洞：一般寫法不得漏擋、Git Bash 路徑不誤擋
 - **緣由**：codex 徹底檢核 A 在 f5ddb5a 重現 3 條一般寫法漏擋（heredoc 起始行後的 `&& git commit -F` 被連內文剝掉、`bash -lc`／`powershell -NoProfile -Command`／`cmd /d /c` 夾啟動選項讓包裝偵測失效、`Git`／`GIT.EXE` 大小寫快篩先放掉）＋1 條誤擋（Git Bash `cd /c/…` 被當 Windows 字面路徑找錯 `.git`，記憶系統自己的 commit 要口令）。
 - **做法**：定規則不逐條補 regex：`_strip_heredoc_bodies` 改逐行掃、只剝到第一個結束行（零行內文也算）、起始行 delimiter 後的字照留；包裝偵測改斷詞（`_scan_segments` 保留引號狀態切段、Bash `\`／cmd `^`／PowerShell 反引號續行接回；`_wrapper_split` 認執行檔 basename 去路徑去 .exe 不分大小寫、POSIX 短旗標組含 c／PowerShell `-c…`／cmd `/c` `/k`）＋逐段辨識（`_wrapped_commit_verdict`：拆得出 commit 擋、內層全是 log/status/diff/show 放行、再包一層遞迴、包裝外片段與其他片段的子 shell／eval／命令替換照查，雙引號裡的 `$(…)` 算會執行）；口令閘與隱私閘快篩改 lower 與 `_vcs_segments` 同規則；`_drive_path` 把 `/<drive>/…` 轉成 `<drive>:/…` 再找最近 `.git`，只對 Bash 工具套（PowerShell 原生 `/c/` 不是磁碟機）。豁免白名單本身不放寬。codex 審 001 退一條 BLOCK（帶引號 shell 路徑被 `_unquoted` 抹掉）＋三 WARN（`bash -lc 'git log --grep=commit'` 誤擋、/c/ 不分 shell、空 heredoc 吞 commit），003 收；審 003 退一條 BLOCK（續行拆散 shell 名與旗標）＋兩 WARN（雙引號裡的 `$()` 被白名單抹掉、有查詢包裝就不查其他片段），005 收。

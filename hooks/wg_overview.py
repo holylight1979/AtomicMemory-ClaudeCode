@@ -500,9 +500,11 @@ def _smells_lines(root: Path, cfg: Dict[str, Any], parts: Optional[Tuple[str, ..
 
 
 def _candidates_block(root: Path, rows: List[Dict[str, Any]], cfg: Dict[str, Any], max_chars: Optional[int] = None,
-                      label: Optional[str] = None) -> str:
+                      label: Optional[str] = None, compact_empty: bool = False) -> str:
     """候選前 N＋根因卡＋兩問。rows＝一列（該部位）或整張表（全專案，label 給「全專案」）。
     來源：smells_report（過期附一行仍送、壞格式附一行解析失敗）→ 沒有就退導讀卡病灶段前 N（全專案時各部位輪流取）→ 都沒有明說「無候選」。
+    compact_empty（改檔路徑用）：都沒有時只回一行，不附根因卡與兩問；報告不存在／解析失敗的附註接在同一行。
+    使用者問根因（on_prompt 觸發詞）不縮，仍送根因卡與兩問。
     字數：每列截 min(200, max_card_chars // N)；整塊截 max_chars（預設 max_card_chars），卡名與兩問一定保留。"""
     n = int(cfg.get("candidate_top_n") or 0)
     cap = int(max_chars if max_chars is not None else cfg.get("max_card_chars") or 6000)
@@ -524,6 +526,9 @@ def _candidates_block(root: Path, rows: List[Dict[str, Any]], cfg: Dict[str, Any
             merged.extend(p[i] for p in per_part if i < len(p))
         lines = merged[:n]
         source = "導讀卡「已知病灶」段" if lines else ""
+    if not lines and compact_empty:
+        return (f"[Guardian:OverviewHub] 【{label or rows[0]['part_short']}】候選：無"
+                f"（補導讀卡「已知病灶」段或設 smells_report）" + "".join(notes))
     if not lines:
         lines = ["候選：無（沒有可用的 smells 報告也沒有病灶段；先補導讀卡「已知病灶」段或在 overview-hub.json 設 smells_report）"]
         source = "無"
@@ -943,16 +948,20 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
          reads_after_inject=len(reads), dirs_after_inject=len(dirs), edits=rec["edits"],
          intent=rec.get("intent"), slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=deny_reason)
     if not missing:
-        # A5.3：放行的同檔第 2 次 Edit 附候選一次（被擋的不算改過；第 3 次起不送）；rec.edited_files {路徑: 放行次數}
+        # A5.3：放行的同檔第 2 次 Edit 附候選（被擋的不算改過；第 3 次起不送）；rec.edited_files {路徑: 放行次數}。
+        # 一部位一 session 只送一次：與 on_prompt 觸發詞共用 candidates_sent（部位 key），同部位別的檔第 2 次 Edit 不再送；
+        # 沒內容時只送一行，那一行也記進 candidates_sent。
         ef = rec["edited_files"]
         ef_key = _root_key(Path(file_path))   # 正斜線＋小寫：Windows 上 Game/A.cs 與 game/a.cs 是同一檔
         ef[ef_key] = int(ef.get(ef_key, 0)) + 1
-        if ef[ef_key] == 2:
+        sent = state.setdefault("candidates_sent", [])
+        if ef[ef_key] == 2 and key not in sent:
             # 放行已判定；候選是附加輸出，炸了只附一行說明，不得把放行變成擋（外層 pre_tool_use 的 except 會當環境異常 deny）
             try:
-                candidates = _candidates_block(root, [row], cfg)
+                candidates = _candidates_block(root, [row], cfg, compact_empty=True)
             except Exception as e:  # noqa: BLE001
                 candidates = _candidates_error_line(session_id, e, via="second_edit", part=row["part_short"])
+            sent.append(key)
             _log("second_edit", session_id, part=row["part_short"], path=file_path, edits_same_file=2, layer=cfg.get("_layer"))
             warn = f"{warn}\n{candidates}" if warn else candidates
         return (warn, None, True)
