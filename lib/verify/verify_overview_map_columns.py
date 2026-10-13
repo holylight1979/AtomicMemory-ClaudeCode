@@ -166,6 +166,18 @@ def test_no_header_extended_cells_stay_empty():
     assert r["cards"] == ["大地圖導讀"] and _extra(r) == EMPTY_EXTRA
 
 
+def test_kind_column_only_knowledge_words_count():
+    """「類別」欄：knowledge／知識（含反引號、大小寫）→ knowledge；code、空格、無、拼錯 → code；沒有這欄的表全是 code。"""
+    text = (
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 量尺 | 類別 |\n|---|---|---|---|---|---|\n"
+        "| `a/` | 甲 | 無 | 無 | 無 | knowledge |\n| `b/` | 乙 | 無 | 無 | 無 | `Knowledge` |\n"
+        "| `c/` | 丙 | 無 | 無 | 無 | 知識 |\n| `d/` | 丁 | 無 | 無 | 無 | code |\n"
+        "| `e/` | 戊 | 無 | 無 | 無 |  |\n| `f/` | 己 | 無 | 無 | 無 | 無 |\n| `g/` | 庚 | 無 | 無 | 無 | knowlege |\n"
+    )
+    assert [r.get("kind") for r in oh.parse_map(text)] == ["knowledge", "knowledge", "knowledge", "code", "code", "code", "code"]
+    assert {r.get("kind") for r in oh.parse_map(THIRTEEN)} == {"code"}
+
+
 def test_root_cause_layer_header_is_not_layer_column():
     text = "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 根因層 |\n|---|---|---|---|---|\n| `x/` | 甲 | `卡` | 有 | 邏輯層 |\n"
     assert oh.parse_map(text)[0]["layer"] == ""

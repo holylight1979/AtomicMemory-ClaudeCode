@@ -9,7 +9,7 @@ session、哪則使用者訊息觸發 atom_write 寫出來的，補 `- Source:` 
   A        transcript 命中 atom_write → `Source: session:<sid8>#<uuid8> <日期>` ＋ `Quote: 「使用者原話」`
   A_noquote 命中但找不到可用的原話：沒有真人訊息，或那則是開工句（lib/provenance.is_kickoff_text；同伴訊息開的回合
            不是真人訊息，往回走會走到開工句）→ 只補 Source、不寫 Quote
-  A-ai     只找得到 `<!-- src: -->` 指標的自動萃取 atom → Source 同上，Quote 寫 `「AI：…」`（非使用者原話）
+  A-ai     只找得到 `<!-- src: -->` 指標的自動萃取 atom → 只補 Source（同上），不寫 Quote：指到的是 AI 的話，Quote 只放使用者原話
   B        無命中 → `Source: commit:<hash7> <日期>（原對話已逾保留期）`（無 git 用 `unknown <日期>（…）`）
   skip     已有 Quote（冪等）／既有 Source 非空且無命中／ambiguous（同檔名多層無法判定，不寫）
 
@@ -417,8 +417,6 @@ def backfill(*, apply: bool = False, layer: str = "all", only: Optional[List[str
                     rec = next((v for k, v in idx.by_uuid.items() if k.startswith(uuid8)), None)
                     d = (rec or {}).get("ts", "")[:10] or (_CREATED_RE.search(text).group(1) if _CREATED_RE.search(text) else date.today().isoformat())
                     provenance = f"session:{sid8}#{uuid8} {d}"
-                    ai_q = sanitize_quote((rec or {}).get("text") or "", max_chars=196)
-                    quote = format_quote("AI：" + ai_q) if ai_q else None
                     r["grade"] = "A_ai"
                 elif existing_source:
                     r["reason"] = "has_source_no_match"

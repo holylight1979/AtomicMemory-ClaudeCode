@@ -759,15 +759,18 @@ def _pytest_done(turn, root, exit_code=0, cmd=_PYTEST_CMD):
 
 
 def _two_roots(tmp_path, same_map=True):
-    """live 根（當 CLAUDE_DIR）與 worktree 根各放一張表；same_map=False 時 worktree 的表內容不同（＝一般專案）。"""
+    """live 根（當 CLAUDE_DIR）與 worktree 根各放一張表；same_map=False 時 worktree 的表內容不同（工作 session 改了部位表）。"""
     live, wt = tmp_path / "live", tmp_path / "wt"
     for d in (live, wt):
         (d / ".claude").mkdir(parents=True)
     (live / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES)
     extra = "\n| `x/` | 其他 | 無 | 無 | 無 | 無 | 無 |\n".encode("utf-8")
     (wt / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES if same_map else _MAP_BYTES + extra)
-    (live / ".git" / "worktrees" / "wt").mkdir(parents=True)                       # 結構同真 worktree：.git 檔指回 live 的 worktrees/
-    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+    adm = live / ".git" / "worktrees" / "wt"                                       # 結構同真 worktree（git worktree add 寫的同一組檔）
+    adm.mkdir(parents=True)
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
     return live, wt
 
 
@@ -784,8 +787,9 @@ def test_is_root_worktree_pure_checks(tmp_path):
     assert vl.is_root_worktree(live, live) is False                 # 同一目錄不是 worktree
     assert vl.is_root_worktree(tmp_path / "nope", live) is False    # 表不存在
     assert vl.is_root_worktree(wt, tmp_path / "nope") is False
-    _, wt2 = _two_roots(tmp_path / "b", same_map=False)
-    assert vl.is_root_worktree(wt2, live) is False                  # 表內容不同＝一般專案
+    live2, wt2 = _two_roots(tmp_path / "b", same_map=False)
+    assert vl.is_root_worktree(wt2, live2) is True                  # 改了部位表仍是根層 worktree（身分只看 git）
+    assert vl.is_root_worktree(wt2, live) is False                  # 別的 repo 的 worktree 不是
 
 
 _HEAD = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n  ✗ "
@@ -862,15 +866,16 @@ def test_live_root_still_requires_full_measure(tmp_path, monkeypatch):
     assert reason is None
 
 
-def test_project_worktree_with_different_map_keeps_project_logic(tmp_path, monkeypatch):
+def test_root_worktree_with_changed_map_still_takes_pytest_measure(tmp_path, monkeypatch):
+    """改了根層部位表的根層 worktree 仍是根層身分：量尺認同 root 的 PYTEST_MEASURE、不要求全量；沒收據時擋訊息也是根層 worktree 那句。
+    舊碼比對兩邊部位表位元組，表一改就失去根層身分、要求全量 run_verify（worktree 裡全量必有既有紅，永遠過不了）。"""
     live, wt = _two_roots(tmp_path, same_map=False)
     monkeypatch.setattr(vl, "CLAUDE_DIR", live)
     mod = str(wt / "hooks" / "x.py")
     reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, wt)], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
-    assert reason and MEASURE_CMD in reason and "根層 worktree" not in reason
-    full = {**_rcpt(5, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(wt), "cwd": str(wt)}
-    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [full], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
     assert reason is None
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "PYTEST_MEASURE" in reason and "根層 worktree" in reason and "不要求全量" in reason
 
 
 # ─── 件一：擋滿後只認使用者放行（AskUserQuestion【收尾放行確認】或使用者打「放行」，都要在最後一次擋之後） ───
@@ -1686,9 +1691,10 @@ def test_017_outside_whitelist_blocks_at_measure_gate(cmd):
 
 
 def test_017_root_table_rulers_pass_measure_gate_verbatim():
-    """G6 (b)：根層部位表 8 列（7 把尺＋行為規則層無尺）的量尺原字串原樣跑，Bash 與 PowerShell 都對得上；直接讀表上字串。"""
+    """G6 (b)：根層部位表 10 列（7 把尺＋行為規則層、派工信箱、部位表與專案層設定無尺）的量尺原字串原樣跑，
+    Bash 與 PowerShell 都對得上；直接讀表上字串。"""
     rows = [r for r in _ROOT_ROWS if (r.get("measure") or {}).get("cmd")]
-    assert len(_ROOT_ROWS) == 8 and len(rows) == 7
+    assert len(_ROOT_ROWS) == 10 and len(rows) == 7
     for row in rows:
         for tool in ("Bash", "PowerShell"):
             assert _gate(row["measure"]["cmd"], tool, row) is None, (row["part_short"], tool)
@@ -3264,6 +3270,154 @@ def test_040_13_transcript_from_hook_input_when_session_moved_into_worktree(driv
     assert "ReconcileGate" not in out and _released(logs)
 
 
+# ─── track-know：部位表類別 knowledge 的部位不欠 (d)、也不能替寫碼部位清帳 ─────────────────────────────
+# 判法只看路徑屬部位表哪一列（lib/overview_hub.path_kind，與 OverviewHub 同一份），不看副檔名、不看 git 狀態。
+# 舊碼（is_code_file 只看副檔名）：信箱、記憶暫存、文件目錄下的 .py 也欠案例；信箱裡的 test_a.py 能替 tools/a.py 清帳。
+
+_KNOW_MAP = (
+    "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+    "| `tools/` | 工具 | 無 | 無 | code |\n"
+    "| `scripts/` | 腳本 | 無 | 無 |  |\n"
+    "| `workflow/v6-inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
+    "| `memory/` | 記憶 | 無 | 無 | knowledge |\n"
+    "| `_AIDocs/` | 文件 | 無 | 無 | 知識 |\n"
+)
+_KNOW_SRC = "def f(x):\n    return x + 1\n"
+
+
+def _know_debt(name: str) -> str:
+    return f"改了程式碼（{name}）之後沒有新增或修改驗證 case 檔"
+
+
+@pytest.fixture()
+def know_repo(tmp_path):
+    """真 git repo，根上放帶「類別」欄的部位表；回 (repo, 寫檔函式)。"""
+    repo = tmp_path / "krepo"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "init")
+
+    def put(rel: str, text: str = _KNOW_SRC) -> str:
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8", newline="\n")
+        return str(p)
+    return repo, put
+
+
+@pytest.mark.parametrize("rel,owed", [
+    ("tools/a.py", True),
+    ("workflow/v6-inbox/to-x/a.py", False),
+    ("memory/_staging/a.py", False),
+    ("_AIDocs/a.py", False),
+])
+def test_know_same_file_owes_in_code_part_not_in_knowledge_part(driven, capsys, know_repo, rel, owed):
+    """同一份內容：放在 tools/（類別 code）欠案例；放在信箱、記憶暫存、文件目錄（類別 knowledge／知識）不欠。"""
+    _, put = know_repo
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(put(rel), 5)])
+    assert (_know_debt("a.py") in out) is owed, rel
+
+
+def test_know_unmarked_row_and_unlisted_path_default_to_code(driven, capsys, know_repo):
+    """沒標類別的列（scripts/）與表上沒列的路徑（根目錄的 b.py、子字串才撞到 memory/ 的 lib/memory/c.py）一律算寫碼部位。"""
+    _, put = know_repo
+    for rel in ("scripts/a.py", "b.py", "lib/memory/c.py"):
+        out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(put(rel), 5)])
+        assert _know_debt(Path(rel).name) in out, rel
+
+
+def test_know_case_in_knowledge_part_cannot_clear_code_debt(driven, capsys, know_repo):
+    """案例側也看部位：信箱裡的 test_a.py 不能替 tools/a.py 清帳；tools/verify/ 下的案例照常清帳。"""
+    _, put = know_repo
+    code = put("tools/a.py")
+    inbox_case = put("workflow/v6-inbox/to-x/test_a.py", "def test_a():\n    assert True\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(inbox_case, 5)])
+    assert _know_debt("a.py") in out
+    real_case = put("tools/verify/test_a.py", "def test_a():\n    assert True\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(inbox_case, 5), _mf(real_case, 5)],
+                       anti_evasion_report=_aec(5, j="無", k="無"))
+    assert "ReconcileGate" not in out
+
+
+def test_know_deleted_inbox_file_not_owed_even_with_new_code_in_status(driven, capsys, know_repo, monkeypatch):
+    """claude-91 現場：信箱裡的 .py 被刪掉，同根另有未追蹤的程式檔（看起來像搬走）→ 舊碼照欠；知識部位的檔根本不進 (d)。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    _, put = know_repo
+    gone = put("workflow/v6-inbox/to-x/verify_x.py")
+    Path(gone).unlink()
+    put("tools/new_tool.py")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(gone, 5)])
+    assert _know_debt("verify_x.py") not in out
+
+
+def test_know_code_moved_into_knowledge_part_still_owes(driven, capsys, know_repo, monkeypatch):
+    """寫碼部位的程式改完 mv 進信箱：原路徑已不存在，但同根出現新的程式檔（信箱那份，vanished 的 new_code 不過類別排除）
+    → 原路徑照欠；信箱那份本身不欠。防回歸：不讓「搬進知識區」變成清帳法。codex 審 a6323cb 新案缺口。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    repo, put = know_repo
+    code = put("tools/a.py")
+    _git(repo, "add", "tools/a.py")
+    _git(repo, "commit", "-qm", "a")
+    put("tools/a.py", _KNOW_SRC + "# changed\n")
+    moved = repo / "workflow" / "v6-inbox" / "to-x" / "a.py"
+    moved.parent.mkdir(parents=True)
+    Path(code).replace(moved)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(str(moved), 5)])
+    assert "(d) 改了程式碼（a.py" in out                       # 舊碼兩份都欠（a.py、a.py），新碼只欠 tools/a.py
+
+
+def test_know_knowledge_part_ruler_and_commit_snapshot_unchanged(driven, capsys, tmp_path):
+    """知識部位只移出 (d) 與定位三行：表上有量尺的知識部位改了沒跑尺，量尺閘照擋；commit 快照照記知識部位的改檔內容。
+    codex 審 a6323cb 新案缺口（契約 3、5 的直接斷言）。"""
+    repo = tmp_path / "mrepo"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 量尺（量法｜指令｜門檻） | 類別 |\n|---|---|---|---|---|---|\n"
+        "| `memory/` | 記憶 | 無 | 無 | 索引一致｜`python -X utf8 tools/check.py`｜exit 0 | knowledge |\n", encoding="utf-8")
+    _git(repo, "init", "-q")
+    p = repo / "memory" / "_staging" / "a.py"
+    p.parent.mkdir(parents=True)
+    p.write_text(_KNOW_SRC, encoding="utf-8")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(p), 5)])
+    assert "[Guardian:MeasureGate]" in out and "部位【記憶】有量尺" in out and _know_debt("a.py") not in out
+    snap = vl.commit_snapshot([_mf(str(p), 5)], 5, vl.reconcile_cfg({}), lambda _p: str(repo))
+    key = vl.canon_path(str(p))                                                             # 快照鍵用 canon_path（SAME_FILE）
+    assert key in snap["files"] and snap["files"][key] is not None
+
+
+@pytest.mark.parametrize("child", ["./docs/build/", "docs/x/../build/"])
+def test_know_code_child_row_written_with_dot_segments_still_owes(driven, capsys, tmp_path, child):
+    """knowledge 父列 `docs/` 底下的 code 子列寫成 `./docs/build/` 或 `docs/x/../build/`：子列照樣蓋住 docs/build/，那裡的程式欠案例；
+    父列其他地方的 .py 不欠。舊碼表列前綴沒消 `./`、`..`，子列比不到、落回 knowledge，真程式免 (d)。console codex 審 ec4f9e9 BLOCK 1。"""
+    repo = tmp_path / "drepo"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        f"| `docs/` | 文件 | 無 | 無 | knowledge |\n| `{child}` | 建置 | 無 | 無 | code |\n", encoding="utf-8")
+    _git(repo, "init", "-q")
+    code, note = repo / "docs" / "build" / "a.py", repo / "docs" / "b.py"
+    for p in (code, note):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(_KNOW_SRC, encoding="utf-8")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(code), 5), _mf(str(note), 5)])
+    assert _know_debt("a.py") in out and "b.py" not in out
+
+
+def test_know_no_map_keeps_extension_rule(driven, capsys, tmp_path):
+    """沒有部位表的專案行為不變：信箱路徑下的 .py 照副檔名算程式檔。"""
+    repo = tmp_path / "nomap"
+    (repo / "workflow" / "v6-inbox").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    p = repo / "workflow" / "v6-inbox" / "a.py"
+    p.write_text(_KNOW_SRC, encoding="utf-8")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(p), 5)])
+    assert _know_debt("a.py") in out
+
+
 # ─── 042：內容回到快照的豁免要連暫存區一起看、amend 不蓋掉有效豁免、已不存在的新檔、排除區、每回合一次的閘 ──────────────
 
 def _status(repo):
@@ -3342,9 +3496,10 @@ def test_042_1_session_new_code_file_gone_no_longer_owes(driven, capsys, chain, 
 ])
 def test_042_2_same_file_counts_as_code_only_outside_excluded_regions(driven, capsys, chain, rel, owed):
     """042 根因②：路徑分類只看副檔名，放在信箱當素材的 .py（cp 進去）被當成改了本專案程式碼。同內容的檔在 tools/ 下算、
-    在 workflow/v6-inbox/、memory/_staging/、_AIDocs/ 下不算（reconcile_gate.exclude_globs，相對專案根比；看路徑屬哪一區、
+    在 workflow/v6-inbox/、memory/_staging/、_AIDocs/ 下不算（部位表類別 knowledge，錨在專案根；看路徑屬哪個部位、
     不看 git 狀態）。舊碼一律算。"""
     state, edit, _, repo, _, _ = chain
+    _put_know_map(repo)
     p = repo / rel
     p.parent.mkdir(parents=True)
     p.write_text("def probe():\n    return 1\n", encoding="utf-8", newline="\n")
@@ -3357,6 +3512,7 @@ def test_042_2b_case_in_excluded_region_cannot_settle_real_code(driven, capsys, 
     """042 根因②案例側：改了 src/a.py 之後只在信箱寫一支 test_a.py → 排除區的檔也不算案例，(d) 照擋（只排程式側的話，
     信箱裡隨手一支 test_*.py 就能替真程式清帳）。舊碼信箱的 test_a.py 晚於程式、清掉 (d)。配對：補在 tests/ → 不擋。"""
     state, edit, _, repo, code, case = chain
+    _put_know_map(repo)
     edit(code, 3)
     inbox_case = repo / "workflow" / "v6-inbox" / "to-x" / "test_a.py"
     inbox_case.parent.mkdir(parents=True)
@@ -3369,17 +3525,31 @@ def test_042_2b_case_in_excluded_region_cannot_settle_real_code(driven, capsys, 
     assert _DEBT_A not in out
 
 
-def test_042_2c_excluded_region_is_anchored_at_known_root():
+def _put_know_map(repo: Path) -> None:
+    """專案根放一張帶「類別」欄的部位表：信箱、記憶、文件是 knowledge，其餘照算程式（排除區的真源是部位表，沒有表就不排除）。"""
+    (repo / ".claude").mkdir(parents=True, exist_ok=True)
+    (repo / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        "| `src/` | 程式 | 無 | 無 | code |\n| `workflow/v6-inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
+        "| `memory/` | 記憶 | 無 | 無 | knowledge |\n| `_AIDocs/` | 文件 | 無 | 無 | knowledge |\n", encoding="utf-8")
+
+
+def test_042_2c_excluded_region_is_anchored_at_known_root(tmp_path):
     """排除區只認相對專案根、錨在根的路徑：拿不到根、檔不在根底下、根所在目錄的名字、根底下別處同名目錄都不排除（照算程式）。"""
     cfg = vl.RECONCILE_DEFAULTS
-    assert vl.is_excluded(r"c:\proj\workflow\v6-inbox\to-x\a.py", cfg, r"c:\proj")
-    assert vl.is_excluded(r"C:\Proj\_AIDocs\DevHistory\a.py", cfg, "c:/proj/")                  # 大小寫、斜線不影響
-    assert not vl.is_excluded(r"c:\proj\workflow\v6-inbox\a.py", cfg, None)
-    assert not vl.is_excluded(r"c:\other\workflow\v6-inbox\a.py", cfg, r"c:\proj")
-    assert not vl.is_excluded(r"c:\_AIDocs\proj\hooks\a.py", cfg, r"c:\_AIDocs\proj")
-    assert not vl.is_excluded(r"c:\proj\hooks\_AIDocs\a.py", cfg, r"c:\proj")
-    assert not vl.is_excluded(r"c:\proj\workflow\v6-inbox-old\a.py", cfg, r"c:\proj")
-    assert not vl.is_excluded(r"c:\proj\workflow\v6-inbox\..\..\src\a.py", cfg, r"c:\proj")      # 經信箱繞回 src/：照算程式
+    proj, aid = tmp_path / "proj", tmp_path / "_AIDocs" / "proj"
+    for r in (proj, aid):
+        _put_know_map(r)
+    p, a = str(proj), str(aid)
+    assert vl.is_excluded(p + r"\workflow\v6-inbox\to-x\a.py", cfg, p)
+    assert vl.is_excluded(p.upper() + r"\_AIDocs\DevHistory\a.py", cfg, p.replace("\\", "/") + "/")   # 大小寫、斜線不影響
+    assert not vl.is_excluded(p + r"\workflow\v6-inbox\a.py", cfg, None)
+    assert not vl.is_excluded(str(tmp_path / "other") + r"\workflow\v6-inbox\a.py", cfg, p)
+    assert not vl.is_excluded(a + r"\hooks\a.py", cfg, a)                                     # 根所在目錄名含 _AIDocs
+    assert not vl.is_excluded(p + r"\hooks\_AIDocs\a.py", cfg, p)                              # 只有子字串撞到
+    assert not vl.is_excluded(p + r"\workflow\v6-inbox-old\a.py", cfg, p)
+    assert not vl.is_excluded(p + r"\workflow\v6-inbox\..\..\src\a.py", cfg, p)               # 經信箱繞回 src/：照算程式
+    assert not vl.is_excluded(str(tmp_path / "nomap") + r"\workflow\v6-inbox\a.py", cfg, str(tmp_path / "nomap"))  # 沒有部位表
 
 
 @pytest.mark.parametrize("how", [

@@ -88,6 +88,7 @@
 | 注入記帳以送達為準-裁切後才算-injected-宣稱送出但被總額砍掉的-atom-不得計曝光與效用 | 注入記帳以送達為準-裁切後才算 injected-宣稱送出但被總額砍掉的 atom 不得計曝光與效用 |
 | 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產 | 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產 |
 | 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞 | 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞 |
+| 用真hook重放對話紀錄量閘的擋次-原session的系統暫存路徑要對到沙箱暫存-計數只認那條閘自己的標記 | 用真hook重放對話紀錄量閘的擋次-原session的系統暫存路徑要對到沙箱暫存-計數只認那條閘自己的標記 |
 | 真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile | 真hook子行程探針只設WG_CLAUDE_DIR隔離不了守門紀錄-GUARD_LOG_DIR固定家目錄-要再帶WG_TEST_LOGS_DIR與HOME-USERPROFILE |
 | 禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱 | 禁語 hook 不開引用豁免（誤報噪音 vs 契約破洞不對稱） |
 | 程式批量產生的atom觸發詞不得含日常字與種類單字-一句話就把整批拉進注入吃光預算-只放專名與名稱加種類片語 | 程式批量產生的atom觸發詞不得含日常字與種類單字-一句話就把整批拉進注入吃光預算-只放專名與名稱加種類片語 |
@@ -101,6 +102,7 @@
 | 調度總控台合併候選驗證sop-對帳五項再快照樹鎖檔複跑-退回舊碼看紅型別-探針抽查gate本體-負載下計時案假紅單跑判-合完補驗推刪worktree | 調度總控台合併候選驗證SOP-對帳五項再快照樹鎖檔複跑-退回舊碼看紅型別-探針抽查gate本體-負載下計時案假紅單跑判-合完補驗推刪worktree |
 | 跨session協調-衝突預警機制與cc原生現況 | 跨session協調-衝突預警機制與CC原生現況 |
 | 跨層bash閘與sessionstart逾時-fd複製非寫檔-開場提醒無聲消失 | 跨層Bash閘與SessionStart逾時-fd複製非寫檔-開場提醒無聲消失 |
+| 路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列 | 路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列 |
 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 | 路徑解析函式的根層分支是遷移盲點-cwd在claude根時專案分支會長出舊址 |
 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 | 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑 |
 | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase | 驗收裁判對多階段戰役的等待回合會誤判為完工宣稱-規格檔只綁當前phase |

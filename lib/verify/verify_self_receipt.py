@@ -507,9 +507,9 @@ def test_017_leading_cd_root_only_for_single_absolute_cd():
 
 
 def test_017_all_root_table_rulers_parse_and_match_themselves():
-    """G6 (b)：根層部位表 8 列（7 把尺）原字串在兩種 shell 都可解析、原樣跑對得上，尾接 `2>&1 | tail -5` 也對得上。"""
+    """G6 (b)：根層部位表 10 列（7 把尺）原字串在兩種 shell 都可解析、原樣跑對得上，尾接 `2>&1 | tail -5` 也對得上。"""
     rows = [r for r in _ROOT_ROWS.values() if (r.get("measure") or {}).get("cmd")]
-    assert len(_ROOT_ROWS) == 8 and len(rows) == 7
+    assert len(_ROOT_ROWS) == 10 and len(rows) == 7
     for r in rows:
         m = r["measure"]["cmd"]
         for shell in ("bash", "powershell"):
