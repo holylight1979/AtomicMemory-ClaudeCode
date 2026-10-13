@@ -17,7 +17,7 @@
 
 ## 1. 目標檔：位置、上鎖、損毀
 
-- 位置：`<資料根>/workflow/need-goal/<session_id>.json`（資料根＝`wg_core.WORKFLOW_DIR` 的上一層，吃 `WG_CLAUDE_DIR`）。`.gitignore` 收 `workflow/need-goal/`。
+- 位置：`<資料根>/workflow/need-goal/<session_id>.json`（資料根＝`wg_core.WORKFLOW_DIR` 的上一層，吃 `WG_CLAUDE_DIR`）。`.gitignore` 收 `workflow/need-goal/`。pytest 裡（`PYTEST_CURRENT_TEST`）而測試沒把 `WORKFLOW_DIR` 導走時，改寫到系統暫存目錄 `wg-test-need-goal/`（同 `wg_core.logs_dir` 的作法），跑真 hook 入口的既有測試不會把假 session 的目標檔寫進資料根。
 - 鎖：同目錄 `<session_id>.lock`。Windows 用 `msvcrt.locking(LK_NBLCK, 1)`，其他平台用 `fcntl.flock(LOCK_EX)`。
 - **每一次修改都是一整段**：取鎖 → 讀 → 改 → 寫暫存檔 `<session_id>.<pid>.<8 碼亂數>.tmp` → `os.replace` 換檔 → 放鎖。只能透過 `update_locked(sid, fn)` 改；任何人不准自己開檔寫。
 - 鎖等待上限 5 秒；拿不到 → 丟 `NeedGoalLockTimeout`，**不降級成無鎖寫**（無鎖寫會掉節點）。呼叫端照第九節處理：會擋的閘一律擋，記錄類 stderr＋守門紀錄。

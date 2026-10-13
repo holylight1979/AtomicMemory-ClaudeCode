@@ -435,6 +435,7 @@ def test_two_processes_interleaving_lose_no_nodes(env, tmp_path):
     script = tmp_path / "worker.py"
     script.write_text(_WORKER, encoding="utf-8")
     envv = {**os.environ, "WG_CLAUDE_DIR": str(root), "PYTHONIOENCODING": "utf-8"}
+    envv.pop("PYTEST_CURRENT_TEST", None)                                   # 子行程照正式路徑寫進 tmp 資料根
     seed = [sys.executable, "-X", "utf8", "-c",
             f"import sys; sys.path.insert(0, {str(HOOKS_DIR)!r}); sys.path.insert(0, {str(HOOKS_DIR.parent / 'lib')!r});"
             f"import wg_need_goal as ng; ng.apply_op({SID!r}, 1, {{'action': 'set', 'goal': 'G'}})"]
@@ -547,11 +548,12 @@ def test_edit_gate_layers(env, monkeypatch):
     assert ng.edit_gate(SID, str(proj / "eph" / "x.py"), {}) is None        # 暫存檔不管
     assert ng.edit_gate(SID, "UNKNOWN:echo", {}) is None                    # 交給 OverviewHub
     assert ng.edit_gate(SID, py, {"overview_hub": {"need_goal": {"enabled": False}}}) is None
-    monkeypatch.setattr(overview_hub, "KIND_KNOWLEDGE", "knowledge", raising=False)
-    monkeypatch.setattr(overview_hub, "path_kind", lambda p, stop_at=None: "knowledge", raising=False)
-    assert ng.edit_gate(SID, py, {}) is None                                # 部位類別是知識類 → 不擋
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as mp:                                # 只撤這兩個，不撤 env 的資料根導向
+        mp.setattr(overview_hub, "KIND_KNOWLEDGE", "knowledge", raising=False)
+        mp.setattr(overview_hub, "path_kind", lambda p, stop_at=None: "knowledge", raising=False)
+        assert ng.edit_gate(SID, py, {}) is None                            # 部位類別是知識類 → 不擋
     _op("set", goal="G")
+    assert ng.goal_path(SID).parent.parent == env["wf"]                    # 目標檔落在 tmp 資料根
     assert ng.edit_gate(SID, py, {}) is None
 
 
@@ -925,6 +927,14 @@ def test_hub_config_need_goal_section():
     assert c["need_goal"] == {"enabled": True, "scope_growth_dirs": 3, "render_chars": 800} and not c["_errors"]
     c = hub_config.merge_hub_cfg({"overview_hub": {"need_goal": {"enabled": "yes", "bogus": 1}}}, None, None)
     assert any("need_goal.enabled" in e for e in c["_errors"]) and any("bogus" in e for e in c["_errors"])
+
+
+def test_unredirected_tests_never_write_data_root(monkeypatch):
+    """跑真 hook 入口但沒把資料根導走的測試（例：verify_ups_overview_wiring）：目標檔落到系統暫存目錄，不進資料根。"""
+    import tempfile
+    assert ng.goal_dir() == Path(tempfile.gettempdir()) / "wg-test-need-goal"
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    assert ng.goal_dir() == Path(wg_core.WORKFLOW_DIR) / "need-goal"
 
 
 def test_render_compact_respects_limit(env):

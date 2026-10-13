@@ -98,8 +98,17 @@ def _safe_name(sid: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", sid) or "_no-sid"
 
 
+_DEFAULT_WORKFLOW_DIR = Path(wg_core.WORKFLOW_DIR)
+
+
 def goal_dir() -> Path:
-    return Path(wg_core.WORKFLOW_DIR) / "need-goal"
+    """目標檔目錄＝資料根的 workflow/need-goal。pytest 裡（PYTEST_CURRENT_TEST）而資料根沒被測試導走時，改寫到系統暫存目錄
+    （同 wg_core.logs_dir）：跑真 hook 入口的既有測試不會把假 session 的目標檔寫進資料根。"""
+    wf = Path(wg_core.WORKFLOW_DIR)
+    if os.environ.get("PYTEST_CURRENT_TEST") and wf == _DEFAULT_WORKFLOW_DIR:
+        import tempfile
+        return Path(tempfile.gettempdir()) / "wg-test-need-goal"
+    return wf / "need-goal"
 
 
 def goal_path(sid: Any) -> Path:
