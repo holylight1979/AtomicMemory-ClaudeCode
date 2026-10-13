@@ -42,6 +42,7 @@ def world(tmp_path, monkeypatch):
     wf.mkdir()
     tp = tmp_path / "t.jsonl"
     tp.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "先看"}]}}) + "\n", encoding="utf-8")
+    monkeypatch.setenv("WG_TEMP_RULES", "off")        # 假專案在 pytest tmp 下：關掉 TEMP_COPY_NOT_PROJECT（B14 的案自己再開）
     monkeypatch.setattr(wg_core, "WORKFLOW_DIR", wf)
     monkeypatch.setattr(wg_core, "_rebuild_min_atom_index", lambda cwd: {})
     monkeypatch.setattr(wg_core, "_find_active_sibling_state", lambda *a, **k: None)
@@ -226,9 +227,19 @@ def test_013_4_subagent_tool_call_gets_same_unknown_target_deny(world):
     `python -c "print(1)"` 照樣在執行前被 deny，不會在子代理 Stop 留下未知寫入。"""
     proj, outputs, tp = world
     with pytest.raises(SystemExit):
-        ptu.handle_pre_tool_use({"tool_name": "Bash", "tool_input": {"command": 'python -c "print(1)"'}, "session_id": SID,
+        ptu.handle_pre_tool_use({"tool_name": "Bash", "tool_input": {"command": "python -c \"open('x','w').write('1')\""}, "session_id": SID,
                                  "agent_id": "ag1", "agent_type": "general-purpose", "cwd": str(proj), "transcript_path": tp}, {})
     assert _deny(outputs[-1]) and "無法判定這段指令的寫入目標" in outputs[-1]["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_045_inline_py_readonly_end_to_end_allows_pure_read_and_hints_for_node(world):
+    """規則 INLINE_PY_READONLY：`python -c "print(1)"` 只讀 → 放行；`node -e` 判不了 → 照擋且擋訊息指路（腳本檔）。"""
+    proj, outputs, tp = world
+    out = _run("Bash", {"command": 'python -c "import json;print(json.dumps({}))"'}, proj, tp, outputs)
+    assert not _deny(out)
+    out = _run("Bash", {"command": 'node -e "console.log(1)"'}, proj, tp, outputs)
+    reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert _deny(out) and "node -e" in reason and "腳本檔" in reason
 
 
 def test_missing_state_then_read_and_locate_then_allow_and_edits_accumulate(world):

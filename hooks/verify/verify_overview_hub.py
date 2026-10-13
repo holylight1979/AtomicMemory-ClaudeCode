@@ -23,6 +23,12 @@ import wg_overview as wo  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """假專案都建在 pytest tmp 下：關掉暫存規則（TEMP_COPY_NOT_PROJECT），B14 的案自己再開。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+
+
+@pytest.fixture(autouse=True)
 def _no_org(monkeypatch):
     """預設不接公司層：不讀本機真設定（org-memory.local.json）；要公司層的案自己再 setattr。"""
     monkeypatch.setattr(wo, "org_memory_root", lambda: None)
@@ -112,6 +118,13 @@ def test_read_paths_from_bash_and_read():
     assert got[0] == "C:/a/b.cs" and got[1].replace("\\", "/") == "C:/w/lib/z.py" and len(got) == 2
     assert oh.read_paths_from_tool("Read", {"file_path": "C:/q.cs"}, "") == ["C:/q.cs"]
     assert oh.read_paths_from_tool("Grep", {"pattern": "x"}, "") == []
+
+
+def test_045_bash_comment_lines_stripped_head_on_next_line_is_a_read():
+    """規則 BASH_COMMENT_LINES_STRIPPED：定位三行放 # 註解、下一行 head 讀檔 → 認得到（舊 regex 只認字串開頭）。"""
+    cmd = "# 定位｜部位：x\n# 定位｜根因層：y\n# 定位｜前例：z\nhead -20 C:/a/b.py"
+    assert oh.read_paths_from_tool("Bash", {"command": cmd}, "C:/w") == ["C:/a/b.py"]
+    assert oh.read_paths_from_tool("Bash", {"command": "echo a\nsed -n 1,5p C:/a/c.py"}, "C:/w") == ["C:/a/c.py"]
 
 
 def test_read_paths_bash_bare_name_only_when_file_exists_in_cwd(tmp_path):

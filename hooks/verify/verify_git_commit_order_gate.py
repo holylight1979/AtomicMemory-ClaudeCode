@@ -25,6 +25,12 @@ from handlers.pre_tool_use import check_git_commit_order  # noqa: E402
 _CMD = "git add a.py && git commit -m 'x' && git push"
 
 
+@pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """假 repo 都建在 pytest tmp 下：關掉 TEMP_REPO_COMMIT_EXEMPT（B9 的案自己再開）。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+
+
 def _state(*prompts):
     return {"recent_user_prompts": list(prompts)}
 
@@ -169,6 +175,77 @@ def test_peer_session_message_is_never_an_order():
     stale = {"recent_user_prompts": ["幫我修", _PEER], "turn_prompts": [_PEER], "turn_open": True}   # 舊版已把同伴訊息存進 turn_prompts
     msg = _check(state=stale)
     assert msg and "[Guardian:CommitOrder]" in msg
+
+
+_DISPATCH = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-aa" from-mode="bypass">\n'
+             "派工：045 追加 B14；派工單在 workflow/v6-inbox/to-track-gate-rules/000-prompt.md，照做後上GIT\n</cross-session-message>")
+
+
+def test_045_dispatch_message_opens_turn_but_is_not_an_order():
+    """規則 DISPATCH_OPENS_TURN：帶派工標記的跨 session 訊息開新回合（turn_prompts_seq 前進、user_turn_count +1），
+    但不是使用者原話：turn_prompts 空、口令閘照擋。一般同伴訊息不開回合（序號不動）。"""
+    from handlers.ups_gates import track_turn_prompts
+    st = {}
+    _ups(st, "幫我把這個 bug 修好")
+    seq0, cnt0 = st["turn_prompts_seq"], st["user_turn_count"]
+    _stop(st)
+    _ups(st, _PEER)                                                                  # 一般同伴訊息：續跑回合，不開新回合
+    assert st["turn_prompts_seq"] == seq0 and st["user_turn_count"] == cnt0
+    _stop(st)
+    _ups(st, _DISPATCH)                                                              # 派工訊息：新回合
+    assert st["turn_prompts_seq"] > seq0 and st["user_turn_count"] == cnt0 + 1
+    assert st["turn_prompts"] == [] and st["turn_open"] is True
+    msg = _check(state=st)
+    assert msg and "[Guardian:CommitOrder]" in msg                                   # 派工訊息裡的「上GIT」不是口令
+    st2 = {"turn_open": True, "turn_prompts": ["上GIT"], "turn_prompts_seq": 1, "turn_seq": 1, "recent_user_prompts": ["上GIT"]}
+    track_turn_prompts(st2, _DISPATCH)                                               # 回合中途進來的派工：也開新回合、清掉舊口令
+    assert st2["turn_prompts"] == [] and st2["turn_prompts_seq"] == 2
+
+
+_PEER_DELIVERY = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-a9" from-mode="bypass">\n'
+                  "已完成，交付依據 to-track-gate-rules/001-prompt.md；請審查結果。\n</cross-session-message>")
+_DISPATCH_NO_PATH = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-aa" from-mode="bypass">\n'
+                     "派工：接 B14，暫存目錄副本不當專案。\n</cross-session-message>")
+
+
+def test_045_dispatch_opens_turn_only_by_first_line_marker():
+    """對人裁定 #13（codex 001 BLOCK 7）：交付信內文引用 to-track-<軌>/<檔>.md 路徑不開回合、不清口令；首行以「派工」開頭但沒帶路徑要開回合。"""
+    st = {}
+    _ups(st, "完工後直接上GIT")
+    seq0, cnt0 = st["turn_prompts_seq"], st["user_turn_count"]
+    _stop(st)
+    _ups(st, _PEER_DELIVERY)                                                         # 交付信引用派工單路徑：續跑回合，口令沿用
+    assert st["turn_prompts_seq"] == seq0 and st["user_turn_count"] == cnt0 and st["turn_prompts"] == ["完工後直接上GIT"]
+    assert _check(state=st) is None
+    _stop(st)
+    _ups(st, _DISPATCH_NO_PATH)                                                      # 首行「派工」沒帶路徑：開新回合、口令清掉
+    assert st["turn_prompts_seq"] > seq0 and st["user_turn_count"] == cnt0 + 1 and st["turn_prompts"] == []
+    assert _check(state=st)
+
+
+def test_045_temp_repo_commit_exempt_judges_repo_root_not_run_dir(tmp_path, monkeypatch):
+    """規則 TEMP_REPO_COMMIT_EXEMPT：豁免看 commit 實際落的 repo 根在不在暫存根下；正式 repo 裡一個叫 scratchpad 的子目錄拿不到豁免
+    （codex 001 BLOCK 6）；暫存根下的 repo 免口令。暫存根由測試指定（WG_TEMP_RULES 開著、TEMP 指到 tmp_path/tempzone）。"""
+    import subprocess
+    import wg_release_rules as rr
+    monkeypatch.delenv("WG_TEMP_RULES", raising=False)
+    monkeypatch.setattr(rr, "_TEMP_TOKENS", ())           # pytest 的 tmp 本身帶 pytest-of- 片段；這個案只看暫存根
+    zone = tmp_path / "tempzone"
+    zone.mkdir()
+    monkeypatch.setenv("TEMP", str(zone))
+    monkeypatch.setenv("TMP", str(zone))
+    monkeypatch.setenv("TMPDIR", str(zone))                 # Git Bash 會帶 TMPDIR 指到真 %TEMP%，pytest 的 tmp 就在它底下
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(zone))
+    proj = tmp_path / "project"
+    (proj / "scratchpad").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(proj)], check=True, capture_output=True)
+    exp = zone / "exp"
+    exp.mkdir()
+    subprocess.run(["git", "init", "-q", str(exp)], check=True, capture_output=True)
+    st = _state("幫我修 bug")
+    sub = str(proj / "scratchpad").replace("\\", "/")
+    assert _check(f"git -C {sub} add -A && git -C {sub} commit -m x", state=st)            # 正式 repo 的子目錄：照擋
+    assert _check(f"git -C {str(exp).replace(chr(92), '/')} add -A && git -C {str(exp).replace(chr(92), '/')} commit -m x", state=st) is None   # 暫存根下：免口令
 
 
 def test_spent_order_is_not_reused_by_notification_turn():

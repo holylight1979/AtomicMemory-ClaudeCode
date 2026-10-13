@@ -311,9 +311,22 @@ def test_r3_env_assignment_and_wrapper_skipped():
 
 def test_r4_python_inline_code_is_unknown():
     assert _unknown("python -c \"open('x','w').write('1')\"")
-    assert _unknown("python3 -c 'print(1)'") and _unknown("node -e \"fs.writeFileSync('x','1')\"")
+    assert _unknown("node -e \"fs.writeFileSync('x','1')\"") and _unknown("node -e \"console.log(1)\"")   # node 判不了照擋
     assert _unknown("pwsh -Command \"Set-Content a b\"")
+    assert _unknown("python - <<'EOF'\nprint(1)\nEOF")                                                      # heredoc 判不了照擋
     assert _bash("python x.py --out a.py") == []                                    # 跑腳本不是內嵌碼
+
+
+def test_045_inline_py_readonly_python_c_pure_read_is_not_a_write():
+    """規則 INLINE_PY_READONLY：python -c 只讀（ast 判）→ 沒有寫入訊號；有寫檔／刪搬／子行程 → 照 UNKNOWN。"""
+    assert _bash("python3 -c 'print(1)'") == []
+    assert _bash("python -X utf8 -c \"import json;print(json.load(open('a.json'))['k'])\"") == []
+    assert _bash("python -c \"import json;print(1)\" | head -3") == []
+    assert _unknown("python -c \"import os;os.remove('a')\"")
+    assert _unknown("python -c \"import shutil;print(1)\"")
+    assert _unknown("python -c \"import subprocess;subprocess.run(['x'])\"")
+    assert _unknown("python -c \"from pathlib import Path;Path('a').write_text('x')\"")
+    assert _bash("python -c \"print(1)\" > out.txt") == ["C:/Work/Proj/out.txt"]                     # 重導向照算目標
 
 
 def test_r4_iofile_static_call_is_unknown():

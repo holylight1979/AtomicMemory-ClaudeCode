@@ -639,24 +639,35 @@ def get_last_assistant_text(
 
 
 def _is_real_user_prompt(content: Any) -> bool:
-    """判斷一則 user 訊息是「真實 prompt」還是「tool_result 延續」。
+    """判斷一則 user 訊息是「真實 prompt」（回合起點）還是延續。
 
-    含 tool_result block → 視為延續（非新 turn 起點）；str 或含 text block → 真實 prompt。
+    含 tool_result block → 延續；整則都是 harness 文字（同伴訊息、背景通知、系統注入）且不帶派工標記 → 也是延續
+    （規則 DISPATCH_OPENS_TURN：退避預告的切點只認使用者打字或派工訊息，否則同伴訊息一進來，早段寫的預告就被切掉）；
+    其餘 str 或含 text block → 真實 prompt。
     """
+    texts: List[str] = []
     if isinstance(content, str):
-        return bool(content.strip())
-    if isinstance(content, list):
-        has_text = False
+        texts.append(content)
+    elif isinstance(content, list):
         for b in content:
             if isinstance(b, dict):
                 if b.get("type") == "tool_result":
                     return False
                 if b.get("type") == "text":
-                    has_text = True
+                    texts.append(str(b.get("text") or ""))
             elif isinstance(b, str):
-                has_text = True
-        return has_text
-    return False
+                texts.append(b)
+    else:
+        return False
+    joined = "\n".join(texts)
+    if not joined.strip():
+        return False
+    try:
+        from harness_text import peer_message_bodies, user_typed_text
+        from wg_release_rules import is_dispatch_message
+    except ImportError:
+        return True
+    return bool(user_typed_text(joined)) or is_dispatch_message(peer_message_bodies(joined))
 
 
 # 派工工具的 prompt 欄會夾帶 [WG:SubagentMemory] 注入的 atom 原文；拿它比對 atom

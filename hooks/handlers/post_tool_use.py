@@ -34,9 +34,9 @@ from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
     aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
-    head_new_code, _git_root_of,
+    head_new_code, _git_root_of, reverted_code_files,
 )
-from wg_release_rules import canon_path, in_user_turn
+from wg_release_rules import canon_path, in_user_turn, deliberate_red_verdict, green_clears_red
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
@@ -340,8 +340,11 @@ def _emit_post_tool_output(advisories: List[str], sys_msgs: List[str]) -> None:
         output_nothing()
 
 
+DELIBERATE_REDS_CAP = 20
+
+
 def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str,
-                       tool: str = "Bash") -> bool:
+                       tool: str = "Bash", config: Optional[Dict[str, Any]] = None) -> bool:
     """Bash／PowerShell 測試指令 → 記／清 state.failing_tests；回傳是否動到 state。
     條目蓋 session_id：共用 state／merged state 下 Stop 與清帳只認自己的（隔壁 session 的紅測不擋本 session、
     本 session 的綠測不清隔壁的；沒蓋 sid 的舊條目視為他人，不擋不清）。
@@ -363,6 +366,22 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     if failure is None and exit_code not in (None, 0):
         failure = tail_lines(stdout + "\n" + stderr, 20) or f"(exit code {exit_code}, no output)"
     if failure:
+        # 規則 RED_WHILE_REVERTED：跑紅時本 session 改過的程式檔有內容等於非 HEAD 已提交版本（退回舊碼反證）→ 刻意紅：
+        # 不進 failing_tests（TestFailGate、重試計數、DPM 都不吃），另記 deliberate_reds 留痕
+        own_mods = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", sid) == sid]
+        try:
+            reverted, pending_code = reverted_code_files(own_mods, reconcile_cfg(config or {}))
+        except Exception as e:  # noqa: BLE001
+            reverted, pending_code = [], ["?"]
+            print(f"[verify-ledger] 判斷刻意紅失敗，照算真的紅：{type(e).__name__}: {e}", file=sys.stderr)
+        verdict = deliberate_red_verdict(reverted, pending_code)
+        if not verdict.owed:
+            print(f"[Guardian:TestFail] 規則 {verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}", file=sys.stderr)
+            lst = state.setdefault("deliberate_reds", [])
+            lst.append({"cmd": command[:200], "session_id": sid, "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso(),
+                        "rule": verdict.rule, "evidence": list(verdict.evidence)[:3]})
+            del lst[:-DELIBERATE_REDS_CAP]
+            return True
         state.setdefault("failing_tests", []).append({
             "tool": tool,
             "session_id": sid,
@@ -377,6 +396,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             # 供 Stop 端 outcome 歸因「只認本 turn 失敗」（sync/test-fail
             # gate 等其他消費者仍看全量清單，語意不變）
             "turn_seq": int(state.get("turn_seq", 0)),
+            "cwd": str(input_data.get("cwd") or ""),          # GREEN_SAME_CASE_CLEARS 比絕對路徑用（同名不同目錄的案例不互清）
         })
         return True
     if not state.get("failing_tests"):
@@ -389,6 +409,8 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
         if f.get("session_id") != sid          # 只清自己的；沒蓋 sid 的舊條目不是自己的
         or (
             not f.get("cmd", "").startswith(cmd_prefix[:40])
+            and not green_clears_red(f.get("cmd", ""), command, f.get("cwd") or None,
+                                     str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
             and not (is_pytest_success and (
                 f.get("pytest")
                 or "pytest" in f.get("cmd", "").lower()
@@ -811,7 +833,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         if _note_commit(state, command, config, session_id, snapshot=_writes_ok):
             dirty = True
 
-        if _track_test_result(state, input_data, command, tool_name):
+        if _track_test_result(state, input_data, command, tool_name, config):
             dirty = True
         try:
             if _track_sentinels(state, input_data, command, tool_name, config, session_id):
@@ -994,7 +1016,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
 
     # OverviewHub：Read／Bash／PowerShell 讀到某部位第一個檔 → 整張注入導讀卡；已注入 → 記注入後讀檔數（fail-open）
     hub_ctx = None
-    if tool_name in ("Read", "Bash", "PowerShell"):
+    if tool_name in ("Read", "Bash", "PowerShell", "Grep"):      # Grep：規則 GREP_CONTENT_IS_READ（wg_overview._read_paths）
         try:
             from wg_overview import on_read as _hub_on_read
             hub_ctx = _hub_on_read(

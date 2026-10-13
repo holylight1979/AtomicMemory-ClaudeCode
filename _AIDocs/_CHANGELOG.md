@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 放行／欠帳判定抽成獨立模組，一次修完誤判清冊 B／C 組（045 track-gate-rules）
+- **緣由**：七個工作分頁一天被各種閘誤擋幾十次（清冊 B1～B14、C1）：先紅後綠被當欠案例、整場一份擋次預算、只改註解算改碼、merge 取 theirs 算改碼、`python -c` 一律 UNKNOWN、唯讀 git 碰 live 路徑就擋、Grep 不算讀檔、worktree 要求 push、刪執行期目錄要綜觀、暫存 repo 要口令、隔離 session 被叫 atom_write、刻意跑紅算重試。原設計者裁定：不加例外清單、不放寬，做成獨立模組，每情境一條有名字的規則＋會紅案例，擋訊息印規則名與證據。
+- **做法**：`hooks/wg_release_rules.py`（e8 044 的 11 條之上加 24 條）＋ `format_hit`／`parse_hits`／每規則各自計次的預算；`wg_verify_ledger` 新增 `ref_blob_facts`／`committed_equal_paths`／`green_settled_paths`／`reverted_code_files`、對帳 hits 改 `format_hit`；`stop`、`post_tool_use`、`pre_tool_use`、`wg_core`、`wg_overview`、`lib/overview_hub`、`wisdom_engine`、`ups_gates`、`wg_evasion`、`wg_harvest` 的判定改呼叫模組。追加三項：派工訊息開回合（`DISPATCH_OPENS_TURN`、`user_turn_count`）、找版控根 OSError 另立 `VCS_ROOT_UNREADABLE`、hook 子行程直譋器單一來源 `wg_core.hook_python_exe`。
+- **驗證**：`hooks/verify/verify_release_rules.py`（044 23 案＋045 70 餘案，守門案逐規則查）、各閘 verify 檔補端到端案（先紅後綠、checkout --theirs、只改註解、每規則預算、派工開回合、收割冷卻、退避切點、VCS 讀不到）；舊斷言依新格式改；真 hook 入口探針 `hooks/verify/probe_release_rules.py` P1～P9。詳見交付信 001 與 TECH §7.7。 | `hooks/wg_release_rules.py`, `hooks/wg_verify_ledger.py`, `hooks/wg_core.py`, `hooks/wg_overview.py`, `hooks/wg_evasion.py`, `hooks/wg_harvest.py`, `hooks/wisdom_engine.py`, `hooks/handlers/stop.py`, `hooks/handlers/post_tool_use.py`, `hooks/handlers/pre_tool_use.py`, `hooks/handlers/ups_gates.py`, `hooks/handlers/user_prompt_submit.py`, `lib/overview_hub.py`, `lib/harness_text.py`, `TECH.md`, `_AIDocs/Architecture.md`
+
 ## 2026-10-13 v6.0 部位表加「類別」欄：知識類部位（文件、記憶、派工信箱）移出寫碼查核
 - **緣由**：寫碼查核只看副檔名與部位，`workflow/v6-inbox/` 放一支 .py 素材就欠 (d) 案例、改 `memory/_staging` 也要交定位三行；對人總控台一整天只改這兩處卻被擋到要人放行。
 - **做法**：部位表加「類別」欄（code｜knowledge，沒欄、沒標、拼錯＝code）；`lib/overview_hub.path_kind` 用錨在專案根的最長前綴判類別（先消 `..`，根以下帶 8.3 短名算 code），OverviewHub 對 knowledge 部位只要求卡已注入，`wg_verify_ledger.is_excluded` 讓 knowledge 部位的檔不欠 (d) 也不能替寫碼部位清帳；量尺閘不動；無部位表的專案行為不變；scorecard S3 只算寫碼部位。根層表補 `workflow/v6-inbox/`、`.claude/` 兩列。表列前綴與路徑同一套正規化（`./`、`..`），放不進根相對位置的 code 列讓 knowledge 不豁免。根層 worktree 身分改成只看 git：`.git` 指到 live 的管理目錄，而且該目錄反向登記這棵樹，不再比部位表位元組。來源回填遇自動萃取卡只補 Source、不寫「AI：」Quote。
