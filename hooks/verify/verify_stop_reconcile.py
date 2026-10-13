@@ -3058,6 +3058,7 @@ def test_037_git_budget_is_shared_across_roots(tmp_path, monkeypatch, capsys):
             raise subprocess.TimeoutExpired(argv[3], kw.get("timeout"))
         return subprocess.run(argv, **kw)
     mods = [_mf(str(r / "hooks" / "x.py"), 5) for r in roots]
+    monkeypatch.setattr(vl, "GIT_BUDGET_S", 4.0, raising=False)          # 本案要量的就是預算本身：蓋回模組預設，不吃 autouse 的 20 秒
     assert vl.net_unchanged_paths(mods, None, _run=slow_git) == []
     assert clock["spent"] <= 4.0 + 1e-9, clock
     assert all(t is not None and t <= 3.0 for t in clock["timeouts"])
@@ -3404,7 +3405,7 @@ def test_know_code_moved_into_knowledge_part_still_owes(driven, capsys, know_rep
     moved.parent.mkdir(parents=True)
     Path(code).replace(moved)
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(str(moved), 5)])
-    assert "(d) 改了程式碼（a.py" in out                       # 舊碼兩份都欠（a.py、a.py），新碼只欠 tools/a.py
+    assert "✗ (d) " in out and "改了程式碼（a.py）之後" in out    # 舊碼兩份都欠（a.py、a.py），新碼只欠 tools/a.py（045 擋訊息格式：字母後接規則名）
 
 
 def test_know_knowledge_part_ruler_and_commit_snapshot_unchanged(driven, capsys, tmp_path):
@@ -4051,14 +4052,14 @@ def test_045_b3_comment_only_change_not_owed_identifier_change_owed(driven, caps
 def test_045_a6_amend_message_only_after_covered_commit_not_owed(driven, capsys, chain):
     """A6「amend 只改訊息」（走 e8 042 的 SNAPSHOT_SETTLED）：改程式＋補案例 → commit → `commit --amend` 只改訊息 → Stop 不欠；
     配對：amend 之後又改程式沒補案例 → 照欠（amend 不是免死金牌）。"""
-    state, edit, git, repo, code, case = chain
-    edit(code, 2)
-    edit(case, 2)
-    git("commit", "-qam", "v2")
-    git("commit", "--amend", "-qm", "v2 改訊息")
+    state, edit, git, repo, code, case = chain                       # 基底 HEAD 已是 v2，本 session 從 v3 起改
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    git("commit", "--amend", "-qm", "v3 改訊息")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
     assert "改了程式碼（a.py）" not in out, out
-    edit(code, 3)
+    edit(code, 4)
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
     assert "改了程式碼（a.py）" in out
 
