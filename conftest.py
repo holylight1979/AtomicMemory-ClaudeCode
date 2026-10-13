@@ -7,7 +7,7 @@
      測試讀到的是本樹這一版的 taxonomy、詞庫、config 與 atom，寫入只落暫存目錄；
    - TEMP／TMP／TMPDIR → <暫存>/tmp：tempfile 與子行程的暫存目錄，和資料根分開放，資料根不會被當成暫存路徑。
    子行程繼承 os.environ，走真 hook 入口的測試一起隔離。session 結束時（pytest_unconfigure）還原這四個變數並刪掉暫存目錄
-   （run_verify.py 在同一行程呼叫 pytest.main，之後還要算資料根）。
+   （run_verify.py 在同一行程呼叫 pytest.main，之後還要算資料根）；唯讀檔照刪，被別的行程占用刪不掉就在 stderr 列路徑。
    刻意讀 live 資料根的案：標 @pytest.mark.live_data，該案執行期間 WG_CLAUDE_DIR 還原成 pytest 啟動時的值；
    模組層常數在匯入時已算好、不會跟著變，這種案要在執行期呼叫 claude_data_dir() 或開子行程。
    隔離只在這裡做：claude_data_dir() 不判斷自己是不是在 pytest 裡。
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -57,6 +58,23 @@ def _seed_files() -> List[str]:
           file=sys.stderr)
     return [p.relative_to(TREE).as_posix()
             for p in [*(TREE / "memory" / "_meta").glob("*.json"), TREE / "workflow" / "config.json"]]
+
+
+def _remove_tree(path: Path) -> None:
+    """刪暫存目錄：唯讀檔（測試建的 git 物件在 Windows 是唯讀）先清唯讀再刪；還刪不掉（別的行程占用）就在 stderr 說一聲。"""
+    def force(func, p, _exc):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass                                    # 下面統一檢查有沒有刪乾淨
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=force)
+    else:
+        shutil.rmtree(path, onerror=force)
+    if path.exists():
+        print(f"[conftest] 暫存目錄沒刪乾淨（有檔被其他行程占用）：{path}", file=sys.stderr)
 
 
 def _load_by_path(name: str, rel: str):
@@ -155,4 +173,4 @@ def pytest_unconfigure(config):
     tempfile.tempdir = None
     if SESSION["receipt"]:
         _write_suite_receipt(SESSION["receipt"])
-    shutil.rmtree(SESSION["base"], ignore_errors=True)
+    _remove_tree(SESSION["base"])

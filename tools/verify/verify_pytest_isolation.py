@@ -71,6 +71,17 @@ def test_subprocess_inherits_isolated_data_root(tmp_path):
     assert _n(claude_dir) == _n(os.environ.get("WG_CLAUDE_DIR", "")) and _under(workflow, claude_dir)
 
 
+def test_readonly_files_left_for_cleanup(tmp_path):
+    """留唯讀檔給 session 收尾刪（測試建的 git repo 物件檔在 Windows 是唯讀）：下面的巢狀案驗收尾後暫存目錄整個不見。"""
+    import stat
+    for d in (tmp_path, Path(os.environ.get("WG_CLAUDE_DIR", str(tmp_path))) / "ro-probe"):
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / "objects-like.bin"
+        f.write_bytes(b"x")
+        os.chmod(f, stat.S_IREAD)
+        assert not os.access(f, os.W_OK)
+
+
 @pytest.mark.live_data
 def test_live_data_marker_restores_original_value():
     assert os.environ.get("WG_CLAUDE_DIR") == _root_conftest().SESSION["original"]["WG_CLAUDE_DIR"]
@@ -82,7 +93,8 @@ keys = ("WG_CLAUDE_DIR", "TEMP", "TMP", "TMPDIR")
 before = {k: os.environ.get(k) for k in keys}
 temp = os.environ["TEMP"]
 bases = {d for d in os.listdir(temp) if d.startswith("wg-iso-")}
-rcs = [int(pytest.main([sys.argv[1] + "::test_in_process_data_root_is_isolated", "-q", "-p", "no:cacheprovider"]))
+rcs = [int(pytest.main([sys.argv[1] + "::test_in_process_data_root_is_isolated",
+                        sys.argv[1] + "::test_readonly_files_left_for_cleanup", "-q", "-p", "no:cacheprovider"]))
        for _ in range(2)]
 left = {d for d in os.listdir(temp) if d.startswith("wg-iso-")} - bases
 print("NESTED_JSON " + json.dumps({"rc": rcs, "same": {k: os.environ.get(k) for k in keys} == before,
@@ -91,7 +103,7 @@ print("NESTED_JSON " + json.dumps({"rc": rcs, "same": {k: os.environ.get(k) for 
 
 
 def test_in_process_pytest_main_restores_env_and_removes_base():
-    """同一行程連跑兩次 pytest.main：兩次都隔離（conftest 已快取也一樣），結束後環境還原、暫存目錄刪掉；
+    """同一行程連跑兩次 pytest.main：兩次都隔離（conftest 已快取也一樣），結束後環境還原、暫存目錄連唯讀檔一起刪掉；
     第二次開始時第一次載入的本樹模組還在（常數改不到），stderr 明講一次。"""
     r = subprocess.run([sys.executable, "-X", "utf8", "-c", NESTED, str(Path(__file__))], cwd=str(TREE),
                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
