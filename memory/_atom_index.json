@@ -6308,6 +6308,65 @@
         "D(1) 實測"
       ],
       "scope": "global"
+    },
+    {
+      "name": "退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼",
+      "path": "memory/驗證與實證/退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼.md",
+      "triggers": [
+        "退回看紅",
+        "git checkout main --",
+        "pathspec did not match",
+        "快照腳本",
+        "退回段",
+        "假綠",
+        "新檔退回",
+        "總控台快照",
+        "改前版紅"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因",
+      "path": "memory/驗證與實證/pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因.md",
+      "triggers": [
+        "紅在斷言",
+        "退回紅",
+        "紅的型別",
+        "junitxml",
+        "規則變異",
+        "mutant"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-改碼中發現相鄰問題要順手修或白話提出一併修正的確認-不准另外處理之後再說不在範圍帶過",
+      "path": "memory/Failures/行為契約/feedback-改碼中發現相鄰問題要順手修或白話提出一併修正的確認-不准另外處理之後再說不在範圍帶過.md",
+      "triggers": [
+        "相鄰問題",
+        "順手修",
+        "一併修正",
+        "另外處理",
+        "不在範圍",
+        "之後再說",
+        "LLM 退避",
+        "差池",
+        "發現其他問題",
+        "交付信"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "codex-exec長提示要寫成檔用管線送stdin-命令列參數會被cmd包裝吃掉換行-唯讀沙箱下pytest可能因無可寫暫存整個中止-通過數一律自己在worktree跑",
+      "path": "_AIDocs/_atoms/Tools/codex-exec長提示要寫成檔用管線送stdin-命令列參數會被cmd包裝吃掉換行-唯讀沙箱下pytest可能因無可寫暫存整個中止-通過數一律自己在worktree跑.md",
+      "triggers": [
+        "codex exec 提示檔",
+        "命令列吃掉換行",
+        "唯讀沙箱 pytest 中止",
+        "codex 回報沒 pytest",
+        "Get-Content -Raw 管線",
+        "第二意見提示"
+      ],
+      "scope": "global"
     }
   ]
 }

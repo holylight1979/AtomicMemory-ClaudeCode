@@ -8,6 +8,7 @@
 |------|------|
 | goal-driven-verify-loopkarpathy-吸收 | goal-driven-verify-loop（karpathy 吸收） |
 | pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 | PYTEST_ADDOPTS與PYTHONOPTIMIZE會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 |
+| pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
 | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |
 | 不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案 | 不是bug的壞味道四個可數指標-容器改動點跨檔數-委派深度加巢狀-純轉接-入口只有測試能呼叫-純語法樹可跨專案 |
 | 假家目錄測試要同時設home與userprofile-windows的pathhome看userprofile而bash看home | 假家目錄測試要同時設HOME與USERPROFILE-Windows的Path.home看USERPROFILE而bash看HOME |
@@ -32,6 +33,7 @@
 | 行為保持重構的高速等值證法-舊原始碼解析出預期表-新dll反射實跑全枚舉值比對-副作用守衛文字相等 | 行為保持重構的高速等值證法-舊原始碼解析出預期表-新dll反射實跑全枚舉值比對-副作用守衛文字相等 |
 | 裁判-precision-高不等於有眼力-先看真陽性的類型分布-被簡單案例撐起的分數不能當轉正依據 | 裁判 precision 高不等於有眼力-先看真陽性的類型分布-被簡單案例撐起的分數不能當轉正依據 |
 | 路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試 | 路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試 |
+| 退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼 | 退回看紅的腳本把main沒有的新檔列進git-checkout會整條失敗而沒退回-看起來全綠其實沒驗-退回清單只放基底真有的檔並檢查checkout退出碼 |
 | 量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試 | 量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試 |
 | 離線測試過但實機不過-先排除實機跑的不是這份程式碼 | 離線測試過但實機不過-先排除實機跑的不是這份程式碼 |
 | 驗收題目與答案不能寫進受測session讀得到的文件-答案由控制端保管在受測環境外 | 驗收題目與答案不能寫進受測session讀得到的文件-答案由控制端保管在受測環境外 |
