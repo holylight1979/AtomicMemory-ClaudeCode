@@ -13,19 +13,27 @@
 
 每一步怎麼算（一步最多算一個彎）：
   轉手  這一步不是直接呼叫：wrapper／delegate（落到只轉傳的函式）、callback、event、inherit（繼承／介面分派）、dynamic（分派表）
-  跳檔  換到別的檔；partial 類別各檔名是 `類.責任.cs` 且責任各不相同 → 標「分檔有責任軸」，不算跳檔、不算彎
+  跳檔  換到別的檔；partial 類別各檔名是 `類.責任.cs` 且責任各不相同 → 標「分檔有責任軸」，只免掉換檔那個彎，轉手照算
   拐彎  這一步是轉手或跳檔。刻度（G11，參考）：0-1 順｜2 注意｜3 警戒｜≥4 臭掉
+  未知  落到的函式長得像只轉傳，但裡面有解析不了的呼叫，證不出是轉傳還是有內容：這一步算一個彎（數字不因看不到而變好），
+        整條路標「未讀到底」，不進刻度分布
 確定與否：確定只來自白名單（見 --help 末段），白名單外一律候選（有可列舉的目標）或未解（沒有）。
   每條邊要由白名單其中一條正向證明才確定（--json 每一步的 rule＝憑第幾條；null＝不確定），不是「沒標不確定就算確定」。
-  所以全確定的數字是可信的下限，含候選的數字是上限參考。每個落點先找只走確定邊的路；走不到才用含候選的路，
-  彙總、最差 N 條與比較都分開列。落點裡有專案內但解析不了的呼叫 → 標「未讀到底」（數字是下限），不算進刻度分布。
+  全確定的數字是「確定邊子圖上的最短觀測路徑」，含候選的是「含候選邊的探索路徑」：模型外可能還有更短的捷徑，候選邊也可能
+  是實際走不到的捷徑，兩者都不是數學上的下限或上限；數字要連同覆蓋（掃描範圍、未解比例）與完整性（未讀到底）一起看。
+  每個落點先找只走確定邊的路；走不到才用含候選的路，彙總、最差 N 條與比較都分開列。路上任何一步（含落點）有專案內但
+  解析不了的呼叫 → 整條路標「未讀到底」，不算進刻度分布；入口可達範圍內有未解時，入口只給觀測值、標不可評級。
 語言解析在同目錄 reading_path_lang.py（Python 用 ast；C# 不用 Roslyn；js/ts/go/java/kt/rs 粗略模式只數跳檔）。
+v6.0 只保證 Python 的確定邊；C# 的確定邊只到白名單五條，下列構件不建模、碰到就標候選或未解（見 --help 抓不到清單的 C# 段）：
+  區域函式與 lambda 的參數、有物件接收者的委派 h.cb.Invoke()、陣列型別的成員、下標或呼叫結果上的呼叫、
+  new 隱藏與 virtual／override 的區分、同名零參數泛型方法的簽章、[Conditional]。
 """
 from __future__ import annotations
 
 import argparse
 import builtins
 import codecs
+import hashlib
 import heapq
 import io
 import itertools
@@ -44,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import reading_path_lang as lang  # noqa: E402
 
 PARSERS = {".py": lang.parse_python, ".cs": lang.parse_csharp, **{e: lang.parse_coarse for e in lang.COARSE_EXT}}
-SKIP_DIRS = {"node_modules", "__pycache__", "obj", "bin", "Library", "Temp", "Logs", "dist", "build",
+SKIP_DIRS = {"node_modules", "__pycache__", "obj", "bin", "Library", "Temp", "Logs", "dist", "build", "marketplaces",
              "venv", "site-packages", "_archive"}
 TEST_DIRS = {"test", "tests", "verify", "__tests__", "spec", "specs"}
 TEST_FILE_RE = re.compile(r"^(test_.*\.py|.*_test\.py|verify_.*\.py|conftest\.py|.*Tests?\.cs|.*\.(test|spec)\.[jt]sx?)$")
@@ -132,7 +140,10 @@ DATACLASS_METHODS = {"__init__", "__repr__", "__eq__", "__lt__", "__le__", "__gt
                      "__setattr__", "__delattr__", "__getstate__", "__setstate__", "__replace__"}   # dataclass 可能自己產生的
 GENERATED = "候選：dataclass 產生的建構式（或其他它產生的方法），模型沒建；不把繼承鏈上的同名方法當成確定目標"
 MRO_UNPROVEN = "候選：方法解析順序（Python C3 MRO）證不出（多重繼承裡有外部、未解或算出來的父類，或合併不出來）"
-SCOPED = "候選：呼叫點在 lambda／生成器／推導式裡，模型沒建那一層的參數與綁定，不給條號"
+SCOPED = "候選：呼叫點在 lambda／生成器／推導式（C# 區域函式／lambda）裡，模型沒建那一層的參數與綁定，不給條號"
+CONDITIONAL = "候選：目標掛了 [Conditional]，編譯符號沒定義時編譯器會省略這個呼叫，不能承諾它一定存在"
+SUPER_EXPLICIT = "候選：super(B, self) 的顯式起點還沒建模，列出所有祖先的實作，不給條號"
+UNKNOWN_STEP = "未知：落到的函式長得像只轉傳，但裡面有解析不了的呼叫，證不出是轉傳還是有內容"
 METHOD_REBOUND = "候選：這個方法在類別上的綁定可能被改寫（類別.方法 = …、self／實例.方法 = …、setattr），不一定是它"
 
 LIMITS = WHITELIST + """
@@ -140,7 +151,11 @@ LIMITS = WHITELIST + """
 抓不到／可能偏差（數字是尺，判斷交給人）：
   - 每個落點只取拐彎最少的一條路（G11「重找最短路」的口徑）；同一落點更繞的路不列
   - 專案內但解析不了的呼叫（區域變數裝的函式、同名方法多個、找不到的 self 方法、getattr）計入未解，
-    落點標「未讀到底」；確知在專案外的（內建、外部模組、外部父類、專案沒有同名方法）不算
+    路上任一步有未解就整條路標「未讀到底」；確知在專案外的（內建、外部模組、外部父類、專案沒有同名方法）不算
+  - 掃描母體：--scope git（預設，git ls-files 與原始碼副檔名的交集；不在 git 裡就退回 tree 並標明）或 --scope tree
+    （目錄遞迴，只排 SKIP_DIRS 與點開頭目錄）；報告附範圍政策與檔案清單雜湊，前後比較範圍政策不同時整份標不可判定
+  - 抽象與空實作分開：@abstractmethod／只有 ...／raise NotImplementedError、C# abstract 或分號宣告才是抽象；只有 pass
+    （或只有 docstring）、C# 空大括號是空實作：仍算覆寫（子類空實作擋掉父類方法，第 3 條不成立），只是不當落點
   - 外部函式庫、框架回呼（Unity 生命週期以外）、反射、eval、動態 import 看不到；getattr 只認分派表來的
   - 事件一律候選（看不出實例、也不追訂閱與取消訂閱的先後）；callback 多處各傳不同函式、沒有已知呼叫者也標候選
   - 繼承分派只有接收者是剛 new 出來的物件才算確定型別；多載不比對參數型別，同名多個一律標候選
@@ -164,12 +179,19 @@ LIMITS = WHITELIST + """
     functools.lru_cache、cache、contextmanager、自訂裝飾器都不在），呼叫它只給候選，包裝層（wrapper）裡做了什麼不追；
     呼叫裝飾器工廠 @deco(…) 本身照常判；functools.cached_property 有快取（之後取值不再執行原函式），維持候選
   - 已知降級：typing.overload 的「多個 @overload 宣告＋唯一實作」被當成同名重複綁定，呼叫它只給候選（沒辨識宣告與實作）
-  - C#（不用 Roslyn）：擴充方法、LINQ、var 由方法回傳推型別、跨 namespace 同名類合併、lambda 裡的呼叫算外層函式、
-    #if 不分支、運算子多載與索引子不認、接收者型別不明的屬性不猜、三元運算與 LINQ 不算分支、插值字串 {} 裡再套字串會漏；
+  - Python 帶引數的 super(B, self).m()：顯式起點還沒建模，列出所有祖先的實作當候選，不給條號
+  - C#（不用 Roslyn）：擴充方法、LINQ、var 由方法回傳推型別、跨 namespace 同名類合併、#if 不分支、運算子多載與索引子不認、
+    接收者型別不明的屬性不猜、三元運算與 LINQ 不算分支、插值字串 {} 裡再套字串會漏；
     類別證據沒有 import 鏈可走（專案裡同名的類別就當那個型別，分不出外部同名型別）；第 2 條的用途證明只數文字出現，
-    lambda 裡的 w.M( 也算方法呼叫
+    lambda 裡的 w.M( 也算方法呼叫；區域函式與 lambda 的參數與綁定沒建模，裡面的呼叫一律不給條號，名字正是它的參數就記未解；
+    陣列型別（Worker[]）保留形狀，陣列成員解析還沒支援，元素型別不當證據；下標或呼叫結果上的呼叫（handlers[0]()、Get()(x)）
+    記成看不到對象的呼叫計入未解，(d)(x) 這種括號包住委派變數再呼叫的分不出轉型，會被略過；有物件接收者的委派
+    h.cb.Invoke() 只認接收者型別裡存下的委派或事件，證不出就未解（不拿同名參數補）；virtual／override／new 不分，
+    子類同名方法一律當覆寫（new 隱藏的誠實寫法也降成候選）；同名零參數的一般方法與泛型方法簽章撞在一起，比較時只剩一列；
+    [Conditional] 的方法呼叫不給條號；一般 attribute 全部剝掉，沒證明它們不影響呼叫存在
   - partial 責任軸是依檔名推測：檔名沒寫成 `類.責任.cs` → 照算跳檔，有責任軸但沒標在檔名上的分檔數字會偏高；
-    反過來，取了像樣後綴但其實沒分責任的也會被當成有軸（Part1、Misc 這類已排除），輸出都標「依檔名推測」
+    反過來，取了像樣後綴但其實沒分責任的也會被當成有軸（Part1、Misc 這類已排除），輸出都標「依檔名推測」；
+    豁免的只有換檔那個彎，那一步若是轉手照算彎
   - 分層架構（main→service→repo 各一檔）每層換檔都算彎：可能誤報，由讀的人判
   - 落點被很多處呼叫（≥5）會標「共用底層」：讀某個功能時通常不必沿這條路讀到它，路長不一定是問題
   - 粗略模式（js/ts/go/java/kt/rs）只認定義與同名唯一呼叫：只數跳檔，不判轉手"""
@@ -200,7 +222,7 @@ class Binding:
 @dataclass
 class Step:
     func: str
-    kind: str            # entry｜direct｜wrapper｜delegate｜callback｜event｜inherit｜dynamic
+    kind: str            # entry｜direct｜wrapper｜delegate｜callback｜event｜inherit｜dynamic｜unknown（落到的函式證不出是轉傳還是有內容）
     jump: bool = False
     axis: str = ""       # 分檔有責任軸時的「責任→責任」
     guess: str = ""
@@ -216,9 +238,10 @@ class Route:
     entry: str
     landing: str
     steps: list = field(default_factory=list)
-    unresolved: int = 0      # 落點裡專案內但解析不了的呼叫數：>0 ＝ 未讀到底
+    unresolved: int = 0      # 落點裡專案內但解析不了的呼叫數
     fan_in: int = 0          # 落點被幾個函式呼叫
     sig: str | None = None   # 落點的參數型別簽章（C#）；比較時對齊多載
+    unresolved_path: int = 0   # 路上每一步（含落點）解析不了的呼叫數：>0 ＝ 整條路未讀到底
 
     def summary(self) -> dict:
         moves = self.steps[1:]
@@ -226,8 +249,11 @@ class Route:
         return {"entry": self.entry, "landing": self.landing, "sig": self.sig, "turns": turns, "grade": grade(turns),
                 "file_jumps": sum(s.jump for s in moves), "axis_jumps": sum(bool(s.axis) for s in moves),
                 "handoffs": sum(s.kind != "direct" for s in moves), "depth": len(moves),
-                "certain": all(s.rule is not None for s in moves), "incomplete": self.unresolved > 0,
-                "unresolved": self.unresolved, "fan_in": self.fan_in, "steps": [asdict(s) for s in self.steps]}
+                "certain": all(s.rule is not None for s in moves),
+                "incomplete": self.unresolved_path > 0 or self.unresolved > 0,
+                "unknown_steps": sum(s.kind == "unknown" for s in moves),
+                "unresolved": self.unresolved, "unresolved_path": self.unresolved_path, "fan_in": self.fan_in,
+                "steps": [asdict(s) for s in self.steps]}
 
 
 def grade(turns: int) -> str:
@@ -266,7 +292,8 @@ def read_source(path: Path) -> str:
 def override_targets(g: "Graph", cls: lang.Cls, name: str) -> list:
     """cls 的實例實際可能跑到、但不是 cls 自己查到的 name 實作：繼承／介面分派可能跑到的地方。
     Python：每個子孫類別照它自己的 C3 MRO 找到的第一個 name：子類覆寫，或多重繼承時排在前面的兄弟 mixin；
-    單一繼承就是子孫自己的覆寫。C#：子孫自己的覆寫。"""
+    單一繼承就是子孫自己的覆寫。C#：子孫同名的方法都算（virtual／override／new 不分，new 隱藏也當覆寫：寧可候選）。
+    空實作（pass、{}）也是覆寫，只有真正抽象的不算。"""
     if cls.lang != "py":
         return [fid for fid in flat(sub.methods.get(name, []) for sub in g.descendants(cls)) if not g.funcs[fid].abstract]
     own = set(g.lookup(cls, name))
@@ -355,6 +382,7 @@ class Graph:
         self.called = set(self.fan_in)
         self.axis = {c.name: partial_axis(c) for c in self.all_classes() if c.lang == "cs"}
         self.passthrough = {f.id: self._forward_style(f) for f in self.funcs.values() if self._is_passthrough(f)}
+        self.unknown = {f.id for f in self.funcs.values() if self._looks_forwarding(f) and self.unres[f.id]}
 
     def _index(self, modules: list) -> None:
         for m in modules:
@@ -851,6 +879,8 @@ class Graph:
         return None if stuck else ref
 
     def _r_name(self, f, c, defer):
+        if c.shadowed:                             # 名字正是包住呼叫點的構件自己的參數：裝的東西看不到
+            return []
         if f.lang == "py":
             return self._r_py_name(f, c, defer)
         if c.name in f.params:
@@ -925,6 +955,9 @@ class Graph:
         """super()／base.：直接連父類的實作，不展開子類覆寫（那正是呼叫者自己）。Python 照所在類別的 C3 MRO、
         在它自己後面找第一個實作；C# 照父類順序。"""
         cls = self.cls_of(f)
+        if f.lang == "py" and c.recv == "explicit":   # super(B, self).m()：起點沒建模，祖先裡每個實作都列、都候選
+            ids = list(dict.fromkeys(flat(k.methods.get(c.name, []) for k in self.ancestry(cls)))) if cls else []
+            return [Edge(i, "direct", guess=SUPER_EXPLICIT) for i in ids]
         if f.lang == "py":
             order = self.mro(cls)[0][1:] if cls else []
             return self._overloads(next((k.methods[c.name] for k in order if c.name in k.methods), []))
@@ -951,14 +984,27 @@ class Graph:
         return [Edge(t, "event", guess=guess or reason) for t, guess in event_targets(self, f, c)]
 
     def _r_invoke(self, f, c, defer):
-        """C# 的 X.Invoke()／X?.Invoke()：X 是參數、別名或建構時存下的委派 → callback；否則當事件。"""
-        if c.name in f.params:
-            return self._param_call(f, c, defer)
-        if c.name in f.aliases:
-            ref = self.alias_target(f, c.name)
-            return self.resolve(f, ref, defer) if ref else []
-        stored = self.stored_param(self.cls_of(f), c.name) if f.cls else None
+        """C# 的 X.Invoke()／X?.Invoke()：沒有物件接收者的 X 是參數、別名或本類別建構時存下的委派 → callback；
+        h.cb.Invoke() 這種有接收者的：沿接收者 h 的型別找那個類別存下的委派或事件，證不出就看不到（不拿同名參數補證明）。"""
+        owner = self._invoke_owner(f, c)
+        if owner is None:
+            return []
+        if owner is self.cls_of(f) and not c.recv:
+            if c.name in f.params:
+                return self._param_call(f, c, defer)
+            if c.name in f.aliases:
+                ref = self.alias_target(f, c.name)
+                return self.resolve(f, ref, defer) if ref else []
+        stored = self.stored_param(owner, c.name) if owner else None
         return self._defer(f, stored, defer, "stored") if stored else self._r_emit(f, c, defer)
+
+    def _invoke_owner(self, f: lang.Func, c: lang.Call):
+        """X.Invoke() 的委派 X 住在哪個類別：沒接收者或 this → 自己的類別（沒有類別時也回自己，讓參數路照走）；
+        有接收者 → 接收者的型別（建構的、宣告的、欄位的）；型別看不出或在專案外 → None。"""
+        if c.recv in ("", "this"):
+            return self.cls_of(f) if f.cls else None
+        kind, target, _ = self.recv_type(f, c.recv)
+        return target if kind in ("object", "static") else None
 
     def _r_table(self, f, c, defer):
         """分派表：函式內的表在函式語境解（self._r_x 要認得出類別），模組層的表在模組語境解。"""
@@ -1255,6 +1301,8 @@ class Graph:
                 e.guess = SCOPED                   # 總原則 1：模型沒建的作用域構件裡，一律不給條號
             if unique and e.kind == "direct" and not e.guess and self._method_rebound(e.dst):
                 e.guess = METHOD_REBOUND
+            if unique and e.kind == "direct" and not e.guess and self.funcs[e.dst].conditional:
+                e.guess = CONDITIONAL                  # C# [Conditional]：符號沒定義時這個呼叫根本不存在
             if unique and e.kind == "direct" and not e.guess:
                 e.guess = self._lookup_veto(f, c, e.dst)   # 裝飾器、dataclass 產生的方法、MRO 證不出
             if unique and e.kind == "direct" and not e.guess:
@@ -1542,8 +1590,11 @@ class Graph:
             return True
         if c.kind in ("table", "getattr", "opaque"):
             return False
-        if c.kind == "invoke":                     # 沒人訂閱的事件 → 外部；區域變數或不明欄位裝的委派 → 看不到
-            return bool(f.cls) and any(c.name in x.events for x in self.ancestry(self.cls_of(f)))
+        if c.kind == "invoke":                     # 沒人訂閱的事件 → 外部；區域變數、不明接收者或不明欄位裝的委派 → 看不到
+            if c.recv not in ("", "this") and self.recv_type(f, c.recv)[0] == "external":
+                return True
+            owner = self._invoke_owner(f, c)
+            return owner is not None and any(c.name in x.events for x in self.ancestry(owner))
         if c.kind == "self":
             return self.external_base(self.cls_of(f))
         if c.kind == "name":
@@ -1669,8 +1720,11 @@ class Graph:
 
     def _is_passthrough(self, f: lang.Func) -> bool:
         """只把呼叫往下傳：≤2 句、無分支迴圈、恰好一個呼叫連到專案內、沒有解析不了的呼叫。"""
-        return (f.simple and not f.entry and not f.abstract and f.lang != "coarse"
-                and self.hits[f.id] == 1 and not self.unres[f.id])
+        return self._looks_forwarding(f) and self.hits[f.id] == 1 and not self.unres[f.id]
+
+    def _looks_forwarding(self, f: lang.Func) -> bool:
+        """長得像只轉傳的函式（句數與形狀）；裡面有解析不了的呼叫時證不出是轉傳還是有內容 → 落到它的那一步是「未知」。"""
+        return f.simple and not f.entry and not f.abstract and not f.hollow and f.lang != "coarse"
 
     def _forward_style(self, f: lang.Func) -> str:
         return "delegate" if any(e.via == "object" for e in self.edges[f.id]) else "wrapper"
@@ -1685,10 +1739,11 @@ class Graph:
 
     def step(self, a: lang.Func, e: Edge) -> Step:
         b = self.funcs[e.dst]
-        kind = e.kind if e.kind != "direct" else self.passthrough.get(b.id, "direct")
+        kind = e.kind if e.kind != "direct" else self.passthrough.get(b.id, "unknown" if b.id in self.unknown else "direct")
         axis_map = self.axis.get(a.cls, {}) if a.cls and a.cls == b.cls else {}
         axis = f"{axis_map[a.file]}→{axis_map[b.file]}" if a.file != b.file and a.file in axis_map and b.file in axis_map else ""
-        return Step(b.id, kind, jump=a.file != b.file and not axis, axis=axis, guess=e.guess, rule=e.rule)
+        guess = e.guess if kind != "unknown" else "；".join(x for x in (e.guess, UNKNOWN_STEP) if x)
+        return Step(b.id, kind, jump=a.file != b.file and not axis, axis=axis, guess=guess, rule=e.rule)
 
     def _shortest(self, entry: str, certain_only: bool):
         """從 entry 出發的最短路（拐彎、跳檔、深度依序比）；certain_only 時只走確定的邊。"""
@@ -1710,7 +1765,8 @@ class Graph:
         """每個落點一條路：只走確定邊走得到就用那條；走不到才用含候選的路。另回入口可達範圍內有未解呼叫的函式。"""
         sure_best, sure_back = self._shortest(entry, True)
         any_best, any_back = self._shortest(entry, False)
-        landings = [v for v in any_best if v != entry and v not in self.passthrough and not self.funcs[v].abstract]
+        landings = [v for v in any_best if v != entry and v not in self.passthrough
+                    and not self.funcs[v].abstract and not self.funcs[v].hollow]
         found = [self._route(sure_back if v in sure_best else any_back, entry, v) for v in landings]
         return found, sorted(v for v in any_best if self.unres[v])
 
@@ -1719,19 +1775,43 @@ class Graph:
         while node != entry:
             node, s = back[node]
             steps.append(s)
+        on_path = sum(self.unres[s.func] for s in steps)   # 路上每一步（含落點）解析不了的呼叫：任一步有就整條路未讀到底
         return Route(entry, landing, [Step(entry, "entry")] + steps[::-1], self.unres[landing], self.fan_in[landing],
-                     self.signature(landing))
+                     self.signature(landing), on_path)
 
 
 # ─── 掃描、入口、分析 ────────────────────────────────────────────────────────
 
 
-def build_graph(root: Path) -> Graph:
-    paths, modules = [], []
-    scan = {"parse_errors": [], "empty_files": [], "file_funcs": {}}
+def scan_paths(root: Path, scope: str) -> tuple:
+    """掃描母體 → (檔案清單, 實際政策)。git：git ls-files（版本追蹤清單）與原始碼副檔名的交集，marketplace、第三方套件、
+    產物只要沒被追蹤就自然不在；root 不在 git 裡、或 git 在這一層沒追蹤到任何原始碼（暫存目錄、未納管的夾具）→ 退回 tree
+    並在政策上標明。tree：目錄遞迴，只排 SKIP_DIRS 與點開頭目錄。"""
+    if scope == "git":
+        proc = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True, creationflags=_NO_WINDOW)
+        if proc.returncode == 0:
+            names = [n for n in proc.stdout.decode("utf-8", "replace").split("\0") if n]
+            paths = sorted(root / n for n in names if Path(n).suffix.lower() in PARSERS and (root / n).is_file())
+            if paths:
+                return paths, "git"
+            scope = "tree(git 在這一層沒追蹤到原始碼)"
+        else:
+            scope = "tree(root 不在 git 裡)"
+    paths = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.startswith("."))
         paths += [Path(dirpath) / name for name in sorted(filenames) if Path(name).suffix.lower() in PARSERS]
+    return paths, scope
+
+
+def build_graph(root: Path, scope: str = "git", policy: str | None = None) -> Graph:
+    """policy：報告上要寫的範圍政策（git archive 解出來的目錄實際上就是追蹤清單，傳 "git"）；不給就照 scan_paths 的結果。"""
+    paths, actual = scan_paths(root, scope)
+    modules = []
+    rels = [p.relative_to(root).as_posix() for p in paths if not lang.GENERATED_RE.search(p.relative_to(root).as_posix())]
+    digest = hashlib.sha1("\n".join(sorted(rels)).encode("utf-8")).hexdigest()[:12]
+    scan = {"parse_errors": [], "empty_files": [], "file_funcs": {},
+            "scope": {"policy": policy or actual, "files": len(rels), "digest": digest}}
     for path in paths:
         rel = path.relative_to(root).as_posix()
         if lang.GENERATED_RE.search(rel):
@@ -1785,30 +1865,33 @@ def find_entries(g: Graph, spec: str | None) -> list:
     mains = sorted(f.id for f in g.funcs.values() if g.is_entry(f) and not is_test(f.file))
     if mains:
         return mains
-    roots = [f for f in g.funcs.values()
-             if f.id not in g.called and not f.name.startswith("_") and not f.abstract and not is_test(f.file)]
+    roots = [f for f in g.funcs.values() if f.id not in g.called and not f.name.startswith("_")
+             and not f.abstract and not f.hollow and not is_test(f.file)]
     roots.sort(key=lambda f: (-len(g.edges.get(f.id, [])), f.id))
     return [f.id for f in roots[:ROOT_LIMIT]]
 
 
 def entry_summary(g: Graph, eid: str, routes: list, unresolved_funcs: list) -> dict:
-    """一個入口的彙總：最多拐彎與刻度分布只算全確定、讀到底的路；含候選、未讀到底的另計。"""
+    """一個入口的彙總：刻度分布只算全確定、讀到底的路；最多拐彎是觀測值（含未讀到底的，未知那一步也算彎，數字不因
+    看不到而變好）；可達範圍內有未解的入口標不可評級（ratable=False），只給觀測值。含候選、未讀到底的另計。"""
     routes.sort(key=worst_first)
     sure = [r for r in routes if r["certain"]]
     grades = Counter(r["grade"] for r in sure if not r["incomplete"])
+    reach = sum(g.unres[v] for v in unresolved_funcs)
     return {"entry": eid, "sig": g.signature(eid), "landings": len(routes), "certain_routes": len(sure),
+            "ratable": bool(sure) and reach == 0,
             "max_turns": max((r["turns"] for r in sure), default=0),
             "max_turns_candidate": max((r["turns"] for r in routes if not r["certain"]), default=0),
             "max_file_jumps": max((r["file_jumps"] for r in sure), default=0),
             "max_handoffs": max((r["handoffs"] for r in sure), default=0),
             "grades": {label: grades.get(label, 0) for _, label in GRADES},
             "candidate": len(routes) - len(sure), "incomplete": sum(r["incomplete"] for r in routes),
-            "unresolved_reach": sum(g.unres[v] for v in unresolved_funcs), "unresolved_funcs": unresolved_funcs,
-            "routes": routes}
+            "unresolved_reach": reach, "unresolved_funcs": unresolved_funcs, "routes": routes}
 
 
-def analyze(root: Path, entry: str | None = None, to: str | None = None) -> dict:
-    g = build_graph(root)
+def analyze(root: Path, entry: str | None = None, to: str | None = None, scope: str = "git",
+            policy: str | None = None) -> dict:
+    g = build_graph(root, scope, policy)
     targets = {f.id for f in spec_hits(g, to)[0]} if to else None
     report = {"root": str(root), "stats": graph_stats(g), "entries": []}
     for eid in find_entries(g, entry):
@@ -1828,7 +1911,7 @@ def graph_stats(g: Graph) -> dict:
             "linked_calls": linked, "unresolved": unresolved, "axis_classes": axis,
             "unresolved_ratio": round(unresolved / (linked + unresolved), 3) if linked + unresolved else 0.0,
             "parse_errors": g.scan["parse_errors"], "empty_files": g.scan["empty_files"],
-            "file_funcs": g.scan["file_funcs"]}
+            "file_funcs": g.scan["file_funcs"], "scope": g.scan["scope"]}
 
 
 def caveats(g: Graph, report: dict) -> list:
@@ -1849,7 +1932,10 @@ def caveats(g: Graph, report: dict) -> list:
         (kinds["inherit"], "繼承／介面分派：實際型別不確定時基底與覆寫都連，已標候選"),
         (unaxis, f"無責任後綴的 partial：{'、'.join(unaxis)} 換檔照算，數字可能偏高"),
         (candidate, f"含候選的路徑 {candidate} 條：可能是實際走不到的捷徑，與全確定的分開列"),
-        (incomplete, f"未讀到底的落點 {incomplete} 個：落點裡有專案內但解析不了的呼叫，數字是下限"),
+        (incomplete, f"未讀到底的路徑 {incomplete} 條：路上有專案內但解析不了的呼叫（未知那一步照算一個彎），不進刻度分布"),
+        (kinds["unknown"], f"未知的步 {kinds['unknown']}：落到的函式長得像只轉傳但有解析不了的呼叫，證不出是轉傳還是有內容"),
+        (any(not e["ratable"] and e["certain_routes"] for e in report["entries"]),
+         "可達範圍內有解析不了的呼叫的入口只給觀測值、標不可評級"),
         (g.scan["empty_files"], f"有定義卻解析出零函式 {len(g.scan['empty_files'])} 檔：可能是解析器沒認出來"),
         (report["stats"]["files"]["coarse"], "粗略模式的檔只數跳檔、不判轉手"),
         (any(r["depth"] >= DEEP_STRAIGHT and r["turns"] <= 1 for r in routes),
@@ -1896,11 +1982,13 @@ STATUS_LABEL = {"worse": "變差", "undecidable": "不可判定", "new": "新增
 def compare(before: dict, after: dict) -> dict:
     """同一入口、同一落點比拐彎、跳檔、轉手；入口與落點都用「名稱＋完整簽章」對齊（C# 單一 ↔ 多載轉換也對得上）。
     全確定與含候選的路分開數。下列情況那一列標「不可判定」（可能是看不到了，不是變好）：
-    入口可達範圍內的未解呼叫變多或冒出新的未解函式；路徑經過的檔在任一版解析失敗或從有函式變零函式。"""
+    入口可達範圍內的未解呼叫變多或冒出新的未解函式；路徑經過的檔在任一版解析失敗或從有函式變零函式。
+    兩邊掃描母體的政策不同（git 追蹤清單 vs 目錄遞迴）→ 整份不可判定，不報改善。"""
     b_entries = {compare_key(e["entry"], e["sig"]): e for e in before["entries"]}
     a_entries = {compare_key(e["entry"], e["sig"]): e for e in after["entries"]}
-    undecidable = {k for k, a in a_entries.items() if k in b_entries and _coverage_worse(b_entries[k], a)}
     sb, sa = before["stats"], after["stats"]
+    mismatch = sb["scope"]["policy"] != sa["scope"]["policy"]
+    undecidable = {k for k, a in a_entries.items() if k in b_entries and (mismatch or _coverage_worse(b_entries[k], a))}
     broken = _broken_files(sb["file_funcs"], sa["file_funcs"])
     rows = []
     for key in sorted(set(b_entries) | set(a_entries)):
@@ -1912,9 +2000,9 @@ def compare(before: dict, after: dict) -> dict:
     rows.sort(key=lambda r: (not r["certain"], STATUS_ORDER.index(r["status"]), r["entry"], r["landing"]))
     sure = Counter(r["status"] for r in rows if r["certain"])
     maybe = Counter(r["status"] for r in rows if not r["certain"])
-    coverage_drop = bool(len(sa["parse_errors"]) > len(sb["parse_errors"]) or broken or undecidable
+    coverage_drop = bool(len(sa["parse_errors"]) > len(sb["parse_errors"]) or broken or undecidable or mismatch
                          or sa["unresolved_ratio"] > sb["unresolved_ratio"] + COVERAGE_DROP)
-    return {"entries": len(set(b_entries) | set(a_entries)), "rows": rows,
+    return {"entries": len(set(b_entries) | set(a_entries)), "rows": rows, "scope_mismatch": mismatch,
             "counts": {k: sure.get(k, 0) for k in STATUS_ORDER},
             "counts_candidate": {k: maybe.get(k, 0) for k in STATUS_ORDER},
             "max_turns_before": max((e["max_turns"] for e in before["entries"]), default=0),
@@ -1954,11 +2042,16 @@ def _diff_row(entry: str, b: dict | None, a: dict | None, undecidable: bool, bro
     return {"entry": entry, "landing": landing, "status": status, "certain": certain, "before": b, "after": a}
 
 
-def run_compare(root: Path, before: str, after: str | None, entry: str | None, to: str | None) -> dict:
+def run_compare(root: Path, before: str, after: str | None, entry: str | None, to: str | None,
+                scope: str = "git") -> dict:
+    """git rev 解出來的目錄就是追蹤清單，政策記 git（整棵走訪即可）；目錄或 --root 照 --scope。"""
     with tempfile.TemporaryDirectory(prefix="reading-path-") as tmp:
         b_root = materialize(before, root, Path(tmp), "before")
         a_root = materialize(after, root, Path(tmp), "after") if after else root
-        b_rep, a_rep = analyze(b_root, entry, to), analyze(a_root, entry, to)
+        archived = {b_root} if not Path(before).is_dir() else set()
+        archived |= {a_root} if after and not Path(after).is_dir() else set()
+        side = lambda r: analyze(r, entry, to, "tree", "git") if r in archived else analyze(r, entry, to, scope)
+        b_rep, a_rep = side(b_root), side(a_root)
     res = compare(b_rep, a_rep)
     res.update(before_label=before, after_label=after or "目前內容", root=str(root),
                caveats=list(dict.fromkeys(b_rep["caveats"] + a_rep["caveats"])))
@@ -1975,7 +2068,7 @@ def route_lines(r: dict) -> list:
     if not r["certain"]:
         flags += "（含候選）"
     if r["incomplete"]:
-        flags += f"（未讀到底：落點有 {r['unresolved']} 個解析不了的呼叫）"
+        flags += f"（未讀到底：路上有 {r.get('unresolved_path', r['unresolved'])} 個解析不了的呼叫）"
     lines = [f"  [{r['grade']}] 拐彎 {r['turns']}｜跳檔 {r['file_jumps']}｜轉手 {r['handoffs']}｜深度 {r['depth']}"
              f"  {r['entry']} → {r['landing']}{flags}"]
     for s in r["steps"]:
@@ -1994,6 +2087,7 @@ def render(report: dict, top: int) -> str:
     st = report["stats"]
     lines = [f"閱讀路徑｜{report['root']}｜Python {st['files']['py']}・C# {st['files']['cs']}・粗略 {st['files']['coarse']} 檔"
              f"｜函式 {st['funcs']}｜呼叫連到專案內 {st['linked_calls']}｜專案內解析不了 {st['unresolved']}",
+             f"掃描母體：{st['scope']['policy']}｜檔案 {st['scope']['files']}｜清單雜湊 {st['scope']['digest']}",
              "尺不是判決：拐彎 0-1 順｜2 注意｜3 警戒｜≥4 臭掉（G11）。每個落點取拐彎最少的一條；拐彎＝轉手或換檔，一步最多算 1"]
     if st["unresolved_ratio"] > UNRESOLVED_WARN:
         lines.append(f"⚠ 專案內解析不了的呼叫占 {st['unresolved_ratio']:.0%}：圖可能缺邊，數字偏低不可信")
@@ -2007,10 +2101,16 @@ def render(report: dict, top: int) -> str:
     entries = report["entries"]
     routes = sorted(flat(e["routes"] for e in entries), key=worst_first)
     lines.append(f"入口 {len(entries)} 個（最差在前）｜落點 {len(routes)} 條，其中全確定 {sum(r['certain'] for r in routes)}"
-                 "：全確定的數字是可信下限，含候選的是上限參考；刻度分布只算全確定且讀到底的路")
+                 "：全確定＝確定邊子圖上的最短觀測路徑，含候選＝含候選邊的探索路徑（都不是數學上的下限或上限）；"
+                 "刻度分布只算全確定且讀到底的路")
     for e in entries[:ENTRY_LIST_LIMIT]:
         dist = "・".join(f"{label} {n}" for label, n in reversed(e["grades"].items()))
-        rating = grade(e["max_turns"]) if e["certain_routes"] else "無法評級：沒有全確定的路"
+        if not e["certain_routes"]:
+            rating = "無法評級：沒有全確定的路"
+        elif not e["ratable"]:
+            rating = f"觀測 {grade(e['max_turns'])}・不可評級：可達範圍內有 {e['unresolved_reach']} 個解析不了的呼叫"
+        else:
+            rating = grade(e["max_turns"])
         lines.append(f"  [{rating}] {e['entry']}  落點 {e['landings']}（全確定 {e['certain_routes']}）｜最多拐彎 {e['max_turns']}"
                      f"｜最多跳檔 {e['max_file_jumps']}｜最多轉手 {e['max_handoffs']}｜{dist}"
                      f"｜含候選 {e['candidate']}（最多拐彎 {e['max_turns_candidate']}）｜未讀到底 {e['incomplete']}"
@@ -2030,7 +2130,11 @@ def render_compare(res: dict, top: int) -> str:
              + f"｜最多拐彎 {res['max_turns_before']} → {res['max_turns_after']}",
              "含候選：" + "｜".join(f"{STATUS_LABEL[k]} {cc[k]}" for k in STATUS_ORDER),
              f"解析：失敗 {len(sb['parse_errors'])} → {len(sa['parse_errors'])} 檔｜專案內解析不了 "
-             f"{sb['unresolved_ratio']:.0%} → {sa['unresolved_ratio']:.0%}"]
+             f"{sb['unresolved_ratio']:.0%} → {sa['unresolved_ratio']:.0%}",
+             f"掃描母體：{sb['scope']['policy']}（{sb['scope']['files']} 檔，{sb['scope']['digest']}）→ "
+             f"{sa['scope']['policy']}（{sa['scope']['files']} 檔，{sa['scope']['digest']}）"]
+    if res["scope_mismatch"]:
+        lines.append("⚠ 前後掃描母體的政策不同：整份不可判定，不報改善")
     if res["coverage_drop"]:
         lines.append("⚠ after 的解析涵蓋變差：「消失」「變好」可能是看不到了，不是程式變好")
     lines += [f"  不可判定的入口（可達範圍內解析不了的呼叫變多或換了地方）：{e}" for e in res["undecidable_entries"]]
@@ -2082,6 +2186,8 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("--before", help="前後比較的舊版本：git rev（--root 所在 repo）或目錄")
     ap.add_argument("--after", help="前後比較的新版本：git rev 或目錄（預設 --root 目前內容）")
     ap.add_argument("--json", action="store_true", help="輸出 JSON（含 caveats；最後一行仍是哨兵）")
+    ap.add_argument("--scope", choices=("git", "tree"), default="git",
+                    help="掃描母體：git＝版本追蹤清單與原始碼副檔名的交集（預設；不在 git 裡退回 tree）；tree＝目錄遞迴")
     args = ap.parse_args(argv)
     root = Path(args.root).resolve()
     try:
@@ -2090,11 +2196,11 @@ def main(argv: list | None = None) -> int:
         if args.after and not args.before:
             raise ReadingPathError("--after 要搭配 --before")
         if args.before:
-            res = run_compare(root, args.before, args.after, args.entry, args.to)
+            res = run_compare(root, args.before, args.after, args.entry, args.to, args.scope)
             missing = args.entry and res["entries"] == 0
             text, tail = render_compare(res, args.top), compare_done_line(res)
         else:
-            res = analyze(root, args.entry, args.to)
+            res = analyze(root, args.entry, args.to, args.scope)
             missing = args.entry and not res["entries"]
             text, tail = render(res, args.top), done_line(res)
         if missing:
