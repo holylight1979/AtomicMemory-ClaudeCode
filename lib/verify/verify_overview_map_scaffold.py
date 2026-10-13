@@ -296,7 +296,9 @@ class _FakeWriter:
 def test_detect_layer_and_kwargs(tmp_path):
     root = _mk_project(tmp_path)
     assert sc.detect_layer(root) == (sc.LAYER_PROJECT, root)
-    assert sc.detect_layer(CLAUDE / "lib") == (sc.LAYER_ROOT, CLAUDE)            # WG_CLAUDE_DIR 指本樹＝根層
+    import wg_core                                                               # detect_layer 已載入的同一份
+    data = Path(wg_core.CLAUDE_DIR)                                              # 資料根（WG_CLAUDE_DIR 或 ~/.claude），不隨別支測試先載 wg_core 而變
+    assert sc.detect_layer(data / "lib") == (sc.LAYER_ROOT, data)                # 根層子目錄＝根層
     kw = sc.card_write_kwargs(sc.LAYER_ROOT, CLAUDE, "設計通則")
     assert kw == {"scope": "global", "realm": "local", "domain": "MemDev"} and "project_cwd" not in kw
     assert sc.card_write_kwargs(sc.LAYER_ORG, Path("C:/Org"), "設計通則") == {"scope": "shared", "project_cwd": "C:\\Org", "domain": "設計通則"}
