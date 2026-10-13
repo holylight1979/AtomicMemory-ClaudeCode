@@ -61,7 +61,16 @@ def _seed_files() -> List[str]:
 
 
 def _remove_tree(path: Path) -> None:
-    """刪暫存目錄：唯讀檔（測試建的 git 物件在 Windows 是唯讀）先清唯讀再刪；還刪不掉（別的行程占用）就在 stderr 說一聲。"""
+    """刪暫存目錄：先關掉本行程裡寫進暫存目錄的 log handler（例 wg_atoms 的向量觀測紀錄開著檔，Windows 刪不掉）；
+    唯讀檔（測試建的 git 物件在 Windows 是唯讀）先清唯讀再刪；還刪不掉（別的行程占用、或刪除當下還有背景寫入）就在 stderr 說一聲。"""
+    import logging
+    prefix = _n(path) + os.sep
+    loggers = [logging.getLogger(), *(x for x in logging.Logger.manager.loggerDict.values() if isinstance(x, logging.Logger))]
+    for lg in loggers:
+        for h in [h for h in lg.handlers if isinstance(h, logging.FileHandler) and _n(h.baseFilename).startswith(prefix)]:
+            h.close()
+            lg.removeHandler(h)
+
     def force(func, p, _exc):
         try:
             os.chmod(p, stat.S_IWRITE)
@@ -74,7 +83,7 @@ def _remove_tree(path: Path) -> None:
     else:
         shutil.rmtree(path, onerror=force)
     if path.exists():
-        print(f"[conftest] 暫存目錄沒刪乾淨（有檔被其他行程占用）：{path}", file=sys.stderr)
+        print(f"[conftest] 暫存目錄沒刪乾淨（有檔被其他行程占用，或刪除當下還有背景寫入）：{path}", file=sys.stderr)
 
 
 def _load_by_path(name: str, rel: str):
