@@ -6220,6 +6220,22 @@
         "合完推"
       ],
       "scope": "global"
+    },
+    {
+      "name": "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑",
+      "path": "_AIDocs/_atoms/MemDev/退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑.md",
+      "triggers": [
+        "退回檢查",
+        "退回紅",
+        "暫存副本",
+        "git archive",
+        "tar --force-local",
+        "Cannot connect to C",
+        "replay-guard",
+        "提示詞指到暫存目錄以外的路徑",
+        "舊版檔跑新測試"
+      ],
+      "scope": "global"
     }
   ]
 }
