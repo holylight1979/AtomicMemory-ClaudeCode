@@ -9,6 +9,17 @@
 - **做法**：新 `hooks/wg_need_goal.py`（目標檔 `workflow/need-goal/<sid>.json` 整段上鎖、自帶序號；五個動作、證據七條、狀態轉換、續接單區塊與匯入、壓縮重送）＋ MCP `need_goal`（`lib/need-goal.js` 只驗參數）；UPS 送回樹根／第一則提醒、PreToolUse 寫碼類沒樹就擋（OverviewHub 之前）與 commit 前 (f1)(f2)、`wg_overview.on_edit` 定位第四行核對與目標改了清定位、導讀卡附樹、Stop 寫碼查核併進 (f1)(f2)、收尾檢核附樹＋HUD「目標對照」、驗收審查拿原話／轉述／樹三段；`reconcile_cfg` 的 code_exts 改成與預設聯集、沒副檔名的 `#!` 腳本算程式檔；`overview_hub.need_goal` 設定段。契約 `DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md`，TECH §7.7。
 - **驗證**：`verify_need_goal` 42 passed（兩個行程交錯寫不掉節點、各拒收理由、先後與目標版本作廢、第四行、(f1)(f2)、commit、匯入）；退回舊接點 15 紅（斷言 7、缺介面 8）；OverviewHub 三檔＋部位表兩檔 168 passed、MCP smoke OK；真 hook 入口情境探針 `hooks/verify/probe_need_goal_flow.py` 12 步全過。
 
+## 2026-10-13 v6.0 核心推進文件總整理：歷程搬進 DevHistory 工作紀錄，checklist 與接續單只留現況與連結
+- **緣由**：原設計者指出 v6.0 checklist 每條塞滿 commit、codex 輪次、退件單編號，全文 4 萬 token，讀者看不出目標與下一步，「嚴禁把核心推進文件搞成會造成嚴重飄移的狀態」。
+- **做法**：新建 `DevHistory/v6.0-寫程式碼的進化-2026-10/工作紀錄.md`（按軌、按日期，一筆不漏）；`memory/_staging` 的 checklist 改成 G 目標表＋一行一項 checklist＋活軌表＋待決兩題，接續單只留接手方法、規矩、現況。
+- **驗證**：checklist 206 行→120 行；舊版所有待辦與追蹤項逐項對照到新落點並對 repo 實查；DOC_SYNC_CHECK、MEMORY_INDEX_CHECK DONE。
+
+## 2026-10-13 v6.0 atom_write replace 只換呼叫者給的部分、開工句不當 Quote
+- **緣由**：對舊格式卡（標題與檔名不同、沒有 Created-at、檔頭有 Confirmations／Last-used／Type）做 replace，標題被換成檔名、補上當天 Created-at、Related 與 build 不認得的舊鍵全掉；同一 bug 之前記過一次未修。Quote 自動填則把開工句當成使用者原話：同伴訊息開的回合沿用前一回合原話，開工句被一路填進後面寫的每張卡（知識庫已有 29 張）。
+- **根因**：replace 用呼叫參數整張重建檔頭（`build_atom_content`），只有 Author／Created-at／Source／Quote／Depends／Supersedes 走「沿用舊值」白名單，而且 py `write_atom` 與 MCP js 各寫一份白名單；開工句樣板只在萃取器裡，Quote 自動填沒用到。
+- **做法**：`lib/atom_io.carry_replace_header`：舊格式卡（標題 slug≠檔名）沿用舊標題、新格式照舊用 title 參數；舊卡沒有 Created-at 就不補；呼叫者沒給的檔頭鍵原行帶回（同鍵多行全帶；已在 build 前三態定案的 Author／Source／Quote／Depends／Supersedes 除外）；py `write_atom` 與 `atom_io_cli build`（MCP js 帶 `existing_path`）共用。開工句樣板從 `hooks/user-extract-worker.py` 搬到 `lib/harness_text`（萃取器照舊用整則逐子句的嚴格判定），新增 `is_kickoff_prompt` 給 `wg_provenance`：嚴格判定成立，或第一個子句整句是角色句（可帶括號說明）且後面至少一個子句整句對上其他派工樣板，就不填 Quote、Source 照補；引用開工句來討論、問句照填；replace 照舊會自動填 Quote。
+- **驗證**：新案 `lib/verify/verify_atom_io_replace_old_format.py` 8 案（py 與 CLI 兩條路、MCP 有傳 existing_path、呼叫者明給仍贏、三態定案的不帶回、同鍵多行、新格式標題跟呼叫者、新格式逐 byte 相同）＋`verify_provenance_autofill.py` 新 9 案（兩則真開工句 × create／replace 不填、真原話照填、樣板共用與引用／問句不誤判）；main 版程式上 py replace 紅在第一個斷言「標題被改：'# decisions'」、開工句四案紅在「開工句被填成 Quote」；codex 審 cdac58d 的 BLOCK 3 條（同鍵多行漏帶、引用開工句被誤判、新格式標題被改）處置後三案在處置前版本紅在斷言；atom_io 全組＋provenance＋萃取器 187 passed、MCP smoke OK。 | `lib/atom_io.py`, `lib/atom_io_cli.py`, `lib/harness_text.py`, `hooks/wg_provenance.py`, `hooks/user-extract-worker.py`, `tools/workflow-guardian-mcp/lib/atom-tools.js`, `lib/verify/verify_atom_io_replace_old_format.py`, `hooks/verify/verify_provenance_autofill.py`
+
 ## 2026-10-13 v6.0 第二意見工具：codex 唯讀沙箱帶 unelevated、探針改成真的用 shell 讀檔
 - **緣由**：`tools/second-opinion/run.py` 組 `codex exec -s read-only` 沒帶 `-c windows.sandbox="unelevated"`，本機 codex 在沙箱裡每個指令都 `CreateProcessWithLogonW failed: 1385`，只能看提示內嵌、超過 `material_max_chars` 會被截斷的材料；探針只叫它回 `CODEX_OK`、不用 shell，所以照樣綠、job 照樣 done，各工作 session 拿到的 codex 報告都只審了提示裡的 diff。
 - **做法**：`_sandbox_args()` 回 `-s read-only`，Windows 另加 `-c windows.sandbox="unelevated"`，探針與 codex exec 共用；不放共用的 `codex_extra_args`（裁判 assessor 不傳 `-s`，不受影響）。探針在 job 目錄放 `probe.txt`（一行隨機字樣，不在提示裡），叫 codex 用 shell 讀回第一行，讀不回或 1385 → failed；探針兩個 log 開跑前清空（`run.py probe` 重用 `_probe` 目錄，上一次的 1385 不能害這次誤判）；探完刪檔，刪不掉只在 stderr 留一行、不改判定；探針跑一次 shell 實測 17～24 秒，`probe_timeout_s` 20→60（config 與程式預設）。

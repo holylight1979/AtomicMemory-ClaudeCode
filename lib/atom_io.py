@@ -978,6 +978,86 @@ def rule_atom_style_violation(file_path: Path, knowledge: Optional[List[str]]) -
     return None
 
 
+# ─── replace：檔頭從舊卡帶回（py write_atom 與 MCP js 經 atom_io_cli build 共用這一份）─────────
+# replace 用參數重建整張檔（build_atom_content），build 只會輸出它認得的鍵、標題取 title 參數、Created-at 缺就填今天。
+# 舊格式卡（標題與檔名不同、沒有 Created-at、檔頭有 Confirmations／Last-used／Tags／Type 這類 build 不認得的鍵）
+# 因此被改標題、補當天日期、掉欄位。規則：replace 只換呼叫者給的部分，其餘照舊卡原樣。
+_HEADER_KV_RE = re.compile(r"^- ([A-Za-z][A-Za-z-]*):[ \t]*(.*)$")
+# 呼叫參數 → 檔頭鍵：參數給了（不是 None，空值也算）就以呼叫者為準；沒給才從舊卡帶回
+_PARAM_HEADER_KEY = {
+    "audience": "Audience", "related": "Related", "status": "Status", "provenance": "Source",
+    "quote": "Quote", "depends": "Depends", "supersedes": "Supersedes",
+    "pending_review_by": "Pending-review-by", "merge_strategy": "Merge-strategy",
+}
+
+
+# 這幾個鍵在 write_atom 與 MCP js 已有自己的三態判定（沒給沿用舊行、給空清掉；空的 `- Depends:` 行算清），
+# 進 build 前就定案；帶回不再插手，否則會把判定成清空的行加回去
+_DECIDED_BEFORE_BUILD = frozenset({"Author", "Source", "Quote", "Depends", "Supersedes", "Created-at"})
+
+
+def given_header_keys(params: Dict[str, Any]) -> set:
+    """呼叫者明給（值不是 None）的檔頭鍵名集合。"""
+    return {key for p, key in _PARAM_HEADER_KEY.items() if params.get(p) is not None}
+
+
+def _header_span(lines: List[str]):
+    """(H1 行號, 檔頭結束行號＝第一個 `## ` 行)；沒有 H1 回 (None, None)。"""
+    h1 = next((i for i, ln in enumerate(lines) if ln.startswith("# ")), None)
+    if h1 is None:
+        return None, None
+    end = next((i for i in range(h1 + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    return h1, end
+
+
+def _kv_key(line: str) -> Optional[str]:
+    m = _HEADER_KV_RE.match(line)
+    return m.group(1) if m else None
+
+
+def carry_replace_header(old: str, built: str, given: Iterable[str] = ()) -> str:
+    """replace 落檔前的最後一步：built（build_atom_content 產出）的檔頭改成以舊卡為底。
+    1. 標題：舊卡標題 slug 和 title 參數不同（舊格式：標題是中文名、檔名是英文 slug 這類）→ 用舊卡 H1 原文；
+       相同（新格式）→ 照舊用 title 參數。
+    2. Created-at：舊卡有 → 用舊值；舊卡沒有 → 不輸出（不補當天）。
+    3. 舊卡檔頭有、built 沒有、呼叫者也沒明給（given 不含）的鍵 → 原行（同鍵多行就全部）帶回，放在舊卡裡它前面那個鍵之後。
+       涵蓋 Related／Status／Audience 沒給時，以及 build 不認得的 Confirmations／Last-used／Tags／Type 等舊欄位。
+       Author／Source／Quote／Depends／Supersedes 在進 build 前已由三態判定定案（_DECIDED_BEFORE_BUILD），不帶回。
+    知識段與行動段一律用 built 的（那是 replace 要換的內容）。舊卡沒有 H1 時原樣回 built。"""
+    old_lines, new_lines = old.split("\n"), built.split("\n")
+    oh1, oend = _header_span(old_lines)
+    nh1, nend = _header_span(new_lines)
+    if oh1 is None or nh1 is None:
+        return built
+    given = set(given)
+    old_kv = [(k, ln) for ln in old_lines[oh1 + 1:oend] if (k := _kv_key(ln))]
+    old_by_key = dict(old_kv)
+    head = list(new_lines[nh1 + 1:nend])
+    if "Created-at" in old_by_key:
+        head = [old_by_key["Created-at"] if _kv_key(ln) == "Created-at" else ln for ln in head]
+    else:
+        head = [ln for ln in head if _kv_key(ln) != "Created-at"]
+
+    def last_index(key: str) -> int:
+        return max(i for i, ln in enumerate(head) if _kv_key(ln) == key)
+
+    built_keys = {k for ln in head if (k := _kv_key(ln))}
+    present = set(built_keys)
+    for i, (key, line) in enumerate(old_kv):
+        if key in built_keys or key in given or key in _DECIDED_BEFORE_BUILD:
+            continue
+        anchor = next((k for k, _ in reversed(old_kv[:i]) if k in present), None)
+        if anchor is not None:
+            pos = last_index(anchor) + 1
+        else:
+            pos = next((j for j, ln in enumerate(head) if _kv_key(ln)), len(head))
+        head.insert(pos, line)
+        present.add(key)
+    old_title, new_title = old_lines[oh1][2:].strip(), new_lines[nh1][2:].strip()
+    h1 = old_lines[oh1] if slugify(old_title) != slugify(new_title) else new_lines[nh1]
+    return "\n".join(new_lines[:nh1] + [h1] + head + new_lines[nend:])
+
+
 def write_atom(
     *,
     title: str,
@@ -1208,6 +1288,11 @@ def write_atom(
             created_at=prev_created, today=today, supersedes=supersedes_final,
             provenance=prev_provenance, depends=prev_depends, quote=prev_quote,
         )
+        if file_path.exists():
+            content = carry_replace_header(old, content, given_header_keys(dict(
+                audience=audience, related=related, provenance=provenance, quote=quote,
+                depends=depends, supersedes=supersedes, pending_review_by=pending_review_by,
+                merge_strategy=merge_strategy)))
         index_depends = list(prev_depends) if prev_depends else []
     else:
         return WriteResult(ok=False, audit_id=audit_id,
