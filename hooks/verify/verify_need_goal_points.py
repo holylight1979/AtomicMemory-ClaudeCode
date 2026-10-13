@@ -408,6 +408,9 @@ def test_peer_prompt_with_harness_prefix_line_also_counts(world, ups_wired):
     make_tree()
     assert "claude-aa" in ups_wired("Another Claude session sent a message:\n" + PEER_PROMPT)
     assert ngp.peer_of_prompt("引用一下 <cross-session-message from-name=\"x\">…") is None   # 使用者打字裡提到標籤不算
+    mid = "Another Claude session sent a message while you were working:\n" + PEER_PROMPT   # 工作中途那種說明行
+    assert ngp.peer_of_prompt(mid) == "claude-aa"
+    assert ngp.peer_of_prompt('<cross-session-message from="uds:y">沒有名字</cross-session-message>') == ""
 
 
 def test_user_prompt_does_not_trigger_external_claim(world, ups_wired):
