@@ -453,3 +453,14 @@ def test_stop_pending_sibling_not_blocked(driven, capsys):
     rec["d_pending"] = ["x"]
     out = driven([_mf(_CORE)], capsys, turn_seq=5, anti_evasion_report=rec)
     assert "AEC-Pending" not in out
+
+
+@pytest.mark.parametrize("harvest_turn, pending", [(5, False), (4, True)])
+def test_044_6_harvest_validated_earlier_in_user_turn_skips_d_pending(monkeypatch, tmp_path, harvest_turn, pending):
+    """044 第 6 項（規則 TURN_SINCE_USER_PROMPT；post_tool_use 判 (d) pending 前看「本回合收割已核過」）：使用者 turn 5 打字、收割在
+    turn 5 核過 → 同伴訊息讓 turn_seq 到 7 → emit 的 (d) 寫「尚未寫」：收割已核過，(d) 不判 pending。舊碼要收割的 turn_seq 剛好是 7，
+    判不到、照標 d_pending（Stop 再擋 AEC-Pending）。配對：收割在使用者打字之前（turn 4）→ 照標。"""
+    vals = {"a": "無", "b": "無", "c": "無", "d": _D_REAL, "e": "無", "f": "無", "g": "無", "h": "可關閉", "i": "無"}
+    state = _drive_ptu(monkeypatch, tmp_path, vals, turn_seq=7, turn_prompts_seq=5,
+                       knowledge_harvest={_SID: {"turn_seq": harvest_turn, "validated": True}})
+    assert ("d_pending" in state["anti_evasion_report"]) is pending

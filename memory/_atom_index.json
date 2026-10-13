@@ -6274,6 +6274,40 @@
         "驗證阻擋"
       ],
       "scope": "global"
+    },
+    {
+      "name": "裁定類判斷的校準法-每筆先填服務目標框架來源零成本反事實三欄-被翻率當數字-審查者角色的讀入事件是收到外部主張要裁定前",
+      "path": "memory/思考與決策/裁定類判斷的校準法-每筆先填服務目標框架來源零成本反事實三欄-被翻率當數字-審查者角色的讀入事件是收到外部主張要裁定前.md",
+      "triggers": [
+        "裁定帳",
+        "裁定前",
+        "框架來源",
+        "零成本反事實",
+        "被翻率",
+        "判準權重",
+        "側觀視角",
+        "段落批評",
+        "總控台誤判",
+        "審查者角色",
+        "關鍵點"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "cc實測-pretooluse對askuserquestion與exitplanmode會觸發且tool-input完整-deny時posttooluse不觸發posttoolbatch會-中途到的同伴訊息是queued-command不經任何hook",
+      "path": "_AIDocs/_atoms/MemDev/cc實測-pretooluse對askuserquestion與exitplanmode會觸發且tool-input完整-deny時posttooluse不觸發posttoolbatch會-中途到的同伴訊息是queued-command不經任何hook.md",
+      "triggers": [
+        "AskUserQuestion hook",
+        "ExitPlanMode hook",
+        "PreToolUse deny",
+        "PostToolBatch",
+        "queued_command",
+        "同伴訊息不經 hook",
+        "提問關鍵點",
+        "ask_probe",
+        "D(1) 實測"
+      ],
+      "scope": "global"
     }
   ]
 }
