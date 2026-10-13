@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: 模組層常數, 路徑常數, import 時計算, 冷啟動, 子行程驗證, 預設參數綁死, setdefault, 收集順序, 測試污染, python -P
 - Created-at: 2026-10-13
+- Quote: 「你是 v6.0 的工作 session track-a3（接手，前一個 track-a3 session 已滿），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-a3（分支 v6/track-a3，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.…」
 
 ## 知識
 
