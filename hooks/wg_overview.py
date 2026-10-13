@@ -38,7 +38,7 @@ from hub_config import (  # noqa: E402
 )
 import overview_hub as _oh  # noqa: E402
 from overview_hub import (  # noqa: E402
-    DEFAULT_LOCATE_TEMPLATE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
+    DEFAULT_LOCATE_TEMPLATE, LAYER_AXIS_RE, LOCATE_CHANNELS, MAP_REL, ROOT_CAUSE_SENTENCE, SLICE_NAMES, assistant_text_after,
     build_injection_ex, card_mem_dir, find_map, locate_quality, locate_values, match_row, parse_map, read_paths_from_tool, resolve_card,
     split_card_sections, top_dir, transcript_readable, transcript_size,
 )
@@ -793,8 +793,10 @@ def _cfg_error_deny(cfg: Dict[str, Any], session_id: str, file_path: str,
 
 
 def _layer_mismatch(row: Dict[str, Any], vals: Dict[str, str]) -> Optional[str]:
-    """部位表有「層」欄（單層以外）時，根因層那行必須指明其中一層；都沒提到＝填錯層或沒填層。"""
-    layers = [x.strip() for x in _LAYER_SPLIT_RE.split(row.get("layer") or "") if x.strip() and x.strip() != "單層"]
+    """部位表有「層」欄（單層以外）時，根因層那行必須指明其中一層；都沒提到＝填錯層或沒填層。
+    閱讀路徑層號「第 N 層」由程式依路徑推（量尺的層次軸），不算要人填的層。"""
+    layers = [x.strip() for x in _LAYER_SPLIT_RE.split(row.get("layer") or "")
+              if x.strip() and x.strip() != "單層" and not LAYER_AXIS_RE.fullmatch(x.strip())]
     if not layers or any(l in vals.get("根因", "") for l in layers):
         return None
     return f"定位｜根因層 沒有指明這個部位的層（部位表列的層：{'／'.join(layers)}），填錯層或沒填層一律擋"

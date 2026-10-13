@@ -3033,6 +3033,17 @@ def test_g12w_explicit_layers_flag_and_compare_use_the_axis_on_both_sides(tmp_pa
     assert row["status"] == "same" and row["before"]["file_jumps"] == row["after"]["file_jumps"] == 0
 
 
+def test_g12w_root_map_declares_the_hook_layer_axis():
+    """根層部位表（本 repo 的 .claude/overview-map.md）宣告的層次軸：hooks/handlers 第 1 層、hooks 第 2 層、lib 第 3 層、
+    tools 自成第 4 層（只和 lib 相鄰）；其他列「單層」不在軸上。"""
+    axis = rp.layer_axis(None, ROOT)
+    assert axis, "根層部位表要宣告層次軸"
+    files = ["hooks/handlers/stop.py", "hooks/wg_core.py", "lib/overview_hub.py", "tools/reading-path.py",
+             "skills/x/scripts/y.py", "run_verify.py"]
+    assert rp.file_layers(axis, files) == {"hooks/handlers/stop.py": 1, "hooks/wg_core.py": 2, "lib/overview_hub.py": 3,
+                                           "tools/reading-path.py": 4}
+
+
 def test_g12w_compare_text_says_all_unchanged_and_json_keeps_every_same_row(tmp_path):
     """接線 3：比較模式不變的列，文字只印一行計數（全部不變時說「全部不變」），--json 的 rows 完整保留每一列 same
     （含 before／after 的整條路）；有變動時變動列照列、不變的仍一行計數。"""

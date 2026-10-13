@@ -85,7 +85,6 @@ ENTRY_LIST_LIMIT = 20     # 表頭列幾個入口（--json 看全部）
 UNRESOLVED_WARN = 0.3     # 解析不了的專案內呼叫超過這個比例 → 表頭警示數字偏低
 COVERAGE_DROP = 0.05      # 前後比較時 after 的未解比例多出這麼多 → 警示可能是解析退化
 MAX_REEXPORT = 5          # from a import x 追 re-export、追函式別名最多幾跳（防循環）
-LAYER_RE = re.compile(r"第\s*(\d+)\s*層")   # 部位表「層」欄的層號宣告；一格恰好一個才算宣告
 SHARED_FAN_IN = 5         # 落點被這麼多處呼叫 → 標「共用底層」：讀功能時通常不必沿這條路讀到它
 DEEP_STRAIGHT = 6         # 深度到這麼多但拐彎 ≤1 → 提醒「同檔多層有實質內容的呼叫不算彎」
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
@@ -1855,22 +1854,18 @@ def _overview_hub():
     return overview_hub
 
 
-def layer_number(row: dict | None) -> int | None:
-    """部位表一列的「層」欄恰好有一個「第 N 層」→ N；沒有（例：單層）或不只一個 → None（沒宣告）。"""
-    found = LAYER_RE.findall((row or {}).get("layer") or "")
-    return int(found[0]) if len(found) == 1 else None
-
-
 def layer_axis(spec: str | None, root: Path) -> dict | None:
     """宣告層次軸：--layers 給了就讀那張部位表；沒給就讀 --root 底下的 .claude/overview-map.md（沒有這個檔就不用）。
-    表裡沒有任何一列宣告「第 N 層」→ None，行為同沒有部位表。前綴相對部位表所在的專案根（表的上上層目錄）。"""
+    「層」欄恰好一個「第 N 層」才算宣告（overview_hub.layer_number）；表裡沒有任何一列宣告 → None，行為同沒有部位表。
+    前綴相對部位表所在的專案根（表的上上層目錄）。"""
     path = Path(spec) if spec else root / ".claude" / "overview-map.md"
     if not path.is_file():
         if spec:
             raise ReadingPathError(f"--layers 找不到部位表：{path}")
         return None
-    rows = _overview_hub().parse_map(path.read_text(encoding="utf-8"))
-    if not any(layer_number(r) is not None for r in rows):
+    hub = _overview_hub()
+    rows = hub.parse_map(path.read_text(encoding="utf-8"))
+    if not any(hub.layer_number(r) is not None for r in rows):
         return None
     return {"source": str(path), "base": path.resolve().parent.parent, "root": root.resolve(), "rows": rows}
 
@@ -1887,7 +1882,7 @@ def file_layers(axis: dict | None, rels: list) -> dict:
             full.relative_to(axis["base"])
         except ValueError:
             continue
-        n = layer_number(hub.match_row(str(full), axis["base"], axis["rows"]))
+        n = hub.layer_number(hub.match_row(str(full), axis["base"], axis["rows"]))
         if n is not None:
             out[rel] = n
     return out
