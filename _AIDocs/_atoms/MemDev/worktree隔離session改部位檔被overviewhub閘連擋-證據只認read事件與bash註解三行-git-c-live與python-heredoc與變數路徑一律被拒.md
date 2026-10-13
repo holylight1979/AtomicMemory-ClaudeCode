@@ -7,7 +7,6 @@
 - Trigger: 定位三行被擋, Edit 被擋 證據不足, 還沒讀過這個部位的檔, fix-escalation, worktree 隔離, python - heredoc 被擋, 變數路徑 被擋, git -C live 被擋, 反轉驗證 worktree, live 未動證明
 - Created-at: 2026-10-13
 - Related: 工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上, 退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑
-- Quote: 「你是 v6.0 的工作 session track-b3，總控台是 claude-2c。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-b3（分支 v6/track-b3，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\workflow\v6-inbox\to-…」
 
 ## 知識
 

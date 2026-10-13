@@ -7,7 +7,6 @@
 - Trigger: bash -c, bash -lc, powershell -Command, cmd /c, shell 包裝, 包裝偵測, 執行旗標, basename, 口令閘, 指令字串解析, Program Files, & 呼叫運算子
 - Created-at: 2026-10-13
 - Related: 從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據, shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文
-- Quote: 「你是 v6.0 的工作 session track-a4，總控台是 claude-2c。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-a4（分支 v6/track-a4，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\workflow\v6-inbox\to-…」
 
 ## 知識
 

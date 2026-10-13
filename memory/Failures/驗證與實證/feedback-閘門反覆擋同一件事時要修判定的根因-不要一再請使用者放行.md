@@ -7,7 +7,6 @@
 - Created-at: 2026-10-13
 - Related: 擋滿待放行的紀錄只在重新查核真的通過或使用者放行才清-沒執行查核不等於查核通過-原宣稱只記第一次-舊格式缺欄位照擋
 - Source: session:2a7705d4 2026-10-13
-- Quote: 「你是 v6.0 的工作 session track-verify（獨立實跑驗證），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-verify（detached，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\workflow\v6…」
 
 ## 知識
 

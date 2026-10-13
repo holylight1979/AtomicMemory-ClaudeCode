@@ -5335,18 +5335,6 @@
       "scope": "global"
     },
     {
-      "name": "wrong-assumptions-工作流",
-      "path": "memory/Failures/工作流/wrong-assumptions-工作流.md",
-      "triggers": [
-        "假設錯誤",
-        "誤判",
-        "直覺假設",
-        "wrong assumption",
-        "前提錯"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試",
       "path": "memory/驗證與實證/量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試.md",
       "triggers": [

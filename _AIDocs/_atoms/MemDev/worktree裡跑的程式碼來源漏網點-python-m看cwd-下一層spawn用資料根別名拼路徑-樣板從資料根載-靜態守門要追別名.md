@@ -7,7 +7,6 @@
 - Trigger: worktree, 程式碼根, 資料根, CODE_DIR, CLAUDE_DIR, WG_CLAUDE_DIR, spawn cwd, python -m, 載到 live, code root 守門, 資料根別名
 - Created-at: 2026-10-13
 - Related: 工作session切進worktree後被隔離寫不到worktree外-交付改用sendmessage回全文-cwd不在worktree時收據根對不上
-- Quote: 「你是 v6.0 的工作 session track-a3（接手，前一個 track-a3 session 已滿），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-a3（分支 v6/track-a3，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.…」
 
 ## 知識
 
