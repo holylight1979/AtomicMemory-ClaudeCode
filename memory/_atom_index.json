@@ -5761,6 +5761,21 @@
         "track-b3"
       ],
       "scope": "global"
+    },
+    {
+      "name": "在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home",
+      "path": "_AIDocs/_atoms/MemDev/在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home.md",
+      "triggers": [
+        "worktree 分支",
+        "背景記憶同步",
+        "knowledge harvest commit",
+        "git archive 快照",
+        "OverviewHub 擋刪",
+        "設 HOME",
+        "驗證 session",
+        "反證快照"
+      ],
+      "scope": "global"
     }
   ]
 }
