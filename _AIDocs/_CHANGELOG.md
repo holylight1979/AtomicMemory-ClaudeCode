@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 核心推進文件總整理：歷程搬進 DevHistory 工作紀錄，checklist 與接續單只留現況與連結
+- **緣由**：原設計者指出 v6.0 checklist 每條塞滿 commit、codex 輪次、退件單編號，全文 4 萬 token，讀者看不出目標與下一步，「嚴禁把核心推進文件搞成會造成嚴重飄移的狀態」。
+- **做法**：新建 `DevHistory/v6.0-寫程式碼的進化-2026-10/工作紀錄.md`（按軌、按日期，一筆不漏）；`memory/_staging` 的 checklist 改成 G 目標表＋一行一項 checklist＋活軌表＋待決兩題，接續單只留接手方法、規矩、現況。
+- **驗證**：checklist 206 行→120 行；舊版所有待辦與追蹤項逐項對照到新落點並對 repo 實查；DOC_SYNC_CHECK、MEMORY_INDEX_CHECK DONE。
+
 ## 2026-10-13 v6.0 第二意見工具：codex 唯讀沙箱帶 unelevated、探針改成真的用 shell 讀檔
 - **緣由**：`tools/second-opinion/run.py` 組 `codex exec -s read-only` 沒帶 `-c windows.sandbox="unelevated"`，本機 codex 在沙箱裡每個指令都 `CreateProcessWithLogonW failed: 1385`，只能看提示內嵌、超過 `material_max_chars` 會被截斷的材料；探針只叫它回 `CODEX_OK`、不用 shell，所以照樣綠、job 照樣 done，各工作 session 拿到的 codex 報告都只審了提示裡的 diff。
 - **做法**：`_sandbox_args()` 回 `-s read-only`，Windows 另加 `-c windows.sandbox="unelevated"`，探針與 codex exec 共用；不放共用的 `codex_extra_args`（裁判 assessor 不傳 `-s`，不受影響）。探針在 job 目錄放 `probe.txt`（一行隨機字樣，不在提示裡），叫 codex 用 shell 讀回第一行，讀不回或 1385 → failed；探針兩個 log 開跑前清空（`run.py probe` 重用 `_probe` 目錄，上一次的 1385 不能害這次誤判）；探完刪檔，刪不掉只在 stderr 留一行、不改判定；探針跑一次 shell 實測 17～24 秒，`probe_timeout_s` 20→60（config 與程式預設）。
