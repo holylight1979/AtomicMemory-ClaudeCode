@@ -6462,6 +6462,69 @@
         "子行程中文輸出"
       ],
       "scope": "global"
+    },
+    {
+      "name": "暫存路徑類放行規則上線要配測試開關-pytest-tmp下的假專案會被整批放行-探針run目錄不放系統暫存否則寫碼查核整段不跑",
+      "path": "_AIDocs/_atoms/MemDev/暫存路徑類放行規則上線要配測試開關-pytest-tmp下的假專案會被整批放行-探針run目錄不放系統暫存否則寫碼查核整段不跑.md",
+      "triggers": [
+        "TEMP_COPY_NOT_PROJECT",
+        "TEMP_REPO_COMMIT_EXEMPT",
+        "WG_TEMP_RULES",
+        "暫存目錄豁免",
+        "pytest tmp 假專案",
+        "探針 run 目錄",
+        "31 案翻紅",
+        "暫存規則測試開關",
+        "probe-runs"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字",
+      "path": "_AIDocs/_atoms/MemDev/codex審放行規則的七個繞過型態-別名getattr與import-as繞寫入辨識-多行指令吞換行-echo偽造收據-同名案例互清-一個還原檔洗掉真紅-scratchpad子目錄拿暫存豁免-修法通則判不了就擋比實體不比名字.md",
+      "triggers": [
+        "codex 繞過",
+        "放行規則繞過",
+        "INLINE_PY_READONLY",
+        "GIT_READONLY_SUBCMD",
+        "CASE_GREEN_AFTER_EDIT",
+        "RED_WHILE_REVERTED",
+        "判不了就擋",
+        "比實體不比名字",
+        "對抗審",
+        "shlex 吞換行",
+        "echo 偽造 PASS"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑",
+      "path": "_AIDocs/_atoms/CC與原子記憶契約/worktree隔離session的bash守門拒絕任何含git字樣的指令-codex的skip-git-repo-check與pytest參數檔名都中-改寫成worktree內的python啟動器再跑.md",
+      "triggers": [
+        "EnterWorktree 隔離",
+        "含 git 字樣被擋",
+        "skip-git-repo-check 被擋",
+        "檔名含 git 被擋",
+        "Python 啟動器",
+        "worktree Bash 守門",
+        "隔離守門 git"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "附在stop擋訊息後的資訊段不要列檔名-別的閘與測試用檔名在不在輸出判斷欠帳",
+      "path": "_AIDocs/_atoms/MemDev/附在stop擋訊息後的資訊段不要列檔名-別的閘與測試用檔名在不在輸出判斷欠帳.md",
+      "triggers": [
+        "piggyback",
+        "_piggyback",
+        "擋訊息附段落",
+        "Stop 附訊息",
+        "檔名不在輸出",
+        "欠帳斷言",
+        "合 main 撞別軌測試",
+        "ReadingPath"
+      ],
+      "scope": "global"
     }
   ]
 }
