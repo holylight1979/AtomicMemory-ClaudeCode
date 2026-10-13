@@ -6,8 +6,8 @@
 ---
 ## 2026-10-13 v6.0 track-a4 CommitOrder 口令閘補四洞：一般寫法不得漏擋、Git Bash 路徑不誤擋
 - **緣由**：codex 徹底檢核 A 在 f5ddb5a 重現 3 條一般寫法漏擋（heredoc 起始行後的 `&& git commit -F` 被連內文剝掉、`bash -lc`／`powershell -NoProfile -Command`／`cmd /d /c` 夾啟動選項讓包裝偵測失效、`Git`／`GIT.EXE` 大小寫快篩先放掉）＋1 條誤擋（Git Bash `cd /c/…` 被當 Windows 字面路徑找錯 `.git`，記憶系統自己的 commit 要口令）。
-- **做法**：定規則不逐條補 regex：`_strip_heredoc_bodies` 只剝內文、起始行 delimiter 後的字照留；`_COMMIT_WRAP_RE` 改「shell 名＋任意選項＋執行旗標」（POSIX 短旗標組含 c、PowerShell `-c…`、cmd `/c` `/k`）；口令閘與隱私閘快篩改 lower 與 `_vcs_segments` 同規則；`_drive_path` 在 Windows 把 `/<drive>/…` 轉成 `<drive>:/…` 再找最近 `.git`，其他形式照舊不豁免。豁免白名單本身不放寬。
-- **驗證**：口令閘 34 案（新 4 案換回 f5ddb5a 版本 4 紅皆在斷言）＋隱私閘與同伴訊息閘 57 案綠；總控台重現腳本 16 案全符預期。 | `hooks/handlers/pre_tool_use.py`, `hooks/verify/verify_git_commit_order_gate.py`, `TECH.md`
+- **做法**：定規則不逐條補 regex：`_strip_heredoc_bodies` 改逐行掃、只剝到第一個結束行（零行內文也算）、起始行 delimiter 後的字照留；包裝偵測改斷詞（`_wrapped_payloads`：執行檔 basename 去路徑去 .exe 不分大小寫、PowerShell `&` 跳過、POSIX 短旗標組含 c／PowerShell `-c…`／cmd `/c` `/k`）＋內層辨識（`_wrapped_commit_verdict`：拆得出 commit 擋、全是 log/status/diff/show 放行、再包一層遞迴、eval／命令替換判不明擋）；口令閘與隱私閘快篩改 lower 與 `_vcs_segments` 同規則；`_drive_path` 把 `/<drive>/…` 轉成 `<drive>:/…` 再找最近 `.git`，只對 Bash 工具套（PowerShell 原生 `/c/` 不是磁碟機）。豁免白名單本身不放寬。codex 審 001 退一條 BLOCK（帶引號 shell 路徑被 `_unquoted` 抹掉）＋三 WARN（`bash -lc 'git log --grep=commit'` 誤擋、/c/ 不分 shell、空 heredoc 吞 commit），003 一併收。
+- **驗證**：口令閘 38 案（新 8 案換回 41887aa 版本 8 紅皆在斷言）＋隱私閘、同伴訊息閘、萃取指示 verify 綠；總控台重現腳本 16 案全符預期。 | `hooks/handlers/pre_tool_use.py`, `hooks/verify/verify_git_commit_order_gate.py`, `TECH.md`
 
 ## 2026-10-13 v6.0 CommitOrder 口令閘：記憶系統自己的 worktree commit 不等口令，豁免只認看得出落點的句型
 - **緣由**：a3 合併「同伴訊息不算使用者原話」後，工作 session 在 `~/.claude-wt/*`（~/.claude 的 git worktree）的 commit 全被擋——以前能過是同伴訊息裡的「commit」字樣漏進使用者原話；豁免只認 session cwd 在 ~/.claude 之下，漏認 worktree，也從不看 `-C`／`cd` 讓 commit 落到別的 repo。

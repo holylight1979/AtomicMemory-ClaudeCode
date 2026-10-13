@@ -504,3 +504,63 @@ def test_git_bash_drive_path_resolves_to_windows_drive(tmp_path):
     for odd in (f"/cygdrive{w}", f"/{w}"):
         assert _check(command=f"cd {odd} && git commit -m fix", state=_no_order(other)) is not None, odd
     assert ptu._drive_path("/c/Users") == "C:/Users" and ptu._drive_path("/d") == "D:/" and ptu._drive_path("/cygdrive/c") == "/cygdrive/c"
+
+
+# ─── codex 審 001 退件四條：帶引號的 shell 路徑、包裝裡的查詢不誤擋、/c/ 只對 Bash 工具、空 heredoc ────
+
+def test_quoted_shell_path_is_still_a_wrapper(tmp_path):
+    """Windows 安裝路徑含空白要加引號：`"C:/Program Files/Git/bin/bash.exe" -lc '…'`、PowerShell `& "…pwsh.exe" -NoProfile -Command "…"`。
+    包裝辨識看斷詞後的執行檔 basename（保留引號內容），不先把引號內容抹掉。無口令擋、關豁免擋；包的是查詢不擋。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    bash_path = '"C:/Program Files/Git/bin/bash.exe" -lc \'git commit -m fix\''
+    pwsh_path = '& "C:/Program Files/PowerShell/7/pwsh.exe" -NoProfile -Command "git commit -m fix"'
+    assert _check(command=bash_path, state=st) is not None
+    assert _check(command=pwsh_path, state=st, tool="PowerShell") is not None
+    assert _check(command=bash_path, state=st, config=_OFF) is not None
+    assert _check(command=pwsh_path, state=st, config=_OFF, tool="PowerShell") is not None
+    assert _check(command='"C:\\Program Files\\Git\\bin\\BASH.EXE" -c "git commit -m fix"', state=st) is not None
+    assert _check(command='& "C:/Program Files/PowerShell/7/pwsh.exe" -NoProfile -Command "git log --grep=commit"', state=st, tool="PowerShell") is None
+    assert _check(command='"C:/Program Files/Git/bin/bash.exe" -lc \'git log\'', state=st) is None
+
+
+def test_wrapped_query_with_commit_word_is_not_gated(tmp_path):
+    """包裝內容拆得出來就認真子命令：`bash -lc 'git log --grep=commit'` 是查詢，放行；內層真 commit、再包一層、eval／命令替換
+    這類判不明的照口令檢查。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ("bash -lc 'git log --grep=commit'", 'powershell -NoProfile -Command "git show HEAD -- commit.txt"',
+                'cmd /d /c "git diff --stat commit.txt"', "bash -lc 'git log --grep=commit && git status'"):
+        assert _check(command=cmd, state=st) is None, cmd
+    for cmd in ("bash -lc 'git add commit.txt && git commit -m x'", "bash -lc 'git log && git commit -m x'",
+                "bash -lc \"bash -c 'git commit -m x'\"", "bash -lc 'eval \"git commit -m x\"'",
+                "bash -lc 'git $(echo commit) -m x'", 'pwsh -c "& git commit -m x"', "bash -lc 'git add commit.txt'"):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Git Bash 磁碟機路徑只在 Windows 需要轉")
+def test_msys_drive_semantics_only_for_bash_tool(tmp_path):
+    """同一條 `cd /c/… && git commit`：Bash 工具是 Git Bash 語意，轉成 `C:/…` 找落點、在我們的 worktree 免口令；
+    PowerShell 工具的 `/c/…` 原生是 `C:\\c\\…`，不轉、不豁免、照常要口令。"""
+    other, ours = _other_repo(tmp_path), _ours(tmp_path)
+    cmd = f"cd {_msys(ours)} && git add a.py && git commit -m fix"
+    assert _check(command=cmd, state=_no_order(other), tool="Bash") is None
+    assert _check(command=cmd, state=_no_order(other), tool="PowerShell") is not None
+    cmd_c = f"git -C {_msys(ours)} commit -m fix"
+    assert _check(command=cmd_c, state=_no_order(other), tool="Bash") is None
+    assert _check(command=cmd_c, state=_no_order(other), tool="PowerShell") is not None
+    w = str(ours).replace("\\", "/")
+    assert _check(command=f"cd {w} && git commit -m fix", state=_no_order(other), tool="PowerShell") is None
+
+
+def test_empty_heredoc_then_commit_then_same_delimiter_is_gated(tmp_path):
+    """空 heredoc（零行內文）後面接真 commit、再接同名 heredoc：只能剝到第一個結束行，中間的 commit 不得被吞掉。"""
+    from handlers import pre_tool_use as ptu
+    other = _other_repo(tmp_path)
+    cmd = "cat <<'EOF'\nEOF\ngit commit -m fix\ncat <<'EOF'\nx\nEOF"
+    assert _check(command=cmd, state=_no_order(other)) is not None
+    assert _check(command=cmd, state=_no_order(other), config=_OFF) is not None
+    assert ptu._strip_heredoc_bodies(cmd) == "cat <<HEREDOC_STRIPPED\ngit commit -m fix\ncat <<HEREDOC_STRIPPED"
+    assert ptu._strip_heredoc_bodies("cat <<-E\n\tx\n\tE\ngit status") == "cat <<HEREDOC_STRIPPED\ngit status"
+    assert ptu._strip_heredoc_bodies("cat <<'EOF'\ngit commit\nno end") == "cat <<'EOF'\ngit commit\nno end"
