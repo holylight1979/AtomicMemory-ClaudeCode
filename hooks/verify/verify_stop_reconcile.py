@@ -74,8 +74,8 @@ def driven(monkeypatch):
     monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)   # 案例路徑是虛構的；存在與否由 009 段用真檔測
     monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)   # 程式檔路徑也是虛構的；已刪除的程式檔由 040 段用真檔測
 
-    def drive(text, capsys, tool_names=(), hook_input=None, **extra):
-        """text=None：用真的 get_last_assistant_text 讀 transcript（017c）；hook_input：hook 輸入另帶的欄位。"""
+    def drive(text, capsys, tool_names=(), hook_input=None, config=None, **extra):
+        """text=None：用真的 get_last_assistant_text 讀 transcript（017c）；hook_input：hook 輸入另帶的欄位；config：handle_stop 的設定。"""
         monkeypatch.setattr(st, "get_last_assistant_text",
                             ev.get_last_assistant_text if text is None else (lambda *a, **k: text))
         monkeypatch.setattr(st, "get_current_turn_visible_text",
@@ -86,7 +86,7 @@ def driven(monkeypatch):
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         logs.clear()
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": _SID, "cwd": "", **(hook_input or {})}, {})
+            st.handle_stop({"session_id": _SID, "cwd": "", **(hook_input or {})}, config or {})
         return capsys.readouterr().out, state, list(logs)
 
     return drive
@@ -3262,3 +3262,171 @@ def test_040_13_transcript_from_hook_input_when_session_moved_into_worktree(driv
     keep = {k: st1[k] for k in ("last_block", "reconcile_gate_turn", "modified_files", "session")}
     out, _, logs = driven("全部完成了。", capsys, hook_input=hook_in, **keep)
     assert "ReconcileGate" not in out and _released(logs)
+
+
+# ─── 042：內容回到快照的豁免要連暫存區一起看、amend 不蓋掉有效豁免、已不存在的新檔、排除區、每回合一次的閘 ──────────────
+
+def _status(repo):
+    return subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
+
+
+def test_042_0_snapshot_exemption_needs_clean_index(driven, capsys, chain):
+    """042 第 0 項（041 總控台 codex BLOCK）：改程式＋補案例＋commit（快照：程式不欠案例）→ 再改同一支程式並 git add →
+    只把工作樹改回快照內容（暫存區留著新碼）→ Stop (d) 照擋：內容回到快照的豁免要同根改檔 git status 乾淨（含暫存區），
+    和「改過又原樣還原」同一個條件。舊碼只比工作樹雜湊，(d) 被清，暫存的新碼可以直接提交。"""
+    state, edit, git, repo, code, case = chain
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    edit(code, 4)
+    git("add", "src/a.py")
+    edit(code, 3)                                                                          # 只還原工作樹，暫存區還是新碼
+    assert _status(repo) == "MM src/a.py"
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert _DEBT_A in out
+    git("reset", "-q", "--", "src/a.py")                                                   # 配對：暫存區也回去 → 豁免成立
+    assert _status(repo) == ""
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert _DEBT_A not in out
+
+
+@pytest.mark.parametrize("amend, owed", [
+    ("message_only", False),           # 反證還原（豁免成立）後 amend 只改訊息：新快照沿用舊快照的還原判定，不再欠
+    ("with_new_code", True),           # amend 把新改的程式一起提交：內容不是舊快照那一刻，照欠
+])
+def test_042_0b_amend_after_settled_reversal_keeps_exemption(driven, capsys, chain, amend, owed):
+    """042 第 0 項 WARN 2：commit 後反證把程式退回舊版又還原（內容回到快照、豁免成立）→ `git commit --amend` → PostToolUse 拍新快照時
+    先拿舊快照判一次，已成立的還原照算不欠。舊碼新快照照修改時間重算，程式被當成欠案例，amend 只改訊息也多擋一次。"""
+    state, edit, git, _, code, case = chain
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    git("checkout", "HEAD~1", "--", "src/a.py")
+    git("checkout", "HEAD", "--", "src/a.py")
+    if amend == "with_new_code":
+        edit(code, 4)
+        git("commit", "-qa", "--amend", "-m", "v3b")
+    else:
+        git("commit", "-q", "--amend", "-m", "v3b")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert (_DEBT_A in out) is owed, amend
+
+
+@pytest.mark.parametrize("how, owed", [("delete", False), ("rename", False), ("kept", True)])
+def test_042_1_session_new_code_file_gone_no_longer_owes(driven, capsys, chain, monkeypatch, how, owed):
+    """042 根因①（claude-91 現場 72133ffb：cp 進被 .gitignore 的目錄的 .py，之後刪掉、或改名成 .py.txt，(d) 一直擋）：本 session
+    新建的程式檔 Stop 時已不存在、同根 status 與本 session 提交都沒有新出現的程式檔 → 判成刪除、不欠補案例（現行
+    vanished_code_paths；不是「不在就解除」，搬走的照欠見 040_11）。041 合併前的 main 只看修改紀錄，刪掉、改名照欠。配對：還在的照欠。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, _, repo, _, _ = chain
+    (repo / ".gitignore").write_text("scratch/\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore scratch")
+    new = repo / "scratch" / "copy_x.py"
+    new.parent.mkdir()
+    new.write_text("x = 1\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(new)})
+    if how == "delete":
+        new.unlink()
+    elif how == "rename":
+        new.rename(new.with_name("copy_x.py.txt"))
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert ("改了程式碼（copy_x.py）" in out) is owed, how
+
+
+@pytest.mark.parametrize("rel, owed", [
+    ("tools/probe_x.py", True),
+    ("workflow/v6-inbox/to-x/probe_x.py", False),
+    ("memory/_staging/probe_x.py", False),
+    ("_AIDocs/probe_x.py", False),
+])
+def test_042_2_same_file_counts_as_code_only_outside_excluded_regions(driven, capsys, chain, rel, owed):
+    """042 根因②：路徑分類只看副檔名，放在信箱當素材的 .py（cp 進去）被當成改了本專案程式碼。同內容的檔在 tools/ 下算、
+    在 workflow/v6-inbox/、memory/_staging/、_AIDocs/ 下不算（reconcile_gate.exclude_globs，相對專案根比；看路徑屬哪一區、
+    不看 git 狀態）。舊碼一律算。"""
+    state, edit, _, repo, _, _ = chain
+    p = repo / rel
+    p.parent.mkdir(parents=True)
+    p.write_text("def probe():\n    return 1\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(p)})
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert ("改了程式碼（probe_x.py）" in out) is owed, rel
+
+
+def test_042_2b_case_in_excluded_region_cannot_settle_real_code(driven, capsys, chain):
+    """042 根因②案例側：改了 src/a.py 之後只在信箱寫一支 test_a.py → 排除區的檔也不算案例，(d) 照擋（只排程式側的話，
+    信箱裡隨手一支 test_*.py 就能替真程式清帳）。舊碼信箱的 test_a.py 晚於程式、清掉 (d)。配對：補在 tests/ → 不擋。"""
+    state, edit, _, repo, code, case = chain
+    edit(code, 3)
+    inbox_case = repo / "workflow" / "v6-inbox" / "to-x" / "test_a.py"
+    inbox_case.parent.mkdir(parents=True)
+    inbox_case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(inbox_case)})
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert _DEBT_A in out
+    edit(case, 3)
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert _DEBT_A not in out
+
+
+@pytest.fixture()
+def peer_flow(driven, monkeypatch):
+    """042 加項：使用者打字開回合 → Stop → 同伴 session 訊息經真 UserPromptSubmit 進來（turn_seq +1，使用者回合不變）→ Stop →
+    使用者再打字開新回合 → Stop。state 一路沿用。回 run(text, capsys, config, before_stop(state, 步驟)) → 三次 Stop 的輸出。"""
+    def run(text, capsys, config=None, before_stop=None, **extra):
+        state = {"turn_seq": 4, "session": {"cwd": ""}, **extra}
+        _ups_turn(monkeypatch, state, "把 x 做完")
+        outs = []
+        for step, prompt in (("first", None), ("peer", _PEER_MSG), ("user", "接著做 y")):
+            if prompt:
+                _ups_turn(monkeypatch, state, prompt)
+            if before_stop:
+                before_stop(state, step)
+            out, after, _ = driven(text, capsys, config=config, **copy.deepcopy(state))
+            state.clear()
+            state.update(after)
+            outs.append(out)
+        return outs
+    return run
+
+
+def _fresh_budget(state, step):
+    """使用者再打字那一步把共用的 stop_gate_max_blocks 次數歸零：那是另一本帳，這裡只看「每回合一次」的鍵。"""
+    if step == "user":
+        state["stop_blocked_count"] = 0
+
+
+def test_042_3_deferral_gate_once_per_user_turn(peer_flow, capsys):
+    """042 加項（claude-91 讀碼）：DeferralGate 每回合只擋一次，回合要用使用者打字開的回合（_user_turn）。舊碼用 turn_seq 當鍵，
+    同伴訊息讓 turn_seq +1，同一回合又擋一次。配對：使用者真打字開新回合 → 照擋。"""
+    outs = peer_flow("完工，工作樹乾淨。要不要下個 session 再把 realm atom 瘦身？", capsys, before_stop=_fresh_budget)
+    assert ["[Guardian:DeferralGate]" in o for o in outs] == [True, False, True]
+
+
+def test_042_3_harvest_gate_once_per_user_turn(peer_flow, capsys, monkeypatch):
+    """042 加項：KnowledgeHarvest 每回合只擋一次（harvest_gate_turn 記 _user_turn）。claude-91 一整天每則同伴訊息後被重問收割就是這個。"""
+    import wg_harvest as wh
+    monkeypatch.setattr(st, "harvest_gate_reason", wh.harvest_gate_reason)
+    outs = peer_flow("全部完成了。", capsys, config={"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5,
+                                                                "min_turns_between": 3}})
+    assert ["[Guardian:KnowledgeHarvest]" in o for o in outs] == [True, False, True]
+
+
+def test_042_3_harvest_pending_gate_once_per_user_turn(peer_flow, capsys, monkeypatch):
+    """042 加項：Harvest-Pending 每回合只擋一次（harvest_pending_gate_turn 記 _user_turn）。"""
+    import wg_harvest as wh
+    monkeypatch.setattr(st, "pending_gate_reason", wh.pending_gate_reason)
+    outs = peer_flow("全部完成了。", capsys, knowledge_harvest={_SID: {"pending": ["- foo → 已寫入 atom foo（沒有 receipt）"]}})
+    assert ["[Guardian:Harvest-Pending]" in o for o in outs] == [True, False, True]
+
+
+def test_042_3_aec_pending_gate_once_per_user_turn(peer_flow, capsys):
+    """042 加項：AEC-Pending 每回合只擋一次（aec_pending_gate_turn 記 _user_turn）：同伴訊息進來後又 emit 一次仍帶「尚未寫」的報告，
+    同一回合不再擋第二次。"""
+    def before(state, step):
+        rec = _aec(state["turn_seq"], j="無", k="無")                                       # 每次 Stop 前都 emit 過一次
+        rec["d_pending"] = ["- foo → 尚未寫（見下一動）"]
+        state["anti_evasion_report"] = rec
+        _fresh_budget(state, step)
+    outs = peer_flow("全部完成了。", capsys, before_stop=before)
+    assert ["[Guardian:AEC-Pending]" in o for o in outs] == [True, False, True]

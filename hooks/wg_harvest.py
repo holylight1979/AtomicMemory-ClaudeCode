@@ -9,8 +9,8 @@
 state 分區（全部按 session_id 分區，防共用工作樹的隔壁 session 誤放行）：
   state["atom_ops"][sid]            = [{seq, turn_seq, op, atom, path, index_ok, ok, supersedes, old_path, new_path}]
   state["knowledge_harvest"][sid]   = {turn_seq, items, pending, validated, retired_paths, at, last_valid_harvest_turn, last_valid_op_seq}
-  state["harvest_gate_turn"][sid]   = 本 session 已擋過 KnowledgeHarvest 的 turn
-  state["harvest_pending_gate_turn"][sid] = 本 session 已擋過 Harvest-Pending 的 turn
+  state["harvest_gate_turn"][sid]   = 本 session 已擋過 KnowledgeHarvest 的回合（使用者打字開的回合，stop._user_turn）
+  state["harvest_pending_gate_turn"][sid] = 本 session 已擋過 Harvest-Pending 的回合（同上）
 本模組只讀寫傳入的 state dict，不落盤；write_state 由 handler 做。
 """
 from __future__ import annotations
@@ -585,13 +585,14 @@ def _dismissed(recent_prompts: List[str]) -> bool:
 
 def harvest_gate_reason(
     state: Dict[str, Any], sid: str, last_text: str, config: Dict[str, Any],
-    own_mod_files: List[Dict[str, Any]], turn_seq: int,
+    own_mod_files: List[Dict[str, Any]], turn_seq: int, gate_turn: Optional[int] = None,
 ) -> Optional[str]:
     """該擋 KnowledgeHarvest 就回擋訊息，否則 None。純判定，不改 state。
 
     觸發＝宣告完成 ∧ 近 3 則 prompt 無 dismiss 詞 ∧ 有實質活動（turn_seq ≥ min_turns ∨ 本 session
     有改檔 ∨ accessed_files ≥ min_accessed）∧ 冷卻已過（距上次 validated 收割 ≥ min_turns_between）
-    ∧ 本 turn 未回報、未擋過 ∧ 無 pending（pending 由 Harvest-Pending 閘接手，不雙擋）。
+    ∧ 本 turn 未回報 ∧ 本回合未擋過 ∧ 無 pending（pending 由 Harvest-Pending 閘接手，不雙擋）。
+    「本回合未擋過」比 gate_turn（Stop 給使用者打字開的回合：同伴訊息、背景通知不算新回合）；沒給用 turn_seq。
     """
     cfg = harvest_config(config)
     if not cfg or not turn_seq:
@@ -602,7 +603,7 @@ def harvest_gate_reason(
         return None
     if reported_this_turn(state, sid, turn_seq):
         return None
-    if (state.get("harvest_gate_turn") or {}).get(sid) == turn_seq:
+    if (state.get("harvest_gate_turn") or {}).get(sid) == (turn_seq if gate_turn is None else gate_turn):
         return None
     sec = section(state, sid)
     if sec.get("pending"):
@@ -647,9 +648,10 @@ def in_progress_text(last_text: str) -> bool:
     return bool(last_text) and bool(_COMPLETION_EXCLUDE_RE.search(last_text[-2000:]))
 
 
-def pending_gate_reason(state: Dict[str, Any], sid: str, turn_seq: int, last_text: str = "") -> Optional[str]:
-    """本 session 收割回報有核不過的 item → 每 turn 擋一次要求補；使用者說「先這樣／跳過」或
-    本則是中途狀態句（還在等別人回報）就不擋——擋了只會逼模型在半途補報。"""
+def pending_gate_reason(state: Dict[str, Any], sid: str, turn_seq: int, last_text: str = "",
+                        gate_turn: Optional[int] = None) -> Optional[str]:
+    """本 session 收割回報有核不過的 item → 每回合擋一次要求補（回合＝gate_turn，Stop 給使用者打字開的回合；沒給用 turn_seq）；
+    使用者說「先這樣／跳過」或本則是中途狀態句（還在等別人回報）就不擋：擋了只會逼模型在半途補報。"""
     if not turn_seq:
         return None
     pending = section(state, sid).get("pending") or []
@@ -657,7 +659,7 @@ def pending_gate_reason(state: Dict[str, Any], sid: str, turn_seq: int, last_tex
         return None
     if in_progress_text(last_text):
         return None
-    if (state.get("harvest_pending_gate_turn") or {}).get(sid) == turn_seq:
+    if (state.get("harvest_pending_gate_turn") or {}).get(sid) == (turn_seq if gate_turn is None else gate_turn):
         return None
     if _dismissed(state.get("recent_user_prompts", []) or []):
         return None

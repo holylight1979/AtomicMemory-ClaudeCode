@@ -35,7 +35,7 @@ from wg_evasion import (
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, measure_cfg, measure_gate_reason, measure_advisory,
     measure_cmds_of, agent_receipt_key, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
-    committed_settled_paths,
+    committed_settled_paths, git_deadline,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -737,8 +737,10 @@ def _verify_gates(
                      if isinstance(m, dict) and m.get("path") and m.get("session_id", sid) == sid]
     for _agent_mods in (state.get("agent_modified_files") or {}).values():
         session_paths += [m["path"] for m in _agent_mods or [] if isinstance(m, dict) and m.get("path")]
+    git_dl = git_deadline()           # 兩種「內容回到某狀態」的豁免（這裡與下面 commit 快照）共用一個查 git 的整支預算
     try:
-        same = net_unchanged_paths(own_mod_files, state.get("last_commit_turn_seq"), session_paths=session_paths)
+        same = net_unchanged_paths(own_mod_files, state.get("last_commit_turn_seq"), session_paths=session_paths,
+                                   deadline=git_dl)
     except Exception as e:  # noqa: BLE001
         same = []
         print(f"[Guardian:ReconcileGate] 判斷改過又還原的檔失敗，照算改了：{type(e).__name__}: {e}", file=sys.stderr)
@@ -767,7 +769,8 @@ def _verify_gates(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
                 measure_cmds=mcmds, claims=claims, pending=pending,
-                case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths),
+                case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths,
+                                                                  deadline=git_dl),
                 committed_new=state.get("committed_new_code"),
                 self_covered=(lambda: self_run_covered(measure_parts(own_mod_files, _lk), _self_runs())) if _lk else None,
             )
@@ -1125,8 +1128,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # ── Deferral Gate（退縮歸屬）────────────────────────────────
     # 主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤ deferral_gate.
     # max_context_ratio 時，收尾把「帶受詞、可做的事」推給下個 session／獨立議題／
-    # 非我造成 → 擋回三選一。每 turn 一次（deferral_gate_turn）、共用 stop_gate_max_blocks
+    # 非我造成 → 擋回三選一。每回合一次、共用 stop_gate_max_blocks
     # 全域預算。判定純函式在 wg_evasion.deferral_gate_reason；量測失敗 fail-open。
+    # 底下四個「每回合最多擋一次」的閘（Deferral、KnowledgeHarvest、Harvest-Pending、AEC-Pending）的回合都用
+    # _user_turn（使用者打字開的回合）：同伴訊息、背景通知每則都讓 turn_seq +1，拿它當鍵會每則訊息後又擋一次。
+    _uturn = _user_turn(state, turn_seq)
     if stop_count < max_blocks and last_text:
         _dg_turn = int(state.get("turn_seq", 0))
         _ah = config.get("auto_handoff", {}) or {}
@@ -1143,7 +1149,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             dg = deferral_gate_reason(
                 last_text,
                 state.get("recent_user_prompts", []) or [],
-                turn_seq=_dg_turn,
+                turn_seq=_uturn,
                 gated_turn=state.get("deferral_gate_turn"),
                 committed_this_turn=(
                     bool(_dg_turn) and state.get("last_commit_turn_seq") == _dg_turn
@@ -1155,7 +1161,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             dg = None
             print(f"[Guardian:DeferralGate] error (fail-open): {e}", file=sys.stderr)
         if dg:
-            state["deferral_gate_turn"] = _dg_turn
+            state["deferral_gate_turn"] = _uturn
             state["stop_blocked_count"] = stop_count + 1
             append_guard_log("deferral", {
                 "session_id": session_id,
@@ -1170,11 +1176,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # ── KnowledgeHarvest Gate（階段完工知識收割）────────────────
     # 宣告完成＝階段完工 → 要求呼叫 knowledge_harvest_report（items=[] 也要）。判定在
     # wg_harvest.harvest_gate_reason（活動門檻、冷卻只認 validated、dismiss 詞表重用 wg_evasion）。
-    # 不吃 stop_gate_max_blocks 共用預算、每 turn 最多擋一次（harvest_gate_turn[sid]）；
+    # 不吃 stop_gate_max_blocks 共用預算、每回合最多擋一次（harvest_gate_turn[sid] 記 _user_turn）；
     # state 全按 session_id 分區——隔壁 session 的收割不放行本 session。
-    hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq)
+    hv_reason = harvest_gate_reason(state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_uturn)
     if hv_reason:
-        state.setdefault("harvest_gate_turn", {})[session_id] = turn_seq
+        state.setdefault("harvest_gate_turn", {})[session_id] = _uturn
         append_guard_log("knowledge_harvest", {
             "session_id": session_id, "turn_seq": turn_seq,
             "own_mod_files": len(own_mod_files),
@@ -1185,11 +1191,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         return
 
     # ── Harvest-Pending Gate：收割回報有 item 對不上 receipt ──────
-    # post_tool_use 核對落 knowledge_harvest[sid].pending；此處每 turn 擋一次要求真做完再重報。
+    # post_tool_use 核對落 knowledge_harvest[sid].pending；此處每回合（_user_turn）擋一次要求真做完再重報。
     # 本則是中途狀態句（仍在等 agent 回報…）→ 不擋，等真收尾再擋（wg_harvest.in_progress_text）。
-    hp_reason = pending_gate_reason(state, session_id, turn_seq, last_text)
+    hp_reason = pending_gate_reason(state, session_id, turn_seq, last_text, gate_turn=_uturn)
     if hp_reason:
-        state.setdefault("harvest_pending_gate_turn", {})[session_id] = turn_seq
+        state.setdefault("harvest_pending_gate_turn", {})[session_id] = _uturn
         append_guard_log("harvest_pending", {
             "session_id": session_id, "turn_seq": turn_seq,
             "items": (state.get("knowledge_harvest", {}).get(session_id) or {}).get("pending", [])[:5],
@@ -1237,15 +1243,15 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # ── AEC-Pending Gate：報告把「記憶寫入」推到之後 ─────────────────
     # (d)「尚未寫／見下一動」、(h)「下一動＝寫 atom」= 把知識留給下一回合（使用者要再問一次
-    # 才會補）。post_tool_use 判定落 report["d_pending"]；此處每 turn 擋一次（共用 max_blocks
+    # 才會補）。post_tool_use 判定落 report["d_pending"]；此處每回合（_user_turn）擋一次（共用 max_blocks
     # 預算）：模型 atom_write 後重新 emit → 新報告無 d_pending → 放行。
     pending = aec.get("d_pending") or []
     if (
         emitted_this_turn and pending
-        and state.get("aec_pending_gate_turn") != turn_seq
+        and state.get("aec_pending_gate_turn") != _uturn
         and stop_count < max_blocks
     ):
-        state["aec_pending_gate_turn"] = turn_seq
+        state["aec_pending_gate_turn"] = _uturn
         state["stop_blocked_count"] = stop_count + 1
         append_guard_log("aec_pending", {
             "session_id": session_id, "turn_seq": turn_seq, "items": pending[:5],

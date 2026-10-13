@@ -406,7 +406,8 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
     """跑了 git／svn commit → state["last_commit_turn_seq"]＝本回合；回有沒有記。一般與裁判 PostToolUse 共用這一條：
     ScanReport 閘據此豁免收尾檢核（工作已寫進 VCS 歷史＝可稽核），寫碼查核判「改過又原樣還原」也看它（改完 commit 了，
     工作樹乾淨不代表沒改）。同時記 commit_snapshot（本 session 改過的檔此刻的內容雜湊＋當時不欠案例的程式檔）：commit 之後
-    做反證、把檔退回舊版又還原，Stop 看內容回到這個快照就不重算補案例。快照算失敗只少了這個豁免（照擋），stderr 說一聲。"""
+    做反證、把檔退回舊版又還原，Stop 看內容回到這個快照就不重算補案例。新快照先拿舊快照判一次：對舊快照已經成立「回到不欠
+    案例的狀態」的程式檔照算不欠（還原後再 commit --amend 只改訊息，不會又欠一次）。快照算失敗只少了這個豁免（照擋），stderr 說一聲。"""
     if not _VCS_COMMIT_RE.search(command):
         return False
     turn = int(state.get("turn_seq", 0))
@@ -417,8 +418,12 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
         state.pop("commit_snapshot", None)
         print("[verify-ledger] commit 指令的寫入目標算不出來，不記內容快照；commit 之後的反證還原照算改碼", file=sys.stderr)
         return True
+    every = [m["path"] for m in own if (m or {}).get("path")]          # 同根要一起比的改檔：與 Stop 同一份（主 session＋子代理）
+    for _mods in (state.get("agent_modified_files") or {}).values():
+        every += [m["path"] for m in _mods or [] if isinstance(m, dict) and m.get("path")]
     try:
-        state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}))
+        state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}),
+                                                   prev=state.get("commit_snapshot"), session_paths=every)
     except Exception as e:  # noqa: BLE001
         state.pop("commit_snapshot", None)
         print(f"[verify-ledger] commit 內容快照失敗，commit 之後的反證還原照算改碼：{type(e).__name__}: {e}", file=sys.stderr)
