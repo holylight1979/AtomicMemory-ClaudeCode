@@ -6236,6 +6236,22 @@
         "舊版檔跑新測試"
       ],
       "scope": "global"
+    },
+    {
+      "name": "真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile",
+      "path": "_AIDocs/_atoms/MemDev/真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile.md",
+      "triggers": [
+        "探針",
+        "真 hook 入口探針",
+        "dispatcher 探針",
+        "WG_CLAUDE_DIR",
+        "WG_TEST_LOGS_DIR",
+        "GUARD_LOG_DIR",
+        "守門紀錄寫進 live",
+        "探針污染 live",
+        "隔離探針"
+      ],
+      "scope": "global"
     }
   ]
 }

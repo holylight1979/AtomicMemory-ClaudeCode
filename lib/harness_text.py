@@ -136,9 +136,9 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
 #     有一個子句對不上就交 LLM，因為開工句裡夾的真決策不能被丟掉。
 #   is_kickoff_prompt：Quote 自動填用（hooks/wg_provenance.py）。上面那條成立就算；或第一個子句整句是角色句
 #     （「你是…工作 session <名>」，後面可帶任何括號說明），而且後面至少還有一個子句整句對上其他樣板
-#     （總控台、第一步 EnterWorktree、派工 prompt 位置…）。角色句的括號說明與「對人總控台是 X、調度總控台是 Y」
-#     這類變體不在嚴格樣板裡，這裡容許；引用開工句來討論（「『你是工作 session x』這句不該填」）、
-#     問句（「你是工作 session x 嗎？」）不算，照填 Quote。
+#     （總控台、第一步 EnterWorktree、派工 prompt 位置…）。角色句的括號說明（全形半形）與「對人總控台是 X、
+#     調度總控台是 Y」這類變體不在嚴格樣板裡，這裡容許；以引號開頭的引用討論（「『你是工作 session x，總控台是 y。』
+#     這兩句是範本」）只認嚴格判定、問句（「你是工作 session x 嗎？」）不算，照填 Quote。
 # 子句界：句號、逗號、分號、問號、驚嘆號、換行、英文句點加空白；頓號不切；括號裡的逗號不切（樣板含括號註記）。
 # 樣板以 workflow/v6-inbox/_console/開工句模板.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
 # 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
@@ -180,8 +180,9 @@ KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in 
                r"(?:、\s*不重掛\s*Monitor)?(?:、\s*不輪詢)?"),
     ("ack", r"開工前先\s*SendMessage\s*" + _NAME + r"\s*一句「\s*" + _NAME + r"?\s*收到開工\s*」?"),
 ))
-# 角色句整句（後面可帶任一個不巢狀的括號說明）
-_ROLE_OPENER_RE = re.compile(r"(?:" + "|".join(_ROLE_OPENERS) + r")(?:\s*（[^（）]*）)?", re.IGNORECASE)
+# 角色句整句（後面可帶任一個不巢狀的括號說明，全形半形都認）
+_ROLE_OPENER_RE = re.compile(r"(?:" + "|".join(_ROLE_OPENERS) + r")(?:\s*[（(][^（）()]*[）)])?", re.IGNORECASE)
+_QUOTE_OPENERS = "「『“\"'"
 _CLAUSE_BREAKS = "。，,；;！？!?\n"
 _CLAUSE_PAD = " \t\r\n「」『』“”\"'…"
 
@@ -226,6 +227,8 @@ def is_kickoff_prompt(prompt: str) -> bool:
     （可帶括號說明）且後面至少一個子句整句對上非角色樣板。"""
     if session_directive_reason(prompt):
         return True
+    if (prompt or "").lstrip()[:1] in _QUOTE_OPENERS:
+        return False   # 以引號開頭＝在引用開工句（例：「『你是…』這句不該填」）；整則都是樣板才算，上面嚴格判定已管
     clauses = kickoff_clauses(prompt or "")
     if not clauses or not _ROLE_OPENER_RE.fullmatch(clauses[0]):
         return False

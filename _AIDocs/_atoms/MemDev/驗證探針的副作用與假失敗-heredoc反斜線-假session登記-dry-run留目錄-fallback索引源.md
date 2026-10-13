@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 探針, 假失敗, 假紅, heredoc, 反斜線, node -e, 假 session, 實機驗證, dry-run 副作用, 探針副作用, 空目錄, parse_memory_index fallback, 驗證機制, post-mortem
 - Created-at: 2026-08-31
-- Related: 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出, 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑, 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home
+- Related: 記憶索引分類讀寫鏈總審計結論-驗無誤清單與一條龍中斷點, 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出, 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑, 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home, 真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile
 - Source: commit:c2e714f 2026-08-31（原對話已逾保留期）
 
 ## 知識
