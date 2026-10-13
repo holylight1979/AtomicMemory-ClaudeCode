@@ -314,14 +314,17 @@ _COMMIT_ORDER_DEFAULT_KEYWORDS = (
 
 # heredoc 內文不是 shell 指令（文件補丁／內嵌 python 常含「git commit」字樣）；剝掉再拆段，
 # 否則口令閘會把文字當成 commit 段誤擋。隱私閘不需要：它接著查 staged，無檔即靜默。
+# 只剝內文（起始行 delimiter 之後到結束行）：group 3 是起始行 delimiter 後面的字，`cat > msg <<'EOF' && git commit -F msg`
+# 的 commit 在那裡，是真命令，照留。沒有結束行的 heredoc 不動，內文會被當命令段檢查（寧多擋）。
+_HEREDOC_MARK = "<<HEREDOC_STRIPPED"
 _HEREDOC_BODY_RE = re.compile(
-    r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|$)",
+    r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1([^\n]*)\n.*?\n[ \t]*\2[ \t]*(?=\n|$)",
     re.S,
 )
 
 
 def _strip_heredoc_bodies(command: str) -> str:
-    return _HEREDOC_BODY_RE.sub("<<HEREDOC_STRIPPED", command or "")
+    return _HEREDOC_BODY_RE.sub(lambda m: _HEREDOC_MARK + m.group(3), command or "")
 
 
 def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
@@ -335,10 +338,17 @@ def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
 # 口令閘的「記憶系統自己的程式」豁免只給整條命令都對得上白名單句型的寫法；其他寫法不豁免、照常檢查口令
 # （不會擋死，只是要使用者口令），所以白名單寧窄勿寬：只認 `&&` 串起的這幾種段，不解析其他 shell 語法。
 _GIT_REPO_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
-_COMMIT_WRAP_RE = re.compile(r"\b(?:bash|sh|zsh|pwsh|powershell|cmd)(?:\.exe)?\s+(?:-c|-command|/c)\b|\beval\b|\$\(|`|\(",
-                             re.I)
+# 包裝偵測：shell 名（可帶 .exe）＋任意前置選項＋執行旗標。POSIX shell 的短旗標組含 c 就算（-c、-lc、-l -c）；
+# PowerShell 認 -Command 與其縮寫（-c、-com…）；cmd 認 /c、/k；另加 eval、命令替換、子 shell 括號。
+# 選項段不跨 &&、|、;（那已是下一段命令）。判不清包裝內容時 caller 當成「有 commit」走口令檢查，不當成沒有。
+_COMMIT_WRAP_RE = re.compile(
+    r"\b(?:bash|sh|zsh|dash|ksh)(?:\.exe)?(?:\s+[^\s&|;]+)*?\s+-[a-z]*c[a-z]*\b"
+    r"|\b(?:pwsh|powershell)(?:\.exe)?(?:\s+[^\s&|;]+)*?\s+-c[a-z]*\b"
+    r"|\bcmd(?:\.exe)?(?:\s+[^\s&|;]+)*?\s+/[ck]\b"
+    r"|\beval\b|\$\(|`|\(",
+    re.I,
+)
 _EXEMPT_GIT_SUBS = {"add", "commit", "push", "status", "diff", "log", "show", "rm", "mv", "restore"}
-_HEREDOC_MARK = "<<HEREDOC_STRIPPED"
 
 
 def _unquoted(command: str) -> str:
@@ -389,9 +399,19 @@ def _literal_path(token: str) -> bool:
     return bool(token) and not token.startswith("~") and not any(c in token for c in "$%*?")
 
 
+def _drive_path(token: str) -> str:
+    """Git Bash 的磁碟機路徑（`/c/Users/…`）在 Windows 轉成 `C:/Users/…`；不轉的話 abspath 會把它接到現行磁碟機、找錯 `.git`。
+    其他形式原樣回傳（`//server/…`、`/cygdrive/c/…` 都不是已知寫法，照舊不豁免）。"""
+    m = re.fullmatch(r"/([A-Za-z])(/.*)?", token or "")
+    if sys.platform != "win32" or not m:
+        return token
+    return f"{m.group(1).upper()}:{m.group(2) or '/'}"
+
+
 def _exempt_run_dirs(raw: str, base: str) -> Optional[List[str]]:
     """白名單句型：整條命令只由 `&&` 串起，每段都是下列之一 → 回每段 git commit 落的目錄；否則 None（不豁免）。
-      第一段可以是 `cd <絕對路徑>`；其餘每段都是 `git [-C <路徑>] <add|commit|push|status|diff|log|show|rm|mv|restore> …`
+      第一段可以是 `cd <絕對路徑>`（Git Bash 的 `/c/…` 磁碟機路徑也算，見 _drive_path）；
+      其餘每段都是 `git [-C <路徑>] <add|commit|push|status|diff|log|show|rm|mv|restore> …`
       （相對 -C 接在那個 cd 或 tool cwd 後面），commit 段可帶 heredoc，但 delimiter 要加引號（`<<'EOF'`，內文不展開）、
       起始行 delimiter 後面不准再接東西。
     任何其他東西都不在白名單：未知命令段（builtin、env、變數指定、echo…）、`;`／`|`／`||`／換行、重導向、括號、
@@ -413,9 +433,11 @@ def _exempt_run_dirs(raw: str, base: str) -> Optional[List[str]]:
         if not tokens:
             return None
         if tokens[0].lower() == "cd":
-            if idx != 0 or len(tokens) != 2 or not _literal_path(tokens[1]) or not os.path.isabs(tokens[1]):
+            if idx != 0 or len(tokens) != 2 or not _literal_path(tokens[1]):
                 return None
-            run_base = tokens[1]
+            run_base = _drive_path(tokens[1])
+            if not os.path.isabs(run_base):
+                return None
             continue
         if tokens[0].lower() not in ("git", "git.exe"):
             return None
@@ -425,7 +447,7 @@ def _exempt_run_dirs(raw: str, base: str) -> Optional[List[str]]:
         if rest[:1] == ["-C"]:
             if len(rest) < 2 or not _literal_path(rest[1]):
                 return None
-            target, rest = rest[1], rest[2:]
+            target, rest = _drive_path(rest[1]), rest[2:]
         if not rest or rest[0].lower() not in _EXEMPT_GIT_SUBS or any(t.startswith("-C") for t in rest):
             return None
         if rest[0].lower() == "commit":
@@ -483,15 +505,16 @@ def check_git_commit_order(
     if not cfg.get("enabled", True):
         return None
     command = tool_input.get("command", "") or ""
-    if "git" not in command or "commit" not in command:
+    low = command.lower()                       # 快篩與 _vcs_segments 同一套大小寫規則：Windows 的 Git／GIT.EXE 也是 git
+    if "git" not in low or "commit" not in low:
         return None
     try:
         stripped = _strip_heredoc_bodies(command)
         segments = _git_commit_segments(stripped)
         if not segments:
-            # 包在子 shell／bash -c／eval 裡的 git commit 解析器拆不出來：不能當成「沒有 commit」放行，照常檢查口令
+            # 包在子 shell／bash -lc／powershell -Command／eval 裡的 git commit 解析器拆不出來：不能當成「沒有 commit」放行，照常檢查口令
             if not (_COMMIT_WRAP_RE.search(_unquoted(stripped))
-                    and re.search(r"\bgit(?:\.exe)?\b.*\bcommit\b", stripped, re.S)):
+                    and re.search(r"\bgit(?:\.exe)?\b.*\bcommit\b", stripped, re.S | re.I)):
                 return None
         # 原子記憶系統自己的程式與文件不等口令：驗證過就直接上版控（USER.md 例外條）；記憶內容三層由 vcs-sync worker
         # 自動提交，不經此閘。看的是每段 commit 實際落在哪個 repo，不是 session 開在哪；只認看得出落點的寫法
@@ -557,7 +580,8 @@ def check_git_privacy(
     if not (config.get("privacy") or {}).get("enabled", True):
         return None
     command = tool_input.get("command", "") or ""
-    if "git" not in command or "commit" not in command:
+    low = command.lower()                       # 與口令閘同一套：Git／GIT.EXE 不分大小寫
+    if "git" not in low or "commit" not in low:
         return None   # 快篩，省 regex/子行程
     try:
         for repo_cd, commit_tokens in _git_commit_segments(command):

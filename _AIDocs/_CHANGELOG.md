@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 track-a4 CommitOrder 口令閘補四洞：一般寫法不得漏擋、Git Bash 路徑不誤擋
+- **緣由**：codex 徹底檢核 A 在 f5ddb5a 重現 3 條一般寫法漏擋（heredoc 起始行後的 `&& git commit -F` 被連內文剝掉、`bash -lc`／`powershell -NoProfile -Command`／`cmd /d /c` 夾啟動選項讓包裝偵測失效、`Git`／`GIT.EXE` 大小寫快篩先放掉）＋1 條誤擋（Git Bash `cd /c/…` 被當 Windows 字面路徑找錯 `.git`，記憶系統自己的 commit 要口令）。
+- **做法**：定規則不逐條補 regex：`_strip_heredoc_bodies` 只剝內文、起始行 delimiter 後的字照留；`_COMMIT_WRAP_RE` 改「shell 名＋任意選項＋執行旗標」（POSIX 短旗標組含 c、PowerShell `-c…`、cmd `/c` `/k`）；口令閘與隱私閘快篩改 lower 與 `_vcs_segments` 同規則；`_drive_path` 在 Windows 把 `/<drive>/…` 轉成 `<drive>:/…` 再找最近 `.git`，其他形式照舊不豁免。豁免白名單本身不放寬。
+- **驗證**：口令閘 34 案（新 4 案換回 f5ddb5a 版本 4 紅皆在斷言）＋隱私閘與同伴訊息閘 57 案綠；總控台重現腳本 16 案全符預期。 | `hooks/handlers/pre_tool_use.py`, `hooks/verify/verify_git_commit_order_gate.py`, `TECH.md`
+
 ## 2026-10-13 v6.0 CommitOrder 口令閘：記憶系統自己的 worktree commit 不等口令，豁免只認看得出落點的句型
 - **緣由**：a3 合併「同伴訊息不算使用者原話」後，工作 session 在 `~/.claude-wt/*`（~/.claude 的 git worktree）的 commit 全被擋——以前能過是同伴訊息裡的「commit」字樣漏進使用者原話；豁免只認 session cwd 在 ~/.claude 之下，漏認 worktree，也從不看 `-C`／`cd` 讓 commit 落到別的 repo。
 - **做法**：豁免改看每段 commit 實際落在哪個 repo（最近的 `.git`；~/.claude 本身或 gitdir 在 `<CLAUDE_DIR>/.git/worktrees/` 下才算），只認句型白名單（`&&` 串、第一段可 `cd <絕對路徑>`、其餘每段 `git [-C <字面路徑>] add/commit/push/…`；引號狀態掃單引號外的 `$(`／反引號、heredoc 須加引號、路徑不得含變數、`--git-dir` 等覆寫與繼承的 GIT_* 一律不豁免）；拆不出段但有包裝寫法的 git commit 照常檢查口令。順帶：`extract-worker` 失敗骨架卡的建立日期欄改 `Created-at:`（原 `Created:` 會被日期 lint 判成敘事日期）；`verify_harvest_routing` 追蹤項帶唯一 id、`verify_followup_check` 沙箱連程式碼根一起指 tmp（a3 合併後才浮現的兩個測試落差）。
