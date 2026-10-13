@@ -1929,6 +1929,29 @@ def test_017d_rescue_map_error_is_logged_not_swallowed_by_name_error(monkeypatch
     assert state.get("usefulness_attributed_seq") == 3 and "usefulness attribution error" not in capsys.readouterr().err
 
 
+# ─── 021：不做執行程式擴充；不在白名單的程式在擋訊息裡指路到量尺欄 ─────────────────────────────
+
+def test_021_non_runner_hint_points_to_ruler_column(driven, capsys):
+    """021（總控台拍板：不做 extra_runner_progs 擴充）：指令裡有不在執行程式白名單的程式（例：裝在樹外的 Unity 編輯器 CLI），
+    對帳 (a) 照擋，訊息說是哪個程式，並提示專案自製的測試工具寫進部位表的量尺欄（量尺逐字比對、不經白名單）。"""
+    cmd = '"C:/Program Files/Unity/Hub/Editor/2022.3.1f1/Editor/Unity.exe" -batchmode -runTests -testFilter widget'
+    mods = [_mf(r"c:\proj\src\widget.py", 5, last_at=_T1, last_seq=3)]
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=mods, verify_receipts={_SID: [_rcpt(5, cmd=cmd, at=_T2)]})
+    assert "(a) 說「修好」" in out and "Unity.exe" in out and "請寫進部位表的量尺欄" in out and "PATH 上的程式名" in out
+    assert "extra_runner_progs" not in out
+
+
+def test_028_tool_on_path_in_ruler_counts_full_out_of_tree_path_says_why():
+    """028：照提示把自製工具寫成 PATH 上的程式名放進量尺欄，照跑可採認；量尺欄寫樹外完整路徑，照跑仍拒收（採認規則不放寬），
+    訊息講是哪個樹外路徑與改法，不說成「前後接了別的指令」。"""
+    on_path = "Unity.exe -batchmode -runTests -testFilter widget"
+    assert _gate(on_path, row={**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": on_path}}) is None
+    full = '"C:/Program Files/Unity/Hub/Editor/2022.3.1f1/Editor/Unity.exe" -batchmode -runTests -testFilter widget'
+    reason = _gate(full, row={**ROWS[0], "measure": {**ROWS[0]["measure"], "cmd": full}})
+    assert reason and "C:/Program Files/Unity/Hub/Editor/2022.3.1f1/Editor/Unity.exe" in reason
+    assert "收據根以外" in reason and "PATH 上的程式名" in reason and "前後接了別的指令" not in reason
+
+
 # ─── 022：量尺比對定死四條家族規則 ────────────────────────────────────────────────────────────
 
 _PS4_FAKE = ("PS4='VERIFY_CHECK DONE cases=1 failed=0 '\nset +o pipefail\nset -x\n"

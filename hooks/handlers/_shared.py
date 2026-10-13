@@ -110,17 +110,56 @@ def _hud_alive(port: int, threshold_s: int) -> Tuple[bool, Dict[str, Any]]:
 # ─── Path helpers ────────────────────────────────────────────────────────────
 
 
+def _long_path(path: str) -> str:
+    """Windows 8.3 短路徑 → 長路徑（GetLongPathNameW）。檔案還不存在就往上找到存在的祖先轉，再接回其餘部分；
+    非 Windows、UNC 網路路徑（不為了改檔去查網路）或整條都轉不了 → 原樣。暫存目錄在這台機器同時以長路徑與 `HOLYLI~1`
+    這種短路徑出現，比對前兩邊都要轉。"""
+    if os.name != "nt" or not path or path.startswith("\\\\"):
+        return path
+    import ctypes
+    buf = ctypes.create_unicode_buffer(32768)
+    head, tail = path, []
+    while head:
+        n = ctypes.windll.kernel32.GetLongPathNameW(head, buf, 32768)
+        if 0 < n < 32768:
+            return os.path.join(buf.value, *reversed(tail))
+        parent, name = os.path.split(head)
+        if not name or parent == head:
+            break
+        tail.append(name)
+        head = parent
+    if re.search(r"~\d", path):                           # 只有帶短檔名記號的路徑轉不了才影響比對：說一聲，不靜默
+        print(f"[_shared] 8.3 短路徑轉長路徑失敗（GetLongPathNameW 對 {path} 與各層祖先都回 0），照原樣比對", file=sys.stderr)
+    return path
+
+
+def _comparable(path: str) -> str:
+    """暫存判斷用的統一表示（路徑與系統 tmp 兩側都走這個）：Windows 先拿掉 `\\\\?\\` 長路徑前綴（磁碟機路徑去前綴、
+    `\\\\?\\UNC\\server\\share\\…` → `\\\\server\\share\\…`；normpath 對帶前綴的路徑整條原樣不動，連 .. 都不消），再 normpath 消
+    . 與 ..、轉長路徑（8.3 短路徑）、轉完再 normpath 一次（API 會保留 ..），斜線統一成 /。"""
+    p = path
+    if os.name == "nt":
+        p = p.replace("/", "\\")
+        if p[:8].upper() == "\\\\?\\UNC\\":
+            p = "\\\\" + p[8:]
+        elif p.startswith("\\\\?\\"):
+            p = p[4:]
+    return os.path.normpath(_long_path(os.path.normpath(p))).replace("\\", "/")
+
+
 def _is_ephemeral_path(path: str) -> bool:
-    """過濾測試/快取/系統 tmp 路徑，避免污染 modified_files。"""
+    """過濾測試/快取/系統 tmp 路徑，避免污染 modified_files。兩側都轉成同一種表示（_comparable：去 `\\\\?\\` 前綴、長路徑、
+    消 . 與 ..）才比包含：8.3 短路徑、`\\\\?\\` 寫法都認得；`<tmp>\\..\\..\\專案\\x.py` 是專案原碼，不是暫存；含 `~1` 的字樣
+    本身不算暫存。"""
     if not path:
         return False
-    norm = path.replace("\\", "/")
+    norm = _comparable(path)
     try:
-        tmp_root = tempfile.gettempdir().replace("\\", "/").rstrip("/")
+        tmp_root = _comparable(tempfile.gettempdir()).rstrip("/")
         if tmp_root and norm.lower().startswith(tmp_root.lower() + "/"):
             return True
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001  判不了暫存目錄 → 當一般路徑（照記改檔），浮一行
+        print(f"[_shared] 判斷暫存目錄失敗，路徑照一般檔處理：{type(e).__name__}: {e}", file=sys.stderr)
     norm_low = norm.lower()
     return any(tok in norm_low for tok in _EPHEMERAL_DIR_TOKENS)
 

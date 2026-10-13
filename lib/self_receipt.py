@@ -579,6 +579,12 @@ def _runs_program(st: Step) -> bool:
     return name in _RUNNER_PROGS or bool(_PY_HEAD_RE.match(name)) or name.endswith(_SCRIPT_EXTS)
 
 
+def non_runners(cmd: Argv, shell: str = "bash") -> List[str]:
+    """指令裡不算執行程式的那幾段的程式名（前置設定與尾端過濾除外）：給擋訊息說是哪個。"""
+    steps = parse_cmds(cmd, shell)
+    return [s.words[0] for s in steps[:_first_filter(steps)] if s.words and not _is_setup(s) and not _runs_program(s)]
+
+
 def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
     """一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）的形狀 → 跑程式的那幾段；不是這種形狀 → None。
     形狀：前面只有 cd 與環境設定；之後全是跑程式的指令（直譯器、測試與建置工具、腳本檔），彼此只用 && 串（一段失敗後面就不跑、

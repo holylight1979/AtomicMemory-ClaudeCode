@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -514,3 +515,17 @@ def test_017_all_root_table_rulers_parse_and_match_themselves():
         for shell in ("bash", "powershell"):
             assert sr.unsupported_syntax(m, shell) is None and sr.cmd_matches(m, m, shell), (m, shell)
             assert sr.cmd_matches(m, f"{m} 2>&1 | tail -5", shell), (m, shell)
+
+
+def test_029b_env_case_fold_follows_platform():
+    """029b（track-verify 008 WARN）：環境變數名的比對照受執行平台，Windows 不分大小寫。旗標的真實預設要有測試守，
+    不經 monkeypatch（其他案都自設旗標，寫死成 False 也照綠）。"""
+    assert sr._ENV_CASE_FOLD == (os.name == "nt")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 上環境變數名不分大小寫才有這個情況")
+def test_029b_windows_bash_lowercase_pytest_addopts_is_not_the_ruler():
+    """029b：Windows 上 bash 的 `pytest_addopts=` 在 Python 裡就是 PYTEST_ADDOPTS：接量尺不被採認、也不算整體驗證（不經 monkeypatch）。"""
+    cmd = "pytest_addopts='-k x' python -m pytest -q"
+    assert not sr.cmd_matches("python -m pytest -q", cmd) and not sr.is_whole_run(cmd)
+    assert sr.cmd_matches("python -m pytest -q", "python -m pytest -q")                    # 對照：沒帶就對得上

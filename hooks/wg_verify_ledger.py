@@ -616,6 +616,10 @@ _RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1
                "後面只准 `| tail` 或 `| Select-Object -Last N`；請照表上原字串單獨跑。")
 
 
+_TOOL_HINT = ("專案自製的測試工具請寫進部位表的量尺欄，寫 PATH 上的程式名（例：`Unity.exe -batchmode -runTests …`）並把那支程式"
+              "加進 PATH；樹外完整路徑的程式不算（量的不是這棵樹）。量尺逐字比對、不經執行程式白名單，對上就涵蓋整個部位的改檔。")
+
+
 def _scope_env_why(diffs: List[Tuple[str, str, str]]) -> str:
     """環境設定改了驗證範圍的說明（session 收據與自寫收據的擋訊息共用）。diffs＝[(名稱, 這次的值, 表上的值)]，
     表上的值空＝這次多設了；表上有值＝這次少了或值不同。"""
@@ -653,12 +657,20 @@ def _syntax_note(receipts: Iterable[Dict[str, Any]], verdict: str, rulers: Itera
         envs = _self_receipt.program_scope_env(raw, sh)
         if envs:                  # 整體驗證、一般證據：任何一段跑程式的指令啟動時帶了縮限設定
             return f"這條指令 {head} {_scope_env_why([(n, '', '') for n in envs])}"
+        outside = [] if _in_tree(r) else _self_receipt.outside_paths(
+            raw, sh, str(r.get("project_root") or r.get("cwd") or ""), _cwd_of(r))
+        if outside and any(_self_receipt.match_span(mc, raw, sh, _cwd_of(r)) is not None for mc in rulers):
+            return (f"這條指令 {head} 對上了表上的量尺，但指到收據根以外的路徑（{'、'.join(outside[:3])}），量的不是這棵樹，不算；"
+                    f"{_TOOL_HINT}")       # 精確對上卻因樹外被拒：講樹外，不說「前後接了別的指令」
         if any(_self_receipt.ruler_in(mc, raw, sh, _cwd_of(r)) for mc in rulers):
             return f"這條指令 {head} 裡有量尺，但前後接了別的指令。{_RULER_FORM}"
-        if not _in_tree(r):
-            return (f"這條指令 {head} 指到收據根以外的路徑（"
-                    + "、".join(_self_receipt.outside_paths(raw, sh, str(r.get("project_root") or r.get("cwd") or ""))[:3])
-                    + "），量的不是這棵樹；請在專案根照表上原字串跑。")
+        others = _self_receipt.non_runners(raw, sh)
+        if others:                # 先講這個：樹外的自製工具（Unity.exe）否則會先被說成「指到收據根以外」
+            return (f"這條指令 {head} 夾了不算執行程式的指令（{'、'.join(others[:3])}：讀檔或印字的指令、或不在執行程式白名單的程式），"
+                    f"印出來的哨兵分不出是誰印的，不算證據；{_TOOL_HINT}")
+        if outside:
+            return (f"這條指令 {head} 指到收據根以外的路徑（{'、'.join(outside[:3])}），量的不是這棵樹；"
+                    "請在專案根照表上原字串跑。")
         if _self_receipt.evidence_steps(raw, sh) is None:
             return (f"這條指令 {head} 不是單純跑驗證程式的形狀（夾了讀檔或印字的指令、用 ; 或 || 串、或把輸出導走），"
                     "印出來的哨兵分不出是誰印的、哪一段真的過了，不算證據；請單獨跑驗證程式（前面只准 cd 與環境設定、多段只用 && 串）。")
