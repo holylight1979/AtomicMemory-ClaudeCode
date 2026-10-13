@@ -293,16 +293,27 @@ def match_row(path: str, root: Path, rows: List[Dict[str, Any]], anchored: bool 
     return best
 
 
+_SHORT_NAME_RE = re.compile(r"~\d")
+
+
 def part_kind(path: str, root: Path, rows: List[Dict[str, Any]]) -> str:
     """path 屬哪一類部位：錨在專案根的最長前綴命中列的「類別」；沒命中、沒標、只有子字串命中（tools/memory/x.py 撞到
-    `memory/`）→ code。rows 給 match_row 已選出的那一列也行：錨定命中一定勝過子字串命中，所以結果相同。"""
-    row = match_row(path, root, rows, anchored=True)
+    `memory/`）→ code。先消 . 與 ..（docs/../tools/a.py 是 tools 的檔）；根以下帶 8.3 短名（`BUILD~1`）時長名寫的
+    子部位比不到、可能落到外層的 knowledge 列，判不出就算 code。"""
+    p, r = os.path.normpath(str(path)), os.path.normpath(str(root))
+    np_, nr = _norm(p), _norm(r).rstrip("/")
+    if np_.startswith(nr + "/") and _SHORT_NAME_RE.search(np_[len(nr):]):
+        return KIND_CODE
+    row = match_row(p, Path(r), rows, anchored=True)
     return row.get("kind", KIND_CODE) if row else KIND_CODE
 
 
 def path_kind(path: str, stop_at: Optional[Path] = None) -> Optional[str]:
-    """從 path 往上找最近的部位表（find_map，停在 stop_at），回 part_kind；沒有部位表回 None（呼叫端照無表行為）。
+    """從 path 往上找最近的部位表（find_map，停在 stop_at），用整張表回 part_kind；沒有部位表回 None（呼叫端照無表行為）。
     表存在卻讀不到 → code（fail-closed），stderr 說一聲。寫碼查核（wg_verify_ledger.is_excluded）與 OverviewHub 共用這一份判法。"""
+    if not path:
+        return None
+    path = os.path.normpath(str(path))
     found = find_map(path, stop_at)
     if not found:
         return None

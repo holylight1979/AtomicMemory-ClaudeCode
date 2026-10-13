@@ -1685,3 +1685,47 @@ def test_know_part_kind_table(tmp_path):
     (proj / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
     assert oh.path_kind(str(proj / "workflow" / "v6-inbox" / "a.py"), proj) == "knowledge"
     assert oh.path_kind(str(proj / "tools" / "a.py"), proj) == "code"
+
+
+def test_know_nested_rows_and_path_forms():
+    """knowledge 父列底下的 code 子列（與反向）照最長前綴；反斜線、大小寫照認；`..` 先消掉再比；根以下帶 8.3 短名
+    （長名寫的子部位比不到、會落到外層 knowledge）一律算 code。codex 審 a6323cb B1。"""
+    rows = oh.parse_map(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        "| `docs/` | 文件 | 無 | 無 | knowledge |\n| `docs/example-build/` | 範例建置 | 無 | 無 | code |\n"
+        "| `lib/` | 程式庫 | 無 | 無 | code |\n| `lib/notes/` | 程式庫筆記 | 無 | 無 | knowledge |\n")
+    kind_of = getattr(oh, "part_kind", None)
+    assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
+    root = Path("C:/p")
+    cases = {
+        "C:/p/docs/a.md": "knowledge", "C:/p/docs/example-build/build.py": "code",
+        "C:\\P\\DOCS\\Example-Build\\build.py": "code", "C:/p/docs/x/../example-build/build.py": "code",
+        "C:/p/docs/../lib/a.py": "code", "C:/p/docs/EXAMPL~1/build.py": "code",
+        "C:/p/lib/a.py": "code", "C:/p/lib/notes/a.md": "knowledge", "C:/p/lib/../docs/a.md": "knowledge",
+    }
+    assert {p: kind_of(p, root, rows) for p in cases} == cases
+    assert kind_of("C:/HOLYLI~1/p/docs/a.md", Path("C:/HOLYLI~1/p"), rows) == "knowledge"   # 根本身的短名不影響
+
+
+def test_know_existing_denies_still_apply_to_knowledge_parts(kproj, tmp_path):
+    """知識部位只省掉讀部位檔與定位三行：表上的卡找不到照擋、readonly_paths 照擋。"""
+    (kproj / ".claude" / "overview-map.md").write_text(
+        _KNOW_MAP + "| `docs/` | 文件 | `不存在的卡` | 有 | knowledge |\n", encoding="utf-8")
+    (kproj / ".claude" / "overview-hub.json").write_text('{"readonly_paths": ["workflow/v6-inbox/gen/**"]}', encoding="utf-8")
+    tp = _transcript(tmp_path, ["x"])
+    warn, deny, _ = wo.on_edit({}, "s", str(kproj / "docs" / "a.md"), tp, {})
+    assert deny and "`不存在的卡` 在 repo 裡找不到" in deny
+    warn, deny, changed = wo.on_edit({}, "s", str(kproj / "workflow" / "v6-inbox" / "gen" / "x.md"), tp, {})
+    assert deny and "readonly_paths（樣式「" in deny and not changed
+
+
+def test_know_substring_code_hit_marks_part_as_code_for_scorecard(kproj, tmp_path):
+    """同一列先被知識路徑注入（kind=knowledge），之後只撞到子字串的寫碼檔來改 → 照寫碼部位擋，紀錄改成 code（S3 要算）。
+    codex 審 a6323cb W1。"""
+    tp = _transcript(tmp_path, ["x"])
+    state: dict = {}
+    wo.on_prompt(state, "s", f"看 {kproj / 'workflow' / 'v6-inbox' / 'to-x' / 'a.md'}", tp, {})
+    rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|派工信箱"))
+    assert rec.get("kind") == "knowledge"
+    warn, deny, _ = wo.on_edit(state, "s", str(kproj / "sub" / "workflow" / "v6-inbox" / "a.py"), tp, {})
+    assert deny and "定位三行" in deny and rec.get("kind") == "code"

@@ -3349,6 +3349,22 @@ def test_know_deleted_inbox_file_not_owed_even_with_new_code_in_status(driven, c
     assert _know_debt("verify_x.py") not in out
 
 
+def test_know_code_moved_into_knowledge_part_still_owes(driven, capsys, know_repo, monkeypatch):
+    """寫碼部位的程式改完 mv 進信箱：原路徑已不存在，但同根出現新的程式檔（信箱那份，vanished 的 new_code 不過類別排除）
+    → 原路徑照欠；信箱那份本身不欠。防回歸：不讓「搬進知識區」變成清帳法。codex 審 a6323cb 新案缺口。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    repo, put = know_repo
+    code = put("tools/a.py")
+    _git(repo, "add", "tools/a.py")
+    _git(repo, "commit", "-qm", "a")
+    put("tools/a.py", _KNOW_SRC + "# changed\n")
+    moved = repo / "workflow" / "v6-inbox" / "to-x" / "a.py"
+    moved.parent.mkdir(parents=True)
+    Path(code).replace(moved)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(str(moved), 5)])
+    assert "(d) 改了程式碼（a.py" in out                       # 舊碼兩份都欠（a.py、a.py），新碼只欠 tools/a.py
+
+
 def test_know_no_map_keeps_extension_rule(driven, capsys, tmp_path):
     """沒有部位表的專案行為不變：信箱路徑下的 .py 照副檔名算程式檔。"""
     repo = tmp_path / "nomap"

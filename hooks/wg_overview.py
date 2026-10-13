@@ -344,7 +344,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
     intent = _intent_of(state)
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
-    kind = _oh.part_kind(hit_path, root, [row])
+    kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
                                     list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""),
                                     knowledge=kind == _oh.KIND_KNOWLEDGE)
@@ -880,7 +880,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         return _unmapped_edit(state, session_id, root, file_path, cfg)
     key = _key(root, row)
     rec = (state.get("overview_hub") or {}).get(key)
-    knowledge = _oh.part_kind(file_path, root, [row]) == _oh.KIND_KNOWLEDGE
+    knowledge = _oh.path_kind(file_path, root) == _oh.KIND_KNOWLEDGE
     if rec is not None and _needs_card(row) and (rec.get("cards_missing") or not rec.get("card_paths")):
         # 表上有卡但上次有缺（或升級前注入的舊紀錄沒有卡）：每次改檔都重找；任何一張仍找不到一律擋，讀過檔＋交三行也一樣
         paths, again = _resolve_row_cards(root, row, cfg)
@@ -911,6 +911,8 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         return (msg, msg, True)
     _migrate_rec(rec)
     rec["edits"] = int(rec.get("edits", 0)) + 1
+    if not knowledge:
+        rec["kind"] = _oh.KIND_CODE        # 同一列也有寫碼命中（例：只撞到子字串）：scorecard 的 S3 要算這個部位
     if knowledge:
         # 知識類部位：三項證據只要「卡已注入」（走到這裡就成立）；讀檔數照記（on_read），不查讀部位檔、定位三行、transcript
         _log("edit", session_id, part=row["part_short"], path=file_path, kind=_oh.KIND_KNOWLEDGE, located=bool(rec.get("located")),
