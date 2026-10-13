@@ -514,6 +514,23 @@ def test_on_read_records_parts_and_dirs_into_tree(proj, tmp_path):
     assert kinds == ["part", "dirs"]                                          # Game、Tools、Docs 三個頂層目錄
 
 
+def test_on_read_without_goal_file_skips_scope_work(proj, tmp_path, monkeypatch):
+    """這個 session 還沒寫過樹：on_read 照常注入導讀卡，連讀入範圍的計算都不做（每次讀檔都走這裡，要省）；寫了樹才算。"""
+    called = []
+    monkeypatch.setattr(ngp, "scope_growth_line", lambda *a: called.append("part"))
+    monkeypatch.setattr(ngp, "scope_dir_line", lambda *a: called.append("dir"))
+    cfg = {"overview_hub": {"enabled": True}}
+    state = {"turn_seq": 1}
+    tp = _tp(tmp_path)
+    for f in ("Game/Battle/A.cs", "Tools/x.py"):
+        wo.on_read(state, SID, "Read", {"file_path": str(proj / f)}, str(proj), tp, cfg)
+    assert any(k.endswith("|戰鬥") for k in state["overview_hub"])
+    assert called == [] and not ng.goal_path(SID).exists() and not state.get("need_goal_batch")
+    make_tree()
+    wo.on_read(state, SID, "Read", {"file_path": str(proj / "Docs/y.md")}, str(proj), tp, cfg)
+    assert called == ["dir"]
+
+
 def test_goal_change_resends_card_in_goal_view_once(proj, tmp_path):
     make_tree()
     cfg = {"overview_hub": {"enabled": True}}
