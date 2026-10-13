@@ -307,9 +307,9 @@
     }
   },
   "second_opinion": {
-    "_doc": "第二意見（tools/second-opinion，MCP second_opinion_start／second_opinion_result）：model 經 ~/.codex/models_cache.json 精確比對；probe_timeout_s 探針、timeout_s codex exec 逾時 kill；defects_top_n 病灶前 N 節、ledger_tail 帳本尾 K 行；allow_claude_fallback 固定 false 不開放。job 落 workflow/second-opinion/<job>/（gitignore）。",
+    "_doc": "第二意見（tools/second-opinion，MCP second_opinion_start／second_opinion_result）：model 經 ~/.codex/models_cache.json 精確比對；probe_timeout_s 探針（叫 codex 在唯讀沙箱用 shell 讀回 job 目錄裡 probe.txt 的隨機字樣，讀不到即 failed；跑一次 shell 實測約 20 s）、timeout_s codex exec 逾時 kill；defects_top_n 病灶前 N 節、ledger_tail 帳本尾 K 行；allow_claude_fallback 固定 false 不開放。job 落 workflow/second-opinion/<job>/（gitignore）。",
     "model": "gpt-6-astra",
-    "probe_timeout_s": 20,
+    "probe_timeout_s": 60,
     "timeout_s": 300,
     "defects_top_n": 5,
     "ledger_tail": 20,
