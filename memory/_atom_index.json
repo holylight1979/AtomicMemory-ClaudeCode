@@ -6446,6 +6446,22 @@
         "token 用完失效"
       ],
       "scope": "global"
+    },
+    {
+      "name": "pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding",
+      "path": "memory/OS-Windows/pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding.md",
+      "triggers": [
+        "subprocess capture_output",
+        "UnicodeDecodeError 0xb8",
+        "_readerthread 警告",
+        "stdout None",
+        "PYTHONUTF8",
+        "PYTHONIOENCODING",
+        "python -I",
+        "cp950",
+        "子行程中文輸出"
+      ],
+      "scope": "global"
     }
   ]
 }
