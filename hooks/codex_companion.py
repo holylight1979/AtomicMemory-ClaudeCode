@@ -23,7 +23,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"          # 使用者資料根（workflow、config）
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
+from project_root import claude_data_dir  # noqa: E402  資料根的唯一算法（和 wg_core、state.py 同一支）
+CLAUDE_DIR = claude_data_dir()                # 使用者資料根（workflow、config）
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
 COMPANION_DIR = Path(__file__).resolve().parents[1] / "tools" / "codex-companion"   # 程式碼：用本檔位置推樹根

@@ -29,7 +29,12 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"
+_CODE_ROOT = Path(__file__).resolve().parents[2]   # 程式碼根：lib.* 從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 LOGS_DIR = CLAUDE_DIR / "Logs"
 SERVICE_SCRIPT = Path(__file__).resolve().parent / "service.py"

@@ -3,7 +3,9 @@
 做什麼：
 - 資料根單一來源：claude_data_dir() 在 WG_CLAUDE_DIR 有設／空白／沒設時的值；wg_core.CLAUDE_DIR 在子行程裡與它相同。
 - 改到的每支工具：子行程載入（不跑 main），WG_CLAUDE_DIR＝tmp 資料根 → 資料常數都在 tmp 資料根、程式碼常數都在本樹；
-  沒設 WG_CLAUDE_DIR、HOME 指到 tmp 家 → 資料常數都在 tmp家/.claude。
+  沒設 WG_CLAUDE_DIR、HOME 指到 tmp 家 → 資料常數都在 tmp家/.claude。子行程一律 -P 且 cwd 在 tmp（工具沒自己插程式碼根就紅）；
+  常數名可用點號與 [鍵] 取屬性、預設參數（例 OllamaClient.LONG_DIE_MARKER、ensure_service.__kwdefaults__[flag_path]）。
+- 成對：向量 config／starter／rag-engine 的 _vectordb 同一處；codex-companion state.py 寫的檔 hooks/codex_companion 讀得到。
 - 假 worktree：把 followup-check.py 與 lib/project_root.py 複製到 tmp 的「程式碼樹」，資料根是另一個 tmp，
   跑 --add／--list → 讀寫全落資料根，程式碼樹底下不出現 workflow／Logs／memory（反例：舊碼會寫進程式碼樹）。
 - 一般安裝（程式碼根＝資料根）時每個常數與舊算法逐字相同。
@@ -44,6 +46,18 @@ TOOLS = {
     "memory-eval/online_replay.py": (["CONFIG_PATH"], ["CODE_DIR"]),
     "second-opinion/run.py": (["CONFIG_PATH", "JOB_ROOT"], ["COMPANION_DIR", "REPLAY_GUARD", "CODE_DIR"]),
     "second-opinion/pack.py": (["CLAUDE_DIR"], ["CODE_DIR"]),
+    "memory-vector-service/config.py": (["CLAUDE_DIR", "CONFIG_PATH", "VECTORDB_DIR"], []),
+    "memory-vector-service/starter.py": (
+        ["CLAUDE_DIR", "WORKFLOW_DIR", "LOGS_DIR", "SERVICE_LOG", "PROBE_LOG", "FLAG_PATH", "PID_FILE", "SPAWN_LOCK",
+         "ensure_service.__kwdefaults__[flag_path]", "ensure_service.__kwdefaults__[pid_file]",
+         "ensure_service.__kwdefaults__[log_path]", "ensure_service.__kwdefaults__[lock_path]",
+         "_slog.__defaults__[0]", "_kill_stale_pid.__defaults__[0]", "_rotate_log.__defaults__[0]",
+         "_spawn_lock_fresh.__defaults__[0]", "_spawn_service.__defaults__[1]", "_write_flag.__defaults__[0]",
+         "_log_probe.__defaults__[0]"],
+        ["SERVICE_SCRIPT", "ensure_service.__kwdefaults__[service_script]", "_spawn_service.__defaults__[0]"]),
+    "rag-engine.py": (["VECTORDB_DIR"], ["SERVICE_DIR"]),
+    "codex-companion/state.py": (["WORKFLOW_DIR"], []),
+    "../hooks/codex_companion.py": (["CLAUDE_DIR", "WORKFLOW_DIR", "CONFIG_PATH"], ["COMPANION_DIR", "AUDIT_SCRIPT"]),
 }
 
 PROBE = r"""
@@ -53,7 +67,18 @@ spec = importlib.util.spec_from_file_location("probe_tool_mod", path)
 mod = importlib.util.module_from_spec(spec)
 sys.modules["probe_tool_mod"] = mod
 spec.loader.exec_module(mod)
-print("PROBE_JSON " + json.dumps({n: str(getattr(mod, n)) for n in names}))
+
+def get(name):
+    obj = mod
+    for part in name.split("."):
+        part, _, key = part.partition("[")
+        obj = getattr(obj, part)
+        if key:
+            key = key.rstrip("]")
+            obj = obj[int(key)] if key.isdigit() else obj[key]
+    return obj
+
+print("PROBE_JSON " + json.dumps({n: str(get(n)) for n in names}))
 """
 
 
@@ -74,9 +99,10 @@ def _env(home: Path, wg=None) -> dict:
     return env
 
 
-def _probe(tool: str, names, env) -> dict:
-    r = subprocess.run([sys.executable, "-X", "utf8", "-c", PROBE, str(TREE / "tools" / tool), json.dumps(names)],
-                       env=env, cwd=str(TREE), capture_output=True, text=True, encoding="utf-8", errors="replace",
+def _probe(tool: str, names, env, cwd: Path) -> dict:
+    """-P 且 cwd 在 tmp：cwd 不進 sys.path，工具沒自己插程式碼根就 import 不到 lib.*。"""
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", PROBE, str(TREE / "tools" / tool), json.dumps(names)],
+                       env=env, cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace",
                        timeout=120, creationflags=NO_WINDOW)
     line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
     assert r.returncode == 0 and line, f"{tool} rc={r.returncode}\n{r.stderr[-3000:]}"
@@ -89,6 +115,13 @@ def dirs(tmp_path):
     home.mkdir()
     data.mkdir()
     return home, data
+
+
+@pytest.fixture
+def cwd(tmp_path):
+    d = tmp_path / "cwd"
+    d.mkdir()
+    return d
 
 
 def test_claude_data_dir_single_source_and_wg_core_agree(dirs):
@@ -105,17 +138,69 @@ def test_claude_data_dir_single_source_and_wg_core_agree(dirs):
 
 
 @pytest.mark.parametrize("tool", sorted(TOOLS))
-def test_tool_data_follows_data_root_code_follows_file(tool, dirs):
+def test_tool_data_follows_data_root_code_follows_file(tool, dirs, cwd):
     home, data = dirs
     data_names, code_names = TOOLS[tool]
-    got = _probe(tool, data_names + code_names, _env(home, data))                      # WG_CLAUDE_DIR＝tmp 資料根
+    got = _probe(tool, data_names + code_names, _env(home, data), cwd)                 # WG_CLAUDE_DIR＝tmp 資料根
     for n in data_names:
         assert _under(got[n], data) and not _under(got[n], TREE), (n, got[n])            # 反例：資料不得落在本樹
     for n in code_names:
         assert _under(got[n], TREE) and not _under(got[n], data), (n, got[n])
-    got = _probe(tool, data_names, _env(home))                                          # 沒設 → 家目錄/.claude
+    got = _probe(tool, data_names, _env(home), cwd)                                     # 沒設 → 家目錄/.claude
     for n in data_names:
         assert _under(got[n], home / ".claude"), (n, got[n])
+
+
+PAIR_PROBE = r"""
+import importlib.util, json, sys
+from pathlib import Path
+tree = Path(sys.argv[1])
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+svc = tree / "tools" / "memory-vector-service"
+sys.path.insert(0, str(svc))
+import config
+starter = load("probe_starter", svc / "starter.py")
+rag = load("probe_rag", tree / "tools" / "rag-engine.py")
+starter._write_flag()
+cc = load("probe_cc", tree / "hooks" / "codex_companion.py")
+import state
+state.write_state("a2c-probe", state.new_state("a2c-probe", ""))
+print("PROBE_JSON " + json.dumps({
+    "config_file": config.__file__, "port": config.load_config()["service_port"],
+    "vectordb": [str(config.VECTORDB_DIR), str(rag.VECTORDB_DIR), str(starter.PID_FILE.parent)],
+    "flag": str(starter.FLAG_PATH),
+    "state_file": state.__file__, "workflow": [str(state.WORKFLOW_DIR), str(cc.WORKFLOW_DIR)],
+    "assess_glob": [p.name for p in cc.WORKFLOW_DIR.glob("companion-state-a2c-probe.json")]}))
+"""
+
+
+def test_paired_vector_and_companion_share_data_root(dirs, cwd):
+    """成對兩組：向量 config／starter／rag-engine 的 _vectordb 同一處；codex-companion 的 state.py 寫的檔，
+    hooks/codex_companion 從同一個 workflow 讀得到；全落 tmp 資料根、家目錄不被碰。"""
+    home, data = dirs
+    (data / "workflow").mkdir()
+    (data / "workflow" / "config.json").write_text(json.dumps({"vector_search": {"service_port": 39999}}),
+                                                  encoding="utf-8")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", PAIR_PROBE, str(TREE)], env=_env(home, data),
+                       cwd=str(cwd), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=120, creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
+    assert r.returncode == 0 and line, f"rc={r.returncode}\n{r.stderr[-3000:]}"
+    got = json.loads(line[len("PROBE_JSON "):])
+    assert _under(got["config_file"], TREE) and _under(got["state_file"], TREE)
+    assert got["port"] == 39999                                                         # config 從資料根讀
+    assert len({_n(p) for p in got["vectordb"]}) == 1 and _n(got["vectordb"][0]) == _n(data / "memory" / "_vectordb")
+    assert (data / "workflow" / "vector_ready.flag").is_file() and _n(got["flag"]).startswith(_n(data))
+    assert len({_n(p) for p in got["workflow"]}) == 1 and _n(got["workflow"][0]) == _n(data / "workflow")
+    assert got["assess_glob"] == ["companion-state-a2c-probe.json"]                     # 寫的和讀的同一處
+    assert not (home / ".claude").exists()                                              # 反例：家目錄不被碰
 
 
 def test_fake_worktree_followup_check_reads_and_writes_data_root_only(tmp_path):
@@ -140,12 +225,12 @@ def test_fake_worktree_followup_check_reads_and_writes_data_root_only(tmp_path):
     assert not any((code / d).exists() for d in ("workflow", "Logs", "memory"))       # 反例：程式碼樹不被碰
 
 
-def test_normal_install_paths_identical_to_old_algorithm(dirs):
+def test_normal_install_paths_identical_to_old_algorithm(dirs, cwd):
     """程式碼根＝資料根（一般安裝）：用本樹當 WG_CLAUDE_DIR，資料常數＝舊算法（檔案位置根）組出的同一路徑。"""
     home, _ = dirs
-    got = _probe("followup-check.py", ["FOLLOWUPS", "CODE_DIR"], _env(home, TREE))
+    got = _probe("followup-check.py", ["FOLLOWUPS", "CODE_DIR"], _env(home, TREE), cwd)
     assert _n(got["FOLLOWUPS"]) == _n(TREE / "workflow" / "followups.json") and _n(got["CODE_DIR"]) == _n(TREE)
-    got = _probe("sync-memory-index.py", ["MEMORY_DIR", "_CONFIG_PATH"], _env(home, TREE))
+    got = _probe("sync-memory-index.py", ["MEMORY_DIR", "_CONFIG_PATH"], _env(home, TREE), cwd)
     assert _n(got["MEMORY_DIR"]) == _n(TREE / "memory") and _n(got["_CONFIG_PATH"]) == _n(TREE / "workflow" / "config.json")
 
 
