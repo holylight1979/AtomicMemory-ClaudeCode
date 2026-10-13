@@ -72,6 +72,7 @@ def driven(monkeypatch):
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
     monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
     monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)   # 案例路徑是虛構的；存在與否由 009 段用真檔測
+    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)   # 程式檔路徑也是虛構的；已刪除的程式檔由 040 段用真檔測
 
     def drive(text, capsys, tool_names=(), hook_input=None, **extra):
         """text=None：用真的 get_last_assistant_text 讀 transcript（017c）；hook_input：hook 輸入另帶的欄位。"""
@@ -1101,6 +1102,7 @@ def sub_stop(monkeypatch):
     monkeypatch.setattr(st, "append_guard_log", lambda guard, payload: logs.append((guard, payload)))
     monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
     monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)
+    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
 
     def run(capsys, state, last="全部完成了。", agent_id="ag1"):
         monkeypatch.setattr(st, "read_state", lambda sid: state)
@@ -1246,6 +1248,7 @@ def test_006_6_judge_stop_blocks_to_the_end(capsys, monkeypatch):
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
     monkeypatch.setattr(vl, "CLAIM_RES", PHRASES)
+    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)              # _CODE 是虛構路徑
     with pytest.raises(SystemExit):
         st.handle_judge_stop({"session_id": _SID, "last_assistant_message": "全部完成了。"}, {})
     out = capsys.readouterr().out
@@ -1387,7 +1390,9 @@ def _judge_post(monkeypatch, tmp_path, command):
     return saved
 
 
-def _judge_stop(monkeypatch, capsys, state):
+def _judge_stop(monkeypatch, capsys, state, real_files=False):
+    if not real_files:
+        monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)          # 虛構路徑；真檔的案傳 real_files=True
     monkeypatch.setattr(st, "read_state", lambda sid: state)
     monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
     monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
@@ -1501,6 +1506,7 @@ def test_011_project_under_test_named_dir_judges_relative_path(driven, capsys, m
 
 def test_011_ordinary_root_behaves_as_before(monkeypatch):
     monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)              # 虛構路徑：只驗樣式判定
+    monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)
     cfg = vl.reconcile_cfg({})
     src, case = _mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3), _mf(r"c:\proj\tests\test_a.py", 5, last_at=_T2, last_seq=4)
     root_of = lambda p: str(ROOT)                                                       # noqa: E731
@@ -2741,6 +2747,31 @@ def test_any_git_difference_keeps_debt(driven, capsys, clean_repo, kind):
         Path(x).unlink()
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(path, 5)])
     assert f"改了程式碼（{Path(path).name}）之後沒有新增或修改驗證 case 檔" in out, kind
+    assert "MeasureGate" in out, kind                                                     # 不是原樣：量尺也照擋
+
+
+def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys, chain, monkeypatch):
+    """040 附錄第 3、5 條（總控台定死）：改過的程式檔在 Stop 當下已不存在（刪除、改名走）→ 不再欠補案例；改名後的新路徑若是程式檔
+    另一筆照算，量尺閘照舊看所有改檔。經工具→PostToolUse→Stop、Stop 用真的存在判定。舊碼只看修改紀錄，刪掉、改名走的檔照樣要案例。
+    （9c 的 test_any_git_difference_keeps_debt[deleted] 用虛構存在判定，驗的是「刪除不算原樣還原」那一層。）"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, code, _ = chain
+    tmp = repo / "src" / "tmp_copy.py"
+    tmp.write_text("x = 1\n", encoding="utf-8", newline="\n")
+    edit(code, 3)                                                                          # 真的改了程式：照欠
+    git("rm", "-q", "-f", "src/a.py")                                                      # 改完又整檔刪掉
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert "改了程式碼（a.py）之後" not in out
+    s2 = copy.deepcopy(state)
+    s2["modified_files"].append(_mf(str(tmp), 5, last_at=_T2, last_seq=99))
+    tmp.rename(repo / "src" / "tmp_copy.py.txt")                                          # 改名成不是程式檔
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **s2)
+    assert "改了程式碼（tmp_copy.py）" not in out and "改了程式碼（a.py" not in out
+    s3 = copy.deepcopy(state)
+    s3["modified_files"].append(_mf(str(repo / "src" / "kept.py"), 5, last_at=_T2, last_seq=100))
+    (repo / "src" / "kept.py").write_text("y = 1\n", encoding="utf-8", newline="\n")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **s3)
+    assert "改了程式碼（kept.py）之後沒有新增或修改驗證 case 檔" in out                       # 配對：還在的照欠
 
 
 def test_git_failure_is_reported_not_silent(clean_repo, capsys):
@@ -3105,3 +3136,48 @@ def test_040_5_dict_response_without_exit_uses_pytest_summary(driven, capsys, mo
         assert "ReconcileGate" not in out and "TestFailGate" not in out
     else:
         assert "TestFailGate" in out
+
+
+def test_040_6_notification_then_user_prompt_is_a_new_user_turn(gate_run, capsys):
+    """040 codex BLOCK：放行並收尾（Stop 關回合）→ 背景通知先進來（續跑回合）→ 下一次 Stop 之前使用者打字交代新任務 →
+    這一則仍是使用者開的新回合：turn_prompts_seq 前進、上一回合的放行不沿用，(d) 照擋。舊碼通知把 turn_open 設成 True，
+    使用者的字被當成同回合追加，序號不前進，舊放行把新任務的查核原因清掉。"""
+    state, stop, ups, ask, ref = gate_run
+    ref[0] = capsys
+    stop()
+    ask(rl.OPT_RELEASE)
+    out, _ = stop()
+    assert "ReconcileGate" not in out
+    ups(_TASK_NOTE)
+    assert state["turn_prompts_seq"] == 5
+    ups("接著改 hooks/y.py")
+    assert state["turn_prompts_seq"] == 7
+    out, _ = stop()
+    assert "(d)" in out
+
+
+@pytest.mark.parametrize("flow, owed", [
+    ("restore_code", False),           # commit 時不欠案例 → 反證把程式退回舊版又還原 → 內容回到 commit 那刻：不重算
+    ("revert_both_restore_code", True),  # 程式與案例都退回、只還原程式 → 案例內容不同：照擋（codex 035 ⑤ 反例）
+    ("owed_at_commit", True),          # commit 時就欠案例（案例先改、程式後改）→ 反證還原後照擋
+])
+def test_040_7_reversal_after_commit_does_not_double_block(driven, capsys, chain, flow, owed):
+    """使用者裁定「commit 後反證多擋一次要修」：PostToolUse 看到 commit 時記下本 session 改過的檔的內容雜湊與當時不欠案例的程式檔；
+    之後同根本 session 改過的每個檔內容都回到那一刻、而那個程式檔當時不欠案例 → (d) 不重算。只免補案例，量尺照舊。
+    經真 git、工具→PostToolUse→Stop。舊碼 commit 之後的 git checkout 還原一律算改碼，restore_code 那組也擋。"""
+    state, edit, git, _, code, case = chain
+    if flow == "owed_at_commit":
+        edit(case, 3)
+        edit(code, 3)
+    else:
+        edit(code, 3)
+        edit(case, 3)
+    git("commit", "-qam", "v3")
+    assert state["last_commit_turn_seq"] == 5
+    if flow == "revert_both_restore_code":
+        git("checkout", "HEAD~1", "--", "src/a.py", "tests/test_a.py")
+    else:
+        git("checkout", "HEAD~1", "--", "src/a.py")
+    git("checkout", "HEAD", "--", "src/a.py")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert (_DEBT_A in out) is owed, flow

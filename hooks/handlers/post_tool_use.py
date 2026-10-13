@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
@@ -33,7 +33,7 @@ from wg_harvest import (
 from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
-    aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot,
+    aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
 )
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -400,13 +400,22 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     return True
 
 
-def _note_commit(state: Dict[str, Any], command: str) -> bool:
+def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str, Any]] = None,
+                 session_id: str = "") -> bool:
     """跑了 git／svn commit → state["last_commit_turn_seq"]＝本回合；回有沒有記。一般與裁判 PostToolUse 共用這一條：
     ScanReport 閘據此豁免收尾檢核（工作已寫進 VCS 歷史＝可稽核），寫碼查核判「改過又原樣還原」也看它（改完 commit 了，
-    工作樹乾淨不代表沒改）。"""
+    工作樹乾淨不代表沒改）。同時記 commit_snapshot（本 session 改過的檔此刻的內容雜湊＋當時不欠案例的程式檔）：commit 之後
+    做反證、把檔退回舊版又還原，Stop 看內容回到這個快照就不重算補案例。快照算失敗只少了這個豁免（照擋），stderr 說一聲。"""
     if not _VCS_COMMIT_RE.search(command):
         return False
-    state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
+    turn = int(state.get("turn_seq", 0))
+    state["last_commit_turn_seq"] = turn
+    try:
+        own = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
+        state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}))
+    except Exception as e:  # noqa: BLE001
+        state.pop("commit_snapshot", None)
+        print(f"[verify-ledger] commit 內容快照失敗，commit 之後的反證還原照算改碼：{type(e).__name__}: {e}", file=sys.stderr)
     return True
 
 
@@ -559,7 +568,7 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
                 _note_unknown_write(state, session_id, p, command, tool_name)
             elif p and not _is_ephemeral_path(p):
                 _note_modified(state, session_id, p, tool_name)
-        _note_commit(state, command)
+        _note_commit(state, command, config, session_id)
         _track_sentinels(state, input_data, command, tool_name, config, session_id)
     write_state(session_id, state)
     output_nothing()
@@ -734,7 +743,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             vcs.append({"command": command[:200], "at": _now_iso()})
             dirty = True
 
-        if _note_commit(state, command):
+        if _note_commit(state, command, config, session_id):
             dirty = True
 
         # Bash／PowerShell 改檔目標（>、>>、tee、sed -i、cp、mv、Set-Content…）也進 modified_files；

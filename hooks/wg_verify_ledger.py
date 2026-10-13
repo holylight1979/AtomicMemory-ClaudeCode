@@ -1140,10 +1140,16 @@ def case_exists(path: str) -> bool:
     return os.path.isfile(path)
 
 
+def code_exists(path: str) -> bool:
+    """改過的程式檔在 Stop 當下還在嗎：已刪除或改名走的檔不再欠補案例（改名後的新路徑另記一筆照算；量尺照舊）。"""
+    return os.path.isfile(path)
+
+
 def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
               root_of: Callable[[str], Optional[str]]) -> List[str]:
     """補案例的義務（跨回合）：每個根找「本 session 最後一次改驗證案例之後還改過的程式檔」，回這些檔。
-    只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）。
+    只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）；Stop 當下已不存在的程式檔（刪除、改名走）不欠
+    （code_exists；改名後的新路徑是另一筆照算，量尺閘照舊看所有改檔）。
     案例判定用相對該根的路徑；拿不到根的程式檔退回絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。
     修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。
     範圍外：改的案例是不是對應這次改動，程式判不出來，交給收尾對照（需求目標核心流程 checklist C-G3）由 LLM 判。"""
@@ -1166,7 +1172,7 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
                              and int(m.get("last_turn_seq", m.get("turn_seq"))) == int(turn_seq) for m in cases)
         for m in ms:
             p = m["path"]
-            if not is_code_file(p, exts) or case_of[p] or p in owed:
+            if not is_code_file(p, exts) or case_of[p] or p in owed or not code_exists(p):
                 continue
             if _has_time(m):
                 if last_case is None or _mod_after(m, last_case):
@@ -1176,6 +1182,47 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
             if t is not None and int(t) == int(turn_seq) and not case_this_turn:
                 owed.append(p)
     return owed
+
+
+def _content_sha(path: str) -> Optional[str]:
+    """檔案內容的 sha256；不存在或讀不到回 None（不存在也是一種內容狀態：commit 時不在、現在也不在＝一樣）。"""
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def commit_snapshot(mods: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
+                    root_of: Optional[Callable[[str], Optional[str]]] = None) -> Dict[str, Any]:
+    """commit 那一刻（PostToolUse 看到 git／svn commit）本 session 改過的每個檔的內容雜湊，與當時不欠案例的程式檔
+    （case_debt 照當時的修改紀錄算）。Stop 拿它判 commit 之後的改動有沒有回到這個不欠案例的狀態（committed_settled_paths）。"""
+    root_of = root_of or file_root_of
+    paths = list(dict.fromkeys(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path")))
+    owed = set(case_debt(mods, turn_seq, cfg, root_of))
+    exts = cfg.get("code_exts") or []
+    settled = [p for p in paths if is_code_file(p, exts) and not is_case_file(p, cfg, root_of(p)) and p not in owed]
+    return {"turn": int(turn_seq), "files": {p: _content_sha(p) for p in paths}, "settled": settled}
+
+
+def committed_settled_paths(snapshot: Any, owed: Iterable[str], session_paths: Iterable[str],
+                            root_of: Optional[Callable[[str], Optional[str]]] = None) -> List[str]:
+    """欠案例的程式檔裡，commit 那一刻（commit_snapshot）它不欠案例、而且同根本 session 改過的每個檔（主 session＋所有子代理）
+    現在的內容都和那一刻一樣的 → 回這些檔：commit 之後做反證，把程式或案例退回舊版又還原，補案例的義務不重算。
+    只免補案例，量尺照舊要跑。快照之後才改的檔（不在快照裡）、任一檔內容不同、案例被刪或還留舊版 → 不回。"""
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("files"), dict):
+        return []
+    files, settled = snapshot["files"], set(snapshot.get("settled") or [])
+    root_of = root_of or file_root_of
+    every = list(dict.fromkeys(str(p) for p in session_paths or []))
+    out: List[str] = []
+    for p in owed or []:
+        if p not in settled:
+            continue
+        r = root_of(p)
+        same_root = [q for q in every if root_of(q) == r] or [p]
+        if all(q in files and _content_sha(q) == files[q] for q in same_root):
+            out.append(p)
+    return out
 
 
 GIT_BUDGET_S = 4.0       # net_unchanged_paths 整支查 git 的時間預算（Guardian Stop hook 上限 10 秒，其餘留給後面的閘）
@@ -1306,6 +1353,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          claims: Iterable[str] = (),
                          self_covered: Optional[Callable[[], Iterable[str]]] = None,
                          pending: bool = False,
+                         case_settled: Optional[Callable[[List[str]], Iterable[str]]] = None,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
     pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
@@ -1360,9 +1408,15 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。"
                     + ("現在跑出收據。" if pending else "沒跑就寫沒跑，或現在跑。"))
     owed = case_debt(own_mod_files, turn_seq, cfg, root_of)
+    if owed and case_settled:
+        done = set(case_settled(owed))
+        if done:
+            print("[Guardian:ReconcileGate] commit 時不欠案例、之後改了又回到那時的內容，不重算補案例："
+                  + "、".join(Path(p).name for p in sorted(done)[:5]), file=sys.stderr)
+        owed = [p for p in owed if p not in done]
     if owed:
         names = "、".join(Path(p).name for p in owed[:4])
-        hits.append(f"(d) 改了程式碼（{names}）之後沒有新增或修改驗證 case 檔（同根、仍存在的程式檔；義務跨回合，不看收尾措辭）："
+        hits.append(f"(d) 改了程式碼（{names}）之後沒有新增或修改驗證 case 檔（案例檔要和程式同根、現在還在、是程式檔；義務跨回合，不看收尾措辭）："
                     "改了碼沒驗證 case（PASS 不能代替）。"
                     "補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者。")
     # (e) 只檢本版報告（post_tool_use 一定寫入 j／k 兩鍵）；升級前 emit 的舊報告沒這兩鍵，不拿它擋
