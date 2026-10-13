@@ -6,14 +6,19 @@ console-window-trace.ps1 — Forensic 追蹤器：抓「可見 console 視窗」
 
 執行：pwsh -NoProfile -File console-window-trace.ps1 [-DurationSec 1800] [-PollMs 250]
 停止：建立 stop flag 檔（見 $StopFlag）或等 DurationSec 到。
-日誌：~/.claude/Logs/console-window-trace.log
+日誌：<資料根>/Logs/console-window-trace.log；資料根＝WG_CLAUDE_DIR（去頭尾空白後非空），否則 ~/.claude
+（和 lib/project_root.claude_data_dir 同一規則）
 #>
 param(
   [int]$DurationSec = 1800,
   [int]$PollMs = 250,
-  [string]$LogPath = "$HOME\.claude\Logs\console-window-trace.log",
-  [string]$StopFlag = "$HOME\.claude\Logs\console-trace.stop"
+  [string]$LogPath = "",
+  [string]$StopFlag = ""
 )
+
+$DataRoot = if ($env:WG_CLAUDE_DIR -and $env:WG_CLAUDE_DIR.Trim()) { $env:WG_CLAUDE_DIR.Trim() } else { "$HOME\.claude" }
+if (-not $LogPath) { $LogPath = "$DataRoot\Logs\console-window-trace.log" }
+if (-not $StopFlag) { $StopFlag = "$DataRoot\Logs\console-trace.stop" }
 
 New-Item -ItemType Directory -Force -Path (Split-Path $LogPath) | Out-Null
 if (Test-Path $StopFlag) { Remove-Item $StopFlag -Force -ErrorAction SilentlyContinue }

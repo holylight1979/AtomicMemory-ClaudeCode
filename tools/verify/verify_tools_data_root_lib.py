@@ -6,6 +6,9 @@ MCP paths.js 的資料常數都看資料根（lib.project_root.claude_data_dir�
   沒設 → 都在 tmp家/.claude。
 - 真的讀寫 tmp：詞庫、taxonomy、config、registry 從 tmp 資料根讀；guard log 寫進 tmp資料根/Logs；
   資料根本身不能當宣告根；資料根與程式碼根的頂層資料夾名都不當專名。
+- lib 尾巴：provenance、atom_spec 的 Depends 根、ollama_extract_core 的 debug log、overview_scaffold 的退路都在 tmp 資料根；
+  核心根＝資料根或程式碼根之內、或資料根 repo 的 git worktree（範疇閘與 atom 落點同一個判斷）。
+- 要 hooks/ 在 sys.path 的三支：wg_evasion 禁語表、UPS 決策項相對路徑看資料根；version_guard 掃資料根或程式碼根內的檔。
 - MCP：同一組 env（tmp／空白／不設）下 node 的 paths.js 與 Python 的 claude_data_dir() 算出同一個資料根，
   version.json 看程式碼根，config／registry／org-memory.local.json 從 tmp 資料根讀。
 怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_tools_data_root_lib.py
@@ -161,6 +164,87 @@ def test_lib_and_wg_core_really_read_and_write_data_root(dirs, tmp_path):
     assert not (home / ".claude").exists()                                               # 反例：家目錄不被碰
     assert _n(got["wg_failures"]) == _n(data / "memory" / "Failures")
     assert _under(got["audit_log"], data)
+
+
+TAIL_PROBE = r"""
+import json, sys
+from pathlib import Path
+tree, data, wt, proj = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
+sys.path.insert(0, str(tree))
+from lib import atom_spec, provenance, ollama_extract_core as oec, realm_gate as rg, atom_io
+out = {"projects_dir": str(provenance.PROJECTS_DIR),
+       "depends_default": str(atom_spec.resolve_depends_path("tools/x.py")),
+       "depends_base": str(atom_spec.depends_base_for(data / "memory"))}
+oec._atom_debug_log("ERROR", "dr2probe")
+out["debug_logs"] = [p.name for p in (data / "Logs").glob("atom-debug-*.log")]
+roots = {"tree": tree, "tree_hooks": tree / "hooks", "data": data, "wt": wt, "proj": proj}
+out["core"] = {k: rg.is_core_root(p) for k, p in roots.items()}
+fields = {"title": "此專案踩坑", "knowledge": ["此專案的 hook 會擋"]}
+out["gate_wt"] = rg.check_global_write(str(wt), **fields)
+out["gate_tree"] = rg.check_global_write(str(tree / "hooks"), **fields)
+out["gate_proj"] = rg.check_global_write(str(proj), **fields)
+
+def target(scope, cwd, **kw):
+    return atom_io._resolve_target(scope, str(cwd), None, "u", None, False, create_dirs=False, **kw)
+
+out["global_wt"] = target("global", wt, enforce_cwd_scope=True).get("error")
+out["global_proj"] = target("global", proj, enforce_cwd_scope=True).get("error")
+out["shared_wt"] = target("shared", wt).get("error")
+out["personal_wt"] = bool(target("personal", wt).get("personal_global"))
+sys.modules["wg_core"] = None                     # wg_core 載不到 → overview_scaffold 走 lib 的退路
+from lib import overview_scaffold as osc
+out["osc_live"] = str(osc._live_claude_dir())
+out["osc_layer"] = [str(x) for x in osc.detect_layer(data / "sub")]
+print("PROBE_JSON " + json.dumps(out, ensure_ascii=False))
+"""
+
+
+def test_lib_tail_follows_data_root_and_worktree_is_core(dirs, tmp_path):
+    """lib 尾巴（provenance、atom_spec、ollama_extract_core、overview_scaffold 退路）的資料都在 tmp 資料根；
+    核心根＝資料根或程式碼根之內、或資料根 repo 的 git worktree：cwd 在 worktree 時含「此專案」的 global 卡放行、
+    落點的 global／personal 走根層、shared 拒寫；一般專案照舊被擋。"""
+    home, data, cwd = dirs
+    wt, proj = tmp_path / "wt", tmp_path / "proj"
+    wt.mkdir()
+    (wt / ".git").write_text(f"gitdir: {data / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+    (proj / ".git").mkdir(parents=True)
+    got = _py(TAIL_PROBE, [TREE, data, wt, proj], _env(home, data), cwd)
+    assert _n(got["projects_dir"]) == _n(data / "projects")
+    assert _n(got["depends_default"]) == _n(data / "tools" / "x.py") and _n(got["depends_base"]) == _n(data)
+    assert len(got["debug_logs"]) == 1
+    assert got["core"] == {"tree": True, "tree_hooks": True, "data": True, "wt": True, "proj": False}, got["core"]
+    assert got["gate_wt"] is None and got["gate_tree"] is None, got                          # 反例：舊碼把 worktree 當專案拒寫
+    assert got["gate_proj"] and "此專案" in got["gate_proj"]
+    assert got["global_wt"] is None and got["global_proj"] and "inside project root" in got["global_proj"], got
+    assert got["shared_wt"] and "rejected" in got["shared_wt"] and got["personal_wt"] is True, got
+    assert _n(got["osc_live"]) == _n(data) and got["osc_layer"][0] == "root" and _n(got["osc_layer"][1]) == _n(data)
+    assert not (home / ".claude").exists()                                                  # 反例：家目錄不被碰
+
+
+HOOK_PROBE = r"""
+import json, sys
+from pathlib import Path
+tree, data = Path(sys.argv[1]), Path(sys.argv[2])
+sys.path.insert(0, str(tree / "hooks"))
+import wg_evasion, version_guard
+from handlers import user_prompt_submit as ups
+out = {"phrases": str(wg_evasion._PHRASES_JSON), "decision": str(ups._decision_item_path("workflow/x.json")),
+       "scan_code": version_guard.is_scannable_path(str(tree / "hooks" / "a.py")),
+       "scan_data": version_guard.is_scannable_path(str(data / "memory" / "a.md")),
+       "scan_other": version_guard.is_scannable_path(str(data.parent / "other" / "a.py"))}
+print("PROBE_JSON " + json.dumps(out, ensure_ascii=False))
+"""
+
+
+def test_hook_modules_follow_data_root(dirs, tmp_path):
+    """要 hooks/ 在 sys.path 才載得到的三支：wg_evasion 的禁語表、UPS 決策項相對路徑都看資料根；
+    version_guard 只掃本系統自己的檔＝資料根或程式碼根之內，其他路徑不掃。"""
+    home, data, cwd = dirs
+    got = _py(HOOK_PROBE, [TREE, data], _env(home, data), cwd)
+    assert _n(got["phrases"]) == _n(data / "memory" / "_meta" / "forbidden-phrases.json")
+    assert _n(got["decision"]) == _n(data / "workflow" / "x.json")
+    assert got["scan_code"] is True and got["scan_data"] is True and got["scan_other"] is False, got
+    assert not (home / ".claude").exists()
 
 
 NODE_PROBE = r"""

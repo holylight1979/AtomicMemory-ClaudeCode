@@ -5,7 +5,9 @@
 - 改到的每支工具：子行程載入（不跑 main），WG_CLAUDE_DIR＝tmp 資料根 → 資料常數都在 tmp 資料根、程式碼常數都在本樹；
   沒設 WG_CLAUDE_DIR、HOME 指到 tmp 家 → 資料常數都在 tmp家/.claude。子行程一律 -P 且 cwd 在 tmp（工具沒自己插程式碼根就紅）；
   常數名可用點號與 [鍵] 取屬性、預設參數（例 OllamaClient.LONG_DIE_MARKER、ensure_service.__kwdefaults__[flag_path]）。
+  hooks／skills 底下能單獨載入的腳本也在 TOOLS 表（路徑相對 tools/，例 ../hooks/lang_guard.py）。
 - 成對：向量 config／starter／rag-engine 的 _vectordb 同一處；codex-companion state.py 寫的檔 hooks/codex_companion 讀得到。
+- ensure-mcp：MCP server 入口（樣板的 {claude_dir}）看程式碼根，~/.claude.json 留家目錄。
 - 假 worktree：把 followup-check.py 與 lib/project_root.py 複製到 tmp 的「程式碼樹」，資料根是另一個 tmp，
   跑 --add／--list → 讀寫全落資料根，程式碼樹底下不出現 workflow／Logs／memory（反例：舊碼會寫進程式碼樹）。
 - 一般安裝（程式碼根＝資料根）時每個常數與舊算法逐字相同。
@@ -82,6 +84,13 @@ TOOLS = {
     "memory-conflict-detector.py": (["CLAUDE_DIR", "AUDIT_LOG"], ["_CODE_ROOT"]),
     "memory-write-gate.py": (["CLAUDE_DIR", "CONFIG_PATH", "AUDIT_LOG"], ["_SELF_ROOT"]),
     "sync_doc_counts.py": (["CLAUDE_DIR"], ["_CLAUDE_ROOT"]),
+    "../hooks/lang_guard.py": (["CLAUDE_DIR", "CONFIG_PATH", "TRIGGER_LOG_PATH"], ["_LIB_DIR"]),
+    "../hooks/acceptance_spec.py": (["CLAUDE_DIR", "WORKFLOW_DIR", "CONFIG_PATH", "SIDECAR_DIR"], ["_LIB_DIR"]),
+    "../hooks/version_guard.py": (["CLAUDE_DIR", "CONFIG_PATH"], ["_CODE_ROOT"]),
+    "../hooks/wisdom_engine.py": (["WISDOM_DIR", "REFLECTION_PATH"], ["_LIB_DIR"]),
+    "../hooks/ensure-mcp.py": (["CLAUDE_DIR", "VERSION_CACHE", "FLAG_NEEDS_NODE"], ["CODE_DIR", "TEMPLATE"]),
+    "../skills/refile/scripts/refile_classify.py": (["CLAUDE_DIR", "GLOBAL_MEMORY_DIR"], ["_CODE_ROOT"]),
+    "../skills/skill-creator/scripts/skill-cost-measure.py": (["PROJECTS_DIR"], ["_CODE_ROOT"]),
 }
 
 PROBE = r"""
@@ -238,6 +247,46 @@ def test_cc_harness_dirs_stay_in_home(tool, names, dirs, cwd):
     got = _probe(tool, names, _env(home, data), cwd)
     for n in names:
         assert _under(got[n], home / ".claude") and not _under(got[n], data), (n, got[n])
+
+
+ENSURE_MCP_PROBE = r"""
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("probe_ensure_mcp", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+sys.modules["probe_ensure_mcp"] = mod
+spec.loader.exec_module(mod)
+entry, _ = mod._resolve_entry({"entry_absolute": "{claude_dir}/tools/workflow-guardian-mcp/server.js"}, None)
+print("PROBE_JSON " + json.dumps({"entry": entry, "claude_json": str(mod.CLAUDE_JSON)}))
+"""
+
+
+def test_ensure_mcp_entry_from_code_root_cc_config_in_home(dirs, cwd):
+    """ensure-mcp：樣板的 {claude_dir} 是 MCP server 程式 → 程式碼根；~/.claude.json 是 CC 自己的設定 → 家目錄，不跟資料根走。"""
+    home, data = dirs
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", ENSURE_MCP_PROBE, str(TREE / "hooks" / "ensure-mcp.py")],
+                       env=_env(home, data), cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=120, creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
+    assert r.returncode == 0 and line, f"rc={r.returncode}\n{r.stderr[-3000:]}"
+    got = json.loads(line[len("PROBE_JSON "):])
+    assert _n(got["entry"]) == _n(TREE / "tools" / "workflow-guardian-mcp" / "server.js"), got
+    assert _n(got["claude_json"]) == _n(home / ".claude.json"), got
+
+
+@pytest.mark.skipif(not shutil.which("pwsh"), reason="pwsh not available")
+@pytest.mark.parametrize("wg", ["data", None])
+def test_console_window_trace_log_defaults_to_data_root(wg, dirs, cwd):
+    """PowerShell 診斷腳本沒給 -LogPath：日誌落資料根的 Logs/（WG_CLAUDE_DIR＝tmp → tmp 資料根；沒設 → tmp 家/.claude）。"""
+    home, data = dirs
+    root = data if wg else home / ".claude"
+    r = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-File", str(TREE / "tools" / "console-window-trace.ps1"),
+                        "-DurationSec", "0", "-PollMs", "50"], env=_env(home, data if wg else None), cwd=str(cwd),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                       creationflags=NO_WINDOW)
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert "TRACE START" in (root / "Logs" / "console-window-trace.log").read_text(encoding="utf-8")
+    if wg:
+        assert not (home / ".claude").exists()                                          # 反例：家目錄不被碰
 
 
 def _run_tool(rel: str, args, env, cwd: Path):

@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Pattern, Tuple
 
-from wg_core import user_typed_prompts
+from wg_core import MEMORY_DIR, user_typed_prompts
 
 
 _TEST_CMD_RE = re.compile(
@@ -42,7 +42,7 @@ _FAILURE_PATTERNS = [
 
 # ─── phrase loader (single source = memory/_meta/forbidden-phrases.json) ──
 
-_PHRASES_JSON = Path.home() / ".claude" / "memory" / "_meta" / "forbidden-phrases.json"
+_PHRASES_JSON = MEMORY_DIR / "_meta" / "forbidden-phrases.json"
 
 
 _FALLBACK_EVASION_PATTERNS = [

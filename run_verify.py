@@ -8,7 +8,7 @@
                                  #    duration_s, paths, cases:[{id, file, markers, phase,
                                  #    outcome, duration_s, message}]}
 
-印完量尺哨兵後自寫一份驗證收據到 workflow/verify-ledger/_runs/（lib/self_receipt.py）：全量常要背景跑，
+印完量尺哨兵後自寫一份驗證收據到資料根（WG_CLAUDE_DIR 或 ~/.claude）的 workflow/verify-ledger/_runs/（lib/self_receipt.py）：全量常要背景跑，
 PostToolUse 看不到結尾哨兵，MeasureGate 靠這份收據認「改完之後跑過、全綠、同根」。--help 不寫。
 """
 import os
@@ -26,6 +26,21 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _load_by_path(name: str, rel: str):
+    """用檔案路徑載入本樹 lib 的模組：不動 sys.path，也不受 sys.modules 裡別處的 `lib` 套件影響。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, ROOT / rel)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# 使用者資料根：自寫收據寫這裡，量尺閘（hooks/wg_verify_ledger）也從這裡讀；收據的 project_root 另記 ROOT（受測的樹）。
+# 在 pytest.main 之前算：根 conftest.py 會在測試期間把 WG_CLAUDE_DIR 導到暫存目錄。
+DATA_DIR = _load_by_path("_run_verify_project_root", "lib/project_root.py").claude_data_dir()
 fixed = [
     ROOT / "hooks" / "verify",
     ROOT / "tools" / "verify",
@@ -135,19 +150,15 @@ sys.stdout.flush()
 
 
 def _write_self_receipt() -> None:
-    """自寫驗證收據；任何失敗只在 stderr 浮一行（self_receipt 內處理），不改 exit code。"""
+    """自寫驗證收據到資料根（DATA_DIR）；任何失敗只在 stderr 浮一行（self_receipt 內處理），不改 exit code。"""
     try:
-        import importlib.util
-        sys.path.insert(0, str(ROOT))
+        sys.path.insert(0, str(ROOT))          # self_receipt 寫檔時 import lib.atom_io
         sys.path.insert(0, str(ROOT / "lib"))
         # 用檔案路徑載入：pytest.main 跑過的測試可能已把別處的 `lib` 套件放進 sys.modules，按名字 import 會拿錯版本
-        _spec = importlib.util.spec_from_file_location("_run_verify_self_receipt", ROOT / "lib" / "self_receipt.py")
-        _mod = importlib.util.module_from_spec(_spec)
-        _spec.loader.exec_module(_mod)
-        write_self_receipt = _mod.write_self_receipt
+        write_self_receipt = _load_by_path("_run_verify_self_receipt", "lib/self_receipt.py").write_self_receipt
         # project_root＝受測的那棵樹（本檔所在的 ROOT），不是呼叫時的 cwd：在 B 目錄跑 A 的 run_verify，驗的是 A
         argv = list(getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv])
-        write_self_receipt(ROOT, argv, sentinel, exit_code, len(collector.cases), n_failed,
+        write_self_receipt(DATA_DIR, argv, sentinel, exit_code, len(collector.cases), n_failed,
                            _CWD, str(ROOT), _STARTED, time.time())
     except Exception as e:  # noqa: BLE001
         print(f"[run_verify] 自寫驗證收據失敗：{type(e).__name__}: {e}", file=sys.stderr)

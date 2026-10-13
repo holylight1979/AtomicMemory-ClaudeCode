@@ -23,6 +23,7 @@ from lib.atom_spec import (  # noqa: E402
     parse_depends, parse_evidence, parse_frontmatter, resolve_depends_path,
     validate_atom_content,
 )
+from lib.project_root import claude_data_dir  # noqa: E402
 
 
 # ─── Depends 解析 ────────────────────────────────────────────────────────────
@@ -69,9 +70,9 @@ def test_resolve_relative_rooted_at_claude_dir(tmp_path):
     assert p == tmp_path / "memory" / "foo.md"
 
 
-def test_resolve_default_root_is_home_claude():
+def test_resolve_default_root_is_data_root():
     p = resolve_depends_path("memory/foo.md")
-    assert p == Path.home() / ".claude" / "memory" / "foo.md"
+    assert p == claude_data_dir() / "memory" / "foo.md"   # 資料根（WG_CLAUDE_DIR 或 ~/.claude）
 
 
 def test_resolve_tilde_expands():

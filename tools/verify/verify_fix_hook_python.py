@@ -15,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-TOOLS_DIR = Path.home() / ".claude" / "tools"
+TOOLS_DIR = Path(__file__).resolve().parents[1]   # 本樹的 tools/（驗本樹的程式，不是家目錄裝的那份）
 
 # 檔名帶連字號無法 import，以 spec 載入
 _spec = importlib.util.spec_from_file_location(

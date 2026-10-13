@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 資料根一致化收尾：剩下的家目錄寫法、核心根認 worktree、測試預設隔離資料根、整組量尺自寫收據
+- **緣由**：A2c 之後仍有 lib／hooks／skills 十多處自己用 `Path.home()/.claude` 算資料根；`is_core_root` 只認資料根，cwd 在根層 worktree 時含「此專案」的 global 卡被拒；既有測試沒設 WG_CLAUDE_DIR 時整個 pytest 行程的資料根是 live，假 session 檔寫進 live workflow/；run_verify 收據寫程式碼樹、量尺閘讀資料根，worktree 全量永遠不被認；整組 `pytest tools/verify` 背景跑完不留收據。
+- **做法**：ollama_extract_core／atom_spec／provenance／overview_scaffold 退路／lang_guard／wg_evasion／wisdom_engine／acceptance_spec／version_guard／ensure-mcp／UPS 決策項／refile_classify／skill-cost-measure／console-window-trace.ps1 改走資料根（程式碼看檔案位置，一般安裝字串不變）；核心根＝資料根或程式碼根之內、或資料根 repo 的 git worktree，`atom_io` 三處同判斷改共用 `is_core_root`；repo 根 `conftest.py` 每個 session 把資料根與 TEMP／TMP／TMPDIR 導到暫存目錄（先放本樹受版控資料）、結束還原，`@pytest.mark.live_data` 豁免；run_verify 開跑前算資料根、收據寫資料根；整組 tools/verify 由 conftest 跑完自寫收據。
+- **驗證**：`tools/verify/verify_tools_data_root.py`（TOOLS 表加 7 列＋ensure-mcp 案＋ps1 案）、`verify_tools_data_root_lib.py`（lib 尾巴與 worktree 核心根、hooks 三支）、`verify_pytest_isolation.py`（新）、`lib/verify/verify_self_receipt.py`（收據落資料根、量尺閘認帳）；退回改前逐處紅在斷言。
+
 ## 2026-10-13 v6.0 舊卡回填與萃取器寫卡也不把開工句當 Quote
 - **緣由**：開工句被填成 Quote 有三個寫入口，前一筆只修了 PostToolUse 自動填。舊卡回填（`tools/atom-provenance-backfill.py`，SessionStart 見新對話紀錄就背景跑）沿 parentUuid 找最近一則真人訊息當原話；工作分頁裡同伴訊息開的回合不是真人訊息，往回走到的就是開工句。稽核紀錄顯示它把總控台剛改回的 decisions 卡與另一張新卡又補上開工句，清掉的 Quote 也會被它補回。萃取器把開工句裡夾的決策萃成卡時，Quote 也是那則開工句。
 - **做法**：`lib/provenance.is_kickoff_text`（原文清成使用者打的字後交 `lib/harness_text.is_kickoff_prompt`，與 PostToolUse 同一支判定）；回填 `_resolve_quote` 遇開工句不寫 Quote（A_noquote、Source 照補指到那則訊息；已有 Source 就 skip、reason=kickoff_not_quoted），萃取器 `_write_atom_via_mcp` 遇開工句不帶 quote。`is_kickoff_prompt` 的寬判定補兩處（codex 審查）：角色句括號說明全形半形都認；以引號開頭的訊息（在引用開工句討論）只認整則都是樣板的嚴格判定。

@@ -25,7 +25,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-CLAUDE_DIR = Path.home() / ".claude"
+_LIB_DIR = str(Path(__file__).resolve().parents[1] / "lib")   # 程式碼：資料根算法從本樹載
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
 TRIGGER_LOG_PATH = CLAUDE_DIR / "Logs" / "guard-lang.jsonl"
 

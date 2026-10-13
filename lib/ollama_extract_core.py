@@ -20,6 +20,11 @@ if _TOOLS_DIR not in sys.path:
 
 from ollama_client import get_client
 
+try:
+    from .project_root import claude_data_dir
+except ImportError:  # 頂層模組載入
+    from project_root import claude_data_dir
+
 VALID_TYPES = ("factual", "procedural", "architectural", "pitfall", "decision")
 
 
@@ -55,7 +60,7 @@ def _atom_debug_log(tag: str, content: str, config: Dict[str, Any] = None) -> No
     if not content or not content.strip():
         return  # suppress empty entries
     try:
-        log_dir = Path.home() / ".claude" / "Logs"
+        log_dir = claude_data_dir() / "Logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / f"atom-debug-{datetime.now().strftime('%Y-%m-%d_%H')}.log"
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

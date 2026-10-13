@@ -26,7 +26,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-CLAUDE_DIR = Path.home() / ".claude"
+_CODE_ROOT = Path(__file__).resolve().parents[1]   # 程式碼根（本檔所在的樹）
+if str(_CODE_ROOT / "lib") not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT / "lib"))
+from project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
 
 
@@ -76,12 +81,12 @@ _TEXT_SUFFIXES = (".py", ".js", ".md", ".json", ".sh", ".txt", ".ts", ".mjs")
 
 
 def is_scannable_path(file_path: str) -> bool:
-    """只掃 ~/.claude 內、非正位/歸檔、文字副檔名的檔。"""
+    """只掃本系統自己的檔（資料根或程式碼根內）、非正位/歸檔、文字副檔名的檔。"""
     if not file_path:
         return False
     norm = file_path.replace("\\", "/").lower()
-    claude_norm = str(CLAUDE_DIR).replace("\\", "/").lower()
-    if claude_norm not in norm:  # 政策只針對本系統自身
+    roots = (str(r).replace("\\", "/").lower() for r in (CLAUDE_DIR, _CODE_ROOT))
+    if not any(r in norm for r in roots):  # 政策只針對本系統自身
         return False
     if not norm.endswith(_TEXT_SUFFIXES):
         return False
