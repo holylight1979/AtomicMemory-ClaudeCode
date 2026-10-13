@@ -3505,6 +3505,8 @@ def test_042_3_aec_pending_gate_once_per_user_turn(peer_flow, capsys):
 
 # ─── 044：判定規則（wg_release_rules）的端到端案例：同一個檔不同寫法、本回合窗口、轉述句、已不存在的改檔 ──────────────────
 
+import wg_release_rules as rr  # noqa: E402
+
 def _other_spelling(code, how):
     return {"slash": str(code).replace("\\", "/"), "lower": str(code).lower(),
             "dotdot": str(code.parent / ".." / code.parent.name / code.name)}[how]
@@ -3531,7 +3533,7 @@ def test_044_1_same_file_other_spelling_restored_after_commit_is_settled(driven,
     write(4)
     write(3)
     assert _status(repo) == ""
-    assert len([m for m in state["modified_files"] if vl.canon_path(m["path"]) == vl.canon_path(str(code))]) == 1, how
+    assert len([m for m in state["modified_files"] if rr.canon_path(m["path"]) == rr.canon_path(str(code))]) == 1, how
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
     assert _DEBT_A not in out, how
     write(4)
@@ -3594,8 +3596,9 @@ def plain_dir():
     """不含 test 字樣的暫存目錄（pytest 的 tmp 路徑含 test，拿不到專案根時會被 `**/*test*` 當成案例檔，案子就驗不到東西）。"""
     import shutil
     import tempfile
+    from wg_core import find_vcs_root
     d = Path(tempfile.mkdtemp(prefix="wg044-"))
-    if "test" in str(d).lower() or vl._vcs_hit(str(d / "x")) is not None:
+    if "test" in str(d).lower() or find_vcs_root(d) is not None:
         shutil.rmtree(d, ignore_errors=True)
         pytest.skip("系統暫存目錄含 test 字樣或在版控根內，構不出這個情境")
     yield d
