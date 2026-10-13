@@ -6292,6 +6292,22 @@
         "關鍵點"
       ],
       "scope": "global"
+    },
+    {
+      "name": "cc實測-pretooluse對askuserquestion與exitplanmode會觸發且tool-input完整-deny時posttooluse不觸發posttoolbatch會-中途到的同伴訊息是queued-command不經任何hook",
+      "path": "_AIDocs/_atoms/MemDev/cc實測-pretooluse對askuserquestion與exitplanmode會觸發且tool-input完整-deny時posttooluse不觸發posttoolbatch會-中途到的同伴訊息是queued-command不經任何hook.md",
+      "triggers": [
+        "AskUserQuestion hook",
+        "ExitPlanMode hook",
+        "PreToolUse deny",
+        "PostToolBatch",
+        "queued_command",
+        "同伴訊息不經 hook",
+        "提問關鍵點",
+        "ask_probe",
+        "D(1) 實測"
+      ],
+      "scope": "global"
     }
   ]
 }
