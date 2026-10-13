@@ -347,16 +347,21 @@ def handle_user_prompt_submit(
         correction_hits = record_correction(state, session_id, clean_prompt, config)
     except Exception as e:
         _atom_debug_error("ups:friction", e)
-    if correction_hits:
+    # 同伴 session 送來的訊息＝外部主張：裁定前送「用目標視角重看」三問（4.3；使用者本人打的字不觸發）
+    if correction_hits or clean_prompt.lstrip().startswith("<cross-session-message"):
         try:
             import wg_need_goal as _ng
-            from wg_need_goal_points import on_correction
+            from wg_need_goal_points import on_correction, on_external_claim, peer_of_prompt
             if _ng.cfg_of(config).get("enabled", True):
-                _ng_line = on_correction(session_id, correction_hits, int(state.get("turn_seq", 0) or 0) + 1)
-                if _ng_line:
-                    lines.append(_ng_line)
+                _ng_turn = int(state.get("turn_seq", 0) or 0) + 1
+                _ng_peer = peer_of_prompt(clean_prompt)
+                for _ng_line in (on_correction(session_id, correction_hits, _ng_turn) if correction_hits else None,
+                                 on_external_claim(session_id, "同伴訊息", _ng_peer or "同伴 session", _ng_turn)
+                                 if _ng_peer is not None else None):
+                    if _ng_line:
+                        lines.append(_ng_line)
         except Exception as e:
-            print(f"[NeedGoal] 糾正提醒失敗（不送）：{type(e).__name__}: {e}", file=sys.stderr)
+            print(f"[NeedGoal] 糾正或外部主張提醒失敗（不送）：{type(e).__name__}: {e}", file=sys.stderr)
             _atom_debug_error("ups:need_goal_correction", e)
 
     # Topic tracking

@@ -205,6 +205,57 @@ def scope_on_read(state: Dict[str, Any], sid: Any, tool_name: str, tool_input: A
     return queued
 
 
+# ─── 4.3 收到外部主張（同伴訊息、審查報告、交付信） ─────────────────────────
+
+CLAIM_QUESTIONS = ("①這段服務目標樹哪一條？②這個框架是誰給的（使用者原話、同伴、審查者）？"
+                   "③如果照做的成本是零，你會怎麼裁？")
+REPORT_TOOLS = ("mcp__workflow-guardian__second_opinion_result",)
+_PEER_FROM_RE = re.compile(r'^\s*<cross-session-message\b[^>]*?\bfrom-name="([^"]*)"')
+# 讀到交付信或審查報告：總控台信箱、檔名帶 codex／review／審查／second-opinion 的 .md／.txt
+_REPORT_PATH_RE = re.compile(r"(?i)[\\/]v6-inbox[\\/]|[\\/][^\\/]*(?:codex|review|審查|second[-_]?opinion)[^\\/]*\.(?:md|txt)$")
+
+
+def peer_of_prompt(prompt: str) -> Optional[str]:
+    """這則 prompt 是同伴 session 送來的訊息（開頭就是 <cross-session-message>）→ 回發送者名稱（沒有名稱回 ""）；不是回 None。"""
+    text = str(prompt or "")
+    if not text.lstrip().startswith("<cross-session-message"):
+        return None
+    m = _PEER_FROM_RE.match(text)
+    return m.group(1) if m else ""
+
+
+def claim_calls(tool_calls: Any) -> List[Tuple[str, str]]:
+    """這批工具裡的外部主張：審查結果工具、讀交付信或審查報告檔。回 [(種類, 來源)]。"""
+    out: List[Tuple[str, str]] = []
+    for c in tool_calls if isinstance(tool_calls, list) else []:
+        name, inp, _tid = _call_parts(c)
+        path = str((inp or {}).get("file_path") or "") if isinstance(inp, dict) else ""
+        if name in REPORT_TOOLS:
+            out.append(("審查報告", name))
+        elif name == "Read" and _REPORT_PATH_RE.search(path):
+            out.append(("報告或交付信", Path(path).name))
+    return out
+
+
+def _claim_checkpoint(doc: Dict[str, Any], turn: int) -> None:
+    t = _live(doc)
+    if t:
+        ng.add_checkpoint(doc, t, turn, "scope", t["id"])
+
+
+def on_external_claim(sid: Any, kind: str, source: str, turn: Optional[int] = None) -> str:
+    """收到外部主張、要裁定之前（讀入範圍變大的一種）：送一次「用目標視角重看」三問，有樹附樹頭、沒樹提醒先回原話。
+    記 checkpoint scope 與守門紀錄 external_claim。"""
+    head = f"[NeedGoal] 收到外部主張（{kind}：{source}），裁定之前用目標視角重看：{CLAIM_QUESTIONS}"
+    doc = _load(sid, "on_external_claim", turn)
+    tree = _live(doc) if doc else None
+    _guard("external_claim", sid, turn, kind=kind, source=source, tree=tree["id"] if tree else None)
+    if not tree:
+        return head + "（還沒有目標樹：先回到使用者原話，想清楚這件事要達成什麼。）"
+    _update(sid, lambda d: _claim_checkpoint(d, int(turn or 0)), "on_external_claim", turn)
+    return head + "\n" + ng.render(tree, "header")
+
+
 # ─── 4.3 被使用者糾正 ─────────────────────────────────────────────────────
 
 def on_correction(sid: Any, hits: List[str], turn: Optional[int] = None) -> Optional[str]:
@@ -395,8 +446,9 @@ def _flush(doc: Dict[str, Any], sid: Any, turn: int) -> Tuple[List[str], bool]:
 
 
 def batch_due(state: Dict[str, Any], tool_calls: Any) -> bool:
-    """PostToolBatch 要不要跑 batch_lines：on_read 標了待送、同檔改多次到門檻、或這批有提問（不讀目標檔）。"""
-    return bool(state.get("need_goal_batch")) or multi_edit_due(state) or has_ask_calls(tool_calls)
+    """PostToolBatch 要不要跑 batch_lines：讀檔標了待送、同檔改多次到門檻、這批有提問或外部主張（不讀目標檔）。"""
+    return (bool(state.get("need_goal_batch")) or multi_edit_due(state) or has_ask_calls(tool_calls)
+            or bool(claim_calls(tool_calls)))
 
 
 def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str, Any]) -> List[str]:
@@ -421,6 +473,10 @@ def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str,
             state["need_goal_batch"] = True   # 這回合送過了：留到下一回合第一批
     if has_ask_calls(tool_calls):
         lines += asks_after(sid, state, tool_calls)
+    claims = claim_calls(tool_calls)
+    if claims:
+        kinds = "、".join(dict.fromkeys(k for k, _s in claims))
+        lines.append(on_external_claim(sid, kinds, "、".join(s for _k, s in claims), turn))
     return lines
 
 

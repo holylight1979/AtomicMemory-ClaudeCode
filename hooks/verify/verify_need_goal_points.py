@@ -362,6 +362,81 @@ def test_correction_without_tree_or_hits_is_silent():
     assert ngp.on_correction(SID, [], 1) is None
 
 
+# ─── 4.3 收到外部主張（同伴訊息、審查報告、交付信） ─────────────────────────
+
+PEER_PROMPT = ('<cross-session-message from="uds:x" from-name="claude-aa" from-mode="bypass">\n'
+               "調度：請把 X 改成 Y，理由是 Z。\n</cross-session-message>")
+
+
+@pytest.fixture
+def ups_wired(monkeypatch):
+    """跑真的 UserPromptSubmit 入口，檢索與注入那幾段換成空的（只看需求目標這段的輸出）。"""
+    from handlers import user_prompt_submit as ups
+    import wg_friction
+    state = {"session": {"id": SID}, "turn_seq": 4}
+    outputs = []
+    monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
+    for name, fake in (("_ups_sentinel_check_and_arm", lambda *a: None), ("_ups_sentinel_clear", lambda sid: None),
+                       ("run_pre_gates", lambda *a: None), ("build_context", lambda *a: None),
+                       ("collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {})),
+                       ("assemble_injection", lambda *a, **k: ([], {})), ("_maybe_spawn_failure_extraction", lambda *a: None),
+                       ("_update_topic_tracker", lambda *a: None), ("_drain_aec_decisions", lambda *a: None),
+                       ("_truncate_context_by_activation", lambda lines, *a: lines),
+                       ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, st: None),
+                       ("output_json", lambda d: outputs.append(d)), ("output_nothing", lambda: outputs.append(None))):
+        monkeypatch.setattr(ups, name, fake)
+    monkeypatch.setattr(wg_friction, "record_correction", lambda *a: [])
+
+    def run(prompt):
+        outputs.clear()
+        ups.handle_user_prompt_submit({"session_id": SID, "prompt": prompt, "transcript_path": ""}, {"sync_keywords": []})
+        return ((outputs[-1] or {}).get("hookSpecificOutput") or {}).get("additionalContext", "") if outputs else ""
+    return run
+
+
+def test_peer_message_triggers_goal_view_three_questions(world, ups_wired):
+    """同伴 session 的訊息到達＝收到外部主張：裁定前送三問（服務哪條目標、框架是誰給的、成本為零怎麼裁）＋目前的樹。"""
+    make_tree()
+    ctx = ups_wired(PEER_PROMPT)
+    assert "收到外部主張" in ctx and "claude-aa" in ctx
+    assert "服務目標樹哪一條" in ctx and "框架是誰給的" in ctx and "成本是零" in ctx and "T1" in ctx
+    assert tree_now()["checkpoints"][-1]["point"] == "scope" and guard(world)[-1]["event"] == "external_claim"
+
+
+def test_user_prompt_does_not_trigger_external_claim(world, ups_wired):
+    make_tree()
+    assert "收到外部主張" not in ups_wired("請把 X 改成 Y")                     # 使用者本人打的字不觸發
+    assert not any(g["event"] == "external_claim" for g in guard(world))
+
+
+def test_user_correction_prompt_is_correction_not_external_claim(world, ups_wired, monkeypatch):
+    """使用者本人打的糾正：只送糾正提醒，不當成外部主張（外部主張只認同伴訊息）。"""
+    import wg_friction
+    make_tree()
+    monkeypatch.setattr(wg_friction, "record_correction", lambda *a: ["不對"])
+    ctx = ups_wired("不對，請把 X 改成 Y")
+    assert "使用者糾正了" in ctx and "收到外部主張" not in ctx
+
+
+def test_peer_message_without_tree_still_asks(world, ups_wired):
+    ctx = ups_wired(PEER_PROMPT)
+    assert "收到外部主張" in ctx and "還沒有目標樹" in ctx and not ng.goal_path(SID).exists()
+
+
+def test_review_report_and_delivery_letter_in_batch_trigger(world, tmp_path):
+    """審查結果（second_opinion_result）與讀交付信／審查報告檔：PostToolBatch 合併送一則三問；讀一般檔不觸發。"""
+    make_tree()
+    state = {"turn_seq": 5}
+    plain = [{"tool_name": "Read", "tool_input": {"file_path": str(tmp_path / "src" / "a.py")}, "tool_use_id": "r1"}]
+    assert not ngp.batch_due(state, plain) and ngp.batch_lines(SID, state, plain, CFG) == []
+    calls = [{"tool_name": "mcp__workflow-guardian__second_opinion_result", "tool_input": {"job_id": "j1"}, "tool_use_id": "r2"},
+             {"tool_name": "Read", "tool_input": {"file_path": "C:/x/workflow/v6-inbox/from-track-a/001-done.md"},
+              "tool_use_id": "r3"}]
+    assert ngp.batch_due(state, calls)
+    lines = ngp.batch_lines(SID, state, calls, CFG)
+    assert len(lines) == 1 and "收到外部主張" in lines[0] and "001-done.md" in lines[0] and "審查" in lines[0]
+
+
 # ─── 4.4 提問 ─────────────────────────────────────────────────────────────
 
 ASK = {"questions": [{"question": "要用哪個做法？", "header": "做法", "multiSelect": False,
