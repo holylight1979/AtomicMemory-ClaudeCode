@@ -1,0 +1,160 @@
+"""verify_tools_data_root_lib.py：lib 四支（project_root、atom_locations、atom_taxonomy、realm_gate）、wg_core 的 Logs 的資料常數都看資料根（lib.project_root.claude_data_dir），程式碼仍看檔案位置。
+
+做什麼（每案開冷啟動子行程：常數在 import 時算好、預設參數在定義時綁死；一律 -P 且 cwd 在 tmp，cwd 不進 sys.path）：
+- 常數：WG_CLAUDE_DIR＝tmp 資料根 → lib 常數與預設參數都在 tmp 資料根；`lib.xxx` 與頂層 `xxx` 兩種載法都測；
+  沒設 → 都在 tmp家/.claude。
+- 真的讀寫 tmp：詞庫、taxonomy、config、registry 從 tmp 資料根讀；guard log 寫進 tmp資料根/Logs；
+  資料根本身不能當宣告根；資料根與程式碼根的頂層資料夾名都不當專名。
+怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_tools_data_root_lib.py
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+TREE = Path(__file__).resolve().parents[2]
+NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
+LIB_CONSTS = {
+    "al": ["CLAUDE_DIR", "GLOBAL_MEMORY_DIR", "FAILURES_DIR", "LEGACY_FAILURES_DIR", "LOCAL_ATOMS_DIR",
+           "LEARNED_LEXICON_PATH", "TAXONOMY_LEARNED_PATH", "REALM_LEXICON_PATH"],
+    "at": ["CLAUDE_DIR", "TAXONOMY_PATH", "CONFIG_PATH"],
+    "rg": ["CLAUDE_DIR", "REGISTRY_PATH"],
+    "pr": ["CLAUDE_DIR"],
+}
+
+CONST_PROBE = r"""
+import json, sys
+tree, mode, consts = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+if mode == "pkg":
+    sys.path.insert(0, tree)
+    from lib import atom_locations as al, atom_taxonomy as at, realm_gate as rg, project_root as pr
+else:
+    sys.path.insert(0, tree + "/lib")
+    import atom_locations as al, atom_taxonomy as at, realm_gate as rg, project_root as pr
+mods = {"al": al, "at": at, "rg": rg, "pr": pr}
+out = {f"{m}.{n}": str(getattr(mods[m], n)) for m, names in consts.items() for n in names}
+for f in ("load_taxonomy", "core_categories", "gate_enabled"):
+    out[f"at.{f}.default"] = str(getattr(at, f).__defaults__[0])
+out["files"] = {k: getattr(v, "__file__", "") for k, v in mods.items()}
+print("PROBE_JSON " + json.dumps(out))
+"""
+
+READ_PROBE = r"""
+import json, sys
+from pathlib import Path
+tree, data, proj = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
+sys.path.insert(0, tree)
+sys.path.insert(0, tree + "/hooks")
+from lib import atom_locations as al, atom_taxonomy as at, realm_gate as rg, project_root as pr, atom_io
+import wg_core
+out = {"lexicon_source": al.core_protected_source()}
+try:
+    out["categories"] = at.core_categories()
+except at.TaxonomyUnavailable:
+    out["categories"] = None
+out["gate"] = at.gate_enabled()
+out["names"] = [n for n, _, _ in rg.known_project_names()]
+out["terms"] = sorted(rg.project_terms(proj))
+out["core_data"] = rg.is_core_root(data)
+res = pr.resolve_project_root(data / "sub")
+out["decl_path"] = str(res.path) if res.path else ""
+out["decl_warnings"] = res.warnings
+out["logs_dir"] = str(wg_core.logs_dir())
+wg_core.append_guard_log("a2cprobe", {"x": 1})
+out["wg_failures"] = str(wg_core.FAILURES_DIR)
+out["audit_log"] = str(atom_io.AUDIT_LOG)
+print("PROBE_JSON " + json.dumps(out, ensure_ascii=False))
+"""
+
+
+def _n(p) -> str:
+    return os.path.normcase(os.path.realpath(str(p)))
+
+
+def _under(p, root) -> bool:
+    a, r = _n(p), _n(root)
+    return a == r or a.startswith(r + os.sep)
+
+
+def _env(home: Path, wg=None) -> dict:
+    drop = ("WG_CLAUDE_DIR", "PYTHONPATH", "PYTEST_CURRENT_TEST", "WG_TEST_LOGS_DIR")
+    env = {k: v for k, v in os.environ.items() if k not in drop}
+    env.update({"HOME": str(home), "USERPROFILE": str(home), "PYTHONIOENCODING": "utf-8"})
+    if wg is not None:
+        env["WG_CLAUDE_DIR"] = str(wg)
+    return env
+
+
+def _run(argv, env, cwd) -> dict:
+    r = subprocess.run(argv, env=env, cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=120, creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
+    assert r.returncode == 0 and line, f"rc={r.returncode}\n{r.stdout[-1500:]}\n{r.stderr[-3000:]}"
+    return json.loads(line[len("PROBE_JSON "):])
+
+
+def _py(snippet: str, args, env, cwd) -> dict:
+    return _run([sys.executable, "-X", "utf8", "-P", "-c", snippet, *map(str, args)], env, cwd)
+
+
+@pytest.fixture
+def dirs(tmp_path):
+    home, data, cwd = tmp_path / "home", tmp_path / "data", tmp_path / "cwd"
+    for d in (home, data, cwd):
+        d.mkdir()
+    return home, data, cwd
+
+
+@pytest.mark.parametrize("mode", ["pkg", "top"])
+def test_lib_constants_and_defaults_follow_data_root(mode, dirs):
+    home, data, cwd = dirs
+    got = _py(CONST_PROBE, [TREE, mode, json.dumps(LIB_CONSTS)], _env(home, data), cwd)
+    assert all(_under(f, TREE / "lib") for f in got.pop("files").values())             # 程式碼從本樹載
+    for k, v in got.items():
+        assert _under(v, data) and not _under(v, TREE), (mode, k, v)                    # 反例：舊碼落在家目錄
+    for k in ("al.CLAUDE_DIR", "at.CLAUDE_DIR", "rg.CLAUDE_DIR", "pr.CLAUDE_DIR"):
+        assert _n(got[k]) == _n(data), (k, got[k])
+    got = _py(CONST_PROBE, [TREE, mode, json.dumps(LIB_CONSTS)], _env(home), cwd)      # 沒設 → tmp家/.claude
+    got.pop("files")
+    for k, v in got.items():
+        assert _under(v, home / ".claude"), (mode, k, v)
+
+
+def test_lib_and_wg_core_really_read_and_write_data_root(dirs, tmp_path):
+    home, data, cwd = dirs
+    meta = data / "memory" / "_meta"
+    meta.mkdir(parents=True)
+    shutil.copyfile(TREE / "memory" / "_meta" / "realm-lexicon.json", meta / "realm-lexicon.json")
+    (meta / "taxonomy.json").write_text(json.dumps({"core": {"ZetaCat": {}}}), encoding="utf-8")
+    (data / "workflow").mkdir()
+    (data / "workflow" / "config.json").write_text(json.dumps({"taxonomy": {"gate_enabled": True}}), encoding="utf-8")
+    (data / "memory" / "project-registry.json").write_text(
+        json.dumps({"projects": {"zeta": {"root": str(tmp_path / "ZetaProject")}}}), encoding="utf-8")
+    (data / ".claude" / "memory").mkdir(parents=True)                                     # 資料根長得像可認領的根層
+    (data / ".claude" / "memory" / "MEMORY.md").write_text("# m\n", encoding="utf-8")
+    (data / "sub" / ".claude").mkdir(parents=True)
+    (data / "sub" / ".claude" / "project-tree.json").write_text(json.dumps({"root": ".."}), encoding="utf-8")
+    proj = tmp_path / "proj"
+    for d in ("hooks", "lib", "Zeta"):                                                   # hooks／lib 只在程式碼根有
+        (proj / d).mkdir(parents=True)
+
+    got = _py(READ_PROBE, [TREE, data, proj], _env(home, data), cwd)
+    assert got["lexicon_source"] == "json"                                               # 詞庫從資料根讀（家目錄沒有）
+    assert got["categories"] == ["ZetaCat"] and got["gate"] is True
+    assert "ZetaProject" in got["names"]
+    assert "Zeta" in got["terms"] and "hooks" not in got["terms"] and "lib" not in got["terms"], got["terms"]
+    assert got["core_data"] is True
+    assert _n(got["decl_path"] or tmp_path) != _n(data) and any("不採用" in w for w in got["decl_warnings"]), got
+    assert _n(got["logs_dir"]) == _n(data / "Logs")
+    assert (data / "Logs" / "guard-a2cprobe.jsonl").is_file()
+    assert not (home / ".claude").exists()                                               # 反例：家目錄不被碰
+    assert _n(got["wg_failures"]) == _n(data / "memory" / "Failures")
+    assert _under(got["audit_log"], data)
+

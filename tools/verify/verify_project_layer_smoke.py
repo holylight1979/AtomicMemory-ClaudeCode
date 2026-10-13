@@ -39,10 +39,13 @@ for _p in (CLAUDE_DIR / "hooks", CLAUDE_DIR / "lib", CLAUDE_DIR):
 from wg_core import (  # noqa: E402
     _is_under_claude_dir, get_project_memory_dir, resolve_failures_dir,
     is_local_realm_path as _wg_is_local_realm_path, is_cross_project_local,
+    CLAUDE_DIR as DATA_DIR, FAILURES_DIR as WG_FAILURES_DIR,
 )
 from lib.atom_locations import (  # noqa: E402
-    FAILURES_DIR, is_in_failures_path, is_local_realm_path,
+    CLAUDE_DIR as AL_DATA_DIR, FAILURES_DIR, is_in_failures_path, is_local_realm_path,
 )
+# CLAUDE_DIR 是本樹（程式碼根）；DATA_DIR／AL_DATA_DIR 是各模組 import 時算的資料根（WG_CLAUDE_DIR 或 ~/.claude）。
+# worktree 裡兩者不同；資料根的斷言一律對模組自己的資料根，結果不隨別支測試先設的 WG_CLAUDE_DIR 變。
 
 SYNC_MEMORY_INDEX = CLAUDE_DIR / "tools" / "sync-memory-index.py"
 MEMORY_AUDIT = CLAUDE_DIR / "tools" / "memory-audit.py"
@@ -78,7 +81,7 @@ def proj(tmp_path) -> Path:
 
 def test_case1_under_claude_dir_predicate(proj):
     assert _is_under_claude_dir(str(proj)) is False
-    assert _is_under_claude_dir(str(CLAUDE_DIR)) is True
+    assert _is_under_claude_dir(str(DATA_DIR)) is True
 
 
 def test_case1_project_memory_dir_and_failures_dir(proj, tmp_path):
@@ -91,15 +94,16 @@ def test_case1_project_memory_dir_and_failures_dir(proj, tmp_path):
     # 非專案 cwd → 全域 memory/Failures
     outside = tmp_path / "outside"
     outside.mkdir()
-    assert resolve_failures_dir(str(outside)) == FAILURES_DIR
-    assert resolve_failures_dir(r"C:\Windows\Temp") == FAILURES_DIR
-    assert FAILURES_DIR == CLAUDE_DIR / "memory" / "Failures"
-    # cwd 在 ~/.claude 本身（get_project_memory_dir 回根層 memory/）→ 也必須落全域家族目錄，
+    assert resolve_failures_dir(str(outside)) == WG_FAILURES_DIR
+    assert resolve_failures_dir(r"C:\Windows\Temp") == WG_FAILURES_DIR
+    assert FAILURES_DIR == AL_DATA_DIR / "memory" / "Failures"
+    assert WG_FAILURES_DIR == DATA_DIR / "memory" / "Failures"      # wg_core 拿到的失敗家族目錄和它的資料根同一個
+    # cwd 在資料根本身（get_project_memory_dir 回根層 memory/）→ 也必須落全域家族目錄，
     # 不得走專案佈局長出小寫 memory/failures/（本 session 背景失敗萃取曾因此重生舊址）。
-    assert resolve_failures_dir(str(CLAUDE_DIR)) == FAILURES_DIR
-    assert resolve_failures_dir(str(CLAUDE_DIR / "tools")) == FAILURES_DIR
-    assert not (CLAUDE_DIR / "memory" / "failures").exists() or \
-        (CLAUDE_DIR / "memory" / "failures").resolve().name == "Failures"
+    assert resolve_failures_dir(str(DATA_DIR)) == WG_FAILURES_DIR
+    assert resolve_failures_dir(str(DATA_DIR / "tools")) == WG_FAILURES_DIR
+    assert not (DATA_DIR / "memory" / "failures").exists() or \
+        (DATA_DIR / "memory" / "failures").resolve().name == "Failures"
 
 
 # ─── 案例 1（續）：路徑前綴判定 + 注入閘門純函式 ──────────────────────────────
@@ -133,7 +137,7 @@ def test_case1_injection_gate_from_project_keeps_core_category_atoms(proj):
     names = {n for n, _, _ in _apply_gate(atoms, str(proj))}
     assert names == {"decisions", "feedback-x", "feedback-legacy", "git-hunk"}
     # 核心環境不濾
-    assert {n for n, _, _ in _apply_gate(atoms, str(CLAUDE_DIR))} == {n for n, _, _ in atoms}
+    assert {n for n, _, _ in _apply_gate(atoms, str(DATA_DIR))} == {n for n, _, _ in atoms}
 
 
 # ─── 案例 4：memory-audit --project-dir 0 error；atom-categorize plan --memory-dir ──────

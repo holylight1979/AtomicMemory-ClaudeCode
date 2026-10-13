@@ -78,7 +78,8 @@ def same(a, b) -> bool:
 def test_A_claude_dir_subtree_stays_core():
     r = R(CLAUDE_DIR / "hooks")
     assert same(r.path, CLAUDE_DIR) and r.claimed_by == "nearest" and not r.candidates
-    assert wg_core.get_project_memory_dir(str(CLAUDE_DIR / "hooks")) == wg_core.MEMORY_DIR
+    # 根層記憶看 wg_core 的資料根（WG_CLAUDE_DIR 或 ~/.claude）；worktree 裡本樹不是資料根
+    assert wg_core.get_project_memory_dir(str(wg_core.CLAUDE_DIR / "hooks")) == wg_core.MEMORY_DIR
 
 
 def test_B_home_never_becomes_project_root(tmp_path, monkeypatch):
