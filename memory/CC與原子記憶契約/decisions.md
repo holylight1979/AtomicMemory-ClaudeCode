@@ -6,6 +6,7 @@
 - Confidence: [固]
 - Trigger: 決策, 記憶系統, 原子記憶, 架構細節, context budget
 - Related: decisions-architecture, toolchain, toolchain-ollama
+- Quote: 「你是 v6.0 的工作 session track-a6（A6 共用檔：settings/config/TECH/Architecture/CHANGELOG/README/Install-forAI/健檢/coding-style/atom 改寫＋pack.py 小修提交），對人總控台是 claude-91、調度總控台是 claude-9f。第一步用 EnterWorktree 切進 work…」
 
 ## 知識
 
