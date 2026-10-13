@@ -125,6 +125,27 @@ def test_gate_once_per_turn(driven, capsys):
     assert "KnowledgeHarvest" not in driven(capsys, state)
 
 
+@pytest.mark.parametrize("user_turn, blocked", [(5, False), (8, True)])
+def test_044_6_reported_earlier_in_user_turn_is_not_reasked(driven, capsys, user_turn, blocked):
+    """044 第 6 項（規則 TURN_SINCE_USER_PROMPT；wg_harvest.reported_this_turn）：使用者 turn 5 打字、turn 5 收割已回報並核過 →
+    三則背景通知讓 turn_seq 到 8 → 說完成：本回合已回報過，不再要求收割。舊碼要回報的 turn_seq 剛好是 8，判沒回報、冷卻 8-5 也過了，又擋。
+    配對：使用者在 turn 8 又打字（新回合）→ 照擋。"""
+    state = _state(turn_seq=8, turn_prompts_seq=user_turn, modified_files=[_mf(_CORE)],
+                   knowledge_harvest={_SID: {"turn_seq": 5, "validated": True, "last_valid_harvest_turn": 5}})
+    assert ("[Guardian:KnowledgeHarvest]" in driven(capsys, state)) is blocked
+
+
+def test_044_6_harvest_validated_after_peer_message_recomputes_aec_pending(ptu):
+    """044 第 6 項（post_tool_use 收割核過後重算 AEC d_pending）：turn 5 emit 的收尾報告 (d) 標「尚未寫」→ 同伴訊息讓 turn_seq 到 7 →
+    這時收割核過：同一個使用者回合的報告照樣重算，(h) 沒有待寫就拿掉 d_pending（HUD 不再紅、Stop 不擋 AEC-Pending）。
+    舊碼要報告的 turn_seq 剛好是 7，不重算、d_pending 留著。"""
+    aec = {"session_id": _SID, "turn_seq": 5, "d_pending": ["- foo → 尚未寫（見下一動）"], "h": "可關閉"}
+    state = _state(turn_seq=7, turn_prompts_seq=5, anti_evasion_report=aec)
+    ptu(state, "knowledge_harvest_report", {"items": []})
+    assert state["knowledge_harvest"][_SID]["validated"]
+    assert "d_pending" not in state["anti_evasion_report"]
+
+
 def test_zero_turn_no_trigger(driven, capsys):
     state = _state(turn_seq=0, modified_files=[_mf(_CORE)])
     assert "KnowledgeHarvest" not in driven(capsys, state)

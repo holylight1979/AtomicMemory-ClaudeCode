@@ -6,7 +6,7 @@
 
 S1＝有改的部位裡，導讀卡注入後曾讀過至少一個檔的比例（state 的 `reads_after` 只記「注入後」，不分改前改後；
 預計畫附錄 C「首改前有沒有讀卡」要等 wg_overview 凍結 reads_before_edit 才量得準）。
-S3＝有改的部位裡，交出定位三行的比例（`located`）。
+S3＝有改的寫碼部位裡，交出定位三行的比例（`located`）；部位表類別 knowledge 的部位不要求三行，不進分母。
 S5＝被注入的部位裡，之後讀過卡片檔（memory／_atoms 下的 .md）的比例。
 分母為零 → None（不是 0）。
 
@@ -65,12 +65,13 @@ def compute_session_scores(state: Any) -> Optional[Dict[str, Any]]:
             "key": str(key), "root": root, "part": part,
             "edits": int(rec.get("edits", 0) or 0), "reads": len(reads),
             "located": bool(rec.get("located")), "located_via": rec.get("located_via"),
-            "card_read": any(_is_card_path(p) for p in reads),
+            "card_read": any(_is_card_path(p) for p in reads), "kind": rec.get("kind") or "code",
         })
     edited = [p for p in parts if p["edits"] > 0]
+    edited_code = [p for p in edited if p["kind"] != "knowledge"]
     return {
         "s1": _ratio(sum(1 for p in edited if p["reads"] > 0), len(edited)),
-        "s3": _ratio(sum(1 for p in edited if p["located"]), len(edited)),
+        "s3": _ratio(sum(1 for p in edited_code if p["located"]), len(edited_code)),
         "s5": _ratio(sum(1 for p in parts if p["card_read"]), len(parts)),
         "parts_injected": len(parts), "parts_edited": len(edited),
         "modified_files": sum(1 for m in mods if isinstance(m, dict)),

@@ -8,6 +8,8 @@
 - Source: session:ec069e59 2026-10-13
 - Quote: 「你是 v6.0 的「待命 track-e」，總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命 track-e：<你的名字>」。之…」
 
+- Related: pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因
+
 ## 知識
 
 - [臨] 「把原始碼換回舊版、測試留新版，確認新案會紅」時：`git checkout <舊版> -- 檔案` 會同時改寫暫存區，跑完把新版複製回來後要 `git restore --staged <檔案>`，否則暫存區留著舊版、下一次提交可能帶到舊內容。複製回原位的動作也可能被「改碼後要有新案例」類的閘記成最後一次改碼。

@@ -14,6 +14,7 @@
 - [臨] settings.json 的 PreToolUse hook timeout 是 5 秒，整條閘門鏈共用；新閘若要 spawn 子行程，給自己絕對 deadline（check_merge_driver 是 2.5s）、每個子行程各自 timeout、逾時 fail-open 只留提示。Windows 上每個 git spawn 約 0.1 秒，一個工具內 30 次 spawn 就爆預算；用 `git cat-file --batch`、一次 `git add` 多檔把 spawn 數壓到個位數。
 - [臨] hook 在 pythonw 下跑，子行程的 sys.stdout/stderr 可能是 None：被 hook 叫的 CLI 要用容錯的 `_out()`，別直接 print；且 `sys.executable` 會是 pythonw.exe，寫進 git config 當 driver 會讓診斷全消失（映射到同目錄 python.exe）。
 - [臨] 真 hook 進程探針：餐 JSON 進 hooks/workflow-guardian.py stdin，env 設 GIT_CONFIG_GLOBAL／XDG_CONFIG_HOME／GIT_CONFIG_NOSYSTEM 隔離，但 HOME 不要覆寫（會碰到第一點）。全套 run_verify 別與其他 pytest／探針並行：Windows 目錄移除競態會讓 atom_categorize undo 類測試假紅，量時間的預算題也會被拖慢（已改量兩次取最快）。
+- [臨] 第五坑（Stop 接閱讀路徑量尺，codex 審 2 條 BLOCK）：hook 裡「同一批輸入只量一次」的快取鍵要涵蓋所有會改變「量不量得到」的狀態：只比檔案大小與時間，使用者只 git add 不改檔就會命中快取而漏量（要把還沒 git add 的清單併進鍵）；「逾時過的根不再自動量」要對任何階段的逾時都成立（git 本身用完預算也算），而且標成慢的根之後連 git 子行程都不起，只附手動指令。量不完的工具先量實際耗時再定預算：根層 repo 閱讀路徑全量一側約 30 秒，3 秒預算必逾時。
 
 ## 行動
 

@@ -347,3 +347,15 @@ def test_anonymize_projects_replaces_names_and_paths(fake_registry):
     out = anonymize_projects(src)
     assert "<專案路徑>" in out and "GameZ" + "\\" not in out
     assert "某專案 與 某專案 和 QUX 與 GameZone" in out
+
+
+def test_data_root_follows_wg_claude_dir(tmp_path):
+    """realm_gate 的資料根與 hooks、tools 同一套算法（lib/project_root.claude_data_dir）：設了 WG_CLAUDE_DIR 就用它，
+    該樹與其子目錄都算核心環境；舊碼寫死 Path.home()/.claude，worktree 跑 lib verify 時整棵樹被當成外部專案。
+    子行程載入，不動本行程已載入的模組。"""
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); from lib import realm_gate as r; from pathlib import Path; "
+            "d = Path(sys.argv[2]); print(r.CLAUDE_DIR == d, r.is_core_root(d / 'sub'), r.REGISTRY_PATH.parent == d / 'memory')")
+    env = dict(os.environ, WG_CLAUDE_DIR=str(tmp_path))
+    out = subprocess.run([sys.executable, "-X", "utf8", "-c", code, str(CLAUDE), str(tmp_path)], env=env,
+                         capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert out.stdout.split() == ["True", "True", "True"], out.stderr

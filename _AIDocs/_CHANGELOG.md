@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 部位表加「類別」欄：知識類部位（文件、記憶、派工信箱）移出寫碼查核
+- **緣由**：寫碼查核只看副檔名與部位，`workflow/v6-inbox/` 放一支 .py 素材就欠 (d) 案例、改 `memory/_staging` 也要交定位三行；對人總控台一整天只改這兩處卻被擋到要人放行。
+- **做法**：部位表加「類別」欄（code｜knowledge，沒欄、沒標、拼錯＝code）；`lib/overview_hub.path_kind` 用錨在專案根的最長前綴判類別（先消 `..`，根以下帶 8.3 短名算 code），OverviewHub 對 knowledge 部位只要求卡已注入，`wg_verify_ledger.is_excluded` 讓 knowledge 部位的檔不欠 (d) 也不能替寫碼部位清帳；量尺閘不動；無部位表的專案行為不變；scorecard S3 只算寫碼部位。根層表補 `workflow/v6-inbox/`、`.claude/` 兩列。表列前綴與路徑同一套正規化（`./`、`..`），放不進根相對位置的 code 列讓 knowledge 不豁免。根層 worktree 身分改成只看 git：`.git` 指到 live 的管理目錄，而且該目錄反向登記這棵樹，不再比部位表位元組。來源回填遇自動萃取卡只補 Source、不寫「AI：」Quote。
+- **驗證**：目標 verify 8 檔全綠；新案退回 main 紅 13 全在斷言；用真 hook 入口重放對人總控台的真實 transcript，(d)＋定位三行擋次修前 1 → 修後 0（刪掉定位三行的版本 38 → 0），量尺擋次修前修後相同；codex 一輪的 BLOCK（8.3 短名與 `..` 讓巢狀 code 列落到 knowledge）與 WARN 已修。順手修 `lib/realm_gate` 資料根寫死家目錄（worktree 跑 lib verify 必紅）。
+
 ## 2026-10-13 v6.0 B 段需求目標樹（need_goal）：新需求先寫目標、改程式前要有樹與定位第四行、改了要回頭對照、交付與 commit 前完整對照
 - **緣由**：系統跟「目標」沾邊的只有意圖分類（分的是手段不是需求目標），壓縮後重送的「主目標」也是它；定位三行、寫碼查核、收尾檢核都沒有一處問這次改動服務哪個目標（設計單 `v6-B-需求目標核心流程-設計單`，原設計者第十節定案 ①A ②A）。
 - **做法**：新 `hooks/wg_need_goal.py`（目標檔 `workflow/need-goal/<sid>.json` 整段上鎖、自帶序號；五個動作、證據七條、狀態轉換、續接單區塊與匯入、壓縮重送）＋ MCP `need_goal`（`lib/need-goal.js` 只驗參數）；UPS 送回樹根／第一則提醒、PreToolUse 寫碼類沒樹就擋（OverviewHub 之前）與 commit 前 (f1)(f2)、`wg_overview.on_edit` 定位第四行核對與目標改了清定位、導讀卡附樹、Stop 寫碼查核併進 (f1)(f2)、收尾檢核附樹＋HUD「目標對照」、驗收審查拿原話／轉述／樹三段；`reconcile_cfg` 的 code_exts 改成與預設聯集、沒副檔名的 `#!` 腳本算程式檔；`overview_hub.need_goal` 設定段。契約 `DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md`，TECH §7.7。
