@@ -179,6 +179,7 @@ def test_005_kickoff_is_not_used_as_quote(world, peer_turn):
     assert "- Quote:" not in text, f"開工句被回填成 Quote：{text}"
     assert r["grade"] == "A_noquote" and r.get("quote_skipped") == "kickoff", r
     assert "- Source: session:22222222#k1 2026-10-05\n" in text and r["written"] is True
+    assert rep["summary"]["A_noquote"] == 1 and rep["summary"]["A"] == 0 and rep["summary"]["skip"] == 0
 
 
 def test_005_kickoff_with_existing_source_is_skipped_with_reason(world):
