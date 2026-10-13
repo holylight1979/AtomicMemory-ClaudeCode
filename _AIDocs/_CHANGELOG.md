@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 寫碼查核閘：改過又原樣還原的檔不算改碼（補案例與量尺都不欠）
+- **緣由**：驗證 session 做反證時暫改受測檔、再 `git checkout` 還原，(d) 與量尺閘仍把它算成「改了程式碼」每回合擋，只能一再走放行詢問；檔案內容其實沒有任何淨變化。
+- **做法**：Stop 的寫碼查核（主 session 與子代理／裁判共用 `_verify_gates`）先用 `wg_verify_ledger.net_unchanged_paths` 剔掉「git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit」的改檔；未追蹤／忽略／已暫存／刪除、改完 commit 過、不在 git 工作區或 git 失敗逾時一律照算改了。
+- **驗證**：新案 9 個：「還原不擋（配對還改著照擋）」「commit 過照擋（配對 commit 在之前不擋）」「子代理還原不擋」三案在舊碼紅在斷言；四種 git 差異與判不出來五案是防放寬的守門（舊碼本來就擋）；git 失敗時 stderr 有訊號一案。相關 verify 8 檔 735 passed；真 hook 入口情境 22（暫改再還原／留著／commit）修前 2 條不符、修後全符合。
+
 ## 2026-10-13 v6.0 track-a4 OverviewHub 候選填空去噪：改檔路徑沒內容一行、一部位一 session 一次
 - **緣由**：工作 session 每改一個 hook 檔的第二次 Edit 就被灌一整塊「候選前 5（來源：無）＋根因卡＋先答兩問」。沒有 smells 報告也沒有病灶段時內容是零卻佔最多字；去重 key 又是「檔」不是「部位」，同部位改十個檔就送十次。
 - **做法**：`_candidates_block` 加 `compact_empty`：改檔路徑沒內容時只回一行（報告不存在／解析失敗的附註接在同一行）；使用者問根因的 on_prompt 觸發詞路徑不縮。`on_edit` 第二次 Edit 送候選改以部位 key 查 `state["candidates_sent"]`（與觸發詞共用），送過就不再送，一行版也記帳。

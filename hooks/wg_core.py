@@ -2038,6 +2038,103 @@ def _inner_has_signal(text: str, cwd: Optional[str]) -> bool:
     return inner.signal
 
 
+_GIT_VALUE_OPTS = frozenset({"-c", "--namespace", "--exec-path", "--config-env"})   # 帶一個值的 git 全域選項（-C 另算）
+_GIT_TREE_OPTS = ("--git-dir", "--work-tree")                                        # 改了 repo／工作樹位置：路徑判不出來
+_PATHSPEC_MAGIC_RE = re.compile(r"[*?\[]|^:")
+
+
+def _git_checkout_paths(rest: List[str], base: Optional[str]) -> Optional[List[str]]:
+    """git checkout 的參數 → 會被改寫的路徑 token：`-- <路徑>…` 之後全是路徑；沒有 `--` 時 `<rev> <路徑>…` 第二個起是路徑，
+    只有一個參數且它是現存的檔（`git checkout x.py`）也是路徑。切分支、建分支（-b／-B／--orphan、`git checkout <分支>`）→ []。
+    只有一個參數且它是現存的目錄（`git checkout .`、`git -C src checkout .`）會還原整個目錄、不知道動了哪些檔，
+    與 --pathspec-from-file 一樣 → None（判不出來）。"""
+    if any(a.startswith("--pathspec-from-file") for a in rest):
+        return None
+    if "--" in rest:
+        return rest[rest.index("--") + 1:]
+    if any(a in ("-b", "-B", "--orphan") for a in rest):
+        return []
+    pos = [a for a in rest if not a.startswith("-")]
+    if len(pos) >= 2:
+        return pos[1:]
+    if len(pos) == 1:
+        r = _write_target_abs(pos[0], base) if base is not None or os.path.isabs(pos[0]) else None
+        if r in (None, _WRITE_TARGET_UNKNOWN):
+            return []
+        if os.path.isdir(r):
+            return None
+        return pos if os.path.isfile(r) else []
+    return []
+
+
+def _git_restore_paths(rest: List[str]) -> Optional[List[str]]:
+    """git restore 的參數 → 會被改寫的路徑 token。`--staged`（-S）沒有 `--worktree`（-W）只動暫存區、不寫檔 → []；
+    --source／-s 的值不是路徑；--pathspec-from-file → None（判不出來）。"""
+    staged = worktree = after_dd = False
+    paths: List[str] = []
+    i = 0
+    while i < len(rest):
+        a = rest[i]
+        if after_dd or not a.startswith("-"):
+            paths.append(a)
+        elif a == "--":
+            after_dd = True
+        elif a.startswith("--pathspec-from-file"):
+            return None
+        elif a in ("-s", "--source"):
+            i += 1                                   # 下一個是來源版本
+        elif a in ("-S", "--staged"):
+            staged = True
+        elif a in ("-W", "--worktree"):
+            worktree = True
+        elif re.match(r"^-[A-Za-z]+$", a) and not a.startswith("-s"):
+            staged, worktree = staged or "S" in a, worktree or "W" in a
+        i += 1
+    return [] if staged and not worktree else paths
+
+
+def _git_restore_targets(args: List[str], cwd: Optional[str], seg: List[_Tok], out: _Scan) -> None:
+    """git 指定路徑還原檔案內容（R3 補）：`git checkout [<rev>] -- <路徑>…`、`git checkout <rev> <路徑>…`、
+    `git restore [--source <rev>] [--worktree] <路徑>…` 會改寫工作樹的檔 → 目標＝那些路徑（照 `-C <目錄>` 或 cwd 解析）。
+    寫碼查核靠它記下「最後一次改這個檔」的時間：反證時用 git 把程式與案例退回舊版、最後只還原程式，時間序才查得到。
+    只認字面檔案路徑：萬用字元、pathspec 魔術字（`:` 開頭）、目錄、--pathspec-from-file、--git-dir／--work-tree、算不出的 -C → UNKNOWN。
+    其他 git 子指令（commit、log、switch…）照舊不算寫入目標。"""
+    base, tree, i = cwd, False, 0
+    while i < len(args) and args[i].startswith("-"):
+        a = args[i]
+        if a == "-C" and i + 1 < len(args):
+            r = _write_target_abs(args[i + 1], base)
+            base = None if r in (None, _WRITE_TARGET_UNKNOWN) else r
+            i += 2
+        elif a in _GIT_VALUE_OPTS and i + 1 < len(args):
+            i += 2
+        elif a.startswith(_GIT_TREE_OPTS):
+            tree = True
+            i += 1 if "=" in a else 2
+        else:
+            i += 1
+    if i >= len(args):
+        return
+    sub, rest = args[i].lower(), args[i + 1:]
+    if sub == "checkout":
+        paths = _git_checkout_paths(rest, base)
+    elif sub == "restore":
+        paths = _git_restore_paths(rest)
+    else:
+        return
+    if paths == []:
+        return
+    if paths is None or tree:
+        _mark_unknown(out, seg)
+        return
+    out.signal = True
+    for p in paths:
+        r = _WRITE_TARGET_UNKNOWN if _PATHSPEC_MAGIC_RE.search(p) else _write_target_abs(p, base)
+        if r not in (None, _WRITE_TARGET_UNKNOWN) and os.path.isdir(r):
+            r = _WRITE_TARGET_UNKNOWN                # 目錄：不知道還原了其中哪些檔
+        _add(out, seg, r)
+
+
 def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: str, out: _Scan) -> Optional[str]:
     """一個子段：先收重導向目標，再看第一個命令字是不是寫檔命令／直譯器／eval／cd。回之後的 cwd。"""
     if not seg:
@@ -2100,6 +2197,9 @@ def _scan_segment(seg: List[_Tok], cwd: Optional[str], prev_sep: str, next_sep: 
             r = _write_target_abs(args[0], cwd)
             new = None if r in (None, _WRITE_TARGET_UNKNOWN) else r
         return None if next_sep in ("|", "||") else new    # cd 之後接 |／||：成功與否不確定
+    if name == "git":
+        _git_restore_targets(args, cwd, seg, out)
+        return cwd
     if name not in _WRITE_CMDS:
         return cwd
     out.signal = True

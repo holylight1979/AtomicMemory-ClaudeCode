@@ -65,6 +65,54 @@ def test_bash_non_targets(cmd):
     assert write_paths_from_tool("Bash", {"command": cmd}, CWD) == []
 
 
+def test_037_git_path_restore_is_a_write_target(tmp_path):
+    """037：git 指定路徑還原會改寫工作樹的檔 → 是寫入目標（寫碼查核靠它記最後一次改檔的時間）：`checkout [<rev>] -- 路徑`、
+    `checkout <rev> 路徑`、只給一個且是現存檔的 `checkout 檔`、`restore [--source／-s <rev>] [--worktree] 路徑`，`-C` 改解析基準；
+    PowerShell 同。切分支、建分支、`restore --staged`（只動暫存區）、其他 git 子指令不算；萬用字元、pathspec 魔術字、目錄、
+    --pathspec-from-file、--git-dir／--work-tree → 目標不明。"""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "a.py").write_text("x", encoding="utf-8")
+    cwd = str(tmp_path)
+    a, b = os.path.normpath(str(tmp_path / "a.py")), os.path.normpath(str(tmp_path / "src" / "b.py"))
+    fwd = cwd.replace("\\", "/")
+    ok = [
+        ("git checkout HEAD~1 -- a.py src/b.py", [a, b]),
+        ("git checkout -- a.py", [a]),
+        ("git checkout HEAD a.py", [a]),
+        ("git checkout a.py", [a]),
+        (f"git -C {fwd} checkout v6/x -- a.py", [a]),
+        (f"cd {fwd} && git checkout d59ee37 -- a.py src/b.py", [a, b]),
+        ("git restore a.py", [a]),
+        ("git restore --source HEAD~1 a.py", [a]),
+        ("git restore -s HEAD~1 -- a.py", [a]),
+        ("git restore --staged --worktree a.py", [a]),
+        ("git restore -SW a.py", [a]),
+    ]
+    for cmd, want in ok:
+        assert write_paths_from_tool("Bash", {"command": cmd}, cwd) == want, cmd
+    assert write_paths_from_tool("PowerShell", {"command": "git checkout HEAD -- a.py"}, cwd) == [a]
+    for cmd in ("git checkout main", "git checkout -b feat", "git checkout -B feat HEAD~1", "git restore --staged a.py",
+                "git restore -S a.py", "git switch main", "git commit -m x", "git checkout HEAD~1", "git status -- a.py"):
+        assert write_paths_from_tool("Bash", {"command": cmd}, cwd) == [], cmd
+    for cmd in ("git checkout HEAD -- '*.py'", "git checkout -- .", "git checkout HEAD -- src", "git restore :/a.py",
+                "git --git-dir=x checkout -- a.py", "git restore --pathspec-from-file=list.txt"):
+        got = write_paths_from_tool("Bash", {"command": cmd}, cwd)
+        assert len(got) == 1 and got[0].startswith("UNKNOWN:"), (cmd, got)
+
+
+def test_039_whole_directory_restore_is_unknown_not_silent(tmp_path):
+    """039（038 codex BLOCK）：只給一個參數而它是現存目錄的 checkout（`git checkout .`、`git -C src checkout .`、`git checkout src`）
+    還原整個目錄、不知道動了哪些檔 → 目標不明，不是 []；`checkout -- .`、`restore .` 同樣目標不明；真的切分支、不存在的名字仍是 []。"""
+    (tmp_path / "src").mkdir()
+    cwd, fwd = str(tmp_path), str(tmp_path).replace("\\", "/")
+    for cmd in ("git checkout .", f"git -C {fwd}/src checkout .", f"git -C {fwd} -C src checkout .", "git checkout src",
+                "git checkout -- .", "git restore .", f"cd {fwd}/src && git checkout ."):
+        got = write_paths_from_tool("Bash", {"command": cmd}, cwd)
+        assert len(got) == 1 and got[0].startswith("UNKNOWN:"), (cmd, got)
+    for cmd in ("git checkout main", "git checkout v6/track-e6", "git checkout -"):
+        assert write_paths_from_tool("Bash", {"command": cmd}, cwd) == [], cmd
+
+
 def test_relative_paths_resolve_against_cwd():
     got = _n(write_paths_from_tool("Bash", {"command": "echo a > src/a.txt; tee logs/x.log"}, CWD))
     assert got == ["C:/Work/Proj/src/a.txt", "C:/Work/Proj/logs/x.log"]

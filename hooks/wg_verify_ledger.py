@@ -1178,6 +1178,102 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     return owed
 
 
+GIT_BUDGET_S = 4.0       # net_unchanged_paths 整支查 git 的時間預算（Guardian Stop hook 上限 10 秒，其餘留給後面的閘）
+_GIT_MIN_S = 0.2         # 剩餘預算不到這麼多就不再開 git 子行程
+_GIT_SPEC_CAP = 24000    # pathspec 合計字數上限（Windows 命令列 32767 字）；超過就不查，照算改了
+
+
+def _git_root_of(path: str) -> Optional[Tuple[str, Path]]:
+    """改檔所在的 git 根 → (正規化鍵, 根)；檔或目錄被刪了往上找還在的目錄；不在 git 工作區回 None。"""
+    d = Path(path).parent
+    while not d.exists() and d.parent != d:
+        d = d.parent
+    hit = find_vcs_root(d)
+    return (_norm_path(str(hit[1])), hit[1]) if hit and hit[0] == "git" else None
+
+
+def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None, timeout_s: float = 3.0,
+                        _run: Optional[Callable[..., Any]] = None, session_paths: Optional[Iterable[str]] = None,
+                        budget_s: Optional[float] = None) -> List[str]:
+    """改過、但現在跟 HEAD 一模一樣的檔（例：反證時暫改、又 git checkout 還原）→ 回這些檔的 path（照 modified_files 的寫法）。
+    要同時成立：git 追蹤著它、本 session 從第一次改它那回合起沒跑過 commit（last_commit_turn ≥ 該檔 turn_seq：工作樹乾淨可能是
+    把改動提交了，照算改了），而且同一個 git 根裡本 session 改過的每個檔（session_paths：主 session 與所有子代理的改檔，沒給就只看
+    mods）git status 都沒有輸出（改動、已暫存、刪除、未追蹤、被忽略都算有差）：只把程式還原、案例還留著舊版，這個根就一個都不剔除。
+    時間：整支共用 budget_s（預設 GIT_BUDGET_S）秒，每個 git 子行程只拿剩餘預算（最多 timeout_s）；預算不足沒查到的根照算改了，
+    stderr 印根路徑。判不出來（不在 git 工作區、修改紀錄沒有回合、git 失敗或逾時）→ 不回，照算改了（不放寬）。每個根最多兩次 git。"""
+    run = _run or subprocess.run
+    deadline = time.monotonic() + (GIT_BUDGET_S if budget_s is None else float(budget_s))
+    try:
+        last = int(last_commit_turn) if last_commit_turn is not None else None
+    except (TypeError, ValueError):
+        return []
+    by_root: Dict[str, Tuple[Path, List[str], List[str]]] = {}     # 鍵 → (根, 可剔除的改檔, 同根本 session 全部改檔)
+    for m in mods or []:
+        p, t = (m.get("path"), m.get("turn_seq")) if isinstance(m, dict) else (None, None)
+        try:
+            if not p or t is None or (last is not None and last >= int(t)):
+                continue
+        except (TypeError, ValueError):
+            continue
+        hit = _git_root_of(p)
+        if hit:
+            by_root.setdefault(hit[0], (hit[1], [], []))[1].append(p)
+    if not by_root:
+        return []
+    for p in [*(session_paths or []), *(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path"))]:
+        hit = _git_root_of(str(p))
+        if hit and hit[0] in by_root and p not in by_root[hit[0]][2]:
+            by_root[hit[0]][2].append(str(p))
+    out: List[str] = []
+    for key, (root, paths, every) in by_root.items():
+        spec, spec_all = [str(x).replace("\\", "/") for x in paths], [str(x).replace("\\", "/") for x in every]
+        spec_len = sum(len(s) + 1 for s in spec_all)
+        if spec_len > _GIT_SPEC_CAP:
+            print(f"[verify_ledger] {root} 這次改過的檔路徑合計 {spec_len} 字（{len(spec_all)} 個檔），超過命令列可帶的 "
+                  f"{_GIT_SPEC_CAP} 字，查不了 git，這些改檔照算改了", file=sys.stderr)
+            continue
+        try:
+            left = deadline - time.monotonic()
+            if left < _GIT_MIN_S:
+                raise subprocess.TimeoutExpired("git ls-files", 0)
+            tracked = run(["git", "-C", str(root), "ls-files", "-z", "--full-name", "--", *spec],
+                          capture_output=True, timeout=min(timeout_s, left), creationflags=_NO_WINDOW)
+            left = deadline - time.monotonic()
+            if left < _GIT_MIN_S:
+                raise subprocess.TimeoutExpired("git status", 0)
+            status = run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=all",
+                          "--", *spec_all], capture_output=True, timeout=min(timeout_s, left), creationflags=_NO_WINDOW)
+        except subprocess.TimeoutExpired as e:
+            print(f"[verify_ledger] 在 {root} 查 git 逾時或時間預算用完（TimeoutExpired：{e.cmd}；整支預算 "
+                  f"{GIT_BUDGET_S if budget_s is None else budget_s} 秒），沒查完，這些改檔照算改了", file=sys.stderr)
+            continue
+        except (OSError, subprocess.SubprocessError) as e:
+            print(f"[verify_ledger] 在 {root} 查 git 失敗，這些改檔照算改了：{type(e).__name__}: {e}", file=sys.stderr)
+            continue
+        if tracked.returncode != 0 or status.returncode != 0:
+            err = (status.stderr or tracked.stderr or b"").decode("utf-8", "replace").strip()[:120]
+            print(f"[verify_ledger] 在 {root} 查 git 回非零，這些改檔照算改了：{err}", file=sys.stderr)
+            continue
+        known = {_norm_path(f"{key}/{f}") for f in tracked.stdout.decode("utf-8", "replace").split("\0") if f}
+        changed, fields, i = set(), status.stdout.decode("utf-8", "replace").split("\0"), 0
+        while i < len(fields):
+            f = fields[i]
+            if len(f) > 3:
+                changed.add(_norm_path(f"{key}/{f[3:]}"))
+                if f[0] in "RC" and i + 1 < len(fields):    # 改名／複製：下一欄是原路徑
+                    i += 1
+                    changed.add(_norm_path(f"{key}/{fields[i]}"))
+            i += 1
+        dirty = [p for p in every if _norm_path(p) in changed]
+        if dirty:
+            if any(_norm_path(p) not in changed for p in paths):
+                print(f"[verify_ledger] {root} 還有本 session 改過、跟 HEAD 不同的檔（{'、'.join(Path(p).name for p in dirty[:3])}），"
+                      "這個根的改檔一律照算改了", file=sys.stderr)
+            continue
+        out += [p for p in paths if _norm_path(p) in known]
+    return out
+
+
 _RECONCILE_HEAD = "[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據，或改了程式碼還欠驗證案例：\n"
 _RECONCILE_SOURCE = "\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
 _RECONCILE_TAIL = _RECONCILE_SOURCE + "改成事實句（沒跑就說沒跑），或現在跑出對應收據再重新收尾。"
