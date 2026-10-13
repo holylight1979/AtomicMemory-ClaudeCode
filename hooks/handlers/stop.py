@@ -905,7 +905,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 只認本 session 自己的條目（共用／merged state 下隔壁 session 的紅測不擋本 session；沒蓋 sid 的舊條目視為他人）
     failing = _own_failing_tests(state, session_id)
     cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "")
-    transcript = _find_session_transcript(session_id, cwd) if cwd else None
+    # transcript 先用 hook 輸入給的路徑：session 中途切進 worktree（cwd 換了）之後，transcript 寫在新 cwd 的資料夾，
+    # 拿 state 裡開場時的 cwd 推會找不到 → 擋的位置記成 0、讀不到 AskUserQuestion 的放行答案。輸入沒給或檔不在才自己推。
+    _tp_in = str(input_data.get("transcript_path") or "")
+    transcript = (Path(_tp_in) if _tp_in and Path(_tp_in).is_file()
+                  else _find_session_transcript(session_id, cwd) if cwd else None)
     # 單次 tail-read：本函式所有 transcript 消費者（last_text / token 預警 /
     # usefulness turn 文字）共用同一份尾段，取代先前各自全檔讀取。
     transcript_text = read_transcript_tail(transcript)

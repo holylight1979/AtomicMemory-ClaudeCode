@@ -3242,3 +3242,23 @@ def test_040_7_reversal_after_commit_does_not_double_block(driven, capsys, chain
     git("checkout", "HEAD", "--", "src/a.py")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
     assert (_DEBT_A in out) is owed, flow
+
+
+def test_040_13_transcript_from_hook_input_when_session_moved_into_worktree(driven, capsys, tmp_path, monkeypatch):
+    """040 現場：session 開場在 live、中途 EnterWorktree，transcript 改寫在 worktree 那個資料夾；Stop 拿 state 裡開場的 cwd 推路徑
+    找不到（driven 把那條路設成找不到），擋的位置記成 0、AskUserQuestion 的放行答案讀不到，使用者選放行也沒用。
+    改成先用 hook 輸入的 transcript_path：擋的位置是真的檔長、擋之後的放行答案認得到。舊碼只用 cwd 推。"""
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    tp = tmp_path / "C--wt-slug" / f"{_SID}.jsonl"
+    tp.parent.mkdir()
+    tp.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "改 x.py"}}, ensure_ascii=False) + "\n",
+                  encoding="utf-8")
+    hook_in = {"transcript_path": str(tp)}
+    base = {"modified_files": [_mf(_CODE, 5, last_at=_T1, last_seq=3)], "session": {"cwd": str(tmp_path)}}
+    out, st1, _ = driven("全部完成了。", capsys, hook_input=hook_in, **base)
+    assert "(d)" in out and st1["last_block"][_SID]["reconcile"]["offset"] == tp.stat().st_size > 0
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(_ask_line(rl.OPT_RELEASE))
+    keep = {k: st1[k] for k in ("last_block", "reconcile_gate_turn", "modified_files", "session")}
+    out, _, logs = driven("全部完成了。", capsys, hook_input=hook_in, **keep)
+    assert "ReconcileGate" not in out and _released(logs)
