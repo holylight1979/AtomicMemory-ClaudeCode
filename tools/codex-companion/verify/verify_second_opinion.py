@@ -5,6 +5,8 @@
 反例：independent 帶 draft 被拒；review 缺 draft 被拒；pre FAIL → blocked 且沒有 codex 子程序被啟動；
       探針失敗（餵 1385 stderr）status 必 failed 不得 done；post FAIL 不 done；逾時後 failed 且 kill 被呼叫；
       缺反例段 → failed；材料含封存關鍵字 → blocked；config 開 allow_claude_fallback 也不生效。
+沙箱與探針：探針與 codex exec 都帶 -s read-only＋（Windows）-c windows.sandbox="unelevated"，旗標不寫進共用 codex_extra_args；
+      探針要用 shell 讀回 probe.txt 的隨機字樣，只回 CODEX_OK 不算過；拿掉 unelevated 時照真 codex 模擬回 1385 → 探針紅。
 怎麼跑：python -X utf8 -m pytest -q tools/codex-companion/verify/verify_second_opinion.py
 """
 from __future__ import annotations
@@ -40,6 +42,26 @@ pack = run.pack
 so_prompts = run.so_prompts
 
 THREE = "## 結論\n改動正確。\n\n## 證據\nmaterials/diff.patch:3；等號補上；所以邊界對了。\n\n## 反例或未解\n無，材料裡沒有 cap=0 的案例。\n"
+UNELEVATED = 'windows.sandbox="unelevated"'
+
+
+def _is_probe(cmd) -> bool:
+    """探針那一次 codex 呼叫（舊版 run.py 的探針是 "Reply CODEX_OK"，反證退回舊碼時也認得）。"""
+    return getattr(run, "PROBE_PROMPT", "Reply CODEX_OK") in cmd
+
+
+def _emulate_probe(cmd, cwd, plan):
+    """照真 codex（v0.154，本機實測）回應探針：
+    - 只叫它回固定字樣（"Reply CODEX_OK"）：不用 shell，沙箱有沒有問題都回得出 CODEX_OK；
+    - 叫它用 shell 讀工作目錄的檔：Windows 上沒帶 unelevated 就 1385、讀不到，帶了才讀得回檔案第一行。"""
+    if "Reply CODEX_OK" in cmd:
+        return "CODEX_OK\n", "", 0
+    work = Path(cmd[cmd.index("-C") + 1]) if "-C" in cmd else Path(cwd)
+    if sys.platform == "win32" and UNELEVATED not in cmd:
+        return "PROBE_FAIL\n", (FIX / "stderr_fail.log").read_text(encoding="utf-8"), 0
+    line = (work / run.PROBE_FILE).read_text(encoding="utf-8").splitlines()[0]
+    plan.setdefault("probe_nonces", []).append(line)
+    return line + "\n", "", 0
 TWO = "## 結論\n改動正確。\n\n## 證據\nmaterials/diff.patch:3；等號補上。\n"
 
 
@@ -64,7 +86,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(run, "JOB_ROOT", tmp_path / "jobs")
     monkeypatch.setattr(run.judge_backend, "resolve_codex_bin", lambda _cfg: "C:/fake/codex.cmd")
 
-    plan = {"pre": "PASS", "post": "PASS", "probe": {"stdout": "CODEX_OK\n", "stderr": "", "rc": 0},
+    # probe 預設照真 codex 的行為模擬（_emulate_probe）；測試要固定輸出時給 {"stdout", "stderr", "rc"}
+    plan = {"pre": "PASS", "post": "PASS", "probe": {"emulate": True},
             "exec": {"reply": THREE, "stderr": "", "rc": 0, "timeout": False}, "popen": [], "kills": 0,
             "post_reasons": []}
 
@@ -102,11 +125,14 @@ def env(tmp_path, monkeypatch):
             joined = " ".join(self.cmd)
             assert "claude" not in Path(self.cmd[0]).name.lower(), "第二意見不得退 claude"
             self._timeout = False
-            if "Reply CODEX_OK" in self.cmd:
+            if _is_probe(self.cmd):
                 p = plan["probe"]
-                stdout.write(p["stdout"].encode("utf-8"))
-                stderr.write(p["stderr"].encode("utf-8"))
-                self._rc = p["rc"]
+                if p.get("emulate"):
+                    out, err, self._rc = _emulate_probe(self.cmd, cwd, plan)
+                else:
+                    out, err, self._rc = p["stdout"], p["stderr"], p["rc"]
+                stdout.write(out.encode("utf-8"))
+                stderr.write(err.encode("utf-8"))
             else:
                 e = plan["exec"]
                 self._timeout = e["timeout"]
@@ -279,7 +305,7 @@ def test_probe_failure_1385_is_failed_not_done(env):
     res = _prepare(env)
     st = _execute(env, res["job_dir"])
     assert st["status"] == "failed" and st["stage"] == "probe" and "沙箱" in st["reason"]
-    assert len(env["plan"]["popen"]) == 1 and "Reply CODEX_OK" in env["plan"]["popen"][0]
+    assert len(env["plan"]["popen"]) == 1 and _is_probe(env["plan"]["popen"][0])
     assert not (Path(res["job_dir"]) / "reply.md").exists()
 
 
@@ -291,7 +317,7 @@ def test_probe_timeout_is_failed_and_killed(env):
 
     class Probe(orig):  # type: ignore[misc]
         def wait(self, timeout=None):
-            if "Reply CODEX_OK" in self.cmd:
+            if _is_probe(self.cmd):
                 raise subprocess.TimeoutExpired(self.cmd, timeout)
             return super().wait(timeout)
     subprocess.Popen = Probe
@@ -299,6 +325,88 @@ def test_probe_timeout_is_failed_and_killed(env):
     st = _execute(env, res["job_dir"])
     assert st["status"] == "failed" and "探針逾時" in st["reason"] and plan["kills"] == 1
     assert len(plan["popen"]) == 1, "探針失敗後不得再跑 codex exec，也不得退 claude"
+
+
+# ─── 002：唯讀沙箱旗標與探得出來的探針 ───────────────────────────────────────
+
+
+def _flag_pair(cmd) -> bool:
+    return any(cmd[i] == "-c" and cmd[i + 1] == UNELEVATED for i in range(len(cmd) - 1))
+
+
+def test_002_probe_and_exec_carry_sandbox_flag_and_keep_extra_args(env):
+    a = _prepare(env)
+    assert _execute(env, a["job_dir"])["status"] == "done"
+    b = _prepare(env, session_id="yyyy8888", question="第二題")
+    assert _execute(env, b["job_dir"])["status"] == "done"
+    assert len(env["plan"]["popen"]) == 4, "兩個 job 各一次探針＋一次 codex exec"
+    for cmd in env["plan"]["popen"]:
+        assert cmd[cmd.index("-s") + 1] == "read-only"
+        if sys.platform == "win32":
+            assert _flag_pair(cmd), f"Windows 唯讀沙箱要帶 -c {UNELEVATED}（沒帶時 codex 裡每個指令都 1385）：{cmd}"
+        assert "x=1" in cmd and cmd.count("x=1") == 1, "codex_extra_args 照帶一次"
+    assert run.load_config()[1]["codex_extra_args"] == ["-c", "x=1"], "旗標不寫進共用的 codex_extra_args（裁判不受影響）"
+    nonces = env["plan"]["probe_nonces"]
+    assert len(nonces) == 2 and nonces[0] != nonces[1], "每次探針的字樣都是新的隨機值"
+    for j in (a, b):
+        assert not (Path(j["job_dir"]) / run.PROBE_FILE).exists(), "探完要刪 probe.txt"
+        assert all(n not in (Path(j["job_dir"]) / "prompt.md").read_text(encoding="utf-8") for n in nonces)
+
+
+def test_002_probe_that_only_answers_without_reading_the_file_is_failed(env):
+    # 舊探針的成功樣子：回 CODEX_OK、stderr 乾淨、exit 0。codex 在沙箱裡 spawn 不起 shell 時也長這樣，不能算過
+    env["plan"]["probe"] = {"stdout": "CODEX_OK\n", "stderr": "", "rc": 0}
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and st["stage"] == "probe" and "probe.txt" in st["reason"]
+    assert len(env["plan"]["popen"]) == 1, "探針沒過就不跑 codex exec"
+    assert not (Path(res["job_dir"]) / run.PROBE_FILE).exists()
+
+
+def test_002_sandbox_args_platform_branch(monkeypatch):
+    # codex 審 ccf2597 WARN：平台分支沒測。Windows 要帶 unelevated；其他平台只留 -s read-only，不塞 Windows 專用設定
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert run._sandbox_args() == ["-s", "read-only", "-c", UNELEVATED]
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert run._sandbox_args() == ["-s", "read-only"]
+
+
+def test_002_stale_probe_log_does_not_fail_a_recovered_probe(env, tmp_path):
+    # codex 審 ccf2597 BLOCK 1：`run.py probe` 重用 _probe 目錄、log 附加寫入；上一次的 1385 留在尾段時，這次讀回字樣也被判失敗
+    probe_dir = tmp_path / "_probe"
+    probe_dir.mkdir()
+    stale = (FIX / "stderr_fail.log").read_text(encoding="utf-8")
+    (probe_dir / "probe.stderr.log").write_text(stale, encoding="utf-8", newline="\n")
+    (probe_dir / "probe.stdout.log").write_text("PROBE_FAIL\n", encoding="utf-8", newline="\n")
+    so_cfg, cc_cfg = run.load_config()
+    ok, why = run.probe_codex(probe_dir, "gpt-6-astra", so_cfg, cc_cfg)
+    assert ok, f"上一次探針的 1385 殘留讓這次判失敗：{why}"
+    assert "1385" not in (probe_dir / "probe.stderr.log").read_text(encoding="utf-8")
+
+
+def test_002_probe_file_undeletable_leaves_stderr_signal(env, tmp_path, monkeypatch, capsys):
+    # codex 審 ccf2597 BLOCK 2：刪不掉 probe.txt 不改判定，但要留訊號（不准靜默）
+    real_unlink = Path.unlink
+
+    def stuck(self, *a, **kw):
+        if self.name == run.PROBE_FILE:
+            raise PermissionError("被別的程序開著")
+        return real_unlink(self, *a, **kw)
+    monkeypatch.setattr(Path, "unlink", stuck)
+    so_cfg, cc_cfg = run.load_config()
+    ok, _ = run.probe_codex(tmp_path, "gpt-6-astra", so_cfg, cc_cfg)
+    assert ok and (tmp_path / run.PROBE_FILE).exists()
+    assert "探針檔刪不掉" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="unelevated 只在 Windows 唯讀沙箱有意義")
+def test_002_probe_without_unelevated_is_red_like_real_codex(env, monkeypatch):
+    # 拿掉旗標（只剩 -s read-only）：模擬的 codex 照本機實測回 1385 → 探針必紅，job 不得 done
+    monkeypatch.setattr(run, "_sandbox_args", lambda: ["-s", "read-only"], raising=False)
+    res = _prepare(env)
+    st = _execute(env, res["job_dir"])
+    assert st["status"] == "failed" and st["stage"] == "probe" and "沙箱" in st["reason"] and "1385" in st["reason"]
+    assert len(env["plan"]["popen"]) == 1 and not _flag_pair(env["plan"]["popen"][0])
 
 
 def test_post_fail_not_done(env):
@@ -351,7 +459,7 @@ def test_full_run_done_three_sections_and_jobs_isolated(env):
         assert (Path(a["job_dir"]) / name).is_file(), name
     assert (Path(a["job_dir"]) / "materials").is_dir()
     # codex exec 指令形狀
-    ex = [c for c in env["plan"]["popen"] if "Reply CODEX_OK" not in c][0]
+    ex = [c for c in env["plan"]["popen"] if not _is_probe(c)][0]
     assert ex[ex.index("-m") + 1] == "gpt-6-astra" and ex[ex.index("-C") + 1] == a["job_dir"]
     assert "-c" in ex and "x=1" in ex, "codex_extra_args 要帶上"
 

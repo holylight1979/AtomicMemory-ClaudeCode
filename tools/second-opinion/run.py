@@ -4,7 +4,7 @@
 怎麼跑（MCP `second_opinion_start` 會自己呼叫；手動除錯才直接跑）：
   python tools/second-opinion/run.py prepare --request <request.json | ->    # 打包→提示詞→replay-guard pre；印 job_id/hash/status
   python tools/second-opinion/run.py execute --job <job_dir>                 # 探針→codex exec→replay-guard post→三段解析
-  python tools/second-opinion/run.py probe                                   # 只探 codex 起不起得來（Reply CODEX_OK）
+  python tools/second-opinion/run.py probe                                   # 只探 codex 能不能在唯讀沙箱用 shell 讀檔
   python tools/second-opinion/run.py status --job <job_dir>                  # 印 status.json 與 reply.md
 完整參數以 --help 為準。
 
@@ -43,7 +43,7 @@ JOB_ROOT = CLAUDE_DIR / "workflow" / "second-opinion"
 
 DEFAULTS: Dict[str, Any] = {
     "model": "gpt-6-astra",
-    "probe_timeout_s": 20,
+    "probe_timeout_s": 60,           # 探針要真的跑一次 shell 讀檔：實測 18～22 s，20 s 會被殺
     "timeout_s": 300,
     "defects_top_n": 5,
     "ledger_tail": 20,
@@ -56,6 +56,19 @@ DEFAULTS: Dict[str, Any] = {
 _STRONG_FAIL_RE = re.compile(r"CreateProcessWithLogon|\b1385\b", re.IGNORECASE)
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 _NO_CMD_LINE_REASON = "找不到任何指令行"
+# 探針：叫 codex 用 shell 讀一個只寫在檔裡的隨機字樣。只回固定字樣不需要 shell，沙箱 spawn 不起來（1385）也照樣回得出，探不出問題
+PROBE_FILE = "probe.txt"
+PROBE_PROMPT = f"用 shell 指令讀工作目錄下的 {PROBE_FILE}，只回它的第一行原文，不要加任何字。讀不到就只回 PROBE_FAIL。"
+
+
+def _sandbox_args() -> List[str]:
+    """codex exec 的唯讀沙箱旗標。Windows 的唯讀沙箱要 `windows.sandbox="unelevated"` 才 spawn 得起 shell；
+    沒帶時 codex 裡每個指令都 CreateProcessWithLogonW 1385，只能看提示裡內嵌（會截斷）的材料。
+    放在組指令處、不放共用的 codex_extra_args：裁判（codex-companion/assessor.py）不傳 -s、走 codex 自己的預設，兩邊各自決定。"""
+    args = ["-s", "read-only"]
+    if sys.platform == "win32":
+        args += ["-c", 'windows.sandbox="unelevated"']
+    return args
 
 
 def _load_sibling(name: str, alias: str):
@@ -301,23 +314,37 @@ def prepare(req: Dict[str, Any], so_cfg: Dict[str, Any], job_root: Path) -> Dict
 
 
 def probe_codex(job_dir: Path, slug: str, so_cfg: Dict[str, Any], cc_cfg: Dict[str, Any]) -> Tuple[bool, str]:
-    """`codex exec --skip-git-repo-check -s read-only -m <slug> "Reply CODEX_OK"`；逾時／1385／沒回 CODEX_OK → False。"""
+    """在 job_dir 放 probe.txt（一行隨機字樣，不在提示裡），`codex exec --skip-git-repo-check -s read-only <沙箱旗標> -m <slug>
+    -C <job_dir> PROBE_PROMPT` 叫它用 shell 讀回來。逾時／1385／回覆沒有那個字樣 → False。
+    探完刪掉 probe.txt；刪不掉只在 stderr 留一行、不改判定（字樣是隨機值、不含材料，留在 job 目錄不影響審查）。"""
     codex_bin = judge_backend.resolve_codex_bin(cc_cfg)
     if not codex_bin:
         return False, "找不到 codex CLI（codex_companion.codex_binary 與 PATH 都沒有）"
-    cmd = [codex_bin, "exec", "--skip-git-repo-check", "-s", "read-only", "-m", slug]
+    nonce = f"PROBE-{uuid.uuid4().hex[:16]}"
+    probe_file = job_dir / PROBE_FILE
+    probe_file.write_text(nonce + "\n", encoding="utf-8", newline="\n")
+    cmd = [codex_bin, "exec", "--skip-git-repo-check", *_sandbox_args(), "-m", slug, "-C", str(job_dir)]
     cmd += [str(a) for a in (cc_cfg.get("codex_extra_args") or [])]
-    cmd += ["Reply CODEX_OK"]
+    cmd += [PROBE_PROMPT]
     out_p, err_p = job_dir / "probe.stdout.log", job_dir / "probe.stderr.log"
-    rc, timed_out = run_with_timeout(cmd, int(so_cfg.get("probe_timeout_s", 20)), str(job_dir), None, out_p, err_p)
+    for p in (out_p, err_p):  # run_with_timeout 是附加寫入；`run.py probe` 重用 _probe 目錄，上一次的 1385 不能留在這次的尾段
+        p.write_bytes(b"")
+    try:
+        rc, timed_out = run_with_timeout(cmd, int(so_cfg.get("probe_timeout_s", 60)), str(job_dir), None, out_p, err_p)
+    finally:
+        try:
+            probe_file.unlink()
+        except OSError as e:
+            sys.stderr.write(f"[second-opinion] 探針檔刪不掉：{probe_file}（{e}）\n")
     stderr = _tail(err_p)
     stdout = _tail(out_p, 4000)
     if timed_out:
-        return False, f"探針逾時（{so_cfg.get('probe_timeout_s', 20)}s）；stderr 尾：{stderr[-400:]}"
-    if _STRONG_FAIL_RE.search(stderr) or (assessor._SANDBOX_FAILURE_RE.search(stderr) and "CODEX_OK" not in stdout):
-        return False, f"codex 沙箱起不來（唯讀沙箱失敗）；stderr 尾：{stderr[-400:]}"
-    if rc != 0 or "CODEX_OK" not in stdout:
-        return False, f"探針沒回 CODEX_OK（exit={rc}）；stderr 尾：{stderr[-400:]}"
+        return False, f"探針逾時（{so_cfg.get('probe_timeout_s', 60)}s）；stderr 尾：{stderr[-400:]}"
+    if _STRONG_FAIL_RE.search(stderr) or (assessor._SANDBOX_FAILURE_RE.search(stderr) and nonce not in stdout):
+        return False, f"codex 沙箱裡 spawn 不起 shell（唯讀沙箱失敗，讀不到材料檔）；stderr 尾：{stderr[-400:]}"
+    if rc != 0 or nonce not in stdout:
+        return False, (f"探針沒讀回 {PROBE_FILE} 的字樣（exit={rc}；codex 沒能用 shell 讀工作目錄的檔）；"
+                       f"stdout 尾：{stdout[-200:]}；stderr 尾：{stderr[-400:]}")
     return True, ""
 
 
@@ -437,7 +464,7 @@ def _execute_body(job_dir: Path, so_cfg: Dict[str, Any], cc_cfg: Dict[str, Any],
     write_status(job_dir, "running", stage="codex")
     codex_bin = judge_backend.resolve_codex_bin(cc_cfg) or "codex"
     reply_raw = job_dir / "reply.raw.md"
-    cmd = [codex_bin, "exec", "-m", slug, "-s", "read-only", "-C", str(job_dir), "--ephemeral",
+    cmd = [codex_bin, "exec", "-m", slug, *_sandbox_args(), "-C", str(job_dir), "--ephemeral",
            "--skip-git-repo-check", "-o", str(reply_raw)]
     cmd += [str(a) for a in (cc_cfg.get("codex_extra_args") or [])]
     cmd += ["-"]
@@ -515,7 +542,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--request", default="-", help="request.json 路徑，或 - 讀 stdin")
     e = sub.add_parser("execute", help="探針→codex exec→post guard→三段解析；結果寫 status.json/reply.md")
     e.add_argument("--job", required=True)
-    sub.add_parser("probe", help="只探 codex（Reply CODEX_OK）")
+    sub.add_parser("probe", help="只探 codex 能不能在唯讀沙箱用 shell 讀檔（讀回 probe.txt 的隨機字樣）")
     s = sub.add_parser("status", help="印 status.json 與 reply.md")
     s.add_argument("--job", required=True)
     sc = sub.add_parser("scan", help="（post_guard 內部用）整份掃 codex.stderr.log＋codex.stdout.log；印 JSON＋尾行 SCAN_CHECK PASS|FAIL")

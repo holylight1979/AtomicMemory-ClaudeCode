@@ -2851,7 +2851,10 @@
         "第二意見",
         "獨立掃碼",
         "codex 報告",
-        "--output-last-message"
+        "--output-last-message",
+        "second_opinion_start",
+        "材料不足",
+        "replay-guard pre"
       ],
       "scope": "global"
     },
@@ -6069,6 +6072,78 @@
         "next-phase",
         "文件膨脹",
         "codex 壞臭味"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "健康探針要真的用到被依賴的能力-答案只能從那個能力拿到-只回固定字樣的探針探不出沙箱故障",
+      "path": "memory/驗證與實證/健康探針要真的用到被依賴的能力-答案只能從那個能力拿到-只回固定字樣的探針探不出沙箱故障.md",
+      "triggers": [
+        "探針",
+        "健康檢查",
+        "smoke",
+        "起得來",
+        "沙箱",
+        "假綠",
+        "隨機字樣",
+        "nonce",
+        "探不出來",
+        "probe",
+        "附加寫入 log",
+        "殘留"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走",
+      "path": "memory/Failures/行為契約/feedback-總控台要主動發掘矛盾與困擾並維持使用者立的工作要求-不被codex或自檢工具牽著走.md",
+      "triggers": [
+        "總控台",
+        "被牽著走",
+        "codex 審查",
+        "自檢工具",
+        "主動發掘",
+        "矛盾",
+        "困擾",
+        "工作要求",
+        "品質維持",
+        "裁定"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異",
+      "path": "memory/版控/Git/工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異.md",
+      "triggers": [
+        "合併被擋",
+        "would be overwritten",
+        "不能 checkout",
+        "不能 stash",
+        "merge-tree",
+        "commit-tree",
+        "update-ref",
+        "別人的未提交改動",
+        "共用工作樹合併",
+        "settings.json 髒",
+        "git apply 套分支差異",
+        "總控台合併"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-大處著眼小處著手-經手一堆小件時要回頭問現在的大目標是什麼-卡整天的困擾要自己跳出來修不等使用者追",
+      "path": "memory/Failures/思考與決策/feedback-大處著眼小處著手-經手一堆小件時要回頭問現在的大目標是什麼-卡整天的困擾要自己跳出來修不等使用者追.md",
+      "triggers": [
+        "綜觀",
+        "大處著眼",
+        "小處著手",
+        "大目標",
+        "視野越做越小",
+        "卡整天",
+        "被鎖住",
+        "總控台",
+        "追你才提",
+        "自己跳出來"
       ],
       "scope": "global"
     }
