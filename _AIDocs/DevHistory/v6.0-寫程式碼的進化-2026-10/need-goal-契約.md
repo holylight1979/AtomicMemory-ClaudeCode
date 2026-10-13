@@ -300,7 +300,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 ## 12. 不在本契約
 
 - 4.3、4.4、軌五的行為細節（bkp 依設計單做，只要守第二～九節）。bkp 新增的欄位寫在這一節。
-- 第六節 C 項（C-G1／G4／G9／G11／G15）：接點已留——`last_reconcile.turns`（G11）、`goal_changed`（G1）、`snapshot_for_report`（G9 材料）、reconcile 收下的時點（G4 掃視點）。
+- 第六節 C 項（C-G1／G4／G9／G11／G15）：接點已留：`last_reconcile.turns`（G11）、`goal_changed`（G1）、`snapshot_for_report`（G9 材料）、reconcile 收下的時點（G4 掃視點）。
 - 第七節 B5 驗法。
 
 ### 12.1 track-b-hooks 新增（只加鍵，不改第二～九節任何鍵的意義）
