@@ -235,7 +235,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 | `render(tree, form, chars=None, doc=None)` | str | 全部 | `header`（一行）／`compact`（一行一節點，chars 上限，預設設定的 `render_chars`）／`full`（含原話、轉述、證據、待對照、最近收據，要列收據時傳 doc） |
 | `node_ref(tree, text)` | str／None | b2：wg_overview；bkp：on_ask | 文字裡第一個 `T\d+(\.\d+)*` 且是這棵樹、狀態不是放棄的節點 |
 | `is_code_path(path, config)` | bool | 全部 | 部位類別是 knowledge → False；否則 `is_code_file(path, reconcile_cfg(config)["code_exts"])`（沒副檔名看第一行 `#!`）。部位類別真源是 `overview_hub.path_kind`（track-know） |
-| `edit_gate(sid, path, config)` | str／None | b2：pre_tool_use | 4.2 第一層：回擋的理由或 None |
+| `edit_gate(sid, path, config, sources=(), content=None)` | str／None | b2：pre_tool_use | 4.2 第一層：回擋的理由或 None。算不算改程式看 `writes_code`（見 12.1） |
 | `goal_for_edit(sid, path, config)` | dict／None | b2：wg_overview.on_edit | 這次改檔要不要第四行：啟用、是程式檔、有目前的樹 → 回那棵樹 |
 | `link_part(sid, hub_key, node_id, turn)` | None | b2：wg_overview.on_edit | 記「部位 → 節點」與一筆 `locate` checkpoint |
 | `stamp_edit(sid, path, agent_id, turn, config)` | None | b2：post_tool_use | 蓋改檔號；程式檔記待對照、樹升寫碼類、已對照或結束的樹退回進行中；沒有樹不記 |
@@ -266,7 +266,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 |---|---|---|---|
 | UserPromptSubmit | `handle_user_prompt_submit`：`classify_intent` 之後、OverviewHub `on_prompt` 之前；`turn`＝`state["turn_seq"]+1`（這則收尾才 +1） | `on_prompt` | stderr＋除錯紀錄，不送 |
 | PreToolUse | `handle_pre_tool_use` 的 OverviewHub 迴圈裡、逐寫入目標呼叫 `on_edit` 之前 | `edit_gate`（`UNKNOWN:` 目標交給 OverviewHub） | 判不了（鎖、損毀）→ 擋 |
-| PreToolUse | commit 指令（`_git_commit_segments`／`_svn_segments` 命中 commit／ci） | `commit_gate` → deny | 判不了 → 擋 |
+| PreToolUse | commit 指令（`_git_commits_to_run`，與 CommitOrder 同一支：先剝 heredoc 本文再判；svn 是剝過 heredoc 的 `_svn_segments` 命中 commit／ci） | `commit_gate` → deny | 判不了 → 擋 |
 | PreToolUse → `wg_overview.on_edit` | 找到定位三行之後、`_layer_mismatch` 旁 | `goal_for_edit`、`node_ref`、`link_part` | 判不了 → 擋（OverviewHub 原本的環境異常路徑） |
 | PostToolUse | need_goal 分支（`tool_name` 結尾 `need_goal`，非 error 回應） | `apply_op`；`goal_changed` → `wg_overview.on_goal_changed(state, transcript_path, turn)` | 鎖拿不到 → 回 AI「沒寫進去，請重呼叫」 |
 | PostToolUse | Edit／Write／NotebookEdit／MultiEdit 的 file_path；Bash／PowerShell 的寫入目標（非 UNKNOWN、非暫存檔） | `stamp_edit` | stderr＋守門紀錄 |
@@ -308,7 +308,10 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 - 讀入範圍由 `post_tool_use` 對 Read／Bash／PowerShell 呼叫 `wg_need_goal_points.scope_on_read` 計算，不看 OverviewHub 開關：跨頂層目錄照算，部位鍵只在 OverviewHub 開著、表上有列時才有；這個 session 還沒有目標檔就直接返回。
 - `wg_overview.read_scope_keys(path, config) → (root, part_key, dir_key)`：專案根、部位鍵 `<根>|<部位>`、頂層目錄鍵 `<根>|<頂層目錄>`；不在任何專案裡全回 None。`wg_overview.on_read` 不再算讀入範圍。
 - 目標檔頂層 `peer_offset`（int）：PostToolBatch 掃 transcript 找工作中途送到的同伴訊息（attachment `queued_command`）已掃到的位元組位置；第一次只記位置不回溯，只吃到最後一個完整行。只有 `peer_claim_lines` 寫。
-- 目標檔頂層 `peer_scan_truncated` {at, turn, skipped}（一批新增段超過 `PEER_SCAN_CAP` 256KB，只讀最後一段，skipped＝跳過的位元組數）、`peer_scan_error` {at, turn, error}（讀不到 transcript 或同伴訊息行 JSON 解析失敗；不擋，另寫 stderr）。
+- 目標檔頂層 `peer_scan_truncated` {at, turn, skipped}（一批新增段超過 `PEER_SCAN_CAP` 256KB，只讀最後一段，skipped＝跳過的位元組數）、`peer_scan_error` {at, turn, error}（讀不到 transcript 或同伴訊息行 JSON 解析失敗；不擋，另寫 stderr）、`peer_scan_reset` {at, turn, from, to}（transcript 變短：位置從 from 重置到檔尾 to，這次不回溯）。
+- peer_offset 在目標檔的鎖裡讀、在鎖裡寫（整段掃描在 `update_locked` 裡做），只會往前：兩次掃描重疊時後拿到鎖的從前一次寫回的位置接著讀，同一則同伴訊息不送兩次。
+- 「算不算改程式」：`wg_need_goal.writes_code(path, config, sources=(), content=None)`＝目標本身 `is_code_path`；或 cp／mv 家族的來源含程式檔（來源是目錄就往下找，略過 .git，超過 `DIR_SCAN_CAP` 5000 個檔還沒看完就當有）；或沒副檔名而要寫進去的內容以 `#!` 開頭。目標在知識類部位一律不算。來源由 `wg_core.write_sources_from_tool(tool_name, tool_input, cwd) → {目標: [來源…]}` 給（與 `write_paths_from_tool` 同一次解析），內容是 Write 的 `content`。
+- hook 入口取 need_goal 設定一律 `cfg_for_cwd(config, hook_cwd(input_data, state))`：`wg_need_goal.hook_cwd` 取 hook 輸入的 cwd，沒有就 state 記的 session cwd。提問閘、PostToolBatch 批次提醒與補掃、PostCompact／SessionStart(compact) 重送、UPS 糾正與同伴訊息、SessionEnd 都照這個；`recovery_text(sid, config, cwd="")`、`peer_claim_lines(sid, transcript_path, config, turn=None, cwd="")` 多一個可省略的 cwd。
 - state 鍵：
   - `need_goal_batch`（bool）：scope_on_read 排了讀入範圍提示，由 PostToolBatch 送。
   - `need_goal_ask_blocks`（int）：PreToolUse 擋提問的累計次數（`note_ask_blocked` 加一），PostToolBatch 的提問審計遇到掛上節點的提問就歸零。

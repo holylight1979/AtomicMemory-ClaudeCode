@@ -263,39 +263,8 @@ def on_external_claim(sid: Any, kind: str, source: str, turn: Optional[int] = No
 PEER_SCAN_CAP = 256 * 1024     # 一批最多讀 transcript 新增段的位元組數，超過只取最後一段
 
 
-def _peer_scan_error(sid: Any, turn: Optional[int], err: str) -> None:
-    """掃 transcript 失敗：不擋，stderr 一行，目標檔記 peer_scan_error。"""
-    print(f"[NeedGoal] 掃工作中途的同伴訊息失敗（不擋）：{err}", file=sys.stderr)
-    _update(sid, lambda d: d.__setitem__("peer_scan_error", {"at": wg_core._now_iso(), "turn": turn, "error": err}),
-            "peer_scan_error", turn)
-
-
-def peer_claim_lines(sid: Any, transcript_path: str, config: Dict[str, Any], turn: Optional[int] = None) -> List[str]:
-    """PostToolBatch：工作中途送到的同伴訊息不經任何 hook，只在 transcript 記成 attachment queued_command。
-    從目標檔頂層 peer_offset 往後讀新增段（最多 PEER_SCAN_CAP，超過只取最後一段並記 peer_scan_truncated），
-    找到同伴訊息就照外部主張送三問。只在本 session 有目標檔時掃；第一次只記位置不回溯；只吃到最後一個完整行。"""
-    if not transcript_path or not ng.goal_path(sid).exists() or not ng.cfg_of(config).get("enabled", True):
-        return []
-    doc = _load(sid, "peer_claim_lines", turn)
-    if doc is None:
-        return []
-    off = doc.get("peer_offset")
-    try:
-        size = Path(transcript_path).stat().st_size
-        if not isinstance(off, int) or off > size:
-            _update(sid, lambda d: d.__setitem__("peer_offset", size), "peer_claim_lines", turn)
-            return []
-        start = max(off, size - PEER_SCAN_CAP)
-        with open(transcript_path, "rb") as f:
-            f.seek(start)
-            raw = f.read(size - start)
-    except OSError as e:
-        _peer_scan_error(sid, turn, f"{type(e).__name__}: {e}")
-        return []
-    end = raw.rfind(b"\n") + 1
-    chunk = raw[:end]
-    if start > off:                                   # 截過：第一行可能只剩半行
-        chunk = chunk[chunk.find(b"\n") + 1:]
+def _peer_names(chunk: bytes) -> Tuple[List[str], int]:
+    """transcript 片段裡的同伴訊息（attachment queued_command、prompt 開頭是同伴標籤）→（發送者名單, JSON 壞掉的行數）。"""
     names: List[str] = []
     bad = 0
     for line in chunk.splitlines():
@@ -310,16 +279,58 @@ def peer_claim_lines(sid: Any, transcript_path: str, config: Dict[str, Any], tur
         peer = peer_of_prompt(att.get("prompt")) if isinstance(att, dict) and att.get("type") == "queued_command" else None
         if peer is not None:
             names.append(peer or "同伴 session")
+    return names, bad
 
-    def fn(d: Dict[str, Any]) -> None:
-        d["peer_offset"] = start + end
-        if start > off:
-            d["peer_scan_truncated"] = {"at": wg_core._now_iso(), "turn": turn, "skipped": start - off}
 
+def _scan_peer(d: Dict[str, Any], transcript_path: str, turn: Optional[int]) -> Tuple[List[str], Optional[str]]:
+    """鎖內：從目前的 peer_offset 往後讀 transcript 新增段，讀完把位置往前推。位置在鎖裡讀、在鎖裡寫，兩次掃描重疊時
+    後拿到鎖的從前一次寫回的位置接著讀，不會倒退、同一則不會送兩次。回（同伴名單, 錯誤訊息）。
+    第一次只記位置不回溯；transcript 變短（換檔或被截）→ 位置重置到檔尾並記 peer_scan_reset，這次不回溯；
+    新增段超過 PEER_SCAN_CAP 只讀最後一段並記 peer_scan_truncated；讀不到或有壞行 → 記 peer_scan_error。"""
+    off = d.get("peer_offset")
+    now = wg_core._now_iso()
+    try:
+        size = Path(transcript_path).stat().st_size
+        if not isinstance(off, int):
+            d["peer_offset"] = size
+            return [], None
+        if off > size:
+            d["peer_offset"] = size
+            d["peer_scan_reset"] = {"at": now, "turn": turn, "from": off, "to": size}
+            return [], None
+        start = max(off, size - PEER_SCAN_CAP)
+        with open(transcript_path, "rb") as f:
+            f.seek(start)
+            raw = f.read(size - start)
+    except OSError as e:
+        err = f"{type(e).__name__}: {e}"
+        d["peer_scan_error"] = {"at": now, "turn": turn, "error": err}
+        return [], err
+    end = raw.rfind(b"\n") + 1                       # 只吃到最後一個完整行
+    chunk = raw[:end]
+    if start > off:                                   # 截過：第一行可能只剩半行
+        chunk = chunk[chunk.find(b"\n") + 1:]
+        d["peer_scan_truncated"] = {"at": now, "turn": turn, "skipped": start - off}
     if end:
-        _update(sid, fn, "peer_claim_lines", turn)
-    if bad:
-        _peer_scan_error(sid, turn, f"{bad} 行同伴訊息 JSON 解析失敗")
+        d["peer_offset"] = start + end
+    names, bad = _peer_names(chunk)
+    if not bad:
+        return names, None
+    err = f"{bad} 行同伴訊息 JSON 解析失敗"
+    d["peer_scan_error"] = {"at": now, "turn": turn, "error": err}
+    return names, err
+
+
+def peer_claim_lines(sid: Any, transcript_path: str, config: Dict[str, Any], turn: Optional[int] = None,
+                     cwd: str = "") -> List[str]:
+    """PostToolBatch：工作中途送到的同伴訊息不經任何 hook，只在 transcript 記成 attachment queued_command。
+    在目標檔的鎖裡從 peer_offset 往後掃（_scan_peer），找到同伴訊息就照外部主張送三問。只在本 session 有目標檔、
+    而且 cwd 所在專案沒關掉流程時掃；掃不了不擋（stderr＋目標檔 peer_scan_error）。"""
+    if not transcript_path or not ng.goal_path(sid).exists() or not ng.cfg_for_cwd(config, cwd).get("enabled", True):
+        return []
+    names, err = _update(sid, lambda d: _scan_peer(d, transcript_path, turn), "peer_claim_lines", turn) or ([], None)
+    if err:
+        print(f"[NeedGoal] 掃工作中途的同伴訊息失敗（不擋）：{err}", file=sys.stderr)
     if not names:
         return []
     return [on_external_claim(sid, "同伴訊息（工作中途送到）", "、".join(dict.fromkeys(names)), turn)]
@@ -604,11 +615,11 @@ def goal_view_text(sid: Any, part: str) -> Optional[str]:
 
 # ─── 軌五：壓縮後重送、續接單 ──────────────────────────────────────────────
 
-def recovery_text(sid: Any, config: Dict[str, Any]) -> str:
-    """壓縮後獨立重送的【需求目標樹】（recovery_blob，上限＝兩倍 render_chars）；沒有樹、流程關掉、判不了 → ""
-    （判不了寫 stderr）。PostCompact 存、PostToolBatch 送；SessionStart(compact) 當場送。"""
+def recovery_text(sid: Any, config: Dict[str, Any], cwd: str = "") -> str:
+    """壓縮後獨立重送的【需求目標樹】（recovery_blob，上限＝兩倍 render_chars）；沒有樹、流程關掉（照 cwd 所在專案的設定）、
+    判不了 → ""（判不了寫 stderr）。PostCompact 存、PostToolBatch 送；SessionStart(compact) 當場送。"""
     try:
-        cfg = ng.cfg_of(config)
+        cfg = ng.cfg_for_cwd(config, cwd)
         if not cfg.get("enabled", True):
             return ""
         return ng.recovery_blob(sid, 2 * int(cfg.get("render_chars") or 1200))

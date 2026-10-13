@@ -25,7 +25,7 @@ atom 名單空也照存；PostToolBatch 注入順序 atom 內文先、綜觀後�
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import _ensure_state, write_state, output_nothing, _now_iso, MEMORY_DIR
 from wg_atoms import load_atoms_within_budget
@@ -91,14 +91,16 @@ def _atom_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str) -> T
     return header + "\n\n" + "\n\n".join(lines), injected, unresolved
 
 
-def goal_blob(session_id: str, config: Dict[str, Any]) -> str:
-    """需求目標樹獨立重送的那段；模組載不進來 → stderr、不送。"""
+def goal_blob(session_id: str, config: Dict[str, Any], input_data: Optional[Dict[str, Any]] = None,
+              state: Optional[Dict[str, Any]] = None) -> str:
+    """需求目標樹獨立重送的那段（照這次事件的 cwd 解設定）；模組載不進來 → stderr、不送。"""
     try:
+        import wg_need_goal as _ng
         from wg_need_goal_points import recovery_text
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] 需求目標模組載入失敗，壓縮後不重送目標樹：{type(e).__name__}: {e}", file=sys.stderr)
         return ""
-    return recovery_text(session_id, config)
+    return recovery_text(session_id, config, _ng.hook_cwd(input_data, state))
 
 
 def _overview_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str,
@@ -168,7 +170,7 @@ def handle_post_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         atom_blob, injected, unresolved = _atom_blob(state, config, trigger)
         sent_at = state.pop("need_goal_recovery_sent", None)
         goal_sent = isinstance(sent_at, (int, float)) and time.time() - sent_at < _GOAL_SENT_WINDOW_S
-        goal = "" if goal_sent else goal_blob(session_id, config)
+        goal = "" if goal_sent else goal_blob(session_id, config, input_data, state)
         overview_blob, parts = _overview_blob(state, config, trigger, has_goal=bool(goal) or goal_sent)
         if not atom_blob and not overview_blob and not goal:
             if sent_at is not None:   # 旗標已 pop，要落盤

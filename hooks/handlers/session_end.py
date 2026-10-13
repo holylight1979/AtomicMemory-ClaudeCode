@@ -260,7 +260,7 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     try:
         import wg_need_goal as _ng
         from wg_need_goal_points import silent_unreconciled
-        if _ng.cfg_of(config).get("enabled", True):
+        if _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
             silent_unreconciled(session_id, int(state.get("turn_seq", 0) or 0))
     except Exception as e:
         print(f"[NeedGoal] session 結束的對照紀錄失敗：{type(e).__name__}: {e}", file=sys.stderr)

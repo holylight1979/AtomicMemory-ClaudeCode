@@ -982,7 +982,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             # 需求目標樹當場重送（不等下一批工具）；記時間讓緊接著的 PostCompact 不再存一份
             try:
                 from wg_need_goal_points import recovery_text
-                goal = recovery_text(session_id, config)
+                goal = recovery_text(session_id, config, cwd)
             except Exception as e:  # noqa: BLE001
                 _atom_debug_error("session_start:need_goal_recovery", e)
                 goal = ""

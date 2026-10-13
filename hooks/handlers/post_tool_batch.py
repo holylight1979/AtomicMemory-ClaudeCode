@@ -30,8 +30,9 @@ def _peer_lines(ngp: Any, session_id: str, input_data: Dict[str, Any], config: D
                 state: Dict[str, Any]) -> list:
     """工作中途送到的同伴訊息（只在 transcript）：本 session 有目標檔才掃 transcript 新增段；判不了 → stderr、空。"""
     try:
+        import wg_need_goal as _ng
         return ngp.peer_claim_lines(session_id, input_data.get("transcript_path") or "", config,
-                                    int(state.get("turn_seq", 0) or 0))
+                                    int(state.get("turn_seq", 0) or 0), _ng.hook_cwd(input_data, state))
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] 掃工作中途的同伴訊息失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
         return []
@@ -97,7 +98,8 @@ def handle_post_tool_batch(input_data: Dict[str, Any], config: Dict[str, Any]) -
         if goal_due:
             try:
                 import wg_need_goal as _ng
-                parts.extend(ngp.batch_lines(session_id, state, input_data.get("tool_calls"), _ng.cfg_of(config)))
+                parts.extend(ngp.batch_lines(session_id, state, input_data.get("tool_calls"),
+                                             _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state))))
             except Exception as e:  # noqa: BLE001
                 print(f"[NeedGoal] post_tool_batch 提醒失敗（不擋）：{type(e).__name__}: {e}", file=sys.stderr)
         parts.extend(peer)

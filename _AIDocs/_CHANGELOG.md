@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 需求目標樹的中途關鍵點：讀入範圍變大、被糾正、改多次、收到外部主張、提問前掛節點、壓縮與換 session 不淡掉
+- **緣由**：B 段骨架只管開頭（新需求寫目標）與結尾（改了要對照、交付前完整對照）；中途讀得越來越廣、被使用者糾正、同一處繞好幾圈、收到同伴或審查的主張、要問使用者時，都沒有回頭看目標的時點（設計單 4.3、4.4、第九節軌五）。
+- **做法**：新 `hooks/wg_need_goal_points.py`。讀入範圍（post_tool_use 的 `scope_on_read`，不看 OverviewHub 開關）、同檔改 3 次以上在 PostToolBatch 合併成一則；使用者糾正在 UPS 當場送；同伴訊息、審查結果、交付信送「服務哪條目標／框架誰給的／成本為零怎麼裁」三問，工作中途只記在 transcript 的同伴訊息由 PostToolBatch 在目標檔的鎖裡從 `peer_offset` 往後掃（只往前、上限 256KB、變短明確重置）；AskUserQuestion／ExitPlanMode 前寫碼類沒掛節點就擋（PreToolUse matcher 加這兩個工具），理由附照做就能過的修法，PostToolBatch 記提問審計；壓縮後與續接單帶【需求目標樹】、session 結束記沒對照的樹。合併審查補：搬移或複製含程式檔的目錄、新建沒副檔名的 `#!` 腳本也算改程式（`writes_code`、`wg_core.write_sources_from_tool`）；commit 判定與口令閘共用 `_git_commits_to_run`（heredoc 本文裡的範例不算）；各 hook 入口照這次事件的 cwd 解設定（`hook_cwd`）。契約 12.1，TECH §7.7。
+- **驗證**：`verify_need_goal_points` 新增案例含真 hook 入口串接（擋一次計數、掛上審計歸零）、兩次掃描交錯不倒退、根關專案開／根開專案關配對；`verify_need_goal` 補搬目錄／shebang／heredoc 三案；退回改前版本新案全紅在斷言，規則變異 23 條全紅；真 hook 探針兩支全過。
+
 ## 2026-10-13 v6.0 部位表加「類別」欄：知識類部位（文件、記憶、派工信箱）移出寫碼查核
 - **緣由**：寫碼查核只看副檔名與部位，`workflow/v6-inbox/` 放一支 .py 素材就欠 (d) 案例、改 `memory/_staging` 也要交定位三行；對人總控台一整天只改這兩處卻被擋到要人放行。
 - **做法**：部位表加「類別」欄（code｜knowledge，沒欄、沒標、拼錯＝code）；`lib/overview_hub.path_kind` 用錨在專案根的最長前綴判類別（先消 `..`，根以下帶 8.3 短名算 code），OverviewHub 對 knowledge 部位只要求卡已注入，`wg_verify_ledger.is_excluded` 讓 knowledge 部位的檔不欠 (d) 也不能替寫碼部位清帳；量尺閘不動；無部位表的專案行為不變；scorecard S3 只算寫碼部位。根層表補 `workflow/v6-inbox/`、`.claude/` 兩列。表列前綴與路徑同一套正規化（`./`、`..`），放不進根相對位置的 code 列讓 knowledge 不豁免。根層 worktree 身分改成只看 git：`.git` 指到 live 的管理目錄，而且該目錄反向登記這棵樹，不再比部位表位元組。來源回填遇自動萃取卡只補 Source、不寫「AI：」Quote。

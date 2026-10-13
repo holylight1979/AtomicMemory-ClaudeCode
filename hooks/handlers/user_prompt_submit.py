@@ -364,7 +364,7 @@ def handle_user_prompt_submit(
         try:
             import wg_need_goal as _ng
             from wg_need_goal_points import on_correction, on_external_claim, peer_of_prompt
-            if _ng.cfg_of(config).get("enabled", True):
+            if _ng.cfg_for_cwd(config, _ng.hook_cwd(input_data, state)).get("enabled", True):
                 _ng_turn = int(state.get("turn_seq", 0) or 0) + 1
                 _ng_peer = peer_of_prompt(clean_prompt)
                 for _ng_line in (on_correction(session_id, correction_hits, _ng_turn) if correction_hits else None,
