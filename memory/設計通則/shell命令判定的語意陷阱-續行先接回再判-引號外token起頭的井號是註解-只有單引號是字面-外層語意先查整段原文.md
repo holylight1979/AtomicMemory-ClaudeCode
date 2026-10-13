@@ -7,6 +7,7 @@
 - Trigger: 續行, line continuation, 反斜線換行, cmd ^, PowerShell 反引號, shell 註解, 撇號, 雙引號展開, 命令替換, $(), heredoc, 斷詞器, 口令閘
 - Created-at: 2026-10-13
 - Related: 從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令, 從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據
+- Quote: 「你是 v6.0 的工作 session track-a4，總控台是 claude-2c。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-a4（分支 v6/track-a4，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\workflow\v6-inbox\to-…」
 
 ## 知識
 
