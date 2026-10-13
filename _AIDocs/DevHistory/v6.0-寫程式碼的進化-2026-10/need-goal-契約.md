@@ -130,7 +130,7 @@
 - `ref`：receipt 寫 `R<seq>`（或純數字），查 `receipts[].seq`；case／file 寫路徑，可帶 `:行` 或 `:行-行`，相對路徑以 `cwd` 解析，查磁碟存在；atom 寫卡名，查全域層（`wg_atoms.resolve_atom_path`）與 `cwd` 所在專案的 `.claude/memory/**/<名>.md`。
 - `covers`：這筆證據支持哪幾個節點，省略＝只支持它所在的那個節點；每個都要是這棵樹的節點。
 - 組合規則（程式只核對組合，不判內容）：`measured` ⇔ `receipt`（實測只能配收據，收據只能標實測）；case／file／atom 只能 `read` 或 `inferred`。
-- 先後：一筆 receipt 證據的收據 `seq` 必須大於它 `covers` 每個節點（含其子孫）掛的改動裡最大的 `seq`。只看那幾個節點自己的改動，不因改了不相關的另一塊而整樹重驗。
+- 先後：一筆 receipt 證據的收據 `seq` 必須大於它 `covers` 每個節點掛的改動裡最大的 `seq`；「節點掛的改動」＝掛在它本身、它的子孫，以及它的祖先（沒歸屬到更細節點的改動，例如沒有部位表的檔都掛樹根）。不因改了旁支的另一塊而整樹重驗。
 - 匯入的證據 `prior=true`：只供閱讀，不計入 5.5 第 4～6 條。
 
 ### 5.5 完整對照的七條（4.5 第二層；`reconcile` 收件時與交付邊界時用同一支判定）
@@ -209,6 +209,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 - 匯入只讀 `need-goal:begin`／`need-goal:end` 之間的 JSON（有多塊取最後一塊）；人讀段不解析。
 - 匯入：每棵樹配新樹號，節點號整段換前綴（`T2.1` → `T5.1`），對照表寫進 `imported_from.map`；`user_said` 與證據標 `prior=true`；`edits`、`links`、`last_reconcile` 清空；`goal_rev=1`；history 留每個節點最後一筆並記一筆 `import`。匯出時的 `active` 對應的新樹成為 `active`。
 - 同一路徑、同內容雜湊（`imports[].sha`）已匯入過 → 不再匯入，回「已匯入過（T5）」。
+- 區塊的 `session_id` 等於目前的主 sid（本 session 自己匯出的，例如壓縮前寫的自動續接單）→ 不匯入（回 `own=True`）；post_tool_use 讀到這種續接單也不送任何提示。
 
 ## 8. `wg_need_goal` 函式介面（凍結）
 
@@ -220,6 +221,8 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 | `load(sid)` | dict | 全部 | 不取鎖讀；不存在回空骨架；壞了丟 `NeedGoalCorrupt` |
 | `update_locked(sid, fn)` | fn 的回傳 | 全部 | 整段上鎖套用 `fn(doc)`；`fn` 就地改 doc；鎖拿不到丟 `NeedGoalLockTimeout` |
 | `next_seq(doc)` | int | 全部（只能在 `fn` 裡用） | 拿號 |
+| `add_checkpoint(doc, tree, turn, point, node)` | None | 全部（只能在 `fn` 裡用） | 記一筆關鍵點紀錄，滿 200 丟最舊 |
+| `handoff_session_of(text)` | str／None | b2：post_tool_use | 續接單最後一塊 need-goal 區塊是哪個 session 匯出的 |
 | `active_tree(doc)` | dict／None | 全部 | 目前的樹 |
 | `cfg_of(config, root=None)` | dict | 全部 | 合併後的 `need_goal` 設定（第十節） |
 | `apply_op(sid, turn, tool_input, cwd="")` | dict `{ok, action, tree, rejected:[str], text, goal_changed}` | b2：post_tool_use | 套用五個動作 |
@@ -269,7 +272,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 
 `wg_overview.on_goal_changed(state, transcript_path, turn)`（b2）：每個有 `located` 欄的部位紀錄 → `located=False`、拿掉 `goal_node`／`goal_tree`、`transcript_offset` 移到當下、記 `goal_reset_turn=turn`。之後只認這之後交的那一組四行。bkp 的「目標改變後導讀卡改用目標視角重送」可以看 `goal_reset_turn`。
 
-定位第四行：`定位｜目標：<節點編號>——這一塊在目標裡的角色`，寫在前例那行之後（同一組）。`lib/overview_hub.LOCATE_RE` 認 `目標` 這個鍵；`locate_values` 仍只要求三行，第四行由 `on_edit` 在 `goal_for_edit` 回樹時另外要求。照抄 `<節點編號>` 不算交。
+定位第四行：`定位｜目標：<節點編號>（這一塊在目標裡的角色）`，寫在前例那行之後（同一組）。`lib/overview_hub.LOCATE_RE` 認 `目標` 這個鍵；`locate_values` 仍只要求三行，第四行由 `on_edit` 在 `goal_for_edit` 回樹時另外要求。照抄 `<節點編號>` 不算交。
 
 ## 10. 設定
 

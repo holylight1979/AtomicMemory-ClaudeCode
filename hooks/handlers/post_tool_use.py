@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
@@ -568,6 +568,74 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
     return True
 
 
+_EDIT_TOOLS = ("Edit", "Write", "NotebookEdit", "MultiEdit")
+
+
+def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
+                          input_data: Dict[str, Any], config: Dict[str, Any]) -> Tuple[Optional[str], bool]:
+    """需求目標樹（wg_need_goal）：need_goal 工具呼叫套用到目標樹並送回整棵樹、目標改了清各部位的「已定位」、
+    改檔與收據蓋號、讀到帶【需求目標樹】區塊的續接單時匯入。回（要送回 AI 的提示, state 有沒有變）。
+    目標檔自己整段上鎖；這裡出錯只 stderr＋守門紀錄，不影響工具結果。"""
+    import wg_need_goal as ng
+    is_ng = tool_name.endswith("need_goal")
+    if not (is_ng or tool_name in _EDIT_TOOLS or tool_name in ("Bash", "PowerShell")
+            or (tool_name == "Read" and ng.HANDOFF_NAME_RE.search(str(tool_input.get("file_path") or "")))):
+        return None, False
+    if is_ng and is_error_response(input_data.get("tool_response")):
+        return None, False                       # MCP 已拒收：不套用
+    turn = int(state.get("turn_seq", 0))
+    cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+    transcript_path = input_data.get("transcript_path", "") or ""
+    try:
+        if not ng.cfg_of(config)["enabled"]:
+            return ("[NeedGoal] need_goal 在這一層關閉（overview_hub.need_goal.enabled=false），沒有套用" if is_ng else None), False
+        if is_ng:
+            res = ng.apply_op(session_id, turn, tool_input, cwd)
+            changed = False
+            if res["goal_changed"]:
+                from wg_overview import on_goal_changed
+                changed = on_goal_changed(state, transcript_path, turn) > 0
+            return res["text"], changed
+        if tool_name == "Read":
+            return _need_goal_import(ng, state, session_id, str(tool_input.get("file_path")), turn, transcript_path)
+        if tool_name in _EDIT_TOOLS:
+            fp = tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
+            targets = [fp] if fp else []
+        else:
+            targets = _write_paths_from_tool(tool_name, tool_input, cwd) if _write_paths_from_tool is not None else []
+        agent_id = str(input_data.get("agent_id") or "")
+        for p in targets or []:
+            if p and not p.startswith("UNKNOWN:") and not _is_ephemeral_path(p):
+                ng.stamp_edit(session_id, p, agent_id, turn, config)
+        if tool_name in ("Bash", "PowerShell"):
+            ng.stamp_receipts(session_id, state, turn)
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] PostToolUse 蓋號／套用失敗（{tool_name}）：{type(e).__name__}: {e}", file=sys.stderr)
+        ng._guard("stamp_error", session_id, tool=tool_name, error=f"{type(e).__name__}: {e}")
+        if is_ng:
+            return f"[NeedGoal] 這次 need_goal 沒寫進目標檔（{type(e).__name__}: {e}），請重新呼叫一次。", False
+    return None, False
+
+
+def _need_goal_import(ng: Any, state: Dict[str, Any], session_id: str, fp: str, turn: int,
+                      transcript_path: str) -> Tuple[Optional[str], bool]:
+    """讀到續接單：帶【需求目標樹】區塊而且這個 session 還沒有樹 → 自動匯入並送回；已經有樹 → 提示怎麼接續。"""
+    try:
+        text = Path(fp).read_text(encoding="utf-8")
+    except OSError:
+        return None, False
+    if "need-goal:begin" not in text or ng.handoff_session_of(text) == session_id:
+        return None, False                       # 沒有區塊，或是本 session 自己匯出的（樹還在目標檔裡）
+    if ng.load(session_id).get("trees"):
+        return (f"[NeedGoal] 續接單 {fp} 帶【需求目標樹】區塊，但這個 session 已經有目標樹；要接續請 "
+                f"need_goal(action=set, import_from=\"{fp}\")。"), False
+    res = ng.import_handoff(session_id, text, fp, turn)
+    if not res["imported"]:
+        return (f"[NeedGoal] 續接單的需求目標樹沒有匯入：{res.get('skipped')}" if res.get("skipped") else None), False
+    from wg_overview import on_goal_changed
+    return res["text"], on_goal_changed(state, transcript_path, turn) > 0
+
+
 def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     """裁判子 session（CLAUDE_COMPANION_JUDGE=1）的 PostToolUse 最小記帳：只記改了哪些檔、目標不明的寫入、commit 回合與驗證收據，
     給 stop.handle_judge_stop 的寫碼查核閘用；不注入、不跑其他閘、不建完整 state（不重建 atom index，防裁判觸發裁判）。"""
@@ -884,6 +952,14 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             print("[Guardian:AEC] wg_harvest.tracking_entries 尚未合併（track-c），(k) 追蹤項本次不入 workflow/tracking", file=sys.stderr)
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_tracking", e)
+        # 目前的寫碼類需求目標樹（原話摘要＋節點＋對照結果）附進報告，HUD 顯示「目標對照」；收尾檢核本身不多欄
+        try:
+            import wg_need_goal as _ng
+            _ng_snap = _ng.snapshot_for_report(session_id) if _ng.cfg_of(config)["enabled"] else None
+            if _ng_snap:
+                report["need_goal"] = _ng_snap
+        except Exception as e:
+            _atom_debug_error("post_tool_use:aec_need_goal", e)
         state["anti_evasion_report"] = report
         _write_aec_report_file(session_id, turn_seq, report)
         # 殘檔帳本：(i) 一行一路徑宣告 + session scratchpad 掃描 → 進帳（HUD 讀帳本 + exists()）。
@@ -994,7 +1070,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             print(f"depends recall error: {e}", file=sys.stderr)
 
+    ng_ctx, ng_changed = _need_goal_after_tool(state, session_id, tool_name, tool_input, input_data, config)
+    dirty = dirty or ng_changed
+
     advisories = list(aec_reject_msgs)
+    if ng_ctx:
+        advisories.append(ng_ctx)
     if hub_ctx:
         advisories.append(hub_ctx)
     if dep_ctx:

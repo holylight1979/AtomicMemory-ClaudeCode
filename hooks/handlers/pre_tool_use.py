@@ -1276,6 +1276,25 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
+    # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2) 缺了就擋；判不了一律擋
+    if tool_name in ("Bash", "PowerShell"):
+        _ng_cmd = tool_input.get("command", "") or ""
+        if _git_commit_segments(_ng_cmd) or _svn_segments(_ng_cmd, {"commit", "ci"}):
+            try:
+                from wg_need_goal import commit_gate
+                deny_reason = commit_gate(_co_sid, config)
+            except Exception as e:
+                deny_reason = f"[NeedGoal] commit 前核對需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
+            if deny_reason:
+                output_json({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": deny_reason,
+                    }
+                })
+                return
+
     # OverviewHub：改某部位的檔前要先看過導讀卡、讀過部位檔、交定位三行，條件不足一律 deny。
     # 五工具：Write／Edit／NotebookEdit 取 file_path；Bash／PowerShell 取指令裡每個寫入目標，逐目標 on_edit。
     # state：沒有 state 檔（SessionStart 被跳過）就 _ensure_state 建一份再用，注入紀錄才落得了盤；
@@ -1286,6 +1305,7 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         try:
             from wg_core import _ensure_state as _hub_ensure_state, write_paths_from_tool, write_state as _ws
             from wg_overview import on_edit as _hub_on_edit
+            from wg_need_goal import edit_gate as _ng_edit_gate
             _hub_targets = write_paths_from_tool(tool_name, tool_input, _cwd)
             if _hub_targets:
                 _hub_state = _co_state
@@ -1297,6 +1317,11 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
                 _hub_warns: List[str] = []
                 hub_changed = False
                 for _hub_fp in _hub_targets:
+                    # 需求目標第一層（4.2）：寫碼類檔沒有目標樹就擋，在 OverviewHub 任何判斷之前（OverviewHub 關掉、沒專案根、表外都照查）
+                    _ng_deny = _ng_edit_gate(_co_sid, _hub_fp, config)
+                    if _ng_deny:
+                        hub_deny = _ng_deny
+                        break
                     _w, _d, _c = _hub_on_edit(
                         _hub_state, _co_sid, _hub_fp, input_data.get("transcript_path", "") or "", config,
                     )

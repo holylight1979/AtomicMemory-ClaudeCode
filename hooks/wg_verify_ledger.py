@@ -1022,8 +1022,18 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
 
 
 def is_code_file(path: str, code_exts: Iterable[str]) -> bool:
+    """副檔名在 code_exts 裡；沒有副檔名的檔看第一行是不是 `#!`（腳本）。讀不到就不算。"""
     low = str(path).lower()
-    return any(low.endswith(str(e).lower()) for e in code_exts)
+    if any(low.endswith(str(e).lower()) for e in code_exts):
+        return True
+    p = Path(str(path))
+    if p.suffix or p.name.startswith("."):
+        return False
+    try:
+        with open(p, "rb") as fh:
+            return fh.read(2) == b"#!"
+    except OSError:
+        return False
 
 
 def is_verify_case(path: str, globs: Iterable[str], root: Optional[str] = None) -> bool:
@@ -1084,10 +1094,16 @@ RECONCILE_DEFAULTS: Dict[str, Any] = {
 
 
 def reconcile_cfg(config: Dict[str, Any]) -> Dict[str, Any]:
+    """預設 < config.json 的 reconcile_gate 段。code_exts 是預設與設定的聯集（設定只能加不能減：程式檔不能被設定踢出寫碼類）。"""
     c = dict(RECONCILE_DEFAULTS)
     sec = (config or {}).get("reconcile_gate")
     if isinstance(sec, dict):
         c.update(sec)
+        extra = sec.get("code_exts")
+        if isinstance(extra, list):
+            c["code_exts"] = list(dict.fromkeys(RECONCILE_DEFAULTS["code_exts"] + [str(e) for e in extra]))
+        else:
+            c["code_exts"] = list(RECONCILE_DEFAULTS["code_exts"])
     return c
 
 

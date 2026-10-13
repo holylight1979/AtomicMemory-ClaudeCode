@@ -717,10 +717,11 @@ def _verify_gates(
     state: Dict[str, Any], session_id: str, turn_seq: int, last_text: str,
     transcript, transcript_text: str, own_mod_files: List[Dict[str, Any]],
     rg_cfg: Dict[str, Any], mg_cfg: Dict[str, Any], aec: Dict[str, Any], aec_emitted: bool,
-    claims: List[str] = (), pending: bool = False,
+    claims: List[str] = (), pending: bool = False, goal: bool = False, goal_cfg: Optional[Dict[str, Any]] = None,
 ) -> tuple:
     """對帳閘＋量尺閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／measure／"",
     無量尺提醒或 None)。寫碼查核＝對帳 (a)～(d)＋量尺；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
+    goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)，併進寫碼查核；子代理與裁判不跑目標對照。
     (a)(b)(c) 對 last_text 與 claims（pending 承接的先前宣稱）；(d) 與量尺不看措辭，有改碼紀錄就判（last_text 空也判）。
     自寫收據（_runs/）量尺閘與 (a) 共用，只讀一次。
     判定本身出錯 → 寫碼查核擋訊息（一律擋，仍吃 reconcile_gate.max_blocks_per_turn 預算，擋滿後改問使用者）＋stderr＋guard_log。"""
@@ -798,6 +799,20 @@ def _verify_gates(
             kind = kind or "measure"
             print(m_err, file=sys.stderr)
             append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
+    if goal:
+        # 需求目標（4.5）：(f1) 改了程式還沒回頭對照不看措辭、每次都判；(f2) 完整對照只在交付邊界（宣告完成、擋滿待查的原宣稱、
+        # 本回合交了收尾檢核）判。併進寫碼查核：同一個擋次預算、同一個擋滿問使用者、同一個 pending
+        try:
+            from wg_need_goal import goal_gate_reason
+            g_reason = goal_gate_reason(session_id, bool(claims_completion(last_text) or claims or aec_emitted), goal_cfg)
+        except Exception as e:  # noqa: BLE001
+            g_reason = (f"[Guardian:ReconcileGate] 需求目標對照判定錯誤，一律擋：{type(e).__name__}: {e}。"
+                        "修好目標檔（workflow/need-goal/）或回報；先別宣告完成")
+            print(g_reason, file=sys.stderr)
+            append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "goal_error": repr(e)[:200]})
+        if g_reason:
+            reason = f"{reason}\n{g_reason}" if reason else g_reason
+            kind = "reconcile"
     return reason, report, kind, advice
 
 
@@ -1020,6 +1035,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _code, _report, _vg_kind, _vg_advice = _verify_gates(
             state, session_id, turn_seq, code_text, transcript, transcript_text, own_mod_files,
             _rg_cfg, _mg_cfg, aec, emitted_this_turn, claims=_prev_claims, pending=_pend is not None,
+            goal=True, goal_cfg=config,
         )
         if _vg_advice:
             print(_vg_advice, file=sys.stderr)

@@ -335,6 +335,57 @@ def _tracking_for(root: Path, row: Dict[str, Any]) -> List[Dict[str, Any]]:
         return []
 
 
+def _goal_block(session_id: str, cfg: Dict[str, Any]) -> str:
+    """導讀卡開頭附的目標樹精簡版（有目前的樹才附），讓「目標」與「這一塊的說明」同時在眼前；讀不到只 stderr。"""
+    ng = cfg.get("need_goal") if isinstance(cfg.get("need_goal"), dict) else {}
+    if not session_id or not ng.get("enabled", True):
+        return ""
+    try:
+        import wg_need_goal as _ng
+        tree = _ng.active_tree(_ng.load(session_id))
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:OverviewHub] 讀需求目標樹失敗（導讀卡不附樹）：{type(e).__name__}: {e}", file=sys.stderr)
+        return ""
+    if not tree:
+        return ""
+    return (f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，定位三行之後加第四行「{_ng.GOAL_LINE_TEMPLATE}」，"
+            f"節點從下面選）：\n{_ng.render(tree, 'compact', chars=int(ng.get('render_chars') or 1200))}")
+
+
+def _goal_tree_for(session_id: str, file_path: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """這次改檔要交第四行時回目前的樹（need_goal 啟用、是程式檔、有樹）；目標檔壞了往外拋，由 pre_tool_use 一律擋。"""
+    import wg_need_goal as _ng
+    return _ng.goal_for_edit(session_id, file_path, config)
+
+
+def _goal_linked(rec: Dict[str, Any], tree: Dict[str, Any]) -> bool:
+    node = (tree.get("nodes") or {}).get(rec.get("goal_node") or "")
+    return rec.get("goal_tree") == tree["id"] and bool(node) and node.get("status") != "dropped"
+
+
+def _goal_line_problem(tree: Dict[str, Any], value: Optional[str]) -> str:
+    import wg_need_goal as _ng
+    what = "沒交第四行" if not value else f"第四行「{value}」指的節點不在目前的樹 {tree['id']}（或已放棄）"
+    return (f"定位{what}：這個需求有目標樹，改程式檔時定位三行之後要加「{_ng.GOAL_LINE_TEMPLATE}」，"
+            f"節點從目前的樹選：\n{_ng.render(tree, 'compact')}")
+
+
+def on_goal_changed(state: Dict[str, Any], transcript_path: str, turn: int) -> int:
+    """目標改了（開新樹、改寫樹根、增減節點、改節點文字）：已交過定位的部位全部要重交，只認這之後交的那一組。回清了幾個部位。"""
+    size = transcript_size(transcript_path)
+    n = 0
+    for rec in (state.get("overview_hub") or {}).values():
+        if not isinstance(rec, dict) or "located" not in rec:
+            continue
+        rec["located"] = False
+        rec.pop("goal_node", None)
+        rec.pop("goal_tree", None)
+        rec["transcript_offset"] = size
+        rec["goal_reset_turn"] = int(turn)
+        n += 1
+    return n
+
+
 def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, Any],
             hit_path: str, via: str, transcript_path: str, cfg: Dict[str, Any]) -> str:
     card_paths, miss = _resolve_row_cards(root, row, cfg)
@@ -353,6 +404,9 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     if tracked:
         from wg_harvest import tracking_block
         text = f"{text}\n{tracking_block(tracked, int(cfg['max_card_chars']))}"
+    goal = _goal_block(session_id, cfg)
+    if goal:
+        text = f"{goal}\n{text}"
     hub = state.setdefault("overview_hub", {})
     hub[_key(root, row)] = {
         "injected_turn": int(state.get("turn_seq", 0)),
@@ -929,9 +983,11 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                        f"表外檔讀了 {len(reads) - len(part_files)} 個不算）")
     if len(depends_files) < int(ev["depends_files"]):
         missing.append(f"還沒讀過卡片指到的檔（要 ≥{ev['depends_files']} 個，目前 {len(depends_files)} 個）")
-    if deny_reason is None and not rec.get("located"):
-        # 三管道各取「最後一組」三行（被擋後補交的那組才是現行）；任一管道那組通過層檢查即 located
-        found_ch, bad_layer, text = None, None, ""
+    # 有需求目標樹而且改的是程式檔：定位三行之後要第四行「定位｜目標：<節點編號>」，編號要在目前的樹（換了樹或節點放棄就重交）
+    goal_tree = _goal_tree_for(session_id, file_path, config) if deny_reason is None else None
+    if deny_reason is None and (not rec.get("located") or (goal_tree is not None and not _goal_linked(rec, goal_tree))):
+        # 三管道各取「最後一組」三行（被擋後補交的那組才是現行）；任一管道那組通過層檢查（與第四行核對）即 located
+        found_ch, bad_layer, bad_goal, text, node = None, None, None, "", None
         for ch in LOCATE_CHANNELS:
             text = assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch)
             vals = locate_values(text, row["part_short"], rec.get("locate_template"))
@@ -941,21 +997,37 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             if bad:
                 bad_layer = bad
                 continue
+            if goal_tree is not None:
+                import wg_need_goal as _ng
+                node = _ng.node_ref(goal_tree, vals.get("目標"))
+                if node is None:
+                    bad_goal = _goal_line_problem(goal_tree, vals.get("目標"))
+                    continue
             found_ch = ch
             break
         if found_ch is not None:
             rec["located"] = True
             rec["located_via"] = found_ch
             rec["located_quality"] = locate_quality(text, row["part_short"], _card_texts(rec), rec.get("locate_template"))
+            if goal_tree is not None:
+                import wg_need_goal as _ng
+                rec["goal_tree"], rec["goal_node"] = goal_tree["id"], node
+                _ng.link_part(session_id, key, node, int(state.get("turn_seq", 0)))
             if found_ch == "thinking":
                 warn = (f"[Guardian:OverviewHub] 【{row['part_short']}】的定位三行只在 thinking 裡，模型下回合與人都看不到；"
                         f"這次放行，請改放回覆文字或下一個工具呼叫的參數（Bash 開頭的註解）。")
         elif bad_layer:
             missing.append(bad_layer + "；補交一組正確的三行即可（取最後一組）")
             deny_reason = "wrong_layer"
+        elif bad_goal:
+            missing.append(bad_goal)
+            deny_reason = "goal_line"
+            import wg_need_goal as _ng
+            _ng._guard("locate_blocked", session_id, part=row["part_short"], path=file_path, tree=goal_tree["id"])
         else:
+            fourth = "／定位｜目標：<節點編號>（這一塊在目標裡的角色）" if goal_tree is not None else ""
             missing.append(f"還沒交出定位三行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。"
-                           f"請先在回覆寫：定位｜部位：…／定位｜根因層：…／定位｜前例：…")
+                           f"請先在回覆寫：定位｜部位：…／定位｜根因層：…／定位｜前例：…{fourth}")
     if missing and deny_reason is None:
         deny_reason = "evidence"
     _log("edit", session_id, part=row["part_short"], path=file_path, located=bool(rec.get("located")),

@@ -1,0 +1,1385 @@
+"""wg_need_goal：需求目標樹（need_goal）的資料層與各關鍵點的判定。
+
+做什麼：每個 session 一個目標檔 workflow/need-goal/<sid>.json，每次修改整段上鎖（取鎖 → 讀 → 改 → 寫暫存檔換名 → 放鎖）。
+  五個動作（set／add／update／reconcile／read）的套用與拒收、樹的顯示、新需求開始的提示行（4.1）、改程式前沒樹就擋與
+  定位第四行要的樹（4.2）、改檔與收據蓋號、對照義務 (f1) 與交付邊界的完整對照 (f2)、commit 前檢查（4.5）、收尾檢核附樹、
+  驗收審查材料、續接單區塊的寫出與匯入、壓縮後重送的目標樹。
+  程式只管時機、留存、送回、有沒有做（有沒有寫、掛到存在的節點、引用的東西在不在、先後對不對）；目標內容由 LLM 判斷。
+  欄位、狀態轉換、身份與介面的契約：_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md。
+怎麼驗：python -X utf8 -m pytest -q hooks/verify/verify_need_goal.py
+"""
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+import os
+import re
+import sys
+import time
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+
+import wg_core
+from harness_text import user_typed_text
+from wg_verify_ledger import is_code_file, reconcile_cfg
+
+# ─── 列舉值（MIRROR: tools/workflow-guardian-mcp/lib/need-goal.js，兩邊同一組）────────────────
+ACTIONS = ("set", "add", "update", "reconcile", "read")
+TREE_STATUS = ("doing", "reconciled", "closed")
+NODE_STATUS = ("todo", "doing", "done", "partial", "none", "dropped")
+TERMINAL = ("done", "partial", "none", "dropped")
+CLARITY = ("clear", "open")
+ORIGIN = ("user", "inferred", "grown")
+EVIDENCE_KINDS = ("receipt", "case", "file", "atom")
+EVIDENCE_LEVELS = ("measured", "read", "inferred")
+READ_FORMS = ("full", "compact", "handoff")
+
+LABEL = {
+    "tree": {"doing": "進行中", "reconciled": "已對照", "closed": "結束"},
+    "status": {"todo": "未開始", "doing": "進行中", "done": "達成", "partial": "部分", "none": "沒有", "dropped": "放棄"},
+    "clarity": {"clear": "明確", "open": "待展開"},
+    "origin": {"user": "使用者說的", "inferred": "推出來的", "grown": "工作中長出的"},
+    "kind": {"code": "寫碼類", "knowledge": "記憶知識類"},
+    "level": {"measured": "實測", "read": "讀碼", "inferred": "推論"},
+    "ekind": {"receipt": "收據", "case": "驗證案例", "file": "檔案", "atom": "卡片"},
+}
+
+DEFAULTS: Dict[str, Any] = {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200}
+
+NODE_ID_RE = re.compile(r"(?<![A-Za-z0-9_])T\d+(?:\.\d+)*")
+NODE_ID_FULL_RE = re.compile(r"^T\d+(?:\.\d+)*$")
+_RECEIPT_REF_RE = re.compile(r"^[Rr]?(\d+)$")
+_LINE_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
+_PEER_RE = re.compile(r"<\s*cross-session-message\b([^>]*)>(.*?)(?:<\s*/\s*cross-session-message\s*>|\Z)",
+                      re.IGNORECASE | re.DOTALL)
+_PEER_NAME_RE = re.compile(r'\bfrom-name\s*=\s*"([^"]*)"')
+_PEER_FROM_RE = re.compile(r'\bfrom\s*=\s*"([^"]*)"')
+_BLOCK_RE = re.compile(r"<!--\s*need-goal:begin[^>]*-->\s*```json\s*(.*?)\s*```\s*<!--\s*need-goal:end\s*-->",
+                       re.DOTALL)
+HANDOFF_NAME_RE = re.compile(r"[\\/]_staging[\\/]next-phase[^\\/]*\.md$", re.IGNORECASE)
+
+USER_FIRST_CAP = 4000
+USER_CAP = 1000
+SAID_MAX = 20
+PEER_CAP = 1000
+SAID_LOG_MAX = 5
+EDITS_MAX = 300
+RECEIPTS_MAX = 300
+CHECKPOINTS_MAX = 200
+LOCK_WAIT_S = 5.0
+_RETRY_S = 0.02
+_RETRIES = 10
+STALE_DAYS = 30
+
+HINT_LINE = ("[NeedGoal] 若這是要動手的需求，先用 need_goal(action=set, goal=…) 寫下它真正要達成什麼"
+             "（一句、用使用者的話、不寫手段）；純問答可以不寫。")
+GOAL_LINE_TEMPLATE = "定位｜目標：<節點編號>（這一塊在目標裡的角色）"
+
+
+class NeedGoalLockTimeout(RuntimeError):
+    """目標檔的鎖在等待上限內拿不到：不降級成無鎖寫（會掉節點），由呼叫端擋或回報。"""
+
+
+class NeedGoalCorrupt(ValueError):
+    """目標檔不是合法 JSON。"""
+
+
+# ─── 檔與鎖 ─────────────────────────────────────────────────────────────
+
+def _base_sid(sid: Any) -> str:
+    return str(sid or "").split("#agent:", 1)[0]
+
+
+def _safe_name(sid: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", sid) or "_no-sid"
+
+
+def goal_dir() -> Path:
+    return Path(wg_core.WORKFLOW_DIR) / "need-goal"
+
+
+def goal_path(sid: Any) -> Path:
+    return goal_dir() / f"{_safe_name(_base_sid(sid))}.json"
+
+
+def _skeleton(sid: Any) -> Dict[str, Any]:
+    return {"version": 1, "session_id": _base_sid(sid), "seq": 0, "next_tree": 1, "active": None, "cwd": "",
+            "user_msgs": 0, "said_log": [], "hint_sent": {"first": False, "after": []}, "trees": {},
+            "receipts": [], "imports": []}
+
+
+def load(sid: Any) -> Dict[str, Any]:
+    """不取鎖讀（換檔是原子的）；不存在回空骨架、不建檔；不是合法 JSON 丟 NeedGoalCorrupt。"""
+    p = goal_path(sid)
+    if not p.exists():
+        return _skeleton(sid)
+    text = None
+    for i in range(_RETRIES):
+        try:
+            text = p.read_text(encoding="utf-8")
+            break
+        except FileNotFoundError:
+            return _skeleton(sid)
+        except PermissionError:
+            if i == _RETRIES - 1:
+                raise
+            time.sleep(_RETRY_S)
+    try:
+        doc = json.loads(text or "")
+    except json.JSONDecodeError as e:
+        raise NeedGoalCorrupt(f"{p}: {e}") from e
+    if not isinstance(doc, dict):
+        raise NeedGoalCorrupt(f"{p}: 頂層不是物件")
+    for k, v in _skeleton(sid).items():
+        doc.setdefault(k, v)
+    return doc
+
+
+@contextmanager
+def _locked(lock_path: Path) -> Iterator[None]:
+    deadline = time.monotonic() + LOCK_WAIT_S
+    if sys.platform == "win32":
+        import msvcrt
+        while True:
+            fh = open(lock_path, "ab")
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError:
+                fh.close()
+                if time.monotonic() >= deadline:
+                    raise NeedGoalLockTimeout(f"{lock_path.name}：{LOCK_WAIT_S:.0f} 秒內拿不到目標檔的鎖")
+                time.sleep(_RETRY_S)
+        try:
+            yield
+        finally:
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+            fh.close()
+        return
+    import fcntl
+    fh = open(lock_path, "ab")
+    try:
+        while True:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise NeedGoalLockTimeout(f"{lock_path.name}：{LOCK_WAIT_S:.0f} 秒內拿不到目標檔的鎖")
+                time.sleep(_RETRY_S)
+        yield
+    finally:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        fh.close()
+
+
+def _write(p: Path, doc: Dict[str, Any]) -> None:
+    tmp = p.with_name(f"{p.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(doc, f, ensure_ascii=False, indent=1)
+        for i in range(_RETRIES):
+            try:
+                os.replace(tmp, p)
+                return
+            except PermissionError:
+                if i == _RETRIES - 1:
+                    raise
+                time.sleep(_RETRY_S)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def _prune_stale(d: Path, keep: Path) -> None:
+    cutoff = time.time() - STALE_DAYS * 86400
+    for f in list(d.glob("*.json")) + list(d.glob("*.lock")) + list(d.glob("*.tmp")):
+        if f == keep or ".corrupt-" in f.name:
+            continue
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+        except OSError:
+            continue
+
+
+def update_locked(sid: Any, fn: Callable[[Dict[str, Any]], Any]) -> Any:
+    """整段上鎖套用 fn(doc)（就地改）；doc 有變才寫回。壞檔改名留證、從空骨架重來（doc 帶 corrupt_backup）。"""
+    d = goal_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    p = goal_path(sid)
+    with _locked(p.with_suffix(".lock")):
+        fresh = not p.exists()
+        try:
+            doc = load(sid)
+        except NeedGoalCorrupt as e:
+            backup = p.with_name(f"{p.stem}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}.json")
+            os.replace(p, backup)
+            print(f"[NeedGoal] 目標檔損毀，已改名留證：{backup.name}（{e}）", file=sys.stderr)
+            _guard("corrupt", sid, backup=str(backup))
+            doc = _skeleton(sid)
+            doc["corrupt_backup"] = str(backup)
+            fresh = True
+        before = json.dumps(doc, ensure_ascii=False, sort_keys=True)
+        result = fn(doc)
+        if json.dumps(doc, ensure_ascii=False, sort_keys=True) != before:
+            _write(p, doc)
+            if fresh:
+                _prune_stale(d, p)
+    return result
+
+
+def next_seq(doc: Dict[str, Any]) -> int:
+    doc["seq"] = int(doc.get("seq", 0) or 0) + 1
+    return doc["seq"]
+
+
+def active_tree(doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    tid = doc.get("active")
+    return (doc.get("trees") or {}).get(tid) if tid else None
+
+
+def _guard(event: str, sid: Any, **kw: Any) -> None:
+    try:
+        wg_core.append_guard_log("need_goal", {"event": event, "session_id": _base_sid(sid), **kw})
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 守門紀錄寫不進去：{type(e).__name__}: {e}", file=sys.stderr)
+
+
+def cfg_of(config: Optional[Dict[str, Any]], root: Optional[Path] = None) -> Dict[str, Any]:
+    """OverviewHub 四層合併後的 need_goal 段（根層預設 < config.json overview_hub < 公司層 < 專案層）。合併失敗用預設並浮一行。"""
+    out = dict(DEFAULTS)
+    try:
+        from wg_overview import _cfg as _hub_cfg
+        sec = _hub_cfg(config or {}, root).get("need_goal")
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 讀 need_goal 設定失敗，用預設：{type(e).__name__}: {e}", file=sys.stderr)
+        sec = None
+    if isinstance(sec, dict):
+        out.update({k: sec[k] for k in DEFAULTS if k in sec})
+    return out
+
+
+def _root_of(path: str) -> Optional[Path]:
+    try:
+        from wg_overview import _project_root_of
+        return _project_root_of(path)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# ─── 樹的小工具 ──────────────────────────────────────────────────────────
+
+def _depth(nid: str) -> int:
+    return nid.count(".")
+
+
+def _sort_key(nid: str) -> Tuple[int, ...]:
+    return tuple(int(x) for x in nid[1:].split("."))
+
+
+def _ordered(tree: Dict[str, Any]) -> List[str]:
+    return sorted(tree.get("nodes") or {}, key=_sort_key)
+
+
+def _under(nid: str, anc: str) -> bool:
+    """nid 是 anc 本身或在它底下。"""
+    return bool(anc) and (nid == anc or nid.startswith(anc + "."))
+
+
+def _child_id(tree: Dict[str, Any], parent: str) -> str:
+    ks = [int(n[len(parent) + 1:]) for n, v in tree["nodes"].items()
+          if v.get("parent") == parent and n[len(parent) + 1:].isdigit()]
+    return f"{parent}.{max(ks, default=0) + 1}"
+
+
+def _owed(tree: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [e for e in tree.get("edits") or [] if e.get("owed")]
+
+
+def add_checkpoint(doc: Dict[str, Any], tree: Dict[str, Any], turn: int, point: str, node: Optional[str]) -> None:
+    """關鍵點紀錄 {seq, turn, point, node}（只在 update_locked 的 fn 裡用），最多 CHECKPOINTS_MAX 筆、滿了丟最舊的。"""
+    cps = tree.setdefault("checkpoints", [])
+    cps.append({"seq": next_seq(doc), "turn": turn, "point": point, "node": node})
+    del cps[:-CHECKPOINTS_MAX]
+
+
+def _add_said(tree: Dict[str, Any], entry: Dict[str, Any]) -> None:
+    said = tree.setdefault("user_said", [])
+    cap = USER_FIRST_CAP if not said else USER_CAP
+    said.append({**entry, "text": str(entry.get("text", ""))[:cap]})
+    if len(said) > SAID_MAX:
+        del said[1:len(said) - SAID_MAX + 1]
+
+
+def _new_tree(doc: Dict[str, Any], goal: str, turn: int, why: str) -> Dict[str, Any]:
+    tid = f"T{int(doc.get('next_tree', 1) or 1)}"
+    doc["next_tree"] = int(doc.get("next_tree", 1) or 1) + 1
+    seq = next_seq(doc)
+    tree = {
+        "id": tid, "status": "doing", "kind": "knowledge", "goal_rev": 1, "created_turn": turn, "created_seq": seq,
+        "user_said": [], "peer_said": [], "links": {"parts": {}}, "edits": [], "last_reconcile": None,
+        "goal_changed": {"seq": seq, "turn": turn}, "imported_from": None, "checkpoints": [],
+        "nodes": {tid: {"parent": None, "text": goal, "origin": "user", "clarity": "clear", "status": "doing",
+                        "history": [{"seq": seq, "turn": turn, "what": "create", "why": why}],
+                        "evidence": [], "followup": "", "note": ""}},
+    }
+    for s in doc.get("said_log") or []:
+        if not s.get("attached") or int(s.get("turn", -1)) == int(turn):
+            _add_said(tree, {k: s[k] for k in ("seq", "turn", "text") if k in s})
+            s["attached"] = True
+    doc["trees"][tid] = tree
+    doc["active"] = tid
+    return tree
+
+
+def _goal_changed(doc: Dict[str, Any], tree: Dict[str, Any], turn: int) -> None:
+    tree["goal_rev"] = int(tree.get("goal_rev", 1)) + 1
+    tree["goal_changed"] = {"seq": next_seq(doc), "turn": turn}
+    if tree.get("status") in ("reconciled", "closed"):
+        tree["status"] = "doing"
+
+
+# ─── 顯示 ────────────────────────────────────────────────────────────────
+
+def _clip(s: Any, n: int) -> str:
+    s = " ".join(str(s or "").split())
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _counts(tree: Dict[str, Any]) -> Tuple[int, int, int]:
+    nodes = tree.get("nodes") or {}
+    sub = sum(1 for n, v in nodes.items() if n != tree["id"] and v.get("status") != "dropped")
+    opened = sum(1 for v in nodes.values() if v.get("clarity") == "open" and v.get("status") != "dropped")
+    return sub, opened, len(_owed(tree))
+
+
+def _header(tree: Dict[str, Any]) -> str:
+    sub, opened, owed = _counts(tree)
+    root = (tree.get("nodes") or {}).get(tree["id"]) or {}
+    return (f"{tree['id']}：{_clip(root.get('text'), 80)}（{LABEL['tree'].get(tree.get('status'), '?')}｜"
+            f"{LABEL['kind'].get(tree.get('kind'), '?')}｜子目標 {sub}、待展開 {opened}、待對照的改動 {owed}）")
+
+
+def _evidence_text(ev: Dict[str, Any], doc: Optional[Dict[str, Any]] = None) -> str:
+    ref = str(ev.get("ref", ""))
+    extra = ""
+    if ev.get("kind") == "receipt" and doc is not None:
+        r = _receipt_by_ref(doc, ref)
+        if r:
+            extra = f" `{_clip(r.get('cmd'), 60)}`"
+    prior = "（前一個 session）" if ev.get("prior") else ""
+    return f"{LABEL['level'].get(ev.get('level'), '?')} {LABEL['ekind'].get(ev.get('kind'), '?')} {ref}{extra}{prior}"
+
+
+def _node_line(nid: str, node: Dict[str, Any], full: bool, doc: Optional[Dict[str, Any]] = None) -> str:
+    st = LABEL["status"].get(node.get("status"), "?")
+    if full:
+        tag = f"{st}｜{LABEL['clarity'].get(node.get('clarity'), '?')}｜{LABEL['origin'].get(node.get('origin'), '?')}"
+    else:
+        tag = st + ("｜待展開" if node.get("clarity") == "open" else "")
+    line = f"{'  ' * _depth(nid)}- {nid} [{tag}] {_clip(node.get('text'), 160 if full else 90)}"
+    if not full:
+        return line
+    hist = [h for h in node.get("history") or [] if h.get("why")]
+    if hist:
+        line += f"；最近一次為什麼：{_clip(hist[-1]['why'], 120)}"
+    if node.get("evidence"):
+        line += "；證據：" + "、".join(_evidence_text(e, doc) for e in node["evidence"][:4])
+    if node.get("followup"):
+        line += f"；未完：{_clip(node['followup'], 120)}"
+    if node.get("note"):
+        line += f"；附註：{_clip(node['note'], 120)}"
+    return line
+
+
+def _group_owed(owed: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    grouped: Dict[str, List[str]] = {}
+    for e in owed:
+        name = f"{Path(str(e.get('path', ''))).name}（第 {e.get('turn', '?')} 回合）"
+        lst = grouped.setdefault(str(e.get("node")), [])
+        if name not in lst:
+            lst.append(name)
+    return grouped
+
+
+def render(tree: Optional[Dict[str, Any]], form: str, chars: Optional[int] = None,
+           doc: Optional[Dict[str, Any]] = None) -> str:
+    """header（一行）／compact（一行一節點，chars 字數上限）／full（原話、轉述、節點證據、待對照、完整對照、最近收據）。"""
+    if not tree:
+        return ""
+    if form == "header":
+        return _header(tree)
+    nodes = tree.get("nodes") or {}
+    if form == "compact":
+        limit = int(chars or DEFAULTS["render_chars"])
+        out = [_header(tree)]
+        used = len(out[0])
+        order = _ordered(tree)
+        for i, nid in enumerate(order):
+            ln = _node_line(nid, nodes[nid], False)
+            if used + len(ln) + 1 > limit:
+                out.append(f"…（其餘 {len(order) - i} 個節點略；need_goal(action=read) 看全樹）")
+                break
+            out.append(ln)
+            used += len(ln) + 1
+        return "\n".join(out)
+    out = [f"目標樹 {_header(tree)}（目標版本 {tree.get('goal_rev', 1)}）"]
+    said = tree.get("user_said") or []
+    if said:
+        out.append("使用者原話（權威）：")
+        for s in said[:1] + said[1:][-3:]:
+            prior = "（前一個 session）" if s.get("prior") else ""
+            out.append(f"  - 第 {s.get('turn', '?')} 回合{prior}：「{_clip(s.get('text'), 300)}」")
+    peers = tree.get("peer_said") or []
+    if peers:
+        out.append("同伴轉述（不是使用者說的，不當權威）：")
+        for s in peers[-3:]:
+            out.append(f"  - {s.get('from') or '?'}（第 {s.get('turn', '?')} 回合）：「{_clip(s.get('text'), 200)}」")
+    out.append("節點：")
+    for nid in _ordered(tree):
+        out.append("  " + _node_line(nid, nodes[nid], True, doc))
+    owed = _owed(tree)
+    if owed:
+        out.append("待對照的改動（用 update 對改到的節點交一句進度就清掉）：")
+        for node, items in _group_owed(owed).items():
+            out.append(f"  - {node} ← {'、'.join(items)}")
+    lr = tree.get("last_reconcile")
+    if lr:
+        stale = "" if lr.get("goal_rev") == tree.get("goal_rev") else \
+            f"（之後目標改過，現在版本 {tree.get('goal_rev')}，這次對照作廢）"
+        out.append(f"完整對照：第 {lr.get('turn', '?')} 回合交過，目標版本 {lr.get('goal_rev')}{stale}")
+    else:
+        out.append("完整對照：還沒交")
+    if doc is not None and doc.get("receipts"):
+        out.append("最近收據（證據引用寫 R<號>）：")
+        for r in doc["receipts"][-8:]:
+            out.append(f"  - R{r['seq']} 第 {r.get('turn', '?')} 回合 `{_clip(r.get('cmd'), 80)}` "
+                       f"{' '.join(r.get('verdicts') or []) or '無哨兵'} exit {r.get('exit')}")
+    return "\n".join(out)
+
+
+def node_ref(tree: Optional[Dict[str, Any]], text: Any) -> Optional[str]:
+    """文字裡第一個是這棵樹節點、狀態不是放棄的 T 編號。"""
+    if not tree:
+        return None
+    nodes = tree.get("nodes") or {}
+    for m in NODE_ID_RE.finditer(str(text or "")):
+        node = nodes.get(m.group(0))
+        if node and node.get("status") != "dropped":
+            return m.group(0)
+    return None
+
+
+# ─── 參數驗證（MIRROR: need-goal.js validateArgs）───────────────────────────
+
+def _s(v: Any) -> str:
+    return v.strip() if isinstance(v, str) else ""
+
+
+def _validate_items(action: str, items: List[Any]) -> List[str]:
+    errs: List[str] = []
+    for i, it in enumerate(items):
+        tag = f"items[{i}]"
+        if not isinstance(it, dict):
+            errs.append(f"{tag} 必須是物件")
+            continue
+        if action == "add":
+            if not _s(it.get("text")):
+                errs.append(f"{tag}.text 必填")
+            if it.get("clarity") is not None and it.get("clarity") not in CLARITY:
+                errs.append(f"{tag}.clarity 無效（{it.get('clarity')}），允許：{'|'.join(CLARITY)}")
+            if it.get("origin") is not None and it.get("origin") not in ORIGIN:
+                errs.append(f"{tag}.origin 無效（{it.get('origin')}），允許：{'|'.join(ORIGIN)}")
+            continue
+        if not NODE_ID_FULL_RE.match(_s(it.get("id"))):
+            errs.append(f"{tag}.id 必填，格式 T<數字>(.<數字>)*")
+        if action == "update":
+            if not _s(it.get("why")):
+                errs.append(f"{tag}.why 必填（這次改動讓它更接近了沒、為什麼）")
+            if not any(it.get(k) is not None for k in ("text", "status", "clarity")):
+                errs.append(f"{tag} 至少要改 text／status／clarity 其中一項")
+            if it.get("text") is not None and not _s(it.get("text")):
+                errs.append(f"{tag}.text 不能是空的")
+            if it.get("status") is not None and it.get("status") not in NODE_STATUS:
+                errs.append(f"{tag}.status 無效（{it.get('status')}），允許：{'|'.join(NODE_STATUS)}")
+            if it.get("clarity") is not None and it.get("clarity") not in CLARITY:
+                errs.append(f"{tag}.clarity 無效（{it.get('clarity')}），允許：{'|'.join(CLARITY)}")
+            continue
+        if it.get("status") not in TERMINAL:
+            errs.append(f"{tag}.status 必填且只收終點值：{'|'.join(TERMINAL)}")
+        ev = it.get("evidence")
+        if ev is not None and not isinstance(ev, list):
+            errs.append(f"{tag}.evidence 必須是陣列")
+            continue
+        for j, e in enumerate(ev or []):
+            etag = f"{tag}.evidence[{j}]"
+            if not isinstance(e, dict):
+                errs.append(f"{etag} 必須是物件")
+                continue
+            if e.get("kind") not in EVIDENCE_KINDS:
+                errs.append(f"{etag}.kind 無效（{e.get('kind')}），允許：{'|'.join(EVIDENCE_KINDS)}")
+            if e.get("level") not in EVIDENCE_LEVELS:
+                errs.append(f"{etag}.level 無效（{e.get('level')}），允許：{'|'.join(EVIDENCE_LEVELS)}")
+            if not _s(e.get("ref")):
+                errs.append(f"{etag}.ref 必填")
+            cov = e.get("covers")
+            if cov is not None and (not isinstance(cov, list) or not all(NODE_ID_FULL_RE.match(_s(c)) for c in cov)):
+                errs.append(f"{etag}.covers 必須是節點編號陣列")
+    return errs
+
+
+def validate_input(inp: Dict[str, Any]) -> List[str]:
+    """js 那層的同一組規則：動作合法、必填有填、列舉值合法。"""
+    action = inp.get("action")
+    if action not in ACTIONS:
+        return [f"action 無效（{action}），允許：{'|'.join(ACTIONS)}"]
+    errs: List[str] = []
+    if action == "set":
+        if not _s(inp.get("goal")) and not _s(inp.get("import_from")):
+            errs.append("set 要給 goal（一句、使用者的語言、只寫目標不寫手段），或給 import_from（續接單路徑）")
+        if inp.get("new_task") is not None and not isinstance(inp.get("new_task"), bool):
+            errs.append("new_task 必須是 true／false")
+        return errs
+    if action == "read":
+        if inp.get("form") is not None and inp.get("form") not in READ_FORMS:
+            errs.append(f"form 無效（{inp.get('form')}），允許：{'|'.join(READ_FORMS)}")
+        return errs
+    items = inp.get("items")
+    if not isinstance(items, list) or not items:
+        return [f"{action} 要給 items（非空陣列）"]
+    errs += _validate_items(action, items)
+    t = inp.get("turns")
+    if action == "reconcile" and t is not None and (not isinstance(t, int) or isinstance(t, bool) or t < 0):
+        errs.append("turns 必須是 ≥0 的整數")
+    return errs
+
+
+# ─── 證據與完整對照的七條 ──────────────────────────────────────────────────
+
+def _receipt_by_ref(doc: Dict[str, Any], ref: str) -> Optional[Dict[str, Any]]:
+    m = _RECEIPT_REF_RE.match(str(ref or "").strip())
+    if not m:
+        return None
+    want = int(m.group(1))
+    return next((r for r in doc.get("receipts") or [] if r.get("seq") == want), None)
+
+
+def _resolve_file(ref: str, cwd: str) -> Path:
+    raw = _LINE_SUFFIX_RE.sub("", str(ref).strip().strip("`"))
+    p = Path(os.path.expanduser(raw))
+    if not p.is_absolute() and cwd:
+        p = Path(cwd) / p
+    return p
+
+
+def _atom_exists(name: str, cwd: str) -> bool:
+    name = str(name).strip().strip("`")
+    if name.endswith(".md"):
+        name = name[:-3]
+    if not name:
+        return False
+    try:
+        from wg_atoms import resolve_atom_path
+        if resolve_atom_path(name):
+            return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 全域層找卡失敗（只查專案層）：{type(e).__name__}: {e}", file=sys.stderr)
+    if not cwd:
+        return False
+    try:
+        root = wg_core.resolve_project_root(cwd).path
+    except Exception:  # noqa: BLE001
+        root = None
+    mem = Path(root or cwd) / ".claude" / "memory"
+    return mem.is_dir() and any(mem.rglob(f"{name}.md"))
+
+
+def _evidence_missing(doc: Dict[str, Any], ev: Dict[str, Any], cwd: str) -> Optional[str]:
+    kind, ref = ev.get("kind"), str(ev.get("ref", ""))
+    if kind == "receipt":
+        return None if _receipt_by_ref(doc, ref) else f"收據 {ref} 找不到（need_goal(action=read) 看最近收據的號碼，寫 R<號>）"
+    if kind in ("case", "file"):
+        return None if _resolve_file(ref, cwd).exists() else f"{LABEL['ekind'][kind]} {ref} 不在磁碟上"
+    if kind == "atom":
+        return None if _atom_exists(ref, cwd) else f"卡片 {ref} 找不到"
+    return f"證據種類 {kind} 不認得"
+
+
+def _last_edit_for(tree: Dict[str, Any], nid: str) -> Optional[Dict[str, Any]]:
+    """這個節點要對的改動：掛在它本身、它底下，或它的祖先（沒歸屬到更細節點的改動）上的最後一筆。"""
+    best = None
+    for e in tree.get("edits") or []:
+        node = str(e.get("node") or "")
+        if node and (_under(node, nid) or _under(nid, node)):
+            if best is None or int(e.get("seq", 0)) > int(best.get("seq", 0)):
+                best = e
+    return best
+
+
+def _evidence_problems(doc: Dict[str, Any], tree: Dict[str, Any], nid: str, e: Dict[str, Any], cwd: str) -> List[str]:
+    probs: List[str] = []
+    kind, level = e.get("kind"), e.get("level")
+    if level == "measured" and kind != "receipt":
+        probs.append(f"{nid} 的證據 {e.get('ref')}：實測只能配收據（檔案存在不等於跑過）")
+    elif kind == "receipt" and level != "measured":
+        probs.append(f"{nid} 的證據 {e.get('ref')}：收據只能標實測")
+    miss = _evidence_missing(doc, e, cwd)
+    if miss:
+        return probs + [f"{nid} 的證據：{miss}"]
+    nodes = tree.get("nodes") or {}
+    r = _receipt_by_ref(doc, str(e.get("ref"))) if kind == "receipt" else None
+    for c in e.get("covers") or [nid]:
+        if c not in nodes:
+            probs.append(f"{nid} 的證據 {e.get('ref')} covers 指到不存在的節點 {c}")
+            continue
+        last = _last_edit_for(tree, c) if r else None
+        if r and last and int(r["seq"]) <= int(last.get("seq", 0)):
+            probs.append(f"{nid} 的證據 R{r['seq']} 跑在 {c} 最後一次改動（{Path(str(last.get('path'))).name}）之前：改完沒重跑")
+    return probs
+
+
+def _problems(doc: Dict[str, Any], tree: Dict[str, Any], view: Dict[str, Dict[str, Any]], cwd: str,
+              included: Optional[set]) -> List[str]:
+    """完整對照第 3～7 條。view＝節點編號 → {status, evidence, followup, note}（收件時是交上來的）；沒在 view 的用現在的節點。
+    included 給了（收件時）就查「每個還活著的節點都在對照裡」；沒給（交付邊界時）只查現在的狀態是終點。"""
+    probs: List[str] = []
+    nodes = tree.get("nodes") or {}
+    for nid in _ordered(tree):
+        cur = nodes[nid]
+        if included is not None and nid not in included:
+            if cur.get("status") != "dropped":
+                probs.append(f"{nid} 沒在對照裡（每個還活著的節點都要交終點結論）")
+            continue
+        v = view.get(nid) or cur
+        st = v.get("status")
+        if st not in TERMINAL:
+            probs.append(f"{nid} 現在是「{LABEL['status'].get(st, st)}」，不是終點（達成／部分／沒有／放棄）")
+            continue
+        evid = [e for e in v.get("evidence") or [] if not e.get("prior")]
+        if st in ("done", "partial") and not evid:
+            probs.append(f"{nid} 標「{LABEL['status'][st]}」但沒附證據（前一個 session 的證據不算）")
+        for e in evid:
+            probs += _evidence_problems(doc, tree, nid, e, cwd)
+        if st == "done" and evid and all(e.get("level") == "inferred" for e in evid):
+            probs.append(f"{nid} 標「達成」但證據只有推論（推論最多標部分）")
+        if st in ("partial", "none") and not _s(v.get("followup")):
+            probs.append(f"{nid} 標「{LABEL['status'][st]}」要寫 followup（接下來要追什麼）")
+        if st == "dropped" and included is not None and cur.get("status") != "dropped" and not _s(v.get("note")):
+            probs.append(f"{nid} 標「放棄」要在 note 寫為什麼")
+    return probs
+
+
+def _f2_problems(doc: Dict[str, Any], tree: Dict[str, Any]) -> List[str]:
+    lr = tree.get("last_reconcile")
+    if not lr:
+        return ["還沒交完整對照"]
+    if lr.get("goal_rev") != tree.get("goal_rev"):
+        return [f"完整對照之後目標改過（版本 {lr.get('goal_rev')} → {tree.get('goal_rev')}），舊對照作廢"]
+    return _problems(doc, tree, {}, str(doc.get("cwd") or ""), None)
+
+
+def _needs_f2(tree: Optional[Dict[str, Any]]) -> bool:
+    return bool(tree) and tree.get("kind") == "code" and any(e.get("code") for e in tree.get("edits") or [])
+
+
+# ─── 五個動作 ──────────────────────────────────────────────────────────
+
+_NO_TREE = "還沒有目標樹，先用 need_goal(action=set, goal=…) 寫樹根"
+
+
+def _op_set(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, Any]:
+    goal, why = _s(inp.get("goal")), _s(inp.get("why"))
+    tree = active_tree(doc)
+    if tree is None or inp.get("new_task") is True:
+        tree = _new_tree(doc, goal, turn, why)
+        add_checkpoint(doc, tree, turn, "set", tree["id"])
+        return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": f"開了新樹 {tree['id']}"}
+    root = tree["nodes"][tree["id"]]
+    if goal == root.get("text"):
+        return {"ok": True, "tree": tree["id"], "goal_changed": False, "note": "樹根沒變"}
+    if not why:
+        return {"ok": False, "tree": tree["id"], "rejected": [
+            f"改寫 {tree['id']} 的樹根要附 why（為什麼改）；若是換題，帶 new_task=true 開新樹"]}
+    root["text"] = goal
+    _goal_changed(doc, tree, turn)
+    root["history"].append({"seq": tree["goal_changed"]["seq"], "turn": turn, "what": "text", "why": why})
+    add_checkpoint(doc, tree, turn, "set", tree["id"])
+    return {"ok": True, "tree": tree["id"], "goal_changed": True,
+            "note": f"{tree['id']} 樹根改寫，目標版本 {tree['goal_rev']}"}
+
+
+def _op_add(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, Any]:
+    tree = active_tree(doc)
+    if tree is None:
+        return {"ok": False, "tree": None, "rejected": [_NO_TREE]}
+    parent = _s(inp.get("parent")) or tree["id"]
+    if parent not in tree["nodes"]:
+        return {"ok": False, "tree": tree["id"], "rejected": [f"parent {parent} 不是 {tree['id']} 的節點"]}
+    _goal_changed(doc, tree, turn)
+    added = []
+    for it in inp["items"]:
+        nid = _child_id(tree, parent)
+        tree["nodes"][nid] = {"parent": parent, "text": _s(it.get("text")), "origin": it.get("origin") or "grown",
+                              "clarity": it.get("clarity") or "clear", "status": "todo",
+                              "history": [{"seq": next_seq(doc), "turn": turn, "what": "create", "why": ""}],
+                              "evidence": [], "followup": "", "note": ""}
+        added.append(nid)
+        add_checkpoint(doc, tree, turn, "add", nid)
+    return {"ok": True, "tree": tree["id"], "goal_changed": True, "note": f"加了 {'、'.join(added)}"}
+
+
+def _op_update(doc: Dict[str, Any], inp: Dict[str, Any], turn: int) -> Dict[str, Any]:
+    tree = active_tree(doc)
+    if tree is None:
+        return {"ok": False, "tree": None, "rejected": [_NO_TREE]}
+    unknown = [it["id"] for it in inp["items"] if it["id"] not in tree["nodes"]]
+    if unknown:
+        return {"ok": False, "tree": tree["id"], "rejected": [f"{n} 不是 {tree['id']} 的節點" for n in unknown]}
+    bump = reopen = False
+    cleared = 0
+    for it in inp["items"]:
+        nid, why = it["id"], _s(it.get("why"))
+        node = tree["nodes"][nid]
+        changed = False
+        for field in ("text", "clarity", "status"):
+            if it.get(field) is None:
+                continue
+            val = _s(it[field]) if field == "text" else it[field]
+            if node.get(field) == val:
+                continue
+            node[field] = val
+            node["history"].append({"seq": next_seq(doc), "turn": turn, "what": field, "why": why})
+            changed = True
+            if field in ("text", "clarity"):
+                bump = True
+            elif val not in TERMINAL:
+                reopen = True
+        if not changed:
+            node["history"].append({"seq": next_seq(doc), "turn": turn, "what": "status", "why": why})
+        seq = next_seq(doc)
+        for e in _owed(tree):
+            if _under(nid, str(e.get("node") or "")):
+                e["owed"] = False
+                e["cleared_seq"] = seq
+                cleared += 1
+        add_checkpoint(doc, tree, turn, "update", nid)
+    if bump:
+        _goal_changed(doc, tree, turn)
+    if tree["nodes"][tree["id"]].get("status") == "dropped":
+        tree["status"] = "closed"
+    elif reopen and tree.get("status") in ("reconciled", "closed"):
+        tree["status"] = "doing"
+    return {"ok": True, "tree": tree["id"], "goal_changed": bump,
+            "note": f"收下 {len(inp['items'])} 項" + (f"，清掉 {cleared} 筆待對照" if cleared else "")}
+
+
+def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str) -> Dict[str, Any]:
+    tree = active_tree(doc)
+    if tree is None:
+        return {"ok": False, "tree": None, "rejected": [_NO_TREE]}
+    items = {it["id"]: it for it in inp["items"]}
+    unknown = [n for n in items if n not in tree["nodes"]]
+    if unknown:
+        return {"ok": False, "tree": tree["id"], "rejected": [f"{n} 不是 {tree['id']} 的節點" for n in unknown]}
+    view = {nid: {"status": it["status"], "evidence": [dict(e) for e in it.get("evidence") or []],
+                  "followup": _s(it.get("followup")), "note": _s(it.get("note"))} for nid, it in items.items()}
+    probs = _problems(doc, tree, view, cwd, set(items))
+    if probs:
+        return {"ok": False, "tree": tree["id"], "rejected": probs}
+    seq = next_seq(doc)
+    followups = []
+    for nid, v in view.items():
+        node = tree["nodes"][nid]
+        prior = [e for e in node.get("evidence") or [] if e.get("prior")]
+        node["status"] = v["status"]
+        node["evidence"] = [{"kind": e["kind"], "ref": _s(e.get("ref")), "level": e["level"],
+                             "covers": list(e.get("covers") or [nid]), "seq": seq} for e in v["evidence"]] + prior
+        node["followup"] = v["followup"]
+        node["note"] = v["note"]
+        node["history"].append({"seq": seq, "turn": turn, "what": "reconcile", "why": v["note"] or v["followup"]})
+        if v["status"] in ("partial", "none") and v["followup"]:
+            followups.append(f"需求目標 {nid}（{LABEL['status'][v['status']]}）：{v['followup']}")
+    for e in _owed(tree):
+        e["owed"] = False
+        e["cleared_seq"] = seq
+    tree["last_reconcile"] = {"seq": seq, "turn": turn, "goal_rev": tree.get("goal_rev", 1)}
+    if inp.get("turns") is not None:
+        tree["last_reconcile"]["turns"] = inp["turns"]
+    done = all(n.get("status") in ("done", "dropped") for n in tree["nodes"].values())
+    tree["status"] = "closed" if done else "reconciled"
+    add_checkpoint(doc, tree, turn, "reconcile", tree["id"])
+    return {"ok": True, "tree": tree["id"], "goal_changed": False, "followups": followups,
+            "note": f"完整對照收下，{tree['id']} {LABEL['tree'][tree['status']]}"}
+
+
+def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> Dict[str, Any]:
+    """套用一次 need_goal 呼叫。回 {ok, action, tree, rejected, text, goal_changed}；text 是要送回 AI 的整段提示。"""
+    inp = dict(tool_input or {})
+    action = inp.get("action")
+    errs = validate_input(inp)
+    if errs:
+        return _result(sid, action, {"ok": False, "tree": None, "rejected": errs}, None)
+    if action == "read":
+        doc = load(sid)
+        tree = active_tree(doc)
+        form = inp.get("form") or "full"
+        if form == "handoff":
+            text = handoff_block(sid) or "[NeedGoal] 沒有未結束的樹，續接單不用帶【需求目標樹】區塊"
+        elif tree is None:
+            text = "[NeedGoal] 還沒有目標樹。若這是要動手的需求，用 need_goal(action=set, goal=…) 寫樹根。"
+        else:
+            text = "[NeedGoal] " + render(tree, form, doc=doc)
+        return {"ok": True, "action": "read", "tree": tree["id"] if tree else None, "rejected": [], "text": text,
+                "goal_changed": False}
+    if action == "set" and _s(inp.get("import_from")):
+        path = _s(inp["import_from"])
+        try:
+            text = Path(os.path.expanduser(path)).read_text(encoding="utf-8")
+        except OSError as e:
+            return _result(sid, action, {"ok": False, "tree": None, "rejected": [f"讀不到續接單 {path}：{e}"]}, None)
+        res = import_handoff(sid, text, path, turn)
+        ok = bool(res["imported"])
+        out = {"ok": ok, "tree": (res["imported"] or [None])[-1], "goal_changed": ok,
+               "rejected": [] if ok else [res.get("skipped") or "沒有可匯入的樹"], "note": "匯入續接單的樹"}
+        return _result(sid, action, out, load(sid))
+
+    def fn(doc: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        if cwd:
+            doc["cwd"] = cwd
+        if action == "set":
+            r = _op_set(doc, inp, turn)
+        elif action == "add":
+            r = _op_add(doc, inp, turn)
+        elif action == "update":
+            r = _op_update(doc, inp, turn)
+        else:
+            r = _op_reconcile(doc, inp, turn, cwd or str(doc.get("cwd") or ""))
+        if doc.pop("corrupt_backup", None):
+            r["note"] = (r.get("note") or "") + "（目標檔損毀，已改名留證；舊樹沒有了，必要時重寫）"
+        return r, copy.deepcopy(doc)
+
+    res, snap = update_locked(sid, fn)
+    if res.get("followups"):
+        _append_tracking(sid, turn, res["followups"], cwd or str(snap.get("cwd") or ""))
+    return _result(sid, action, res, snap)
+
+
+def _result(sid: Any, action: Any, res: Dict[str, Any], doc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    rejected = list(res.get("rejected") or [])
+    tree = active_tree(doc) if doc else None
+    if rejected:
+        head = f"[NeedGoal] {action} 拒收，沒有套用：\n" + "\n".join(f"  ✗ {r}" for r in rejected)
+    else:
+        head = f"[NeedGoal] {action} 收下：{res.get('note') or ''}"
+    body = render(tree, "full", doc=doc) if tree else ""
+    _guard("op", sid, action=action, tree=res.get("tree"), ok=bool(res.get("ok")), rejected=len(rejected))
+    return {"ok": bool(res.get("ok")), "action": action, "tree": res.get("tree"), "rejected": rejected,
+            "text": f"{head}\n{body}".rstrip(), "goal_changed": bool(res.get("goal_changed"))}
+
+
+def _append_tracking(sid: Any, turn: int, lines: List[str], cwd: str) -> None:
+    try:
+        from wg_harvest import append_tracking, tracking_entries, tracking_slug
+        entries = tracking_entries(_base_sid(sid), turn, "\n".join(lines))
+        if entries:
+            append_tracking(tracking_slug(cwd), entries)
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 未完事項寫不進追蹤帳本：{type(e).__name__}: {e}", file=sys.stderr)
+
+
+# ─── 4.1 新需求開始 ──────────────────────────────────────────────────────
+
+def _peer_of(prompt: str) -> Optional[Tuple[str, str]]:
+    m = _PEER_RE.search(prompt or "")
+    if not m:
+        return None
+    fm = _PEER_NAME_RE.search(m.group(1) or "") or _PEER_FROM_RE.search(m.group(1) or "")
+    sender = fm.group(1) if fm else ""
+    body = " ".join(m.group(2).split())
+    return (sender, body) if body else None
+
+
+def on_prompt(sid: Any, prompt: str, turn: int, config: Optional[Dict[str, Any]], cwd: str = "") -> Optional[str]:
+    """使用者送出訊息那一刻：使用者本人打的字記進目前的樹、同伴訊息記成轉述、系統通知不記；回要送給 AI 的那一行。
+    沒有目前的樹而且是這個 session 第一則使用者訊息、或目前的樹剛對照完／結束 → 送一次「先寫目標」；有樹 → 送樹根一行。"""
+    if not sid or not cfg_of(config, Path(cwd) if cwd else None)["enabled"]:
+        return None
+    typed = user_typed_text(prompt or "", keep_lines=True)
+    peer = None if typed else _peer_of(prompt or "")
+    if not typed and not peer:
+        return None
+
+    def fn(doc: Dict[str, Any]) -> Tuple[Optional[str], bool]:
+        seq = next_seq(doc)
+        tree = active_tree(doc)
+        live = tree if tree and tree.get("status") != "closed" else None
+        if peer:
+            if live:
+                ps = live.setdefault("peer_said", [])
+                ps.append({"seq": seq, "turn": turn, "from": peer[0], "text": peer[1][:PEER_CAP]})
+                del ps[:-SAID_MAX]
+            return (f"[NeedGoal] 目前需求目標 {_header(tree)}" if tree else None), False
+        doc["user_msgs"] = int(doc.get("user_msgs", 0)) + 1
+        entry = {"seq": seq, "turn": turn, "text": typed}
+        log = doc.setdefault("said_log", [])
+        log.append({**entry, "text": typed[:USER_FIRST_CAP], "attached": live is not None})
+        del log[:-SAID_LOG_MAX]
+        if live:
+            _add_said(live, entry)
+        sent = doc.setdefault("hint_sent", {"first": False, "after": []})
+        if tree is None:
+            if doc["user_msgs"] == 1 and not sent.get("first"):
+                sent["first"] = True
+                return HINT_LINE, True
+            return None, False
+        lines = [f"[NeedGoal] 目前需求目標 {_header(tree)}；這則若換題，用 need_goal(action=set, new_task=true)。"]
+        hinted = False
+        if tree.get("status") in ("reconciled", "closed") and tree["id"] not in sent.setdefault("after", []):
+            sent["after"].append(tree["id"])
+            hinted = True
+            lines.append(f"[NeedGoal] {tree['id']} {LABEL['tree'][tree['status']]}。若這則是新的要動手的需求，"
+                         "用 need_goal(action=set, new_task=true, goal=…) 開新樹（一句、用使用者的話、不寫手段）。")
+        return "\n".join(lines), hinted
+
+    text, hinted = update_locked(sid, fn)
+    if hinted:
+        _guard("prompt_hint", sid, turn_seq=turn)
+    return text
+
+
+# ─── 4.2 動手改程式前 ─────────────────────────────────────────────────────
+
+def is_code_path(path: str, config: Optional[Dict[str, Any]]) -> bool:
+    """寫碼類判準：部位類別是 knowledge 的不算；其餘看寫碼查核閘那份副檔名清單（聯集合併，沒副檔名看 `#!`）。
+    部位類別的真源是 overview_hub.path_kind；這支函式不在時只看副檔名。"""
+    if not path or str(path).startswith("UNKNOWN:"):
+        return False
+    try:
+        from overview_hub import KIND_KNOWLEDGE, path_kind
+    except ImportError:
+        path_kind = None
+    if path_kind is not None and path_kind(str(path)) == KIND_KNOWLEDGE:
+        return False
+    return is_code_file(str(path), reconcile_cfg(config or {})["code_exts"])
+
+
+def _ephemeral(path: str) -> bool:
+    from handlers import _shared
+    return _shared._is_ephemeral_path(path)
+
+
+def edit_gate(sid: Any, path: str, config: Optional[Dict[str, Any]]) -> Optional[str]:
+    """4.2 第一層：寫碼類檔、沒有目前的樹 → 回擋的理由。暫存檔、知識類、關掉時不管；判不了（鎖、損毀）一律擋。
+    UNKNOWN 寫入目標交給 OverviewHub 擋。"""
+    if not sid or not path or str(path).startswith("UNKNOWN:"):
+        return None
+    try:
+        if _ephemeral(path) or not cfg_of(config, _root_of(path))["enabled"] or not is_code_path(path, config):
+            return None
+        if active_tree(load(sid)) is not None:
+            return None
+    except NeedGoalCorrupt as e:
+        _guard("edit_blocked", sid, path=path, why="corrupt")
+        return (f"[NeedGoal] 目標檔損毀，無法判定改 {path} 前有沒有需求目標，一律擋：{e}。"
+                "用 need_goal(action=set, goal=…) 重寫樹（壞檔會自動改名留證）再改。")
+    except Exception as e:  # noqa: BLE001
+        _guard("edit_blocked", sid, path=path, why="error", error=f"{type(e).__name__}: {e}")
+        return f"[NeedGoal] 判定改 {path} 前有沒有需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
+    _guard("edit_blocked", sid, path=path, why="no_tree")
+    return (f"[NeedGoal] 改程式檔 {path} 前：這個需求還沒有目標樹。先用 need_goal(action=set, goal=…) 寫下"
+            "這個需求真正要達成什麼（一句、用使用者的話、只寫目標不寫手段），再改程式。")
+
+
+def goal_for_edit(sid: Any, path: str, config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """這次改檔要不要定位第四行：啟用、是程式檔、有目前的樹 → 回那棵樹。目標檔壞了丟 NeedGoalCorrupt（呼叫端擋）。"""
+    if not sid or not path or not cfg_of(config, _root_of(path))["enabled"] or not is_code_path(path, config):
+        return None
+    return active_tree(load(sid))
+
+
+def link_part(sid: Any, hub_key: str, node_id: str, turn: int) -> None:
+    """定位第四行核對通過：記「這個部位 → 這個節點」，之後這個部位的改動掛到這個節點。"""
+    def fn(doc: Dict[str, Any]) -> None:
+        tree = active_tree(doc)
+        if not tree or node_id not in tree["nodes"]:
+            return
+        cur = tree.setdefault("links", {}).setdefault("parts", {}).get(hub_key)
+        if cur and cur.get("node") == node_id:
+            return
+        tree["links"]["parts"][hub_key] = {"node": node_id, "seq": next_seq(doc)}
+        add_checkpoint(doc, tree, turn, "locate", node_id)
+    update_locked(sid, fn)
+
+
+def _hub_key_of(path: str) -> Optional[str]:
+    try:
+        from wg_overview import _key, _lookup_quiet
+        hit = _lookup_quiet(path)
+        return _key(*hit) if hit else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[Dict[str, Any]]) -> None:
+    """改檔蓋號：掛到部位連到的節點（沒有就樹根）；程式檔記待對照、樹升寫碼類、已對照或結束的樹退回進行中。沒有樹不記。"""
+    if not sid or not path or not cfg_of(config, _root_of(path))["enabled"]:
+        return
+    if active_tree(load(sid)) is None:
+        return
+    code = is_code_path(path, config)
+    hub_key = _hub_key_of(path)
+
+    def fn(doc: Dict[str, Any]) -> None:
+        tree = active_tree(doc)
+        if not tree:
+            return
+        link = (tree.get("links") or {}).get("parts", {}).get(hub_key) if hub_key else None
+        node = link["node"] if link and link.get("node") in tree["nodes"] else tree["id"]
+        edits = tree.setdefault("edits", [])
+        edits.append({"seq": next_seq(doc), "turn": turn, "path": str(path), "node": node,
+                      "agent_id": str(agent_id or ""), "code": code, "owed": code})
+        if len(edits) > EDITS_MAX:
+            drop = next((i for i, e in enumerate(edits) if not e.get("owed")), 0)
+            del edits[drop]
+        if code:
+            tree["kind"] = "code"
+            if tree.get("status") in ("reconciled", "closed"):
+                tree["status"] = "doing"
+    update_locked(sid, fn)
+
+
+def _receipt_ident(key: str, receipt_seq: Any, at: Any) -> Tuple[str, Any, Any]:
+    return (str(key), receipt_seq, at)
+
+
+def stamp_receipts(sid: Any, state: Optional[Dict[str, Any]], turn: int) -> int:
+    """工作暫存裡還沒蓋號的收據（主 session 與子代理）蓋進目標檔；目標檔還不存在不蓋。回蓋了幾筆。"""
+    base = _base_sid(sid)
+    if not base or not state or not goal_path(base).exists():
+        return 0
+    allr = state.get("verify_receipts") or {}
+    if not isinstance(allr, dict):
+        return 0
+    cands: List[Tuple[str, Dict[str, Any]]] = []
+    for key, lst in allr.items():
+        if key != base and not str(key).startswith(base + "#agent:"):
+            continue
+        cands += [(str(key), r) for r in lst or [] if isinstance(r, dict)]
+    seen = {_receipt_ident(r.get("key", ""), r.get("receipt_seq"), r.get("at")) for r in load(base).get("receipts") or []}
+    fresh = [(k, r) for k, r in cands if _receipt_ident(k, r.get("seq"), r.get("at")) not in seen]
+    if not fresh:
+        return 0
+    fresh.sort(key=lambda kr: (str(kr[1].get("at") or ""), int(kr[1].get("seq") or 0)))
+
+    def fn(doc: Dict[str, Any]) -> int:
+        have = {_receipt_ident(r.get("key", ""), r.get("receipt_seq"), r.get("at")) for r in doc.get("receipts") or []}
+        n = 0
+        for key, r in fresh:
+            if _receipt_ident(key, r.get("seq"), r.get("at")) in have:
+                continue
+            doc.setdefault("receipts", []).append({
+                "seq": next_seq(doc), "receipt_seq": r.get("seq"), "key": key, "turn": r.get("turn_seq", turn),
+                "at": r.get("at"), "cmd": str(r.get("cmd") or "")[:200],
+                "verdicts": [f"{s.get('name')}:{s.get('verdict')}" for s in r.get("sentinels") or [] if isinstance(s, dict)],
+                "exit": r.get("exit_code"),
+            })
+            n += 1
+        del doc["receipts"][:-RECEIPTS_MAX]
+        return n
+    return update_locked(base, fn)
+
+
+# ─── 4.5 改了程式之後、交付之前 ─────────────────────────────────────────────
+
+def _tree_ids(doc: Dict[str, Any]) -> List[str]:
+    return sorted(doc.get("trees") or {}, key=lambda t: int(t[1:]) if t[1:].isdigit() else 0)
+
+
+def _f1_text(doc: Dict[str, Any]) -> Optional[str]:
+    rows = []
+    for tid in _tree_ids(doc):
+        for node, items in _group_owed(_owed(doc["trees"][tid])).items():
+            rows.append(f"  - {node} ← {'、'.join(items)}")
+    if not rows:
+        return None
+    return ("[Guardian:ReconcileGate] (f1) 改了程式還沒回頭對照目標：\n" + "\n".join(rows) +
+            "\n用 need_goal(action=update, items=[{id: <那個節點或它底下的節點>, why: 這次改動讓它更接近了沒、為什麼, "
+            "status: …}]) 交一句進度就清掉（不必整棵樹結案）。")
+
+
+def _f2_text(doc: Dict[str, Any]) -> Optional[str]:
+    tree = active_tree(doc)
+    if not _needs_f2(tree):
+        return None
+    probs = _f2_problems(doc, tree)
+    if not probs:
+        return None
+    return (f"[Guardian:ReconcileGate] (f2) 交付前的目標對照（{tree['id']}）缺：\n" + "\n".join(f"  - {p}" for p in probs) +
+            "\n用 need_goal(action=reconcile, items=[每個還活著的節點：{id, status: done|partial|none|dropped, "
+            "evidence: [{kind, ref, level, covers?}], followup?, note?}]) 交完整對照：達成要附證據（實測只能配收據 R<號>，"
+            "要在最後一次改動之後跑）、推論最多標部分、部分／沒有寫 followup、放棄寫 note。\n目前的樹：\n" +
+            render(tree, "compact"))
+
+
+def goal_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]]) -> Optional[str]:
+    """回合結束：(f1) 待對照每次都判（不看措辭）；(f2) 完整對照只在交付邊界（triggered）判。只給主 session 用。"""
+    if not sid or not cfg_of(config)["enabled"]:
+        return None
+    doc = load(sid)
+    parts = []
+    f1 = _f1_text(doc)
+    if f1:
+        parts.append(f1)
+        _guard("gate_f1", sid, owed=sum(len(_owed(t)) for t in doc["trees"].values()))
+    f2 = _f2_text(doc) if triggered else None
+    if f2:
+        parts.append(f2)
+        _guard("gate_f2", sid, tree=doc.get("active"))
+    return "\n".join(parts) or None
+
+
+def commit_gate(sid: Any, config: Optional[Dict[str, Any]]) -> Optional[str]:
+    """commit 指令執行前：(f1)＋目前的寫碼類樹的 (f2)。缺了回 deny 理由。"""
+    if not sid or not cfg_of(config)["enabled"]:
+        return None
+    try:
+        doc = load(sid)
+    except NeedGoalCorrupt as e:
+        return f"[NeedGoal] commit 前：目標檔損毀，無法核對需求目標，一律擋：{e}"
+    parts = [t for t in (_f1_text(doc), _f2_text(doc)) if t]
+    if not parts:
+        return None
+    _guard("commit_blocked", sid, tree=doc.get("active"))
+    return "[NeedGoal] commit 前的目標對照沒過，先補再 commit：\n" + "\n".join(parts)
+
+
+# ─── 報告、審查材料、續接單、壓縮重送 ─────────────────────────────────────────
+
+def _said_summary(tree: Dict[str, Any], first_cap: int, cap: int, last: int) -> List[Dict[str, Any]]:
+    said = tree.get("user_said") or []
+    shown = said[:1] + said[1:][-last:]
+    return [{"turn": s.get("turn"), "text": _clip(s.get("text"), first_cap if i == 0 else cap),
+             **({"prior": True} if s.get("prior") else {})} for i, s in enumerate(shown)]
+
+
+def snapshot_for_report(sid: Any, kinds: Tuple[str, ...] = ("code",)) -> Optional[Dict[str, Any]]:
+    """收尾檢核報告附的目標樹：原話摘要＋節點＋對照結果；目前的樹類別不在 kinds 回 None。"""
+    try:
+        doc = load(sid)
+    except (NeedGoalCorrupt, OSError) as e:
+        print(f"[NeedGoal] 收尾檢核附樹失敗：{e}", file=sys.stderr)
+        return None
+    tree = active_tree(doc)
+    if not tree or tree.get("kind") not in kinds:
+        return None
+    nodes = tree.get("nodes") or {}
+    lr = tree.get("last_reconcile") or {}
+    probs = _f2_problems(doc, tree)
+    return {
+        "tree": tree["id"], "status": tree.get("status"), "kind": tree.get("kind"), "goal_rev": tree.get("goal_rev"),
+        "root": _clip(nodes.get(tree["id"], {}).get("text"), 300),
+        "user_said": _said_summary(tree, 500, 300, 3),
+        "peer_said": [{"from": p.get("from"), "text": _clip(p.get("text"), 200)} for p in (tree.get("peer_said") or [])[-2:]],
+        "nodes": [{"id": nid, "depth": _depth(nid), "status": nodes[nid].get("status"),
+                   "clarity": nodes[nid].get("clarity"), "text": _clip(nodes[nid].get("text"), 200),
+                   "evidence": [_evidence_text(e, doc) for e in nodes[nid].get("evidence") or []][:4],
+                   "followup": _clip(nodes[nid].get("followup"), 200)} for nid in _ordered(tree)],
+        "owed": len(_owed(tree)),
+        "reconcile": {"turn": lr.get("turn"), "goal_rev": lr.get("goal_rev"), "ok": not probs, "problems": probs[:10]},
+    }
+
+
+REVIEW_CHARS = 1600   # 驗收審查的需求原話欄會頭尾採樣（codex-companion acceptance.GOAL_HEAD＋GOAL_TAIL）；三段要整段放得下
+
+
+def review_material(sid: Any) -> str:
+    """驗收審查材料：使用者原話（權威）、同伴轉述、目標樹（AI 的解讀）分開標示，總長 ≤ REVIEW_CHARS；沒有樹回空字串。"""
+    try:
+        doc = load(sid)
+    except (NeedGoalCorrupt, OSError):
+        return ""
+    tree = active_tree(doc)
+    if not tree:
+        return ""
+    out = ["【使用者原話（權威）】"]
+    out += [f"- 第 {s.get('turn', '?')} 回合：{s['text']}" for s in _said_summary(tree, 500, 200, 2)] or ["- （沒有記到）"]
+    out.append("【同伴轉述（別的 session 送來的話，不是使用者說的，不當權威）】")
+    out += [f"- {p.get('from') or '?'}：{_clip(p.get('text'), 120)}" for p in (tree.get("peer_said") or [])[-2:]] \
+        or ["- （沒有）"]
+    out.append("【目標樹（AI 自己的解讀，可能偏離原話；審查時以原話為準）】")
+    head = "\n".join(out)
+    out.append(render(tree, "compact", chars=max(200, REVIEW_CHARS - len(head) - 1)))
+    return "\n".join(out)[:REVIEW_CHARS]
+
+
+def _export_tree(tree: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: copy.deepcopy(v) for k, v in tree.items() if k not in ("edits", "links", "checkpoints")}
+
+
+def handoff_block(sid: Any) -> str:
+    """續接單的【需求目標樹】區塊：人讀段＋機讀 JSON；只帶狀態不是結束的樹，沒有回空字串。"""
+    try:
+        doc = load(sid)
+    except (NeedGoalCorrupt, OSError):
+        return ""
+    trees = [doc["trees"][t] for t in _tree_ids(doc) if doc["trees"][t].get("status") != "closed"]
+    if not trees:
+        return ""
+    out = ["## 【需求目標樹】", "",
+           "（need_goal 產生；下個 session 讀到這份續接單會自動匯入。使用者原話是權威，樹是上一個 session 的解讀。）", ""]
+    for t in trees:
+        nodes = t.get("nodes") or {}
+        out.append(f"### {_header(t)}")
+        said = _said_summary(t, 600, 300, 3)
+        if said:
+            out.append("- 使用者原話（權威）：")
+            out += [f"  - 第 {s.get('turn', '?')} 回合：「{s['text']}」" for s in said]
+        if t.get("peer_said"):
+            out.append("- 同伴轉述（不是使用者說的）：")
+            out += [f"  - {p.get('from') or '?'}：「{_clip(p.get('text'), 200)}」" for p in t["peer_said"][-2:]]
+        out.append("- 節點：")
+        for nid in _ordered(t):
+            line = _node_line(nid, nodes[nid], True, doc)
+            out.append("  " + line + ("（未解問題）" if nodes[nid].get("clarity") == "open" else ""))
+        follow = [f"{nid}（{LABEL['status'].get(n.get('status'), '?')}）→ {_clip(n.get('followup'), 200)}"
+                  for nid, n in nodes.items() if n.get("followup")]
+        if follow:
+            out.append("- 未完事項：" + "；".join(follow))
+        out.append("")
+    data = {"version": 1, "session_id": _base_sid(sid), "exported_at": wg_core._now_iso(), "active": doc.get("active"),
+            "trees": [_export_tree(t) for t in trees]}
+    out += ["<!-- need-goal:begin v1 -->", "```json", json.dumps(data, ensure_ascii=False), "```", "<!-- need-goal:end -->"]
+    return "\n".join(out)
+
+
+def _remap(nid: str, old: str, new: str) -> str:
+    return new + nid[len(old):] if _under(nid, old) else nid
+
+
+def _import_tree(doc: Dict[str, Any], t: Dict[str, Any], src_session: Any, path: str, turn: int) -> Optional[str]:
+    old = str(t.get("id") or "")
+    if not NODE_ID_FULL_RE.match(old) or "." in old:
+        return None
+    new = f"T{int(doc.get('next_tree', 1) or 1)}"
+    seq = next_seq(doc)
+    nodes: Dict[str, Any] = {}
+    for nid, n in (t.get("nodes") or {}).items():
+        if not isinstance(n, dict) or not _under(str(nid), old):
+            continue
+        nn = copy.deepcopy(n)
+        nn["parent"] = _remap(str(n["parent"]), old, new) if n.get("parent") else None
+        nn["evidence"] = [{**e, "prior": True, "covers": [_remap(str(c), old, new) for c in e.get("covers") or []]}
+                          for e in n.get("evidence") or [] if isinstance(e, dict)]
+        nn["history"] = list(n.get("history") or [])[-1:] + [
+            {"seq": seq, "turn": turn, "what": "import", "why": f"從續接單匯入（原 {nid}）"}]
+        for k, v in (("status", "todo"), ("clarity", "clear"), ("origin", "inferred"), ("text", ""),
+                     ("followup", ""), ("note", "")):
+            nn.setdefault(k, v)
+        nodes[_remap(str(nid), old, new)] = nn
+    if new not in nodes:
+        return None
+    doc["next_tree"] = int(doc.get("next_tree", 1) or 1) + 1
+    doc["trees"][new] = {
+        "id": new, "status": t.get("status") if t.get("status") in TREE_STATUS else "doing",
+        "kind": t.get("kind") if t.get("kind") in ("code", "knowledge") else "knowledge", "goal_rev": 1,
+        "created_turn": turn, "created_seq": seq,
+        "user_said": [{**s, "prior": True} for s in t.get("user_said") or [] if isinstance(s, dict)][:SAID_MAX],
+        "peer_said": [s for s in t.get("peer_said") or [] if isinstance(s, dict)][-SAID_MAX:],
+        "links": {"parts": {}}, "edits": [], "last_reconcile": None, "goal_changed": {"seq": seq, "turn": turn},
+        "imported_from": {"session": src_session, "tree": old, "path": str(path),
+                          "map": {k: _remap(k, old, new) for k in (t.get("nodes") or {})}},
+        "checkpoints": [], "nodes": nodes,
+    }
+    return new
+
+
+def import_handoff(sid: Any, text: str, path: str, turn: int) -> Dict[str, Any]:
+    """讀續接單的 need-goal 區塊（取最後一塊）：每棵未結束的樹配新樹號、節點號換前綴，證據與原話標前一個 session。"""
+    blocks = _BLOCK_RE.findall(text or "")
+    if not blocks:
+        return {"imported": [], "map": {}, "text": "", "skipped": "續接單裡沒有 need-goal 區塊"}
+    raw = blocks[-1]
+    try:
+        data = json.loads(raw)
+        trees_in = [t for t in data.get("trees") or [] if isinstance(t, dict) and t.get("status") != "closed"]
+    except (json.JSONDecodeError, AttributeError) as e:
+        return {"imported": [], "map": {}, "text": "", "skipped": f"need-goal 區塊的 JSON 壞了：{e}"}
+    if str(data.get("session_id") or "") == _base_sid(sid):
+        # 本 session 自己匯出的（壓縮或結束前寫的自動續接單）：樹還在目標檔裡，不重複匯入
+        return {"imported": [], "map": {}, "text": "", "skipped": "這是本 session 自己匯出的樹，不重複匯入", "own": True}
+    sha = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    norm = str(path).replace("\\", "/").lower()
+
+    def fn(doc: Dict[str, Any]) -> Dict[str, Any]:
+        done = next((i for i in doc.get("imports") or [] if i.get("path") == norm and i.get("sha") == sha), None)
+        if done:
+            return {"imported": [], "map": {}, "skipped": f"已匯入過（{'、'.join(done.get('trees') or [])}）"}
+        mapping: Dict[str, str] = {}
+        for t in trees_in:
+            new = _import_tree(doc, t, data.get("session_id"), path, turn)
+            if new:
+                mapping[str(t["id"])] = new
+        if not mapping:
+            return {"imported": [], "map": {}, "skipped": "續接單裡沒有未結束的樹"}
+        new_ids = list(mapping.values())
+        doc["active"] = mapping.get(str(data.get("active") or ""), new_ids[-1])
+        doc.setdefault("imports", []).append({"path": norm, "sha": sha, "at": wg_core._now_iso(), "trees": new_ids})
+        return {"imported": new_ids, "map": mapping, "skipped": None, "text": render(active_tree(doc), "full", doc=doc)}
+
+    res = update_locked(sid, fn)
+    if res["imported"]:
+        _guard("import", sid, trees=res["imported"], path=str(path))
+        head = "、".join(f"{o}→{n}" for o, n in res["map"].items())
+        res["text"] = (f"[NeedGoal] 從續接單匯入需求目標樹（{head}；前一個 session 的證據只供閱讀，之後改到的節點要交新證據）。"
+                       "先用自己的話覆述目標與現況、確認樹還對，再接著做。\n" + res.get("text", ""))
+    else:
+        res.setdefault("text", "")
+    return res
+
+
+def handoff_session_of(text: str) -> Optional[str]:
+    """續接單最後一塊 need-goal 區塊是哪個 session 匯出的；沒有區塊或讀不出來回 None。"""
+    blocks = _BLOCK_RE.findall(text or "")
+    try:
+        sid = json.loads(blocks[-1]).get("session_id") if blocks else None
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    return str(sid) if sid else None
+
+
+def recovery_blob(sid: Any, limit: int) -> str:
+    """壓縮後獨立重送的目標樹（不依附部位綜觀）：目前的樹 compact＋其他未結束樹的 header＋原話首則與最新一則。"""
+    try:
+        doc = load(sid)
+    except (NeedGoalCorrupt, OSError):
+        return ""
+    live = [doc["trees"][t] for t in _tree_ids(doc) if doc["trees"][t].get("status") != "closed"]
+    tree = active_tree(doc)
+    if not live and not tree:
+        return ""
+    out = ["【需求目標樹】（壓縮後重送；使用者原話是權威，樹是 AI 的解讀）"]
+    if tree:
+        said = tree.get("user_said") or []
+        if said:
+            out.append(f"使用者原話：首則「{_clip(said[0].get('text'), 200)}」"
+                       + (f"；最新「{_clip(said[-1].get('text'), 200)}」" if len(said) > 1 else ""))
+        out.append(render(tree, "compact", chars=max(200, int(limit * 0.7))))
+    others = [t for t in live if not tree or t["id"] != tree["id"]]
+    if others:
+        out.append("其他未結束的樹：")
+        out += [f"- {_header(t)}" for t in others]
+    text = "\n".join(out)
+    return text if len(text) <= limit else text[:max(0, limit - 1)] + "…"

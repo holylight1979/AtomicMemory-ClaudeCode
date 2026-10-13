@@ -517,7 +517,7 @@ sequenceDiagram
 | 閘 | 條件 | 動作 |
 |----|------|------|
 | TestFailGate | 本 session 有未轉綠的失敗測試（只認本 session 的條目；子代理內的紅測不記主 session） | block 要求修到綠或明說跳過 |
-| ReconcileGate | 寫碼查核分四條：(a) 說修好，但本回合沒有對得上改檔的 PASS（收據要晚於每個對上的改檔、同一棵樹、指令能當一般證據），改檔所在部位也沒有合格的自寫收據；(b) 說量了，但本回合沒有能當證據的 DONE，也沒有合格的自寫收據；(c) 說試過，但本回合沒有任何 Bash／PowerShell 執行；(d) 改了程式碼之後，同根沒有仍存在的驗證案例被新增或修改（PASS 不能代替；跨回合，不看措辭；案例 glob 用相對專案根的路徑比）。改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；例：反證暫改再 `git checkout` 還原）不算改碼，補案例與量尺閘都不欠；判不出來照算改了。另外查收尾報告欄 (e)：AEC (j) 證據路徑缺或不存在、(k) 是空字串。(a)(b)(c) 看的是最後一句話（優先用 hook 輸入的 last_assistant_message，不套 30 字下限），以及擋滿時記下的原宣稱。判定出例外一律擋 | 寫碼查核（(a)～(d)＋量尺）用獨立預算 `reconcile_gate.max_blocks_per_turn`（2）。擋滿不放行：記 pending，跨回合承接；要用 AskUserQuestion 照【收尾放行確認】問使用者。使用者要在最後一次擋之後選放行，或打字「放行」，才放這一回合，並記 user_release（健檢列 red）。子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬於記憶與報告類，照舊第 3 次放行，並寫 guard-reconcile_overflow（健檢列 red） |
+| ReconcileGate | 寫碼查核分四條：(a) 說修好，但本回合沒有對得上改檔的 PASS（收據要晚於每個對上的改檔、同一棵樹、指令能當一般證據），改檔所在部位也沒有合格的自寫收據；(b) 說量了，但本回合沒有能當證據的 DONE，也沒有合格的自寫收據；(c) 說試過，但本回合沒有任何 Bash／PowerShell 執行；(d) 改了程式碼之後，同根沒有仍存在的驗證案例被新增或修改（PASS 不能代替；跨回合，不看措辭；案例 glob 用相對專案根的路徑比）。改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；例：反證暫改再 `git checkout` 還原）不算改碼，補案例與量尺閘都不欠；判不出來照算改了。另外查收尾報告欄 (e)：AEC (j) 證據路徑缺或不存在、(k) 是空字串。(a)(b)(c) 看的是最後一句話（優先用 hook 輸入的 last_assistant_message，不套 30 字下限），以及擋滿時記下的原宣稱。主 session 另併需求目標的 (f1) 改了程式還沒回頭對照、(f2) 交付邊界的完整對照（§7.7）。判定出例外一律擋 | 寫碼查核（(a)～(d)＋量尺）用獨立預算 `reconcile_gate.max_blocks_per_turn`（2）。擋滿不放行：記 pending，跨回合承接；要用 AskUserQuestion 照【收尾放行確認】問使用者。使用者要在最後一次擋之後選放行，或打字「放行」，才放這一回合，並記 user_release（健檢列 red）。子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬於記憶與報告類，照舊第 3 次放行，並寫 guard-reconcile_overflow（健檢列 red） |
 | MeasureGate | 改到部位表上有量尺的部位就判，不看收尾措辭，每次 Stop 都判。以下兩種收據都沒有就擋：①最後一次改檔之後、同 root、exit 0、沒有 FAIL 哨兵、failed=0，指令照白名單語法與四條家族規則對得上表上原字串，而且執行根涵蓋該部位全部改檔的 session 收據（見 §7.6）；②run_verify 自寫收據（`_runs/`）：argv 對上量尺、改完才開始跑、同一棵樹、全綠。已有合格收據的部位不探 runtime_gate，還欠收據才跑，量不了就說環境原因。根層 worktree（表與 `~/.claude` 位元組相同的其他 root；判定在 `lib/overview_hub.is_root_worktree`，導讀卡注入與第二意見工具共用）改認同 root、由 pytest 印出的 `PYTEST_MEASURE` DONE，不要求全量 | block 說哪把尺沒跑，以及最近那筆收據為什麼不算：解析不了的語法、指定了讓 shell 自己印字的變數（說是哪一個）、指令裡寫了哨兵字樣、量尺前後接了前置設定以外的指令（附允許的寫法）、執行根沒涵蓋改檔（說執行根在哪、哪個檔不在裡面）、指到別棵樹、只存了前 200 字的舊收據。表上的尺本身解析不了，就叫人改表。擋滿不准自行放行，照 ReconcileGate 的放行規則。無量尺的部位只提醒補欄（stderr＋guard-measure） |
 | Evasion 偵測／DeferralGate | 退避詞命中（軟糾正）；主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤0.75（讀 transcript 真實 usage），收尾把帶受詞的可做之事推給「下個 session／獨立議題／非我造成」 | 擋回三選一：做掉／一句話不能做的理由／使用者明示延後；使用者命令式延後語為逃生門 |
 | KnowledgeHarvest | 宣告完成 ∧ 有實質活動 ∧ 冷卻已過（§6.3 階段收割；`wg_harvest.harvest_gate_reason`） | 要求先 `atom_write`／`atom_retire` 再呼叫 MCP `knowledge_harvest_report`（沒東西也要 `items=[]`）；**不增 `stop_blocked_count`**、每 turn 一次（`harvest_gate_turn[sid]`） |
@@ -613,6 +613,22 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 部位表「量尺」欄＋`verify_chains` | 無 | 部位有固定的驗證指令 → 在部位表該列量尺欄填 `量法｜指令｜門檻`（有這欄量尺閘才會要求跑）；驗證要先有環境（實機、編輯器）→ 再在 `verify_chains[部位].runtime_gate` 填就緒檢查，沒就緒就擋並說原因 |
 | `path_bases`、`eol_policy`、`source_encodings`、`commit_encoding` | 單根／依檔頭／utf-8 | 多根倉庫、CRLF 專案、非 UTF-8 原始碼（例 cp950） |
 | `verify_ledger.sentinel_regex`（config） | PASS／FAIL／DONE 兩條＋pytest 映射 | 專案既有工具尾行格式不同 → 加映射，不改工具 |
+| `need_goal.enabled`／`render_chars`／`scope_growth_dirs` | true／1200／3 | 對照組實驗要關掉需求目標流程；精簡版目標樹要更長或更短（§7.7） |
+
+### 7.7 需求目標樹（need_goal）
+
+目的：每個要動手的需求先抓「真正要達成什麼」，工作中長出子目標，在關鍵處回頭對照做法有沒有更接近；換 session、壓縮之後也不淡掉。程式只管時機、留存、送回、有沒有做（有沒有寫、掛到存在的節點、引用的東西在不在、先後對不對），目標內容與證據是否真的證明了什麼由 AI 判斷。欄位、狀態轉換、身份、介面的契約：`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md`。
+
+| 部件 | 位置 | 做什麼 |
+|------|------|--------|
+| 目標檔 | `workflow/need-goal/<sid>.json`（本機資料，不進版控）；`hooks/wg_need_goal.py` | 一個 session 一份：多棵樹（`T1`、`T2`…）、節點（`T1.2.1`）、使用者原話（權威）與同伴轉述分開記、改檔與收據各蓋一個本檔自己的序號。每次修改整段上鎖（取鎖 → 讀 → 改 → 寫暫存檔換名 → 放鎖；拿不到鎖不降級成無鎖寫）。子代理用主 session 的 sid 寫同一份 |
+| 工具 | MCP `need_goal`（`tools/workflow-guardian-mcp/lib/need-goal.js` 只驗參數回 chip）＋ PostToolUse 套用（`apply_op`） | set（寫樹根、換題開新樹、改寫樹根要 why、從續接單匯入）／add（子目標，可待展開）／update（改節點，也是改了程式之後的一句進度，why 必填）／reconcile（完整對照：每個還活著的節點交終點結論＋證據）／read（form=handoff 取續接單區塊）。每次呼叫後 hook 把整棵樹送回眼前，拒收的項目附原因 |
+| 新需求開始 | UserPromptSubmit（`on_prompt`，排在導讀卡之前） | 只認使用者本人打的字（`harness_text.user_typed_text`），跨 session 訊息記成同伴轉述、系統通知不記。沒樹時第一則訊息提醒一次先寫目標；有樹時每則送回樹根一行（子目標、待展開、待對照的改動數）；樹對照完或結束後再提醒一次 |
+| 改程式前 | PreToolUse：第一層 `edit_gate` 在 OverviewHub 之前；第二層在 `wg_overview.on_edit` | 寫碼類檔（部位類別不是知識類、副檔名在 `reconcile_gate.code_exts` 聯集清單或沒副檔名但第一行 `#!`）沒有目標樹就擋，OverviewHub 關掉、沒專案根、表外檔都照查；暫存檔不管。有樹時部位表上的程式檔，定位三行之後要加第四行 `定位｜目標：<節點編號>（這一塊在目標裡的角色）`，編號要在目前的樹、沒放棄；核對通過記「部位 → 節點」，之後這個部位的改動掛到那個節點。目標改了（開新樹、改樹根、增減節點、改節點文字）→ 各部位的「已定位」清掉，只認之後交的那一組。導讀卡開頭附目標樹精簡版 |
+| 改了之後、交付之前 | Stop `_verify_gates`（只有主 session）、PreToolUse commit 指令 | (f1) 改了程式檔就欠一筆「待對照」，對那個節點（或它底下的節點）交一句 update 才清；回合結束有欠就擋，不看措辭。(f2) 交付邊界（宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核）查目前的寫碼類樹七條：交過完整對照、目標版本沒變、每個還活著的節點是終點、達成／部分有證據且指標在、收據晚於它支持的節點（含子孫與祖先）的最後一次改動、達成不能只有推論且實測只配收據、部分／沒有寫 followup。兩條都併進寫碼查核的擋訊息，同一個擋次預算、同一個擋滿問使用者流程。commit 指令執行前查 (f1)＋(f2)，缺了 deny。記憶知識類（沒改過程式檔的樹）兩層都不擋 |
+| 收尾與審查 | PostToolUse 收尾檢核分支、HUD、`codex_companion` 驗收審查 | 收尾檢核報告自動附目前寫碼類樹（原話摘要、節點、對照結果），HUD 多一塊「目標對照」，收尾檢核本身不多欄；完整對照的部分／沒有寫進 `workflow/tracking/<slug>.jsonl`；驗收審查的「使用者目標」改給「使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）」三段 |
+| 續接 | `handoff_block`／`import_handoff`／`recovery_blob` | 續接單帶【需求目標樹】區塊（人讀段＋機讀 JSON）；新 session 讀到 `_staging/next-phase*.md` 而還沒有樹就自動匯入（新編號、舊證據標前一個 session、只供閱讀），已有樹就提示用 `import_from` 接續；本 session 自己匯出的不重複匯入。壓縮後的目標樹獨立重送，不依附部位綜觀 |
+| 紀錄 | `Logs/guard-need_goal.jsonl` | 每次動作、擋改檔、擋定位、提醒、匯入、(f1)(f2)、commit 擋、鎖逾時、壞檔留證 |
 
 ---
 
