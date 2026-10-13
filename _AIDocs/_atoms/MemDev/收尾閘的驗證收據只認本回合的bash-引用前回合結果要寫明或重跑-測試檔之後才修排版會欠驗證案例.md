@@ -7,6 +7,7 @@
 - Trigger: ReconcileGate, 收尾閘, 驗證收據, 本回合, 重跑過, 改碼欠驗證案例, 收尾放行確認, 測試檔之後改碼
 - Created-at: 2026-10-13
 - Related: 使用者放行的判定要防偽造-只認tool-use-id對到askuserquestion的答案-打字放行要整句嚴格比對-跨回合要承接
+- Quote: 「你是 v6.0 的工作 session track-g12，總控台是 claude-2c。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-g12（分支 v6/track-g12，已存在，不要新建）。接手單在 C:\Users\holylight\.claude\workflow\v6-inbox\to-trac…」
 
 ## 知識
 

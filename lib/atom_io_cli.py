@@ -19,7 +19,7 @@ write_raw / write_index_full 額外參數：caller 端傳 file_path (str)、cont
 build / append：server.js toolAtomWrite 的內容構造
 與 append 拼接統一走 py 單一實作（js buildAtomContent / 自拼 splice 退役為
 test_13 parity fixture）：
-  build:  build_atom_content kwargs → {ok, extra: {content}}（含 validate，不落檔）
+  build:  build_atom_content kwargs（＋選填 existing_path：replace 的既有檔，檔頭以舊卡為底）→ {ok, extra: {content}}（含 validate，不落檔）
   append: {file_path, knowledge, source} → 拼接+validate+write_raw 落檔
 
 locate：{title, scope, project_cwd, role, user, audience, realm, domain}
@@ -359,10 +359,16 @@ def main() -> int:
             payload["file_path"] = Path(payload["file_path"])
             result = write_raw(**payload)
         elif action == "build":
+            # existing_path：MCP replace 帶既有檔路徑 → 檔頭以舊卡為底（atom_io.carry_replace_header，與 py write_atom 同一份）
+            existing_path = payload.pop("existing_path", None)
             payload, sup, err = _canonical_build_params(payload)
             content = None
             if err is None:
                 content = build_atom_content(**payload)
+                if existing_path:
+                    from .atom_io import carry_replace_header, given_header_keys
+                    old = Path(existing_path).read_text(encoding="utf-8-sig")
+                    content = carry_replace_header(old, content, given_header_keys(payload))
                 err = validate_atom_content(content) or _budget_check(content)
             result = WriteResult(ok=err is None, error=err,
                                  extra={"content": content, "supersedes": sup})

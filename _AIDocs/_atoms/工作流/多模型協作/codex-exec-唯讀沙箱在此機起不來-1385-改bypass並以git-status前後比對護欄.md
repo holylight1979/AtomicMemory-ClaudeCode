@@ -3,11 +3,10 @@
 - Scope: global
 - Author: holylight
 - Source: commit:0ef3546 2026-09-03（原對話已逾保留期）
-- Confidence: [臨]
-- Trigger: codex exec, codex 沙箱, read-only sandbox, unelevated, CreateProcessWithLogonW, 1385, 第二意見, 獨立掃碼, codex 報告, --output-last-message
-- Created-at: 2026-09-03
 - Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-aa1d485368fca9958b7357c8a9a7531a" from-name="claude-88" from-mode="bypass"> track-g12 補充（不用回）：既有 atom「codex-exec-唯讀沙箱在此機起不來-1385-改bypass…」這次被反證。…」
-
+- Confidence: [臨]
+- Trigger: codex exec, codex 沙箱, read-only sandbox, unelevated, CreateProcessWithLogonW, 1385, 第二意見, 獨立掃碼, codex 報告, --output-last-message, second_opinion_start, 材料不足, replay-guard pre
+- Created-at: 2026-09-03
 - Related: codex裁判停用個別mcp用-c-mcp-servers名enabledfalse-mcp-servers空表是合併不是清空
 
 ## 知識
@@ -17,11 +16,13 @@
 - [臨] Codex 跟別的 session 共用同一個工作樹時，對方同時改檔會讓行號與判斷混到兩個版本：prompt 要求「讀檔一律用 git show <commit>:<路徑>、diff 用 git diff <起> <迄>」，結論就固定在指定 commit。
 - [臨] 審查 prompt 結構：原話目標（判準）→ 交付方自述（逐條核實）→ 兼看兩向（能不能被繞過／誠實流程能不能過）→ 已知不必再報 → 回覆格式（VERDICT＋每條檔:行＋重現）。它的斷言以靜態讀碼與記憶體探針為主，BLOCK 要親自讀碼重現才退件；價值在正確性與邊界反例，不在可讀性。
 - [臨] 純推理用法（不讓它碰檔）：把 prompt＋完整檔＋diff 組成一份 md 經 stdin 送，明寫不要跑指令；SVN 工作副本同樣必加 `--skip-git-repo-check`。
-- [臨] MCP 第二意見工具（`tools/second-opinion/run.py` 的 `_execute_body`）組的 `codex exec -s read-only` 沒帶 `-c windows.sandbox="unelevated"`（`codex_companion.codex_extra_args` 只停 unityMCP）：codex 內部每個讀檔指令都 `CreateProcessWithLogonW failed: 1385`，只能看 job 目錄的材料包（card.md、defects.md、diff.patch）。探針只叫它回 `CODEX_OK`、不跑 shell，所以 status 照樣 done、探不出來。認法：`<job>/codex.stderr.log` grep 1385，或回覆末段寫「唯讀取行號指令因 … 1385 無法啟動」。
-- [臨] 這時它的 WARN「材料沒有對照程式／完整 JSON，無法核實文件與程式一致」是環境造成，不是交付缺陷；BLOCK 是只看 diff 推的，要自己讀碼核實（實例：它判健檢 verdict_map 先 upper() 再比是漏報，讀 hook 端 compile_sentinel_rules 也 upper()，執行期同義 → 判誤報，用兩向案例固定）。交付報告寫明「codex 這輪讀不到 repo」與每條處置；要它真的讀 repo，在 question 裡貼關鍵函式原文，或改設定補 unelevated（動到共用的 codex_extra_args，裁判也受影響，屬總控台裁定）。
+- [臨] 第二意見工具（`tools/second-opinion/run.py`）的 `_sandbox_args` 在 Windows 加 `-c windows.sandbox="unelevated"`，不放共用 codex_extra_args（裁判不傳 -s）。少了它 codex 每個指令都 1385、只看得到提示內嵌（超過 material_max_chars 會截斷）的材料，job 照樣 done。認法：`<job>/codex.stderr.log` 有 `exec_command failed … 1385`（只 grep 1385 會撞到材料內文）。
+- [臨] 審查材料不能含工作目錄外的絕對路徑（replay-guard pre 擋），測試裡的假路徑也算：自己產 diff、把假路徑換成代稱再以 materials.diff 餵入，問題裡寫明。codex 的『材料不足』WARN 或只看 diff 推的 BLOCK：先看 stderr 有沒有真的 spawn 失敗，再逐條讀碼核實。
+- [臨] replay-guard 的絕對路徑規則（字母＋冒號＋斜線）會把程式裡的 regex 片段（`Author:` 這類冒號後接 `\s`）誤認成路徑而擋 pre，問題文字裡引用 regex 也一樣：那幾段在 diff 裡換代稱並寫明原意，含同類字樣的整檔不附。
 
 ## 行動
 
 - 要 codex 唯讀審碼：照第一條指令跑；只有出現 1385 才改 bypass＋ git status 前後比對
 - 審別的 session 正在改的樹：prompt 要求用 git 讀固定 commit
 - Codex 的 bug 斷言逐條讀碼核實再寫進報告，標「已核實／推論」
+- 用 second_opinion 審完先 grep codex.stderr.log 的 exec_command failed；有就把材料不足類 WARN 標環境原因

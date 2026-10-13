@@ -1,12 +1,12 @@
-# decisions
+# 全域決策
 
 - Scope: global
 - Author: holylight
 - Source: commit:7deb043 2026-03-02（原對話已逾保留期）
 - Confidence: [固]
 - Trigger: 決策, 記憶系統, 原子記憶, 架構細節, context budget
-- Created-at: 2026-10-13
-- Quote: 「你是 v6.0 的工作 session track-a6，總控台是 claude-9f（調度；對人總控台是 claude-91）。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-a6（分支 v6/track-a6，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\…」
+- Related: decisions-architecture, toolchain, toolchain-ollama
+- Quote: 「你是 v6.0 的工作 session track-a6（A6 共用檔：settings/config/TECH/Architecture/CHANGELOG/README/Install-forAI/健檢/coding-style/atom 改寫＋pack.py 小修提交），對人總控台是 claude-91、調度總控台是 claude-9f。第一步用 EnterWorktree 切進 work…」
 
 ## 知識
 

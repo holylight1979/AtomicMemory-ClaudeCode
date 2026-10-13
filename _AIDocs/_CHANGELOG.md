@@ -4,6 +4,22 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 核心推進文件總整理：歷程搬進 DevHistory 工作紀錄，checklist 與接續單只留現況與連結
+- **緣由**：原設計者指出 v6.0 checklist 每條塞滿 commit、codex 輪次、退件單編號，全文 4 萬 token，讀者看不出目標與下一步，「嚴禁把核心推進文件搞成會造成嚴重飄移的狀態」。
+- **做法**：新建 `DevHistory/v6.0-寫程式碼的進化-2026-10/工作紀錄.md`（按軌、按日期，一筆不漏）；`memory/_staging` 的 checklist 改成 G 目標表＋一行一項 checklist＋活軌表＋待決兩題，接續單只留接手方法、規矩、現況。
+- **驗證**：checklist 206 行→120 行；舊版所有待辦與追蹤項逐項對照到新落點並對 repo 實查；DOC_SYNC_CHECK、MEMORY_INDEX_CHECK DONE。
+
+## 2026-10-13 v6.0 atom_write replace 只換呼叫者給的部分、開工句不當 Quote
+- **緣由**：對舊格式卡（標題與檔名不同、沒有 Created-at、檔頭有 Confirmations／Last-used／Type）做 replace，標題被換成檔名、補上當天 Created-at、Related 與 build 不認得的舊鍵全掉；同一 bug 之前記過一次未修。Quote 自動填則把開工句當成使用者原話：同伴訊息開的回合沿用前一回合原話，開工句被一路填進後面寫的每張卡（知識庫已有 29 張）。
+- **根因**：replace 用呼叫參數整張重建檔頭（`build_atom_content`），只有 Author／Created-at／Source／Quote／Depends／Supersedes 走「沿用舊值」白名單，而且 py `write_atom` 與 MCP js 各寫一份白名單；開工句樣板只在萃取器裡，Quote 自動填沒用到。
+- **做法**：`lib/atom_io.carry_replace_header`：舊格式卡（標題 slug≠檔名）沿用舊標題、新格式照舊用 title 參數；舊卡沒有 Created-at 就不補；呼叫者沒給的檔頭鍵原行帶回（同鍵多行全帶；已在 build 前三態定案的 Author／Source／Quote／Depends／Supersedes 除外）；py `write_atom` 與 `atom_io_cli build`（MCP js 帶 `existing_path`）共用。開工句樣板從 `hooks/user-extract-worker.py` 搬到 `lib/harness_text`（萃取器照舊用整則逐子句的嚴格判定），新增 `is_kickoff_prompt` 給 `wg_provenance`：嚴格判定成立，或第一個子句整句是角色句（可帶括號說明）且後面至少一個子句整句對上其他派工樣板，就不填 Quote、Source 照補；引用開工句來討論、問句照填；replace 照舊會自動填 Quote。
+- **驗證**：新案 `lib/verify/verify_atom_io_replace_old_format.py` 8 案（py 與 CLI 兩條路、MCP 有傳 existing_path、呼叫者明給仍贏、三態定案的不帶回、同鍵多行、新格式標題跟呼叫者、新格式逐 byte 相同）＋`verify_provenance_autofill.py` 新 9 案（兩則真開工句 × create／replace 不填、真原話照填、樣板共用與引用／問句不誤判）；main 版程式上 py replace 紅在第一個斷言「標題被改：'# decisions'」、開工句四案紅在「開工句被填成 Quote」；codex 審 cdac58d 的 BLOCK 3 條（同鍵多行漏帶、引用開工句被誤判、新格式標題被改）處置後三案在處置前版本紅在斷言；atom_io 全組＋provenance＋萃取器 187 passed、MCP smoke OK。 | `lib/atom_io.py`, `lib/atom_io_cli.py`, `lib/harness_text.py`, `hooks/wg_provenance.py`, `hooks/user-extract-worker.py`, `tools/workflow-guardian-mcp/lib/atom-tools.js`, `lib/verify/verify_atom_io_replace_old_format.py`, `hooks/verify/verify_provenance_autofill.py`
+
+## 2026-10-13 v6.0 第二意見工具：codex 唯讀沙箱帶 unelevated、探針改成真的用 shell 讀檔
+- **緣由**：`tools/second-opinion/run.py` 組 `codex exec -s read-only` 沒帶 `-c windows.sandbox="unelevated"`，本機 codex 在沙箱裡每個指令都 `CreateProcessWithLogonW failed: 1385`，只能看提示內嵌、超過 `material_max_chars` 會被截斷的材料；探針只叫它回 `CODEX_OK`、不用 shell，所以照樣綠、job 照樣 done，各工作 session 拿到的 codex 報告都只審了提示裡的 diff。
+- **做法**：`_sandbox_args()` 回 `-s read-only`，Windows 另加 `-c windows.sandbox="unelevated"`，探針與 codex exec 共用；不放共用的 `codex_extra_args`（裁判 assessor 不傳 `-s`，不受影響）。探針在 job 目錄放 `probe.txt`（一行隨機字樣，不在提示裡），叫 codex 用 shell 讀回第一行，讀不回或 1385 → failed；探針兩個 log 開跑前清空（`run.py probe` 重用 `_probe` 目錄，上一次的 1385 不能害這次誤判）；探完刪檔，刪不掉只在 stderr 留一行、不改判定；探針跑一次 shell 實測 17～24 秒，`probe_timeout_s` 20→60（config 與程式預設）。
+- **驗證**：真 codex 實證：檔尾答案字樣只在材料檔裡（提示截斷看不到），修前 job done 但回覆「讀不到」、stderr 1385；手動加旗標與修後 run.py 都讀到字樣、1385 零次、post 閘 PASS；修後探針真跑三次全過，拿掉旗標的探針真跑紅在 1385。verify_second_opinion 新案 5（兩支呼叫都帶旗標且不進共用參數、只回 CODEX_OK 的探針算失敗、拿掉旗標照真 codex 模擬紅在 1385、上一次 1385 殘留不害這次、刪不掉留訊號），run.py 退回 main 版前三案全紅在斷言、殘留案在 codex 處置前版本紅在斷言；codex 審查用修後 run.py 跑（真的跑了讀行號指令），BLOCK 2 條讀碼核實後處置，真 codex 同目錄「綠→拿掉旗標紅→再綠」實跑確認。 | `tools/second-opinion/run.py`, `tools/second-opinion/README.md`, `tools/codex-companion/verify/verify_second_opinion.py`, `workflow/config.json`
+
 ## 2026-10-13 v6.0 A6 共用檔同步：settings 登記 SubagentStop、config 說明與 code_exts 40 種、TECH／Architecture／README／Install-forAI 補到現況、健檢加 PYTEST regex 版本 WARN、pack 子行程壓窗
 - **緣由**：a3、track-e、g12、a4 的程式都合進 main 了，但各軌只准改自己所有權的檔，settings／config／文件／規則／atom 這些共用檔沒人同步；總控台另有兩件留在 live 沒提交的小修（pack.py 彈 console 窗、對應新案）。
 - **做法**：`settings.json` 加 SubagentStop（同 guardian 入口，10 秒）；config `reconcile_gate._doc`／`measure_gate._doc` 改寫成四條對帳規則、兩種收據、白名單語法、擋滿只認使用者放行，`overview_hub._doc` 候選填空改「一部位一 session 一次」，`code_exts` 5→40 種；TECH §3.1 事件表加 SubagentStop、§7.1 ReconcileGate／MeasureGate 兩列重寫並加 SubagentStop／裁判擋到底、CommitOrder 豁免句型、`git checkout` 單參數三態兩條定死規則、§7.6 收據與量尺列換成白名單＋四條家族規則＋防線邊界；Architecture 事件表加 SubagentStop 列、`wg_overview` 列補 `card_mem_dir` 單源；README 加免口令例外與「收尾被擋只有你能放行」；Install-forAI 升級段加「更新 hooks 後手動對 config 的 PYTEST／PYTEST_MEASURE 規則」；`tools/health-weekly.py` 新增 `_pytest_regex_block`：config 兩條內建 pytest 規則的 regex／verdict_map／pytest_summary 任一非現行版或缺條就列黃燈「config 內建 PYTEST regex 非現行版」；`rules/coding-style.md` 自檢段加自寫收據一句；`tools/second-opinion/pack.py` 子行程帶 `CREATE_NO_WINDOW`；兩張 atom（量尺自寫收據卡、decisions 放行行動句）改成現況。
