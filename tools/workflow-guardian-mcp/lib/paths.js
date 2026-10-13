@@ -3,16 +3,19 @@
 const fs = require("fs");
 const path = require("path");
 
-// CLAUDE_DIR＝使用者資料根（workflow、memory、config、registry、version）；CODE_DIR＝程式碼根（本檔所在的樹，
-// tools/workflow-guardian-mcp/lib 往上三層）：spawn 的 py 腳本與 `python -m lib.*` 的 cwd 一律用它，worktree 裡跑的就是 worktree 的碼。
-const CLAUDE_DIR = path.join(require("os").homedir(), ".claude");
+// CLAUDE_DIR＝使用者資料根（workflow、memory、config、registry）：WG_CLAUDE_DIR 去頭尾空白後非空就用它，否則 ~/.claude。
+// MIRROR: lib/project_root.py:claude_data_dir（兩邊都不 resolve；JS 的 trim 會連 BOM 一起去、Python 的 strip 不會，WG_CLAUDE_DIR 必須給絕對路徑）。
+// CODE_DIR＝程式碼根（本檔所在的樹，tools/workflow-guardian-mcp/lib 往上三層）：spawn 的 py 腳本與 `python -m lib.*` 的 cwd
+// 一律用它，worktree 裡跑的就是 worktree 的碼；version.json 是進版控的程式碼版本標記，也看它。
+const _WG_CLAUDE_DIR = (process.env.WG_CLAUDE_DIR || "").trim();
+const CLAUDE_DIR = _WG_CLAUDE_DIR ? _WG_CLAUDE_DIR : path.join(require("os").homedir(), ".claude");
 const CODE_DIR = path.resolve(__dirname, "..", "..", "..");
 const WORKFLOW_DIR = path.join(CLAUDE_DIR, "workflow");
 const MEMORY_DIR = path.join(CLAUDE_DIR, "memory");
 const TOOLS_DIR = path.join(CODE_DIR, "tools");
 const CONFIG_PATH = path.join(WORKFLOW_DIR, "config.json");
 const REGISTRY_PATH = path.join(MEMORY_DIR, "project-registry.json");
-const VERSION_PATH = path.join(CLAUDE_DIR, "version.json");
+const VERSION_PATH = path.join(CODE_DIR, "version.json");
 function loadVersions() {
   try { return JSON.parse(fs.readFileSync(VERSION_PATH, "utf-8")); }
   catch { return { guardian: "0.0.0", atom_memory: "?" }; }

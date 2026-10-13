@@ -487,11 +487,13 @@ def _write_atom_via_mcp(
     provenance = None
     quote_line = None
     try:
-        from lib.provenance import format_quote, format_source_session, sanitize_quote
+        from lib.provenance import format_quote, format_source_session, is_kickoff_text, sanitize_quote
         from datetime import date as _date
         if session_id:
             provenance = format_source_session(session_id, None, _date.today().isoformat())
-        q = sanitize_quote(candidate.get("prompt", "") or "")
+        prompt_text = candidate.get("prompt", "") or ""
+        # 開工句裡夾的決策可以萃成卡，但開工句本身不是那張卡的使用者原話（判定同 wg_provenance）
+        q = "" if is_kickoff_text(prompt_text) else sanitize_quote(prompt_text)
         quote_line = format_quote(q) if q else None
     except Exception as e:
         _atom_debug_error("user-extract:provenance", e)

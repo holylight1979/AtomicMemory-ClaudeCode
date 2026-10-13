@@ -45,7 +45,7 @@ def test_global_from_claude_dir_allowed():
     r = locate_atom("x-y", "global", project_cwd=str(atom_io.CLAUDE_DIR / "hooks"),
                     domain="版控/Git", mode="create", enforce_cwd_scope=True)
     assert r.ok, r.error
-    assert r.extra["index_root"].replace("\\", "/").rstrip("/").endswith(".claude")
+    assert Path(r.extra["index_root"]) == atom_io.CLAUDE_DIR   # 資料根（WG_CLAUDE_DIR 或 ~/.claude），不看資料夾名
 
 
 def test_shared_under_claude_dir_rejected():

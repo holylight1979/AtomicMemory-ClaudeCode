@@ -27,7 +27,12 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-CLAUDE_DIR = Path.home() / ".claude"
+CODE_DIR = Path(__file__).resolve().parents[2]   # 程式碼根：lib.* 從本樹載
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 STATE_PATH = CLAUDE_DIR / "workflow" / "companion-backend.json"
 
 BACKEND_CODEX = "codex"

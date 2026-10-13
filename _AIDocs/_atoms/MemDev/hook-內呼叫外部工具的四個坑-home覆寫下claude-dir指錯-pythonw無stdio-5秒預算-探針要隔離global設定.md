@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: PreToolUse, hook 子行程, CLAUDE_DIR, Path.home, HOME 覆寫, pythonw, stdout None, 5 秒, hook timeout, 探針, GIT_CONFIG_GLOBAL, 隔離測試, run_verify 並行, 假紅
 - Created-at: 2026-09-03
-- Related: repo-全面-lf-決策與守衛鏈, heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出
+- Related: repo-全面-lf-決策與守衛鏈, heredoc反斜線三連踩post-mortem-含反斜線的腳本一律write成檔再跑, svn測試與hook的三個實測事實-diff3相鄰改動自合-整wc-status爆預算-只信xml輸出, 真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile
 - Source: commit:549fccd 2026-09-03（原對話已逾保留期）
 
 ## 知識

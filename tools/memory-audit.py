@@ -1504,7 +1504,9 @@ def move_to_distant(atom_path: Path) -> Tuple[bool, str]:
 
 # ─── Layer Discovery ─────────────────────────────────────────────────────────
 
-CLAUDE_DIR = Path.home() / ".claude"
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 AUDIT_LOG_PATH = CLAUDE_DIR / "memory" / "_vectordb" / "audit.log"
 
 

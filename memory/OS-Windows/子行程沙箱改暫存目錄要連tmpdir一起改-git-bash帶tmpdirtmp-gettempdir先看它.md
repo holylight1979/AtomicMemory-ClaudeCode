@@ -7,7 +7,6 @@
 - Created-at: 2026-10-13
 - Related: windows路徑包含判斷兩側要統一表示-先去長路徑前綴再normpath-轉長路徑後再normpath, 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home
 - Source: session:2a7705d4 2026-10-13
-- Quote: 「你是 v6.0 的工作 session track-verify（獨立實跑驗證），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-verify（detached，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\workflow\v6…」
 
 ## 知識
 

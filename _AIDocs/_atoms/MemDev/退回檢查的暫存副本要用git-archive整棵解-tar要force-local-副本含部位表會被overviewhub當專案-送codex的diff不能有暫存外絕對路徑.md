@@ -7,7 +7,6 @@
 - Created-at: 2026-10-13
 - Related: worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒
 - Source: session:6ea645d0 2026-10-13
-- Quote: 「你是 v6.0 的工作 session track-g12w，總控台是 claude-9f（調度；對人總控台是 claude-91）。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-g12w（分支 v6/track-g12w，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.c…」
 
 ## 知識
 
