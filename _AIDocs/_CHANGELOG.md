@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 部位表加「類別」欄：知識類部位（文件、記憶、派工信箱）移出寫碼查核
+- **緣由**：寫碼查核只看副檔名與部位，`workflow/v6-inbox/` 放一支 .py 素材就欠 (d) 案例、改 `memory/_staging` 也要交定位三行；對人總控台一整天只改這兩處卻被擋到要人放行。
+- **做法**：部位表加「類別」欄（code｜knowledge，沒欄、沒標、拼錯＝code）；`lib/overview_hub.path_kind` 用錨在專案根的最長前綴判類別（先消 `..`，根以下帶 8.3 短名算 code），OverviewHub 對 knowledge 部位只要求卡已注入，`wg_verify_ledger.is_excluded` 讓 knowledge 部位的檔不欠 (d) 也不能替寫碼部位清帳；量尺閘不動；無部位表的專案行為不變；scorecard S3 只算寫碼部位。根層表補 `workflow/v6-inbox/`、`.claude/` 兩列。
+- **驗證**：見 track-know 001 交付信（目標 verify、退回 main 紅在斷言、真 transcript 回放修前修後擋次、codex 一輪處置）。
+
 ## 2026-10-13 v6.0 核心推進文件總整理：歷程搬進 DevHistory 工作紀錄，checklist 與接續單只留現況與連結
 - **緣由**：原設計者指出 v6.0 checklist 每條塞滿 commit、codex 輪次、退件單編號，全文 4 萬 token，讀者看不出目標與下一步，「嚴禁把核心推進文件搞成會造成嚴重飄移的狀態」。
 - **做法**：新建 `DevHistory/v6.0-寫程式碼的進化-2026-10/工作紀錄.md`（按軌、按日期，一筆不漏）；`memory/_staging` 的 checklist 改成 G 目標表＋一行一項 checklist＋活軌表＋待決兩題，接續單只留接手方法、規矩、現況。

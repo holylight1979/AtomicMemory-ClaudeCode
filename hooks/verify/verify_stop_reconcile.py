@@ -3365,6 +3365,24 @@ def test_know_code_moved_into_knowledge_part_still_owes(driven, capsys, know_rep
     assert "(d) 改了程式碼（a.py" in out                       # 舊碼兩份都欠（a.py、a.py），新碼只欠 tools/a.py
 
 
+def test_know_knowledge_part_ruler_and_commit_snapshot_unchanged(driven, capsys, tmp_path):
+    """知識部位只移出 (d) 與定位三行：表上有量尺的知識部位改了沒跑尺，量尺閘照擋；commit 快照照記知識部位的改檔內容。
+    codex 審 a6323cb 新案缺口（契約 3、5 的直接斷言）。"""
+    repo = tmp_path / "mrepo"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 量尺（量法｜指令｜門檻） | 類別 |\n|---|---|---|---|---|---|\n"
+        "| `memory/` | 記憶 | 無 | 無 | 索引一致｜`python -X utf8 tools/check.py`｜exit 0 | knowledge |\n", encoding="utf-8")
+    _git(repo, "init", "-q")
+    p = repo / "memory" / "_staging" / "a.py"
+    p.parent.mkdir(parents=True)
+    p.write_text(_KNOW_SRC, encoding="utf-8")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(p), 5)])
+    assert "[Guardian:MeasureGate]" in out and "部位【記憶】有量尺" in out and _know_debt("a.py") not in out
+    snap = vl.commit_snapshot([_mf(str(p), 5)], 5, vl.reconcile_cfg({}), lambda _p: str(repo))
+    assert str(p) in snap["files"] and snap["files"][str(p)] is not None
+
+
 def test_know_no_map_keeps_extension_rule(driven, capsys, tmp_path):
     """沒有部位表的專案行為不變：信箱路徑下的 .py 照副檔名算程式檔。"""
     repo = tmp_path / "nomap"
