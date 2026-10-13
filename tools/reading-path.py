@@ -7,13 +7,15 @@
   數字是尺不是判決：判斷交給讀的人與 LLM。
 
 怎麼跑：
-  python tools/reading-path.py [--root 專案根] [--entry 入口] [--to 落點] [--top N] [--json]
-  python tools/reading-path.py --before <git rev|目錄> [--after <git rev|目錄>] [--entry 入口]
+  python tools/reading-path.py [--root 專案根] [--entry 入口 …] [--to 落點] [--top N] [--json] [--layers 部位表]
+  python tools/reading-path.py --before <git rev|目錄> [--after <git rev|目錄>] [--entry 入口 …]
   完整參數見 --help。尾行：READING_PATH DONE k=v …（跑不動時 READING_PATH FAIL reason=…，exit 1）
 
 每一步怎麼算（一步最多算一個彎）：
   轉手  這一步不是直接呼叫：wrapper／delegate（落到只轉傳的函式）、callback、event、inherit（繼承／介面分派）、dynamic（分派表）
-  跳檔  換到別的檔；partial 類別各檔名是 `類.責任.cs` 且責任各不相同 → 標「分檔有責任軸」，只免掉換檔那個彎，轉手照算
+  跳檔  換到別的檔；partial 類別各檔名是 `類.責任.cs` 且責任各不相同 → 標「分檔有責任軸」，只免掉換檔那個彎，轉手照算；
+        部位表（--layers，沒給就讀 --root 底下的 .claude/overview-map.md）「層」欄宣告了「第 N 層」時，兩個檔同層或相鄰層
+        → 標「宣告層次軸」，同樣只免換檔那個彎；跨兩層以上、或任一檔沒宣告層，照算跳檔
   拐彎  這一步是轉手或跳檔。刻度（G11，參考）：0-1 順｜2 注意｜3 警戒｜≥4 臭掉
   未知  落到的函式裡有解析不了的呼叫（不論長短，所有含未解呼叫的函式都是未知步），證不出是轉傳還是有內容：
         這一步算一個彎（數字不因看不到而變好），整條路標「未讀到底」，不進刻度分布
@@ -83,6 +85,7 @@ ENTRY_LIST_LIMIT = 20     # 表頭列幾個入口（--json 看全部）
 UNRESOLVED_WARN = 0.3     # 解析不了的專案內呼叫超過這個比例 → 表頭警示數字偏低
 COVERAGE_DROP = 0.05      # 前後比較時 after 的未解比例多出這麼多 → 警示可能是解析退化
 MAX_REEXPORT = 5          # from a import x 追 re-export、追函式別名最多幾跳（防循環）
+LAYER_RE = re.compile(r"第\s*(\d+)\s*層")   # 部位表「層」欄的層號宣告；一格恰好一個才算宣告
 SHARED_FAN_IN = 5         # 落點被這麼多處呼叫 → 標「共用底層」：讀功能時通常不必沿這條路讀到它
 DEEP_STRAIGHT = 6         # 深度到這麼多但拐彎 ≤1 → 提醒「同檔多層有實質內容的呼叫不算彎」
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
@@ -155,7 +158,9 @@ LIMITS = WHITELIST + """
   - 專案內但解析不了的呼叫（區域變數裝的函式、同名方法多個、找不到的 self 方法、getattr）計入未解，
     路上任一步有未解就整條路標「未讀到底」；確知在專案外的（內建、外部模組、外部父類、專案沒有同名方法）不算
   - 掃描母體：--scope git（預設，git ls-files 與原始碼副檔名的交集；不在 git 裡就退回 tree 並標明）或 --scope tree
-    （目錄遞迴，只排 SKIP_DIRS 與點開頭目錄）；報告附範圍政策與檔案清單雜湊，前後比較範圍政策不同時整份標不可判定
+    （目錄遞迴，只排 SKIP_DIRS 與點開頭目錄）；報告附範圍政策與檔案清單雜湊，前後比較範圍政策不同時整份標不可判定。
+    git 政策只看追蹤清單：未追蹤的檔（含 .gitignore 忽略的目錄、還沒 git add 的新檔）不在母體；已追蹤的檔即使路徑符合
+    .gitignore 也照掃，與比較時 git archive 解出來的那一側一致
   - 抽象與空實作分開：Python 只有方法本身掛 @abstractmethod、而且類別確定是 ABCMeta（自己或專案內祖先的父類是 abc.ABC，
     或寫了 metaclass=abc.ABCMeta）才是抽象，C# 是 abstract 或分號宣告；只有 pass、...、raise NotImplementedError（或只有
     docstring）、C# 空大括號是空實作：不論所在類別抽不抽象都仍算覆寫（子類空實作擋掉父類方法，第 3 條不成立），只是不當落點
@@ -195,7 +200,9 @@ LIMITS = WHITELIST + """
   - partial 責任軸是依檔名推測：檔名沒寫成 `類.責任.cs` → 照算跳檔，有責任軸但沒標在檔名上的分檔數字會偏高；
     反過來，取了像樣後綴但其實沒分責任的也會被當成有軸（Part1、Misc 這類已排除），輸出都標「依檔名推測」；
     豁免的只有換檔那個彎，那一步若是轉手照算彎
-  - 分層架構（main→service→repo 各一檔）每層換檔都算彎：可能誤報，由讀的人判
+  - 分層架構（main→service→repo 各一檔）每層換檔都算彎：可能誤報，由讀的人判；在部位表「層」欄寫「第 N 層」宣告層次軸後，
+    同層與相鄰層換檔不算彎（--json 每一步記 layer_from／layer_to／counted），跨兩層以上照算；層號照部位表最長前綴命中的那一列，
+    一格裡沒有或有不只一個「第 N 層」（例：單層）都算沒宣告
   - 落點被很多處呼叫（≥5）會標「共用底層」：讀某個功能時通常不必沿這條路讀到它，路長不一定是問題
   - 粗略模式（js/ts/go/java/kt/rs）只認定義與同名唯一呼叫：只數跳檔，不判轉手"""
 
@@ -230,6 +237,9 @@ class Step:
     axis: str = ""       # 分檔有責任軸時的「責任→責任」
     guess: str = ""
     rule: int | None = None   # 這一步憑白名單第幾條確定；None＝不確定（入口那一步也是 None，不算進確定與否）
+    layer_from: int | None = None   # 宣告層次軸：上一個檔與這個檔在部位表上的層號（沒宣告＝None）
+    layer_to: int | None = None
+    counted: bool | None = None     # 換檔這一步算不算跳檔：None＝沒換檔；False＝免掉（責任軸、同層或相鄰層）
 
     @property
     def turn(self) -> int:
@@ -251,6 +261,7 @@ class Route:
         turns = sum(s.turn for s in moves)
         return {"entry": self.entry, "landing": self.landing, "sig": self.sig, "turns": turns, "grade": grade(turns),
                 "file_jumps": sum(s.jump for s in moves), "axis_jumps": sum(bool(s.axis) for s in moves),
+                "layer_jumps": sum(s.counted is False and not s.axis for s in moves),
                 "handoffs": sum(s.kind != "direct" for s in moves), "depth": len(moves),
                 "certain": all(s.rule is not None for s in moves),
                 "incomplete": self.unresolved_path > 0 or self.unresolved > 0,
@@ -359,9 +370,10 @@ def partial_axis(cls: lang.Cls) -> dict:
 class Graph:
     """全專案的函式與呼叫邊；建好後可從任一入口找各落點的最短閱讀路徑。"""
 
-    def __init__(self, root: Path, modules: list, scan: dict):
+    def __init__(self, root: Path, modules: list, scan: dict, layers: dict | None = None):
         self.root = root
         self.scan = scan           # parse_errors、empty_files、file_funcs（-1＝解析失敗）
+        self.layers = layers or {}   # 檔 → 部位表宣告的層號；沒宣告的檔不在裡面
         self.modules = {m.file: m for m in modules}
         self.known_py = set(self.modules) | {f for f, n in scan["file_funcs"].items() if n < 0 and f.endswith(".py")}
         self.funcs = {f.id: f for f in flat(m.funcs for m in modules)}
@@ -1757,9 +1769,14 @@ class Graph:
         b = self.funcs[e.dst]
         kind = e.kind if e.kind != "direct" else self.passthrough.get(b.id, "unknown" if b.id in self.unknown else "direct")
         axis_map = self.axis.get(a.cls, {}) if a.cls and a.cls == b.cls else {}
-        axis = f"{axis_map[a.file]}→{axis_map[b.file]}" if a.file != b.file and a.file in axis_map and b.file in axis_map else ""
+        moved = a.file != b.file
+        axis = f"{axis_map[a.file]}→{axis_map[b.file]}" if moved and a.file in axis_map and b.file in axis_map else ""
+        la, lb = self.layers.get(a.file), self.layers.get(b.file)
+        near = moved and not axis and la is not None and lb is not None and abs(la - lb) <= 1   # 同層或相鄰層
+        jump = moved and not axis and not near
         guess = e.guess if kind != "unknown" else "；".join(x for x in (e.guess, UNKNOWN_STEP) if x)
-        return Step(b.id, kind, jump=a.file != b.file and not axis, axis=axis, guess=guess, rule=e.rule)
+        return Step(b.id, kind, jump=jump, axis=axis, guess=guess, rule=e.rule, layer_from=la, layer_to=lb,
+                    counted=jump if moved else None)
 
     def _shortest(self, entry: str, certain_only: bool):
         """從 entry 出發的最短路（拐彎、跳檔、深度依序比）；certain_only 時只走確定的邊。"""
@@ -1826,14 +1843,67 @@ def _skipped(rel: str) -> bool:
     return any(d in SKIP_DIRS or d.startswith(".") for d in PurePosixPath(rel.replace("\\", "/")).parts[:-1])
 
 
-def build_graph(root: Path, scope: str = "git", policy: str | None = None) -> Graph:
-    """policy：報告上要寫的範圍政策（git archive 解出來的目錄實際上就是追蹤清單，傳 "git"）；不給就照 scan_paths 的結果。"""
+def _overview_hub():
+    """部位表的解析與前綴命中借 lib/overview_hub（導讀卡注入用的同一套規則），要用時才載入。"""
+    lib = str(Path(__file__).resolve().parents[1] / "lib")
+    if lib not in sys.path:
+        sys.path.append(lib)
+    try:
+        import overview_hub
+    except ImportError as e:
+        raise ReadingPathError(f"讀不到部位表解析器 lib/overview_hub.py（{e}）：--layers 要跟 lib/ 一起用") from None
+    return overview_hub
+
+
+def layer_number(row: dict | None) -> int | None:
+    """部位表一列的「層」欄恰好有一個「第 N 層」→ N；沒有（例：單層）或不只一個 → None（沒宣告）。"""
+    found = LAYER_RE.findall((row or {}).get("layer") or "")
+    return int(found[0]) if len(found) == 1 else None
+
+
+def layer_axis(spec: str | None, root: Path) -> dict | None:
+    """宣告層次軸：--layers 給了就讀那張部位表；沒給就讀 --root 底下的 .claude/overview-map.md（沒有這個檔就不用）。
+    表裡沒有任何一列宣告「第 N 層」→ None，行為同沒有部位表。前綴相對部位表所在的專案根（表的上上層目錄）。"""
+    path = Path(spec) if spec else root / ".claude" / "overview-map.md"
+    if not path.is_file():
+        if spec:
+            raise ReadingPathError(f"--layers 找不到部位表：{path}")
+        return None
+    rows = _overview_hub().parse_map(path.read_text(encoding="utf-8"))
+    if not any(layer_number(r) is not None for r in rows):
+        return None
+    return {"source": str(path), "base": path.resolve().parent.parent, "root": root.resolve(), "rows": rows}
+
+
+def file_layers(axis: dict | None, rels: list) -> dict:
+    """每個檔（相對 --root；比較時兩側都用真的 --root 換算）在部位表最長前綴命中的那一列宣告的層號；
+    檔不在部位表的專案根底下、沒命中、或命中的列沒宣告 → 不在結果裡（照算跳檔）。"""
+    if not axis:
+        return {}
+    hub, out = _overview_hub(), {}
+    for rel in rels:
+        full = axis["root"] / rel
+        try:
+            full.relative_to(axis["base"])
+        except ValueError:
+            continue
+        n = layer_number(hub.match_row(str(full), axis["base"], axis["rows"]))
+        if n is not None:
+            out[rel] = n
+    return out
+
+
+def build_graph(root: Path, scope: str = "git", policy: str | None = None, layers: dict | None = None) -> Graph:
+    """policy：報告上要寫的範圍政策（git archive 解出來的目錄實際上就是追蹤清單，傳 "git"）；不給就照 scan_paths 的結果。
+    layers：layer_axis 讀出的層次軸（None＝沒宣告）。"""
     paths, actual = scan_paths(root, scope)
     modules = []
     rels = [p.relative_to(root).as_posix() for p in paths if not lang.GENERATED_RE.search(p.relative_to(root).as_posix())]
     digest = hashlib.sha1("\n".join(sorted(rels)).encode("utf-8")).hexdigest()[:12]
+    by_file = file_layers(layers, rels)
     scan = {"parse_errors": [], "empty_files": [], "file_funcs": {},
-            "scope": {"policy": policy or actual, "files": len(rels), "digest": digest}}
+            "scope": {"policy": policy or actual, "files": len(rels), "digest": digest},
+            "layers": {"source": layers["source"], "files": len(by_file)} if layers else None}
     for path in paths:
         rel = path.relative_to(root).as_posix()
         if lang.GENERATED_RE.search(rel):
@@ -1849,7 +1919,7 @@ def build_graph(root: Path, scope: str = "git", policy: str | None = None) -> Gr
         scan["file_funcs"][rel] = len(mod.funcs)
         if not mod.funcs and not is_test(rel) and DEF_HINT[mod.lang].search(text):
             scan["empty_files"].append(rel)       # 測試夾具常是只有頂層程式碼的腳本，不列
-    return Graph(root, modules, scan)
+    return Graph(root, modules, scan, by_file)
 
 
 def spec_hits(g: Graph, spec: str):
@@ -1880,10 +1950,16 @@ def match_spec(g: Graph, spec: str) -> list:
     return entries or sorted(f.id for f in hits if f.id not in g.called)[:ROOT_LIMIT]
 
 
-def find_entries(g: Graph, spec: str | None) -> list:
-    """沒指定入口：天生入口（__main__、main、static Main、Unity 生命週期）；都沒有就用沒人呼叫的公開函式。測試檔不當入口。"""
+def entry_specs(spec) -> list:
+    """--entry 可給多次（list）或一個字串；沒給 → []。"""
+    return [spec] if isinstance(spec, str) else list(spec or [])
+
+
+def find_entries(g: Graph, spec) -> list:
+    """指定入口（可多個，聯集）照 match_spec；沒指定：天生入口（__main__、main、static Main、Unity 生命週期），
+    都沒有就用沒人呼叫的公開函式。測試檔不當入口。"""
     if spec:
-        return match_spec(g, spec)
+        return sorted(set(flat(match_spec(g, s) for s in entry_specs(spec))))
     mains = sorted(f.id for f in g.funcs.values() if g.is_entry(f) and not is_test(f.file))
     if mains:
         return mains
@@ -1911,11 +1987,13 @@ def entry_summary(g: Graph, eid: str, routes: list, unresolved_funcs: list) -> d
             "unresolved_reach": reach, "unresolved_funcs": unresolved_funcs, "routes": routes}
 
 
-def analyze(root: Path, entry: str | None = None, to: str | None = None, scope: str = "git",
-            policy: str | None = None) -> dict:
-    g = build_graph(root, scope, policy)
+def analyze(root: Path, entry=None, to: str | None = None, scope: str = "git",
+            policy: str | None = None, layers: dict | None = None) -> dict:
+    """entry：一個入口寫法或多個（list）；entry_misses＝找不到任何函式的入口寫法。layers：layer_axis 的結果。"""
+    g = build_graph(root, scope, policy, layers)
     targets = {f.id for f in spec_hits(g, to)[0]} if to else None
-    report = {"root": str(root), "stats": graph_stats(g), "entries": []}
+    report = {"root": str(root), "stats": graph_stats(g), "entries": [],
+              "entry_misses": [s for s in entry_specs(entry) if not match_spec(g, s)]}
     for eid in find_entries(g, entry):
         found, unresolved_funcs = g.routes(eid)
         routes = [r.summary() for r in found if targets is None or r.landing in targets]
@@ -1933,7 +2011,7 @@ def graph_stats(g: Graph) -> dict:
             "linked_calls": linked, "unresolved": unresolved, "axis_classes": axis,
             "unresolved_ratio": round(unresolved / (linked + unresolved), 3) if linked + unresolved else 0.0,
             "parse_errors": g.scan["parse_errors"], "empty_files": g.scan["empty_files"],
-            "file_funcs": g.scan["file_funcs"], "scope": g.scan["scope"]}
+            "file_funcs": g.scan["file_funcs"], "scope": g.scan["scope"], "layers": g.scan["layers"]}
 
 
 def caveats(g: Graph, report: dict) -> list:
@@ -1944,9 +2022,13 @@ def caveats(g: Graph, report: dict) -> list:
                     if c.lang == "cs" and c.partial and len(c.files) > 1 and not g.axis.get(c.name))
     candidate = sum(not r["certain"] for r in routes)
     incomplete = sum(r["incomplete"] for r in routes)
+    layers = report["stats"]["layers"]
+    layered = sum(r["layer_jumps"] for r in routes)
     checks = [
         (any(r["file_jumps"] >= 3 and r["handoffs"] <= 1 for r in routes),
-         "分層換檔：有路徑的彎幾乎都來自換檔（跳檔≥3、轉手≤1），若是刻意的分層架構可能誤報"),
+         "分層換檔：有路徑的彎幾乎都來自換檔（跳檔≥3、轉手≤1），若是刻意的分層架構可能誤報"
+         + ("" if layers else "（部位表「層」欄寫「第 N 層」可宣告層次軸）")),
+        (layered, f"宣告層次軸：同層或相鄰層的換檔 {layered} 步不算彎（依 {(layers or {}).get('source')}），跨兩層以上照算"),
         (kinds["wrapper"] + kinds["delegate"],
          f"只轉傳的層 {kinds['wrapper'] + kinds['delegate']} 步：adapter／facade 若是刻意設計，彎數會偏高"),
         (kinds["event"] + kinds["callback"], "事件與 callback 管線：看不出實例或呼叫語境的已標候選"),
@@ -2087,20 +2169,23 @@ def _diff_row(entry: str, b: dict | None, a: dict | None, undecidable: bool, bro
     return {"entry": entry, "landing": landing, "status": status, "certain": certain, "before": b, "after": a}
 
 
-def run_compare(root: Path, before: str, after: str | None, entry: str | None, to: str | None,
-                scope: str = "git") -> dict:
+def run_compare(root: Path, before: str, after: str | None, entry, to: str | None,
+                scope: str = "git", layers: dict | None = None) -> dict:
     """git rev 解出來的目錄就是那個版本的追蹤清單（git archive），再套與 git 清單相同的目錄排除，政策記 git；
-    目錄或 --root 照 --scope。兩側政策不同（例如 --root 不在 git 裡退回 tree）→ 比較整份不可判定。"""
+    目錄或 --root 照 --scope。兩側政策不同（例如 --root 不在 git 裡退回 tree）→ 比較整份不可判定。
+    兩側用同一個層次軸（檔的層號照真的 --root 換算）。entry_misses＝兩版都找不到的入口寫法（只有一版有的是新增／消失）。"""
     with tempfile.TemporaryDirectory(prefix="reading-path-") as tmp:
         b_root = materialize(before, root, Path(tmp), "before")
         a_root = materialize(after, root, Path(tmp), "after") if after else root
         archived = {b_root} if not Path(before).is_dir() else set()
         archived |= {a_root} if after and not Path(after).is_dir() else set()
-        side = lambda r: analyze(r, entry, to, "tree", "git") if r in archived else analyze(r, entry, to, scope)
+        side = lambda r: (analyze(r, entry, to, "tree", "git", layers) if r in archived
+                          else analyze(r, entry, to, scope, layers=layers))
         b_rep, a_rep = side(b_root), side(a_root)
     res = compare(b_rep, a_rep)
     res.update(before_label=before, after_label=after or "目前內容", root=str(root),
-               caveats=list(dict.fromkeys(b_rep["caveats"] + a_rep["caveats"])))
+               caveats=list(dict.fromkeys(b_rep["caveats"] + a_rep["caveats"])),
+               entry_misses=[s for s in b_rep["entry_misses"] if s in a_rep["entry_misses"]])
     return res
 
 
@@ -2120,6 +2205,9 @@ def route_lines(r: dict) -> list:
     for s in r["steps"]:
         tags = " ↗換檔" if s["jump"] else ""
         tags += f" ≋分檔有責任軸（依檔名推測）{s['axis']}" if s["axis"] else ""
+        if s.get("counted") is False and not s["axis"]:
+            near = "同層" if s["layer_from"] == s["layer_to"] else "相鄰層"
+            tags += f" ≋宣告層次軸 第{s['layer_from']}層→第{s['layer_to']}層（{near}，換檔不算彎）"
         tags += f" ?{s['guess']}" if s["guess"] else ""
         lines.append(f"      {s['kind']:<9} {s['func']}{tags}")
     return lines
@@ -2127,6 +2215,10 @@ def route_lines(r: dict) -> list:
 
 def caveat_lines(caveats: list) -> list:
     return ["本次涉及的限制與可能誤報：", *(f"  - {c}" for c in caveats)] if caveats else []
+
+
+def entry_miss_lines(misses: list) -> list:
+    return [f"⚠ 找不到入口（略過）：{'、'.join(misses)}：用檔路徑、檔::函式 或 函式名（Class.method）"] if misses else []
 
 
 def render(report: dict, top: int) -> str:
@@ -2143,6 +2235,10 @@ def render(report: dict, top: int) -> str:
         lines.append(f"⚠ 有定義卻解析出零函式 {len(st['empty_files'])} 檔：" + "、".join(st["empty_files"][:5]))
     lines += [f"分檔有責任軸（依檔名推測）：{name}（{'・'.join(axes)}），這些檔之間換檔不算彎，另計 axis_jumps"
               for name, axes in st["axis_classes"].items()]
+    if st["layers"]:
+        lines.append(f"宣告層次軸：{st['layers']['source']}（{st['layers']['files']} 檔有層號）：同層與相鄰層換檔不算彎，"
+                     "跨兩層以上照算，另計 layer_jumps")
+    lines += entry_miss_lines(report["entry_misses"])
     lines += caveat_lines(report["caveats"])
     entries = report["entries"]
     routes = sorted(flat(e["routes"] for e in entries), key=worst_first)
@@ -2186,9 +2282,19 @@ def render_compare(res: dict, top: int) -> str:
         lines.append("⚠ after 的解析涵蓋變差：「消失」「變好」可能是看不到了，不是程式變好")
     lines += [f"  不可判定的入口（可達範圍內解析不了的呼叫變多或換了地方）：{e}" for e in res["undecidable_entries"]]
     lines += [f"  解析失敗或有函式↔零函式（經過它的列都不可判定）：{f}" for f in res["emptied_files"]]
+    lines += entry_miss_lines(res.get("entry_misses", []))
     lines += caveat_lines(res["caveats"])
+    same = [r for r in res["rows"] if r["status"] == "same"]
+    sure = sum(r["certain"] for r in same)
+    if not res["rows"]:
+        lines.append("沒有可比的路徑")
+    else:   # 不變的列只印一行計數；逐列內容在 --json 的 rows（status=same）
+        whole = "全部" if len(same) == len(res["rows"]) else ""
+        lines.append(f"{whole}不變 {len(same)} 列（全確定 {sure}・含候選 {len(same) - sure}；逐列見 --json 的 rows）")
     shown = 0
-    for row in [r for r in res["rows"] if r["status"] != "same"]:
+    for row in res["rows"]:
+        if row["status"] == "same":
+            continue
         b, a = row["before"] or {}, row["after"] or {}
         nums = "｜".join(f"{name} {b.get(k, '-')}→{a.get(k, '-')}"
                         for name, k in (("拐彎", "turns"), ("跳檔", "file_jumps"), ("轉手", "handoffs")))
@@ -2235,7 +2341,9 @@ def compare_done_line(res: dict) -> str:
 def main(argv: list | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, epilog=LIMITS, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=".", help="專案根（預設目前目錄）")
-    ap.add_argument("--entry", help="入口：檔路徑｜檔::函式｜函式名（Class.method）；不給就自動找")
+    ap.add_argument("--entry", action="append",
+                    help="入口：檔路徑｜檔::函式｜函式名（Class.method）；可給多次（聯集）；不給就自動找；全部都找不到才報錯，"
+                         "找不到的那幾個列在輸出（entry_misses）")
     ap.add_argument("--to", help="只看落在這些函式的路徑（寫法同 --entry）")
     ap.add_argument("--top", type=int, default=3, help="全確定與含候選各列幾條最差路徑（預設 3；比較模式是列幾條變差／新增的路徑）")
     ap.add_argument("--before", help="前後比較的舊版本：git rev（--root 所在 repo）或目錄")
@@ -2243,6 +2351,8 @@ def main(argv: list | None = None) -> int:
     ap.add_argument("--json", action="store_true", help="輸出 JSON（含 caveats；最後一行仍是哨兵）")
     ap.add_argument("--scope", choices=("git", "tree"), default="git",
                     help="掃描母體：git＝版本追蹤清單與原始碼副檔名的交集（預設；不在 git 裡退回 tree）；tree＝目錄遞迴")
+    ap.add_argument("--layers", help="宣告層次軸的部位表（overview-map.md）；不給就讀 --root 底下的 .claude/overview-map.md，"
+                                     "「層」欄寫「第 N 層」的列才算宣告，同層與相鄰層換檔不算彎")
     args = ap.parse_args(argv)
     root = Path(args.root).resolve()
     try:
@@ -2250,16 +2360,17 @@ def main(argv: list | None = None) -> int:
             raise ReadingPathError(f"--root 不是目錄：{root}")
         if args.after and not args.before:
             raise ReadingPathError("--after 要搭配 --before")
+        layers = layer_axis(args.layers, root)
         if args.before:
-            res = run_compare(root, args.before, args.after, args.entry, args.to, args.scope)
+            res = run_compare(root, args.before, args.after, args.entry, args.to, args.scope, layers)
             missing = args.entry and res["entries"] == 0
             text, tail = render_compare(res, args.top), compare_done_line(res)
         else:
-            res = analyze(root, args.entry, args.to, args.scope)
+            res = analyze(root, args.entry, args.to, args.scope, layers=layers)
             missing = args.entry and not res["entries"]
             text, tail = render(res, args.top), done_line(res)
         if missing:
-            raise ReadingPathError(f"找不到入口 {args.entry}：用檔路徑、檔::函式 或 函式名（Class.method）")
+            raise ReadingPathError(f"找不到入口 {'、'.join(args.entry)}：用檔路徑、檔::函式 或 函式名（Class.method）")
     except ReadingPathError as e:
         print(json.dumps({"error": str(e)}, ensure_ascii=False) if args.json else f"error: {e}")
         print(f"READING_PATH FAIL reason={str(e).splitlines()[0][:120]}")

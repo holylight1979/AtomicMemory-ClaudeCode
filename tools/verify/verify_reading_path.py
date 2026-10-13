@@ -2920,6 +2920,157 @@ def test_p15_unresolved_count_or_place_changes_never_report_better(tmp_path, aft
     assert _row(res, "app.py::end")["status"] == "undecidable"
 
 
+# ─── g12w（hooks 接線）：掃描母體跳過 git 忽略目錄、宣告層次軸、比較的不變列、多入口 ─────────────
+
+def _cli(root: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, "-X", "utf8", str(SCRIPT), "--root", str(root), *args],
+                          capture_output=True, text=True, encoding="utf-8")
+
+
+def _cli_json(root: Path, *args: str) -> dict:
+    out = _cli(root, *args, "--json")
+    assert out.returncode == 0, out.stdout[-500:] + out.stderr[-500:]
+    return json.loads("\n".join(out.stdout.strip().splitlines()[:-1]))
+
+
+def test_g12w_git_scope_skips_an_ignored_dir_and_unresolved_stays_the_same(tmp_path):
+    """接線 1：預設 --scope git 用 git ls-files 的集合：.gitignore 忽略的目錄裡未追蹤的 .py 不進母體，unresolved、
+    檔數、清單雜湊都和沒有那個目錄時一樣；同一棵樹改用目錄遞迴就掃得到（這個案擋得住退回目錄遞迴）。
+    已追蹤的檔即使路徑符合 .gitignore 也照掃（與比較時 git archive 那一側一致）。"""
+    files = {".gitignore": "ignored/\n", **PY_STRAIGHT}
+    clean = _git_repo(tmp_path / "clean", files)
+    dirty = _git_repo(tmp_path / "dirty", files)
+    _write(dirty, {"ignored/extra.py": "def extra():\n    fn = make()\n    return fn()\n"})
+    base, st = rp.analyze(clean, "app.py")["stats"], rp.analyze(dirty, "app.py")["stats"]
+    assert st["scope"]["policy"] == "git" and st["scope"]["files"] == base["scope"]["files"] == len(PY_STRAIGHT)
+    assert st["scope"]["digest"] == base["scope"]["digest"] and "ignored/extra.py" not in st["file_funcs"]
+    assert st["unresolved"] == base["unresolved"], "忽略目錄裡解析不了的呼叫不能算進來"
+    tree = rp.analyze(dirty, "app.py", scope="tree")["stats"]
+    assert "ignored/extra.py" in tree["file_funcs"] and tree["unresolved"] > base["unresolved"], "反證：目錄遞迴會掃到"
+    subprocess.run(["git", "-C", str(dirty), "add", "-f", "ignored/extra.py"], check=True)
+    forced = rp.analyze(dirty, "app.py")["stats"]
+    assert "ignored/extra.py" in forced["file_funcs"] and forced["scope"]["files"] == len(PY_STRAIGHT) + 1
+
+
+LAYERED = {
+    "entry/app.py": "from svc.service import run\n\n\ndef main():\n    total = 1\n    total += run(total)\n    return total\n",
+    "entry/direct.py": "from repo.store import save\n\n\ndef jump():\n    total = 2\n    total += save(total)\n    return total\n",
+    "svc/service.py": "from repo.store import save\nfrom svc.helper import tidy\n\n\ndef run(n):\n    value = tidy(n)\n"
+                      "    value += save(value)\n    return value\n",
+    "svc/helper.py": "def tidy(n):\n    out = n * 2\n    out += 1\n    return out\n",
+    "repo/store.py": "def save(n):\n    kept = n + 1\n    kept *= 2\n    return kept\n",
+}
+LAYER_MAP = ("# 部位表\n\n| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 層 |\n|---|---|---|---|---|\n"
+             "| `entry/` | 入口層 | 無 | 無 | 第1層 |\n| `svc/` | 服務層 | 無 | 無 | 第2層 |\n| `repo/` | 資料層 | 無 | 無 | 第3層 |\n")
+
+
+def _layered(root: Path, table: str | None = LAYER_MAP, name: str = "overview-map.md") -> Path:
+    _write(root, LAYERED)
+    if table is not None:
+        _write(root, {f".claude/{name}": table})
+    return root
+
+
+def _moves(route: dict) -> list:
+    return [(s.get("layer_from"), s.get("layer_to"), s.get("counted")) for s in route["steps"][1:]]
+
+
+def test_g12w_adjacent_and_same_layer_file_changes_are_not_jumps(tmp_path):
+    """接線 2：--root 底下的部位表宣告第 1～3 層：入口層→服務層→資料層每一步都是相鄰層，服務層內換檔是同層，
+    換檔都不算跳檔（拐彎 0、layer_jumps 2）；--json 每一步記 layer_from／layer_to／counted。"""
+    root = _layered(tmp_path)
+    rep = _cli_json(root, "--entry", "entry/app.py::main")
+    save, tidy = _route(rep, "repo/store.py::save"), _route(rep, "svc/helper.py::tidy")
+    assert (save["turns"], save["file_jumps"], save.get("layer_jumps")) == (0, 0, 2), save
+    assert _moves(save) == [(1, 2, False), (2, 3, False)] and save["certain"]
+    assert (tidy["file_jumps"], _moves(tidy)[-1]) == (0, (2, 2, False)), "同層換檔不算"
+    assert (rep["stats"].get("layers") or {}).get("files") == len(LAYERED)
+    text = _cli(root, "--entry", "entry/app.py::main").stdout
+    assert "宣告層次軸" in text and "第1層→第2層（相鄰層" in text
+
+
+def test_g12w_skipping_a_layer_or_an_undeclared_file_still_counts(tmp_path):
+    """接線 2：入口層直接呼叫資料層（跨兩層）照算跳檔；檔不在任何宣告列（util/）照算；轉手照算彎（服務層的
+    只轉傳函式 wrapper 在相鄰層也是 1 彎）。"""
+    root = _layered(tmp_path)
+    direct = _route(_cli_json(root, "--entry", "entry/direct.py::jump"), "repo/store.py::save")
+    assert (direct["file_jumps"], direct["turns"], _moves(direct)) == (1, 1, [(1, 3, True)])
+    _write(root, {"util/fmt.py": "def fmt(n):\n    s = str(n)\n    s += '!'\n    return s\n",
+                  "entry/show.py": "from util.fmt import fmt\nfrom svc.relay import relay\n\n\ndef show():\n"
+                                   "    out = fmt(1)\n    out += relay(2)\n    return out\n",
+                  "svc/relay.py": "from repo.store import save\n\n\ndef relay(n):\n    return save(n)\n"})
+    rep = _cli_json(root, "--entry", "entry/show.py::show")
+    fmt = _route(rep, "util/fmt.py::fmt")
+    assert (fmt["file_jumps"], _moves(fmt)) == (1, [(1, None, True)]), "沒宣告層的檔照算"
+    via = _route(rep, "repo/store.py::save")
+    assert _kinds(via) == ["wrapper", "direct"] and (via["file_jumps"], via["turns"]) == (0, 1), via
+
+
+def test_g12w_without_a_declared_layer_axis_numbers_are_unchanged(tmp_path):
+    """接線 2：沒有部位表、或部位表的層欄只寫「單層」（沒有第 N 層）→ 不套層次軸，數字與退回前一版相同
+    （拐彎 2、跳檔 2、尾行一樣）；新欄位：layer_from／layer_to 為 None、換檔那一步 counted 為 True。"""
+    plain = _layered(tmp_path / "plain", None)
+    single = _layered(tmp_path / "single", re.sub(r"第\d層", "單層", LAYER_MAP))
+    for root in (plain, single):
+        save = _route(_cli_json(root, "--entry", "entry/app.py::main"), "repo/store.py::save")
+        assert (save["turns"], save["file_jumps"]) == (2, 2), "沒宣告層次軸時每次換檔都算"
+        assert "宣告層次軸" not in _cli(root, "--entry", "entry/app.py::main").stdout
+        assert _moves(save) == [(None, None, True)] * 2
+    tails = [_cli(r, "--entry", "entry/app.py::main").stdout.strip().splitlines()[-1] for r in (plain, single)]
+    assert tails[0] == tails[1] and "max_file_jumps=2 " in tails[0]
+
+
+def test_g12w_explicit_layers_flag_and_compare_use_the_axis_on_both_sides(tmp_path):
+    """接線 2：--layers 指定別的部位表檔也吃；比較模式（git rev ↔ 工作樹）兩側都套同一個層次軸。"""
+    root = _layered(tmp_path / "flag", name="alt-map.md")
+    flagged = _cli_json(root, "--entry", "entry/app.py::main", "--layers", str(root / ".claude" / "alt-map.md"))
+    assert _route(flagged, "repo/store.py::save")["file_jumps"] == 0
+    assert _route(_cli_json(root, "--entry", "entry/app.py::main"), "repo/store.py::save")["file_jumps"] == 2, \
+        "沒給 --layers 只看 .claude/overview-map.md"
+    repo = _git_repo(tmp_path / "repo", {**LAYERED, ".claude/overview-map.md": LAYER_MAP})
+    res = _cli_json(repo, "--before", "HEAD", "--entry", "entry/app.py::main")
+    row = _row(res, "repo/store.py::save")
+    assert row["status"] == "same" and row["before"]["file_jumps"] == row["after"]["file_jumps"] == 0
+
+
+def test_g12w_compare_text_says_all_unchanged_and_json_keeps_every_same_row(tmp_path):
+    """接線 3：比較模式不變的列，文字只印一行計數（全部不變時說「全部不變」），--json 的 rows 完整保留每一列 same
+    （含 before／after 的整條路）；有變動時變動列照列、不變的仍一行計數。"""
+    a, b = _write(tmp_path / "a", PY_WRAPPED), _write(tmp_path / "b", PY_WRAPPED)
+    res = rp.run_compare(b, str(a), None, None, None)
+    text = rp.render_compare(res, 3)
+    assert f"全部不變 {len(res['rows'])} 列" in text and "[不變]" not in text
+    full = _cli_json(b, "--before", str(a))
+    same = [r for r in full["rows"] if r["status"] == "same"]
+    assert same and len(same) == len(full["rows"]) == full["counts"]["same"]
+    assert all(r["before"]["steps"] and r["after"]["steps"] for r in same), "same 列要帶完整的前後路徑"
+    body = "def {0}(n):\n    k = n + 1\n    k *= 2\n    return k\n"
+    two = {"app.py": "from x import a\nfrom y import b\n\n\ndef main():\n    n = a(1)\n    n += b(2)\n    return n\n",
+           "x.py": body.format("a"), "y.py": body.format("b")}
+    moved = {**two, "y.py": "from z import c\n\n\ndef b(n):\n    return c(n)\n", "z.py": body.format("c")}
+    mixed = rp.run_compare(_write(tmp_path / "e", moved), str(_write(tmp_path / "d", two)), None, "app.py::main", None)
+    mtext = rp.render_compare(mixed, 3)
+    assert [r["status"] for r in mixed["rows"]].count("same") == 1 and mixed["counts"]["new"] == 1
+    assert "不變 1 列" in mtext and "全部不變" not in mtext and "[不變]" not in mtext and "[新增]" in mtext
+
+
+def test_g12w_entry_can_be_given_several_times_and_misses_are_listed(tmp_path):
+    """--entry 可給多次（聯集，hooks 接線一次量本 session 改過的檔所在的幾個入口）；找不到的那幾個列在輸出，
+    全部都找不到才報錯；比較模式只有兩版都找不到的才算找不到（只在一版有的是新增／消失）。"""
+    root = _write(tmp_path / "now", {**PY_WRAPPED, "solo.py": "from core import work\n\n\ndef solo():\n    n = work(1)\n"
+                                                              "    n += 2\n    return n\n"})
+    both = _cli(root, "--entry", "app.py", "--entry", "solo.py::solo", "--entry", "nope.py")
+    assert both.returncode == 0 and "entries=2 " in both.stdout.strip().splitlines()[-1]
+    assert "找不到入口（略過）：nope.py" in both.stdout
+    assert _cli_json(root, "--entry", "app.py", "--entry", "nope.py")["entry_misses"] == ["nope.py"]
+    none = _cli(root, "--entry", "nope.py", "--entry", "gone.py")
+    assert none.returncode == 1 and none.stdout.strip().splitlines()[-1].startswith("READING_PATH FAIL")
+    old = _write(tmp_path / "old", PY_WRAPPED)
+    res = _cli_json(root, "--before", str(old), "--entry", "app.py", "--entry", "solo.py::solo", "--entry", "nope.py")
+    assert res["entry_misses"] == ["nope.py"]
+    assert [r["status"] for r in res["rows"] if r["entry"] == "solo.py::solo"] == ["new"], "只在 after 有的入口是新增"
+
+
 # ─── 入口自動偵測、CLI 與哨兵 ────────────────────────────────────────────────
 
 def test_auto_entry_skips_test_files_even_when_root_lives_under_tests_dir(tmp_path):

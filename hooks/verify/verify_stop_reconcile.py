@@ -3262,3 +3262,63 @@ def test_040_13_transcript_from_hook_input_when_session_moved_into_worktree(driv
     keep = {k: st1[k] for k in ("last_block", "reconcile_gate_turn", "modified_files", "session")}
     out, _, logs = driven("全部完成了。", capsys, hook_input=hook_in, **keep)
     assert "ReconcileGate" not in out and _released(logs)
+
+
+# ─── g12w：收尾檢核附「這次對閱讀路徑的影響」（真 Stop 入口） ───────────────────────────────
+
+import wg_reading_path as rph  # noqa: E402
+
+_RP_BODY = "def {0}(n):\n    k = n + 1\n    k *= 2\n    return k\n"
+_RP_APP = {"app.py": "from x import a\nfrom y import b\n\n\ndef main():\n    n = a(1)\n    n += b(2)\n    return n\n\n\n"
+                     'if __name__ == "__main__":\n    main()\n',
+           "x.py": _RP_BODY.format("a"), "y.py": _RP_BODY.format("b"), "notes.md": "# n\n", "todo.md": "# t\n"}
+
+
+def _rp_repo(repo: Path, monkeypatch, budget: float = 120.0) -> Path:
+    monkeypatch.setattr(rph, "BUDGET_S", budget)
+    repo.mkdir(parents=True)
+    for rel, text in _RP_APP.items():
+        (repo / rel).write_text(text, encoding="utf-8", newline="\n")
+    _git(repo, "init", "-q")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "add", ".")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
+    return repo
+
+
+def test_g12w_code_turn_appends_reading_path_to_the_block_without_spending_budget(driven, capsys, tmp_path, monkeypatch):
+    """改碼回合：真 Stop 入口在這次擋的訊息後附「這次對閱讀路徑的影響」：比較尾行、可評級與否、變差／新增最差一條；
+    附段落本身不擋、不吃 stop_blocked_count；量過的輸入記在 state["reading_path"][sid]。"""
+    repo = _rp_repo(tmp_path / "rp", monkeypatch)
+    (repo / "y.py").write_text("from z import c\n\n\ndef b(n):\n    return c(n)\n", encoding="utf-8", newline="\n")
+    (repo / "z.py").write_text(_RP_BODY.format("c"), encoding="utf-8", newline="\n")
+    _git(repo, "add", "z.py")
+    out, state, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(repo / "y.py"), 5), _mf(str(repo / "z.py"), 5)])
+    reason = json.loads(out)["reason"]
+    assert "[Guardian:ReadingPath] 這次對閱讀路徑的影響" in reason, reason[-800:]
+    assert "READING_PATH DONE mode=compare" in reason and "可評級：" in reason and "[新增]" in reason and "z.py::c" in reason
+    assert state["stop_blocked_count"] == 0 and state["reading_path"][_SID]["key"]
+
+
+def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path, monkeypatch):
+    """沒改程式碼的回合不附：這回合只改 .md（照樣被一般收尾擋），或程式檔是前幾回合改的。"""
+    repo = _rp_repo(tmp_path / "rp", monkeypatch)
+    docs = [_mf(str(repo / "notes.md"), 5), _mf(str(repo / "todo.md"), 5)]
+    out, state, _ = driven("接著看下一段。", capsys, modified_files=docs)
+    assert "Workflow Guardian" in out and "ReadingPath" not in out and "reading_path" not in state
+    out, _, _ = driven("接著看下一段。", capsys, modified_files=docs + [_mf(str(repo / "y.py"), 3)])
+    assert out and "ReadingPath" not in out
+
+
+def test_g12w_timeout_appends_the_reason(driven, capsys, tmp_path, monkeypatch):
+    """量尺在預算內跑不完：附「逾時」與手動指令，照樣不擋（擋的是原本的閘）。預算放到 8 秒讓忙碌機器上的 git 先跑完，
+    卡住的是假量尺。"""
+    repo = _rp_repo(tmp_path / "rp", monkeypatch, budget=8.0)
+    slow = tmp_path / "slowtool" / "reading-path.py"
+    slow.parent.mkdir()
+    slow.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    monkeypatch.setattr(rph, "TOOL", slow)
+    (repo / "y.py").write_text(_RP_BODY.format("b") + "\n", encoding="utf-8", newline="\n")
+    out, state, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(repo / "y.py"), 5), _mf(str(repo / "x.py"), 5)])
+    reason = json.loads(out)["reason"]
+    assert "[Guardian:ReadingPath]" in reason and "逾時（8 秒內量不完" in reason and "手動：python" in reason, reason[-600:]
+    assert state["stop_blocked_count"] == 0
