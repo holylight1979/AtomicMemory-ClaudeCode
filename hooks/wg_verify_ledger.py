@@ -72,9 +72,30 @@ SNAPSHOT_MAX_FILES = 200
 SNAPSHOT_STAT_CHECK_EVERY = 10     # 每 10 檔查一次 deadline（50 檔×55 ms 的慢磁碟會先吃掉 2.75 s）
 
 
+# 歷來內建的兩條 pytest 規則用過的 regex（config 還沒有 pytest_summary 旗標的舊版本）：使用者保留舊全域 config、只更新 hooks 時，
+# load_config 只做頂層合併，補不到這個旗標；照這張表認出內建規則，照樣按統計逐組解析
+_BUILTIN_PYTEST_REGEXES = frozenset({
+    r"^(?:=+ )?(?P<verdict>\d+ (?:passed|failed))",
+    r"^(?:=+ )?(?P<verdict>\d+ (?:passed|failed|errors?)(?:, \d+ [a-z]+)*) in \d",
+    r"^(?:=+ )?(?P<verdict>\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected|rerun)(?:, \d+ [a-z]+)*) in \d",
+})
+_BUILTIN_PYTEST_OK = {"PYTEST": "PASS", "PYTEST_MEASURE": "DONE"}       # 內建規則名 → 成功時的結論
+
+
+def _builtin_pytest_rule(r: Dict[str, Any]) -> bool:
+    """沒寫 pytest_summary 的規則是不是歷來內建的 PYTEST／PYTEST_MEASURE：名稱、regex、verdict_map 三樣都要對上（只同名的自訂規則不算）。"""
+    ok = _BUILTIN_PYTEST_OK.get(str(r.get("name") or "").strip())
+    vm = r.get("verdict_map")
+    if not ok or r.get("regex") not in _BUILTIN_PYTEST_REGEXES or not isinstance(vm, dict):
+        return False
+    items = {(str(k), str(v).upper()) for k, v in vm.items()}
+    return ("passed", ok) in items and items <= {("failed", "FAIL"), ("error", "FAIL"), ("passed", ok), ("xpassed", ok)}
+
+
 def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
     """config `verify_ledger.sentinel_regex: [{regex, name, verdict_map, pytest_summary?}]` → 已編譯規則；壞 regex 跳過（stderr 浮一行）。
-    pytest_summary＝true 的規則按 pytest 統計逐組解析（_map_verdict），其餘照子字串映射。"""
+    pytest_summary＝true 的規則按 pytest 統計逐組解析（_map_verdict），其餘照子字串映射；沒寫這個鍵的規則，是歷來內建的兩條
+    pytest 規則（_builtin_pytest_rule）就當 true，明寫的值優先。"""
     out: List[Dict[str, Any]] = []
     for r in cfg_rules or []:
         if not isinstance(r, dict) or not r.get("regex"):
@@ -89,7 +110,7 @@ def compile_sentinel_rules(cfg_rules: Any) -> List[Dict[str, Any]]:
             "re": rx,
             "name": str(r.get("name") or "").strip(),
             "verdict_map": {str(k): str(v).upper() for k, v in vm.items()},
-            "pytest_summary": r.get("pytest_summary") is True,
+            "pytest_summary": r["pytest_summary"] is True if "pytest_summary" in r else _builtin_pytest_rule(r),
         })
     return out
 

@@ -2470,6 +2470,7 @@ def test_036c_pytest_summary_rules_ignore_non_summaries():
     ("CUSTOM_FAIL 1 item", "FAIL"),
     ("CUSTOM_OK 1 item", "PASS"),
     ("CUSTOM_OK", "PASS"),
+    ("CUSTOM_OK 0 fail", "FAIL"),                  # 自訂規則照子字串、FAIL 優先：fail 出現就 FAIL，不套 pytest 的零計數
 ])
 def test_036c_custom_rule_keeps_substring_mapping(line, verdict):
     """036c（036b codex WARN 1）：pytest 統計逐組解析只套用在標了 pytest_summary 的內建兩條規則；自訂規則照子字串映射，
@@ -2484,6 +2485,48 @@ def test_036c_only_builtin_pytest_rules_are_marked_pytest_summary():
     compiled = vl.compile_sentinel_rules(_LIVE_CFG["verify_ledger"]["sentinel_regex"])
     assert [(r["name"], r.get("pytest_summary")) for r in compiled] == [("PYTEST", True), ("PYTEST_MEASURE", True)]
     assert vl.compile_sentinel_rules([{"regex": "^X$", "name": "X", "verdict_map": {}}])[0].get("pytest_summary") is False
+
+
+# 歷來內建 pytest 規則（config 還沒有 pytest_summary 鍵的三個版本），照當時 config.json 原字抄
+_OLD_PYTEST_RULES = {
+    "d59ee37": ("^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed))", {"failed": "FAIL", "passed": "{ok}"}),
+    "1c6a902": ("^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed|errors?)(?:, \\d+ [a-z]+)*) in \\d",
+                {"failed": "FAIL", "error": "FAIL", "passed": "{ok}"}),
+    "ec80a66": ("^(?:=+ )?(?P<verdict>\\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected|rerun)"
+                "(?:, \\d+ [a-z]+)*) in \\d", {"failed": "FAIL", "error": "FAIL", "passed": "{ok}", "xpassed": "{ok}"}),
+}
+
+
+def _old_rules(ver):
+    regex, vm = _OLD_PYTEST_RULES[ver]
+    return [{"regex": regex, "name": n, "verdict_map": {k: v.format(ok=ok) for k, v in vm.items()}}
+            for n, ok in (("PYTEST", "PASS"), ("PYTEST_MEASURE", "DONE"))]
+
+
+@pytest.mark.parametrize("ver, line, verdicts", [
+    ("ec80a66", "== 5 passed, 2 skipped, 1 xfailed in 3.2s ==", ("PASS", "DONE")),
+    ("ec80a66", "3 passed, 0 failed in 0.1s", ("PASS", "DONE")),
+    ("ec80a66", "1 passed, 1 error in 0.1s", ("FAIL", "FAIL")),
+    ("1c6a902", "5 passed, 2 skipped, 1 xfailed in 3.2s", ("PASS", "DONE")),
+    ("1c6a902", "1 passed, 1 error in 0.1s", ("FAIL", "FAIL")),
+    ("d59ee37", "3 passed in 0.1s", ("PASS", "DONE")),
+])
+def test_036d_new_parser_with_old_config_still_reads_pytest_summary(ver, line, verdicts):
+    """036d（036c codex WARN）：保留舊全域 config（內建兩條 pytest 規則沒有 pytest_summary 鍵）、只更新 hooks 時，load_config 只做頂層
+    合併補不到旗標；編譯規則時認出歷來內建的 名稱＋regex＋verdict_map，照樣按統計逐組解析，xfailed 不被當 failed。"""
+    got = vl.parse_sentinels(line + "\n", vl.compile_sentinel_rules(_old_rules(ver)))
+    assert [(s["name"], s["verdict"]) for s in got] == [("PYTEST", verdicts[0]), ("PYTEST_MEASURE", verdicts[1])], (ver, line)
+
+
+def test_036d_only_exact_builtin_forms_are_upgraded():
+    """036d 配對：只同名的自訂規則（regex 或 verdict_map 不同）、明寫 pytest_summary:false 的內建形狀，都照子字串（不升級）。"""
+    builtin = _old_rules("ec80a66")[0]
+    for rule in ({**builtin, "regex": "^(?P<verdict>\\d+ passed.*)$"},
+                 {**builtin, "verdict_map": {"failed": "FAIL", "passed": "PASS", "ok": "PASS"}},
+                 {**builtin, "name": "MY_PYTEST"},
+                 {**builtin, "pytest_summary": False}):
+        assert vl.compile_sentinel_rules([rule])[0]["pytest_summary"] is False, rule
+    assert vl.compile_sentinel_rules([builtin])[0]["pytest_summary"] is True
 
 
 @pytest.mark.parametrize("cmd, tool", [
