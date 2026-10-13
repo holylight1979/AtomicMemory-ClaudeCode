@@ -74,8 +74,8 @@ def driven(monkeypatch):
     monkeypatch.setattr(vl, "case_exists", lambda p: True, raising=False)   # 案例路徑是虛構的；存在與否由 009 段用真檔測
     monkeypatch.setattr(vl, "code_exists", lambda p: True, raising=False)   # 程式檔路徑也是虛構的；已刪除的程式檔由 040 段用真檔測
 
-    def drive(text, capsys, tool_names=(), hook_input=None, **extra):
-        """text=None：用真的 get_last_assistant_text 讀 transcript（017c）；hook_input：hook 輸入另帶的欄位。"""
+    def drive(text, capsys, tool_names=(), hook_input=None, config=None, **extra):
+        """text=None：用真的 get_last_assistant_text 讀 transcript（017c）；hook_input：hook 輸入另帶的欄位；config：handle_stop 的設定。"""
         monkeypatch.setattr(st, "get_last_assistant_text",
                             ev.get_last_assistant_text if text is None else (lambda *a, **k: text))
         monkeypatch.setattr(st, "get_current_turn_visible_text",
@@ -86,7 +86,7 @@ def driven(monkeypatch):
         monkeypatch.setattr(st, "_ensure_state", lambda *a, **k: state)
         logs.clear()
         with pytest.raises(SystemExit):
-            st.handle_stop({"session_id": _SID, "cwd": "", **(hook_input or {})}, {})
+            st.handle_stop({"session_id": _SID, "cwd": "", **(hook_input or {})}, config or {})
         return capsys.readouterr().out, state, list(logs)
 
     return drive
@@ -759,15 +759,18 @@ def _pytest_done(turn, root, exit_code=0, cmd=_PYTEST_CMD):
 
 
 def _two_roots(tmp_path, same_map=True):
-    """live 根（當 CLAUDE_DIR）與 worktree 根各放一張表；same_map=False 時 worktree 的表內容不同（＝一般專案）。"""
+    """live 根（當 CLAUDE_DIR）與 worktree 根各放一張表；same_map=False 時 worktree 的表內容不同（工作 session 改了部位表）。"""
     live, wt = tmp_path / "live", tmp_path / "wt"
     for d in (live, wt):
         (d / ".claude").mkdir(parents=True)
     (live / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES)
     extra = "\n| `x/` | 其他 | 無 | 無 | 無 | 無 | 無 |\n".encode("utf-8")
     (wt / ".claude" / "overview-map.md").write_bytes(_MAP_BYTES if same_map else _MAP_BYTES + extra)
-    (live / ".git" / "worktrees" / "wt").mkdir(parents=True)                       # 結構同真 worktree：.git 檔指回 live 的 worktrees/
-    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+    adm = live / ".git" / "worktrees" / "wt"                                       # 結構同真 worktree（git worktree add 寫的同一組檔）
+    adm.mkdir(parents=True)
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
     return live, wt
 
 
@@ -784,8 +787,9 @@ def test_is_root_worktree_pure_checks(tmp_path):
     assert vl.is_root_worktree(live, live) is False                 # 同一目錄不是 worktree
     assert vl.is_root_worktree(tmp_path / "nope", live) is False    # 表不存在
     assert vl.is_root_worktree(wt, tmp_path / "nope") is False
-    _, wt2 = _two_roots(tmp_path / "b", same_map=False)
-    assert vl.is_root_worktree(wt2, live) is False                  # 表內容不同＝一般專案
+    live2, wt2 = _two_roots(tmp_path / "b", same_map=False)
+    assert vl.is_root_worktree(wt2, live2) is True                  # 改了部位表仍是根層 worktree（身分只看 git）
+    assert vl.is_root_worktree(wt2, live) is False                  # 別的 repo 的 worktree 不是
 
 
 _HEAD = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n  ✗ "
@@ -862,15 +866,16 @@ def test_live_root_still_requires_full_measure(tmp_path, monkeypatch):
     assert reason is None
 
 
-def test_project_worktree_with_different_map_keeps_project_logic(tmp_path, monkeypatch):
+def test_root_worktree_with_changed_map_still_takes_pytest_measure(tmp_path, monkeypatch):
+    """改了根層部位表的根層 worktree 仍是根層身分：量尺認同 root 的 PYTEST_MEASURE、不要求全量；沒收據時擋訊息也是根層 worktree 那句。
+    舊碼比對兩邊部位表位元組，表一改就失去根層身分、要求全量 run_verify（worktree 裡全量必有既有紅，永遠過不了）。"""
     live, wt = _two_roots(tmp_path, same_map=False)
     monkeypatch.setattr(vl, "CLAUDE_DIR", live)
     mod = str(wt / "hooks" / "x.py")
     reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, wt)], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
-    assert reason and MEASURE_CMD in reason and "根層 worktree" not in reason
-    full = {**_rcpt(5, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(wt), "cwd": str(wt)}
-    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [full], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
     assert reason is None
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "PYTEST_MEASURE" in reason and "根層 worktree" in reason and "不要求全量" in reason
 
 
 # ─── 件一：擋滿後只認使用者放行（AskUserQuestion【收尾放行確認】或使用者打「放行」，都要在最後一次擋之後） ───
@@ -1686,9 +1691,10 @@ def test_017_outside_whitelist_blocks_at_measure_gate(cmd):
 
 
 def test_017_root_table_rulers_pass_measure_gate_verbatim():
-    """G6 (b)：根層部位表 8 列（7 把尺＋行為規則層無尺）的量尺原字串原樣跑，Bash 與 PowerShell 都對得上；直接讀表上字串。"""
+    """G6 (b)：根層部位表 10 列（7 把尺＋行為規則層、派工信箱、部位表與專案層設定無尺）的量尺原字串原樣跑，
+    Bash 與 PowerShell 都對得上；直接讀表上字串。"""
     rows = [r for r in _ROOT_ROWS if (r.get("measure") or {}).get("cmd")]
-    assert len(_ROOT_ROWS) == 8 and len(rows) == 7
+    assert len(_ROOT_ROWS) == 10 and len(rows) == 7
     for row in rows:
         for tool in ("Bash", "PowerShell"):
             assert _gate(row["measure"]["cmd"], tool, row) is None, (row["part_short"], tool)
@@ -3262,3 +3268,607 @@ def test_040_13_transcript_from_hook_input_when_session_moved_into_worktree(driv
     keep = {k: st1[k] for k in ("last_block", "reconcile_gate_turn", "modified_files", "session")}
     out, _, logs = driven("全部完成了。", capsys, hook_input=hook_in, **keep)
     assert "ReconcileGate" not in out and _released(logs)
+
+
+# ─── track-know：部位表類別 knowledge 的部位不欠 (d)、也不能替寫碼部位清帳 ─────────────────────────────
+# 判法只看路徑屬部位表哪一列（lib/overview_hub.path_kind，與 OverviewHub 同一份），不看副檔名、不看 git 狀態。
+# 舊碼（is_code_file 只看副檔名）：信箱、記憶暫存、文件目錄下的 .py 也欠案例；信箱裡的 test_a.py 能替 tools/a.py 清帳。
+
+_KNOW_MAP = (
+    "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+    "| `tools/` | 工具 | 無 | 無 | code |\n"
+    "| `scripts/` | 腳本 | 無 | 無 |  |\n"
+    "| `workflow/v6-inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
+    "| `memory/` | 記憶 | 無 | 無 | knowledge |\n"
+    "| `_AIDocs/` | 文件 | 無 | 無 | 知識 |\n"
+)
+_KNOW_SRC = "def f(x):\n    return x + 1\n"
+
+
+def _know_debt(name: str) -> str:
+    return f"改了程式碼（{name}）之後沒有新增或修改驗證 case 檔"
+
+
+@pytest.fixture()
+def know_repo(tmp_path):
+    """真 git repo，根上放帶「類別」欄的部位表；回 (repo, 寫檔函式)。"""
+    repo = tmp_path / "krepo"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "init")
+
+    def put(rel: str, text: str = _KNOW_SRC) -> str:
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8", newline="\n")
+        return str(p)
+    return repo, put
+
+
+@pytest.mark.parametrize("rel,owed", [
+    ("tools/a.py", True),
+    ("workflow/v6-inbox/to-x/a.py", False),
+    ("memory/_staging/a.py", False),
+    ("_AIDocs/a.py", False),
+])
+def test_know_same_file_owes_in_code_part_not_in_knowledge_part(driven, capsys, know_repo, rel, owed):
+    """同一份內容：放在 tools/（類別 code）欠案例；放在信箱、記憶暫存、文件目錄（類別 knowledge／知識）不欠。"""
+    _, put = know_repo
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(put(rel), 5)])
+    assert (_know_debt("a.py") in out) is owed, rel
+
+
+def test_know_unmarked_row_and_unlisted_path_default_to_code(driven, capsys, know_repo):
+    """沒標類別的列（scripts/）與表上沒列的路徑（根目錄的 b.py、子字串才撞到 memory/ 的 lib/memory/c.py）一律算寫碼部位。"""
+    _, put = know_repo
+    for rel in ("scripts/a.py", "b.py", "lib/memory/c.py"):
+        out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(put(rel), 5)])
+        assert _know_debt(Path(rel).name) in out, rel
+
+
+def test_know_case_in_knowledge_part_cannot_clear_code_debt(driven, capsys, know_repo):
+    """案例側也看部位：信箱裡的 test_a.py 不能替 tools/a.py 清帳；tools/verify/ 下的案例照常清帳。"""
+    _, put = know_repo
+    code = put("tools/a.py")
+    inbox_case = put("workflow/v6-inbox/to-x/test_a.py", "def test_a():\n    assert True\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(inbox_case, 5)])
+    assert _know_debt("a.py") in out
+    real_case = put("tools/verify/test_a.py", "def test_a():\n    assert True\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(inbox_case, 5), _mf(real_case, 5)],
+                       anti_evasion_report=_aec(5, j="無", k="無"))
+    assert "ReconcileGate" not in out
+
+
+def test_know_deleted_inbox_file_not_owed_even_with_new_code_in_status(driven, capsys, know_repo, monkeypatch):
+    """claude-91 現場：信箱裡的 .py 被刪掉，同根另有未追蹤的程式檔（看起來像搬走）→ 舊碼照欠；知識部位的檔根本不進 (d)。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    _, put = know_repo
+    gone = put("workflow/v6-inbox/to-x/verify_x.py")
+    Path(gone).unlink()
+    put("tools/new_tool.py")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(gone, 5)])
+    assert _know_debt("verify_x.py") not in out
+
+
+def test_know_code_moved_into_knowledge_part_still_owes(driven, capsys, know_repo, monkeypatch):
+    """寫碼部位的程式改完 mv 進信箱：原路徑已不存在，但同根出現新的程式檔（信箱那份，vanished 的 new_code 不過類別排除）
+    → 原路徑照欠；信箱那份本身不欠。防回歸：不讓「搬進知識區」變成清帳法。codex 審 a6323cb 新案缺口。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    repo, put = know_repo
+    code = put("tools/a.py")
+    _git(repo, "add", "tools/a.py")
+    _git(repo, "commit", "-qm", "a")
+    put("tools/a.py", _KNOW_SRC + "# changed\n")
+    moved = repo / "workflow" / "v6-inbox" / "to-x" / "a.py"
+    moved.parent.mkdir(parents=True)
+    Path(code).replace(moved)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(str(moved), 5)])
+    assert "(d) 改了程式碼（a.py" in out                       # 舊碼兩份都欠（a.py、a.py），新碼只欠 tools/a.py
+
+
+def test_know_knowledge_part_ruler_and_commit_snapshot_unchanged(driven, capsys, tmp_path):
+    """知識部位只移出 (d) 與定位三行：表上有量尺的知識部位改了沒跑尺，量尺閘照擋；commit 快照照記知識部位的改檔內容。
+    codex 審 a6323cb 新案缺口（契約 3、5 的直接斷言）。"""
+    repo = tmp_path / "mrepo"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 量尺（量法｜指令｜門檻） | 類別 |\n|---|---|---|---|---|---|\n"
+        "| `memory/` | 記憶 | 無 | 無 | 索引一致｜`python -X utf8 tools/check.py`｜exit 0 | knowledge |\n", encoding="utf-8")
+    _git(repo, "init", "-q")
+    p = repo / "memory" / "_staging" / "a.py"
+    p.parent.mkdir(parents=True)
+    p.write_text(_KNOW_SRC, encoding="utf-8")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(p), 5)])
+    assert "[Guardian:MeasureGate]" in out and "部位【記憶】有量尺" in out and _know_debt("a.py") not in out
+    snap = vl.commit_snapshot([_mf(str(p), 5)], 5, vl.reconcile_cfg({}), lambda _p: str(repo))
+    key = vl.canon_path(str(p))                                                             # 快照鍵用 canon_path（SAME_FILE）
+    assert key in snap["files"] and snap["files"][key] is not None
+
+
+@pytest.mark.parametrize("child", ["./docs/build/", "docs/x/../build/"])
+def test_know_code_child_row_written_with_dot_segments_still_owes(driven, capsys, tmp_path, child):
+    """knowledge 父列 `docs/` 底下的 code 子列寫成 `./docs/build/` 或 `docs/x/../build/`：子列照樣蓋住 docs/build/，那裡的程式欠案例；
+    父列其他地方的 .py 不欠。舊碼表列前綴沒消 `./`、`..`，子列比不到、落回 knowledge，真程式免 (d)。console codex 審 ec4f9e9 BLOCK 1。"""
+    repo = tmp_path / "drepo"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        f"| `docs/` | 文件 | 無 | 無 | knowledge |\n| `{child}` | 建置 | 無 | 無 | code |\n", encoding="utf-8")
+    _git(repo, "init", "-q")
+    code, note = repo / "docs" / "build" / "a.py", repo / "docs" / "b.py"
+    for p in (code, note):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(_KNOW_SRC, encoding="utf-8")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(code), 5), _mf(str(note), 5)])
+    assert _know_debt("a.py") in out and "b.py" not in out
+
+
+def test_know_no_map_keeps_extension_rule(driven, capsys, tmp_path):
+    """沒有部位表的專案行為不變：信箱路徑下的 .py 照副檔名算程式檔。"""
+    repo = tmp_path / "nomap"
+    (repo / "workflow" / "v6-inbox").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    p = repo / "workflow" / "v6-inbox" / "a.py"
+    p.write_text(_KNOW_SRC, encoding="utf-8")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(p), 5)])
+    assert _know_debt("a.py") in out
+
+
+# ─── 042：內容回到快照的豁免要連暫存區一起看、amend 不蓋掉有效豁免、已不存在的新檔、排除區、每回合一次的閘 ──────────────
+
+def _status(repo):
+    return subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
+
+
+def test_042_0_snapshot_exemption_needs_clean_index(driven, capsys, chain):
+    """042 第 0 項（041 總控台 codex BLOCK）：改程式＋補案例＋commit（快照：程式不欠案例）→ 再改同一支程式並 git add →
+    只把工作樹改回快照內容（暫存區留著新碼）→ Stop (d) 照擋：內容回到快照的豁免要同根改檔 git status 乾淨（含暫存區），
+    和「改過又原樣還原」同一個條件。舊碼只比工作樹雜湊，(d) 被清，暫存的新碼可以直接提交。"""
+    state, edit, git, repo, code, case = chain
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    edit(code, 4)
+    git("add", "src/a.py")
+    edit(code, 3)                                                                          # 只還原工作樹，暫存區還是新碼
+    assert _status(repo) == "MM src/a.py"
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert _DEBT_A in out
+    git("reset", "-q", "--", "src/a.py")                                                   # 配對：暫存區也回去 → 豁免成立
+    assert _status(repo) == ""
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert _DEBT_A not in out
+
+
+@pytest.mark.parametrize("amend, owed", [
+    ("message_only", False),           # 反證還原（豁免成立）後 amend 只改訊息：新快照沿用舊快照的還原判定，不再欠
+    ("with_new_code", True),           # amend 把新改的程式一起提交：內容不是舊快照那一刻，照欠
+])
+def test_042_0b_amend_after_settled_reversal_keeps_exemption(driven, capsys, chain, amend, owed):
+    """042 第 0 項 WARN 2：commit 後反證把程式退回舊版又還原（內容回到快照、豁免成立）→ `git commit --amend` → PostToolUse 拍新快照時
+    先拿舊快照判一次，已成立的還原照算不欠。舊碼新快照照修改時間重算，程式被當成欠案例，amend 只改訊息也多擋一次。"""
+    state, edit, git, _, code, case = chain
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    git("checkout", "HEAD~1", "--", "src/a.py")
+    git("checkout", "HEAD", "--", "src/a.py")
+    if amend == "with_new_code":
+        edit(code, 4)
+        git("commit", "-qa", "--amend", "-m", "v3b")
+    else:
+        git("commit", "-q", "--amend", "-m", "v3b")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert (_DEBT_A in out) is owed, amend
+
+
+@pytest.mark.parametrize("how, owed", [("delete", False), ("rename", False), ("kept", True)])
+def test_042_1_session_new_code_file_gone_no_longer_owes(driven, capsys, chain, monkeypatch, how, owed):
+    """042 根因①（claude-91 現場 72133ffb：cp 進被 .gitignore 的目錄的 .py，之後刪掉、或改名成 .py.txt，(d) 一直擋）：本 session
+    新建的程式檔 Stop 時已不存在、同根 status 與本 session 提交都沒有新出現的程式檔 → 判成刪除、不欠補案例（現行
+    vanished_code_paths；不是「不在就解除」，搬走的照欠見 040_11）。041 合併前的 main 只看修改紀錄，刪掉、改名照欠。配對：還在的照欠。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, _, repo, _, _ = chain
+    (repo / ".gitignore").write_text("scratch/\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore scratch")
+    new = repo / "scratch" / "copy_x.py"
+    new.parent.mkdir()
+    new.write_text("x = 1\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(new)})
+    if how == "delete":
+        new.unlink()
+    elif how == "rename":
+        new.rename(new.with_name("copy_x.py.txt"))
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert ("改了程式碼（copy_x.py）" in out) is owed, how
+
+
+@pytest.mark.parametrize("rel, owed", [
+    ("tools/probe_x.py", True),
+    ("workflow/v6-inbox/to-x/probe_x.py", False),
+    ("memory/_staging/probe_x.py", False),
+    ("_AIDocs/probe_x.py", False),
+])
+def test_042_2_same_file_counts_as_code_only_outside_excluded_regions(driven, capsys, chain, rel, owed):
+    """042 根因②：路徑分類只看副檔名，放在信箱當素材的 .py（cp 進去）被當成改了本專案程式碼。同內容的檔在 tools/ 下算、
+    在 workflow/v6-inbox/、memory/_staging/、_AIDocs/ 下不算（部位表類別 knowledge，錨在專案根；看路徑屬哪個部位、
+    不看 git 狀態）。舊碼一律算。"""
+    state, edit, _, repo, _, _ = chain
+    _put_know_map(repo)
+    p = repo / rel
+    p.parent.mkdir(parents=True)
+    p.write_text("def probe():\n    return 1\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(p)})
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert ("改了程式碼（probe_x.py）" in out) is owed, rel
+
+
+def test_042_2b_case_in_excluded_region_cannot_settle_real_code(driven, capsys, chain):
+    """042 根因②案例側：改了 src/a.py 之後只在信箱寫一支 test_a.py → 排除區的檔也不算案例，(d) 照擋（只排程式側的話，
+    信箱裡隨手一支 test_*.py 就能替真程式清帳）。舊碼信箱的 test_a.py 晚於程式、清掉 (d)。配對：補在 tests/ → 不擋。"""
+    state, edit, _, repo, code, case = chain
+    _put_know_map(repo)
+    edit(code, 3)
+    inbox_case = repo / "workflow" / "v6-inbox" / "to-x" / "test_a.py"
+    inbox_case.parent.mkdir(parents=True)
+    inbox_case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(inbox_case)})
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert _DEBT_A in out
+    edit(case, 3)
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert _DEBT_A not in out
+
+
+def _put_know_map(repo: Path) -> None:
+    """專案根放一張帶「類別」欄的部位表：信箱、記憶、文件是 knowledge，其餘照算程式（排除區的真源是部位表，沒有表就不排除）。"""
+    (repo / ".claude").mkdir(parents=True, exist_ok=True)
+    (repo / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        "| `src/` | 程式 | 無 | 無 | code |\n| `workflow/v6-inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
+        "| `memory/` | 記憶 | 無 | 無 | knowledge |\n| `_AIDocs/` | 文件 | 無 | 無 | knowledge |\n", encoding="utf-8")
+
+
+def test_042_2c_excluded_region_is_anchored_at_known_root(tmp_path):
+    """排除區只認相對專案根、錨在根的路徑：拿不到根、檔不在根底下、根所在目錄的名字、根底下別處同名目錄都不排除（照算程式）。"""
+    cfg = vl.RECONCILE_DEFAULTS
+    proj, aid = tmp_path / "proj", tmp_path / "_AIDocs" / "proj"
+    for r in (proj, aid):
+        _put_know_map(r)
+    p, a = str(proj), str(aid)
+    assert vl.is_excluded(p + r"\workflow\v6-inbox\to-x\a.py", cfg, p)
+    assert vl.is_excluded(p.upper() + r"\_AIDocs\DevHistory\a.py", cfg, p.replace("\\", "/") + "/")   # 大小寫、斜線不影響
+    assert not vl.is_excluded(p + r"\workflow\v6-inbox\a.py", cfg, None)
+    assert not vl.is_excluded(str(tmp_path / "other") + r"\workflow\v6-inbox\a.py", cfg, p)
+    assert not vl.is_excluded(a + r"\hooks\a.py", cfg, a)                                     # 根所在目錄名含 _AIDocs
+    assert not vl.is_excluded(p + r"\hooks\_AIDocs\a.py", cfg, p)                              # 只有子字串撞到
+    assert not vl.is_excluded(p + r"\workflow\v6-inbox-old\a.py", cfg, p)
+    assert not vl.is_excluded(p + r"\workflow\v6-inbox\..\..\src\a.py", cfg, p)               # 經信箱繞回 src/：照算程式
+    assert not vl.is_excluded(str(tmp_path / "nomap") + r"\workflow\v6-inbox\a.py", cfg, str(tmp_path / "nomap"))  # 沒有部位表
+
+
+@pytest.mark.parametrize("how", [
+    pytest.param("case", marks=pytest.mark.skipif(os.name != "nt", reason="大小寫不同的路徑指到同一個檔只在不分大小寫的檔案系統成立")),
+    "dotdot",
+])
+def test_042_0d_aliased_edit_path_still_sees_index(driven, capsys, chain, how):
+    """042 codex BLOCK／WARN：修改紀錄的寫法和 git 記的不一樣，但是同一個檔：Windows 上 Edit 用 `src/A.py`（git 記 `src/a.py`）、
+    或路徑帶 `src/../src/a.py` → 042_0 的流程（快照後改碼並暫存、只還原工作樹）照擋。舊碼 pathspec 分大小寫查不到、空輸出當乾淨；
+    `..` 沒消掉，git 回的 `src/a.py` 比不回修改紀錄，也當乾淨。"""
+    state, edit, git, repo, code, case = chain
+    alias = code.with_name("A.py") if how == "case" else code.parent / ".." / "src" / "a.py"
+
+    def write_alias(v):
+        alias.write_text(_CODE_V.format(v), encoding="utf-8", newline="\n")
+        edit.post("Edit", {"file_path": str(alias)})
+    write_alias(3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    write_alias(4)
+    git("add", "src/a.py")
+    write_alias(3)
+    assert _status(repo) == "MM src/a.py"
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert f"改了程式碼（{alias.name}）之後沒有新增或修改驗證 case 檔" in out, how
+
+
+def test_042_0e_snapshot_exemption_checks_every_git_root_of_the_project(tmp_path):
+    """042 codex WARN：同一個專案根跨兩個 git 根（主 repo 的程式、巢狀 repo 的案例）→ 案例改了並暫存、只還原工作樹，內容都回到快照，
+    但案例那個 git 根的暫存區有差 → 不豁免。舊碼只查程式所在的 git 根。配對：案例的暫存區也還原 → 豁免。"""
+    proj = tmp_path / "proj"
+    sub = proj / "sub"
+    (proj / "src").mkdir(parents=True)
+    (sub / "tests").mkdir(parents=True)
+    code, case = proj / "src" / "a.py", sub / "tests" / "test_a.py"
+    for repo, f, text in ((proj, code, _CODE_V.format(2)), (sub, case, _CASE_V.format(2))):
+        _git(repo, "init", "-q")
+        _git(repo, "config", "user.email", "t@t")
+        _git(repo, "config", "user.name", "t")
+        f.write_text(text, encoding="utf-8", newline="\n")
+        _git(repo, "add", str(f.relative_to(repo)).replace("\\", "/"))
+        _git(repo, "commit", "-qm", "v2")
+    snap = {"files": {str(code): vl._content_sha(str(code)), str(case): vl._content_sha(str(case))}, "settled": [str(code)]}
+    case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
+    _git(sub, "add", "tests/test_a.py")
+    case.write_text(_CASE_V.format(2), encoding="utf-8", newline="\n")                         # 只還原工作樹
+    args = (snap, [str(code)], [str(code), str(case)])
+    assert vl.committed_settled_paths(*args, root_of=lambda q: str(proj)) == []
+    _git(sub, "reset", "-q", "--", "tests/test_a.py")
+    assert vl.committed_settled_paths(*args, root_of=lambda q: str(proj)) == [str(code)]
+
+
+def test_042_0c_snapshot_exemption_outside_git_is_refused(capsys):
+    """快照豁免查不了暫存區（不在 git 工作區）→ 不成立、stderr 說一聲：和「改過又原樣還原」同一個 fail-closed，不只比內容就放。"""
+    p = r"c:\proj\hooks\x.py"                                         # 虛構路徑：不存在、不在任何 git 工作區（內容雜湊兩邊都是 None）
+    snap = {"files": {p: None}, "settled": [p]}
+    assert vl.committed_settled_paths(snap, [p], [p], root_of=lambda q: r"c:\proj") == []
+    assert "不在 git 工作區" in capsys.readouterr().err
+
+
+@pytest.fixture()
+def peer_flow(driven, monkeypatch):
+    """042 加項：使用者打字開回合 → Stop → 同伴 session 訊息經真 UserPromptSubmit 進來（turn_seq +1，使用者回合不變）→ Stop →
+    使用者再打字開新回合 → Stop。state 一路沿用。回 run(text, capsys, config, before_stop(state, 步驟)) → 三次 Stop 的輸出。"""
+    def run(text, capsys, config=None, before_stop=None, **extra):
+        state = {"turn_seq": 4, "session": {"cwd": ""}, **extra}
+        _ups_turn(monkeypatch, state, "把 x 做完")
+        outs = []
+        for step, prompt in (("first", None), ("peer", _PEER_MSG), ("user", "接著做 y")):
+            if prompt:
+                _ups_turn(monkeypatch, state, prompt)
+            if before_stop:
+                before_stop(state, step)
+            out, after, _ = driven(text, capsys, config=config, **copy.deepcopy(state))
+            state.clear()
+            state.update(after)
+            outs.append(out)
+        return outs
+    return run
+
+
+def _fresh_budget(state, step):
+    """使用者再打字那一步把共用的 stop_gate_max_blocks 次數歸零：那是另一本帳，這裡只看「每回合一次」的鍵。"""
+    if step == "user":
+        state["stop_blocked_count"] = 0
+
+
+def test_042_3_deferral_gate_once_per_user_turn(peer_flow, capsys):
+    """042 加項（claude-91 讀碼）：DeferralGate 每回合只擋一次，回合要用使用者打字開的回合（_user_turn）。舊碼用 turn_seq 當鍵，
+    同伴訊息讓 turn_seq +1，同一回合又擋一次。配對：使用者真打字開新回合 → 照擋。"""
+    outs = peer_flow("完工，工作樹乾淨。要不要下個 session 再把 realm atom 瘦身？", capsys, before_stop=_fresh_budget)
+    assert ["[Guardian:DeferralGate]" in o for o in outs] == [True, False, True]
+
+
+def test_042_3_harvest_gate_once_per_user_turn(peer_flow, capsys, monkeypatch):
+    """042 加項：KnowledgeHarvest 每回合只擋一次（harvest_gate_turn 記 _user_turn）。claude-91 一整天每則同伴訊息後被重問收割就是這個。"""
+    import wg_harvest as wh
+    monkeypatch.setattr(st, "harvest_gate_reason", wh.harvest_gate_reason)
+    outs = peer_flow("全部完成了。", capsys, config={"harvest": {"enabled": True, "min_turns": 3, "min_accessed": 5,
+                                                                "min_turns_between": 3}})
+    assert ["[Guardian:KnowledgeHarvest]" in o for o in outs] == [True, False, True]
+
+
+def test_042_3_harvest_pending_gate_once_per_user_turn(peer_flow, capsys, monkeypatch):
+    """042 加項：Harvest-Pending 每回合只擋一次（harvest_pending_gate_turn 記 _user_turn）。"""
+    import wg_harvest as wh
+    monkeypatch.setattr(st, "pending_gate_reason", wh.pending_gate_reason)
+    outs = peer_flow("全部完成了。", capsys, knowledge_harvest={_SID: {"pending": ["- foo → 已寫入 atom foo（沒有 receipt）"]}})
+    assert ["[Guardian:Harvest-Pending]" in o for o in outs] == [True, False, True]
+
+
+def test_042_3_aec_pending_gate_once_per_user_turn(peer_flow, capsys):
+    """042 加項：AEC-Pending 每回合只擋一次（aec_pending_gate_turn 記 _user_turn）：同伴訊息進來後又 emit 一次仍帶「尚未寫」的報告，
+    同一回合不再擋第二次。"""
+    def before(state, step):
+        rec = _aec(state["turn_seq"], j="無", k="無")                                       # 每次 Stop 前都 emit 過一次
+        rec["d_pending"] = ["- foo → 尚未寫（見下一動）"]
+        state["anti_evasion_report"] = rec
+        _fresh_budget(state, step)
+    outs = peer_flow("全部完成了。", capsys, before_stop=before)
+    assert ["[Guardian:AEC-Pending]" in o for o in outs] == [True, False, True]
+
+
+# ─── 044：判定規則（wg_release_rules）的端到端案例：同一個檔不同寫法、本回合窗口、轉述句、已不存在的改檔 ──────────────────
+
+import wg_release_rules as rr  # noqa: E402
+
+def _other_spelling(code, how):
+    return {"slash": str(code).replace("\\", "/"), "lower": str(code).lower(),
+            "dotdot": str(code.parent / ".." / code.parent.name / code.name)}[how]
+
+
+@pytest.mark.parametrize("how", [
+    "slash",
+    pytest.param("lower", marks=pytest.mark.skipif(os.name != "nt", reason="大小寫不同指到同一個檔只在不分大小寫的檔案系統成立")),
+    "dotdot",
+])
+def test_044_1_same_file_other_spelling_restored_after_commit_is_settled(driven, capsys, chain, how):
+    """044 第 1～3 項（規則 SAME_FILE；043 總控台 codex BLOCK）：改程式＋補案例＋commit（Edit 記反斜線）→ 用另一種寫法（正斜線／小寫／`..`）
+    暫改同一個檔又改回 → Stop 不擋：修改紀錄只留一筆、快照成員與內容鍵用 canon_path 比。舊碼兩種寫法記兩筆，第二筆不在快照裡、豁免被拒。
+    配對：改回工作樹但暫存區留新碼 → 照擋。"""
+    state, edit, git, repo, code, case = chain
+    edit(code, 3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    other = _other_spelling(code, how)
+
+    def write(v):
+        Path(other).write_text(_CODE_V.format(v), encoding="utf-8", newline="\n")
+        edit.post("Edit", {"file_path": other})
+    write(4)
+    write(3)
+    assert _status(repo) == ""
+    assert len([m for m in state["modified_files"] if rr.canon_path(m["path"]) == rr.canon_path(str(code))]) == 1, how
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert _DEBT_A not in out, how
+    write(4)
+    git("add", "src/a.py")
+    write(3)
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert _DEBT_A in out and "OWED_AFTER_LAST_CASE" in out, how
+
+
+def _user_then_peers(monkeypatch, peers=2, **extra):
+    """使用者在 turn 5 打字，接著 peers 則同伴訊息經真 UserPromptSubmit 進來（turn_seq 前進、使用者回合仍是 5）。"""
+    state = {"turn_seq": 4, "session": {"cwd": ""}}
+    _ups_turn(monkeypatch, state, "把 x.py 修好")
+    state.update(extra)
+    for _ in range(peers):
+        _ups_turn(monkeypatch, state, _PEER_MSG)
+    assert state["turn_prompts_seq"] == 5 and state["turn_seq"] == 5 + peers
+    return state
+
+
+def test_044_4_pass_receipt_before_peer_messages_still_counts(driven, capsys, monkeypatch):
+    """044 第 4 項（規則 TURN_SINCE_USER_PROMPT；track-e8 待命回合實踩）：turn 5 改 x.py、補案例、跑出對得上的 PASS → 兩則同伴訊息
+    （turn 7）→ 說修好：本回合收據從使用者打字那回合算起，(a) 不擋。舊碼只認 turn_seq==7，PASS 變成舊回合、擋。配對：沒有 PASS → 照擋，
+    擋訊息印出規則名與本回合範圍。"""
+    mods = [_mf(_CODE, 5, last_at=_T1, last_seq=1), _mf(_CASE, 5, last_at=_T1, last_seq=2)]
+    state = _user_then_peers(monkeypatch, modified_files=mods,
+                             verify_receipts={_SID: [_rcpt(5, cmd=_RELATED_CMD, at=_T2, seq=3)]})
+    out, _, _ = driven("x.py 修好了，全部完成了。", capsys, **copy.deepcopy(state))
+    assert _A_HIT not in out
+    state["verify_receipts"] = {_SID: []}
+    out, _, _ = driven("x.py 修好了，全部完成了。", capsys, **state)
+    assert _A_HIT in out and "TURN_SINCE_USER_PROMPT" in out and "turn 5～7" in out
+
+
+_A_HIT, _C_HIT = "(a) 說「修好」", "(c) 說「試過／跑了」"
+
+
+def test_044_4_exec_before_peer_messages_counts_for_tried(driven, capsys, monkeypatch):
+    """044 第 4 項（(c) 同一根因）：turn 5 跑過 Bash（PostToolUse 記 exec_turn_seq）→ 兩則同伴訊息 → 說「跑過了」：(c) 不擋。
+    舊碼只看 transcript 最後一段的工具名與 turn_seq==7 的收據，擋。配對：最後一次執行在使用者打字之前（turn 4）→ 照擋。"""
+    state = _user_then_peers(monkeypatch, exec_turn_seq={_SID: 5})
+    out, _, _ = driven("我跑過測試了，全部完成了。", capsys, **copy.deepcopy(state))
+    assert _C_HIT not in out
+    state["exec_turn_seq"] = {_SID: 4}
+    out, _, _ = driven("我跑過測試了，全部完成了。", capsys, **state)
+    assert _C_HIT in out
+
+
+def test_044_5_quoted_fixed_modifier_is_not_own_claim(driven, capsys):
+    """044 第 5 項（規則 CLAIM_MODIFIER_NOT_OWN；track-e8 現場原句）：轉述別人換上「修好的 probe_codegate.py」不是自己宣稱修好，(a) 不擋。
+    舊碼看到「修好」就判宣稱，沒有 PASS 就擋。配對：自己說「修好了」照擋。"""
+    out, _, _ = driven("claude-9f 已經把修好的 probe_codegate.py 換上去，043 交付完成。", capsys)
+    assert _A_HIT not in out
+    out, _, _ = driven("probe_codegate.py 修好了，交付完成。", capsys)
+    assert _A_HIT in out
+
+
+@pytest.fixture()
+def plain_dir():
+    """不含 test 字樣的暫存目錄（pytest 的 tmp 路徑含 test，拿不到專案根時會被 `**/*test*` 當成案例檔，案子就驗不到東西）。"""
+    import shutil
+    import tempfile
+    from wg_core import find_vcs_root
+    d = Path(tempfile.mkdtemp(prefix="wg044-"))
+    if "test" in str(d).lower() or find_vcs_root(d) is not None:
+        shutil.rmtree(d, ignore_errors=True)
+        pytest.skip("系統暫存目錄含 test 字樣或在版控根內，構不出這個情境")
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def test_044_7_gone_outside_any_vcs_root_no_longer_owes(driven, capsys, monkeypatch, plain_dir):
+    """044 第 7 項（規則 GONE_OUTSIDE_VCS；track-b2 現場）：worktree 外打錯路徑 Write 出一支 need-goal.js 又當場刪掉 → 不在任何版控根內、
+    已不存在 → 不欠補案例。舊碼拿不到 git 根就照欠。配對：git 根內刪掉、但同根冒出新程式檔 → 照欠（MOVED_NEW_CODE_SEEN）。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    stray = plain_dir / "outside" / "tools" / "need-goal.js"
+    stray.parent.mkdir(parents=True)
+    stray.write_text("x;\n", encoding="utf-8")
+    stray.unlink()                                                                          # Write 出來又當場刪掉
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(stray), 5, last_at=_T1, last_seq=1)])
+    assert "need-goal.js" not in out
+    repo = plain_dir / "repo"
+    (repo / "src").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    (repo / "src" / "new.py").write_text("x = 1\n", encoding="utf-8")                     # 同根新出現的程式檔
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(repo / "src" / "a.py"), 5, last_at=_T1, last_seq=1)])
+    assert "改了程式碼（a.py）" in out and "MOVED_NEW_CODE_SEEN" in out
+
+
+def test_044_7_worktree_removed_after_merge_no_longer_owes(driven, capsys, monkeypatch, plain_dir):
+    """044 第 7 項第二案（track-a2c 現場）：worktree 裡改程式並補好案例 → 總控台合併後 git worktree remove（整根消失、沒有 .git）→
+    同一個 session 再 Stop：程式與案例都不在、拿不到版控根 → 不欠（GONE_OUTSIDE_VCS，同一條規則、沒有另寫特例）。
+    舊碼案例不在就沒有 last_case、程式拿不到 git 根就照欠。"""
+    import shutil
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    monkeypatch.setattr(vl, "case_exists", os.path.isfile)
+    wt = plain_dir / "wt"
+    (wt / "lib").mkdir(parents=True)
+    (wt / "tools" / "verify").mkdir(parents=True)
+    _git(wt, "init", "-q")
+    code, case = wt / "lib" / "project_root.py", wt / "tools" / "verify" / "verify_root.py"
+    code.write_text("x = 1\n", encoding="utf-8")
+    case.write_text("def test_x():\n    pass\n", encoding="utf-8")
+    mods = [_mf(str(code), 5, last_at=_T1, last_seq=1), _mf(str(case), 5, last_at=_T2, last_seq=2)]
+    shutil.rmtree(wt)
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
+    assert "project_root.py" not in out
+
+
+# ─── 044 第 6 項：其他把 turn_seq 當「本回合」的點（規則 TURN_SINCE_USER_PROMPT），各一案 ───────────────────────────
+
+def test_044_6_aec_emitted_before_peer_message_satisfies_scan_report(driven, capsys, monkeypatch):
+    """stop.py emitted_this_turn：turn 5 已 emit 收尾報告、動了兩個檔 → 同伴訊息（turn 6）→ 說完成：ScanReport 不擋「本回合沒 emit」。
+    舊碼要求報告的 turn_seq==6，擋（而且 scan_report_warned 整場只擋一次，被誤判用掉）。"""
+    docs = [_mf(r"c:\proj\docs\a.md", 5, last_at=_T1, last_seq=1), _mf(r"c:\proj\docs\b.md", 5, last_at=_T1, last_seq=2)]
+    state = _user_then_peers(monkeypatch, peers=1, modified_files=docs, anti_evasion_report=_aec(5, j="無", k="無"))
+    out, _, _ = driven("全部完成了。", capsys, **state)
+    assert "[Guardian:ScanReport]" not in out
+
+
+def test_044_6_commit_before_peer_message_exempts_scan_report(driven, capsys, monkeypatch):
+    """stop.py committed_this_turn：turn 5 已 commit、動了兩個檔 → 通知（turn 6）→ 說完成：本回合 commit 了，ScanReport 豁免。
+    舊碼要求 last_commit_turn_seq==6，擋。"""
+    docs = [_mf(r"c:\proj\docs\a.md", 5, last_at=_T1, last_seq=1), _mf(r"c:\proj\docs\b.md", 5, last_at=_T1, last_seq=2)]
+    state = _user_then_peers(monkeypatch, peers=1, modified_files=docs, last_commit_turn_seq=5)
+    out, _, _ = driven("全部完成了。", capsys, **state)
+    assert "[Guardian:ScanReport]" not in out
+
+
+def test_044_6_commit_before_peer_message_counts_as_task_done_for_deferral(driven, capsys, monkeypatch):
+    """stop.py 傳給 DeferralGate 的「本回合已 commit」：turn 5 commit → 同伴訊息（turn 6）→ 收尾把可做的事推給下個 session（沒寫完成）
+    → 主任務已完工（本回合 commit 了），DeferralGate 照擋。舊碼只認 turn_seq==6，判沒完工、漏擋。"""
+    state = _user_then_peers(monkeypatch, peers=1, last_commit_turn_seq=5)
+    out, _, _ = driven("要不要下個 session 再把 realm atom 瘦身？", capsys, **state)
+    assert "[Guardian:DeferralGate]" in out
+
+
+def test_044_6_atom_injected_earlier_in_user_turn_is_not_audited(driven, capsys, monkeypatch):
+    """stop.py AtomAudit：turn 5 以一行路標注入的 atom → 同伴訊息（turn 6）→ Stop：同一個使用者回合注入的不催（給模型完整一回合決定）。
+    舊碼只跳過 turn_seq≥6 的注入，turn 5 的被當舊的、擋 AtomAudit。配對：使用者打字之前（turn 4）注入、沒讀 → 照催。"""
+    inj = {"name": "foo-atom", "source": "trigger", "form": "skip", "turn_seq": 5, "path": r"c:\proj\memory\foo-atom.md"}
+    state = _user_then_peers(monkeypatch, peers=1, injection_log=[inj])
+    out, _, _ = driven("全部完成了。", capsys, **copy.deepcopy(state))
+    assert "[Guardian:AtomAudit]" not in out
+    state["injection_log"] = [{**inj, "turn_seq": 4}]
+    out, _, _ = driven("全部完成了。", capsys, **state)
+    assert "[Guardian:AtomAudit]" in out and "foo-atom" in out
+
+
+def test_044_6_failing_test_earlier_in_user_turn_is_turn_failure(monkeypatch):
+    """stop.py _detect_turn_outcome（注入有用度學習）：turn 5 測試失敗 → 同伴訊息（turn 6）→ 說完成：本回合有失敗，outcome＝失敗。
+    舊碼只認 turn_seq==6 的失敗，判成功，把失敗回合記成有用。"""
+    state = _user_then_peers(monkeypatch, peers=1, failing_tests=[{"test": "t", "turn_seq": 5, "session_id": _SID}])
+    assert st._detect_turn_outcome(state, "全部完成了。", _SID) is False
+
+
+def test_044_6_subagent_pass_spanning_user_turns_counts(sub_stop, capsys):
+    """SubagentStop（規則 TURN_SINCE_USER_PROMPT 的子代理起點）：背景子代理 turn 5 開跑、改檔並跑出 PASS → 使用者 turn 7 又打字 →
+    子代理 turn 8 收尾說修好：本回合從子代理自己最早一筆紀錄算起，(a) 不擋。舊碼只認 turn_seq==8，擋到底（子代理不能放行）。"""
+    key = vl.agent_receipt_key(_SID, "ag1")
+    s = _sub_state(turn_seq=8, turn_prompts_seq=7,
+                   agent_modified_files={"ag1": [_mf(_CODE, 5, last_at=_T1, last_seq=1), _mf(_CASE, 5, last_at=_T1, last_seq=2)]},
+                   verify_receipts={key: [_rcpt(5, cmd=_RELATED_CMD, at=_T2, seq=3)]})
+    out, _ = sub_stop(capsys, s, last="x.py 修好了，全部完成了。")
+    assert _A_HIT not in out
+    s["verify_receipts"] = {key: []}                                                        # 配對：子代理沒有 PASS → 照擋
+    out, _ = sub_stop(capsys, s, last="x.py 修好了，全部完成了。")
+    assert _A_HIT in out

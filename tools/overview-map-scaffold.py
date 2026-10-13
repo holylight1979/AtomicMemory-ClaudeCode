@@ -7,7 +7,7 @@
 產物才沿用，並核對它在 _atom_index.json 有條目、缺就補；同名的人手寫卡 → 停並要你改名或刪除）接續補完。
 表已存在一律拒寫，`--merge-missing` 以既有表的前綴→卡名配對為準，只補缺列與「表有列但卡檔不在」的卡。
 卡落哪層自動判：~/.claude → 根層（global＋realm local＋MemDev）；公司根 → 公司層；其他 → 專案 shared。
-根層 worktree（表與 live 根層位元組相同）判成根層、找卡讀 worktree 自己的 memory／_AIDocs/_atoms；`--write` 一律拒（exit 2）。
+根層 worktree（live 這個 repo 的 git worktree）判成根層、找卡讀 worktree 自己的 memory／_AIDocs/_atoms；`--write` 一律拒（exit 2）。
 
 怎麼跑：
   python ~/.claude/tools/overview-map-scaffold.py --cwd <專案根>                 # 預覽（不落檔）

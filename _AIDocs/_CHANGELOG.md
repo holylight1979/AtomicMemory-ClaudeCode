@@ -9,6 +9,11 @@
 - **做法**：ollama_extract_core／atom_spec／provenance／overview_scaffold 退路／lang_guard／wg_evasion／wisdom_engine／acceptance_spec／version_guard／ensure-mcp／UPS 決策項／refile_classify／skill-cost-measure／console-window-trace.ps1 改走資料根（程式碼看檔案位置，一般安裝字串不變）；核心根＝資料根或程式碼根之內、或資料根 repo 的 git worktree，`atom_io` 三處同判斷改共用 `is_core_root`；repo 根 `conftest.py` 每個 session 把資料根與 TEMP／TMP／TMPDIR 導到暫存目錄（先放本樹受版控資料）、結束還原，`@pytest.mark.live_data` 豁免；run_verify 開跑前算資料根、收據寫資料根；整組 tools/verify、lib/verify 由 conftest 跑完自寫收據。
 - **驗證**：`tools/verify/verify_tools_data_root.py`（TOOLS 表加 7 列＋ensure-mcp 案＋ps1 案）、`verify_tools_data_root_lib.py`（lib 尾巴與 worktree 核心根、hooks 三支）、`verify_pytest_isolation.py`（新）、`lib/verify/verify_self_receipt.py`（收據落資料根、量尺閘認帳）；退回改前逐處紅在斷言。
 
+## 2026-10-13 v6.0 部位表加「類別」欄：知識類部位（文件、記憶、派工信箱）移出寫碼查核
+- **緣由**：寫碼查核只看副檔名與部位，`workflow/v6-inbox/` 放一支 .py 素材就欠 (d) 案例、改 `memory/_staging` 也要交定位三行；對人總控台一整天只改這兩處卻被擋到要人放行。
+- **做法**：部位表加「類別」欄（code｜knowledge，沒欄、沒標、拼錯＝code）；`lib/overview_hub.path_kind` 用錨在專案根的最長前綴判類別（先消 `..`，根以下帶 8.3 短名算 code），OverviewHub 對 knowledge 部位只要求卡已注入，`wg_verify_ledger.is_excluded` 讓 knowledge 部位的檔不欠 (d) 也不能替寫碼部位清帳；量尺閘不動；無部位表的專案行為不變；scorecard S3 只算寫碼部位。根層表補 `workflow/v6-inbox/`、`.claude/` 兩列。表列前綴與路徑同一套正規化（`./`、`..`），放不進根相對位置的 code 列讓 knowledge 不豁免。根層 worktree 身分改成只看 git：`.git` 指到 live 的管理目錄，而且該目錄反向登記這棵樹，不再比部位表位元組。來源回填遇自動萃取卡只補 Source、不寫「AI：」Quote。
+- **驗證**：目標 verify 8 檔全綠；新案退回 main 紅 13 全在斷言；用真 hook 入口重放對人總控台的真實 transcript，(d)＋定位三行擋次修前 1 → 修後 0（刪掉定位三行的版本 38 → 0），量尺擋次修前修後相同；codex 一輪的 BLOCK（8.3 短名與 `..` 讓巢狀 code 列落到 knowledge）與 WARN 已修。順手修 `lib/realm_gate` 資料根寫死家目錄（worktree 跑 lib verify 必紅）。
+
 ## 2026-10-13 v6.0 舊卡回填與萃取器寫卡也不把開工句當 Quote
 - **緣由**：開工句被填成 Quote 有三個寫入口，前一筆只修了 PostToolUse 自動填。舊卡回填（`tools/atom-provenance-backfill.py`，SessionStart 見新對話紀錄就背景跑）沿 parentUuid 找最近一則真人訊息當原話；工作分頁裡同伴訊息開的回合不是真人訊息，往回走到的就是開工句。稽核紀錄顯示它把總控台剛改回的 decisions 卡與另一張新卡又補上開工句，清掉的 Quote 也會被它補回。萃取器把開工句裡夾的決策萃成卡時，Quote 也是那則開工句。
 - **做法**：`lib/provenance.is_kickoff_text`（原文清成使用者打的字後交 `lib/harness_text.is_kickoff_prompt`，與 PostToolUse 同一支判定）；回填 `_resolve_quote` 遇開工句不寫 Quote（A_noquote、Source 照補指到那則訊息；已有 Source 就 skip、reason=kickoff_not_quoted），萃取器 `_write_atom_via_mcp` 遇開工句不帶 quote。`is_kickoff_prompt` 的寬判定補兩處（codex 審查）：角色句括號說明全形半形都認；以引號開頭的訊息（在引用開工句討論）只認整則都是樣板的嚴格判定。

@@ -3,7 +3,8 @@
 做什麼：第一次碰到某部位（Read／Bash 讀檔、提示詞提到路徑、或直接 Edit）就依本回合意圖（state["turn_intent"]）
 查 goal_weights 選片注入該部位導讀卡（沒片命中退整卡），一個 session 一個部位只注入一次；之後記「注入後讀了
 哪些檔、其中幾個是部位檔」；改檔前三項證據缺一即 deny：導讀卡已注入（不可關）、讀過部位檔 ≥N、交了定位三行
-（三行在 thinking 交的放行附提醒）。readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異常，deny。
+（三行在 thinking 交的放行附提醒）。部位表類別 knowledge 的部位（文件、記憶、派工信箱）只要第一項。
+readonly_paths 命中一律 deny 不注入；transcript 讀不到視為環境異常，deny。
 沒有部位表的專案（或表上沒列的檔）改前只要求本 session 讀過同頂層目錄 ≥N 個檔。設定四層深合併（_cfg）、
 設定錯誤時 Edit 一律擋。每個事件各落一行 jsonl 到 workflow/_overview-hub.log 當量測資料。
 
@@ -343,8 +344,10 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
     extra = (cfg.get("locate_extra") or {}).get(row["part_short"]) if isinstance(cfg.get("locate_extra"), dict) else None
     intent = _intent_of(state)
     gw = (cfg.get("goal_weights") or {}).get(intent) or {}
+    kind = _oh.path_kind(hit_path, root) or _oh.KIND_CODE
     text, used = build_injection_ex(row, card_paths, hit_path, int(cfg["max_card_chars"]), template, extra,
-                                    list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""))
+                                    list(gw.get("slices") or []), str(gw.get("lens") or ""), str(gw.get("ask_first") or ""),
+                                    knowledge=kind == _oh.KIND_KNOWLEDGE)
     if miss:
         text += "".join(f"\n表上的卡在 {p}，不在預設目錄；請更新表或搬卡" for p in miss["found"])
         if miss["missing"]:
@@ -371,6 +374,7 @@ def _inject(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str, A
         "root": str(root),
         "part": row["part"] or row["part_short"],
         "layer": row.get("layer") or "",
+        "kind": kind,                     # knowledge 部位不要求定位三行；scorecard 的 S3 只算 code 部位
         "locate_template": template,
         "cards_missing": ({k: miss[k] for k in ("missing", "searched", "timed_out")}
                           if miss and miss["missing"] else None),
@@ -876,6 +880,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
         return _unmapped_edit(state, session_id, root, file_path, cfg)
     key = _key(root, row)
     rec = (state.get("overview_hub") or {}).get(key)
+    knowledge = _oh.path_kind(file_path, root) == _oh.KIND_KNOWLEDGE
     if rec is not None and _needs_card(row) and (rec.get("cards_missing") or not rec.get("card_paths")):
         # 表上有卡但上次有缺（或升級前注入的舊紀錄沒有卡）：每次改檔都重找；任何一張仍找不到一律擋，讀過檔＋交三行也一樣
         paths, again = _resolve_row_cards(root, row, cfg)
@@ -898,13 +903,23 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                  cards=cm["missing"], timed_out=cm["timed_out"], layer=cfg.get("_layer"))
             msg = f"{mm}\n{text.replace(chr(10) + mm, '')}"
             return (msg, msg, True)
+        todo = "先讀完再改（知識類部位不要求讀部位檔與定位三行）。" if knowledge else "先讀完、讀過部位檔、在回覆交出定位三行，再改。"
         msg = (f"[Guardian:OverviewHub] 要改【{row['part_short']}】部位的檔但本 session 還沒看過這個部位的導讀卡；"
-               f"卡片現在才注入（下面）。先讀完、讀過部位檔、在回覆交出定位三行，再改。\n{text}")
+               f"卡片現在才注入（下面）。{todo}\n{text}")
         _log("edit_before_inject", session_id, part=row["part_short"], path=file_path, deny_reason="not_injected",
-             intent=_intent_of(state), layer=cfg.get("_layer"))
+             intent=_intent_of(state), layer=cfg.get("_layer"), kind=_oh.KIND_KNOWLEDGE if knowledge else _oh.KIND_CODE)
         return (msg, msg, True)
     _migrate_rec(rec)
     rec["edits"] = int(rec.get("edits", 0)) + 1
+    if not knowledge:
+        rec["kind"] = _oh.KIND_CODE        # 同一列也有寫碼命中（例：只撞到子字串）：scorecard 的 S3 要算這個部位
+    if knowledge:
+        # 知識類部位：三項證據只要「卡已注入」（走到這裡就成立）；讀檔數照記（on_read），不查讀部位檔、定位三行、transcript
+        _log("edit", session_id, part=row["part_short"], path=file_path, kind=_oh.KIND_KNOWLEDGE, located=bool(rec.get("located")),
+             part_files_read=len(rec["part_files_read"]), depends_files_read=len(rec["depends_files_read"]),
+             reads_after_inject=len(rec["reads_after"]), edits=rec["edits"], intent=rec.get("intent"),
+             slices=rec.get("slices"), layer=cfg.get("_layer"), deny_reason=None)
+        return (None, None, True)
     candidates: Optional[str] = None
     reads = rec["reads_after"]
     dirs = sorted({top_dir(p, root) for p in reads})

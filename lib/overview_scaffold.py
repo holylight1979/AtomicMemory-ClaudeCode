@@ -16,7 +16,7 @@ frontmatter `Source: tool:overview-map-scaffold` 當身分）。產出的表必�
 （卡名避開既有表全部卡名）與「表有列但卡檔不在」的卡。
 
 卡落哪一層由 `detect_layer(root)` 決定（hooks/wg_core._layer_of 單源；lib 不硬依賴 hooks，載不到就退路徑判斷）：
-根層 worktree（表與 live 根層位元組相同的其他根）→ 根層、層根＝worktree 本身（找卡讀 worktree 的 memory、_AIDocs/_atoms），
+根層 worktree（live 這個 repo 的 git worktree，不看部位表）→ 根層、層根＝worktree 本身（找卡讀 worktree 的 memory、_AIDocs/_atoms），
 但 `write=True` 一律拒（ScaffoldError：write_atom 會寫進 live 的 ~/.claude）；
 根層（~/.claude）→ scope=global、realm=local、domain=MemDev（_AIDocs/_atoms/MemDev/，索引在 ~/.claude/memory）；
 公司根 → shared＋project_cwd=公司根（與 atom-tools.js 的 org 對映相同；py 端沒有 org scope）；專案 → shared＋project_cwd=專案根。
@@ -85,7 +85,7 @@ def merge_cfg(cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 # ─── 判層 ────────────────────────────────────────────────────────────
 
 def detect_layer(root: Path) -> Tuple[str, Path]:
-    """→ (層, 該層的根)。兩條路都先判根層 worktree（表與 live 根層位元組相同的其他根，含開在 ~/.claude 或公司根底下的）
+    """→ (層, 該層的根)。兩條路都先判根層 worktree（live 這個 repo 的 git worktree，含開在 ~/.claude 或公司根底下的）
     → (根層, worktree 本身)；再走 hooks/wg_core._layer_of（根層／公司層／專案層單源）；wg_core 載不到時退「在資料根
     （claude_data_dir()）之下＝根層，否則＝專案層」。專案層與解析不到專案根（none）都當專案，根＝使用者給的 --cwd。"""
     root = Path(root)

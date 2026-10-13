@@ -574,13 +574,17 @@ ROOT_MAP = "| `hooks/` | hook 層 | `hooks導讀` | 部分 |\n"
 
 
 def _link_wt(live: Path, wt: Path, name: str = "wt") -> None:
-    """把 wt 接成 live 的 git worktree 結構：live/.git/worktrees/<name>/ 目錄＋wt/.git 檔指回去（is_root_worktree 第 2 條）。"""
-    (live / ".git" / "worktrees" / name).mkdir(parents=True, exist_ok=True)
-    (wt / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / name}\n", encoding="utf-8")
+    """把 wt 接成 live 的 git worktree 結構，與 `git worktree add` 寫的同一組檔：管理目錄 live/.git/worktrees/<name>/ 裡的
+    gitdir（反向指回 wt/.git）與 commondir（../..），wt/.git 檔指到管理目錄。is_root_worktree 的定義案用真 worktree，見下。"""
+    adm = live / ".git" / "worktrees" / name
+    adm.mkdir(parents=True, exist_ok=True)
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
 
 
 def _root_world(tmp_path, monkeypatch):
-    """tmp 造 live 根層（fake claude）、它的 worktree（表位元組相同、卡在 <wt>/memory）、一般專案（表不同）。"""
+    """tmp 造 live 根層（fake claude）、它的 worktree（卡在 <wt>/memory）、一般專案（不是 live 的 worktree、表不同）。"""
     live, wt, proj = tmp_path / "claude", tmp_path / "claude-wt" / "track-x", tmp_path / "proj"
     for r, body in ((live, "live 卡：pythonw 無 stdio"), (wt, "worktree 卡：HOME 覆寫指錯")):
         (r / ".claude").mkdir(parents=True)
@@ -621,13 +625,13 @@ def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
     assert oh.card_mem_dir(live, live) == live / "memory"
     assert oh.card_mem_dir(Path(str(live).upper()), live) == Path(str(live).upper()) / "memory"   # 正規化後相同也算根層
     assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree：卡是資料，讀 live 那批
-    assert oh.card_mem_dir(proj, live) == proj / ".claude" / "memory"                  # 反例：表不同＝一般專案
+    assert oh.card_mem_dir(proj, live) == proj / ".claude" / "memory"                  # 反例：不是 live 的 worktree＝一般專案
     nomap = tmp_path / "bare"
     nomap.mkdir()
     assert oh.card_mem_dir(nomap, live) == nomap / ".claude" / "memory"                # 反例：沒有表＝一般專案
     nolive = tmp_path / "no-live-map"
     nolive.mkdir()
-    assert oh.card_mem_dir(wt, nolive) == wt / ".claude" / "memory"                    # 反例：claude_dir 沒表＝一律不是 worktree
+    assert oh.card_mem_dir(wt, nolive) == wt / ".claude" / "memory"                    # 反例：wt 不是 nolive 的 worktree
     assert oh.is_root_worktree(wt, live) is True and oh.is_root_worktree(wt, nolive) is False
     import wg_verify_ledger as vl
     assert vl.is_root_worktree(wt, live) is True and vl.is_root_worktree(proj, live) is False   # 舊名委派 lib 本體
@@ -1420,7 +1424,7 @@ def test_verify_ledger_delegation_multiline_error_is_one_stderr_line(tmp_path, m
     assert len(lines) == 1 and "AttributeError: first second" in lines[0]
 
 
-# ─── is_root_worktree 定義：真 git worktree（.git 檔指回 <live>/.git/worktrees/）＋表位元組相同 ─────────
+# ─── is_root_worktree 定義：真 git worktree（.git 檔指回 <live>/.git/worktrees/），不看部位表 ─────────
 
 @pytest.fixture
 def git(tmp_path):
@@ -1465,7 +1469,8 @@ def test_is_root_worktree_real_git_worktrees_inside_and_outside_live(tmp_path, g
     assert oh.is_root_worktree(inside, live) is True                                   # live 之下（原生 EnterWorktree 的位置）
     assert oh.card_mem_dir(inside, live) == live / "memory"                            # 根層 worktree 讀 live 的卡
     (outside / ".claude" / "overview-map.md").write_bytes(b"| `x/` | other | none | none |\n")
-    assert oh.is_root_worktree(outside, live) is False                                 # 反例：真 worktree 但表不同
+    assert oh.is_root_worktree(outside, live) is True                                  # 改了部位表仍是根層 worktree（身分只看 git）
+    assert oh.card_mem_dir(outside, live) == live / "memory"                           # 卡照讀 live 那批
 
 
 def test_is_root_worktree_rejects_lookalike_folders(tmp_path, git):
@@ -1490,11 +1495,35 @@ def test_is_root_worktree_rejects_lookalike_folders(tmp_path, git):
     assert oh.is_root_worktree(tmp_path / "real", live) is True                        # 正例對照
 
 
+def test_is_root_worktree_rejects_forged_dot_git(tmp_path, git):
+    """一個普通目錄只寫一行 `.git` 指到 live 的 worktrees/ 底下，不算根層 worktree：管理目錄要真的登記這棵樹
+    （gitdir 反向指回它的 .git、commondir 指到 live 的 .git）。舊碼只看 .git 指向就認，可拿到量尺免全量。console codex 審 ec4f9e9 WARN 2。"""
+    live = tmp_path / "live"
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
+    real = tmp_path / "real"
+    git("-C", str(live), "worktree", "add", "-q", "-b", "real", str(real))
+    adm = live / ".git" / "worktrees" / "real"
+    assert oh.is_root_worktree(real, live) is True                                     # 對照：真 worktree
+    nowhere = _copy_map(live, tmp_path / "nowhere")
+    (nowhere / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'nonexistent'}\n", encoding="utf-8")
+    assert oh.is_root_worktree(nowhere, live) is False                                 # 反例：指到不存在的管理目錄
+    empty_adm = live / ".git" / "worktrees" / "empty"
+    empty_adm.mkdir()
+    hollow = _copy_map(live, tmp_path / "hollow")
+    (hollow / ".git").write_text(f"gitdir: {empty_adm}\n", encoding="utf-8")
+    assert oh.is_root_worktree(hollow, live) is False                                  # 反例：管理目錄是空的（沒有 gitdir／commondir）
+    thief = _copy_map(live, tmp_path / "thief")
+    (thief / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
+    assert oh.is_root_worktree(thief, live) is False                                   # 反例：借用別棵樹的管理目錄（反向指回 real）
+    assert oh.card_mem_dir(thief, live) == thief / ".claude" / "memory"
+
+
 def test_is_root_worktree_relative_gitdir_resolved_against_root(tmp_path, git):
     live = tmp_path / "live"
     _git_live(git, live, ROOT_MAP.encode("utf-8"))
-    (live / ".git" / "worktrees" / "rel").mkdir(parents=True)
-    rel = _copy_map(live, tmp_path / "rel")
+    rel = tmp_path / "rel"
+    git("-C", str(live), "worktree", "add", "-q", "-b", "rel", str(rel))              # 真 worktree，再把 .git 改寫成相對路徑
+    (rel / ".git").unlink()                                                            # Windows 的 git 把 .git 設成隱藏檔，不能直接覆寫
     (rel / ".git").write_text("gitdir: ../live/.git/worktrees/rel\n", encoding="utf-8")
     assert oh.is_root_worktree(rel, live) is True                                      # 相對路徑以 <root> 為基準
     other = tmp_path / "other"
@@ -1504,12 +1533,11 @@ def test_is_root_worktree_relative_gitdir_resolved_against_root(tmp_path, git):
     assert oh.is_root_worktree(rel2, live) is False                                    # 反例：相對路徑解析到別處
 
 
-def test_unreadable_dot_git_says_so_on_one_stderr_line_and_is_not_root_git_worktree(tmp_path, monkeypatch, capsys):
+def test_unreadable_dot_git_says_so_on_one_stderr_line_and_is_not_root_git_worktree(tmp_path, monkeypatch, capsys, git):
     live = tmp_path / "live"
-    (live / ".git" / "worktrees" / "x").mkdir(parents=True)
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
     root = tmp_path / "wt"
-    root.mkdir()
-    (root / ".git").write_text(f"gitdir: {live / '.git' / 'worktrees' / 'x'}\n", encoding="utf-8")
+    git("-C", str(live), "worktree", "add", "-q", "-b", "x", str(root))
     assert oh.is_root_git_worktree(root, live) is True                                 # 對照：讀得到就是
     capsys.readouterr()
     real_read_text = Path.read_text
@@ -1584,13 +1612,176 @@ def test_unc_paths_skip_realpath_and_are_never_root_worktree(tmp_path, unc_realp
     assert unc_realpath_guard == []                                                     # 一次都沒對網路路徑呼叫 realpath
 
 
-def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_guard):
+def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_guard, git):
     live, wt = tmp_path / "claude", tmp_path / "wt"
-    for d in (live, wt):
-        (d / ".claude").mkdir(parents=True)
-        (d / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
-    _link_wt(live, wt)
+    _git_live(git, live, ROOT_MAP.encode("utf-8"))
+    git("-C", str(live), "worktree", "add", "-q", "-b", "wt", str(wt))                # 真 worktree
     assert oh.is_root_worktree(wt, live) is True                                        # 正例：本機路徑照常走完三條
     assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree 讀 live 的卡
     assert oh.card_mem_dir(live, live) == live / "memory"
     assert unc_realpath_guard == []
+
+
+# ─── track-know：部位表類別 knowledge 的部位只要卡已注入 ─────────────────────────────────────────
+# 舊碼不分類別：知識部位（派工信箱）改檔前也要讀部位檔、交定位三行；注入文字也叫人交定位三行。
+
+_KNOW_MAP = (
+    "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+    "| `tools/` | 工具 | `工具導讀` | 有 | code |\n"
+    "| `scripts/` | 腳本 | `工具導讀` | 有 |  |\n"
+    "| `workflow/v6-inbox/` | 派工信箱 | `信箱導讀` | 有 | knowledge |\n"
+)
+
+
+@pytest.fixture
+def kproj(tmp_path, monkeypatch):
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = tmp_path / "kproj"
+    cards = root / ".claude" / "memory" / "shared" / "導讀"
+    cards.mkdir(parents=True)
+    (root / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
+    (cards / "工具導讀.md").write_text("# 工具導讀\n病灶：參數名寫錯", encoding="utf-8")
+    (cards / "信箱導讀.md").write_text("# 信箱導讀\n派工單一律 .md", encoding="utf-8")
+    for d in ("tools", "scripts", "workflow/v6-inbox/to-x", "sub/workflow/v6-inbox"):
+        (root / d).mkdir(parents=True)
+    return root
+
+
+def _know_log(tmp_path):
+    return [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+
+
+@pytest.mark.parametrize("rel,knowledge", [
+    ("workflow/v6-inbox/to-x/a.py", True),
+    ("tools/a.py", False),
+    ("scripts/a.py", False),                      # 沒標類別的列＝code
+    ("sub/workflow/v6-inbox/a.py", False),        # 只有子字串撞到信箱列＝code
+])
+def test_know_edit_evidence_depends_on_part_kind(kproj, tmp_path, rel, knowledge):
+    """同一份檔：在知識部位，注入過卡就放行（沒讀部位檔、沒交定位三行也放）；在寫碼部位照擋。"""
+    tp = _transcript(tmp_path, ["先看看。"])
+    f = str(kproj / rel)
+    state: dict = {}
+    assert wo.on_prompt(state, "s", f"看一下 {f}", tp, {})                      # 提到路徑 → 注入，沒讀任何部位檔
+    warn, deny, changed = wo.on_edit(state, "s", f, tp, {})
+    if knowledge:
+        assert (warn, deny, changed) == (None, None, True), rel
+        last = _know_log(tmp_path)[-1]
+        assert last["event"] == "edit" and last["kind"] == "knowledge" and last["deny_reason"] is None
+    else:
+        assert deny and "定位三行" in deny, rel
+
+
+def test_know_edit_before_inject_still_denies_once_without_locate_demand(kproj, tmp_path):
+    """知識部位保留「卡已注入」這一項：沒注入過就先注入並擋一次（理由不叫人交定位三行），下一次放行。"""
+    tp = _transcript(tmp_path, ["x"])
+    f = str(kproj / "workflow" / "v6-inbox" / "to-x" / "001-x.md")
+    state: dict = {}
+    warn, deny, changed = wo.on_edit(state, "s", f, tp, {})
+    assert deny and "信箱導讀" in deny and "知識類部位" in deny and "定位｜部位" not in deny and changed
+    assert _know_log(tmp_path)[-1]["deny_reason"] == "not_injected"
+    assert wo.on_edit(state, "s", f, tp, {}) == (None, None, True)
+
+
+def test_know_injection_text_asks_locate_only_for_code_parts(kproj, tmp_path):
+    """注入文字：知識部位不要求定位三行（卡照注）；寫碼部位照舊要。"""
+    state: dict = {}
+    k = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "workflow" / "v6-inbox" / "to-x" / "a.md")}, str(kproj), "", {})
+    c = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "tools" / "a.py")}, str(kproj), "", {})
+    assert "信箱導讀" in k and "知識類部位" in k and "定位｜部位" not in k
+    assert "工具導讀" in c and "定位｜部位：工具" in c
+    assert {key.rsplit("|", 1)[1]: rec.get("kind") for key, rec in state["overview_hub"].items()} == {
+        "派工信箱": "knowledge", "工具": "code"}                                  # scorecard 的 S3 靠這欄排除知識部位
+
+
+def test_know_part_kind_table(tmp_path):
+    """lib 判法：錨在專案根的最長前綴列的類別；沒欄、沒標、拼錯、只有子字串命中、沒命中都算 code；沒部位表回 None。"""
+    rows = oh.parse_map(_KNOW_MAP + "| `tools/notes/` | 工具筆記 | 無 | 無 | knowlege |\n")
+    root = Path("c:/p")
+    kind_of = getattr(oh, "part_kind", None)
+    assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
+    kinds = {rel: kind_of(f"c:/p/{rel}", root, rows) for rel in
+             ("workflow/v6-inbox/a.py", "tools/a.py", "scripts/a.py", "tools/notes/a.md", "x/workflow/v6-inbox/a.py", "a.py")}
+    assert kinds == {"workflow/v6-inbox/a.py": "knowledge", "tools/a.py": "code", "scripts/a.py": "code",
+                     "tools/notes/a.md": "code", "x/workflow/v6-inbox/a.py": "code", "a.py": "code"}
+    assert all(r.get("kind") == "code" for r in oh.parse_map(APPB_TABLE))       # 沒有類別欄的舊表全是 code
+    proj = tmp_path / "p"
+    (proj / ".claude").mkdir(parents=True)
+    assert oh.path_kind(str(proj / "workflow" / "v6-inbox" / "a.py"), proj) is None
+    (proj / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
+    assert oh.path_kind(str(proj / "workflow" / "v6-inbox" / "a.py"), proj) == "knowledge"
+    assert oh.path_kind(str(proj / "tools" / "a.py"), proj) == "code"
+
+
+def test_know_nested_rows_and_path_forms():
+    """knowledge 父列底下的 code 子列（與反向）照最長前綴；反斜線、大小寫照認；`..` 先消掉再比；根以下帶 8.3 短名
+    （長名寫的子部位比不到、會落到外層 knowledge）一律算 code。codex 審 a6323cb B1。"""
+    rows = oh.parse_map(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        "| `docs/` | 文件 | 無 | 無 | knowledge |\n| `docs/example-build/` | 範例建置 | 無 | 無 | code |\n"
+        "| `lib/` | 程式庫 | 無 | 無 | code |\n| `lib/notes/` | 程式庫筆記 | 無 | 無 | knowledge |\n")
+    kind_of = getattr(oh, "part_kind", None)
+    assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
+    root = Path("C:/p")
+    cases = {
+        "C:/p/docs/a.md": "knowledge", "C:/p/docs/example-build/build.py": "code",
+        "C:\\P\\DOCS\\Example-Build\\build.py": "code", "C:/p/docs/x/../example-build/build.py": "code",
+        "C:/p/docs/../lib/a.py": "code", "C:/p/docs/EXAMPL~1/build.py": "code",
+        "C:/p/lib/a.py": "code", "C:/p/lib/notes/a.md": "knowledge", "C:/p/lib/../docs/a.md": "knowledge",
+    }
+    assert {p: kind_of(p, root, rows) for p in cases} == cases
+    assert kind_of("C:/HOLYLI~1/p/docs/a.md", Path("C:/HOLYLI~1/p"), rows) == "knowledge"   # 根本身的短名不影響
+
+
+@pytest.mark.parametrize("child", ["./docs/build/", "docs/x/../build/", ".\\docs\\build\\", "./DOCS/Build"])
+def test_know_table_prefix_forms_normalized_like_paths(child):
+    """表列前綴與輸入路徑同一套根相對正規化：code 子列寫成 `./docs/build/`、`docs/x/../build/`、反斜線、大小寫，都蓋得住
+    knowledge 父列 `docs/` 底下的 build/。舊碼只正規化輸入路徑，子列比不到、落回 knowledge 父列，真程式免 (d)。
+    console codex 審 ec4f9e9 BLOCK 1。"""
+    rows = oh.parse_map("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+                        "| `docs/` | 文件 | 無 | 無 | knowledge |\n"
+                        f"| `{child}` | 建置 | 無 | 無 | code |\n")
+    assert rows[1]["prefixes"] == ["docs/build"]
+    kind_of = getattr(oh, "part_kind", None)
+    assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
+    assert kind_of("C:/p/docs/build/a.py", Path("C:/p"), rows) == "code"
+    assert kind_of("C:/p/docs/a.md", Path("C:/p"), rows) == "knowledge"
+
+
+@pytest.mark.parametrize("child", ["../build/", "./", "/abs/build/", "C:/abs/build/"])
+def test_know_unplaceable_code_row_keeps_knowledge_parents_as_code(child):
+    """放不進根相對位置的 code 列（往上跳出根、整個根、絕對路徑、磁碟代號）：判不出它管不管這條路徑，knowledge 列一律不豁免；
+    沒有這種列時 knowledge 照常。"""
+    head = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+            "| `docs/` | 文件 | 無 | 無 | knowledge |\n| `tools/` | 工具 | 無 | 無 | code |\n")
+    rows = oh.parse_map(head + f"| `{child}` | 怪列 | 無 | 無 | code |\n")
+    assert rows[2].get("unsafe_prefix") is True
+    kind_of = getattr(oh, "part_kind", None)
+    assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
+    assert kind_of("C:/p/docs/a.md", Path("C:/p"), rows) == "code"
+    assert kind_of("C:/p/docs/a.md", Path("C:/p"), oh.parse_map(head)) == "knowledge"
+    assert kind_of("C:/p/docs/a.md", Path("C:/p"), oh.parse_map(head + f"| `{child}` | 怪列 | 無 | 無 | knowledge |\n")) == "knowledge"
+
+
+def test_know_existing_denies_still_apply_to_knowledge_parts(kproj, tmp_path):
+    """知識部位只省掉讀部位檔與定位三行：表上的卡找不到照擋、readonly_paths 照擋。"""
+    (kproj / ".claude" / "overview-map.md").write_text(
+        _KNOW_MAP + "| `docs/` | 文件 | `不存在的卡` | 有 | knowledge |\n", encoding="utf-8")
+    (kproj / ".claude" / "overview-hub.json").write_text('{"readonly_paths": ["workflow/v6-inbox/gen/**"]}', encoding="utf-8")
+    tp = _transcript(tmp_path, ["x"])
+    warn, deny, _ = wo.on_edit({}, "s", str(kproj / "docs" / "a.md"), tp, {})
+    assert deny and "`不存在的卡` 在 repo 裡找不到" in deny
+    warn, deny, changed = wo.on_edit({}, "s", str(kproj / "workflow" / "v6-inbox" / "gen" / "x.md"), tp, {})
+    assert deny and "readonly_paths（樣式「" in deny and not changed
+
+
+def test_know_substring_code_hit_marks_part_as_code_for_scorecard(kproj, tmp_path):
+    """同一列先被知識路徑注入（kind=knowledge），之後只撞到子字串的寫碼檔來改 → 照寫碼部位擋，紀錄改成 code（S3 要算）。
+    codex 審 a6323cb W1。"""
+    tp = _transcript(tmp_path, ["x"])
+    state: dict = {}
+    wo.on_prompt(state, "s", f"看 {kproj / 'workflow' / 'v6-inbox' / 'to-x' / 'a.md'}", tp, {})
+    rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|派工信箱"))
+    assert rec.get("kind") == "knowledge"
+    warn, deny, _ = wo.on_edit(state, "s", str(kproj / "sub" / "workflow" / "v6-inbox" / "a.py"), tp, {})
+    assert deny and "定位三行" in deny and rec.get("kind") == "code"
