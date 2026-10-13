@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, output_json, output_nothing,
@@ -33,7 +33,8 @@ from wg_harvest import (
 from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
-    aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot,
+    aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
+    head_new_code, _git_root_of,
 )
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -400,14 +401,46 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     return True
 
 
-def _note_commit(state: Dict[str, Any], command: str) -> bool:
+def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str, Any]] = None,
+                 session_id: str = "", snapshot: bool = True) -> bool:
     """跑了 git／svn commit → state["last_commit_turn_seq"]＝本回合；回有沒有記。一般與裁判 PostToolUse 共用這一條：
     ScanReport 閘據此豁免收尾檢核（工作已寫進 VCS 歷史＝可稽核），寫碼查核判「改過又原樣還原」也看它（改完 commit 了，
-    工作樹乾淨不代表沒改）。"""
+    工作樹乾淨不代表沒改）。同時記 commit_snapshot（本 session 改過的檔此刻的內容雜湊＋當時不欠案例的程式檔）：commit 之後
+    做反證、把檔退回舊版又還原，Stop 看內容回到這個快照就不重算補案例。快照算失敗只少了這個豁免（照擋），stderr 說一聲。"""
     if not _VCS_COMMIT_RE.search(command):
         return False
-    state["last_commit_turn_seq"] = int(state.get("turn_seq", 0))
+    turn = int(state.get("turn_seq", 0))
+    state["last_commit_turn_seq"] = turn
+    own = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", session_id) == session_id]
+    _note_committed_new_code(state, own, reconcile_cfg(config or {}))
+    if not snapshot:                                  # 這條指令的寫入目標沒算出來：不拍快照（可能漏掉同一條指令改的檔）
+        state.pop("commit_snapshot", None)
+        print("[verify-ledger] commit 指令的寫入目標算不出來，不記內容快照；commit 之後的反證還原照算改碼", file=sys.stderr)
+        return True
+    try:
+        state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}))
+    except Exception as e:  # noqa: BLE001
+        state.pop("commit_snapshot", None)
+        print(f"[verify-ledger] commit 內容快照失敗，commit 之後的反證還原照算改碼：{type(e).__name__}: {e}", file=sys.stderr)
     return True
+
+
+def _note_committed_new_code(state: Dict[str, Any], own: List[Dict[str, Any]], cfg: Dict[str, Any]) -> None:
+    """commit 之後，本 session 改過的檔所在的每個 git 根，記下 HEAD 那筆提交新增、改名、複製進來的程式檔
+    （state["committed_new_code"][根]＝{shas, paths}）。寫碼查核判「已不存在的改檔是刪掉還是搬走」時用：搬完又 commit，
+    工作樹的 status 就看不到新路徑了。讀不到只少這份證據（已不存在的改檔照欠），stderr 由 head_new_code 說。"""
+    rec = state.setdefault("committed_new_code", {})
+    seen = set()
+    for m in own:
+        hit = _git_root_of(str((m or {}).get("path") or ""))
+        if not hit or hit[0] in seen:
+            continue
+        seen.add(hit[0])
+        sha, new = head_new_code(hit[1], cfg)
+        r = rec.setdefault(hit[0], {"shas": [], "paths": []})
+        if sha and sha not in r["shas"]:
+            r["shas"] = (r["shas"] + [sha])[-50:]
+            r["paths"] = list(dict.fromkeys(r["paths"] + new))[-200:]
 
 
 def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_name: str, agent_id: str = "") -> None:
@@ -559,7 +592,7 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
                 _note_unknown_write(state, session_id, p, command, tool_name)
             elif p and not _is_ephemeral_path(p):
                 _note_modified(state, session_id, p, tool_name)
-        _note_commit(state, command)
+        _note_commit(state, command, config, session_id)
         _track_sentinels(state, input_data, command, tool_name, config, session_id)
     write_state(session_id, state)
     output_nothing()
@@ -734,11 +767,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             vcs.append({"command": command[:200], "at": _now_iso()})
             dirty = True
 
-        if _note_commit(state, command):
-            dirty = True
-
         # Bash／PowerShell 改檔目標（>、>>、tee、sed -i、cp、mv、Set-Content…）也進 modified_files；
-        # 先記目標再落帳，帳本的 modified_files_turn 才含本次寫入
+        # 先記目標再落帳，帳本的 modified_files_turn 才含本次寫入；commit 快照也在記完之後才拍
+        # （`sed -i a.py && git commit` 這種同一條指令改檔又 commit，快照要看得到這次改了 a.py）
+        _writes_ok = True
         if _write_paths_from_tool is not None:
             try:
                 _cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
@@ -753,6 +785,10 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                     dirty = True
             except Exception as e:
                 _atom_debug_error("post_tool_use:write_paths_from_tool", e)
+                _writes_ok = False
+
+        if _note_commit(state, command, config, session_id, snapshot=_writes_ok):
+            dirty = True
 
         if _track_test_result(state, input_data, command, tool_name):
             dirty = True

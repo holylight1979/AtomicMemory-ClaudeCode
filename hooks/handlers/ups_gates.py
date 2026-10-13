@@ -39,18 +39,27 @@ def track_turn_prompts(state: Dict[str, Any], clean_prompt: str) -> None:
     清單只存 user_typed_text（剔掉通知、其他 session 的訊息等非使用者區塊後，先清理再截 500 字）。
     整則都不是使用者的話（背景通知、其他 session 的訊息）也走 UserPromptSubmit：內文永不進清單；
     它在回合關閉後進來＝使用者上一回合的延續，原話沿用（「完工後直接上GIT」跨得過背景等待），
-    除非那之後已經 commit 過（口令用掉了）→ 清空，再 commit 要新口令。"""
+    除非那之後已經 commit 過（口令用掉了）→ 清空，再 commit 要新口令。
+
+    turn_prompts_seq＝使用者本人打字開的回合（寫碼查核的預算與放行看它）。回合關閉後先進來的通知只開「續跑回合」
+    （turn_typed=False）；這個續跑回合裡使用者打的第一則字仍算使用者開的新回合，序號前進（清單照舊追加）。"""
     has_list = isinstance(state.get("turn_prompts"), list)
     typed = user_typed_text(clean_prompt)[:500]
     if not typed:
         spent = int(state.get("last_commit_turn_seq", -1)) >= int(state.get("turn_prompts_seq", 0))
         if not has_list or (not state.get("turn_open") and spent):
             state["turn_prompts"] = []
+        if not state.get("turn_open"):
+            state["turn_typed"] = False                                  # 通知開的續跑回合：還沒有使用者打字
     elif state.get("turn_open") and has_list:
         state["turn_prompts"] = (state["turn_prompts"] + [typed])[-5:]
+        if state.get("turn_typed") is False:                            # 續跑回合裡使用者的第一則字：使用者開的新回合
+            state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1
     else:
         state["turn_prompts"] = [typed]
         state["turn_prompts_seq"] = int(state.get("turn_seq", 0)) + 1   # 本則 UPS 收尾後的 turn_seq
+    if typed:
+        state["turn_typed"] = True
     state["turn_open"] = True
 
 
