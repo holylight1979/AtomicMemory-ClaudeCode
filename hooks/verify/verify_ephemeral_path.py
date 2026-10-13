@@ -108,16 +108,42 @@ def test_028_dotdot_out_of_temp_is_project_code(monkeypatch):
         assert _noted_via_post_tool_use(monkeypatch, p), (tmp, base)
 
 
+@pytest.mark.parametrize("tmp_form", ["long", "short"])
 @pytest.mark.parametrize("path_form", ["long", "short"])
 @pytest.mark.parametrize("path_pre, tmp_pre", [("\\\\?\\", ""), ("", "\\\\?\\"), ("\\\\?\\", "\\\\?\\")])
-def test_030_long_path_prefix_on_either_side_is_still_temp(monkeypatch, path_pre, tmp_pre, path_form):
-    """030：`\\\\?\\` 長路徑前綴只出現在路徑側、只出現在暫存側、兩側都有，scratchpad 都判暫存（比對前兩側統一表示），
-    經 post_tool_use 也不進 modified_files。"""
-    long_, short = _tmp_forms()
-    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: tmp_pre + long_)
+def test_030_long_path_prefix_on_either_side_is_still_temp(monkeypatch, path_pre, tmp_pre, path_form, tmp_form):
+    """030／032：`\\\\?\\` 長路徑前綴只出現在路徑側、只出現在暫存側、兩側都有 × 路徑長／短 × 暫存長／短，共 12 組，scratchpad
+    都判暫存（比對前兩側統一表示），經 post_tool_use 也不進 modified_files。純長路徑的 3 組不需要 8.3 短名，每台 Windows 都跑；
+    用到短名的組在沒有 8.3 短名的機器跳過。"""
+    long_ = _win_path("GetLongPathNameW", tempfile.gettempdir())       # 先算好：下面會替身 gettempdir
+    short = _tmp_forms()[1] if "short" in (path_form, tmp_form) else long_
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: tmp_pre + (long_ if tmp_form == "long" else short))
     p = path_pre + (long_ if path_form == "long" else short) + r"\claude\sess\scratchpad\probe.py"
     assert _shared._is_ephemeral_path(p) is True, p
     assert not _noted_via_post_tool_use(monkeypatch, p), p
+
+
+def _codex_regression_paths(long_: str):
+    """codex 審 031 時實測判成非暫存的寫法（都是暫存目錄的同一串字，只換了前綴或磁碟機）：固化成回歸案。"""
+    tail = long_[2:] + r"\claude\sess\scratchpad\probe.py"                 # 去掉「C:」的部分
+    other = "E:" if long_[:1].upper() == "D" else "D:"
+    return {
+        "GLOBALROOT": r"\\?\GLOBALROOT\Device\HarddiskVolume3" + tail,
+        "device": "\\\\.\\" + long_ + r"\claude\sess\scratchpad\probe.py",
+        "volume": r"\\?\Volume{00000000-0000-0000-0000-000000000000}" + tail,
+        "drive-relative": long_[:2] + tail.lstrip("\\"),
+        "other-drive": other + tail,
+    }
+
+
+@pytest.mark.parametrize("kind", ["GLOBALROOT", "device", "volume", "drive-relative", "other-drive"])
+def test_032_other_namespaces_and_drives_are_not_temp(monkeypatch, kind):
+    """032：GLOBALROOT、`\\\\.\\` 裝置命名空間、`\\\\?\\Volume{…}\\`、`C:foo` 磁碟機相對路徑、別的磁碟機，即使後面接的是暫存目錄的
+    同一串字，也判非暫存（不展開這些寫法；錯的方向是多要證據，不是漏記）。不需要 8.3 短名。"""
+    long_ = _win_path("GetLongPathNameW", tempfile.gettempdir())
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: long_)
+    p = _codex_regression_paths(long_)[kind]
+    assert _shared._is_ephemeral_path(p) is False, p
 
 
 def test_030_prefixed_dotdot_out_of_temp_is_project_code(monkeypatch):
