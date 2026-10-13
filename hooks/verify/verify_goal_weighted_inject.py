@@ -28,6 +28,12 @@ Q0 = Path(__file__).resolve().parent / "fixtures" / "v6" / "q0"
 CASES = sorted(p for p in Q0.iterdir() if p.is_dir())
 
 
+@pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """假專案建在 pytest tmp 下：關掉規則 TEMP_COPY_NOT_PROJECT（否則暫存目錄下的專案不注入導讀卡）。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+
+
 def _append(tp: Path, text: str, channel: str) -> None:
     if channel == "tool_input":
         block = {"type": "tool_use", "name": "Bash", "input": {"command": "# " + text.replace("\n", "\n# ") + "\ntrue"}}

@@ -80,6 +80,12 @@ def _probe(home: Path) -> dict:
     return json.loads(line[len("PROBE_JSON "):])
 
 
+@pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """假專案建在 pytest tmp 下：關掉規則 TEMP_COPY_NOT_PROJECT；_env 從 os.environ 複製，子行程 hook 也吃到。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+
+
 @pytest.fixture
 def empty_home(tmp_path):
     home = tmp_path / "home"
