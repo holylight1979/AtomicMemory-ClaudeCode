@@ -219,15 +219,15 @@ def _strings(x: Any) -> Iterator[str]:
 
 
 def _plan_file(tool_input: Any, state: Dict[str, Any]) -> Optional[Path]:
-    """ExitPlanMode 的計畫檔：工具輸入裡指到的 .md，否則本 session 最近改過的 plans/*.md。"""
+    """ExitPlanMode 的計畫檔：工具輸入裡指到的 .md，否則本 session 最近改過（last_seq 最大）的 plans/*.md。
+    modified_files 改到既有的檔只更新 last_seq、不換位置，清單順序不是改檔順序。"""
     for s in _strings(tool_input):
         if len(s) < 400 and s.lower().endswith(".md") and Path(s).is_file():
             return Path(s)
-    for m in reversed(state.get("modified_files") or []):
-        p = m.get("path", "") if isinstance(m, dict) else str(m or "")
-        if p and _PLAN_FILE_RE.search(p) and Path(p).is_file():
-            return Path(p)
-    return None
+    plans = [m for m in state.get("modified_files") or [] if isinstance(m, dict)
+             and _PLAN_FILE_RE.search(str(m.get("path") or "")) and Path(str(m["path"])).is_file()]
+    newest = max(plans, key=lambda m: int(m.get("last_seq") or 0), default=None)
+    return Path(str(newest["path"])) if newest else None
 
 
 def ask_text(tool_name: str, tool_input: Any, state: Dict[str, Any]) -> str:
@@ -356,10 +356,11 @@ def _multi_paths(tree: Dict[str, Any]) -> List[Tuple[str, int, str]]:
             if len(es) >= MULTI_EDIT_MIN and p not in hinted]
 
 
-def _flush(doc: Dict[str, Any], sid: Any, turn: int) -> List[str]:
+def _flush(doc: Dict[str, Any], sid: Any, turn: int) -> Tuple[List[str], bool]:
+    """送出待送的讀入範圍（這回合還沒送過才送）與同檔多次提醒；回（要送的句子、還有沒送出的讀入範圍）。"""
     tree = _live(doc)
     if not tree:
-        return []
+        return [], False
     pts = _points(tree)
     out: List[str] = []
     if pts["scope_pending"] and pts["scope_sent_turn"] != turn:
@@ -374,7 +375,7 @@ def _flush(doc: Dict[str, Any], sid: Any, turn: int) -> List[str]:
         out.append(f"[NeedGoal] 這一處改了好幾次（{Path(path).name} 第 {n} 次，掛在 {node}）：是不是繞路了？"
                    f"回頭看 {node} 的目標還對準嗎。")
         _guard("multi_edit", sid, turn, tree=tree["id"], path=path, edits=n, node=node)
-    return out
+    return out, bool(pts["scope_pending"])
 
 
 def batch_due(state: Dict[str, Any], tool_calls: Any) -> bool:
@@ -396,9 +397,11 @@ def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str,
         doc = _load(sid, "batch_lines", turn)
         tree = _live(doc) if doc else None
         pts = _points(tree) if tree else {}
-        if tree and ((pts["scope_pending"] and pts["scope_sent_turn"] != turn) or _multi_paths(tree)):
-            lines += _update(sid, lambda d: _flush(d, sid, turn), "batch_lines", turn) or []
-        elif tree and pts["scope_pending"]:
+        left = bool(pts.get("scope_pending"))
+        if tree and ((left and pts["scope_sent_turn"] != turn) or _multi_paths(tree)):
+            sent, left = _update(sid, lambda d: _flush(d, sid, turn), "batch_lines", turn) or ([], left)
+            lines += sent
+        if left:
             state["need_goal_batch"] = True   # 這回合送過了：留到下一回合第一批
     if has_ask_calls(tool_calls):
         lines += asks_after(sid, state, tool_calls)

@@ -310,6 +310,10 @@ def test_multi_edit_flush_does_not_resend_scope_same_turn():
     lines = ngp.batch_lines(SID, state, [], CFG)
     assert len(lines) == 1 and "改了好幾次" in lines[0]                       # 只送同檔提醒，讀入範圍留到下一回合
     assert [i["label"] for i in tree_now()["points"]["scope_pending"]] == ["c:/p|c"]
+    assert state.get("need_goal_batch") is True                               # 留下的那筆要標著，下一回合才會送（codex P2）
+    state["turn_seq"] = 5
+    nxt = ngp.batch_lines(SID, state, [], CFG)
+    assert len(nxt) == 1 and "【p/c】" in nxt[0]
 
 
 def test_multi_edit_hint_once_per_file(world):
@@ -407,6 +411,19 @@ def test_exit_plan_mode_reads_plan_field_and_plan_file(tmp_path):
     plan.write_text("# 計畫\n服務 T1.2：先改 A 再改 B", encoding="utf-8")
     assert ngp.on_ask(SID, "ExitPlanMode", {}, {"modified_files": [{"path": str(plan)}]})[0] is None
     assert ngp.on_ask(SID, "ExitPlanMode", {"planFilePath": str(plan)}, {})[0] is None
+
+
+def test_exit_plan_mode_picks_most_recently_edited_plan(tmp_path):
+    """modified_files 改到既有的檔只更新 last_seq、不換位置：要照 last_seq 挑最近改的計畫，不是照清單順序（codex P2）。"""
+    make_tree("code")
+    a, b = tmp_path / "plans" / "a.md", tmp_path / "plans" / "b.md"
+    a.parent.mkdir()
+    a.write_text("新計畫：服務 T1.1", encoding="utf-8")
+    b.write_text("舊計畫：沒寫節點", encoding="utf-8")
+    mods = [{"path": str(a), "last_seq": 9}, {"path": str(b), "last_seq": 4}]   # 先建 A、再建 B、回頭又改 A
+    assert ngp.on_ask(SID, "ExitPlanMode", {}, {"modified_files": mods})[0] is None
+    mods = [{"path": str(a), "last_seq": 2}, {"path": str(b), "last_seq": 4}]
+    assert ngp.on_ask(SID, "ExitPlanMode", {}, {"modified_files": mods})[0]
 
 
 def test_asks_after_skips_handled_and_hints_unhandled(world):
