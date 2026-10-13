@@ -23,7 +23,7 @@ atom_write 對 scope=global 的 create/append/replace 一律先問這裡，`skip
   - cwd 在 ~/.claude（或沒有 cwd）→ 只掃 6 與「已登記專案根底下的絕對路徑」。根層 session
     寫全域卡片時最容易把別的專案名帶進來，這條路以前完全不檢查。
 
-排除規則（避免泛詞誤殺）：與 ~/.claude 頂層同名者（`_AIDocs`、`tools`… 全域也有，不具
+排除規則（避免泛詞誤殺）：與資料根或程式碼根頂層同名者（`_AIDocs`、`tools`… 全域也有，不具
 辨識力；區分大小寫，故 `Tools` 仍算專名）；`.` 開頭；純小寫 ASCII 且短於 4 字（web 之類）。
 
 比對規則：ASCII 專名 → 區分大小寫 + 字邊界（前後皆非 [A-Za-z0-9_]）；含 CJK 或非 ASCII
@@ -38,9 +38,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 try:
     from .project_root import claude_data_dir
 except ImportError:  # 頂層模組載入
-    from project_root import claude_data_dir  # type: ignore
+    from project_root import claude_data_dir
 
-CLAUDE_DIR = claude_data_dir()   # 使用者資料根的唯一算法（WG_CLAUDE_DIR 可覆蓋）；寫死家目錄會讓 worktree 被當成外部專案
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
+_CODE_ROOT = Path(__file__).resolve().parents[1]   # 程式碼根（本檔所在的樹）：頂層資料夾名和資料根一起當泛詞排除
 
 # 字面「專案指涉」片語（泛用，非專案名）
 PROJECT_LITERALS = ("此專案", "本專案", "這個專案", "這專案")
@@ -91,10 +92,13 @@ def _is_ascii(s: str) -> bool:
 
 
 def _claude_top_names() -> set:
-    try:
-        return {p.name for p in CLAUDE_DIR.iterdir()}
-    except OSError:
-        return set()
+    names: set = set()
+    for root in (CLAUDE_DIR, _CODE_ROOT):
+        try:
+            names.update(p.name for p in root.iterdir())
+        except OSError:
+            pass
+    return names
 
 
 def _accept_term(name: str, claude_names: set) -> bool:

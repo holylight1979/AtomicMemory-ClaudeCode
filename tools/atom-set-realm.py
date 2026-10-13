@@ -34,13 +34,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"                  # 使用者資料（index path 的基準）
 _CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 從本樹載
 if str(_CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(_CODE_ROOT))
 
+# CLAUDE_DIR＝使用者資料根（index path 的基準），和 lib 同一份；_CLAUDE_ROOT 是同一個值，搬移落點算相對路徑用
 from lib.atom_locations import (  # noqa: E402
-    CLAUDE_DIR as _CLAUDE_ROOT, FAILURES_ROOT_NAME,
+    CLAUDE_DIR, CLAUDE_DIR as _CLAUDE_ROOT, FAILURES_ROOT_NAME,
     GLOBAL_MEMORY_DIR, LOCAL_ATOMS_DIR, LOCAL_ATOMS_REL, LOCAL_REALM_DOMAINS,
     core_write_target, enumerate_local_paths, failures_write_target,
     is_local_realm_path, normalize_domain_path, unclassified_error,

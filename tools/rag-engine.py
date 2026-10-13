@@ -27,9 +27,9 @@ from pathlib import Path
 
 SERVICE_DIR = Path(__file__).resolve().parent / "memory-vector-service"
 SERVICE_URL = "http://127.0.0.1:{port}"
-VECTORDB_DIR = Path.home() / ".claude" / "memory" / "_vectordb"
 
 sys.path.insert(0, str(SERVICE_DIR))
+from config import VECTORDB_DIR  # noqa: E402  資料根的 memory/_vectordb，和 service／starter 同一處
 
 
 def _get_port():
@@ -211,6 +211,7 @@ def cmd_start(args):
         sys.exit(1)
 
     print(f"Starting Memory Vector Service...")
+    VECTORDB_DIR.mkdir(parents=True, exist_ok=True)   # 新資料根還沒有 _vectordb，開 log 前先建
     if sys.platform == "win32":
         CREATE_NO_WINDOW = 0x08000000
         subprocess.Popen(

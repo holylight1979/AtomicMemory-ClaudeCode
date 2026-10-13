@@ -17,11 +17,21 @@ from pathlib import Path
 
 import pytest
 
-CLAUDE_DIR = Path.home() / ".claude"
-COMPANION_DIR = CLAUDE_DIR / "tools" / "codex-companion"
+TREE = Path(__file__).resolve().parents[3]   # 本樹（測的是這份碼，不是家目錄那份）
+COMPANION_DIR = TREE / "tools" / "codex-companion"
 sys.path.insert(0, str(COMPANION_DIR))
 
 import assessor  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolate_judge_backend(tmp_path, monkeypatch):
+    """抑制標記檔導到 tmp（不改寫資料根的 companion-backend.json）；codex 一律「找得到」（_run_codex 各案已換假的）、
+    claude 一律找不到：不會真的叫 claude。"""
+    jb = assessor.judge_backend
+    monkeypatch.setattr(jb, "STATE_PATH", tmp_path / "companion-backend.json")
+    monkeypatch.setattr(jb, "resolve_codex_bin", lambda config: "codex-stub")
+    monkeypatch.setattr(jb, "resolve_claude_bin", lambda config: None)
 
 
 # ─── retry 行為 ──────────────────────────────────────────────────────

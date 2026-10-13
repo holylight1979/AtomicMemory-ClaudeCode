@@ -160,7 +160,8 @@ def test_py_skip_gate_does_not_bypass_realm_gate(proj):
 
 def test_py_core_cwd_ignores_project_internal_terms_and_generic_knowledge(proj):
     """根層 cwd 不知道「目前專案」的內部資料夾名，只認已登記專案名；本 payload 全是內部名 → 放行。"""
-    assert check_global_write(str(CLAUDE), title=TITLE, triggers=TRIGGERS, knowledge=KNOWLEDGE) is None
+    # 根層 cwd＝realm_gate 自己的資料根（WG_CLAUDE_DIR 或 ~/.claude）；worktree 裡本樹不是資料根
+    assert check_global_write(str(realm_gate.CLAUDE_DIR), title=TITLE, triggers=TRIGGERS, knowledge=KNOWLEDGE) is None
     assert check_global_write(None, title=TITLE, triggers=TRIGGERS, knowledge=KNOWLEDGE) is None
     assert check_global_write(str(proj), title="git 已 push commit 勿改寫", triggers=["git push"],
                               knowledge=["[臨] 已 push 的 commit 不得 amend；用 revert"]) is None

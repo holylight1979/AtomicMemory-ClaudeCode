@@ -7,7 +7,6 @@
 - Trigger: write_state, state 並行, state 互相覆蓋, 三方合併, _merge_state, event_seq, next_event_seq, modified_files 合併, verify_receipts 合併, knowledge_harvest 合併, pending 版本, 鎖內重讀, track-b3
 - Created-at: 2026-10-13
 - Related: 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞
-- Quote: 「你是 v6.0 的工作 session track-b3，總控台是 claude-2c。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-b3（分支 v6/track-b3，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\workflow\v6-inbox\to-…」
 
 ## 知識
 

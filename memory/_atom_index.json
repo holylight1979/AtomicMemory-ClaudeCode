@@ -5335,18 +5335,6 @@
       "scope": "global"
     },
     {
-      "name": "wrong-assumptions-工作流",
-      "path": "memory/Failures/工作流/wrong-assumptions-工作流.md",
-      "triggers": [
-        "假設錯誤",
-        "誤判",
-        "直覺假設",
-        "wrong assumption",
-        "前提錯"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試",
       "path": "memory/驗證與實證/量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試.md",
       "triggers": [
@@ -6250,6 +6238,21 @@
         "守門紀錄寫進 live",
         "探針污染 live",
         "隔離探針"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "worktree測試裡資料根的斷言要對被測模組自己算的claude-dir比-對本樹路徑比會隨別支測試先跑的setdefault變",
+      "path": "_AIDocs/_atoms/MemDev/worktree測試裡資料根的斷言要對被測模組自己算的claude-dir比-對本樹路徑比會隨別支測試先跑的setdefault變.md",
+      "triggers": [
+        "WG_CLAUDE_DIR",
+        "資料根斷言",
+        "setdefault 收集順序",
+        "worktree 測試紅",
+        "單跑綠合跑紅",
+        "claude_data_dir",
+        "verify_project_layer_smoke",
+        "verify_locate_single_authority"
       ],
       "scope": "global"
     }

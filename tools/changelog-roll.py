@@ -6,7 +6,8 @@ Header + 非表格 preamble 原樣留主檔。原子寫入 tmp → rename。
 
 Usage:
     python tools/changelog-roll.py [--keep N] [--dry-run] [--quiet]
-    python tools/changelog-roll.py --changelog PATH --archive PATH   # 測試用
+    python tools/changelog-roll.py --changelog PATH [--archive PATH]
+    （只給 --changelog 時封存檔預設在同資料夾的 _CHANGELOG_ARCHIVE.md）
 
 Exit codes:
     0: 成功（含 nothing-to-roll）
@@ -22,9 +23,10 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-CLAUDE_DIR = Path.home() / ".claude"
-DEFAULT_CHANGELOG = CLAUDE_DIR / "_AIDocs" / "_CHANGELOG.md"
-DEFAULT_ARCHIVE = CLAUDE_DIR / "_AIDocs" / "_CHANGELOG_ARCHIVE.md"
+CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根：_AIDocs 是進版控的開發文件
+DEFAULT_CHANGELOG = CODE_DIR / "_AIDocs" / "_CHANGELOG.md"
+ARCHIVE_NAME = "_CHANGELOG_ARCHIVE.md"
+DEFAULT_ARCHIVE = DEFAULT_CHANGELOG.parent / ARCHIVE_NAME
 DEFAULT_KEEP = 8
 
 TABLE_HEADER_RE = re.compile(r"^\|\s*日期\s*\|\s*變更\s*\|\s*(涉及檔案|主要檔案|檔案)\s*\|\s*$")
@@ -127,12 +129,13 @@ def _merge_into_archive(archive_path: Path, new_rows: List[str]) -> str:
 
 def roll(
     changelog_path: Path = DEFAULT_CHANGELOG,
-    archive_path: Path = DEFAULT_ARCHIVE,
+    archive_path: Optional[Path] = None,
     keep: int = DEFAULT_KEEP,
     dry_run: bool = False,
     quiet: bool = False,
 ) -> Tuple[int, int]:
-    """Perform the roll. Return (kept_count, moved_count)."""
+    """Perform the roll. Return (kept_count, moved_count). archive_path 沒給 → 主檔同資料夾的 _CHANGELOG_ARCHIVE.md。"""
+    archive_path = archive_path or changelog_path.parent / ARCHIVE_NAME
     if not changelog_path.exists():
         raise FileNotFoundError(f"changelog not found: {changelog_path}")
     text = _read(changelog_path)
@@ -179,7 +182,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--changelog", type=Path, default=DEFAULT_CHANGELOG)
-    p.add_argument("--archive", type=Path, default=DEFAULT_ARCHIVE)
+    p.add_argument("--archive", type=Path, default=None, help="預設：--changelog 同資料夾的 _CHANGELOG_ARCHIVE.md")
     args = p.parse_args(argv)
     try:
         roll(

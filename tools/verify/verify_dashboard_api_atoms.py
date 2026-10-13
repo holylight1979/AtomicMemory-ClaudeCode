@@ -58,7 +58,8 @@ def _stop(proc: subprocess.Popen) -> None:
 
 
 def _spawn(port: int) -> subprocess.Popen:
-    env = {**os.environ, "WG_DASHBOARD_PORT": str(port)}
+    # 資料根明設為本樹：server 讀的 index 和 ATOM_INDEX 同一份，不受別支測試先設的 WG_CLAUDE_DIR 影響
+    env = {**os.environ, "WG_DASHBOARD_PORT": str(port), "WG_CLAUDE_DIR": str(CLAUDE_DIR)}
     return subprocess.Popen(
         [NODE, str(SERVER_JS)],
         cwd=str(MCP_DIR),
