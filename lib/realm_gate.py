@@ -35,7 +35,12 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-CLAUDE_DIR = Path.home() / ".claude"
+try:
+    from .project_root import claude_data_dir
+except ImportError:  # 頂層模組載入
+    from project_root import claude_data_dir  # type: ignore
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根的唯一算法（WG_CLAUDE_DIR 可覆蓋）；寫死家目錄會讓 worktree 被當成外部專案
 
 # 字面「專案指涉」片語（泛用，非專案名）
 PROJECT_LITERALS = ("此專案", "本專案", "這個專案", "這專案")
