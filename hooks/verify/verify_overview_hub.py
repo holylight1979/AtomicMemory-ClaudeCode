@@ -1201,6 +1201,18 @@ LAYER_TABLE = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 層 |\n|---|---|-
                "| `Game\\Battle\\` | 戰鬥 | `戰鬥知識導讀-hub索引` | 有 | 主程式集／熱修 |\n")
 
 
+def test_reading_path_layer_number_is_not_a_layer_the_root_cause_line_must_name():
+    """層欄的「第 N 層」是閱讀路徑層次軸，由程式依路徑推：根因層那行不用寫它（只有它或配「單層」都不擋）；
+    和要人填的層混寫時，只要求寫出要人填的那幾個。"""
+    vals = {"根因": "邏輯層：判斷式寫反"}
+    assert wo._layer_mismatch({"layer": "第2層"}, vals) is None
+    assert wo._layer_mismatch({"layer": "第 3 層"}, vals) is None
+    mixed = wo._layer_mismatch({"layer": "主程式集／第2層"}, vals)
+    assert mixed and "主程式集" in mixed and "第2層" not in mixed
+    assert wo._layer_mismatch({"layer": "主程式集／第2層"}, {"根因": "主程式集：判斷式寫反"}) is None
+    assert wo._layer_mismatch({"layer": "主程式集／熱修"}, vals), "要人填的層照擋"
+
+
 def test_wrong_layer_then_corrected_passes(proj, tmp_path, monkeypatch):       # BLOCK 1：補正取最後一組
     monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
     (proj / ".claude" / "overview-map.md").write_text(LAYER_TABLE, encoding="utf-8")
