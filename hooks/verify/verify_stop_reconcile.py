@@ -2988,3 +2988,120 @@ def test_039_directory_restore_is_unknown_write_through_stop(sub_stop, monkeypat
     assert "無法互動，不能放行" in out and "寫入目標不明" in out
     unknown = (state.get("agent_unknown_writes") or {}).get("ag1") if who == "subagent" else state.get("unknown_writes")
     assert unknown and unknown[-1]["target"].startswith("UNKNOWN:")
+
+
+# ─── 040：每次擋都查放行、預算回合以使用者真打字的回合計、dict 回應沒有 exit 欄時認 pytest 摘要 ──────────────────────
+
+_PEER_MSG = '<cross-session-message from="uds:\\\\.\\pipe\\x" from-name="claude-9f">總控台：收到，繼續。</cross-session-message>'
+_TASK_NOTE = ("<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n"
+              "<summary>Background command completed (exit code 0)</summary>\n</task-notification>")
+
+
+@pytest.fixture()
+def gate_run(driven, tmp_path, monkeypatch):
+    """真 Stop 入口＋真 transcript 檔（放行答案寫在裡面）＋真 UserPromptSubmit 推進回合。state 一路沿用。
+    回 (state, stop(text) → (out, logs), ups(prompt), ask(answer))；改了程式沒補案例，(d) 會擋。"""
+    tp = tmp_path / "t.jsonl"
+    tp.write_text("", encoding="utf-8")
+    monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: tp)
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
+    state = {"turn_seq": 4, "session": {"cwd": str(tmp_path)}, "modified_files": [_mf(_CODE, 5, last_at=_T1, last_seq=3)]}
+    _ups_turn(monkeypatch, state, "改 hooks/x.py")                          # 使用者打字開回合：turn 5
+
+    def stop(text="全部完成了。"):
+        out, after, logs = driven(text, capsys_ref[0], **copy.deepcopy(state))
+        state.clear()
+        state.update(after)
+        return out, logs
+
+    def ups(prompt):
+        _ups_turn(monkeypatch, state, prompt)
+
+    def ask(answer):
+        with open(tp, "a", encoding="utf-8") as f:
+            f.write(_ask_line(answer))
+
+    capsys_ref = [None]
+    return state, stop, ups, ask, capsys_ref
+
+
+def _released(logs):
+    return [p for g, p in logs if g == "reconcile" and p.get("event") == "user_release"]
+
+
+def test_040_1_release_answer_after_first_block_releases(gate_run, capsys):
+    """040 規則 (a)：第 1 次擋（還沒擋滿）之後使用者在 AskUserQuestion（題目含標記）選「放行這一回合」→ 下一個 Stop 就放行、
+    guard log 記 user_release；之後背景通知、同伴訊息進來都不算新回合，仍不擋；使用者真打字開新回合才又擋。
+    舊碼只在擋滿才查放行，第 1 次擋之後的答案被忽略，第 2 次照擋。"""
+    state, stop, ups, ask, ref = gate_run
+    ref[0] = capsys
+    out, _ = stop()
+    assert "(d)" in out and "本回合已擋" not in out                                       # 第 1 次擋，還沒擋滿
+    ask(rl.OPT_RELEASE)
+    out, logs = stop()
+    assert "ReconcileGate" not in out
+    rel = _released(logs)
+    assert rel and rel[0]["via"] == "ask" and "(d)" in rel[0]["reason"]
+    for p in (_TASK_NOTE, _PEER_MSG):                                                      # 非使用者的回合推進：放行照撐
+        ups(p)
+        out, _ = stop()
+        assert "ReconcileGate" not in out, p[:20]
+    ups("繼續改")                                                                           # 使用者真打字：新回合
+    out, _ = stop()
+    assert "(d)" in out
+
+
+def test_040_2_release_answer_before_block_does_not_count(gate_run, capsys):
+    """040 規則 (a) 配對（新舊都綠）：擋之前就答過放行、擋之後沒再答 → 仍擋。"""
+    state, stop, ups, ask, ref = gate_run
+    ref[0] = capsys
+    ask(rl.OPT_RELEASE)
+    out, _ = stop()
+    assert "(d)" in out
+    out, logs = stop()
+    assert "(d)" in out and not _released(logs)
+
+
+@pytest.mark.parametrize("prompt", [_PEER_MSG, _TASK_NOTE])
+def test_040_3_peer_or_notification_does_not_reset_count(gate_run, capsys, prompt):
+    """040 規則 (b)：擋一次 → 同伴訊息／背景通知經 UserPromptSubmit 進來（turn_seq 會 +1）→ 再 Stop：次數接著算是 2、不重置；
+    第 3 次送擋滿訊息。舊碼以 turn_seq 計次，有人傳訊息就歸零、永遠擋不滿。"""
+    state, stop, ups, ask, ref = gate_run
+    ref[0] = capsys
+    stop()
+    assert state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 1}
+    ups(prompt)
+    assert state["turn_seq"] == 6 and state["turn_prompts_seq"] == 5
+    stop()
+    assert state["reconcile_gate_turn"][_SID] == {"turn": 5, "count": 2}
+    out, _ = stop()
+    assert "本回合已擋 2 次仍未解" in out and rl.RELEASE_TAG in out
+
+
+def test_040_4_user_typed_new_turn_resets_count(gate_run, capsys):
+    """040 規則 (b) 配對（新舊都綠）：擋一次 → 使用者真打字開新回合 → 次數重置（預算照使用者的回合給）。"""
+    state, stop, ups, ask, ref = gate_run
+    ref[0] = capsys
+    stop()
+    ups("再看一次")
+    assert state["turn_prompts_seq"] == 6
+    stop()
+    assert state["reconcile_gate_turn"][_SID] == {"turn": 6, "count": 1}
+
+
+@pytest.mark.parametrize("summary, ok", [("718 passed in 5.20s", True), ("1 failed, 717 passed in 5.20s", False)])
+def test_040_5_dict_response_without_exit_uses_pytest_summary(driven, capsys, monkeypatch, tmp_path, summary, ok):
+    """040 規則 (c)：Bash 成功時 tool_response 是 dict（stdout／stderr／interrupted，沒有 exit 欄）→ exit 未知；
+    認 pytest 摘要行：`718 passed` 是合格 PASS（說修好放行），`1 failed` 是 FAIL（不採認、TestFailGate 擋）。經 PostToolUse→Stop。"""
+    resp = {"stdout": "........\n" + summary + "\n", "stderr": "", "interrupted": False, "isImage": False}
+    state = _post(monkeypatch, tmp_path, "python -X utf8 -m pytest -q tests/test_widget.py", "", resp=resp)
+    rec = state["verify_receipts"][_SID][0]
+    assert rec["exit_code"] is None
+    assert [s["verdict"] for s in rec["sentinels"]] == (["PASS", "DONE"] if ok else ["FAIL", "FAIL"])
+    out, _, _ = driven("widget 修好了，完成。", capsys, modified_files=copy.deepcopy(_WIDGET_MODS),
+                       verify_receipts=state["verify_receipts"], failing_tests=state.get("failing_tests") or [])
+    if ok:
+        assert "ReconcileGate" not in out and "TestFailGate" not in out
+    else:
+        assert "TestFailGate" in out

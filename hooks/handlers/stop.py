@@ -799,6 +799,14 @@ def _verify_gates(
 
 
 ASK_HINT = "要問使用者問題請用 AskUserQuestion，不要用文字結束回合。"     # 寫碼查核每次 Stop 都判，用文字發問也會被擋
+
+
+def _user_turn(state: Dict[str, Any], turn_seq: int) -> int:
+    """寫碼查核的預算與放行用的「回合」：使用者本人打字開的那一回合（ups_gates.track_turn_prompts 記的 turn_prompts_seq）。
+    turn_seq 每一則 UserPromptSubmit 都 +1（同伴 session 的訊息、背景通知也會進來），拿它計次會讓別人一直傳訊息就永遠擋不滿；
+    舊 state 沒有這個欄位才用 turn_seq。"""
+    v = state.get("turn_prompts_seq")
+    return int(v) if isinstance(v, int) and not isinstance(v, bool) and v > 0 else int(turn_seq)
 LEGACY_PENDING = ("[Guardian:ReconcileGate] 先前擋滿的查核紀錄是舊格式，沒有原宣稱可以重查：補證據解不了，"
                   "只能照【收尾放行確認】問使用者放行。")
 
@@ -986,9 +994,11 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
 
     # ── Reconcile Gate（收尾宣稱 vs 驗證收據）＋ Measure Gate（量尺）──────────
     # 緊接 TestFailGate 之後、evasion 偵測之前（correctness 閘優先）。不吃共用 stop_gate_max_blocks：
-    # 獨立預算 reconcile_gate.max_blocks_per_turn（state reconcile_gate_turn[sid]={turn,count}）；
-    # 寫碼查核（對帳 (a)～(d)＋量尺）擋滿後不放行：記 pending_release、改送擋滿訊息要模型問使用者；使用者在最後一次擋之後
-    # 放行（wg_release.user_released）→ 放這一回合、清 pending 與計數、guard-reconcile.jsonl 記 user_release（健檢列 red）。
+    # 獨立預算 reconcile_gate.max_blocks_per_turn（state reconcile_gate_turn[sid]={turn,count}）；預算與放行的「回合」是使用者
+    # 本人打字開的回合（_user_turn：同伴訊息、背景通知、hook 回饋續跑都不開新回合、不重置次數）。
+    # 寫碼查核（對帳 (a)～(d)＋量尺）擋滿後不放行：記 pending_release、改送擋滿訊息要模型問使用者；每次擋（不等擋滿）都查
+    # 使用者有沒有在最後一次擋之後放行（wg_release.user_released）→ 放這一回合、清 pending 與計數、guard-reconcile.jsonl
+    # 記 user_release（健檢列 red）；擋之前的舊答案不算。
     # pending 跨回合承接：換回合也不重給預算，查核仍不過就直接送擋滿訊息。
     # 不看措辭的部分（(d) 補案例、量尺）每次 Stop 都判，last_text 空也判；(a)(b)(c) 對宣稱，pending 帶著第一次擋滿時的
     # 宣稱原話（claims，之後的文字不附加也擠不掉），換一句話也拿原話重查。pending 只在兩種情況清：重新查核後原因真的消失，
@@ -1014,22 +1024,26 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if _code is None and _pend:
             clear_pending(state, session_id, "reconcile")            # 重新查核過了（原因真的消失）→ 清 pending
             _pend, _pend_cleared = None, True
-        if _code and released_this_turn(state, session_id, "reconcile", turn_seq):
+        _uturn = _user_turn(state, turn_seq)
+        if _code and released_this_turn(state, session_id, "reconcile", _uturn):
             print("[Guardian:ReconcileGate] 使用者已放行這一回合，本次不擋", file=sys.stderr)
             _code = None
         if _code or _report:
             _budget = state.setdefault("reconcile_gate_turn", {})
             _rec = _budget.get(session_id) if isinstance(_budget.get(session_id), dict) else None
-            _count = int(_rec.get("count", 0)) if _rec and int(_rec.get("turn", -1)) == turn_seq else 0
+            _count = int(_rec.get("count", 0)) if _rec and int(_rec.get("turn", -1)) == _uturn else 0
             _max = int(_rg_cfg.get("max_blocks_per_turn", 2))
             _code_full = bool(_code) and (_count >= _max or _pend is not None)
-            _no_ask = non_interactive_reason(input_data, _tpath) if _code_full else None
-            _how = user_released(state, session_id, "reconcile", _tpath) if _code_full and not _no_ask else None
+            # 每次擋都查放行（不等擋滿）：最後一次擋之後使用者在 AskUserQuestion 選了放行或打字放行 → 放這一回合。無法互動的不查。
+            _noninteractive = non_interactive_reason(input_data, _tpath) if _code else None
+            _no_ask = _noninteractive if _code_full else None
+            _how = user_released(state, session_id, "reconcile", _tpath) if _code and not _noninteractive else None
             _both = "\n".join(x for x in (_code, _report) if x)
             if _how:
-                record_release(state, session_id, "reconcile", turn_seq)
+                record_release(state, session_id, "reconcile", _uturn)
+                mark_block(state, session_id, "reconcile", _tpath, turn_seq)   # 這個答案用掉了：之後要放行得再答一次
                 clear_pending(state, session_id, "reconcile")
-                _budget[session_id] = {"turn": turn_seq, "count": 0}
+                _budget[session_id] = {"turn": _uturn, "count": 0}
                 append_guard_log("reconcile", {
                     "event": "user_release", "session_id": session_id, "turn_seq": turn_seq, "kind": _vg_kind,
                     "via": _how, "count": _count, "reason": _code[:300],
@@ -1051,7 +1065,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             elif not _code and not (_report and _count < _max):
                 write_state(session_id, state)
             else:
-                _budget[session_id] = {"turn": turn_seq, "count": _count + 1}
+                _budget[session_id] = {"turn": _uturn, "count": _count + 1}
                 _gate = "MeasureGate" if _vg_kind == "measure" else "ReconcileGate"
                 if _code_full:
                     set_pending(state, session_id, "reconcile", turn_seq, _now_iso(), _code,
