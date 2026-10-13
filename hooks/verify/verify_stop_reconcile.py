@@ -759,7 +759,7 @@ def _pytest_done(turn, root, exit_code=0, cmd=_PYTEST_CMD):
 
 
 def _two_roots(tmp_path, same_map=True):
-    """live 根（當 CLAUDE_DIR）與 worktree 根各放一張表；same_map=False 時 worktree 的表內容不同（＝一般專案）。"""
+    """live 根（當 CLAUDE_DIR）與 worktree 根各放一張表；same_map=False 時 worktree 的表內容不同（工作 session 改了部位表）。"""
     live, wt = tmp_path / "live", tmp_path / "wt"
     for d in (live, wt):
         (d / ".claude").mkdir(parents=True)
@@ -784,8 +784,9 @@ def test_is_root_worktree_pure_checks(tmp_path):
     assert vl.is_root_worktree(live, live) is False                 # 同一目錄不是 worktree
     assert vl.is_root_worktree(tmp_path / "nope", live) is False    # 表不存在
     assert vl.is_root_worktree(wt, tmp_path / "nope") is False
-    _, wt2 = _two_roots(tmp_path / "b", same_map=False)
-    assert vl.is_root_worktree(wt2, live) is False                  # 表內容不同＝一般專案
+    live2, wt2 = _two_roots(tmp_path / "b", same_map=False)
+    assert vl.is_root_worktree(wt2, live2) is True                  # 改了部位表仍是根層 worktree（身分只看 git）
+    assert vl.is_root_worktree(wt2, live) is False                  # 別的 repo 的 worktree 不是
 
 
 _HEAD = "[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n  ✗ "
@@ -862,15 +863,16 @@ def test_live_root_still_requires_full_measure(tmp_path, monkeypatch):
     assert reason is None
 
 
-def test_project_worktree_with_different_map_keeps_project_logic(tmp_path, monkeypatch):
+def test_root_worktree_with_changed_map_still_takes_pytest_measure(tmp_path, monkeypatch):
+    """改了根層部位表的根層 worktree 仍是根層身分：量尺認同 root 的 PYTEST_MEASURE、不要求全量；沒收據時擋訊息也是根層 worktree 那句。
+    舊碼比對兩邊部位表位元組，表一改就失去根層身分、要求全量 run_verify（worktree 裡全量必有既有紅，永遠過不了）。"""
     live, wt = _two_roots(tmp_path, same_map=False)
     monkeypatch.setattr(vl, "CLAUDE_DIR", live)
     mod = str(wt / "hooks" / "x.py")
     reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [_pytest_done(5, wt)], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
-    assert reason and MEASURE_CMD in reason and "根層 worktree" not in reason
-    full = {**_rcpt(5, "DONE", 0, cmd=MEASURE_CMD), "project_root": str(wt), "cwd": str(wt)}
-    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [full], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
     assert reason is None
+    reason, _ = vl.measure_gate_reason([_mf(mod, 5)], [], 5, _lookup_at(wt), vl.MEASURE_DEFAULTS)
+    assert reason and "PYTEST_MEASURE" in reason and "根層 worktree" in reason and "不要求全量" in reason
 
 
 # ─── 件一：擋滿後只認使用者放行（AskUserQuestion【收尾放行確認】或使用者打「放行」，都要在最後一次擋之後） ───

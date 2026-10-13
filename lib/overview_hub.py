@@ -377,29 +377,11 @@ def _gitdir_of(root: Path) -> Optional[Path]:
 
 
 def is_root_worktree(root: Path, claude_dir: Path) -> bool:
-    """root 是「根層（~/.claude）的 git worktree」，三條同時成立才是：
+    """root 是「根層（~/.claude）的 git worktree」，兩條同時成立才是：
     1. root 與 claude_dir 不是同一目錄；
-    2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下；
-    3. 兩邊的 .claude/overview-map.md 位元組相同（任一不存在 → 不是）。
+    2. `<root>/.git` 是檔案，第一個 `gitdir:` 行指到 `<claude_dir>/.git/worktrees/` 之下（與 CommitOrder 認記憶系統 worktree 同一判法）。
+    不看部位表：工作 session 照派工改了根層部位表，這個 worktree 仍是根層（量尺認 PYTEST_MEASURE、卡讀 live）。
     任一邊是網路路徑 → 直接不是（網路路徑不可能是 ~/.claude 的 worktree），不碰檔案系統。純函式，不碰 state。"""
-    try:
-        r, c = Path(root), Path(claude_dir)
-        if _is_unc(r) or _is_unc(c):
-            return False
-        if _same_dir_norm(r, c):
-            return False
-        gitdir = _gitdir_of(r)
-        if gitdir is None or not _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/"):
-            return False
-        return (r / MAP_REL).read_bytes() == (c / MAP_REL).read_bytes()
-    except OSError:
-        return False
-
-
-def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
-    """root 是不是 live 這個 repo（claude_dir）的 git worktree：只看 is_root_worktree 的前兩條（不是同一目錄、
-    `<root>/.git` 檔的 gitdir 落在 `<claude_dir>/.git/worktrees/` 之下），不看部位表。
-    給「資料歸屬」用（例如追蹤帳本）：worktree 改了自己的部位表，資料仍跟 live 走。任一邊是網路路徑 → False。"""
     try:
         r, c = Path(root), Path(claude_dir)
         if _is_unc(r) or _is_unc(c) or _same_dir_norm(r, c):
@@ -408,6 +390,11 @@ def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
         return gitdir is not None and _norm_dir(gitdir).startswith(_norm_dir(c / ".git" / "worktrees") + "/")
     except OSError:
         return False
+
+
+def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
+    """同 is_root_worktree（資料歸屬用的舊名，追蹤帳本等呼叫端仍用這個名字）。"""
+    return is_root_worktree(root, claude_dir)
 
 
 def card_mem_dir(root: Path, claude_dir: Path) -> Path:

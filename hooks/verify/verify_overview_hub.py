@@ -580,7 +580,7 @@ def _link_wt(live: Path, wt: Path, name: str = "wt") -> None:
 
 
 def _root_world(tmp_path, monkeypatch):
-    """tmp 造 live 根層（fake claude）、它的 worktree（表位元組相同、卡在 <wt>/memory）、一般專案（表不同）。"""
+    """tmp 造 live 根層（fake claude）、它的 worktree（卡在 <wt>/memory）、一般專案（不是 live 的 worktree、表不同）。"""
     live, wt, proj = tmp_path / "claude", tmp_path / "claude-wt" / "track-x", tmp_path / "proj"
     for r, body in ((live, "live 卡：pythonw 無 stdio"), (wt, "worktree 卡：HOME 覆寫指錯")):
         (r / ".claude").mkdir(parents=True)
@@ -621,13 +621,13 @@ def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
     assert oh.card_mem_dir(live, live) == live / "memory"
     assert oh.card_mem_dir(Path(str(live).upper()), live) == Path(str(live).upper()) / "memory"   # 正規化後相同也算根層
     assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree：卡是資料，讀 live 那批
-    assert oh.card_mem_dir(proj, live) == proj / ".claude" / "memory"                  # 反例：表不同＝一般專案
+    assert oh.card_mem_dir(proj, live) == proj / ".claude" / "memory"                  # 反例：不是 live 的 worktree＝一般專案
     nomap = tmp_path / "bare"
     nomap.mkdir()
     assert oh.card_mem_dir(nomap, live) == nomap / ".claude" / "memory"                # 反例：沒有表＝一般專案
     nolive = tmp_path / "no-live-map"
     nolive.mkdir()
-    assert oh.card_mem_dir(wt, nolive) == wt / ".claude" / "memory"                    # 反例：claude_dir 沒表＝一律不是 worktree
+    assert oh.card_mem_dir(wt, nolive) == wt / ".claude" / "memory"                    # 反例：wt 不是 nolive 的 worktree
     assert oh.is_root_worktree(wt, live) is True and oh.is_root_worktree(wt, nolive) is False
     import wg_verify_ledger as vl
     assert vl.is_root_worktree(wt, live) is True and vl.is_root_worktree(proj, live) is False   # 舊名委派 lib 本體
@@ -1420,7 +1420,7 @@ def test_verify_ledger_delegation_multiline_error_is_one_stderr_line(tmp_path, m
     assert len(lines) == 1 and "AttributeError: first second" in lines[0]
 
 
-# ─── is_root_worktree 定義：真 git worktree（.git 檔指回 <live>/.git/worktrees/）＋表位元組相同 ─────────
+# ─── is_root_worktree 定義：真 git worktree（.git 檔指回 <live>/.git/worktrees/），不看部位表 ─────────
 
 @pytest.fixture
 def git(tmp_path):
@@ -1465,7 +1465,8 @@ def test_is_root_worktree_real_git_worktrees_inside_and_outside_live(tmp_path, g
     assert oh.is_root_worktree(inside, live) is True                                   # live 之下（原生 EnterWorktree 的位置）
     assert oh.card_mem_dir(inside, live) == live / "memory"                            # 根層 worktree 讀 live 的卡
     (outside / ".claude" / "overview-map.md").write_bytes(b"| `x/` | other | none | none |\n")
-    assert oh.is_root_worktree(outside, live) is False                                 # 反例：真 worktree 但表不同
+    assert oh.is_root_worktree(outside, live) is True                                  # 改了部位表仍是根層 worktree（身分只看 git）
+    assert oh.card_mem_dir(outside, live) == live / "memory"                           # 卡照讀 live 那批
 
 
 def test_is_root_worktree_rejects_lookalike_folders(tmp_path, git):
@@ -1590,7 +1591,7 @@ def test_local_paths_still_resolve_with_unc_guard_active(tmp_path, unc_realpath_
         (d / ".claude").mkdir(parents=True)
         (d / ".claude" / "overview-map.md").write_text(ROOT_MAP, encoding="utf-8", newline="\n")
     _link_wt(live, wt)
-    assert oh.is_root_worktree(wt, live) is True                                        # 正例：本機路徑照常走完三條
+    assert oh.is_root_worktree(wt, live) is True                                        # 正例：本機路徑照常走完兩條
     assert oh.card_mem_dir(wt, live) == live / "memory"                                # 根層 worktree 讀 live 的卡
     assert oh.card_mem_dir(live, live) == live / "memory"
     assert unc_realpath_guard == []
