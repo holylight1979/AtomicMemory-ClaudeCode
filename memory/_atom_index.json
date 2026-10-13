@@ -6165,6 +6165,24 @@
         "C 項"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了",
+      "path": "memory/Failures/工作流/feedback-文件類交付不跑codex不採codex意見-驗收只看活項對照與原設計者讀得懂-codex自檢對文件挑的不一致一律不處理除非指出活項漏了.md",
+      "triggers": [
+        "文件類交付",
+        "文件總整理",
+        "checklist 改寫",
+        "接續單改寫",
+        "codex 審文件",
+        "handoff 自檢",
+        "活項對照",
+        "驗收文件",
+        "_staging",
+        "DevHistory",
+        "README 改寫"
+      ],
+      "scope": "global"
     }
   ]
 }

@@ -7,7 +7,7 @@
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
 | CC與原子記憶契約 | 3 | `memory/Failures/CC與原子記憶契約/_INDEX.md` |
-| 工作流 | 9 | `memory/Failures/工作流/_INDEX.md` |
+| 工作流 | 10 | `memory/Failures/工作流/_INDEX.md` |
 | 思考與決策 | 10 | `memory/Failures/思考與決策/_INDEX.md` |
 | 文字與格式 | 6 | `memory/Failures/文字與格式/_INDEX.md` |
 | 版控 | 1 | `memory/Failures/版控/feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff.md` |
