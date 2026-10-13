@@ -6367,6 +6367,51 @@
         "第二意見提示"
       ],
       "scope": "global"
+    },
+    {
+      "name": "windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫",
+      "path": "memory/OS-Windows/windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫.md",
+      "triggers": [
+        "git worktree add",
+        ".git 檔",
+        "隱藏檔",
+        "PermissionError",
+        "write_text",
+        "Errno 13",
+        "hideDotFiles",
+        "改寫 .git"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "用真hook重放對話紀錄量閘的擋次-原session的系統暫存路徑要對到沙箱暫存-計數只認那條閘自己的標記",
+      "path": "_AIDocs/_atoms/MemDev/用真hook重放對話紀錄量閘的擋次-原session的系統暫存路徑要對到沙箱暫存-計數只認那條閘自己的標記.md",
+      "triggers": [
+        "回放探針",
+        "transcript 重放",
+        "replay",
+        "擋次統計",
+        "沙箱",
+        "WG_CLAUDE_DIR",
+        "暫存判定",
+        "修前修後"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列",
+      "path": "_AIDocs/_atoms/MemDev/路徑分類表的前綴要和輸入路徑走同一套正規化-平面glob清單丟掉最長前綴-放不進根的列不准落回父列.md",
+      "triggers": [
+        "部位表類別",
+        "最長前綴",
+        "前綴正規化",
+        "exclude_globs",
+        "path_kind",
+        "knowledge 部位",
+        "子列落回父列",
+        "8.3 短名"
+      ],
+      "scope": "global"
     }
   ]
 }
