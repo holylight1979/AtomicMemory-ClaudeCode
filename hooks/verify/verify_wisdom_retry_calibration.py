@@ -36,8 +36,17 @@ def _tmp_reflection(tmp_path, monkeypatch):
     yield p
 
 
-# 真失敗訊號 —— threshold 測試皆須在 failing_tests 非空前提下才計 retry
-_FAILING = [{"cmd": "pytest", "at": "t"}]
+# 真失敗訊號：threshold 測試皆須在 failing_tests 非空前提下才計 retry。
+# 規則 RETRY_COUNTS_EDITS_SINCE_RED：track_retry 把「紅之後對同檔的編輯次數」記在紅測條目的 edits_after 上，
+# 所以每案要拿一份新的紅測清單（共用同一個 list 會讓前一案的計數漏到下一案）。
+def _failing():
+    return [{"cmd": "pytest", "at": "t"}]
+
+
+def _edits(state, path):
+    """「同檔 N 次 Edit（測試紅）」：照 modified_files 裡這個檔出現幾次，就呼叫幾次 track_retry（每次 Edit 一次）。"""
+    for _ in range(sum(1 for m in state.get("modified_files") or [] if m.get("path") == path)):
+        we.track_retry(state, path)
 
 
 # ── track_retry: error gate（無真失敗證據不開火）──────────────────────────────
@@ -53,7 +62,7 @@ def test_no_failure_signal_no_retry(_tmp_reflection):
         "modified_files": [{"path": "src/a.py"}] * 8,
         # failing_tests 缺 / 空
     }
-    we.track_retry(state, "src/a.py")
+    _edits(state,"src/a.py")
     assert state.get("wisdom_retry_count", 0) == 0
 
 
@@ -65,9 +74,9 @@ def test_plan_mode_3_edits_no_retry(_tmp_reflection):
     state = {
         "wisdom_approach": "plan",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}, {"path": "src/a.py"}],
-        "failing_tests": _FAILING,
+        "failing_tests": _failing(),
     }
-    we.track_retry(state, "src/a.py")
+    _edits(state,"src/a.py")
     assert state.get("wisdom_retry_count", 0) == 0
 
 
@@ -76,9 +85,9 @@ def test_plan_mode_4_edits_counts_as_retry(_tmp_reflection):
     state = {
         "wisdom_approach": "plan",
         "modified_files": [{"path": "src/a.py"}] * 4,
-        "failing_tests": _FAILING,
+        "failing_tests": _failing(),
     }
-    we.track_retry(state, "src/a.py")
+    _edits(state,"src/a.py")
     assert state["wisdom_retry_count"] == 1
 
 
@@ -87,9 +96,9 @@ def test_direct_mode_2_edits_counts_as_retry(_tmp_reflection):
     state = {
         "wisdom_approach": "direct",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
-        "failing_tests": _FAILING,
+        "failing_tests": _failing(),
     }
-    we.track_retry(state, "src/a.py")
+    _edits(state,"src/a.py")
     assert state["wisdom_retry_count"] == 1
 
 
@@ -98,9 +107,9 @@ def test_confirm_mode_uses_default_threshold(_tmp_reflection):
     state = {
         "wisdom_approach": "confirm",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
-        "failing_tests": _FAILING,
+        "failing_tests": _failing(),
     }
-    we.track_retry(state, "src/a.py")
+    _edits(state,"src/a.py")
     assert state["wisdom_retry_count"] == 1
 
 
@@ -111,9 +120,9 @@ def test_plan_path_excluded_regardless_of_approach(_tmp_reflection):
     state = {
         "wisdom_approach": "direct",
         "modified_files": [{"path": plan_path}] * 5,
-        "failing_tests": _FAILING,  # 有真失敗但編的是計畫檔 → 仍不算 fix-retry
+        "failing_tests": _failing(),  # 有真失敗但編的是計畫檔 → 仍不算 fix-retry
     }
-    we.track_retry(state, plan_path)
+    _edits(state,plan_path)
     assert state.get("wisdom_retry_count", 0) == 0
 
 
@@ -121,9 +130,9 @@ def test_unknown_approach_defaults_to_direct(_tmp_reflection):
     """未設 wisdom_approach → 預設視為 direct（threshold=2；測試紅）。"""
     state = {
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
-        "failing_tests": _FAILING,
+        "failing_tests": _failing(),
     }
-    we.track_retry(state, "src/a.py")
+    _edits(state,"src/a.py")
     assert state["wisdom_retry_count"] == 1
 
 
