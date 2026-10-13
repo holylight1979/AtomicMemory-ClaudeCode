@@ -244,8 +244,8 @@ def reading_path_note(state: Dict[str, Any], session_id: str, config: Dict[str, 
         return None
     rec["key"] = cache
     lines, notes = [f"{TAG} 這次對閱讀路徑的影響（尺不是判決，只量不擋）："], []
-    if outside:
-        lines.append(f"  不在 git 工作區，比較要 git 歷史當 before，沒量：{'、'.join(Path(f).name for f in outside)}")
+    if outside:   # 只報個數：這些檔多半已刪或隨 worktree 移除，列檔名會跟對帳閘「這個檔還欠不欠」的訊息混在一起
+        lines.append(f"  不在 git 工作區的改檔 {len(outside)} 個：比較要 git 歷史當 before，沒量")
     if not TOOL.is_file():
         return "\n".join(lines + [f"  量不出來：找不到量尺 {TOOL}"])
     for key, root, files, base, fresh in plans:

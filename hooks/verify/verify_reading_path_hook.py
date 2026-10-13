@@ -177,7 +177,7 @@ def test_overview_map_sample_gives_the_entry(tmp_path, monkeypatch):
 def test_outside_git_and_no_commit_say_why(tmp_path):
     loose = _write(tmp_path / "loose", APP)
     note = rph.reading_path_note(_state(_mf(loose / "y.py")), _SID, {})
-    assert "不在 git 工作區" in note and "y.py" in note
+    assert "不在 git 工作區的改檔 1 個" in note and "y.py" not in note, "只報個數，不列檔名（避免和對帳閘的欠帳檔名混淆）"
     empty = tmp_path / "empty"
     _write(empty, APP)
     subprocess.run(["git", "init", "-q", str(empty)], check=True)
