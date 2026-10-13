@@ -625,11 +625,11 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 規則 | 判什麼 | 不欠／放行的條件 | 照欠／照擋 |
 |---|---|---|---|
 | SAME_FILE | 同一個檔的不同寫法 | 反斜線／正斜線、大小寫、`..` 消掉後相同 → 同一個檔 | — |
-| TURN_SINCE_USER_PROMPT／DISPATCH_OPENS_TURN | 「本回合」的窗口 | 使用者打字、或帶派工標記的跨 session 訊息（首行「派工」或含 `to-track-<軌>/<檔>.md`）開回合到現在；擋次預算、ScanReport 豁免、AtomAudit、PASS 窗口、退避預告切點、有用度學習單位、收割冷卻（`user_turn_count`）全吃它 | 一般同伴訊息、背景通知不開回合；派工訊息不是使用者原話，口令不認 |
+| TURN_SINCE_USER_PROMPT／DISPATCH_OPENS_TURN | 「本回合」的窗口 | 使用者打字、或帶派工標記的跨 session 訊息（正文**首行**以「派工」開頭，或首行同時含「派工」與 `to-track-<軌>/<檔>.md`）開回合到現在；擋次預算、ScanReport 豁免、AtomAudit、PASS 窗口、退避預告切點、有用度學習單位、收割冷卻（`user_turn_count`）全吃它 | 一般同伴訊息、背景通知不開回合；正文其他地方引用派工單路徑（交付、審查通知）不算；派工訊息不是使用者原話，口令不認 |
 | CLAIM_MODIFIER_NOT_OWN | 宣稱詞是不是自己的 | 「修好的 X」是形容詞用法（轉述） | 「我修好了」照算宣稱 |
 | CLAIM_FIXED_NEEDS_PASS／CLAIM_MEASURED_NEEDS_DONE／CLAIM_TRIED_NEEDS_EXEC | (a)(b)(c) 宣稱對帳 | 本回合有對得上、晚於改檔、同一棵樹的 PASS／DONE／執行 | 收據缺、對不上、跑在改檔之前 |
 | OWED_AFTER_LAST_CASE | (d) 欠補案例 | — | 本 session 最後一次改仍存在的案例檔之後同根還改過程式檔 |
-| CASE_GREEN_AFTER_EDIT | 先紅後綠 | 改碼之後有同根、仍存在、本 session 改過的案例檔被合格 PASS 點名跑綠（收據晚於該程式檔最後一次修改） | 綠跑在改碼之前、綠的是別的案例 |
+| CASE_GREEN_AFTER_EDIT | 先紅後綠 | 改碼之後有同根、仍存在、本 session 改過的案例檔被合格 PASS 點名跑綠（收據與 (a) 同一套採認：指令完整、根可信、只有執行程式的指令；點名只看實際跑程式那幾段的參數；收據晚於該程式檔最後一次修改） | 綠跑在改碼之前、綠的是別的案例、`echo … PASS` 自己印的、輸出導走的 |
 | GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW | 已不存在的改檔 | 不在任何版控根內；或 git 根內且同根沒有新出現的程式檔 → 算刪除 | — |
 | MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE | 已不存在的改檔 | — | 同根出現新程式檔（搬走）；svn 或查 git 失敗；找版控根時 OSError（讀不到 ≠ 不在版控） |
 | EXCLUDED_REGION | 排除區 | `reconcile_gate.exclude_globs` 裡的檔是素材 | 既不算程式、也不能清帳 |
@@ -637,14 +637,14 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | CONTENT_EQUALS_COMMITTED | 內容等於另一方已提交版本 | blob 等於 MERGE_HEAD／main／master 的版本（merge 取 theirs、退回 main 版） | 指到 HEAD 或本 session 自己提交的 commit 不算 |
 | COMMENT_ONLY_CHANGE | 只改註解 | ast 去註解、docstring、空白後與 HEAD 相同，且本 session 沒 commit 過它、同根其他改檔也乾淨 | 非 Python、解析不了、改到識別字 |
 | BLOCK_BUDGET_PER_RULE | 擋次預算 | 每條規則（字母）各自計次，同一條擋滿才算擋滿；擋滿訊息列全部條目 | 升級前整場一個 count 的舊紀錄保守承接 |
-| INLINE_PY_READONLY | `python -c` 內嵌碼 | ast 判無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec → 不算寫入 | node -e、python - heredoc、pwsh -Command 判不了照擋，擋訊息指路 |
-| GIT_READONLY_SUBCMD | 專案 session 對根層 repo 的 git | 每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file…）且寫入目標不在根層 | 任一段會寫、目標在根層或不明；擋就留 `Logs/guard-crossrealm.jsonl` |
+| INLINE_PY_READONLY | `python -c` 內嵌碼 | ast 判：只能直接呼叫具名函式；無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval／getattr；`open`、刪搬寫名字不能當值（別名、傳參、放進容器）、import 不能取別名或 `*`、不能定義函式 → 不算寫入 | 任何判不了的寫法都算 UNKNOWN；node -e、python - heredoc、pwsh -Command 判不了照擋，擋訊息指路 |
+| GIT_READONLY_SUBCMD | 專案 session 對根層 repo 的 git | 先按換行再按 `&& \|\| ; \| &` 切段，每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file…）、沒有 `--output`／`-o` 這類寫檔選項、沒有命令替換，且寫入目標不在根層 | 任一段會寫、目標在根層或不明；擋就留 `Logs/guard-crossrealm.jsonl` |
 | GREP_CONTENT_IS_READ／BASH_COMMENT_LINES_STRIPPED | 讀檔證據 | Grep `output_mode=content` 且 path 是檔算讀過；Bash 行首 `#` 註解行剝掉、每行行首都算指令開頭 | — |
 | WORKTREE_NO_PUSH | 同步閘要不要求 push | git worktree 或分支沒 upstream → 不要求 | 主工作樹且有 upstream |
 | RUNTIME_DATA_NO_OVERVIEW | 無表檔的綜觀要求 | gitignored 或在執行期資料目錄（`workflow/state*`、`workflow/need-goal`、`Logs`…）→ 免讀同目錄 | 程式檔照要求 |
-| TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT | 暫存目錄 | commit 落在系統 TEMP／scratchpad／pytest tmp 下的 repo 免口令；暫存目錄下的副本不找部位表、不注入、不要求綜觀、不當收據 | 正式 repo、本體 |
+| TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT | 暫存目錄 | commit 實際落的 **repo 根**在系統 TEMP／CC 的 Temp/claude 暫存／pytest tmp 下才免口令；暫存目錄下的副本不找部位表、不注入、不要求綜觀、不當收據。兩側都展成長路徑再比（8.3 短路徑） | 正式 repo（含它裡面叫 scratchpad 的子目錄）、本體 |
 | DPM_WORKTREE_DELIVERY | DeepPostMortem 的寫法 | worktree 隔離 session 寫進交付信由總控台代寫 | 主工作樹照叫 atom_write |
-| RED_WHILE_REVERTED／RETRY_COUNTS_EDITS_SINCE_RED／GREEN_SAME_CASE_CLEARS | 紅測與重試 | 跑紅時有改檔等於非 HEAD 已提交版本 → 刻意紅不記；重試只數紅之後對同檔的編輯；綠的點名同一案例檔就清那筆紅 | 真的紅照記、改 N 次仍紅照升級 |
+| RED_WHILE_REVERTED／RETRY_COUNTS_EDITS_SINCE_RED／GREEN_SAME_CASE_CLEARS | 紅測與重試 | 跑紅時本 session 改過的程式檔**全部**處在非 HEAD 已提交版本（同根沒有任何自己的現行改碼）→ 刻意紅不記；重試只數紅之後對同檔的編輯；綠的點名**同一個**案例檔（含目錄；兩邊有 cwd 就比絕對路徑）就清那筆紅 | 只退回其中一檔、另一檔還留著真錯 → 真的紅照記；同名不同目錄的案例不互清；改 N 次仍紅照升級 |
 
 ## 8. 可觀測與自我維護
 

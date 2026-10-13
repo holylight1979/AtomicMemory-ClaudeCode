@@ -668,10 +668,18 @@ def check_git_commit_order(
             run_dirs = _exempt_run_dirs(command, base, msys_paths=(tool_name == "Bash"))
             if run_dirs:
                 import tempfile
-                from wg_release_rules import temp_commit_verdict, temp_roots
+                from wg_release_rules import norm_temp_path, temp_commit_verdict, temp_roots
                 from handlers._shared import _comparable
-                roots = temp_roots(tempdir=tempfile.gettempdir())
-                verdicts = [temp_commit_verdict(_comparable(d), roots) for d in run_dirs]
+                from wg_core import find_vcs_root
+                # 暫存根與目標兩側都展成長路徑再比（8.3 短路徑）；判的是 commit 實際落的 repo 根，不是執行目錄
+                # （正式 repo 裡一個叫 scratchpad 的子目錄拿不到豁免；codex 001 BLOCK 6／WARN 9）
+                roots = [norm_temp_path(_comparable(r)) for r in temp_roots(tempdir=tempfile.gettempdir())]
+                repo_roots = []
+                for d in run_dirs:
+                    hit = find_vcs_root(Path(_comparable(d)))
+                    repo_roots.append(str(hit[1]) if hit else "")
+                verdicts = [temp_commit_verdict(_comparable(rr_), roots) if rr_ else
+                            temp_commit_verdict("", roots)._replace(owed=True, why="找不到 commit 落的 repo 根") for rr_ in repo_roots]
                 if all(not v.owed for v in verdicts):
                     try:
                         sys.stderr.write(f"[Guardian:CommitOrder] 規則 {verdicts[0].rule}：{verdicts[0].why}\n")

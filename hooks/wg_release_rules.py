@@ -340,9 +340,12 @@ _DENY_ATTRS = frozenset({"remove", "unlink", "rename", "renames", "replace", "rm
                          "check_output", "Popen", "chmod", "chown", "truncate", "symlink", "link", "fdopen", "startfile",
                          "execv", "execl", "execvp", "execve", "spawnl", "spawnv", "kill", "putenv", "unsetenv",
                          "setattr", "delattr", "dump", "save", "to_csv", "to_json", "to_excel", "to_pickle", "mknod"})
-_DENY_NAMES = frozenset({"exec", "eval", "compile", "__import__", "globals", "setattr", "delattr", "breakpoint", "input"})
+_DENY_NAMES = frozenset({"exec", "eval", "compile", "__import__", "globals", "locals", "vars", "getattr", "setattr", "delattr",
+                         "breakpoint", "input", "open", "__builtins__", "memoryview"})
 _ALLOW_WRITE_CHAINS = frozenset({"sys.stdout.write", "sys.stderr.write", "sys.stdout.writelines", "sys.stderr.writelines",
                                  "sys.stdout.flush", "sys.stderr.flush"})
+# 這些名字只准當「呼叫的那個函式」直接出現：拿去指派、當參數、放進容器（f = open；[open][0]('x','w')）都是別名，判不了 → 擋
+_ALIAS_SENSITIVE = _DENY_NAMES | {"open"}
 
 
 def _attr_chain(node: ast.AST) -> str:
@@ -378,14 +381,30 @@ def inline_python_verdict(code: str) -> Verdict:
         tree = ast.parse(str(code or ""))
     except (SyntaxError, ValueError, RecursionError) as e:
         return Verdict("INLINE_PY_READONLY", True, f"內嵌碼解析不了（{type(e).__name__}）", (str(code)[:60],))
+    call_funcs = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             names = [a.name.split(".")[0] for a in node.names] if isinstance(node, ast.Import) else [str(node.module or "").split(".")[0]]
             bad = [n for n in names if n in _DENY_MODULES]
             if bad:
                 return Verdict("INLINE_PY_READONLY", True, f"內嵌碼匯入 {bad[0]}（可能寫檔或跑子行程）", (f"import {bad[0]}",))
+            if isinstance(node, ast.Import) and any(a.asname for a in node.names):
+                return Verdict("INLINE_PY_READONLY", True, "內嵌碼用 import … as 取別名，判不了呼叫的是誰", (ast.dump(node)[:60],))
+            if isinstance(node, ast.ImportFrom) and any(a.name == "*" or a.asname for a in node.names):
+                return Verdict("INLINE_PY_READONLY", True, "內嵌碼 from … import 取別名或 *，判不了呼叫的是誰", (ast.dump(node)[:60],))
+            if isinstance(node, ast.ImportFrom) and any(a.name in _DENY_ATTRS or a.name in _DENY_NAMES for a in node.names):
+                bad = next(a.name for a in node.names if a.name in _DENY_ATTRS or a.name in _DENY_NAMES)
+                return Verdict("INLINE_PY_READONLY", True, f"內嵌碼 from … import {bad}（刪搬寫或動態執行）", (bad,))
+        elif isinstance(node, ast.Name) and id(node) not in call_funcs and node.id in _ALIAS_SENSITIVE:
+            return Verdict("INLINE_PY_READONLY", True, f"內嵌碼把 {node.id} 當值使用（別名、傳參、放進容器），判不了", (node.id,))
+        elif isinstance(node, ast.Attribute) and id(node) not in call_funcs and node.attr in _DENY_ATTRS:
+            return Verdict("INLINE_PY_READONLY", True, f"內嵌碼把 {_attr_chain(node)} 當值使用（別名），判不了", (_attr_chain(node),))
+        elif isinstance(node, (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return Verdict("INLINE_PY_READONLY", True, "內嵌碼定義函式／類別，呼叫路徑判不了", (type(node).__name__,))
         elif isinstance(node, ast.Call):
-            chain = _attr_chain(node.func)
+            if not isinstance(node.func, (ast.Name, ast.Attribute)):
+                return Verdict("INLINE_PY_READONLY", True, "內嵌碼呼叫的不是具名函式（呼叫結果再呼叫、下標、lambda），判不了", (ast.dump(node.func)[:60],))
+            chain = _attr_chain(node.func)              # `Path('a').read_text()`、`open('a').read()` 這類在呼叫結果上取屬性：看葉子名
             leaf = chain.rsplit(".", 1)[-1]
             if leaf == "open":
                 mode = _open_mode(node)
@@ -429,26 +448,39 @@ def inline_code_hint(interp: str) -> str:
 _GIT_READONLY_SUBS = frozenset({"show", "hash-object", "rev-parse", "diff", "log", "status", "ls-files", "cat-file",
                                 "ls-tree", "rev-list", "blame", "describe", "branch", "remote", "worktree", "config",
                                 "for-each-ref", "name-rev", "merge-base", "shortlog", "grep", "check-ignore", "var", "tag"})
-_GIT_WRITE_FLAGS = {"hash-object": ("-w",), "branch": ("-m", "-M", "-d", "-D", "-c", "-C", "--move", "--delete", "--copy", "-f", "--force"),
-                    "remote": ("add", "remove", "rm", "rename", "set-url", "prune", "update"),
+_GIT_WRITE_FLAGS = {"hash-object": ("-w",),
+                    "branch": ("-m", "-M", "-d", "-D", "-c", "-C", "--move", "--delete", "--copy", "-f", "--force", "-u", "--set-upstream-to",
+                               "--unset-upstream", "--edit-description"),
+                    "remote": ("add", "remove", "rm", "rename", "set-url", "set-head", "set-branches", "prune", "update"),
                     "worktree": ("add", "remove", "move", "prune", "lock", "unlock", "repair"),
                     "config": ("--unset", "--add", "--replace-all", "--edit", "-e", "--unset-all", "--remove-section", "--rename-section"),
-                    "tag": ("-a", "-d", "-f", "-m", "-s", "-u", "--delete", "--force")}
-_GIT_GLOBAL_VALUE_OPTS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"})
+                    "tag": ("-a", "-d", "-f", "-m", "-s", "-u", "--delete", "--force"),
+                    # 唯讀子命令也有會寫檔的選項（codex 001 BLOCK 2）
+                    "diff": ("--output", "-o"), "log": ("--output", "-o"), "show": ("--output", "-o"), "shortlog": ("--output", "-o"),
+                    "grep": ("--output", "-O", "--open-files-in-pager")}
+_GIT_OUTPUT_OPT = "--output"       # 每個唯讀子命令都認得的寫檔選項
+_GIT_GLOBAL_VALUE_OPTS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"})
 
 
 def _git_segments_readonly(command: str) -> Tuple[bool, List[str]]:
-    """每個以 git 開頭的指令段是不是唯讀子命令。回 (全唯讀, 證據)。切段只看 && || ; | 與換行（引號內不切）。"""
-    try:
-        tokens = shlex.split(str(command or "").replace("\r", "\n"), posix=True)
-    except ValueError:
-        return False, ["指令引號不完整，解析不了"]
-    segs: List[List[str]] = [[]]
-    for tok in tokens:
-        if tok in ("&&", "||", ";", "|", "\n"):
-            segs.append([])
-        else:
-            segs[-1].append(tok)
+    """每個以 git 開頭的指令段是不是唯讀子命令。回 (全唯讀, 證據)。先按換行切（shlex 會把換行當空白吞掉，第二行的 reset
+    會被當成第一行 status 的參數；codex 001 BLOCK 2），再按 && || ; | & 切段（引號內不切）；引號不完整、含命令替換（$( 或反引號）
+    → 判不了，當不唯讀。"""
+    raw = str(command or "").replace("\r\n", "\n").replace("\r", "\n")
+    if re.search(r"\$\(|`", raw):
+        return False, ["指令含命令替換（$( 或反引號），判不了"]
+    segs: List[List[str]] = []
+    for line in raw.split("\n"):
+        try:
+            tokens = shlex.split(line, posix=True)
+        except ValueError:
+            return False, ["指令引號不完整，解析不了"]
+        segs.append([])
+        for tok in tokens:
+            if tok in ("&&", "||", ";", "|", "&"):
+                segs.append([])
+            else:
+                segs[-1].append(tok)
     evidence: List[str] = []
     seen_git = False
     for seg in segs:
@@ -472,8 +504,9 @@ def _git_segments_readonly(command: str) -> Tuple[bool, List[str]]:
         rest = seg[i + 1:]
         if sub not in _GIT_READONLY_SUBS:
             return False, evidence + [f"git {sub} 不是唯讀子命令"]
-        for flag in _GIT_WRITE_FLAGS.get(sub, ()):
-            if flag in rest or any(r.startswith(flag + "=") for r in rest if flag.startswith("--")):
+        for flag in (*_GIT_WRITE_FLAGS.get(sub, ()), _GIT_OUTPUT_OPT):
+            if flag in rest or any(r.startswith(flag + "=") for r in rest if flag.startswith("--")) \
+                    or (not flag.startswith("--") and len(flag) == 2 and any(r.startswith(flag) and len(r) > 2 and not r.startswith("--") for r in rest)):
                 return False, evidence + [f"git {sub} {flag} 會寫"]
         if sub == "config" and not any(r in ("--get", "--get-all", "--list", "-l", "--get-regexp") for r in rest):
             return False, evidence + ["git config 沒帶 --get／--list，可能在設定"]
@@ -520,12 +553,15 @@ _DISPATCH_PATH_RE = re.compile(r"to-track-[A-Za-z0-9_-]+[\\/][^\s\"'<>]*?\.md\b"
 
 
 def is_dispatch_message(bodies: Iterable[str]) -> bool:
-    """DISPATCH_OPENS_TURN：任一同伴訊息正文的第一個非空行以「派工」開頭（可帶括號），或正文含 to-track-<軌>/<檔>.md 派工檔路徑。"""
+    """DISPATCH_OPENS_TURN：任一同伴訊息正文的**第一個非空行**以「派工」開頭（可帶括號），或第一行同時含「派工」字樣與
+    to-track-<軌>/<檔>.md 派工檔路徑。正文其他地方提到派工檔路徑（交付、進度、審查通知常引用原派工單）不算：
+    那會清掉使用者先前的口令、重開回合（codex 001 BLOCK 7）。"""
     for body in bodies or ():
         lines = [ln for ln in str(body or "").splitlines() if ln.strip()]
         if not lines:
             continue
-        if _DISPATCH_HEAD_RE.match(lines[0]) or _DISPATCH_PATH_RE.search(str(body)):
+        head = lines[0]
+        if _DISPATCH_HEAD_RE.match(head) or ("派工" in head and _DISPATCH_PATH_RE.search(head)):
             return True
     return False
 
@@ -580,7 +616,9 @@ def runtime_data_verdict(path: str, root: Optional[str], gitignored: Optional[bo
 
 
 # ─── B9／B14 暫存目錄 ─────────────────────────────────────────────────────────
-_TEMP_TOKENS: Tuple[str, ...] = ("/pytest-of-", "/scratchpad/", "/temp/claude/", "/.pytest_cache/")
+# 暫存目錄特徵片段：只認系統暫存下才會出現的形狀（pytest 的 tmp 根、CC 的 Temp/claude/…/scratchpad）；
+# 專案裡一個普通目錄取名 scratchpad 不算（codex 001 BLOCK 6：正式 repo 的子目錄不能靠名字拿暫存豁免）
+_TEMP_TOKENS: Tuple[str, ...] = ("/pytest-of-", "/temp/claude/", "/.pytest_cache/")
 
 
 def norm_temp_path(path: str) -> str:
@@ -665,12 +703,16 @@ def dpm_instruction_text(trigger: str, is_worktree: bool) -> str:
 
 # ─── C1 刻意紅／重試／同案例綠清帳 ────────────────────────────────────────────
 
-def deliberate_red_verdict(reverted: Sequence[Tuple[str, str]]) -> Verdict:
-    """RED_WHILE_REVERTED：reverted＝[(檔名, 等於哪個 ref)]，非空→刻意紅（owed=False＝不算失敗）。"""
-    if reverted:
+def deliberate_red_verdict(reverted: Sequence[Tuple[str, str]], pending: Sequence[str] = ()) -> Verdict:
+    """RED_WHILE_REVERTED：reverted＝[(檔名, 等於哪個 ref)]、pending＝同根本 session 還有現行改碼（沒退回）的程式檔。
+    刻意紅＝有退回的檔**而且**同根沒有任何自己的現行改碼（那時跑紅不可能是自己現行的碼造成）；只退回其中一檔、另一檔還留著真錯
+    → 真的紅照記（codex 001 BLOCK 5）。"""
+    if reverted and not pending:
         name, ref = reverted[0]
-        return Verdict("RED_WHILE_REVERTED", False, f"跑紅時 {name} 的內容等於 {ref} 的已提交版本（退回舊碼反證）",
+        return Verdict("RED_WHILE_REVERTED", False, f"跑紅時 {name} 的內容等於 {ref} 的已提交版本、同根沒有其他現行改碼（退回舊碼反證）",
                        tuple(f"{n} == {r}" for n, r in reverted[:3]))
+    if reverted and pending:
+        return Verdict("RED_WHILE_REVERTED", True, f"同根還有現行改碼（{'、'.join(pending[:3])}），這次紅不能算刻意", tuple(f"{n} == {r}" for n, r in reverted[:2]))
     return Verdict("RED_WHILE_REVERTED", True, "跑紅時沒有改檔處在已提交的舊版本，是真的紅", ())
 
 
@@ -682,18 +724,24 @@ def retry_bump(edits_since_red: int, threshold: int) -> bool:
 _CASE_TOKEN_RE = re.compile(r"[\w./\\:-]+\.(?:py|js|ts|cs|lua|go|rs|rb|java|kt|sh|ps1)\b", re.IGNORECASE)
 
 
-def case_files_in_cmd(cmd: str) -> List[str]:
-    """指令裡像程式檔的 token（檔名小寫、去路徑）。"""
+def case_files_in_cmd(cmd: str, cwd: Optional[str] = None) -> List[str]:
+    """指令裡像程式檔的 token，保留路徑（不只檔名：service_a/tests/test_api.py 與 service_b/… 是兩個檔）；
+    給 cwd 時相對路徑接在 cwd 後面變成絕對正規化路徑。`::test_x` 尾段去掉。"""
     out: List[str] = []
     for m in _CASE_TOKEN_RE.finditer(str(cmd or "")):
-        name = os.path.basename(m.group(0).replace("\\", "/")).lower()
-        name = name.split("::", 1)[0]
-        if name and name not in out:
-            out.append(name)
+        tok = m.group(0).replace("\\", "/").split("::", 1)[0]
+        if cwd and not (os.path.isabs(tok) or re.match(r"^[A-Za-z]:/", tok)):
+            tok = str(cwd).replace("\\", "/").rstrip("/") + "/" + tok
+        key = canon_path(tok) if (cwd or os.path.isabs(tok) or re.match(r"^[A-Za-z]:/", tok)) else tok.lower().lstrip("./")
+        if key and key not in out:
+            out.append(key)
     return out
 
 
-def green_clears_red(red_cmd: str, green_cmd: str) -> bool:
-    """GREEN_SAME_CASE_CLEARS：綠的指令點名的案例檔與紅的有交集。兩邊都沒點名檔 → False（交給既有前綴／pytest 規則）。"""
-    a, b = set(case_files_in_cmd(red_cmd)), set(case_files_in_cmd(green_cmd))
+def green_clears_red(red_cmd: str, green_cmd: str, red_cwd: Optional[str] = None, green_cwd: Optional[str] = None) -> bool:
+    """GREEN_SAME_CASE_CLEARS：綠的指令點名的案例檔與紅的是同一個檔（含目錄；兩邊都給 cwd 就比絕對路徑，沒給就比指令裡的相對路徑原字）。
+    兩邊都沒點名檔 → False（交給既有前綴／pytest 規則）。只有一邊有 cwd → 不比絕對路徑，照相對字串比。"""
+    both = bool(red_cwd) and bool(green_cwd)
+    a = set(case_files_in_cmd(red_cmd, red_cwd if both else None))
+    b = set(case_files_in_cmd(green_cmd, green_cwd if both else None))
     return bool(a and b and (a & b))

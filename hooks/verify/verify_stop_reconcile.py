@@ -3778,6 +3778,41 @@ def test_045_b1_case_green_after_edit_settles_debt_only_when_receipt_is_after_co
     other = _green(repo, "python -m pytest -q tests/test_b.py", _T3, 7)                          # 配對：綠的是別的案例
     out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [other]})
     assert "改了程式碼（a.py）" in out
+    forged = _green(repo, "echo tests/test_a.py && echo X_CHECK PASS", _T3, 7)                   # codex 001 BLOCK 3：自己印的 PASS 不算
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [forged]})
+    assert "改了程式碼（a.py）" in out
+    piped = _green(repo, "python -m pytest -q tests/test_a.py | tail -3", _T3, 7)                # 結尾過濾是白名單允許的形狀（與 (a) 同一套）→ 算
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [piped]})
+    assert "改了程式碼（a.py）" not in out, out
+    redirected = _green(repo, "python -m pytest -q tests/test_a.py > out.txt", _T3, 7)           # 輸出導走的不算
+    out, _, _ = driven("全部完成了。", capsys, modified_files=mods, verify_receipts={_SID: [redirected]})
+    assert "改了程式碼（a.py）" in out
+
+
+def test_045_reverted_code_files_needs_every_own_code_file_reverted(tmp_path, monkeypatch):
+    """codex 001 BLOCK 5（RED_WHILE_REVERTED 的事實）：A 退回 main 版、B 還留著自己的碼 → (退回=[A], 現行=[B])，呼叫端判不是刻意紅；
+    B 也退回 → 現行空。"""
+    import subprocess as sp
+    monkeypatch.setattr(vl, "REF_BUDGET_S", 20.0, raising=False)
+    repo, code, case = _repo_with_code_and_case(tmp_path)
+    b = repo / "src" / "b.py"
+    b.write_text("def b():\n    return 1\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", "src/b.py")
+    _git(repo, "commit", "-qm", "b")
+    main_name = sp.run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip()
+    _git(repo, "checkout", "-q", "-b", "feat")
+    code.write_text("def a():\n    return 'feat'\n", encoding="utf-8", newline="\n")
+    b.write_text("def b():\n    return 'feat'\n", encoding="utf-8", newline="\n")
+    _git(repo, "commit", "-qam", "feat")
+    # 退回 A 成 main 版、B 改成自己的新碼
+    code.write_text("def a():\n    return 1\n", encoding="utf-8", newline="\n")
+    b.write_text("def b():\n    return 'mine'\n", encoding="utf-8", newline="\n")
+    mods = [_mf(str(code), 5), _mf(str(b), 5)]
+    reverted, pending = vl.reverted_code_files(mods, vl.RECONCILE_DEFAULTS)
+    assert reverted == [("a.py", main_name)] and pending == ["b.py"]
+    b.write_text("def b():\n    return 1\n", encoding="utf-8", newline="\n")                      # B 也退回 → 刻意紅成立
+    reverted, pending = vl.reverted_code_files(mods, vl.RECONCILE_DEFAULTS)
+    assert sorted(n for n, _ in reverted) == ["a.py", "b.py"] and pending == []
 
 
 def test_045_b13_checkout_theirs_in_merge_equals_merge_head_not_owed(driven, capsys, tmp_path, monkeypatch):

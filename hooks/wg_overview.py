@@ -52,12 +52,25 @@ _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 _TEMP_ROOTS: List[str] = []
 
 
+def _long(p: str) -> str:
+    """目標側也展成長路徑（與暫存根同一種表示；8.3 短路徑的 TEMP）。"""
+    try:
+        from handlers._shared import _comparable
+        return _comparable(p)
+    except Exception:  # noqa: BLE001
+        return p
+
+
 def _temp_roots() -> List[str]:
     """暫存根（規則 TEMP_COPY_NOT_PROJECT 的事實）；WG_TEMP_RULES=off 時每次都回關閉值（案例把假專案建在 tmp 下）。"""
     if str(os.environ.get("WG_TEMP_RULES", "")).lower() == "off":
         return list(_rr.TEMP_DISABLED)
     if not _TEMP_ROOTS:
-        _TEMP_ROOTS.extend(_rr.temp_roots(tempdir=tempfile.gettempdir()))
+        try:
+            from handlers._shared import _comparable      # 8.3 短路徑展成長路徑，與目標側同一種表示
+        except ImportError:
+            _comparable = str
+        _TEMP_ROOTS.extend(_rr.norm_temp_path(_comparable(r)) for r in _rr.temp_roots(tempdir=tempfile.gettempdir()))
     return _TEMP_ROOTS
 
 # A5.1 前例行填空範本：只能填存在的卡名、「無」、或「待規格：<理由>」；照抄這句不算交（登進 overview_hub 的範本句表，
@@ -713,7 +726,7 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
     if not cfg["enabled"]:
         return None
     for p in _read_paths(tool_name, tool_input, cwd):
-        if _rr.is_temp_path(p, _temp_roots()):
+        if _rr.is_temp_path(_long(p), _temp_roots()):
             continue
         hit = _lookup_quiet(p)
         _record_read(state, p, hit)
@@ -883,7 +896,7 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             msg += "\n" + _rr.inline_code_hint(_interp.group(1).lower())      # 規則 INLINE_PY_READONLY：判不了的內嵌碼指路
         _log("edit_unknown_target", session_id, path=file_path, deny_reason="unknown_target")
         return (msg, msg, False)
-    if _rr.is_temp_path(file_path, _temp_roots()):
+    if _rr.is_temp_path(_long(file_path), _temp_roots()):
         # 規則 TEMP_COPY_NOT_PROJECT：暫存目錄下的副本不當專案（git archive 解到 scratchpad 的樹含部位表也一樣），不找表、不注入、不擋
         _log("edit_temp_copy", session_id, path=file_path, rule="TEMP_COPY_NOT_PROJECT", deny_reason=None)
         return (None, None, False)

@@ -202,6 +202,31 @@ def test_045_dispatch_message_opens_turn_but_is_not_an_order():
     assert st2["turn_prompts"] == [] and st2["turn_prompts_seq"] == 2
 
 
+def test_045_temp_repo_commit_exempt_judges_repo_root_not_run_dir(tmp_path, monkeypatch):
+    """規則 TEMP_REPO_COMMIT_EXEMPT：豁免看 commit 實際落的 repo 根在不在暫存根下；正式 repo 裡一個叫 scratchpad 的子目錄拿不到豁免
+    （codex 001 BLOCK 6）；暫存根下的 repo 免口令。暫存根由測試指定（WG_TEMP_RULES 開著、TEMP 指到 tmp_path/tempzone）。"""
+    import subprocess
+    import wg_release_rules as rr
+    monkeypatch.delenv("WG_TEMP_RULES", raising=False)
+    monkeypatch.setattr(rr, "_TEMP_TOKENS", ())           # pytest 的 tmp 本身帶 pytest-of- 片段；這個案只看暫存根
+    zone = tmp_path / "tempzone"
+    zone.mkdir()
+    monkeypatch.setenv("TEMP", str(zone))
+    monkeypatch.setenv("TMP", str(zone))
+    monkeypatch.setenv("TMPDIR", str(zone))                 # Git Bash 會帶 TMPDIR 指到真 %TEMP%，pytest 的 tmp 就在它底下
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(zone))
+    proj = tmp_path / "project"
+    (proj / "scratchpad").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(proj)], check=True, capture_output=True)
+    exp = zone / "exp"
+    exp.mkdir()
+    subprocess.run(["git", "init", "-q", str(exp)], check=True, capture_output=True)
+    st = _state("幫我修 bug")
+    sub = str(proj / "scratchpad").replace("\\", "/")
+    assert _check(f"git -C {sub} add -A && git -C {sub} commit -m x", state=st)            # 正式 repo 的子目錄：照擋
+    assert _check(f"git -C {str(exp).replace(chr(92), '/')} add -A && git -C {str(exp).replace(chr(92), '/')} commit -m x", state=st) is None   # 暫存根下：免口令
+
+
 def test_spent_order_is_not_reused_by_notification_turn():
     # 「上GIT」那回合已經 commit 過 → 之後背景通知開的回合要再 commit，得有新口令
     st = {}

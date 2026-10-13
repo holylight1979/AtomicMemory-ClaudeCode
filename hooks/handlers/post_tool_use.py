@@ -370,11 +370,11 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
         # 不進 failing_tests（TestFailGate、重試計數、DPM 都不吃），另記 deliberate_reds 留痕
         own_mods = [m for m in (state.get("modified_files") or []) if (m or {}).get("session_id", sid) == sid]
         try:
-            reverted = reverted_code_files(own_mods, reconcile_cfg(config or {}))
+            reverted, pending_code = reverted_code_files(own_mods, reconcile_cfg(config or {}))
         except Exception as e:  # noqa: BLE001
-            reverted = []
+            reverted, pending_code = [], ["?"]
             print(f"[verify-ledger] 判斷刻意紅失敗，照算真的紅：{type(e).__name__}: {e}", file=sys.stderr)
-        verdict = deliberate_red_verdict(reverted)
+        verdict = deliberate_red_verdict(reverted, pending_code)
         if not verdict.owed:
             print(f"[Guardian:TestFail] 規則 {verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}", file=sys.stderr)
             lst = state.setdefault("deliberate_reds", [])
@@ -396,6 +396,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
             # 供 Stop 端 outcome 歸因「只認本 turn 失敗」（sync/test-fail
             # gate 等其他消費者仍看全量清單，語意不變）
             "turn_seq": int(state.get("turn_seq", 0)),
+            "cwd": str(input_data.get("cwd") or ""),          # GREEN_SAME_CASE_CLEARS 比絕對路徑用（同名不同目錄的案例不互清）
         })
         return True
     if not state.get("failing_tests"):
@@ -408,7 +409,8 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
         if f.get("session_id") != sid          # 只清自己的；沒蓋 sid 的舊條目不是自己的
         or (
             not f.get("cmd", "").startswith(cmd_prefix[:40])
-            and not green_clears_red(f.get("cmd", ""), command)       # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
+            and not green_clears_red(f.get("cmd", ""), command, f.get("cwd") or None,
+                                     str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
             and not (is_pytest_success and (
                 f.get("pytest")
                 or "pytest" in f.get("cmd", "").lower()

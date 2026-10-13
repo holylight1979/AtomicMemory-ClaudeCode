@@ -281,6 +281,17 @@ def test_045_inline_py_readonly_allows_pure_reads(code):
     "import os;os.rename('a','b')",
     "def f(:",
     "import sys;sys.path=[]",
+    # codex 001 BLOCK 1：別名與動態呼叫一律判不了
+    "f = open\nf('C:/project/x.py', 'w')",
+    "import os\ngetattr(os, 'rem' + 'ove')('C:/project/x.py')",
+    "import os as o;o.remove('a')",
+    "from os import remove;remove('a')",
+    "from os import *",
+    "g = [open][0]; g('a','w')",
+    "import os;w = os.remove;w('a')",
+    "(lambda p: open(p,'w'))('a')",
+    "import io;io.open('a','w')",
+    "import json;json.load(open('a')).write('x')",
 ])
 def test_045_inline_py_readonly_denies_writes_and_unknowns(code):
     v = rr.inline_python_verdict(code)
@@ -315,6 +326,12 @@ def test_045_git_readonly_subcmd_allows(cmd):
     ("git -C C:/Users/me/.claude config user.name x", []),
     ("git -C C:/Users/me/.claude worktree add ../x", []),
     ("git -C C:/Users/me/.claude", []),
+    # codex 001 BLOCK 2：換行後的第二段、唯讀子命令的寫檔選項、命令替換
+    ("git -C C:/Users/me/.claude status\ngit -C C:/Users/me/.claude reset --hard HEAD", []),
+    ("git -C C:/Users/me/.claude diff --output=C:/Users/me/.claude/hooks/x.patch", []),
+    ("git -C C:/Users/me/.claude log -oC:/x", []),
+    ("git -C C:/Users/me/.claude show $(git -C C:/Users/me/.claude rev-parse HEAD)", []),
+    ("git -C C:/Users/me/.claude branch -u origin/main", []),
 ])
 def test_045_git_readonly_subcmd_denies(cmd, targets):
     v = rr.git_readonly_verdict(cmd, targets)
@@ -360,7 +377,10 @@ def test_045_hook_python_exe_single_source(monkeypatch, tmp_path):
 def test_045_dispatch_opens_turn_only_for_dispatch_marked_peer_messages():
     assert rr.is_dispatch_message(["派工：045 B 組規則，派工單在 workflow/v6-inbox/to-track-x/001-prompt.md"])
     assert rr.is_dispatch_message(["【派工】接續單"])
-    assert rr.is_dispatch_message(["主旨與其他字\n看 C:\\Users\\me\\.claude\\workflow\\v6-inbox\\to-track-gate-rules\\000-prompt.md 照做"])
+    assert rr.is_dispatch_message(["派工單在 C:\\Users\\me\\.claude\\workflow\\v6-inbox\\to-track-gate-rules\\000-prompt.md，照做"])   # 首行含派工＋路徑
+    # codex 001 BLOCK 7：正文其他地方引用派工單路徑（交付、進度、審查通知）不算派工
+    assert not rr.is_dispatch_message(["已完成，交付依據 to-track-gate-rules/001-prompt.md；請審查結果。"])
+    assert not rr.is_dispatch_message(["主旨與其他字\n看 C:\\Users\\me\\.claude\\workflow\\v6-inbox\\to-track-gate-rules\\000-prompt.md 照做"])
     assert not rr.is_dispatch_message(["對帳過了，上GIT"])                                   # 一般同伴訊息
     assert not rr.is_dispatch_message(["from-track-a6/006-false-block.md 收到"])          # from-track 是交付，不是派工
     assert not rr.is_dispatch_message([]) and not rr.is_dispatch_message([""])
@@ -408,7 +428,8 @@ def test_045_temp_repo_commit_exempt_and_temp_copy_not_project():
     assert roots[0] == "c:/users/me/appdata/local/temp" and "/tmp" in roots
     assert rr.is_temp_path(r"\\?\C:\Users\me\AppData\Local\Temp\claude\x\scratchpad\repo", roots)
     assert rr.is_temp_path("/tmp/pytest-of-me/pytest-1/repo0", roots)
-    assert rr.is_temp_path(r"C:\Users\HOLYLI~1\AppData\Local\Temp\claude\scratchpad\x", roots)   # 短路徑含 scratchpad 片段
+    assert rr.is_temp_path(r"C:\Users\HOLYLI~1\AppData\Local\Temp\claude\scratchpad\x", roots)   # 短路徑含 Temp/claude 片段
+    assert not rr.is_temp_path(r"C:\project\scratchpad\x.py", roots)                  # codex 001 BLOCK 6：正式 repo 的子目錄叫 scratchpad 不算暫存
     assert not rr.is_temp_path(r"C:\Users\me\AppData\Local\Temp\..\..\..\.claude\hooks\x.py", roots)
     assert not rr.is_temp_path(r"C:\Users\me\.claude-wt\track-x\hooks\x.py", roots)
     assert rr.temp_commit_verdict(r"C:\Users\me\AppData\Local\Temp\claude\s\repo", roots).owed is False
@@ -433,6 +454,9 @@ def test_045_red_while_reverted_verdicts():
     v = rr.deliberate_red_verdict([("x.py", "main")])
     assert v.owed is False and "main" in v.why and v.evidence == ("x.py == main",)
     assert rr.deliberate_red_verdict([]).owed is True
+    # codex 001 BLOCK 5：退回 A、B 還留著真錯 → 不是刻意紅
+    v = rr.deliberate_red_verdict([("a.py", "main")], pending=["b.py"])
+    assert v.owed is True and "b.py" in v.why
 
 
 def test_045_retry_counts_edits_since_red():
@@ -446,4 +470,8 @@ def test_045_green_same_case_clears():
     assert rr.green_clears_red("pytest hooks/verify/verify_x.py::test_a", r"python -m pytest -q hooks\verify\verify_x.py")
     assert not rr.green_clears_red("pytest hooks/verify/verify_x.py", "pytest hooks/verify/verify_y.py")
     assert not rr.green_clears_red("pytest", "pytest -q")                     # 都沒點名檔：交給既有規則
-    assert rr.case_files_in_cmd("python a/b.py c.PY") == ["b.py", "c.py"]
+    assert rr.case_files_in_cmd("python a/b.py c.PY") == ["a/b.py", "c.py"]   # 保留路徑，不只檔名
+    # codex 001 BLOCK 4：不同目錄的同名案例不互清；給 cwd 時比絕對路徑
+    assert not rr.green_clears_red("python service_a/tests/test_api.py", "python -X utf8 service_b/tests/test_api.py")
+    assert not rr.green_clears_red("python tests/test_api.py", "python tests/test_api.py", "C:/svc_a", "C:/svc_b")
+    assert rr.green_clears_red("python tests/test_api.py", "python -X utf8 C:/svc_a/tests/test_api.py", "C:/svc_a", "C:/other")

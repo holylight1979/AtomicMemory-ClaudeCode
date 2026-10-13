@@ -775,7 +775,7 @@ def _verify_gates(
     # COMMENT_ONLY_CHANGE）；判不出來照算改了
     try:
         equal = committed_equal_paths(own_mod_files, rg_cfg, state.get("last_commit_turn_seq"), state.get("committed_new_code"),
-                                      session_paths=session_paths)
+                                      session_paths=session_paths, deadline=git_dl)
     except Exception as e:  # noqa: BLE001
         equal = {}
         print(f"[Guardian:ReconcileGate] 判斷內容是否等於已提交版本失敗，照算改了：{type(e).__name__}: {e}", file=sys.stderr)

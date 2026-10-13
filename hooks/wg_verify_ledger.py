@@ -38,7 +38,7 @@ from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, find_vcs_root_ex, r
 from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, gone_verdict, in_turn,
                               owed_after_last_case, user_turn, Verdict,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
-                              committed_refs, content_equals_committed, is_temp_path, temp_roots, vcs_unreadable_verdict)
+                              committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -1618,7 +1618,7 @@ def _comment_only_vs_head(root: Path, rel: str, path: str, deadline: float, _run
 def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_commit_turn: Any = None,
                           own_commit_shas: Optional[Dict[str, Any]] = None, budget_s: Optional[float] = None,
                           _run: Optional[Callable[..., Any]] = None,
-                          session_paths: Optional[Iterable[str]] = None) -> Dict[str, Verdict]:
+                          session_paths: Optional[Iterable[str]] = None, deadline: Optional[float] = None) -> Dict[str, Verdict]:
     """改過的程式檔裡「不是本 session 改碼」的，回 {path: Verdict}：
     - CONTENT_EQUALS_COMMITTED：內容等於另一方已提交的版本（MERGE_HEAD／main／master；指到 HEAD 或本 session 自己提交的 commit 不算）。
     - COMMENT_ONLY_CHANGE：與 HEAD 只差註解／docstring／空白，且本 session 沒 commit 過它；同根本 session（主 session＋子代理，
@@ -1626,8 +1626,10 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
       （與 NET_UNCHANGED 同一條防線，verify_stop_reconcile 035 ⑤／037）。
     判不出來（不在 git、預算到、拿不到 ref）→ 不回，照算改了。"""
     exts = cfg.get("code_exts") or []
-    # 預算跟 net_unchanged 同一把尺（GIT_BUDGET_S 被測試或設定壓到 0 時，這裡也不查、照算改了）
-    deadline = time.monotonic() + (min(REF_BUDGET_S, float(GIT_BUDGET_S)) if budget_s is None else float(budget_s))
+    # 預算：呼叫端給 deadline（stop 把 net_unchanged／快照／這裡共用同一個 git_deadline，整個 Stop 的 git 查詢加起來不超過 GIT_BUDGET_S）；
+    # 沒給才自己開一把、同樣不超過 GIT_BUDGET_S（被測試或設定壓到 0 時這裡也不查、照算改了）
+    if deadline is None:
+        deadline = time.monotonic() + (min(REF_BUDGET_S, float(GIT_BUDGET_S)) if budget_s is None else float(budget_s))
     try:
         last = int(last_commit_turn) if last_commit_turn is not None else None
     except (TypeError, ValueError):
@@ -1703,8 +1705,9 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
 
 
 def reverted_code_files(mods: List[Dict[str, Any]], cfg: Dict[str, Any], budget_s: Optional[float] = None,
-                        _run: Optional[Callable[..., Any]] = None) -> List[Tuple[str, str]]:
-    """RED_WHILE_REVERTED 的事實：本 session 改過、現在內容等於非 HEAD 已提交版本（MERGE_HEAD／main／master）的程式檔 → [(檔名, ref)]。"""
+                        _run: Optional[Callable[..., Any]] = None) -> Tuple[List[Tuple[str, str]], List[str]]:
+    """RED_WHILE_REVERTED 的事實：回 (退回的, 還有現行改碼的)。退回＝本 session 改過、現在內容等於非 HEAD 已提交版本（MERGE_HEAD／main／master）；
+    現行改碼＝本 session 改過的程式檔，內容既不等於 HEAD 也不等於任何那些 ref（自己的碼還在）。拿不到事實的檔算現行改碼（保守）。"""
     exts = cfg.get("code_exts") or []
     deadline = time.monotonic() + (REF_BUDGET_S if budget_s is None else float(budget_s))
     by_root: Dict[str, Tuple[Path, List[str]]] = {}
@@ -1715,22 +1718,27 @@ def reverted_code_files(mods: List[Dict[str, Any]], cfg: Dict[str, Any], budget_
         hit = _git_root_of(p)
         if hit:
             by_root.setdefault(hit[0], (hit[1], []))[1].append(p)
-    out: List[Tuple[str, str]] = []
+    reverted: List[Tuple[str, str]] = []
+    pending: List[str] = []
     for key, (root, paths) in by_root.items():
         rels = {p: _rel_in_root(p, key) for p in paths}
         facts = ref_blob_facts(root, [r for r in rels.values() if r], deadline, _run)
         head_sha = facts["commits"].get("HEAD")
+        head_blobs = facts["blobs"].get("HEAD") or {}
         for p, rel in rels.items():
             cur = facts["current"].get(rel or "")
             if not cur:
+                pending.append(Path(p).name)
                 continue
-            for ref, sha in facts["commits"].items():
-                if ref == "HEAD" or sha == head_sha:
-                    continue
-                if (facts["blobs"].get(ref) or {}).get(rel) == cur and (facts["blobs"].get("HEAD") or {}).get(rel) != cur:
-                    out.append((Path(p).name, ref))
-                    break
-    return out
+            if head_blobs.get(rel) == cur:
+                continue                                  # 等於 HEAD：不是現行改碼，也不是退回
+            hit_ref = next((ref for ref, sha in facts["commits"].items()
+                            if ref != "HEAD" and sha != head_sha and (facts["blobs"].get(ref) or {}).get(rel) == cur), None)
+            if hit_ref:
+                reverted.append((Path(p).name, hit_ref))
+            else:
+                pending.append(Path(p).name)
+    return reverted, pending
 
 
 def green_settled_paths(owed: Iterable[str], own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]],
@@ -1740,19 +1748,25 @@ def green_settled_paths(owed: Iterable[str], own_mod_files: List[Dict[str, Any]]
     cases = [p for p in mods if is_case_file(p, cfg, root_of(p)) and case_exists(p)]
     if not cases:
         return {}
-    greens = [(_trusted(r) or r) for r in pass_receipts(receipts) if not _temp_receipt(r)]
+    # 收據要和 (a) 同一套採認：指令完整、記了環境、根可信（_trusted），而且只有執行程式的指令（_clean：echo／cat 夾字樣不算）；
+    # 「點名案例」只看實際跑程式那幾段的參數（claimed_paths），不看整條指令文字（codex 001 BLOCK 3）
+    greens = []
+    for r0 in pass_receipts(receipts):
+        r = _trusted(r0)
+        if r is not None and _clean(r):
+            greens.append(r)
     out: Dict[str, Verdict] = {}
     for p in owed or []:
         root = root_of(p)
-        for c in cases:
-            if root_of(c) != root:
+        same_root_cases = [c for c in cases if root_of(c) == root]
+        if not same_root_cases:
+            continue
+        for r in greens:
+            named = claimed_paths(r, same_root_cases)
+            if not named or not _root_ok(r, root) or not _after_last_edit(r, mods.get(p)):
                 continue
-            for r in greens:
-                if cmd_names_file(str(r.get("cmd") or ""), c) and _root_ok(r, root) and _after_last_edit(r, mods.get(p)):
-                    out[p] = green_after_edit_verdict(Path(p).name, Path(c).name, str(r.get("cmd") or ""), str(r.get("at") or ""))
-                    break
-            if p in out:
-                break
+            out[p] = green_after_edit_verdict(Path(p).name, Path(named[0]).name, str(r.get("cmd") or ""), str(r.get("at") or ""))
+            break
     return out
 
 
@@ -1765,16 +1779,25 @@ def _temp_receipt(receipt: Dict[str, Any]) -> bool:
         return False
     if not _TEMP_ROOTS:
         import tempfile
-        _TEMP_ROOTS.extend(temp_roots(tempdir=tempfile.gettempdir()))
+        _TEMP_ROOTS.extend(_norm_long(r) for r in temp_roots(tempdir=tempfile.gettempdir()))
     for key in ("cwd", "project_root"):
         v = str(receipt.get(key) or "")
-        if v and is_temp_path(v, _TEMP_ROOTS):
+        if v and is_temp_path(_norm_long(v), _TEMP_ROOTS):
             return True
     cmd = str(receipt.get("cmd") or "")
     for tok in re.findall(r"[A-Za-z]:[\\/][^\s\"']+|/[^\s\"']+|\\\\\?\\[^\s\"']+", cmd):
-        if is_temp_path(tok, _TEMP_ROOTS):
+        if is_temp_path(_norm_long(tok), _TEMP_ROOTS):
             return True
     return False
+
+
+def _norm_long(p: str) -> str:
+    """暫存判斷兩側同一種表示：8.3 短路徵展成長路徑（handlers/_shared._comparable）再正規化。"""
+    try:
+        from handlers._shared import _comparable
+        return norm_temp_path(_comparable(p))
+    except Exception:  # noqa: BLE001
+        return norm_temp_path(p)
 
 
 _RECONCILE_HEAD = "[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據，或改了程式碼還欠驗證案例：\n"
