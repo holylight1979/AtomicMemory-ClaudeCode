@@ -4,6 +4,16 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 track-a4 OverviewHub 候選填空去噪：改檔路徑沒內容一行、一部位一 session 一次
+- **緣由**：工作 session 每改一個 hook 檔的第二次 Edit 就被灌一整塊「候選前 5（來源：無）＋根因卡＋先答兩問」。沒有 smells 報告也沒有病灶段時內容是零卻佔最多字；去重 key 又是「檔」不是「部位」，同部位改十個檔就送十次。
+- **做法**：`_candidates_block` 加 `compact_empty`：改檔路徑沒內容時只回一行（報告不存在／解析失敗的附註接在同一行）；使用者問根因的 on_prompt 觸發詞路徑不縮。`on_edit` 第二次 Edit 送候選改以部位 key 查 `state["candidates_sent"]`（與觸發詞共用），送過就不再送，一行版也記帳。
+- **驗證**：verify_candidates_trigger 新 3 案（換回 41887aa 紅在斷言，完整塊那句為保護案）＋verify_overview_hub＋verify_pre_tool_use_overview_gate 共 147 passed；verify_overview_hub 一句既有斷言從「候選前」改為兩種形狀都認的「【戰鬥】候選」（該 fixture 沒病灶段，現在送一行版）。 | `hooks/wg_overview.py`, `hooks/verify/verify_candidates_trigger.py`, `hooks/verify/verify_overview_hub.py`, `TECH.md`
+
+## 2026-10-13 v6.0 track-a4 CommitOrder 口令閘補四洞：一般寫法不得漏擋、Git Bash 路徑不誤擋
+- **緣由**：codex 徹底檢核 A 在 f5ddb5a 重現 3 條一般寫法漏擋（heredoc 起始行後的 `&& git commit -F` 被連內文剝掉、`bash -lc`／`powershell -NoProfile -Command`／`cmd /d /c` 夾啟動選項讓包裝偵測失效、`Git`／`GIT.EXE` 大小寫快篩先放掉）＋1 條誤擋（Git Bash `cd /c/…` 被當 Windows 字面路徑找錯 `.git`，記憶系統自己的 commit 要口令）。
+- **做法**：定規則不逐條補 regex：`_strip_heredoc_bodies` 改逐行掃、只剝到第一個結束行（零行內文也算）、起始行 delimiter 後的字照留；包裝偵測改斷詞（`_scan_segments` 保留引號狀態切段、Bash `\`／cmd `^`／PowerShell 反引號續行接回；`_wrapper_split` 認執行檔 basename 去路徑去 .exe 不分大小寫、POSIX 短旗標組含 c／PowerShell `-c…`／cmd `/c` `/k`）＋逐段辨識（`_wrapped_commit_verdict`：拆得出 commit 擋、內層全是 log/status/diff/show 放行、再包一層遞迴、包裝外片段與其他片段的子 shell／eval／命令替換照查，雙引號裡的 `$(…)` 算會執行）；口令閘與隱私閘快篩改 lower 與 `_vcs_segments` 同規則；`_drive_path` 把 `/<drive>/…` 轉成 `<drive>:/…` 再找最近 `.git`，只對 Bash 工具套（PowerShell 原生 `/c/` 不是磁碟機）。豁免白名單本身不放寬。codex 審 001 退一條 BLOCK（帶引號 shell 路徑被 `_unquoted` 抹掉）＋三 WARN（`bash -lc 'git log --grep=commit'` 誤擋、/c/ 不分 shell、空 heredoc 吞 commit），003 收；審 003 退一條 BLOCK（續行拆散 shell 名與旗標）＋兩 WARN（雙引號裡的 `$()` 被白名單抹掉、有查詢包裝就不查其他片段），005 收；審 005 退一條 BLOCK（註解撇號被當開引號、跨行吞掉下一行包裝 commit）＋三 WARN（外層雙引號包單引號的 `$()` 遞迴前被剝、續行重判用含續行字元的原文、展開＋commit 字樣誤擋查詢），008 收：引號外 token 起頭的 `#` 到行尾略過、token 原文去掉續行、每段先以外層語意查整段原文，展開＋commit 字樣定為已知邊界（fail-closed）並寫進擋訊息。
+- **驗證**：口令閘 46 案（新 11 案換回 41887aa 版本皆紅在斷言；005 三案換回 36fcc0b、008 四案換回 3dd5a8b 紅在斷言，深度上限案為保護案）＋隱私閘、同伴訊息閘、萃取指示 verify 綠；總控台重現腳本 16 案全符預期。 | `hooks/handlers/pre_tool_use.py`, `hooks/verify/verify_git_commit_order_gate.py`, `TECH.md`
+
 ## 2026-10-13 v6.0 CommitOrder 口令閘：記憶系統自己的 worktree commit 不等口令，豁免只認看得出落點的句型
 - **緣由**：a3 合併「同伴訊息不算使用者原話」後，工作 session 在 `~/.claude-wt/*`（~/.claude 的 git worktree）的 commit 全被擋——以前能過是同伴訊息裡的「commit」字樣漏進使用者原話；豁免只認 session cwd 在 ~/.claude 之下，漏認 worktree，也從不看 `-C`／`cd` 讓 commit 落到別的 repo。
 - **做法**：豁免改看每段 commit 實際落在哪個 repo（最近的 `.git`；~/.claude 本身或 gitdir 在 `<CLAUDE_DIR>/.git/worktrees/` 下才算），只認句型白名單（`&&` 串、第一段可 `cd <絕對路徑>`、其餘每段 `git [-C <字面路徑>] add/commit/push/…`；引號狀態掃單引號外的 `$(`／反引號、heredoc 須加引號、路徑不得含變數、`--git-dir` 等覆寫與繼承的 GIT_* 一律不豁免）；拆不出段但有包裝寫法的 git commit 照常檢查口令。順帶：`extract-worker` 失敗骨架卡的建立日期欄改 `Created-at:`（原 `Created:` 會被日期 lint 判成敘事日期）；`verify_harvest_routing` 追蹤項帶唯一 id、`verify_followup_check` 沙箱連程式碼根一起指 tmp（a3 合併後才浮現的兩個測試落差）。

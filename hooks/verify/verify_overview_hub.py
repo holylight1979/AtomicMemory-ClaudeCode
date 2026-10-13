@@ -1188,7 +1188,7 @@ def test_thinking_channel_allows_with_reminder(proj, tmp_path, monkeypatch):
     assert rec["located_via"] == "thinking" and rec["located_quality"] == "none"
     warn2, deny2, changed2 = wo.on_edit(state, "s", f1, tp, {})                 # 已 located，第二次不再提醒 thinking
     assert deny2 is None and changed2 and "只在 thinking 裡" not in (warn2 or "")
-    assert "候選前" in warn2                                                     # A5.3：同檔第 2 次放行的 Edit 附候選（verify_candidates_trigger 驗細節）
+    assert "【戰鬥】候選" in warn2                                               # A5.3：同檔第 2 次放行的 Edit 附候選（沒內容是一行版；verify_candidates_trigger 驗細節）
 
 
 # ─── 退回 001：BLOCK 1／2／3／7 ───────────────────────────────────────────────────
