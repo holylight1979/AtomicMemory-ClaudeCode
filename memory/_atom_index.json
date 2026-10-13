@@ -6412,6 +6412,22 @@
         "8.3 短名"
       ],
       "scope": "global"
+    },
+    {
+      "name": "改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live",
+      "path": "_AIDocs/_atoms/MemDev/改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live.md",
+      "triggers": [
+        "MeasureGate 循環",
+        "收尾閘無限擋",
+        "根層 worktree",
+        "is_root_worktree",
+        "全量 run_verify",
+        "PYTEST_MEASURE",
+        "部位表位元組",
+        "worktree 既有紅",
+        "擋滿不放行"
+      ],
+      "scope": "global"
     }
   ]
 }
