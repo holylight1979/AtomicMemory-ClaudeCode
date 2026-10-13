@@ -34,15 +34,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"
+_CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 與兄弟工具從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 GLOBAL_MEMORY = CLAUDE_DIR / "memory"
 REGISTRY_PATH = GLOBAL_MEMORY / "project-registry.json"
 ATOM_INDEX_JSON = "_atom_index.json"
 SKIP_PREFIXES = ("_",)
-
-_CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 與兄弟工具從本樹載
-if str(_CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CODE_ROOT))
 
 from lib.atom_index_json import (  # noqa: E402
     load_atom_index_json, upsert_atom, delete_atom, validate_index,
@@ -248,7 +249,7 @@ def catalog_sync(index_dir: Path) -> Dict[str, Any]:
         argv += ["--memory-dir", str(index_dir)]
     try:
         cp = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
-                            errors="replace", cwd=str(CLAUDE_DIR), timeout=120,
+                            errors="replace", cwd=str(_CODE_ROOT), timeout=120,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.TimeoutExpired) as e:
         return {"ok": False, "error": str(e)}

@@ -24,7 +24,7 @@ from lib import codex_models as cm  # noqa: E402
 import judge_backend as jb  # noqa: E402
 
 LIVE_CACHE = Path.home() / ".codex" / "models_cache.json"
-LIVE_CONFIG = Path.home() / ".claude" / "workflow" / "config.json"
+LIVE_CONFIG = jb.CLAUDE_DIR / "workflow" / "config.json"   # 資料根（WG_CLAUDE_DIR 或 ~/.claude）的 config，和 judge_backend 讀同一份
 
 
 @pytest.fixture

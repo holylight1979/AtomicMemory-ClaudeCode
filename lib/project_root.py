@@ -7,7 +7,7 @@
 宣告檔欄位：root（相對本層、只准指祖先）、root_abs（本機絕對路徑，目錄存在時優先）、
 subs（相對本層的路徑前綴，"*" 表全部）、standalone（true＝獨立、停止向上、不提問）。
 路徑規則：沿字面路徑往上走，比對時才 resolve；回傳路徑保持字面形式。
-排除：家目錄、~/.claude 本身、磁碟根永不當專案根，走到就停。
+排除：家目錄、資料根（claude_data_dir()，一般安裝就是 ~/.claude）本身、磁碟根永不當專案根，走到就停。
 本模組只讀不寫；宣告檔的增刪改在 tools/project-tree.py。
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ def claude_data_dir() -> Path:
 
 
 HOME = Path.home()
-CLAUDE_DIR = HOME / ".claude"
+CLAUDE_DIR = claude_data_dir()
 MEMORY_INDEX = "MEMORY.md"
 DECL_NAME = "project-tree.json"
 MAX_ROOT_HOPS = 3

@@ -7,7 +7,6 @@
 - Trigger: 回歸測試, 舊版會紅, 反證, 修正前紅修正後綠, git show 舊版, 新測試跑舊碼, 測試有沒有測到
 - Created-at: 2026-10-13
 - Related: 量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試
-- Quote: 「你是 v6.0 的工作 session track-g12（閱讀路徑掃描器），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-g12（分支 v6/track-g12，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.claude\workflow\…」
 
 ## 知識
 

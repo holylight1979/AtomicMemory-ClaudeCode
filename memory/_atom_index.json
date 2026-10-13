@@ -5335,18 +5335,6 @@
       "scope": "global"
     },
     {
-      "name": "wrong-assumptions-工作流",
-      "path": "memory/Failures/工作流/wrong-assumptions-工作流.md",
-      "triggers": [
-        "假設錯誤",
-        "誤判",
-        "直覺假設",
-        "wrong assumption",
-        "前提錯"
-      ],
-      "scope": "global"
-    },
-    {
       "name": "量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試",
       "path": "memory/驗證與實證/量測工具要把看不到當成獨立狀態-信心度跟著每個數字走-先寫看不到時不能變好的反向測試.md",
       "triggers": [
@@ -6218,6 +6206,72 @@
         "工作軌交付",
         "調度總控台",
         "合完推"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑",
+      "path": "_AIDocs/_atoms/MemDev/退回檢查的暫存副本要用git-archive整棵解-tar要force-local-副本含部位表會被overviewhub當專案-送codex的diff不能有暫存外絕對路徑.md",
+      "triggers": [
+        "退回檢查",
+        "退回紅",
+        "暫存副本",
+        "git archive",
+        "tar --force-local",
+        "Cannot connect to C",
+        "replay-guard",
+        "提示詞指到暫存目錄以外的路徑",
+        "舊版檔跑新測試"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile",
+      "path": "_AIDocs/_atoms/MemDev/真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile.md",
+      "triggers": [
+        "探針",
+        "真 hook 入口探針",
+        "dispatcher 探針",
+        "WG_CLAUDE_DIR",
+        "WG_TEST_LOGS_DIR",
+        "GUARD_LOG_DIR",
+        "守門紀錄寫進 live",
+        "探針污染 live",
+        "隔離探針"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "worktree測試裡資料根的斷言要對被測模組自己算的claude-dir比-對本樹路徑比會隨別支測試先跑的setdefault變",
+      "path": "_AIDocs/_atoms/MemDev/worktree測試裡資料根的斷言要對被測模組自己算的claude-dir比-對本樹路徑比會隨別支測試先跑的setdefault變.md",
+      "triggers": [
+        "WG_CLAUDE_DIR",
+        "資料根斷言",
+        "setdefault 收集順序",
+        "worktree 測試紅",
+        "單跑綠合跑紅",
+        "claude_data_dir",
+        "verify_project_layer_smoke",
+        "verify_locate_single_authority"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-閘誤判的修法不是加例外清單-把欠帳本回合放行改碼的判定抽成獨立模組-每情境一條有名字的規則加會紅案例-擋訊息印規則名與證據-不准整輪不擋或放寬",
+      "path": "memory/Failures/設計通則/feedback-閘誤判的修法不是加例外清單-把欠帳本回合放行改碼的判定抽成獨立模組-每情境一條有名字的規則加會紅案例-擋訊息印規則名與證據-不准整輪不擋或放寬.md",
+      "triggers": [
+        "閘誤判",
+        "誤擋",
+        "例外清單",
+        "放行定義",
+        "判定模組",
+        "規則名",
+        "證據清單",
+        "wg_release_rules",
+        "整輪不擋",
+        "放寬",
+        "精準判斷",
+        "驗證阻擋"
       ],
       "scope": "global"
     }

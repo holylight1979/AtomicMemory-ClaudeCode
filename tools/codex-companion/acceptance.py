@@ -34,10 +34,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 SERVICE_DIR = Path(__file__).resolve().parent
-if str(SERVICE_DIR) not in sys.path:
-    sys.path.insert(0, str(SERVICE_DIR))
+_CODE_ROOT = SERVICE_DIR.parents[1]   # 程式碼根：lib.* 從本樹載
+for _p in (_CODE_ROOT, SERVICE_DIR):   # SERVICE_DIR 最後插、排最前
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+from lib.project_root import claude_data_dir  # noqa: E402
 
-CLAUDE_DIR = Path.home() / ".claude"
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 SIDECAR_DIR = WORKFLOW_DIR / "acceptance-spec"
 AUDIT_JSONL = WORKFLOW_DIR / "acceptance-audit.jsonl"

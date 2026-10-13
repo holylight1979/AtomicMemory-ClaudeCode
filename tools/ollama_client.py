@@ -10,6 +10,7 @@ ollama_client.py — Multi-Backend Ollama Client
 import json
 import logging
 import ssl
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -18,9 +19,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根：lib.* 從本樹載
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+
 logger = logging.getLogger("ollama_client")
 
-CLAUDE_DIR = Path.home() / ".claude"
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），hook 讀的 config 和這裡寫的是同一份
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
 TOKEN_PATH = CLAUDE_DIR / "workflow" / ".rdchat_token.json"
 

@@ -23,14 +23,19 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-CLAUDE_DIR = Path.home() / ".claude"
 ATOM_INDEX_REL = "memory/_atom_index.json"
 
 # 失敗家族判定與 lib.atom_locations 同源（memory/Failures/ 與舊址 _AIDocs/Failures/ 都認）；
-# lib 載不到（獨立搬走執行）時退回字面前綴，語意相同。
+# lib 載不到（獨立搬走執行）時退回字面前綴，語意相同。_CLAUDE_ROOT 是程式碼根（本檔所在的樹）。
 _CLAUDE_ROOT = Path(__file__).resolve().parent.parent
 if str(_CLAUDE_ROOT) not in sys.path:
     sys.path.insert(0, str(_CLAUDE_ROOT))
+try:
+    from lib.project_root import claude_data_dir  # noqa: E402
+    CLAUDE_DIR = claude_data_dir()   # 使用者資料根（--root 預設）；sync-memory-index 呼叫時傳的也是資料根
+except Exception as _e:
+    CLAUDE_DIR = Path.home() / ".claude"
+    print(f"[sync_doc_counts] lib 載不到，--root 預設退 ~/.claude（不看 WG_CLAUDE_DIR）：{_e}", file=sys.stderr)
 try:
     from lib.atom_locations import is_in_failures_path  # noqa: E402
 except Exception:

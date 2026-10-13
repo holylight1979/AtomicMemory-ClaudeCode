@@ -1,7 +1,8 @@
 """state.py — Per-session state management for Codex Companion.
 
-State files: ~/.claude/workflow/companion-state-{session_id}.json
-Assessment files: ~/.claude/workflow/companion-assessment-{session_id}.json
+State files: <資料根>/workflow/companion-state-{session_id}.json
+Assessment files: <資料根>/workflow/companion-assessment-{session_id}.json
+資料根＝WG_CLAUDE_DIR 或 ~/.claude；hooks/codex_companion.py 從同一個 workflow 讀這些檔。
 
 Atomic writes: .tmp + rename (same pattern as wg_core).
 """
@@ -10,13 +11,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-WORKFLOW_DIR = Path.home() / ".claude" / "workflow"
+_CODE_ROOT = Path(__file__).resolve().parents[2]   # 程式碼根：lib.* 從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+WORKFLOW_DIR = claude_data_dir() / "workflow"
 
 _TZ = timezone(timedelta(hours=8))
 

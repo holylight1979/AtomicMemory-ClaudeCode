@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from .atom_spec import parse_frontmatter, slugify
-from .harness_text import user_typed_text
+from .harness_text import is_kickoff_prompt, user_typed_text
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 CONTEXT_TEXT_CHARS = 600
@@ -52,6 +52,13 @@ def sanitize_quote(text: str, max_chars: int = 200) -> str:
 
 def format_quote(text: str) -> str:
     return f"「{sanitize_quote(text)}」"
+
+
+def is_kickoff_text(text: str) -> bool:
+    """一則訊息原文（可含 harness 區塊）清成使用者本人打的字後是開工句 → True：不能當任何卡片的 Quote。
+    判定就是 lib/harness_text.is_kickoff_prompt（PostToolUse 自動填 wg_provenance 用同一支）；
+    舊卡回填（tools/atom-provenance-backfill.py）與萃取器寫卡（hooks/user-extract-worker.py）從原文進來，經這裡。"""
+    return is_kickoff_prompt(user_typed_text(text or "", keep_lines=True))
 
 
 def format_source_session(session_id: str, uuid: Optional[str], date_iso: str) -> str:

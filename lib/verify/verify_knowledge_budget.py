@@ -86,7 +86,9 @@ def test_build_atom_content_status_line():
 # ── append 路徑 ─────────────────────────────────────────────────
 
 
-def test_append_over_budget_rejected(tmp_path):
+def test_append_over_budget_rejected(tmp_path, monkeypatch):
+    from lib import atom_io
+    monkeypatch.setattr(atom_io, "AUDIT_LOG", tmp_path / "atom_io_audit.jsonl")   # 寫入稽核落 tmp，不寫資料根
     p = tmp_path / "a.md"
     p.write_text(_atom("- 起始"), encoding="utf-8")
     ok = append_atom_file(p, ["- 小追加"], source="mcp")
@@ -106,6 +108,7 @@ def _load_write_gate():
     spec = importlib.util.spec_from_file_location("memory_write_gate", wg_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    mod.write_audit_log = lambda *a, **k: None   # 本檔只驗判定；不寫資料根的 memory/_vectordb/audit.log
     return mod
 
 

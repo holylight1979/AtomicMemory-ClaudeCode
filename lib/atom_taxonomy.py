@@ -13,7 +13,12 @@ import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-CLAUDE_DIR = Path.home() / ".claude"
+try:
+    from .project_root import claude_data_dir
+except ImportError:  # 頂層模組載入（wg_core / CLI sys.path.insert）
+    from project_root import claude_data_dir
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 TAXONOMY_PATH = CLAUDE_DIR / "memory" / "_meta" / "taxonomy.json"
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
 
