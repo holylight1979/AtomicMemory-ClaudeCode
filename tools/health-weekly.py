@@ -339,6 +339,48 @@ def _depends_block(hc: dict, coverage_min: float) -> tuple[list[str], list[str]]
     return yellow, info
 
 
+# config verify_ledger.sentinel_regex 兩條內建 pytest 規則的現行值（版控庫 workflow/config.json 的那兩筆）。install 只做頂層合併，
+# 使用者保留的舊 config 不會跟著更新；hook 端（wg_verify_ledger._builtin_pytest_rule）只自動補 pytest_summary 旗標，regex 不補：
+# 停在最早版 regex 的機器把「1 passed, 1 error」判成 PASS。這裡只浮訊號，修法在 Install-forAI §3 升級段。
+_CURRENT_PYTEST_REGEX = (r"^(?:=+ )?(?P<verdict>\d+ (?:passed|failed|errors?|skipped|xfailed|xpassed|warnings?|deselected|rerun)"
+                         r"(?:, \d+ [a-z]+)*) in \d")
+_CURRENT_PYTEST_VERDICT_MAP = {
+    "PYTEST": {"failed": "FAIL", "error": "FAIL", "passed": "PASS", "xpassed": "PASS"},
+    "PYTEST_MEASURE": {"failed": "FAIL", "error": "FAIL", "passed": "DONE", "xpassed": "DONE"},
+}
+
+
+def _pytest_regex_block(cfg: dict) -> list[str]:
+    """config 內建 PYTEST／PYTEST_MEASURE 規則（verify_ledger.sentinel_regex）不是現行版 → 黃（WARN）。
+    regex、verdict_map、pytest_summary 三樣任一與現行值不同就報；兩條缺一條也報。自訂名稱的規則不管。
+    verdict_map 的值只比大小寫無關的結論（hook 端 compile_sentinel_rules 一樣 upper()，`pass` 與 `PASS` 執行期同義，不算舊版）。"""
+    vl = cfg.get("verify_ledger") if isinstance(cfg.get("verify_ledger"), dict) else {}
+    rules = vl.get("sentinel_regex") if isinstance(vl.get("sentinel_regex"), list) else []
+    yellow: list[str] = []
+    seen: set[str] = set()
+    for r in rules:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("name") or "").strip()
+        want = _CURRENT_PYTEST_VERDICT_MAP.get(name)
+        if not want:
+            continue
+        seen.add(name)
+        vm = r.get("verdict_map") if isinstance(r.get("verdict_map"), dict) else {}
+        wrong = [label for label, bad in (
+            ("regex", r.get("regex") != _CURRENT_PYTEST_REGEX),
+            ("verdict_map", {str(k): str(v).upper() for k, v in vm.items()} != want),
+            ("pytest_summary", r.get("pytest_summary") is not True),
+        ) if bad]
+        if wrong:
+            yellow.append(f"config 內建 {name} regex 非現行版（{'、'.join(wrong)} 與版控庫 workflow/config.json 不同；"
+                          f"舊版把「1 passed, 1 error」判成 {want['passed']}）→ 手動對齊 verify_ledger.sentinel_regex（Install-forAI §3 升級段）")
+    for name in _CURRENT_PYTEST_VERDICT_MAP:
+        if name not in seen:
+            yellow.append(f"config 內建 {name} 規則缺失（verify_ledger.sentinel_regex 沒有這條）→ 補成版控庫 workflow/config.json 的現行值")
+    return yellow
+
+
 def _reconcile_overflow_block(days: int) -> list[str]:
     """對帳閘預算用完放行（guard-reconcile_overflow.jsonl）近 N 天有事件 → 紅（放行要可見）。"""
     p = CLAUDE_DIR / "Logs" / "guard-reconcile_overflow.jsonl"
@@ -429,6 +471,8 @@ def collect() -> dict:
     # 2d. 對帳閘預算用完放行（舊 overflow 紀錄）＋擋滿後使用者放行
     red.extend(_reconcile_overflow_block(FRESH_DAYS))
     red.extend(_user_release_block(FRESH_DAYS))
+    # 2d'. config 內建 PYTEST／PYTEST_MEASURE regex 停在舊版（只更新 hooks、沒對 config 的機器）
+    yellow.extend(_pytest_regex_block(_load_config()))
     # 2e. scorecard（track-d2 的 hooks/wg_scorecard.health_block；沒有就印一行跳過）
     try:
         _hooks_on_path()

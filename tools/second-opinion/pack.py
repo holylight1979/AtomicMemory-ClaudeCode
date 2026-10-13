@@ -24,6 +24,7 @@ if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 根層身分（card_mem_dir 的 claude_dir）：和 wg_overview._cards_for 用的 wg_core.CLAUDE_DIR 同一支算法
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0   # pythonw 父行程下 spawn 不彈 console 窗
 
 # 材料檔名固定（提示詞只引這些相對路徑）
 REL_CARD = "card.md"
@@ -150,7 +151,7 @@ def _read(p: Path) -> str:
 def _run(cmd: List[str], cwd: str, timeout_s: int) -> str:
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=timeout_s)
+                           errors="replace", timeout=timeout_s, creationflags=_NO_WINDOW)
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return r.stdout if r.returncode == 0 else ""
