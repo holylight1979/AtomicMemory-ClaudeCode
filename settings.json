@@ -108,7 +108,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task",
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|Agent|Task|AskUserQuestion|ExitPlanMode",
         "hooks": [
           {
             "type": "command",

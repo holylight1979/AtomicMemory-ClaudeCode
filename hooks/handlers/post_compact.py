@@ -16,9 +16,14 @@ fallback 現存 injected_atoms。複用 wg_atoms.load_atoms_within_budget（內�
 A2.2 OverviewHub 綜觀：PreCompact 另快照 pre_compact_overview_hub／pre_compact_turn_intent；這裡每部位組一段
 （主目標／部位／層／卡路徑／病灶前 N／定位三行已交否，各截 overview_hub.post_compact_chars）存 pending_reinjection_overview，
 atom 名單空也照存；PostToolBatch 注入順序 atom 內文先、綜觀後，兩個 pending 都一次性 pop。
+
+需求目標樹：另組一段【需求目標樹】（wg_need_goal_points.recovery_text）存 pending_reinjection_goal，不依附部位綜觀，
+沒碰過任何部位的任務也照送；有這段時綜觀的「主目標」改成指向它，意圖分類降成附註。SessionStart(compact) 已當場送過
+（need_goal_recovery_sent）就不再存，避免同一次壓縮送兩次。
 """
 
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -26,6 +31,7 @@ from wg_core import _ensure_state, write_state, output_nothing, _now_iso, MEMORY
 from wg_atoms import load_atoms_within_budget
 
 _DEFAULT_BUDGET = 800   # 印象式重注入 token 預算（緊湊；config: atoms.post_compact_budget）
+_GOAL_SENT_WINDOW_S = 300   # SessionStart(compact) 送過目標樹後多久內的 PostCompact 算同一次壓縮
 
 AtomEntry = Tuple[str, str, List[str]]
 
@@ -85,10 +91,21 @@ def _atom_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str) -> T
     return header + "\n\n" + "\n\n".join(lines), injected, unresolved
 
 
-def _overview_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str) -> Tuple[str, List[str]]:
+def goal_blob(session_id: str, config: Dict[str, Any]) -> str:
+    """需求目標樹獨立重送的那段；模組載不進來 → stderr、不送。"""
+    try:
+        from wg_need_goal_points import recovery_text
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 需求目標模組載入失敗，壓縮後不重送目標樹：{type(e).__name__}: {e}", file=sys.stderr)
+        return ""
+    return recovery_text(session_id, config)
+
+
+def _overview_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str,
+                   has_goal: bool = False) -> Tuple[str, List[str]]:
     """A2.2：壓縮前已注入的每個部位各組一段「主目標／部位／層／卡路徑／病灶前 N／定位三行已交否」，各截 post_compact_chars；
     名單來源 PreCompact 快照（pre_compact_overview_hub），fallback 現存 overview_hub。順帶把現存 rec 標 reinjected_after_compact=True
-    （只設不清）。回 (blob, 部位名清單)；沒有已注入部位 → ("", [])。"""
+    （只設不清）。has_goal：同時重送了需求目標樹 → 主目標指向它、意圖分類降成附註。回 (blob, 部位名清單)；沒有已注入部位 → ("", [])。"""
     from wg_overview import _cfg, defects_top_n
     summary = state.get("pre_compact_overview_hub") or {
         k: v for k, v in (state.get("overview_hub") or {}).items() if "(unmapped)" not in k
@@ -106,6 +123,8 @@ def _overview_blob(state: Dict[str, Any], config: Dict[str, Any], trigger: str) 
         rec_intent = rec.get("intent") or intent
         gw = (cfg.get("goal_weights") or {}).get(rec_intent) or {}
         goal = rec_intent + (f"（視角：{gw.get('lens') or '無'}；先問：{gw.get('ask_first') or '無'}）" if gw.get("lens") or gw.get("ask_first") else "")
+        if has_goal:
+            goal = f"見【需求目標樹】那段（意圖分類附註：{goal}）"
         cards = [str(c) for c in (rec.get("card_paths") or [])]
         defects = defects_top_n(cards, int(cfg.get("candidate_top_n") or 5))
         edited = rec.get("edited_files") or {}
@@ -145,10 +164,15 @@ def handle_post_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
 
     try:
         trigger = input_data.get("trigger", "")
-        # atom 名單空不 return（A2.2）：只注入過導讀卡的 session 也要 stash 綜觀；兩邊都空才什麼都不留
+        # atom 名單空不 return（A2.2）：只注入過導讀卡的 session 也要 stash 綜觀；需求目標樹不看部位照送；三樣都空才什麼都不留
         atom_blob, injected, unresolved = _atom_blob(state, config, trigger)
-        overview_blob, parts = _overview_blob(state, config, trigger)
-        if not atom_blob and not overview_blob:
+        sent_at = state.pop("need_goal_recovery_sent", None)
+        goal_sent = isinstance(sent_at, (int, float)) and time.time() - sent_at < _GOAL_SENT_WINDOW_S
+        goal = "" if goal_sent else goal_blob(session_id, config)
+        overview_blob, parts = _overview_blob(state, config, trigger, has_goal=bool(goal) or goal_sent)
+        if not atom_blob and not overview_blob and not goal:
+            if sent_at is not None:   # 旗標已 pop，要落盤
+                write_state(session_id, state)
             output_nothing()
             return
 
@@ -156,6 +180,8 @@ def handle_post_compact(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         if atom_blob:
             state["pending_reinjection_blob"] = atom_blob
             state["pending_reinjection_atoms"] = injected
+        if goal:
+            state["pending_reinjection_goal"] = goal
         if overview_blob:
             state["pending_reinjection_overview"] = overview_blob
             state["pending_reinjection_parts"] = parts

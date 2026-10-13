@@ -256,6 +256,15 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
     except Exception as e:
         print(f"Over-engineering metrics error: {e}", file=sys.stderr)
 
+    # 需求目標：還沒結束的樹沒有完整對照（知識類有樹沒對照、寫碼類一直沒交付）→ 守門紀錄，不打擾使用者
+    try:
+        import wg_need_goal as _ng
+        from wg_need_goal_points import silent_unreconciled
+        if _ng.cfg_of(config).get("enabled", True):
+            silent_unreconciled(session_id, int(state.get("turn_seq", 0) or 0))
+    except Exception as e:
+        print(f"[NeedGoal] session 結束的對照紀錄失敗：{type(e).__name__}: {e}", file=sys.stderr)
+
     cwd = state.get("session", {}).get("cwd", "")
     staging_dir = resolve_staging_dir(cwd)
 

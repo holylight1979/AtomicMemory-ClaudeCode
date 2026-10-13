@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -869,10 +870,20 @@ def _first_session_hint_lines(root_res, cwd: str) -> list:
         return []
 
 
-def _next_phase_pointer(cwd: str, source: str) -> list:
+def _need_goal_note(session_id: str, path: Path) -> str:
+    """續接單帶【需求目標樹】時補一句：自己匯出的不用匯入，別的 session 的 Read 時走 wg_need_goal 的匯入。判不了 → 空字串。"""
+    try:
+        from wg_need_goal_points import handoff_note
+        return handoff_note(session_id, path.read_text(encoding="utf-8", errors="replace"))
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("session_start:need_goal_note", e)
+        return ""
+
+
+def _next_phase_pointer(cwd: str, source: str, session_id: str = "") -> list:
     """壓縮／恢復後的接續指標：找最新的 `_staging/next-phase-*.md`（專案層優先，其次根層），
     一行叫模型先 Read 它並覆述現狀＋下一步。壓縮會丟掉對話裡的計畫脈絡；這個檔是單一權威狀態，
-    不靠模型記得「該去讀」。找不到就不吵。fail-open。"""
+    不靠模型記得「該去讀」。檔裡有【需求目標樹】區塊時多補一句匯入與否。找不到就不吵。fail-open。"""
     try:
         from wg_core import resolve_staging_dir
         cands = []
@@ -894,7 +905,7 @@ def _next_phase_pointer(cwd: str, source: str) -> list:
         why = "context 剛壓縮" if source == "compact" else "session 恢復"
         return [
             f"[Guardian:Resume] {why}：對話裡的計畫脈絡可能已失真 → 先 `Read {newest.as_posix()}`"
-            "（最新交接檔），用一句話覆述現狀＋下一步再動工。"
+            "（最新交接檔），用一句話覆述現狀＋下一步再動工。" + _need_goal_note(session_id, newest)
         ]
     except Exception as e:  # noqa: BLE001
         _atom_debug_error("session_start:next_phase_pointer", e)
@@ -965,8 +976,19 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             f"[Workflow Guardian] Session resumed ({source}). Phase: {phase}.",
             f"Modified files: {mod_count}. Knowledge queue: {kq_count}.",
             *root_lines,
-            *_next_phase_pointer(cwd, source),
+            *_next_phase_pointer(cwd, source, session_id),
         ]
+        if source == "compact":
+            # 需求目標樹當場重送（不等下一批工具）；記時間讓緊接著的 PostCompact 不再存一份
+            try:
+                from wg_need_goal_points import recovery_text
+                goal = recovery_text(session_id, config)
+            except Exception as e:  # noqa: BLE001
+                _atom_debug_error("session_start:need_goal_recovery", e)
+                goal = ""
+            if goal:
+                lines.append(goal)
+                state["need_goal_recovery_sent"] = time.time()
         if mod_count > 0:
             files = [m["path"].rsplit("/", 1)[-1] for m in state["modified_files"][-5:]]
             lines.append(f"Recent: {', '.join(files)}")

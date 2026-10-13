@@ -108,7 +108,8 @@ def build_handoff_stub(state: Dict[str, Any], cwd: str) -> str:
 
     客觀區塊（前置脈絡部分 / 已完成 / 權威來源 / 產出位置）自動填；主觀區塊
     （why / 做法 / 決策依據）留 `<!-- TODO(模型補全) -->` 佔位，由 Layer 3 注入
-    提示叫模型補全。第一行為 /continue 選單摘要。
+    提示叫模型補全。第一行為 /continue 選單摘要。本 session 有未結束的需求目標樹時，
+    六區塊之後附【需求目標樹】區塊（wg_need_goal.handoff_block；下個 session Read 時自動匯入）。
     """
     sess = state.get("session", {}) or {}
     sid = sess.get("id", "") or ""
@@ -128,6 +129,8 @@ def build_handoff_stub(state: Dict[str, Any], cwd: str) -> str:
 
     def _todo(txt: str) -> str:
         return f"<!-- TODO(模型補全)：{txt} -->"
+
+    goal_tree = _need_goal_section(sid)
 
     return f"""[續接] Auto-Handoff 自動交接（{now}）
 
@@ -160,10 +163,23 @@ def build_handoff_stub(state: Dict[str, Any], cwd: str) -> str:
 - {_todo('為什麼選此做法 / 拒絕了哪些 alternatives / 已知坑')}
 - 知識待辦（knowledge_queue）：
 {_bullets(kq, empty='（無）')}
-
+{goal_tree}
 ---
 > 補全後可直接續工；或人工檢視後刪除。標準接續：下個 session 打 `/continue`。
 """
+
+
+def _need_goal_section(sid: str) -> str:
+    """【需求目標樹】區塊（前後各空一行）；沒有未結束的樹、或模組載不進來 → 空字串（載不進來寫 stderr）。"""
+    if not sid:
+        return ""
+    try:
+        from wg_need_goal_points import handoff_section
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 需求目標模組載入失敗，續接單不附目標樹：{type(e).__name__}: {e}", file=sys.stderr)
+        return ""
+    block = handoff_section(sid)
+    return f"\n{block}\n" if block else ""
 
 
 # ─── Phase 2: Stop token 預警（Layer 1，piggyback 既有 block）─────────────────

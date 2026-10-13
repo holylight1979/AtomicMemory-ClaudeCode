@@ -1085,9 +1085,56 @@ def handle_judge_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]
     }})
 
 
+def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """需求目標 4.4（AskUserQuestion／ExitPlanMode 前）：有目標樹就要題目或計畫裡寫節點編號；寫碼類沒寫 deny 並列節點，
+    知識類與還沒有樹只補提示（wg_need_goal_points.on_ask）。子代理不跑（裁判子 session 由 dispatcher 分去
+    handle_judge_pre_tool_use，到不了這裡）。處理過的提問記進 state["need_goal_asks"]，PostToolBatch 就不再事後處理。
+    這支本身炸了 → stderr＋守門紀錄、放行（目標檔壞了照樣擋，在 on_ask 裡）。"""
+    sid = input_data.get("session_id", "") or ""
+    if not sid or input_data.get("agent_id"):
+        output_nothing()
+        return
+    try:
+        import wg_need_goal as _ng
+        from wg_need_goal_points import mark_asked, on_ask
+        from wg_core import write_state
+        if not _ng.cfg_of(config).get("enabled", True):
+            output_nothing()
+            return
+        state, status = read_state_status(sid)
+        tool_input = input_data.get("tool_input") or {}
+        deny, hint = on_ask(sid, tool_name, tool_input, state or {})
+        if status == "ok" and state is not None:
+            mark_asked(state, str(input_data.get("tool_use_id") or ""), tool_input)
+            write_state(sid, state)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[NeedGoal] 提問前檢查失敗（放行）：{type(e).__name__}: {e}\n")
+        try:
+            from wg_core import append_guard_log
+            append_guard_log("need_goal", {"event": "ask_error", "session_id": sid, "tool": tool_name,
+                                           "error": f"{type(e).__name__}: {e}"})
+        except Exception:
+            pass
+        output_nothing()
+        return
+    if deny:
+        output_json({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": deny}})
+        return
+    if hint:
+        output_json({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": hint}})
+        return
+    output_nothing()
+
+
 def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
+
+    # 需求目標 4.4：問使用者之前（settings.json PreToolUse matcher 掛了這兩個工具才會走到這裡；沒掛時由 PostToolBatch 事後提醒）
+    if tool_name in ("AskUserQuestion", "ExitPlanMode"):
+        _need_goal_ask(tool_name, input_data, config)
+        return
 
     # ─── Sub-agent 記憶注入 ────────────────────────────────────
     # sub-agent（Agent/Task）開全新 context、不觸發 UserPromptSubmit，吃不到 atom。

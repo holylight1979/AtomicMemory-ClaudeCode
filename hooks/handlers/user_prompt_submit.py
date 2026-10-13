@@ -18,6 +18,7 @@ turn_injected 歸因記錄、atom-debug summary、budget 截斷輸出。
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -338,12 +339,25 @@ def handle_user_prompt_submit(
         session_id, state, config, clean_prompt, lines
     )
 
-    # 使用者糾正訊號：跨 turn 計數（wg_friction），達門檻由 Stop 的 Deep Post-Mortem 消費
+    # 使用者糾正訊號：跨 turn 計數（wg_friction），達門檻由 Stop 的 Deep Post-Mortem 消費；
+    # 命中（只算使用者本人打的字）且有需求目標樹 → 提醒回頭看樹（4.3，不擋）
+    correction_hits: List[str] = []
     try:
         from wg_friction import record_correction
-        record_correction(state, session_id, clean_prompt, config)
+        correction_hits = record_correction(state, session_id, clean_prompt, config)
     except Exception as e:
         _atom_debug_error("ups:friction", e)
+    if correction_hits:
+        try:
+            import wg_need_goal as _ng
+            from wg_need_goal_points import on_correction
+            if _ng.cfg_of(config).get("enabled", True):
+                _ng_line = on_correction(session_id, correction_hits, int(state.get("turn_seq", 0) or 0) + 1)
+                if _ng_line:
+                    lines.append(_ng_line)
+        except Exception as e:
+            print(f"[NeedGoal] 糾正提醒失敗（不送）：{type(e).__name__}: {e}", file=sys.stderr)
+            _atom_debug_error("ups:need_goal_correction", e)
 
     # Topic tracking
     _update_topic_tracker(state, prompt, intent, newly_injected)
