@@ -20,10 +20,10 @@ from pathlib import Path
 
 import pytest
 
-CLAUDE_DIR = Path.home() / ".claude"
-COMPANION_DIR = CLAUDE_DIR / "tools" / "codex-companion"
+TREE = Path(__file__).resolve().parents[3]   # 本樹（測的是這份碼，不是家目錄那份）
+COMPANION_DIR = TREE / "tools" / "codex-companion"
 sys.path.insert(0, str(COMPANION_DIR))
-sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+sys.path.insert(0, str(TREE / "hooks"))
 
 import judge_backend as jb  # noqa: E402
 

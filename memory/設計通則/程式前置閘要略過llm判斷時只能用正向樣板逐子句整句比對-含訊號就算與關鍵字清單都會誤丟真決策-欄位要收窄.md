@@ -7,7 +7,6 @@
 - Trigger: 前置判斷, 略過 LLM, 便宜的程式判斷, 正向樣板, 誤丟, 關鍵字清單, 萃取前過濾, 一次性指示, 開工句, fullmatch, 自由欄位
 - Created-at: 2026-10-13
 - Related: cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留
-- Quote: 「你是 v6.0 的工作 session track-a3（接手，前一個 track-a3 session 已滿），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree C:\Users\holylight\.claude-wt\track-a3（分支 v6/track-a3，已存在，不要新建）。派工 prompt 在 C:\Users\holylight\.…」
 
 ## 知識
 

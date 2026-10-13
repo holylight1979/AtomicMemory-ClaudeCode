@@ -7,15 +7,22 @@ Usage:
 """
 import argparse
 import os
+import sys
 import time
 from pathlib import Path
 
-CLAUDE_DIR = Path.home() / ".claude"
+CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根：lib.* 從本樹載
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+HARNESS_DIR = Path.home() / ".claude"   # CC 自己的暫存目錄（shell-snapshots、debug）固定在家目錄
+CLAUDE_DIR = claude_data_dir()          # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow 的 state 檔
 
 # (目錄, glob pattern, 保留天數)
 CLEANUP_RULES = [
-    (CLAUDE_DIR / "shell-snapshots", "snapshot-*.sh", 30),
-    (CLAUDE_DIR / "debug", "*.txt", 14),
+    (HARNESS_DIR / "shell-snapshots", "snapshot-*.sh", 30),
+    (HARNESS_DIR / "debug", "*.txt", 14),
     (CLAUDE_DIR / "workflow", "state-*.json", 30),
 ]
 

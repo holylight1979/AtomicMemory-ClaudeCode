@@ -19,13 +19,17 @@ import time
 from pathlib import Path
 
 SERVICE_DIR = Path(__file__).resolve().parent
+_CODE_ROOT = SERVICE_DIR.parents[1]   # 程式碼根：lib.* 從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
 sys.path.insert(0, str(SERVICE_DIR))
 
 import state as companion_state  # noqa: E402
 import assessor  # noqa: E402
+from lib.project_root import claude_data_dir  # noqa: E402
 
 
-CLAUDE_DIR = Path.home() / ".claude"
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
 CONFIG_PATH = WORKFLOW_DIR / "config.json"
 

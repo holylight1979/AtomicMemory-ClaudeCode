@@ -1,15 +1,21 @@
 """
 config.py — Memory Vector Service 設定管理
 
-讀取 ~/.claude/workflow/config.json 的 vector_search 區塊。
+讀取資料根（WG_CLAUDE_DIR 或 ~/.claude）workflow/config.json 的 vector_search 區塊。
 所有設定都有合理預設值，config.json 不存在時也能正常運作。
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
-CLAUDE_DIR = Path.home() / ".claude"
+_CODE_ROOT = Path(__file__).resolve().parents[2]   # 程式碼根：lib.* 從本樹載
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
+from lib.project_root import claude_data_dir  # noqa: E402
+
+CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 CONFIG_PATH = CLAUDE_DIR / "workflow" / "config.json"
 VECTORDB_DIR = CLAUDE_DIR / "memory" / "_vectordb"
 

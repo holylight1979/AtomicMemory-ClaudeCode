@@ -21,14 +21,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-CLAUDE_DIR = Path.home() / ".claude"                  # 使用者資料（atom 路徑、workflow/config.json）
 _CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根
 for _p in (_CODE_ROOT, _CODE_ROOT / "tools"):  # lib.* + ollama_client 都要可 import
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+# CLAUDE_DIR＝使用者資料根（atom 路徑、workflow/config.json），和 lib 同一份
 from lib.atom_locations import (  # noqa: E402
-    LOCAL_REALM_DEFAULT_DOMAIN, LOCAL_REALM_MAX_DEPTH,
+    CLAUDE_DIR, LOCAL_REALM_DEFAULT_DOMAIN, LOCAL_REALM_MAX_DEPTH,
     classify_realm, normalize_domain_path,
 )
 
