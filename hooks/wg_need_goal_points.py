@@ -210,17 +210,21 @@ def scope_on_read(state: Dict[str, Any], sid: Any, tool_name: str, tool_input: A
 CLAIM_QUESTIONS = ("①這段服務目標樹哪一條？②這個框架是誰給的（使用者原話、同伴、審查者）？"
                    "③如果照做的成本是零，你會怎麼裁？")
 REPORT_TOOLS = ("mcp__workflow-guardian__second_opinion_result",)
-_PEER_FROM_RE = re.compile(r'^\s*<cross-session-message\b[^>]*?\bfrom-name="([^"]*)"')
+# 同伴訊息：整則以 <cross-session-message> 開頭；transcript 與畫面上前面多一行 harness 說明，也要認得
+_PEER_START_RE = re.compile(r"^\s*(?:Another Claude session sent a message(?: while you were working)?:\s*)?"
+                            r"<cross-session-message\b")
+_PEER_FROM_RE = re.compile(r'<cross-session-message\b[^>]*?\bfrom-name="([^"]*)"')
 # 讀到交付信或審查報告：總控台信箱、檔名帶 codex／review／審查／second-opinion 的 .md／.txt
 _REPORT_PATH_RE = re.compile(r"(?i)[\\/]v6-inbox[\\/]|[\\/][^\\/]*(?:codex|review|審查|second[-_]?opinion)[^\\/]*\.(?:md|txt)$")
 
 
 def peer_of_prompt(prompt: str) -> Optional[str]:
-    """這則 prompt 是同伴 session 送來的訊息（開頭就是 <cross-session-message>）→ 回發送者名稱（沒有名稱回 ""）；不是回 None。"""
+    """這則 prompt 是同伴 session 送來的訊息（開頭就是同伴標籤，可帶 harness 說明行）→ 回發送者名稱（沒有名稱回 ""）；
+    不是回 None。使用者打字裡提到這個標籤不算。"""
     text = str(prompt or "")
-    if not text.lstrip().startswith("<cross-session-message"):
+    if not _PEER_START_RE.match(text):
         return None
-    m = _PEER_FROM_RE.match(text)
+    m = _PEER_FROM_RE.search(text, 0, 800)
     return m.group(1) if m else ""
 
 

@@ -348,7 +348,7 @@ def handle_user_prompt_submit(
     except Exception as e:
         _atom_debug_error("ups:friction", e)
     # 同伴 session 送來的訊息＝外部主張：裁定前送「用目標視角重看」三問（4.3；使用者本人打的字不觸發）
-    if correction_hits or clean_prompt.lstrip().startswith("<cross-session-message"):
+    if correction_hits or "<cross-session-message" in clean_prompt[:300]:
         try:
             import wg_need_goal as _ng
             from wg_need_goal_points import on_correction, on_external_claim, peer_of_prompt
