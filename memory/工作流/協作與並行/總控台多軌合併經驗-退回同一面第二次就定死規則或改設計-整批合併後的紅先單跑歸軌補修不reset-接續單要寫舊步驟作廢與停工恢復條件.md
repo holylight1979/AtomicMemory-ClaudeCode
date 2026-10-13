@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 總控台, 退回信, 整批合併, 整合落差, 停工, 恢復條件, 舊步驟作廢, worktree 派工, 多軌
 - Created-at: 2026-10-12
-- Related: 多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地, handoff-綜觀品質與抗失真寫法, 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑, 從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據
+- Related: 多模型交叉審查工作法-共讀一份簡報獨立審-block-必親自重現才接受-codex-強在反例探針-claude-強在整合落地, handoff-綜觀品質與抗失真寫法, 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑, 從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據, 改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看
 - Source: session:94d9989e#b4663283 2026-10-12
 - Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-b920ab8c2aa1c6443d3c145f3f711419" from-name="claude-4b" from-mode="bypass"> 總控台改為 claude-4b（使用者已貼 /continue 恢復 v6.0 作業）。你（claude-93）是舊總控台，不再需要動作…」
 

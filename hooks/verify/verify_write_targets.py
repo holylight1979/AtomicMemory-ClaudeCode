@@ -113,6 +113,33 @@ def test_039_whole_directory_restore_is_unknown_not_silent(tmp_path):
         assert write_paths_from_tool("Bash", {"command": cmd}, cwd) == [], cmd
 
 
+def test_040_git_mv_destination_is_a_write_target(tmp_path):
+    """040：已不存在的程式檔不再欠補案例，所以搬檔的新路徑必須記成寫入：`git mv 來源 目標` 的目標同 mv（目標是現存目錄＝目錄/來源檔名，
+    -C 改解析基準）；只有一個參數不算；--git-dir 判不出來。"""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "pkg").mkdir()
+    cwd, fwd = str(tmp_path), str(tmp_path).replace("\\", "/")
+    b, pa = os.path.normpath(str(tmp_path / "src" / "b.py")), os.path.normpath(str(tmp_path / "pkg" / "a.py"))
+    assert write_paths_from_tool("Bash", {"command": "git mv src/a.py src/b.py"}, cwd) == [b]
+    assert write_paths_from_tool("Bash", {"command": f"git -C {fwd} mv -f src/a.py src/b.py"}, cwd) == [b]
+    assert write_paths_from_tool("Bash", {"command": "git mv src/a.py pkg"}, cwd) == [pa]
+    assert write_paths_from_tool("PowerShell", {"command": "git mv src/a.py src/b.py"}, cwd) == [b]
+    assert write_paths_from_tool("Bash", {"command": "git mv src/a.py"}, cwd) == []
+    got = write_paths_from_tool("Bash", {"command": "git --git-dir=x mv src/a.py src/b.py"}, cwd)
+    assert len(got) == 1 and got[0].startswith("UNKNOWN:"), got
+
+
+def test_040_rename_item_records_old_and_new_path(tmp_path):
+    """040 codex 第二輪：PowerShell Rename-Item 的新名字也是寫入目標（落在舊路徑的同一個目錄）；-NewName 具名或第二個位置參數、
+    rni／ren 別名都一樣。舊碼只記舊路徑，改名走的程式在新路徑沒有修改紀錄。"""
+    cwd = str(tmp_path)
+    a, b = os.path.normpath(str(tmp_path / "src" / "a.py")), os.path.normpath(str(tmp_path / "src" / "b.py"))
+    for cmd in ("Rename-Item -Path src/a.py -NewName b.py", "Rename-Item src/a.py b.py", "rni src/a.py -NewName b.py",
+                "ren -LiteralPath src/a.py -NewName b.py", "Rename-Item -Path src/a.py b.py",
+                "Rename-Item -LiteralPath src/a.py b.py"):          # 040 codex 第三輪：來源具名、新名字是位置參數
+        assert write_paths_from_tool("PowerShell", {"command": cmd}, cwd) == [a, b], cmd
+
+
 def test_relative_paths_resolve_against_cwd():
     got = _n(write_paths_from_tool("Bash", {"command": "echo a > src/a.txt; tee logs/x.log"}, CWD))
     assert got == ["C:/Work/Proj/src/a.txt", "C:/Work/Proj/logs/x.log"]
