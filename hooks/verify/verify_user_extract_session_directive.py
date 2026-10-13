@@ -189,6 +189,27 @@ def test_b1_kickoffs_with_decisions_go_to_llm(tmp_path, monkeypatch):
     assert stats["skipped_directive"] == 0 and left == []
 
 
+def _quote_written_for(tmp_path, monkeypatch, prompt):
+    """萃取器寫卡（_write_atom_via_mcp）時傳給 write_atom 的 quote；write_atom 與定位換成替身，不落檔。"""
+    m = _load_worker()
+    seen = {}
+    monkeypatch.setattr(m, "write_atom", lambda **kw: seen.update(kw) or type("R", (), {"ok": True, "path": tmp_path / "x.md"})())
+    import lib.atom_io as aio
+    monkeypatch.setattr(aio, "locate_atom", lambda *a, **k: type("L", (), {"ok": False, "path": None})())
+    proj = tmp_path / "proj"
+    proj.mkdir(exist_ok=True)
+    m._write_atom_via_mcp({"statement": "commit message 一律繁體中文", "scope": "personal", "trigger": ["commit"]},
+                          {"turn_id": "t-1", "prompt": prompt, "cwd": str(proj)}, "sid12345", "u", {})
+    return seen.get("quote")
+
+
+def test_005_extractor_does_not_quote_a_kickoff(tmp_path, monkeypatch):
+    # 005：開工句裡夾的決策萃成卡時，開工句不是那張卡的使用者原話 → 不寫 Quote（判定同 wg_provenance）
+    assert _quote_written_for(tmp_path, monkeypatch, MIXED_DECIDE) is None
+    # 保護案：真使用者原話照填
+    assert _quote_written_for(tmp_path, monkeypatch, DECISIONS[0]) == f"「{DECISIONS[0]}」"
+
+
 # 退件 028：角色句括號說明只認固定句型清單，清單外（裡面寫的是決策）整則交 LLM
 NOTE_DECISIONS = [
     "你是工作 session track-x（所有專案一律用 UTF-8）",

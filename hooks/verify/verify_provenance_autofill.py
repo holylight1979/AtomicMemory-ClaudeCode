@@ -159,8 +159,13 @@ def test_003_kickoff_detector_shares_extractor_templates():
     # codex 審 cdac58d：引用開工句來討論、問句、只有角色句沒有其他派工子句 → 是真原話，不算開工句
     for words in ("『你是工作 session track-a6』這句話不應填進 Quote，請記下這個修正原則。",
                   "你是工作 session track-a6 嗎？請把保留舊標題這項決策記成卡片。",
-                  "你是工作 session track-a6，請把保留舊標題這項決策記成卡片。"):
+                  "你是工作 session track-a6，請把保留舊標題這項決策記成卡片。",
+                  # codex 審 a6d：以引號開頭引用角色句＋總控台句來討論，是使用者的糾正
+                  "『你是工作 session track-x，總控台是 claude-9f。』這兩句是開工範本，請勿當作使用者原話。",
+                  "「你是工作 session track-x，總控台是 claude-9f。」這兩句是開工範本，請勿當作使用者原話。"):
         assert not is_kickoff_prompt(words), words
+    # codex 審 a6d：角色句說明用半形括號也是開工句
+    assert is_kickoff_prompt("你是工作 session track-x(共用檔同步)，總控台是 claude-9f。第一步用 EnterWorktree 切進 worktree。")
 
 
 def test_autofill_skips_append_and_missing_path(tmp_path):
