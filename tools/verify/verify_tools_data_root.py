@@ -295,6 +295,24 @@ def test_atom_health_check_report_with_local_atom_under_data_root(dirs, cwd):
     assert "_AIDocs" in r.stdout and "local-probe" in r.stdout
 
 
+def test_atom_set_realm_locates_index_path_under_data_root(dirs, cwd):
+    """index path 相對資料根定位：舊址 _AIDocs/Failures/ 的卡只有走 CLAUDE_DIR／index_path 才找得到
+    （rglob 退路只掃 memory/ 與 _AIDocs/_atoms/；反例：CLAUDE_DIR 算家目錄時回 None）。"""
+    home, data = dirs
+    legacy = data / "_AIDocs" / "Failures"
+    legacy.mkdir(parents=True)
+    (legacy / "feedback-probe.md").write_text("# feedback-probe\n", encoding="utf-8")
+    snippet = ("import importlib.util, json, sys; spec = importlib.util.spec_from_file_location('probe_tool_mod', sys.argv[1]); "
+               "mod = importlib.util.module_from_spec(spec); sys.modules['probe_tool_mod'] = mod; spec.loader.exec_module(mod); "
+               "print('PROBE_JSON ' + json.dumps(str(mod._locate_md('feedback-probe', '_AIDocs/Failures/feedback-probe.md'))))")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", snippet, str(TREE / "tools" / "atom-set-realm.py")],
+                       env=_env(home, data), cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=120, creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
+    assert r.returncode == 0 and line, r.stderr[-2000:]
+    assert _n(json.loads(line[len("PROBE_JSON "):])) == _n(legacy / "feedback-probe.md")
+
+
 def test_fake_worktree_followup_check_reads_and_writes_data_root_only(tmp_path):
     code, data, home = tmp_path / "code", tmp_path / "data", tmp_path / "home"
     (code / "tools").mkdir(parents=True)
