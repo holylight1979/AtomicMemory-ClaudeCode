@@ -587,7 +587,7 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
     cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
     transcript_path = input_data.get("transcript_path", "") or ""
     try:
-        if not ng.cfg_of(config)["enabled"]:
+        if not ng.cfg_for_cwd(config, cwd)["enabled"]:
             return ("[NeedGoal] need_goal 在這一層關閉（overview_hub.need_goal.enabled=false），沒有套用" if is_ng else None), False
         if is_ng:
             res = ng.apply_op(session_id, turn, tool_input, cwd)
@@ -955,7 +955,8 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         # 目前的寫碼類需求目標樹（原話摘要＋節點＋對照結果）附進報告，HUD 顯示「目標對照」；收尾檢核本身不多欄
         try:
             import wg_need_goal as _ng
-            _ng_snap = _ng.snapshot_for_report(session_id) if _ng.cfg_of(config)["enabled"] else None
+            _ng_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "") or ""
+            _ng_snap = _ng.snapshot_for_report(session_id) if _ng.cfg_for_cwd(config, _ng_cwd)["enabled"] else None
             if _ng_snap:
                 report["need_goal"] = _ng_snap
         except Exception as e:

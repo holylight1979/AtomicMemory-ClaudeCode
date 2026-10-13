@@ -7,7 +7,7 @@
 ## 2026-10-13 v6.0 B 段需求目標樹（need_goal）：新需求先寫目標、改程式前要有樹與定位第四行、改了要回頭對照、交付與 commit 前完整對照
 - **緣由**：系統跟「目標」沾邊的只有意圖分類（分的是手段不是需求目標），壓縮後重送的「主目標」也是它；定位三行、寫碼查核、收尾檢核都沒有一處問這次改動服務哪個目標（設計單 `v6-B-需求目標核心流程-設計單`，原設計者第十節定案 ①A ②A）。
 - **做法**：新 `hooks/wg_need_goal.py`（目標檔 `workflow/need-goal/<sid>.json` 整段上鎖、自帶序號；五個動作、證據七條、狀態轉換、續接單區塊與匯入、壓縮重送）＋ MCP `need_goal`（`lib/need-goal.js` 只驗參數）；UPS 送回樹根／第一則提醒、PreToolUse 寫碼類沒樹就擋（OverviewHub 之前）與 commit 前 (f1)(f2)、`wg_overview.on_edit` 定位第四行核對與目標改了清定位、導讀卡附樹、Stop 寫碼查核併進 (f1)(f2)、收尾檢核附樹＋HUD「目標對照」、驗收審查拿原話／轉述／樹三段；`reconcile_cfg` 的 code_exts 改成與預設聯集、沒副檔名的 `#!` 腳本算程式檔；`overview_hub.need_goal` 設定段。契約 `DevHistory/v6.0-寫程式碼的進化-2026-10/need-goal-契約.md`，TECH §7.7。
-- **驗證**：`verify_need_goal` 42 passed（兩個行程交錯寫不掉節點、各拒收理由、先後與目標版本作廢、第四行、(f1)(f2)、commit、匯入）；退回舊接點 15 紅（斷言 7、缺介面 8）；OverviewHub 三檔＋部位表兩檔 168 passed、MCP smoke OK；真 hook 入口情境探針 `hooks/verify/probe_need_goal_flow.py` 12 步全過。
+- **驗證**：`verify_need_goal` 50 passed（兩個行程交錯寫不掉節點、各拒收理由、先後與目標版本作廢、第四行、(f1)(f2)、擋滿轉 pending 再清、子代理不跑、commit、匯入）；退回舊接點 15 紅（斷言 7、缺介面 8）；codex 審 4 條 BLOCK（換題後舊樹欠的交不進去、匯入的寫碼類樹沒新改動就漏 (f2)、上限截短丟掉義務與先後依據、清理刪鎖檔）處置後新案 6 個在處置前版本紅在斷言；OverviewHub 三檔＋部位表兩檔、MCP smoke、真 hook 入口情境探針 `hooks/verify/probe_need_goal_flow.py` 12 步全過。
 
 ## 2026-10-13 v6.0 核心推進文件總整理：歷程搬進 DevHistory 工作紀錄，checklist 與接續單只留現況與連結
 - **緣由**：原設計者指出 v6.0 checklist 每條塞滿 commit、codex 輪次、退件單編號，全文 4 萬 token，讀者看不出目標與下一步，「嚴禁把核心推進文件搞成會造成嚴重飄移的狀態」。

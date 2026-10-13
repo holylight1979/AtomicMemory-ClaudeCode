@@ -2,8 +2,9 @@
 
 情境：使用者提需求 → 沒目標樹改程式被擋 → need_goal set／add → 第一次碰部位（導讀卡附樹）→ 讀部位檔 → 定位四行 → 放行 →
 改檔欠對照 → Stop 擋 (f1) → update 交一句進度 → 跑驗證印哨兵（收據蓋號）→ reconcile 完整對照 → 宣告完成時 (f1)(f2) 都不再擋。
-資料根（WG_CLAUDE_DIR）與探針專案放在 <本樹>/workflow/need-goal/_probe/（不進版控、不在系統暫存目錄，所以改檔不會被當暫存檔），
-每次跑前清空；程式碼用本檔所在的樹。不碰 live。
+資料根（WG_CLAUDE_DIR）、守門紀錄（WG_TEST_LOGS_DIR）、家目錄（USERPROFILE／HOME）與探針專案都放在
+<本樹>/workflow/need-goal/_probe/（不進版控、不在系統暫存目錄，所以改檔不會被當暫存檔），向量檢索關掉；每次跑前清空；
+程式碼用本檔所在的樹。不碰 live：跑完用尾行的 sid 搜 live 的 Logs／workflow 應該搜不到。
 怎麼跑：python -X utf8 hooks/verify/probe_need_goal_flow.py   （尾行 NEED_GOAL_PROBE_CHECK PASS|FAIL）
 """
 from __future__ import annotations
@@ -29,10 +30,14 @@ NG = "mcp__workflow-guardian__need_goal"
 
 def hook(event: str, **fields) -> dict:
     payload = {"hook_event_name": event, "session_id": SID, "cwd": str(PROJ), "transcript_path": str(TP), **fields}
-    env = {**os.environ, "WG_CLAUDE_DIR": str(ROOT), "PYTHONIOENCODING": "utf-8"}
+    # 資料根、守門紀錄、家目錄都換到探針目錄：守門紀錄預設寫家目錄的 .claude/Logs，向量服務啟動器用家目錄找 Logs
+    env = {**os.environ, "WG_CLAUDE_DIR": str(ROOT), "WG_TEST_LOGS_DIR": str(BASE / "logs"),
+           "USERPROFILE": str(BASE / "home"), "HOME": str(BASE / "home"), "PYTHONIOENCODING": "utf-8"}
     env.pop("CLAUDE_COMPANION_JUDGE", None)
     r = subprocess.run([sys.executable, "-X", "utf8", str(GUARDIAN)], input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                        capture_output=True, env=env, cwd=str(PROJ), creationflags=FLAGS, timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(f"{event} hook exit {r.returncode}：{r.stderr.decode('utf-8', 'replace')[-600:]}")
     lines = [ln for ln in r.stdout.decode("utf-8", "replace").splitlines() if ln.strip().startswith("{")]
     return json.loads(lines[-1]) if lines else {}
 
@@ -61,6 +66,9 @@ def main() -> int:
     if BASE.exists():
         shutil.rmtree(BASE)
     (ROOT / "workflow").mkdir(parents=True)
+    (ROOT / "workflow" / "config.json").write_text(json.dumps({"vector_search": {"enabled": False}}), encoding="utf-8")
+    (BASE / "home" / ".claude" / "Logs").mkdir(parents=True)
+    (BASE / "logs").mkdir()
     (PROJ / ".git").mkdir(parents=True)
     (PROJ / ".claude" / "memory" / "shared").mkdir(parents=True)
     (PROJ / ".claude" / "overview-map.md").write_text(

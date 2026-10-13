@@ -317,6 +317,99 @@ def test_code_edit_reopens_reconciled_tree(env):
     assert _tree()["status"] == "doing" and _tree()["kind"] == "code"
 
 
+def test_old_tree_owed_after_topic_switch_can_still_be_cleared(env):
+    proj = env["proj"]
+    _op("set", goal="A", cwd=str(proj))
+    _op("add", items=[{"text": "a1"}])
+    ng.stamp_edit(SID, str(proj / "a.py"), "", 2, {})
+    _op("set", goal="B", new_task=True, turn=3)                             # 換題：T2 成為目前的樹
+    assert "(f1)" in ng.goal_gate_reason(SID, False, {})                    # T1 欠的照樣要交
+    r = _op("update", items=[{"id": "T1", "status": "doing", "why": "a.py 的改動讓 A 更接近"}], turn=3)
+    assert r["ok"] and r["tree"] == "T1" and ng.goal_gate_reason(SID, False, {}) is None
+    assert _doc()["active"] == "T2"                                          # 交舊樹不切換目前的樹
+    assert _op("add", parent="T1.1", items=[{"text": "舊樹長出的"}], turn=3)["tree"] == "T1"
+    mixed = _op("reconcile", turn=3, items=[{"id": "T1", "status": "none", "followup": "f"},
+                                             {"id": "T2", "status": "none", "followup": "f"}])
+    assert not mixed["ok"] and "只對一棵樹" in mixed["rejected"][0]
+    r = _op("reconcile", turn=3, cwd=str(proj), items=[
+        {"id": "T1", "status": "none", "followup": "f"}, {"id": "T1.1", "status": "dropped", "note": "不做"},
+        {"id": "T1.1.1", "status": "none", "followup": "f"}])
+    assert r["ok"] and _doc()["trees"]["T1"]["last_reconcile"] and _doc()["active"] == "T2"
+
+
+def test_imported_code_tree_needs_reconcile_even_without_new_edits(env):
+    proj = _code_tree(env)
+    block = ng.handoff_block(SID)
+    ng.import_handoff("sess-cont", block, str(proj / "next-phase-c.md"), 1)
+    assert ng.active_tree(ng.load("sess-cont"))["kind"] == "code"
+    reason = ng.goal_gate_reason("sess-cont", True, {})
+    assert reason and "(f2)" in reason and "還沒交完整對照" in reason          # 續接後只補驗證就交付也要對照
+    assert "(f2)" in ng.commit_gate("sess-cont", {})
+
+
+def test_caps_never_drop_owed_or_last_edit_order(env, monkeypatch):
+    monkeypatch.setattr(ng, "EDITS_MAX", 3)
+    proj = env["proj"]
+    _op("set", goal="A", cwd=str(proj))
+    ng.stamp_edit(SID, str(proj / "x.py"), "", 2, {})
+    ng.stamp_edit(SID, str(proj / "x.py"), "", 2, {})
+    assert len(ng._owed(_tree())) == 1                                      # 同一檔還欠著：併成一筆
+    for name in ("a.py", "b.py", "c.py", "d.py"):
+        ng.stamp_edit(SID, str(proj / name), "", 2, {})
+    assert len(ng._owed(_tree())) == 5                                      # 全都欠著：一筆都不丟
+    _op("update", items=[{"id": "T1", "status": "doing", "why": "都對過了"}], turn=2)
+    ng.stamp_receipts(SID, _receipt_state(_rcpt(3)), 2)
+    rno = f"R{_doc()['receipts'][-1]['seq']}"
+    for name in ("e.py", "f.py", "g.py"):
+        ng.stamp_edit(SID, str(proj / name), "", 3, {})
+    t = _tree()
+    assert len(t["edits"]) <= 5 and not any(Path(e["path"]).name == "x.py" for e in t["edits"])   # 截掉已清的舊紀錄
+    (proj / "g.py").write_text("x", encoding="utf-8")
+    r = _op("reconcile", turn=3, cwd=str(proj), items=[
+        {"id": "T1", "status": "done", "evidence": [{"kind": "receipt", "ref": rno, "level": "measured"}]}])
+    assert not r["ok"] and any("改完沒重跑" in x for x in r["rejected"])     # 先後讀 node_last_edit，不受截短影響
+
+
+def test_receipt_trim_keeps_cited_and_never_restamps(env, monkeypatch):
+    monkeypatch.setattr(ng, "RECEIPTS_MAX", 2)
+    _op("set", goal="A")
+    state = _receipt_state(_rcpt(1))
+    ng.stamp_receipts(SID, state, 2)
+    cited = _doc()["receipts"][-1]["seq"]
+    _op("reconcile", turn=2, items=[{"id": "T1", "status": "done",
+                                      "evidence": [{"kind": "receipt", "ref": f"R{cited}", "level": "measured"}]}])
+    state = _receipt_state(_rcpt(1), _rcpt(2), _rcpt(3), _rcpt(4))
+    ng.stamp_receipts(SID, state, 3)
+    seqs = [r["seq"] for r in _doc()["receipts"]]
+    assert cited in seqs and len(seqs) == 2                                  # 被引用的留著
+    assert ng.stamp_receipts(SID, state, 3) == 0                            # 截掉的不會被重新蓋成新號
+    assert ng.goal_gate_reason(SID, True, {}) is None
+
+
+def test_prune_keeps_lock_files(env):
+    d = ng.goal_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    old = 10 ** 9
+    for name in ("other.json", "other.lock", "x.1.ab.tmp"):
+        (d / name).write_text("{}", encoding="utf-8")
+        os.utime(d / name, (old, old))
+    _op("set", goal="A")
+    assert not (d / "other.json").exists() and not (d / "x.1.ab.tmp").exists() and (d / "other.lock").exists()
+
+
+def test_project_level_switch_turns_gates_off(env):
+    proj = env["proj"]
+    (proj / ".git").mkdir()
+    (proj / ".claude").mkdir()
+    (proj / ".claude" / "overview-hub.json").write_text('{"need_goal": {"enabled": false}}', encoding="utf-8")
+    _op("set", goal="A", cwd=str(proj))
+    ng.update_locked(SID, lambda d: ng.active_tree(d).update(kind="code"))
+    ng.update_locked(SID, lambda d: ng.active_tree(d)["edits"].append(
+        {"seq": 99, "turn": 1, "path": str(proj / "a.py"), "node": "T1", "agent_id": "", "code": True, "owed": True}))
+    assert ng.goal_gate_reason(SID, True, {}) is None and ng.commit_gate(SID, {}) is None
+    assert ng.edit_gate(SID, str(proj / "b.py"), {}) is None
+
+
 # ─── 並行、損毀、鎖 ─────────────────────────────────────────────────────────
 
 _WORKER = r"""
@@ -652,6 +745,49 @@ def test_stop_handle_blocks_with_f1_under_reconcile_budget(env, monkeypatch, cap
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out.get("decision") == "block" and "(f1)" in out.get("reason", "")
     assert state["reconcile_gate_turn"][SID]["count"] == 1                  # 吃寫碼查核同一個預算
+
+
+def _stop_env(env, monkeypatch, state):
+    for name, val in (("_ensure_state", lambda *a, **k: state), ("_find_session_transcript", lambda *a, **k: None),
+                      ("get_last_assistant_text", lambda *a, **k: "好"), ("token_warn_payload", lambda *a, **k: ""),
+                      ("write_state", lambda *a, **k: None), ("append_guard_log", lambda *a, **k: None)):
+        monkeypatch.setattr(st, name, val)
+
+
+def test_stop_budget_exhausts_to_pending_and_clears_after_update(env, monkeypatch, capsys):
+    from wg_release import RELEASE_TAG, pending_of
+    _code_tree(env)
+    state = {"turn_seq": 3, "turn_prompts_seq": 3, "session": {"id": SID, "cwd": str(env["proj"])}, "modified_files": []}
+    _stop_env(env, monkeypatch, state)
+    reasons = []
+    for _ in range(3):
+        with pytest.raises(SystemExit):
+            st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+        reasons.append(json.loads(capsys.readouterr().out.strip().splitlines()[-1])["reason"])
+    assert all("(f1)" in r for r in reasons)
+    assert pending_of(state, SID, "reconcile") is not None                  # 擋滿：記 pending、改問使用者
+    assert RELEASE_TAG in reasons[-1] or "沒有人能回答" in reasons[-1] or "無法互動" in reasons[-1]
+    _op("update", items=[{"id": "T1", "status": "doing", "why": "a.py 讓 A 更接近"}], turn=3)
+    try:
+        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+    except SystemExit:
+        pass
+    assert pending_of(state, SID, "reconcile") is None                      # 原因真的消失 → 清 pending
+
+
+def test_subagent_stop_does_not_run_goal_check(env, monkeypatch, capsys):
+    proj = _code_tree(env)
+    state = {"turn_seq": 3, "session": {"id": SID, "cwd": str(proj)}, "agent_modified_files": {
+        "ag1": [{"path": str(proj / "a.py"), "session_id": SID, "turn_seq": 3, "last_turn_seq": 3, "count": 1}]}}
+    monkeypatch.setattr(st, "read_state", lambda sid: state)
+    monkeypatch.setattr(st, "write_state", lambda *a, **k: None)
+    monkeypatch.setattr(st, "append_guard_log", lambda *a, **k: None)
+    try:
+        st.handle_subagent_stop({"session_id": SID, "agent_id": "ag1", "last_assistant_message": "全部完成。"}, {})
+    except SystemExit:
+        pass
+    out = capsys.readouterr().out
+    assert "(f1)" not in out and "(f2)" not in out
 
 
 def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch):

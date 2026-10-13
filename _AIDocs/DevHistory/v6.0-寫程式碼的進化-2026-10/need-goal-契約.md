@@ -23,7 +23,7 @@
 - 鎖等待上限 5 秒；拿不到 → 丟 `NeedGoalLockTimeout`，**不降級成無鎖寫**（無鎖寫會掉節點）。呼叫端照第九節處理：會擋的閘一律擋，記錄類 stderr＋守門紀錄。
 - 讀：`load(sid)` 不取鎖（換檔是原子的，讀到的一定是某一次完整寫入）；Windows 換檔瞬間的 `PermissionError` 重試 10 次、每次 20 ms。檔不存在 → 回空骨架（第二節的頂層欄位，`trees` 為空），不建檔。
 - 損毀（JSON 解析失敗）：`load` 丟 `NeedGoalCorrupt`；`update_locked` 把壞檔改名成 `<session_id>.corrupt-<時間>.json` 留證、stderr 一行、守門紀錄一筆，從空骨架重來，並在 doc 帶 `corrupt_backup` 讓呼叫端告訴 AI「目標檔損毀已備份，樹要重寫」。
-- 新建目標檔時順手刪同目錄超過 30 天沒改的 `*.json`（不刪 `.corrupt-*`）。
+- 新建目標檔時順手刪同目錄超過 30 天沒改的 `*.json` 與殘留 `*.tmp`（不刪 `.corrupt-*`）。**鎖檔一律不刪**：使用中的鎖檔不會更新時間，刪掉後別的行程重建新檔，兩邊各鎖各的（非 Windows 的檔案鎖綁在檔案實體上），整段上鎖就失效。
 
 ## 2. 目標檔格式
 
@@ -45,6 +45,7 @@
 | `trees` | dict | 樹編號 → 樹（2.2） |
 | `receipts` | list | 收據蓋號 `{seq, receipt_seq, key, turn, at, cmd, verdicts, exit}`，最多 300 筆，`seq` 就是 AI 引用的 `R<seq>` |
 | `imports` | list | 匯入過的續接單 `{path, sha, at, trees}`（同一份同內容不重複匯入） |
+| `receipts_seen` | list | 因上限被丟掉的收據識別 `<key>|<receipt_seq>|<at>`，最多 1000 筆：工作暫存裡還留著的同一筆不會被重新蓋成新號 |
 
 ### 2.2 樹
 
@@ -58,7 +59,8 @@
 | `user_said` | list | `{seq, turn, text, prior?}`；首則上限 4000 字，其餘每則 1000 字，最多 20 則（保留第一則＋最新 19 則）；`prior=true` 是從續接單匯入的 |
 | `peer_said` | list | `{seq, turn, from, text}`；每則 1000 字，最多 20 則；不當權威 |
 | `links` | dict | `{"parts": {"<root>|<部位>": {"node": "T2.1", "seq": n}}}`；鍵就是 `state["overview_hub"]` 的鍵 |
-| `edits` | list | `{seq, turn, path, node, agent_id, code, owed, cleared_seq?}`；最多 300 筆（滿了先丟最舊的非 owed） |
+| `edits` | list | `{seq, turn, path, node, agent_id, code, owed, cleared_seq?}`；同一檔同一節點還欠著對照時併成一筆（序號更新）；超過 300 筆只丟最舊的已清紀錄，owed 的一筆都不丟 |
+| `node_last_edit` | dict | 節點編號 → `{seq, path}`：掛在這個節點的最後一次程式改動；證據先後只讀這裡（不受 edits 截短影響） |
 | `last_reconcile` | dict／null | `{seq, turn, goal_rev, turns?}`：最近一次被收下的完整對照 |
 | `goal_changed` | dict／null | `{seq, turn}`：最近一次目標改變（開樹、改樹根、增減節點、改節點文字或清楚度、匯入） |
 | `imported_from` | dict／null | `{session, tree, path, map: {舊編號: 新編號}}` |
@@ -93,6 +95,7 @@
 | `update` 改 text 或 clarity | `doing`；`goal_rev+1` | 照改 | LLM |
 | `update` 只改 status | 樹根改成 `dropped` → `closed`；樹是 `reconciled`／`closed` 而節點改成非終點 → `doing`；其他不動 | 照改 | LLM |
 | `update`（任何一項被收下） | — | 清掉待對照（5.3） | LLM |
+| （規則）`add` 帶 parent、`update`、`reconcile` 依節點編號找它所屬的樹 | 不限目前的樹、不切換 `active`；換題後舊樹欠的對照照樣交得進去；一次 `reconcile` 只對一棵樹 | — | — |
 | `reconcile` 被收下 | 全部節點是 `done`／`dropped` → `closed`，否則 `reconciled`；記 `last_reconcile` | 照交的終點狀態；證據、followup、note 寫進節點；整棵樹的待對照全清 | LLM |
 | 改了程式檔（`stamp_edit`，`code=true`） | `kind=code`；`reconciled`／`closed` → `doing` | 那筆改動 `owed=true` | 程式 |
 | 改了非程式檔 | 不動 | 記進 edits，`owed=false` | 程式 |
@@ -130,7 +133,8 @@
 - `ref`：receipt 寫 `R<seq>`（或純數字），查 `receipts[].seq`；case／file 寫路徑，可帶 `:行` 或 `:行-行`，相對路徑以 `cwd` 解析，查磁碟存在；atom 寫卡名，查全域層（`wg_atoms.resolve_atom_path`）與 `cwd` 所在專案的 `.claude/memory/**/<名>.md`。
 - `covers`：這筆證據支持哪幾個節點，省略＝只支持它所在的那個節點；每個都要是這棵樹的節點。
 - 組合規則（程式只核對組合，不判內容）：`measured` ⇔ `receipt`（實測只能配收據，收據只能標實測）；case／file／atom 只能 `read` 或 `inferred`。
-- 先後：一筆 receipt 證據的收據 `seq` 必須大於它 `covers` 每個節點掛的改動裡最大的 `seq`；「節點掛的改動」＝掛在它本身、它的子孫，以及它的祖先（沒歸屬到更細節點的改動，例如沒有部位表的檔都掛樹根）。不因改了旁支的另一塊而整樹重驗。
+- 先後：一筆 receipt 證據的收據 `seq` 必須大於它 `covers` 每個節點掛的程式改動裡最大的 `seq`（讀 `node_last_edit`）；「節點掛的改動」＝掛在它本身、它的子孫，以及它的祖先（沒歸屬到更細節點的改動，例如沒有部位表的檔都掛樹根）。不因改了旁支的另一塊而整樹重驗。
+- 收據超過 300 筆時只丟最舊、沒被任何節點證據引用的；丟掉的識別記進 `receipts_seen`。
 - 匯入的證據 `prior=true`：只供閱讀，不計入 5.5 第 4～6 條。
 
 ### 5.5 完整對照的七條（4.5 第二層；`reconcile` 收件時與交付邊界時用同一支判定）
@@ -224,7 +228,9 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 | `add_checkpoint(doc, tree, turn, point, node)` | None | 全部（只能在 `fn` 裡用） | 記一筆關鍵點紀錄，滿 200 丟最舊 |
 | `handoff_session_of(text)` | str／None | b2：post_tool_use | 續接單最後一塊 need-goal 區塊是哪個 session 匯出的 |
 | `active_tree(doc)` | dict／None | 全部 | 目前的樹 |
+| `tree_of(doc, node_id)` | dict／None | 全部 | 節點編號所屬的樹（不限目前的樹） |
 | `cfg_of(config, root=None)` | dict | 全部 | 合併後的 `need_goal` 設定（第十節） |
+| `cfg_for_cwd(config, cwd)` | dict | 全部 | cwd 所在專案的設定（專案層覆蓋檔也算）；(f1)(f2)、commit 前用目標檔記的 cwd |
 | `apply_op(sid, turn, tool_input, cwd="")` | dict `{ok, action, tree, rejected:[str], text, goal_changed}` | b2：post_tool_use | 套用五個動作 |
 | `render(tree, form, chars=None, doc=None)` | str | 全部 | `header`（一行）／`compact`（一行一節點，chars 上限，預設設定的 `render_chars`）／`full`（含原話、轉述、證據、待對照、最近收據，要列收據時傳 doc） |
 | `node_ref(tree, text)` | str／None | b2：wg_overview；bkp：on_ask | 文字裡第一個 `T\d+(\.\d+)*` 且是這棵樹、狀態不是放棄的節點 |
@@ -236,7 +242,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 | `stamp_receipts(sid, state, turn)` | int（蓋了幾筆） | b2：post_tool_use | 把工作暫存裡還沒蓋號的收據（主 session 與子代理）蓋進目標檔 |
 | `on_prompt(sid, prompt, turn, config)` | str／None | b2：user_prompt_submit | 4.1：分使用者原話／同伴轉述／系統通知，記進樹，回要送的那一行 |
 | `goal_gate_reason(sid, triggered, config)` | str／None | b2：stop._verify_gates | (f1) 每次都判；(f2) 只在 `triggered`（這則宣告完成、或擋滿待查的原宣稱、或本回合交了收尾檢核）時判 |
-| `commit_gate(sid, config)` | str／None | b2：pre_tool_use（commit 指令） | commit 前：(f1)＋目前的寫碼類樹的 (f2) |
+| `commit_gate(sid, config)` | str／None | b2：pre_tool_use（commit 指令） | commit 前：(f1)＋目前的寫碼類樹的 (f2)。(f2) 的對象＝目前的樹 `kind=code`（含從續接單匯入、這個 session 還沒改過程式的寫碼類樹：前一個 session 的證據不算數） |
 | `snapshot_for_report(sid, kinds=("code",))` | dict／None | b2：post_tool_use（收尾檢核）、codex_companion | 原話摘要＋目標樹＋對照結果；目前的樹類別不在 kinds 回 None |
 | `review_material(sid)` | str | b2：codex_companion | 「使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）」三段分開標示的純文字；沒有樹回空字串 |
 | `handoff_block(sid)` | str | bkp：wg_handoff；b2：read form=handoff | 第七節格式；沒有未結束的樹回空字串 |
@@ -296,3 +302,17 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 - 4.3、4.4、軌五的行為細節（bkp 依設計單做，只要守第二～九節）。bkp 新增的欄位寫在這一節。
 - 第六節 C 項（C-G1／G4／G9／G11／G15）：接點已留——`last_reconcile.turns`（G11）、`goal_changed`（G1）、`snapshot_for_report`（G9 材料）、reconcile 收下的時點（G4 掃視點）。
 - 第七節 B5 驗法。
+
+### 12.1 track-b-hooks 新增（只加鍵，不改第二～九節任何鍵的意義）
+- 樹 `points`（dict，只有 wg_need_goal_points 寫）：`scope_parts` [部位鍵]、`scope_dirs` {mark, dirs, sent}（mark＝節點 history 最大 seq，樹一更新就重算）、`scope_pending` [{kind: part｜dirs, label, prev}]、`scope_sent_turn` int｜null（一回合最多送一則）、`multi_hinted` [路徑]。匯出時會跟著出去，匯入時不帶。
+- state 鍵：
+  - `need_goal_batch`（bool）：on_read 排了讀入範圍提示，由 PostToolBatch 送。
+  - `need_goal_multi_checked` {路徑: 次數}。
+  - `need_goal_asks` [tool_use_id 或 h:<輸入雜湊>]，最多 20 筆：PreToolUse 處理過的提問。
+  - `need_goal_recovery_sent`（epoch 秒）：SessionStart(compact) 當場送過目標樹，300 秒內的 PostCompact 不再存。
+  - `pending_reinjection_goal`（str）：PostCompact 存、PostToolBatch 送，排在 atom 內文後、部位綜觀前；綜觀的「主目標」改成指向它。
+- `state["overview_hub"][部位].goal_view_turn`：目標視角重送過的那一次 goal_reset_turn。
+- 守門紀錄另加事件：`multi_edit`、`ask_error`（PreToolUse 提問分支自己炸了，放行）、`points_error`。
+- 函式：on_correction(sid, hits, turn=None)、silent_unreconciled(sid, turn=None) 多一個可省略的 turn。另有只在 bkp 模組與它的呼叫點用的：scope_dir_line、batch_due、batch_lines、asks_after、mark_asked、ask_key、goal_view_text、recovery_text、handoff_note、handoff_section。
+- 4.4 擋與事後兩種模式：settings.json 的 PreToolUse matcher 有掛 AskUserQuestion|ExitPlanMode＝擋；沒掛（或 PreToolUse 不觸發）＝PostToolBatch 從 tool_calls 找沒處理過的提問，事後記錄並提醒。附錄 D(1) 實測決定預設用哪一種。
+- 回合號慣例：只有 UserPromptSubmit 當下用 `state["turn_seq"]+1`（turn_seq 在 UPS 最後才加一）；PreToolUse／PostToolUse／PostToolBatch／Stop 用 `state["turn_seq"]` 本身。
