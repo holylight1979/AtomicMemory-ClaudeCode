@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: 指令比對, 收據比對, cmd_matches, 量尺指令, 哨兵偽造, echo 冒充, 短路 ||, here-string, 指令截斷, 白名單語法, fail-closed, shell 斷詞, 子集冒充
 - Created-at: 2026-10-13
-- Related: 驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄, 總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件
+- Related: 驗證閘要能被如實滿足-超過工具10分鐘上限的量尺要讓驗證程式自寫收據並連到真的啟動紀錄, 總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件, shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文, 從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令
 - Quote: 「你是 v6.0 的工作 session track-e（接手修補，前一個 track-e session 已滿），總控台是 claude-ad。派工 prompt 在 C:\Users\holylight\.claude\workflow\v6-inbox\to-track-e\009-returned.md，用絕對路徑讀完全文照做。worktree C:\Users\holylight\.cl…」
 
 ## 知識

@@ -8,7 +8,7 @@
 - Source: session:a1cd2ad7#32684599 2026-10-12
 - Quote: 「這session所有你學到的重要知識、經驗都記好的話，我就關掉了。」
 
-- Related: worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名
+- Related: worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名, worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒
 
 ## 知識
 
