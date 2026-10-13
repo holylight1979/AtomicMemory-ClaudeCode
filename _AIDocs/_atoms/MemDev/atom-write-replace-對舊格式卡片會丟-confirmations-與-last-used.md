@@ -12,6 +12,7 @@
 
 - [臨] 實測：對舊格式專案 atom（標題行為中文、檔名為英文 slug、`- Scope: project`、有 `- Last-used: 2026-04-23` / `- Confirmations: 10`）做 `atom_write mode=replace`，回訊「preserved conf=0 rh=0」，結果標題被改成檔名、Confirmations 與 Last-used 行消失、Created-at 變成當天；歸因候選：replace 路徑的中繼資料讀取沒容忍舊格式（標題≠檔名或 Scope=project）。附帶：knowledge 區超 3072 bytes 的舊卡 append 必被預算擋，只能 replace，所以這個丟失會在「裁剪舊卡」時必然觸發。
 - [臨]（2026-10-13 再踩）對 `decisions` 與一張 local 卡做 `mode=replace`：沒帶 `related` → 整行 Related 被清掉；舊卡沒有 Created-at → 補成當天；舊卡沒有 Quote → PostToolUse 來源自動補填用「本回合使用者原話」補（工作 session 裡就是開工派工句，與卡片無關）；標題行換成 title 參數（用檔名 `decisions` 才找得到卡，標題「全域決策」就被覆蓋）。Related 可用 atom_edit_meta 補回；Quote、Created-at、標題字樣沒有工具能改（清空 Quote 會被自動補填再寫回）。
+- [臨] 已修（v6/track-a6c 9eaa8bf）：根因是 replace 用參數整張重建檔頭，只有幾個欄位走「沿用舊值」，而且 py 與 MCP js 各寫一份。現在兩端共用 `lib/atom_io.carry_replace_header`：舊格式（標題 slug≠檔名）沿用舊標題、舊卡沒 Created-at 不補、沒給的檔頭鍵（Related、Status、Confirmations、Last-used、Type…）原行帶回；Quote 自動填遇開工句不填（`lib/harness_text.is_kickoff_prompt`）。
 
 ## 行動
 
