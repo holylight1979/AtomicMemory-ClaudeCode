@@ -380,6 +380,12 @@ def test_045_hook_python_exe_single_source(monkeypatch, tmp_path):
     assert wg_core.hook_python_exe() == str(pyw)                                               # 沒有 python.exe → 原樣
     monkeypatch.setattr(sys, "executable", str(tmp_path / "python3.exe"))
     assert wg_core.hook_python_exe() == str(tmp_path / "python3.exe")
+    import wg_reading_path as rph                                                              # 收尾附閱讀路徑影響也起 Python 子行程
+    assert getattr(rph, "hook_python_exe", None) is wg_core.hook_python_exe and not hasattr(rph, "_python_exe")
+    own = [p.relative_to(HOOKS_DIR).as_posix() for p in sorted(HOOKS_DIR.rglob("*.py"))
+           if "verify" not in p.parts and p.name != "wg_core.py"
+           and 'with_name("python.exe")' in p.read_text(encoding="utf-8", errors="replace")]
+    assert own == [], f"hook 模組各自留了 pythonw→python.exe 的對應：{own}（一律呼叫 wg_core.hook_python_exe）"
 
 
 # ─── ⑥ DISPATCH_OPENS_TURN ／ ⑧ VCS_ROOT_UNREADABLE ────────────────────────────

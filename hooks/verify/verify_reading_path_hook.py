@@ -152,7 +152,6 @@ def test_overview_map_sample_gives_the_entry(tmp_path, monkeypatch):
                                              "| `hooks/` | 入口 | 無 | 無 | settings.json > hooks/run.py > x.py |\n"})
     seen = []
     real = subprocess.run
-    monkeypatch.setattr(rph, "_python_exe", lambda: sys.executable)
 
     def spy(args, **kw):
         seen.append((list(args), kw.get("creationflags")))
