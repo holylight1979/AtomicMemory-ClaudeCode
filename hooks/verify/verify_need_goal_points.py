@@ -477,7 +477,7 @@ def test_mid_turn_scan_plain_prompt_and_no_goal_file_do_nothing(world, tmp_path)
     tp.write_text(_tx_line(QUEUED_PEER), encoding="utf-8")
     assert ngp.peer_claim_lines(SID, str(tp), {}, 1) == [] and not ng.goal_path(SID).exists()   # 沒目標檔不掃
     make_tree()
-    ngp.peer_claim_lines(SID, str(tp), {}, 1)
+    assert ngp.peer_claim_lines(SID, str(tp), {}, 1) == []                       # 第一次只記位置：開樹前就在的同伴訊息不回溯
     with open(tp, "a", encoding="utf-8") as f:
         f.write(_tx_line({"type": "attachment", "attachment": {"type": "queued_command", "prompt": "使用者排隊打的字"}}))
     assert ngp.peer_claim_lines(SID, str(tp), {}, 1) == []                       # 排隊的一般 prompt 不觸發
@@ -659,6 +659,21 @@ def test_pre_tool_use_handler_blocks_then_passes_and_marks(world):
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny" and "T1.1" in out["hookSpecificOutput"]["permissionDecisionReason"]
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(ask_with("T1.1：要用哪個？"), "tu2"), {}) is None
     assert {"tu1", "tu2"} <= set(wg_core.read_state(SID)["need_goal_asks"])
+
+
+def test_ask_block_count_flows_from_pre_tool_use_to_batch_audit(world):
+    """真 hook 入口串起來：PreToolUse 擋一次 state 計數 1；掛上節點那題在 PostToolBatch 審計記「擋過 1 次、掛 T1.1」並歸零。"""
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3})
+    make_tree("code")
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(ASK, "tu1"), {})
+    assert wg_core.read_state(SID).get("need_goal_ask_blocks") == 1
+    ok = ask_with("T1.1：要用哪個？")
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(ok, "tu2"), {}) is None
+    inp = {"session_id": SID, "hook_event_name": "PostToolBatch",
+           "tool_calls": [{"tool_name": "AskUserQuestion", "tool_input": ok, "tool_use_id": "tu2"}]}
+    run_handler(ptb.handle_post_tool_batch, inp, {})
+    assert [(g["blocked"], g["linked"]) for g in guard(world) if g["event"] == "ask_audit"] == [(1, "T1.1")]
+    assert wg_core.read_state(SID).get("need_goal_ask_blocks") == 0
 
 
 def test_pre_tool_use_handler_knowledge_hint_and_subagent_skip(world):
