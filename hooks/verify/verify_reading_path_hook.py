@@ -101,7 +101,7 @@ def test_summarize_ratable_unratable_and_worst_row():
     assert lines[0].strip().startswith("READING_PATH DONE mode=compare") and "可評級：是" in lines[1]
     assert "[新增] a::m → z::3｜拐彎 -→3" in lines[2], "全確定優先，再比 after 拐彎"
     bad = {"ratable": False, "ratable_before": True, "ratable_after": False, "coverage_drop": True, "emptied_files": ["q.py"],
-           "rows": [row("same", True, 1)], "entry_misses": ["C:/p/gone.py"]}
+           "rows": [row("same", True, 1)], "entry_misses": ["pkg/gone.py"]}
     text = "\n".join(rph.summarize(bad, "READING_PATH DONE mode=compare ratable=0"))
     assert "可評級：否" in text and "after 有入口沒有全確定的路" in text and "解析失敗或有函式↔零函式 1 檔" in text
     assert "沒有變差或新增的路徑" in text and "gone.py" in text
