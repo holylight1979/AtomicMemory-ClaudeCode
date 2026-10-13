@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-13 v6.0 寫碼查核閘：改過又原樣還原的檔不算改碼（補案例與量尺都不欠）
+- **緣由**：驗證 session 做反證時暫改受測檔、再 `git checkout` 還原，(d) 與量尺閘仍把它算成「改了程式碼」每回合擋，只能一再走放行詢問；檔案內容其實沒有任何淨變化。
+- **做法**：Stop 的寫碼查核（主 session 與子代理／裁判共用 `_verify_gates`）先用 `wg_verify_ledger.net_unchanged_paths` 剔掉「git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit」的改檔；未追蹤／忽略／已暫存／刪除、改完 commit 過、不在 git 工作區或 git 失敗逾時一律照算改了。
+- **驗證**：新案 9 個：「還原不擋（配對還改著照擋）」「commit 過照擋（配對 commit 在之前不擋）」「子代理還原不擋」三案在舊碼紅在斷言；四種 git 差異與判不出來五案是防放寬的守門（舊碼本來就擋）；git 失敗時 stderr 有訊號一案。相關 verify 8 檔 735 passed；真 hook 入口情境 22（暫改再還原／留著／commit）修前 2 條不符、修後全符合。
+
 ## 2026-10-13 v6.0 CommitOrder 口令閘：記憶系統自己的 worktree commit 不等口令，豁免只認看得出落點的句型
 - **緣由**：a3 合併「同伴訊息不算使用者原話」後，工作 session 在 `~/.claude-wt/*`（~/.claude 的 git worktree）的 commit 全被擋——以前能過是同伴訊息裡的「commit」字樣漏進使用者原話；豁免只認 session cwd 在 ~/.claude 之下，漏認 worktree，也從不看 `-C`／`cd` 讓 commit 落到別的 repo。
 - **做法**：豁免改看每段 commit 實際落在哪個 repo（最近的 `.git`；~/.claude 本身或 gitdir 在 `<CLAUDE_DIR>/.git/worktrees/` 下才算），只認句型白名單（`&&` 串、第一段可 `cd <絕對路徑>`、其餘每段 `git [-C <字面路徑>] add/commit/push/…`；引號狀態掃單引號外的 `$(`／反引號、heredoc 須加引號、路徑不得含變數、`--git-dir` 等覆寫與繼承的 GIT_* 一律不豁免）；拆不出段但有包裝寫法的 git commit 照常檢查口令。順帶：`extract-worker` 失敗骨架卡的建立日期欄改 `Created-at:`（原 `Created:` 會被日期 lint 判成敘事日期）；`verify_harvest_routing` 追蹤項帶唯一 id、`verify_followup_check` 沙箱連程式碼根一起指 tmp（a3 合併後才浮現的兩個測試落差）。

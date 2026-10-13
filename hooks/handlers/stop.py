@@ -34,7 +34,7 @@ from wg_evasion import (
 )
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, measure_cfg, measure_gate_reason, measure_advisory,
-    measure_cmds_of, agent_receipt_key, load_self_runs, measure_parts, self_run_covered,
+    measure_cmds_of, agent_receipt_key, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -729,6 +729,17 @@ def _verify_gates(
     kind = ""
     advice: Optional[str] = None
     _runs: List[List[Dict[str, Any]]] = []
+    # 改過又原樣還原的檔（與 HEAD 相同、本 session 之後沒 commit）不算改碼：補案例與量尺都不欠；判不出來照算改了
+    try:
+        same = net_unchanged_paths(own_mod_files, state.get("last_commit_turn_seq"))
+    except Exception as e:  # noqa: BLE001
+        same = []
+        print(f"[Guardian:ReconcileGate] 判斷改過又還原的檔失敗，照算改了：{type(e).__name__}: {e}", file=sys.stderr)
+    if same:
+        gone = set(same)
+        own_mod_files = [m for m in own_mod_files if (m or {}).get("path") not in gone]
+        print("[Guardian:ReconcileGate] 改過又原樣還原（與 HEAD 相同、之後沒 commit），不算改碼："
+              + "、".join(Path(p).name for p in same[:5]), file=sys.stderr)
 
     def _self_runs() -> List[Dict[str, Any]]:
         if not _runs:

@@ -2311,3 +2311,111 @@ def test_017c_hook_last_assistant_message_wins_over_transcript(driven, capsys, m
                            reconcile_gate_turn={_SID: {"turn": 5, "count": 2}}, **kw)
     assert "(a) 說「修好」" in out
     assert state["pending_release"][_SID]["reconcile"]["claims"] == ["修好了，全部完成。"]
+
+
+# ─── 改過又原樣還原的檔不算改碼：內容與 HEAD 相同、本 session 第一次改它之後沒 commit ─────────────────
+
+_DEBT_X = "改了程式碼（x.py）之後沒有新增或修改驗證 case 檔"
+
+
+def _git(repo: Path, *args: str) -> None:
+    import subprocess
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+@pytest.fixture()
+def clean_repo(tmp_path, monkeypatch):
+    """真 git repo：hooks/x.py 已提交（部位表 hooks/ 列有量尺）；量尺閘的部位查找指到這個 repo。回 (repo, x.py 路徑)。"""
+    repo = tmp_path / "repo"
+    (repo / "hooks").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    (repo / "hooks" / "x.py").write_text("x = 1\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "init")
+    monkeypatch.setattr(wo, "_lookup", _lookup_at(repo))
+    return repo, str(repo / "hooks" / "x.py")
+
+
+def test_reverted_edit_is_not_code_debt_nor_ruler_debt(driven, capsys, clean_repo):
+    """反證時暫改、又 git checkout 還原的程式檔：內容與 HEAD 相同、本 session 之後沒 commit → (d) 與量尺閘都不擋；
+    配對：檔還改著 → (d) 與量尺閘照擋。"""
+    repo, x = clean_repo
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
+    assert _DEBT_X not in out and "MeasureGate" not in out
+    (repo / "hooks" / "x.py").write_text("x = 2\n", encoding="utf-8", newline="\n")
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)])
+    assert _DEBT_X in out and "MeasureGate" in out
+
+
+def test_clean_but_committed_since_first_edit_still_owes(driven, capsys, clean_repo):
+    """本 session 第一次改它那回合起跑過 commit（last_commit_turn_seq ≥ 該檔 turn_seq）：工作樹乾淨也可能是把改動提交了 → 照擋；
+    commit 在第一次改它之前 → 不擋。"""
+    _, x = clean_repo
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)], last_commit_turn_seq=5)
+    assert _DEBT_X in out
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(x, 5)], last_commit_turn_seq=4)
+    assert _DEBT_X not in out
+
+
+def test_subagent_reverted_edit_is_not_code_debt(sub_stop, capsys, clean_repo):
+    """子代理 Stop 走同一個 _verify_gates：子代理暫改又還原的檔不欠案例；配對：還改著 → 照擋（無法互動）。"""
+    repo, x = clean_repo
+    out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(x, 5)]}))
+    assert "無法互動，不能放行" not in out and _DEBT_X not in out
+    (repo / "hooks" / "x.py").write_text("x = 4\n", encoding="utf-8", newline="\n")
+    out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(x, 5)]}))
+    assert "無法互動，不能放行" in out and _DEBT_X in out
+
+
+@pytest.mark.parametrize("kind", ["untracked", "ignored", "staged", "deleted"])
+def test_any_git_difference_keeps_debt(driven, capsys, clean_repo, kind):
+    """未追蹤、被忽略、已暫存、刪除都算有差（判不出原樣就照算改了）。"""
+    repo, x = clean_repo
+    path = x
+    if kind == "untracked":
+        path = str(repo / "hooks" / "y.py")
+        Path(path).write_text("y = 1\n", encoding="utf-8")
+    elif kind == "ignored":
+        (repo / ".gitignore").write_text("gen/\n", encoding="utf-8")
+        (repo / "hooks" / "gen").mkdir()
+        path = str(repo / "hooks" / "gen" / "z.py")
+        Path(path).write_text("z = 1\n", encoding="utf-8")
+    elif kind == "staged":
+        Path(x).write_text("x = 3\n", encoding="utf-8", newline="\n")
+        _git(repo, "add", "hooks/x.py")
+    else:
+        Path(x).unlink()
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(path, 5)])
+    assert f"改了程式碼（{Path(path).name}）之後沒有新增或修改驗證 case 檔" in out, kind
+
+
+def test_git_failure_is_reported_not_silent(clean_repo, capsys):
+    """git 逾時或回非零 → 照算改了，而且 stderr 說是哪個根、照算改了（不靜默）。"""
+    import subprocess
+    repo, x = clean_repo
+
+    def timeout(*a, **k):
+        raise subprocess.TimeoutExpired("git", 1)
+    assert vl.net_unchanged_paths([_mf(x, 5)], _run=timeout) == []
+    err = capsys.readouterr().err
+    assert str(repo) in err and "照算改了" in err and "TimeoutExpired" in err
+
+
+def test_undecidable_keeps_debt(driven, capsys, clean_repo, tmp_path):
+    """不在 git 工作區、修改紀錄沒有回合、git 逾時或失敗 → 判不出原樣，照算改了（不放寬）。"""
+    import subprocess
+    _, x = clean_repo
+    # 不在 git 工作區用虛構的 c:\proj（pytest 的 tmp 目錄名含 test，找不到專案根時會被 `**/*test*` 當成案例）
+    out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(_CODE, 5)])
+    assert _DEBT_X in out
+    assert vl.net_unchanged_paths([_mf(_CODE, 5)]) == []
+    assert vl.net_unchanged_paths([_mf(x, 5)]) == [x]                                     # 對照：判得出來就算原樣
+    legacy = {k: v for k, v in _mf(x, 5).items() if k not in ("turn_seq", "last_turn_seq")}
+    assert vl.net_unchanged_paths([legacy]) == []
+
+    def timeout(*a, **k):
+        raise subprocess.TimeoutExpired("git", 1)
+    assert vl.net_unchanged_paths([_mf(x, 5)], _run=timeout) == []
+    assert vl.net_unchanged_paths([_mf(x, 5)], _run=lambda *a, **k: subprocess.CompletedProcess(a, 128, b"", b"x")) == []

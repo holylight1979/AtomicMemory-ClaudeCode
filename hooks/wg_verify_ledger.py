@@ -1105,6 +1105,60 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     return owed
 
 
+def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None, timeout_s: float = 3.0,
+                        _run: Optional[Callable[..., Any]] = None) -> List[str]:
+    """改過、但現在跟 HEAD 一模一樣的檔（例：反證時暫改、又 git checkout 還原）→ 回這些檔的 path（照 modified_files 的寫法）。
+    要同時成立：git 追蹤著它、git status 對它沒有任何輸出（改動、已暫存、刪除、未追蹤、被忽略都算有差），而且本 session
+    從第一次改它那回合起沒跑過 commit（last_commit_turn ≥ 該檔 turn_seq：工作樹乾淨可能是把改動提交了，照算改了）。
+    判不出來（不在 git 工作區、修改紀錄沒有回合、git 失敗或逾時）→ 不回，照算改了（不放寬）。每個 git 根只跑兩次 git。"""
+    run = _run or subprocess.run
+    try:
+        last = int(last_commit_turn) if last_commit_turn is not None else None
+    except (TypeError, ValueError):
+        return []
+    by_root: Dict[str, Tuple[Path, List[str]]] = {}
+    for m in mods or []:
+        p, t = (m.get("path"), m.get("turn_seq")) if isinstance(m, dict) else (None, None)
+        try:
+            if not p or t is None or (last is not None and last >= int(t)):
+                continue
+        except (TypeError, ValueError):
+            continue
+        d = Path(p).parent
+        while not d.exists() and d.parent != d:            # 檔或目錄被刪了：往上找還在的目錄
+            d = d.parent
+        hit = find_vcs_root(d)
+        if hit and hit[0] == "git":
+            by_root.setdefault(_norm_path(str(hit[1])), (hit[1], []))[1].append(p)
+    out: List[str] = []
+    for key, (root, paths) in by_root.items():
+        spec = [str(x).replace("\\", "/") for x in paths]
+        try:
+            tracked = run(["git", "-C", str(root), "ls-files", "-z", "--full-name", "--", *spec],
+                          capture_output=True, timeout=timeout_s, creationflags=_NO_WINDOW)
+            status = run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=all",
+                          "--", *spec], capture_output=True, timeout=timeout_s, creationflags=_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError) as e:
+            print(f"[verify_ledger] 在 {root} 查 git 失敗，這些改檔照算改了：{type(e).__name__}: {e}", file=sys.stderr)
+            continue
+        if tracked.returncode != 0 or status.returncode != 0:
+            err = (status.stderr or tracked.stderr or b"").decode("utf-8", "replace").strip()[:120]
+            print(f"[verify_ledger] 在 {root} 查 git 回非零，這些改檔照算改了：{err}", file=sys.stderr)
+            continue
+        known = {_norm_path(f"{key}/{f}") for f in tracked.stdout.decode("utf-8", "replace").split("\0") if f}
+        changed, fields, i = set(), status.stdout.decode("utf-8", "replace").split("\0"), 0
+        while i < len(fields):
+            f = fields[i]
+            if len(f) > 3:
+                changed.add(_norm_path(f"{key}/{f[3:]}"))
+                if f[0] in "RC" and i + 1 < len(fields):    # 改名／複製：下一欄是原路徑
+                    i += 1
+                    changed.add(_norm_path(f"{key}/{fields[i]}"))
+            i += 1
+        out += [p for p in paths if _norm_path(p) in known and _norm_path(p) not in changed]
+    return out
+
+
 _RECONCILE_HEAD = "[Guardian:ReconcileGate] 收尾宣稱對不上本回合的驗證收據，或改了程式碼還欠驗證案例：\n"
 _RECONCILE_SOURCE = "\n收據來源：Bash／PowerShell 輸出的哨兵與 exit code（PostToolUse 落帳）。"
 _RECONCILE_TAIL = _RECONCILE_SOURCE + "改成事實句（沒跑就說沒跑），或現在跑出對應收據再重新收尾。"
