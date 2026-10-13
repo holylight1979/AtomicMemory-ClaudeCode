@@ -6,7 +6,7 @@
 - Confidence: [臨]
 - Trigger: cross-session-message, 同伴訊息, SendMessage 跨 session, harness 標籤, 閉合標籤, 轉義, user_typed_text, strip_harness_blocks, 清理器, 標籤注入, system-reminder 引用
 - Created-at: 2026-10-12
-- Related: 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem, commitorder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令
+- Related: 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem, commitorder閘只認最新一則使用者原話-中間夾系統通知或背景事件就要請使用者重下口令, 程式前置閘要略過llm判斷時只能用正向樣板逐子句整句比對-含訊號就算與關鍵字清單都會誤丟真決策-欄位要收窄, 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行
 - Quote: 「<cross-session-message from="uds:\\.\pipe\LOCAL\cc-msg-aa1d485368fca9958b7357c8a9a7531a" from-name="claude-88" from-mode="bypass"> 收 </cross-session-message>」
 
 ## 知識

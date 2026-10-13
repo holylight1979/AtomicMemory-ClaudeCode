@@ -756,11 +756,12 @@ def _verify_gates(
         try:
             _, probe = get_current_turn_visible_text(transcript, text=transcript_text)
             names = probe.get("turn_tool_names_all") or probe.get("turn_tool_names") or []
-            try:
+            try:                  # 只接匯入失敗；部位表讀不到（MapReadError）要往外拋，走下面的判定錯誤路徑一律擋
                 from wg_overview import _lookup as _lk
-                mcmds = measure_cmds_of(own_mod_files, _lk)
-            except Exception:
+            except ImportError:
                 _lk, mcmds = None, []
+            else:
+                mcmds = measure_cmds_of(own_mod_files, _lk)
             reason, report = reconcile_gate_parts(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,

@@ -8,7 +8,7 @@
 - Source: session:c5b0a814#c9c2cf0f 2026-09-14
 - Quote: 「此session的經驗與知識，需要記憶的就atoms記起來吧。都記好以後 上GIT 、上乾淨。」
 
-- Related: cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留
+- Related: cc同伴訊息封裝只轉義正文裡的cross-session-message閉合標籤-其他harness標籤原樣保留, 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行
 
 ## 知識
 

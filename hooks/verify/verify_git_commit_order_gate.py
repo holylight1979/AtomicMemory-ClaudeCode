@@ -15,6 +15,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 HOOKS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HOOKS_DIR))
 
@@ -404,3 +406,292 @@ def test_wrapped_commit_is_not_skipped_by_parser(tmp_path):
     assert _check(command='bash -c "git -C C:/other commit -m x"', state=st) is not None
     assert _check(command='bash -c "git log --oneline"', state=st) is None
     assert _check(command='git log --grep "commit (x)"', state=st) is None
+
+
+# ─── 一般寫法不得漏擋（codex 檢核 A 四條）：每件一反例（無口令必擋、關豁免對照）＋誠實寫法照舊免口令 ────
+
+_OFF = {"guard": {"commit_order": {"exempt_cwd_under_claude_dir": False}}}
+
+
+def _no_order(cwd):
+    """本回合使用者原話沒有口令，session cwd 在 cwd。"""
+    return {"recent_user_prompts": ["改好了"], "turn_prompts": ["改好了"], "session": {"cwd": str(cwd)}}
+
+
+def _other_repo(tmp_path):
+    other = tmp_path / "other"
+    (other / ".git").mkdir(parents=True)
+    return other
+
+
+def _ours(tmp_path):
+    from handlers import pre_tool_use as ptu
+    return _wt(tmp_path, "wt-ours", Path(ptu.CLAUDE_DIR) / ".git" / "worktrees" / "track-x")
+
+
+def test_commit_on_heredoc_start_line_is_not_stripped_away(tmp_path):
+    """`cat > msg <<'EOF' && git add … && git commit -F msg` 的 commit 在 heredoc 起始行 delimiter 後面：剝內文不得連它一起剝。
+    別的 repo 無口令 → 擋；關豁免 → 擋；在記憶系統 worktree 這種起始行夾帶寫法本就不在白名單，也要口令；
+    誠實寫法（`cd <絕對路徑> && git add … && git commit -F <檔>`、`git -C <絕對路徑> commit -F <檔>`）照舊免口令。"""
+    from handlers import pre_tool_use as ptu
+    cmd = "cat > message.txt <<'EOF' && git add a.py && git commit -F message.txt\nfix bug\nEOF"
+    other, ours = _other_repo(tmp_path), _ours(tmp_path)
+    assert _check(command=cmd, state=_no_order(other)) is not None
+    assert _check(command=cmd, state=_no_order(other), config=_OFF) is not None
+    assert _check(command=cmd, state=_no_order(ours)) is not None
+    assert ptu._strip_heredoc_bodies(cmd) == "cat > message.txt <<HEREDOC_STRIPPED && git add a.py && git commit -F message.txt"
+    assert _check(command="cat > m.txt <<'EOF'\nfix: git commit 字樣在內文\nEOF\ngrep -n x TECH.md", state=_no_order(other)) is None
+    w = str(ours).replace("\\", "/")
+    assert _check(command=f"cd {w} && git add a.py && git commit -F message.txt", state=_no_order(other)) is None
+    assert _check(command=f"git -C {w} commit -F message.txt", state=_no_order(other)) is None
+
+
+def test_shell_launch_options_do_not_hide_wrapped_commit(tmp_path):
+    """shell 名與執行旗標之間夾一般啟動選項（bash -lc、bash -l -c、powershell -NoProfile -Command、pwsh -NoLogo …、cmd /d /c）：
+    解析器拆不出段也不得當成「沒有 commit」，照常要口令；關豁免同樣擋；包的不是 commit 就不觸發。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    wrapped = [
+        "bash -lc 'git commit -m fix'",
+        "bash -l -c 'git commit -m fix'",
+        "sh -ec 'git commit -m fix'",
+        'bash.exe -c "git commit -m fix"',
+        'powershell -NoProfile -Command "git commit -m fix"',
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "git commit -m fix"',
+        'pwsh -NoLogo -NoProfile -Command "git commit -m fix"',
+        'pwsh -nop -c "git commit -m fix"',
+        'cmd /d /c "git commit -m fix"',
+        'cmd.exe /d /s /c "git commit -m fix"',
+        'cmd /k "git commit -m fix"',
+    ]
+    for cmd in wrapped:
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    for cmd in ("bash -lc 'git log --oneline'", 'powershell -NoProfile -Command "git status"', 'cmd /d /c "git diff"'):
+        assert _check(command=cmd, state=st) is None, cmd
+
+
+def test_git_executable_case_matches_segment_parser(tmp_path):
+    """Windows 執行檔不分大小寫：`Git commit`、`GIT.EXE commit`、`git.EXE` 快篩不得先放掉（_vcs_segments 本來就認得）。
+    別的 repo 無口令 → 擋；關豁免 → 擋；在記憶系統 worktree 的誠實寫法照舊免口令。"""
+    other, ours = _other_repo(tmp_path), _ours(tmp_path)
+    for cmd in ("Git commit -m fix", "GIT.EXE commit -m fix", "git.EXE add a.py && git.EXE commit -m fix", "GIT COMMIT -m fix"):
+        assert _check(command=cmd, state=_no_order(other)) is not None, cmd
+        assert _check(command=cmd, state=_no_order(other), config=_OFF) is not None, cmd
+    assert _check(command="Git commit -m fix", state=_no_order(ours)) is None
+
+
+def _msys(p):
+    """`C:\\x\\y` → Git Bash 的 `/c/x/y`。"""
+    s = str(p).replace("\\", "/")
+    return "/" + s[0].lower() + s[2:]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Git Bash 磁碟機路徑只在 Windows 需要轉")
+def test_git_bash_drive_path_resolves_to_windows_drive(tmp_path):
+    """Git Bash 的 `cd /c/…`、`git -C /c/…` 在 Windows 轉成 `C:/…` 再找最近 `.git`：落在記憶系統 repo／worktree → 免口令（與 `C:/` 寫法同判）；
+    落在別的 repo → 擋；關豁免 → 擋；`/cygdrive/c/…`、`//c/…` 不是已知寫法 → 不豁免。"""
+    from handlers import pre_tool_use as ptu
+    other, ours = _other_repo(tmp_path), _ours(tmp_path)
+    live, w, o = _msys(ptu.CLAUDE_DIR), _msys(ours), _msys(other)
+    assert _check(command=f"cd {live} && git add a.py && git commit -m fix", state=_no_order(other)) is None
+    assert _check(command=f"cd {w} && git add a.py && git commit -m fix", state=_no_order(other)) is None
+    assert _check(command=f"git -C {w} commit -F msg.txt", state=_no_order(other)) is None
+    assert _check(command=f"cd {w} && git -C hooks commit -m fix", state=_no_order(other)) is None
+    assert _check(command=f"cd {o} && git commit -m fix", state=_no_order(ours)) is not None
+    assert _check(command=f"git -C {o} commit -m fix", state=_no_order(ours)) is not None
+    assert _check(command=f"cd {w} && git commit -m fix", state=_no_order(other), config=_OFF) is not None
+    for odd in (f"/cygdrive{w}", f"/{w}"):
+        assert _check(command=f"cd {odd} && git commit -m fix", state=_no_order(other)) is not None, odd
+    assert ptu._drive_path("/c/Users") == "C:/Users" and ptu._drive_path("/d") == "D:/" and ptu._drive_path("/cygdrive/c") == "/cygdrive/c"
+
+
+# ─── codex 審 001 退件四條：帶引號的 shell 路徑、包裝裡的查詢不誤擋、/c/ 只對 Bash 工具、空 heredoc ────
+
+def test_quoted_shell_path_is_still_a_wrapper(tmp_path):
+    """Windows 安裝路徑含空白要加引號：`"C:/Program Files/Git/bin/bash.exe" -lc '…'`、PowerShell `& "…pwsh.exe" -NoProfile -Command "…"`。
+    包裝辨識看斷詞後的執行檔 basename（保留引號內容），不先把引號內容抹掉。無口令擋、關豁免擋；包的是查詢不擋。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    bash_path = '"C:/Program Files/Git/bin/bash.exe" -lc \'git commit -m fix\''
+    pwsh_path = '& "C:/Program Files/PowerShell/7/pwsh.exe" -NoProfile -Command "git commit -m fix"'
+    assert _check(command=bash_path, state=st) is not None
+    assert _check(command=pwsh_path, state=st, tool="PowerShell") is not None
+    assert _check(command=bash_path, state=st, config=_OFF) is not None
+    assert _check(command=pwsh_path, state=st, config=_OFF, tool="PowerShell") is not None
+    assert _check(command='"C:\\Program Files\\Git\\bin\\BASH.EXE" -c "git commit -m fix"', state=st) is not None
+    assert _check(command='& "C:/Program Files/PowerShell/7/pwsh.exe" -NoProfile -Command "git log --grep=commit"', state=st, tool="PowerShell") is None
+    assert _check(command='"C:/Program Files/Git/bin/bash.exe" -lc \'git log\'', state=st) is None
+
+
+def test_wrapped_query_with_commit_word_is_not_gated(tmp_path):
+    """包裝內容拆得出來就認真子命令：`bash -lc 'git log --grep=commit'` 是查詢，放行；內層真 commit、再包一層、eval／命令替換
+    這類判不明的照口令檢查。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ("bash -lc 'git log --grep=commit'", 'powershell -NoProfile -Command "git show HEAD -- commit.txt"',
+                'cmd /d /c "git diff --stat commit.txt"', "bash -lc 'git log --grep=commit && git status'"):
+        assert _check(command=cmd, state=st) is None, cmd
+    for cmd in ("bash -lc 'git add commit.txt && git commit -m x'", "bash -lc 'git log && git commit -m x'",
+                "bash -lc \"bash -c 'git commit -m x'\"", "bash -lc 'eval \"git commit -m x\"'",
+                "bash -lc 'git $(echo commit) -m x'", 'pwsh -c "& git commit -m x"', "bash -lc 'git add commit.txt'"):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Git Bash 磁碟機路徑只在 Windows 需要轉")
+def test_msys_drive_semantics_only_for_bash_tool(tmp_path):
+    """同一條 `cd /c/… && git commit`：Bash 工具是 Git Bash 語意，轉成 `C:/…` 找落點、在我們的 worktree 免口令；
+    PowerShell 工具的 `/c/…` 原生是 `C:\\c\\…`，不轉、不豁免、照常要口令。"""
+    other, ours = _other_repo(tmp_path), _ours(tmp_path)
+    cmd = f"cd {_msys(ours)} && git add a.py && git commit -m fix"
+    assert _check(command=cmd, state=_no_order(other), tool="Bash") is None
+    assert _check(command=cmd, state=_no_order(other), tool="PowerShell") is not None
+    cmd_c = f"git -C {_msys(ours)} commit -m fix"
+    assert _check(command=cmd_c, state=_no_order(other), tool="Bash") is None
+    assert _check(command=cmd_c, state=_no_order(other), tool="PowerShell") is not None
+    w = str(ours).replace("\\", "/")
+    assert _check(command=f"cd {w} && git commit -m fix", state=_no_order(other), tool="PowerShell") is None
+
+
+def test_empty_heredoc_then_commit_then_same_delimiter_is_gated(tmp_path):
+    """空 heredoc（零行內文）後面接真 commit、再接同名 heredoc：只能剝到第一個結束行，中間的 commit 不得被吞掉。"""
+    from handlers import pre_tool_use as ptu
+    other = _other_repo(tmp_path)
+    cmd = "cat <<'EOF'\nEOF\ngit commit -m fix\ncat <<'EOF'\nx\nEOF"
+    assert _check(command=cmd, state=_no_order(other)) is not None
+    assert _check(command=cmd, state=_no_order(other), config=_OFF) is not None
+    assert ptu._strip_heredoc_bodies(cmd) == "cat <<HEREDOC_STRIPPED\ngit commit -m fix\ncat <<HEREDOC_STRIPPED"
+    assert ptu._strip_heredoc_bodies("cat <<-E\n\tx\n\tE\ngit status") == "cat <<HEREDOC_STRIPPED\ngit status"
+    assert ptu._strip_heredoc_bodies("cat <<'EOF'\ngit commit\nno end") == "cat <<'EOF'\ngit commit\nno end"
+
+
+# ─── codex 審 003 退件三條：續行、雙引號裡的命令替換、包裝外片段的子 shell ────
+
+def test_line_continuation_keeps_shell_and_flag_together(tmp_path):
+    """續行不是兩條命令：Bash `\\`＋換行（裸 shell 名與帶引號完整路徑）、cmd `^`＋換行、PowerShell 反引號＋換行，
+    shell 名與執行旗標分在兩行也要認成包裝。包的是 commit → 擋（含關豁免）；包的是查詢 → 放行。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    gated = [
+        ("bash \\\n  -lc 'git commit -m fix'", "Bash"),
+        ('"C:/Program Files/Git/bin/bash.exe" \\\n  -lc \'git commit -m fix\'', "Bash"),
+        ("bash -l \\\n  -c \\\n  'git commit -m fix'", "Bash"),
+        ('cmd /d ^\n/c "git commit -m fix"', "Bash"),
+        ('"C:/Windows/System32/cmd.exe" /d ^\n /c "git commit -m fix"', "PowerShell"),
+        ('pwsh -NoProfile `\n  -Command "git commit -m fix"', "PowerShell"),
+        ('& "C:/Program Files/PowerShell/7/pwsh.exe" -NoProfile `\n  -Command "git commit -m fix"', "PowerShell"),
+        ("git \\\n  commit -m fix", "Bash"),
+    ]
+    for cmd, tool in gated:
+        assert _check(command=cmd, state=st, tool=tool) is not None, cmd
+        assert _check(command=cmd, state=st, tool=tool, config=_OFF) is not None, cmd
+    allowed = [
+        ("bash \\\n  -lc 'git log --grep=commit'", "Bash"),
+        ('"C:/Program Files/Git/bin/bash.exe" \\\n  -lc \'git log --grep=commit\'', "Bash"),
+        ('cmd /d ^\n/c "git log --grep=commit"', "Bash"),
+        ('pwsh -NoProfile `\n  -Command "git log --grep=commit"', "PowerShell"),
+    ]
+    for cmd, tool in allowed:
+        assert _check(command=cmd, state=st, tool=tool) is None, cmd
+
+
+def test_command_substitution_inside_double_quotes_is_live(tmp_path):
+    """只有單引號裡是字面：雙引號裡的 `$(…)`／反引號會展開執行，查詢白名單不得把它抹掉當成字面。
+    單引號裡的 `$(…)` 是字面，照放行。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ("bash -c 'git log --grep=\"$(git commit -m x)\"'",
+                "bash -c 'git log --grep=\"`git commit -m x`\"'",
+                'pwsh -NoProfile -Command "git log --grep=\\"$(git commit -m x)\\""',
+                "bash -lc 'git status' \"$(git commit -m x)\"",
+                'FOO="$(git commit -m x)" bash -lc \'git log\'',
+                'echo "$(git commit -m x)"'):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="bash -c 'git log --grep=\\'$(commit)\\''", state=st) is not None   # 跳脫判不明
+    assert _check(command="git log --grep='$(git commit -m x)'", state=st) is None            # 單引號字面、不是包裝
+
+
+def test_other_segments_still_checked_when_query_wrapper_present(tmp_path):
+    """有查詢包裝也不免除其他片段的檢查：同一條命令裡包裝外的子 shell 括號／eval／命令替換照查。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ('bash -c "git log"; (git commit -m x)',
+                'bash -c "git log"; eval "git commit -m x"',
+                "bash -lc 'git log --grep=commit' && $(git commit -m x)",
+                'bash -c "git log" | (git commit -m x)',
+                'bash -c "git status"\n(git commit -m x)'):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="bash -c 'git log --oneline' && git status", state=st) is None
+
+
+def test_deeply_nested_wrapped_commit_is_gated_past_parse_depth(tmp_path):
+    """逐層合法 POSIX 引號包 1～6 層，最內層是 commit：超過遞迴上限也要擋（上限後只看 git…commit 字樣）；兩層包的查詢照放行。"""
+    import shlex
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    cmd = "git commit -m fix"
+    for layer in range(1, 7):
+        cmd = "bash -c " + shlex.quote(cmd)
+        assert _check(command=cmd, state=st) is not None, layer
+        assert _check(command=cmd, state=st, config=_OFF) is not None, layer
+    assert _check(command="bash -c " + shlex.quote("bash -c " + shlex.quote("git log --grep=commit")), state=st) is None
+
+
+# ─── codex 審 005 退件四條：註解、外層雙引號的命令替換、續行重判、已知邊界的擋訊息 ────
+
+def test_comment_apostrophe_does_not_swallow_next_line(tmp_path):
+    """引號外、位在 token 起頭的 `#` 到行尾是註解：註解裡的撇號不是開引號，不得跨行吞掉下一行的包裝 commit。
+    引號裡與 token 中間的 `#` 是字面：訊息含 `#12` 的誠實寫法在記憶系統 worktree 照舊免口令。"""
+    other, ours = _other_repo(tmp_path), _ours(tmp_path)
+    st = _no_order(other)
+    for cmd in ("# Run the user's command\nbash -lc 'git commit -m fix'\n# That's all",
+                "bash -lc 'git log --grep=commit' # user's query\nbash -lc 'git commit -m fix'",
+                "# it's\n\"C:/Program Files/Git/bin/bash.exe\" -lc 'git commit -m fix'",
+                "# don't\npwsh -NoProfile -Command \"git commit -m fix\"",
+                "bash -lc 'git commit -m \"fix #12\"'"):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="# user's note\nbash -lc 'git log --grep=commit'", state=st) is None
+    assert _check(command="bash -lc 'git log --grep=\"#12 commit\"'", state=st) is None
+    w = str(ours).replace("\\", "/")
+    assert _check(command=f'cd {w} && git add a.py && git commit -m "fix #12"', state=_no_order(other)) is None
+    assert _check(command=f'git -C {w} commit -m "fix #12: 收尾"', state=_no_order(other)) is None
+
+
+def test_outer_double_quotes_keep_substitution_live_before_recursion(tmp_path):
+    """外層 shell 的雙引號裡，單引號只是普通字元，擋不住 `$()`：遞迴剝掉外層引號前，先用外層語意查整段原文。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ("bash -c \"git log --grep='$(git commit -m x)'\"",
+                "bash -lc \"git log --grep='`git commit -m x`'\"",
+                "pwsh -NoProfile -Command \"git log --grep='$(git commit -m x)'\""):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="bash -c 'git log --grep=commit'", state=st) is None
+
+
+def test_continuation_inside_git_token_is_rejoined_for_parsing(tmp_path):
+    """續行接回後的文字才拿去判 git commit：`git\\⏎  commit`（反斜線緊貼 git、下一行縮排）也要擋；`$\\⏎(` 接回後是命令替換。
+    `git\\⏎commit`（下一行不縮排）接回後是 `gitcommit` 一個字，不是 git commit，照 Bash 語意放行。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ("git\\\n  commit -m fix", "Git\\\n commit -m fix",
+                "bash -lc 'git log' \"$\\\n(git commit -m x)\""):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="git\\\ncommit -m fix", state=st) is None
+
+
+def test_expansion_with_commit_word_is_known_boundary_and_says_so(tmp_path):
+    """已知邊界（fail-closed）：命令裡有 `$()` 等展開又含 commit 字樣 → 一律要口令；擋訊息講清楚查詢怎麼寫才不擋。
+    直接寫的 git commit 被擋時不附這句（它與包裝／展開無關）。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    msg = _check(command='cd "$(git rev-parse --show-toplevel)" && git log --grep=commit', state=st)
+    assert msg and "展開又含 commit 字樣時一律要口令" in msg and "改用單引號" in msg
+    assert _check(command='cd "$(git rev-parse --show-toplevel)" && git status', state=st) is None
+    plain = _check(command="git commit -m fix", state=st)
+    assert plain and "展開又含 commit 字樣" not in plain

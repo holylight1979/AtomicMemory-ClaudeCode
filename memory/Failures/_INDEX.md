@@ -12,4 +12,4 @@
 | 文字與格式 | 4 | `memory/Failures/文字與格式/_INDEX.md` |
 | 版控 | 1 | `memory/Failures/版控/feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff.md` |
 | 行為契約 | 19 | `memory/Failures/行為契約/_INDEX.md` |
-| 驗證與實證 | 9 | `memory/Failures/驗證與實證/_INDEX.md` |
+| 驗證與實證 | 10 | `memory/Failures/驗證與實證/_INDEX.md` |

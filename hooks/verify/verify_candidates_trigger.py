@@ -167,6 +167,63 @@ def test_second_edit_key_is_case_insensitive(proj, tmp_path):          # 退件 
     assert list(rec["edited_files"].values()) == [3]
 
 
+# ─── 004 候選噪音：沒內容一行、一部位一 session 一次 ─────────────────────
+
+_LOCATED = "定位｜部位：戰鬥：A.cs\n定位｜根因層：根因在邏輯層\n定位｜前例：無"
+
+
+def _located_session(proj, tmp_path):
+    """注入戰鬥部位、讀過部位檔、交過定位三行：之後的 Edit 都會放行。"""
+    state, tp = {}, _transcript(tmp_path, ["x"])
+    _inject(proj, state, tp)
+    wo.on_read(state, "s", "Read", {"file_path": str(proj / "Game" / "Battle" / "B.cs")}, str(proj), tp, {})
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": _LOCATED}]}},
+                           ensure_ascii=False) + "\n")
+    return state, tp
+
+
+def _edit_twice(state, f, tp):
+    assert wo.on_edit(state, "s", f, tp, {}) == (None, None, True)
+    warn, deny, _ = wo.on_edit(state, "s", f, tp, {})
+    assert deny is None
+    return warn
+
+
+def test_second_edit_without_candidates_is_one_line_once_per_part(proj, tmp_path):
+    """沒 smells 報告、導讀卡沒病灶段：第 2 次 Edit 只得一行（不附根因卡與兩問）；同部位別的檔第 2 次 Edit 不再送。"""
+    (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥導讀.md").write_text("# 戰鬥導讀\n\n## 知識\n\n- [臨] 沒分段\n", encoding="utf-8")
+    state, tp = _located_session(proj, tmp_path)
+    warn = _edit_twice(state, str(proj / "Game" / "Battle" / "A.cs"), tp)
+    assert warn and "候選：無" in warn and "先答兩問" not in warn and "根因卡" not in warn and "\n" not in warn
+    assert warn.startswith("[Guardian:OverviewHub] 【戰鬥】候選：無")
+    assert _edit_twice(state, str(proj / "Game" / "Battle" / "B.cs"), tp) is None
+    assert len(state["candidates_sent"]) == 1 and state["candidates_sent"][0].endswith("|戰鬥")
+    assert _log_events(tmp_path).count("second_edit") == 1
+
+
+def test_second_edit_with_candidates_full_block_once_per_part(proj, tmp_path):
+    """導讀卡有病灶段：第 2 次 Edit 送完整塊（候選＋根因卡＋兩問）；同部位別的檔第 2 次 Edit 不再送；
+    on_prompt 觸發詞送過的部位，改檔也不再送（共用 candidates_sent）。"""
+    state, tp = _located_session(proj, tmp_path)
+    warn = _edit_twice(state, str(proj / "Game" / "Battle" / "A.cs"), tp)
+    assert warn and "【戰鬥】候選前 5" in warn and "最後一擊無訊號" in warn and "先答兩問" in warn
+    assert _edit_twice(state, str(proj / "Game" / "Battle" / "B.cs"), tp) is None
+    assert wo.on_prompt(state, "s", "為什麼又壞了，找根因", tp, {}, intent="debug") is None
+    state2, tp2 = _located_session(proj, tmp_path)
+    assert wo.on_prompt(state2, "s", "為什麼又壞了，找根因", tp2, {}, intent="debug")
+    assert _edit_twice(state2, str(proj / "Game" / "Battle" / "A.cs"), tp2) is None
+
+
+def test_compact_empty_line_carries_report_notes(proj, tmp_path):
+    """smells_report 指到不存在的檔、導讀卡也沒病灶段：一行版仍帶「報告不存在」附註（降級要看得到）。"""
+    (proj / ".claude" / "memory" / "shared" / "戰鬥" / "戰鬥導讀.md").write_text("# 戰鬥導讀\n\n## 知識\n\n- [臨] 沒分段\n", encoding="utf-8")
+    (proj / ".claude" / "overview-hub.json").write_text(json.dumps({"smells_report": ".claude/missing.json"}), encoding="utf-8")
+    state, tp = _located_session(proj, tmp_path)
+    warn = _edit_twice(state, str(proj / "Game" / "Battle" / "A.cs"), tp)
+    assert warn and "候選：無" in warn and "報告不存在" in warn and "\n" not in warn
+
+
 # ─── 退件 BLOCK 4／5／7 與 WARN ───────────────────────────────────────
 
 def test_table_but_no_injected_part_sends_whole_project_once(proj, tmp_path):   # BLOCK 4

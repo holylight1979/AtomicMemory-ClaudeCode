@@ -8,6 +8,8 @@
 - Source: session:ec069e59 2026-10-13
 - Quote: 「你是 v6.0 的「待命 track-e」，總控台是 claude-ad。現在只做三件事就停：①用 ToolSearch 載入工具（query: select:SendMessage,ListAgents）②用 ListAgents 看自己的名字（列表最上面「This session is …」那行）③SendMessage 給 claude-ad 一句「待命 track-e：<你的名字>」。之…」
 
+- Related: 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它
+
 ## 知識
 
 - [臨] 判斷「某路徑在某目錄底下」時兩側要轉成同一種表示再比：Windows 的 `tempfile.gettempdir()` 可能回 8.3 短路徑（`C:\Users\XXXX~1\…`），同一目錄也會以長路徑出現；用 GetLongPathNameW 轉長路徑（檔案不存在就往上找存在的祖先轉、再接回尾段）。

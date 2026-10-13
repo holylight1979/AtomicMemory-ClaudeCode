@@ -180,14 +180,26 @@ def _child_env(words: List[str], raws: List[str], ps: bool) -> Tuple[List[Tuple[
     return lasting, prefix
 
 
-def _scope_maps(cmd: Argv, shell: str = "bash") -> List[Dict[str, Tuple[str, str]]]:
+Env = Optional[Dict[str, Any]]      # 指令啟動當下從父行程繼承的環境（收據 env 欄：只有 _ARG_ENV 那幾個；None＝沒記）
+
+
+def env_snapshot(environ: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """本行程環境裡會影響驗證範圍的變數（_ARG_ENV，照執行平台比名稱；空值也記）。PostToolUse 落帳與 run_verify 自寫收據共用：
+    hook 行程與工具的子 shell 是同一個父行程（Claude Code）起的，hook 看到的就是指令啟動當下繼承的環境。"""
+    src = os.environ if environ is None else environ
+    return {k: v for k, v in src.items() if _env_key(k) in _ARG_ENV}
+
+
+def _scope_maps(cmd: Argv, shell: str = "bash", env: Env = None) -> List[Dict[str, Tuple[str, str]]]:
     """每個指令（split_shell 的順序，與 parse_cmds 一一對應）啟動當下看得到、會縮小驗證範圍的環境：{平台鍵: (照寫法的名稱, 值)}，
-    只留 scope_env 判定的。照執行順序算：後面的指定蓋前面的（`$env:X='-k x'; $env:X=''` 到程式時已是空值），bash 行內前綴
-    只給它接的那個指令。argv 清單（自寫收據，不經 shell）沒有環境指定 → [{}]。"""
+    只留 scope_env 判定的。從繼承的環境 env（收據記下的父行程環境）起算，照執行順序：後面的指定蓋前面的（`$env:X='-k x'; $env:X=''`
+    到程式時已是空值；繼承了 `-k smoke` 而指令內沒提＝程式照樣只跑子集；行內 `X=''` 清掉繼承值），bash 行內前綴只給它接的那個指令。
+    argv 清單（自寫收據，不經 shell）沒有環境指定 → [{}]（它的 env 由呼叫端直接用 scope_env 判）。"""
     if isinstance(cmd, (list, tuple)):
         return [{}]
     ps = shell == "powershell"
-    lasting_env: Dict[str, Tuple[str, str]] = {}
+    lasting_env: Dict[str, Tuple[str, str]] = {_env_key(str(n)): (str(n), str(v if v is not None else ""))
+                                               for n, v in (env or {}).items()}
     out: List[Dict[str, Tuple[str, str]]] = []
     for ch in split_shell(str(cmd or ""), shell)[0]:
         lasting, inline = _child_env(ch.words, ch.raw, ps)
@@ -197,13 +209,14 @@ def _scope_maps(cmd: Argv, shell: str = "bash") -> List[Dict[str, Tuple[str, str
     return out
 
 
-def program_scope_env(cmd: Argv, shell: str = "bash") -> List[str]:
-    """每一段跑程式的指令（前置設定與尾端過濾除外）啟動當下，看得到的會縮小驗證範圍的環境設定名稱（_scope_maps，去重）。
+def program_scope_env(cmd: Argv, shell: str = "bash", env: Env = None) -> List[str]:
+    """每一段跑程式的指令（前置設定與尾端過濾除外）啟動當下，看得到的會縮小驗證範圍的環境設定名稱（_scope_maps，去重；
+    env＝收據記下的繼承環境，與指令內的指定合併算有效值）。
     一般證據（evidence_steps：對帳 (a)(b)、根層 worktree 的 PYTEST_MEASURE）與整體驗證都要每一段乾淨，擋訊息也用它說是哪個變數；
     量尺另逐段連值比（match_span）。自寫收據（argv 清單）看它記下的 env，不在這裡判。"""
     if isinstance(cmd, (list, tuple)):
         return []
-    steps, maps = parse_cmds(cmd, shell), _scope_maps(cmd, shell)
+    steps, maps = parse_cmds(cmd, shell), _scope_maps(cmd, shell, env)
     names: List[str] = []
     for j in range(min(_first_filter(steps), len(maps))):
         if not _is_setup(steps[j]):
@@ -543,10 +556,10 @@ def final_step(cmd: Argv, shell: str = "bash", root: str = "") -> Optional[Step]
     return steps[k - 1] if k and _reachable(steps, k - 1) else None
 
 
-def is_whole_run(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
-    """整體驗證：命令列是整體驗證的形狀（whole_run_shape），而且跑程式的那段啟動時沒有會縮小範圍的環境設定（program_scope_env）。
-    涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
-    return whole_run_shape(cmd, shell, root) and not program_scope_env(cmd, shell)
+def is_whole_run(cmd: Argv, shell: str = "bash", root: str = "", env: Env = None) -> bool:
+    """整體驗證：命令列是整體驗證的形狀（whole_run_shape），而且跑程式的那段啟動時沒有會縮小範圍的環境設定（program_scope_env，
+    含收據記下的繼承環境 env）。涵蓋範圍（執行根之下的改檔）由呼叫端判。"""
+    return whole_run_shape(cmd, shell, root) and not program_scope_env(cmd, shell, env)
 
 
 def whole_run_shape(cmd: Argv, shell: str = "bash", root: str = "") -> bool:
@@ -585,7 +598,7 @@ def non_runners(cmd: Argv, shell: str = "bash") -> List[str]:
     return [s.words[0] for s in steps[:_first_filter(steps)] if s.words and not _is_setup(s) and not _runs_program(s)]
 
 
-def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
+def evidence_steps(cmd: Argv, shell: str = "bash", env: Env = None) -> Optional[List[Step]]:
     """一般證據（對帳 (a) 提到改檔、(b) 量了、根層 worktree 的 pytest DONE）的形狀 → 跑程式的那幾段；不是這種形狀 → None。
     形狀：前面只有 cd 與環境設定；之後全是跑程式的指令（直譯器、測試與建置工具、腳本檔），彼此只用 && 串（一段失敗後面就不跑、
     exit 會反映）、stdout 沒有導到檔案或 $null（失敗輸出藏不住）；最後只准留結尾的過濾，而且有過濾時只准一段（管線把最後一段的
@@ -600,45 +613,48 @@ def evidence_steps(cmd: Argv, shell: str = "bash") -> Optional[List[Step]]:
     runs = steps[i:k]
     if not runs or not _reachable(steps, i) or any(s.op != "&&" for s in runs[1:]) or (k < len(steps) and len(runs) > 1):
         return None
-    if not all(_runs_program(s) and not s.stdout for s in runs) or program_scope_env(cmd, shell):
+    if not all(_runs_program(s) and not s.stdout for s in runs) or program_scope_env(cmd, shell, env):
         return None
     return runs
 
 
-def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "", measure_root: str = "") -> bool:
+def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "", measure_root: str = "",
+                env: Env = None) -> bool:
     """執行的指令 cmd 是不是跑了表上的量尺 measure_cmd（量尺用 bash 規則解析，cmd 依 shell）：量尺的整條指令鏈
     （各指令與中間的 && || | ;）連續、運算子相同地出現在最後；之後只准乾淨的尾端過濾；之前只准 cd 與環境設定，接的運算子
     是開頭／;／換行／&&。各指令照順序完全相同：程式、python 直譯器選項、其他 token（`-h`、`-u`、`-k 某案`、多一個檔名、
     選項換順序、大小寫都不算；`-Xutf8`＝`-X utf8`）。腳本照路徑認：cmd 照 root（收據從哪裡跑）解析、量尺照 measure_root
     （表所在的根）解析，兩邊只給一個就共用；都沒給只比檔名。多段量尺後面再接過濾時，量尺最後一段要是 echo 類（管線會蓋掉
     最後一段的 exit：最後一段若是會失敗的程式，前段印的 DONE 會替它背書）。白名單外語法、`印假哨兵 || 量尺`、
-    `量尺; echo 假的 DONE`、引號裡的量尺字樣都對不上。"""
-    return match_span(measure_cmd, cmd, shell, root, measure_root) is not None
+    `量尺; echo 假的 DONE`、引號裡的量尺字樣都對不上。env＝收據記下的繼承環境（見 match_span）。"""
+    return match_span(measure_cmd, cmd, shell, root, measure_root, env) is not None
 
 
 def match_span(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "",
-               measure_root: str = "") -> Optional[Tuple[int, int]]:
+               measure_root: str = "", env: Env = None) -> Optional[Tuple[int, int]]:
     """cmd_matches 對上的量尺片段在 cmd 裡是第幾到第幾個指令（[start, end)，與 split_shell 斷出的指令一一對應）；對不上 → None。
     呼叫端要知道哪一段是量尺本身（量尺自帶的 `&& echo … DONE` 不算寫了假哨兵，其餘位置都算）。
-    片段每一段啟動當下會縮小驗證範圍的有效環境（_scope_maps，連值）要和表上那段相同：從環境多塞或改了選項＝跑的不是表上那組。"""
-    return next((span for span, diff in _ruler_spans(measure_cmd, cmd, shell, root, measure_root) if not diff), None)
+    片段每一段啟動當下會縮小驗證範圍的有效環境（_scope_maps：收據記下的繼承環境 env 與指令內的指定合併，連值）要和表上那段相同：
+    從環境多塞或改了選項＝跑的不是表上那組。"""
+    return next((span for span, diff in _ruler_spans(measure_cmd, cmd, shell, root, measure_root, env) if not diff), None)
 
 
 def ruler_env_mismatch(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "",
-                       measure_root: str = "") -> Optional[Tuple[Tuple[int, int], List[Tuple[str, str, str]]]]:
+                       measure_root: str = "", env: Env = None) -> Optional[Tuple[Tuple[int, int], List[Tuple[str, str, str]]]]:
     """量尺鏈結構上對上了、卻因為有效環境和表上不同而不算 → (片段, [(名稱, 這次的值, 表上的值)])，值不存在是 ""；
     給擋訊息講真正原因（多設了、還是少了表上要的）。對上了或結構上就對不上 → None。"""
-    spans = list(_ruler_spans(measure_cmd, cmd, shell, root, measure_root))
+    spans = list(_ruler_spans(measure_cmd, cmd, shell, root, measure_root, env))
     return None if not spans or any(not d for _, d in spans) else spans[0]
 
 
-def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_root: str):
-    """結構上對上量尺的候選片段（照 end 由前到後）→ ((start, end), [(名稱, 這次的值, 表上的值)]：片段裡和表上不同的有效環境)。"""
+def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_root: str, env: Env = None):
+    """結構上對上量尺的候選片段（照 end 由前到後）→ ((start, end), [(名稱, 這次的值, 表上的值)]：片段裡和表上不同的有效環境)。
+    表上的量尺從乾淨環境起算；收據那邊從它記下的繼承環境 env 起算。"""
     m = parse_cmds(measure_cmd, root=measure_root or root)
     e = parse_cmds(cmd, shell, root or measure_root)
     if not m:
         return
-    m_env, e_env = _scope_maps(measure_cmd), _scope_maps(cmd, shell)
+    m_env, e_env = _scope_maps(measure_cmd), _scope_maps(cmd, shell, env)
     tail_ok = len(m) == 1 or _prog(m[-1].words[0] if m[-1].words else "") in _ECHO_PROGS
     for end in range(_first_filter(e), len(e) + 1):
         start = end - len(m)
@@ -767,7 +783,7 @@ def write_self_receipt(claude_dir: Path, argv: List[str], sentinel: str, exit_co
         "cmd": cmd_of(argv), "argv": list(argv), "sentinel": sentinel, "exit_code": int(exit_code),
         "cases": int(cases), "failed": int(failed), "cwd": cwd, "project_root": project_root,
         "started_at": utc_iso(started), "at": utc_iso(ended), "source": SOURCE,
-        "env": {k: v for k, v in os.environ.items() if _env_key(k) in _ARG_ENV},
+        "env": env_snapshot(),
     }
     try:
         from lib.atom_io import write_text_lf

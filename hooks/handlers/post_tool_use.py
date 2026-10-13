@@ -33,7 +33,7 @@ from wg_harvest import (
 from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
-    aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd,
+    aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot,
 )
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
@@ -475,6 +475,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
                      config: Dict[str, Any], session_id: str) -> bool:
     """Bash／PowerShell 輸出的哨兵（`<NAME>_CHECK PASS|FAIL|DONE`、`<NAME> DONE k=v`）與 exit code → 驗證帳本
     workflow/verify-ledger/<sid>.jsonl ＋ state["verify_receipts"][sid]（cap 50）。只在有哨兵或是測試指令時落帳。
+    每筆記 env＝啟動當下繼承的縮限變數（env_snapshot），Stop 採認時與指令內的環境指定合併；沒 env 欄的舊收據不算證據。
     子代理（agent_id 非空）不入主帳：另落 <sid>.agents.jsonl、不進 state 收據。總耗時進 guard log（[verify-ledger] ms）。"""
     cfg = config.get("verify_ledger") or {}
     if not cfg.get("enabled", True):
@@ -496,6 +497,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
     except Exception:
         project_root = ""
     exit_code = exit_code_of(tr)
+    env = env_snapshot()          # 指令啟動當下繼承的縮限變數（hook 與工具子 shell 同一個父行程）：採認時與指令內的指定合併
     record = {
         "at": _now_iso(),
         "session_id": session_id,
@@ -504,6 +506,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
         "tool": tool_name,
         "cmd": command,               # 完整指令：量尺比對要看到尾段（截斷後接的假哨兵也要看得到）；顯示時才截
         "cmd_full": True,
+        "env": env,
         "cwd": cwd,
         "project_root": project_root,
         "sentinels": [{"name": s["name"], "verdict": s["verdict"], "line": s["line"]} for s in sentinels],
@@ -518,7 +521,7 @@ def _track_sentinels(state: Dict[str, Any], input_data: Dict[str, Any], command:
     # 子代理的收據不進主 session 的收據（主帳不變），另放 agent_receipt_key(sid, agent_id)，給 SubagentStop 對帳用
     record_receipt(state, agent_receipt_key(session_id, agent_id) if agent_id else session_id, {
         "at": record["at"], "seq": next_event_seq(state), "turn_seq": turn_seq, "tool": tool_name,
-        "cmd": command, "cmd_full": True,
+        "cmd": command, "cmd_full": True, "env": env,
         "sentinels": [{"name": s["name"], "verdict": s["verdict"], "kv": s.get("kv") or {}} for s in sentinels],
         "exit_code": exit_code, "cwd": cwd, "project_root": project_root,
         "root_uncertain": record["root_uncertain"],

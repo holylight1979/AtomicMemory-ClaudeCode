@@ -32,6 +32,7 @@
 | harness原生memory與atom索引marker撞名辨識 | harness原生memory與atom索引marker撞名辨識 |
 | hook-py改動立即生效-每次呼叫起新進程-只有mcp-node進程需重啟 | hook-py改動立即生效-每次呼叫起新進程-只有MCP-node進程需重啟 |
 | hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留extra-data-整session後續hook全跳過 | hook-state並行寫入共用tmp檔名-鎖拿不到就直接寫-短內容蓋長檔尾端殘留Extra-data-整session後續hook全跳過 |
+| hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本 | hook-state跨行程三方合併要依欄位業務語意分型-通用合併會破壞去重鍵-事件序號-分回合版本 |
 | hook-內呼叫外部工具的四個坑-home覆寫下claude-dir指錯-pythonw無stdio-5秒預算-探針要隔離global設定 | hook 內呼叫外部工具的四個坑-HOME覆寫下CLAUDE_DIR指錯-pythonw無stdio-5秒預算-探針要隔離global設定 |
 | hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編serverjs前先顧relinquish的mtime契約 | hud心跳被chromium隱藏頁節流成每分鐘一次-心跳改跑web-worker-編server.js前先顧relinquish的mtime契約 |
 | hud暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 | HUD暫存清單靠prose猜路徑的失敗-改殘檔帳本以檔案系統為權威 |
@@ -56,6 +57,7 @@
 | wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報 | wg-friction糾正偵測關鍵字天花板-18句真糾正現行0命中手調最高7-糾正要語意判斷不靠關鍵字-既有log兩筆是通知誤報 |
 | windows-每支-hook-子程序啟動約-150ms-同事件多支-standalone-hook-先量再併-過-100ms-且等價回放全過才合 | Windows 每支 hook 子程序啟動約 150ms-同事件多支 standalone hook 先量再併-過 100ms 且等價回放全過才合 |
 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 | worktree裡跑的程式碼來源漏網點-python-m看cwd-下一層spawn用資料根別名拼路徑-樣板從資料根載-靜態守門要追別名 |
+| worktree隔離session改部位檔被overviewhub閘連擋-證據只認read事件與bash註解三行-git-c-live與python-heredoc與變數路徑一律被拒 | worktree隔離session改部位檔被OverviewHub閘連擋-證據只認Read事件與Bash註解三行-git-C-live與python-heredoc與變數路徑一律被拒 |
 | write-raw-對未列舉-source-靜默回-okfalse-不-raise呼叫端必檢查回傳值 | write_raw 對未列舉 source 靜默回 ok=False 不 raise（呼叫端必檢查回傳值） |
 | 佛法三缺口工程化-失念壞滅緣了義 | 佛法三缺口工程化-失念壞滅緣了義 |
 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 | 使用者原話權威判斷只吃單一清理函式-前綴判斷會被夾帶繞過-先截長會截掉口令-寫入端過濾會打開無紀錄放行 |
@@ -68,6 +70,7 @@
 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 | 啟動鏈自動覆寫陷阱-user-init每session拷貝來源檔必先驗證管線仍成立 |
 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 | 回訪機制-改完一週後看數據交給到期自動跑-交接以接手者零記憶為前提 |
 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 | 在既有模組加判斷的兩個盲點-同名helper遮蔽原版-具體判斷插在寬判斷提早return之後會被巢狀路徑繞過 |
+| 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-bash不能設home | 在記憶系統worktree分支做驗證或修正的環境坑-背景同步會自動commit文件-scratchpad快照碰過刪不掉-Bash不能設HOME |
 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 | 子專案cwd歸核心根層-project-tree雙向宣告-無宣告零行為變化-hook只讀不寫 |
 | 守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格 | 守門機制的驗收要分過程數字與結果題組-五個過程量只證明流程發生了-每題必帶反例否則獎勵表面合格 |
 | 專案工作驗收裁判的分級啟動與殺閘設計 | 專案工作驗收裁判的分級啟動與殺閘設計 |
