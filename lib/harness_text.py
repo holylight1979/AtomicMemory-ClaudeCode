@@ -127,3 +127,99 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
         return re.sub(r"\s+", " ", text).strip()
     lines = (re.sub(r"[ \t]+", " ", ln).strip() for ln in text.splitlines())
     return "\n".join(ln for ln in lines if ln)
+
+
+# ─── 開工句（一次性 session 指示）樣板 ─────────────────────────────────────────
+# 派給「這個 session」的角色、工作步驟、派工單路徑只在這次有效，不是跨專案知識，也不是哪張卡片的「使用者原話」。
+# 兩個用途、兩種嚴格度（同一套樣板）：
+#   session_directive_reason：萃取器用（hooks/user-extract-worker.py）。整則每個子句都整句對上樣板才算，
+#     有一個子句對不上就交 LLM——開工句裡夾的真決策不能被丟掉。
+#   is_kickoff_prompt：Quote 自動填用（hooks/wg_provenance.py）。上面那條成立，或第一個子句以角色句開場
+#     （「你是…工作 session」）就算——Quote 少填只是沒有，把開工句填成原話會污染卡片，所以這裡從寬。
+# 子句界：句號、逗號、分號、問號、驚嘆號、換行、英文句點加空白；頓號不切；括號裡的逗號不切（樣板含括號註記）。
+# 樣板以 workflow/v6-inbox/_console/開工句模板.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
+# 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
+# 欄位（路徑、名稱、分支）只收 ASCII：吃不下的字（中文、頓號後的另一段話）留在子句裡，整句就對不上、交 LLM，
+# 不會被欄位吞掉。中文路徑的開工句因此認不出、交 LLM（不誤丟優先）。
+# 角色句後面的括號說明只認 _ROLE_NOTES 這份固定完整句型（從實際開過的開工句收集）；清單外的括號內容當未匹配的殘餘，
+# 整則交 LLM（不靠字數、不靠決策關鍵字）。新的派工說明要被攔，就把那句加進清單。
+_PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[A-Za-z0-9_.~:\\/-]*"
+_NAME = r"[A-Za-z0-9_.-]+"
+_ROLE_NOTES = (
+    re.escape("需求目標核心流程設計單，只設計不寫程式"),   # track-goal
+    re.escape("閱讀路徑掃描器"),                           # track-g12
+    re.escape("獨立實跑驗證"),                             # track-verify
+    r"接手，前一個\s*" + _NAME + r"\s*session\s*已滿",     # 接手 session
+)
+_ROLE_NOTE = r"(?:\s*（(?:" + "|".join(_ROLE_NOTES) + r")）)?"
+_BRANCH_NOTE = r"(?:\s*（(?:分支\s*[A-Za-z0-9_./-]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
+# 角色開場（不含括號說明）：嚴格樣板的 role 句與 Quote 端的開場判定共用
+_ROLE_OPENERS = (
+    r"(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?",
+    r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?",
+    r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session",
+)
+KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in (
+    ("role", _ROLE_OPENERS[0] + _ROLE_NOTE),
+    ("role", _ROLE_OPENERS[1]),
+    ("role", _ROLE_OPENERS[2]),
+    ("controller", r"(?:總控台|主控台)\s*(?:是|為)\s*" + _NAME),
+    ("step", r"第一步(?:用|先)?\s*EnterWorktree\s*切進\s*(?:worktree\s*)?(?:" + _PATH + r")?" + _BRANCH_NOTE),
+    ("step", r"worktree\s*" + _PATH + _BRANCH_NOTE),
+    ("dispatch", r"派工(?:單|\s*prompt)\s*(?:在|:|：)\s*" + _PATH),
+    ("dispatch", r"(?:用絕對路徑)?讀完(?:全文)?照做"),
+    ("dispatch", r"read the task at\s+" + _PATH),
+    ("scope", r"(?:本次)?(?:一律)?只(?:讀|讀寫|在)\s*" + _PATH + r"(?:\s*(?:裡|內))?(?:\s*(?:讀寫|工作))?"),
+    ("scope", r"you must work only in\s+" + _PATH),
+    ("scope", r"(?:切進去之後)?所有讀寫一律用\s*worktree\s*(?:的\s*)?絕對路徑(?:、\s*不碰\s*live(?:\s*" + _PATH + r")?)?"),
+    ("deliver", r"交付(?:信)?(?:用\s*SendMessage\s*(?:全文)?(?:\s*給\s*" + _NAME + r")?)?(?:\s*附\s*live\s*未動證明)?"),
+    ("verify", r"只跑目標\s*verify(?:（直接在\s*worktree\s*根跑\s*pytest，\s*不加\s*cd）)?(?:、\s*不跑全量)?"
+               r"(?:、\s*不重掛\s*Monitor)?(?:、\s*不輪詢)?"),
+    ("ack", r"開工前先\s*SendMessage\s*" + _NAME + r"\s*一句「\s*" + _NAME + r"?\s*收到開工\s*」?"),
+))
+_ROLE_OPENER_RE = re.compile(r"\s*(?:" + "|".join(_ROLE_OPENERS) + r")", re.IGNORECASE)
+_CLAUSE_BREAKS = "。，,；;！？!?\n"
+_CLAUSE_PAD = " \t\r\n「」『』“”\"'…"
+
+
+def kickoff_clauses(text: str) -> List[str]:
+    """切子句（括號裡的逗號不切；英文句點後接空白才切），去掉頭尾空白與引號。"""
+    parts, buf, depth = [], [], 0
+    for i, c in enumerate(text):
+        if c in "（(":
+            depth += 1
+        elif c in "）)" and depth:
+            depth -= 1
+        period = c == "." and i + 1 < len(text) and text[i + 1].isspace()
+        if depth == 0 and (c in _CLAUSE_BREAKS or period):
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(c)
+    parts.append("".join(buf))
+    stripped = (p.strip(_CLAUSE_PAD) for p in parts)
+    return [p for p in stripped if p]
+
+
+def kickoff_clause_kind(clause: str) -> Optional[str]:
+    return next((name for name, pat in KICKOFF_CLAUSES if pat.fullmatch(clause)), None)
+
+
+def session_directive_reason(prompt: str) -> Optional[str]:
+    """每個子句都整句對上一次性派工樣板 → 對上的樣板名（"role+controller+step" 這種）；有任何子句對不上 → None（交 LLM）。"""
+    kinds: List[str] = []
+    for clause in kickoff_clauses(prompt or ""):
+        kind = kickoff_clause_kind(clause)
+        if kind is None:
+            return None
+        if kind not in kinds:
+            kinds.append(kind)
+    return "+".join(kinds) if kinds else None
+
+
+def is_kickoff_prompt(prompt: str) -> bool:
+    """Quote 自動填用：這則是開工句（session_directive_reason 成立，或第一個子句以角色句開場）→ 不當使用者原話。"""
+    if session_directive_reason(prompt):
+        return True
+    clauses = kickoff_clauses(prompt or "")
+    return bool(clauses) and bool(_ROLE_OPENER_RE.match(clauses[0]))

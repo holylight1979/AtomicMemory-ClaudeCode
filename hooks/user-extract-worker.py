@@ -98,82 +98,13 @@ def _is_emotional_commitment(prompt: str) -> bool:
 # 派給「這個 session」的角色、工作步驟、派工單路徑只在這次有效。它們常帶「一律／必須」而被偵測閘當成決策，
 # 但不是跨專案知識；寫成根層 atom 會在之後每個 session 被注入（不相關卻佔 token）。
 # 是不是決策交 LLM 判（L1／L2 prompt 有同一條準則）；這裡只攔「整則每個子句都對上一次性派工樣板」的情況，
-# 省一次 LLM、也不讓它有機會誤寫：
-#   - 子句界：句號、逗號、分號、問號、驚嘆號、換行、英文句點加空白；頓號不切；括號裡的逗號不切（樣板含括號註記）。
-#   - 每個子句都必須「整句」對上下面某個樣板；只要有一個子句對不上（還有任何非標點的殘餘字），整則交 LLM。
-#     不用「含派工訊號就算」，也不用長期用語清單。
-# 樣板以 workflow/v6-inbox/_console/開工句模板.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
-# 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
-# 欄位（路徑、名稱、分支）只收 ASCII：吃不下的字（中文、頓號後的另一段話）留在子句裡，整句就對不上、交 LLM，
-# 不會被欄位吞掉。中文路徑的開工句因此認不出、交 LLM（不誤丟優先）。
-# 角色句後面的括號說明只認 _ROLE_NOTES 這份固定完整句型（從實際開過的開工句收集）；清單外的括號內容當未匹配的殘餘，
-# 整則交 LLM（不靠字數、不靠決策關鍵字）。新的派工說明要被攔，就把那句加進清單。
-_PATH = r"(?:[A-Za-z]:[\\/]|~[\\/]|/)[A-Za-z0-9_.~:\\/-]*"
-_NAME = r"[A-Za-z0-9_.-]+"
-_ROLE_NOTES = (
-    re.escape("需求目標核心流程設計單，只設計不寫程式"),   # track-goal
-    re.escape("閱讀路徑掃描器"),                           # track-g12
-    re.escape("獨立實跑驗證"),                             # track-verify
-    r"接手，前一個\s*" + _NAME + r"\s*session\s*已滿",     # 接手 session
+# 省一次 LLM、也不讓它有機會誤寫。樣板與判定在 lib/harness_text（Quote 自動填共用同一套），規則說明見該處。
+from lib.harness_text import (  # noqa: E402
+    KICKOFF_CLAUSES as _KICKOFF_CLAUSES,
+    kickoff_clause_kind as _kickoff_clause_kind,
+    kickoff_clauses as _kickoff_clauses,
+    session_directive_reason as _session_directive_reason,
 )
-_ROLE_NOTE = r"(?:\s*（(?:" + "|".join(_ROLE_NOTES) + r")）)?"
-_BRANCH_NOTE = r"(?:\s*（(?:分支\s*[A-Za-z0-9_./-]+|detached)(?:，\s*已存在)?(?:，\s*不要新建)?）?)?"
-_KICKOFF_CLAUSES = tuple((name, re.compile(pat, re.IGNORECASE)) for name, pat in (
-    ("role", r"(?:你是|妳是)\s*(?:v[0-9A-Za-z.]+\s*的\s*)?工作\s*session(?:\s*" + _NAME + r")?" + _ROLE_NOTE),
-    ("role", r"請接手\s*(?:本次\s*)?(?:的\s*)?工作\s*session(?:\s*" + _NAME + r")?"),
-    ("role", r"for this session|act as\s+" + _NAME + r"|you are (?:the |a )?" + _NAME + r"\s+session"),
-    ("controller", r"(?:總控台|主控台)\s*(?:是|為)\s*" + _NAME),
-    ("step", r"第一步(?:用|先)?\s*EnterWorktree\s*切進\s*(?:worktree\s*)?(?:" + _PATH + r")?" + _BRANCH_NOTE),
-    ("step", r"worktree\s*" + _PATH + _BRANCH_NOTE),
-    ("dispatch", r"派工(?:單|\s*prompt)\s*(?:在|:|：)\s*" + _PATH),
-    ("dispatch", r"(?:用絕對路徑)?讀完(?:全文)?照做"),
-    ("dispatch", r"read the task at\s+" + _PATH),
-    ("scope", r"(?:本次)?(?:一律)?只(?:讀|讀寫|在)\s*" + _PATH + r"(?:\s*(?:裡|內))?(?:\s*(?:讀寫|工作))?"),
-    ("scope", r"you must work only in\s+" + _PATH),
-    ("scope", r"(?:切進去之後)?所有讀寫一律用\s*worktree\s*(?:的\s*)?絕對路徑(?:、\s*不碰\s*live(?:\s*" + _PATH + r")?)?"),
-    ("deliver", r"交付(?:信)?(?:用\s*SendMessage\s*(?:全文)?(?:\s*給\s*" + _NAME + r")?)?(?:\s*附\s*live\s*未動證明)?"),
-    ("verify", r"只跑目標\s*verify(?:（直接在\s*worktree\s*根跑\s*pytest，\s*不加\s*cd）)?(?:、\s*不跑全量)?"
-               r"(?:、\s*不重掛\s*Monitor)?(?:、\s*不輪詢)?"),
-    ("ack", r"開工前先\s*SendMessage\s*" + _NAME + r"\s*一句「\s*" + _NAME + r"?\s*收到開工\s*」?"),
-))
-_CLAUSE_BREAKS = "。，,；;！？!?\n"
-_CLAUSE_PAD = " \t\r\n「」『』“”\"'…"
-
-
-def _kickoff_clauses(text: str) -> List[str]:
-    """切子句（括號裡的逗號不切；英文句點後接空白才切），去掉頭尾空白與引號。"""
-    parts, buf, depth = [], [], 0
-    for i, c in enumerate(text):
-        if c in "（(":
-            depth += 1
-        elif c in "）)" and depth:
-            depth -= 1
-        period = c == "." and i + 1 < len(text) and text[i + 1].isspace()
-        if depth == 0 and (c in _CLAUSE_BREAKS or period):
-            parts.append("".join(buf))
-            buf = []
-        else:
-            buf.append(c)
-    parts.append("".join(buf))
-    stripped = (p.strip(_CLAUSE_PAD) for p in parts)
-    return [p for p in stripped if p]
-
-
-def _kickoff_clause_kind(clause: str) -> Optional[str]:
-    return next((name for name, pat in _KICKOFF_CLAUSES if pat.fullmatch(clause)), None)
-
-
-def _session_directive_reason(prompt: str) -> Optional[str]:
-    """每個子句都整句對上一次性派工樣板 → 對上的樣板名（"role+controller+step" 這種）；有任何子句對不上 → None（交 LLM）。"""
-    kinds: List[str] = []
-    clauses = _kickoff_clauses(prompt or "")
-    for clause in clauses:
-        kind = _kickoff_clause_kind(clause)
-        if kind is None:
-            return None
-        if kind not in kinds:
-            kinds.append(kind)
-    return "+".join(kinds) if kinds else None
 
 
 # ─── Prompt template loading ──────────────────────────────────────────────────
