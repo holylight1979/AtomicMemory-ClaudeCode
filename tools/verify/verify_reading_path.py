@@ -2834,8 +2834,8 @@ P15_META = {   # 類別怎麼寫 → 子類 @abstractmethod run 擋不擋得住�
 @pytest.mark.parametrize("form", sorted(P15_META))
 def test_p15_abstractmethod_only_blocks_instances_under_abcmeta(tmp_path, form):
     """023 BLOCK 同家族：@abstractmethod 只在類別的 metaclass 確定是 abc.ABCMeta（自己或祖先的父類是 abc.ABC、或
-    metaclass=abc.ABCMeta）時擋得住建立實例；沒繼承 ABC、ABC 被改綁、ABC 從別的模組來 → Child() 照樣建得出來、
-    x.run() 跑的是 Child.run，Child.run 是存在的覆寫，Base.run 不給第 3 條。"""
+    metaclass=abc.ABCMeta）時擋得住建立實例；沒繼承 ABC、ABC 被改綁 → Child() 照樣建得出來、x.run() 跑的是 Child.run，
+    Child.run 是存在的覆寫；ABC 從專案外來源來 → 證不出 ABCMeta，保守降為候選。兩種 Base.run 都不給第 3 條。"""
     head, cls_line, rule = P15_META[form]
     app = (head + cls_line + "    def run(self):\n        return 'BASE'\n\n\n"
            "class Child(Base):\n    @abstractmethod\n    def run(self):\n        ...\n\n\n"
@@ -2886,6 +2886,21 @@ def test_p15_compare_summary_marks_observed_numbers_when_unratable(tmp_path):
     clean = rp.compare_done_line(same)
     assert "ratable=1 max_turns_before=3 max_turns_after=3 coverage_drop=0" in clean and "*" not in clean, clean
     assert "觀測值・不可評級" not in rp.render_compare(same, 3)
+
+
+def test_p16_a_parse_failure_in_the_longer_entry_makes_the_whole_summary_unratable(tmp_path):
+    """025 BLOCK（G11）：不指定入口、自動偵測兩檔的 main：long.py 3 彎、short.py 0 彎；after 只把 long.py 弄成語法錯誤。
+    列級本來就對（不報變好、消失那列不可判定），整份摘要也要對：JSON 的 ratable＝False，尾行 ratable=0 且
+    max_turns_before／after 與 coverage_drop 帶 *，文字有觀測值註記（三處都看 compare_ratable 這一個判斷）。"""
+    short = "def main():\n    return end()\n\n\ndef end():\n    return 1\n"
+    before = _write(tmp_path / "b", {"long.py": C6_CHAIN.replace("A_BODY", "b(0)"), "short.py": short})
+    after = _write(tmp_path / "a", {"long.py": "def main(:\n    pass\n", "short.py": short})
+    res = rp.run_compare(after, str(before), None, None, None)
+    assert res["entries"] == 2 and res["counts"]["better"] == 0
+    assert res.get("ratable") is False, f"長入口那檔解析失敗：整份不可評級 {res.get('ratable')}"
+    tail = rp.compare_done_line(res)
+    assert "ratable=0 max_turns_before=3* max_turns_after=0* coverage_drop=1*" in tail, tail
+    assert "觀測值・不可評級" in rp.render_compare(res, 3)
 
 
 P15_MOVE = ("def pick():\n    return 1\n\n\ndef main():\n    return a(0)\n\n\n"

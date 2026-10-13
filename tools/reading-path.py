@@ -2008,11 +2008,19 @@ def all_ratable(entries: list) -> bool:
     return bool(entries) and all(e["ratable"] for e in entries)
 
 
+def compare_ratable(res: dict) -> bool:
+    """整份比較的數字可用於品質比較：兩側入口都可評級、沒有 coverage_drop、掃描母體政策相同、沒有解析失敗或
+    有函式↔零函式的檔。JSON 的 ratable、render_compare 的觀測值註記、compare_done_line 的 ratable= 與 * 都只看這一個判斷。"""
+    return (res["ratable_before"] and res["ratable_after"] and not res["coverage_drop"]
+            and not res["scope_mismatch"] and not res["emptied_files"])
+
+
 def compare(before: dict, after: dict) -> dict:
     """同一入口、同一落點比拐彎、跳檔、轉手；入口與落點都用「名稱＋完整簽章」對齊（C# 單一 ↔ 多載轉換也對得上）。
     全確定與含候選的路分開數。下列情況那一列標「不可判定」（可能是看不到了，不是變好）：
     入口可達範圍內的未解呼叫變多或冒出新的未解函式；路徑經過的檔在任一版解析失敗或從有函式變零函式。
-    兩邊掃描母體的政策不同（git 追蹤清單 vs 目錄遞迴）→ 整份不可判定，不報改善。"""
+    兩邊掃描母體的政策不同（git 追蹤清單 vs 目錄遞迴）→ 整份不可判定，不報改善。
+    整份摘要的數字能不能拿來比品質，只看 compare_ratable（結果存在 ratable）。"""
     b_entries = {compare_key(e["entry"], e["sig"]): e for e in before["entries"]}
     a_entries = {compare_key(e["entry"], e["sig"]): e for e in after["entries"]}
     sb, sa = before["stats"], after["stats"]
@@ -2035,14 +2043,16 @@ def compare(before: dict, after: dict) -> dict:
     rows.sort(key=lambda r: (not r["certain"], STATUS_ORDER.index(r["status"]), r["entry"], r["landing"]))
     sure = Counter(r["status"] for r in rows if r["certain"])
     maybe = Counter(r["status"] for r in rows if not r["certain"])
-    return {"entries": len(set(b_entries) | set(a_entries)), "rows": rows, "scope_mismatch": mismatch,
-            "counts": {k: sure.get(k, 0) for k in STATUS_ORDER},
-            "counts_candidate": {k: maybe.get(k, 0) for k in STATUS_ORDER}, "counts_candidate_meaning": CANDIDATE_CHANGE,
-            "ratable_before": all_ratable(before["entries"]), "ratable_after": all_ratable(after["entries"]),
-            "max_turns_before": max((e["max_turns"] for e in before["entries"]), default=0),
-            "max_turns_after": max((e["max_turns"] for e in after["entries"]), default=0),
-            "undecidable_entries": sorted((a_entries.get(k) or b_entries[k])["entry"] for k in undecidable),
-            "emptied_files": sorted(broken), "stats_before": sb, "stats_after": sa, "coverage_drop": coverage_drop}
+    res = {"entries": len(set(b_entries) | set(a_entries)), "rows": rows, "scope_mismatch": mismatch,
+           "counts": {k: sure.get(k, 0) for k in STATUS_ORDER},
+           "counts_candidate": {k: maybe.get(k, 0) for k in STATUS_ORDER}, "counts_candidate_meaning": CANDIDATE_CHANGE,
+           "ratable_before": all_ratable(before["entries"]), "ratable_after": all_ratable(after["entries"]),
+           "max_turns_before": max((e["max_turns"] for e in before["entries"]), default=0),
+           "max_turns_after": max((e["max_turns"] for e in after["entries"]), default=0),
+           "undecidable_entries": sorted((a_entries.get(k) or b_entries[k])["entry"] for k in undecidable),
+           "emptied_files": sorted(broken), "stats_before": sb, "stats_after": sa, "coverage_drop": coverage_drop}
+    res["ratable"] = compare_ratable(res)
+    return res
 
 
 def _broken_files(before: dict, after: dict) -> set:
@@ -2161,7 +2171,7 @@ def render(report: dict, top: int) -> str:
 
 def render_compare(res: dict, top: int) -> str:
     c, cc, sb, sa = res["counts"], res["counts_candidate"], res["stats_before"], res["stats_after"]
-    observed = "" if res["ratable_before"] and res["ratable_after"] else "（觀測值・不可評級，不能當改善或退步）"
+    observed = "" if res["ratable"] else "（觀測值・不可評級，不能當改善或退步）"
     lines = [f"前後比較｜{res['root']}｜before={res['before_label']} → after={res['after_label']}｜入口 {res['entries']}",
              "全確定：" + "｜".join(f"{STATUS_LABEL[k]} {c[k]}" for k in STATUS_ORDER)
              + f"｜最多拐彎 {res['max_turns_before']} → {res['max_turns_after']}{observed}",
@@ -2210,10 +2220,10 @@ def done_line(report: dict) -> str:
 
 def compare_done_line(res: dict) -> str:
     """比較尾行。better／worse… 是全確定那一欄；candidate_changed 是含候選的探索路徑變化（非實際呼叫鏈改善）。
-    任一側不可評級時印 ratable=0，max_turns_before／after 與 coverage_drop 加 * 標成觀測值，與一般尾行一致。"""
+    整份不可評級（compare_ratable）時印 ratable=0，max_turns_before／after 與 coverage_drop 加 * 標成觀測值，與一般尾行一致。"""
     c = res["counts"]
     changed_candidate = sum(n for k, n in res["counts_candidate"].items() if k != "same")
-    ratable = res["ratable_before"] and res["ratable_after"]
+    ratable = res["ratable"]
     mark = "" if ratable else "*"
     return (f"READING_PATH DONE mode=compare entries={res['entries']} better={c['better']} worse={c['worse']}"
             f" new={c['new']} gone={c['gone']} same={c['same']} undecidable={c['undecidable']}"
