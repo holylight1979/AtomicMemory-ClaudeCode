@@ -17,6 +17,7 @@
 - [臨] 已知限制：自動填的 Quote 是「atom_write 發生那一回合的最後一則使用者訊息」。收割時才寫的 feedback 卡片，Quote 會是收尾問句（例：「可以關 session 了？」）而不是當初的指正原話。要留正確原話：寫 feedback 卡片時自己把指正句放進 quote 參數（呼叫者給了就不自動覆蓋），或在指正發生的那一回合就寫。
 - [臨] 实踩（2026-10-13）：Quote 自動填有兩條路——PostToolUse 的 autofill_from_receipt 與 SessionStart 背景跑的 `tools/atom-provenance-backfill.py _resolve_quote`——兩條都把「開工句／派工句」當使用者原話，多 session 時代生出 29 張 Quote 是開工句的卡（含核心卡 decisions）。只修其中一條或只清欄位都沒用：清掉的 Quote 下次開 session 會被 backfill 補回。順序：兩條路都接同一個 `is_kickoff_prompt`（與 user_typed_text 同源的開工句樣板）→ 合併 → 再一次性清卡 → 驗「再跑一次 backfill diff 為空」。
 - [臨] 基準則：任何「自動填使用者原話」的入口（autofill、backfill、萃取）都必須吃同一支判定；新增入口時 grep 現有入口有沒有被漏接。
+- [臨] 寫 Quote 的三入口（wg_provenance、回填、萃取器）都過 `lib/provenance.is_kickoff_text`，開工句不填；只修一個，回填會補回。
 
 ## 行動
 
