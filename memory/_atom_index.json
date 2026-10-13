@@ -5851,6 +5851,40 @@
         "monkeypatch 斷言"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定",
+      "path": "memory/Failures/行為契約/feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定.md",
+      "triggers": [
+        "總控台",
+        "多軌",
+        "雙總控台",
+        "對人總控台",
+        "調度總控台",
+        "派工",
+        "工作 session",
+        "codex 審查報告",
+        "最終判斷",
+        "提問優先",
+        "總控台不改碼",
+        "換手規則"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "codex-exec的-o輸出目錄不存在時只在stderr報錯-exit仍0-審查正文留在背景任務輸出-要先mkdir或從任務輸出救回",
+      "path": "_AIDocs/_atoms/Tools/codex-exec的-o輸出目錄不存在時只在stderr報錯-exit仍0-審查正文留在背景任務輸出-要先mkdir或從任務輸出救回.md",
+      "triggers": [
+        "codex exec",
+        "-o",
+        "last message file",
+        "審查檔不存在",
+        "os error 3",
+        "codex 輸出空",
+        "背景任務輸出",
+        "VERDICT 沒落檔"
+      ],
+      "scope": "global"
     }
   ]
 }
