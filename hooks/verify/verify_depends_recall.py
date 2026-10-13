@@ -161,7 +161,12 @@ def test_post_tool_use_calls_depends_after_hub():
     src = (HOOKS_DIR / "handlers" / "post_tool_use.py").read_text(encoding="utf-8")
     assert src.index("_hub_on_read(") < src.index("on_read_depends(") < src.index("advisories.append(dep_ctx)")
     assert src.index("advisories.append(hub_ctx)") < src.index("advisories.append(dep_ctx)")   # hub 文字先、召回後
-    assert src.count('if tool_name in ("Read", "Bash", "PowerShell"):') == 2                  # 缺口 5：兩個分支都收 PowerShell
+    # 缺口 5：讀檔的兩個分支（導讀卡、Depends 召回）都收 Read、Bash、PowerShell；導讀卡那支另收 Grep（045 規則 GREP_CONTENT_IS_READ），
+    # 所以比的是條件裡有哪些工具，不比整行字面
+    import re
+    read_branches = [m.group(1) for m in re.finditer(r'if tool_name in \(([^)]*)\):', src) if '"Read"' in m.group(1)]
+    assert len(read_branches) == 2, read_branches
+    assert all(all(f'"{t}"' in b for t in ("Read", "Bash", "PowerShell")) for b in read_branches), read_branches
 
 
 def test_powershell_and_bare_bash_reads_trigger_recall(world):

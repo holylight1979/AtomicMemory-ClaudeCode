@@ -336,10 +336,13 @@ def apply_report(
         "note": str(note or "")[:300],
         "at": _now_iso(),
         "last_valid_harvest_turn": prev.get("last_valid_harvest_turn"),
+        "last_valid_harvest_uturn": prev.get("last_valid_harvest_uturn"),
         "last_valid_op_seq": int(prev.get("last_valid_op_seq", 0) or 0),
     }
     if not pending:
         sec["last_valid_harvest_turn"] = int(turn_seq or 0)
+        if state.get("user_turn_count") is not None:                       # 冷卻以使用者回合數算（規則 DISPATCH_OPENS_TURN）
+            sec["last_valid_harvest_uturn"] = int(state.get("user_turn_count") or 0)
         ops = atom_ops(state, sid)
         sec["last_valid_op_seq"] = int(ops[-1].get("seq", 0)) if ops else sec["last_valid_op_seq"]
     kh[sid] = sec
@@ -618,8 +621,13 @@ def harvest_gate_reason(
     active = turn_seq >= min_turns or bool(own_mod_files) or len(accessed) >= min_accessed
     if not active:
         return None
-    last_valid = sec.get("last_valid_harvest_turn")
-    if last_valid is not None and turn_seq - int(last_valid) < min_between:
+    # 冷卻（規則 DISPATCH_OPENS_TURN）：兩邊都有使用者回合計數就算回合數差（同伴訊息、背景通知不算一回合）；
+    # 舊 state 沒計數才退回 turn_seq 差
+    last_valid, last_u, cur_u = sec.get("last_valid_harvest_turn"), sec.get("last_valid_harvest_uturn"), state.get("user_turn_count")
+    if last_u is not None and cur_u is not None:
+        if int(cur_u) - int(last_u) < min_between:
+            return None
+    elif last_valid is not None and turn_seq - int(last_valid) < min_between:
         return None
     return harvest_block_message()
 

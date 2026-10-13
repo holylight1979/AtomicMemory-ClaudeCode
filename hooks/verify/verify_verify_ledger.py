@@ -27,6 +27,12 @@ FIX = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q6"
 _SID = "sid-ledger"
 
 
+@pytest.fixture(autouse=True)
+def _temp_rules_off(monkeypatch):
+    """收據的 cwd 是 pytest tmp：關掉 TEMP_COPY_NOT_PROJECT（B14 的案自己再開）。"""
+    monkeypatch.setenv("WG_TEMP_RULES", "off")
+
+
 def _fx(name: str) -> str:
     return (FIX / name).read_text(encoding="utf-8")
 

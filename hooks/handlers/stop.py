@@ -36,7 +36,11 @@ from wg_evasion import (
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, measure_cfg, measure_gate_reason, measure_advisory,
     measure_cmds_of, agent_receipt_key, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
-    committed_settled_paths, git_deadline,
+    committed_settled_paths, committed_equal_paths, git_deadline,
+)
+from wg_release_rules import (
+    parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
+    dpm_instruction_text,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -45,6 +49,7 @@ from wg_release import (
 from wg_episodic import _find_session_transcript
 from wg_handoff import token_warn_payload, estimate_context_usage
 from wg_harvest import harvest_gate_reason, pending_gate_reason, vcs_sync_lock_active
+from wg_reading_path import reading_path_note
 from handlers._shared import (
     _hud_alive,
     _maybe_spawn_user_extract_worker,
@@ -180,14 +185,25 @@ def _git_unpushed_roots(modified_files: List[Dict[str, Any]]) -> List[str]:
         # vcs-sync worker 正持鎖對該 root commit/push 中：領先數此刻是中間狀態，不拿來提醒
         if vcs_sync_lock_active(root):
             continue
+        # 規則 WORKTREE_NO_PUSH：git worktree（git-dir ≠ git-common-dir）或分支沒 upstream → 不要求 push
         try:
+            dirs = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "--git-dir", "--git-common-dir"],
+                capture_output=True, text=True, timeout=5, creationflags=_NO_WINDOW,
+            )
             r = subprocess.run(
                 ["git", "-C", str(root), "rev-list", "--count", "@{u}..HEAD"],
                 capture_output=True, text=True, timeout=5, creationflags=_NO_WINDOW,
             )
         except (FileNotFoundError, subprocess.SubprocessError, OSError):
             continue
-        if r.returncode != 0:
+        lines = [ln.strip() for ln in (dirs.stdout or "").splitlines() if ln.strip()] if dirs.returncode == 0 else []
+        gd, cd = (lines + ["", ""])[:2]
+        gd = gd if os.path.isabs(gd) else str(root / gd) if gd else gd
+        cd = cd if os.path.isabs(cd) else str(root / cd) if cd else cd
+        verdict = push_required_verdict(str(root), is_worktree_checkout(gd, cd), r.returncode == 0)
+        if not verdict.owed:
+            print(f"[Guardian:SyncReminder] 規則 {verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}", file=sys.stderr)
             continue
         try:
             n = int((r.stdout or "0").strip() or 0)
@@ -642,22 +658,26 @@ def _dpm_trigger_text(state: Dict[str, Any], config: Dict[str, Any]) -> str:
     return "、".join(parts) or "高 effort 失敗"
 
 
-def _dpm_instruction(state: Dict[str, Any], config: Dict[str, Any]) -> str:
-    return _DEEP_POSTMORTEM_INSTRUCTION.replace("{trigger}", _dpm_trigger_text(state, config))
+def _cwd_is_worktree(cwd: str) -> bool:
+    """cwd 所在 checkout 是不是 git worktree（規則 DPM_WORKTREE_DELIVERY 的事實）：git-dir ≠ git-common-dir。查不到 → False。"""
+    if not cwd or not os.path.isdir(cwd):
+        return False
+    try:
+        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--git-dir", "--git-common-dir"],
+                           capture_output=True, text=True, timeout=3, creationflags=_NO_WINDOW)
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return False
+    if r.returncode != 0:
+        return False
+    lines = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()] + ["", ""]
+    gd, cd = (lines[0] if os.path.isabs(lines[0]) else os.path.join(cwd, lines[0])), \
+             (lines[1] if os.path.isabs(lines[1]) else os.path.join(cwd, lines[1]))
+    return is_worktree_checkout(gd, cd)
 
 
-_DEEP_POSTMORTEM_INSTRUCTION = (
-    "[Guardian:DeepPostMortem] 偵測到高 effort 失敗訊號（{trigger}）。"
-    "失敗骨架已由 hook 自動落地，但根因與設計脈絡只有你知道。\n"
-    "結束前請用 atom_write 補一條完整 post-mortem（寫入既有 failure atom，或"
-    " realm=local、domain 視主題新建），涵蓋：\n"
-    "  - 始末：觸發場景 → 錯誤行為 → 最終正確做法\n"
-    "  - 根因：為何會犯（非表面症狀）\n"
-    "  - 該區設計原理：出錯那塊程式/機制當初為何這樣設計\n"
-    "  - 運作邏輯：它實際怎麼跑、哪個環節斷掉\n"
-    "  - 防再犯：下次如何提早攔截\n"
-    "寫完即可宣告完成；此為一次性提示，本 session 不再出現。"
-)
+def _dpm_instruction(state: Dict[str, Any], config: Dict[str, Any], cwd: str = "") -> str:
+    """DPM 指令文字；worktree 隔離 session（規則 DPM_WORKTREE_DELIVERY）改要求寫進交付信由總控台代寫，不叫它 atom_write。"""
+    return dpm_instruction_text(_dpm_trigger_text(state, config), _cwd_is_worktree(cwd))
 
 
 # ─── 迴歸累積提示（驗收真命中 → 建議補測試/落 atom）───────────────
@@ -750,8 +770,20 @@ def _verify_gates(
     if same:
         gone = set(same)
         own_mod_files = [m for m in own_mod_files if (m or {}).get("path") not in gone]
-        print("[Guardian:ReconcileGate] 改過又原樣還原（與 HEAD 相同、之後沒 commit），不算改碼："
+        print("[Guardian:ReconcileGate] 規則 NET_UNCHANGED：改過又原樣還原（與 HEAD 相同、之後沒 commit），不算改碼："
               + "、".join(Path(p).name for p in same[:5]), file=sys.stderr)
+    # 內容等於已提交版本（merge 取 theirs、退回 main 版再還原）或與 HEAD 只差註解 → 不是本 session 改碼（CONTENT_EQUALS_COMMITTED／
+    # COMMENT_ONLY_CHANGE）；判不出來照算改了
+    try:
+        equal = committed_equal_paths(own_mod_files, rg_cfg, state.get("last_commit_turn_seq"), state.get("committed_new_code"),
+                                      session_paths=session_paths, deadline=git_dl)
+    except Exception as e:  # noqa: BLE001
+        equal = {}
+        print(f"[Guardian:ReconcileGate] 判斷內容是否等於已提交版本失敗，照算改了：{type(e).__name__}: {e}", file=sys.stderr)
+    if equal:
+        own_mod_files = [m for m in own_mod_files if (m or {}).get("path") not in equal]
+        for v in equal.values():
+            print(f"[Guardian:ReconcileGate] 規則 {v.rule}：{v.why}｜證據：{'；'.join(v.evidence)}", file=sys.stderr)
 
     def _self_runs() -> List[Dict[str, Any]]:
         if not _runs:
@@ -940,11 +972,19 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     )
     # 迴歸累積提示同為 piggyback payload：驗收裁判真命中 → 建議補測試/落 atom。
     _accept_hint = _acceptance_regression_hint(state, session_id, config)
+    # 閱讀路徑影響（G12）：改碼回合量一次，附在這次擋的訊息與 stderr；只量不擋、不計預算（wg_reading_path）
+    try:
+        _reading_path = reading_path_note(state, session_id, config)
+    except Exception as e:  # noqa: BLE001
+        _reading_path = f"[Guardian:ReadingPath] 這次對閱讀路徑的影響量不出來：hook 內部錯誤 {type(e).__name__}: {e}"
+    if _reading_path:
+        print(_reading_path, file=sys.stderr)
+        write_state(session_id, state)
 
     _tpath = str(transcript) if transcript else None
 
     def _piggyback(reason: str, gate: Optional[str] = None) -> str:
-        """附 token 預警／驗收提示。gate 有給（對帳／量尺閘＝"reconcile"）就記這個閘最後一次擋的位置；那條路是先 write_state
+        """附 token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳／量尺閘＝"reconcile"）就記這個閘最後一次擋的位置；那條路是先 write_state
         再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。"""
         if gate:
             mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)))
@@ -954,6 +994,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         if _accept_hint:
             state["acceptance_hint_emitted"] = True
             reason = reason + _accept_hint
+        if _reading_path:
+            reason = f"{reason}\n{_reading_path}"
         if gate:
             write_state(session_id, state)
         return reason
@@ -1040,11 +1082,18 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             print("[Guardian:ReconcileGate] 使用者已放行這一回合，本次不擋", file=sys.stderr)
             _code = None
         if _code or _report:
+            # 規則 BLOCK_BUDGET_PER_RULE：預算每條規則（擋訊息的字母）各自計次，同一條擋滿 max 才算擋滿；
+            # 舊格式紀錄（整場一個 count）不承接。_count＝本回合各條的最大值（(e) overflow 與 log 沿用）
             _budget = state.setdefault("reconcile_gate_turn", {})
             _rec = _budget.get(session_id) if isinstance(_budget.get(session_id), dict) else None
-            _count = int(_rec.get("count", 0)) if _rec and int(_rec.get("turn", -1)) == _uturn else 0
+            _letters = parse_hits(_code or "") or (["*"] if _code else [])
             _max = int(_rg_cfg.get("max_blocks_per_turn", 2))
-            _code_full = bool(_code) and (_count >= _max or _pend is not None)
+            _full_rules = budget_exhausted(_rec, _uturn, _max, _letters)
+            _count = int(_rec.get("count", 0)) if _rec and int(_rec.get("turn", -1)) == _uturn else 0
+            _code_full = bool(_code) and (bool(_full_rules) or _pend is not None)
+            if _full_rules:
+                print(f"[Guardian:ReconcileGate] 規則 BLOCK_BUDGET_PER_RULE：本回合條目 {'、'.join(_full_rules)} 各擋滿 {_max} 次",
+                      file=sys.stderr)
             # 每次擋都查放行（不等擋滿）：最後一次擋之後使用者在 AskUserQuestion 選了放行或打字放行 → 放這一回合。無法互動的不查。
             _noninteractive = non_interactive_reason(input_data, _tpath) if _code else None
             _no_ask = _noninteractive if _code_full else None
@@ -1076,13 +1125,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             elif not _code and not (_report and _count < _max):
                 write_state(session_id, state)
             else:
-                _budget[session_id] = {"turn": _uturn, "count": _count + 1}
+                _budget[session_id] = budget_tick(_rec, _uturn, _letters or (["e"] if _report else []))
                 _gate = "MeasureGate" if _vg_kind == "measure" else "ReconcileGate"
                 if _code_full:
                     set_pending(state, session_id, "reconcile", turn_seq, _now_iso(), _code,
                                 [code_text] if claims_completion(code_text) else [])   # pending 已在就沿用原 claims
-                    _summary = _code.split("\n")[1].strip() if "\n" in _code else _code
-                    _n = _count if _count >= _max else None                    # pending 承接自先前回合：不報本回合次數
+                    _summary = exhausted_summary(_code)                          # 列全部命中條目，不只第一條
+                    _n = _count if _full_rules else None                       # pending 承接自先前回合：不報本回合次數
                     _head = (non_interactive_message(_gate, _n, _summary, _no_ask) if _no_ask
                              else exhausted_message(_gate, _n, _summary))
                     _msg = f"{_head}\n原擋訊息：\n{_code}"
@@ -1395,7 +1444,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         except OSError:
             pass
         state["stop_blocked_count"] = stop_count + 1
-        reason = _piggyback(_dpm_instruction(state, config))
+        reason = _piggyback(_dpm_instruction(state, config, cwd))
         write_state(session_id, state)
         output_block(reason)
         return

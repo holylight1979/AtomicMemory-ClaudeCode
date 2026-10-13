@@ -120,6 +120,24 @@ def test_core_session_and_config_escape():
     assert not _denied(cmd, cwd="")
 
 
+def test_045_git_readonly_subcmd_rule(tmp_path, monkeypatch):
+    """規則 GIT_READONLY_SUBCMD：根層上下文裡的 git 每段都是唯讀子命令且寫入目標不在根層 → 放行；會寫的 git（hash-object -w、
+    worktree add、branch -m：寫入訊號 regex 沒列到也算）→ 擋；PowerShell 換過目錄（Set-Location）後的相對寫入照擋；擋就留 guard-crossrealm.jsonl。"""
+    import json
+    import wg_core
+    monkeypatch.setattr(wg_core, "GUARD_LOG_DIR", tmp_path)
+    assert not _denied("git -C ~/.claude hash-object ~/.claude/hooks/x.py")
+    assert not _denied("git -C ~/.claude show HEAD:hooks/x.py > C:/tmp/x.py && diff C:/tmp/x.py ~/.claude/hooks/x.py")
+    assert _denied("git -C ~/.claude hash-object -w ~/.claude/hooks/x.py")
+    assert _denied("git -C ~/.claude worktree add ../x")
+    assert _denied("git -C ~/.claude branch -m a b")
+    assert _denied("git -C ~/.claude show HEAD:hooks/x.py > ~/.claude/hooks/y.py")
+    assert _denied("Set-Location ~/.claude; Copy-Item a.py hooks/", tool="PowerShell")      # 換過目錄的相對目標算不準，照擋
+    log = tmp_path / "guard-crossrealm.jsonl"
+    rows = [json.loads(ln) for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(rows) == 5 and all(r.get("rule") == "GIT_READONLY_SUBCMD" for r in rows) and rows[0].get("why")
+
+
 def test_non_shell_tools_ignored():
     assert check_cross_realm_bash("Write", {"file_path": HOME_CLAUDE + "/hooks/x.py"}, PROJ, CFG) is None
     assert check_cross_realm_bash("Bash", {}, PROJ, CFG) is None

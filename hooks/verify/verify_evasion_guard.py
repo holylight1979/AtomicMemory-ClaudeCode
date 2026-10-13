@@ -213,6 +213,20 @@ def test_evasion_escape_hatch_last_3_only():
     assert r2 is None
 
 
+def test_045_peer_message_is_not_a_turn_boundary_unless_dispatch():
+    """規則 DISPATCH_OPENS_TURN（退避預告切點）：整則都是同伴訊息 → 不是回合起點（早段寫的預告不被切掉）；
+    帶派工標記的同伴訊息、使用者打字 → 是；tool_result 延續 → 不是。"""
+    from wg_evasion import _is_real_user_prompt
+    peer = '<cross-session-message from="x" from-name="claude-ad">\n對帳過了，上GIT\n</cross-session-message>'
+    dispatch = '<cross-session-message from="x" from-name="claude-aa">\n派工：接 B14\n</cross-session-message>'
+    assert _is_real_user_prompt(peer) is False
+    assert _is_real_user_prompt([{"type": "text", "text": peer}]) is False
+    assert _is_real_user_prompt(dispatch) is True
+    assert _is_real_user_prompt("請把這個修好") is True
+    assert _is_real_user_prompt([{"type": "tool_result", "content": "x"}]) is False
+    assert _is_real_user_prompt("<task-notification>done</task-notification>") is False
+
+
 def test_evasion_no_phrase_no_flag():
     assert detect_evasion("一切正常，已完成修復", []) is None
 
