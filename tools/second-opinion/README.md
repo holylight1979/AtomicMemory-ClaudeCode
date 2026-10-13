@@ -16,8 +16,9 @@
 
 ```
 prepare  打包材料 → manifest.hash → prompt.md → replay-guard pre（非 PASS → blocked，不 spawn codex）
-execute  探針 codex exec --skip-git-repo-check -s read-only -m <slug> "Reply CODEX_OK"（逾時 20 s／1385／沒回 → failed，不退 claude）
-         → codex exec -m <slug> -s read-only -C <job_dir> --ephemeral --skip-git-repo-check -o reply.raw.md -  （stdin=prompt.md；逾時 300 s kill）
+execute  探針 codex exec --skip-git-repo-check -s read-only -c windows.sandbox="unelevated" -m <slug> -C <job_dir> "<讀 probe.txt 回第一行>"
+         （job 目錄先放 probe.txt＝一行隨機字樣，不在提示裡；逾時 60 s／1385／回覆沒有那個字樣 → failed，不退 claude；探完刪 probe.txt）
+         → codex exec -m <slug> -s read-only -c windows.sandbox="unelevated" -C <job_dir> --ephemeral --skip-git-repo-check -o reply.raw.md -  （stdin=prompt.md；逾時 300 s kill）
          → replay-guard post --log codex.stderr.log（FAIL → failed）
          → parse_three_sections（缺段 → failed）→ reply.md → done
 ```
@@ -49,7 +50,7 @@ js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/gua
 ```json
 "second_opinion": {
   "model": "gpt-6-astra",
-  "probe_timeout_s": 20,
+  "probe_timeout_s": 60,
   "timeout_s": 300,
   "defects_top_n": 5,
   "ledger_tail": 20,
@@ -57,6 +58,7 @@ js 端 `crashLog` 是既有 `lib/log.js` 的函式，寫 `~/.claude/workflow/gua
 }
 ```
 `allow_claude_fallback` 固定 false，config 寫了也不理。codex 執行檔與 `codex_extra_args` 沿用 `codex_companion` 段。
+唯讀沙箱旗標（`-s read-only`，Windows 另加 `-c windows.sandbox="unelevated"`）寫在 `run.py` 的 `_sandbox_args`，不放共用的 `codex_extra_args`：沒帶 unelevated 時 codex 在沙箱裡每個指令都 `CreateProcessWithLogonW failed: 1385`，只能看提示裡內嵌、超過 `material_max_chars` 會截斷的材料；裁判（`codex-companion/assessor.py`）不傳 `-s`，不受影響。
 
 ## 保留裁決（總控台審）
 
