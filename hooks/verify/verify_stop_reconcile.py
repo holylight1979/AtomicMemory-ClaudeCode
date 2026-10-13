@@ -2751,17 +2751,18 @@ def test_any_git_difference_keeps_debt(driven, capsys, clean_repo, kind):
 
 
 def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys, chain, monkeypatch):
-    """040 附錄第 3、5 條（總控台定死）：改過的程式檔在 Stop 當下已不存在（刪除、改名走）→ 不再欠補案例；改名後的新路徑若是程式檔
-    另一筆照算，量尺閘照舊看所有改檔。經工具→PostToolUse→Stop、Stop 用真的存在判定。舊碼只看修改紀錄，刪掉、改名走的檔照樣要案例。
-    （9c 的 test_any_git_difference_keeps_debt[deleted] 用虛構存在判定，驗的是「刪除不算原樣還原」那一層。）"""
+    """040 附錄第 3、5 條（總控台定死）：改過的程式檔在 Stop 當下已不存在、而且同根沒有新出現的程式檔（真的刪掉，或改名成不是程式檔）
+    → 不再欠補案例；量尺閘照舊看所有改檔。經工具→PostToolUse→Stop、Stop 用真的存在判定與真 git status。舊碼只看修改紀錄，
+    刪掉、改名走的檔照樣要案例。（9c 的 test_any_git_difference_keeps_debt[deleted] 用虛構存在判定，驗的是「刪除不算原樣還原」那一層。）"""
     monkeypatch.setattr(vl, "code_exists", os.path.isfile)
     state, edit, git, repo, code, _ = chain
-    tmp = repo / "src" / "tmp_copy.py"
-    tmp.write_text("x = 1\n", encoding="utf-8", newline="\n")
     edit(code, 3)                                                                          # 真的改了程式：照欠
     git("rm", "-q", "-f", "src/a.py")                                                      # 改完又整檔刪掉
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
     assert "改了程式碼（a.py）之後" not in out
+    tmp = repo / "src" / "tmp_copy.py"
+    tmp.parent.mkdir(exist_ok=True)                                                        # git rm 把空的 src/ 一起拿掉了
+    tmp.write_text("x = 1\n", encoding="utf-8", newline="\n")
     s2 = copy.deepcopy(state)
     s2["modified_files"].append(_mf(str(tmp), 5, last_at=_T2, last_seq=99))
     tmp.rename(repo / "src" / "tmp_copy.py.txt")                                          # 改名成不是程式檔
@@ -2771,7 +2772,24 @@ def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys
     s3["modified_files"].append(_mf(str(repo / "src" / "kept.py"), 5, last_at=_T2, last_seq=100))
     (repo / "src" / "kept.py").write_text("y = 1\n", encoding="utf-8", newline="\n")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **s3)
-    assert "改了程式碼（kept.py）之後沒有新增或修改驗證 case 檔" in out                       # 配對：還在的照欠
+    debt = next((ln for ln in out.split("\\n") if "沒有新增或修改驗證 case 檔" in ln), "")
+    assert "kept.py" in debt                                                                # 配對：還在的照欠
+    assert "a.py" in debt                                                                   # 同根冒出新程式檔：分不出是不是搬過去，刪掉的也照欠
+
+
+@pytest.mark.parametrize("how", ["git_mv_dir", "plain_mv_file"])
+def test_040_11_moving_changed_code_away_still_owes(driven, capsys, chain, monkeypatch, how):
+    """040 codex 第三輪 BLOCK：改了程式後整個目錄改名（git mv src pkg）、或用一般 mv 搬到新檔名 → 舊路徑不在了，但同根出現新的程式檔
+    → 判成搬走、照欠補案例；不靠逐一解析每種搬檔寫法。舊碼 040 第一版只看檔案在不在，搬走就清帳。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, code, _ = chain
+    edit(code, 3)
+    if how == "git_mv_dir":
+        git("mv", "src", "pkg")
+    else:
+        code.rename(repo / "src" / "moved.py")                                            # 沒經過記帳的搬法也要擋
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "改了程式碼（" in out and "a.py" in next((ln for ln in out.split("\\n") if "沒有新增或修改驗證 case 檔" in ln), ""), how
 
 
 def test_040_9_moving_changed_code_with_git_mv_still_owes_at_new_path(driven, capsys, chain, monkeypatch):
@@ -2782,7 +2800,7 @@ def test_040_9_moving_changed_code_with_git_mv_still_owes_at_new_path(driven, ca
     edit(code, 3)
     git("mv", "src/a.py", "src/b.py")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
-    assert "改了程式碼（b.py）之後沒有新增或修改驗證 case 檔" in out
+    assert "b.py" in next((ln for ln in out.split("\\n") if "沒有新增或修改驗證 case 檔" in ln), "")
 
 
 def test_040_10_change_and_commit_in_one_command_is_not_exempted(driven, capsys, chain):

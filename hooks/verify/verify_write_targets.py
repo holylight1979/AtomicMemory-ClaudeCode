@@ -135,7 +135,8 @@ def test_040_rename_item_records_old_and_new_path(tmp_path):
     cwd = str(tmp_path)
     a, b = os.path.normpath(str(tmp_path / "src" / "a.py")), os.path.normpath(str(tmp_path / "src" / "b.py"))
     for cmd in ("Rename-Item -Path src/a.py -NewName b.py", "Rename-Item src/a.py b.py", "rni src/a.py -NewName b.py",
-                "ren -LiteralPath src/a.py -NewName b.py"):
+                "ren -LiteralPath src/a.py -NewName b.py", "Rename-Item -Path src/a.py b.py",
+                "Rename-Item -LiteralPath src/a.py b.py"):          # 040 codex 第三輪：來源具名、新名字是位置參數
         assert write_paths_from_tool("PowerShell", {"command": cmd}, cwd) == [a, b], cmd
 
 

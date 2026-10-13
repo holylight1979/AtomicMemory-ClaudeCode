@@ -1141,19 +1141,70 @@ def case_exists(path: str) -> bool:
 
 
 def code_exists(path: str) -> bool:
-    """改過的程式檔在 Stop 當下還在嗎：已刪除或改名走的檔不再欠補案例（改名後的新路徑另記一筆照算；量尺照舊）。"""
+    """改過的程式檔在 Stop 當下還在嗎（不在的再交給 vanished_code_paths 判是刪掉還是搬走）。"""
     return os.path.isfile(path)
 
 
+VANISH_BUDGET_S = 2.0    # vanished_code_paths 整支查 git 的時間預算
+
+
+def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: float = 2.0,
+                        _run: Optional[Callable[..., Any]] = None) -> List[str]:
+    """Stop 當下已不存在的改過程式檔裡，可以當成「刪掉了」、不再欠補案例的：所在 git 根的 status（未追蹤、新增、改名、複製）
+    沒有出現任何程式檔。搬走（mv、git mv、Rename-Item、整個目錄改名）的程式一定會在那裡以新路徑出現，就照欠。
+    不追每一種搬檔寫法，只看結果。不在 git 工作區、git 失敗或逾時、預算用完 → 不算（照欠），stderr 說一聲。"""
+    run = _run or subprocess.run
+    exts = cfg.get("code_exts") or []
+    deadline = time.monotonic() + VANISH_BUDGET_S
+    by_root: Dict[str, Tuple[Path, List[str]]] = {}
+    for p in paths or []:
+        hit = _git_root_of(str(p))
+        if hit:
+            by_root.setdefault(hit[0], (hit[1], []))[1].append(str(p))
+    out: List[str] = []
+    for root, ps in by_root.values():
+        left = deadline - time.monotonic()
+        if left < _GIT_MIN_S:
+            print(f"[verify_ledger] {root} 沒時間查 git，已不存在的改檔照算欠補案例", file=sys.stderr)
+            continue
+        try:
+            st = run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+                     capture_output=True, timeout=min(timeout_s, left), creationflags=_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError) as e:
+            print(f"[verify_ledger] 在 {root} 查 git 失敗，已不存在的改檔照算欠補案例：{type(e).__name__}: {e}", file=sys.stderr)
+            continue
+        if st.returncode != 0:
+            print(f"[verify_ledger] 在 {root} 查 git 回非零，已不存在的改檔照算欠補案例", file=sys.stderr)
+            continue
+        fields, appeared, i = st.stdout.decode("utf-8", "replace").split("\0"), [], 0
+        while i < len(fields):
+            f = fields[i]
+            if len(f) > 3:
+                if f[0] in "RC":
+                    appeared.append(f[3:])
+                    i += 1                                        # 改名／複製：下一欄是原路徑
+                elif "?" in f[:2] or "A" in f[:2]:
+                    appeared.append(f[3:])
+            i += 1
+        new_code = [n for n in appeared if is_code_file(n, exts)]
+        if new_code:
+            print(f"[verify_ledger] {root} 有新出現的程式檔（{'、'.join(Path(n).name for n in new_code[:3])}），"
+                  "已不存在的改檔可能是搬過去了，照算欠補案例", file=sys.stderr)
+            continue
+        out += ps
+    return out
+
+
 def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
-              root_of: Callable[[str], Optional[str]]) -> List[str]:
+              root_of: Callable[[str], Optional[str]], gone: Iterable[str] = ()) -> List[str]:
     """補案例的義務（跨回合）：每個根找「本 session 最後一次改驗證案例之後還改過的程式檔」，回這些檔。
-    只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）；Stop 當下已不存在的程式檔（刪除、改名走）不欠
-    （code_exists；改名後的新路徑是另一筆照算，量尺閘照舊看所有改檔）。
+    只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）；gone 裡的程式檔（已刪除、而且同根沒有新出現的程式檔，
+    見 vanished_code_paths）不欠；搬走的照欠，量尺閘照舊看所有改檔。
     案例判定用相對該根的路徑；拿不到根的程式檔退回絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。
     修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。
     範圍外：改的案例是不是對應這次改動，程式判不出來，交給收尾對照（需求目標核心流程 checklist C-G3）由 LLM 判。"""
     exts = cfg.get("code_exts") or []
+    gone = set(gone or ())
     by_root: Dict[str, List[Dict[str, Any]]] = {}
     for m in own_mod_files or []:
         if isinstance(m, dict) and m.get("path"):
@@ -1172,7 +1223,7 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
                              and int(m.get("last_turn_seq", m.get("turn_seq"))) == int(turn_seq) for m in cases)
         for m in ms:
             p = m["path"]
-            if not is_code_file(p, exts) or case_of[p] or p in owed or not code_exists(p):
+            if not is_code_file(p, exts) or case_of[p] or p in owed or p in gone:
                 continue
             if _has_time(m):
                 if last_case is None or _mod_after(m, last_case):
@@ -1407,7 +1458,9 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     if any(tried_claim_without_exec(t, turn_tool_names, cfg.get("exec_tools") or [], this_turn, phrases) for t in texts):
         hits.append("(c) 說「試過／跑了」但本回合沒有任何 Bash／PowerShell 執行。"
                     + ("現在跑出收據。" if pending else "沒跑就寫沒跑，或現在跑。"))
-    owed = case_debt(own_mod_files, turn_seq, cfg, root_of)
+    exts = cfg.get("code_exts") or []
+    absent = [p for p in mod_session if is_code_file(p, exts) and not code_exists(p)]
+    owed = case_debt(own_mod_files, turn_seq, cfg, root_of, vanished_code_paths(absent, cfg) if absent else ())
     if owed and case_settled:
         done = set(case_settled(owed))
         if done:

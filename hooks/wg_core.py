@@ -1988,8 +1988,10 @@ def _ps_targets(name: str, args: List[str]) -> List[str]:
         src = named.get("-path") or named.get("-literalpath") or (positional[0] if positional else "")
         return [f"{dst}\x00{src}"] if dst else []
     if name == "rename-item":                        # 舊路徑與改名後的新路徑都是目標（新名字落在舊路徑的同一個目錄）
-        src = named.get("-path") or named.get("-literalpath") or (positional[0] if positional else "")
-        new = named.get("-newname") or (positional[1] if len(positional) > 1 else "")
+        src_named = named.get("-path") or named.get("-literalpath")
+        src = src_named or (positional[0] if positional else "")
+        rest = positional if src_named else positional[1:]          # 來源已具名綁定：新名字是第一個位置參數
+        new = named.get("-newname") or (rest[0] if rest else "")
         if src and new:
             return [src, os.path.join(os.path.dirname(src.rstrip("/\\")), os.path.basename(new.rstrip("/\\")))]
         return [src] if src else []
