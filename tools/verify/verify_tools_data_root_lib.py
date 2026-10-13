@@ -206,7 +206,11 @@ def test_lib_tail_follows_data_root_and_worktree_is_core(dirs, tmp_path):
     home, data, cwd = dirs
     wt, proj = tmp_path / "wt", tmp_path / "proj"
     wt.mkdir()
-    (wt / ".git").write_text(f"gitdir: {data / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+    adm = data / ".git" / "worktrees" / "wt"                                           # 資料根 repo 的 worktree 管理目錄
+    adm.mkdir(parents=True)
+    (wt / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
+    (adm / "gitdir").write_text(f"{wt / '.git'}\n", encoding="utf-8")                   # 反向登記這棵樹
+    (adm / "commondir").write_text(f"{data / '.git'}\n", encoding="utf-8")
     (proj / ".git").mkdir(parents=True)
     got = _py(TAIL_PROBE, [TREE, data, wt, proj], _env(home, data), cwd)
     assert _n(got["projects_dir"]) == _n(data / "projects")
