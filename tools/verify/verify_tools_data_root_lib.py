@@ -1,10 +1,13 @@
-"""verify_tools_data_root_lib.py：lib 四支（project_root、atom_locations、atom_taxonomy、realm_gate）、wg_core 的 Logs 的資料常數都看資料根（lib.project_root.claude_data_dir），程式碼仍看檔案位置。
+"""verify_tools_data_root_lib.py：lib 四支（project_root、atom_locations、atom_taxonomy、realm_gate）、wg_core 的 Logs、
+MCP paths.js 的資料常數都看資料根（lib.project_root.claude_data_dir），程式碼仍看檔案位置。
 
 做什麼（每案開冷啟動子行程：常數在 import 時算好、預設參數在定義時綁死；一律 -P 且 cwd 在 tmp，cwd 不進 sys.path）：
 - 常數：WG_CLAUDE_DIR＝tmp 資料根 → lib 常數與預設參數都在 tmp 資料根；`lib.xxx` 與頂層 `xxx` 兩種載法都測；
   沒設 → 都在 tmp家/.claude。
 - 真的讀寫 tmp：詞庫、taxonomy、config、registry 從 tmp 資料根讀；guard log 寫進 tmp資料根/Logs；
   資料根本身不能當宣告根；資料根與程式碼根的頂層資料夾名都不當專名。
+- MCP：同一組 env（tmp／空白／不設）下 node 的 paths.js 與 Python 的 claude_data_dir() 算出同一個資料根，
+  version.json 看程式碼根，config／registry／org-memory.local.json 從 tmp 資料根讀。
 怎麼跑：python -X utf8 -m pytest -q tools/verify/verify_tools_data_root_lib.py
 """
 from __future__ import annotations
@@ -19,6 +22,7 @@ from pathlib import Path
 import pytest
 
 TREE = Path(__file__).resolve().parents[2]
+MCP_LIB = TREE / "tools" / "workflow-guardian-mcp" / "lib"
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 
 LIB_CONSTS = {
@@ -158,3 +162,35 @@ def test_lib_and_wg_core_really_read_and_write_data_root(dirs, tmp_path):
     assert _n(got["wg_failures"]) == _n(data / "memory" / "Failures")
     assert _under(got["audit_log"], data)
 
+
+NODE_PROBE = r"""
+const lib = process.argv[1];
+const p = require(lib + "/paths.js");
+console.log("PROBE_JSON " + JSON.stringify({
+  CLAUDE_DIR: p.CLAUDE_DIR, CODE_DIR: p.CODE_DIR, WORKFLOW_DIR: p.WORKFLOW_DIR, MEMORY_DIR: p.MEMORY_DIR,
+  CONFIG_PATH: p.CONFIG_PATH, REGISTRY_PATH: p.REGISTRY_PATH, VERSION_PATH: p.VERSION_PATH,
+  config: p.loadConfig(), registry: p.loadRegistry(), org: p.loadOrgLocal() }));
+"""
+PY_ROOT_PROBE = ("import json, sys; sys.path.insert(0, sys.argv[1]); from lib.project_root import claude_data_dir; "
+                 "print('PROBE_JSON ' + json.dumps({'CLAUDE_DIR': str(claude_data_dir())}))")
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node not available")
+def test_mcp_paths_js_agrees_with_python_data_root(dirs):
+    home, data, cwd = dirs
+    (data / "workflow").mkdir()
+    (data / "memory").mkdir()
+    (data / "workflow" / "config.json").write_text(json.dumps({"probe": "data-config"}), encoding="utf-8")
+    (data / "workflow" / "org-memory.local.json").write_text(json.dumps({"probe": "data-org"}), encoding="utf-8")
+    (data / "memory" / "project-registry.json").write_text(json.dumps({"projects": {"zeta": {}}}), encoding="utf-8")
+    for wg, expect in ((data, data), ("   ", home / ".claude"), (None, home / ".claude")):
+        env = _env(home, wg)
+        js = _run(["node", "-e", NODE_PROBE, str(MCP_LIB)], env, cwd)
+        py = _py(PY_ROOT_PROBE, [TREE], env, cwd)
+        assert _n(js["CLAUDE_DIR"]) == _n(py["CLAUDE_DIR"]) == _n(expect), (wg, js["CLAUDE_DIR"], py["CLAUDE_DIR"])
+        assert _n(js["CODE_DIR"]) == _n(TREE) and _n(js["VERSION_PATH"]) == _n(TREE / "version.json")   # 版本標記看程式碼根
+        for k in ("WORKFLOW_DIR", "MEMORY_DIR", "CONFIG_PATH", "REGISTRY_PATH"):
+            assert _under(js[k], expect) and not _under(js[k], TREE), (wg, k, js[k])
+    js = _run(["node", "-e", NODE_PROBE, str(MCP_LIB)], _env(home, data), cwd)
+    assert js["config"] == {"probe": "data-config"} and js["org"] == {"probe": "data-org"}          # 真的從資料根讀
+    assert js["registry"] == {"projects": {"zeta": {}}}
