@@ -1104,8 +1104,9 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         except Exception as e:
             print(f"overview hub read error: {e}", file=sys.stderr)
 
-    # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）
-    if tool_name in ("Read", "Bash", "PowerShell"):
+    # 需求目標 4.3 讀入範圍：讀到的部位與頂層目錄記進目標樹（不看 OverviewHub 開關；提示由 PostToolBatch 合併送）；
+    # 「讀了什麼」與上面 on_read 同一支（wg_overview.read_targets），所以工具清單也相同
+    if tool_name in ("Read", "Bash", "PowerShell", "Grep"):
         try:
             from wg_need_goal_points import scope_on_read
             if scope_on_read(state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "", config):

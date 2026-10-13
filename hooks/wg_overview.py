@@ -815,6 +815,12 @@ def _read_paths(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[st
     return read_paths_from_tool(tool_name, tool_input, cwd)
 
 
+def read_targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
+    """這次工具呼叫讀到的專案檔：_read_paths 去掉暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）。on_read 與需求目標的
+    讀入範圍（wg_need_goal_points.scope_on_read）共用這一支，兩邊對「讀了什麼」的認定一致。"""
+    return [p for p in _read_paths(tool_name, tool_input, cwd) if not _rr.is_temp_path(_long(p), _temp_roots())]
+
+
 def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
             cwd: str, transcript_path: str, config: Dict[str, Any]) -> Optional[str]:
     """PostToolUse（Read／Bash／PowerShell／Grep）：第一次讀到某部位 → 回注入文字；已注入 → 記 reads_after／part_files_read；
@@ -823,9 +829,7 @@ def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: 
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
-    for p in _read_paths(tool_name, tool_input, cwd):
-        if _rr.is_temp_path(_long(p), _temp_roots()):
-            continue
+    for p in read_targets(tool_name, tool_input, cwd):
         hit = _lookup_quiet(p)
         _record_read(state, p, hit)
         if not hit:

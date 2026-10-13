@@ -305,7 +305,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 
 ### 12.1 track-b-hooks 新增（只加鍵，不改第二～九節任何鍵的意義）
 - 樹 `points`（dict，只有 wg_need_goal_points 寫）：`scope_parts` [部位鍵]、`scope_dirs` {mark, dirs, sent}（mark＝節點 history 最大 seq，樹一更新就重算）、`scope_pending` [{kind: part｜dirs, label, prev}]、`scope_sent_turn` int｜null（一回合最多送一則）、`multi_hinted` [路徑]。匯出時會跟著出去，匯入時不帶。
-- 讀入範圍由 `post_tool_use` 對 Read／Bash／PowerShell 呼叫 `wg_need_goal_points.scope_on_read` 計算，不看 OverviewHub 開關：跨頂層目錄照算，部位鍵只在 OverviewHub 開著、表上有列時才有；這個 session 還沒有目標檔就直接返回。
+- 讀入範圍由 `post_tool_use` 對 Read／Bash／PowerShell／Grep 呼叫 `wg_need_goal_points.scope_on_read` 計算，「讀了什麼」與 OverviewHub 的 on_read 同一支 `wg_overview.read_targets(tool_name, tool_input, cwd)`（Grep 內容讀檔算、Bash 行首註解不算、暫存目錄下的檔不算）；不看 OverviewHub 開關：跨頂層目錄照算，部位鍵只在 OverviewHub 開著、表上有列時才有；這個 session 還沒有目標檔就直接返回。
 - `wg_overview.read_scope_keys(path, config) → (root, part_key, dir_key)`：專案根、部位鍵 `<根>|<部位>`、頂層目錄鍵 `<根>|<頂層目錄>`；不在任何專案裡全回 None。`wg_overview.on_read` 不再算讀入範圍。
 - 目標檔頂層 `peer_offset`（int）：PostToolBatch 掃 transcript 找工作中途送到的同伴訊息（attachment `queued_command`）已掃到的位元組位置；第一次只記位置不回溯，只吃到最後一個完整行。只有 `peer_claim_lines` 寫。
 - 目標檔頂層 `peer_scan_truncated` {at, turn, skipped}（一批新增段超過 `PEER_SCAN_CAP` 256KB，只讀最後一段，skipped＝跳過的位元組數）、`peer_scan_error` {at, turn, error}（讀不到 transcript 或同伴訊息行 JSON 解析失敗；不擋，另寫 stderr）、`peer_scan_reset` {at, turn, from, to}（transcript 變短：位置從 from 重置到檔尾 to，這次不回溯）。
