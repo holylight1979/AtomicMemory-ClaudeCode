@@ -27,6 +27,7 @@ from wg_core import (
     _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block,
     append_guard_log, WORKFLOW_DIR, _atom_debug_error,
 )
+from wg_release_rules import in_turn, turn_start, user_turn as _user_turn
 from wg_evasion import (
     claims_completion, detect_evasion, deferral_gate_reason,
     get_last_assistant_text, detect_missing_aec_emission,
@@ -269,13 +270,13 @@ def _audit_pointer_atom_consumption(
     輸給 context 實體線索時就漏（實證：trigger 命中的肥 atom 被 budget skip
     成一行、全程未展開）。防噪內建：
       - 只稽核 source=trigger（bm25/vector/related 不催——related 擴散本就低確信）
-      - 同 turn 注入不催（至少給模型一個完整 turn 決定要不要展開）
+      - 本回合（使用者打字開的回合起，同伴訊息、背景通知不另開回合）注入的不催（至少給模型一個完整回合決定要不要展開）
       - 消費判定用 Stop 已回收的 accessed_files（同 turn 的 Read 先於本判定入 state）
     """
     inj_log = state.get("injection_log") or []
     if not inj_log:
         return None
-    turn_seq = int(state.get("turn_seq", 0))
+    turn_seq = _user_turn(state, int(state.get("turn_seq", 0)))
     prompted = set(state.get("atom_audit_prompted") or [])
     accessed = {
         _normalize_read_path(a.get("path"))
@@ -376,16 +377,17 @@ def _detect_turn_outcome(state: Dict[str, Any], last_text: str, session_id: Opti
       - +1（success）：宣告完成（claims_completion）且無上述 fail 訊號（硬正向）。
       - None（unknown）：既無完成宣告也無 fail 訊號 → 不動 (α,β)，防雜訊污染。
 
-    failing_tests 只認本 turn（entry turn_seq == state turn_seq）——全量累積會讓
-    早前 turn 的舊失敗污染後續每個 turn 的 outcome。無 turn_seq 的 entry（升級前
-    in-flight session）保守視為本 turn（fail-open，不漏 fail 訊號）。sync gate /
+    failing_tests 只認本回合（規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起，同伴訊息、背景通知不另開回合）：
+    全量累積會讓早前回合的舊失敗污染後續每個回合的 outcome。無 turn_seq 的 entry（升級前
+    in-flight session）保守視為本回合（fail-open，不漏 fail 訊號）。sync gate /
     TestFailGate 等其他消費者維持全量語意不變。
     """
     turn_seq = int(state.get("turn_seq", 0))
+    since = _user_turn(state, turn_seq)
     pool = _own_failing_tests(state, session_id) if session_id else (state.get("failing_tests") or [])
     failing = [
         f for f in pool
-        if int((f or {}).get("turn_seq", turn_seq)) == turn_seq
+        if in_turn((f or {}).get("turn_seq", turn_seq), turn_seq, since)
     ]
     evasion = bool(state.get("evasion_flag"))
     # wisdom_retry_count 是 session 累計（FixEscalation 等消費者要它累計）；
@@ -509,15 +511,16 @@ def _attribute_usefulness(
                 continue
             _consider(name, path_str, _read(path_str), turn_text, outcome)
 
-        # 2) 本 turn sub-agent 注入（state["subagent_injections"]）
-        #    只結算本 turn 的紀錄（turn_seq 相符）；更早 turn 殘留的紀錄標過期不套當輪 outcome。
-        #    use 偵測比對該 agent 的 output_summary（其實際產物）；outcome 疊 agent 狀態。
+        # 2) 本回合 sub-agent 注入（state["subagent_injections"]）
+        #    只結算本回合的紀錄（規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起，同伴訊息、背景通知不另開回合）；
+        #    更早回合殘留的紀錄標過期不套當輪 outcome。use 偵測比對該 agent 的 output_summary（其實際產物）；outcome 疊 agent 狀態。
+        since = _user_turn(state, turn_seq)
         for rec in (state.get("subagent_injections") or []):
             if rec.get("attributed"):
                 continue
             rec_turn = rec.get("turn_seq")
-            if rec_turn is not None and turn_seq and int(rec_turn) != turn_seq:
-                if int(rec_turn) < turn_seq:
+            if rec_turn is not None and turn_seq and not in_turn(rec_turn, turn_seq, since):
+                if int(rec_turn) < since:
                     rec["attributed"] = True
                     rec["skipped"] = "stale_turn"
                 continue
@@ -765,13 +768,15 @@ def _verify_gates(
                 _lk, mcmds = None, []
             else:
                 mcmds = measure_cmds_of(own_mod_files, _lk)
+            since = turn_start(_user_turn(state, turn_seq), session_id, own_mod_files, receipts)
             reason, report = reconcile_gate_parts(
                 last_text, receipts, turn_seq, names, own_mod_files, rg_cfg,
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
                 measure_cmds=mcmds, claims=claims, pending=pending,
                 case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths,
                                                                   deadline=git_dl),
-                committed_new=state.get("committed_new_code"),
+                committed_new=state.get("committed_new_code"), user_turn=since,
+                exec_this_turn=in_turn((state.get("exec_turn_seq") or {}).get(session_id), turn_seq, since),
                 self_covered=(lambda: self_run_covered(measure_parts(own_mod_files, _lk), _self_runs())) if _lk else None,
             )
             kind = "reconcile" if reason or report else ""
@@ -807,12 +812,6 @@ def _verify_gates(
 ASK_HINT = "要問使用者問題請用 AskUserQuestion，不要用文字結束回合。"     # 寫碼查核每次 Stop 都判，用文字發問也會被擋
 
 
-def _user_turn(state: Dict[str, Any], turn_seq: int) -> int:
-    """寫碼查核的預算與放行用的「回合」：使用者本人打字開的那一回合（ups_gates.track_turn_prompts 記的 turn_prompts_seq）。
-    turn_seq 每一則 UserPromptSubmit 都 +1（同伴 session 的訊息、背景通知也會進來），拿它計次會讓別人一直傳訊息就永遠擋不滿；
-    舊 state 沒有這個欄位才用 turn_seq。"""
-    v = state.get("turn_prompts_seq")
-    return int(v) if isinstance(v, int) and not isinstance(v, bool) and v > 0 else int(turn_seq)
 LEGACY_PENDING = ("[Guardian:ReconcileGate] 先前擋滿的查核紀錄是舊格式，沒有原宣稱可以重查：補證據解不了，"
                   "只能照【收尾放行確認】問使用者放行。")
 
@@ -972,16 +971,18 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # anti-evasion 目的在 commit 那刻消解。不開後門——豁免綁「本 turn 真的 commit 了」
     # （post_tool_use 記的 last_commit_turn_seq），而非「本 turn 沒 Edit」；光宣告完成不 commit
     # 仍被擋。未 commit 就 commit 的檔仍由 SyncReminder / 一般 block 兜底。
+    # 「本回合」照規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起到現在（同伴訊息、背景通知不另開回合）。
     turn_seq = int(state.get("turn_seq", 0))
-    committed_this_turn = bool(turn_seq) and state.get("last_commit_turn_seq") == turn_seq
-    # emit 滿足＝本回合有呼叫 anti_evasion_report。★雙鍵（turn_seq **且** session_id）為硬性：
+    _since = _user_turn(state, turn_seq)
+    committed_this_turn = bool(turn_seq) and in_turn(state.get("last_commit_turn_seq"), turn_seq, _since)
+    # emit 滿足＝本回合有呼叫 anti_evasion_report。★雙鍵（回合 **且** session_id）為硬性：
     # merged/sibling session 共用同一實體 state 檔且共用同一 turn_seq 計數器，唯 session_id 能
     # 區辨——否則隔壁 session 的 emit 會誤放行本 session（重演 own_mod_files 要防的洩漏）。
     # bool(turn_seq) 護欄：防 turn_seq==0 的 fallback state 以 0==0 假滿足。
     aec = state.get("anti_evasion_report") or {}
     emitted_this_turn = (
         bool(turn_seq)
-        and aec.get("turn_seq") == turn_seq
+        and in_turn(aec.get("turn_seq"), turn_seq, _since)
         and aec.get("session_id") == session_id
     )
 
@@ -1132,9 +1133,8 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     # 全域預算。判定純函式在 wg_evasion.deferral_gate_reason；量測失敗 fail-open。
     # 底下四個「每回合最多擋一次」的閘（Deferral、KnowledgeHarvest、Harvest-Pending、AEC-Pending）的回合都用
     # _user_turn（使用者打字開的回合）：同伴訊息、背景通知每則都讓 turn_seq +1，拿它當鍵會每則訊息後又擋一次。
-    _uturn = _user_turn(state, turn_seq)
+    _uturn = _since
     if stop_count < max_blocks and last_text:
-        _dg_turn = int(state.get("turn_seq", 0))
         _ah = config.get("auto_handoff", {}) or {}
         try:
             _dg_ratio = estimate_context_usage(
@@ -1151,9 +1151,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 state.get("recent_user_prompts", []) or [],
                 turn_seq=_uturn,
                 gated_turn=state.get("deferral_gate_turn"),
-                committed_this_turn=(
-                    bool(_dg_turn) and state.get("last_commit_turn_seq") == _dg_turn
-                ),
+                committed_this_turn=committed_this_turn,
                 context_ratio=_dg_ratio,
                 config=config,
             )
@@ -1165,7 +1163,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             state["stop_blocked_count"] = stop_count + 1
             append_guard_log("deferral", {
                 "session_id": session_id,
-                "turn_seq": _dg_turn,
+                "turn_seq": turn_seq,
                 "context_ratio": round(float(_dg_ratio), 3),
                 "excerpt": dg.split("\n")[1][:160] if "\n" in dg else "",
             })

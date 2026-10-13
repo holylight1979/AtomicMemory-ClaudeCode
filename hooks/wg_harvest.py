@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from wg_core import _now_iso, WORKFLOW_DIR, user_typed_prompts
 from wg_evasion import claims_completion, _DISMISS_RE, _COMPLETION_EXCLUDE_RE
 from wg_extraction import _is_pid_alive
+from wg_release_rules import in_user_turn
 
 _ATOM_OPS_CAP = 200
 _RECEIPT_OPS = ("create", "append", "replace", "retire")
@@ -71,12 +72,14 @@ def section(state: Dict[str, Any], sid: str) -> Dict[str, Any]:
 
 
 def validated_this_turn(state: Dict[str, Any], sid: str, turn_seq: int) -> bool:
+    """本回合（規則 TURN_SINCE_USER_PROMPT：使用者打字開的回合起，同伴訊息、背景通知不另開回合）收割回報已核過。"""
     sec = section(state, sid)
-    return bool(turn_seq) and sec.get("turn_seq") == turn_seq and bool(sec.get("validated"))
+    return bool(turn_seq) and in_user_turn(sec.get("turn_seq"), state, turn_seq) and bool(sec.get("validated"))
 
 
 def reported_this_turn(state: Dict[str, Any], sid: str, turn_seq: int) -> bool:
-    return bool(turn_seq) and section(state, sid).get("turn_seq") == turn_seq
+    """本回合（同上）已經回報過收割。"""
+    return bool(turn_seq) and in_user_turn(section(state, sid).get("turn_seq"), state, turn_seq)
 
 
 def atom_ops(state: Dict[str, Any], sid: str) -> List[Dict[str, Any]]:
