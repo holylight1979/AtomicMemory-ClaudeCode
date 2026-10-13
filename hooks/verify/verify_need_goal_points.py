@@ -316,6 +316,21 @@ def test_multi_edit_flush_does_not_resend_scope_same_turn():
     assert len(nxt) == 1 and "【p/c】" in nxt[0]
 
 
+def test_batch_flush_lock_timeout_keeps_pending_and_logs(world, monkeypatch):
+    """送出時鎖拿不到：這批不送、待送旗標留著（下一批再試）、stderr＋守門紀錄 lock_timeout，不讓 hook 炸掉。"""
+    make_tree()
+    for part in ("c:/p|a", "c:/p|b"):
+        ngp.scope_growth_line(SID, part, CFG)
+
+    def busy(sid, fn):
+        raise ng.NeedGoalLockTimeout("鎖被別的行程拿著")
+    monkeypatch.setattr(ng, "update_locked", busy)
+    state = {"turn_seq": 3, "need_goal_batch": True}
+    assert ngp.batch_lines(SID, state, [], CFG) == []
+    assert state.get("need_goal_batch") is True
+    assert guard(world)[-1]["event"] == "lock_timeout" and guard(world)[-1]["where"] == "batch_lines"
+
+
 def test_multi_edit_hint_once_per_file(world):
     make_tree()
     add_edits("c:/p/x.py", 3, node="T1.1")
