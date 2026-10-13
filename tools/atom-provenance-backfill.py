@@ -7,6 +7,8 @@ session、哪則使用者訊息觸發 atom_write 寫出來的，補 `- Source:` 
 
 分級：
   A        transcript 命中 atom_write → `Source: session:<sid8>#<uuid8> <日期>` ＋ `Quote: 「使用者原話」`
+  A_noquote 命中但找不到可用的原話：沒有真人訊息，或那則是開工句（lib/provenance.is_kickoff_text；同伴訊息開的回合
+           不是真人訊息，往回走會走到開工句）→ 只補 Source、不寫 Quote
   A-ai     只找得到 `<!-- src: -->` 指標的自動萃取 atom → Source 同上，Quote 寫 `「AI：…」`（非使用者原話）
   B        無命中 → `Source: commit:<hash7> <日期>（原對話已逾保留期）`（無 git 用 `unknown <日期>（…）`）
   skip     已有 Quote（冪等）／既有 Source 非空且無命中／ambiguous（同檔名多層無法判定，不寫）
@@ -46,7 +48,8 @@ for _p in (str(CODE_DIR), str(CODE_DIR / "hooks")):
 from lib.project_root import claude_data_dir  # noqa: E402
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude），和 hooks 同一支算法
 from lib.provenance import (  # noqa: E402
-    format_quote, format_source_session, is_human_record, read_src_comment, record_text, sanitize_quote,
+    format_quote, format_source_session, is_human_record, is_kickoff_text, read_src_comment, record_text,
+    sanitize_quote,
 )
 
 PROJECTS_DIR = CLAUDE_DIR / "projects"
@@ -90,8 +93,9 @@ class Hit:
     path: str            # tool_result 回報的 atom 路徑
     mode: str
     transcript: str
-    quote: Optional[str] = None       # 使用者原話（已消毒）；None＝找不到
+    quote: Optional[str] = None       # 使用者原話（已消毒）；None＝找不到或是開工句
     human_uuid: Optional[str] = None  # 原話記錄 uuid（Source 用）
+    quote_skipped: str = ""           # "kickoff"＝找到的真人訊息是開工句，不當原話
 
 
 @dataclass
@@ -200,6 +204,15 @@ def build_transcript_index(projects_dir: Path = PROJECTS_DIR) -> TranscriptIndex
     return idx
 
 
+def _set_quote(h: Hit, uid: str, text: str) -> None:
+    """記下原話所在的真人訊息（Source 用）；那則是開工句就不當 Quote。"""
+    h.human_uuid = uid
+    if is_kickoff_text(text):
+        h.quote, h.quote_skipped = None, "kickoff"
+        return
+    h.quote = sanitize_quote(text) or None
+
+
 def _resolve_quote(h: Hit, idx: TranscriptIndex, humans_by_sid: Dict[str, List[Tuple[str, str, str]]]) -> None:
     cur = h.uuid
     seen = set()
@@ -211,16 +224,13 @@ def _resolve_quote(h: Hit, idx: TranscriptIndex, humans_by_sid: Dict[str, List[T
         if rec is None:
             break
         if rec.get("human"):
-            q = sanitize_quote(rec.get("text") or "")
-            h.human_uuid = cur
-            h.quote = q or None
+            _set_quote(h, cur, rec.get("text") or "")
             return
         cur = rec.get("parent")
     cands = [t for t in humans_by_sid.get(h.sid, []) if t[0] <= h.ts]
     if cands:
         ts, uid, text = cands[-1]
-        h.human_uuid = uid
-        h.quote = sanitize_quote(text) or None
+        _set_quote(h, uid, text)
 
 
 # ─── atom 掃描 ───────────────────────────────────────────────────────────────
@@ -389,11 +399,14 @@ def backfill(*, apply: bool = False, layer: str = "all", only: Optional[List[str
             if hit is not None:
                 r["grade"] = "A" if hit.quote else "A_noquote"
                 r["hit"] = {"sid": hit.sid[:8], "uuid": (hit.human_uuid or hit.uuid)[:8], "ts": hit.ts, "mode": hit.mode}
+                if hit.quote_skipped:
+                    r["quote_skipped"] = hit.quote_skipped
                 if not existing_source:
                     provenance = format_source_session(hit.sid, hit.human_uuid, hit.ts[:10] or date.today().isoformat())
                 quote = format_quote(hit.quote) if hit.quote else None
                 if provenance is None and quote is None:
-                    r["grade"], r["reason"] = "skip", "has_source_no_quote_found"
+                    r["grade"] = "skip"
+                    r["reason"] = "kickoff_not_quoted" if hit.quote_skipped else "has_source_no_quote_found"
             elif why == "ambiguous":
                 r["grade"], r["reason"] = "skip", "ambiguous"
                 summary["ambiguous"] += 1

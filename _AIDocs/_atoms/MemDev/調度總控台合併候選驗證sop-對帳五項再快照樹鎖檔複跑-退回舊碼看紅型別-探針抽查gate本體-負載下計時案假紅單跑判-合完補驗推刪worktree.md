@@ -6,6 +6,7 @@
 - Trigger: 總控台對帳, 合併候選, 快照樹, console-verify, snapshot-running, 退回舊碼紅, 探針抽查, 計時案假紅, 並行負載, 工作軌交付, 調度總控台, 合完推
 - Created-at: 2026-10-13
 - Source: session:81a3e55f 2026-10-13
+- Quote: 「你是 v6.0 的總控台（調度），前任是 claude-2c。先讀 C:\Users\holylight\.claude\memory\_staging\next-phase-v6.0-寫程式碼的進化.md 最上方「總控台換手」段（五條新規則＋現況），再 /continue 它。你負責：收各工作 session 交付（track-e claude-05 的 038、track-g12 claud…」
 
 ## 知識
 
