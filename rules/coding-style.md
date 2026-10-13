@@ -41,3 +41,4 @@
 - 驗證腳本結尾印一行哨兵 `<NAME>_CHECK PASS` 或 `<NAME>_CHECK FAIL`（格式 `^[A-Z][A-Z0-9_]*_CHECK (PASS|FAIL)$`），exit 0／1 對應；只印 `<NAME>_CHECK` 缺字尾不算 PASS。
 - 量測類腳本結尾印 `<NAME> DONE k=v k=v`（格式 `^[A-Z][A-Z0-9_]* DONE( \w+=\S+)*$`），數字是尺不是判決，不印 PASS。
 - 既有工具尾行格式不同時不改工具，在專案 `.claude/overview-hub.json` 的 `prebuild_checks[]` 該項加 `sentinel_regex` 映射成上面兩種之一。
+- 跑超過單次工具呼叫上限（10 分鐘）的驗證程式，印完哨兵後要自寫收據（呼叫 `~/.claude/lib/self_receipt.write_self_receipt`，寫到 `workflow/verify-ledger/_runs/`，不准手寫），量尺閘才認得到背景跑完的結果；跑量尺照部位表上的原字串單獨跑。

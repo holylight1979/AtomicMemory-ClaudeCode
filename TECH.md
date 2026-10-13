@@ -90,7 +90,8 @@ LLM 的 context window 是**工作記憶**，天生沒有**長期記憶**。這�
 | PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|ExitPlanMode\|Bash\|PowerShell\|Read\|Agent\|Task\|mcp__workflow-guardian__{anti_evasion_report,atom_write,atom_retire,knowledge_harvest_report}` | guardian(5) | 記錄改檔、docdrift、AEC 證據蒐集（讀 Stop 留下的 evasion_flag 做 cross-check）、late-collision、rescue 命中；atom 工具 receipt 入帳 `state.atom_ops[sid]`、收割回報 items ↔ receipt 核對（§6.3 階段收割；one-writer：MCP 只回 chip，state／ledger 由此寫）；write_state 後同程序呼叫 `version_guard.run()`／`acceptance_spec.run()`（原兩支獨立 hook，併入省每事件兩個 Python 啟動 ≈161ms） |
 | PostToolUse | `Edit\|Write\|Bash\|ExitPlanMode\|EnterPlanMode` | codex(3) | Codex Companion 審計觸發 |
 | PreCompact / PostCompact / PostToolBatch | — | guardian(5) | 壓縮前存 handoff stub 與 OverviewHub 摘要；壓縮後 stash、由下一個 PostToolBatch 一次性重注入 atom 與每部位綜觀（atom 先、綜觀後） |
-| Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Deferral、KnowledgeHarvest／Harvest-Pending、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
+| Stop | — | guardian(10)、codex(150)、`lang_guard.py`(5) | TestFail、Reconcile／Measure（寫碼查核）、Deferral、KnowledgeHarvest／Harvest-Pending、ScanReport、AEC-Pending、同步閘、效用歸因、驗收裁判 enforce、英文漂移（閘序 §7.1） |
+| SubagentStop | — | guardian(10) | 子代理收尾只跑寫碌查核（對帳 (a)～(d)＋量尺，用該 agent 自己的改檔與收據帳）；沒人能放行，有原因就擋到底、不計預算（§7.1） |
 | SessionEnd | — | guardian(30)、codex(5) | spawn 萃取 worker、episodic 生成、decay、晉升 sweep、recall-miss、log GC；最後 spawn 一次 vcs-sync worker（`reason=promotion|session_end`，§6.3 階段收割） |
 
 本表的真源是 `settings.json` 的 `hooks` 區塊；`workflow-guardian.py` 是 1 行 shim → `hooks/dispatcher.py` → `hooks/handlers/{event}.py`，bash 類 hook 經 `hooks/run-bash-hidden.py` 包一層。安裝時由 `tools/install.py` 把這段合併進使用者的 `settings.json`（§9.5）。
@@ -511,13 +512,13 @@ sequenceDiagram
 
 ### 7.1 Stop 閘序
 
-`hooks/handlers/stop.py handle_stop`，依序（前者優先；共用 `stop_gate_max_blocks` 2，第 3 次強制放行並誠實揭露）：
+`hooks/handlers/stop.py handle_stop`，依序（前者優先；共用 `stop_gate_max_blocks` 2，第 3 次強制放行並誠實揭露；寫碼查核閘 ReconcileGate (a)～(d)／MeasureGate 例外：獨立預算、擋滿只認使用者放行）：
 
 | 閘 | 條件 | 動作 |
 |----|------|------|
 | TestFailGate | 本 session 有未轉綠的失敗測試（只認本 session 的條目；子代理內的紅測不記主 session） | block 要求修到綠或明說跳過 |
-| ReconcileGate | 宣告完成時收尾宣稱對不上本回合驗證收據（`wg_verify_ledger`）：說修好無對得上的 PASS／說量了無 DONE／說試過無執行工具／改了碼沒驗證 case 也沒 PASS／AEC (j) 證據路徑缺或不存在、(k) 空字串。改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；例：反證暫改再 `git checkout` 還原）不算改碼，補案例與量尺閘都不欠；判不出來照算改了 | block 列出命中的規則；獨立預算 `reconcile_gate.max_blocks_per_turn` 2，第 3 次放行並寫 guard-reconcile_overflow（健檢 red） |
-| MeasureGate | 宣告完成且改到部位表有量尺的部位：runtime_gate 未就緒、或最後一次改檔後沒有該量尺的 DONE 收據（exit 0 且 failed=0）；根層 worktree（表與 `~/.claude` 位元組相同的其他 root）改認同 root 的 pytest DONE（`PYTEST_MEASURE`），不要求全量 | block 說哪把尺沒跑；無量尺部位只提醒補欄（stderr＋guard-measure） |
+| ReconcileGate | 寫碼查核分四條：(a) 說修好，但本回合沒有對得上改檔的 PASS（收據要晚於每個對上的改檔、同一棵樹、指令能當一般證據），改檔所在部位也沒有合格的自寫收據；(b) 說量了，但本回合沒有能當證據的 DONE，也沒有合格的自寫收據；(c) 說試過，但本回合沒有任何 Bash／PowerShell 執行；(d) 改了程式碼之後，同根沒有仍存在的驗證案例被新增或修改（PASS 不能代替；跨回合，不看措辭；案例 glob 用相對專案根的路徑比）。改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；例：反證暫改再 `git checkout` 還原）不算改碼，補案例與量尺閘都不欠；判不出來照算改了。另外查收尾報告欄 (e)：AEC (j) 證據路徑缺或不存在、(k) 是空字串。(a)(b)(c) 看的是最後一句話（優先用 hook 輸入的 last_assistant_message，不套 30 字下限），以及擋滿時記下的原宣稱。判定出例外一律擋 | 寫碼查核（(a)～(d)＋量尺）用獨立預算 `reconcile_gate.max_blocks_per_turn`（2，以使用者真打字開的回合計）。擋滿不放行：記 pending，跨回合承接；要用 AskUserQuestion 照【收尾放行確認】問使用者。使用者要在最後一次擋之後選放行，或打字「放行」，才放這一回合，並記 user_release（健檢列 red）。子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬於記憶與報告類，照舊第 3 次放行，並寫 guard-reconcile_overflow（健檢列 red） |
+| MeasureGate | 改到部位表上有量尺的部位就判，不看收尾措辭，每次 Stop 都判。以下兩種收據都沒有就擋：①最後一次改檔之後、同 root、exit 0、沒有 FAIL 哨兵、failed=0，指令照白名單語法與四條家族規則對得上表上原字串，而且執行根涵蓋該部位全部改檔的 session 收據（見 §7.6）；②run_verify 自寫收據（`_runs/`）：argv 對上量尺、改完才開始跑、同一棵樹、全綠。已有合格收據的部位不探 runtime_gate，還欠收據才跑，量不了就說環境原因。根層 worktree（表與 `~/.claude` 位元組相同的其他 root；判定在 `lib/overview_hub.is_root_worktree`，導讀卡注入與第二意見工具共用）改認同 root、由 pytest 印出的 `PYTEST_MEASURE` DONE，不要求全量 | block 說哪把尺沒跑，以及最近那筆收據為什麼不算：解析不了的語法、指定了讓 shell 自己印字的變數（說是哪一個）、指令裡寫了哨兵字樣、量尺前後接了前置設定以外的指令（附允許的寫法）、執行根沒涵蓋改檔（說執行根在哪、哪個檔不在裡面）、指到別棵樹、只存了前 200 字的舊收據。表上的尺本身解析不了，就叫人改表。擋滿不准自行放行，照 ReconcileGate 的放行規則。無量尺的部位只提醒補欄（stderr＋guard-measure） |
 | Evasion 偵測／DeferralGate | 退避詞命中（軟糾正）；主任務已完工（完成宣告 ∨ 本 turn 已 commit）且 context 用量 ≤0.75（讀 transcript 真實 usage），收尾把帶受詞的可做之事推給「下個 session／獨立議題／非我造成」 | 擋回三選一：做掉／一句話不能做的理由／使用者明示延後；使用者命令式延後語為逃生門 |
 | KnowledgeHarvest | 宣告完成 ∧ 有實質活動 ∧ 冷卻已過（§6.3 階段收割；`wg_harvest.harvest_gate_reason`） | 要求先 `atom_write`／`atom_retire` 再呼叫 MCP `knowledge_harvest_report`（沒東西也要 `items=[]`）；**不增 `stop_blocked_count`**、每 turn 一次（`harvest_gate_turn[sid]`） |
 | Harvest-Pending | 本 session 收割回報有 item 對不上 receipt（`knowledge_harvest[sid].pending` 非空） | 每 turn 擋一次：真做完或改 `action=skip` 附 reason 再重報 |
@@ -529,6 +530,12 @@ sequenceDiagram
 | 驗收裁判 enforce | 獨立 hook `codex_companion.py`（150s）：fail 且 severity ≥high | block 附逐條證據；裁判逾時 → uncertain 放行 |
 | Deep Post-Mortem | effort AND real_failure（使用者糾正 ≥2 次單獨即同時滿足兩者，見 §7.5 使用者糾正訊號） | one-shot，**獨立預算**不與上列共用（防餓死）；done 旗標檔案側 marker 7 天自清 |
 | 迴歸提示 | 本 session 有驗收 fail/high 真命中 | piggyback 建議補測試／落 atom，每 session 一次 |
+
+SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑寫碼查核，有原因就擋到底，不計預算、不問使用者；寫入目標判不出的指令在 PreToolUse 就 deny。
+
+定死規則（寫碼查核相關，改法不得放寬）：
+- CommitOrder 豁免：commit 落在記憶系統 repo 或其 worktree 才不等口令，只認 `&&` 串的 `cd <絕對路徑>`／`git [-C <字面路徑>] add|commit|push` 句型。
+- git checkout 只給一個參數：現存檔＝還原該檔；現存目錄＝目標不明；都不是＝切分支，不算寫入。
 
 ### 7.2 反退避（Anti-Evasion）
 
@@ -587,7 +594,7 @@ sequenceDiagram
 | 候選填空 | `wg_overview._candidates_on_trigger`／`on_edit` | 提示命中 `root_cause_triggers` → 已注入部位各送一次「候選前 N＋根因卡＋兩問」，一個都沒注入時以 cwd 專案表送全專案一次；放行的同檔第二次 Edit 也附，但與觸發詞共用 `candidates_sent`，一部位一 session 只送一次。來源 `smells_report` → 導讀卡「已知病灶」段 → 明說無候選（改檔路徑沒內容時只送一行，不附根因卡與兩問）；候選產生失敗只附一行，不改變閘判定 |
 | Depends 召回 | `hooks/wg_depends.py`（PostToolUse） | 讀到某張卡 `- Depends: path:<檔>` 指的檔（或其目錄之下）→ 一行指標「改它前先讀卡」，同卡一 session 一次；`authority_map` 命中文件檔一次性注入地圖。索引欄由 `sync-atom-index.py --sync-depends` 以 frontmatter 為真相同步 |
 | 壓縮後重注 | PreCompact／PostCompact／PostToolBatch | 壓縮前存 OverviewHub 摘要，壓縮後每部位綜觀（部位／層／三行已交否／主目標／卡／病灶前 N，`post_compact_chars` 截）隨 atom 一起重注（atom 先） |
-| 收據與量尺 | `hooks/wg_verify_ledger.py`；Stop 的 ReconcileGate／MeasureGate（§7.1） | Bash／PowerShell 輸出的哨兵（`<NAME>_CHECK PASS|FAIL|DONE`、`<NAME> DONE k=v`，格式見 `rules/coding-style.md` 自檢段）進 `workflow/verify-ledger/<sid>.jsonl`；說修好要本回合對得上的 PASS、改到有量尺的部位要跑過那把尺 |
+| 收據與量尺 | `hooks/wg_verify_ledger.py`（採認與對帳）、`lib/self_receipt.py`（指令解析、自寫收據）；Stop 的 ReconcileGate／MeasureGate（§7.1） | Bash／PowerShell 輸出的哨兵（`<NAME>_CHECK PASS\|FAIL\|DONE`、`<NAME> DONE k=v`，格式見 `rules/coding-style.md` 自檢段）連同完整指令、exit code、cwd、根，進 `workflow/verify-ledger/<sid>.jsonl` 與 state。跑超過工具 10 分鐘上限的 run_verify 就背景跑：它跑完自寫收據到 `workflow/verify-ledger/_runs/`（PreToolUse 禁手寫），改完才開始跑、全綠、同一棵樹、argv 對得上該部位量尺就算，不綁 session。**白名單**：量尺比對只認白名單語法，也就是單一指令，或用 `&&`、`\|\|`、`\|`、`;`、換行串起來的指令鏈，可加單雙引號、重導向（`>`、`>>`、`2>&1`、`> $null`）、行首 `#` 註解、行尾續行。其他寫法一律算解析不了，整條指令不算證據，擋訊息會說是哪一種：here-string、heredoc、`$( )`、反引號、括號、大括號、單獨的 `&`、反斜線跳脫、只有重導向沒有程式的指令段、iex／eval／source、`bash -c`、`pwsh -Command`、if／for 這類控制結構。**四條家族規則**：①成功行只能來自被執行的驗證程式。整條指令裡，註解以外的字（前置設定、變數值、引號字串、重導向目標都算）只要寫了哨兵字樣（含 config 的 sentinel_regex，比對時拿掉所有錨點），這張收據任何用途都不算。唯一例外是精確對上的量尺片段裡、與表上那段逐字相同的字（量尺自帶的 `&& echo … DONE`）；片段裡多出來或寫法不同的字照查。②前置設定只准 bash `NAME=字面值`、`export NAME=字面值`，PowerShell `$env:NAME=字面值`、`$name=字面值`，以及 `cd <絕對路徑>`（要認得出根，就放最前面並接 `&&`）。set、unset、shopt、alias、trap、function、source、pushd 都不准。bash 任何位置的變數指定（行內前綴、獨立指定、export／declare 的參數），值都要是字面值，帶 `$` 展開的整條不支援（整段單引號包住的除外）。`PS1`～`PS4`、`PROMPT_COMMAND`、`BASH_ENV`、`ENV`、`SHELLOPTS`、`BASHOPTS`、`BASH_XTRACEFD`、`IFS` 在任何位置指定都整條不算，擋訊息會說是哪一個；bash 變數名分大小寫，PowerShell 不分大小寫，且帶任何 scope 前綴（`$env:`、`$global:`、`$script:`）都認。③「提到改檔」只看實際跑程式那幾段的參數，前置設定、cd、環境指定不參與。④整體驗證與量尺（對帳閘與量尺閘）只涵蓋實際執行根之下的改檔。執行根是開頭 cd 的絕對路徑（消掉 . 與 ..），沒有就是收據 cwd。`run_verify.py` 要照完整路徑身分是執行根自己那支，沒有根資訊時要照寫法就是 `run_verify.py`。從環境替程式加選項的 `PYTEST_ADDOPTS`、`PYTHONOPTIMIZE` 指定了就不算整體驗證，也對不上沒指定它的量尺（等於命令列多帶了 `-k`、路徑、`-O`）。一般證據（指令點名改檔或它的測試）維持上下層規則；開頭 cd 進專案根之內時，樹根仍是原專案根，從 `tests/` 點名 `../hooks/verify/...` 照算。**量尺的寫法**：量尺必須是整條指令的最後一段，前面只准上面的前置設定，後面只准 `\| tail` 或 `\| Select-Object -Last N`；表上的字要一字不差、順序相同；腳本照實際路徑比對，同名但在別處的不算。一般證據的指令只能有執行程式的指令（直譯器、測試與建置工具、腳本檔），多段只准用 `&&` 串、輸出不導走。誠實的做法：在專案根照表上原字串單獨跑。**防線邊界**：擋得住手寫收據、用措辭避開查核、把目標不明的寫入當成沒寫、拿舊收據或別棵樹的收據冒充，也擋得住在白名單語法內用一般 shell 指令讓成功行不是驗證程式印的（引號、echo、短路、截斷、管線蓋掉 exit、讀舊 log、換目錄、跑別棵樹、shell 追蹤印字、把字樣藏在重導向目標或路徑裡）。擋不住的是用或寫一支真的程式去印假哨兵（含改 `PATH`／`PYTHONPATH` 讓同名程式換成別支）：這屬刻意造假，不是程式能保證的，不再為它加機制。 |
 | 第二意見與候選池 | MCP `second_opinion_start`／`second_opinion_result`（`tools/second-opinion/`）、`project_smells`（`tools/project-smells.py`） | 把部位卡、病灶文件、diff、帳本尾打包給 codex 獨立審；把專案壞味道候選排成表 |
 | 過程量 | `hooks/wg_scorecard.py`、`tools/scorecard-report.py`、`tools/refix-churn.py` | 每 session 一行：改過的部位裡注入後讀過檔的比例、交三行的比例；同檔反覆修的熱點 |
 
