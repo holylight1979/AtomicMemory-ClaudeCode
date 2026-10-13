@@ -564,3 +564,77 @@ def test_empty_heredoc_then_commit_then_same_delimiter_is_gated(tmp_path):
     assert ptu._strip_heredoc_bodies(cmd) == "cat <<HEREDOC_STRIPPED\ngit commit -m fix\ncat <<HEREDOC_STRIPPED"
     assert ptu._strip_heredoc_bodies("cat <<-E\n\tx\n\tE\ngit status") == "cat <<HEREDOC_STRIPPED\ngit status"
     assert ptu._strip_heredoc_bodies("cat <<'EOF'\ngit commit\nno end") == "cat <<'EOF'\ngit commit\nno end"
+
+
+# ─── codex 審 003 退件三條：續行、雙引號裡的命令替換、包裝外片段的子 shell ────
+
+def test_line_continuation_keeps_shell_and_flag_together(tmp_path):
+    """續行不是兩條命令：Bash `\\`＋換行（裸 shell 名與帶引號完整路徑）、cmd `^`＋換行、PowerShell 反引號＋換行，
+    shell 名與執行旗標分在兩行也要認成包裝。包的是 commit → 擋（含關豁免）；包的是查詢 → 放行。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    gated = [
+        ("bash \\\n  -lc 'git commit -m fix'", "Bash"),
+        ('"C:/Program Files/Git/bin/bash.exe" \\\n  -lc \'git commit -m fix\'', "Bash"),
+        ("bash -l \\\n  -c \\\n  'git commit -m fix'", "Bash"),
+        ('cmd /d ^\n/c "git commit -m fix"', "Bash"),
+        ('"C:/Windows/System32/cmd.exe" /d ^\n /c "git commit -m fix"', "PowerShell"),
+        ('pwsh -NoProfile `\n  -Command "git commit -m fix"', "PowerShell"),
+        ('& "C:/Program Files/PowerShell/7/pwsh.exe" -NoProfile `\n  -Command "git commit -m fix"', "PowerShell"),
+        ("git \\\n  commit -m fix", "Bash"),
+    ]
+    for cmd, tool in gated:
+        assert _check(command=cmd, state=st, tool=tool) is not None, cmd
+        assert _check(command=cmd, state=st, tool=tool, config=_OFF) is not None, cmd
+    allowed = [
+        ("bash \\\n  -lc 'git log --grep=commit'", "Bash"),
+        ('"C:/Program Files/Git/bin/bash.exe" \\\n  -lc \'git log --grep=commit\'', "Bash"),
+        ('cmd /d ^\n/c "git log --grep=commit"', "Bash"),
+        ('pwsh -NoProfile `\n  -Command "git log --grep=commit"', "PowerShell"),
+    ]
+    for cmd, tool in allowed:
+        assert _check(command=cmd, state=st, tool=tool) is None, cmd
+
+
+def test_command_substitution_inside_double_quotes_is_live(tmp_path):
+    """只有單引號裡是字面：雙引號裡的 `$(…)`／反引號會展開執行，查詢白名單不得把它抹掉當成字面。
+    單引號裡的 `$(…)` 是字面，照放行。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ("bash -c 'git log --grep=\"$(git commit -m x)\"'",
+                "bash -c 'git log --grep=\"`git commit -m x`\"'",
+                'pwsh -NoProfile -Command "git log --grep=\\"$(git commit -m x)\\""',
+                "bash -lc 'git status' \"$(git commit -m x)\"",
+                'FOO="$(git commit -m x)" bash -lc \'git log\'',
+                'echo "$(git commit -m x)"'):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="bash -c 'git log --grep=\\'$(commit)\\''", state=st) is not None   # 跳脫判不明
+    assert _check(command="git log --grep='$(git commit -m x)'", state=st) is None            # 單引號字面、不是包裝
+
+
+def test_other_segments_still_checked_when_query_wrapper_present(tmp_path):
+    """有查詢包裝也不免除其他片段的檢查：同一條命令裡包裝外的子 shell 括號／eval／命令替換照查。"""
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    for cmd in ('bash -c "git log"; (git commit -m x)',
+                'bash -c "git log"; eval "git commit -m x"',
+                "bash -lc 'git log --grep=commit' && $(git commit -m x)",
+                'bash -c "git log" | (git commit -m x)',
+                'bash -c "git status"\n(git commit -m x)'):
+        assert _check(command=cmd, state=st) is not None, cmd
+        assert _check(command=cmd, state=st, config=_OFF) is not None, cmd
+    assert _check(command="bash -c 'git log --oneline' && git status", state=st) is None
+
+
+def test_deeply_nested_wrapped_commit_is_gated_past_parse_depth(tmp_path):
+    """逐層合法 POSIX 引號包 1～6 層，最內層是 commit：超過遞迴上限也要擋（上限後只看 git…commit 字樣）；兩層包的查詢照放行。"""
+    import shlex
+    other = _other_repo(tmp_path)
+    st = _no_order(other)
+    cmd = "git commit -m fix"
+    for layer in range(1, 7):
+        cmd = "bash -c " + shlex.quote(cmd)
+        assert _check(command=cmd, state=st) is not None, layer
+        assert _check(command=cmd, state=st, config=_OFF) is not None, layer
+    assert _check(command="bash -c " + shlex.quote("bash -c " + shlex.quote("git log --grep=commit")), state=st) is None

@@ -349,10 +349,10 @@ def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
 # 口令閘的「記憶系統自己的程式」豁免只給整條命令都對得上白名單句型的寫法；其他寫法不豁免、照常檢查口令
 # （不會擋死，只是要使用者口令），所以白名單寧窄勿寬：只認 `&&` 串起的這幾種段，不解析其他 shell 語法。
 _GIT_REPO_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
-# 包裝偵測走斷詞不走 regex：每段看執行檔 basename（去路徑、去 .exe、不分大小寫，所以帶引號的完整路徑
-# `"C:/Program Files/Git/bin/bash.exe"` 也認得；PowerShell 的 `&` 呼叫運算子跳過），再往後找執行旗標：
-# POSIX shell 的短旗標組含 c 就算（-c、-lc、-l -c），內容是旗標後那一個 token；PowerShell 認 -Command 與其縮寫（-c、-com…）、
-# cmd 認 /c、/k，內容是旗標後整串。內容再交 _wrapped_commit_verdict 辨識真子命令。
+# 包裝偵測走斷詞不走 regex：_scan_segments 保留引號狀態切段（續行接回、不切段），每段看執行檔 basename（去路徑、去 .exe、
+# 不分大小寫，所以帶引號的完整路徑 `"C:/Program Files/Git/bin/bash.exe"` 也認得；PowerShell 的 `&` 呼叫運算子是分隔），
+# 再往後找執行旗標：POSIX shell 的短旗標組含 c 就算（-c、-lc、-l -c），內容是旗標後那一個 token；PowerShell 認 -Command
+# 與其縮寫（-c、-com…）、cmd 認 /c、/k，內容是旗標後整串。內容再交 _wrapped_commit_verdict 逐段辨識真子命令。
 _POSIX_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 _PS_SHELLS = {"pwsh", "powershell"}
 _SUBSHELL_RE = re.compile(r"\beval\b|\$\(|`|\(")                  # 看不進去的：eval、命令替換、子 shell 括號
@@ -377,48 +377,113 @@ def _wrap_flag(exe: str):
     return None
 
 
-def _wrapped_payloads(command: str) -> List[str]:
-    """每個「shell ＋ 執行旗標」段的內層命令字串（引號已剝一層）；沒有包裝段回 []。"""
-    out: List[str] = []
-    for seg in re.split(r"&&|\|\||;|\||\n", command or ""):
-        tokens = [t for t in _shell_tokens(seg) if t != "&"]
-        for idx, tok in enumerate(tokens):
-            exe = os.path.basename(tok.replace("\\", "/")).lower()
-            exe = exe[:-4] if exe.endswith(".exe") else exe
-            is_flag = _wrap_flag(exe)
-            if is_flag is None:
-                continue
-            rest = tokens[idx + 1:]
-            flag_at = next((i for i, t in enumerate(rest) if is_flag(t)), None)
-            if flag_at is None:
-                break
-            inner = rest[flag_at + 1:]
-            out.append(" ".join(inner if exe == "cmd" or exe in _PS_SHELLS else inner[:1]))
-            break
-    return out
+_SEPARATORS = ("&&", "||", "\n", ";", "|", "&")
 
 
-def _wrapped_commit_verdict(command: str, depth: int = 0) -> bool:
+def _scan_segments(command: str) -> List[List[Tuple[str, str]]]:
+    """保留引號狀態的切段＋斷詞 → 每段一串 (raw, value)：raw 是 token 在原字串的切片（含引號），value 剝一層引號。
+    只在引號外切段（&& || ; | & 換行）。續行接回、不切段：Bash 的 `\\`＋換行（引號外與雙引號裡）、cmd 的 `^`＋換行、
+    PowerShell 的反引號＋換行（都只在引號外）；三種都認，判定只會因此多擋不會少擋。不解其他跳脫。"""
+    s = command or ""
+    segs: List[List[Tuple[str, str]]] = []
+    toks: List[Tuple[str, str]] = []
+    val: List[str] = []
+    start, quote, i = -1, "", 0
+
+    def end_token(j: int) -> None:
+        nonlocal val, start
+        if start >= 0:
+            toks.append((s[start:j], "".join(val)))
+        val, start = [], -1
+
+    while i < len(s):
+        ch = s[i]
+        if s[i + 1:i + 2] == "\n" and (ch == "\\" and quote in ("", '"') or ch in "^`" and not quote):
+            i += 2
+            continue
+        if quote:
+            quote = "" if ch == quote else quote
+            if quote:
+                val.append(ch)
+            i += 1
+            continue
+        sep = next((p for p in _SEPARATORS if s.startswith(p, i)), "")
+        if sep or ch.isspace():
+            end_token(i)
+            if sep and toks:
+                segs.append(toks)
+                toks = []
+            i += len(sep) or 1
+            continue
+        if start < 0:
+            start = i
+        if ch in "\"'":
+            quote = ch
+        else:
+            val.append(ch)
+        i += 1
+    end_token(len(s))
+    if toks:
+        segs.append(toks)
+    return segs
+
+
+def _live_expansion(raw: str) -> bool:
+    """這段文字給 shell 讀時會不會執行看不見的命令：引號外的 eval／子 shell 括號，或單引號外（雙引號裡也算）的
+    `$(`／反引號／跳脫、沒閉合的引號。只有單引號裡是字面。"""
+    return bool(_SUBSHELL_RE.search(_unquoted(raw))) or _expands_outside_single_quotes(raw)
+
+
+def _wrapper_split(seg: List[Tuple[str, str]]) -> Optional[Tuple[str, str]]:
+    """seg 是「shell ＋ 執行旗標」段 → (內層命令, 不屬於內層的 raw：shell 前綴、選項、POSIX 的位置參數)；不是 → None。"""
+    for idx, (_, tok) in enumerate(seg):
+        exe = os.path.basename(tok.replace("\\", "/")).lower()
+        exe = exe[:-4] if exe.endswith(".exe") else exe
+        is_flag = _wrap_flag(exe)
+        if is_flag is None:
+            continue
+        flag_at = next((k for k in range(idx + 1, len(seg)) if is_flag(seg[k][1])), None)
+        if flag_at is None:
+            return None
+        cut = flag_at + 1
+        take = len(seg) - cut if exe == "cmd" or exe in _PS_SHELLS else 1
+        inner = " ".join(v for _, v in seg[cut:cut + take])
+        return inner, " ".join(r for r, _ in seg[:cut] + seg[cut + take:])
+    return None
+
+
+def _wrapped_commit_verdict(command: str, depth: int = 0, strict: bool = False) -> bool:
     """解析器拆不出 git commit 段時的第二層判斷：True＝有 commit 或判不明（走口令檢查），False＝確定沒有。
-    有包裝段 → 逐段看內層：拆得出 git commit → True；再包一層 → 遞迴（最多 3 層）；內層 git 段全是
-    log/status/diff/show 這類查詢且沒有 eval／命令替換／括號 → False；其餘只要有 git…commit 字樣 → True（判不明寧擋）。
-    沒有包裝段 → 有 eval／命令替換／括號且有 git…commit 字樣才 True。"""
-    payloads = _wrapped_payloads(command)
-    if not payloads:
-        return bool(_SUBSHELL_RE.search(_unquoted(command)) and _GIT_COMMIT_WORDS_RE.search(command))
-    for inner in payloads:
-        if _git_commit_segments(inner):
-            return True
-        if depth < 3 and _wrapped_payloads(inner):
-            if _wrapped_commit_verdict(inner, depth + 1):
+    逐段判（_scan_segments，續行已接回）：
+      包裝段 → 內層遞迴（strict，最多 3 層，超過就只看 git…commit 字樣）；包裝以外的 raw 有展開訊號且命令有 git…commit 字樣 → True。
+      其他段 → 有展開訊號（_live_expansion）且命令有 git…commit 字樣 → True。
+    strict（包裝內層）另加：git 子命令不在 log/status/diff/show 而命令有 git…commit 字樣 → True；
+      整段內層既沒有 git 呼叫也沒有包裝卻有 git…commit 字樣 → True（判不明寧擋）。
+    續行接回後拆得出 git commit 段 → True。"""
+    words = bool(_GIT_COMMIT_WORDS_RE.search(command))
+    if depth > 3:
+        return words
+    segs = _scan_segments(command)
+    if _git_commit_segments("\n".join(" ".join(r for r, _ in seg) for seg in segs)):
+        return True
+    explained = False
+    for seg in segs:
+        split = _wrapper_split(seg)
+        if split:
+            explained = True
+            inner, outside = split
+            if _wrapped_commit_verdict(inner, depth + 1, strict=True) or (words and _live_expansion(outside)):
                 return True
             continue
-        subs = [t[0].lower() for _, t in _vcs_segments(inner, None, ("git", "git.exe"), _GIT_VALUE_FLAGS)]
-        if subs and all(s in _SAFE_WRAPPED_GIT_SUBS for s in subs) and not _SUBSHELL_RE.search(_unquoted(inner)):
-            continue
-        if _GIT_COMMIT_WORDS_RE.search(inner):
+        raw = " ".join(r for r, _ in seg)
+        if words and _live_expansion(raw):
             return True
-    return False
+        if strict:
+            subs = [t[0].lower() for _, t in _vcs_segments(raw, None, ("git", "git.exe"), _GIT_VALUE_FLAGS)]
+            explained = explained or bool(subs)
+            if words and any(sub not in _SAFE_WRAPPED_GIT_SUBS for sub in subs):
+                return True
+    return strict and words and not explained
 
 
 def _split_and(command: str) -> List[str]:
