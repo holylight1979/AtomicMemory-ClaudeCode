@@ -155,6 +155,18 @@ def test_003_fields_decided_before_build_are_not_carried_back(isolated_claude):
     assert "- Type: procedural" in text and text.splitlines()[0] == "# 全域決策"
 
 
+def test_003_pending_review_flag_survives_replace(isolated_claude):
+    """codex 審 cdac58d WARN 的裁定：待審旗標（Pending-review-by）在卡片被審過前要留著，replace 不是審核；
+    呼叫者沒給、路由也沒算出來時照舊卡帶回。"""
+    fp = _old_format_card(isolated_claude)
+    fp.write_text(OLD_CARD.replace("- Type: procedural", "- Type: procedural\n- Pending-review-by: management"),
+                  encoding="utf-8", newline="\n")
+    r = write_atom(title="decisions", scope="global", confidence="[固]", triggers=["決策"], knowledge=NEW_KNOWLEDGE,
+                   mode="replace", source="test", skip_gate=True, today=TODAY)
+    assert r.ok, r.error
+    assert "- Pending-review-by: management" in fp.read_text(encoding="utf-8").splitlines()
+
+
 def test_003_same_key_on_several_lines_is_all_carried(isolated_claude):
     """codex 審 cdac58d BLOCK 1：同一個鍵分兩行（中間夾空行）沒給時兩行都帶回、順序不變。"""
     fp = _old_format_card(isolated_claude)

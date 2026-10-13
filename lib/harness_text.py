@@ -133,7 +133,7 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
 # 派給「這個 session」的角色、工作步驟、派工單路徑只在這次有效，不是跨專案知識，也不是哪張卡片的「使用者原話」。
 # 兩個用途、兩種嚴格度（同一套樣板）：
 #   session_directive_reason：萃取器用（hooks/user-extract-worker.py）。整則每個子句都整句對上樣板才算，
-#     有一個子句對不上就交 LLM——開工句裡夾的真決策不能被丟掉。
+#     有一個子句對不上就交 LLM，因為開工句裡夾的真決策不能被丟掉。
 #   is_kickoff_prompt：Quote 自動填用（hooks/wg_provenance.py）。上面那條成立就算；或第一個子句整句是角色句
 #     （「你是…工作 session <名>」，後面可帶任何括號說明），而且後面至少還有一個子句整句對上其他樣板
 #     （總控台、第一步 EnterWorktree、派工 prompt 位置…）。角色句的括號說明與「對人總控台是 X、調度總控台是 Y」

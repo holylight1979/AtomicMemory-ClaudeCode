@@ -453,7 +453,7 @@ async function toolAtomWrite(id, args) {
 
     // 同 create，內容構造 spawn py funnel "build"（含 validate）。supersedes 只在有值
     // （呼叫者給、或原檔有行）時進 kwargs，無則不帶鍵（輸出 byte 不變）。
-    // existing_path：檔頭以舊卡為底（py atom_io.carry_replace_header，與 py write_atom 同一份）——標題用舊卡的、
+    // existing_path：檔頭以舊卡為底（py atom_io.carry_replace_header，與 py write_atom 同一份）。舊格式卡沿用舊標題、
     // 舊卡沒 Created-at 就不補、呼叫者沒給的欄位（Related／Status／Confirmations／Last-used…）原行帶回。
     const br = await spawnAtomCli("build", {
       existing_path: filePath,
