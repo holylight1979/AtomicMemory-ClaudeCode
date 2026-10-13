@@ -38,7 +38,7 @@ _CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 從
 if str(_CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(_CODE_ROOT))
 
-# CLAUDE_DIR＝使用者資料根（index path 的基準），和 lib 同一份；_CLAUDE_ROOT 是同一個值的舊名
+# CLAUDE_DIR＝使用者資料根（index path 的基準），和 lib 同一份；_CLAUDE_ROOT 是同一個值，搬移落點算相對路徑用
 from lib.atom_locations import (  # noqa: E402
     CLAUDE_DIR, CLAUDE_DIR as _CLAUDE_ROOT, FAILURES_ROOT_NAME,
     GLOBAL_MEMORY_DIR, LOCAL_ATOMS_DIR, LOCAL_ATOMS_REL, LOCAL_REALM_DOMAINS,
