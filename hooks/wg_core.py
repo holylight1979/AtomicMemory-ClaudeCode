@@ -2356,20 +2356,28 @@ def check_cross_realm_bash(
     root_ctx = bool(_ROOT_CD_RE.search(ctx_cmd) or _ROOT_CORE_PATH_RE.search(ctx_cmd))
     if not root_ctx:
         return None
-    if not _BASH_WRITE_OP_RE.search(cmd):
+    has_git = re.search(r"\bgit(?:\.exe)?\b", cmd, re.IGNORECASE) is not None
+    if not _BASH_WRITE_OP_RE.search(cmd) and not has_git:
         return None  # 唯讀（sed -n / grep / cat / python ~/.claude/tools/x.py …）放行
     cmd_norm = cmd.replace("\\", "/").lower()
     for pat in g.get("allowlist", []) or []:
         if pat and str(pat).replace("\\", "/").lower() in cmd_norm:
             return None
-    # 規則 GIT_READONLY_SUBCMD：寫入訊號是 git 子命令或 python -c 時，每段 git 都唯讀（show、hash-object 無 -w、rev-parse、diff、
-    # log、status、ls-files、cat-file…）、且算得出的寫入目標沒有落在根層核心路徑（重導到 scratchpad 可以）→ 放行；
+    # 規則 GIT_READONLY_SUBCMD：根層上下文裡有 git（不論寫入訊號 regex 有沒有列到那個子命令：hash-object -w、worktree add、
+    # branch -m 這類也算）或有寫入訊號時，每段 git 都要是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、
+    # ls-files、cat-file…）、且算得出的寫入目標沒有落在根層核心路徑（重導到 scratchpad 可以）→ 放行；
     # 目標不明（UNKNOWN）、任一目標在根層、任一段 git 會寫 → 照擋並留 guard-crossrealm.jsonl
     from wg_release_rules import git_readonly_verdict
     targets = write_paths_from_tool(tool_name, tool_input, cwd)
     root_targets = [t for t in targets if t.startswith(_WRITE_TARGET_UNKNOWN) or _ROOT_CORE_PATH_RE.search(t)
                     or _is_core_session(t) is True]
     verdict = git_readonly_verdict(cmd, root_targets)
+    # PowerShell 的 Set-Location／Push-Location 不在寫入目標解析器的追蹤裡（bash 的 cd 有）：換過目錄的相對目標算不準，照舊擋
+    ps_cd = tool_name == "PowerShell" and re.search(r"\b(?:Set-Location|Push-Location|sl|cd|chdir|pushd)\b", cmd, re.IGNORECASE)
+    if not has_git and not root_targets and not ps_cd and verdict.owed:
+        verdict = verdict._replace(owed=False, why="沒有 git、寫入目標也不在根層", evidence=tuple(str(t)[:60] for t in targets[:3]) or ("無目標",))
+    if ps_cd and verdict.owed is False and not has_git:
+        verdict = verdict._replace(owed=True, why="PowerShell 換過目錄，相對寫入目標算不準", evidence=("Set-Location／Push-Location 後的寫入",))
     if not verdict.owed:
         print(f"[Guardian:CrossRealmBashBlock] 規則 {verdict.rule}：{verdict.why}｜證據：{'；'.join(verdict.evidence)}",
               file=sys.stderr)

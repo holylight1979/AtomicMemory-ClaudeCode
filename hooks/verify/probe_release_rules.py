@@ -222,15 +222,21 @@ class Checks:
         self.rows.append({"what": what, "actual": actual, "rule": rule, "ok": actual == rule, "note": note})
 
 
+CODE_TAGS = ("[Guardian:ReconcileGate]", "[Guardian:MeasureGate]", "[Guardian:TestFailGate]")
+
+
 def _d(step: dict) -> str:
-    """Stop 的寫碼查核結果：pass／block(d)／block(a)／block(other)／deny／hook-error。"""
+    """Stop 的寫碳查核結果：pass（放行，或只被排在寫碼查核後面的閘擋，例：KnowledgeHarvest）／block(d)／block(a)／
+    block(TestFailGate)／deny／hook-error。"""
     r = reason_of(step)
     if step["result"] == "block":
+        if not any(t in r for t in CODE_TAGS):
+            return "pass"
         if "OWED_AFTER_LAST_CASE" in r or "(d)" in r:
             return "block(d)"
         if "CLAIM_FIXED_NEEDS_PASS" in r:
             return "block(a)"
-        return "block(" + (r.split("]")[0].strip("[").replace("Guardian:", "") if r.startswith("[") else "other") + ")"
+        return "block(" + r.split("]")[0].strip("[").replace("Guardian:", "") + ")"
     return step["result"]
 
 
