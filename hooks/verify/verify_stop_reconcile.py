@@ -3369,6 +3369,77 @@ def test_042_2b_case_in_excluded_region_cannot_settle_real_code(driven, capsys, 
     assert _DEBT_A not in out
 
 
+def test_042_2c_excluded_region_is_anchored_at_known_root():
+    """排除區只認相對專案根、錨在根的路徑：拿不到根、檔不在根底下、根所在目錄的名字、根底下別處同名目錄都不排除（照算程式）。"""
+    cfg = vl.RECONCILE_DEFAULTS
+    assert vl.is_excluded(r"c:\proj\workflow\v6-inbox\to-x\a.py", cfg, r"c:\proj")
+    assert vl.is_excluded(r"C:\Proj\_AIDocs\DevHistory\a.py", cfg, "c:/proj/")                  # 大小寫、斜線不影響
+    assert not vl.is_excluded(r"c:\proj\workflow\v6-inbox\a.py", cfg, None)
+    assert not vl.is_excluded(r"c:\other\workflow\v6-inbox\a.py", cfg, r"c:\proj")
+    assert not vl.is_excluded(r"c:\_AIDocs\proj\hooks\a.py", cfg, r"c:\_AIDocs\proj")
+    assert not vl.is_excluded(r"c:\proj\hooks\_AIDocs\a.py", cfg, r"c:\proj")
+    assert not vl.is_excluded(r"c:\proj\workflow\v6-inbox-old\a.py", cfg, r"c:\proj")
+    assert not vl.is_excluded(r"c:\proj\workflow\v6-inbox\..\..\src\a.py", cfg, r"c:\proj")      # 經信箱繞回 src/：照算程式
+
+
+@pytest.mark.parametrize("how", [
+    pytest.param("case", marks=pytest.mark.skipif(os.name != "nt", reason="大小寫不同的路徑指到同一個檔只在不分大小寫的檔案系統成立")),
+    "dotdot",
+])
+def test_042_0d_aliased_edit_path_still_sees_index(driven, capsys, chain, how):
+    """042 codex BLOCK／WARN：修改紀錄的寫法和 git 記的不一樣，但是同一個檔：Windows 上 Edit 用 `src/A.py`（git 記 `src/a.py`）、
+    或路徑帶 `src/../src/a.py` → 042_0 的流程（快照後改碼並暫存、只還原工作樹）照擋。舊碼 pathspec 分大小寫查不到、空輸出當乾淨；
+    `..` 沒消掉，git 回的 `src/a.py` 比不回修改紀錄，也當乾淨。"""
+    state, edit, git, repo, code, case = chain
+    alias = code.with_name("A.py") if how == "case" else code.parent / ".." / "src" / "a.py"
+
+    def write_alias(v):
+        alias.write_text(_CODE_V.format(v), encoding="utf-8", newline="\n")
+        edit.post("Edit", {"file_path": str(alias)})
+    write_alias(3)
+    edit(case, 3)
+    git("commit", "-qam", "v3")
+    write_alias(4)
+    git("add", "src/a.py")
+    write_alias(3)
+    assert _status(repo) == "MM src/a.py"
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert f"改了程式碼（{alias.name}）之後沒有新增或修改驗證 case 檔" in out, how
+
+
+def test_042_0e_snapshot_exemption_checks_every_git_root_of_the_project(tmp_path):
+    """042 codex WARN：同一個專案根跨兩個 git 根（主 repo 的程式、巢狀 repo 的案例）→ 案例改了並暫存、只還原工作樹，內容都回到快照，
+    但案例那個 git 根的暫存區有差 → 不豁免。舊碼只查程式所在的 git 根。配對：案例的暫存區也還原 → 豁免。"""
+    proj = tmp_path / "proj"
+    sub = proj / "sub"
+    (proj / "src").mkdir(parents=True)
+    (sub / "tests").mkdir(parents=True)
+    code, case = proj / "src" / "a.py", sub / "tests" / "test_a.py"
+    for repo, f, text in ((proj, code, _CODE_V.format(2)), (sub, case, _CASE_V.format(2))):
+        _git(repo, "init", "-q")
+        _git(repo, "config", "user.email", "t@t")
+        _git(repo, "config", "user.name", "t")
+        f.write_text(text, encoding="utf-8", newline="\n")
+        _git(repo, "add", str(f.relative_to(repo)).replace("\\", "/"))
+        _git(repo, "commit", "-qm", "v2")
+    snap = {"files": {str(code): vl._content_sha(str(code)), str(case): vl._content_sha(str(case))}, "settled": [str(code)]}
+    case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
+    _git(sub, "add", "tests/test_a.py")
+    case.write_text(_CASE_V.format(2), encoding="utf-8", newline="\n")                         # 只還原工作樹
+    args = (snap, [str(code)], [str(code), str(case)])
+    assert vl.committed_settled_paths(*args, root_of=lambda q: str(proj)) == []
+    _git(sub, "reset", "-q", "--", "tests/test_a.py")
+    assert vl.committed_settled_paths(*args, root_of=lambda q: str(proj)) == [str(code)]
+
+
+def test_042_0c_snapshot_exemption_outside_git_is_refused(capsys):
+    """快照豁免查不了暫存區（不在 git 工作區）→ 不成立、stderr 說一聲：和「改過又原樣還原」同一個 fail-closed，不只比內容就放。"""
+    p = r"c:\proj\hooks\x.py"                                         # 虛構路徑：不存在、不在任何 git 工作區（內容雜湊兩邊都是 None）
+    snap = {"files": {p: None}, "settled": [p]}
+    assert vl.committed_settled_paths(snap, [p], [p], root_of=lambda q: r"c:\proj") == []
+    assert "不在 git 工作區" in capsys.readouterr().err
+
+
 @pytest.fixture()
 def peer_flow(driven, monkeypatch):
     """042 加項：使用者打字開回合 → Stop → 同伴 session 訊息經真 UserPromptSubmit 進來（turn_seq +1，使用者回合不變）→ Stop →

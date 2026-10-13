@@ -1136,10 +1136,16 @@ def is_case_file(path: str, cfg: Dict[str, Any], root: Optional[str] = None) -> 
             and is_code_file(path, cfg.get("code_exts") or []))
 
 
+def _canon(path: str) -> str:
+    """比對用的路徑鍵：先消掉 `.`／`..`（`src/../src/a.py` 與 `src/a.py` 是同一個檔），再照 _norm_path 統一斜線與大小寫。"""
+    return _norm_path(os.path.normpath(str(path)))
+
+
 def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str]) -> bool:
     """path 落在 exclude_globs（相對專案根比）：信箱、規劃暫存、文件目錄下的 .py 是素材，不是本專案的程式也不是它的案例。
-    看的是路徑屬哪一區、不看 git 狀態（被 .gitignore 的程式檔照算）。拿不到根或不在根底下 → 不排除（照算）。"""
-    full, base = _norm_path(path), _norm_path(root or "")
+    看的是路徑屬哪一區、不看 git 狀態（被 .gitignore 的程式檔照算）。路徑先消掉 `..`（經信箱繞回 src/ 的寫法照算程式）。
+    拿不到根或不在根底下 → 不排除（照算）。"""
+    full, base = _canon(path), (_canon(root) if root else "")
     if not base or not full.startswith(base + "/"):
         return False
     rel = full[len(base) + 1:]
@@ -1314,35 +1320,40 @@ def committed_settled_paths(snapshot: Any, owed: Iterable[str], session_paths: I
     現在的內容都和那一刻一樣、而且這些檔 git status 都乾淨（_root_clean，和 net_unchanged_paths 同一個條件：只把工作樹改回去、
     暫存區還留著新內容也算有差）→ 回這些檔：commit 之後做反證，把程式或案例退回舊版又還原，補案例的義務不重算。
     只免補案例，量尺照舊要跑。快照之後才改的檔（不在快照裡）、任一檔內容不同、案例被刪或還留舊版、git 有差或判不出來
-    （不在 git 工作區、git 失敗或逾時、預算用完；deadline 給了就和 net_unchanged_paths 共用同一個整支預算）→ 不回。"""
+    （任一相關檔不在 git 工作區、git 失敗或逾時、預算用完；deadline 給了就和 net_unchanged_paths 共用同一個整支預算）→ 不回。
+    同一個專案根跨好幾個 git 根（巢狀 repo、submodule）時，比內容的那些檔落在哪幾個 git 根就每個都查，全部乾淨才算。"""
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("files"), dict):
         return []
     files, settled = snapshot["files"], set(snapshot.get("settled") or [])
     root_of = root_of or file_root_of
     every = list(dict.fromkeys(str(p) for p in session_paths or []))
-    by_root: Dict[str, Tuple[Path, List[str]]] = {}
+    cands: List[Tuple[str, List[str]]] = []               # (欠案例的程式檔, 同專案根要一起比的檔)
     for p in owed or []:
         if p not in settled:
             continue
         r = root_of(p)
-        same_root = [q for q in every if root_of(q) == r] or [p]
-        if not all(q in files and _content_sha(q) == files[q] for q in same_root):
-            continue
-        hit = _git_root_of(p)
-        if not hit:
-            print(f"[verify_ledger] {p} 不在 git 工作區，查不了暫存區，commit 之後的還原照算改了", file=sys.stderr)
-            continue
-        by_root.setdefault(hit[0], (hit[1], []))[1].append(p)
-    if not by_root:
+        same_root = list(dict.fromkeys([p, *(q for q in every if root_of(q) == r)]))
+        if all(q in files and _content_sha(q) == files[q] for q in same_root):
+            cands.append((p, same_root))
+    if not cands:
         return []
     run = _run or subprocess.run
     deadline = git_deadline() if deadline is None else deadline
-    git_key = {q: (_git_root_of(q) or ("",))[0] for q in every}
+    git_of = {q: _git_root_of(q) for q in dict.fromkeys([*every, *(q for _, qs in cands for q in qs)])}
+    clean: Dict[str, bool] = {}
     out: List[str] = []
-    for key, (root, cands) in by_root.items():
-        same_git = list(dict.fromkeys([*(q for q in every if git_key[q] == key), *cands]))
-        if _root_clean(root, cands, same_git, deadline, 3.0, run):
-            out += cands
+    for p, same_root in cands:
+        outside = [q for q in same_root if not git_of[q]]
+        if outside:
+            print(f"[verify_ledger] {Path(outside[0]).name} 不在 git 工作區，查不了暫存區，commit 之後的還原照算改了（{Path(p).name}）",
+                  file=sys.stderr)
+            continue
+        for key, root in dict.fromkeys(git_of[q] for q in same_root):
+            if key not in clean:
+                in_root = [q for q, h in git_of.items() if h and h[0] == key]
+                clean[key] = _root_clean(root, [p], in_root, deadline, 3.0, run)
+        if all(clean[git_of[q][0]] for q in same_root):
+            out.append(p)
     return out
 
 
@@ -1366,12 +1377,15 @@ def _git_root_of(path: str) -> Optional[Tuple[str, Path]]:
 
 
 def _git_out(root: Path, args: List[str], deadline: float, timeout_s: float, run: Callable[..., Any]) -> Optional[bytes]:
-    """在 root 跑一次 git，只拿剩餘預算（最多 timeout_s）。預算不足、逾時、失敗、回非零 → None，stderr 說哪個根、照算改了。"""
+    """在 root 跑一次帶改檔路徑的 git 查詢，只拿剩餘預算（最多 timeout_s）。pathspec 一律不分大小寫（--icase-pathspecs）：
+    Windows 上 Edit 寫 `src/A.py`、git 記 `src/a.py` 是同一個檔，分大小寫會查不到、空輸出被當成乾淨；結果另用小寫鍵比回改檔。
+    預算不足、逾時、失敗、回非零 → None，stderr 說哪個根、照算改了。"""
     left = deadline - time.monotonic()
     try:
         if left < _GIT_MIN_S:
             raise subprocess.TimeoutExpired(f"git {args[0]}", 0)
-        r = run(["git", "-C", str(root), *args], capture_output=True, timeout=min(timeout_s, left), creationflags=_NO_WINDOW)
+        r = run(["git", "-C", str(root), "--icase-pathspecs", *args], capture_output=True, timeout=min(timeout_s, left),
+                creationflags=_NO_WINDOW)
     except subprocess.TimeoutExpired as e:
         print(f"[verify_ledger] 在 {root} 查 git 逾時或時間預算用完（TimeoutExpired：{e.cmd}；整支預算預設 {GIT_BUDGET_S} 秒），"
               "沒查完，這些改檔照算改了", file=sys.stderr)
@@ -1402,18 +1416,18 @@ def _root_clean(root: Path, paths: List[str], every: List[str], deadline: float,
                    deadline, timeout_s, run)
     if raw is None:
         return False
-    key = _norm_path(str(root))
+    key = _canon(str(root))
     changed, fields, i = set(), raw.decode("utf-8", "replace").split("\0"), 0
     while i < len(fields):
         f = fields[i]
         if len(f) > 3:
-            changed.add(_norm_path(f"{key}/{f[3:]}"))
+            changed.add(_canon(f"{key}/{f[3:]}"))
             if f[0] in "RC" and i + 1 < len(fields):    # 改名／複製：下一欄是原路徑
                 i += 1
-                changed.add(_norm_path(f"{key}/{fields[i]}"))
+                changed.add(_canon(f"{key}/{fields[i]}"))
         i += 1
-    dirty = [p for p in every if _norm_path(p) in changed]
-    if dirty and any(_norm_path(p) not in changed for p in paths):
+    dirty = [p for p in every if _canon(p) in changed]
+    if dirty and any(_canon(p) not in changed for p in paths):
         print(f"[verify_ledger] {root} 還有本 session 改過、跟 HEAD 不同的檔（{'、'.join(Path(p).name for p in dirty[:3])}），"
               "這個根的改檔一律照算改了", file=sys.stderr)
     return not dirty
@@ -1460,8 +1474,8 @@ def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None
                            deadline, timeout_s, run)
         if tracked is None:
             continue
-        known = {_norm_path(f"{key}/{f}") for f in tracked.decode("utf-8", "replace").split("\0") if f}
-        out += [p for p in paths if _norm_path(p) in known]
+        known = {_canon(f"{key}/{f}") for f in tracked.decode("utf-8", "replace").split("\0") if f}
+        out += [p for p in paths if _canon(p) in known]
     return out
 
 
