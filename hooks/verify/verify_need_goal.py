@@ -434,8 +434,11 @@ def test_two_processes_interleaving_lose_no_nodes(env, tmp_path):
     (root / "workflow").mkdir(parents=True)
     script = tmp_path / "worker.py"
     script.write_text(_WORKER, encoding="utf-8")
-    envv = {**os.environ, "WG_CLAUDE_DIR": str(root), "PYTHONIOENCODING": "utf-8"}
-    envv.pop("PYTEST_CURRENT_TEST", None)                                   # 子行程照正式路徑寫進 tmp 資料根
+    # 子行程照正式路徑寫進 tmp 資料根（拿掉 PYTEST_CURRENT_TEST）；守門紀錄預設寫家目錄的 .claude/Logs、不跟 WG_CLAUDE_DIR 走，
+    # 所以守門紀錄目錄與家目錄（USERPROFILE／HOME 兩個都要）也導到 tmp
+    envv = {**os.environ, "WG_CLAUDE_DIR": str(root), "WG_TEST_LOGS_DIR": str(root / "Logs"),
+            "USERPROFILE": str(tmp_path / "home"), "HOME": str(tmp_path / "home"), "PYTHONIOENCODING": "utf-8"}
+    envv.pop("PYTEST_CURRENT_TEST", None)
     seed = [sys.executable, "-X", "utf8", "-c",
             f"import sys; sys.path.insert(0, {str(HOOKS_DIR)!r}); sys.path.insert(0, {str(HOOKS_DIR.parent / 'lib')!r});"
             f"import wg_need_goal as ng; ng.apply_op({SID!r}, 1, {{'action': 'set', 'goal': 'G'}})"]
@@ -450,6 +453,7 @@ def test_two_processes_interleaving_lose_no_nodes(env, tmp_path):
     texts = [n["text"] for n in doc["trees"]["T1"]["nodes"].values()]
     assert len(texts) == 51 and sum(t.startswith("a-") for t in texts) == 25 and sum(t.startswith("b-") for t in texts) == 25
     assert doc["seq"] == 2 + 50                                              # 開樹 2 號（樹＋checkpoint）＋每次 1 號，一號都沒掉
+    assert '"session_id": "sess-goal-0001"' in (root / "Logs" / "guard-need_goal.jsonl").read_text(encoding="utf-8")   # 守門紀錄落 tmp
 
 
 def test_corrupt_file_is_backed_up_and_gate_denies(env):
