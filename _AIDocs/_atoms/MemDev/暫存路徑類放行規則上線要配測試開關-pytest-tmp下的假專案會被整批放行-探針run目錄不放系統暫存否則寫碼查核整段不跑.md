@@ -14,6 +14,7 @@
 - [臨] 真 hook 入口探針的 run 目錄不能放系統暫存（%TEMP%／scratchpad）：hook 會把沙箱裡的專案改檔當暫存檔豁免，寫碼查核整段不跑、探針假綠。改放 `<worktree>-probe-runs/`（與受測樹同層、不在暫存），跑完刪。
 - [臨] 暫存判定要判 commit 實際落的 repo 根（find_vcs_root），不是執行目錄：正式 repo 底下的 scratchpad 子目錄不得拿到豁免；_TEMP_TOKENS 只認 /pytest-of-、/temp/claude/、/.pytest_cache/，不認裸 /scratchpad/。暫存根與目標兩側都先做 8.3 長路徑展開再比（這台 TEMP 就是 HOLYLI~1）。
 - [臨]（track-b-hooks 合 gate-rules 後）別軌的測試檔沒設 `WG_TEMP_RULES=off`，合進來才紅：on_read／on_edit 跳過暫存路徑、導讀卡不注入、定位不擋。合 main 後自己的讀檔／注入案紅了，先用 `WG_TEMP_RULES=off` 單跑那案確認，再在該檔 fixture 加 setenv。
+- [臨] 調度端教訓：這類「看路徑／環境就改判定」的全域規則合前只跑該軌目標清單抄不到影響面（合進 main 後別軌才發現 29 案紅，分兩批清）。合前先 grep 所有會被規則掃到的同型測試（寫 overview-map、走 hook 注入、用 tmp_path 建假專案的 verify）全跑一遍；合後發現紅不 revert，歸軌往前修，其他軌的合入排在修完之後（紅 main 上分不清新舊紅）。
 
 ## 行動
 
