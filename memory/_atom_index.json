@@ -6806,6 +6806,18 @@
         "指令寫法變體案例"
       ],
       "scope": "global"
+    },
+    {
+      "name": "新閘合進main時要回頭掃既有真hook探針的沙箱config-off-否則舊探針被新閘擋在main上一直紅-例probe-release-rules的p3被need-goal擋",
+      "path": "_AIDocs/_atoms/MemDev/新閘合進main時要回頭掃既有真hook探針的沙箱config-off-否則舊探針被新閘擋在main上一直紅-例probe-release-rules的p3被need-goal擋.md",
+      "triggers": [
+        "探針沙箱 CONFIG_OFF",
+        "probe_release_rules P3",
+        "新閸合進 main",
+        "探針在 main 一直紅",
+        "探針要關的閸"
+      ],
+      "scope": "global"
     }
   ]
 }

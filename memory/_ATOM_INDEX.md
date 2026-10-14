@@ -398,3 +398,4 @@
 | 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 | _AIDocs/_atoms/Tools/只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯.md | 只記錄不擋, 紀錄型功能, 不是閘就不審, codex 唯讀審查, 獨立審查範圍, 記錄欄位記錯, record only | global |  |
 | 內容寫入閘與事後掃描共用判式時-輸入要攤成落檔後的逐行-入口要盤點到raw逃生口恢復路徑與自組內容的產生器 | memory/設計通則/內容寫入閘與事後掃描共用判式時-輸入要攤成落檔後的逐行-入口要盤點到raw逃生口恢復路徑與自組內容的產生器.md | 寫入閘, 事後掃描, lint 與閘共用, 單一判式, 逐行判斷, 多行元素, 豁免詞, 寫入入口盤點, raw 逃生口, 恢復路徑 | global |  |
 | 清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋 | _AIDocs/_atoms/MemDev/清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋.md | python -m pytest, -m 被當篩選, 篩選過的綠不清紅, 綠清不掉紅, TestFailGate 舊紅, 清帳誤判, 篩選旗標, 改清帳規則, 指令寫法變體案例 | global |  |
+| 新閘合進main時要回頭掃既有真hook探針的沙箱config-off-否則舊探針被新閘擋在main上一直紅-例probe-release-rules的p3被need-goal擋 | _AIDocs/_atoms/MemDev/新閘合進main時要回頭掃既有真hook探針的沙箱config-off-否則舊探針被新閘擋在main上一直紅-例probe-release-rules的p3被need-goal擋.md | 探針沙箱 CONFIG_OFF, probe_release_rules P3, 新閸合進 main, 探針在 main 一直紅, 探針要關的閸 | global |  |
