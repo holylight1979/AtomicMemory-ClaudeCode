@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 B5 真測逼出的閘誤擋／誤報修到根因（裁定 #41、#42 ②、#43）
+- **緣由**：B5 題三兩組受測都被與題目無關的閘擋或誤報：新建 `.gitignore`、刪 `tests/__pycache__` 被綜觀閘擋；一次 `cat` 多檔只認第一個；pytest 有收據時收尾檢核 (j) 要模型自己找帳本路徑（照提示的相對路徑填仍判缺）；atom append 對沒「## 行動」段的卡回錯；SessionStart 在 B5 資料根報 IDENTITY.md 0 bytes 與三行必載檔契約缺句。
+- **做法**：`hooks/wg_release_rules.py` 新規則 `UNMAPPED_EDIT_NEEDS_READABLE_FILES`（表外檔要讀數＝min(設定, 同頂層目錄可讀既有檔數)，`wg_overview._readable_existing` 只蒐集事實、gitignored 一次查一批）、`BASH_READONLY_COUNTS_AS_READ`（`lib/overview_hub` 每段每個路徑都解析、認 less／more／grep -n、重導向目標不算；成功、字面、實檔才算，`post_tool_use` 傳結束碼）；`RUNTIME_DATA_NO_OVERVIEW` 加快取目錄。`wg_verify_ledger.aec_evidence_autofill`（js 鏡像）：有收據且 j 空／「無」→ `post_tool_use` 帶入帳本絕對路徑、回告「已自動帶入」，Node chip 不再印 (j)，mcp.js 參數說明改成留空即可。`lib/atom_io._build_append_content` 缺行動段先補段，兩處硬拒拿掉。`session_start` 的 IDENTITY 哨兵（抽成 `check_identity_integrity`）與必載檔契約哨兵改看 Claude Code 設定目錄（`claude_config_dir`）。`green_covers_red_verdict` 的篩選旗標與節點 id 只看測試子命令那段之後（`_test_runner_args`，同一指令別段的 `python -m <模組>` 不算）。`tools/statusline.py` main 開頭把 stdin／stdout 換成 UTF-8（cp950 主控台不再整行紅字）。`skills/handoff` 落點寫死專案 `_staging/next-phase-<名>.md`、被擋不退 scratchpad。TECH §5 atom、§7.6、§7.8、§收尾報告、§哨兵。
+- **驗證**：新案在 `verify_release_rules`、`verify_overview_hub`、`verify_aec_emission_gate`、`verify_atom_io_equivalence`、`verify_always_load_contracts`；39 個新案退回 main 版程式時 30 紅（紅在斷言，或新規則函式不存在）、9 綠（既有行為對照：字面單檔 cat 原本就算、echo／變數／迴圈／重導向原本就不算、沒收據不帶入），換回全綠；B5 對照組資料根實跑 SessionStart：改前 4 行 Identity／Contract 誤報、改後 0 行，設定目錄指向截斷的 IDENTITY 時仍報。
+
 ## 2026-10-14 v6.0 提問閘補齊：每題附推薦、題目掛目標認原文片段、全貌先於拍板（C-G16）
 - **緣由**：G16「人只做真正的決定，而且看懂全貌才拍板」。b-hooks-2 的提問閘只判「寫碼類題目有沒有寫節點編號」；AI 問人時沒附推薦、只引用節點原文不認、還沒讀過部位檔就問改法，都沒有規則，擋訊息也沒有規則名。
 - **做法**：`hooks/wg_release_rules.py` 三條規則 `ASK_NEEDS_RECOMMENDATION`（每一題至少一個選項標 `(Recommended)` 或題目含「建議：」，不分有沒有樹；【收尾放行確認】固定兩選項豁免）、`ASK_LINKED_TO_GOAL`（節點編號或節點原文連續 8 字以上；寫碼類沒指到擋、知識類只提示、沒樹審計記「提問未掛目標（知識類）」）、`ASK_OVERVIEW_BEFORE_DECISION`（問改法而 OverviewHub 的 part_files_read 全空 → 多一句「先讀過部位檔再問」，不單獨擋）；`wg_need_goal_points._judge_ask` 只蒐集事實、把所有句子併成一則擋訊息或提示，`ask_audit` 加 note、新事件 `ask_no_recommendation`；`session_start` 兩句問句指示改帶 `(Recommended)`。TECH §7.7（新列「問使用者之前」）、§7.8；need-goal 契約。

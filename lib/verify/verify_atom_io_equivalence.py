@@ -1350,3 +1350,45 @@ def test_38_real_hub_card_3300_bytes_append_succeeds_end_to_end(isolated_claude,
     plain_file.write_text(plain_content, encoding="utf-8", newline="\n")
     rp = append_atom_file(plain_file, ["[臨] 補一條"], source="test")
     assert not rp.ok and "超過預算 3072" in rp.error
+
+
+# ─── B5. append 對沒有「## 行動」段的卡：補段再拼接（導讀卡／索引卡／手寫舊卡）─────────────
+
+def _strip_action_section(fp):
+    text = fp.read_text(encoding="utf-8")
+    fp.write_text(text[:text.index("## 行動")].rstrip() + "\n", encoding="utf-8", newline="\n")
+    assert "## 行動" not in fp.read_text(encoding="utf-8")
+
+
+def _assert_one_action_after(fp, fact):
+    from lib.atom_spec import validate_atom_content
+    after = fp.read_text(encoding="utf-8")
+    assert after.count("## 行動") == 1 and f"- {fact}" in after and after.index(fact) < after.index("## 行動")
+    assert "- （依知識內容判斷）" in after and validate_atom_content(after) is None
+
+
+def test_b5_append_atom_file_to_card_without_action_section(isolated_claude):
+    """MCP append 走的 append_atom_file：卡沒行動段 → 成功、檔內恰一個「## 行動」、validate 綠（改前回 has no ## 行動 section）。"""
+    from lib.atom_io import append_atom_file
+    write_atom(title="No Action", scope="global", confidence="[臨]", triggers=["a", "b", "c"], knowledge=["舊事實"],
+               domain="設計通則", mode="create", source="test", skip_gate=True, today="2026-05-01")
+    fp = isolated_claude["memory"] / "設計通則" / "no-action.md"
+    _strip_action_section(fp)
+    r = append_atom_file(fp, ["新事實甲"], source="test")
+    assert r.ok, r.error
+    _assert_one_action_after(fp, "新事實甲")
+    r = append_atom_file(fp, ["新事實乙"], source="test")                         # 補過段的卡再 append：照有行動段的路走
+    assert r.ok, r.error
+    _assert_one_action_after(fp, "新事實乙")
+
+
+def test_b5_write_atom_append_to_card_without_action_section(isolated_claude):
+    """write_atom(mode=append) 同一支補段（兩處共用 _build_append_content，不留兩份判定）。"""
+    write_atom(title="No Action Two", scope="global", confidence="[臨]", triggers=["a", "b", "c"], knowledge=["舊事實"],
+               domain="設計通則", mode="create", source="test", skip_gate=True, today="2026-05-01")
+    fp = isolated_claude["memory"] / "設計通則" / "no-action-two.md"
+    _strip_action_section(fp)
+    r = write_atom(title="No Action Two", scope="global", confidence="[臨]", triggers=["a", "b", "c"],
+                   knowledge=["新事實丙"], mode="append", source="test", skip_gate=True, today=FIXED_TODAY)
+    assert r.ok, r.error
+    _assert_one_action_after(fp, "新事實丙")

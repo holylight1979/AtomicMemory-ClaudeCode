@@ -183,6 +183,7 @@ def test_state_flow_inject_once_then_deny_then_locate(proj, tmp_path, monkeypatc
     state = {"turn_seq": 3}
     tp = _transcript(tmp_path, ["先看看。"])
     f1, f2 = str(proj / "Game" / "Battle" / "A.cs"), str(proj / "Game" / "Battle" / "B.cs")
+    Path(f1).write_text("x", encoding="utf-8")                                     # Bash cat 讀的要是實檔才算（BASH_READONLY_COUNTS_AS_READ）
 
     txt = wo.on_read(state, "sess", "Read", {"file_path": f1}, str(proj), tp, cfg)
     assert txt and "整張" not in txt and "戰鬥導讀" in txt and "定位｜部位：戰鬥" in txt   # 第一次讀 → 注入整張
@@ -942,6 +943,7 @@ def test_unmapped_project_requires_a_read_in_same_top_dir(tmp_path, monkeypatch)
     (root / ".git").mkdir(parents=True)                                            # 有四標記、沒部位表
     (root / "src").mkdir()
     (root / "docs").mkdir()
+    (root / "src" / "b.py").write_text("x", encoding="utf-8")                     # src 有可讀的既有檔，閘才要求讀（B5：沒檔可讀不要求）
     f1 = str(root / "src" / "a.py")
     state = {}
     warn, deny, changed = wo.on_edit(state, "s", f1, "", {})
@@ -1810,3 +1812,138 @@ def test_know_substring_code_hit_marks_part_as_code_for_scorecard(kproj, tmp_pat
     assert rec.get("kind") == "knowledge"
     warn, deny, _ = wo.on_edit(state, "s", str(kproj / "sub" / "workflow" / "v6-inbox" / "a.py"), tp, {})
     assert deny and "定位三行" in deny and rec.get("kind") == "code"
+
+
+# ─── B5 真測：表外檔綜觀（UNMAPPED_EDIT_NEEDS_READABLE_FILES）、快取目錄、Bash 唯讀讀檔（BASH_READONLY_COUNTS_AS_READ）──
+
+def _b5_repo(tmp_path, git_init=False):
+    """B5 q3 的形狀：專案根只有子目錄（沒有可讀的根層檔），沒有部位表。"""
+    root = tmp_path / "b5"
+    root.mkdir()
+    if git_init:
+        import subprocess
+        subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+    else:
+        (root / ".git").mkdir()
+    for d, f in (("bookings", "render.py"), ("tests", "test_render.py"), ("ops", "README.md")):
+        (root / d).mkdir()
+        (root / d / f).write_text("x\n", encoding="utf-8")
+    return root
+
+
+def test_b5_new_gitignore_in_root_without_readable_files_is_allowed(tmp_path, monkeypatch):
+    """B5 q3 兩組 `printf … > .gitignore` 各被擋 2～3 次：根目錄沒有可讀的既有檔 → 不要求先讀（改前擋「目前 0 個」）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    state = {}
+    assert wo.on_edit(state, "s", str(root / ".gitignore"), "", {}) == (None, None, True)
+    log = [json.loads(l) for l in (tmp_path / "hub.log").read_text(encoding="utf-8").splitlines()]
+    assert log[-1]["rule"] == "UNMAPPED_EDIT_NEEDS_READABLE_FILES" and log[-1]["readable"] == 0
+
+
+def test_b5_handoff_into_missing_claude_dir_is_allowed(tmp_path, monkeypatch):
+    """B5 q5 兩組 /handoff 寫 `<專案>/.claude/memory/_staging/next-phase-*.md` 被擋「先讀 .claude 1 檔，目前 0」，
+    專案根本沒有 .claude/：目標頂層目錄不存在 → 不要求先讀（改前擋）；目錄在但空的也一樣。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    target = str(root / ".claude" / "memory" / "_staging" / "next-phase-x.md")
+    assert wo.on_edit({}, "s", target, "", {}) == (None, None, True)
+    (root / "empty").mkdir()
+    assert wo.on_edit({}, "s", str(root / "empty" / "a.md"), "", {}) == (None, None, True)
+
+
+def test_b5_root_with_unread_readme_still_blocks(tmp_path, monkeypatch):
+    """根目錄有 1 個 README 沒讀 → 照擋（不放寬），擋訊息帶規則名與「該目錄既有可讀檔」；讀了就放。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    (root / "README.md").write_text("# r\n", encoding="utf-8")
+    state = {}
+    warn, deny, _ = wo.on_edit(state, "s", str(root / ".gitignore"), "", {})
+    assert deny and "「(root)」至少 1 個檔（目前 0 個）" in deny
+    assert "UNMAPPED_EDIT_NEEDS_READABLE_FILES" in deny and "該目錄既有可讀檔 至少 1 個" in deny
+    wo.on_read(state, "s", "Read", {"file_path": str(root / "README.md")}, str(root), "", {})
+    assert wo.on_edit(state, "s", str(root / ".gitignore"), "", {}) == (None, None, True)
+
+
+def test_b5_rm_pycache_is_runtime_data(tmp_path, monkeypatch):
+    """B5 對照組 `rm -rf tests/__pycache__` 被擋（tests 有 test_render.py 沒讀）：快取目錄免綜觀（改前擋）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    (root / "tests" / "__pycache__").mkdir()
+    assert wo.on_edit({}, "s", str(root / "tests" / "__pycache__"), "", {}) == (None, None, False)
+    assert wo.on_edit({}, "s", str(root / ".pytest_cache" / "v" / "x"), "", {}) == (None, None, False)
+    warn, deny, _ = wo.on_edit({}, "s", str(root / "tests" / "test_new.py"), "", {})
+    assert deny and "「tests」至少 1 個檔（目前 0 個）" in deny                       # 同目錄一般檔照要求
+
+
+def test_b5_gitignored_and_cache_files_are_not_readable(tmp_path, monkeypatch):
+    """可讀檔不數 gitignored 產物與快取目錄：build/ 只有被忽略的 log 與 __pycache__ → 新建 build/notes.md 不要求先讀。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path, git_init=True)
+    (root / ".gitignore").write_text("build/*.log\n", encoding="utf-8")
+    (root / "build" / "__pycache__").mkdir(parents=True)
+    (root / "build" / "run.log").write_text("x", encoding="utf-8")
+    (root / "build" / "__pycache__" / "a.pyc").write_text("x", encoding="utf-8")
+    assert wo.on_edit({}, "s", str(root / "build" / "notes.md"), "", {}) == (None, None, True)
+    (root / "build" / "keep.md").write_text("x", encoding="utf-8")                  # 有一個沒被忽略的檔 → 照要求
+    warn, deny, _ = wo.on_edit({}, "s", str(root / "build" / "notes.md"), "", {})
+    assert deny and "「build」至少 1 個檔（目前 0 個）" in deny
+
+
+def _bash_read(state, root, command, exit_code=None):
+    return wo.on_read(state, "s", "Bash", {"command": command}, str(root), "", {}, exit_code=exit_code)
+
+
+def test_b5_bash_cat_counts_as_read(tmp_path, monkeypatch):
+    """派工單補充紅案例①：`cat ops/README.md` 之後寫 ops/docs/x.md → 不擋。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    state = {}
+    _bash_read(state, root, "cat ops/README.md", exit_code=0)
+    assert wo.on_edit(state, "s", str(root / "ops" / "docs" / "x.md"), "", {}) == (None, None, True)
+
+
+def test_b5_bash_multi_file_cat_counts_every_file(tmp_path, monkeypatch):
+    """B5 q3 兩組 `cat bookings/render.py … tests/test_render.py …` 一次讀多檔，舊 regex 只認第一個 → 寫 tests/ 被擋（改前擋）。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    state = {}
+    _bash_read(state, root, "cat bookings/render.py tests/test_render.py && head -c 1500 ops/README.md")
+    assert wo.on_edit(state, "s", str(root / "tests" / "test_render.py"), "", {}) == (None, None, True)
+    assert wo.on_edit(state, "s", str(root / "ops" / "new.md"), "", {}) == (None, None, True)
+
+
+@pytest.mark.parametrize("command, exit_code", [
+    ("echo hi > /dev/null", 0),                         # ② echo 不是讀檔
+    ("printf 'x' ; ls ops ; find ops -name '*.md'", 0), #   printf／ls／find 也不是
+    ("cat $f", 0),                                      # ③ 變數路徑
+    ('for f in ops/*.md; do cat "$f"; done', 0),        #   B5 q4 的迴圈寫法：照規則不算
+    ("cat ops/$f", 0),                                  #   中段變數（改前當字面路徑算進去）
+    ("cat ops/nothere.md", 1),                          # ④ 檔不存在（改前照算）
+    ("cat ops/README.md", 1),                           #   指令失敗（exit≠0，改前照算）
+    ("cat > ops/README.md <<'EOF'", 0),                 #   重導向目標是寫，不是讀
+], ids=["echo", "printf-ls-find", "var", "q4-loop", "mid-var", "missing", "exit-1", "redirect"])
+def test_b5_bash_non_reads_do_not_count(tmp_path, monkeypatch, command, exit_code):
+    """派工單補充紅案例②③④：不算讀檔的指令讀完，寫 ops/ 下的檔仍擋。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    state = {}
+    _bash_read(state, root, command, exit_code=exit_code)
+    warn, deny, _ = wo.on_edit(state, "s", str(root / "ops" / "docs" / "x.md"), "", {})
+    assert deny and "「ops」至少 1 個檔（目前 0 個）" in deny
+
+
+def test_b5_bash_grep_n_and_more_count_as_read(tmp_path, monkeypatch):
+    """grep -n（第一個參數是樣式，不算路徑）與 more 算讀檔（改前不認）；grep 沒帶 -n 不算。"""
+    monkeypatch.setattr(wo, "LOG_PATH", tmp_path / "hub.log")
+    root = _b5_repo(tmp_path)
+    state = {}
+    _bash_read(state, root, 'grep -c "x" ops/README.md')
+    warn, deny, _ = wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {})
+    assert deny
+    _bash_read(state, root, 'grep -n "tests/test_render.py" ops/README.md')       # 樣式長得像路徑也不算
+    assert wo.on_edit(state, "s", str(root / "ops" / "a.md"), "", {}) == (None, None, True)
+    warn, deny, _ = wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", {})
+    assert deny
+    _bash_read(state, root, "more tests/test_render.py")
+    assert wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", {}) == (None, None, True)

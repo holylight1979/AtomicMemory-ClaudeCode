@@ -1084,6 +1084,16 @@ def aec_evidence_missing(j: Any, receipts_non_empty: bool,
     return False
 
 
+def aec_evidence_autofill(j: Any, receipts_non_empty: bool, ledger: str,
+                          _exists: Callable[[str], bool] = os.path.exists) -> str:
+    """(j) 自動帶入：本 session 有收據、j 空／「無」、帳本檔在 → 回帳本絕對路徑；其餘回原 j（模型填了別的路徑就用模型填的）。
+    帳本在資料根（WG_CLAUDE_DIR）底下，跟專案 cwd 不同根，模型猜不到，所以由系統填。
+    MIRROR: tools/workflow-guardian-mcp/lib/anti-evasion.js aecEvidenceAutofill；keep in sync。"""
+    if receipts_non_empty and aec_blank(j) and _exists(ledger):
+        return ledger
+    return str("" if j is None else j)
+
+
 def aec_followups_missing(k: Any) -> bool:
     """(k) 追蹤項：空字串（只有空白）→ True；「無」或任何內容 → False。
     MIRROR: anti-evasion.js aecFollowupsMissing。"""

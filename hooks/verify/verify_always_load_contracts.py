@@ -16,7 +16,7 @@ HOOKS_DIR = Path(__file__).resolve().parent.parent
 CLAUDE_DIR = HOOKS_DIR.parent
 sys.path.insert(0, str(HOOKS_DIR))
 
-from handlers.session_start import check_always_load_contracts  # noqa: E402
+from handlers.session_start import check_always_load_contracts, check_identity_integrity  # noqa: E402
 
 REG = CLAUDE_DIR / "memory" / "_meta" / "always-load-contracts.json"
 
@@ -75,7 +75,42 @@ def test_broken_registry_surfaces_not_silent(tmp_path):
 @pytest.mark.live_data
 def test_real_root_live_files_complete():
     """本機 live 檔（USER.md／IDENTITY.md／rules/core.md）目前齊全；缺句代表本機要回填。
-    刻意讀 live 資料根（live_data：本案期間 WG_CLAUDE_DIR 還原成 pytest 啟動時的值），和 SessionStart 檢查同一處；
+    讀 Claude Code 設定目錄（CLAUDE_CONFIG_DIR 或 ~/.claude），和 SessionStart 檢查同一處；
     不用本樹：USER.md／IDENTITY.md 是各機自己產生、不進版控的檔，worktree 裡沒有。"""
-    from project_root import claude_data_dir   # lib/（wg_core 已放進 sys.path）；執行期算，模組層常數已被隔離
-    assert check_always_load_contracts(claude_data_dir()) == []
+    from project_root import claude_config_dir   # lib/（wg_core 已放進 sys.path）
+    assert check_always_load_contracts(claude_config_dir()) == []
+
+
+# ─── B5：資料根（WG_CLAUDE_DIR）與 Claude Code 設定目錄不同 ─────────────────────
+
+_FULL_IDENTITY = "# IDENTITY\n## 自主行為契約\n" + "契約內容。" * 500
+
+
+def test_b5_identity_checked_in_config_dir_not_data_root(tmp_path):
+    """B5 資料根 C:\\b5\\<題>-root 沒有 IDENTITY.md、設定目錄那份完整 → 不報（改前看資料根，報「現 0 bytes」）。"""
+    config, data = tmp_path / "config", tmp_path / "data-root"
+    config.mkdir()
+    data.mkdir()
+    (config / "IDENTITY.md").write_text(_FULL_IDENTITY, encoding="utf-8")
+    assert check_identity_integrity(config, data) == []
+
+
+def test_b5_identity_stub_in_config_dir_still_warns(tmp_path):
+    """設定目錄那份真被截成 stub → 照報，訊息帶查的路徑；資料根不同時註明資料根不放啟動檔。"""
+    config, data = tmp_path / "config", tmp_path / "data-root"
+    config.mkdir()
+    data.mkdir()
+    (config / "IDENTITY.md").write_text("# stub\n", encoding="utf-8")
+    out = check_identity_integrity(config, data)
+    assert len(out) == 1 and "[Guardian:Identity⚠]" in out[0] and str(config / "IDENTITY.md") in out[0]
+    assert "資料根" in out[0] and str(data) in out[0]
+    same = check_identity_integrity(config, config)                                  # 一般安裝：同一處不多註
+    assert len(same) == 1 and "資料根" not in same[0]
+
+
+def test_b5_session_start_uses_config_dir_for_both_sentinels():
+    """SessionStart 兩個哨兵都餵 claude_config_dir()，不餵資料根 CLAUDE_DIR（改前兩者都看 CLAUDE_DIR）。"""
+    src = (HOOKS_DIR / "handlers" / "session_start.py").read_text(encoding="utf-8")
+    assert "check_identity_integrity(claude_config_dir(), CLAUDE_DIR)" in src
+    assert "check_always_load_contracts(claude_config_dir())" in src
+    assert "check_always_load_contracts(CLAUDE_DIR)" not in src and 'CLAUDE_DIR / "IDENTITY.md"' not in src

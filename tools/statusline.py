@@ -104,6 +104,12 @@ def _latest_aec_severity(session_id: str) -> str | None:
 
 
 def main() -> None:
+    # Claude Code 餵 UTF-8 JSON、狀態列含中文與「·」：主控台預設 cp950 時兩端都要先換成 UTF-8，否則整行變成 except 的紅字
+    for stream in (sys.stdin, sys.stdout):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
     try:
         data = json.load(sys.stdin)
     except ValueError:

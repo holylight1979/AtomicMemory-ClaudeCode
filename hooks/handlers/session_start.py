@@ -38,6 +38,7 @@ from wg_atoms import (
     parse_memory_index, parse_aidocs_index, extract_aidocs_keywords,
     build_candidate_pool,
 )
+from project_root import claude_config_dir   # lib/（wg_core 已放進 sys.path）：Claude Code 設定目錄，啟動檔在這裡
 from wg_evasion import (
     _load_oscillation_warnings, _detect_rut_patterns, _check_periodic_review_due,
 )
@@ -60,10 +61,27 @@ except ImportError:
     check_long_die_status = lambda: None  # noqa: E731
 
 
+def check_identity_integrity(live_dir: Path, data_dir: Path) -> List[str]:
+    """IDENTITY.md 完整性哨兵：Claude Code 實際載入的那份（設定目錄 live_dir 的 CLAUDE.md @IDENTITY.md）被覆寫成 stub、
+    缺核心契約段 → 告警行。資料根（WG_CLAUDE_DIR）不放啟動檔，不看它；兩者不同時訊息註明查的是哪一份。"""
+    identity = live_dir / "IDENTITY.md"
+    size, text = 0, ""
+    if identity.exists():
+        size = identity.stat().st_size
+        text = identity.read_text(encoding="utf-8", errors="ignore")
+    if "自主行為契約" in text and size >= 2000:
+        return []
+    note = "" if os.path.normcase(str(live_dir)) == os.path.normcase(str(data_dir)) else \
+        f"（查的是 Claude Code 設定目錄這份；資料根 {data_dir} 不放啟動檔）"
+    return [f"[Guardian:Identity⚠] {identity} 疑似損毀/被覆寫（現 {size} bytes）{note}，"
+            "完整版在 templates/IDENTITY.template.md，請比對回復。"]
+
+
 def check_always_load_contracts(claude_dir: Path) -> List[str]:
     """必載檔硬契約哨兵：memory/_meta/always-load-contracts.json 登記的句子在 live 檔缺席 → 告警行。
 
     契約句被修剪／覆寫時，模型當 session 就失去事前依據（事後閘只看狀態不懂語意）。
+    claude_dir 給 Claude Code 設定目錄（live 檔是 Claude Code 載入的那幾份），不是資料根。
     登記表缺或壞 → 回一行告警（不阻斷）。
     """
     reg_path = claude_dir / "memory" / "_meta" / "always-load-contracts.json"
@@ -1394,27 +1412,14 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     except Exception:
         pass
 
-    # 可觀測性：IDENTITY.md 完整性哨兵——被覆寫成 stub / 缺核心契約段時浮出告警
-    # （完整版備份在 templates/IDENTITY.template.md；檢查本身出錯不阻斷）
+    # 可觀測性：IDENTITY.md 完整性哨兵與必載檔硬契約哨兵（登記表驅動；USER.md 已由 user-init.sh 從 USER-{user}.md 拷好）。
+    # 兩者都看 Claude Code 設定目錄（實際載入的那幾份），不看資料根：WG_CLAUDE_DIR 指到別處時那裡沒有啟動檔
     try:
-        _identity = CLAUDE_DIR / "IDENTITY.md"
-        _id_ok = False
-        _id_size = 0
-        if _identity.exists():
-            _id_size = _identity.stat().st_size
-            _id_text = _identity.read_text(encoding="utf-8", errors="ignore")
-            _id_ok = "自主行為契約" in _id_text and _id_size >= 2000
-        if not _id_ok:
-            lines.append(
-                f"[Guardian:Identity⚠] IDENTITY.md 疑似損毀/被覆寫（現 {_id_size} bytes），"
-                "完整版在 templates/IDENTITY.template.md，請比對回復。"
-            )
-    except Exception:
-        pass
-
-    # 必載檔硬契約哨兵（登記表驅動；USER.md 已由 user-init.sh 從 USER-{user}.md 拷好）
+        lines.extend(check_identity_integrity(claude_config_dir(), CLAUDE_DIR))
+    except Exception as e:
+        print(f"identity integrity check error: {e}", file=sys.stderr)
     try:
-        lines.extend(check_always_load_contracts(CLAUDE_DIR))
+        lines.extend(check_always_load_contracts(claude_config_dir()))
     except Exception as e:
         print(f"always-load contract check error: {e}", file=sys.stderr)
 

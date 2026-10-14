@@ -579,14 +579,19 @@ def write_raw(
     return WriteResult(ok=True, audit_id=audit_id, path=file_path)
 
 
+_ACTION_STUB = "## 行動\n\n- （依知識內容判斷）\n"    # 與 build_atom_content 沒給 actions 時的行動段相同
+
+
 def _build_append_content(existing: str, knowledge: List[str]) -> str:
     """把 knowledge 渲染後插入 ## 行動 之前（block-aware）。
 
     write_atom(mode=append) 與 append_atom_file 共用的唯一拼接實作
     （server.js append 改 spawn CLI 走此處，
     消滅 js 自拼 readFileSync+`\\n` 的 CRLF 混寫面）。
-    caller 須先確認 "## 行動" 存在。
+    卡沒有 ## 行動 段（導讀卡、索引卡、手寫舊卡）→ 先在檔尾補最低要求的行動段當錨點再拼接。
     """
+    if "## 行動" not in existing:
+        existing = existing.rstrip() + "\n\n" + _ACTION_STUB
     action_idx = existing.find("## 行動")
     rendered = "\n".join(render_knowledge_lines(knowledge))
     before = existing[:action_idx].rstrip()
@@ -619,9 +624,6 @@ def append_atom_file(
         existing = fp.read_text(encoding="utf-8-sig")
     except OSError as e:
         return WriteResult(ok=False, audit_id=audit_id, error=f"read failed: {e}")
-    if "## 行動" not in existing:
-        return WriteResult(ok=False, audit_id=audit_id,
-                           error=f"Atom {fp.name} has no ## 行動 section")
     date_err = narrative_date_error(render_knowledge_lines(knowledge))
     if date_err:
         return WriteResult(ok=False, audit_id=audit_id, error=date_err)
@@ -1226,10 +1228,6 @@ def write_atom(
             return WriteResult(ok=False, audit_id=audit_id,
                                error=f"Atom not found: {slug}.md (use mode=create first)")
         existing = file_path.read_text(encoding="utf-8-sig")
-        action_idx = existing.find("## 行動")
-        if action_idx < 0:
-            return WriteResult(ok=False, audit_id=audit_id,
-                               error=f"Atom {slug}.md has no ## 行動 section")
         # Last-used 不再寫 .md；append 後由下方 atom_access.write_access_field 刷
         content = _build_append_content(existing, knowledge)
         supersedes_final = read_supersedes(existing)

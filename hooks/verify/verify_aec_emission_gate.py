@@ -380,6 +380,82 @@ def test_ptu_emit_j_missing_when_receipts_exist(monkeypatch, tmp_path):
     assert state["anti_evasion_report"]["j_missing"] is False
 
 
+_RECEIPTS = {"verify_receipts": {_SID: [{"turn_seq": 7, "sentinels": [{"name": "PYTEST", "verdict": "PASS"}], "exit_code": 0}]}}
+
+
+def _ledger(tmp_path):
+    p = tmp_path / "verify-ledger" / f"{_SID}.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("{}\n", encoding="utf-8", newline="\n")
+    return p
+
+
+@pytest.mark.parametrize("j", ["無", "", "  "])
+def test_b5_j_autofilled_from_ledger_when_receipts(monkeypatch, tmp_path, capsys, j):
+    """B5：pytest 有收據、j 空／「無」→ 系統帶入本 session 帳本絕對路徑（資料根底下），不擋、回告「已自動帶入」（改前 j_missing、要模型自己找）。"""
+    ledger = _ledger(tmp_path)
+    state = _drive_ptu(monkeypatch, tmp_path, _full_input(j_evidence_path=j), **_RECEIPTS)
+    aec = state["anti_evasion_report"]
+    assert aec["j_evidence_path"] == str(ledger) and aec["j_autofilled"] is True and aec["j_missing"] is False
+    out = capsys.readouterr().out
+    assert f"(j) 已自動帶入 {ledger}".replace("\\", "\\\\") in out and "證據持久路徑缺或不存在" not in out
+
+
+def test_b5_j_not_touched_without_receipts(monkeypatch, tmp_path, capsys):
+    """沒收據、j「無」→ 不帶入、不回告 (j)。"""
+    _ledger(tmp_path)
+    state = _drive_ptu(monkeypatch, tmp_path, _full_input(j_evidence_path="無"))
+    aec = state["anti_evasion_report"]
+    assert aec["j_evidence_path"] == "無" and "j_autofilled" not in aec and aec["j_missing"] is False
+    assert "(j)" not in capsys.readouterr().out
+
+
+def test_b5_j_model_path_wins(monkeypatch, tmp_path, capsys):
+    """有收據、模型填了別的真存在路徑 → 用模型填的；填的不存在 → j_missing，回告印帳本絕對路徑（改前印相對路徑 workflow/verify-ledger/…）。"""
+    ledger = _ledger(tmp_path)
+    own = tmp_path / "out.csv"
+    own.write_text("x", encoding="utf-8")
+    state = _drive_ptu(monkeypatch, tmp_path, _full_input(j_evidence_path=str(own)), **_RECEIPTS)
+    aec = state["anti_evasion_report"]
+    assert aec["j_evidence_path"] == str(own) and "j_autofilled" not in aec and aec["j_missing"] is False
+    capsys.readouterr()
+    state = _drive_ptu(monkeypatch, tmp_path, _full_input(j_evidence_path="workflow/verify-ledger/x.jsonl"), **_RECEIPTS)
+    assert state["anti_evasion_report"]["j_missing"] is True
+    assert str(ledger).replace("\\", "\\\\") in capsys.readouterr().out
+
+
+def test_b5_stop_does_not_block_autofilled_j(monkeypatch, tmp_path, driven, capsys):
+    """Stop 對帳閘 (e) 讀報告裡帶入後的 j：有收據、模型 j「無」→ 不出 AEC_EVIDENCE_PATH。"""
+    _ledger(tmp_path)
+    aec = _drive_ptu(monkeypatch, tmp_path, _full_input(), **_RECEIPTS)["anti_evasion_report"]
+    rec = {**aec, "turn_seq": 5}
+    out = driven([_mf(_CORE)], capsys, turn_seq=5, anti_evasion_report=rec, verify_receipts=_RECEIPTS["verify_receipts"])
+    assert "AEC_EVIDENCE_PATH" not in out
+
+
+@pytest.mark.skipif(not __import__("shutil").which("node"), reason="node not available")
+def test_b5_node_chip_does_not_print_j(tmp_path):
+    """Node 端不知收據與 session，不印 (j)（改前一律印「(j) 證據持久路徑未填…請填 workflow/verify-ledger/<sid>.jsonl」）；
+    aecEvidenceAutofill 與 Python 同結果（MIRROR）。"""
+    import subprocess
+    from wg_verify_ledger import aec_evidence_autofill
+    ledger = _ledger(tmp_path)
+    js = HOOKS_DIR.parent / "tools" / "workflow-guardian-mcp" / "lib" / "anti-evasion.js"
+    cases = [["無", True, str(ledger)], ["", True, str(ledger)], ["無", False, str(ledger)], ["x.csv", True, str(ledger)],
+             ["無", True, str(tmp_path / "nope.jsonl")]]
+    script = ("const p=require('path');const js=process.argv[1];const mp=require.resolve(p.join(p.dirname(js),'mcp.js'));"
+              "require.cache[mp]={id:mp,filename:mp,loaded:true,exports:{sendToolResult:(id,t)=>console.log(JSON.stringify(t))}};"
+              "const ae=require(js);const c=JSON.parse(process.argv[2]);"
+              "console.log(JSON.stringify(c.map(([j,r,l])=>ae.aecEvidenceAutofill(j,r,l))));"
+              "ae.toolAntiEvasionReport(1,{a:'無',b:'無',d:'無',h:'可關閉',j_evidence_path:'',k_followups:'無'});")
+    res = subprocess.run(["node", "-e", script, str(js), json.dumps(cases, ensure_ascii=False)],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+    assert res.returncode == 0, res.stderr
+    fills, chip = [json.loads(l) for l in res.stdout.strip().splitlines()]
+    assert fills == [aec_evidence_autofill(j, r, l) for j, r, l in cases]
+    assert "(j)" not in chip and "routine" in chip
+
+
 def test_ptu_legacy_emit_without_jk_keys_is_exempt(monkeypatch, tmp_path, driven, capsys):
     """舊格式呼叫（a～i，沒有 j／k 鍵）：報告不寫 j／k、不標 k_missing；Stop 對帳閘 (e) 不拿缺鍵當空字串擋（只有明給空字串才擋）。"""
     receipts = {"verify_receipts": {_SID: [{"turn_seq": 7, "sentinels": [{"name": "X_CHECK", "verdict": "PASS"}], "exit_code": None}]}}

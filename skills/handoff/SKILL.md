@@ -65,7 +65,8 @@ description: 跨 Session Handoff Prompt Builder — 強制 6 區塊 self-suffici
 ## 輸出格式
 
 整段 prompt 包在 ` ``` ` code block，使用者可直接複製貼上。
-若使用者要求存到 `_staging/`，寫成 `{project}/.claude/memory/_staging/next-phase-{name}.md`，由下次 `/continue` 自動讀取。
+同一份內容一律落檔到專案 `{project}/.claude/memory/_staging/next-phase-{name}.md`（`.claude/memory/_staging/` 不存在就建），由下次 `/continue` 自動讀取。
+寫入被擋（閘門 deny、權限拒絕）時不得改寫到 scratchpad 或其他暫存位置：把被擋訊息原文與原本要寫的路徑印給使用者，code block 照給。
 
 ---
 

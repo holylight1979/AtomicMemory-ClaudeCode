@@ -1196,3 +1196,61 @@ def test_c_g16_ask_overview_before_decision(tool, tool_input, reads, owed):
     assert v.rule == "ASK_OVERVIEW_BEFORE_DECISION" and v.owed is owed
     if owed:
         assert "先讀過部位檔再問" in rr.format_hit("提問", v)
+
+
+# ─── B5 真測：表外檔綜觀、快取目錄、Bash 唯讀讀檔 ─────────────────────────────
+
+@pytest.mark.parametrize("path, root, owed", [
+    ("C:/p/tests/__pycache__", "C:/p", False),                       # rm -rf tests/__pycache__（沒 .gitignore 的專案）
+    ("C:/p/tests/__pycache__/t.cpython-314.pyc", "C:/p", False),
+    ("C:/p/.pytest_cache/v/cache/lastfailed", "C:/p", False),
+    ("C:/p/src/.mypy_cache", None, False),                            # 沒給根：比整條路徑
+    ("C:/__pycache__/proj/src/a.py", "C:/__pycache__/proj", True),    # 根以外的上層目錄名不算
+    ("C:/p/src/pycache_notes.md", "C:/p", True),
+])
+def test_b5_runtime_data_no_overview_cache_dirs(path, root, owed):
+    """RUNTIME_DATA_NO_OVERVIEW：路徑含快取目錄 → 免綜觀（gitignored=False 也算，B5 對照組 rm tests/__pycache__ 被擋的那種）。"""
+    v = rr.runtime_data_verdict(path, root, False)
+    assert v.rule == "RUNTIME_DATA_NO_OVERVIEW" and v.owed is owed
+
+
+@pytest.mark.parametrize("need, readable, have, owed, text", [
+    (1, 0, 0, False, "沒有可讀的既有檔"),          # B5：專案根只有子目錄，新建 .gitignore
+    (1, 1, 0, True, "至少 1 個檔（目前 0 個）"),   # 根目錄有 README 沒讀 → 照擋，不放寬
+    (1, 1, 1, False, "夠 1 個"),
+    (3, 2, 1, True, "至少 2 個檔（目前 1 個）"),   # 可讀檔比設定少：要讀數降成可讀檔數
+    (3, 2, 2, False, "夠 2 個"),
+])
+def test_b5_unmapped_edit_needs_readable_files(need, readable, have, owed, text):
+    """UNMAPPED_EDIT_NEEDS_READABLE_FILES：要讀數＝min(設定, 該目錄可讀既有檔數)；擋訊息帶「該目錄既有可讀檔」。"""
+    v = rr.unmapped_edit_verdict(need, readable, have)
+    assert v.rule == "UNMAPPED_EDIT_NEEDS_READABLE_FILES" and v.owed is owed and text in v.why
+    assert any("該目錄既有可讀檔" in e for e in v.evidence)
+
+
+def test_b5_bash_readonly_counts_as_read(tmp_path):
+    """BASH_READONLY_COUNTS_AS_READ：exit 0／未知、字面路徑、實檔才算；變數、glob、失敗、檔不存在不算。"""
+    real = tmp_path / "a.md"
+    real.write_text("x", encoding="utf-8")
+    p = str(real)
+    assert rr.bash_read_counts([p], 0) == [p] and rr.bash_read_counts([p], None) == [p]
+    assert rr.bash_read_counts([p], 1) == []                                       # 指令失敗
+    assert rr.bash_read_counts([str(tmp_path / "nope.md")], 0) == []                # 檔不存在
+    for name in ("x$f.md", "a[1].md"):                                             # 檔真的在也不算：含變數、沒展開的 glob
+        (tmp_path / name).write_text("x", encoding="utf-8")
+        assert rr.bash_read_counts([str(tmp_path / name)], 0) == []
+
+
+@pytest.mark.parametrize("green, keeps", [
+    ("python -m pytest -q tests/test_a.py && python -m agenda.runner view --late", False),   # 別段跑模組的 -m 不算篩選
+    ("cd /c/b5/q5-agenda && python -m pytest -q -p no:cacheprovider 2>&1 | tail -2\n"
+     "python -m agenda.runner view | iconv -f cp950 -t utf-8", False),                       # B5 q5 受測 B 的寫法（換行串接）
+    ("python -m agenda.runner view; pytest -q tests/test_a.py -k smoke", True),              # 篩選在 pytest 那段照算
+    ("pytest -m slow tests/test_a.py", True),                                                # pytest -m slow 仍是篩選
+    ("python -m pytest -q tests/test_a.py", False),                                          # 沒篩選
+    ("python tools/run.py a.py::x; pytest -q tests/test_a.py", False),                       # 別段的 :: 不是節點 id
+], ids=["and-run-module", "b5-q5-newline", "filter-in-pytest-seg", "pytest-m-slow", "no-filter", "other-seg-node"])
+def test_b5_green_narrowed_keeps_uncovered_red_only_pytest_segment(green, keeps):
+    """GREEN_NARROWED_KEEPS_UNCOVERED_RED：篩選旗標與節點 id 只看測試子命令那段、子命令之後（B5 q5 同一指令裡
+    `python -m agenda.runner` 的 -m 被當 pytest 篩選，綠清不掉紅，AEC 多擋兩次）。"""
+    assert rr.green_covers_red_verdict(*_GREEN_RED, green).owed is keeps

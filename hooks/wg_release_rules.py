@@ -52,8 +52,14 @@ RULES: Dict[str, str] = {
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
     "BASH_COMMENT_LINES_STRIPPED": "Bash 指令裡行首 # 註解行先剝掉再認讀檔命令，且每一行行首都算指令開頭（定位三行放註解不讓同條 head 失效）。",
     "WORKTREE_NO_PUSH": "改檔所在 repo 是 git worktree（common-dir ≠ git-dir）或分支沒有 upstream → 同步閘不要求 push。",
-    "RUNTIME_DATA_NO_OVERVIEW": "寫入／刪除目標被 .gitignore 忽略、或落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）"
+    "RUNTIME_DATA_NO_OVERVIEW": "寫入／刪除目標被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"
+                                "或路徑含快取目錄（__pycache__、.pytest_cache、.mypy_cache、.ruff_cache；沒有 .gitignore 也算）"
                                 "→ 不要求先讀同目錄的檔。",
+    "BASH_READONLY_COUNTS_AS_READ": "Bash／PowerShell 唯讀讀檔指令（cat、head、tail、less、more、sed -n、grep -n、svn cat、git show、"
+                                    "Get-Content…；一段裡每個路徑參數都算）執行成功後，字面路徑且是實檔的算讀過，與 Read 同效；"
+                                    "含變數（$）、未展開 glob（* ? [）、指令失敗（exit≠0）、檔不存在不算；echo／printf／ls／find 不是讀檔指令。",
+    "UNMAPPED_EDIT_NEEDS_READABLE_FILES":"表外檔改檔前要讀的同頂層目錄檔數＝min(設定的 part_files, 該目錄非執行期資料的既有檔數)："
+                                          "目錄沒有可讀檔（只有子目錄、快取或 gitignored 產物）就不要求；有檔沒讀照擋。",
     "TEMP_REPO_COMMIT_EXEMPT": "git commit 落在暫存目錄（系統 TEMP／TMP、scratchpad、/tmp）下的 repo → 不要求版控口令。",
     "TEMP_COPY_NOT_PROJECT": "寫入目標或跑的腳本在暫存目錄下 → 不當專案：不找部位表、不注入、不要求綜觀；量尺與對帳也不把它當收據。",
     "DPM_WORKTREE_DELIVERY": "cwd 是 git worktree 的隔離 session：post-mortem 改寫進交付信由總控台代寫，不叫它 atom_write（會寫 live）。",
@@ -610,12 +616,15 @@ def push_required_verdict(root: str, is_worktree: bool, has_upstream: bool) -> V
 # ─── B8 RUNTIME_DATA_NO_OVERVIEW ───────────────────────────────────────────────
 RUNTIME_DATA_DIRS: Tuple[str, ...] = ("workflow/state", "workflow/need-goal", "workflow/verify-ledger", "workflow/dpm-done",
                                       "workflow/acceptance-spec", "workflow/aec-reports", "Logs")
+# 工具自己生的快取目錄名：路徑任一段是它就算執行期資料（專案沒寫 .gitignore 時 check-ignore 不會命中）
+RUNTIME_CACHE_DIR_NAMES = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"})
 
 
 def runtime_data_verdict(path: str, root: Optional[str], gitignored: Optional[bool],
                          runtime_dirs: Iterable[str] = RUNTIME_DATA_DIRS) -> Verdict:
-    """RUNTIME_DATA_NO_OVERVIEW：owed=False＝免綜觀（gitignored 或在執行期資料目錄）；owed=True＝照要求。
-    gitignored=None＝查不到（當不忽略）。目錄比對：相對根的路徑以 runtime_dirs 之一開頭（`workflow/state` 也含 `workflow/state-xxxx.json`）。"""
+    """RUNTIME_DATA_NO_OVERVIEW：owed=False＝免綜觀（gitignored、在執行期資料目錄、或路徑含快取目錄）；owed=True＝照要求。
+    gitignored=None＝查不到（當不忽略）。目錄比對：相對根的路徑以 runtime_dirs 之一開頭（`workflow/state` 也含 `workflow/state-xxxx.json`）；
+    快取目錄只比相對根的各段（根以外的上層目錄名不算），沒給根就比整條路徑。"""
     if gitignored:
         base_name = os.path.basename(str(path).replace("\\", "/").rstrip("/"))
         return Verdict("RUNTIME_DATA_NO_OVERVIEW", False, f"{base_name} 被 .gitignore 忽略，是執行期資料", ("git check-ignore 命中",))
@@ -624,12 +633,38 @@ def runtime_data_verdict(path: str, root: Optional[str], gitignored: Optional[bo
         full, base = canon_path(path), canon_path(root)
         if full.startswith(base + "/"):
             rel = full[len(base) + 1:]
+    cache = next((s for s in (rel if rel is not None else canon_path(path)).split("/") if s in RUNTIME_CACHE_DIR_NAMES), None)
+    if cache:
+        return Verdict("RUNTIME_DATA_NO_OVERVIEW", False, f"路徑含快取目錄 {cache}，是執行期資料", (f"路徑 {str(path)[:80]}",))
     if rel is not None:
         for d in runtime_dirs:
             d = str(d).replace("\\", "/").strip("/").lower()
             if rel == d or rel.startswith(d + "/") or rel.startswith(d + "-") or rel.startswith(d + "."):
                 return Verdict("RUNTIME_DATA_NO_OVERVIEW", False, f"{rel} 在執行期資料目錄 {d}", (f"相對根路徑 {rel}",))
     return Verdict("RUNTIME_DATA_NO_OVERVIEW", True, "不是執行期資料，照要求先讀同目錄的檔", (str(path)[:80],))
+
+
+_GLOB_CHARS = frozenset("*?[")
+
+
+def bash_read_counts(paths: Iterable[str], exit_code: Optional[int], is_file: Any = os.path.isfile) -> List[str]:
+    """BASH_READONLY_COUNTS_AS_READ：Bash／PowerShell 讀檔指令解析出的路徑（lib/overview_hub.read_paths_from_tool）裡，
+    算讀過的那些：exit 0 或未知才算；含 $、未展開 glob、不是實檔的不算。"""
+    if exit_code not in (None, 0):
+        return []
+    return [p for p in paths if "$" not in p and not (_GLOB_CHARS & set(p)) and is_file(p)]
+
+
+def unmapped_edit_verdict(need: int, readable: int, have: int) -> Verdict:
+    """UNMAPPED_EDIT_NEEDS_READABLE_FILES：要讀數＝min(need, readable)；have（本 session 讀過同頂層目錄的檔數）不到就欠。
+    readable＝呼叫端數到的非執行期資料既有檔數（數到 need 就可停，所以 readable ≥ need 只代表「至少這麼多」）。"""
+    want = max(0, min(need, readable))
+    pool = f"至少 {readable} 個" if readable >= need else f"只有 {readable} 個"
+    ev = (f"設定要讀 {need} 個", f"該目錄既有可讀檔 {pool}", f"本 session 讀過 {have} 個")
+    if have >= want:
+        why = "該目錄沒有可讀的既有檔，不要求先讀" if want == 0 else f"已讀 {have} 個，夠 {want} 個"
+        return Verdict("UNMAPPED_EDIT_NEEDS_READABLE_FILES", False, why, ev)
+    return Verdict("UNMAPPED_EDIT_NEEDS_READABLE_FILES", True, f"至少 {want} 個檔（目前 {have} 個）", ev)
 
 
 # ─── B9／B14 暫存目錄 ─────────────────────────────────────────────────────────
@@ -851,6 +886,16 @@ def collapse_move_chain(moves: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]
 _NARROW_FLAG_RE = re.compile(r"(?:^|\s)(?:-k|-m|-t|--testNamePattern|--deselect|--lf|--last-failed)(?=\s|=|$)")
 _RUN_MODULE_RE = re.compile(r"(?:^|\s)-m\s+(?:pytest|unittest)\b")     # python -m pytest 的 -m 是「跑模組」，不是標記篩選
 _NODE_ID_TOKEN_RE = re.compile(r"""[^\s"']+::[^\s"']+""")
+_CMD_SEG_SPLIT_RE = re.compile(r"\|\||&&|[;|\n]")
+_TEST_RUNNER_RE = re.compile(r"(?:^|[\s/\\\"'])(?:pytest|py\.test|unittest|jest|vitest)(?:\.exe)?(?=[\s\"']|$)", re.IGNORECASE)
+
+
+def _test_runner_args(cmd: str) -> str:
+    """指令裡測試子命令之後的文字：以 ; && || | 換行切段，只取含 pytest／unittest／jest／vitest 的段、子命令之後那截；
+    同一指令別段的 `python -m <模組>` 不算篩選。沒有任何段認得出測試子命令 → 整條（-m pytest／unittest 已剝），照舊保守判。"""
+    text = str(cmd or "")
+    parts = [seg[m.end():] for seg in _CMD_SEG_SPLIT_RE.split(text) for m in [_TEST_RUNNER_RE.search(seg)] if m]
+    return " ; ".join(parts) if parts else _RUN_MODULE_RE.sub(" ", text)
 
 
 def _norm_node(s: str) -> str:
@@ -865,10 +910,11 @@ def _node_covered(red: str, nodes: Sequence[str]) -> bool:
 def green_covers_red_verdict(red_cmd: str, red_summary: str, green_cmd: str) -> Verdict:
     """GREEN_NARROWED_KEEPS_UNCOVERED_RED：這次綠能不能清這筆紅（owed＝True 表示照留）。綠沒有篩選 → 交給既有清帳規則；
     有篩選（節點 id、-k、-m、Jest -t）→ 紅掉的案例（red_case_names）都在綠點名的節點裡才清；同一個篩選指令重跑也清；
-    其餘照留（-k 運算式判不了、輸出沒列案例）。"""
+    其餘照留（-k 運算式判不了、輸出沒列案例）。篩選旗標與節點 id 只看測試子命令之後（_test_runner_args）。"""
     rule = "GREEN_NARROWED_KEEPS_UNCOVERED_RED"
-    nodes = [_norm_node(n) for n in _NODE_ID_TOKEN_RE.findall(str(green_cmd or ""))]
-    if not nodes and not _NARROW_FLAG_RE.search(_RUN_MODULE_RE.sub(" ", str(green_cmd or ""))):
+    args = _test_runner_args(green_cmd)
+    nodes = [_norm_node(n) for n in _NODE_ID_TOKEN_RE.findall(args)]
+    if not nodes and not _NARROW_FLAG_RE.search(args):
         return Verdict(rule, False, "綠的沒有篩選案例，照既有清帳規則", ())
     if " ".join(str(red_cmd or "").split()) == " ".join(str(green_cmd or "").split()):
         return Verdict(rule, False, "綠的是同一個篩選指令重跑", ())

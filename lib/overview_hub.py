@@ -20,6 +20,7 @@ import json
 import os
 import posixpath
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -51,12 +52,14 @@ _EMPTY_EXTRA: Dict[str, Any] = {
 LAYER_AXIS_RE = re.compile(r"第\s*(\d+)\s*層")
 _MEASURE_SPLIT_RE = re.compile(r"\s*[｜]\s*")
 _LIST_SPLIT_RE = re.compile(r"\s*[;；、,]\s*")
-# bypass 模式下讀檔走 Bash：cat / head / tail / sed -n / less 後面的路徑也算 Read
+# bypass 模式下讀檔走 Bash：讀檔指令開頭；參數到本段結束（; | & ) 換行）為止，一段裡的每個路徑參數都算 Read
 _BASH_READ_RE = re.compile(
-    r'(?:^|[;&|(]\s*)(?:cat|head|tail|less|sed\s+-n\s+\S+|svn\s+cat|svn\s+diff|git\s+show|git\s+diff)'
-    r'\s+(?:-[a-zA-Z0-9=]+\s+)*(?:[0-9a-f]{7,40}:|HEAD[~^0-9]*:)?"?([^"\s;|&)]+)"?',
+    r'(?:^|[;&|(]\s*)(cat|head|tail|less|more|grep|sed\s+-n\s+\S+|svn\s+cat|svn\s+diff|git\s+show|git\s+diff)(?=\s)',
     re.MULTILINE,            # 每一行行首都算指令開頭（定位三行放 # 註解後，下一行的 head 照認；註解行由 hooks 層先剝掉）
 )
+_BASH_SEG_END_RE = re.compile(r"[;|&)\n]")
+_BASH_REDIRECT_RE = re.compile(r"^\d*(?:<<?|>>?)")     # > >> < << 2> 開頭的 token：本身或下一個是重導向目標，不是讀的檔
+_BASH_REV_PREFIX_RE = re.compile(r"^(?:[0-9a-f]{7,40}|HEAD[~^0-9]*):")   # git show <rev>:<路徑>
 # PowerShell 讀檔 cmdlet（含常用別名）＋到本段結束（; | & 換行 ) }）為止的參數字串
 _PS_READ_RE = re.compile(
     r'(?:^|[;|&({=\n])\s*(get-content|gc|cat|type|select-string|sls|import-csv)(?=\s|$)([^;|&\n)}]*)',
@@ -763,10 +766,40 @@ def _ps_read_args(cmdlet: str, args: str) -> List[str]:
     return out
 
 
+def _bash_read_args(cmd: str, rest: str) -> List[str]:
+    """一段 Bash 讀檔指令的路徑參數（原樣 token、引號已剝）：旗標、重導向與其目標不算；grep 只在帶 -n（行號）時算讀檔，
+    第一個非旗標參數是樣式不算；git show 的 `<rev>:` 前綴剝掉。"""
+    try:
+        toks = shlex.split(rest, posix=True)
+    except ValueError:
+        toks = rest.split()
+    flags = [t for t in toks if t.startswith("-")]
+    if cmd == "grep" and not any(t == "--line-number" or (not t.startswith("--") and "n" in t[1:]) for t in flags):
+        return []
+    out: List[str] = []
+    pattern_pending = cmd == "grep"
+    skip_next = False
+    for t in toks:
+        if skip_next:
+            skip_next = False
+            continue
+        if _BASH_REDIRECT_RE.match(t):
+            skip_next = _BASH_REDIRECT_RE.sub("", t) == ""      # 運算子單獨一個 token → 下一個是目標
+            continue
+        if t.startswith("-"):
+            continue
+        if pattern_pending:
+            pattern_pending = False
+            continue
+        out.append(_BASH_REV_PREFIX_RE.sub("", t))
+    return out
+
+
 def read_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
-    """Read 的 file_path；Bash 裡 cat/head/tail/sed -n 的路徑；PowerShell 裡 Get-Content／gc／cat／type／Select-String -Path／
-    Import-Csv 的路徑參數（相對路徑補 cwd）。Bash 沒斜線的 token 只有 cwd 下真有這個檔才收（旗標、指令名不算路徑）；
-    含變數（$）的路徑跳過。"""
+    """Read 的 file_path；Bash 裡 cat/head/tail/less/more/sed -n/grep -n/svn cat/git show 一段裡的每個路徑參數；PowerShell 裡
+    Get-Content／gc／cat／type／Select-String -Path／Import-Csv 的路徑參數（相對路徑補 cwd）。Bash 沒斜線的 token 只有 cwd 下
+    真有這個檔才收（數字、樣式、指令名不算路徑）。只解析指令字面；算不算讀過（變數、glob、指令失敗、不是實檔）由
+    hooks/wg_release_rules.BASH_READONLY_COUNTS_AS_READ 判。"""
     if tool_name == "Read":
         fp = tool_input.get("file_path", "")
         return [fp] if fp else []
@@ -774,12 +807,14 @@ def read_paths_from_tool(tool_name: str, tool_input: Dict[str, Any], cwd: str) -
     out: List[str] = []
     if tool_name == "Bash":
         for m in _BASH_READ_RE.finditer(command):
-            tok = m.group(1)
-            if tok.startswith(("$", "-")):
-                continue
-            if not _is_path_token(tok) and not (cwd and (Path(cwd) / tok).is_file()):
-                continue
-            out.append(tok if Path(tok).is_absolute() or not cwd else str(Path(cwd) / tok))
+            rest = command[m.end():]
+            end = _BASH_SEG_END_RE.search(rest)
+            for tok in _bash_read_args(m.group(1).split()[0], rest[:end.start()] if end else rest):
+                if not tok or tok.startswith("$"):
+                    continue
+                if not _is_path_token(tok) and not (cwd and (Path(cwd) / tok).is_file()):
+                    continue
+                out.append(tok if Path(tok).is_absolute() or not cwd else str(Path(cwd) / tok))
         return out
     if tool_name != "PowerShell":
         return []

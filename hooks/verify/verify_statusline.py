@@ -90,6 +90,23 @@ def test_aec_absent_is_none(sl, tmp_path):
     assert sl._latest_aec_severity(_SID) is None
 
 
+@pytest.mark.parametrize("model", ["Opus", "測試模型·Opus"], ids=["ascii-stdin", "chinese-stdin"])
+def test_b5_cp950_console_renders_not_err(tmp_path, model):
+    """B5：cp950 主控台下狀態列整行變紅字「statusline err: UnicodeEncodeError」（分隔符「·」與狀態段編不出來）。
+    子行程用 PYTHONIOENCODING=cp950 跑：stdin 純 ASCII（改前印 statusline err）與含中文（改前 stdin 解碼失敗印 no input）
+    → 都照常印出、exit 0。"""
+    import os
+    import subprocess
+    env = {**os.environ, "PYTHONIOENCODING": "cp950", "WG_CLAUDE_DIR": str(tmp_path)}
+    env.pop("PYTHONUTF8", None)
+    payload = json.dumps({"session_id": _SID, "model": {"display_name": model}}, ensure_ascii=False)
+    r = subprocess.run([sys.executable, str(_TOOLS / "statusline.py")], input=payload.encode("utf-8"),
+                       capture_output=True, env=env, timeout=30)
+    out = r.stdout.decode("utf-8", errors="replace")
+    assert r.returncode == 0 and "statusline err" not in out, out
+    assert model in out and "WG:?" in out
+
+
 def test_bad_stdin_degrades(sl, monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", io.StringIO("not-json"))
     sl.main()

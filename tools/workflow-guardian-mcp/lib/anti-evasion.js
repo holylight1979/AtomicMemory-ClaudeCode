@@ -69,8 +69,9 @@ function aecPendingItems(d, h) {
 }
 
 // ─── (j) 證據持久路徑／(k) 追蹤項（純函式；MIRROR hooks/wg_verify_ledger.py aec_evidence_missing /
-// aec_followups_missing；keep in sync）。Node 端不知道本 session 有沒有驗證收據（state 是 Python 的），
-// receiptsNonEmpty 由 caller 給；tool handler 只能警告 j 空白、擋的判定在 Python Stop。
+// aec_evidence_autofill / aec_followups_missing；keep in sync）。Node 端不知道本 session 有沒有驗證收據、
+// 也不知道 session id（state 與帳本路徑是 Python 的），tool handler 不印 (j)：帶入帳本路徑與缺漏回告由
+// Python PostToolUse 做，擋的判定在 Python Stop。
 function aecEvidenceMissing(j, receiptsNonEmpty) {
   if (!receiptsNonEmpty) return false;
   if (aecBlank(j)) return true;
@@ -82,6 +83,13 @@ function aecEvidenceMissing(j, receiptsNonEmpty) {
     if (!ok) return true;
   }
   return false;
+}
+// 有收據、j 空／「無」、帳本檔在 → 回帳本絕對路徑；其餘回原 j（模型填了別的路徑就用模型填的）。
+function aecEvidenceAutofill(j, receiptsNonEmpty, ledger) {
+  let has = false;
+  try { has = fs.existsSync(ledger); } catch { has = false; }
+  if (receiptsNonEmpty && aecBlank(j) && has) return ledger;
+  return String(j == null ? "" : j);
 }
 function aecFollowupsMissing(k) {
   return String(k == null ? "" : k).trim() === "";
@@ -115,9 +123,6 @@ async function toolAntiEvasionReport(id, args) {
   }
   if (aecFollowupsMissing(args && args.k_followups)) {
     text += "\n⛔ (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。";
-  }
-  if (aecBlank(args && args.j_evidence_path)) {
-    text += "\n(j) 證據持久路徑未填：本 session 跑過哨兵驗證（有收據）時 Stop 會擋，請填 workflow/verify-ledger/<sid>.jsonl 或驗證輸出檔。";
   }
   if (pending.length) {
     // 報告是收尾檢核不是待辦清單：記憶寫入推到之後 → 當下回告（Python Stop 另擋一次）。
@@ -316,7 +321,7 @@ function apiAecDecisionPost(req, res) {
 }
 
 module.exports = {
-  aecBlank, aecSeverity, aecPendingItems, aecEvidenceMissing, aecFollowupsMissing,
+  aecBlank, aecSeverity, aecPendingItems, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
   toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
   apiAecTempfiles, readLedgerAlive,

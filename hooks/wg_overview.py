@@ -805,31 +805,34 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
     return f"{head}\n{text}"
 
 
-def _read_paths(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
+def _read_paths(tool_name: str, tool_input: Dict[str, Any], cwd: str, exit_code: Optional[int] = None) -> List[str]:
     """讀檔辨識的入口：Grep（規則 GREP_CONTENT_IS_READ：output_mode=content 且 path 是檔）、Bash 先剝行首 # 註解行
-    （規則 BASH_COMMENT_LINES_STRIPPED）再交 lib 的 regex；其他工具照 lib 原規則。"""
+    （規則 BASH_COMMENT_LINES_STRIPPED）再交 lib 解析；Bash／PowerShell 解析出的路徑照規則 BASH_READONLY_COUNTS_AS_READ
+    篩（exit_code＝這次指令的結束碼，未知給 None）；其他工具照 lib 原規則。"""
     if tool_name == "Grep":
         return _rr.grep_read_paths(tool_input)
     if tool_name == "Bash":
         tool_input = {**tool_input, "command": _rr.strip_comment_lines(str(tool_input.get("command") or ""))}
-    return read_paths_from_tool(tool_name, tool_input, cwd)
+    paths = read_paths_from_tool(tool_name, tool_input, cwd)
+    return _rr.bash_read_counts(paths, exit_code) if tool_name in ("Bash", "PowerShell") else paths
 
 
-def read_targets(tool_name: str, tool_input: Dict[str, Any], cwd: str) -> List[str]:
+def read_targets(tool_name: str, tool_input: Dict[str, Any], cwd: str, exit_code: Optional[int] = None) -> List[str]:
     """這次工具呼叫讀到的專案檔：_read_paths 去掉暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）。on_read 與需求目標的
     讀入範圍（wg_need_goal_points.scope_on_read）共用這一支，兩邊對「讀了什麼」的認定一致。"""
-    return [p for p in _read_paths(tool_name, tool_input, cwd) if not _rr.is_temp_path(_long(p), _temp_roots())]
+    return [p for p in _read_paths(tool_name, tool_input, cwd, exit_code) if not _rr.is_temp_path(_long(p), _temp_roots())]
 
 
 def on_read(state: Dict[str, Any], session_id: str, tool_name: str, tool_input: Dict[str, Any],
-            cwd: str, transcript_path: str, config: Dict[str, Any]) -> Optional[str]:
+            cwd: str, transcript_path: str, config: Dict[str, Any], exit_code: Optional[int] = None) -> Optional[str]:
     """PostToolUse（Read／Bash／PowerShell／Grep）：第一次讀到某部位 → 回注入文字；已注入 → 記 reads_after／part_files_read；
-    目標改了之後再讀到已碰過的部位 → 回目標視角的導讀卡。暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）不找表、不注入、不記。
+    目標改了以後又讀到已碰過的部位 → 回目標視角的導讀卡。暫存目錄下的檔（規則 TEMP_COPY_NOT_PROJECT）不找表、不注入、不記；
+    Bash／PowerShell 指令失敗（exit_code≠0）讀到的不算（規則 BASH_READONLY_COUNTS_AS_READ）。
     （需求目標的讀入範圍由 post_tool_use 另外呼叫 wg_need_goal_points.scope_on_read 算，不看 OverviewHub 開關。）"""
     cfg = _cfg(config)
     if not cfg["enabled"]:
         return None
-    for p in read_targets(tool_name, tool_input, cwd):
+    for p in read_targets(tool_name, tool_input, cwd, exit_code):
         hit = _lookup_quiet(p)
         _record_read(state, p, hit)
         if not hit:
@@ -964,10 +967,52 @@ def _gitignored(root: Path, file_path: str) -> Optional[bool]:
     return True if r.returncode == 0 else (False if r.returncode == 1 else None)
 
 
+def _gitignored_set(root: Path, paths: List[str]) -> set:
+    """git check-ignore 一次查一批（規則 RUNTIME_DATA_NO_OVERVIEW 的事實）：回被忽略的那些路徑；不在 git／逾時／出錯回空集合（當不忽略）。"""
+    if not paths or not (root / ".git").exists():
+        return set()
+    try:
+        r = subprocess.run(["git", "-C", str(root), "check-ignore", "-z", "--stdin"], input="\0".join(paths) + "\0",
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2,
+                           creationflags=_NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {p for p in r.stdout.split("\0") if p}
+
+
+_READABLE_SCAN_CAP = 500   # 數同頂層目錄可讀檔最多看幾個檔；看滿還數不到要讀數 → 當作夠（不放寬）
+
+
+def _readable_existing(root: Path, top: str, need: int) -> int:
+    """同頂層目錄「非執行期資料的既有檔」數（規則 UNMAPPED_EDIT_NEEDS_READABLE_FILES 的事實），最多數到 need。
+    (root) 只看根目錄本身的檔；其他看該目錄整棵樹（.git、快取目錄不進去）。執行期資料照 runtime_data_verdict 判
+    （gitignored 一次查一批）。讀目錄出錯、看滿 _READABLE_SCAN_CAP 個檔 → 回 need（不放寬）。"""
+    if need <= 0:
+        return 0
+    if top == "(outside)":
+        return need
+    files: List[str] = []
+    try:
+        if top == "(root)":
+            files = [str(p) for p in root.iterdir() if p.is_file() and p.name != ".git"]   # worktree 根的 .git 是檔
+        else:
+            for dirpath, dirnames, filenames in os.walk(root / top):
+                dirnames[:] = [d for d in dirnames if d != ".git" and d not in _rr.RUNTIME_CACHE_DIR_NAMES]
+                files.extend(os.path.join(dirpath, f) for f in filenames)
+                if len(files) >= _READABLE_SCAN_CAP:
+                    break
+    except OSError:
+        return need
+    files = [f for f in files[:_READABLE_SCAN_CAP] if _rr.runtime_data_verdict(f, str(root), None).owed]
+    ignored = _gitignored_set(root, files)
+    count = sum(1 for f in files if f not in ignored)
+    return need if count < need and len(files) >= _READABLE_SCAN_CAP else min(count, need)
+
+
 def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path: str,
                    cfg: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], bool]:
-    """沒有部位表的專案、或表上沒列的檔：只要求本 session 讀過同頂層目錄 ≥N 個檔。
-    執行期資料（gitignored、workflow/state*、workflow/need-goal、Logs…；規則 RUNTIME_DATA_NO_OVERVIEW）免綜觀。"""
+    """沒有部位表的專案、或表上沒列的檔：要求本 session 讀過同頂層目錄的檔，數量照規則 UNMAPPED_EDIT_NEEDS_READABLE_FILES
+    （設定的 N 與該目錄可讀既有檔數取小）。執行期資料（gitignored、workflow/state*、Logs、快取目錄…；規則 RUNTIME_DATA_NO_OVERVIEW）免綜觀。"""
     key = _unmapped_key(root, file_path)
     top = top_dir(file_path, root)
     v = _rr.runtime_data_verdict(file_path, str(root), _gitignored(root, file_path))
@@ -977,15 +1022,18 @@ def _unmapped_edit(state: Dict[str, Any], session_id: str, root: Path, file_path
     need = int(cfg["min_overview_evidence"]["part_files"])
     rec = (state.get("overview_hub") or {}).get(key)
     have = len(rec["part_files_read"]) if rec else 0
-    if have < need:
+    readable = _readable_existing(root, top, need) if have < need else need    # 讀夠了就不必數
+    v = _rr.unmapped_edit_verdict(need, readable, have)
+    if v.owed:
         msg = (f"[Guardian:OverviewHub] 改 {file_path} 前：這個專案（{root}）沒有部位表列到這個檔，"
-               f"閘只要求本 session 先讀過同頂層目錄「{top}」至少 {need} 個檔（目前 {have} 個）。先讀再改。")
+               f"閘只要求本 session 先讀過同頂層目錄「{top}」{v.why}。先讀再改。\n" + _rr.format_hit("o", v))
         _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, part_files_read=have,
-             need=need, deny_reason="part_files", layer=cfg.get("_layer"))
+             need=need, readable=readable, rule=v.rule, deny_reason="part_files", layer=cfg.get("_layer"))
         return (msg, msg, False)
+    rec = state.setdefault("overview_hub", {}).setdefault(key, {"part_files_read": [], "edits": 0})
     rec["edits"] = int(rec.get("edits", 0)) + 1
     _log("edit_unmapped", session_id, path=file_path, root=str(root), top=top, part_files_read=have,
-         need=need, edits=rec["edits"], deny_reason=None, layer=cfg.get("_layer"))
+         need=need, readable=readable, rule=v.rule, edits=rec["edits"], deny_reason=None, layer=cfg.get("_layer"))
     return (None, None, True)
 
 

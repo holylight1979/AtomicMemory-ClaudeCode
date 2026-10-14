@@ -35,8 +35,8 @@ from wg_harvest import (
 from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
-    aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
-    head_new_code, _git_root_of, reverted_code_files, is_code_file,
+    aec_evidence_missing, aec_evidence_autofill, aec_followups_missing, next_event_seq, has_cd, env_snapshot,
+    commit_snapshot, reconcile_cfg, head_new_code, _git_root_of, reverted_code_files, is_code_file, ledger_path,
 )
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
                               red_case_names, retry_round_verdict, same_test_run)
@@ -456,6 +456,14 @@ def _note_moved_code_dirs(state: Dict[str, Any], sid: str, tool_name: str, tool_
                     "session_id": sid, "agent_id": agent_id, "turn_seq": int(state.get("turn_seq", 0))})
         del lst[:-MOVED_DIRS_CAP]
     return bool(seen)
+
+
+def _read_exit_code(tool_response: Any) -> Optional[int]:
+    """讀檔用的結束碼：dict 回應只信 exit_code／returncode 欄（stdout 是被讀的檔內容，裡面一行「Exit code 1」不能當失敗）；
+    字串回應（實機非零 exit 時整包是 "Error: Exit code N…"）照 exit_code_of 看文字。"""
+    if isinstance(tool_response, dict):
+        return exit_code_of({k: tool_response.get(k) for k in ("exit_code", "returncode")})
+    return exit_code_of(tool_response)
 
 
 def _note_move_scan_hits(state: Dict[str, Any], command: str, tool_response: Any, cwd: str) -> bool:
@@ -1141,16 +1149,25 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
                 + "\n值得寫就現在 atom_write 寫完，再重新呼叫 anti_evasion_report 把該項改成"
                 "「→ 已寫入 atom <名>」（或「→ 不寫（理由）」）；否則 Stop 會擋。"
             )
-        # (j) 證據持久路徑：本 session 有驗證收據時必須給真存在的路徑；(k) 追蹤項：空字串不收（「無」可）。
-        # 判定落 report 供 HUD 標紅；Stop 的對帳閘 (e) 以同一對函式擋。
+        # (j) 證據持久路徑：本 session 有驗證收據時必須給真存在的路徑；模型留空／「無」而帳本在 → 系統帶入帳本絕對路徑
+        # （帳本在資料根，跟專案 cwd 不同根）。(k) 追蹤項：空字串不收（「無」可）。
+        # 判定落 report 供 HUD 標紅；Stop 的對帳閘 (e) 讀 report 裡（帶入後）的 j，以同一對函式擋。
         if "j_evidence_path" in vals:
-            report["j_missing"] = aec_evidence_missing(vals["j_evidence_path"], bool(receipts_of(state, session_id)))
+            _has_receipts = bool(receipts_of(state, session_id))
+            _ledger = str(ledger_path(session_id, WORKFLOW_DIR))
+            _j = aec_evidence_autofill(vals["j_evidence_path"], _has_receipts, _ledger)
+            if _j != vals["j_evidence_path"]:
+                vals["j_evidence_path"] = report["j_evidence_path"] = _j
+                report["j_autofilled"] = True
+                aec_reject_msgs.append(f"[Guardian:AEC-Evidence] (j) 已自動帶入 {_j}（本 session 的驗證收據帳本），不必重送。")
+            report["j_missing"] = aec_evidence_missing(_j, _has_receipts)
         if "k_followups" in vals:
             report["k_missing"] = aec_followups_missing(vals["k_followups"])
         if report.get("j_missing"):
             aec_reject_msgs.append(
                 "[Guardian:AEC-Evidence] (j) 證據持久路徑缺或不存在，但本 session 有驗證收據。"
-                f"填帳本路徑 workflow/verify-ledger/{session_id}.jsonl 或其他真存在的證據檔，再重新 emit；否則 Stop 會擋。"
+                f"留空讓系統帶入帳本（{ledger_path(session_id, WORKFLOW_DIR)}），或填其他真存在的證據檔絕對路徑，再重新 emit；"
+                "否則 Stop 會擋。"
             )
         if report.get("k_missing"):
             aec_reject_msgs.append("[Guardian:AEC-Followups] (k) 追蹤項是空字串：有就一行一項，沒有寫「無」；否則 Stop 會擋。")
@@ -1270,6 +1287,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             hub_ctx = _hub_on_read(
                 state, session_id, tool_name, tool_input, input_data.get("cwd", "") or "",
                 input_data.get("transcript_path", "") or "", config,
+                exit_code=_read_exit_code(input_data.get("tool_response")),   # 規則 BASH_READONLY_COUNTS_AS_READ：失敗的讀不算
             )
             dirty = True   # reads_after 也要落盤
         except Exception as e:
