@@ -7,6 +7,8 @@
 - Trigger: 擋滿等人, exhausted_block, 收尾放行確認 等人, 每回合再被擋, 子代理被擋 9 次, 走到要問那步停下, AskUserQuestion 停住
 - Created-at: 2026-10-14
 
+- Related: 子代理改碼時寫碼查核的三個實況-子代理共用主session讀檔帳寫檔前要交定位行-主session擋訊息不帶子代理歸屬只在state看得到-刪掉對照引用的案例檔會讓已交對照失效
+
 ## 知識
 
 - [臨] 寫碼查核閸擋滿後（要求用 AskUserQuestion 問使用者放行），若只是結束回合等人，Stop 每次都會再擋一次（exhausted_block 次數一路加），沒有不循環的停法；子代理同機制（實測被擋 9 次、花 7 萬多 token）。正解是馬上發 AskUserQuestion，題目會停在分頁等人點、不再被叫回來。設計如此（正確動作就是問人），不修閸。
