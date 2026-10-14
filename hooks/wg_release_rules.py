@@ -823,6 +823,7 @@ def move_dir_verdict(move: Dict[str, Any], scan_hits: Optional[int], sample_ok: 
 
 
 _NARROW_FLAG_RE = re.compile(r"(?:^|\s)(?:-k|-m|-t|--testNamePattern|--deselect|--lf|--last-failed)(?=\s|=|$)")
+_RUN_MODULE_RE = re.compile(r"(?:^|\s)-m\s+(?:pytest|unittest)\b")     # python -m pytest 的 -m 是「跑模組」，不是標記篩選
 _NODE_ID_TOKEN_RE = re.compile(r"""[^\s"']+::[^\s"']+""")
 
 
@@ -841,7 +842,7 @@ def green_covers_red_verdict(red_cmd: str, red_summary: str, green_cmd: str) -> 
     其餘照留（-k 運算式判不了、輸出沒列案例）。"""
     rule = "GREEN_NARROWED_KEEPS_UNCOVERED_RED"
     nodes = [_norm_node(n) for n in _NODE_ID_TOKEN_RE.findall(str(green_cmd or ""))]
-    if not nodes and not _NARROW_FLAG_RE.search(str(green_cmd or "")):
+    if not nodes and not _NARROW_FLAG_RE.search(_RUN_MODULE_RE.sub(" ", str(green_cmd or ""))):
         return Verdict(rule, False, "綠的沒有篩選案例，照既有清帳規則", ())
     if " ".join(str(red_cmd or "").split()) == " ".join(str(green_cmd or "").split()):
         return Verdict(rule, False, "綠的是同一個篩選指令重跑", ())
