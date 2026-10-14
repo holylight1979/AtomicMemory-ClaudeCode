@@ -1,7 +1,7 @@
 {
   "_doc": "skills/ 計數 SoT 機器鏡像。由 tools/skill-index.py 生成，勿手改。SoT=skills/*/SKILL.md。改 skill 後 PostToolUse hook 自動 --write。",
   "generated_from": "skills/*/SKILL.md",
-  "count": 25,
+  "count": 26,
   "skills": [
     {
       "name": "atom-debug",
@@ -42,6 +42,11 @@
       "name": "consciousness-stream",
       "dir": "consciousness-stream",
       "description": "識流處理（Consciousness Stream Pipeline）— 連續對話流的記憶寫入"
+    },
+    {
+      "name": "console",
+      "dir": "console",
+      "description": "多 session 協作總控台：一個入口三種用法——「/console 對人」開對人總控台、「/console 調度」開調度總控台、「/console 開工句 <軌名>」產生工作軌第一句。要多開 session 並行開工、開總控台、派工、寫開工句、Reload 後重新點名、判斷分頁可不可關時都該觸發。"
     },
     {
       "name": "continue",

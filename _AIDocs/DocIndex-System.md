@@ -124,7 +124,7 @@ Session Ready
 | user-init.sh | — | 多人 USER.md 初始化 |
 | webfetch-guard.sh | — | WebFetch 安全護欄 |
 
-## 5. Skills（<!-- skill-count -->25<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
+## 5. Skills（<!-- skill-count -->26<!-- /skill-count --> 個 active；記憶系統 skill + 1 個外部/通用 skill〔karpathy-guidelines〕；**init-roles / conflict-review 於 P8a 2026-07-01 單人環境降 dormant → `skills/_archived/`，不計入此數**）
 
 V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官方「commands merged into skills」）。Legacy `commands/` 全刪除。
 
@@ -155,6 +155,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 | /refile | skills/refile/SKILL.md | **V6 手動歸檔**：拖入非 `_AIDocs/_atoms/` 的 `.md` → 核心檔辨識護欄 + realm 分類提議 + 互動移檔 + doc-ref 掃描（sweep 的手動鏡像） | Ollama（分類 fallback） |
 | /karpathy-guidelines | skills/karpathy-guidelines/SKILL.md | **外部 skill（MIT，源 multica-ai）**：寫/審/重構碼的行為準則（Think Before / Simplicity / Surgical / Goal-Driven）。on-demand 被動觸發，非 always-on；唯一加值的 verify-loop 另萃成 atom `goal-driven-verify-loop` | 無 |
 | /behavior-preservation | skills/behavior-preservation/SKILL.md | **v6.0**：行為保持重構的等值證法——`scripts/preserve-check.py` 以舊碼（Python 走 ast）或 `.json` 表當預期、新產物實跑當實際，三類變異 order／side_effect／boundary 各自抓；解析不到全枚舉一律拒收 exit 2 | 無 |
+| /console | skills/console/SKILL.md | 雙總控台＋工作軌協作：`對人`／`調度`／`開工句 <軌名>` 三種用法；references 放開工句、派工單、交付信、交接備忘、裁定帳範本與給人讀的一頁說明 | tools/console-status.py |
 
 > 已刪除（與內建衝突）：`/resume`（內建 --resume）/ `/init-project`（內建 /init）/ `/svn-update` / `/unity-yaml`（下沉專案層）/ `/changelog-roll`（改名 changelog-debug）
 > 已休眠（單人環境·非刪）：`/init-roles` / `/conflict-review`（多人團隊層）→ 見 `skills/_archived/README.md`
@@ -228,6 +229,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
 - statusline.py — settings.json `statusLine` 渲染器：CC status JSON（stdin）+ state/vector flag/aec-report → 一行 ANSI 狀態列（改N 讀M · vec✓ · AEC:sev）；取代 UPS 週期性 Reminder 注入
 - health-weekly.py — 週健檢（Task Scheduler `Claude-Memory-WeeklyHealth`，pythonw 靜默跑）：audit/health-check/索引 --check/vector/注入效果/管線鮮度/工具自測（config `tool_selftests`，尾行哨兵＋exit）/Depends 覆蓋與過期/scorecard 兩行 → `workflow/health-reports/` + `health-last-run.json`（SessionStart `_health_advisory` 死人開關讀取）
 - overview-map-scaffold.py — 從零掃出 `<專案>/.claude/overview-map.md` 骨架表與五段骨架卡（`lib/overview_scaffold.py`）；預設 dry-run，`--write` 落檔（卡先寫、表最後寫、失敗不撤回、重跑接續補完）、表存在拒覆寫、`--merge-missing` 補列補卡；`check` 對帳表與卡｜`OVERVIEW_SCAFFOLD DONE rows=`
+- console-status.py — `/console` 現況一眼看（唯讀）：worktree 清單、origin/main..main 未推數、信箱各 `from-track-*` 最新一封（含「我在等」行）、`_console/verify*.log` 最近 N 份各 exit 鍵最後值；`--inbox`（預設 `workflow/v6-inbox`）／`--logs`；verify `tools/verify/verify_console_status.py`｜`CONSOLE_STATUS DONE worktrees= unpushed= tracks= logs=`
 - refix-churn.py — git／svn 同檔反覆 fix 排名（`lib/refix_churn.py`；主尺 fix 數、副尺 14 天配對），排除記憶與收割提交；`--svn-xml` 吃離線 log｜`REFIX_CHURN DONE vcs= commits= fix= files_refixed=`
 - scorecard-report.py — 彙整每 session 的 S1／S3／S5 行（`hooks/wg_scorecard.py` 在 SessionEnd 寫 `workflow/scorecard/<yyyymm>.jsonl`）：四週中位數基線、低於基線部位、下一張該寫的卡 → `health-reports/scorecard-<date>.md`＋`scorecard/candidates.json`｜`SCORECARD_REPORT DONE lines= candidates=`
 - second-opinion/run.py — 第二意見 job（MCP `second_opinion_start`／`second_opinion_result` 的 py 端）：`prepare`（打包＋replay-guard pre）／`execute`（探針→codex→post-guard→三段解析，終態保護、executor lock）／`probe`／`status`／`scan`；`project-smells.py` — 候選池（報告／指令／內建三來源）｜`PROJECT_SMELLS DONE n=`

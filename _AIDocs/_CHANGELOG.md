@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 /console skill：雙總控台＋工作軌協作做成可重用流程
+- **緣由**：v6 多 session 協作（對人／調度兩個總控台＋多條工作軌）的做法散在本機信箱的交接備忘、裁定帳與接續單，新使用者拿不到，踩過的坑（寫死 claude-xx、Reload 後名字全變、每件都快照補驗、空手等回信、含 git 字樣的指令被 worktree 守門拒絕…）會重踩。
+- **做法**：新 `skills/console/`：一個入口三種用法（`對人`、`調度`、`開工句 <軌名>`），SKILL.md 寫做法、每條規則標來源卡或裁定編號；references 放開工句、派工單、交付信、交接備忘、裁定帳範本與給人讀的一頁說明（原設計者原文為底，補兩個叫人去工作分頁的例外、Reload 改名、模型依工作分、「寫交接備忘」口令、一兩條軌只開一個總控台）。新 `tools/console-status.py`（唯讀）一次印 worktree、未推數、各軌最新來信與「我在等」、verify log 各 exit 鍵最後值，尾行 `CONSOLE_STATUS DONE`。DocIndex §5／§6、TECH 樹同步（skills 名單順手補上漏列的 meeting、org、behavior-preservation）。
+- **驗證**：`tools/verify/verify_console_status.py` 10 案（暫存 git repo）：工具不存在時 9 紅、寫完 9 綠；對真信箱試跑發現快照 log 用 `exit1=`／`smoke_exit=`，加 1 紅案例後改成各 exit 鍵取最後值，10 綠；`skills/console/verify/verify_console_skill.py` 4 案守 SKILL.md ≤150 行、卡名與 references 連結都找得到、一頁說明含四處修正（把卡名與連結改壞時兩案紅）；skill-creator audit 0 fail 0 warning。
+
 ## 2026-10-14 v6.0 B5 真測逼出的閘誤擋／誤報修到根因（裁定 #41、#42 ②、#43）
 - **緣由**：B5 題三兩組受測都被與題目無關的閘擋或誤報：新建 `.gitignore`、刪 `tests/__pycache__` 被綜觀閘擋；一次 `cat` 多檔只認第一個；pytest 有收據時收尾檢核 (j) 要模型自己找帳本路徑（照提示的相對路徑填仍判缺）；atom append 對沒「## 行動」段的卡回錯；SessionStart 在 B5 資料根報 IDENTITY.md 0 bytes 與三行必載檔契約缺句。
 - **做法**：`hooks/wg_release_rules.py` 新規則 `UNMAPPED_EDIT_NEEDS_READABLE_FILES`（表外檔要讀數＝min(設定, 同頂層目錄可讀既有檔數)，`wg_overview._readable_existing` 只蒐集事實、gitignored 一次查一批）、`BASH_READONLY_COUNTS_AS_READ`（`lib/overview_hub` 每段每個路徑都解析、認 less／more／grep -n、重導向目標不算；成功、字面、實檔才算，`post_tool_use` 傳結束碼）；`RUNTIME_DATA_NO_OVERVIEW` 加快取目錄。`wg_verify_ledger.aec_evidence_autofill`（js 鏡像）：有收據且 j 空／「無」→ `post_tool_use` 帶入帳本絕對路徑、回告「已自動帶入」，Node chip 不再印 (j)，mcp.js 參數說明改成留空即可。`lib/atom_io._build_append_content` 缺行動段先補段，兩處硬拒拿掉。`session_start` 的 IDENTITY 哨兵（抽成 `check_identity_integrity`）與必載檔契約哨兵改看 Claude Code 設定目錄（`claude_config_dir`）。`green_covers_red_verdict` 的篩選旗標與節點 id 只看測試子命令那段之後（`_test_runner_args`，同一指令別段的 `python -m <模組>` 不算）。`tools/statusline.py` main 開頭把 stdin／stdout 換成 UTF-8（cp950 主控台不再整行紅字）。`skills/handoff` 落點寫死專案 `_staging/next-phase-<名>.md`、被擋不退 scratchpad。TECH §5 atom、§7.6、§7.8、§收尾報告、§哨兵。

@@ -892,6 +892,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── fix-hook-python.py                   ← 校正 hook 直譯器路徑（install.py 會呼叫）
 │   ├── ai-client-setup.py                   ← 其他 AI 客戶端輕量安裝：只註冊 MCP、不裝 hooks（§5.8）
 │   ├── meeting-transcribe.py                ← 會議錄音 → 逐字稿 → 摘要 → 決議入專案 shared（§6.6）
+│   ├── console-status.py                    ← /console 現況一眼看（worktree、未推、各軌最新來信、verify log），唯讀
 │   ├── memory-eval/                         ← 223 條回歸集
 │   ├── memory-vector-service/               ← service.py / starter.py / indexer.py
 │   ├── codex-companion/                     ← assessor / acceptance / judge_backend / audit.py / backtest
@@ -899,10 +900,10 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── auto-continue/ / gdoc-harvester/ / unity-desktop/ / usage-snapshot/
 │   └── verify/
 │
-├── skills/                                  ← <!-- skill-count -->25<!-- /skill-count --> 個 active
-│   ├── atom-debug / atom-source / browse-sprites / changelog-debug / codex-companion / conflict
-│   ├── consciousness-stream / continue / extract / fix-escalation / generate-episodic
-│   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / memory
+├── skills/                                  ← <!-- skill-count -->26<!-- /skill-count --> 個 active
+│   ├── atom-debug / atom-source / behavior-preservation / browse-sprites / changelog-debug / codex-companion
+│   ├── conflict / consciousness-stream / console / continue / extract / fix-escalation / generate-episodic
+│   ├── handoff / harvest / heal-review / journal / karpathy-guidelines / meeting / memory / org
 │   ├── read-project / refile / skill-creator / upgrade / vector
 │   └── _archived/ init-roles / conflict-review（單人環境 dormant）
 │

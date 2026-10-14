@@ -1,0 +1,18 @@
+{
+  "_comment": "console 的觸發評估查詢：應觸發（開總控台、派工、開工句、多開並行、Reload 點名、可不可關）與不應觸發（單一 session 寫碼、一般 git、換手 prompt、session 名詞閒聊）。",
+  "skill_name": "console",
+  "queries": [
+    {"query": "我要開對人總控台，接下來幾條軌並行做", "should_trigger": true, "note": "對人用法"},
+    {"query": "你當調度總控台，負責派工跟合併", "should_trigger": true, "note": "調度用法"},
+    {"query": "幫 track-login-fix 寫一句開工句，我去開新分頁貼", "should_trigger": true, "note": "開工句用法"},
+    {"query": "覺得太慢了，是不是該多開幾個 session 並行", "should_trigger": true, "note": "多開判斷"},
+    {"query": "剛剛 Reload Window 了，各分頁名字都變了，重新點名", "should_trigger": true, "note": "Reload 後點名"},
+    {"query": "track-c-g16 收割完了，可以關了嗎", "should_trigger": true, "note": "可關四項"},
+    {"query": "把這件派給工作 session 去做", "should_trigger": true, "note": "派工"},
+    {"query": "幫我修這個登入的 bug", "should_trigger": false, "note": "單一 session 直接寫碼"},
+    {"query": "git worktree 怎麼建", "should_trigger": false, "note": "一般版控問題"},
+    {"query": "給下個 session 的續接 prompt", "should_trigger": false, "note": "走 /handoff"},
+    {"query": "session 是什麼意思", "should_trigger": false, "note": "名詞閒聊"},
+    {"query": "幫我做 code review", "should_trigger": false, "note": "走 /code-review"}
+  ]
+}
