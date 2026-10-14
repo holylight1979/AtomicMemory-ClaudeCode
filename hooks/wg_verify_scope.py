@@ -544,7 +544,7 @@ def _attribute(repo: str, failed: List[str], red_at: str, observer: str, observe
                                       bool(last_green) and _before(last_green, c.get("at")))
             if not v.owed:
                 continue
-            lid = "L" + hashlib.sha1(f"{sid}|{test}".encode("utf-8")).hexdigest()[:6]
+            lid = "L" + hashlib.sha1(f"{repo}|{sid}|{test}".encode("utf-8")).hexdigest()[:6]   # 同一份宣告跨 repo 的同名測試分開記
             if lid in known:
                 continue
             known.add(lid)

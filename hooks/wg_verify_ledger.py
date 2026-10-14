@@ -2209,12 +2209,11 @@ def self_run_covered(parts: Dict[str, Dict[str, Any]], runs: Iterable[Dict[str, 
 
 # ─── 驗證範圍：收據跑了哪些、對不對得上宣告的一項（判定在 wg_release_rules.SCOPE_ITEM_RECEIPT_AFTER_EDIT） ───
 _PY_RE = re.compile(r"^python(?:\d+(?:\.\d+)*)?w?(?:\.exe)?$", re.IGNORECASE)
-_PY_VALUE_OPTS = frozenset({"-X", "-W"})                     # 直譯器帶值的選項
-_VALUE_OPTS = frozenset({"-k", "-m", "-p", "-o", "-n", "-c", "-r", "-W", "-t", "-e", "--tb", "--rootdir", "--basetemp",
-                         "--maxfail", "--deselect", "--ignore", "--ignore-glob", "--confcutdir", "--durations",
-                         "--junitxml", "--testNamePattern", "--grep"})          # 測試工具帶值的選項（值不是路徑目標）
-_NARROW_OPTS = frozenset({"-k", "-m", "-t", "--deselect", "--lf", "--last-failed", "--sw", "--stepwise", "--ignore",
-                          "--ignore-glob", "--co", "--collect-only", "--testNamePattern", "--grep"})   # 只跑一部分
+_PYTEST_PROGS = frozenset({"pytest", "py.test"})
+_SCRIPT_RUNNERS = frozenset({"node", "bash", "sh", "pwsh", "powershell", "deno", "bun", "ruby", "perl"})
+# 不改變跑哪些案的 pytest 帶值選項（值可接在 = 後或下一個字）；沒列在這裡、也不在整體驗證白名單的選項一律當「只跑一部分」
+_PYTEST_SAFE_VALUE_OPTS = frozenset({"--tb", "--color", "-r", "--basetemp", "--rootdir", "-n", "--maxfail", "--durations",
+                                     "--junitxml", "--timeout"})
 
 
 def _abs_target(base: str, word: str) -> str:
@@ -2224,40 +2223,71 @@ def _abs_target(base: str, word: str) -> str:
     return canon_path(p) + (sep + node.lower() if sep else "")
 
 
-def _step_targets(st: Any, base: str) -> Tuple[List[str], bool]:
-    """一段跑程式的指令點名了哪些路徑（python 直譯器選項、`-m 模組` 的模組名、帶值選項的值都不算），有沒有只跑一部分的選項。"""
-    words = list(st.words)
-    if not words:
-        return [], False
+def _pytest_targets(args: List[str], base: str) -> Tuple[List[str], bool]:
+    """pytest 的參數 → (點名的路徑或節點, 有沒有可能只跑一部分)。選項走白名單：整體驗證准帶的（-q -v -s -x、-r…、--tb=…）、
+    `-p no:…`、不改變跑哪些案的帶值選項；其他（-k、-m、-o、--deselect、--lf、連寫的 -kfoo…）一律當只跑一部分（fail-closed）。"""
     out: List[str] = []
-    i = 1
-    if _PY_RE.match(Path(words[0].replace("\\", "/")).name):
-        while i < len(words) and words[i].startswith("-") and words[i] not in ("-m", "-c"):
-            i += 2 if words[i] in _PY_VALUE_OPTS else 1
-        if i < len(words) and words[i] == "-c":
-            return [], False                                  # 內嵌碼沒有路徑目標
-        if i < len(words) and words[i] == "-m":
+    narrowed, i = False, 0
+    while i < len(args):
+        a = args[i]
+        if a == "-p" and i + 1 < len(args) and args[i + 1].startswith("no:"):
             i += 2
-    elif "/" in words[0] or "\\" in words[0]:
-        out.append(_abs_target(base, words[0]))               # 程式本身寫成路徑（./verify.sh）
-    narrowed, skip = False, False
-    for w in words[i:]:
-        if skip:
-            skip = False
             continue
-        if w.startswith("-"):
-            name = w.split("=", 1)[0]
-            narrowed = narrowed or name in _NARROW_OPTS
-            skip = "=" not in w and name in _VALUE_OPTS
+        if not a.startswith("-"):
+            out.append(_abs_target(base, a))
+            i += 1
             continue
-        out.append(_abs_target(base, w))
+        name = a.split("=", 1)[0]
+        if name in _PYTEST_SAFE_VALUE_OPTS:
+            i += 1 if "=" in a else 2
+            continue
+        if not _self_receipt._PYTEST_WHOLE_OPT_RE.match(a):
+            narrowed = True
+        i += 1
     return out, narrowed
 
 
+def _step_targets(st: Any, base: str) -> Tuple[List[str], bool]:
+    """一段跑程式的指令真的執行了哪些路徑，以及有沒有可能只跑一部分：pytest 點名的檔、資料夾、節點；python／node 等直接執行的
+    腳本檔本身；寫成路徑的程式本身。其他程式（`python -m compileall`、`-m unittest`…）的參數不算跑過的測試，要宣告成指令項目。
+    python 直譯器選項只准 `-X utf8`、`-u`、`-B`（`-O` 會拿掉 assert，當只跑一部分）。"""
+    words = list(st.words)
+    if not words:
+        return [], False
+    head = Path(words[0].replace("\\", "/")).name.lower()
+    head = head[:-4] if head.endswith(".exe") else head
+    if _PY_RE.match(head):
+        i, odd = 1, False
+        while i < len(words) and words[i].startswith("-") and words[i] not in ("-m", "-c"):
+            w = words[i]
+            if w in ("-X", "-W"):
+                odd = odd or not (w == "-X" and i + 1 < len(words) and words[i + 1] == "utf8")
+                i += 2
+                continue
+            odd = odd or w not in ("-u", "-B", "-Xutf8")
+            i += 1
+        if i >= len(words) or words[i] == "-c":
+            return [], odd                                    # 內嵌碼沒有路徑目標
+        if words[i] == "-m":
+            if i + 1 < len(words) and words[i + 1] in _PYTEST_PROGS:
+                paths, narrowed = _pytest_targets(words[i + 2:], base)
+                return paths, narrowed or odd
+            return [], odd                                    # 別的模組：參數不是跑過的測試
+        return [_abs_target(base, words[i])], odd             # python 跑腳本：腳本本身跑過，參數不算
+    if head in _PYTEST_PROGS:
+        return _pytest_targets(words[1:], base)
+    if head in _SCRIPT_RUNNERS:
+        script = next((w for w in words[1:] if not w.startswith("-")), "")
+        return ([_abs_target(base, script)] if script else []), False
+    if "/" in words[0] or "\\" in words[0]:
+        return [_abs_target(base, words[0])], False           # 程式本身寫成路徑（./verify.sh）
+    return [], False
+
+
 def run_targets(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """收據實際跑了什麼：{whole: 整體驗證（涵蓋執行根之下全部）, base: 執行根, paths: 點名的絕對路徑（可帶 ::節點）,
-    narrowed: 有只跑一部分的選項}。指令不完整、根不可信（換目錄）、不能當一般證據（白名單外語法、環境縮範圍、寫了哨兵字樣、
-    指到別棵樹）→ None。"""
+    """收據實際跑了什麼：{whole: 整體驗證（涵蓋執行根之下全部）, base: 執行根, paths: 完整跑過的路徑（可帶 ::節點）,
+    narrowed: 有一段可能只跑一部分}。可能只跑一部分的那段點名的路徑不進 paths（命令列點名不等於實際執行）。
+    指令不完整、根不可信（換目錄）、不能當一般證據（白名單外語法、環境縮範圍、寫了哨兵字樣、指到別棵樹）→ None。"""
     r = _trusted(receipt)
     if r is None or not _clean(r):
         return None
@@ -2268,8 +2298,9 @@ def run_targets(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     narrowed = False
     for st in _self_receipt.evidence_steps(str(r.get("cmd") or ""), _shell_of(r), _env_of(r)) or []:
         p, n = _step_targets(st, base)
-        paths += [x for x in p if x not in paths]
         narrowed = narrowed or n
+        if not n:
+            paths += [x for x in p if x not in paths]
     return {"whole": False, "base": base, "paths": paths, "narrowed": narrowed}
 
 
@@ -2307,13 +2338,13 @@ def _item_ran(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
     tf, _, tn = str(item.get("abs") or "").partition("::")
     if t["whole"]:
         return _under(tf, t["base"])
-    for p in t["paths"]:
+    for p in t["paths"]:                                      # 只有完整跑過的那幾段（可能只跑一部分的段不進 paths）
         pf, _, pn = p.partition("::")
         if pn:
             if tn and pf == tf and (tn == pn or tn.startswith(pn + "::") or tn.startswith(pn + "[")):
                 return True                                   # 點名節點（或它的上層節點）
             continue
-        if not t["narrowed"] and _under(tf, pf):
+        if _under(tf, pf):
             return True                                       # 跑了該檔、它所在的資料夾
     return False
 

@@ -233,6 +233,11 @@ _X_RUN = "python -m pytest -q hooks/verify/verify_x.py"
     ("cd hooks && python -m pytest -q verify/verify_x.py", T2, "PASS", 0, {}, "沒有跑這一項"),  # 指令換目錄
     (_X_RUN, T2, "PASS", 0, {"PYTEST_ADDOPTS": "-k test_a"}, "沒有跑這一項"),              # 環境縮範圍
     ("python -m pytest -q hooks/verify/verify_y.py", T2, "PASS", 0, {}, "沒有跑這一項"),   # 跑的是別支
+    (_X_RUN + " -ktest_a", T2, "PASS", 0, {}, "沒有跑這一項"),                             # 短選項連寫也是只跑一部分
+    ("python -m pytest -q hooks/verify -o python_functions=test_a", T2, "PASS", 0, {}, "沒有跑這一項"),  # 改收集設定
+    ("python -O -m pytest -q hooks/verify/verify_x.py", T2, "PASS", 0, {}, "沒有跑這一項"),  # -O 拿掉 assert
+    ("python -m compileall -q hooks/verify/verify_x.py && python -m pytest -q hooks/verify/verify_y.py",
+     T2, "PASS", 0, {}, "沒有跑這一項"),                                                   # 只編譯、綠的是別支
 ])
 def test_item_receipt_that_does_not_count(proj, lookup, cmd, at, verdict, exit_code, env, word):
     state = _state()
@@ -240,6 +245,26 @@ def test_item_receipt_that_does_not_count(proj, lookup, cmd, at, verdict, exit_c
     reason, _ = _gates(state, [_mf(proj / "hooks" / "x.py", T1, 3)],
                        [_rcpt(proj, cmd, at, 4 if at != T0 else 1, verdict, exit_code, env)])
     assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason and word in reason, (cmd, reason)
+
+
+def test_node_item_not_satisfied_when_run_was_narrowed(proj, lookup):
+    """點名了節點、但同一條指令又用 -k 篩掉它 → 那個節點沒跑，不算（命令列點名不等於實際執行）。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py::test_b", "why": "直接測"}])
+    cmd = "python -m pytest hooks/verify/verify_x.py::test_a hooks/verify/verify_x.py::test_b -k test_a"
+    reason, _ = _gates(state, [_mf(proj / "hooks" / "x.py", T1, 3)], [_rcpt(proj, cmd, T2, 4)])
+    assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason, reason
+
+
+def test_script_file_item_counts_when_the_script_itself_ran(proj, lookup):
+    """檔案項目是一支驗證腳本：直接執行它（python 腳本）就算；拿它當別的程式的參數（compileall）不算。"""
+    (proj / "tools" / "verify" / "smoke.py").write_text("print('SMOKE_CHECK PASS')\n", encoding="utf-8")
+    state = _state()
+    _declare(state, proj, [{"target": "tools/verify/smoke.py", "why": "冒煙檢查"}])
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3)]
+    assert _gates(state, mods, [_rcpt(proj, "python tools/verify/smoke.py", T2, 4, name="SMOKE_CHECK")])[0] is None
+    reason, _ = _gates(state, mods, [_rcpt(proj, "python -m py_compile tools/verify/smoke.py", T2, 4, name="X_CHECK")])
+    assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason
 
 
 def test_receipt_from_other_tree_does_not_count(proj, lookup, tmp_path):
@@ -302,6 +327,38 @@ def test_out_of_scope_red_after_close_is_recorded_and_linked(proj, lookup):
     assert msg and "verify_y.py::test_q" in msg and "S1" in msg, msg
     pend = vs.pending_leaks(vs.repo_key(str(proj)))
     assert len(pend) == 1 and pend[0]["scope_id"].endswith("S1") and pend[0]["test"].endswith("verify_y.py::test_q")
+
+
+def test_narrowed_green_run_does_not_reset_last_green(proj, lookup):
+    """結案之後只跑了同檔的一部分（-k）而且綠 → 不能當成 test_q 又綠過；之後 test_q 紅了照樣連回那次宣告。"""
+    vs = _vs()
+    _observe(vs, _state(), proj, _Y_RUN, "1 passed", T0, 1)
+    _close_x(proj, _state())
+    _observe(vs, _state(), proj, _Y_RUN + " -k other", "1 passed, 1 deselected", T3, 8, key="sid-other")
+    _observe(vs, _state(), proj, _Y_RUN, _Y_RED, T4, 9, "FAIL", 1, key="sid-other")
+    assert [p["scope_id"][-2:] for p in vs.pending_leaks(vs.repo_key(str(proj)))] == ["S1"]
+
+
+def test_same_test_path_in_two_repos_records_two_leaks(proj, lookup, tmp_path):
+    """同一份宣告涉及兩個 repo，兩邊同名測試都在範圍外又都紅了 → 各記一筆（去重要分 repo）。"""
+    vs = _vs()
+    other = tmp_path / "other"
+    (other / ".git").mkdir(parents=True)
+    (other / "hooks" / "verify").mkdir(parents=True)
+    (other / "hooks" / "a.py").write_text("A = 1\n", encoding="utf-8")
+    (other / "hooks" / "verify" / "verify_x.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
+    (other / "hooks" / "verify" / "verify_y.py").write_text("def test_q():\n    pass\n", encoding="utf-8")
+    for root in (proj, other):
+        _observe(vs, _state(), root, _Y_RUN, "1 passed", T0, 1)
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測 x"},
+                           {"target": str(other / "hooks" / "verify" / "verify_x.py"), "why": "直接測 a"}])
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(other / "hooks" / "a.py", T1, 3)]
+    reason, _ = _gates(state, mods, [_rcpt(proj, _X_RUN, T2, 4), _rcpt(other, _X_RUN, T2, 5)])
+    assert reason is None, reason
+    for root in (proj, other):
+        _observe(vs, _state(), root, _Y_RUN, _Y_RED, T3, 9, "FAIL", 1, key="sid-other")
+    assert len(vs.pending_leaks(vs.repo_key(str(proj)))) == 1 and len(vs.pending_leaks(vs.repo_key(str(other)))) == 1
 
 
 def test_in_scope_red_is_not_a_leak(proj, lookup):
