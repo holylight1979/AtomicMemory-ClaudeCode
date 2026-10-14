@@ -25,7 +25,7 @@ for _p in (LIB_PARENT, HOOKS_DIR):
 
 from lib import atom_io  # noqa: E402
 from lib.atom_io import write_atom  # noqa: E402
-from lib.atom_spec import build_atom_content  # noqa: E402
+from lib.atom_spec import build_atom_content, render_knowledge_lines  # noqa: E402
 
 RULE = "KNOWLEDGE_LINE_NO_NARRATIVE_DATE"
 TODAY = "2026-10-14"
@@ -155,6 +155,35 @@ def test_dates_outside_knowledge_prose_are_accepted_and_lint_agrees(isolated_cla
     assert f"- Source: session:abcd1234 {TODAY}" in text
     changes, _ = lint.fix_lines(text.split("\n"))
     assert changes == [], f"閘收下的卡 lint 不該再抓到：{changes}"
+
+
+MULTILINE = "[臨] release 說明\n  - 實踩（2026-10-14）：需重試"
+
+
+def test_append_multiline_element_is_judged_line_by_line_like_lint(isolated_claude):
+    """codex 審 001 BLOCK 1：多行元素首行命中豁免詞（release），第二行的日期不得跟著豁免；
+    兩個 append 入口都擋，且每個樣本「append 閘擋不擋」與「拼進卡後整卡 lint 抓不抓」一致。"""
+    from lib.narrative_date import narrative_date_error
+    lint = _load(LIB_PARENT / "tools" / "atom-date-lint.py", "atom_date_lint_multiline")
+    r = _write("date gate multi", [CLEAN], "create")
+    assert r.ok, r.error
+    before = r.path.read_bytes()
+
+    ra = _write("date gate multi", [MULTILINE], "append")
+    assert not ra.ok
+    _assert_rejected(ra.error, "實踩（2026-10-14）")
+    rf = atom_io.append_atom_file(r.path, [MULTILINE], source="test")
+    assert not rf.ok
+    _assert_rejected(rf.error, "實踩（2026-10-14）")
+    assert r.path.read_bytes() == before
+
+    existing = before.decode("utf-8")
+    samples = [[MULTILINE], ["[臨] release 說明\n  - 參考 2026-10-14 起的新版"], ["[觀] 7.5 於 2026-11-10 EOL"],
+               [DATED], [CLEAN], ["```\n2026-10-14 log\n```"], ["[臨] 一般說明\n  - 使用者 2026-10-13 指正"]]
+    for s in samples:
+        gate = narrative_date_error(render_knowledge_lines(s)) is not None
+        lint_hit = bool(lint.fix_lines(atom_io._build_append_content(existing, s).split("\n"))[0])
+        assert gate == lint_hit, s
 
 
 def test_hit_line_is_cut_at_120_chars():

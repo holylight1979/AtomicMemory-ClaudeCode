@@ -41,7 +41,9 @@ sys.path.insert(0, str(CODE_DIR / "hooks"))
 import wg_core  # noqa: E402
 from wg_roles import get_current_user  # noqa: E402
 from lib import atom_access  # noqa: E402
-from lib.atom_io import edit_metadata, locate_atom, write_index, write_raw  # noqa: E402
+from lib.atom_io import (  # noqa: E402
+    card_body_lines, edit_metadata, locate_atom, narrative_date_error, write_index, write_raw,
+)
 from lib.atom_spec import (  # noqa: E402
     TRIGGER_MIN, build_atom_content, parse_depends, resolve_depends_path, slugify, validate_atom_content,
 )
@@ -294,7 +296,8 @@ def write_card(card: Dict[str, object], *, project_cwd: Path, owner: str, dry_ru
         author=owner, status="production", provenance=entry,
         depends=[f"path:{entry}"] if card["has_path"] else None,
     )
-    err = validate_atom_content(content)
+    # 工具說明整句進知識行：帶敘事日期就不建卡（寫入閘 KNOWLEDGE_LINE_NO_NARRATIVE_DATE，與 write_atom 同一份判式）
+    err = validate_atom_content(content) or narrative_date_error(card_body_lines(content))
     if err:
         return f"失敗 {slug}：{err}"
     target = Path(loc.extra["target_dir"]) / f"{slug}.md"

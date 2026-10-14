@@ -159,6 +159,20 @@ def test_scan_twice_is_idempotent(world, capsys):
     assert _snapshot(world["omem"], world["pmem"]) == before
 
 
+def test_dated_description_card_is_refused_with_rule(world, capsys):
+    """codex 審 date-gate 001 BLOCK 2：工具說明帶敘事日期會整句進知識行；建卡前過同一日期閘，
+    dry-run 與實寫都回「失敗」（exit 1）、該卡不落檔，其餘卡照建。"""
+    _lf(world["proj"] / ".claude" / "tools" / "zzqdated.py",
+        '"""zzqdated.py：測試工具（2026-10-14 實踩）把 C 轉成 D。\n"""\nprint(1)\n')
+    card = world["pmem"] / "shared" / "工具" / "zzqdated.md"
+    for dry in (True, False):
+        assert _scan(world, dry_run=dry) == 1
+        out = capsys.readouterr().out
+        assert "失敗 zzqdated" in out and "KNOWLEDGE_LINE_NO_NARRATIVE_DATE" in out, out
+        assert not card.exists()
+    assert _cards(world)["zzqtool"].is_file(), "其餘卡照建"
+
+
 # ─── ② 人工改過的卡再 scan 不被覆寫 ──────────────────────────────────────────
 
 def test_manual_edit_survives_rescan(world):

@@ -118,8 +118,9 @@ def fix_lines(lines: Iterable[str]) -> Tuple[List[Tuple[str, Optional[str]]], Li
 
 
 def narrative_date_error(lines: Iterable[str]) -> Optional[str]:
-    """寫入閘：lines＝這次要寫進卡的知識行與行動行（照落檔的樣子渲染）。有敘事型日期回擋訊息，否則 None。"""
-    changes, _ = fix_lines(lines)
+    """寫入閘：lines＝這次要寫進卡的知識行與行動行（照落檔的樣子渲染）。有敘事型日期回擋訊息，否則 None。
+    渲染後的多行元素（一個字串內含換行）先攤成落檔後的逐行再判，與 lint 掃整卡的切法相同。"""
+    changes, _ = fix_lines("\n".join(lines).split("\n"))
     if not changes:
         return None
     more = f"（另有 {len(changes) - 1} 行同樣問題）" if len(changes) > 1 else ""
