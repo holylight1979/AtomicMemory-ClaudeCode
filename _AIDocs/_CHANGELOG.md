@@ -6,8 +6,29 @@
 ---
 ## 2026-10-14 v6.0 重試計數改以測試重跑為界（誤判清冊 B17）
 - **緣由**：先寫紅案例、再分五次 Edit 改同一檔、一跑就綠，FixEscalation 卻報 retry=5、收尾又要求 DeepPostMortem：舊規則數的是「紅之後同檔的 Edit 次數」，中間沒重跑也照數；plan／direct 門檻（4／2）也是數 Edit。
-- **做法**：規則 `RETRY_COUNTS_RERUN_CYCLES` 取代 `RETRY_COUNTS_EDITS_SINCE_RED`（`hooks/wg_release_rules.py` 的 `retry_round_verdict`、`red_case_names`、`retry_rounds_text`、`fix_escalation_text`）；`wisdom_engine.track_retry` 把改檔記到每筆活著的紅測的 `edits_since_run`；`post_tool_use._track_test_result` 又跑紅時找同一組測試（`same_test_run`，點名的檔要完全相同）的活著的紅判輪、清掉那組的紀錄，並記 `retry_rounds`（指令＋紅案，沒有 pytest 案例名就記失敗摘要第一行）。改檔為了修哪一組不猜（調度裁定），同時修多組時對沒改到的那組多報一次，寫成標明限制的案例；兩輪升級、plan 與 direct 同門檻；FixEscalation 與 DeepPostMortem 觸發句印每輪證據。TECH §7.7。
+- **做法**：規則 `RETRY_COUNTS_RERUN_CYCLES` 取代 `RETRY_COUNTS_EDITS_SINCE_RED`（`hooks/wg_release_rules.py` 的 `retry_round_verdict`、`red_case_names`、`retry_rounds_text`、`fix_escalation_text`）；`wisdom_engine.track_retry` 把改檔記到每筆活著的紅測的 `edits_since_run`；`post_tool_use._track_test_result` 又跑紅時找同一組測試（`same_test_run`，點名的檔要完全相同）的活著的紅判輪、清掉那組的紀錄，並記 `retry_rounds`（指令＋紅案，沒有 pytest 案例名就記失敗摘要第一行）。改檔為了修哪一組不猜（調度裁定），同時修多組時對沒改到的那組多報一次，寫成標明限制的案例；兩輪升級、plan 與 direct 同門檻；FixEscalation 與 DeepPostMortem 觸發句印每輪證據。TECH §7.8。
 - **驗證**：`verify_release_rules` 新案走真的 PostToolUse 入口（紅→改 5 次→綠＝0、兩輪紅＝2 且訊息有兩輪證據、plan 同門檻、沒改就重跑與只改計畫檔不算、兩組都紅時改 A 重跑 A 算一輪、中間跑別組的綠不藏輪數、第一次跑別組紅不算、共用設定檔不讓不同組算同一組、Jest 輸出退回摘要、DPM 觸發句，另兩案標明已知限制；多數來自三輪 codex 唯讀審查的 BLOCK 重現）改前紅、改後綠；真 hook 入口探針 `hooks/verify/probe_retry_cycles.py` 新碼全過、舊碼兩情境全紅；`verify_wisdom_retry_calibration`、`verify_fix_escalation_plan_retry`、`verify_state_growth_caps` 舊案依新語義改寫。
+
+## 2026-10-14 v6.0 記憶卡知識行寫入時就擋敘事日期（KNOWLEDGE_LINE_NO_NARRATIVE_DATE），與日期 lint 共用一份判式
+- **緣由**：知識行帶「實踩（某日）」這類敘事日期的卡反覆出現（含背景收割寫的），每次都靠全量 `verify_atom_date_lint` 事後抓、再手清；寫入時不擋，判式只活在 `tools/atom-date-lint.py`。
+- **做法**：判式搬到 `lib/narrative_date.py`（lint 改 import，只留掃檔與 --fix）；`lib/atom_io` 的 `write_atom`（create／append／replace）與 `append_atom_file`、`lib/atom_io_cli` 的 create_atom／build（MCP js 的 create／replace）加具名規則：這次寫進卡的知識行與行動行有敘事型日期就拒，訊息印規則名、命中行（截 120 字）與「日期寫 Source 欄或 DevHistory」；extract-worker 失敗回寫（走 write_raw）同判式、擋下記 ERROR；user-extract-worker 經 write_atom 被擋照舊記 ERROR。會議轉錄的決議不再把會議日期寫進知識行（日期在 Source 的逐字稿路徑）。js 沒動，不必重載 MCP。TECH §6.1。
+- **驗證**：新 `lib/verify/verify_narrative_date_gate.py` 7 案改前全紅、改後綠，判式暫改成永遠放行時 5 個行為案紅在斷言；判式搬家前後對 worktree 933 檔逐行對拍 0 差異；真起 MCP server 送 create（含 dry_run）／append／replace 都回規則名、原檔不動；目標 34 支 512 passed，紅 1 是活體守門掃到 live 既有 4 張帶日期卡（非本次造成）。
+- **補（總控台 codex 退件三條）**：判式入口先把多行知識元素攤成逐行（首行豁免詞不再連帶放過下一行，兩個 append 入口與 extract-worker 同受惠）；`tools/org-memory.py` 建工具卡、`tools/memory-audit.py` 從 `_distant` 恢復舊卡（看整卡，拒絕時指路 `atom-date-lint --fix --path`）都接同一判式。三個新案（含「append 擋不擋與拼進卡後 lint 抓不抓」逐樣本一致）改前紅、改後綠，逆向改回時紅在斷言。
+
+## 2026-10-14 v6.0 .claude.json 與 Claude Code 執行期目錄也改看 CLAUDE_CONFIG_DIR，規則收成單一來源
+- **緣由**：Claude Code 的 `.claude.json` 放在 `CLAUDE_CONFIG_DIR || 家目錄`、shell-snapshots／debug／plugins 在它的設定目錄底下；ensure-mcp、cleanup-old-files、check-bypass、usage-snapshot 讀帳號四處寫死家目錄，使用者另設設定目錄時會改錯或掃錯地方。
+- **做法**：`lib/project_root.py` 在 `claude_data_dir` 旁加 `claude_config_dir()`、`claude_global_config()`（取值照 Claude Code：空字串當沒設、不去空白），上述四處與 fix-hook-python 一律呼叫它；`verify_install` 受測檔加 `lib/project_root.py`。一般安裝路徑字串不變。TECH §9.3。
+- **驗證**：`verify_tools_data_root` 設定目錄表加兩支 harness 工具、ensure-mcp 案與 usage-snapshot 帳號案改成有設／沒設／空字串，加單一來源案；有設的案改前紅在斷言（單一來源案是 ImportError，新函式）、改後綠；verify_install 24 passed 1 skipped。
+
+## 2026-10-14 v6.0 目標對照的「達成」要指到試過的案例或收據，案例先紅後綠留紀錄（C-G3＋C-G10）
+- **緣由**：完整對照標「達成」時只查有沒有附證據、不查證據是不是試過的，寫碼類節點附一個檔案就能過；先紅後綠也沒有任何地方記（原話 G3「寫完要主動寫驗證 case」、G10「沒試過不算結論」）。
+- **做法**：`hooks/wg_release_rules.py` 加三條具名規則：GOAL_DONE_NEEDS_CASE_OR_RECEIPT（寫碼類樹的達成至少一筆沒紅的收據或讀碼級驗證案例，記憶知識類不查）、GOAL_INFERRED_MAX_PARTIAL（既有「只有推論」判定改具名）、CASE_RED_THEN_GREEN（只記錄不擋）；`hooks/wg_need_goal.py` 的完整對照判定接上（收件與交付邊界同一支，擋訊息印規則名、節點、現有每一筆證據），收據蓋號時用完整指令與它的 cwd 算出點名的案例檔（指令裡換目錄的不算），對照收下時案例證據記 `red_then_green` 並把對上或「案例未見先紅」印在摘要；共用的取檔函式認得引號裡含空白的路徑（GREEN_SAME_CASE_CLEARS 一併受惠）；MCP 工具說明補一句。TECH §7.7 補一段、規則表重複的 7.7 改成 §7.8；契約 5.4、5.5 同步。
+- **驗證**：`verify_need_goal` 新增達成證據八種組合與先紅後綠七種序列（含長指令、指令內換目錄、引號含空白，走真的 reconcile）、`verify_release_rules` 新增五組純函式案；目標四支 292 passed、`verify_stop_reconcile` 464 passed；退回改前版本新 e2e 案全紅在斷言（AssertionError），純函式案紅在函式不存在（AttributeError）；codex 唯讀審查 3 BLOCK 先重現成案例再修。
+
+## 2026-10-14 v6.0 fix-hook-python 的 settings.json 改看 Claude Code 設定目錄，不跟資料根（裁定 #28）
+- **緣由**：`fix-hook-python.py` 單獨執行時用資料根（`WG_CLAUDE_DIR`）找 settings.json，但 Claude Code 讀的是設定目錄（`CLAUDE_CONFIG_DIR`，預設 `~/.claude`）；資料根設到別處時會檢查、改寫錯的那份。
+- **做法**：`SETTINGS` 改成 `CLAUDE_CONFIG_DIR`（有設）否則 `~/.claude`，取值照 Claude Code 2.1.296 本體的 `CLAUDE_CONFIG_DIR || 預設`（空字串視同沒設、不去空白），拿掉只為此載入的資料根函式；install.py 的 `ENV` 另把 `CLAUDE_CONFIG_DIR` 也釘在 `TARGET`，安裝器檢查的仍是它剛裝的那份；`verify_tools_data_root` 新增「設定目錄」常數表。一般安裝三者同一處，行為不變。TECH §9.2、§9.5。
+- **驗證**：`verify_fix_hook_python` 兩個新案（資料根放誘餌、設定目錄另指或沒設用假家 .claude）與 `verify_tools_data_root` 設定目錄案改前紅在斷言、改後綠；`verify_install` 誘餌案加設定目錄誘餌（工具改了而安裝器沒釘時紅）、受測檔加 `fix-hook-python.py`；三支 106 passed 1 skipped。
 
 ## 2026-10-14 記憶卡片可依程式語言篩選（跨範疇視圖，不搬檔）
 - **緣由**：使用者想找 Python、C#、JS 相關的卡，但資料夾只按問題類型分，只有 dotnet 自成一類；Python 卡散在六個範疇。

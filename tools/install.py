@@ -50,10 +50,11 @@ HOOK_PATH_RE = re.compile(r"\.claude/((?:hooks|tools)/[^\s\"'`;|&()<>]+)")
 HOME_SPELLINGS = ("$home/", "${home}/", "~/", "%userprofile%/", "$userprofile/", "home()/'", 'home()/"')
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
 # 子程序一律看到同一個家目錄：Windows 上 Python 看 USERPROFILE、bash 看 HOME。
-# 資料根也釘在安裝目標：目標樹的工具（fix-hook-python 等）吃 WG_CLAUDE_DIR，環境另指資料根時
-# 不能讓它們去讀寫別處的 settings.json 與記憶；一般安裝兩者本來就是同一處。
+# 資料根（WG_CLAUDE_DIR）與 Claude Code 設定目錄（CLAUDE_CONFIG_DIR）也釘在安裝目標：目標樹的工具
+# 吃這兩個變數（記憶走資料根、fix-hook-python 的 settings.json 走設定目錄），環境另指別處時
+# 不能讓它們去讀寫別處的設定與記憶；一般安裝三者本來就是同一處。
 ENV = {**os.environ, "HOME": str(HOME), "USERPROFILE": str(HOME), "WG_CLAUDE_DIR": str(TARGET),
-       "PYTHONIOENCODING": "utf-8"}
+       "CLAUDE_CONFIG_DIR": str(TARGET), "PYTHONIOENCODING": "utf-8"}
 
 
 class InstallError(Exception):

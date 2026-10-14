@@ -230,7 +230,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->383 atoms：core 177 + feedback 63 + 失敗模式 2 + local 141〔Tools17/MemDev113/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->391 atoms：core 180 + feedback 64 + 失敗模式 2 + local 145〔Tools18/MemDev116/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -301,7 +301,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->383<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->391<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -426,6 +426,7 @@ sequenceDiagram
 | Source／Quote／Depends | 選填 `provenance`（來源路徑／URL／commit／`session:<sid8>#<uuid8> <日期>`）→ `- Source:`；`quote`（使用者原話，單行 ≤200 字）→ `- Quote:`；`depends`（`["path:<絕對路徑>", …]`）→ `- Depends:`；replace 三態同 Supersedes（§4.1）；`edit_metadata` 另有 `provenance`／`quote` 兩 label；`VALID_SOURCES` 含 `hook:provenance`／`tool:provenance-backfill` | 工具卡與壞滅緣的地基；呼叫者沒給 Source／Quote 時由 PostToolUse `wg_provenance.autofill_from_receipt` 補（§8），MCP 進程不知道 session id，自動填只能放 hook 端 |
 | write gate | `tools/memory-write-gate.py` 品質評分 + 去重 | 見 6.2 |
 | 規則型樣式閘 | `lib/atom_io.rule_atom_style_violation`：落點在 `memory/行為契約/`／`memory/工作流/`（不含 Failures）的 atom 與任何 `feedback-*` atom，知識行含日期戳 → 拒寫；dotted config 鍵名只擋前者；`skip_gate` 不能繞。存量由 `tools/atom-date-lint.py` 掃（`--fix` 清、`--check` 給驗證），`tools/verify/verify_atom_date_lint.py` 活體守門索引內 atom 零敘事型日期（episodic／_distant 不掃） | atom 收的是知識與經驗，不是某個當下；日期只留 metadata 或日期本身就是知識（EOL、發布日） |
+| 敘事日期閘 | `KNOWLEDGE_LINE_NO_NARRATIVE_DATE`：這次寫進卡的知識行與行動行有敘事型日期就拒（py `write_atom` 三種模式、MCP 經 `atom_io_cli` 的 create_atom／build／append、extract-worker 失敗回寫、`org-memory --scan-tools` 建工具卡、`memory-audit --restore` 從 `_distant` 恢復時看整卡），多行知識元素攤成逐行再判，訊息印規則名與命中行（截 120 字）；判式 `lib/narrative_date` 與 `tools/atom-date-lint.py` 同一份，檔頭欄位、code fence、反引號、參照點與日期本身是知識的句子不算；`skip_gate` 不能繞 | 寫入當下就擋，不靠 lint 事後抓；判式只有一份，閘與 lint 不會一邊改了另一邊沒跟 |
 | 敏感 pending | `Audience: architecture/decision` 寫 shared → 進 `shared/_pending_review/`，不直接生效 | 架構決策需人裁決（`review.deciders`，空＝全員可裁決） |
 | 索引同步 | upsert JSON → sync-memory-index → 向量增量 → 橋接檔重產 | 單一真相 |
 | receipt | 成功時結果最後一行 `receipt: {op, atom, path, index_ok, supersedes}`；PostToolUse 入帳 `state.atom_ops[sid]` 供階段收割核對（§6.3） | 寫沒寫成、索引有沒有進，用收據對帳而不是 `exists()` |
@@ -534,7 +535,7 @@ sequenceDiagram
 
 SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑寫碼查核，有原因就擋到底，不計預算、不問使用者；寫入目標判不出的指令在 PreToolUse 就 deny。
 
-寫碼查核的每一條擋訊息都是一條有名字的規則（`hooks/wg_release_rules.py`，規則表 §7.7），格式 `✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`。擋次預算每條規則（字母）各自計次：同一條在同一個使用者回合擋滿 `max_blocks_per_turn` 才算擋滿，擋滿訊息列出全部命中條目。「回合」＝使用者打字、或帶派工標記的跨 session 訊息（首行「派工」或含 `to-track-<軌>/<檔>.md`）開的回合；一般同伴訊息、背景通知不開回合。
+寫碼查核的每一條擋訊息都是一條有名字的規則（`hooks/wg_release_rules.py`，規則表 §7.8），格式 `✗ (<字母>) <規則名>：<一句現象>｜證據：<一行一證據>`。擋次預算每條規則（字母）各自計次：同一條在同一個使用者回合擋滿 `max_blocks_per_turn` 才算擋滿，擋滿訊息列出全部命中條目。「回合」＝使用者打字、或帶派工標記的跨 session 訊息（首行「派工」或含 `to-track-<軌>/<檔>.md`）開的回合；一般同伴訊息、背景通知不開回合。
 
 定死規則（寫碼查核相關，改法不得放寬）：
 - CommitOrder 豁免：commit 落在記憶系統 repo 或其 worktree 才不等口令，只認 `&&` 串的 `cd <絕對路徑>`／`git [-C <字面路徑>] add|commit|push` 句型。
@@ -628,14 +629,14 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 工具 | MCP `need_goal`（`tools/workflow-guardian-mcp/lib/need-goal.js` 只驗參數回 chip）＋ PostToolUse 套用（`apply_op`） | set（寫樹根、換題開新樹、改寫樹根要 why、從續接單匯入）／add（子目標，可待展開）／update（改節點，也是改了程式之後的一句進度，why 必填）／reconcile（完整對照：每個還活著的節點交終點結論＋證據）／read（form=handoff 取續接單區塊）。每次呼叫後 hook 把整棵樹送回眼前，拒收的項目附原因 |
 | 新需求開始 | UserPromptSubmit（`on_prompt`，排在導讀卡之前） | 只認使用者本人打的字（`harness_text.user_typed_text`），跨 session 訊息記成同伴轉述、系統通知不記。沒樹時第一則訊息提醒一次先寫目標；有樹時每則送回樹根一行（子目標、待展開、待對照的改動數）；樹對照完或結束後再提醒一次 |
 | 改程式前 | PreToolUse：第一層 `edit_gate` 在 OverviewHub 之前；第二層在 `wg_overview.on_edit` | 寫碼類檔（部位類別不是知識類、副檔名在 `reconcile_gate.code_exts` 聯集清單或沒副檔名但第一行 `#!`；搬移或複製（mv／cp／Move-Item／Copy-Item…）時來源含程式檔也算，來源是目錄就往下找；Write 新建沒副檔名而內容以 `#!` 開頭也算）沒有目標樹就擋，OverviewHub 關掉、沒專案根、表外檔都照查；暫存檔不管。有樹時部位表上的程式檔，定位三行之後要加第四行 `定位｜目標：<節點編號>（這一塊在目標裡的角色）`，編號要在目前的樹、沒放棄；核對通過記「部位 → 節點」，之後這個部位的改動掛到那個節點。目標改了（開新樹、改樹根、增減節點、改節點文字）→ 各部位的「已定位」清掉，只認之後交的那一組。導讀卡開頭附目標樹精簡版 |
-| 改了之後、交付之前 | Stop `_verify_gates`（只有主 session）、PreToolUse commit 指令 | (f1) 改了程式檔就欠一筆「待對照」，對那個節點（或它底下的節點）交一句 update 才清；回合結束有欠就擋，不看措辭（update／reconcile 依節點編號找所屬的樹，換題後舊樹欠的也交得進去）。(f2) 交付邊界（宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核）查目前的寫碼類樹七條：交過完整對照、目標版本沒變、每個還活著的節點是終點、達成／部分有證據且指標在、收據晚於它支持的節點（含子孫與祖先）的最後一次改動、達成不能只有推論且實測只配收據、部分／沒有寫 followup。兩條都併進寫碼查核的擋訊息，同一個擋次預算、同一個擋滿問使用者流程。commit 指令執行前查 (f1)＋(f2)，缺了 deny；是不是 commit 與口令閘同一支判定（heredoc 本文裡的 commit 範例不算，heredoc 結束後真的執行的照算）。記憶知識類（沒改過程式檔的樹）兩層都不擋 |
+| 改了之後、交付之前 | Stop `_verify_gates`（只有主 session）、PreToolUse commit 指令 | (f1) 改了程式檔就欠一筆「待對照」，對那個節點（或它底下的節點）交一句 update 才清；回合結束有欠就擋，不看措辭（update／reconcile 依節點編號找所屬的樹，換題後舊樹欠的也交得進去）。(f2) 交付邊界（宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核）查目前的寫碼類樹七條：交過完整對照、目標版本沒變、每個還活著的節點是終點、達成／部分有證據且指標在、收據晚於它支持的節點（含子孫與祖先）的最後一次改動、達成不能只有推論且寫碼類的達成至少一筆沒紅的收據或讀碼級驗證案例（只有檔案、卡片、推論不算試過）且實測只配收據、部分／沒有寫 followup；擋訊息印規則名、節點與現有每一筆證據（規則 §7.8）。完整對照收下時，每筆案例證據對目標檔收據找「同一案例檔先紅、之後綠」，對上記 `red_then_green` 並印在對照摘要，對不上印「案例未見先紅」，只記錄不擋。兩條都併進寫碼查核的擋訊息，同一個擋次預算、同一個擋滿問使用者流程。commit 指令執行前查 (f1)＋(f2)，缺了 deny；是不是 commit 與口令閘同一支判定（heredoc 本文裡的 commit 範例不算，heredoc 結束後真的執行的照算）。記憶知識類（沒改過程式檔的樹）兩層都不擋 |
 | 收尾與審查 | PostToolUse 收尾檢核分支、HUD、`codex_companion` 驗收審查 | 收尾檢核報告自動附目前寫碼類樹（原話摘要、節點、對照結果），HUD 多一塊「目標對照」，收尾檢核本身不多欄；完整對照的部分／沒有寫進 `workflow/tracking/<slug>.jsonl`；驗收審查的「使用者目標」改給「使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）」三段 |
 | 續接 | `handoff_block`／`import_handoff`／`recovery_blob` | 續接單帶【需求目標樹】區塊（人讀段＋機讀 JSON）；新 session 讀到 `_staging/next-phase*.md` 而還沒有樹就自動匯入（新編號、舊證據標前一個 session、只供閱讀），已有樹就提示用 `import_from` 接續；本 session 自己匯出的不重複匯入。壓縮後的目標樹獨立重送，不依附部位綜觀 |
 | 紀錄 | `Logs/guard-need_goal.jsonl` | 每次動作、擋改檔、擋定位、提醒、匯入、(f1)(f2)、commit 擋、鎖逾時、壞檔留證 |
 
 ---
 
-### 7.7 放行／欠帳判定規則（`hooks/wg_release_rules.py`）
+### 7.8 放行／欠帳判定規則（`hooks/wg_release_rules.py`）
 
 每一種放行或欠帳情境一條有名字的規則、一個會紅的案例（`hooks/verify/verify_release_rules.py`；端到端案在各閘的 verify 檔；真 hook 入口探針 `hooks/verify/probe_release_rules.py`）。呼叫端只蒐集事實（state、transcript、git、檔案內容）交給模組判，不自己加例外；不准「整輪不擋」或「放寬」當解法。測試或探針把假專案建在系統暫存目錄時用環境變數 `WG_TEMP_RULES=off` 關掉兩條暫存規則。
 
@@ -662,6 +663,8 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT | 暫存目錄 | commit 實際落的 **repo 根**在系統 TEMP／CC 的 Temp/claude 暫存／pytest tmp 下才免口令；暫存目錄下的副本不找部位表、不注入、不要求綜觀、不當收據。兩側都展成長路徑再比（8.3 短路徑） | 正式 repo（含它裡面叫 scratchpad 的子目錄）、本體 |
 | DPM_WORKTREE_DELIVERY | DeepPostMortem 的寫法 | worktree 隔離 session 寫進交付信由總控台代寫 | 主工作樹照叫 atom_write |
 | RED_WHILE_REVERTED／RETRY_COUNTS_RERUN_CYCLES／GREEN_SAME_CASE_CLEARS | 紅測與重試 | 跑紅時本 session 改過的程式檔**全部**處在非 HEAD 已提交版本（同根沒有任何自己的現行改碼）→ 刻意紅不記；改檔記在每筆還活著的紅測的 `edits_since_run`；又跑紅時，重跑**同一組**測試（點名的程式檔集合完全相同，共用設定檔不算；或兩邊都沒點名檔且指令前 40 字相同）、而且那組上次跑之後碼有改過才算一輪，判完清掉那組的紀錄（兩次重跑之間改幾次都只一輪；中間跑別組的綠不會取走 A 的紀錄；第一次跑別組紅不算）。不猜改檔是為了修哪一組：同時修多組時，沒改到的那組重跑仍紅也算一輪（已知限制，代價是多一次提醒）；紅之後第一次重跑就綠＝0 輪；只改計畫類檔不記；綠的點名**同一個**案例檔（含目錄；兩邊有 cwd 就比絕對路徑）就清那筆紅 | 只退回其中一檔、另一檔還留著真錯 → 真的紅照記；同名不同目錄的案例不互清；兩輪重跑仍紅升級 FixEscalation（plan 與 direct 同門檻），提示與 DeepPostMortem 觸發句印第幾輪與每輪的重跑指令＋紅案 |
+| GOAL_DONE_NEEDS_CASE_OR_RECEIPT／GOAL_INFERRED_MAX_PARTIAL | 目標樹完整對照的「達成」（`wg_need_goal` 收件與交付邊界同一支） | 寫碼類樹的達成至少一筆沒紅的收據（實測）或讀碼級驗證案例；記憶知識類樹不查第一條 | 只有檔案、卡片、推論級案例或紅收據；任何類別證據全是推論。擋訊息列節點與現有每一筆證據 |
+| CASE_RED_THEN_GREEN | 案例有沒有先紅後綠（只記錄） | 目標檔收據裡點名同一案例檔先紅、之後綠 → 該筆證據記 `red_then_green`，對照摘要印出。點名哪些檔在蓋號時用完整指令與它的 cwd 解成絕對路徑（同名不同目錄不算、引號裡含空白的路徑整段算） | 指令裡換目錄或沒記 cwd 的收據不比；對不上照收，摘要印「案例未見先紅」；不是閘 |
 
 ## 8. 可觀測與自我維護
 
@@ -752,13 +755,13 @@ Long DIE 時 SessionStart 詢問「停用／保持」，UPS 偵測回覆。靜�
 | `lancedb`（需 CPU AVX2） | 向量 DB `memory/_vectordb/` | 無（`fallback_backend` 只管 embedder） | `service.py` 起不來 → `Logs/vector-service.log`、statusline `vec✗`、SessionStart advisory；trigger/BM25 照常 |
 | `sentence-transformers` | 無 Ollama 時的本地嵌入 | Ollama | 同 Ollama 列 |
 | Codex CLI 與其授權 | 驗收裁判、計畫審查、handoff 自檢（§7.4） | 自動退 headless `claude -p`（預設只有 advisory 權）；授權失敗抑制 24h | heuristics-only，SessionStart 揭露一次 `[Codex Companion] 已停用：…`（每台機器一次）；整個不要：`codex_companion.enabled=false` |
-| Hook 直譯器路徑 | `settings.json` 每條 hook 指令開頭指名直譯器（§3.1） | `python tools/fix-hook-python.py`（只檢查）／`--write`（用跑這行的這支 python 改寫全部 hook 與 statusLine 指令，備份 `settings.json.bak`）／`--use <path>`；`pythonw` 維持 w 版，已全部存在則零改動，Windows 以外沒有 `pythonw` 就改成同一支 `python` | 全部 hook 起不來 → 回到原生，不會壞。**不要改成裸 `python`**：PATH 首位未必是預期那支 |
+| Hook 直譯器路徑 | `settings.json` 每條 hook 指令開頭指名直譯器（§3.1） | `python tools/fix-hook-python.py`（只檢查）／`--write`（用跑這行的這支 python 改寫全部 hook 與 statusLine 指令，備份 `settings.json.bak`）／`--use <path>`；對象是 Claude Code 讀的 `settings.json`（`CLAUDE_CONFIG_DIR`，沒設就 `~/.claude`），不跟資料根；`pythonw` 維持 w 版，已全部存在則零改動，Windows 以外沒有 `pythonw` 就改成同一支 `python` | 全部 hook 起不來 → 回到原生，不會壞。**不要改成裸 `python`**：PATH 首位未必是預期那支 |
 
 pip 套件一次裝：`pip install -r tools/memory-vector-service/requirements.txt`；沒 admin 權限用 `--user`（Python / Node.js / Ollama 也都有 user-local 安裝）。
 
 ### 9.3 MCP 註冊（`hooks/ensure-mcp.py`）
 
-每次 SessionStart 自動：找 node → 讀 `mcp-servers.template.json` → JS 入口存在的 server 合併進 `~/.claude.json` 的 `mcpServers`（缺整塊才補；已存在且 template `_version` 沒升則不動）→ npm 套件不在磁碟的 server 背景 `npm i -g`（下次 session 才寫入 config）→ 每 7 天背景 `npm outdated/update`。正常情況開兩次 session 就齊。它**不會建立** `~/.claude.json`（Claude Code 首次啟動自己建），檔案不存在時直接結束。
+每次 SessionStart 自動：找 node → 讀 `mcp-servers.template.json` → JS 入口存在的 server 合併進 `~/.claude.json` 的 `mcpServers`（缺整塊才補；已存在且 template `_version` 沒升則不動）→ npm 套件不在磁碟的 server 背景 `npm i -g`（下次 session 才寫入 config）→ 每 7 天背景 `npm outdated/update`。正常情況開兩次 session 就齊。設了 `CLAUDE_CONFIG_DIR` 時，它和 Claude Code 一樣改用該目錄底下的 `.claude.json`；清理工具與繞閘掃描找的 shell-snapshots、debug、plugins 也跟這個目錄（`lib/project_root.py` 的 `claude_config_dir`、`claude_global_config`）。它**不會建立** `~/.claude.json`（Claude Code 首次啟動自己建），檔案不存在時直接結束。
 
 | 名稱 | 來源 | 入口 |
 |------|------|------|
@@ -783,7 +786,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 
 ### 9.5 安裝與升級（`tools/install.py`）
 
-單檔、純標準函式庫；目標固定是 `~/.claude`，來源是腳本所在的 git clone（不是 git clone 就報錯）。它叫起的目標樹工具（直譯器校正、索引檢查、記憶檢索）一律以目標當資料根，環境另設的 `WG_CLAUDE_DIR` 不影響安裝與驗證。操作步驟寫在 `Install-forAI.md`，此處只記它對系統做了什麼。
+單檔、純標準函式庫；目標固定是 `~/.claude`，來源是腳本所在的 git clone（不是 git clone 就報錯）。它叫起的目標樹工具（直譯器校正、索引檢查、記憶檢索）一律以目標當資料根與 Claude Code 設定目錄，環境另設的 `WG_CLAUDE_DIR`、`CLAUDE_CONFIG_DIR` 不影響安裝與驗證。操作步驟寫在 `Install-forAI.md`，此處只記它對系統做了什麼。
 
 | 子指令 | 做什麼 | exit code |
 |--------|--------|-----------|

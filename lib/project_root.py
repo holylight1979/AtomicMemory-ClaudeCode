@@ -28,6 +28,17 @@ def claude_data_dir() -> Path:
     return Path(override) if override else Path.home() / ".claude"
 
 
+def claude_config_dir() -> Path:
+    """Claude Code 自己的設定目錄（settings.json、shell-snapshots、debug、plugins）：CLAUDE_CONFIG_DIR 有值就用，
+    否則 Path.home()/".claude"。取值和 Claude Code 一樣（空字串當沒設、不去空白）；和資料根是兩件事，一般安裝才同一處。"""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
+def claude_global_config() -> Path:
+    """Claude Code 的全域設定檔 .claude.json：CLAUDE_CONFIG_DIR 有值就在它底下，否則在家目錄本身（不是家目錄/.claude）。"""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()) / ".claude.json"
+
+
 HOME = Path.home()
 CLAUDE_DIR = claude_data_dir()
 MEMORY_INDEX = "MEMORY.md"

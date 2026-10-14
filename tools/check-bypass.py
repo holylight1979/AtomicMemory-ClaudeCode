@@ -21,7 +21,11 @@ import sys
 from pathlib import Path
 
 CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根：掃本樹的 hooks／tools／lib 原始碼
-HARNESS_DIR = Path.home() / ".claude"            # CC 自己的目錄：plugins/ 在這
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_config_dir  # noqa: E402
+
+HARNESS_DIR = claude_config_dir()                # Claude Code 自己的設定目錄：plugins/ 在這
 
 WHITELIST = {
     "lib/atom_io.py",

@@ -6,8 +6,10 @@
   沒設 WG_CLAUDE_DIR、HOME 指到 tmp 家 → 資料常數都在 tmp家/.claude。子行程一律 -P 且 cwd 在 tmp（工具沒自己插程式碼根就紅）；
   常數名可用點號與 [鍵] 取屬性、預設參數（例 OllamaClient.LONG_DIE_MARKER、ensure_service.__kwdefaults__[flag_path]）。
   hooks／skills 底下能單獨載入的腳本也在 TOOLS 表（路徑相對 tools/，例 ../hooks/lang_guard.py）。
+- Claude Code 自己的設定與執行期目錄（CONFIG_DIR_TOOLS 表）看設定目錄：CLAUDE_CONFIG_DIR 有設就在它底下，
+  沒設就 家目錄/.claude；.claude.json 在 CLAUDE_CONFIG_DIR 或家目錄底下；設了 WG_CLAUDE_DIR 也不跟資料根走。
 - 成對：向量 config／starter／rag-engine 的 _vectordb 同一處；codex-companion state.py 寫的檔 hooks/codex_companion 讀得到。
-- ensure-mcp：MCP server 入口（樣板的 {claude_dir}）看程式碼根，~/.claude.json 留家目錄。
+- ensure-mcp：MCP server 入口（樣板的 {claude_dir}）看程式碼根，.claude.json 看 Claude Code 設定目錄。
 - 假 worktree：把 followup-check.py 與 lib/project_root.py 複製到 tmp 的「程式碼樹」，資料根是另一個 tmp，
   跑 --add／--list → 讀寫全落資料根，程式碼樹底下不出現 workflow／Logs／memory（反例：舊碼會寫進程式碼樹）。
 - 一般安裝（程式碼根＝資料根）時每個常數與舊算法逐字相同。
@@ -35,7 +37,6 @@ TOOLS = {
     "memory-effect-report.py": (["ATOM_INDEX", "RESCUE_LOG", "RECALL_MISS_LOG", "INJECTION_TURNS_LOG"], ["CODE_DIR"]),
     "atom-date-lint.py": (["INDEX"], ["CODE_DIR"]),
     "atom-heal.py": (["MEMORY"], ["ROOT", "TOOLS"]),
-    "fix-hook-python.py": (["SETTINGS"], ["CODE_DIR"]),
     "scorecard-report.py": (["WORKFLOW_DIR"], ["CODE_DIR"]),
     "statusline.py": (["WORKFLOW_DIR"], ["CODE_DIR"]),
     "refix-churn.py": (["CONFIG_PATH"], ["CODE_DIR"]),
@@ -93,6 +94,13 @@ TOOLS = {
     "../skills/skill-creator/scripts/skill-cost-measure.py": (["PROJECTS_DIR"], ["_CODE_ROOT"]),
 }
 
+# 工具 → 設定目錄常數（Claude Code 自己的設定與執行期目錄：settings.json、shell-snapshots、debug、plugins）
+CONFIG_DIR_TOOLS = {
+    "fix-hook-python.py": ["SETTINGS"],
+    "cleanup-old-files.py": ["HARNESS_DIR", "CLEANUP_RULES[0][0]", "CLEANUP_RULES[1][0]"],
+    "check-bypass.py": ["HARNESS_DIR"],
+}
+
 PROBE = r"""
 import importlib.util, json, sys
 path, names = sys.argv[1], json.loads(sys.argv[2])
@@ -124,11 +132,13 @@ def _under(p, root) -> bool:
     return a == r or a.startswith(r + os.sep)
 
 
-def _env(home: Path, wg=None) -> dict:
-    env = {k: v for k, v in os.environ.items() if k not in ("WG_CLAUDE_DIR", "PYTHONPATH")}
+def _env(home: Path, wg=None, cfg=None) -> dict:
+    env = {k: v for k, v in os.environ.items() if k not in ("WG_CLAUDE_DIR", "CLAUDE_CONFIG_DIR", "PYTHONPATH")}
     env.update({"HOME": str(home), "USERPROFILE": str(home), "PYTHONIOENCODING": "utf-8"})
     if wg is not None:
         env["WG_CLAUDE_DIR"] = str(wg)
+    if cfg is not None:
+        env["CLAUDE_CONFIG_DIR"] = str(cfg)
     return env
 
 
@@ -185,6 +195,23 @@ def test_tool_data_follows_data_root_code_follows_file(tool, dirs, cwd):
         assert got[n] == raw or got[n].startswith(raw + os.sep), (n, got[n])
 
 
+@pytest.mark.parametrize("tool", sorted(CONFIG_DIR_TOOLS))
+def test_tool_cc_settings_follow_claude_config_dir(tool, dirs, cwd, tmp_path):
+    """都設了 WG_CLAUDE_DIR（反例：舊碼跟資料根走）：CLAUDE_CONFIG_DIR＝tmp → 落在它底下、不落資料根也不落本樹；
+    沒設或空字串（Claude Code 也當沒設）→ 家目錄/.claude，原始字串和一般安裝的舊值一字不差。"""
+    home, data = dirs
+    config = tmp_path / "cc-config"
+    names = CONFIG_DIR_TOOLS[tool]
+    got = _probe(tool, names, _env(home, data, config), cwd)
+    for n in names:
+        assert _under(got[n], config) and not _under(got[n], data) and not _under(got[n], TREE), (n, got[n])
+    raw = str(home / ".claude")
+    for cfg in (None, ""):
+        got = _probe(tool, names, _env(home, data, cfg), cwd)
+        for n in names:
+            assert got[n] == raw or got[n].startswith(raw + os.sep), (cfg, n, got[n])
+
+
 PAIR_PROBE = r"""
 import importlib.util, json, sys
 from pathlib import Path
@@ -237,16 +264,22 @@ def test_paired_vector_and_companion_share_data_root(dirs, cwd):
     assert not (home / ".claude").exists()                                              # 反例：家目錄不被碰
 
 
-@pytest.mark.parametrize("tool,names", [
-    ("cleanup-old-files.py", ["HARNESS_DIR", "CLEANUP_RULES[0][0]", "CLEANUP_RULES[1][0]"]),
-    ("check-bypass.py", ["HARNESS_DIR"]),
-])
-def test_cc_harness_dirs_stay_in_home(tool, names, dirs, cwd):
-    """CC 自己的目錄（shell-snapshots、debug、plugins）刻意看家目錄：設了 WG_CLAUDE_DIR 也不跟資料根走。"""
+def test_claude_config_dir_and_global_config_single_source(dirs, tmp_path):
+    """Claude Code 設定目錄與 .claude.json 的唯一算法（照 Claude Code 的 CLAUDE_CONFIG_DIR || 預設）：
+    設了 → 設定目錄＝它、.claude.json 在它底下；沒設或空字串 → 家目錄/.claude 與 家目錄/.claude.json。資料根另設不影響。"""
     home, data = dirs
-    got = _probe(tool, names, _env(home, data), cwd)
-    for n in names:
-        assert _under(got[n], home / ".claude") and not _under(got[n], data), (n, got[n])
+    config = tmp_path / "cc-config"
+    snippet = ("import json, sys; sys.path.insert(0, sys.argv[1] + '/lib');"
+               "from project_root import claude_config_dir, claude_global_config;"
+               "print(json.dumps([str(claude_config_dir()), str(claude_global_config())]))")
+    for cfg, expect_dir, expect_json in ((config, config, config / ".claude.json"),
+                                         (None, home / ".claude", home / ".claude.json"),
+                                         ("", home / ".claude", home / ".claude.json")):
+        r = subprocess.run([sys.executable, "-X", "utf8", "-c", snippet, str(TREE)], env=_env(home, data, cfg),
+                           capture_output=True, text=True, encoding="utf-8", timeout=60, creationflags=NO_WINDOW)
+        assert r.returncode == 0, r.stderr[-2000:]
+        got_dir, got_json = json.loads(r.stdout.strip().splitlines()[-1])
+        assert got_dir == str(expect_dir) and got_json == str(expect_json), (cfg, got_dir, got_json)
 
 
 ENSURE_MCP_PROBE = r"""
@@ -260,17 +293,49 @@ print("PROBE_JSON " + json.dumps({"entry": entry, "claude_json": str(mod.CLAUDE_
 """
 
 
-def test_ensure_mcp_entry_from_code_root_cc_config_in_home(dirs, cwd):
-    """ensure-mcp：樣板的 {claude_dir} 是 MCP server 程式 → 程式碼根；~/.claude.json 是 CC 自己的設定 → 家目錄，不跟資料根走。"""
+@pytest.mark.parametrize("cfg", ["set", None, ""])
+def test_ensure_mcp_entry_from_code_root_cc_config_follows_config_dir(cfg, dirs, cwd, tmp_path):
+    """ensure-mcp：樣板的 {claude_dir} 是 MCP server 程式 → 程式碼根；.claude.json 是 Claude Code 自己的設定 →
+    CLAUDE_CONFIG_DIR 有設就在它底下，沒設或空字串在家目錄，都不跟資料根走（反例：舊碼寫死家目錄）。"""
     home, data = dirs
+    config = tmp_path / "cc-config"
+    env_cfg = config if cfg == "set" else cfg
     r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", ENSURE_MCP_PROBE, str(TREE / "hooks" / "ensure-mcp.py")],
-                       env=_env(home, data), cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
+                       env=_env(home, data, env_cfg), cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=120, creationflags=NO_WINDOW)
     line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
     assert r.returncode == 0 and line, f"rc={r.returncode}\n{r.stderr[-3000:]}"
     got = json.loads(line[len("PROBE_JSON "):])
     assert _n(got["entry"]) == _n(TREE / "tools" / "workflow-guardian-mcp" / "server.js"), got
-    assert _n(got["claude_json"]) == _n(home / ".claude.json"), got
+    assert _n(got["claude_json"]) == _n((config if cfg == "set" else home) / ".claude.json"), got
+
+
+USAGE_ACCOUNT_PROBE = r"""
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("probe_usage_snapshot", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+sys.modules["probe_usage_snapshot"] = mod
+spec.loader.exec_module(mod)
+print("PROBE_JSON " + json.dumps(mod.detect_account()))
+"""
+
+
+@pytest.mark.parametrize("cfg", ["set", None])
+def test_usage_snapshot_account_from_config_dir_claude_json(cfg, dirs, cwd, tmp_path):
+    """usage-snapshot 讀登入帳號的 .claude.json 跟 CLAUDE_CONFIG_DIR：家目錄與設定目錄各放一份不同帳號，
+    設了讀設定目錄那份、沒設讀家目錄那份（反例：舊碼設了也讀家目錄的誘餌）。"""
+    home, data = dirs
+    config = tmp_path / "cc-config"
+    config.mkdir()
+    (home / ".claude.json").write_text(json.dumps({"oauthAccount": {"emailAddress": "home-decoy@x.test"}}), encoding="utf-8")
+    (config / ".claude.json").write_text(json.dumps({"oauthAccount": {"emailAddress": "cfg-user@x.test"}}), encoding="utf-8")
+    r = subprocess.run([sys.executable, "-X", "utf8", "-P", "-c", USAGE_ACCOUNT_PROBE,
+                        str(TREE / "tools" / "usage-snapshot" / "usage_snapshot.py")],
+                       env=_env(home, data, config if cfg == "set" else None), cwd=str(cwd), capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", timeout=120, creationflags=NO_WINDOW)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("PROBE_JSON ")), None)
+    assert r.returncode == 0 and line, f"rc={r.returncode}\n{r.stderr[-3000:]}"
+    assert json.loads(line[len("PROBE_JSON "):]) == ("cfg-user" if cfg == "set" else "home-decoy")
 
 
 @pytest.mark.skipif(not shutil.which("pwsh"), reason="pwsh not available")

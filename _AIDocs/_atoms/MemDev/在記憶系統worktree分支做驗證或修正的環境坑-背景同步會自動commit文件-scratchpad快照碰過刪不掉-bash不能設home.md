@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: worktree 分支, 背景記憶同步, knowledge harvest commit, git archive 快照, OverviewHub 擋刪, 設 HOME, 驗證 session, 反證快照
 - Created-at: 2026-10-13
-- Related: 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源, 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它, 需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份
+- Related: 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源, 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它, 需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份, 改索引產生器時背景記憶同步會先用工作樹的新版重產並自動commit索引-產物比程式先進版控
 - Source: session:2a7705d4#a766a34b 2026-10-13
 - Quote: 「關session以前還是問一次：此session的知識、經驗，都atoms起來了嗎?」
 

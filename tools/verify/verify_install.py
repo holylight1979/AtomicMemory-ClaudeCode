@@ -22,7 +22,7 @@ from typing import Optional
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-UNDER_TEST = ("tools/install.py", "hooks/user-init.sh")
+UNDER_TEST = ("tools/install.py", "hooks/user-init.sh", "tools/fix-hook-python.py", "lib/project_root.py")
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.longpaths=true"]
 
@@ -479,20 +479,23 @@ def test_missing_target_is_created_and_adopted(base, upstream):
 
 
 def test_data_root_elsewhere_installs_and_checks_target(base, upstream):
-    """環境把資料根（WG_CLAUDE_DIR）指到別處時，安裝照常完成，hook 直譯器檢查看的是安裝目標的 settings.json：
-    別處放一份直譯器不存在的誘餌 settings.json，安裝完它一個位元都沒動、旁邊也沒多出備份檔。
-    資料根由本案自己指定，不靠 conftest 的隔離值。"""
+    """環境把資料根（WG_CLAUDE_DIR）與 Claude Code 設定目錄（CLAUDE_CONFIG_DIR）各指到別處時，安裝照常完成，
+    hook 直譯器檢查看的是安裝目標的 settings.json：兩處各放一份直譯器不存在的誘餌 settings.json，
+    安裝完都一個位元沒動、旁邊也沒多出備份檔。兩個變數由本案自己指定，不靠 conftest 的隔離值。"""
     home = make_home(base, "h9", {"settings.json": USER_SETTINGS})
-    elsewhere = base / "h9-data"
-    elsewhere.mkdir()
     decoy = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "\"C:/no/such/python.exe\" x.py"}]}]}}
-    (elsewhere / "settings.json").write_text(json.dumps(decoy), encoding="utf-8", newline="\n")
-    before = (elsewhere / "settings.json").read_bytes()
-    result = run_install(home, upstream["script"], "--apply", extra_env={"WG_CLAUDE_DIR": str(elsewhere)})
+    elsewhere = {"WG_CLAUDE_DIR": base / "h9-data", "CLAUDE_CONFIG_DIR": base / "h9-cc-config"}
+    before = {}
+    for var, d in elsewhere.items():
+        d.mkdir()
+        (d / "settings.json").write_text(json.dumps(decoy), encoding="utf-8", newline="\n")
+        before[var] = (d / "settings.json").read_bytes()
+    result = run_install(home, upstream["script"], "--apply", extra_env={k: str(d) for k, d in elsewhere.items()})
     assert result.returncode == 0, result.stdout + result.stderr
     assert "hook 直譯器：" in result.stdout and "安裝完成" in result.stdout
-    assert sorted(p.name for p in elsewhere.iterdir()) == ["settings.json"]
-    assert (elsewhere / "settings.json").read_bytes() == before
+    for var, d in elsewhere.items():
+        assert sorted(p.name for p in d.iterdir()) == ["settings.json"], var
+        assert (d / "settings.json").read_bytes() == before[var], var
 
 
 def test_broken_user_settings_aborts_before_any_change(base, upstream):

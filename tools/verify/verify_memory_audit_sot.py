@@ -152,6 +152,24 @@ def test_restore_from_distant_upserts_index(tmp_path):
     assert entries["baz"]["triggers"] == ["alpha", "beta", "gamma"]
 
 
+def test_restore_refuses_card_with_narrative_date(tmp_path):
+    """codex 審 date-gate 001 BLOCK 3：_distant 不受 lint 掃，恢復會把帶敘事日期的舊卡重新放進索引；
+    恢復前過同一日期閘（KNOWLEDGE_LINE_NO_NARRATIVE_DATE），拒絕時不搬檔、不動索引、指路 --fix。"""
+    mem = tmp_path / "memory"
+    distant = mem / "_distant" / "2026_01"
+    distant.mkdir(parents=True)
+    src = distant / "dated.md"
+    text = ATOM_BODY.format(name="dated").replace("- 內容一則", "- 實踩（2026-10-14）：內容一則")
+    src.write_text(text, encoding="utf-8")
+    ok, msg = MA.restore_from_distant(src)
+    assert not ok
+    assert "KNOWLEDGE_LINE_NO_NARRATIVE_DATE" in msg and "實踩（2026-10-14）" in msg, msg
+    assert "atom-date-lint.py --fix --path" in msg, msg
+    assert src.read_text(encoding="utf-8") == text and not (mem / "dated.md").exists()
+    from lib.atom_index_json import load_atom_index_json
+    assert not any(a["name"] == "dated" for a in load_atom_index_json(mem)["atoms"])
+
+
 # ─── 4. parse_memory_index：範疇聚合表不產 entry ──────────────────────────────
 
 

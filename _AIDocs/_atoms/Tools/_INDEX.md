@@ -18,6 +18,7 @@
 | ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測 | ollama-gemma4-e4b-音訊輸入走images欄位-單次可吃5分鐘-會議轉錄實測 |
 | sync-memory-indexpy-在-windows-直接跑會-cp950-unicodeencodeerror-前綴-pythonioencodingutf-8 | sync-memory-index.py 在 Windows 直接跑會 cp950 UnicodeEncodeError — 前綴 PYTHONIOENCODING=utf-8 |
 | vscode-claude-code-空分頁由總控台用剪貼簿貼開工句啟動-enter只換行要點送出鈕-中文走set-clipboard不走type | vscode-claude-code-空分頁由總控台用剪貼簿貼開工句啟動-enter只換行要點送出鈕-中文走set-clipboard不走type |
+| 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 | 只記錄不擋的功能也要送獨立唯讀審查-一般寫法的輸入照樣會記錯 |
 | 盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與listagents啟動時間 | 盤點並行session的context用量-讀projects下各transcript最後一筆assistant-usage三欄相加-名字對應靠worktree資料夾與ListAgents啟動時間 |
 
 ## 子層
