@@ -830,6 +830,18 @@ def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch):
     assert _deny_text(_ptu_run("Bash", {"command": "git log -1"}, proj, tp, outputs)) is None
 
 
+def test_gate_messages_point_to_reload_when_tool_missing(env):
+    """裁定 #23：合併前就開著的分頁 MCP 是舊的、叫不到 need_goal，擋下訊息只說「先用 need_goal」會走不下去；
+    改檔閘、commit 閘（含目標檔損毀）的擋下訊息都要指路：Reload Window 或開新 session。"""
+    proj = env["proj"]
+    assert "Reload Window" in ng.edit_gate(SID, str(proj / "a.py"), {})           # 沒有樹
+    _code_tree(env)
+    assert "Reload Window" in ng.commit_gate(SID, {})                              # 對照沒過
+    ng.goal_path(SID).write_text("{not json", encoding="utf-8")
+    assert "Reload Window" in ng.edit_gate(SID, str(proj / "a.py"), {})           # 目標檔損毀
+    assert "Reload Window" in ng.commit_gate(SID, {})
+
+
 def test_commit_gate_ignores_commit_examples_inside_heredoc(hooked, monkeypatch):
     """heredoc 本文裡的 git／svn commit 是文件內容（操作說明、派工單），不觸發 commit_gate；heredoc 結束後真的執行的
     commit 照擋。與 CommitOrder 共用同一支判定。"""

@@ -418,7 +418,7 @@ def _ask_message(tree: Dict[str, Any], code: bool, after: bool) -> str:
            f"；目前最可能的是 {nid}（{text}），換成真正對應的節點也可以。這題不屬於任何節點 → "
            "先用 need_goal(action=add, parent=…) 長出那個節點，再掛上它問。")
     return (f"{head}。{fix}全貌還沒對齊就先補，自己判斷得了的不推給人；問完把答案寫進 need_goal。目前的樹：\n"
-            + ng.render(tree, "compact"))
+            + ng.render(tree, "compact") + "\n" + ng.NO_TOOL_HINT)
 
 
 def note_ask_blocked(state: Dict[str, Any], deny: Optional[str]) -> None:
@@ -460,7 +460,7 @@ def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any],
     except ng.NeedGoalCorrupt as e:
         _guard("corrupt", sid, turn, where="on_ask", error=str(e))
         msg = (f"[NeedGoal] 目標檔壞了，判不了這題掛哪個節點（{e}）：先用 need_goal(action=set, goal=…) 重寫樹根"
-               "（壞檔會自動備份），再問。")
+               "（壞檔會自動備份），再問。" + ng.NO_TOOL_HINT)
         return (None, msg) if after else (msg, None)
     tree = _live(doc)
     if not tree:

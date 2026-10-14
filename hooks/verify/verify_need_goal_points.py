@@ -582,6 +582,16 @@ def test_ask_deny_reason_gives_fix_you_can_follow():
     assert "照做：" in deny and "（掛 T1.1）" in deny and "need_goal(action=add" in deny
 
 
+def test_ask_deny_reason_points_to_reload_when_tool_missing():
+    """裁定 #23：叫不到 need_goal 工具（MCP 是舊的）的人照擋下訊息走不下去 → 提問閘的擋下訊息（含目標檔損毀）要指路。"""
+    make_tree("code")
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
+    assert "Reload Window" in deny
+    ng.goal_path(SID).write_text("{not json", encoding="utf-8")
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 4})
+    assert deny and "目標檔壞了" in deny and "Reload Window" in deny
+
+
 def test_batch_records_ask_audit_blocked_count_and_linked(world):
     """PostToolBatch 對每次提問記一筆審計：這題被擋過幾次、最後有沒有掛上節點。"""
     make_tree("code")

@@ -48,6 +48,9 @@ LABEL = {
 }
 
 DEFAULTS: Dict[str, Any] = {"enabled": True, "scope_growth_dirs": 3, "render_chars": 1200}
+# 擋下訊息共用的指路句（改檔閘、commit 閘、提問閘）：MCP 是視窗層級共用的 node 程序，改了要 Reload 才載到新工具，
+# 叫不到 need_goal 的人照「先用 need_goal」走不下去
+NO_TOOL_HINT = "本 session 若叫不到 need_goal 工具（MCP 是舊的），先 Reload Window 或開新 session 再做。"
 
 NODE_ID_RE = re.compile(r"(?<![A-Za-z0-9_])T\d+(?:\.\d+)*")
 NODE_ID_FULL_RE = re.compile(r"^T\d+(?:\.\d+)*$")
@@ -1073,13 +1076,13 @@ def edit_gate(sid: Any, path: str, config: Optional[Dict[str, Any]], sources: An
     except NeedGoalCorrupt as e:
         _guard("edit_blocked", sid, path=path, why="corrupt")
         return (f"[NeedGoal] 目標檔損毀，無法判定改 {path} 前有沒有需求目標，一律擋：{e}。"
-                "用 need_goal(action=set, goal=…) 重寫樹（壞檔會自動改名留證）再改。")
+                "用 need_goal(action=set, goal=…) 重寫樹（壞檔會自動改名留證）再改。" + NO_TOOL_HINT)
     except Exception as e:  # noqa: BLE001
         _guard("edit_blocked", sid, path=path, why="error", error=f"{type(e).__name__}: {e}")
         return f"[NeedGoal] 判定改 {path} 前有沒有需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
     _guard("edit_blocked", sid, path=path, why="no_tree")
     return (f"[NeedGoal] 改程式檔 {path} 前：這個需求還沒有目標樹。先用 need_goal(action=set, goal=…) 寫下"
-            "這個需求真正要達成什麼（一句、用使用者的話、只寫目標不寫手段），再改程式。")
+            "這個需求真正要達成什麼（一句、用使用者的話、只寫目標不寫手段），再改程式。" + NO_TOOL_HINT)
 
 
 def goal_for_edit(sid: Any, path: str, config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -1283,14 +1286,14 @@ def commit_gate(sid: Any, config: Optional[Dict[str, Any]]) -> Optional[str]:
     try:
         doc = load(sid)
     except NeedGoalCorrupt as e:
-        return f"[NeedGoal] commit 前：目標檔損毀，無法核對需求目標，一律擋：{e}"
+        return f"[NeedGoal] commit 前：目標檔損毀，無法核對需求目標，一律擋：{e}\n{NO_TOOL_HINT}"
     if not cfg_for_cwd(config, str(doc.get("cwd") or ""))["enabled"]:
         return None
     parts = [t for t in (_f1_text(doc), _f2_text(doc)) if t]
     if not parts:
         return None
     _guard("commit_blocked", sid, tree=doc.get("active"))
-    return "[NeedGoal] commit 前的目標對照沒過，先補再 commit：\n" + "\n".join(parts)
+    return "[NeedGoal] commit 前的目標對照沒過，先補再 commit：\n" + "\n".join(parts) + "\n" + NO_TOOL_HINT
 
 
 # ─── 報告、審查材料、續接單、壓縮重送 ─────────────────────────────────────────
