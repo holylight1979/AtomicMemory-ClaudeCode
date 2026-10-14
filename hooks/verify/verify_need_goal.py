@@ -238,6 +238,40 @@ def test_reconcile_rejections_cover_each_rule(env):
     assert len(ng._owed(_tree())) == 1
 
 
+_NODE_ID_CASE_SRC = """
+def test_alpha():
+    pass
+
+
+class TestGroup:
+    def test_beta(self):
+        pass
+"""
+
+
+@pytest.mark.parametrize("ref, want", [
+    ("{case}::test_alpha", None),                                        # pytest 節點 id 收（改前被當檔名擋）
+    ("{case}::TestGroup::test_beta[1-2]", None),                         # 類別＋參數也收
+    ("{case}::test_nope", "def test_nope 找到=否"),                        # 檔在、def 不在 → 擋
+    ("{proj}/nope_x.py::test_alpha", "檔在=否"),                           # 檔不在 → 擋
+    ("{case}::TestGroup::test_alpha", "def test_alpha 找到=否"),           # 有寫類別就要在那個類別裡
+], ids=["func", "class-param", "missing-def", "missing-file", "wrong-class"])
+def test_reconcile_case_accepts_pytest_node_id_only_when_def_found(env, ref, want):
+    """裁定 #25：案例證據接受 pytest 節點 id（第一個 :: 切出檔，最後一段去 [...] 當測試名），檔要在、檔裡要有那個 def；
+    對不上的擋訊息印規則名與查到的證據。「檔:行」照舊。"""
+    proj = _code_tree(env)
+    case = proj / "test_x.py"
+    case.write_text(_NODE_ID_CASE_SRC, encoding="utf-8")
+    ev = {"kind": "case", "ref": ref.format(case=case, proj=proj), "level": "read"}
+    items = [{"id": "T1", "status": "partial", "evidence": [ev], "followup": "f"},
+             {"id": "T1.1", "status": "dropped", "note": "n"}, {"id": "T1.2", "status": "dropped", "note": "n"}]
+    r = _op("reconcile", items=items, turn=3, cwd=str(proj))
+    if want is None:
+        assert r["ok"], r["rejected"]
+        return
+    assert not r["ok"] and any("CASE_NODE_ID_NEEDS_DEF" in x and want in x for x in r["rejected"]), r["rejected"]
+
+
 def test_receipt_must_follow_last_edit_of_covered_nodes(env):
     proj = _code_tree(env)                                                  # a.py 改動掛 T1（樹根）
     ng.stamp_receipts(SID, _receipt_state(_rcpt(3)), 2)                     # 收據在改動之後

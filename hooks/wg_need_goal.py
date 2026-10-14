@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import json
@@ -617,6 +618,37 @@ def _resolve_file(ref: str, cwd: str) -> Path:
     return p
 
 
+def _def_found(path: Path, owner: Optional[str], name: str) -> bool:
+    """檔裡有沒有 def <name>（ast 找函式名，不比字串）。owner 給了（節點 id 寫了類別）就只在那個類別裡找；
+    沒給就整檔找，類別裡的也算。解析失敗當找不到並印 stderr。"""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError) as e:
+        print(f"[NeedGoal] 解析 {path} 找 def 失敗（當找不到）：{type(e).__name__}: {e}", file=sys.stderr)
+        return False
+    scopes = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == owner] if owner else [tree]
+    for scope in scopes:
+        if any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name for n in ast.walk(scope)):
+            return True
+    return False
+
+
+def _node_id_missing(kind: str, ref: str, cwd: str) -> Optional[str]:
+    """規則 CASE_NODE_ID_NEEDS_DEF：pytest 節點 id（`檔::測試名`、`檔::Class::test[參數]`）以第一個 `::` 切出檔，
+    最後一段去掉 `[...]` 當測試名，倒數第二段是類別。檔要在、檔裡要有那個 def 才收；對不上回擋的理由。"""
+    path_part, _, rest = ref.strip().strip("`").partition("::")
+    segs = rest.split("::")
+    name = re.sub(r"\[.*\]$", "", segs[-1])
+    owner = segs[-2] if len(segs) > 1 else None
+    p = _resolve_file(path_part, cwd)
+    has_file = p.is_file()
+    found = has_file and _def_found(p, owner, name)
+    if found:
+        return None
+    return (f"{LABEL['ekind'][kind]} {ref} 對不上｜規則 CASE_NODE_ID_NEEDS_DEF｜證據：檔在={'是' if has_file else '否'}"
+            f"（{p}）、def {name} 找到={'是' if found else '否'}")
+
+
 def _atom_exists(name: str, cwd: str) -> bool:
     name = str(name).strip().strip("`")
     if name.endswith(".md"):
@@ -643,6 +675,8 @@ def _evidence_missing(doc: Dict[str, Any], ev: Dict[str, Any], cwd: str) -> Opti
     kind, ref = ev.get("kind"), str(ev.get("ref", ""))
     if kind == "receipt":
         return None if _receipt_by_ref(doc, ref) else f"收據 {ref} 找不到（need_goal(action=read) 看最近收據的號碼，寫 R<號>）"
+    if kind in ("case", "file") and "::" in ref:
+        return _node_id_missing(kind, ref, cwd)
     if kind in ("case", "file"):
         return None if _resolve_file(ref, cwd).exists() else f"{LABEL['ekind'][kind]} {ref} 不在磁碟上"
     if kind == "atom":
