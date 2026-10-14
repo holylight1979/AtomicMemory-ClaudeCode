@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 fix-hook-python 的 settings.json 改看 Claude Code 設定目錄，不跟資料根（裁定 #28）
+- **緣由**：`fix-hook-python.py` 單獨執行時用資料根（`WG_CLAUDE_DIR`）找 settings.json，但 Claude Code 讀的是設定目錄（`CLAUDE_CONFIG_DIR`，預設 `~/.claude`）；資料根設到別處時會檢查、改寫錯的那份。
+- **做法**：`SETTINGS` 改成 `CLAUDE_CONFIG_DIR`（有設）否則 `~/.claude`，取值照 Claude Code 2.1.296 本體的 `CLAUDE_CONFIG_DIR || 預設`（空字串視同沒設、不去空白），拿掉只為此載入的資料根函式；install.py 的 `ENV` 另把 `CLAUDE_CONFIG_DIR` 也釘在 `TARGET`，安裝器檢查的仍是它剛裝的那份；`verify_tools_data_root` 新增「設定目錄」常數表。一般安裝三者同一處，行為不變。TECH §9.2、§9.5。
+- **驗證**：`verify_fix_hook_python` 兩個新案（資料根放誘餌、設定目錄另指或沒設用假家 .claude）與 `verify_tools_data_root` 設定目錄案改前紅在斷言、改後綠；`verify_install` 誘餌案加設定目錄誘餌（工具改了而安裝器沒釘時紅）、受測檔加 `fix-hook-python.py`；三支 106 passed 1 skipped。
+
 ## 2026-10-14 記憶卡片可依程式語言篩選（跨範疇視圖，不搬檔）
 - **緣由**：使用者想找 Python、C#、JS 相關的卡，但資料夾只按問題類型分，只有 dotnet 自成一類；Python 卡散在六個範疇。
 - **做法**：`tools/sync-memory-index.py` 多產一份 `memory/_by_language/_INDEX.md`（每個語言一張表，列卡片路徑，一卡可多語言），有命中時在 MEMORY.md 末尾加一行指標；判定詞庫放 `memory/_meta/taxonomy.json` 新的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾）。檔名沿用 `_INDEX.md`，合併驅動、背景同步、hooks 索引檔名單都直接認得。TECH、DocIndex-System、MultiMachineMemorySync 同步。

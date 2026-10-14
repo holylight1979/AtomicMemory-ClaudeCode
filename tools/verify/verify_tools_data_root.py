@@ -6,6 +6,8 @@
   沒設 WG_CLAUDE_DIR、HOME 指到 tmp 家 → 資料常數都在 tmp家/.claude。子行程一律 -P 且 cwd 在 tmp（工具沒自己插程式碼根就紅）；
   常數名可用點號與 [鍵] 取屬性、預設參數（例 OllamaClient.LONG_DIE_MARKER、ensure_service.__kwdefaults__[flag_path]）。
   hooks／skills 底下能單獨載入的腳本也在 TOOLS 表（路徑相對 tools/，例 ../hooks/lang_guard.py）。
+- Claude Code 自己讀的設定（CONFIG_DIR_TOOLS 表）看設定目錄：CLAUDE_CONFIG_DIR 有設就在它底下，沒設就 家目錄/.claude，
+  設了 WG_CLAUDE_DIR 也不跟資料根走。
 - 成對：向量 config／starter／rag-engine 的 _vectordb 同一處；codex-companion state.py 寫的檔 hooks/codex_companion 讀得到。
 - ensure-mcp：MCP server 入口（樣板的 {claude_dir}）看程式碼根，~/.claude.json 留家目錄。
 - 假 worktree：把 followup-check.py 與 lib/project_root.py 複製到 tmp 的「程式碼樹」，資料根是另一個 tmp，
@@ -35,7 +37,6 @@ TOOLS = {
     "memory-effect-report.py": (["ATOM_INDEX", "RESCUE_LOG", "RECALL_MISS_LOG", "INJECTION_TURNS_LOG"], ["CODE_DIR"]),
     "atom-date-lint.py": (["INDEX"], ["CODE_DIR"]),
     "atom-heal.py": (["MEMORY"], ["ROOT", "TOOLS"]),
-    "fix-hook-python.py": (["SETTINGS"], ["CODE_DIR"]),
     "scorecard-report.py": (["WORKFLOW_DIR"], ["CODE_DIR"]),
     "statusline.py": (["WORKFLOW_DIR"], ["CODE_DIR"]),
     "refix-churn.py": (["CONFIG_PATH"], ["CODE_DIR"]),
@@ -93,6 +94,11 @@ TOOLS = {
     "../skills/skill-creator/scripts/skill-cost-measure.py": (["PROJECTS_DIR"], ["_CODE_ROOT"]),
 }
 
+# 工具 → 設定目錄常數（Claude Code 自己讀的設定）
+CONFIG_DIR_TOOLS = {
+    "fix-hook-python.py": ["SETTINGS"],
+}
+
 PROBE = r"""
 import importlib.util, json, sys
 path, names = sys.argv[1], json.loads(sys.argv[2])
@@ -124,11 +130,13 @@ def _under(p, root) -> bool:
     return a == r or a.startswith(r + os.sep)
 
 
-def _env(home: Path, wg=None) -> dict:
-    env = {k: v for k, v in os.environ.items() if k not in ("WG_CLAUDE_DIR", "PYTHONPATH")}
+def _env(home: Path, wg=None, cfg=None) -> dict:
+    env = {k: v for k, v in os.environ.items() if k not in ("WG_CLAUDE_DIR", "CLAUDE_CONFIG_DIR", "PYTHONPATH")}
     env.update({"HOME": str(home), "USERPROFILE": str(home), "PYTHONIOENCODING": "utf-8"})
     if wg is not None:
         env["WG_CLAUDE_DIR"] = str(wg)
+    if cfg is not None:
+        env["CLAUDE_CONFIG_DIR"] = str(cfg)
     return env
 
 
@@ -183,6 +191,23 @@ def test_tool_data_follows_data_root_code_follows_file(tool, dirs, cwd):
     raw = str(home / ".claude")                                                          # 原始字串不正規化：和舊算法 Path.home()/".claude" 一字不差
     for n in data_names:
         assert got[n] == raw or got[n].startswith(raw + os.sep), (n, got[n])
+
+
+@pytest.mark.parametrize("tool", sorted(CONFIG_DIR_TOOLS))
+def test_tool_cc_settings_follow_claude_config_dir(tool, dirs, cwd, tmp_path):
+    """都設了 WG_CLAUDE_DIR（反例：舊碼跟資料根走）：CLAUDE_CONFIG_DIR＝tmp → 落在它底下、不落資料根也不落本樹；
+    沒設或空字串（Claude Code 也當沒設）→ 家目錄/.claude，原始字串和一般安裝的舊值一字不差。"""
+    home, data = dirs
+    config = tmp_path / "cc-config"
+    names = CONFIG_DIR_TOOLS[tool]
+    got = _probe(tool, names, _env(home, data, config), cwd)
+    for n in names:
+        assert _under(got[n], config) and not _under(got[n], data) and not _under(got[n], TREE), (n, got[n])
+    raw = str(home / ".claude")
+    for cfg in (None, ""):
+        got = _probe(tool, names, _env(home, data, cfg), cwd)
+        for n in names:
+            assert got[n] == raw or got[n].startswith(raw + os.sep), (cfg, n, got[n])
 
 
 PAIR_PROBE = r"""
