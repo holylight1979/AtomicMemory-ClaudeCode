@@ -520,7 +520,7 @@ const TOOL_DEFINITIONS = [
                   type: "object",
                   properties: {
                     kind: { type: "string", enum: ["receipt", "case", "file", "atom"], description: "收據／驗證案例檔／檔:行／卡名" },
-                    ref: { type: "string", description: "receipt 寫 R<號>（need_goal read 看最近收據）；case／file 寫路徑（可帶 :行）；atom 寫卡名" },
+                    ref: { type: "string", description: "receipt 寫 R<號>（need_goal read 看最近收據）；case／file 寫路徑（可帶 :行），也可寫 pytest 節點 id（檔::測試名，要查得到那個 def 才收）；atom 寫卡名" },
                     level: { type: "string", enum: ["measured", "read", "inferred"], description: "實測（只配收據）／讀碼／推論" },
                     covers: { type: "array", items: { type: "string" }, description: "這筆證據支持哪幾個節點，省略＝所在節點" },
                   },
