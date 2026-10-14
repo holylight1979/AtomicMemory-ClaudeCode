@@ -351,8 +351,31 @@ _SEG_SPLIT_RE = re.compile(r"&&|\|\||;|\n")
 _CD_WORDS = ("cd", "set-location", "sl", "pushd", "push-location", "chdir")
 
 
-def _git_mv_pairs(command: str, cwd: str, posix: bool) -> List[Tuple[str, str]]:
-    """指令裡每個 git mv 的（目的地, 來源）絕對路徑：跟著同一條指令前面的 cd／Set-Location／pushd 換目錄，認 `git -C <目錄>`，
+_MOVE_HEADS = ("mv", "move-item", "move", "mi")
+_RENAME_HEADS = ("rename-item", "ren", "rni")
+_PS_VALUE_PARAMS = {"-path": "src", "-literalpath": "src", "-destination": "dest", "-newname": "dest"}
+
+
+def _ps_args(toks: List[str]) -> Tuple[List[str], Dict[str, str]]:
+    """PowerShell 參數：具名的（-Path／-LiteralPath／-Destination／-NewName）取值，其他 - 開頭的開關略過，剩下照位置。"""
+    pos: List[str] = []
+    named: Dict[str, str] = {}
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        key = _PS_VALUE_PARAMS.get(t.lower())
+        if key and i + 1 < len(toks):
+            named[key], i = toks[i + 1], i + 2
+            continue
+        if not t.startswith("-"):
+            pos.append(t)
+        i += 1
+    return pos, named
+
+
+def _move_pairs(command: str, cwd: str, posix: bool) -> List[Tuple[str, str]]:
+    """指令裡每個搬移的（目的地, 來源）絕對路徑：跟著同一條指令前面的 cd／Set-Location／pushd 換目錄。認 mv、Move-Item
+    （位置或 -Path／-Destination）、Rename-Item（新名字在同一層，位置或 -Path／-NewName）、`git [-C <目錄>] mv`；
     一次搬多個來源時最後一個參數是目的地。解析不了的段落略過。"""
     pairs: List[Tuple[str, str]] = []
     here = cwd
@@ -363,22 +386,31 @@ def _git_mv_pairs(command: str, cwd: str, posix: bool) -> List[Tuple[str, str]]:
             continue
         if not toks:
             continue
-        head = toks[0].lower()
-        if head in _CD_WORDS and len(toks) > 1:
-            here = os.path.normpath(os.path.join(here, toks[1]))
+        head, base, args = toks[0].lower(), here, toks[1:]
+        if head in _CD_WORDS:
+            pos, named = _ps_args(args)
+            target = named.get("src") or (pos[0] if pos else "")
+            here = os.path.normpath(os.path.join(here, target)) if target else here
             continue
-        if head not in ("git", "git.exe"):
-            continue
-        i, base = 1, here
-        while i + 1 < len(toks) and toks[i] == "-C":
-            base, i = os.path.normpath(os.path.join(base, toks[i + 1])), i + 2
-        if i >= len(toks) or toks[i] != "mv":
-            continue
-        args = [t for t in toks[i + 1:] if not t.startswith("-")]
-        if len(args) < 2:
-            continue
-        dest = os.path.normpath(os.path.join(base, args[-1]))
-        pairs += [(dest, os.path.normpath(os.path.join(base, s))) for s in args[:-1]]
+        if head in ("git", "git.exe"):
+            i = 0
+            while i + 1 < len(args) and args[i] == "-C":
+                base, i = os.path.normpath(os.path.join(base, args[i + 1])), i + 2
+            if i >= len(args) or args[i] != "mv":
+                continue
+            head, args = "mv", args[i + 1:]
+        if head in _MOVE_HEADS:
+            pos, named = _ps_args(args)
+            srcs = ([named["src"]] if "src" in named else pos[:-1] if "dest" not in named else pos)
+            dest = named.get("dest") or (pos[-1] if pos and "dest" not in named else "")
+            if dest and srcs:
+                pairs += [(os.path.normpath(os.path.join(base, dest)), os.path.normpath(os.path.join(base, s))) for s in srcs]
+        elif head in _RENAME_HEADS:
+            pos, named = _ps_args(args)
+            src, new_name = named.get("src") or (pos[0] if pos else ""), named.get("dest") or (pos[-1] if len(pos) > 1 else "")
+            if src and new_name:
+                old = os.path.normpath(os.path.join(base, src))
+                pairs.append((os.path.join(os.path.dirname(old), os.path.basename(new_name)), old))
     return pairs
 _SCAN_HIT_RE = re.compile(r"^\S+:\d+: ")
 
@@ -398,7 +430,7 @@ def _has_code(d: Path, exts: Any) -> bool:
 def _note_moved_code_dirs(state: Dict[str, Any], sid: str, tool_name: str, tool_input: Dict[str, Any], cwd: str,
                           config: Optional[Dict[str, Any]], agent_id: str = "") -> bool:
     """規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE 的事實：這次 Bash／PowerShell 把含程式檔的目錄搬走了（mv、Move-Item 的來源
-    取自 wg_core.write_sources_from_tool；git mv 照 _git_mv_pairs 解析），記 state["moved_code_dirs"]（舊、新路徑、時間、
+    取自 wg_core.write_sources_from_tool，另照 _move_pairs 解析 mv、Move-Item、Rename-Item、git mv 與前面的換目錄），記 state["moved_code_dirs"]（舊、新路徑、時間、
     子代理搬的帶 agent_id）。複製（來源還在）、搬的是單一檔案、目錄裡沒有程式檔都不記。回有沒有記。"""
     if tool_name not in ("Bash", "PowerShell"):
         return False
@@ -406,7 +438,7 @@ def _note_moved_code_dirs(state: Dict[str, Any], sid: str, tool_name: str, tool_
     pairs = []
     for target, sources in write_sources_from_tool(tool_name, tool_input, cwd).items():
         pairs += [(target, s) for s in sources]
-    pairs += _git_mv_pairs(str(tool_input.get("command") or ""), cwd, posix=tool_name != "PowerShell")
+    pairs += _move_pairs(str(tool_input.get("command") or ""), cwd, posix=tool_name != "PowerShell")
     exts = reconcile_cfg(config or {}).get("code_exts") or []
     seen = set()
     for new, old in pairs:

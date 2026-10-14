@@ -7,6 +7,7 @@ test_044_every_rule_has_a_case 檢查 RULES 的每個規則名都出現在本檔
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -846,6 +847,142 @@ def test_045_move_code_dir_needs_scan_and_sample_tool_csproj_and_escaped_paths(t
     assert run("sample", "--for", "shared", "--csproj-check", "shared") == "MOVE_SAMPLE_CHECK PASS"
     (tmp_path / "cfg.json").write_text('{"entry": "lib\\\\pkg\\\\a.py"}\n', encoding="utf-8")
     assert run("scan", "--old", "lib/pkg", "--new", "src/pkg") == "MOVE_PATH_SCAN DONE hits=1"
+
+
+# ─── 退件 003（總控台 codex 六條）：照擋訊息做一定過得了、一般寫法不漏記 ─────────────────────────────────
+
+def test_045_move_code_dir_needs_scan_and_sample_subagent_receipts_pair_with_its_moves():
+    """BLOCK 1：子代理搬目錄、自己跑 scan／sample（收據在 sid#agent:<id>）：子代理收尾只查自己的搬移；主 session 收尾也認得。"""
+    from handlers import stop
+    import wg_verify_ledger as vl2
+    mv = {**_MOVE, "session_id": "s", "agent_id": "a1"}
+    scan = _mv_receipt(f"python {_MV_TOOL} scan --old lib/pkg --new src/pkg", "MOVE_PATH_SCAN DONE hits=0",
+                       "2026-10-14T10:01:00")
+    sample = _mv_receipt(f"python {_MV_TOOL} sample --for src/pkg --run pytest", "MOVE_SAMPLE_CHECK PASS",
+                         "2026-10-14T10:02:00", verdict="PASS", name="MOVE_SAMPLE_CHECK")
+    state = {"moved_code_dirs": [mv], "verify_receipts": {vl2.agent_receipt_key("s", "a1"): [scan, sample]}}
+    for key in (vl2.agent_receipt_key("s", "a1"), "s"):
+        moves, receipts = stop._move_inputs(state, key)
+        assert [m["agent_id"] for m in moves] == ["a1"], key
+        code, _ = vl2.reconcile_gate_parts("", [], 3, [], [], vl2.reconcile_cfg({}), moves=moves, move_receipts=receipts)
+        assert not code, (key, code)
+    assert stop._move_inputs(state, vl2.agent_receipt_key("s", "a2"))[0] == []           # 別的子代理不背這筆
+
+
+def test_045_move_code_dir_needs_scan_and_sample_cd_before_tool():
+    """BLOCK 2：先 cd 再跑工具，--old／--root 照那一段的有效 cwd 解。"""
+    move = {**_MOVE, "old": "C:/p/sub/lib/pkg", "new": "C:/p/sub/src/pkg"}
+    sample = _mv_receipt(f"cd C:/p/sub && python {_MV_TOOL} sample --for src/pkg --run pytest", "MOVE_SAMPLE_CHECK PASS",
+                         "2026-10-14T10:02:00", verdict="PASS", name="MOVE_SAMPLE_CHECK")
+    for cmd in (f"cd C:/p/sub && python {_MV_TOOL} scan --old lib/pkg --new src/pkg",
+                f"cd C:/p && python {_MV_TOOL} scan --root sub --old lib/pkg --new src/pkg"):
+        scan = _mv_receipt(cmd, "MOVE_PATH_SCAN DONE hits=0", "2026-10-14T10:01:00")
+        assert _mv_gate([scan, sample], moves=(move,)) == "", cmd
+
+
+def test_045_move_code_dir_needs_scan_and_sample_message_commands_paste_back():
+    """BLOCK 3：擋訊息給的指令照 Bash／PowerShell 各一行、有引號，路徑含空白照樣解回原路徑。"""
+    import shlex
+    old, new = r"C:\work\My Project\lib\pkg", r"C:\work\My Project\src\pkg"
+    v = rr.move_dir_verdict({"old": old, "new": new}, None, False)
+    bash = [e.split("：", 1)[1] for e in v.evidence if e.startswith("掃描（Bash）")]
+    ps = [e.split("：", 1)[1] for e in v.evidence if e.startswith("掃描（PowerShell）")]
+    assert bash and ps
+    toks = shlex.split(bash[0])
+    assert toks[toks.index("--old") + 1] == old and toks[toks.index("--new") + 1] == new
+    assert toks[1].replace("\\", "/").endswith("tools/move-dir-check.py")
+    ps_toks = re.findall(r"'((?:[^']|'')*)'|(\S+)", ps[0])
+    words = [(a.replace("''", "'") if a else b) for a, b in ps_toks]
+    assert words[words.index("--old") + 1] == old and words[words.index("--new") + 1] == new
+
+
+def test_045_move_code_dir_needs_scan_and_sample_tool_files_split_across_projects(tmp_path):
+    """BLOCK 4：新目錄裡 A.cs 由 A.csproj、B.cs 由 B.csproj 編進去 → PASS；任何例外也要印 FAIL 尾行。"""
+    import subprocess
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "A.cs").write_text("class A {}\n", encoding="utf-8")
+    (tmp_path / "shared" / "B.cs").write_text("class B {}\n", encoding="utf-8")
+    for name in ("A", "B"):
+        (tmp_path / f"{name}.csproj").write_text(f'<Project ToolsVersion="15.0"><ItemGroup><Compile Include="shared\\{name}.cs" />'
+                                                 '</ItemGroup></Project>\n', encoding="utf-8")
+    r = subprocess.run([sys.executable, "-X", "utf8", _MV_TOOL, "sample", "--for", "shared", "--csproj-check", "shared"],
+                       cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8")
+    assert r.stdout.strip().splitlines()[-1] == "MOVE_SAMPLE_CHECK PASS", r.stdout + r.stderr
+
+
+def test_045_move_code_dir_needs_scan_and_sample_detect_powershell_rename_and_set_location(tmp_path):
+    """BLOCK 5：PowerShell 的 Rename-Item（新名字在同一層）與 Set-Location 之後的 Move-Item 都要記。"""
+    from handlers import post_tool_use as ptu
+    for d in ("lib/pkg2/m.py", "sub/src/pkg/m.py"):
+        (tmp_path / d).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / d).write_text("x = 1\n", encoding="utf-8")
+
+    def moved(cmd):
+        st = {"turn_seq": 3}
+        ptu._note_moved_code_dirs(st, "s", "PowerShell", {"command": cmd}, str(tmp_path), {})
+        return [(Path(m["old"]).relative_to(tmp_path).as_posix(), Path(m["new"]).relative_to(tmp_path).as_posix())
+                for m in st.get("moved_code_dirs") or []]
+
+    assert moved("Rename-Item lib/pkg pkg2") == [("lib/pkg", "lib/pkg2")]
+    assert moved("Rename-Item -Path lib/pkg -NewName pkg2") == [("lib/pkg", "lib/pkg2")]
+    assert moved("Set-Location sub; Move-Item lib/pkg src/pkg") == [("sub/lib/pkg", "sub/src/pkg")]
+
+
+def test_045_move_code_dir_needs_scan_and_sample_move_chain_uses_final_place():
+    """BLOCK 6：搬了又搬：lib/pkg→src/pkg→lib/pkg 完整搬回不欠；lib/pkg→src/pkg→app/pkg 只欠最終位置的收據。"""
+    first = {**_MOVE, "seq": 1}
+    back = {"old": "C:/p/src/pkg", "new": "C:/p/lib/pkg", "at": "2026-10-14T10:00:30", "seq": 2, "session_id": "s"}
+    assert _mv_gate([], moves=(first, back)) == ""
+    onward = {"old": "C:/p/src/pkg", "new": "C:/p/app/pkg", "at": "2026-10-14T10:00:30", "seq": 2, "session_id": "s"}
+    text = _mv_gate([], moves=(first, onward))
+    assert text.count("MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE") == 1 and "app" in text and "src\\pkg" not in text
+    scan = {**_mv_receipt(f"python {_MV_TOOL} scan --old lib/pkg --new app/pkg", "MOVE_PATH_SCAN DONE hits=0",
+                          "2026-10-14T10:01:00"), "seq": 3}
+    sample = {**_mv_receipt(f"python {_MV_TOOL} sample --for app/pkg --run pytest", "MOVE_SAMPLE_CHECK PASS",
+                            "2026-10-14T10:02:00", verdict="PASS", name="MOVE_SAMPLE_CHECK"), "seq": 4}
+    assert _mv_gate([scan, sample], moves=(first, onward)) == ""
+
+
+# ─── 常見指令寫法變體（對人總控台 #36：解析指令字串的規則，每種一般寫法都要判對）──────────────────────────────
+
+_GREEN_RED = ("pytest -q tests/test_a.py", "FAILED tests/test_a.py::test_bad - assert 0\n1 failed")
+
+
+@pytest.mark.parametrize("green, keeps", [
+    ("python -X utf8 -m pytest -q tests/test_a.py", False),                         # python -m pytest：不是篩選
+    ("pytest -q tests/test_a.py", False),                                           # 直呼 pytest
+    ("python -m pytest -q tests/test_a.py -k test_ok", True),                       # -k 判不了照留
+    ("pytest tests/test_a.py::test_bad", False),                                    # :: 點名的就是紅案
+    ("pytest tests/test_a.py::test_ok", True),                                      # :: 點名別案
+    ("python -m pytest C:/p/tests/test_a.py::test_bad", False),                     # 絕對路徑的節點 id
+    ('& "C:\\Python\\python.exe" -X utf8 -m pytest -q tests\\test_a.py', False),   # PowerShell 呼叫 python.exe
+    ("Set-Location C:\\p; python.exe -m pytest tests\\test_a.py::test_ok", True),  # PowerShell Set-Location 之後
+    ("Set-Location C:\\p; python.exe -m pytest tests\\test_a.py::test_bad", False),
+], ids=["py-m", "pytest", "k", "node-red", "node-other", "abs-node", "ps-exe", "ps-setloc-other", "ps-setloc-red"])
+def test_045_green_narrowed_keeps_uncovered_red_command_variants(green, keeps):
+    """002 的篩選判定（GREEN_NARROWED_KEEPS_UNCOVERED_RED）對各種一般寫法都判對：owed＝True 是照留那筆紅。"""
+    assert rr.green_covers_red_verdict(*_GREEN_RED, green).owed is keeps
+
+
+@pytest.mark.parametrize("scan_cmd, sample_cmd, tool", [
+    (f"python -X utf8 {_MV_TOOL} scan --old lib/pkg --new src/pkg",
+     f"python -X utf8 {_MV_TOOL} sample --for src/pkg --run \"python -X utf8 -m pytest -q tests/test_pkg.py\"", "Bash"),
+    ("python tools/move-dir-check.py scan --old lib/pkg --new src/pkg",
+     "python tools/move-dir-check.py sample --for src/pkg --run \"pytest tests/test_pkg.py -k smoke\"", "Bash"),
+    (f"python {_MV_TOOL} scan --old C:/p/lib/pkg --new C:/p/src/pkg",
+     f"python {_MV_TOOL} sample --for C:/p/src/pkg --run \"pytest tests/test_pkg.py::test_import\"", "Bash"),
+    (f'& "C:\\Python\\python.exe" "{_MV_TOOL}" scan --old lib\\pkg --new src\\pkg',
+     f'& "C:\\Python\\python.exe" "{_MV_TOOL}" sample --for src\\pkg --run "python.exe -m pytest tests\\test_pkg.py"', "PowerShell"),
+    (f'Set-Location C:\\p; python.exe "{_MV_TOOL}" scan --old lib\\pkg --new src\\pkg',
+     f'Set-Location C:\\p; python.exe "{_MV_TOOL}" sample --for src\\pkg --run "pytest"', "PowerShell"),
+], ids=["py-X-utf8", "relative-tool", "abs-paths", "ps-exe", "ps-setloc"])
+def test_045_move_code_dir_needs_scan_and_sample_command_variants(scan_cmd, sample_cmd, tool):
+    """(v) 的收據判定對各種一般寫法都判對：兩張收據配上搬移就放行。"""
+    cwd = "C:/p/tools" if "Set-Location" in scan_cmd else "C:/p"
+    scan = {**_mv_receipt(scan_cmd, "MOVE_PATH_SCAN DONE hits=0", "2026-10-14T10:01:00", cwd=cwd), "tool": tool}
+    sample = {**_mv_receipt(sample_cmd, "MOVE_SAMPLE_CHECK PASS", "2026-10-14T10:02:00", verdict="PASS",
+                            name="MOVE_SAMPLE_CHECK", cwd=cwd), "tool": tool}
+    assert _mv_gate([scan, sample]) == "", scan_cmd
 
 
 def test_045_move_code_dir_needs_scan_and_sample_tool_scan_and_sample(tmp_path):

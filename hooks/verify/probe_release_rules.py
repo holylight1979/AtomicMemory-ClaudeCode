@@ -31,6 +31,8 @@ CONFIG_OFF = {
     "codex_companion": {"enabled": False},
     "provenance": {"enabled": False},
     "response_capture": {"enabled": False},
+    # 需求目標流程（改程式前要有目標樹）不是本探針的對象：沙箱裡關掉，免得 P3 的 checkout --theirs 被它擋
+    "overview_hub": {"need_goal": {"enabled": False}},
 }
 SIMPLE_MAP = """# 部位表（探針用）
 

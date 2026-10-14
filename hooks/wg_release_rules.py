@@ -18,6 +18,7 @@ import hashlib
 import os
 import re
 import shlex
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
 RULES: Dict[str, str] = {
@@ -815,11 +816,36 @@ def move_dir_verdict(move: Dict[str, Any], scan_hits: Optional[int], sample_ok: 
         why_parts.append("MOVE_SAMPLE_CHECK")
     if not missing:
         return Verdict(rule, False, f"{old} → {new} 兩張收據都有", ())
-    how = (f"掃描：python ~/.claude/tools/{MOVE_TOOL} scan --old {old} --new {new}",
-           f"抽樣：python ~/.claude/tools/{MOVE_TOOL} sample --for {new} --run \"<被搬模組的 import 或目標 verify>\""
-           f"（C# 加 --csproj-check {new}）")
+    tool = str(Path(__file__).resolve().parent.parent / "tools" / MOVE_TOOL)
+    run = "<被搬模組的 import 或目標 verify 指令>"
+    how = []
+    for shell, q in (("Bash", shlex.quote), ("PowerShell", _ps_quote)):
+        how.append(f"掃描（{shell}）：python {q(tool)} scan --old {q(old)} --new {q(new)}")
+        how.append(f"抽樣（{shell}）：python {q(tool)} sample --for {q(new)} --run {q(run)}")
+    how.append(f"C# 抽樣再加 --csproj-check <新目錄>")
     return Verdict(rule, True, f"搬了含程式檔的目錄 {old} → {new}，還缺 {'、'.join(why_parts)}（不欠整組案例）",
                    (*missing, *[f"命中 {h}" for h in list(hit_lines)[:5]], *how))
+
+
+def _ps_quote(s: str) -> str:
+    """PowerShell 單引號字串（裡面的單引號寫兩次），整段照字面、不展開變數。"""
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def collapse_move_chain(moves: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE 的搬移鏈：照先後（seq，沒有就 at）把「A→B、B→C」併成 A→C，時間取最後一次搬
+    （收據要在最後一次搬之後）；完整搬回原處（A→B→A）就不欠。同一個 session、同一個子代理的搬移才串。"""
+    out: List[Dict[str, Any]] = []
+    for m in sorted(moves, key=lambda x: (int(x.get("seq") or 0), str(x.get("at") or ""))):
+        prev = next((e for e in out if canon_path(e.get("new") or "") == canon_path(m.get("old") or "")
+                     and e.get("session_id") == m.get("session_id") and e.get("agent_id", "") == m.get("agent_id", "")), None)
+        if prev is None:
+            out.append(dict(m))
+            continue
+        prev.update({"new": m.get("new"), "at": m.get("at"), "seq": m.get("seq")})
+        if canon_path(prev.get("old") or "") == canon_path(prev.get("new") or ""):
+            out.remove(prev)
+    return out
 
 
 _NARROW_FLAG_RE = re.compile(r"(?:^|\s)(?:-k|-m|-t|--testNamePattern|--deselect|--lf|--last-failed)(?=\s|=|$)")

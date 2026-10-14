@@ -8,6 +8,7 @@
 - **緣由**：搬整個程式目錄要不要欠驗證案例一直沒有規則；原設計者改裁：不欠整組案例，正確行為是擴大搜尋寫死的舊路徑（有就跟著修碼），再依語言特性抽樣驗證功能還正常（C# 看 .csproj／.sln 囊括）。
 - **做法**：新規則 `MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE`（`hooks/wg_release_rules.move_dir_verdict`），寫碼查核加 (v)（`wg_verify_ledger.move_facts`：收據在搬之後、指令乾淨、點名同一個舊路徑）；`post_tool_use` 記 `moved_code_dirs`（mv、Move-Item、git mv，複製與只有文件的目錄不記）與掃描命中清單；新工具 `tools/move-dir-check.py`（scan 印 `MOVE_PATH_SCAN DONE hits=<n>`、sample `--for <新目錄>` 印 `MOVE_SAMPLE_CHECK PASS|FAIL`，C# 讀 Compile Include）。TECH §7.8。
 - **驗證**：`verify_release_rules` 加十一案（兩張都缺、都有放行、搬之前／自己 echo／別的舊路徑不算、hits>0 列命中、state 收據的 kv 與同秒序號、只記程式目錄、git mv 的 -C／cd／多來源／單檔／子代理、--root 與抽樣綁 --for、C# Compile Include 與雙反斜線、工具掃描與抽樣），改前全紅、改後綠；自跑 codex 一輪 7 條 BLOCK 全部先寫紅案例再修；真 hook 入口探針 `hooks/verify/probe_move_dir.py`（真的搬目錄、收尾被擋、跑兩張收據後不再擋）PASS。
+- **補（總控台 codex 退件六條）**：子代理搬移與收據依 (session, agent) 配對（`stop._move_inputs`，SubagentStop 與主 Stop 都對得上）；先 cd 再跑工具照那一段的有效 cwd 解參數（沿用 `pre_tool_use._vcs_segments`）；擋訊息照 Bash／PowerShell 各印一行加好引號的指令；C# 逐檔找編它的專案、例外也印 FAIL 尾行；搬移解析統一成 `_move_pairs`（mv、Move-Item、Rename-Item、git mv、cd／Set-Location）；搬移鏈照最終位置算、完整搬回不欠（`collapse_move_chain`）。`verify_release_rules` 加六案、探針加子代理與搬回兩情境，改前紅、改後綠。
 
 ## 2026-10-14 v6.0 重試計數改以測試重跑為界（誤判清冊 B17）
 - **緣由**：先寫紅案例、再分五次 Edit 改同一檔、一跑就綠，FixEscalation 卻報 retry=5、收尾又要求 DeepPostMortem：舊規則數的是「紅之後同檔的 Edit 次數」，中間沒重跑也照數；plan／direct 門檻（4／2）也是數 Edit。

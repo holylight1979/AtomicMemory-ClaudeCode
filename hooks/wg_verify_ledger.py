@@ -39,7 +39,7 @@ from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, go
                               owed_after_last_case, user_turn, Verdict,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
                               committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
-                              MOVE_TOOL, move_dir_verdict)
+                              MOVE_TOOL, move_dir_verdict, collapse_move_chain)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -1853,10 +1853,19 @@ def _move_tool_receipt(receipt: Dict[str, Any], sub: str) -> bool:
             and not _prints_sentinel(raw, sh))
 
 
+def _tool_cwd(receipt: Dict[str, Any]) -> str:
+    """跑搬目錄工具那一段的有效 cwd：同一條指令前面的 cd／Set-Location（沿用 pre_tool_use._vcs_segments 的換目錄解析），
+    沒有就是收據的 cwd。"""
+    from handlers.pre_tool_use import _resolve_run_cwd, _vcs_segments
+    cwd = _cwd_of(receipt)
+    segs = _vcs_segments(str(receipt.get("cmd") or ""), None, (MOVE_TOOL,), set())
+    return _resolve_run_cwd(segs[0][0], cwd) if segs and segs[0][0] else cwd
+
+
 def _move_args(receipt: Dict[str, Any], key: str) -> List[str]:
-    """收據指令裡 --old／--new／--for 的值（可重複），相對路徑照工具的 --root（本身相對收據 cwd）解，沒給 --root 就照收據的 cwd，
-    解成絕對路徑後 canon_path。"""
-    cmd, cwd = str(receipt.get("cmd") or ""), _cwd_of(receipt)
+    """收據指令裡 --old／--new／--for 的值（可重複），相對路徑照工具的 --root（本身相對工具那一段的有效 cwd）解，沒給 --root
+    就照有效 cwd，解成絕對路徑後 canon_path。"""
+    cmd, cwd = str(receipt.get("cmd") or ""), _tool_cwd(receipt)
     r = _MOVE_ARG_RE["root"].search(cmd)
     base = os.path.join(cwd, r.group(1).strip("'\"")) if r else cwd
     return [canon_path(v if os.path.isabs(v) else os.path.join(base, v))
@@ -1926,6 +1935,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          exec_this_turn: bool = False,
                          moves: Iterable[Dict[str, Any]] = (),
                          move_scan_hits: Optional[Dict[str, List[str]]] = None,
+                         move_receipts: Optional[List[Dict[str, Any]]] = None,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
     「本回合」的收據與改檔：user_turn（使用者打字開的回合，stop._user_turn）給了就是它到 turn_seq 之間的每個 turn_seq
@@ -1941,7 +1951,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     收尾報告欄：(e) last_text 宣告完成且 AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
     (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後。"""
     texts = [t for t in (*claims, last_text) if t and claims_completion(t)]
-    moves = [m for m in moves or () if isinstance(m, dict) and m.get("new")]
+    moves = collapse_move_chain([m for m in moves or () if isinstance(m, dict) and m.get("new")])
     if not texts and not own_mod_files and not moves:
         return None, None
     this_turn = [r for r in receipts if in_turn(r.get("turn_seq", -1), turn_seq, user_turn)]
@@ -2021,7 +2031,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
              "改了碼沒驗證 case（PASS 不能代替）：補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者"))))
     # (v) 規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE：搬了含程式檔的目錄，欠搬之後的路徑掃描與抽樣兩張收據（不看措辭、跨回合）
     for mv in moves:
-        hits_n, sample_ok = move_facts(mv, receipts)
+        hits_n, sample_ok = move_facts(mv, receipts if move_receipts is None else move_receipts)
         v = move_dir_verdict(mv, hits_n, sample_ok, (move_scan_hits or {}).get(canon_path(mv.get("old") or ""), ()))
         if v.owed:
             hits.append(format_hit("v", v))

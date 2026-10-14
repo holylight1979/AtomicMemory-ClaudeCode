@@ -118,23 +118,26 @@ def _compiled_by(proj: Path, cs: Path) -> bool:
 
 
 def _csproj_check(new: str, root: Path) -> List[str]:
-    """新目錄裡的每個 .cs 都要被某個 .csproj 編進去（_compiled_by）；有 .sln 時那個 .csproj 要被 .sln 提到。回問題清單。"""
+    """新目錄裡的每個 .cs 都要至少被一個 .csproj 編進去（_compiled_by，可以不同檔由不同專案編）；有 .sln 時，每個 .cs 至少
+    有一個編它的 .csproj 被 .sln 提到。回問題清單。"""
     target = (Path(new) if Path(new).is_absolute() else root / new).resolve()
     projs = [p for p in _files(root) if p.suffix.lower() == ".csproj"]
     sources = [f for f in _files(target) if f.suffix.lower() == ".cs"]
     if not sources:
         return [f"{new} 底下沒有 .cs 檔，C# 囊括檢查無從判斷"]
-    owners = [p for p in projs if all(_compiled_by(p, f) for f in sources)]
-    if not owners:
-        missed = next(f for f in sources if not any(_compiled_by(p, f) for p in projs))
-        return [f"{missed.relative_to(root).as_posix()} 沒有被任何 .csproj 編進去（共找到 {len(projs)} 個 .csproj），搬過去就編不到"]
+    owners = {f: [p for p in projs if _compiled_by(p, f)] for f in sources}
+    missed = [f.relative_to(root).as_posix() for f, ps in owners.items() if not ps]
+    if missed:
+        return [f"{'、'.join(missed[:3])} 沒有被任何 .csproj 編進去（共找到 {len(projs)} 個 .csproj），搬過去就編不到"]
     slns = [p for p in _files(root) if p.suffix.lower() == ".sln"]
     if slns:
-        names = {o.name.lower() for o in owners}
         texts = [(_text_of(s) or "").lower() for s in slns]
-        if not any(n in t for t in texts for n in names):
-            return [f"{'、'.join(sorted(names))} 沒有被 {len(slns)} 個 .sln 任何一個提到"]
-    print(f"[csproj] {new} 在 {owners[0].relative_to(root).as_posix()} 底下")
+        unlisted = [f.relative_to(root).as_posix() for f, ps in owners.items()
+                    if not any(p.name.lower() in t for t in texts for p in ps)]
+        if unlisted:
+            return [f"編 {'、'.join(unlisted[:3])} 的 .csproj 沒有被 {len(slns)} 個 .sln 任何一個提到"]
+    used = sorted({p.relative_to(root).as_posix() for ps in owners.values() for p in ps})
+    print(f"[csproj] {new} 的 {len(sources)} 個 .cs 由 {'、'.join(used)} 編進去")
     return []
 
 
@@ -154,7 +157,10 @@ def cmd_sample(a: argparse.Namespace) -> int:
         if r.returncode != 0:
             problems.append(f"{c} exit {r.returncode}")
     for d in a.csproj_check or []:
-        problems += _csproj_check(d, root)
+        try:
+            problems += _csproj_check(d, root)
+        except Exception as e:  # noqa: BLE001  任何例外都要印 FAIL 尾行，不能沒有收據
+            problems.append(f"C# 囊括檢查出錯 {type(e).__name__}: {e}")
     for p in problems:
         print(f"[問題] {p}")
     print("MOVE_SAMPLE_CHECK " + ("FAIL" if problems else "PASS"))
