@@ -18,6 +18,7 @@
 - [臨] 啟動器讀子程序輸出要拿 bytes 自己解（先 UTF-8，失敗退 cp950），並 `sys.stdout.reconfigure(encoding='utf-8', errors='replace')`；用 text=True 讓 Python 代解，cp950 主控台印 git log 會 UnicodeEncodeError 中斷。
 - [臨] 好用的子命令：merge_main（衝突時不中斷，接著列衝突檔）、swap_old／swap_back（受測程式先備份到 scratchpad、`git show main:<檔>` 換回舊版跑新案看紅、再換回）、commit <訊息檔> <檔…>（只 add 點名的檔）、merge_check（merge-tree 對 main 單行＝無衝突）、forbid（對自己基底 HEAD 的新增行查禁字，不對已前進的 main 比，否則別軌改的行會混進來）。
 - [臨] 刪掉啟動器本身也算一次改程式檔：需求目標樹的完整對照會說收據跑在最後一次改動之前，要刪完再跑一次目標 verify 拿新收據，才交得過對照。
+- [臨] 多行 `python -c` 也會被 OverviewHub 判「無法判定寫入目標」擋下，同樣改寫成 worktree 內腳本檔再跑。
 
 ## 行動
 
