@@ -7,6 +7,7 @@
 - Trigger: write_state, state 並行, state 互相覆蓋, 三方合併, _merge_state, event_seq, next_event_seq, modified_files 合併, verify_receipts 合併, knowledge_harvest 合併, pending 版本, 鎖內重讀, track-b3
 - Created-at: 2026-10-13
 - Related: 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞
+- Quote: 
 
 ## 知識
 
@@ -21,7 +22,7 @@
 - [臨] 失敗語意有兩面：拿不到鎖、重讀失敗、壞 JSON 時不可退回覆蓋；但放棄寫入會讓閘誤擋或漏擋（收據、改檔紀錄遺失）。沒有快照的路徑（sibling 重讀失敗、new_state）也要在鎖內確認目的檔不存在，才能整份寫。
 - [臨] 實作陷阱一：在呼叫端 dict 上就地合併，replace 失敗後再重試，會把對方的增量再算一次。要先合併到候選 dict，replace 成功後才同步呼叫端與 base。
 - [臨] 實作陷阱二：「兩邊改成同一個值」不等於沒衝突，兩邊各自 +1 會長得一樣。
-- [臨] 兩輪審查一致的方向：序號配置與紀錄放在同一把鎖保護的讀改寫內；只在寫入前事後合併，補不完語意。全文見 workflow/v6-inbox/from-track-b3/001-codex-review.md 與 003-codex-review.md。
+- [臨] 兩輪審查一致的方向：序號配置與紀錄放在同一把鎖保護的讀改寫內；只在寫入前事後合併，補不完語意。兩輪審查原文已隨派工信箱清理刪除，結論以本卡為準；程式在分支 v6/track-b3（f6d6676）。
 
 ## 行動
 

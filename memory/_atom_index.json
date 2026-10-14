@@ -6965,6 +6965,20 @@
         "綜觀"
       ],
       "scope": "global"
+    },
+    {
+      "name": "工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex",
+      "path": "_AIDocs/_atoms/MemDev/工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex.md",
+      "triggers": [
+        "處理速度很慢",
+        "為什麼這麼慢",
+        "分頁好慢",
+        "量尺太久",
+        "tools/verify 12 分鐘",
+        "MeasureGate 太重",
+        "時間花在哪"
+      ],
+      "scope": "global"
     }
   ]
 }
