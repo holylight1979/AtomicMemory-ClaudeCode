@@ -117,7 +117,7 @@ pattern: pipeline
 ## 來源代號
 
 - 原話：track-skill-console 派工原話（2026-10-14）；接續單：`memory/_staging/next-phase-v6.0-寫程式碼的進化.md` 規則清單與「現任」行
-- #13、#23、#27、#37：`workflow/inbox/_console/裁定帳-*.md`（本機信箱）
+- #13、#23、#27、#37：`_AIDocs/DevHistory/v6.0-寫程式碼的進化-2026-10/總控台裁定帳與誤判清冊.md`
 - A [[feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定]]
 - B [[feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見]]
 - C [[vscode-reload-對並行ai-session的影響]]
