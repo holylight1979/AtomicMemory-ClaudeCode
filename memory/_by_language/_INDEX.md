@@ -6,7 +6,7 @@
 | 語言 | atom 數 |
 |------|---------|
 | Python | 17 |
-| C#／.NET | 19 |
+| C#／.NET | 20 |
 | JavaScript／Node | 1 |
 | PowerShell | 6 |
 | Bash／Shell | 12 |
@@ -54,6 +54,7 @@
 | `memory/dotnet/建置/契約加欄位必查手寫映射點-單元綠不代表wire存活.md` | 契約加欄位必查手寫映射點-單元綠不代表wire存活 |
 | `memory/dotnet/建置/輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測.md` | 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 |
 | `memory/文字與格式/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md` | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
+| `memory/設計通則/搬移程式目錄的正確行為-擴大搜尋寫死路徑跟著修-依語言特性抽樣驗功能不硬性全量-csharp看csproj與sln囊括範圍.md` | 搬移程式目錄的正確行為-擴大搜尋寫死路徑跟著修-依語言特性抽樣驗功能不硬性全量-csharp看csproj與sln囊括範圍 |
 | `memory/驗證與實證/winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii.md` | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |
 | `memory/驗證與實證/禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗.md` | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
 
