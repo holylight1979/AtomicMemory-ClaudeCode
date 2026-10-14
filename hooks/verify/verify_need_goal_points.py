@@ -560,8 +560,9 @@ def test_mid_turn_scan_transcript_shrunk_resets_explicitly(world, tmp_path):
 
 # ─── 4.4 提問 ─────────────────────────────────────────────────────────────
 
+# 附了推薦（C-G16 起每一題都要），掛節點的案例只驗掛節點；沒推薦的案例在檔尾 C-G16 段
 ASK = {"questions": [{"question": "要用哪個做法？", "header": "做法", "multiSelect": False,
-                      "options": [{"label": "A", "description": "甲"}, {"label": "B", "description": "乙"}]}]}
+                      "options": [{"label": "A (Recommended)", "description": "甲"}, {"label": "B", "description": "乙"}]}]}
 
 
 def ask_with(text):
@@ -629,15 +630,23 @@ def test_ask_knowledge_tree_hints_only(world):
 
 
 def test_ask_without_tree_or_closed_tree_hints_write_answer(world):
-    assert ngp.on_ask(SID, "AskUserQuestion", ASK, {}) == (None, ngp.NO_TREE_HINT)
+    reads = {"overview_hub": {"c:/p|部位": {"part_files_read": ["c:/p/a.py"]}}}      # 讀過部位檔：不附全貌提醒
+    assert ngp.on_ask(SID, "AskUserQuestion", ASK, reads) == (None, ngp.NO_TREE_HINT)
     make_tree("code", status="closed")
-    assert ngp.on_ask(SID, "AskUserQuestion", ASK, {}) == (None, ngp.NO_TREE_HINT)
+    assert ngp.on_ask(SID, "AskUserQuestion", ASK, reads) == (None, ngp.NO_TREE_HINT)
     assert guard(world)[-1]["reason"] == "no_tree"
+
+
+def _release_q():
+    """真的放行題：題目含標記、選項正好是 wg_release 固定的兩個（C-G16 起豁免看結構，不只看標記）。"""
+    return {"questions": [{"question": f"{wg_release.RELEASE_TAG} 要放行這一回合嗎？", "header": "放行", "multiSelect": False,
+                           "options": [{"label": wg_release.OPT_RELEASE, "description": "放"},
+                                       {"label": wg_release.OPT_KEEP, "description": "擋"}]}]}
 
 
 def test_release_tag_exempt_only_with_real_pending():
     make_tree("code")
-    q = ask_with(f"{wg_release.RELEASE_TAG} 要放行這一回合嗎？")
+    q = _release_q()
     deny, _ = ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 2})
     assert deny                                                               # 光加標記不算
     state = {"turn_seq": 2}
@@ -756,7 +765,7 @@ def test_pre_tool_use_broken_gate_blocks_normal_question(world, monkeypatch):
 
 def test_pre_tool_use_broken_gate_still_lets_real_release_question_through(world, monkeypatch):
     """壞了也要放過【收尾放行確認】：本 session 真有擋滿待放行紀錄時才放，否則收尾會死鎖；光加標記照擋。"""
-    q = ask_with(f"{wg_release.RELEASE_TAG} 要放行這一回合嗎？")
+    q = _release_q()
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 2})
     _broken_points(monkeypatch)
     out = run_handler(ptu.handle_pre_tool_use, _pre_input(q), {})
@@ -1178,3 +1187,191 @@ def test_settings_pre_tool_use_matcher_has_ask_tools():
 def test_report_need_goal_source():
     """印出這次跑的是真模組還是替身（不判對錯，給交付紀錄用）。"""
     print(f"NEED_GOAL_SOURCE={NG_SOURCE}")
+
+
+# ─── C-G16：提問附推薦、題目掛目標、全貌先於拍板 ─────────────────────────────
+
+READ = {"overview_hub": {"c:/p|部位": {"part_files_read": ["c:/p/a.py"]}}}       # 讀過部位檔（不附全貌提醒）
+
+
+def ask_opts(question, labels):
+    return {"questions": [{"question": question, "header": "選擇", "multiSelect": False,
+                           "options": [{"label": l, "description": f"{l} 的說明"} for l in labels]}]}
+
+
+def test_c_g16_ask_without_recommendation_blocked_then_recommended_passes(world):
+    """寫碼類、題目掛了節點但沒推薦 → 擋，訊息有規則名、缺哪一題、照抄可過的寫法；照抄加 (Recommended) 就放行。"""
+    make_tree("code")
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts("T1.1 卡在這：要用哪個？", ["A", "B"]), {"turn_seq": 3, **READ})
+    assert deny and "ASK_NEEDS_RECOMMENDATION" in deny and "第 1 題" in deny and hint is None
+    assert '"label": "A (Recommended)"' in deny and "建議：選 A" in deny
+    assert [g for g in guard(world) if g["event"] == "ask_no_recommendation"]
+    ok = ask_opts("T1.1 卡在這：要用哪個？", ["A (Recommended)", "B"])
+    assert ngp.on_ask(SID, "AskUserQuestion", ok, {"turn_seq": 3, **READ}) == (None, None)
+    ok2 = ask_opts("T1.1 卡在這：要用哪個？建議：選 B，因為只動一個檔。", ["A", "B"])
+    assert ngp.on_ask(SID, "AskUserQuestion", ok2, {"turn_seq": 3, **READ}) == (None, None)
+
+
+@pytest.mark.parametrize("kind", [None, "knowledge"])
+def test_c_g16_ask_recommendation_applies_without_tree_or_knowledge(world, kind):
+    """推薦與樹無關：沒有樹、記憶知識類的樹，沒推薦一樣擋；擋訊息併入原本的提示（沒樹提醒寫目標、知識類掛節點提醒）。"""
+    if kind:
+        make_tree(kind)
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts("要先查哪一份？", ["A", "B"]), {"turn_seq": 1, **READ})
+    assert deny and "ASK_NEEDS_RECOMMENDATION" in deny and hint is None
+    assert (ngp.NO_TREE_HINT in deny) if kind is None else ("記憶知識類不擋" in deny)
+
+
+def test_c_g16_release_question_exempt_from_recommendation(world):
+    """【收尾放行確認】固定兩選項的放行題不是決策題：不要求推薦（真有待放行紀錄時整題豁免是既有行為）。"""
+    q = ask_opts(f"{wg_release.RELEASE_TAG} 要放行這一回合嗎？", [wg_release.OPT_RELEASE, wg_release.OPT_KEEP])
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 2, **READ})
+    assert deny is None and hint == ngp.NO_TREE_HINT                              # 沒樹：只有既有的寫目標提醒
+    make_tree("code")
+    state = {"turn_seq": 2, **READ}
+    wg_release.mark_block(state, SID, "reconcile", None, 2)
+    wg_release.set_pending(state, SID, "reconcile", 2, "now", "擋滿")
+    assert ngp.on_ask(SID, "AskUserQuestion", q, state) == (None, None)
+
+
+def test_c_g16_ask_code_tree_links_by_node_text_fragment(world):
+    """題目或選項描述引用節點原文連續 8 字以上也算掛上（不只編號）；記 checkpoint 與審計 linked。"""
+    make_tree("code")
+
+    def fn(doc):
+        ng.active_tree(doc)["nodes"]["T1.1"]["text"] = "匯出功能支援 CSV 而且舊的 JSON 不能壞"
+    ng.update_locked(SID, fn)
+    q = ask_opts("為了「匯出功能支援 CSV 而且」這件事，要用哪個？", ["A (Recommended)", "B"])
+    state = {"turn_seq": 4, **READ}
+    assert ngp.on_ask(SID, "AskUserQuestion", q, state) == (None, None)
+    assert tree_now()["checkpoints"][-1]["node"] == "T1.1"
+    ngp.mark_asked(state, "f1", q)
+    ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": q, "tool_use_id": "f1"}], CFG)
+    assert [g["linked"] for g in guard(world) if g["event"] == "ask_audit"] == ["T1.1"]
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ask_opts("為了「匯出功能支援」這件事？", ["A (Recommended)"]), state)
+    assert deny and "ASK_LINKED_TO_GOAL" in deny                                 # 7 字不夠：照擋、印規則名
+
+
+def test_c_g16_ask_audit_notes_unlinked_knowledge(world):
+    """沒樹（記憶知識類）提問不擋，但 PostToolBatch 審計記一筆「提問未掛目標（知識類）」；掛上了不記。"""
+    state = {"turn_seq": 1, **READ}
+    ngp.mark_asked(state, "k1", ASK)
+    ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": ASK, "tool_use_id": "k1"}], CFG)
+    make_tree("code")
+    ok = ask_with("T1.1 卡在這：要用哪個？")
+    ngp.mark_asked(state, "k2", ok)
+    ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": ok, "tool_use_id": "k2"}], CFG)
+    audits = [g for g in guard(world) if g["event"] == "ask_audit"]
+    assert [a.get("note") for a in audits] == ["提問未掛目標（知識類）", None]
+
+
+def test_c_g16_block_count_resets_when_ask_passes_without_tree(world):
+    """沒樹時沒推薦被擋一次，補上推薦那題過了：審計記擋過 1 次、計數歸零（不是只有掛上節點才歸零，否則一直累加到下一題）。"""
+    state = {"turn_seq": 2, **READ}
+    bad = ask_opts("要先查哪一份？", ["A", "B"])
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", bad, state)
+    ngp.note_ask_blocked(state, deny)
+    ok = ask_opts("要先查哪一份？", ["A (Recommended)", "B"])
+    ngp.mark_asked(state, "c1", ok)
+    ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": ok, "tool_use_id": "c1"}], CFG)
+    assert [g["blocked"] for g in guard(world) if g["event"] == "ask_audit"] == [1]
+    assert state.get("need_goal_ask_blocks", 0) == 0
+
+
+def test_c_g16_overview_reminder_rides_on_message_not_own_block(world):
+    """問改法而本 session 還沒讀過任何部位檔：擋訊息或提示多一句「先讀過部位檔再問」；只提醒，不單獨擋。"""
+    make_tree("code")
+    q = ask_opts("T1.1 要用哪個改法？", ["A (Recommended)", "B"])
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 2})
+    assert deny is None and hint and "先讀過部位檔再問" in hint and "ASK_OVERVIEW_BEFORE_DECISION" in hint
+    assert ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 2, **READ}) == (None, None)
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts("要用哪個改法？", ["A (Recommended)"]), {"turn_seq": 2})
+    assert deny and "掛在目標樹哪個節點" in deny and "先讀過部位檔再問" in deny and hint is None
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts("T1.1 今天先做哪一軌？", ["A (Recommended)"]), {"turn_seq": 2})
+    assert (deny, hint) == (None, None)                                          # 不是改法選擇
+
+
+def test_c_g16_link_deny_names_rule():
+    """既有的掛節點擋訊息也印規則名。"""
+    make_tree("code")
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3, **READ})
+    assert "ASK_LINKED_TO_GOAL" in deny and "（掛 T1.1）" in deny
+
+
+def test_c_g16_after_mode_hints_missing_recommendation(world):
+    """PreToolUse 沒攔到的提問（事後模式）：沒推薦只提醒、不擋。"""
+    make_tree("code")
+    state = {"turn_seq": 6, **READ}
+    q = ask_opts("T1.1 要用哪個？", ["A", "B"])
+    lines = ngp.batch_lines(SID, state, [{"tool_name": "AskUserQuestion", "tool_input": q, "tool_use_id": "z1"}], CFG)
+    assert len(lines) == 1 and "ASK_NEEDS_RECOMMENDATION" in lines[0]
+
+
+def _two_q(q1, q2, header="h"):
+    return {"questions": [{"question": q, "header": header, "multiSelect": False,
+                           "options": [{"label": "A (Recommended)", "description": "甲"}, {"label": "B", "description": "乙"}]}
+                          for q in (q1, q2)]}
+
+
+def test_c_g16_link_checked_per_question(world):
+    """codex BLOCK 1：一題掛上不能帶過同批其他題；擋訊息點名沒掛的那一題。每題都掛上才過。"""
+    make_tree("code")
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", _two_q("T1.1 要哪種格式？", "保留多久？"), {"turn_seq": 3, **READ})
+    assert deny and "ASK_LINKED_TO_GOAL" in deny and "第 2 題「保留多久？」" in deny
+    assert ngp.on_ask(SID, "AskUserQuestion", _two_q("T1.1 要哪種格式？", "T1.2 保留多久？"), {"turn_seq": 3, **READ}) == (None, None)
+
+
+def test_c_g16_header_does_not_count_as_link(world):
+    """codex WARN：只有 header 寫了節點編號不算（判準是題目或選項描述）；選項描述寫了算。"""
+    make_tree("code")
+    q = ask_opts("要哪種格式？", ["CSV (Recommended)", "JSON"])
+    q["questions"][0]["header"] = "T1.1"
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 3, **READ})
+    assert deny and "ASK_LINKED_TO_GOAL" in deny
+    q["questions"][0]["options"][0]["description"] = "對準 T1.1"
+    assert ngp.on_ask(SID, "AskUserQuestion", q, {"turn_seq": 3, **READ}) == (None, None)
+
+
+def _pending_state():
+    state = {"turn_seq": 2, **READ}
+    wg_release.mark_block(state, SID, "reconcile", None, 2)
+    wg_release.set_pending(state, SID, "reconcile", 2, "now", "擋滿")
+    return state
+
+
+def test_c_g16_release_exemption_does_not_cover_other_questions(world):
+    """codex BLOCK 2：真有待放行紀錄時，放行題豁免只管放行題本身；同批的一般題照查推薦與掛目標，標記塞進一般題也不豁免。"""
+    make_tree("code")
+    mixed = _release_q()
+    mixed["questions"].append({"question": "要哪種格式？", "header": "h", "multiSelect": False,
+                               "options": [{"label": "CSV", "description": "x"}, {"label": "JSON", "description": "y"}]})
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", mixed, _pending_state())
+    assert deny and "ASK_NEEDS_RECOMMENDATION" in deny and "第 2 題" in deny and "第 1 題「" not in deny
+    smuggled = ask_opts(f"{wg_release.RELEASE_TAG} 要哪種格式？", ["CSV", "JSON"])
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", smuggled, _pending_state())
+    assert deny and "ASK_NEEDS_RECOMMENDATION" in deny and "ASK_LINKED_TO_GOAL" in deny
+    assert ngp.on_ask(SID, "AskUserQuestion", _release_q(), _pending_state()) == (None, None)
+
+
+def test_c_g16_broken_gate_lets_only_pure_release_ask_through(world, monkeypatch):
+    """codex BLOCK 2（pre_tool_use 例外分支）：閘壞了只放「整次全是放行題」且真有待放行紀錄；夾一般題照擋。"""
+    st = _pending_state()
+    st["session"] = {"id": SID}
+    wg_core.write_state(SID, st)
+    _broken_points(monkeypatch)
+    mixed = _release_q()
+    mixed["questions"].append(ask_opts("要哪種格式？", ["CSV", "JSON"])["questions"][0])
+    out = run_handler(ptu.handle_pre_tool_use, _pre_input(mixed, "m1"), {})
+    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(_release_q(), "m2"), {}) is None
+
+
+def test_c_g16_pre_tool_use_entry_blocks_missing_recommendation(world):
+    """真 hook 入口：沒推薦 → PreToolUse deny；加了 (Recommended) → 放行。"""
+    wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, **READ})
+    make_tree("code")
+    out = run_handler(ptu.handle_pre_tool_use, _pre_input(ask_opts("T1.1：要用哪個？", ["A", "B"]), "r1"), {})
+    assert out and out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "ASK_NEEDS_RECOMMENDATION" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    ok = ask_opts("T1.1：要用哪個？", ["A (Recommended)", "B"])
+    assert run_handler(ptu.handle_pre_tool_use, _pre_input(ok, "r2"), {}) is None

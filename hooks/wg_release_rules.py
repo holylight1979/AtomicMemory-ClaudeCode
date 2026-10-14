@@ -963,3 +963,152 @@ def red_then_green(case_path: str, receipts: Sequence[Tuple[Any, Sequence[str], 
         elif is_green and red is not None:
             return red, seq
     return None
+
+
+# ─── 提問（AskUserQuestion／ExitPlanMode 前）：附推薦、掛目標、全貌先於拍板（wg_need_goal_points 收事實、這裡判） ───
+
+RULES.update({
+    "ASK_NEEDS_RECOMMENDATION": "AskUserQuestion 每一題至少一個選項 label 標 (Recommended)，或題目文字含「建議：」一句；"
+                                "【收尾放行確認】固定兩選項（放行這一回合／繼續擋，先修好）的放行題不是決策題、豁免；含標記但選項走樣"
+                                "（多了、少了、加了 (Recommended)）照擋並指路照抄兩個選項；工具輸入判不了不擋。"
+                                "沒有就擋（不分有沒有樹、哪一類），擋訊息列缺的題目與照抄可過的寫法。",
+    "ASK_LINKED_TO_GOAL": "有目標樹時每一題（題目＋選項 label 與描述，不含 header；ExitPlanMode 是整份計畫）各自要指到節點："
+                          "節點編號（T<n>／T<n>.<m>，在目前的樹、沒放棄）或節點原文連續 8 字以上的片段（空白不算字；不到 8 字的節點"
+                          "只能寫編號）；一題掛上不帶過同批其他題。寫碼類有題沒指到擋；記憶知識類只提示；沒有樹不擋，PostToolBatch "
+                          "審計記「提問未掛目標（知識類）」。真有待放行紀錄時放行題不算；整次全是放行題才整次豁免（ask_release_only）。",
+    "ASK_OVERVIEW_BEFORE_DECISION": "提問涉及改法選擇（ExitPlanMode，或題目含改法／做法／方案／寫法／實作／架構／重構／設計）而本 session "
+                                    "還沒讀過任何部位檔（OverviewHub 的 part_files_read 全空）→ 擋訊息或提示多一句「先讀過部位檔再問」；"
+                                    "只提醒，不單獨擋（owed＝要附這句）。不分部位：讀過任一部位檔就不提醒（已知限制）。",
+})
+
+ASK_FRAGMENT_MIN = 8
+_REC_LABEL_RE = re.compile(r"[(（]\s*recommended\s*[)）]", re.IGNORECASE)
+_REC_TEXT_RE = re.compile(r"建議\s*[:：]")
+_DECISION_RE = re.compile(r"改法|做法|方案|寫法|怎麼改|如何改|實作|架構|重構|設計|approach|implement|refactor|design", re.IGNORECASE)
+
+
+def _ask_questions(tool_input: Any) -> List[Tuple[str, List[str], List[str]]]:
+    """AskUserQuestion 的工具輸入 → [(題目, [選項 label…], [選項 label 與描述的字串…])]；不含 header；格式不對的題目略過。"""
+    qs = tool_input.get("questions") if isinstance(tool_input, dict) else None
+    out: List[Tuple[str, List[str], List[str]]] = []
+    for q in qs if isinstance(qs, list) else []:
+        if not isinstance(q, dict):
+            continue
+        opts = q.get("options") if isinstance(q.get("options"), list) else []
+        labels = [str(o.get("label") or "") if isinstance(o, dict) else str(o) for o in opts]
+        texts = [f"{o.get('label') or ''}\n{o.get('description') or ''}" if isinstance(o, dict) else str(o) for o in opts]
+        out.append((str(q.get("question") or ""), labels, texts))
+    return out
+
+
+def _is_release_q(text: str, labels: Sequence[str], release_tag: str, release_labels: Iterable[str]) -> bool:
+    """放行題看結構：題目含標記、選項正好是固定兩個（光有標記不算）。"""
+    return release_tag in text and set(labels) == set(release_labels)
+
+
+def ask_release_only(tool_input: Any, release_tag: str, release_labels: Iterable[str]) -> bool:
+    """整次提問全是放行題：真有待放行紀錄時整次豁免（夾了一般題、標記塞進一般題都不算）。"""
+    fixed = tuple(release_labels)
+    qs = _ask_questions(tool_input)
+    return bool(qs) and all(_is_release_q(t, ls, release_tag, fixed) for t, ls, _x in qs)
+
+
+def ask_link_units(tool_input: Any, skip_release: bool, release_tag: str, release_labels: Iterable[str]
+                   ) -> List[Tuple[str, str]]:
+    """ASK_LINKED_TO_GOAL 要各自掛節點的單位：每一題一個（標籤「第 i 題「題目」」, 題目＋選項 label 與描述），不含 header；
+    skip_release（真有待放行紀錄）時放行題不算單位。題目判不了回 []（呼叫端改用整份文字一個單位）。"""
+    fixed = tuple(release_labels)
+    return [(f"第 {i} 題「{t[:40]}」", "\n".join([t, *texts]))
+            for i, (t, ls, texts) in enumerate(_ask_questions(tool_input), 1)
+            if not (skip_release and _is_release_q(t, ls, release_tag, fixed))]
+
+
+def _unrecommended(tool_input: Any, release_tag: str, release_labels: Iterable[str]) -> List[Tuple[int, str, List[str]]]:
+    """沒附推薦的題目：(第幾題, 題目, 選項 label)。放行題（題目含標記、選項正好是固定兩個）不算；
+    含標記但選項走樣的照列（加了 (Recommended) 也列：它已不是放行題，使用者選了也不會被認成放行）。"""
+    fixed = tuple(release_labels)
+    out = []
+    for i, (text, labels, _x) in enumerate(_ask_questions(tool_input), 1):
+        if _is_release_q(text, labels, release_tag, fixed):
+            continue
+        if release_tag not in text and (_REC_TEXT_RE.search(text) or any(_REC_LABEL_RE.search(l) for l in labels)):
+            continue
+        out.append((i, text, labels))
+    return out
+
+
+def ask_recommendation_verdict(tool_input: Any, release_tag: str, release_labels: Iterable[str]) -> Verdict:
+    """ASK_NEEDS_RECOMMENDATION：每一題都要有推薦（選項 label 標 (Recommended) 或題目含「建議：」）。"""
+    rule = "ASK_NEEDS_RECOMMENDATION"
+    release_labels = tuple(release_labels)
+    if not _ask_questions(tool_input):
+        return Verdict(rule, False, "工具輸入沒有可判的題目（交給工具自己驗）")
+    miss = _unrecommended(tool_input, release_tag, release_labels)
+    if not miss:
+        return Verdict(rule, False, "每一題都附了推薦")
+    fixed = "／".join(release_labels)
+
+    def line(i: int, t: str, ls: List[str]) -> str:
+        head = f"第 {i} 題「{t[:40]}」："
+        if release_tag in t:
+            return (head + f"含{release_tag}但選項不是固定兩個（{fixed}）：放行題照抄這兩個選項、不加 (Recommended)；"
+                    "不是放行題就拿掉標記並附推薦")
+        return head + f"選項 {'／'.join(l or '（空）' for l in ls) or '（無）'} 都沒標 (Recommended)、題目也沒有「建議：」"
+    return Verdict(rule, True, f"{len(miss)} 題沒附推薦：人要看得到你建議哪個、為什麼", tuple(line(*m) for m in miss))
+
+
+def ask_recommendation_fix(tool_input: Any, release_tag: str, release_labels: Iterable[str]) -> str:
+    """照抄可過的寫法：拿第一個沒推薦的題目示範兩種補法。"""
+    miss = _unrecommended(tool_input, release_tag, release_labels)
+    label = next((l for l in (miss[0][2] if miss else []) if l), "A")
+    return (f"照抄可過：把你推薦的選項排第一、label 後面加「 (Recommended)」，例如 "
+            f'{{"label": "{label} (Recommended)", "description": "<一句理由>"}}；'
+            f"或在題目文字加一句「建議：選 {label}，因為 <一句理由>。」每一題都要。")
+
+
+def node_fragment_ref(node_texts: Dict[str, str], text: str, min_len: int = ASK_FRAGMENT_MIN) -> Optional[str]:
+    """文字裡出現某節點原文連續 min_len 字以上（空白不算字）→ 回那個節點編號，多個命中取 node_texts 裡先出現的；
+    節點原文不到 min_len 字的不比（只能寫編號）。node_texts＝{節點編號: 原文}，呼叫端只放沒放棄的節點。"""
+    hay = re.sub(r"\s+", "", str(text or ""))
+    for nid, raw in node_texts.items():
+        t = re.sub(r"\s+", "", str(raw or ""))
+        if len(t) >= min_len and any(t[i:i + min_len] in hay for i in range(len(t) - min_len + 1)):
+            return nid
+    return None
+
+
+def ask_goal_link_verdict(kind: Optional[str], links: Sequence[Tuple[str, Optional[str]]]) -> Verdict:
+    """ASK_LINKED_TO_GOAL：kind＝目前樹的類別（code／knowledge，沒有樹 None）；links＝每個單位（ask_link_units 的每一題，
+    或整份計畫）的 (標籤, 指到的節點或 None)。每個單位都指到節點才算掛上；一題掛上不帶過同批其他題。"""
+    rule = "ASK_LINKED_TO_GOAL"
+    miss = [lab for lab, nid in links if not nid]
+    if links and not miss:
+        nodes = tuple(dict.fromkeys(nid for _l, nid in links if nid))
+        return Verdict(rule, False, f"題目掛在 {'、'.join(nodes)}", nodes)
+    tail = f"沒有節點編號（T<n>／T<n>.<m>），也沒有節點原文連續 {ASK_FRAGMENT_MIN} 字"
+    ev = tuple(f"{lab}：題目與選項描述{tail}" for lab in miss) or (f"題目與選項描述{tail}",)
+    if kind is None:
+        return Verdict(rule, False, "還沒有目標樹：不擋，審計記「提問未掛目標（知識類）」", ev)
+    if kind != "code":
+        return Verdict(rule, False, "記憶知識類的樹：題目沒指到節點，只提醒", ev)
+    return Verdict(rule, True, "寫碼類的樹：有題目沒指到任何節點", ev)
+
+
+def ask_audit_note(kind: Optional[str], linked: Optional[str]) -> Optional[str]:
+    """提問審計的備註：沒掛上節點 → 「提問未掛目標（寫碼類｜知識類）」（沒有樹算知識類）；掛上了 None。"""
+    if linked:
+        return None
+    return f"提問未掛目標（{'寫碼類' if kind == 'code' else '知識類'}）"
+
+
+def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int) -> Verdict:
+    """ASK_OVERVIEW_BEFORE_DECISION：只看題目文字（不看 header、選項）判改法選擇；ExitPlanMode 一律算。
+    part_files_read＝OverviewHub 各部位 part_files_read 的總數。owed＝要附提醒句，呼叫端不因這條單獨擋。"""
+    rule = "ASK_OVERVIEW_BEFORE_DECISION"
+    decision = tool_name == "ExitPlanMode" or any(_DECISION_RE.search(t) for t, _l, _x in _ask_questions(tool_input))
+    if not decision:
+        return Verdict(rule, False, "題目不涉及改法選擇")
+    if part_files_read > 0:
+        return Verdict(rule, False, f"已讀過 {part_files_read} 個部位檔")
+    return Verdict(rule, True, "題目涉及改法選擇，但本 session 還沒讀過任何部位檔：先讀過部位檔再問（只提醒，不因這條擋）",
+                   ("OverviewHub 的 part_files_read 全空",))
