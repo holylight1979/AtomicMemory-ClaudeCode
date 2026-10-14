@@ -11,7 +11,7 @@
 
 ## 知識
 
-- [臨] 背景記憶同步（hooks/wg_vcs_sync.py）提交前會跑 `sync-memory-index.py --write`，用的是工作樹裡的程式，包含還沒 commit 的修改。別的 session 一收割就會觸發；實例 2026-10-14：改產生器加語言視圖、還沒自己跑 --write，另一 session 的收割就把新產的 MEMORY.md 與 `_by_language/_INDEX.md` 以「knowledge harvest」為名 commit 了（9 分鐘後程式才 commit）。
+- [臨] 背景記憶同步（hooks/wg_vcs_sync.py）提交前會跑 `sync-memory-index.py --write`，用的是工作樹裡的程式，包含還沒 commit 的修改。別的 session 一收割就會觸發；實例：改產生器加語言視圖、還沒自己跑 --write，另一 session 的收割就把新產的 MEMORY.md 與 `_by_language/_INDEX.md` 以「knowledge harvest」為名 commit 了（9 分鐘後程式才 commit）。
 - [臨] 後果：產生器改壞時，壞掉的索引會先被 commit（若待推段只有記憶 commit 還會被推出去）。改 sync-memory-index／索引相關程式時：先在暫存記憶樹或測試裡驗完再存檔到 live 程式，或在 worktree 改；live 改完立刻 `--check`，不要留半成品在工作樹。排查「索引怎麼自己變了」先看 Logs/vcs-sync.log 的 start reason=harvest sid=…
 
 ## 行動
