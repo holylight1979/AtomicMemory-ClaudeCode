@@ -316,6 +316,88 @@ def test_unrelated_node_edit_does_not_force_reverify(env):
     assert r["ok"], r["rejected"]
 
 
+# ─── C-G3／C-G10：寫碼類的「達成」要指到試過的案例或收據；案例先紅後綠留紀錄 ─────────────────
+
+def _done_items(evidence):
+    return [{"id": "T1", "status": "done", "evidence": evidence},
+            {"id": "T1.1", "status": "dropped", "note": "n"}, {"id": "T1.2", "status": "dropped", "note": "n"}]
+
+
+def _kind_tree(env, code):
+    """code=True：改過 a.py 的寫碼類樹；False：只改過 notes.md 的記憶知識類樹。兩種都有 a.py、verify_a.py 可引用。"""
+    proj = env["proj"]
+    _op("set", goal="A", cwd=str(proj))
+    _op("add", items=[{"text": "a1"}, {"text": "a2"}])
+    ng.stamp_edit(SID, str(proj / ("a.py" if code else "notes.md")), "", 2, {})
+    (proj / "a.py").write_text("x", encoding="utf-8")
+    (proj / "verify_a.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
+    assert _tree()["kind"] == ("code" if code else "knowledge")
+    return proj
+
+
+@pytest.mark.parametrize("code, evidence, verdict, want", [
+    (True, [("file", "a.py", "read")], None, "GOAL_DONE_NEEDS_CASE_OR_RECEIPT"),        # 只有檔案 → 擋
+    (True, [("case", "verify_a.py::test_a", "read")], None, None),                       # 有案例 → 收
+    (True, [("receipt", "R", "measured")], "PASS", None),                                # 有綠收據 → 收
+    (True, [("receipt", "R", "measured")], "FAIL", "GOAL_DONE_NEEDS_CASE_OR_RECEIPT"),   # 只有紅收據 → 擋
+    (True, [("case", "verify_a.py", "inferred"), ("file", "a.py", "read")], None,
+     "GOAL_DONE_NEEDS_CASE_OR_RECEIPT"),                                                  # 案例只標推論不算試過
+    (False, [("file", "a.py", "read")], None, None),                                     # 記憶知識類不擋
+    (True, [("file", "a.py", "inferred")], None, "GOAL_INFERRED_MAX_PARTIAL"),           # 只有推論 → 擋
+    (False, [("file", "a.py", "inferred")], None, "GOAL_INFERRED_MAX_PARTIAL"),          # 推論最多部分，不分類別
+], ids=["code-file", "code-case", "code-receipt-pass", "code-receipt-fail", "code-case-inferred",
+        "knowledge-file", "code-inferred", "knowledge-inferred"])
+def test_goal_done_needs_case_or_receipt(env, code, evidence, verdict, want):
+    """GOAL_DONE_NEEDS_CASE_OR_RECEIPT／GOAL_INFERRED_MAX_PARTIAL：走真的 reconcile。擋訊息印規則名、節點、現有證據是哪種。"""
+    proj = _kind_tree(env, code)
+    ev = []
+    for kind, ref, level in evidence:
+        if kind == "receipt":
+            ng.stamp_receipts(SID, _receipt_state(_rcpt(9, verdict=verdict)), 2)
+            ref = f"R{_doc()['receipts'][-1]['seq']}"
+        ev.append({"kind": kind, "ref": ref, "level": level})
+    r = _op("reconcile", items=_done_items(ev), turn=3, cwd=str(proj))
+    if want is None:
+        assert r["ok"], r["rejected"]
+        assert ng.goal_gate_reason(SID, True, {}) is None                   # 交付邊界的 (f2) 用同一套判定，收了就不再擋
+        return
+    hit = [x for x in r["rejected"] if f"規則 {want}" in x]
+    assert not r["ok"] and hit, r["rejected"]
+    assert "T1 " in hit[0] and "現有證據：" in hit[0] and ng.LABEL["ekind"][evidence[0][0]] in hit[0], hit[0]
+    assert _tree()["last_reconcile"] is None
+
+
+_PYTEST = "python -X utf8 -m pytest -q "
+_LONG = _PYTEST + " ".join(f"hooks/verify/verify_example_{i}.py" for i in range(8)) + " verify_a.py"   # 超過 200 字
+
+
+@pytest.mark.parametrize("ref, runs, want", [
+    ("verify_a.py::test_a", [(_PYTEST + "verify_a.py", "FAIL"), (_PYTEST + "verify_a.py", "PASS")], True),
+    ("verify_a.py::test_a", [(_PYTEST + "verify_a.py", "PASS")], False),                          # 只有綠
+    ("verify_a.py::test_a", [(_PYTEST + "verify_b.py", "FAIL"), (_PYTEST + "verify_a.py", "PASS")], False),
+    ("verify_a.py::test_a", [(_PYTEST + "verify_a.py", "PASS"), (_PYTEST + "verify_a.py", "FAIL"),
+                             (_PYTEST + "x.py", "PASS")], False),                                 # 先綠後紅不算
+    ("verify_a.py::test_a", [(_LONG, "FAIL"), (_LONG, "PASS")], True),                            # 長指令尾端的案例（codex BLOCK 2）
+    ("verify_a.py::test_a", [("cd sub && " + _PYTEST + "verify_a.py", "FAIL"),
+                             ("cd sub && " + _PYTEST + "verify_a.py", "PASS")], False),           # 跑的是 sub/ 底下的（codex BLOCK 3）
+    ("my tests/verify_s.py::test_a", [(_PYTEST + '"my tests/verify_s.py"', "FAIL"),
+                                      (_PYTEST + '"my tests/verify_s.py::test_a"', "PASS")], True),  # 引號裡有空白（codex BLOCK 1）
+], ids=["red-then-green", "green-only", "other-file-red", "green-then-red", "long-cmd", "cd-elsewhere", "quoted-space"])
+def test_case_red_then_green_recorded_not_gated(env, ref, runs, want):
+    """CASE_RED_THEN_GREEN：案例證據對上目標檔收據裡同一檔先紅後綠 → 該筆證據記 red_then_green=true、摘要印出；
+    對不上照收，摘要印「案例未見先紅」。只是紀錄，不是閘。收據用完整指令與它的 cwd 解出點名的案例檔；指令裡換目錄的不比。"""
+    proj = _kind_tree(env, True)
+    (proj / "my tests").mkdir()
+    (proj / "my tests" / "verify_s.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
+    rows = [{**_rcpt(i + 3, cmd=cmd, verdict=v), "cwd": str(proj)} for i, (cmd, v) in enumerate(runs)]
+    ng.stamp_receipts(SID, _receipt_state(*rows), 2)
+    r = _op("reconcile", items=_done_items([{"kind": "case", "ref": ref, "level": "read"}]),
+            turn=3, cwd=str(proj))
+    assert r["ok"], r["rejected"]
+    assert _tree()["nodes"]["T1"]["evidence"][0].get("red_then_green") is want
+    assert ("red_then_green" in r["text"]) is want and ("案例未見先紅" in r["text"]) is (not want), r["text"]
+
+
 def test_reconcile_followups_go_to_tracking(env, monkeypatch):
     rows = []
     import wg_harvest

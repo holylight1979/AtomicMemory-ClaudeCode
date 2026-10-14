@@ -70,6 +70,13 @@ RULES: Dict[str, str] = {
     "AEC_EVIDENCE_PATH": "(e) 收尾檢核 (j) 證據路徑缺或不存在，但本 session 有驗證收據。",
     "AEC_FOLLOWUPS_EMPTY": "(e) 收尾檢核 (k) 追蹤項是空字串（「無」才放）。",
     "MEASURE_RULER_NOT_RUN": "改到部位表上有量尺的部位，最後一次修改之後沒有那把尺合格的 DONE 收據。",
+    # 需求目標樹的完整對照（wg_need_goal 收事實、這裡判）
+    "GOAL_DONE_NEEDS_CASE_OR_RECEIPT": "寫碼類目標樹標「達成」的節點，至少一筆證據是沒紅的收據（實測）或讀碼級的驗證案例；"
+                                       "只有檔案、卡片、推論級案例或紅收據 → 擋，擋訊息列節點與現有每一筆證據。記憶知識類的樹不擋。",
+    "GOAL_INFERRED_MAX_PARTIAL": "標「達成」的節點證據全是推論 → 擋（推論最多標部分），不分寫碼類或記憶知識類。",
+    "CASE_RED_THEN_GREEN": "完整對照的案例證據，對上目標檔收據裡點名同一案例檔「先紅、之後綠」的序列 → 該筆證據記 red_then_green；"
+                           "收據點名哪些案例檔在蓋號時用完整指令與它的 cwd 解成絕對路徑，指令裡換目錄或沒記 cwd 的不比。"
+                           "對不上照收，對照摘要印「案例未見先紅」。只是紀錄，不是閘。",
 }
 
 
@@ -723,15 +730,21 @@ def retry_bump(edits_since_red: int, threshold: int) -> bool:
     return int(edits_since_red or 0) >= max(1, int(threshold))
 
 
-_CASE_TOKEN_RE = re.compile(r"[\w./\\:-]+\.(?:py|js|ts|cs|lua|go|rs|rb|java|kt|sh|ps1)\b", re.IGNORECASE)
+_CASE_EXTS = r"(?:py|js|ts|cs|lua|go|rs|rb|java|kt|sh|ps1)"
+_CASE_TOKEN_RE = re.compile(r"[\w./\\:-]+\." + _CASE_EXTS + r"\b", re.IGNORECASE)
+_QUOTED_CASE_RE = re.compile(r"""(["'])([^"'\n]*?\.""" + _CASE_EXTS + r""")(?:::[^"'\n]*)?\1""", re.IGNORECASE)
 
 
 def case_files_in_cmd(cmd: str, cwd: Optional[str] = None) -> List[str]:
     """指令裡像程式檔的 token，保留路徑（不只檔名：service_a/tests/test_api.py 與 service_b/… 是兩個檔）；
+    引號裡的路徑整段算一個（`"my tests/test_a.py"` 不切成 tests/test_a.py）。
     給 cwd 時相對路徑接在 cwd 後面變成絕對正規化路徑。`::test_x` 尾段去掉。"""
+    text = str(cmd or "")
+    raws = [m.group(2) for m in _QUOTED_CASE_RE.finditer(text)]
+    raws += [m.group(0) for m in _CASE_TOKEN_RE.finditer(_QUOTED_CASE_RE.sub(" ", text))]
     out: List[str] = []
-    for m in _CASE_TOKEN_RE.finditer(str(cmd or "")):
-        tok = m.group(0).replace("\\", "/").split("::", 1)[0]
+    for raw in raws:
+        tok = raw.replace("\\", "/").split("::", 1)[0]
         if cwd and not (os.path.isabs(tok) or re.match(r"^[A-Za-z]:/", tok)):
             tok = str(cwd).replace("\\", "/").rstrip("/") + "/" + tok
         key = canon_path(tok) if (cwd or os.path.isabs(tok) or re.match(r"^[A-Za-z]:/", tok)) else tok.lower().lstrip("./")
@@ -747,3 +760,56 @@ def green_clears_red(red_cmd: str, green_cmd: str, red_cwd: Optional[str] = None
     a = set(case_files_in_cmd(red_cmd, red_cwd if both else None))
     b = set(case_files_in_cmd(green_cmd, green_cwd if both else None))
     return bool(a and b and (a & b))
+
+
+# ─── 需求目標樹的完整對照：GOAL_DONE_NEEDS_CASE_OR_RECEIPT／GOAL_INFERRED_MAX_PARTIAL／CASE_RED_THEN_GREEN ───
+# evidence 一筆＝(種類, 證據級, 收據紅不紅, 顯示字)；種類與證據級用 need_goal 的列舉值（receipt／case／file／atom、measured／read／inferred）
+
+def receipt_red(verdicts: Iterable[str], exit_code: Any) -> bool:
+    """收據紅不紅：任一哨兵 FAIL（verdicts 是「名稱:結論」字串），或 exit 不是 0；沒記 exit 不算紅。"""
+    return any(str(v).upper().endswith(":FAIL") for v in verdicts or ()) or exit_code not in (0, None)
+
+
+def receipt_green(verdicts: Iterable[str], exit_code: Any) -> bool:
+    """收據綠不綠：有 PASS 而且沒紅（只有 DONE 的量測收據不算綠）。"""
+    return any(str(v).upper().endswith(":PASS") for v in verdicts or ()) and not receipt_red(verdicts, exit_code)
+
+
+def _evidence_have(node: str, evidence: Sequence[Tuple[str, str, bool, str]]) -> str:
+    return f"{node} 現有證據：" + ("、".join(text + ("（紅）" if red else "") for _, _, red, text in evidence) or "沒有")
+
+
+def goal_done_evidence_verdict(node: str, code_tree: bool, evidence: Sequence[Tuple[str, str, bool, str]]) -> Verdict:
+    """GOAL_DONE_NEEDS_CASE_OR_RECEIPT：標「達成」的節點有沒有試過的證據（沒紅的收據，或讀碼級的驗證案例）。"""
+    rule = "GOAL_DONE_NEEDS_CASE_OR_RECEIPT"
+    if not code_tree:
+        return Verdict(rule, False, f"{node} 在記憶知識類的樹，不要求案例或收據")
+    tried = [text for kind, level, red, text in evidence
+             if (kind == "receipt" and not red) or (kind == "case" and level == "read")]
+    if tried:
+        return Verdict(rule, False, f"{node} 標「達成」有試過的證據", tuple(tried[:2]))
+    return Verdict(rule, True, f"{node} 標「達成」但沒指到試過的驗證案例或沒紅的收據（沒試過不算達成，做不到就標部分＋followup）",
+                   (_evidence_have(node, evidence), "要有：沒紅的收據 R<號>（實測）或驗證案例檔（讀碼）"))
+
+
+def goal_inferred_verdict(node: str, evidence: Sequence[Tuple[str, str, bool, str]]) -> Verdict:
+    """GOAL_INFERRED_MAX_PARTIAL：標「達成」的節點證據全是推論 → 擋。沒附證據不歸這條（另有「沒附證據」）。"""
+    rule = "GOAL_INFERRED_MAX_PARTIAL"
+    if evidence and all(level == "inferred" for _, level, _, _ in evidence):
+        return Verdict(rule, True, f"{node} 標「達成」但證據只有推論（推論最多標部分）", (_evidence_have(node, evidence),))
+    return Verdict(rule, False, f"{node} 的證據不是只有推論")
+
+
+def red_then_green(case_path: str, receipts: Sequence[Tuple[Any, Sequence[str], bool, bool]]) -> Optional[Tuple[Any, Any]]:
+    """CASE_RED_THEN_GREEN：receipts＝依時間排的 [(收據號, 點名的案例檔, 紅, 綠)]，案例檔是 case_files_in_cmd 帶 cwd 解出的
+    絕對正規化路徑（同名不同目錄不算同一個）；點名 case_path 的收據裡第一筆紅之後有綠 → (紅的號, 綠的號)；對不上回 None。"""
+    key = canon_path(case_path)
+    red = None
+    for seq, cases, is_red, is_green in receipts:
+        if key not in cases:
+            continue
+        if is_red and red is None:
+            red = seq
+        elif is_green and red is not None:
+            return red, seq
+    return None

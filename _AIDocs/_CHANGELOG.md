@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 目標對照的「達成」要指到試過的案例或收據，案例先紅後綠留紀錄（C-G3＋C-G10）
+- **緣由**：完整對照標「達成」時只查有沒有附證據、不查證據是不是試過的，寫碼類節點附一個檔案就能過；先紅後綠也沒有任何地方記（原話 G3「寫完要主動寫驗證 case」、G10「沒試過不算結論」）。
+- **做法**：`hooks/wg_release_rules.py` 加三條具名規則：GOAL_DONE_NEEDS_CASE_OR_RECEIPT（寫碼類樹的達成至少一筆沒紅的收據或讀碼級驗證案例，記憶知識類不查）、GOAL_INFERRED_MAX_PARTIAL（既有「只有推論」判定改具名）、CASE_RED_THEN_GREEN（只記錄不擋）；`hooks/wg_need_goal.py` 的完整對照判定接上（收件與交付邊界同一支，擋訊息印規則名、節點、現有每一筆證據），收據蓋號時用完整指令與它的 cwd 算出點名的案例檔（指令裡換目錄的不算），對照收下時案例證據記 `red_then_green` 並把對上或「案例未見先紅」印在摘要；共用的取檔函式認得引號裡含空白的路徑（GREEN_SAME_CASE_CLEARS 一併受惠）；MCP 工具說明補一句。TECH §7.7 補一段、規則表重複的 7.7 改成 §7.8；契約 5.4、5.5 同步。
+- **驗證**：`verify_need_goal` 新增達成證據八種組合與先紅後綠七種序列（含長指令、指令內換目錄、引號含空白，走真的 reconcile）、`verify_release_rules` 新增五組純函式案；目標四支 292 passed、`verify_stop_reconcile` 464 passed；退回改前版本新 e2e 案全紅在斷言（AssertionError），純函式案紅在函式不存在（AttributeError）；codex 唯讀審查 3 BLOCK 先重現成案例再修。
+
 ## 2026-10-14 記憶卡片可依程式語言篩選（跨範疇視圖，不搬檔）
 - **緣由**：使用者想找 Python、C#、JS 相關的卡，但資料夾只按問題類型分，只有 dotnet 自成一類；Python 卡散在六個範疇。
 - **做法**：`tools/sync-memory-index.py` 多產一份 `memory/_by_language/_INDEX.md`（每個語言一張表，列卡片路徑，一卡可多語言），有命中時在 MEMORY.md 末尾加一行指標；判定詞庫放 `memory/_meta/taxonomy.json` 新的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾）。檔名沿用 `_INDEX.md`，合併驅動、背景同步、hooks 索引檔名單都直接認得。TECH、DocIndex-System、MultiMachineMemorySync 同步。

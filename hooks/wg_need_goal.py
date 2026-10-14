@@ -24,8 +24,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import wg_core
+import wg_release_rules as rr
 from harness_text import user_typed_text
-from wg_verify_ledger import is_code_file, reconcile_cfg
+from wg_verify_ledger import has_cd, is_code_file, reconcile_cfg
 
 # ─── 列舉值（MIRROR: tools/workflow-guardian-mcp/lib/need-goal.js，兩邊同一組）────────────────
 ACTIONS = ("set", "add", "update", "reconcile", "read")
@@ -414,7 +415,8 @@ def _evidence_text(ev: Dict[str, Any], doc: Optional[Dict[str, Any]] = None) -> 
         if r:
             extra = f" `{_clip(r.get('cmd'), 60)}`"
     prior = "（前一個 session）" if ev.get("prior") else ""
-    return f"{LABEL['level'].get(ev.get('level'), '?')} {LABEL['ekind'].get(ev.get('kind'), '?')} {ref}{extra}{prior}"
+    rtg = "（先紅後綠）" if ev.get("red_then_green") else ""
+    return f"{LABEL['level'].get(ev.get('level'), '?')} {LABEL['ekind'].get(ev.get('kind'), '?')} {ref}{extra}{rtg}{prior}"
 
 
 def _node_line(nid: str, node: Dict[str, Any], full: bool, doc: Optional[Dict[str, Any]] = None) -> str:
@@ -695,6 +697,33 @@ def _last_edit_for(tree: Dict[str, Any], nid: str) -> Optional[Dict[str, Any]]:
     return best
 
 
+def _ev_fact(doc: Dict[str, Any], e: Dict[str, Any]) -> Tuple[str, str, bool, str]:
+    """規則判定要的一筆證據事實：(種類, 證據級, 收據紅不紅, 顯示字)。引用的收據找不到由 _evidence_missing 擋，這裡不算紅。"""
+    r = _receipt_by_ref(doc, str(e.get("ref"))) if e.get("kind") == "receipt" else None
+    red = bool(r) and rr.receipt_red(r.get("verdicts"), r.get("exit"))
+    return str(e.get("kind")), str(e.get("level")), red, _evidence_text(e, doc)
+
+
+def _hit(v: "rr.Verdict") -> str:
+    return f"{v.why}｜規則 {v.rule}｜證據：{'；'.join(v.evidence)}"
+
+
+def _receipt_rows(doc: Dict[str, Any]) -> List[Tuple[Any, List[str], bool, bool]]:
+    """目標檔收據依蓋號先後 → CASE_RED_THEN_GREEN 要的 (收據號, 點名的案例檔, 紅, 綠)。"""
+    return [(r.get("seq"), list(r.get("cases") or []),
+             rr.receipt_red(r.get("verdicts"), r.get("exit")), rr.receipt_green(r.get("verdicts"), r.get("exit")))
+            for r in doc.get("receipts") or []]
+
+
+def _receipt_cases(r: Dict[str, Any]) -> List[str]:
+    """工作暫存收據的完整指令點名哪些案例檔（接它的 cwd 成絕對路徑）；指令裡換目錄（root_uncertain）或沒記 cwd → 執行目錄
+    不可信，回空（CASE_RED_THEN_GREEN 不拿它比）。蓋號時就算好：目標檔只存 200 字的指令。"""
+    cmd, cwd = str(r.get("cmd") or ""), str(r.get("cwd") or "")
+    if not cwd or r.get("root_uncertain") or has_cd(cmd):
+        return []
+    return rr.case_files_in_cmd(cmd, cwd)
+
+
 def _evidence_problems(doc: Dict[str, Any], tree: Dict[str, Any], nid: str, e: Dict[str, Any], cwd: str) -> List[str]:
     probs: List[str] = []
     kind, level = e.get("kind"), e.get("level")
@@ -739,8 +768,10 @@ def _problems(doc: Dict[str, Any], tree: Dict[str, Any], view: Dict[str, Dict[st
             probs.append(f"{nid} 標「{LABEL['status'][st]}」但沒附證據（前一個 session 的證據不算）")
         for e in evid:
             probs += _evidence_problems(doc, tree, nid, e, cwd)
-        if st == "done" and evid and all(e.get("level") == "inferred" for e in evid):
-            probs.append(f"{nid} 標「達成」但證據只有推論（推論最多標部分）")
+        if st == "done" and evid:
+            facts = [_ev_fact(doc, e) for e in evid]
+            probs += [_hit(v) for v in (rr.goal_inferred_verdict(nid, facts),
+                                        rr.goal_done_evidence_verdict(nid, tree.get("kind") == "code", facts)) if v.owed]
         if st in ("partial", "none") and not _s(v.get("followup")):
             probs.append(f"{nid} 標「{LABEL['status'][st]}」要寫 followup（接下來要追什麼）")
         if st == "dropped" and included is not None and cur.get("status") != "dropped" and not _s(v.get("note")):
@@ -881,12 +912,22 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
         return {"ok": False, "tree": tree["id"], "rejected": probs}
     seq = next_seq(doc)
     followups = []
+    rows = _receipt_rows(doc)
+    rtg = []                                     # CASE_RED_THEN_GREEN：只記錄、印在對照摘要，不擋
     for nid, v in view.items():
         node = tree["nodes"][nid]
         prior = [e for e in node.get("evidence") or [] if e.get("prior")]
         node["status"] = v["status"]
-        node["evidence"] = [{"kind": e["kind"], "ref": _s(e.get("ref")), "level": e["level"],
-                             "covers": list(e.get("covers") or [nid]), "seq": seq} for e in v["evidence"]] + prior
+        stored = [{"kind": e["kind"], "ref": _s(e.get("ref")), "level": e["level"],
+                   "covers": list(e.get("covers") or [nid]), "seq": seq} for e in v["evidence"]]
+        for rec in stored:
+            if rec["kind"] != "case":
+                continue
+            pair = rr.red_then_green(str(_resolve_file(rec["ref"].split("::", 1)[0], cwd)), rows)
+            rec["red_then_green"] = pair is not None
+            rtg.append(f"{nid} 的案例 {rec['ref']}：" + (f"先紅後綠（red_then_green，R{pair[0]} 紅 → R{pair[1]} 綠）" if pair
+                                                          else "案例未見先紅（只記錄、不擋）"))
+        node["evidence"] = stored + prior
         node["followup"] = v["followup"]
         node["note"] = v["note"]
         node["history"].append({"seq": seq, "turn": turn, "what": "reconcile", "why": v["note"] or v["followup"]})
@@ -902,7 +943,7 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
     tree["status"] = "closed" if done else "reconciled"
     add_checkpoint(doc, tree, turn, "reconcile", tree["id"])
     return {"ok": True, "tree": tree["id"], "goal_changed": False, "followups": followups,
-            "note": f"完整對照收下，{tree['id']} {LABEL['tree'][tree['status']]}"}
+            "note": f"完整對照收下，{tree['id']} {LABEL['tree'][tree['status']]}" + "".join(f"\n  - {ln}" for ln in rtg)}
 
 
 def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> Dict[str, Any]:
@@ -1251,7 +1292,7 @@ def stamp_receipts(sid: Any, state: Optional[Dict[str, Any]], turn: int) -> int:
                 continue
             doc.setdefault("receipts", []).append({
                 "seq": next_seq(doc), "receipt_seq": r.get("seq"), "key": key, "turn": r.get("turn_seq", turn),
-                "at": r.get("at"), "cmd": str(r.get("cmd") or "")[:200],
+                "at": r.get("at"), "cmd": str(r.get("cmd") or "")[:200], "cases": _receipt_cases(r),
                 "verdicts": [f"{s.get('name')}:{s.get('verdict')}" for s in r.get("sentinels") or [] if isinstance(s, dict)],
                 "exit": r.get("exit_code"),
             })
@@ -1288,8 +1329,9 @@ def _f2_text(doc: Dict[str, Any]) -> Optional[str]:
         return None
     return (f"[Guardian:ReconcileGate] (f2) 交付前的目標對照（{tree['id']}）缺：\n" + "\n".join(f"  - {p}" for p in probs) +
             "\n用 need_goal(action=reconcile, items=[每個還活著的節點：{id, status: done|partial|none|dropped, "
-            "evidence: [{kind, ref, level, covers?}], followup?, note?}]) 交完整對照：達成要附證據（實測只能配收據 R<號>，"
-            "要在最後一次改動之後跑）、推論最多標部分、部分／沒有寫 followup、放棄寫 note。\n目前的樹：\n" +
+            "evidence: [{kind, ref, level, covers?}], followup?, note?}]) 交完整對照：達成要附證據（寫碼類至少一筆沒紅的收據或"
+            "讀碼級驗證案例；實測只能配收據 R<號>，要在最後一次改動之後跑）、推論最多標部分、部分／沒有寫 followup、"
+            "放棄寫 note。\n目前的樹：\n" +
             render(tree, "compact"))
 
 
