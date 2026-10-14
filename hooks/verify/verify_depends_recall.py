@@ -9,6 +9,7 @@ live 檔全 monkeypatch（MEMORY_DIR／CLAUDE_DIR／LOG_PATH／公司根）。
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import shutil
@@ -157,18 +158,88 @@ def test_atoms_depending_on_bases_project_vs_root(tmp_path):
     assert atoms_depending_on(root / "src" / "x" / "a.cs", [tmp_path / "nope"]) == []
 
 
+POST_TOOL_USE = HOOKS_DIR / "handlers" / "post_tool_use.py"
+DEPENDS_BRANCH = 'if tool_name in ("Read", "Bash", "PowerShell"):'   # Depends 召回那支（另兩支多收 Grep），紅案例改寫它
+
+
+READ_HANDLERS = ("_hub_on_read", "scope_on_read", "_on_read_depends")   # 導讀卡、需求目標讀入範圍、Depends 召回
+
+
+def _module_consts(tree: ast.Module) -> dict:
+    """模組層級 `NAME = …`／`NAME: T = …` 的值節點（`tool_name in NAME` 到這裡找值）。"""
+    consts = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            consts.update({t.id: node.value for t in node.targets if isinstance(t, ast.Name)})
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            consts[node.target.id] = node.value
+    return consts
+
+
+def _membership_tools(node: ast.AST, consts: dict):
+    """`tool_name in <X>` → X 裡的工具名集合；不是這種比較回 None。X 收 tuple／set／list 的字串常數，或模組層級常數名；
+    解析不到（找不到常數值、不是字串常數集合）就 assert 失敗，不默默略過。"""
+    if not (isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "tool_name"
+            and len(node.ops) == 1 and isinstance(node.ops[0], ast.In)):
+        return None
+    right = node.comparators[0]
+    if isinstance(right, ast.Name):
+        assert right.id in consts, f"第 {node.lineno} 行 tool_name in {right.id}：模組層級找不到 {right.id} 的值"
+        right = consts[right.id]
+    literal = isinstance(right, (ast.Tuple, ast.Set, ast.List)) and all(
+        isinstance(e, ast.Constant) and isinstance(e.value, str) for e in right.elts)
+    assert literal, f"第 {node.lineno} 行 tool_name in 的右邊解析不到字串常數集合：{ast.unparse(node.comparators[0])}"
+    return {e.value for e in right.elts}
+
+
+def check_read_branches(src: str) -> None:
+    """缺口 5：讀檔分支（`tool_name in X` 且 X 含 "Read"）每一支都收 Bash 與 PowerShell，有的另收 Grep（045 規則
+    GREP_CONTENT_IS_READ）。不數分支個數（新增讀檔分支不該讓這條紅），改用 AST 抓：tuple、set、list、模組常數都認，
+    解析不到就紅。三個讀檔處理器都要在讀檔分支裡，分支被改寫成抓不到的寫法也會紅。"""
+    tree = ast.parse(src)
+    consts = _module_consts(tree)
+    reads = {}
+    for node in ast.walk(tree):
+        tools = _membership_tools(node, consts)
+        if tools is not None and "Read" in tools:
+            reads[id(node)] = (node.lineno, sorted(tools))
+    assert reads, "post_tool_use.py 找不到讀檔分支（tool_name in 含 \"Read\" 的比較）"
+    missing = [(line, tools) for line, tools in reads.values() if not {"Bash", "PowerShell"} <= set(tools)]
+    assert not missing, f"這些讀檔分支沒收 Bash／PowerShell（行號, 工具）：{missing}"
+    guarded = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and any(id(c) in reads for c in ast.walk(node.test)):
+            guarded |= {c.func.id for c in ast.walk(ast.Module(body=node.body, type_ignores=[]))
+                        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+    unguarded = [h for h in READ_HANDLERS if h not in guarded]
+    assert not unguarded, f"這些讀檔處理器不在讀檔分支裡（分支被改寫成抓不到的寫法？）：{unguarded}"
+
+
 def test_post_tool_use_calls_depends_after_hub():
-    src = (HOOKS_DIR / "handlers" / "post_tool_use.py").read_text(encoding="utf-8")
+    src = POST_TOOL_USE.read_text(encoding="utf-8")
     assert src.index("_hub_on_read(") < src.index("on_read_depends(") < src.index("advisories.append(dep_ctx)")
     assert src.index("advisories.append(hub_ctx)") < src.index("advisories.append(dep_ctx)")   # hub 文字先、召回後
-    # 缺口 5：所有讀檔分支（條件含 "Read" 的 `if tool_name in (...)`：導讀卡、需求目標讀入範圍、Depends 召回…）都收 Bash 與
-    # PowerShell；不數分支個數（新增讀檔分支不該讓這條紅），只驗每一支的行為。有的另收 Grep（045 規則 GREP_CONTENT_IS_READ），
-    # 所以比的是條件裡有哪些工具，不比整行字面
-    import re
-    read_branches = [m.group(1) for m in re.finditer(r'if tool_name in \(([^)]*)\):', src) if '"Read"' in m.group(1)]
-    assert read_branches, "post_tool_use.py 找不到讀檔分支"
-    missing = [b for b in read_branches if not all(f'"{t}"' in b for t in ("Bash", "PowerShell"))]
-    assert not missing, f"這些讀檔分支沒收 Bash／PowerShell：{missing}"
+    check_read_branches(src)
+
+
+def _depends_branch_rewritten(new_branch: str, tail: str = "") -> str:
+    """把 live post_tool_use.py 的 Depends 分支在記憶體裡改寫（不碰磁碟），tail 接在模組尾端（模組層級常數）。"""
+    src = POST_TOOL_USE.read_text(encoding="utf-8")
+    assert src.count(DEPENDS_BRANCH) == 1, "Depends 分支的寫法變了，紅案例要跟著改"
+    return src.replace(DEPENDS_BRANCH, new_branch) + tail
+
+
+@pytest.mark.parametrize("new_branch, tail, why", [
+    ('if tool_name in {"Read", "Bash"}:', "", "沒收 Bash／PowerShell"),                           # set 寫法漏 PowerShell
+    ("if tool_name in READ_TOOLS:", '\nREAD_TOOLS = ("Read", "Bash")\n', "沒收 Bash／PowerShell"),  # 模組常數漏 PowerShell
+    ("if tool_name in READ_TOOLS:", "", "找不到 READ_TOOLS 的值"),                                 # 解析不到就紅
+    ("if _is_read(tool_name):", "", "不在讀檔分支裡"),                                            # 改寫成抓不到的寫法
+], ids=["set-missing-powershell", "const-missing-powershell", "const-unresolved", "rewritten-out-of-reach"])
+def test_read_branch_guard_catches_rewrites(new_branch, tail, why):
+    """退件 002：抓取面要涵蓋 tuple／set／list／模組常數，解析不到或分支消失都要紅，不能因為另兩支還在就綠；
+    紅的原因也要對（why）。"""
+    with pytest.raises(AssertionError, match=why):
+        check_read_branches(_depends_branch_rewritten(new_branch, tail))
 
 
 def test_powershell_and_bare_bash_reads_trigger_recall(world):
