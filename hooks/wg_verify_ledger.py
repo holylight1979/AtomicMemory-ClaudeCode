@@ -38,7 +38,8 @@ from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, find_vcs_root_ex, r
 from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, gone_verdict, in_turn,
                               owed_after_last_case, user_turn, Verdict,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
-                              committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict)
+                              committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
+                              MOVE_TOOL, move_dir_verdict)
 from wg_evasion import CLAIM_RES, claims_completion, strip_quoted_spans
 
 
@@ -1840,6 +1841,61 @@ _RECONCILE_TAIL_EVIDENCE = (_RECONCILE_SOURCE + "補上面列的證據（跑出�
                             "補不了就照【收尾放行確認】問使用者，改寫收尾文字不會解帳。")
 
 
+_MOVE_ARG_RE = {k: re.compile(rf"--{k}(?:=|\s+)(\"[^\"]+\"|'[^']+'|\S+)") for k in ("old", "new", "root", "for")}
+_MOVE_HITS_RE = re.compile(r"MOVE_PATH_SCAN DONE hits=(\d+)")
+
+
+def _move_tool_receipt(receipt: Dict[str, Any], sub: str) -> bool:
+    """搬目錄工具的收據能不能當證據：指令完整、記了啟動環境、跑的是 move-dir-check.py <sub>、指令裡沒寫哨兵字樣。
+    工具放在根層 tools/，專案 session 跑它一定指到專案根以外，所以不套 _in_tree。"""
+    raw, sh = str(receipt.get("cmd") or ""), _shell_of(receipt)
+    return (_usable(receipt) and re.search(re.escape(MOVE_TOOL) + r"[\"']?\s+" + sub + r"(?:\s|$)", raw) is not None
+            and not _prints_sentinel(raw, sh))
+
+
+def _move_args(receipt: Dict[str, Any], key: str) -> List[str]:
+    """收據指令裡 --old／--new／--for 的值（可重複），相對路徑照工具的 --root（本身相對收據 cwd）解，沒給 --root 就照收據的 cwd，
+    解成絕對路徑後 canon_path。"""
+    cmd, cwd = str(receipt.get("cmd") or ""), _cwd_of(receipt)
+    r = _MOVE_ARG_RE["root"].search(cmd)
+    base = os.path.join(cwd, r.group(1).strip("'\"")) if r else cwd
+    return [canon_path(v if os.path.isabs(v) else os.path.join(base, v))
+            for v in (m.group(1).strip("'\"") for m in _MOVE_ARG_RE[key].finditer(cmd))]
+
+
+def move_facts(move: Dict[str, Any], receipts: Iterable[Dict[str, Any]]) -> Tuple[Optional[int], bool]:
+    """一筆搬目錄之後的收據事實（規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE）：最後一次合格掃描的命中數（點名同一個舊路徑；
+    舊路徑不明就認同一個新路徑），沒有回 None；有沒有 --for 點名這個新目錄的合格抽樣 PASS。收據要在搬之後：兩邊都有 session 事件序號就比序號
+    （時間只到秒，同一秒分不出先後），沒有才比時間。"""
+    at, seq = str(move.get("at") or ""), move.get("seq")
+
+    def later(r: Dict[str, Any]) -> bool:
+        if seq is not None and r.get("seq") is not None:
+            return int(r["seq"]) > int(seq)
+        return str(r.get("at") or "") > at
+
+    old, new = canon_path(move.get("old") or "") if move.get("old") else "", canon_path(move.get("new") or "")
+    after = sorted((r for r in receipts if later(r)), key=lambda r: (int(r.get("seq") or 0), str(r.get("at") or "")))
+    hits: Optional[int] = None
+    sample_ok = False
+    for r in after:
+        if _move_tool_receipt(r, "scan") and ((old in _move_args(r, "old")) if old else (new in _move_args(r, "new"))):
+            for s in r.get("sentinels") or []:
+                if not isinstance(s, dict) or s.get("name") != "MOVE_PATH_SCAN":
+                    continue
+                kv = (s.get("kv") or {}).get("hits")                 # state 收據存 kv；帳本行存 line
+                m = None if kv is not None else _MOVE_HITS_RE.search(str(s.get("line") or ""))
+                if kv is not None and str(kv).isdigit():
+                    hits = int(kv)
+                elif m:
+                    hits = int(m.group(1))
+        if _move_tool_receipt(r, "sample") and new in _move_args(r, "for") and any(
+                isinstance(s, dict) and s.get("name") == "MOVE_SAMPLE_CHECK" and s.get("verdict") == "PASS"
+                for s in r.get("sentinels") or []):
+            sample_ok = True                                    # 抽樣只替 --for 點名到的新目錄清帳
+    return hits, sample_ok
+
+
 def reconcile_gate_reason(last_text: str, receipts: List[Dict[str, Any]], turn_seq: int,
                           turn_tool_names: Iterable[str], own_mod_files: List[Dict[str, Any]],
                           cfg: Dict[str, Any], aec: Optional[Dict[str, Any]] = None,
@@ -1868,6 +1924,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          committed_new: Optional[Dict[str, Any]] = None,
                          user_turn: Optional[int] = None,
                          exec_this_turn: bool = False,
+                         moves: Iterable[Dict[str, Any]] = (),
+                         move_scan_hits: Optional[Dict[str, List[str]]] = None,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
     「本回合」的收據與改檔：user_turn（使用者打字開的回合，stop._user_turn）給了就是它到 turn_seq 之間的每個 turn_seq
@@ -1883,7 +1941,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     收尾報告欄：(e) last_text 宣告完成且 AEC 已 emit：有收據而 j 缺／不存在、k 空字串（屬記憶與報告類，擋滿時不走放行詢問）。
     (a) 的「對得上」要同根（root 沒給＝每個改檔用 file_root_of 判根）且收據在它對上的每個改檔最後一次修改之後。"""
     texts = [t for t in (*claims, last_text) if t and claims_completion(t)]
-    if not texts and not own_mod_files:
+    moves = [m for m in moves or () if isinstance(m, dict) and m.get("new")]
+    if not texts and not own_mod_files and not moves:
         return None, None
     this_turn = [r for r in receipts if in_turn(r.get("turn_seq", -1), turn_seq, user_turn)]
     mod_turn = modified_this_turn(own_mod_files, turn_seq, user_turn)
@@ -1960,6 +2019,12 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
              f"本 session 改過的案例檔：{'、'.join(cases_touched[:4]) or '（無）'}",
              "改碼之後沒有點名同根案例檔跑綠的 PASS 收據（規則 CASE_GREEN_AFTER_EDIT）",
              "改了碼沒驗證 case（PASS 不能代替）：補一個會紅的 case 再跑綠；真的不需要補案例，就照【收尾放行確認】問使用者"))))
+    # (v) 規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE：搬了含程式檔的目錄，欠搬之後的路徑掃描與抽樣兩張收據（不看措辭、跨回合）
+    for mv in moves:
+        hits_n, sample_ok = move_facts(mv, receipts)
+        v = move_dir_verdict(mv, hits_n, sample_ok, (move_scan_hits or {}).get(canon_path(mv.get("old") or ""), ()))
+        if v.owed:
+            hits.append(format_hit("v", v))
     # (e) 只檢本版報告（post_tool_use 一定寫入 j／k 兩鍵）；升級前 emit 的舊報告沒這兩鍵，不拿它擋
     report: List[str] = []
     if (claims_completion(last_text) and aec_emitted and isinstance(aec, dict)

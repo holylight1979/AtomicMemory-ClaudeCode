@@ -7,7 +7,9 @@ handlers/post_tool_use.py — PostToolUse hook handler
 """
 
 import json
+import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -34,7 +36,7 @@ from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
     aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
-    head_new_code, _git_root_of, reverted_code_files,
+    head_new_code, _git_root_of, reverted_code_files, is_code_file,
 )
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
                               red_case_names, retry_round_verdict, same_test_run)
@@ -343,6 +345,100 @@ def _emit_post_tool_output(advisories: List[str], sys_msgs: List[str]) -> None:
 
 DELIBERATE_REDS_CAP = 20
 RETRY_ROUNDS_CAP = 20
+MOVED_DIRS_CAP = 20
+_MOVE_SCAN_FILES = 5000                 # 判「目錄裡有沒有程式檔」最多看幾個檔
+_SEG_SPLIT_RE = re.compile(r"&&|\|\||;|\n")
+_CD_WORDS = ("cd", "set-location", "sl", "pushd", "push-location", "chdir")
+
+
+def _git_mv_pairs(command: str, cwd: str, posix: bool) -> List[Tuple[str, str]]:
+    """指令裡每個 git mv 的（目的地, 來源）絕對路徑：跟著同一條指令前面的 cd／Set-Location／pushd 換目錄，認 `git -C <目錄>`，
+    一次搬多個來源時最後一個參數是目的地。解析不了的段落略過。"""
+    pairs: List[Tuple[str, str]] = []
+    here = cwd
+    for seg in _SEG_SPLIT_RE.split(command or ""):
+        try:
+            toks = [t.strip("'\"") for t in shlex.split(seg, posix=posix)]
+        except ValueError:
+            continue
+        if not toks:
+            continue
+        head = toks[0].lower()
+        if head in _CD_WORDS and len(toks) > 1:
+            here = os.path.normpath(os.path.join(here, toks[1]))
+            continue
+        if head not in ("git", "git.exe"):
+            continue
+        i, base = 1, here
+        while i + 1 < len(toks) and toks[i] == "-C":
+            base, i = os.path.normpath(os.path.join(base, toks[i + 1])), i + 2
+        if i >= len(toks) or toks[i] != "mv":
+            continue
+        args = [t for t in toks[i + 1:] if not t.startswith("-")]
+        if len(args) < 2:
+            continue
+        dest = os.path.normpath(os.path.join(base, args[-1]))
+        pairs += [(dest, os.path.normpath(os.path.join(base, s))) for s in args[:-1]]
+    return pairs
+_SCAN_HIT_RE = re.compile(r"^\S+:\d+: ")
+
+
+def _has_code(d: Path, exts: Any) -> bool:
+    n = 0
+    for dirpath, _dirs, files in os.walk(d):
+        for name in files:
+            n += 1
+            if is_code_file(os.path.join(dirpath, name), exts):
+                return True
+            if n >= _MOVE_SCAN_FILES:
+                return False
+    return False
+
+
+def _note_moved_code_dirs(state: Dict[str, Any], sid: str, tool_name: str, tool_input: Dict[str, Any], cwd: str,
+                          config: Optional[Dict[str, Any]], agent_id: str = "") -> bool:
+    """規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE 的事實：這次 Bash／PowerShell 把含程式檔的目錄搬走了（mv、Move-Item 的來源
+    取自 wg_core.write_sources_from_tool；git mv 照 _git_mv_pairs 解析），記 state["moved_code_dirs"]（舊、新路徑、時間、
+    子代理搬的帶 agent_id）。複製（來源還在）、搬的是單一檔案、目錄裡沒有程式檔都不記。回有沒有記。"""
+    if tool_name not in ("Bash", "PowerShell"):
+        return False
+    from wg_core import write_sources_from_tool
+    pairs = []
+    for target, sources in write_sources_from_tool(tool_name, tool_input, cwd).items():
+        pairs += [(target, s) for s in sources]
+    pairs += _git_mv_pairs(str(tool_input.get("command") or ""), cwd, posix=tool_name != "PowerShell")
+    exts = reconcile_cfg(config or {}).get("code_exts") or []
+    seen = set()
+    for new, old in pairs:
+        dest, src = Path(new), Path(old)
+        if not dest.exists() and dest.name == src.name and dest.parent.is_dir():
+            dest = dest.parent            # 搬完才看：write_sources_from_tool 照「搬進既有目錄」推成 <目的地>/<名字>，那個路徑不存在
+        elif dest.is_dir() and (dest / src.name).exists():
+            dest = dest / src.name        # 搬進既有目錄：實際落點是 <目的地>/<名字>（搬單一檔案時這裡就是那個檔，下面不記）
+        key = (canon_path(str(src)), canon_path(str(dest)))
+        if key in seen or src.exists() or not dest.is_dir() or not _has_code(dest, exts):
+            continue
+        seen.add(key)
+        lst = state.setdefault("moved_code_dirs", [])
+        lst.append({"old": str(src), "new": str(dest), "at": _now_iso(), "seq": next_event_seq(state),
+                    "session_id": sid, "agent_id": agent_id, "turn_seq": int(state.get("turn_seq", 0))})
+        del lst[:-MOVED_DIRS_CAP]
+    return bool(seen)
+
+
+def _note_move_scan_hits(state: Dict[str, Any], command: str, tool_response: Any, cwd: str) -> bool:
+    """搬目錄掃描工具（move-dir-check.py scan）印的命中清單前幾筆，記 state["move_scan_hits"][舊路徑]，
+    擋訊息照列（只供顯示；欠不欠看收據）。"""
+    if "move-dir-check.py" not in command or " scan" not in command:
+        return False
+    m = re.search(r"--old(?:=|\s+)(\"[^\"]+\"|'[^']+'|\S+)", command)
+    if not m:
+        return False
+    old = m.group(1).strip("'\"")
+    key = canon_path(old if os.path.isabs(old) else os.path.join(cwd, old))
+    lines = [ln.strip() for ln in response_text(tool_response).splitlines() if _SCAN_HIT_RE.match(ln.strip())]
+    state.setdefault("move_scan_hits", {})[key] = lines[:5]
+    return True
 
 
 def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: str, cwd: str) -> None:
@@ -929,6 +1025,17 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             except Exception as e:
                 _atom_debug_error("post_tool_use:write_paths_from_tool", e)
                 _writes_ok = False
+        # 規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE：記搬了哪個程式目錄（子代理搬的也記，帶 agent_id）、掃描工具的命中清單
+        # （Stop 寫碼查核 (v) 用）
+        try:
+            _mv_cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+            if _note_moved_code_dirs(state, session_id, tool_name, tool_input, _mv_cwd, config,
+                                     agent_id=str(input_data.get("agent_id") or "")):
+                dirty = True
+            if _note_move_scan_hits(state, command, input_data.get("tool_response"), _mv_cwd):
+                dirty = True
+        except Exception as e:  # noqa: BLE001
+            print(f"[Guardian:ReconcileGate] 記搬目錄事實失敗（不影響這次工具）：{type(e).__name__}: {e}", file=sys.stderr)
 
         if _note_commit(state, command, config, session_id, snapshot=_writes_ok):
             dirty = True

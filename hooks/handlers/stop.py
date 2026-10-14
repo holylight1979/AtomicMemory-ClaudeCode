@@ -813,6 +813,8 @@ def _verify_gates(
                                                                   deadline=git_dl),
                 committed_new=state.get("committed_new_code"), user_turn=since,
                 exec_this_turn=in_turn((state.get("exec_turn_seq") or {}).get(session_id), turn_seq, since),
+                moves=[m for m in state.get("moved_code_dirs") or [] if isinstance(m, dict) and m.get("session_id") == session_id],
+                move_scan_hits=state.get("move_scan_hits") or {},
                 self_covered=(lambda: self_run_covered(measure_parts(own_mod_files, _lk), _self_runs())) if _lk else None,
             )
             kind = "reconcile" if reason or report else ""

@@ -311,6 +311,7 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 - 目標檔頂層 `peer_offset`（int）：PostToolBatch 掃 transcript 找工作中途送到的同伴訊息（attachment `queued_command`）已掃到的位元組位置；第一次只記位置不回溯，只吃到最後一個完整行。只有 `peer_claim_lines` 寫。
 - 目標檔頂層 `peer_scan_truncated` {at, turn, skipped}（一批新增段超過 `PEER_SCAN_CAP` 256KB，只讀最後一段，skipped＝跳過的位元組數）、`peer_scan_error` {at, turn, error}（讀不到 transcript 或同伴訊息行 JSON 解析失敗；不擋，另寫 stderr）、`peer_scan_reset` {at, turn, from, to}（transcript 變短：位置從 from 重置到檔尾 to，這次不回溯）。
 - peer_offset 在目標檔的鎖裡讀、在鎖裡寫（整段掃描在 `update_locked` 裡做），只會往前：兩次掃描重疊時後拿到鎖的從前一次寫回的位置接著讀，同一則同伴訊息不送兩次。
+- 搬程式目錄在收尾的義務不是整組案例，而是 Stop 寫碼查核 (v) 的兩張收據（路徑引用掃描與抽樣驗證，規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE，TECH §7.8）；改檔前要有目標樹的判定照下一條不變。
 - 「算不算改程式」：`wg_need_goal.writes_code(path, config, sources=(), content=None)`＝目標本身 `is_code_path`；或 cp／mv 家族的來源含程式檔（來源是目錄就往下找，略過 .git，超過 `DIR_SCAN_CAP` 5000 個檔還沒看完就當有）；或沒副檔名而要寫進去的內容以 `#!` 開頭。目標在知識類部位一律不算。來源由 `wg_core.write_sources_from_tool(tool_name, tool_input, cwd) → {目標: [來源…]}` 給（與 `write_paths_from_tool` 同一次解析），內容是 Write 的 `content`。
 - hook 入口取 need_goal 設定一律 `cfg_for_cwd(config, hook_cwd(input_data, state))`：`wg_need_goal.hook_cwd` 取 hook 輸入的 cwd，沒有就 state 記的 session cwd。提問閘、PostToolBatch 批次提醒與補掃、PostCompact／SessionStart(compact) 重送、UPS 糾正與同伴訊息、SessionEnd 都照這個；`recovery_text(sid, config, cwd="")`、`peer_claim_lines(sid, transcript_path, config, turn=None, cwd="")` 多一個可省略的 cwd。
 - state 鍵：

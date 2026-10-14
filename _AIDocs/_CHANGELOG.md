@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 搬程式目錄改欠路徑掃描與抽樣兩張收據（裁定 #17 改裁）
+- **緣由**：搬整個程式目錄要不要欠驗證案例一直沒有規則；原設計者改裁：不欠整組案例，正確行為是擴大搜尋寫死的舊路徑（有就跟著修碼），再依語言特性抽樣驗證功能還正常（C# 看 .csproj／.sln 囊括）。
+- **做法**：新規則 `MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE`（`hooks/wg_release_rules.move_dir_verdict`），寫碼查核加 (v)（`wg_verify_ledger.move_facts`：收據在搬之後、指令乾淨、點名同一個舊路徑）；`post_tool_use` 記 `moved_code_dirs`（mv、Move-Item、git mv，複製與只有文件的目錄不記）與掃描命中清單；新工具 `tools/move-dir-check.py`（scan 印 `MOVE_PATH_SCAN DONE hits=<n>`、sample `--for <新目錄>` 印 `MOVE_SAMPLE_CHECK PASS|FAIL`，C# 讀 Compile Include）。TECH §7.8。
+- **驗證**：`verify_release_rules` 加十一案（兩張都缺、都有放行、搬之前／自己 echo／別的舊路徑不算、hits>0 列命中、state 收據的 kv 與同秒序號、只記程式目錄、git mv 的 -C／cd／多來源／單檔／子代理、--root 與抽樣綁 --for、C# Compile Include 與雙反斜線、工具掃描與抽樣），改前全紅、改後綠；自跑 codex 一輪 7 條 BLOCK 全部先寫紅案例再修；真 hook 入口探針 `hooks/verify/probe_move_dir.py`（真的搬目錄、收尾被擋、跑兩張收據後不再擋）PASS。
+
 ## 2026-10-14 v6.0 重試計數改以測試重跑為界（誤判清冊 B17）
 - **緣由**：先寫紅案例、再分五次 Edit 改同一檔、一跑就綠，FixEscalation 卻報 retry=5、收尾又要求 DeepPostMortem：舊規則數的是「紅之後同檔的 Edit 次數」，中間沒重跑也照數；plan／direct 門檻（4／2）也是數 Edit。
 - **做法**：規則 `RETRY_COUNTS_RERUN_CYCLES` 取代 `RETRY_COUNTS_EDITS_SINCE_RED`（`hooks/wg_release_rules.py` 的 `retry_round_verdict`、`red_case_names`、`retry_rounds_text`、`fix_escalation_text`）；`wisdom_engine.track_retry` 把改檔記到每筆活著的紅測的 `edits_since_run`；`post_tool_use._track_test_result` 又跑紅時找同一組測試（`same_test_run`，點名的檔要完全相同）的活著的紅判輪、清掉那組的紀錄，並記 `retry_rounds`（指令＋紅案，沒有 pytest 案例名就記失敗摘要第一行）。改檔為了修哪一組不猜（調度裁定），同時修多組時對沒改到的那組多報一次，寫成標明限制的案例；兩輪升級、plan 與 direct 同門檻；FixEscalation 與 DeepPostMortem 觸發句印每輪證據。TECH §7.8。

@@ -694,6 +694,186 @@ def test_045_retry_counts_rerun_cycles_messages_roundtrip_parse_hits():
         assert "第 2 輪" in text and "tests/x.py::t3" in text
 
 
+# ─── MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE（搬程式目錄：欠路徑掃描與抽樣兩張收據，不欠整組案例）──────────────────
+
+_MV_TOOL = str(HOOKS_DIR.parent / "tools" / "move-dir-check.py")
+
+
+def _mv_receipt(cmd, line, at, verdict="DONE", name="MOVE_PATH_SCAN", cwd="C:/p"):
+    return {"at": at, "session_id": "s", "turn_seq": 3, "tool": "Bash", "cmd": cmd, "cmd_full": True, "env": {},
+            "cwd": cwd, "project_root": cwd, "exit_code": 0,
+            "sentinels": [{"name": name, "verdict": verdict, "line": line}]}
+
+
+_MOVE = {"old": "C:/p/lib/pkg", "new": "C:/p/src/pkg", "at": "2026-10-14T10:00:00", "session_id": "s", "turn_seq": 3}
+
+
+def _mv_gate(receipts, moves=(_MOVE,), scan_hits=None):
+    import wg_verify_ledger as vl2
+    code, _ = vl2.reconcile_gate_parts("", receipts, 3, [], [], vl2.reconcile_cfg({}), moves=list(moves),
+                                       move_scan_hits=scan_hits or {})
+    return code or ""
+
+
+def test_045_move_code_dir_needs_scan_and_sample_missing_both():
+    """搬了含 .py 的目錄、兩張收據都沒有 → 擋，訊息含規則名與兩張缺的收據名。"""
+    text = _mv_gate([])
+    assert ("v", "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE") in rr.parse_hit_rules(text)
+    assert "MOVE_PATH_SCAN" in text and "MOVE_SAMPLE_CHECK" in text and "lib/pkg" in text
+
+
+def test_045_move_code_dir_needs_scan_and_sample_both_present_passes():
+    """搬目錄＋掃描 hits=0＋抽樣 PASS（都在搬之後、指令乾淨）→ 放行，也不欠 (d) 案例。"""
+    scan = _mv_receipt(f"python {_MV_TOOL} scan --old lib/pkg --new src/pkg", "MOVE_PATH_SCAN DONE hits=0",
+                       "2026-10-14T10:01:00")
+    sample = _mv_receipt(f'python {_MV_TOOL} sample --for src/pkg --run "python -c \\"import src.pkg\\""', "MOVE_SAMPLE_CHECK PASS",
+                         "2026-10-14T10:02:00", verdict="PASS", name="MOVE_SAMPLE_CHECK")
+    assert _mv_gate([scan, sample]) == ""
+
+
+def test_045_move_code_dir_needs_scan_and_sample_state_receipts_use_kv_and_seq():
+    """state 裡的收據哨兵存 kv（沒有 line）、帶 session 事件序號：hits 從 kv 讀；同一秒內的先後看序號。"""
+    move = {**_MOVE, "seq": 5}
+    scan = {**_mv_receipt(f"python {_MV_TOOL} scan --old lib/pkg --new src/pkg", "", _MOVE["at"]), "seq": 6,
+            "sentinels": [{"name": "MOVE_PATH_SCAN", "verdict": "DONE", "kv": {"hits": "0"}}]}
+    sample = {**_mv_receipt(f"python {_MV_TOOL} sample --for src/pkg --run pytest", "", _MOVE["at"], verdict="PASS",
+                            name="MOVE_SAMPLE_CHECK"), "seq": 7}
+    assert _mv_gate([scan, sample], moves=(move,)) == ""
+    early = {**scan, "seq": 4}
+    assert "MOVE_PATH_SCAN" in _mv_gate([early, sample], moves=(move,))       # 同一秒但序號在搬之前
+
+
+def test_045_move_code_dir_needs_scan_and_sample_rejects_stale_forged_or_other_dir():
+    """收據在搬之前、指令自己 echo 哨兵、掃的是別的舊路徑 → 都不算。"""
+    sample = _mv_receipt(f"python {_MV_TOOL} sample --for src/pkg --run pytest", "MOVE_SAMPLE_CHECK PASS", "2026-10-14T10:02:00",
+                         verdict="PASS", name="MOVE_SAMPLE_CHECK")
+    for scan in (_mv_receipt(f"python {_MV_TOOL} scan --old lib/pkg --new src/pkg", "MOVE_PATH_SCAN DONE hits=0",
+                             "2026-10-14T09:59:00"),
+                 _mv_receipt("echo MOVE_PATH_SCAN DONE hits=0 lib/pkg", "MOVE_PATH_SCAN DONE hits=0", "2026-10-14T10:01:00"),
+                 _mv_receipt(f"python {_MV_TOOL} scan --old lib/other --new src/pkg", "MOVE_PATH_SCAN DONE hits=0",
+                             "2026-10-14T10:01:00")):
+        text = _mv_gate([scan, sample])
+        assert "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE" in text and "MOVE_PATH_SCAN" in text, scan["cmd"]
+
+
+def test_045_move_code_dir_needs_scan_and_sample_hits_listed():
+    """掃描收據 hits>0 而且之後沒重掃到 0 → 擋，訊息列命中清單前幾筆。"""
+    scan = _mv_receipt(f"python {_MV_TOOL} scan --old lib/pkg --new src/pkg", "MOVE_PATH_SCAN DONE hits=2",
+                       "2026-10-14T10:01:00")
+    sample = _mv_receipt(f"python {_MV_TOOL} sample --for src/pkg --run pytest", "MOVE_SAMPLE_CHECK PASS", "2026-10-14T10:02:00",
+                         verdict="PASS", name="MOVE_SAMPLE_CHECK")
+    text = _mv_gate([scan, sample], scan_hits={"c:/p/lib/pkg": ["tools/run.py:3: lib/pkg/a.py", "README.md:9: lib/pkg"]})
+    assert "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE" in text and "hits=2" in text and "tools/run.py:3" in text
+
+
+def test_045_move_code_dir_needs_scan_and_sample_detects_only_code_dirs(tmp_path):
+    """PostToolUse 記搬目錄的事實：mv、Move-Item、git mv 搬含程式檔的目錄才記；只搬文件目錄不記。"""
+    from handlers import post_tool_use as ptu
+    (tmp_path / "src" / "pkg").mkdir(parents=True)
+    (tmp_path / "src" / "pkg" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "docs2").mkdir()
+    (tmp_path / "docs2" / "a.md").write_text("# a\n", encoding="utf-8")
+    st = {"turn_seq": 3}
+    for tool, cmd in (("Bash", "mv lib/pkg src/pkg"), ("Bash", "git mv lib/pkg src/pkg"),
+                      ("PowerShell", "Move-Item lib/pkg src/pkg"), ("Bash", "mv docs docs2")):
+        ptu._note_moved_code_dirs(st, "s", tool, {"command": cmd}, str(tmp_path), {})
+    moves = st.get("moved_code_dirs") or []
+    assert [Path(m["new"]).name for m in moves] == ["pkg", "pkg", "pkg"]
+    assert all(rr.canon_path(m["old"]) == rr.canon_path(str(tmp_path / "lib" / "pkg")) for m in moves)
+
+
+def test_045_move_code_dir_needs_scan_and_sample_detect_git_forms_and_agent(tmp_path):
+    """codex BLOCK 1～3：git mv 單一檔案進目錄不算；git -C、先 cd 再 git mv、一次搬多個來源都要記；子代理搬的也記（帶 agent_id）。"""
+    from handlers import post_tool_use as ptu
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")        # 剛被 git mv a.py src/ 搬進來的檔
+    for d in ("sub/new/m.py", "target/a/m.py", "target/b/m.py"):
+        (tmp_path / d).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / d).write_text("x = 1\n", encoding="utf-8")
+
+    def moved(cmd, agent_id=""):
+        st = {"turn_seq": 3}
+        ptu._note_moved_code_dirs(st, "s", "Bash", {"command": cmd}, str(tmp_path), {}, agent_id=agent_id)
+        return [(Path(m["old"]).name, Path(m["new"]).name, m.get("agent_id", "")) for m in st.get("moved_code_dirs") or []]
+
+    assert moved("git mv a.py src/") == []
+    assert moved("git -C sub mv old new") == [("old", "new", "")]
+    assert moved("cd sub && git mv old new") == [("old", "new", "")]
+    assert moved("git mv a b target/") == [("a", "a", ""), ("b", "b", "")]
+    assert moved("git -C sub mv old new", agent_id="a1") == [("old", "new", "a1")]
+
+
+def test_045_move_code_dir_needs_scan_and_sample_root_arg_and_sample_binding():
+    """codex BLOCK 4：掃描用 --root 指專案根時，--old 照 --root 解；BLOCK 5：抽樣要用 --for 點名涵蓋哪個新目錄，
+    只抽 a 不能替 b 清帳。"""
+    scan = _mv_receipt(f"python {_MV_TOOL} scan --root C:/p --old lib/pkg --new src/pkg", "MOVE_PATH_SCAN DONE hits=0",
+                       "2026-10-14T10:01:00", cwd="C:/p/tools")
+    sample = _mv_receipt(f'python {_MV_TOOL} sample --for src/pkg --run "python -c \\"import src.pkg\\""',
+                         "MOVE_SAMPLE_CHECK PASS", "2026-10-14T10:02:00", verdict="PASS", name="MOVE_SAMPLE_CHECK")
+    assert _mv_gate([scan, sample]) == ""
+    other = {**_MOVE, "old": "C:/p/lib/other", "new": "C:/p/src/other"}
+    scan_b = _mv_receipt(f"python {_MV_TOOL} scan --old lib/other --new src/other", "MOVE_PATH_SCAN DONE hits=0",
+                         "2026-10-14T10:01:30")
+    text = _mv_gate([scan, scan_b, sample], moves=(_MOVE, other))
+    assert "lib/other" in text.replace("\\", "/") and "MOVE_SAMPLE_CHECK" in text and "lib/pkg → " not in text.replace("\\", "/")
+
+
+def test_045_move_code_dir_needs_scan_and_sample_tool_csproj_and_escaped_paths(tmp_path):
+    """codex BLOCK 6：C# 明列 Compile Include 的專案要看編譯項目（指向舊位置照 FAIL、用 ..\\shared 連結外部目錄算 PASS）；
+    BLOCK 7：掃描要抓 JSON／程式字串裡的雙反斜線寫法。"""
+    import subprocess
+
+    def run(*args):
+        r = subprocess.run([sys.executable, "-X", "utf8", _MV_TOOL, *args], cwd=str(tmp_path), capture_output=True,
+                           text=True, encoding="utf-8")
+        return r.stdout.strip().splitlines()[-1]
+
+    (tmp_path / "src" / "pkg").mkdir(parents=True)
+    (tmp_path / "src" / "pkg" / "A.cs").write_text("class A {}\n", encoding="utf-8")
+    (tmp_path / "Old.csproj").write_text('<Project ToolsVersion="15.0"><ItemGroup><Compile Include="lib\\pkg\\A.cs" />'
+                                         '</ItemGroup></Project>\n', encoding="utf-8")
+    assert run("sample", "--for", "src/pkg", "--csproj-check", "src/pkg") == "MOVE_SAMPLE_CHECK FAIL"
+    (tmp_path / "Old.csproj").unlink()
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "B.cs").write_text("class B {}\n", encoding="utf-8")
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "App.csproj").write_text('<Project Sdk="Microsoft.NET.Sdk"><ItemGroup>'
+                                                 '<Compile Include="..\\shared\\**\\*.cs" /></ItemGroup></Project>\n',
+                                                 encoding="utf-8")
+    assert run("sample", "--for", "shared", "--csproj-check", "shared") == "MOVE_SAMPLE_CHECK PASS"
+    (tmp_path / "cfg.json").write_text('{"entry": "lib\\\\pkg\\\\a.py"}\n', encoding="utf-8")
+    assert run("scan", "--old", "lib/pkg", "--new", "src/pkg") == "MOVE_PATH_SCAN DONE hits=1"
+
+
+def test_045_move_code_dir_needs_scan_and_sample_tool_scan_and_sample(tmp_path):
+    """掃描工具：舊路徑的絕對、相對寫法都算命中，--allow 的檔不算；抽樣：指令 exit 0＝PASS、C# 新目錄要在某個 .csproj 底下。"""
+    import subprocess
+    (tmp_path / "src" / "pkg").mkdir(parents=True)
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "run.py").write_text('P = "lib/pkg/a.py"\nQ = r"lib\\pkg"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("moved lib/pkg to src/pkg\n", encoding="utf-8")
+
+    def run(*args):
+        r = subprocess.run([sys.executable, "-X", "utf8", _MV_TOOL, *args], cwd=str(tmp_path), capture_output=True,
+                           text=True, encoding="utf-8")
+        return r.returncode, r.stdout
+
+    rc, out = run("scan", "--old", "lib/pkg", "--new", "src/pkg")
+    assert out.strip().splitlines()[-1] == "MOVE_PATH_SCAN DONE hits=3" and "tools/run.py:1" in out
+    rc, out = run("scan", "--old", "lib/pkg", "--new", "src/pkg", "--allow", "CHANGELOG.md", "--allow", "tools/run.py")
+    assert out.strip().splitlines()[-1] == "MOVE_PATH_SCAN DONE hits=0"
+    rc, out = run("sample", "--for", "src/pkg", "--run", f'"{sys.executable}" -c "print(1)"')
+    assert rc == 0 and out.strip().splitlines()[-1] == "MOVE_SAMPLE_CHECK PASS"
+    rc, out = run("sample", "--for", "src/pkg", "--run", f'"{sys.executable}" -c "raise SystemExit(3)"')
+    assert rc == 1 and out.strip().splitlines()[-1] == "MOVE_SAMPLE_CHECK FAIL"
+    (tmp_path / "src" / "pkg" / "A.cs").write_text("class A {}\n", encoding="utf-8")
+    rc, out = run("sample", "--for", "src/pkg", "--csproj-check", "src/pkg")
+    assert out.strip().splitlines()[-1] == "MOVE_SAMPLE_CHECK FAIL"                    # 沒有任何 .csproj 囊括
+    (tmp_path / "src" / "App.csproj").write_text('<Project Sdk="Microsoft.NET.Sdk"></Project>\n', encoding="utf-8")
+    rc, out = run("sample", "--for", "src/pkg", "--csproj-check", "src/pkg")
+    assert out.strip().splitlines()[-1] == "MOVE_SAMPLE_CHECK PASS"
+
+
 def test_045_retry_counts_rerun_cycles_dpm_trigger_names_rounds():
     """DeepPostMortem 的觸發句也印第幾輪與每輪證據。"""
     from handlers import stop
