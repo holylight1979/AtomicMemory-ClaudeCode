@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 收尾查核：被 git 忽略的檔不算本專案程式（欠補案例不欠、也不能清帳）
+- 總控台在 gitignore 的信箱寫快照 .sh，信箱改名後掉出部位表，(d) `OWED_AFTER_LAST_CASE` 就要它補案例（「別把 py 檔放進派工信箱」同類第二次）。根因：欠案例判定只看副檔名與部位表類別，git 忽略事實只接到 OverviewHub。`wg_release_rules.excluded_region` 收 `gitignored`，與 `RUNTIME_DATA_NO_OVERVIEW` 同一判式（`runtime_data_verdict`）；`wg_verify_ledger.case_debt` 每根一次批查 `git check-ignore`（共用 `wg_overview._gitignored_set`）。被忽略的檔不欠、也不能替追蹤中的程式清帳；追蹤中照欠。量尺閘對沒有量尺欄的部位本來就只提醒，不改。驗證：`verify_release_rules`、`verify_stop_reconcile` 新四案舊碼紅新碼綠；兩個寫死「被忽略照欠」的舊案改期望並補配對（沒被忽略的目錄照欠）；TECH 判定表同步。
+
 ## 2026-10-14 v6.0 派工信箱清理：重要發展收進 DevHistory，驗收與合併工具留本機
 - **緣由**：v6.0 暫停後，本機派工信箱 `workflow/v6-inbox/`（35 MB、1261 檔，被 .gitignore 忽略、刪了救不回來）裡混著裁定帳、誤判清冊、B5 結論等該留的歷史，和派工單、交付信、codex log 等已合進 main 的過程檔；改名軌已讓程式改指 `workflow/inbox/`。
 - **做法**：DevHistory v6.0 資料夾新增 `總控台裁定帳與誤判清冊.md`、`B5-需求目標效果驗收-結論.md`（不含答案）、`工作軌總表與暫停狀態.md`（34 軌各一行＋合進 main 的 commit、沒進 /console skill 的流程段落）；README、索引、工作紀錄路徑說明同步。B5 工具組與合併驗證腳本（含合併前探針、兩支從舊 scratchpad 撿回的工具）搬到本機 `workflow/inbox/b5-kit/`、`workflow/inbox/merge-scripts/`，B5 腳本寫死的路徑改到新位置；接續單加「恢復時要做的事」。之後刪掉整個 `workflow/v6-inbox/` 與 workflow 根 4 份被 hook 逾時砍掉留下的 `state-*.tmp`。

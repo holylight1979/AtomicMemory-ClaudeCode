@@ -1171,13 +1171,27 @@ def is_case_file(path: str, cfg: Dict[str, Any], root: Optional[str] = None) -> 
             and is_code_file(path, cfg.get("code_exts") or []))
 
 
-def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str]) -> bool:
+def is_excluded(path: str, cfg: Dict[str, Any], root: Optional[str], ignored: Optional[set] = None) -> bool:
     """規則 EXCLUDED_REGION（wg_release_rules.excluded_region）：path 屬部位表類別 knowledge 的部位（文件、記憶、派工信箱），
-    那裡的 .py 是素材，不是本專案的程式也不是它的案例。事實（路徑屬哪類部位）由 _part_kind 查部位表，規則判排不排除。
-    拿不到根、不在根底下、沒有部位表、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。"""
+    或被 .gitignore 忽略／屬執行期資料 → 不是本專案的程式也不是它的案例。事實（路徑屬哪類部位、git 忽略沒）在這裡查，
+    規則判排不排除。ignored＝呼叫端一次查好的被忽略路徑集合（gitignored_paths）；沒給就只查這一個。
+    拿不到根、不在根底下、沒有部位表又沒被忽略、表讀不到、判法載入失敗 → 不排除（照算）。cfg 不用，留著與呼叫點同簽名。"""
     if not root:
         return False
-    return excluded_region(path, root, _part_kind(path, root))
+    if ignored is None:
+        ignored = gitignored_paths(root, [path])
+    return excluded_region(path, root, _part_kind(path, root), path in ignored)
+
+
+def gitignored_paths(root: str, paths: Iterable[str]) -> set:
+    """被 .gitignore 忽略的路徑（規則 EXCLUDED_REGION 的事實）：與 OverviewHub 共用 wg_overview._gitignored_set，一次查一批，
+    回傳的是傳進去的原字串。不在 git、逾時、出錯回空集合（當不忽略，照算程式）；判法載入失敗 stderr 說一聲。"""
+    try:
+        from wg_overview import _gitignored_set
+        return _gitignored_set(Path(root), list(paths))
+    except Exception as e:  # noqa: BLE001
+        print(f"[verify_ledger] 查不了 {root} 的 git 忽略規則，照算程式：{type(e).__name__}: {e}", file=sys.stderr)
+        return set()
 
 
 def _part_kind(path: str, root: str) -> Optional[str]:
@@ -1301,18 +1315,20 @@ def case_debt(own_mod_files: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str,
     evidence 給了就填每個欠的檔的 Verdict（最後一次改的案例是哪個），擋訊息照印。
     只有 Stop 當下仍存在的案例檔才算（刪除也會記一筆修改，不能拿它清帳）；gone 裡的程式檔（vanished_code_paths 判成刪除的）不欠；
     搬走的照欠，量尺閘照舊看所有改檔。同一個檔不同寫法、同一個根不同寫法都用 canon_path 比（SAME_FILE）。
-    屬知識類部位的檔（is_excluded：部位表類別 knowledge）兩邊都不算：不欠案例，也不能拿來替寫碼部位的程式清帳。
-    案例判定用相對該根的路徑；拿不到根的程式檔退回絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。
+    屬知識類部位、或被 .gitignore 忽略／屬執行期資料的檔（is_excluded）兩邊都不算：不欠案例，也不能拿來替寫碼部位的程式清帳。
+    git 忽略事實每個根一次查一批。案例判定用相對該根的路徑；拿不到根的程式檔退回絕對路徑，每個路徑 stderr 一行（本函式每次 Stop 只跑一次）。
     修改紀錄沒有 at／seq 的 legacy entry 照舊：只在本回合改過、且本回合同根沒改案例時算。
     範圍外：改的案例是不是對應這次改動，程式判不出來，交給收尾對照（需求目標核心流程 checklist C-G3）由 LLM 判。"""
     exts = cfg.get("code_exts") or []
     gone = {canon_path(p) for p in gone or ()}
+    rooted = [(m, root_of(m["path"])) for m in own_mod_files or [] if isinstance(m, dict) and m.get("path")]
+    ignored: set = set()
+    for r in dict.fromkeys(r for _, r in rooted if r):
+        ignored |= gitignored_paths(r, [m["path"] for m, mr in rooted if mr == r])
     by_root: Dict[str, List[Dict[str, Any]]] = {}
-    for m in own_mod_files or []:
-        if isinstance(m, dict) and m.get("path"):
-            r = root_of(m["path"])
-            if not is_excluded(m["path"], cfg, r):
-                by_root.setdefault(canon_path(r) if r else "", []).append(m)           # 同根比較用 canon_path（SAME_FILE）
+    for m, r in rooted:
+        if not is_excluded(m["path"], cfg, r, ignored):
+            by_root.setdefault(canon_path(r) if r else "", []).append(m)               # 同根比較用 canon_path（SAME_FILE）
     owed: List[str] = []
     owed_keys: set = set()
     for root, ms in by_root.items():
@@ -2011,7 +2027,7 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
             (f"本回合工具呼叫：{'、'.join(sorted(set(str(n) for n in turn_tool_names))[:6]) or '（無）'}" + turn_rule,
              "現在跑出收據" if pending else "沒跑就寫沒跑，或現在跑"))))
     exts = cfg.get("code_exts") or []
-    absent = [p for p in mod_session if is_code_file(p, exts) and not is_excluded(p, cfg, root_of(p)) and not code_exists(p)]
+    absent = [p for p in mod_session if is_code_file(p, exts) and not code_exists(p) and not is_excluded(p, cfg, root_of(p))]
     why: Dict[str, Verdict] = {}
     gone = vanished_code_paths(absent, cfg, committed_new=committed_new, verdicts=why) if absent else ()
     debt_why: Dict[str, Verdict] = {}

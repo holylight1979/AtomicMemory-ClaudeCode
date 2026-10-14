@@ -107,6 +107,17 @@ def test_044_excluded_region():
     assert not rr.excluded_region(r"c:\other\_AIDocs\a.py", r"c:\proj", "knowledge")
 
 
+def test_excluded_region_gitignored_is_not_project_code():
+    """EXCLUDED_REGION 收 git 忽略事實（與 RUNTIME_DATA_NO_OVERVIEW 同一個判式）：根底下被 .gitignore 忽略、在執行期資料目錄
+    或快取目錄 → 排除（不欠案例、不能清帳）；追蹤中的檔、查不到（None）、不在根底下照算。"""
+    assert rr.excluded_region(r"c:\proj\box\verify_x_snapshot.sh", r"c:\proj", None, gitignored=True)
+    assert rr.excluded_region(r"c:\proj\box\a.py", r"c:\proj", "code", gitignored=True)        # 忽略優先於表上的 code
+    assert rr.excluded_region(r"c:\proj\Logs\a.py", r"c:\proj", None, gitignored=None)         # 執行期資料目錄
+    assert not rr.excluded_region(r"c:\proj\tools\x.py", r"c:\proj", None, gitignored=False)
+    assert not rr.excluded_region(r"c:\proj\tools\x.py", r"c:\proj", None, gitignored=None)
+    assert not rr.excluded_region(r"c:\other\box\a.py", r"c:\proj", None, gitignored=True)     # 不在根底下
+
+
 # ─── 已不存在的改檔：GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW／MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE ─────
 
 def test_044_gone_outside_vcs():

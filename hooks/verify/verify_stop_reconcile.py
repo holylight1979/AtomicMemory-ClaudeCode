@@ -2759,7 +2759,8 @@ def test_subagent_reverted_edit_is_not_code_debt(sub_stop, capsys, clean_repo):
 
 @pytest.mark.parametrize("kind", ["untracked", "ignored", "staged", "deleted"])
 def test_any_git_difference_keeps_debt(driven, capsys, clean_repo, kind):
-    """未追蹤、被忽略、已暫存、刪除都算有差（判不出原樣就照算改了）。"""
+    """未追蹤、被忽略、已暫存、刪除都算有差（判不出原樣就照算改了）：量尺照擋。(d) 欠案例除了被忽略那種都照欠；
+    被 .gitignore 忽略的檔不是本專案程式（EXCLUDED_REGION），不欠案例。"""
     repo, x = clean_repo
     path = x
     if kind == "untracked":
@@ -2776,7 +2777,7 @@ def test_any_git_difference_keeps_debt(driven, capsys, clean_repo, kind):
     else:
         Path(x).unlink()
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(path, 5)])
-    assert f"改了程式碼（{Path(path).name}）之後沒有新增或修改驗證 case 檔" in out, kind
+    assert (f"改了程式碼（{Path(path).name}）之後沒有新增或修改驗證 case 檔" in out) is (kind != "ignored"), kind
     assert "MeasureGate" in out, kind                                                     # 不是原樣：量尺也照擋
 
 
@@ -3504,17 +3505,18 @@ def test_042_0b_amend_after_settled_reversal_keeps_exemption(driven, capsys, cha
     assert (_DEBT_A in out) is owed, amend
 
 
-@pytest.mark.parametrize("how, owed", [("delete", False), ("rename", False), ("kept", True)])
+@pytest.mark.parametrize("how, owed", [("delete", False), ("rename", False), ("kept", False), ("kept_tracked_dir", True)])
 def test_042_1_session_new_code_file_gone_no_longer_owes(driven, capsys, chain, monkeypatch, how, owed):
     """042 根因①（claude-91 現場 72133ffb：cp 進被 .gitignore 的目錄的 .py，之後刪掉、或改名成 .py.txt，(d) 一直擋）：本 session
     新建的程式檔 Stop 時已不存在、同根 status 與本 session 提交都沒有新出現的程式檔 → 判成刪除、不欠補案例（現行
-    vanished_code_paths；不是「不在就解除」，搬走的照欠見 040_11）。041 合併前的 main 只看修改紀錄，刪掉、改名照欠。配對：還在的照欠。"""
+    vanished_code_paths；不是「不在就解除」，搬走的照欠見 040_11）。041 合併前的 main 只看修改紀錄，刪掉、改名照欠。
+    還在的：在被忽略的目錄裡不是本專案程式（EXCLUDED_REGION）不欠；配對：同一支放在沒被忽略的目錄照欠。"""
     monkeypatch.setattr(vl, "code_exists", os.path.isfile)
     state, edit, _, repo, _, _ = chain
     (repo / ".gitignore").write_text("scratch/\n", encoding="utf-8", newline="\n")
     _git(repo, "add", ".gitignore")
     _git(repo, "commit", "-qm", "ignore scratch")
-    new = repo / "scratch" / "copy_x.py"
+    new = repo / ("tracked_dir" if how == "kept_tracked_dir" else "scratch") / "copy_x.py"
     new.parent.mkdir()
     new.write_text("x = 1\n", encoding="utf-8", newline="\n")
     edit.post("Write", {"file_path": str(new)})
@@ -3570,6 +3572,38 @@ def _put_know_map(repo: Path) -> None:
         "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
         "| `src/` | 程式 | 無 | 無 | code |\n| `workflow/inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
         "| `memory/` | 記憶 | 無 | 無 | knowledge |\n| `_AIDocs/` | 文件 | 無 | 無 | knowledge |\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("name", ["verify_x_snapshot.sh", "probe_x.py"])
+def test_gitignored_code_file_is_not_owed(driven, capsys, chain, name):
+    """git 忽略的目錄裡改程式副檔名的檔（總控台在信箱寫的快照腳本）不是本專案程式：(d) 不欠案例。
+    沒有部位表，只靠 .gitignore 判；舊碼只看副檔名與同根，照欠。"""
+    state, edit, _, repo, _, _ = chain
+    (repo / ".gitignore").write_text("box/\n", encoding="utf-8", newline="\n")
+    p = repo / "box" / "_console" / name
+    p.parent.mkdir(parents=True)
+    p.write_text("echo x\n", encoding="utf-8", newline="\n")
+    assert subprocess.run(["git", "-C", str(repo), "check-ignore", "-q", str(p)]).returncode == 0
+    edit.post("Write", {"file_path": str(p)})
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert f"改了程式碼（{name}）" not in out
+
+
+def test_gitignored_case_cannot_settle_tracked_code(driven, capsys, chain):
+    """追蹤中的 src/a.py 改了照欠；之後只在 git 忽略的目錄寫一支 test_a.py 不能清帳（舊碼算案例、清掉 (d)）。
+    配對：補在追蹤中的 tests/ → 不擋。"""
+    state, edit, _, repo, code, case = chain
+    (repo / ".gitignore").write_text("box/\n", encoding="utf-8", newline="\n")
+    edit(code, 3)
+    ignored_case = repo / "box" / "tests" / "test_a.py"
+    ignored_case.parent.mkdir(parents=True)
+    ignored_case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(ignored_case)})
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **copy.deepcopy(state))
+    assert _DEBT_A in out
+    edit(case, 3)
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert _DEBT_A not in out
 
 
 def test_042_2c_excluded_region_is_anchored_at_known_root(tmp_path):
