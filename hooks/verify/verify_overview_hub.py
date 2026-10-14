@@ -103,6 +103,30 @@ def test_match_gamea_substring_prefix(path, part):
     assert oh.match_row(path, Path("C:/Work/GameA"), rows)["part_short"] == part
 
 
+_ROOT_NAMED_TABLE = ("| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+                     "| `tools/` | 工具 | 無 | 無 | code |\n| `.claude/` | 部位表 | 無 | 無 | knowledge |\n"
+                     "| `tests/` | 測試 | 無 | 無 | code |\n")
+
+
+@pytest.mark.parametrize("root,path,part", [
+    # 根目錄本身叫 .claude（根層 repo）：表上沒列的根層檔不能因為根目錄名落到 `.claude/` 列
+    ("C:/Users/u/.claude", "C:/Users/u/.claude/TECH.md", None),
+    ("C:/Users/u/.claude", "C:/Users/u/.claude/workflow/config.json", None),
+    ("C:/Users/u/.claude", "C:/Users/u/.claude/.claude/overview-map.md", "部位表"),     # 根下真的 .claude/ 照中
+    ("C:/Users/u/.claude", "C:/Users/u/.claude/tools/x.py", "工具"),
+    # 上層目錄名含 tests（CI 或 pytest 暫存目錄）：不影響專案裡的判定
+    ("C:/ci/tests/proj", "C:/ci/tests/proj/lib/a.py", None),
+    ("C:/ci/tests/proj", "C:/ci/tests/proj/sub/tests/a.py", "測試"),                  # 根以下的子字串照中
+    # 一般專案：根以下的非錨定子字串命中不變
+    ("C:/Work/proj", "C:/Work/proj/pkg/.claude/x.md", "部位表"),
+])
+def test_match_substring_only_below_root(root, path, part):
+    """match_row 的子字串命中只看專案根以下的相對路徑：根目錄本身的名字、根以上的目錄名不參與。舊碼拿整條絕對路徑比，
+    根層 repo（根目錄叫 .claude）每個表上沒列的檔都落到 `.claude/` 列、上層有 tests 的專案每個檔都落到 `tests/` 列。"""
+    m = oh.match_row(path, Path(root), oh.parse_map(_ROOT_NAMED_TABLE))
+    assert (m["part_short"] if m else None) == part, (root, path)
+
+
 # ─── 定位三行 / Bash 讀檔 ───────────────────────────────────────────
 
 def test_locate_present_requires_three_lines_and_part():

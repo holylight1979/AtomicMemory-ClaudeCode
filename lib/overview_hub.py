@@ -296,22 +296,24 @@ def layer_number(row: Optional[Dict[str, Any]]) -> Optional[int]:
 # ─── 命中 ───────────────────────────────────────────────────────────
 
 def match_row(path: str, root: Path, rows: List[Dict[str, Any]], anchored: bool = False) -> Optional[Dict[str, Any]]:
-    """最長前綴命中；錨在專案根的命中優先於子字串命中；同分取先列。anchored＝只認錨在專案根的命中。"""
+    """最長前綴命中；錨在專案根的命中優先於子字串命中；同分取先列。anchored＝只認錨在專案根的命中。
+    子字串命中只看專案根以下的相對路徑：根目錄本身的名字（根層 repo 就叫 .claude）、根以上的目錄名都不參與。"""
     p = _norm(path)
     r = _norm(str(root)).rstrip("/")
+    below = p[len(r):] if p.startswith(r + "/") else p          # 以 / 開頭；不在根底下就照整條比
     best, best_score = None, -1
     for row in rows:
         for pre in row["prefixes"]:
             if "*" in pre:
                 if fnmatch.fnmatch(p, r + "/" + pre):
                     score = 1000 + len(pre)      # glob 錨在專案根，跟一般前綴同權重
-                elif fnmatch.fnmatch(p, "*/" + pre):
+                elif fnmatch.fnmatch(below, "*/" + pre):
                     score = len(pre)
                 else:
                     score = -1
             elif p.startswith(r + "/" + pre + "/") or p == r + "/" + pre:
                 score = 1000 + len(pre)
-            elif ("/" + pre + "/") in p or p.endswith("/" + pre):
+            elif ("/" + pre + "/") in below or below.endswith("/" + pre):
                 score = len(pre)
             else:
                 score = -1
