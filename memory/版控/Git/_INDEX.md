@@ -16,5 +16,6 @@
 | 工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異 | 工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異 |
 | 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 | 新repo第一次提交前先放gitignore並看副檔名分布-系統自有repo整包加也會把各機遙測檔掃進版控 |
 | 既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-m-本機覆蓋檔用skip-worktree | 既有非git目錄原地接上版控-reset-mixed加逐路徑備份-勿只信diff-filter-M-本機覆蓋檔用skip-worktree |
+| 殘留stash與完工分支的處置原則-不用就丟-丟前先收割知識-重大發展或決策變更留devhistory | 殘留stash與完工分支的處置原則-不用就丟-丟前先收割知識-重大發展或決策變更留DevHistory |
 | 混改檔hunk級選擇性staging | 混改檔hunk級選擇性staging |
 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 | 記憶索引三檔多機合併必衝突-裝-merge-atom-index-驅動-勿手合 |

@@ -5,8 +5,8 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 17 |
-| C#／.NET | 19 |
+| Python | 18 |
+| C#／.NET | 20 |
 | JavaScript／Node | 1 |
 | PowerShell | 6 |
 | Bash／Shell | 12 |
@@ -17,6 +17,7 @@
 |------|------|
 | `memory/CC與原子記憶契約/bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔.md` | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 |
 | `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
+| `memory/CC與原子記憶契約/claude-code設定目錄claude-config-dir取值是有值就用-空字串當沒設-不去空白-設定檔與claudejson都跟著搬-和記憶系統資料根是兩件事.md` | Claude Code設定目錄CLAUDE_CONFIG_DIR取值是有值就用-空字串當沒設-不去空白-設定檔與.claude.json都跟著搬-和記憶系統資料根是兩件事 |
 | `memory/Failures/驗證與實證/feedback-completion-gates.md` | feedback-completion-gates |
 | `memory/OS-Windows/pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding.md` | pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變None-子行程要帶PYTHONUTF8並errors-replace-python-I會忽略PYTHONIOENCODING |
 | `memory/OS-Windows/taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束.md` | TaskStop停背景Bash在Windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 |
@@ -54,6 +55,7 @@
 | `memory/dotnet/建置/契約加欄位必查手寫映射點-單元綠不代表wire存活.md` | 契約加欄位必查手寫映射點-單元綠不代表wire存活 |
 | `memory/dotnet/建置/輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測.md` | 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 |
 | `memory/文字與格式/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md` | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
+| `memory/設計通則/搬移程式目錄的正確行為-擴大搜尋寫死路徑跟著修-依語言特性抽樣驗功能不硬性全量-csharp看csproj與sln囊括範圍.md` | 搬移程式目錄的正確行為-擴大搜尋寫死路徑跟著修-依語言特性抽樣驗功能不硬性全量-csharp看csproj與sln囊括範圍 |
 | `memory/驗證與實證/winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii.md` | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |
 | `memory/驗證與實證/禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗.md` | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
 

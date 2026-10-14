@@ -7,4 +7,5 @@
 | Atom | 說明 |
 |------|------|
 | feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff | feedback-上git是commit加push一體-沒口令前不先commit-讓使用者能先看diff |
+| feedback-共用工作樹push前先看待推範圍-git-push推的是整段待推歷史-含別人等口令的commit就只推自己的或先問 | feedback-共用工作樹push前先看待推範圍-git-push推的是整段待推歷史-含別人等口令的commit就只推自己的或先問 |
 | feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義 | feedback-多軌派工的git紀律-小幅改動直接在main改驗推不開軌-合進main同一回合移除worktree刪分支-補驗過即推不積累-軌名要望文生義 |
