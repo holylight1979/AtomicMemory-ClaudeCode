@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 重試計數改以測試重跑為界（誤判清冊 B17）
+- **緣由**：先寫紅案例、再分五次 Edit 改同一檔、一跑就綠，FixEscalation 卻報 retry=5、收尾又要求 DeepPostMortem：舊規則數的是「紅之後同檔的 Edit 次數」，中間沒重跑也照數；plan／direct 門檻（4／2）也是數 Edit。
+- **做法**：規則 `RETRY_COUNTS_RERUN_CYCLES` 取代 `RETRY_COUNTS_EDITS_SINCE_RED`（`hooks/wg_release_rules.py` 的 `retry_round_verdict`、`red_case_names`、`retry_rounds_text`、`fix_escalation_text`）；`wisdom_engine.track_retry` 把改檔記到每筆活著的紅測的 `edits_since_run`；`post_tool_use._track_test_result` 又跑紅時找同一組測試（`same_test_run`，點名的檔要完全相同）的活著的紅判輪、清掉那組的紀錄，並記 `retry_rounds`（指令＋紅案，沒有 pytest 案例名就記失敗摘要第一行）。改檔為了修哪一組不猜（調度裁定），同時修多組時對沒改到的那組多報一次，寫成標明限制的案例；兩輪升級、plan 與 direct 同門檻；FixEscalation 與 DeepPostMortem 觸發句印每輪證據。TECH §7.7。
+- **驗證**：`verify_release_rules` 新案走真的 PostToolUse 入口（紅→改 5 次→綠＝0、兩輪紅＝2 且訊息有兩輪證據、plan 同門檻、沒改就重跑與只改計畫檔不算、兩組都紅時改 A 重跑 A 算一輪、中間跑別組的綠不藏輪數、第一次跑別組紅不算、共用設定檔不讓不同組算同一組、Jest 輸出退回摘要、DPM 觸發句，另兩案標明已知限制；多數來自三輪 codex 唯讀審查的 BLOCK 重現）改前紅、改後綠；真 hook 入口探針 `hooks/verify/probe_retry_cycles.py` 新碼全過、舊碼兩情境全紅；`verify_wisdom_retry_calibration`、`verify_fix_escalation_plan_retry`、`verify_state_growth_caps` 舊案依新語義改寫。
+
 ## 2026-10-14 記憶卡片可依程式語言篩選（跨範疇視圖，不搬檔）
 - **緣由**：使用者想找 Python、C#、JS 相關的卡，但資料夾只按問題類型分，只有 dotnet 自成一類；Python 卡散在六個範疇。
 - **做法**：`tools/sync-memory-index.py` 多產一份 `memory/_by_language/_INDEX.md`（每個語言一張表，列卡片路徑，一卡可多語言），有命中時在 MEMORY.md 末尾加一行指標；判定詞庫放 `memory/_meta/taxonomy.json` 新的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾）。檔名沿用 `_INDEX.md`，合併驅動、背景同步、hooks 索引檔名單都直接認得。TECH、DocIndex-System、MultiMachineMemorySync 同步。

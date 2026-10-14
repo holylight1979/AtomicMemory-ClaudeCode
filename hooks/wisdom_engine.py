@@ -284,43 +284,19 @@ def _is_plan_iteration_path(norm_path: str) -> bool:
 
 
 def track_retry(state: Dict[str, Any], file_path: str) -> None:
-    """PostToolUse: count same-file edits made while a failure is unresolved as
-    fix-retries.
+    """PostToolUse（每次改檔）：把這次改檔記到每筆還活著的紅測的 edits_since_run[path]（只記事實，不加重試）。
 
-    A retry only counts when a real failure signal is present —
-    ``state["failing_tests"]`` non-empty (a test/lint failure detected by
-    detect_test_failure and not yet cleared). This makes ``wisdom_retry_count``
-    mean what FixEscalation targets: repeatedly editing the same file while tests
-    stay red = genuinely stuck (反覆修不好). Without a failure signal there is no
-    retry — successful iteration never keeps failing_tests set, so heavy editing
-    of a single file is not mistaken for a fix loop (edit count ≠ failure).
-
-    Plan-type files are excluded up front: editing a plan is not a fix attempt
-    against a code failure, even when tests are red elsewhere.
-
-    The same file must be re-edited ``threshold`` times during the failure before
-    it counts — one attempt is not 反覆. plan-mode uses a higher threshold (4 vs
-    2) because architecture work iterates the same file by design.
+    重試輪數由 PostToolUse 的測試結果那一端判（規則 RETRY_COUNTS_RERUN_CYCLES，wg_release_rules.retry_round_verdict）：
+    重跑同一組測試仍紅、而且那組上次跑之後碼有改過才算一輪，判完清掉那組的紀錄。所以紅案例先行、分多次改、一跑就綠＝0 輪；
+    中間跑別組的綠不會取走 A 的紀錄；第一次跑別組紅不算。不猜改檔是為了修哪一組：同時修好幾組時，
+    沒改到的那組重跑仍紅也算一輪（已知限制，代價是多一次提醒）。
+    計畫類檔不記（改計畫不是在修紅）；刻意紅（規則 RED_WHILE_REVERTED）不進 failing_tests，舊 state 帶 deliberate 旗標的也跳過。
     """
     norm = file_path.replace("\\", "/")
     if _is_plan_iteration_path(norm):
         return
-    # Error gate: only re-edits made against an unresolved, genuine failure count.
-    # 規則 RED_WHILE_REVERTED：刻意紅（退回舊碼反證）不進 failing_tests，自然不算；舊 state 帶 deliberate 旗標的也跳過。
-    # 規則 RETRY_COUNTS_EDITS_SINCE_RED：只數「這筆紅出現之後」對同檔的編輯（記在紅測條目的 edits_after[path]），
-    # 不數整場累計，整場改過 7 次的檔在新一筆紅之後改第一次不是重試。
-    from wg_release_rules import retry_bump
-    live = [f for f in (state.get("failing_tests") or []) if isinstance(f, dict) and not f.get("deliberate")]
-    if not live:
-        return
-    approach = state.get("wisdom_approach", "direct")
-    threshold = 4 if approach == "plan" else 2
-    bumped = False
-    for f in live:
-        after = f.setdefault("edits_after", {})
-        after[norm] = int(after.get(norm, 0)) + 1
-        if retry_bump(after[norm], threshold):
-            bumped = True
-    if bumped:
-        state["wisdom_retry_count"] = state.get("wisdom_retry_count", 0) + 1
-        # only bump the state counter; SessionEnd reflect() writes reflection_metrics
+    for f in state.get("failing_tests") or []:
+        if not isinstance(f, dict) or f.get("deliberate"):
+            continue
+        edits = f.setdefault("edits_since_run", {})
+        edits[norm] = int(edits.get(norm, 0)) + 1

@@ -72,34 +72,35 @@ def test_repeat_edits_dedupe_with_count(env):
 
 
 def test_track_retry_reads_count_field():
-    """規則 RETRY_COUNTS_EDITS_SINCE_RED：重試讀的是紅測條目上的 edits_after 計數（不再讀 modified_files 的 count）。
-    紅之後已改過 1 次（edits_after=1），這次再改 → 2 ≥ 門檻 2 → 算一次重試；modified_files 的整場 count=3 不影響。"""
+    """規則 RETRY_COUNTS_RERUN_CYCLES：改檔記在每筆活著的紅測的 edits_since_run（不讀 modified_files 的 count），
+    而且只記事實不加重試；modified_files 的整場 count=3 不影響。"""
     state = {
-        "failing_tests": [{"cmd": "pytest", "summary": "F", "edits_after": {"src/a.py": 1}}],
+        "failing_tests": [{"cmd": "pytest a", "summary": "F"},
+                          {"cmd": "pytest b", "summary": "F", "edits_since_run": {"src/a.py": 1}}],
         "modified_files": [{"path": "src/a.py", "count": 3}],
         "wisdom_approach": "direct",
     }
     wisdom_engine.track_retry(state, "src/a.py")
-    assert state.get("wisdom_retry_count", 0) == 1
-    assert state["failing_tests"][0]["edits_after"]["src/a.py"] == 2
+    assert state.get("wisdom_retry_count", 0) == 0
+    assert [f["edits_since_run"]["src/a.py"] for f in state["failing_tests"]] == [1, 2]
     fresh = {"failing_tests": [{"cmd": "pytest", "summary": "F"}],
              "modified_files": [{"path": "src/a.py", "count": 3}], "wisdom_approach": "direct"}
     wisdom_engine.track_retry(fresh, "src/a.py")
-    assert fresh.get("wisdom_retry_count", 0) == 0                  # 紅之後第一次改：修，不是重試（整場 count=3 不算）
+    assert fresh.get("wisdom_retry_count", 0) == 0 and fresh["failing_tests"][0]["edits_since_run"] == {"src/a.py": 1}
 
 
 def test_track_retry_legacy_duplicate_entries():
-    """舊格式承接：升級前的紅測條目沒有 edits_after 欄 → 第一次改時補上欄位、不炸；第二次改才算重試。
-    modified_files 的舊格式重複條目不再影響判定。"""
+    """舊格式承接：升級前的紅測條目帶舊欄位 edits_after、沒有 edits_since_run → 第一次改時補上欄位、不炸、舊欄位不讀；
+    之後照累加，改檔本身不加重試（規則 RETRY_COUNTS_RERUN_CYCLES：輪數由重跑判）。modified_files 的舊格式重複條目不影響判定。"""
     state = {
-        "failing_tests": [{"cmd": "pytest", "summary": "F"}],
+        "failing_tests": [{"cmd": "pytest", "summary": "F", "edits_after": {"src/a.py": 7}}],
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
         "wisdom_approach": "direct",
     }
     wisdom_engine.track_retry(state, "src/a.py")
-    assert state.get("wisdom_retry_count", 0) == 0 and state["failing_tests"][0]["edits_after"] == {"src/a.py": 1}
+    assert state.get("wisdom_retry_count", 0) == 0 and state["failing_tests"][0]["edits_since_run"] == {"src/a.py": 1}
     wisdom_engine.track_retry(state, "src/a.py")
-    assert state.get("wisdom_retry_count", 0) == 1
+    assert state.get("wisdom_retry_count", 0) == 0 and state["failing_tests"][0]["edits_since_run"] == {"src/a.py": 2}
 
 
 # ─── accessed_files cap ─────────────────────────────────────────────────────

@@ -314,16 +314,13 @@ def handle_user_prompt_submit(
     )
 
     # Fix Escalation Protocol
-    retry_count = state.get("wisdom_retry_count", 0)
-    fix_esc_warned = state.get("fix_escalation_warned", False)
-    if retry_count >= 2 and not fix_esc_warned:
+    # 規則 RETRY_COUNTS_RERUN_CYCLES：輪數到門檻才提示，訊息帶每輪的重跑指令與紅案
+    from wg_release_rules import fix_escalation_text
+    fix_esc = fix_escalation_text(state)
+    if fix_esc and not state.get("fix_escalation_warned", False):
         state["fix_escalation_warned"] = True
         state["fix_escalation_triggered"] = True
-        lines.append(
-            f"[Guardian:FixEscalation] 偵測到重複修正（retry={retry_count}：同一筆紅測之後反覆改同一個檔，規則 RETRY_COUNTS_EDITS_SINCE_RED）。"
-            "依「精確修正升級」規則先停下直接修：用三句寫出①失敗現象與原文、②已試過的改法與各自為何沒解、"
-            "③下一個能區分候選原因的最小檢查；做完那個檢查再動手。刻意跑紅（退回舊碼反證）不算在內。"
-        )
+        lines.append(fix_esc)
 
     # Evasion 上輪命中 → 注入舉證要求
     ev = state.get("evasion_flag")

@@ -40,7 +40,7 @@ from wg_verify_ledger import (
 )
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
-    dpm_instruction_text,
+    dpm_instruction_text, retry_rounds_text,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -652,7 +652,7 @@ def _dpm_trigger_text(state: Dict[str, Any], config: Dict[str, Any]) -> str:
     from wg_friction import friction_summary, friction_triggered
     parts: List[str] = []
     if int(state.get("wisdom_retry_count", 0) or 0) >= 2 or state.get("fix_escalation_triggered"):
-        parts.append("失敗中反覆重試 / fix-escalation")
+        parts.append("失敗中反覆重試 / fix-escalation；" + retry_rounds_text(state.get("retry_rounds") or []))
     if friction_triggered(state, config):
         parts.append(friction_summary(state))
     return "、".join(parts) or "高 effort 失敗"

@@ -5,9 +5,9 @@ track_retry 對「計畫類檔」（plans/、_staging/、檔名命中 plan/draft
 [Guardian:FixEscalation]；計畫檔豁免先於 failure gate 早退（編計畫檔不是對程式
 失敗的修復嘗試）。
 
-retry 只在 state["failing_tests"] 非空（真測試/lint 失敗未解）時、同檔反覆編輯
-才計——「測試仍紅、反覆改同碼」才觸發；測試全綠下反覆改同碼不誤觸（edit 次數
-≠ 失敗）。
+retry 數的是「紅了、改了、再跑仍紅」的輪數（規則 RETRY_COUNTS_RERUN_CYCLES）：
+紅測期間改檔只記 edits_since_run，重跑同一組仍紅才算一輪；測試全綠下反覆改同碼不誤觸
+（edit 次數 ≠ 失敗）。
 """
 
 from __future__ import annotations
@@ -83,25 +83,32 @@ def test_real_code_edits_without_failure_not_counted():
 
 # ─── 測試仍紅 + 真碼反覆修 → 觸發（真正的反覆修不好）──────────────────
 
-def test_real_code_repeated_edits_during_failure_still_count():
-    """反向 1：測試紅期間對 hooks/foo.py 反覆 edit → retry 累加。"""
-    path = "/proj/hooks/foo.py"
-    state = {"modified_files": [], "failing_tests": list(_FAILING)}
+_SID = "sess-plan-retry"
+_CMD = "python -m pytest -q tests/test_foo.py"
+
+
+def _rerun_red(state):
+    """走真的 PostToolUse 入口再跑一次同一組、仍紅（規則 RETRY_COUNTS_RERUN_CYCLES：重跑在這裡判輪）。"""
+    from handlers import post_tool_use as ptu
+    cmd = _CMD
+    ev = {"session_id": _SID, "tool_name": "Bash", "tool_input": {"command": cmd},
+          "tool_response": {"stdout": "FAILED tests/test_foo.py::t - assert 0\n1 failed in 0.1s\n", "stderr": "", "interrupted": False}}
+    ptu._track_test_result(state, ev, cmd)
+
+
+@pytest.mark.parametrize("path", ["/proj/hooks/foo.py", "/proj/tests/test_foo.py"])
+def test_real_code_repeated_edits_during_failure_still_count(path):
+    """反向：測試紅期間反覆改真碼（含測試檔，除錯場景）→ 改檔只記 edits_since_run；每次「改了再跑同一組仍紅」算一輪，
+    兩輪到 FixEscalation 門檻。"""
+    state = {"modified_files": [], "failing_tests": [{"cmd": _CMD, "at": "t", "session_id": _SID}]}
     for _ in range(3):
         state["modified_files"].append({"path": path, "tool": "Edit", "at": "t"})
         track_retry(state, path)
-    # 第一次 count=1（不 ++），第二次 count=2（++ 至 1），第三次 count=3（++ 至 2）
-    assert state.get("wisdom_retry_count", 0) >= 2
-
-
-def test_real_test_file_repeated_edits_during_failure_still_count():
-    """反向 2：測試紅期間 tests/test_foo.py 反覆 edit 也屬修復重試（除錯場景）。"""
-    path = "/proj/tests/test_foo.py"
-    state = {"modified_files": [], "failing_tests": list(_FAILING)}
-    for _ in range(3):
-        state["modified_files"].append({"path": path, "tool": "Edit", "at": "t"})
-        track_retry(state, path)
-    assert state.get("wisdom_retry_count", 0) >= 2
+    assert state.get("wisdom_retry_count", 0) == 0 and state["failing_tests"][-1]["edits_since_run"] == {path: 3}
+    _rerun_red(state)
+    track_retry(state, path)
+    _rerun_red(state)
+    assert state.get("wisdom_retry_count", 0) == 2
 
 
 def test_first_edit_no_retry_increment():

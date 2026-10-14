@@ -475,10 +475,177 @@ def test_045_red_while_reverted_verdicts():
     assert v.owed is True and "b.py" in v.why
 
 
-def test_045_retry_counts_edits_since_red():
-    assert rr.retry_bump(1, 2) is False                                      # 紅之後第一次改：修，不是重試
-    assert rr.retry_bump(2, 2) is True and rr.retry_bump(3, 2) is True       # 第二次起每次都算
-    assert rr.retry_bump(3, 4) is False                                      # plan 模式門檻 4
+def test_045_retry_counts_rerun_cycles_verdict():
+    """純函式：重跑同一組（prev_red 是那組活著的紅）、那組上次跑之後改過檔（不論幾次、幾個檔）、這次又紅，才算一輪；
+    不是同一組（第一次跑或別組）、沒改就重跑都不算。同一組＝點名同一個案例檔，或兩邊都沒點名檔且指令前 40 字相同。"""
+    assert rr.same_test_run("npx jest tests/a.test.js", "npx jest tests/a.test.js")
+    assert not rr.same_test_run("npx jest tests/a.test.js", "npx jest tests/b.test.js")
+    assert rr.same_test_run("python -m pytest -q tests/x.py", "python -m pytest -q tests/x.py -k t2")
+    assert rr.same_test_run("pytest -q", "pytest -q") and not rr.same_test_run("pytest -q", "pytest -q tests/x.py")
+    # codex 第三輪 BLOCK：共用設定檔不能讓不同案例檔被當成同一組（要點名的檔完全相同，不是有交集）
+    assert not rr.same_test_run("npx jest --config jest.config.js tests/a.test.js",
+                                "npx jest --config jest.config.js tests/b.test.js")
+    assert rr.same_test_run("npx jest --config jest.config.js tests/a.test.js",
+                            "npx jest --config jest.config.js tests/a.test.js -t adds")
+    assert rr.retry_round_verdict(None, {"src/a.py": 1}, 1, "pytest -q", ["a.py::t"]).owed is False   # 第一次紅
+    assert rr.retry_round_verdict({"cmd": "x"}, {}, 1, "pytest -q", ["a.py::t"]).owed is False        # 沒改就重跑
+    v = rr.retry_round_verdict({"cmd": "x"}, {"src/a.py": 5}, 3, "pytest -q tests/x.py", ["tests/x.py::t2"])
+    assert v.owed is True and v.rule == "RETRY_COUNTS_RERUN_CYCLES" and "第 3 輪" in v.why
+    assert any("pytest -q tests/x.py" in e for e in v.evidence) and any("tests/x.py::t2" in e for e in v.evidence)
+    assert rr.red_case_names("FAILED tests/x.py::t1 - assert 1\nERROR tests/y.py::t2\n2 failed") == ["tests/x.py::t1", "tests/y.py::t2"]
+
+
+# 走真的 PostToolUse 入口：紅測由 _track_test_result 記（重跑在這裡看得到），改檔由 wisdom_engine.track_retry 記
+_RR_SID = "sess-retry"
+
+
+def _rr_run(st, case=None, cmd="python -m pytest -q tests/x.py"):
+    """跑一次測試：case 給了就是紅（FAILED <case>），沒給就是綠。"""
+    from handlers import post_tool_use as ptu
+    out = f"FAILED {case} - assert 1 == 2\n1 failed in 0.1s\n" if case else "3 passed in 0.1s\n"
+    ev = {"session_id": _RR_SID, "tool_name": "Bash", "tool_input": {"command": cmd},
+          "tool_response": {"stdout": out, "stderr": "", "interrupted": False}}
+    ptu._track_test_result(st, ev, cmd)
+
+
+def _rr_edit(st, path="src/a.py", n=1):
+    import wisdom_engine as we
+    for _ in range(n):
+        we.track_retry(st, path)
+
+
+def test_045_retry_counts_rerun_cycles_red_first_many_edits_then_green_is_zero():
+    """紅案例先行：紅 → 同檔改 5 次 → 一跑就綠 ＝ 0 輪，FixEscalation 不跳。"""
+    st = {"turn_seq": 1}
+    _rr_run(st, "tests/x.py::t1")
+    _rr_edit(st, n=5)
+    _rr_run(st)
+    assert int(st.get("wisdom_retry_count", 0)) == 0 and not st.get("retry_rounds") and not st.get("failing_tests")
+    assert rr.fix_escalation_text(st) is None
+
+
+@pytest.mark.parametrize("approach", ["direct", "plan"])
+def test_045_retry_counts_rerun_cycles_two_red_reruns_escalate(approach):
+    """紅 → 改 → 跑仍紅 → 改 → 跑仍紅 ＝ 2 輪；plan 與 direct 同門檻；訊息印第 2 輪與兩輪的指令＋紅案。"""
+    st = {"turn_seq": 1, "wisdom_approach": approach}
+    _rr_run(st, "tests/x.py::t1", cmd="python -m pytest -q tests/x.py")
+    _rr_edit(st, n=3)
+    _rr_run(st, "tests/x.py::t2", cmd="python -m pytest -q tests/x.py -k t2")
+    assert int(st.get("wisdom_retry_count", 0)) == 1
+    _rr_edit(st, "src/b.py")
+    _rr_run(st, "tests/x.py::t3", cmd="python -m pytest -q tests/x.py -k t3")
+    assert int(st.get("wisdom_retry_count", 0)) == 2 >= rr.RETRY_ESCALATE_ROUNDS
+    assert [r["round"] for r in st.get("retry_rounds") or []] == [1, 2]
+    text = rr.fix_escalation_text(st)
+    assert text and "RETRY_COUNTS_RERUN_CYCLES" in text and "第 2 輪" in text
+    assert "pytest -q tests/x.py -k t2" in text and "tests/x.py::t2" in text
+    assert "pytest -q tests/x.py -k t3" in text and "tests/x.py::t3" in text
+
+
+def test_045_retry_counts_rerun_cycles_rerun_without_edit_or_plan_file_edit_is_not_a_round():
+    """沒改就重跑、只改計畫類檔就重跑，都不算一輪。"""
+    st = {"turn_seq": 1}
+    _rr_run(st, "tests/x.py::t1")
+    _rr_run(st, "tests/x.py::t1")
+    _rr_edit(st, "C:/p/plans/next.md", n=3)
+    _rr_run(st, "tests/x.py::t1")
+    assert int(st.get("wisdom_retry_count", 0)) == 0 and not st.get("retry_rounds")
+
+
+def _rr_jest(st, name, red):
+    """Jest 跑一組：綠只清同一個案例檔的紅（pytest 綠會清掉所有 pytest 紅，交錯的情境重現不了）。"""
+    from handlers import post_tool_use as ptu
+    cmd = f"npx jest tests/{name}.test.js"
+    resp = (f"Error: Exit code 1\nFAIL tests/{name}.test.js\nTests: 1 failed, 1 total\n" if red
+            else {"stdout": f"PASS tests/{name}.test.js\nTests: 1 passed, 1 total\n", "stderr": "", "interrupted": False})
+    ptu._track_test_result(st, {"session_id": _RR_SID, "tool_name": "Bash", "tool_input": {"command": cmd},
+                                "tool_response": resp}, cmd)
+
+
+def test_045_retry_counts_rerun_cycles_limit_fixing_b_counts_for_unchanged_a():
+    """已知限制（裁定採「同一組上次跑之後碼有改過、再跑仍紅＝一輪」，不猜意圖）：A、B 兩組都紅，修 B（改、跑仍紅＝第 1 輪；
+    再改、跑綠），沒再改就重跑 A 仍紅 → A 上次跑之後碼改過，也算一輪＝2。同時修多組時對沒改到的那組多報一次提醒。"""
+    st = {"turn_seq": 1}
+    _rr_jest(st, "a", red=True)
+    _rr_jest(st, "b", red=True)
+    _rr_edit(st, "src/b.js")
+    _rr_jest(st, "b", red=True)
+    assert int(st.get("wisdom_retry_count", 0)) == 1
+    _rr_edit(st, "src/b.js")
+    _rr_jest(st, "b", red=False)
+    assert [f["cmd"] for f in st["failing_tests"]] == ["npx jest tests/a.test.js"]          # B 清掉、A 還在
+    _rr_jest(st, "a", red=True)
+    assert int(st.get("wisdom_retry_count", 0)) == 2
+
+
+def test_045_retry_counts_rerun_cycles_two_groups_red_fix_a_rerun_a_is_a_round():
+    """A、B 都紅（B 較晚跑），改 A、重跑 A 仍紅 → 1 輪（改檔不只記在最近跑紅的那組）。"""
+    st = {"turn_seq": 1}
+    _rr_jest(st, "a", red=True)
+    _rr_jest(st, "b", red=True)
+    _rr_edit(st, "src/a.js")
+    _rr_jest(st, "a", red=True)
+    assert int(st.get("wisdom_retry_count", 0)) == 1
+
+
+def test_045_retry_counts_rerun_cycles_limit_other_group_work_counts_for_unchanged_a():
+    """已知限制：A 紅著時去修 B（第一次跑 B 紅、再跑綠），沒改 A 就重跑 A 仍紅 → A 上次跑之後碼改過，算一輪。"""
+    st = {"turn_seq": 1}
+    _rr_jest(st, "a", red=True)
+    _rr_edit(st, "src/b.js")
+    _rr_jest(st, "b", red=True)
+    _rr_jest(st, "b", red=False)
+    _rr_jest(st, "a", red=True)
+    assert int(st.get("wisdom_retry_count", 0)) == 1
+
+
+def test_045_retry_counts_rerun_cycles_other_green_run_between_does_not_hide_rounds():
+    """codex 複審 BLOCK：修 A 時中間先跑 B 的回歸（綠）再跑 A 仍紅，兩次都要算 → 2 輪；跑別組不會把 A 的改檔取走。"""
+    st = {"turn_seq": 1}
+    _rr_jest(st, "a", red=True)
+    for _ in range(2):
+        _rr_edit(st, "src/a.js")
+        _rr_jest(st, "b", red=False)
+        _rr_jest(st, "a", red=True)
+    assert int(st.get("wisdom_retry_count", 0)) == 2
+
+
+def test_045_retry_counts_rerun_cycles_first_red_of_other_groups_is_not_a_round():
+    """codex 複審 BLOCK：A 紅著，改了別處、第一次跑 B 紅、再改、第一次跑 C 紅 → 都不是重跑同一組 → 0 輪。"""
+    st = {"turn_seq": 1}
+    _rr_jest(st, "a", red=True)
+    _rr_edit(st, "src/b.js")
+    _rr_jest(st, "b", red=True)
+    _rr_edit(st, "src/c.js")
+    _rr_jest(st, "c", red=True)
+    assert int(st.get("wisdom_retry_count", 0)) == 0
+
+
+def test_045_retry_counts_rerun_cycles_round_evidence_falls_back_to_summary():
+    """輸出沒有 pytest 的 FAILED 行（Jest 的 FAIL、go test 的 --- FAIL）時，證據退回失敗摘要的第一行，不只寫「沒列案例」。"""
+    st = {"turn_seq": 1}
+    jest = "npx jest tests/b.test.js"
+    for _ in range(3):
+        from handlers import post_tool_use as ptu
+        ev = {"session_id": _RR_SID, "tool_name": "Bash", "tool_input": {"command": jest},
+              "tool_response": "Error: Exit code 1\nFAIL tests/b.test.js\n  ● b › adds\nTests: 1 failed, 1 total\n"}
+        ptu._track_test_result(st, ev, jest)
+        _rr_edit(st, "src/b.js")
+    assert int(st.get("wisdom_retry_count", 0)) == 2
+    assert "FAIL tests/b.test.js" in rr.retry_rounds_text(st.get("retry_rounds") or [])
+
+
+def test_045_retry_counts_rerun_cycles_dpm_trigger_names_rounds():
+    """DeepPostMortem 的觸發句也印第幾輪與每輪證據。"""
+    from handlers import stop
+    st = {"turn_seq": 1}
+    _rr_run(st, "tests/x.py::t1")
+    _rr_edit(st)
+    _rr_run(st, "tests/x.py::t2")
+    _rr_edit(st)
+    _rr_run(st, "tests/x.py::t3")
+    text = stop._dpm_trigger_text(st, {})
+    assert "第 2 輪" in text and "tests/x.py::t3" in text
 
 
 def test_045_green_same_case_clears():
