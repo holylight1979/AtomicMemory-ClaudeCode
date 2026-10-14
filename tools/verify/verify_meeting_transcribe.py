@@ -154,6 +154,7 @@ def test_ingest_routes_classified_pending_and_reports_errors(project: Path):
     assert Path(a["path"]).is_relative_to(project / ".claude" / "memory" / "shared" / "網路登入")
     body = Path(a["path"]).read_text(encoding="utf-8")
     assert "[臨]" in body and "阿凱" in body and _meta(project)["transcript"] in body
+    assert "（週會 決議）" in body and "2026-10-06" not in body, "會議日期不進知識行"
     assert b["pending_review"] and "_pending_review" in b["path"]
     assert "沒有標題" in c["error"]
 

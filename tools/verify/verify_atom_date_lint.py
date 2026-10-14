@@ -1,7 +1,8 @@
 """verify_atom_date_lint — atom-date-lint 的剝日期規則，與「索引內 atom 知識行零敘事型日期」的活體守門。
 
 跑法：python -m pytest -q tools/verify/verify_atom_date_lint.py
-前半純函式；最後一案掃真實索引（episodic／_distant 不掃），背景收割寫進帶日期的 atom 會在這裡現形。
+前半純函式（判式本體在 lib/narrative_date，寫入閘同一份，閘的案例在 lib/verify/verify_narrative_date_gate.py）；
+最後一案掃真實索引（episodic／_distant 不掃），繞過寫入閘的帶日期 atom 會在這裡現形。
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ _spec.loader.exec_module(_mod)
 
 
 def strip(line: str) -> str:
-    new, _ = _mod._fix_line(line, False)
+    new, _ = _mod.fix_line(line, False)
     return new
 
 

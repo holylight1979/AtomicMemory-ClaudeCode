@@ -9,6 +9,8 @@ Schema:
   預算：create（create_atom／build）走 _budget_check、append 走 _append_budget_check＋atom_io.append_atom_file；
   replace 走 build 的 _budget_check。直接呼叫 lib.atom_io.write_atom(mode="replace") 沒有預算檢查（既有差異，
   CLI／js 路徑都已預檢）。
+  日期閘：create_atom／build 看建好的知識段＋行動段、append（atom_io.append_atom_file）看新增行，
+  有敘事型日期就拒（KNOWLEDGE_LINE_NO_NARRATIVE_DATE，判式 lib/narrative_date，與 write_atom 同一份）。
   realm_check：{scope?, project_cwd, title, triggers, knowledge, actions, domain} → scope=org 走 check_org_write，
   shared 直接放行，其餘走 check_global_write。scrub：{text} → extra.text（去專案名／路徑／「此專案」）。
   stdout: WriteResult.to_dict()  (single-line JSON)
@@ -53,7 +55,7 @@ from pathlib import Path
 from .atom_io import (
     write_atom, write_index, write_index_full, write_raw,
     append_atom_file, locate_atom, check_supersedes, WriteResult,
-    _canonical_supersedes,
+    _canonical_supersedes, card_body_lines, narrative_date_error,
 )
 from .atom_access import init_access
 from .atom_spec import (
@@ -214,7 +216,7 @@ def create_atom(payload: dict) -> WriteResult:
         content = build_atom_content(**build_params)
     except (TypeError, ValueError) as e:
         return WriteResult(ok=False, error=f"build: {e}")
-    err = validate_atom_content(content)
+    err = validate_atom_content(content) or narrative_date_error(card_body_lines(content))
     if err is not None:
         return WriteResult(ok=False, error=f"validate: {err}")
     budget_err = _budget_check(content, depends_paths(build_params.get("depends")) + [str(file_path)],
@@ -369,7 +371,8 @@ def main() -> int:
                     from .atom_io import carry_replace_header, given_header_keys
                     old = Path(existing_path).read_text(encoding="utf-8-sig")
                     content = carry_replace_header(old, content, given_header_keys(payload))
-                err = validate_atom_content(content) or _budget_check(content)
+                err = (validate_atom_content(content) or narrative_date_error(card_body_lines(content))
+                       or _budget_check(content))
             result = WriteResult(ok=err is None, error=err,
                                  extra={"content": content, "supersedes": sup})
         elif action == "append":
