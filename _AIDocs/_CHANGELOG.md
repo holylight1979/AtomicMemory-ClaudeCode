@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 安裝器的目標樹工具改以安裝目標當資料根（A7 全量 verify_install 11 紅）
+- **緣由**：資料根一致化後 `fix-hook-python.py` 改吃 `WG_CLAUDE_DIR`；install.py 的子行程環境原樣繼承這個變數，全量驗證時 conftest 把它導到暫存資料根，安裝器的直譯器檢查就去讀暫存資料根的 settings.json，找不到而中止。
+- **做法**：install.py 的 `ENV` 把 `WG_CLAUDE_DIR` 釘在 `TARGET`，目標樹工具一律讀寫這次安裝的 settings.json 與記憶；一般安裝兩者同一處，行為不變。`fix-hook-python.py` 單獨執行時照舊跟資料根走。TECH §9.5。
+- **驗證**：`tools/verify/verify_install.py` 新案 `test_data_root_elsewhere_installs_and_checks_target`（資料根指到放了誘餌 settings.json 的別處，安裝成功且誘餌原封不動）改前紅在斷言、改後綠；全檔 24 passed 1 skipped；`verify_fix_hook_python`＋A 組 5 支 107 passed。
+
 ## 2026-10-13 v6.0 資料根一致化收尾：剩下的家目錄寫法、核心根認 worktree、測試預設隔離資料根、整組量尺自寫收據
 - **緣由**：A2c 之後仍有 lib／hooks／skills 十多處自己用 `Path.home()/.claude` 算資料根；`is_core_root` 只認資料根，cwd 在根層 worktree 時含「此專案」的 global 卡被拒；既有測試沒設 WG_CLAUDE_DIR 時整個 pytest 行程的資料根是 live，假 session 檔寫進 live workflow/；run_verify 收據寫程式碼樹、量尺閘讀資料根，worktree 全量永遠不被認；整組 pytest 量尺（tools/verify、lib/verify）背景跑完不留收據。
 - **做法**：ollama_extract_core／atom_spec／provenance／overview_scaffold 退路／lang_guard／wg_evasion／wisdom_engine／acceptance_spec／version_guard／ensure-mcp／UPS 決策項／refile_classify／skill-cost-measure／console-window-trace.ps1 改走資料根（程式碼看檔案位置，一般安裝字串不變）；核心根＝資料根或程式碼根之內、或資料根 repo 的 git worktree，`atom_io` 三處同判斷改共用 `is_core_root`；repo 根 `conftest.py` 每個 session 把資料根與 TEMP／TMP／TMPDIR 導到暫存目錄（先放本樹受版控資料）、結束還原，暫存目錄一建好就登記（初始化中斷也清得到），`@pytest.mark.live_data` 豁免；run_verify 開跑前算資料根、收據寫資料根；整組 tools/verify、lib/verify 由 conftest 跑完自寫收據（篩過、只收集、-o 改收集設定、-c 換 ini 都不寫）。
