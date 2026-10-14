@@ -1,0 +1,92 @@
+# memory — 依程式語言篩選（跨範疇視圖）
+
+> 自動生成（tools/sync-memory-index.py），`_` 前綴非 atom，不要手改。卡片實體仍在各範疇資料夾，這裡只列路徑；一張卡可同時屬多個語言。
+> 判定：卡名或 Trigger 命中 `memory/_meta/taxonomy.json` 的 languages 詞庫，或卡片在該語言綁定的範疇資料夾。只收核心層 memory/，不含本地範疇與 personal。改詞庫後跑 `sync-memory-index.py --write`。
+
+| 語言 | atom 數 |
+|------|---------|
+| Python | 17 |
+| C#／.NET | 19 |
+| JavaScript／Node | 1 |
+| PowerShell | 6 |
+| Bash／Shell | 12 |
+
+## Python
+
+| Python | 說明 |
+|------|------|
+| `memory/CC與原子記憶契約/bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔.md` | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 |
+| `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
+| `memory/Failures/驗證與實證/feedback-completion-gates.md` | feedback-completion-gates |
+| `memory/OS-Windows/pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變none-子行程要帶pythonutf8並errors-replace-python-i會忽略pythonioencoding.md` | pytest內subprocess抓子行程輸出遇cp950中文-reader-thread解碼炸掉-stdout變None-子行程要帶PYTHONUTF8並errors-replace-python-I會忽略PYTHONIOENCODING |
+| `memory/OS-Windows/taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束.md` | TaskStop停背景Bash在Windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 |
+| `memory/OS-Windows/windows-新機-path-的-windowsapps-pythonexe-是-store-佔位程式-零輸出-exit-9009-子程序裸-spawn-python-必用絕對路徑.md` | Windows 新機 PATH 的 WindowsApps python.exe 是 Store 佔位程式-零輸出 exit 9009-子程序裸 spawn python 必用絕對路徑 |
+| `memory/OS-Windows/windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清.md` | Windows刪測試暫存目錄要先關本行程開著的log-handler並清唯讀屬性-rmtree-ignore-errors會默默留下整個目錄-初始化中斷也要能清 |
+| `memory/OS-Windows/windows的git把worktree的git檔設成隱藏-python直接覆寫會permissionerror-要先unlink再寫.md` | windows的git把worktree的.git檔設成隱藏-python直接覆寫會PermissionError-要先unlink再寫 |
+| `memory/工作流/接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑.md` | 接派工單先核實檔案路徑與跑法-pytest收0案不是綠-掃描型verify腳本要直接python跑 |
+| `memory/文字與格式/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md` | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
+| `memory/文字與格式/windows-python-write-text-缺-newline-把-lf-翻-crlf-整檔假-diff.md` | Windows Python write_text 缺 newline 把 LF 翻 CRLF 整檔假 diff |
+| `memory/版控/SVN/pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess.md` | pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含@位元組觸發peg解析-改用python-subprocess |
+| `memory/驗證與實證/pytest-addopts與pythonoptimize會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值.md` | PYTEST_ADDOPTS與PYTHONOPTIMIZE會從環境縮小測試範圍-判斷要照執行順序算每段程式的有效值 |
+| `memory/驗證與實證/pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因.md` | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
+| `memory/驗證與實證/全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑.md` | 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑 |
+| `memory/驗證與實證/改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染.md` | 改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染 |
+| `memory/驗證與實證/路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試.md` | 路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試 |
+
+## C#／.NET
+
+| C#／.NET | 說明 |
+|------|------|
+| `memory/OS-Windows/dotnet的specialfolder不吃appdata環境變數-隔離測試要換別的手段.md` | dotnet的SpecialFolder不吃APPDATA環境變數-隔離測試要換別的手段 |
+| `memory/dotnet/ASPNET/aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token.md` | aspnetcore-關閉卡逾時-requestaborted不觸發-長連線handler內文也要吃linked-token |
+| `memory/dotnet/ASPNET/minimal-hosting-下-configuretestservices-靜默失效.md` | minimal hosting 下 ConfigureTestServices 靜默失效 |
+| `memory/dotnet/WinForms/designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰.md` | Designer控制項初始值設太早-事件處理器讀到還沒建好的欄位-啟動即靜默崩潰 |
+| `memory/dotnet/WinForms/winforms-contextmenustrip-不可在closed事件裡dispose-項目click在關閉後才跑會炸objectdisposed.md` | winforms-contextmenustrip-不可在closed事件裡dispose-項目click在關閉後才跑會炸objectdisposed |
+| `memory/dotnet/WinForms/winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死.md` | winforms-splitcontainer包住控制項後enter事件直接focus會焦點迴圈凍死 |
+| `memory/dotnet/WinForms/winforms-多選資料夾-net-8-無-multiselect-須走-ifileopendialog.md` | WinForms 多選資料夾 — .NET 8 無 Multiselect 須走 IFileOpenDialog |
+| `memory/dotnet/WinForms/winforms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用.md` | WinForms自繪捲動畫布-版面算內容座標-捲動只在繪製端套用 |
+| `memory/dotnet/class-finalizer-讓實例多活一輪gc-純計數或清欄位的解構子一律不寫.md` | class-finalizer-讓實例多活一輪gc-純計數或清欄位的解構子一律不寫 |
+| `memory/dotnet/dotnet-pack-在-generatepackageonbuild-專案不重建-nuspec-新版號包舊-dll.md` | dotnet pack 在 GeneratePackageOnBuild 專案不重建-nuspec 新版號包舊 dll |
+| `memory/dotnet/msbuild-17x-重導向-stdout-輸出-utf-8-net-framework-用-encodingdefault-讀會亂碼.md` | MSBuild 17.x 重導向 stdout 輸出 UTF-8-net-framework-用-Encoding.Default-讀會亂碼 |
+| `memory/dotnet/vscode-c-devkit對unity-assets內csproj做design-time-build-產obj被unity編進去cs0579-用directorybuildprops改obj.md` | VSCode-C#-DevKit對Unity-Assets內csproj做design-time-build-產obj被Unity編進去CS0579-用Directory.Build.props改obj~ |
+| `memory/dotnet/序列化/system-text-json反序列化會丟掉dictionary屬性初始值的comparer-載入後要重建.md` | system-text-json反序列化會丟掉dictionary屬性初始值的comparer-載入後要重建 |
+| `memory/dotnet/建置/vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現.md` | vendor-二進位-中間目錄路徑會嵌進組件-暫存路徑必須固定否則雜湊不可重現 |
+| `memory/dotnet/建置/契約加欄位必查手寫映射點-單元綠不代表wire存活.md` | 契約加欄位必查手寫映射點-單元綠不代表wire存活 |
+| `memory/dotnet/建置/輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測.md` | 輸出exe被執行中行程鎖住-建置驗證改輸出目錄-行為驗證add-type載dll跑自測 |
+| `memory/文字與格式/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md` | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
+| `memory/驗證與實證/winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii.md` | winforms工具無人值守實測迴路-appactivate加printwindow截圖-mcpcontrol以截圖座標點按-中文type走ime不進textbox改ascii |
+| `memory/驗證與實證/禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗.md` | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
+
+## JavaScript／Node
+
+| JavaScript／Node | 說明 |
+|------|------|
+| `memory/文字與格式/toolchain.md` | 工具鏈實戰記憶 |
+
+## PowerShell
+
+| PowerShell | 說明 |
+|------|------|
+| `memory/OS-Windows/winget-升不動-powershell-msi-與-msix-通道分裂.md` | winget 升不動 PowerShell — MSI 與 MSIX 通道分裂 |
+| `memory/文字與格式/powershell傳null給dotnet-string參數會變空字串-nullstring才是真null.md` | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |
+| `memory/文字與格式/toolchain.md` | 工具鏈實戰記憶 |
+| `memory/版控/SVN/pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含位元組觸發peg解析-改用python-subprocess.md` | pwsh-傳中文路徑給svn-exe會亂碼且big5的一字含@位元組觸發peg解析-改用python-subprocess |
+| `memory/設計通則/shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文.md` | shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文 |
+| `memory/設計通則/從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令.md` | 從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令 |
+
+## Bash／Shell
+
+| Bash／Shell | 說明 |
+|------|------|
+| `memory/CC與原子記憶契約/bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔.md` | bash寫入目標解析器會把python-c與pytest-c當成無法判定而擋-改寫成腳本檔或讓pytest自找ini-grep工具預設跳過gitignore檔 |
+| `memory/CC與原子記憶契約/cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫localappdata與home去機器路徑.md` | cc-windows-hook與statusline經git-bash執行-dollar變數與波浪號展開-百分號不展開-settings可寫LOCALAPPDATA與HOME去機器路徑 |
+| `memory/CC與原子記憶契約/plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法.md` | plan-mode-彈窗變多-bypass新版提示改用bash查讀-msys路徑被判工作目錄外-allow家族規則修法 |
+| `memory/OS-Windows/taskstop停背景bash在windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束.md` | TaskStop停背景Bash在Windows只停外殼-腳本與pytest子行程變孤兒繼續跑-要依父行程鏈手動結束 |
+| `memory/OS-Windows/子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它.md` | 子行程沙箱改暫存目錄要連TMPDIR一起改-Git Bash帶TMPDIR=/tmp-gettempdir先看它 |
+| `memory/文字與格式/bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗.md` | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
+| `memory/文字與格式/toolchain.md` | 工具鏈實戰記憶 |
+| `memory/版控/Git/git-已push-commit-勿改寫-雙-push-url-gitlab-main-force-保護致遠端分叉.md` | git 已push commit 勿改寫 — 雙 push-url + GitLab main force 保護致遠端分叉 |
+| `memory/設計通則/shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文.md` | shell命令判定的語意陷阱-續行先接回再判-引號外token起頭的井號是註解-只有單引號是字面-外層語意先查整段原文 |
+| `memory/設計通則/從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令.md` | 從指令字串辨識shell包裝要斷詞看執行檔basename再找執行旗標-regex會被帶引號完整路徑與啟動選項繞過-內層要認真子命令 |
+| `memory/設計通則/從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據.md` | 從指令文字判斷某支程式真的跑過-要用尊重引號的同一套解析且只看最後執行的鏈-逐條補shell技巧不收斂就改白名單語法解析不了不算證據 |
+| `memory/驗證與實證/假家目錄測試要同時設home與userprofile-windows的pathhome看userprofile而bash看home.md` | 假家目錄測試要同時設HOME與USERPROFILE-Windows的Path.home看USERPROFILE而bash看HOME |

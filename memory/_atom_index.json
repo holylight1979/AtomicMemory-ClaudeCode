@@ -6095,7 +6095,15 @@
         "困擾",
         "工作要求",
         "品質維持",
-        "裁定"
+        "裁定",
+        "Codex 建議",
+        "派不派",
+        "邊角問題",
+        "範圍飄移",
+        "不要附和",
+        "快且有效",
+        "成本效益",
+        "矯枉過正"
       ],
       "scope": "global"
     },
@@ -6586,7 +6594,8 @@
         "case 證據",
         "pytest 節點 id",
         "驗證案例證據",
-        "evidence kind case"
+        "evidence kind case",
+        "CASE_NODE_ID_NEEDS_DEF"
       ],
       "scope": "global"
     },

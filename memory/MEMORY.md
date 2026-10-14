@@ -17,3 +17,5 @@
 | Failures | 65 | `memory/Failures/_INDEX.md` |
 
 > 本地範疇（僅 ~/.claude 注入）Lv1 根索引見 `_local_catalog.md`，深層 drill 各層 `_INDEX.md`。
+
+> 依程式語言（Python、C#、JS…）跨範疇篩選見 `_by_language/_INDEX.md`（卡片不搬檔，一張可屬多個語言；詞庫在 `_meta/taxonomy.json` 的 languages 段）。
