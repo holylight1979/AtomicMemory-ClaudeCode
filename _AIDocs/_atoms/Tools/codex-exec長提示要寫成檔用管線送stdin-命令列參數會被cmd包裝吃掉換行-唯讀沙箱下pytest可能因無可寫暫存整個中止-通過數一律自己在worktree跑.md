@@ -11,7 +11,7 @@
 
 ## 知識
 
-- [臨]（track-a2c 實測 2026-10-13）codex exec 的長提示不要直接塞命令列參數（.cmd 包裝會吃掉換行）：寫成檔，用 `Get-Content '<prompt>' -Raw | codex exec … -`（stdin）或參數只放「先完整讀 <提示檔絕對路徑>再照做」。`-s read-only` 沙箱讀得到 -C 目錄以外的檔（提示檔放 session scratchpad 可讀）。唯讀沙箱下 pytest 可能因沒有可寫暫存目錄在啟動階段整個中止（不只是 deselect），codex 回報裡就完全沒有 pytest 結果；通過數一律自己在 worktree 跑，codex 只當讀碼審。
+- [臨]（track-a2c 實測）codex exec 的長提示不要直接塞命令列參數（.cmd 包裝會吃掉換行）：寫成檔，用 `Get-Content '<prompt>' -Raw | codex exec … -`（stdin）或參數只放「先完整讀 <提示檔絕對路徑>再照做」。`-s read-only` 沙箱讀得到 -C 目錄以外的檔（提示檔放 session scratchpad 可讀）。唯讀沙箱下 pytest 可能因沒有可寫暫存目錄在啟動階段整個中止（不只是 deselect），codex 回報裡就完全沒有 pytest 結果；通過數一律自己在 worktree 跑，codex 只當讀碼審。
 
 ## 行動
 

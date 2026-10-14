@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: worktree 分支, 背景記憶同步, knowledge harvest commit, git archive 快照, OverviewHub 擋刪, 設 HOME, 驗證 session, 反證快照
 - Created-at: 2026-10-13
-- Related: 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源, 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它
+- Related: 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源, 子行程沙箱改暫存目錄要連tmpdir一起改-git-bash帶tmpdirtmp-gettempdir先看它, 需求目標閘被審出三漏洞同根-判定只拿到路徑字串-命令語義在解析器就丟了-判定與設定取法各入口各寫一份
 - Source: session:2a7705d4#a766a34b 2026-10-13
 - Quote: 「關session以前還是問一次：此session的知識、經驗，都atoms起來了嗎?」
 
@@ -16,7 +16,7 @@
 - [臨] worktree 隔離的 session 在 Bash 指令裡設 HOME（行內前綴也算）會被當成改 git 設定位置而拒跑；探針要在 Python 腳本裡自己設 WG_CLAUDE_DIR／HOME／USERPROFILE／TEMP／TMP／TMPDIR。
 - [臨] worktree 分支的 commit：CommitOrder 的記憶系統豁免只認磁碟機寫法 `git -C C:/Users/…/<worktree> commit …`；寫成 Git Bash 的 `/c/Users/…`，或整條接了 `|`／`;`，都會被擋下要口令。長訊息先寫成檔、用 `-F <檔>`，指令只留 commit 一段。
 - [臨] 收尾同步閘在 worktree 工作分支上照樣要求 commit＋push，但多軌派工規定工作分支不推、也沒有 upstream：樹乾淨就回一句『已 commit、照派工不推、交總控台合併』收尾，不要自己推（已列誤判清冊待修）。
-- [臨]（2026-10-13）main 每幾分鐘就被記憶收割 commit 往前推：`git merge main` 合到的是當下的 tip，不是派工寫的 hash。要合指定版本就 `git merge <hash>`；合完用 `git log -1 --format=%p <merge>` 核對第二個父。
+- [臨] main 每幾分鐘就被記憶收割 commit 往前推：`git merge main` 合到的是當下的 tip，不是派工寫的 hash。要合指定版本就 `git merge <hash>`；合完用 `git log -1 --format=%p <merge>` 核對第二個父。
 
 ## 行動
 

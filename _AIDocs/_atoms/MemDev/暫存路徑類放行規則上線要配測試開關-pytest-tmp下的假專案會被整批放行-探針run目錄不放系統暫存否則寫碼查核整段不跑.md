@@ -13,7 +13,7 @@
 - [臨] 實踩（track-gate-rules 045）：規則「暫存目錄下的副本不當專案、暫存 repo 的 commit 免口令」上線後，verify 用 pytest tmp_path 建的假專案全部落在系統暫存底下，整批被當暫存放行，31 個既有案翻紅。規則本身對，缺的是「測試環境怎麼關掉它」：補環境變數 WG_TEMP_RULES=off 只關暫存判定（不關「暫存收據不採信」），verify 檔頭 autouse fixture setenv；正式環境不設。
 - [臨] 真 hook 入口探針的 run 目錄不能放系統暫存（%TEMP%／scratchpad）：hook 會把沙箱裡的專案改檔當暫存檔豁免，寫碼查核整段不跑、探針假綠。改放 `<worktree>-probe-runs/`（與受測樹同層、不在暫存），跑完刪。
 - [臨] 暫存判定要判 commit 實際落的 repo 根（find_vcs_root），不是執行目錄：正式 repo 底下的 scratchpad 子目錄不得拿到豁免；_TEMP_TOKENS 只認 /pytest-of-、/temp/claude/、/.pytest_cache/，不認裸 /scratchpad/。暫存根與目標兩側都先做 8.3 長路徑展開再比（這台 TEMP 就是 HOLYLI~1）。
-- [臨]（2026-10-13 track-b-hooks 合 gate-rules 後）別軌的測試檔沒設 `WG_TEMP_RULES=off`，合進來才紅：on_read／on_edit 跳過暫存路徑、導讀卡不注入、定位不擋。合 main 後自己的讀檔／注入案紅了，先用 `WG_TEMP_RULES=off` 單跑那案確認，再在該檔 fixture 加 setenv。
+- [臨]（track-b-hooks 合 gate-rules 後）別軌的測試檔沒設 `WG_TEMP_RULES=off`，合進來才紅：on_read／on_edit 跳過暫存路徑、導讀卡不注入、定位不擋。合 main 後自己的讀檔／注入案紅了，先用 `WG_TEMP_RULES=off` 單跑那案確認，再在該檔 fixture 加 setenv。
 
 ## 行動
 

@@ -10,7 +10,7 @@
 
 ## 知識
 
-- [臨] 實測（2026-10-13，原設計者親跑 `_console/ask_probe.py` 探針，VS Code 擴充）：PreToolUse 對 AskUserQuestion 與 ExitPlanMode 都會觸發，tool_input 完整（題目文字、選項、plan 全文與 planFilePath），deny 的理由 AI 讀得到並能複述；deny 時 PostToolUse 不觸發，PostToolBatch 仍會觸發（事後提醒／審計那條路可用）。deny 不保證 AI 自我修正：使用者口令與 hook 要求衝突時，AI 聽人、不重送（ask_retry=0），所以 deny 理由要寫到能直接照做。
+- [臨] 實測（原設計者親跑 `_console/ask_probe.py` 探針，VS Code 擴充）：PreToolUse 對 AskUserQuestion 與 ExitPlanMode 都會觸發，tool_input 完整（題目文字、選項、plan 全文與 planFilePath），deny 的理由 AI 讀得到並能複述；deny 時 PostToolUse 不觸發，PostToolBatch 仍會觸發（事後提醒／審計那條路可用）。deny 不保證 AI 自我修正：使用者口令與 hook 要求衝突時，AI 聽人、不重送（ask_retry=0），所以 deny 理由要寫到能直接照做。
 - [臨] 實測（track-b-hooks 取樣 transcript 53 筆）：工作中途到的跨 session 訊息在 transcript 是 attachment.type=queued_command、origin kind=peer，**不經任何 hook**（不走 UserPromptSubmit）；只有在回合間隙到的才走 UPS。要對同伴訊息做任何關鍵點處理（例如裁定前三問），得在 PostToolBatch 從上次位置讀 transcript 尾段補掃。
 
 ## 行動
