@@ -31,10 +31,14 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
+CODE_DIR = Path(__file__).resolve().parent.parent   # 程式碼根（本檔所在的樹）：lib.* 從這裡載
+if str(CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(CODE_DIR))
+from lib.project_root import claude_config_dir  # noqa: E402
+
 # settings.json 是 Claude Code 自己讀的設定：跟 Claude Code 的設定目錄（CLAUDE_CONFIG_DIR，沒設就 ~/.claude），
 # 不跟記憶系統的資料根（WG_CLAUDE_DIR）走；一般安裝三者同一處。
-# 取值和 Claude Code 一樣：空字串視同沒設，不去頭尾空白。
-SETTINGS = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "settings.json"
+SETTINGS = claude_config_dir() / "settings.json"
 MIN_VERSION = (3, 9)
 
 # 指令開頭的直譯器（可帶引號、可為 Windows 絕對路徑或 POSIX 路徑或裸名）

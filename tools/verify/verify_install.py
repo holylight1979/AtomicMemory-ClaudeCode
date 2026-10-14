@@ -22,7 +22,7 @@ from typing import Optional
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-UNDER_TEST = ("tools/install.py", "hooks/user-init.sh", "tools/fix-hook-python.py")
+UNDER_TEST = ("tools/install.py", "hooks/user-init.sh", "tools/fix-hook-python.py", "lib/project_root.py")
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.longpaths=true"]
 

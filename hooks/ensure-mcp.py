@@ -23,10 +23,10 @@ from pathlib import Path
 CODE_DIR = Path(__file__).resolve().parents[1]   # 程式碼根：樣板與 MCP server 入口（{claude_dir}）在這棵樹
 if str(CODE_DIR / "lib") not in sys.path:
     sys.path.insert(0, str(CODE_DIR / "lib"))
-from project_root import claude_data_dir  # noqa: E402
+from project_root import claude_data_dir, claude_global_config  # noqa: E402
 
 CLAUDE_DIR = claude_data_dir()   # 使用者資料根（WG_CLAUDE_DIR 或 ~/.claude）：workflow 旗標與版本快取
-CLAUDE_JSON = Path.home() / ".claude.json"   # CC 自己的設定檔，固定在家目錄
+CLAUDE_JSON = claude_global_config()   # Claude Code 自己的 .claude.json：CLAUDE_CONFIG_DIR 或家目錄底下
 TEMPLATE = CODE_DIR / "mcp-servers.template.json"
 VERSION_CACHE = CLAUDE_DIR / "workflow" / "mcp-version-cache.json"
 FLAG_NEEDS_NODE = CLAUDE_DIR / "workflow" / "mcp-needs-node.flag"

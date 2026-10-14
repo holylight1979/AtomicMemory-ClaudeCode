@@ -758,7 +758,7 @@ pip 套件一次裝：`pip install -r tools/memory-vector-service/requirements.t
 
 ### 9.3 MCP 註冊（`hooks/ensure-mcp.py`）
 
-每次 SessionStart 自動：找 node → 讀 `mcp-servers.template.json` → JS 入口存在的 server 合併進 `~/.claude.json` 的 `mcpServers`（缺整塊才補；已存在且 template `_version` 沒升則不動）→ npm 套件不在磁碟的 server 背景 `npm i -g`（下次 session 才寫入 config）→ 每 7 天背景 `npm outdated/update`。正常情況開兩次 session 就齊。它**不會建立** `~/.claude.json`（Claude Code 首次啟動自己建），檔案不存在時直接結束。
+每次 SessionStart 自動：找 node → 讀 `mcp-servers.template.json` → JS 入口存在的 server 合併進 `~/.claude.json` 的 `mcpServers`（缺整塊才補；已存在且 template `_version` 沒升則不動）→ npm 套件不在磁碟的 server 背景 `npm i -g`（下次 session 才寫入 config）→ 每 7 天背景 `npm outdated/update`。正常情況開兩次 session 就齊。設了 `CLAUDE_CONFIG_DIR` 時，它和 Claude Code 一樣改用該目錄底下的 `.claude.json`；清理工具與繞閘掃描找的 shell-snapshots、debug、plugins 也跟這個目錄（`lib/project_root.py` 的 `claude_config_dir`、`claude_global_config`）。它**不會建立** `~/.claude.json`（Claude Code 首次啟動自己建），檔案不存在時直接結束。
 
 | 名稱 | 來源 | 入口 |
 |------|------|------|

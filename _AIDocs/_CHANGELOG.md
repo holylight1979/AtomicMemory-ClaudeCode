@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 .claude.json 與 Claude Code 執行期目錄也改看 CLAUDE_CONFIG_DIR，規則收成單一來源
+- **緣由**：Claude Code 的 `.claude.json` 放在 `CLAUDE_CONFIG_DIR || 家目錄`、shell-snapshots／debug／plugins 在它的設定目錄底下；ensure-mcp、cleanup-old-files、check-bypass、usage-snapshot 讀帳號四處寫死家目錄，使用者另設設定目錄時會改錯或掃錯地方。
+- **做法**：`lib/project_root.py` 在 `claude_data_dir` 旁加 `claude_config_dir()`、`claude_global_config()`（取值照 Claude Code：空字串當沒設、不去空白），上述四處與 fix-hook-python 一律呼叫它；`verify_install` 受測檔加 `lib/project_root.py`。一般安裝路徑字串不變。TECH §9.3。
+- **驗證**：`verify_tools_data_root` 設定目錄表加兩支 harness 工具、ensure-mcp 案與 usage-snapshot 帳號案改成有設／沒設／空字串，加單一來源案；有設的案改前紅在斷言（單一來源案是 ImportError，新函式）、改後綠；verify_install 24 passed 1 skipped。
+
 ## 2026-10-14 v6.0 fix-hook-python 的 settings.json 改看 Claude Code 設定目錄，不跟資料根（裁定 #28）
 - **緣由**：`fix-hook-python.py` 單獨執行時用資料根（`WG_CLAUDE_DIR`）找 settings.json，但 Claude Code 讀的是設定目錄（`CLAUDE_CONFIG_DIR`，預設 `~/.claude`）；資料根設到別處時會檢查、改寫錯的那份。
 - **做法**：`SETTINGS` 改成 `CLAUDE_CONFIG_DIR`（有設）否則 `~/.claude`，取值照 Claude Code 2.1.296 本體的 `CLAUDE_CONFIG_DIR || 預設`（空字串視同沒設、不去空白），拿掉只為此載入的資料根函式；install.py 的 `ENV` 另把 `CLAUDE_CONFIG_DIR` 也釘在 `TARGET`，安裝器檢查的仍是它剛裝的那份；`verify_tools_data_root` 新增「設定目錄」常數表。一般安裝三者同一處，行為不變。TECH §9.2、§9.5。
