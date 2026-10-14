@@ -27,6 +27,15 @@ from handlers import _shared  # noqa: E402
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="8.3 短路徑只在 Windows")
 
 
+@pytest.fixture(autouse=True)
+def _workflow_in_tmp(monkeypatch, tmp_path):
+    """經 post_tool_use 入口的案例會落殘檔帳本與日誌：一律寫進 tmp_path，不碰 live 的 workflow/（aec-tempfiles 是全機共用檔）。"""
+    from handlers import aec_ledger
+    from handlers import post_tool_use as pt
+    monkeypatch.setattr(aec_ledger, "WORKFLOW_DIR", tmp_path)
+    monkeypatch.setattr(pt, "WORKFLOW_DIR", tmp_path)
+
+
 def _win_path(fn_name: str, p: str) -> str:
     buf = ctypes.create_unicode_buffer(32768)
     n = getattr(ctypes.windll.kernel32, fn_name)(p, buf, 32768)
@@ -165,3 +174,14 @@ def test_030_unc_forms(monkeypatch, path, tmp, is_temp):
     """030：`\\\\?\\UNC\\server\\share\\…` 等同 `\\\\server\\share\\…`；暫存在 UNC 上時兩種寫法都判暫存，逃出暫存或別的分享仍判非暫存。"""
     monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: tmp)
     assert _shared._is_ephemeral_path(path) is is_temp
+
+
+def test_post_tool_use_ledger_lands_in_tmp_not_live(monkeypatch, tmp_path):
+    """經 post_tool_use 入口改暫存檔會記殘檔帳本（aec_ledger）：案例要把帳本寫進 tmp_path，live 的 workflow/aec-tempfiles 不多檔。"""
+    live = Path.home() / ".claude" / "workflow" / "aec-tempfiles"
+    before = sorted(p.name for p in live.glob("*.jsonl")) if live.is_dir() else []
+    long_ = _win_path("GetLongPathNameW", tempfile.gettempdir())
+    monkeypatch.setattr(_shared.tempfile, "gettempdir", lambda: long_)
+    assert not _noted_via_post_tool_use(monkeypatch, long_ + r"\claude\sess\scratchpad\probe.py")
+    assert (tmp_path / "aec-tempfiles" / "sid-eph.jsonl").is_file()
+    assert (sorted(p.name for p in live.glob("*.jsonl")) if live.is_dir() else []) == before
