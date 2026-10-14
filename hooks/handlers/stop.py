@@ -859,11 +859,13 @@ def _verify_gates(
             print(m_err, file=sys.stderr)
             append_guard_log("measure", {"session_id": session_id, "turn_seq": turn_seq, "error": repr(e)[:200]})
     if goal:
-        # 需求目標（4.5）：(f1) 改了程式還沒回頭對照不看措辭、每次都判；(f2) 完整對照只在交付邊界（宣告完成、擋滿待查的原宣稱、
-        # 本回合交了收尾檢核）判。併進寫碼查核：同一個擋次預算、同一個擋滿問使用者、同一個 pending
+        # 需求目標（4.5）：(f1) 改了程式還沒回頭對照不看措辭、每次都判；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界
+        # （宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核）判。併進寫碼查核：同一個擋滿問使用者、同一個 pending；
+        # (f3) 擋訊息帶規則行，擋次預算單獨計次。state 與 transcript 交給 (f3) 從對話補掛補交的定位四行
         try:
             from wg_need_goal import goal_gate_reason
-            g_reason = goal_gate_reason(session_id, bool(claims_completion(last_text) or claims or aec_emitted), goal_cfg)
+            g_reason = goal_gate_reason(session_id, bool(claims_completion(last_text) or claims or aec_emitted), goal_cfg,
+                                        state=state, transcript_path=str(transcript) if transcript else "")
         except Exception as e:  # noqa: BLE001
             g_reason = (f"[Guardian:ReconcileGate] 需求目標對照判定錯誤，一律擋：{type(e).__name__}: {e}。"
                         "修好目標檔（workflow/need-goal/）或回報；先別宣告完成")

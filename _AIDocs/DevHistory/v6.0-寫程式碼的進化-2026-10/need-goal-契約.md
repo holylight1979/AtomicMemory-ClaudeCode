@@ -58,7 +58,8 @@
 | `created_turn`、`created_seq` | int | 開樹的回合與序號 |
 | `user_said` | list | `{seq, turn, text, prior?}`；首則上限 4000 字，其餘每則 1000 字，最多 20 則（保留第一則＋最新 19 則）；`prior=true` 是從續接單匯入的 |
 | `peer_said` | list | `{seq, turn, from, text}`；每則 1000 字，最多 20 則；不當權威 |
-| `links` | dict | `{"parts": {"<root>|<部位>": {"node": "T2.1", "seq": n}}}`；鍵就是 `state["overview_hub"]` 的鍵 |
+| `links` | dict | `{"parts": {"<root>|<部位>": {"node": "T2.1", "seq": n}}}`；鍵就是 `state["overview_hub"]` 的鍵（定位帳：定位第四行核對通過、或收尾補掛時寫入） |
+| `parts_edited` | dict | `{"<root>|<部位>": {"part": "<部位名>", "files": [路徑…]}}`：改過程式檔的寫碼部位（表外、知識類、OverviewHub 在那一層關掉的不記；每部位最多記 5 個檔）。(f3) 查每一個都在 `links.parts` 掛到活著的節點；匯出不帶 |
 | `edits` | list | `{seq, turn, path, node, agent_id, code, owed, cleared_seq?}`；同一檔同一節點還欠著對照時併成一筆（序號更新）；超過 300 筆只丟最舊的已清紀錄，owed 的一筆都不丟 |
 | `node_last_edit` | dict | 節點編號 → `{seq, path}`：掛在這個節點的最後一次程式改動；證據先後只讀這裡（不受 edits 截短影響） |
 | `last_reconcile` | dict／null | `{seq, turn, goal_rev, turns?}`：最近一次被收下的完整對照 |
@@ -242,8 +243,8 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 | `stamp_edit(sid, path, agent_id, turn, config)` | None | b2：post_tool_use | 蓋改檔號；程式檔記待對照、樹升寫碼類、已對照或結束的樹退回進行中；沒有樹不記 |
 | `stamp_receipts(sid, state, turn)` | int（蓋了幾筆） | b2：post_tool_use | 把工作暫存裡還沒蓋號的收據（主 session 與子代理）蓋進目標檔 |
 | `on_prompt(sid, prompt, turn, config)` | str／None | b2：user_prompt_submit | 4.1：分使用者原話／同伴轉述／系統通知，記進樹，回要送的那一行 |
-| `goal_gate_reason(sid, triggered, config)` | str／None | b2：stop._verify_gates | (f1) 每次都判；(f2) 只在 `triggered`（這則宣告完成、或擋滿待查的原宣稱、或本回合交了收尾檢核）時判 |
-| `commit_gate(sid, config)` | str／None | b2：pre_tool_use（commit 指令） | commit 前：(f1)＋目前的寫碼類樹的 (f2)。(f2) 的對象＝目前的樹 `kind=code`（含從續接單匯入、這個 session 還沒改過程式的寫碼類樹：前一個 session 的證據不算數） |
+| `goal_gate_reason(sid, triggered, config, state=None, transcript_path="")` | str／None | b2：stop._verify_gates | (f1) 每次都判；(f2)(f3) 只在 `triggered`（這則宣告完成、或擋滿待查的原宣稱、或本回合交了收尾檢核）時判。state／transcript_path 給 (f3) 補掛用 |
+| `commit_gate(sid, config, state=None, transcript_path="")` | str／None | b2：pre_tool_use（commit 指令） | commit 前：(f1)＋目前的寫碼類樹的 (f2)(f3)。(f2) 的對象＝目前的樹 `kind=code`（含從續接單匯入、這個 session 還沒改過程式的寫碼類樹：前一個 session 的證據不算數） |
 | `snapshot_for_report(sid, kinds=("code",))` | dict／None | b2：post_tool_use（收尾檢核）、codex_companion | 原話摘要＋目標樹＋對照結果；目前的樹類別不在 kinds 回 None |
 | `review_material(sid)` | str | b2：codex_companion | 「使用者原話（權威）／同伴轉述／目標樹（AI 的解讀）」三段分開標示的純文字；沒有樹回空字串 |
 | `handoff_block(sid)` | str | bkp：wg_handoff；b2：read form=handoff | 第七節格式；沒有未結束的樹回空字串 |
@@ -279,7 +280,9 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
 
 `wg_overview.on_goal_changed(state, transcript_path, turn)`（b2）：每個有 `located` 欄的部位紀錄 → `located=False`、拿掉 `goal_node`／`goal_tree`、`transcript_offset` 移到當下、記 `goal_reset_turn=turn`。之後只認這之後交的那一組四行。bkp 的「目標改變後導讀卡改用目標視角重送」可以看 `goal_reset_turn`。
 
-定位第四行：`定位｜目標：<節點編號>（這一塊在目標裡的角色）`，寫在前例那行之後（同一組）。`lib/overview_hub.LOCATE_RE` 認 `目標` 這個鍵；`locate_values` 仍只要求三行，第四行由 `on_edit` 在 `goal_for_edit` 回樹時另外要求。照抄 `<節點編號>` 不算交。
+定位第四行：`定位｜目標：<節點編號>（這一塊在目標裡的角色）`，寫在前例那行之後（同一組）。`lib/overview_hub.LOCATE_RE` 認 `目標` 這個鍵；`locate_values` 仍只要求三行，第四行由 `on_edit` 在 `goal_for_edit` 回樹時另外要求。照抄 `<節點編號>` 不算交。節點核對通過後再交 `wg_release_rules.locate_lines_verdict` 判內容結構（規則 LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES）：括號內要有角色（非空、非佔位、非節點原文照抄；括號外不算），根因層要兩個候選＋選擇理由（候選自己描述裡的理由詞不算）或寫了第一個＋「第二個不存在因為 …」；不夠就擋，擋訊息附 `_locate_example` 範例四行。部位行的比對用 `locate_values(…, exclude=_longer_parts(root, row))`：同表更長、包含本部位名的部位名出現在部位行時，那組屬於別的部位。
+
+收尾補掛 `wg_overview.relink_parts(state, sid, transcript_path, config, parts)`：(f3) 判之前，`parts_edited` 裡沒掛的部位，從 transcript 三管道（起點＝state 該部位的 `transcript_offset`，沒紀錄從頭）找這個部位最後一組四行，層、節點、內容結構都過就 `link_part`，回掛上的部位鍵。
 
 ## 10. 設定
 

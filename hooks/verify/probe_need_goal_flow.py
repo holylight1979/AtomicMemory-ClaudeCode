@@ -106,7 +106,8 @@ def main() -> int:
     say("定位｜部位：匯出：export.py\n定位｜根因層：欄位定義層\n定位｜前例：欄位順序寫死在兩處")
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit)
     step("只交三行：要第四行並列出節點", "沒交第四行" in deny(out) and "T1.1" in deny(out), deny(out))
-    say("定位｜部位：匯出：export.py\n定位｜根因層：欄位定義層\n定位｜前例：欄位順序寫死在兩處\n定位｜目標：T1.1（欄位定義只留一份）")
+    say("定位｜部位：匯出：export.py\n定位｜根因層：候選 A 欄位定義層；候選 B 輸出格式層；選 A 因為欄位順序寫死在兩處才是分歧源頭\n"
+        "定位｜前例：欄位順序寫死在兩處\n定位｜目標：T1.1（欄位定義只留一份）")
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit)
     step("定位四行後放行", not deny(out), json.dumps(out, ensure_ascii=False))
     target.write_text("def export():\n    return ['csv']\n", encoding="utf-8")
