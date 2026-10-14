@@ -6889,6 +6889,54 @@
         "題型方向"
       ],
       "scope": "global"
+    },
+    {
+      "name": "背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內",
+      "path": "_AIDocs/_atoms/MemDev/背景run-in-background跑的驗證指令收據在啟動時就落帳記成無哨兵-不能當完整對照的實測證據-要收據就前景跑十分鐘內.md",
+      "triggers": [
+        "run_in_background",
+        "收據",
+        "無哨兵",
+        "need_goal reconcile",
+        "measured",
+        "完整對照",
+        "背景驗證",
+        "receipt"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "合併時兩邊都在同一檔檔尾新增的衝突-用checkout-conflictdiff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊",
+      "path": "memory/版控/Git/合併時兩邊都在同一檔檔尾新增的衝突-用checkout-conflictdiff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊.md",
+      "triggers": [
+        "合併衝突",
+        "檔尾新增",
+        "兩邊都加",
+        "diff3",
+        "conflict=diff3",
+        "表格衝突",
+        "多軌合併",
+        "案例檔衝突",
+        "CHANGELOG 衝突"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成開頭",
+      "path": "_AIDocs/_atoms/MemDev/從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成開頭.md",
+      "triggers": [
+        "ask_paths",
+        "題目路徑",
+        "從句子抽路徑",
+        "中文路徑",
+        "全貌提醒",
+        "ASK_OVERVIEW_BEFORE_DECISION",
+        "部位表前綴",
+        "./TECH.md",
+        "parse_map",
+        "read_scope_keys"
+      ],
+      "scope": "global"
     }
   ]
 }
