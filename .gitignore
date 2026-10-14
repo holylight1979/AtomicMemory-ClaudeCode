@@ -36,6 +36,7 @@ workflow/state-*.json
 workflow/state-*.json.bak-*
 workflow/state-*.json.corrupt
 workflow/state-*.json.corrupt-*
+workflow/state-*.tmp
 workflow/coord-warn-cache-*.json
 workflow/world-dev.json
 workflow/_*.log
@@ -185,7 +186,8 @@ settings.json.bak
 _AIDocs/**/attachments/**/bin/
 _AIDocs/**/attachments/**/obj/
 
-# v6.0 執行期：總控台信箱與根層自己的部位表
+# v6.0 執行期：總控台信箱與根層自己的部位表（v6-inbox 等清理軌刪完資料夾再拿掉）
+workflow/inbox/
 workflow/v6-inbox/
 workflow/second-opinion/
 workflow/verify-ledger/

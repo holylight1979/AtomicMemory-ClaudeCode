@@ -159,7 +159,7 @@ def user_typed_text(prompt: str, keep_lines: bool = False) -> str:
 #     調度總控台是 Y」這類變體不在嚴格樣板裡，這裡容許；以引號開頭的引用討論（「『你是工作 session x，總控台是 y。』
 #     這兩句是範本」）只認嚴格判定、問句（「你是工作 session x 嗎？」）不算，照填 Quote。
 # 子句界：句號、逗號、分號、問號、驚嘆號、換行、英文句點加空白；頓號不切；括號裡的逗號不切（樣板含括號註記）。
-# 樣板以 workflow/v6-inbox/_console/開工句模板.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
+# 樣板以 skills/console/references/kickoff.md 的實際句型為底（角色、總控台、第一步 EnterWorktree、派工 prompt 位置、
 # 讀完照做、讀寫範圍、交付、只跑目標 verify、開工前先 SendMessage），可擴充；名稱與路徑是欄位，不綁 v6 專名。
 # 欄位（路徑、名稱、分支）只收 ASCII：吃不下的字（中文、頓號後的另一段話）留在子句裡，整句就對不上、交 LLM，
 # 不會被欄位吞掉。兩個例外是原設計者的一般開工句型：角色句「接手「<名稱>」的（根層）總控端／總控台」名稱收中文與全形引號，

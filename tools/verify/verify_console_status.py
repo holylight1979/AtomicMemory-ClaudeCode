@@ -85,7 +85,7 @@ def _seed_inbox(inbox: Path) -> None:
 # ─── 正例 ─────────────────────────────────────────────────────────
 
 def test_counts_and_tail_line(repo):
-    _seed_inbox(repo / "workflow" / "v6-inbox")
+    _seed_inbox(repo / "workflow" / "inbox")
     _git(repo, "worktree", "add", "-q", "-b", "track-alpha", str(repo.parent / "wt-alpha"))
     r = _run(repo)
     assert r.returncode == 0, r.stderr
@@ -95,7 +95,7 @@ def test_counts_and_tail_line(repo):
 
 
 def test_latest_letter_per_track_with_waiting_line(repo):
-    _seed_inbox(repo / "workflow" / "v6-inbox")
+    _seed_inbox(repo / "workflow" / "inbox")
     out = _run(repo).stdout
     assert "002-alpha.md" in _line_of(out, "track-alpha ")
     assert "001-alpha.md" not in out
@@ -105,7 +105,7 @@ def test_latest_letter_per_track_with_waiting_line(repo):
 
 
 def test_verify_log_last_exit_line(repo):
-    _seed_inbox(repo / "workflow" / "v6-inbox")
+    _seed_inbox(repo / "workflow" / "inbox")
     out = _run(repo).stdout
     assert _line_of(out, "verify_live_x.log").rstrip().endswith("exit=0")
     assert _line_of(out, "verify_x_snapshot_aaa.log").rstrip().endswith("exit=0")
@@ -118,7 +118,7 @@ def test_verify_log_last_exit_line(repo):
 
 def test_snapshot_log_named_exit_keys(repo):
     # 快照 log 寫 exit1=／smoke_exit=，尾段是「退回舊碼應紅」的總結；要印各 exit 鍵的最後值，不退回那行紅總結
-    con = repo / "workflow" / "v6-inbox" / "_console"
+    con = repo / "workflow" / "inbox" / "_console"
     _write(con / "verify_z_snapshot.log",
            "412 passed in 9s\nexit1=1\nexit1=0\nsmoke_exit=0\n=== 退回舊碼 ===\n31 failed, 1 passed in 2s\n", time.time())
     line = _line_of(_run(repo).stdout, "verify_z_snapshot.log").rstrip()
@@ -127,7 +127,7 @@ def test_snapshot_log_named_exit_keys(repo):
 
 
 def test_logs_limit_keeps_newest(repo):
-    _seed_inbox(repo / "workflow" / "v6-inbox")
+    _seed_inbox(repo / "workflow" / "inbox")
     r = _run(repo, "--logs", "1")
     assert "verify_y_snapshot_bbb.log" in r.stdout and "verify_live_x.log" not in r.stdout
     assert "共 3 份" in r.stdout

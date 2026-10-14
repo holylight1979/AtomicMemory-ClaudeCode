@@ -1656,7 +1656,7 @@ _KNOW_MAP = (
     "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
     "| `tools/` | 工具 | `工具導讀` | 有 | code |\n"
     "| `scripts/` | 腳本 | `工具導讀` | 有 |  |\n"
-    "| `workflow/v6-inbox/` | 派工信箱 | `信箱導讀` | 有 | knowledge |\n"
+    "| `workflow/inbox/` | 派工信箱 | `信箱導讀` | 有 | knowledge |\n"
 )
 
 
@@ -1669,7 +1669,7 @@ def kproj(tmp_path, monkeypatch):
     (root / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
     (cards / "工具導讀.md").write_text("# 工具導讀\n病灶：參數名寫錯", encoding="utf-8")
     (cards / "信箱導讀.md").write_text("# 信箱導讀\n派工單一律 .md", encoding="utf-8")
-    for d in ("tools", "scripts", "workflow/v6-inbox/to-x", "sub/workflow/v6-inbox"):
+    for d in ("tools", "scripts", "workflow/inbox/to-x", "sub/workflow/inbox"):
         (root / d).mkdir(parents=True)
     return root
 
@@ -1679,10 +1679,10 @@ def _know_log(tmp_path):
 
 
 @pytest.mark.parametrize("rel,knowledge", [
-    ("workflow/v6-inbox/to-x/a.py", True),
+    ("workflow/inbox/to-x/a.py", True),
     ("tools/a.py", False),
     ("scripts/a.py", False),                      # 沒標類別的列＝code
-    ("sub/workflow/v6-inbox/a.py", False),        # 只有子字串撞到信箱列＝code
+    ("sub/workflow/inbox/a.py", False),        # 只有子字串撞到信箱列＝code
 ])
 def test_know_edit_evidence_depends_on_part_kind(kproj, tmp_path, rel, knowledge):
     """同一份檔：在知識部位，注入過卡就放行（沒讀部位檔、沒交定位三行也放）；在寫碼部位照擋。"""
@@ -1702,7 +1702,7 @@ def test_know_edit_evidence_depends_on_part_kind(kproj, tmp_path, rel, knowledge
 def test_know_edit_before_inject_still_denies_once_without_locate_demand(kproj, tmp_path):
     """知識部位保留「卡已注入」這一項：沒注入過就先注入並擋一次（理由不叫人交定位三行），下一次放行。"""
     tp = _transcript(tmp_path, ["x"])
-    f = str(kproj / "workflow" / "v6-inbox" / "to-x" / "001-x.md")
+    f = str(kproj / "workflow" / "inbox" / "to-x" / "001-x.md")
     state: dict = {}
     warn, deny, changed = wo.on_edit(state, "s", f, tp, {})
     assert deny and "信箱導讀" in deny and "知識類部位" in deny and "定位｜部位" not in deny and changed
@@ -1713,7 +1713,7 @@ def test_know_edit_before_inject_still_denies_once_without_locate_demand(kproj, 
 def test_know_injection_text_asks_locate_only_for_code_parts(kproj, tmp_path):
     """注入文字：知識部位不要求定位三行（卡照注）；寫碼部位照舊要。"""
     state: dict = {}
-    k = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "workflow" / "v6-inbox" / "to-x" / "a.md")}, str(kproj), "", {})
+    k = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "workflow" / "inbox" / "to-x" / "a.md")}, str(kproj), "", {})
     c = wo.on_read(state, "s", "Read", {"file_path": str(kproj / "tools" / "a.py")}, str(kproj), "", {})
     assert "信箱導讀" in k and "知識類部位" in k and "定位｜部位" not in k
     assert "工具導讀" in c and "定位｜部位：工具" in c
@@ -1728,15 +1728,15 @@ def test_know_part_kind_table(tmp_path):
     kind_of = getattr(oh, "part_kind", None)
     assert kind_of is not None, "lib/overview_hub 沒有 part_kind"
     kinds = {rel: kind_of(f"c:/p/{rel}", root, rows) for rel in
-             ("workflow/v6-inbox/a.py", "tools/a.py", "scripts/a.py", "tools/notes/a.md", "x/workflow/v6-inbox/a.py", "a.py")}
-    assert kinds == {"workflow/v6-inbox/a.py": "knowledge", "tools/a.py": "code", "scripts/a.py": "code",
-                     "tools/notes/a.md": "code", "x/workflow/v6-inbox/a.py": "code", "a.py": "code"}
+             ("workflow/inbox/a.py", "tools/a.py", "scripts/a.py", "tools/notes/a.md", "x/workflow/inbox/a.py", "a.py")}
+    assert kinds == {"workflow/inbox/a.py": "knowledge", "tools/a.py": "code", "scripts/a.py": "code",
+                     "tools/notes/a.md": "code", "x/workflow/inbox/a.py": "code", "a.py": "code"}
     assert all(r.get("kind") == "code" for r in oh.parse_map(APPB_TABLE))       # 沒有類別欄的舊表全是 code
     proj = tmp_path / "p"
     (proj / ".claude").mkdir(parents=True)
-    assert oh.path_kind(str(proj / "workflow" / "v6-inbox" / "a.py"), proj) is None
+    assert oh.path_kind(str(proj / "workflow" / "inbox" / "a.py"), proj) is None
     (proj / ".claude" / "overview-map.md").write_text(_KNOW_MAP, encoding="utf-8")
-    assert oh.path_kind(str(proj / "workflow" / "v6-inbox" / "a.py"), proj) == "knowledge"
+    assert oh.path_kind(str(proj / "workflow" / "inbox" / "a.py"), proj) == "knowledge"
     assert oh.path_kind(str(proj / "tools" / "a.py"), proj) == "code"
 
 
@@ -1794,11 +1794,11 @@ def test_know_existing_denies_still_apply_to_knowledge_parts(kproj, tmp_path):
     """知識部位只省掉讀部位檔與定位三行：表上的卡找不到照擋、readonly_paths 照擋。"""
     (kproj / ".claude" / "overview-map.md").write_text(
         _KNOW_MAP + "| `docs/` | 文件 | `不存在的卡` | 有 | knowledge |\n", encoding="utf-8")
-    (kproj / ".claude" / "overview-hub.json").write_text('{"readonly_paths": ["workflow/v6-inbox/gen/**"]}', encoding="utf-8")
+    (kproj / ".claude" / "overview-hub.json").write_text('{"readonly_paths": ["workflow/inbox/gen/**"]}', encoding="utf-8")
     tp = _transcript(tmp_path, ["x"])
     warn, deny, _ = wo.on_edit({}, "s", str(kproj / "docs" / "a.md"), tp, {})
     assert deny and "`不存在的卡` 在 repo 裡找不到" in deny
-    warn, deny, changed = wo.on_edit({}, "s", str(kproj / "workflow" / "v6-inbox" / "gen" / "x.md"), tp, {})
+    warn, deny, changed = wo.on_edit({}, "s", str(kproj / "workflow" / "inbox" / "gen" / "x.md"), tp, {})
     assert deny and "readonly_paths（樣式「" in deny and not changed
 
 
@@ -1807,10 +1807,10 @@ def test_know_substring_code_hit_marks_part_as_code_for_scorecard(kproj, tmp_pat
     codex 審 a6323cb W1。"""
     tp = _transcript(tmp_path, ["x"])
     state: dict = {}
-    wo.on_prompt(state, "s", f"看 {kproj / 'workflow' / 'v6-inbox' / 'to-x' / 'a.md'}", tp, {})
+    wo.on_prompt(state, "s", f"看 {kproj / 'workflow' / 'inbox' / 'to-x' / 'a.md'}", tp, {})
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|派工信箱"))
     assert rec.get("kind") == "knowledge"
-    warn, deny, _ = wo.on_edit(state, "s", str(kproj / "sub" / "workflow" / "v6-inbox" / "a.py"), tp, {})
+    warn, deny, _ = wo.on_edit(state, "s", str(kproj / "sub" / "workflow" / "inbox" / "a.py"), tp, {})
     assert deny and "定位三行" in deny and rec.get("kind") == "code"
 
 

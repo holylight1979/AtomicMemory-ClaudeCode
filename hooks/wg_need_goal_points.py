@@ -216,8 +216,9 @@ REPORT_TOOLS = ("mcp__workflow-guardian__second_opinion_result",)
 _PEER_START_RE = re.compile(r"^\s*(?:Another Claude session sent a message(?: while you were working)?:\s*)?"
                             r"<cross-session-message\b")
 _PEER_FROM_RE = re.compile(r'<cross-session-message\b[^>]*?\bfrom-name="([^"]*)"')
-# 讀到交付信或審查報告：總控台信箱、檔名帶 codex／review／審查／second-opinion 的 .md／.txt
-_REPORT_PATH_RE = re.compile(r"(?i)[\\/]v6-inbox[\\/]|[\\/][^\\/]*(?:codex|review|審查|second[-_]?opinion)[^\\/]*\.(?:md|txt)$")
+# 讀到交付信或審查報告：總控台信箱 workflow/inbox/（只認這組兩層，別的專案叫 inbox 的資料夾不算）、
+# 檔名帶 codex／review／審查／second-opinion 的 .md／.txt
+_REPORT_PATH_RE = re.compile(r"(?i)[\\/]workflow[\\/]inbox[\\/]|[\\/][^\\/]*(?:codex|review|審查|second[-_]?opinion)[^\\/]*\.(?:md|txt)$")
 
 
 def peer_of_prompt(prompt: str) -> Optional[str]:

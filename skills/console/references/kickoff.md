@@ -21,7 +21,7 @@
 ## 2. 調度總控台（三條以上平行軌才開；一兩條軌由對人兼任）
 
 ```
-調度總控台：你是調度總控台，執行 /console 調度。專案根 <專案根絕對路徑>；接續單 <接續單路徑>；信箱 <專案根>\workflow\v6-inbox\。對人總控台是 <對人名>（送信前先 ListAgents 確認，名字會變）。開工先 SendMessage 對人一句「調度總控台：<你的名字>」，再跑 python ~/.claude/tools/console-status.py 核實現況。
+調度總控台：你是調度總控台，執行 /console 調度。專案根 <專案根絕對路徑>；接續單 <接續單路徑>；信箱 <專案根>\workflow\inbox\。對人總控台是 <對人名>（送信前先 ListAgents 確認，名字會變）。開工先 SendMessage 對人一句「調度總控台：<你的名字>」，再跑 python ~/.claude/tools/console-status.py 核實現況。
 ```
 
 ## 3. 工作軌（`/console 開工句 <軌名>` 產生的就是這段）

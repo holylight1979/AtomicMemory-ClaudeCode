@@ -3316,7 +3316,7 @@ _KNOW_MAP = (
     "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
     "| `tools/` | 工具 | 無 | 無 | code |\n"
     "| `scripts/` | 腳本 | 無 | 無 |  |\n"
-    "| `workflow/v6-inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
+    "| `workflow/inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
     "| `memory/` | 記憶 | 無 | 無 | knowledge |\n"
     "| `_AIDocs/` | 文件 | 無 | 無 | 知識 |\n"
 )
@@ -3349,7 +3349,7 @@ def know_repo(tmp_path):
 
 @pytest.mark.parametrize("rel,owed", [
     ("tools/a.py", True),
-    ("workflow/v6-inbox/to-x/a.py", False),
+    ("workflow/inbox/to-x/a.py", False),
     ("memory/_staging/a.py", False),
     ("_AIDocs/a.py", False),
 ])
@@ -3372,7 +3372,7 @@ def test_know_case_in_knowledge_part_cannot_clear_code_debt(driven, capsys, know
     """案例側也看部位：信箱裡的 test_a.py 不能替 tools/a.py 清帳；tools/verify/ 下的案例照常清帳。"""
     _, put = know_repo
     code = put("tools/a.py")
-    inbox_case = put("workflow/v6-inbox/to-x/test_a.py", "def test_a():\n    assert True\n")
+    inbox_case = put("workflow/inbox/to-x/test_a.py", "def test_a():\n    assert True\n")
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(inbox_case, 5)])
     assert _know_debt("a.py") in out
     real_case = put("tools/verify/test_a.py", "def test_a():\n    assert True\n")
@@ -3385,7 +3385,7 @@ def test_know_deleted_inbox_file_not_owed_even_with_new_code_in_status(driven, c
     """claude-91 現場：信箱裡的 .py 被刪掉，同根另有未追蹤的程式檔（看起來像搬走）→ 舊碼照欠；知識部位的檔根本不進 (d)。"""
     monkeypatch.setattr(vl, "code_exists", os.path.isfile)
     _, put = know_repo
-    gone = put("workflow/v6-inbox/to-x/verify_x.py")
+    gone = put("workflow/inbox/to-x/verify_x.py")
     Path(gone).unlink()
     put("tools/new_tool.py")
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(gone, 5)])
@@ -3401,7 +3401,7 @@ def test_know_code_moved_into_knowledge_part_still_owes(driven, capsys, know_rep
     _git(repo, "add", "tools/a.py")
     _git(repo, "commit", "-qm", "a")
     put("tools/a.py", _KNOW_SRC + "# changed\n")
-    moved = repo / "workflow" / "v6-inbox" / "to-x" / "a.py"
+    moved = repo / "workflow" / "inbox" / "to-x" / "a.py"
     moved.parent.mkdir(parents=True)
     Path(code).replace(moved)
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(code, 5), _mf(str(moved), 5)])
@@ -3448,9 +3448,9 @@ def test_know_code_child_row_written_with_dot_segments_still_owes(driven, capsys
 def test_know_no_map_keeps_extension_rule(driven, capsys, tmp_path):
     """沒有部位表的專案行為不變：信箱路徑下的 .py 照副檔名算程式檔。"""
     repo = tmp_path / "nomap"
-    (repo / "workflow" / "v6-inbox").mkdir(parents=True)
+    (repo / "workflow" / "inbox").mkdir(parents=True)
     _git(repo, "init", "-q")
-    p = repo / "workflow" / "v6-inbox" / "a.py"
+    p = repo / "workflow" / "inbox" / "a.py"
     p.write_text(_KNOW_SRC, encoding="utf-8")
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(p), 5)])
     assert _know_debt("a.py") in out
@@ -3528,13 +3528,13 @@ def test_042_1_session_new_code_file_gone_no_longer_owes(driven, capsys, chain, 
 
 @pytest.mark.parametrize("rel, owed", [
     ("tools/probe_x.py", True),
-    ("workflow/v6-inbox/to-x/probe_x.py", False),
+    ("workflow/inbox/to-x/probe_x.py", False),
     ("memory/_staging/probe_x.py", False),
     ("_AIDocs/probe_x.py", False),
 ])
 def test_042_2_same_file_counts_as_code_only_outside_excluded_regions(driven, capsys, chain, rel, owed):
     """042 根因②：路徑分類只看副檔名，放在信箱當素材的 .py（cp 進去）被當成改了本專案程式碼。同內容的檔在 tools/ 下算、
-    在 workflow/v6-inbox/、memory/_staging/、_AIDocs/ 下不算（部位表類別 knowledge，錨在專案根；看路徑屬哪個部位、
+    在 workflow/inbox/、memory/_staging/、_AIDocs/ 下不算（部位表類別 knowledge，錨在專案根；看路徑屬哪個部位、
     不看 git 狀態）。舊碼一律算。"""
     state, edit, _, repo, _, _ = chain
     _put_know_map(repo)
@@ -3552,7 +3552,7 @@ def test_042_2b_case_in_excluded_region_cannot_settle_real_code(driven, capsys, 
     state, edit, _, repo, code, case = chain
     _put_know_map(repo)
     edit(code, 3)
-    inbox_case = repo / "workflow" / "v6-inbox" / "to-x" / "test_a.py"
+    inbox_case = repo / "workflow" / "inbox" / "to-x" / "test_a.py"
     inbox_case.parent.mkdir(parents=True)
     inbox_case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
     edit.post("Write", {"file_path": str(inbox_case)})
@@ -3568,7 +3568,7 @@ def _put_know_map(repo: Path) -> None:
     (repo / ".claude").mkdir(parents=True, exist_ok=True)
     (repo / ".claude" / "overview-map.md").write_text(
         "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
-        "| `src/` | 程式 | 無 | 無 | code |\n| `workflow/v6-inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
+        "| `src/` | 程式 | 無 | 無 | code |\n| `workflow/inbox/` | 派工信箱 | 無 | 無 | knowledge |\n"
         "| `memory/` | 記憶 | 無 | 無 | knowledge |\n| `_AIDocs/` | 文件 | 無 | 無 | knowledge |\n", encoding="utf-8")
 
 
@@ -3579,15 +3579,15 @@ def test_042_2c_excluded_region_is_anchored_at_known_root(tmp_path):
     for r in (proj, aid):
         _put_know_map(r)
     p, a = str(proj), str(aid)
-    assert vl.is_excluded(p + r"\workflow\v6-inbox\to-x\a.py", cfg, p)
+    assert vl.is_excluded(p + r"\workflow\inbox\to-x\a.py", cfg, p)
     assert vl.is_excluded(p.upper() + r"\_AIDocs\DevHistory\a.py", cfg, p.replace("\\", "/") + "/")   # 大小寫、斜線不影響
-    assert not vl.is_excluded(p + r"\workflow\v6-inbox\a.py", cfg, None)
-    assert not vl.is_excluded(str(tmp_path / "other") + r"\workflow\v6-inbox\a.py", cfg, p)
+    assert not vl.is_excluded(p + r"\workflow\inbox\a.py", cfg, None)
+    assert not vl.is_excluded(str(tmp_path / "other") + r"\workflow\inbox\a.py", cfg, p)
     assert not vl.is_excluded(a + r"\hooks\a.py", cfg, a)                                     # 根所在目錄名含 _AIDocs
     assert not vl.is_excluded(p + r"\hooks\_AIDocs\a.py", cfg, p)                              # 只有子字串撞到
-    assert not vl.is_excluded(p + r"\workflow\v6-inbox-old\a.py", cfg, p)
-    assert not vl.is_excluded(p + r"\workflow\v6-inbox\..\..\src\a.py", cfg, p)               # 經信箱繞回 src/：照算程式
-    assert not vl.is_excluded(str(tmp_path / "nomap") + r"\workflow\v6-inbox\a.py", cfg, str(tmp_path / "nomap"))  # 沒有部位表
+    assert not vl.is_excluded(p + r"\workflow\inbox-old\a.py", cfg, p)
+    assert not vl.is_excluded(p + r"\workflow\inbox\..\..\src\a.py", cfg, p)               # 經信箱繞回 src/：照算程式
+    assert not vl.is_excluded(str(tmp_path / "nomap") + r"\workflow\inbox\a.py", cfg, str(tmp_path / "nomap"))  # 沒有部位表
 
 
 @pytest.mark.parametrize("how", [

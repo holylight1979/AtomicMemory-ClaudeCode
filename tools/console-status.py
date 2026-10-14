@@ -9,7 +9,7 @@
                都沒有才印「無 exit 行」＋最後一行 pytest 總結。
 
 怎麼跑：
-  python ~/.claude/tools/console-status.py                       # 信箱預設 <repo 根>/workflow/v6-inbox
+  python ~/.claude/tools/console-status.py                       # 信箱預設 <repo 根>/workflow/inbox
   python ~/.claude/tools/console-status.py --inbox D:/x/inbox --logs 5
 尾行：`CONSOLE_STATUS DONE worktrees=<n|na> unpushed=<n|na> tracks=<n> logs=<n>`
 exit：0 完成（信箱不存在也算，會印「信箱不存在」）；2 不在 git repo 裡或叫不到 git。完整參數以 --help 為準。
@@ -116,7 +116,7 @@ def show_logs(inbox: Path, limit: int) -> int:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--inbox", help="信箱資料夾（預設 <repo 根>/workflow/v6-inbox）")
+    ap.add_argument("--inbox", help="信箱資料夾（預設 <repo 根>/workflow/inbox）")
     ap.add_argument("--logs", type=int, default=10, help="verify log 列最近幾份（預設 10）")
     args = ap.parse_args(argv)
 
@@ -131,7 +131,7 @@ def main(argv=None) -> int:
         return 2
 
     repo = Path(top.stdout.strip())
-    inbox = Path(args.inbox) if args.inbox else repo / "workflow" / "v6-inbox"
+    inbox = Path(args.inbox) if args.inbox else repo / "workflow" / "inbox"
     print(f"== 總控台現況：{repo} ==")
     worktrees = show_worktrees(repo)
     unpushed = show_unpushed(repo)

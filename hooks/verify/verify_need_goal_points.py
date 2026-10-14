@@ -443,11 +443,21 @@ def test_review_report_and_delivery_letter_in_batch_trigger(world, tmp_path):
     plain = [{"tool_name": "Read", "tool_input": {"file_path": str(tmp_path / "src" / "a.py")}, "tool_use_id": "r1"}]
     assert not ngp.batch_due(state, plain) and ngp.batch_lines(SID, state, plain, CFG) == []
     calls = [{"tool_name": "mcp__workflow-guardian__second_opinion_result", "tool_input": {"job_id": "j1"}, "tool_use_id": "r2"},
-             {"tool_name": "Read", "tool_input": {"file_path": "C:/x/workflow/v6-inbox/from-track-a/001-done.md"},
+             {"tool_name": "Read", "tool_input": {"file_path": "C:/x/workflow/inbox/from-track-a/001-done.md"},
               "tool_use_id": "r3"}]
     assert ngp.batch_due(state, calls)
     lines = ngp.batch_lines(SID, state, calls, CFG)
     assert len(lines) == 1 and "收到外部主張" in lines[0] and "001-done.md" in lines[0] and "審查" in lines[0]
+
+
+def test_delivery_letter_in_workflow_inbox_is_claim_other_inbox_is_not():
+    """信箱固定叫 workflow/inbox/：讀裡面的交付信算外部主張；別的專案叫 inbox 的資料夾、名字只是開頭相同的不算。"""
+    def read(p):
+        return [{"tool_name": "Read", "tool_input": {"file_path": p}, "tool_use_id": "r1"}]
+    assert ngp.claim_calls(read("C:/x/workflow/inbox/from-track-a/002-done.md")) == [("報告或交付信", "002-done.md")]
+    assert ngp.claim_calls(read(r"C:\x\workflow\inbox\_console\裁定帳.md")) == [("報告或交付信", "裁定帳.md")]
+    for other in ("C:/x/mail/inbox/a.md", "C:/x/inbox/from-track-a/a.md", "C:/x/workflow/inbox-old/a.md"):
+        assert ngp.claim_calls(read(other)) == [], other
 
 
 def _tx_line(obj):

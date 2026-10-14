@@ -99,11 +99,11 @@ def test_044_claim_is_modifier_unit():
 def test_044_excluded_region():
     """EXCLUDED_REGION：在專案根底下、部位表判 knowledge 才排除；類別 code、沒有部位表（None）、拿不到根、不在根下、
     `..` 繞出根都不排除（部位類別的判法本身在 verify_overview_hub／verify_stop_reconcile 的 know 段）。"""
-    assert rr.excluded_region(r"c:\proj\workflow\v6-inbox\x\a.py", r"c:\proj", "knowledge")
+    assert rr.excluded_region(r"c:\proj\workflow\inbox\x\a.py", r"c:\proj", "knowledge")
     assert not rr.excluded_region(r"c:\proj\tools\a.py", r"c:\proj", "code")
-    assert not rr.excluded_region(r"c:\proj\workflow\v6-inbox\a.py", r"c:\proj", None)
-    assert not rr.excluded_region(r"c:\proj\workflow\v6-inbox\..\..\..\src\a.py", r"c:\proj", "knowledge")   # `..` 繞出根
-    assert not rr.excluded_region(r"c:\proj\workflow\v6-inbox\a.py", None, "knowledge")
+    assert not rr.excluded_region(r"c:\proj\workflow\inbox\a.py", r"c:\proj", None)
+    assert not rr.excluded_region(r"c:\proj\workflow\inbox\..\..\..\src\a.py", r"c:\proj", "knowledge")   # `..` 繞出根
+    assert not rr.excluded_region(r"c:\proj\workflow\inbox\a.py", None, "knowledge")
     assert not rr.excluded_region(r"c:\other\_AIDocs\a.py", r"c:\proj", "knowledge")
 
 
@@ -392,12 +392,12 @@ def test_045_hook_python_exe_single_source(monkeypatch, tmp_path):
 # ─── ⑥ DISPATCH_OPENS_TURN ／ ⑧ VCS_ROOT_UNREADABLE ────────────────────────────
 
 def test_045_dispatch_opens_turn_only_for_dispatch_marked_peer_messages():
-    assert rr.is_dispatch_message(["派工：045 B 組規則，派工單在 workflow/v6-inbox/to-track-x/001-prompt.md"])
+    assert rr.is_dispatch_message(["派工：045 B 組規則，派工單在 workflow/inbox/to-track-x/001-prompt.md"])
     assert rr.is_dispatch_message(["【派工】接續單"])
-    assert rr.is_dispatch_message(["派工單在 C:\\Users\\me\\.claude\\workflow\\v6-inbox\\to-track-gate-rules\\000-prompt.md，照做"])   # 首行含派工＋路徑
+    assert rr.is_dispatch_message(["派工單在 C:\\Users\\me\\.claude\\workflow\\inbox\\to-track-gate-rules\\000-prompt.md，照做"])   # 首行含派工＋路徑
     # codex 001 BLOCK 7：正文其他地方引用派工單路徑（交付、進度、審查通知）不算派工
     assert not rr.is_dispatch_message(["已完成，交付依據 to-track-gate-rules/001-prompt.md；請審查結果。"])
-    assert not rr.is_dispatch_message(["主旨與其他字\n看 C:\\Users\\me\\.claude\\workflow\\v6-inbox\\to-track-gate-rules\\000-prompt.md 照做"])
+    assert not rr.is_dispatch_message(["主旨與其他字\n看 C:\\Users\\me\\.claude\\workflow\\inbox\\to-track-gate-rules\\000-prompt.md 照做"])
     assert not rr.is_dispatch_message(["對帳過了，上GIT"])                                   # 一般同伴訊息
     assert not rr.is_dispatch_message(["from-track-a6/006-false-block.md 收到"])          # from-track 是交付，不是派工
     assert not rr.is_dispatch_message([]) and not rr.is_dispatch_message([""])

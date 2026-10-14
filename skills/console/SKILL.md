@@ -20,7 +20,7 @@ pattern: pipeline
 | `/console 調度` | 第二個分頁 | 當調度總控台：派工、對帳、合併、推送、收材料 |
 | `/console 開工句 <軌名> [派工單路徑]` | 任一總控台 | 產生工作軌第一句，給人貼進新分頁 |
 
-名詞：**軌**＝一件可獨立做完的工作；**信箱**＝`workflow/v6-inbox/`（`to-track-<軌>/` 派工單、`from-track-<軌>/` 交付信、`_console/` 總控台的帳與 log，擺法見 [dispatch.md](references/dispatch.md)）；**接續單**＝`memory/_staging/next-phase-<專案>.md`，第一段「現任」行寫兩個總控台現在的名字。
+名詞：**軌**＝一件可獨立做完的工作；**信箱**＝`workflow/inbox/`（`to-track-<軌>/` 派工單、`from-track-<軌>/` 交付信、`_console/` 總控台的帳與 log，擺法見 [dispatch.md](references/dispatch.md)）；**接續單**＝`memory/_staging/next-phase-<專案>.md`，第一段「現任」行寫兩個總控台現在的名字。
 
 ## 開始前：開幾個總控台、用什麼模型
 
@@ -117,7 +117,7 @@ pattern: pipeline
 ## 來源代號
 
 - 原話：track-skill-console 派工原話（2026-10-14）；接續單：`memory/_staging/next-phase-v6.0-寫程式碼的進化.md` 規則清單與「現任」行
-- #13、#23、#27、#37：`workflow/v6-inbox/_console/裁定帳-*.md`（本機信箱）
+- #13、#23、#27、#37：`workflow/inbox/_console/裁定帳-*.md`（本機信箱）
 - A [[feedback-總控台多軌流程五規則-雙總控台對人與調度分開-原設計者提問同回合先答-寫碼全拆去工作session-各session自跑codex交報告總控台只裁定]]
 - B [[feedback-對使用者指稱session一律用分頁標題看得到的軌名-claude-xx是session間通訊名他看不見]]
 - C [[vscode-reload-對並行ai-session的影響]]

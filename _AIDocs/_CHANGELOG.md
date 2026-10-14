@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 派工信箱改名 workflow/inbox/（不帶版本號）
+- 帶版本號的臨時資料夾 `workflow/v6-inbox/` 被寫進永久的程式與 skill，改成固定名 `workflow/inbox/`：`tools/console-status.py` 預設值、`skills/console`（SKILL.md、dispatch、kickoff）、部位表派工信箱列、`wg_need_goal_points._REPORT_PATH_RE` 改認 `workflow/inbox/` 兩層（別的專案叫 inbox 的資料夾不算）、`lib/harness_text` 樣板註解改指 `skills/console/references/kickoff.md`、hooks／tools verify 範例路徑；`.gitignore` 加 `workflow/inbox/`（舊行並存到清理軌刪完舊資料夾）與 `workflow/state-*.tmp`。舊資料夾本身不動、新資料夾等真派工時再建。驗證：`verify_need_goal_points` 新案（新信箱交付信算外部主張、別處 inbox 不算）舊碼紅新碼綠。
+
 ## 2026-10-14 /console skill：雙總控台＋工作軌協作做成可重用流程
 - **緣由**：v6 多 session 協作（對人／調度兩個總控台＋多條工作軌）的做法散在本機信箱的交接備忘、裁定帳與接續單，新使用者拿不到，踩過的坑（寫死 claude-xx、Reload 後名字全變、每件都快照補驗、空手等回信、含 git 字樣的指令被 worktree 守門拒絕…）會重踩。
 - **做法**：新 `skills/console/`：一個入口三種用法（`對人`、`調度`、`開工句 <軌名>`），SKILL.md 寫做法、每條規則標來源卡或裁定編號；references 放開工句、派工單、交付信、交接備忘、裁定帳範本與給人讀的一頁說明（原設計者原文為底，補兩個叫人去工作分頁的例外、Reload 改名、模型依工作分、「寫交接備忘」口令、一兩條軌只開一個總控台）。新 `tools/console-status.py`（唯讀）一次印 worktree、未推數、各軌最新來信與「我在等」、verify log 各 exit 鍵最後值，尾行 `CONSOLE_STATUS DONE`。DocIndex §5／§6、TECH 樹同步（skills 名單順手補上漏列的 meeting、org、behavior-preservation）。

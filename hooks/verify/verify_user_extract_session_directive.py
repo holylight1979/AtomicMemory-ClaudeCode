@@ -31,7 +31,7 @@ KICKOFFS = [
     "C:\\Users\\holylight\\.claude-wt\\track-g12（分支 v6/track-g12，已存在，不要新建）。派工 prompt 在 C:\\Users\\holylight\\.claude\\workflow\\…",
     "你是 v6.0 的工作 session track-verify（獨立實跑驗證），總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree "
     "C:\\Users\\holylight\\.claude-wt\\track-verify（detached，已存在，不要新建）。派工 prompt 在 C:\\Users\\holylight\\.claude\\workflow\\v6…",
-    "你是 v6.0 的工作 session track-b2，總控台是 claude-4b。派工 prompt 在 C:\\Users\\holylight\\.claude\\workflow\\v6-inbox\\"
+    "你是 v6.0 的工作 session track-b2，總控台是 claude-4b。派工 prompt 在 C:\\Users\\holylight\\.claude\\workflow\\inbox\\"
     "to-track-b2\\000-prompt.md，用絕對路徑讀完全文照做。worktree C:\\Users\\holylight\\.claude-wt\\track-b2（分支 v6/track-…",
 ]
 DECISIONS = [
@@ -71,11 +71,11 @@ DECISIONS += [
     "你是工作 session track-x，第一步用 EnterWorktree 切進 C:\\wt\\x（分支 v6/x、所有專案一律用 tab）。",
     "你是工作 session track-x，開工前先 SendMessage claude-ad 一句「所有專案一律禁止刪除備份」。",
 ]
-# 開工句模板（workflow/v6-inbox/_console/開工句模板.md）填好的整段，與只用換行分句的純開工句
+# 開工句模板（skills/console/references/kickoff.md）填好的整段，與只用換行分句的純開工句
 TEMPLATE_FILLED = (
     "你是 v6.0 的工作 session track-a3，總控台是 claude-ad。第一步用 EnterWorktree 切進 worktree "
     "C:\\Users\\holylight\\.claude-wt\\track-a3（分支 v6/track-a3，已存在，不要新建）。派工 prompt 在 "
-    "C:\\Users\\holylight\\.claude\\workflow\\v6-inbox\\to-track-a3\\019-continue-017.md，用絕對路徑讀完全文照做。"
+    "C:\\Users\\holylight\\.claude\\workflow\\inbox\\to-track-a3\\019-continue-017.md，用絕對路徑讀完全文照做。"
     "切進去之後所有讀寫一律用 worktree 絕對路徑、不碰 live C:\\Users\\holylight\\.claude；交付信附 live 未動證明。"
     "只跑目標 verify（直接在 worktree 根跑 pytest，不加 cd）、不跑全量、不重掛 Monitor、不輪詢。"
     "開工前先 SendMessage claude-ad 一句「track-a3 收到開工」。")
