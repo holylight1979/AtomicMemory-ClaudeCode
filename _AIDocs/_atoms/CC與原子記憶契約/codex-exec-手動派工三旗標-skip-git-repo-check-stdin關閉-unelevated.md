@@ -18,6 +18,7 @@
 - [臨] 兩輪審查的分工手感：第一輪給「必讀檔＋行號、禁區契約、輸出 BLOCK／WARN／雞肋／衝突／時間／核對表」，回 8 條 BLOCK 親自對碼全成立；第二輪可換立場（例「地基辩方」）要它先自己否決過度設計部分，結論會收斂成「只准加回三件事」。
 - [臨] `-s read-only` 下 codex 會自己跑 pytest 但把「要寫暫存檔／建 git repo」的案 deselect（實例：36 案報 30 passed、6 deselected），它回報的通過數不等於全套；總控台必須自己在 worktree 跑完整目標 verify，不拿 codex 的計數當證據。
 - [臨] 契約核對表式簡報對「作者自測全綠」的分支仍有效：18 檔、174 秒、4 萬 token，回 3 條 BLOCK 附 file:line 與重現法，親自重現 3/3 成立（零 case 放行、執行器 return code 被忽略、`+++` 排檔頭誤殺 `++x` 行）——都是作者自己寫 verify 時不會想到的反例，第二意見的價值在找「測試作者的盲點」而非重跑測試。
+- [臨] gpt-6-astra 回 at capacity → `-m gpt-5.6-sol`；gpt-6-sol 不支援 ChatGPT 帳號。
 
 ## 行動
 

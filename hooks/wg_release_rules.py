@@ -91,6 +91,15 @@ RULES: Dict[str, str] = {
     "CASE_RED_THEN_GREEN": "完整對照的案例證據，對上目標檔收據裡點名同一案例檔「先紅、之後綠」的序列 → 該筆證據記 red_then_green；"
                            "收據點名哪些案例檔在蓋號時用完整指令與它的 cwd 解成絕對路徑，指令裡換目錄或沒記 cwd 的不比。"
                            "對不上照收，對照摘要印「案例未見先紅」。只是紀錄，不是閘。",
+    # G0 綜觀：動手前說出角色與兩個根因候選、收尾查改到的部位都掛到目標（wg_overview／wg_need_goal 收事實、這裡判）
+    "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES": "有需求目標樹時改寫碼部位的定位四行：第四行「定位｜目標：<節點>（<角色>）」括號內要寫"
+                                                 "這一塊在目標裡的角色（非空、不是佔位句、不是節點原文照抄）；第二行「定位｜根因層」要辨識得出"
+                                                 "至少兩個根因候選＋選擇理由（候選 A …；候選 B …；選 A 因為 …／第一根因 …，第二根因 …），"
+                                                 "或一個候選＋「第二個不存在因為 …」。只看結構不評對錯；知識類部位不查。",
+    "EDITED_PART_NEEDS_GOAL_NODE": "交付邊界與 commit 前：目前寫碼類目標樹上，本 session 改過程式檔的每個寫碼部位，都要在定位帳"
+                                   "（目標檔 links.parts）掛到樹裡還活著的節點；沒交過、掛的節點已放棄或不在樹 → 擋，列"
+                                   "「<部位>：<改的檔> 沒掛目標」並指路補交定位四行或 need_goal add 子目標。表外的檔、知識類部位、"
+                                   "OverviewHub 在那一層關掉的不算。",
 }
 
 
@@ -1011,6 +1020,108 @@ def red_then_green(case_path: str, receipts: Sequence[Tuple[Any, Sequence[str], 
     return None
 
 
+# ─── G0 綜觀：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES／EDITED_PART_NEEDS_GOAL_NODE ───
+
+_LABEL_NO = {**{c: 1 for c in "Aa1一甲Ａ１①"}, **{c: 2 for c in "Bb2二乙Ｂ２②"}, **{c: 3 for c in "Cc3三丙Ｃ３③"},
+             **{c: 4 for c in "Dd4四丁Ｄ４④"}, **{c: 5 for c in "Ee5五戊Ｅ５⑤"}}
+_LABELS = "".join(_LABEL_NO)
+# 候選標記：「候選 A／候選一／候選（B）」或「第一根因／第 2 個根因」
+_CANDIDATE_RE = re.compile(rf"候選\s*[（(]?\s*([{_LABELS}])|第\s*([{_LABELS}])\s*個?\s*根因")
+_REASON_WORDS = r"(?:(?<!根)因為|理由|原因|由於|所以|because)"
+_REASON_RE = re.compile(_REASON_WORDS, re.IGNORECASE)
+# 「不存在／沒有／無」後面接標點、理由詞或行尾才算「這個候選不存在」（「候選 A 無鎖競爭」是描述）
+_ABSENT_WORD = rf"(?:不存在|沒有|找不到|無)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))"
+_ABSENT_RE = re.compile(rf"\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}", re.IGNORECASE)
+# 「第二個不存在，因為…」「第二根因不存在：…」「候選 B 不存在因為…」：要寫出為什麼
+_SECOND_ABSENT_RE = re.compile(
+    rf"(?:第\s*[二2]\s*個?\s*(?:根因|候選)?|候選\s*[（(]?\s*[Bb二乙Ｂ２②])\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}"
+    rf"[^；;。]*?(?:{_REASON_WORDS}|[:：])\s*\S{{2,}}", re.IGNORECASE)
+_ROLE_PLACEHOLDERS = {"", "角色", "這一塊在目標裡的角色", "這一塊的角色", "…", "...", "略", "無"}
+_ROLE_STRIP_RE = re.compile(r"[\s，。、；;:：,.!！?？「」『』（）()【】\[\]<>《》—－\-~～*_`'\"]+")
+
+
+def root_candidates(root_line: str) -> List[int]:
+    """根因層那行辨識出的候選編號（去重保序）；標記後面緊接「不存在／沒有」的是「第二個不存在」說明，不算候選。"""
+    text = str(root_line or "")
+    out: List[int] = []
+    for m in _CANDIDATE_RE.finditer(text):
+        if _ABSENT_RE.match(text, m.end()):
+            continue
+        n = _LABEL_NO[m.group(1) or m.group(2)]
+        if n not in out:
+            out.append(n)
+    return out
+
+
+def goal_role(goal_line: str, node_id: str) -> str:
+    """第四行節點編號後面括號（全形或半形）裡的角色；沒有括號回空字串（角色要寫在括號裡）。"""
+    v = str(goal_line or "")
+    i = v.find(node_id) if node_id else -1
+    m = re.match(r"\s*[（(](.*?)[）)]", v[i + len(node_id):] if i >= 0 else v)
+    return m.group(1).strip() if m else ""
+
+
+def _role_core(text: str) -> str:
+    return _ROLE_STRIP_RE.sub("", str(text or ""))
+
+
+def _has_choice_reason(root_line: str) -> bool:
+    """選擇理由：以「；，。」切段，段裡的理由詞前面沒有候選標記才算（「候選 A 的原因是 …」是候選自己的描述，不是選擇理由）。"""
+    for seg in re.split(r"[；;。，,]", str(root_line or "")):
+        r = _REASON_RE.search(seg)
+        c = _CANDIDATE_RE.search(seg)
+        if r and (c is None or r.start() < c.start()):
+            return True
+    return False
+
+
+def _second_absent(root_line: str, cands: List[int]) -> bool:
+    """「第二個不存在因為 …」有理由，而且前面真的寫了第一個（有候選標記，或那句之前有內容）。"""
+    text = str(root_line or "")
+    m = _SECOND_ABSENT_RE.search(text)
+    return bool(m) and (bool(cands) or len(_role_core(text[:m.start()])) >= 2)
+
+
+def locate_lines_verdict(root_line: str, goal_line: str, node_id: str, node_text: str) -> Verdict:
+    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：定位四行的根因層（第二行）與目標（第四行）結構夠不夠；缺的項一起列。
+    node_id／node_text＝第四行指到、已核對存在的節點與它的文字。"""
+    rule = "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES"
+    missing: List[str] = []
+    role, node_core = _role_core(goal_role(goal_line, node_id)), _role_core(node_text)
+    if role in _ROLE_PLACEHOLDERS:
+        missing.append(f"第四行 {node_id} 後面括號裡沒寫這一塊在目標裡的角色（{node_id}（這一塊替 {node_id} 做什麼））")
+    elif node_core and (role == node_core or (role in node_core and len(role) * 5 >= len(node_core) * 4)):
+        missing.append(f"第四行的角色是 {node_id} 節點原文照抄，要寫這一塊替 {node_id} 做什麼")
+    cands = root_candidates(root_line)
+    if len(cands) >= 2:
+        if not _has_choice_reason(root_line):
+            missing.append(f"根因層辨識出 {len(cands)} 個候選，但沒寫選擇理由（「選 A 因為 …」）")
+    elif not _second_absent(root_line, cands):
+        missing.append(f"根因層只辨識出 {len(cands)} 個候選，也沒寫「第二個不存在因為 …」"
+                       "（寫法：候選 A …；候選 B …；選 A 因為 …）")
+    if not missing:
+        return Verdict(rule, False, "定位四行有角色、有兩個候選或第二個不存在的理由")
+    return Verdict(rule, True, "；".join(missing), (f"定位｜根因層：{root_line}", f"定位｜目標：{goal_line}"))
+
+
+def edited_part_goal_verdict(parts: Sequence[Tuple[str, Sequence[str], str]]) -> Verdict:
+    """EDITED_PART_NEEDS_GOAL_NODE：parts＝[(部位, 改的檔, 掛的狀態)]，狀態 linked／none（沒交過定位第四行）／
+    dropped:<節點>（掛的節點已放棄）／gone:<節點>（節點不在目前的樹）。沒掛的一部位一行證據。"""
+    rule = "EDITED_PART_NEEDS_GOAL_NODE"
+    why_of = {"none": "沒交過定位第四行", "dropped": "掛的 {} 已放棄", "gone": "掛的 {} 不在目前的樹"}
+    rows: List[str] = []
+    for part, files, link in parts:
+        if link == "linked":
+            continue
+        kind, _, node = str(link).partition(":")
+        rows.append(f"{part}：{'、'.join(files)} 沒掛目標（{why_of.get(kind, kind).format(node)}）")
+    if not rows:
+        return Verdict(rule, False, "改到的寫碼部位都掛到目標節點")
+    return Verdict(rule, True, f"{len(rows)} 個改到的寫碼部位沒掛到目前目標樹裡活著的節點", tuple(rows))
+
+
+
+
 # ─── 提問（AskUserQuestion／ExitPlanMode 前）：附推薦、掛目標、全貌先於拍板（wg_need_goal_points 收事實、這裡判） ───
 
 RULES.update({
@@ -1022,9 +1133,11 @@ RULES.update({
                           "節點編號（T<n>／T<n>.<m>，在目前的樹、沒放棄）或節點原文連續 8 字以上的片段（空白不算字；不到 8 字的節點"
                           "只能寫編號）；一題掛上不帶過同批其他題。寫碼類有題沒指到擋；記憶知識類只提示；沒有樹不擋，PostToolBatch "
                           "審計記「提問未掛目標（知識類）」。真有待放行紀錄時放行題不算；整次全是放行題才整次豁免（ask_release_only）。",
-    "ASK_OVERVIEW_BEFORE_DECISION": "提問涉及改法選擇（ExitPlanMode，或題目含改法／做法／方案／寫法／實作／架構／重構／設計）而本 session "
-                                    "還沒讀過任何部位檔（OverviewHub 的 part_files_read 全空）→ 擋訊息或提示多一句「先讀過部位檔再問」；"
-                                    "只提醒，不單獨擋（owed＝要附這句）。不分部位：讀過任一部位檔就不提醒（已知限制）。",
+    "ASK_OVERVIEW_BEFORE_DECISION": "提問涉及改法選擇（ExitPlanMode，或題目含改法／做法／方案／寫法／實作／架構／重構／設計）時："
+                                    "題目與選項 label／描述提到的路徑對得上部位表 → 只看那些部位，有部位的 part_files_read 是 0 檔就提醒"
+                                    "（讀了別的部位不算），證據行「題目提到 <路徑>→部位 <名>，本回合該部位讀過 0 檔」；題目沒提路徑或提的"
+                                    "路徑不在部位表 → 退回看 part_files_read 是不是全空。提醒＝擋訊息或提示多一句「先讀過部位檔再問」；"
+                                    "只提醒，不單獨擋（owed＝要附這句）。",
 })
 
 ASK_FRAGMENT_MIN = 8
@@ -1147,14 +1260,68 @@ def ask_audit_note(kind: Optional[str], linked: Optional[str]) -> Optional[str]:
     return f"提問未掛目標（{'寫碼類' if kind == 'code' else '知識類'}）"
 
 
-def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int) -> Verdict:
+_CJK = "㐀-鿿豈-﫿"
+_SEG = rf"[A-Za-z0-9_.\-{_CJK}]+"                                     # 中間段：可含中文
+_SEG_ASCII = r"[A-Za-z0-9_.\-]+"
+_LAST = rf"(?:[A-Za-z0-9_.\-{_CJK}]*?\.[A-Za-z][A-Za-z0-9]{{0,5}}(?![A-Za-z0-9_])|{_SEG_ASCII})"   # 最後一段：含中文要有副檔名
+_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://\S+")
+_QUOTED_RE = re.compile(r"`([^`\n]+)`|「([^」\n]+)」|\"([^\"\n]+)\"|'([^'\n]+)'")
+_ASK_ABS_PATH_RE = re.compile(rf"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])(?:{_SEG}[\\/])*{_LAST}?")
+_ASK_REL_PATH_RE = re.compile(rf"(?<![A-Za-z0-9_.\-\\/:])(?:\.{{1,2}}[\\/])?{_SEG_ASCII}(?:[\\/](?:{_SEG}(?=[\\/])|{_LAST}))+[\\/]?")
+_ASK_BARE_FILE_RE = re.compile(
+    r"(?<![A-Za-z0-9_.\-\\/:])[A-Za-z0-9_\-]*[A-Za-z][A-Za-z0-9_\-]*\.[A-Za-z][A-Za-z0-9]{0,5}(?![A-Za-z0-9_.\\/])")
+_NOT_PATH_SEG_RE = re.compile(r"T\d+(?:\.\d+)*|[\d.\-]*|.")          # 節點編號、純數字（日期、版本號）、單一字元（A/B）
+
+
+def _looks_like_path(p: str) -> bool:
+    """相對寫法每一段都是節點編號、純數字或單一字元 → 不是路徑（T1.1/T1.2、2026/10/14、1.2/3.4、A/B）。"""
+    segs = [s for s in re.split(r"[\\/]", p) if s not in ("", ".", "..")]
+    return bool(segs) and not all(_NOT_PATH_SEG_RE.fullmatch(s) for s in segs)
+
+
+def ask_paths(tool_input: Any) -> List[str]:
+    """題目與選項 label／描述（不含 header）裡像路徑的字，依出現順序去重：引號（`、「」、"、'）包住而含斜線或像檔名的整段照原樣
+    （可含空白與中文）；絕對路徑（磁碟代號開頭）；含斜線的相對路徑（第一段英數，之後的段可含中文，最後一段含中文要帶副檔名）；
+    不含斜線的檔名（TECH.md）。網址整段先拿掉；相對寫法每段都是節點編號、純數字或單一字元的不算。"""
+    out: List[str] = []
+
+    def add(p: str) -> None:
+        if p and p not in out and (re.match(r"[A-Za-z]:[\\/]", p) or _looks_like_path(p)):
+            out.append(p)
+
+    for t, _l, texts in _ask_questions(tool_input):
+        for s in [t, *texts]:
+            s = _URL_RE.sub(" ", s)
+            for m in _QUOTED_RE.finditer(s):
+                q = next(g for g in m.groups() if g is not None).strip()
+                if re.search(r"[\\/]", q) or _ASK_BARE_FILE_RE.fullmatch(q):
+                    add(q)
+            s = _QUOTED_RE.sub(" ", s)
+            for rx in (_ASK_ABS_PATH_RE, _ASK_REL_PATH_RE, _ASK_BARE_FILE_RE):
+                for m in rx.finditer(s):
+                    add(m.group(0).rstrip("."))
+                s = rx.sub(" ", s)
+    return out
+
+
+def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int,
+                         named: Sequence[Tuple[str, str, int]] = ()) -> Verdict:
     """ASK_OVERVIEW_BEFORE_DECISION：只看題目文字（不看 header、選項）判改法選擇；ExitPlanMode 一律算。
-    part_files_read＝OverviewHub 各部位 part_files_read 的總數。owed＝要附提醒句，呼叫端不因這條單獨擋。"""
+    named＝題目提到、對得上部位表的路徑：(題目裡的寫法, 部位名, 該部位 part_files_read 檔數)，每個部位一筆；有就只看這些部位，
+    有部位讀過 0 檔就提醒（讀了別的部位不算）。沒有 named → 退回看 part_files_read（OverviewHub 各部位總數）是不是全空。
+    owed＝要附提醒句，呼叫端不因這條單獨擋。"""
     rule = "ASK_OVERVIEW_BEFORE_DECISION"
     decision = tool_name == "ExitPlanMode" or any(_DECISION_RE.search(t) for t, _l, _x in _ask_questions(tool_input))
     if not decision:
         return Verdict(rule, False, "題目不涉及改法選擇")
+    if named:
+        unread = [(p, part) for p, part, n in named if not n]
+        if not unread:
+            return Verdict(rule, False, "題目提到的部位都讀過檔",
+                           tuple(f"題目提到 {p}→部位 {part}，本回合該部位讀過 {n} 檔" for p, part, n in named))
+        return Verdict(rule, True, "題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問（只提醒，不因這條擋）",
+                       tuple(f"題目提到 {p}→部位 {part}，本回合該部位讀過 0 檔" for p, part in unread))
     if part_files_read > 0:
-        return Verdict(rule, False, f"已讀過 {part_files_read} 個部位檔")
+        return Verdict(rule, False, f"題目沒提到部位表上的路徑；已讀過 {part_files_read} 個部位檔")
     return Verdict(rule, True, "題目涉及改法選擇，但本 session 還沒讀過任何部位檔：先讀過部位檔再問（只提醒，不因這條擋）",
-                   ("OverviewHub 的 part_files_read 全空",))
+                   ("題目沒提到部位表上的路徑；OverviewHub 的 part_files_read 全空",))

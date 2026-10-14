@@ -1101,6 +1101,71 @@ def test_goal_case_files_in_cmd_quoted_path_with_space():
     assert not rr.green_clears_red('pytest "my tests/test_a.py"', "pytest tests/test_a.py", "C:/p", "C:/p")
 
 
+# ─── C-G0：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES／EDITED_PART_NEEDS_GOAL_NODE ───
+
+_CG0_NODE = "共用字典不再被兩邊改"
+_CG0_TWO = "候選 A 邏輯層；候選 B 存檔時序；選 A 因為字典只在邏輯層被寫"
+
+
+@pytest.mark.parametrize("root, goal, owed, want", [
+    (_CG0_TWO, "T1.1（共用字典的唯一寫入點）", False, ""),
+    ("第一根因 共用字典被兩邊改，第二根因 存檔時序；先修第一個因為第二個是它的結果", "T1.1（唯一寫入點）", False, ""),
+    ("根因在邏輯層；第二個不存在，因為只有這一處寫入", "T1.1（唯一寫入點）", False, ""),
+    ("候選 A 邏輯層；候選 B 不存在因為資料層只讀", "T1.1（唯一寫入點）", False, ""),
+    ("候選一 邏輯層；候選二 資料層；理由：資料層只讀", "T1.1 (唯一寫入點)", False, ""),
+    ("候選 A 邏輯層，候選 B 資料層，選 A 因為只有邏輯層寫", "T1.1（唯一寫入點）", False, ""),        # 逗號分隔
+    ("候選 A 快取；候選 B 時序；選 A 因為比候選 B 好重現", "T1.1（唯一寫入點）", False, ""),        # 理由裡提到候選
+    ("候選 A 無鎖競爭；候選 B 沒有重試；選 A 因為只有它重現", "T1.1（唯一寫入點）", False, ""),    # 描述以「無／沒有」開頭不是不存在
+    # codex BLOCK：括號外的角色、零候選只寫第二個不存在、候選描述自己的「原因」不是選擇理由
+    ("候選 A 快取；候選 B 時序；選 A 因為可重現", "T1.1 —— 負責同步畫面", True, "角色"),
+    ("第二個不存在因為目前只有這條線索", "T1.1（負責同步畫面）", True, "只辨識出 0 個"),
+    ("候選 A 的原因是快取失效；候選 B 是寫入時序", "T1.1（負責同步畫面）", True, "選擇理由"),
+    ("邏輯層", "T1.1（唯一寫入點）", True, "只辨識出 0 個"),
+    ("候選 A 邏輯層", "T1.1（唯一寫入點）", True, "只辨識出 1 個"),
+    ("候選 A 邏輯層；候選 B 資料層", "T1.1（唯一寫入點）", True, "選擇理由"),
+    ("候選 A 根因為邏輯層；候選 B 根因為資料層", "T1.1（唯一寫入點）", True, "選擇理由"),   # 「根因為」不是理由
+    ("根因在邏輯層；第二根因不存在", "T1.1（唯一寫入點）", True, "只辨識出 0 個"),          # 不存在沒寫為什麼
+    (_CG0_TWO, "T1.1", True, "角色"),
+    (_CG0_TWO, "T1.1（）", True, "角色"),
+    (_CG0_TWO, "T1.1（這一塊在目標裡的角色）", True, "角色"),
+    (_CG0_TWO, "T1.1（共用字典不再被兩邊改）", True, "照抄"),
+    ("邏輯層", "T1.1", True, "角色"),
+])
+def test_cg0_locate_lines_need_role_and_two_candidates(root, goal, owed, want):
+    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：第四行括號內要有角色（非空、非佔位、非節點原文照抄）；根因層要兩個候選＋
+    選擇理由，或一個候選＋「第二個不存在因為…」。只看結構。"""
+    v = rr.locate_lines_verdict(root, goal, "T1.1", _CG0_NODE)
+    assert v.rule == "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" and v.owed is owed, v
+    assert want in v.why
+    if owed:
+        assert any(e.startswith("定位｜根因層：") for e in v.evidence) and any(e.startswith("定位｜目標：") for e in v.evidence)
+
+
+def test_cg0_locate_lines_both_missing_listed_together():
+    """角色與候選都缺 → 一條擋訊息列兩項（不必擋兩輪才知道）。"""
+    v = rr.locate_lines_verdict("邏輯層", "T1.1", "T1.1", _CG0_NODE)
+    assert v.owed and "角色" in v.why and "候選" in v.why
+
+
+def test_cg0_edited_part_needs_goal_node():
+    """EDITED_PART_NEEDS_GOAL_NODE：改過程式檔的部位要掛到樹裡活著的節點；沒掛的列「<部位>：<改的檔> 沒掛目標」。"""
+    v = rr.edited_part_goal_verdict([("戰鬥", ["C:/p/Game/Battle/A.cs"], "linked"),
+                                     ("UI", ["C:/p/Game/UI/B.cs", "C:/p/Game/UI/C.cs"], "none")])
+    assert v.rule == "EDITED_PART_NEEDS_GOAL_NODE" and v.owed and "1 個" in v.why
+    assert v.evidence[0].startswith("UI：C:/p/Game/UI/B.cs、C:/p/Game/UI/C.cs 沒掛目標")
+    assert not any(e.startswith("戰鬥") for e in v.evidence)
+    dropped = rr.edited_part_goal_verdict([("UI", ["b.cs"], "dropped:T1.2")])
+    assert dropped.owed and "T1.2 已放棄" in dropped.evidence[0]
+    gone = rr.edited_part_goal_verdict([("UI", ["b.cs"], "gone:T7")])
+    assert gone.owed and "T7 不在目前的樹" in gone.evidence[0]
+    assert not rr.edited_part_goal_verdict([("戰鬥", ["a.cs"], "linked")]).owed
+    assert not rr.edited_part_goal_verdict([]).owed
+    line = rr.format_hit("f3", v)
+    assert rr.parse_hits(line) == ["f3"]                                     # 擋次預算單獨計次
+
+
+
+
 # ═══ C-G16（track-c-g16）：提問附推薦、掛目標、全貌先於拍板 ═══
 
 REL_TAG, REL_OPTS = "【收尾放行確認】", ("放行這一回合", "繼續擋，先修好")
@@ -1254,3 +1319,53 @@ def test_b5_green_narrowed_keeps_uncovered_red_only_pytest_segment(green, keeps)
     """GREEN_NARROWED_KEEPS_UNCOVERED_RED：篩選旗標與節點 id 只看測試子命令那段、子命令之後（B5 q5 同一指令裡
     `python -m agenda.runner` 的 -m 被當 pytest 篩選，綠清不掉紅，AEC 多擋兩次）。"""
     assert rr.green_covers_red_verdict(*_GREEN_RED, green).owed is keeps
+
+
+# ═══ C-G16 002（裁定 #39）：全貌提醒按題目提到的路徑對部位 ═══
+
+_DECIDE = _ask(("要用哪個改法？", ["A (Recommended)"]))
+
+
+@pytest.mark.parametrize("named, reads, owed", [
+    ([("Game/Net/conn.py", "網路", 0)], 3, True),        # 讀了別的部位 3 檔，題目問的部位 0 檔 → 提醒
+    ([("Game/Net/conn.py", "網路", 2)], 2, False),       # 題目問的部位讀過 → 不提醒
+    ([("Game/Net/a.py", "網路", 2), ("Game/Battle/b.py", "戰鬥", 0)], 2, True),   # 提到兩個部位，一個沒讀
+    ([], 2, False),                                       # 沒提到部位表上的路徑 → 退回「讀過任一部位檔」
+    ([], 0, True),
+], ids=["named-unread", "named-read", "one-of-two-unread", "fallback-read", "fallback-none"])
+def test_c_g16_ask_overview_before_decision_by_named_part(named, reads, owed):
+    """ASK_OVERVIEW_BEFORE_DECISION：題目提到的路徑對到部位，該部位讀過 0 檔才提醒；沒對到部位退回總數判定。"""
+    v = rr.ask_overview_verdict("AskUserQuestion", _DECIDE, reads, named)
+    assert v.owed is owed
+    hit = rr.format_hit("提問", v)
+    if owed and named:
+        unread = [n for n in named if n[2] == 0][0]
+        assert f"題目提到 {unread[0]}→部位 {unread[1]}，本回合該部位讀過 0 檔" in hit
+        assert all(f"部位 {p}，" not in hit for _x, p, n in named if n)            # 讀過的部位不列
+    if owed and not named:
+        assert "題目沒提到部位表上的路徑" in hit
+
+
+def test_c_g16_ask_paths_from_question_and_options_only():
+    """路徑只從題目與選項 label／描述取（不看 header）；絕對與相對（含斜線）都取，網址、中文句子裡的斜線字不取。"""
+    ti = {"questions": [{"question": r"要改 C:\proj\Game\Net\conn.py 還是 Game/Battle/hit.py？", "header": "Tools/x.py",
+                         "options": [{"label": "A (Recommended)", "description": "改 hooks/wg_a.py，見 https://example.com/a/b"},
+                                     {"label": "是/否", "description": "x"}]}]}
+    assert rr.ask_paths(ti) == [r"C:\proj\Game\Net\conn.py", "Game/Battle/hit.py", "hooks/wg_a.py"]
+    assert rr.ask_paths({"questions": "壞掉"}) == []
+    noise = _ask(("2026/10/14 定的 1.2/3.4 版，T1.1/T1.2、A/B 要哪個？見 https://x.com/?next=Game/Net/c.py", ["甲 (Recommended)"]))
+    assert rr.ask_paths(noise) == []                    # 日期、版本號、節點編號、單字元選項字、網址（含查詢參數）都不算路徑
+
+
+@pytest.mark.parametrize("question, want", [
+    ("要改Game/網路/conn.py嗎？", ["Game/網路/conn.py"]),                         # 中間段中文、前後接中文句子
+    ("改 _AIDocs/DevHistory/v6.0-寫程式碼的進化/need-goal-契約.md 哪裡？", ["_AIDocs/DevHistory/v6.0-寫程式碼的進化/need-goal-契約.md"]),
+    (r"改 C:\Users\me\.claude\memory\工作流\x.md 嗎", [r"C:\Users\me\.claude\memory\工作流\x.md"]),
+    (r"要改 `C:\My Project\Game\Net\conn.py` 嗎", [r"C:\My Project\Game\Net\conn.py"]),   # 引號包住：含空白照原樣
+    ("要改「Game/網路 設定/a.py」嗎", ["Game/網路 設定/a.py"]),
+    ("TECH.md 要用哪個改法？", ["TECH.md"]),                                      # 不含斜線的根目錄檔名
+    ("rr.format_hit 跟 v6.0 跟 e.g. 不是檔", []),                               # 模組.函式、版本號不算
+], ids=["cjk-mid", "cjk-last-ext", "abs-cjk", "quoted-space", "quoted-cjk-space", "bare-file", "not-files"])
+def test_c_g16_ask_paths_cjk_quoted_and_bare(question, want):
+    """codex 002 BLOCK 1／2：中文路徑段、引號包住含空白的路徑、根目錄檔名都要取得到；一般字不誤取。"""
+    assert rr.ask_paths(_ask((question, ["A (Recommended)"]))) == want

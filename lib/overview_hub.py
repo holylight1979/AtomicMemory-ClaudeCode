@@ -23,7 +23,7 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 MAP_REL = ".claude/overview-map.md"
 LOCATE_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；「目標」是有需求目標樹時的第四行
@@ -629,10 +629,14 @@ def locate_groups(text: str, template: Optional[List[str]] = None) -> List[Dict[
     return groups
 
 
-def locate_values(text: str, part_short: str, template: Optional[List[str]] = None) -> Optional[Dict[str, str]]:
-    """這個部位**最後一組**完整定位三行（部位行提到 part_short；被擋後補交的那組才是現行）；沒交或缺行回 None。"""
+def locate_values(text: str, part_short: str, template: Optional[List[str]] = None,
+                  exclude: Sequence[str] = ()) -> Optional[Dict[str, str]]:
+    """這個部位**最後一組**完整定位三行（部位行提到 part_short；被擋後補交的那組才是現行）；沒交或缺行回 None。
+    exclude：同表裡包含 part_short 的更長部位名（UI 之於 UI 設定），部位行提到它們的那組屬於別的部位，不算。"""
     for g in reversed(locate_groups(text, template)):
-        if {"部位", "根因", "前例"} <= set(g) and part_short.lower() in g["部位"].lower():
+        where = g.get("部位", "").lower()
+        if ({"部位", "根因", "前例"} <= set(g) and part_short.lower() in where
+                and not any(x.lower() in where for x in exclude)):
             return g
     return None
 

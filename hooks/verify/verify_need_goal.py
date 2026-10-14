@@ -785,6 +785,8 @@ def _read_part(f1, proj, tp):
 
 
 THREE = "定位｜部位：戰鬥：A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"
+# 有目標樹時的四行：根因層要兩個候選＋選擇理由（LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES）
+THREE2 = "定位｜部位：戰鬥：A.cs\n定位｜根因層：候選 A 邏輯層；候選 B 存檔時序；選 A 因為字典只在邏輯層被寫\n定位｜前例：共用字典"
 
 
 def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
@@ -803,7 +805,7 @@ def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
     assert deny and "T9" in deny and "不在目前的樹" in deny
     _say(tp, THREE + "\n定位｜目標：<節點編號>（這一塊在目標裡的角色）")
     assert "沒交第四行" in _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))   # 照抄範本不算
-    _say(tp, THREE + "\n定位｜目標：T1.1（共用字典就是這一塊）")
+    _say(tp, THREE2 + "\n定位｜目標：T1.1（共用字典就是這一塊）")
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
     links = _tree()["links"]["parts"]
     assert list(links.values())[0]["node"] == "T1.1"
@@ -820,7 +822,7 @@ def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
     assert rec["located"] is False and "goal_node" not in rec and rec["goal_reset_turn"] == 3
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))   # 舊的那組不算，要重交
-    _say(tp, THREE + "\n定位｜目標：T1.2（新長出的那條）")
+    _say(tp, THREE2 + "\n定位｜目標：T1.2（新長出的那條）")
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
 
 
@@ -841,6 +843,168 @@ def test_locate_groups_parse_goal_key():
     assert g[-1]["目標"].startswith("T2.1")
     g = overview_hub.locate_groups(THREE + "\n# 定位｜目標：<節點編號>（這一塊在目標裡的角色）")
     assert "目標" not in g[-1]
+
+
+# ─── C-G0：定位四行要說角色與兩個根因候選；收尾查改到的部位都掛到目標 ─────────────
+
+def test_cg0_locate_four_lines_need_role_and_two_candidates(hooked):
+    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：第四行沒角色 → 擋；根因層只一個候選 → 擋；擋訊息印規則名、缺哪一項、
+    範例四行照抄就過；放行後部位掛到節點。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    _op("set", goal="戰鬥不卡")
+    _op("add", items=[{"text": "共用字典不再被兩邊改"}])
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)                  # 第一次碰部位：注入導讀卡
+    _read_part(f1, proj, tp)
+    _say(tp, THREE2 + "\n定位｜目標：T1.1")
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in deny and "角色" in deny
+    _say(tp, THREE + "\n定位｜目標：T1.1（共用字典的唯一寫入點）")
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in deny and "只辨識出 0 個" in deny
+    assert "還沒" not in deny                                               # 只擋內容，不是說沒交
+    example = [ln.strip() for ln in deny.splitlines() if ln.strip().startswith("定位｜")]
+    assert len(example) == 4 and example[3].startswith("定位｜目標：T1.1（"), example
+    _say(tp, "\n".join(example))                                            # 範例四行照抄就過
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
+    assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"
+
+
+def test_cg0_one_candidate_with_second_absent_reason_passes(hooked):
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    _op("set", goal="戰鬥不卡")
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)
+    _read_part(f1, proj, tp)
+    _say(tp, "定位｜部位：戰鬥：A.cs\n定位｜根因層：根因在邏輯層；第二個不存在，因為字典只有這一處寫入\n定位｜前例：共用字典\n"
+             "定位｜目標：T1（戰鬥邏輯是卡頓的源頭）")
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
+
+
+def _two_part_world(env):
+    """兩個寫碼部位（戰鬥、介面）＋一個知識類部位（文件，放 .py 也不算程式）。回 {子目錄: 檔路徑}。"""
+    proj = env["proj"]
+    (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 | 類別 |\n|---|---|---|---|---|\n"
+        "| `Game\\Battle\\` | 戰鬥 | `戰鬥導讀` | 有 | code |\n"
+        "| `Game\\UI\\` | 介面 | `介面導讀` | 有 | code |\n"
+        "| `Game\\Docs\\` | 文件 | 無 | 無 | knowledge |\n", encoding="utf-8")
+    for name in ("戰鬥導讀", "介面導讀"):
+        (proj / ".claude" / "memory" / "shared" / f"{name}.md").write_text(
+            f"# {name}\n\n## 知識\n\n- [臨] **已知病灶**：x\n", encoding="utf-8")
+    files = {}
+    for sub, fn in (("Battle", "A.cs"), ("UI", "B.cs"), ("Docs", "gen.py")):
+        (proj / "Game" / sub).mkdir(parents=True, exist_ok=True)
+        files[sub] = str(proj / "Game" / sub / fn)
+        Path(files[sub]).write_text("x", encoding="utf-8")
+    return files
+
+
+FOUR_UI = ("定位｜部位：介面：B.cs\n定位｜根因層：候選 A 刷新時機；候選 B 事件沒解掛；選 A 因為只在戰鬥結束時刷\n"
+           "定位｜前例：無\n定位｜目標：T1.2（介面刷新跟著字典變）")
+
+
+def test_cg0_reconcile_edited_part_needs_goal_node(hooked):
+    """EDITED_PART_NEEDS_GOAL_NODE：改了兩個部位、只有一個交過定位第四行 → 交付邊界與 commit 前擋，列沒掛的部位與檔、指路；
+    知識類部位不列；補交四行後收尾時補掛、放行。"""
+    import wg_release_rules as rr
+    proj, tp = hooked["proj"], hooked["tp"]
+    files = _two_part_world(hooked)
+    _op("set", goal="戰鬥不卡", cwd=str(proj))
+    _op("add", items=[{"text": "共用字典不再被兩邊改"}, {"text": "介面跟著刷新"}])
+    ng.link_part(SID, ng._hub_key_of(files["Battle"]), "T1.1", 2)          # 戰鬥交過定位第四行
+    for k in ("Battle", "UI", "Docs"):
+        ng.stamp_edit(SID, files[k], "", 2, {})
+    r = ng.goal_gate_reason(SID, True, {})
+    f3 = r.split("(f3)", 1)[1] if r and "(f3)" in r else ""
+    assert "EDITED_PART_NEEDS_GOAL_NODE" in f3 and "介面：" in f3 and "B.cs" in f3 and "沒掛目標" in f3, r
+    assert "戰鬥：" not in f3 and "gen.py" not in r                          # 掛過的、知識類部位不列
+    assert "need_goal" in f3 and "定位四行" in f3                             # 指路
+    assert "f3" in rr.parse_hits(r)                                          # 擋次預算單獨計次
+    assert "(f3)" not in (ng.goal_gate_reason(SID, False, {}) or "")         # 只在交付邊界
+    assert "(f3)" in ng.commit_gate(SID, {})
+    _say(tp, FOUR_UI)                                                        # 補交介面的定位四行
+    r = ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
+    assert "(f3)" not in (r or "")
+    assert _tree()["links"]["parts"][ng._hub_key_of(files["UI"])]["node"] == "T1.2"
+    assert "(f3)" not in (ng.commit_gate(SID, {}) or "")
+
+
+def test_cg0_relink_needs_valid_four_lines(hooked):
+    """補掛也照定位四行的判法：沒角色、指到不存在的節點都不算掛上。"""
+    proj, tp = hooked["proj"], hooked["tp"]
+    files = _two_part_world(hooked)
+    _op("set", goal="G", cwd=str(proj))
+    _op("add", items=[{"text": "a"}, {"text": "介面跟著刷新"}])
+    ng.stamp_edit(SID, files["UI"], "", 2, {})
+    _say(tp, FOUR_UI.replace("T1.2（介面刷新跟著字典變）", "T1.2"))
+    assert "(f3)" in ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
+    _say(tp, FOUR_UI.replace("T1.2", "T9"))
+    assert "(f3)" in ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
+
+
+def test_cg0_relink_overlapping_part_names_only_links_the_named_one(hooked):
+    """部位名互相包含（UI、UI 設定）：補交「UI 設定」的四行只掛 UI 設定，UI 照擋（codex BLOCK）。"""
+    proj, tp = hooked["proj"], hooked["tp"]
+    (proj / ".claude" / "memory" / "shared").mkdir(parents=True)
+    (proj / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        "| `Game\\UI\\Settings\\` | UI 設定 | 無 | 無 |\n| `Game\\UI\\` | UI | 無 | 無 |\n", encoding="utf-8")
+    (proj / "Game" / "UI" / "Settings").mkdir(parents=True)
+    ui, st_ = proj / "Game" / "UI" / "View.cs", proj / "Game" / "UI" / "Settings" / "S.cs"
+    for p in (ui, st_):
+        p.write_text("x", encoding="utf-8")
+    _op("set", goal="G", cwd=str(proj))
+    _op("add", items=[{"text": "設定頁存得進去"}])
+    ng.stamp_edit(SID, str(ui), "", 2, {})
+    ng.stamp_edit(SID, str(st_), "", 2, {})
+    _say(tp, "定位｜部位：UI 設定——S.cs\n定位｜根因層：候選 A 存檔時機；候選 B 欄位對應；選 A 因為按了沒反應\n"
+             "定位｜前例：無\n定位｜目標：T1.1（設定頁的存檔入口）")
+    r = ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
+    f3 = r.split("(f3)", 1)[1] if r and "(f3)" in r else ""
+    assert "UI：" in f3 and "View.cs" in f3 and "S.cs" not in f3, r
+    assert overview_hub.locate_values("定位｜部位：UI 設定\n定位｜根因層：x\n定位｜前例：無", "UI", exclude=["UI 設定"]) is None
+
+
+def test_cg0_dropped_node_unlinks_part(hooked):
+    """部位掛的節點後來放棄 → 這個部位的改動等於沒掛目標，列出放棄的節點。"""
+    proj = hooked["proj"]
+    files = _two_part_world(hooked)
+    _op("set", goal="G", cwd=str(proj))
+    _op("add", items=[{"text": "a"}, {"text": "b"}])
+    ng.link_part(SID, ng._hub_key_of(files["UI"]), "T1.2", 2)
+    ng.stamp_edit(SID, files["UI"], "", 2, {})
+    assert "(f3)" not in (ng.goal_gate_reason(SID, True, {}) or "")
+    _op("update", items=[{"id": "T1.2", "status": "dropped", "why": "不做了"}], turn=3)
+    r = ng.goal_gate_reason(SID, True, {})
+    assert "(f3)" in r and "T1.2 已放棄" in r
+
+
+def test_cg0_overview_off_layer_records_no_part(hooked):
+    """OverviewHub 在那一層關掉：不要求定位，也不記改到的部位（不在收尾補要）。"""
+    proj = hooked["proj"]
+    files = _two_part_world(hooked)
+    _op("set", goal="G", cwd=str(proj))
+    ng.stamp_edit(SID, files["UI"], "", 2, {"overview_hub": {"enabled": False}})
+    assert not _tree().get("parts_edited")
+    assert "(f3)" not in (ng.goal_gate_reason(SID, True, {"overview_hub": {"enabled": False}}) or "")
+
+
+def test_cg0_stop_verify_gates_passes_transcript_for_relink(hooked):
+    proj, tp = hooked["proj"], hooked["tp"]
+    files = _two_part_world(hooked)
+    _op("set", goal="G", cwd=str(proj))
+    _op("add", items=[{"text": "a"}, {"text": "介面跟著刷新"}])
+    ng.stamp_edit(SID, files["UI"], "", 2, {})
+    off = {"enabled": False}
+    reason, *_ = st._verify_gates({"turn_seq": 3}, SID, 3, "全部完成。", None, "", [], off, off, {}, False,
+                                  goal=True, goal_cfg={})
+    assert "(f3)" in reason
+    _say(tp, FOUR_UI)
+    reason, *_ = st._verify_gates({"turn_seq": 3}, SID, 3, "全部完成。", Path(tp), "", [], off, off, {}, False,
+                                  goal=True, goal_cfg={})
+    assert "(f3)" not in (reason or "")
 
 
 # ─── 4.5 (f1)(f2)、Stop、commit ─────────────────────────────────────────────

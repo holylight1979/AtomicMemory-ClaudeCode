@@ -458,9 +458,41 @@ def _all_linked(links: List[Tuple[str, Optional[str]]]) -> Optional[str]:
 
 
 def _part_reads(state: Dict[str, Any]) -> int:
-    """OverviewHub 各部位（含表外目錄）記下的 part_files_read 總數：規則 ASK_OVERVIEW_BEFORE_DECISION 的事實。"""
+    """OverviewHub 各部位（含表外目錄）記下的 part_files_read 總數：規則 ASK_OVERVIEW_BEFORE_DECISION 退回判定的事實。"""
     hub = state.get("overview_hub") if isinstance(state, dict) else None
     return sum(len(r.get("part_files_read") or []) for r in (hub or {}).values() if isinstance(r, dict))
+
+
+def _named_parts(tool_name: str, tool_input: Any, state: Dict[str, Any]) -> List[Tuple[str, str, int]]:
+    """題目提到的路徑（rr.ask_paths；相對路徑照 session cwd 解，沒記就用行程 cwd）經 wg_overview.read_scope_keys 對到部位（跟讀檔紀錄同一套鍵），
+    每個部位一筆 (題目裡的寫法, 部位名, 該部位 part_files_read 檔數)：規則 ASK_OVERVIEW_BEFORE_DECISION 的事實。
+    只看 AskUserQuestion；對不到部位的路徑不列（規則退回總數判定）。"""
+    if tool_name != "AskUserQuestion":
+        return []
+    import os
+    import wg_overview
+    cwd = ng.hook_cwd({}, state) or os.getcwd()     # state 沒記 session cwd：hook 行程就開在 session 的 cwd
+    hub = state.get("overview_hub") if isinstance(state.get("overview_hub"), dict) else {}
+    try:
+        config = wg_core.load_config()
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 讀設定失敗，部位對映照預設開關：{type(e).__name__}: {e}", file=sys.stderr)
+        config = {}
+    out: List[Tuple[str, str, int]] = []
+    seen: List[str] = []
+    for raw in rr.ask_paths(tool_input):
+        p = raw if os.path.isabs(raw) else (os.path.join(cwd, raw) if cwd else "")
+        try:   # 這條只是提醒：對映炸了不能讓整個提問被 PreToolUse 外層一律擋，這個路徑當沒對到（規則退回總數判定）
+            key = wg_overview.read_scope_keys(os.path.normpath(p), config)[1] if p else None
+        except Exception as e:  # noqa: BLE001
+            print(f"[NeedGoal] 題目路徑對部位失敗（{raw}，當沒對到）：{type(e).__name__}: {e}", file=sys.stderr)
+            key = None
+        if not key or key in seen:
+            continue
+        seen.append(key)
+        rec = hub.get(key) if isinstance(hub.get(key), dict) else {}
+        out.append((raw, str(rec.get("part") or key.rpartition("|")[2]), len(rec.get("part_files_read") or [])))
+    return out
 
 
 def note_ask_blocked(state: Dict[str, Any], deny: Optional[str]) -> None:
@@ -516,7 +548,7 @@ def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any],
             blocks.append(f"[NeedGoal] {rr.format_hit('提問', rec)}\n"
                           + rr.ask_recommendation_fix(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS))
             _guard("ask_no_recommendation", sid, turn, tool=tool_name, missing=len(rec.evidence), mode=mode)
-    view = rr.ask_overview_verdict(tool_name, tool_input, _part_reads(state))
+    view = rr.ask_overview_verdict(tool_name, tool_input, _part_reads(state), _named_parts(tool_name, tool_input, state))
     try:
         doc = ng.load(sid)
     except ng.NeedGoalCorrupt as e:

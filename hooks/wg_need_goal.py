@@ -72,6 +72,7 @@ SAID_MAX = 20
 PEER_CAP = 1000
 SAID_LOG_MAX = 5
 EDITS_MAX = 300
+PART_FILES_MAX = 5           # parts_edited 每個部位最多記幾個改到的檔（擋訊息列給人看，不是清帳依據）
 RECEIPTS_MAX = 300
 RECEIPTS_SEEN_MAX = 1000
 CHECKPOINTS_MAX = 200
@@ -1190,19 +1191,39 @@ def _hub_key_of(path: str) -> Optional[str]:
         return None
 
 
+def _hub_part_of(path: str, config: Optional[Dict[str, Any]]) -> Optional[Tuple[str, str]]:
+    """改到的檔所屬部位 (key, 部位名)，收尾查它有沒有掛目標（規則 EDITED_PART_NEEDS_GOAL_NODE）；表外、
+    OverviewHub 在那一層關掉（不要求定位）回 None。查表失敗只 stderr、當表外。"""
+    try:
+        from wg_overview import _cfg, _key, _lookup_quiet
+        hit = _lookup_quiet(path)
+        if not hit or not _cfg(config or {}, hit[0])["enabled"]:
+            return None
+        return _key(*hit), str(hit[1]["part_short"])
+    except Exception as e:  # noqa: BLE001
+        print(f"[NeedGoal] 查 {path} 所屬部位失敗，這一筆不記部位：{type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
 def stamp_edit(sid: Any, path: str, agent_id: str, turn: int, config: Optional[Dict[str, Any]]) -> None:
-    """改檔蓋號：掛到部位連到的節點（沒有就樹根）；程式檔記待對照、樹升寫碼類、已對照或結束的樹退回進行中。沒有樹不記。"""
+    """改檔蓋號：掛到部位連到的節點（沒有就樹根）；程式檔記待對照、記改到的部位（parts_edited，收尾 (f3) 查它掛了目標沒）、
+    樹升寫碼類、已對照或結束的樹退回進行中。沒有樹不記。"""
     if not sid or not path or not cfg_of(config, _root_of(path))["enabled"]:
         return
     if active_tree(load(sid)) is None:
         return
     code = is_code_path(path, config)
     hub_key = _hub_key_of(path)
+    part = _hub_part_of(path, config) if code else None
 
     def fn(doc: Dict[str, Any]) -> None:
         tree = active_tree(doc)
         if not tree:
             return
+        if part:
+            files = tree.setdefault("parts_edited", {}).setdefault(part[0], {"part": part[1], "files": []})["files"]
+            if len(files) < PART_FILES_MAX and not any(rr.same_file(f, path) for f in files):
+                files.append(str(path))
         link = (tree.get("links") or {}).get("parts", {}).get(hub_key) if hub_key else None
         node = link["node"] if link and link.get("node") in tree["nodes"] else tree["id"]
         seq = next_seq(doc)
@@ -1335,9 +1356,50 @@ def _f2_text(doc: Dict[str, Any]) -> Optional[str]:
             render(tree, "compact"))
 
 
-def goal_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]]) -> Optional[str]:
-    """回合結束：(f1) 待對照每次都判（不看措辭）；(f2) 完整對照只在交付邊界（triggered）判。只給主 session 用。
-    開關看目標檔記的 cwd 所在專案（專案層關掉就不擋）。"""
+def _part_link_state(tree: Dict[str, Any], key: str) -> str:
+    """定位帳（links.parts）裡這個部位掛的狀態：linked／none／dropped:<節點>／gone:<節點>。"""
+    link = ((tree.get("links") or {}).get("parts") or {}).get(key)
+    if not link:
+        return "none"
+    node = (tree.get("nodes") or {}).get(link.get("node"))
+    if node is None:
+        return f"gone:{link.get('node')}"
+    return f"dropped:{link['node']}" if node.get("status") == "dropped" else "linked"
+
+
+def _unlinked_parts(tree: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    return {k: v for k, v in ((tree or {}).get("parts_edited") or {}).items() if _part_link_state(tree, k) != "linked"}
+
+
+def _relinked(sid: Any, doc: Dict[str, Any], config: Optional[Dict[str, Any]], state: Optional[Dict[str, Any]],
+              transcript_path: str) -> Dict[str, Any]:
+    """(f3) 判之前：寫碼類樹上沒掛目標的部位，先讓 OverviewHub 從 transcript 找補交的定位四行補掛；有掛上就重讀目標檔。"""
+    tree = active_tree(doc)
+    pending = _unlinked_parts(tree) if _needs_f2(tree) and transcript_path else {}
+    if not pending:
+        return doc
+    from wg_overview import relink_parts
+    return load(sid) if relink_parts(state, sid, transcript_path, config or {}, pending) else doc
+
+
+def _f3_text(doc: Dict[str, Any]) -> Optional[str]:
+    """規則 EDITED_PART_NEEDS_GOAL_NODE：目前寫碼類樹上改過程式檔的每個部位都要掛到活著的節點。"""
+    tree = active_tree(doc)
+    if not _needs_f2(tree):
+        return None
+    v = rr.edited_part_goal_verdict([(str(info.get("part") or key), list(info.get("files") or []), _part_link_state(tree, key))
+                                     for key, info in (tree.get("parts_edited") or {}).items()])
+    if not v.owed:
+        return None
+    return ("[Guardian:ReconcileGate] (f3) 改到的部位沒掛到目標：\n  " + rr.format_hit("f3", v) +
+            "\n補交那個部位的定位四行（第四行指到目前樹裡活著的節點、括號寫這一塊的角色；根因層兩個候選＋選擇理由），"
+            "收尾時會從對話補掛；這次改動不屬於任何節點 → 先 need_goal(action=add) 長一個子目標再指過去。")
+
+
+def goal_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]],
+                     state: Optional[Dict[str, Any]] = None, transcript_path: str = "") -> Optional[str]:
+    """回合結束：(f1) 待對照每次都判（不看措辭）；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界（triggered）判。
+    只給主 session 用。開關看目標檔記的 cwd 所在專案（專案層關掉就不擋）。state／transcript_path 給 (f3) 補掛用。"""
     if not sid:
         return None
     doc = load(sid)
@@ -1352,11 +1414,16 @@ def goal_gate_reason(sid: Any, triggered: bool, config: Optional[Dict[str, Any]]
     if f2:
         parts.append(f2)
         _guard("gate_f2", sid, tree=doc.get("active"))
+    f3 = _f3_text(_relinked(sid, doc, config, state, transcript_path)) if triggered else None
+    if f3:
+        parts.append(f3)
+        _guard("gate_f3", sid, tree=doc.get("active"))
     return "\n".join(parts) or None
 
 
-def commit_gate(sid: Any, config: Optional[Dict[str, Any]]) -> Optional[str]:
-    """commit 指令執行前：(f1)＋目前的寫碼類樹的 (f2)。缺了回 deny 理由。開關看目標檔記的 cwd 所在專案。"""
+def commit_gate(sid: Any, config: Optional[Dict[str, Any]], state: Optional[Dict[str, Any]] = None,
+                transcript_path: str = "") -> Optional[str]:
+    """commit 指令執行前：(f1)＋目前的寫碼類樹的 (f2)(f3)。缺了回 deny 理由。開關看目標檔記的 cwd 所在專案。"""
     if not sid:
         return None
     try:
@@ -1365,7 +1432,7 @@ def commit_gate(sid: Any, config: Optional[Dict[str, Any]]) -> Optional[str]:
         return f"[NeedGoal] commit 前：目標檔損毀，無法核對需求目標，一律擋：{e}\n{NO_TOOL_HINT}"
     if not cfg_for_cwd(config, str(doc.get("cwd") or ""))["enabled"]:
         return None
-    parts = [t for t in (_f1_text(doc), _f2_text(doc)) if t]
+    parts = [t for t in (_f1_text(doc), _f2_text(doc), _f3_text(_relinked(sid, doc, config, state, transcript_path))) if t]
     if not parts:
         return None
     _guard("commit_blocked", sid, tree=doc.get("active"))
@@ -1432,7 +1499,7 @@ def review_material(sid: Any) -> str:
 
 
 def _export_tree(tree: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: copy.deepcopy(v) for k, v in tree.items() if k not in ("edits", "links", "checkpoints")}
+    return {k: copy.deepcopy(v) for k, v in tree.items() if k not in ("edits", "links", "checkpoints", "parts_edited")}
 
 
 def handoff_block(sid: Any) -> str:

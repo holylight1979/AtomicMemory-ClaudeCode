@@ -31,7 +31,7 @@ pattern: generator
 - 完成判定：辨識出所有 `<變數>` 佔位符
 
 ### Step 3：收集變數
-- 列出模板內所有 `<變數>` 缺哪些 → AskUserQuestion 一次問完
+- 列出模板內所有 `<變數>` 缺哪些 → AskUserQuestion 一次問完（每題第一個選項標 (Recommended)，或題目寫一句「建議：」）
 - 完成判定：所有變數有實際值（不是「待補」）
 
 ### Step 4：填模板
