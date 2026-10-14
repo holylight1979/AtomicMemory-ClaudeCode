@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: run_in_background, 收據, 無哨兵, need_goal reconcile, measured, 完整對照, 背景驗證, receipt
 - Created-at: 2026-10-14
+- Quote: 「你是 v6.0 的「調度總控台」（接任），對人總控台是 claude-06（原設計者只跟它講話，你不直接問原設計者）。第一件事：用絕對路徑讀 C:\Users\holylight\.claude\workflow\v6-inbox\_console\調度交接-2026-10-14-b.md 全文，再讀 C:\Users\holylight\.claude\memory\_staging\next…」
 
 ## 知識
 
