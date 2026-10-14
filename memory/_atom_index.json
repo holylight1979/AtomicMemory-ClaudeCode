@@ -6604,6 +6604,22 @@
         "不跑全量"
       ],
       "scope": "global"
+    },
+    {
+      "name": "先寫紅案例再分多次edit改同一檔會被重試計數當成反覆修正-fixescalation與deeppostmortem誤觸",
+      "path": "_AIDocs/_atoms/MemDev/先寫紅案例再分多次edit改同一檔會被重試計數當成反覆修正-fixescalation與deeppostmortem誤觸.md",
+      "triggers": [
+        "FixEscalation",
+        "DeepPostMortem",
+        "RETRY_COUNTS_EDITS_SINCE_RED",
+        "retry=5",
+        "重複修正",
+        "紅案例先行",
+        "改前紅改後綠",
+        "同檔多次 Edit",
+        "精確修正升級"
+      ],
+      "scope": "global"
     }
   ]
 }
