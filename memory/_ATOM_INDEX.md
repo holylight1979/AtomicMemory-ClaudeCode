@@ -410,3 +410,5 @@
 | 關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名 | memory/工作流/關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名.md | 工作軌有沒有收割, 收割代寫, worktree session 收割, 關分頁前, 可關四項 | global |  |
 | feedback-帶版本名的臨時工作資料夾不得變成永久程式的依賴-派工寫路徑預設值前先問這路徑是不是通用的 | memory/Failures/設計通則/feedback-帶版本名的臨時工作資料夾不得變成永久程式的依賴-派工寫路徑預設值前先問這路徑是不是通用的.md | 預設路徑, 寫死路徑, 版本名資料夾, v6-inbox, 臨時資料夾, 工作殘存, 信箱路徑, 派工單路徑預設, 綜觀 | global |  |
 | 工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex | _AIDocs/_atoms/MemDev/工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex.md | 處理速度很慢, 為什麼這麼慢, 分頁好慢, 量尺太久, tools/verify 12 分鐘, MeasureGate 太重, 時間花在哪 | global |  |
+| 所有資產必須遵循固定目錄結構-如-b5-kit-merge-scripts | memory/版控/所有資產必須遵循固定目錄結構-如-b5-kit-merge-scripts.md | workflow/inbox, git check-ignore, .gitignore | global |  |
+| feedback-該測哪些是判斷不是規則-驗證範圍由llm依關聯與影響裁決並負責檢討-程式只要求宣告留證據對帳漏判-固定整資料夾量尺違反判斷交llm流程交程式 | memory/Failures/設計通則/feedback-該測哪些是判斷不是規則-驗證範圍由llm依關聯與影響裁決並負責檢討-程式只要求宣告留證據對帳漏判-固定整資料夾量尺違反判斷交llm流程交程式.md | 量尺, 驗證範圍, 該測哪些, MeasureGate, 跑整個資料夾, 受影響的測試, 改一行跑全部, 程式能擋的不交給 AI, 判斷交 LLM | global |  |

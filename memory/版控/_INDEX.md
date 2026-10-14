@@ -7,6 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | gh-cli-已裝已登入-pr本地merge-push自動標merged | gh-cli-已裝已登入-PR本地merge-push自動標merged |
+| 所有資產必須遵循固定目錄結構-如-b5-kit-merge-scripts | 所有資產必須遵循固定目錄結構-如-b5-kit-merge-scripts |
 
 ## 子層
 
