@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 記憶卡片可依程式語言篩選（跨範疇視圖，不搬檔）
+- **緣由**：使用者想找 Python、C#、JS 相關的卡，但資料夾只按問題類型分，只有 dotnet 自成一類；Python 卡散在六個範疇。
+- **做法**：`tools/sync-memory-index.py` 多產一份 `memory/_by_language/_INDEX.md`（每個語言一張表，列卡片路徑，一卡可多語言），有命中時在 MEMORY.md 末尾加一行指標；判定詞庫放 `memory/_meta/taxonomy.json` 新的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾）。檔名沿用 `_INDEX.md`，合併驅動、背景同步、hooks 索引檔名單都直接認得。TECH、DocIndex-System、MultiMachineMemorySync 同步。
+- **驗證**：`tools/verify/verify_language_view.py`（詞邊界、資料夾綁定、一卡多語言、無詞庫不產檔、--check 抓漂移、落地與清除、合併驅動兩側各加一列不衝突）；既有索引與合併驅動測試重跑綠；live `--write` 後 `--check` exit 0。
+
 ## 2026-10-13 v6.0 資料根一致化收尾：剩下的家目錄寫法、核心根認 worktree、測試預設隔離資料根、整組量尺自寫收據
 - **緣由**：A2c 之後仍有 lib／hooks／skills 十多處自己用 `Path.home()/.claude` 算資料根；`is_core_root` 只認資料根，cwd 在根層 worktree 時含「此專案」的 global 卡被拒；既有測試沒設 WG_CLAUDE_DIR 時整個 pytest 行程的資料根是 live，假 session 檔寫進 live workflow/；run_verify 收據寫程式碼樹、量尺閘讀資料根，worktree 全量永遠不被認；整組 pytest 量尺（tools/verify、lib/verify）背景跑完不留收據。
 - **做法**：ollama_extract_core／atom_spec／provenance／overview_scaffold 退路／lang_guard／wg_evasion／wisdom_engine／acceptance_spec／version_guard／ensure-mcp／UPS 決策項／refile_classify／skill-cost-measure／console-window-trace.ps1 改走資料根（程式碼看檔案位置，一般安裝字串不變）；核心根＝資料根或程式碼根之內、或資料根 repo 的 git worktree，`atom_io` 三處同判斷改共用 `is_core_root`；repo 根 `conftest.py` 每個 session 把資料根與 TEMP／TMP／TMPDIR 導到暫存目錄（先放本樹受版控資料）、結束還原，暫存目錄一建好就登記（初始化中斷也清得到），`@pytest.mark.live_data` 豁免；run_verify 開跑前算資料根、收據寫資料根；整組 tools/verify、lib/verify 由 conftest 跑完自寫收據（篩過、只收集、-o 改收集設定、-c 換 ini 都不寫）。

@@ -8,7 +8,7 @@
 | 名詞 | 白話 |
 |---|---|
 | 索引三檔 | `MEMORY.md`（範疇計數表）、`_ATOM_INDEX.md`（表列 mirror）、`_atom_index.json`（機器源）。一列一 atom 的集合，不是文章 |
-| 根層衍生索引檔 | 只有 `~/.claude` 有：各層 `_INDEX.md`（`memory/<範疇>/**`、`_AIDocs/_atoms/**`；`\| Atom \| 說明 \|` 列表＋可選 `\| 子層 \| atom 數 \|` 計數表）與 `memory/_local_catalog.md`（`\| 範疇根 \| atom 數 \|` 計數表），都由 `sync-memory-index --write` 產生。兩人同範疇各加一顆就在同區塊各多一列——同一驅動以「表格文件」語意合（列表以第 0 欄為鍵聯集、計數表 o＋t−b、骨架文字逐行三方），根層 `.gitattributes` 綁定 |
+| 根層衍生索引檔 | 只有 `~/.claude` 有：各層 `_INDEX.md`（`memory/<範疇>/**`、`_AIDocs/_atoms/**`；`\| Atom \| 說明 \|` 列表＋可選 `\| 子層 \| atom 數 \|` 計數表）與 `memory/_local_catalog.md`（`\| 範疇根 \| atom 數 \|` 計數表），還有語言視圖 `memory/_by_language/_INDEX.md`（`\| 語言 \| atom 數 \|` 計數表＋每個語言一張表，表頭第一欄是語言名所以各表不撞鍵），都由 `sync-memory-index --write` 產生。兩人同範疇各加一顆就在同區塊各多一列——同一驅動以「表格文件」語意合（列表以第 0 欄為鍵聯集、計數表 o＋t−b、骨架文字逐行三方），根層 `.gitattributes` 綁定 |
 | merge driver（驅動） | git 合併某類檔案時改叫的外部程式。註冊名 `atomindex`，在 git 的 **global config**（機器級），靠 `.gitattributes`／全域 attributes 的 `merge=atomindex` 綁到檔案 |
 | stage | git index 在衝突時對同一路徑保留的三份版本：`:1` base（共同祖先）、`:2` HEAD 側、`:3` 對方側。`git ls-files -u` 列出仍未合併的 stage；**衝突是否解除看 index 有無 unmerged stage，不看工作樹有無 `<<<<<<<`** |
 | ours／theirs | git 術語：ours＝`:2`＝目前 HEAD；theirs＝`:3`。rebase 時方向反直覺，見「stage 方向矩陣」 |

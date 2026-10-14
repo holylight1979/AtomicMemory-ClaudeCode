@@ -1,5 +1,5 @@
 {
-  "_doc": "核心層範疇分類法單一真相。資料夾＝中文正名（key）；slug/aliases 只做輸入對映；sub＝已知 Lv2（自由、≥2 顆才建）；terms＝詞庫（實例詞，供程式寫入自動分類計分）。py: lib/atom_taxonomy.py；js: realm.js loadTaxonomy。新增 Lv1 需改此檔（atom_write allow_new_category 亦可，但仍受 reserved 與字元集約束）。",
+  "_doc": "核心層範疇分類法單一真相。資料夾＝中文正名（key）；slug/aliases 只做輸入對映；sub＝已知 Lv2（自由、≥2 顆才建）；terms＝詞庫（實例詞，供程式寫入自動分類計分）。py: lib/atom_taxonomy.py；js: realm.js loadTaxonomy。新增 Lv1 需改此檔（atom_write allow_new_category 亦可，但仍受 reserved 與字元集約束）。languages＝依程式語言篩選的跨範疇視圖詞庫（不決定資料夾、不搬檔），見該段 _doc。",
   "version": 1,
   "name_weight": 10,
   "trigger_weight": 1,
@@ -29,6 +29,14 @@
     "root": "Failures",
     "topics": "same-as-core",
     "failure_type_fallback": {"env": "OS-Windows", "assumption": "思考與決策", "silent": "驗證與實證", "cognitive": "思考與決策"}
+  },
+  "languages": {
+    "_doc": "依程式語言篩選的跨範疇視圖（memory/_by_language/_INDEX.md，tools/sync-memory-index.py 產生；MEMORY.md 留一行指標）。卡片實體仍只在一個範疇資料夾；一張卡可同時屬多個語言。判定：卡名＋Trigger（小寫、- 與 _ 視為空白）命中 terms 任一詞，或卡片在 dirs 列的範疇資料夾。詞尾 * ＝前綴比對（python* 中 pythonw、pythonutf8）；其餘整詞比對，邊界只看英數字，中文緊貼也算邊界。改這段後跑 python ~/.claude/tools/sync-memory-index.py --write。",
+    "Python": {"terms": ["python*", "pytest*", "pip", "venv", "pyinstaller", "asyncio"]},
+    "C#／.NET": {"dirs": ["dotnet"], "terms": ["c#", "csharp", "dotnet", ".net", "winforms", "wpf", "asp.net*", "aspnet*", "msbuild", "nuget", "csproj"]},
+    "JavaScript／Node": {"terms": ["javascript", "typescript", "node.js", "nodejs", "node", "npm", "npx", "js", "mjs"]},
+    "PowerShell": {"terms": ["powershell", "pwsh", "ps1", "cmdlet"]},
+    "Bash／Shell": {"terms": ["bash", "git bash", "msys*", "heredoc", "shell", "sh"]}
   },
   "reserved": ["_meta", "_reference", "_staging", "_vectordb", "_distant", "_pending_review", "_rejected", "_drafts", "_archived",
                "episodic", "templates", "personal", "wisdom", "roles", "shared", "projects", "unity", "memory", "failures"]

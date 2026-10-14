@@ -24,6 +24,11 @@ sync-memory-index.py — 從 _atom_index.json 自動生成 memory/MEMORY.md
 per-level `_INDEX.md`：兩根都走（`_AIDocs/_atoms/<階層>/`、`memory/<範疇>/…`），只在
 有子層或 atom≥2 的層生成；memory/ 根層（depth-0）永不生成（根索引就是 MEMORY.md）。
 
+依程式語言篩選的跨範疇視圖 `memory/_by_language/_INDEX.md`：卡片不搬檔、一張可屬多個語言；
+詞庫是 `memory/_meta/taxonomy.json` 的 languages 段（卡名＋Trigger 命中詞，或卡在該語言綁定的範疇
+資料夾）。只收核心層（不含本地範疇與 personal）；有命中才產檔，同時在 MEMORY.md 末尾加一行指標，
+讓每個 session 的 LLM 都知道它在哪。跟各層 _INDEX.md 一起 --check／--write。
+
 模式（皆作用於 MEMORY.md + _local_catalog.md + 各層 _INDEX.md）：
   --check  drift 偵測，stderr 列出差異，任一檔 drift → exit 1
   --write  覆寫（無 local atom → 移除殘留側檔；stale _INDEX.md 移除）
@@ -382,18 +387,119 @@ def _render_core_hierarchical(rows, claude_root, existing_caps, local_atoms) -> 
 def render_core_section(rows: List[Tuple[str, str, str]],
                         claude_root: Path,
                         existing_caps: dict | None = None,
-                        hierarchical: Optional[bool] = None) -> str:
+                        hierarchical: Optional[bool] = None,
+                        language_view: bool = False) -> str:
     """Render 核心 atom 索引（主表）— 即 @import 的 MEMORY.md 內容，**不含**本地範疇明細。
 
     local atom 抽出主表，僅末尾留一行指標（明細在側檔，由 render_local_catalog 產出、
     hook 在核心環境注入）→ 外部專案零本地負擔。
     hierarchical=None → 讀 config gate；False 平鋪表；True 範疇表（見模組說明）。
+    language_view=True → 末尾加一行語言視圖指標（視圖有內容才給，見 render_language_view）。
     """
     individual, feedback_rows, failures_other, local_atoms = _classify_rows(
         rows, claude_root, existing_caps)
     if resolve_hierarchical(hierarchical):
-        return _render_core_hierarchical(rows, claude_root, existing_caps, local_atoms)
-    return _render_core_flat(individual, feedback_rows, failures_other, local_atoms)
+        text = _render_core_hierarchical(rows, claude_root, existing_caps, local_atoms)
+    else:
+        text = _render_core_flat(individual, feedback_rows, failures_other, local_atoms)
+    return text + "\n\n" + LANGUAGE_VIEW_POINTER if language_view else text
+
+
+# ─── 依程式語言篩選的跨範疇視圖（memory/_by_language/_INDEX.md）────────────────
+#
+# 卡片實體只在一個範疇資料夾；這份視圖只列指標，一張卡可同時屬多個語言。詞庫在
+# memory/_meta/taxonomy.json 的 languages 段（單一來源）。檔名沿用 `_INDEX.md`，所以
+# .gitattributes 的 `memory/**/_INDEX.md` 合併驅動、vcs-sync 與 hooks 的索引檔名單都直接認得；
+# 放在 `_` 前綴資料夾 → 不被當範疇層、不進 existing_index_files 的 stale 判定（由本段自管）。
+# 每張語言表的表頭第一欄是語言名 → 合併驅動以表頭為鍵時各表不撞鍵。
+
+LANGUAGE_VIEW_DIR = "_by_language"
+LANGUAGE_VIEW_POINTER = (
+    "> 依程式語言（Python、C#、JS…）跨範疇篩選見 `_by_language/_INDEX.md`"
+    "（卡片不搬檔，一張可屬多個語言；詞庫在 `_meta/taxonomy.json` 的 languages 段）。"
+)
+_LANG_SPLIT_RE = re.compile(r"[-_]+")
+
+
+def load_language_rules(memory_dir: Path) -> List[Tuple[str, List[re.Pattern], List[str]]]:
+    """`<memory_dir>/_meta/taxonomy.json` 的 languages 段 → [(語言, 詞的 regex, 綁定範疇資料夾)]，宣告序。
+
+    檔不存在（測試用的暫存記憶樹）→ []，不出聲；檔在但段壞 → stderr 一行並回 []（視圖不產、不擋其他索引）。
+    詞尾 `*` 前綴比對、其餘整詞；邊界只看英數字（中文緊貼也算邊界）。
+    """
+    path = memory_dir / "_meta" / "taxonomy.json"
+    if not path.exists():
+        return []
+    try:
+        langs = json.loads(path.read_text(encoding="utf-8-sig")).get("languages") or {}
+        rules = []
+        for lang, info in langs.items():
+            if lang.startswith("_"):
+                continue
+            pats = []
+            for term in info.get("terms", []):
+                term = str(term).lower()
+                body = re.escape(term.rstrip("*")).replace(r"\ ", " ")
+                tail = "" if term.endswith("*") else r"(?![a-z0-9])"
+                pats.append(re.compile(rf"(?<![a-z0-9]){body}{tail}"))
+            rules.append((lang, pats, [str(d) for d in info.get("dirs", [])]))
+        return rules
+    except (OSError, ValueError, AttributeError, TypeError) as e:
+        print(f"[sync-memory-index] taxonomy.json languages 段讀不到（{e!r}），語言視圖略過", file=sys.stderr)
+        return []
+
+
+def _triggers_by_path(memory_dir: Path) -> dict:
+    """_atom_index.json → {rel_path: [trigger…]}（parse_atom_index 只回三欄，語言判定另讀）。"""
+    data = load_atom_index_json(memory_dir)
+    return {a.get("path", ""): list(a.get("triggers") or []) for a in data.get("atoms", [])}
+
+
+def collect_language_view(categorized, rules, triggers_by_path: dict) -> dict:
+    """核心層已分類 atom → {語言: [(rel_path, caption)]}（只留有卡的語言，宣告序）。"""
+    groups: dict = {}
+    for name, cap, rel_path, segs in categorized:
+        text = _LANG_SPLIT_RE.sub(" ", " ".join([name] + triggers_by_path.get(rel_path, [])).lower())
+        for lang, pats, dirs in rules:
+            if any(d in segs for d in dirs) or any(p.search(text) for p in pats):
+                groups.setdefault(lang, []).append((rel_path, cap or name))
+    return {lang: sorted(groups[lang]) for lang, _p, _d in rules if lang in groups}
+
+
+def render_language_view(groups: dict) -> str:
+    """語言視圖全文；groups 空 → ""（caller 移除殘留檔、MEMORY.md 不放指標）。"""
+    if not groups:
+        return ""
+    lines = [
+        "# memory — 依程式語言篩選（跨範疇視圖）",
+        "",
+        "> 自動生成（tools/sync-memory-index.py），`_` 前綴非 atom，不要手改。卡片實體仍在各範疇資料夾，"
+        "這裡只列路徑；一張卡可同時屬多個語言。",
+        "> 判定：卡名或 Trigger 命中 `memory/_meta/taxonomy.json` 的 languages 詞庫，或卡片在該語言綁定的"
+        "範疇資料夾。只收核心層 memory/，不含本地範疇與 personal。改詞庫後跑 `sync-memory-index.py --write`。",
+        "",
+        "| 語言 | atom 數 |",
+        "|------|---------|",
+    ]
+    lines += [f"| {lang} | {len(items)} |" for lang, items in groups.items()]
+    for lang, items in groups.items():
+        lines += ["", f"## {lang}", "", f"| {lang} | 說明 |", "|------|------|"]
+        lines += [f"| `{rel_path}` | {cap} |" for rel_path, cap in items]
+    return "\n".join(lines)
+
+
+def sync_language_view_file(lang_path: Path, lang_view: str) -> Optional[str]:
+    """--write 落地語言視圖：有內容 → 整檔覆寫；空 → 刪檔並刪空資料夾。回錯誤字串（None=成功）。"""
+    if lang_view:
+        lang_path.parent.mkdir(parents=True, exist_ok=True)
+        r = write_index_full(lang_path, lang_view + "\n", source="tool:sync-memory-index")
+        return None if r.ok else str(r.error)
+    try:
+        lang_path.unlink()
+        lang_path.parent.rmdir()
+    except OSError:
+        pass   # 檔本來就不在，或資料夾裡還有別的東西：都不是錯
+    return None
 
 
 def render_local_catalog(rows: List[Tuple[str, str, str]],
@@ -721,7 +827,15 @@ def main() -> int:
     for slug in flat:
         print(FLAT_ATOM_MSG.format(slug=slug), file=sys.stderr)
 
-    core_section = render_core_section(rows, claude_root, existing_caps, hierarchical)
+    # 語言視圖：詞庫跟著資料根的 taxonomy.json；沒有任何語言命中 → 不產檔、MEMORY.md 不放指標。
+    lang_path = memory_dir / LANGUAGE_VIEW_DIR / "_INDEX.md"
+    categorized_core, _flat_names = _core_category_atoms(rows, claude_root, existing_caps)
+    lang_rules = load_language_rules(memory_dir)
+    lang_view = render_language_view(
+        collect_language_view(categorized_core, lang_rules, _triggers_by_path(memory_dir)) if lang_rules else {})
+
+    core_section = render_core_section(rows, claude_root, existing_caps, hierarchical,
+                                       language_view=bool(lang_view))
     _old_head, knowledge_tail = split_existing(memory_path)
     new_core = core_section + "\n\n" + knowledge_tail if knowledge_tail else core_section + "\n"
 
@@ -749,6 +863,10 @@ def main() -> int:
                 drift = True
         for abs_path in stale_index_files:
             print(f"[sync-memory-index] stale _INDEX.md: {abs_path}", file=sys.stderr)
+            drift = True
+        cur_lang = lang_path.read_text(encoding="utf-8-sig") if lang_path.exists() else ""
+        if cur_lang.strip() != lang_view.strip():
+            print(f"[sync-memory-index] 語言視圖 drift: {lang_path}", file=sys.stderr)
             drift = True
         if sync_doc_counts is not None:
             dc_drift, dc_msgs = sync_doc_counts.sync(claude_root, write=False)
@@ -787,6 +905,10 @@ def main() -> int:
                 abs_path.unlink()
             except FileNotFoundError:
                 pass
+        err = sync_language_view_file(lang_path, lang_view)
+        if err:
+            print(f"[sync-memory-index] write failed ({lang_path}): {err}", file=sys.stderr)
+            return 1
         print(f"[sync-memory-index] wrote {memory_path}"
               f"{' + ' + str(local_catalog_path) if new_local else ' (no local; removed side catalog)'}"
               f"{f' + {len(new_index_files)} _INDEX.md' if new_index_files else ''}"
@@ -818,6 +940,9 @@ def main() -> int:
     for abs_path, content in new_index_files.items():
         print(f"\n# ── {abs_path} ──\n")
         print(content)
+    if lang_view:
+        print(f"\n# ── {lang_path} ──\n")
+        print(lang_view)
     return 0
 
 

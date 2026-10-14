@@ -228,7 +228,8 @@ sequenceDiagram
 - 多機合併：索引三檔（`MEMORY.md`／`_ATOM_INDEX.md`／`_atom_index.json`）是「一列一 atom」的集合，兩機各自新增後 git 逐行三方必衝突 → 三層防線：全 repo LF、`tools/merge-atom-index.py` 當 git merge driver 做語意三方（PreToolUse 在合併類 git 指令前自動 `--install`）、git 仍停住時 `--resolve` 在 `rebase --continue` 等指令前自動套在三檔 stage 上；SVN 工作副本同一支 `--resolve` 在 `svn commit / resolve` 前自動解（拿 svn 留下的 `.mine`／`.r舊`／`.r新` 當三方輸入，`svn resolve --accept working`；`svn update` 本身不自動）。
   細節（stage 方向矩陣、CLI 契約、失敗模式 SOP、不在保證範圍）→ `_AIDocs/MultiMachineMemorySync.md`。
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
-- 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
+- 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
+- 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
 - 現況計數：<!-- atom-breakdown -->383 atoms：core 177 + feedback 63 + 失敗模式 2 + local 141〔Tools17/MemDev113/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
@@ -896,6 +897,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 │   ├── MEMORY.md                            ← Lv1 目錄（生成，不手編）
 │   ├── _atom_index.json / _ATOM_INDEX.md    ← JSON SoT / mirror
 │   ├── _local_catalog.md                    ← local realm 目錄
+│   ├── _by_language/_INDEX.md               ← 依程式語言篩選的跨範疇視圖（生成，只列路徑不搬檔）
 │   ├── _meta/ taxonomy.json / forbidden-phrases.json / realm-lexicon*.json / taxonomy-lexicon-learned.json / atom_io_audit.jsonl
 │   ├── <Lv1>/[<Lv2>/]                       ← 核心 atom（版控 / 工作流 / … / CC與原子記憶契約）
 │   ├── Failures/<主題>/                     ← feedback-* 與失敗模式 atom；_reference/ 參考文件
