@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 部位判定：根目錄名或上層目錄名撞到部位表前綴時不再誤判
+- `lib/overview_hub.match_row` 的子字串命中（含非錨定 glob）原本拿整條絕對路徑比：根層 repo 的根目錄本身叫 `.claude`，表上沒列的根層檔（TECH.md、.gitignore、workflow/config.json、plans/）全落到 `.claude/` 列；專案放在含 `tests` 的目錄下時每個檔都落到 `tests/` 列。改成只比專案根以下的相對路徑，錨定命中與根以下的子字串命中不變，影響所有專案的部位判定（注入、定位三行、量尺提醒、知識類排除）。驗證：`verify_overview_hub::test_match_substring_only_below_root` 7 案舊碼 3 紅新碼全綠，相關 7 支 verify 788 passed（commit 42162c00）。
+
 ## 2026-10-14 收尾查核：被 git 忽略的檔不算本專案程式（欠補案例不欠、也不能清帳）
 - 總控台在 gitignore 的信箱寫快照 .sh，信箱改名後掉出部位表，(d) `OWED_AFTER_LAST_CASE` 就要它補案例（「別把 py 檔放進派工信箱」同類第二次）。根因：欠案例判定只看副檔名與部位表類別，git 忽略事實只接到 OverviewHub。`wg_release_rules.excluded_region` 收 `gitignored`，與 `RUNTIME_DATA_NO_OVERVIEW` 同一判式（`runtime_data_verdict`）；`wg_verify_ledger.case_debt` 每根一次批查 `git check-ignore`（共用 `wg_overview._gitignored_set`）。被忽略的檔不欠、也不能替追蹤中的程式清帳；追蹤中照欠。量尺閘對沒有量尺欄的部位本來就只提醒，不改。驗證：`verify_release_rules`、`verify_stop_reconcile` 新四案舊碼紅新碼綠；兩個寫死「被忽略照欠」的舊案改期望並補配對（沒被忽略的目錄照欠）；TECH 判定表同步。
 
