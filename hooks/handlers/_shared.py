@@ -254,13 +254,15 @@ def _cleanup_old_states() -> None:
         except OSError:
             pass
 
-    # 跨 session 協調旁路檔：warn-cache（含殘留 .tmp）同 7d 標準；observation log 30d
-    for f in WORKFLOW_DIR.glob("coord-warn-cache-*.tmp"):
-        try:
-            if now - f.stat().st_mtime > 7 * 86400:
-                f.unlink(missing_ok=True)
-        except OSError:
-            pass
+    # 寫入被砍掉留下的殘檔（warn-cache、state、companion 的 .tmp）與壞掉的 state 備份（*.corrupt*）同 7d 標準；
+    # 正在用的 state-*.json 不在這幾個樣式裡，照上面的分級 TTL。observation log 30d
+    for pattern in ("coord-warn-cache-*.tmp", "state-*.tmp", "companion-*.tmp", "*.corrupt*"):
+        for f in WORKFLOW_DIR.glob(pattern):
+            try:
+                if now - f.stat().st_mtime > 7 * 86400:
+                    f.unlink(missing_ok=True)
+            except OSError:
+                pass
     for f in WORKFLOW_DIR.glob("coord-warn-cache-*.json"):
         try:
             if now - f.stat().st_mtime > 7 * 86400:
