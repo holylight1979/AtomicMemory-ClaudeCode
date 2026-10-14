@@ -6937,6 +6937,18 @@
         "read_scope_keys"
       ],
       "scope": "global"
+    },
+    {
+      "name": "關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名",
+      "path": "memory/工作流/關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名.md",
+      "triggers": [
+        "工作軌有沒有收割",
+        "收割代寫",
+        "worktree session 收割",
+        "關分頁前",
+        "可關四項"
+      ],
+      "scope": "global"
     }
   ]
 }
