@@ -35,6 +35,9 @@
 | 24 | rerank-cross-encoder-evaluation-2026-10.md | cross-encoder rerank／sentence-transformers 要不要進注入鏈：本機回歸集對照實驗（bge-base R@1 +3.4、R@3 −0.6、每句 +1.2 s）＋外部文獻＋Codex 審；判定不進 hook、讀取端可選 | rerank, cross-encoder, fastembed, bge-reranker, memory-eval, 檢索精度 |
 | 25 | v6.0-寫程式碼的進化-2026-10/ | v6.0（針對寫程式碼的進化）開發歷史：原設計者認可的預計畫（G0～G16、分片加權模型、機制／題組／變量）、前一波三方討論全貌、原設計者原話輯、三槽信箱全文與附件（兩專案輸入、三份 Codex 審查）、前一波第二視角綱要 | v6.0, 寫程式碼, 守門, 綜觀, 預計畫, 三方討論, tri-link, 原話, OverviewHub, 分片加權, 題組, 變量 |
 | 26 | v6.0-寫程式碼的進化-2026-10/工作紀錄.md | v6.0 各工作軌（a3、track-e、g12、track-verify、track-goal、a4、b3、a6、a2c）與總控台的完整歷程：session、commit、codex 輪次、退件單、快照數字、證據 log；核心推進文件只留現況並連到這裡 | v6.0, 工作紀錄, 歷程, 工作軌, track-e, a3, g12, 寫碼查核閘, codex 輪次, 退件單, 快照複跑, live 補驗, 總控台 |
+| 27 | v6.0-寫程式碼的進化-2026-10/總控台裁定帳與誤判清冊.md | v6.0 兩個總控台的裁定（對人 #1～#43、調度帳）與寫碼查核閘誤判清冊（A／B／C 組），每筆一行：裁了什麼、為什麼、結果／現象、根因、去向 | v6.0, 裁定帳, 誤判清冊, 總控台, 被翻, 回放, wg_release_rules, 規則名 |
+| 28 | v6.0-寫程式碼的進化-2026-10/B5-需求目標效果驗收-結論.md | B5 五題（受測 need_goal 開／對照關）驗收結論、三條效果缺口、真測逼出的閘缺陷；不含答案，工具組留本機 | v6.0, B5, need_goal, 驗收, 效果缺口, 子目標, 對照組 |
+| 29 | v6.0-寫程式碼的進化-2026-10/工作軌總表與暫停狀態.md | v6.0 各工作軌做了什麼與合進 main 的 commit、暫停狀態、沒進 /console skill 的流程段落、本機留存工具（b5-kit、merge-scripts） | v6.0, 工作軌, 軌表, 暫停, 恢復, 流程, console, merge-scripts, b5-kit |
 > 2026-05-27 Wave 5 Session 2 已歸檔（移至 `memory/_distant/2026_05_v5_overhaul/`，git 不再追蹤）：`session-logs/` / `memory-cleanup-2026-04/` / `atomic-memory-evolution/` / `ab-test-gemma4/` / `atom-v4/` / `atom-v4-phases/` / `changelog-roll/` / `v41-handoffs/` / `v41-p4-simulation/` / `wg-docdrift/`
 
 > 2026-05-28 Session α/β（commits `082f791` / `89ccb2d` / `6772049`）：feedback-* atoms 5 個 + cognitive-patterns + memory-pipeline-silent-failure-2026-05 物理搬遷至 `_AIDocs/Failures/`，`lib/atom_locations.py` 為單一規則來源；sync-atom-index / vector indexer 多根掃描；SPEC_ATOM_V5 §2.1 章節記錄。完整紀錄詳見上方 v5-overhaul-2026-05/ 及主 [_AIDocs/_CHANGELOG.md](../_CHANGELOG.md) 對應條目。

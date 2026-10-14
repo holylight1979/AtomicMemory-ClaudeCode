@@ -11,12 +11,20 @@
 | `全貌-AI寫碼守門三方討論.md` | 前一波三方討論定稿（失敗案例、回放實驗、審查者、量出來的壞味道、逐項對帳） | `memory/_staging/全貌-AI寫碼守門三方討論.md` |
 | `原設計者原話輯.md` | 原設計者原話逐字，按目標 G 分組，附來源 | 從卡片 Quote 欄與信件蒐集 |
 | `前一波-第二視角-Companion三面鏡-綱要.md` | 更早一波的周邊機制綱要（三面鏡、哨兵、拐彎數），被 v6.0 核心取代 | `memory/_staging/next-phase-第二視角-Companion三面鏡.md` |
+| `執行計畫.md` | v6.0 執行計畫（分軌、信箱協定、各軌派工） | 總控台，開工時入開發歷史 |
+| `工作紀錄.md` | 各工作軌從開工到合併的完整歷程（session、commit、codex 輪次、退件、快照數字） | track-doc 從核心推進文件與接續單搬出 |
+| `v6-B-需求目標核心流程-設計單.md`、`need-goal-契約.md` | 需求目標核心流程（need_goal）設計單與工具契約 | track-goal、track-b2 |
+| `G0-G16目標達成審.md` | G0～G16 目標達成審（Codex＋總控台各自審合併） | 總控台 |
+| `總控台裁定帳與誤判清冊.md` | 兩個總控台的裁定（#1～#43 等）與寫碼查核閘誤判清冊，每筆一行 | 本機信箱 `workflow/v6-inbox/_console/`（已刪） |
+| `B5-需求目標效果驗收-結論.md` | B5 五題驗收結論與三條效果缺口（不含答案） | 本機信箱 `from-track-b5/`（原始材料留在本機 `workflow/inbox/b5-kit/`） |
+| `工作軌總表與暫停狀態.md` | 各軌做了什麼與合進 main 的 commit、暫停狀態、沒進 /console skill 的流程段落、本機留存工具 | 本機信箱（已刪）＋git log |
 | `inbox/tri-link/` | 根層、SGI、TSLG 三槽信箱全文（from-root 077 封、from-projects 073 封、from-tslg 064 封）與附件（兩專案輸入、三份 Codex 審查、對帳表、基線腳本） | `c:\Projects\.claude\inbox\tri-link\` |
 | `inbox/root-link/` | 更早的根層↔SGI 雙槽信箱 | `c:\Projects\.claude\inbox\root-link\` |
 
 ## 路徑變更說明
 
 - 卡片（atom）的 `Source:` 欄寫的是搬家前的原位置（同上表「原位置」欄的信箱路徑），對應本資料夾 `inbox/` 底下同名檔；Source 是落檔當時的出處，不回改。
+- 卡片 `Source:` 指向 `workflow/v6-inbox/…`（v6.0 根層派工信箱）的，原件已於 2026-10-14 清理刪除、沒有搬進本資料夾；重要內容收在上表三份新檔，歷程在 `工作紀錄.md`。
 - 兩個專案（SGI、TSLG）自己的接續單若仍指向原信箱路徑，屬專案層歷史，v6.0 不調整參與專案；要重接信箱由使用者另開新一波。
 
 ## 接續

@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 派工信箱清理：重要發展收進 DevHistory，驗收與合併工具留本機
+- **緣由**：v6.0 暫停後，本機派工信箱 `workflow/v6-inbox/`（35 MB、1261 檔，被 .gitignore 忽略、刪了救不回來）裡混著裁定帳、誤判清冊、B5 結論等該留的歷史，和派工單、交付信、codex log 等已合進 main 的過程檔；改名軌已讓程式改指 `workflow/inbox/`。
+- **做法**：DevHistory v6.0 資料夾新增 `總控台裁定帳與誤判清冊.md`、`B5-需求目標效果驗收-結論.md`（不含答案）、`工作軌總表與暫停狀態.md`（34 軌各一行＋合進 main 的 commit、沒進 /console skill 的流程段落）；README、索引、工作紀錄路徑說明同步。B5 工具組與合併驗證腳本（含合併前探針、兩支從舊 scratchpad 撿回的工具）搬到本機 `workflow/inbox/b5-kit/`、`workflow/inbox/merge-scripts/`，B5 腳本寫死的路徑改到新位置；接續單加「恢復時要做的事」。之後刪掉整個 `workflow/v6-inbox/` 與 workflow 根 4 份被 hook 逾時砍掉留下的 `state-*.tmp`。
+- **驗證**：留下的 69 檔逐檔 sha256 與原檔相同（B5 五檔只差路徑行，兩支腳本 py_compile 過）；刪前跑記憶索引與文件量尺都 DONE；刪後全樹 `v6-inbox` 字樣只剩歷史描述、卡片 Source 與測試樣本。
+
 ## 2026-10-14 派工信箱改名 workflow/inbox/（不帶版本號）
 - 帶版本號的臨時資料夾 `workflow/v6-inbox/` 被寫進永久的程式與 skill，改成固定名 `workflow/inbox/`：`tools/console-status.py` 預設值、`skills/console`（SKILL.md、dispatch、kickoff）、部位表派工信箱列、`wg_need_goal_points._REPORT_PATH_RE` 改認 `workflow/inbox/` 兩層（別的專案叫 inbox 的資料夾不算）、`lib/harness_text` 樣板註解改指 `skills/console/references/kickoff.md`、hooks／tools verify 範例路徑；`.gitignore` 加 `workflow/inbox/`（舊行並存到清理軌刪完舊資料夾）與 `workflow/state-*.tmp`。舊資料夾本身不動、新資料夾等真派工時再建。驗證：`verify_need_goal_points` 新案（新信箱交付信算外部主張、別處 inbox 不算）舊碼紅新碼綠。
 
