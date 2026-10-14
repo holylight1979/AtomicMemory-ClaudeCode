@@ -7005,6 +7005,16 @@
         "判斷交 LLM"
       ],
       "scope": "global"
+    },
+    {
+      "name": "建立固定的專案檔案目錄結構-如-b5-kit-merge-scripts-並",
+      "path": "memory/版控/建立固定的專案檔案目錄結構-如-b5-kit-merge-scripts-並.md",
+      "triggers": [
+        "workflow/inbox",
+        "git check-ignore",
+        "文件結構"
+      ],
+      "scope": "global"
     }
   ]
 }

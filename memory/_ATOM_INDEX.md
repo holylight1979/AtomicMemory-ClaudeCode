@@ -412,3 +412,4 @@
 | 工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex | _AIDocs/_atoms/MemDev/工作分頁慢先量時間花在哪-讀transcript算工具耗時與被擋次數-根層慢的主因是整資料夾量尺不是codex.md | 處理速度很慢, 為什麼這麼慢, 分頁好慢, 量尺太久, tools/verify 12 分鐘, MeasureGate 太重, 時間花在哪 | global |  |
 | 所有資產必須遵循固定目錄結構-如-b5-kit-merge-scripts | memory/版控/所有資產必須遵循固定目錄結構-如-b5-kit-merge-scripts.md | workflow/inbox, git check-ignore, .gitignore | global |  |
 | feedback-該測哪些是判斷不是規則-驗證範圍由llm依關聯與影響裁決並負責檢討-程式只要求宣告留證據對帳漏判-固定整資料夾量尺違反判斷交llm流程交程式 | memory/Failures/設計通則/feedback-該測哪些是判斷不是規則-驗證範圍由llm依關聯與影響裁決並負責檢討-程式只要求宣告留證據對帳漏判-固定整資料夾量尺違反判斷交llm流程交程式.md | 量尺, 驗證範圍, 該測哪些, MeasureGate, 跑整個資料夾, 受影響的測試, 改一行跑全部, 程式能擋的不交給 AI, 判斷交 LLM | global |  |
+| 建立固定的專案檔案目錄結構-如-b5-kit-merge-scripts-並 | memory/版控/建立固定的專案檔案目錄結構-如-b5-kit-merge-scripts-並.md | workflow/inbox, git check-ignore, 文件結構 | global |  |
