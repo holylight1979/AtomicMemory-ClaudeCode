@@ -4,6 +4,13 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 C-G0 綜觀：定位四行要說角色與兩個根因候選、收尾查改到的部位都掛到目標
+- **緣由**：G0「修到根因不是症狀」的骨架只核對第四行指到存在的節點、根因層那行只看有沒有；AI 寫「根因：邏輯層」一個候選、括號空著也放行，收尾也沒查改到的部位有沒有服務某個目標。
+- **做法**：新規則 `LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES`（`wg_release_rules.locate_lines_verdict`；`wg_overview.on_edit` 在節點核對後交事實，擋訊息印規則名、缺哪項、照抄可過的範例四行；附樹提示改成要兩候選）與 `EDITED_PART_NEEDS_GOAL_NODE`（`wg_need_goal` 改檔蓋號記 `parts_edited`，交付邊界與 commit 前的 (f3) 查定位帳 `links.parts`，沒掛就擋並指路；收尾前 `wg_overview.relink_parts` 從 transcript 找補交的四行補掛；`✗ (f3)` 單獨計擋次）。知識類部位、沒目標樹的三行情境、OverviewHub 關掉的層不查。TECH §7.7／§7.8、need-goal 契約同步。
+- **驗證**：`verify_release_rules` 加 23 案、`verify_need_goal` 加 8 案（四行沒角色／一個候選擋、範例照抄就過、第二個不存在的理由收；兩部位只掛一個擋、補交後補掛放行、補掛也照四行判法、節點放棄等於沒掛、OverviewHub 關掉不記、Stop 接線、部位名互相包含只掛寫到的那個），改前紅、退回舊碼紅、改後綠；真 hook 入口探針 `hooks/verify/probe_c_g0.py` PASS。
+- **codex 一輪四條 BLOCK 全部先重現、寫紅案例再修**：角色寫在括號外照擋；只寫「第二個不存在」沒有第一個照擋；候選自己描述裡的「原因」不算選擇理由；部位名互相包含時一組四行只掛寫到的部位（`overview_hub.locate_values` 加 exclude，改檔與補掛共用）。另補「候選 A 無鎖競爭」不被當成不存在。
+
+
 ## 2026-10-14 v6.0 提問閘補齊：每題附推薦、題目掛目標認原文片段、全貌先於拍板（C-G16）
 - **緣由**：G16「人只做真正的決定，而且看懂全貌才拍板」。b-hooks-2 的提問閘只判「寫碼類題目有沒有寫節點編號」；AI 問人時沒附推薦、只引用節點原文不認、還沒讀過部位檔就問改法，都沒有規則，擋訊息也沒有規則名。
 - **做法**：`hooks/wg_release_rules.py` 三條規則 `ASK_NEEDS_RECOMMENDATION`（每一題至少一個選項標 `(Recommended)` 或題目含「建議：」，不分有沒有樹；【收尾放行確認】固定兩選項豁免）、`ASK_LINKED_TO_GOAL`（節點編號或節點原文連續 8 字以上；寫碼類沒指到擋、知識類只提示、沒樹審計記「提問未掛目標（知識類）」）、`ASK_OVERVIEW_BEFORE_DECISION`（問改法而 OverviewHub 的 part_files_read 全空 → 多一句「先讀過部位檔再問」，不單獨擋）；`wg_need_goal_points._judge_ask` 只蒐集事實、把所有句子併成一則擋訊息或提示，`ask_audit` 加 note、新事件 `ask_no_recommendation`；`session_start` 兩句問句指示改帶 `(Recommended)`。TECH §7.7（新列「問使用者之前」）、§7.8；need-goal 契約。

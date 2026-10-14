@@ -1101,6 +1101,71 @@ def test_goal_case_files_in_cmd_quoted_path_with_space():
     assert not rr.green_clears_red('pytest "my tests/test_a.py"', "pytest tests/test_a.py", "C:/p", "C:/p")
 
 
+# ─── C-G0：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES／EDITED_PART_NEEDS_GOAL_NODE ───
+
+_CG0_NODE = "共用字典不再被兩邊改"
+_CG0_TWO = "候選 A 邏輯層；候選 B 存檔時序；選 A 因為字典只在邏輯層被寫"
+
+
+@pytest.mark.parametrize("root, goal, owed, want", [
+    (_CG0_TWO, "T1.1（共用字典的唯一寫入點）", False, ""),
+    ("第一根因 共用字典被兩邊改，第二根因 存檔時序；先修第一個因為第二個是它的結果", "T1.1（唯一寫入點）", False, ""),
+    ("根因在邏輯層；第二個不存在，因為只有這一處寫入", "T1.1（唯一寫入點）", False, ""),
+    ("候選 A 邏輯層；候選 B 不存在因為資料層只讀", "T1.1（唯一寫入點）", False, ""),
+    ("候選一 邏輯層；候選二 資料層；理由：資料層只讀", "T1.1 (唯一寫入點)", False, ""),
+    ("候選 A 邏輯層，候選 B 資料層，選 A 因為只有邏輯層寫", "T1.1（唯一寫入點）", False, ""),        # 逗號分隔
+    ("候選 A 快取；候選 B 時序；選 A 因為比候選 B 好重現", "T1.1（唯一寫入點）", False, ""),        # 理由裡提到候選
+    ("候選 A 無鎖競爭；候選 B 沒有重試；選 A 因為只有它重現", "T1.1（唯一寫入點）", False, ""),    # 描述以「無／沒有」開頭不是不存在
+    # codex BLOCK：括號外的角色、零候選只寫第二個不存在、候選描述自己的「原因」不是選擇理由
+    ("候選 A 快取；候選 B 時序；選 A 因為可重現", "T1.1 —— 負責同步畫面", True, "角色"),
+    ("第二個不存在因為目前只有這條線索", "T1.1（負責同步畫面）", True, "只辨識出 0 個"),
+    ("候選 A 的原因是快取失效；候選 B 是寫入時序", "T1.1（負責同步畫面）", True, "選擇理由"),
+    ("邏輯層", "T1.1（唯一寫入點）", True, "只辨識出 0 個"),
+    ("候選 A 邏輯層", "T1.1（唯一寫入點）", True, "只辨識出 1 個"),
+    ("候選 A 邏輯層；候選 B 資料層", "T1.1（唯一寫入點）", True, "選擇理由"),
+    ("候選 A 根因為邏輯層；候選 B 根因為資料層", "T1.1（唯一寫入點）", True, "選擇理由"),   # 「根因為」不是理由
+    ("根因在邏輯層；第二根因不存在", "T1.1（唯一寫入點）", True, "只辨識出 0 個"),          # 不存在沒寫為什麼
+    (_CG0_TWO, "T1.1", True, "角色"),
+    (_CG0_TWO, "T1.1（）", True, "角色"),
+    (_CG0_TWO, "T1.1（這一塊在目標裡的角色）", True, "角色"),
+    (_CG0_TWO, "T1.1（共用字典不再被兩邊改）", True, "照抄"),
+    ("邏輯層", "T1.1", True, "角色"),
+])
+def test_cg0_locate_lines_need_role_and_two_candidates(root, goal, owed, want):
+    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：第四行括號內要有角色（非空、非佔位、非節點原文照抄）；根因層要兩個候選＋
+    選擇理由，或一個候選＋「第二個不存在因為…」。只看結構。"""
+    v = rr.locate_lines_verdict(root, goal, "T1.1", _CG0_NODE)
+    assert v.rule == "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" and v.owed is owed, v
+    assert want in v.why
+    if owed:
+        assert any(e.startswith("定位｜根因層：") for e in v.evidence) and any(e.startswith("定位｜目標：") for e in v.evidence)
+
+
+def test_cg0_locate_lines_both_missing_listed_together():
+    """角色與候選都缺 → 一條擋訊息列兩項（不必擋兩輪才知道）。"""
+    v = rr.locate_lines_verdict("邏輯層", "T1.1", "T1.1", _CG0_NODE)
+    assert v.owed and "角色" in v.why and "候選" in v.why
+
+
+def test_cg0_edited_part_needs_goal_node():
+    """EDITED_PART_NEEDS_GOAL_NODE：改過程式檔的部位要掛到樹裡活著的節點；沒掛的列「<部位>：<改的檔> 沒掛目標」。"""
+    v = rr.edited_part_goal_verdict([("戰鬥", ["C:/p/Game/Battle/A.cs"], "linked"),
+                                     ("UI", ["C:/p/Game/UI/B.cs", "C:/p/Game/UI/C.cs"], "none")])
+    assert v.rule == "EDITED_PART_NEEDS_GOAL_NODE" and v.owed and "1 個" in v.why
+    assert v.evidence[0].startswith("UI：C:/p/Game/UI/B.cs、C:/p/Game/UI/C.cs 沒掛目標")
+    assert not any(e.startswith("戰鬥") for e in v.evidence)
+    dropped = rr.edited_part_goal_verdict([("UI", ["b.cs"], "dropped:T1.2")])
+    assert dropped.owed and "T1.2 已放棄" in dropped.evidence[0]
+    gone = rr.edited_part_goal_verdict([("UI", ["b.cs"], "gone:T7")])
+    assert gone.owed and "T7 不在目前的樹" in gone.evidence[0]
+    assert not rr.edited_part_goal_verdict([("戰鬥", ["a.cs"], "linked")]).owed
+    assert not rr.edited_part_goal_verdict([]).owed
+    line = rr.format_hit("f3", v)
+    assert rr.parse_hits(line) == ["f3"]                                     # 擋次預算單獨計次
+
+
+
+
 # ═══ C-G16（track-c-g16）：提問附推薦、掛目標、全貌先於拍板 ═══
 
 REL_TAG, REL_OPTS = "【收尾放行確認】", ("放行這一回合", "繼續擋，先修好")

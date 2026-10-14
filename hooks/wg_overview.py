@@ -364,6 +364,10 @@ def _tracking_for(root: Path, row: Dict[str, Any]) -> List[Dict[str, Any]]:
         return []
 
 
+# 有需求目標樹時根因層那行的寫法（規則 LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES；導讀卡附樹、沒交第四行的擋訊息共用）
+TWO_CANDIDATES_HINT = "根因層那行寫至少兩個候選與選擇理由（候選 A …；候選 B …；選 A 因為 …），只找到一個就寫「第二個不存在因為 …」"
+
+
 def _goal_block(session_id: str, cfg: Dict[str, Any]) -> str:
     """導讀卡開頭附的目標樹精簡版（有目前的樹才附），讓「目標」與「這一塊的說明」同時在眼前；讀不到只 stderr。"""
     ng = cfg.get("need_goal") if isinstance(cfg.get("need_goal"), dict) else {}
@@ -378,7 +382,7 @@ def _goal_block(session_id: str, cfg: Dict[str, Any]) -> str:
     if not tree:
         return ""
     return (f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，定位三行之後加第四行「{_ng.GOAL_LINE_TEMPLATE}」，"
-            f"節點從下面選）：\n{_ng.render(tree, 'compact', chars=int(ng.get('render_chars') or 1200))}")
+            f"節點從下面選；{TWO_CANDIDATES_HINT}）：\n{_ng.render(tree, 'compact', chars=int(ng.get('render_chars') or 1200))}")
 
 
 def _goal_tree_for(session_id: str, file_path: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -395,8 +399,43 @@ def _goal_linked(rec: Dict[str, Any], tree: Dict[str, Any]) -> bool:
 def _goal_line_problem(tree: Dict[str, Any], value: Optional[str]) -> str:
     import wg_need_goal as _ng
     what = "沒交第四行" if not value else f"第四行「{value}」指的節點不在目前的樹 {tree['id']}（或已放棄）"
-    return (f"定位{what}：這個需求有目標樹，改程式檔時定位三行之後要加「{_ng.GOAL_LINE_TEMPLATE}」，"
+    return (f"定位{what}：這個需求有目標樹，改程式檔時定位三行之後要加「{_ng.GOAL_LINE_TEMPLATE}」（{TWO_CANDIDATES_HINT}），"
             f"節點從目前的樹選：\n{_ng.render(tree, 'compact')}")
+
+
+def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_path: str, config: Dict[str, Any],
+                 parts: Dict[str, Dict[str, Any]]) -> List[str]:
+    """收尾對照（規則 EDITED_PART_NEEDS_GOAL_NODE）前蒐集事實：沒掛目標的部位（parts＝{部位 key: {"files": […]}}），
+    從 transcript 三管道找這個部位最後一組定位四行，照改檔時同一套判法（層、第四行節點、角色與兩個候選）通過就掛上。
+    掃描起點＝state 裡這個部位的 transcript_offset（目標改過就從改的那刻起），沒紀錄從頭。回掛上的部位 key。"""
+    import wg_need_goal as _ng
+    tree = _ng.active_tree(_ng.load(session_id))
+    if not tree or not transcript_path:
+        return []
+    hub = (state or {}).get("overview_hub") or {}
+    linked: List[str] = []
+    for key, info in parts.items():
+        files = info.get("files") or []
+        hit = _lookup_quiet(files[0]) if files else None
+        if not hit or _key(*hit) != key:
+            continue
+        root, row = hit
+        rec = hub.get(key) if isinstance(hub.get(key), dict) else {}
+        template = rec.get("locate_template") or _locate_template(_cfg(config or {}, root))
+        longer = _longer_parts(root, row)
+        for ch in LOCATE_CHANNELS:
+            vals = locate_values(assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch),
+                                 row["part_short"], template, longer)
+            if not vals or _layer_mismatch(row, vals):
+                continue
+            node, problem = _goal_line_check(tree, vals)
+            if node is None or problem:
+                continue
+            _ng.link_part(session_id, key, node, int((state or {}).get("turn_seq", 0)))
+            _log("relink", session_id, part=row["part_short"], node=node, via=ch)
+            linked.append(key)
+            break
+    return linked
 
 
 def on_goal_changed(state: Dict[str, Any], transcript_path: str, turn: int) -> int:
@@ -942,14 +981,50 @@ def _cfg_error_deny(cfg: Dict[str, Any], session_id: str, file_path: str,
     return (msg, msg, False)
 
 
+def _row_layers(row: Dict[str, Any]) -> List[str]:
+    """部位表「層」欄要人在根因層那行指明的層；「單層」與閱讀路徑層號「第 N 層」（程式依路徑推）不算。"""
+    return [x.strip() for x in _LAYER_SPLIT_RE.split(row.get("layer") or "")
+            if x.strip() and x.strip() != "單層" and not LAYER_AXIS_RE.fullmatch(x.strip())]
+
+
 def _layer_mismatch(row: Dict[str, Any], vals: Dict[str, str]) -> Optional[str]:
-    """部位表有「層」欄（單層以外）時，根因層那行必須指明其中一層；都沒提到＝填錯層或沒填層。
-    閱讀路徑層號「第 N 層」由程式依路徑推（量尺的層次軸），不算要人填的層。"""
-    layers = [x.strip() for x in _LAYER_SPLIT_RE.split(row.get("layer") or "")
-              if x.strip() and x.strip() != "單層" and not LAYER_AXIS_RE.fullmatch(x.strip())]
+    """部位表有「層」欄（單層以外）時，根因層那行必須指明其中一層；都沒提到＝填錯層或沒填層。"""
+    layers = _row_layers(row)
     if not layers or any(l in vals.get("根因", "") for l in layers):
         return None
     return f"定位｜根因層 沒有指明這個部位的層（部位表列的層：{'／'.join(layers)}），填錯層或沒填層一律擋"
+
+
+def _longer_parts(root: Path, row: Dict[str, Any]) -> List[str]:
+    """同一張表裡包含這個部位名的更長部位名（UI → UI 設定）：定位行提到它們的那組不算這個部位的（locate_values exclude）。"""
+    me = str(row.get("part_short") or "").lower()
+    return [r["part_short"] for r in _table_rows(root)
+            if r.get("part_short") and r["part_short"].lower() != me and me in r["part_short"].lower()]
+
+
+def _goal_line_check(tree: Dict[str, Any], vals: Dict[str, str]) -> Tuple[Optional[str], Any]:
+    """定位第四行核對（有需求目標樹時）：回 (節點, None) 通過；(None, 問題句) 節點不在樹；
+    (節點, Verdict) 節點在但內容結構不夠（規則 LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES）。"""
+    import wg_need_goal as _ng
+    node = _ng.node_ref(tree, vals.get("目標"))
+    if node is None:
+        return None, _goal_line_problem(tree, vals.get("目標"))
+    v = _rr.locate_lines_verdict(vals.get("根因", ""), vals.get("目標", ""), node,
+                                 str(((tree.get("nodes") or {}).get(node) or {}).get("text") or ""))
+    return node, (v if v.owed else None)
+
+
+def _locate_example(row: Dict[str, Any], tree: Dict[str, Any], node: Optional[str]) -> str:
+    """擋訊息附的範例四行：部位名、這一部位要指明的層、要指的節點都填好，照抄就過結構判定（內容對錯要自己判）。"""
+    layers = _row_layers(row)
+    nid = node or tree["id"]
+    return "\n".join((
+        f"  定位｜部位：{row['part_short']}——<這次改哪個檔、哪一段>",
+        f"  定位｜根因層：候選 A <第一個根因>{f'（{layers[0]}）' if layers else ''}；候選 B <第二個根因>；選 A 因為 <為什麼不是 B>",
+        "  定位｜前例：<卡名>／無",
+        f"  定位｜目標：{nid}（<這一塊替 {nid} 做什麼>）",
+        "  （根因只找到一個：根因層寫「<根因>；第二個不存在因為 <理由>」）",
+    ))
 
 
 def _gitignored(root: Path, file_path: str) -> Optional[bool]:
@@ -1120,10 +1195,11 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
     goal_tree = _goal_tree_for(session_id, file_path, config) if deny_reason is None else None
     if deny_reason is None and (not rec.get("located") or (goal_tree is not None and not _goal_linked(rec, goal_tree))):
         # 三管道各取「最後一組」三行（被擋後補交的那組才是現行）；任一管道那組通過層檢查（與第四行核對）即 located
-        found_ch, bad_layer, bad_goal, text, node = None, None, None, "", None
+        found_ch, bad_layer, bad_goal, bad_content, text, node = None, None, None, None, "", None
+        longer = _longer_parts(root, row)
         for ch in LOCATE_CHANNELS:
             text = assistant_text_after(transcript_path, int(rec.get("transcript_offset", 0)), ch)
-            vals = locate_values(text, row["part_short"], rec.get("locate_template"))
+            vals = locate_values(text, row["part_short"], rec.get("locate_template"), longer)
             if not vals:
                 continue
             bad = _layer_mismatch(row, vals)
@@ -1131,10 +1207,12 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
                 bad_layer = bad
                 continue
             if goal_tree is not None:
-                import wg_need_goal as _ng
-                node = _ng.node_ref(goal_tree, vals.get("目標"))
+                node, why = _goal_line_check(goal_tree, vals)
                 if node is None:
-                    bad_goal = _goal_line_problem(goal_tree, vals.get("目標"))
+                    bad_goal = why
+                    continue
+                if why:
+                    bad_content = (why, node)
                     continue
             found_ch = ch
             break
@@ -1157,6 +1235,14 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             deny_reason = "goal_line"
             import wg_need_goal as _ng
             _ng._guard("locate_blocked", session_id, part=row["part_short"], path=file_path, tree=goal_tree["id"])
+        elif bad_content:
+            v, node = bad_content
+            missing.append(f"{_rr.format_hit('定位', v)}\n  照這個樣子補交一組（角括號換成你對這一塊的判斷）：\n"
+                           + _locate_example(row, goal_tree, node))
+            deny_reason = "locate_content"
+            import wg_need_goal as _ng
+            _ng._guard("locate_blocked", session_id, part=row["part_short"], path=file_path, tree=goal_tree["id"],
+                       rule=v.rule)
         else:
             fourth = "／定位｜目標：<節點編號>（這一塊在目標裡的角色）" if goal_tree is not None else ""
             missing.append(f"還沒交出定位三行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。"
