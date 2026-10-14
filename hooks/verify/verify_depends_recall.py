@@ -161,12 +161,14 @@ def test_post_tool_use_calls_depends_after_hub():
     src = (HOOKS_DIR / "handlers" / "post_tool_use.py").read_text(encoding="utf-8")
     assert src.index("_hub_on_read(") < src.index("on_read_depends(") < src.index("advisories.append(dep_ctx)")
     assert src.index("advisories.append(hub_ctx)") < src.index("advisories.append(dep_ctx)")   # hub 文字先、召回後
-    # 缺口 5：讀檔的兩個分支（導讀卡、Depends 召回）都收 Read、Bash、PowerShell；導讀卡那支另收 Grep（045 規則 GREP_CONTENT_IS_READ），
+    # 缺口 5：所有讀檔分支（條件含 "Read" 的 `if tool_name in (...)`：導讀卡、需求目標讀入範圍、Depends 召回…）都收 Bash 與
+    # PowerShell；不數分支個數（新增讀檔分支不該讓這條紅），只驗每一支的行為。有的另收 Grep（045 規則 GREP_CONTENT_IS_READ），
     # 所以比的是條件裡有哪些工具，不比整行字面
     import re
     read_branches = [m.group(1) for m in re.finditer(r'if tool_name in \(([^)]*)\):', src) if '"Read"' in m.group(1)]
-    assert len(read_branches) == 2, read_branches
-    assert all(all(f'"{t}"' in b for t in ("Read", "Bash", "PowerShell")) for b in read_branches), read_branches
+    assert read_branches, "post_tool_use.py 找不到讀檔分支"
+    missing = [b for b in read_branches if not all(f'"{t}"' in b for t in ("Bash", "PowerShell"))]
+    assert not missing, f"這些讀檔分支沒收 Bash／PowerShell：{missing}"
 
 
 def test_powershell_and_bare_bash_reads_trigger_recall(world):
