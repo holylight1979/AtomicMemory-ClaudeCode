@@ -6860,6 +6860,20 @@
         "A8 實走"
       ],
       "scope": "global"
+    },
+    {
+      "name": "claude-cli在新開終端機不在path-裝在家目錄local-bin要用完整路徑-cli版與vscode擴充版號不同-cp950主控台statusline印unicodeencodeerror",
+      "path": "memory/OS-Windows/claude-cli在新開終端機不在path-裝在家目錄local-bin要用完整路徑-cli版與vscode擴充版號不同-cp950主控台statusline印unicodeencodeerror.md",
+      "triggers": [
+        "claude 不是內部或外部命令",
+        "無法將 claude 字詞辨識",
+        "終端機開 claude",
+        "CLI 版 claude",
+        "statusline UnicodeEncodeError",
+        "claude.exe 在哪",
+        "另開工作目錄跑 claude"
+      ],
+      "scope": "global"
     }
   ]
 }
