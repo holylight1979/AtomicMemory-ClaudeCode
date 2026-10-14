@@ -387,3 +387,4 @@
 | need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 | _AIDocs/_atoms/MemDev/need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號.md | need_goal reconcile, reconcile 拒收, 不在磁碟上, case 證據, pytest 節點 id, 驗證案例證據, evidence kind case | global |  |
 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 | _AIDocs/_atoms/MemDev/收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算.md | 收尾放行確認, MeasureGate, MEASURE_RULER_NOT_RUN, 量尺閘, 放行不算, user_released, AskUserQuestion 放行, 不跑全量 | global |  |
 | 先寫紅案例再分多次edit改同一檔會被重試計數當成反覆修正-fixescalation與deeppostmortem誤觸 | _AIDocs/_atoms/MemDev/先寫紅案例再分多次edit改同一檔會被重試計數當成反覆修正-fixescalation與deeppostmortem誤觸.md | FixEscalation, DeepPostMortem, RETRY_COUNTS_EDITS_SINCE_RED, retry=5, 重複修正, 紅案例先行, 改前紅改後綠, 同檔多次 Edit, 精確修正升級 | global |  |
+| 靜態守門從數個數改成逐項驗行為時-抓取面要涵蓋一般寫法且抓不到就紅-否則失去少一項就紅的保護 | _AIDocs/_atoms/驗證與實證/靜態守門從數個數改成逐項驗行為時-抓取面要涵蓋一般寫法且抓不到就紅-否則失去少一項就紅的保護.md | 靜態守門, 數字守門, regex 抓分支, 逐支驗行為, set 寫法漏抓, 常數漏抓, 突變檢查, codex BLOCK 守門測試, AST 抓取, 少一支就紅 | global |  |
