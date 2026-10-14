@@ -585,11 +585,11 @@ def test_ask_deny_reason_gives_fix_you_can_follow():
 def test_ask_deny_reason_points_to_reload_when_tool_missing():
     """裁定 #23：叫不到 need_goal 工具（MCP 是舊的）的人照擋下訊息走不下去 → 提問閘的擋下訊息（含目標檔損毀）要指路。"""
     make_tree("code")
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
-    assert "Reload Window" in deny
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
+    assert "掛在目標樹哪個節點" in deny and "Reload Window" in deny and hint is None   # 原因要對、是擋不是提示
     ng.goal_path(SID).write_text("{not json", encoding="utf-8")
-    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 4})
-    assert deny and "目標檔壞了" in deny and "Reload Window" in deny
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 4})
+    assert deny and "目標檔壞了" in deny and "Reload Window" in deny and hint is None
 
 
 def test_batch_records_ask_audit_blocked_count_and_linked(world):
