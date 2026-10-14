@@ -2081,23 +2081,14 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     return code_reason, report_reason
 
 
-# ─── 量尺閘 ───────────────────────────────────────────────────────────
-MEASURE_DEFAULTS: Dict[str, Any] = {"enabled": True, "runtime_gate_timeout_s": 2}
-HUB_REL = ".claude/overview-hub.json"
-
-
-def measure_cfg(config: Dict[str, Any]) -> Dict[str, Any]:
-    c = dict(MEASURE_DEFAULTS)
-    sec = (config or {}).get("measure_gate")
-    if isinstance(sec, dict):
-        c.update(sec)
-    return c
-
+# ─── 部位量尺（候選材料）、驗證環境、自寫收據 ─────────────────────────────────
+# 部位表的整把量尺不再是收尾必跑的門檻（該測哪些由 LLM 宣告驗證範圍，見 wg_verify_scope）：這裡留的是對帳 (a)(b) 認「跑了部位量尺」
+# 與背景全量自寫收據的事實，以及驗證範圍閘要用的執行環境就緒檢查（verify_chains[部位].runtime_gate）。
 
 def load_verify_chains(root: Path) -> Dict[str, Dict[str, str]]:
     """合併後設定（hub_config 四層：預設 < config.json overview_hub < 公司根 < 專案根 overview-hub.json，經 wg_overview._cfg）
     的 `verify_chains{part:{runtime_gate,pre,run,collect,cleanup}}`；沒有回 {}。
-    設定有錯（與導讀卡端同一套驗證）→ 拋 ValueError：量尺閘的判定錯誤一律擋（stop._verify_gates），不當作沒設。"""
+    設定有錯（與導讀卡端同一套驗證）→ 拋 ValueError：驗證範圍閘的判定錯誤一律擋（stop._verify_gates），不當作沒設。"""
     from wg_core import load_config
     from wg_overview import _cfg
     c = _cfg(load_config(), Path(root))
@@ -2143,25 +2134,6 @@ def measure_cmds_of(own_mod_files: List[Dict[str, Any]],
     return out
 
 
-ROOT_WT_SENTINEL = "PYTEST_MEASURE"      # 根層 worktree 認的尺：pytest 摘要行映射的 DONE 哨兵（config verify_ledger.sentinel_regex）
-
-
-def is_root_worktree(root: Path, claude_dir: Path) -> bool:
-    """root 是「根層（~/.claude）的 worktree」；判定本體在 lib/overview_hub.is_root_worktree（卡片目錄解析共用）。
-    委派失敗（載到沒有這支的舊版 overview_hub 等）→ stderr 說一聲並回 False：量尺照根層規則要全量，閘保持擋。"""
-    lib_dir = str(Path(__file__).resolve().parents[1] / "lib")
-    if lib_dir not in sys.path:
-        sys.path.insert(0, lib_dir)
-    try:
-        from overview_hub import is_root_worktree as _impl
-        return bool(_impl(root, claude_dir))
-    except Exception as e:  # noqa: BLE001
-        msg = " ".join(str(e).split())   # 多行例外壓成一行
-        print(f"[verify_ledger] is_root_worktree 委派失敗：{type(e).__name__}: {msg}；當成非 worktree（量尺照根層規則要全量）",
-              file=sys.stderr)
-        return False
-
-
 def load_self_runs() -> List[Dict[str, Any]]:
     """run_verify 自寫的驗證收據（<CLAUDE_DIR>/workflow/verify-ledger/_runs/，格式在 lib/self_receipt.py；讀不動會浮 stderr）。"""
     return _self_receipt.load_self_receipts(CLAUDE_DIR)
@@ -2193,19 +2165,6 @@ def self_run_ok(runs: Iterable[Dict[str, Any]], cmd: str, root: str, edit_at: st
         if _root_ok(r, root):
             return True
     return False
-
-
-def _self_run_scope_env(runs: Iterable[Dict[str, Any]], cmd: str, root: str) -> List[str]:
-    """argv 對上這把量尺、但記下的環境縮小了驗證範圍的自寫收據 → 那些變數名（給量尺閘說最近那份為什麼不算）。"""
-    names: List[str] = []
-    for r in runs or []:
-        argv = r.get("argv") if isinstance(r, dict) else None
-        if not isinstance(r, dict) or not isinstance(r.get("env"), dict) or not cmd_matches(
-                cmd, argv if isinstance(argv, list) and argv else str(r.get("cmd", "")),
-                root=str(r.get("project_root") or ""), measure_root=str(root or "")):
-            continue
-        names += [n for n in _self_receipt.scope_env(r["env"].items()) if n not in names]
-    return names
 
 
 def measure_parts(own_mod_files: List[Dict[str, Any]],
@@ -2248,118 +2207,205 @@ def self_run_covered(parts: Dict[str, Dict[str, Any]], runs: Iterable[Dict[str, 
     return out
 
 
-def measure_gate_reason(own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]], turn_seq: int,
-                        lookup: Callable[[str], Optional[Tuple[Path, Dict[str, Any]]]], cfg: Dict[str, Any],
-                        chains_of: Callable[[Path], Dict[str, Dict[str, str]]] = load_verify_chains,
-                        runner: Callable[[str, float, Optional[str]], Tuple[bool, str]] = run_runtime_gate,
-                        self_runs: Optional[Callable[[], List[Dict[str, Any]]]] = None,
-                        ) -> Tuple[Optional[str], List[str]]:
-    """改到的部位有量尺 → 先 runtime_gate（量不了就擋並說原因）→ 找「該部位最後一次修改之後」（比 at，沒有比序號，再沒有比 turn）、
-    同 root、exit 0／None 且 failed=0 的 DONE 且 cmd 跑了量尺指令，沒有→擋。回 (擋訊息或 None, 沒量尺的部位名清單＝提醒補)。
-    不看收尾措辭：改到有量尺的部位，每次 Stop 都判（stop._verify_gates）。
-    小修也要重跑尺：同 turn 再改一行，之前的 DONE 就在修改之前、不算；尺太重的部位把量尺改成子集指令（表上那格）。
-    根層 worktree（is_root_worktree(root, CLAUDE_DIR)）：工作 session 不跑全量，該部位的尺改認「同 root 下、修改之後、
-    exit 0 且 failed=0 的 pytest DONE 收據（哨兵 PYTEST_MEASURE）」；live 根層（root == CLAUDE_DIR）與非根層專案行為不變。
-    非根層 worktree 的部位除了 session 帳本，也認 run_verify 自寫收據（self_run_ok；長跑的尺只能背景跑，帳本看不到結尾哨兵）。"""
-    parts = measure_parts(own_mod_files, lookup)
-    _runs: List[List[Dict[str, Any]]] = []          # 自寫收據只在需要時讀一次
-    blocks: List[str] = []
-    no_measure: List[str] = []
-    timeout = float(cfg.get("runtime_gate_timeout_s", 2))
-    for rec in parts.values():
-        row, root = rec["row"], rec["root"]
-        measure = row.get("measure") or {}
-        cmd = str(measure.get("cmd") or "").strip()
-        part = row.get("part_short") or row.get("part") or "?"
-        if not cmd:
-            no_measure.append(part)
-            continue
-        root_wt = is_root_worktree(root, CLAUDE_DIR)
-        bad_ruler = None if root_wt else unsupported_syntax(cmd)
-        if bad_ruler:             # 表上的尺本身就解析不了：任何收據都對不上，要改的是表
-            blocks.append(f"部位【{part}】表上的量尺 `{cmd}` 含解析不了的語法（{bad_ruler}），任何收據都對不上；"
-                          "把 .claude/overview-map.md 這格改成白名單語法（單一指令或 && 串接、引號、重導向），"
-                          "改不了就照【收尾放行確認】問使用者。")
-            continue
-        pick = {"sentinel_name": ROOT_WT_SENTINEL, "final_prog": "pytest"} if root_wt else {"cmd_contains": cmd}
-        ok_done = done_receipts(receipts, min_turn=rec["edit_turn"], min_at=rec["edit_at"] or None,
-                                min_seq=rec["edit_seq"], root=str(root), **pick)
-        if not root_wt:           # 量尺也只涵蓋執行根之下的改檔：`cd 部位根/tests && 量尺` 不替部位根其他改檔解帳
-            ok_done = [r for r in ok_done if all(_in_exec_root(r, p) for p in rec["files"])]
-        if ok_done:
-            continue
-        if not root_wt:
-            if not _runs:
-                _runs.append((self_runs or load_self_runs)() or [])
-            if self_run_ok(_runs[0], cmd, str(root), rec["edit_at"], rec["edit_turn"]):
-                continue
-        # 已有合格收據的部位不探環境（上面 continue 掉了）；還欠收據才跑 runtime_gate，量不了就說環境原因
-        chain = (chains_of(root) or {}).get(part) or {}
-        gate = str(chain.get("runtime_gate") or "").strip()
-        if gate:
-            ok, why = runner(gate, timeout, str(root))
-            if not ok:
-                blocks.append(f"部位【{part}】有量尺（{measure.get('method') or cmd}）但執行環境未就緒：{why}。"
-                              f"讓環境就緒後跑 `{cmd}`；現在量不了，就照【收尾放行確認】問使用者（題目寫明量不了的原因）。")
-                continue
-        ruler = (f"根層 worktree：認目標 verify 的 pytest DONE，不要求全量（{root} 下、exit 0、failed=0、"
-                 f"哨兵 {ROOT_WT_SENTINEL}，表上的尺 `{cmd}` 不是這裡的門檻）")
-        rerun = (f"在 worktree 根 `{root}` 直接跑目標 verify `python -X utf8 -m pytest -q <hooks/verify/...>`"
-                 f"（不含 cd；尾行 `N passed` 會映射成 {ROOT_WT_SENTINEL} DONE）")
-        any_done = done_receipts(receipts, require_ok=False, **pick)
-        if any_done:
-            last = any_done[-1]
-            failed = next(((s.get("kv") or {}).get("failed") for s in last.get("sentinels") or []
-                           if isinstance(s, dict) and (s.get("kv") or {}).get("failed") is not None), None)
-            if _env_of(last) is None:
-                why = ("最近一次跑尺的收據沒記啟動環境（升級前落的帳），看不出父行程有沒有把驗證範圍縮小（PYTEST_ADDOPTS 等）；"
-                       "請重跑一次")
-            elif _trusted(last) is None:
-                why = "最近一次跑尺的指令含 cd（只有開頭 `cd <絕對路徑> &&` 認得出根），無法確認量測目標；請在專案根直接跑尺"
-            elif last.get("exit_code") not in (None, 0) or (failed is not None and str(failed) != "0"):
-                why = f"最近一次跑尺 exit={last.get('exit_code')} failed={failed}，尺沒過"
-            elif not _root_match(last, str(root)):
-                why = f"最近一次跑尺的 cwd／project_root（{last.get('project_root') or last.get('cwd')}）不是這個部位的 root"
-            elif not root_wt and not all(_in_exec_root(last, p) for p in rec["files"]):
-                why = (f"最近一次跑尺的執行根是 {_cwd_of(last)}，只涵蓋那之下的改檔"
-                       f"（{next(p for p in rec['files'] if not _in_exec_root(last, p))} 不在裡面）；請在部位根 {root} 跑尺")
-            else:
-                why = "最近一次跑尺在這個部位最後一次修改之前（先量後改不算）"
-            if root_wt:
-                blocks.append(f"部位【{part}】有量尺{ruler}，{why}。改完再跑一次 {rerun} 再收尾。")
-            else:
-                blocks.append(f"部位【{part}】有量尺「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」，{why}。"
-                              f"改完再跑一次 `{cmd}`（尾行 `<NAME> DONE` 或 `<NAME>_CHECK DONE`，exit 0、failed=0）再收尾。")
-        elif root_wt:
-            blocks.append(f"部位【{part}】有量尺{ruler}，"
-                          f"改了 {len(rec['files'])} 個檔（最後在 turn {rec['edit_turn']}）但之後沒有這把尺的 DONE 收據。"
-                          f"跑 {rerun} 再收尾。")
-        else:
-            blocks.append(f"部位【{part}】有量尺「{measure.get('method') or ''}｜`{cmd}`｜{measure.get('threshold') or ''}」，"
-                          f"改了 {len(rec['files'])} 個檔（最後在 turn {rec['edit_turn']}）但之後沒有這把尺的 DONE 收據。"
-                          f"跑 `{cmd}`（尾行要印 `<NAME> DONE` 或 `<NAME>_CHECK DONE`）再收尾。")
-        env_runs = [] if root_wt else _self_run_scope_env(_runs[0], cmd, str(root))
-        if env_runs:
-            blocks[-1] += f"run_verify 自寫收據對上了這把尺，但跑的時候{_scope_env_why([(n, '', '') for n in env_runs])}"
-    reason = None
-    if blocks:
-        reason = ("[Guardian:MeasureGate] 改到有量尺的部位，收尾前要跑過那把尺：\n"
-                  + "\n".join("  " + format_hit("m", Verdict("MEASURE_RULER_NOT_RUN", True, b.split("。", 1)[0],
-                                                             tuple(x for x in b.split("。", 1)[1:] if x.strip())))
-                              for b in blocks)
-                  + "\n  要補的證據就是上面那把尺的收據；跑不了就照【收尾放行確認】問使用者，改寫收尾文字不會解帳。")
-        if any("run_verify.py" in str((r["row"].get("measure") or {}).get("cmd") or "") for r in parts.values()):
-            reason += ("\n  run_verify 跑超過 10 分鐘就背景跑：它跑完會自寫收據到 workflow/verify-ledger/_runs/，"
-                       "改完之後才開始跑、exit 0、failed=0、同一棵樹就認得到（收據不准手寫）。")
-        note = _syntax_note(receipts, "DONE", [str((r["row"].get("measure") or {}).get("cmd") or "") for r in parts.values()])
-        if note:
-            reason += "\n  " + note
-    return reason, no_measure
+# ─── 驗證範圍：收據跑了哪些、對不對得上宣告的一項（判定在 wg_release_rules.SCOPE_ITEM_RECEIPT_AFTER_EDIT） ───
+_PY_RE = re.compile(r"^python(?:\d+(?:\.\d+)*)?w?(?:\.exe)?$", re.IGNORECASE)
+_PY_VALUE_OPTS = frozenset({"-X", "-W"})                     # 直譯器帶值的選項
+_VALUE_OPTS = frozenset({"-k", "-m", "-p", "-o", "-n", "-c", "-r", "-W", "-t", "-e", "--tb", "--rootdir", "--basetemp",
+                         "--maxfail", "--deselect", "--ignore", "--ignore-glob", "--confcutdir", "--durations",
+                         "--junitxml", "--testNamePattern", "--grep"})          # 測試工具帶值的選項（值不是路徑目標）
+_NARROW_OPTS = frozenset({"-k", "-m", "-t", "--deselect", "--lf", "--last-failed", "--sw", "--stepwise", "--ignore",
+                          "--ignore-glob", "--co", "--collect-only", "--testNamePattern", "--grep"})   # 只跑一部分
 
 
-def measure_advisory(parts_without: Iterable[str]) -> Optional[str]:
-    names = sorted({p for p in parts_without if p})
-    if not names:
+def _abs_target(base: str, word: str) -> str:
+    """指令裡的路徑字（可帶 ::節點）→ 正規化絕對路徑（照 base 解相對路徑；節點段原樣接回）。"""
+    f, sep, node = str(word).partition("::")
+    p = f if (os.path.isabs(f) or re.match(r"^[A-Za-z]:[\\/]", f)) else os.path.join(base or "", f)
+    return canon_path(p) + (sep + node.lower() if sep else "")
+
+
+def _step_targets(st: Any, base: str) -> Tuple[List[str], bool]:
+    """一段跑程式的指令點名了哪些路徑（python 直譯器選項、`-m 模組` 的模組名、帶值選項的值都不算），有沒有只跑一部分的選項。"""
+    words = list(st.words)
+    if not words:
+        return [], False
+    out: List[str] = []
+    i = 1
+    if _PY_RE.match(Path(words[0].replace("\\", "/")).name):
+        while i < len(words) and words[i].startswith("-") and words[i] not in ("-m", "-c"):
+            i += 2 if words[i] in _PY_VALUE_OPTS else 1
+        if i < len(words) and words[i] == "-c":
+            return [], False                                  # 內嵌碼沒有路徑目標
+        if i < len(words) and words[i] == "-m":
+            i += 2
+    elif "/" in words[0] or "\\" in words[0]:
+        out.append(_abs_target(base, words[0]))               # 程式本身寫成路徑（./verify.sh）
+    narrowed, skip = False, False
+    for w in words[i:]:
+        if skip:
+            skip = False
+            continue
+        if w.startswith("-"):
+            name = w.split("=", 1)[0]
+            narrowed = narrowed or name in _NARROW_OPTS
+            skip = "=" not in w and name in _VALUE_OPTS
+            continue
+        out.append(_abs_target(base, w))
+    return out, narrowed
+
+
+def run_targets(receipt: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """收據實際跑了什麼：{whole: 整體驗證（涵蓋執行根之下全部）, base: 執行根, paths: 點名的絕對路徑（可帶 ::節點）,
+    narrowed: 有只跑一部分的選項}。指令不完整、根不可信（換目錄）、不能當一般證據（白名單外語法、環境縮範圍、寫了哨兵字樣、
+    指到別棵樹）→ None。"""
+    r = _trusted(receipt)
+    if r is None or not _clean(r):
         return None
-    return ("[Guardian:MeasureGate] 改到的部位沒有量尺欄：" + "、".join(names)
-            + "。在 .claude/overview-map.md 的「量尺（量法｜指令｜門檻）」欄補一把尺，收尾才有東西可對。")
+    base = _cwd_of(r)
+    if _whole_run(r):
+        return {"whole": True, "base": base, "paths": [], "narrowed": False}
+    paths: List[str] = []
+    narrowed = False
+    for st in _self_receipt.evidence_steps(str(r.get("cmd") or ""), _shell_of(r), _env_of(r)) or []:
+        p, n = _step_targets(st, base)
+        paths += [x for x in p if x not in paths]
+        narrowed = narrowed or n
+    return {"whole": False, "base": base, "paths": paths, "narrowed": narrowed}
+
+
+def receipt_is_red(receipt: Dict[str, Any]) -> bool:
+    """一輪跑紅：有 FAIL 哨兵、exit 不是 0（沒記 exit 不算）、或哨兵帶 failed=<k> 且 k 不是 0。"""
+    return ("FAIL" in _verdicts(receipt) or receipt.get("exit_code") not in (None, 0) or not _failed_kv_ok(receipt))
+
+
+def _scope_green(receipt: Dict[str, Any]) -> bool:
+    """驗證範圍認的綠：不是暫存目錄的收據、有 PASS 或 DONE、沒跑紅。"""
+    v = _verdicts(receipt)
+    return not _temp_receipt(receipt) and ("PASS" in v or "DONE" in v) and not receipt_is_red(receipt)
+
+
+def _exec_dir(receipt: Dict[str, Any]) -> str:
+    """收據實際從哪個目錄跑（開頭 `cd <絕對路徑> &&` 換過的算換過之後）。"""
+    return _cwd_of(_trusted(receipt) or receipt)
+
+
+def _same_exec_dir(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
+    """指令項目要在宣告時的目錄跑：同一條 `pytest -q` 換到子目錄跑的是另一組。宣告或收據沒記目錄 → 不比。"""
+    base, ran = _norm_path(str(item.get("base") or "")), _norm_path(_exec_dir(receipt))
+    return not base or not ran or base == ran
+
+
+def _item_ran(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
+    """收據跑了宣告的這一項（不看先後與紅綠）。指令項目照原字串比（_ruler_ran）且同一棵樹；路徑項目看 run_targets。"""
+    if item.get("kind") == "cmd":
+        trusted = _trusted(receipt)                           # 只有開頭 `cd <絕對路徑> &&` 認得出根；其他換目錄看不出跑在哪
+        return (trusted is not None and _ruler_ran(str(item.get("target") or ""), receipt, str(item.get("base") or ""))
+                and _root_ok(trusted, item.get("root")) and _same_exec_dir(item, receipt))
+    t = run_targets(receipt)
+    if t is None:
+        return False
+    tf, _, tn = str(item.get("abs") or "").partition("::")
+    if t["whole"]:
+        return _under(tf, t["base"])
+    for p in t["paths"]:
+        pf, _, pn = p.partition("::")
+        if pn:
+            if tn and pf == tf and (tn == pn or tn.startswith(pn + "::") or tn.startswith(pn + "[")):
+                return True                                   # 點名節點（或它的上層節點）
+            continue
+        if not t["narrowed"] and _under(tf, pf):
+            return True                                       # 跑了該檔、它所在的資料夾
+    return False
+
+
+def self_run_targets(run: Dict[str, Any]) -> List[str]:
+    """自寫收據（run_verify／根 conftest）跑了哪些路徑：argv 點名、存在的路徑（照收據 cwd 解成正規化絕對路徑）；
+    沒點名（`python run_verify.py` 整體）回 []＝受測樹全部。"""
+    argv = run.get("argv") if isinstance(run.get("argv"), list) else []
+    cwd = str(run.get("cwd") or run.get("project_root") or "")
+    out: List[str] = []
+    for w in [str(x) for x in argv[1:]]:
+        if w.startswith("-") or Path(w.replace("\\", "/")).name.lower() in ("run_verify.py", "pytest", "utf8"):
+            continue
+        p = w if (os.path.isabs(w) or re.match(r"^[A-Za-z]:[\\/]", w)) else os.path.join(cwd, w)
+        if os.path.exists(p) and canon_path(p) not in out:
+            out.append(canon_path(p))
+    return out
+
+
+def _self_run_item_ok(item: Dict[str, Any], run: Dict[str, Any], mods: List[Dict[str, Any]]) -> bool:
+    """背景跑的自寫收據算不算這一項：全綠（exit 0、failed=0）、記了環境且沒縮範圍、改完之後才開始跑、同一棵樹，
+    而且跑的是這一項（指令項目 argv 照原字串比；路徑項目在它點名的路徑之下，沒點名＝整棵樹）。不綁 session。"""
+    if not isinstance(run, dict) or run.get("exit_code") != 0 or str(run.get("failed")) != "0":
+        return False
+    if not isinstance(run.get("env"), dict) or _self_receipt.scope_env(run["env"].items()):
+        return False
+    if not all(_receipt_after({"at": run.get("started_at") or ""}, (m.get("last_at") or m.get("at")) or None, None,
+                              int(m.get("last_turn_seq", m.get("turn_seq", 0)) or 0)) for m in mods):
+        return False
+    if not _root_ok(run, item.get("root")):
+        return False
+    if item.get("kind") == "cmd":
+        argv = run.get("argv")
+        return cmd_matches(str(item.get("target") or ""), argv if isinstance(argv, list) and argv else str(run.get("cmd", "")),
+                           root=str(run.get("project_root") or ""), measure_root=str(item.get("base") or ""))
+    tf = str(item.get("abs") or "").partition("::")[0]
+    targets = self_run_targets(run)
+    return any(_under(tf, t) for t in targets) if targets else _under(tf, str(run.get("project_root") or ""))
+
+
+def _scope_after(receipt: Dict[str, Any], mod: Dict[str, Any]) -> bool:
+    """收據在這個改檔最後一次修改之後：比 at，同秒比序號，都沒有比 turn（修改紀錄連 turn 都沒有才不比）。"""
+    turn = mod.get("last_turn_seq", mod.get("turn_seq"))
+    return _receipt_after(receipt, mod.get("last_at") or mod.get("at") or None, mod.get("last_seq"),
+                          int(turn) if turn is not None else -1)
+
+
+def _mentions(item: Dict[str, Any], receipt: Dict[str, Any]) -> bool:
+    """收據指令字面上提到這一項（給「為什麼不算」的說明挑收據用，不是判定）。"""
+    raw = str(receipt.get("cmd") or "").replace("\\", "/").lower()
+    if item.get("kind") == "cmd":
+        return True
+    name = Path(str(item.get("abs") or "").partition("::")[0]).name.lower()
+    return bool(name) and name in raw
+
+
+def scope_item_status(item: Dict[str, Any], receipts: Iterable[Dict[str, Any]],
+                      mods: Iterable[Dict[str, Any]], self_runs: Iterable[Dict[str, Any]] = ()) -> Tuple[bool, str]:
+    """宣告的一項有沒有合格收據：跑了這一項、綠、晚於每個要宣告的改檔最後一次修改（session 收據，或背景跑的自寫收據）。
+    回 (有沒有, 沒有時的理由)。"""
+    mods = list(mods or [])
+    receipts = [r for r in receipts or [] if isinstance(r, dict)]
+    hits = [r for r in receipts if _item_ran(item, r)]
+    for r in hits:
+        if _scope_green(r) and all(_scope_after(r, m) for m in mods):
+            return True, ""
+    self_runs = [run for run in self_runs or [] if isinstance(run, dict)]
+    if any(_self_run_item_ok(item, run, mods) for run in self_runs):
+        return True, ""
+    narrowed = [n for run in self_runs if isinstance(run.get("env"), dict) and _self_run_item_ok(item, {**run, "env": {}}, mods)
+                for n in _self_receipt.scope_env(run["env"].items())]
+    env_note = (f"。背景跑的自寫收據對上了這一項，但跑的時候{_scope_env_why([(n, '', '') for n in dict.fromkeys(narrowed)])}"
+                if narrowed else "")
+    if not hits:
+        near = [r for r in receipts if _mentions(item, r)]
+        rulers = [str(item.get("target") or "")] if item.get("kind") == "cmd" else []
+        ran = [r for r in near if rulers and _ruler_ran(rulers[0], r, str(item.get("base") or ""))]
+        if any(_trusted(r) is None for r in ran):
+            note = ("指令含 cd：前面只准 `cd <絕對路徑> &&`（才認得出根），其他換目錄看不出跑在哪，不算；"
+                    "請在宣告時的目錄直接跑")
+        elif any(not _same_exec_dir(item, r) for r in ran):
+            moved = [r for r in ran if not _same_exec_dir(item, r)]
+            note = (f"執行根是 {_exec_dir(moved[-1]).replace(chr(92), '/')}，宣告時在 "
+                    f"{str(item.get('base') or '').replace(chr(92), '/')}：同一條指令換了目錄跑的是另一組，請在宣告時的目錄跑")
+        else:
+            note = _syntax_note(near, "DONE", rulers) or _syntax_note(near, "PASS", rulers)
+        return False, ("沒有跑這一項的收據（只跑一部分如 -k、指令換目錄、環境縮範圍、白名單外語法、在別棵樹跑的都不算；"
+                       "背景跑的要等它寫完自寫收據）" + (f"。{note}" if note else "") + env_note)
+    last = hits[-1]
+    if not _scope_green(last):
+        return False, f"最近一次跑紅（exit={last.get('exit_code')}，結論 {'、'.join(_verdicts(last)) or '無哨兵'}）" + env_note
+    stale = next((m for m in mods if not _scope_after(last, m)), None)
+    name = Path(str((stale or {}).get("path") or "")).name or "改檔"
+    return False, f"最近一次跑在最後一次改動（{name}）之前：改完要重跑" + env_note
+

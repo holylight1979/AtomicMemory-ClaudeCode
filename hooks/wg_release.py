@@ -9,7 +9,7 @@
   「最後一次擋」的位置＝擋那一刻的 transcript 位元組長度＋當時的 turn_prompts 快照（mark_block 記）。
   擋滿記 pending_release，跨回合承接：換回合不重給預算，直到使用者放行或查核通過。
   無法互動（non_interactive_reason：裁判子 session、子代理、headless／SDK）→ 不叫它問，擋到底（non_interactive_message）。
-  只用在寫程式碼的查核閘（ReconcileGate／MeasureGate）；其他閘照舊。
+  只用在寫程式碼的查核閘（ReconcileGate／VerifyScope）；其他閘照舊。
 怎麼跑：被 handlers/stop.py 匯入；verify 在 hooks/verify/verify_stop_reconcile.py（件一段）。
 """
 from __future__ import annotations

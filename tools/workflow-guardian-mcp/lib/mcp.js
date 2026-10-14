@@ -489,12 +489,15 @@ const TOOL_DEFINITIONS = [
       "寫碼類的達成至少一筆沒紅的收據或讀碼級驗證案例（只有檔案／卡片／推論不算試過），" +
       "實測只能配收據 R<號> 且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note）；" +
       "read＝把目前的樹送回眼前（form=handoff 取續接單區塊）。樹根與節點用使用者的語言、只寫目標不寫手段。" +
+      "verify_scope＝宣告這次的驗證範圍：改了程式之後由你判斷哪些測試和這次改動有關聯、哪些地方會受影響，" +
+      "items=[{target, why}]（target 是測試檔、測試節點 檔::名、資料夾或指令；why 一句為什麼相關）；每次宣告是完整範圍，" +
+      "收尾前範圍內每一項都要在最後一次改動之後跑綠（部位表整把量尺只當參考）；有待檢討的範圍漏判時附 reviews 逐筆檢討。" +
       "寫碼類任務沒有樹不能改程式；改了程式要回頭對照；宣告完成、交收尾檢核、commit 前要有完整對照。" +
       "本 tool 只驗參數回 chip、不寫檔（one-writer：目標檔、編號、送回的樹由 Python PostToolUse 獨佔）。",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["set", "add", "update", "reconcile", "read"], description: "動作（必填）" },
+        action: { type: "string", enum: ["set", "add", "update", "reconcile", "read", "verify_scope"], description: "動作（必填）" },
         goal: { type: "string", description: "set：一句、使用者的語言、只寫目標不寫手段（沒給 import_from 時必填）" },
         new_task: { type: "boolean", description: "set：換題，開新樹" },
         why: { type: "string", description: "set：改寫樹根時必填，為什麼改" },
@@ -503,17 +506,18 @@ const TOOL_DEFINITIONS = [
         items: {
           type: "array",
           description: "add：[{text, clarity?, origin?}]；update：[{id, text?, status?, clarity?, why}]；" +
-            "reconcile：[{id, status, evidence?, followup?, note?}]",
+            "reconcile：[{id, status, evidence?, followup?, note?}]；verify_scope：[{target, why}]",
           items: {
             type: "object",
             properties: {
+              target: { type: "string", description: "verify_scope：要驗的測試檔、測試節點（檔::名）、資料夾或指令" },
               id: { type: "string", description: "update／reconcile：節點編號" },
               text: { type: "string", description: "add／update：目標文字" },
               status: { type: "string", enum: ["todo", "doing", "done", "partial", "none", "dropped"],
                 description: "update：任一狀態；reconcile：只收終點 done|partial|none|dropped" },
               clarity: { type: "string", enum: ["clear", "open"], description: "明確／待展開" },
               origin: { type: "string", enum: ["user", "inferred", "grown"], description: "add：使用者說的／推出來的／工作中長出的（預設 grown）" },
-              why: { type: "string", description: "update 必填：這次改動讓它更接近了沒、為什麼" },
+              why: { type: "string", description: "update 必填：這次改動讓它更接近了沒、為什麼；verify_scope 必填：為什麼和這次改動有關、會受什麼影響" },
               evidence: {
                 type: "array",
                 description: "reconcile：證據",
@@ -531,6 +535,21 @@ const TOOL_DEFINITIONS = [
               followup: { type: "string", description: "reconcile：部分／沒有時接下來要追什麼" },
               note: { type: "string", description: "reconcile：附註（放棄的理由寫這裡）" },
             },
+          },
+        },
+        reviews: {
+          type: "array",
+          description: "verify_scope：待檢討的範圍漏判逐筆檢討（有待檢討的才要給）",
+          items: {
+            type: "object",
+            properties: {
+              leak: { type: "string", description: "範圍漏判編號 L…" },
+              verdict: { type: "string", enum: ["missed", "unrelated"], description: "missed＝該驗的沒驗到；unrelated＝與那次改動無關" },
+              root_cause: { type: "string", description: "missed 必填：沒驗到的根因（當初判斷範圍時漏看了什麼、為什麼漏看）" },
+              next_time: { type: "string", description: "missed 必填：下次判斷範圍時要怎麼改" },
+              reason: { type: "string", description: "unrelated 必填：查明的理由" },
+            },
+            required: ["leak", "verdict"],
           },
         },
         turns: { type: "integer", description: "reconcile：這次拐了幾個彎（選填）" },

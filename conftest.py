@@ -111,7 +111,7 @@ def _write_suite_receipt(r: Dict[str, Any]) -> None:
         sentinel = f"{r['suite'].replace('/', '_').upper()}_CHECK {verdict} cases={r['cases']} failed={r['failed']}"
         argv = list(getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv])
         sr.write_self_receipt(data_root, argv, sentinel, r["exit_code"], r["cases"], r["failed"],
-                              r["cwd"], str(TREE), r["started"], time.time())
+                              r["cwd"], str(TREE), r["started"], time.time(), failed_cases=r.get("failed_cases"))
     except Exception as e:  # noqa: BLE001
         print(f"[conftest] 自寫驗證收據失敗：{type(e).__name__}: {e}", file=sys.stderr)
 
@@ -183,6 +183,8 @@ def pytest_deselected(items):
 def pytest_runtest_logreport(report):
     if report.when == "teardown":
         SESSION["finished"] += 1                        # 每個案最後都有 teardown（setup 就跳過的也有）
+    if report.failed and report.nodeid not in SESSION.setdefault("failed_cases", []):
+        SESSION["failed_cases"].append(report.nodeid)   # 收據記紅掉的測試名（驗證範圍拿去找範圍漏判）
 
 
 def _narrowed(session) -> bool:
@@ -203,7 +205,8 @@ def pytest_sessionfinish(session, exitstatus):
     suite = next((s for s in SUITES if targets == {_n(TREE / s)}), None)
     if suite and not _narrowed(session):
         SESSION["receipt"] = {"suite": suite, "exit_code": int(exitstatus), "cases": session.testscollected,
-                              "failed": session.testsfailed, "cwd": str(inv_dir), "started": SESSION["started"]}
+                              "failed": session.testsfailed, "cwd": str(inv_dir), "started": SESSION["started"],
+                              "failed_cases": list(SESSION.get("failed_cases") or [])}
 
 
 def pytest_unconfigure(config):

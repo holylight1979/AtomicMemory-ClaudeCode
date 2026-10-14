@@ -29,7 +29,8 @@ from harness_text import user_typed_text
 from wg_verify_ledger import has_cd, is_code_file, reconcile_cfg
 
 # ─── 列舉值（MIRROR: tools/workflow-guardian-mcp/lib/need-goal.js，兩邊同一組）────────────────
-ACTIONS = ("set", "add", "update", "reconcile", "read")
+ACTIONS = ("set", "add", "update", "reconcile", "read", "verify_scope")
+REVIEW_VERDICTS = ("missed", "unrelated")       # verify_scope 的漏判檢討：該驗的沒驗到／與那次改動無關
 TREE_STATUS = ("doing", "reconciled", "closed")
 NODE_STATUS = ("todo", "doing", "done", "partial", "none", "dropped")
 TERMINAL = ("done", "partial", "none", "dropped")
@@ -577,6 +578,35 @@ def _validate_items(action: str, items: List[Any]) -> List[str]:
     return errs
 
 
+def _validate_verify_scope(inp: Dict[str, Any]) -> List[str]:
+    """verify_scope 的形狀：items 每項 {target, why} 都非空；reviews（選填）每筆 {leak, verdict∈missed|unrelated}。
+    內容（檔在不在、待檢討的漏判有沒有逐筆檢討、該寫的根因有沒有寫）由 wg_verify_scope 收件時照規則判。"""
+    items = inp.get("items")
+    if not isinstance(items, list) or not items:
+        return ["verify_scope 要給 items（非空陣列，每項 {target, why}）"]
+    errs: List[str] = []
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            errs.append(f"items[{i}] 必須是物件")
+            continue
+        if not _s(it.get("target")):
+            errs.append(f"items[{i}].target 必填（測試檔、測試節點、資料夾或指令）")
+        if not _s(it.get("why")):
+            errs.append(f"items[{i}].why 必填（為什麼和這次改動有關、會受什麼影響）")
+    rv = inp.get("reviews")
+    if rv is not None and not isinstance(rv, list):
+        return errs + ["reviews 必須是陣列"]
+    for j, r in enumerate(rv or []):
+        if not isinstance(r, dict):
+            errs.append(f"reviews[{j}] 必須是物件")
+            continue
+        if not _s(r.get("leak")):
+            errs.append(f"reviews[{j}].leak 必填（範圍漏判編號 L…）")
+        if r.get("verdict") not in REVIEW_VERDICTS:
+            errs.append(f"reviews[{j}].verdict 無效（{r.get('verdict')}），允許：{'|'.join(REVIEW_VERDICTS)}")
+    return errs
+
+
 def validate_input(inp: Dict[str, Any]) -> List[str]:
     """js 那層的同一組規則：動作合法、必填有填、列舉值合法。"""
     action = inp.get("action")
@@ -593,6 +623,8 @@ def validate_input(inp: Dict[str, Any]) -> List[str]:
         if inp.get("form") is not None and inp.get("form") not in READ_FORMS:
             errs.append(f"form 無效（{inp.get('form')}），允許：{'|'.join(READ_FORMS)}")
         return errs
+    if action == "verify_scope":
+        return _validate_verify_scope(inp)
     items = inp.get("items")
     if not isinstance(items, list) or not items:
         return [f"{action} 要給 items（非空陣列）"]
@@ -954,6 +986,9 @@ def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> 
     errs = validate_input(inp)
     if errs:
         return _result(sid, action, {"ok": False, "tree": None, "rejected": errs}, None)
+    if action == "verify_scope":                 # 驗證範圍不進目標檔：PostToolUse 轉交 wg_verify_scope.declare
+        return {"ok": False, "action": action, "tree": None, "rejected": [], "goal_changed": False,
+                "text": "[NeedGoal] verify_scope 由驗證範圍收件（wg_verify_scope），這裡不套用"}
     if action == "read":
         doc = load(sid)
         tree = active_tree(doc)

@@ -84,7 +84,6 @@ RULES: Dict[str, str] = {
     "CLAIM_TRIED_NEEDS_EXEC": "(c) 說「試過／跑了」要有本回合的 Bash／PowerShell 執行。",
     "AEC_EVIDENCE_PATH": "(e) 收尾檢核 (j) 證據路徑缺或不存在，但本 session 有驗證收據。",
     "AEC_FOLLOWUPS_EMPTY": "(e) 收尾檢核 (k) 追蹤項是空字串（「無」才放）。",
-    "MEASURE_RULER_NOT_RUN": "改到部位表上有量尺的部位，最後一次修改之後沒有那把尺合格的 DONE 收據。",
     # 需求目標樹的完整對照（wg_need_goal 收事實、這裡判）
     "GOAL_DONE_NEEDS_CASE_OR_RECEIPT": "寫碼類目標樹標「達成」的節點，至少一筆證據是沒紅的收據（實測）或讀碼級的驗證案例；"
                                        "只有檔案、卡片、推論級案例或紅收據 → 擋，擋訊息列節點與現有每一筆證據。記憶知識類的樹不擋。",
@@ -1327,3 +1326,141 @@ def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int,
         return Verdict(rule, False, f"題目沒提到部位表上的路徑；已讀過 {part_files_read} 個部位檔")
     return Verdict(rule, True, "題目涉及改法選擇，但本 session 還沒讀過任何部位檔：先讀過部位檔再問（只提醒，不因這條擋）",
                    ("題目沒提到部位表上的路徑；OverviewHub 的 part_files_read 全空",))
+
+
+# ─── 驗證範圍：要不要驗是規則，驗哪些由 LLM 判斷（wg_verify_scope 收事實、這裡判） ───
+RULES.update({
+    "SCOPE_DECLARED_FOR_CHANGE": "改了程式檔、或改到部位表上有量尺的部位（不看措辭、每次收尾都判）→ 要有 need_goal(action=verify_scope) 的宣告，"
+                                 "而且每個有改動的 repo 至少一項落在裡面。宣告是 LLM 對「哪些有關聯、會受影響」的判斷，程式不替它列；"
+                                 "部位表的整把量尺只在宣告回應與擋訊息當參考。子代理沒有自己的宣告時沿用主 session 的。",
+    "SCOPE_ITEM_WELL_FORMED": "宣告收件：每項的目標與理由都不能空；看起來是路徑的目標要存在，測試節點（檔::名）要查得到那個 def；"
+                              "不是路徑的目標當指令。有一項不合格整份退回。",
+    "SCOPE_ITEM_RECEIPT_AFTER_EDIT": "最新那份宣告的每一項都要有一筆收據：晚於每個要宣告的改檔最後一次修改、綠（有 PASS／DONE、沒有 FAIL、"
+                                     "exit 0 或未知、failed=0）、同一棵樹、指令完整可信（白名單語法、沒有換目錄、環境沒縮範圍）。"
+                                     "檔案／資料夾項目：點名該檔、它所在的資料夾或整體驗證，且沒有 -k／-m／--deselect 這類只跑一部分的選項；"
+                                     "測試節點項目：點名那個節點，或照檔案項目的條件跑了它的檔；指令項目：照宣告的原字串跑（cmd_matches）。",
+    "SCOPE_LEAK_OUTSIDE_SCOPE": "測試 T 紅了 → 在 T 上次綠之後、這次紅之前結案、範圍沒涵蓋 T 的宣告，各記一筆疑似範圍漏判（連回那次宣告）。"
+                                "T 從沒綠過、T 在範圍內 → 不記。看到紅的 session（或子代理）在這個 repo 還有沒結案的改動 → 照記但標出來，"
+                                "檢討時先查明是不是它自己這次改動造成的（不憑 session 狀態丟掉，免得漏掉別人留下的退化）。只記錄，不擋。",
+    "SCOPE_LEAK_REVIEW_BEFORE_DECLARE": "該 repo 有還沒檢討的範圍漏判 → 新的宣告要逐筆附檢討才收：missed（該驗的沒驗到）要寫沒驗到的根因"
+                                        "（root_cause）與下次判斷範圍時怎麼改（next_time）；unrelated（與那次改動無關）要寫查明的理由（reason）。"
+                                        "哪一種、根因是什麼由 LLM 判斷，程式只要求交出來。",
+})
+
+
+def _rel_key(p: Any) -> str:
+    """repo 相對路徑的比對鍵：斜線統一、去頭尾斜線與 ./、小寫（節點 id 的 :: 原樣保留）。"""
+    s = str(p or "").replace("\\", "/").strip().strip("/")
+    while s.startswith("./"):
+        s = s[2:]
+    return s.lower()
+
+
+def scope_covers(covers: Iterable[str], test: str) -> bool:
+    """範圍（repo 相對路徑；`*`＝整個 repo；節點寫 `檔::名`）有沒有涵蓋測試 test（檔或節點）。資料夾涵蓋底下所有檔；
+    節點項目只涵蓋它自己（含它的參數化與子節點）。"""
+    tf, _, tn = _rel_key(test).partition("::")
+    for c in covers or ():
+        if c == "*":
+            return True
+        cf, _, cn = _rel_key(c).partition("::")
+        if cn:
+            if cf == tf and tn and (tn == cn or tn.startswith(cn + "::") or tn.startswith(cn + "[")):
+                return True
+        elif cf and (tf == cf or tf.startswith(cf + "/")):
+            return True
+    return False
+
+
+def scope_failed_in(failed: Iterable[str], test: str) -> bool:
+    """一輪測試的紅名單 failed 裡有沒有 test：同一個節點，或同一支檔而其中一邊只寫到檔。"""
+    tf, _, tn = _rel_key(test).partition("::")
+    for f in failed or ():
+        ff, _, fn = _rel_key(f).partition("::")
+        if ff == tf and (not tn or not fn or tn == fn):
+            return True
+    return False
+
+
+def _base(p: Any) -> str:
+    return os.path.basename(str(p).replace("\\", "/"))
+
+
+def scope_declared_verdict(changed: Sequence[str], declared: bool,
+                           repos_without_item: Sequence[Tuple[str, Sequence[str]]] = ()) -> Verdict:
+    """SCOPE_DECLARED_FOR_CHANGE：changed＝要宣告的改檔；declared＝有宣告；repos_without_item＝(repo, 那裡的改檔) 宣告裡沒有項目落在那。"""
+    rule = "SCOPE_DECLARED_FOR_CHANGE"
+    names = [_base(p) for p in changed]
+    if not changed:
+        return Verdict(rule, False, "沒有要宣告驗證範圍的改動")
+    if not declared:
+        return Verdict(rule, True, f"改了 {'、'.join(names[:5])}{'…' if len(names) > 5 else ''}，但還沒宣告驗證範圍",
+                       ("該測哪些由你判斷：看這次改了什麼、哪些測試有關聯、哪些地方會受影響，"
+                        "用 need_goal(action=\"verify_scope\", items=[{target, why}…]) 宣告",))
+    if repos_without_item:
+        return Verdict(rule, True, "宣告裡沒有落在這些 repo 的項目：" + "、".join(r for r, _ in repos_without_item),
+                       tuple(f"{r} 改了 {'、'.join(_base(p) for p in fs[:4])}" for r, fs in repos_without_item))
+    return Verdict(rule, False, "每個有改動的 repo 都有宣告項目")
+
+
+def scope_item_form_verdict(target: str, why: str, problem: str = "") -> Verdict:
+    """SCOPE_ITEM_WELL_FORMED：problem＝呼叫端查到的事實問題（檔不存在、節點查不到 def）；空＝目標存在或是指令。"""
+    rule = "SCOPE_ITEM_WELL_FORMED"
+    if not str(target or "").strip():
+        return Verdict(rule, True, "有一項沒寫目標（target）")
+    if not str(why or "").strip():
+        return Verdict(rule, True, f"「{target}」沒寫理由（why：為什麼和這次改動有關、會受什麼影響）")
+    if problem:
+        return Verdict(rule, True, f"「{target}」{problem}")
+    return Verdict(rule, False, f"「{target}」收下")
+
+
+def scope_item_verdict(scope_id: str, target: str, ok: bool, why_not: str = "") -> Verdict:
+    """SCOPE_ITEM_RECEIPT_AFTER_EDIT：一項有沒有合格收據（事實由 wg_verify_ledger.scope_item_status 查）。"""
+    rule = "SCOPE_ITEM_RECEIPT_AFTER_EDIT"
+    if ok:
+        return Verdict(rule, False, f"{scope_id} 的「{target}」有改完之後跑綠的收據")
+    return Verdict(rule, True, f"{scope_id} 的「{target}」沒有改完之後跑綠的收據", (why_not or "沒有跑這一項的收據",))
+
+
+def scope_leak_verdict(test: str, scope_id: str, in_scope: bool, observer_open: bool, last_green: Optional[str],
+                       closed_between: bool) -> Verdict:
+    """SCOPE_LEAK_OUTSIDE_SCOPE：owed＝要記一筆疑似漏判。closed_between＝那次宣告在 T 上次綠（last_green）之後、這次紅之前結案。
+    observer_open＝看到紅的 session 自己還有沒結案的改動：照記，證據多一行叫檢討時先查明是不是它自己造成的。"""
+    rule = "SCOPE_LEAK_OUTSIDE_SCOPE"
+    if in_scope:
+        return Verdict(rule, False, f"{test} 在 {scope_id} 的範圍內（那是退化，不是漏判）")
+    if not last_green:
+        return Verdict(rule, False, f"{test} 沒有綠過的紀錄，無從歸因")
+    if not closed_between:
+        return Verdict(rule, False, f"{scope_id} 不是在 {test} 上次綠之後、這次紅之前結案的")
+    ev = (f"{test} 上次綠：{last_green}",)
+    if observer_open:
+        ev += ("看到紅的 session 當時自己還有沒結案的改動：檢討時先查明是不是它自己這次改動造成的",)
+    return Verdict(rule, True, f"{test} 紅了，{scope_id} 結案時的範圍沒涵蓋它", ev)
+
+
+def scope_review_verdict(pending: Sequence[str], reviews: Any) -> Verdict:
+    """SCOPE_LEAK_REVIEW_BEFORE_DECLARE：pending＝這次宣告涉及的 repo 裡還沒檢討的漏判編號；reviews＝宣告附的檢討。"""
+    rule = "SCOPE_LEAK_REVIEW_BEFORE_DECLARE"
+    by = {str(r.get("leak") or "").strip(): r for r in (reviews or []) if isinstance(r, dict)}
+    probs: List[str] = []
+    for lid in pending:
+        r = by.get(lid)
+        if not r:
+            probs.append(f"{lid} 還沒檢討")
+            continue
+        v = str(r.get("verdict") or "")
+        if v == "missed":
+            if not str(r.get("root_cause") or "").strip():
+                probs.append(f"{lid} 判「該驗的沒驗到」要寫沒驗到的根因（root_cause：當初判斷範圍時漏看了什麼、為什麼漏看）")
+            if not str(r.get("next_time") or "").strip():
+                probs.append(f"{lid} 判「該驗的沒驗到」要寫下次判斷範圍時要怎麼改（next_time）")
+        elif v == "unrelated":
+            if not str(r.get("reason") or "").strip():
+                probs.append(f"{lid} 判「與那次改動無關」要寫查明的理由（reason）")
+        else:
+            probs.append(f"{lid} 的 verdict 只收 missed（該驗的沒驗到）或 unrelated（與那次改動無關）")
+    if probs:
+        return Verdict(rule, True, f"還有 {len(pending)} 筆範圍漏判待檢討，先逐筆檢討才收新的宣告", tuple(probs))
+    return Verdict(rule, False, f"{len(pending)} 筆待檢討的漏判都交了檢討")

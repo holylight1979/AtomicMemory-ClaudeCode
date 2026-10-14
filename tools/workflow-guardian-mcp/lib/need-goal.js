@@ -1,4 +1,5 @@
-// need-goal.js：MCP tool `need_goal` 的 Node 面（需求目標樹的五個動作 set／add／update／reconcile／read）。
+// need-goal.js：MCP tool `need_goal` 的 Node 面（需求目標樹的五個動作 set／add／update／reconcile／read，
+// 加上驗證範圍的宣告 verify_scope：該測哪些由 LLM 判斷，交給 Python PostToolUse 的 wg_verify_scope 收件）。
 //
 // one-writer：本 handler 只驗參數（動作合法、必填有填、列舉值合法）、回一行 chip；**不讀寫目標檔、不配編號**。
 // 套用到 session 的目標樹、配節點編號、記回合與變更紀錄、查證據指標與先後、送回更新後的整棵樹，全由 Python PostToolUse
@@ -6,7 +7,8 @@
 //
 // MIRROR: hooks/wg_need_goal.py validate_input（同一組列舉值與規則）。
 
-const ACTIONS = ["set", "add", "update", "reconcile", "read"];
+const ACTIONS = ["set", "add", "update", "reconcile", "read", "verify_scope"];
+const REVIEW_VERDICTS = ["missed", "unrelated"];
 const NODE_STATUS = ["todo", "doing", "done", "partial", "none", "dropped"];
 const TERMINAL = ["done", "partial", "none", "dropped"];
 const CLARITY = ["clear", "open"];
@@ -55,10 +57,29 @@ function validateItems(action, items) {
   return errs;
 }
 
+/** verify_scope：items 每項 {target, why} 非空；reviews（選填）每筆 {leak, verdict∈missed|unrelated}。內容由 Python 收件時照規則判。 */
+function validateVerifyScope(a) {
+  if (!Array.isArray(a.items) || !a.items.length) return ["verify_scope 要給 items（非空陣列，每項 {target, why}）"];
+  const errs = [];
+  a.items.forEach((it, i) => {
+    if (!it || typeof it !== "object" || Array.isArray(it)) { errs.push(`items[${i}] 必須是物件`); return; }
+    if (!str(it.target)) errs.push(`items[${i}].target 必填（測試檔、測試節點、資料夾或指令）`);
+    if (!str(it.why)) errs.push(`items[${i}].why 必填（為什麼和這次改動有關、會受什麼影響）`);
+  });
+  if (given(a.reviews) && !Array.isArray(a.reviews)) return [...errs, "reviews 必須是陣列"];
+  (a.reviews || []).forEach((r, j) => {
+    if (!r || typeof r !== "object" || Array.isArray(r)) { errs.push(`reviews[${j}] 必須是物件`); return; }
+    if (!str(r.leak)) errs.push(`reviews[${j}].leak 必填（範圍漏判編號 L…）`);
+    if (!REVIEW_VERDICTS.includes(r.verdict)) errs.push(`reviews[${j}].verdict 無效（${r.verdict}），允許：${REVIEW_VERDICTS.join("|")}`);
+  });
+  return errs;
+}
+
 /** 回錯誤字串陣列（空＝合格）。 */
 function validateArgs(args) {
   const a = args || {};
   if (!ACTIONS.includes(a.action)) return [`action 無效（${a.action}），允許：${ACTIONS.join("|")}`];
+  if (a.action === "verify_scope") return validateVerifyScope(a);
   if (a.action === "set") {
     const errs = [];
     if (!str(a.goal) && !str(a.import_from)) errs.push("set 要給 goal（一句、使用者的語言、只寫目標不寫手段），或給 import_from（續接單路徑）");
@@ -87,5 +108,5 @@ async function toolNeedGoal(id, args) {
 
 module.exports = {
   toolNeedGoal, validateArgs,
-  ACTIONS, NODE_STATUS, TERMINAL, CLARITY, ORIGIN, EVIDENCE_KINDS, EVIDENCE_LEVELS, READ_FORMS,
+  ACTIONS, NODE_STATUS, TERMINAL, CLARITY, ORIGIN, EVIDENCE_KINDS, EVIDENCE_LEVELS, READ_FORMS, REVIEW_VERDICTS,
 };

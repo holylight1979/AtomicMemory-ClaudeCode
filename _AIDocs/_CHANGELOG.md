@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 收尾查核：該測哪些改由 LLM 宣告驗證範圍並負責，部位整把量尺降為參考
+- **緣由**：量尺閘照部位表要求「改到部位就跑整把」（改 tools 一行跑約 12 分鐘），等於程式替判斷決定驗哪些；原設計者校正：驗證範圍要由 LLM 依關聯與影響裁決、只驗該範圍、對範圍負責並檢討漏判（原話輯 G6）。
+- **做法**：新 `hooks/wg_verify_scope.py` 取代 `measure_gate_reason`：改了程式（或改到有量尺的部位）要有 `need_goal(action="verify_scope")` 宣告，範圍內每項要有改完之後跑綠的收據；寫碼查核通過記結案，之後範圍外的測試紅了記範圍漏判、送回、下次宣告前要逐筆檢討（missed 寫根因與下次怎麼判），開場與回應印累計數字；自寫收據多記 `failed_cases`；規則 SCOPE_* 進 `wg_release_rules`。(d) 補案例、收據晚於修改、沒人可問擋到底照舊。細節 TECH §7.1、§7.8、§7.9。
+- **驗證**：新案 `hooks/verify/verify_verify_scope.py` 先在舊碼跑 32 紅（含「改一支只跑宣告的一支」被量尺閘擋、「沒宣告」只提醒不擋），新碼全綠；量尺閘舊案改寫成範圍項目案例；真 hook 入口探針 `probe_verify_scope.py` 9 檢查點全過。
+
 ## 2026-10-14 部位判定：根目錄名或上層目錄名撞到部位表前綴時不再誤判
 - `lib/overview_hub.match_row` 的子字串命中（含非錨定 glob）原本拿整條絕對路徑比：根層 repo 的根目錄本身叫 `.claude`，表上沒列的根層檔（TECH.md、.gitignore、workflow/config.json、plans/）全落到 `.claude/` 列；專案放在含 `tests` 的目錄下時每個檔都落到 `tests/` 列。改成只比專案根以下的相對路徑，錨定命中與根以下的子字串命中不變，影響所有專案的部位判定（注入、定位三行、量尺提醒、知識類排除）。驗證：`verify_overview_hub::test_match_substring_only_below_root` 7 案舊碼 3 紅新碼全綠，相關 7 支 verify 788 passed（commit 42162c00）。
 

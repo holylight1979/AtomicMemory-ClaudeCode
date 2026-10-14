@@ -784,6 +784,8 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         return None, False
     if is_ng and is_error_response(input_data.get("tool_response")):
         return None, False                       # MCP 已拒收：不套用
+    if is_ng and (tool_input or {}).get("action") == "verify_scope":
+        return _verify_scope_declare(state, session_id, tool_input, input_data, config), True
     turn = int(state.get("turn_seq", 0))
     cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
     transcript_path = input_data.get("transcript_path", "") or ""
@@ -816,6 +818,41 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         if is_ng:
             return f"[NeedGoal] 這次 need_goal 沒寫進目標檔（{type(e).__name__}: {e}），請重新呼叫一次。", False
     return None, False
+
+
+def _scope_key(session_id: str, input_data: Dict[str, Any]) -> str:
+    agent_id = str(input_data.get("agent_id") or "")
+    return agent_receipt_key(session_id, agent_id) if agent_id else session_id
+
+
+def _verify_scope_declare(state: Dict[str, Any], session_id: str, tool_input: Dict[str, Any],
+                          input_data: Dict[str, Any], config: Dict[str, Any]) -> str:
+    """need_goal(action=verify_scope)：LLM 判斷的驗證範圍交 wg_verify_scope 收件（存在 state，不經目標檔、不受 need_goal 開關影響）。"""
+    cwd = input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or ""
+    try:
+        import wg_verify_scope as vs
+        return vs.declare(state, _scope_key(session_id, input_data), tool_input, cwd, config)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:VerifyScope] 收件失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        return f"[Guardian:VerifyScope] 這次 verify_scope 沒收下（{type(e).__name__}: {e}），請重新呼叫一次。"
+
+
+def _observe_scope_run(state: Dict[str, Any], input_data: Dict[str, Any], session_id: str, config: Dict[str, Any]) -> None:
+    """剛落帳的這輪測試記進驗證範圍的測試帳（跑了哪些、哪些紅）；紅的測試找範圍漏判，新記的放 _verify_scope_advisory 送回。"""
+    key = _scope_key(session_id, input_data)
+    receipts = receipts_of(state, key)
+    if not receipts:
+        return
+    try:
+        import wg_verify_scope as vs
+        if not vs.scope_cfg(config)["enabled"]:
+            return
+        note = vs.observe_run(state, key, receipts[-1], response_text(input_data.get("tool_response")), reconcile_cfg(config))
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:VerifyScope] 記測試帳失敗（不影響這次工具）：{type(e).__name__}: {e}", file=sys.stderr)
+        return
+    if note:
+        state["_verify_scope_advisory"] = note
 
 
 def _need_goal_import(ng: Any, state: Dict[str, Any], session_id: str, fp: str, turn: int,
@@ -862,7 +899,12 @@ def handle_judge_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any
             elif p and not _is_ephemeral_path(p):
                 _note_modified(state, session_id, p, tool_name)
         _note_commit(state, command, config, session_id)
-        _track_sentinels(state, input_data, command, tool_name, config, session_id)
+        if _track_sentinels(state, input_data, command, tool_name, config, session_id):
+            _observe_scope_run(state, input_data, session_id, config)
+            state.pop("_verify_scope_advisory", None)        # 裁判不注入；漏判已入帳，下次宣告時送回
+    elif tool_name.endswith("need_goal") and (tool_input or {}).get("action") == "verify_scope":
+        if not is_error_response(input_data.get("tool_response")):
+            _verify_scope_declare(state, session_id, tool_input, input_data, config)
     write_state(session_id, state)
     output_nothing()
 
@@ -1085,6 +1127,7 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         try:
             if _track_sentinels(state, input_data, command, tool_name, config, session_id):
                 dirty = True
+                _observe_scope_run(state, input_data, session_id, config)
         except Exception as e:
             print(f"[verify-ledger] error (fail-open): {e}", file=sys.stderr)
             _atom_debug_error("post_tool_use:verify_ledger", e)
@@ -1331,10 +1374,11 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             ("_staging_advisory", "[Guardian:StagingName]"),
             ("_docdrift_advisory", "[Guardian:DocDrift]"),
             ("_tool_result_advisory", "[Guardian:ToolResultSize]"),
+            ("_verify_scope_advisory", ""),                  # 自帶 [Guardian:VerifyScope] 開頭
         ]:
             val = state.get(key)
             if val:
-                advisories.append(f"{prefix} {val}")
+                advisories.append(f"{prefix} {val}" if prefix else str(val))
                 del state[key]
                 dirty = True
 

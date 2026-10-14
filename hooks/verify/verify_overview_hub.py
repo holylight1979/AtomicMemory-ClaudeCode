@@ -671,8 +671,6 @@ def test_card_mem_dir_root_worktree_project_and_no_map(tmp_path, monkeypatch):
     nolive.mkdir()
     assert oh.card_mem_dir(wt, nolive) == wt / ".claude" / "memory"                    # 反例：wt 不是 nolive 的 worktree
     assert oh.is_root_worktree(wt, live) is True and oh.is_root_worktree(wt, nolive) is False
-    import wg_verify_ledger as vl
-    assert vl.is_root_worktree(wt, live) is True and vl.is_root_worktree(proj, live) is False   # 舊名委派 lib 本體
 
 
 def test_cards_for_root_worktree_live_and_project_same_name_counterexample(tmp_path, monkeypatch):
@@ -1411,68 +1409,12 @@ def test_is_root_worktree_long_path_prefix_is_same_dir(tmp_path):
     assert oh.card_mem_dir(prefixed, live) == live / "memory"
 
 
-def test_verify_ledger_delegation_failure_returns_false_and_gate_still_blocks(tmp_path, monkeypatch, capsys):
-    import types
-    import wg_verify_ledger as vl
-    q6 = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q6" / "overview-map.md"
-    rows = oh.parse_map(q6.read_text(encoding="utf-8"))
-    live, wt = tmp_path / "live", tmp_path / "wt"
-    for d in (live, wt):
-        (d / ".claude").mkdir(parents=True)
-        (d / ".claude" / "overview-map.md").write_bytes(q6.read_bytes())
-    _link_wt(live, wt)
-    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
-    mod = str(wt / "hooks" / "x.py")
-    mf = [{"path": mod, "tool": "Edit", "session_id": "s", "turn_seq": 5, "last_turn_seq": 5}]
-    done = {"turn_seq": 5, "tool": "Bash", "cmd": "python -X utf8 -m pytest -q hooks/verify/verify_x.py", "exit_code": 0,
-            "at": "", "project_root": str(wt), "cwd": str(wt), "env": {},
-            "sentinels": [{"name": "PYTEST", "verdict": "PASS", "kv": {}}, {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
-
-    def lookup(path):
-        row = oh.match_row(path, wt, rows)
-        return (wt, row) if row else None
-    assert vl.measure_gate_reason(mf, [done], 5, lookup, vl.MEASURE_DEFAULTS)[0] is None   # 正常委派：worktree 認目標 verify
-    monkeypatch.setitem(sys.modules, "overview_hub", types.ModuleType("overview_hub"))     # 混載：舊版模組沒有這支
-    assert vl.is_root_worktree(wt, live) is False
-    assert "[verify_ledger] is_root_worktree 委派失敗" in capsys.readouterr().err
-    reason, _ = vl.measure_gate_reason(mf, [done], 5, lookup, vl.MEASURE_DEFAULTS)
-    assert reason and "[Guardian:MeasureGate]" in reason                                 # 反例：委派失敗不得放行
-
-
-def test_verify_ledger_delegation_raising_attribute_error_returns_false(tmp_path, monkeypatch, capsys):
-    import types
-    import wg_verify_ledger as vl
-    fake = types.ModuleType("overview_hub")
-
-    def boom(root, claude_dir):
-        raise AttributeError("'NoneType' object has no attribute 'read_bytes'")
-    fake.is_root_worktree = boom
-    monkeypatch.setitem(sys.modules, "overview_hub", fake)
-    assert vl.is_root_worktree(tmp_path / "wt", tmp_path / "live") is False
-    err = capsys.readouterr().err
-    assert "[verify_ledger] is_root_worktree 委派失敗：AttributeError" in err
-
-
 def test_same_dir_norm_long_prefix_any_case():
     unc = Path("\\\\localhost\\nosuchshare_a3")                                             # localhost：不存在的分享也秒回
     assert oh._same_dir_norm(Path("\\\\?\\unc\\localhost\\nosuchshare_a3"), unc) is True   # 小寫 unc 不得剝成相對路徑
     assert oh._same_dir_norm(Path("\\\\?\\UNC\\localhost\\nosuchshare_a3"), unc) is True
     assert oh._same_dir_norm(Path("\\\\?\\c:\\x"), Path("C:\\x")) is True
     assert oh._same_dir_norm(Path("\\\\?\\unc\\localhost\\nosuchshare_a3"), Path("\\\\localhost\\other_a3")) is False
-
-
-def test_verify_ledger_delegation_multiline_error_is_one_stderr_line(tmp_path, monkeypatch, capsys):
-    import types
-    import wg_verify_ledger as vl
-    fake = types.ModuleType("overview_hub")
-
-    def boom(root, claude_dir):
-        raise AttributeError("first\nsecond")
-    fake.is_root_worktree = boom
-    monkeypatch.setitem(sys.modules, "overview_hub", fake)
-    assert vl.is_root_worktree(tmp_path / "wt", tmp_path / "live") is False
-    lines = [l for l in capsys.readouterr().err.splitlines() if l.strip()]
-    assert len(lines) == 1 and "AttributeError: first second" in lines[0]
 
 
 # ─── is_root_worktree 定義：真 git worktree（.git 檔指回 <live>/.git/worktrees/），不看部位表 ─────────
@@ -1603,33 +1545,6 @@ def test_unreadable_dot_git_says_so_on_one_stderr_line_and_is_not_root_git_workt
     assert len(err_lines) == 1, err_lines                                              # 反例：舊碼靜默回 False
     assert err_lines[0].startswith("[overview_hub] 讀不到 ") and str(root / ".git") in err_lines[0]
     assert "PermissionError: 拒絕存取 第二行" in err_lines[0] and err_lines[0].endswith("當成非根層 worktree")
-
-
-def test_measure_gate_fixture_with_same_map_is_not_root_worktree(tmp_path, monkeypatch, git):
-    import wg_verify_ledger as vl
-    q6 = HOOKS_DIR / "verify" / "fixtures" / "v6" / "q6" / "overview-map.md"
-    rows = oh.parse_map(q6.read_text(encoding="utf-8"))
-    live = tmp_path / "live"
-    _git_live(git, live, q6.read_bytes())
-    wt = tmp_path / "wt"
-    git("-C", str(live), "worktree", "add", "-q", "-b", "wt", str(wt))
-    fixture = _copy_map(live, live / "fixture")
-    monkeypatch.setattr(vl, "CLAUDE_DIR", live)
-
-    def gate(root):
-        mf = [{"path": str(root / "hooks" / "x.py"), "tool": "Edit", "session_id": "s", "turn_seq": 5, "last_turn_seq": 5}]
-        done = {"turn_seq": 5, "tool": "Bash", "cmd": "python -X utf8 -m pytest -q hooks/verify/verify_x.py", "exit_code": 0,
-                "at": "", "project_root": str(root), "cwd": str(root), "env": {},
-                "sentinels": [{"name": "PYTEST", "verdict": "PASS", "kv": {}},
-                              {"name": "PYTEST_MEASURE", "verdict": "DONE", "kv": {}}]}
-
-        def lookup(path):
-            row = oh.match_row(path, root, rows)
-            return (root, row) if row else None
-        return vl.measure_gate_reason(mf, [done], 5, lookup, vl.MEASURE_DEFAULTS)[0]
-    assert gate(wt) is None                                                            # 真 worktree：認目標 verify 的 pytest DONE
-    reason = gate(fixture)
-    assert reason and "[Guardian:MeasureGate]" in reason and "PYTEST_MEASURE" not in reason   # 反例：fixture 不走 worktree 規則
 
 
 # ─── 網路路徑（UNC）：不呼叫 realpath，直接不是根層 worktree ─────────────────────────

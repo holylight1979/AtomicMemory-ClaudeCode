@@ -156,7 +156,7 @@
 
 | 參數 | 型別 | 用於 | 說明 |
 |---|---|---|---|
-| `action` | enum `set｜add｜update｜reconcile｜read` | 全部 | 必填 |
+| `action` | enum `set｜add｜update｜reconcile｜read｜verify_scope` | 全部 | 必填；`verify_scope` 是驗證範圍的宣告，不進目標檔（見下） |
 | `goal` | str | set | 一句、使用者的語言、只寫目標不寫手段；`import_from` 沒給時必填 |
 | `new_task` | bool | set | 換題開新樹 |
 | `why` | str | set | 改寫樹根時必填（js 只驗型別，Python 驗必填） |
@@ -165,8 +165,11 @@
 | `items` | array | add／update／reconcile | add：`{text 必填, clarity?, origin?}`；update：`{id 必填, text?, status?, clarity?, why 必填}`，text／status／clarity 至少一項；reconcile：`{id 必填, status 必填（done｜partial｜none｜dropped）, evidence?: [{kind, ref, level, covers?}], followup?, note?}` |
 | `turns` | int ≥ 0 | reconcile | 拐了幾個彎（C-G11 預留） |
 | `form` | enum `full｜compact｜handoff` | read | 預設 full；handoff 回續接單區塊（給 /handoff 手寫續接單貼上） |
+| `items`（verify_scope） | array | verify_scope | `{target 必填, why 必填}`：target 是測試檔、測試節點（`檔::名`）、資料夾或指令，why 一句為什麼和這次改動有關 |
+| `reviews` | array | verify_scope | 待檢討的範圍漏判逐筆檢討 `{leak 必填, verdict 必填（missed｜unrelated）, root_cause?, next_time?, reason?}`；missed 要 root_cause 與 next_time、unrelated 要 reason 由 Python 收件時判 |
 
 js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 error 回應就跳過）。js 收下回一行 `[NeedGoal] <action> 已收到`。
+`verify_scope` 收下後 post_tool_use 直接轉 `wg_verify_scope.declare`（存 state `verify_scope[收據鍵]`，不經 `apply_op`、不受 `need_goal.enabled` 影響；裁判 session 也收），契約與規則見 TECH §7.9、§7.8 SCOPE_*。
 
 ### 6.2 Python 端（post_tool_use 的 need_goal 分支 → `apply_op`）
 - 再驗一次 js 那些規則（MIRROR：同一組列舉值），再驗只有 Python 判得了的：節點存在、目前有沒有樹、why 必填、5.5 的 3～7。

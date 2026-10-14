@@ -2,7 +2,7 @@
 
 做什麼：CC 單次工具呼叫上限 10 分鐘，全量 run_verify 要跑 18～25 分鐘只能背景跑，PostToolUse 只看得到「已啟動」、
   看不到結尾的量尺哨兵 → session 帳本永遠沒有這把尺的 DONE。所以 run_verify 印完哨兵後自己寫一份收據到
-  <CLAUDE_DIR>/workflow/verify-ledger/_runs/<UTC 時間戳>-<pid>.json，MeasureGate 再讀它（hooks/wg_verify_ledger）。
+  <CLAUDE_DIR>/workflow/verify-ledger/_runs/<UTC 時間戳>-<pid>.json，對帳閘與驗證範圍閘再讀它（hooks/wg_verify_ledger、wg_verify_scope）。
   這個目錄由 PreToolUse 禁止手寫（hooks/handlers/pre_tool_use.check_verify_ledger_write）。
 怎麼跑：run_verify.py 呼叫 write_self_receipt；hooks 呼叫 load_self_receipts、cmd_matches、is_whole_run、unsupported_syntax。
   verify 在 lib/verify/verify_self_receipt.py、hooks/verify/verify_stop_reconcile.py（自寫收據段）。
@@ -774,16 +774,17 @@ def cmd_of(argv: List[str]) -> str:
 
 def write_self_receipt(claude_dir: Path, argv: List[str], sentinel: str, exit_code: int, cases: int, failed: int,
                        cwd: str, project_root: str, started: float, ended: float,
-                       err: Optional[TextIO] = None) -> Optional[Path]:
+                       err: Optional[TextIO] = None, failed_cases: Optional[List[str]] = None) -> Optional[Path]:
     """寫一份自寫收據，回寫入的路徑；寫不進去 → err（預設 stderr）印一行、回 None，不拋例外（不改呼叫端的 exit code）。
     project_root＝受測的那棵樹（run_verify 傳自己的 ROOT），cwd 另存（呼叫時的工作目錄，只供追查）。
-    env＝本行程環境裡影響驗證範圍的變數（_ARG_ENV，照執行平台比名稱；空值也記），讀收據的一方用 scope_env 判斷。"""
+    env＝本行程環境裡影響驗證範圍的變數（_ARG_ENV，照執行平台比名稱；空值也記），讀收據的一方用 scope_env 判斷。
+    failed_cases＝紅掉的測試節點 id（相對受測樹的 pytest rootdir）：驗證範圍拿它找「範圍外的測試事後紅了」的漏判。"""
     path = Path(claude_dir) / RUNS_REL / f"{datetime.fromtimestamp(ended, timezone.utc):%Y%m%dT%H%M%SZ}-{os.getpid()}.json"
     rec = {
         "cmd": cmd_of(argv), "argv": list(argv), "sentinel": sentinel, "exit_code": int(exit_code),
         "cases": int(cases), "failed": int(failed), "cwd": cwd, "project_root": project_root,
         "started_at": utc_iso(started), "at": utc_iso(ended), "source": SOURCE,
-        "env": env_snapshot(),
+        "env": env_snapshot(), "failed_cases": [str(c) for c in failed_cases or []],
     }
     try:
         from lib.atom_io import write_text_lf

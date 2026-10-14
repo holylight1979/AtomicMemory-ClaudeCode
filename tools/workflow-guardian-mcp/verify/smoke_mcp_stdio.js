@@ -123,6 +123,16 @@ function check(cond, label, detail) {
         "need_goal reconcile bad evidence enums rejected", textOf(ng5));
   const ng6 = await callTool("need_goal", { action: "explode" });
   check(ng6.result.isError === true && /action/.test(textOf(ng6)), "need_goal unknown action rejected", textOf(ng6));
+  // verify_scope：驗證範圍的宣告（該測哪些由 LLM 判斷）；js 只驗形狀
+  check(ngDef && ngDef.inputSchema.properties.action.enum.includes("verify_scope") && ngDef.inputSchema.properties.reviews,
+        "need_goal schema has verify_scope and reviews");
+  const ng7 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "hooks/verify/verify_x.py" }] });
+  check(ng7.result.isError === true && /why/.test(textOf(ng7)), "need_goal verify_scope w/o why rejected", textOf(ng7));
+  const ng8 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w" }],
+    reviews: [{ leak: "L1", verdict: "maybe" }] });
+  check(ng8.result.isError === true && /verdict/.test(textOf(ng8)), "need_goal verify_scope bad review verdict rejected", textOf(ng8));
+  const ng9 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "直接測 a" }] });
+  check(!ng9.result.isError && /verify_scope 已收到/.test(textOf(ng9)), "need_goal verify_scope chip", textOf(ng9));
 
   // 2. knowledge_harvest_report
   const h0 = await callTool("knowledge_harvest_report", { items: [] });

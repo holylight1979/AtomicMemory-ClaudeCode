@@ -416,6 +416,19 @@ def _tracking_advisory(cwd: str, state: Dict[str, Any]) -> list:
     return ["\n".join(lines)]
 
 
+def _verify_scope_advisory(cwd: str) -> list:
+    """驗證範圍：背景全量的自寫收據先入帳（紅掉的測試名拿去找範圍漏判），再列這個 repo 待檢討的漏判與累計數字。
+    送回給 LLM 檢討；讀不到只 stderr，回 []。"""
+    try:
+        import wg_verify_scope as vs
+        from wg_verify_ledger import load_self_runs
+        vs.sync_runs(load_self_runs())
+        return vs.advisory(cwd)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:VerifyScope] 開場列範圍漏判失敗：{type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
 def _followup_advisory() -> list:
     """回訪到期 → 開場自動跑 tools/followup-check.py，把檢查結果＋自足交接推進 context。
 
@@ -1217,6 +1230,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         lines.extend(_index_conflict_advisory(cwd))
         lines.extend(_followup_advisory())
         lines.extend(_tracking_advisory(cwd, state))
+        lines.extend(_verify_scope_advisory(cwd))
         lines.extend(_scope_layout_advisory(project_mem_dir))
         lines.extend(_personal_sync_advisory(project_mem_dir, v4_user))
         lines.extend(_org_advisory(org_root, pool))

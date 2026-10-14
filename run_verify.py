@@ -9,7 +9,8 @@
                                  #    outcome, duration_s, message}]}
 
 印完量尺哨兵後自寫一份驗證收據到資料根（WG_CLAUDE_DIR 或 ~/.claude）的 workflow/verify-ledger/_runs/（lib/self_receipt.py）：全量常要背景跑，
-PostToolUse 看不到結尾哨兵，MeasureGate 靠這份收據認「改完之後跑過、全綠、同根」。--help 不寫。
+PostToolUse 看不到結尾哨兵：對帳閘靠這份收據認「改完之後跑過、全綠、同根」，驗證範圍靠收據裡紅掉的測試名（failed_cases）
+找範圍漏判。--help 不寫。
 """
 import os
 import sys
@@ -158,8 +159,9 @@ def _write_self_receipt() -> None:
         write_self_receipt = _load_by_path("_run_verify_self_receipt", "lib/self_receipt.py").write_self_receipt
         # project_root＝受測的那棵樹（本檔所在的 ROOT），不是呼叫時的 cwd：在 B 目錄跑 A 的 run_verify，驗的是 A
         argv = list(getattr(sys, "orig_argv", None) or [sys.executable, *sys.argv])
+        failed_cases = [c["id"] for c in collector.cases if c["outcome"] not in ("passed", "skipped")]
         write_self_receipt(DATA_DIR, argv, sentinel, exit_code, len(collector.cases), n_failed,
-                           _CWD, str(ROOT), _STARTED, time.time())
+                           _CWD, str(ROOT), _STARTED, time.time(), failed_cases=failed_cases)
     except Exception as e:  # noqa: BLE001
         print(f"[run_verify] 自寫驗證收據失敗：{type(e).__name__}: {e}", file=sys.stderr)
 

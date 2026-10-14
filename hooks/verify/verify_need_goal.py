@@ -1050,7 +1050,7 @@ def test_stop_handle_blocks_with_f1_under_reconcile_budget(env, monkeypatch, cap
                       ("write_state", lambda *a, **k: None), ("append_guard_log", lambda *a, **k: None)):
         monkeypatch.setattr(st, name, val)
     with pytest.raises(SystemExit):
-        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {"reconcile_gate": {}, "measure_gate": {}})
+        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {"reconcile_gate": {}, "verify_scope": {}})
     out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert out.get("decision") == "block" and "(f1)" in out.get("reason", "")
     assert state["reconcile_gate_turn"][SID]["count"] == 1                  # 吃寫碼查核同一個預算

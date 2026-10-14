@@ -503,15 +503,21 @@ _DONE_OUT = {"stdout": "VERIFY_CHECK DONE cases=1 failed=0\n", "stderr": ""}
 
 
 def _measure_gate_on(receipts, tmp_path):
+    """驗證範圍閘：宣告的項目是表上那把尺 `python -X utf8 run_verify.py`（指令項目，照原字串比）；回擋訊息或 None。"""
+    import wg_verify_scope as vs
     mod = {"path": str(tmp_path / "hooks" / "x.py"), "session_id": _SID, "turn_seq": 4, "last_turn_seq": 4,
            "last_at": "2020-01-01T00:00:00+00:00", "last_seq": 0}
-    return vl.measure_gate_reason([mod], receipts, 4, lambda p: (tmp_path, _RUN_ROW), vl.MEASURE_DEFAULTS,
-                                  chains_of=lambda r: {}, self_runs=lambda: [])[0]
+    lookup = lambda p: (tmp_path, _RUN_ROW)                                                      # noqa: E731
+    state = {"turn_seq": 4, "modified_files": []}
+    text = vs.declare(state, _SID, {"action": "verify_scope", "items": [{"target": _RUN_ROW["measure"]["cmd"], "why": "原量尺閘案例"}]},
+                      str(tmp_path), {}, lookup=lookup)
+    assert "收下" in text, text
+    return vs.gate_reason(state, _SID, [mod], receipts, vl.reconcile_cfg({}), lookup, vs.DEFAULTS, chains_of=lambda r: {})[0]
 
 
 def test_017_long_command_through_track_sentinels(monkeypatch, tmp_path):
-    """前段 `量尺 > $null 2>&1` 補空白到 200 字、尾段 `; Write-Output "VERIFY_CHECK DONE …"`，經 PostToolUse 落帳 → 量尺閘不認；
-    誠實的長指令（超過 200 字、量尺在最後）經同一條路 → 認得。舊碼收據只存前 200 字，假的變成只剩量尺而被認。"""
+    """前段 `指令 > $null 2>&1` 補空白到 200 字、尾段 `; Write-Output "VERIFY_CHECK DONE …"`，經 PostToolUse 落帳 → 驗證範圍閘不認；
+    誠實的長指令（超過 200 字、指令在最後）經同一條路 → 認得。舊碼收據只存前 200 字，假的變成只剩指令而被認。"""
     head = "python -X utf8 run_verify.py > $null 2>&1"
     fake = head + " " * (200 - len(head)) + '; Write-Output "VERIFY_CHECK DONE cases=1 failed=0"'
     honest = '$env:WG_CLAUDE_DIR="C:\\' + "x" * 190 + '"; python -X utf8 run_verify.py'

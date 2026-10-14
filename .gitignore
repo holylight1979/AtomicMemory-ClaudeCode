@@ -190,6 +190,7 @@ _AIDocs/**/attachments/**/obj/
 workflow/inbox/
 workflow/second-opinion/
 workflow/verify-ledger/
+workflow/verify-scope/
 workflow/scorecard/
 workflow/tracking/
 !.claude/overview-map.md

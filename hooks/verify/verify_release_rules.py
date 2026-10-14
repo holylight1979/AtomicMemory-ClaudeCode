@@ -182,7 +182,7 @@ def test_045_format_hit_without_evidence_uses_why():
 
 def test_045_legacy_letters_have_rule_names():
     for n in ("CLAIM_FIXED_NEEDS_PASS", "CLAIM_MEASURED_NEEDS_DONE", "CLAIM_TRIED_NEEDS_EXEC", "AEC_EVIDENCE_PATH",
-              "AEC_FOLLOWUPS_EMPTY", "MEASURE_RULER_NOT_RUN"):
+              "AEC_FOLLOWUPS_EMPTY", "SCOPE_DECLARED_FOR_CHANGE", "SCOPE_ITEM_RECEIPT_AFTER_EDIT"):
         assert n in rr.RULES and rr.RULES[n]
         assert rr.parse_hits(rr.format_hit("x", rr.Verdict(n, True, "w"))) == ["x"]
 
@@ -1380,3 +1380,71 @@ def test_c_g16_ask_paths_from_question_and_options_only():
 def test_c_g16_ask_paths_cjk_quoted_and_bare(question, want):
     """codex 002 BLOCK 1／2：中文路徑段、引號包住含空白的路徑、根目錄檔名都要取得到；一般字不誤取。"""
     assert rr.ask_paths(_ask((question, ["A (Recommended)"]))) == want
+
+
+# ─── 驗證範圍：要不要驗是規則，驗哪些由 LLM 判斷（端到端案例在 verify_verify_scope.py） ───
+
+def test_scope_declared_for_change_needs_declaration_and_every_repo():
+    """SCOPE_DECLARED_FOR_CHANGE：改了程式沒宣告 → 欠（訊息叫 LLM 判斷並指路 verify_scope）；宣告了但某個 repo 沒項目 → 欠；
+    都有 → 不欠；沒改 → 不欠。"""
+    v = rr.scope_declared_verdict([r"c:\p\hooks\x.py"], False)
+    assert v.rule == "SCOPE_DECLARED_FOR_CHANGE" and v.owed and "x.py" in v.why and "verify_scope" in v.evidence[0]
+    v = rr.scope_declared_verdict([r"c:\p\a.py", r"c:\q\b.py"], True, [("c:/q", [r"c:\q\b.py"])])
+    assert v.owed and "c:/q" in v.why and "b.py" in v.evidence[0]
+    assert not rr.scope_declared_verdict([r"c:\p\a.py"], True).owed
+    assert not rr.scope_declared_verdict([], False).owed
+
+
+def test_scope_item_well_formed_target_why_and_facts():
+    """SCOPE_ITEM_WELL_FORMED：目標或理由空 → 退；呼叫端查到檔不存在、節點查不到 → 退；都好 → 收。"""
+    assert rr.scope_item_form_verdict("", "w").owed
+    assert rr.scope_item_form_verdict("a.py", "  ").owed and "理由" in rr.scope_item_form_verdict("a.py", "").why
+    v = rr.scope_item_form_verdict("a.py", "w", "不存在（c:/p/a.py）")
+    assert v.owed and v.rule == "SCOPE_ITEM_WELL_FORMED" and "不存在" in v.why
+    assert not rr.scope_item_form_verdict("a.py", "直接測 a").owed
+
+
+def test_scope_item_receipt_after_edit_carries_reason():
+    """SCOPE_ITEM_RECEIPT_AFTER_EDIT：沒合格收據 → 欠，證據是查到的理由（沒給就說沒有收據）；有 → 不欠。"""
+    v = rr.scope_item_verdict("ab-S2", "hooks/verify/verify_x.py", False, "最近一次跑紅")
+    assert v.owed and "ab-S2" in v.why and v.evidence == ("最近一次跑紅",)
+    assert rr.scope_item_verdict("ab-S2", "t", False).evidence == ("沒有跑這一項的收據",)
+    assert not rr.scope_item_verdict("ab-S2", "t", True).owed
+
+
+def test_scope_leak_outside_scope_only_when_closed_between_green_and_red():
+    """SCOPE_LEAK_OUTSIDE_SCOPE：範圍外、T 綠過、宣告在上次綠之後這次紅之前結案 → 記；任一不成立 → 不記。
+    看到紅的 session 自己還有沒結案的改動 → 照記，證據多一行叫檢討時先查明（不憑 session 狀態丟掉）。"""
+    base = dict(test="h/v/verify_y.py::test_q", scope_id="S1", in_scope=False, observer_open=False,
+                last_green="2026-10-14T01:00:00Z", closed_between=True)
+    assert rr.scope_leak_verdict(**base).owed
+    for k, v in (("in_scope", True), ("last_green", None), ("closed_between", False)):
+        assert not rr.scope_leak_verdict(**{**base, k: v}).owed, k
+    busy = rr.scope_leak_verdict(**{**base, "observer_open": True})
+    assert busy.owed and any("先查明" in e for e in busy.evidence)
+
+
+def test_scope_covers_and_failed_in_path_logic():
+    """範圍涵蓋：整個 repo、資料夾、同一支檔、節點（含參數化）；節點項目不涵蓋同檔的別的節點。紅名單：同節點或其中一邊只寫到檔。"""
+    assert rr.scope_covers(["*"], "a/b.py::t")
+    assert rr.scope_covers(["hooks/verify"], r"hooks\verify\verify_y.py::test_q")
+    assert rr.scope_covers(["hooks/verify/verify_y.py"], "hooks/verify/verify_y.py::test_q")
+    assert rr.scope_covers(["hooks/verify/verify_y.py::test_q"], "hooks/verify/verify_y.py::test_q[1]")
+    assert not rr.scope_covers(["hooks/verify/verify_y.py::test_q"], "hooks/verify/verify_y.py::test_r")
+    assert not rr.scope_covers(["hooks/verify/verify_x.py"], "hooks/verify/verify_y.py")
+    assert not rr.scope_covers(["hooks/ver"], "hooks/verify/verify_y.py")                 # 前綴要到資料夾邊界
+    assert rr.scope_failed_in(["a.py::t"], "a.py") and rr.scope_failed_in(["a.py"], "a.py::t")
+    assert not rr.scope_failed_in(["a.py::t"], "a.py::u") and not rr.scope_failed_in(["b.py"], "a.py")
+
+
+def test_scope_leak_review_before_declare_needs_root_cause_or_reason():
+    """SCOPE_LEAK_REVIEW_BEFORE_DECLARE：每筆待檢討都要交；missed 要根因與下次怎麼改，unrelated 要理由；verdict 只收兩種。"""
+    v = rr.scope_review_verdict(["L1", "L2"], [{"leak": "L1", "verdict": "unrelated", "reason": "環境壞了"}])
+    assert v.owed and "L2 還沒檢討" in v.evidence
+    v = rr.scope_review_verdict(["L1"], [{"leak": "L1", "verdict": "missed", "next_time": "看呼叫方"}])
+    assert v.owed and "根因" in v.evidence[0]
+    v = rr.scope_review_verdict(["L1"], [{"leak": "L1", "verdict": "missed", "root_cause": "只看了自己的測試"}])
+    assert v.owed and "next_time" in v.evidence[0]
+    assert rr.scope_review_verdict(["L1"], [{"leak": "L1", "verdict": "maybe"}]).owed
+    ok = [{"leak": "L1", "verdict": "missed", "root_cause": "沒查誰讀這個常數", "next_time": "改常數先搜讀它的地方"}]
+    assert not rr.scope_review_verdict(["L1"], ok).owed and not rr.scope_review_verdict([], []).owed
