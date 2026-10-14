@@ -44,7 +44,7 @@ from wg_extraction import classify_extracted_item
 _LIB_PARENT = str(Path(__file__).resolve().parents[1])
 if _LIB_PARENT not in sys.path:
     sys.path.insert(0, _LIB_PARENT)
-from lib.atom_io import build_atom_content, write_raw  # noqa: E402
+from lib.atom_io import build_atom_content, narrative_date_error, write_raw  # noqa: E402
 from lib.atom_spec import slugify  # noqa: E402
 
 WORKFLOW_DIR = CLAUDE_DIR / "workflow"
@@ -922,6 +922,11 @@ def _failure_writeback(ctx: dict, items: list) -> None:
         entry_block = _build_failure_skeleton(
             content, tags, now,
             sources=item.get("sources"), source_session=item.get("source_session", ""))
+        # 失敗回寫走 write_raw 不經 write_atom，日期閘在這裡看同一份判式（標題行的日期是標題，不算）；擋下一律記 ERROR
+        date_err = narrative_date_error(entry_block.split("\n"))
+        if date_err:
+            _atom_debug_log("ERROR", f"[failure_writeback] {target.name} 擋下：{date_err}", config)
+            continue
 
         # 走 atom_io.write_raw funnel（保留原 marker fallback 行為，
         # 但統一經過 audit log + PreToolUse 強制門禁放行）

@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 _CODE_ROOT = Path(__file__).resolve().parent.parent   # 程式碼根：lib.* 從本樹載
 if str(_CODE_ROOT) not in sys.path:
     sys.path.insert(0, str(_CODE_ROOT))
-from lib.atom_io import write_raw, write_index_full  # noqa: E402
+from lib.atom_io import narrative_date_error, write_raw, write_index_full  # noqa: E402
 
 _AUDIT_SOURCE = "tool:memory-audit"
 
@@ -813,6 +813,11 @@ def restore_from_distant(atom_path: Path) -> Tuple[bool, str]:
         text = atom_path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError) as e:
         return False, f"讀取失敗: {e}"
+
+    # _distant 不受 lint 掃，恢復＝整張舊卡重新進索引：先過寫入閘的同一份判式（看整卡，與 lint 掃法相同）
+    date_err = narrative_date_error(text.split("\n"))
+    if date_err:
+        return False, f"{date_err}；先跑 python tools/atom-date-lint.py --fix --path {atom_path} 清掉再恢復"
 
     # Reset confidence to [臨]
     text = re.sub(

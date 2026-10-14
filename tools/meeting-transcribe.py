@@ -312,7 +312,8 @@ def ingest_decisions(project: Path, meta: dict, decisions: List[dict], domains: 
         domain = (d.get("domain") or "").strip()
         classified = domain in domains
         owner = f"負責人：{d['owner']}。" if d.get("owner") else ""
-        knowledge = [f"[臨] {d.get('detail') or title}。{owner}（{meta['date']} {meta['title']} 決議）"]
+        # 會議日期不進知識行（寫入閘 KNOWLEDGE_LINE_NO_NARRATIVE_DATE）；Source 的逐字稿路徑帶 <日期-標題> 資料夾
+        knowledge = [f"[臨] {d.get('detail') or title}。{owner}（{meta['title']} 決議）"]
         triggers = [t for t in (d.get("triggers") or []) if isinstance(t, str) and t.strip()] or [title]
         kw: Dict[str, Any] = dict(
             title=title, scope="shared", confidence="[臨]", triggers=triggers, knowledge=knowledge,

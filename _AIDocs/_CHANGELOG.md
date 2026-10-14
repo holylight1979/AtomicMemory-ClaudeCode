@@ -4,6 +4,12 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 記憶卡知識行寫入時就擋敘事日期（KNOWLEDGE_LINE_NO_NARRATIVE_DATE），與日期 lint 共用一份判式
+- **緣由**：知識行帶「實踩（某日）」這類敘事日期的卡反覆出現（含背景收割寫的），每次都靠全量 `verify_atom_date_lint` 事後抓、再手清；寫入時不擋，判式只活在 `tools/atom-date-lint.py`。
+- **做法**：判式搬到 `lib/narrative_date.py`（lint 改 import，只留掃檔與 --fix）；`lib/atom_io` 的 `write_atom`（create／append／replace）與 `append_atom_file`、`lib/atom_io_cli` 的 create_atom／build（MCP js 的 create／replace）加具名規則：這次寫進卡的知識行與行動行有敘事型日期就拒，訊息印規則名、命中行（截 120 字）與「日期寫 Source 欄或 DevHistory」；extract-worker 失敗回寫（走 write_raw）同判式、擋下記 ERROR；user-extract-worker 經 write_atom 被擋照舊記 ERROR。會議轉錄的決議不再把會議日期寫進知識行（日期在 Source 的逐字稿路徑）。js 沒動，不必重載 MCP。TECH §6.1。
+- **驗證**：新 `lib/verify/verify_narrative_date_gate.py` 7 案改前全紅、改後綠，判式暫改成永遠放行時 5 個行為案紅在斷言；判式搬家前後對 worktree 933 檔逐行對拍 0 差異；真起 MCP server 送 create（含 dry_run）／append／replace 都回規則名、原檔不動；目標 34 支 512 passed，紅 1 是活體守門掃到 live 既有 4 張帶日期卡（非本次造成）。
+- **補（總控台 codex 退件三條）**：判式入口先把多行知識元素攤成逐行（首行豁免詞不再連帶放過下一行，兩個 append 入口與 extract-worker 同受惠）；`tools/org-memory.py` 建工具卡、`tools/memory-audit.py` 從 `_distant` 恢復舊卡（看整卡，拒絕時指路 `atom-date-lint --fix --path`）都接同一判式。三個新案（含「append 擋不擋與拼進卡後 lint 抓不抓」逐樣本一致）改前紅、改後綠，逆向改回時紅在斷言。
+
 ## 2026-10-14 v6.0 .claude.json 與 Claude Code 執行期目錄也改看 CLAUDE_CONFIG_DIR，規則收成單一來源
 - **緣由**：Claude Code 的 `.claude.json` 放在 `CLAUDE_CONFIG_DIR || 家目錄`、shell-snapshots／debug／plugins 在它的設定目錄底下；ensure-mcp、cleanup-old-files、check-bypass、usage-snapshot 讀帳號四處寫死家目錄，使用者另設設定目錄時會改錯或掃錯地方。
 - **做法**：`lib/project_root.py` 在 `claude_data_dir` 旁加 `claude_config_dir()`、`claude_global_config()`（取值照 Claude Code：空字串當沒設、不去空白），上述四處與 fix-hook-python 一律呼叫它；`verify_install` 受測檔加 `lib/project_root.py`。一般安裝路徑字串不變。TECH §9.3。

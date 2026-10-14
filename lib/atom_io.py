@@ -36,6 +36,7 @@ from .atom_locations import (
     find_separator_variant, classify_realm,
 )
 from .atom_taxonomy import gate_enabled as _taxonomy_gate_enabled
+from .narrative_date import narrative_date_error
 from .project_root import resolve_project_root
 from .realm_gate import is_core_root
 
@@ -621,6 +622,9 @@ def append_atom_file(
     if "## 行動" not in existing:
         return WriteResult(ok=False, audit_id=audit_id,
                            error=f"Atom {fp.name} has no ## 行動 section")
+    date_err = narrative_date_error(render_knowledge_lines(knowledge))
+    if date_err:
+        return WriteResult(ok=False, audit_id=audit_id, error=date_err)
     content = _build_append_content(existing, knowledge)
     err = validate_atom_content(content)
     if err:
@@ -959,6 +963,14 @@ def rule_atom_style_violation(file_path: Path, knowledge: Optional[List[str]]) -
     return None
 
 
+def card_body_lines(content: str) -> List[str]:
+    """建好的整張卡從第一個 `## ` 段起的行（知識段＋行動段）；檔頭欄位（含 replace 從舊卡帶回的）不在內。
+    create／replace 的 KNOWLEDGE_LINE_NO_NARRATIVE_DATE 閘只看這段（py write_atom 與 atom_io_cli 共用）。"""
+    lines = content.split("\n")
+    start = next((i for i, ln in enumerate(lines) if ln.startswith("## ")), len(lines))
+    return lines[start:]
+
+
 # ─── replace：檔頭從舊卡帶回（py write_atom 與 MCP js 經 atom_io_cli build 共用這一份）─────────
 # replace 用參數重建整張檔（build_atom_content），build 只會輸出它認得的鍵、標題取 title 參數、Created-at 缺就填今天。
 # 舊格式卡（標題與檔名不同、沒有 Created-at、檔頭有 Confirmations／Last-used／Tags／Type 這類 build 不認得的鍵）
@@ -1284,6 +1296,10 @@ def write_atom(
     if err:
         return WriteResult(ok=False, audit_id=audit_id, error=f"Validation failed: {err}")
     err = rule_atom_style_violation(file_path, knowledge)
+    if err:
+        return WriteResult(ok=False, audit_id=audit_id, error=err)
+    # 知識行與行動行不准敘事日期（判式與 tools/atom-date-lint.py 同一份）；只看這次寫進去的行，skip_gate 不能繞
+    err = narrative_date_error(render_knowledge_lines(knowledge) if mode == "append" else card_body_lines(content))
     if err:
         return WriteResult(ok=False, audit_id=audit_id, error=err)
 
