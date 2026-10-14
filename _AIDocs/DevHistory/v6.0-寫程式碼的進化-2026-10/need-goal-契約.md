@@ -323,9 +323,11 @@ js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 erro
   - `pending_reinjection_goal`（str）：PostCompact 存、PostToolBatch 送，排在 atom 內文後、部位綜觀前；綜觀的「主目標」改成指向它。
 - `state["overview_hub"][部位].goal_view_turn`：目標視角重送過的那一次 goal_reset_turn。
 - 守門紀錄另加事件：`multi_edit`、`ask_error`（PreToolUse 提問分支自己炸了：擋＋stderr，只放過含【收尾放行確認】而且本 session 真有擋滿待放行紀錄的題目）、`points_error`。
-- 守門紀錄事件 `ask_audit` {tool, tool_use_id, tree, blocked, linked}：PostToolBatch 對這批每一次提問記一筆，blocked＝送出前被擋過幾次，linked＝最後掛上的節點（沒掛為 null）。
+- 守門紀錄事件 `ask_audit` {tool, tool_use_id, tree, blocked, linked, note}：PostToolBatch 對這批每一次提問記一筆，blocked＝送出前被擋過幾次，linked＝最後掛上的節點（編號或原文片段認出的；沒掛為 null），note＝沒掛上時「提問未掛目標（知識類）」（含還沒有樹）或「提問未掛目標（寫碼類）」，掛上了 null。
+- 守門紀錄事件 `ask_no_recommendation` {tool, missing, mode}：提問有題目沒附推薦（規則 ASK_NEEDS_RECOMMENDATION），missing＝缺的題數，mode＝pre（擋）／after（事後提醒）。
 - 守門紀錄事件 `external_claim` {kind, source, tree}：收到外部主張（同伴訊息、審查結果、讀交付信或審查報告檔）時送「用目標視角重看」三問並記一筆。
 - checkpoint 的 point 不新增值：外部主張沿用 `scope`（有樹才記）。
 - 函式：on_correction(sid, hits, turn=None)、silent_unreconciled(sid, turn=None) 多一個可省略的 turn。另有只在 bkp 模組與它的呼叫點用的：scope_on_read、scope_dir_line、batch_due、batch_lines、asks_after、mark_asked、ask_key、note_ask_blocked、peer_claim_lines、peer_of_prompt、on_external_claim、goal_view_text、recovery_text、handoff_note、handoff_section、has_open_tree。
 - 4.4 擋與事後兩種模式：settings.json 的 PreToolUse matcher 有掛 AskUserQuestion|ExitPlanMode＝擋；沒掛（或 PreToolUse 不觸發）＝PostToolBatch 從 tool_calls 找沒處理過的提問，事後記錄並提醒。附錄 D(1) 實測 PreToolUse 對這兩個工具都會觸發、tool_input 完整，預設用擋（matcher 已掛）；擋的理由附照做就能過的修法（建議節點、題目裡怎麼寫、不屬於任何節點先 need_goal add）。
+- 4.4 的判定是 `wg_release_rules` 三條規則（TECH §7.8）：ASK_NEEDS_RECOMMENDATION（AskUserQuestion 每一題要附推薦，不分有沒有樹；放行確認題豁免）、ASK_LINKED_TO_GOAL（每一題各自要有節點編號或節點原文連續 8 字以上，題目＋選項 label 與描述、不含 header；寫碼類有題沒指到擋、知識類只提示、沒樹不擋）；放行題看結構（題目含標記、選項正好固定兩個），真有待放行紀錄時整次全是放行題才整次豁免（`ask_release_only`，pre_tool_use 閘壞掉時的例外分支同一支）、ASK_OVERVIEW_BEFORE_DECISION（問改法而 `state["overview_hub"]` 各部位 `part_files_read` 全空 → 多一句「先讀過部位檔再問」，不單獨擋）。`on_ask` 只蒐集事實；任一條要擋（事前模式）就把所有句子併成一則擋訊息，否則併成一則提示；事後模式只提示。
 - 回合號慣例：只有 UserPromptSubmit 當下用 `state["turn_seq"]+1`（turn_seq 在 UPS 最後才加一）；PreToolUse／PostToolUse／PostToolBatch／Stop 用 `state["turn_seq"]` 本身。
