@@ -6790,6 +6790,22 @@
         "恢復路徑"
       ],
       "scope": "global"
+    },
+    {
+      "name": "清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋",
+      "path": "_AIDocs/_atoms/MemDev/清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋.md",
+      "triggers": [
+        "python -m pytest",
+        "-m 被當篩選",
+        "篩選過的綠不清紅",
+        "綠清不掉紅",
+        "TestFailGate 舊紅",
+        "清帳誤判",
+        "篩選旗標",
+        "改清帳規則",
+        "指令寫法變體案例"
+      ],
+      "scope": "global"
     }
   ]
 }

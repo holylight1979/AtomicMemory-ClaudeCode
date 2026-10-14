@@ -97,6 +97,7 @@
 | 注入記帳以送達為準-裁切後才算-injected-宣稱送出但被總額砍掉的-atom-不得計曝光與效用 | 注入記帳以送達為準-裁切後才算 injected-宣稱送出但被總額砍掉的 atom 不得計曝光與效用 |
 | 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產 | 注入預算三教訓-裁切要回填-分級看token不看字元-橋接檔須隨索引重產 |
 | 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞 | 活躍session的state被fallback覆蓋-讀失敗不等於遺失且working-ttl-30分太短-多sub-agent共用session-id時必撞 |
+| 清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋 | 清帳規則判篩選旗標要先剝掉python-m-pytest的跑模組-m-否則所有python-m-pytest的綠都被當有篩選清不掉紅-每個session收尾被舊紅擋 |
 | 用真hook重放對話紀錄量閘的擋次-原session的系統暫存路徑要對到沙箱暫存-計數只認那條閘自己的標記 | 用真hook重放對話紀錄量閘的擋次-原session的系統暫存路徑要對到沙箱暫存-計數只認那條閘自己的標記 |
 | 真hook子行程探針只設wg-claude-dir隔離不了守門紀錄-guard-log-dir固定家目錄-要再帶wg-test-logs-dir與home-userprofile | 真hook子行程探針只設WG_CLAUDE_DIR隔離不了守門紀錄-GUARD_LOG_DIR固定家目錄-要再帶WG_TEST_LOGS_DIR與HOME-USERPROFILE |
 | 禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱 | 禁語 hook 不開引用豁免（誤報噪音 vs 契約破洞不對稱） |
