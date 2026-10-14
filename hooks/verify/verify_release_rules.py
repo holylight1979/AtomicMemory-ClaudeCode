@@ -491,3 +491,64 @@ def test_045_green_same_case_clears():
     assert not rr.green_clears_red("python service_a/tests/test_api.py", "python -X utf8 service_b/tests/test_api.py")
     assert not rr.green_clears_red("python tests/test_api.py", "python tests/test_api.py", "C:/svc_a", "C:/svc_b")
     assert rr.green_clears_red("python tests/test_api.py", "python -X utf8 C:/svc_a/tests/test_api.py", "C:/svc_a", "C:/other")
+
+
+# ═══ C-G3／C-G10（track-goal-evidence）：需求目標樹完整對照的證據規則 ═══
+
+def test_goal_receipt_red_and_green():
+    """收據紅＝任一哨兵 FAIL 或 exit 不是 0（沒記 exit 不算紅）；綠＝有 PASS 而且沒紅。"""
+    assert rr.receipt_red(["X_CHECK:FAIL"], 0) and rr.receipt_red(["X_CHECK:PASS"], 1)
+    assert not rr.receipt_red(["X_CHECK:PASS"], 0) and not rr.receipt_red([], None)
+    assert rr.receipt_green(["PYTEST:PASS"], 0) and rr.receipt_green(["PYTEST:PASS"], None)
+    assert not rr.receipt_green(["X:DONE"], 0) and not rr.receipt_green(["A:PASS", "B:FAIL"], 0)
+
+
+def test_goal_done_needs_case_or_receipt_verdicts():
+    """GOAL_DONE_NEEDS_CASE_OR_RECEIPT：寫碼類樹標達成要有沒紅的收據或讀碼級案例；記憶知識類不擋；擋時證據列出現有的每一筆。"""
+    file_read = ("file", "read", False, "讀碼 檔案 a.py")
+    v = rr.goal_done_evidence_verdict("T1", True, [file_read])
+    assert v.rule == "GOAL_DONE_NEEDS_CASE_OR_RECEIPT" and v.owed and "T1" in v.why
+    assert v.evidence[0] == "T1 現有證據：讀碼 檔案 a.py"
+    assert not rr.goal_done_evidence_verdict("T1", False, [file_read]).owed
+    assert not rr.goal_done_evidence_verdict("T1", True, [file_read, ("case", "read", False, "c")]).owed
+    assert not rr.goal_done_evidence_verdict("T1", True, [("receipt", "measured", False, "R3")]).owed
+    red = rr.goal_done_evidence_verdict("T1", True, [("receipt", "measured", True, "實測 收據 R3")])
+    assert red.owed and "實測 收據 R3（紅）" in red.evidence[0]
+    assert rr.goal_done_evidence_verdict("T1", True, [("case", "inferred", False, "c")]).owed
+
+
+def test_goal_inferred_max_partial_verdicts():
+    """GOAL_INFERRED_MAX_PARTIAL：證據全是推論 → 擋（不分類別）；有一筆不是推論就不歸這條。"""
+    v = rr.goal_inferred_verdict("T2", [("file", "inferred", False, "推論 檔案 a.py")])
+    assert v.rule == "GOAL_INFERRED_MAX_PARTIAL" and v.owed and v.evidence == ("T2 現有證據：推論 檔案 a.py",)
+    assert not rr.goal_inferred_verdict("T2", [("file", "inferred", False, "x"), ("file", "read", False, "y")]).owed
+    assert not rr.goal_inferred_verdict("T2", []).owed                         # 沒證據歸「沒附證據」那條
+
+
+def _cases(cmd, cwd):
+    return rr.case_files_in_cmd(cmd, cwd)
+
+
+@pytest.mark.parametrize("runs, want", [
+    ([(1, "pytest -q verify_a.py", "C:/p/svc", True, False), (2, "pytest -q verify_a.py", "C:/p/svc", False, True)], (1, 2)),
+    ([(1, "pytest -q verify_a.py", "C:/p/svc", False, True)], None),
+    ([(1, "pytest -q verify_a.py", "C:/p/svc", False, True), (2, "pytest -q verify_a.py", "C:/p/svc", True, False)], None),
+    ([(1, "pytest -q verify_b.py", "C:/p/svc", True, False), (2, "pytest -q verify_a.py", "C:/p/svc", False, True)], None),
+    # 比絕對路徑：別的目錄的同名案例紅了不算
+    ([(1, "pytest -q verify_a.py", "C:/p/other", True, False), (2, "pytest -q verify_a.py", "C:/p/svc", False, True)], None),
+    ([(1, "pytest -q verify_a.py::test_x", "C:/p/svc", True, False), (2, r"pytest C:\P\svc\verify_a.py", "C:/x", False, True)],
+     (1, 2)),
+], ids=["red-green", "green-only", "green-red", "other-file", "other-dir-same-name", "abs-and-node-id"])
+def test_goal_case_red_then_green(runs, want):
+    """CASE_RED_THEN_GREEN：點名同一個案例檔的收據裡先有紅、之後有綠 → (紅的號, 綠的號)；對不上 None（只記錄，不擋）。"""
+    rows = [(seq, _cases(cmd, cwd), red, green) for seq, cmd, cwd, red, green in runs]
+    assert rr.red_then_green(r"C:\p\svc\verify_a.py", rows) == want
+
+
+def test_goal_case_files_in_cmd_quoted_path_with_space():
+    """CASE_RED_THEN_GREEN 與 GREEN_SAME_CASE_CLEARS 共用的取檔：引號裡含空白的路徑整段算一個（codex BLOCK 1）。"""
+    assert rr.case_files_in_cmd('pytest -q "my tests/test_a.py"', "C:/p") == ["c:/p/my tests/test_a.py"]
+    assert rr.case_files_in_cmd("pytest 'my tests/test_a.py::test_x' b.py", "C:/p") == ["c:/p/my tests/test_a.py", "c:/p/b.py"]
+    assert rr.case_files_in_cmd('python -c "import x; open(\'a.py\')"') == ["a.py"]          # 引號裡不是單一路徑照舊取
+    assert rr.green_clears_red('pytest "my tests/test_a.py"', 'python -m pytest -q "my tests/test_a.py"', "C:/p", "C:/p")
+    assert not rr.green_clears_red('pytest "my tests/test_a.py"', "pytest tests/test_a.py", "C:/p", "C:/p")

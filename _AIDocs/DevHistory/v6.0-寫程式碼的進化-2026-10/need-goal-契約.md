@@ -43,7 +43,7 @@
 | `said_log` | list | 最近 5 則使用者原話 `{seq, turn, text, attached}`；`attached=false` 是還沒歸進任何樹的（開新樹時搬進去） |
 | `hint_sent` | dict | 4.1 提醒送過的紀錄 `{"first": bool, "after": [樹編號…]}` |
 | `trees` | dict | 樹編號 → 樹（2.2） |
-| `receipts` | list | 收據蓋號 `{seq, receipt_seq, key, turn, at, cmd, verdicts, exit}`，最多 300 筆，`seq` 就是 AI 引用的 `R<seq>` |
+| `receipts` | list | 收據蓋號 `{seq, receipt_seq, key, turn, at, cmd, cases, verdicts, exit}`，最多 300 筆，`seq` 就是 AI 引用的 `R<seq>`；`cmd` 只存前 200 字；`cases`＝蓋號時用完整指令與它的 cwd 解出的案例檔絕對路徑（指令裡換目錄或沒記 cwd → 空），給先紅後綠比對用 |
 | `imports` | list | 匯入過的續接單 `{path, sha, at, trees}`（同一份同內容不重複匯入） |
 | `receipts_seen` | list | 因上限被丟掉的收據識別 `<key>|<receipt_seq>|<at>`，最多 1000 筆：工作暫存裡還留著的同一筆不會被重新蓋成新號 |
 
@@ -79,7 +79,7 @@
 | `clarity` | enum | `clear`（明確）／`open`（待展開） |
 | `status` | enum | `todo`（未開始）／`doing`（進行中）／`done`（達成）／`partial`（部分）／`none`（沒有）／`dropped`（放棄）；樹根開樹時是 `doing`，其餘新節點 `todo` |
 | `history` | list | `{seq, turn, what, why}`；`what` ∈ `create`、`text`、`status`、`clarity`、`reconcile`、`import` |
-| `evidence` | list | `{kind, ref, level, covers, seq, prior?}`（第五節） |
+| `evidence` | list | `{kind, ref, level, covers, seq, prior?, red_then_green?}`（第五節；`red_then_green` 只有 case 證據有） |
 | `followup` | str | 部分／沒有時接下來要追什麼 |
 | `note` | str | 完整對照時的附註（放棄的理由寫這裡） |
 
@@ -136,6 +136,7 @@
 - 先後：一筆 receipt 證據的收據 `seq` 必須大於它 `covers` 每個節點掛的程式改動裡最大的 `seq`（讀 `node_last_edit`）；「節點掛的改動」＝掛在它本身、它的子孫，以及它的祖先（沒歸屬到更細節點的改動，例如沒有部位表的檔都掛樹根）。不因改了旁支的另一塊而整樹重驗。
 - 收據超過 300 筆時只丟最舊、沒被任何節點證據引用的；丟掉的識別記進 `receipts_seen`。
 - 匯入的證據 `prior=true`：只供閱讀，不計入 5.5 第 4～6 條。
+- 先紅後綠（規則 CASE_RED_THEN_GREEN，只記錄不擋）：`reconcile` 收下時，每筆 case 證據拿 `receipts` 依先後找 `cases` 含同一案例檔（絕對路徑，引號裡含空白的路徑整段算一個）的收據；紅＝任一哨兵 FAIL 或 exit 非 0，綠＝有 PASS 且沒紅；第一筆紅之後有綠 → 該筆記 `red_then_green=true`，對照摘要印「先紅後綠（red_then_green，R紅 → R綠）」，否則記 false、摘要印「案例未見先紅」。
 
 ### 5.5 完整對照的七條（4.5 第二層；`reconcile` 收件時與交付邊界時用同一支判定）
 1. 這棵樹有 `last_reconcile`。
@@ -143,7 +144,7 @@
 3. 每個狀態不是 `dropped` 的節點都在對照裡，而且現在的狀態是終點（`done`／`partial`／`none`／`dropped`）。
 4. `done`、`partial` 至少一筆非 prior 證據；每筆指標都存在。
 5. 先後：5.4 的規則。
-6. `done` 不能只有 `inferred`（推論最多標部分）；`measured` ⇔ `receipt`。
+6. `done` 不能只有 `inferred`（推論最多標部分，規則 GOAL_INFERRED_MAX_PARTIAL）；寫碼類樹（`kind=code`）的 `done` 至少一筆沒紅的 receipt 或 `read` 級 case（規則 GOAL_DONE_NEEDS_CASE_OR_RECEIPT，記憶知識類不查）；`measured` ⇔ `receipt`。擋訊息格式 `<現象>｜規則 <名>｜證據：<節點> 現有證據：<每一筆>`，規則條件在 `hooks/wg_release_rules.py`。
 7. `partial`、`none` 的 `followup` 非空；`dropped` 的 `note` 非空。
 
 收件時 3～7 不過 → 整批拒收、一項都不套用，回每一條拒收理由。交付邊界時 1～7 對**現在的**樹重新判一次（指標可能已經不在、之後可能又改了檔或改了節點狀態）。
