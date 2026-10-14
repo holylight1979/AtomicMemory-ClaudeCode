@@ -408,3 +408,4 @@
 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout-conflictdiff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 | memory/版控/Git/合併時兩邊都在同一檔檔尾新增的衝突-用checkout-conflictdiff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊.md | 合併衝突, 檔尾新增, 兩邊都加, diff3, conflict=diff3, 表格衝突, 多軌合併, 案例檔衝突, CHANGELOG 衝突 | global |  |
 | 從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成開頭 | _AIDocs/_atoms/MemDev/從中文題目抽檔案路徑的邊界-首段英數後段可中文-中文末段要帶副檔名-引號整段照收-網址先拿掉-部位表根目錄檔要寫成開頭.md | ask_paths, 題目路徑, 從句子抽路徑, 中文路徑, 全貌提醒, ASK_OVERVIEW_BEFORE_DECISION, 部位表前綴, ./TECH.md, parse_map, read_scope_keys | global |  |
 | 關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名 | memory/工作流/關工作分頁前要驗收割-worktree-session標代寫的經驗要逐條在記憶庫找到卡-認session用首則訊息軌名.md | 工作軌有沒有收割, 收割代寫, worktree session 收割, 關分頁前, 可關四項 | global |  |
+| feedback-帶版本名的臨時工作資料夾不得變成永久程式的依賴-派工寫路徑預設值前先問這路徑是不是通用的 | memory/Failures/設計通則/feedback-帶版本名的臨時工作資料夾不得變成永久程式的依賴-派工寫路徑預設值前先問這路徑是不是通用的.md | 預設路徑, 寫死路徑, 版本名資料夾, v6-inbox, 臨時資料夾, 工作殘存, 信箱路徑, 派工單路徑預設, 綜觀 | global |  |
