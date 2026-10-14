@@ -6575,6 +6575,35 @@
         "wg-iso 殘留"
       ],
       "scope": "global"
+    },
+    {
+      "name": "need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號",
+      "path": "_AIDocs/_atoms/MemDev/need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號.md",
+      "triggers": [
+        "need_goal reconcile",
+        "reconcile 拒收",
+        "不在磁碟上",
+        "case 證據",
+        "pytest 節點 id",
+        "驗證案例證據",
+        "evidence kind case"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算",
+      "path": "_AIDocs/_atoms/MemDev/收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算.md",
+      "triggers": [
+        "收尾放行確認",
+        "MeasureGate",
+        "MEASURE_RULER_NOT_RUN",
+        "量尺閘",
+        "放行不算",
+        "user_released",
+        "AskUserQuestion 放行",
+        "不跑全量"
+      ],
+      "scope": "global"
     }
   ]
 }

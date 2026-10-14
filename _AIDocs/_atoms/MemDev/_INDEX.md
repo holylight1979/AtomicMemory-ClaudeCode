@@ -44,6 +44,7 @@
 | mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原 | MCP js 改動後未重啟-lazy-require 新舊模組混載-tool 回 undefined 類錯誤不是 bug-Reload Window 即復原 |
 | mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效 | MCP的node端程式改了要開新session才載到-同機其他session的MCP程序仍跑舊碼-python端每次spawn立即生效 |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
+| need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 | need_goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 |
 | org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1 | org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1 |
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | OTEL 遙測評估結論-不實作-兩目標指標皆測不到 |
 | pan-hermes不移植部件與vscode-text-block不落盤實測 | pan-hermes不移植部件與vscode-text-block不落盤實測 |
@@ -82,6 +83,7 @@
 | 導讀卡寫入受knowledge區3072bytes預算擋-skip-gate跳不過funnel-矛盾偵測先於預算跑 | 導讀卡寫入受knowledge區3072bytes預算擋-skip_gate跳不過funnel-矛盾偵測先於預算跑 |
 | 巨檔純機械拆分-carve腳本與驗證盲點 | 巨檔純機械拆分-carve腳本與驗證盲點 |
 | 批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write-raw-tool-migrate-寫後補向量增量索引 | 批次改寫大量卡片-多agent平行起草單一寫入-逐字替換走write_raw-tool-migrate-寫後補向量增量索引 |
+| 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 | 收尾放行確認的選項要用固定字樣-放行這一回合-自訂選項文字使用者選了也不算 |
 | 收尾閘的驗證收據只認本回合的bash-引用前回合結果要寫明或重跑-測試檔之後才修排版會欠驗證案例 | 收尾閘的驗證收據只認本回合的Bash-引用前回合結果要寫明或重跑-測試檔之後才修排版會欠驗證案例 |
 | 改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live | 改根層部位表的worktree被量尺閘要求全量-worktree全量必有既有紅-收尾閘無限循環擋到合進live |
 | 改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看 | 改碼豁免要看結果不追寫法-已不存在的檔用同根新出現的程式檔判刪除或搬走-內容回到某狀態的豁免要連暫存區一起看 |
