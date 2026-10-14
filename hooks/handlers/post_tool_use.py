@@ -36,7 +36,8 @@ from wg_verify_ledger import (
     aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
     head_new_code, _git_root_of, reverted_code_files,
 )
-from wg_release_rules import canon_path, in_user_turn, deliberate_red_verdict, green_clears_red
+from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
+                              red_case_names, retry_round_verdict, same_test_run)
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
@@ -341,6 +342,32 @@ def _emit_post_tool_output(advisories: List[str], sys_msgs: List[str]) -> None:
 
 
 DELIBERATE_REDS_CAP = 20
+RETRY_ROUNDS_CAP = 20
+
+
+def _note_retry_round(state: Dict[str, Any], sid: str, command: str, failure: str, cwd: str) -> None:
+    """又跑紅了：蒐集事實（同一組測試還活著的紅、它們上次跑之後改過的檔、這次的指令與紅案）交給規則
+    RETRY_COUNTS_RERUN_CYCLES 判；算一輪就重試加一，並記下這一輪的證據（FixEscalation／DeepPostMortem 印）。
+    同一組的改檔紀錄這次用掉就清空（新紅測條目從零記起），別組的紅與它們的改檔不動。"""
+    same = [f for f in state.get("failing_tests") or []
+            if isinstance(f, dict) and f.get("session_id") == sid and not f.get("deliberate")
+            and same_test_run(f.get("cmd", ""), command, f.get("cwd") or None, cwd or None)]
+    edited: Dict[str, int] = {}
+    for f in same:
+        for path, n in (f.pop("edits_since_run", None) or {}).items():
+            edited[path] = edited.get(path, 0) + int(n or 0)
+    red = red_case_names(failure)
+    count = int(state.get("wisdom_retry_count", 0) or 0)
+    v = retry_round_verdict(same[-1] if same else None, edited, count + 1, command, red)
+    if not v.owed:
+        return
+    state["wisdom_retry_count"] = count + 1
+    summary = next((ln.strip() for ln in str(failure).splitlines()
+                    if ln.strip() and not ln.strip().startswith("Error: Exit code")), "")
+    rounds = state.setdefault("retry_rounds", [])
+    rounds.append({"round": count + 1, "cmd": command[:200], "red": red[:5], "summary": summary[:160],
+                   "edited": sorted(edited)[:5], "session_id": sid, "turn_seq": int(state.get("turn_seq", 0)), "at": _now_iso()})
+    del rounds[:-RETRY_ROUNDS_CAP]
 
 
 def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], command: str,
@@ -382,6 +409,7 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
                         "rule": verdict.rule, "evidence": list(verdict.evidence)[:3]})
             del lst[:-DELIBERATE_REDS_CAP]
             return True
+        _note_retry_round(state, sid, command, failure, str(input_data.get("cwd") or ""))
         state.setdefault("failing_tests", []).append({
             "tool": tool,
             "session_id": sid,
@@ -404,20 +432,24 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     cmd_prefix = command[:80].strip()
     is_pytest_success = "pytest" in command.lower()
     before = state["failing_tests"]
-    after = [
-        f for f in before
-        if f.get("session_id") != sid          # 只清自己的；沒蓋 sid 的舊條目不是自己的
-        or (
-            not f.get("cmd", "").startswith(cmd_prefix[:40])
-            and not green_clears_red(f.get("cmd", ""), command, f.get("cwd") or None,
-                                     str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
-            and not (is_pytest_success and (
-                f.get("pytest")
-                or "pytest" in f.get("cmd", "").lower()
-                or "short test summary" in f.get("summary", "")   # legacy 無 flag 者看 pytest 輸出特徵
-            ))
-        )
-    ]
+
+    def _clears(f: Dict[str, Any]) -> bool:
+        if f.get("session_id") != sid:          # 只清自己的；沒蓋 sid 的舊條目不是自己的
+            return False
+        matched = (f.get("cmd", "").startswith(cmd_prefix[:40])
+                   or green_clears_red(f.get("cmd", ""), command, f.get("cwd") or None,
+                                       str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
+                   or (is_pytest_success and (f.get("pytest") or "pytest" in f.get("cmd", "").lower()
+                                              or "short test summary" in f.get("summary", ""))))   # legacy 看 pytest 輸出特徵
+        if not matched:
+            return False
+        # 規則 GREEN_NARROWED_KEEPS_UNCOVERED_RED：單案或 -k 篩選跑綠，沒涵蓋紅掉的案例 → 那筆紅與它的改檔紀錄照留
+        keep = green_covers_red_verdict(f.get("cmd", ""), f.get("summary", ""), command)
+        if keep.owed:
+            print(f"[Guardian:TestFail] 規則 {keep.rule}：{keep.why}｜證據：{'；'.join(keep.evidence)}", file=sys.stderr)
+        return not keep.owed
+
+    after = [f for f in before if not _clears(f)]
     if len(after) == len(before):
         return False
     state["failing_tests"] = after

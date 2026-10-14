@@ -40,7 +40,7 @@ from wg_verify_ledger import (
 )
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
-    dpm_instruction_text,
+    dpm_instruction_text, retry_rounds_text,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -676,8 +676,11 @@ def _cwd_is_worktree(cwd: str) -> bool:
 
 
 def _dpm_instruction(state: Dict[str, Any], config: Dict[str, Any], cwd: str = "") -> str:
-    """DPM 指令文字；worktree 隔離 session（規則 DPM_WORKTREE_DELIVERY）改要求寫進交付信由總控台代寫，不叫它 atom_write。"""
-    return dpm_instruction_text(_dpm_trigger_text(state, config), _cwd_is_worktree(cwd))
+    """DPM 指令文字；worktree 隔離 session（規則 DPM_WORKTREE_DELIVERY）改要求寫進交付信由總控台代寫，不叫它 atom_write。
+    有逐輪重試紀錄就在標頭下一行附證據行（規則 RETRY_COUNTS_RERUN_CYCLES，format_hit 格式）。"""
+    rounds = state.get("retry_rounds") or []
+    return dpm_instruction_text(_dpm_trigger_text(state, config), _cwd_is_worktree(cwd),
+                                retry_rounds_text(rounds) if rounds else "")
 
 
 # ─── 迴歸累積提示（驗收真命中 → 建議補測試/落 atom）───────────────

@@ -57,8 +57,12 @@ RULES: Dict[str, str] = {
     "TEMP_COPY_NOT_PROJECT": "寫入目標或跑的腳本在暫存目錄下 → 不當專案：不找部位表、不注入、不要求綜觀；量尺與對帳也不把它當收據。",
     "DPM_WORKTREE_DELIVERY": "cwd 是 git worktree 的隔離 session：post-mortem 改寫進交付信由總控台代寫，不叫它 atom_write（會寫 live）。",
     "RED_WHILE_REVERTED": "跑紅時，受測根裡有本 session 改過的程式檔內容等於非 HEAD 的已提交版本（退回舊碼反證）→ 刻意紅：不算失敗、不計重試。",
-    "RETRY_COUNTS_EDITS_SINCE_RED": "重試只數「紅測出現之後」對同一個檔的編輯次數（達門檻起每次 +1），不數整場累計；刻意紅不計。",
+    "RETRY_COUNTS_RERUN_CYCLES": "重試只數「同一組測試上次跑之後碼有改過、再跑仍紅」的輪數：兩次重跑之間不論改幾次、幾個檔只算一輪；"
+                                 "紅之後第一次重跑就綠＝0；第一次跑別組紅不算；plan 與 direct 同門檻，兩輪升級 FixEscalation；"
+                                 "刻意紅、只改計畫類檔不算。不猜改檔為了哪一組，同時修多組時沒改到的那組也算（已知限制）。",
     "GREEN_SAME_CASE_CLEARS": "跑綠的指令點名與某筆紅測同一個案例檔 → 那筆紅測清掉（不限 pytest、不看指令前綴）。",
+    "GREEN_NARROWED_KEEPS_UNCOVERED_RED": "綠的範圍有篩選（節點 id、-k、-m、Jest -t）時，紅掉的案例都在綠點名的節點裡才清那筆紅；"
+                                          "判不了（-k 運算式、輸出沒列案例）照留，同一個篩選指令重跑除外。沒篩選照既有清帳規則。",
     "DISPATCH_OPENS_TURN": "回合起點＝使用者打字，或帶派工標記的跨 session 訊息（正文首行以「派工」開頭、或含 to-track-<軌> 派工檔路徑）；"
                            "一般同伴訊息、背景通知不開回合。擋次預算、ScanReport 豁免、AtomAudit、PASS 窗口、退避預告切點、有用度學習單位、"
                            "收割冷卻全吃同一個起點（user_turn／turn_prompts_seq／user_turn_count）。派工訊息不是使用者原話：口令照樣不認。",
@@ -699,9 +703,12 @@ _DPM_BODY = (
 )
 
 
-def dpm_instruction_text(trigger: str, is_worktree: bool) -> str:
-    """DeepPostMortem 指令：主工作樹叫 atom_write；worktree 隔離 session（DPM_WORKTREE_DELIVERY）改寫進交付信由總控台代寫。"""
+def dpm_instruction_text(trigger: str, is_worktree: bool, evidence: str = "") -> str:
+    """DeepPostMortem 指令：主工作樹叫 atom_write；worktree 隔離 session（DPM_WORKTREE_DELIVERY）改寫進交付信由總控台代寫。
+    evidence＝規則證據行（format_hit 格式，例：重試的逐輪證據），放在標頭下一行，parse_hits 讀得到。"""
     head = f"[Guardian:DeepPostMortem] 偵測到高 effort 失敗訊號（{trigger}）。失敗骨架已由 hook 自動落地，但根因與設計脈絡只有你知道。\n"
+    if evidence:
+        head += evidence.rstrip("\n") + "\n"
     if is_worktree:
         return (head + "規則 DPM_WORKTREE_DELIVERY：這個 session 在 git worktree 隔離，atom_write 走 live MCP 會寫 live，不要呼叫。"
                 "改把完整 post-mortem 寫進交付信（SendMessage 給總控台）的「post-mortem」段，由總控台代寫 atom，涵蓋：\n"
@@ -725,9 +732,94 @@ def deliberate_red_verdict(reverted: Sequence[Tuple[str, str]], pending: Sequenc
     return Verdict("RED_WHILE_REVERTED", True, "跑紅時沒有改檔處在已提交的舊版本，是真的紅", ())
 
 
-def retry_bump(edits_since_red: int, threshold: int) -> bool:
-    """RETRY_COUNTS_EDITS_SINCE_RED：這筆紅之後對同檔的第 N 次編輯（N ≥ threshold）算一次重試；第一次改不是重試。"""
-    return int(edits_since_red or 0) >= max(1, int(threshold))
+RETRY_ESCALATE_ROUNDS = 2          # 兩輪重跑仍紅就升級 FixEscalation（plan 與 direct 同一個門檻）
+RETRY_ROUNDS_SHOWN = 5             # 訊息最多列幾輪證據
+_RED_CASE_RE = re.compile(r"^(?:FAILED|ERROR) (\S+)", re.MULTILINE)
+
+
+def red_case_names(summary: str) -> List[str]:
+    """pytest 輸出裡紅掉的案例（FAILED／ERROR 開頭那行的節點 id），依出現順序、去重。"""
+    out: List[str] = []
+    for name in _RED_CASE_RE.findall(str(summary or "")):
+        if name not in out:
+            out.append(name)
+    return out
+
+
+def same_test_run(prev_cmd: str, cmd: str, prev_cwd: Optional[str] = None, cwd: Optional[str] = None) -> bool:
+    """RETRY_COUNTS_RERUN_CYCLES：這次是不是重跑同一組測試。兩邊點名的程式檔集合完全相同（共用的設定檔不會讓不同案例檔
+    算同一組；兩邊都給 cwd 就比絕對路徑），或兩邊都沒點名檔而指令前 40 字相同。"""
+    both = bool(prev_cwd) and bool(cwd)
+    a = set(case_files_in_cmd(prev_cmd, prev_cwd if both else None))
+    b = set(case_files_in_cmd(cmd, cwd if both else None))
+    if a or b:
+        return a == b
+    return str(prev_cmd).strip()[:40] == str(cmd).strip()[:40]
+
+
+def retry_round_verdict(prev_red: Any, edited: Any, round_no: int, cmd: str, red_cases: Sequence[str]) -> Verdict:
+    """RETRY_COUNTS_RERUN_CYCLES：測試又跑紅了，這次算不算一輪重試。prev_red＝同一組測試還活著的紅（呼叫端用
+    same_test_run 找；沒有就是 None）、edited＝那組上次跑之後改過的檔；重跑同一組、而且中間碼有改過（不論幾次、
+    幾個檔）才算一輪。不猜改檔是為了修哪一組：同時修好幾組時，沒改到的那組重跑仍紅也算（已知限制）。"""
+    if not isinstance(prev_red, dict):
+        return Verdict("RETRY_COUNTS_RERUN_CYCLES", False, "不是重跑同一組測試（第一次跑或別組）", ())
+    if not edited:
+        return Verdict("RETRY_COUNTS_RERUN_CYCLES", False, "這組上次跑之後沒改過檔，只是重跑", ())
+    return Verdict("RETRY_COUNTS_RERUN_CYCLES", True, f"第 {round_no} 輪：紅了、改了、再跑仍紅",
+                   (f"指令 {str(cmd)[:120]}", f"紅案 {'、'.join(red_cases[:3]) or '（輸出沒列案例）'}",
+                    f"改過 {'、'.join(sorted(edited)[:3])}"))
+
+
+def retry_rounds_text(rounds: Sequence[Dict[str, Any]]) -> str:
+    """FixEscalation／DeepPostMortem 共用的證據行（format_hit 格式，字母 r，parse_hits 讀得到）：規則名、第幾輪、
+    每輪的重跑指令與紅案（輸出沒列案例就用失敗摘要第一行）。"""
+    shown = [r for r in rounds if isinstance(r, dict)][-RETRY_ROUNDS_SHOWN:]
+    if not shown:
+        return format_hit("r", Verdict("RETRY_COUNTS_RERUN_CYCLES", True, "沒有逐輪紀錄", ()))
+    rows = tuple(f"第 {r.get('round')} 輪 指令 {str(r.get('cmd', ''))[:120]} 紅案 "
+                 f"{'、'.join(r.get('red') or []) or r.get('summary') or '（輸出沒列案例）'}" for r in shown)
+    return format_hit("r", Verdict("RETRY_COUNTS_RERUN_CYCLES", True, f"第 {shown[-1].get('round')} 輪重跑仍紅", rows))
+
+
+def fix_escalation_text(state: Dict[str, Any]) -> Optional[str]:
+    """重試輪數到門檻 → FixEscalation 提示（標頭、規則證據行、照做就能過的下一步）；沒到回 None。"""
+    count = int(state.get("wisdom_retry_count", 0) or 0)
+    if count < RETRY_ESCALATE_ROUNDS:
+        return None
+    return (f"[Guardian:FixEscalation] 偵測到重複修正（retry={count}）。\n{retry_rounds_text(state.get('retry_rounds') or [])}\n"
+            "依「精確修正升級」規則先停下直接修：用三句寫出①失敗現象與原文、②已試過的改法與各自為何沒解、"
+            "③下一個能區分候選原因的最小檢查；做完那個檢查再動手。刻意跑紅（退回舊碼反證）不算在內。")
+
+
+_NARROW_FLAG_RE = re.compile(r"(?:^|\s)(?:-k|-m|-t|--testNamePattern|--deselect|--lf|--last-failed)(?=\s|=|$)")
+_NODE_ID_TOKEN_RE = re.compile(r"""[^\s"']+::[^\s"']+""")
+
+
+def _norm_node(s: str) -> str:
+    return str(s).strip().strip("'\"").replace("\\", "/").lower().lstrip("./")
+
+
+def _node_covered(red: str, nodes: Sequence[str]) -> bool:
+    """紅掉的案例在不在綠點名的節點裡（同一個節點，或路徑寫法不同但尾段相同）。"""
+    return any(red == n or red.endswith("/" + n) or n.endswith("/" + red) for n in nodes)
+
+
+def green_covers_red_verdict(red_cmd: str, red_summary: str, green_cmd: str) -> Verdict:
+    """GREEN_NARROWED_KEEPS_UNCOVERED_RED：這次綠能不能清這筆紅（owed＝True 表示照留）。綠沒有篩選 → 交給既有清帳規則；
+    有篩選（節點 id、-k、-m、Jest -t）→ 紅掉的案例（red_case_names）都在綠點名的節點裡才清；同一個篩選指令重跑也清；
+    其餘照留（-k 運算式判不了、輸出沒列案例）。"""
+    rule = "GREEN_NARROWED_KEEPS_UNCOVERED_RED"
+    nodes = [_norm_node(n) for n in _NODE_ID_TOKEN_RE.findall(str(green_cmd or ""))]
+    if not nodes and not _NARROW_FLAG_RE.search(str(green_cmd or "")):
+        return Verdict(rule, False, "綠的沒有篩選案例，照既有清帳規則", ())
+    if " ".join(str(red_cmd or "").split()) == " ".join(str(green_cmd or "").split()):
+        return Verdict(rule, False, "綠的是同一個篩選指令重跑", ())
+    red = [_norm_node(c) for c in red_case_names(red_summary)]
+    missing = [r for r in red if not _node_covered(r, nodes)]
+    if red and not missing:
+        return Verdict(rule, False, "紅掉的案例都在綠點名的節點裡", tuple(red[:3]))
+    return Verdict(rule, True, "綠只跑了篩選過的案例，沒涵蓋紅掉的，那筆紅照留",
+                   (f"綠 {str(green_cmd)[:120]}", f"沒涵蓋 {'、'.join(missing[:3]) or '（紅的輸出沒列案例，判不了涵蓋）'}"))
 
 
 _CASE_EXTS = r"(?:py|js|ts|cs|lua|go|rs|rb|java|kt|sh|ps1)"

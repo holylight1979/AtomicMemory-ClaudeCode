@@ -5,16 +5,15 @@ verify_wisdom_retry_calibration.py — retry 信號（error-based）校準
 驗證：
   0. track_retry error gate：failing_tests 空 → 同檔狂 edit 也 0 retry
      （無真失敗證據不開火，edit 次數 ≠ 失敗）
-  1. track_retry plan-mode threshold = 4（direct 預設 2）—— 前提 failing_tests 非空
-  2. track_retry direct-mode threshold = 2 —— 前提 failing_tests 非空
+  1. 規則 RETRY_COUNTS_RERUN_CYCLES：紅測期間改檔只記 edits_since_run，不加重試；重跑同一組仍紅才算一輪
+  2. plan／direct／confirm／未設 approach 同一門檻（改幾次都一樣，重跑仍紅＝1 輪）
   3. track_retry plan iteration path 豁免（先於 failure gate 早退）
   4. reflect architecture 容忍 1 retry（plan-mode iteration 是設計上要試錯）
   5. reflect architecture + fix_escalation_triggered → 真失敗（覆蓋容忍）
   6. reflect single_file / multi_file 嚴格 retry_count == 0
 
-retry 僅在 state["failing_tests"] 非空（detect_test_failure 偵到、尚未被清的真
-測試/lint 失敗）時才計——數的是「測試仍紅、反覆改同檔」= 真正的反覆修不好；
-正常反覆迭代在零測試失敗下不進 retry。
+retry 數的是「紅了、改了、再跑仍紅」的輪數（重跑事件在 PostToolUse 的測試結果那端判）；
+紅測期間改檔只是事實，紅案例先行分多次改、一跑就綠＝0 輪。
 """
 
 import json
@@ -36,11 +35,23 @@ def _tmp_reflection(tmp_path, monkeypatch):
     yield p
 
 
-# 真失敗訊號：threshold 測試皆須在 failing_tests 非空前提下才計 retry。
-# 規則 RETRY_COUNTS_EDITS_SINCE_RED：track_retry 把「紅之後對同檔的編輯次數」記在紅測條目的 edits_after 上，
-# 所以每案要拿一份新的紅測清單（共用同一個 list 會讓前一案的計數漏到下一案）。
+# 規則 RETRY_COUNTS_RERUN_CYCLES：track_retry 把改檔記在最近一次跑紅那筆紅測的 edits_since_run（只記事實），
+# 每案拿一份新的紅測清單。條目蓋 session_id、指令與重跑相同（同一組測試），重跑判輪只認自己的同一組。
+_SID = "sess-calib"
+_CMD = "python -m pytest -q tests/x.py"
+
+
 def _failing():
-    return [{"cmd": "pytest", "at": "t"}]
+    return [{"cmd": _CMD, "at": "t", "session_id": _SID}]
+
+
+def _rerun_red(state):
+    """走真的 PostToolUse 入口再跑一次、仍紅（重跑在這裡判輪）。"""
+    from handlers import post_tool_use as ptu
+    cmd = _CMD
+    ev = {"session_id": _SID, "tool_name": "Bash", "tool_input": {"command": cmd},
+          "tool_response": {"stdout": "FAILED tests/x.py::t - assert 0\n1 failed in 0.1s\n", "stderr": "", "interrupted": False}}
+    ptu._track_test_result(state, ev, cmd)
 
 
 def _edits(state, path):
@@ -70,7 +81,7 @@ def test_no_failure_signal_no_retry(_tmp_reflection):
 
 
 def test_plan_mode_3_edits_no_retry(_tmp_reflection):
-    """plan approach + 同檔 3 次 Edit（測試紅）→ 不計 retry（threshold=4）。"""
+    """plan approach + 同檔 3 次 Edit（測試紅）→ 改檔本身不計 retry。"""
     state = {
         "wisdom_approach": "plan",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}, {"path": "src/a.py"}],
@@ -80,36 +91,41 @@ def test_plan_mode_3_edits_no_retry(_tmp_reflection):
     assert state.get("wisdom_retry_count", 0) == 0
 
 
-def test_plan_mode_4_edits_counts_as_retry(_tmp_reflection):
-    """plan approach + 同檔 4 次 Edit（測試紅）→ 計 1 retry。"""
+def test_plan_mode_4_edits_then_red_rerun_is_one_round(_tmp_reflection):
+    """plan approach + 同檔 4 次 Edit（測試紅）→ 改檔只記 edits_since_run；再跑仍紅才計 1 輪（與 direct 同門檻）。"""
     state = {
         "wisdom_approach": "plan",
         "modified_files": [{"path": "src/a.py"}] * 4,
         "failing_tests": _failing(),
     }
     _edits(state,"src/a.py")
+    assert state.get("wisdom_retry_count", 0) == 0 and state["failing_tests"][-1]["edits_since_run"] == {"src/a.py": 4}
+    _rerun_red(state)
     assert state["wisdom_retry_count"] == 1
 
 
-def test_direct_mode_2_edits_counts_as_retry(_tmp_reflection):
-    """direct approach + 同檔 2 次 Edit（測試紅）→ 維持 threshold=2，計 1 retry。"""
+def test_direct_mode_2_edits_then_red_rerun_is_one_round(_tmp_reflection):
+    """direct approach + 同檔 2 次 Edit（測試紅）→ 改檔不計；再跑仍紅計 1 輪。"""
     state = {
         "wisdom_approach": "direct",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
         "failing_tests": _failing(),
     }
     _edits(state,"src/a.py")
+    assert state.get("wisdom_retry_count", 0) == 0
+    _rerun_red(state)
     assert state["wisdom_retry_count"] == 1
 
 
 def test_confirm_mode_uses_default_threshold(_tmp_reflection):
-    """confirm approach 不適用 plan-mode 寬鬆規則，仍 threshold=2（測試紅）。"""
+    """confirm approach 也是同一門檻：改檔不計，再跑仍紅計 1 輪。"""
     state = {
         "wisdom_approach": "confirm",
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
         "failing_tests": _failing(),
     }
     _edits(state,"src/a.py")
+    _rerun_red(state)
     assert state["wisdom_retry_count"] == 1
 
 
@@ -127,12 +143,13 @@ def test_plan_path_excluded_regardless_of_approach(_tmp_reflection):
 
 
 def test_unknown_approach_defaults_to_direct(_tmp_reflection):
-    """未設 wisdom_approach → 預設視為 direct（threshold=2；測試紅）。"""
+    """未設 wisdom_approach → 同一門檻：改檔不計，再跑仍紅計 1 輪。"""
     state = {
         "modified_files": [{"path": "src/a.py"}, {"path": "src/a.py"}],
         "failing_tests": _failing(),
     }
     _edits(state,"src/a.py")
+    _rerun_red(state)
     assert state["wisdom_retry_count"] == 1
 
 

@@ -530,7 +530,7 @@ sequenceDiagram
 | 同步閘（SyncReminder） | 有未 commit 修改且 ≥`min_files_to_block` 2；或已 commit 但 repo 領先 upstream 未 push。root 有 vcs-sync worker 活鎖（`wg_harvest.vcs_sync_lock_active`）時跳過該 root 的 unpushed 判定；改檔所在 repo 是 git worktree（git-dir ≠ git-common-dir）或分支沒有 upstream → 不要求 push（規則 WORKTREE_NO_PUSH） | block，訊息瘦身不列檔案清單；上GIT＝commit+push 一氣，local commit 不算同步；git/svn clean 且 push 後自動標 `sync_completed`（`sync_reminder.unpushed` 可關） |
 | AtomAudit | 本 session 有 trigger 命中但只以路標注入、且未 Read | 要求讀取（取用端閉環稽核） |
 | 驗收裁判 enforce | 獨立 hook `codex_companion.py`（150s）：fail 且 severity ≥high | block 附逐條證據；裁判逾時 → uncertain 放行 |
-| Deep Post-Mortem | effort AND real_failure（使用者糾正 ≥2 次單獨即同時滿足兩者，見 §7.5 使用者糾正訊號）；effort 的重試只數「紅測出現之後」對同檔的編輯、刻意紅（退回舊碼反證）不算（規則 RETRY_COUNTS_EDITS_SINCE_RED／RED_WHILE_REVERTED） | one-shot，**獨立預算**不與上列共用（防餓死）；done 旗標檔案側 marker 7 天自清。cwd 是 git worktree 的隔離 session 改要求把 post-mortem 寫進交付信由總控台代寫，不叫它 atom_write（規則 DPM_WORKTREE_DELIVERY） |
+| Deep Post-Mortem | effort AND real_failure（使用者糾正 ≥2 次單獨即同時滿足兩者，見 §7.5 使用者糾正訊號）；effort 的重試只數「紅了、改了、再跑仍紅」的輪數、刻意紅（退回舊碼反證）不算（規則 RETRY_COUNTS_RERUN_CYCLES／RED_WHILE_REVERTED） | one-shot，**獨立預算**不與上列共用（防餓死）；done 旗標檔案側 marker 7 天自清。cwd 是 git worktree 的隔離 session 改要求把 post-mortem 寫進交付信由總控台代寫，不叫它 atom_write（規則 DPM_WORKTREE_DELIVERY） |
 | 迴歸提示 | 本 session 有驗收 fail/high 真命中 | piggyback 建議補測試／落 atom，每 session 一次 |
 
 SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑寫碼查核，有原因就擋到底，不計預算、不問使用者；寫入目標判不出的指令在 PreToolUse 就 deny。
@@ -662,7 +662,8 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | RUNTIME_DATA_NO_OVERVIEW | 無表檔的綜觀要求 | gitignored 或在執行期資料目錄（`workflow/state*`、`workflow/need-goal`、`Logs`…）→ 免讀同目錄 | 程式檔照要求 |
 | TEMP_REPO_COMMIT_EXEMPT／TEMP_COPY_NOT_PROJECT | 暫存目錄 | commit 實際落的 **repo 根**在系統 TEMP／CC 的 Temp/claude 暫存／pytest tmp 下才免口令；暫存目錄下的副本不找部位表、不注入、不要求綜觀、不當收據。兩側都展成長路徑再比（8.3 短路徑） | 正式 repo（含它裡面叫 scratchpad 的子目錄）、本體 |
 | DPM_WORKTREE_DELIVERY | DeepPostMortem 的寫法 | worktree 隔離 session 寫進交付信由總控台代寫 | 主工作樹照叫 atom_write |
-| RED_WHILE_REVERTED／RETRY_COUNTS_EDITS_SINCE_RED／GREEN_SAME_CASE_CLEARS | 紅測與重試 | 跑紅時本 session 改過的程式檔**全部**處在非 HEAD 已提交版本（同根沒有任何自己的現行改碼）→ 刻意紅不記；重試只數紅之後對同檔的編輯；綠的點名**同一個**案例檔（含目錄；兩邊有 cwd 就比絕對路徑）就清那筆紅 | 只退回其中一檔、另一檔還留著真錯 → 真的紅照記；同名不同目錄的案例不互清；改 N 次仍紅照升級 |
+| RED_WHILE_REVERTED／RETRY_COUNTS_RERUN_CYCLES／GREEN_SAME_CASE_CLEARS | 紅測與重試 | 跑紅時本 session 改過的程式檔**全部**處在非 HEAD 已提交版本（同根沒有任何自己的現行改碼）→ 刻意紅不記；改檔記在每筆還活著的紅測的 `edits_since_run`；又跑紅時，重跑**同一組**測試（點名的程式檔集合完全相同，共用設定檔不算；或兩邊都沒點名檔且指令前 40 字相同）、而且那組上次跑之後碼有改過才算一輪，判完清掉那組的紀錄（兩次重跑之間改幾次都只一輪；中間跑別組的綠不會取走 A 的紀錄；第一次跑別組紅不算）。不猜改檔是為了修哪一組：同時修多組時，沒改到的那組重跑仍紅也算一輪（已知限制，代價是多一次提醒）；紅之後第一次重跑就綠＝0 輪；只改計畫類檔不記；綠的點名**同一個**案例檔（含目錄；兩邊有 cwd 就比絕對路徑）就清那筆紅 | 只退回其中一檔、另一檔還留著真錯 → 真的紅照記；同名不同目錄的案例不互清；兩輪重跑仍紅升級 FixEscalation（plan 與 direct 同門檻），提示與 DeepPostMortem 觸發句印第幾輪與每輪的重跑指令＋紅案 |
+| GREEN_NARROWED_KEEPS_UNCOVERED_RED | 篩選過的綠能不能清紅 | 綠沒有篩選（沒有節點 id、-k、-m、Jest -t）→ 照上一列清帳；有篩選時紅掉的案例都在綠點名的節點裡、或是同一個篩選指令重跑 → 清 | 單案或 -k 跑綠沒涵蓋紅掉的案例（含 -k 運算式判不了、紅的輸出沒列案例）→ 那筆紅與它的改檔紀錄照留，重跑整檔仍紅照算輪數；stderr 印規則名與證據 |
 | GOAL_DONE_NEEDS_CASE_OR_RECEIPT／GOAL_INFERRED_MAX_PARTIAL | 目標樹完整對照的「達成」（`wg_need_goal` 收件與交付邊界同一支） | 寫碼類樹的達成至少一筆沒紅的收據（實測）或讀碼級驗證案例；記憶知識類樹不查第一條 | 只有檔案、卡片、推論級案例或紅收據；任何類別證據全是推論。擋訊息列節點與現有每一筆證據 |
 | CASE_RED_THEN_GREEN | 案例有沒有先紅後綠（只記錄） | 目標檔收據裡點名同一案例檔先紅、之後綠 → 該筆證據記 `red_then_green`，對照摘要印出。點名哪些檔在蓋號時用完整指令與它的 cwd 解成絕對路徑（同名不同目錄不算、引號裡含空白的路徑整段算） | 指令裡換目錄或沒記 cwd 的收據不比；對不上照收，摘要印「案例未見先紅」；不是閘 |
 
