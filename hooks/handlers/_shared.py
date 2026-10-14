@@ -244,37 +244,301 @@ def _cleanup_old_states() -> None:
                 f.unlink(missing_ok=True)
         except OSError:
             pass
+    # 其餘 workflow/ 紀錄的保留規則都在下面的 WORKFLOW_RETENTION（SessionStart 由 prune_workflow_records 照表清）
 
-    # codex companion 旁路檔（companion-state/assessment/metrics-*.json）原無
-    # 自帶清理，易累積。>7d 一律清（與上方 state 檔 catch-all 同標準；活躍 session <7d 不動）。
-    for f in WORKFLOW_DIR.glob("companion-*.json"):
+
+# ─── workflow/ 執行紀錄保留規則表（SessionStart 照表清一次）─────────────────────
+# 每列：dir（相對 workflow/；"../Logs/…" 是 workflow 的上一層）｜patterns（只看該層，不往下找）｜kind＋param｜keep（保留多久，給人讀）｜why（為什麼刪了不會壞事）。
+# 依據：每類在 session 結束後還有沒有讀者、讀者看多久以前的資料。檔名含目前 session id 的一律不動（resume 回來還要用）。
+# kind：age＝mtime 超過 param 天就刪；need_goal／aec_tempfiles／job_dirs／months／tracking_pairs＝下面同名的判斷；
+# rotate＝超過大小輪替；elsewhere＝規則在別支程式（param 寫在哪），表上只登記；keep＝永久保留。
+
+RETENTION_KINDS = ("age", "need_goal", "aec_tempfiles", "job_dirs", "months", "tracking_pairs", "rotate", "elsewhere", "keep")
+OVERVIEW_LOG_MAX_MB = 10
+
+WORKFLOW_RETENTION: List[Dict[str, Any]] = [
+    {"dir": "", "patterns": ("state-*.json",), "kind": "elsewhere", "param": "handlers/_shared._cleanup_old_states（SessionStart、SessionEnd）",
+     "keep": "10 分鐘到 6 小時分級，最長 7 天", "why": "只有該 session 自己讀；分級要看檔案內容，留在 _cleanup_old_states"},
+    {"dir": "", "patterns": ("companion-*.json",), "kind": "age", "param": 7,
+     "keep": "7 天", "why": "codex 旁路紀錄只給當下 session 用"},
+    {"dir": "", "patterns": ("coord-warn-cache-*.tmp", "state-*.tmp", "companion-*.tmp", "*.corrupt*", "coord-warn-cache-*.json"),
+     "kind": "age", "param": 7, "keep": "7 天", "why": "寫到一半被砍的殘檔、壞檔備份與協調快取，沒人讀"},
+    {"dir": "../Logs/session-coordination", "patterns": ("*.jsonl*",), "kind": "age", "param": 30,
+     "keep": "30 天", "why": "多 session 協調的觀測紀錄，只拿來查近期"},
+    {"dir": "aec-report", "patterns": ("*.json", "*.tmp"), "kind": "age", "param": 7,
+     "keep": "7 天", "why": "收尾報告只給近期 session 的 HUD 看；.tmp 是寫入殘檔"},
+    {"dir": "aec-decision", "patterns": ("*.json",), "kind": "age", "param": 7,
+     "keep": "7 天", "why": "只有同一 session 下一輪會讀"},
+    {"dir": "aec-tempfiles", "patterns": ("*.jsonl",), "kind": "aec_tempfiles", "param": 7,
+     "keep": "超過 7 天而且帳上列的暫存檔都已不在",
+     "why": "暫存檔還在，HUD 就要一直列出來讓使用者處置（原設計者拒絕「放 N 天就刪」）"},
+    {"dir": "dpm-done", "patterns": ("*.flag",), "kind": "age", "param": 7,
+     "keep": "7 天", "why": "只防同一 session 重複要求 post-mortem"},
+    {"dir": "need-goal", "patterns": ("*.json", "*.tmp", "*.lock"), "kind": "need_goal", "param": "wg_need_goal.STALE_DAYS",
+     "keep": "目標檔與殘檔 30 天；壞檔備份 30 天；鎖檔在同名目標檔已不在、而且超過 30 天才刪",
+     "why": "只有該 session 讀（從續接單接手讀的是續接單）；目標檔都清掉的鎖不會再有人鎖"},
+    {"dir": "ups-sentinel", "patterns": ("*.json",), "kind": "age", "param": 7,
+     "keep": "7 天", "why": "只給同一 session 下一輪偵測「上一輪被中斷」用"},
+    {"dir": "acceptance-spec", "patterns": ("*.json",), "kind": "age", "param": 30,
+     "keep": "30 天", "why": "只在該 session 內讀；規格本體在專案 .claude/verify/，不受影響"},
+    {"dir": "harvest-ledger", "patterns": ("*.jsonl",), "kind": "age", "param": 30,
+     "keep": "30 天", "why": "SessionEnd 同步時已交接到 vcs-sync 佇列；只有 resume 同一 session 才會再讀"},
+    {"dir": "verify-ledger", "patterns": ("*.jsonl",), "kind": "age", "param": 14,
+     "keep": "14 天（含 .agents.jsonl；_runs/ 另列）",
+     "why": "查核閘看 state 裡的收據、不讀這檔；第二意見只讀最後 20 行；收尾報告 7 天就清"},
+    {"dir": "verify-ledger/_runs", "patterns": ("*.json",), "kind": "elsewhere", "param": "lib/self_receipt.prune_self_runs（SessionEnd）",
+     "keep": "留最新 200 份、超過 30 天也刪", "why": "量尺閘只讀最新 50 份"},
+    {"dir": "second-opinion", "patterns": ("<job 目錄>", "_sealed/<job>.txt"), "kind": "job_dirs", "param": 14,
+     "keep": "14 天（看目錄裡最新的檔）", "why": "結果在發起的 session 裡幾分鐘內就取走；_probe/ 會自己覆寫，不動"},
+    {"dir": "usage-snapshots", "patterns": ("*-FAILED.png",), "kind": "age", "param": 30,
+     "keep": "30 天", "why": "失敗診斷圖只看當次；用量 log 與成功截圖是成品，不刪"},
+    {"dir": "scorecard", "patterns": ("<YYYYMM>.jsonl",), "kind": "months", "param": 3,
+     "keep": "當月加前 2 個月", "why": "報表只讀近 4 週；candidates.json 不動"},
+    {"dir": "tracking", "patterns": ("*.jsonl",), "kind": "tracking_pairs", "param": 90,
+     "keep": "已結案的一對（開項＋結案）結案超過 90 天就拿掉；沒結案的永遠留",
+     "why": "沒結案的就是這本帳存在的目的；結案的一對沒有程式再讀"},
+    {"dir": "tool-results", "patterns": ("*.jsonl",), "kind": "elsewhere", "param": "wg_friction.flush_tool_result_stats（SessionEnd）",
+     "keep": "彙整完刪自己的，其他 7 天", "why": "只有自己的 session 彙整時讀"},
+    {"dir": "health-reports", "patterns": ("health-*.md",), "kind": "elsewhere", "param": "tools/health-weekly.py（寫報告時）",
+     "keep": "留最新 12 份", "why": "週報只需要近幾週對照"},
+    {"dir": "se-sentinel", "patterns": ("*.json",), "kind": "elsewhere", "param": "session_start._check_se_sentinel_residual",
+     "keep": "開 session 時偵測、告警、刪", "why": "要先告警才刪，不能併進靜默清理"},
+    {"dir": "", "patterns": ("_overview-hub.log",), "kind": "rotate", "param": "OVERVIEW_LOG_MAX_MB",
+     "keep": "超過 10 MB 輪替成 .1～.3", "why": "沒有程式讀，只會一直長"},
+    {"dir": "", "patterns": ("config.json", "followups.json", "org-memory.local.json", "health-last-run.json", "world-dev.json"),
+     "kind": "keep", "param": None, "keep": "永久", "why": "設定與本機狀態"},
+    {"dir": "", "patterns": ("inbox/", "vcs-sync/", "usage-snapshots/usage-log.jsonl", "usage-snapshots/<成功截圖>", "scorecard/candidates.json"),
+     "kind": "keep", "param": None, "keep": "永久", "why": "總控台本機工具、版控同步佇列（鎖刻意不刪）、使用者的成品"},
+]
+
+_DAY = 86400
+
+
+def _file_sig(p: Path) -> Tuple[int, int]:
+    st = p.stat()
+    return st.st_size, st.st_mtime_ns
+
+
+def _rm(p: Path, dry_run: bool, res: Dict[str, Any]) -> bool:
+    """刪一個檔或目錄並記帳：成功列 deleted、刪不掉（被占用、權限）列 failed、已經被別人刪掉不算。"""
+    if dry_run:
+        res["deleted"].append(str(p))
+        return True
+    try:
+        if p.is_dir():
+            import shutil
+            shutil.rmtree(p)
+        else:
+            p.unlink()
+        res["deleted"].append(str(p))
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        res["failed"].append(str(p))
+        return False
+
+
+def _older(p: Path, cutoff: float) -> bool:
+    try:
+        return p.stat().st_mtime < cutoff
+    except OSError:
+        return False
+
+
+def _prune_age(d: Path, patterns, days: float, now: float, sid: str, dry_run: bool, res: Dict[str, Any]) -> None:
+    cutoff = now - days * _DAY
+    for pattern in patterns:
+        for f in d.glob(pattern):
+            if f.is_file() and not (sid and sid in f.name) and _older(f, cutoff):
+                _rm(f, dry_run, res)
+
+
+def _prune_need_goal(d: Path, now: float, sid: str, dry_run: bool, res: Dict[str, Any]) -> None:
+    """目標檔（<sid>.json）與殘檔（*.tmp）、壞檔備份（*.corrupt-*.json）超過 STALE_DAYS 刪；
+    鎖檔只在同名目標檔已不在（或這一輪剛清掉）、而且本身也超過 STALE_DAYS 才刪——目標檔還在就可能有人要鎖它。"""
+    try:
+        from wg_need_goal import STALE_DAYS as days
+    except Exception:  # noqa: BLE001
+        days = 30
+    cutoff = now - days * _DAY
+    gone = set()
+    for f in list(d.glob("*.json")) + list(d.glob("*.tmp")):
+        if not f.is_file() or (sid and sid in f.name) or not _older(f, cutoff):
+            continue
+        if _rm(f, dry_run, res) and f.suffix == ".json":
+            gone.add(f.stem)
+    for lock in d.glob("*.lock"):
+        if (sid and sid in lock.name) or not _older(lock, cutoff):
+            continue
+        if lock.stem in gone or not lock.with_suffix(".json").exists():
+            _rm(lock, dry_run, res)
+
+
+def _prune_aec_tempfiles(d: Path, days: float, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
+    """殘檔帳本：過期而且帳上列的路徑全都已不在磁碟才清；只要還有一個殘檔在，帳本就要留著讓 HUD 繼續列。"""
+    cutoff = now - days * _DAY
+    for p in d.glob("*.jsonl"):
+        if not _older(p, cutoff):
+            continue
         try:
-            if now - f.stat().st_mtime > 7 * 86400:
-                f.unlink(missing_ok=True)
+            lines = p.read_text(encoding="utf-8").splitlines()
         except OSError:
-            pass
-
-    # 寫入被砍掉留下的殘檔（warn-cache、state、companion 的 .tmp）與壞掉的 state 備份（*.corrupt*）同 7d 標準；
-    # 正在用的 state-*.json 不在這幾個樣式裡，照上面的分級 TTL。observation log 30d
-    for pattern in ("coord-warn-cache-*.tmp", "state-*.tmp", "companion-*.tmp", "*.corrupt*"):
-        for f in WORKFLOW_DIR.glob(pattern):
+            continue
+        alive = False
+        for line in lines:
             try:
-                if now - f.stat().st_mtime > 7 * 86400:
-                    f.unlink(missing_ok=True)
+                path = json.loads(line).get("path", "")
+            except Exception:  # noqa: BLE001
+                continue
+            if path and os.path.exists(path):
+                alive = True
+                break
+        if not alive:
+            _rm(p, dry_run, res)
+
+
+def _prune_job_dirs(d: Path, days: float, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
+    """第二意見 job 目錄：目錄與裡面最新的檔都超過期限才整個刪，連同 _sealed/<job>.txt；_ 開頭的（_probe、_sealed）不當 job。"""
+    cutoff = now - days * _DAY
+    for job in d.iterdir():
+        if not job.is_dir() or job.name.startswith("_"):
+            continue
+        try:
+            newest = max([job.stat().st_mtime] + [f.stat().st_mtime for f in job.rglob("*")])
+        except OSError:
+            continue
+        if newest < cutoff and _rm(job, dry_run, res):
+            sealed = d / "_sealed" / f"{job.name}.txt"
+            if sealed.exists():
+                _rm(sealed, dry_run, res)
+    sealed_dir = d / "_sealed"
+    if sealed_dir.is_dir():
+        for s in sealed_dir.glob("*.txt"):
+            if str(s) not in res["deleted"] and _older(s, cutoff):
+                _rm(s, dry_run, res)
+
+
+def _prune_months(d: Path, months: int, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
+    """<YYYYMM>.jsonl 只留當月與前 months-1 個月（依檔名，不看 mtime）。"""
+    t = datetime.fromtimestamp(now)
+    idx = t.year * 12 + t.month - 1
+    keep = {f"{(i // 12):04d}{(i % 12) + 1:02d}" for i in range(idx - months + 1, idx + 1)}
+    for f in d.glob("*.jsonl"):
+        if re.fullmatch(r"\d{6}", f.stem) and f.stem not in keep:
+            _rm(f, dry_run, res)
+
+
+def _prune_tracking_pairs(d: Path, days: float, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
+    """追蹤帳本：結案列（closed 且 closes.id 指到同本帳的開項）的 at 超過期限 → 那一對一起拿掉；其他列逐字原樣保留。
+    帳本會被多個 session 同時追加且沒有鎖：改寫前後各看一次檔案大小與時間，中間有變就這一輪不動。"""
+    try:
+        from wg_harvest import tracking_entry_id
+    except Exception:  # noqa: BLE001
+        def tracking_entry_id(e):  # type: ignore[no-redef]
+            return str(e.get("id") or "")
+    cutoff = now - days * _DAY
+    for t in d.glob("*.jsonl.*.tmp"):   # 改寫途中被砍留下的暫存
+        if _older(t, now - _DAY):
+            _rm(t, dry_run, res)
+    for p in d.glob("*.jsonl"):
+        try:
+            sig = _file_sig(p)
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        lines = text.split("\n")
+        rows: Dict[int, Dict[str, Any]] = {}
+        for i, line in enumerate(lines):
+            try:
+                row = json.loads(line)
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(row, dict):
+                rows[i] = row
+        open_at = {tracking_entry_id(r): i for i, r in rows.items() if r.get("status") == "open"}
+        drop = set()
+        for i, r in rows.items():
+            closes = r.get("closes")
+            if r.get("status") != "closed" or not isinstance(closes, dict):
+                continue
+            target = open_at.get(str(closes.get("id")))
+            if target is None or target in drop:
+                continue
+            try:
+                at = datetime.fromisoformat(str(r.get("at"))).timestamp()
+            except (TypeError, ValueError):
+                continue
+            if at < cutoff:
+                drop.update((i, target))
+        if not drop:
+            continue
+        kept = [line for i, line in enumerate(lines) if i not in drop]
+        if dry_run:
+            res["compacted"][str(p)] = len(drop)
+            continue
+        tmp = p.with_name(f"{p.name}.{os.getpid()}.tmp")
+        try:
+            tmp.write_text("\n".join(kept), encoding="utf-8", newline="\n")
+            if _file_sig(p) != sig:
+                tmp.unlink()
+                continue
+            os.replace(tmp, p)
+            res["compacted"][str(p)] = len(drop)
+        except OSError:
+            res["failed"].append(str(p))
+            try:
+                tmp.unlink()
             except OSError:
                 pass
-    for f in WORKFLOW_DIR.glob("coord-warn-cache-*.json"):
+
+
+def prune_workflow_records(wf: Optional[Path] = None, current_sid: str = "", now: Optional[float] = None,
+                           dry_run: bool = False) -> Dict[str, Any]:
+    """照 WORKFLOW_RETENTION 清 workflow/ 底下的執行紀錄（SessionStart 跑一次）。
+    回 {deleted: [...], failed: [...], compacted: {帳本: 拿掉幾列}, rotated: [...]}；dry_run 只列不刪。
+    單列出錯不影響其他列；有刪不掉的檔或某列出錯，各寫一行 atom-debug（不靜默）。"""
+    wf = Path(wf) if wf is not None else WORKFLOW_DIR
+    now = time.time() if now is None else now
+    res: Dict[str, Any] = {"deleted": [], "failed": [], "compacted": {}, "rotated": []}
+    if not wf.is_dir():
+        return res
+    for row in WORKFLOW_RETENTION:
+        kind = row["kind"]
+        if kind in ("elsewhere", "keep"):
+            continue
+        rel = row["dir"]
+        d = wf.parent / rel[3:] if rel.startswith("../") else (wf / rel if rel else wf)
+        if not d.is_dir():
+            continue
         try:
-            if now - f.stat().st_mtime > 7 * 86400:
-                f.unlink(missing_ok=True)
-        except OSError:
-            pass
-    for f in (WORKFLOW_DIR.parent / "Logs" / "session-coordination").glob("*.jsonl*"):
-        try:
-            if now - f.stat().st_mtime > 30 * 86400:
-                f.unlink(missing_ok=True)
-        except OSError:
-            pass
+            if kind == "age":
+                _prune_age(d, row["patterns"], row["param"], now, current_sid, dry_run, res)
+            elif kind == "need_goal":
+                _prune_need_goal(d, now, current_sid, dry_run, res)
+            elif kind == "aec_tempfiles":
+                _prune_aec_tempfiles(d, row["param"], now, dry_run, res)
+            elif kind == "job_dirs":
+                _prune_job_dirs(d, row["param"], now, dry_run, res)
+            elif kind == "months":
+                _prune_months(d, row["param"], now, dry_run, res)
+            elif kind == "tracking_pairs":
+                _prune_tracking_pairs(d, row["param"], now, dry_run, res)
+            elif kind == "rotate":
+                from wg_core import rotate_log_if_oversized
+                for name in row["patterns"]:
+                    log = d / name
+                    if dry_run:
+                        continue
+                    if rotate_log_if_oversized(log, max_mb=OVERVIEW_LOG_MAX_MB):
+                        res["rotated"].append(str(log))
+        except Exception as e:  # noqa: BLE001
+            _atom_debug_error(f"workflow_retention:{row['dir'] or 'workflow'}", e)
+    if res["failed"]:
+        names = "、".join(Path(f).name for f in res["failed"][:5])
+        _atom_debug_error("workflow_retention",   # OSError 才會把訊息原文寫進 log（其他型別只記 traceback）
+                          OSError(f"{len(res['failed'])} 個刪不掉（被占用或沒權限）：{names}"))
+    return res
 
 
 # ─── User Extract Worker Spawning ──────────────────────────────────────

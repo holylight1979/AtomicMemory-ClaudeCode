@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 workflow 執行紀錄保留規則集中成一張表，開 session 時照表清
+- `workflow/` 底下有 7 類紀錄完全沒清（acceptance-spec、harvest-ledger、verify-ledger 主帳、second-opinion、usage-snapshots 失敗圖、scorecard、tracking 已結案列），4 類條件太窄（need-goal 只在新建目標檔時清、鎖與壞檔永不刪；dpm-done 等別的 session 觸發才清；ups-sentinel 中斷殘檔沒人清；aec-report 漏掃 .tmp），既有清理散在 `_shared`、`session_start`、`stop` 各處。`hooks/handlers/_shared.py` 新增 `WORKFLOW_RETENTION`（每列：資料夾｜檔名樣式｜保留多久｜為什麼可以刪｜由誰執行）與 `prune_workflow_records`，SessionStart 跑一次，依據是每類在 session 結束後還有沒有讀者、讀者看多久以前；檔名含目前 session id 的不動，need-goal 鎖檔只在同名目標檔不在且超過 30 天才刪，tracking 只拿掉結案超過 90 天的一對、改寫途中被別人追加就不動，aec-tempfiles 維持「帳上暫存檔都不在才刪」，`_overview-hub.log` 超過 10 MB 輪替；刪不掉的列進回傳並寫 atom-debug。`session_start._prune_aec_files`、`stop` 的 dpm-done 內嵌清理、`_cleanup_old_states` 的根目錄規則搬進表，`state-*.json` 分級照舊。順手修 `wg_release_rules.RUNTIME_DATA_DIRS` 的 `aec-reports` 錯字。驗證：`verify_workflow_retention` 16 案與 `verify_release_rules` 新案都先紅後綠，搬家影響的 10 支相關測試 512 passed；真實 workflow 只列不刪預演會清 111 檔、26 KB。
+
 ## 2026-10-14 部位判定：根目錄名或上層目錄名撞到部位表前綴時不再誤判
 - `lib/overview_hub.match_row` 的子字串命中（含非錨定 glob）原本拿整條絕對路徑比：根層 repo 的根目錄本身叫 `.claude`，表上沒列的根層檔（TECH.md、.gitignore、workflow/config.json、plans/）全落到 `.claude/` 列；專案放在含 `tests` 的目錄下時每個檔都落到 `tests/` 列。改成只比專案根以下的相對路徑，錨定命中與根以下的子字串命中不變，影響所有專案的部位判定（注入、定位三行、量尺提醒、知識類排除）。驗證：`verify_overview_hub::test_match_substring_only_below_root` 7 案舊碼 3 紅新碼全綠，相關 7 支 verify 788 passed（commit 42162c00）。
 

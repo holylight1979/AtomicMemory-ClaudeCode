@@ -89,7 +89,7 @@ def test_cleanup_keeps_active_working_state_under_6h(tmp_path, monkeypatch):
 
 def test_cleanup_sweeps_week_old_leftovers_keeps_fresh_and_live_state(tmp_path, monkeypatch):
     """workflow 根的殘檔（被砍掉的寫入留下的 state-*.tmp、companion-*.tmp、壞掉的 *.corrupt*）超過 7 天清掉、未滿 7 天留著；
-    正在用的 state-*.json 不碰（它走分級 TTL）。"""
+    正在用的 state-*.json 不碰（它走分級 TTL）。殘檔規則在保留表（prune_workflow_records），state 分級在 _cleanup_old_states。"""
     monkeypatch.setattr(_shared, "WORKFLOW_DIR", tmp_path)
 
     def put(name, age_s, body="x"):
@@ -102,6 +102,7 @@ def test_cleanup_sweeps_week_old_leftovers_keeps_fresh_and_live_state(tmp_path, 
                                            "state-s1.json.corrupt", "state-s1.json.corrupt-20261001")]
     fresh = [put(n, 2 * 86400) for n in ("state-s2.456.tmp", "companion-assessment-s2.tmp", "state-s2.json.corrupt")]
     live = put("state-live.json", 2 * 3600, json.dumps(_active_state("live")))
+    _shared.prune_workflow_records()
     _shared._cleanup_old_states()
     assert [f.name for f in old if f.exists()] == []
     assert all(f.exists() for f in fresh) and live.exists()

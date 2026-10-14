@@ -626,7 +626,7 @@ def push_required_verdict(root: str, is_worktree: bool, has_upstream: bool) -> V
 
 # ─── B8 RUNTIME_DATA_NO_OVERVIEW ───────────────────────────────────────────────
 RUNTIME_DATA_DIRS: Tuple[str, ...] = ("workflow/state", "workflow/need-goal", "workflow/verify-ledger", "workflow/dpm-done",
-                                      "workflow/acceptance-spec", "workflow/aec-reports", "Logs")
+                                      "workflow/acceptance-spec", "workflow/aec-report", "Logs")
 # 工具自己生的快取目錄名：路徑任一段是它就算執行期資料（專案沒寫 .gitignore 時 check-ignore 不會命中）
 RUNTIME_CACHE_DIR_NAMES = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"})
 

@@ -1473,11 +1473,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         try:
             marker = _dpm_marker(session_id)
             marker.parent.mkdir(parents=True, exist_ok=True)
-            cutoff = time.time() - 7 * 86400  # 舊 marker 順手清，防執行期狀態檔累積
-            for old in marker.parent.glob("*.flag"):
-                if old.stat().st_mtime < cutoff:
-                    old.unlink()
-            marker.touch()
+            marker.touch()   # 舊 marker 由開 session 時的 _shared.prune_workflow_records 照表清（7 天）
         except OSError:
             pass
         state["stop_blocked_count"] = stop_count + 1
