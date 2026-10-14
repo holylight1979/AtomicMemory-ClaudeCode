@@ -6,6 +6,7 @@
 - Confidence: [臨]
 - Trigger: rmtree ignore_errors, 暫存目錄刪不掉, log handler 佔用, 唯讀 git 物件, 測試殘留目錄, KeyboardInterrupt 清理, pytest_unconfigure, wg-iso 殘留
 - Created-at: 2026-10-13
+- Quote: 「你是 v6.0 的「調度」總控台（新任，接 claude-aa；對人總控台見接續單「現任」行）。職責：派工、對帳、快照複跑、合併、推送、刪樹刪分支、與各工作 session 通訊；不改碼、不開子代理、不回答原設計者。第一步 ToolSearch 載入 SendMessage 與 ListAgents，ListAgents 看自己的名字，SendMessage claude-aa 與對人總控台各一…」
 
 ## 知識
 
