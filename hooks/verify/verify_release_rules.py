@@ -668,6 +668,9 @@ def test_045_green_narrowed_keeps_uncovered_red_verdicts():
     assert rr.green_covers_red_verdict(red, summary, "pytest -q tests/test_a.py::test_bad").owed is False   # 紅的就是這案
     assert rr.green_covers_red_verdict(red, summary, "pytest -q tests/test_a.py -k test_bad").owed is True  # -k 判不了照留
     assert rr.green_covers_red_verdict(red, summary, "pytest -q tests/test_a.py").owed is False             # 沒篩選
+    # python -m pytest 的 -m 是「跑模組」不是 pytest 的標記篩選（-m slow 才是）
+    assert rr.green_covers_red_verdict(red, summary, "python -X utf8 -m pytest -q tests/test_a.py 2>&1 | tail -1").owed is False
+    assert rr.green_covers_red_verdict(red, summary, "python -m pytest -q tests/test_a.py -m slow").owed is True
     assert rr.green_covers_red_verdict("pytest -q x.py -k t2", "1 failed", "pytest -q x.py -k t2").owed is False  # 同一篩選
     assert rr.green_covers_red_verdict("npx jest a.test.js", "FAIL a.test.js", "npx jest a.test.js -t adds").owed is True
 
