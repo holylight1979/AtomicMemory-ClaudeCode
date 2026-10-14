@@ -10,6 +10,13 @@
 - **驗證**：`verify_release_rules` 加 23 案、`verify_need_goal` 加 8 案（四行沒角色／一個候選擋、範例照抄就過、第二個不存在的理由收；兩部位只掛一個擋、補交後補掛放行、補掛也照四行判法、節點放棄等於沒掛、OverviewHub 關掉不記、Stop 接線、部位名互相包含只掛寫到的那個），改前紅、退回舊碼紅、改後綠；真 hook 入口探針 `hooks/verify/probe_c_g0.py` PASS。
 - **codex 一輪四條 BLOCK 全部先重現、寫紅案例再修**：角色寫在括號外照擋；只寫「第二個不存在」沒有第一個照擋；候選自己描述裡的「原因」不算選擇理由；部位名互相包含時一組四行只掛寫到的部位（`overview_hub.locate_values` 加 exclude，改檔與補掛共用）。另補「候選 A 無鎖競爭」不被當成不存在。
 
+
+## 2026-10-14 v6.0 提問閘補齊：每題附推薦、題目掛目標認原文片段、全貌先於拍板（C-G16）
+- **緣由**：G16「人只做真正的決定，而且看懂全貌才拍板」。b-hooks-2 的提問閘只判「寫碼類題目有沒有寫節點編號」；AI 問人時沒附推薦、只引用節點原文不認、還沒讀過部位檔就問改法，都沒有規則，擋訊息也沒有規則名。
+- **做法**：`hooks/wg_release_rules.py` 三條規則 `ASK_NEEDS_RECOMMENDATION`（每一題至少一個選項標 `(Recommended)` 或題目含「建議：」，不分有沒有樹；【收尾放行確認】固定兩選項豁免）、`ASK_LINKED_TO_GOAL`（節點編號或節點原文連續 8 字以上；寫碼類沒指到擋、知識類只提示、沒樹審計記「提問未掛目標（知識類）」）、`ASK_OVERVIEW_BEFORE_DECISION`（問改法而 OverviewHub 的 part_files_read 全空 → 多一句「先讀過部位檔再問」，不單獨擋）；`wg_need_goal_points._judge_ask` 只蒐集事實、把所有句子併成一則擋訊息或提示，`ask_audit` 加 note、新事件 `ask_no_recommendation`；`session_start` 兩句問句指示改帶 `(Recommended)`。TECH §7.7（新列「問使用者之前」）、§7.8；need-goal 契約。
+- **驗證**：`verify_release_rules` 加六組純函式案、`verify_need_goal_points` 加十五案（含真 PreToolUse 入口與閘壞掉的例外分支），退回 main 版程式時新案 31 紅（另 1 案是既有行為）、換回全綠；真 hook 入口探針 `hooks/verify/probe_c_g16.py`（沒推薦被擋→照抄加 (Recommended) 放行、放行確認題不擋、沒樹審計備註、寫碼類原文片段掛上）新碼 PASS、舊碼 4 FAIL。
+- **自跑 codex 一輪（BLOCK 兩條，先寫紅案例再修）**：掛目標原本用整次提問的合併文字判，一題掛上帶過同批其他題 → 改每一題各自判、header 不算；放行題豁免原本只看標記＋待放行紀錄、套到整次呼叫 → 改看結構（`ask_release_only`），夾一般題或把標記塞進一般題照查，`pre_tool_use` 閘壞掉時的例外分支同一支判定。
+
 ## 2026-10-14 v6.0 搬程式目錄改欠路徑掃描與抽樣兩張收據（裁定 #17 改裁）
 - **緣由**：搬整個程式目錄要不要欠驗證案例一直沒有規則；原設計者改裁：不欠整組案例，正確行為是擴大搜尋寫死的舊路徑（有就跟著修碼），再依語言特性抽樣驗證功能還正常（C# 看 .csproj／.sln 囊括）。
 - **做法**：新規則 `MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE`（`hooks/wg_release_rules.move_dir_verdict`），寫碼查核加 (v)（`wg_verify_ledger.move_facts`：收據在搬之後、指令乾淨、點名同一個舊路徑）；`post_tool_use` 記 `moved_code_dirs`（mv、Move-Item、git mv，複製與只有文件的目錄不記）與掃描命中清單；新工具 `tools/move-dir-check.py`（scan 印 `MOVE_PATH_SCAN DONE hits=<n>`、sample `--for <新目錄>` 印 `MOVE_SAMPLE_CHECK PASS|FAIL`，C# 讀 Compile Include）。TECH §7.8。

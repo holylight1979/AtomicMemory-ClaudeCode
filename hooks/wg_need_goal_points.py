@@ -27,8 +27,10 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 import wg_core
 import wg_need_goal as ng
 import wg_release
+import wg_release_rules as rr
 
 ASK_TOOLS = ("AskUserQuestion", "ExitPlanMode")
+RELEASE_LABELS = (wg_release.OPT_RELEASE, wg_release.OPT_KEEP)
 MULTI_EDIT_MIN = 3
 ASK_IDS_MAX = 20
 PLAN_CHARS = 50000
@@ -409,16 +411,56 @@ def _suggest_node(tree: Dict[str, Any]) -> Tuple[str, str]:
     return nid, str((nodes.get(nid) or {}).get("text") or "")
 
 
-def _ask_message(tree: Dict[str, Any], code: bool, after: bool) -> str:
-    """擋或提醒的理由：AI 讀得到但不一定自己補（D(1) 實測），所以給照做就能過的修法。"""
-    head = ("[NeedGoal] 剛才的提問沒寫掛在目標樹哪個節點（這次提問前沒攔到，事後提醒）" if after else
-            "[NeedGoal] 提問前要寫出這題掛在目標樹哪個節點" + ("" if code else "（記憶知識類不擋，只提醒）"))
+def _ask_message(tree: Dict[str, Any], link: rr.Verdict, after: bool) -> str:
+    """擋或提醒的理由：AI 讀得到但不一定自己補（D(1) 實測），所以給規則名、缺什麼、照做就能過的修法。"""
+    head = ("剛才的提問沒寫掛在目標樹哪個節點（這次提問前沒攔到，事後提醒）" if after else
+            "提問前要寫出這題掛在目標樹哪個節點" + ("" if link.owed else "（記憶知識類不擋，只提醒）"))
     nid, text = _suggest_node(tree)
     fix = (f"照做：{'下次提問' if after else '在題目（或計畫）裡'}寫上節點編號再問，例如在題目後面加「（掛 {nid}）」"
            f"；目前最可能的是 {nid}（{text}），換成真正對應的節點也可以。這題不屬於任何節點 → "
            "先用 need_goal(action=add, parent=…) 長出那個節點，再掛上它問。")
-    return (f"{head}。{fix}全貌還沒對齊就先補，自己判斷得了的不推給人；問完把答案寫進 need_goal。目前的樹：\n"
+    return (f"[NeedGoal] {rr.format_hit('提問', link._replace(why=head))}\n{fix}"
+            "全貌還沒對齊就先補，自己判斷得了的不推給人；問完把答案寫進 need_goal。目前的樹：\n"
             + ng.render(tree, "compact") + "\n" + ng.NO_TOOL_HINT)
+
+
+def _node_texts(tree: Dict[str, Any]) -> Dict[str, str]:
+    """沒放棄的節點 {編號: 原文}，依編號排（原文片段命中多個時取編號最前的）。"""
+    nodes = tree.get("nodes") or {}
+    return {nid: str(nodes[nid].get("text") or "") for nid in sorted(nodes, key=_node_order)
+            if isinstance(nodes[nid], dict) and nodes[nid].get("status") != "dropped"}
+
+
+def _linked(tree: Optional[Dict[str, Any]], text: str) -> Optional[str]:
+    """一段文字指到的節點：先認編號（wg_need_goal.node_ref），再認原文片段（規則 ASK_LINKED_TO_GOAL）。"""
+    return (ng.node_ref(tree, text) or rr.node_fragment_ref(_node_texts(tree), text)) if tree else None
+
+
+def _links(tree: Optional[Dict[str, Any]], tool_name: str, tool_input: Any, state: Dict[str, Any], pending: bool
+           ) -> List[Tuple[str, Optional[str]]]:
+    """每個要掛節點的單位 (標籤, 指到的節點或 None)：AskUserQuestion 每一題一個（rr.ask_link_units，不含 header；pending 時
+    放行題不算）；ExitPlanMode 或題目判不了 → 整份 ask_text 一個。沒有樹、或真有待放行紀錄而整次全是放行題 → []。"""
+    if not tree:
+        return []
+    if tool_name == "AskUserQuestion":
+        if pending and rr.ask_release_only(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS):
+            return []
+        units = rr.ask_link_units(tool_input, pending, wg_release.RELEASE_TAG, RELEASE_LABELS)
+        if units:
+            return [(lab, _linked(tree, text)) for lab, text in units]
+    label = "整份計畫" if tool_name == "ExitPlanMode" else "這次提問"
+    return [(label, _linked(tree, ask_text(tool_name, tool_input, state)))]
+
+
+def _all_linked(links: List[Tuple[str, Optional[str]]]) -> Optional[str]:
+    """每個單位都指到節點 → 第一個節點；有單位沒指到（或沒有單位）→ None。"""
+    return links[0][1] if links and all(n for _l, n in links) else None
+
+
+def _part_reads(state: Dict[str, Any]) -> int:
+    """OverviewHub 各部位（含表外目錄）記下的 part_files_read 總數：規則 ASK_OVERVIEW_BEFORE_DECISION 的事實。"""
+    hub = state.get("overview_hub") if isinstance(state, dict) else None
+    return sum(len(r.get("part_files_read") or []) for r in (hub or {}).values() if isinstance(r, dict))
 
 
 def note_ask_blocked(state: Dict[str, Any], deny: Optional[str]) -> None:
@@ -428,7 +470,8 @@ def note_ask_blocked(state: Dict[str, Any], deny: Optional[str]) -> None:
 
 
 def _ask_audit(sid: Any, state: Dict[str, Any], tool_calls: Any, turn: int) -> None:
-    """PostToolBatch：這批每一次提問記一筆審計（擋過幾次、最後掛上哪個節點）；掛上了就把擋的次數歸零。"""
+    """PostToolBatch：這批每一次提問記一筆審計（擋過幾次、最後掛上哪個節點、沒掛上的備註）；這題已過得了提問閘
+    （附了推薦，而且掛上節點或不是寫碼類）就把擋的次數歸零。"""
     doc = None
     for c in tool_calls if isinstance(tool_calls, list) else []:
         name, inp, tid = _call_parts(c)
@@ -436,10 +479,16 @@ def _ask_audit(sid: Any, state: Dict[str, Any], tool_calls: Any, turn: int) -> N
             continue
         doc = doc or _load(sid, "ask_audit", turn)
         tree = _live(doc) if doc else None
-        linked = ng.node_ref(tree, ask_text(name, inp, state)) if tree else None
+        kind = tree.get("kind") if tree else None
+        links = _links(tree, name, inp, state, wg_release.pending_any(state, str(sid)))
+        release_only = bool(tree) and not links          # 真有待放行紀錄、整次全是放行題：不用掛節點
+        linked = _all_linked(links)
         _guard("ask_audit", sid, turn, tool=name, tool_use_id=tid, tree=tree["id"] if tree else None,
-               blocked=int(state.get("need_goal_ask_blocks") or 0), linked=linked)
-        if linked:
+               blocked=int(state.get("need_goal_ask_blocks") or 0), linked=linked,
+               note=None if release_only else rr.ask_audit_note(kind, linked))
+        rec_ok = name != "AskUserQuestion" or not rr.ask_recommendation_verdict(
+            inp, wg_release.RELEASE_TAG, RELEASE_LABELS).owed
+        if rec_ok and (linked or release_only or kind != "code"):
             state["need_goal_ask_blocks"] = 0
 
 
@@ -451,38 +500,58 @@ def _ask_checkpoint(doc: Dict[str, Any], turn: int, nid: str) -> None:
 
 def _judge_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any], after: bool
                ) -> Tuple[Optional[str], Optional[str]]:
+    """蒐集事實（題目全文、目標樹、部位檔讀了幾個）交 wg_release_rules 的三條提問規則判，組成擋訊息或提示。
+    有任何一條要擋（事前模式）→ 所有句子併成一則擋訊息；否則併成一則提示。事後模式只提示。"""
     turn = int(state.get("turn_seq", 0) or 0)
-    text = ask_text(tool_name, tool_input, state)
-    if wg_release.RELEASE_TAG in text and wg_release.pending_any(state, str(sid)):
+    mode = "after" if after else "pre"
+    pending = wg_release.pending_any(state, str(sid))
+    if (tool_name == "AskUserQuestion" and pending
+            and rr.ask_release_only(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS)):
         return None, None
+    blocks: List[str] = []
+    hints: List[str] = []
+    if tool_name == "AskUserQuestion":
+        rec = rr.ask_recommendation_verdict(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS)
+        if rec.owed:
+            blocks.append(f"[NeedGoal] {rr.format_hit('提問', rec)}\n"
+                          + rr.ask_recommendation_fix(tool_input, wg_release.RELEASE_TAG, RELEASE_LABELS))
+            _guard("ask_no_recommendation", sid, turn, tool=tool_name, missing=len(rec.evidence), mode=mode)
+    view = rr.ask_overview_verdict(tool_name, tool_input, _part_reads(state))
     try:
         doc = ng.load(sid)
     except ng.NeedGoalCorrupt as e:
         _guard("corrupt", sid, turn, where="on_ask", error=str(e))
-        msg = (f"[NeedGoal] 目標檔壞了，判不了這題掛哪個節點（{e}）：先用 need_goal(action=set, goal=…) 重寫樹根"
-               "（壞檔會自動備份），再問。" + ng.NO_TOOL_HINT)
-        return (None, msg) if after else (msg, None)
-    tree = _live(doc)
-    if not tree:
-        _guard("ask_hint", sid, turn, tool=tool_name, reason="no_tree", mode="after" if after else "pre")
-        return None, NO_TREE_HINT
-    nid = ng.node_ref(tree, text)
-    if nid:
+        blocks.append(f"[NeedGoal] 目標檔壞了，判不了這題掛哪個節點（{e}）：先用 need_goal(action=set, goal=…) 重寫樹根"
+                      "（壞檔會自動備份），再問。" + ng.NO_TOOL_HINT)
+        doc = None
+    tree = _live(doc) if doc else None
+    if doc is not None and not tree:
+        _guard("ask_hint", sid, turn, tool=tool_name, reason="no_tree", mode=mode)
+        hints.append(NO_TREE_HINT)
+    links = _links(tree, tool_name, tool_input, state, pending)
+    nid = _all_linked(links)
+    if tree and nid:
         _update(sid, lambda d: _ask_checkpoint(d, turn, nid), "on_ask", turn)
-        return None, None
-    code = tree.get("kind") == "code"
-    msg = _ask_message(tree, code, after)
-    if code and not after:
-        _guard("ask_blocked", sid, turn, tool=tool_name, tree=tree["id"])
-        return msg, None
-    _guard("ask_hint", sid, turn, tool=tool_name, tree=tree["id"], kind=tree.get("kind"), mode="after" if after else "pre")
-    return None, msg
+    elif tree:
+        link = rr.ask_goal_link_verdict(tree.get("kind"), links)
+        if link.owed and not after:
+            _guard("ask_blocked", sid, turn, tool=tool_name, tree=tree["id"])
+            blocks.append(_ask_message(tree, link, after))
+        else:
+            _guard("ask_hint", sid, turn, tool=tool_name, tree=tree["id"], kind=tree.get("kind"), mode=mode)
+            hints.append(_ask_message(tree, link, after))
+    if view.owed:
+        hints.append(f"[NeedGoal] {rr.format_hit('提問', view)}")
+    if blocks and not after:
+        return "\n\n".join(blocks + hints), None
+    return None, "\n\n".join(blocks + hints) or None
 
 
 def on_ask(sid: Any, tool_name: str, tool_input: Any, state: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    """4.4（PreToolUse）：回（擋的理由或 None、提示或 None）。有樹就要題目裡掛節點編號：寫碼類沒掛擋並列節點，
-    知識類只提示；豁免①題目含【收尾放行確認】且真有待放行紀錄 ②還沒有樹（改送「問完把答案寫進 need_goal」）。
-    通過記 checkpoint ask。"""
+    """4.4（PreToolUse）：回（擋的理由或 None、提示或 None）。三條規則（wg_release_rules）：
+    ASK_NEEDS_RECOMMENDATION 每一題要附推薦（不分有沒有樹）；ASK_LINKED_TO_GOAL 有樹就要指到節點（編號或原文片段），
+    寫碼類沒指到擋並列節點、知識類只提示、還沒有樹送「問完把答案寫進 need_goal」；ASK_OVERVIEW_BEFORE_DECISION 問改法而
+    還沒讀過部位檔，擋訊息或提示多一句（不單獨擋）。題目含【收尾放行確認】且真有待放行紀錄整題豁免。通過記 checkpoint ask。"""
     return _judge_ask(sid, tool_name, tool_input, state, after=False)
 
 

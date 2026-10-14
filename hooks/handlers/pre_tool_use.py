@@ -1142,8 +1142,15 @@ def _need_goal_ask(tool_name: str, input_data: Dict[str, Any], config: Dict[str,
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
         state = read_state(sid) or {}
-        release = (wg_release.RELEASE_TAG in json.dumps(input_data.get("tool_input") or {}, ensure_ascii=False)
-                   and wg_release.pending_any(state, sid))
+        raw_input = input_data.get("tool_input") or {}
+        try:   # 整次全是放行題才放（夾一般題、標記塞進一般題照擋）；判規則的模組也壞了才退回只看標記，免得收尾死鎖
+            import wg_release_rules as _rr
+            release_only = _rr.ask_release_only(raw_input, wg_release.RELEASE_TAG,
+                                                (wg_release.OPT_RELEASE, wg_release.OPT_KEEP))
+        except Exception as rr_err:  # noqa: BLE001
+            sys.stderr.write(f"[NeedGoal] 放行題判定也壞了，退回只看標記：{type(rr_err).__name__}: {rr_err}\n")
+            release_only = wg_release.RELEASE_TAG in json.dumps(raw_input, ensure_ascii=False)
+        release = tool_name == "AskUserQuestion" and release_only and wg_release.pending_any(state, sid)
         sys.stderr.write(f"[NeedGoal] 提問前檢查失敗（{'放行題照放' if release else '擋'}）：{err}\n")
         try:
             from wg_core import append_guard_log

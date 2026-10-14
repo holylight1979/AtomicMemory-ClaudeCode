@@ -1162,3 +1162,102 @@ def test_cg0_edited_part_needs_goal_node():
     assert not rr.edited_part_goal_verdict([]).owed
     line = rr.format_hit("f3", v)
     assert rr.parse_hits(line) == ["f3"]                                     # 擋次預算單獨計次
+
+
+
+
+# ═══ C-G16（track-c-g16）：提問附推薦、掛目標、全貌先於拍板 ═══
+
+REL_TAG, REL_OPTS = "【收尾放行確認】", ("放行這一回合", "繼續擋，先修好")
+
+
+def _ask(*qs):
+    """qs：(題目, [選項 label…])。"""
+    return {"questions": [{"question": q, "header": "h", "multiSelect": False,
+                           "options": [{"label": l, "description": f"{l} 的說明"} for l in labels]} for q, labels in qs]}
+
+
+@pytest.mark.parametrize("tool_input, owed", [
+    (_ask(("要用哪個做法？", ["A", "B"])), True),
+    (_ask(("要用哪個做法？", ["A (Recommended)", "B"])), False),
+    (_ask(("要用哪個做法？", ["A（recommended）", "B"])), False),
+    (_ask(("要用哪個做法？建議：選 A，因為改動面最小。", ["A", "B"])), False),
+    (_ask(("第一題？", ["A (Recommended)", "B"]), ("第二題？", ["C", "D"])), True),     # 每一題都要
+    (_ask((f"{REL_TAG} 要放行這一回合嗎？", list(REL_OPTS))), False),                  # 放行題不是決策題
+    (_ask((f"{REL_TAG} 要放行嗎？", ["放行這一回合", "其他"])), True),                  # 選項不是固定兩個就不算放行題
+    ({"questions": "壞掉"}, False),                                                        # 判不了不擋（工具自己會驗）
+], ids=["none", "label", "fullwidth-lower", "text-suggest", "second-missing", "release", "release-tampered", "malformed"])
+def test_c_g16_ask_needs_recommendation(tool_input, owed):
+    """ASK_NEEDS_RECOMMENDATION：每一題至少一個選項標 (Recommended) 或題目含「建議：」；放行確認題豁免。"""
+    v = rr.ask_recommendation_verdict(tool_input, REL_TAG, REL_OPTS)
+    assert v.rule == "ASK_NEEDS_RECOMMENDATION" and v.owed is owed
+
+
+def test_c_g16_ask_recommendation_message_names_missing_question_and_example():
+    """擋訊息印規則名、哪一題缺什麼、照抄可過的範例（label 加 (Recommended) 或題目加「建議：」）。"""
+    ti = _ask(("第一題？", ["A (Recommended)", "B"]), ("要用哪個寫法？", ["甲", "乙"]))
+    v = rr.ask_recommendation_verdict(ti, REL_TAG, REL_OPTS)
+    hit = rr.format_hit("提問", v)
+    assert "ASK_NEEDS_RECOMMENDATION" in hit and "第 2 題" in hit and "要用哪個寫法" in hit and "第 1 題" not in hit
+    fix = rr.ask_recommendation_fix(ti, REL_TAG, REL_OPTS)
+    assert '"label": "甲 (Recommended)"' in fix and "建議：選 甲" in fix
+
+
+def test_c_g16_ask_linked_to_goal_by_id_or_fragment():
+    """ASK_LINKED_TO_GOAL：節點原文連續 8 字以上算指到（編號由 wg_need_goal.node_ref 判）；短於 8 字的節點只能寫編號。"""
+    nodes = {"T1": "人只做真正的決定", "T1.1": "提問的每一題都附推薦選項或建議句", "T1.2": "短節點"}
+    assert rr.node_fragment_ref(nodes, "這題是為了「每一題都附推薦選項」那件事") == "T1.1"
+    assert rr.node_fragment_ref(nodes, "人只做真正的決定") == "T1"               # 剛好 8 字
+    assert rr.node_fragment_ref(nodes, "每一題都附推薦") is None                     # 7 字不夠
+    assert rr.node_fragment_ref(nodes, "短節點相關") is None                         # 節點本身不到 8 字
+    assert rr.node_fragment_ref(nodes, "人只做 真正的決定") == "T1"                 # 空白不算字
+    assert not rr.ask_goal_link_verdict("code", [("第 1 題", "T1.1")]).owed
+    assert rr.ask_goal_link_verdict("code", [("第 1 題", None)]).owed
+    assert not rr.ask_goal_link_verdict("knowledge", [("第 1 題", None)]).owed
+    assert not rr.ask_goal_link_verdict(None, [("第 1 題", None)]).owed             # 沒樹不擋
+    v = rr.ask_goal_link_verdict("code", [("第 1 題", "T1"), ("第 2 題「保留多久？」", None)])
+    assert v.owed and "第 2 題「保留多久？」" in rr.format_hit("提問", v) and "第 1 題" not in rr.format_hit("提問", v)
+    assert rr.ask_audit_note(None, None) == "提問未掛目標（知識類）"
+    assert rr.ask_audit_note("knowledge", None) == "提問未掛目標（知識類）"
+    assert rr.ask_audit_note("code", None) == "提問未掛目標（寫碼類）"
+    assert rr.ask_audit_note("code", "T1") is None
+
+
+def test_c_g16_ask_linked_to_goal_units_per_question_without_header():
+    """codex BLOCK 1／WARN：每一題各自一個單位（題目＋選項 label 與描述，不含 header）；待放行時放行題不算單位。"""
+    ti = {"questions": [{"question": "要哪種格式？", "header": "T1", "options": [{"label": "CSV", "description": "掛 T1.1"}]},
+                        {"question": "保留多久？", "header": "h", "options": [{"label": "7 天", "description": "x"}]}]}
+    units = rr.ask_link_units(ti, False, REL_TAG, REL_OPTS)
+    assert [u[0] for u in units] == ["第 1 題「要哪種格式？」", "第 2 題「保留多久？」"]
+    assert "T1.1" in units[0][1] and "T1" not in units[1][1]                     # header 的 T1 不算
+    rel = _ask((f"{REL_TAG} 要放行這一回合嗎？", list(REL_OPTS)), ("要哪種格式？", ["CSV"]))
+    assert [u[0] for u in rr.ask_link_units(rel, True, REL_TAG, REL_OPTS)] == ["第 2 題「要哪種格式？」"]
+    assert len(rr.ask_link_units(rel, False, REL_TAG, REL_OPTS)) == 2
+    assert rr.ask_link_units({"questions": "壞掉"}, False, REL_TAG, REL_OPTS) == []
+
+
+def test_c_g16_ask_release_only_is_structural():
+    """codex BLOCK 2：整次提問全是放行題（題目含標記、選項正好固定兩個）才算；夾一般題、標記塞進一般題都不算。"""
+    rel = (f"{REL_TAG} 要放行這一回合嗎？", list(REL_OPTS))
+    assert rr.ask_release_only(_ask(rel), REL_TAG, REL_OPTS)
+    assert not rr.ask_release_only(_ask(rel, ("要哪種格式？", ["CSV", "JSON"])), REL_TAG, REL_OPTS)
+    assert not rr.ask_release_only(_ask((f"{REL_TAG} 要哪種格式？", ["CSV", "JSON"])), REL_TAG, REL_OPTS)
+    assert not rr.ask_release_only({"questions": []}, REL_TAG, REL_OPTS)
+    hit = rr.format_hit("提問", rr.ask_recommendation_verdict(_ask((f"{REL_TAG} 要放行嗎？", ["放行這一回合 (Recommended)", "繼續擋，先修好"])),
+                                                            REL_TAG, REL_OPTS))
+    assert "選項不是固定兩個" in hit                                               # 放行題寫走樣：指路照抄兩個選項
+
+
+@pytest.mark.parametrize("tool, tool_input, reads, owed", [
+    ("AskUserQuestion", _ask(("要用哪個改法？", ["A (Recommended)"])), 0, True),
+    ("AskUserQuestion", _ask(("要用哪個改法？", ["A (Recommended)"])), 2, False),
+    ("AskUserQuestion", _ask(("今天要先做哪一軌？", ["A (Recommended)"])), 0, False),     # 不是改法選擇
+    ("ExitPlanMode", {"plan": "計畫"}, 0, True),                                          # 計畫本身就是改法
+    ("ExitPlanMode", {"plan": "計畫"}, 1, False),
+], ids=["decision-unread", "decision-read", "not-decision", "plan-unread", "plan-read"])
+def test_c_g16_ask_overview_before_decision(tool, tool_input, reads, owed):
+    """ASK_OVERVIEW_BEFORE_DECISION：涉及改法選擇、而 OverviewHub 的 part_files_read 全空 → 要附「先讀過部位檔再問」（只提醒）。"""
+    v = rr.ask_overview_verdict(tool, tool_input, reads)
+    assert v.rule == "ASK_OVERVIEW_BEFORE_DECISION" and v.owed is owed
+    if owed:
+        assert "先讀過部位檔再問" in rr.format_hit("提問", v)

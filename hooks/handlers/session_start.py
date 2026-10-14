@@ -672,7 +672,7 @@ def _org_advisory(org_root, pool: Dict[str, Any]) -> List[str]:
         default_root = str(shared.get("default_root") or "")
         if default_root.startswith("~"):
             default_root = str(Path(default_root).expanduser())  # config 寫家目錄相對路徑，問人時給展開後的真路徑
-        opt_default = (f"(1) 接上，放在預設路徑 {default_root}（推薦）→ 執行 `{cmd} --join`；" if default_root else "")
+        opt_default = (f"(1) 接上，放在預設路徑 {default_root} (Recommended) → 執行 `{cmd} --join`；" if default_root else "")
         return [
             f"❓ [Org] 公司有一層所有專案共用的記憶（{shared.get('repo_url')}），這台機器還沒接上，使用者也還沒被問過。"
             f"第一則回覆前先用 AskUserQuestion 問使用者：{opt_default}"
@@ -822,7 +822,7 @@ def _project_root_notice(res, cwd: str) -> List[str]:
         lines.append(
             f"❓ [Guardian:ProjectRoot] 上層 {cands} 有記憶層但未宣告與本層（{cwd}）的關係。"
             f"第一則回覆前先用 AskUserQuestion 問使用者，四選一："
-            f"(1) 認領 {best}（推薦）→ 執行 `{_ROOT_ASK_CMD} claim --root \"{best}\" --cwd \"{cwd}\"`；"
+            f"(1) 認領 {best} (Recommended) → 執行 `{_ROOT_ASK_CMD} claim --root \"{best}\" --cwd \"{cwd}\"`；"
             f"(2) 本層獨立 → `{_ROOT_ASK_CMD} standalone on --cwd \"{cwd}\"`；"
             f"(3) 瀏覽選別的資料夾 → `{_ROOT_ASK_CMD} pick --cwd \"{cwd}\"`；"
             f"(4) 這次先不決定（不寫檔，下次再問）。選定後由你執行指令，並告知「重開 session 生效」。")
