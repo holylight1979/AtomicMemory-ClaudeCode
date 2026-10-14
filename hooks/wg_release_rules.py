@@ -85,6 +85,15 @@ RULES: Dict[str, str] = {
     "CASE_RED_THEN_GREEN": "完整對照的案例證據，對上目標檔收據裡點名同一案例檔「先紅、之後綠」的序列 → 該筆證據記 red_then_green；"
                            "收據點名哪些案例檔在蓋號時用完整指令與它的 cwd 解成絕對路徑，指令裡換目錄或沒記 cwd 的不比。"
                            "對不上照收，對照摘要印「案例未見先紅」。只是紀錄，不是閘。",
+    # G0 綜觀：動手前說出角色與兩個根因候選、收尾查改到的部位都掛到目標（wg_overview／wg_need_goal 收事實、這裡判）
+    "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES": "有需求目標樹時改寫碼部位的定位四行：第四行「定位｜目標：<節點>（<角色>）」括號內要寫"
+                                                 "這一塊在目標裡的角色（非空、不是佔位句、不是節點原文照抄）；第二行「定位｜根因層」要辨識得出"
+                                                 "至少兩個根因候選＋選擇理由（候選 A …；候選 B …；選 A 因為 …／第一根因 …，第二根因 …），"
+                                                 "或一個候選＋「第二個不存在因為 …」。只看結構不評對錯；知識類部位不查。",
+    "EDITED_PART_NEEDS_GOAL_NODE": "交付邊界與 commit 前：目前寫碼類目標樹上，本 session 改過程式檔的每個寫碼部位，都要在定位帳"
+                                   "（目標檔 links.parts）掛到樹裡還活著的節點；沒交過、掛的節點已放棄或不在樹 → 擋，列"
+                                   "「<部位>：<改的檔> 沒掛目標」並指路補交定位四行或 need_goal add 子目標。表外的檔、知識類部位、"
+                                   "OverviewHub 在那一層關掉的不算。",
 }
 
 
@@ -963,3 +972,103 @@ def red_then_green(case_path: str, receipts: Sequence[Tuple[Any, Sequence[str], 
         elif is_green and red is not None:
             return red, seq
     return None
+
+
+# ─── G0 綜觀：LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES／EDITED_PART_NEEDS_GOAL_NODE ───
+
+_LABEL_NO = {**{c: 1 for c in "Aa1一甲Ａ１①"}, **{c: 2 for c in "Bb2二乙Ｂ２②"}, **{c: 3 for c in "Cc3三丙Ｃ３③"},
+             **{c: 4 for c in "Dd4四丁Ｄ４④"}, **{c: 5 for c in "Ee5五戊Ｅ５⑤"}}
+_LABELS = "".join(_LABEL_NO)
+# 候選標記：「候選 A／候選一／候選（B）」或「第一根因／第 2 個根因」
+_CANDIDATE_RE = re.compile(rf"候選\s*[（(]?\s*([{_LABELS}])|第\s*([{_LABELS}])\s*個?\s*根因")
+_REASON_WORDS = r"(?:(?<!根)因為|理由|原因|由於|所以|because)"
+_REASON_RE = re.compile(_REASON_WORDS, re.IGNORECASE)
+# 「不存在／沒有／無」後面接標點、理由詞或行尾才算「這個候選不存在」（「候選 A 無鎖競爭」是描述）
+_ABSENT_WORD = rf"(?:不存在|沒有|找不到|無)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))"
+_ABSENT_RE = re.compile(rf"\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}", re.IGNORECASE)
+# 「第二個不存在，因為…」「第二根因不存在：…」「候選 B 不存在因為…」：要寫出為什麼
+_SECOND_ABSENT_RE = re.compile(
+    rf"(?:第\s*[二2]\s*個?\s*(?:根因|候選)?|候選\s*[（(]?\s*[Bb二乙Ｂ２②])\s*[:：]?\s*(?:是)?\s*{_ABSENT_WORD}"
+    rf"[^；;。]*?(?:{_REASON_WORDS}|[:：])\s*\S{{2,}}", re.IGNORECASE)
+_ROLE_PLACEHOLDERS = {"", "角色", "這一塊在目標裡的角色", "這一塊的角色", "…", "...", "略", "無"}
+_ROLE_STRIP_RE = re.compile(r"[\s，。、；;:：,.!！?？「」『』（）()【】\[\]<>《》—－\-~～*_`'\"]+")
+
+
+def root_candidates(root_line: str) -> List[int]:
+    """根因層那行辨識出的候選編號（去重保序）；標記後面緊接「不存在／沒有」的是「第二個不存在」說明，不算候選。"""
+    text = str(root_line or "")
+    out: List[int] = []
+    for m in _CANDIDATE_RE.finditer(text):
+        if _ABSENT_RE.match(text, m.end()):
+            continue
+        n = _LABEL_NO[m.group(1) or m.group(2)]
+        if n not in out:
+            out.append(n)
+    return out
+
+
+def goal_role(goal_line: str, node_id: str) -> str:
+    """第四行節點編號後面括號（全形或半形）裡的角色；沒有括號回空字串（角色要寫在括號裡）。"""
+    v = str(goal_line or "")
+    i = v.find(node_id) if node_id else -1
+    m = re.match(r"\s*[（(](.*?)[）)]", v[i + len(node_id):] if i >= 0 else v)
+    return m.group(1).strip() if m else ""
+
+
+def _role_core(text: str) -> str:
+    return _ROLE_STRIP_RE.sub("", str(text or ""))
+
+
+def _has_choice_reason(root_line: str) -> bool:
+    """選擇理由：以「；，。」切段，段裡的理由詞前面沒有候選標記才算（「候選 A 的原因是 …」是候選自己的描述，不是選擇理由）。"""
+    for seg in re.split(r"[；;。，,]", str(root_line or "")):
+        r = _REASON_RE.search(seg)
+        c = _CANDIDATE_RE.search(seg)
+        if r and (c is None or r.start() < c.start()):
+            return True
+    return False
+
+
+def _second_absent(root_line: str, cands: List[int]) -> bool:
+    """「第二個不存在因為 …」有理由，而且前面真的寫了第一個（有候選標記，或那句之前有內容）。"""
+    text = str(root_line or "")
+    m = _SECOND_ABSENT_RE.search(text)
+    return bool(m) and (bool(cands) or len(_role_core(text[:m.start()])) >= 2)
+
+
+def locate_lines_verdict(root_line: str, goal_line: str, node_id: str, node_text: str) -> Verdict:
+    """LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES：定位四行的根因層（第二行）與目標（第四行）結構夠不夠；缺的項一起列。
+    node_id／node_text＝第四行指到、已核對存在的節點與它的文字。"""
+    rule = "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES"
+    missing: List[str] = []
+    role, node_core = _role_core(goal_role(goal_line, node_id)), _role_core(node_text)
+    if role in _ROLE_PLACEHOLDERS:
+        missing.append(f"第四行 {node_id} 後面括號裡沒寫這一塊在目標裡的角色（{node_id}（這一塊替 {node_id} 做什麼））")
+    elif node_core and (role == node_core or (role in node_core and len(role) * 5 >= len(node_core) * 4)):
+        missing.append(f"第四行的角色是 {node_id} 節點原文照抄，要寫這一塊替 {node_id} 做什麼")
+    cands = root_candidates(root_line)
+    if len(cands) >= 2:
+        if not _has_choice_reason(root_line):
+            missing.append(f"根因層辨識出 {len(cands)} 個候選，但沒寫選擇理由（「選 A 因為 …」）")
+    elif not _second_absent(root_line, cands):
+        missing.append(f"根因層只辨識出 {len(cands)} 個候選，也沒寫「第二個不存在因為 …」"
+                       "（寫法：候選 A …；候選 B …；選 A 因為 …）")
+    if not missing:
+        return Verdict(rule, False, "定位四行有角色、有兩個候選或第二個不存在的理由")
+    return Verdict(rule, True, "；".join(missing), (f"定位｜根因層：{root_line}", f"定位｜目標：{goal_line}"))
+
+
+def edited_part_goal_verdict(parts: Sequence[Tuple[str, Sequence[str], str]]) -> Verdict:
+    """EDITED_PART_NEEDS_GOAL_NODE：parts＝[(部位, 改的檔, 掛的狀態)]，狀態 linked／none（沒交過定位第四行）／
+    dropped:<節點>（掛的節點已放棄）／gone:<節點>（節點不在目前的樹）。沒掛的一部位一行證據。"""
+    rule = "EDITED_PART_NEEDS_GOAL_NODE"
+    why_of = {"none": "沒交過定位第四行", "dropped": "掛的 {} 已放棄", "gone": "掛的 {} 不在目前的樹"}
+    rows: List[str] = []
+    for part, files, link in parts:
+        if link == "linked":
+            continue
+        kind, _, node = str(link).partition(":")
+        rows.append(f"{part}：{'、'.join(files)} 沒掛目標（{why_of.get(kind, kind).format(node)}）")
+    if not rows:
+        return Verdict(rule, False, "改到的寫碼部位都掛到目標節點")
+    return Verdict(rule, True, f"{len(rows)} 個改到的寫碼部位沒掛到目前目標樹裡活著的節點", tuple(rows))

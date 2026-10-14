@@ -1365,14 +1365,14 @@ def handle_pre_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> N
         })
         return
 
-    # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2) 缺了就擋；判不了一律擋。
-    # 是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
+    # 需求目標（4.5）：commit 指令執行前，改了程式還沒回頭對照 (f1)、目前寫碼類樹的完整對照 (f2)、改到的部位沒掛目標 (f3)
+    # 缺了就擋；判不了一律擋。是不是 commit 與 CommitOrder 同一支判定（heredoc 本文裡的 commit 範例不算）
     if tool_name in ("Bash", "PowerShell"):
         _ng_cmd = tool_input.get("command", "") or ""
         if _git_commits_to_run(_ng_cmd)[2] or _svn_segments(_strip_heredoc_bodies(_ng_cmd), {"commit", "ci"}):
             try:
                 from wg_need_goal import commit_gate
-                deny_reason = commit_gate(_co_sid, config)
+                deny_reason = commit_gate(_co_sid, config, _co_state, input_data.get("transcript_path", "") or "")
             except Exception as e:
                 deny_reason = f"[NeedGoal] commit 前核對需求目標時出錯，一律擋：{type(e).__name__}: {e}。先用 Read 查原因。"
             if deny_reason:
