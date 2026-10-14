@@ -635,6 +635,65 @@ def test_045_retry_counts_rerun_cycles_round_evidence_falls_back_to_summary():
     assert "FAIL tests/b.test.js" in rr.retry_rounds_text(st.get("retry_rounds") or [])
 
 
+def _rr_pytest(st, cmd, red_case=None, passed=1):
+    """pytest 跑一次：red_case 給了就是紅（FAILED <案例>），沒給就是綠。"""
+    from handlers import post_tool_use as ptu
+    out = (f"FAILED {red_case} - assert 0\n1 failed, {passed} passed in 0.1s\n" if red_case
+           else f"{passed} passed in 0.1s\n")
+    ptu._track_test_result(st, {"session_id": _RR_SID, "tool_name": "Bash", "tool_input": {"command": cmd},
+                                "tool_response": {"stdout": out, "stderr": "", "interrupted": False}}, cmd)
+
+
+@pytest.mark.parametrize("narrow", ["python -m pytest -q tests/test_a.py::test_ok",
+                                    "python -m pytest -q tests/test_a.py -k test_ok"], ids=["node-id", "k-filter"])
+def test_045_green_narrowed_keeps_uncovered_red_rounds_still_counted(narrow):
+    """總控台 codex 退件：整檔紅（test_bad）後，兩次「改 → 只跑 test_ok 綠 → 跑整檔仍紅」＝2 輪。
+    單案或 -k 跑綠沒涵蓋 test_bad，不能把那筆紅連同改檔紀錄清掉。"""
+    whole = "python -m pytest -q tests/test_a.py"
+    st = {"turn_seq": 1}
+    _rr_pytest(st, whole, "tests/test_a.py::test_bad")
+    for _ in range(2):
+        _rr_edit(st, "src/a.py")
+        _rr_pytest(st, narrow)
+        assert st.get("failing_tests"), "單案綠清掉了沒涵蓋到的紅"
+        _rr_pytest(st, whole, "tests/test_a.py::test_bad")
+    assert int(st.get("wisdom_retry_count", 0)) == 2
+
+
+def test_045_green_narrowed_keeps_uncovered_red_verdicts():
+    """純函式：綠的範圍有篩選（節點 id、-k、-m、Jest -t）時，紅掉的案例都在綠點名的節點裡才清；沒篩選照既有規則。"""
+    red, summary = "pytest -q tests/test_a.py", "FAILED tests/test_a.py::test_bad - assert 0\n1 failed"
+    v = rr.green_covers_red_verdict(red, summary, "pytest -q tests/test_a.py::test_ok")
+    assert v.rule == "GREEN_NARROWED_KEEPS_UNCOVERED_RED" and v.owed is True and "test_bad" in "；".join(v.evidence)
+    assert rr.green_covers_red_verdict(red, summary, "pytest -q tests/test_a.py::test_bad").owed is False   # 紅的就是這案
+    assert rr.green_covers_red_verdict(red, summary, "pytest -q tests/test_a.py -k test_bad").owed is True  # -k 判不了照留
+    assert rr.green_covers_red_verdict(red, summary, "pytest -q tests/test_a.py").owed is False             # 沒篩選
+    assert rr.green_covers_red_verdict("pytest -q x.py -k t2", "1 failed", "pytest -q x.py -k t2").owed is False  # 同一篩選
+    assert rr.green_covers_red_verdict("npx jest a.test.js", "FAIL a.test.js", "npx jest a.test.js -t adds").owed is True
+
+
+def test_045_green_narrowed_single_case_that_was_red_clears():
+    """對照：單案跑綠、那案就是紅掉的案 → 清帳（既有行為不變）。"""
+    st = {"turn_seq": 1}
+    _rr_pytest(st, "python -m pytest -q tests/test_a.py", "tests/test_a.py::test_bad")
+    _rr_pytest(st, "python -m pytest -q tests/test_a.py::test_bad")
+    assert not st.get("failing_tests")
+
+
+def test_045_retry_counts_rerun_cycles_messages_roundtrip_parse_hits():
+    """FixEscalation 與 DPM 的重試證據行用 format_hit，parse_hits／parse_hit_rules 讀得到規則名。"""
+    st = {"turn_seq": 1}
+    _rr_run(st, "tests/x.py::t1")
+    _rr_edit(st)
+    _rr_run(st, "tests/x.py::t2")
+    _rr_edit(st)
+    _rr_run(st, "tests/x.py::t3")
+    for text in (rr.fix_escalation_text(st), rr.retry_rounds_text(st["retry_rounds"])):
+        assert text.splitlines()[0].startswith("[Guardian:FixEscalation]") or "FixEscalation" not in text.splitlines()[0]
+        assert rr.parse_hits(text) == ["r"] and ("r", "RETRY_COUNTS_RERUN_CYCLES") in rr.parse_hit_rules(text)
+        assert "第 2 輪" in text and "tests/x.py::t3" in text
+
+
 def test_045_retry_counts_rerun_cycles_dpm_trigger_names_rounds():
     """DeepPostMortem 的觸發句也印第幾輪與每輪證據。"""
     from handlers import stop
@@ -644,8 +703,9 @@ def test_045_retry_counts_rerun_cycles_dpm_trigger_names_rounds():
     _rr_run(st, "tests/x.py::t2")
     _rr_edit(st)
     _rr_run(st, "tests/x.py::t3")
-    text = stop._dpm_trigger_text(st, {})
-    assert "第 2 輪" in text and "tests/x.py::t3" in text
+    text = stop._dpm_instruction(st, {})
+    assert text.startswith("[Guardian:DeepPostMortem]") and "第 2 輪" in text and "tests/x.py::t3" in text
+    assert ("r", "RETRY_COUNTS_RERUN_CYCLES") in rr.parse_hit_rules(text)       # 證據行在標頭下一行，parse_hits 讀得到
 
 
 def test_045_green_same_case_clears():

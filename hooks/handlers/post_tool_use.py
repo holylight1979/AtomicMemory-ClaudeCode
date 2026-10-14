@@ -36,8 +36,8 @@ from wg_verify_ledger import (
     aec_evidence_missing, aec_followups_missing, next_event_seq, has_cd, env_snapshot, commit_snapshot, reconcile_cfg,
     head_new_code, _git_root_of, reverted_code_files,
 )
-from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, red_case_names,
-                              retry_round_verdict, same_test_run)
+from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
+                              red_case_names, retry_round_verdict, same_test_run)
 try:
     # track-a1 寫的 Bash／PowerShell 改檔目標擷取；沒合併前退回只記 Edit／Write／MultiEdit／NotebookEdit 目標
     from wg_core import write_paths_from_tool as _write_paths_from_tool
@@ -432,20 +432,24 @@ def _track_test_result(state: Dict[str, Any], input_data: Dict[str, Any], comman
     cmd_prefix = command[:80].strip()
     is_pytest_success = "pytest" in command.lower()
     before = state["failing_tests"]
-    after = [
-        f for f in before
-        if f.get("session_id") != sid          # 只清自己的；沒蓋 sid 的舊條目不是自己的
-        or (
-            not f.get("cmd", "").startswith(cmd_prefix[:40])
-            and not green_clears_red(f.get("cmd", ""), command, f.get("cwd") or None,
-                                     str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
-            and not (is_pytest_success and (
-                f.get("pytest")
-                or "pytest" in f.get("cmd", "").lower()
-                or "short test summary" in f.get("summary", "")   # legacy 無 flag 者看 pytest 輸出特徵
-            ))
-        )
-    ]
+
+    def _clears(f: Dict[str, Any]) -> bool:
+        if f.get("session_id") != sid:          # 只清自己的；沒蓋 sid 的舊條目不是自己的
+            return False
+        matched = (f.get("cmd", "").startswith(cmd_prefix[:40])
+                   or green_clears_red(f.get("cmd", ""), command, f.get("cwd") or None,
+                                       str(input_data.get("cwd") or "") or None)   # 規則 GREEN_SAME_CASE_CLEARS：綠的點名同一個案例檔
+                   or (is_pytest_success and (f.get("pytest") or "pytest" in f.get("cmd", "").lower()
+                                              or "short test summary" in f.get("summary", ""))))   # legacy 看 pytest 輸出特徵
+        if not matched:
+            return False
+        # 規則 GREEN_NARROWED_KEEPS_UNCOVERED_RED：單案或 -k 篩選跑綠，沒涵蓋紅掉的案例 → 那筆紅與它的改檔紀錄照留
+        keep = green_covers_red_verdict(f.get("cmd", ""), f.get("summary", ""), command)
+        if keep.owed:
+            print(f"[Guardian:TestFail] 規則 {keep.rule}：{keep.why}｜證據：{'；'.join(keep.evidence)}", file=sys.stderr)
+        return not keep.owed
+
+    after = [f for f in before if not _clears(f)]
     if len(after) == len(before):
         return False
     state["failing_tests"] = after

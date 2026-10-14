@@ -652,7 +652,7 @@ def _dpm_trigger_text(state: Dict[str, Any], config: Dict[str, Any]) -> str:
     from wg_friction import friction_summary, friction_triggered
     parts: List[str] = []
     if int(state.get("wisdom_retry_count", 0) or 0) >= 2 or state.get("fix_escalation_triggered"):
-        parts.append("失敗中反覆重試 / fix-escalation；" + retry_rounds_text(state.get("retry_rounds") or []))
+        parts.append("失敗中反覆重試 / fix-escalation")
     if friction_triggered(state, config):
         parts.append(friction_summary(state))
     return "、".join(parts) or "高 effort 失敗"
@@ -676,8 +676,11 @@ def _cwd_is_worktree(cwd: str) -> bool:
 
 
 def _dpm_instruction(state: Dict[str, Any], config: Dict[str, Any], cwd: str = "") -> str:
-    """DPM 指令文字；worktree 隔離 session（規則 DPM_WORKTREE_DELIVERY）改要求寫進交付信由總控台代寫，不叫它 atom_write。"""
-    return dpm_instruction_text(_dpm_trigger_text(state, config), _cwd_is_worktree(cwd))
+    """DPM 指令文字；worktree 隔離 session（規則 DPM_WORKTREE_DELIVERY）改要求寫進交付信由總控台代寫，不叫它 atom_write。
+    有逐輪重試紀錄就在標頭下一行附證據行（規則 RETRY_COUNTS_RERUN_CYCLES，format_hit 格式）。"""
+    rounds = state.get("retry_rounds") or []
+    return dpm_instruction_text(_dpm_trigger_text(state, config), _cwd_is_worktree(cwd),
+                                retry_rounds_text(rounds) if rounds else "")
 
 
 # ─── 迴歸累積提示（驗收真命中 → 建議補測試/落 atom）───────────────
