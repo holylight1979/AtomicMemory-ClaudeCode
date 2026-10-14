@@ -21,7 +21,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block,
@@ -739,6 +739,20 @@ def _acceptance_regression_hint(
         return None
 
 
+def _move_inputs(state: Dict[str, Any], receipt_key: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """規則 MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE 的事實配對：(要查的搬移, 可以拿來對的收據)。
+    子代理收尾（receipt_key＝sid#agent:<id>）只查這個子代理搬的、用它自己的收據；主 session 收尾查本 session 全部搬移
+    （含子代理搬的），收據是主帳加上那些子代理各自的收據（子代理自己跑了 scan／sample 也算數）。"""
+    sid, _, aid = str(receipt_key).partition("#agent:")
+    moved = [m for m in state.get("moved_code_dirs") or [] if isinstance(m, dict) and m.get("session_id") == sid]
+    if aid:
+        return [m for m in moved if m.get("agent_id", "") == aid], receipts_of(state, receipt_key)
+    receipts = list(receipts_of(state, sid))
+    for a in dict.fromkeys(m.get("agent_id") for m in moved if m.get("agent_id")):
+        receipts += receipts_of(state, agent_receipt_key(sid, a))
+    return moved, receipts
+
+
 def _verify_gates(
     state: Dict[str, Any], session_id: str, turn_seq: int, last_text: str,
     transcript, transcript_text: str, own_mod_files: List[Dict[str, Any]],
@@ -813,6 +827,8 @@ def _verify_gates(
                                                                   deadline=git_dl),
                 committed_new=state.get("committed_new_code"), user_turn=since,
                 exec_this_turn=in_turn((state.get("exec_turn_seq") or {}).get(session_id), turn_seq, since),
+                **dict(zip(("moves", "move_receipts"), _move_inputs(state, session_id))),
+                move_scan_hits=state.get("move_scan_hits") or {},
                 self_covered=(lambda: self_run_covered(measure_parts(own_mod_files, _lk), _self_runs())) if _lk else None,
             )
             kind = "reconcile" if reason or report else ""

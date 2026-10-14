@@ -18,6 +18,7 @@ import hashlib
 import os
 import re
 import shlex
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
 RULES: Dict[str, str] = {
@@ -61,7 +62,10 @@ RULES: Dict[str, str] = {
                                  "紅之後第一次重跑就綠＝0；第一次跑別組紅不算；plan 與 direct 同門檻，兩輪升級 FixEscalation；"
                                  "刻意紅、只改計畫類檔不算。不猜改檔為了哪一組，同時修多組時沒改到的那組也算（已知限制）。",
     "GREEN_SAME_CASE_CLEARS": "跑綠的指令點名與某筆紅測同一個案例檔 → 那筆紅測清掉（不限 pytest、不看指令前綴）。",
-    "GREEN_NARROWED_KEEPS_UNCOVERED_RED": "綠的範圍有篩選（節點 id、-k、-m、Jest -t）時，紅掉的案例都在綠點名的節點裡才清那筆紅；"
+    "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE": "搬了含程式檔的目錄（mv、Move-Item、git mv）→ 不欠整組案例，欠兩張搬之後跑的收據："
+                                           "路徑引用掃描（tools/move-dir-check.py scan 點名舊路徑，MOVE_PATH_SCAN DONE hits=0）"
+                                           "與抽樣驗證（sample，MOVE_SAMPLE_CHECK PASS）；收據指令不准自己寫哨兵字樣。",
+    "GREEN_NARROWED_KEEPS_UNCOVERED_RED":"綠的範圍有篩選（節點 id、-k、-m、Jest -t）時，紅掉的案例都在綠點名的節點裡才清那筆紅；"
                                           "判不了（-k 運算式、輸出沒列案例）照留，同一個篩選指令重跑除外。沒篩選照既有清帳規則。",
     "DISPATCH_OPENS_TURN": "回合起點＝使用者打字，或帶派工標記的跨 session 訊息（正文首行以「派工」開頭、或含 to-track-<軌> 派工檔路徑）；"
                            "一般同伴訊息、背景通知不開回合。擋次預算、ScanReport 豁免、AtomAudit、PASS 窗口、退避預告切點、有用度學習單位、"
@@ -789,6 +793,59 @@ def fix_escalation_text(state: Dict[str, Any]) -> Optional[str]:
     return (f"[Guardian:FixEscalation] 偵測到重複修正（retry={count}）。\n{retry_rounds_text(state.get('retry_rounds') or [])}\n"
             "依「精確修正升級」規則先停下直接修：用三句寫出①失敗現象與原文、②已試過的改法與各自為何沒解、"
             "③下一個能區分候選原因的最小檢查；做完那個檢查再動手。刻意跑紅（退回舊碼反證）不算在內。")
+
+
+MOVE_TOOL = "move-dir-check.py"
+
+
+def move_dir_verdict(move: Dict[str, Any], scan_hits: Optional[int], sample_ok: bool,
+                     hit_lines: Sequence[str] = ()) -> Verdict:
+    """MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE：一筆搬目錄（呼叫端蒐集：舊、新路徑與時間）配上搬之後的收據事實
+    （scan_hits＝最後一次合格掃描的命中數，沒有就 None；sample_ok＝有合格的抽樣 PASS），回欠不欠。"""
+    rule = "MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE"
+    old, new = str(move.get("old") or "（舊路徑不明）"), str(move.get("new") or "")
+    missing, why_parts = [], []
+    if scan_hits is None:
+        missing.append("缺路徑引用掃描收據 MOVE_PATH_SCAN（搬之後跑、點名舊路徑）")
+        why_parts.append("MOVE_PATH_SCAN")
+    elif scan_hits > 0:
+        missing.append(f"最後一次路徑引用掃描 hits={scan_hits}：修碼後重掃到 0，刻意保留的用 --allow 註明")
+        why_parts.append(f"MOVE_PATH_SCAN hits={scan_hits}")
+    if not sample_ok:
+        missing.append("缺抽樣驗證收據 MOVE_SAMPLE_CHECK PASS（搬之後跑、--for 點名這個新目錄）")
+        why_parts.append("MOVE_SAMPLE_CHECK")
+    if not missing:
+        return Verdict(rule, False, f"{old} → {new} 兩張收據都有", ())
+    tool = str(Path(__file__).resolve().parent.parent / "tools" / MOVE_TOOL)
+    run = "<被搬模組的 import 或目標 verify 指令>"
+    how = []
+    for shell, q in (("Bash", shlex.quote), ("PowerShell", _ps_quote)):
+        how.append(f"掃描（{shell}）：python {q(tool)} scan --old {q(old)} --new {q(new)}")
+        how.append(f"抽樣（{shell}）：python {q(tool)} sample --for {q(new)} --run {q(run)}")
+    how.append(f"C# 抽樣再加 --csproj-check <新目錄>")
+    return Verdict(rule, True, f"搬了含程式檔的目錄 {old} → {new}，還缺 {'、'.join(why_parts)}（不欠整組案例）",
+                   (*missing, *[f"命中 {h}" for h in list(hit_lines)[:5]], *how))
+
+
+def _ps_quote(s: str) -> str:
+    """PowerShell 單引號字串（裡面的單引號寫兩次），整段照字面、不展開變數。"""
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def collapse_move_chain(moves: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE 的搬移鏈：照先後（seq，沒有就 at）把「A→B、B→C」併成 A→C，時間取最後一次搬
+    （收據要在最後一次搬之後）；完整搬回原處（A→B→A）就不欠。同一個 session、同一個子代理的搬移才串。"""
+    out: List[Dict[str, Any]] = []
+    for m in sorted(moves, key=lambda x: (int(x.get("seq") or 0), str(x.get("at") or ""))):
+        prev = next((e for e in out if canon_path(e.get("new") or "") == canon_path(m.get("old") or "")
+                     and e.get("session_id") == m.get("session_id") and e.get("agent_id", "") == m.get("agent_id", "")), None)
+        if prev is None:
+            out.append(dict(m))
+            continue
+        prev.update({"new": m.get("new"), "at": m.get("at"), "seq": m.get("seq")})
+        if canon_path(prev.get("old") or "") == canon_path(prev.get("new") or ""):
+            out.remove(prev)
+    return out
 
 
 _NARROW_FLAG_RE = re.compile(r"(?:^|\s)(?:-k|-m|-t|--testNamePattern|--deselect|--lf|--last-failed)(?=\s|=|$)")
