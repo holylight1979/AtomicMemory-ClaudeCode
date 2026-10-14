@@ -81,7 +81,7 @@ disable-model-invocation: true
 >
 > 收割完成後，請自行評估是否刪除 `browser-data/` 下的敏感資料。
 >
-> 選項：使用此路徑 / 自訂路徑
+> 選項：使用此路徑 (Recommended) / 自訂路徑
 
 ### Step 3: 認證準備
 
@@ -98,7 +98,7 @@ disable-model-invocation: true
 - 告知使用者：「將清空現有登入資料，瀏覽器啟動後需重新登入。」
 
 **--copy-chrome**：
-- 需要使用者先關閉 Chrome。用 AskUserQuestion 確認。
+- 需要使用者先關閉 Chrome。用 AskUserQuestion 確認（選項：已關閉，繼續 (Recommended) / 先不用 --copy-chrome）。
 
 ### Step 4: 環境檢查
 

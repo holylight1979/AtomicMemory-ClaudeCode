@@ -1366,6 +1366,81 @@ def test_c_g16_broken_gate_lets_only_pure_release_ask_through(world, monkeypatch
     assert run_handler(ptu.handle_pre_tool_use, _pre_input(_release_q(), "m2"), {}) is None
 
 
+def _hub(proj, **reads):
+    """state 的 OverviewHub 紀錄：部位資料夾 → 讀過的檔數（鍵照 wg_overview.read_scope_keys 算，跟真的讀檔紀錄同一套）。"""
+    hub = {}
+    for d, n in reads.items():
+        key = wo.read_scope_keys(str(proj / "Game" / d / "x.py"), {})[1]
+        hub[key] = {"part_files_read": [str(proj / "Game" / d / f"f{i}.py") for i in range(n)]}
+    return {"overview_hub": hub, "session": {"id": SID, "cwd": str(proj)}, "turn_seq": 2}
+
+
+def test_c_g16b_named_part_unread_reminds_even_if_other_part_read(world, proj):
+    """裁定 #39 案 1：讀了 A 部位（戰鬥）的檔、題目問 B 部位（網路）某檔的改法 → 提醒，證據點名 B 讀過 0 檔。"""
+    make_tree("code")
+    q = ask_opts(f"T1.1 {proj / 'Game' / 'Net' / 'conn.py'} 要用哪個改法？", ["A (Recommended)", "B"])
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", q, _hub(proj, Battle=2))
+    assert deny is None and hint and "先讀過部位檔再問" in hint
+    assert "→部位 網路，本回合該部位讀過 0 檔" in hint
+    rel = ask_opts("T1.1 Game/Net/conn.py 要用哪個改法？", ["A (Recommended)", "B"])       # 相對路徑照 session cwd 解
+    assert "→部位 網路，本回合該部位讀過 0 檔" in (ngp.on_ask(SID, "AskUserQuestion", rel, _hub(proj, Battle=2))[1] or "")
+
+
+def test_c_g16b_named_part_read_no_reminder(world, proj):
+    """案 2：讀了 B 部位的檔、問 B 部位改法 → 不提醒（讀的是別的部位才算沒看全貌）。"""
+    make_tree("code")
+    q = ask_opts(f"T1.1 {proj / 'Game' / 'Net' / 'conn.py'} 要用哪個改法？", ["A (Recommended)", "B"])
+    assert ngp.on_ask(SID, "AskUserQuestion", q, _hub(proj, Net=1)) == (None, None)
+
+
+def test_c_g16b_no_path_falls_back_to_any_part_read(world, proj):
+    """案 3：題目沒提路徑 → 退回現行：讀過任一部位檔不提醒；一檔都沒讀 → 提醒，證據寫「題目沒提到部位表上的路徑」。"""
+    make_tree("code")
+    q = ask_opts("T1.1 要用哪個改法？", ["A (Recommended)", "B"])
+    assert ngp.on_ask(SID, "AskUserQuestion", q, _hub(proj, Battle=1)) == (None, None)
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", q, _hub(proj))
+    assert deny is None and "題目沒提到部位表上的路徑" in (hint or "")
+
+
+def test_c_g16b_unmapped_path_falls_back(world, proj):
+    """案 4：題目提的路徑不在部位表（Tools/ 沒列）→ 退回現行判定。"""
+    make_tree("code")
+    q = ask_opts(f"T1.1 {proj / 'Tools' / 'gen.py'} 要用哪個改法？", ["A (Recommended)", "B"])
+    assert ngp.on_ask(SID, "AskUserQuestion", q, _hub(proj, Battle=1)) == (None, None)
+    deny, hint = ngp.on_ask(SID, "AskUserQuestion", q, _hub(proj))
+    assert deny is None and "題目沒提到部位表上的路徑" in (hint or "")
+
+
+def test_c_g16b_cjk_part_and_root_file_and_cwd_fallback(world, tmp_path, monkeypatch):
+    """codex 002：中文資料夾的部位、根目錄檔名的部位都對得到；state 沒記 session cwd 時，相對路徑照 hook 行程的 cwd 解。"""
+    root = tmp_path / "cjk"
+    (root / ".claude").mkdir(parents=True)
+    (root / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        "| `Game/網路/` | 網路 | 無 | 無 |\n| `Game/戰鬥/` | 戰鬥 | 無 | 無 |\n| `./TECH.md` | 技術文件 | 無 | 無 |\n",   # 表上根目錄檔要含斜線
+        encoding="utf-8")
+    key = wo.read_scope_keys(str(root / "Game" / "戰鬥" / "a.py"), {})[1]
+    state = {"overview_hub": {key: {"part_files_read": [str(root / "Game" / "戰鬥" / "a.py")]}}, "turn_seq": 2}
+    make_tree("code")
+    monkeypatch.chdir(root)
+    for q, part in (("T1.1 要改Game/網路/conn.py嗎，用哪個改法？", "網路"), ("T1.1 TECH.md 要用哪個改法？", "技術文件")):
+        deny, hint = ngp.on_ask(SID, "AskUserQuestion", ask_opts(q, ["A (Recommended)", "B"]), state)
+        assert deny is None and f"→部位 {part}，本回合該部位讀過 0 檔" in (hint or ""), (q, hint)
+
+
+def test_c_g16b_part_lookup_error_falls_back_not_blocks(world, proj, monkeypatch, capsys):
+    """部位對映丟例外：這條只是提醒，不能讓整個提問被打斷（PreToolUse 外層會一律擋）；stderr 說一聲、退回總數判定。"""
+    make_tree("code")
+    state = _hub(proj, Battle=1)
+
+    def boom(*a, **k):
+        raise OSError("網路磁碟斷線")
+    monkeypatch.setattr(wo, "read_scope_keys", boom)
+    q = ask_opts(f"T1.1 {proj / 'Game' / 'Net' / 'conn.py'} 要用哪個改法？", ["A (Recommended)", "B"])
+    assert ngp.on_ask(SID, "AskUserQuestion", q, state) == (None, None)
+    assert "網路磁碟斷線" in capsys.readouterr().err
+
+
 def test_c_g16_pre_tool_use_entry_blocks_missing_recommendation(world):
     """真 hook 入口：沒推薦 → PreToolUse deny；加了 (Recommended) → 放行。"""
     wg_core.write_state(SID, {"session": {"id": SID}, "turn_seq": 3, **READ})

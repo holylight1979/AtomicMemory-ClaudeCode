@@ -976,9 +976,11 @@ RULES.update({
                           "節點編號（T<n>／T<n>.<m>，在目前的樹、沒放棄）或節點原文連續 8 字以上的片段（空白不算字；不到 8 字的節點"
                           "只能寫編號）；一題掛上不帶過同批其他題。寫碼類有題沒指到擋；記憶知識類只提示；沒有樹不擋，PostToolBatch "
                           "審計記「提問未掛目標（知識類）」。真有待放行紀錄時放行題不算；整次全是放行題才整次豁免（ask_release_only）。",
-    "ASK_OVERVIEW_BEFORE_DECISION": "提問涉及改法選擇（ExitPlanMode，或題目含改法／做法／方案／寫法／實作／架構／重構／設計）而本 session "
-                                    "還沒讀過任何部位檔（OverviewHub 的 part_files_read 全空）→ 擋訊息或提示多一句「先讀過部位檔再問」；"
-                                    "只提醒，不單獨擋（owed＝要附這句）。不分部位：讀過任一部位檔就不提醒（已知限制）。",
+    "ASK_OVERVIEW_BEFORE_DECISION": "提問涉及改法選擇（ExitPlanMode，或題目含改法／做法／方案／寫法／實作／架構／重構／設計）時："
+                                    "題目與選項 label／描述提到的路徑對得上部位表 → 只看那些部位，有部位的 part_files_read 是 0 檔就提醒"
+                                    "（讀了別的部位不算），證據行「題目提到 <路徑>→部位 <名>，本回合該部位讀過 0 檔」；題目沒提路徑或提的"
+                                    "路徑不在部位表 → 退回看 part_files_read 是不是全空。提醒＝擋訊息或提示多一句「先讀過部位檔再問」；"
+                                    "只提醒，不單獨擋（owed＝要附這句）。",
 })
 
 ASK_FRAGMENT_MIN = 8
@@ -1101,14 +1103,68 @@ def ask_audit_note(kind: Optional[str], linked: Optional[str]) -> Optional[str]:
     return f"提問未掛目標（{'寫碼類' if kind == 'code' else '知識類'}）"
 
 
-def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int) -> Verdict:
+_CJK = "㐀-鿿豈-﫿"
+_SEG = rf"[A-Za-z0-9_.\-{_CJK}]+"                                     # 中間段：可含中文
+_SEG_ASCII = r"[A-Za-z0-9_.\-]+"
+_LAST = rf"(?:[A-Za-z0-9_.\-{_CJK}]*?\.[A-Za-z][A-Za-z0-9]{{0,5}}(?![A-Za-z0-9_])|{_SEG_ASCII})"   # 最後一段：含中文要有副檔名
+_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://\S+")
+_QUOTED_RE = re.compile(r"`([^`\n]+)`|「([^」\n]+)」|\"([^\"\n]+)\"|'([^'\n]+)'")
+_ASK_ABS_PATH_RE = re.compile(rf"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])(?:{_SEG}[\\/])*{_LAST}?")
+_ASK_REL_PATH_RE = re.compile(rf"(?<![A-Za-z0-9_.\-\\/:])(?:\.{{1,2}}[\\/])?{_SEG_ASCII}(?:[\\/](?:{_SEG}(?=[\\/])|{_LAST}))+[\\/]?")
+_ASK_BARE_FILE_RE = re.compile(
+    r"(?<![A-Za-z0-9_.\-\\/:])[A-Za-z0-9_\-]*[A-Za-z][A-Za-z0-9_\-]*\.[A-Za-z][A-Za-z0-9]{0,5}(?![A-Za-z0-9_.\\/])")
+_NOT_PATH_SEG_RE = re.compile(r"T\d+(?:\.\d+)*|[\d.\-]*|.")          # 節點編號、純數字（日期、版本號）、單一字元（A/B）
+
+
+def _looks_like_path(p: str) -> bool:
+    """相對寫法每一段都是節點編號、純數字或單一字元 → 不是路徑（T1.1/T1.2、2026/10/14、1.2/3.4、A/B）。"""
+    segs = [s for s in re.split(r"[\\/]", p) if s not in ("", ".", "..")]
+    return bool(segs) and not all(_NOT_PATH_SEG_RE.fullmatch(s) for s in segs)
+
+
+def ask_paths(tool_input: Any) -> List[str]:
+    """題目與選項 label／描述（不含 header）裡像路徑的字，依出現順序去重：引號（`、「」、"、'）包住而含斜線或像檔名的整段照原樣
+    （可含空白與中文）；絕對路徑（磁碟代號開頭）；含斜線的相對路徑（第一段英數，之後的段可含中文，最後一段含中文要帶副檔名）；
+    不含斜線的檔名（TECH.md）。網址整段先拿掉；相對寫法每段都是節點編號、純數字或單一字元的不算。"""
+    out: List[str] = []
+
+    def add(p: str) -> None:
+        if p and p not in out and (re.match(r"[A-Za-z]:[\\/]", p) or _looks_like_path(p)):
+            out.append(p)
+
+    for t, _l, texts in _ask_questions(tool_input):
+        for s in [t, *texts]:
+            s = _URL_RE.sub(" ", s)
+            for m in _QUOTED_RE.finditer(s):
+                q = next(g for g in m.groups() if g is not None).strip()
+                if re.search(r"[\\/]", q) or _ASK_BARE_FILE_RE.fullmatch(q):
+                    add(q)
+            s = _QUOTED_RE.sub(" ", s)
+            for rx in (_ASK_ABS_PATH_RE, _ASK_REL_PATH_RE, _ASK_BARE_FILE_RE):
+                for m in rx.finditer(s):
+                    add(m.group(0).rstrip("."))
+                s = rx.sub(" ", s)
+    return out
+
+
+def ask_overview_verdict(tool_name: str, tool_input: Any, part_files_read: int,
+                         named: Sequence[Tuple[str, str, int]] = ()) -> Verdict:
     """ASK_OVERVIEW_BEFORE_DECISION：只看題目文字（不看 header、選項）判改法選擇；ExitPlanMode 一律算。
-    part_files_read＝OverviewHub 各部位 part_files_read 的總數。owed＝要附提醒句，呼叫端不因這條單獨擋。"""
+    named＝題目提到、對得上部位表的路徑：(題目裡的寫法, 部位名, 該部位 part_files_read 檔數)，每個部位一筆；有就只看這些部位，
+    有部位讀過 0 檔就提醒（讀了別的部位不算）。沒有 named → 退回看 part_files_read（OverviewHub 各部位總數）是不是全空。
+    owed＝要附提醒句，呼叫端不因這條單獨擋。"""
     rule = "ASK_OVERVIEW_BEFORE_DECISION"
     decision = tool_name == "ExitPlanMode" or any(_DECISION_RE.search(t) for t, _l, _x in _ask_questions(tool_input))
     if not decision:
         return Verdict(rule, False, "題目不涉及改法選擇")
+    if named:
+        unread = [(p, part) for p, part, n in named if not n]
+        if not unread:
+            return Verdict(rule, False, "題目提到的部位都讀過檔",
+                           tuple(f"題目提到 {p}→部位 {part}，本回合該部位讀過 {n} 檔" for p, part, n in named))
+        return Verdict(rule, True, "題目涉及改法選擇，但題目提到的部位還沒讀過檔：先讀過部位檔再問（只提醒，不因這條擋）",
+                       tuple(f"題目提到 {p}→部位 {part}，本回合該部位讀過 0 檔" for p, part in unread))
     if part_files_read > 0:
-        return Verdict(rule, False, f"已讀過 {part_files_read} 個部位檔")
+        return Verdict(rule, False, f"題目沒提到部位表上的路徑；已讀過 {part_files_read} 個部位檔")
     return Verdict(rule, True, "題目涉及改法選擇，但本 session 還沒讀過任何部位檔：先讀過部位檔再問（只提醒，不因這條擋）",
-                   ("OverviewHub 的 part_files_read 全空",))
+                   ("題目沒提到部位表上的路徑；OverviewHub 的 part_files_read 全空",))

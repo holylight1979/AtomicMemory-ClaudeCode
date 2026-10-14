@@ -5,6 +5,7 @@
   P2 【收尾放行確認】固定兩選項的放行題不因推薦被擋
   P3 還沒有目標樹（記憶知識類）提問不擋，PostToolBatch 審計記「提問未掛目標（知識類）」
   P4 寫碼類目標樹：題目沒指節點被擋（印 ASK_LINKED_TO_GOAL）→ 引用節點原文 8 字以上放行
+  P5 部位表兩部位：讀了 A 部位的檔、問 B 部位某檔的改法 → 提醒句點名 B 讀過 0 檔；讀過 B 再問 → 不提醒（裁定 #39）
 資料根（WG_CLAUDE_DIR）、守門紀錄（WG_TEST_LOGS_DIR）、家目錄與探針專案都放在 <本樹>/workflow/need-goal/_probe_c_g16/
 （不進版控），每次跑前清空；程式碼用本檔所在的樹，不碰 live。
 怎麼跑：python -X utf8 hooks/verify/probe_c_g16.py   （尾行 C_G16_PROBE_CHECK PASS|FAIL）
@@ -44,6 +45,10 @@ def hook(event: str, **fields) -> dict:
     return json.loads(lines[-1]) if lines else {}
 
 
+def ctx(out: dict) -> str:
+    return (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+
+
 def deny(out: dict) -> str:
     hs = out.get("hookSpecificOutput") or {}
     return hs.get("permissionDecisionReason") or "" if hs.get("permissionDecision") == "deny" else ""
@@ -68,6 +73,13 @@ def main() -> int:
     (BASE / "home" / ".claude" / "Logs").mkdir(parents=True)
     (BASE / "logs").mkdir()
     (PROJ / ".git").mkdir(parents=True)
+    (PROJ / ".claude").mkdir()
+    (PROJ / ".claude" / "overview-map.md").write_text(
+        "| 路徑前綴 | 部位 | 導讀卡 | 狀態 |\n|---|---|---|---|\n"
+        "| `src/a/` | 甲部位 | 無 | 無 |\n| `src/b/` | 乙部位 | 無 | 無 |\n", encoding="utf-8")
+    for rel in ("src/a/one.py", "src/a/two.py", "src/b/x.py", "src/b/y.py"):
+        (PROJ / rel).parent.mkdir(parents=True, exist_ok=True)
+        (PROJ / rel).write_text("x = 1\n", encoding="utf-8")
     TP.write_text("", encoding="utf-8")
     steps = []
 
@@ -106,6 +118,21 @@ def main() -> int:
     out = hook("PreToolUse", tool_name="AskUserQuestion",
                tool_input=ask("為了「欄位跟 JSON 用同一份」，欄位要放哪？", ["A (Recommended)", "B"]), tool_use_id="p4b")
     step("P4 引用節點原文 8 字以上放行", not deny(out), json.dumps(out, ensure_ascii=False))
+
+    def read(rel: str) -> None:
+        hook("PostToolUse", tool_name="Read", tool_input={"file_path": str(PROJ / rel)}, tool_response={"type": "text"})
+
+    for rel in ("src/a/one.py", "src/a/two.py"):          # 第一次讀注入導讀卡，第二次才記進 part_files_read
+        read(rel)
+    q5 = ask(f"T1.1 {PROJ / 'src' / 'b' / 'x.py'} 要用哪個改法？", ["A (Recommended)", "B"])
+    out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=q5, tool_use_id="p5a")
+    step("P5 讀 A 問 B：提醒句點名乙部位讀過 0 檔、不擋",
+         not deny(out) and "先讀過部位檔再問" in ctx(out) and "→部位 乙部位，本回合該部位讀過 0 檔" in ctx(out),
+         json.dumps(out, ensure_ascii=False))
+    for rel in ("src/b/x.py", "src/b/y.py"):
+        read(rel)
+    out = hook("PreToolUse", tool_name="AskUserQuestion", tool_input=q5, tool_use_id="p5b")
+    step("P5 讀過 B 再問：不提醒", not deny(out) and "先讀過部位檔再問" not in ctx(out), json.dumps(out, ensure_ascii=False))
 
     fails = sum(1 for _n, ok in steps if not ok)
     print(f"C_G16_PROBE DONE steps={len(steps)} fail={fails} sid={SID}")

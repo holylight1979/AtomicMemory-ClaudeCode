@@ -35,7 +35,7 @@ description: 原子記憶系統綜合工具 — health/review/score 三主力 + 
    python ~/.claude/tools/classify-project-scope.py plan
    ```
    輸出 JSON：`personal[]`（每顆 personal 存量：slug／owner／第一句／`suggest` shared|personal／理由）、`index`（scope 錯標、懸空、trigger 漂移數）、`shared_flat`、`classified`。
-2. **問使用者（唯一要人判的一步）**：把 `personal[]` 做成表（編號｜第一句摘要｜建議去向），用 AskUserQuestion 問「照建議／有例外列編號」。去向四選一：`shared`（專案規則，Author 記提出者）／`personal`（留本人×專案）／`cross_project`（本人跨專案，搬到 `~/.claude/memory/personal/<user>/`）／`reject`（一次性任務，移 `_rejected/`）。先用兩三句白話說明這次改動：personal 只給本人、專案規則要進 shared 別人才看得到、他專案的記憶不再注入。
+2. **問使用者（唯一要人判的一步）**：把 `personal[]` 做成表（編號｜第一句摘要｜建議去向），用 AskUserQuestion 問「照建議 (Recommended)／有例外列編號」。去向四選一：`shared`（專案規則，Author 記提出者）／`personal`（留本人×專案）／`cross_project`（本人跨專案，搬到 `~/.claude/memory/personal/<user>/`）／`reject`（一次性任務，移 `_rejected/`）。先用兩三句白話說明這次改動：personal 只給本人、專案規則要進 shared 別人才看得到、他專案的記憶不再注入。
 3. **apply（腳本）**：把決定寫成 `{slug: 去向}` JSON 檔（放 scratchpad），
    ```bash
    python ~/.claude/tools/classify-project-scope.py apply --decisions <file> --dry-run   # 先看

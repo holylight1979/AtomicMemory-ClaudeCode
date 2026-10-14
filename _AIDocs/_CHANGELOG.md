@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-14 v6.0 全貌提醒按題目提到的路徑對部位（C-G16 002，裁定 #39）
+- `ASK_OVERVIEW_BEFORE_DECISION` 改看題目提到的部位：題目與選項提到的路徑（`wg_release_rules.ask_paths`）經 `wg_overview.read_scope_keys` 對到部位，該部位 `part_files_read` 是 0 檔就提醒，讀了不相干的部位不再把提醒關掉；沒提路徑或路徑不在部位表退回原判定；skills（harvest、memory、org、skill-creator）的 AskUserQuestion 指示句補 `(Recommended)`。驗證：新案退回 main 版 18 紅（另 1 案守住既有行為）、換回綠，`probe_c_g16.py` 加 P5（讀 A 問 B 有提醒句）；自跑 codex 一輪的 2 BLOCK（中文路徑段與含空白路徑取不到、根目錄檔名取不到）與 3 WARN（網址查詢參數、A/B 選項字、缺 session cwd）都先寫紅案例再修。TECH §7.7／§7.8、need-goal 契約。
+
 ## 2026-10-14 v6.0 提問閘補齊：每題附推薦、題目掛目標認原文片段、全貌先於拍板（C-G16）
 - **緣由**：G16「人只做真正的決定，而且看懂全貌才拍板」。b-hooks-2 的提問閘只判「寫碼類題目有沒有寫節點編號」；AI 問人時沒附推薦、只引用節點原文不認、還沒讀過部位檔就問改法，都沒有規則，擋訊息也沒有規則名。
 - **做法**：`hooks/wg_release_rules.py` 三條規則 `ASK_NEEDS_RECOMMENDATION`（每一題至少一個選項標 `(Recommended)` 或題目含「建議：」，不分有沒有樹；【收尾放行確認】固定兩選項豁免）、`ASK_LINKED_TO_GOAL`（節點編號或節點原文連續 8 字以上；寫碼類沒指到擋、知識類只提示、沒樹審計記「提問未掛目標（知識類）」）、`ASK_OVERVIEW_BEFORE_DECISION`（問改法而 OverviewHub 的 part_files_read 全空 → 多一句「先讀過部位檔再問」，不單獨擋）；`wg_need_goal_points._judge_ask` 只蒐集事實、把所有句子併成一則擋訊息或提示，`ask_audit` 加 note、新事件 `ask_no_recommendation`；`session_start` 兩句問句指示改帶 `(Recommended)`。TECH §7.7（新列「問使用者之前」）、§7.8；need-goal 契約。

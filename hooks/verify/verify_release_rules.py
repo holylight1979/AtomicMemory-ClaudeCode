@@ -1196,3 +1196,53 @@ def test_c_g16_ask_overview_before_decision(tool, tool_input, reads, owed):
     assert v.rule == "ASK_OVERVIEW_BEFORE_DECISION" and v.owed is owed
     if owed:
         assert "先讀過部位檔再問" in rr.format_hit("提問", v)
+
+
+# ═══ C-G16 002（裁定 #39）：全貌提醒按題目提到的路徑對部位 ═══
+
+_DECIDE = _ask(("要用哪個改法？", ["A (Recommended)"]))
+
+
+@pytest.mark.parametrize("named, reads, owed", [
+    ([("Game/Net/conn.py", "網路", 0)], 3, True),        # 讀了別的部位 3 檔，題目問的部位 0 檔 → 提醒
+    ([("Game/Net/conn.py", "網路", 2)], 2, False),       # 題目問的部位讀過 → 不提醒
+    ([("Game/Net/a.py", "網路", 2), ("Game/Battle/b.py", "戰鬥", 0)], 2, True),   # 提到兩個部位，一個沒讀
+    ([], 2, False),                                       # 沒提到部位表上的路徑 → 退回「讀過任一部位檔」
+    ([], 0, True),
+], ids=["named-unread", "named-read", "one-of-two-unread", "fallback-read", "fallback-none"])
+def test_c_g16_ask_overview_before_decision_by_named_part(named, reads, owed):
+    """ASK_OVERVIEW_BEFORE_DECISION：題目提到的路徑對到部位，該部位讀過 0 檔才提醒；沒對到部位退回總數判定。"""
+    v = rr.ask_overview_verdict("AskUserQuestion", _DECIDE, reads, named)
+    assert v.owed is owed
+    hit = rr.format_hit("提問", v)
+    if owed and named:
+        unread = [n for n in named if n[2] == 0][0]
+        assert f"題目提到 {unread[0]}→部位 {unread[1]}，本回合該部位讀過 0 檔" in hit
+        assert all(f"部位 {p}，" not in hit for _x, p, n in named if n)            # 讀過的部位不列
+    if owed and not named:
+        assert "題目沒提到部位表上的路徑" in hit
+
+
+def test_c_g16_ask_paths_from_question_and_options_only():
+    """路徑只從題目與選項 label／描述取（不看 header）；絕對與相對（含斜線）都取，網址、中文句子裡的斜線字不取。"""
+    ti = {"questions": [{"question": r"要改 C:\proj\Game\Net\conn.py 還是 Game/Battle/hit.py？", "header": "Tools/x.py",
+                         "options": [{"label": "A (Recommended)", "description": "改 hooks/wg_a.py，見 https://example.com/a/b"},
+                                     {"label": "是/否", "description": "x"}]}]}
+    assert rr.ask_paths(ti) == [r"C:\proj\Game\Net\conn.py", "Game/Battle/hit.py", "hooks/wg_a.py"]
+    assert rr.ask_paths({"questions": "壞掉"}) == []
+    noise = _ask(("2026/10/14 定的 1.2/3.4 版，T1.1/T1.2、A/B 要哪個？見 https://x.com/?next=Game/Net/c.py", ["甲 (Recommended)"]))
+    assert rr.ask_paths(noise) == []                    # 日期、版本號、節點編號、單字元選項字、網址（含查詢參數）都不算路徑
+
+
+@pytest.mark.parametrize("question, want", [
+    ("要改Game/網路/conn.py嗎？", ["Game/網路/conn.py"]),                         # 中間段中文、前後接中文句子
+    ("改 _AIDocs/DevHistory/v6.0-寫程式碼的進化/need-goal-契約.md 哪裡？", ["_AIDocs/DevHistory/v6.0-寫程式碼的進化/need-goal-契約.md"]),
+    (r"改 C:\Users\me\.claude\memory\工作流\x.md 嗎", [r"C:\Users\me\.claude\memory\工作流\x.md"]),
+    (r"要改 `C:\My Project\Game\Net\conn.py` 嗎", [r"C:\My Project\Game\Net\conn.py"]),   # 引號包住：含空白照原樣
+    ("要改「Game/網路 設定/a.py」嗎", ["Game/網路 設定/a.py"]),
+    ("TECH.md 要用哪個改法？", ["TECH.md"]),                                      # 不含斜線的根目錄檔名
+    ("rr.format_hit 跟 v6.0 跟 e.g. 不是檔", []),                               # 模組.函式、版本號不算
+], ids=["cjk-mid", "cjk-last-ext", "abs-cjk", "quoted-space", "quoted-cjk-space", "bare-file", "not-files"])
+def test_c_g16_ask_paths_cjk_quoted_and_bare(question, want):
+    """codex 002 BLOCK 1／2：中文路徑段、引號包住含空白的路徑、根目錄檔名都要取得到；一般字不誤取。"""
+    assert rr.ask_paths(_ask((question, ["A (Recommended)"]))) == want
