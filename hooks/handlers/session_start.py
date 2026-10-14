@@ -47,7 +47,7 @@ from wg_roles import (
 )
 from handlers._shared import (
     _MEMORY_MD_AUTO_HEADER,
-    _call_project_hook, _cleanup_old_states,
+    _call_project_hook, _cleanup_old_states, prune_workflow_records,
     WISDOM_AVAILABLE, get_reflection_summary,
 )
 
@@ -269,58 +269,6 @@ def _refresh_vector_flag(
     except OSError:
         pass
     return "kept"
-
-
-def _prune_aec_files(max_age_days: int = 7) -> int:
-    """清 workflow/ 下 per-turn 執行期狀態檔的 TTL GC（mtime 超過 max_age_days）。
-
-    對象：aec-report/ 與 aec-decision/（*.json，Python 寫報告 / Node 寫決策）。
-    寫了不清會無限累積。在 SessionStart 順手掃一次（比照上方 log rotation 的開機
-    打掃時機）。glob 副檔名白名單自然略過 atomic write 的 .tmp 過渡檔。
-    fail-open：目錄不存在 / 單檔被別進程刪或鎖 → 略過不炸。回傳刪除檔數（供測試 / 觀測）。"""
-    cutoff = (datetime.now() - timedelta(days=max_age_days)).timestamp()
-    pruned = 0
-    for sub, patterns in (
-        ("aec-report", ("*.json",)),
-        ("aec-decision", ("*.json",)),
-    ):
-        for pattern in patterns:
-            try:
-                entries = list((WORKFLOW_DIR / sub).glob(pattern))
-            except Exception:
-                continue
-            for p in entries:
-                try:
-                    if p.stat().st_mtime < cutoff:
-                        p.unlink()
-                        pruned += 1
-                except Exception:
-                    continue
-    # 殘檔帳本 aec-tempfiles/<sid>.jsonl：過期且「帳上路徑全都已不在磁碟」才清——
-    # 只要還有一個殘檔在，帳本就得留著讓 HUD 繼續列（帳本存在的意義就是追到處置為止）。
-    try:
-        ledgers = list((WORKFLOW_DIR / "aec-tempfiles").glob("*.jsonl"))
-    except Exception:
-        ledgers = []
-    for p in ledgers:
-        try:
-            if p.stat().st_mtime >= cutoff:
-                continue
-            alive = False
-            for line in p.read_text(encoding="utf-8").splitlines():
-                try:
-                    path = json.loads(line).get("path", "")
-                except Exception:
-                    continue
-                if path and os.path.exists(path):
-                    alive = True
-                    break
-            if not alive:
-                p.unlink()
-                pruned += 1
-        except Exception:
-            continue
-    return pruned
 
 
 HEALTH_RUN_STALE_DAYS = 10  # 週排程 + 3 天寬限；超過 = 排程器本身死了
@@ -962,7 +910,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         rotate_log_if_oversized(WORKFLOW_DIR / "guardian-crash.log", max_mb=10)
         rotate_log_if_oversized(WORKFLOW_DIR / "extract-worker.log", max_mb=10)
         rotate_log_if_oversized(CLAUDE_DIR / "Logs" / "codex-companion.log", max_mb=10)
-        _prune_aec_files(max_age_days=7)  # AEC 報告/決策檔 7 天 TTL（防執行期狀態檔無限累積）
+        prune_workflow_records(current_sid=session_id)  # workflow/ 執行紀錄照 _shared.WORKFLOW_RETENTION 清
     except Exception as e:
         _atom_debug_error("session_start:log_rotation", e)
 

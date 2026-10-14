@@ -438,6 +438,7 @@ def test_045_worktree_no_push_verdicts():
     ("C:/p/workflow/need-goal/", None),
     ("C:/p/workflow/state-abcd1234.json", None),
     ("C:/p/Logs/guard-x.jsonl", None),
+    ("C:/p/workflow/aec-report/s1-t3.json", None),   # 資料夾名是 aec-report（曾打成 aec-reports，永遠比不中）
     ("C:/p/some/other.bin", True),
 ])
 def test_045_runtime_data_no_overview_exempts(path, ignored):

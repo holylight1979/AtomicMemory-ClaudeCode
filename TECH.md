@@ -721,7 +721,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | log rotation | `wg_core.rotate_log_if_oversized`（預設 10MB 保 3 份；extract-worker.log 5MB 保 2） | guardian-crash.log 曾爆 114GB | — |
 | vector 啟動器 | `tools/memory-vector-service/starter.py` | stdout/stderr 落 `Logs/vector-service.log`；health timeout + port 被占 → kill 舊 pid 重啟；等待窗 120s；spawn lock 防多 session 重複載 | log + statusline |
 | 索引完整性哨兵 | `handlers/session_start.py` | 索引空／截斷、skill 數與 `_skill_index.json` 不符、IDENTITY 被截（IDENTITY 與必載檔契約看 Claude Code 設定目錄 `CLAUDE_CONFIG_DIR` 或 `~/.claude`，不看資料根 `WG_CLAUDE_DIR`） | advisory |
-| GC | `handlers/_shared.py` | coord warn-cache 7d、coordination log 30d、pan-pass flag、dpm marker 7d、episodic TTL 24d、`workflow/tool-results/` 孤兒 7d（wg_friction） | — |
+| GC | `handlers/_shared.py` 的 `WORKFLOW_RETENTION` 表＋`prune_workflow_records`（SessionStart 跑一次） | `workflow/` 每類執行紀錄一列：資料夾、檔名樣式、保留多久、為什麼刪了不會壞事；檔名含目前 session id 的不動；`state-*.json` 分級、`verify-ledger/_runs`、`tool-results`、`health-reports`、`se-sentinel` 在表上登記、由原程式清；另有 pan-pass flag、episodic TTL 24d | 刪不掉的檔列進回傳 `failed` 並寫 atom-debug 一行 |
 
 **不採 OTEL**：官方 export 無 per-hook 延遲、api_request 無法把注入 token 稅歸因到個別來源，且需常駐 collector——兩個想量的指標都測不到，不實作。
 
