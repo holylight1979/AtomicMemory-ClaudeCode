@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -59,11 +60,11 @@ def git(*args: str, cwd: Path, home: Path, check: bool = True) -> subprocess.Com
                           encoding="utf-8", errors="replace", check=check, creationflags=NO_WINDOW)
 
 
-def run_install(home: Path, script: Path, *args: str) -> subprocess.CompletedProcess:
-    """在假家環境跑 install.py；先確認它認定的目標真的在假家裡。"""
+def run_install(home: Path, script: Path, *args: str, extra_env: Optional[dict] = None) -> subprocess.CompletedProcess:
+    """在假家環境跑 install.py；先確認它認定的目標真的在假家裡。extra_env 疊在假家環境上。"""
     assert REPO.resolve() not in (home / ".claude").resolve().parents and (home / ".claude").resolve() != REPO.resolve()
-    r = subprocess.run([sys.executable, str(script), *args], env=fake_env(home), capture_output=True, text=True,
-                       encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+    r = subprocess.run([sys.executable, str(script), *args], env={**fake_env(home), **(extra_env or {})},
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
     assert f"目標目錄：{home / '.claude'}" in r.stdout, r.stdout + r.stderr
     return r
 
@@ -475,6 +476,23 @@ def test_missing_target_is_created_and_adopted(base, upstream):
     assert tracked_changes(claude, home) == []
     assert state_of(claude)["phase"] == "done"
     assert not (claude / "backups").exists()
+
+
+def test_data_root_elsewhere_installs_and_checks_target(base, upstream):
+    """環境把資料根（WG_CLAUDE_DIR）指到別處時，安裝照常完成，hook 直譯器檢查看的是安裝目標的 settings.json：
+    別處放一份直譯器不存在的誘餌 settings.json，安裝完它一個位元都沒動、旁邊也沒多出備份檔。
+    資料根由本案自己指定，不靠 conftest 的隔離值。"""
+    home = make_home(base, "h9", {"settings.json": USER_SETTINGS})
+    elsewhere = base / "h9-data"
+    elsewhere.mkdir()
+    decoy = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "\"C:/no/such/python.exe\" x.py"}]}]}}
+    (elsewhere / "settings.json").write_text(json.dumps(decoy), encoding="utf-8", newline="\n")
+    before = (elsewhere / "settings.json").read_bytes()
+    result = run_install(home, upstream["script"], "--apply", extra_env={"WG_CLAUDE_DIR": str(elsewhere)})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "hook 直譯器：" in result.stdout and "安裝完成" in result.stdout
+    assert sorted(p.name for p in elsewhere.iterdir()) == ["settings.json"]
+    assert (elsewhere / "settings.json").read_bytes() == before
 
 
 def test_broken_user_settings_aborts_before_any_change(base, upstream):

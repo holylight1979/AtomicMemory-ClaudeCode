@@ -783,7 +783,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
 
 ### 9.5 安裝與升級（`tools/install.py`）
 
-單檔、純標準函式庫；目標固定是 `~/.claude`，來源是腳本所在的 git clone（不是 git clone 就報錯）。操作步驟寫在 `Install-forAI.md`，此處只記它對系統做了什麼。
+單檔、純標準函式庫；目標固定是 `~/.claude`，來源是腳本所在的 git clone（不是 git clone 就報錯）。它叫起的目標樹工具（直譯器校正、索引檢查、記憶檢索）一律以目標當資料根，環境另設的 `WG_CLAUDE_DIR` 不影響安裝與驗證。操作步驟寫在 `Install-forAI.md`，此處只記它對系統做了什麼。
 
 | 子指令 | 做什麼 | exit code |
 |--------|--------|-----------|

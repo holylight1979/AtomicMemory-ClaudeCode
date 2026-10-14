@@ -8,6 +8,10 @@
 - **緣由**：使用者想找 Python、C#、JS 相關的卡，但資料夾只按問題類型分，只有 dotnet 自成一類；Python 卡散在六個範疇。
 - **做法**：`tools/sync-memory-index.py` 多產一份 `memory/_by_language/_INDEX.md`（每個語言一張表，列卡片路徑，一卡可多語言），有命中時在 MEMORY.md 末尾加一行指標；判定詞庫放 `memory/_meta/taxonomy.json` 新的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾）。檔名沿用 `_INDEX.md`，合併驅動、背景同步、hooks 索引檔名單都直接認得。TECH、DocIndex-System、MultiMachineMemorySync 同步。
 - **驗證**：`tools/verify/verify_language_view.py`（詞邊界、資料夾綁定、一卡多語言、無詞庫不產檔、--check 抓漂移、落地與清除、合併驅動兩側各加一列不衝突）；既有索引與合併驅動測試重跑綠；live `--write` 後 `--check` exit 0。
+## 2026-10-14 v6.0 安裝器的目標樹工具改以安裝目標當資料根（A7 全量 verify_install 11 紅）
+- **緣由**：資料根一致化後 `fix-hook-python.py` 改吃 `WG_CLAUDE_DIR`；install.py 的子行程環境原樣繼承這個變數，全量驗證時 conftest 把它導到暫存資料根，安裝器的直譯器檢查就去讀暫存資料根的 settings.json，找不到而中止。
+- **做法**：install.py 的 `ENV` 把 `WG_CLAUDE_DIR` 釘在 `TARGET`，目標樹工具一律讀寫這次安裝的 settings.json 與記憶；一般安裝兩者同一處，行為不變。`fix-hook-python.py` 單獨執行時照舊跟資料根走。TECH §9.5。
+- **驗證**：`tools/verify/verify_install.py` 新案 `test_data_root_elsewhere_installs_and_checks_target`（資料根指到放了誘餌 settings.json 的別處，安裝成功且誘餌原封不動）改前紅在斷言、改後綠；全檔 24 passed 1 skipped；`verify_fix_hook_python`＋A 組 5 支 107 passed。
 
 ## 2026-10-13 v6.0 資料根一致化收尾：剩下的家目錄寫法、核心根認 worktree、測試預設隔離資料根、整組量尺自寫收據
 - **緣由**：A2c 之後仍有 lib／hooks／skills 十多處自己用 `Path.home()/.claude` 算資料根；`is_core_root` 只認資料根，cwd 在根層 worktree 時含「此專案」的 global 卡被拒；既有測試沒設 WG_CLAUDE_DIR 時整個 pytest 行程的資料根是 live，假 session 檔寫進 live workflow/；run_verify 收據寫程式碼樹、量尺閘讀資料根，worktree 全量永遠不被認；整組 pytest 量尺（tools/verify、lib/verify）背景跑完不留收據。
