@@ -8,6 +8,8 @@
 - Created-at: 2026-10-07
 - Quote: 「開一個跨session溝通的 inbox monitor.. 我想讓你與根層 直接溝通 看看，那個session也在討論類似的議題，只是 你的似乎更接地氣 (?)。 好了以後給我 prompt 讓我去在根層的CC貼上；僅限 先溝通。」
 
+- Related: need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到
+
 ## 知識
 
 - [臨]（根層 session 對碼驗證，`hooks/handlers/pre_tool_use.py:784` 註解）PreToolUse 回的 additionalContext 是隨工具結果進下一輪，不是寫前攝截：Edit/Write 的 payload 在 hook 觸發前已生成，「寫碼前先看範本」這種提醒只能影響下一次編輯，效果等同 PostToolUse。要真正擋寫入只有 deny；要影響寫法就放 PostToolUse 命中時順帶印，少一條 hook。
