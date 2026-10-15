@@ -9,6 +9,7 @@
 | cognitive-patterns | 認知模式偏差（Cognitive Patterns） |
 | feedback-complexity-origin-trace | feedback-complexity-origin-trace |
 | feedback-rigor-standards | feedback-rigor-standards |
+| feedback-側觀批判要在交出前自己做完並落到檔與機制-不是等使用者問才在chat批判自己的產出再問要不要改 | feedback-側觀批判要在交出前自己做完並落到檔與機制-不是等使用者問才在chat批判自己的產出再問要不要改 |
 | feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙 | feedback-外形相似的機制不等於同一議題-不得順手把甲的原則推廣到乙 |
 | feedback-大處著眼小處著手-經手一堆小件時要回頭問現在的大目標是什麼-卡整天的困擾要自己跳出來修不等使用者追 | feedback-大處著眼小處著手-經手一堆小件時要回頭問現在的大目標是什麼-卡整天的困擾要自己跳出來修不等使用者追 |
 | feedback-始末要講原始目標-階段目標-簡略經過-對目標而言的結果-只講經過就是目光狹隘-功能越修腦袋越縮 | feedback-始末要講原始目標-階段目標-簡略經過-對目標而言的結果-只講經過就是目光狹隘-功能越修腦袋越縮 |
