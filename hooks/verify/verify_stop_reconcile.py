@@ -56,9 +56,11 @@ def _temp_rules_off(monkeypatch):
 @pytest.fixture(autouse=True)
 def _git_budget_generous(monkeypatch):
     """真 git 案例（037／042／043／044／045）在全檔連跑的負載下每次 git 可達 0.7 秒，時間預算不該變成判定：
-    一律放寬到 20 秒；要測「預算用完照算改了」的案自己再壓回 0。"""
+    一律放寬到 20 秒；要測「預算用完照算改了」的案自己再壓回 0。已刪改檔查去向的預算（VANISH_BUDGET_S，2 秒）同理：
+    別的 session 同時跑測試時，0a 的「刪除不欠」案在全檔連跑時紅過一次、單跑綠，時間預算不該變成判定。"""
     monkeypatch.setattr(vl, "GIT_BUDGET_S", 20.0, raising=False)
     monkeypatch.setattr(vl, "REF_BUDGET_S", 20.0, raising=False)
+    monkeypatch.setattr(vl, "VANISH_BUDGET_S", 20.0, raising=False)
 _REAL_CASE_EXISTS = getattr(vl, "case_exists", None)   # fixture 會把它換成「一律存在」，009-4.5 要用真的
 
 
