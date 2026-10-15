@@ -1625,7 +1625,10 @@ def test_session_start_spawns_pull_sync_before_index_read(ss, monkeypatch):
 
 def test_post_git_pull_sh_syntax_and_status_keys():
     sh = CLAUDE / "hooks" / "post-git-pull.sh"
-    r = subprocess.run(["bash", "-n", str(sh)], capture_output=True, text=True)
+    # 裸 "bash" 在 Windows 會先命中 System32 的 WSL 存根（CreateProcess 先找 System32 再找 PATH），
+    # 無 distro 時 exit 1 且無輸出；用 PATH 解析出的 Git bash
+    bash = shutil.which("bash") or "bash"
+    r = subprocess.run([bash, "-n", str(sh)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     src = sh.read_text(encoding="utf-8")
     assert "index_job" in src and "'indexing'" not in src

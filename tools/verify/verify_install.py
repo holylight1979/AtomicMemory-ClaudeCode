@@ -52,7 +52,10 @@ USER_CONFIG = {
 # ─── 小工具 ─────────────────────────────────────────────────────────────────
 
 def fake_env(home: Path) -> dict:
-    return {**os.environ, "HOME": str(home), "USERPROFILE": str(home), "PYTHONIOENCODING": "utf-8"}
+    # LOCALAPPDATA 也指進假家：fix-hook-python 看 settings 裡 $LOCALAPPDATA/Python/bin 的直譯器在不在，
+    # 用真機的值時，Python 裝在別處的機器會把所有 hook（含使用者自訂）改寫掉，測試結果隨機器而變
+    return {**os.environ, "HOME": str(home), "USERPROFILE": str(home),
+            "LOCALAPPDATA": str(home / "AppData" / "Local"), "PYTHONIOENCODING": "utf-8"}
 
 
 def git(*args: str, cwd: Path, home: Path, check: bool = True) -> subprocess.CompletedProcess:
@@ -73,6 +76,10 @@ def make_home(base: Path, name: str, files: dict) -> Path:
     """建假家；files＝{相對 ~/.claude 的路徑: 文字或 dict（寫成 JSON）}。"""
     home = base / name
     (home / ".claude").mkdir(parents=True)
+    pybin = home / "AppData" / "Local" / "Python" / "bin"   # 版控 settings 指名的直譯器位置放樁檔，讓它在假家裡「存在」
+    pybin.mkdir(parents=True)
+    for exe in ("python.exe", "pythonw.exe"):
+        (pybin / exe).write_bytes(b"")
     for rel, content in files.items():
         path = home / ".claude" / rel
         path.parent.mkdir(parents=True, exist_ok=True)
