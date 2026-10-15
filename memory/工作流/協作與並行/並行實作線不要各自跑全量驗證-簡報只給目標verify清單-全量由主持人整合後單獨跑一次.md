@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: 並行實作, 派工簡報, 全量驗證, run_verify 並行, 多線同改一檔, 主持人整合, sub-agent 卡在等驗證, 叫停 agent
 - Created-at: 2026-10-05
-- Related: workflow-parallel-agents
+- Related: workflow-parallel-agents, feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單
 - Source: session:d892b7c9#abfefecb 2026-10-05
 - Quote: 「本session經歷的經驗、蒐集的知識，有沒有還要atoms起來的?」
 

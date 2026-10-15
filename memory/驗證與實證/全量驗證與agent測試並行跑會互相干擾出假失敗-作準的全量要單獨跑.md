@@ -5,7 +5,7 @@
 - Confidence: [臨]
 - Trigger: run_verify, 全量驗證, flake, 假失敗, 並行 pytest, agent 跑測試, 跑序相依, 單跑會過, 共用 tmp
 - Created-at: 2026-10-01
-- Related: feedback-completion-gates, 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源, 總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件
+- Related: feedback-completion-gates, 驗證探針的副作用與假失敗-heredoc反斜線-假session登記-dry-run留目錄-fallback索引源, 總控台多軌合併經驗-退回同一面第二次就定死規則或改設計-整批合併後的紅先單跑歸軌補修不reset-接續單要寫舊步驟作廢與停工恢復條件, feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單
 - Source: session:a7ac6c34#b5e73654 2026-10-01
 - Quote: 「反正你也閒著(?XD) 可以上GIT的就先上。」
 
