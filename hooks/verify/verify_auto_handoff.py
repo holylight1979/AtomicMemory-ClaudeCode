@@ -392,7 +392,7 @@ def _setup_session_end(tmp_path, monkeypatch, state):
     monkeypatch.setattr(se, "_maybe_spawn_user_extract_worker", lambda sid, st, cfg: False)
     monkeypatch.setattr(se, "_collect_iteration_metrics", lambda st: {})
     monkeypatch.setattr(se, "_detect_oscillation", lambda st, cfg: [])
-    monkeypatch.setattr(se, "_save_oscillation_state", lambda x: None)
+    monkeypatch.setattr(se, "_save_oscillation_state", lambda x, st: None)
     monkeypatch.setattr(se, "_self_iterate_atoms", lambda st, cfg: {})
     monkeypatch.setattr(se, "_sweep_realm_auto_migrate", lambda cfg: [])
     monkeypatch.setattr(se, "_detect_atom_conflicts", lambda st, cfg: [])

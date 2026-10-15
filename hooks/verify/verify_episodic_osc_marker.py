@@ -92,9 +92,10 @@ def test_oscillation_roundtrip(generated_content, tmp_path, monkeypatch):
     )
     (ep_dir / "episodic-20000101-hooks.md").write_text(old, encoding="utf-8")
     monkeypatch.setattr(ev, "MEMORY_DIR", tmp_path)
+    monkeypatch.setattr(ev, "get_project_memory_dir", lambda _cwd: tmp_path)
 
     state = {
-        "session": {"cwd": ""},
+        "session": {"cwd": "C:/proj"},
         "iteration_metrics": {"atoms_modified": ["foo-atom"]},
     }
     osc = ev._detect_oscillation(state, {})

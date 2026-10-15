@@ -111,9 +111,9 @@ def test_detect_rut_patterns_filters_whitelisted(tmp_path, monkeypatch):
             encoding="utf-8",
         )
     monkeypatch.setattr(wg_evasion, "MEMORY_DIR", tmp_path / "memory")
-    monkeypatch.setattr(wg_evasion, "get_project_memory_dir", lambda _cwd: None)
+    monkeypatch.setattr(wg_evasion, "get_project_memory_dir", lambda _cwd: tmp_path / "memory")
 
-    msg = wg_evasion._detect_rut_patterns({"session": {"cwd": ""}}, {})
+    msg = wg_evasion._detect_rut_patterns({"session": {"cwd": "C:/proj"}}, {})
     assert msg is not None and "MainForm.cs" in msg, "真實 rut 信號不得被降噪吃掉"
     assert "README.md" not in msg, "白名單檔不該進覆轍警報"
 

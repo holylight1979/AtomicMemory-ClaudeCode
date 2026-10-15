@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-15 覆轍／振盪提示只看本 session 自己的 episodic，不再把根層的塞給專案
+- TSLG 專案 session 開場 `[Guardian:覆轍]` 列出 15 個根層檔（約 260 token、還叫人「停止表面修復」）。根因：episodic 寫入端依 cwd 分池（專案 → `{專案}/.claude/memory/episodic`），讀取端 `_detect_rut_patterns`／`_detect_oscillation` 卻把 `memory/episodic` 併進每個 session 的池再取最近 3 份——根層 session 多又新，專案自己的歷史直接被擠掉。改成兩者共用 `_session_episodic_pool`（與寫入端同一目錄），專案池沒有就不回退；cwd 沒有專案記憶的 session 不提示（那個池是根層的歷史）。同類：`workflow/oscillation_state.json` 全機一份、任何 session 收尾都覆寫或刪、開場都讀，改成依池分格（池鍵不分大小寫；舊格式不知來源，當作沒有）。驗證：新 `hooks/verify/verify_rut_scope.py` 9 案（舊碼 8 紅、根層照舊那 1 案本來就綠）；本機真資料探針：`C:\TSLG` 只剩自己的 `BattleManager.cs`、`~/.claude` 照舊列根層檔。
+
 ## 2026-10-15 收尾叫使用者 Reload Window 前先查工具服務是不是已跑最新程式
 - 原設計者提案：AI 推「需要 Reload Window」時先自檢是否已重載過（提案用 session 名稱比對）。改查事實、不依賴 Claude Code 沒寫進文件的命名行為。實證（程序樹）：每個 session 的 claude.exe 底下各有自己的工具服務程序（經 pythonw run-hidden.py 外殼），不是整個視窗共用一個——先前文件與我的評估寫「整個視窗共用、開新分頁不重啟」是錯的，已更正；閘只看收尾閘所屬 claude 程序底下的服務，找不到才看全機。做法：每個 MCP 服務啟動時寫 `workflow/mcp-boot/<pid>.json`（啟動時載入的程式版本，與既有 codeMtime 同算法，每分鐘心跳、正常結束刪檔，`lib/boot-record.js`）；收尾文字叫使用者重載時，Stop 以正在跑的服務程序為準（列 node 程序），每個都有紀錄、心跳 3 分鐘內、載入版本不舊於磁碟版本才擋一次（規則 RELOAD_ADVICE_ALREADY_LOADED）；有在跑的服務沒紀錄（舊版、別的視窗還沒重載）、列不出、讀不到、有舊的一律放行。第一版只看紀錄，自查發現看不見沒紀錄的舊服務，會把真正需要的重載建議擋掉——當場實測就是這個狀況（兩個服務在跑、只有新的那個有紀錄）。codex 一輪 BLOCK 2 已修：在跑的舊服務心跳過期（睡眠後）不再被排除、改判不出；程式更新以外的重載理由由 AI 寫「重載原因：…」宣告（用 ~/.claude.json 修改時間判「設定改過」不可行：Claude Code 一直在寫那個檔）。保留表加 mcp-boot（7 天）。驗證：`verify_reload_advice`、`verify_release_rules` 新案與 `verify_boot_record.js` 舊碼紅新碼綠；冒煙測試真起服務。實證：本 session 被標「恢復」兩次後仍兩度叫使用者重載，事後查服務載入版本＝磁碟版本，那兩句是多餘的。
 

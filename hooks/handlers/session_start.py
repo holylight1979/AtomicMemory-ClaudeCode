@@ -1314,7 +1314,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         print(f"Review check error: {e}", file=sys.stderr)
 
     try:
-        osc_warning = _load_oscillation_warnings()
+        osc_warning = _load_oscillation_warnings(state)
         if osc_warning:
             lines.append(osc_warning)
     except Exception as e:

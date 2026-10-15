@@ -182,7 +182,7 @@ def handle_session_end(input_data: Dict[str, Any], config: Dict[str, Any]) -> No
                     f"({osc['count']} sessions)",
                     file=sys.stderr,
                 )
-        _save_oscillation_state(oscillations if oscillations else [])
+        _save_oscillation_state(oscillations if oscillations else [], state)
     except Exception as e:
         print(f"Self-iteration metrics error: {e}", file=sys.stderr)
 

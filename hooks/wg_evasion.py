@@ -868,6 +868,7 @@ def get_current_turn_visible_text(
 # 4-套自評整合的一部分：5 維度加權評分，附 reflection_metrics.json 寫入。
 
 import math
+import os
 from datetime import datetime, timezone
 
 from wg_core import (
@@ -1135,6 +1136,36 @@ def _collect_iteration_metrics(state: Dict[str, Any]) -> Dict[str, Any]:
     return metrics
 
 
+def _session_episodic_pool(state: Dict[str, Any]) -> Optional[Path]:
+    """本 session 自己的 episodic 池，與寫入端 wg_core.resolve_episodic_dir 同一目錄。
+
+    專案 session → {專案}/.claude/memory/episodic；~/.claude session → memory/episodic。
+    cwd 沒有專案記憶 → None：寫入端雖落 memory/episodic，但那裡是根層的歷史，
+    拿來提示等於把根層的覆轍／振盪塞給不相干的目錄。
+    """
+    mem = get_project_memory_dir(state.get("session", {}).get("cwd", ""))
+    return mem / "episodic" if mem else None
+
+
+def _recent_pool_episodics(
+    state: Dict[str, Any], window: int
+) -> List[Tuple[Path, str]]:
+    """本 session 池內最近 window 份 episodic（mtime 新→舊）的 (路徑, 原文)。"""
+    pool = _session_episodic_pool(state)
+    if pool is None or not pool.exists():
+        return []
+    files = sorted(
+        pool.glob("episodic-*.md"), key=lambda f: f.stat().st_mtime, reverse=True
+    )
+    out = []
+    for f in files[:window]:
+        try:
+            out.append((f, f.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return out
+
+
 def _detect_oscillation(
     state: Dict[str, Any], config: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
@@ -1142,39 +1173,17 @@ def _detect_oscillation(
     oscillation_window = config.get("self_iteration", {}).get("oscillation_window", 3)
     oscillation_threshold = config.get("self_iteration", {}).get("oscillation_threshold", 2)
 
-    episodic_dirs = set()
-    global_ep = MEMORY_DIR / "episodic"
-    if global_ep.exists():
-        episodic_dirs.add(global_ep)
-    cwd = state.get("session", {}).get("cwd", "")
-    proj_mem = get_project_memory_dir(cwd)
-    if proj_mem:
-        proj_ep = proj_mem / "episodic"
-        if proj_ep.exists():
-            episodic_dirs.add(proj_ep)
-
-    recent_files = []
-    for ep_dir in episodic_dirs:
-        for f in ep_dir.glob("episodic-*.md"):
-            recent_files.append((f.stat().st_mtime, f))
-    recent_files.sort(key=lambda x: -x[0])
-    recent_files = recent_files[:oscillation_window]
-
     atom_sessions = {}
-    for _, ep_path in recent_files:
-        try:
-            text = ep_path.read_text(encoding="utf-8")
-            date_match = re.search(r"Created:\s*(\d{4}-\d{2}-\d{2})", text)
-            ep_date = date_match.group(1) if date_match else ep_path.stem[:15]
-            for line in text.split("\n"):
-                if "修改 atoms:" in line:
-                    atoms_part = line.split("修改 atoms:")[-1].strip()
-                    for a in atoms_part.split(","):
-                        a = a.strip()
-                        if a:
-                            atom_sessions.setdefault(a, []).append(ep_date)
-        except (OSError, UnicodeDecodeError):
-            continue
+    for ep_path, text in _recent_pool_episodics(state, oscillation_window):
+        date_match = re.search(r"Created:\s*(\d{4}-\d{2}-\d{2})", text)
+        ep_date = date_match.group(1) if date_match else ep_path.stem[:15]
+        for line in text.split("\n"):
+            if "修改 atoms:" in line:
+                atoms_part = line.split("修改 atoms:")[-1].strip()
+                for a in atoms_part.split(","):
+                    a = a.strip()
+                    if a:
+                        atom_sessions.setdefault(a, []).append(ep_date)
 
     current_modified = state.get("iteration_metrics", {}).get("atoms_modified", [])
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -1195,46 +1204,69 @@ def _detect_oscillation(
     return oscillations
 
 
-def _save_oscillation_state(oscillations: List[Dict[str, Any]]) -> None:
+def _osc_pool_key(state: Dict[str, Any]) -> Optional[str]:
+    """振盪狀態檔裡的池鍵；不分大小寫（同一專案的 cwd 會有 c:\\ 與 C:\\ 兩種寫法）。"""
+    pool = _session_episodic_pool(state)
+    return os.path.normcase(os.path.normpath(str(pool))) if pool else None
+
+
+def _read_osc_pools(osc_path: Path) -> Dict[str, Any]:
+    """{池鍵: {detected_at, oscillations}}；舊格式（無 pools）不知道來源池，當作沒有。"""
+    try:
+        data = json.loads(osc_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    pools = data.get("pools") if isinstance(data, dict) else None
+    return pools if isinstance(pools, dict) else {}
+
+
+def _save_oscillation_state(
+    oscillations: List[Dict[str, Any]], state: Dict[str, Any]
+) -> None:
+    """只改本 session 池那一格：別的專案的振盪狀態不被這個 session 收尾覆寫或刪掉。"""
+    key = _osc_pool_key(state)
+    if key is None:
+        return
     osc_path = WORKFLOW_DIR / "oscillation_state.json"
+    pools = _read_osc_pools(osc_path)
     if oscillations:
-        data = {
+        pools[key] = {
             "detected_at": datetime.now().isoformat(),
             "oscillations": [
                 {"atom": o["atom"], "count": o["count"], "sessions": o["sessions"]}
                 for o in oscillations
             ],
         }
-        tmp = osc_path.with_suffix(".tmp")
-        try:
-            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
-            tmp.replace(osc_path)
-        except OSError:
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
-    elif osc_path.exists():
-        osc_path.unlink()
-
-
-def _load_oscillation_warnings() -> Optional[str]:
-    osc_path = WORKFLOW_DIR / "oscillation_state.json"
-    if not osc_path.exists():
-        return None
+    else:
+        pools.pop(key, None)
+    if not pools:
+        if osc_path.exists():
+            osc_path.unlink()
+        return
+    tmp = osc_path.with_name(f"{osc_path.name}.{os.getpid()}.tmp")
     try:
-        with open(osc_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        oscillations = data.get("oscillations", [])
-        if not oscillations:
-            return None
-        atoms = ", ".join(o["atom"] for o in oscillations)
-        return (
-            f"[Guardian:Oscillation] 以下 atoms 近期被反覆修改：{atoms}。"
-            f"行動：1) 暫停修改 2) Read 該 atom 確認前次意圖 3) 收集更多證據再評估"
-        )
-    except (json.JSONDecodeError, OSError):
+        tmp.write_text(json.dumps({"pools": pools}, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+        tmp.replace(osc_path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _load_oscillation_warnings(state: Dict[str, Any]) -> Optional[str]:
+    key = _osc_pool_key(state)
+    if key is None:
         return None
+    entry = _read_osc_pools(WORKFLOW_DIR / "oscillation_state.json").get(key) or {}
+    oscillations = entry.get("oscillations", [])
+    if not oscillations:
+        return None
+    atoms = ", ".join(o["atom"] for o in oscillations)
+    return (
+        f"[Guardian:Oscillation] 以下 atoms 近期被反覆修改：{atoms}。"
+        f"行動：1) 暫停修改 2) Read 該 atom 確認前次意圖 3) 收集更多證據再評估"
+    )
 
 
 def _calculate_maturity_phase(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -1272,30 +1304,8 @@ def _detect_rut_patterns(
     """Scan recent episodic atoms for repeated 覆轍信號."""
     window = config.get("self_iteration", {}).get("oscillation_window", 3)
 
-    episodic_dirs = set()
-    global_ep = MEMORY_DIR / "episodic"
-    if global_ep.exists():
-        episodic_dirs.add(global_ep)
-    cwd = state.get("session", {}).get("cwd", "")
-    proj_mem = get_project_memory_dir(cwd)
-    if proj_mem:
-        proj_ep = proj_mem / "episodic"
-        if proj_ep.exists():
-            episodic_dirs.add(proj_ep)
-
-    recent_files = []
-    for ep_dir in episodic_dirs:
-        for f in ep_dir.glob("episodic-*.md"):
-            recent_files.append((f.stat().st_mtime, f))
-    recent_files.sort(key=lambda x: -x[0])
-    recent_files = recent_files[:window]
-
     signal_sessions: Dict[str, int] = {}
-    for _, ep_path in recent_files:
-        try:
-            text = ep_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+    for _, text in _recent_pool_episodics(state, window):
         for line in text.split("\n"):
             if "覆轍信號:" not in line:
                 continue
