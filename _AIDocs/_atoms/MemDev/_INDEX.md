@@ -46,6 +46,7 @@
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
 | need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred | need_goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred |
 | need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 | need_goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 |
+| need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到 | need_goal新增選填欄位在MCP未Reload前Python端就收得到-js只驗已知欄位-但LLM看不到新欄位說明-提問的PreToolUse不擋提醒要到使用者答完才看到 |
 | need-goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採 | need_goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採 |
 | org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1 | org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1 |
 | otel-遙測評估結論-不實作-兩目標指標皆測不到 | OTEL 遙測評估結論-不實作-兩目標指標皆測不到 |
@@ -108,6 +109,7 @@
 | 禁語-hook-不開引用豁免誤報噪音-vs-契約破洞不對稱 | 禁語 hook 不開引用豁免（誤報噪音 vs 契約破洞不對稱） |
 | 程式批量產生的atom觸發詞不得含日常字與種類單字-一句話就把整批拉進注入吃光預算-只放專名與名稱加種類片語 | 程式批量產生的atom觸發詞不得含日常字與種類單字-一句話就把整批拉進注入吃光預算-只放專名與名稱加種類片語 |
 | 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail | 第二意見工具四輪退回-宣稱不變量前先寫對抗測試-時限與切參數用系統原語不自己發明-pipefail |
+| 範圍漏判歸因測試換真git後-前一session改檔與head相同被判原樣還原-範圍不結案-期望不記的案空轉綠 | 範圍漏判歸因測試換真git後-前一session改檔與HEAD相同被判原樣還原-範圍不結案-期望不記的案空轉綠 |
 | 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進ups-引用的糾正詞誤觸deeppostmortem | 糾正與失敗偵測把sub-agent完成通知當使用者輸入-task-notification整則進UPS-引用的糾正詞誤觸DeepPostMortem |
 | 總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行 | 總控台別把py檔放進派工信箱-查核閘只看副檔名與同根就記成改碼-owed程式檔刪了也不查存在-義務永掛要人放行 |
 | 總控台合別人驗過的分支也走need-goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據 | 總控台合別人驗過的分支也走need_goal閘-checkout同步工作樹算改程式要先set樹-commit前要合併後的收據-背景bash的尺不入帳要前景grep-log取收據 |

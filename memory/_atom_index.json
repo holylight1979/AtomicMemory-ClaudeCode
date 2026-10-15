@@ -7127,6 +7127,47 @@
         "SendMessage"
       ],
       "scope": "global"
+    },
+    {
+      "name": "驗證範圍的收據要在前景直接跑那一項-指令尾只接tail不夾grep-背景跑與超過十分鐘的不算-改檔排在跑範圍之前",
+      "path": "memory/CC與原子記憶契約/驗證範圍的收據要在前景直接跑那一項-指令尾只接tail不夾grep-背景跑與超過十分鐘的不算-改檔排在跑範圍之前.md",
+      "triggers": [
+        "驗證範圍",
+        "verify_scope",
+        "收據不算",
+        "SCOPE_ITEM_RECEIPT_AFTER_EDIT",
+        "收尾被擋",
+        "跑綠了還擋",
+        "背景跑測試"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "範圍漏判歸因測試換真git後-前一session改檔與head相同被判原樣還原-範圍不結案-期望不記的案空轉綠",
+      "path": "_AIDocs/_atoms/MemDev/範圍漏判歸因測試換真git後-前一session改檔與head相同被判原樣還原-範圍不結案-期望不記的案空轉綠.md",
+      "triggers": [
+        "範圍漏判測試",
+        "NET_UNCHANGED",
+        "verify_verify_scope",
+        "真 git 測試空轉",
+        "結案沒發生"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到",
+      "path": "_AIDocs/_atoms/MemDev/need-goal新增選填欄位在mcp未reload前python端就收得到-js只驗已知欄位-但llm看不到新欄位說明-提問的pretooluse不擋提醒要到使用者答完才看到.md",
+      "triggers": [
+        "need_goal 新欄位",
+        "MCP Reload",
+        "same_class",
+        "inputs",
+        "未知欄位",
+        "PreToolUse 提醒時機",
+        "AskUserQuestion 提醒",
+        "交出前一問"
+      ],
+      "scope": "global"
     }
   ]
 }
