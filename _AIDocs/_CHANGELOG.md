@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-15 全量測試從流程拔掉（全量改增量待補）
+- 原設計者裁定：全量 `run_verify.py`（約 3900 案、單行程 23～40 分鐘，多 session 同機時拖慢所有人）不再出現在任何流程步驟。根層部位表 `hooks/handlers/`、`hooks/`、`skills/` 三列量尺改「無」；驗證範圍宣告回應不再寫「整把在發版前全量跑」，對帳 (a) 擋訊息不再建議背景全量；/console 拿掉「所有軌合完跑一次全量」；Architecture「完成宣告前必跑」、TECH §7.6／§7.9／驗證段、config `verify_scope._doc`、v6 接續單與 checklist D2、舊交接單同步；叫人跑全量的卡片 append 一行指向新卡。`run_verify.py` 留著只供手動排查。拔除處都標「全量改增量待補」，下一步是收尾跑 LLM 適度擴展過的可能相關清單。驗證：新案兩支（宣告回應、(a) 擋訊息）舊碼紅新碼綠，讀根層部位表的兩支 test_017 改成 4 把尺。
+
 ## 2026-10-15 同伴 session 的閒置／送達通知不再被當成使用者打的字
 - 實遇：同伴 session 閒置時 harness 送來的 `[Cross-session idle notice] …`（純文字、沒有標籤包住）被 `lib/harness_text.user_typed_text` 當成使用者的話，記進需求目標樹的「使用者原話（權威）」；口令、糾正、豁免、萃取、Quote 吃的是同一支，也都會誤認。修法：行首 `[Cross-session idle notice]`／`[Cross-session delivery notice]` 和 `[SYSTEM NOTIFICATION - NOT USER INPUT]` 同一條規則，那行起到訊息尾都算 harness；字樣不在行首（只是提到）照留。驗證：`verify_harness_prompt_guard` 新案舊碼 4 紅、新碼綠；宣告範圍 6 支 259 passed。
 

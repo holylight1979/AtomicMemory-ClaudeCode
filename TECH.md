@@ -230,7 +230,7 @@ sequenceDiagram
 - 行尾政策：整個 `~/.claude` repo 一律 LF——`.gitattributes`（`* text=auto eol=lf` + 各文字副檔名明釘 `text eol=lf`）與 `.editorconfig`（`end_of_line = lf`）進版控，不需任何機器安裝；工具層所有寫檔走 `lib.atom_io.write_text_lf()`／`normalize_lf()` 或 `newline="\n"`，只吐 LF、不沿用原檔行尾；守衛 = `hooks/verify/verify_lf_writes.py`（AST 掃無 newline 控制的寫檔即 fail，`# lf-exempt: <原因>` 標三個合法例外）+ `python tools/normalize-eol.py --root --check`（index 與工作樹殘留 CRLF 即 exit 1）。專案記憶樹由 `sync-memory-index.py` 專案模式 `--write` 後自動轉 LF＋VCS 屬性（git `.gitattributes` 區塊／svn `svn:eol-style=LF`；`normalize-eol.auto_project_eol`），不靠人貼 prompt。
 - 寫入 funnel：`lib/atom_io.py write_atom` → upsert index → `tools/sync-memory-index.py --write` 重生各層 `_INDEX.md` + `MEMORY.md` + `_local_catalog.md` + `memory/_by_language/_INDEX.md` → 尾端自動重產原生橋接檔 + `tools/sync_doc_counts.py` 同步文件計數 marker。
 - 依程式語言篩選：資料夾只按問題類型分（Lv1 閉合清單），不另開語言資料夾；語言是跨範疇視圖 `memory/_by_language/_INDEX.md`，一張卡可屬多個語言。判定詞庫是 `memory/_meta/taxonomy.json` 的 `languages` 段（卡名＋Trigger 命中詞，或卡在綁定的範疇資料夾，例 `dotnet/` 綁 C#）；只收核心層。有命中才產檔，同時在 MEMORY.md 末尾放一行指標，所以每個 session 都知道它在哪。檔名沿用 `_INDEX.md`，合併驅動、背景同步、索引檔名單不用另外登記。驗證 `tools/verify/verify_language_view.py`。
-- 現況計數：<!-- atom-breakdown -->427 atoms：core 198 + feedback 71 + 失敗模式 2 + local 156〔Tools19/MemDev126/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
+- 現況計數：<!-- atom-breakdown -->428 atoms：core 198 + feedback 72 + 失敗模式 2 + local 156〔Tools19/MemDev126/OS2/CC與原子記憶契約2/Vision1/工作流4/驗證與實證2〕<!-- /atom-breakdown -->（marker 自動同步，勿手改）。
 
 ### 4.6 專案層
 
@@ -301,7 +301,7 @@ sequenceDiagram
 
 ### 5.2 深度解說：每個設計的意義
 
-**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->427<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
+**為什麼全域層用 BM25 不用向量**：全域索引共 <!-- atom-total -->428<!-- /atom-total --> 顆（含 local realm），向量檢索是殺雞用牛刀——每次 prompt 多一次 embedding round-trip（200–500ms）與一個常駐服務依賴，換來的語意召回在這個規模下用 trigger + BM25 就夠。BM25 純 Python stdlib、~80 行手刻、無外部依賴，向量服務掛了全域檢索照常。專案層 atom 可上百且措辭多樣，才值得付向量的成本。
 
 **為什麼 BM25 改成每輪跑**：以前只在 trigger 命中 ≤2 時補位，理由是「命中 ≥3 代表訊號充足、再加 BM25 只引噪音」。對齊評估器（§5.6）在同一凍結時鐘下量：每輪跑讓 R@1 再 +1.2pp、MRR +0.005、R@3 不變、負例不變——BM25 提供的是**獨立排序證據**（三顆 trigger 命中不代表三顆都相關，BM25 幫忙分高下），不是漏召回補位；耗時中位 8ms。負例真正的來源是請求框架 bigram（「幫我」「我想」「請你」在 atom 文本罕見 → IDF 高，兩個就越過 7.0），剔除後負例誤注入從 31.8% 降到 4.5%（22 條負例，含 8 條「幫我／我想」類）。`min_score` 7.0 不放寬。
 
@@ -614,7 +614,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | `smells_report`／`smells_max_age_days` | 空／7 | 專案有自己的壞味道報告產生器 → 指過去，天數照報告更新頻率 |
 | `candidate_top_n`／`post_compact_chars`／`max_card_chars` | 5／1500／6000 | 病灶段很長、部位很多、壓縮後要更多綜觀 → 調整字數與條數 |
 | `authority_map` | 空 | 專案有權威文件（規格書、介面表）→ 檔名樣式對到地圖檔 |
-| 部位表「量尺」欄＋`verify_chains` | 無 | 部位有整組的驗證指令 → 在部位表該列量尺欄填 `量法｜指令｜門檻`：它是候選材料（宣告驗證範圍時送到眼前參考、發版前全量跑），不是收尾必跑；有量尺的知識部位改了也要宣告範圍。驗證要先有環境（實機、編輯器）→ 再在 `verify_chains[部位].runtime_gate` 填就緒檢查，範圍還欠收據時探一次，沒就緒就說原因 |
+| 部位表「量尺」欄＋`verify_chains` | 無 | 部位有整組的驗證指令 → 在部位表該列量尺欄填 `量法｜指令｜門檻`：它是候選材料（宣告驗證範圍時送到眼前參考），不是收尾必跑；整包全量（`run_verify.py`）不能填成量尺（全量改增量待補）；有量尺的知識部位改了也要宣告範圍。驗證要先有環境（實機、編輯器）→ 再在 `verify_chains[部位].runtime_gate` 填就緒檢查，範圍還欠收據時探一次，沒就緒就說原因 |
 | `path_bases`、`eol_policy`、`source_encodings`、`commit_encoding` | 單根／依檔頭／utf-8 | 多根倉庫、CRLF 專案、非 UTF-8 原始碼（例 cp950） |
 | `verify_ledger.sentinel_regex`（config） | PASS／FAIL／DONE 兩條＋pytest 映射 | 專案既有工具尾行格式不同 → 加映射，不改工具 |
 | `need_goal.enabled`／`render_chars`／`scope_growth_dirs` | true／1200／3 | 對照組實驗要關掉需求目標流程；精簡版目標樹要更長或更短（§7.7） |
@@ -690,7 +690,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 
 ### 7.9 驗證範圍（verify_scope）
 
-目的：改完程式後該測哪些，由 LLM 看這次改了什麼、哪些測試有關聯、哪些地方會受影響來判斷，只驗這個範圍；LLM 對範圍負責，範圍外的測試事後因此紅了，要回頭檢討沒驗到的根因。程式只管流程：要它宣告、範圍內每項要有改完之後的收據、事後對帳範圍外有沒有壞。部位表的整把量尺降成候選材料，整把在合併進 main、發版前的全量跑。
+目的：改完程式後該測哪些，由 LLM 看這次改了什麼、哪些測試有關聯、哪些地方會受影響來判斷，只驗這個範圍；LLM 對範圍負責，範圍外的測試事後因此紅了，要回頭檢討沒驗到的根因。程式只管流程：要它宣告、範圍內每項要有改完之後的收據、事後對帳範圍外有沒有壞。部位表的整把量尺降成候選材料。全量改增量待補：全量 `run_verify.py` 已從流程拔掉，合併進 main、發版前都不跑（太慢、多 session 同機時拖慢所有人，紅了也指不出該誰修）；之後改成「收尾跑 LLM 適度擴展過的可能相關清單」的增量做法。全量拔掉後，範圍漏判只在之後有人跑到那支測試時才記得到。
 
 | 部件 | 位置 | 做什麼 |
 |------|------|--------|
@@ -967,7 +967,7 @@ curl -s http://127.0.0.1:3849/index/full    # 全量重建，預期 {"indexed":N
     └── hooks/project_hooks.py               ← delegate
 ```
 
-驗證：`python run_verify.py`（hooks/lib/tools/codex-companion/auto-continue 及 skills 各 `verify/`；`--help` 只印用法不跑；結尾印哨兵 `VERIFY_CHECK DONE cases=<n> failed=0`，有紅印 FAIL 且 exit 1；自寫收據記紅掉的測試名 `failed_cases`，驗證範圍拿去找範圍漏判）；基線約 2950 案；git／svn e2e 族（`verify_vcs_sync_worker`、`verify_merge_driver_gate`、`verify_merge_atom_index` 內各一案）在全量或有其他 git 活動並行時偶發單案紅、單跑穩定（推論：工具內 git 子行程 5 秒逾時在負載下觸發）。MCP js 層另有 `node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js`（不在 run_verify 掃描範圍）。
+驗證：收尾只跑 §7.9 宣告的驗證範圍。全量入口 `python run_verify.py` 已從流程拔掉、只留手動排查（全量改增量待補）：（掃 hooks/lib/tools/codex-companion/auto-continue 及 skills 各 `verify/`；`--help` 只印用法不跑；結尾印哨兵 `VERIFY_CHECK DONE cases=<n> failed=0`，有紅印 FAIL 且 exit 1；自寫收據記紅掉的測試名 `failed_cases`，驗證範圍拿去找範圍漏判）；基線約 2950 案；git／svn e2e 族（`verify_vcs_sync_worker`、`verify_merge_driver_gate`、`verify_merge_atom_index` 內各一案）在全量或有其他 git 活動並行時偶發單案紅、單跑穩定（推論：工具內 git 子行程 5 秒逾時在負載下觸發）。MCP js 層另有 `node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js`（不在 run_verify 掃描範圍）。
 
 ---
 

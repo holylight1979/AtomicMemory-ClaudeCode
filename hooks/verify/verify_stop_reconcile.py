@@ -155,6 +155,13 @@ def test_fixed_claim_without_any_pass_blocks(driven, capsys):
     assert logs and logs[-1][0] == "reconcile"
 
 
+def test_fixed_claim_block_does_not_suggest_full_run(driven, capsys):
+    """全量已從流程拔掉：(a) 擋訊息講可接受的自寫收據時，不再把「背景全量」當修好的建議做法。舊碼括號寫背景全量 → 紅。"""
+    out, _, _ = driven("閘修好了，完成。", capsys)
+    assert "(a)" in out and "自寫收據" in out, out                      # 前置：走到列可接受證據的那段訊息
+    assert "背景全量" not in out, out
+
+
 def test_unrelated_pass_from_sibling_session_blocks(driven, capsys):
     """反例一：無關 PASS：隔壁 session 的收據不放行本 session。"""
     out, _, _ = driven("閘修好了，完成。", capsys, verify_receipts={"other": [_rcpt(5)]})
@@ -1656,10 +1663,11 @@ def test_017_outside_whitelist_blocks_at_scope_gate(cmd):
 
 
 def test_017_root_table_rulers_still_runnable_as_declared_commands():
-    """G6 (b)：根層部位表 10 列（7 把尺＋行為規則層、派工信箱、部位表與專案層設定無尺）的量尺是候選材料：
-    宣告成指令項目後原字串原樣跑，Bash 與 PowerShell 都對得上；直接讀表上字串。"""
+    """G6 (b)：根層部位表 10 列（4 把尺；行為規則層、派工信箱、部位表與專案層設定無尺；hook 兩層與 skill 層的全量 run_verify
+    已拔掉，全量改增量待補）的量尺是候選材料：宣告成指令項目後原字串原樣跑，Bash 與 PowerShell 都對得上；直接讀表上字串。"""
     rows = [r for r in _ROOT_ROWS if (r.get("measure") or {}).get("cmd")]
-    assert len(_ROOT_ROWS) == 10 and len(rows) == 7
+    assert len(_ROOT_ROWS) == 10 and len(rows) == 4
+    assert not [r["part_short"] for r in rows if "run_verify.py" in r["measure"]["cmd"]]   # 表上不再有全量當量尺
     for row in rows:
         for tool in ("Bash", "PowerShell"):
             assert _gate(row["measure"]["cmd"], tool, row) is None, (row["part_short"], tool)

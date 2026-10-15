@@ -166,6 +166,15 @@ def test_declare_reply_shows_changed_files_and_rulers_as_reference_only(proj, lo
     assert "t.py" in text and _RULER in text and "參考" in text and "不必" in text, text
 
 
+def test_declare_reply_does_not_send_to_full_run(proj, lookup):
+    """全量已從流程拔掉：宣告回應附參考量尺時，不再叫人「整把在發版前全量跑」。舊碼句尾有這句 → 紅。"""
+    state = _state()
+    state["modified_files"] = [_mf(proj / "tools" / "t.py", T1, 3)]
+    text = _declare(state, proj, [{"target": "tools/verify/verify_t.py", "why": "直接測 t.py"}])
+    assert _RULER in text and "參考" in text, text                     # 前置：參考量尺那行確實有出現
+    assert "全量跑" not in text and "發版前" not in text, text
+
+
 # ─── 收尾閘（端到端）────────────────────────────────────────────────────────
 
 def test_one_line_change_runs_only_declared_test_and_passes(proj, lookup):

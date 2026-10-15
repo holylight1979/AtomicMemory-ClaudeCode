@@ -8,7 +8,8 @@
   每項有晚於「跟它有關的改檔」（_item_mods：程式檔都算，文件只算同部位或它點名的）最後一次修改的綠收據。過了 → close 記結案。
 - 對帳 (a) 的證據 fix_evidence：有宣告 → 宣告範圍內任一項有那樣的收據就算修好有證據（同一個判斷只一份答案）；沒宣告回 None。
 - 範圍漏判 observe_run／sync_runs：每輪測試記進 runs.jsonl（跑了哪些、哪些紅）；紅的測試 T，找「T 上次綠之後、這次紅之前結案、
-  範圍沒涵蓋 T」的宣告記疑似漏判。背景全量（run_verify 自寫收據的 failed_cases）由 sync_runs 入帳。
+  範圍沒涵蓋 T」的宣告記疑似漏判。背景跑的自寫收據（run_verify／根 conftest 整組 pytest 的 failed_cases）由 sync_runs 入帳。
+  全量改增量待補：全量 run_verify 已從流程拔掉，漏判帳只收得到之後有人跑到的測試；增量清單做好後要重看這裡的資料來源。
 - 送回與數字：pending_leaks／stats／stats_line／advisory（SessionStart）。
 規則（名字、條件）都在 wg_release_rules 的 SCOPE_*；收據對不對得上一項在 wg_verify_ledger.scope_item_status。
 帳本：<WORKFLOW_DIR>/verify-scope/scope.jsonl（結案、漏判、檢討；不自動清）、runs.jsonl（每輪測試；超過上限砍掉舊的一半）、
@@ -596,7 +597,8 @@ def _accept_text(state: Dict[str, Any], key: str, decl: Dict[str, Any], lookup: 
                      f"{'…' if len(loose) > 8 else ''}。有測試會讀它們，就在那一項加 inputs（它讀的檔或資料夾）再宣告一次。")
     rulers = _rulers(mods, lookup)
     if rulers:
-        lines.append("參考（部位原本那把整的量尺，只當候選材料，不必全跑；整把在發版前全量跑）：" + "；".join(rulers))
+        # 全量改增量待補：原本句尾叫人「整把在發版前全量跑」，全量已從流程拔掉
+        lines.append("參考（部位原本那把整的量尺，只當候選材料，不必全跑）：" + "；".join(rulers))
     lines.append("收尾前範圍內每一項都要在最後一次改動之後跑綠；之後若範圍外的測試因這次改動紅了，會記成範圍漏判送回檢討。")
     for r in repos:
         lines.append(stats_line(r))
@@ -911,8 +913,8 @@ def _self_covers(r: Dict[str, Any], tree: str) -> List[str]:
 
 
 def sync_runs(self_runs: Iterable[Dict[str, Any]]) -> List[str]:
-    """背景全量（run_verify／根 conftest 的自寫收據）入帳：每份一輪（涵蓋 _self_covers）；紅掉的測試名（failed_cases）照常歸因。
-    同一份只入帳一次。回新記漏判的提示（每份一則）。"""
+    """背景跑的自寫收據（run_verify／根 conftest 整組 pytest）入帳：每份一輪（涵蓋 _self_covers）；紅掉的測試名（failed_cases）照常歸因。
+    同一份只入帳一次。回新記漏判的提示（每份一則）。全量改增量待補：全量已拔掉，這裡現在主要收整組 pytest 的收據。"""
     seen = _observed()
     fresh: List[str] = []
     notes: List[str] = []

@@ -7293,6 +7293,25 @@
         "pytest.main"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單",
+      "path": "memory/Failures/驗證與實證/feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單.md",
+      "triggers": [
+        "全量",
+        "全量測試",
+        "全量驗證",
+        "run_verify",
+        "run_verify.py",
+        "全量綠",
+        "A7",
+        "發版前全量",
+        "fullrun",
+        "增量測試",
+        "全量改增量待補",
+        "漏判率"
+      ],
+      "scope": "global"
     }
   ]
 }

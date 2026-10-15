@@ -755,7 +755,7 @@
     ]
   },
   "verify_scope": {
-    "_doc": "驗證範圍閘（緊接對帳閘，共用其預算與放行規則；hooks/wg_verify_scope.py，規則在 wg_release_rules 的 SCOPE_*）：該測哪些由 LLM 判斷並負責，程式只管流程。改了程式檔、或改到部位表上有量尺的部位，不看收尾措辭、每次 Stop 都判：要有 need_goal(action=verify_scope, items=[{target, why}]) 的宣告（每個有改動的 repo 至少一項），宣告的每一項（測試檔、測試節點 檔::名、資料夾、指令）都要有最後一次改動之後、跑綠、同一棵樹、指令可信（白名單語法、沒換目錄、環境沒縮範圍、沒有 -k 這類只跑一部分）的收據；指令項目照宣告原字串比。部位表的整把量尺只在宣告回應與擋訊息當參考，整把在發版前全量跑。還欠收據時改到的部位有 verify_chains[部位].runtime_gate 就探一次（runtime_gate_timeout_s 秒），量不了說原因。寫碼查核整個過了 → 宣告記成結案；之後範圍外的測試紅了（前景收據看 pytest 的 FAILED 行、背景全量看自寫收據的 failed_cases），在它上次綠之後、這次紅之前結案、範圍沒涵蓋它的宣告各記一筆疑似範圍漏判（看到紅的 session 自己還有沒結案的改動照記但標出來，檢討時先查明是不是它造成的），當下送回、SessionStart 列出、下次宣告要逐筆檢討（missed 寫根因與下次怎麼判、unrelated 寫理由）才收；開場與宣告回應印累計數字。帳本 workflow/verify-scope/（scope.jsonl、runs.jsonl、self-observed.json）。一鍵關＝enabled:false。",
+    "_doc": "驗證範圍閘（緊接對帳閘，共用其預算與放行規則；hooks/wg_verify_scope.py，規則在 wg_release_rules 的 SCOPE_*）：該測哪些由 LLM 判斷並負責，程式只管流程。改了程式檔、或改到部位表上有量尺的部位，不看收尾措辭、每次 Stop 都判：要有 need_goal(action=verify_scope, items=[{target, why}]) 的宣告（每個有改動的 repo 至少一項），宣告的每一項（測試檔、測試節點 檔::名、資料夾、指令）都要有最後一次改動之後、跑綠、同一棵樹、指令可信（白名單語法、沒換目錄、環境沒縮範圍、沒有 -k 這類只跑一部分）的收據；指令項目照宣告原字串比。部位表的整把量尺只在宣告回應與擋訊息當參考（全量 run_verify 已從流程拔掉，發版前也不跑；全量改增量待補）。還欠收據時改到的部位有 verify_chains[部位].runtime_gate 就探一次（runtime_gate_timeout_s 秒），量不了說原因。寫碼查核整個過了 → 宣告記成結案；之後範圍外的測試紅了（前景收據看 pytest 的 FAILED 行、背景跑的整組驗證看自寫收據的 failed_cases），在它上次綠之後、這次紅之前結案、範圍沒涵蓋它的宣告各記一筆疑似範圍漏判（看到紅的 session 自己還有沒結案的改動照記但標出來，檢討時先查明是不是它造成的），當下送回、SessionStart 列出、下次宣告要逐筆檢討（missed 寫根因與下次怎麼判、unrelated 寫理由）才收；開場與宣告回應印累計數字。帳本 workflow/verify-scope/（scope.jsonl、runs.jsonl、self-observed.json）。一鍵關＝enabled:false。",
     "enabled": true,
     "runtime_gate_timeout_s": 2
   },

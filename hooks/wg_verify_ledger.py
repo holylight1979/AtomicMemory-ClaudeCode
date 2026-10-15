@@ -2065,7 +2065,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
             "CLAIM_FIXED_NEEDS_PASS", True, f"說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}",
             (f"本回合 PASS 收據 {len(pass_receipts(this_turn))} 筆、對得上改檔的 0 筆" + turn_rule,
              "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
-             "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）" + note("PASS")))))
+             # 全量改增量待補：原本括號寫「背景全量」，全量已從流程拔掉，不再當成修好的建議做法
+             "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景跑的整組 pytest）" + note("PASS")))))
     measured = any("DONE" in _verdicts(r) and (_clean(r) or any(_ruler_ran(mc, r) for mc in measure_cmds))
                    for r in this_turn)
     if any(claims_measured(t, phrases) for t in texts) and not measured and not covered():
