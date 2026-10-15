@@ -234,6 +234,9 @@ def write_gitattributes(mem_dir: Path) -> Dict:
         return {"ok": False, "error": "memory dir 不在 git repo 內"}
     root = Path(top.stdout.decode("utf-8", "replace").strip())
     prefix = mem_dir.resolve().relative_to(root.resolve()).as_posix()
+    # 記憶樹被 .gitignore 排除時，這段規則對它沒有作用，寫了只會讓 .gitattributes 每次 session 變髒
+    if _git(root, "check-ignore", "-q", "--", f"{prefix}/{INDEX_FILES[0]}").returncode == 0:
+        return {"ok": True, "skipped": f"{prefix} 被 .gitignore 排除，不寫 .gitattributes"}
     ga = root / ".gitattributes"
     cur = ga.read_bytes().decode("utf-8", "replace").replace("\r\n", "\n") if ga.exists() else ""
     if ATTR_MARK in cur:
