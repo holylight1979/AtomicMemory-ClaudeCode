@@ -13,6 +13,7 @@
 | gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-identity-星號md誤傷identity開頭的atom | gitignore未釘根層的規則在不分大小寫檔案系統會吃掉同名開頭的檔-IDENTITY-星號md誤傷identity開頭的atom |
 | sed-i-在-crlf-repo-會整檔改換行 | sed -i 在 CRLF repo 會整檔改換行 |
 | 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a | 併發 session 共用工作樹-收尾選擇性 staging 勿 git add -A |
+| 共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 | 共用工作樹有MERGE_HEAD時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 |
 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout-conflictdiff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 | 合併時兩邊都在同一檔檔尾新增的衝突-用checkout--conflict=diff3看共同祖先-祖先段空就兩邊都留-表格列以首欄對齊只有一邊改就取那邊 |
 | 工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異 | 工作樹有別人未提交改動且合併會碰到同檔時-不checkout不stash的合法合併法-merge-tree建樹commit-tree建合併提交update-ref推分支reset同步索引-乾淨檔逐檔checkout-受保護檔用git-apply套分支差異 |
 | 改名被gitignore忽略的資料夾要同一個commit改gitignore-否則新名字底下的檔全變未追蹤-一次git-add就把不該公開的東西推出去 | 改名被gitignore忽略的資料夾要同一個commit改gitignore-否則新名字底下的檔全變未追蹤-一次git-add就把不該公開的東西推出去 |

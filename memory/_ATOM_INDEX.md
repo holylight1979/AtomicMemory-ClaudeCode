@@ -430,3 +430,5 @@
 | 部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過 | memory/CC與原子記憶契約/部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過.md | overview-map.md, 部位表, 路徑前綴, match_row, 最長前綴, 導讀卡没注入, 部位判錯, 合併部位表, 量尺 | global |  |
 | 瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill | memory/CC與原子記憶契約/瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill.md | CLAUDE.md 瘦身, 必載, 常駐, 失能, 失智, 搜進 skill, skill 描述精簡, MEMORY.md 瘦身, token 節省, 觸發詞 | global |  |
 | claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原 | memory/文字與格式/claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原.md | 混合行尾, CRLF, LF, Edit 工具, 行尾漂移, 整檔 diff, svn diff 全檔, file-history | global |  |
+| 共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾 | memory/版控/Git/共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾.md | MERGE_HEAD, 合併進行中, git commit, 共用工作樹, 併發 session, 意外合併提交, 雙 parent | global |  |
+| 新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔 | memory/驗證與實證/新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔.md | 先紅後綠, 舊碼紅, 退回舊碼看紅, red then green, 舊碼對照, 新案在舊碼上跑, detached worktree, sys.modules, pytest.main | global |  |

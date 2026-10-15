@@ -7263,6 +7263,36 @@
         "file-history"
       ],
       "scope": "global"
+    },
+    {
+      "name": "共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾",
+      "path": "memory/版控/Git/共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾.md",
+      "triggers": [
+        "MERGE_HEAD",
+        "合併進行中",
+        "git commit",
+        "共用工作樹",
+        "併發 session",
+        "意外合併提交",
+        "雙 parent"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔",
+      "path": "memory/驗證與實證/新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔.md",
+      "triggers": [
+        "先紅後綠",
+        "舊碼紅",
+        "退回舊碼看紅",
+        "red then green",
+        "舊碼對照",
+        "新案在舊碼上跑",
+        "detached worktree",
+        "sys.modules",
+        "pytest.main"
+      ],
+      "scope": "global"
     }
   ]
 }

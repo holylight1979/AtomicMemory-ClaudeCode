@@ -5,7 +5,7 @@
 
 | 語言 | atom 數 |
 |------|---------|
-| Python | 18 |
+| Python | 19 |
 | C#／.NET | 20 |
 | JavaScript／Node | 1 |
 | PowerShell | 6 |
@@ -32,6 +32,7 @@
 | `memory/驗證與實證/pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因.md` | pytest判紅的例外型別要讀junitxml-裸assert不帶型別名-q摘要不附原因 |
 | `memory/驗證與實證/全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑.md` | 全量驗證與agent測試並行跑會互相干擾出假失敗-作準的全量要單獨跑 |
 | `memory/驗證與實證/改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染.md` | 改模組層路徑常數的驗法-常數名不改只換等號右邊-import時就算好要用冷啟動子行程驗-預設參數定義時綁死-測試模組層setdefault會依收集順序污染 |
+| `memory/驗證與實證/新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔.md` | 新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytest.main跑新測試檔 |
 | `memory/驗證與實證/路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試.md` | 路徑樣式比對要用相對專案根的路徑-絕對路徑會比到上層目錄名-pytest的tmp路徑含test會污染測試 |
 
 ## C#／.NET
