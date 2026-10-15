@@ -38,7 +38,7 @@ from wg_verify_ledger import (
     measure_cmds_of, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
     committed_settled_paths, committed_equal_paths, git_deadline,
 )
-from wg_verify_scope import fix_evidence as _scope_fix_evidence, scope_cfg as _scope_cfg
+from wg_verify_scope import case_check as _scope_case_check, fix_evidence as _scope_fix_evidence, scope_cfg as _scope_cfg
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
@@ -834,6 +834,9 @@ def _verify_gates(
                 # (a) 說修好：有驗證範圍宣告就認宣告範圍的收據（同一個判斷只一份答案），沒宣告才退回檔名對應
                 scope_fix=(lambda: _scope_fix_evidence(state, session_id, own_mod_files, receipts, rg_cfg, _lk, _self_runs()))
                 if _lk and sg_cfg.get("enabled", True) else None,
+                # (d) 補案例：由哪個案例驗看 LLM 在驗證範圍的宣告（case_for／no_case）；驗證範圍閘關掉才退回時序判法
+                case_check=_scope_case_check(state, session_id, own_mod_files, receipts, rg_cfg, _lk, _self_runs())
+                if _lk and sg_cfg.get("enabled", True) else None,
             )
             kind = "reconcile" if reason or report else ""
         except Exception as e:
@@ -1235,9 +1238,17 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 mark_block(state, session_id, "reconcile", _tpath, turn_seq)   # 這個答案用掉了：之後要放行得再答一次
                 clear_pending(state, session_id, "reconcile")
                 _budget[session_id] = {"turn": _uturn, "count": 0}
+                # 規則 NO_CASE_NEEDS_USER：宣告不需要新案例的檔記成使用者已裁定（沒再改就不每回合重問）
+                try:
+                    import wg_verify_scope as _vs
+                    _approved = _vs.approve_no_case(state, session_id)
+                except Exception as e:  # noqa: BLE001  記不下只會下一回合再問一次，照擋不放寬
+                    _approved = []
+                    print(f"[Guardian:ReconcileGate] 記使用者對 no_case 的裁定失敗（下一回合會再問）：{type(e).__name__}: {e}",
+                          file=sys.stderr)
                 append_guard_log("reconcile", {
                     "event": "user_release", "session_id": session_id, "turn_seq": turn_seq, "kind": _vg_kind,
-                    "via": _how, "count": _count, "reason": _code[:300],
+                    "via": _how, "count": _count, "reason": _code[:300], **({"no_case_approved": _approved} if _approved else {}),
                 })
                 print(f"[Guardian:ReconcileGate] 使用者放行這一回合（{_how}），記 user_release", file=sys.stderr)
                 _code = None

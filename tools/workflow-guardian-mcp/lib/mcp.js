@@ -494,6 +494,8 @@ const TOOL_DEFINITIONS = [
       "items=[{target, why, inputs?}]（target 是測試檔、測試節點 檔::名、資料夾或指令；why 一句為什麼相關；" +
       "inputs 是這一項還讀的非程式檔或資料夾，改了它們這一項要重跑）；每次宣告是完整範圍，" +
       "收尾前範圍內每一項都要在最後一次改動之後跑綠（部位表整把量尺只當參考）；有待檢討的範圍漏判時附 reviews 逐筆檢討。" +
+      "每個改過的程式檔要由你宣告由哪個案例驗：驗它的那支案例（本 session 新寫或改過的測試檔／測試節點）那一項加 case_for 列它；" +
+      "真的不需要新案例就寫進 no_case=[{path, reason}]，收尾時照【收尾放行確認】問使用者、題目帶理由。" +
       "寫碼類任務沒有樹不能改程式；改了程式要回頭對照；宣告完成、交收尾檢核、commit 前要有完整對照。" +
       "本 tool 只驗參數回 chip、不寫檔（one-writer：目標檔、編號、送回的樹由 Python PostToolUse 獨佔）。",
     inputSchema: {
@@ -508,7 +510,7 @@ const TOOL_DEFINITIONS = [
         items: {
           type: "array",
           description: "add：[{text, clarity?, origin?}]；update：[{id, text?, status?, clarity?, why}]；" +
-            "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?}]",
+            "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?, case_for?}]",
           items: {
             type: "object",
             properties: {
@@ -539,7 +541,22 @@ const TOOL_DEFINITIONS = [
               same_class: { type: "string", description: "reconcile：達成的節點可附——同類別處還有沒有：找到的位置，或為什麼沒有（只記錄、不擋）" },
               inputs: { type: "array", items: { type: "string" },
                 description: "verify_scope（選填）：這一項還讀哪些不是程式的檔或資料夾（資料、文件、索引）；改了它們，這一項要重跑" },
+              case_for: { type: "array", items: { type: "string" },
+                description: "verify_scope（選填，只掛在測試檔或測試節點那一項）：這支案例驗的是哪些改過的程式檔（寫碼查核 (d) 認這裡的宣告，" +
+                  "改了別支測試不會替它清帳）" },
             },
+          },
+        },
+        no_case: {
+          type: "array",
+          description: "verify_scope（選填）：不需要新案例的改過程式檔與理由；收尾仍會擋，要照【收尾放行確認】問使用者、題目帶這個理由",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "改過的程式檔" },
+              reason: { type: "string", description: "為什麼不需要新案例（例：只改訊息字串、既有案例 X 已經驗到）" },
+            },
+            required: ["path", "reason"],
           },
         },
         reviews: {

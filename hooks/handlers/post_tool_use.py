@@ -614,8 +614,16 @@ def _note_commit(state: Dict[str, Any], command: str, config: Optional[Dict[str,
     for _mods in (state.get("agent_modified_files") or {}).values():
         every += [m["path"] for m in _mods or [] if isinstance(m, dict) and m.get("path")]
     try:
-        state["commit_snapshot"] = commit_snapshot(own, turn, reconcile_cfg(config or {}),
-                                                   prev=state.get("commit_snapshot"), session_paths=every)
+        rg = reconcile_cfg(config or {})
+        check = None
+        import wg_verify_scope as vs
+        if vs.scope_cfg(config or {}).get("enabled", True):
+            # 「當時不欠案例」與 Stop 的 (d) 同一個判法：照 LLM 的案例宣告（case_for）判，驗證範圍閘關掉才退回時序判法
+            from wg_overview import _lookup
+            from wg_verify_ledger import load_self_runs
+            check = vs.case_check(state, session_id, own, receipts_of(state, session_id), rg, _lookup, load_self_runs())
+        state["commit_snapshot"] = commit_snapshot(own, turn, rg, prev=state.get("commit_snapshot"), session_paths=every,
+                                                   case_check=check)
     except Exception as e:  # noqa: BLE001
         state.pop("commit_snapshot", None)
         print(f"[verify-ledger] commit 內容快照失敗，commit 之後的反證還原照算改碼：{type(e).__name__}: {e}", file=sys.stderr)

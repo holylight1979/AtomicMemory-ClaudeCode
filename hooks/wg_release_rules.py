@@ -27,7 +27,8 @@ RULES: Dict[str, str] = {
     "TURN_SINCE_USER_PROMPT": "本回合＝使用者打字開的那一回合到現在的每個 turn_seq；同伴 session 訊息、背景通知不另開回合"
                               "（收據、改檔、commit、收尾報告、收割、注入都照這個窗口算）。",
     "CLAIM_MODIFIER_NOT_OWN": "宣稱詞後面直接接「的＋名詞」（修好的 X、跑過的測試）是形容後面的東西、常是轉述，不算自己宣告完成。",
-    "OWED_AFTER_LAST_CASE": "本 session 最後一次改仍存在的案例檔之後，同根還改過程式檔 → 欠補案例。",
+    "OWED_AFTER_LAST_CASE": "驗證範圍閘關掉（verify_scope.enabled=false）時的退路：本 session 最後一次改仍存在的案例檔之後，同根還改過程式檔"
+                            " → 欠補案例。開著時改看 CASE_DECLARED_FOR_CHANGE（由哪個案例驗交 LLM 宣告）。",
     "GONE_OUTSIDE_VCS": "改過的程式檔已不存在、也不在任何版控根內（打錯路徑寫到 worktree 外又刪、worktree 被移除整根消失）"
                         "→ 算刪除、不欠：同根的案例無從補，也沒有 status 可查搬去哪。",
     "GONE_IN_GIT_NOTHING_NEW": "改過的程式檔已不存在、在 git 根內、同根 status 與本 session 提交都沒有它的副本（沒有新出現的程式檔，"
@@ -41,8 +42,9 @@ RULES: Dict[str, str] = {
     "SNAPSHOT_SETTLED": "commit 那刻不欠案例、之後同根改檔內容都回到那刻、git status 乾淨（含暫存區）→ 不重算補案例（wg_verify_ledger）。",
     "NET_UNCHANGED": "改過又原樣還原（與 HEAD 相同、之後沒 commit、同根改檔 git status 全乾淨）→ 不算改碼（wg_verify_ledger）。",
     # ── 045（track-gate-rules）起：誤判清冊 B／C 組 ──
-    "CASE_GREEN_AFTER_EDIT": "改碼之後，有本 session 改過、仍存在、同根的案例檔被跑綠（收據點名該案例、PASS 無 FAIL、exit 0、"
-                             "晚於該程式檔最後一次修改）→ 不欠補案例；案例 mtime 先後只當輔助（先紅後綠的正確順序不被擋）。",
+    "CASE_GREEN_AFTER_EDIT": "與 OWED_AFTER_LAST_CASE 同一條退路（驗證範圍閘關掉時）：改碼之後，有本 session 改過、仍存在、同根的案例檔被跑綠"
+                             "（收據點名該案例、PASS 無 FAIL、exit 0、晚於該程式檔最後一次修改）→ 不欠補案例；案例 mtime 先後只當輔助"
+                             "（先紅後綠的正確順序不被擋）。",
     "BLOCK_BUDGET_PER_RULE": "寫碼查核的擋次預算每條規則（擋訊息的字母）各自計次；同一條在同一個使用者回合擋滿 max 才算擋滿；"
                              "擋滿訊息列出全部命中條目。",
     "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同 → 不算改碼；"
@@ -1632,3 +1634,54 @@ def reload_advice_verdict(text: str, records: Sequence[Tuple[Optional[float], fl
         return Verdict(rule, False, "有工具服務還在跑舊程式，叫使用者重載是對的")
     return Verdict(rule, True, f"叫使用者 Reload Window，但正在跑的 {len(records)} 個工具服務都已載入磁碟上最新的程式",
                    (f"磁碟程式版本 {_ms_text(disk_mtime)}；服務載入版本 {'、'.join(_ms_text(m) for m, _ in records[:3])}",))
+
+
+# ─── (d) 補案例：由哪個案例驗交 LLM 宣告（判斷入口盤點 P4；wg_verify_scope 收事實、這裡判） ───
+RULES.update({
+    "CASE_DECLARED_FOR_CHANGE": "(d) 補案例（驗證範圍閘開著時）：每個改過的程式檔（案例檔本身、EXCLUDED_REGION、判成刪除的除外）要由 LLM 在"
+                                "驗證範圍宣告「由哪個案例驗」：宣告那支案例的那一項帶 case_for，列它驗的程式檔。程式只核對事實：那一項"
+                                "點得到案例檔（測試檔、測試節點，或只跑特定測試檔的指令）、案例檔仍存在而且本 session 新寫或改過、"
+                                "那一項在最後一次改動之後跑綠（和 "
+                                "SCOPE_ITEM_RECEIPT_AFTER_EDIT 同一個判斷）。改了哪支案例檔不再替別的程式清帳；先紅後綠只記錄"
+                                "（CASE_RED_THEN_GREEN），不在這裡擋。",
+    "NO_CASE_NEEDS_USER": "LLM 宣告某個改過的程式檔不需要新案例（verify_scope 的 no_case：[{path, reason}]，理由必填；既有案例已經驗到也走這條）"
+                          "→ 照擋：要不要補案例由使用者裁，照【收尾放行確認】問、題目帶上這個理由（擋滿不准自行放行的裁定不變）。"
+                          "使用者放行那一刻把宣告裡的 no_case 檔記成已裁定（綁在它當時的最後一次修改）：之後沒再改就不再為它擋、"
+                          "不每回合重問；再改了要重新裁。",
+    "CASE_DECL_WELL_FORMED": "宣告收件：case_for 只能掛在點得到案例檔的項目（測試檔、測試節點，或只跑特定測試檔的指令；案例檔＝符合 "
+                             "verify_case_globs 的程式檔；資料夾與整體驗證不算），列的每個路徑都要是程式檔、存在或本 session 改過（搬走的"
+                             "舊路徑也還欠著）；no_case 每筆同樣的 path 加非空 reason；同一個檔不能同時列在 case_for 與 no_case。"
+                             "有一處不合格整份退回。",
+})
+
+
+def case_decl_form_verdict(problems: Sequence[str]) -> Verdict:
+    """CASE_DECL_WELL_FORMED：problems＝收件時查到的事實問題（wg_verify_scope.declare 查：項目種類、是不是案例檔、路徑在不在）。"""
+    rule = "CASE_DECL_WELL_FORMED"
+    if problems:
+        return Verdict(rule, True, "案例宣告（case_for／no_case）不合格，整份退回", tuple(problems))
+    return Verdict(rule, False, "案例宣告收下")
+
+
+def case_for_change_verdict(name: str, checks: Sequence[Tuple[str, str]], no_case_reason: str = "",
+                            user_approved: bool = False) -> Verdict:
+    """CASE_DECLARED_FOR_CHANGE／NO_CASE_NEEDS_USER：name＝改過的程式檔；checks＝宣告驗它的每個案例 (案例, 問題)，問題空＝成立
+    （事實由 wg_verify_scope.case_check 查：案例在不在、本 session 新寫或改過沒、那一項改完之後跑綠沒）；no_case_reason＝宣告
+    不需要新案例的理由；user_approved＝使用者放行時記下的裁定還對得上它現在的最後一次修改。有一個案例成立就不欠；宣告的案例
+    都不成立照欠（不退去看 no_case）。"""
+    rule = "CASE_DECLARED_FOR_CHANGE"
+    ok = [c for c, problem in checks if not problem]
+    if ok:
+        return Verdict(rule, False, f"{name} 由 {ok[0]} 驗：本 session 新寫或改過、改完之後跑綠")
+    if checks:
+        return Verdict(rule, True, f"{name} 宣告由 {'、'.join(c for c, _ in checks[:3])} 驗，還不成立",
+                       tuple(f"{c}：{p}" for c, p in checks[:3]))
+    reason = " ".join(str(no_case_reason or "").split())[:160]
+    if reason and user_approved:
+        return Verdict("NO_CASE_NEEDS_USER", False, f"{name} 宣告不需要新案例（理由：{reason}），使用者已放行，之後沒再改")
+    if reason:
+        return Verdict("NO_CASE_NEEDS_USER", True, f"{name} 宣告不需要新案例（理由：{reason}）：要不要補由使用者裁",
+                       (f"用 AskUserQuestion 照【收尾放行確認】問，題目寫「{name} 不需要新案例：{reason}」並掛目標節點",))
+    return Verdict(rule, True, f"{name} 改過，還沒宣告由哪個案例驗",
+                   ("在 verify_scope 宣告驗它的那支案例（本 session 新寫或改過的測試檔／測試節點）那一項加 case_for: [\"<程式檔>\"]；"
+                    "真的不需要新案例就加 no_case: [{path, reason}]，再照【收尾放行確認】問使用者",))

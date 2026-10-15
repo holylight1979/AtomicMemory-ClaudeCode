@@ -1546,3 +1546,34 @@ def test_reload_advice_already_loaded(text, records, disk, owed):
     判不出一律放行；AI 寫明「重載原因：…」（程式更新以外的理由）照它的判斷。"""
     v = rr.reload_advice_verdict(text, records, disk, _RELOAD_NOW)
     assert v.rule == "RELOAD_ADVICE_ALREADY_LOADED" and v.owed is owed, (text, records, disk)
+
+
+# ─── (d) 補案例：由哪個案例驗交 LLM 宣告（判斷入口盤點 P4） ─────────────────────
+
+def test_case_declared_for_change_needs_a_holding_case():
+    """CASE_DECLARED_FOR_CHANGE：沒宣告 → 欠並指路 case_for／no_case；宣告的案例都不成立 → 欠並列每個案例的問題；
+    有一個成立 → 不欠（不看其他不成立的那幾個）。宣告了不成立的案例時不退去看 no_case。"""
+    v = rr.case_for_change_verdict("x.py", [])
+    assert v.rule == "CASE_DECLARED_FOR_CHANGE" and v.owed and "還沒宣告" in v.why and "case_for" in v.evidence[0]
+    v = rr.case_for_change_verdict("x.py", [("verify_x.py", "最近一次跑紅")], "只改字串")
+    assert v.rule == "CASE_DECLARED_FOR_CHANGE" and v.owed and v.evidence == ("verify_x.py：最近一次跑紅",)
+    v = rr.case_for_change_verdict("x.py", [("verify_a.py", "本 session 沒有新寫或改過這支案例"), ("verify_x.py::t", "")])
+    assert not v.owed and "verify_x.py::t" in v.why
+
+
+def test_no_case_needs_user_carries_reason_into_question():
+    """NO_CASE_NEEDS_USER：宣告不需要新案例照擋，擋訊息把理由與【收尾放行確認】的問法帶出來；理由空白不算宣告。"""
+    v = rr.case_for_change_verdict("x.py", [], "  只改了擋訊息\n的字串  ")
+    assert v.rule == "NO_CASE_NEEDS_USER" and v.owed and "只改了擋訊息 的字串" in v.why
+    assert "【收尾放行確認】" in v.evidence[0] and "x.py 不需要新案例" in v.evidence[0]
+    assert rr.case_for_change_verdict("x.py", [], "   ").rule == "CASE_DECLARED_FOR_CHANGE"
+    v = rr.case_for_change_verdict("x.py", [], "只改字串", user_approved=True)          # 使用者放行過、之後沒再改 → 不欠
+    assert v.rule == "NO_CASE_NEEDS_USER" and not v.owed and "使用者已放行" in v.why
+    assert rr.case_for_change_verdict("x.py", [], "", user_approved=True).owed            # 沒有 no_case 理由，記錄不算數
+
+
+def test_case_decl_well_formed_lists_every_problem():
+    """CASE_DECL_WELL_FORMED：有問題就整份退回並逐條列；沒問題收下。"""
+    v = rr.case_decl_form_verdict(["「a」不是測試檔", "no_case 的 b.py 不存在"])
+    assert v.owed and v.evidence == ("「a」不是測試檔", "no_case 的 b.py 不存在")
+    assert not rr.case_decl_form_verdict([]).owed

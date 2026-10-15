@@ -390,6 +390,27 @@ def test_run_verify_fail_output_creates_failing_entry(monkeypatch, tmp_path):
     assert state["verify_receipts"][_SID][0]["sentinels"][0]["kv"] == {"cases": "10", "failed": "1"}
 
 
+# ─── 案例檔的定義：測試目錄與測試檔名慣例，不是「名字裡有 test」 ─────────────────────
+
+def test_case_globs_follow_test_conventions_not_any_name_containing_test():
+    """舊樣式 `**/*test*` 把產品檔 backtest_acceptance.py、latest_build.py 當案例：改了不欠補案例、還能拿來清帳（舊碼紅）。
+    新樣式認測試目錄（verify、tests、test、__tests__、*.Tests）與檔名慣例（test_、_test、_tests、.test、.spec、tests.py、conftest）；
+    workflow/config.json 的覆寫與預設同一份。"""
+    globs = vl.RECONCILE_DEFAULTS["verify_case_globs"]
+    root = r"c:\proj"
+    for p in ("tools/codex-companion/backtest_acceptance.py", "src/latest_build.py", "src/contest.py", "lib/attestation.py",
+              "src/test_runner/engine.py", "src/test_support/service.js", "src/x_test.d/engine.py"):     # 檔名樣式不比目錄名
+        assert not vl.is_verify_case(rf"{root}\{p}", globs, root), p
+    for p in ("hooks/verify/verify_x.py", "tests/a.py", "tests/engine.py", "src/test/java/A.java", "web/__tests__/a.js",
+              "MyProj.Tests/A.cs", "a/test_x.py", "a/test_engine.py", "a/x_test.go", "a/x_tests.py", "a/x.test.ts", "a/x.spec.js",
+              "app/tests.py", "conftest.py"):
+        assert vl.is_verify_case(rf"{root}\{p}", globs, root), p
+    assert vl.is_verify_case(r"c:\tmp\pytest-of-u\test_case0\proj\src\a_test.py", globs, r"c:\tmp\pytest-of-u\test_case0\proj")
+    assert not vl.is_verify_case(r"c:\tmp\pytest-of-u\test_case0\proj\src\a.py", globs, r"c:\tmp\pytest-of-u\test_case0\proj")
+    cfg = json.loads((Path(vl.__file__).resolve().parents[1] / "workflow" / "config.json").read_text(encoding="utf-8"))
+    assert cfg["reconcile_gate"]["verify_case_globs"] == globs
+
+
 # ─── BLOCK 3：PASS 收據要對得上改的檔／verify glob／量尺指令 ─────────────────────────
 
 def test_receipt_relates_rules_fixed_in_002_returned():

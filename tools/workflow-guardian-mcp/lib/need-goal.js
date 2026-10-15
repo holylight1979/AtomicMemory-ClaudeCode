@@ -58,8 +58,8 @@ function validateItems(action, items) {
   return errs;
 }
 
-/** verify_scope：items 每項 {target, why} 非空、inputs（選填）是非空字串陣列；reviews（選填）每筆 {leak, verdict∈missed|unrelated}。
- * 內容由 Python 收件時照規則判。 */
+/** verify_scope：items 每項 {target, why} 非空、inputs／case_for（選填）是非空字串陣列；reviews（選填）每筆
+ * {leak, verdict∈missed|unrelated}；no_case（選填）每筆 {path, reason} 非空。內容由 Python 收件時照規則判。 */
 function validateVerifyScope(a) {
   if (!Array.isArray(a.items) || !a.items.length) return ["verify_scope 要給 items（非空陣列，每項 {target, why}）"];
   const errs = [];
@@ -69,6 +69,15 @@ function validateVerifyScope(a) {
     if (!str(it.why)) errs.push(`items[${i}].why 必填（為什麼和這次改動有關、會受什麼影響）`);
     if (given(it.inputs) && (!Array.isArray(it.inputs) || !it.inputs.every((x) => str(x)))) {
       errs.push(`items[${i}].inputs 必須是非空字串陣列（這一項還讀的檔或資料夾）`);
+    }
+    if (given(it.case_for) && (!Array.isArray(it.case_for) || !it.case_for.length || !it.case_for.every((x) => str(x)))) {
+      errs.push(`items[${i}].case_for 必須是非空字串陣列（這支案例驗的程式檔）`);
+    }
+  });
+  if (given(a.no_case) && !Array.isArray(a.no_case)) errs.push("no_case 必須是陣列（[{path, reason}]：不需要新案例的程式檔與理由）");
+  (Array.isArray(a.no_case) ? a.no_case : []).forEach((n, j) => {
+    if (!n || typeof n !== "object" || Array.isArray(n) || !str(n.path) || !str(n.reason)) {
+      errs.push(`no_case[${j}] 要有 path（改過的程式檔）與 reason（為什麼不需要新案例）`);
     }
   });
   if (given(a.reviews) && !Array.isArray(a.reviews)) return [...errs, "reviews 必須是陣列"];

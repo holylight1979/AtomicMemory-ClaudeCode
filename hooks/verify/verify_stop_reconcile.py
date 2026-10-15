@@ -88,6 +88,12 @@ def _declared(cmd, root=ROOT, key=_SID, lookup=None):
     return s["verify_scope"]
 
 
+def _with_case_for(decls, *codes, key=_SID):
+    """在最新那份宣告的第一項掛 case_for（(d) 由哪個案例驗的宣告）：fixture 路徑是虛構的，不走收件的存在檢查。"""
+    decls[key][-1]["items"][0]["case_for"] = list(codes)
+    return decls
+
+
 @pytest.fixture()
 def driven(monkeypatch):
     """驅動 handle_stop：只留閘控制流；回 drive(text, capsys, state 欄位…) → (stdout, state, guard_log 事件)。"""
@@ -413,7 +419,8 @@ def test_reconcile_judge_exception_blocks(driven, capsys, monkeypatch):
 
 def test_scope_judge_exception_blocks(driven, capsys, monkeypatch):
     kw = dict(modified_files=[_mf(_CODE, 5), _mf(_CASE, 5)], verify_receipts={_SID: [_rcpt(5)]},
-              anti_evasion_report=_aec(5, j=__file__, k="無"), verify_scope=_declared(_RELATED_CMD), scope=True)
+              anti_evasion_report=_aec(5, j=__file__, k="無"), verify_scope=_with_case_for(_declared(_RELATED_CMD), _CODE),
+              scope=True)
     out, _, _ = driven("全部完成了。", capsys, **kw)
     assert "ReconcileGate" not in out and "VerifyScope" not in out                          # 正例
     monkeypatch.setattr(vs, "gate_reason", _boom)
@@ -1230,7 +1237,7 @@ def test_006_7_code_and_report_split_when_exhausted(driven, capsys):
 def test_006_9_case_must_be_code_file(driven, capsys):
     w = r"c:\proj\src\widget.py"
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(w, 5), _mf(r"c:\proj\tests\README.md", 5)])
-    assert "ReconcileGate" in out and "改了程式碼（widget.py）之後沒有新增或修改驗證 case 檔" in out   # 反例：文件冒充案例
+    assert "ReconcileGate" in out and "改了程式碼（widget.py）" in out   # 反例：文件冒充案例
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(w, 5), _mf(r"c:\proj\tests\test_widget.py", 5)])
     assert "ReconcileGate" not in out
 
@@ -1238,13 +1245,13 @@ def test_006_9_case_must_be_code_file(driven, capsys):
 def test_006_10_case_debt_carries_over_turns(driven, capsys):
     w = _mf(r"c:\proj\src\widget.py", 5, last_at="2026-10-12T10:00:00+08:00", last_seq=3)
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, modified_files=[w])
-    assert "改了程式碼（widget.py）之後沒有新增或修改驗證 case 檔" in out                    # 反例：turn 5 改的碼，turn 6 只說完成
+    assert "改了程式碼（widget.py）" in out                    # 反例：turn 5 改的碼，turn 6 只說完成
     case = _mf(r"c:\proj\tests\test_widget.py", 6, last_at="2026-10-12T10:05:00+08:00", last_seq=9)
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, modified_files=[w, case])
     assert "ReconcileGate" not in out                                                       # 正例：turn 6 補了案例
     later = _mf(r"c:\proj\src\gadget.py", 6, last_at="2026-10-12T10:06:00+08:00", last_seq=10)
     out, _, _ = driven("全部完成了。", capsys, turn_seq=6, modified_files=[w, case, later])
-    assert "改了程式碼（gadget.py）之後沒有新增或修改驗證 case 檔" in out                    # 案例之後又改的碼才欠
+    assert "改了程式碼（gadget.py）" in out                    # 案例之後又改的碼才欠
 
 
 # ─── 009 退件：換句話避查核、未知寫入、正常啟動的真收據、背景收據接對帳、刪案例清帳 ─────────────────
@@ -1262,7 +1269,7 @@ def test_009_1_rephrase_keeps_case_debt_and_pending(driven, capsys):
     補了案例後同一句 → 不擋、pending 清。"""
     code = _mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3)
     out, state, _ = driven("變更內容如上。", capsys, modified_files=[code], pending_release=_pend_state([]))
-    assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out and st.ASK_HINT in out
+    assert "改了程式碼（a.py）" in out and st.ASK_HINT in out
     assert state["pending_release"][_SID]["reconcile"]["turn"] == 5                        # pending 承接、沒被清
     case = _mf(r"c:\proj\tests\test_a.py", 5, last_at=_T2, last_seq=4)
     out, state, _ = driven("變更內容如上。", capsys, modified_files=[code, case], pending_release=_pend_state([]))
@@ -1306,7 +1313,7 @@ def test_013_1_original_claim_survives_repeated_rephrase(driven, capsys):
 
 def test_009_1_subagent_and_judge_judge_case_debt_regardless_of_wording(sub_stop, capsys, monkeypatch):
     out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}), last="變更內容如上。")
-    assert "無法互動，不能放行" in out and "改了程式碼（x.py）之後沒有新增或修改驗證 case 檔" in out
+    assert "無法互動，不能放行" in out and "改了程式碼（x.py）" in out
     out, _ = sub_stop(capsys, _sub_state(agent_modified_files={"ag1": [_mf(_CODE, 5)]}), last="")
     assert "無法互動，不能放行" in out                                                       # 讀不到收尾文字也照判
     state = {"turn_seq": 0, "modified_files": [_mf(_CODE, 0)]}
@@ -1314,7 +1321,7 @@ def test_009_1_subagent_and_judge_judge_case_debt_regardless_of_wording(sub_stop
     with pytest.raises(SystemExit):
         st.handle_judge_stop({"session_id": _SID, "last_assistant_message": "變更內容如上。"}, {})
     out = capsys.readouterr().out
-    assert "裁判子 session" in out and "改了程式碼（x.py）之後沒有新增或修改驗證 case 檔" in out
+    assert "裁判子 session" in out and "改了程式碼（x.py）" in out
 
 
 def _judge_post(monkeypatch, tmp_path, command):
@@ -1419,7 +1426,7 @@ def test_009_5_deleted_case_does_not_clear_debt(driven, capsys, monkeypatch, tmp
                         raising=False)
     mods = [_mf(r"c:\proj\src\a.py", 5, last_at=_T1, last_seq=3), _mf(case_path, 5, last_at=_T2, last_seq=4)]
     out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
-    assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out                       # 案例檔已不存在（刪掉了）
+    assert "改了程式碼（a.py）" in out                       # 案例檔已不存在（刪掉了）
     real.write_text("def test_a():\n    assert True\n", encoding="utf-8")
     out, _, _ = driven("全部完成了。", capsys, modified_files=mods)
     assert "ReconcileGate" not in out                                                       # 案例檔在 → 補了案例
@@ -1436,7 +1443,7 @@ def test_011_project_under_test_named_dir_judges_relative_path(driven, capsys, m
     monkeypatch.setattr(vl, "file_root_of", lambda p: _LATEST if p.lower().startswith(_LATEST.lower()) else None)
     src = _mf(_LATEST + r"\src\a.py", 5, last_at=_T1, last_seq=3)
     out, _, _ = driven("全部完成了。", capsys, modified_files=[src])
-    assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out
+    assert "改了程式碼（a.py）" in out
     case = _mf(_LATEST + r"\tests\test_a.py", 5, last_at=_T2, last_seq=4)
     out, _, _ = driven("全部完成了。", capsys, modified_files=[src, case])
     assert "ReconcileGate" not in out
@@ -1455,10 +1462,11 @@ def test_011_ordinary_root_behaves_as_before(monkeypatch):
 
 
 def test_011_no_root_falls_back_to_absolute_path_with_one_stderr_line(capsys):
-    """拿不到根 → 用絕對路徑判定（這裡 latest 會被 *test* 吃到 → 算案例、沒欠帳），stderr 每個程式檔恰一行。"""
+    """拿不到根 → 用絕對路徑判定，stderr 每個程式檔恰一行。舊樣式 `*test*` 會把上層目錄名 latest 吃成案例、沒欠帳；
+    案例樣式改成測試目錄與檔名慣例（檔名樣式只比檔名）之後，目錄名不再算數 → 照欠。"""
     cfg = vl.reconcile_cfg({})
     src, doc = _mf(_LATEST + r"\src\a.py", 5, last_at=_T1, last_seq=3), _mf(_LATEST + r"\docs\a.md", 5)
-    assert vl.case_debt([src, doc], 5, cfg, lambda p: None) == []
+    assert vl.case_debt([src, doc], 5, cfg, lambda p: None) == [src["path"]]
     err = [ln for ln in capsys.readouterr().err.splitlines() if "[verify_ledger] 找不到" in ln]
     assert err == [f"[verify_ledger] 找不到 {src['path']} 的專案根，案例判定改用絕對路徑"]
 
@@ -2615,12 +2623,12 @@ def test_035_5_restoring_only_code_after_reverting_code_and_case_still_owes(driv
     mods = [_mf(str(code), 5, last_at=_T2, last_seq=6), _mf(str(case), 5, last_at=_T1, last_seq=5)]
     extra = {"last_commit_turn_seq": commit_turn} if commit_turn is not None else {}
     out, _, _ = driven("全部完成了。", capsys, modified_files=mods, **extra)
-    assert "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔" in out, commit_turn
+    assert "改了程式碼（a.py）" in out, commit_turn
 
 
 # ─── 改過又原樣還原的檔不算改碼：內容與 HEAD 相同、本 session 第一次改它之後沒 commit ─────────────────
 
-_DEBT_X = "改了程式碼（x.py）之後沒有新增或修改驗證 case 檔"
+_DEBT_X = "改了程式碼（x.py）"
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -2694,7 +2702,7 @@ def test_any_git_difference_keeps_debt(driven, capsys, clean_repo, kind):
     else:
         Path(x).unlink()
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(path, 5)], scope=True)
-    assert (f"改了程式碼（{Path(path).name}）之後沒有新增或修改驗證 case 檔" in out) is (kind != "ignored"), kind
+    assert (f"改了程式碼（{Path(path).name}）" in out) is (kind != "ignored"), kind
     assert "VerifyScope" in out, kind                                                     # 不是原樣：驗證範圍也照要宣告
 
 
@@ -2819,7 +2827,7 @@ import os  # noqa: E402
 import subprocess  # noqa: E402
 import types  # noqa: E402
 
-_DEBT_A = "改了程式碼（a.py）之後沒有新增或修改驗證 case 檔"
+_DEBT_A = "改了程式碼（a.py）"
 _CODE_V, _CASE_V = "def a():\n    return {}\n", "def test_a():\n    assert a() == {}\n"
 
 
@@ -2859,6 +2867,8 @@ def chain(monkeypatch, tmp_path):
     monkeypatch.setattr(pt, "_check_output_quality", lambda *a, **k: None)
     monkeypatch.setattr(aec_ledger, "record_temp_write", lambda *a, **k: None)
     monkeypatch.setattr(wg_core, "read_state", lambda sid: state)                  # 裁判入口自己讀 state
+    # PostToolUse 與 Stop 吃同一份設定：driven 預設關驗證範圍閘，commit 快照也照關（要測宣告判法的案把 cfg 打開）
+    cfg = {"docdrift": {"enabled": False}, "verify_scope": {"enabled": False}}
 
     def post(tool, tool_input, agent_id="", judge=False):
         inp = {"session_id": _SID, "tool_name": tool, "tool_input": tool_input, "cwd": str(repo),
@@ -2866,7 +2876,7 @@ def chain(monkeypatch, tmp_path):
         if agent_id:
             inp["agent_id"] = agent_id
         with pytest.raises(SystemExit):
-            (pt.handle_judge_post_tool_use if judge else pt.handle_post_tool_use)(inp, {"docdrift": {"enabled": False}})
+            (pt.handle_judge_post_tool_use if judge else pt.handle_post_tool_use)(inp, cfg)
 
     def edit(path, v, agent_id="", judge=False):
         Path(path).write_text((_CODE_V if Path(path).name == "a.py" else _CASE_V).format(v), encoding="utf-8", newline="\n")
@@ -2878,6 +2888,7 @@ def chain(monkeypatch, tmp_path):
         post("Bash", {"command": " ".join(argv)}, agent_id, judge)
 
     edit.post = post                                  # 複合指令的案例自己先做完動作，再用它送同一條指令的 PostToolUse
+    edit.cfg = cfg
     return state, edit, git, repo, code, case
 
 
@@ -3107,6 +3118,40 @@ def test_040_1_release_answer_after_first_block_releases(gate_run, capsys):
     assert "(d)" in out
 
 
+def test_no_case_user_release_is_remembered_until_the_file_changes(driven, capsys, tmp_path, monkeypatch):
+    """NO_CASE_NEEDS_USER 端到端：宣告 no_case → (d) 擋並帶理由 → 使用者在【收尾放行確認】放行 → 下一個使用者回合沒再改就不重問
+    （舊碼沒有這筆紀錄，每回合都要再問）；檔再改了 → 又要裁。guard log 的 user_release 記下裁定了哪些檔。"""
+    tp = tmp_path / "t.jsonl"
+    tp.write_text("", encoding="utf-8")
+    monkeypatch.setattr(st, "_find_session_transcript", lambda *a, **k: tp)
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    monkeypatch.delenv("CLAUDE_COMPANION_JUDGE", raising=False)
+    decl = _declared(_RELATED_CMD)
+    decl[_SID][-1]["no_case"] = [{"path": _CODE, "reason": "只改擋訊息字串"}]
+    state = {"turn_seq": 4, "session": {"cwd": str(tmp_path)}, "modified_files": [_mf(_CODE, 5, last_at=_T1, last_seq=3)],
+             "verify_scope": decl, "verify_receipts": {_SID: [_rcpt(5, at=_T2, seq=4)]}}
+    _ups_turn(monkeypatch, state, "改 hooks/x.py 的擋訊息")
+
+    def stop():
+        out, after, logs = driven("全部完成了。", capsys, scope=True, **copy.deepcopy(state))
+        state.clear()
+        state.update(after)
+        return out, logs
+
+    out, _ = stop()
+    assert "NO_CASE_NEEDS_USER" in out and "只改擋訊息字串" in out, out
+    with open(tp, "a", encoding="utf-8") as f:
+        f.write(_ask_line(rl.OPT_RELEASE))
+    out, logs = stop()
+    assert "ReconcileGate" not in out and any(p.get("no_case_approved") == ["x.py"] for p in _released(logs)), logs
+    _ups_turn(monkeypatch, state, "繼續")                                                  # 使用者真打字：新回合
+    out, _ = stop()
+    assert "NO_CASE_NEEDS_USER" not in out and "ReconcileGate" not in out, out
+    state["modified_files"] = [_mf(_CODE, 6, last_at=_T3, last_seq=9)]                     # 又改了 x.py
+    out, _ = stop()
+    assert "NO_CASE_NEEDS_USER" in out, out
+
+
 def test_040_2_release_answer_before_block_does_not_count(gate_run, capsys):
     """040 規則 (a) 配對（新舊都綠）：擋之前就答過放行、擋之後沒再答 → 仍擋。"""
     state, stop, ups, ask, ref = gate_run
@@ -3243,7 +3288,7 @@ _KNOW_SRC = "def f(x):\n    return x + 1\n"
 
 
 def _know_debt(name: str) -> str:
-    return f"改了程式碼（{name}）之後沒有新增或修改驗證 case 檔"
+    return f"改了程式碼（{name}）"
 
 
 @pytest.fixture()
@@ -3644,7 +3689,7 @@ def test_042_0d_aliased_edit_path_still_sees_index(driven, capsys, chain, how):
     write_alias(3)
     assert _status(repo) == "MM src/a.py"
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
-    assert f"改了程式碼（{alias.name}）之後沒有新增或修改驗證 case 檔" in out, how
+    assert f"改了程式碼（{alias.name}）" in out, how
 
 
 def test_042_0e_snapshot_exemption_checks_every_git_root_of_the_project(tmp_path):

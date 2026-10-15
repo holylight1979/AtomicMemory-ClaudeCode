@@ -552,6 +552,25 @@ def test_background_full_run_failed_cases_are_attributed(proj, lookup):
     assert vs.sync_runs([run]) == []
 
 
+def test_self_receipt_naming_another_node_does_not_cover_this_node(proj, lookup):
+    """背景自寫收據只跑同檔另一個節點 → 不算跑過這一個節點（舊碼把「檔::節點」參數當成不存在的路徑丟掉，變成整棵樹都跑過，
+    (d) 跟著放行；codex P4 WARN）；整支跑過、或就是這個節點 → 算；看起來是路徑卻不存在的參數不當成「沒點名＝全部」。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py::test_a", "why": "直接測"}])
+    item = state["verify_scope"][_SID][-1]["items"][0]
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3)]
+
+    def run(*args):
+        return {"source": "run_verify_self", "argv": ["python", "-m", "pytest", "-q", *args], "cmd": " ".join(args),
+                "exit_code": 0, "cases": 1, "failed": 0, "project_root": str(proj), "cwd": str(proj), "started_at": _LATER_Z,
+                "at": _LATER_Z, "env": {}}
+    assert not vl.scope_item_status(item, [], mods, [run("hooks/verify/verify_x.py::test_b")])[0]
+    assert not vl.scope_item_status(item, [], mods, [run("hooks/verify/verify_nope.py")])[0]
+    assert vl.scope_item_status(item, [], mods, [run("hooks/verify/verify_x.py::test_a")])[0]
+    assert vl.scope_item_status(item, [], mods, [run("hooks/verify/verify_x.py")])[0]
+    assert vl.scope_item_status(item, [], mods, [run()])[0]                                # 沒點名＝整棵樹
+
+
 def test_self_receipt_records_failed_cases(tmp_path):
     from self_receipt import write_self_receipt
     p = write_self_receipt(tmp_path, ["python", "run_verify.py"], "VERIFY_CHECK FAIL cases=2 failed=1", 1, 2, 1,
@@ -636,3 +655,162 @@ def test_need_goal_validates_verify_scope_shape():
     assert ng.validate_input({"action": "verify_scope", "items": [{"target": "a.py"}]})
     assert ng.validate_input({"action": "verify_scope", "items": [{"target": "a.py", "why": "w"}],
                               "reviews": [{"leak": "L1", "verdict": "maybe"}]})
+    ok = {"action": "verify_scope", "items": [{"target": "a.py", "why": "w", "case_for": ["b.py"]}],
+          "no_case": [{"path": "c.py", "reason": "只改字串"}]}
+    assert ng.validate_input(ok) == []
+    assert ng.validate_input({**ok, "items": [{"target": "a.py", "why": "w", "case_for": []}]})
+    assert ng.validate_input({**ok, "items": [{"target": "a.py", "why": "w", "case_for": "b.py"}]})
+    assert ng.validate_input({**ok, "no_case": [{"path": "c.py", "reason": " "}]})
+    assert ng.validate_input({**ok, "no_case": {"path": "c.py", "reason": "r"}})
+
+
+# ─── (d) 由哪個案例驗：LLM 在驗證範圍宣告 case_for／no_case，程式只核對（判斷入口盤點 P4） ───────────
+
+def _code_gates(state, mods, receipts=(), key=_SID):
+    """端到端：stop._verify_gates，對帳與驗證範圍都開（(d) 走案例宣告）。回擋訊息或 None。"""
+    state.setdefault("verify_receipts", {})[key] = list(receipts)
+    reason, _report, _kind, _advice = st._verify_gates(state, key, 5, "", None, "", list(mods), vl.reconcile_cfg({}), {}, {}, False)
+    return reason
+
+
+def _declare_cases(state, root, items, no_case=None, key=_SID):
+    inp = {"action": "verify_scope", "items": items}
+    if no_case is not None:
+        inp["no_case"] = no_case
+    return _vs().declare(state, key, inp, str(root), {})
+
+
+def test_declare_takes_case_for_and_no_case(proj, lookup):
+    """case_for 掛在案例那一項（檔、節點、只跑特定測試檔的指令都可），no_case 附理由；收件回應逐檔列由哪個案例驗。"""
+    state = _state()
+    state["modified_files"] = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "tools" / "t.py", T1, 4)]
+    text = _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py::test_a", "why": "直接測 x", "case_for": ["hooks/x.py"]},
+                                        {"target": "python -m pytest -q tools/verify/verify_t.py", "why": "t 的測試",
+                                         "case_for": ["tools/t.py"]}])
+    assert "收下" in text, text
+    decl = state["verify_scope"][_SID][-1]
+    assert [os.path.normcase(p) for p in decl["items"][0]["case_for"]] == [os.path.normcase(str(proj / "hooks" / "x.py"))]
+    assert "由哪個案例驗" in text and "x.py 宣告由 hooks/verify/verify_x.py::test_a 驗，還不成立" in text, text
+    state = _state()
+    text = _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測"}],
+                          no_case=[{"path": "hooks/x.py", "reason": "只改擋訊息字串"}])
+    assert "收下" in text and state["verify_scope"][_SID][-1]["no_case"][0]["reason"] == "只改擋訊息字串", text
+
+
+@pytest.mark.parametrize("items, no_case, word", [
+    ([{"target": "tools/verify", "why": "整組", "case_for": ["tools/t.py"]}], None, "點不到特定的案例檔"),
+    ([{"target": "tools/t.py", "why": "產品檔不是案例", "case_for": ["hooks/x.py"]}], None, "點不到特定的案例檔"),
+    ([{"target": "python -m pytest -q", "why": "整體驗證", "case_for": ["hooks/x.py"]}], None, "點不到特定的案例檔"),
+    ([{"target": "hooks/verify/verify_x.py", "why": "w", "case_for": ["hooks/nope.py"]}], None, "不存在"),
+    ([{"target": "hooks/verify/verify_x.py", "why": "w", "case_for": ["_AIDocs/doc.md"]}], None, "不是程式檔"),
+    ([{"target": "hooks/verify/verify_x.py", "why": "w", "case_for": ["hooks/x.py"]}],
+     [{"path": "hooks/x.py", "reason": "r"}], "同時列在 case_for 與 no_case"),
+    ([{"target": "hooks/verify/verify_x.py", "why": "w"}], [{"path": "hooks/x.py", "reason": ""}], "no_case[0]"),
+])
+def test_declare_rejects_bad_case_declaration(proj, lookup, items, no_case, word):
+    """CASE_DECL_WELL_FORMED：case_for 掛在點不到案例的項目、列不存在或不是程式的檔、同檔兩邊都列、no_case 缺理由 → 整份退回。"""
+    state = _state()
+    text = _declare_cases(state, proj, items, no_case)
+    assert "拒收" in text and word in text, text
+    assert not (state.get("verify_scope") or {}).get(_SID)
+
+
+def test_moved_away_old_path_can_still_be_declared(proj, lookup):
+    """搬走的程式檔舊路徑已不存在但本 session 改過（還欠著）→ case_for／no_case 都收得下；不存在又沒改過的照退。"""
+    state = _state()
+    old = proj / "hooks" / "old_x.py"
+    state["modified_files"] = [_mf(old, T1, 3)]
+    text = _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "搬過去的新檔也是它驗",
+                                         "case_for": ["hooks/old_x.py", "hooks/x.py"]}])
+    assert "收下" in text, text
+    text = _declare_cases(_state(), proj, [{"target": "hooks/verify/verify_x.py", "why": "w", "case_for": ["hooks/old_x.py"]}])
+    assert "拒收" in text and "也不是本 session 改過的檔" in text, text
+
+
+def test_unrelated_case_edit_no_longer_settles_code_debt(proj, lookup):
+    """P4 主案（舊碼紅）：改了 x.py，之後改了一支不相干的案例 verify_y.py 並跑綠 → 舊判法（最後一次改案例在改碼之後）清掉 x.py 的帳；
+    新判法要宣告由哪個案例驗，沒宣告照擋 CASE_DECLARED_FOR_CHANGE。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_y.py", "why": "呼叫方"}])
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "hooks" / "verify" / "verify_y.py", T1, 4)]
+    reason = _code_gates(state, mods, [_rcpt(proj, _Y_RUN, T2, 5)])
+    assert reason and "CASE_DECLARED_FOR_CHANGE" in reason and "x.py 改過，還沒宣告由哪個案例驗" in reason, reason
+    assert "verify_y.py" in reason                                                    # 擋訊息列出可以拿來宣告的案例檔
+
+
+def test_declared_changed_case_green_after_edit_settles(proj, lookup):
+    """反例：宣告 verify_x.py 驗 x.py、本 session 改過它、改完之後跑綠 → 不欠（(d) 與驗證範圍都過）。"""
+    state = _state()
+    _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測", "case_for": ["hooks/x.py"]}])
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "hooks" / "verify" / "verify_x.py", T1, 4)]
+    assert _code_gates(state, mods, [_rcpt(proj, _X_RUN, T2, 5)]) is None
+
+
+def test_command_item_naming_the_case_file_can_carry_case_for(proj, lookup):
+    state = _state()
+    _declare_cases(state, proj, [{"target": _X_RUN, "why": "直接測", "case_for": ["hooks/x.py"]}])
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "hooks" / "verify" / "verify_x.py", T1, 4)]
+    assert _code_gates(state, mods, [_rcpt(proj, _X_RUN, T2, 5)]) is None
+
+
+@pytest.mark.parametrize("case_edited, verdict, word", [
+    (False, "PASS", "沒有新寫或改過這支案例"),
+    (True, "FAIL", "最近一次跑紅"),
+])
+def test_declared_case_that_does_not_hold_still_owes(proj, lookup, case_edited, verdict, word):
+    """宣告了但不成立：案例本 session 沒改過（既有案例要走 no_case 問使用者）、或改完之後跑紅 → 照欠，列出哪一支哪裡不成立。"""
+    state = _state()
+    _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測", "case_for": ["hooks/x.py"]}])
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3)]
+    if case_edited:
+        mods.append(_mf(proj / "hooks" / "verify" / "verify_x.py", T1, 4))
+    reason = _code_gates(state, mods, [_rcpt(proj, _X_RUN, T2, 5, verdict=verdict, exit_code=0 if verdict == "PASS" else 1)])
+    assert reason and "CASE_DECLARED_FOR_CHANGE" in reason and "還不成立" in reason and word in reason, reason
+
+
+def test_no_case_declaration_blocks_and_hands_reason_to_the_question(proj, lookup):
+    """NO_CASE_NEEDS_USER：宣告不需要新案例 → 照擋（要不要補由使用者裁），擋訊息帶理由與【收尾放行確認】的問法。"""
+    state = _state()
+    _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "既有案例照跑"}],
+                   no_case=[{"path": "hooks/x.py", "reason": "只改擋訊息字串"}])
+    reason = _code_gates(state, [_mf(proj / "hooks" / "x.py", T1, 3)], [_rcpt(proj, _X_RUN, T2, 5)])
+    assert reason and "NO_CASE_NEEDS_USER" in reason and "只改擋訊息字串" in reason and "【收尾放行確認】" in reason, reason
+
+
+def test_user_release_remembers_no_case_until_the_file_changes(proj, lookup):
+    """使用者放行（approve_no_case）把 no_case 的檔綁在它當時的最後一次修改：沒再改 → 不欠、不每回合重問；再改 → 又要裁。
+    沒宣告 no_case 的檔不因放行被記下。"""
+    vs = _vs()
+    state = _state()
+    x, t = proj / "hooks" / "x.py", proj / "tools" / "t.py"
+    state["modified_files"] = [_mf(x, T1, 3), _mf(t, T1, 4)]
+    _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "既有案例照跑"}],
+                   no_case=[{"path": "hooks/x.py", "reason": "只改擋訊息字串"}])
+    assert vs.approve_no_case(state, _SID) == ["x.py"]
+    check = vs.case_check(state, _SID, state["modified_files"], [], vl.reconcile_cfg({}), lookup)
+    assert not check(str(x)).owed and check(str(t)).owed
+    edited = [_mf(x, T2, 9), _mf(t, T1, 4)]
+    assert vs.case_check(state, _SID, edited, [], vl.reconcile_cfg({}), lookup)(str(x)).rule == "NO_CASE_NEEDS_USER"
+    assert vs.case_check(state, _SID, edited, [], vl.reconcile_cfg({}), lookup)(str(x)).owed
+
+
+def test_scope_gate_off_falls_back_to_timing_rule(proj, lookup):
+    """驗證範圍閘關掉（verify_scope.enabled=false）沒有宣告入口 → (d) 退回時序判法：改碼之後改過案例並跑綠就不欠。"""
+    state = _state()
+    state.setdefault("verify_receipts", {})[_SID] = [_rcpt(proj, _Y_RUN, T2, 5)]
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "hooks" / "verify" / "verify_y.py", T1, 4)]
+    reason, _r, _k, _a = st._verify_gates(state, _SID, 5, "", None, "", mods, vl.reconcile_cfg({}), {"enabled": False}, {}, False)
+    assert reason is None, reason
+
+
+def test_commit_snapshot_settles_by_the_same_declaration(proj, lookup, monkeypatch):
+    """commit 快照的「當時不欠案例」與 Stop 同一個判法：驗證範圍閘開著 → _note_commit 照案例宣告算；沒宣告就不算不欠。"""
+    from handlers import post_tool_use as ptu
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3), _mf(proj / "hooks" / "verify" / "verify_x.py", T1, 4)]
+    x_key = vl.canon_path(proj / "hooks" / "x.py")
+    for declared in (False, True):
+        state = {**_state(), "modified_files": [dict(m) for m in mods], "verify_receipts": {_SID: [_rcpt(proj, _X_RUN, T2, 5)]}}
+        if declared:
+            _declare_cases(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測", "case_for": ["hooks/x.py"]}])
+        assert ptu._note_commit(state, "git commit -m x", {}, _SID)
+        assert (x_key in state["commit_snapshot"]["settled"]) is declared, declared

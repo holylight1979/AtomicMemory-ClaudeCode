@@ -3,7 +3,7 @@
 //   second_opinion_start independent 帶 draft 拒、second_opinion_result 缺 job_id 拒、project_smells 缺 part 拒（都不 spawn py）；memory_search 一次真查（回表格標頭或 schema_version）；knowledge_harvest_report chip（items=[] / 含 skip / 缺 reason 拒收）；
 //   atom_write dry_run=true 帶 supersedes 不報 schema 錯；atom_retire 缺 reason 拒；
 //   atom_write scope=org dry_run：這台已接上公司層 → Path 落 <org_root>/.claude/memory/shared/；未接上 → 明確拒絕。
-// 怎麼跑：node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js
+// 怎麼跑：node tools/workflow-guardian-mcp/verify/smoke_mcp_stdio.js（尾行 MCP_SMOKE_CHECK PASS|FAIL）
 // 隔離埠 WG_DASHBOARD_PORT=38499（不撞 3848 的 live guardian）；dry_run 不落檔、不動索引。
 const path = require("path");
 const { spawn } = require("child_process");
@@ -133,6 +133,16 @@ function check(cond, label, detail) {
   check(ng8.result.isError === true && /verdict/.test(textOf(ng8)), "need_goal verify_scope bad review verdict rejected", textOf(ng8));
   const ng9 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "直接測 a" }] });
   check(!ng9.result.isError && /verify_scope 已收到/.test(textOf(ng9)), "need_goal verify_scope chip", textOf(ng9));
+  // (d) 由哪個案例驗：case_for（項目）、no_case（頂層）只驗形狀
+  check(ngDef && ngDef.inputSchema.properties.no_case && ngDef.inputSchema.properties.items.items.properties.case_for,
+        "need_goal schema has case_for and no_case");
+  const ng9b = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", case_for: [] }],
+    no_case: [{ path: "b.py" }] });
+  check(ng9b.result.isError === true && /case_for/.test(textOf(ng9b)) && /no_case\[0\]/.test(textOf(ng9b)),
+        "need_goal verify_scope bad case_for／no_case rejected", textOf(ng9b));
+  const ng9c = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", case_for: ["b.py"] }],
+    no_case: [{ path: "c.py", reason: "只改字串" }] });
+  check(!ng9c.result.isError, "need_goal verify_scope case_for／no_case accepted", textOf(ng9c));
   // same_class：達成節點可附同類別處（只驗形狀：字串）
   const itemProps = ngDef && ngDef.inputSchema.properties.items.items.properties;
   check(itemProps && itemProps.same_class && itemProps.same_class.type === "string", "need_goal schema has same_class");
@@ -245,13 +255,16 @@ function check(cond, label, detail) {
   if (failures.length) {
     console.log(`\nSMOKE FAILED (${failures.length}): ${failures.join(" | ")}`);
     console.log("[server stderr tail]\n" + stderr.slice(-1500));
+    console.log("MCP_SMOKE_CHECK FAIL");
     process.exit(1);
   }
   console.log("\nSMOKE OK");
+  console.log("MCP_SMOKE_CHECK PASS");             // 哨兵尾行：收據認它（驗證範圍項目、(d) 由哪個案例驗）
   process.exit(0);
 })().catch((e) => {
   console.log("SMOKE ERROR:", e.message);
   console.log("[server stderr tail]\n" + stderr.slice(-1500));
+  console.log("MCP_SMOKE_CHECK FAIL");
   try { cp.kill(); } catch {}
   process.exit(1);
 });

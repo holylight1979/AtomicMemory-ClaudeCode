@@ -591,8 +591,9 @@ def _validate_items(action: str, items: List[Any]) -> List[str]:
 
 
 def _validate_verify_scope(inp: Dict[str, Any]) -> List[str]:
-    """verify_scope 的形狀：items 每項 {target, why} 都非空；reviews（選填）每筆 {leak, verdict∈missed|unrelated}。
-    內容（檔在不在、待檢討的漏判有沒有逐筆檢討、該寫的根因有沒有寫）由 wg_verify_scope 收件時照規則判。"""
+    """verify_scope 的形狀：items 每項 {target, why} 都非空、case_for（選填）是非空字串陣列；reviews（選填）每筆
+    {leak, verdict∈missed|unrelated}；no_case（選填）每筆 {path, reason} 都非空。
+    內容（檔在不在、是不是案例檔、待檢討的漏判有沒有逐筆檢討、該寫的根因有沒有寫）由 wg_verify_scope 收件時照規則判。"""
     items = inp.get("items")
     if not isinstance(items, list) or not items:
         return ["verify_scope 要給 items（非空陣列，每項 {target, why}）"]
@@ -608,6 +609,15 @@ def _validate_verify_scope(inp: Dict[str, Any]) -> List[str]:
         ins = it.get("inputs")
         if ins is not None and (not isinstance(ins, list) or not all(_s(x) for x in ins)):
             errs.append(f"items[{i}].inputs 必須是非空字串陣列（這一項還讀的檔或資料夾）")
+        cf = it.get("case_for")
+        if cf is not None and (not isinstance(cf, list) or not cf or not all(_s(x) for x in cf)):
+            errs.append(f"items[{i}].case_for 必須是非空字串陣列（這支案例驗的程式檔）")
+    nc = inp.get("no_case")
+    if nc is not None and not isinstance(nc, list):
+        errs.append("no_case 必須是陣列（[{path, reason}]：不需要新案例的程式檔與理由）")
+    for j, n in enumerate(nc if isinstance(nc, list) else []):
+        if not isinstance(n, dict) or not _s(n.get("path")) or not _s(n.get("reason")):
+            errs.append(f"no_case[{j}] 要有 path（改過的程式檔）與 reason（為什麼不需要新案例）")
     rv = inp.get("reviews")
     if rv is not None and not isinstance(rv, list):
         return errs + ["reviews 必須是陣列"]
