@@ -84,6 +84,37 @@ def test_peer_message_cannot_speak_for_user_in_pre_gates(monkeypatch):
     assert not any("已記為 atom" in ln for ln in lines)
 
 
+_ASK = "記住這條：幫我查一下各閘的最佳實踐，再同時改 hooks/a.py、hooks/b.py、hooks/c.py 這三支"
+
+
+def _hints(prompt: str) -> list:
+    """經 run_pre_gates＋build_context 跑一則 prompt，回注入的提示行（改檔已多、累積關鍵字含 refactor）。"""
+    from handlers import ups_gates as g
+    from handlers import ups_context as c
+    st = {"session_context_injected": True, "modified_files": [{"path": f"c:/p/{i}.py"} for i in range(6)],
+          "topic_tracker": {"keyword_signals": ["refactor", "migrate"], "prompt_count": 9}}
+    lines: list = []
+    g.run_pre_gates("sid", st, {}, prompt, prompt.lower(), lines)
+    c.build_context("sid", st, {}, prompt, prompt, prompt.lower(), 3000, lines)
+    return lines
+
+
+@pytest.mark.parametrize("prompt, fires", [
+    (f"<task-notification>\n<task-id>x</task-id>\n<result>{_ASK}</result>\n</task-notification>", False),
+    (f'<cross-session-message from="uds:x" from-name="claude-ad" from-mode="bypass">\n{_ASK}\n</cross-session-message>', False),
+    (_ASK, True),
+])
+def test_hints_react_only_to_user_typed_text(prompt, fires):
+    """盤點 P3（10-15 實遇：背景子代理回報一進來就注入「偵測到記憶寫入意圖」與「架構級變更→先 EnterPlanMode」）：記憶寫入意圖、
+    研究 fan-out、並行建議只看使用者打的字（user_typed_text），通知與同伴訊息的內文不觸發；使用者自己打同一段話照觸發。
+    情境分類不看這則訊息、看整個 session 的改檔數與累積關鍵字，改檔一多每則都叫人進 Plan Mode：注入拿掉，誰的訊息都不出。"""
+    lines = _hints(prompt)
+    text = "\n".join(lines)
+    assert ("[Atom-Write Guard]" in text) is fires, text
+    assert ("[Research:Fanout]" in text or "[Parallel:Suggest]" in text) is fires, text
+    assert "[情境:規劃]" not in text and "[情境:確認]" not in text, text
+
+
 # ─── 混合訊息：只剔掉非使用者區塊，使用者的字照留（user_typed_text）─────────────────────────
 
 SAID = "不對、重來。先這樣，上GIT。記住：一律使用 UTF-8。不要記。停用"

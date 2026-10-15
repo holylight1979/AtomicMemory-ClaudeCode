@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -389,6 +390,49 @@ def test_observer_with_open_changes_still_links_back_to_old_declaration(proj, lo
     pend = vs.pending_leaks(vs.repo_key(str(proj)))
     assert len(pend) == 1 and pend[0]["scope_id"].endswith("S1") and pend[0]["observer_open"] is True
     assert msg and "先查明是不是它這次改動造成的" in msg
+
+
+def _real_git(proj):
+    """把 proj 換成真 git repo，全部檔在上次綠（T0）之前提交（提交時間 T0 前一小時）。"""
+    import shutil
+    import subprocess
+    shutil.rmtree(proj / ".git")
+    when = (_NOW + timedelta(hours=-4)).isoformat()
+    env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+    for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"], ["add", "-A"],
+                 ["commit", "-qm", "base"]):
+        subprocess.run(["git", "-C", str(proj), *args], check=True, capture_output=True, env=env)
+
+
+@pytest.mark.parametrize("change, red, leak", [
+    ("add_case", "test_r", False),      # 自己新寫的案例先紅（先紅後綠）→ 自己進行中的工作
+    ("edit_case", "test_q", False),     # 自己改了這個案例的內容 → 自己的
+    ("add_case", "test_q", True),       # codex BLOCK：自己在同檔加了別的案例，紅的 test_q 沒動過 → 照記（可能是別人留下的退化）
+    ("no_git", "test_q", True),         # 查不了 git（判不出案例有沒有被改過）→ 照記
+])
+def test_observer_changing_the_red_case_is_its_own_work(proj, lookup, change, red, leak):
+    """盤點 P1（10-15 實遇：照 G3 先寫新案例、先跑紅，被記成兩個已關 session 共 44 筆漏判，還擋住自己的宣告）：看到紅的 session
+    還沒結案地改過紅的那個案例（上次綠時的 git 版本裡沒有它、或它的內容和現在不同）→ 是它進行中的工作，不記別人的範圍漏判，
+    改成告訴它（紅照樣進紅測清單，收尾前要綠）。只看「改過同一份測試檔」不夠：同檔別的案例被別人弄紅會被丟掉。"""
+    if change != "no_git":
+        _real_git(proj)
+        (proj / "hooks" / "x.py").write_text("X = 2\n", encoding="utf-8")       # 上一個 session 真的改了 x.py（不是原樣還原）
+    vs = _vs()
+    _observe(vs, _state(), proj, _Y_RUN, "1 passed", T0, 1)
+    _close_x(proj, _state())
+    assert vs.stats(vs.repo_key(str(proj)))["closed"] == 1                      # 那份範圍確實結案了，下面的判定才有對象
+    y = proj / "hooks" / "verify" / "verify_y.py"
+    if change == "edit_case":
+        y.write_text("def test_q():\n    assert 1 == 2\n", encoding="utf-8")
+    else:
+        y.write_text("def test_q():\n    pass\n\n\ndef test_r():\n    assert 1 == 2\n", encoding="utf-8")
+    busy = _state()
+    busy["modified_files"] = [_mf(y, T2, 5, sid="sid-busy")]
+    out = f"FAILED hooks/verify/verify_y.py::{red} - AssertionError\n1 failed in 0.1s"
+    msg = _observe(vs, busy, proj, _Y_RUN, out, T3, 9, "FAIL", 1, key="sid-busy")
+    assert bool(vs.pending_leaks(vs.repo_key(str(proj)))) is leak, (change, red)
+    if not leak:
+        assert msg and f"verify_y.py::{red}" in msg and "不記範圍漏判" in msg, msg
 
 
 def test_red_caused_by_current_change_reviewed_unrelated_is_not_a_confirmed_miss(proj, lookup):

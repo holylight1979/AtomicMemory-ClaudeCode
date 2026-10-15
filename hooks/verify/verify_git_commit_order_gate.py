@@ -58,8 +58,43 @@ def test_zhi_p_allowed():
     assert _check(state=_state("接著執P")) is None
 
 
-def test_english_commit_word_allowed_case_insensitive():
-    assert _check(state=_state("please COMMIT this")) is None
+@pytest.mark.parametrize("said", ["先不要 commit，我還要看 diff", "commit 訊息怎麼寫比較好？", "please COMMIT this", "push 前先跑測試"])
+def test_generic_vcs_word_alone_is_not_an_order(said):
+    """盤點 P2：一般字「commit／push／提交」出現在使用者原話裡不等於授權（「先不要 commit」舊碼也放行）。
+    是不是授權是語意，交 LLM：commit 指令附「授權原句：「…」」由程式核對（見下一案）。"""
+    msg = _check(state=_state(said))
+    assert msg and "[Guardian:CommitOrder]" in msg and "授權原句" in msg, said
+
+
+@pytest.mark.parametrize("said, quoted, allowed", [
+    ("please COMMIT this", "please COMMIT this", True),             # LLM 判斷是授權、引用原句，原句真的在本回合 → 放行
+    ("好，commit 吧", "commit 吧", True),
+    ("好，commit 吧，但不要 push", "好，commit 吧，但不要 push", True),  # codex BLOCK：否定的是 push（有自己的對象），commit 照授權
+    ("先不要 commit，我還要看 diff", "先不要 commit", False),          # 引用的是否定句 → 擋
+    ("先不要 commit，我還要看 diff", "commit", False),                # 只引動作字也看它在原話裡的位置：左邊有「先不要」→ 擋
+    ("先不要 commit，我還要看 diff", "我還要看 diff", False),          # codex WARN：引的片段沒有提交類動作字 → 擋
+    ("commit 訊息怎麼寫？", "可以 commit", False),                    # 引用的話不在使用者原話裡 → 擋
+])
+def test_quoted_user_sentence_authorizes_commit(said, quoted, allowed):
+    cmd = f"# 授權原句：「{quoted}」\n{_CMD}"
+    assert (_check(command=cmd, state=_state(said)) is None) is allowed, (said, quoted)
+
+
+@pytest.mark.parametrize("said", ["先不要上GIT", "上GIT 先不要，等我看完", "別上乾淨",
+                                  "先不要 commit、push 或上GIT",          # codex BLOCK：否定跨頓號列舉
+                                  "不可以上GIT",                         # codex BLOCK：「不可以」
+                                  "先不要 commit，等我看完再上GIT"])      # 延後到使用者自己確認之後
+def test_negated_shorthand_is_not_an_order(said):
+    """盤點 P2：縮寫口令被否定或延後到使用者確認之後不算：同一子句（逗號句號分號換行為界，頓號與「或」不斷）裡口令左邊有
+    否定字或「等我…」，或右邊只剩不帶對象的否定（「上GIT 先不要」）。否定詞表只會多擋不會多放。"""
+    msg = _check(state=_state(said))
+    assert msg and "[Guardian:CommitOrder]" in msg, said
+
+
+@pytest.mark.parametrize("said", ["上GIT 別碰 settings.json",          # codex BLOCK：否定有自己的對象，口令照算
+                                  "都記好以後 上GIT 、上乾淨。", "不用再問，上GIT", "等你記好再上GIT", "分別上GIT 兩個 repo"])
+def test_shorthand_with_unrelated_negation_still_orders(said):
+    assert _check(state=_state(said)) is None, said
 
 
 def test_legacy_state_only_last_prompt_counts():

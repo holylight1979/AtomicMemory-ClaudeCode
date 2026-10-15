@@ -1370,7 +1370,10 @@ RULES.update({
                                      "條件跑了它的檔；指令項目：照宣告的原字串、在宣告時的目錄跑（cmd_matches）。",
     "SCOPE_LEAK_OUTSIDE_SCOPE": "測試 T 紅了 → 在 T 上次綠之後、這次紅之前結案、範圍沒涵蓋 T 的宣告，各記一筆疑似範圍漏判（連回那次宣告）。"
                                 "T 從沒綠過、T 在範圍內 → 不記。看到紅的 session（或子代理）在這個 repo 還有沒結案的改動 → 照記但標出來，"
-                                "檢討時先查明是不是它自己這次改動造成的（不憑 session 狀態丟掉，免得漏掉別人留下的退化）。只記錄，不擋。",
+                                "檢討時先查明是不是它自己這次改動造成的（不憑 session 狀態丟掉，免得漏掉別人留下的退化）。"
+                                "例外：T 這個案例是它在 T 上次綠之後新寫或改過、還沒結案的（上次綠那時的 git 版本沒有它、或定義不同；"
+                                "先紅後綠的新案例、改了案例）→ 是它進行中的工作，不記，告訴它（紅照樣進紅測清單）。只改同檔別的案例、"
+                                "判不出（查不了 git、解析不了）照記。只記錄，不擋。",
     "SCOPE_LEAK_REVIEW_BEFORE_DECLARE": "該 repo 有還沒檢討的範圍漏判 → 新的宣告要逐筆附檢討才收：missed（該驗的沒驗到）要寫沒驗到的根因"
                                         "（root_cause）與下次判斷範圍時怎麼改（next_time）；unrelated（與那次改動無關）要寫查明的理由（reason）。"
                                         "哪一種、根因是什麼由 LLM 判斷，程式只要求交出來。",
@@ -1453,14 +1456,18 @@ def scope_item_verdict(scope_id: str, target: str, ok: bool, why_not: str = "") 
 
 
 def scope_leak_verdict(test: str, scope_id: str, in_scope: bool, observer_open: bool, last_green: Optional[str],
-                       closed_between: bool) -> Verdict:
+                       closed_between: bool, observer_changed_case: bool = False) -> Verdict:
     """SCOPE_LEAK_OUTSIDE_SCOPE：owed＝要記一筆疑似漏判。closed_between＝那次宣告在 T 上次綠（last_green）之後、這次紅之前結案。
-    observer_open＝看到紅的 session 自己還有沒結案的改動：照記，證據多一行叫檢討時先查明是不是它自己造成的。"""
+    observer_open＝看到紅的 session 自己還有沒結案的改動：照記，證據多一行叫檢討時先查明是不是它自己造成的。
+    observer_changed_case＝T 這個案例是看到紅的 session 在 T 上次綠之後新寫或改過、還沒結案的（比上次綠那時的 git 版本）：
+    是它進行中的工作，不記（紅照樣進紅測清單、收尾前要綠）。只改了同檔別的案例不算。"""
     rule = "SCOPE_LEAK_OUTSIDE_SCOPE"
     if in_scope:
         return Verdict(rule, False, f"{test} 在 {scope_id} 的範圍內（那是退化，不是漏判）")
     if not last_green:
         return Verdict(rule, False, f"{test} 沒有綠過的紀錄，無從歸因")
+    if observer_changed_case:
+        return Verdict(rule, False, f"{test} 是看到紅的 session 在它上次綠之後新寫或改過、還沒結案的案例：算它進行中的工作")
     if not closed_between:
         return Verdict(rule, False, f"{scope_id} 不是在 {test} 上次綠之後、這次紅之前結案的")
     ev = (f"{test} 上次綠：{last_green}",)

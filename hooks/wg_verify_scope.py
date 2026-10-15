@@ -16,10 +16,12 @@ self-observed.json（已入帳的自寫收據）。worktree 與主工作樹用�
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +37,7 @@ DECL_CAP = 20                 # 每個收據鍵留幾份宣告
 RUNS_MAX_BYTES = 4_000_000    # runs.jsonl 超過就砍掉舊的一半
 OBSERVED_CAP = 500            # self-observed.json 記幾份已入帳的自寫收據
 TAG = "[Guardian:VerifyScope]"
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 Lookup = Optional[Callable[[str], Optional[Tuple[Path, Dict[str, Any]]]]]
 
 
@@ -522,8 +525,62 @@ def _record_run(run: Dict[str, Any]) -> None:
     _append("runs.jsonl", run)
 
 
-def _attribute(repo: str, failed: List[str], red_at: str, observer: str, observer_open: bool) -> List[Dict[str, Any]]:
-    """紅名單逐一找漏判（規則 SCOPE_LEAK_OUTSIDE_SCOPE），新記的那幾筆回傳。"""
+def _open_test_edits(state: Dict[str, Any], key: str, tree: str) -> Dict[str, str]:
+    """收據鍵還沒結案的改檔（結案之後又改過，或改了還沒結案）：樹根相對路徑 → 最後修改時間。歸因時看紅的測試檔在不在裡面。"""
+    done = (state.get("verify_scope_closed") or {}).get(key) or {}
+    out: Dict[str, str] = {}
+    for m in _key_mods(state, key):
+        if m.get("path") and (not done or _edited_after(m, done.get("marker") or {})):
+            out[_rel(str(m["path"]), tree)] = _mark(m)[0]
+    return out
+
+
+def _find_def(src: str, names: List[str]) -> Optional[str]:
+    """原始碼裡 [類…]函式 那段定義的 ast.dump（不含行號）；名字不分大小寫（測試節點 id 是小寫比對鍵）。找不到或解析不了 → None。"""
+    try:
+        body = ast.parse(src).body
+    except (SyntaxError, ValueError):
+        return None
+    hit: Optional[ast.AST] = None
+    for i, name in enumerate(names):
+        kinds = (ast.FunctionDef, ast.AsyncFunctionDef) if i == len(names) - 1 else (ast.ClassDef,)
+        hit = next((n for n in body if isinstance(n, kinds) and n.name.lower() == name.lower()), None)
+        if hit is None:
+            return None
+        body = getattr(hit, "body", [])
+    return ast.dump(hit) if hit is not None else None
+
+
+def _case_changed_since(tree: str, test: str, since: str) -> Optional[bool]:
+    """紅的案例（檔::[類::]函式[參數]）在 since 那時的 git 版本裡不存在、或定義和現在不同 → True；相同 → False；
+    判不出（不是 .py、查不了 git、那時的版本讀不到、解析不了）→ None。"""
+    f, _, node = str(test).partition("::")
+    if not node or not f.endswith(".py"):
+        return None
+    names = [n.split("[", 1)[0] for n in node.split("::")]
+    try:
+        base = subprocess.run(["git", "-C", tree, "rev-list", "-1", f"--before={since}", "HEAD"], capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=2, creationflags=_NO_WINDOW)
+        old = subprocess.run(["git", "-C", tree, "show", f"{base.stdout.strip()}:{f}"], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=2, creationflags=_NO_WINDOW) \
+            if base.returncode == 0 and base.stdout.strip() else None
+        new = (Path(tree) / f).read_text(encoding="utf-8")
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        return None
+    if old is None or old.returncode != 0:
+        return None
+    now_def = _find_def(new, names)
+    if now_def is None:
+        return None
+    return _find_def(old.stdout, names) != now_def
+
+
+def _attribute(repo: str, failed: List[str], red_at: str, observer: str, observer_open: bool,
+               own_edits: Optional[Dict[str, str]] = None, own: Optional[List[str]] = None,
+               tree: str = "") -> List[Dict[str, Any]]:
+    """紅名單逐一找漏判（規則 SCOPE_LEAK_OUTSIDE_SCOPE），新記的那幾筆回傳。own_edits＝看到紅的 session 沒結案的改檔
+    （_open_test_edits）；紅的案例所在檔在 T 上次綠之後被它改過，而且那個案例本身是它新寫或改過的（_case_changed_since，
+    比上次綠那時的 git 版本）→ 不記，測試名放進 own（呼叫端告訴它）。判不出案例有沒有被改 → 照記。"""
     if not failed:
         return []
     runs = [r for r in _read("runs.jsonl") if r.get("repo") == repo and _before(r.get("at"), red_at)]
@@ -538,10 +595,15 @@ def _attribute(repo: str, failed: List[str], red_at: str, observer: str, observe
         greens = [r.get("at") for r in runs if rr.scope_covers(r.get("covers") or [], test)
                   and (r.get("green") or (r.get("failed_known") and not rr.scope_failed_in(r.get("failed") or [], test)))]
         last_green = max(greens, key=lambda a: _utc(a) or datetime.min.replace(tzinfo=timezone.utc)) if greens else None
+        edited = (own_edits or {}).get(test.split("::", 1)[0])
+        mine = bool(last_green and edited and _before(last_green, edited) and tree
+                    and _case_changed_since(tree, test, str(last_green)) is True)
+        if mine and own is not None and test not in own:
+            own.append(test)
         for sid, c in closes.items():
             covers = [cv for it in c.get("items") or [] if it.get("repo") == repo for cv in it.get("covers") or []]
             v = rr.scope_leak_verdict(test, sid, rr.scope_covers(covers, test), observer_open, last_green,
-                                      bool(last_green) and _before(last_green, c.get("at")))
+                                      bool(last_green) and _before(last_green, c.get("at")), mine)
             if not v.owed:
                 continue
             lid = "L" + hashlib.sha1(f"{repo}|{sid}|{test}".encode("utf-8")).hexdigest()[:6]   # 同一份宣告跨 repo 的同名測試分開記
@@ -590,8 +652,13 @@ def observe_run(state: Dict[str, Any], key: str, receipt: Dict[str, Any], output
     except Exception as e:  # noqa: BLE001  判不出來 → 當成自己在改（照記，標出來讓檢討時先查明）
         print(f"{TAG} 判斷是否還有沒結案的改動失敗，當成有：{type(e).__name__}: {e}", file=sys.stderr)
         busy = True
-    new = _attribute(repo, failed, at, key, busy)
-    return _leak_notice(new) if new else None
+    own: List[str] = []
+    new = _attribute(repo, failed, at, key, busy, _open_test_edits(state, key, tree), own, tree)
+    notes = [_leak_notice(new)] if new else []
+    if own:
+        notes.append(f"{TAG} {'、'.join(own[:5])} 紅了：這個案例是你在它上次綠之後新寫或改過的、還沒結案，算你進行中的工作，"
+                     "不記範圍漏判（規則 SCOPE_LEAK_OUTSIDE_SCOPE）；收尾前要讓它綠。")
+    return "\n".join(notes) or None
 
 
 def _observed() -> List[str]:

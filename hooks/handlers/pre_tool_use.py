@@ -309,8 +309,40 @@ def _privacy_match(rel_path: str, globs: List[str]) -> Optional[str]:
 # fail-open：state 缺失（sidechain／resume／subagent）或本 session 尚無 user prompt → 放行並落 stderr。
 _COMMIT_ORDER_DEFAULT_KEYWORDS = (
     "上GIT", "上 GIT", "上傳GIT", "上乾淨", "全上", "上版", "上SVN",
-    "執P", "執驗上P", "commit", "提交", "push",
+    "執P", "執驗上P",
 )
+# 「commit／push／提交」這類一般字不是口令：出現在使用者原話裡不等於授權（「先不要 commit」「commit 訊息怎麼寫」）。
+# 是不是授權是語意，交 LLM：判斷是授權就在指令裡附「授權原句：「…」」，程式核對原句逐字在本回合使用者原話裡、所在子句沒被否定。
+_AUTH_QUOTE_RE = re.compile(r"授權原句\s*[:：]\s*「([^」]+)」")
+_COMMIT_WORD_RE = re.compile(r"commit|提交|上傳|送出|上版|上\s*git|push|推送", re.IGNORECASE)
+# 口令或授權動作字有沒有被否定，逐個看它在原話裡的位置。否定詞表只會多擋不會多放：判錯的代價是請使用者再說一次，
+# 放錯的代價是推出去收不回。子句以逗號、句號、分號、問嘆號、換行為界；頓號與「或」不斷，否定會跨列舉。
+_ORDER_CLAUSE_END_RE = re.compile(r"[，,。！？!?；;\n]")
+_ORDER_NEG_RE = re.compile(r"不要|不可以|不能|不行|不用|不必|不准|不許|禁止|先不|先別|(?<![特分類個區識差告性級])別|勿|暫不|暫緩"
+                           r"|\b(?:don'?t|do\s+not|not|never|no)\b", re.IGNORECASE)
+_ORDER_WAIT_RE = re.compile(r"(?:等我|我看完|我確認|我說|我同意)[^，,。！？!?；;\n]*$")     # 延後到使用者自己確認之後
+_ORDER_RIGHT_NEG_RE = re.compile(r"^\s*(?:先不要|不要|先別|別|先不|暫不|不用)\s*(?:了|啦|吧|喔)?\s*$")
+
+
+def _order_negated(text: str, start: int, end: int) -> bool:
+    """text[start:end]（口令或授權動作字）被否定或延後：同一子句裡它左邊有否定字或「等我…」，或右邊只剩一個不帶對象的
+    否定（「上GIT 先不要」）。「上GIT 別碰 X」「commit 吧，但不要 push」的否定各有自己的對象，不算否定這個口令。"""
+    seps = [m.end() for m in _ORDER_CLAUSE_END_RE.finditer(text, 0, start)]
+    left = text[seps[-1] if seps else 0:start]
+    m = _ORDER_CLAUSE_END_RE.search(text, end)
+    right = text[end:m.start() if m else len(text)]
+    return bool(_ORDER_NEG_RE.search(left) or _ORDER_WAIT_RE.search(left) or _ORDER_RIGHT_NEG_RE.match(right))
+
+
+def _quoted_authorization(command: str, turn_prompts: List[str]) -> Optional[str]:
+    """LLM 判斷使用者本回合的話是授權、在指令裡附「授權原句：「…」」：原句逐字出現在本回合使用者原話裡、含提交類動作字，
+    且至少一個動作字在原話裡沒被否定或延後 → 回原句；否則 None（照擋）。"""
+    for q in (x.strip() for x in _AUTH_QUOTE_RE.findall(command or "")):
+        for p in turn_prompts:
+            i = p.find(q) if q else -1
+            if i >= 0 and any(not _order_negated(p, i + m.start(), i + m.end()) for m in _COMMIT_WORD_RE.finditer(q)):
+                return q
+    return None
 
 
 # heredoc 內文不是 shell 指令（文件補丁／內嵌 python 常含「git commit」字樣）；剝掉再拆段，
@@ -351,10 +383,15 @@ def _git_commits_to_run(command: str) -> Tuple[str, List[Tuple[str, List[str]]],
 
 
 def _commit_order_keyword_hit(prompt: str, keywords) -> Optional[str]:
-    low = (prompt or "").lower()
+    """口令命中：關鍵字出現在使用者原話裡，而且至少一處沒被否定或延後（_order_negated；「先不要上GIT」不算）。"""
+    prompt = prompt or ""
+    low = prompt.lower()
     for k in keywords:
-        if k and k.lower() in low:
-            return k
+        i = low.find(k.lower()) if k else -1
+        while i >= 0:
+            if not _order_negated(prompt, i, i + len(k)):
+                return k
+            i = low.find(k.lower(), i + 1)
     return None
 
 
@@ -724,9 +761,18 @@ def check_git_commit_order(
         turn_prompts = user_typed_prompts(state.get("turn_prompts") if isinstance(state.get("turn_prompts"), list) else prompts[-1:])
         if any(_commit_order_keyword_hit(p, keywords) for p in turn_prompts):
             return None
+        quoted = _quoted_authorization(command, turn_prompts)
+        if quoted:
+            try:
+                sys.stderr.write(f"[Guardian:CommitOrder] 依 LLM 引用的使用者原句放行：「{quoted[:80]}」\n")
+            except OSError:
+                pass
+            return None
         return (
             "[Guardian:CommitOrder] 本回合使用者原話沒有版控口令（上GIT／上乾淨／全上／執P…），"
             "已擋下 git commit。\n"
+            "使用者用一般說法授權（例如「好，commit 吧」）：判斷是授權就在指令裡附一行 `# 授權原句：「<使用者本回合的原句>」`，"
+            "程式核對原句逐字在本回合使用者原話裡、所在子句沒有否定（「先不要 commit」不算）。\n"
             "契約（USER.md 縮寫指令）：口令前不碰 git——先在收尾報告列「改了哪些檔＋驗了什麼／沒驗什麼」，"
             "等使用者看過 diff 下「上GIT」，再 commit → push 一氣做完；不得先 commit 再等 push。\n"
             "記憶目錄（根層／專案層／公司層）不適用「記憶相關直上」手動 commit：vcs-sync worker 會在收割與 session 結束時"

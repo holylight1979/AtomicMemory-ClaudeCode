@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 
 from wg_core import (
     MEMORY_DIR, EPISODIC_DIR, _atom_debug_error,
-    _estimate_tokens, truncate_to_tokens,
+    _estimate_tokens, truncate_to_tokens, user_typed_text,
 )
 from wg_atoms import (
     any_trigger_hit,
@@ -103,6 +103,8 @@ def build_context(
             lines.extend(proactive_lines)
 
     # ─── Wisdom Engine — situation classification ──────────
+    # 只記 approach 給反思統計（wisdom_engine 自知盲點），不注入：分類不看這則訊息、看整個 session 的改檔數與累積關鍵字，
+    # 改檔一多每則訊息都叫人先進 Plan Mode；要不要先規劃由 LLM 依這次的需求判斷。
     if WISDOM_AVAILABLE and classify_situation is not None:
         try:
             mod_paths = [m["path"] for m in state.get("modified_files", [])]
@@ -113,8 +115,6 @@ def build_context(
                 "estimated_files": max(len(mod_paths), 1),
             }
             result = classify_situation(prompt_analysis)
-            if result.get("inject"):
-                lines.append(result["inject"])
             cur = result.get("approach", "direct")
             prev = state.get("wisdom_approach", "direct")
             rank = {"direct": 0, "confirm": 1, "plan": 2}
@@ -126,9 +126,10 @@ def build_context(
     # ─── Research Fan-out Suggestion ───────────────
     # 先於 parallel 判定：research 提示已含並行指示，命中則抑制 parallel 免重複佔位。
     research_hit = False
+    typed = user_typed_text(clean_prompt)          # fan-out／並行建議只看使用者打的字：通知、同伴訊息不觸發
     try:
         from wg_research import detect_research_fanout
-        research_line = detect_research_fanout(clean_prompt, state, config)
+        research_line = detect_research_fanout(typed, state, config)
         if research_line:
             lines.append(research_line)
             research_hit = True
@@ -139,7 +140,7 @@ def build_context(
     if not research_hit:
         try:
             from wg_parallel import detect_parallel_opportunity
-            parallel_line = detect_parallel_opportunity(clean_prompt, state, config)
+            parallel_line = detect_parallel_opportunity(typed, state, config)
             if parallel_line:
                 lines.append(parallel_line)
         except Exception as e:

@@ -197,7 +197,7 @@ def run_pre_gates(
         "寫成 atom", "寫 atom", "存成 atom", "存atom", "存成[固]", "存成 [固]",
         "存成[觀]", "存成 [觀]", "記為[固]", "記為 [固]",
     )
-    if any(kw in clean_prompt for kw in atom_write_triggers):
+    if any(kw in typed for kw in atom_write_triggers):                     # 只看使用者打的字：通知、同伴訊息不觸發
         lines.append(
             "[Atom-Write Guard] 偵測到記憶寫入意圖。硬規則："
             "(1) 新 atom 一律 [臨]，MCP atom_write 會 reject [固]/[觀]；"
