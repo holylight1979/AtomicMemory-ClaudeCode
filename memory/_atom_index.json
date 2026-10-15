@@ -7183,6 +7183,54 @@
         "要不要我照這個改"
       ],
       "scope": "global"
+    },
+    {
+      "name": "episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格",
+      "path": "_AIDocs/_atoms/MemDev/episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格.md",
+      "triggers": [
+        "覆轍",
+        "Guardian:覆轍",
+        "Guardian:Oscillation",
+        "oscillation_state",
+        "episodic 池",
+        "跨專案洩漏",
+        "開場提示雜訊",
+        "_detect_rut_patterns"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "skill-description沒加引號遇到空白加井號會被yaml當註解截斷-觸發條件消失且不報錯-一律雙引號",
+      "path": "memory/CC與原子記憶契約/skill-description沒加引號遇到空白加井號會被yaml當註解截斷-觸發條件消失且不報錯-一律雙引號.md",
+      "triggers": [
+        "SKILL.md",
+        "skill description",
+        "frontmatter",
+        "YAML",
+        "井號",
+        "被截斷",
+        "skill 不觸發",
+        "skill 沒被觸發",
+        "plain scalar",
+        "description 引號"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過",
+      "path": "memory/CC與原子記憶契約/部位表前綴一律寫成相對專案根-子字串命中的列會被任何錨在專案根的列整片蓋過.md",
+      "triggers": [
+        "overview-map.md",
+        "部位表",
+        "路徑前綴",
+        "match_row",
+        "最長前綴",
+        "導讀卡没注入",
+        "部位判錯",
+        "合併部位表",
+        "量尺"
+      ],
+      "scope": "global"
     }
   ]
 }

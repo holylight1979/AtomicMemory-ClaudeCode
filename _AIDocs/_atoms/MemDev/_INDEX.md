@@ -29,6 +29,7 @@
 | dashboard-apiatoms-專案-shared-範疇被-frontmatter-scope-覆寫誤歸核心房 | dashboard apiAtoms 專案 shared 範疇被 frontmatter Scope 覆寫誤歸核心房 |
 | decisions-architecture | 架構決策 |
 | edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-windows路徑或引述值一律用函式替換 | edit-metadata用re-subn字串替換會把值裡的反斜線當跳脫-Windows路徑或引述值一律用函式替換 |
+| episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格 | episodic衍生提示讀取池要與寫入端同源-專案session不併根層池-全機單檔狀態要依池分格 |
 | feedback-memory-system-doc-sync | feedback-memory-system-doc-sync |
 | guardian-dashboard-孤兒佔埠與新碼重啟 | Guardian Dashboard 孤兒佔埠與新碼重啟 |
 | guardian-警告訊息辨識度-emoji-前綴分流 | guardian 警告訊息辨識度-emoji 前綴分流 |
