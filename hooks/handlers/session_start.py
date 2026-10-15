@@ -58,17 +58,21 @@ if _TOOLS_DIR not in sys.path:
 
 try:
     from vcs_ignore import (  # lib/：衍生檔退出版控（wg_core 已把 CODE_DIR/lib 放上 sys.path）
+        DERIVED_DIRS as _DERIVED_DIR_NAMES,
         DERIVED_FILES as _DERIVED_INDEX_NAMES,
         REBUILD_HINT as _REBUILD_MANUAL,
         advisory_lines as _vcs_ignore_lines,
         derived_exit_hint as _derived_exit_hint,
+        under_claude_dir as _under_claude_dir,
     )
 except ImportError as _e:  # lib 不在（hooks 升了、lib 沒升）：缺檔重建與衝突提示照舊，只少「退出版控」那段；留痕不無聲
     _atom_debug_error("session_start:vcs_ignore_import", _e)
     _DERIVED_INDEX_NAMES = ("_atom_index.json", "_ATOM_INDEX.md")
+    _DERIVED_DIR_NAMES = ("_staging", "episodic", "vector-db")
     _REBUILD_MANUAL = 'python ~/.claude/tools/sync-atom-index.py --rebuild --memory-dir "{mem}"'
     _vcs_ignore_lines = None
     _derived_exit_hint = None
+    _under_claude_dir = lambda _p: True  # noqa: E731  分不出是不是根層記憶 → 不做過期檢查，只保留缺檔重建
 try:
     from ollama_client import check_long_die_status
 except ImportError:
@@ -156,11 +160,41 @@ def wg_core_workflow_dir() -> Path:
     return wg_core.WORKFLOW_DIR
 
 
+def _index_stale_reason(memory_dir: Path, json_path: Path) -> str:
+    """索引在，但磁碟上的記憶卡已經變了 → 回一句原因；沒變回空字串。
+
+    索引不入版控之後，隊友的卡經 svn／git 更新進來，本機那份舊索引不會跟著動，
+    新卡就不會被注入。這裡只看兩件事：有沒有記憶卡比索引新、索引登記的檔還在不在。
+    索引讀不到就當沒變——判斷失敗不該變成每次都重建。
+    """
+    try:
+        index_mtime = json_path.stat().st_mtime
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    for p in memory_dir.rglob("*.md"):
+        rel = p.relative_to(memory_dir)
+        if rel.parts[0] in _DERIVED_DIR_NAMES or p.name.startswith("_") or p.name == "MEMORY.md":
+            continue
+        try:
+            if p.stat().st_mtime > index_mtime:
+                return f"{rel.as_posix()} 比索引新"
+        except OSError:
+            continue
+    for a in data.get("atoms") or []:
+        path = a.get("path") or ""
+        if path and not (memory_dir.parent / path).exists():
+            return f"索引登記的 {path} 已不在"
+    return ""
+
+
 def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
-    """索引檔不在（沒入版控／被清掉／新 clone）但磁碟上有 atom → 就地重建。
+    """索引檔不在（沒入版控／被清掉／新 clone）、或專案記憶卡比索引新 → 就地從磁碟重建。
 
     索引是衍生檔，本來就該能從 atom 重生；能重生才敢不入版控，
     不入版控才不會「兩個人各加一顆 atom ＝ 同一區塊各插一列 ＝ 衝突」。
+    專案記憶的索引不入版控，所以隊友更新進來的卡要靠這裡的過期檢查才進得了索引；
+    ~/.claude 自己的記憶索引在版控裡、隨 pull 更新，不做過期檢查。
     _ATOM_INDEX.md（mirror）缺檔同理：JSON 在就直接重生、不起子行程。
     回傳要顯示的一行（沒事做回空字串）。重建失敗要大聲並附手動指令——
     否則 trigger 注入靜默變空，沒人知道。
@@ -170,9 +204,14 @@ def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
     json_path = memory_dir / "_atom_index.json"
     md_path = memory_dir / "_ATOM_INDEX.md"
     manual = _REBUILD_MANUAL.format(mem=memory_dir)
-    if json_path.exists():
-        if md_path.exists():
+    stale = ""
+    if json_path.exists() and md_path.exists():
+        if _under_claude_dir(memory_dir):
             return ""
+        stale = _index_stale_reason(memory_dir, json_path)
+        if not stale:
+            return ""
+    elif json_path.exists():
         try:
             from atom_index_json import regenerate_atom_index_md
             regenerate_atom_index_md(memory_dir)
@@ -182,8 +221,10 @@ def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
         if not md_path.exists():
             return f"[Guardian:Index] ⚠ _ATOM_INDEX.md 不在且重生沒產出檔案 → 手動 {manual}"
         return f"[Guardian:Index] _ATOM_INDEX.md 不在 → 已從 _atom_index.json 重生（{memory_dir}）。"
-    if not any(memory_dir.rglob("*.md")):
+    elif not any(memory_dir.rglob("*.md")):
         return ""
+    what = f"索引過期（{stale}）" if stale else "索引不在"
+    harm = "新進的記憶卡這輪不會被注入" if stale else "trigger 注入這輪會是空的"
     import subprocess as _sp
     cmd = [sys.executable, str(CODE_DIR / "tools" / "sync-atom-index.py"),
            "--memory-dir", str(memory_dir), "--rebuild"]
@@ -191,11 +232,19 @@ def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
         r = _sp.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
                     creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0))
     except (OSError, _sp.SubprocessError) as e:
-        return (f"[Guardian:Index] ⚠ 索引不在且重建失敗（{e}）——trigger 注入這輪會是空的"
-                f" → 手動 {manual}")
+        return f"[Guardian:Index] ⚠ {what}且重建失敗（{e}）——{harm} → 手動 {manual}"
     if not json_path.exists():
         return (f"[Guardian:Index] ⚠ 索引不在且重建沒產出檔案：{(r.stderr or '').strip()[:200]}"
                 f"——trigger 注入這輪會是空的 → 手動 {manual}")
+    if stale:
+        if r.returncode != 0:
+            return (f"[Guardian:Index] ⚠ {what}且重建失敗：{(r.stderr or '').strip()[:200]}"
+                    f"——{harm} → 手動 {manual}")
+        # 內容沒變時重建工具可能不改寫檔案：碰一下時間，否則同一張卡每次開 session 都判過期
+        try:
+            os.utime(json_path)
+        except OSError:
+            pass
     # 帶上條目數：從零重建只收「磁碟掃得到的 atom」，舊索引若登記過非 atom 檔
     #（_reference/ 下的參考文、沒有元資料的敘事文），重建後條目會變少。
     # 不報數字的話那個落差是隱形的。
@@ -206,7 +255,7 @@ def _rebuild_index_if_missing(memory_dir: Optional[Path]) -> str:
     except (OSError, ValueError):
         count = ""
     mirror = "" if md_path.exists() else f"；⚠ _ATOM_INDEX.md 仍不在 → 手動 {manual}"
-    return f"[Guardian:Index] 索引不在 → 已從磁碟重建（{memory_dir}）{count}{mirror}。"
+    return f"[Guardian:Index] {what} → 已從磁碟重建（{memory_dir}）{count}{mirror}。"
 
 
 def _regenerate_role_filtered_memory_index(

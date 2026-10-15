@@ -4,6 +4,8 @@
 1. 缺 _atom_index.json 的記憶目錄跑 SessionStart 的重建 → JSON 產出、條目數＝磁碟 atom 數、_ATOM_INDEX.md 一併存在。
 2. 只缺 _ATOM_INDEX.md → 就地從 JSON 重生（JSON 位元組不變、零子行程）；兩檔都在 → 零行。
 3. 重建子行程失敗 → ⚠ 告警帶後果與手動 --rebuild 指令（現有訊息保留）。
+3b. 索引在但過期（有記憶卡比索引新、或索引登記的卡已刪）→ 從磁碟重建並說出原因；
+    索引沒過期 → 零子行程；內容沒變的重建之後不會每次都再判過期；~/.claude 自己的記憶不做過期檢查。
 4. git：ensure_ignore 寫 {mem}/.gitignore 五項（LF）；既有檔只補缺的行、保留原行；再跑零改動；
    整個 .claude/ 被上層 .gitignore 排除 → 不寫；假 .git（非 repo）→ 零動作。
 5. git：衍生檔已被追蹤 → advisory 一次（git rm --cached 確切路徑＋隊友端說明＋舊版手動重建句），
@@ -99,6 +101,91 @@ def test_rebuild_failure_is_loud_with_manual_command(tmp_path, monkeypatch):
     msg = ss._rebuild_index_if_missing(mem)
     assert "⚠" in msg and "重建失敗" in msg and "空的" in msg, msg
     assert "--rebuild --memory-dir" in msg and str(mem) in msg, msg
+
+
+# ─── 3b. 索引過期重建（隊友更新進來的卡）───────────────────────────────────
+
+
+def _age(path: Path, seconds: float) -> None:
+    """把檔案時間往前推，讓「誰比較新」不靠測試跑多快。"""
+    t = path.stat().st_mtime - seconds
+    os.utime(path, (t, t))
+
+
+def _indexed(mem: Path) -> set:
+    return {a["name"] for a in json.loads((mem / INDEX_JSON).read_text(encoding="utf-8"))["atoms"]}
+
+
+def test_stale_index_picks_up_atom_pulled_in_by_update(tmp_path):
+    mem = _mem(tmp_path)
+    for n in ("a", "b"):
+        _atom(mem / "shared", n)
+    ss._rebuild_index_if_missing(mem)
+    for n in ("a", "b"):
+        _age(mem / "shared" / f"{n}.md", 120)
+    _age(mem / INDEX_JSON, 60)
+    _atom(mem / "shared", "c")  # 隊友的卡經 svn update 進來，索引沒動
+    msg = ss._rebuild_index_if_missing(mem)
+    assert "索引過期" in msg and "shared/c.md" in msg and "已從磁碟重建" in msg and "共 3 筆" in msg, msg
+    assert _indexed(mem) == {"a", "b", "c"}
+    assert ss._rebuild_index_if_missing(mem) == ""
+
+
+def test_stale_index_drops_atom_deleted_by_update(tmp_path):
+    mem = _mem(tmp_path)
+    for n in ("a", "b"):
+        _atom(mem / "shared", n)
+    ss._rebuild_index_if_missing(mem)
+    (mem / "shared" / "b.md").unlink()
+    msg = ss._rebuild_index_if_missing(mem)
+    assert "已不在" in msg and "已從磁碟重建" in msg, msg
+    assert _indexed(mem) == {"a"}
+
+
+def test_fresh_index_starts_no_subprocess(tmp_path, monkeypatch):
+    mem = _mem(tmp_path)
+    for n in ("a", "b"):
+        _atom(mem / "shared", n)
+    ss._rebuild_index_if_missing(mem)
+    for p in (mem / "shared").glob("*.md"):
+        _age(p, 60)
+    _atom(mem / "_staging", "draft")  # 暫存區的 .md 不是記憶卡，不算
+    _age(mem / INDEX_JSON, 30)
+    monkeypatch.setattr(subprocess, "run", _boom)
+    assert ss._rebuild_index_if_missing(mem) == ""
+
+
+def test_touched_atom_with_same_content_does_not_rebuild_every_session(tmp_path):
+    mem = _mem(tmp_path)
+    _atom(mem / "shared", "a")
+    ss._rebuild_index_if_missing(mem)
+    _age(mem / INDEX_JSON, 60)
+    _atom(mem / "shared", "a")  # 同內容重寫：時間變新、索引內容不會變
+    assert "索引過期" in ss._rebuild_index_if_missing(mem)
+    assert ss._rebuild_index_if_missing(mem) == ""
+
+
+def test_root_layer_memory_skips_staleness_check(tmp_path, monkeypatch):
+    mem = _mem(tmp_path)
+    _atom(mem / "shared", "a")
+    ss._rebuild_index_if_missing(mem)
+    _age(mem / INDEX_JSON, 60)
+    _atom(mem / "shared", "b")
+    monkeypatch.setattr(ss, "_under_claude_dir", lambda _p: True)
+    monkeypatch.setattr(subprocess, "run", _boom)
+    assert ss._rebuild_index_if_missing(mem) == ""
+
+
+def test_stale_rebuild_failure_is_loud(tmp_path, monkeypatch):
+    mem = _mem(tmp_path)
+    _atom(mem / "shared", "a")
+    ss._rebuild_index_if_missing(mem)
+    _age(mem / INDEX_JSON, 60)
+    _atom(mem / "shared", "b")
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *_a, **_k: subprocess.CompletedProcess([], 1, "", "boom"))
+    msg = ss._rebuild_index_if_missing(mem)
+    assert "⚠" in msg and "索引過期" in msg and "不會被注入" in msg and "--rebuild" in msg, msg
 
 
 # ─── 4-5. git ────────────────────────────────────────────────────────────────
