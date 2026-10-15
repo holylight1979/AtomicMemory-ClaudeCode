@@ -27,6 +27,7 @@
 | 新舊兩版工具量同一份輸入-逐條比確定集合進出-總數不變也可能互相抵銷 | 新舊兩版工具量同一份輸入-逐條比確定集合進出-總數不變也可能互相抵銷 |
 | 時間預算類測試量測時同回合不得並行其他重負載工具呼叫-否則數字被自己污染 | 時間預算類測試量測時同回合不得並行其他重負載工具呼叫-否則數字被自己污染 |
 | 測試收尾不清共用的live量測檔-多session同機共用claude時truncate會刪掉別人的真實資料-測試用monkeypatch改路徑 | 測試收尾不清共用的live量測檔-多session同機共用~claude時truncate會刪掉別人的真實資料-測試用monkeypatch改路徑 |
+| 測試的前置狀態要先斷言成立-否則期望不發生的案例會空轉通過-真git取代假git時改檔與head相同會被當成沒改 | 測試的前置狀態要先斷言成立-否則期望不發生的案例會空轉通過-真git取代假git時改檔與HEAD相同會被當成沒改 |
 | 禁ui自動化時怎麼驗winforms版面-printwindow截被遮住的視窗 | 禁UI自動化時怎麼驗WinForms版面-printwindow截被遮住的視窗 |
 | 背景驗證未收就結束回合-stop閘裁判只看當下事證不看未來承諾 | 背景驗證未收就結束回合-Stop閘裁判只看當下事證不看未來承諾 |
 | 自動化開claude-ai用量頁-headless-edge撞cloudflare人類驗證-日常chrome-profile被鎖不可借用-改專屬chrome-profile一次登入 | 自動化開claude-ai用量頁-headless-Edge撞Cloudflare人類驗證-日常Chrome-profile被鎖不可借用-改專屬Chrome-profile一次登入 |
