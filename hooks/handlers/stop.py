@@ -1160,6 +1160,17 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and in_turn(aec.get("turn_seq"), turn_seq, _since)
         and aec.get("session_id") == session_id
     )
+    # 上一份收尾檢核之後本 session 沒再 Edit/Write（每個改檔最後改到的回合都不晚於報告那回合）→ 沒有新東西可報，
+    # ScanReport 視同已交，純問答回合不再逼重交整份（同回合的後續改動由 emitted_this_turn 覆蓋，這裡只看更早的回合）。
+    # 改檔紀錄沒有回合號（legacy entry）就不知道是不是報告之後改的，不算已交（fail-safe）。
+    def _mod_turn(m: Dict[str, Any]) -> int:
+        return int((m or {}).get("last_turn_seq") or (m or {}).get("turn_seq") or 0)
+
+    aec_up_to_date = (
+        bool(aec.get("turn_seq"))
+        and aec.get("session_id") == session_id
+        and all(0 < _mod_turn(m) <= int(aec.get("turn_seq") or 0) for m in own_mod_files)
+    )
 
     if failing and claims_completion(code_text):
         state["stop_blocked_count"] = stop_count + 1
@@ -1400,7 +1411,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         recent_prompts = state.get("recent_user_prompts", []) or []
         sr_min_files = int(config.get("min_files_to_block", 2))
         if detect_missing_aec_emission(
-            last_text, own_mod_files, recent_prompts, sr_min_files, emitted_this_turn
+            last_text, own_mod_files, recent_prompts, sr_min_files, emitted_this_turn or aec_up_to_date
         ):
             state["stop_blocked_count"] = stop_count + 1
             state["scan_report_warned"] = True  # 保留 one-shot anti-nag（比照現況）
