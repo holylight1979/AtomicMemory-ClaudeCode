@@ -7097,6 +7097,36 @@
         "vacuous pass"
       ],
       "scope": "global"
+    },
+    {
+      "name": "feedback-始末要講原始目標-階段目標-簡略經過-對目標而言的結果-只講經過就是目光狹隘-功能越修腦袋越縮",
+      "path": "memory/Failures/思考與決策/feedback-始末要講原始目標-階段目標-簡略經過-對目標而言的結果-只講經過就是目光狹隘-功能越修腦袋越縮.md",
+      "triggers": [
+        "始末",
+        "事後檢討",
+        "post-mortem",
+        "失誤報告",
+        "白話說明經過",
+        "目光狹隘",
+        "功能越修腦袋越縮",
+        "拐彎處",
+        "LLM 下判斷的切入點"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句",
+      "path": "memory/Failures/工作流/feedback-開工句交出後又有更新-先查下一個session是否已開工-已開工就用sendmessage直接轉更新-不要叫使用者換開工句.md",
+      "triggers": [
+        "開工句更新",
+        "下一階段 session",
+        "新版開工句",
+        "轉給工作 session",
+        "已經開工",
+        "ListAgents",
+        "SendMessage"
+      ],
+      "scope": "global"
     }
   ]
 }
