@@ -7,6 +7,7 @@
 - Created-at: 2026-10-15
 - Related: 併發-session-共用工作樹-收尾選擇性-staging-勿-git-add-a
 - Source: session:afddb6f8 2026-10-15
+- Quote: 「這是我在專案層做token消耗檢查時CC提出的問題，請找出問題並根治 (最高優先)： ``` <pasted_content id="c0cb"> [根層] 覆轍提示跨專案洩漏，請修根因。 現象：在 TSLG 專案 session 啟動時，[Guardian:覆轍] 列出 15 個根層檔（verify_release_rules.py、wg_need_goal.py、overview_hub.p…」
 
 ## 知識
 
