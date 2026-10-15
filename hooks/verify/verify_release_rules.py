@@ -138,6 +138,19 @@ def test_044_moved_new_code_seen():
     assert v.rule == "MOVED_NEW_CODE_SEEN" and v.owed is True and "moved.py" in v.why
 
 
+def test_0a_moved_copy_needs_same_name_or_same_content():
+    """0a（10-15 調度收尾誤擋：已刪的信箱快照腳本 vs 同 session 合進來的新測試檔）：同根新出現的程式檔裡，檔名相同（不分大小寫）、
+    內容與它最後一次寫入時相同、或判不出（新檔讀不到）才算可能是它搬過去的副本；檔名與內容都不同的是別的檔。
+    它沒有內容紀錄（舊 state）→ 判不出，全算（照欠）。"""
+    new = {"hooks/verify/verify_workflow_retention.py": "s2", "pkg/A.sh": "s9", "tools/moved.py": "s1", "tools/unread.py": None}
+    seen, other = rr.moved_copy_candidates("a.sh", "s1", new)
+    assert seen == ["pkg/A.sh", "tools/moved.py", "tools/unread.py"] and other == ["hooks/verify/verify_workflow_retention.py"]
+    seen, other = rr.moved_copy_candidates("a.sh", None, new)
+    assert seen == list(new) and other == []
+    v = rr.gone_verdict("verify_x_snapshot.sh", "git", [], unrelated=["hooks/verify/verify_workflow_retention.py"])
+    assert v.rule == "GONE_IN_GIT_NOTHING_NEW" and v.owed is False and "verify_workflow_retention.py" in v.why
+
+
 @pytest.mark.parametrize("kind, failed", [("svn", ""), ("git", "在 C:/r 查 git 回非零")])
 def test_044_gone_unverifiable(kind, failed):
     """GONE_UNVERIFIABLE：svn 工作副本、或查 git 失敗 → 判不出去向，照欠。"""

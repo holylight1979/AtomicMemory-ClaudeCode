@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-15 收尾查核 (d)：已刪的檔要有「它的副本」出現才算搬走，無關的新程式檔不再連坐
+- 10-15 調度收尾被 (d) `MOVED_NEW_CODE_SEEN` 擋：被忽略信箱裡的快照腳本搬走後，`.gitignore` 拿掉那一行，腳本的舊路徑不再算素材；同 session 又合進一支無關的新測試檔，規則把「同根出現任何新程式檔」當成「可能是腳本搬過去了」。暫存 repo 重現：拿掉忽略行＋無關新程式檔兩者同時成立才擋，缺一不擋。修法改副本判定、不碰忽略判定：PostToolUse 記每次寫入後的內容雜湊（修改紀錄 `sha` 欄，檔已不存在不蓋舊值），`wg_release_rules.moved_copy_candidates` 只把檔名相同或內容相同的新檔當副本，其餘判刪除；沒有內容紀錄照舊全算。不採「從沒被 git 追蹤過＝素材」：本 session 新寫、還沒提交的程式用沒記帳的方式改名會漏欠。驗證：`verify_release_rules`、`verify_stop_reconcile` 新案（刪掉、記帳的 rm、搬到別的忽略目錄三種舊碼紅新碼綠；原樣搬進追蹤目錄、新寫未提交的程式改名兩種照欠）；`test_040_8` 第三段改期望（kept.py 與 a.py 檔名內容都不同，a.py 算刪除，kept.py 照欠）。
+
 ## 2026-10-15 追蹤帳本：任何 repo 的 git worktree 寫的追蹤項都落在主工作樹那本
 - 殘留帳本 `tracking/c--users-holylight--claude-wt-track-verify.jsonl` 是 10-13 00:30 track-verify 工作樹 session 寫的，比「根層 worktree 對回 live」的修正（1ce88464，10-13 00:45 隨 a3 合進 main）早 15 分鐘；它讓每次開根層 session 都報「疑似分裂」。兩筆未結項都已過時：原文搬進根層帳本（`moved_from` 註明出處）並結案寫理由，殘檔刪除。同一根因還在一般專案：`tracking_slug` 只把根層 worktree 換根，其他 repo 的 worktree 仍用自己路徑命名帳本，worktree 刪掉後未結項就變孤兒。新 `lib/overview_hub.main_worktree_of`（只讀 `.git` 指標檔、要管理目錄反向登記才算）讓 `tracking_slug` 把已登記的 worktree 換成主工作樹；未登記的假 worktree、純複本照舊用自己的根。驗證：`verify_tracking_readback` 的 worktree 案從「一般專案 worktree 用自己的根」改成「跟主工作樹同一本」，舊碼 AssertionError 紅、新碼綠，加反例一案；宣告範圍 7 支 362 passed。
 

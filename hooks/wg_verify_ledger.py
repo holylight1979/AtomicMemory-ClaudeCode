@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Pattern, Tuple, Union
 
 from wg_core import CLAUDE_DIR, WORKFLOW_DIR, find_vcs_root, find_vcs_root_ex, resolve_project_root
-from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, gone_verdict, in_turn,
+from wg_release_rules import (canon_path, claim_is_modifier, excluded_region, gone_verdict, in_turn, moved_copy_candidates,
                               owed_after_last_case, user_turn, Verdict,
                               format_hit, green_after_edit_verdict, cmd_names_file, comment_only_change, comment_only_verdict,
                               committed_refs, content_equals_committed, is_temp_path, temp_roots, norm_temp_path, vcs_unreadable_verdict,
@@ -1250,13 +1250,15 @@ def head_new_code(root: Path, cfg: Dict[str, Any], timeout_s: float = 2.0,
 def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: float = 2.0,
                         _run: Optional[Callable[..., Any]] = None,
                         committed_new: Optional[Dict[str, Any]] = None,
-                        verdicts: Optional[Dict[str, Verdict]] = None) -> List[str]:
+                        verdicts: Optional[Dict[str, Verdict]] = None,
+                        last_sha: Optional[Dict[str, Optional[str]]] = None) -> List[str]:
     """Stop 當下已不存在的改過程式檔，查事實交給 wg_release_rules.gone_verdict 判欠不欠，回不欠的那些：
     - 所在版控根：不在任何版控根內 → GONE_OUTSIDE_VCS（不欠）；svn → GONE_UNVERIFIABLE（照欠）
     - git 根：同根 status 新出現的程式檔（未追蹤、新增、改名、複製）＋本 session 在這個根的提交新加進來的程式檔
-      （committed_new：PostToolUse 看到 commit 時用 head_new_code 記的）。有 → MOVED_NEW_CODE_SEEN（照欠）；沒有 → 刪除、不欠。
-      搬走（mv、git mv、Rename-Item、整個目錄改名，搬完又 commit 也一樣）的程式一定會在其中一處以新路徑出現；不追搬檔寫法，只看結果。
-      git 失敗或逾時、預算用完 → GONE_UNVERIFIABLE（照欠）。
+      （committed_new：PostToolUse 看到 commit 時用 head_new_code 記的），交 moved_copy_candidates 挑出可能是它副本的
+      （檔名相同、或內容等於它最後一次寫入時的雜湊 last_sha[canon_path]，修改紀錄的 sha 欄）。有副本 → MOVED_NEW_CODE_SEEN（照欠）；
+      沒有 → 刪除、不欠。搬走（mv、git mv、Rename-Item、整個目錄改名，搬完又 commit 也一樣）的程式一定會在其中一處以新路徑、
+      原內容出現；不追搬檔寫法，只看結果。git 失敗或逾時、預算用完 → GONE_UNVERIFIABLE（照欠）。
     每個檔的判定 stderr 印一行（規則名＋證據）；verdicts 給了就把每個檔的 Verdict 填進去，擋訊息照印。"""
     run = _run or subprocess.run
     exts = cfg.get("code_exts") or []
@@ -1275,9 +1277,7 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
         new_code: List[str] = list(((committed_new or {}).get(key) or {}).get("paths") or [])
         failed = ""
         left = deadline - time.monotonic()
-        if new_code:
-            pass                                                      # 提交裡已經看到新程式檔，不必再查 status
-        elif left < _GIT_MIN_S:
+        if left < _GIT_MIN_S:                                         # 提交裡有新檔也要查 status：副本可能只在 status 裡
             failed = f"在 {root} 沒時間查 git"
         else:
             try:
@@ -1298,9 +1298,14 @@ def vanished_code_paths(paths: Iterable[str], cfg: Dict[str, Any], timeout_s: fl
                         elif "?" in f[:2] or "A" in f[:2]:
                             appeared.append(f[3:])
                     i += 1
-                new_code = [n for n in appeared if is_code_file(n, exts)]
+                new_code = list(dict.fromkeys(new_code + [n for n in appeared if is_code_file(n, exts)]))
+        shas: Dict[str, Optional[str]] = {}
         for p in ps:
-            found[p] = gone_verdict(Path(p).name, "git", new_code, failed)
+            sha = (last_sha or {}).get(canon_path(p))
+            if sha and new_code and not shas:
+                shas = {n: (small_content_sha(str(Path(root) / n)) if time.monotonic() < deadline else None) for n in new_code}
+            seen, other = moved_copy_candidates(Path(p).name, sha, shas or dict.fromkeys(new_code))
+            found[p] = gone_verdict(Path(p).name, "git", seen, failed, other)
     for v in found.values():
         print(f"[verify_ledger] {v.rule}：{v.why}（{'照欠補案例' if v.owed else '不欠補案例'}）", file=sys.stderr)
     if verdicts is not None:
@@ -1365,6 +1370,20 @@ def _content_sha(path: str) -> Optional[str]:
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except OSError:
         return None
+
+
+SHA_SIZE_CAP = 2 * 1024 * 1024    # 修改紀錄 sha 欄與副本比對只算這麼大以內的檔
+
+
+def small_content_sha(path: str) -> Optional[str]:
+    """修改紀錄 sha 欄與 MOVED_NEW_CODE_SEEN 副本比對用的內容雜湊：超過 SHA_SIZE_CAP、不存在、讀不到回 None
+    （寫入端不記、比對端當判不出：已不存在的檔沒有紀錄就全算副本，新檔讀不到也算副本，都是照欠）。"""
+    try:
+        if os.path.getsize(path) > SHA_SIZE_CAP:
+            return None
+    except OSError:
+        return None
+    return _content_sha(path)
 
 
 def commit_snapshot(mods: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, Any],
@@ -2029,7 +2048,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
     exts = cfg.get("code_exts") or []
     absent = [p for p in mod_session if is_code_file(p, exts) and not code_exists(p) and not is_excluded(p, cfg, root_of(p))]
     why: Dict[str, Verdict] = {}
-    gone = vanished_code_paths(absent, cfg, committed_new=committed_new, verdicts=why) if absent else ()
+    last_sha = {canon_path(p): m.get("sha") for p, m in mod_records.items()}
+    gone = vanished_code_paths(absent, cfg, committed_new=committed_new, verdicts=why, last_sha=last_sha) if absent else ()
     debt_why: Dict[str, Verdict] = {}
     owed = case_debt(own_mod_files, turn_seq, cfg, root_of, gone, evidence=debt_why)
     if owed and case_settled:

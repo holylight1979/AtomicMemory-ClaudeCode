@@ -29,8 +29,10 @@ RULES: Dict[str, str] = {
     "OWED_AFTER_LAST_CASE": "本 session 最後一次改仍存在的案例檔之後，同根還改過程式檔 → 欠補案例。",
     "GONE_OUTSIDE_VCS": "改過的程式檔已不存在、也不在任何版控根內（打錯路徑寫到 worktree 外又刪、worktree 被移除整根消失）"
                         "→ 算刪除、不欠：同根的案例無從補，也沒有 status 可查搬去哪。",
-    "GONE_IN_GIT_NOTHING_NEW": "改過的程式檔已不存在、在 git 根內、同根 status 與本 session 提交都沒有新出現的程式檔 → 算刪除、不欠。",
-    "MOVED_NEW_CODE_SEEN": "改過的程式檔已不存在、同根 status 或本 session 提交出現新的程式檔 → 可能是搬過去了，照欠。",
+    "GONE_IN_GIT_NOTHING_NEW": "改過的程式檔已不存在、在 git 根內、同根 status 與本 session 提交都沒有它的副本（沒有新出現的程式檔，"
+                               "或新出現的檔名與內容都和它不同）→ 算刪除、不欠。",
+    "MOVED_NEW_CODE_SEEN": "改過的程式檔已不存在、同根 status 或本 session 提交出現它的副本 → 可能是搬過去了，照欠。副本＝新出現的程式檔裡"
+                           "檔名相同（不分大小寫）、或內容與它最後一次寫入時相同；它沒有內容紀錄、新檔讀不到 → 判不出，全算副本。",
     "GONE_UNVERIFIABLE": "改過的程式檔已不存在、但在 svn 工作副本裡、或查 git 失敗／逾時 → 判不出去向，照欠。",
     "EXCLUDED_REGION": "屬部位表類別 knowledge 的部位（文件、記憶、派工信箱；錨在專案根的最長前綴列）的檔是素材，"
                        "被 .gitignore 忽略或屬執行期資料的檔（與 RUNTIME_DATA_NO_OVERVIEW 同一判式）不是本專案程式：兩者都不算程式、"
@@ -176,19 +178,44 @@ def excluded_region(path: Any, root: Optional[str], kind: Optional[str], gitigno
     return kind == "knowledge" or not runtime_data_verdict(path, root, gitignored).owed
 
 
-def gone_verdict(name: str, vcs_kind: Optional[str], new_code: Iterable[str] = (), git_failed: str = "") -> Verdict:
+def _base_name(p: Any) -> str:
+    return os.path.basename(str(p).replace("\\", "/"))
+
+
+def moved_copy_candidates(name: str, last_sha: Optional[str],
+                          new_code: Dict[str, Optional[str]]) -> Tuple[List[str], List[str]]:
+    """MOVED_NEW_CODE_SEEN 的副本判定：new_code＝同根新出現的程式檔 → 現在內容的雜湊（讀不到＝None）；last_sha＝已不存在的
+    name 最後一次寫入時的內容雜湊（None＝沒有紀錄）。檔名相同（不分大小寫）、內容相同、或判不出的算可能是它搬過去的副本；
+    檔名與內容都不同的是別的檔。回 (副本, 別的檔)，各照 new_code 的順序。"""
+    if last_sha is None:
+        return list(new_code), []
+    seen: List[str] = []
+    other: List[str] = []
+    for path, sha in new_code.items():
+        same = sha is None or sha == last_sha or _base_name(path).lower() == name.lower()
+        (seen if same else other).append(path)
+    return seen, other
+
+
+def gone_verdict(name: str, vcs_kind: Optional[str], new_code: Iterable[str] = (), git_failed: str = "",
+                 unrelated: Iterable[str] = ()) -> Verdict:
     """已不存在的改過程式檔欠不欠補案例（GONE_* ／ MOVED_NEW_CODE_SEEN）。
     vcs_kind＝它（或最近還在的上層目錄）所在的版控根種類 git／svn，None＝不在任何版控根內；
-    new_code＝同根 status 新出現的程式檔＋本 session 提交新加進來的程式檔；git_failed＝查 git 失敗的原因（空＝查到了）。"""
+    new_code＝同根 status 新出現、本 session 提交新加進來的程式檔裡可能是它副本的（moved_copy_candidates）；
+    unrelated＝新出現但檔名與內容都和它不同的（證據用）；git_failed＝查 git 失敗的原因（空＝查到了）。"""
     if vcs_kind is None:
         return Verdict("GONE_OUTSIDE_VCS", False, f"{name} 已不存在、也不在任何版控根內")
     if vcs_kind != "git":
         return Verdict("GONE_UNVERIFIABLE", True, f"{name} 已不存在、在 {vcs_kind} 工作副本裡查不了搬去哪")
     if git_failed:
         return Verdict("GONE_UNVERIFIABLE", True, f"{name} 已不存在、{git_failed}")
-    seen = [os.path.basename(str(n).replace("\\", "/")) for n in new_code or []]
+    seen = [_base_name(n) for n in new_code or []]
     if seen:
-        return Verdict("MOVED_NEW_CODE_SEEN", True, f"{name} 已不存在、同根出現新的程式檔（{'、'.join(seen[:3])}），可能是搬過去了")
+        return Verdict("MOVED_NEW_CODE_SEEN", True, f"{name} 已不存在、同根出現可能是它的副本（{'、'.join(seen[:3])}），可能是搬過去了")
+    other = [_base_name(n) for n in unrelated or []]
+    if other:
+        return Verdict("GONE_IN_GIT_NOTHING_NEW", False,
+                       f"{name} 已不存在、同根新出現的程式檔（{'、'.join(other[:3])}）檔名與內容都和它不同，不是搬過去的")
     return Verdict("GONE_IN_GIT_NOTHING_NEW", False, f"{name} 已不存在、同根 status 與本 session 提交都沒有新的程式檔")
 
 

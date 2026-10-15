@@ -649,8 +649,8 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | CLAIM_FIXED_NEEDS_PASS／CLAIM_MEASURED_NEEDS_DONE／CLAIM_TRIED_NEEDS_EXEC | (a)(b)(c) 宣稱對帳 | 本回合有對得上、晚於改檔、同一棵樹的 PASS／DONE／執行 | 收據缺、對不上、跑在改檔之前 |
 | OWED_AFTER_LAST_CASE | (d) 欠補案例 | — | 本 session 最後一次改仍存在的案例檔之後同根還改過程式檔 |
 | CASE_GREEN_AFTER_EDIT | 先紅後綠 | 改碼之後有同根、仍存在、本 session 改過的案例檔被合格 PASS 點名跑綠（收據與 (a) 同一套採認：指令完整、根可信、只有執行程式的指令；點名只看實際跑程式那幾段的參數；收據晚於該程式檔最後一次修改） | 綠跑在改碼之前、綠的是別的案例、`echo … PASS` 自己印的、輸出導走的 |
-| GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW | 已不存在的改檔 | 不在任何版控根內；或 git 根內且同根沒有新出現的程式檔 → 算刪除 | — |
-| MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE | 已不存在的改檔 | — | 同根出現新程式檔（搬走）；svn 或查 git 失敗；找版控根時 OSError（讀不到 ≠ 不在版控） |
+| GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW | 已不存在的改檔 | 不在任何版控根內；或 git 根內且同根沒有它的副本（沒有新出現的程式檔，或新出現的檔名與內容都和它最後一次寫入時不同）→ 算刪除 | — |
+| MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE | 已不存在的改檔 | — | 同根出現它的副本（檔名相同，或內容等於修改紀錄 `sha` 欄記的最後一次寫入內容；沒有內容紀錄、新檔讀不到 → 全算副本）＝搬走；svn 或查 git 失敗；找版控根時 OSError（讀不到 ≠ 不在版控）。已知邊界：搬完又用沒記帳的方式（跑腳本改寫）改了內容，判成刪除 |
 | EXCLUDED_REGION | 排除區 | 部位表類別 knowledge 的部位（文件、記憶、派工信箱）裡的檔是素材；被 .gitignore 忽略或屬執行期資料的檔（與 RUNTIME_DATA_NO_OVERVIEW 同一判式）不是本專案程式：既不算程式、也不能清帳 | 追蹤中的檔、沒標類別、判不出 → 照算程式 |
 | NET_UNCHANGED／SNAPSHOT_SETTLED | 改過又還原 | 與 HEAD 相同且同根乾淨、沒 commit；或回到 commit 那刻不欠的狀態 | 同根任一改檔不乾淨（程式與案例一起退回、只還原程式） |
 | CONTENT_EQUALS_COMMITTED | 內容等於另一方已提交版本 | blob 等於 MERGE_HEAD／main／master 的版本（merge 取 theirs、退回 main 版） | 指到 HEAD 或本 session 自己提交的 commit 不算 |

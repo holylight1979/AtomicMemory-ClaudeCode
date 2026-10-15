@@ -37,6 +37,7 @@ from wg_verify_ledger import (
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
     aec_evidence_missing, aec_evidence_autofill, aec_followups_missing, next_event_seq, has_cd, env_snapshot,
     commit_snapshot, reconcile_cfg, head_new_code, _git_root_of, reverted_code_files, is_code_file, ledger_path,
+    small_content_sha,
 )
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
                               red_case_names, retry_round_verdict, same_test_run)
@@ -644,18 +645,21 @@ def _note_modified(state: Dict[str, Any], session_id: str, file_path: str, tool_
     不無限累積 entry。turn_seq＝第一次改的回合、last_turn_seq＝最近一次改的回合（對帳閘「本 turn 改了哪些」用）。
     消費端計「編輯次數」者（wisdom track_retry / episodic 工作區統計）讀 count 欄（legacy 無 count → 預設 1）。
     子代理（agent_id 非空）改的檔另記一份到 agent_modified_files[agent_id]（SubagentStop 的對帳／量尺閘只看子代理自己的）；
-    主 session 的 modified_files 照舊也記，主 session 行為不變。"""
-    _upsert_modified(state, state.setdefault("modified_files", []), session_id, file_path, tool_name)
+    主 session 的 modified_files 照舊也記，主 session 行為不變。
+    sha＝寫完之後的內容雜湊（small_content_sha，太大的檔不記）；檔已不存在（rm、搬走）就留上一次的：Stop 判已不存在的檔
+    是不是搬到同根新出現的程式檔（規則 MOVED_NEW_CODE_SEEN）要比它最後的內容。"""
+    sha = small_content_sha(file_path)
+    _upsert_modified(state, state.setdefault("modified_files", []), session_id, file_path, tool_name, sha)
     if agent_id:
         _upsert_modified(state, state.setdefault("agent_modified_files", {}).setdefault(agent_id, []),
-                         session_id, file_path, tool_name)
+                         session_id, file_path, tool_name, sha)
     state["sync_pending"] = True
 
 
 def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_id: str, file_path: str,
-                     tool_name: str) -> None:
+                     tool_name: str, sha: Optional[str] = None) -> None:
     """同一個檔不論哪種寫法（Edit 的反斜線、Bash 的正斜線、大小寫、`..`）只留一筆，比對用 canon_path；
-    path 欄保留第一次記下的原字串。"""
+    path 欄保留第一次記下的原字串。sha 是 None（檔不在、讀不到）不蓋掉舊值。"""
     turn = int(state.get("turn_seq", 0))
     key = canon_path(file_path)
     for m in mods:
@@ -672,6 +676,8 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
             m["tool"] = tool_name
             m["last_turn_seq"] = turn
             m.setdefault("turn_seq", turn)
+            if sha:
+                m["sha"] = sha
             break
     else:
         now = _now_iso()
@@ -685,6 +691,7 @@ def _upsert_modified(state: Dict[str, Any], mods: List[Dict[str, Any]], session_
             "count": 1,
             "turn_seq": turn,
             "last_turn_seq": turn,
+            **({"sha": sha} if sha else {}),
         })
 
 

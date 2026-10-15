@@ -2692,8 +2692,9 @@ def test_040_8_deleted_or_renamed_code_file_no_longer_owes_a_case(driven, capsys
     (repo / "src" / "kept.py").write_text("y = 1\n", encoding="utf-8", newline="\n")
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **s3)
     debt = next((ln for ln in out.split("\\n") if "沒有新增或修改驗證 case 檔" in ln), "")
-    assert "kept.py" in debt                                                                # 配對：還在的照欠
-    assert "a.py" in debt                                                                   # 同根冒出新程式檔：分不出是不是搬過去，刪掉的也照欠
+    assert "（kept.py）" in debt                                                            # 配對：還在的照欠
+    # 0a：同根冒出的 kept.py 檔名與內容都和 a.py 最後一次寫入時不同，不是它搬過去的 → a.py 算刪除（舊碼：任何新程式檔都分不出，
+    # a.py 也照欠）。原內容搬走的照欠見 040_11。
 
 
 @pytest.mark.parametrize("how", ["git_mv_dir", "plain_mv_file", "git_mv_dir_then_commit"])
@@ -3493,6 +3494,85 @@ def test_gitignored_case_cannot_settle_tracked_code(driven, capsys, chain):
     edit(case, 3)
     out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
     assert _DEBT_A not in out
+
+
+@pytest.mark.parametrize("how, owed", [("delete", False), ("rm_recorded", False), ("move_to_ignored", False),
+                                       ("moved_into_tracked", True)])
+def test_0a_gone_material_not_owed_after_ignore_line_dropped(driven, capsys, chain, monkeypatch, how, owed):
+    """0a（10-15 調度收尾 (d) MOVED_NEW_CODE_SEEN 誤擋，Logs/guard-reconcile.jsonl session 3b5b2245 turn 67）：在被忽略的信箱寫快照腳本
+    → 刪掉（含記帳的 rm）或搬到別的忽略目錄 → 拿掉忽略那一行 → 本 session 又提交一支無關的新程式檔。舊碼把那支新檔當成腳本「可能搬過去」
+    照欠；新碼：新檔檔名與內容都和腳本最後一次寫入時不同，不是它搬過去的 → 刪除、不欠。配對：腳本改名搬進追蹤目錄並提交（內容相同）→ 照欠。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, _, _ = chain
+    (repo / ".gitignore").write_text("box/\nbox2/\n", encoding="utf-8", newline="\n")
+    git("add", ".gitignore")
+    git("commit", "-qm", "ignore box")
+    p = repo / "box" / "_console" / "verify_x_snapshot.sh"
+    p.parent.mkdir(parents=True)
+    p.write_text("echo snapshot\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(p)})
+    if how == "moved_into_tracked":
+        dst = repo / "tools" / "snap.sh"
+        dst.parent.mkdir(parents=True)
+        p.rename(dst)                                                    # 沒經過記帳的搬法
+        git("add", "tools/snap.sh")
+    elif how == "move_to_ignored":
+        dst = repo / "box2" / "merge-scripts" / p.name
+        dst.parent.mkdir(parents=True)
+        p.rename(dst)
+    else:
+        p.unlink()
+        if how == "rm_recorded":
+            edit.post("Bash", {"command": f"rm {str(p).replace(chr(92), '/')}"})
+    (repo / ".gitignore").write_text("box2/\n", encoding="utf-8", newline="\n")
+    git("add", ".gitignore")
+    retention = repo / "hooks" / "verify" / "verify_workflow_retention.py"
+    retention.parent.mkdir(parents=True)
+    retention.write_text("def test_keep():\n    assert True\n", encoding="utf-8", newline="\n")
+    git("add", "hooks/verify/verify_workflow_retention.py")
+    git("commit", "-qm", "merge retention table")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert ("改了程式碼（verify_x_snapshot.sh）" in out) is owed, how
+
+
+def test_0a_dir_move_after_unrelated_commit_still_owes(driven, capsys, chain, monkeypatch):
+    """0a codex BLOCK：改 src/a.py → 本 session 提交一支無關的新測試檔（提交紀錄有新程式檔）→ `git mv src pkg` 還沒 commit →
+    照欠。副本只認同名或同內容後，不能再因為提交紀錄已有新檔就不查 status：搬過去的 pkg/a.py 只在 status 裡。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, git, repo, code, _ = chain
+    edit(code, 3)
+    other = repo / "tests" / "test_other.py"
+    other.write_text("def test_other():\n    assert True\n", encoding="utf-8", newline="\n")
+    git("add", "tests/test_other.py")
+    git("commit", "-qm", "unrelated test")
+    assert "tests/test_other.py" in str(state.get("committed_new_code"))
+    git("mv", "src", "pkg")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert _DEBT_A in out
+
+
+def test_0a_small_content_sha_skips_big_files(tmp_path, monkeypatch):
+    """0a codex WARN：修改紀錄 sha 欄與副本比對只算 SHA_SIZE_CAP 以內的檔（大檔整檔讀會吃掉 Stop 的時間預算）；
+    超過、不存在 → None（寫入端不記、比對端當判不出，照欠）。"""
+    monkeypatch.setattr(vl, "SHA_SIZE_CAP", 10)
+    small, big = tmp_path / "s.py", tmp_path / "b.py"
+    small.write_bytes(b"x = 1\n")
+    big.write_bytes(b"x = 1234567890\n")
+    assert vl.small_content_sha(str(small)) == vl._content_sha(str(small)) is not None
+    assert vl.small_content_sha(str(big)) is None and vl.small_content_sha(str(tmp_path / "none.py")) is None
+
+
+def test_0a_session_new_untracked_code_moved_still_owes(driven, capsys, chain, monkeypatch):
+    """0a 配對（新舊都綠；說明為什麼不拿「從沒被 git 追蹤過」當素材的判準）：本 session 新寫、還沒提交的 src/new.py，用沒記帳的方式
+    改名成 src/renamed.py（內容相同）→ 照欠。它寫的時候就在追蹤目錄裡、是程式；從沒追蹤過不代表是素材。"""
+    monkeypatch.setattr(vl, "code_exists", os.path.isfile)
+    state, edit, _, repo, _, _ = chain
+    new = repo / "src" / "new.py"
+    new.write_text("def new():\n    return 1\n", encoding="utf-8", newline="\n")
+    edit.post("Write", {"file_path": str(new)})
+    new.rename(repo / "src" / "renamed.py")
+    out, _, _ = driven("全部完成了。", capsys, anti_evasion_report=_aec(5, j="無", k="無"), **state)
+    assert "改了程式碼（new.py）" in out
 
 
 def test_042_2c_excluded_region_is_anchored_at_known_root(tmp_path):
