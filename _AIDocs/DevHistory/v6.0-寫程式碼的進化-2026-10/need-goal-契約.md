@@ -165,7 +165,8 @@
 | `items` | array | add／update／reconcile | add：`{text 必填, clarity?, origin?}`；update：`{id 必填, text?, status?, clarity?, why 必填}`，text／status／clarity 至少一項；reconcile：`{id 必填, status 必填（done｜partial｜none｜dropped）, evidence?: [{kind, ref, level, covers?}], followup?, note?}` |
 | `turns` | int ≥ 0 | reconcile | 拐了幾個彎（C-G11 預留） |
 | `form` | enum `full｜compact｜handoff` | read | 預設 full；handoff 回續接單區塊（給 /handoff 手寫續接單貼上） |
-| `items`（verify_scope） | array | verify_scope | `{target 必填, why 必填}`：target 是測試檔、測試節點（`檔::名`）、資料夾或指令，why 一句為什麼和這次改動有關 |
+| `items`（verify_scope） | array | verify_scope | `{target 必填, why 必填, inputs?, case_for?}`：target 是測試檔、測試節點（`檔::名`）、資料夾或指令，why 一句為什麼和這次改動有關；case_for（非空字串陣列）＝這支案例驗的改過程式檔，只能掛在點得到案例檔的那一項 |
+| `no_case` | array | verify_scope | 不需要新案例的改過程式檔 `{path 必填, reason 必填}`；收尾 (d) 照擋、照【收尾放行確認】問使用者並帶理由 |
 | `reviews` | array | verify_scope | 待檢討的範圍漏判逐筆檢討 `{leak 必填, verdict 必填（missed｜unrelated）, root_cause?, next_time?, reason?}`；missed 要 root_cause 與 next_time、unrelated 要 reason 由 Python 收件時判 |
 
 js 拒收（`isError`）的呼叫，Python 不套用（post_tool_use 看到 error 回應就跳過）。js 收下回一行 `[NeedGoal] <action> 已收到`。

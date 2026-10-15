@@ -735,7 +735,7 @@
     "ledger_sources": []
   },
   "reconcile_gate": {
-    "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；每次 Stop 都判，主 session、SubagentStop、裁判 Stop 共用 _verify_gates；判定出例外一律擋）：收尾宣稱 vs 驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令），宣稱看最後一句（優先 hook 輸入的 last_assistant_message）以子句判（轉折詞另起子句、否定／疑問排除、第三方是子句主語且無「我／本／已」才算轉述）。(a) 說修好要本回合對得上改檔的 PASS：收據要晚於每個對上的改檔、同一棵樹（收據根與改檔根互為上下層都算）、指令能當一般證據（只有執行程式的指令：直譯器、測試與建置工具、腳本檔；多段只准 && 串、輸出不導走；指令任何地方寫了哨兵字樣或夾了讀檔、印字就不算）；對得上＝收據 cmd 含修改檔 stem 整詞、或 test_<stem>／verify_<stem>／<stem>_test、或整體驗證（執行根自己那支 run_verify.py／無檔名 pytest／部位量尺指令，只涵蓋執行根之下的改檔）、或修改檔所在 verify 目錄；改檔所在部位有合格的 run_verify 自寫收據（workflow/verify-ledger/_runs/，argv 對上量尺、改完才開始跑、同一棵樹、全綠）也算。(b) 說量了要能當證據的 DONE 或合格自寫收據 (c) 說試過要本回合有 exec_tools 呼叫 (d) 改了 code_exts 檔之後，同根沒有仍存在的 verify_case_globs 檔被新增或修改→擋「改了碼沒驗證 case」（PASS 不能代替；跨回合、不看措辭；glob 用相對專案根的路徑比）；改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；判不出來照算改了）不算改碼；部位表類別 knowledge 的部位（文件、記憶、派工信箱）下的檔兩邊都不算（不欠案例、不能替寫碼部位清帳；判法看路徑屬哪一列不看副檔名，沒有部位表照舊）。(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。預算：(a)～(d)＋量尺閘共用獨立預算 max_blocks_per_turn（不吃 stop_gate_max_blocks），擋滿不放行：記 pending 跨回合承接，要用 AskUserQuestion 照【收尾放行確認】問使用者；使用者在最後一次擋之後選放行或整句打「放行」才放這一回合，並記 user_release（Logs/guard-<閘>.jsonl event=user_release，週健檢列 red）；子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬記憶與報告類，照舊第 3 次放行並寫 Logs/guard-reconcile_overflow.jsonl（週健檢列 red）。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
+    "_doc": "Stop 寫碼查核的對帳閘（緊接 TestFailGate；每次 Stop 都判，主 session、SubagentStop、裁判 Stop 共用 _verify_gates；判定出例外一律擋）：收尾宣稱 vs 驗證收據（hooks/wg_verify_ledger.py 採認、lib/self_receipt.py 解析指令），宣稱看最後一句（優先 hook 輸入的 last_assistant_message）以子句判（轉折詞另起子句、否定／疑問排除、第三方是子句主語且無「我／本／已」才算轉述）。(a) 說修好要本回合對得上改檔的 PASS：收據要晚於每個對上的改檔、同一棵樹（收據根與改檔根互為上下層都算）、指令能當一般證據（只有執行程式的指令：直譯器、測試與建置工具、腳本檔；多段只准 && 串、輸出不導走；指令任何地方寫了哨兵字樣或夾了讀檔、印字就不算）；對得上＝收據 cmd 含修改檔 stem 整詞、或 test_<stem>／verify_<stem>／<stem>_test、或整體驗證（執行根自己那支 run_verify.py／無檔名 pytest／部位量尺指令，只涵蓋執行根之下的改檔）、或修改檔所在 verify 目錄；改檔所在部位有合格的 run_verify 自寫收據（workflow/verify-ledger/_runs/，argv 對上量尺、改完才開始跑、同一棵樹、全綠）也算。(b) 說量了要能當證據的 DONE 或合格自寫收據 (c) 說試過要本回合有 exec_tools 呼叫 (d) 改了 code_exts 檔要有成立的「由哪個案例驗」宣告（need_goal verify_scope 項目的 case_for：案例檔本 session 新寫或改過、那一項改完之後跑綠；不需要新案例就宣告 no_case 附理由，照擋、照【收尾放行確認】問使用者；改了別支測試不替它清帳；PASS 不能代替；跨回合、不看措辭）；驗證範圍閘關掉時退回舊判法：改碼之後同根沒有仍存在的案例檔被新增或修改就擋。案例檔＝符合 verify_case_globs 的程式檔（相對專案根比；測試目錄或 test_／_test／.test／.spec 這類檔名，檔名裡剛好含 test 的產品檔不算；測試檔不在這些慣例裡的專案自己加樣式）；改過又原樣還原的檔（git 追蹤、git status 對它無輸出、本 session 第一次改它之後沒 commit；判不出來照算改了）不算改碼；部位表類別 knowledge 的部位（文件、記憶、派工信箱）下的檔兩邊都不算（不欠案例、不能替寫碼部位清帳；判法看路徑屬哪一列不看副檔名，沒有部位表照舊）。(e) AEC 已 emit：(j) 空／路徑不存在→擋，(k) 空字串→擋（「無」放行）。預算：(a)～(d)＋量尺閘共用獨立預算 max_blocks_per_turn（不吃 stop_gate_max_blocks），擋滿不放行：記 pending 跨回合承接，要用 AskUserQuestion 照【收尾放行確認】問使用者；使用者在最後一次擋之後選放行或整句打「放行」才放這一回合，並記 user_release（Logs/guard-<閘>.jsonl event=user_release，週健檢列 red）；子代理、裁判、headless 沒有人能回答，擋到底。(e) 屬記憶與報告類，照舊第 3 次放行並寫 Logs/guard-reconcile_overflow.jsonl（週健檢列 red）。宣稱詞表在 forbidden-phrases.json 的 fixed_claim／measured_claim／tried_claim。一鍵關＝enabled:false。",
     "enabled": true,
     "max_blocks_per_turn": 2,
     "exec_tools": [
@@ -749,9 +749,9 @@
       ".svelte", ".ps1", ".psm1", ".sh", ".bash", ".sql", ".gd", ".shader", ".hlsl", ".glsl"
     ],
     "verify_case_globs": [
-      "**/verify/**",
-      "**/tests/**",
-      "**/*test*"
+      "**/verify/**", "**/tests/**", "**/test/**", "**/__tests__/**", "**/*.tests/**",
+      "**/test_*", "**/*_test.*", "**/*_tests.*", "**/*.test.*", "**/*.spec.*", "**/test.*", "**/tests.*",
+      "**/conftest.py"
     ]
   },
   "verify_scope": {

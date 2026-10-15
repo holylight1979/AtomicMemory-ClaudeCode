@@ -3,7 +3,8 @@
 做什麼：用 probe_release_rules 的沙箱（tmp 資料根、家目錄、系統暫存、Logs）與受測樹的真 hook 入口 hooks/workflow-guardian.py，
   餵造好的事件 JSON，走一遍「改程式 → 沒宣告被擋 → 宣告範圍 → 範圍內跑綠 → 收尾放行（結案）→ 下一回合範圍外的測試紅了 →
   記範圍漏判 → 新 session 開場列出 → 沒檢討的新宣告被退回 → 交了檢討收下」。
-  S1 主流程；S2 部位表整把量尺只當參考（改到有量尺的部位，只跑宣告的一支就放行）。
+  S1 主流程；S2 部位表整把量尺只當參考（改到有量尺的部位，只跑宣告的一支就放行）；S3 寫碼查核 (d) 由哪個案例驗
+  （改了不相干的測試照擋、no_case 照擋並帶理由、case_for 到改過且跑綠的案例才放）。
 不是 pytest 案例（檔名不以 verify_／test_ 開頭）；pytest 案例在 hooks/verify/verify_verify_scope.py。
 
 怎麼跑：python -X utf8 hooks/verify/probe_verify_scope.py --tree <受測 worktree> [--keep]
@@ -42,8 +43,9 @@ def _ctx(step: dict) -> str:
     return str((j.get("hookSpecificOutput") or {}).get("additionalContext") or j.get("reason") or "")
 
 
-def declare(s: Session, items: list, reviews: list | None = None) -> dict:
-    ti = {"action": "verify_scope", "items": items, **({"reviews": reviews} if reviews is not None else {})}
+def declare(s: Session, items: list, reviews: list | None = None, no_case: list | None = None) -> dict:
+    ti = {"action": "verify_scope", "items": items, **({"reviews": reviews} if reviews is not None else {}),
+          **({"no_case": no_case} if no_case is not None else {})}
     tid = s._id()
     s._rec({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": tid, "name": NG, "input": ti}]}})
     s._rec({"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": tid,
@@ -78,12 +80,11 @@ def s1(tree: Path, base: Path):
     r = reason_of(st)
     c.add("改了程式沒宣告就 Stop", "block" if "SCOPE_DECLARED_FOR_CHANGE" in r else st["result"], "block", note=r[:90])
     c.add("擋訊息附部位整把量尺當參考", "yes" if "參考（不必全跑）" in r and "pytest -q tests" in r else "no", "yes")
-    d = declare(s, [{"target": "tests/test_a.py", "why": "直接測 src/a.py 的常數"}])
+    d = declare(s, [{"target": "tests/test_a.py", "why": "直接測 src/a.py 的常數", "case_for": ["src/a.py"]}])
     c.add("宣告收下", "yes" if "verify_scope 收下" in _ctx(d) else "no", "yes", note=_ctx(d)[:90])
     s.bash("python -X utf8 -m pytest -q tests/test_a.py", ".\n1 passed in 0.01s\n")
     st = s.stop(TEXT_DONE, active=True)
-    c.add("範圍內跑綠後 Stop（只跑一支，不跑整把）", "block" if "VerifyScope" in reason_of(st) else "pass", "pass",
-          note=reason_of(st)[:90])
+    c.add("範圍內跑綠後 Stop（只跑一支，不跑整把）", "block" if _code_gate(st) else "pass", "pass", note=reason_of(st)[:90])
     time.sleep(1.1)
     red = s.bash("python -X utf8 -m pytest -q tests/test_b.py", "F\nFAILED tests/test_b.py::test_b - assert 0\n1 failed in 0.01s\n",
                  exit_code=1)
@@ -117,14 +118,52 @@ def s2(tree: Path, base: Path):
     s.prompt("改 src/a.py 一行")
     s.write(proj / "src" / "a.py", "A = 3\n")
     s.write(proj / "tests" / "test_a.py", "def test_a():\n    assert 3\n")
-    declare(s, [{"target": "tests/test_a.py", "why": "直接測 src/a.py"}])
+    declare(s, [{"target": "tests/test_a.py", "why": "直接測 src/a.py", "case_for": ["src/a.py"]}])
     s.bash("python -X utf8 -m pytest -q tests/test_a.py", ".\n1 passed in 0.01s\n")
     st = s.stop(TEXT_DONE)
-    c.add("沒跑整把 `pytest -q tests` 也放行", "block" if "VerifyScope" in reason_of(st) else "pass", "pass", note=reason_of(st)[:90])
+    c.add("沒跑整把 `pytest -q tests` 也放行", "block" if _code_gate(st) else "pass", "pass", note=reason_of(st)[:90])
     return c, [s]
 
 
-SCENARIOS = {"S1": s1, "S2": s2}
+def _code_gate(st: dict) -> bool:
+    """寫碼查核擋了沒：對帳 (a)～(d) 與驗證範圍兩個閘任一個（只看一個閘的字樣會把另一個閘的擋記成放行）。"""
+    r = reason_of(st)
+    return "ReconcileGate" in r or "VerifyScope" in r
+
+
+def s3(tree: Path, base: Path):
+    c = Checks("S3", "(d) 由哪個案例驗：改了不相干的測試不替程式清帳；宣告 case_for 到改過、跑綠的案例才放；宣告 no_case 照擋並帶理由")
+    sb = Sandbox(tree, base, "s3")
+    _scope_on(sb)
+    proj = _project(sb)
+    s = Session(sb, proj)
+    s.session_start()
+    s.prompt("改 src/a.py")
+    s.write(proj / "src" / "a.py", "A = 4\n")
+    time.sleep(1.1)
+    s.write(proj / "tests" / "test_b.py", "def test_b():\n    assert 1\n")                        # 不相干的案例
+    declare(s, [{"target": "tests/test_b.py", "why": "順手跑的別支測試"}])
+    s.bash("python -X utf8 -m pytest -q tests/test_b.py", ".\n1 passed in 0.01s\n")
+    st = s.stop(TEXT_DONE)
+    r = reason_of(st)
+    c.add("改了不相干的測試並跑綠 → (d) 照擋", "block" if "CASE_DECLARED_FOR_CHANGE" in r else st["result"], "block", note=r[:120])
+    declare(s, [{"target": "tests/test_b.py", "why": "順手跑的別支測試"}],
+            no_case=[{"path": "src/a.py", "reason": "只改常數值"}])
+    st = s.stop(TEXT_DONE, active=True)
+    r = reason_of(st)
+    c.add("宣告 no_case → 照擋並帶理由與放行問法", "yes" if "NO_CASE_NEEDS_USER" in r and "只改常數值" in r and "【收尾放行確認】" in r
+          else "no", "yes", note=r[:120])
+    time.sleep(1.1)
+    s.write(proj / "tests" / "test_a.py", "def test_a():\n    assert 4\n")
+    d = declare(s, [{"target": "tests/test_a.py", "why": "直接測 src/a.py 的常數", "case_for": ["src/a.py"]}])
+    c.add("宣告回應逐檔列由哪個案例驗", "yes" if "由哪個案例驗" in _ctx(d) and "a.py" in _ctx(d) else "no", "yes", note=_ctx(d)[:120])
+    s.bash("python -X utf8 -m pytest -q tests/test_a.py", ".\n1 passed in 0.01s\n")
+    st = s.stop(TEXT_DONE, active=True)
+    c.add("案例宣告成立（改過、改完跑綠）→ 放行", "block" if _code_gate(st) else "pass", "pass", note=reason_of(st)[:120])
+    return c, [s]
+
+
+SCENARIOS = {"S1": s1, "S2": s2, "S3": s3}
 
 
 def main() -> int:

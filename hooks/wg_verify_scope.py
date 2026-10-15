@@ -377,8 +377,11 @@ def declare(state: Dict[str, Any], key: str, tool_input: Dict[str, Any], cwd: st
     errs = [] if isinstance(items, list) and items and all(isinstance(it, dict) for it in items) else ng.validate_input(tool_input)
     if errs:
         return f"{TAG} verify_scope 拒收，沒有套用：\n" + "\n".join(f"  ✗ {e}" for e in errs)
+    rg = vl.reconcile_cfg(config or {})
+    changed = {rr.canon_path(m["path"]) for m in _key_mods(state, key) if isinstance(m, dict) and m.get("path")}
     norm: List[Dict[str, Any]] = []
     bad: List[str] = []
+    case_probs: List[str] = []
     for it in items:
         target, why = str(it.get("target") or "").strip(), str(it.get("why") or "").strip()
         rec, problem = _normalize(target, cwd, lookup) if target and why else (None, "")
@@ -398,12 +401,19 @@ def declare(state: Dict[str, Any], key: str, tool_input: Dict[str, Any], cwd: st
         rec["why"] = why
         if inputs:
             rec["inputs"] = inputs
+        if it.get("case_for") is not None:
+            rec["case_for"] = _case_for(target, it.get("case_for"), rec, cwd, rg, case_probs, changed)
         norm.append(rec)
     if bad:
         return f"{TAG} verify_scope 拒收，沒有套用（整份重交）：\n" + "\n".join("  " + b for b in bad)
-    errs = ng.validate_input(tool_input)                     # 項目都合格了，再看 reviews 的形狀
+    errs = ng.validate_input(tool_input)                     # 項目都合格了，再看 reviews、no_case 的形狀
     if errs:
         return f"{TAG} verify_scope 拒收，沒有套用：\n" + "\n".join(f"  ✗ {e}" for e in errs)
+    no_case = _no_case(tool_input.get("no_case"), norm, cwd, rg, case_probs, changed)
+    v = rr.case_decl_form_verdict(case_probs)
+    if v.owed:
+        return (f"{TAG} verify_scope 拒收，沒有套用（整份重交）：\n  {rr.format_hit('s', v)}\n"
+                "case_for 掛在驗它的那支案例（測試檔或測試節點）那一項，列它驗的程式檔；不需要新案例的程式檔寫進 no_case 附理由。")
     repos = sorted({it["repo"] for it in norm})
     pend = [e for r in repos for e in pending_leaks(r)]
     reviews = [r for r in tool_input.get("reviews") or [] if isinstance(r, dict)]
@@ -425,15 +435,137 @@ def declare(state: Dict[str, Any], key: str, tool_input: Dict[str, Any], cwd: st
     seqs[key] = int(seqs.get(key) or 0) + 1
     decl = {"id": f"{_sid_tag(key)}-S{seqs[key]}", "at": _now_iso(), "turn": int(state.get("turn_seq", 0) or 0),
             "cwd": cwd, "items": norm}
+    if no_case:
+        decl["no_case"] = no_case
     decls = state.setdefault("verify_scope", {}).setdefault(key, [])
     decls.append(decl)
     del decls[:-DECL_CAP]
-    return _accept_text(state, key, decl, lookup, repos, len(pend))
+    return _accept_text(state, key, decl, lookup, repos, len(pend), rg)
+
+
+def _resolve(raw: Any, cwd: str) -> Path:
+    s = str(raw).strip().strip("`")
+    return Path(s) if os.path.isabs(s) else Path(cwd or ".") / s
+
+
+def _case_files(item: Dict[str, Any], rg: Dict[str, Any]) -> List[str]:
+    """這一項點名的案例檔（絕對路徑）：測試檔／測試節點是它自己；指令是它實際跑的那幾支裡的案例檔。資料夾、整體驗證、
+    看不出跑了什麼的指令點不到特定案例，回空。案例檔＝符合 verify_case_globs 的程式檔（is_case_file）。"""
+    if item.get("kind") not in ("file", "node", "cmd"):
+        return []
+    return [p for p in _item_paths(item) if p and vl.is_case_file(p, rg, item.get("root"))]
+
+
+def _declared_file_problem(raw: str, p: Path, rg: Dict[str, Any], changed: set) -> str:
+    """case_for／no_case 列的檔：要是程式檔，而且存在、或是本 session 改過的檔（搬走或刪掉的舊路徑也還欠著，要能宣告）。"""
+    if not p.is_file() and rr.canon_path(p) not in changed:
+        return f"{raw} 不存在（{p}），也不是本 session 改過的檔"
+    if not vl.is_code_file(str(p), rg.get("code_exts") or []):
+        return f"{raw} 不是程式檔（不是程式就不欠案例）"
+    return ""
+
+
+def _case_for(target: str, raw: Any, rec: Dict[str, Any], cwd: str, rg: Dict[str, Any], probs: List[str],
+              changed: set) -> List[str]:
+    """一項的 case_for（規則 CASE_DECL_WELL_FORMED）：這一項要點名得到案例檔（_case_files），列的每個路徑要是程式檔、
+    存在或本 session 改過（_declared_file_problem）。回正規化的絕對路徑；不合格的寫進 probs（整份退回）。"""
+    if not isinstance(raw, list) or not raw or not all(isinstance(x, str) and x.strip() for x in raw):
+        probs.append(f"「{target}」的 case_for 要是非空的程式檔路徑陣列")
+        return []
+    if not _case_files(rec, rg):
+        probs.append(f"「{target}」點不到特定的案例檔（項目種類 {rec.get('kind')}；要是測試檔、測試節點，或只跑特定測試檔的指令，"
+                     "而且是符合 verify_case_globs 的程式檔），case_for 只能掛在驗它的那支案例那一項")
+        return []
+    out: List[str] = []
+    for x in raw:
+        p = _resolve(x, cwd)
+        problem = _declared_file_problem(x, p, rg, changed)
+        if problem:
+            probs.append(f"「{target}」case_for 列的 {problem}")
+        else:
+            out.append(os.path.normpath(str(p)))
+    return out
+
+
+def _no_case(raw: Any, norm: List[Dict[str, Any]], cwd: str, rg: Dict[str, Any], probs: List[str],
+             changed: set) -> List[Dict[str, str]]:
+    """宣告的 no_case（規則 CASE_DECL_WELL_FORMED）：每筆是程式檔（存在或本 session 改過）＋非空理由，而且沒同時列在某一項的 case_for。"""
+    claimed = {rr.canon_path(p) for it in norm for p in it.get("case_for") or []}
+    out: List[Dict[str, str]] = []
+    for n in raw if isinstance(raw, list) else []:
+        path, reason = str((n or {}).get("path") or "").strip(), " ".join(str((n or {}).get("reason") or "").split())
+        p = _resolve(path, cwd)
+        problem = _declared_file_problem(path, p, rg, changed)
+        if problem:
+            probs.append(f"no_case 的 {problem}")
+        elif rr.canon_path(p) in claimed:
+            probs.append(f"{path} 同時列在 case_for 與 no_case：由哪個案例驗只能有一個答案")
+        else:
+            out.append({"path": os.path.normpath(str(p)), "reason": reason})
+    return out
+
+
+def case_check(state: Dict[str, Any], key: str, own_mod_files: List[Dict[str, Any]], receipts: List[Dict[str, Any]],
+               rg_cfg: Dict[str, Any], lookup: Lookup = None, self_runs: Iterable[Dict[str, Any]] = ()
+               ) -> Callable[[str], rr.Verdict]:
+    """(d) 補案例的判定函式（規則 CASE_DECLARED_FOR_CHANGE／NO_CASE_NEEDS_USER；wg_verify_ledger.case_debt 對每個要補案例的
+    程式檔叫一次）。看最新那份宣告裡 case_for 列到這個檔的每一項：案例檔還在、本 session 新寫或改過（要宣告的改檔裡有它）、
+    那一項在最後一次改動之後跑綠（scope_item_status，與驗證範圍閘同一個判斷）；都不成立就看 no_case 的理由，使用者放行時
+    記下的裁定（approve_no_case）還對得上它現在的最後一次修改就不欠。改檔與收據第一次被問時才查（同一次 Stop 不變）。"""
+    decl = current_decl(state, key) or {}
+    approved = ((state.get("no_case_approved") or {}).get(key)) or {}
+    marks = {rr.canon_path(m["path"]): list(_mark(m)) for m in own_mod_files or [] if isinstance(m, dict) and m.get("path")}
+    memo: Dict[str, Any] = {}
+
+    def facts() -> Dict[str, Any]:
+        if not memo:
+            lk = lookup or _default_lookup()
+            mods = required_mods(own_mod_files, rg_cfg, lk)
+            memo.update(lk=lk, mods=mods, keys={rr.canon_path(m.get("path")) for m in mods}, items={})
+        return memo
+
+    def problem(i: int, it: Dict[str, Any]) -> str:
+        f = facts()
+        if i not in f["items"]:
+            files = _case_files(it, rg_cfg)
+            if not any(vl.case_exists(p) for p in files):
+                f["items"][i] = "案例檔不在了"
+            elif not any(rr.canon_path(p) in f["keys"] for p in files):
+                f["items"][i] = "本 session 沒有新寫或改過這支案例（既有案例已經驗到這次改動，就宣告 no_case 附理由問使用者）"
+            else:
+                ok, why = vl.scope_item_status(it, receipts, _item_mods(it, f["mods"], rg_cfg.get("code_exts") or [], f["lk"]),
+                                               self_runs)
+                f["items"][i] = "" if ok else why
+        return f["items"][i]
+
+    def verdict(path: str) -> rr.Verdict:
+        k = rr.canon_path(path)
+        checks = [(str(it.get("target")), problem(i, it)) for i, it in enumerate(decl.get("items") or [])
+                  if k in {rr.canon_path(c) for c in it.get("case_for") or []}]
+        reason = next((str(n.get("reason") or "") for n in decl.get("no_case") or [] if rr.canon_path(n.get("path")) == k), "")
+        return rr.case_for_change_verdict(Path(path).name, checks, reason, k in marks and approved.get(k) == marks[k])
+    return verdict
+
+
+def approve_no_case(state: Dict[str, Any], key: str) -> List[str]:
+    """使用者放行了這一回合（stop 看到 wg_release.user_released）：最新宣告裡 no_case 列的檔記成「使用者裁定不需要新案例」，
+    綁在它現在的最後一次修改（state["no_case_approved"][收據鍵]）；之後沒再改就不再為它擋，再改了要重新裁
+    （規則 NO_CASE_NEEDS_USER）。回記下的檔名。"""
+    decl = current_decl(state, key) or {}
+    marks = {rr.canon_path(m["path"]): list(_mark(m)) for m in _key_mods(state, key) if isinstance(m, dict) and m.get("path")}
+    rec = state.setdefault("no_case_approved", {}).setdefault(key, {})
+    out: List[str] = []
+    for n in decl.get("no_case") or []:
+        k = rr.canon_path(n.get("path"))
+        if k in marks:
+            rec[k] = marks[k]
+            out.append(Path(str(n.get("path"))).name)
+    return out
 
 
 def _accept_text(state: Dict[str, Any], key: str, decl: Dict[str, Any], lookup: Lookup, repos: List[str],
-                 reviewed: int) -> str:
-    rg = vl.reconcile_cfg({})
+                 reviewed: int, rg: Optional[Dict[str, Any]] = None) -> str:
+    rg = rg or vl.reconcile_cfg({})
     try:
         mods = required_mods(_key_mods(state, key), rg, lookup)
     except Exception as e:  # noqa: BLE001  收件回應只是資訊；部位表讀不到在收尾閘照擋
@@ -452,6 +584,12 @@ def _accept_text(state: Dict[str, Any], key: str, decl: Dict[str, Any], lookup: 
     if mods:
         names = "、".join(Path(str(m.get("path"))).name for m in mods[:8])
         lines.append(f"這次要宣告的改檔：{names}{'…' if len(mods) > 8 else ''}")
+    code = [str(m.get("path")) for m in mods if vl.is_code_file(str(m.get("path")), exts)
+            and not vl.is_case_file(str(m.get("path")), rg, _root_of(str(m.get("path")), lookup))]
+    if code:
+        check = case_check(state, key, _key_mods(state, key), receipts, rg, lookup)
+        lines.append("由哪個案例驗（寫碼查核 (d)；每個改過的程式檔要有一項 case_for 列到它，或在 no_case 附理由）：")
+        lines += [f"  - {check(p).why}" for p in code[:8]]
     loose = [Path(str(m.get("path"))).name for m in mods if str(m.get("path")) not in counted]
     if loose:
         lines.append(f"這些文件／資料的改動不算進任何一項（規則 SCOPE_EDIT_RELATED_TO_ITEM）：{'、'.join(loose[:8])}"

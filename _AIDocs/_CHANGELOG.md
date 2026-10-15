@@ -4,6 +4,11 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-15 判斷入口盤點第三階段：寫碼查核 (d)「由哪個案例驗」改由 AI 宣告、程式只核對
+- 依原設計者核准的盤點 P4（`memory/_staging/v6-C-判斷入口盤點.md`）與原話輯 G3、G6。**舊病**：(d) 用時序猜「案例對不對應改動」：改碼之後改了任何一支測試並跑綠就清掉全部帳（放錯）；只改字串、不需要新案例的改動只能找人放行（擋錯）。**新做法**（驗證範圍閘開著時）：`need_goal verify_scope` 的項目帶 `case_for` 列它驗的程式檔，頂層 `no_case=[{path, reason}]` 宣告不需要新案例；程式只核對事實——那一項點得到案例檔（測試檔、測試節點、只跑特定測試檔的指令）、案例仍存在、本 session 新寫或改過、那一項改完之後跑綠（`wg_verify_ledger.scope_item_status`，和驗證範圍閘同一個判斷，順手清掉盤點階段 2 留下的「(d) 自己判收據」同類）。no_case 照擋，擋訊息帶理由與【收尾放行確認】的問法（擋滿不准自行放行的裁定不變）；使用者放行那一刻把 no_case 的檔記成已裁定（綁在它當時的最後一次修改），之後沒再改就不每回合重問，再改要重裁。搬走的舊路徑（已不存在但本 session 改過）也能宣告。commit 快照的「當時不欠案例」用同一份宣告。驗證範圍閘關掉時退回舊判法。新規則 `CASE_DECLARED_FOR_CHANGE`、`NO_CASE_NEEDS_USER`、`CASE_DECL_WELL_FORMED`（`hooks/wg_release_rules.py`），判定函式 `wg_verify_scope.case_check`，宣告回應逐檔列由哪個案例驗；MCP schema 與 js／Python 形狀檢查同步（已開的 session 要重載才看得到新欄位說明）。
+- **同類一起修**：案例檔 glob `**/*test*` 把 `backtest_acceptance.py` 這類產品檔當案例（改了不欠），改成測試目錄與檔名慣例（`test_*`、`*_test.*`、`*.spec.*`、`tests/`、`__tests__/`、`*.Tests/` 等，預設與 `workflow/config.json` 同步）；檔名樣式只比檔名（codex BLOCK：fnmatch 的 `*` 跨 `/`，`src/test_runner/engine.py` 會被當案例）。背景自寫收據的目標解析保留 `檔::節點`、不存在的路徑參數不當「沒點名＝全部」（codex WARN：只跑別的節點被當成整棵樹跑過）。/console 派工單加「判斷入口」一欄、codex 審查提示加一問、交付信加「判斷寫成固定規則」一行（盤點階段 2 留下的計畫與審查範本）。MCP 煙霧測試 `smoke_mcp_stdio.js` 沒有哨兵尾行（驗證腳本該有），js 改動拿不到收據、也就宣告不了由它驗；補 `MCP_SMOKE_CHECK PASS|FAIL`。
+- **驗證**：新案在舊碼上紅（含主案「改了不相干的案例並跑綠 → 舊碼放行」），新碼全綠；真 hook 探針 `probe_verify_scope` 新增 S3（改無關測試照擋、no_case 照擋、case_for 成立才放）13 檢查全符合；舊探針的「放行」只看 VerifyScope 字樣，改成兩個閘都沒擋才算。codex 一輪：BLOCK 1（glob 跨目錄）已修；WARN 2 條，一條已修（自寫收據節點），一條保留（案例身分仍由檔名慣例定義：它也防「拿產品檔當自己的案例」，慣例外的測試由專案加樣式）。
+
 ## 2026-10-15 覆轍／振盪提示只看本 session 自己的 episodic，不再把根層的塞給專案
 - TSLG 專案 session 開場 `[Guardian:覆轍]` 列出 15 個根層檔（約 260 token、還叫人「停止表面修復」）。根因：episodic 寫入端依 cwd 分池（專案 → `{專案}/.claude/memory/episodic`），讀取端 `_detect_rut_patterns`／`_detect_oscillation` 卻把 `memory/episodic` 併進每個 session 的池再取最近 3 份——根層 session 多又新，專案自己的歷史直接被擠掉。改成兩者共用 `_session_episodic_pool`（與寫入端同一目錄），專案池沒有就不回退；cwd 沒有專案記憶的 session 不提示（那個池是根層的歷史）。同類：`workflow/oscillation_state.json` 全機一份、任何 session 收尾都覆寫或刪、開場都讀，改成依池分格（池鍵不分大小寫；舊格式不知來源，當作沒有）。驗證：新 `hooks/verify/verify_rut_scope.py` 9 案（舊碼 8 紅、根層照舊那 1 案本來就綠）；本機真資料探針：`C:\TSLG` 只剩自己的 `BattleManager.cs`、`~/.claude` 照舊列根層檔。
 

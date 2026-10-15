@@ -421,6 +421,17 @@ def test_sessionend_writes_stub_when_work(tmp_path, monkeypatch):
     assert st.get("pending_handoff_emit") is not True, "SessionEnd 不應設 pending_handoff_emit"
 
 
+def test_sessionend_saves_oscillation_with_session_state(tmp_path, monkeypatch):
+    """振盪狀態依池分格：SessionEnd 存振盪狀態時要把本 session 的 state 交出去（池鍵由 cwd 算）。
+    呼叫點少傳參數會被 try 吞掉、只在 stderr 印錯，所以用 spy 斷言真的收到。"""
+    _setup_session_end(tmp_path, monkeypatch, _state(cwd="C:/proj"))
+    seen = []
+    monkeypatch.setattr(se, "_save_oscillation_state", lambda osc, s: seen.append((osc, s)))
+    _run(se.handle_session_end, {"session_id": "test-sid"}, {})
+    assert len(seen) == 1, f"SessionEnd 應存一次振盪狀態，實得 {seen}"
+    assert seen[0][1].get("session", {}).get("cwd") == "C:/proj", "存振盪狀態要帶本 session 的 state"
+
+
 def test_sessionend_fallback_disabled_no_stub(tmp_path, monkeypatch):
     holder, staging = _setup_session_end(tmp_path, monkeypatch, _state())
     _run(se.handle_session_end, {"session_id": "test-sid"},
