@@ -14,6 +14,7 @@
 - [臨] 根層複驗（自己的 session jsonl）：文字＋工具呼叫同一筆 0、文字單獨筆 22、工具單獨筆 237；抽 5 句「先文字再工具」的開場句掉 1 句。第二台機器上的專案也重現（text 19 筆全是純文字回合）。不是單一 session 的偶發。OverviewHub 因此改成定位三行三個管道都認（回覆文字、工具參數、thinking）並記 located_via；要讓 hook 看到的宣告，最保險是同時放進下一個工具呼叫的參數（Bash 開頭註解），不必為了留紀錄結束回合。
 - [臨]（實跑 2026-10-07）替代做法已驗：把要被 hook 讀到的宣告（如定位三行）放在**下一個 Bash 指令開頭的 `#` 註解**，工具參數一定進 transcript；R5 注入閘改成三管道（回覆文字→工具參數→thinking）後，同一 session 同一人：三行只在回覆文字 → `located=False`；放 Bash 註解 → 5 筆 edit 全 `located=True via=tool_input`。比「純文字回合結尾」省一個回合。
 - [臨] 第二台機器、第二條管線（VSCode 擴充＋bypass）重現：解析自己的 jsonl，assistant 區塊 text 19／tool_use 138／thinking 75，確定寫過的三段「定位三行」全不在 text，19 筆 text 全是純文字回合。對照實驗：同一檔同一人，「先文字再 Edit」那筆 located=false；「純文字回合寫三行、下一回合再 Edit」那筆 located=true via=text。根層已把判法改成三管道（回覆文字→工具呼叫參數→thinking）；最穩的做法是 Edit 前那一個 Bash 指令開頭放 `# 定位｜…` 三行（另一專案 5 筆全 via=tool_input）。
+- [臨] 定位行放在 Bash 開頭註解時，那個 Bash 要比 Edit 早一則訊息送出：同一則訊息並行送出 Bash（新定位行）與 Edit，Edit 的 PreToolUse 先讀 transcript、看不到新定位行，照舊行判（實遇：改過根因層後仍被擋「沒寫選擇理由」，單獨重送 Edit 就過）。
 
 ## 行動
 
