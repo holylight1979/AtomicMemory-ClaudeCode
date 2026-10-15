@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-15 追蹤帳本：任何 repo 的 git worktree 寫的追蹤項都落在主工作樹那本
+- 殘留帳本 `tracking/c--users-holylight--claude-wt-track-verify.jsonl` 是 10-13 00:30 track-verify 工作樹 session 寫的，比「根層 worktree 對回 live」的修正（1ce88464，10-13 00:45 隨 a3 合進 main）早 15 分鐘；它讓每次開根層 session 都報「疑似分裂」。兩筆未結項都已過時：原文搬進根層帳本（`moved_from` 註明出處）並結案寫理由，殘檔刪除。同一根因還在一般專案：`tracking_slug` 只把根層 worktree 換根，其他 repo 的 worktree 仍用自己路徑命名帳本，worktree 刪掉後未結項就變孤兒。新 `lib/overview_hub.main_worktree_of`（只讀 `.git` 指標檔、要管理目錄反向登記才算）讓 `tracking_slug` 把已登記的 worktree 換成主工作樹；未登記的假 worktree、純複本照舊用自己的根。驗證：`verify_tracking_readback` 的 worktree 案從「一般專案 worktree 用自己的根」改成「跟主工作樹同一本」，舊碼 AssertionError 紅、新碼綠，加反例一案；宣告範圍 7 支 362 passed。
+
 ## 2026-10-14 收尾查核：該測哪些改由 LLM 宣告驗證範圍並負責，部位整把量尺降為參考
 - **緣由**：量尺閘照部位表要求「改到部位就跑整把」（改 tools 一行跑約 12 分鐘），等於程式替判斷決定驗哪些；原設計者校正：驗證範圍要由 LLM 依關聯與影響裁決、只驗該範圍、對範圍負責並檢討漏判（原話輯 G6）。
 - **做法**：新 `hooks/wg_verify_scope.py` 取代 `measure_gate_reason`：改了程式（或改到有量尺的部位）要有 `need_goal(action="verify_scope")` 宣告，範圍內每項要有改完之後跑綠的收據；寫碼查核通過記結案，之後範圍外的測試紅了記範圍漏判、送回、下次宣告前要逐筆檢討（missed 寫根因與下次怎麼判），開場與回應印累計數字；自寫收據多記 `failed_cases`；規則 SCOPE_* 進 `wg_release_rules`。(d) 補案例、收據晚於修改、沒人可問擋到底照舊。細節 TECH §7.1、§7.8、§7.9。

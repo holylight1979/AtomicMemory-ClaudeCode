@@ -80,7 +80,9 @@ def _git_worktree_of(repo: Path, wt: Path, name: str) -> None:
     (wt / ".claude" / "overview-map.md").write_bytes((repo / ".claude" / "overview-map.md").read_bytes())
 
 
-def test_root_worktree_ledger_follows_live_but_project_worktree_keeps_own(world, tmp_path, monkeypatch):
+def test_root_and_project_worktree_ledgers_follow_main_tree(world, tmp_path, monkeypatch):
+    """git worktree 裡寫的追蹤項落在主工作樹那本帳（根層 worktree → live；一般專案 worktree → 該專案）：
+    worktree 刪掉後未結項不會留在用 worktree 路徑命名的孤兒帳本。"""
     import wg_core
     proj, _ = world
     live = tmp_path / "live-claude"
@@ -94,7 +96,28 @@ def test_root_worktree_ledger_follows_live_but_project_worktree_keeps_own(world,
     assert wh.tracking_slug(str(live)) != wh.tracking_slug(str(proj))
     proj_wt = tmp_path / "proj-wt"
     _git_worktree_of(proj, proj_wt, "proj-wt")
-    assert wh.tracking_slug(str(proj_wt)) not in (wh.tracking_slug(str(live)), wh.tracking_slug(str(proj)))   # 反例：一般專案的 worktree 用自己的根
+    (proj_wt / "Game" / "UI").mkdir(parents=True)
+    assert wh.tracking_slug(str(proj_wt)) == wh.tracking_slug(str(proj))                    # 一般專案 worktree → 該專案的帳本
+    assert wh.tracking_slug(str(proj_wt / "Game" / "UI")) == wh.tracking_slug(str(proj))
+    assert wh.tracking_slug(str(proj_wt)) != wh.tracking_slug(str(live))
+
+
+def test_unregistered_worktree_or_plain_copy_keeps_own_ledger(world, tmp_path):
+    """反例：只寫一個 .git 檔指過去、管理目錄沒反向登記這棵樹 → 不算那個 repo 的 worktree；沒有 .git 的複本也用自己的根。"""
+    proj, _ = world
+    fake = tmp_path / "fake-wt"
+    adm = proj / ".git" / "worktrees" / "fake"
+    adm.mkdir(parents=True)
+    (adm / "gitdir").write_text(f"{tmp_path / 'elsewhere' / '.git'}\n", encoding="utf-8")   # 管理目錄登記的是別棵樹
+    (adm / "commondir").write_text("../..\n", encoding="utf-8")
+    (fake / ".claude").mkdir(parents=True)
+    (fake / ".git").write_text(f"gitdir: {adm}\n", encoding="utf-8")
+    (fake / ".claude" / "overview-map.md").write_bytes((proj / ".claude" / "overview-map.md").read_bytes())
+    plain = tmp_path / "plain-copy"
+    (plain / ".claude").mkdir(parents=True)
+    (plain / ".claude" / "overview-map.md").write_bytes((proj / ".claude" / "overview-map.md").read_bytes())
+    assert wh.tracking_slug(str(fake)) != wh.tracking_slug(str(proj))
+    assert wh.tracking_slug(str(plain)) != wh.tracking_slug(str(proj))
 
 
 # ─── 結案 ────────────────────────────────────────────────────────────────────

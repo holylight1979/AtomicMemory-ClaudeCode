@@ -444,6 +444,26 @@ def is_root_worktree(root: Path, claude_dir: Path) -> bool:
         return False
 
 
+def main_worktree_of(root: Path) -> Optional[Path]:
+    """root 是某個 repo 已登記的 git worktree 時回主工作樹目錄，否則 None：
+    `<root>/.git` 是檔案、指到的管理目錄的 `gitdir` 反向指回 `<root>/.git`、`commondir` 指到某個 `.git` 目錄（主工作樹＝它的上一層）。
+    只寫一個 `.git` 檔指過去而管理目錄沒登記、bare repo（commondir 不叫 .git）、網路路徑 → None。純函式，只讀指標檔不起 git。"""
+    try:
+        r = Path(root)
+        if _is_unc(r):
+            return None
+        gitdir = _gitdir_of(r)
+        if gitdir is None:
+            return None
+        back, common = _read_git_pointer(gitdir / "gitdir"), _read_git_pointer(gitdir / "commondir")
+        if back is None or common is None or not _same_dir_norm(back, r / ".git"):
+            return None
+        common = Path(os.path.normpath(str(common)))
+        return common.parent if common.name.lower() == ".git" else None
+    except OSError:
+        return None
+
+
 def is_root_git_worktree(root: Path, claude_dir: Path) -> bool:
     """同 is_root_worktree（資料歸屬用的舊名，追蹤帳本等呼叫端仍用這個名字）。"""
     return is_root_worktree(root, claude_dir)

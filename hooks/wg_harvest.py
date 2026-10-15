@@ -400,8 +400,9 @@ _TRACK_SLUG_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 def tracking_slug(cwd: str) -> str:
     """追蹤帳本的檔名（寫入端 post_tool_use 與讀取端 wg_overview／session_start 共用）：
-    最近的部位表根 → 專案根 → cwd 本身（根是 live repo 的 git worktree 時換成 live 的 CLAUDE_DIR：帳本是資料，
-    跟 live 走，只看是不是 worktree、不看部位表），經 cwd_to_project_slug。
+    最近的部位表根 → 專案根 → cwd 本身（根是 live repo 的 git worktree 時換成 live 的 CLAUDE_DIR；其他 repo 的已登記
+    git worktree 換成它的主工作樹：帳本是資料，跟主工作樹走，worktree 刪掉後未結項不會留在孤兒帳本；只看是不是
+    worktree、不看部位表），經 cwd_to_project_slug。
     純 ASCII 且不超過 64 字 → 逐字使用；有字元被換成 `-`（有損）或超過 64 字 → 取前 55 字＋`-`＋「完整原始路徑
     （反斜線轉正、casefold）」的 8 碼雜湊，等長的中文路徑不會撞成同一本。cwd 空 → `_no-cwd` 並 stderr。
     已知邊界：ASCII 標點不同的路徑（`D:\\game.v1` 與 `D:\\game-v1`、`D:\\a\\b` 與 `D:\\a-b`）沿用 Claude Code 自己
@@ -412,13 +413,15 @@ def tracking_slug(cwd: str) -> str:
     from wg_core import CLAUDE_DIR, cwd_to_project_slug, resolve_project_root
     root: Optional[Path] = None
     try:
-        from overview_hub import find_map, is_root_git_worktree
+        from overview_hub import find_map, is_root_git_worktree, main_worktree_of
         found = find_map(cwd)
         root = found[0] if found else None
         if root is None and resolve_project_root is not None:
             root = resolve_project_root(cwd).path
         if root is not None and is_root_git_worktree(Path(root), CLAUDE_DIR):
             root = CLAUDE_DIR                                  # 帳本是資料：根層 worktree 讀寫 live 的那本
+        elif root is not None:
+            root = main_worktree_of(Path(root)) or root       # 其他 repo 的 worktree 讀寫主工作樹那本
     except Exception as e:  # noqa: BLE001
         print(f"[Guardian:AEC] tracking slug: 尋根失敗，退用 cwd：{type(e).__name__}: {e}", file=sys.stderr)
     original = str(root or cwd)
