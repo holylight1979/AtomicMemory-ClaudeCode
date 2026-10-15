@@ -65,6 +65,27 @@ def test_load_facts_unknown_when_processes_cannot_be_listed(tmp_path, monkeypatc
     assert st._mcp_load_facts(tmp_path / "mcp-boot", code)[0] == []
 
 
+_MCP_CMD = r"node C:\Users\u\.claude\tools\workflow-guardian-mcp\server.js"
+_ROWS = [  # (pid, ppid, 程式名, 指令列)：照實測的程序樹（每個 session 一個 claude.exe，服務經 pythonw 外殼掛在它底下）
+    (52236, 1, "Code.exe", ""), (99724, 52236, "Code.exe", ""),
+    (103168, 99724, "claude.exe", ""), (99736, 103168, "pythonw.exe", "run-hidden.py " + _MCP_CMD),   # 外殼的指令列也帶 server.js
+    (86916, 99736, "node.exe", _MCP_CMD),
+    (136028, 99724, "claude.exe", ""), (77004, 136028, "pythonw.exe", "run-hidden.py " + _MCP_CMD),
+    (89192, 77004, "node.exe", _MCP_CMD),
+    (139148, 136028, "cmd.exe", ""), (139200, 139148, "pythonw.exe", "workflow-guardian.py"),
+]
+
+
+@pytest.mark.parametrize("self_pid, expected", [
+    (139200, {89192}),            # 收尾閘屬於 claude.exe 136028 → 只看它底下的服務 89192，不看別的 session 的 86916
+    (999, {86916, 89192}),        # 找不到所屬的 claude.exe → 退回全機所有服務（保守）
+])
+def test_session_mcp_pids_follow_process_tree(self_pid, expected):
+    """實證（10-15）：每個 session（claude.exe）各有自己的工具服務程序，不是整個視窗共用一個。收尾閘只看自己這個 session 的服務；
+    別的 session 的舊服務不影響這個 session 的判斷（codex WARN：舊服務在別的 session 時會漏擋）。"""
+    assert st._session_mcp_pids(_ROWS, self_pid) == expected
+
+
 @pytest.mark.parametrize("stale, text, blocked", [
     (False, "全部完成了。新工具要生效，請 Reload Window。", True),
     (True, "全部完成了。新工具要生效，請 Reload Window。", False),

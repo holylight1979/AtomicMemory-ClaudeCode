@@ -978,27 +978,54 @@ def handle_judge_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> Non
 _MCP_CODE_DIR = Path(__file__).resolve().parents[2] / "tools" / "workflow-guardian-mcp"
 
 
-def _running_mcp_pids(timeout: float = 5.0) -> Optional[set]:
-    """正在跑 workflow-guardian-mcp/server.js 的 node 程序 pid；列不出回 None（判不出）。只在收尾文字叫使用者重載時才查（約 1 秒）。"""
+def _process_rows(timeout: float = 5.0) -> Optional[List[Tuple[int, int, str, str]]]:
+    """全機程序表（pid, ppid, 程式名, 指令列）；列不出回 None。只在收尾文字叫使用者重載時才查（約 1 秒）。"""
     if sys.platform == "win32":
         cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-               "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like "
-               "'*workflow-guardian-mcp*server.js*' } | ForEach-Object { $_.ProcessId }"]
+               "Get-CimInstance Win32_Process | ForEach-Object { \"{0}`t{1}`t{2}`t{3}\" -f "
+               "$_.ProcessId,$_.ParentProcessId,$_.Name,$_.CommandLine }"]
     else:
-        cmd = ["ps", "-eo", "pid=,args="]
+        cmd = ["ps", "-eo", "pid=,ppid=,comm=,args="]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError) as e:
-        print(f"[Guardian:ReloadAdvice] 列不出工具服務程序，判不出重載建議要不要擋：{type(e).__name__}", file=sys.stderr)
+        print(f"[Guardian:ReloadAdvice] 列不出程序表，判不出重載建議要不要擋：{type(e).__name__}", file=sys.stderr)
         return None
     if r.returncode != 0:
-        print("[Guardian:ReloadAdvice] 列工具服務程序回非零，判不出重載建議要不要擋", file=sys.stderr)
+        print("[Guardian:ReloadAdvice] 列程序表回非零，判不出重載建議要不要擋", file=sys.stderr)
         return None
-    if sys.platform == "win32":
-        return {int(x) for x in r.stdout.split() if x.isdigit()}
-    return {int(ln.split()[0]) for ln in r.stdout.splitlines()
-            if "workflow-guardian-mcp" in ln and "server.js" in ln and ln.split()[0].isdigit()}
+    rows: List[Tuple[int, int, str, str]] = []
+    for ln in r.stdout.splitlines():
+        parts = ln.split("\t", 3) if sys.platform == "win32" else ln.split(None, 3)
+        if len(parts) >= 3 and parts[0].strip().isdigit() and parts[1].strip().isdigit():
+            rows.append((int(parts[0]), int(parts[1]), parts[2].strip(), parts[3] if len(parts) > 3 else ""))
+    return rows
+
+
+def _session_mcp_pids(rows: List[Tuple[int, int, str, str]], self_pid: int) -> set:
+    """這個 session 的工具服務程序：每個 session（claude 程序）各有自己的服務（實測：服務經 pythonw 外殼掛在各自的 claude.exe 底下，
+    不是整個視窗共用一個）。從 self_pid 往上找最近的 claude 程序，回它底下跑 workflow-guardian-mcp/server.js 的程序；
+    找不到所屬的 claude 程序就回全機的（保守：別的 session 的舊服務會讓判斷放行）。"""
+    parent = {pid: ppid for pid, ppid, _, _ in rows}
+    name = {pid: n.lower() for pid, _, n, _ in rows}
+    mcp = {pid for pid, _, n, c in rows                       # 只認 node 程序：啟動外殼（pythonw run-hidden.py）的指令列也帶 server.js
+           if n.lower().startswith("node") and "workflow-guardian-mcp" in c and "server.js" in c}
+
+    def ancestors(pid: int) -> List[int]:
+        out: List[int] = []
+        while pid in parent and parent[pid] not in out and len(out) < 30:
+            pid = parent[pid]
+            out.append(pid)
+        return out
+    session = next((p for p in ancestors(self_pid) if name.get(p, "").startswith("claude")), None)
+    return mcp if session is None else {m for m in mcp if session in ancestors(m)}
+
+
+def _running_mcp_pids(timeout: float = 5.0) -> Optional[set]:
+    """這個 session 正在跑的工具服務程序 pid（_session_mcp_pids）；列不出程序表回 None（判不出）。"""
+    rows = _process_rows(timeout)
+    return None if rows is None else _session_mcp_pids(rows, os.getpid())
 
 
 def _mcp_load_facts(boot_dir: Optional[Path] = None, code_dir: Optional[Path] = None
