@@ -7,6 +7,7 @@
 | Atom | 說明 |
 |------|------|
 | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 | bash-heredoc-會折掉一層反斜線-精確字串比對靜默失敗 |
+| claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原 | claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原 |
 | identity-變動需同步更新-identity-template-且所有文件 | identity-變動需同步更新-identity-template-且所有文件 |
 | markdown文件裡角括號佔位符要包反引號-裸寫u會被當成底線標籤把後半份文件全畫線 | markdown文件裡角括號佔位符要包反引號-裸寫u會被當成底線標籤把後半份文件全畫線 |
 | powershell傳null給dotnet-string參數會變空字串-nullstring才是真null | powershell傳null給dotnet-string參數會變空字串-NullString才是真null |

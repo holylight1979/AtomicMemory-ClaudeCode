@@ -7231,6 +7231,38 @@
         "量尺"
       ],
       "scope": "global"
+    },
+    {
+      "name": "瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill",
+      "path": "memory/CC與原子記憶契約/瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill.md",
+      "triggers": [
+        "CLAUDE.md 瘦身",
+        "必載",
+        "常駐",
+        "失能",
+        "失智",
+        "搜進 skill",
+        "skill 描述精簡",
+        "MEMORY.md 瘦身",
+        "token 節省",
+        "觸發詞"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原",
+      "path": "memory/文字與格式/claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原.md",
+      "triggers": [
+        "混合行尾",
+        "CRLF",
+        "LF",
+        "Edit 工具",
+        "行尾漂移",
+        "整檔 diff",
+        "svn diff 全檔",
+        "file-history"
+      ],
+      "scope": "global"
     }
   ]
 }
