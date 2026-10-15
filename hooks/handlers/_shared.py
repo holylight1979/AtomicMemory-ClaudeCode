@@ -279,6 +279,8 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
      "why": "只有該 session 讀（從續接單接手讀的是續接單）；目標檔都清掉的鎖不會再有人鎖"},
     {"dir": "ups-sentinel", "patterns": ("*.json",), "kind": "age", "param": 7,
      "keep": "7 天", "why": "只給同一 session 下一輪偵測「上一輪被中斷」用"},
+    {"dir": "mcp-boot", "patterns": ("*.json", "*.tmp"), "kind": "age", "param": 7,
+     "keep": "7 天", "why": "活著的工具服務每分鐘更新心跳；收尾只看 3 分鐘內有心跳的，關掉的程序留下的檔沒人讀"},
     {"dir": "acceptance-spec", "patterns": ("*.json",), "kind": "age", "param": 30,
      "keep": "30 天", "why": "只在該 session 內讀；規格本體在專案 .claude/verify/，不受影響"},
     {"dir": "harvest-ledger", "patterns": ("*.jsonl",), "kind": "age", "param": 30,

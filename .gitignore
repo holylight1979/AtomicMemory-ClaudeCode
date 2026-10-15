@@ -58,6 +58,7 @@ workflow/mcp-version-cache.json
 workflow/aec-report/
 workflow/aec-decision/
 workflow/ups-sentinel/
+workflow/mcp-boot/
 workflow/pan-pass/
 workflow/pan-deny/
 workflow/acceptance-spec/

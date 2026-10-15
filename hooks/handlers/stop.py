@@ -41,7 +41,7 @@ from wg_verify_ledger import (
 from wg_verify_scope import fix_evidence as _scope_fix_evidence, scope_cfg as _scope_cfg
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
-    dpm_instruction_text, retry_rounds_text,
+    dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -975,6 +975,58 @@ def handle_judge_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> Non
                           "裁判子 session（CLAUDE_COMPANION_JUDGE=1）", {"event": "judge_block"}, unknown)
 
 
+_MCP_CODE_DIR = Path(__file__).resolve().parents[2] / "tools" / "workflow-guardian-mcp"
+
+
+def _running_mcp_pids(timeout: float = 5.0) -> Optional[set]:
+    """正在跑 workflow-guardian-mcp/server.js 的 node 程序 pid；列不出回 None（判不出）。只在收尾文字叫使用者重載時才查（約 1 秒）。"""
+    if sys.platform == "win32":
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+               "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -like "
+               "'*workflow-guardian-mcp*server.js*' } | ForEach-Object { $_.ProcessId }"]
+    else:
+        cmd = ["ps", "-eo", "pid=,args="]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"[Guardian:ReloadAdvice] 列不出工具服務程序，判不出重載建議要不要擋：{type(e).__name__}", file=sys.stderr)
+        return None
+    if r.returncode != 0:
+        print("[Guardian:ReloadAdvice] 列工具服務程序回非零，判不出重載建議要不要擋", file=sys.stderr)
+        return None
+    if sys.platform == "win32":
+        return {int(x) for x in r.stdout.split() if x.isdigit()}
+    return {int(ln.split()[0]) for ln in r.stdout.splitlines()
+            if "workflow-guardian-mcp" in ln and "server.js" in ln and ln.split()[0].isdigit()}
+
+
+def _mcp_load_facts(boot_dir: Optional[Path] = None, code_dir: Optional[Path] = None
+                    ) -> Tuple[List[Tuple[Optional[float], float]], Optional[float]]:
+    """規則 RELOAD_ADVICE_ALREADY_LOADED 的事實，以正在跑的服務程序為準（_running_mcp_pids）：有啟動紀錄的給
+    （啟動時載入的程式版本毫秒, 心跳秒）；在跑卻沒有紀錄或紀錄壞了的給（None, 現在）＝判不出；有紀錄但程序已不在的不算
+    （被殺掉的測試服務來不及刪檔）；列不出程序就不給任何紀錄。另回磁碟上的程式版本毫秒（server.js 與 lib/*.js 最新的修改時間，
+    和服務端 codeMtime 同算法；讀不到回 None）。"""
+    boot_dir = boot_dir or Path(WORKFLOW_DIR) / "mcp-boot"
+    code_dir = code_dir or _MCP_CODE_DIR
+    by_pid: Dict[int, Tuple[float, float]] = {}
+    for f in sorted(boot_dir.glob("*.json")) if boot_dir.is_dir() else []:
+        try:
+            rec = json.loads(f.read_text(encoding="utf-8"))
+            by_pid[int(rec["pid"])] = (float(rec["code_mtime"]), float(rec["heartbeat_at"]) / 1000)
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            print(f"[Guardian:ReloadAdvice] 讀不了工具服務啟動紀錄 {f.name}，跳過：{type(e).__name__}", file=sys.stderr)
+    running = _running_mcp_pids()
+    now = time.time()
+    records: List[Tuple[Optional[float], float]] = [] if running is None else [
+        by_pid.get(pid, (None, now)) for pid in sorted(running)]
+    try:
+        disk: Optional[float] = max(p.stat().st_mtime_ns for p in [code_dir / "server.js", *(code_dir / "lib").glob("*.js")]) / 1e6
+    except (OSError, ValueError):
+        disk = None
+    return records, disk
+
+
 def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "")
     state = _ensure_state(session_id, input_data, config)
@@ -1403,6 +1455,23 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             write_state(session_id, state)
             output_block(_piggyback("\n".join(fb)))
             return
+
+    # ── Reload Advice Gate（規則 RELOAD_ADVICE_ALREADY_LOADED）──────────────
+    # 收尾叫使用者 Reload Window 前，查每個活著的工具服務是不是已載入磁碟上最新的程式；都是最新就擋一次。每個使用者回合一次。
+    _rl_turn = _user_turn(state, int(state.get("turn_seq", 0)))
+    if stop_count < max_blocks and state.get("reload_advice_turn") != _rl_turn:
+        _rl_text = get_last_assistant_text(transcript, text=transcript_text, min_chars=1)
+        if RELOAD_ADVICE_RE.search(_rl_text or ""):
+            _rl = reload_advice_verdict(_rl_text, *_mcp_load_facts(), time.time())
+            if _rl.owed:
+                state["reload_advice_turn"] = _rl_turn
+                state["stop_blocked_count"] = stop_count + 1
+                write_state(session_id, state)
+                output_block(_piggyback(
+                    f"[Guardian:ReloadAdvice] 規則 {_rl.rule}：{_rl.why}｜證據：{'；'.join(_rl.evidence)}\n"
+                    "不必叫使用者 Reload Window：拿掉那句再收尾。若是程式更新以外的理由要重開（改了 MCP 啟動設定、settings.json 等），"
+                    "保留那句並加一行「重載原因：<哪個設定改了>」。"))
+                return
 
     # ── Sync Reminder Gate ──────────────────────────────────────
     sr_config = config.get("sync_reminder", {}) or {}

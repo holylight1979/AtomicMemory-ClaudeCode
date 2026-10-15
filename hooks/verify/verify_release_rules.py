@@ -1520,3 +1520,29 @@ def test_scope_leak_review_before_declare_needs_root_cause_or_reason():
     assert rr.scope_review_verdict(["L1"], [{"leak": "L1", "verdict": "maybe"}]).owed
     ok = [{"leak": "L1", "verdict": "missed", "root_cause": "沒查誰讀這個常數", "next_time": "改常數先搜讀它的地方"}]
     assert not rr.scope_review_verdict(["L1"], ok).owed and not rr.scope_review_verdict([], []).owed
+
+
+# ─── RELOAD_ADVICE_ALREADY_LOADED ──────────────────────────────────────
+
+_RELOAD_NOW = 1_800_000_000.0
+
+
+@pytest.mark.parametrize("text, records, disk, owed", [
+    ("改完記得 Reload Window。", [(100.0, _RELOAD_NOW - 30)], 100.0, True),                # 活著的服務都已載入最新 → 多餘
+    ("請重新載入視窗讓新工具生效", [(120.0, _RELOAD_NOW - 30)], 100.0, True),
+    ("改完記得 Reload Window。", [(100.0, _RELOAD_NOW - 30), (90.0, _RELOAD_NOW - 30)], 100.0, False),  # 有一個舊的 → 照說
+    ("改完記得 Reload Window。", [(100.0, _RELOAD_NOW - 900)], 100.0, False),             # 心跳過期（程序已關）不算 → 判不出
+    ("改完記得 Reload Window。", [], 100.0, False),                                       # 沒紀錄（舊版服務沒寫）→ 判不出，放行
+    ("改完記得 Reload Window。", [(100.0, _RELOAD_NOW - 30)], None, False),              # 磁碟版本讀不到 → 判不出
+    ("改完記得 Reload Window。", [(100.0, _RELOAD_NOW - 30), (None, _RELOAD_NOW)], 100.0, False),  # 有在跑的服務沒紀錄（舊版）→ 判不出
+    ("改完記得 Reload Window。", [(90.0, _RELOAD_NOW - 900), (100.0, _RELOAD_NOW - 30)], 100.0, False),  # codex BLOCK：在跑的舊服務
+                                                                                          # 心跳過期（睡眠後）→ 判不出，不能被排除
+    ("改了 MCP 啟動設定，請 Reload Window。重載原因：啟動參數改了", [(100.0, _RELOAD_NOW - 30)], 100.0, False),  # AI 寫明重載原因
+    ("全部完成了。", [(100.0, _RELOAD_NOW - 30)], 100.0, False),                           # 沒叫人重載
+])
+def test_reload_advice_already_loaded(text, records, disk, owed):
+    """使用者提案：AI 叫使用者 Reload Window 之前先查是不是真的需要。判斷依據是每個正在跑的工具服務啟動時載入的程式版本
+    與磁碟上的版本（查得到的事實），不是 session 名稱（開新分頁會換名但服務不重啟）。全部有紀錄、心跳新、已最新才算多餘；
+    判不出一律放行；AI 寫明「重載原因：…」（程式更新以外的理由）照它的判斷。"""
+    v = rr.reload_advice_verdict(text, records, disk, _RELOAD_NOW)
+    assert v.rule == "RELOAD_ADVICE_ALREADY_LOADED" and v.owed is owed, (text, records, disk)

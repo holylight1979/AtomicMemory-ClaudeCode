@@ -18,6 +18,7 @@ import hashlib
 import os
 import re
 import shlex
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
@@ -102,6 +103,11 @@ RULES: Dict[str, str] = {
                                                  "至少兩個根因候選＋選擇理由（候選 A …；候選 B …；選 A 因為 …／第一根因 …，第二根因 …），"
                                                  "或一個候選＋「第二個不存在因為 …」。只看結構不評對錯；知識類部位不查。",
     # G1 側觀：定位之後的批判與舉一反三（原話輯 G1 2026-10-15）
+    "RELOAD_ADVICE_ALREADY_LOADED": "收尾文字叫使用者 Reload Window（重新載入視窗）→ 查每個正在跑的工具服務程序啟動時載入的程式版本："
+                                    "全部有紀錄、心跳 3 分鐘內、不舊於磁碟上的版本 → 這個建議多餘，每個使用者回合擋一次並附兩邊版本；"
+                                    "列不出、讀不到、有服務沒紀錄或心跳過期、有任何一個還是舊的 → 放行；AI 寫明「重載原因：…」（程式更新以外"
+                                    "的理由）照它的判斷。依據是服務自己記的版本，不是 session 名稱（開新分頁會換名但服務不重啟）；"
+                                    "「有沒有叫人重載」用字詞找，只當觸發點。",
     "LOCATE_LINES_NEED_CRITIQUE": "有需求目標樹時改寫碼部位，定位四行之後要第五行「定位｜批判：…」：下「合理」或「不合理」的判斷並附理由"
                                   "（因為／理由／原因／由於），不合理要寫更好的做法（更好／改成／應該／改用／換成），還要寫「同類還可能在哪：…」"
                                   "（或「無，因為…」）。同類欄位認最後一個「同類…：」標籤（理由裡提到同類不切斷）；「無」後面接標點、"
@@ -1594,3 +1600,35 @@ def scope_review_verdict(pending: Sequence[str], reviews: Any) -> Verdict:
     if probs:
         return Verdict(rule, True, f"還有 {len(pending)} 筆範圍漏判待檢討，先逐筆檢討才收新的宣告", tuple(probs))
     return Verdict(rule, False, f"{len(pending)} 筆待檢討的漏判都交了檢討")
+
+
+# ─── RELOAD_ADVICE_ALREADY_LOADED ──────────────────────────────────────────────
+
+RELOAD_ADVICE_RE = re.compile(r"reload\s*window|重新載入視窗|重載視窗|重新載入\s*vs\s*code", re.IGNORECASE)
+RELOAD_REASON_RE = re.compile(r"重載原因\s*[:：]\s*\S")     # AI 宣告程式更新以外的重載理由（改了啟動設定等）
+RELOAD_ALIVE_S = 180.0      # 心跳在這麼久之內才算新（服務每 60 秒更新一次；過期＝睡眠後或寫不了紀錄）
+
+
+def _ms_text(ms: float) -> str:
+    return datetime.fromtimestamp(ms / 1000).strftime("%m-%d %H:%M:%S")
+
+
+def reload_advice_verdict(text: str, records: Sequence[Tuple[Optional[float], float]], disk_mtime: Optional[float],
+                          now: float, alive_s: float = RELOAD_ALIVE_S) -> Verdict:
+    """RELOAD_ADVICE_ALREADY_LOADED：owed＝收尾叫使用者重載是多餘的。records＝每個正在跑的工具服務的（啟動時載入的程式版本毫秒、
+    心跳秒），載入版本 None＝那個服務沒有啟動紀錄（舊版服務）；disk_mtime＝磁碟上的程式版本毫秒（讀不到 None）。
+    在跑的服務都有紀錄、心跳都新、都不舊於磁碟版本才算多餘（容許 1 毫秒的浮點誤差）；判不出一律放行；
+    AI 寫明「重載原因：…」（程式更新以外的理由，例如改了啟動設定）照它的判斷放行。"""
+    rule = "RELOAD_ADVICE_ALREADY_LOADED"
+    if not RELOAD_ADVICE_RE.search(text or ""):
+        return Verdict(rule, False, "收尾文字沒有叫使用者重載")
+    if RELOAD_REASON_RE.search(text or ""):
+        return Verdict(rule, False, "AI 寫明了重載原因（程式更新以外的理由），照它的判斷")
+    if disk_mtime is None or not records:
+        return Verdict(rule, False, "判不出工具服務載入的版本（列不出在跑的服務，或讀不到磁碟版本），照放行")
+    if any(m is None or now - beat > alive_s for m, beat in records):
+        return Verdict(rule, False, "有正在跑的工具服務沒有啟動紀錄（舊版）或心跳過期（睡眠後、寫不了紀錄），判不出，照放行")
+    if any(m + 1.0 < disk_mtime for m, _ in records):
+        return Verdict(rule, False, "有工具服務還在跑舊程式，叫使用者重載是對的")
+    return Verdict(rule, True, f"叫使用者 Reload Window，但正在跑的 {len(records)} 個工具服務都已載入磁碟上最新的程式",
+                   (f"磁碟程式版本 {_ms_text(disk_mtime)}；服務載入版本 {'、'.join(_ms_text(m) for m, _ in records[:3])}",))

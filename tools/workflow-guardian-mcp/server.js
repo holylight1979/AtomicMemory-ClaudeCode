@@ -59,6 +59,7 @@ function codeMtime() {
   return m;
 }
 const SELF_MTIME_AT_BOOT = codeMtime();
+require("./lib/boot-record").startBootRecord(path.join(WORKFLOW_DIR, "mcp-boot"), process.pid, SELF_MTIME_AT_BOOT);
 
 const httpServer = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${DASHBOARD_PORT}`);
