@@ -5,7 +5,7 @@
 - Confidence: [觀]
 - Trigger: msbuild, dotnet build, MSYS2, git bash, MSB1008, 編譯參數, 斜線參數, dash flag, bash 編譯, /t:Build
 - Created-at: 2026-06-17
-- Related: toolchain
+- Related: toolchain, git-bash傳斜線開頭參數給windows原生程式會被轉成路徑-例claude-p的slash指令-msys-no-pathconv只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑
 - Source: commit:4a9d981 2026-06-17（原對話已逾保留期）
 
 ## 知識

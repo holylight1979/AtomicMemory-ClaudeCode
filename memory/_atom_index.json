@@ -7018,7 +7018,7 @@
     },
     {
       "name": "git-bash傳斜線開頭參數給windows原生程式會被轉成路徑-例claude-p的slash指令-msys-no-pathconv只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑",
-      "path": "memory/OS-Windows/git-bash傳斜線開頭參數給windows原生程式會被轉成路徑-例claude-p的slash指令-msys-no-pathconv只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑.md",
+      "path": "_AIDocs/_atoms/Tools/自動化流程與協議/dotnet/git-bash傳斜線開頭參數給windows原生程式會被轉成路徑-例claude-p的slash指令-msys-no-pathconv只能加在那一次呼叫-全域export會讓python讀不到斜線c路徑.md",
       "triggers": [
         "MSYS_NO_PATHCONV",
         "Git Bash 路徑轉換",
