@@ -647,6 +647,58 @@ def test_ask_without_tree_or_closed_tree_hints_write_answer(world):
     assert guard(world)[-1]["reason"] == "no_tree"
 
 
+# ─── C-G1：關鍵點加批判與舉一反三兩問、交出前一問（判斷入口盤點第四節）────────────
+
+def test_cg1_regard_prompts_ask_critique_and_same_class():
+    """讀入範圍變大、收到外部主張、目標改了重看：三個「用目標視角重看」的提示都多問兩句（這樣合不合理、同類別處有沒有），
+    只送題不擋。舊碼沒有這兩問（紅）。"""
+    make_tree()
+    ngp.scope_growth_line(SID, "c:/p|戰鬥", CFG)
+    line = ngp.scope_growth_line(SID, "c:/p|網路", CFG)
+    assert line and ngp.CRITIQUE_QUESTIONS in line, line
+    assert ngp.CRITIQUE_QUESTIONS in ngp.on_external_claim(SID, "審查報告", "x", 3)
+    view = ngp.goal_view_text(SID, "戰鬥")
+    assert view and ngp.CRITIQUE_QUESTIONS in view and "定位四行" in view
+    assert "合不合理" in ngp.CRITIQUE_QUESTIONS and "同類別處" in ngp.CRITIQUE_QUESTIONS
+    # 三個具體問法（原設計者補充；階段 1 的實例：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）
+    assert ng.CRITIQUE_CASES in ngp.CRITIQUE_QUESTIONS and ng.CRITIQUE_CASES in wo.CRITIQUE_LINE_HINT
+    assert all(w in ng.CRITIQUE_CASES for w in ("替身", "落差", "前置步驟", "期望不發生", "什麼都沒發生"))
+    doc = ngp.goal_view_text(SID, "專案文件層", knowledge=True)            # 知識類部位不用交定位行，不叫它重交
+    assert doc and ngp.CRITIQUE_QUESTIONS in doc and "定位" not in doc.split("\n", 1)[0], doc
+
+
+def test_cg1_handout_check_after_editing_plan_docs_once_per_turn(world):
+    """改了計畫類文件（memory/_staging、plans 下的 .md）＝接下來可能把計畫、開工句、清單交給使用者：送一次「還對得上最新計畫嗎、
+    剛改的影響哪些已給出的內容」；同一回合只送一次、下一回合再改再送；改程式檔不送。"""
+    state = {"turn_seq": 4}
+    staging = "C:/u/.claude/memory/_staging/v6-checklist.md"
+    line = ngp.handout_edit_line(state, SID, staging, 4)
+    assert line and ng.HANDOUT_CHECK in line and "v6-checklist.md" in line, line
+    assert ngp.handout_edit_line(state, SID, "C:/u/.claude/plans/p.md", 4) is None          # 同回合不再送
+    assert ngp.handout_edit_line(state, SID, "C:/u/.claude/plans/p.md", 5)                   # 下一回合再送
+    assert ngp.handout_edit_line({"turn_seq": 6}, SID, "C:/u/.claude/hooks/a.py", 6) is None  # 程式檔不送
+    assert ngp.handout_edit_line({"turn_seq": 6}, SID, "C:/u/.claude/_AIDocs/x.md", 6) is None  # 長期文件不算計畫類
+    assert guard(world)[-1]["event"] == "handout_check"
+
+
+def test_cg1_post_tool_use_edit_of_plan_doc_returns_handout_check(world, tmp_path):
+    """PostToolUse（Edit）改到 _staging 的 .md：need_goal 那段回「交出前一問」並標 state 有變（要落盤記回合）。"""
+    from handlers import post_tool_use as pt
+    p = tmp_path / "memory" / "_staging" / "plan.md"
+    p.parent.mkdir(parents=True)
+    p.write_text("x\n", encoding="utf-8")
+    state = {"turn_seq": 3}
+    text, changed = pt._need_goal_after_tool(state, SID, "Edit", {"file_path": str(p)}, {"cwd": str(tmp_path)}, {})
+    assert text and ng.HANDOUT_CHECK in text and changed, text
+
+
+def test_cg1_ask_message_carries_handout_check():
+    """提問（含交計畫）被擋或提醒時，訊息帶「還對得上最新計畫嗎、剛改的影響哪些已給出的內容」。"""
+    make_tree("code")
+    deny, _ = ngp.on_ask(SID, "AskUserQuestion", ASK, {"turn_seq": 3})
+    assert deny and ng.HANDOUT_CHECK in deny
+
+
 def _release_q():
     """真的放行題：題目含標記、選項正好是 wg_release 固定的兩個（C-G16 起豁免看結構，不只看標記）。"""
     return {"questions": [{"question": f"{wg_release.RELEASE_TAG} 要放行這一回合嗎？", "header": "放行", "multiSelect": False,

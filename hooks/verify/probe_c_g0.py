@@ -1,7 +1,7 @@
 """probe_c_g0.py：用真的 hook 入口（hooks/workflow-guardian.py，一個事件一個行程、stdin 餵 JSON）走 G0 綜觀的兩道閘。
 
 情境：需求目標樹 T1（T1.1、T1.2）→ 改【匯出】部位：第四行沒寫角色被擋（LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES）→
-補交有角色、兩個根因候選＋理由的四行放行 → 改【介面】部位（掛 T1.2）→ T1.2 後來放棄，介面的改動等於沒掛目標 →
+補交有角色、兩個根因候選＋理由的四行，沒有第五行批判被擋（LOCATE_LINES_NEED_CRITIQUE）→ 補上批判放行 → 改【介面】部位（掛 T1.2）→ T1.2 後來放棄，介面的改動等於沒掛目標 →
 完整對照交齊後宣告完成，Stop 擋 (f3)（EDITED_PART_NEEDS_GOAL_NODE，列沒掛的部位與檔）→ 補交介面的四行指到 T1.1 → 放行。
 資料根（WG_CLAUDE_DIR）、守門紀錄（WG_TEST_LOGS_DIR）、家目錄（USERPROFILE／HOME）與探針專案都放在
 <本樹>/workflow/need-goal/_probe_cg0/（不進版控、不在系統暫存目錄），向量檢索關掉；每次跑前清空；程式碼用本檔所在的樹。
@@ -28,6 +28,8 @@ TP = BASE / "transcript.jsonl"
 FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 NG = "mcp__workflow-guardian__need_goal"
 RULE_LOCATE = "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES"
+RULE_CRIT = "LOCATE_LINES_NEED_CRITIQUE"
+CRIT = "\n定位｜批判：不合理，因為欄位順序寫死在兩處，更好的做法是只留一份欄位定義；同類還可能在哪：匯入那一側也自己排欄位"
 RULE_PART = "EDITED_PART_NEEDS_GOAL_NODE"
 
 
@@ -122,19 +124,23 @@ def main() -> int:
     say("定位｜部位：匯出：export.py\n定位｜根因層：欄位定義層\n定位｜前例：欄位順序寫死在兩處\n定位｜目標：T1.1（欄位定義只留一份的地方）")
     d = deny(hook("PreToolUse", tool_name="Edit", tool_input=edit("src")))
     step("根因層只一個候選被擋", RULE_LOCATE in d and "只辨識出 0 個" in d, d)
-    say("定位｜部位：匯出：export.py\n定位｜根因層：候選 A 欄位定義層；候選 B 輸出格式層；選 A 因為順序寫死在兩處\n"
-        "定位｜前例：欄位順序寫死在兩處\n定位｜目標：T1.1（欄位定義只留一份的地方）")
+    four = ("定位｜部位：匯出：export.py\n定位｜根因層：候選 A 欄位定義層；候選 B 輸出格式層；選 A 因為順序寫死在兩處\n"
+            "定位｜前例：欄位順序寫死在兩處\n定位｜目標：T1.1（欄位定義只留一份的地方）")
+    say(four)
+    d = deny(hook("PreToolUse", tool_name="Edit", tool_input=edit("src")))
+    step("四行沒批判被擋（LOCATE_LINES_NEED_CRITIQUE）", RULE_CRIT in d and "沒交第五行" in d, d)
+    say(four + CRIT)
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit("src"))
-    step("補齊四行放行", not deny(out), json.dumps(out, ensure_ascii=False))
+    step("補齊五行放行", not deny(out), json.dumps(out, ensure_ascii=False))
     files["src"].write_text("def f():\n    return ['csv']\n", encoding="utf-8")
     hook("PostToolUse", tool_name="Edit", tool_input=edit("src"), tool_response={"filePath": str(files["src"])})
 
     hook("PreToolUse", tool_name="Edit", tool_input=edit("ui"))                     # 第一次碰介面：注入
     hook("PostToolUse", tool_name="Read", tool_input={"file_path": str(files["ui"])}, tool_response={"type": "text"})
     say("定位｜部位：介面：view.py\n定位｜根因層：候選 A 表格欄位順序；候選 B 刷新時機；選 A 因為表格自己排欄位\n"
-        "定位｜前例：結果表格自己排欄位\n定位｜目標：T1.2（把匯出結果顯示出來的那一塊）")
+        "定位｜前例：結果表格自己排欄位\n定位｜目標：T1.2（把匯出結果顯示出來的那一塊）" + CRIT)
     out = hook("PreToolUse", tool_name="Edit", tool_input=edit("ui"))
-    step("介面四行放行（掛 T1.2）", not deny(out), json.dumps(out, ensure_ascii=False))
+    step("介面五行放行（掛 T1.2）", not deny(out), json.dumps(out, ensure_ascii=False))
     files["ui"].write_text("def f():\n    return ['csv']\n", encoding="utf-8")
     hook("PostToolUse", tool_name="Edit", tool_input=edit("ui"), tool_response={"filePath": str(files["ui"])})
 
@@ -157,7 +163,7 @@ def main() -> int:
          "(f3)" in reason and RULE_PART in reason and "介面：" in reason and "view.py" in reason
          and "T1.2 已放棄" in reason and "need_goal" in reason and "匯出：" not in reason.split("(f3)", 1)[-1], reason)
     say("定位｜部位：介面：view.py\n定位｜根因層：候選 A 表格欄位順序；候選 B 刷新時機；選 A 因為表格自己排欄位\n"
-        "定位｜前例：結果表格自己排欄位\n定位｜目標：T1.1（介面跟匯出共用同一份欄位定義）")
+        "定位｜前例：結果表格自己排欄位\n定位｜目標：T1.1（介面跟匯出共用同一份欄位定義）" + CRIT)
     say("全部完成。")
     reason = hook("Stop", last_assistant_message="全部完成。", stop_hook_active=False).get("reason") or ""
     doc = json.loads((ROOT / "workflow" / "need-goal" / f"{SID}.json").read_text(encoding="utf-8"))

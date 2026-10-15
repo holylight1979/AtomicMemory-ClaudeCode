@@ -38,7 +38,7 @@ from wg_verify_ledger import (
     measure_cmds_of, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
     committed_settled_paths, committed_equal_paths, git_deadline,
 )
-from wg_verify_scope import scope_cfg as _scope_cfg
+from wg_verify_scope import fix_evidence as _scope_fix_evidence, scope_cfg as _scope_cfg
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text,
@@ -831,6 +831,9 @@ def _verify_gates(
                 **dict(zip(("moves", "move_receipts"), _move_inputs(state, session_id))),
                 move_scan_hits=state.get("move_scan_hits") or {},
                 self_covered=(lambda: self_run_covered(measure_parts(own_mod_files, _lk), _self_runs())) if _lk else None,
+                # (a) 說修好：有驗證範圍宣告就認宣告範圍的收據（同一個判斷只一份答案），沒宣告才退回檔名對應
+                scope_fix=(lambda: _scope_fix_evidence(state, session_id, own_mod_files, receipts, rg_cfg, _lk, _self_runs()))
+                if _lk and sg_cfg.get("enabled", True) else None,
             )
             kind = "reconcile" if reason or report else ""
         except Exception as e:

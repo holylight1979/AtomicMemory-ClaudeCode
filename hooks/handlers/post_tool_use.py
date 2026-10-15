@@ -819,6 +819,12 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
                 ng.stamp_edit(session_id, p, agent_id, turn, config)
         if tool_name in ("Bash", "PowerShell"):
             ng.stamp_receipts(session_id, state, turn)
+        elif targets:
+            # 改了計畫類文件（_staging、plans 下的 .md）：交出計畫、開工句、清單之前的一問，一回合一次
+            from wg_need_goal_points import handout_edit_line
+            hint = handout_edit_line(state, session_id, str(targets[0]), turn)
+            if hint:
+                return hint, True
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] PostToolUse 蓋號／套用失敗（{tool_name}）：{type(e).__name__}: {e}", file=sys.stderr)
         ng._guard("stamp_error", session_id, tool=tool_name, error=f"{type(e).__name__}: {e}")

@@ -366,6 +366,13 @@ def _tracking_for(root: Path, row: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 # 有需求目標樹時根因層那行的寫法（規則 LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES；導讀卡附樹、沒交第四行的擋訊息共用）
 TWO_CANDIDATES_HINT = "根因層那行寫至少兩個候選與選擇理由（候選 A …；候選 B …；選 A 因為 …），只找到一個就寫「第二個不存在因為 …」"
+# 第四行之後的第五行（規則 LOCATE_LINES_NEED_CRITIQUE）：批判與舉一反三
+def _critique_cases() -> str:
+    import wg_need_goal as _ng
+    return _ng.CRITIQUE_CASES
+
+
+CRITIQUE_LINE_HINT = f"第四行之後再加第五行「定位｜批判：{_oh.CRITIQUE_TEMPLATE}」；{_critique_cases()}"
 
 
 def _goal_block(session_id: str, cfg: Dict[str, Any]) -> str:
@@ -382,7 +389,8 @@ def _goal_block(session_id: str, cfg: Dict[str, Any]) -> str:
     if not tree:
         return ""
     return (f"[NeedGoal] 目前的需求目標（改這個部位的程式檔時，定位三行之後加第四行「{_ng.GOAL_LINE_TEMPLATE}」，"
-            f"節點從下面選；{TWO_CANDIDATES_HINT}）：\n{_ng.render(tree, 'compact', chars=int(ng.get('render_chars') or 1200))}")
+            f"節點從下面選；{TWO_CANDIDATES_HINT}；{CRITIQUE_LINE_HINT}）：\n"
+            f"{_ng.render(tree, 'compact', chars=int(ng.get('render_chars') or 1200))}")
 
 
 def _goal_tree_for(session_id: str, file_path: str, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -399,8 +407,8 @@ def _goal_linked(rec: Dict[str, Any], tree: Dict[str, Any]) -> bool:
 def _goal_line_problem(tree: Dict[str, Any], value: Optional[str]) -> str:
     import wg_need_goal as _ng
     what = "沒交第四行" if not value else f"第四行「{value}」指的節點不在目前的樹 {tree['id']}（或已放棄）"
-    return (f"定位{what}：這個需求有目標樹，改程式檔時定位三行之後要加「{_ng.GOAL_LINE_TEMPLATE}」（{TWO_CANDIDATES_HINT}），"
-            f"節點從目前的樹選：\n{_ng.render(tree, 'compact')}")
+    return (f"定位{what}：這個需求有目標樹，改程式檔時定位三行之後要加「{_ng.GOAL_LINE_TEMPLATE}」（{TWO_CANDIDATES_HINT}；"
+            f"{CRITIQUE_LINE_HINT}），節點從目前的樹選：\n{_ng.render(tree, 'compact')}")
 
 
 def relink_parts(state: Optional[Dict[str, Any]], session_id: str, transcript_path: str, config: Dict[str, Any],
@@ -830,7 +838,8 @@ def _goal_view(state: Dict[str, Any], session_id: str, root: Path, row: Dict[str
     rec["goal_view_turn"] = reset
     try:
         import wg_need_goal_points as _ngp
-        head = _ngp.goal_view_text(session_id, row["part"] or row["part_short"])
+        head = _ngp.goal_view_text(session_id, row["part"] or row["part_short"],
+                                   knowledge=_oh.path_kind(hit_path, root) == _oh.KIND_KNOWLEDGE)
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"[NeedGoal] 目標視角重送失敗（不影響讀檔）：{type(e).__name__}: {e}\n")
         return None
@@ -1006,19 +1015,23 @@ def _longer_parts(root: Path, row: Dict[str, Any]) -> List[str]:
 
 
 def _goal_line_check(tree: Dict[str, Any], vals: Dict[str, str]) -> Tuple[Optional[str], Any]:
-    """定位第四行核對（有需求目標樹時）：回 (節點, None) 通過；(None, 問題句) 節點不在樹；
-    (節點, Verdict) 節點在但內容結構不夠（規則 LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES）。"""
+    """定位第四、五行核對（有需求目標樹時）：回 (節點, None) 通過；(None, 問題句) 節點不在樹；
+    (節點, [Verdict…]) 節點在但內容結構不夠（規則 LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES、LOCATE_LINES_NEED_CRITIQUE、
+    LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER，缺的一起列）。"""
     import wg_need_goal as _ng
     node = _ng.node_ref(tree, vals.get("目標"))
     if node is None:
         return None, _goal_line_problem(tree, vals.get("目標"))
-    v = _rr.locate_lines_verdict(vals.get("根因", ""), vals.get("目標", ""), node,
-                                 str(((tree.get("nodes") or {}).get(node) or {}).get("text") or ""))
-    return node, (v if v.owed else None)
+    owed = [v for v in (_rr.locate_lines_verdict(vals.get("根因", ""), vals.get("目標", ""), node,
+                                                 str(((tree.get("nodes") or {}).get(node) or {}).get("text") or "")),
+                        _rr.locate_critique_verdict(vals.get("批判", "")),
+                        _rr.locate_placeholder_verdict(vals)) if v.owed]
+    return node, (owed or None)
 
 
 def _locate_example(row: Dict[str, Any], tree: Dict[str, Any], node: Optional[str]) -> str:
-    """擋訊息附的範例四行：部位名、這一部位要指明的層、要指的節點都填好，照抄就過結構判定（內容對錯要自己判）。"""
+    """擋訊息附的範例五行：部位名、這一部位要指明的層、要指的節點都填好；角括號是要換成自己判斷的地方，照抄不換不算交
+    （規則 LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER）。"""
     layers = _row_layers(row)
     nid = node or tree["id"]
     return "\n".join((
@@ -1026,7 +1039,9 @@ def _locate_example(row: Dict[str, Any], tree: Dict[str, Any], node: Optional[st
         f"  定位｜根因層：候選 A <第一個根因>{f'（{layers[0]}）' if layers else ''}；候選 B <第二個根因>；選 A 因為 <為什麼不是 B>",
         "  定位｜前例：<卡名>／無",
         f"  定位｜目標：{nid}（<這一塊替 {nid} 做什麼>）",
-        "  （根因只找到一個：根因層寫「<根因>；第二個不存在因為 <理由>」）",
+        "  定位｜批判：不合理，因為 <現在寫法的問題>，更好的做法是 <替代做法>；同類還可能在哪：<別處同樣寫法的位置>",
+        "  （根因只找到一個：根因層寫「<根因>；第二個不存在因為 <理由>」；這段寫法合理就寫「合理，因為 <理由>」；"
+        "同類找不到就寫「無，因為 <理由>」）",
     ))
 
 
@@ -1284,15 +1299,16 @@ def on_edit(state: Dict[str, Any], session_id: str, file_path: str, transcript_p
             import wg_need_goal as _ng
             _ng._guard("locate_blocked", session_id, part=row["part_short"], path=file_path, tree=goal_tree["id"])
         elif bad_content:
-            v, node = bad_content
-            missing.append(f"{_rr.format_hit('定位', v)}\n  照這個樣子補交一組（角括號換成你對這一塊的判斷）：\n"
-                           + _locate_example(row, goal_tree, node))
+            vs_, node = bad_content
+            missing.append("\n  ".join(_rr.format_hit('定位', v) for v in vs_)
+                           + "\n  照這個樣子補交一組（角括號換成你對這一塊的判斷）：\n" + _locate_example(row, goal_tree, node))
             deny_reason = "locate_content"
             import wg_need_goal as _ng
             _ng._guard("locate_blocked", session_id, part=row["part_short"], path=file_path, tree=goal_tree["id"],
-                       rule=v.rule)
+                       rule="、".join(v.rule for v in vs_))
         else:
-            fourth = "／定位｜目標：<節點編號>（這一塊在目標裡的角色）" if goal_tree is not None else ""
+            fourth = ("／定位｜目標：<節點編號>（這一塊在目標裡的角色）／定位｜批判：<合不合理、更好的做法、同類還可能在哪>"
+                      if goal_tree is not None else "")
             missing.append(f"還沒交出定位三行（注入導讀卡後讀了 {len(reads)} 個檔、跨 {len(dirs)} 個目錄）。"
                            f"請先在回覆寫：定位｜部位：…／定位｜根因層：…／定位｜前例：…{fourth}")
     if missing and deny_reason is None:

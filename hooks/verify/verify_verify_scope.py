@@ -302,6 +302,72 @@ def test_redeclare_replaces_whole_scope(proj, lookup):
     assert reason is None, reason
 
 
+# ─── 收據只被跟這一項有關的改動作廢（SCOPE_EDIT_RELATED_TO_ITEM） ─────────────────────
+
+_DOC_RULER = "python -X utf8 tools/sync_doc_counts.py --check"
+_T_DOC = (_NOW - timedelta(minutes=30)).isoformat()            # 文件改在測試收據之後（T1 之後、現在之前）
+
+
+def test_doc_edit_after_code_test_does_not_void_its_receipt(proj, lookup):
+    """改程式 → 跑測試綠 → 再改一段有量尺部位的文件：測試那一項不用重跑（文件跟它無關），文件那一項照要改完之後的收據。
+    舊碼拿全部要宣告的改檔比先後 → 測試收據早於文件修改 → 擋（紅）。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測 x.py"},
+                           {"target": _DOC_RULER, "why": "改了文件計數段"}])
+    mods = [_mf(proj / "hooks" / "x.py", T0, 1), _mf(proj / "_AIDocs" / "doc.md", _T_DOC, 5)]
+    receipts = [_rcpt(proj, _X_RUN, T1, 3), _rcpt(proj, _DOC_RULER, _NOW.isoformat(), 6, name="DOC_CHECK")]
+    reason, _ = _gates(state, mods, receipts)
+    assert reason is None, reason
+
+
+@pytest.mark.parametrize("item, run, doc", [
+    (_DOC_RULER, _DOC_RULER, "_AIDocs/doc.md"),                                         # 這一項就是文件部位的量尺
+    ("tools/verify/verify_t.py", "python -m pytest -q tools/verify/verify_t.py", "tools/verify/data.md"),   # 同部位的資料檔
+    ("python -m pytest -q", "python -m pytest -q", "_AIDocs/doc.md"),                    # 整體驗證：什麼都算
+])
+def test_related_non_code_edit_still_voids_the_receipt(proj, lookup, item, run, doc):
+    """反例：文件跟這一項有關（它就是那個部位的量尺、和它點名的檔同部位、整體驗證）→ 收據早於文件修改照擋。"""
+    (proj / doc).write_text("d\n", encoding="utf-8")
+    state = _state()
+    _declare(state, proj, [{"target": item, "why": "有關"}])
+    reason, _ = _gates(state, [_mf(proj / doc, _T_DOC, 5)], [_rcpt(proj, run, T1, 3, name="X_CHECK")])
+    assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason and Path(doc).name in reason, (item, reason)
+
+
+def test_item_inputs_declare_cross_part_data_the_test_reads(proj, lookup):
+    """codex BLOCK：測試讀別的部位的資料（tools 的測試讀 _AIDocs 的文件）是判斷題，交 LLM 宣告（inputs）。沒宣告 → 文件改動
+    不算進這一項，宣告回應把「不算進任何一項的文件改動」列出來問；宣告了 → 改完沒重跑就擋；inputs 指到不存在的檔 → 退回。"""
+    doc = proj / "_AIDocs" / "doc.md"
+    state = _state()
+    state["modified_files"] = [_mf(proj / "tools" / "t.py", T0, 1), _mf(doc, _T_DOC, 5)]
+    text = _declare(state, proj, [{"target": "tools/verify/verify_t.py", "why": "讀文件計數"}])
+    assert "收下" in text and "doc.md" in text and "inputs" in text, text
+    mods = state["modified_files"]
+    run = _rcpt(proj, "python -m pytest -q tools/verify/verify_t.py", T1, 3)
+    assert _gates(state, mods, [run])[0] is None                                   # 沒宣告 inputs：文件改動不作廢
+    text = _declare(state, proj, [{"target": "tools/verify/verify_t.py", "why": "讀文件計數", "inputs": ["_AIDocs/doc.md"]}])
+    assert "收下" in text, text
+    reason, _ = _gates(state, mods, [run])
+    assert reason and "SCOPE_ITEM_RECEIPT_AFTER_EDIT" in reason and "doc.md" in reason, reason
+    text = _declare(state, proj, [{"target": "tools/verify/verify_t.py", "why": "x", "inputs": ["_AIDocs/nope.md"]}])
+    assert "SCOPE_ITEM_WELL_FORMED" in text and "nope.md" in text, text
+
+
+def test_fix_evidence_reads_declared_scope_not_file_names(proj, lookup):
+    """對帳 (a) 的證據（fix_evidence）：沒宣告 → None（退回檔名對應）；宣告範圍內一項改完之後跑綠 → 認（指令不必提到改的檔）；
+    跑在改動之前 → 不認，附每項為什麼。"""
+    vs = _vs()
+    rg = vl.reconcile_cfg({})
+    mods = [_mf(proj / "hooks" / "x.py", T1, 3)]
+    state = _state()
+    assert vs.fix_evidence(state, _SID, mods, [], rg, lookup) is None
+    _declare(state, proj, [{"target": "tools/verify/verify_t.py", "why": "x.py 的呼叫方"}])
+    ok, notes = vs.fix_evidence(state, _SID, mods, [_rcpt(proj, "python -m pytest -q tools/verify/verify_t.py", T2, 4)], rg, lookup)
+    assert ok and "verify_t.py" in notes[0], notes
+    ok, notes = vs.fix_evidence(state, _SID, mods, [_rcpt(proj, "python -m pytest -q tools/verify/verify_t.py", T0, 1)], rg, lookup)
+    assert not ok and "之前" in notes[0], notes
+
+
 # ─── 範圍漏判 ────────────────────────────────────────────────────────────
 
 _Y_RUN = "python -m pytest -q hooks/verify/verify_y.py"

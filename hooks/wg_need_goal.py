@@ -85,6 +85,14 @@ STALE_DAYS = 30
 HINT_LINE = ("[NeedGoal] 若這是要動手的需求，先用 need_goal(action=set, goal=…) 寫下它真正要達成什麼"
              "（一句、用使用者的話、不寫手段）；純問答可以不寫。")
 GOAL_LINE_TEMPLATE = "定位｜目標：<節點編號>（這一塊在目標裡的角色）"
+# 批判題的三個具體情況（原設計者補充，來源是判斷入口盤點階段 1 的真實失誤：換成真 git 後舊前置沒真改到檔，「期望不記」的案空轉通過）；
+# 定位第五行的提示與「用目標視角重看」的兩問共用；只送題，適不適用由 LLM 判斷
+CRITIQUE_CASES = ("遇到這三種情況再多問一句：拿 A 代替 B 判斷（選替身）→ 替身和真正要判的事之間有沒有落差、同類情況會不會被誤判？"
+                  "換了測試環境或前提 → 舊的前置步驟在新環境還成立嗎？寫「期望不發生」的案例 → 它通過是因為規則對，"
+                  "還是因為什麼都沒發生（先斷言前置狀態成立）？")
+# 交出計畫、開工句、清單之前的一問（判斷入口盤點第四節；完整對照收下、改計畫類文件、提問被擋或提醒時送）：只送題、不評內容
+HANDOUT_CHECK = ("交出計畫、開工句、清單給使用者前再對一次：還對得上最新的計畫嗎？剛改的東西影響哪些已經給出去的內容"
+                 "（之前給的開工句、清單、計畫）？有就一起改。")
 
 
 class NeedGoalLockTimeout(RuntimeError):
@@ -437,6 +445,8 @@ def _node_line(nid: str, node: Dict[str, Any], full: bool, doc: Optional[Dict[st
         line += "；證據：" + "、".join(_evidence_text(e, doc) for e in node["evidence"][:4])
     if node.get("followup"):
         line += f"；未完：{_clip(node['followup'], 120)}"
+    if node.get("same_class"):
+        line += f"；同類別處：{_clip(node['same_class'], 120)}"
     if node.get("note"):
         line += f"；附註：{_clip(node['note'], 120)}"
     return line
@@ -557,6 +567,8 @@ def _validate_items(action: str, items: List[Any]) -> List[str]:
             continue
         if it.get("status") not in TERMINAL:
             errs.append(f"{tag}.status 必填且只收終點值：{'|'.join(TERMINAL)}")
+        if it.get("same_class") is not None and not isinstance(it.get("same_class"), str):
+            errs.append(f"{tag}.same_class 必須是字串（同類別處：找到的位置，或為什麼沒有）")
         ev = it.get("evidence")
         if ev is not None and not isinstance(ev, list):
             errs.append(f"{tag}.evidence 必須是陣列")
@@ -593,6 +605,9 @@ def _validate_verify_scope(inp: Dict[str, Any]) -> List[str]:
             errs.append(f"items[{i}].target 必填（測試檔、測試節點、資料夾或指令）")
         if not _s(it.get("why")):
             errs.append(f"items[{i}].why 必填（為什麼和這次改動有關、會受什麼影響）")
+        ins = it.get("inputs")
+        if ins is not None and (not isinstance(ins, list) or not all(_s(x) for x in ins)):
+            errs.append(f"items[{i}].inputs 必須是非空字串陣列（這一項還讀的檔或資料夾）")
     rv = inp.get("reviews")
     if rv is not None and not isinstance(rv, list):
         return errs + ["reviews 必須是陣列"]
@@ -939,7 +954,8 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
         return {"ok": False, "tree": None, "rejected": [f"一次完整對照只對一棵樹（這次混了 {'、'.join(tids)}），分開交"]}
     tree = doc["trees"][tids[0]]
     view = {nid: {"status": it["status"], "evidence": [dict(e) for e in it.get("evidence") or []],
-                  "followup": _s(it.get("followup")), "note": _s(it.get("note"))} for nid, it in items.items()}
+                  "followup": _s(it.get("followup")), "note": _s(it.get("note")), "same_class": _s(it.get("same_class"))}
+            for nid, it in items.items()}
     probs = _problems(doc, tree, view, cwd, set(items))
     if probs:
         return {"ok": False, "tree": tree["id"], "rejected": probs}
@@ -963,6 +979,7 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
         node["evidence"] = stored + prior
         node["followup"] = v["followup"]
         node["note"] = v["note"]
+        node["same_class"] = v["same_class"]
         node["history"].append({"seq": seq, "turn": turn, "what": "reconcile", "why": v["note"] or v["followup"]})
         if v["status"] in ("partial", "none") and v["followup"]:
             followups.append(f"需求目標 {nid}（{LABEL['status'][v['status']]}）：{v['followup']}")
@@ -975,8 +992,12 @@ def _op_reconcile(doc: Dict[str, Any], inp: Dict[str, Any], turn: int, cwd: str)
     done = all(n.get("status") in ("done", "dropped") for n in tree["nodes"].values())
     tree["status"] = "closed" if done else "reconciled"
     add_checkpoint(doc, tree, turn, "reconcile", tree["id"])
+    bare = [nid for nid, v in view.items() if v["status"] == "done" and not v["same_class"]]
+    same = (f"\n  - 達成的 {'、'.join(bare[:6])} 可附 same_class（同類別處還有沒有：找到的位置，或為什麼沒有；只提醒、不擋）"
+            if bare else "")
     return {"ok": True, "tree": tree["id"], "goal_changed": False, "followups": followups,
-            "note": f"完整對照收下，{tree['id']} {LABEL['tree'][tree['status']]}" + "".join(f"\n  - {ln}" for ln in rtg)}
+            "note": f"完整對照收下，{tree['id']} {LABEL['tree'][tree['status']]}" + "".join(f"\n  - {ln}" for ln in rtg)
+            + same + f"\n{HANDOUT_CHECK}"}
 
 
 def apply_op(sid: Any, turn: int, tool_input: Dict[str, Any], cwd: str = "") -> Dict[str, Any]:
@@ -1385,9 +1406,9 @@ def _f2_text(doc: Dict[str, Any]) -> Optional[str]:
         return None
     return (f"[Guardian:ReconcileGate] (f2) 交付前的目標對照（{tree['id']}）缺：\n" + "\n".join(f"  - {p}" for p in probs) +
             "\n用 need_goal(action=reconcile, items=[每個還活著的節點：{id, status: done|partial|none|dropped, "
-            "evidence: [{kind, ref, level, covers?}], followup?, note?}]) 交完整對照：達成要附證據（寫碼類至少一筆沒紅的收據或"
+            "evidence: [{kind, ref, level, covers?}], followup?, note?, same_class?}]) 交完整對照：達成要附證據（寫碼類至少一筆沒紅的收據或"
             "讀碼級驗證案例；實測只能配收據 R<號>，要在最後一次改動之後跑）、推論最多標部分、部分／沒有寫 followup、"
-            "放棄寫 note。\n目前的樹：\n" +
+            "放棄寫 note；達成可附 same_class（同類別處：找到的位置，或為什麼沒有）。\n目前的樹：\n" +
             render(tree, "compact"))
 
 

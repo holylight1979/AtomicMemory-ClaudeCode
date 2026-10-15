@@ -487,10 +487,12 @@ const TOOL_DEFINITIONS = [
       "update＝改節點文字／狀態／清楚度，也是改了程式之後的「一句進度」（why 必填：這次改動讓它更接近了沒、為什麼）；" +
       "reconcile＝交付前的完整對照（每個還活著的節點交終點結論 done|partial|none|dropped；達成要附證據，" +
       "寫碼類的達成至少一筆沒紅的收據或讀碼級驗證案例（只有檔案／卡片／推論不算試過），" +
-      "實測只能配收據 R<號> 且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note）；" +
+      "實測只能配收據 R<號> 且要在最後一次改動之後跑，檔案／案例／卡片只能標讀碼或推論，推論最多標部分；部分／沒有寫 followup、放棄寫 note；" +
+      "達成可附 same_class：同類別處還有沒有）；" +
       "read＝把目前的樹送回眼前（form=handoff 取續接單區塊）。樹根與節點用使用者的語言、只寫目標不寫手段。" +
       "verify_scope＝宣告這次的驗證範圍：改了程式之後由你判斷哪些測試和這次改動有關聯、哪些地方會受影響，" +
-      "items=[{target, why}]（target 是測試檔、測試節點 檔::名、資料夾或指令；why 一句為什麼相關）；每次宣告是完整範圍，" +
+      "items=[{target, why, inputs?}]（target 是測試檔、測試節點 檔::名、資料夾或指令；why 一句為什麼相關；" +
+      "inputs 是這一項還讀的非程式檔或資料夾，改了它們這一項要重跑）；每次宣告是完整範圍，" +
       "收尾前範圍內每一項都要在最後一次改動之後跑綠（部位表整把量尺只當參考）；有待檢討的範圍漏判時附 reviews 逐筆檢討。" +
       "寫碼類任務沒有樹不能改程式；改了程式要回頭對照；宣告完成、交收尾檢核、commit 前要有完整對照。" +
       "本 tool 只驗參數回 chip、不寫檔（one-writer：目標檔、編號、送回的樹由 Python PostToolUse 獨佔）。",
@@ -506,7 +508,7 @@ const TOOL_DEFINITIONS = [
         items: {
           type: "array",
           description: "add：[{text, clarity?, origin?}]；update：[{id, text?, status?, clarity?, why}]；" +
-            "reconcile：[{id, status, evidence?, followup?, note?}]；verify_scope：[{target, why}]",
+            "reconcile：[{id, status, evidence?, followup?, note?, same_class?}]；verify_scope：[{target, why, inputs?}]",
           items: {
             type: "object",
             properties: {
@@ -534,6 +536,9 @@ const TOOL_DEFINITIONS = [
               },
               followup: { type: "string", description: "reconcile：部分／沒有時接下來要追什麼" },
               note: { type: "string", description: "reconcile：附註（放棄的理由寫這裡）" },
+              same_class: { type: "string", description: "reconcile：達成的節點可附——同類別處還有沒有：找到的位置，或為什麼沒有（只記錄、不擋）" },
+              inputs: { type: "array", items: { type: "string" },
+                description: "verify_scope（選填）：這一項還讀哪些不是程式的檔或資料夾（資料、文件、索引）；改了它們，這一項要重跑" },
             },
           },
         },

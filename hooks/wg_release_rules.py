@@ -81,7 +81,10 @@ RULES: Dict[str, str] = {
                            "收割冷卻全吃同一個起點（user_turn／turn_prompts_seq／user_turn_count）。派工訊息不是使用者原話：口令照樣不認。",
     "VCS_ROOT_UNREADABLE": "找改檔所在版控根時檔案系統出錯（OSError：權限、網路路徑斷、路徑太長）→ 讀不到不等於不在版控：判不出去向，照欠（fail-closed）。",
     # 既有對帳條目的名字（(a)(b)(c)(e)、量尺），讓每一條擋訊息都有規則名
-    "CLAIM_FIXED_NEEDS_PASS": "(a) 說「修好」要有本回合對得上改檔、晚於最後一次修改、同一棵樹的 PASS，或改檔部位的合格自寫收據。",
+    "CLAIM_FIXED_NEEDS_PASS": "(a) 說「修好」：有驗證範圍宣告（need_goal verify_scope）→ 認宣告範圍內任一項在跟它有關的最後一次改動之後"
+                              "跑綠的收據（SCOPE_EDIT_RELATED_TO_ITEM；session 收據或背景自寫收據，不看回合、不比檔名），"
+                              "該測哪些已經由 LLM 宣告，(a) 不再用另一套答案；沒宣告才退回檔名對應：本回合對得上改檔、"
+                              "晚於最後一次修改、同一棵樹的 PASS，或改檔部位的合格自寫收據。",
     "CLAIM_MEASURED_NEEDS_DONE": "(b) 說「量了」要有本回合能當證據的 DONE，或改檔部位的合格自寫收據。",
     "CLAIM_TRIED_NEEDS_EXEC": "(c) 說「試過／跑了」要有本回合的 Bash／PowerShell 執行。",
     "AEC_EVIDENCE_PATH": "(e) 收尾檢核 (j) 證據路徑缺或不存在，但本 session 有驗證收據。",
@@ -98,6 +101,15 @@ RULES: Dict[str, str] = {
                                                  "這一塊在目標裡的角色（非空、不是佔位句、不是節點原文照抄）；第二行「定位｜根因層」要辨識得出"
                                                  "至少兩個根因候選＋選擇理由（候選 A …；候選 B …；選 A 因為 …／第一根因 …，第二根因 …），"
                                                  "或一個候選＋「第二個不存在因為 …」。只看結構不評對錯；知識類部位不查。",
+    # G1 側觀：定位之後的批判與舉一反三（原話輯 G1 2026-10-15）
+    "LOCATE_LINES_NEED_CRITIQUE": "有需求目標樹時改寫碼部位，定位四行之後要第五行「定位｜批判：…」：下「合理」或「不合理」的判斷並附理由"
+                                  "（因為／理由／原因／由於），不合理要寫更好的做法（更好／改成／應該／改用／換成），還要寫「同類還可能在哪：…」"
+                                  "（或「無，因為…」）。同類欄位認最後一個「同類…：」標籤（理由裡提到同類不切斷）；「無」後面接標點、"
+                                  "理由詞或行尾才算沒有同類（「無鎖佇列」是位置）。照抄範本不算交。與定位四行同一支判定、每個部位交一次；"
+                                  "只看結構不評對錯，知識類部位不查。",
+    "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER": "有需求目標樹時改寫碼部位，定位各行（部位／根因／前例／目標／批判）還留著擋訊息範例的角括號佔位"
+                                           "（角括號裡有中文說明，如 <第一個根因>）→ 當沒填、照擋；程式的泛型角括號（List<int>）不算。"
+                                           "查的是有沒有填，不評內容。",
     "EDITED_PART_NEEDS_GOAL_NODE": "交付邊界與 commit 前：目前寫碼類目標樹上，本 session 改過程式檔的每個寫碼部位，都要在定位帳"
                                    "（目標檔 links.parts）掛到樹裡還活著的節點；沒交過、掛的節點已放棄或不在樹 → 擋，列"
                                    "「<部位>：<改的檔> 沒掛目標」並指路補交定位四行或 need_goal add 子目標。表外的檔、知識類部位、"
@@ -1132,6 +1144,69 @@ def locate_lines_verdict(root_line: str, goal_line: str, node_id: str, node_text
     return Verdict(rule, True, "；".join(missing), (f"定位｜根因層：{root_line}", f"定位｜目標：{goal_line}"))
 
 
+_UNREASONABLE_RE = re.compile(r"不合理")
+_REASONABLE_RE = re.compile(r"(?<!不)合理")
+_BETTER_RE = re.compile(r"更好|改成|應該|改用|換成")
+# 同類欄位的標籤：「同類…：」（冒號前最多 8 字，如「同類還可能在哪：」「同類別處：」）；沒冒號時退回「；同類…」這種分隔符後的同類
+_SAME_LABEL_COLON_RE = re.compile(r"同類[^：:；;，,。]{0,8}[:：]")
+_SAME_LABEL_SEP_RE = re.compile(r"(?:^|[；;。，,])\s*同類(?:別處|還可能在哪(?:裡)?|有沒有|在哪)?\s*")
+# 「無／沒有」後面接標點、理由詞或行尾才算「沒有同類」（「無鎖佇列」是位置的名字）
+_SAME_NONE_RE = re.compile(rf"^(?:無|沒有|不存在|找不到)(?=\s*(?:[，,。；;:：]|{_REASON_WORDS}|$))", re.IGNORECASE)
+
+
+def _split_same_class(text: str) -> Tuple[str, Optional[str]]:
+    """批判那行切成（判斷段, 同類段）；找不到同類欄位回 (全文, None)。取最後一個標籤，理由裡提到「同類」不會被切斷。"""
+    hits = list(_SAME_LABEL_COLON_RE.finditer(text)) or list(_SAME_LABEL_SEP_RE.finditer(text))
+    if not hits:
+        return text, None
+    m = hits[-1]
+    return text[:m.start()], text[m.end():].strip()
+
+
+def locate_critique_verdict(line: str) -> Verdict:
+    """LOCATE_LINES_NEED_CRITIQUE：定位第五行「定位｜批判」的結構：同類欄位之前要有合理／不合理的判斷＋理由（不合理另要更好的做法），
+    同類欄位要寫在哪（或「無／沒有」＋理由）。缺的項一起列。"""
+    rule = "LOCATE_LINES_NEED_CRITIQUE"
+    text = str(line or "").strip()
+    if not text:
+        return Verdict(rule, True, "沒交第五行「定位｜批判：…」（這段寫法合不合理、更好的做法、同類還可能在哪）")
+    head, where = _split_same_class(text)
+    missing: List[str] = []
+    bad = _UNREASONABLE_RE.search(head)
+    if bad:
+        rest = head[bad.end():]
+        if not _REASON_RE.search(rest):
+            missing.append("判「不合理」沒寫理由（不合理，因為 …）")
+        if not _BETTER_RE.search(rest):
+            missing.append("判「不合理」沒寫更好的做法（更好的做法是 …）")
+    elif _REASONABLE_RE.search(head):
+        if not _REASON_RE.search(head):
+            missing.append("判「合理」沒寫理由（合理，因為 …）")
+    else:
+        missing.append("沒下這段寫法合不合理的判斷（合理，因為 …／不合理，因為 …，更好的做法是 …）")
+    if where is not None and _SAME_NONE_RE.match(where):
+        if not (_REASON_RE.search(where) and len(_role_core(_REASON_RE.split(where, 1)[-1])) >= 2):
+            missing.append("同類寫「無」要附為什麼沒有（無，因為 …）")
+    elif where is None or len(_role_core(where)) < 2:
+        missing.append("沒寫同類還可能在哪（同類還可能在哪：…；沒有就寫「無，因為 …」）")
+    if not missing:
+        return Verdict(rule, False, "批判那行有判斷、理由與同類別處")
+    return Verdict(rule, True, "；".join(missing), (f"定位｜批判：{text}",))
+
+
+# 擋訊息範例的佔位：角括號裡有中文說明（`<第一個根因>`）；程式的泛型角括號（List<int>）不算
+_EXAMPLE_PLACEHOLDER_RE = re.compile(r"<[^<>\n]*[一-鿿][^<>\n]*>")
+
+
+def locate_placeholder_verdict(vals: Dict[str, str]) -> Verdict:
+    """LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER：定位各行（部位／根因／前例／目標／批判）還留著擋訊息範例的角括號佔位 → 當沒填。"""
+    rule = "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER"
+    left = [f"定位｜{k}：{v}" for k, v in (vals or {}).items() if _EXAMPLE_PLACEHOLDER_RE.search(str(v or ""))]
+    if not left:
+        return Verdict(rule, False, "定位各行沒有留著範例佔位")
+    return Verdict(rule, True, "定位行還留著範例的角括號佔位（<…>），換成你對這一塊的判斷才算交", tuple(left))
+
+
 def edited_part_goal_verdict(parts: Sequence[Tuple[str, Sequence[str], str]]) -> Verdict:
     """EDITED_PART_NEEDS_GOAL_NODE：parts＝[(部位, 改的檔, 掛的狀態)]，狀態 linked／none（沒交過定位第四行）／
     dropped:<節點>（掛的節點已放棄）／gone:<節點>（節點不在目前的樹）。沒掛的一部位一行證據。"""
@@ -1362,7 +1437,13 @@ RULES.update({
                                  "部位表的整把量尺只在宣告回應與擋訊息當參考。子代理沒有自己的宣告時沿用主 session 的。",
     "SCOPE_ITEM_WELL_FORMED": "宣告收件：每項的目標與理由都不能空；看起來是路徑的目標要存在，測試節點（檔::名）要查得到那個 def；"
                               "不是路徑的目標當指令。有一項不合格整份退回。",
-    "SCOPE_ITEM_RECEIPT_AFTER_EDIT": "最新那份宣告的每一項都要有一筆收據：晚於每個要宣告的改檔最後一次修改、綠（有 PASS／DONE、沒有 FAIL、"
+    "SCOPE_EDIT_RELATED_TO_ITEM": "宣告的一項要晚於哪些改檔的最後一次修改：程式檔一律算；不是程式檔的（文件、記憶，落在有量尺的部位才要宣告）"
+                                  "只有跟這一項有關才算：和這一項點名的檔同一個部位、就在它點名的路徑或它宣告的 inputs（這一項還讀的檔或"
+                                  "資料夾，跨部位的資料由 LLM 宣告）底下、這一項就是那個部位的量尺指令，或這一項是整體驗證／看不出跑了什麼（照算）。"
+                                  "這四個條件都是查得到的事實（部位表同一列、路徑包含、量尺逐字相同、指令涵蓋），不是替 LLM 判斷關聯；"
+                                  "「測試讀了哪份資料」是判斷，只認 LLM 在項目宣告的 inputs，沒有別的對應表、不看檔名規則。"
+                                  "改 _staging 的計畫文件不作廢程式測試的收據；宣告回應列出不算進任何一項的文件改動，讓 LLM 判斷要不要加 inputs。",
+    "SCOPE_ITEM_RECEIPT_AFTER_EDIT": "最新那份宣告的每一項都要有一筆收據：晚於跟這一項有關的改檔（SCOPE_EDIT_RELATED_TO_ITEM）最後一次修改、綠（有 PASS／DONE、沒有 FAIL、"
                                      "exit 0 或未知、failed=0）、同一棵樹、指令完整可信（白名單語法、沒有換目錄、環境沒縮範圍）。"
                                      "檔案／資料夾項目：pytest 點名該檔或它所在的資料夾、直接執行的腳本就是它、或整體驗證；pytest 選項走白名單"
                                      "（-k、-m、-o、--deselect、連寫的 -kfoo 等其他選項一律當只跑一部分，那一段點名的都不算），python 直譯器"
@@ -1445,6 +1526,19 @@ def scope_item_form_verdict(target: str, why: str, problem: str = "") -> Verdict
     if problem:
         return Verdict(rule, True, f"「{target}」{problem}")
     return Verdict(rule, False, f"「{target}」收下")
+
+
+def scope_edit_related_verdict(name: str, is_code: bool, same_part: bool = False, under_item: bool = False,
+                               runs_part_ruler: bool = False, whole_or_unknown: bool = False) -> Verdict:
+    """SCOPE_EDIT_RELATED_TO_ITEM：owed＝這個改檔（name）算進這一項的「最後一次改動」（收據要晚於它）。事實由 wg_verify_scope._item_mods 查。"""
+    rule = "SCOPE_EDIT_RELATED_TO_ITEM"
+    if is_code:
+        return Verdict(rule, True, f"{name} 是程式檔：每一項的收據都要晚於它")
+    why = ("和這一項點名的檔同一個部位" if same_part else "就在這一項點名的路徑底下" if under_item
+           else "這一項就是它所在部位的量尺指令" if runs_part_ruler else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown else "")
+    if why:
+        return Verdict(rule, True, f"{name} 不是程式檔，但{why}")
+    return Verdict(rule, False, f"{name} 不是程式檔，也跟這一項無關：改它不作廢這一項的收據")
 
 
 def scope_item_verdict(scope_id: str, target: str, ok: bool, why_not: str = "") -> Verdict:

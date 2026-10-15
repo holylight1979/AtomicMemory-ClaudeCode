@@ -42,6 +42,7 @@ function validateItems(action, items) {
       return;
     }
     if (!TERMINAL.includes(it.status)) errs.push(`${tag}.status 必填且只收終點值：${TERMINAL.join("|")}`);
+    if (given(it.same_class) && typeof it.same_class !== "string") errs.push(`${tag}.same_class 必須是字串（同類別處：找到的位置，或為什麼沒有）`);
     if (given(it.evidence) && !Array.isArray(it.evidence)) { errs.push(`${tag}.evidence 必須是陣列`); return; }
     (it.evidence || []).forEach((e, j) => {
       const etag = `${tag}.evidence[${j}]`;
@@ -57,7 +58,8 @@ function validateItems(action, items) {
   return errs;
 }
 
-/** verify_scope：items 每項 {target, why} 非空；reviews（選填）每筆 {leak, verdict∈missed|unrelated}。內容由 Python 收件時照規則判。 */
+/** verify_scope：items 每項 {target, why} 非空、inputs（選填）是非空字串陣列；reviews（選填）每筆 {leak, verdict∈missed|unrelated}。
+ * 內容由 Python 收件時照規則判。 */
 function validateVerifyScope(a) {
   if (!Array.isArray(a.items) || !a.items.length) return ["verify_scope 要給 items（非空陣列，每項 {target, why}）"];
   const errs = [];
@@ -65,6 +67,9 @@ function validateVerifyScope(a) {
     if (!it || typeof it !== "object" || Array.isArray(it)) { errs.push(`items[${i}] 必須是物件`); return; }
     if (!str(it.target)) errs.push(`items[${i}].target 必填（測試檔、測試節點、資料夾或指令）`);
     if (!str(it.why)) errs.push(`items[${i}].why 必填（為什麼和這次改動有關、會受什麼影響）`);
+    if (given(it.inputs) && (!Array.isArray(it.inputs) || !it.inputs.every((x) => str(x)))) {
+      errs.push(`items[${i}].inputs 必須是非空字串陣列（這一項還讀的檔或資料夾）`);
+    }
   });
   if (given(a.reviews) && !Array.isArray(a.reviews)) return [...errs, "reviews 必須是陣列"];
   (a.reviews || []).forEach((r, j) => {

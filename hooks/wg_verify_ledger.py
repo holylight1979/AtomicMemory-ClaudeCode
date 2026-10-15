@@ -1981,13 +1981,17 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
                          moves: Iterable[Dict[str, Any]] = (),
                          move_scan_hits: Optional[Dict[str, List[str]]] = None,
                          move_receipts: Optional[List[Dict[str, Any]]] = None,
+                         scope_fix: Optional[Callable[[], Optional[Tuple[bool, List[str]]]]] = None,
                          ) -> Tuple[Optional[str], Optional[str]]:
     """回 (寫碼查核擋訊息或 None, 收尾報告欄擋訊息或 None)。純判定、不改 state。
+    scope_fix＝驗證範圍宣告給 (a) 的證據（wg_verify_scope.fix_evidence；stop 傳入，避免反向 import）：回 None＝沒宣告，
+    退回下面的檔名對應；回 (有沒有, 說明行)＝有宣告，(a) 只認它。
     「本回合」的收據與改檔：user_turn（使用者打字開的回合，stop._user_turn）給了就是它到 turn_seq 之間的每個 turn_seq
     （同伴訊息、背景通知讓 turn_seq 前進，剛跑完的驗證仍算本回合）；沒給只認 turn_seq 那一個。
     exec_this_turn＝本回合跑過 Bash／PowerShell（PostToolUse 記的 exec_turn_seq 落在本回合）：(c) 不再只靠 transcript 這一段的工具名。
     pending＝已擋滿待放行：擋訊息不再建議「改成事實句」（換句話不會解帳），只列證據與放行問法；(d) 欠帳也一樣。
-    寫碼查核：(a) 說修好而本 turn 無對得上改檔的合格 PASS、也沒有改檔所在部位的合格自寫收據（self_covered）；
+    寫碼查核：(a) 說修好：有驗證範圍宣告（scope_fix）而範圍內沒有一項改完之後跑綠；沒宣告時本 turn 無對得上改檔的合格 PASS、
+    也沒有改檔所在部位的合格自寫收據（self_covered）；
     (b) 說量了而本 turn 沒有能當證據的 DONE（跑了部位量尺，或白名單語法且參數沒寫哨兵字樣）、也沒有改檔部位的合格自寫收據；
     (c) 說試過無執行工具。(a)(b)(c) 對「宣稱」對帳：last_text 與 claims（擋滿待放行時承接的先前宣稱，
     換一句話不能讓它消失）裡宣告完成的那幾段；pending 時 (b)(c) 只叫人補證據、不叫人改措辭；
@@ -2027,7 +2031,14 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
         return f"（{n}）" if n else ""
 
     hits: List[str] = []          # 每條都是 format_hit 的一行：`✗ (<字母>) <規則名>：<一句現象>｜證據：…`
-    if any(claims_fixed(t, phrases) for t in texts) and not related and not covered():
+    fixed = any(claims_fixed(t, phrases) for t in texts)
+    scope = scope_fix() if fixed and scope_fix else None
+    if scope is not None and not scope[0]:
+        hits.append(format_hit("a", Verdict(
+            "CLAIM_FIXED_NEEDS_PASS", True, "說「修好」但驗證範圍宣告裡沒有一項在跟它有關的最後一次改動之後跑綠",
+            (*scope[1][:4], "修好的證據認你宣告的驗證範圍：範圍內任一項改完之後跑綠就算（不看回合、不比檔名）；"
+                            "範圍不對就重新宣告（need_goal verify_scope）" + note("PASS")))))
+    elif scope is None and fixed and not related and not covered():
         hits.append(format_hit("a", Verdict(
             "CLAIM_FIXED_NEEDS_PASS", True, f"說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}",
             (f"本回合 PASS 收據 {len(pass_receipts(this_turn))} 筆、對得上改檔的 0 筆" + turn_rule,

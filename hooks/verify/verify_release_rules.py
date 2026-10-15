@@ -1189,6 +1189,64 @@ def test_cg0_edited_part_needs_goal_node():
     assert rr.parse_hits(line) == ["f3"]                                     # 擋次預算單獨計次
 
 
+# ─── C-G1：LOCATE_LINES_NEED_CRITIQUE（定位第五行「批判」只查結構） ───
+
+@pytest.mark.parametrize("line, owed, want", [
+    ("不合理，因為字典兩邊都寫，更好的做法是只留邏輯層一個寫入點；同類還可能在哪：存檔流程也兩邊寫", False, ""),
+    ("合理，因為這段只轉送事件；同類還可能在哪：無，因為只有這一個入口", False, ""),
+    ("合理，理由是只查結構不評內容；同類：locate_groups 的排除清單", False, ""),
+    ("不合理，原因是用檔名猜關聯，改成直接認宣告範圍；同類別處：(b) 的 covered()", False, ""),     # 「改成」也是更好的做法
+    ("", True, "沒交"),
+    ("還好；同類還可能在哪：存檔流程", True, "合不合理"),                                             # 沒下判斷
+    ("合理；同類還可能在哪：存檔流程", True, "理由"),                                                 # 合理沒理由
+    ("不合理，因為字典兩邊都寫；同類還可能在哪：存檔流程", True, "更好的做法"),                       # 不合理沒替代做法
+    ("不合理，因為字典兩邊都寫，更好的做法是只留一個寫入點", True, "同類"),                           # 沒舉一反三
+    ("合理，因為只轉送；同類還可能在哪：", True, "同類"),                                              # 同類空白
+    ("合理，因為只轉送；同類還可能在哪：無", True, "同類"),                                            # 「無」沒寫為什麼
+    # codex BLOCK：理由裡出現「同類」不能切斷；同類位置以「無」字開頭的名詞（無鎖佇列）不是「沒有同類」
+    ("不合理，因為同類入口各自維護規則，更好的做法是共用判定函式；同類還可能在哪：存檔入口", False, ""),
+    ("合理，因為只轉送事件；同類還可能在哪：無鎖佇列的入列流程", False, ""),
+    ("合理，因為只轉送事件；同類還可能在哪：無。", True, "同類寫「無」"),
+])
+def test_cg1_locate_lines_need_critique(line, owed, want):
+    """LOCATE_LINES_NEED_CRITIQUE：第五行要下「合理／不合理」判斷並附理由，不合理要寫更好的做法，還要寫同類還可能在哪
+    （或「無，因為…」）。只看結構、不評內容。"""
+    v = rr.locate_critique_verdict(line)
+    assert v.rule == "LOCATE_LINES_NEED_CRITIQUE" and v.owed is owed, v
+    assert want in v.why, v
+    if owed and line:
+        assert any(e.startswith("定位｜批判：") for e in v.evidence)
+
+
+@pytest.mark.parametrize("vals, owed", [
+    ({"部位": "戰鬥——A.cs 結算段", "根因": "候選 A 邏輯層；候選 B 存檔；選 A 因為只有它寫", "目標": "T1.1（唯一寫入點）"}, False),
+    ({"部位": "UI——List<int> 排序", "根因": "Dictionary<string, int> 沒鎖"}, False),           # 程式的泛型角括號不是佔位
+    ({"部位": "戰鬥——<這次改哪個檔、哪一段>"}, True),
+    ({"批判": "不合理，因為 <現在寫法的問題>，更好的做法是 <替代做法>；同類還可能在哪：<別處同樣寫法的位置>"}, True),
+])
+def test_cg1_locate_lines_no_example_placeholder(vals, owed):
+    """LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER：擋訊息附的範例照抄（角括號裡的中文說明沒換掉）不算交；程式的泛型角括號不算佔位。"""
+    v = rr.locate_placeholder_verdict(vals)
+    assert v.rule == "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER" and v.owed is owed, v
+    if owed:
+        assert any("<" in e for e in v.evidence)
+
+
+# ─── C-判斷入口盤點 階段 2：SCOPE_EDIT_RELATED_TO_ITEM（收據只被跟這一項有關的改動作廢） ───
+
+@pytest.mark.parametrize("kw, owed", [
+    (dict(is_code=True), True),                                   # 程式檔：每一項都要晚於它
+    (dict(is_code=False), False),                                 # 文件、記憶：跟這一項無關 → 不作廢
+    (dict(is_code=False, same_part=True), True),                  # 同部位的文件（測試讀的資料、部位自己的文件）
+    (dict(is_code=False, under_item=True), True),                 # 文件就在這一項點名的路徑底下（含它宣告的 inputs）
+    (dict(is_code=False, runs_part_ruler=True), True),            # 這一項就是那個部位的量尺指令
+    (dict(is_code=False, whole_or_unknown=True), True),           # 整體驗證、或看不出指令跑了什麼 → 照算
+])
+def test_scope_edit_related_to_item(kw, owed):
+    v = rr.scope_edit_related_verdict("doc.md", **kw)
+    assert v.rule == "SCOPE_EDIT_RELATED_TO_ITEM" and v.owed is owed, v
+
+
 
 
 # ═══ C-G16（track-c-g16）：提問附推薦、掛目標、全貌先於拍板 ═══

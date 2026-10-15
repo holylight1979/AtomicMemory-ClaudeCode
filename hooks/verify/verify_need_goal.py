@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -409,6 +410,33 @@ def test_reconcile_followups_go_to_tracking(env, monkeypatch):
     assert rows and "需求目標 T1（沒有）：下次補驗證" in rows[0]["text"]
 
 
+def test_reconcile_done_node_can_carry_same_class(env):
+    """收尾完整對照：達成的節點可附 same_class（同類別處：找到的位置，或為什麼沒有）；存進節點、完整顯示看得到。
+    沒附的達成節點只提醒一句、不擋；same_class 不是字串 → 拒收。舊碼不收這個欄位（紅）。"""
+    proj = env["proj"]
+    (proj / "x.md").write_text("x\n", encoding="utf-8")
+    _op("set", goal="A", cwd=str(proj))
+    _op("add", items=[{"text": "b"}])
+    r = _op("reconcile", turn=2, cwd=str(proj), items=[
+        {"id": "T1", "status": "done", "evidence": [{"kind": "file", "ref": "x.md", "level": "read"}],
+         "same_class": "wg_harvest 的收據判定也用檔名對應"},
+        {"id": "T1.1", "status": "done", "evidence": [{"kind": "file", "ref": "x.md", "level": "read"}]}])
+    assert r["ok"], r["rejected"]
+    assert _tree()["nodes"]["T1"]["same_class"] == "wg_harvest 的收據判定也用檔名對應"
+    assert "同類別處：wg_harvest" in ng.render(_tree(), "full")
+    assert "T1.1" in r["text"] and "same_class" in r["text"], r["text"]                 # 沒附的達成節點：提醒一句
+    bad = _op("reconcile", turn=3, cwd=str(proj), items=[{"id": "T1", "status": "done", "same_class": ["x"]}])
+    assert not bad["ok"] and any("same_class" in x for x in bad["rejected"]), bad
+
+
+def test_reconcile_reply_asks_handout_check_before_giving_plans(env):
+    """完整對照收下的回應是交出計畫、開工句、清單之前的最後一個點：附「還對得上最新計畫嗎、剛改的影響哪些已給出的內容」。"""
+    proj = env["proj"]
+    _op("set", goal="A", cwd=str(proj))
+    r = _op("reconcile", turn=2, cwd=str(proj), items=[{"id": "T1", "status": "none", "followup": "下次補"}])
+    assert r["ok"] and ng.HANDOUT_CHECK in r["text"], r["text"]
+
+
 def test_goal_change_after_reconcile_voids_it(env):
     proj = _code_tree(env)
     ng.stamp_receipts(SID, _receipt_state(_rcpt(3)), 2)
@@ -787,6 +815,8 @@ def _read_part(f1, proj, tp):
 THREE = "定位｜部位：戰鬥：A.cs\n定位｜根因層：邏輯層\n定位｜前例：共用字典"
 # 有目標樹時的四行：根因層要兩個候選＋選擇理由（LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES）
 THREE2 = "定位｜部位：戰鬥：A.cs\n定位｜根因層：候選 A 邏輯層；候選 B 存檔時序；選 A 因為字典只在邏輯層被寫\n定位｜前例：共用字典"
+# 有目標樹時四行之後的第五行：批判與舉一反三（LOCATE_LINES_NEED_CRITIQUE）
+CRIT = "\n定位｜批判：不合理，因為字典兩邊都寫，更好的做法是只留邏輯層一個寫入點；同類還可能在哪：存檔流程也兩邊寫"
 
 
 def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
@@ -805,7 +835,7 @@ def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
     assert deny and "T9" in deny and "不在目前的樹" in deny
     _say(tp, THREE + "\n定位｜目標：<節點編號>（這一塊在目標裡的角色）")
     assert "沒交第四行" in _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))   # 照抄範本不算
-    _say(tp, THREE2 + "\n定位｜目標：T1.1（共用字典就是這一塊）")
+    _say(tp, THREE2 + "\n定位｜目標：T1.1（共用字典就是這一塊）" + CRIT)
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
     links = _tree()["links"]["parts"]
     assert list(links.values())[0]["node"] == "T1.1"
@@ -822,7 +852,7 @@ def test_fourth_line_required_checked_linked_and_reset_on_goal_change(hooked):
     rec = next(v for k, v in state["overview_hub"].items() if k.endswith("|戰鬥"))
     assert rec["located"] is False and "goal_node" not in rec and rec["goal_reset_turn"] == 3
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))   # 舊的那組不算，要重交
-    _say(tp, THREE2 + "\n定位｜目標：T1.2（新長出的那條）")
+    _say(tp, THREE2 + "\n定位｜目標：T1.2（新長出的那條）" + CRIT)
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
 
 
@@ -864,8 +894,35 @@ def test_cg0_locate_four_lines_need_role_and_two_candidates(hooked):
     assert deny and "LOCATE_LINES_NEED_ROLE_AND_TWO_CANDIDATES" in deny and "只辨識出 0 個" in deny
     assert "還沒" not in deny                                               # 只擋內容，不是說沒交
     example = [ln.strip() for ln in deny.splitlines() if ln.strip().startswith("定位｜")]
-    assert len(example) == 4 and example[3].startswith("定位｜目標：T1.1（"), example
-    _say(tp, "\n".join(example))                                            # 範例四行照抄就過
+    assert len(example) == 5 and example[3].startswith("定位｜目標：T1.1（") and example[4].startswith("定位｜批判："), example
+    _say(tp, "\n".join(example))                                            # 範例照抄（角括號佔位沒換）不算交（codex BLOCK）
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "LOCATE_LINES_NO_EXAMPLE_PLACEHOLDER" in deny, deny
+    _say(tp, "\n".join(re.sub(r"<[^<>]*>", "共用字典只在邏輯層寫", ln) for ln in example))   # 佔位換成自己的判斷就過
+    assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
+    assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"
+
+
+def test_cg1_locate_needs_critique_line(hooked):
+    """LOCATE_LINES_NEED_CRITIQUE：有目標樹改寫碼部位，定位四行之後要第五行「批判」；沒交 → 擋（規則名、缺哪一項）；
+    照抄範本 → 當沒交；判合理沒理由 → 擋；結構對 → 放行並掛節點。舊碼不認「批判」這個鍵，四行就放（紅）。"""
+    proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
+    f1 = _mapped_world(hooked)
+    _op("set", goal="戰鬥不卡")
+    _op("add", items=[{"text": "共用字典不再被兩邊改"}])
+    _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)
+    _read_part(f1, proj, tp)
+    four = THREE2 + "\n定位｜目標：T1.1（共用字典的唯一寫入點）"
+    _say(tp, four)
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "LOCATE_LINES_NEED_CRITIQUE" in deny and "沒交第五行" in deny, deny
+    _say(tp, four + "\n定位｜批判：" + overview_hub.CRITIQUE_TEMPLATE)
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "沒交第五行" in deny                                     # 照抄範本不算交
+    _say(tp, four + "\n定位｜批判：合理；同類還可能在哪：存檔流程")
+    deny = _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs))
+    assert deny and "LOCATE_LINES_NEED_CRITIQUE" in deny and "沒寫理由" in deny
+    _say(tp, four + CRIT)
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
     assert list(_tree()["links"]["parts"].values())[0]["node"] == "T1.1"
 
@@ -877,7 +934,7 @@ def test_cg0_one_candidate_with_second_absent_reason_passes(hooked):
     _ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)
     _read_part(f1, proj, tp)
     _say(tp, "定位｜部位：戰鬥：A.cs\n定位｜根因層：根因在邏輯層；第二個不存在，因為字典只有這一處寫入\n定位｜前例：共用字典\n"
-             "定位｜目標：T1（戰鬥邏輯是卡頓的源頭）")
+             "定位｜目標：T1（戰鬥邏輯是卡頓的源頭）" + CRIT)
     assert _deny_text(_ptu_run("Edit", {"file_path": f1}, proj, tp, outputs)) is None
 
 
@@ -902,7 +959,7 @@ def _two_part_world(env):
 
 
 FOUR_UI = ("定位｜部位：介面：B.cs\n定位｜根因層：候選 A 刷新時機；候選 B 事件沒解掛；選 A 因為只在戰鬥結束時刷\n"
-           "定位｜前例：無\n定位｜目標：T1.2（介面刷新跟著字典變）")
+           "定位｜前例：無\n定位｜目標：T1.2（介面刷新跟著字典變）" + CRIT)
 
 
 def test_cg0_reconcile_edited_part_needs_goal_node(hooked):
@@ -960,7 +1017,7 @@ def test_cg0_relink_overlapping_part_names_only_links_the_named_one(hooked):
     ng.stamp_edit(SID, str(ui), "", 2, {})
     ng.stamp_edit(SID, str(st_), "", 2, {})
     _say(tp, "定位｜部位：UI 設定——S.cs\n定位｜根因層：候選 A 存檔時機；候選 B 欄位對應；選 A 因為按了沒反應\n"
-             "定位｜前例：無\n定位｜目標：T1.1（設定頁的存檔入口）")
+             "定位｜前例：無\n定位｜目標：T1.1（設定頁的存檔入口）" + CRIT)
     r = ng.goal_gate_reason(SID, True, {}, state={}, transcript_path=tp)
     f3 = r.split("(f3)", 1)[1] if r and "(f3)" in r else ""
     assert "UI：" in f3 and "View.cs" in f3 and "S.cs" not in f3, r

@@ -26,10 +26,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 MAP_REL = ".claude/overview-map.md"
-LOCATE_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；「目標」是有需求目標樹時的第四行
-    r"^\s*(?:#+\s*|//\s*)?定位\s*[｜|]\s*(部位|根因層?|前例|目標)\s*[:：]\s*(.+?)\s*[\"']?,?$", re.MULTILINE
+LOCATE_RE = re.compile(   # 行首可帶 # 或 // 註解符號（三行放在 Bash 參數裡時）；「目標」「批判」是有需求目標樹時的第四、五行
+    r"^\s*(?:#+\s*|//\s*)?定位\s*[｜|]\s*(部位|根因層?|前例|目標|批判)\s*[:：]\s*(.+?)\s*[\"']?,?$", re.MULTILINE
 )
 GOAL_NODE_PLACEHOLDER = "<節點編號>"
+# 第五行的問法（照抄這句不算交）：批判＝這段寫法合不合理、更好的做法；舉一反三＝同類還可能在哪（原話輯 G1 2026-10-15）
+CRITIQUE_TEMPLATE = "這段現在的寫法合理嗎：合理，因為…／不合理，因為…，更好的做法是…；同類還可能在哪：…（或「無，因為…」）"
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 _SAME_ROW_RE = re.compile(r"同第\s*(\d+)\s*列")
 _STATUS_HEADS = ("有", "部分", "索引", "骨架", "無")
@@ -629,7 +631,7 @@ def build_injection(row: Dict[str, Any], card_paths: List[Path], hit_path: str, 
 # ─── 定位三行 ───────────────────────────────────────────────────────
 
 _TEMPLATE_PHRASES = ("這次改的是哪一塊", "修根因還是症狀；根因在哪層", "這個部位以前摔過什麼", ROOT_CAUSE_SENTENCE,
-                     GOAL_NODE_PLACEHOLDER)
+                     GOAL_NODE_PLACEHOLDER, CRITIQUE_TEMPLATE)
 # 「待規格：<理由>」是合法填法（規格不存在、要人拍板）；只有光禿的「待規格」沒理由才當沒填
 _BARE_PENDING_SPEC_RE = re.compile(r"^待規格\s*[:：]?\s*$")
 _NONE_PRECEDENT_RE = re.compile(r"^(?:無|沒有|none|n/?a)(?:[\s，。；;,:：（(].*)?$", re.IGNORECASE | re.DOTALL)
@@ -638,7 +640,7 @@ _PRECEDENT_SPLIT_RE = re.compile(r"[\s，。；、,;:：()（）\[\]【】「」
 
 def locate_groups(text: str, template: Optional[List[str]] = None) -> List[Dict[str, str]]:
     """text 裡的定位三行分組：每遇到「部位」行就開一組，同一回覆交兩個部位各一組都算；
-    照抄注入範本的佔位句（預設、固定句或專案自訂）那一行不算交。鍵＝部位／根因／前例，有交第四行時另有「目標」。"""
+    照抄注入範本的佔位句（預設、固定句或專案自訂）那一行不算交。鍵＝部位／根因／前例，有交第四、五行時另有「目標」「批判」。"""
     phrases = tuple(_TEMPLATE_PHRASES) + tuple(s for s in (template or []) if s)
     groups: List[Dict[str, str]] = []
     for m in LOCATE_RE.finditer(text):

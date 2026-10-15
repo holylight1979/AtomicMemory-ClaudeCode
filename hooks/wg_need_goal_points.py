@@ -102,6 +102,11 @@ def _update(sid: Any, fn: Any, where: str, turn: Optional[int] = None) -> Any:
 
 # ─── 4.3 讀入範圍變大 ─────────────────────────────────────────────────────
 
+# 「用目標視角重看」三個提示（讀入範圍變大、收到外部主張、目標改了）共用的批判與舉一反三兩問（原話輯 G1 2026-10-15）：
+# 只送題、不擋，回答寫進目標樹（need_goal update 的 why）
+CRITIQUE_QUESTIONS = "看到的這段寫法（或這個主張）合不合理？不合理就說更好的做法；同類別處還有沒有？" + ng.CRITIQUE_CASES
+
+
 def _queue_text(items: List[Dict[str, Any]]) -> str:
     labels = [i["label"] for i in items]
     parts = [f"【{_label(i['label'])}】" for i in items if i.get("kind") == "part"]
@@ -117,7 +122,7 @@ def _queue_text(items: List[Dict[str, Any]]) -> str:
         d = dirs[-1]["prev"]
         bits.append(f"樹最後一次更新後讀過的檔跨了 {len(d)} 個頂層目錄（{'、'.join(_label(x) for x in d)}）")
     where = f"先前在{''.join(f'【{_label(p)}】' for p in prev[-3:])}的判斷要改觀嗎？" if prev else "先前的判斷要改觀嗎？"
-    return (f"[NeedGoal] 讀入範圍變大：{'；'.join(bits)}。目標樹要長新的子目標嗎？{where}"
+    return (f"[NeedGoal] 讀入範圍變大：{'；'.join(bits)}。目標樹要長新的子目標嗎？{where}{CRITIQUE_QUESTIONS}"
             "有改就用 need_goal（add／update）記下並寫為什麼。")
 
 
@@ -210,7 +215,7 @@ def scope_on_read(state: Dict[str, Any], sid: Any, tool_name: str, tool_input: A
 # ─── 4.3 收到外部主張（同伴訊息、審查報告、交付信） ─────────────────────────
 
 CLAIM_QUESTIONS = ("①這段服務目標樹哪一條？②這個框架是誰給的（使用者原話、同伴、審查者）？"
-                   "③如果照做的成本是零，你會怎麼裁？")
+                   "③如果照做的成本是零，你會怎麼裁？再兩問：" + CRITIQUE_QUESTIONS)
 REPORT_TOOLS = ("mcp__workflow-guardian__second_opinion_result",)
 # 同伴訊息：整則以 <cross-session-message> 開頭；transcript 與畫面上前面多一行 harness 說明，也要認得
 _PEER_START_RE = re.compile(r"^\s*(?:Another Claude session sent a message(?: while you were working)?:\s*)?"
@@ -421,7 +426,7 @@ def _ask_message(tree: Dict[str, Any], link: rr.Verdict, after: bool) -> str:
            f"；目前最可能的是 {nid}（{text}），換成真正對應的節點也可以。這題不屬於任何節點 → "
            "先用 need_goal(action=add, parent=…) 長出那個節點，再掛上它問。")
     return (f"[NeedGoal] {rr.format_hit('提問', link._replace(why=head))}\n{fix}"
-            "全貌還沒對齊就先補，自己判斷得了的不推給人；問完把答案寫進 need_goal。目前的樹：\n"
+            "全貌還沒對齊就先補，自己判斷得了的不推給人；問完把答案寫進 need_goal。" + ng.HANDOUT_CHECK + "目前的樹：\n"
             + ng.render(tree, "compact") + "\n" + ng.NO_TOOL_HINT)
 
 
@@ -703,16 +708,34 @@ def batch_lines(sid: Any, state: Dict[str, Any], tool_calls: Any, cfg: Dict[str,
     return lines
 
 
+# ─── 交出計畫、開工句、清單之前（判斷入口盤點第四節）─────────────────────────
+
+# 計畫類文件：memory/_staging（規劃、TODO、續接單、checklist）與計畫模式的 plans/ 下的 .md；_AIDocs 等長期文件不算
+_HANDOUT_PATH_RE = re.compile(r"(?i)[\\/](?:_staging|plans)[\\/][^\\/]+\.md$")
+
+
+def handout_edit_line(state: Dict[str, Any], sid: Any, path: str, turn: int) -> Optional[str]:
+    """PostToolUse（Edit／Write）改了計畫類文件：接下來可能把計畫、開工句、清單交給使用者 → 一回合送一次
+    wg_need_goal.HANDOUT_CHECK（還對得上最新計畫嗎、剛改的影響哪些已給出的內容）。只送題不擋；回要送的句子或 None。"""
+    if not _HANDOUT_PATH_RE.search(str(path or "")) or state.get("need_goal_handout_turn") == turn:
+        return None
+    state["need_goal_handout_turn"] = turn
+    _guard("handout_check", sid, turn, path=Path(str(path)).name)
+    return f"[NeedGoal] 改了 {Path(str(path)).name}（計畫、清單類文件）。{ng.HANDOUT_CHECK}"
+
+
 # ─── 4.3 目標改變後導讀卡改用目標視角 ─────────────────────────────────────
 
-def goal_view_text(sid: Any, part: str) -> Optional[str]:
-    """目標改了之後，已碰過的部位再讀到時，導讀卡前面加的那段：目標視角的提問＋目前的樹；沒有樹回 None。"""
+def goal_view_text(sid: Any, part: str, knowledge: bool = False) -> Optional[str]:
+    """目標改了之後，已碰過的部位再讀到時，導讀卡前面加的那段：目標視角的提問＋目前的樹；沒有樹回 None。
+    knowledge＝知識類部位（不要求定位行），不叫它重交定位。"""
     doc = _load(sid, "goal_view_text")
     tree = _live(doc) if doc else None
     if not tree:
         return None
+    redo = "" if knowledge else "改這裡前要重交定位四行與第五行批判。"
     return (f"[NeedGoal] 目標改了，用目標視角重看【{part}】：這一塊在新目標裡扮演什麼角色？先前在這裡的判斷還成立嗎？"
-            "改這裡前要重交定位四行。\n" + ng.render(tree, "compact"))
+            f"{CRITIQUE_QUESTIONS}{redo}\n" + ng.render(tree, "compact"))
 
 
 # ─── 軌五：壓縮後重送、續接單 ──────────────────────────────────────────────

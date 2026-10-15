@@ -133,6 +133,17 @@ function check(cond, label, detail) {
   check(ng8.result.isError === true && /verdict/.test(textOf(ng8)), "need_goal verify_scope bad review verdict rejected", textOf(ng8));
   const ng9 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "直接測 a" }] });
   check(!ng9.result.isError && /verify_scope 已收到/.test(textOf(ng9)), "need_goal verify_scope chip", textOf(ng9));
+  // same_class：達成節點可附同類別處（只驗形狀：字串）
+  const itemProps = ngDef && ngDef.inputSchema.properties.items.items.properties;
+  check(itemProps && itemProps.same_class && itemProps.same_class.type === "string", "need_goal schema has same_class");
+  const ng10 = await callTool("need_goal", { action: "reconcile", items: [{ id: "T1", status: "done", same_class: ["x"] }] });
+  check(ng10.result.isError === true && /same_class/.test(textOf(ng10)), "need_goal reconcile non-string same_class rejected", textOf(ng10));
+  const ng11 = await callTool("need_goal", { action: "reconcile", items: [{ id: "T1", status: "done", same_class: "別處也用檔名猜" }] });
+  check(!ng11.result.isError && /reconcile 已收到/.test(textOf(ng11)), "need_goal reconcile with same_class chip", textOf(ng11));
+  // inputs：驗證範圍一項還讀的檔或資料夾（只驗形狀：非空字串陣列）
+  check(itemProps && itemProps.inputs && itemProps.inputs.type === "array", "need_goal schema has inputs");
+  const ng12 = await callTool("need_goal", { action: "verify_scope", items: [{ target: "a.py", why: "w", inputs: "x.md" }] });
+  check(ng12.result.isError === true && /inputs/.test(textOf(ng12)), "need_goal verify_scope non-array inputs rejected", textOf(ng12));
 
   // 2. knowledge_harvest_report
   const h0 = await callTool("knowledge_harvest_report", { items: [] });

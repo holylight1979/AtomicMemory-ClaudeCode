@@ -1495,6 +1495,35 @@ def test_013_2_quoted_ruler_text_is_not_a_run(scoped, capsys, monkeypatch):
     assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」" in out and "[Guardian:VerifyScope]" in out
 
 
+# ─── 盤點 P5：(a)「說修好」有宣告就認宣告範圍的收據，沒宣告才退回檔名對應 ─────────────────
+
+_P5_MODS = [_mf(_CODE, 3, last_at="2026-10-12T10:00:00+08:00", last_seq=3),
+            _mf(_CASE, 3, last_at="2026-10-12T10:00:00+08:00", last_seq=4)]
+
+
+def test_p5_fixed_claim_accepts_declared_scope_receipt_from_earlier_turn(scoped, capsys):
+    """宣告範圍＝表上那把尺；改完之後（上一回合）跑綠、指令沒提到改的檔 → (a) 認（同一個判斷只有一份答案）。
+    舊碼只認本回合、檔名對得上的 PASS → 擋（紅）。"""
+    r = _rcpt(4, "PASS", 0, cmd=MEASURE_CMD, at="2026-10-12T10:05:00+08:00", seq=5)
+    out = scoped(capsys, _P5_MODS, [r], text="閘修好了，全部完成了。")
+    assert "(a) CLAIM_FIXED_NEEDS_PASS" not in out and "VerifyScope" not in out, out
+
+
+def test_p5_fixed_claim_with_declaration_ignores_file_name_match(scoped, capsys):
+    """有宣告時檔名對應不再算數：本回合跑了提到 x.py 的測試，但它不在宣告範圍 → (a) 擋，證據列宣告的項目為什麼沒收據。
+    舊碼檔名對上就放 (a)（紅）。"""
+    r = _rcpt(5, "PASS", 0, cmd=_RELATED_CMD, at="2026-10-12T10:05:00+08:00", seq=5)
+    out = scoped(capsys, _P5_MODS, [r], text="閘修好了，全部完成了。")
+    assert "(a) CLAIM_FIXED_NEEDS_PASS：說「修好」但驗證範圍" in out and MEASURE_CMD in out, out
+
+
+def test_p5_fixed_claim_without_declaration_falls_back_to_file_names(scoped, capsys):
+    """沒宣告：退回檔名對應（本回合提到 x.py 的 PASS 就算），(a) 不擋；驗證範圍閘另外要宣告。"""
+    r = _rcpt(5, "PASS", 0, cmd=_RELATED_CMD, at="2026-10-12T10:05:00+08:00", seq=5)
+    out = scoped(capsys, _P5_MODS, [r], text="閘修好了，全部完成了。", declared=False)
+    assert "(a) CLAIM_FIXED_NEEDS_PASS" not in out and "SCOPE_DECLARED_FOR_CHANGE" in out, out
+
+
 def test_013_2_subset_run_is_not_the_ruler():
     """013 BLOCK 2：宣告 `pytest -q lib/verify`，實跑多帶 `-k 某案` 或多一個檔名 → 不是宣告的那條指令。"""
     row = {"part_short": "純函式與資料層", "measure": {"method": "lib verify", "cmd": "pytest -q lib/verify", "threshold": "全綠"}}
