@@ -7057,6 +7057,18 @@
         "忽略規則跟著搬"
       ],
       "scope": "global"
+    },
+    {
+      "name": "need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred",
+      "path": "_AIDocs/_atoms/MemDev/need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred.md",
+      "triggers": [
+        "need_goal reconcile",
+        "reconcile 拒收",
+        "目標樹結案",
+        "evidence 必須是物件",
+        "完整對照"
+      ],
+      "scope": "global"
     }
   ]
 }

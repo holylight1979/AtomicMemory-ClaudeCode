@@ -44,6 +44,7 @@
 | mcp-js-改動後未重啟-lazy-require-新舊模組混載-tool-回-undefined-類錯誤不是-bug-reload-window-即復原 | MCP js 改動後未重啟-lazy-require 新舊模組混載-tool 回 undefined 類錯誤不是 bug-Reload Window 即復原 |
 | mcp的node端程式改了要開新session才載到-同機其他session的mcp程序仍跑舊碼-python端每次spawn立即生效 | MCP的node端程式改了要開新session才載到-同機其他session的MCP程序仍跑舊碼-python端每次spawn立即生效 |
 | memory-pipeline-silent-failure-2026-05 | 記憶機制靜默失效（confirmations 零增 + episodic 停擺） |
+| need-goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred | need_goal-reconcile參數格式-每項要id與終點status-evidence是物件陣列kind只收receipt-case-file-atom-level只收measured-read-inferred |
 | need-goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 | need_goal-reconcile的case證據只認磁碟路徑-pytest節點id會被拒-寫檔加冒號行號 |
 | need-goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採 | need_goal目標檔收據只存200字指令-要判指令點名哪些案例檔必須在蓋號時用完整指令與收據cwd算好-指令內換目錄的不採 |
 | org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1 | org-memory-init-必種一顆工具卡-sync-memory-index對空索引exit1 |
