@@ -4229,3 +4229,10 @@ def test_045_vcs_root_unreadable_still_owes(driven, capsys, monkeypatch):
     monkeypatch.setattr(vl, "find_vcs_root_ex", lambda d: (None, "PermissionError: [WinError 5] 存取被拒"))
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(r"\\srv\share\proj\x.py", 5, last_at=_T1, last_seq=1)])
     assert "VCS_ROOT_UNREADABLE" in out and "改了程式碼（x.py）" in out
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()

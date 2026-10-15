@@ -18,17 +18,23 @@
    量尺閘（hooks/wg_verify_ledger.load_self_runs）從那裡讀；背景跑、看不到結尾輸出也認得到。
    只跑其中幾支、用 -k／-m／--deselect／--lf 篩過、--ignore、--collect-only、中途停下（-x）、
    用 -o 覆寫收集設定（python_files 等）、改用別的 ini（-c）都不寫。
+3. git_cassette fixture：測試的 git／svn 子程序錄製一次、之後重播（lib/git_cassette.py），平常跑測試不開 git；
+   `--git-record` 選項（或 WG_GIT_CASSETTE=record）強制重錄。
 怎麼跑：不用另外跑；rootdir 是本檔所在目錄（有 pytest.ini），pytest 自動載入。
 """
 from __future__ import annotations
 
+import hashlib
+import itertools
 import os
+import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -174,6 +180,56 @@ def _live_data_exemption(request, monkeypatch):
         monkeypatch.delenv("WG_CLAUDE_DIR", raising=False)
     else:
         monkeypatch.setenv("WG_CLAUDE_DIR", original)
+
+
+def pytest_addoption(parser):
+    parser.addoption("--git-record", action="store_true",
+                     help="git_cassette：重錄 git／svn 錄製檔（跑真 git；同 WG_GIT_CASSETTE=record）")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    rep = (yield).get_result()
+    if rep.when == "call":
+        item._git_cassette_passed = rep.passed          # git_cassette 收尾要知道本體過了沒（沒過不寫錄製檔）
+
+
+@pytest.fixture
+def git_cassette(request, tmp_path, monkeypatch):
+    """git／svn 子程序錄製重播（lib/git_cassette.py）。回 use(exclude=(), code=())：在受測目錄準備好之後呼叫，
+    之後這支測試的 git／svn 呼叫平常重播、不開 git。錄製檔在測試模組旁的 cassettes/<模組>/<測試>.json.gz。
+    exclude：tmp_path 下不掃不比的子目錄；code：會被 git 叫起來的本專案程式（相對本樹），改了就自動重錄。
+    為了讓錄製與重播逐筆對得上：暫存目錄改成 tmp_path/_tmp（受測程式交給 git 的暫存檔也在受測目錄內、內容受比對），
+    暫存檔名與 uuid4 改成這支測試從頭起算的序號（指令參數每次相同）。"""
+    gc = sys.modules.get("_git_cassette") or _load_by_path("_git_cassette", "lib/git_cassette.py")
+    module = Path(request.module.__file__)
+    name = request.node.name
+    safe = re.sub(r"[^\w.-]+", "_", name)[:80] + "-" + hashlib.sha1(name.encode("utf-8")).hexdigest()[:6]
+    path = module.parent / "cassettes" / module.stem / f"{safe}.json.gz"
+    requested = "record" if request.config.getoption("--git-record") else os.environ.get("WG_GIT_CASSETTE", "auto")
+    holder: Dict[str, Any] = {}
+
+    def use(exclude=(), code=()):
+        hashes = gc.code_hashes(TREE, code)
+        mode, why = gc.choose_mode(path, requested, hashes)
+        if mode == "off":
+            return
+        if mode == "record" and requested == "auto":
+            print(f"[git_cassette] 錄製（跑真 git）：{why}｜{path.name}", file=sys.stderr)
+        session_temp = Path(tempfile.gettempdir())
+        (tmp_path / "_tmp").mkdir(exist_ok=True)
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "_tmp"))
+        names = (f"t{n:06d}" for n in itertools.count(1))
+        monkeypatch.setattr(tempfile, "_get_candidate_names", lambda: names)
+        seq = itertools.count(1)
+        monkeypatch.setattr(uuid, "uuid4", lambda: uuid.UUID(int=next(seq)))
+        holder["c"] = gc.Cassette(path, tmp_path, mode, exclude, hashes,
+                                  extra_paths={"<CODE>": TREE, "<PY>": Path(sys.executable), "<TEMP>": session_temp})
+        holder["c"].install(monkeypatch)
+
+    yield use
+    if "c" in holder:
+        holder["c"].finish(bool(getattr(request.node, "_git_cassette_passed", False)))
 
 
 def pytest_deselected(items):

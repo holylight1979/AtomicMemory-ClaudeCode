@@ -510,6 +510,25 @@ def test_observer_changing_the_red_case_is_its_own_work(proj, lookup, change, re
         assert msg and f"verify_y.py::{red}" in msg and "不記範圍漏判" in msg, msg
 
 
+def test_observer_new_test_file_is_its_own_work(proj, lookup):
+    """10-15 實遇：看到紅的 session 新建了一整支測試檔、先跑紅，上次綠只來自之前的全樹收據（涵蓋 *）→ 是它進行中的工作。
+    舊碼：上次綠那時的版本裡沒有這支檔，git show 失敗被當成「判不出」→ 照記，記到別的已關 session 頭上。"""
+    _real_git(proj)
+    (proj / "hooks" / "x.py").write_text("X = 2\n", encoding="utf-8")
+    vs = _vs()
+    _observe(vs, _state(), proj, "python -m pytest -q", "3 passed in 0.1s", T0, 1)          # 全樹綠（涵蓋 *）
+    _close_x(proj, _state())
+    assert vs.stats(vs.repo_key(str(proj)))["closed"] == 1
+    n = proj / "hooks" / "verify" / "verify_n.py"
+    n.write_text("def test_n():\n    assert 1 == 2\n", encoding="utf-8")
+    busy = _state()
+    busy["modified_files"] = [_mf(n, T2, 5, sid="sid-busy")]
+    out = "FAILED hooks/verify/verify_n.py::test_n - AssertionError\n1 failed in 0.1s"
+    msg = _observe(vs, busy, proj, "python -m pytest -q hooks/verify/verify_n.py", out, T3, 9, "FAIL", 1, key="sid-busy")
+    assert vs.pending_leaks(vs.repo_key(str(proj))) == []
+    assert msg and "verify_n.py::test_n" in msg and "不記範圍漏判" in msg, msg
+
+
 def test_red_caused_by_current_change_reviewed_unrelated_is_not_a_confirmed_miss(proj, lookup):
     """紅其實是看到它的 session 自己這次改動造成的：檢討判 unrelated 寫理由 → 不算確認漏判（數字分開記）。"""
     vs = _vs()

@@ -112,3 +112,10 @@ def test_internal_error_does_not_raise(monkeypatch):
 def test_wired_into_session_start():
     src = (CLAUDE / "hooks" / "handlers" / "session_start.py").read_text(encoding="utf-8")
     assert "lines.extend(_unpushed_advisory())" in src
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()

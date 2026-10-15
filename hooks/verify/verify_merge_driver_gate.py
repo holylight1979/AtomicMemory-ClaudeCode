@@ -40,6 +40,13 @@ INDEX_NAMES = ("MEMORY.md", "_ATOM_INDEX.md", "_atom_index.json")
 CFG_ON = {"merge_driver": {"auto_install": True, "auto_resolve": True}}
 
 
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git／svn 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。合併驅動由 git 叫起來、重播時不會跑，它的程式改了就自動重錄。"""
+    git_cassette(code=["tools/merge-atom-index.py"])
+
+
 # ─── 拆段（純函式）───────────────────────────────────────────────────────────
 
 def test_segments_quoted_dash_c_path():

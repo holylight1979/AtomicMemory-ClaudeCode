@@ -19,6 +19,7 @@
 *.lance binary
 *.db binary
 *.zip binary
+*.gz binary
 *.woff binary
 *.woff2 binary
 

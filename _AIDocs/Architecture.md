@@ -220,7 +220,7 @@ skills/<name>/verify/         ← skill 自帶守衛
 
 **統一入口**：`python run_verify.py` — 動態掃 `{src}/verify/` + `skills/{name}/verify/`，跑 `pytest -v --tb=short`。全量改增量待補：它是全量，已從流程拔掉（完成宣告、合併、發版都不跑），只留手動排查用；收尾只跑宣告的驗證範圍（TECH §7.9）。歷史 tests 歸檔：`DevHistory/v5-overhaul-2026-05/tests-archive/`。
 
-**根 `conftest.py`**：每個 pytest session 把資料根（WG_CLAUDE_DIR）與 TEMP／TMP／TMPDIR 導到暫存目錄（資料根先放本樹受版控的 memory／_AIDocs/_atoms／workflow/config.json），結束時還原；刻意讀 live 的案標 `@pytest.mark.live_data`。整組 pytest（`pytest -q tools/verify`、`pytest -q lib/verify`）跑完自寫收據到 pytest 啟動時的資料根（同 run_verify），收據記紅掉的測試名（`failed_cases`，驗證範圍拿去找範圍漏判）。守門：`tools/verify/verify_pytest_isolation.py`、`lib/verify/verify_self_receipt.py`。
+**根 `conftest.py`**：每個 pytest session 把資料根（WG_CLAUDE_DIR）與 TEMP／TMP／TMPDIR 導到暫存目錄（資料根先放本樹受版控的 memory／_AIDocs/_atoms／workflow/config.json），結束時還原；刻意讀 live 的案標 `@pytest.mark.live_data`。整組 pytest（`pytest -q tools/verify`、`pytest -q lib/verify`）跑完自寫收據到 pytest 啟動時的資料根（同 run_verify），收據記紅掉的測試名（`failed_cases`，驗證範圍拿去找範圍漏判）。守門：`tools/verify/verify_pytest_isolation.py`、`lib/verify/verify_self_receipt.py`。另提供 `git_cassette` fixture：git／svn 子程序錄製一次、之後重播（`lib/git_cassette.py`，`--git-record` 重錄；細節 TECH 驗證段）。
 
 ---
 

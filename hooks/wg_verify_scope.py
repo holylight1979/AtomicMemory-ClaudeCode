@@ -791,8 +791,17 @@ def _case_changed_since(tree: str, test: str, since: str) -> Optional[bool]:
         new = (Path(tree) / f).read_text(encoding="utf-8")
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         return None
-    if old is None or old.returncode != 0:
+    if old is None:
         return None
+    if old.returncode != 0:
+        # 讀不到舊檔有兩種：那時根本沒有這支檔（整支新寫的 → True）、查詢本身失敗（判不出）；用 ls-tree 分開
+        try:
+            ls = subprocess.run(["git", "-C", tree, "ls-tree", "--name-only", base.stdout.strip(), "--", f],
+                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2,
+                                creationflags=_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return True if ls.returncode == 0 and not ls.stdout.strip() else None
     now_def = _find_def(new, names)
     if now_def is None:
         return None

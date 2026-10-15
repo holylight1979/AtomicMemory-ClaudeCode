@@ -3118,3 +3118,10 @@ def test_cli_text_json_and_sentinels(tmp_path):
     helped = subprocess.run([sys.executable, "-X", "utf8", str(SCRIPT), "--help"], capture_output=True, text=True,
                             encoding="utf-8")
     assert helped.returncode == 0 and "--before" in helped.stdout and "抓不到" in helped.stdout
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()

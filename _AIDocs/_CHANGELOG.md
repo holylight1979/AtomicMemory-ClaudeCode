@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-15 git／svn 測試改成錄製重播，不再每案開 git 建 repo
+- 新增 `lib/git_cassette.py`＋根 conftest 的 `git_cassette` fixture：測試照舊用真 repo 寫情境，git／svn 呼叫錄一次真實執行（指令、輸出、對受測目錄造成的檔案變化），之後重播並逐筆核對指令、目錄與呼叫前目錄內容，不對就失敗要求 `pytest --git-record` 重錄；會被 git 叫起來的本專案程式（合併驅動）改了自動重錄。套到 git 呼叫量最大的 11 支（單獨跑，錄製 → 重播）：`verify_vcs_sync_worker` 483→49 秒、`verify_stop_reconcile` 281→114 秒、`verify_reading_path` 149→20 秒、`verify_merge_atom_index` 98→28 秒、`verify_merge_driver_gate` 41→12 秒、`verify_overview_hub` 19→8 秒，其餘 5 支各剩 1～20 秒；`verify_install` 不適用（repo 在模組共用目錄、git 在子程序）。突變驗證（提交清單順序倒過來）重播當場擋下。共用 fixture 把暫存目錄搬進受測目錄、暫存檔名與 uuid 用序號；路徑每種寫法各自還原；.log／.jsonl 與 git index 不比。`.gitattributes` 加 `*.gz binary`。順手修範圍漏判帳：整支新寫的測試檔第一次跑紅，舊碼因讀不到舊版本而記成別的 session 的漏判，現在判成自己進行中的工作（`wg_verify_scope._case_changed_since`）。
+
 ## 2026-10-15 收尾不再硬造拍板點：IDENTITY「收束成尖」改成完工即回報完工
 - 原設計者裁定：舊句「尾端只留單一決策點或單一動作、順帶點出還缺什麼資訊」讓完工時沒東西可放的回合硬造拍板點、多問問題，是一直被要求拍板的病根。改成「完工即回報完工；發現問題就回報發現問題，其餘不得違反設定內其他原則」；四要素最後一項加「完工且無待辦就寫『不需動作』」。`templates/IDENTITY.template.md` 與本機 IDENTITY.md 同步（LF）。四張卡同步：菱形體模型的下尖準則與四要素卡改寫，「不展開的領域」卡拿掉單一決策點說法，另兩張補一句病根。
 

@@ -271,3 +271,10 @@ def test_the_official_budget_bounds_the_whole_call(tmp_path, monkeypatch):
     note = rph.reading_path_note(_state(_mf(root / "y.py")), _SID, {})
     assert OFFICIAL_BUDGET == 3.0 and time.monotonic() - started < OFFICIAL_BUDGET + 2.0
     assert "逾時" in note and "手動：python" in note, note
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()

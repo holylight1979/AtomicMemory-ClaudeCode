@@ -126,3 +126,10 @@ def test_unpushed_blocks_with_message(driven, capsys):
 def test_unpushed_disabled_by_config(driven, capsys):
     out, calls = driven(capsys, {"sync_reminder": {"unpushed": False}})
     assert not calls and "已 commit 但尚未 push" not in out
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()

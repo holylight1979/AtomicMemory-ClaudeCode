@@ -1886,3 +1886,10 @@ def test_b5_bash_grep_n_and_more_count_as_read(tmp_path, monkeypatch):
     assert deny
     _bash_read(state, root, "more tests/test_render.py")
     assert wo.on_edit(state, "s", str(root / "tests" / "t2.py"), "", {}) == (None, None, True)
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()
