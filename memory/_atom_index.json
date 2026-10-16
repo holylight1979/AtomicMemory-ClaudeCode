@@ -7408,6 +7408,51 @@
         "你有更新嗎"
       ],
       "scope": "global"
+    },
+    {
+      "name": "工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑",
+      "path": "_AIDocs/_atoms/MemDev/工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑.md",
+      "triggers": [
+        "verify_scope",
+        "驗證範圍",
+        "SCOPE_ITEM_RECEIPT_AFTER_EDIT",
+        "工作樹",
+        "worktree",
+        "_staging",
+        "收據不算",
+        "指令換目錄",
+        "別棵樹"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存",
+      "path": "memory/版控/Git/共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存.md",
+      "triggers": [
+        "ff-only",
+        "讓路",
+        "git apply --3way",
+        "暫存區",
+        "共用工作樹",
+        "同伴合併",
+        "patch 收回",
+        "未提交改動擋住合併"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修",
+      "path": "memory/Failures/驗證與實證/feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修.md",
+      "triggers": [
+        "驗證閘設計",
+        "反覆重跑",
+        "測試檔納入驗證",
+        "鬼打牆",
+        "收尾空轉",
+        "量具",
+        "驗證範圍作廢"
+      ],
+      "scope": "global"
     }
   ]
 }

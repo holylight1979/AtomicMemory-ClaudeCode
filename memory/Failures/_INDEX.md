@@ -13,4 +13,4 @@
 | 版控 | 3 | `memory/Failures/版控/_INDEX.md` |
 | 行為契約 | 26 | `memory/Failures/行為契約/_INDEX.md` |
 | 設計通則 | 3 | `memory/Failures/設計通則/_INDEX.md` |
-| 驗證與實證 | 11 | `memory/Failures/驗證與實證/_INDEX.md` |
+| 驗證與實證 | 12 | `memory/Failures/驗證與實證/_INDEX.md` |

@@ -439,3 +439,6 @@
 | 從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑 | memory/驗證與實證/從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑.md | 絕對路徑正則, 磁碟代號, [A-Za-z]:[/\\], 網址被當路徑, http:// 誤判, 沙箱外路徑, 路徑出界檢查, lookbehind, replay-guard | global |  |
 | 分類判定不要用補集-不是a就當b會把分不出的情況硬歸一邊-留分不出這一格並用查得到的事實判 | memory/設計通則/分類判定不要用補集-不是a就當b會把分不出的情況硬歸一邊-留分不出這一格並用查得到的事實判.md | 分類判定, 補集, 不是程式就是知識類, 誤判, 搬目錄, 刪檔, 分不出, 三格判定, 負面定義, is_code_path | global |  |
 | feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照 | memory/Failures/工作流/feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照.md | checklist, 核心推進文件, 接續單, 現況表, 更新文件, 收尾更新, 過時快照, 你有更新嗎 | global |  |
+| 工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑 | _AIDocs/_atoms/MemDev/工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑.md | verify_scope, 驗證範圍, SCOPE_ITEM_RECEIPT_AFTER_EDIT, 工作樹, worktree, _staging, 收據不算, 指令換目錄, 別棵樹 | global |  |
+| 共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存 | memory/版控/Git/共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存.md | ff-only, 讓路, git apply --3way, 暫存區, 共用工作樹, 同伴合併, patch 收回, 未提交改動擋住合併 | global |  |
+| feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修 | memory/Failures/驗證與實證/feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修.md | 驗證閘設計, 反覆重跑, 測試檔納入驗證, 鬼打牆, 收尾空轉, 量具, 驗證範圍作廢 | global |  |

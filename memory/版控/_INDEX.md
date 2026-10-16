@@ -14,5 +14,5 @@
 
 | 子層 | atom 數 | 深入 |
 |------|---------|------|
-| Git | 16 | `memory/版控/Git/_INDEX.md` |
+| Git | 17 | `memory/版控/Git/_INDEX.md` |
 | SVN | 5 | `memory/版控/SVN/_INDEX.md` |
