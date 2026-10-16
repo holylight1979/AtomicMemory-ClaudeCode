@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -241,6 +242,20 @@ def test_tool_version_query_leaves_no_trace_in_test_home(tmp_path, monkeypatch):
     assert gc.tool_version("svn", run=fake_run) == "1.14.5"
     assert seen["home"] != str(home) and seen["cwd"] == seen["home"]
     assert list(home.iterdir()) == []
+
+
+def test_tool_version_does_not_consume_test_temp_names(tmp_path, monkeypatch):
+    """claude-0b 回報：錄製時 fixture 已把暫存檔名換成序號，舊碼問版本用 TemporaryDirectory 吃掉一個序號（還建在
+    受測目錄的 _tmp），受測程式之後的暫存名全錯一位；重播時在換序號前問、不吃號 → 單獨錄的檔整檔重播對不上。"""
+    names = iter(f"t{n:06d}" for n in range(1, 100))
+    monkeypatch.setattr(tempfile, "_get_candidate_names", lambda: names)
+    (tmp_path / "_tmp").mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "_tmp"))
+    monkeypatch.setattr(gc, "_VERSIONS", {})
+    assert gc.tool_version("git", run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "git version 9\n", "")) \
+        == "git version 9"
+    assert next(names) == "t000001"                                   # 受測程式拿到的第一個暫存名沒被吃掉
+    assert list((tmp_path / "_tmp").iterdir()) == []                  # 也沒在受測目錄留東西
 
 
 def test_tool_version_change_triggers_rerecord(tmp_path, monkeypatch):

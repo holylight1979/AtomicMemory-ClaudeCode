@@ -29,7 +29,7 @@ import re
 import shutil
 import stat
 import subprocess
-import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -56,19 +56,26 @@ _VERSION_ARGS = {"git": ["--version"], "svn": ["--version", "--quiet"], "svnadmi
 
 def tool_version(exe: str, path: str = "", run=None) -> str:
     """git／svn 的版本字串：同一個行程每種工具只問一次；錄製時那支執行檔還在就問它，否則問 PATH 上的。問不到回空字串。
-    在一次性暫存目錄裡問、家目錄類變數都指過去：svn 一啟動就會在家目錄建設定檔，不能落進測試的受測目錄。"""
+    在一次性目錄裡問、家目錄類變數都指過去：svn 一啟動就會在家目錄建設定檔，不能落進測試的受測目錄。
+    那個目錄自己用 pid＋時間命名、建在環境變數給的暫存根：不經 tempfile 的名稱產生器（錄製時 fixture 把它換成
+    受測程式用的序號，借用一個號，受測程式之後的暫存名就全錯一位），也不落在 fixture 改過的 tempfile.tempdir（受測目錄）。"""
     if exe in _VERSIONS:
         return _VERSIONS[exe]
     target = path if path and (Path(path).exists() or shutil.which(path)) else exe
+    base = os.environ.get("TMPDIR") or os.environ.get("TEMP") or os.environ.get("TMP") or os.getcwd()
+    scratch = Path(base) / f"git-cassette-version-{os.getpid()}-{exe}-{time.monotonic_ns()}"
     try:
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
-            env = {**os.environ, "HOME": scratch, "USERPROFILE": scratch, "APPDATA": scratch, "XDG_CONFIG_HOME": scratch}
-            r = (run or subprocess.run)([target, *_VERSION_ARGS.get(exe, ["--version"])], capture_output=True,
-                                        text=True, timeout=10, cwd=scratch, env=env)
+        scratch.mkdir(parents=True)
+        env = {**os.environ, "HOME": str(scratch), "USERPROFILE": str(scratch), "APPDATA": str(scratch),
+               "XDG_CONFIG_HOME": str(scratch)}
+        r = (run or subprocess.run)([target, *_VERSION_ARGS.get(exe, ["--version"])], capture_output=True, text=True,
+                                    timeout=10, cwd=str(scratch), env=env)
         out = (r.stdout or "").strip()
         version = out.splitlines()[0] if r.returncode == 0 and out else ""
     except (OSError, subprocess.SubprocessError):
         version = ""
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     _VERSIONS[exe] = version
     return version
 
