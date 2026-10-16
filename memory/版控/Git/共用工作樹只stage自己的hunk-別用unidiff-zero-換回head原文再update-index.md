@@ -17,6 +17,7 @@
 - [臨] 暫存區全機共用、存的是整檔快照：我只 staged 自己的 hunk 之後，另一個 session 對同一檔 git add，整檔蓋掉我 staged 的版本；我接著 commit 就帶走對方 staged 的整批檔、漏掉自己在那幾檔的 hunk，推上去的 HEAD 不一致（程式呼叫 HEAD 還沒有的參數）。
 - [臨] commit 前「印出 git diff --cached --name-only」不算檢查：用 && 串在 commit 前只是印，清單多了別人的檔照樣 commit。要寫成會中斷的比對（staged 清單跟預期不同就 exit 1），或整個不碰共用暫存區：GIT_INDEX_FILE=<暫存檔> git read-tree HEAD → 套自己的改動 → write-tree → commit-tree → update-ref 帶舊值比對。
 - [臨] 已經撞了且推上去：不改寫歷史；先叫對方把他 staged 的 commit 掉（他的快照本來就不含我的 hunk、HEAD 也沒有，不會蓋掉我的），再補自己的；先補我的的話，對方下一次 commit 會用舊快照把我的 hunk 蓋回去。
+- [臨] 暫存區也是共用的：stage 完要在同一條指令裡馬上 commit。實遇兩次：另一個 session 的 commit 和背景知識收割的 commit，都把我還沒提交的 staged 檔一起帶走，提交訊息對不上；反過來，對方自己沒 stage 的 hunk 也因為暫存區放的是我的版本而漏交。發現擞車先比對 HEAD 與工作區的關鍵字，確認誰的東西進了 HEAD，再通知對方。
 
 ## 行動
 
