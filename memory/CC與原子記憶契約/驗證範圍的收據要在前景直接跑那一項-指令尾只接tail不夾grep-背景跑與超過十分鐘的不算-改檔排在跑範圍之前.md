@@ -13,6 +13,10 @@
 - [臨] 改了程式就要用 need_goal verify_scope 宣告驗證範圍，收尾閘要範圍內每一項都有「最後一次改動之後跑綠」的收據。收據是從工具輸出落帳，所以：前景跑（背景跑在啟動當下就落帳、沒有結果）；一次工具呼叫 10 分鐘內，超過就分批；指令尾巴只接 `2>&1 | tail -3`，管線裡夾 grep 等讀檔印字的指令不算（分不出結果是誰印的）；只跑一部分（-k、節點篩選）不算整檔項目。
 - [臨] 宣告後又改了程式（或和該項有關的檔），那一項的收據就作廢要重跑；把文件、筆記類的修改排在跑範圍之前，跑完就不要再動。
 - [臨]（實遇）收據只被跟該項有關的改動作廢（規則 SCOPE_EDIT_RELATED_TO_ITEM）：pytest 檔、探針腳本這類項目，改 _staging 文件不會讓它們作廢；但部位量尺那種尾巴帶 `&& echo X DONE` 的指令項目，程式看不出它讀哪些檔，任何改檔（連 _staging 的計畫文件）都算，跑完範圍再改文件就要補跑那一條。量尺項目排在最後跑，或改完文件再補跑一次。
+- [臨]（實遇）`for f in ...; do pytest $f; done` 加 `printf` 前綴的寫法落帳成「無哨兵」，一項都不算；一個 `python -X utf8 -m pytest -q 檔1 檔2 …` 明列檔名就能一次清掉多個檔案項。
+- [臨] 一行跑完多項的寫法：`python -m pytest -q a.py b.py && <量尺>`——量尺放最後、前面只用 && 串跑程式的指令、量尺後面不接過濾，測試檔各項與量尺項都認（lib/self_receipt._after_programs）。`pytest … | tail -4 && 量尺` 不算：中間的 tail 讓 pytest 那一項判成「夾了不算執行程式的指令」；多段量尺（A && B）後面接 `| tail` 也不算（管線蓋掉最後一段 exit）。
+- [臨] 部位表的文件層與記憶層量尺不再接 echo：sync_doc_counts.py／skill-index.py／sync-memory-index.py 的 --check 自己印 DOC_COUNTS_CHECK／SKILL_INDEX_CHECK／MEMORY_INDEX_CHECK PASS|FAIL。
+- [臨] 改了獨立的測試案例檔（不是 conftest、同資料夾沒人 import 它）只作廢點名它的那一項（SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；改產品程式碼或被 import 的案例檔（probe_release_rules、verify_stop_reconcile）照舊作廢範圍裡每一項。
 
 ## 行動
 

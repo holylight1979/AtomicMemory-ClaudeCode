@@ -634,6 +634,8 @@ def test_on_prompt_first_hint_only_once_and_header_with_tree(env):
     _op("set", goal="登入要能用", turn=2)
     line = ng.on_prompt(SID, "順便看一下", 3, {})
     assert line.startswith("[NeedGoal] 目前需求目標 T1：登入要能用") and "new_task=true" in line
+    assert ng.HANDOUT_CHECK in line                                         # 純問答回合交開工句、清單前也收得到
+    assert "寫或整併文件" in ng.HINT_LINE                                     # 第一則提醒寫明文件類也算要動手
     said = [s["text"] for s in _tree()["user_said"]]
     assert said == ["幫我修登入", "還有這個", "順便看一下"]                 # 沒樹時收的話開樹時搬進去（首則＝原始需求），之後的話照記
 
@@ -674,7 +676,7 @@ def test_ups_handler_puts_goal_line_before_hub(env, monkeypatch):
                       ("build_context", lambda *a: None),
                       ("collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {})),
                       ("assemble_injection", lambda *a, **k: ([], {})), ("_maybe_spawn_failure_extraction", lambda *a: None),
-                      ("_update_topic_tracker", lambda *a: None), ("_drain_aec_decisions", lambda *a: None),
+                      ("_update_topic_tracker", lambda *a: None),
                       ("_truncate_context_by_activation", lambda lines, *a: lines),
                       ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, s: None),
                       ("output_json", lambda d: outputs.append(d)), ("output_nothing", lambda: outputs.append(None))):
@@ -1156,6 +1158,175 @@ def test_subagent_stop_does_not_run_goal_check(env, monkeypatch, capsys):
     assert "(f1)" not in out and "(f2)" not in out
 
 
+# ─── 記憶知識類的輕樹 (f4)：沒樹時改知識類檔要寫樹、交付前要對照（屬記憶與報告類，不問使用者） ─────────────
+
+def _kfile(proj, name):
+    """寫出一個（記憶知識類的）檔、回路徑：沒樹時只認寫完還在的檔案。"""
+    p = proj / name
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("x", encoding="utf-8")
+    return str(p)
+
+
+def test_untreed_knowledge_write_hints_once_per_turn_and_is_adopted_by_new_tree(env):
+    proj = env["proj"]
+    assert ng.stamp_edit(SID, _kfile(proj, "a.py"), "", 2, {}) is None     # 程式檔沒樹：不記（改之前 edit_gate 已擋）
+    _kfile(proj, "pkg/b.py")
+    assert ng.stamp_edit(SID, str(proj / "pkg"), "", 2, {}) is None        # 搬過去的目錄裡有程式（git mv src pkg）：不算
+    assert ng.stamp_edit(SID, str(proj / "src"), "", 2, {}) is None        # 搬走的目錄（沒副檔名又不在）分不出：不算
+    assert ng.stamp_edit(SID, str(proj / "gone.py"), "", 2, {}) is None    # 刪掉的程式檔：不算
+    (proj / "_AIDocs").mkdir()                                             # 專案根標記：執行期資料目錄相對專案根判
+    assert ng.stamp_edit(SID, _kfile(proj, "Logs/run.jsonl"), "", 2, {}) is None   # 執行期資料（RUNTIME_DATA_NO_OVERVIEW）
+    assert not ng.goal_path(SID).exists()
+    line = ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 2, {})
+    assert line and "notes.md" in line and "need_goal(action=set" in line and "不擋寫檔" in line
+    assert ng.stamp_edit(SID, _kfile(proj, "plan.md"), "", 2, {}) is None  # 同一回合只送一次
+    assert ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {})         # 下一回合還沒寫樹：再送
+    assert [Path(e["path"]).name for e in _doc()["untreed"]] == ["notes.md", "plan.md"]   # 同一檔一筆
+    assert _doc()["untreed"][0]["turn"] == 3                                # 同一檔再改：回合更新
+    assert ng.stamp_edit(SID, _kfile(proj, "x.md"), "", 3, {"overview_hub": {"need_goal": {"enabled": False}}}) is None
+    _op("set", goal="整併兩份說明、必要步驟都保留", turn=3)
+    t = _tree()
+    assert [Path(e["path"]).name for e in t["edits"]] == ["notes.md", "plan.md"] and "untreed" not in _doc()
+    assert all(e["node"] == "T1" and not e["owed"] and not e["code"] for e in t["edits"]) and t["kind"] == "knowledge"
+    assert ng.stamp_edit(SID, _kfile(proj, "more.md"), "", 3, {}) is None  # 有樹：照常記進樹、不再送
+
+
+def test_untreed_counts_deleted_docs_and_moved_doc_dirs(env):
+    """沒樹時刪掉文件、搬文件目錄也是知識類的工作（Codex BLOCK 2）：已不在但副檔名不是程式的檔、裡面沒有程式的目錄都算。"""
+    proj = env["proj"]
+    assert ng.stamp_edit(SID, str(proj / "old.md"), "", 2, {})              # rm old.md 之後
+    _kfile(proj, "old-docs/a.md")
+    assert ng.stamp_edit(SID, str(proj / "old-docs"), "", 2, {}) is None    # mv docs old-docs（同回合不重送）
+    assert [Path(e["path"]).name for e in _doc()["untreed"]] == ["old.md", "old-docs"]
+
+
+def test_untreed_overflow_drops_oldest_with_signal(env, monkeypatch):
+    """超過上限丟最舊的要留訊號（Codex BLOCK 3）：計數進目標檔、守門紀錄有一筆、session 結束的帳把丟的也算進去。"""
+    import wg_need_goal_points as ngp
+    monkeypatch.setattr(ng, "UNTREED_MAX", 2)
+    proj = env["proj"]
+    for name in ("a.md", "b.md", "c.md"):
+        ng.stamp_edit(SID, _kfile(proj, name), "", 2, {})
+    d = _doc()
+    assert [Path(e["path"]).name for e in d["untreed"]] == ["b.md", "c.md"] and d["untreed_dropped"] == 1
+    assert any(p.get("event") == "untreed_dropped" for g, p in env["guard"] if g == "need_goal")
+    assert ngp.silent_unreconciled(SID, 3)[-1]["files"] == 3
+
+
+def test_import_adopts_untreed_knowledge_writes(env):
+    proj = _code_tree(env)
+    block = ng.handoff_block(SID)
+    assert ng.stamp_edit("sess-k", _kfile(proj, "notes.md"), "", 1, {})    # 讀續接單之前先改了文件
+    ng.import_handoff("sess-k", block, str(proj / "next-phase-k.md"), 1)
+    t = ng.active_tree(ng.load("sess-k"))
+    assert [Path(e["path"]).name for e in t["edits"]] == ["notes.md"] and "untreed" not in ng.load("sess-k")
+
+
+def test_multi_tree_import_adopts_untreed_into_the_continued_tree(env):
+    """續接單有兩棵、接續的是第二棵：沒樹時改的檔掛到接續的那一棵，不看匯入順序（Codex BLOCK 1）。"""
+    proj = env["proj"]
+    _op("set", goal="A")
+    _op("set", goal="B", new_task=True, turn=2)
+    block = ng.handoff_block(SID)
+    assert ng.stamp_edit("sess-m", _kfile(proj, "notes.md"), "", 1, {})
+    res = ng.import_handoff("sess-m", block, str(proj / "next-phase-m.md"), 1)
+    d = ng.load("sess-m")
+    active = d["trees"][d["active"]]
+    assert res["map"]["T2"] == d["active"] and [Path(e["path"]).name for e in active["edits"]] == ["notes.md"]
+    assert all(not t["edits"] for tid, t in d["trees"].items() if tid != d["active"])
+
+
+def test_knowledge_edit_after_closed_reconcile_reopens_and_old_tree_still_owes(env):
+    """知識類樹全部達成（結束）之後又改文件 → 退回進行中；換題開新樹後，舊樹對照後的改動交付時照樣要對照、session 結束照樣記帳
+    （Codex BLOCK 4）。"""
+    import wg_need_goal_points as ngp
+    proj = env["proj"]
+    _op("set", goal="整併說明", turn=2)
+    ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 2, {})
+    assert _op("reconcile", turn=2, cwd=str(proj), items=[
+        {"id": "T1", "status": "done", "evidence": [{"kind": "file", "ref": "notes.md", "level": "read"}]}])["ok"]
+    assert _tree()["status"] == "closed"
+    ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {})
+    assert _tree()["status"] == "doing"
+    _op("set", goal="別的事", new_task=True, turn=3)
+    r = ng.knowledge_gate_reason(SID, True, {}, 3, 3)
+    assert r and "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in r and "T1" in r and "notes.md" in r
+    assert "T1" in [x["tree"] for x in ngp.silent_unreconciled(SID, 3)]
+
+
+def test_knowledge_gate_f4_light_tree_and_reconcile_at_delivery(env):
+    proj = env["proj"]
+    ng.stamp_edit(SID, _kfile(proj, "old.md"), "", 1, {})                  # 上一個使用者回合改的
+    assert ng.knowledge_gate_reason(SID, False, {}, 3, 3) is None           # 不在本回合：不要求（session 結束另記帳）
+    ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 3, {})
+    r = ng.knowledge_gate_reason(SID, False, {}, 3, 3)
+    assert r and "(f4)" in r and "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" in r and "notes.md" in r and "old.md" not in r
+    assert "need_goal(action=set" in r                                      # 不看措辭：沒宣告完成也要
+    assert ng.knowledge_gate_reason(SID, False, {"overview_hub": {"need_goal": {"enabled": False}}}, 3, 3) is None
+    _op("set", goal="整併說明", turn=3)
+    assert ng.knowledge_gate_reason(SID, False, {}, 3, 3) is None           # 寫了樹；不在交付邊界不要對照
+    r = ng.knowledge_gate_reason(SID, True, {}, 3, 3)
+    assert r and "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in r and "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" not in r
+    res = _op("reconcile", turn=3, cwd=str(proj), items=[
+        {"id": "T1", "status": "done", "evidence": [{"kind": "file", "ref": "notes.md", "level": "read"}]}])
+    assert res["ok"], res                                                   # 知識類達成不要求案例或收據
+    assert ng.knowledge_gate_reason(SID, True, {}, 3, 3) is None
+    ng.stamp_edit(SID, _kfile(proj, "notes.md"), "", 4, {})                # 對照之後又改
+    assert "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" in ng.knowledge_gate_reason(SID, True, {}, 4, 4)
+
+
+def test_knowledge_gate_f4_skips_code_and_pure_qa_trees(env):
+    _code_tree(env)
+    assert ng.knowledge_gate_reason(SID, True, {}, 3, 3) is None            # 寫碼類歸 (f2)
+    _op("set", goal="只是問答", sid="sess-qa")
+    assert _tree("sess-qa")["kind"] == "knowledge"
+    assert ng.knowledge_gate_reason("sess-qa", True, {}, 3, 3) is None      # 純問答（樹上沒改檔）不要求對照
+
+
+def test_stop_verify_gates_puts_f4_in_report_not_code_check(env):
+    ng.stamp_edit(SID, _kfile(env["proj"], "notes.md"), "", 3, {})
+    off = {"enabled": False}
+    state = {"turn_seq": 3, "turn_prompts_seq": 3}
+    reason, report, kind, _ = st._verify_gates(state, SID, 3, "好了", None, "", [], off, off, {}, False,
+                                               goal=True, goal_cfg={})
+    assert reason is None and report and "(f4)" in report and kind == "reconcile"   # 記憶與報告類：不進寫碼查核
+    reason, report, _, _ = st._verify_gates(state, f"{SID}#agent:x", 3, "好了", None, "", [], off, off, {}, False)
+    assert reason is None and report is None                                # 子代理不跑
+
+
+def test_stop_f4_blocks_twice_then_releases_with_overflow_not_asking(env, monkeypatch, capsys):
+    from wg_release import pending_of
+    ng.stamp_edit(SID, _kfile(env["proj"], "notes.md"), "", 3, {})
+    state = {"turn_seq": 3, "turn_prompts_seq": 3, "session": {"id": SID, "cwd": str(env["proj"])}, "modified_files": []}
+    _stop_env(env, monkeypatch, state)
+    outs = []
+    for _ in range(3):
+        try:
+            st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+        except SystemExit:
+            pass
+        outs.append(capsys.readouterr().out)
+    assert all("(f4)" in o and "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" in o for o in outs[:2])
+    assert "(f4)" not in outs[2] and state["reconcile_overflow"][SID]["kind"] == "report"   # 第 3 次放行並記帳
+    assert pending_of(state, SID, "reconcile") is None                      # 不走擋滿問使用者
+
+
+def test_stop_report_budget_not_eaten_by_code_rule_counts(env, monkeypatch, capsys):
+    """同一使用者回合寫碼規則 (f1) 先擋過兩次，之後只剩收尾報告那一份 (f4) → 照擋，不因 (f1) 的次數直接放行
+    （Codex WARN：BLOCK_BUDGET_PER_RULE 每條規則各自計次）。"""
+    ng.stamp_edit(SID, _kfile(env["proj"], "notes.md"), "", 3, {})
+    state = {"turn_seq": 3, "turn_prompts_seq": 3, "session": {"id": SID, "cwd": str(env["proj"])}, "modified_files": [],
+             "reconcile_gate_turn": {SID: {"turn": 3, "counts": {"f1": 2}, "count": 2}}}
+    _stop_env(env, monkeypatch, state)
+    try:
+        st.handle_stop({"session_id": SID, "last_assistant_message": "這輪先到這。"}, {})
+    except SystemExit:
+        pass
+    out = capsys.readouterr().out
+    assert "(f4)" in out and not state.get("reconcile_overflow")
+
+
 def test_commit_gate_and_pretool_commit_denied(hooked, monkeypatch):
     proj, outputs, tp = hooked["proj"], hooked["outputs"], hooked["tp"]
     _code_tree(hooked)
@@ -1211,6 +1382,8 @@ def test_aec_report_gets_snapshot(env, monkeypatch, capsys):
                                 {"docdrift": {"enabled": False}, "aec": {}})
     snap = state["anti_evasion_report"]["need_goal"]
     assert snap["tree"] == "T1" and snap["reconcile"]["ok"] is False and snap["owed"] == 1
+    out = capsys.readouterr().out.strip().splitlines()[-1]
+    assert ng.HANDOUT_CHECK in json.loads(out)["hookSpecificOutput"]["additionalContext"]   # 收尾報告之前送交出前一問
     data = json.loads((env["wf"] / "aec-report" / f"{SID}-t7.json").read_text(encoding="utf-8"))
     assert data["need_goal"]["nodes"][0]["id"] == "T1"
 
@@ -1311,6 +1484,17 @@ def test_post_tool_use_stamps_edits_and_receipts(env):
     pt._need_goal_after_tool(state | {"turn_seq": 2}, SID, "Bash", {"command": "pytest -q"}, {"cwd": str(proj)}, {})
     t = _tree()
     assert [Path(e["path"]).name for e in t["edits"]] == ["a.py", "b.py"] and len(_doc()["receipts"]) == 1
+
+
+def test_post_tool_use_untreed_knowledge_write_sends_light_tree_line(env):
+    proj = env["proj"]
+    ctx, _ = pt._need_goal_after_tool({"turn_seq": 2}, "sess-k2", "Write", {"file_path": _kfile(proj, "notes.md")}, {}, {})
+    assert ctx and "notes.md" in ctx and "need_goal(action=set" in ctx
+    staging = _kfile(proj, ".claude/memory/_staging/next-phase-k.md")
+    ctx, changed = pt._need_goal_after_tool({"turn_seq": 3}, "sess-k2", "Write", {"file_path": staging}, {}, {})
+    assert "need_goal(action=set" in ctx and ng.HANDOUT_CHECK in ctx and changed   # 兩句併送、交出前一問改了 state
+    ctx, _ = pt._need_goal_after_tool({"turn_seq": 3}, "sess-k2", "Write", {"file_path": _kfile(proj, "eph/x.md")}, {}, {})
+    assert ctx is None                                                      # 暫存檔不管
 
 
 def test_hub_config_need_goal_section():

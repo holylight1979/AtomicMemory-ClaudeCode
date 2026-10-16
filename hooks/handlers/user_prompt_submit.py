@@ -20,14 +20,12 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-from handlers import aec_ledger
+from typing import Any, Dict, List
 
 from wg_core import (
     _ensure_state, _estimate_tokens, _now_iso, write_state,
     output_json, output_nothing,
-    _atom_debug_log, _atom_debug_error, CLAUDE_DIR, WORKFLOW_DIR,
+    _atom_debug_log, _atom_debug_error, WORKFLOW_DIR,
 )
 from harness_text import IDE_TAG_NAMES, strip_harness_blocks  # lib/（wg_core 已把它放進 sys.path）
 from wg_atoms import (
@@ -41,127 +39,6 @@ from handlers.ups_gates import run_pre_gates
 from handlers.ups_context import build_context
 from handlers.ups_search import collect_matched_atoms
 from handlers.ups_inject import assemble_injection, reconcile_injection_after_trim
-
-
-def _write_decision_file(p: Path, data: Dict[str, Any]) -> None:
-    """決策檔回寫（atomic tmp→replace）。fail-open。"""
-    try:
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
-        tmp.replace(p)
-    except Exception:
-        pass
-
-
-def _decision_item_path(item: str) -> Optional[Path]:
-    """把 (d) 決策項字串保守解析為可 exists() 檢查的路徑；非路徑樣貌回 None。
-
-    只認含路徑分隔符的單行短字串（prose 敘述 / 裸檔名無從定位 → None＝不後驗）；
-    相對路徑以資料根（wg_core.CLAUDE_DIR）為基準（HUD (d) 項慣為 repo 相對路徑）。"""
-    s = (item or "").strip().strip("`\"'")
-    if not s or len(s) > 400 or "\n" in s:
-        return None
-    if "/" not in s and "\\" not in s:
-        return None
-    p = Path(s).expanduser()
-    if not p.is_absolute():
-        p = CLAUDE_DIR / s
-    return p
-
-
-def _drain_aec_decisions(session_id: str, lines: List[str]) -> None:
-    """HUD (d) 保留/刪除決策 drain（注入端）+ 刪除決策後驗。
-
-    decision 檔由 Node（anti-evasion.js apiAecDecisionPost）落於 workflow/aec-decision/
-    <sid>-t<turn>-<idx>.json（Node 寫 / 本處 Python 讀 = 對稱 one-writer）。glob 本 session
-    未注入的決策 → 聚合成一段 additionalContext → 標 injected（atomic），供模型下回合 deferred
-    執行（刪除 / 略過保留）。fail-open：讀不到 / 壞檔 skip，不阻斷 UPS。
-
-    後驗（exists() 實查，不信宣告）：上輪已注入的 delete 項，本輪檢查檔案是否真的
-    消失——仍在 → 重注入一次（reinjected 標記）；重注入後仍在 → 浮告警後結案
-    （verified 標記，不無限 nag）；已消失/無從解析路徑 → 靜默結案。"""
-    if not session_id:
-        return
-    ddir = WORKFLOW_DIR / "aec-decision"
-    try:
-        # 舊式 <sid>-t<turn>-<idx>.json 與新式 <sid>-p<pathhash>.json（HUD 殘檔面板）都撈
-        paths = sorted(ddir.glob(f"{session_id}-*.json"))
-    except Exception:
-        return
-    loaded: List[tuple] = []
-    for p in paths:
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            continue   # 壞檔 / 過渡檔 → skip
-        if data.get("session_id") != session_id:
-            continue   # 檔名前綴已 scope，再校驗 session_id 欄位
-        loaded.append((p, data))
-
-    # ── Phase 1：刪除決策後驗（只看已 injected 且未 verified 的 delete 項）──
-    reinject: List[str] = []
-    warn: List[str] = []
-    for p, data in loaded:
-        if (
-            not data.get("injected")
-            or data.get("action") != "delete"
-            or data.get("verified")
-        ):
-            continue
-        item = str(data.get("item", ""))
-        # 新式決策檔（HUD 殘檔面板）帶結構化 path → 直接後驗；舊式只有 prose item → 保守解析。
-        target = Path(str(data["path"])) if data.get("path") else _decision_item_path(item)
-        if target is None or not target.exists():
-            data["verified"] = True     # 已刪 / 無從檢查 → 結案
-        elif not data.get("reinjected"):
-            data["reinjected"] = True   # 仍在 → 重注入一次
-            reinject.append(item)
-        else:
-            data["verified"] = True     # 重注入過仍在 → 告警後結案
-            warn.append(item)
-        _write_decision_file(p, data)
-    if reinject or warn:
-        blk = ["[Guardian:AEC-Decision] 刪除決策後驗（exists() 實查）："]
-        blk += [f"  🔁 上輪已注入刪除但檔案仍存在，請本回合執行刪除：{it}" for it in reinject]
-        blk += [f"  ⚠ 重注入後仍未刪除，請說明原因或請使用者手動處理：{it}" for it in warn]
-        lines.append("\n".join(blk))
-
-    # ── Phase 2：新決策注入（未 injected 者）──
-    deletes: List[str] = []
-    keeps: List[str] = []
-    refused: List[str] = []   # 受保護路徑的刪除決策：不注入刪除指令（帳本拒收前的舊帳／任何漏網）
-    consumed: List[tuple] = []
-    for p, data in loaded:
-        if data.get("injected"):
-            continue
-        item = str(data.get("item", "")).strip() or f"(idx {data.get('idx')})"
-        action = data.get("action")
-        if action == "delete":
-            why = aec_ledger.protected_reason(str(data.get("path", "") or ""))
-            if why:
-                refused.append(f"{item}（{why}）")
-                data["verified"] = True   # 直接結案，不進後驗 nag
-            else:
-                deletes.append(item)
-        elif action == "keep":
-            keeps.append(item)
-        else:
-            continue
-        consumed.append((p, data))
-    if not consumed:
-        return
-    block = ["[Guardian:AEC-Decision] 使用者於 HUD 對 (d) 暫存清單做了處置："]
-    block += [f"  🗑 刪除：{it}" for it in deletes]
-    block += [f"  📌 保留：{it}" for it in keeps]
-    block += [f"  ⛔ 拒絕刪除（受保護路徑，正式產出不經 HUD 刪）：{it}" for it in refused]
-    if deletes or keeps:
-        block.append("請據此執行——刪除項確認路徑後移除、保留項略過；為 deferred，本回合執行。")
-    if refused:
-        block.append("拒絕項請一句話告知使用者：該檔屬正式產出，要移除請使用者自行處理。")
-    lines.append("\n".join(block))
-    for p, data in consumed:   # 標 injected（atomic tmp→replace），防下回合重注入
-        data["injected"] = True
-        _write_decision_file(p, data)
 
 
 # ─── UPS 被 kill 哨兵：偵測上輪注入被 harness timeout 砍掉 ────────────────────
@@ -374,9 +251,6 @@ def handle_user_prompt_submit(
 
     # Topic tracking
     _update_topic_tracker(state, prompt, intent, newly_injected)
-
-    # AEC HUD 決策 drain：HUD (d) 保留/刪除鈕落的決策 → 注入 → 模型本回合 deferred 執行
-    _drain_aec_decisions(session_id, lines)
 
     # Sync reminders
     mod_count = len(state.get("modified_files", []))

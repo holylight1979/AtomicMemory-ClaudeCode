@@ -36,7 +36,7 @@
      "全文率低：同上；另看 fallback 比例，若 fallback 多代表單顆 atom 平均 >400 tok，考慮拆 atom 而非再放寬預算",
      "dropped/回合高：看 hooks/wg_atoms.py _truncate_context_by_activation Phase B 是否仍是「回填」版；用真 hook 進程（先 SessionStart 再 UserPromptSubmit，假 session id）餵中等長度中文 prompt 看 [Context budget: x/y | trim: …] 的 x 是否接近 y",
      "token 稅上升：看 B 節哪些 atom；優先調 config injection.redundancy_gate.min_shared_triggers（3→2 更積極）或補該 atom 的 trigger，不要調回預算",
-     "任何修改：跑 python run_verify.py（基線 1582 綠）→ 更新 _AIDocs/_CHANGELOG.md → 上 GIT（雙遠端，不 force）"
+     "任何修改：宣告並跑驗證範圍（全量 run_verify.py 已從流程拔掉，全量改增量待補）→ 更新 _AIDocs/_CHANGELOG.md → 上 GIT（雙遠端，不 force）"
     ],
     "危險／已知": [
      "不要 revert 上述 commit（已 push、GitLab main 只准 fast-forward）",

@@ -622,7 +622,7 @@ def cmd_matches(measure_cmd: Argv, cmd: Argv, shell: str = "bash", root: str = "
                 env: Env = None) -> bool:
     """執行的指令 cmd 是不是跑了表上的量尺 measure_cmd（量尺用 bash 規則解析，cmd 依 shell）：量尺的整條指令鏈
     （各指令與中間的 && || | ;）連續、運算子相同地出現在最後；之後只准乾淨的尾端過濾；之前只准 cd 與環境設定，接的運算子
-    是開頭／;／換行／&&。各指令照順序完全相同：程式、python 直譯器選項、其他 token（`-h`、`-u`、`-k 某案`、多一個檔名、
+    是開頭／;／換行／&&；或之前是 && 串起的跑程式指令（`pytest x.py && 量尺`），這時量尺後面不准再接過濾。各指令照順序完全相同：程式、python 直譯器選項、其他 token（`-h`、`-u`、`-k 某案`、多一個檔名、
     選項換順序、大小寫都不算；`-Xutf8`＝`-X utf8`）。腳本照路徑認：cmd 照 root（收據從哪裡跑）解析、量尺照 measure_root
     （表所在的根）解析，兩邊只給一個就共用；都沒給只比檔名。多段量尺後面再接過濾時，量尺最後一段要是 echo 類（管線會蓋掉
     最後一段的 exit：最後一段若是會失敗的程式，前段印的 DONE 會替它背書）。白名單外語法、`印假哨兵 || 量尺`、
@@ -658,7 +658,8 @@ def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_ro
     tail_ok = len(m) == 1 or _prog(m[-1].words[0] if m[-1].words else "") in _ECHO_PROGS
     for end in range(_first_filter(e), len(e) + 1):
         start = end - len(m)
-        if start >= 0 and (end == len(e) or tail_ok) and _reachable(e, start) and _chain_at(m, e, start):
+        if start >= 0 and (end == len(e) or tail_ok) and _chain_at(m, e, start) and (
+                _reachable(e, start) or (end == len(e) and _after_programs(e, start))):
             diff: List[Tuple[str, str, str]] = []
             for j in range(len(m)):
                 here, want = _scope_vals(e_env[start + j]), _scope_vals(m_env[j])
@@ -666,6 +667,18 @@ def _ruler_spans(measure_cmd: Argv, cmd: Argv, shell: str, root: str, measure_ro
                 diff += [(names[k], here.get(k, ""), want.get(k, "")) for k in names
                          if here.get(k) != want.get(k) and names[k] not in (d[0] for d in diff)]
             yield (start, end), diff
+
+
+def _after_programs(steps: List[Step], start: int) -> bool:
+    """量尺前面接的是 && 串起的跑程式指令（開頭可帶前置設定，例：`pytest x.py && 量尺`）：前面任一段失敗量尺就不跑。
+    呼叫端另要求量尺是最後一段、後面沒有過濾，exit 就是量尺的，前段印的成功行替不了量尺背書。
+    前段夾了印字或讀檔的指令、用 ; 或 || 串、stdout 導走 → 不算。"""
+    i = 0
+    while i < start and _is_setup(steps[i]):
+        i += 1
+    runs = steps[i:start]
+    return (bool(runs) and _reachable(steps, i) and all(s.op == "&&" for s in steps[i + 1:start + 1])
+            and all(_runs_program(s) and not s.stdout for s in runs))
 
 
 def _chain_at(m: List[Step], e: List[Step], start: int) -> bool:

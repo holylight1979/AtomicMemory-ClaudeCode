@@ -683,7 +683,8 @@ def _ruler_ran(measure_cmd: str, receipt: Dict[str, Any], part_root: str = "") -
 
 _RULER_FORM = ("量尺前面只准 `cd <絕對路徑> &&` 與環境設定（`X=1`、`export X=1`、`$env:X=\"1\";`、`$x = '字面值';`；"
                "set、unset、pushd、帶 $ 的值、PS4 這類讓 shell 自己印字的變數都不算），"
-               "後面只准 `| tail` 或 `| Select-Object -Last N`；請照表上原字串單獨跑。")
+               "後面只准 `| tail` 或 `| Select-Object -Last N`（多段量尺不准，管線會蓋掉最後一段的 exit）；要和別的測試串在一起，就用 && 把跑程式的指令接在量尺前面、"
+               "量尺放最後、後面不接過濾（例：`python -m pytest -q x.py && 量尺`）；否則請照表上原字串單獨跑。")
 
 
 _TOOL_HINT = ("專案自製的測試工具請寫進部位表的量尺欄，寫 PATH 上的程式名（例：`Unity.exe -batchmode -runTests …`）並把那支程式"
@@ -1029,6 +1030,13 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
             continue
         out.append(r)
     return out
+
+
+def copied_glob_source(path: str) -> bool:
+    """搬目錄規則（MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE）的「來源還在＝複製」：來源寫成沒展開的萬用字元（`hooks/*.py`）時字面路徑
+    不存在，要展開來看；還有符合的檔＝複製、不是搬。沒有萬用字元的來源由呼叫端照 exists() 判。"""
+    import glob
+    return any(ch in str(path) for ch in "*?[") and bool(glob.glob(str(path)))
 
 
 def is_code_file(path: str, code_exts: Iterable[str]) -> bool:
@@ -2065,7 +2073,8 @@ def reconcile_gate_parts(last_text: str, receipts: List[Dict[str, Any]], turn_se
             "CLAIM_FIXED_NEEDS_PASS", True, f"說「修好」但 {_pass_why(this_turn, receipts, unrelated, relate_paths)}",
             (f"本回合 PASS 收據 {len(pass_receipts(this_turn))} 筆、對得上改檔的 0 筆" + turn_rule,
              "修好的證據是本回合跑「驗那個改動」的驗證（cmd 提到改的檔／verify 路徑／量尺指令）印出 `<NAME>_CHECK PASS` 且 exit 0，"
-             "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景全量）" + note("PASS")))))
+             # 全量改增量待補：原本括號寫「背景全量」，全量已從流程拔掉，不再當成修好的建議做法
+             "或改完之後才開始跑、全綠、同一棵樹的部位量尺自寫收據（背景跑的整組 pytest）" + note("PASS")))))
     measured = any("DONE" in _verdicts(r) and (_clean(r) or any(_ruler_ran(mc, r) for mc in measure_cmds))
                    for r in this_turn)
     if any(claims_measured(t, phrases) for t in texts) and not measured and not covered():

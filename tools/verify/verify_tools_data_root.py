@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -351,7 +352,10 @@ def test_console_window_trace_log_defaults_to_data_root(wg, dirs, cwd):
     assert r.returncode == 0, r.stderr[-2000:]
     log = root / "Logs" / "console-window-trace.log"
     assert log.is_file(), sorted(str(p) for p in Path(home).parent.rglob("console-window-trace.log"))   # 反例：落到家目錄
-    assert "TRACE START" in log.read_text(encoding="utf-8")
+    text = log.read_text(encoding="utf-8")
+    assert "TRACE START" in text
+    baseline = [ln for ln in text.splitlines() if " baseline " in ln]
+    assert not baseline or any(re.search(r"owner=\S", ln) for ln in baseline), baseline[:3]   # 擁有者一次查全部後照填得到
     if wg:
         assert not (home / ".claude").exists()                                          # 反例：家目錄不被碰
 

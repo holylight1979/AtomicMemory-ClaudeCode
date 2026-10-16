@@ -29,7 +29,8 @@ FORBIDDEN_IN_LOG = [
     r"\bsvn\s+(?:log|cat|diff|info|blame)\b",
     r"\bgit\s+(?:log|show|diff|blame)\b",
 ]
-ABS_PATH = re.compile(r"[A-Za-z]:[/\\][^\s\"'`)\]]+")
+# 磁碟代號前不得接字母：網址 http:// 的「p:/」不是 P 槽路徑；file:///C:/x 的 C:/ 前是斜線，照抓
+ABS_PATH = re.compile(r"(?<![A-Za-z])[A-Za-z]:[/\\][^\s\"'`)\]]+")
 
 
 def sentinel(ok: bool, reasons: list[str]) -> int:

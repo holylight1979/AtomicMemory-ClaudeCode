@@ -25,9 +25,13 @@ _TAG_RE = re.compile(r"<\s*(/?)\s*(" + HARNESS_TAG_NAMES + r")(?=[\s/>])", re.IG
 _PEER_CLOSE_RE = re.compile(r"<\s*/\s*cross-session-message\s*>", re.IGNORECASE)
 # 清理後還殘留的 harness 標籤字樣（開、閉，含同伴正文轉義的 `<\/名稱>`）：代表有區塊邊界被提早結束而漏出內容
 _RESIDUE_TAG_RE = re.compile(r"<\s*\\?/?\s*(?:" + HARNESS_TAG_NAMES + r")(?=[\s/>])", re.IGNORECASE)
-# 沒有標籤包住的系統通知標記行：這行起到訊息尾都是 harness 的說明與通知。只認自成一行的完整標記（不分大小寫，前後可空白）。
-_SYSTEM_NOTIFICATION_RE = re.compile(r"^[ \t]*\[SYSTEM NOTIFICATION - NOT USER INPUT\][ \t]*\r?$",
-                                     re.IGNORECASE | re.MULTILINE)
+# 沒有標籤包住的系統通知標記行：這行起到訊息尾都是 harness 的說明與通知（不分大小寫，行首可空白）。
+#   [SYSTEM NOTIFICATION - NOT USER INPUT]：只認自成一行的完整標記；
+#   [Cross-session idle notice]／[Cross-session delivery notice]：同伴 session 的閒置、送達通知，標記後面同一行接說明。
+#   新的 harness 純文字通知照這裡加名字，不在呼叫端另判。
+_SYSTEM_NOTIFICATION_RE = re.compile(
+    r"^[ \t]*(?:\[SYSTEM NOTIFICATION - NOT USER INPUT\][ \t]*\r?$|\[Cross-session (?:idle|delivery) notice\])",
+    re.IGNORECASE | re.MULTILINE)
 # hook 注入殘渣行（[Guardian:*] / [Atom:*] / [Session:Context] / [JIT:*] / [WG:*] 等 additionalContext 前綴，
 # 允許行首空白、不分大小寫）：在空白折疊前逐行整行剔除，清理後的文字不會再被當成殘渣行。
 HOOK_RESIDUE_LINE_RE = re.compile(

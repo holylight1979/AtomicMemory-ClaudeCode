@@ -433,6 +433,18 @@ def test_compare_two_directories(tmp_path):
     assert "[變差]" in rp.render_compare(back, 3) and "wrapper" in rp.render_compare(back, 3)
 
 
+def test_compare_accepts_absolute_entry_under_root(tmp_path):
+    """收尾 hook 與它建議的手動指令都把入口寫成 --root 底下的絕對路徑；比較模式兩側根是別的目錄，要先換成相對路徑。"""
+    old = _write(tmp_path / "old", PY_WRAPPED)
+    new = _write(tmp_path / "new", PY_STRAIGHT)
+    abs_entry, abs_to = str(new / "app.py"), str(new / "core.py") + "::work"
+    assert not Path(abs_entry).is_relative_to(old), "前置：絕對入口不在舊版目錄底下，舊碼才會炸"
+    res = rp.run_compare(new, str(old), None, [abs_entry], abs_to)
+    assert _row(res, "core.py::work")["status"] == "better" and res["entry_misses"] == []
+    with pytest.raises(rp.ReadingPathError):   # --root 外的絕對路徑照舊報錯
+        rp.run_compare(new, str(old), None, [str(tmp_path / "elsewhere" / "app.py")], None)
+
+
 def test_compare_same_version_reports_no_change(tmp_path):
     a = _write(tmp_path / "a", PY_KINDS)
     b = _write(tmp_path / "b", PY_KINDS)
@@ -3118,3 +3130,10 @@ def test_cli_text_json_and_sentinels(tmp_path):
     helped = subprocess.run([sys.executable, "-X", "utf8", str(SCRIPT), "--help"], capture_output=True, text=True,
                             encoding="utf-8")
     assert helped.returncode == 0 and "--before" in helped.stdout and "抓不到" in helped.stdout
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()

@@ -21,7 +21,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from wg_core import (
     _ensure_state, _now_iso, write_state, read_state, output_nothing, output_block,
@@ -36,12 +36,13 @@ from wg_evasion import (
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, agent_receipt_key,
     measure_cmds_of, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
-    committed_settled_paths, committed_equal_paths, git_deadline,
+    committed_settled_paths, committed_equal_paths, git_deadline, copied_glob_source,
 )
 from wg_verify_scope import case_check as _scope_case_check, fix_evidence as _scope_fix_evidence, scope_cfg as _scope_cfg
 from wg_release_rules import (
     parse_hits, budget_exhausted, budget_tick, exhausted_summary, is_worktree_checkout, push_required_verdict,
     dpm_instruction_text, retry_rounds_text, RELOAD_ADVICE_RE, reload_advice_verdict,
+    leftover_candidates, leftover_cleanup_verdict,
 )
 from wg_release import (
     exhausted_message, mark_block, user_released, released_this_turn, record_release,
@@ -213,6 +214,41 @@ def _git_unpushed_roots(modified_files: List[Dict[str, Any]]) -> List[str]:
         if n > 0:
             unpushed.append(f"{root}（領先 {n} commit）")
     return unpushed
+
+
+def _synced_paths(paths: Iterable[str]) -> set:
+    """已同步的檔（規則 SYNC_BLOCK_SKIPS_SYNCED）：在 git／svn 工作區、status 乾淨、所在 git 根沒有已 commit 未 push 的
+    （worktree 或沒 upstream 照 WORKTREE_NO_PUSH 不要求 push，也算）。已刪除的檔照查：status 乾淨＝刪除已提交。
+    查不了（不在工作區、git／svn 失敗或逾時）一律不算已同步。"""
+    groups: Dict[tuple, List[str]] = {}
+    for p in dict.fromkeys(str(x) for x in paths if x):
+        found = _find_vcs_root(Path(p).parent)
+        if found:
+            groups.setdefault(found, []).append(p)
+    synced: set = set()
+    for (kind, root), ps in groups.items():
+        dirty = _git_dirty_set(root, ps) if kind == "git" else _svn_dirty_set(root, ps)
+        if dirty is None:
+            continue
+        if kind == "git" and _git_unpushed_roots([{"path": str(root / ".git")}]):
+            continue
+        synced.update(p for p in ps if _norm_for_match(p) not in dirty)
+    return synced
+
+
+def _drop_synced(mod_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """從改檔清單剔除已同步的檔（_synced_paths）；判斷失敗照原清單（stderr 告知）。"""
+    if not mod_files:
+        return mod_files
+    try:
+        synced = _synced_paths((m or {}).get("path") for m in mod_files)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Workflow Guardian] 判斷哪些檔已同步失敗，照算未同步：{type(e).__name__}: {e}", file=sys.stderr)
+        return mod_files
+    if synced:
+        print(f"[Workflow Guardian] 規則 SYNC_BLOCK_SKIPS_SYNCED：{len(synced)} 個改過的檔已 commit 並 push，不再要求同步",
+              file=sys.stderr)
+    return [m for m in mod_files if (m or {}).get("path") not in synced]
 
 
 _ACCESSED_FILES_CAP = 500  # accessed_files state 條目上限（超出裁最舊）
@@ -745,7 +781,8 @@ def _move_inputs(state: Dict[str, Any], receipt_key: str) -> Tuple[List[Dict[str
     子代理收尾（receipt_key＝sid#agent:<id>）只查這個子代理搬的、用它自己的收據；主 session 收尾查本 session 全部搬移
     （含子代理搬的），收據是主帳加上那些子代理各自的收據（子代理自己跑了 scan／sample 也算數）。"""
     sid, _, aid = str(receipt_key).partition("#agent:")
-    moved = [m for m in state.get("moved_code_dirs") or [] if isinstance(m, dict) and m.get("session_id") == sid]
+    moved = [m for m in state.get("moved_code_dirs") or [] if isinstance(m, dict) and m.get("session_id") == sid
+             and not copied_glob_source(str(m.get("old") or ""))]          # 萬用字元來源還有符合的檔＝其實是複製
     if aid:
         return [m for m in moved if m.get("agent_id", "") == aid], receipts_of(state, receipt_key)
     receipts = list(receipts_of(state, sid))
@@ -762,7 +799,8 @@ def _verify_gates(
 ) -> tuple:
     """對帳閘＋驗證範圍閘的判定。回 (寫碼查核擋訊息或 None, 收尾報告欄 (e) 擋訊息或 None, 種類 reconcile／scope／"",
     提醒或 None：背景全量新記的範圍漏判)。寫碼查核＝對帳 (a)～(d)＋驗證範圍；(e) 屬記憶與報告類，擋滿時不走放行詢問（分開回）。
-    goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)，併進寫碼查核；子代理與裁判不跑目標對照。
+    goal＝True（只有主 session 的 Stop 傳）另判需求目標的 (f1)(f2)(f3)，併進寫碼查核；記憶知識類的輕樹 (f4) 併進 (e) 那一份；
+    子代理與裁判不跑目標對照。
     (a)(b)(c) 對 last_text 與 claims（pending 承接的先前宣稱）；(d) 與驗證範圍不看措辭，有改碼紀錄就判（last_text 空也判）。
     自寫收據（_runs/）驗證範圍（入帳找漏判）與 (a) 共用，只讀一次。寫碼查核整個過了 → 這份驗證範圍記成結案。
     判定本身出錯 → 寫碼查核擋訊息（一律擋，仍吃 reconcile_gate.max_blocks_per_turn 預算，擋滿後改問使用者）＋stderr＋guard_log。"""
@@ -873,9 +911,10 @@ def _verify_gates(
         # 需求目標（4.5）：(f1) 改了程式還沒回頭對照不看措辭、每次都判；(f2) 完整對照與 (f3) 改到的部位都掛目標只在交付邊界
         # （宣告完成、擋滿待查的原宣稱、本回合交了收尾檢核）判。併進寫碼查核：同一個擋滿問使用者、同一個 pending；
         # (f3) 擋訊息帶規則行，擋次預算單獨計次。state 與 transcript 交給 (f3) 從對話補掛補交的定位四行
+        boundary = bool(claims_completion(last_text) or claims or aec_emitted)
         try:
             from wg_need_goal import goal_gate_reason
-            g_reason = goal_gate_reason(session_id, bool(claims_completion(last_text) or claims or aec_emitted), goal_cfg,
+            g_reason = goal_gate_reason(session_id, boundary, goal_cfg,
                                         state=state, transcript_path=str(transcript) if transcript else "")
         except Exception as e:  # noqa: BLE001
             g_reason = (f"[Guardian:ReconcileGate] 需求目標對照判定錯誤，一律擋：{type(e).__name__}: {e}。"
@@ -885,6 +924,18 @@ def _verify_gates(
         if g_reason:
             reason = f"{reason}\n{g_reason}" if reason else g_reason
             kind = "reconcile"
+        # 記憶知識類的輕樹 (f4)：屬記憶與報告類，併進收尾報告那一份（擋滿第 3 次放行並記 reconcile_overflow，不走放行詢問）；
+        # 判不了不擋（stderr＋guard_log），寫碼類那邊照舊一律擋
+        try:
+            from wg_need_goal import knowledge_gate_reason
+            k_reason = knowledge_gate_reason(session_id, boundary, goal_cfg, turn_seq, _user_turn(state, turn_seq))
+        except Exception as e:  # noqa: BLE001
+            k_reason = None
+            print(f"[Guardian:NeedGoal] 記憶知識類輕樹判定錯誤（這次不擋）：{type(e).__name__}: {e}", file=sys.stderr)
+            append_guard_log("reconcile", {"session_id": session_id, "turn_seq": turn_seq, "knowledge_goal_error": repr(e)[:200]})
+        if k_reason:
+            report = f"{report}\n{k_reason}" if report else k_reason
+            kind = kind or "reconcile"
     if closable and not reason:
         # 寫碼查核整個過了：這份驗證範圍記成結案（之後範圍外的測試紅了，才找得到要連回哪一次宣告）
         try:
@@ -1089,11 +1140,13 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     state["turn_open"] = False
     if _harvest_accessed_files(state, transcript_text) or turn_was_open:
         write_state(session_id, state)
-    # 殘檔帳本：每次 Stop 掃一次 session scratchpad 進帳（模型沒 emit 報告也不漏）。fail-open。
+    # 殘檔帳本：每次 Stop 掃一次 session scratchpad、比一次開場快照（SessionStart 記的工作樹與分支）進帳
+    # （模型沒 emit 報告也不漏；python 腳本裡開的工作樹指令解析看不到，靠快照補）。fail-open。
     try:
-        aec_ledger.collect_at_completion(session_id, cwd, None, int(state.get("turn_seq", 0)))
-    except Exception:
-        pass
+        aec_ledger.collect_at_completion(session_id, cwd, None, int(state.get("turn_seq", 0)),
+                                         snapshot=state.get("git_snapshot"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[Guardian:Cleanup] 帳本收尾進帳失敗（這次少收）：{type(e).__name__}: {e}", file=sys.stderr)
 
     # ── Layer 1: token 預警 proxy（piggyback 既有 block，不獨立打斷）──────
     # 早段算一次預警句（純函式、無副作用）；於下方各 gate 將 output_block(reason)
@@ -1105,22 +1158,33 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     )
     # 迴歸累積提示同為 piggyback payload：驗收裁判真命中 → 建議補測試/落 atom。
     _accept_hint = _acceptance_regression_hint(state, session_id, config)
-    # 閱讀路徑影響（G12）：改碼回合量一次，附在這次擋的訊息與 stderr；只量不擋、不計預算（wg_reading_path）
+    # 閱讀路徑影響（G12）：改碼回合交給背景量、這次不等；量完的結果之後的收尾附一次在擋的訊息與 stderr。只量不擋、不計預算（wg_reading_path）
     try:
-        _reading_path = reading_path_note(state, session_id, config)
+        _reading_path, _rp_changed = reading_path_note(state, session_id, config)
     except Exception as e:  # noqa: BLE001
-        _reading_path = f"[Guardian:ReadingPath] 這次對閱讀路徑的影響量不出來：hook 內部錯誤 {type(e).__name__}: {e}"
+        _reading_path, _rp_changed = f"[Guardian:ReadingPath] 閱讀路徑量測出錯：hook 內部錯誤 {type(e).__name__}: {e}", False
     if _reading_path:
         print(_reading_path, file=sys.stderr)
+    if _reading_path or _rp_changed:
         write_state(session_id, state)
 
     _tpath = str(transcript) if transcript else None
 
+    _later: List[Any] = []   # 後面還會擋的閘的預覽（規則 BLOCK_LISTS_LATER_GATES）；各閘共用變數算好後才掛上
+
     def _piggyback(reason: str, gate: Optional[str] = None) -> str:
-        """附 token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳／驗證範圍閘＝"reconcile"）就記這個閘最後一次擋的位置；那條路是先 write_state
-        再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。"""
+        """附後面還會擋的閘／token 預警／驗收提示／閱讀路徑影響。gate 有給（對帳／驗證範圍閘＝"reconcile"）就記這個閘最後一次擋的位置；
+        那條路是先 write_state 再呼叫本函式，所以記完自己再寫一次 state，擋的位置才不會遺失。"""
         if gate:
             mark_block(state, session_id, gate, _tpath, int(state.get("turn_seq", 0)))
+        if _later:
+            try:
+                note = _later[0](reason)
+            except Exception as e:  # noqa: BLE001
+                note = ""
+                print(f"[Guardian:AlsoOwed] 預覽後面的閘失敗，略過：{type(e).__name__}: {e}", file=sys.stderr)
+            if note:
+                reason = f"{reason}\n{note}"
         if _token_warn:
             state["token_warn_emitted"] = True
             reason = reason + _token_warn
@@ -1160,6 +1224,53 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         and in_turn(aec.get("turn_seq"), turn_seq, _since)
         and aec.get("session_id") == session_id
     )
+
+    _cleanup_memo: List[Any] = []
+
+    def _cleanup_facts() -> List[Dict[str, Any]]:
+        """收尾自清閘的事實：宣告完成時才查帳上還在的東西（要問 git），一次 Stop 只查一次。查失敗照放行並浮 stderr。"""
+        if not _cleanup_memo:
+            items: List[Dict[str, Any]] = []
+            if last_text and claims_completion(last_text):
+                try:
+                    if aec_ledger.ledger_path(session_id).exists():
+                        items = aec_ledger.list_alive(session_id)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[Guardian:Cleanup] 查帳上的東西失敗，這次不擋：{type(e).__name__}: {e}", file=sys.stderr)
+            _cleanup_memo.append(items)
+        return _cleanup_memo[0]
+
+    def _later_gates(reason: str) -> str:
+        """規則 BLOCK_LISTS_LATER_GATES：這次擋下時，照目前狀態預覽後面還會擋的閘（知識收割、收尾自清、收尾檢核、同步），讓模型一回合
+        補齊，不用每道閘各多花一回合。只讀不寫：不動 state、不吃預算；後面的閘還有每回合一次、擋滿放行等條件，以真正擋下為準。"""
+        later: List[str] = []
+        if "[Guardian:KnowledgeHarvest]" not in reason and harvest_gate_reason(
+                state, session_id, last_text, config, own_mod_files, turn_seq, gate_turn=_user_turn(state, turn_seq)):
+            later.append("知識收割：值得留的先 atom_write，再呼叫 knowledge_harvest_report")
+        if ("[Guardian:Cleanup]" not in reason
+                and (state.get("cleanup_gate_turn") or {}).get(session_id) != _user_turn(state, turn_seq)):
+            _cv = leftover_cleanup_verdict(True, _cleanup_facts())
+            if _cv.owed:
+                later.append(f"收尾自清：這個 session 建的 {len(_cv.evidence)} 樣東西還在（工作樹、分支、臨時 repo、專案外資料夾），"
+                             "用完的刪掉、要留的在 (i) 寫理由")
+        if ("[Guardian:ScanReport]" not in reason and own_mod_files and not state.get("scan_report_warned")
+                and not committed_this_turn
+                and detect_missing_aec_emission(last_text, own_mod_files, state.get("recent_user_prompts", []) or [],
+                                                int(config.get("min_files_to_block", 2)), emitted_this_turn)):
+            later.append("收尾檢核：最後呼叫 anti_evasion_report")
+        if ("[Guardian:SyncReminder]" not in reason and "[Workflow Guardian]" not in reason
+                and not state.get("muted") and phase not in ("done", "syncing")):
+            sr = config.get("sync_reminder", {}) or {}
+            unsynced = {(m or {}).get("path") for m in _drop_synced(own_mod_files)} - {None, ""}
+            reminder_left = sr.get("enabled", True) and int(state.get("sync_reminder_count", 0)) < int(sr.get("max_reminders", 1))
+            if (unsynced and reminder_left) or len(unsynced) >= int(config.get("min_files_to_block", 2)) \
+                    or state.get("knowledge_queue"):
+                later.append(f"同步：{len(unsynced)} 個改過的檔還沒 commit 或還沒 push（照口令規則處理）")
+        if not later:
+            return ""
+        return ("[Guardian:AlsoOwed] 這道過了之後，照目前狀態還會擋：" + "；".join(later)
+                + "。可以這一回合一起補完再收尾（收尾檢核放最後）。")
+    _later.append(_later_gates)
 
     if failing and claims_completion(code_text):
         state["stop_blocked_count"] = stop_count + 1
@@ -1217,7 +1328,7 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
             _code = None
         if _code or _report:
             # 規則 BLOCK_BUDGET_PER_RULE：預算每條規則（擋訊息的字母）各自計次，同一條擋滿 max 才算擋滿；
-            # 舊格式紀錄（整場一個 count）不承接。_count＝本回合各條的最大值（(e) overflow 與 log 沿用）
+            # 舊格式紀錄（整場一個 count）不承接。_count＝本回合各條的最大值（log 沿用）
             _budget = state.setdefault("reconcile_gate_turn", {})
             _rec = _budget.get(session_id) if isinstance(_budget.get(session_id), dict) else None
             _letters = parse_hits(_code or "") or (["*"] if _code else [])
@@ -1252,8 +1363,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                 })
                 print(f"[Guardian:ReconcileGate] 使用者放行這一回合（{_how}），記 user_release", file=sys.stderr)
                 _code = None
-            if not _code and _report and _count >= _max:
-                # 只剩 (e)：照 97128e5 的行為，第 3 次放行並記 reconcile_overflow（健檢 red）
+            # 收尾報告那一份（(e)、(f4)，記憶與報告類）只數自己的「e」：寫碼規則先擋過幾次不吃掉它的次數（BLOCK_BUDGET_PER_RULE）
+            _report_full = bool(budget_exhausted(_rec, _uturn, _max, ["e"]))
+            if not _code and _report and _report_full:
+                # 只剩收尾報告那一份：照 97128e5 的行為，第 3 次放行並記 reconcile_overflow（健檢 red）
                 state.setdefault("reconcile_overflow", {})[session_id] = {
                     "turn": turn_seq, "at": _now_iso(), "kind": "report", "reason": _report[:300],
                 }
@@ -1261,10 +1374,10 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
                     "session_id": session_id, "turn_seq": turn_seq, "kind": "report", "count": _count,
                     "reason": _report[:300],
                 })
-                print(f"[Guardian:ReconcileGate] 本回合已擋 {_count} 次（收尾報告欄），這次放行但記 reconcile_overflow（健檢列 red）",
+                print(f"[Guardian:ReconcileGate] 收尾報告那一份本回合已擋滿 {_max} 次，這次放行但記 reconcile_overflow（健檢列 red）",
                       file=sys.stderr)
                 write_state(session_id, state)
-            elif not _code and not (_report and _count < _max):
+            elif not _code and not (_report and not _report_full):
                 write_state(session_id, state)
             else:
                 _budget[session_id] = budget_tick(_rec, _uturn, _letters or (["e"] if _report else []))
@@ -1392,6 +1505,21 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         write_state(session_id, state)
         output_block(_piggyback(hp_reason))
         return
+
+    # ── Cleanup Gate（收尾自清：規則 LEFTOVER_NEEDS_CLEANUP）─────────────
+    # 宣告完成時，這個 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 擋一次，列刪除指令，
+    # 讓 AI 自己清（使用者原話：要提醒 LLM 才會刪用完的工作分支）。事實由 aec_ledger.list_alive 現場查、判定在
+    # wg_release_rules；排在收尾檢核之前，AI 寫留的理由才進得了同一份 (i)。不吃 stop_gate_max_blocks、每個使用者回合最多擋一次
+    # （cleanup_gate_turn[sid] 記 _uturn）。
+    if (state.get("cleanup_gate_turn") or {}).get(session_id) != _uturn:
+        cv = leftover_cleanup_verdict(bool(last_text and claims_completion(last_text)), _cleanup_facts())
+        if cv.owed:
+            state.setdefault("cleanup_gate_turn", {})[session_id] = _uturn
+            append_guard_log("cleanup", {"session_id": session_id, "turn_seq": turn_seq, "items": list(cv.evidence[:8])})
+            write_state(session_id, state)
+            output_block(_piggyback(aec_ledger.cleanup_block_message(
+                session_id, leftover_candidates(_cleanup_facts()), cv.why)))
+            return
 
     # ── Scan-Report Gate ────────────────────────────────────────
     # 降條件觸發 — 只在動 core 檔或多檔（≥min_files_to_block）且宣告完成時要求收尾檢核；
@@ -1625,6 +1753,9 @@ def handle_stop(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
         _maybe_spawn_user_extract_worker(session_id, state, config)
         output_nothing()
         return
+
+    # 規則 SYNC_BLOCK_SKIPS_SYNCED：已 commit 並 push 的檔不再進一般 sync block（查不了 git 的照算）
+    own_mod_files = _drop_synced(own_mod_files)
 
     # session-filter：底部一般 block 亦只數本 session 自己改的檔（own_mod_files）——
     # 協調 session（own 為空）不因共用樹上他 session 的檔而誤觸發。kq_count 不過濾：

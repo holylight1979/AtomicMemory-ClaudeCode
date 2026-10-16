@@ -12,6 +12,7 @@
 PostToolUse 看不到結尾哨兵：對帳閘靠這份收據認「改完之後跑過、全綠、同根」，驗證範圍靠收據裡紅掉的測試名（failed_cases）
 找範圍漏判。--help 不寫。
 """
+# 全量改增量待補：這支是全量，已從流程拔掉（部位表不再拿它當量尺；收尾、合併、發版都不跑），只留給手動排查。
 import os
 import sys
 import subprocess

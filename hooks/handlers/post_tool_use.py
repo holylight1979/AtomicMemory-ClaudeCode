@@ -36,7 +36,7 @@ from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
     aec_evidence_missing, aec_evidence_autofill, aec_followups_missing, next_event_seq, has_cd, env_snapshot,
-    commit_snapshot, reconcile_cfg, head_new_code, _git_root_of, reverted_code_files, is_code_file, ledger_path,
+    commit_snapshot, reconcile_cfg, head_new_code, copied_glob_source, _git_root_of, reverted_code_files, is_code_file, ledger_path,
     small_content_sha,
 )
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
@@ -449,7 +449,7 @@ def _note_moved_code_dirs(state: Dict[str, Any], sid: str, tool_name: str, tool_
         elif dest.is_dir() and (dest / src.name).exists():
             dest = dest / src.name        # 搬進既有目錄：實際落點是 <目的地>/<名字>（搬單一檔案時這裡就是那個檔，下面不記）
         key = (canon_path(str(src)), canon_path(str(dest)))
-        if key in seen or src.exists() or not dest.is_dir() or not _has_code(dest, exts):
+        if key in seen or src.exists() or copied_glob_source(str(src)) or not dest.is_dir() or not _has_code(dest, exts):
             continue
         seen.add(key)
         lst = state.setdefault("moved_code_dirs", [])
@@ -822,9 +822,13 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
         else:
             targets = _write_paths_from_tool(tool_name, tool_input, cwd) if _write_paths_from_tool is not None else []
         agent_id = str(input_data.get("agent_id") or "")
+        lines: List[str] = []
         for p in targets or []:
             if p and not p.startswith("UNKNOWN:") and not _is_ephemeral_path(p):
-                ng.stamp_edit(session_id, p, agent_id, turn, config)
+                line = ng.stamp_edit(session_id, p, agent_id, turn, config)   # 沒樹時改了知識類：要寫輕樹（一回合一次）
+                if line:
+                    lines.append(line)
+        hint = None
         if tool_name in ("Bash", "PowerShell"):
             ng.stamp_receipts(session_id, state, turn)
         elif targets:
@@ -832,7 +836,9 @@ def _need_goal_after_tool(state: Dict[str, Any], session_id: str, tool_name: str
             from wg_need_goal_points import handout_edit_line
             hint = handout_edit_line(state, session_id, str(targets[0]), turn)
             if hint:
-                return hint, True
+                lines.append(hint)
+        if lines:
+            return "\n".join(lines), bool(hint)
     except Exception as e:  # noqa: BLE001
         print(f"[NeedGoal] PostToolUse 蓋號／套用失敗（{tool_name}）：{type(e).__name__}: {e}", file=sys.stderr)
         ng._guard("stamp_error", session_id, tool=tool_name, error=f"{type(e).__name__}: {e}")
@@ -987,10 +993,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _maybe_auto_roll_changelog(file_path, config)
         _maybe_sync_skill_index(file_path, config)
 
-    if tool_name in ("Edit", "Write", "NotebookEdit") and file_path:
-        # 殘檔帳本：工具寫進系統 tempdir（scratchpad 等）的檔 → 進帳，HUD 以 exists() 列尚存者。
+    if tool_name in ("Edit", "Write", "NotebookEdit", "Bash", "PowerShell"):
+        # 產出物帳本：這次工具呼叫建立的檔、資料夾、git 工作樹／分支／臨時 repo → 進帳，HUD 現場查還在的列出來。
         try:
-            aec_ledger.record_temp_write(session_id, file_path, int(state.get("turn_seq", 0)))
+            aec_ledger.record_tool_artifacts(
+                session_id, tool_name, tool_input,
+                input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or os.getcwd(),
+                int(state.get("turn_seq", 0)))
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_write", e)
 
@@ -1251,9 +1260,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         try:
             import wg_need_goal as _ng
             _ng_cwd = state.get("session", {}).get("cwd", "") or input_data.get("cwd", "") or ""
-            _ng_snap = _ng.snapshot_for_report(session_id) if _ng.cfg_for_cwd(config, _ng_cwd)["enabled"] else None
+            _ng_on = _ng.cfg_for_cwd(config, _ng_cwd)["enabled"]
+            _ng_snap = _ng.snapshot_for_report(session_id) if _ng_on else None
             if _ng_snap:
                 report["need_goal"] = _ng_snap
+            if _ng_on:
+                # 收尾檢核之後就是收尾報告（常帶下一步、開工句）：交出前一問在這裡也送一次
+                aec_reject_msgs.append(f"[NeedGoal] 收尾檢核收下。{_ng.HANDOUT_CHECK}")
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_need_goal", e)
         state["anti_evasion_report"] = report
@@ -1266,11 +1279,12 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
             _rejected: List[Dict[str, str]] = []
             aec_ledger.collect_at_completion(session_id, _cwd, i_paths, turn_seq, rejected=_rejected)
             if _rejected:
+                _protected = any(not r["path"].startswith("branch:") for r in _rejected)
                 aec_reject_msgs.append(
-                    "[Guardian:AEC-Ledger] (i) 衍生暫存清單拒收受保護路徑（正式產出不是暫存，"
-                    "不得進 HUD 刪除候選）：\n"
+                    "[Guardian:AEC-Ledger] (i) 衍生暫存清單有幾行沒收下：\n"
                     + "\n".join(f"  ✗ {r['path']} — {r['reason']}" for r in _rejected)
-                    + "\n未 commit 的正式檔請改列於 (a)/(b)/(g)；(i) 只放你自己產生的暫存／中間產物。"
+                    + ("\n受保護路徑是正式產出、不是暫存，不得進 HUD 刪除候選：未 commit 的正式檔請改列於 (a)/(b)/(g)；"
+                       "(i) 只放你自己產生的暫存／中間產物。" if _protected else "")
                 )
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_collect", e)

@@ -1,6 +1,8 @@
 """verify_vcs_sync_worker.py — 記憶庫背景上版控（wg_vcs_sync.sync_targets_inline）實倉測試。
 
-全部用 tmp 的 `git init` / `svnadmin create` 實倉，直接呼叫同步主邏輯，不 spawn worker、不碰真實 repo。
+情境照舊用 tmp 的 `git init` / `svnadmin create` 實倉寫成，直接呼叫同步主邏輯，不 spawn worker、不碰真實 repo；
+但 git／svn 呼叫走錄製重播（lib/git_cassette.py，錄製檔在 cassettes/verify_vcs_sync_worker/）：平常重播、不開 git，
+同步程式的 git 互動改了 → 失敗並要求 `pytest --git-record` 重錄（那次才跑真 git、照舊驗下面的不變式）。
 
 不變式：
 git — untracked 新 atom 進 commit；exclude（*.access.json、memory/_meta/**）不進，已追蹤被改的 exclude 檔也不進；
@@ -86,6 +88,15 @@ def sync_dir(tmp_path, monkeypatch):
 def _logs():
     out = []
     return out, out.append
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette, sync_dir):
+    """git／svn 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；同步程式改了 git 互動
+    （指令或寫的檔不同）→ 測試失敗要求 --git-record 重錄。暫時 worktree 與 svn 訊息檔由共用 fixture 改落 tmp_path/_tmp、
+    名稱用序號，重播才對得上。_sync 是鎖檔、請求與時間戳，不掃不比。合併驅動（%O %A %B 模式）由 git 叫起來、重播時
+    不會跑，它的程式改了就自動重錄；同一支的 --resolve 模式由同步程式直接開子程序叫，重播時照常真跑。"""
+    git_cassette(exclude=["_sync"], code=["tools/merge-atom-index.py"])
 
 
 @pytest.fixture(autouse=True)

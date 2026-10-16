@@ -4,6 +4,50 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-16 HUD 改版第 1b 階段：收尾時 AI 先自己清掉用完的東西、全機殘留一頁清、開場快照補抓
+- 原設計者指出：要提醒 AI 才會刪用完的工作分支，還得另開 session 大清理。Stop 加收尾自清閘（規則 LEFTOVER_NEEDS_CLEANUP，判定在 `hooks/wg_release_rules.py`）：宣告完成時本 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 每回合擋一次，列刪除指令；要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）；別的開著的 session 正在用的不列。HUD 加「全機殘留」分頁（`tools/session-artifacts.py list --all`、每組「清掉不用再確認的」走 `act --all-safe`）；SessionStart 記 git 開場快照，Stop 比對補抓 python 腳本裡開的工作樹與分支（標來源不明、不進自清閘）。
+- **同類修正**：帳本路徑鍵改用 realpath——系統暫存區是 8.3 短檔名、AI 常用長檔名寫，abspath 比不上，真帳本約 63 項暫存檔被當成「專案外」。實測真帳本 54 個 session 1003 樣還在（暫存區 991 樣，不會隨 session 關閉被清）。案例 `hooks/verify/verify_session_artifacts.py`、`verify_release_rules.py`。
+
+## 2026-10-16 收尾少空轉第二波：閱讀路徑量尺改背景量、量不完不再附手動指令、慢測試與跨案殘留
+- 實遇：根層 repo 量一次閱讀路徑實測 56 秒，收尾只給 3 秒，兩天 47 次附段落 39 次逾時；逾時訊息附「手動：python …」，一場 session 照著手動跑了 5 次。`hooks/wg_reading_path.py` 改成收尾只寫工作檔、起背景行程（本檔 `--job`，最多 300 秒）就走，量完的結果之後的收尾附一次；一個 session 同時一個背景量測，量測中又改的碼量完再量；背景只寫自己的結果檔、不碰 state。量不完、背景中斷、起不來都只寫原因，不附任何指令。`hooks/verify/conftest.py` 每案把背景行程換成不起，測試不留還在跑的行程。
+- **測試**：逾時案改用假的 run 丟 TimeoutExpired，不再真的睡到 8 秒；`verify_reading_path_hook` 18 案、`verify_stop_reconcile` g12w 三案重錄。g12w「沒改程式碼不附」原本靠錄製重播核對失敗被 `_drop_synced` 的 fail-open 吞掉才過，前置改成 .md 真的改了。
+- **全庫最慢清單**（5040 案 1334 秒）：真的睡到逾時的只有上面兩支（8 秒×2）。最慢的 `verify_tools_data_root` 主控台追蹤兩案各 40 秒，是 `tools/console-window-trace.ps1` 開場每個主控台視窗各查一次行程（68 窗×0.55 秒）→ 改成一次查全部（快照後才開的照單查），40 秒→3 秒。產出物帳本在同一次 pytest 裡跨案共用（session id 相同），前面案例的暫存 repo 留在帳上、後面每次收尾都去查 git，錄製檔還錄進別案路徑、單跑就對不上 → `hooks/verify/conftest.py` 每案給帳本自己的資料夾，`verify_stop_reconcile` 59 秒跑完、不再錄出依順序的錄製檔。`verify_scorecard_report` 用真實日期算視窗、樣本日期過期而紅 → 案例把「現在」釘在樣本日期。
+
+## 2026-10-16 HUD 改版第 1a 階段：產出物帳本收整個 session 的額外產出，保留／刪除鈕當場生效
+- 原設計者指出：帳本幾乎只收 session 關閉就會被清掉的暫存檔，git 工作樹、工作分支、臨時 repo、測試資料夾全漏（30 天 worktree add 42、git init/clone 23、帳本 98.6% 是暫存區檔），得另開 session 大清理、還要提醒 AI 才刪分支。`handlers/aec_ledger.py` 改成依工具呼叫進帳（Write 檔、Bash 寫入目標、git 建的工作樹／分支／臨時 repo／遠端分支），狀態由 git 與檔案系統現場查；HUD 按鈕經 Node 轉呼叫新工具 `tools/session-artifacts.py` 當場刪並回報（沒合併的分支、有改動的工作樹、遠端分支、整個 repo 要再確認一次），舊的「決策紙條＋下一輪 AI 執行」流程移除。案例 `hooks/verify/verify_session_artifacts.py`。
+
+## 2026-10-16 收尾少空轉：已同步的檔不再提醒、改測試只重跑那一支、擋一次列出全部欠帳、量尺可和測試串一行
+- 實遇：一場回答完問題後被收尾閘連擋三次、空轉 19 分鐘（兩次是檔早已 commit 並 push 仍被同步提醒擋；一次是 `pytest … && 量尺 && echo … DONE` 整行作廢，423 案重跑）。一週 524 次擋下裡，被擋的回合一半以上連擋 2～7 次。
+- **四處修正**：底部一般 sync block 先剔除已 commit 並 push 的檔（SYNC_BLOCK_SKIPS_SYNCED，worktree 照 WORKTREE_NO_PUSH）；測試案例檔是量具，改它只作廢點名它的那一項（SCOPE_CASE_EDIT_ONLY_ITS_ITEM，被同資料夾 import 的與 conftest 照舊作廢全部）；任一道閘擋下時附 `[Guardian:AlsoOwed]` 預覽知識收割、收尾檢核、同步還欠不欠（BLOCK_LISTS_LATER_GATES）；文件與記憶量尺的三支 `--check` 工具自己印 `<NAME>_CHECK PASS／FAIL`、部位表拿掉 echo，量尺前面用 `&&` 串跑程式指令也算（`lib/self_receipt.py`，量尺後面不准再接過濾）。
+- **驗證**：新案在舊碼上紅（案例檔牽連無關項、量尺接在 pytest 後不認），新碼全綠；細節見 TECH.md 規則表四列與 §7.9。
+
+## 2026-10-16 知識與文件類任務也有一棵輕樹與收尾對照；交出前一問在純問答回合也送得到（v6 T1.4）
+- 依原話輯 G0「每個需求都要先抓需求目標並在關鍵處對照」與原設計者對知識類「AI 自己透過智慧、盡量靜默做到好」、裁定 #42。**舊病**：B5 q4 純文件整併時受測 AI 沒開樹——目標提示只在第一則送一次、還寫成「若這是要動手的需求…純問答可以不寫」，動手寫文件時沒有任何點再提；`stamp_edit` 沒樹就直接 return（改了什麼也沒記）；交付邊界只對寫碼類樹判 (f2)，知識類樹永遠沒人要對照。**改法**：沒樹時改了寫完還在、不是程式的檔案 → 記進目標檔 `untreed`、當下送一句寫輕樹（不擋寫檔），寫樹或匯入時掛進新樹；Stop 新增 (f4) 兩條規則（KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE 不看措辭、KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY 只在交付邊界），併進收尾報告欄那一份：屬記憶與報告類，不問使用者、第 3 次放行並記 `reconcile_overflow`，寫碼查核與 commit 照舊不管知識類；第一則提示寫明文件、記憶、設定都算要動手；session 結束另記沒樹改的知識類檔與「對照後又改了檔」。交出前一問加送在每則訊息的樹根那一行（純問答回合回覆之前唯一的點）與收尾檢核回應；同類一起補：/handoff 交付前自審加「判斷入口」「交出前再對一次」兩問、/console 開工句範本填法加同兩句（追蹤項 10-15）。
+- **同類一起修**：錄製重播會比對受測暫存目錄裡的每個檔，hook 在第一個 git 呼叫前寫的守門紀錄與目標檔帶時間戳，錄製與重播永遠對不上；根 conftest 的 `git_cassette` 預設排除 `_tmp/wg-test-logs`、`_tmp/wg-test-need-goal`（`RUNTIME_EXCLUDE`，新案對帳 hooks 裡的暫存去處名字）。`verify_stop_reconcile` 的 042_2 三支知識類位置案與 042_2b 重錄：這幾案在信箱、_staging、_AIDocs 寫了檔又沒寫樹，(f4) 讓那次收尾先擋下、少了後面同步提醒的兩筆 git 呼叫，是這次刻意改的行為。
+- **Codex 一輪（4 BLOCK 全修）**：沒樹時刪文件、搬文件目錄不留紀錄 → 改用查得到的事實判（還在的檔／目錄裡有沒有程式／已不在的看副檔名；執行期資料不算）；多樹續接單匯入把改檔掛到第一棵 → 掛進接續的那一棵；超過上限無聲丟掉 → 上限 200、丟的記 `untreed_dropped` 與守門紀錄；知識類樹結案後又改文件、換題後舊樹的欠帳都不見 → 知識類改檔讓樹退回進行中、(f4) 查每棵沒結束的知識類樹。另修 WARN：收尾報告那一份的放行次數原本取所有規則的最大值、會被寫碼規則先擋的次數吃掉，改成只數自己的（照 BLOCK_BUDGET_PER_RULE）。
+- **驗證**：新案在舊碼上全紅、新碼全綠（第一批 11 支、Codex 修正 6 支）；真 hook 入口端到端探針 8 個檢查點全符合、舊碼 6 處不符；搬目錄（`git mv src pkg`）一度被誤判成知識類寫入，由 `verify_stop_reconcile` 三支搬移案抓到。
+
+## 2026-10-16 閱讀路徑量尺的前後比較吃得下絕對路徑入口
+- 收尾 hook 自動量與它附的手動指令都把 `--entry` 寫成絕對路徑，比較模式兩側根是暫存目錄 → 「不在 --root 底下」FAIL。`tools/reading-path.py` `run_compare` 進場先把 --root 底下的絕對入口（含 `--to`）換成相對路徑，--root 外照舊報錯；案例 `verify_reading_path::test_compare_accepts_absolute_entry_under_root`。
+
+## 2026-10-16 第二意見不再被材料裡的網址擋下
+- 實遇：工作樹 diff 含 `curl -s http://127.0.0.1:3849/...`，`tools/replay-guard.py` 的絕對路徑正則把 `http://` 的「p:/」當成 P 槽路徑 → pre FAIL、Codex 起不來。正則加「磁碟代號前不得接字母」（`file:///C:/x` 照抓）；案例 `tools/verify/verify_replay_guard.py`。
+
+## 2026-10-16 錄製重播記下 git／svn 版本，換版自動重錄
+- 方案原寫「錄製檔記下 git 版本」，實作漏了：git 升版或同事機器版本不同時，重播照用舊版回答、測不出新版行為。`lib/git_cassette.py` 錄製時用同一支執行檔問版本寫進表頭，`choose_mode` 比對這台機器現在的版本，不同就自動改跑真 git 重錄（每個測試行程每種工具只問一次）。既有 601 個錄製檔補上本機版本（git 2.50.1.windows.1、svn 1.14.5）。新案兩支。
+
+## 2026-10-15 git／svn 測試改成錄製重播，不再每案開 git 建 repo
+- 新增 `lib/git_cassette.py`＋根 conftest 的 `git_cassette` fixture：測試照舊用真 repo 寫情境，git／svn 呼叫錄一次真實執行（指令、輸出、對受測目錄造成的檔案變化），之後重播並逐筆核對指令、目錄與呼叫前目錄內容，不對就失敗要求 `pytest --git-record` 重錄；會被 git 叫起來的本專案程式（合併驅動）改了自動重錄。套到 git 呼叫量最大的 11 支（單獨跑，錄製 → 重播）：`verify_vcs_sync_worker` 483→49 秒、`verify_stop_reconcile` 281→114 秒、`verify_reading_path` 149→20 秒、`verify_merge_atom_index` 98→28 秒、`verify_merge_driver_gate` 41→12 秒、`verify_overview_hub` 19→8 秒，其餘 5 支各剩 1～20 秒；`verify_install` 不適用（repo 在模組共用目錄、git 在子程序）。突變驗證（提交清單順序倒過來）重播當場擋下。共用 fixture 把暫存目錄搬進受測目錄、暫存檔名與 uuid 用序號；路徑每種寫法各自還原；.log／.jsonl 與 git index 不比。`.gitattributes` 加 `*.gz binary`。順手修範圍漏判帳：整支新寫的測試檔第一次跑紅，舊碼因讀不到舊版本而記成別的 session 的漏判，現在判成自己進行中的工作（`wg_verify_scope._case_changed_since`）。
+
+## 2026-10-15 收尾不再硬造拍板點：IDENTITY「收束成尖」改成完工即回報完工
+- 原設計者裁定：舊句「尾端只留單一決策點或單一動作、順帶點出還缺什麼資訊」讓完工時沒東西可放的回合硬造拍板點、多問問題，是一直被要求拍板的病根。改成「完工即回報完工；發現問題就回報發現問題，其餘不得違反設定內其他原則」；四要素最後一項加「完工且無待辦就寫『不需動作』」。`templates/IDENTITY.template.md` 與本機 IDENTITY.md 同步（LF）。四張卡同步：菱形體模型的下尖準則與四要素卡改寫，「不展開的領域」卡拿掉單一決策點說法，另兩張補一句病根。
+
+## 2026-10-15 全量測試從流程拔掉（全量改增量待補）
+- 原設計者裁定：全量 `run_verify.py`（約 3900 案、單行程 23～40 分鐘，多 session 同機時拖慢所有人）不再出現在任何流程步驟。根層部位表 `hooks/handlers/`、`hooks/`、`skills/` 三列量尺改「無」；驗證範圍宣告回應不再寫「整把在發版前全量跑」，對帳 (a) 擋訊息不再建議背景全量；/console 拿掉「所有軌合完跑一次全量」；Architecture「完成宣告前必跑」、TECH §7.6／§7.9／驗證段、config `verify_scope._doc`、v6 接續單與 checklist D2、舊交接單同步；叫人跑全量的卡片 append 一行指向新卡。`run_verify.py` 留著只供手動排查。拔除處都標「全量改增量待補」，下一步是收尾跑 LLM 適度擴展過的可能相關清單。驗證：新案兩支（宣告回應、(a) 擋訊息）舊碼紅新碼綠，讀根層部位表的兩支 test_017 改成 4 把尺。
+
+## 2026-10-15 同伴 session 的閒置／送達通知不再被當成使用者打的字
+- 實遇：同伴 session 閒置時 harness 送來的 `[Cross-session idle notice] …`（純文字、沒有標籤包住）被 `lib/harness_text.user_typed_text` 當成使用者的話，記進需求目標樹的「使用者原話（權威）」；口令、糾正、豁免、萃取、Quote 吃的是同一支，也都會誤認。修法：行首 `[Cross-session idle notice]`／`[Cross-session delivery notice]` 和 `[SYSTEM NOTIFICATION - NOT USER INPUT]` 同一條規則，那行起到訊息尾都算 harness；字樣不在行首（只是提到）照留。驗證：`verify_harness_prompt_guard` 新案舊碼 4 紅、新碼綠；宣告範圍 6 支 259 passed。
+
 ## 2026-10-15 專案記憶索引過期自動重建——隊友經 svn／git 更新進來的卡不再被舊索引擋在注入之外
 - 專案記憶索引退出版控後，SessionStart 只在索引檔不存在時重建；本機舊索引還在時，更新拉進的新卡、被刪的卡都不會反映到索引，舊平鋪佈局專案的新卡就不會被注入（v4 分層佈局直接掃磁碟，不受影響）。`session_start._rebuild_index_if_missing` 加過期檢查：有記憶卡比索引新、或索引登記的卡已不在 → 從磁碟重建並說出原因；`~/.claude` 自己的記憶索引在版控裡、不做這項檢查；重建後碰一下索引時間，避免同內容的卡每次開 session 都重建。暫存資料夾清單改引用 `lib/vcs_ignore.DERIVED_DIRS`，不另寫一份。測試 `verify_vcs_ignore_derived` 加 6 案。
 

@@ -24,7 +24,7 @@
 
 | 模組 | 職責 |
 |------|------|
-| `handlers/_shared.py`／`aec_ledger.py` | 跨 handler 共用 helper（含 HUD 窗活性 `_hud_alive`、GC）／AEC 殘檔帳本唯一 writer |
+| `handlers/_shared.py`／`aec_ledger.py` | 跨 handler 共用 helper（含 HUD 窗活性 `_hud_alive`、GC）／AEC 產出物帳本唯一 writer（檔案、資料夾、git 工作樹／分支／臨時 repo） |
 | `wg_core.py` | 路徑唯一真相（專案根委派 `lib/project_root.py`）+ config／state IO + token budget 常數單一來源 + 覆轍白名單 + log rotation + PreToolUse guards + `org_memory_root()`（公司層根單一來源：共用 config `org_memory` 被本機 `workflow/org-memory.local.json` 蓋過；js `realm.orgMemoryRoot` 鏡像） |
 | `wg_atoms.py` | atom index 解析 + trigger／BM25／vector client／RRF／ACT-R + 晉升 + 最終裁切（回填）+ 判用 v2 `detect_atom_use_v2` + `build_candidate_pool`（候選池純函式：scope 可見性／org 組／Supersedes，SessionStart 與 `lib/memory_search` 共用） |
 | `wg_extraction.py` | 失敗關鍵字萃取 + worker spawn + user-extract L0 + content classify |
@@ -103,7 +103,7 @@ statusline／週健檢／效果報表／救援日誌／失念偵測／回訪／g
 
 ### 反退避：Evasion Guard／Test-Fail Gate／ScanReport（`wg_evasion.py`）
 
-程式碼強固 LLM「錯誤的迴避」行為——不依賴模型自律。Stop 閘序、禁語單一來源（含三類宣稱）、十一欄報告 (a)–(k)、one-writer cross-check、殘檔帳本受保護路徑、刪除後驗、AEC-Pending、遙測：TECH §7.1、§7.2。以下為 TECH 未收的判定細節（本段為唯一來源）：
+程式碼強固 LLM「錯誤的迴避」行為——不依賴模型自律。Stop 閘序、禁語單一來源（含三類宣稱）、十一欄報告 (a)–(k)、one-writer cross-check、產出物帳本受保護路徑與當場刪除、AEC-Pending、遙測：TECH §7.1、§7.2。以下為 TECH 未收的判定細節（本段為唯一來源）：
 
 - **Test-Fail Gate 資料流**：PostToolUse(Bash) 解析測試指令（pytest／tsc／node --check／jest／go test／cargo test）stdout+stderr → 失敗尾 20 行寫 `state["failing_tests"][]`；同 cmd 重跑成功即清舊紀錄。Stop 見 `failing_tests` 非空 + last assistant text 命中完成宣告 → block，要求 (a)修復 (b)標為 regression (c)降級任務。使用者放行詞（先這樣／跳過／known regression）清 `failing_tests`；近 3 則 user prompt 有放行詞 → 不掛 evasion flag。
 - **退避偵測時點**：Stop 對 last assistant text 跑 `detect_evasion`（禁語表 `memory/_meta/forbidden-phrases.json`）→ `evasion_flag` + `evasion_events` 證據暫存（不受 UPS 清旗影響，供 AEC (b) cross-check）→ 下輪 UPS 注入 `[Guardian:Evasion]` 舉證要求後清旗。
@@ -218,9 +218,9 @@ skills/<name>/verify/         ← skill 自帶守衛
 
 **命名與 pytest 規則**：檔名 `verify_*.py`（`pytest.ini` `python_files = test_*.py verify_*.py`）；函數名保留 `test_*()`；import 用 `sys.path.insert(0, <source 同層>)`，不深度 package 化（dispatcher 仍用 `from handlers import` 裸名）。
 
-**統一入口**：`python run_verify.py` — 動態掃 `{src}/verify/` + `skills/{name}/verify/`，跑 `pytest -v --tb=short`。完成宣告前必跑。歷史 tests 歸檔：`DevHistory/v5-overhaul-2026-05/tests-archive/`。
+**統一入口**：`python run_verify.py` — 動態掃 `{src}/verify/` + `skills/{name}/verify/`，跑 `pytest -v --tb=short`。全量改增量待補：它是全量，已從流程拔掉（完成宣告、合併、發版都不跑），只留手動排查用；收尾只跑宣告的驗證範圍（TECH §7.9）。歷史 tests 歸檔：`DevHistory/v5-overhaul-2026-05/tests-archive/`。
 
-**根 `conftest.py`**：每個 pytest session 把資料根（WG_CLAUDE_DIR）與 TEMP／TMP／TMPDIR 導到暫存目錄（資料根先放本樹受版控的 memory／_AIDocs/_atoms／workflow/config.json），結束時還原；刻意讀 live 的案標 `@pytest.mark.live_data`。整組 pytest（`pytest -q tools/verify`、`pytest -q lib/verify`）跑完自寫收據到 pytest 啟動時的資料根（同 run_verify），收據記紅掉的測試名（`failed_cases`，驗證範圍拿去找範圍漏判）。守門：`tools/verify/verify_pytest_isolation.py`、`lib/verify/verify_self_receipt.py`。
+**根 `conftest.py`**：每個 pytest session 把資料根（WG_CLAUDE_DIR）與 TEMP／TMP／TMPDIR 導到暫存目錄（資料根先放本樹受版控的 memory／_AIDocs/_atoms／workflow/config.json），結束時還原；刻意讀 live 的案標 `@pytest.mark.live_data`。整組 pytest（`pytest -q tools/verify`、`pytest -q lib/verify`）跑完自寫收據到 pytest 啟動時的資料根（同 run_verify），收據記紅掉的測試名（`failed_cases`，驗證範圍拿去找範圍漏判）。守門：`tools/verify/verify_pytest_isolation.py`、`lib/verify/verify_self_receipt.py`。另提供 `git_cassette` fixture：git／svn 子程序錄製一次、之後重播（`lib/git_cassette.py`，`--git-record` 重錄；細節 TECH 驗證段）。
 
 ---
 

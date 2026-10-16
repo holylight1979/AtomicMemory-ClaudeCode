@@ -166,6 +166,15 @@ def test_declare_reply_shows_changed_files_and_rulers_as_reference_only(proj, lo
     assert "t.py" in text and _RULER in text and "參考" in text and "不必" in text, text
 
 
+def test_declare_reply_does_not_send_to_full_run(proj, lookup):
+    """全量已從流程拔掉：宣告回應附參考量尺時，不再叫人「整把在發版前全量跑」。舊碼句尾有這句 → 紅。"""
+    state = _state()
+    state["modified_files"] = [_mf(proj / "tools" / "t.py", T1, 3)]
+    text = _declare(state, proj, [{"target": "tools/verify/verify_t.py", "why": "直接測 t.py"}])
+    assert _RULER in text and "參考" in text, text                     # 前置：參考量尺那行確實有出現
+    assert "全量跑" not in text and "發版前" not in text, text
+
+
 # ─── 收尾閘（端到端）────────────────────────────────────────────────────────
 
 def test_one_line_change_runs_only_declared_test_and_passes(proj, lookup):
@@ -353,6 +362,89 @@ def test_item_inputs_declare_cross_part_data_the_test_reads(proj, lookup):
     assert "SCOPE_ITEM_WELL_FORMED" in text and "nope.md" in text, text
 
 
+# ─── 改測試案例檔只作廢點名它的項目（SCOPE_CASE_EDIT_ONLY_ITS_ITEM） ─────────────────────
+
+_Y_ONLY = "python -m pytest -q hooks/verify/verify_y.py"
+
+
+def _case_scope(proj):
+    """宣告 verify_x／verify_y 兩項；改 x.py（T0）→ 兩支都跑綠（T1）→ 再改量具 verify_x.py（T2）。回 (state, mods, 兩筆收據)。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測 x.py"},
+                           {"target": "hooks/verify/verify_y.py", "why": "呼叫方讀 x 的常數"}])
+    mods = [_mf(proj / "hooks" / "x.py", T0, 1), _mf(proj / "hooks" / "verify" / "verify_x.py", T2, 5)]
+    return state, mods, [_rcpt(proj, _X_RUN, T1, 3), _rcpt(proj, _Y_ONLY, T1, 4)]
+
+
+def test_case_edit_voids_only_its_own_item(proj, lookup):
+    """改了 verify_x.py 只要求 verify_x 那一項重跑；verify_y 的收據照算。先斷言前置：verify_x 那一項真的被擋（不是什麼都沒判）。
+    舊碼「程式檔一律算」→ verify_y 的收據早於 verify_x.py 的修改也被列出（紅）。"""
+    state, mods, both = _case_scope(proj)
+    reason, _ = _gates(state, mods, both)
+    assert reason and "的「hooks/verify/verify_x.py」" in reason, reason
+    assert "的「hooks/verify/verify_y.py」" not in reason, reason
+    reason, _ = _gates(state, mods, both + [_rcpt(proj, _X_RUN, _NOW.isoformat(), 6)])
+    assert reason is None, reason
+
+
+@pytest.mark.parametrize("shared", ["import", "conftest"])
+def test_shared_case_edit_still_voids_every_item(proj, lookup, shared):
+    """反例：verify_y 從 verify_x import 共用的東西、或改的是 conftest（整個資料夾自動載入）→ 改它可能弄壞別支 → 照程式檔算，
+    verify_y 那一項也要重跑。"""
+    vs = _vs()
+    state, mods, both = _case_scope(proj)
+    if shared == "import":
+        (proj / "hooks/verify/verify_y.py").write_text("from verify_x import test_a  # noqa: F401\n\n\ndef test_q():\n    pass\n",
+                                                       encoding="utf-8")
+        edited = proj / "hooks" / "verify" / "verify_x.py"
+    else:
+        edited = proj / "hooks" / "verify" / "conftest.py"
+        edited.write_text("import pytest\n", encoding="utf-8")
+        mods[1] = _mf(edited, T2, 5)
+    assert vl.is_case_file(str(edited), vl.reconcile_cfg({}), str(proj))                       # 前置：它確實被當案例檔
+    assert not vs._standalone_case(str(edited), vl.reconcile_cfg({}))
+    reason, _ = _gates(state, mods, both)
+    assert reason and "的「hooks/verify/verify_y.py」" in reason, (shared, reason)
+
+
+# ─── 量尺和其他驗證串在同一行跑：兩項都認（量尺的完成字樣由程式自己印，不再靠 echo） ─────────────────────
+
+_DOC_CHAIN = "python -X utf8 tools/sync_doc_counts.py --check && python -X utf8 tools/skill-index.py --check"
+
+
+def _chain_rcpt(proj, cmd, extra=()):
+    r = _rcpt(proj, cmd, T1, 3)
+    r["sentinels"] += [{"name": n, "verdict": v, "kv": {}} for n, v in
+                       (("DOC_COUNTS_CHECK", "PASS"), ("SKILL_INDEX_CHECK", "PASS"), *extra)]
+    return r
+
+
+def test_pytest_chained_with_doc_ruler_counts_for_both_items(proj, lookup):
+    """`pytest x && 文件量尺`：量尺放最後、前面是 && 串的跑程式指令，兩支量尺程式自己印 PASS → 測試與量尺兩項都認，不必分兩次跑。
+    舊碼量尺前面只准 cd 與環境設定 → 量尺那一項不認（紅）。"""
+    state = _state()
+    _declare(state, proj, [{"target": "hooks/verify/verify_x.py", "why": "直接測 x.py"},
+                           {"target": _DOC_CHAIN, "why": "改了文件計數段"}])
+    mods = [_mf(proj / "hooks" / "x.py", T0, 1), _mf(proj / "_AIDocs" / "doc.md", T0, 2)]
+    chained = f"python -m pytest -q hooks/verify/verify_x.py && {_DOC_CHAIN}"
+    reason, _ = _gates(state, mods, [_chain_rcpt(proj, chained)])
+    assert reason is None, reason
+
+
+@pytest.mark.parametrize("cmd, why", [
+    (f"python -m pytest -q hooks/verify/verify_x.py && {_DOC_CHAIN} 2>&1 | tail -5", "前面有程式時量尺後面不准接過濾"),
+    (f"python -m pytest -q hooks/verify/verify_x.py; {_DOC_CHAIN}", "用 ; 串：前面失敗量尺照跑"),
+    (f"python -m pytest -q hooks/verify/verify_x.py && {_DOC_CHAIN} && echo DOC_SYNC_CHECK DONE", "尾巴的 echo 字樣分不出是誰印的"),
+])
+def test_doc_ruler_chained_unsafely_still_does_not_count(proj, lookup, cmd, why):
+    """反例：量尺前面接了程式，卻接過濾、用 ; 串、或尾巴還有 echo 完成字樣 → 量尺那一項不認。"""
+    state = _state()
+    _declare(state, proj, [{"target": _DOC_CHAIN, "why": "改了文件計數段"}])
+    mods = [_mf(proj / "_AIDocs" / "doc.md", T0, 2)]
+    reason, _ = _gates(state, mods, [_chain_rcpt(proj, cmd, (("DOC_SYNC_CHECK", "DONE"),))])
+    assert reason and f"的「{_DOC_CHAIN}」" in reason, (why, reason)
+
+
 def test_fix_evidence_reads_declared_scope_not_file_names(proj, lookup):
     """對帳 (a) 的證據（fix_evidence）：沒宣告 → None（退回檔名對應）；宣告範圍內一項改完之後跑綠 → 認（指令不必提到改的檔）；
     跑在改動之前 → 不認，附每項為什麼。"""
@@ -499,6 +591,25 @@ def test_observer_changing_the_red_case_is_its_own_work(proj, lookup, change, re
     assert bool(vs.pending_leaks(vs.repo_key(str(proj)))) is leak, (change, red)
     if not leak:
         assert msg and f"verify_y.py::{red}" in msg and "不記範圍漏判" in msg, msg
+
+
+def test_observer_new_test_file_is_its_own_work(proj, lookup):
+    """10-15 實遇：看到紅的 session 新建了一整支測試檔、先跑紅，上次綠只來自之前的全樹收據（涵蓋 *）→ 是它進行中的工作。
+    舊碼：上次綠那時的版本裡沒有這支檔，git show 失敗被當成「判不出」→ 照記，記到別的已關 session 頭上。"""
+    _real_git(proj)
+    (proj / "hooks" / "x.py").write_text("X = 2\n", encoding="utf-8")
+    vs = _vs()
+    _observe(vs, _state(), proj, "python -m pytest -q", "3 passed in 0.1s", T0, 1)          # 全樹綠（涵蓋 *）
+    _close_x(proj, _state())
+    assert vs.stats(vs.repo_key(str(proj)))["closed"] == 1
+    n = proj / "hooks" / "verify" / "verify_n.py"
+    n.write_text("def test_n():\n    assert 1 == 2\n", encoding="utf-8")
+    busy = _state()
+    busy["modified_files"] = [_mf(n, T2, 5, sid="sid-busy")]
+    out = "FAILED hooks/verify/verify_n.py::test_n - AssertionError\n1 failed in 0.1s"
+    msg = _observe(vs, busy, proj, "python -m pytest -q hooks/verify/verify_n.py", out, T3, 9, "FAIL", 1, key="sid-busy")
+    assert vs.pending_leaks(vs.repo_key(str(proj))) == []
+    assert msg and "verify_n.py::test_n" in msg and "不記範圍漏判" in msg, msg
 
 
 def test_red_caused_by_current_change_reviewed_unrelated_is_not_a_confirmed_miss(proj, lookup):

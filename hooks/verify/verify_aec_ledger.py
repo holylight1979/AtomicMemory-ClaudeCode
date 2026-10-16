@@ -22,6 +22,8 @@ _SID = "11111111-2222-3333-4444-555555555555"
 @pytest.fixture
 def wdir(tmp_path, monkeypatch):
     monkeypatch.setattr(L, "WORKFLOW_DIR", tmp_path / "workflow")
+    # tmp_path 本身就在系統暫存區底下：不隔開的話案例裡的「專案」整個被當暫存區（受保護規則直接放行），測不到保護規則
+    monkeypatch.setattr(L, "_tempdir", lambda: str(tmp_path / "systemp"))
     return tmp_path
 
 

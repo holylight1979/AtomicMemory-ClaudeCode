@@ -254,3 +254,10 @@ def test_sync_memory_index_no_eol_flag_and_config_off(tmp_path):
     cfg.write_bytes(b'{"merge_driver": {}}')
     assert smi._eol_auto_enabled(cfg) is True
     assert smi._eol_auto_enabled(tmp_path / "missing.json") is True
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()

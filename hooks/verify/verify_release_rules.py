@@ -811,6 +811,25 @@ def test_045_move_code_dir_needs_scan_and_sample_detects_only_code_dirs(tmp_path
     assert all(rr.canon_path(m["old"]) == rr.canon_path(str(tmp_path / "lib" / "pkg")) for m in moves)
 
 
+def test_045_move_code_dir_needs_scan_and_sample_glob_copy_is_not_a_move(tmp_path):
+    """`cp hooks/*.py <暫存>/hooks/` 是複製：來源寫成萬用字元時字面路徑不存在，不能因此當成搬目錄。
+    萬用字元來源展開後還有符合的檔＝複製：記錄端不記，收尾端已記下的也剔除。真的 mv 掉（展開後沒有符合）照記。"""
+    from handlers import post_tool_use as ptu
+    from handlers import stop as stp
+    (tmp_path / "hooks").mkdir()
+    (tmp_path / "hooks" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "copy" / "hooks").mkdir(parents=True)
+    (tmp_path / "copy" / "hooks" / "a.py").write_text("x = 1\n", encoding="utf-8")       # cp 之後的樣子：兩邊都有
+    st = {"turn_seq": 3}
+    ptu._note_moved_code_dirs(st, "s", "Bash", {"command": "cp hooks/*.py copy/hooks/"}, str(tmp_path), {})
+    assert not st.get("moved_code_dirs"), st.get("moved_code_dirs")
+    old = str(tmp_path / "hooks" / "*.py")
+    st = {"moved_code_dirs": [{"old": old, "new": str(tmp_path / "copy" / "hooks"), "session_id": "s", "seq": 1}]}
+    assert stp._move_inputs(st, "s")[0] == []                                              # 舊帳上誤記的也不再欠
+    (tmp_path / "hooks" / "a.py").unlink()                                                 # 真的搬走：展開後沒有符合
+    assert len(stp._move_inputs(st, "s")[0]) == 1
+
+
 def test_045_move_code_dir_needs_scan_and_sample_detect_git_forms_and_agent(tmp_path):
     """codex BLOCK 1～3：git mv 單一檔案進目錄不算；git -C、先 cd 再 git mv、一次搬多個來源都要記；子代理搬的也記（帶 agent_id）。"""
     from handlers import post_tool_use as ptu
@@ -1306,6 +1325,19 @@ def test_c_g16_ask_linked_to_goal_by_id_or_fragment():
     assert rr.ask_audit_note("code", "T1") is None
 
 
+def test_knowledge_light_tree_and_reconcile_rules():
+    """KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE／KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：各一個會紅的案例＋反例。"""
+    v = rr.knowledge_light_tree_verdict(["C:/p/notes.md", "C:/p/plan.md"])
+    assert v.owed and v.rule == "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE" and "2 個" in v.why and "C:/p/notes.md" in v.evidence
+    assert not rr.knowledge_light_tree_verdict([]).owed
+    v = rr.knowledge_reconcile_verdict("knowledge", ["C:/p/notes.md"])
+    assert v.owed and v.rule == "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY" and rr.parse_hits(rr.format_hit("f4", v)) == ["f4"]
+    assert not rr.knowledge_reconcile_verdict("knowledge", []).owed                     # 純問答樹
+    assert not rr.knowledge_reconcile_verdict("code", ["C:/p/a.py"]).owed               # 寫碼類歸 (f2)
+    assert not rr.knowledge_reconcile_verdict(None, ["C:/p/notes.md"]).owed
+    assert {"KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE", "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY"} <= set(rr.RULES)
+
+
 def test_c_g16_ask_linked_to_goal_units_per_question_without_header():
     """codex BLOCK 1／WARN：每一題各自一個單位（題目＋選項 label 與描述，不含 header）；待放行時放行題不算單位。"""
     ti = {"questions": [{"question": "要哪種格式？", "header": "T1", "options": [{"label": "CSV", "description": "掛 T1.1"}]},
@@ -1577,3 +1609,71 @@ def test_case_decl_well_formed_lists_every_problem():
     v = rr.case_decl_form_verdict(["「a」不是測試檔", "no_case 的 b.py 不存在"])
     assert v.owed and v.evidence == ("「a」不是測試檔", "no_case 的 b.py 不存在")
     assert not rr.case_decl_form_verdict([]).owed
+
+
+# ─── 收尾少空轉：測試案例檔只作廢自己那一項、已同步的檔不再提醒、擋一次就列出後面還欠的閘 ───
+
+@pytest.mark.parametrize("kw, owed", [
+    (dict(is_code=True, standalone_case=True), False),                          # 獨立案例檔、這一項沒點名它 → 不作廢
+    (dict(is_code=True, standalone_case=True, same_part=True), False),          # 同部位也不算：同資料夾別支測試不受影響
+    (dict(is_code=True, standalone_case=True, under_item=True), True),          # 這一項點名的就是它
+    (dict(is_code=True, standalone_case=True, runs_part_ruler=True), True),     # 部位量尺會跑到它
+    (dict(is_code=True, standalone_case=True, whole_or_unknown=True), True),    # 整體驗證、或看不出跑了什麼
+])
+def test_044_scope_case_edit_only_its_item(kw, owed):
+    v = rr.scope_edit_related_verdict("verify_a.py", **kw)
+    assert v.rule == "SCOPE_CASE_EDIT_ONLY_ITS_ITEM" and v.owed is owed, v
+
+
+def test_044_shared_case_is_still_code():
+    """被同資料夾 import 的案例檔、conftest（standalone_case=False）照程式檔算：每一項都要晚於它。"""
+    v = rr.scope_edit_related_verdict("probe_release_rules.py", True, standalone_case=False)
+    assert v.rule == "SCOPE_EDIT_RELATED_TO_ITEM" and v.owed
+
+
+def test_044_stop_flow_rules_point_to_stop_handler():
+    """SYNC_BLOCK_SKIPS_SYNCED、BLOCK_LISTS_LATER_GATES：判法在 handlers/stop.py（端到端案例見 verify_stop_reconcile 的 046 段）。"""
+    for name in ("SYNC_BLOCK_SKIPS_SYNCED", "BLOCK_LISTS_LATER_GATES"):
+        assert "handlers/stop.py" in rr.RULES[name], name
+
+
+# ─── LEFTOVER_NEEDS_CLEANUP（收尾自清；事實由 aec_ledger.list_alive 現場查，真 git 的案例在 verify_session_artifacts） ───
+
+def _art(kind, title, **kw):
+    base = {"kind": kind, "title": title, "path": "C:/x/" + title, "label": "", "can_delete": True,
+            "source": "bash", "note": "", "decision": None, "busy": ""}
+    return {**base, **kw}
+
+
+def test_leftover_needs_cleanup():
+    """使用者原話：「要提醒 LLM，他才會去把已經用完的工作用分支從 git 上刪掉」。宣告完成時，本 session 建的工作樹、
+    已合併分支（被候選工作樹用著的也算，刪完工作樹就刪得掉）、臨時 repo、專案外檔案資料夾還在又沒說要留 → 擋。
+    不列：沒合併的分支、主工作樹用著的分支、暫存區、專案裡還沒進版控的新檔、gitignore 的檔、遠端分支、
+    別的開著的 session 正在用的、使用者按過保留的、AI 在 (i) 寫過理由的、開場快照比對出來（來源不明）的。"""
+    items = [
+        _art("worktree", "wt", path="C:/x/wt"),
+        _art("branch", "feat", merged=True, can_delete=False, used_by="C:/x/wt"),
+        _art("branch", "idle", merged=True),
+        _art("branch", "topic", merged=False, confirm="沒合併"),
+        _art("branch", "onmain", merged=True, can_delete=False, used_by="C:/x/main"),
+        _art("repo", "scratch"),
+        _art("repo", "cwdrepo", can_delete=False),
+        _art("dir", "probe", where="outside"),
+        _art("file", "s.txt", where="temp"),
+        _art("file", "new.py", where="untracked"),
+        _art("file", "ign.log", where="ignored"),
+        _art("remote_branch", "origin/feat"),
+        _art("worktree", "busywt", busy="另一個開著的 session 正在用"),
+        _art("worktree", "kept", decision="keep"),
+        _art("dir", "noted", where="outside", note="使用者要的產出", source="aec-i"),
+        _art("file", "olddecl.txt", where="outside", note="舊格式 (d) 宣告過", source="aec-d"),
+        _art("branch", "snap", merged=True, source="snapshot"),
+    ]
+    v = rr.leftover_cleanup_verdict(True, items)
+    assert v.rule == "LEFTOVER_NEEDS_CLEANUP" and v.owed and "5 樣" in v.why
+    assert [c["title"] for c in rr.leftover_candidates(items)] == ["wt", "feat", "idle", "scratch", "probe"]
+    assert len(v.evidence) == 5 and v.evidence[0].startswith("wt")
+    assert not rr.leftover_cleanup_verdict(False, items).owed, "沒宣告完成不擋"
+    rest = [it for it in items if it["title"] in ("topic", "onmain", "s.txt", "new.py", "busywt", "kept", "noted", "snap")]
+    assert not rr.leftover_cleanup_verdict(True, rest).owed, "只剩不該列的 → 不擋"
+    assert not rr.leftover_cleanup_verdict(True, []).owed

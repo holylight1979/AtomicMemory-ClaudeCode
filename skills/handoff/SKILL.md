@@ -167,10 +167,12 @@ description: 跨 Session Handoff Prompt Builder — 強制 6 區塊 self-suffici
 - [ ] **假設 vs 已驗證**有標記？未驗證項標「待確認、勿據此鎖死」？
 - [ ] 新舊矛盾**顯式裁決**（以 X 為準、作廢 Y）、沒並列丟給下游？
 - [ ] 關鍵約束 / 否定條件放在**首尾**、沒被埋在中段？
+- [ ] **判斷入口**：需要判斷的事（該測哪些、影響到誰、是不是誤判）寫成「留給下個 session 判斷＋要附理由」，沒被寫死成固定規則？已經判斷完的才寫死。
+- [ ] **交出前再對一次**：還對得上最新的計畫嗎？這個 session 剛改的東西影響哪些已經給出去的內容（舊開工句、清單、計畫）？有就一起改。
 
 知識依據見 atom [[handoff-綜觀品質與抗失真寫法]]、[[跨session資訊失真機制與對策]]。
 
-> **獨立他評後盾（codex-companion 開啟時）**：把 handoff 寫入 `_staging/next-phase*.md` 後，Codex 會以本 8 問當對抗式 checklist 自動複審該檔（PostToolUse 觸發 `handoff_review`），中度以上缺口會在下一輪以 `[Codex Companion: Handoff 自檢]` 注入。這是「他評」補「自評抓不到自身盲點」——但**不取代** Step 3.5 自審（codex 可能離線/未開）；自審仍是必經硬閘。
+> **獨立他評後盾（codex-companion 開啟時）**：把 handoff 寫入 `_staging/next-phase*.md` 後，Codex 會以前 8 問當對抗式 checklist 自動複審該檔（最後兩問要知道這個 session 改了什麼、判斷過什麼，只能作者自審）（PostToolUse 觸發 `handoff_review`），中度以上缺口會在下一輪以 `[Codex Companion: Handoff 自檢]` 注入。這是「他評」補「自評抓不到自身盲點」——但**不取代** Step 3.5 自審（codex 可能離線/未開）；自審仍是必經硬閘。
 
 ## Step 4：輸出
 

@@ -998,7 +998,12 @@
         "d_pending",
         "AEC-Pending",
         "尚未寫",
-        "見下一動"
+        "見下一動",
+        "殘留物帳本",
+        "工作樹殘留",
+        "分支殘留",
+        "暫存刪除鈕",
+        "HUD 改版"
       ],
       "scope": "global"
     },
@@ -2804,7 +2809,10 @@
         "GIT_CONFIG_GLOBAL",
         "隔離測試",
         "run_verify 並行",
-        "假紅"
+        "假紅",
+        "背景量測",
+        "手動指令",
+        "閱讀路徑量尺"
       ],
       "scope": "global"
     },
@@ -7229,6 +7237,291 @@
         "部位判錯",
         "合併部位表",
         "量尺"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill",
+      "path": "memory/CC與原子記憶契約/瘦身必載檔時搬走的內容要問需要那一刻會不會在眼前-skill內文只在觸發時載入-通用陷阱別搬進單一情境的skill.md",
+      "triggers": [
+        "CLAUDE.md 瘦身",
+        "必載",
+        "常駐",
+        "失能",
+        "失智",
+        "搜進 skill",
+        "skill 描述精簡",
+        "MEMORY.md 瘦身",
+        "token 節省",
+        "觸發詞"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原",
+      "path": "memory/文字與格式/claude-code的edit工具改混合行尾檔會把整檔統一成多數那種行尾-混合檔改用保留逐行行尾的寫法-改壞用file-history備份還原.md",
+      "triggers": [
+        "混合行尾",
+        "CRLF",
+        "LF",
+        "Edit 工具",
+        "行尾漂移",
+        "整檔 diff",
+        "svn diff 全檔",
+        "file-history"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾",
+      "path": "memory/版控/Git/共用工作樹有merge-head時不要git-commit-選擇性staging擋不住會把別人的合併以你的訊息收尾.md",
+      "triggers": [
+        "MERGE_HEAD",
+        "合併進行中",
+        "git commit",
+        "共用工作樹",
+        "併發 session",
+        "意外合併提交",
+        "雙 parent"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔",
+      "path": "memory/驗證與實證/新案先紅後綠的舊碼對照-另開detached工作樹放短路徑-runner先從舊樹import受測模組再pytestmain跑新測試檔.md",
+      "triggers": [
+        "先紅後綠",
+        "舊碼紅",
+        "退回舊碼看紅",
+        "red then green",
+        "舊碼對照",
+        "新案在舊碼上跑",
+        "detached worktree",
+        "sys.modules",
+        "pytest.main"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單",
+      "path": "memory/Failures/驗證與實證/feedback-全量測試從流程拔掉改增量待補-全量紅了指不出誰修修完又要全量-收尾跑llm適度擴展的可能相關清單.md",
+      "triggers": [
+        "全量",
+        "全量測試",
+        "全量驗證",
+        "run_verify",
+        "run_verify.py",
+        "全量綠",
+        "A7",
+        "發版前全量",
+        "fullrun",
+        "增量測試",
+        "全量改增量待補",
+        "漏判率"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用",
+      "path": "_AIDocs/_atoms/MemDev/git測試慢用錄製重播git-cassette-受測程式的隨機暫存名與uuid要序號化-路徑寫法逐種還原-子程序裡的git與模組共用目錄不適用.md",
+      "triggers": [
+        "git_cassette",
+        "錄製重播",
+        "--git-record",
+        "測試建 repo 太慢",
+        "git 子程序測試",
+        "CassetteMismatch",
+        "WG_GIT_CASSETTE",
+        "cassettes"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀",
+      "path": "memory/思考與決策/用到程式或工具的某個值或回傳之前先查它真的支援-支援哪些值-成功與失敗回傳是不是同一種形狀.md",
+      "triggers": [
+        "假設支援",
+        "Unknown scope",
+        "回傳格式不一致",
+        "tool_response",
+        "成功失敗兩種形狀",
+        "介面假設",
+        "假設錯誤"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用",
+      "path": "memory/思考與決策/讀資料要讀權威源頭-副本-前任派工單-續接單可能過時或不只一份-先確認來源再用.md",
+      "triggers": [
+        "讀到副本",
+        "資料來源",
+        "權威源頭",
+        "續接單",
+        "派工單",
+        "舊版本",
+        "假設錯誤"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑",
+      "path": "memory/驗證與實證/從文字抓windows絕對路徑的正則要加磁碟代號前不接字母-否則網址的p冒號斜線被當成p槽路徑.md",
+      "triggers": [
+        "絕對路徑正則",
+        "磁碟代號",
+        "[A-Za-z]:[/\\\\]",
+        "網址被當路徑",
+        "http:// 誤判",
+        "沙箱外路徑",
+        "路徑出界檢查",
+        "lookbehind",
+        "replay-guard"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "分類判定不要用補集-不是a就當b會把分不出的情況硬歸一邊-留分不出這一格並用查得到的事實判",
+      "path": "memory/設計通則/分類判定不要用補集-不是a就當b會把分不出的情況硬歸一邊-留分不出這一格並用查得到的事實判.md",
+      "triggers": [
+        "分類判定",
+        "補集",
+        "不是程式就是知識類",
+        "誤判",
+        "搬目錄",
+        "刪檔",
+        "分不出",
+        "三格判定",
+        "負面定義",
+        "is_code_path"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照",
+      "path": "memory/Failures/工作流/feedback-做完一件更新推進文件時連現況表與檔頭校正日一起改-只勾那一列會留下過時快照.md",
+      "triggers": [
+        "checklist",
+        "核心推進文件",
+        "接續單",
+        "現況表",
+        "更新文件",
+        "收尾更新",
+        "過時快照",
+        "你有更新嗎"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑",
+      "path": "_AIDocs/_atoms/MemDev/工作樹裡宣告的驗證範圍-回live改staging後量尺收據兩邊都不算-在live重新宣告程式項目用工作樹絕對路徑.md",
+      "triggers": [
+        "verify_scope",
+        "驗證範圍",
+        "SCOPE_ITEM_RECEIPT_AFTER_EDIT",
+        "工作樹",
+        "worktree",
+        "_staging",
+        "收據不算",
+        "指令換目錄",
+        "別棵樹"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存",
+      "path": "memory/版控/Git/共用工作樹讓同伴先fast-forward-自己的未提交改動存成patch還原後再3way套回-套回會留在暫存區要取消暫存.md",
+      "triggers": [
+        "ff-only",
+        "讓路",
+        "git apply --3way",
+        "暫存區",
+        "共用工作樹",
+        "同伴合併",
+        "patch 收回",
+        "未提交改動擋住合併"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修",
+      "path": "memory/Failures/驗證與實證/feedback-驗證閘要對準需求目標不是驗量具-測試檔改了只重跑它自己-流程造成的反覆重跑一律要修.md",
+      "triggers": [
+        "驗證閘設計",
+        "反覆重跑",
+        "測試檔納入驗證",
+        "鬼打牆",
+        "收尾空轉",
+        "量具",
+        "驗證範圍作廢"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項",
+      "path": "_AIDocs/_atoms/MemDev/verify-scope宣告項目太多時posttooluse逾時被砍-宣告靜默遺失-只列改檔必要的項.md",
+      "triggers": [
+        "verify_scope",
+        "驗證範圍宣告",
+        "宣告沒存",
+        "宣告沒回應",
+        "CASE_DECLARED_FOR_CHANGE",
+        "還沒宣告由哪個案例驗",
+        "PostToolUse 逾時",
+        "need_goal 沒回應"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "windows暫存區路徑是83短檔名-abspath不展開-路徑比對要用realpath",
+      "path": "memory/OS-Windows/windows暫存區路徑是83短檔名-abspath不展開-路徑比對要用realpath.md",
+      "triggers": [
+        "8.3 短檔名",
+        "短檔名",
+        "HOLYLI~1",
+        "gettempdir",
+        "TEMP 路徑",
+        "abspath",
+        "realpath",
+        "路徑比對",
+        "is_under_tempdir",
+        "scratchpad 路徑",
+        "暫存區判定",
+        "路徑去重"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index",
+      "path": "memory/版控/Git/共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index.md",
+      "triggers": [
+        "部分 hunk",
+        "只 stage 自己的",
+        "unidiff-zero",
+        "git apply --cached",
+        "update-index --cacheinfo",
+        "checkout-index",
+        "共用工作樹 commit",
+        "別的 session 也改了同一檔"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序",
+      "path": "_AIDocs/_atoms/MemDev/錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序.md",
+      "triggers": [
+        "git_cassette",
+        "錄製重播",
+        "CassetteMismatch",
+        "--git-record",
+        "fail-open",
+        "except Exception",
+        "單跑會紅",
+        "依執行順序",
+        "aec_ledger",
+        "產出物帳本",
+        "跨案殘留",
+        "untracked 錄製檔"
       ],
       "scope": "global"
     }

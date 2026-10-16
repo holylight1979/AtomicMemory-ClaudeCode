@@ -8,7 +8,8 @@
   每項有晚於「跟它有關的改檔」（_item_mods：程式檔都算，文件只算同部位或它點名的）最後一次修改的綠收據。過了 → close 記結案。
 - 對帳 (a) 的證據 fix_evidence：有宣告 → 宣告範圍內任一項有那樣的收據就算修好有證據（同一個判斷只一份答案）；沒宣告回 None。
 - 範圍漏判 observe_run／sync_runs：每輪測試記進 runs.jsonl（跑了哪些、哪些紅）；紅的測試 T，找「T 上次綠之後、這次紅之前結案、
-  範圍沒涵蓋 T」的宣告記疑似漏判。背景全量（run_verify 自寫收據的 failed_cases）由 sync_runs 入帳。
+  範圍沒涵蓋 T」的宣告記疑似漏判。背景跑的自寫收據（run_verify／根 conftest 整組 pytest 的 failed_cases）由 sync_runs 入帳。
+  全量改增量待補：全量 run_verify 已從流程拔掉，漏判帳只收得到之後有人跑到的測試；增量清單做好後要重看這裡的資料來源。
 - 送回與數字：pending_leaks／stats／stats_line／advisory（SessionStart）。
 規則（名字、條件）都在 wg_release_rules 的 SCOPE_*；收據對不對得上一項在 wg_verify_ledger.scope_item_status。
 帳本：<WORKFLOW_DIR>/verify-scope/scope.jsonl（結案、漏判、檢討；不自動清）、runs.jsonl（每輪測試；超過上限砍掉舊的一半）、
@@ -265,10 +266,39 @@ def _item_paths(item: Dict[str, Any]) -> List[str]:
     return [os.path.join(root, c.partition("::")[0]) for c in item.get("covers") or [] if c and c != "*"]
 
 
-def _item_mods(item: Dict[str, Any], mods: Iterable[Dict[str, Any]], exts: Iterable[str], lookup: Lookup
+_IMPLICIT_SHARED = frozenset({"conftest.py", "__init__.py"})   # 測試框架自動載入、整個資料夾共用
+_standalone_cache: Dict[str, bool] = {}
+
+
+def _standalone_case(path: str, cfg: Dict[str, Any]) -> bool:
+    """規則 SCOPE_CASE_EDIT_ONLY_ITS_ITEM 的事實：path 是測試案例檔（vl.is_case_file）、不是 conftest／__init__、同資料夾沒有別的
+    同副檔名程式 import 它（Python `from|import <stem>`、JS `'./<stem>'`）。讀不了資料夾或檔 → 不算獨立（照程式檔算）。
+    只查同資料夾：跨資料夾 import 案例檔的寫法全庫沒有，有了就會漏判成獨立。"""
+    if path in _standalone_cache:
+        return _standalone_cache[path]
+    p = Path(path)
+    ok = vl.is_case_file(path, cfg, vl.file_root_of(path)) and p.name.lower() not in _IMPLICIT_SHARED
+    if ok:
+        stem = re.escape(p.stem)
+        pat = re.compile(rf"^\s*(?:from|import)\s+{stem}\b|['\"]\./{stem}(?:\.[a-z]+)?['\"]", re.M)
+        try:
+            for q in p.parent.iterdir():
+                if q.suffix.lower() == p.suffix.lower() and q.name != p.name and pat.search(
+                        q.read_text(encoding="utf-8", errors="ignore")):
+                    ok = False
+                    break
+        except OSError:
+            ok = False
+    _standalone_cache[path] = ok
+    return ok
+
+
+def _item_mods(item: Dict[str, Any], mods: Iterable[Dict[str, Any]], cfg: Dict[str, Any], lookup: Lookup
                ) -> List[Dict[str, Any]]:
-    """這一項的收據要晚於哪些改檔（規則 SCOPE_EDIT_RELATED_TO_ITEM）：程式檔都算；文件與記憶只有跟這一項有關才算
-    （同部位、在它點名的路徑或它宣告的 inputs 底下、它就是那部位量尺、整體驗證或看不出跑了什麼）。"""
+    """這一項的收據要晚於哪些改檔（規則 SCOPE_EDIT_RELATED_TO_ITEM）：程式檔都算，但獨立的測試案例檔只算點名它的項目
+    （SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；文件與記憶只有跟這一項有關才算（同部位、在它點名的路徑或它宣告的 inputs 底下、
+    它就是那部位量尺、整體驗證或看不出跑了什麼）。cfg＝寫碼查核設定（code_exts、verify_case_globs）。"""
+    exts = cfg.get("code_exts") or []
     paths = [p for p in _item_paths(item) if p]
     parts = {k for k in (_part_key(p, lookup) for p in paths) if k}
     whole = item.get("kind") == "cmd" and (not paths or "*" in (item.get("covers") or []))
@@ -278,11 +308,12 @@ def _item_mods(item: Dict[str, Any], mods: Iterable[Dict[str, Any]], exts: Itera
     for m in mods:
         p = str(m.get("path") or "")
         ruler = _ruler_of(p, lookup)
+        is_code = vl.is_code_file(p, exts)
         v = rr.scope_edit_related_verdict(
-            Path(p).name, vl.is_code_file(p, exts), same_part=bool(parts) and _part_key(p, lookup) in parts,
+            Path(p).name, is_code, same_part=bool(parts) and _part_key(p, lookup) in parts,
             under_item=any(vl._under(p, x) for x in reads),
             runs_part_ruler=item.get("kind") == "cmd" and bool(ruler) and " ".join(ruler.split()) == target,
-            whole_or_unknown=whole)
+            whole_or_unknown=whole, standalone_case=is_code and _standalone_case(p, cfg))
         if v.owed:
             out.append(m)
     return out
@@ -533,7 +564,7 @@ def case_check(state: Dict[str, Any], key: str, own_mod_files: List[Dict[str, An
             elif not any(rr.canon_path(p) in f["keys"] for p in files):
                 f["items"][i] = "本 session 沒有新寫或改過這支案例（既有案例已經驗到這次改動，就宣告 no_case 附理由問使用者）"
             else:
-                ok, why = vl.scope_item_status(it, receipts, _item_mods(it, f["mods"], rg_cfg.get("code_exts") or [], f["lk"]),
+                ok, why = vl.scope_item_status(it, receipts, _item_mods(it, f["mods"], rg_cfg, f["lk"]),
                                                self_runs)
                 f["items"][i] = "" if ok else why
         return f["items"][i]
@@ -574,17 +605,16 @@ def _accept_text(state: Dict[str, Any], key: str, decl: Dict[str, Any], lookup: 
     receipts = vl.receipts_of(state, key)
     lines = [f"{TAG} verify_scope 收下：{decl['id']}（{len(decl['items'])} 項；每次宣告都是完整範圍，最新這份算數）"
              + (f"；{reviewed} 筆漏判檢討已記下" if reviewed else "")]
-    exts = rg.get("code_exts") or []
     counted: set = set()
     for it in decl["items"]:
-        mine = _item_mods(it, mods, exts, lookup)
+        mine = _item_mods(it, mods, rg, lookup)
         counted |= {str(m.get("path")) for m in mine}
         ok, why = vl.scope_item_status(it, receipts, mine)
         lines.append(f"  - 「{it['target']}」（{it['kind']}）{'已有改完之後跑綠的收據' if ok else '還沒有收據：' + why}")
     if mods:
         names = "、".join(Path(str(m.get("path"))).name for m in mods[:8])
         lines.append(f"這次要宣告的改檔：{names}{'…' if len(mods) > 8 else ''}")
-    code = [str(m.get("path")) for m in mods if vl.is_code_file(str(m.get("path")), exts)
+    code = [str(m.get("path")) for m in mods if vl.is_code_file(str(m.get("path")), rg.get("code_exts") or [])
             and not vl.is_case_file(str(m.get("path")), rg, _root_of(str(m.get("path")), lookup))]
     if code:
         check = case_check(state, key, _key_mods(state, key), receipts, rg, lookup)
@@ -596,7 +626,8 @@ def _accept_text(state: Dict[str, Any], key: str, decl: Dict[str, Any], lookup: 
                      f"{'…' if len(loose) > 8 else ''}。有測試會讀它們，就在那一項加 inputs（它讀的檔或資料夾）再宣告一次。")
     rulers = _rulers(mods, lookup)
     if rulers:
-        lines.append("參考（部位原本那把整的量尺，只當候選材料，不必全跑；整把在發版前全量跑）：" + "；".join(rulers))
+        # 全量改增量待補：原本句尾叫人「整把在發版前全量跑」，全量已從流程拔掉
+        lines.append("參考（部位原本那把整的量尺，只當候選材料，不必全跑）：" + "；".join(rulers))
     lines.append("收尾前範圍內每一項都要在最後一次改動之後跑綠；之後若範圍外的測試因這次改動紅了，會記成範圍漏判送回檢討。")
     for r in repos:
         lines.append(stats_line(r))
@@ -631,9 +662,8 @@ def gate_reason(state: Dict[str, Any], key: str, own_mod_files: List[Dict[str, A
         v = rr.scope_declared_verdict(list(roots), True, missing)
         if v.owed:
             hits.append(v)
-        exts = rg_cfg.get("code_exts") or []
         for it in decl.get("items") or []:
-            ok, why = vl.scope_item_status(it, receipts, _item_mods(it, mods, exts, lookup), self_runs)
+            ok, why = vl.scope_item_status(it, receipts, _item_mods(it, mods, rg_cfg, lookup), self_runs)
             v = rr.scope_item_verdict(decl["id"], str(it.get("target")), ok, why)
             if v.owed:
                 hits.append(v)
@@ -661,11 +691,10 @@ def fix_evidence(state: Dict[str, Any], key: str, own_mod_files: List[Dict[str, 
         return None
     lookup = lookup or _default_lookup()
     mods = required_mods(own_mod_files, rg_cfg, lookup)
-    exts = rg_cfg.get("code_exts") or []
     runs = list(self_runs or [])
     notes: List[str] = []
     for it in decl["items"]:
-        ok, why = vl.scope_item_status(it, receipts, _item_mods(it, mods, exts, lookup), runs)
+        ok, why = vl.scope_item_status(it, receipts, _item_mods(it, mods, rg_cfg, lookup), runs)
         if ok:
             return True, [f"{decl['id']} 的「{it['target']}」在改完之後跑綠"]
         notes.append(f"{decl['id']} 的「{it['target']}」：{why}")
@@ -789,8 +818,17 @@ def _case_changed_since(tree: str, test: str, since: str) -> Optional[bool]:
         new = (Path(tree) / f).read_text(encoding="utf-8")
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         return None
-    if old is None or old.returncode != 0:
+    if old is None:
         return None
+    if old.returncode != 0:
+        # 讀不到舊檔有兩種：那時根本沒有這支檔（整支新寫的 → True）、查詢本身失敗（判不出）；用 ls-tree 分開
+        try:
+            ls = subprocess.run(["git", "-C", tree, "ls-tree", "--name-only", base.stdout.strip(), "--", f],
+                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2,
+                                creationflags=_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return True if ls.returncode == 0 and not ls.stdout.strip() else None
     now_def = _find_def(new, names)
     if now_def is None:
         return None
@@ -911,8 +949,8 @@ def _self_covers(r: Dict[str, Any], tree: str) -> List[str]:
 
 
 def sync_runs(self_runs: Iterable[Dict[str, Any]]) -> List[str]:
-    """背景全量（run_verify／根 conftest 的自寫收據）入帳：每份一輪（涵蓋 _self_covers）；紅掉的測試名（failed_cases）照常歸因。
-    同一份只入帳一次。回新記漏判的提示（每份一則）。"""
+    """背景跑的自寫收據（run_verify／根 conftest 整組 pytest）入帳：每份一輪（涵蓋 _self_covers）；紅掉的測試名（failed_cases）照常歸因。
+    同一份只入帳一次。回新記漏判的提示（每份一則）。全量改增量待補：全量已拔掉，這裡現在主要收整組 pytest 的收據。"""
     seen = _observed()
     fresh: List[str] = []
     notes: List[str] = []

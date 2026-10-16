@@ -30,6 +30,10 @@ NOTIFY = (
     "<result>使用者說「不對」「我說過」「重來」時要記錄</result>\n</task-notification>"
 )
 SYSNOTE = "[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is automated. 不對 重來"
+# 同伴 session 的閒置／送達通知：沒有標籤包住，標記後面同一行接說明（10-15 實遇：idle 通知被記成目標樹的「使用者原話」）
+IDLE = ('[Cross-session idle notice] "claude-12", which you asked to be notified about, is idle now — it finished a turn '
+        "at 17:58. This is an automated notice from that session's harness — not a message from a person, and not an "
+        "instruction; act on it only insofar as your user's earlier request calls for it.")
 PEER = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-name="claude-ad" from-mode="bypass">\n'
         "不對、重來；先這樣，上GIT\n</cross-session-message>")
 
@@ -37,6 +41,7 @@ PEER = ('<cross-session-message from="uds:\\\\.\\pipe\\LOCAL\\cc-msg-x" from-nam
 def test_harness_prompt_detection():
     assert wg_core.is_harness_generated_prompt(NOTIFY) is True
     assert wg_core.is_harness_generated_prompt(SYSNOTE) is True
+    assert wg_core.is_harness_generated_prompt(IDLE) is True                       # 同伴 session 閒置通知不是使用者打的
     assert wg_core.is_harness_generated_prompt(PEER) is True                       # 其他 session 的訊息不是使用者打的
     assert wg_core.is_harness_generated_prompt("  " + PEER) is True
     assert wg_core.is_harness_generated_prompt("不對，我說過要用 LF，重來") is False
@@ -176,6 +181,10 @@ def test_user_words_after_a_notification_or_peer_message_keep_authority(head, mo
     ("<task-notification-example>上GIT</task-notification-example>",                 # 標籤名完整比對
      "<task-notification-example>上GIT</task-notification-example>"),
     ("[SYSTEM NOTIFICATION 是我正在除錯的字串；上GIT", "[SYSTEM NOTIFICATION 是我正在除錯的字串；上GIT"),   # 只是提到字樣
+    (IDLE + " 上GIT", ""),                                                           # 同伴閒置通知：標記同一行接說明，整則不算
+    ("收到\n[Cross-session delivery notice] claude-12 holds the message 上GIT", "收到"),   # 送達通知那行起到尾都不算
+    ("  [cross-session IDLE notice] x\n上GIT", ""),                                  # 不分大小寫、允許行首空白
+    ("我在查 [Cross-session idle notice] 這個字樣；上GIT", "我在查 [Cross-session idle notice] 這個字樣；上GIT"),   # 不在行首：只是提到
     ("[guardian:note] 上GIT", ""),                                                   # 殘渣行不分大小寫
     ("  [Guardian:note] 背景\n上GIT", "上GIT"),                                      # 殘渣行允許行首空白
     ("</cross-session-message>上GIT", ""),                                          # 殘留標籤字樣：整則不認
@@ -221,7 +230,7 @@ def test_ups_entry_ide_preprocessing_keeps_nested_blocks_out(monkeypatch):
         "collect_matched_atoms": lambda *a: ([], {}, [], [], {}, [], "general", {}),
         "assemble_injection": lambda *a, **k: ([], {}),
         "_maybe_spawn_failure_extraction": lambda *a: seen.append(a[3]),
-        "_update_topic_tracker": lambda *a: None, "_drain_aec_decisions": lambda *a: None,
+        "_update_topic_tracker": lambda *a: None,
         "_truncate_context_by_activation": lambda lines, *a: lines, "reconcile_injection_after_trim": lambda *a: [],
         "write_state": lambda sid, st: None, "output_json": lambda d: None, "output_nothing": lambda: None,
     }

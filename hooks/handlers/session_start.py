@@ -1048,6 +1048,21 @@ def _next_phase_pointer(cwd: str, source: str, session_id: str = "") -> list:
         return []
 
 
+def _take_git_snapshot(state: Dict[str, Any], cwd: str) -> None:
+    """開場快照：記下 cwd 所在 repo 的工作樹與本地分支（Stop 拿來比對，補抓 python 腳本裡開的工作樹這類指令解析看不到的
+    建立，見 handlers/aec_ledger.snapshot_entries）。compact／resume 沿用開場那份；不是 repo 就不記。"""
+    if (state.get("git_snapshot") or {}).get("repo") or not cwd:
+        return
+    try:
+        from handlers import aec_ledger
+        snap = aec_ledger.git_snapshot(cwd)
+    except Exception as e:  # noqa: BLE001
+        _atom_debug_error("session_start:git_snapshot", e)
+        return
+    if snap:
+        state["git_snapshot"] = snap
+
+
 def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> None:
     session_id = input_data.get("session_id", "unknown")
     cwd = input_data.get("cwd", "")
@@ -1547,6 +1562,7 @@ def handle_session_start(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
     except Exception as e:
         print(f"always-load contract check error: {e}", file=sys.stderr)
 
+    _take_git_snapshot(state, cwd)
     write_state(session_id, state)
 
     try:

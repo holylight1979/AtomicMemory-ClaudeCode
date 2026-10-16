@@ -58,6 +58,12 @@ RULES: Dict[str, str] = {
     "GREP_CONTENT_IS_READ": "Grep 工具 output_mode=content 且 path 是一個檔 → 算讀過該檔（部位證據 part_files_read）。",
     "BASH_COMMENT_LINES_STRIPPED": "Bash 指令裡行首 # 註解行先剝掉再認讀檔命令，且每一行行首都算指令開頭（定位三行放註解不讓同條 head 失效）。",
     "WORKTREE_NO_PUSH": "改檔所在 repo 是 git worktree（common-dir ≠ git-dir）或分支沒有 upstream → 同步閘不要求 push。",
+    "SYNC_BLOCK_SKIPS_SYNCED": "Stop 底部的一般 sync block 先剔除已同步的改檔再判門檻：在 git／svn 工作區、status 乾淨、所在 git 根"
+                               "沒有已 commit 未 push 的（WORKTREE_NO_PUSH 不要求 push 的也算）。查不了版控的照算未同步。"
+                               "判法在 handlers/stop.py 的 _synced_paths。",
+    "BLOCK_LISTS_LATER_GATES": "Stop 任一道閘擋下時，附一段照目前狀態預覽後面還會擋的閘（知識收割、收尾自清、收尾檢核、同步），讓模型一回合補齊。"
+                               "只讀不寫：不動 state、不吃預算；後面的閘另有每回合一次、擋滿放行等條件，以真正擋下為準。"
+                               "判法在 handlers/stop.py 的 _later_gates。",
     "RUNTIME_DATA_NO_OVERVIEW": "寫入／刪除目標被 .gitignore 忽略、落在執行期資料目錄（workflow/state*、workflow/need-goal、Logs）、"
                                 "或路徑含快取目錄（__pycache__、.pytest_cache、.mypy_cache、.ruff_cache；沒有 .gitignore 也算）"
                                 "→ 不要求先讀同目錄的檔。",
@@ -1371,7 +1377,39 @@ def ask_audit_note(kind: Optional[str], linked: Optional[str]) -> Optional[str]:
     return f"提問未掛目標（{'寫碼類' if kind == 'code' else '知識類'}）"
 
 
-_CJK = "㐀-鿿豈-﫿"
+# ─── 記憶知識類的輕樹（(f4)；wg_need_goal.knowledge_gate_reason 收事實、這裡判）────────────────────────
+
+RULES.update({
+    "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE": "本使用者回合在還沒有任何需求目標樹時改了記憶知識類的檔（不是程式檔、不是暫存檔；寫入當下已送過一次"
+                                       "「寫一棵輕樹」）→ 回合結束要補一棵輕樹（一個節點即可，之前改的檔寫樹時自動掛進去）。不看措辭；"
+                                       "屬記憶與報告類：併進收尾報告那一份擋，本回合第 3 次放行並記 reconcile_overflow，不問使用者。",
+    "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY": "交付邊界（宣告完成、本回合交了收尾檢核、擋滿待查的原宣稱）時，目前的樹是記憶知識類，而且最後一次"
+                                            "對得上目標版本的完整對照之後還有改檔（沒對照過＝全部改檔）→ 要交 need_goal reconcile；達成不要求"
+                                            "案例或收據，推論最多標部分。樹上沒有改檔（純問答）不要求；寫碼類樹歸 (f2)。同屬記憶與報告類。",
+})
+
+
+def knowledge_light_tree_verdict(untreed: Sequence[str]) -> Verdict:
+    """KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE：untreed＝本使用者回合、還沒有目標樹時改的記憶知識類檔（寫樹時會清空並掛進樹）。"""
+    rule = "KNOWLEDGE_EDIT_NEEDS_LIGHT_TREE"
+    if not untreed:
+        return Verdict(rule, False, "本回合沒有在沒樹時改記憶知識類的檔")
+    return Verdict(rule, True, f"本回合改了 {len(untreed)} 個記憶知識類的檔，但還沒有需求目標樹", tuple(untreed[:5]))
+
+
+def knowledge_reconcile_verdict(kind: Optional[str], edited: Sequence[str], tree_id: str = "") -> Verdict:
+    """KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY：kind＝這棵樹的類別（沒有樹 None）；edited＝最後一次對得上目標版本的完整對照之後
+    改過的檔（沒對照過或對照已作廢＝這棵樹全部改檔）；tree_id 只用來寫進訊息。只在交付邊界問。"""
+    rule = "KNOWLEDGE_TREE_RECONCILE_AT_DELIVERY"
+    name = f"記憶知識類的樹{(' ' + tree_id) if tree_id else ''}"
+    if kind != "knowledge":
+        return Verdict(rule, False, "這棵樹是寫碼類，交付前的完整對照歸 (f2)" if kind else "沒有目標樹")
+    if not edited:
+        return Verdict(rule, False, f"{name}在最後一次完整對照之後沒有改檔")
+    return Verdict(rule, True, f"{name}在最後一次完整對照之後改了 {len(edited)} 個檔，還沒交收尾對照", tuple(edited[:5]))
+
+
+_CJK ="㐀-鿿豈-﫿"
 _SEG = rf"[A-Za-z0-9_.\-{_CJK}]+"                                     # 中間段：可含中文
 _SEG_ASCII = r"[A-Za-z0-9_.\-]+"
 _LAST = rf"(?:[A-Za-z0-9_.\-{_CJK}]*?\.[A-Za-z][A-Za-z0-9]{{0,5}}(?![A-Za-z0-9_])|{_SEG_ASCII})"   # 最後一段：含中文要有副檔名
@@ -1445,7 +1483,12 @@ RULES.update({
                                  "部位表的整把量尺只在宣告回應與擋訊息當參考。子代理沒有自己的宣告時沿用主 session 的。",
     "SCOPE_ITEM_WELL_FORMED": "宣告收件：每項的目標與理由都不能空；看起來是路徑的目標要存在，測試節點（檔::名）要查得到那個 def；"
                               "不是路徑的目標當指令。有一項不合格整份退回。",
-    "SCOPE_EDIT_RELATED_TO_ITEM": "宣告的一項要晚於哪些改檔的最後一次修改：程式檔一律算；不是程式檔的（文件、記憶，落在有量尺的部位才要宣告）"
+    "SCOPE_CASE_EDIT_ONLY_ITS_ITEM": "測試案例檔是量具不是受測物：改了它（符合 verify_case_globs 的程式檔、不是 conftest／__init__、同資料夾"
+                                     "沒有別的程式 import 它）只作廢點名它（就在這一項點名的路徑底下）、它所在部位的量尺指令、整體驗證或看不出"
+                                     "跑了什麼的項目，範圍裡其他測試不必重跑。被同資料夾別的程式 import 的案例檔（共用的 Sandbox、fixture）"
+                                     "與 conftest 照程式檔算。判法在 wg_verify_scope._standalone_case。",
+    "SCOPE_EDIT_RELATED_TO_ITEM": "宣告的一項要晚於哪些改檔的最後一次修改：程式檔一律算（測試案例檔例外，見 SCOPE_CASE_EDIT_ONLY_ITS_ITEM）；"
+                                  "不是程式檔的（文件、記憶，落在有量尺的部位才要宣告）"
                                   "只有跟這一項有關才算：和這一項點名的檔同一個部位、就在它點名的路徑或它宣告的 inputs（這一項還讀的檔或"
                                   "資料夾，跨部位的資料由 LLM 宣告）底下、這一項就是那個部位的量尺指令，或這一項是整體驗證／看不出跑了什麼（照算）。"
                                   "這四個條件都是查得到的事實（部位表同一列、路徑包含、量尺逐字相同、指令涵蓋），不是替 LLM 判斷關聯；"
@@ -1537,9 +1580,18 @@ def scope_item_form_verdict(target: str, why: str, problem: str = "") -> Verdict
 
 
 def scope_edit_related_verdict(name: str, is_code: bool, same_part: bool = False, under_item: bool = False,
-                               runs_part_ruler: bool = False, whole_or_unknown: bool = False) -> Verdict:
-    """SCOPE_EDIT_RELATED_TO_ITEM：owed＝這個改檔（name）算進這一項的「最後一次改動」（收據要晚於它）。事實由 wg_verify_scope._item_mods 查。"""
+                               runs_part_ruler: bool = False, whole_or_unknown: bool = False,
+                               standalone_case: bool = False) -> Verdict:
+    """SCOPE_EDIT_RELATED_TO_ITEM：owed＝這個改檔（name）算進這一項的「最後一次改動」（收據要晚於它）。事實由 wg_verify_scope._item_mods 查。
+    standalone_case＝它是測試案例檔、不是 conftest／__init__、同資料夾沒有別的程式 import 它：只作廢點名它的項目（規則 SCOPE_CASE_EDIT_ONLY_ITS_ITEM）。"""
     rule = "SCOPE_EDIT_RELATED_TO_ITEM"
+    if is_code and standalone_case:
+        rule = "SCOPE_CASE_EDIT_ONLY_ITS_ITEM"
+        why = ("就在這一項點名的路徑底下" if under_item else "這一項就是它所在部位的量尺指令" if runs_part_ruler
+               else "這一項是整體驗證或看不出跑了什麼" if whole_or_unknown else "")
+        if why:
+            return Verdict(rule, True, f"{name} 是測試案例檔，{why}")
+        return Verdict(rule, False, f"{name} 是測試案例檔、沒有別的程式 import 它，這一項沒點名它：改它不作廢這一項的收據")
     if is_code:
         return Verdict(rule, True, f"{name} 是程式檔：每一項的收據都要晚於它")
     why = ("和這一項點名的檔同一個部位" if same_part else "就在這一項點名的路徑底下" if under_item
@@ -1685,3 +1737,55 @@ def case_for_change_verdict(name: str, checks: Sequence[Tuple[str, str]], no_cas
     return Verdict(rule, True, f"{name} 改過，還沒宣告由哪個案例驗",
                    ("在 verify_scope 宣告驗它的那支案例（本 session 新寫或改過的測試檔／測試節點）那一項加 case_for: [\"<程式檔>\"]；"
                     "真的不需要新案例就加 no_case: [{path, reason}]，再照【收尾放行確認】問使用者",))
+
+
+# ─── 收尾自清：本 session 建的東西用完要清（事實由 handlers/aec_ledger.list_alive 現場查，閘在 handlers/stop.py） ───
+RULES.update({
+    "LEFTOVER_NEEDS_CLEANUP": "宣告完成時，本 session 帳上有建立紀錄的（開場快照比對出來、來源不明的不算）、還在、沒說要留的這些東西 → "
+                              "每個使用者回合擋一次，列每一項與刪除指令：刪掉，或在收尾檢核 (i) 寫一行理由（路徑照寫，分支寫 "
+                              "`branch:<名> — 理由`）。列的：工作樹、已合併的分支（被列出的工作樹用著的也算，刪完工作樹就刪得掉）、"
+                              "能刪的臨時 repo、專案外能刪的檔案資料夾。不列：沒合併的分支（可能是還要的工作）、暫存區（使用者在 HUD "
+                              "清）、專案裡還沒進版控的新檔（多半是待 commit 的正式產出）、被 .gitignore 排除的、推上遠端的分支（刪了"
+                              "別人也看不到，要使用者決定）、別的開著的 session 正在用的。「說要留」＝使用者在 HUD 按過保留，或 AI 在 "
+                              "(i)（舊格式 (d)）寫過理由。不吃 stop_gate_max_blocks。",
+})
+
+
+def leftover_candidates(items: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """LEFTOVER_NEEDS_CLEANUP：帳上還在的東西（aec_ledger.list_alive 的列）→ 該由 AI 收尾清掉或寫理由的那些，順序照原列。
+    吃結構化事實：kind、where（檔案資料夾在哪：temp／ignored／untracked／outside）、merged、used_by（用著這個分支的工作樹）、
+    busy（別的開著的 session 正在用）、can_delete、decision、note、source。"""
+    def kept(it: Dict[str, Any]) -> bool:
+        return it.get("decision") == "keep" or (it.get("source") in ("aec-i", "aec-d") and bool(str(it.get("note") or "").strip()))
+
+    base = [it for it in items if it.get("source") != "snapshot" and not it.get("busy") and not kept(it)]
+    worktrees = {canon_path(it.get("path") or "") for it in base if it.get("kind") == "worktree"}
+    out: List[Dict[str, Any]] = []
+    for it in base:
+        kind = it.get("kind")
+        if kind == "worktree":
+            ok = True
+        elif kind == "branch":
+            ok = it.get("merged") is True and (bool(it.get("can_delete")) or (bool(it.get("used_by"))
+                                                                           and canon_path(it["used_by"]) in worktrees))
+        elif kind == "repo":
+            ok = bool(it.get("can_delete"))
+        elif kind in ("file", "dir"):
+            ok = it.get("where") == "outside" and bool(it.get("can_delete"))
+        else:
+            ok = False
+        if ok:
+            out.append(it)
+    return out
+
+
+def leftover_cleanup_verdict(claims_done: bool, items: Sequence[Dict[str, Any]]) -> Verdict:
+    """LEFTOVER_NEEDS_CLEANUP：owed＝宣告完成而帳上還有該清的東西；evidence 一行一項（名稱與白話狀態）。"""
+    rule = "LEFTOVER_NEEDS_CLEANUP"
+    if not claims_done:
+        return Verdict(rule, False, "沒有宣告完成")
+    cands = leftover_candidates(items)
+    if not cands:
+        return Verdict(rule, False, "帳上沒有該清的東西")
+    return Verdict(rule, True, f"宣告完成，但這個 session 建的 {len(cands)} 樣東西還在、也沒說要留",
+                   tuple(f"{c.get('title')}（{c.get('label')}）" for c in cands))

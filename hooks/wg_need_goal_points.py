@@ -782,8 +782,9 @@ def handoff_section(sid: Any) -> str:
 # ─── session 結束 ─────────────────────────────────────────────────────────
 
 def silent_unreconciled(sid: Any, turn: Optional[int] = None) -> List[Dict[str, Any]]:
-    """session 結束：還沒結束的樹裡，沒有對得上目前目標版本的完整對照、或還欠對照的改動 → 每棵一筆守門紀錄
-    （知識類＝有樹沒對照；寫碼類＝一直沒交付）。不打擾使用者，健檢看得到。回寫了哪幾筆。"""
+    """session 結束：還沒結束的樹裡，沒有對得上目前目標版本的完整對照、還欠對照的改動、或知識類樹在對照之後又改了檔
+    → 每棵一筆守門紀錄（知識類＝有樹沒對照；寫碼類＝一直沒交付）；沒樹時改了記憶知識類的檔（untreed 還在）另記一筆
+    「沒樹改了知識類」。不打擾使用者，健檢看得到。回寫了哪幾筆。"""
     doc = _load(sid, "silent_unreconciled", turn)
     out: List[Dict[str, Any]] = []
     for t in (doc or {}).get("trees", {}).values():
@@ -792,11 +793,17 @@ def silent_unreconciled(sid: Any, turn: Optional[int] = None) -> List[Dict[str, 
         lr = t.get("last_reconcile") or {}
         fresh = bool(lr) and lr.get("goal_rev") == t.get("goal_rev")
         owed = sum(1 for e in t.get("edits") or [] if isinstance(e, dict) and e.get("owed"))
-        if fresh and not owed:
+        if fresh and not owed and (t.get("kind") == "code" or not ng._edited_since_reconcile(t)):
             continue
         rec = {"tree": t.get("id"), "kind": t.get("kind"), "status": t.get("status"), "goal_rev": t.get("goal_rev"),
                "reconciled_rev": lr.get("goal_rev"), "owed": owed, "nodes": len(t.get("nodes") or {}),
                "why": "寫碼類一直沒交付完整對照" if t.get("kind") == "code" else "有樹沒對照"}
+        _guard("silent_unreconciled", sid, turn, **rec)
+        out.append(rec)
+    untreed = [e for e in (doc or {}).get("untreed") or [] if isinstance(e, dict)]
+    if untreed:
+        rec = {"tree": None, "kind": "knowledge", "files": len(untreed) + int((doc or {}).get("untreed_dropped") or 0),
+               "paths": [str(e.get("path")) for e in untreed[:5]], "why": "沒樹改了記憶知識類的檔"}
         _guard("silent_unreconciled", sid, turn, **rec)
         out.append(rec)
     return out

@@ -56,9 +56,11 @@ def _temp_rules_off(monkeypatch):
 @pytest.fixture(autouse=True)
 def _git_budget_generous(monkeypatch):
     """真 git 案例（037／042／043／044／045）在全檔連跑的負載下每次 git 可達 0.7 秒，時間預算不該變成判定：
-    一律放寬到 20 秒；要測「預算用完照算改了」的案自己再壓回 0。"""
+    一律放寬到 20 秒；要測「預算用完照算改了」的案自己再壓回 0。已刪改檔查去向的預算（VANISH_BUDGET_S，2 秒）同理：
+    別的 session 同時跑測試時，0a 的「刪除不欠」案在全檔連跑時紅過一次、單跑綠，時間預算不該變成判定。"""
     monkeypatch.setattr(vl, "GIT_BUDGET_S", 20.0, raising=False)
     monkeypatch.setattr(vl, "REF_BUDGET_S", 20.0, raising=False)
+    monkeypatch.setattr(vl, "VANISH_BUDGET_S", 20.0, raising=False)
 _REAL_CASE_EXISTS = getattr(vl, "case_exists", None)   # fixture 會把它換成「一律存在」，009-4.5 要用真的
 
 
@@ -151,6 +153,13 @@ def test_fixed_claim_without_any_pass_blocks(driven, capsys):
     assert "[Guardian:ReconcileGate]" in out and "(a)" in out and "沒有任何 PASS" in out
     assert {k: state["reconcile_gate_turn"][_SID][k] for k in ("turn", "count")} == {"turn": 5, "count": 1}
     assert logs and logs[-1][0] == "reconcile"
+
+
+def test_fixed_claim_block_does_not_suggest_full_run(driven, capsys):
+    """全量已從流程拔掉：(a) 擋訊息講可接受的自寫收據時，不再把「背景全量」當修好的建議做法。舊碼括號寫背景全量 → 紅。"""
+    out, _, _ = driven("閘修好了，完成。", capsys)
+    assert "(a)" in out and "自寫收據" in out, out                      # 前置：走到列可接受證據的那段訊息
+    assert "背景全量" not in out, out
 
 
 def test_unrelated_pass_from_sibling_session_blocks(driven, capsys):
@@ -1149,7 +1158,7 @@ def _ups_turn(monkeypatch, state, prompt):
     monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
     for name, fn in (("_ups_sentinel_check_and_arm", lambda *a: None), ("_ups_sentinel_clear", lambda sid: None),
                      ("build_context", lambda *a: None), ("_maybe_spawn_failure_extraction", lambda *a: None),
-                     ("_update_topic_tracker", lambda *a: None), ("_drain_aec_decisions", lambda *a: None),
+                     ("_update_topic_tracker", lambda *a: None),
                      ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, st: None),
                      ("output_json", lambda d: None), ("output_nothing", lambda: None)):
         monkeypatch.setattr(ups, name, fn)
@@ -1482,11 +1491,11 @@ def _root_row(part):
 
 @pytest.mark.parametrize("part", ["記憶資料層", "專案文件層"])
 def test_013_3_compound_ruler_from_root_table_is_satisfiable(part):
-    """013 BLOCK 3（最優先）：根層部位表這兩列的量尺是 `… && echo X DONE` 串接式；表上字串原樣跑出的 DONE 收據要認得到，
-    後面再接 `; echo 假的 DONE` 就不算。舊碼（7b80327）收據端按 && 切段、量尺端整串比，原樣跑也永遠對不上。"""
+    """013 BLOCK 3（最優先）：根層部位表這兩列的量尺由程式自己印完成字樣、不再接 echo（文件層是兩支程式 && 串）；表上字串原樣跑出的
+    收據要認得到，後面再接 `; echo 假的 DONE` 就不算。舊碼（7b80327）收據端按 && 切段、量尺端整串比，原樣跑也永遠對不上。"""
     row = _root_row(part)
     cmd = row["measure"]["cmd"]
-    assert "&&" in cmd and "echo" in cmd                                                   # 直接讀表上字串當輸入
+    assert "echo" not in cmd                                                               # 直接讀表上字串當輸入
     mod = _mf(r"c:\proj\x.md", 5, last_at=_T1, last_seq=3)
     assert _gate(cmd, row=row, mod=mod) is None
     assert _gate(cmd + "; echo FAKE_CHECK DONE", row=row, mod=mod) is not None
@@ -1654,14 +1663,16 @@ def test_017_outside_whitelist_blocks_at_scope_gate(cmd):
 
 
 def test_017_root_table_rulers_still_runnable_as_declared_commands():
-    """G6 (b)：根層部位表 10 列（7 把尺＋行為規則層、派工信箱、部位表與專案層設定無尺）的量尺是候選材料：
-    宣告成指令項目後原字串原樣跑，Bash 與 PowerShell 都對得上；直接讀表上字串。"""
+    """G6 (b)：根層部位表 10 列（4 把尺；行為規則層、派工信箱、部位表與專案層設定無尺；hook 兩層與 skill 層的全量 run_verify
+    已拔掉，全量改增量待補）的量尺是候選材料：宣告成指令項目後原字串原樣跑，Bash 與 PowerShell 都對得上；直接讀表上字串。"""
     rows = [r for r in _ROOT_ROWS if (r.get("measure") or {}).get("cmd")]
-    assert len(_ROOT_ROWS) == 10 and len(rows) == 7
+    assert len(_ROOT_ROWS) == 10 and len(rows) == 4
+    assert not [r["part_short"] for r in rows if "run_verify.py" in r["measure"]["cmd"]]   # 表上不再有全量當量尺
     for row in rows:
+        single = "&&" not in row["measure"]["cmd"]          # 多段量尺後接過濾會蓋掉最後一段的 exit，只有單段量尺准接
         for tool in ("Bash", "PowerShell"):
             assert _gate(row["measure"]["cmd"], tool, row) is None, (row["part_short"], tool)
-            assert _gate(row["measure"]["cmd"] + " 2>&1 | tail -5", tool, row) is None, (row["part_short"], tool)
+            assert (_gate(row["measure"]["cmd"] + " 2>&1 | tail -5", tool, row) is None) is single, (row["part_short"], tool)
             assert _gate("python -h " + row["measure"]["cmd"][len("python "):], tool, row) is not None   # 規則 7
 
 
@@ -3999,8 +4010,14 @@ _RP_APP = {"app.py": "from x import a\nfrom y import b\n\n\ndef main():\n    n =
            "x.py": _RP_BODY.format("a"), "y.py": _RP_BODY.format("b"), "notes.md": "# n\n", "todo.md": "# t\n"}
 
 
-def _rp_repo(repo: Path, monkeypatch, budget: float = 120.0) -> Path:
-    monkeypatch.setattr(rph, "BUDGET_S", budget)
+def _rp_repo(repo: Path, monkeypatch, jobs: Path, worker_run=subprocess.run) -> Path:
+    """真 git 夾具；背景量測換成同行程直接跑完（照寫結果檔），工作檔放受測目錄外（git 錄製重播只比對受測目錄）。"""
+    def spawn(path):
+        job = json.loads(Path(path).read_text(encoding="utf-8"))
+        rph.write_result(Path(job["out"]), rph.run_job(job, run=worker_run))
+
+    monkeypatch.setattr(rph, "JOB_DIR", jobs)
+    monkeypatch.setattr(rph, "_spawn_worker", spawn)
     repo.mkdir(parents=True)
     for rel, text in _RP_APP.items():
         (repo / rel).write_text(text, encoding="utf-8", newline="\n")
@@ -4010,23 +4027,30 @@ def _rp_repo(repo: Path, monkeypatch, budget: float = 120.0) -> Path:
     return repo
 
 
-def test_g12w_code_turn_appends_reading_path_to_the_block_without_spending_budget(driven, capsys, tmp_path, monkeypatch):
-    """改碼回合：真 Stop 入口在這次擋的訊息後附「這次對閱讀路徑的影響」：比較尾行、可評級與否、變差／新增最差一條；
-    附段落本身不擋、不吃 stop_blocked_count；量過的輸入記在 state["reading_path"][sid]。"""
-    repo = _rp_repo(tmp_path / "rp", monkeypatch)
+def test_g12w_code_turn_hands_off_then_the_next_stop_appends_reading_path(driven, capsys, tmp_path, tmp_path_factory,
+                                                                         monkeypatch):
+    """改碼回合：真 Stop 入口只把量測交給背景、這次擋的訊息不附；背景量完，下一次收尾在擋的訊息後附「改動對閱讀路徑的影響」：
+    比較尾行、可評級與否、變差／新增最差一條。附段落本身不擋、不吃 stop_blocked_count；量過的輸入記在 state["reading_path"][sid]。"""
+    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"))
     (repo / "y.py").write_text("from z import c\n\n\ndef b(n):\n    return c(n)\n", encoding="utf-8", newline="\n")
     (repo / "z.py").write_text(_RP_BODY.format("c"), encoding="utf-8", newline="\n")
     _git(repo, "add", "z.py")
-    out, state, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(repo / "y.py"), 5), _mf(str(repo / "z.py"), 5)])
+    mods = [_mf(str(repo / "y.py"), 5), _mf(str(repo / "z.py"), 5)]
+    out, state, _ = driven("全部完成了。", capsys, modified_files=mods)
+    assert "ReadingPath" not in json.loads(out)["reason"] and state["reading_path"][_SID]["job"], "交給背景量的那次不附"
+    out, state, _ = driven("全部完成了。", capsys, modified_files=mods, reading_path=state["reading_path"])
     reason = json.loads(out)["reason"]
-    assert "[Guardian:ReadingPath] 這次對閱讀路徑的影響" in reason, reason[-800:]
+    assert "[Guardian:ReadingPath] 第 5 回合改動對閱讀路徑的影響（背景量完" in reason, reason[-800:]
     assert "READING_PATH DONE mode=compare" in reason and "可評級：" in reason and "[新增]" in reason and "z.py::c" in reason
-    assert state["stop_blocked_count"] == 0 and state["reading_path"][_SID]["key"]
+    assert state["stop_blocked_count"] == 0 and state["reading_path"][_SID]["key"] and "job" not in state["reading_path"][_SID]
 
 
-def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path, monkeypatch):
-    """沒改程式碼的回合不附：這回合只改 .md（照樣被一般收尾擋），或程式檔是前幾回合改的。"""
-    repo = _rp_repo(tmp_path / "rp", monkeypatch)
+def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path, tmp_path_factory, monkeypatch):
+    """沒改程式碼的回合不附：這回合只改 .md（照樣被一般收尾擋），或程式檔是前幾回合改的。
+    前置：兩個 .md 真的改了、還沒 commit（已同步的檔照 SYNC_BLOCK_SKIPS_SYNCED 不擋，就驗不到「照樣被擋卻不附」）。"""
+    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"))
+    for name in ("notes.md", "todo.md"):
+        (repo / name).write_text("# 改了\n", encoding="utf-8", newline="\n")
     docs = [_mf(str(repo / "notes.md"), 5), _mf(str(repo / "todo.md"), 5)]
     out, state, _ = driven("接著看下一段。", capsys, modified_files=docs)
     assert "Workflow Guardian" in out and "ReadingPath" not in out and "reading_path" not in state
@@ -4034,19 +4058,22 @@ def test_g12w_no_code_change_this_turn_appends_nothing(driven, capsys, tmp_path,
     assert out and "ReadingPath" not in out
 
 
-def test_g12w_timeout_appends_the_reason(driven, capsys, tmp_path, monkeypatch):
-    """量尺在預算內跑不完：附「逾時」與手動指令，照樣不擋（擋的是原本的閘）。預算放到 8 秒讓忙碌機器上的 git 先跑完，
-    卡住的是假量尺。"""
-    repo = _rp_repo(tmp_path / "rp", monkeypatch, budget=8.0)
-    slow = tmp_path / "slowtool" / "reading-path.py"
-    slow.parent.mkdir()
-    slow.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
-    monkeypatch.setattr(rph, "TOOL", slow)
+def test_g12w_timeout_appends_the_reason_without_a_manual_command(driven, capsys, tmp_path, tmp_path_factory, monkeypatch):
+    """量尺在背景預算內量不完：下一次收尾只附原因、不附手動指令（模型會接單去跑），照樣不擋（擋的是原本的閘）。
+    逾時用假的 run 丟 TimeoutExpired，不真的等。"""
+    def tool_times_out(args, **kw):
+        if str(rph.TOOL) in args:
+            raise subprocess.TimeoutExpired(args, kw.get("timeout"))
+        return subprocess.run(args, **kw)
+
+    repo = _rp_repo(tmp_path / "rp", monkeypatch, tmp_path_factory.mktemp("rp-jobs"), worker_run=tool_times_out)
     (repo / "y.py").write_text(_RP_BODY.format("b") + "\n", encoding="utf-8", newline="\n")
-    out, state, _ = driven("全部完成了。", capsys, modified_files=[_mf(str(repo / "y.py"), 5), _mf(str(repo / "x.py"), 5)])
+    mods = [_mf(str(repo / "y.py"), 5), _mf(str(repo / "x.py"), 5)]
+    _, state, _ = driven("全部完成了。", capsys, modified_files=mods)
+    out, state, _ = driven("全部完成了。", capsys, modified_files=mods, reading_path=state["reading_path"])
     reason = json.loads(out)["reason"]
-    assert "[Guardian:ReadingPath]" in reason and "逾時（8 秒內量不完" in reason and "手動：python" in reason, reason[-600:]
-    assert state["stop_blocked_count"] == 0
+    assert "[Guardian:ReadingPath]" in reason and f"背景 {rph.WORKER_BUDGET_S:g} 秒內量不完" in reason, reason[-600:]
+    assert "手動" not in reason and "--before" not in reason and state["stop_blocked_count"] == 0
 
 
 # ═══ 045（track-gate-rules）：清冊 B／C 組規則的端到端案（真 git repo） ═══════════════════════════════
@@ -4219,3 +4246,92 @@ def test_045_vcs_root_unreadable_still_owes(driven, capsys, monkeypatch):
     monkeypatch.setattr(vl, "find_vcs_root_ex", lambda d: (None, "PermissionError: [WinError 5] 存取被拒"))
     out, _, _ = driven("全部完成了。", capsys, modified_files=[_mf(r"\\srv\share\proj\x.py", 5, last_at=_T1, last_seq=1)])
     assert "VCS_ROOT_UNREADABLE" in out and "改了程式碼（x.py）" in out
+
+
+@pytest.fixture(autouse=True)
+def _cassette(git_cassette):
+    """git 子程序錄製重播（lib/git_cassette.py）：平常重播一次真實執行的紀錄、不開 git；git 互動改了 → 失敗要求
+    pytest --git-record 重錄。"""
+    git_cassette()
+
+
+# ─── 046 收尾少空轉：已同步的檔不再提醒（SYNC_BLOCK_SKIPS_SYNCED）、擋一次就列出後面還欠的閘（BLOCK_LISTS_LATER_GATES） ───
+
+def _git_out(repo: Path, *args: str) -> str:
+    import subprocess
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _synced_repo(tmp_path: Path, names=("a.md", "b.md", "c.md")):
+    """真 git repo，names 都已 commit、分支沒有 upstream。回 (repo, 檔案路徑清單)。"""
+    repo = tmp_path / "syncrepo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t")
+    _git(repo, "config", "user.name", "t")
+    files = [repo / n for n in names]
+    for f in files:
+        f.write_text("v1\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "init")
+    return repo, files
+
+
+def test_046_sync_block_skips_committed_files(driven, capsys, tmp_path):
+    """規則 SYNC_BLOCK_SKIPS_SYNCED：改過的三個檔都已 commit（分支沒 upstream → 不要求 push）→ 底部 sync block 不擋。
+    先斷言前置：git status 乾淨。再改其中兩個 → 照擋，而且只數沒同步的那兩個。舊碼只數 state 的改檔 → 已 commit 也擋（紅）。"""
+    repo, (a, b, c) = _synced_repo(tmp_path)
+    assert _git_out(repo, "status", "--porcelain") == ""
+    mf = [_mf(str(p), 5) for p in (a, b, c)]
+    out, state, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian]" not in out and state["phase"] == "done", out
+    b.write_text("v2\n", encoding="utf-8", newline="\n")
+    c.write_text("v2\n", encoding="utf-8", newline="\n")
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian] 2 file(s) modified" in out and "a.md" not in out, out
+
+
+def test_046_sync_block_still_owes_unpushed_commits(driven, capsys, tmp_path):
+    """反例：有 upstream 時，已 push → 不擋；再 commit 兩個檔但沒 push → 照擋（commit 不等於同步）。"""
+    repo, (a, b, _c) = _synced_repo(tmp_path)
+    remote = tmp_path / "remote.git"
+    _git(repo, "init", "-q", "--bare", str(remote))
+    _git(repo, "remote", "add", "origin", str(remote))
+    _git(repo, "push", "-q", "-u", "origin", "HEAD")
+    mf = [_mf(str(p), 5) for p in (a, b)]
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Workflow Guardian]" not in out, out
+    a.write_text("v2\n", encoding="utf-8", newline="\n")
+    b.write_text("v2\n", encoding="utf-8", newline="\n")
+    _git(repo, "commit", "-qam", "local only")
+    assert _git_out(repo, "rev-list", "--count", "@{u}..HEAD") == "1"
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Guardian:SyncReminder]" in out and "尚未 push" in out, out                   # 上面那道先提醒一次
+    out, _, _ = driven("好了。", capsys, modified_files=mf, sync_reminder_count=1)
+    assert "[Workflow Guardian] 2 file(s) modified" in out, out                           # 提醒用完，底部照擋
+
+
+def test_046_block_lists_later_gates(driven, capsys, monkeypatch):
+    """規則 BLOCK_LISTS_LATER_GATES：退縮閘擋下時，照目前狀態後面還欠知識收割、收尾檢核、同步 → 同一則訊息列出來，一回合補齊。
+    當下這道就是知識收割時，預覽不重複列它。舊碼每次只回第一道（紅）。"""
+    monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
+    monkeypatch.setattr(st, "harvest_gate_reason", lambda *a, **k: "[Guardian:KnowledgeHarvest] 先收割")
+    monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: True)
+    mf = [_mf(r"c:\proj\docs\a.md", 5), _mf(r"c:\proj\docs\b.md", 5)]          # 不在版控：照算未同步
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "DeferralGate" in out and "[Guardian:AlsoOwed]" in out, out
+    later = out.split("[Guardian:AlsoOwed]", 1)[1]
+    assert "knowledge_harvest_report" in later and "anti_evasion_report" in later and "同步：2 個" in later, later
+    monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: None)
+    out, _, _ = driven("好了。", capsys, modified_files=mf)
+    assert "[Guardian:KnowledgeHarvest] 先收割" in out and "[Guardian:AlsoOwed]" in out, out
+    later = out.split("[Guardian:AlsoOwed]", 1)[1]
+    assert "knowledge_harvest_report" not in later and "anti_evasion_report" in later, later
+
+
+def test_046_block_lists_nothing_when_nothing_else_owed(driven, capsys, monkeypatch):
+    """期望不發生要先斷言前置：退縮閘真的擋了；後面三道都不欠 → 不附預覽段。"""
+    monkeypatch.setattr(st, "deferral_gate_reason", lambda *a, **k: "[Guardian:DeferralGate] 把可做的事推給下個 session")
+    monkeypatch.setattr(st, "detect_missing_aec_emission", lambda *a, **k: False)
+    out, _, _ = driven("好了。", capsys, modified_files=[])
+    assert "DeferralGate" in out and "[Guardian:AlsoOwed]" not in out, out
