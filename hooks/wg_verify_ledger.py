@@ -1032,6 +1032,13 @@ def done_receipts(receipts: Iterable[Dict[str, Any]], turn_seq: Optional[int] = 
     return out
 
 
+def copied_glob_source(path: str) -> bool:
+    """搬目錄規則（MOVE_CODE_DIR_NEEDS_SCAN_AND_SAMPLE）的「來源還在＝複製」：來源寫成沒展開的萬用字元（`hooks/*.py`）時字面路徑
+    不存在，要展開來看；還有符合的檔＝複製、不是搬。沒有萬用字元的來源由呼叫端照 exists() 判。"""
+    import glob
+    return any(ch in str(path) for ch in "*?[") and bool(glob.glob(str(path)))
+
+
 def is_code_file(path: str, code_exts: Iterable[str]) -> bool:
     """副檔名在 code_exts 裡；沒有副檔名的檔看第一行是不是 `#!`（腳本）。讀不到就不算。"""
     low = str(path).lower()

@@ -36,7 +36,7 @@ from wg_evasion import (
 from wg_verify_ledger import (
     receipts_of, reconcile_cfg, reconcile_gate_parts, agent_receipt_key,
     measure_cmds_of, load_self_runs, measure_parts, self_run_covered, net_unchanged_paths,
-    committed_settled_paths, committed_equal_paths, git_deadline,
+    committed_settled_paths, committed_equal_paths, git_deadline, copied_glob_source,
 )
 from wg_verify_scope import case_check as _scope_case_check, fix_evidence as _scope_fix_evidence, scope_cfg as _scope_cfg
 from wg_release_rules import (
@@ -780,7 +780,8 @@ def _move_inputs(state: Dict[str, Any], receipt_key: str) -> Tuple[List[Dict[str
     子代理收尾（receipt_key＝sid#agent:<id>）只查這個子代理搬的、用它自己的收據；主 session 收尾查本 session 全部搬移
     （含子代理搬的），收據是主帳加上那些子代理各自的收據（子代理自己跑了 scan／sample 也算數）。"""
     sid, _, aid = str(receipt_key).partition("#agent:")
-    moved = [m for m in state.get("moved_code_dirs") or [] if isinstance(m, dict) and m.get("session_id") == sid]
+    moved = [m for m in state.get("moved_code_dirs") or [] if isinstance(m, dict) and m.get("session_id") == sid
+             and not copied_glob_source(str(m.get("old") or ""))]          # 萬用字元來源還有符合的檔＝其實是複製
     if aid:
         return [m for m in moved if m.get("agent_id", "") == aid], receipts_of(state, receipt_key)
     receipts = list(receipts_of(state, sid))

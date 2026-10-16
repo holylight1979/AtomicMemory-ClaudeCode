@@ -36,7 +36,7 @@ from wg_verify_ledger import (
     compile_sentinel_rules, parse_sentinels, response_text, exit_code_of, vcs_snapshot,
     append_verify_ledger, record_receipt, receipts_of, spec_paths_of, modified_this_turn, agent_receipt_key,
     aec_evidence_missing, aec_evidence_autofill, aec_followups_missing, next_event_seq, has_cd, env_snapshot,
-    commit_snapshot, reconcile_cfg, head_new_code, _git_root_of, reverted_code_files, is_code_file, ledger_path,
+    commit_snapshot, reconcile_cfg, head_new_code, copied_glob_source, _git_root_of, reverted_code_files, is_code_file, ledger_path,
     small_content_sha,
 )
 from wg_release_rules import (canon_path, in_user_turn, deliberate_red_verdict, green_clears_red, green_covers_red_verdict,
@@ -449,7 +449,7 @@ def _note_moved_code_dirs(state: Dict[str, Any], sid: str, tool_name: str, tool_
         elif dest.is_dir() and (dest / src.name).exists():
             dest = dest / src.name        # 搬進既有目錄：實際落點是 <目的地>/<名字>（搬單一檔案時這裡就是那個檔，下面不記）
         key = (canon_path(str(src)), canon_path(str(dest)))
-        if key in seen or src.exists() or not dest.is_dir() or not _has_code(dest, exts):
+        if key in seen or src.exists() or copied_glob_source(str(src)) or not dest.is_dir() or not _has_code(dest, exts):
             continue
         seen.add(key)
         lst = state.setdefault("moved_code_dirs", [])

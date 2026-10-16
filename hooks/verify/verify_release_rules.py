@@ -811,6 +811,25 @@ def test_045_move_code_dir_needs_scan_and_sample_detects_only_code_dirs(tmp_path
     assert all(rr.canon_path(m["old"]) == rr.canon_path(str(tmp_path / "lib" / "pkg")) for m in moves)
 
 
+def test_045_move_code_dir_needs_scan_and_sample_glob_copy_is_not_a_move(tmp_path):
+    """實遇：`cp hooks/*.py <暫存>/hooks/` 是複製，來源字面路徑 `hooks/*.py` 不存在卻被當成搬目錄、收尾要補兩張掃描收據。
+    萬用字元來源展開後還有符合的檔＝複製：記錄端不記，收尾端已記下的也剔除。真的 mv 掉（展開後沒有符合）照記。"""
+    from handlers import post_tool_use as ptu
+    from handlers import stop as stp
+    (tmp_path / "hooks").mkdir()
+    (tmp_path / "hooks" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "copy" / "hooks").mkdir(parents=True)
+    (tmp_path / "copy" / "hooks" / "a.py").write_text("x = 1\n", encoding="utf-8")       # cp 之後的樣子：兩邊都有
+    st = {"turn_seq": 3}
+    ptu._note_moved_code_dirs(st, "s", "Bash", {"command": "cp hooks/*.py copy/hooks/"}, str(tmp_path), {})
+    assert not st.get("moved_code_dirs"), st.get("moved_code_dirs")
+    old = str(tmp_path / "hooks" / "*.py")
+    st = {"moved_code_dirs": [{"old": old, "new": str(tmp_path / "copy" / "hooks"), "session_id": "s", "seq": 1}]}
+    assert stp._move_inputs(st, "s")[0] == []                                              # 舊帳上誤記的也不再欠
+    (tmp_path / "hooks" / "a.py").unlink()                                                 # 真的搬走：展開後沒有符合
+    assert len(stp._move_inputs(st, "s")[0]) == 1
+
+
 def test_045_move_code_dir_needs_scan_and_sample_detect_git_forms_and_agent(tmp_path):
     """codex BLOCK 1～3：git mv 單一檔案進目錄不算；git -C、先 cd 再 git mv、一次搬多個來源都要記；子代理搬的也記（帶 agent_id）。"""
     from handlers import post_tool_use as ptu
