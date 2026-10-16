@@ -2809,7 +2809,10 @@
         "GIT_CONFIG_GLOBAL",
         "隔離測試",
         "run_verify 並行",
-        "假紅"
+        "假紅",
+        "背景量測",
+        "手動指令",
+        "閱讀路徑量尺"
       ],
       "scope": "global"
     },
@@ -7466,6 +7469,59 @@
         "還沒宣告由哪個案例驗",
         "PostToolUse 逾時",
         "need_goal 沒回應"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "windows暫存區路徑是83短檔名-abspath不展開-路徑比對要用realpath",
+      "path": "memory/OS-Windows/windows暫存區路徑是83短檔名-abspath不展開-路徑比對要用realpath.md",
+      "triggers": [
+        "8.3 短檔名",
+        "短檔名",
+        "HOLYLI~1",
+        "gettempdir",
+        "TEMP 路徑",
+        "abspath",
+        "realpath",
+        "路徑比對",
+        "is_under_tempdir",
+        "scratchpad 路徑",
+        "暫存區判定",
+        "路徑去重"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index",
+      "path": "memory/版控/Git/共用工作樹只stage自己的hunk-別用unidiff-zero-換回head原文再update-index.md",
+      "triggers": [
+        "部分 hunk",
+        "只 stage 自己的",
+        "unidiff-zero",
+        "git apply --cached",
+        "update-index --cacheinfo",
+        "checkout-index",
+        "共用工作樹 commit",
+        "別的 session 也改了同一檔"
+      ],
+      "scope": "global"
+    },
+    {
+      "name": "錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序",
+      "path": "_AIDocs/_atoms/MemDev/錄製重播的兩個假象-核對失敗被fail-open吞掉測試照綠-跨案共用的session帳本讓錄製檔依執行順序.md",
+      "triggers": [
+        "git_cassette",
+        "錄製重播",
+        "CassetteMismatch",
+        "--git-record",
+        "fail-open",
+        "except Exception",
+        "單跑會紅",
+        "依執行順序",
+        "aec_ledger",
+        "產出物帳本",
+        "跨案殘留",
+        "untracked 錄製檔"
       ],
       "scope": "global"
     }
