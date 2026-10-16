@@ -77,9 +77,9 @@ Session Ready
 | workflow-guardian.py | 20 | 薄 shim（5 行可執行 code）轉發 `dispatcher.main()` |
 | dispatcher.py | ~75 | 純路由：讀 stdin event → 找 handler → 呼叫 |
 | handlers/_shared.py | — | 跨 handler 共用 helper |
-| handlers/aec_ledger.py | — | per-session 殘檔帳本唯一 writer（`workflow/aec-tempfiles/<sid>.jsonl`）：tempdir 寫入 / (d) 一行一路徑解析 / scratchpad 掃描；HUD 讀端以 exists() 判尚存。`protected_reason()` 拒收正式檔（VCS 追蹤 / `memory`、`_AIDocs` 下 / 索引、CHANGELOG、核心 md），(d) 拒收回告模型、drain 對其刪除決策注入 ⛔ |
+| handlers/aec_ledger.py | — | per-session 產出物帳本唯一 writer（`workflow/aec-tempfiles/<sid>.jsonl`）：`record_tool_artifacts`（Write 寫的檔、Bash 寫入目標、`parse_git_artifacts` 解析 git 建的工作樹／分支／臨時 repo／遠端分支）＋ (i) 一行一路徑 ＋ scratchpad 掃描；`artifact_status` 現場查還在不在、能不能刪（白話狀態）；`act`／`delete_artifact` 當場刪並寫回帳本（CLI `tools/session-artifacts.py`）。`protected_reason()` 拒收正式檔（VCS 追蹤 / `memory`、`_AIDocs` 下 / 索引、CHANGELOG、核心 md），(i) 拒收回告模型 |
 | handlers/session_start.py | — | init state + 去重 + bootstrap + Vector bg subprocess + 各式 advisory（含 `_index_conflict_advisory`：repo 卡在 rebase/merge 且索引三檔未合併 → 一行提示） |
-| handlers/user_prompt_submit.py | — | UPS orchestrator：串聯 ups_* 四段 + 收尾（2026-06-12 拆分）+ UPS 被 kill 哨兵（`workflow/ups-sentinel/`，殘留→告警）+ AEC (d) 刪除決策後驗（exists() 實查→重注入/告警） |
+| handlers/user_prompt_submit.py | — | UPS orchestrator：串聯 ups_* 四段 + 收尾（2026-06-12 拆分）+ UPS 被 kill 哨兵（`workflow/ups-sentinel/`，殘留→告警） |
 | handlers/ups_gates.py | — | UPS detect 段：evasion 追蹤 + V4.1 + long_die + atom-write guard |
 | handlers/ups_context.py | — | UPS context 段：session context + wisdom + parallel + AIDocs + JIT |
 | handlers/ups_search.py | — | UPS search 段：RECALL（trigger → BM25 → Vector〔全空 fallback / 專案層 enrichment：trigger 命中 <3 才打〕）+ supersedes + RRF 三路融合 × ACT-R 個別化 decay（`fusion:"legacy"` 可回退；含分心懲罰 `compute_injection_rank`，Memory Governance A） |
@@ -168,7 +168,7 @@ V5 把 commands/*.md 遷到 skills/{name}/SKILL.md 結構（對齊 Anthropic 官
   - `knowledge_harvest_report`（階段收割回報：items 結構化、只回 chip `[Harvest] N 寫入／M 退役／K 不寫`；核對與 state／ledger 由 Python `post_tool_use` 寫 → TECH §6.3；`lib/harvest.js`）
   - `memory_search`（唯讀：`query`／`cwd?`／`top_k?`／`format: table|json`；handler `atom-tools.js toolMemorySearch` → py `atom_io_cli search` → `lib/memory_search`；不寫 state、無 receipt；契約 TECH §5.8）
   - `anti_evasion_report`（收尾檢核九欄 (a)–(i) emit → Anti-Evasion HUD；**one-writer**：MCP tool 只回 chip，Python `post_tool_use` 獨佔寫 state + 落 `workflow/aec-report/`；HUD 頁 `lib/{anti-evasion,aec-hud-html}.js` 服）
-    - 殘檔帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一 writer：tempdir 寫入 / (d) 一行一路徑 / Stop 掃 scratchpad 三來源進帳）；HUD「本 session 尚存殘檔」面板走 `GET /api/aec/tempfiles/<sid>`（Node 讀帳本 + 當下 exists() 過濾，檔案系統為權威、不做 TTL）；保留/刪除決策檔 `aec-decision/<sid>-p<pathhash>.json` 帶 `path` 供 drain 後驗；受保護路徑（`aec_ledger.protected_reason()`：tempdir 放行 → `memory`/`_AIDocs` 段 → 索引／CHANGELOG／核心 md 檔名 → VCS 追蹤）三道拒收：(d) 解析拒收並 additionalContext 回告、`ledger_append` 末道、drain 刪除決策改注入 ⛔ 拒絕
+    - 產出物帳本 `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一 writer：工具呼叫（Write 檔、Bash 寫入目標、git 建的工作樹／分支／臨時 repo／遠端分支）/ (i) 一行一路徑 / Stop 掃 scratchpad 進帳）；HUD「這個 session 留下的東西」面板走 `GET /api/aec/tempfiles/<sid>`（Node 轉呼叫 `tools/session-artifacts.py list`，Python 現場查檔案系統與 git、快取 10 秒、不做 TTL）；保留／刪除走 `POST /api/aec/decision` → `session-artifacts.py act` 當場執行、結果寫回帳本；受保護路徑（`aec_ledger.protected_reason()`：tempdir 放行 → `memory`/`_AIDocs` 段 → 索引／CHANGELOG／核心 md 檔名 → VCS 追蹤）兩道拒收：(i) 解析拒收並 additionalContext 回告、`ledger_append` 末道
   - `atom_write` 的 `knowledge` 陣列 block-aware：單一元素以豎線（markdown 表格）或三反引號（程式碼 fence）開頭者整段原樣輸出、不加 bullet、前後補空行（規則 SoT → [SPEC_ATOM_V5 §11](SPEC_ATOM_V5.md)）
   - `second_opinion_start` / `second_opinion_result`（v6.0 第二意見：打包部位卡＋病灶＋diff＋帳本尾成 job，replay-guard pre 守門後分離子程序叫 codex，result 純讀 `workflow/second-opinion/<job>/`；handler `lib/second-opinion.js` → py `tools/second-opinion/run.py`；規格 `tools/second-opinion/README.md`）
   - `project_smells`（v6.0 候選池：讀 `<專案根>/.claude/overview-hub.json` 的 `smells_report`／`smells_cmd`，都沒有走內建熱點＋大小；七類別白名單、無理由列丟棄；handler `lib/project-smells.js` → py `tools/project-smells.py`）

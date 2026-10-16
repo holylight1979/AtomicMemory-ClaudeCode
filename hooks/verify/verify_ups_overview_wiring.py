@@ -44,7 +44,6 @@ def wired(monkeypatch):
     monkeypatch.setattr(ups, "assemble_injection", lambda *a, **k: ([], {}))
     monkeypatch.setattr(ups, "_maybe_spawn_failure_extraction", lambda *a: None)
     monkeypatch.setattr(ups, "_update_topic_tracker", lambda *a: None)
-    monkeypatch.setattr(ups, "_drain_aec_decisions", lambda *a: None)
     monkeypatch.setattr(ups, "_truncate_context_by_activation", lambda lines, *a: lines)
     monkeypatch.setattr(ups, "reconcile_injection_after_trim", lambda *a: [])
     monkeypatch.setattr(ups, "write_state", lambda sid, st: None)

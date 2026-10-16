@@ -5,25 +5,23 @@
 // 本檔另供 HUD 唯讀 API：glob disk 上 Python 落的 aec-report/<sid>-t<turn>.json 供頁 +
 // heartbeat（lazy-spawn 判窗死用）。港口持有者供頁、與哪個 session 的 MCP 跑了 tool 無關。
 //
-// 兩命名空間、各單一 writer（不互搶，維持 one-writer spine）：
-//   report（<sid>-t<turn>.json）  = Python 寫 / Node 讀（唯讀 API 供 HUD）
-//   ledger（aec-tempfiles/<sid>.jsonl）= Python 寫（handlers/aec_ledger.py）/ Node 讀 + exists() 過濾
-//   decision（<sid>-p<pathhash>.json）= Node 寫（apiAecDecisionPost，HUD 殘檔面板保留/刪除鈕）/ Python 讀
-//                                   （user_prompt_submit drain → 注入 → 模型 deferred 執行）
+// 兩個檔、都由 Python 單一寫入（Node 不寫，維持 one-writer spine）：
+//   report（<sid>-t<turn>.json）       = Python PostToolUse 寫 / Node 讀（唯讀 API 供 HUD）
+//   ledger（aec-tempfiles/<sid>.jsonl）= Python 寫（handlers/aec_ledger.py）/ Node 不直接讀：
+//     列表與保留／刪除都轉呼叫 tools/session-artifacts.py（現場查還在不在、當場刪、結果由它寫回帳本）
 //
 // sendToolResult 來自 mcp.js（循環相依：mcp.handleToolCall lazy-require 本檔，故 tool handler
 // 內 lazy-require mcp 即可，載入順序無虞）。
 
 const fs = require("fs");
 const path = require("path");
-const crypto = require("crypto");
-const { WORKFLOW_DIR } = require("./paths");
+const { execFile } = require("child_process");
+const { WORKFLOW_DIR, CODE_DIR, PYTHON_EXE } = require("./paths");
 
 // HUD 頁心跳（記憶體，港口持有者持有）；apiAecBeat 更新、apiAecBeatStatus 回 age_s + clients。
 let lastHudBeat = 0;
 
 const REPORT_DIR = path.join(WORKFLOW_DIR, "aec-report");  // per-turn 報告檔子夾（檔名 <sid>-t<turn>.json）
-const DECISION_DIR = path.join(WORKFLOW_DIR, "aec-decision");  // HUD 保留/刪除決策佇列（<sid>-t<turn>-<idx>.json）
 const REPORT_CAP = 100;               // 唯讀 API 回傳上限（近 N 筆）
 const SID_RE = /^[A-Za-z0-9-]+$/;     // 防路徑穿越：session_id 只允許 hex/hyphen
 
@@ -218,105 +216,74 @@ function apiAecBeatStatus(req, res) {
   _json(res, 200, { age_s, clients: hudClients.size });
 }
 
-// ─── 殘檔帳本讀端（Python 寫 aec-tempfiles/<sid>.jsonl / Node 讀 + exists() 過濾）────────
-// 帳本只記「進過帳」的路徑；「還在不在」由此處當下 fs.existsSync 判定——檔案系統才是權威，
-// 消失的自動掉出清單、還在的持續列到被處置為止（不做 TTL）。
+// ─── 產出物帳本（Python 寫 aec-tempfiles/<sid>.jsonl；查與刪都轉呼叫 tools/session-artifacts.py）────
+// 「還在不在、能不能刪」要問 git（工作樹、分支）與保護規則，只在 Python 留一份；Node 只轉呼叫。
+// 列表快取 10 秒（HUD 每 1.5 秒輪詢，不能每次都起 Python）；帳本變了或按了按鈕就作廢。
 const LEDGER_DIR = path.join(WORKFLOW_DIR, "aec-tempfiles");
+const ARTIFACTS_CLI = path.join(CODE_DIR, "tools", "session-artifacts.py");
+const LIST_TTL_MS = 10000;
+const _listCache = new Map();   // sid → {at, mtime, data, pending}
 
-function _pathKey(p) {
-  // 與 Python aec_ledger._key 同義：normalize + 小寫（Windows 不分大小寫）。
-  return path.normalize(String(p || "")).replace(/[\\/]+$/, "").toLowerCase();
+function _runArtifacts(args, timeoutMs) {
+  return new Promise((resolve) => {
+    execFile(PYTHON_EXE, ["-X", "utf8", ARTIFACTS_CLI, ...args, "--json"],
+      { cwd: CODE_DIR, windowsHide: true, timeout: timeoutMs, encoding: "utf-8", maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const first = String(stdout || "").split("\n")[0].trim();
+        try { return resolve(JSON.parse(first)); } catch { /* fall through */ }
+        resolve({ ok: false, error: true,
+          message: "清單工具沒有回應：" + String((err && err.message) || stderr || "空輸出").slice(0, 200) });
+      });
+  });
 }
 
-function _decisionFile(sid, p) {
-  const h = crypto.createHash("sha1").update(_pathKey(p)).digest("hex").slice(0, 12);
-  return path.join(DECISION_DIR, `${sid}-p${h}.json`);
+function _ledgerMtime(sid) {
+  try { return fs.statSync(path.join(LEDGER_DIR, `${sid}.jsonl`)).mtimeMs; } catch { return 0; }
 }
 
-// 讀帳本 → 去重（後寫者勝）→ exists() 過濾 → 掛上既有決策（同 sid、同路徑 hash 的決策檔）。
-function readLedgerAlive(sid) {
-  let text;
-  try { text = fs.readFileSync(path.join(LEDGER_DIR, `${sid}.jsonl`), "utf-8"); }
-  catch { return []; }
-  const seen = new Map();
-  for (const line of text.split("\n")) {
-    const s = line.trim();
-    if (!s) continue;
-    try {
-      const rec = JSON.parse(s);
-      if (rec && rec.path) seen.set(_pathKey(rec.path), rec);
-    } catch { /* skip corrupt line */ }
-  }
-  const out = [];
-  for (const rec of seen.values()) {
-    let exists = false;
-    try { exists = fs.existsSync(rec.path); } catch { exists = false; }
-    if (!exists) continue;
-    let decision = null;
-    try {
-      const d = JSON.parse(fs.readFileSync(_decisionFile(sid, rec.path), "utf-8"));
-      if (d && (d.action === "keep" || d.action === "delete")) {
-        decision = { action: d.action, injected: !!d.injected, verified: !!d.verified };
-      }
-    } catch { /* no decision yet */ }
-    out.push({
-      path: rec.path, note: rec.note || "", source: rec.source || "", at: rec.at || "",
-      decision,
-    });
-  }
-  out.sort((x, y) => String(x.at).localeCompare(String(y.at)) || x.path.localeCompare(y.path));
-  return out;
-}
-
-// GET /api/aec/tempfiles/<sid> — 該 session 帳本中「此刻仍存在」的殘檔（含既有決策）。
+// GET /api/aec/tempfiles/<sid> — 這個 session 帳上還在的東西（含白話狀態、上次保留／刪除的結果）。
 function apiAecTempfiles(req, res, sid) {
   if (!SID_RE.test(String(sid || ""))) return _json(res, 404, { error: "bad params" });
-  _json(res, 200, { sid, items: readLedgerAlive(sid) });
+  const mtime = _ledgerMtime(sid);
+  if (!mtime) return _json(res, 200, { sid, items: [] });
+  const c = _listCache.get(sid);
+  if (c && c.data && c.mtime === mtime && Date.now() - c.at < LIST_TTL_MS) return _json(res, 200, c.data);
+  const entry = c && c.pending ? c : { pending: null, data: c && c.data, at: 0, mtime: 0 };
+  if (!entry.pending) {
+    entry.pending = _runArtifacts(["list", "--sid", sid], 30000).then((data) => {
+      const ok = data && Array.isArray(data.items);
+      Object.assign(entry, ok ? { data, at: Date.now(), mtime } : {}, { pending: null });
+      return ok ? data : (entry.data || { sid, items: [], error: data && data.message });
+    });
+    _listCache.set(sid, entry);
+  }
+  entry.pending.then((data) => _json(res, 200, data));
 }
 
-// ─── AEC decision 寫入端（Node 唯一 writer；HUD 殘檔面板 保留/刪除鈕）──────────────
 function _readBody(req, cb) {
   let body = "";
   req.on("data", (ch) => (body += ch));
   req.on("end", () => { try { cb(body ? JSON.parse(body) : {}); } catch { cb(null); } });
 }
 
-// POST /api/aec/decision — 殘檔逐項 保留/刪除 決策落磁碟。
-// body: {sid, path, note?, action:"keep"|"delete"}。決策檔以路徑 hash 命名（<sid>-p<hash>.json）
-// → 跨回合穩定；同路徑重點擊→覆寫同檔（reset injected:false → Python drain 重注入新決策）。
-// item 欄 = "<path> — <note>" 供 Python 注入文字；path 欄供 exists() 後驗。
-// atomic tmp→rename，Python glob 略過 .tmp。loopback 信任模型：無 auth，僅 127.0.0.1。
+// POST /api/aec/decision — HUD 的保留／刪除鈕：body {sid, key, action:"keep"|"delete", force?}。
+// 當場交給 Python 執行並回 {ok, message, needs_confirm}；needs_confirm 有值＝要使用者再確認一次（HUD 帶 force 重送）。
+// key 只能指名帳上那一項（Python 端比對帳本），不能拿來刪任意路徑。loopback 信任模型：無 auth，僅 127.0.0.1。
 function apiAecDecisionPost(req, res) {
   _readBody(req, (body) => {
     if (!body) return _json(res, 400, { error: "bad json" });
     const sid = String(body.sid == null ? "" : body.sid);
-    const p = String(body.path == null ? "" : body.path).trim();
-    const note = String(body.note == null ? "" : body.note).trim();
+    const key = String(body.key == null ? "" : body.key);
     const action = String(body.action == null ? "" : body.action);
-    if (!SID_RE.test(sid) || !p || p.length > 1000 || p.includes("\n")) {
-      return _json(res, 404, { error: "bad params" });   // SID_RE 防路徑穿越
+    if (!SID_RE.test(sid) || !key || key.length > 2000 || /[\r\n]/.test(key)) {
+      return _json(res, 404, { error: "bad params" });
     }
-    if (action !== "keep" && action !== "delete") {
-      return _json(res, 400, { error: "bad action" });
-    }
-    const record = {
-      session_id: sid,
-      path: p,
-      item: note ? `${p} — ${note}` : p,
-      action,
-      at: new Date().toISOString(),
-      injected: false,
-    };
-    try {
-      fs.mkdirSync(DECISION_DIR, { recursive: true });
-      const f = _decisionFile(sid, p);
-      const tmp = f + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify(record, null, 2), "utf-8");
-      fs.renameSync(tmp, f);   // atomic
-    } catch {
-      return _json(res, 500, { error: "write failed" });
-    }
-    _json(res, 200, { ok: true, action });
+    if (action !== "keep" && action !== "delete") return _json(res, 400, { error: "bad action" });
+    const args = ["act", "--sid", sid, "--key", key, "--action", action, ...(body.force ? ["--force"] : [])];
+    _runArtifacts(args, 90000).then((r) => {
+      _listCache.delete(sid);
+      _json(res, 200, r);
+    });
   });
 }
 
@@ -324,6 +291,6 @@ module.exports = {
   aecBlank, aecSeverity, aecPendingItems, aecEvidenceMissing, aecEvidenceAutofill, aecFollowupsMissing,
   toolAntiEvasionReport,
   apiAecReports, apiAecReport, apiAecBeat, apiAecBeatStatus, apiAecStream,
-  apiAecTempfiles, readLedgerAlive,
+  apiAecTempfiles,
   apiAecDecisionPost,
 };

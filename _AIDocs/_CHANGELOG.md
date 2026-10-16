@@ -4,6 +4,9 @@
 > 每條僅留「標題 + 一句摘要」。實作細節見 `DevHistory/`（各主題演進檔）。
 
 ---
+## 2026-10-16 HUD 改版第 1a 階段：產出物帳本收整個 session 的額外產出，保留／刪除鈕當場生效
+- 原設計者指出：帳本幾乎只收 session 關閉就會被清掉的暫存檔，git 工作樹、工作分支、臨時 repo、測試資料夾全漏（30 天 worktree add 42、git init/clone 23、帳本 98.6% 是暫存區檔），得另開 session 大清理、還要提醒 AI 才刪分支。`handlers/aec_ledger.py` 改成依工具呼叫進帳（Write 檔、Bash 寫入目標、git 建的工作樹／分支／臨時 repo／遠端分支），狀態由 git 與檔案系統現場查；HUD 按鈕經 Node 轉呼叫新工具 `tools/session-artifacts.py` 當場刪並回報（沒合併的分支、有改動的工作樹、遠端分支、整個 repo 要再確認一次），舊的「決策紙條＋下一輪 AI 執行」流程移除。案例 `hooks/verify/verify_session_artifacts.py`。
+
 ## 2026-10-16 收尾少空轉：已同步的檔不再提醒、改測試只重跑那一支、擋一次列出全部欠帳、量尺可和測試串一行
 - 實遇：一場回答完問題後被收尾閘連擋三次、空轉 19 分鐘（兩次是檔早已 commit 並 push 仍被同步提醒擋；一次是 `pytest … && 量尺 && echo … DONE` 整行作廢，423 案重跑）。一週 524 次擋下裡，被擋的回合一半以上連擋 2～7 次。
 - **四處修正**：底部一般 sync block 先剔除已 commit 並 push 的檔（SYNC_BLOCK_SKIPS_SYNCED，worktree 照 WORKTREE_NO_PUSH）；測試案例檔是量具，改它只作廢點名它的那一項（SCOPE_CASE_EDIT_ONLY_ITS_ITEM，被同資料夾 import 的與 conftest 照舊作廢全部）；任一道閘擋下時附 `[Guardian:AlsoOwed]` 預覽知識收割、收尾檢核、同步還欠不欠（BLOCK_LISTS_LATER_GATES）；文件與記憶量尺的三支 `--check` 工具自己印 `<NAME>_CHECK PASS／FAIL`、部位表拿掉 echo，量尺前面用 `&&` 串跑程式指令也算（`lib/self_receipt.py`，量尺後面不准再接過濾）。

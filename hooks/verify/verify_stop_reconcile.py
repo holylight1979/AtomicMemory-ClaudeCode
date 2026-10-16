@@ -1158,7 +1158,7 @@ def _ups_turn(monkeypatch, state, prompt):
     monkeypatch.setattr(ups, "_ensure_state", lambda sid, inp, cfg: state)
     for name, fn in (("_ups_sentinel_check_and_arm", lambda *a: None), ("_ups_sentinel_clear", lambda sid: None),
                      ("build_context", lambda *a: None), ("_maybe_spawn_failure_extraction", lambda *a: None),
-                     ("_update_topic_tracker", lambda *a: None), ("_drain_aec_decisions", lambda *a: None),
+                     ("_update_topic_tracker", lambda *a: None),
                      ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, st: None),
                      ("output_json", lambda d: None), ("output_nothing", lambda: None)):
         monkeypatch.setattr(ups, name, fn)

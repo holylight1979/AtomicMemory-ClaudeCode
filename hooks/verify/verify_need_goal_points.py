@@ -382,7 +382,7 @@ def ups_wired(monkeypatch):
                        ("run_pre_gates", lambda *a: None), ("build_context", lambda *a: None),
                        ("collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {})),
                        ("assemble_injection", lambda *a, **k: ([], {})), ("_maybe_spawn_failure_extraction", lambda *a: None),
-                       ("_update_topic_tracker", lambda *a: None), ("_drain_aec_decisions", lambda *a: None),
+                       ("_update_topic_tracker", lambda *a: None),
                        ("_truncate_context_by_activation", lambda lines, *a: lines),
                        ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, st: None),
                        ("output_json", lambda d: outputs.append(d)), ("output_nothing", lambda: outputs.append(None))):
@@ -908,7 +908,7 @@ def test_ups_peer_claim_follows_project_layer(world, tmp_path, monkeypatch, enab
                        ("run_pre_gates", lambda *a: None), ("build_context", lambda *a: None),
                        ("collect_matched_atoms", lambda *a: ([], {}, [], [], {}, [], "general", {})),
                        ("assemble_injection", lambda *a, **k: ([], {})), ("_maybe_spawn_failure_extraction", lambda *a: None),
-                       ("_update_topic_tracker", lambda *a: None), ("_drain_aec_decisions", lambda *a: None),
+                       ("_update_topic_tracker", lambda *a: None),
                        ("_truncate_context_by_activation", lambda lines, *a: lines),
                        ("reconcile_injection_after_trim", lambda *a: []), ("write_state", lambda sid, st: None),
                        ("output_json", lambda d: outputs.append(d)), ("output_nothing", lambda: outputs.append(None))):

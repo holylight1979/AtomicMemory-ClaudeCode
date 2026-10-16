@@ -993,10 +993,13 @@ def handle_post_tool_use(input_data: Dict[str, Any], config: Dict[str, Any]) -> 
         _maybe_auto_roll_changelog(file_path, config)
         _maybe_sync_skill_index(file_path, config)
 
-    if tool_name in ("Edit", "Write", "NotebookEdit") and file_path:
-        # 殘檔帳本：工具寫進系統 tempdir（scratchpad 等）的檔 → 進帳，HUD 以 exists() 列尚存者。
+    if tool_name in ("Edit", "Write", "NotebookEdit", "Bash", "PowerShell"):
+        # 產出物帳本：這次工具呼叫建立的檔、資料夾、git 工作樹／分支／臨時 repo → 進帳，HUD 現場查還在的列出來。
         try:
-            aec_ledger.record_temp_write(session_id, file_path, int(state.get("turn_seq", 0)))
+            aec_ledger.record_tool_artifacts(
+                session_id, tool_name, tool_input,
+                input_data.get("cwd", "") or state.get("session", {}).get("cwd", "") or os.getcwd(),
+                int(state.get("turn_seq", 0)))
         except Exception as e:
             _atom_debug_error("post_tool_use:aec_ledger_write", e)
 

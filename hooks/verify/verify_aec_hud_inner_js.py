@@ -63,30 +63,38 @@ function grab(name) {
   const end = s.indexOf("\n}", i);
   return s.slice(i, end + 2);
 }
-eval(grab("esc") + "\n" + grab("escAttr") + "\n" + grab("tempRow"));
+const kindDef = s.match(/var KIND = \{[\s\S]*?\};/)[0];
+eval(kindDef + "\nvar rowMsg = {};\n" + grab("esc") + "\n" + grab("escAttr") + "\n" + grab("tempRow"));
 const sid = "abc12345-0000";
-// 未決：兩鈕都在（使用者決定權：即使 note 寫「保留」也不藏刪除鈕）
-let row = tempRow(sid, { path: "C:\\Users\\u\\AppData\\Local\\Temp\\x\\scratchpad\\a.py", note: "保留，回滾用", source: "aec-d", decision: null });
+const base = { key: "k1", kind: "worktree", title: "wt/x", path: "C:\\Users\\u\\wt\\x", label: "乾淨", can_delete: true,
+               confirm: null, note: "用完可刪", decision: null, decision_message: "" };
+// 能刪：兩鈕都在（使用者決定權：即使 AI 說要留也不藏刪除鈕），白話類別、狀態、AI 備註都在
+let row = tempRow(sid, base);
 if (!/data-action="keep"/.test(row) || !/data-action="delete"/.test(row)) { console.error("both buttons expected:\n" + row); process.exit(1); }
-if (!/data-path="C:\\Users\\u/.test(row)) { console.error("data-path missing:\n" + row); process.exit(1); }
+if (!/data-key="k1"/.test(row) || !/工作樹/.test(row) || !/乾淨/.test(row) || !/AI 說：用完可刪/.test(row)) { console.error("row content missing:\n" + row); process.exit(1); }
 if (/dec-done/.test(row)) { console.error("undecided row must not be dec-done"); process.exit(1); }
-// 已決刪除且已注入：顯示狀態、仍可改按
-row = tempRow(sid, { path: "/tmp/b", note: "", source: "scan", decision: { action: "delete", injected: true, verified: false } });
-if (!/已排定刪除/.test(row) || !/已通知模型，仍在/.test(row) || !/dec-done/.test(row)) { console.error("decided row status missing:\n" + row); process.exit(1); }
-if (!/data-action="keep"/.test(row)) { console.error("decided row must still allow override"); process.exit(1); }
-// XSS 防護：路徑中的 < 與 " 必須被跳脫
-row = tempRow(sid, { path: '/tmp/<x>"y', note: "", source: "", decision: null });
-if (/<x>/.test(row) || /data-path="\/tmp\/<x>"y"/.test(row)) { console.error("escape failed:\n" + row); process.exit(1); }
-// 刪除鈕點擊有 confirm() 二次確認
-if (!/window\.confirm\("確定排定刪除？\\n"/.test(s)) { console.error("confirm guard missing in onDecClick"); process.exit(1); }
+// 不能刪：刪除鈕換成停用的「不能刪」，滑鼠提示寫原因
+row = tempRow(sid, Object.assign({}, base, { kind: "branch", can_delete: false, label: "工作樹正在用，先刪工作樹" }));
+if (/data-action="delete"/.test(row) || !/disabled/.test(row) || !/不能刪/.test(row)) { console.error("undeletable row wrong:\n" + row); process.exit(1); }
+// 選過保留：標示、仍可改按刪除
+row = tempRow(sid, Object.assign({}, base, { decision: "keep" }));
+if (!/你選了保留/.test(row) || !/dec-done/.test(row) || !/data-action="delete"/.test(row)) { console.error("kept row wrong:\n" + row); process.exit(1); }
+// 要再確認的項目把確認句帶在按鈕上
+row = tempRow(sid, Object.assign({}, base, { confirm: "有改動，確定？" }));
+if (!/data-confirm="有改動，確定？"/.test(row)) { console.error("confirm text not carried:\n" + row); process.exit(1); }
+// XSS 防護：名稱與路徑中的 < 與 " 必須被跳脫
+row = tempRow(sid, Object.assign({}, base, { title: '<x>"y', path: '/tmp/<x>"y' }));
+if (/<x>/.test(row) || /title="\/tmp\/<x>"y"/.test(row)) { console.error("escape failed:\n" + row); process.exit(1); }
+// 刪除先 confirm()，要再確認的再問一次才帶 force
+if (!/window\.confirm\("確定刪除？\\n"/.test(s) || !/force = true/.test(s)) { console.error("confirm guard missing in onDecClick"); process.exit(1); }
 console.log("ok");
 """
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node not available")
 def test_hud_temp_panel_row():
-    """殘檔面板 tempRow：兩鈕無條件（使用者決定權，不看 note 字樣）、已決者顯示狀態仍可覆寫、
-    路徑跳脫、刪除經 confirm()。"""
+    """「這個 session 留下的東西」tempRow：能刪就兩鈕都給（使用者決定權，不看 AI 備註）、不能刪換停用鈕寫原因、
+    選過保留標示但可改按、確認句帶在按鈕上、名稱路徑跳脫、刪除經 confirm()。"""
     res = subprocess.run(
         ["node", "-e", _DELETABLE_CHECK, str(HUD)], capture_output=True, text=True, encoding="utf-8", errors="replace"
     )

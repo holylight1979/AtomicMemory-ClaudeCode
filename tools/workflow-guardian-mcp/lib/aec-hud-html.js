@@ -131,43 +131,45 @@ function sectionHtml(letter, name, val) {
 
 function escAttr(s) { return esc(s).replace(/"/g, "&quot;"); }
 
-// 殘檔面板：資料來自 /api/aec/tempfiles/<sid>（Python 帳本 + Node 當下 exists() 過濾），
-// 不從 (i) prose 猜——(i) 只是宣告來源之一，「還在不在」以檔案系統為準。每列 保留/刪除
-// 兩鈕都給（使用者決定權），刪除經 confirm() 二次確認；已決者顯示狀態但仍可改按（覆寫）。
+// 「這個 session 留下的東西」面板：資料來自 /api/aec/tempfiles/<sid>（Python 現場查還在的、附白話狀態），
+// 不從 (i) 文字猜。每列「保留／刪除」都給（使用者決定權）；刪除先 confirm()，要再確認的（沒合併的分支、
+// 有改動的工作樹、遠端分支、整個 repo）再問一次才帶 force 送出；結果當場顯示在該列。
 // 注意：本 script 整塊在外層 render() 的 template literal 內，字串/comment 中的反斜線
 // 都須 \\ 跳脫，否則會在 render 時被 outer JS 當跳脫序列吃掉（換行字元須寫 "\\n"）。
+var KIND = {
+  worktree: "🗂 工作樹", branch: "🌿 分支", remote_branch: "☁ 遠端分支",
+  repo: "📦 臨時 repo", dir: "📁 資料夾", file: "📄 檔案"
+};
+var rowMsg = {};   // key → 上次按鈕的結果（當場顯示，下次重抓清單仍保留）
 function tempRow(sid, it) {
-  var d = it.decision;
-  var status = "";
-  if (d) {
-    status = '<span class="dec-status">' + (d.action === "delete" ? "已排定刪除 🗑" : "已排定保留 📌") +
-             (d.action === "delete" && d.injected ? "（已通知模型，仍在）" : "") + "</span>";
-  }
-  var attrs = ' data-sid="' + escAttr(String(sid)) + '" data-path="' + escAttr(String(it.path)) +
-              '" data-note="' + escAttr(String(it.note || "")) + '"';
-  var btns = status +
-    '<button class="aec-dec-btn"' + attrs + ' data-action="keep">保留</button>' +
-    '<button class="aec-dec-btn danger"' + attrs + ' data-action="delete">刪除</button>';
-  var meta = (it.source ? esc(it.source) : "") + (it.note ? " · " + esc(it.note) : "");
-  return '<div class="dec-row' + (d ? " dec-done" : "") + '">' +
-         '<span class="dec-item">' + esc(it.path) +
-           (meta ? '<span class="k"> — ' + meta + "</span>" : "") + "</span>" +
+  var msg = rowMsg[it.key] || (it.decision === "keep" ? "你選了保留" : (it.decision_message || ""));
+  var attrs = ' data-sid="' + escAttr(String(sid)) + '" data-key="' + escAttr(String(it.key)) +
+              '" data-title="' + escAttr(String(it.title)) + '" data-confirm="' + escAttr(String(it.confirm || "")) + '"';
+  var del = it.can_delete
+    ? '<button class="aec-dec-btn danger"' + attrs + ' data-action="delete">刪除</button>'
+    : '<button class="aec-dec-btn" disabled title="' + escAttr(String(it.label)) + '">不能刪</button>';
+  var btns = (msg ? '<span class="dec-status">' + esc(msg) + "</span>" : "") +
+    '<button class="aec-dec-btn"' + attrs + ' data-action="keep">保留</button>' + del;
+  var meta = esc(it.label) + (it.note ? " · AI 說：" + esc(it.note) : "");
+  return '<div class="dec-row' + (it.decision === "keep" ? " dec-done" : "") + '">' +
+         '<span class="dec-item" title="' + escAttr(String(it.path)) + '">' + (KIND[it.kind] || esc(it.kind)) + "　" +
+           esc(it.title) + '<span class="k"> — ' + meta + "</span></span>" +
          '<span class="dec-btns">' + btns + "</span></div>";
 }
 
 function renderTemp(sid, items) {
   var slot = document.getElementById("temp-slot");
   if (!sid) { slot.innerHTML = ""; return; }
-  var head = '<div class="card"><div class="sec"><div class="sec-h">本 session 尚存殘檔 ' +
-             '<span class="k">· session ' + esc(String(sid).slice(0, 8)) + " · 帳本 ∪ scratchpad，當下 exists() 過濾 · " +
-             (items.length ? items.length + " 項" : "0 項") + "</span></div>";
-  if (!items.length) {
-    slot.innerHTML = head + '<div class="sec-body blank">無殘檔（帳上路徑皆已不在磁碟）</div></div></div>';
-    return;
+  var head = '<div class="card"><div class="sec"><div class="sec-h">這個 session 留下的東西（' + items.length + "）" +
+             '<span class="k">　滑鼠停在名稱上看完整路徑</span></div>';
+  var rows = "", alive = {};
+  for (var i = 0; i < items.length; i++) { rows += tempRow(sid, items[i]); alive[items[i].key] = true; }
+  var done = "";   // 已經從清單消失的（刪掉了）：結果留一行，不讓按完就什麼都看不到
+  for (var k in rowMsg) {
+    if (!alive[k] && rowMsg[k].charAt(0) === "✔") { done += '<div class="dec-row dec-done"><span class="dec-item">' + esc(rowMsg[k]) + "</span></div>"; }
   }
-  var rows = "";
-  for (var i = 0; i < items.length; i++) { rows += tempRow(sid, items[i]); }
-  slot.innerHTML = head + '<div class="sec-body dec-list">' + rows + "</div></div></div>";
+  var body = rows || done ? rows + done : '<div class="sec-body blank">沒有留下東西</div>';
+  slot.innerHTML = head + '<div class="sec-body dec-list">' + body + "</div></div></div>";
   var btns = slot.querySelectorAll(".aec-dec-btn");
   for (var b = 0; b < btns.length; b++) { btns[b].addEventListener("click", onDecClick); }
 }
@@ -282,24 +284,29 @@ function findReport(sid, turn) {
 
 function onDecClick(e) {
   var el = e.currentTarget;
-  if (el.getAttribute("data-action") === "delete" &&
-      !window.confirm("確定排定刪除？\\n" + el.getAttribute("data-path"))) { return; }
-  postDecision(
-    el.getAttribute("data-sid"), el.getAttribute("data-path"),
-    el.getAttribute("data-note"), el.getAttribute("data-action")
-  );
+  var action = el.getAttribute("data-action"), extra = el.getAttribute("data-confirm"), force = false;
+  if (action === "delete") {
+    if (!window.confirm("確定刪除？\\n" + el.getAttribute("data-title"))) { return; }
+    if (extra) {
+      if (!window.confirm(extra)) { return; }
+      force = true;
+    }
+  }
+  postDecision(el.getAttribute("data-sid"), el.getAttribute("data-key"), action, force);
 }
 
-// POST 決策 → 落磁碟佇列（Node 寫，檔名=路徑 hash，跨回合穩定）；成功後立刻重抓面板顯示狀態。
-function postDecision(sid, p, note, action) {
+// POST → Node 轉給 Python 當場執行（刪除或記下保留），回 {ok, message}；結果寫在該列，再重抓清單。
+function postDecision(sid, key, action, force) {
+  rowMsg[key] = action === "delete" ? "刪除中…" : "記下中…";
+  lastTempKey = ""; pollTemp(sid);
   fetch("/api/aec/decision", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sid: sid, path: p, note: note, action: action })
+    body: JSON.stringify({ sid: sid, key: key, action: action, force: force })
   })
-    .then(function (res) { return res.ok ? res.json() : null; })
-    .then(function (j) { if (j && j.ok) { lastTempKey = ""; pollTemp(sid); } })
-    .catch(function () {});
+    .then(function (res) { return res.ok ? res.json() : { ok: false, message: "HUD 伺服器回應錯誤" }; })
+    .then(function (j) { rowMsg[key] = (j.ok ? "✔ " : "✖ ") + (j.message || ""); lastTempKey = ""; pollTemp(sid); })
+    .catch(function () { rowMsg[key] = "✖ 連不到 HUD 伺服器"; lastTempKey = ""; pollTemp(sid); });
 }
 
 function updateBanner() {

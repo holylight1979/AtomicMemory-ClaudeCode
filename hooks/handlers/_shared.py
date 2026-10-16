@@ -268,10 +268,10 @@ WORKFLOW_RETENTION: List[Dict[str, Any]] = [
     {"dir": "aec-report", "patterns": ("*.json", "*.tmp"), "kind": "age", "param": 7,
      "keep": "7 天", "why": "收尾報告只給近期 session 的 HUD 看；.tmp 是寫入殘檔"},
     {"dir": "aec-decision", "patterns": ("*.json",), "kind": "age", "param": 7,
-     "keep": "7 天", "why": "只有同一 session 下一輪會讀"},
+     "keep": "7 天", "why": "舊版 HUD 按鈕留的決策紙條；現在按鈕當場執行、不再產生，只清舊檔"},
     {"dir": "aec-tempfiles", "patterns": ("*.jsonl",), "kind": "aec_tempfiles", "param": 7,
-     "keep": "超過 7 天而且帳上列的暫存檔都已不在",
-     "why": "暫存檔還在，HUD 就要一直列出來讓使用者處置（原設計者拒絕「放 N 天就刪」）"},
+     "keep": "超過 7 天而且帳上列的東西都已不在（檔案看磁碟、分支看 git）",
+     "why": "session 留下的東西還在，HUD 就要一直列出來讓使用者處置（原設計者拒絕「放 N 天就刪」）"},
     {"dir": "dpm-done", "patterns": ("*.flag",), "kind": "age", "param": 7,
      "keep": "7 天", "why": "只防同一 session 重複要求 post-mortem"},
     {"dir": "need-goal", "patterns": ("*.json", "*.tmp", "*.lock"), "kind": "need_goal", "param": "wg_need_goal.STALE_DAYS",
@@ -382,7 +382,9 @@ def _prune_need_goal(d: Path, now: float, sid: str, dry_run: bool, res: Dict[str
 
 
 def _prune_aec_tempfiles(d: Path, days: float, now: float, dry_run: bool, res: Dict[str, Any]) -> None:
-    """殘檔帳本：過期而且帳上列的路徑全都已不在磁碟才清；只要還有一個殘檔在，帳本就要留著讓 HUD 繼續列。"""
+    """產出物帳本：過期而且帳上列的東西全都不在了才清（檔案看磁碟、分支看 git）；
+    只要還有一樣在，帳本就要留著讓 HUD 繼續列。"""
+    from handlers.aec_ledger import rec_alive
     cutoff = now - days * _DAY
     for p in d.glob("*.jsonl"):
         if not _older(p, cutoff):
@@ -394,10 +396,10 @@ def _prune_aec_tempfiles(d: Path, days: float, now: float, dry_run: bool, res: D
         alive = False
         for line in lines:
             try:
-                path = json.loads(line).get("path", "")
+                rec = json.loads(line)
             except Exception:  # noqa: BLE001
                 continue
-            if path and os.path.exists(path):
+            if isinstance(rec, dict) and rec_alive(rec):
                 alive = True
                 break
         if not alive:

@@ -248,8 +248,8 @@ from pathlib import Path
 tree, data = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path.insert(0, str(tree / "hooks"))
 import wg_evasion, version_guard
-from handlers import user_prompt_submit as ups
-out = {"phrases": str(wg_evasion._PHRASES_JSON), "decision": str(ups._decision_item_path("workflow/x.json")),
+from handlers import aec_ledger
+out = {"phrases": str(wg_evasion._PHRASES_JSON), "ledger": str(aec_ledger.ledger_path("s1")),
        "scan_code": version_guard.is_scannable_path(str(tree / "hooks" / "a.py")),
        "scan_data": version_guard.is_scannable_path(str(data / "memory" / "a.md")),
        "scan_other": version_guard.is_scannable_path(str(data.parent / "other" / "a.py"))}
@@ -258,12 +258,12 @@ print("PROBE_JSON " + json.dumps(out, ensure_ascii=False))
 
 
 def test_hook_modules_follow_data_root(dirs, tmp_path):
-    """要 hooks/ 在 sys.path 才載得到的三支：wg_evasion 的禁語表、UPS 決策項相對路徑都看資料根；
+    """要 hooks/ 在 sys.path 才載得到的三支：wg_evasion 的禁語表、產出物帳本路徑都看資料根；
     version_guard 只掃本系統自己的檔＝資料根或程式碼根之內，其他路徑不掃。"""
     home, data, cwd = dirs
     got = _py(HOOK_PROBE, [TREE, data], _env(home, data), cwd)
     assert _n(got["phrases"]) == _n(data / "memory" / "_meta" / "forbidden-phrases.json")
-    assert _n(got["decision"]) == _n(data / "workflow" / "x.json")
+    assert _n(got["ledger"]) == _n(data / "workflow" / "aec-tempfiles" / "s1.jsonl")
     assert got["scan_code"] is True and got["scan_data"] is True and got["scan_other"] is False, got
     assert not (home / ".claude").exists()
 

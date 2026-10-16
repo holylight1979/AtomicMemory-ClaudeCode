@@ -372,7 +372,7 @@ sequenceDiagram
 - **_AIDocs 指標**：prompt 命中 `_AIDocs/_INDEX.md` 關鍵字 → 注入文件路徑。
 - **JIT 管線說明**：偵測到在改記憶系統本身 → 注入 `memory/_reference/internal-pipeline.md`（≤250 tok）。
 - **subagent 記憶**：PreToolUse `Agent|Task` 時把相關 atom 緊湊版塞進子 agent prompt（`[WG:SubagentMemory]`）。
-- **guard 訊息**：上輪退避舉證要求、handoff 六區塊提醒、sync 關鍵字提醒、HUD 刪除決策後驗。
+- **guard 訊息**：上輪退避舉證要求、handoff 六區塊提醒、sync 關鍵字提醒。
 
 ### 5.8 讀取端 `memory_search` 與 `atom_source`（給其他 AI 與腳本）
 
@@ -548,9 +548,9 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | 禁語清單 | `memory/_meta/forbidden-phrases.json`（single source；IDENTITY.md 與 `wg_evasion.py` 都讀它） | 六類：scope-evasion / time-deferral / precedent-drift / capability-evasion / scope-impact-dismiss / deferral-attribution；＋三類宣稱（fixed_claim／measured_claim／tried_claim，對帳閘用） |
 | 偵測 | Stop `wg_evasion.detect_evasion`（對本輪最後一段 assistant 文字）；引號「」『』與反引號 span 先換等長空白（引用 hook 判定原文不誤觸） | 命中 → `evasion_flag`，下輪 UPS 注入舉證要求 (a)/(b)；PostToolUse 只讀旗標做 AEC cross-check |
 | 收尾報告 | MCP `anti_evasion_report` 十一欄 (a)–(k)：a 缺失修補 / b 逃避通報 / c Token警示 / d 記憶收錄帳 / e 未告知決策＋假設 / f 靜默狀態改變 / g 版控收尾 / h 收尾判定 / i 衍生暫存清單 / j 證據持久路徑（有驗證收據時須存在；留空或「無」由 Python PostToolUse 帶入本 session 帳本絕對路徑 `<資料根>/workflow/verify-ledger/<sid>.jsonl`，填了別的就用填的） / k 追蹤項（「無」或逐行；≠無 寫 `workflow/tracking/<slug>.jsonl`）；severity 仍只看 a/b，其餘資訊性；Node chip 純內容判定 | Python one-writer cross-check：hook 實測退避而模型自評「無」→ 升 real-evasion 並把證據寫進 (b) |
-| HUD | `http://127.0.0.1:3848/aec/hud` | 顯示報告、殘檔帳本、刪除決策 |
-| 殘檔帳本 | `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py`） | 以檔案系統為權威；受保護路徑（memory/_AIDocs/_INDEX/_CHANGELOG/CLAUDE/…/vcs tracked）拒收 |
-| 刪除後驗 | 下輪 UPS `exists()` 實查 | 沒刪 → 重注入一次／告警結案 |
+| HUD | `http://127.0.0.1:3848/aec/hud` | 顯示報告、「這個 session 留下的東西」面板（保留／刪除鈕） |
+| 產出物帳本 | `workflow/aec-tempfiles/<sid>.jsonl`（`handlers/aec_ledger.py` 唯一寫者） | PostToolUse 依工具呼叫進帳：Write 寫的檔、Bash 寫入目標（mkdir、轉向、cp…）、git 建的工作樹／分支／臨時 repo（init、clone）／推上遠端的分支；另收 (i) 宣告與 scratchpad 掃描。還在不在、能不能刪現場查（檔案系統與 git）：進了版控的檔掉出清單；主分支、工作樹正在用的分支、session 工作目錄與它的上層不能刪；受保護路徑（memory/_AIDocs/_INDEX/_CHANGELOG/CLAUDE/…/vcs tracked）拒收 |
+| 保留／刪除 | HUD → Node `POST /api/aec/decision` → `tools/session-artifacts.py act` | 當場執行、結果寫回帳本並顯示在該列；沒合併的分支、有改動的工作樹、遠端分支、整個 repo 要使用者在 HUD 再確認一次才帶 force；只能指名帳上那一項。列表 `GET /api/aec/tempfiles/<sid>` → `session-artifacts.py list`（Node 快取 10 秒） |
 | 遙測 | `Logs/guard-evasion.jsonl`、`workflow/outcome_stats.jsonl`（unknown 比率連續 3 session >0.7 → advisory） | 誤攔率可量測；完成語 regex 失配不會靜默拖垮晉升軌 |
 
 ### 7.3 PAN 動手前預告閘門（已拆除）
@@ -745,7 +745,7 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 |------|-----------|------|--------|
 | MCP server | `tools/workflow-guardian-mcp/server.js`（stdio；Node 18+，零 npm deps） | 12 tool：`atom_write` / `atom_promote` / `atom_move` / `atom_edit_meta` / `atom_retire` / `anti_evasion_report` / `knowledge_harvest_report`（這兩者只回 chip，state 由 Python PostToolUse 寫）/ `memory_search` / `atom_source`（後兩者唯讀，§5.8）/ `second_opinion_start` / `second_opinion_result`（第二意見 job：start 同步 prepare 回 job_id，execute 分離子程序，result 純讀檔；`tools/second-opinion/README.md`）/ `project_smells`（候選池：報告／指令／內建三來源；`tools/project-smells.py --help`） | hooks 照常；atom 可經 `python lib/atom_io_cli.py` 寫 |
 | Dashboard | `http://127.0.0.1:3848/`（同一 server.js；port 取 `WG_DASHBOARD_PORT` → config `dashboard_port` → 3848） | session 狀態、記憶自癒（`tools/atom-heal.py`）、API | — |
-| AEC HUD | `http://127.0.0.1:3848/aec/hud` | 反退避收尾報告、殘檔帳本、刪除決策 | — |
+| AEC HUD | `http://127.0.0.1:3848/aec/hud` | 反退避收尾報告、這個 session 留下的東西（保留／刪除） | — |
 | 腦內世界 | `tools/workflow-guardian-mcp/world.html`——**靜態檔，用瀏覽器直接開檔**；頁面自己輪詢 `http://127.0.0.1:3848/api/*` | 記憶可視化 | — |
 | Vector Service | `http://127.0.0.1:3849`（`tools/memory-vector-service/service.py`；LanceDB `memory/_vectordb/`） | 專案層 ranked-search、episodic search、去重／衝突偵測、`/index/incremental` | §5.5 降級 |
 | Ollama | 本地 `http://127.0.0.1:11434`；遠端 `rdchat-direct`（config `vector_search.ollama_backends`） | embedding、萃取、分類 | 萃取類跳過 |
