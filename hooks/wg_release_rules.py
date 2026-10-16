@@ -39,16 +39,19 @@ RULES: Dict[str, str] = {
     "EXCLUDED_REGION": "屬部位表類別 knowledge 的部位（文件、記憶、派工信箱；錨在專案根的最長前綴列）的檔是素材，"
                        "被 .gitignore 忽略或屬執行期資料的檔（與 RUNTIME_DATA_NO_OVERVIEW 同一判式）不是本專案程式：兩者都不算程式、"
                        "也不能拿來清帳。沒有部位表、沒標類別、追蹤中、判不出 → 照算程式。",
-    "SNAPSHOT_SETTLED": "commit 那刻不欠案例、之後同根改檔內容都回到那刻、git status 乾淨（含暫存區）→ 不重算補案例（wg_verify_ledger）。",
-    "NET_UNCHANGED": "改過又原樣還原（與 HEAD 相同、之後沒 commit、同根改檔 git status 全乾淨）→ 不算改碼（wg_verify_ledger）。",
+    "SNAPSHOT_SETTLED": "commit 那刻不欠案例、之後同根程式檔內容都回到那刻、git status 乾淨（含暫存區）→ 不重算補案例（wg_verify_ledger）。",
+    "NET_UNCHANGED": "改過又原樣還原（它自己與 HEAD 相同、之後沒 commit、同根程式檔 git status 全乾淨）→ 不算改碼（wg_verify_ledger）。",
+    "EXEMPTION_PEERS_CODE_ONLY": "SNAPSHOT_SETTLED、NET_UNCHANGED、COMMENT_ONLY_CHANGE 要一起比的同根改檔只看程式檔（案例檔也是程式檔）："
+                                 "文件、紀錄檔、設定、資料改了或正被別的 session 改著，不擋豁免；程式檔或案例檔本身沒回到那個狀態照擋"
+                                 "（wg_verify_ledger.exemption_peers）。",
     # ── 045（track-gate-rules）起：誤判清冊 B／C 組 ──
     "CASE_GREEN_AFTER_EDIT": "與 OWED_AFTER_LAST_CASE 同一條退路（驗證範圍閘關掉時）：改碼之後，有本 session 改過、仍存在、同根的案例檔被跑綠"
                              "（收據點名該案例、PASS 無 FAIL、exit 0、晚於該程式檔最後一次修改）→ 不欠補案例；案例 mtime 先後只當輔助"
                              "（先紅後綠的正確順序不被擋）。",
     "BLOCK_BUDGET_PER_RULE": "寫碼查核的擋次預算每條規則（擋訊息的字母）各自計次；同一條在同一個使用者回合擋滿 max 才算擋滿；"
                              "擋滿訊息列出全部命中條目。",
-    "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同 → 不算改碼；"
-                           "非 Python、解析不了、基準拿不到 → 照算。",
+    "COMMENT_ONLY_CHANGE": "程式檔與基準版本（本 session 沒 commit 過它時的 HEAD）用 ast 去掉註解、docstring、空白後相同，"
+                           "同根其他程式檔也等於 HEAD 或只差註解 → 不算改碼；非 Python、解析不了、基準拿不到 → 照算。",
     "CONTENT_EQUALS_COMMITTED": "程式檔現在的 blob 等於另一方已提交的版本（MERGE_HEAD、main／master；指到 HEAD 或本 session 自己提交的 commit 不算）"
                                 "→ 不是本 session 改碼（merge 取 theirs、退回 main 版都在此）；等於 HEAD 走 NET_UNCHANGED／SNAPSHOT_SETTLED。",
     "INLINE_PY_READONLY": "python -c 的內嵌碼用 ast 靜態判：無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval → 不算寫入，放行；"

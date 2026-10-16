@@ -8,6 +8,10 @@
 - 原設計者指出：要提醒 AI 才會刪用完的工作分支，還得另開 session 大清理。Stop 加收尾自清閘（規則 LEFTOVER_NEEDS_CLEANUP，判定在 `hooks/wg_release_rules.py`）：宣告完成時本 session 建的工作樹、已合併分支、臨時 repo、專案外檔案資料夾還在又沒說要留 → 每回合擋一次，列刪除指令；要留的在 (i) 寫理由（分支 `branch:<名> — 理由`）；別的開著的 session 正在用的不列。HUD 加「全機殘留」分頁（`tools/session-artifacts.py list --all`、每組「清掉不用再確認的」走 `act --all-safe`）；SessionStart 記 git 開場快照，Stop 比對補抓 python 腳本裡開的工作樹與分支（標來源不明、不進自清閘）。
 - **同類修正**：帳本路徑鍵改用 realpath——系統暫存區是 8.3 短檔名、AI 常用長檔名寫，abspath 比不上，真帳本約 63 項暫存檔被當成「專案外」。實測真帳本 54 個 session 1003 樣還在（暫存區 991 樣，不會隨 session 關閉被清）。案例 `hooks/verify/verify_session_artifacts.py`、`verify_release_rules.py`。
 
+## 2026-10-16 收尾少空轉第二波（續）：共用工作樹裡文件被別的 session 改著，不再讓程式檔免不掉案例宣告
+- 實遇：commit 之後的反證還原、改過又原樣還原、只差註解三個豁免都要「同 repo 本 session 改過的每個檔」回到那個狀態；10-10 起 198 次被拖住，九成五是 `_staging` 推進文件、派工信箱稿、紀錄檔這類多個 session 同時在改的非程式檔，結果程式檔要全部重宣告重跑。使用者拍板：比對範圍縮成同根的程式檔＋案例檔（規則 EXEMPTION_PEERS_CODE_ONLY，`wg_verify_ledger.exemption_peers` 三處共用）；NET_UNCHANGED 改成逐檔判（它自己乾淨、同根程式檔都乾淨）。程式檔或案例檔本身正被別的 session 改著照舊不免。
+- **驗證**：三個豁免各一支新案（文件改著照樣豁免；配對：案例沒回到原狀照欠），在舊碼上三支全紅、新碼全綠。
+
 ## 2026-10-16 收尾少空轉第二波：閱讀路徑量尺改背景量、量不完不再附手動指令、慢測試與跨案殘留
 - 實遇：根層 repo 量一次閱讀路徑實測 56 秒，收尾只給 3 秒，兩天 47 次附段落 39 次逾時；逾時訊息附「手動：python …」，一場 session 照著手動跑了 5 次。`hooks/wg_reading_path.py` 改成收尾只寫工作檔、起背景行程（本檔 `--job`，最多 300 秒）就走，量完的結果之後的收尾附一次；一個 session 同時一個背景量測，量測中又改的碼量完再量；背景只寫自己的結果檔、不碰 state。量不完、背景中斷、起不來都只寫原因，不附任何指令。`hooks/verify/conftest.py` 每案把背景行程換成不起，測試不留還在跑的行程。
 - **測試**：逾時案改用假的 run 丟 TimeoutExpired，不再真的睡到 8 秒；`verify_reading_path_hook` 18 案、`verify_stop_reconcile` g12w 三案重錄。g12w「沒改程式碼不附」原本靠錄製重播核對失敗被 `_drop_synced` 的 fail-open 吞掉才過，前置改成 .md 真的改了。

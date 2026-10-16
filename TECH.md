@@ -657,9 +657,10 @@ SubagentStop 與裁判子 session（`CLAUDE_COMPANION_JUDGE=1`）的 Stop 只跑
 | GONE_OUTSIDE_VCS／GONE_IN_GIT_NOTHING_NEW | 已不存在的改檔 | 不在任何版控根內；或 git 根內且同根沒有它的副本（沒有新出現的程式檔，或新出現的檔名與內容都和它最後一次寫入時不同）→ 算刪除 | — |
 | MOVED_NEW_CODE_SEEN／GONE_UNVERIFIABLE／VCS_ROOT_UNREADABLE | 已不存在的改檔 | — | 同根出現它的副本（檔名相同，或內容等於修改紀錄 `sha` 欄記的最後一次寫入內容；沒有內容紀錄、新檔讀不到 → 全算副本）＝搬走；svn 或查 git 失敗；找版控根時 OSError（讀不到 ≠ 不在版控）。已知邊界：搬完又用沒記帳的方式（跑腳本改寫）改了內容，判成刪除 |
 | EXCLUDED_REGION | 排除區 | 部位表類別 knowledge 的部位（文件、記憶、派工信箱）裡的檔是素材；被 .gitignore 忽略或屬執行期資料的檔（與 RUNTIME_DATA_NO_OVERVIEW 同一判式）不是本專案程式：既不算程式、也不能清帳 | 追蹤中的檔、沒標類別、判不出 → 照算程式 |
-| NET_UNCHANGED／SNAPSHOT_SETTLED | 改過又還原 | 與 HEAD 相同且同根乾淨、沒 commit；或回到 commit 那刻不欠的狀態 | 同根任一改檔不乾淨（程式與案例一起退回、只還原程式） |
+| NET_UNCHANGED／SNAPSHOT_SETTLED | 改過又還原 | 它自己與 HEAD 相同、同根程式檔乾淨、沒 commit；或同根程式檔都回到 commit 那刻不欠的狀態 | 同根任一程式檔（含案例）不乾淨（程式與案例一起退回、只還原程式） |
+| EXEMPTION_PEERS_CODE_ONLY | 上兩條與 COMMENT_ONLY_CHANGE 一起比的同根改檔 | 只看程式檔（案例檔也是程式檔，`wg_verify_ledger.exemption_peers`）：文件、紀錄檔、設定、資料改了或正被別的 session 改著，不擋豁免 | 程式檔或案例檔本身沒回到那個狀態（含別的 session 正改著同一個程式檔：分不出是誰改的） |
 | CONTENT_EQUALS_COMMITTED | 內容等於另一方已提交版本 | blob 等於 MERGE_HEAD／main／master 的版本（merge 取 theirs、退回 main 版） | 指到 HEAD 或本 session 自己提交的 commit 不算 |
-| COMMENT_ONLY_CHANGE | 只改註解 | ast 去註解、docstring、空白後與 HEAD 相同，且本 session 沒 commit 過它、同根其他改檔也乾淨 | 非 Python、解析不了、改到識別字 |
+| COMMENT_ONLY_CHANGE | 只改註解 | ast 去註解、docstring、空白後與 HEAD 相同，且本 session 沒 commit 過它、同根其他程式檔也乾淨 | 非 Python、解析不了、改到識別字 |
 | BLOCK_BUDGET_PER_RULE | 擋次預算 | 每條規則（字母）各自計次，同一條擋滿才算擋滿；擋滿訊息列全部條目 | 升級前整場一個 count 的舊紀錄保守承接 |
 | INLINE_PY_READONLY | `python -c` 內嵌碼 | ast 判：只能直接呼叫具名函式；無寫檔 open 模式、無刪搬寫 API、無 subprocess／shutil／exec／eval／getattr；`open`、刪搬寫名字不能當值（別名、傳參、放進容器）、import 不能取別名或 `*`、不能定義函式 → 不算寫入 | 任何判不了的寫法都算 UNKNOWN；node -e、python - heredoc、pwsh -Command 判不了照擋，擋訊息指路 |
 | GIT_READONLY_SUBCMD | 專案 session 對根層 repo 的 git | 先按換行再按 `&& \|\| ; \| &` 切段，每段 git 都是唯讀子命令（show、hash-object 無 -w、rev-parse、diff、log、status、ls-files、cat-file…）、沒有 `--output`／`-o` 這類寫檔選項、沒有命令替換，且寫入目標不在根層 | 任一段會寫、目標在根層或不明；擋就留 `Logs/guard-crossrealm.jsonl` |

@@ -175,6 +175,14 @@ def test_044_snapshot_settled_and_net_unchanged_are_registered():
         assert "wg_verify_ledger" in rr.RULES[name]
 
 
+def test_exemption_peers_code_only_keeps_code_and_cases():
+    """EXEMPTION_PEERS_CODE_ONLY：三個豁免共用一個判法（wg_verify_ledger.exemption_peers），要一起比的同根改檔只留程式檔與案例檔，
+    文件、紀錄檔、資料不算；同一個寫法只留一次。端到端案例見 verify_stop_reconcile 的 exemption_peers 段。"""
+    assert "exemption_peers" in rr.RULES["EXEMPTION_PEERS_CODE_ONLY"]
+    got = vl.exemption_peers(["a/x.py", "a/notes.md", "t/test_x.py", "w/run.log", "d/rows.json", "a/x.py"], vl.reconcile_cfg({}))
+    assert got == ["a/x.py", "t/test_x.py"]
+
+
 # ═══ 045（track-gate-rules）：清冊 B／C 組規則的案例 ═══
 
 # ─── 擋訊息格式（契約） ───────────────────────────────────────────────────────

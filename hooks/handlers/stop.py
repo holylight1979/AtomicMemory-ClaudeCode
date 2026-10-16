@@ -810,8 +810,9 @@ def _verify_gates(
     kind = ""
     advice: Optional[str] = None
     _runs: List[List[Dict[str, Any]]] = []
-    # 改過又原樣還原的檔（與 HEAD 相同、本 session 之後沒 commit、同根本 session 改過的檔全都乾淨）不算改碼：補案例與驗證範圍都不欠；
-    # 判不出來照算改了。同根乾淨看 session 全部改檔（主 session＋所有子代理），剔除只套在這次受查的 own_mod_files
+    # 改過又原樣還原的檔（與 HEAD 相同、本 session 之後沒 commit、同根本 session 改過的程式檔全都乾淨）不算改碼：補案例與驗證範圍都不欠；
+    # 判不出來照算改了。同根乾淨看 session 全部改過的程式檔（主 session＋所有子代理；文件等不算，EXEMPTION_PEERS_CODE_ONLY），
+    # 剔除只套在這次受查的 own_mod_files
     sid = str(session_id).split("#agent:", 1)[0]
     session_paths = [m["path"] for m in state.get("modified_files") or []
                      if isinstance(m, dict) and m.get("path") and m.get("session_id", sid) == sid]
@@ -820,7 +821,7 @@ def _verify_gates(
     git_dl = git_deadline()           # 兩種「內容回到某狀態」的豁免（這裡與下面 commit 快照）共用一個查 git 的整支預算
     try:
         same = net_unchanged_paths(own_mod_files, state.get("last_commit_turn_seq"), session_paths=session_paths,
-                                   deadline=git_dl)
+                                   deadline=git_dl, cfg=rg_cfg)
     except Exception as e:  # noqa: BLE001
         same = []
         print(f"[Guardian:ReconcileGate] 判斷改過又還原的檔失敗，照算改了：{type(e).__name__}: {e}", file=sys.stderr)
@@ -863,7 +864,7 @@ def _verify_gates(
                 aec=aec if aec_emitted else None, aec_emitted=aec_emitted, sid=session_id,
                 measure_cmds=mcmds, claims=claims, pending=pending,
                 case_settled=lambda owed: committed_settled_paths(state.get("commit_snapshot"), owed, session_paths,
-                                                                  deadline=git_dl),
+                                                                  deadline=git_dl, cfg=rg_cfg),
                 committed_new=state.get("committed_new_code"), user_turn=since,
                 exec_this_turn=in_turn((state.get("exec_turn_seq") or {}).get(session_id), turn_seq, since),
                 **dict(zip(("moves", "move_receipts"), _move_inputs(state, session_id))),

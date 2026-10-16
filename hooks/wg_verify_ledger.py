@@ -1425,7 +1425,7 @@ def commit_snapshot(mods: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, An
     paths = list(dict.fromkeys(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path")))
     owed = set(case_debt(mods, turn_seq, cfg, root_of, case_check=case_check))
     if owed and prev:
-        owed -= set(committed_settled_paths(prev, owed, paths if session_paths is None else session_paths, root_of))
+        owed -= set(committed_settled_paths(prev, owed, paths if session_paths is None else session_paths, root_of, cfg=cfg))
     owed_keys = {canon_path(p) for p in owed}
     exts = cfg.get("code_exts") or []
     settled = {canon_path(p) for p in paths
@@ -1434,12 +1434,21 @@ def commit_snapshot(mods: List[Dict[str, Any]], turn_seq: int, cfg: Dict[str, An
             "settled": sorted(settled)}
 
 
+def exemption_peers(paths: Iterable[str], cfg: Optional[Dict[str, Any]] = None) -> List[str]:
+    """「內容回到某狀態」的豁免（SNAPSHOT_SETTLED、NET_UNCHANGED、COMMENT_ONLY_CHANGE）要一起比的改檔：只留程式檔（案例檔也是
+    程式檔，見 is_case_file）。規則 EXEMPTION_PEERS_CODE_ONLY：文件、紀錄檔、設定、資料改了或正被別的 session 改著，不影響程式檔
+    欠不欠案例，不拿來擋豁免；程式檔或案例檔本身沒回到那個狀態照擋（分不出是誰改的）。cfg 沒給用預設的 code_exts。"""
+    exts = (cfg if cfg is not None else reconcile_cfg({})).get("code_exts") or []
+    return [p for p in dict.fromkeys(str(q) for q in paths or []) if is_code_file(p, exts)]
+
+
 def committed_settled_paths(snapshot: Any, owed: Iterable[str], session_paths: Iterable[str],
                             root_of: Optional[Callable[[str], Optional[str]]] = None, deadline: Optional[float] = None,
-                            _run: Optional[Callable[..., Any]] = None) -> List[str]:
-    """欠案例的程式檔裡，commit 那一刻（commit_snapshot）它不欠案例、同根本 session 改過的每個檔（主 session＋所有子代理）
-    現在的內容都和那一刻一樣、而且這些檔 git status 都乾淨（_root_clean，和 net_unchanged_paths 同一個條件：只把工作樹改回去、
-    暫存區還留著新內容也算有差）→ 回這些檔：commit 之後做反證，把程式或案例退回舊版又還原，補案例的義務不重算。
+                            _run: Optional[Callable[..., Any]] = None, cfg: Optional[Dict[str, Any]] = None) -> List[str]:
+    """欠案例的程式檔裡，commit 那一刻（commit_snapshot）它不欠案例、同根本 session 改過的每個程式檔（主 session＋所有子代理；
+    案例檔也算，文件等不算：exemption_peers）現在的內容都和那一刻一樣、而且這些檔 git status 都乾淨（_root_clean，和
+    net_unchanged_paths 同一個條件：只把工作樹改回去、暫存區還留著新內容也算有差）→ 回這些檔：commit 之後做反證，
+    把程式或案例退回舊版又還原，補案例的義務不重算。
     只免補案例，量尺照舊要跑。快照之後才改的檔（不在快照裡）、任一檔內容不同、案例被刪或還留舊版、git 有差或判不出來
     （任一相關檔不在 git 工作區、git 失敗或逾時、預算用完；deadline 給了就和 net_unchanged_paths 共用同一個整支預算）→ 不回。
     同一個專案根跨好幾個 git 根（巢狀 repo、submodule）時，比內容的那些檔落在哪幾個 git 根就每個都查，全部乾淨才算。
@@ -1453,7 +1462,7 @@ def committed_settled_paths(snapshot: Any, owed: Iterable[str], session_paths: I
     def root_key(q: str) -> str:
         r = root_of(q)
         return canon_path(r) if r else ""
-    every = list(dict.fromkeys(str(p) for p in session_paths or []))
+    every = exemption_peers(session_paths, cfg)
     cands: List[Tuple[str, List[str]]] = []               # (欠案例的程式檔, 同專案根要一起比的檔，每個檔一種寫法)
     for p in owed or []:
         if key(p) not in settled:
@@ -1541,22 +1550,21 @@ def _git_out(root: Path, args: List[str], deadline: float, timeout_s: float, run
     return r.stdout
 
 
-def _root_clean(root: Path, paths: List[str], every: List[str], deadline: float, timeout_s: float,
-                run: Callable[..., Any]) -> bool:
-    """「內容回到某狀態」的豁免共用的 git 條件（net_unchanged_paths、committed_settled_paths 都走這裡，不各寫一套）：
-    這個 git 根裡本 session 改過的每個檔（every）`git status --ignored --untracked-files=all` 都沒有輸出：改動、已暫存
-    （只把工作樹改回去、暫存區還留著新內容也算）、刪除、未追蹤、被忽略都算有差。paths＝要豁免的那幾個：它們本身乾淨、
-    卻被同根其他改檔拖住時 stderr 說一聲。路徑太長、預算不足、git 失敗或逾時 → False（照算改了），stderr 說哪個根。"""
+def _dirty_paths(root: Path, every: List[str], deadline: float, timeout_s: float,
+                 run: Callable[..., Any]) -> Optional[set]:
+    """這個 git 根裡 every 哪些 `git status --ignored --untracked-files=all` 有輸出（canon_path 集合）：改動、已暫存（只把工作樹
+    改回去、暫存區還留著新內容也算）、刪除、未追蹤、被忽略都算有差。路徑太長、預算不足、git 失敗或逾時 → None（呼叫端照算改了），
+    stderr 說哪個根。"""
     spec_all = [str(x).replace("\\", "/") for x in every]
     spec_len = sum(len(s) + 1 for s in spec_all)
     if spec_len > _GIT_SPEC_CAP:
         print(f"[verify_ledger] {root} 這次改過的檔路徑合計 {spec_len} 字（{len(spec_all)} 個檔），超過命令列可帶的 "
               f"{_GIT_SPEC_CAP} 字，查不了 git，這些改檔照算改了", file=sys.stderr)
-        return False
+        return None
     raw = _git_out(root, ["status", "--porcelain=v1", "-z", "--ignored", "--untracked-files=all", "--", *spec_all],
                    deadline, timeout_s, run)
     if raw is None:
-        return False
+        return None
     key = canon_path(str(root))
     changed, fields, i = set(), raw.decode("utf-8", "replace").split("\0"), 0
     while i < len(fields):
@@ -1567,20 +1575,33 @@ def _root_clean(root: Path, paths: List[str], every: List[str], deadline: float,
                 i += 1
                 changed.add(canon_path(f"{key}/{fields[i]}"))
         i += 1
+    return changed
+
+
+def _root_clean(root: Path, paths: List[str], every: List[str], deadline: float, timeout_s: float,
+                run: Callable[..., Any]) -> bool:
+    """「內容回到某狀態」的豁免共用的 git 條件（committed_settled_paths；net_unchanged_paths 逐檔判，也用 _dirty_paths）：
+    這個 git 根裡要一起比的改檔（every，exemption_peers 篩過的程式檔）git status 都沒有輸出。paths＝要豁免的那幾個：
+    它們本身乾淨、卻被同根其他程式檔拖住時 stderr 說一聲。查不了 → False（照算改了）。"""
+    changed = _dirty_paths(root, every, deadline, timeout_s, run)
+    if changed is None:
+        return False
     dirty = [p for p in every if canon_path(p) in changed]
     if dirty and any(canon_path(p) not in changed for p in paths):
-        print(f"[verify_ledger] {root} 還有本 session 改過、跟 HEAD 不同的檔（{'、'.join(Path(p).name for p in dirty[:3])}），"
+        print(f"[verify_ledger] {root} 還有本 session 改過、跟 HEAD 不同的程式檔（{'、'.join(Path(p).name for p in dirty[:3])}），"
               "這個根的改檔一律照算改了", file=sys.stderr)
     return not dirty
 
 
 def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None, timeout_s: float = 3.0,
                         _run: Optional[Callable[..., Any]] = None, session_paths: Optional[Iterable[str]] = None,
-                        budget_s: Optional[float] = None, deadline: Optional[float] = None) -> List[str]:
+                        budget_s: Optional[float] = None, deadline: Optional[float] = None,
+                        cfg: Optional[Dict[str, Any]] = None) -> List[str]:
     """改過、但現在跟 HEAD 一模一樣的檔（例：反證時暫改、又 git checkout 還原）→ 回這些檔的 path（照 modified_files 的寫法）。
-    要同時成立：git 追蹤著它、本 session 從第一次改它那回合起沒跑過 commit（last_commit_turn ≥ 該檔 turn_seq：工作樹乾淨可能是
-    把改動提交了，照算改了），而且同一個 git 根裡本 session 改過的每個檔（session_paths：主 session 與所有子代理的改檔，沒給就只看
-    mods）git status 都沒有輸出（_root_clean）：只把程式還原、案例還留著舊版，這個根就一個都不剔除。
+    要同時成立：git 追蹤著它、它自己 git status 沒有輸出、本 session 從第一次改它那回合起沒跑過 commit（last_commit_turn ≥ 該檔
+    turn_seq：工作樹乾淨可能是把改動提交了，照算改了），而且同一個 git 根裡本 session 改過的每個程式檔（案例檔也算，文件等不算：
+    exemption_peers；session_paths＝主 session 與所有子代理的改檔，沒給就只看 mods）git status 都沒有輸出：只把程式還原、
+    案例還留著舊版，這個根就一個都不剔除。
     時間：整支共用一個截止點（deadline；沒給就從現在起算 budget_s，預設 GIT_BUDGET_S 秒），每個 git 子行程只拿剩餘預算
     （最多 timeout_s）；預算不足沒查到的根照算改了，stderr 印根路徑。判不出來（不在 git 工作區、修改紀錄沒有回合、git 失敗或逾時）
     → 不回，照算改了（不放寬）。每個根最多兩次 git（status 有差就不再查 ls-files）。"""
@@ -1590,7 +1611,7 @@ def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None
         last = int(last_commit_turn) if last_commit_turn is not None else None
     except (TypeError, ValueError):
         return []
-    by_root: Dict[str, Tuple[Path, List[str], List[str]]] = {}     # 鍵 → (根, 可剔除的改檔, 同根本 session 全部改檔)
+    by_root: Dict[str, Tuple[Path, List[str], List[str]]] = {}     # 鍵 → (根, 可剔除的改檔, 同根本 session 改過的程式檔)
     for m in mods or []:
         p, t = (m.get("path"), m.get("turn_seq")) if isinstance(m, dict) else (None, None)
         try:
@@ -1603,20 +1624,31 @@ def net_unchanged_paths(mods: List[Dict[str, Any]], last_commit_turn: Any = None
             by_root.setdefault(hit[0], (hit[1], [], []))[1].append(p)
     if not by_root:
         return []
-    for p in [*(session_paths or []), *(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path"))]:
-        hit = _git_root_of(str(p))
+    for p in exemption_peers([*(session_paths or []), *(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path"))],
+                             cfg):
+        hit = _git_root_of(p)
         if hit and hit[0] in by_root and p not in by_root[hit[0]][2]:
-            by_root[hit[0]][2].append(str(p))
+            by_root[hit[0]][2].append(p)
     out: List[str] = []
-    for key, (root, paths, every) in by_root.items():
-        if not _root_clean(root, paths, every, deadline, timeout_s, run):
+    for key, (root, paths, peers) in by_root.items():
+        changed = _dirty_paths(root, list(dict.fromkeys([*paths, *peers])), deadline, timeout_s, run)
+        if changed is None:
             continue
-        tracked = _git_out(root, ["ls-files", "-z", "--full-name", "--", *(str(x).replace("\\", "/") for x in paths)],
+        clean = [p for p in paths if canon_path(p) not in changed]
+        dragged = [q for q in peers if canon_path(q) in changed]
+        if dragged:
+            if clean:
+                print(f"[verify_ledger] {root} 還有本 session 改過、跟 HEAD 不同的程式檔（{'、'.join(Path(q).name for q in dragged[:3])}），"
+                      "這個根的改檔一律照算改了", file=sys.stderr)
+            continue
+        if not clean:
+            continue
+        tracked = _git_out(root, ["ls-files", "-z", "--full-name", "--", *(str(x).replace("\\", "/") for x in clean)],
                            deadline, timeout_s, run)
         if tracked is None:
             continue
         known = {canon_path(f"{key}/{f}") for f in tracked.decode("utf-8", "replace").split("\0") if f}
-        out += [p for p in paths if canon_path(p) in known]
+        out += [p for p in clean if canon_path(p) in known]
     return out
 
 
@@ -1727,7 +1759,8 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
     """改過的程式檔裡「不是本 session 改碼」的，回 {path: Verdict}：
     - CONTENT_EQUALS_COMMITTED：內容等於另一方已提交的版本（MERGE_HEAD／main／master；指到 HEAD 或本 session 自己提交的 commit 不算）。
     - COMMENT_ONLY_CHANGE：與 HEAD 只差註解／docstring／空白，且本 session 沒 commit 過它；同根本 session（主 session＋子代理，
-      session_paths）改過的其他檔也都要等於 HEAD 或只差註解。程式與案例一起退回舊版、只還原程式時案例還是舊的，照欠
+      session_paths）改過的其他程式檔（案例檔也算，文件等不算：exemption_peers）也都要等於 HEAD 或只差註解。程式與案例一起
+      退回舊版、只還原程式時案例還是舊的，照欠
       （與 NET_UNCHANGED 同一條防線，verify_stop_reconcile 035 ⑤／037）。
     判不出來（不在 git、預算到、拿不到 ref）→ 不回，照算改了。"""
     exts = cfg.get("code_exts") or []
@@ -1749,11 +1782,12 @@ def committed_equal_paths(mods: List[Dict[str, Any]], cfg: Dict[str, Any], last_
             by_root.setdefault(hit[0], (hit[1], []))[1].append(m)
     if not by_root:
         return {}
-    every: Dict[str, List[str]] = {}            # 根 → 同根本 session 改過的所有檔（含案例、子代理的）
-    for p in [*(session_paths or []), *(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path"))]:
-        hit = _git_root_of(str(p))
-        if hit and hit[0] in by_root and str(p) not in every.setdefault(hit[0], []):
-            every[hit[0]].append(str(p))
+    every: Dict[str, List[str]] = {}            # 根 → 同根本 session 改過的程式檔（含案例、子代理的）
+    for p in exemption_peers([*(session_paths or []), *(m["path"] for m in mods or [] if isinstance(m, dict) and m.get("path"))],
+                             cfg):
+        hit = _git_root_of(p)
+        if hit and hit[0] in by_root and p not in every.setdefault(hit[0], []):
+            every[hit[0]].append(p)
     out: Dict[str, Verdict] = {}
     for key, (root, ms) in by_root.items():
         rels = {p: _rel_in_root(p, key) for p in every.get(key, [])}

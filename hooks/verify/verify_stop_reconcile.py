@@ -3736,6 +3736,62 @@ def test_042_0c_snapshot_exemption_outside_git_is_refused(capsys):
     assert "不在 git 工作區" in capsys.readouterr().err
 
 
+# ─── EXEMPTION_PEERS_CODE_ONLY：三個「內容回到某狀態」的豁免只拿同根程式檔（含案例）一起比 ───────────────────
+
+def _repo_with_doc(tmp_path):
+    """_two_version_repo 再加一個已提交的文件 docs/notes.md。回 (repo, 程式, 案例, 文件)。"""
+    repo, code, case = _two_version_repo(tmp_path)
+    doc = repo / "docs" / "notes.md"
+    doc.parent.mkdir()
+    doc.write_text("# n\n", encoding="utf-8", newline="\n")
+    _git(repo, "add", "docs/notes.md")
+    _git(repo, "commit", "-qm", "doc")
+    return repo, code, case, doc
+
+
+def _porcelain(repo) -> str:
+    return subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True).stdout
+
+
+def test_exemption_peers_snapshot_settled_ignores_a_doc_another_session_is_editing(tmp_path):
+    """SNAPSHOT_SETTLED：commit 之後同根的文件被別的 session 改著（內容和快照不同、git 有差），程式與案例都回到快照 → 照樣豁免。
+    舊碼把文件也算進同根比對 → 不豁免。配對：案例沒回到快照 → 不豁免。"""
+    repo, code, case, doc = _repo_with_doc(tmp_path)
+    snap = {"files": {str(p): vl._content_sha(str(p)) for p in (code, case, doc)}, "settled": [str(code)]}
+    doc.write_text("# 別的 session 改著\n", encoding="utf-8", newline="\n")
+    assert _porcelain(repo).strip() == "M docs/notes.md"                                       # 前置：只有文件有差
+    args = (snap, [str(code)], [str(code), str(case), str(doc)])
+    assert vl.committed_settled_paths(*args, root_of=lambda q: str(repo)) == [str(code)]
+    case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
+    assert vl.committed_settled_paths(*args, root_of=lambda q: str(repo)) == []
+
+
+def test_exemption_peers_net_unchanged_ignores_a_dirty_doc(tmp_path):
+    """NET_UNCHANGED：程式改了又原樣還原、同根文件還改著 → 程式算原樣，文件照算改了。舊碼文件拖住整個根，一個都不剔除。
+    配對：同根的案例還改著 → 一個都不剔除。"""
+    repo, code, case, doc = _repo_with_doc(tmp_path)
+    code.write_text(_CODE_V.format(9), encoding="utf-8", newline="\n")
+    code.write_text(_CODE_V.format(2), encoding="utf-8", newline="\n")                        # 改了又還原
+    doc.write_text("# 改著\n", encoding="utf-8", newline="\n")
+    mods = [_mf(str(code), 5), _mf(str(doc), 5)]
+    assert vl.net_unchanged_paths(mods, None) == [str(code)]
+    case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
+    assert vl.net_unchanged_paths(mods, None, session_paths=[str(case)]) == []
+
+
+def test_exemption_peers_comment_only_ignores_a_dirty_doc(tmp_path):
+    """COMMENT_ONLY_CHANGE：程式只加註解、同根文件還改著 → 照樣算只差註解。舊碼要求文件也等於 HEAD 或只差註解 → 照欠。
+    配對：同根的案例改了實質內容 → 照欠。"""
+    repo, code, case, doc = _repo_with_doc(tmp_path)
+    code.write_text("# 只加註解\n" + _CODE_V.format(2), encoding="utf-8", newline="\n")
+    doc.write_text("# 改著\n", encoding="utf-8", newline="\n")
+    cfg = vl.reconcile_cfg({})
+    got = vl.committed_equal_paths([_mf(str(code), 5)], cfg, session_paths=[str(doc)])
+    assert [v.rule for v in got.values()] == ["COMMENT_ONLY_CHANGE"], got
+    case.write_text(_CASE_V.format(3), encoding="utf-8", newline="\n")
+    assert vl.committed_equal_paths([_mf(str(code), 5)], cfg, session_paths=[str(doc), str(case)]) == {}
+
+
 @pytest.fixture()
 def peer_flow(driven, monkeypatch):
     """042 加項：使用者打字開回合 → Stop → 同伴 session 訊息經真 UserPromptSubmit 進來（turn_seq +1，使用者回合不變）→ Stop →
